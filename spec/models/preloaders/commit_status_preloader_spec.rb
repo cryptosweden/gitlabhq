@@ -13,7 +13,7 @@ RSpec.describe Preloaders::CommitStatusPreloader do
   let_it_be(:generic_commit_status2) { create(:generic_commit_status, pipeline: pipeline) }
 
   describe '#execute' do
-    let(:relations) { %i[pipeline metadata tags job_artifacts_archive downstream_pipeline] }
+    let(:relations) { %i[pipeline metadata tags job_artifacts_archive { downstream_pipeline: [:user] }] }
     let(:statuses) { CommitStatus.where(commit_id: pipeline.id).all }
 
     subject(:execute) { described_class.new(statuses).execute(relations) }
@@ -21,13 +21,19 @@ RSpec.describe Preloaders::CommitStatusPreloader do
     it 'prevents N+1 for specified relations', :use_sql_query_cache do
       execute
 
-      control_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+      control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         call_each_relation(statuses.sample(3))
       end
 
       expect do
         call_each_relation(statuses)
-      end.to issue_same_number_of_queries_as(control_count)
+      end.to issue_same_number_of_queries_as(control)
+    end
+
+    context 'when given an invalid relation' do
+      let(:relations) { [1] }
+
+      it { expect { execute }.to raise_error(ArgumentError, "Invalid relation: 1") }
     end
 
     private

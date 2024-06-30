@@ -31,8 +31,8 @@ RSpec.describe Gitlab::Utils::LazyAttributes do
 
     it do
       is_expected.to respond_to(:number, :reader_1, :reader_2, :incorrect_type,
-                                :incorrect_type=, :accessor_2, :accessor_2=,
-                                :string_attribute, :string_attribute=)
+        :incorrect_type=, :accessor_2, :accessor_2=,
+        :string_attribute, :string_attribute=)
     end
 
     context 'reading attributes' do
@@ -47,9 +47,9 @@ RSpec.describe Gitlab::Utils::LazyAttributes do
       end
 
       it 'only calls the block once even if it returned `nil`', :aggregate_failures do
-        expect(instance.instance_variable_get('@number')).to receive(:call).once.and_call_original
-        expect(instance.instance_variable_get('@accessor_2')).to receive(:call).once.and_call_original
-        expect(instance.instance_variable_get('@incorrect_type')).to receive(:call).once.and_call_original
+        expect(instance.instance_variable_get(:@number)).to receive(:call).once.and_call_original
+        expect(instance.instance_variable_get(:@accessor_2)).to receive(:call).once.and_call_original
+        expect(instance.instance_variable_get(:@incorrect_type)).to receive(:call).once.and_call_original
 
         2.times do
           instance.number

@@ -16,7 +16,7 @@ module DiffHelper
 
   def diff_view
     @diff_view ||= begin
-      diff_views = %w(inline parallel)
+      diff_views = %w[inline parallel]
       diff_view = params[:view] || cookies[:diff_view]
       diff_view = diff_views.first unless diff_views.include?(diff_view)
       diff_view.to_sym
@@ -24,15 +24,22 @@ module DiffHelper
   end
 
   def show_only_context_commits?
-    !!params[:only_context_commits] || @merge_request&.commits&.empty?
+    !!params[:only_context_commits] || @merge_request.has_no_commits?
   end
 
   def diff_options
     options = { ignore_whitespace_change: hide_whitespace?, expanded: diffs_expanded?, use_extra_viewer_as_main: true }
 
-    if action_name == 'diff_for_path'
+    if action_name == 'diff_for_path' || action_name == 'diff_by_file_hash'
       options[:expanded] = true
       options[:paths] = params.values_at(:old_path, :new_path)
+      options[:use_extra_viewer_as_main] = false
+
+      if params[:file_identifier]&.include?('.ipynb')
+        options[:max_patch_bytes_for_file_extension] = {
+          '.ipynb' => 1.megabyte
+        }
+      end
     end
 
     options
@@ -60,21 +67,31 @@ module DiffHelper
     html.join.html_safe
   end
 
+  def diff_nomappinginraw_line(line, first_line_num_class, second_line_num_class, content_line_class)
+    css_class = ''
+    css_class = 'old' if line.type == 'old-nomappinginraw'
+    css_class = 'new' if line.type == 'new-nomappinginraw'
+
+    html = [content_tag(:td, '', class: [*first_line_num_class, css_class])]
+    html << content_tag(:td, '', class: [*second_line_num_class, css_class]) if second_line_num_class
+    html << content_tag(:td, diff_line_content(line.rich_text), class: [*content_line_class, 'nomappinginraw', css_class])
+
+    html.join.html_safe
+  end
+
   def diff_line_content(line)
     if line.blank?
       "&nbsp;".html_safe
-    else
+    elsif line.start_with?('+', '-', ' ')
       # `sub` and substring-ing would destroy HTML-safeness of `line`
-      if line.start_with?('+', '-', ' ')
-        line[1, line.length]
-      else
-        line
-      end
+      line[1, line.length]
+    else
+      line
     end
   end
 
   def diff_link_number(line_type, match, text)
-    line_type == match || text == 0 ? " " : text
+    line_type == match ? " " : text
   end
 
   def parallel_diff_discussions(left, right, diff_file)
@@ -96,11 +113,11 @@ module DiffHelper
   end
 
   def inline_diff_btn
-    diff_btn('Inline', 'inline', diff_view == :inline)
+    diff_btn(s_('Diffs|Inline'), 'inline', diff_view == :inline)
   end
 
   def parallel_diff_btn
-    diff_btn('Side-by-side', 'parallel', diff_view == :parallel)
+    diff_btn(s_('Diffs|Side-by-side'), 'parallel', diff_view == :parallel)
   end
 
   def submodule_link(blob, ref, repository = @repository)
@@ -121,24 +138,18 @@ module DiffHelper
 
   def submodule_diff_compare_link(diff_file)
     compare_url = submodule_links(diff_file.blob, diff_file.content_sha, diff_file.repository, diff_file)&.compare
+    return '' unless compare_url
 
-    link = ""
+    link_text = [
+      _('Compare'),
+      ' ',
+      content_tag(:span, Commit.truncate_sha(diff_file.old_blob.id), class: 'commit-sha'),
+      '...',
+      content_tag(:span, Commit.truncate_sha(diff_file.blob.id), class: 'commit-sha')
+    ].join('').html_safe
 
-    if compare_url
-
-      link_text = [
-          _('Compare'),
-          ' ',
-          content_tag(:span, Commit.truncate_sha(diff_file.old_blob.id), class: 'commit-sha'),
-          '...',
-          content_tag(:span, Commit.truncate_sha(diff_file.blob.id), class: 'commit-sha')
-        ].join('').html_safe
-
-      tooltip = _('Compare submodule commit revisions')
-      link = content_tag(:span, link_to(link_text, compare_url, class: 'btn gl-button has-tooltip', title: tooltip), class: 'submodule-compare')
-    end
-
-    link
+    tooltip = _('Compare submodule commit revisions')
+    link_button_to link_text, compare_url, class: 'has-tooltip submodule-compare', title: tooltip
   end
 
   def diff_file_blob_raw_url(diff_file, only_path: false)
@@ -167,26 +178,20 @@ module DiffHelper
     }
   end
 
+  def diff_file_stats_data(diff_file)
+    old_blob = diff_file.old_blob
+    new_blob = diff_file.new_blob
+    {
+      old_size: old_blob&.size,
+      new_size: new_blob&.size,
+      added_lines: diff_file.added_lines,
+      removed_lines: diff_file.removed_lines,
+      viewer_name: diff_file.viewer.partial_name
+    }
+  end
+
   def editable_diff?(diff_file)
     !diff_file.deleted_file? && @merge_request && @merge_request.source_project
-  end
-
-  def diff_file_changed_icon(diff_file)
-    if diff_file.deleted_file?
-      "file-deletion"
-    elsif diff_file.new_file?
-      "file-addition"
-    else
-      "file-modified"
-    end
-  end
-
-  def diff_file_changed_icon_color(diff_file)
-    if diff_file.deleted_file?
-      "danger"
-    elsif diff_file.new_file?
-      "success"
-    end
   end
 
   def render_overflow_warning?(diffs_collection)
@@ -219,7 +224,73 @@ module DiffHelper
     end
   end
 
+  def conflicts(allow_tree_conflicts: false)
+    return unless merge_request.cannot_be_merged? && merge_request.source_branch_exists? && merge_request.target_branch_exists?
+
+    conflicts_service = MergeRequests::Conflicts::ListService.new(merge_request, allow_tree_conflicts: allow_tree_conflicts) # rubocop:disable CodeReuse/ServiceClass
+
+    return unless allow_tree_conflicts || conflicts_service.can_be_resolved_in_ui?
+
+    conflicts_service.conflicts.files.index_by(&:path)
+  rescue Gitlab::Git::Conflict::Resolver::ConflictSideMissing
+    # This exception is raised when changes on a fork isn't present on canonical repo yet.
+    # We can't list conflicts until the canonical repo gets the references from the fork
+    # which happens asynchronously when updating MR.
+    #
+    # Return empty hash to indicate that there are no conflicts.
+    {}
+  end
+
+  def conflicts_with_types
+    return unless merge_request.cannot_be_merged? && merge_request.source_branch_exists? && merge_request.target_branch_exists?
+
+    cached_conflicts_with_types do
+      conflicts_service = MergeRequests::Conflicts::ListService.new(merge_request, allow_tree_conflicts: true) # rubocop:disable CodeReuse/ServiceClass
+
+      {}.tap do |h|
+        conflicts_service.conflicts.files.each do |file|
+          h[file.path] = {
+            conflict_type: file.conflict_type,
+            conflict_type_when_renamed: file.conflict_type(when_renamed: true)
+          }
+        end
+      end
+    end
+  rescue Gitlab::Git::Conflict::Resolver::ConflictSideMissing
+    # This exception is raised when changes on a fork isn't present on canonical repo yet.
+    # We can't list conflicts until the canonical repo gets the references from the fork
+    # which happens asynchronously when updating MR.
+    #
+    # Return empty hash to indicate that there are no conflicts.
+    {}
+  end
+
+  def params_with_whitespace
+    hide_whitespace? ? safe_params.except(:w) : safe_params.merge(w: 1)
+  end
+
   private
+
+  def cached_conflicts_with_types
+    cache_key = "merge_request_#{merge_request.id}_conflicts_with_types"
+    cache = Rails.cache.read(cache_key)
+    source_branch_sha = merge_request.source_branch_sha
+    target_branch_sha = merge_request.target_branch_sha
+
+    if cache.blank? || cache[:source_sha] != source_branch_sha || cache[:target_sha] != target_branch_sha
+      conflicts_files = yield
+
+      cache = {
+        source_sha: source_branch_sha,
+        target_sha: target_branch_sha,
+        conflicts: conflicts_files
+      }
+
+      Rails.cache.write(cache_key, cache)
+    end
+
+    cache[:conflicts]
+  end
 
   def diff_btn(title, name, selected)
     params_copy = safe_params.dup
@@ -228,7 +299,7 @@ module DiffHelper
     # Always use HTML to handle case where JSON diff rendered this button
     params_copy.delete(:format)
 
-    link_to url_for(params_copy), id: "#{name}-diff-btn", class: (selected ? 'btn gl-button btn-default selected' : 'btn gl-button btn-default'), data: { view_type: name } do
+    link_button_to url_for(params_copy), id: "#{name}-diff-btn", class: (selected ? 'selected' : ''), data: { view_type: name } do
       title
     end
   end
@@ -238,66 +309,22 @@ module DiffHelper
     toggle_whitespace_link(url, options)
   end
 
-  def diff_merge_request_whitespace_link(project, merge_request, options)
-    url = diffs_project_merge_request_path(project, merge_request, params_with_whitespace)
-    toggle_whitespace_link(url, options)
-  end
-
   def diff_compare_whitespace_link(project, from, to, options)
     url = project_compare_path(project, from, to, params_with_whitespace)
     toggle_whitespace_link(url, options)
-  end
-
-  def diff_files_data(diff_files)
-    diffs_map = diff_files.map do |f|
-      {
-          href: "##{hexdigest(f.file_path)}",
-          title: f.new_path,
-          name: f.file_path,
-          path: diff_file_path_text(f),
-          icon: diff_file_changed_icon(f),
-          iconColor: "#{diff_file_changed_icon_color(f)}",
-          added: f.added_lines,
-          removed: f.removed_lines
-      }
-    end
-
-    diffs_map.to_json
   end
 
   def hide_whitespace?
     params[:w] == '1'
   end
 
-  def params_with_whitespace
-    hide_whitespace? ? request.query_parameters.except(:w) : request.query_parameters.merge(w: 1)
-  end
-
   def toggle_whitespace_link(url, options)
-    options[:class] = [*options[:class], 'btn gl-button btn-default'].join(' ')
-    link_to "#{hide_whitespace? ? 'Show' : 'Hide'} whitespace changes", url, class: options[:class]
-  end
-
-  def diff_file_path_text(diff_file, max: 60)
-    path = diff_file.new_path
-
-    return path unless path.size > max && max > 3
-
-    "...#{path[-(max - 3)..]}"
+    toggle_text = hide_whitespace? ? s_('Diffs|Show whitespace changes') : s_('Diffs|Hide whitespace changes')
+    link_button_to toggle_text, url, class: options[:class]
   end
 
   def code_navigation_path(diffs)
     Gitlab::CodeNavigationPath.new(merge_request.project, merge_request.diff_head_sha)
-  end
-
-  def conflicts(allow_tree_conflicts: false)
-    return unless options[:merge_ref_head_diff]
-
-    conflicts_service = MergeRequests::Conflicts::ListService.new(merge_request, allow_tree_conflicts: allow_tree_conflicts) # rubocop:disable CodeReuse/ServiceClass
-
-    return unless allow_tree_conflicts || conflicts_service.can_be_resolved_in_ui?
-
-    conflicts_service.conflicts.files.index_by(&:path)
   end
 
   def log_overflow_limits(diff_files:, collection_overflow:)

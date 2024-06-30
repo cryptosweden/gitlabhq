@@ -1,11 +1,11 @@
 <script>
-import { GlModal, GlAlert } from '@gitlab/ui';
-import { mapGetters, mapActions, mapState } from 'vuex';
-import { getParameterByName, visitUrl } from '~/lib/utils/url_utility';
+import { GlForm, GlModal, GlAlert, GlButton } from '@gitlab/ui';
+import { visitUrl } from '~/lib/utils/url_utility';
 import { __, s__ } from '~/locale';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { formType } from '../constants';
 
+import { setError } from '../graphql/cache_updates';
+import errorQuery from '../graphql/client/error.query.graphql';
 import createBoardMutation from '../graphql/board_create.mutation.graphql';
 import destroyBoardMutation from '../graphql/board_destroy.mutation.graphql';
 import updateBoardMutation from '../graphql/board_update.mutation.graphql';
@@ -17,6 +17,7 @@ const boardDefaults = {
   labels: [],
   milestone: {},
   iterationCadence: {},
+  iterationCadenceId: null,
   iteration: {},
   assignee: {},
   weight: null,
@@ -26,30 +27,38 @@ const boardDefaults = {
 
 export default {
   i18n: {
-    [formType.new]: { title: s__('Board|Create new board'), btnText: s__('Board|Create board') },
-    [formType.delete]: { title: s__('Board|Delete board'), btnText: __('Delete') },
-    [formType.edit]: { title: s__('Board|Edit board'), btnText: __('Save changes') },
-    scopeModalTitle: s__('Board|Board scope'),
+    [formType.new]: { title: s__('Boards|Create new board'), btnText: s__('Boards|Create board') },
+    [formType.delete]: { title: s__('Boards|Delete board'), btnText: __('Delete') },
+    [formType.edit]: { title: s__('Boards|Configure board'), btnText: __('Save changes') },
+    scopeModalTitle: s__('Boards|Board configuration'),
     cancelButtonText: __('Cancel'),
-    deleteErrorMessage: s__('Board|Failed to delete board. Please try again.'),
+    deleteButtonText: s__('Boards|Delete board'),
+    deleteErrorMessage: s__('Boards|Failed to delete board. Please try again.'),
     saveErrorMessage: __('Unable to save your changes. Please try again.'),
-    deleteConfirmationMessage: s__('Board|Are you sure you want to delete this board?'),
+    deleteConfirmationMessage: s__('Boards|Are you sure you want to delete this board?'),
     titleFieldLabel: __('Title'),
-    titleFieldPlaceholder: s__('Board|Enter board name'),
+    titleFieldPlaceholder: s__('Boards|Enter board name'),
   },
   components: {
     BoardScope: () => import('ee_component/boards/components/board_scope.vue'),
     GlModal,
+    GlButton,
     BoardConfigurationOptions,
     GlAlert,
+    GlForm,
   },
-  mixins: [glFeatureFlagMixin()],
   inject: {
     fullPath: {
       default: '',
     },
-    rootPath: {
+    boardBaseUrl: {
       default: '',
+    },
+    isGroupBoard: {
+      default: false,
+    },
+    isProjectBoard: {
+      default: false,
     },
   },
   props: {
@@ -75,6 +84,11 @@ export default {
       type: String,
       required: true,
     },
+    showDelete: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     return {
@@ -82,9 +96,13 @@ export default {
       isLoading: false,
     };
   },
+  apollo: {
+    error: {
+      query: errorQuery,
+      update: (data) => data.boardsAppError,
+    },
+  },
   computed: {
-    ...mapState(['error']),
-    ...mapGetters(['isIssueBoard', 'isGroupBoard', 'isProjectBoard']),
     isNewForm() {
       return this.currentPage === formType.new;
     },
@@ -119,14 +137,12 @@ export default {
     primaryProps() {
       return {
         text: this.buttonText,
-        attributes: [
-          {
-            variant: this.buttonKind,
-            disabled: this.submitDisabled,
-            loading: this.isLoading,
-            'data-qa-selector': 'save_changes_button',
-          },
-        ],
+        attributes: {
+          variant: this.buttonKind,
+          disabled: this.submitDisabled,
+          loading: this.isLoading,
+          'data-testid': 'save-changes-button',
+        },
       };
     },
     cancelProps() {
@@ -161,24 +177,21 @@ export default {
     mutationVariables() {
       return this.baseMutationVariables;
     },
+    canDelete() {
+      return this.canAdminBoard && this.showDelete && this.isEditForm;
+    },
   },
   mounted() {
     this.resetFormState();
     if (this.$refs.name) {
       this.$refs.name.focus();
     }
+    this.$emit('shown');
   },
   methods: {
-    ...mapActions(['setError', 'unsetError']),
-    boardCreateResponse(data) {
-      return data.createBoard.board.webPath;
-    },
-    boardUpdateResponse(data) {
-      const path = data.updateBoard.board.webPath;
-      const param = getParameterByName('group_by')
-        ? `?group_by=${getParameterByName('group_by')}`
-        : '';
-      return `${path}${param}`;
+    setError,
+    isFocusMode() {
+      return Boolean(document.querySelector('.content-wrapper > .js-focus-mode-board.is-focused'));
     },
     cancel() {
       this.$emit('cancel');
@@ -190,10 +203,13 @@ export default {
       });
 
       if (!this.board.id) {
-        return this.boardCreateResponse(response.data);
+        return response.data.createBoard.board;
       }
 
-      return this.boardUpdateResponse(response.data);
+      return response.data.updateBoard.board;
+    },
+    openDeleteModal() {
+      this.$emit('showBoardModal', this.$options.formType.delete);
     },
     async deleteBoard() {
       await this.$apollo.mutate({
@@ -209,18 +225,23 @@ export default {
       if (this.isDeleteForm) {
         try {
           await this.deleteBoard();
-          visitUrl(this.rootPath);
-        } catch {
-          this.setError({ message: this.$options.i18n.deleteErrorMessage });
+          visitUrl(this.boardBaseUrl);
+        } catch (error) {
+          setError({ error, message: this.$options.i18n.deleteErrorMessage });
         } finally {
           this.isLoading = false;
         }
       } else {
         try {
-          const url = await this.createOrUpdateBoard();
-          visitUrl(url);
-        } catch {
-          this.setError({ message: this.$options.i18n.saveErrorMessage });
+          const board = await this.createOrUpdateBoard();
+          if (this.board.id) {
+            this.$emit('updateBoard', board);
+          } else {
+            this.$emit('addBoard', board);
+          }
+          this.cancel();
+        } catch (error) {
+          setError({ error, message: this.$options.i18n.saveErrorMessage });
         } finally {
           this.isLoading = false;
         }
@@ -235,30 +256,42 @@ export default {
       }
     },
     setIteration(iteration) {
-      if (this.glFeatures.iterationCadences) {
-        this.board.iterationCadenceId = iteration.iterationCadenceId;
-      }
-      this.$set(this.board, 'iteration', {
-        id: iteration.id,
-      });
+      this.board.iterationCadenceId = iteration.iterationCadenceId;
+
+      this.board = {
+        ...this.board,
+        iteration: {
+          id: iteration.id,
+        },
+      };
     },
     setBoardLabels(labels) {
       this.board.labels = labels;
     },
     setAssignee(assigneeId) {
-      this.$set(this.board, 'assignee', {
-        id: assigneeId,
-      });
+      this.board = {
+        ...this.board,
+        assignee: {
+          id: assigneeId,
+        },
+      };
     },
     setMilestone(milestoneId) {
-      this.$set(this.board, 'milestone', {
-        id: milestoneId,
-      });
+      this.board = {
+        ...this.board,
+        milestone: {
+          id: milestoneId,
+        },
+      };
     },
     setWeight(weight) {
-      this.$set(this.board, 'weight', weight);
+      this.board = {
+        ...this.board,
+        weight,
+      };
     },
   },
+  formType,
 };
 </script>
 
@@ -268,6 +301,7 @@ export default {
     modal-class="board-config-modal"
     content-class="gl-absolute gl-top-7"
     visible
+    :static="isFocusMode()"
     :hide-footer="readonly"
     :title="title"
     :action-primary="primaryProps"
@@ -282,16 +316,16 @@ export default {
       class="gl-mb-3"
       variant="danger"
       :dismissible="true"
-      @dismiss="unsetError"
+      @dismiss="() => setError({ message: null, captureError: false })"
     >
       {{ error }}
     </gl-alert>
     <p v-if="isDeleteForm" data-testid="delete-confirmation-message">
       {{ $options.i18n.deleteConfirmationMessage }}
     </p>
-    <form v-else class="js-board-config-modal" data-testid="board-form-wrapper" @submit.prevent>
+    <gl-form v-else data-testid="board-form-wrapper" @submit.prevent="submit">
       <div v-if="!readonly" class="gl-mb-5" data-testid="board-form">
-        <label class="gl-font-weight-bold gl-font-lg" for="board-new-name">
+        <label class="gl-font-bold gl-font-lg" for="board-new-name">
           {{ $options.i18n.titleFieldLabel }}
         </label>
         <input
@@ -299,10 +333,9 @@ export default {
           ref="name"
           v-model="board.name"
           class="form-control"
-          data-qa-selector="board_name_field"
+          data-testid="board-name-field"
           type="text"
           :placeholder="$options.i18n.titleFieldPlaceholder"
-          @keyup.enter="submit"
         />
       </div>
 
@@ -324,6 +357,24 @@ export default {
         @set-milestone="setMilestone"
         @set-weight="setWeight"
       />
-    </form>
+    </gl-form>
+    <template v-if="canDelete" #modal-footer>
+      <div class="gl-display-flex gl-justify-content-space-between gl-w-full gl-m-0">
+        <gl-button
+          category="secondary"
+          variant="danger"
+          data-testid="delete-board-button"
+          @click="openDeleteModal"
+        >
+          {{ $options.i18n.deleteButtonText }}</gl-button
+        >
+        <div>
+          <gl-button @click="cancel">{{ cancelProps.text }}</gl-button>
+          <gl-button v-bind="primaryProps.attributes" @click="submit">{{
+            primaryProps.text
+          }}</gl-button>
+        </div>
+      </div>
+    </template>
   </gl-modal>
 </template>

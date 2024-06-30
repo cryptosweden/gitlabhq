@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Sidebars::Projects::Menus::SettingsMenu do
-  let_it_be(:project) { create(:project) }
+RSpec.describe Sidebars::Projects::Menus::SettingsMenu, feature_category: :navigation do
+  let(:project) { build_stubbed(:project) }
 
   let(:user) { project.first_owner }
   let(:context) { Sidebars::Projects::Context.new(current_user: user, container: project) }
@@ -15,6 +15,12 @@ RSpec.describe Sidebars::Projects::Menus::SettingsMenu do
       allow(subject).to receive(:has_renderable_items?).and_return(false)
 
       expect(subject.render?).to be false
+    end
+  end
+
+  describe '#separated?' do
+    it 'returns true' do
+      expect(subject.separated?).to be true
     end
   end
 
@@ -107,15 +113,29 @@ RSpec.describe Sidebars::Projects::Menus::SettingsMenu do
       end
     end
 
-    describe 'Pages' do
-      let(:item_id) { :pages }
+    describe 'Merge requests' do
+      let(:item_id) { :merge_requests }
+
+      it_behaves_like 'access rights checks'
+    end
+
+    describe 'Packages and registries' do
+      let(:item_id) { :packages_and_registries }
+      let(:packages_enabled) { false }
 
       before do
-        allow(project).to receive(:pages_available?).and_return(pages_enabled)
+        stub_container_registry_config(enabled: container_enabled)
+        stub_config(packages: { enabled: packages_enabled })
       end
 
-      describe 'when pages are enabled' do
-        let(:pages_enabled) { true }
+      describe 'when container registry setting is disabled' do
+        let(:container_enabled) { false }
+
+        specify { is_expected.to be_nil }
+      end
+
+      describe 'when container registry setting is enabled' do
+        let(:container_enabled) { true }
 
         specify { is_expected.not_to be_nil }
 
@@ -126,28 +146,9 @@ RSpec.describe Sidebars::Projects::Menus::SettingsMenu do
         end
       end
 
-      describe 'when pages are not enabled' do
-        let(:pages_enabled) { false }
-
-        specify { is_expected.to be_nil }
-      end
-    end
-
-    describe 'Packages & Registries' do
-      let(:item_id) { :packages_and_registries }
-
-      before do
-        stub_container_registry_config(enabled: container_enabled)
-      end
-
-      describe 'when config registry setting is disabled' do
+      describe 'when package registry setting is enabled' do
         let(:container_enabled) { false }
-
-        specify { is_expected.to be_nil }
-      end
-
-      describe 'when config registry setting is enabled' do
-        let(:container_enabled) { true }
+        let(:packages_enabled) { true }
 
         specify { is_expected.not_to be_nil }
 

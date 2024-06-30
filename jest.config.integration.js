@@ -23,6 +23,13 @@ module.exports = {
     moduleNameMapperJH: {
       '^jh_else_ce_test_helpers(/.*)$': '<rootDir>/jh/spec/frontend_integration/test_helpers$1',
     },
+    // We need to include spec/frontend in `roots` for the __mocks__ to be found
+    roots: ['<rootDir>/spec/frontend_integration/', '<rootDir>/spec/frontend/'],
+    rootsEE: ['<rootDir>/ee/spec/frontend_integration/'],
+    rootsJH: ['<rootDir>/jh/spec/frontend_integration/'],
   }),
-  timers: 'real',
+  fakeTimers: {
+    enableGlobally: false,
+  },
+  testTimeout: process.env.CI ? 20000 : 7000,
 };

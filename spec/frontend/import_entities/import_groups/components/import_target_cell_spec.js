@@ -1,9 +1,21 @@
-import { GlDropdownItem, GlFormInput } from '@gitlab/ui';
+import { GlFormInput } from '@gitlab/ui';
+import Vue, { nextTick } from 'vue';
+import VueApollo from 'vue-apollo';
 import { shallowMount } from '@vue/test-utils';
-import ImportGroupDropdown from '~/import_entities/components/group_dropdown.vue';
+import createMockApollo from 'helpers/mock_apollo_helper';
+import ImportTargetDropdown from '~/import_entities/components/import_target_dropdown.vue';
 import { STATUSES } from '~/import_entities/constants';
 import ImportTargetCell from '~/import_entities/import_groups/components/import_target_cell.vue';
-import { generateFakeEntry, availableNamespacesFixture } from '../graphql/fixtures';
+import { DEBOUNCE_DELAY } from '~/vue_shared/components/filtered_search_bar/constants';
+import searchNamespacesWhereUserCanImportProjectsQuery from '~/import_entities/import_projects/graphql/queries/search_namespaces_where_user_can_import_projects.query.graphql';
+
+import {
+  generateFakeEntry,
+  availableNamespacesFixture,
+  AVAILABLE_NAMESPACES,
+} from '../graphql/fixtures';
+
+Vue.use(VueApollo);
 
 const generateFakeTableEntry = ({ flags = {}, ...config }) => {
   const entry = generateFakeEntry(config);
@@ -11,7 +23,7 @@ const generateFakeTableEntry = ({ flags = {}, ...config }) => {
   return {
     ...entry,
     importTarget: {
-      targetNamespace: availableNamespacesFixture[0],
+      targetNamespace: AVAILABLE_NAMESPACES[0],
       newName: entry.lastImportTarget.newName,
     },
     flags,
@@ -20,31 +32,37 @@ const generateFakeTableEntry = ({ flags = {}, ...config }) => {
 
 describe('import target cell', () => {
   let wrapper;
+  let apolloProvider;
   let group;
 
-  const findNameInput = () => wrapper.find(GlFormInput);
-  const findNamespaceDropdown = () => wrapper.find(ImportGroupDropdown);
+  const findNameInput = () => wrapper.findComponent(GlFormInput);
+  const findNamespaceDropdown = () => wrapper.findComponent(ImportTargetDropdown);
 
   const createComponent = (props) => {
+    apolloProvider = createMockApollo([
+      [
+        searchNamespacesWhereUserCanImportProjectsQuery,
+        () => Promise.resolve(availableNamespacesFixture),
+      ],
+    ]);
+
     wrapper = shallowMount(ImportTargetCell, {
-      stubs: { ImportGroupDropdown },
+      apolloProvider,
+      stubs: { ImportTargetDropdown },
       propsData: {
-        availableNamespaces: availableNamespacesFixture,
         groupPathRegex: /.*/,
         ...props,
       },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('events', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       group = generateFakeTableEntry({ id: 1, status: STATUSES.NONE });
       createComponent({ group });
+      await nextTick();
+      jest.advanceTimersByTime(DEBOUNCE_DELAY);
+      await nextTick();
     });
 
     it('emits update-new-name when input value is changed', () => {
@@ -54,12 +72,14 @@ describe('import target cell', () => {
     });
 
     it('emits update-target-namespace when dropdown option is clicked', () => {
-      const dropdownItem = findNamespaceDropdown().findAllComponents(GlDropdownItem).at(2);
+      const targetNamespace = {
+        fullPath: AVAILABLE_NAMESPACES[1].fullPath,
+        id: AVAILABLE_NAMESPACES[1].id,
+      };
 
-      dropdownItem.vm.$emit('click');
+      findNamespaceDropdown().vm.$emit('select', targetNamespace);
 
-      expect(wrapper.emitted('update-target-namespace')).toBeDefined();
-      expect(wrapper.emitted('update-target-namespace')[0][0]).toBe(availableNamespacesFixture[1]);
+      expect(wrapper.emitted('update-target-namespace')[0]).toStrictEqual([targetNamespace]);
     });
   });
 
@@ -80,34 +100,6 @@ describe('import target cell', () => {
     });
   });
 
-  it('renders only no parent option if available namespaces list is empty', () => {
-    createComponent({
-      group: generateFakeTableEntry({ id: 1, status: STATUSES.NONE }),
-      availableNamespaces: [],
-    });
-
-    const items = findNamespaceDropdown()
-      .findAllComponents(GlDropdownItem)
-      .wrappers.map((w) => w.text());
-
-    expect(items[0]).toBe('No parent');
-    expect(items).toHaveLength(1);
-  });
-
-  it('renders both no parent option and available namespaces list when available namespaces list is not empty', () => {
-    createComponent({
-      group: generateFakeTableEntry({ id: 1, status: STATUSES.NONE }),
-      availableNamespaces: availableNamespacesFixture,
-    });
-
-    const [firstItem, ...rest] = findNamespaceDropdown()
-      .findAllComponents(GlDropdownItem)
-      .wrappers.map((w) => w.text());
-
-    expect(firstItem).toBe('No parent');
-    expect(rest).toHaveLength(availableNamespacesFixture.length);
-  });
-
   describe('when entity is not available for import', () => {
     beforeEach(() => {
       group = generateFakeTableEntry({
@@ -118,12 +110,13 @@ describe('import target cell', () => {
     });
 
     it('renders namespace dropdown as disabled', () => {
-      expect(findNamespaceDropdown().attributes('disabled')).toBe('true');
+      expect(findNamespaceDropdown().attributes('disabled')).toBeDefined();
     });
   });
 
   describe('when entity is available for import', () => {
     const FAKE_PROGRESS_MESSAGE = 'progress message';
+
     beforeEach(() => {
       group = generateFakeTableEntry({
         id: 1,

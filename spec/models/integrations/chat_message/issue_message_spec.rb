@@ -2,11 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::ChatMessage::IssueMessage do
+RSpec.describe Integrations::ChatMessage::IssueMessage, feature_category: :integrations do
   subject { described_class.new(args) }
 
   let(:args) do
     {
+      object_kind: 'issue',
       user: {
         name: 'Test User',
         username: 'test.user',
@@ -23,7 +24,7 @@ RSpec.describe Integrations::ChatMessage::IssueMessage do
         url: 'http://url.com',
         action: 'open',
         state: 'opened',
-        description: 'issue description'
+        description: 'issue description <http://custom-url.com|CLICK HERE>'
       }
     }
   end
@@ -44,17 +45,18 @@ RSpec.describe Integrations::ChatMessage::IssueMessage do
     end
 
     context 'open' do
-      it 'returns a message regarding opening of issues' do
+      it 'returns a slack-link sanitized message regarding opening of issues' do
         expect(subject.pretext).to eq(
           '[<http://somewhere.com|project_name>] Issue <http://url.com|#100 Issue title> opened by Test User (test.user)')
-        expect(subject.attachments).to eq([
-          {
-            title: "#100 Issue title",
-            title_link: "http://url.com",
-            text: "issue description",
-            color: color
-          }
-        ])
+        expect(subject.attachments).to eq(
+          [
+            {
+              title: "#100 Issue title",
+              title_link: "http://url.com",
+              text: "issue description &lt;http://custom-url.com|CLICK HERE&gt;",
+              color: color
+            }
+          ])
       end
     end
 
@@ -65,7 +67,7 @@ RSpec.describe Integrations::ChatMessage::IssueMessage do
       end
 
       it 'returns a message regarding closing of issues' do
-        expect(subject.pretext). to eq(
+        expect(subject.pretext).to eq(
           '[<http://somewhere.com|project_name>] Issue <http://url.com|#100 Issue title> closed by Test User (test.user)')
         expect(subject.attachments).to be_empty
       end
@@ -94,7 +96,7 @@ RSpec.describe Integrations::ChatMessage::IssueMessage do
       it 'returns a message regarding opening of issues' do
         expect(subject.pretext).to eq(
           '[[project_name](http://somewhere.com)] Issue [#100 Issue title](http://url.com) opened by Test User (test.user)')
-        expect(subject.attachments).to eq('issue description')
+        expect(subject.attachments).to eq('issue description &lt;http://custom-url.com|CLICK HERE&gt;')
         expect(subject.activity).to eq({
           title: 'Issue opened by Test User (test.user)',
           subtitle: 'in [project_name](http://somewhere.com)',
@@ -111,7 +113,7 @@ RSpec.describe Integrations::ChatMessage::IssueMessage do
       end
 
       it 'returns a message regarding closing of issues' do
-        expect(subject.pretext). to eq(
+        expect(subject.pretext).to eq(
           '[[project_name](http://somewhere.com)] Issue [#100 Issue title](http://url.com) closed by Test User (test.user)')
         expect(subject.attachments).to be_empty
         expect(subject.activity).to eq({
@@ -121,6 +123,12 @@ RSpec.describe Integrations::ChatMessage::IssueMessage do
           image: 'http://someavatar.com'
         })
       end
+    end
+  end
+
+  describe '#attachment_color' do
+    it 'returns the correct color' do
+      expect(subject.attachment_color).to eq('#C95823')
     end
   end
 end

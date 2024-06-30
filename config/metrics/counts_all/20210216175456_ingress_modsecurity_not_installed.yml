@@ -2,13 +2,10 @@
 data_category: operational
 key_path: counts.ingress_modsecurity_not_installed
 description: Whether or not ModSecurity has not been installed into the cluster
-product_section: sec
-product_stage: protect
-product_group: group::container security
-product_category: web_firewall
+product_group: security_policies
 value_type: number
 status: removed
-milestone_removed: 14.0
+milestone_removed: "14.0"
 time_frame: all
 data_source: database
 distribution:
@@ -20,3 +17,4 @@ tier:
 - ultimate
 performance_indicator_type: []
 milestone: "<13.9"
+removed_by_url:

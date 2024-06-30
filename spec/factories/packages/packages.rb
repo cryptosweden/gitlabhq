@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 FactoryBot.define do
   factory :package, class: 'Packages::Package' do
     project
@@ -24,6 +25,10 @@ FactoryBot.define do
       status { :pending_destruction }
     end
 
+    trait :last_downloaded_at do
+      last_downloaded_at { 2.days.ago }
+    end
+
     factory :maven_package do
       maven_metadatum
 
@@ -35,66 +40,6 @@ FactoryBot.define do
         create :package_file, :xml, package: package
         create :package_file, :jar, package: package
         create :package_file, :pom, package: package
-      end
-    end
-
-    factory :rubygems_package do
-      sequence(:name) { |n| "my_gem_#{n}" }
-      sequence(:version) { |n| "1.#{n}" }
-      package_type { :rubygems }
-
-      after :create do |package|
-        create :package_file, package.processing? ? :unprocessed_gem : :gem, package: package
-        create :package_file, :gemspec, package: package unless package.processing?
-      end
-
-      trait(:with_metadatum) do
-        after :build do |pkg|
-          pkg.rubygems_metadatum = build(:rubygems_metadatum)
-        end
-      end
-    end
-
-    factory :debian_package do
-      sequence(:name) { |n| "package-#{n}" }
-      sequence(:version) { |n| "1.0-#{n}" }
-      package_type { :debian }
-
-      transient do
-        without_package_files { false }
-        file_metadatum_trait { :keep }
-        published_in { :create }
-      end
-
-      after :build do |package, evaluator|
-        if evaluator.published_in == :create
-          create(:debian_publication, package: package)
-        elsif !evaluator.published_in.nil?
-          create(:debian_publication, package: package, distribution: evaluator.published_in)
-        end
-      end
-
-      after :create do |package, evaluator|
-        unless evaluator.without_package_files
-          create :debian_package_file, :source, evaluator.file_metadatum_trait, package: package
-          create :debian_package_file, :dsc, evaluator.file_metadatum_trait, package: package
-          create :debian_package_file, :deb, evaluator.file_metadatum_trait, package: package
-          create :debian_package_file, :deb_dev, evaluator.file_metadatum_trait, package: package
-          create :debian_package_file, :udeb, evaluator.file_metadatum_trait, package: package
-          create :debian_package_file, :buildinfo, evaluator.file_metadatum_trait, package: package
-          create :debian_package_file, :changes, evaluator.file_metadatum_trait, package: package
-        end
-      end
-
-      factory :debian_incoming do
-        name { 'incoming' }
-        version { nil }
-
-        transient do
-          without_package_files { false }
-          file_metadatum_trait { :unknown }
-          published_in { nil }
-        end
       end
     end
 
@@ -115,7 +60,7 @@ FactoryBot.define do
     end
 
     factory :npm_package do
-      sequence(:name) { |n| "@#{project.root_namespace.path}/package-#{n}"}
+      sequence(:name) { |n| "@#{project.root_namespace.path}/package-#{n}" }
       sequence(:version) { |n| "1.0.#{n}" }
       package_type { :npm }
 
@@ -138,8 +83,14 @@ FactoryBot.define do
       version { '1.0.0' }
       package_type { :terraform_module }
 
-      after :create do |package|
-        create :package_file, :terraform_module, package: package
+      transient do
+        without_package_files { false }
+      end
+
+      after :create do |package, evaluator|
+        unless evaluator.without_package_files
+          create :package_file, :terraform_module, package: package
+        end
       end
 
       trait :with_build do
@@ -153,12 +104,18 @@ FactoryBot.define do
     end
 
     factory :nuget_package do
-      sequence(:name) { |n| "NugetPackage#{n}"}
+      sequence(:name) { |n| "NugetPackage#{n}" }
       sequence(:version) { |n| "1.0.#{n}" }
       package_type { :nuget }
 
-      after :create do |package|
-        create :package_file, :nuget, package: package, file_name: "#{package.name}.#{package.version}.nupkg"
+      transient do
+        without_package_files { false }
+      end
+
+      after :create do |package, evaluator|
+        unless evaluator.without_package_files
+          create :package_file, :nuget, package: package, file_name: "#{package.name}.#{package.version}.nupkg"
+        end
       end
 
       trait(:with_metadatum) do
@@ -172,10 +129,16 @@ FactoryBot.define do
           create :package_file, :snupkg, package: package, file_name: "#{package.name}.#{package.version}.snupkg"
         end
       end
+
+      trait :with_build do
+        after :create do |package|
+          create(:package_build_info, package: package)
+        end
+      end
     end
 
     factory :pypi_package do
-      sequence(:name) { |n| "pypi-package-#{n}"}
+      sequence(:name) { |n| "pypi-package-#{n}" }
       sequence(:version) { |n| "1.0.#{n}" }
       package_type { :pypi }
 
@@ -192,61 +155,6 @@ FactoryBot.define do
       end
     end
 
-    factory :composer_package do
-      sequence(:name) { |n| "composer-package-#{n}"}
-      sequence(:version) { |n| "1.0.#{n}" }
-      package_type { :composer }
-
-      transient do
-        sha { project.repository.find_branch('master').target }
-        json { { name: name, version: version } }
-      end
-
-      trait(:with_metadatum) do
-        after :create do |package, evaluator|
-          create :composer_metadatum, package: package, target_sha: evaluator.sha, composer_json: evaluator.json
-        end
-      end
-    end
-
-    factory :golang_package do
-      sequence(:name) { |n| "golang.org/x/pkg-#{n}"}
-      sequence(:version) { |n| "v1.0.#{n}" }
-      package_type { :golang }
-    end
-
-    factory :conan_package do
-      conan_metadatum
-
-      transient do
-        without_package_files { false }
-      end
-
-      after :build do |package|
-        package.conan_metadatum.package_username = Packages::Conan::Metadatum.package_username_from(
-          full_path: package.project.full_path
-        )
-      end
-
-      sequence(:name) { |n| "package-#{n}" }
-      version { '1.0.0' }
-      package_type { :conan }
-
-      after :create do |package, evaluator|
-        unless evaluator.without_package_files
-          create :conan_package_file, :conan_recipe_file, package: package
-          create :conan_package_file, :conan_recipe_manifest, package: package
-          create :conan_package_file, :conan_package_info, package: package
-          create :conan_package_file, :conan_package_manifest, package: package
-          create :conan_package_file, :conan_package, package: package
-        end
-      end
-
-      trait(:without_loaded_metadatum) do
-        conan_metadatum { build(:conan_metadatum, package: nil) } # rubocop:disable FactoryBot/InlineAssociation
-      end
-    end
-
     factory :generic_package do
       sequence(:name) { |n| "generic-package-#{n}" }
       version { '1.0.0' }
@@ -257,6 +165,12 @@ FactoryBot.define do
           create :package_file, :generic_zip, package: package
         end
       end
+    end
+
+    factory :ml_model_package, class: 'Packages::MlModel::Package' do
+      sequence(:name) { |n| "mlmodel-package-#{n}" }
+      sequence(:version) { |n| "1.0.#{n}" }
+      package_type { :ml_model }
     end
   end
 end

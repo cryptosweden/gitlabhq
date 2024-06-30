@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Dashboard > Milestones' do
+RSpec.describe 'Dashboard > Milestones', :js, feature_category: :team_planning do
   describe 'as anonymous user' do
     before do
       visit dashboard_milestones_path
@@ -26,6 +26,8 @@ RSpec.describe 'Dashboard > Milestones' do
       visit dashboard_milestones_path
     end
 
+    it_behaves_like 'a "Your work" page with sidebar and breadcrumbs', :dashboard_milestones_path, :milestones
+
     it 'sees milestones' do
       expect(page).to have_current_path dashboard_milestones_path, ignore_query: true
       expect(page).to have_content(milestone.title)
@@ -33,15 +35,14 @@ RSpec.describe 'Dashboard > Milestones' do
       expect(first('.milestone')).to have_content('Merge requests')
     end
 
-    describe 'new milestones dropdown', :js do
-      it 'takes user to a new milestone page', :js do
-        click_button 'Toggle project select'
+    describe 'new milestones dropdown' do
+      it 'takes user to a new milestone page' do
+        click_button 'Select project to create milestone'
 
-        page.within('.select2-results') do
-          first('.select2-result-label').click
+        within_testid('new-resource-dropdown') do
+          click_button group.name
+          click_link "New milestone in #{group.name}"
         end
-
-        find('.js-new-project-item-link').click
 
         expect(page).to have_current_path(new_group_milestone_path(group), ignore_query: true)
       end

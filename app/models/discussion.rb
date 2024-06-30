@@ -10,25 +10,26 @@ class Discussion
   # Bump this if we need to refresh the cached versions of discussions
   CACHE_VERSION = 1
 
-  attr_reader :notes, :context_noteable
+  attr_reader :context_noteable
+  attr_accessor :notes
 
-  delegate  :created_at,
-            :project,
-            :author,
-            :noteable,
-            :commit_id,
-            :confidential?,
-            :for_commit?,
-            :for_design?,
-            :for_merge_request?,
-            :noteable_ability_name,
-            :to_ability_name,
-            :editable?,
-            :resolved_by_id,
-            :system_note_visible_for?,
-            :resource_parent,
-            :save,
-            to: :first_note
+  delegate :created_at,
+    :project,
+    :author,
+    :noteable,
+    :commit_id,
+    :confidential?,
+    :for_commit?,
+    :for_design?,
+    :for_merge_request?,
+    :noteable_ability_name,
+    :to_ability_name,
+    :editable?,
+    :resolved_by_id,
+    :system_note_visible_for?,
+    :resource_parent,
+    :save,
+    to: :first_note
 
   def declarative_policy_delegate
     first_note
@@ -45,6 +46,14 @@ class Discussion
   def self.build_collection(notes, context_noteable = nil)
     grouped_notes = notes.group_by { |n| n.discussion_id(context_noteable) }
     grouped_notes.values.map { |notes| build(notes, context_noteable) }
+  end
+
+  def self.build_discussions(discussion_ids, context_noteable = nil, preload_note_diff_file: false)
+    notes = Note.where(discussion_id: discussion_ids).fresh
+    notes = notes.inc_note_diff_file if preload_note_diff_file
+
+    grouped_notes = notes.group_by { |n| n.discussion_id }
+    grouped_notes.transform_values { |notes| Discussion.build(notes, context_noteable) }
   end
 
   def self.lazy_find(discussion_id)
@@ -174,5 +183,16 @@ class Discussion
       notes_sha,
       resolved_at
     ].join(':')
+  end
+
+  # Consolidate discussions GID. There is no need to have different GID for different class names as the discussion_id
+  # hash is already unique per discussion. This also fixes the issue where same discussion may return different GIDs
+  # depending on number of notes it has.
+  def to_global_id(options = {})
+    GlobalID.new(::Gitlab::GlobalId.build(model_name: Discussion.to_s, id: id))
+  end
+
+  def noteable_collection_name
+    noteable.class.underscore.pluralize
   end
 end

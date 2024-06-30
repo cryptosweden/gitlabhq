@@ -1,16 +1,20 @@
 ---
 stage: Create
 group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# File Locking **(FREE)**
+# File Locking
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Preventing wasted work caused by unresolvable merge conflicts requires
 a different way of working. This means explicitly requesting write permissions,
 and verifying no one else is editing the same file before you start.
 
-Although branching strategies usually work well enough for source code and
+Although branching strategies typically work well enough for source code and
 plain text because different versions can be merged together, they do not work
 for binary files.
 
@@ -23,8 +27,8 @@ said to have "released the lock".
 
 GitLab supports two different modes of file locking:
 
-- [Exclusive file locks](#exclusive-file-locks) for binary files: done **through
-  the command line** with Git LFS and `.gitattributes`, it prevents locked
+- [Exclusive file locks](#exclusive-file-locks) for binary files: done
+  **through the command line** with Git LFS and `.gitattributes`, it prevents locked
   files from being modified on any branch.
 - [Default branch locks](#default-branch-file-and-directory-locks): done
   **through the GitLab UI**, it prevents locked files and directories being
@@ -37,8 +41,8 @@ Developer role in the repository.
 
 Only the user who locked the file or directory can edit locked files. Other
 users are prevented from modifying locked files by pushing, merging,
-or any other means, and are shown an error like: `The path '.gitignore' is
-locked by Administrator`.
+or any other means, and are shown an error like:
+`'.gitignore' is locked by @Administrator`.
 
 ## Exclusive file locks
 
@@ -58,7 +62,7 @@ git-lfs --version
 ```
 
 If it doesn't recognize this command, you must install it. There are
-several [installation methods](https://git-lfs.github.com/) that you can
+several [installation methods](https://git-lfs.com/) that you can
 choose according to your OS. To install it with Homebrew:
 
 ```shell
@@ -73,7 +77,7 @@ you can skip this step. If you're unsure, re-installing it does no harm:
 git lfs install
 ```
 
-Check this document to learn more about [using Git LFS](../../topics/git/lfs/index.md#using-git-lfs).
+For more information, see [Git Large File Storage (LFS)](../../topics/git/lfs/index.md).
 
 ### Configure Exclusive File Locks
 
@@ -147,11 +151,11 @@ permissions to the project:
 git lfs unlock --id=123 --force
 ```
 
-You can normally push files to GitLab whether they're locked or unlocked.
+You can push files to GitLab whether they're locked or unlocked.
 
 NOTE:
 Although multi-branch file locks can be created and managed through the Git LFS
-command line interface, file locks can be created for any file.
+command-line interface, file locks can be created for any file.
 
 ### View exclusively-locked files
 
@@ -190,13 +194,14 @@ Suggested workflow for shared projects:
 1. Get your changes reviewed, approved, and merged.
 1. Unlock the file.
 
-## Default branch file and directory locks **(PREMIUM)**
+## Default branch file and directory locks
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/440) in GitLab 8.9.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This process allows you to lock one file at a time through the GitLab UI and
-requires access to [GitLab Premium](https://about.gitlab.com/pricing/)
-or higher tiers.
+requires access to the [GitLab Premium or Ultimate tier](https://about.gitlab.com/pricing/).
 
 Default branch file and directory locks only apply to the
 [default branch](repository/branches/default.md) set in the project's settings.
@@ -209,19 +214,21 @@ requests that modify locked files. Unlock the file to allow changes.
 To lock a file:
 
 1. Open the file or directory in GitLab.
-1. On the top right, above the file, select **Lock**.
-1. On the confirmation dialog box, select **OK**.
+1. In the upper-right corner, above the file, select **Lock**.
+1. On the confirmation dialog, select **OK**.
 
 If you do not have permission to lock the file, the button is not enabled.
 
-To view the user who locked the file (if it was not you), hover over the button.
+To view the user who locked a directory (if it was not you), hover over the button. Reinstatement of
+similar functionality for locked files is discussed in
+[issue 376222](https://gitlab.com/gitlab-org/gitlab/-/issues/376222).
 
 ### View and remove existing locks
 
 To view and remove file locks:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Repository > Locked Files**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Locked files**.
 
 This list shows all the files locked either through LFS or GitLab UI.
 

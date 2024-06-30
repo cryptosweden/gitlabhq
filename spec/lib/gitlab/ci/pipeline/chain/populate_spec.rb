@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Pipeline::Chain::Populate do
+RSpec.describe Gitlab::Ci::Pipeline::Chain::Populate, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) { create(:user) }
 
@@ -75,8 +75,8 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Populate do
   context 'when pipeline is empty' do
     let(:config) do
       { rspec: {
-          script: 'ls',
-          only: ['something']
+        script: 'ls',
+        only: ['something']
       } }
     end
 
@@ -90,7 +90,8 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Populate do
 
     it 'appends an error about missing stages' do
       expect(pipeline.errors.to_a)
-        .to include 'No stages / jobs for this pipeline.'
+        .to include 'Pipeline will not run for the selected trigger. ' \
+          'The rules configuration prevented any jobs from being added to the pipeline.'
     end
 
     it 'wastes pipeline iid' do
@@ -99,7 +100,35 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Populate do
 
     it 'increments the error metric' do
       counter = Gitlab::Metrics.counter(:gitlab_ci_pipeline_failure_reasons, 'desc')
-      expect { run_chain }.to change { counter.get(reason: 'unknown_failure') }.by(1)
+      expect { run_chain }.to change { counter.get(reason: 'filtered_by_rules') }.by(1)
+    end
+
+    it 'sets the failure reason without persisting the pipeline', :aggregate_failures do
+      run_chain
+
+      expect(pipeline).not_to be_persisted
+      expect(pipeline).to be_failed
+      expect(pipeline).to be_filtered_by_rules
+    end
+
+    context 'when there are execution_policy_pipelines' do
+      let(:policy_pipeline) { create(:ci_pipeline, project: project, user: user) }
+      let(:command) do
+        Gitlab::Ci::Pipeline::Chain::Command.new(
+          project: project,
+          current_user: user,
+          origin_ref: 'master',
+          execution_policy_pipelines: [policy_pipeline],
+          seeds_block: nil)
+      end
+
+      it 'does not break the chain' do
+        expect(step.break?).to be false
+      end
+
+      it 'does not append an error' do
+        expect(pipeline.errors).to be_empty
+      end
     end
   end
 
@@ -188,8 +217,10 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Populate do
       end
 
       it 'raises error' do
-        expect { run_chain }.to raise_error(ActiveRecord::RecordNotSaved,
-                                            'You cannot call create unless the parent is saved')
+        expect { run_chain }.to raise_error(
+          ActiveRecord::RecordNotSaved,
+          'You cannot call create unless the parent is saved'
+        )
       end
     end
   end

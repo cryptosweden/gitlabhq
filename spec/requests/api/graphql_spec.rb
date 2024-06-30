@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'GraphQL' do
+RSpec.describe 'GraphQL', feature_category: :shared do
   include GraphqlHelpers
   include AfterNextHelpers
 
@@ -24,13 +24,14 @@ RSpec.describe 'GraphQL' do
           "query_analysis.complexity" => 1,
           "query_analysis.used_fields" => ['Query.echo'],
           "query_analysis.used_deprecated_fields" => [],
+          "query_analysis.used_deprecated_arguments" => [],
           # query_fingerprint starts with operation name
-          query_fingerprint: %r{^anonymous\/},
+          query_fingerprint: %r{^anonymous/},
           duration_s: kind_of(Numeric),
           trace_type: 'execute_query',
           operation_name: nil,
           # operation_fingerprint starts with operation name
-          operation_fingerprint: %r{^anonymous\/},
+          operation_fingerprint: %r{^anonymous/},
           is_mutation: false,
           variables: variables.to_s,
           query_string: query
@@ -41,13 +42,6 @@ RSpec.describe 'GraphQL' do
         expect(Gitlab::GraphqlLogger).to receive(:info).with(expected_execute_query_log).once
 
         post_graphql(query, variables: variables)
-      end
-
-      it 'does not instantiate any query analyzers' do # they are static and re-used
-        expect(GraphQL::Analysis::QueryComplexity).not_to receive(:new)
-        expect(GraphQL::Analysis::QueryDepth).not_to receive(:new)
-
-        2.times { post_graphql(query, variables: variables) }
       end
     end
 
@@ -67,10 +61,10 @@ RSpec.describe 'GraphQL' do
 
     context 'when there is an error in the logger' do
       before do
-        logger_analyzer = GitlabSchema.query_analyzers.find do |qa|
-          qa.is_a? Gitlab::Graphql::QueryAnalyzers::LoggerAnalyzer
-        end
-        allow(logger_analyzer).to receive(:process_variables)
+        allow(GraphQL::Analysis::AST).to receive(:analyze_query)
+          .and_call_original
+        allow(GraphQL::Analysis::AST).to receive(:analyze_query)
+          .with(anything, Gitlab::Graphql::QueryAnalyzers::AST::LoggerAnalyzer::ALL_ANALYZERS, anything)
           .and_raise(StandardError.new("oh noes!"))
       end
 
@@ -268,6 +262,214 @@ RSpec.describe 'GraphQL' do
         expect(graphql_data['echo']).to eq("\"#{token.user.username}\" says: Hello world")
       end
 
+      shared_examples 'valid token' do
+        it 'accepts from header' do
+          post_graphql(query, headers: { 'Authorization' => "Bearer #{token}" })
+
+          expect(graphql_data['echo']).to eq("\"#{user.username}\" says: Hello world")
+        end
+
+        it 'accepts from access_token parameter' do
+          post "/api/graphql?access_token=#{token}", params: { query: query }
+
+          expect(graphql_data['echo']).to eq("\"#{user.username}\" says: Hello world")
+        end
+
+        it 'accepts from private_token parameter' do
+          post "/api/graphql?private_token=#{token}", params: { query: query }
+
+          expect(graphql_data['echo']).to eq("\"#{user.username}\" says: Hello world")
+        end
+      end
+
+      context 'with oAuth user access token' do
+        let(:oauth_application) do
+          create(
+            :oauth_application,
+            scopes: 'api read_user',
+            redirect_uri: 'http://example.com',
+            confidential: true
+          )
+        end
+
+        let(:oauth_access_token) do
+          create(
+            :oauth_access_token,
+            application: oauth_application,
+            resource_owner: user,
+            scopes: 'api'
+          )
+        end
+
+        let(:token) { oauth_access_token.plaintext_token }
+
+        # Doorkeeper does not support the private_token=? param
+        # https://github.com/doorkeeper-gem/doorkeeper/blob/960f1501131683b16c2704d1b6f9597b9583b49d/lib/doorkeeper/oauth/token.rb#L26
+        # so we cannot use shared examples here
+        it 'accepts from header' do
+          post_graphql(query, headers: { 'Authorization' => "Bearer #{token}" })
+
+          expect(graphql_data['echo']).to eq("\"#{user.username}\" says: Hello world")
+        end
+
+        it 'accepts from access_token parameter' do
+          post "/api/graphql?access_token=#{token}", params: { query: query }
+
+          expect(graphql_data['echo']).to eq("\"#{user.username}\" says: Hello world")
+        end
+      end
+
+      context 'with personal access token' do
+        let(:personal_access_token) { create(:personal_access_token, user: user) }
+        let(:token) { personal_access_token.token }
+
+        it_behaves_like 'valid token'
+      end
+
+      context 'with group or project access token' do
+        let_it_be(:user) { create(:user, :project_bot) }
+        let_it_be(:project_access_token) { create(:personal_access_token, user: user) }
+
+        let(:token) { project_access_token.token }
+
+        it_behaves_like 'valid token'
+      end
+
+      describe 'invalid authentication types' do
+        let(:query) { 'query { currentUser { id, username } }' }
+
+        describe 'with git-lfs token' do
+          let(:lfs_token) { Gitlab::LfsToken.new(user).token }
+          let(:header_token) { Base64.encode64("#{user.username}:#{lfs_token}") }
+          let(:headers) do
+            { 'Authorization' => "Basic #{header_token}" }
+          end
+
+          it 'does not authenticate users with an LFS token' do
+            post '/api/graphql.git', params: { query: query }, headers: headers
+
+            expect(graphql_data['currentUser']).to be_nil
+          end
+
+          context 'when graphql_minimal_auth_methods FF is disabled' do
+            before do
+              stub_feature_flags(graphql_minimal_auth_methods: false)
+            end
+
+            it 'authenticates users with an LFS token' do
+              post '/api/graphql.git', params: { query: query }, headers: headers
+
+              expect(graphql_data['currentUser']['username']).to eq(user.username)
+            end
+          end
+        end
+
+        describe 'with job token' do
+          let(:project) do
+            create(:project).tap do |proj|
+              proj.add_owner(user)
+            end
+          end
+
+          let(:job) { create(:ci_build, :running, project: project, user: user) }
+          let(:job_token) { job.token }
+
+          it 'raises "Invalid token" error' do
+            post '/api/graphql', params: { query: query, job_token: job_token }
+
+            expect_graphql_errors_to_include(/Invalid token/)
+          end
+
+          context 'when graphql_minimal_auth_methods FF is disabled' do
+            before do
+              stub_feature_flags(graphql_minimal_auth_methods: false)
+            end
+
+            it 'authenticates as the user' do
+              post '/api/graphql', params: { query: query, job_token: job_token }
+
+              expect(graphql_data['currentUser']['username']).to eq(user.username)
+            end
+          end
+        end
+
+        describe 'with static object token' do
+          let(:headers) do
+            { 'X-Gitlab-Static-Object-Token' => user.static_object_token }
+          end
+
+          it 'does not authenticate user from header' do
+            post '/api/graphql', params: { query: query }, headers: headers
+
+            expect(graphql_data['currentUser']).to be_nil
+          end
+
+          it 'does not authenticate user from parameter' do
+            post "/api/graphql?token=#{user.static_object_token}", params: { query: query }
+
+            expect_graphql_errors_to_include(/Invalid token/)
+          end
+
+          # context is included to demonstrate that the FF code is not changing this behavior
+          context 'when graphql_minimal_auth_methods FF is disabled' do
+            before do
+              stub_feature_flags(graphql_minimal_auth_methods: false)
+            end
+
+            it 'does not authenticate user from header' do
+              post '/api/graphql', params: { query: query }, headers: headers
+
+              expect(graphql_data['currentUser']).to be_nil
+            end
+
+            it 'does not authenticate user from parameter' do
+              post "/api/graphql?token=#{user.static_object_token}", params: { query: query }
+
+              expect_graphql_errors_to_include(/Invalid token/)
+            end
+          end
+        end
+
+        describe 'with dependency proxy token' do
+          include DependencyProxyHelpers
+          let(:token) { build_jwt(user).encoded }
+          let(:headers) do
+            { 'Authorization' => "Bearer #{token}" }
+          end
+
+          it 'does not authenticate user from dependency proxy token in headers' do
+            post '/api/graphql', params: { query: query }, headers: headers
+
+            expect_graphql_errors_to_include(/Invalid token/)
+          end
+
+          it 'does not authenticate user from dependency proxy token in parameter' do
+            post "/api/graphql?access_token=#{token}", params: { query: query }
+
+            expect_graphql_errors_to_include(/Invalid token/)
+          end
+
+          # context is included to demonstrate that the FF code is not changing this behavior
+          context 'when graphql_minimal_auth_methods FF is disabled' do
+            before do
+              stub_feature_flags(graphql_minimal_auth_methods: false)
+            end
+
+            it 'does not authenticate user from dependency proxy token in headers' do
+              post '/api/graphql', params: { query: query }, headers: headers
+
+              expect_graphql_errors_to_include(/Invalid token/)
+            end
+
+            it 'does not authenticate user from dependency proxy token in parameter' do
+              post "/api/graphql?access_token=#{token}", params: { query: query }
+
+              expect_graphql_errors_to_include(/Invalid token/)
+            end
+          end
+        end
+      end
+
       it 'prevents access by deactived users' do
         token.user.deactivate!
 
@@ -282,9 +484,9 @@ RSpec.describe 'GraphQL' do
         it 'does not authenticate user' do
           post_graphql(query, headers: { 'PRIVATE-TOKEN' => token.token })
 
-          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to have_gitlab_http_status(:unauthorized)
 
-          expect(graphql_data['echo']).to eq('nil says: Hello world')
+          expect_graphql_errors_to_include('Invalid token')
         end
       end
 
@@ -308,9 +510,33 @@ RSpec.describe 'GraphQL' do
 
           post_graphql(query, headers: { 'PRIVATE-TOKEN' => token.token })
 
+          expect(response).to have_gitlab_http_status(:unauthorized)
+
+          expect_graphql_errors_to_include('Invalid token')
+        end
+      end
+
+      context 'when the personal access token has read_api scope' do
+        it 'they can perform a query' do
+          token.update!(scopes: [:read_api])
+
+          post_graphql(query, headers: { 'PRIVATE-TOKEN' => token.token })
+
           expect(response).to have_gitlab_http_status(:ok)
 
-          expect(graphql_data['echo']).to eq('nil says: Hello world')
+          expect(graphql_data['echo']).to eq("\"#{token.user.username}\" says: Hello world")
+        end
+
+        it 'they cannot perform a mutation' do
+          token.update!(scopes: [:read_api])
+
+          post_graphql(mutation, headers: { 'PRIVATE-TOKEN' => token.token })
+
+          # The response status is OK but they get no data back and they get errors.
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(graphql_data['echoCreate']).to be_nil
+
+          expect_graphql_errors_to_include("does not exist or you don't have permission")
         end
       end
     end
@@ -463,50 +689,21 @@ RSpec.describe 'GraphQL' do
       )
     end
 
-    context 'when new_graphql_keyset_pagination feature flag is off' do
-      before do
-        stub_feature_flags(new_graphql_keyset_pagination: false)
-      end
+    it 'paginates datetimes correctly when they have millisecond data' do
+      execute_query
+      first_page = graphql_data
+      edges = first_page.dig(*issues_edges)
+      cursor = first_page.dig(*end_cursor)
 
-      it 'paginates datetimes correctly when they have millisecond data' do
-        # let's make sure we're actually querying a timestamp, just in case
-        expect(Gitlab::Graphql::Pagination::Keyset::QueryBuilder)
-          .to receive(:new).with(anything, anything, hash_including('created_at'), anything).and_call_original
+      expect(edges.count).to eq(6)
+      expect(edges.last['node']['iid']).to eq(issues[4].iid.to_s)
 
-        execute_query
-        first_page = graphql_data
-        edges = first_page.dig(*issues_edges)
-        cursor = first_page.dig(*end_cursor)
+      execute_query(after: cursor)
+      second_page = graphql_data
+      edges = second_page.dig(*issues_edges)
 
-        expect(edges.count).to eq(6)
-        expect(edges.last['node']['iid']).to eq(issues[4].iid.to_s)
-
-        execute_query(after: cursor)
-        second_page = graphql_data
-        edges = second_page.dig(*issues_edges)
-
-        expect(edges.count).to eq(4)
-        expect(edges.last['node']['iid']).to eq(issues[0].iid.to_s)
-      end
-    end
-
-    context 'when new_graphql_keyset_pagination feature flag is on' do
-      it 'paginates datetimes correctly when they have millisecond data' do
-        execute_query
-        first_page = graphql_data
-        edges = first_page.dig(*issues_edges)
-        cursor = first_page.dig(*end_cursor)
-
-        expect(edges.count).to eq(6)
-        expect(edges.last['node']['iid']).to eq(issues[4].iid.to_s)
-
-        execute_query(after: cursor)
-        second_page = graphql_data
-        edges = second_page.dig(*issues_edges)
-
-        expect(edges.count).to eq(4)
-        expect(edges.last['node']['iid']).to eq(issues[0].iid.to_s)
-      end
+      expect(edges.count).to eq(4)
+      expect(edges.last['node']['iid']).to eq(issues[0].iid.to_s)
     end
   end
 end

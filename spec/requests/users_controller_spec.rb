@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe UsersController do
+RSpec.describe UsersController, feature_category: :user_management do
   # This user should have the same e-mail address associated with the GPG key prepared for tests
   let(:user) { create(:user, email: GpgHelpers::User1.emails[0]) }
   let(:private_user) { create(:user, private_profile: true) }
@@ -174,39 +174,95 @@ RSpec.describe UsersController do
     end
 
     context 'requested in json format' do
-      let(:project) { create(:project) }
+      context 'when profile_tabs_vue feature flag is turned OFF' do
+        let(:project) { create(:project) }
 
-      before do
-        project.add_developer(user)
-        Gitlab::DataBuilder::Push.build_sample(project, user)
+        before do
+          project.add_developer(user)
+          Gitlab::DataBuilder::Push.build_sample(project, user)
+          stub_feature_flags(profile_tabs_vue: false)
+          sign_in(user)
+        end
 
-        sign_in(user)
+        it 'loads events' do
+          get user_activity_url user.username, format: :json
+
+          expect(response.media_type).to eq('application/json')
+          expect(Gitlab::Json.parse(response.body)['count']).to eq(1)
+        end
+
+        it 'hides events if the user cannot read cross project' do
+          allow(Ability).to receive(:allowed?).and_call_original
+          expect(Ability).to receive(:allowed?).with(user, :read_cross_project) { false }
+
+          get user_activity_url user.username, format: :json
+
+          expect(response.media_type).to eq('application/json')
+          expect(Gitlab::Json.parse(response.body)['count']).to eq(0)
+        end
+
+        it 'hides events if the user has a private profile' do
+          Gitlab::DataBuilder::Push.build_sample(project, private_user)
+
+          get user_activity_url private_user.username, format: :json
+
+          expect(response.media_type).to eq('application/json')
+          expect(Gitlab::Json.parse(response.body)['count']).to eq(0)
+        end
       end
 
-      it 'loads events' do
-        get user_activity_url user.username, format: :json
+      context 'when profile_tabs_vue feature flag is turned ON' do
+        let(:project) { create(:project) }
 
-        expect(response.media_type).to eq('application/json')
-        expect(Gitlab::Json.parse(response.body)['count']).to eq(1)
-      end
+        before do
+          project.add_developer(user)
+          Gitlab::DataBuilder::Push.build_sample(project, user)
+          stub_feature_flags(profile_tabs_vue: true)
+          sign_in(user)
+        end
 
-      it 'hides events if the user cannot read cross project' do
-        allow(Ability).to receive(:allowed?).and_call_original
-        expect(Ability).to receive(:allowed?).with(user, :read_cross_project) { false }
+        it 'loads events' do
+          get user_activity_url user.username, format: :json
 
-        get user_activity_url user.username, format: :json
+          expect(response.media_type).to eq('application/json')
+          expect(Gitlab::Json.parse(response.body).count).to eq(1)
+        end
 
-        expect(response.media_type).to eq('application/json')
-        expect(Gitlab::Json.parse(response.body)['count']).to eq(0)
-      end
+        it 'hides events if the user cannot read cross project' do
+          allow(Ability).to receive(:allowed?).and_call_original
+          expect(Ability).to receive(:allowed?).with(user, :read_cross_project) { false }
 
-      it 'hides events if the user has a private profile' do
-        Gitlab::DataBuilder::Push.build_sample(project, private_user)
+          get user_activity_url user.username, format: :json
 
-        get user_activity_url private_user.username, format: :json
+          expect(response.media_type).to eq('application/json')
+          expect(Gitlab::Json.parse(response.body).count).to eq(0)
+        end
 
-        expect(response.media_type).to eq('application/json')
-        expect(Gitlab::Json.parse(response.body)['count']).to eq(0)
+        it 'hides events if the user has a private profile' do
+          Gitlab::DataBuilder::Push.build_sample(project, private_user)
+
+          get user_activity_url private_user.username, format: :json
+
+          expect(response.media_type).to eq('application/json')
+          expect(Gitlab::Json.parse(response.body).count).to eq(0)
+        end
+
+        it 'hides events if the user has a private profile' do
+          project = create(:project, :private)
+          private_event_user = create(:user, include_private_contributions: true)
+          push_data = Gitlab::DataBuilder::Push.build_sample(project, private_event_user)
+          EventCreateService.new.push(project, private_event_user, push_data)
+
+          get user_activity_url private_event_user.username, format: :json
+
+          response_body = Gitlab::Json.parse(response.body)
+          event = response_body.first
+          expect(response.media_type).to eq('application/json')
+          expect(response_body.count).to eq(1)
+          expect(event).to include('created_at', 'author', 'action')
+          expect(event['action']).to eq('private')
+          expect(event).not_to include('ref', 'commit', 'target', 'resource_parent')
+        end
       end
     end
   end
@@ -236,14 +292,14 @@ RSpec.describe UsersController do
       let!(:deploy_key) { create(:deploy_key, user: user) }
 
       shared_examples_for 'renders all public keys' do
-        it 'renders all non-deploy keys separated with a new line with text/plain content type without the comment key' do
+        it 'renders all non-deploy keys terminated with a new line with text/plain content type without the comment key' do
           get "/#{user.username}.keys"
 
           expect(response).to be_successful
           expect(response.media_type).to eq("text/plain")
 
           expect(response.body).not_to eq('')
-          expect(response.body).to eq(user.all_ssh_keys.join("\n"))
+          expect(response.body).to eq(user.all_ssh_keys.map { |key| key + "\n" }.join)
 
           expect(response.body).to include(key.key.sub(' dummy@gitlab.com', ''))
           expect(response.body).to include(another_key.key.sub(' dummy@gitlab.com', ''))
@@ -308,7 +364,7 @@ RSpec.describe UsersController do
       let!(:another_gpg_key) { create(:another_gpg_key, user: user.reload) }
 
       shared_examples_for 'renders all verified GPG keys' do
-        it 'renders all verified keys separated with a new line with text/plain content type' do
+        it 'renders all verified keys terminated with a new line with text/plain content type' do
           get "/#{user.username}.gpg"
 
           expect(response).to be_successful
@@ -316,7 +372,7 @@ RSpec.describe UsersController do
           expect(response.media_type).to eq("text/plain")
 
           expect(response.body).not_to eq('')
-          expect(response.body).to eq(user.gpg_keys.select(&:verified?).map(&:key).join("\n"))
+          expect(response.body).to eq(user.gpg_keys.filter_map { |gpg_key| gpg_key.key + "\n" if gpg_key.verified? }.join)
 
           expect(response.body).to include(gpg_key.key)
           expect(response.body).to include(another_gpg_key.key)
@@ -405,7 +461,7 @@ RSpec.describe UsersController do
 
     context 'forked project' do
       let(:project) { create(:project) }
-      let(:forked_project) { Projects::ForkService.new(project, user).execute }
+      let(:forked_project) { Projects::ForkService.new(project, user).execute[:project] }
 
       before do
         sign_in(user)
@@ -462,6 +518,18 @@ RSpec.describe UsersController do
           get user_calendar_activities_url public_user.username
 
           expect(response.body).not_to be_empty
+        end
+
+        it 'renders the correct url for issues and work items' do
+          work_item = create(:work_item, :task, project: project)
+          issue = create(:issue, project: project)
+          EventCreateService.new.open_issue(work_item, public_user)
+          EventCreateService.new.open_issue(issue, public_user)
+
+          get user_calendar_activities_url public_user.username
+
+          expect(response.body).to include(project_work_item_path(project, work_item.iid))
+          expect(response.body).to include(project_issue_path(project, issue))
         end
 
         it 'avoids N+1 queries', :request_store do
@@ -521,8 +589,6 @@ RSpec.describe UsersController do
       aimed_for_deletion_project.add_developer(private_user)
       create(:push_event, project: project, author: author)
       create(:push_event, project: aimed_for_deletion_project, author: author)
-
-      subject
     end
 
     shared_examples_for 'renders contributed projects' do
@@ -530,16 +596,15 @@ RSpec.describe UsersController do
         expect(response).to have_gitlab_http_status(:ok)
         expect(response.body).not_to be_empty
       end
-
-      it 'does not list projects aimed for deletion' do
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(assigns(:contributed_projects)).to eq([project])
-      end
     end
 
-    %i(html json).each do |format|
-      context "format: #{format}" do
+    %i[html json].each do |format|
+      context "with format: #{format}" do
         let(:format) { format }
+
+        before do
+          subject
+        end
 
         context 'with public profile' do
           let(:author) { public_user }
@@ -558,8 +623,39 @@ RSpec.describe UsersController do
             let(:user) { create(:admin) }
 
             it_behaves_like 'renders contributed projects'
+
+            if format == :json
+              it 'does not list projects aimed for deletion' do
+                expect(response).to have_gitlab_http_status(:ok)
+                expect(response.body).not_to include aimed_for_deletion_project.name
+              end
+            end
           end
         end
+      end
+    end
+
+    describe 'pagination' do
+      let(:author) { public_user }
+      let(:format) { :json }
+      let(:per_page_limit) { 2 }
+
+      before do
+        allow(Kaminari.config).to receive(:default_per_page).and_return(per_page_limit)
+
+        create_list(:project, per_page_limit + 1, :public, :small_repo).each do |small_project|
+          small_project.add_developer(author)
+          create(:push_event, project: small_project, author: author)
+        end
+
+        subject
+      end
+
+      it_behaves_like 'renders contributed projects'
+
+      it 'paginates without count' do
+        expect(assigns(:contributed_projects).size).to eq(per_page_limit)
+        expect(assigns(:contributed_projects)).to be_a(Kaminari::PaginatableWithoutCount)
       end
     end
   end
@@ -584,15 +680,10 @@ RSpec.describe UsersController do
         expect(response).to have_gitlab_http_status(:ok)
         expect(response.body).not_to be_empty
       end
-
-      it 'does not list projects aimed for deletion' do
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(assigns(:starred_projects)).to eq([project])
-      end
     end
 
-    %i(html json).each do |format|
-      context "format: #{format}" do
+    %i[html json].each do |format|
+      context "with format: #{format}" do
         let(:format) { format }
 
         context 'with public profile' do
@@ -612,6 +703,13 @@ RSpec.describe UsersController do
             let(:user) { create(:admin) }
 
             it_behaves_like 'renders starred projects'
+
+            if format == :json
+              it 'does not list projects aimed for deletion' do
+                expect(response).to have_gitlab_http_status(:ok)
+                expect(response.body).not_to include aimed_for_deletion_project.name
+              end
+            end
           end
         end
       end
@@ -702,6 +800,17 @@ RSpec.describe UsersController do
           expect(response.body).to eq(expected_json)
         end
       end
+
+      context 'when a project has the same name as a desired username' do
+        let_it_be(:project) { create(:project, name: 'project-name') }
+
+        it 'returns JSON indicating a user by that username does not exist' do
+          get user_exists_url 'project-name'
+
+          expected_json = { exists: false }.to_json
+          expect(response.body).to eq(expected_json)
+        end
+      end
     end
 
     context 'when the rate limit has been reached' do
@@ -709,9 +818,80 @@ RSpec.describe UsersController do
         ip = '1.2.3.4'
         expect(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).with(:username_exists, scope: ip).and_return(true)
 
-        get user_exists_url(user.username), env: { 'REMOTE_ADDR': ip }
+        get user_exists_url(user.username), env: { REMOTE_ADDR: ip }
 
         expect(response).to have_gitlab_http_status(:too_many_requests)
+      end
+    end
+  end
+
+  describe 'GET #groups' do
+    before do
+      sign_in(user)
+    end
+
+    context 'format html' do
+      it 'renders groups page' do
+        get user_groups_url user.username
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to render_template('show')
+      end
+    end
+
+    context 'format json' do
+      before do
+        setup_data
+      end
+
+      it 'response with groups data' do
+        send_request
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response).to have_key('html')
+      end
+
+      it 'avoids N+1 DB queries', :request_store do
+        # warm up cache so these initial queries would not leak in our QueryRecorder
+        send_request
+
+        control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+          send_request
+        end
+
+        setup_data
+
+        expect do
+          send_request
+        end.to issue_same_number_of_queries_as(control)
+      end
+
+      context 'pagination' do
+        let!(:per_page_limit) { 3 }
+
+        before do
+          allow(Kaminari.config).to receive(:default_per_page).and_return(per_page_limit)
+          create_list(:group, per_page_limit + 2).each { |group| group.add_owner(user) }
+        end
+
+        it 'paginates without count' do
+          get user_groups_url user.username, format: :json
+
+          expect(assigns(:groups).size).to eq(per_page_limit)
+          expect(assigns(:groups)).to be_a(Kaminari::PaginatableWithoutCount)
+        end
+      end
+
+      def setup_data
+        create_list(:group, 2).each do |group|
+          group.add_owner(user)
+          create(:project, group: group)
+          create(:group_member, group: group)
+        end
+      end
+
+      def send_request
+        get user_groups_url user.username, format: :json
       end
     end
   end
@@ -824,6 +1004,81 @@ RSpec.describe UsersController do
             it_behaves_like 'redirects to the canonical path'
           end
         end
+      end
+    end
+  end
+
+  describe 'POST #follow' do
+    context 'when over followee limit' do
+      before do
+        stub_const('Users::UserFollowUser::MAX_FOLLOWEE_LIMIT', 2)
+        sign_in(user)
+      end
+
+      it 'alerts and not follow' do
+        Users::UserFollowUser::MAX_FOLLOWEE_LIMIT.times { user.follow(create(:user)) }
+
+        post user_follow_url(username: public_user.username)
+        expect(response).to be_redirect
+
+        expected_message = format(_("You can't follow more than %{limit} users. To follow more users, unfollow some others."), limit: Users::UserFollowUser::MAX_FOLLOWEE_LIMIT)
+        expect(flash[:alert]).to eq(expected_message)
+        expect(user).not_to be_following(public_user)
+      end
+    end
+
+    context 'when user or followee disabled following' do
+      before do
+        sign_in(user)
+      end
+
+      it 'alerts and not follow if user disabled following' do
+        user.enabled_following = false
+
+        post user_follow_url(username: public_user.username)
+        expect(response).to be_redirect
+
+        expected_message = format(_('Action not allowed.'))
+        expect(flash[:alert]).to eq(expected_message)
+        expect(user).not_to be_following(public_user)
+      end
+
+      it 'alerts and not follow if followee disabled following' do
+        public_user.enabled_following = false
+        public_user.save!
+
+        post user_follow_url(username: public_user.username)
+        expect(response).to be_redirect
+
+        expected_message = format(_('Action not allowed.'))
+        expect(flash[:alert]).to eq(expected_message)
+        expect(user).not_to be_following(public_user)
+      end
+    end
+  end
+
+  describe 'POST #unfollow' do
+    before do
+      sign_in(user)
+    end
+
+    context 'when unfollow is successful' do
+      before do
+        user.follow(public_user)
+      end
+
+      it 'removes the follow relationship and sets a success message' do
+        post user_unfollow_url(username: public_user.username)
+        expect(response).to be_redirect
+        expect(user).not_to be_following(public_user)
+      end
+    end
+
+    context 'when there is an error during unfollow' do
+      it 'sets an error message and redirects' do
+        post user_unfollow_url(username: public_user.username)
+        expect(response).to be_redirect
+        expect(flash[:alert]).to eq(_('Failed to unfollow user'))
       end
     end
   end

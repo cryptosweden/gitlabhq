@@ -2,17 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::DestroyService do
+RSpec.describe Groups::DestroyService, feature_category: :groups_and_projects do
   let!(:user)         { create(:user) }
   let!(:group)        { create(:group) }
   let!(:nested_group) { create(:group, parent: group) }
   let!(:project)      { create(:project, :repository, :legacy_storage, namespace: group) }
-  let!(:notification_setting) { create(:notification_setting, source: group)}
-  let(:gitlab_shell) { Gitlab::Shell.new }
+  let!(:notification_setting) { create(:notification_setting, source: group) }
   let(:remove_path)  { group.path + "+#{group.id}+deleted" }
+  let(:removed_repo) { Gitlab::Git::Repository.new(project.repository_storage, remove_path, nil, nil) }
 
   before do
-    group.add_user(user, Gitlab::Access::OWNER)
+    group.add_member(user, Gitlab::Access::OWNER)
   end
 
   def destroy_group(group, user, async)
@@ -35,6 +35,20 @@ RSpec.describe Groups::DestroyService do
       it { expect(NotificationSetting.unscoped.all).not_to include(notification_setting) }
     end
 
+    context 'bot tokens', :sidekiq_inline do
+      it 'initiates group bot removal', :aggregate_failures do
+        bot = create(:user, :project_bot)
+        group.add_developer(bot)
+        create(:personal_access_token, user: bot)
+
+        destroy_group(group, user, async)
+
+        expect(
+          Users::GhostUserMigration.where(user: bot, initiator_user: user)
+        ).to be_exists
+      end
+    end
+
     context 'mattermost team', :sidekiq_might_not_need_inline do
       let!(:chat_team) { create(:chat_team, namespace: group) }
 
@@ -55,9 +69,19 @@ RSpec.describe Groups::DestroyService do
         end
 
         it 'verifies that paths have been deleted' do
-          expect(TestEnv.storage_dir_exists?(project.repository_storage, group.path)).to be_falsey
-          expect(TestEnv.storage_dir_exists?(project.repository_storage, remove_path)).to be_falsey
+          expect(removed_repo).not_to exist
         end
+      end
+    end
+
+    context 'event store', :sidekiq_might_not_need_inline do
+      it 'publishes a GroupDeletedEvent' do
+        expect { destroy_group(group, user, async) }
+          .to publish_event(Groups::GroupDeletedEvent)
+          .with(
+            group_id: group.id,
+            root_namespace_id: group.root_ancestor.id
+          )
       end
     end
   end
@@ -71,15 +95,8 @@ RSpec.describe Groups::DestroyService do
         Sidekiq::Testing.fake! { destroy_group(group, user, true) }
       end
 
-      after do
-        # Clean up stale directories
-        TestEnv.rm_storage_dir(project.repository_storage, group.path)
-        TestEnv.rm_storage_dir(project.repository_storage, remove_path)
-      end
-
       it 'verifies original paths and projects still exist' do
-        expect(TestEnv.storage_dir_exists?(project.repository_storage, group.path)).to be_truthy
-        expect(TestEnv.storage_dir_exists?(project.repository_storage, remove_path)).to be_falsey
+        expect(removed_repo).not_to exist
         expect(Project.unscoped.count).to eq(1)
         expect(Group.unscoped.count).to eq(2)
       end
@@ -106,7 +123,7 @@ RSpec.describe Groups::DestroyService do
       end
 
       expect { destroy_group(group, user, false) }
-        .to raise_error(Groups::DestroyService::DestroyError, "Project #{project.id} can't be deleted" )
+        .to raise_error(Groups::DestroyService::DestroyError, "Project #{project.id} can't be deleted")
     end
   end
 
@@ -130,7 +147,7 @@ RSpec.describe Groups::DestroyService do
       let!(:project) { create(:project, :legacy_storage, :empty_repo, namespace: group) }
 
       it 'removes repository' do
-        expect(gitlab_shell.repository_exists?(project.repository_storage, "#{project.disk_path}.git")).to be_falsey
+        expect(project.repository.raw).not_to exist
       end
     end
 
@@ -138,7 +155,7 @@ RSpec.describe Groups::DestroyService do
       let!(:project) { create(:project, :empty_repo, namespace: group) }
 
       it 'removes repository' do
-        expect(gitlab_shell.repository_exists?(project.repository_storage, "#{project.disk_path}.git")).to be_falsey
+        expect(project.repository.raw).not_to exist
       end
     end
   end
@@ -168,8 +185,8 @@ RSpec.describe Groups::DestroyService do
       let(:group2_user) { create(:user) }
 
       before do
-        group1.add_user(group1_user, Gitlab::Access::OWNER)
-        group2.add_user(group2_user, Gitlab::Access::OWNER)
+        group1.add_member(group1_user, Gitlab::Access::OWNER)
+        group2.add_member(group2_user, Gitlab::Access::OWNER)
       end
 
       context 'when a project is shared with a group' do
@@ -203,7 +220,7 @@ RSpec.describe Groups::DestroyService do
           let(:group3_user) { create(:user) }
 
           before do
-            group3.add_user(group3_user, Gitlab::Access::OWNER)
+            group3.add_member(group3_user, Gitlab::Access::OWNER)
 
             create(:group_group_link, shared_group: group2, shared_with_group: group3)
             group3.refresh_members_authorized_projects
@@ -257,7 +274,7 @@ RSpec.describe Groups::DestroyService do
         end
 
         context 'the shared_with group is deleted' do
-          let!(:group2_subgroup) { create(:group, :private, parent: group2)}
+          let!(:group2_subgroup) { create(:group, :private, parent: group2) }
           let!(:group2_subgroup_project) { create(:project, :private, group: group2_subgroup) }
 
           it 'updates project authorizations so users of both groups lose access', :aggregate_failures do
@@ -290,7 +307,7 @@ RSpec.describe Groups::DestroyService do
       let!(:shared_with_group_user) { create(:user) }
 
       before do
-        shared_with_group.add_user(shared_with_group_user, Gitlab::Access::MAINTAINER)
+        shared_with_group.add_member(shared_with_group_user, Gitlab::Access::MAINTAINER)
 
         create(:group_group_link, shared_group: shared_group, shared_with_group: shared_with_group)
         shared_with_group.refresh_members_authorized_projects

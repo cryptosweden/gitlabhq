@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Getting versions related to an issue' do
+RSpec.describe 'Getting versions related to an issue', feature_category: :design_management do
   include GraphqlHelpers
   include DesignManagementTestHelpers
 
@@ -73,7 +73,7 @@ RSpec.describe 'Getting versions related to an issue' do
       post_graphql(query, current_user: current_user)
 
       keys = graphql_data.dig(*edges_path).first['node'].keys
-      expect(keys).to match_array(%w(id sha createdAt author))
+      expect(keys).to match_array(%w[id sha createdAt author])
     end
   end
 

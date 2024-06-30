@@ -2,9 +2,21 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Parsers::Security::Common do
+RSpec.describe Gitlab::Ci::Parsers::Security::Common, feature_category: :vulnerability_management do
   describe '#parse!' do
-    where(vulnerability_finding_signatures_enabled: [true, false])
+    let_it_be(:scanner_data) do
+      {
+        scan: {
+          scanner: {
+            id: "gemnasium",
+            name: "Gemnasium",
+            version: "2.1.0"
+          }
+        }
+      }
+    end
+
+    where(signatures_enabled: [true, false])
     with_them do
       let_it_be(:pipeline) { create(:ci_pipeline) }
 
@@ -30,7 +42,9 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
 
       describe 'schema validation' do
         let(:validator_class) { Gitlab::Ci::Parsers::Security::Validators::SchemaValidator }
-        let(:parser) { described_class.new('{}', report, vulnerability_finding_signatures_enabled, validate: validate) }
+        let(:data) { {}.merge(scanner_data) }
+        let(:json_data) { data.to_json }
+        let(:parser) { described_class.new(json_data, report, signatures_enabled: signatures_enabled, validate: validate) }
 
         subject(:parse_report) { parser.parse! }
 
@@ -40,51 +54,34 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
 
         context 'when the validate flag is set to `false`' do
           let(:validate) { false }
-          let(:valid?) { false }
-          let(:errors) { ['foo'] }
 
           before do
-            allow_next_instance_of(validator_class) do |instance|
-              allow(instance).to receive(:valid?).and_return(valid?)
-              allow(instance).to receive(:errors).and_return(errors)
-            end
-
             allow(parser).to receive_messages(create_scanner: true, create_scan: true)
           end
 
-          it 'instantiates the validator with correct params' do
+          it 'does not instantiate the validator' do
             parse_report
 
-            expect(validator_class).to have_received(:new).with(report.type, {}, report.version)
+            expect(validator_class).not_to have_received(:new).with(
+              report.type,
+              data.deep_stringify_keys,
+              report.version,
+              project: pipeline.project,
+              scanner: data.dig(:scan, :scanner).deep_stringify_keys
+            )
           end
 
-          context 'when the report data is not valid according to the schema' do
-            it 'adds warnings to the report' do
-              expect { parse_report }.to change { report.warnings }.from([]).to([{ message: 'foo', type: 'Schema' }])
-            end
+          it 'marks the report as valid' do
+            parse_report
 
-            it 'keeps the execution flow as normal' do
-              parse_report
-
-              expect(parser).to have_received(:create_scanner)
-              expect(parser).to have_received(:create_scan)
-            end
+            expect(report).not_to be_errored
           end
 
-          context 'when the report data is valid according to the schema' do
-            let(:valid?) { true }
-            let(:errors) { [] }
+          it 'keeps the execution flow as normal' do
+            parse_report
 
-            it 'does not add warnings to the report' do
-              expect { parse_report }.not_to change { report.errors }
-            end
-
-            it 'keeps the execution flow as normal' do
-              parse_report
-
-              expect(parser).to have_received(:create_scanner)
-              expect(parser).to have_received(:create_scan)
-            end
+            expect(parser).to have_received(:create_scanner)
+            expect(parser).to have_received(:create_scan)
           end
         end
 
@@ -92,11 +89,13 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
           let(:validate) { true }
           let(:valid?) { false }
           let(:errors) { ['foo'] }
+          let(:warnings) { ['bar'] }
 
           before do
             allow_next_instance_of(validator_class) do |instance|
               allow(instance).to receive(:valid?).and_return(valid?)
               allow(instance).to receive(:errors).and_return(errors)
+              allow(instance).to receive(:warnings).and_return(warnings)
             end
 
             allow(parser).to receive_messages(create_scanner: true, create_scan: true)
@@ -105,12 +104,28 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
           it 'instantiates the validator with correct params' do
             parse_report
 
-            expect(validator_class).to have_received(:new).with(report.type, {}, report.version)
+            expect(validator_class).to have_received(:new).with(
+              report.type,
+              data.deep_stringify_keys,
+              report.version,
+              project: pipeline.project,
+              scanner: data.dig(:scan, :scanner).deep_stringify_keys
+            )
           end
 
           context 'when the report data is not valid according to the schema' do
             it 'adds errors to the report' do
-              expect { parse_report }.to change { report.errors }.from([]).to([{ message: 'foo', type: 'Schema' }])
+              expect { parse_report }.to change { report.errors }.from([]).to(
+                [
+                  { message: 'foo', type: 'Schema' }
+                ]
+              )
+            end
+
+            it 'marks the report as invalid' do
+              parse_report
+
+              expect(report).to be_errored
             end
 
             it 'does not try to create report entities' do
@@ -124,9 +139,30 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
           context 'when the report data is valid according to the schema' do
             let(:valid?) { true }
             let(:errors) { [] }
+            let(:warnings) { [] }
 
             it 'does not add errors to the report' do
               expect { parse_report }.not_to change { report.errors }.from([])
+            end
+
+            context 'and no warnings are present' do
+              let(:warnings) { [] }
+
+              it 'does not add warnings to the report' do
+                expect { parse_report }.not_to change { report.warnings }.from([])
+              end
+            end
+
+            context 'and some warnings are present' do
+              let(:warnings) { ['bar'] }
+
+              it 'does add warnings to the report' do
+                expect { parse_report }.to change { report.warnings }.from([]).to(
+                  [
+                    { message: 'bar', type: 'Schema' }
+                  ]
+                )
+              end
             end
 
             it 'keeps the execution flow as normal' do
@@ -141,49 +177,53 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
 
       context 'report parsing' do
         before do
-          artifact.each_blob { |blob| described_class.parse!(blob, report, vulnerability_finding_signatures_enabled) }
+          artifact.each_blob { |blob| described_class.parse!(blob, report, signatures_enabled: signatures_enabled) }
         end
 
         describe 'parsing finding.name' do
           let(:artifact) { build(:ci_job_artifact, :common_security_report_with_blank_names) }
 
-          context 'when message is provided' do
-            it 'sets message from the report as a finding name' do
-              finding = report.findings.find { |x| x.compare_key == 'CVE-1020' }
-              expected_name = Gitlab::Json.parse(finding.raw_metadata)['message']
+          context 'when name is provided' do
+            it 'sets name from the report as a name' do
+              finding = report.findings.second
+              expected_name = Gitlab::Json.parse(finding.raw_metadata)['name']
 
               expect(finding.name).to eq(expected_name)
             end
           end
 
-          context 'when message is not provided' do
-            context 'and name is provided' do
-              it 'sets name from the report as a name' do
-                finding = report.findings.find { |x| x.compare_key == 'CVE-1030' }
-                expected_name = Gitlab::Json.parse(finding.raw_metadata)['name']
+          context 'when name is not provided' do
+            context 'when location does not exist' do
+              let(:location) { nil }
 
-                expect(finding.name).to eq(expected_name)
+              it 'returns only identifier name' do
+                finding = report.findings.third
+
+                expect(finding.name).to eq("CVE-2017-11429")
               end
             end
 
-            context 'and name is not provided' do
+            context 'when location exists' do
               context 'when CVE identifier exists' do
                 it 'combines identifier with location to create name' do
-                  finding = report.findings.find { |x| x.compare_key == 'CVE-2017-11429' }
+                  finding = report.findings.third
+
                   expect(finding.name).to eq("CVE-2017-11429 in yarn.lock")
                 end
               end
 
               context 'when CWE identifier exists' do
                 it 'combines identifier with location to create name' do
-                  finding = report.findings.find { |x| x.compare_key == 'CWE-2017-11429' }
+                  finding = report.findings.fourth
+
                   expect(finding.name).to eq("CWE-2017-11429 in yarn.lock")
                 end
               end
 
               context 'when neither CVE nor CWE identifier exist' do
                 it 'combines identifier with location to create name' do
-                  finding = report.findings.find { |x| x.compare_key == 'OTHER-2017-11429' }
+                  finding = report.findings.fifth
+
                   expect(finding.name).to eq("other-2017-11429 in yarn.lock")
                 end
               end
@@ -193,8 +233,9 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
 
         describe 'parsing finding.details' do
           context 'when details are provided' do
+            let(:finding) { report.findings[4] }
+
             it 'sets details from the report' do
-              finding = report.findings.find { |x| x.compare_key == 'CVE-1020' }
               expected_details = Gitlab::Json.parse(finding.raw_metadata)['details']
 
               expect(finding.details).to eq(expected_details)
@@ -202,8 +243,9 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
           end
 
           context 'when details are not provided' do
+            let(:finding) { report.findings[5] }
+
             it 'sets empty hash' do
-              finding = report.findings.find { |x| x.compare_key == 'CVE-1030' }
               expect(finding.details).to eq({})
             end
           end
@@ -212,7 +254,7 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
         describe 'top-level scanner' do
           it 'is the primary scanner' do
             expect(report.primary_scanner.external_id).to eq('gemnasium')
-            expect(report.primary_scanner.name).to eq('Gemnasium')
+            expect(report.primary_scanner.name).to eq('Gemnasium top-level')
             expect(report.primary_scanner.vendor).to eq('GitLab')
             expect(report.primary_scanner.version).to eq('2.18.0')
           end
@@ -228,9 +270,17 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
         describe 'parsing scanners' do
           subject(:scanner) { report.findings.first.scanner }
 
-          context 'when vendor is not missing in scanner' do
-            it 'returns scanner with parsed vendor value' do
-              expect(scanner.vendor).to eq('GitLab')
+          context 'when the report contains top-level scanner' do
+            it 'sets the scanner of finding as top-level scanner' do
+              expect(scanner.name).to eq('Gemnasium top-level')
+            end
+          end
+
+          context 'when the report does not contain top-level scanner' do
+            let(:artifact) { build(:ci_job_artifact, :common_security_report_without_top_level_scanner) }
+
+            it 'sets the scanner of finding as `vulnerabilities[].scanner`' do
+              expect(scanner.name).to eq('Gemnasium')
             end
           end
         end
@@ -240,9 +290,9 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
             scans = report.findings.map(&:scan)
 
             expect(scans.map(&:status).all?('success')).to be(true)
-            expect(scans.map(&:start_time).all?('placeholder-value')).to be(true)
-            expect(scans.map(&:end_time).all?('placeholder-value')).to be(true)
-            expect(scans.size).to eq(3)
+            expect(scans.map(&:start_time).all?('2022-08-10T21:37:00')).to be(true)
+            expect(scans.map(&:end_time).all?('2022-08-10T21:38:00')).to be(true)
+            expect(scans.size).to eq(7)
             expect(scans.first).to be_a(::Gitlab::Ci::Reports::Security::Scan)
           end
 
@@ -289,7 +339,7 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
 
             expect(flags).to contain_exactly(
               have_attributes(type: 'flagged-as-likely-false-positive', origin: 'post analyzer X', description: 'static string to sink'),
-            have_attributes(type: 'flagged-as-likely-false-positive', origin: 'post analyzer Y', description: 'integer to sink')
+              have_attributes(type: 'flagged-as-likely-false-positive', origin: 'post analyzer Y', description: 'integer to sink')
             )
           end
         end
@@ -298,22 +348,37 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
           it 'returns links object for each finding', :aggregate_failures do
             links = report.findings.flat_map(&:links)
 
-            expect(links.map(&:url)).to match_array(['https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-1020', 'https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-1030'])
-            expect(links.map(&:name)).to match_array([nil, 'CVE-1030'])
-            expect(links.size).to eq(2)
+            expect(links.map(&:url)).to match_array(['https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-1020', 'https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-1030',
+                                                     "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-2137", "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-2138",
+                                                     "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-2139", "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-2140"])
+            expect(links.map(&:name)).to match_array([nil, nil, nil, nil, nil, 'CVE-1030'])
+            expect(links.size).to eq(6)
             expect(links.first).to be_a(::Gitlab::Ci::Reports::Security::Link)
           end
         end
 
         describe 'parsing evidence' do
-          it 'returns evidence object for each finding', :aggregate_failures do
-            evidences = report.findings.map(&:evidence)
+          RSpec::Matchers.define_negated_matcher :have_values, :be_empty
 
-            expect(evidences.first.data).not_to be_empty
-            expect(evidences.first.data["summary"]).to match(/The Origin header was changed/)
-            expect(evidences.size).to eq(3)
-            expect(evidences.compact.size).to eq(2)
-            expect(evidences.first).to be_a(::Gitlab::Ci::Reports::Security::Evidence)
+          it 'returns evidence object for each finding', :aggregate_failures do
+            all_evidences = report.findings.map(&:evidence)
+            evidences = all_evidences.compact
+            data = evidences.map(&:data)
+            summaries = evidences.map { |e| e.data["summary"] }
+
+            expect(all_evidences.size).to eq(7)
+            expect(evidences.size).to eq(2)
+            expect(evidences).to all( be_a(::Gitlab::Ci::Reports::Security::Evidence) )
+            expect(data).to all( have_values )
+            expect(summaries).to all( match(/The Origin header was changed/) )
+          end
+        end
+
+        describe 'setting CVSS' do
+          let(:cvss_vectors) { report.findings.filter_map(&:cvss).reject(&:empty?) }
+
+          it 'ingests the provided CVSS vectors' do
+            expect(cvss_vectors.count).to eq(1)
           end
         end
 
@@ -348,52 +413,50 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
           end
         end
 
-        describe 'parsing tracking' do
-          let(:tracking_data) do
-            {
-            'type' => 'source',
-            'items' => [
-            'signatures' => [
-            { 'algorithm' => 'hash', 'value' => 'hash_value' },
-            { 'algorithm' => 'location', 'value' => 'location_value' },
-            { 'algorithm' => 'scope_offset', 'value' => 'scope_offset_value' }
-            ]
-            ]
-            }
-          end
+        describe 'setting the `found_by_pipeline` attribute' do
+          subject { report.findings.map(&:found_by_pipeline).uniq }
 
-          context 'with valid tracking information' do
-            it 'creates signatures for each algorithm' do
-              finding = report.findings.first
-              expect(finding.signatures.size).to eq(3)
-              expect(finding.signatures.map(&:algorithm_type).to_set).to eq(Set['hash', 'location', 'scope_offset'])
-            end
-          end
+          it { is_expected.to eq([pipeline]) }
+        end
+
+        describe 'parsing tracking' do
+          let(:finding) { report.findings.first }
 
           context 'with invalid tracking information' do
             let(:tracking_data) do
               {
-              'type' => 'source',
-              'items' => [
-              'signatures' => [
-              { 'algorithm' => 'hash', 'value' => 'hash_value' },
-              { 'algorithm' => 'location', 'value' => 'location_value' },
-              { 'algorithm' => 'INVALID', 'value' => 'scope_offset_value' }
-              ]
-              ]
+                'type' => 'source',
+                'items' => [
+                  'signatures' => [
+                    { 'algorithm' => 'hash', 'value' => 'hash_value' },
+                    { 'algorithm' => 'location', 'value' => 'location_value' },
+                    { 'algorithm' => 'INVALID', 'value' => 'scope_offset_value' }
+                  ]
+                ]
               }
             end
 
             it 'ignores invalid algorithm types' do
-              finding = report.findings.first
               expect(finding.signatures.size).to eq(2)
               expect(finding.signatures.map(&:algorithm_type).to_set).to eq(Set['hash', 'location'])
             end
           end
 
           context 'with valid tracking information' do
+            let(:tracking_data) do
+              {
+                'type' => 'source',
+                'items' => [
+                  'signatures' => [
+                    { 'algorithm' => 'hash', 'value' => 'hash_value' },
+                    { 'algorithm' => 'location', 'value' => 'location_value' },
+                    { 'algorithm' => 'scope_offset', 'value' => 'scope_offset_value' }
+                  ]
+                ]
+              }
+            end
+
             it 'creates signatures for each signature algorithm' do
-              finding = report.findings.first
               expect(finding.signatures.size).to eq(3)
               expect(finding.signatures.map(&:algorithm_type)).to eq(%w[hash location scope_offset])
 
@@ -405,10 +468,9 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
             end
 
             it 'sets the uuid according to the higest priority signature' do
-              finding = report.findings.first
               highest_signature = finding.signatures.max_by(&:priority)
 
-              identifiers = if vulnerability_finding_signatures_enabled
+              identifiers = if signatures_enabled
                               "#{finding.report_type}-#{finding.primary_identifier.fingerprint}-#{highest_signature.signature_hex}-#{report.project_id}"
                             else
                               "#{finding.report_type}-#{finding.primary_identifier.fingerprint}-#{finding.location.fingerprint}-#{report.project_id}"
@@ -416,6 +478,26 @@ RSpec.describe Gitlab::Ci::Parsers::Security::Common do
 
               expect(finding.uuid).to eq(Gitlab::UUID.v5(identifiers))
             end
+          end
+        end
+
+        describe 'handling the unicode null characters' do
+          let(:artifact) { build(:ci_job_artifact, :common_security_report_with_unicode_null_character) }
+
+          it 'escapes the unicode null characters while parsing the report' do
+            finding = report.findings.first
+
+            expect(finding.solution).to eq('Upgrade to latest version.\u0000')
+          end
+
+          it 'does not introduce a Unicode null character while trying to escape an already escaped null character' do
+            finding = report.findings.first
+
+            expect(finding.description).to eq('This string does not contain a Unicode null character \\\\u0000')
+          end
+
+          it 'adds warning to report' do
+            expect(report.warnings).to include({ type: 'Parsing', message: 'Report artifact contained unicode null characters which are escaped during the ingestion.' })
           end
         end
       end

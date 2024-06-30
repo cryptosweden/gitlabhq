@@ -41,6 +41,7 @@ export default {
   <gl-empty-state
     :title="s__('ContainerRegistry|There are no container images stored for this project')"
     :svg-path="config.noContainersImage"
+    :svg-height="null"
   >
     <template #description>
       <p>
@@ -68,7 +69,7 @@ export default {
           :value="dockerLoginCommand"
           readonly
           type="text"
-          class="gl-font-monospace!"
+          class="!gl-font-monospace"
         />
         <template #append>
           <clipboard-button
@@ -86,7 +87,7 @@ export default {
           :value="dockerBuildCommand"
           readonly
           type="text"
-          class="gl-font-monospace!"
+          class="!gl-font-monospace"
         />
         <template #append>
           <clipboard-button
@@ -97,7 +98,7 @@ export default {
         </template>
       </gl-form-input-group>
       <gl-form-input-group>
-        <gl-form-input :value="dockerPushCommand" readonly type="text" class="gl-font-monospace!" />
+        <gl-form-input :value="dockerPushCommand" readonly type="text" class="!gl-font-monospace" />
         <template #append>
           <clipboard-button
             :text="dockerPushCommand"

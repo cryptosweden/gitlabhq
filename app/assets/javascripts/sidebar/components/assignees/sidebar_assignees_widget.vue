@@ -1,15 +1,18 @@
 <script>
 import { GlDropdownItem } from '@gitlab/ui';
 import Vue from 'vue';
-import createFlash from '~/flash';
-import { IssuableType } from '~/issues/constants';
+import { createAlert } from '~/alert';
+import { TYPE_ALERT, TYPE_ISSUE, TYPE_MERGE_REQUEST } from '~/issues/constants';
 import { __, n__ } from '~/locale';
-import SidebarAssigneesRealtime from '~/sidebar/components/assignees/assignees_realtime.vue';
-import IssuableAssignees from '~/sidebar/components/assignees/issuable_assignees.vue';
-import SidebarEditableItem from '~/sidebar/components/sidebar_editable_item.vue';
-import { assigneesQueries } from '~/sidebar/constants';
 import UserSelect from '~/vue_shared/components/user_select/user_select.vue';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { keysFor, ISSUE_MR_CHANGE_ASSIGNEE } from '~/behaviors/shortcuts/keybindings';
+import { shouldDisableShortcuts } from '~/behaviors/shortcuts/shortcuts_toggle';
+import { sanitize } from '~/lib/dompurify';
+import { assigneesQueries } from '../../queries/constants';
+import SidebarEditableItem from '../sidebar_editable_item.vue';
+import SidebarAssigneesRealtime from './assignees_realtime.vue';
+import IssuableAssignees from './issuable_assignees.vue';
 import SidebarInviteMembers from './sidebar_invite_members.vue';
 
 export const assigneesWidget = Vue.observable({
@@ -25,7 +28,7 @@ export default {
     unassigned: __('Unassigned'),
     assignee: __('Assignee'),
     assignees: __('Assignees'),
-    assignTo: __('Assign to'),
+    assignTo: __('Select assignees'),
   },
   components: {
     SidebarEditableItem,
@@ -58,9 +61,9 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: IssuableType.Issue,
+      default: TYPE_ISSUE,
       validator(value) {
-        return [IssuableType.Issue, IssuableType.MergeRequest, IssuableType.Alert].includes(value);
+        return [TYPE_ISSUE, TYPE_MERGE_REQUEST, TYPE_ALERT].includes(value);
       },
     },
     issuableId: {
@@ -69,6 +72,10 @@ export default {
       default: null,
     },
     allowMultipleAssignees: {
+      type: Boolean,
+      required: true,
+    },
+    editable: {
       type: Boolean,
       required: true,
     },
@@ -94,6 +101,9 @@ export default {
       update(data) {
         return data.workspace?.issuable;
       },
+      skip() {
+        return !this.iid;
+      },
       result({ data }) {
         if (!data) {
           return;
@@ -107,14 +117,14 @@ export default {
         }
       },
       error() {
-        createFlash({ message: __('An error occurred while fetching participants.') });
+        createAlert({ message: __('An error occurred while fetching participants.') });
       },
     },
   },
   computed: {
     shouldEnableRealtime() {
       // Note: Realtime is only available on issues right now, future support for MR wil be built later.
-      return this.issuableType === IssuableType.Issue;
+      return this.issuableType === TYPE_ISSUE;
     },
     queryVariables() {
       return {
@@ -148,6 +158,22 @@ export default {
     },
     signedIn() {
       return this.currentUser.username !== undefined;
+    },
+    issuableAuthor() {
+      return this.issuable?.author;
+    },
+    assigneeShortcutDescription() {
+      return shouldDisableShortcuts() ? null : ISSUE_MR_CHANGE_ASSIGNEE.description;
+    },
+    assigneeShortcutKey() {
+      return shouldDisableShortcuts() ? null : keysFor(ISSUE_MR_CHANGE_ASSIGNEE)[0];
+    },
+    assigneeTooltip() {
+      const description = this.assigneeShortcutDescription;
+      const key = this.assigneeShortcutKey;
+      return shouldDisableShortcuts()
+        ? null
+        : sanitize(`${description} <kbd class="flat gl-ml-1" aria-hidden=true>${key}</kbd>`);
     },
   },
   watch: {
@@ -184,7 +210,7 @@ export default {
           return data;
         })
         .catch(() => {
-          createFlash({ message: __('An error occurred while updating assignees.') });
+          createAlert({ message: __('An error occurred while updating assignees.') });
         })
         .finally(() => {
           this.isSettingAssignees = false;
@@ -213,7 +239,7 @@ export default {
       this.$refs.userSelect.showDropdown();
     },
     showError() {
-      createFlash({ message: __('An error occurred while fetching participants.') });
+      createAlert({ message: __('An error occurred while fetching participants.') });
     },
     setDirtyState() {
       this.isDirty = true;
@@ -232,12 +258,16 @@ export default {
       :issuable-type="issuableType"
       :issuable-id="issuableId"
       :query-variables="queryVariables"
+      @assigneesUpdated="$emit('assignees-updated', $event)"
     />
     <sidebar-editable-item
       ref="toggle"
       :loading="isSettingAssignees"
       :initial-loading="isAssigneesLoading"
       :title="assigneeText"
+      :edit-tooltip="assigneeTooltip"
+      :edit-aria-label="assigneeShortcutDescription"
+      :edit-keyshortcuts="assigneeShortcutKey"
       :is-dirty="isDirty"
       @open="showDropdown"
       @close="saveAssignees"
@@ -248,6 +278,7 @@ export default {
           :users="assignees"
           :issuable-type="issuableType"
           :signed-in="signedIn"
+          :editable="editable"
           @assign-self="assignSelf"
           @expand-widget="expandWidget"
         />
@@ -265,7 +296,8 @@ export default {
           :current-user="currentUser"
           :issuable-type="issuableType"
           :is-editing="edit"
-          class="gl-w-full dropdown-menu-user gl-mt-n3"
+          :issuable-author="issuableAuthor"
+          class="gl-w-full dropdown-menu-user -gl-mt-3"
           @toggle="collapseWidget"
           @error="showError"
           @input="setDirtyState"

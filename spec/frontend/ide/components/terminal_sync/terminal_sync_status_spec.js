@@ -1,6 +1,7 @@
 import { GlLoadingIcon, GlIcon } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import TerminalSyncStatus from '~/ide/components/terminal_sync/terminal_sync_status.vue';
 import {
@@ -48,10 +49,6 @@ describe('ide/components/terminal_sync/terminal_sync_status', () => {
     };
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('when doing nothing', () => {
     it('shows nothing', () => {
       createComponent();
@@ -78,19 +75,19 @@ describe('ide/components/terminal_sync/terminal_sync_status', () => {
 
     if (!icon) {
       it('does not render icon', () => {
-        expect(wrapper.find(GlIcon).exists()).toBe(false);
+        expect(wrapper.findComponent(GlIcon).exists()).toBe(false);
       });
 
       it('renders loading icon', () => {
-        expect(wrapper.find(GlLoadingIcon).exists()).toBe(true);
+        expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
       });
     } else {
       it('renders icon', () => {
-        expect(wrapper.find(GlIcon).props('name')).toEqual(icon);
+        expect(wrapper.findComponent(GlIcon).props('name')).toEqual(icon);
       });
 
       it('does not render loading icon', () => {
-        expect(wrapper.find(GlLoadingIcon).exists()).toBe(false);
+        expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(false);
       });
     }
   });

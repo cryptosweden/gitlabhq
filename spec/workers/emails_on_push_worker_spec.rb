@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe EmailsOnPushWorker, :mailer do
-  include RepoHelpers
+RSpec.describe EmailsOnPushWorker, :mailer, feature_category: :source_code_management do
   include EmailSpec::Matchers
 
-  let(:project) { create(:project, :repository) }
-  let(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :repository) }
+  let_it_be(:user) { create(:user) }
+
   let(:data) { Gitlab::DataBuilder::Push.build_sample(project, user) }
   let(:recipients) { user.email }
   let(:perform) { subject.perform(project.id, recipients, data.stringify_keys) }
@@ -18,7 +18,7 @@ RSpec.describe EmailsOnPushWorker, :mailer do
   describe "#perform" do
     context "when push is a new branch" do
       before do
-        data_new_branch = data.stringify_keys.merge("before" => Gitlab::Git::BLANK_SHA)
+        data_new_branch = data.stringify_keys.merge("before" => Gitlab::Git::SHA1_BLANK_SHA)
 
         subject.perform(project.id, recipients, data_new_branch)
       end
@@ -34,7 +34,7 @@ RSpec.describe EmailsOnPushWorker, :mailer do
 
     context "when push is a deleted branch" do
       before do
-        data_deleted_branch = data.stringify_keys.merge("after" => Gitlab::Git::BLANK_SHA)
+        data_deleted_branch = data.stringify_keys.merge("after" => Gitlab::Git::SHA1_BLANK_SHA)
 
         subject.perform(project.id, recipients, data_deleted_branch)
       end
@@ -51,7 +51,7 @@ RSpec.describe EmailsOnPushWorker, :mailer do
     context "when push is a force push to delete commits" do
       before do
         data_force_push = data.stringify_keys.merge(
-          "after"  => data[:before],
+          "after" => data[:before],
           "before" => data[:after]
         )
 
@@ -91,7 +91,7 @@ RSpec.describe EmailsOnPushWorker, :mailer do
 
     context "when there is an SMTP error" do
       before do
-        allow(Notify).to receive(:repository_push_email).and_raise(Net::SMTPFatalError)
+        allow(Notify).to receive(:repository_push_email).and_raise(Net::SMTPFatalError.new(nil))
         allow(subject).to receive_message_chain(:logger, :info)
         perform
       end

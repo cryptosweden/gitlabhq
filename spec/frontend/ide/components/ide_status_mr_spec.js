@@ -14,12 +14,8 @@ describe('ide/components/ide_status_mr', () => {
       propsData: props,
     });
   };
-  const findIcon = () => wrapper.find(GlIcon);
-  const findLink = () => wrapper.find(GlLink);
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findIcon = () => wrapper.findComponent(GlIcon);
+  const findLink = () => wrapper.findComponent(GlLink);
 
   describe('when mounted', () => {
     beforeEach(() => {

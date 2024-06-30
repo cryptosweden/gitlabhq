@@ -1,13 +1,17 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# irker IRC Gateway **(FREE)**
+# irker (IRC gateway)
 
-GitLab provides a way to push update messages to an irker server. When
-configured, pushes to a project trigger the service to send data directly
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+GitLab provides a way to push update messages to an irker server. After you configure
+the integration, each push to a project triggers the integration to send data directly
 to the irker server.
 
 See also the [irker integration API documentation](../../../api/integrations.md).
@@ -39,9 +43,8 @@ network. For more details, read
 
 ## Complete these steps in GitLab
 
-1. On the top bar, select **Menu > Projects** and find the project you want to
-   configure for notifications.
-1. Navigate to the [Integrations page](overview.md#accessing-integrations).
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Integrations**.
 1. Select **irker (IRC gateway)**.
 1. Ensure that the **Active** toggle is enabled.
 1. Optional. Under **Server host**, enter the server host address where `irkerd` runs. If empty,
@@ -51,8 +54,9 @@ network. For more details, read
    It's prepended to every channel or user provided under **Recipients**, which is not a full URI.
 1. Under **Recipients**, enter the users or channels to receive updates, separated by spaces
    (for example, `#channel1 user1`). For more details, see [Enter irker recipients](#enter-irker-recipients).
-1. Optional. Under **Colorize messages**, select the checkbox. irker will highlight your messages.
-1. Select **Save changes** or optionally select **Test Settings**.
+1. Optional. To highlight messages, select the **Colorize messages** checkbox.
+1. Optional. Select **Test settings**.
+1. Select **Save changes**.
 
 ## Enter irker recipients
 

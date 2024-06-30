@@ -3,13 +3,14 @@
 module API
   module Helpers
     module PaginationStrategies
-      def paginate_with_strategies(relation, request_scope = nil)
+      # paginator_params are only currently supported with offset pagination
+      def paginate_with_strategies(relation, request_scope = nil, paginator_params: {})
         paginator = paginator(relation, request_scope)
 
         result = if block_given?
-                   yield(paginator.paginate(relation))
+                   yield(paginator.paginate(relation, **paginator_params))
                  else
-                   paginator.paginate(relation)
+                   paginator.paginate(relation, **paginator_params)
                  end
 
         result.tap do |records, _|
@@ -49,6 +50,7 @@ module API
         offset_limit = limit_for_scope(request_scope)
         if (Gitlab::Pagination::Keyset.available_for_type?(relation) ||
             cursor_based_keyset_pagination_supported?(relation)) &&
+            cursor_based_keyset_pagination_enforced?(request_scope, relation) &&
             offset_limit_exceeded?(offset_limit)
 
           return error!("Offset pagination has a maximum allowed offset of #{offset_limit} " \
@@ -61,6 +63,10 @@ module API
 
       def cursor_based_keyset_pagination_supported?(relation)
         Gitlab::Pagination::CursorBasedKeyset.available_for_type?(relation)
+      end
+
+      def cursor_based_keyset_pagination_enforced?(request_scope, relation)
+        Gitlab::Pagination::CursorBasedKeyset.enforced_for_type?(request_scope, relation)
       end
 
       def keyset_pagination_enabled?

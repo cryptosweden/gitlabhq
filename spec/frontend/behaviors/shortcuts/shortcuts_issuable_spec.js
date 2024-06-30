@@ -1,5 +1,6 @@
 import $ from 'jquery';
-import Mousetrap from 'mousetrap';
+import htmlSnippetsShow from 'test_fixtures/snippets/show.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import waitForPromises from 'helpers/wait_for_promises';
 import initCopyAsGFM, { CopyAsGFM } from '~/behaviors/markdown/copy_as_gfm';
 import ShortcutsIssuable from '~/behaviors/shortcuts/shortcuts_issuable';
@@ -10,10 +11,9 @@ jest.mock('~/lib/utils/common_utils', () => ({
   getSelectedFragment: jest.fn().mockName('getSelectedFragment'),
 }));
 
-describe('ShortcutsIssuable', () => {
-  const snippetShowFixtureName = 'snippets/show.html';
-  const mrShowFixtureName = 'merge_requests/merge_request_of_current_user.html';
+jest.mock('~/emoji');
 
+describe('ShortcutsIssuable', () => {
   beforeAll(() => {
     initCopyAsGFM();
 
@@ -22,24 +22,22 @@ describe('ShortcutsIssuable', () => {
   });
 
   describe('replyWithSelectedText', () => {
-    const FORM_SELECTOR = '.js-main-target-form .js-vue-comment-form';
+    const FORM_SELECTOR = '.js-main-target-form .js-gfm-input';
 
     beforeEach(() => {
-      loadFixtures(snippetShowFixtureName);
+      setHTMLFixture(htmlSnippetsShow);
       $('body').append(
         `<div class="js-main-target-form">
-          <textarea class="js-vue-comment-form"></textarea>
+          <textarea class="js-gfm-input"></textarea>
         </div>`,
       );
       document.querySelector('.js-new-note-form').classList.add('js-main-target-form');
-
-      window.shortcut = new ShortcutsIssuable(true);
     });
 
     afterEach(() => {
       $(FORM_SELECTOR).remove();
 
-      delete window.shortcut;
+      resetHTMLFixture();
     });
 
     // Stub getSelectedFragment to return a node with the provided HTML.
@@ -55,6 +53,15 @@ describe('ShortcutsIssuable', () => {
         return documentFragment;
       });
     };
+
+    it('sets up commands on instantiation', () => {
+      const mockShortcutsInstance = { addAll: jest.fn() };
+
+      // eslint-disable-next-line no-new
+      new ShortcutsIssuable(mockShortcutsInstance);
+
+      expect(mockShortcutsInstance.addAll).toHaveBeenCalled();
+    });
 
     describe('with empty selection', () => {
       it('does not return an error', () => {
@@ -210,7 +217,7 @@ describe('ShortcutsIssuable', () => {
         ShortcutsIssuable.replyWithSelectedText(true);
 
         await waitForPromises();
-        expect($(FORM_SELECTOR).val()).toBe('> *Selected text.*\n\n');
+        expect($(FORM_SELECTOR).val()).toBe('> _Selected text._\n\n');
       });
 
       it('triggers `focus`', async () => {
@@ -277,57 +284,6 @@ describe('ShortcutsIssuable', () => {
 
         await waitForPromises();
         expect($(FORM_SELECTOR).val()).toBe('> ![logo](https://gitlab.com/logo.png)\n\n');
-      });
-    });
-  });
-
-  describe('copyBranchName', () => {
-    let sidebarCollapsedBtn;
-    let sidebarExpandedBtn;
-
-    beforeEach(() => {
-      loadFixtures(mrShowFixtureName);
-
-      window.shortcut = new ShortcutsIssuable();
-
-      [sidebarCollapsedBtn, sidebarExpandedBtn] = document.querySelectorAll(
-        '.js-sidebar-source-branch button',
-      );
-
-      [sidebarCollapsedBtn, sidebarExpandedBtn].forEach((btn) => jest.spyOn(btn, 'click'));
-    });
-
-    afterEach(() => {
-      delete window.shortcut;
-    });
-
-    describe('when the sidebar is expanded', () => {
-      beforeEach(() => {
-        // simulate the applied CSS styles when the
-        // sidebar is expanded
-        sidebarCollapsedBtn.style.display = 'none';
-
-        Mousetrap.trigger('b');
-      });
-
-      it('clicks the "expanded" version of the copy source branch button', () => {
-        expect(sidebarExpandedBtn.click).toHaveBeenCalled();
-        expect(sidebarCollapsedBtn.click).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('when the sidebar is collapsed', () => {
-      beforeEach(() => {
-        // simulate the applied CSS styles when the
-        // sidebar is collapsed
-        sidebarExpandedBtn.style.display = 'none';
-
-        Mousetrap.trigger('b');
-      });
-
-      it('clicks the "collapsed" version of the copy source branch button', () => {
-        expect(sidebarCollapsedBtn.click).toHaveBeenCalled();
-        expect(sidebarExpandedBtn.click).not.toHaveBeenCalled();
       });
     });
   });

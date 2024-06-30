@@ -10,10 +10,15 @@ module API
       expose :project_creation_level_str, as: :project_creation_level
       expose :auto_devops_enabled
       expose :subgroup_creation_level_str, as: :subgroup_creation_level
-      expose :emails_disabled
+      expose(:emails_disabled, documentation: { type: 'boolean' }) { |group, options| group.emails_disabled? }
+      expose :emails_enabled, documentation: { type: 'boolean' }
       expose :mentions_disabled
       expose :lfs_enabled?, as: :lfs_enabled
+      expose :math_rendering_limits_enabled, documentation: { type: 'boolean' }
+      expose :lock_math_rendering_limits_enabled, documentation: { type: 'boolean' }
+      expose :default_branch_name, as: :default_branch
       expose :default_branch_protection
+      expose :default_branch_protection_settings, as: :default_branch_protection_defaults
       expose :avatar_url do |group, options|
         group.avatar_url(only_path: false)
       end
@@ -21,11 +26,13 @@ module API
       expose :full_name, :full_path
       expose :created_at
       expose :parent_id
+      expose :organization_id
+      expose :shared_runners_setting
 
       expose :custom_attributes, using: 'API::Entities::CustomAttribute', if: :with_custom_attributes
 
       expose :statistics, if: :statistics do
-        with_options format_with: -> (value) { value.to_i } do
+        with_options format_with: ->(value) { value.to_i } do
           expose :storage_size
           expose :repository_size
           expose :wiki_size

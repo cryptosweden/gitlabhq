@@ -8,7 +8,7 @@ import {
 
 export default {
   i18n: {
-    toggleLabel: s__('ContainerRegistry|Enable expiration policy'),
+    toggleLabel: s__('ContainerRegistry|Enable cleanup policy'),
   },
   components: {
     GlFormGroup,
@@ -53,7 +53,7 @@ export default {
         label-position="hidden"
         :disabled="disabled"
       />
-      <span class="gl-ml-5 gl-line-height-24" data-testid="description">
+      <span class="gl-ml-5 gl-leading-24" data-testid="description">
         <gl-sprintf :message="toggleText">
           <template #strong="{ content }">
             <strong>{{ content }}</strong>

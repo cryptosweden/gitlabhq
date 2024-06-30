@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe LimitedCapacity::JobTracker, :clean_gitlab_redis_queues do
+RSpec.describe LimitedCapacity::JobTracker, :clean_gitlab_redis_shared_state, feature_category: :shared do
   let(:job_tracker) do
     described_class.new('namespace')
   end
@@ -11,7 +11,7 @@ RSpec.describe LimitedCapacity::JobTracker, :clean_gitlab_redis_queues do
 
   describe '#register' do
     it 'adds jid to the set' do
-      expect(job_tracker.register('a-job-id', max_jids)). to be true
+      expect(job_tracker.register('a-job-id', max_jids)).to be true
       expect(job_tracker.running_jids).to contain_exactly('a-job-id')
     end
 

@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Branches do
+RSpec.describe API::Branches, feature_category: :source_code_management do
   let_it_be(:user) { create(:user) }
 
-  let(:project) { create(:project, :repository, creator: user, path: 'my.project') }
-  let(:guest) { create(:user).tap { |u| project.add_guest(u) } }
+  let(:project) { create(:project, :repository, creator: user, path: 'my.project', create_branch: 'ends-with.txt') }
+  let(:guest) { create(:user, guest_of: project) }
   let(:branch_name) { 'feature' }
   let(:branch_sha) { '0b4bc9a49b562e85de7cc9e834518ea6828729b9' }
   let(:branch_with_dot) { 'ends-with.json' }
@@ -17,7 +17,6 @@ RSpec.describe API::Branches do
 
   before do
     project.add_maintainer(user)
-    project.repository.add_branch(user, 'ends-with.txt', branch_sha)
     stub_feature_flags(branch_list_keyset_pagination: false)
   end
 
@@ -201,7 +200,7 @@ RSpec.describe API::Branches do
 
       context 'when sort value is not supported' do
         it_behaves_like '400 response' do
-          let(:request) { get api(route, user), params: { sort: 'unknown' }}
+          let(:request) { get api(route, user), params: { sort: 'unknown' } }
         end
       end
     end
@@ -212,6 +211,57 @@ RSpec.describe API::Branches do
       end
 
       it_behaves_like 'repository branches'
+
+      context 'caching' do
+        it 'caches the query' do
+          get api(route), params: { per_page: 1 }
+
+          expect(API::Entities::Branch).not_to receive(:represent)
+
+          get api(route), params: { per_page: 1 }
+        end
+
+        it 'uses the cache up to 60 minutes' do
+          time_of_request = Time.current
+
+          get api(route), params: { per_page: 1 }
+
+          travel_to time_of_request + 59.minutes do
+            expect(API::Entities::Branch).not_to receive(:represent)
+
+            get api(route), params: { per_page: 1 }
+          end
+        end
+
+        it 'requests for new value after 60 minutes' do
+          get api(route), params: { per_page: 1 }
+
+          travel_to 61.minutes.from_now do
+            expect(API::Entities::Branch).to receive(:represent)
+
+            get api(route), params: { per_page: 1 }
+          end
+        end
+
+        context 'requests for new value if cache context changes' do
+          context 'with changes in default_branch' do
+            it 'requests for new value after 30 seconds' do
+              get api(route), params: { per_page: 1 }
+
+              default_branch = project.default_branch
+              another_branch = project.repository.branch_names.reject { |name| name == default_branch }.first
+
+              project.repository.change_head(another_branch)
+
+              travel_to 31.seconds.from_now do
+                expect(API::Entities::Branch).to receive(:represent)
+
+                get api(route), params: { per_page: 1 }
+              end
+            end
+          end
+        end
+      end
     end
 
     context 'when unauthenticated', 'and project is private' do
@@ -248,7 +298,7 @@ RSpec.describe API::Branches do
 
         expect do
           get api(route, current_user), params: { per_page: 100 }
-        end.not_to exceed_query_limit(control)
+        end.not_to exceed_query_limit(control).with_threshold(1)
       end
     end
 
@@ -307,6 +357,18 @@ RSpec.describe API::Branches do
 
       context 'when repository is disabled' do
         include_context 'disabled repository'
+
+        it_behaves_like '404 response' do
+          let(:request) { get api(route, current_user) }
+        end
+      end
+
+      context 'when branch is ambiguous' do
+        let(:branch_name) { 'prefix' }
+
+        before do
+          project.repository.create_branch('prefix/branch')
+        end
 
         it_behaves_like '404 response' do
           let(:request) { get api(route, current_user) }
@@ -551,7 +613,7 @@ RSpec.describe API::Branches do
 
           it 'updates that a developer cannot push or merge' do
             put api("/projects/#{project.id}/repository/branches/#{protected_branch.name}/protect", user),
-                params: { developers_can_push: false, developers_can_merge: false }
+              params: { developers_can_push: false, developers_can_merge: false }
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to match_response_schema('public_api/v4/branch')
@@ -569,7 +631,7 @@ RSpec.describe API::Branches do
 
           it 'updates that a developer can push and merge' do
             put api("/projects/#{project.id}/repository/branches/#{protected_branch.name}/protect", user),
-                params: { developers_can_push: true, developers_can_merge: true }
+              params: { developers_can_push: true, developers_can_merge: true }
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to match_response_schema('public_api/v4/branch')
@@ -587,13 +649,36 @@ RSpec.describe API::Branches do
     let(:route) { "/projects/#{project_id}/repository/branches/#{branch_name}/unprotect" }
 
     shared_examples_for 'repository unprotected branch' do
-      it 'unprotects a single branch' do
-        put api(route, current_user)
+      context 'when branch is protected' do
+        let!(:protected_branch) { create(:protected_branch, project: project, name: protected_branch_name) }
 
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(response).to match_response_schema('public_api/v4/branch')
-        expect(json_response['name']).to eq(CGI.unescape(branch_name))
-        expect(json_response['protected']).to eq(false)
+        it 'unprotects a single branch' do
+          expect_next_instance_of(::ProtectedBranches::DestroyService, project, current_user) do |instance|
+            expect(instance).to receive(:execute).with(protected_branch).and_call_original
+          end
+
+          put api(route, current_user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to match_response_schema('public_api/v4/branch')
+          expect(json_response['name']).to eq(CGI.unescape(branch_name))
+          expect(json_response['protected']).to eq(false)
+
+          expect { protected_branch.reload }.to raise_error(ActiveRecord::RecordNotFound)
+        end
+      end
+
+      context 'when branch is not protected' do
+        it 'returns a single branch response' do
+          expect(::ProtectedBranches::DestroyService).not_to receive(:new)
+
+          put api(route, current_user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to match_response_schema('public_api/v4/branch')
+          expect(json_response['name']).to eq(CGI.unescape(branch_name))
+          expect(json_response['protected']).to eq(false)
+        end
       end
 
       context 'when branch does not exist' do
@@ -638,40 +723,40 @@ RSpec.describe API::Branches do
 
     context 'when authenticated', 'as a maintainer' do
       let(:current_user) { user }
+      let(:protected_branch_name) { branch_name }
 
-      context "when a protected branch doesn't already exist" do
+      it_behaves_like 'repository unprotected branch'
+
+      context 'when branch contains a dot' do
+        let(:branch_name) { branch_with_dot }
+
+        it_behaves_like 'repository unprotected branch'
+      end
+
+      context 'when branch contains a slash' do
+        let(:branch_name) { branch_with_slash }
+
+        it_behaves_like '404 response' do
+          let(:request) { put api(route, current_user) }
+        end
+      end
+
+      context 'when branch contains an escaped slash' do
+        let(:branch_name) { CGI.escape(branch_with_slash) }
+        let(:protected_branch_name) { branch_with_slash }
+
+        it_behaves_like 'repository unprotected branch'
+      end
+
+      context 'requesting with the escaped project full path' do
+        let(:project_id) { CGI.escape(project.full_path) }
+
         it_behaves_like 'repository unprotected branch'
 
         context 'when branch contains a dot' do
           let(:branch_name) { branch_with_dot }
 
           it_behaves_like 'repository unprotected branch'
-        end
-
-        context 'when branch contains a slash' do
-          let(:branch_name) { branch_with_slash }
-
-          it_behaves_like '404 response' do
-            let(:request) { put api(route, current_user) }
-          end
-        end
-
-        context 'when branch contains an escaped slash' do
-          let(:branch_name) { CGI.escape(branch_with_slash) }
-
-          it_behaves_like 'repository unprotected branch'
-        end
-
-        context 'requesting with the escaped project full path' do
-          let(:project_id) { CGI.escape(project.full_path) }
-
-          it_behaves_like 'repository unprotected branch'
-
-          context 'when branch contains a dot' do
-            let(:branch_name) { branch_with_dot }
-
-            it_behaves_like 'repository unprotected branch'
-          end
         end
       end
     end

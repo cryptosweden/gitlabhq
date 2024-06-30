@@ -3,30 +3,6 @@
 module DashboardHelper
   include IconsHelper
 
-  def assigned_issues_dashboard_path
-    issues_dashboard_path(assignee_username: current_user.username)
-  end
-
-  def assigned_mrs_dashboard_path
-    merge_requests_dashboard_path(assignee_username: current_user.username)
-  end
-
-  def reviewer_mrs_dashboard_path
-    merge_requests_dashboard_path(reviewer_username: current_user.username)
-  end
-
-  def attention_requested_mrs_dashboard_path
-    merge_requests_dashboard_path(attention: current_user.username)
-  end
-
-  def dashboard_nav_links
-    @dashboard_nav_links ||= get_dashboard_nav_links
-  end
-
-  def dashboard_nav_link?(link)
-    dashboard_nav_links.include?(link)
-  end
-
   def has_start_trial?
     false
   end
@@ -39,30 +15,27 @@ module DashboardHelper
     tag.p(aria: { label: label }) do
       concat(link_or_title)
 
-      concat(tag.span(class: %w[light float-right]) do
+      concat(tag.span(class: %w[light gl-float-right]) do
         boolean_to_icon(enabled)
       end)
 
       if doc_href.present?
-        link_to_doc = link_to(sprite_icon('question'), doc_href,
-                              class: 'gl-ml-2', title: _('Documentation'),
-                              target: '_blank', rel: 'noopener noreferrer')
+        link_to_doc = link_to(
+          sprite_icon('question-o'),
+          doc_href,
+          class: 'gl-ml-2',
+          title: _('Documentation'),
+          target: '_blank',
+          rel: 'noopener noreferrer'
+        )
 
         concat(link_to_doc)
       end
     end
   end
 
-  private
-
-  def get_dashboard_nav_links
-    links = [:projects, :groups, :snippets]
-
-    if can?(current_user, :read_cross_project)
-      links += [:activity, :milestones]
-    end
-
-    links
+  def user_groups_requiring_reauth
+    []
   end
 end
 

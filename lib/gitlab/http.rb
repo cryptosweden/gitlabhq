@@ -1,24 +1,21 @@
 # frozen_string_literal: true
 
-# This class is used as a proxy for all outbounding http connection
-# coming from callbacks, services and hooks. The direct use of the HTTParty
-# is discouraged because it can lead to several security problems, like SSRF
-# calling internal IP or services.
+#
+# IMPORTANT: With the new development of the 'gitlab-http' gem (https://gitlab.com/gitlab-org/gitlab/-/issues/415686),
+# no additional change should be implemented in this class. This class will be removed after migrating all
+# the usages to the new gem.
+#
+
 module Gitlab
   class HTTP
-    BlockedUrlError = Class.new(StandardError)
-    RedirectionTooDeep = Class.new(StandardError)
-    ReadTotalTimeout = Class.new(Net::ReadTimeout)
-    HeaderReadTimeout = Class.new(Net::ReadTimeout)
+    BlockedUrlError = Gitlab::HTTP_V2::BlockedUrlError
+    RedirectionTooDeep = Gitlab::HTTP_V2::RedirectionTooDeep
+    ReadTotalTimeout = Gitlab::HTTP_V2::ReadTotalTimeout
+    HeaderReadTimeout = Gitlab::HTTP_V2::HeaderReadTimeout
+    SilentModeBlockedError = Gitlab::HTTP_V2::SilentModeBlockedError
 
-    HTTP_TIMEOUT_ERRORS = [
-      Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, Gitlab::HTTP::ReadTotalTimeout
-    ].freeze
-    HTTP_ERRORS = HTTP_TIMEOUT_ERRORS + [
-      EOFError, SocketError, OpenSSL::SSL::SSLError, OpenSSL::OpenSSLError,
-      Errno::ECONNRESET, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH,
-      Gitlab::HTTP::BlockedUrlError, Gitlab::HTTP::RedirectionTooDeep
-    ].freeze
+    HTTP_TIMEOUT_ERRORS = Gitlab::HTTP_V2::HTTP_TIMEOUT_ERRORS
+    HTTP_ERRORS = Gitlab::HTTP_V2::HTTP_ERRORS
 
     DEFAULT_TIMEOUT_OPTIONS = {
       open_timeout: 10,
@@ -27,63 +24,55 @@ module Gitlab
     }.freeze
     DEFAULT_READ_TOTAL_TIMEOUT = 30.seconds
 
-    include HTTParty # rubocop:disable Gitlab/HTTParty
+    # We are explicitly assigning these constants because they are used in the codebase.
+    Error = HTTParty::Error
+    Response = HTTParty::Response
+    ResponseError = HTTParty::ResponseError
+    CookieHash = HTTParty::CookieHash
 
     class << self
-      alias_method :httparty_perform_request, :perform_request
-    end
-
-    connection_adapter HTTPConnectionAdapter
-
-    def self.perform_request(http_method, path, options, &block)
-      log_info = options.delete(:extra_log_info)
-      options_with_timeouts =
-        if !options.has_key?(:timeout)
-          options.with_defaults(DEFAULT_TIMEOUT_OPTIONS)
-        else
-          options
+      ::Gitlab::HTTP_V2::SUPPORTED_HTTP_METHODS.each do |method|
+        define_method(method) do |path, options = {}, &block|
+          ::Gitlab::HTTP_V2.public_send(method, path, http_v2_options(options), &block) # rubocop:disable GitlabSecurity/PublicSend -- method is validated to make sure it is one of the methods in Gitlab::HTTP_V2::SUPPORTED_HTTP_METHODS
         end
-
-      options[:skip_read_total_timeout] = true if options[:skip_read_total_timeout].nil? && options[:stream_body]
-
-      if options[:skip_read_total_timeout]
-        return httparty_perform_request(http_method, path, options_with_timeouts, &block)
       end
 
-      start_time = nil
-      read_total_timeout = options.fetch(:timeout, DEFAULT_READ_TOTAL_TIMEOUT)
-      tracked_timeout_error = false
+      def try_get(path, options = {}, &block)
+        get(path, options, &block)
+      rescue *HTTP_ERRORS
+        nil
+      end
 
-      httparty_perform_request(http_method, path, options_with_timeouts) do |fragment|
-        start_time ||= Gitlab::Metrics::System.monotonic_time
-        elapsed = Gitlab::Metrics::System.monotonic_time - start_time
+      # TODO: This method is subject to be removed
+      # We have this for now because we explicitly use the `perform_request` method in some places.
+      def perform_request(http_method, path, options, &block)
+        method_name = http_method::METHOD.downcase.to_sym
 
-        if elapsed > read_total_timeout
-          error = ReadTotalTimeout.new("Request timed out after #{elapsed} seconds")
-
-          raise error if options[:use_read_total_timeout]
-
-          unless tracked_timeout_error
-            Gitlab::ErrorTracking.track_exception(error)
-            tracked_timeout_error = true
-          end
+        unless ::Gitlab::HTTP_V2::SUPPORTED_HTTP_METHODS.include?(method_name)
+          raise ArgumentError, "Unsupported HTTP method: '#{method_name}'."
         end
 
-        block.call fragment if block
+        # Use `::Gitlab::HTTP_V2.get/post/...` methods
+        ::Gitlab::HTTP_V2.public_send(method_name, path, http_v2_options(options), &block) # rubocop:disable GitlabSecurity/PublicSend -- method is validated to make sure it is one of the methods in Gitlab::HTTP_V2::SUPPORTED_HTTP_METHODS
       end
-    rescue HTTParty::RedirectionTooDeep
-      raise RedirectionTooDeep
-    rescue *HTTP_ERRORS => e
-      extra_info = log_info || {}
-      extra_info = log_info.call(e, path, options) if log_info.respond_to?(:call)
-      Gitlab::ErrorTracking.log_exception(e, extra_info)
-      raise e
-    end
 
-    def self.try_get(path, options = {}, &block)
-      self.get(path, options, &block)
-    rescue *HTTP_ERRORS
-      nil
+      private
+
+      def http_v2_options(options)
+        # TODO: until we remove `allow_object_storage` from all places.
+        if options.delete(:allow_object_storage)
+          options[:extra_allowed_uris] = ObjectStoreSettings.enabled_endpoint_uris
+        end
+
+        # Configure HTTP_V2 Client
+        {
+          allow_local_requests: Gitlab::CurrentSettings.allow_local_requests_from_web_hooks_and_services?,
+          deny_all_requests_except_allowed: Gitlab::CurrentSettings.deny_all_requests_except_allowed?,
+          dns_rebinding_protection_enabled: Gitlab::CurrentSettings.dns_rebinding_protection_enabled?,
+          outbound_local_requests_allowlist: Gitlab::CurrentSettings.outbound_local_requests_whitelist, # rubocop:disable Naming/InclusiveLanguage -- existing setting
+          silent_mode_enabled: Gitlab::SilentMode.enabled?
+        }.merge(options)
+      end
     end
   end
 end

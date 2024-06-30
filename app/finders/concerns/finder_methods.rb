@@ -2,27 +2,34 @@
 
 module FinderMethods
   # rubocop: disable CodeReuse/ActiveRecord
-  def find_by!(*args)
-    raise_not_found_unless_authorized execute.reorder(nil).find_by!(*args)
+  def find_by!(...)
+    raise_not_found_unless_authorized execute.reorder(nil).find_by!(...)
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
   # rubocop: disable CodeReuse/ActiveRecord
-  def find_by(*args)
-    if_authorized execute.reorder(nil).find_by(*args)
+  def find_by(...)
+    if_authorized execute.reorder(nil).find_by(...)
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
-  def find(*args)
-    raise_not_found_unless_authorized model.find(*args)
+  # rubocop: disable CodeReuse/ActiveRecord
+  def find(...)
+    raise_not_found_unless_authorized execute.reorder(nil).find(...)
   end
+  # rubocop: enable CodeReuse/ActiveRecord
 
   private
 
   def raise_not_found_unless_authorized(result)
     result = if_authorized(result)
 
-    raise(ActiveRecord::RecordNotFound, "Couldn't find #{model}") unless result
+    unless result
+      # This fetches the model from the `ActiveRecord::Relation` but does not
+      # actually execute the query.
+      model = execute.model
+      raise ActiveRecord::RecordNotFound, "Couldn't find #{model}"
+    end
 
     result
   end
@@ -32,11 +39,7 @@ module FinderMethods
     # this is currently the case in the `MilestoneFinder`
     return result unless respond_to?(:current_user, true)
 
-    if can_read_object?(result)
-      result
-    else
-      nil
-    end
+    result if can_read_object?(result)
   end
 
   def can_read_object?(object)
@@ -52,11 +55,5 @@ module FinderMethods
 
     # Not all objects define `#to_ability_name`, so attempt to derive it:
     object.model_name.singular
-  end
-
-  # This fetches the model from the `ActiveRecord::Relation` but does not
-  # actually execute the query.
-  def model
-    execute.model
   end
 end

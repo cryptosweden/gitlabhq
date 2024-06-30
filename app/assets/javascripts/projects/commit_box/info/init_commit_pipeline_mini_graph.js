@@ -15,7 +15,7 @@ export const initCommitPipelineMiniGraph = async (selector = '.js-commit-pipelin
     return;
   }
 
-  const { stages, fullPath, iid } = el.dataset;
+  const { stages, fullPath, iid, graphqlResourceEtag } = el.dataset;
 
   // Some commits have no pipeline, code splitting to load the pipeline optionally
   const { default: CommitBoxPipelineMiniGraph } = await import(
@@ -30,6 +30,7 @@ export const initCommitPipelineMiniGraph = async (selector = '.js-commit-pipelin
       fullPath,
       iid,
       dataMethod: 'graphql',
+      graphqlResourceEtag,
     },
     render(createElement) {
       return createElement(CommitBoxPipelineMiniGraph, {

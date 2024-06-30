@@ -3,7 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::QuickActions::CommandDefinition do
-  subject { described_class.new(:command) }
+  let(:mock_command) { :command }
+
+  subject { described_class.new(mock_command) }
 
   describe "#all_names" do
     context "when the command has aliases" do
@@ -26,7 +28,7 @@ RSpec.describe Gitlab::QuickActions::CommandDefinition do
   describe "#noop?" do
     context "when the command has an action block" do
       before do
-        subject.action_block = proc { }
+        subject.action_block = proc {}
       end
 
       it "returns false" do
@@ -42,7 +44,7 @@ RSpec.describe Gitlab::QuickActions::CommandDefinition do
   end
 
   describe "#available?" do
-    let(:opts) { OpenStruct.new(go: false) }
+    let(:opts) { ActiveSupport::InheritableOptions.new(go: false) }
 
     context "when the command has a condition block" do
       before do
@@ -74,13 +76,33 @@ RSpec.describe Gitlab::QuickActions::CommandDefinition do
 
     context "when the command has types" do
       before do
-        subject.types = [Issue, Commit]
+        subject.types = [Issue, Commit, WorkItem]
       end
 
       context "when the command target type is allowed" do
         it "returns true" do
           opts[:quick_action_target] = Issue.new
           expect(subject.available?(opts)).to be true
+        end
+
+        context 'when the command target type is Work Item' do
+          context 'when the command is not allowed' do
+            it "returns false" do
+              opts[:quick_action_target] = build(:work_item)
+              expect(subject.available?(opts)).to be false
+            end
+          end
+
+          context 'when the command is allowed' do
+            it "returns true" do
+              allow_next_instance_of(WorkItem) do |work_item|
+                allow(work_item).to receive(:supported_quick_action_commands).and_return([mock_command])
+              end
+
+              opts[:quick_action_target] = build(:work_item)
+              expect(subject.available?(opts)).to be true
+            end
+          end
         end
       end
 
@@ -99,12 +121,16 @@ RSpec.describe Gitlab::QuickActions::CommandDefinition do
 
         opts[:quick_action_target] = MergeRequest.new
         expect(subject.available?(opts)).to be true
+
+        opts[:quick_action_target] = build(:work_item)
+        expect(subject.available?(opts)).to be true
       end
     end
   end
 
   describe "#execute" do
-    let(:context) { OpenStruct.new(run: false, commands_executed_count: nil) }
+    let(:fake_context) { Struct.new(:run, :commands_executed_count, :received_arg) }
+    let(:context) { fake_context.new(false, nil, nil) }
 
     context "when the command is a noop" do
       it "doesn't execute the command" do

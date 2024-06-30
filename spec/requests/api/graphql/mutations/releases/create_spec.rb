@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Creation of a new release' do
+RSpec.describe 'Creation of a new release', feature_category: :release_orchestration do
   include GraphqlHelpers
   include Presentable
 
@@ -16,9 +16,10 @@ RSpec.describe 'Creation of a new release' do
 
   let(:mutation_name) { :release_create }
 
-  let(:tag_name) { 'v7.12.5'}
-  let(:ref) { 'master'}
-  let(:name) { 'Version 7.12.5'}
+  let(:tag_name) { 'v7.12.5' }
+  let(:tag_message) { nil }
+  let(:ref) { 'master' }
+  let(:name) { 'Version 7.12.5' }
   let(:description) { 'Release 7.12.5 :rocket:' }
   let(:released_at) { '2018-12-10' }
   let(:milestones) { [milestone_12_3.title, milestone_12_4.title] }
@@ -29,6 +30,7 @@ RSpec.describe 'Creation of a new release' do
     {
       projectPath: project.full_path,
       tagName: tag_name,
+      tagMessage: tag_message,
       ref: ref,
       name: name,
       description: description,
@@ -57,7 +59,6 @@ RSpec.describe 'Creation of a new release' do
               name
               url
               linkType
-              external
               directAssetUrl
             }
           }
@@ -133,7 +134,6 @@ RSpec.describe 'Creation of a new release' do
                 name: asset_link[:name],
                 url: asset_link[:url],
                 linkType: asset_link[:linkType],
-                external: true,
                 directAssetUrl: expected_direct_asset_url
               }]
             }
@@ -191,10 +191,26 @@ RSpec.describe 'Creation of a new release' do
     context 'when the provided tag does not already exist' do
       let(:tag_name) { 'v7.12.5-alpha' }
 
+      after do
+        project.repository.rm_tag(developer, tag_name)
+      end
+
       it_behaves_like 'no errors'
 
-      it 'creates a new tag' do
+      it 'creates a new lightweight tag' do
         expect { create_release }.to change { Project.find_by_id(project.id).repository.tag_count }.by(1)
+        expect(project.repository.find_tag(tag_name).message).to be_blank
+      end
+
+      context 'and tag_message is provided' do
+        let(:tag_message) { 'Annotated tag message' }
+
+        it_behaves_like 'no errors'
+
+        it 'creates a new annotated tag with the message' do
+          expect { create_release }.to change { Project.find_by_id(project.id).repository.tag_count }.by(1)
+          expect(project.repository.find_tag(tag_name).message).to eq(tag_message)
+        end
       end
     end
 

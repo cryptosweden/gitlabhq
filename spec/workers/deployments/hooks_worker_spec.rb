@@ -2,12 +2,22 @@
 
 require 'spec_helper'
 
-RSpec.describe Deployments::HooksWorker do
+RSpec.describe Deployments::HooksWorker, feature_category: :continuous_delivery do
   let(:worker) { described_class.new }
 
   describe '#perform' do
     before do
-      allow(ProjectServiceWorker).to receive(:perform_async)
+      allow(Integrations::ExecuteWorker).to receive(:perform_async)
+    end
+
+    it 'logs deployment and project IDs as metadata' do
+      deployment = create(:deployment, :running)
+      project = deployment.project
+
+      expect(worker).to receive(:log_extra_metadata_on_done).with(:deployment_project_id, project.id)
+      expect(worker).to receive(:log_extra_metadata_on_done).with(:deployment_id, deployment.id)
+
+      worker.perform(deployment_id: deployment.id, status_changed_at: Time.current)
     end
 
     it 'executes project services for deployment_hooks' do
@@ -15,7 +25,7 @@ RSpec.describe Deployments::HooksWorker do
       project = deployment.project
       service = create(:integrations_slack, project: project, deployment_events: true)
 
-      expect(ProjectServiceWorker).to receive(:perform_async).with(service.id, an_instance_of(Hash))
+      expect(Integrations::ExecuteWorker).to receive(:perform_async).with(service.id, an_instance_of(Hash))
 
       worker.perform(deployment_id: deployment.id, status_changed_at: Time.current)
     end
@@ -25,13 +35,13 @@ RSpec.describe Deployments::HooksWorker do
       project = deployment.project
       create(:integrations_slack, project: project, deployment_events: true, active: false)
 
-      expect(ProjectServiceWorker).not_to receive(:perform_async)
+      expect(Integrations::ExecuteWorker).not_to receive(:perform_async)
 
       worker.perform(deployment_id: deployment.id, status_changed_at: Time.current)
     end
 
     it 'does not execute if a deployment does not exist' do
-      expect(ProjectServiceWorker).not_to receive(:perform_async)
+      expect(Integrations::ExecuteWorker).not_to receive(:perform_async)
 
       worker.perform(deployment_id: non_existing_record_id, status_changed_at: Time.current)
     end
@@ -50,8 +60,6 @@ RSpec.describe Deployments::HooksWorker do
       worker.perform(deployment_id: deployment.id, status_changed_at: status_changed_at)
     end
 
-    it_behaves_like 'worker with data consistency',
-                    described_class,
-                    data_consistency: :delayed
+    it_behaves_like 'worker with data consistency', described_class, data_consistency: :delayed
   end
 end

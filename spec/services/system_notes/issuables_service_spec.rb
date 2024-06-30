@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::SystemNotes::IssuablesService do
+RSpec.describe ::SystemNotes::IssuablesService, feature_category: :team_planning do
   include ProjectForksHelper
 
   let_it_be(:group)   { create(:group) }
@@ -15,17 +15,42 @@ RSpec.describe ::SystemNotes::IssuablesService do
   let(:service) { described_class.new(noteable: noteable, project: project, author: author) }
 
   describe '#relate_issuable' do
-    let(:noteable_ref) { create(:issue) }
+    let_it_be(:issue1) { create(:issue, project: project) }
+    let_it_be(:issue2) { create(:issue, project: project) }
 
-    subject { service.relate_issuable(noteable_ref) }
+    let(:noteable_ref) { issue1 }
 
-    it_behaves_like 'a system note' do
-      let(:action) { 'relate' }
-    end
+    subject(:system_note) { service.relate_issuable(noteable_ref) }
 
     context 'when issue marks another as related' do
+      it_behaves_like 'a system note' do
+        let(:action) { 'relate' }
+      end
+
       it 'sets the note text' do
-        expect(subject.note).to eq "marked this issue as related to #{noteable_ref.to_reference(project)}"
+        expect(system_note.note).to eq "marked this issue as related to #{issue1.to_reference(project)}"
+      end
+    end
+
+    context 'when issue marks several other issues as related' do
+      let(:noteable_ref) { [issue1, issue2] }
+
+      it_behaves_like 'a system note' do
+        let(:action) { 'relate' }
+      end
+
+      it 'sets the note text' do
+        expect(system_note.note).to eq(
+          "marked this issue as related to #{issue1.to_reference(project)} and #{issue2.to_reference(project)}"
+        )
+      end
+    end
+
+    context 'with work items' do
+      let_it_be(:noteable) { create(:work_item, :task, project: project) }
+
+      it 'sets the note text with the correct work item type' do
+        expect(subject.note).to eq "marked this task as related to #{noteable_ref.to_reference(project)}"
       end
     end
   end
@@ -175,7 +200,7 @@ RSpec.describe ::SystemNotes::IssuablesService do
 
     it 'builds a correct phrase when one reviewer removed from a set' do
       expect(build_note([reviewer, reviewer1, reviewer2], [reviewer, reviewer1])).to(
-        eq( "removed review request for @#{reviewer2.username}")
+        eq("removed review request for @#{reviewer2.username}")
       )
     end
 
@@ -184,6 +209,30 @@ RSpec.describe ::SystemNotes::IssuablesService do
         expect(build_note([reviewer, reviewer1, reviewer2], [reviewer3])).to(
           eq("requested review from @#{reviewer3.username} and removed review request for @#{reviewer.username}, @#{reviewer1.username}, and @#{reviewer2.username}")
         )
+      end
+    end
+  end
+
+  describe '#request_review' do
+    subject(:request_review) { service.request_review(reviewer, unapproved) }
+
+    let_it_be(:reviewer) { create(:user) }
+    let_it_be(:noteable) { create(:merge_request, :simple, source_project: project, reviewers: [reviewer]) }
+    let(:unapproved) { false }
+
+    it_behaves_like 'a system note' do
+      let(:action) { 'reviewer' }
+    end
+
+    it 'builds a correct phrase when a review has been requested from a reviewer' do
+      expect(request_review.note).to eq "requested review from #{reviewer.to_reference}"
+    end
+
+    context 'when unapproving' do
+      let(:unapproved) { true }
+
+      it 'builds a correct phrase when a review has been requested from a reviewer and the reviewer has been unapproved' do
+        expect(request_review.note).to eq "requested review from #{reviewer.to_reference} and removed approval"
       end
     end
   end
@@ -244,42 +293,6 @@ RSpec.describe ::SystemNotes::IssuablesService do
 
     it 'creates a resource state event' do
       expect { subject }.to change { ResourceStateEvent.count }.by(1)
-    end
-  end
-
-  describe '#request_attention' do
-    subject { service.request_attention(user) }
-
-    let(:user) { create(:user) }
-
-    it_behaves_like 'a system note' do
-      let(:action) { 'attention_requested' }
-    end
-
-    context 'when attention requested' do
-      it_behaves_like 'a note with overridable created_at'
-
-      it 'sets the note text' do
-        expect(subject.note).to eq "requested attention from @#{user.username}"
-      end
-    end
-  end
-
-  describe '#remove_attention_request' do
-    subject { service.remove_attention_request(user) }
-
-    let(:user) { create(:user) }
-
-    it_behaves_like 'a system note' do
-      let(:action) { 'attention_request_removed' }
-    end
-
-    context 'when attention request is removed' do
-      it_behaves_like 'a note with overridable created_at'
-
-      it 'sets the note text' do
-        expect(subject.note).to eq "removed attention request from @#{user.username}"
-      end
     end
   end
 
@@ -398,7 +411,7 @@ RSpec.describe ::SystemNotes::IssuablesService do
       describe 'note_body' do
         context 'cross-project' do
           let(:project2) { create(:project, :repository) }
-          let(:mentioned_in) { create(:issue, project: project2) }
+          let(:mentioned_in) { create(:issue, :task, project: project2) }
 
           context 'from Commit' do
             let(:mentioned_in) { project2.repository.commit }
@@ -410,7 +423,7 @@ RSpec.describe ::SystemNotes::IssuablesService do
 
           context 'from non-Commit' do
             it 'references the mentioning object' do
-              expect(subject.note).to eq "mentioned in issue #{mentioned_in.to_reference(project)}"
+              expect(subject.note).to eq "mentioned in task #{mentioned_in.to_reference(project)}"
             end
           end
         end
@@ -559,8 +572,8 @@ RSpec.describe ::SystemNotes::IssuablesService do
       let(:action) { 'task' }
     end
 
-    it "posts the 'marked the task as complete' system note" do
-      expect(subject.note).to eq("marked the task **task** as completed")
+    it "posts the 'marked the checklist item as complete' system note" do
+      expect(subject.note).to eq("marked the checklist item **task** as completed")
     end
   end
 
@@ -625,8 +638,8 @@ RSpec.describe ::SystemNotes::IssuablesService do
   end
 
   describe '#noteable_cloned' do
-    let(:new_project) { create(:project) }
-    let(:new_noteable) { create(:issue, project: new_project) }
+    let_it_be(:new_project) { create(:project) }
+    let_it_be(:new_noteable) { create(:issue, project: new_project) }
 
     subject do
       service.noteable_cloned(new_noteable, direction)
@@ -684,26 +697,53 @@ RSpec.describe ::SystemNotes::IssuablesService do
       end
     end
 
-    context 'metrics' do
+    context 'custom created timestamp' do
+      let(:direction) { :from }
+
+      it 'allows setting of custom created_at value' do
+        timestamp = 1.day.ago
+
+        note = service.noteable_cloned(new_noteable, direction, created_at: timestamp)
+
+        expect(note.created_at).to be_like_time(timestamp)
+      end
+
+      it 'defaults to current time when created_at is not given', :freeze_time do
+        expect(subject.created_at).to be_like_time(Time.current)
+      end
+    end
+
+    context 'metrics', :clean_gitlab_redis_shared_state do
       context 'cloned from' do
         let(:direction) { :from }
 
-        it 'does not tracks usage' do
-          expect(Gitlab::UsageDataCounters::IssueActivityUniqueCounter)
-            .not_to receive(:track_issue_cloned_action).with(author: author)
-
-          subject
+        it 'does not track usage' do
+          expect { subject }
+            .to not_trigger_internal_events(Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_CLONED)
+            .and not_increment_usage_metrics(
+              'redis_hll_counters.issues_edit.g_project_management_issue_cloned_monthly',
+              'redis_hll_counters.issues_edit.g_project_management_issue_cloned_weekly'
+            )
         end
       end
 
       context 'cloned to' do
         let(:direction) { :to }
 
-        it 'tracks usage' do
-          expect(Gitlab::UsageDataCounters::IssueActivityUniqueCounter)
-            .to receive(:track_issue_cloned_action).with(author: author)
-
-          subject
+        it 'tracks internal events and increments usage metrics' do
+          expect { subject }
+            .to trigger_internal_events(Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_CLONED)
+              .with(project: project, user: author, category: 'InternalEventTracking')
+            .and increment_usage_metrics(
+              'redis_hll_counters.issues_edit.g_project_management_issue_cloned_monthly',
+              'redis_hll_counters.issues_edit.g_project_management_issue_cloned_weekly'
+            ).by(1)
+            .and increment_usage_metrics(
+              # Cloner and original issue author are two unique users
+              # --> Not great that we're tracking the original author as an active user...
+              'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_monthly',
+              'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_weekly'
+            ).by(2)
         end
       end
     end
@@ -759,6 +799,14 @@ RSpec.describe ::SystemNotes::IssuablesService do
     end
   end
 
+  describe '#email_participants' do
+    let(:body) { "added user@example.com" }
+
+    subject(:system_note) { service.email_participants(body) }
+
+    it { expect(system_note.note).to eq(body) }
+  end
+
   describe '#discussion_lock' do
     subject { service.discussion_lock }
 
@@ -773,7 +821,7 @@ RSpec.describe ::SystemNotes::IssuablesService do
 
           service = described_class.new(noteable: issuable, author: author)
           expect(service.discussion_lock.note)
-            .to eq("unlocked this #{type.to_s.titleize.downcase}")
+            .to eq("unlocked the discussion in this #{type.to_s.titleize.downcase}")
         end
       end
     end
@@ -793,7 +841,7 @@ RSpec.describe ::SystemNotes::IssuablesService do
 
           service = described_class.new(noteable: issuable, author: author)
           expect(service.discussion_lock.note)
-            .to eq("locked this #{type.to_s.titleize.downcase}")
+            .to eq("locked the discussion in this #{type.to_s.titleize.downcase}")
         end
       end
     end
@@ -876,14 +924,87 @@ RSpec.describe ::SystemNotes::IssuablesService do
   end
 
   describe '#change_issue_type' do
-    let(:noteable) { create(:incident, project: project) }
+    context 'with issue' do
+      let_it_be_with_reload(:noteable) { create(:issue, project: project) }
 
-    subject { service.change_issue_type }
+      subject { service.change_issue_type('incident') }
 
-    it_behaves_like 'a system note' do
-      let(:action) { 'issue_type' }
+      it_behaves_like 'a system note' do
+        let(:action) { 'issue_type' }
+      end
+
+      it { expect(subject.note).to eq "changed type from incident to issue" }
     end
 
-    it { expect(subject.note).to eq "changed issue type to incident" }
+    context 'with work item' do
+      let_it_be_with_reload(:noteable) { create(:work_item, project: project) }
+
+      subject { service.change_issue_type('task') }
+
+      it_behaves_like 'a system note' do
+        let(:action) { 'issue_type' }
+      end
+
+      it { expect(subject.note).to eq "changed type from task to issue" }
+    end
+  end
+
+  describe '#hierarchy_changed' do
+    let_it_be_with_reload(:work_item) { create(:work_item, project: project) }
+    let_it_be_with_reload(:task) { create(:work_item, :task, project: project) }
+
+    let(:service) { described_class.new(noteable: work_item, project: project, author: author) }
+
+    subject { service.hierarchy_changed(task, hierarchy_change_action) }
+
+    context 'when task is added as a child' do
+      let(:hierarchy_change_action) { 'relate' }
+
+      it_behaves_like 'a system note' do
+        let(:expected_noteable) { task }
+        let(:action) { 'relate_to_parent' }
+      end
+
+      it 'sets the correct note text' do
+        expect { subject }.to change { Note.system.count }.by(2)
+        expect(work_item.notes.last.note).to eq("added ##{task.iid} as child task")
+        expect(task.notes.last.note).to eq("added ##{work_item.iid} as parent issue")
+      end
+
+      context 'when the parent belongs to a different namespace' do
+        let(:work_item) { create(:work_item, :group_level, namespace: group) }
+
+        it 'uses full references on the system notes' do
+          expect { subject }.to change { Note.system.count }.by(2)
+          expect(work_item.notes.last.note).to eq("added #{task.namespace.full_path}##{task.iid} as child task")
+          expect(task.notes.last.note).to eq("added #{work_item.namespace.full_path}##{work_item.iid} as parent issue")
+        end
+      end
+    end
+
+    context 'when child task is removed' do
+      let(:hierarchy_change_action) { 'unrelate' }
+
+      it_behaves_like 'a system note' do
+        let(:expected_noteable) { task }
+        let(:action) { 'unrelate_from_parent' }
+      end
+
+      it 'sets the correct note text' do
+        expect { subject }.to change { Note.system.count }.by(2)
+        expect(work_item.notes.last.note).to eq("removed child task ##{task.iid}")
+        expect(task.notes.last.note).to eq("removed parent issue ##{work_item.iid}")
+      end
+
+      context 'when the parent belongs to a different namespace' do
+        let(:work_item) { create(:work_item, :group_level, namespace: group) }
+
+        it 'uses full references on the system notes' do
+          expect { subject }.to change { Note.system.count }.by(2)
+          expect(work_item.notes.last.note).to eq("removed child task #{task.namespace.full_path}##{task.iid}")
+          expect(task.notes.last.note).to eq("removed parent issue #{work_item.namespace.full_path}##{work_item.iid}")
+        end
+      end
+    end
   end
 end

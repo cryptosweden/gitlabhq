@@ -1,19 +1,26 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: index, concepts, howto
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# CI/CD development documentation **(FREE)**
+# CI/CD development guidelines
 
 Development guides that are specific to CI/CD are listed here:
 
-- If you are creating new CI/CD templates, please read [the development guide for GitLab CI/CD templates](templates.md).
-- If you are adding a new keyword or changing the CI schema, check the [CI schema guide](schema.md)
+- If you are creating new CI/CD templates, read [the development guide for GitLab CI/CD templates](templates.md).
+- If you are adding a new keyword or changing the CI schema, refer to the following guides:
+  - [The CI configuration guide](configuration.md)
+  - [The CI schema guide](schema.md)
 
 See the [CI/CD YAML reference documentation guide](cicd_reference_documentation_guide.md)
-to learn how to update the [reference page](../../ci/yaml/index.md).
+to learn how to update the [CI/CD YAML syntax reference page](../../ci/yaml/index.md).
+
+## Examples of CI/CD usage
+
+We maintain a [`ci-sample-projects`](https://gitlab.com/gitlab-org/ci-sample-projects) group, with projects that showcase
+examples of `.gitlab-ci.yml` for different use cases of GitLab CI/CD. They also cover specific syntax that could
+be used for different scenarios.
 
 ## CI Architecture overview
 
@@ -27,11 +34,11 @@ On the left side we have the events that can trigger a pipeline based on various
 
 - A `git push` is the most common event that triggers a pipeline.
 - The [Web API](../../api/pipelines.md#create-a-new-pipeline).
-- A user clicking the "Run pipeline" button in the UI.
+- A user selecting the "Run pipeline" button in the UI.
 - When a [merge request is created or updated](../../ci/pipelines/merge_request_pipelines.md).
 - When an MR is added to a [Merge Train](../../ci/pipelines/merge_trains.md#merge-trains).
 - A [scheduled pipeline](../../ci/pipelines/schedules.md).
-- When project is [subscribed to an upstream project](../../ci/pipelines/multi_project_pipelines.md#trigger-a-pipeline-when-an-upstream-project-is-rebuilt).
+- When project is [subscribed to an upstream project](../../ci/pipelines/index.md#trigger-a-pipeline-when-an-upstream-project-is-rebuilt).
 - When [Auto DevOps](../../topics/autodevops/index.md) is enabled.
 - When GitHub integration is used with [external pull requests](../../ci/ci_cd_for_external_repos/index.md#pipelines-for-external-pull-requests).
 - When an upstream pipeline contains a [bridge job](../../ci/yaml/index.md#trigger) which triggers a downstream pipeline.
@@ -63,7 +70,7 @@ looks for the next jobs to be transitioned towards completion. While doing that,
 updates the status of jobs, stages and the overall pipeline.
 
 On the right side of the diagram we have a list of [runners](../../ci/runners/index.md)
-connected to the GitLab instance. These can be shared runners, group runners, or project-specific runners.
+connected to the GitLab instance. These can be shared runners, group runners, or project runners.
 The communication between runners and the Rails server occurs through a set of API endpoints, grouped as
 the `Runner API Gateway`.
 
@@ -90,6 +97,9 @@ when transitioning to the `pending` state. This job is responsible for creating 
 a multi-project or child pipeline. The workflow loop starts again
 from the `CreatePipelineService` every time a downstream pipeline is triggered.
 
+<i class="fa fa-youtube-play youtube" aria-hidden="true"></i>
+You can watch a walkthrough of the architecture in [CI Backend Architectural Walkthrough](https://www.youtube.com/watch?v=ew4BwohS5OY).
+
 ## Job scheduling
 
 When a Pipeline is created all its jobs are created at once for all stages, with an initial state of `created`. This makes it possible to visualize the full content of a pipeline.
@@ -100,6 +110,7 @@ A job with the `created` state isn't seen by the runner yet. To make it possible
 1. The job required a manual start and it has been triggered.
 1. All jobs from the previous stage have completed successfully. In this case we transition all jobs from the next stage to `pending`.
 1. The job specifies DAG dependencies using `needs:` and all the dependent jobs are completed.
+1. The job has not been [dropped](#dropping-stuck-builds) because of its not-runnable state by [`Ci::PipelineCreation::DropNotRunnableBuildsService`](https://gitlab.com/gitlab-org/gitlab/-/blob/v16.0.4-ee/ee/app/services/ci/pipeline_creation/drop_not_runnable_builds_service.rb).
 
 When the runner is connected, it requests the next `pending` job to run by polling the server continuously.
 
@@ -110,11 +121,6 @@ After the server receives the request it selects a `pending` job based on the [`
 
 Once all jobs are completed for the current stage, the server "unlocks" all the jobs from the next stage by changing their state to `pending`. These can now be picked by the scheduling algorithm when the runner requests new jobs, and continues like this until all stages are completed.
 
-If a job is not picked up by a runner in 24 hours it is automatically removed from
-the processing queue after that time. If a pending job is stuck, when there is no
-runner available that can process it, it is removed from the queue after 1 hour.
-In both cases the job's status is changed to `failed` with an appropriate failure reason.
-
 ### Communication between runner and GitLab server
 
 After the runner is [registered](https://docs.gitlab.com/runner/register/) using the registration token, the server knows what type of jobs it can execute. This depends on:
@@ -122,7 +128,7 @@ After the runner is [registered](https://docs.gitlab.com/runner/register/) using
 - The type of runner it is registered as:
   - a shared runner
   - a group runner
-  - a project specific runner
+  - a project runner
 - Any associated tags.
 
 The runner initiates the communication by requesting jobs to execute with `POST /api/v4/jobs/request`. Although polling happens every few seconds, we leverage caching through HTTP headers to reduce the server-side work load if the job queue doesn't change.
@@ -138,6 +144,7 @@ This API endpoint runs [`Ci::RegisterJobService`](https://gitlab.com/gitlab-org/
 There are 3 top level queries that this service uses to gather the majority of the jobs and they are selected based on the level where the runner is registered to:
 
 - Select jobs for shared runner (instance level)
+  - Utilizes a fair scheduling algorithm which prioritizes projects with fewer running builds
 - Select jobs for group runner
 - Select jobs for project runner
 
@@ -152,6 +159,47 @@ Finally if the runner can only pick jobs that are tagged, all untagged jobs are 
 At this point we loop through remaining `pending` jobs and we try to assign the first job that the runner "can pick" based on additional policies. For example, runners marked as `protected` can only pick jobs that run against protected branches (such as production deployments).
 
 As we increase the number of runners in the pool we also increase the chances of conflicts which would arise if assigning the same job to different runners. To prevent that we gracefully rescue conflict errors and assign the next job in the list.
+
+### Dropping stuck builds
+
+There are two ways of marking builds as "stuck" and drop them.
+
+1. When a build is created, [`Ci::PipelineCreation::DropNotRunnableBuildsService`](https://gitlab.com/gitlab-org/gitlab/-/blob/v16.0.4-ee/ee/app/services/ci/pipeline_creation/drop_not_runnable_builds_service.rb) checks for upfront known conditions that would make jobs not executable:
+    - If there is not enough [CI/CD Minutes](#compute-quota) to run the build, then the build is immediately dropped with `ci_quota_exceeded`.
+    - [In the future](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121761), if the project is not on the plan that available runners for the build require via `allowed_plans`, then the build is immediately dropped with `no_matching_runner`.
+1. If there is no available Runner to pick up a build, it is dropped after 1 hour by [`Ci::StuckBuilds::DropPendingService`](https://gitlab.com/gitlab-org/gitlab/-/blob/v16.0.4-ee/app/services/ci/stuck_builds/drop_pending_service.rb).
+    - If a job is not picked up by a runner in 24 hours it is automatically removed from
+      the processing queue after that time.
+    - If a pending job is **stuck**, when there is no
+      runner available that can process it, it is removed from the queue after 1 hour.
+    - In both cases the job's status is changed to `failed` with an appropriate failure reason.
+
+#### The reason behind this difference
+
+Compute minutes quota mechanism is handled early when the job is created because it is a constant decision for most of the time.
+Once a project exceeds the limit, every next job matching it will be applicable for it until next month starts.
+Of course, the project owner can buy additional minutes, but that is a manual action that the project need to take.
+
+The same mechanism will be used for `allowed_plans` [soon](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121761).
+If the project is not on the required plan and a job is targeting such runner,
+it will be failing constantly until the project owner changes the configuration or upgrades the namespace to the required plan.
+
+These two mechanisms are also very SaaS specific and at the same time are quite compute expensive when we consider SaaS' scale.
+Doing the check before the job is even transitioned to pending and failing early makes a lot of sense here.
+
+Why we don't handle other cases for pending and drop jobs early?
+In some cases, a job is in pending only because the runner is slow on taking up jobs.
+This is not something that you can know at GitLab level.
+Depending on the runner's configuration and capacity and the size of the queue in GitLab, a job may be taken immediately, or may need to wait.
+
+There may be also other reasons:
+
+- you are handling runner maintenance and it's not available for a while at all,
+- you are updating configuration and by mistake, you've messed up the tagging and/or protected flag (or in the case of our SaaS instance runners; you've assigned a wrong cost factor or `allowed_plans` configuration).
+
+All of that are problems that may be temporary and mostly are not expected to happen and are expected to be detected and fixed early.
+We definitely don't want to drop jobs immediately when one of these conditions is happening.
+Dropping a job only because a runner is at capacity or because there is a temporary unavailability/configuration mistake would be very harmful to users.
 
 ## The definition of "Job" in GitLab CI/CD
 
@@ -175,12 +223,14 @@ We have a few inconsistencies in our codebase that should be refactored.
 For example, `CommitStatus` should be `Ci::Job` and `Ci::JobArtifact` should be `Ci::BuildArtifact`.
 See [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/16111) for the full refactoring plan.
 
-## CI/CD Minutes
+## Compute quota
 
-This diagram shows how the [CI/CD minutes](../../ci/pipelines/cicd_minutes.md)
+> - [Renamed](https://gitlab.com/groups/gitlab-com/-/epics/2150) from "CI/CD minutes" to "compute quota" and "compute minutes" in GitLab 16.1.
+
+This diagram shows how the [Compute quota](../../ci/pipelines/compute_minutes.md)
 feature and its components work.
 
-![CI/CD minutes architecture](img/ci_minutes.png)
+![compute quota architecture](img/ci_minutes.png)
 <!-- Editable diagram available at https://app.diagrams.net/?libs=general;flowchart#G1XjLPvJXbzMofrC3eKRyDEk95clV6ypOb -->
 
 Watch a walkthrough of this feature in details in the video below.
@@ -189,5 +239,5 @@ Watch a walkthrough of this feature in details in the video below.
   See the video: <a href="https://www.youtube.com/watch?v=NmdWRGT8kZg">CI/CD minutes - architectural overview</a>.
 </div>
 <figure class="video-container">
-  <iframe src="https://www.youtube.com/embed/NmdWRGT8kZg" frameborder="0" allowfullscreen="true"> </iframe>
+  <iframe src="https://www.youtube-nocookie.com/embed/NmdWRGT8kZg" frameborder="0" allowfullscreen> </iframe>
 </figure>

@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Groups > Members > Owner adds member with expiration date', :js do
-  include Spec::Support::Helpers::Features::MembersHelpers
-  include Spec::Support::Helpers::Features::InviteMembersModalHelper
+RSpec.describe 'Groups > Members > Owner adds member with expiration date', :js, feature_category: :groups_and_projects do
+  include Features::MembersHelpers
+  include Features::InviteMembersModalHelpers
 
   let_it_be(:user1) { create(:user, name: 'John Doe') }
   let_it_be(:group) { create(:group) }
@@ -48,7 +48,7 @@ RSpec.describe 'Groups > Members > Owner adds member with expiration date', :js 
     page.within second_row do
       expect(page).to have_field('Expiration date', with: expiration_date)
 
-      find('[data-testid="clear-button"]').click
+      find_by_testid('clear-button').click
 
       wait_for_requests
 

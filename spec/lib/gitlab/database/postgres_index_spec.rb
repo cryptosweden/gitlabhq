@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::PostgresIndex do
+RSpec.describe Gitlab::Database::PostgresIndex, feature_category: :database do
   let(:schema) { 'public' }
   let(:name) { 'foo_idx' }
   let(:identifier) { "#{schema}.#{name}" }
@@ -12,7 +12,10 @@ RSpec.describe Gitlab::Database::PostgresIndex do
       CREATE INDEX #{name} ON public.users (name);
       CREATE UNIQUE INDEX bar_key ON public.users (id);
 
-      CREATE TABLE example_table (id serial primary key);
+      CREATE TABLE _test_gitlab_main_example_table (id serial primary key);
+
+      CREATE TABLE _test_partitioned (id bigserial primary key not null) PARTITION BY LIST (id);
+      CREATE TABLE _test_partitioned_1 PARTITION OF _test_partitioned FOR VALUES IN (1);
     SQL
   end
 
@@ -25,8 +28,8 @@ RSpec.describe Gitlab::Database::PostgresIndex do
   it { is_expected.to be_a Gitlab::Database::SharedModel }
 
   describe '.reindexing_support' do
-    it 'only non partitioned indexes' do
-      expect(described_class.reindexing_support).to all(have_attributes(partitioned: false))
+    it 'includes partitioned indexes' do
+      expect(described_class.reindexing_support.where("name = '_test_partitioned_1_pkey'")).not_to be_empty
     end
 
     it 'only indexes that dont serve an exclusion constraint' do
@@ -40,7 +43,7 @@ RSpec.describe Gitlab::Database::PostgresIndex do
     it 'only btree and gist indexes' do
       types = described_class.reindexing_support.map(&:type).uniq
 
-      expect(types & %w(btree gist)).to eq(types)
+      expect(types & %w[btree gist]).to eq(types)
     end
 
     context 'with leftover indexes' do
@@ -71,7 +74,7 @@ RSpec.describe Gitlab::Database::PostgresIndex do
     end
 
     it 'retrieves leftover indexes matching the /_ccnew[0-9]*$/ pattern' do
-      expect(subject.map(&:name)).to eq(%w(foobar_ccnew foobar_ccnew1))
+      expect(subject.map(&:name)).to eq(%w[foobar_ccnew foobar_ccnew1])
     end
   end
 
@@ -144,7 +147,7 @@ RSpec.describe Gitlab::Database::PostgresIndex do
     end
 
     it 'returns true for a primary key index' do
-      expect(find('public.example_table_pkey')).to be_unique
+      expect(find('public._test_gitlab_main_example_table_pkey')).to be_unique
     end
   end
 

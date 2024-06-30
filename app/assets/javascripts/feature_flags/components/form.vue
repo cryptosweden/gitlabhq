@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlButton } from '@gitlab/ui';
 import { memoize, cloneDeep, isNumber, uniqueId } from 'lodash';
@@ -157,16 +158,18 @@ export default {
 <template>
   <form class="feature-flags-form">
     <fieldset>
-      <div class="row">
-        <div class="form-group col-md-4">
-          <label for="feature-flag-name" class="label-bold">{{ s__('FeatureFlags|Name') }} *</label>
+      <div class="gl-display-flex gl-flex-wrap -gl-mx-5">
+        <div class="gl-mb-5 gl-px-5 gl-w-full md:gl-basis-1/3">
+          <label for="feature-flag-name" class="gl-font-bold"
+            >{{ s__('FeatureFlags|Name') }} *</label
+          >
           <input id="feature-flag-name" v-model="formName" class="form-control" />
         </div>
       </div>
 
-      <div class="row">
-        <div class="form-group col-md-4">
-          <label for="feature-flag-description" class="label-bold">
+      <div class="gl-display-flex gl-flex-wrap -gl-mx-5">
+        <div class="gl-mb-5 gl-px-5 gl-w-full md:gl-basis-1/3">
+          <label for="feature-flag-description" class="gl-font-bold">
             {{ s__('FeatureFlags|Description') }}
           </label>
           <textarea
@@ -185,11 +188,11 @@ export default {
         :show-categorized-issues="false"
       />
 
-      <div class="row">
-        <div class="col-md-12">
+      <div class="gl-display-flex gl-flex-wrap -gl-mx-5">
+        <div class="gl-mb-5 gl-px-5 gl-w-full">
           <h4>{{ s__('FeatureFlags|Strategies') }}</h4>
-          <div class="flex align-items-baseline justify-content-between">
-            <p class="mr-3">{{ $options.translations.newHelpText }}</p>
+          <div class="gl-display-flex gl-align-items-baseline gl-justify-content-space-between">
+            <p class="gl-mr-5">{{ $options.translations.newHelpText }}</p>
             <gl-button variant="confirm" category="secondary" @click="addStrategy">
               {{ s__('FeatureFlags|Add strategy') }}
             </gl-button>
@@ -206,21 +209,21 @@ export default {
           @delete="deleteStrategy(strategy)"
         />
       </div>
-      <div v-else class="flex justify-content-center border-top py-4 w-100">
+      <div v-else class="gl-display-flex gl-justify-content-center gl-border-t gl-py-6 gl-w-full">
         <span>{{ $options.translations.noStrategiesText }}</span>
       </div>
     </fieldset>
 
-    <div class="form-actions">
+    <div class="gl-mr-6">
       <gl-button
         ref="submitButton"
         type="button"
         variant="confirm"
-        class="js-ff-submit col-xs-12"
+        class="js-ff-submit gl-mr-2"
         @click="handleSubmit"
         >{{ submitText }}</gl-button
       >
-      <gl-button :href="cancelPath" class="js-ff-cancel col-xs-12 float-right">
+      <gl-button :href="cancelPath" class="js-ff-cancel">
         {{ __('Cancel') }}
       </gl-button>
     </div>

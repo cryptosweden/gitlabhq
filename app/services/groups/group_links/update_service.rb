@@ -2,7 +2,7 @@
 
 module Groups
   module GroupLinks
-    class UpdateService < BaseService
+    class UpdateService < ::Groups::BaseService
       def initialize(group_link, user = nil)
         super(group_link.shared_group, user)
 
@@ -13,8 +13,10 @@ module Groups
         group_link.update!(group_link_params)
 
         if requires_authorization_refresh?(group_link_params)
-          group_link.shared_with_group.refresh_members_authorized_projects(blocking: false, direct_members_only: true)
+          group_link.shared_with_group.refresh_members_authorized_projects(direct_members_only: true)
         end
+
+        group_link
       end
 
       private
@@ -27,3 +29,5 @@ module Groups
     end
   end
 end
+
+Groups::GroupLinks::UpdateService.prepend_mod

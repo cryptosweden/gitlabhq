@@ -2,10 +2,9 @@
 class Packages::PackageFileUploader < GitlabUploader
   extend Workhorse::UploadPath
   include ObjectStorage::Concern
+  include Packages::GcsSignedUrlMetadata
 
-  storage_options Gitlab.config.packages
-
-  after :store, :schedule_background_upload
+  storage_location :packages
 
   alias_method :upload, :model
 
@@ -22,8 +21,6 @@ class Packages::PackageFileUploader < GitlabUploader
   def dynamic_segment
     raise ObjectNotReadyError, "Package model not ready" unless model.id
 
-    package_segment = model.package.debian? ? 'debian' : model.package.id
-
-    Gitlab::HashedPath.new('packages', package_segment, 'files', model.id, root_hash: model.package.project_id)
+    Gitlab::HashedPath.new('packages', model.package_id, 'files', model.id, root_hash: model.package.project_id)
   end
 end

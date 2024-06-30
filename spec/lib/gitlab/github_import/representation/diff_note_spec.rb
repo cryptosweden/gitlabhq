@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_redis_cache do
+RSpec.describe Gitlab::GithubImport::Representation::DiffNote do
   let(:hunk) do
     '@@ -1 +1 @@
     -Hello
@@ -28,7 +28,7 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_red
   let(:start_line) { nil }
   let(:end_line) { 23 }
   let(:note_body) { 'Hello world' }
-  let(:user_data) { { 'id' => 4, 'login' => 'alice' } }
+  let(:user_data) { { id: 4, login: 'alice' } }
   let(:side) { 'RIGHT' }
   let(:created_at) { Time.new(2017, 1, 1, 12, 00) }
   let(:updated_at) { Time.new(2017, 1, 1, 12, 15) }
@@ -104,7 +104,8 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_red
               old_line: nil,
               old_path: 'README.md',
               position_type: 'text',
-              start_sha: 'start'
+              start_sha: 'start',
+              ignore_whitespace_change: false
             )
           end
         end
@@ -122,66 +123,9 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_red
               new_line: nil,
               old_path: 'README.md',
               position_type: 'text',
-              start_sha: 'start'
+              start_sha: 'start',
+              ignore_whitespace_change: false
             )
-          end
-        end
-      end
-
-      describe '#discussion_id' do
-        before do
-          note.project = project
-          note.merge_request = merge_request
-        end
-
-        context 'when the note is a reply to a discussion' do
-          it 'uses the cached value as the discussion_id only when responding an existing discussion' do
-            expect(Discussion)
-              .to receive(:discussion_id)
-              .and_return('FIRST_DISCUSSION_ID', 'SECOND_DISCUSSION_ID')
-
-            # Creates the first discussion id and caches its value
-            expect(note.discussion_id)
-              .to eq('FIRST_DISCUSSION_ID')
-
-            reply_note = described_class.from_json_hash(
-              'note_id' => note.note_id + 1,
-              'in_reply_to_id' => note.note_id
-            )
-            reply_note.project = project
-            reply_note.merge_request = merge_request
-
-            # Reading from the cached value
-            expect(reply_note.discussion_id)
-              .to eq('FIRST_DISCUSSION_ID')
-
-            new_discussion_note = described_class.from_json_hash(
-              'note_id' => note.note_id + 2,
-              'in_reply_to_id' => nil
-            )
-            new_discussion_note.project = project
-            new_discussion_note.merge_request = merge_request
-
-            # Because it's a new discussion, it must not use the cached value
-            expect(new_discussion_note.discussion_id)
-              .to eq('SECOND_DISCUSSION_ID')
-          end
-
-          context 'when cached value does not exist' do
-            it 'falls back to generating a new discussion_id' do
-              expect(Discussion)
-                .to receive(:discussion_id)
-                .and_return('NEW_DISCUSSION_ID')
-
-              reply_note = described_class.from_json_hash(
-                'note_id' => note.note_id + 1,
-                'in_reply_to_id' => note.note_id
-              )
-              reply_note.project = project
-              reply_note.merge_request = merge_request
-
-              expect(reply_note.discussion_id).to eq('NEW_DISCUSSION_ID')
-            end
           end
         end
       end
@@ -189,7 +133,7 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_red
       describe '#github_identifiers' do
         it 'returns a hash with needed identifiers' do
           expect(note.github_identifiers).to eq(
-            noteable_id: 42,
+            noteable_iid: 42,
             noteable_type: 'MergeRequest',
             note_id: 1
           )
@@ -201,6 +145,14 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_red
           note = described_class.new(diff_hunk: hunk, file_path: 'README.md')
 
           expect(note.line_code).to eq('8ec9a00bfd09b3190ac6b22251dbb1aa95a0579d_2_2')
+        end
+
+        context 'when comment on file' do
+          it 'generates line code for first line' do
+            note = described_class.new(diff_hunk: '', file_path: 'README.md', subject_type: 'file')
+
+            expect(note.line_code).to eq('8ec9a00bfd09b3190ac6b22251dbb1aa95a0579d_1_1')
+          end
         end
       end
 
@@ -273,28 +225,40 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_red
   end
 
   describe '.from_api_response' do
-    it_behaves_like 'a DiffNote representation' do
-      let(:response) do
-        double(
-          :response,
-          id: note_id,
-          html_url: 'https://github.com/foo/bar/pull/42',
-          path: 'README.md',
-          commit_id: '123abc',
-          original_commit_id: 'original123abc',
-          side: side,
-          user: user_data && double(:user, user_data),
-          diff_hunk: hunk,
-          body: note_body,
-          created_at: created_at,
-          updated_at: updated_at,
-          line: end_line,
-          start_line: start_line,
-          in_reply_to_id: in_reply_to_id
-        )
-      end
+    let(:response) do
+      {
+        id: note_id,
+        html_url: 'https://github.com/foo/bar/pull/42',
+        path: 'README.md',
+        commit_id: '123abc',
+        original_commit_id: 'original123abc',
+        side: side,
+        user: user_data,
+        diff_hunk: hunk,
+        body: note_body,
+        created_at: created_at,
+        updated_at: updated_at,
+        line: end_line,
+        start_line: start_line,
+        in_reply_to_id: in_reply_to_id
+      }
+    end
 
-      subject(:note) { described_class.from_api_response(response) }
+    subject(:note) { described_class.from_api_response(response) }
+
+    it_behaves_like 'a DiffNote representation'
+
+    describe '#discussion_id' do
+      it 'finds or generates discussion_id value' do
+        discussion_id = 'discussion_id'
+        discussion_id_class = Gitlab::GithubImport::Representation::DiffNotes::DiscussionId
+
+        expect_next_instance_of(discussion_id_class, response) do |discussion_id_object|
+          expect(discussion_id_object).to receive(:find_or_generate).and_return(discussion_id)
+        end
+
+        expect(note.discussion_id).to eq(discussion_id)
+      end
     end
   end
 
@@ -303,6 +267,7 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_red
       let(:hash) do
         {
           'note_id' => note_id,
+          'html_url' => 'https://github.com/foo/bar/pull/42',
           'noteable_type' => 'MergeRequest',
           'noteable_id' => 42,
           'file_path' => 'README.md',
@@ -316,7 +281,8 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote, :clean_gitlab_red
           'updated_at' => updated_at.to_s,
           'end_line' => end_line,
           'start_line' => start_line,
-          'in_reply_to_id' => in_reply_to_id
+          'in_reply_to_id' => in_reply_to_id,
+          'discussion_id' => 'FIRST_DISCUSSION_ID'
         }
       end
 

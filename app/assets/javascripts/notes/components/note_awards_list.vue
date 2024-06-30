@@ -1,6 +1,7 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters } from 'vuex';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { __ } from '~/locale';
 import AwardsList from '~/vue_shared/components/awards_list.vue';
 
@@ -35,9 +36,6 @@ export default {
     isAuthoredByMe() {
       return this.noteAuthorId === this.getUserData.id;
     },
-    addButtonClass() {
-      return this.isAuthoredByMe ? 'js-user-authored' : '';
-    },
   },
   methods: {
     ...mapActions(['toggleAwardRequest']),
@@ -49,7 +47,7 @@ export default {
       };
 
       this.toggleAwardRequest(data).catch(() =>
-        createFlash({
+        createAlert({
           message: __('Something went wrong on our end.'),
         }),
       );
@@ -64,7 +62,6 @@ export default {
       :awards="awards"
       :can-award-emoji="canAwardEmoji"
       :current-user-id="getUserData.id"
-      :add-button-class="addButtonClass"
       @award="handleAward($event)"
     />
   </div>

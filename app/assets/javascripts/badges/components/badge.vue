@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlLoadingIcon, GlTooltipDirective, GlIcon, GlButton } from '@gitlab/ui';
 import { s__ } from '~/locale';
@@ -79,7 +80,7 @@ export default {
       :href="linkUrl"
       target="_blank"
       rel="noopener noreferrer"
-      data-qa-selector="badge_image_link"
+      data-testid="badge-image-link"
       :data-qa-link-url="linkUrl"
     >
       <img

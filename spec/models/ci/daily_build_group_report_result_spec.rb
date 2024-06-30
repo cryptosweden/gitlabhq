@@ -2,11 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::DailyBuildGroupReportResult do
-  let(:daily_build_group_report_result) { build(:ci_daily_build_group_report_result)}
+RSpec.describe Ci::DailyBuildGroupReportResult, feature_category: :continuous_integration do
+  let(:daily_build_group_report_result) { build(:ci_daily_build_group_report_result) }
 
   describe 'associations' do
-    it { is_expected.to belong_to(:last_pipeline) }
+    it do
+      is_expected.to belong_to(:last_pipeline).class_name('Ci::Pipeline')
+        .with_foreign_key(:last_pipeline_id).inverse_of(:daily_build_group_report_results)
+    end
+
     it { is_expected.to belong_to(:project) }
     it { is_expected.to belong_to(:group) }
   end
@@ -41,24 +45,27 @@ RSpec.describe Ci::DailyBuildGroupReportResult do
     let!(:new_pipeline) { create(:ci_pipeline) }
 
     it 'creates or updates matching report results' do
-      described_class.upsert_reports([
-        {
-          project_id: rspec_coverage.project_id,
-          ref_path: rspec_coverage.ref_path,
-          last_pipeline_id: new_pipeline.id,
-          date: rspec_coverage.date,
-          group_name: 'rspec',
-          data: { 'coverage' => 81.0 }
-        },
-        {
-          project_id: rspec_coverage.project_id,
-          ref_path: rspec_coverage.ref_path,
-          last_pipeline_id: new_pipeline.id,
-          date: rspec_coverage.date,
-          group_name: 'karma',
-          data: { 'coverage' => 87.0 }
-        }
-      ])
+      described_class.upsert_reports(
+        [
+          {
+            project_id: rspec_coverage.project_id,
+            ref_path: rspec_coverage.ref_path,
+            last_pipeline_id: new_pipeline.id,
+            date: rspec_coverage.date,
+            group_name: 'rspec',
+            data: { 'coverage' => 81.0 },
+            partition_id: 100
+          },
+          {
+            project_id: rspec_coverage.project_id,
+            ref_path: rspec_coverage.ref_path,
+            last_pipeline_id: new_pipeline.id,
+            date: rspec_coverage.date,
+            group_name: 'karma',
+            data: { 'coverage' => 87.0 },
+            partition_id: 100
+          }
+        ])
 
       rspec_coverage.reload
 
@@ -175,5 +182,20 @@ RSpec.describe Ci::DailyBuildGroupReportResult do
     let!(:model) { create(:ci_daily_build_group_report_result) }
 
     let!(:parent) { model.project }
+  end
+
+  describe 'partitioning', :ci_partitionable do
+    include Ci::PartitioningHelpers
+
+    let(:pipeline) { create(:ci_pipeline) }
+    let(:daily_build_group_report_result) { create(:ci_daily_build_group_report_result, last_pipeline: pipeline) }
+
+    before do
+      stub_current_partition_id
+    end
+
+    it 'assigns the same partition id as the one that pipeline has' do
+      expect(daily_build_group_report_result.partition_id).to eq(ci_testing_partition_id)
+    end
   end
 end

@@ -8,15 +8,13 @@ import waitForPromises from 'helpers/wait_for_promises';
 import component from '~/packages_and_registries/settings/group/components/dependency_proxy_settings.vue';
 import {
   DEPENDENCY_PROXY_HEADER,
-  DEPENDENCY_PROXY_SETTINGS_DESCRIPTION,
-  DEPENDENCY_PROXY_DOCS_PATH,
+  DEPENDENCY_PROXY_DESCRIPTION,
 } from '~/packages_and_registries/settings/group/constants';
 
 import updateDependencyProxySettings from '~/packages_and_registries/settings/group/graphql/mutations/update_dependency_proxy_settings.mutation.graphql';
 import updateDependencyProxyImageTtlGroupPolicy from '~/packages_and_registries/settings/group/graphql/mutations/update_dependency_proxy_image_ttl_group_policy.mutation.graphql';
 import getGroupPackagesSettingsQuery from '~/packages_and_registries/settings/group/graphql/queries/get_group_packages_settings.query.graphql';
-import SettingsBlock from '~/vue_shared/components/settings/settings_block.vue';
-import SettingsTitles from '~/packages_and_registries/settings/group/components/settings_titles.vue';
+import SettingsBlock from '~/packages_and_registries/shared/components/settings_block.vue';
 import {
   updateGroupDependencyProxySettingsOptimisticResponse,
   updateDependencyProxyImageTtlGroupPolicyOptimisticResponse,
@@ -30,7 +28,7 @@ import {
   dependencyProxyUpdateTllPolicyMutationMock,
 } from '../mock_data';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 jest.mock('~/packages_and_registries/settings/group/graphql/utils/optimistic_responses');
 
 describe('DependencyProxySettings', () => {
@@ -40,7 +38,6 @@ describe('DependencyProxySettings', () => {
   let updateTtlPoliciesMutationResolver;
 
   const defaultProvide = {
-    defaultExpanded: false,
     groupPath: 'foo_group_path',
     groupDependencyProxyPath: 'group_dependency_proxy_path',
   };
@@ -85,14 +82,7 @@ describe('DependencyProxySettings', () => {
       .mockResolvedValue(dependencyProxyUpdateTllPolicyMutationMock());
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findSettingsBlock = () => wrapper.findComponent(SettingsBlock);
-  const findSettingsTitles = () => wrapper.findComponent(SettingsTitles);
-  const findDescription = () => wrapper.findByTestId('description');
-  const findDescriptionLink = () => wrapper.findByTestId('description-link');
   const findEnableProxyToggle = () => wrapper.findByTestId('dependency-proxy-setting-toggle');
   const findEnableTtlPoliciesToggle = () =>
     wrapper.findByTestId('dependency-proxy-ttl-policies-toggle');
@@ -114,31 +104,11 @@ describe('DependencyProxySettings', () => {
     expect(findSettingsBlock().exists()).toBe(true);
   });
 
-  it('passes the correct props to settings block', () => {
-    mountComponent();
-
-    expect(findSettingsBlock().props('defaultExpanded')).toBe(false);
-  });
-
-  it('has the correct header text', () => {
+  it('has the correct header text and description', () => {
     mountComponent();
 
     expect(wrapper.text()).toContain(DEPENDENCY_PROXY_HEADER);
-  });
-
-  it('has the correct description text', () => {
-    mountComponent();
-
-    expect(findDescription().text()).toMatchInterpolatedText(DEPENDENCY_PROXY_SETTINGS_DESCRIPTION);
-  });
-
-  it('has the correct link', () => {
-    mountComponent();
-
-    expect(findDescriptionLink().attributes()).toMatchObject({
-      href: DEPENDENCY_PROXY_DOCS_PATH,
-    });
-    expect(findDescriptionLink().text()).toBe('Learn more');
+    expect(wrapper.text()).toContain(DEPENDENCY_PROXY_DESCRIPTION);
   });
 
   describe('enable toggle', () => {
@@ -153,12 +123,6 @@ describe('DependencyProxySettings', () => {
     describe('when enabled', () => {
       beforeEach(() => {
         mountComponent();
-      });
-
-      it('has the help prop correctly set', () => {
-        expect(findEnableProxyToggle().props()).toMatchObject({
-          help: component.i18n.enabledProxyHelpText,
-        });
       });
 
       it('has help text with a link', () => {
@@ -178,12 +142,6 @@ describe('DependencyProxySettings', () => {
         });
       });
 
-      it('has the help prop set to empty', () => {
-        expect(findEnableProxyToggle().props()).toMatchObject({
-          help: '',
-        });
-      });
-
       it('the help text is not visible', () => {
         expect(findToggleHelpLink().exists()).toBe(false);
       });
@@ -191,14 +149,6 @@ describe('DependencyProxySettings', () => {
   });
 
   describe('storage settings', () => {
-    it('the component has the settings title', () => {
-      mountComponent();
-
-      expect(findSettingsTitles().props()).toMatchObject({
-        title: component.i18n.storageSettingsTitle,
-      });
-    });
-
     describe('enable proxy ttl policies', () => {
       it('exists', () => {
         mountComponent();
@@ -215,7 +165,7 @@ describe('DependencyProxySettings', () => {
     toggleName               | toggleFinder                   | localErrorMock                                | optimisticResponse
     ${'enable proxy'}        | ${findEnableProxyToggle}       | ${dependencyProxySettingMutationMock}         | ${updateGroupDependencyProxySettingsOptimisticResponse}
     ${'enable ttl policies'} | ${findEnableTtlPoliciesToggle} | ${dependencyProxyUpdateTllPolicyMutationMock} | ${updateDependencyProxyImageTtlGroupPolicyOptimisticResponse}
-  `('$toggleName settings update ', ({ optimisticResponse, toggleFinder, localErrorMock }) => {
+  `('$toggleName settings update', ({ optimisticResponse, toggleFinder, localErrorMock }) => {
     describe('success state', () => {
       it('emits a success event', async () => {
         mountComponent();

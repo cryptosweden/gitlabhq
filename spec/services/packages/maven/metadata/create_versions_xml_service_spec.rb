@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::Packages::Maven::Metadata::CreateVersionsXmlService do
+RSpec.describe ::Packages::Maven::Metadata::CreateVersionsXmlService, feature_category: :package_registry do
   let_it_be(:package) { create(:maven_package, version: nil) }
 
   let(:versions_in_database) { %w[1.3 2.0-SNAPSHOT 1.6 1.4 1.5-SNAPSHOT] }
@@ -65,6 +65,23 @@ RSpec.describe ::Packages::Maven::Metadata::CreateVersionsXmlService do
         let(:versions_in_database) { versions_in_xml + additional_versions }
 
         it_behaves_like 'returning an xml with versions in the database'
+
+        context 'with an xml without a release version' do
+          let(:version_release) { nil }
+
+          it_behaves_like 'returning an xml with versions in the database'
+
+          it 'logs a warn with the reason' do
+            expect(Gitlab::AppJsonLogger).to receive(:warn).with(
+              message: 'A malformed metadata file has been encountered',
+              reason: 'Missing release tag',
+              project_id: package.project_id,
+              package_id: package.id
+            )
+
+            subject
+          end
+        end
       end
     end
 

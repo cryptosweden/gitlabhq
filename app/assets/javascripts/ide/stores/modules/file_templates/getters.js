@@ -1,9 +1,10 @@
 import { __ } from '~/locale';
+import { DEFAULT_CI_CONFIG_PATH } from '~/lib/utils/constants';
 import { leftSidebarViews } from '../../../constants';
 
 export const templateTypes = () => [
   {
-    name: '.gitlab-ci.yml',
+    name: DEFAULT_CI_CONFIG_PATH,
     key: 'gitlab_ci_ymls',
   },
   {
@@ -17,10 +18,6 @@ export const templateTypes = () => [
   {
     name: __('Dockerfile'),
     key: 'dockerfiles',
-  },
-  {
-    name: '.metrics-dashboard.yml',
-    key: 'metrics_dashboard_ymls',
   },
 ];
 

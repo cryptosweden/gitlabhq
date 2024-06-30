@@ -1,29 +1,52 @@
-import { shallowMount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import { GlSprintf } from '@gitlab/ui';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+
+import waitForPromises from 'helpers/wait_for_promises';
+import { sprintf } from '~/locale';
+import { createAlert } from '~/alert';
 
 import DiffContentComponent from 'jh_else_ce/diffs/components/diff_content.vue';
 import DiffFileComponent from '~/diffs/components/diff_file.vue';
 import DiffFileHeaderComponent from '~/diffs/components/diff_file_header.vue';
 
 import {
+  EVT_DISCUSSIONS_ASSIGNED,
   EVT_EXPAND_ALL_FILES,
   EVT_PERF_MARK_DIFF_FILES_END,
   EVT_PERF_MARK_FIRST_DIFF_FILE_SHOWN,
+  FILE_DIFF_POSITION_TYPE,
 } from '~/diffs/constants';
 import eventHub from '~/diffs/event_hub';
-import createDiffsStore from '~/diffs/store/modules';
 
 import { diffViewerModes, diffViewerErrors } from '~/ide/constants';
 import axios from '~/lib/utils/axios_utils';
-import { scrollToElement } from '~/lib/utils/common_utils';
-import httpStatus from '~/lib/utils/http_status';
+import { scrollToElement, isElementStuck } from '~/lib/utils/common_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import createNotesStore from '~/notes/stores/modules';
-import diffFileMockDataReadable from '../mock_data/diff_file';
+import diffsModule from '~/diffs/store/modules';
+import { SOMETHING_WENT_WRONG, SAVING_THE_COMMENT_FAILED } from '~/diffs/i18n';
+import diffLineNoteFormMixin from '~/notes/mixins/diff_line_note_form';
+import { SET_PINNED_FILE_HASH } from '~/diffs/store/mutation_types';
+import { getDiffFileMock } from '../mock_data/diff_file';
 import diffFileMockDataUnreadable from '../mock_data/diff_file_unreadable';
+import diffsMockData from '../mock_data/merge_request_diffs';
 
 jest.mock('~/lib/utils/common_utils');
+jest.mock('~/alert');
+jest.mock('~/notes/mixins/diff_line_note_form', () => ({
+  methods: {
+    addToReview: jest.fn(),
+  },
+}));
+
+Vue.use(Vuex);
+
+const saveDiffDiscussionMock = jest.fn();
+const prefetchFileNeighborsMock = jest.fn();
 
 function changeViewer(store, index, { automaticallyCollapsed, manuallyCollapsed, name }) {
   const file = store.state.diffs.diffFiles[index];
@@ -48,7 +71,7 @@ function changeViewer(store, index, { automaticallyCollapsed, manuallyCollapsed,
   });
 }
 
-function forceHasDiff({ store, index = 0, inlineLines, parallelLines, readableText }) {
+function forceHasDiff({ store, index = 0, inlineLines, parallelLines, expandable }) {
   const file = store.state.diffs.diffFiles[index];
 
   Object.assign(file, {
@@ -56,7 +79,10 @@ function forceHasDiff({ store, index = 0, inlineLines, parallelLines, readableTe
     parallel_diff_lines: parallelLines,
     blob: {
       ...file.blob,
-      readable_text: readableText,
+    },
+    viewer: {
+      ...file.viewer,
+      expandable,
     },
   });
 }
@@ -69,44 +95,14 @@ function markFileToBeRendered(store, index = 0) {
   });
 }
 
-function createComponent({ file, first = false, last = false, options = {}, props = {} }) {
-  Vue.use(Vuex);
-
-  const store = new Vuex.Store({
-    ...createNotesStore(),
-    modules: {
-      diffs: createDiffsStore(),
-    },
-  });
-
-  store.state.diffs.diffFiles = [file];
-
-  const wrapper = shallowMount(DiffFileComponent, {
-    store,
-    propsData: {
-      file,
-      canCurrentUserFork: false,
-      viewDiffsFileByFile: false,
-      isFirstFile: first,
-      isLastFile: last,
-      ...props,
-    },
-    ...options,
-  });
-
-  return {
-    wrapper,
-    store,
-  };
-}
-
-const findDiffHeader = (wrapper) => wrapper.find(DiffFileHeaderComponent);
-const findDiffContentArea = (wrapper) => wrapper.find('[data-testid="content-area"]');
-const findLoader = (wrapper) => wrapper.find('[data-testid="loader-icon"]');
-const findToggleButton = (wrapper) => wrapper.find('[data-testid="expand-button"]');
+const findDiffHeader = (wrapper) => wrapper.findComponent(DiffFileHeaderComponent);
+const findDiffContentArea = (wrapper) => wrapper.findByTestId('content-area');
+const findLoader = (wrapper) => wrapper.findByTestId('loader-icon');
+const findToggleButton = (wrapper) => wrapper.findByTestId('expand-button');
+const findNoteForm = (wrapper) => wrapper.findByTestId('file-note-form');
 
 const toggleFile = (wrapper) => findDiffHeader(wrapper).vm.$emit('toggleFile');
-const getReadableFile = () => JSON.parse(JSON.stringify(diffFileMockDataReadable));
+const getReadableFile = () => getDiffFileMock();
 const getUnreadableFile = () => JSON.parse(JSON.stringify(diffFileMockDataUnreadable));
 
 const makeFileAutomaticallyCollapsed = (store, index = 0) =>
@@ -118,20 +114,91 @@ const makeFileManuallyCollapsed = (store, index = 0) =>
 const changeViewerType = (store, newType, index = 0) =>
   changeViewer(store, index, { name: diffViewerModes[newType] });
 
+const triggerSaveNote = (wrapper, note, parent, error) =>
+  findNoteForm(wrapper).vm.$emit('handleFormUpdate', note, parent, error);
+
+const triggerSaveDraftNote = (wrapper, note, parent, error) =>
+  findNoteForm(wrapper).vm.$emit('handleFormUpdateAddToReview', note, false, parent, error);
+
 describe('DiffFile', () => {
   let wrapper;
   let store;
   let axiosMock;
 
+  function createComponent({
+    file = getReadableFile(),
+    first = false,
+    last = false,
+    options = {},
+    props = {},
+  } = {}) {
+    const diffs = diffsModule();
+    diffs.actions = {
+      ...diffs.actions,
+      prefetchFileNeighbors: prefetchFileNeighborsMock,
+      saveDiffDiscussion: saveDiffDiscussionMock,
+    };
+
+    diffs.getters = {
+      ...diffs.getters,
+      diffCompareDropdownTargetVersions: () => [],
+      diffCompareDropdownSourceVersions: () => [],
+    };
+
+    store = new Vuex.Store({
+      ...createNotesStore(),
+      modules: { diffs },
+    });
+
+    store.state.diffs = {
+      ...store.state.diffs,
+      mergeRequestDiff: diffsMockData[0],
+      diffFiles: [file],
+    };
+
+    wrapper = shallowMountExtended(DiffFileComponent, {
+      store,
+      propsData: {
+        file,
+        canCurrentUserFork: false,
+        viewDiffsFileByFile: false,
+        isFirstFile: first,
+        isLastFile: last,
+        ...props,
+      },
+      ...options,
+    });
+  }
+
   beforeEach(() => {
     axiosMock = new MockAdapter(axios);
-    ({ wrapper, store } = createComponent({ file: getReadableFile() }));
+    createComponent();
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
     axiosMock.restore();
+  });
+
+  describe('mounted', () => {
+    beforeEach(() => {
+      jest.spyOn(window, 'requestIdleCallback').mockImplementation((fn) => fn());
+    });
+
+    it.each`
+      description                                        | fileByFile
+      ${'does not prefetch if not in file-by-file mode'} | ${false}
+      ${'prefetches when in file-by-file mode'}          | ${true}
+    `('$description', ({ fileByFile }) => {
+      createComponent({
+        props: { viewDiffsFileByFile: fileByFile },
+      });
+
+      if (fileByFile) {
+        expect(prefetchFileNeighborsMock).toHaveBeenCalled();
+      } else {
+        expect(prefetchFileNeighborsMock).not.toHaveBeenCalled();
+      }
+    });
   });
 
   describe('bus events', () => {
@@ -142,8 +209,8 @@ describe('DiffFile', () => {
     describe('during mount', () => {
       it.each`
         first    | last     | events                                                                 | file
-        ${false} | ${false} | ${[]}                                                                  | ${{ inlineLines: [], parallelLines: [], readableText: true }}
-        ${true}  | ${true}  | ${[]}                                                                  | ${{ inlineLines: [], parallelLines: [], readableText: true }}
+        ${false} | ${false} | ${[]}                                                                  | ${{ inlineLines: [], parallelLines: [], expandable: true }}
+        ${true}  | ${true}  | ${[]}                                                                  | ${{ inlineLines: [], parallelLines: [], expandable: true }}
         ${true}  | ${false} | ${[EVT_PERF_MARK_FIRST_DIFF_FILE_SHOWN]}                               | ${false}
         ${false} | ${true}  | ${[EVT_PERF_MARK_DIFF_FILES_END]}                                      | ${false}
         ${true}  | ${true}  | ${[EVT_PERF_MARK_FIRST_DIFF_FILE_SHOWN, EVT_PERF_MARK_DIFF_FILES_END]} | ${false}
@@ -154,11 +221,11 @@ describe('DiffFile', () => {
             forceHasDiff({ store, ...file });
           }
 
-          ({ wrapper, store } = createComponent({
+          createComponent({
             file: store.state.diffs.diffFiles[0],
             first,
             last,
-          }));
+          });
 
           await nextTick();
 
@@ -168,16 +235,32 @@ describe('DiffFile', () => {
           });
         },
       );
+
+      it('emits the "first file shown" and "files end" events when in File-by-File mode', async () => {
+        createComponent({
+          first: false,
+          last: false,
+          props: {
+            viewDiffsFileByFile: true,
+          },
+        });
+
+        await nextTick();
+
+        expect(eventHub.$emit).toHaveBeenCalledTimes(2);
+        expect(eventHub.$emit).toHaveBeenCalledWith(EVT_PERF_MARK_FIRST_DIFF_FILE_SHOWN);
+        expect(eventHub.$emit).toHaveBeenCalledWith(EVT_PERF_MARK_DIFF_FILES_END);
+      });
     });
 
     describe('after loading the diff', () => {
       it('indicates that it loaded the file', async () => {
-        forceHasDiff({ store, inlineLines: [], parallelLines: [], readableText: true });
-        ({ wrapper, store } = createComponent({
+        forceHasDiff({ store, inlineLines: [], parallelLines: [], expandable: true });
+        createComponent({
           file: store.state.diffs.diffFiles[0],
           first: true,
           last: true,
-        }));
+        });
 
         jest.spyOn(wrapper.vm, 'loadCollapsedDiff').mockResolvedValue(getReadableFile());
         jest.spyOn(window, 'requestIdleCallback').mockImplementation((fn) => fn());
@@ -192,9 +275,10 @@ describe('DiffFile', () => {
         await nextTick(); // Wait for the idleCallback
         await nextTick(); // Wait for nextTick inside postRender
 
-        expect(eventHub.$emit).toHaveBeenCalledTimes(2);
+        expect(eventHub.$emit).toHaveBeenCalledTimes(3);
         expect(eventHub.$emit).toHaveBeenCalledWith(EVT_PERF_MARK_FIRST_DIFF_FILE_SHOWN);
         expect(eventHub.$emit).toHaveBeenCalledWith(EVT_PERF_MARK_DIFF_FILES_END);
+        expect(eventHub.$emit).toHaveBeenCalledWith(EVT_DISCUSSIONS_ASSIGNED);
       });
     });
   });
@@ -209,33 +293,22 @@ describe('DiffFile', () => {
 
       expect(el.querySelectorAll('.diff-content.hidden').length).toEqual(0);
       expect(el.querySelector('.js-file-title')).toBeDefined();
-      expect(wrapper.find(DiffFileHeaderComponent).exists()).toBe(true);
+      expect(wrapper.findComponent(DiffFileHeaderComponent).exists()).toBe(true);
       expect(el.querySelector('.js-syntax-highlight')).toBeDefined();
 
       markFileToBeRendered(store);
 
       await nextTick();
 
-      expect(wrapper.find(DiffContentComponent).exists()).toBe(true);
+      expect(wrapper.findComponent(DiffContentComponent).exists()).toBe(true);
     });
   });
 
   describe('computed', () => {
     describe('showLocalFileReviews', () => {
-      let gon;
-
       function setLoggedIn(bool) {
         window.gon.current_user_id = bool;
       }
-
-      beforeAll(() => {
-        gon = window.gon;
-        window.gon = {};
-      });
-
-      afterEach(() => {
-        window.gon = gon;
-      });
 
       it.each`
         loggedIn | bool
@@ -244,11 +317,11 @@ describe('DiffFile', () => {
       `('should be $bool when { userIsLoggedIn: $loggedIn }', ({ loggedIn, bool }) => {
         setLoggedIn(loggedIn);
 
-        ({ wrapper } = createComponent({
+        createComponent({
           props: {
             file: store.state.diffs.diffFiles[0],
           },
-        }));
+        });
 
         expect(wrapper.vm.showLocalFileReviews).toBe(bool);
       });
@@ -256,6 +329,22 @@ describe('DiffFile', () => {
   });
 
   describe('collapsing', () => {
+    describe('forced open', () => {
+      it('should have content even when it is automatically collapsed', () => {
+        makeFileAutomaticallyCollapsed(store);
+
+        expect(findDiffContentArea(wrapper).element.children.length).toBe(1);
+        expect(wrapper.classes('has-body')).toBe(true);
+      });
+
+      it('should have content even when it is manually collapsed', () => {
+        makeFileManuallyCollapsed(store);
+
+        expect(findDiffContentArea(wrapper).element.children.length).toBe(1);
+        expect(wrapper.classes('has-body')).toBe(true);
+      });
+    });
+
     describe(`\`${EVT_EXPAND_ALL_FILES}\` event`, () => {
       beforeEach(() => {
         jest.spyOn(wrapper.vm, 'handleToggle').mockImplementation(() => {});
@@ -313,14 +402,37 @@ describe('DiffFile', () => {
       });
     });
 
+    describe('automatically collapsed generated file', () => {
+      beforeEach(() => {
+        makeFileAutomaticallyCollapsed(store);
+        const file = store.state.diffs.diffFiles[0];
+        Object.assign(store.state.diffs.diffFiles[0], {
+          ...file,
+          viewer: {
+            ...file.viewer,
+            generated: true,
+          },
+        });
+      });
+
+      it('should show the generated file warning with expansion button', () => {
+        const messageComponent = findDiffContentArea(wrapper).findComponent(GlSprintf);
+
+        expect(messageComponent.attributes('message')).toBe(
+          'Generated files are collapsed by default. To change this behavior, edit the %{tagStart}.gitattributes%{tagEnd} file. %{linkStart}Learn more.%{linkEnd}',
+        );
+        expect(findToggleButton(wrapper).exists()).toBe(true);
+      });
+    });
+
     describe('not collapsed', () => {
       beforeEach(() => {
         makeFileOpenByDefault(store);
         markFileToBeRendered(store);
       });
 
-      it('should have the file content', async () => {
-        expect(wrapper.find(DiffContentComponent).exists()).toBe(true);
+      it('should have the file content', () => {
+        expect(wrapper.findComponent(DiffContentComponent).exists()).toBe(true);
       });
 
       it('should style the component so that it `.has-body` for layout purposes', () => {
@@ -329,7 +441,7 @@ describe('DiffFile', () => {
     });
 
     describe('toggle', () => {
-      it('should update store state', async () => {
+      it('should update store state', () => {
         jest.spyOn(wrapper.vm.$store, 'dispatch').mockImplementation(() => {});
 
         toggleFile(wrapper);
@@ -343,6 +455,7 @@ describe('DiffFile', () => {
       describe('scoll-to-top of file after collapse', () => {
         beforeEach(() => {
           jest.spyOn(wrapper.vm.$store, 'dispatch').mockImplementation(() => {});
+          isElementStuck.mockReturnValueOnce(true);
         });
 
         it("scrolls to the top when the file is open, the users initiates the collapse, and there's a content block to scroll to", async () => {
@@ -384,12 +497,12 @@ describe('DiffFile', () => {
       });
 
       describe('fetch collapsed diff', () => {
-        const prepFile = async (inlineLines, parallelLines, readableText) => {
+        const prepFile = async (inlineLines, parallelLines, expandable) => {
           forceHasDiff({
             store,
             inlineLines,
             parallelLines,
-            readableText,
+            expandable,
           });
 
           await nextTick();
@@ -404,28 +517,28 @@ describe('DiffFile', () => {
         });
 
         it.each`
-          inlineLines | parallelLines | readableText
+          inlineLines | parallelLines | expandable
           ${[1]}      | ${[1]}        | ${true}
           ${[]}       | ${[1]}        | ${true}
           ${[1]}      | ${[]}         | ${true}
           ${[1]}      | ${[1]}        | ${false}
           ${[]}       | ${[]}         | ${false}
         `(
-          'does not make a request to fetch the diff for a diff file like { inline: $inlineLines, parallel: $parallelLines, readableText: $readableText }',
-          async ({ inlineLines, parallelLines, readableText }) => {
-            await prepFile(inlineLines, parallelLines, readableText);
+          'does not make a request to fetch the diff for a diff file like { inline: $inlineLines, parallel: $parallelLines, expandable: $expandable }',
+          async ({ inlineLines, parallelLines, expandable }) => {
+            await prepFile(inlineLines, parallelLines, expandable);
 
             expect(wrapper.vm.requestDiff).not.toHaveBeenCalled();
           },
         );
 
         it.each`
-          inlineLines | parallelLines | readableText
+          inlineLines | parallelLines | expandable
           ${[]}       | ${[]}         | ${true}
         `(
-          'makes a request to fetch the diff for a diff file like { inline: $inlineLines, parallel: $parallelLines, readableText: $readableText }',
-          async ({ inlineLines, parallelLines, readableText }) => {
-            await prepFile(inlineLines, parallelLines, readableText);
+          'makes a request to fetch the diff for a diff file like { inline: $inlineLines, parallel: $parallelLines, expandable: $expandable }',
+          async ({ inlineLines, parallelLines, expandable }) => {
+            await prepFile(inlineLines, parallelLines, expandable);
 
             expect(wrapper.vm.requestDiff).toHaveBeenCalled();
           },
@@ -436,7 +549,7 @@ describe('DiffFile', () => {
     describe('loading', () => {
       it('should have loading icon while loading a collapsed diffs', async () => {
         const { load_collapsed_diff_url } = store.state.diffs.diffFiles[0];
-        axiosMock.onGet(load_collapsed_diff_url).reply(httpStatus.OK, getReadableFile());
+        axiosMock.onGet(load_collapsed_diff_url).reply(HTTP_STATUS_OK, getReadableFile());
         makeFileAutomaticallyCollapsed(store);
         wrapper.vm.requestDiff();
 
@@ -448,7 +561,7 @@ describe('DiffFile', () => {
 
     describe('general (other) collapsed', () => {
       it('should be expandable for unreadable files', async () => {
-        ({ wrapper, store } = createComponent({ file: getUnreadableFile() }));
+        createComponent({ file: getUnreadableFile() });
         makeFileAutomaticallyCollapsed(store);
 
         await nextTick();
@@ -473,8 +586,8 @@ describe('DiffFile', () => {
           await nextTick();
 
           expect(wrapper.classes('has-body')).toBe(true);
-          expect(wrapper.find(DiffContentComponent).exists()).toBe(true);
-          expect(wrapper.find(DiffContentComponent).isVisible()).toBe(true);
+          expect(wrapper.findComponent(DiffContentComponent).exists()).toBe(true);
+          expect(wrapper.findComponent(DiffContentComponent).isVisible()).toBe(true);
         },
       );
     });
@@ -498,7 +611,7 @@ describe('DiffFile', () => {
 
       await nextTick();
 
-      const button = wrapper.find('[data-testid="blob-button"]');
+      const button = wrapper.findByTestId('blob-button');
 
       expect(wrapper.text()).toContain('Changes are too large to be shown.');
       expect(button.html()).toContain('View file @');
@@ -506,31 +619,7 @@ describe('DiffFile', () => {
     });
   });
 
-  it('loads collapsed file on mounted when single file mode is enabled', async () => {
-    wrapper.destroy();
-
-    const file = {
-      ...getReadableFile(),
-      load_collapsed_diff_url: '/diff_for_path',
-      highlighted_diff_lines: [],
-      parallel_diff_lines: [],
-      viewer: { name: 'collapsed', automaticallyCollapsed: true },
-    };
-
-    axiosMock.onGet(file.load_collapsed_diff_url).reply(httpStatus.OK, getReadableFile());
-
-    ({ wrapper, store } = createComponent({ file, props: { viewDiffsFileByFile: true } }));
-
-    await nextTick();
-
-    expect(findLoader(wrapper).exists()).toBe(true);
-  });
-
   describe('merge conflicts', () => {
-    beforeEach(() => {
-      wrapper.destroy();
-    });
-
     it('does not render conflict alert', () => {
       const file = {
         ...getReadableFile(),
@@ -538,9 +627,9 @@ describe('DiffFile', () => {
         renderIt: true,
       };
 
-      ({ wrapper, store } = createComponent({ file }));
+      createComponent({ file });
 
-      expect(wrapper.find('[data-testid="conflictsAlert"]').exists()).toBe(false);
+      expect(wrapper.findByTestId('conflictsAlert').exists()).toBe(false);
     });
 
     it('renders conflict alert when conflict_type is present', () => {
@@ -550,9 +639,170 @@ describe('DiffFile', () => {
         renderIt: true,
       };
 
-      ({ wrapper, store } = createComponent({ file }));
+      createComponent({ file });
 
-      expect(wrapper.find('[data-testid="conflictsAlert"]').exists()).toBe(true);
+      expect(wrapper.findByTestId('conflictsAlert').exists()).toBe(true);
+    });
+  });
+
+  describe('file discussions', () => {
+    it.each`
+      extraProps                                                           | exists   | existsText
+      ${{}}                                                                | ${false} | ${'does not'}
+      ${{ hasCommentForm: false }}                                         | ${false} | ${'does not'}
+      ${{ hasCommentForm: true }}                                          | ${true}  | ${'does'}
+      ${{ discussions: [{ id: 1, position: { position_type: 'file' } }] }} | ${true}  | ${'does'}
+      ${{ drafts: [{ id: 1 }] }}                                           | ${true}  | ${'does'}
+    `(
+      'discussions wrapper $existsText exist for file with $extraProps',
+      ({ extraProps, exists }) => {
+        const file = {
+          ...getReadableFile(),
+          ...extraProps,
+        };
+
+        createComponent({
+          file,
+        });
+
+        expect(wrapper.findByTestId('file-discussions').exists()).toEqual(exists);
+      },
+    );
+
+    it.each`
+      hasCommentForm | exists   | existsText
+      ${false}       | ${false} | ${'does not'}
+      ${true}        | ${true}  | ${'does'}
+    `(
+      'comment form $existsText exist for hasCommentForm with $hasCommentForm',
+      ({ hasCommentForm, exists }) => {
+        const file = {
+          ...getReadableFile(),
+          hasCommentForm,
+        };
+
+        createComponent({
+          file,
+        });
+
+        expect(findNoteForm(wrapper).exists()).toEqual(exists);
+      },
+    );
+
+    it.each`
+      discussions                                         | exists   | existsText
+      ${[]}                                               | ${false} | ${'does not'}
+      ${[{ id: 1, position: { position_type: 'file' } }]} | ${true}  | ${'does'}
+    `('discussions $existsText exist for $discussions', ({ discussions, exists }) => {
+      const file = {
+        ...getReadableFile(),
+        discussions,
+      };
+
+      createComponent({
+        file,
+      });
+
+      expect(wrapper.findByTestId('diff-file-discussions').exists()).toEqual(exists);
+    });
+
+    describe('when note-form emits `handleFormUpdate`', () => {
+      const file = {
+        ...getReadableFile(),
+        hasCommentForm: true,
+      };
+
+      const note = {};
+      const parentElement = null;
+      const errorCallback = jest.fn();
+
+      beforeEach(() => {
+        createComponent({
+          file,
+          options: { provide: { glFeatures: { commentOnFiles: true } } },
+        });
+      });
+
+      it('calls saveDiffDiscussionMock', () => {
+        triggerSaveNote(wrapper, note, parentElement, errorCallback);
+
+        expect(saveDiffDiscussionMock).toHaveBeenCalledWith(expect.any(Object), {
+          note,
+          formData: {
+            noteableData: expect.any(Object),
+            diffFile: file,
+            positionType: FILE_DIFF_POSITION_TYPE,
+            noteableType: store.getters.noteableType,
+          },
+        });
+      });
+
+      describe('when saveDiffDiscussionMock throws an error', () => {
+        describe.each`
+          scenario                  | serverError                      | message
+          ${'with server error'}    | ${{ data: { errors: 'error' } }} | ${SAVING_THE_COMMENT_FAILED}
+          ${'without server error'} | ${{}}                            | ${SOMETHING_WENT_WRONG}
+        `('$scenario', ({ serverError, message }) => {
+          beforeEach(async () => {
+            saveDiffDiscussionMock.mockRejectedValue({ response: serverError });
+
+            triggerSaveNote(wrapper, note, parentElement, errorCallback);
+
+            await waitForPromises();
+          });
+
+          it(`renders ${serverError ? 'server' : 'generic'} error message`, () => {
+            expect(createAlert).toHaveBeenCalledWith({
+              message: sprintf(message, { reason: serverError?.data?.errors }),
+              parent: parentElement,
+            });
+          });
+
+          it('calls errorCallback', () => {
+            expect(errorCallback).toHaveBeenCalled();
+          });
+        });
+      });
+    });
+
+    describe('when note-form emits `handleFormUpdateAddToReview`', () => {
+      const file = {
+        ...getReadableFile(),
+        hasCommentForm: true,
+      };
+
+      const note = {};
+      const parentElement = null;
+      const errorCallback = jest.fn();
+
+      beforeEach(async () => {
+        createComponent({
+          file,
+          options: { provide: { glFeatures: { commentOnFiles: true } } },
+        });
+
+        triggerSaveDraftNote(wrapper, note, parentElement, errorCallback);
+
+        await nextTick();
+      });
+
+      it('calls addToReview mixin', () => {
+        expect(diffLineNoteFormMixin.methods.addToReview).toHaveBeenCalledWith(
+          note,
+          FILE_DIFF_POSITION_TYPE,
+          parentElement,
+          errorCallback,
+        );
+      });
+    });
+  });
+
+  describe('pinned file', () => {
+    it('passes down pinned prop', async () => {
+      createComponent();
+      store.commit(`diffs/${SET_PINNED_FILE_HASH}`, getReadableFile().file_hash);
+      await nextTick();
+      expect(wrapper.findComponent(DiffFileHeaderComponent).props('pinned')).toBe(true);
     });
   });
 });

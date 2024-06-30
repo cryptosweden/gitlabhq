@@ -6,9 +6,10 @@ module Gitlab
     module Payload
       class Generic < Base
         DEFAULT_TITLE = 'New: Alert'
+        DEFAULT_SOURCE = 'Generic Alert Endpoint'
 
         attribute :description, paths: 'description'
-        attribute :ends_at, paths: 'end_time', type: :time
+        attribute :ends_at, paths: 'end_time', type: :time_with_epoch_millis
         attribute :environment_name, paths: 'gitlab_environment_name'
         attribute :hosts, paths: 'hosts'
         attribute :monitoring_tool, paths: 'monitoring_tool'
@@ -22,6 +23,14 @@ module Gitlab
 
         attribute :plain_gitlab_fingerprint, paths: 'fingerprint'
         private :plain_gitlab_fingerprint
+
+        def resolved?
+          ends_at.present?
+        end
+
+        def source
+          super || DEFAULT_SOURCE
+        end
       end
     end
   end

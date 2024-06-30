@@ -18,6 +18,8 @@ export const extractHrefFromMarkdownLink = (match) => {
 };
 
 export default Link.extend({
+  inclusive: false,
+
   addOptions() {
     return {
       ...this.parent?.(),
@@ -27,7 +29,6 @@ export default Link.extend({
 
   addInputRules() {
     const markdownLinkSyntaxInputRuleRegExp = /(?:^|\s)\[([\w|\s|-]+)\]\((?<href>.+?)\)$/gm;
-    const urlSyntaxRegExp = /(?:^|\s)(?<href>(?:https?:\/\/|www\.)[\S]+)(?:\s|\n)$/gim;
 
     return [
       markInputRule({
@@ -35,16 +36,14 @@ export default Link.extend({
         type: this.type,
         getAttributes: extractHrefFromMarkdownLink,
       }),
-      markInputRule({
-        find: urlSyntaxRegExp,
-        type: this.type,
-        getAttributes: extractHrefFromMatch,
-      }),
     ];
   },
   addAttributes() {
     return {
-      ...this.parent?.(),
+      uploading: {
+        default: false,
+        renderHTML: ({ uploading }) => (uploading ? { class: 'with-attachment-icon' } : {}),
+      },
       href: {
         default: null,
         parseHTML: (element) => element.getAttribute('href'),
@@ -53,10 +52,42 @@ export default Link.extend({
         title: null,
         parseHTML: (element) => element.getAttribute('title'),
       },
+      // only for gollum links (wikis)
+      isGollumLink: {
+        default: false,
+        parseHTML: (element) => Boolean(element.dataset.gollum),
+        renderHTML: () => '',
+      },
+      isWikiPage: {
+        default: false,
+        parseHTML: (element) => Boolean(element.classList.contains('gfm-gollum-wiki-page')),
+        renderHTML: ({ isWikiPage }) => (isWikiPage ? { class: 'gfm-gollum-wiki-page' } : {}),
+      },
       canonicalSrc: {
         default: null,
         parseHTML: (element) => element.dataset.canonicalSrc,
+        renderHTML: () => '',
       },
+      isReference: {
+        default: false,
+        renderHTML: () => '',
+      },
+    };
+  },
+  addCommands() {
+    return {
+      ...this.parent?.(),
+      editLink:
+        (attrs) =>
+        ({ chain }) => {
+          chain().setMeta('creatingLink', true).setLink(attrs).run();
+        },
+    };
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      'Mod-k': () => this.editor.commands.editLink(),
     };
   },
 });

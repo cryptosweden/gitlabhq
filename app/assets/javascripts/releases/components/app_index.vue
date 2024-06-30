@@ -1,12 +1,14 @@
 <script>
-import { GlButton } from '@gitlab/ui';
-import createFlash from '~/flash';
+import { GlAlert, GlButton, GlLink, GlSprintf, GlTooltipDirective } from '@gitlab/ui';
+import { createAlert } from '~/alert';
 import { historyPushState } from '~/lib/utils/common_utils';
+import { helpPagePath } from '~/helpers/help_page_helper';
 import { scrollUp } from '~/lib/utils/scroll_utils';
 import { setUrlParams, getParameterByName } from '~/lib/utils/url_utility';
-import { __ } from '~/locale';
-import { PAGE_SIZE, DEFAULT_SORT } from '~/releases/constants';
+import { i18n, PAGE_SIZE, DEFAULT_SORT } from '~/releases/constants';
 import { convertAllReleasesGraphQLResponse } from '~/releases/util';
+import { popDeleteReleaseNotification } from '~/releases/release_notification_service';
+import getCiCatalogSettingsQuery from '~/ci/catalog/graphql/queries/get_ci_catalog_settings.query.graphql';
 import allReleasesQuery from '../graphql/queries/all_releases.query.graphql';
 import ReleaseBlock from './release_block.vue';
 import ReleaseSkeletonLoader from './release_skeleton_loader.vue';
@@ -16,19 +18,33 @@ import ReleasesSort from './releases_sort.vue';
 
 export default {
   name: 'ReleasesIndexApp',
+  i18n,
+  links: {
+    alertInfoMessageLink: helpPagePath('ci/yaml/index.html', { anchor: 'release' }),
+    alertInfoPublishLink: helpPagePath('ci/components/index', { anchor: 'release-a-component' }),
+  },
   components: {
+    GlAlert,
     GlButton,
+    GlLink,
+    GlSprintf,
     ReleaseBlock,
     ReleaseSkeletonLoader,
     ReleasesEmptyState,
     ReleasesPagination,
     ReleasesSort,
   },
+  directives: {
+    GlTooltip: GlTooltipDirective,
+  },
   inject: {
     projectPath: {
       default: '',
     },
     newReleasePath: {
+      default: '',
+    },
+    atomFeedPath: {
       default: '',
     },
   },
@@ -71,11 +87,25 @@ export default {
       error(error) {
         this.fullRequestError = true;
 
-        createFlash({
+        createAlert({
           message: this.$options.i18n.errorMessage,
           captureError: true,
           error,
         });
+      },
+    },
+    isCatalogResource: {
+      query: getCiCatalogSettingsQuery,
+      variables() {
+        return {
+          fullPath: this.projectPath,
+        };
+      },
+      update({ project }) {
+        return project?.isCatalogResource || false;
+      },
+      error() {
+        createAlert({ message: this.$options.i18n.catalogResourceQueryError });
       },
     },
   },
@@ -138,6 +168,14 @@ export default {
     isFullRequestLoaded() {
       return Boolean(!this.isFullRequestLoading && this.fullGraphqlResponse?.data.project);
     },
+    atomFeedBtnTitle() {
+      return this.$options.i18n.atomFeedBtnTitle;
+    },
+    releaseBtnTitle() {
+      return this.isCatalogResource
+        ? this.$options.i18n.catalogResourceReleaseBtnTitle
+        : this.$options.i18n.defaultReleaseBtnTitle;
+    },
     releases() {
       if (this.isFullRequestLoaded) {
         return convertAllReleasesGraphQLResponse(this.fullGraphqlResponse).data;
@@ -171,6 +209,9 @@ export default {
     shouldRenderPagination() {
       return this.isFullRequestLoaded && !this.shouldRenderEmptyState;
     },
+  },
+  mounted() {
+    popDeleteReleaseNotification(this.projectPath);
   },
   created() {
     this.updateQueryParamsFromUrl();
@@ -222,37 +263,75 @@ export default {
       this.sort = newSort;
     },
   },
-  i18n: {
-    newRelease: __('New release'),
-    errorMessage: __('An error occurred while fetching the releases. Please try again.'),
-  },
 };
 </script>
 <template>
-  <div class="flex flex-column mt-2">
-    <div class="gl-align-self-end gl-mb-3">
-      <releases-sort :value="sort" class="gl-mr-2" @input="onSortChanged" />
+  <div class="gl-display-flex gl-flex-direction-column gl-mt-3">
+    <gl-alert
+      v-if="isCatalogResource"
+      :title="$options.i18n.alertTitle"
+      :dismissible="false"
+      variant="warning"
+      class="mb-3 mt-2"
+    >
+      <gl-sprintf :message="$options.i18n.alertInfoMessage">
+        <template #link="{ content }">
+          <gl-link
+            :href="$options.links.alertInfoMessageLink"
+            target="_blank"
+            class="gl-text-decoration-none! gl-mr-2"
+          >
+            <code class="gl-pr-0">
+              {{ content }}
+            </code>
+          </gl-link>
+        </template>
+      </gl-sprintf>
+      <gl-link :href="$options.links.alertInfoPublishLink" target="_blank">
+        {{ $options.i18n.alertInfoPublishMessage }}
+      </gl-link>
+    </gl-alert>
+    <releases-empty-state v-if="shouldRenderEmptyState" />
+    <div v-else class="gl-align-self-end gl-display-flex gl-gap-3">
+      <releases-sort :value="sort" @input="onSortChanged" />
 
       <gl-button
-        v-if="newReleasePath"
-        :href="newReleasePath"
-        :aria-describedby="shouldRenderEmptyState && 'releases-description'"
-        category="primary"
-        variant="success"
-        >{{ $options.i18n.newRelease }}</gl-button
-      >
-    </div>
+        v-if="atomFeedPath"
+        v-gl-tooltip.hover
+        :title="atomFeedBtnTitle"
+        :href="atomFeedPath"
+        icon="rss"
+        class="gl-ml-2"
+        data-testid="atom-feed-btn"
+        :aria-label="atomFeedBtnTitle"
+      />
 
-    <releases-empty-state v-if="shouldRenderEmptyState" />
+      <div
+        v-if="newReleasePath"
+        v-gl-tooltip.hover
+        :title="releaseBtnTitle"
+        data-testid="new-release-btn-tooltip"
+      >
+        <gl-button
+          :disabled="isCatalogResource"
+          :href="newReleasePath"
+          class="gl-ml-2"
+          category="primary"
+          variant="confirm"
+          >{{ $options.i18n.newRelease }}</gl-button
+        >
+      </div>
+    </div>
 
     <release-block
       v-for="(release, index) in releases"
       :key="getReleaseKey(release, index)"
       :release="release"
+      :sort="sort"
       :class="{ 'linked-card': releases.length > 1 && index !== releases.length - 1 }"
     />
 
-    <release-skeleton-loader v-if="shouldRenderLoadingIndicator" />
+    <release-skeleton-loader v-if="shouldRenderLoadingIndicator" class="gl-mt-5" />
 
     <releases-pagination
       v-if="shouldRenderPagination"
@@ -270,6 +349,6 @@ export default {
   height: 17px;
   top: 100%;
   position: absolute;
-  left: 32px;
+  left: 23px;
 }
 </style>

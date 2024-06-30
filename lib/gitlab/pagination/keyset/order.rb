@@ -58,7 +58,6 @@ module Gitlab
       #         attribute_name: :created_at,
       #         column_expression: Project.arel_table[:created_at],
       #         order_expression: Project.arel_table[:created_at].asc,
-      #         distinct: false, # values in the column are not unique
       #         nullable: :nulls_last # we might see NULL values (bottom)
       #       ),
       #       Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
@@ -96,15 +95,23 @@ module Gitlab
           column_definitions.each_with_object({}.with_indifferent_access) do |column_definition, hash|
             field_value = node[column_definition.attribute_name]
             hash[column_definition.attribute_name] = if field_value.is_a?(Time)
-                                                       field_value.strftime('%Y-%m-%d %H:%M:%S.%N %Z')
+                                                       # use :inspect formatter to provide specific timezone info
+                                                       # eg 2022-07-05 21:57:56.041499000 +0800
+                                                       field_value.to_fs(:inspect)
                                                      elsif field_value.nil?
                                                        nil
                                                      elsif lower_named_function?(column_definition)
                                                        field_value.downcase
+                                                     elsif field_value.is_a?(Array)
+                                                       field_value
                                                      else
                                                        field_value.to_s
                                                      end
           end
+        end
+
+        def attribute_names
+          column_definitions.map(&:attribute_name)
         end
 
         # This methods builds the conditions for the keyset pagination
@@ -240,7 +247,8 @@ module Gitlab
           scopes = where_values.map do |where_value|
             scope.dup.where(where_value).reorder(self) # rubocop: disable CodeReuse/ActiveRecord
           end
-          scope.model.from_union(scopes, remove_duplicates: false, remove_order: false)
+
+          scope.model.select(scope.select_values).from_union(scopes, remove_duplicates: false, remove_order: false)
         end
 
         def to_sql_literal(column_definitions)

@@ -2,50 +2,44 @@
 
 require 'spec_helper'
 
-RSpec.describe ChatNames::FindUserService, :clean_gitlab_redis_shared_state do
+RSpec.describe ChatNames::FindUserService, :clean_gitlab_redis_shared_state, feature_category: :user_profile do
   describe '#execute' do
-    let(:integration) { create(:integration) }
-
-    subject { described_class.new(integration, params).execute }
+    subject { described_class.new(team_id, user_id).execute }
 
     context 'find user mapping' do
-      let(:user) { create(:user) }
-      let!(:chat_name) { create(:chat_name, user: user, integration: integration) }
+      let_it_be(:user) { create(:user) }
+      let(:chat_name) { create(:chat_name, user: user) }
+
+      let(:team_id) { chat_name.team_id }
+      let(:user_id) { chat_name.chat_id }
 
       context 'when existing user is requested' do
-        let(:params) { { team_id: chat_name.team_id, user_id: chat_name.chat_id } }
-
         it 'returns the existing chat_name' do
           is_expected.to eq(chat_name)
         end
 
         it 'updates the last used timestamp if one is not already set' do
-          expect(chat_name.last_used_at).to be_nil
-
-          subject
-
-          expect(chat_name.reload.last_used_at).to be_present
+          expect { subject }.to change { chat_name.reload.last_used_at }.from(nil)
         end
 
         it 'only updates an existing timestamp once within a certain time frame' do
-          service = described_class.new(integration, params)
+          expect { described_class.new(team_id, user_id).execute }.to change { chat_name.reload.last_used_at }.from(nil)
+          expect { described_class.new(team_id, user_id).execute }.not_to change { chat_name.reload.last_used_at }
+        end
 
-          expect(chat_name.last_used_at).to be_nil
+        it 'records activity for the related user' do
+          expect_next_instance_of(Users::ActivityService, author: user) do |activity_service|
+            expect(activity_service).to receive(:execute)
+          end
 
-          service.execute
-
-          time = chat_name.reload.last_used_at
-
-          service.execute
-
-          expect(chat_name.reload.last_used_at).to eq(time)
+          subject
         end
       end
 
       context 'when different user is requested' do
-        let(:params) { { team_id: chat_name.team_id, user_id: 'non-existing-user' } }
+        let(:user_id) { 'non-existing-user' }
 
-        it 'returns existing user' do
+        it 'returns nil' do
           is_expected.to be_nil
         end
       end

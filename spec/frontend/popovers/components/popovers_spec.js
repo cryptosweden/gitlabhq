@@ -31,18 +31,13 @@ describe('popovers/components/popovers.vue', () => {
     return target;
   };
 
-  const allPopovers = () => wrapper.findAll(GlPopover);
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
+  const allPopovers = () => wrapper.findAllComponents(GlPopover);
 
   describe('addPopovers', () => {
     it('attaches popovers to the targets specified', async () => {
       const target = createPopoverTarget();
       await buildWrapper(target);
-      expect(wrapper.find(GlPopover).props('target')).toBe(target);
+      expect(wrapper.findComponent(GlPopover).props('target')).toBe(target);
     });
 
     it('does not attach a popover twice to the same element', async () => {
@@ -52,21 +47,30 @@ describe('popovers/components/popovers.vue', () => {
 
       await nextTick();
 
-      expect(wrapper.findAll(GlPopover)).toHaveLength(1);
+      expect(wrapper.findAllComponents(GlPopover)).toHaveLength(1);
+    });
+
+    describe('title', () => {
+      it('does not render an empty header when there is no title', async () => {
+        const target = createPopoverTarget({ title: '' });
+        await buildWrapper(target);
+        expect(wrapper.find('.popover-header').exists()).toBe(false);
+      });
     });
 
     describe('supports HTML content', () => {
       const svgIcon = '<svg><use xlink:href="icons.svg#test"></use></svg>';
+      const escapedSvgIcon = '<svg><use xlink:href=&quot;icons.svg#test&quot;></use></svg>';
 
       it.each`
         description                         | content                          | render
         ${'renders html content correctly'} | ${'<b>HTML</b>'}                 | ${'<b>HTML</b>'}
         ${'removes any unsafe content'}     | ${'<script>alert(XSS)</script>'} | ${''}
-        ${'renders svg icons correctly'}    | ${svgIcon}                       | ${svgIcon}
+        ${'renders svg icons correctly'}    | ${svgIcon}                       | ${escapedSvgIcon}
       `('$description', async ({ content, render }) => {
         await buildWrapper(createPopoverTarget({ content, html: true }));
 
-        const html = wrapper.find(GlPopover).html();
+        const html = wrapper.findComponent(GlPopover).html();
         expect(html).toContain(render);
       });
     });
@@ -78,7 +82,7 @@ describe('popovers/components/popovers.vue', () => {
     `('sets $option to $value when data-$option is set in target', async ({ option, value }) => {
       await buildWrapper(createPopoverTarget({ [option]: value }));
 
-      expect(wrapper.find(GlPopover).props(option)).toBe(value);
+      expect(wrapper.findComponent(GlPopover).props(option)).toBe(value);
     });
   });
 

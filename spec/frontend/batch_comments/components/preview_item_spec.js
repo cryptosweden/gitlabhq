@@ -1,44 +1,39 @@
-import Vue from 'vue';
-import { mountComponentWithStore } from 'helpers/vue_mount_component_helper';
+import { mount } from '@vue/test-utils';
 import PreviewItem from '~/batch_comments/components/preview_item.vue';
-import { createStore } from '~/batch_comments/stores';
-import diffsModule from '~/diffs/store/modules';
-import notesModule from '~/notes/stores/modules';
-import '~/behaviors/markdown/render_gfm';
+import store from '~/mr_notes/stores';
 import { createDraft } from '../mock_data';
 
+jest.mock('~/behaviors/markdown/render_gfm');
+jest.mock('~/mr_notes/stores', () => jest.requireActual('helpers/mocks/mr_notes/stores'));
+
 describe('Batch comments draft preview item component', () => {
-  let vm;
-  let Component;
+  let wrapper;
   let draft;
 
-  function createComponent(isLast = false, extra = {}, extendStore = () => {}) {
-    const store = createStore();
-    store.registerModule('diffs', diffsModule());
-    store.registerModule('notes', notesModule());
+  beforeEach(() => {
+    store.reset();
 
-    extendStore(store);
+    store.getters.getDiscussion = jest.fn(() => null);
+  });
 
+  function createComponent(isLast = false, extra = {}) {
     draft = {
       ...createDraft(),
       ...extra,
     };
 
-    vm = mountComponentWithStore(Component, { store, props: { draft, isLast } });
+    wrapper = mount(PreviewItem, {
+      mocks: {
+        $store: store,
+      },
+      propsData: { draft, isLast },
+    });
   }
-
-  beforeAll(() => {
-    Component = Vue.extend(PreviewItem);
-  });
-
-  afterEach(() => {
-    vm.$destroy();
-  });
 
   it('renders text content', () => {
     createComponent(false, { note_html: '<img src="" /><p>Hello world</p>' });
 
-    expect(vm.$el.querySelector('.review-preview-item-content').innerHTML).toEqual(
+    expect(wrapper.find('.review-preview-item-content').element.innerHTML).toBe(
       '<p>Hello world</p>',
     );
   });
@@ -47,9 +42,7 @@ describe('Batch comments draft preview item component', () => {
     it('renders file path', () => {
       createComponent(false, { file_path: 'index.js', file_hash: 'abc', position: {} });
 
-      expect(vm.$el.querySelector('.review-preview-item-header-text').textContent).toContain(
-        'index.js',
-      );
+      expect(wrapper.find('.review-preview-item-header-text').text()).toContain('index.js');
     });
 
     it('renders new line position', () => {
@@ -66,7 +59,7 @@ describe('Batch comments draft preview item component', () => {
         },
       });
 
-      expect(vm.$el.querySelector('.bold').textContent).toContain(':+1');
+      expect(wrapper.find('.bold').text()).toContain(':+1');
     });
 
     it('renders old line position', () => {
@@ -82,7 +75,7 @@ describe('Batch comments draft preview item component', () => {
         },
       });
 
-      expect(vm.$el.querySelector('.bold').textContent).toContain(':2');
+      expect(wrapper.find('.bold').text()).toContain(':2');
     });
 
     it('renders image position', () => {
@@ -92,48 +85,43 @@ describe('Batch comments draft preview item component', () => {
         position: { position_type: 'image', x: 10, y: 20 },
       });
 
-      expect(vm.$el.querySelector('.bold').textContent).toContain('10x 20y');
+      expect(wrapper.find('.bold').text()).toContain('10x 20y');
     });
   });
 
   describe('for thread', () => {
     beforeEach(() => {
-      createComponent(false, { discussion_id: '1', resolve_discussion: true }, (store) => {
-        store.state.notes.discussions.push({
-          id: '1',
-          notes: [
-            {
-              author: {
-                name: "Author 'Nick' Name",
-              },
+      store.getters.getDiscussion.mockReturnValue({
+        id: '1',
+        notes: [
+          {
+            author: {
+              name: "Author 'Nick' Name",
             },
-          ],
-        });
+          },
+        ],
       });
+      store.getters.isDiscussionResolved = jest.fn().mockReturnValue(false);
+
+      createComponent(false, { discussion_id: '1', resolve_discussion: true });
     });
 
     it('renders title', () => {
-      expect(vm.$el.querySelector('.review-preview-item-header-text').textContent).toContain(
+      expect(wrapper.find('.review-preview-item-header-text').text()).toContain(
         "Author 'Nick' Name's thread",
       );
     });
 
-    it('it renders thread resolved text', () => {
-      expect(vm.$el.querySelector('.draft-note-resolution').textContent).toContain(
-        'Thread will be resolved',
-      );
+    it('renders thread resolved text', () => {
+      expect(wrapper.find('.draft-note-resolution').text()).toContain('Thread will be resolved');
     });
   });
 
   describe('for new comment', () => {
     it('renders title', () => {
-      createComponent(false, {}, (store) => {
-        store.state.notes.discussions.push({});
-      });
+      createComponent();
 
-      expect(vm.$el.querySelector('.review-preview-item-header-text').textContent).toContain(
-        'Your new comment',
-      );
+      expect(wrapper.find('.review-preview-item-header-text').text()).toContain('Your new comment');
     });
   });
 });

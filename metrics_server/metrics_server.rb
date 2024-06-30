@@ -17,23 +17,31 @@ class MetricsServer # rubocop:disable Gitlab/NamespacedClass
       end
 
       supervisor = PumaProcessSupervisor.instance
-      supervisor.supervise(start_server.call) do
-        next unless supervisor.alive
 
+      at_exit do
+        Gitlab::AppLogger.info("Puma process #{Process.pid} is exiting, shutting down metrics server...")
+        supervisor.shutdown
+      end
+
+      supervisor.supervise(start_server.call) do
         Gitlab::AppLogger.info('Puma metrics server terminated, restarting...')
         start_server.call
       end
     end
 
-    def spawn(target, metrics_dir:, gitlab_config: nil, wipe_metrics_dir: false)
+    def start_for_sidekiq(**options)
+      self.fork('sidekiq', **options)
+    end
+
+    def spawn(target, metrics_dir:, wipe_metrics_dir: false)
       ensure_valid_target!(target)
 
       cmd = "#{Rails.root}/bin/metrics-server"
       env = {
         'METRICS_SERVER_TARGET' => target,
-        'WIPE_METRICS_DIR' => wipe_metrics_dir ? '1' : '0'
+        'WIPE_METRICS_DIR' => wipe_metrics_dir ? '1' : '0',
+        'GITLAB_CONFIG' => ENV['GITLAB_CONFIG']
       }
-      env['GITLAB_CONFIG'] = gitlab_config if gitlab_config
 
       Process.spawn(env, cmd, err: $stderr, out: $stdout, pgroup: true).tap do |pid|
         Process.detach(pid)
@@ -64,10 +72,29 @@ class MetricsServer # rubocop:disable Gitlab/NamespacedClass
       pid
     end
 
+    def name(target)
+      case target
+      when 'puma' then 'web_exporter'
+      when 'sidekiq' then 'sidekiq_exporter'
+      else ensure_valid_target!(target)
+      end
+    end
+
     private
 
+    # We need to use `.` (dot) notation to access the updates we did in `config/initializers/1_settings.rb`
+    # For that reason, avoid using `[]` ("optional/dynamic settings notation") to resolve it dynamically.
+    # Refer to https://gitlab.com/gitlab-org/gitlab/-/issues/386865
+    def settings_value(target)
+      case target
+      when 'puma' then ::Settings.monitoring.web_exporter
+      when 'sidekiq' then ::Settings.monitoring.sidekiq_exporter
+      else ensure_valid_target!(target)
+      end
+    end
+
     def ensure_valid_target!(target)
-      raise "Target must be one of [puma,sidekiq]" unless %w(puma sidekiq).include?(target)
+      raise "Target must be one of [puma,sidekiq]" unless %w[puma sidekiq].include?(target)
     end
   end
 
@@ -98,7 +125,7 @@ class MetricsServer # rubocop:disable Gitlab/NamespacedClass
       when 'puma'
         Gitlab::Metrics::Exporter::WebExporter.instance(**default_opts)
       when 'sidekiq'
-        settings = Settings.new(Settings.monitoring[name])
+        settings = GitlabSettings::Options.build(Settings.monitoring.sidekiq_exporter)
         Gitlab::Metrics::Exporter::SidekiqExporter.instance(settings, **default_opts)
       end
 
@@ -106,9 +133,6 @@ class MetricsServer # rubocop:disable Gitlab/NamespacedClass
   end
 
   def name
-    case @target
-    when 'puma' then 'web_exporter'
-    when 'sidekiq' then 'sidekiq_exporter'
-    end
+    self.class.name(@target)
   end
 end

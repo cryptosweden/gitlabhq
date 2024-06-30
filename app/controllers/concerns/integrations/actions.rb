@@ -7,7 +7,15 @@ module Integrations::Actions
     include Integrations::Params
     include IntegrationsHelper
 
+    # :overrides is defined in Admin:IntegrationsController
+    # rubocop:disable Rails/LexicallyScopedActionFilter
+    before_action :ensure_integration_enabled, only: [:edit, :update, :overrides, :test]
     before_action :integration, only: [:edit, :update, :overrides, :test]
+    # rubocop:enable Rails/LexicallyScopedActionFilter
+
+    before_action :render_404, only: :edit, if: -> do
+      integration.to_param == 'prometheus' && Feature.enabled?(:remove_monitor_metrics)
+    end
 
     urgency :low, [:test]
   end
@@ -38,7 +46,11 @@ module Integrations::Actions
   end
 
   def test
-    render json: {}, status: :ok
+    if integration.testable?
+      render json: integration_test_response, status: :ok
+    else
+      render json: {}, status: :not_found
+    end
   end
 
   def reset
@@ -51,17 +63,19 @@ module Integrations::Actions
 
   private
 
-  # rubocop:disable Gitlab/ModuleWithInstanceVariables
   def integration
     @integration ||= find_or_initialize_non_project_specific_integration(params[:id])
   end
-  # rubocop:enable Gitlab/ModuleWithInstanceVariables
+
+  def ensure_integration_enabled
+    render_404 unless integration
+  end
 
   def success_message
     if integration.active?
-      s_('Integrations|%{integration} settings saved and active.') % { integration: integration.title }
+      format(s_('Integrations|%{integration} settings saved and active.'), integration: integration.title)
     else
-      s_('Integrations|%{integration} settings saved, but not active.') % { integration: integration.title }
+      format(s_('Integrations|%{integration} settings saved, but not active.'), integration: integration.title)
     end
   end
 
@@ -69,5 +83,26 @@ module Integrations::Actions
     integration
       .as_json(only: integration.json_fields)
       .merge(errors: integration.errors.as_json)
+  end
+
+  def integration_test_response
+    result = if integration.project_level?
+               ::Integrations::Test::ProjectService.new(integration, current_user, params[:event]).execute
+             elsif integration.group_level?
+               ::Integrations::Test::GroupService.new(integration, current_user, params[:event]).execute
+             else
+               {}
+             end
+
+    unless result[:success]
+      return {
+        error: true,
+        message: s_('Integrations|Connection failed. Check your integration settings.'),
+        service_response: result[:result].to_s,
+        test_failed: true
+      }
+    end
+
+    result[:data].presence || {}
   end
 end

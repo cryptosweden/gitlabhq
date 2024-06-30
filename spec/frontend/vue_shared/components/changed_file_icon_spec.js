@@ -21,11 +21,7 @@ describe('Changed file icon', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  const findIcon = () => wrapper.find(GlIcon);
+  const findIcon = () => wrapper.findComponent(GlIcon);
   const findIconName = () => findIcon().props('name');
   const findIconClasses = () => findIcon().classes();
   const findTooltipText = () => wrapper.attributes('title');
@@ -51,7 +47,7 @@ describe('Changed file icon', () => {
       showTooltip: false,
     });
 
-    expect(findTooltipText()).toBeFalsy();
+    expect(findTooltipText()).toBeUndefined();
   });
 
   describe.each`
@@ -87,7 +83,7 @@ describe('Changed file icon', () => {
     });
 
     it('does not have tooltip text', () => {
-      expect(findTooltipText()).toBeFalsy();
+      expect(findTooltipText()).toBeUndefined();
     });
   });
 

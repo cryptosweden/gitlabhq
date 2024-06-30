@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::PagesDomains do
+RSpec.describe API::PagesDomains, feature_category: :pages do
   let_it_be(:project) { create(:project, path: 'my.project', pages_https_only: false) }
   let_it_be(:user) { create(:user) }
   let_it_be(:admin) { create(:admin) }
@@ -19,8 +19,8 @@ RSpec.describe API::PagesDomains do
   end
 
   let(:pages_domain_secure_params) { build(:pages_domain, domain: 'ssl.other-domain.test', project: project).slice(:domain, :certificate, :key) }
-  let(:pages_domain_secure_key_missmatch_params) {build(:pages_domain, :with_trusted_chain, project: project).slice(:domain, :certificate, :key) }
-  let(:pages_domain_secure_missing_chain_params) {build(:pages_domain, :with_missing_chain, project: project).slice(:certificate) }
+  let(:pages_domain_secure_key_missmatch_params) { build(:pages_domain, :with_trusted_chain, project: project).slice(:domain, :certificate, :key) }
+  let(:pages_domain_secure_missing_chain_params) { build(:pages_domain, :with_missing_chain, project: project).slice(:certificate) }
 
   let(:route) { "/projects/#{project.id}/pages/domains" }
   let(:route_domain) { "/projects/#{project.id}/pages/domains/#{pages_domain.domain}" }
@@ -31,24 +31,28 @@ RSpec.describe API::PagesDomains do
   let(:route_letsencrypt_domain) { "/projects/#{project.id}/pages/domains/#{pages_domain_with_letsencrypt.domain}" }
 
   before do
-    allow(Gitlab.config.pages).to receive(:enabled).and_return(true)
+    stub_pages_setting(enabled: true)
   end
 
   describe 'GET /pages/domains' do
+    it_behaves_like 'GET request permissions for admin mode' do
+      let(:path) { '/pages/domains' }
+    end
+
     context 'when pages is disabled' do
       before do
         allow(Gitlab.config.pages).to receive(:enabled).and_return(false)
       end
 
       it_behaves_like '404 response' do
-        let(:request) { get api('/pages/domains', admin) }
+        let(:request) { get api('/pages/domains', admin, admin_mode: true) }
       end
     end
 
     context 'when pages is enabled' do
       context 'when authenticated as an admin' do
-        it 'returns paginated all pages domains' do
-          get api('/pages/domains', admin)
+        it 'returns paginated all pages domains', :aggregate_failures do
+          get api('/pages/domains', admin, admin_mode: true)
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to match_response_schema('public_api/v4/pages_domain_basics')
@@ -74,7 +78,7 @@ RSpec.describe API::PagesDomains do
 
   describe 'GET /projects/:project_id/pages/domains' do
     shared_examples_for 'get pages domains' do
-      it 'returns paginated pages domains' do
+      it 'returns paginated pages domains', :aggregate_failures do
         get api(route, user)
 
         expect(response).to have_gitlab_http_status(:ok)
@@ -145,7 +149,7 @@ RSpec.describe API::PagesDomains do
 
   describe 'GET /projects/:project_id/pages/domains/:domain' do
     shared_examples_for 'get pages domain' do
-      it 'returns pages domain' do
+      it 'returns pages domain', :aggregate_failures do
         get api(route_domain, user)
 
         expect(response).to have_gitlab_http_status(:ok)
@@ -155,7 +159,7 @@ RSpec.describe API::PagesDomains do
         expect(json_response['certificate']).to be_nil
       end
 
-      it 'returns pages domain with project path' do
+      it 'returns pages domain with project path', :aggregate_failures do
         get api(route_domain_path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
@@ -165,7 +169,7 @@ RSpec.describe API::PagesDomains do
         expect(json_response['certificate']).to be_nil
       end
 
-      it 'returns pages domain with a certificate' do
+      it 'returns pages domain with a certificate', :aggregate_failures do
         get api(route_secure_domain, user)
 
         expect(response).to have_gitlab_http_status(:ok)
@@ -177,7 +181,7 @@ RSpec.describe API::PagesDomains do
         expect(json_response['auto_ssl_enabled']).to be false
       end
 
-      it 'returns pages domain with an expired certificate' do
+      it 'returns pages domain with an expired certificate', :aggregate_failures do
         get api(route_expired_domain, user)
 
         expect(response).to have_gitlab_http_status(:ok)
@@ -185,7 +189,7 @@ RSpec.describe API::PagesDomains do
         expect(json_response['certificate']['expired']).to be true
       end
 
-      it 'returns pages domain with letsencrypt' do
+      it 'returns pages domain with letsencrypt', :aggregate_failures do
         get api(route_letsencrypt_domain, user)
 
         expect(response).to have_gitlab_http_status(:ok)
@@ -258,8 +262,17 @@ RSpec.describe API::PagesDomains do
     let(:params_secure) { pages_domain_secure_params.slice(:domain, :certificate, :key) }
 
     shared_examples_for 'post pages domains' do
-      it 'creates a new pages domain' do
-        post api(route, user), params: params
+      it 'creates a new pages domain', :aggregate_failures do
+        expect { post api(route, user), params: params }
+          .to publish_event(PagesDomains::PagesDomainCreatedEvent)
+          .with(
+            project_id: project.id,
+            namespace_id: project.namespace.id,
+            root_namespace_id: project.root_namespace.id,
+            domain_id: kind_of(Numeric),
+            domain: params[:domain]
+          )
+
         pages_domain = PagesDomain.find_by(domain: json_response['domain'])
 
         expect(response).to have_gitlab_http_status(:created)
@@ -270,7 +283,7 @@ RSpec.describe API::PagesDomains do
         expect(pages_domain.auto_ssl_enabled).to be false
       end
 
-      it 'creates a new secure pages domain' do
+      it 'creates a new secure pages domain', :aggregate_failures do
         post api(route, user), params: params_secure
         pages_domain = PagesDomain.find_by(domain: json_response['domain'])
 
@@ -282,7 +295,7 @@ RSpec.describe API::PagesDomains do
         expect(pages_domain.auto_ssl_enabled).to be false
       end
 
-      it 'creates domain with letsencrypt enabled' do
+      it 'creates domain with letsencrypt enabled', :aggregate_failures do
         post api(route, user), params: pages_domain_with_letsencrypt_params
         pages_domain = PagesDomain.find_by(domain: json_response['domain'])
 
@@ -292,7 +305,7 @@ RSpec.describe API::PagesDomains do
         expect(pages_domain.auto_ssl_enabled).to be true
       end
 
-      it 'creates domain with letsencrypt enabled and provided certificate' do
+      it 'creates domain with letsencrypt enabled and provided certificate', :aggregate_failures do
         post api(route, user), params: params_secure.merge(auto_ssl_enabled: true)
         pages_domain = PagesDomain.find_by(domain: json_response['domain'])
 
@@ -367,7 +380,7 @@ RSpec.describe API::PagesDomains do
     let(:params_secure_nokey) { pages_domain_secure_params.slice(:certificate) }
 
     shared_examples_for 'put pages domain' do
-      it 'updates pages domain removing certificate' do
+      it 'updates pages domain removing certificate', :aggregate_failures do
         put api(route_secure_domain, user), params: { certificate: nil, key: nil }
         pages_domain_secure.reload
 
@@ -378,7 +391,19 @@ RSpec.describe API::PagesDomains do
         expect(pages_domain_secure.auto_ssl_enabled).to be false
       end
 
-      it 'updates pages domain adding certificate' do
+      it 'publishes PagesDomainUpdatedEvent event' do
+        expect { put api(route_secure_domain, user), params: { certificate: nil, key: nil } }
+          .to publish_event(PagesDomains::PagesDomainUpdatedEvent)
+          .with(
+            project_id: project.id,
+            namespace_id: project.namespace.id,
+            root_namespace_id: project.root_namespace.id,
+            domain_id: pages_domain_secure.id,
+            domain: pages_domain_secure.domain
+          )
+      end
+
+      it 'updates pages domain adding certificate', :aggregate_failures do
         put api(route_domain, user), params: params_secure
         pages_domain.reload
 
@@ -388,7 +413,7 @@ RSpec.describe API::PagesDomains do
         expect(pages_domain.key).to eq(params_secure[:key])
       end
 
-      it 'updates pages domain adding certificate with letsencrypt' do
+      it 'updates pages domain adding certificate with letsencrypt', :aggregate_failures do
         put api(route_domain, user), params: params_secure.merge(auto_ssl_enabled: true)
         pages_domain.reload
 
@@ -399,7 +424,7 @@ RSpec.describe API::PagesDomains do
         expect(pages_domain.auto_ssl_enabled).to be true
       end
 
-      it 'updates pages domain enabling letsencrypt' do
+      it 'updates pages domain enabling letsencrypt', :aggregate_failures do
         put api(route_domain, user), params: { auto_ssl_enabled: true }
         pages_domain.reload
 
@@ -408,18 +433,18 @@ RSpec.describe API::PagesDomains do
         expect(pages_domain.auto_ssl_enabled).to be true
       end
 
-      it 'updates pages domain disabling letsencrypt while preserving the certificate' do
+      it 'updates pages domain disabling letsencrypt while preserving the certificate', :aggregate_failures do
         put api(route_letsencrypt_domain, user), params: { auto_ssl_enabled: false }
         pages_domain_with_letsencrypt.reload
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to match_response_schema('public_api/v4/pages_domain/detail')
         expect(pages_domain_with_letsencrypt.auto_ssl_enabled).to be false
-        expect(pages_domain_with_letsencrypt.key).to be
-        expect(pages_domain_with_letsencrypt.certificate).to be
+        expect(pages_domain_with_letsencrypt.key).to be_present
+        expect(pages_domain_with_letsencrypt.certificate).to be_present
       end
 
-      it 'updates pages domain with expired certificate' do
+      it 'updates pages domain with expired certificate', :aggregate_failures do
         put api(route_expired_domain, user), params: params_secure
         pages_domain_expired.reload
 
@@ -429,7 +454,7 @@ RSpec.describe API::PagesDomains do
         expect(pages_domain_expired.key).to eq(params_secure[:key])
       end
 
-      it 'updates pages domain with expired certificate not updating key' do
+      it 'updates pages domain with expired certificate not updating key', :aggregate_failures do
         put api(route_secure_domain, user), params: params_secure_nokey
         pages_domain_secure.reload
 
@@ -446,22 +471,29 @@ RSpec.describe API::PagesDomains do
         end.to change { pages_domain.reload.certificate_source }.from('gitlab_provided').to('user_provided')
       end
 
-      it 'fails to update pages domain adding certificate without key' do
-        put api(route_domain, user), params: params_secure_nokey
+      context 'with invalid params' do
+        it 'fails to update pages domain adding certificate without key' do
+          put api(route_domain, user), params: params_secure_nokey
 
-        expect(response).to have_gitlab_http_status(:bad_request)
-      end
+          expect(response).to have_gitlab_http_status(:bad_request)
+        end
 
-      it 'fails to update pages domain adding certificate with missing chain' do
-        put api(route_domain, user), params: pages_domain_secure_missing_chain_params.slice(:certificate)
+        it 'does not publish PagesDomainUpdatedEvent event' do
+          expect { put api(route_domain, user), params: params_secure_nokey }
+            .not_to publish_event(PagesDomains::PagesDomainUpdatedEvent)
+        end
 
-        expect(response).to have_gitlab_http_status(:bad_request)
-      end
+        it 'fails to update pages domain adding certificate with missing chain' do
+          put api(route_domain, user), params: pages_domain_secure_missing_chain_params.slice(:certificate)
 
-      it 'fails to update pages domain with key missmatch' do
-        put api(route_secure_domain, user), params: pages_domain_secure_key_missmatch_params.slice(:certificate, :key)
+          expect(response).to have_gitlab_http_status(:bad_request)
+        end
 
-        expect(response).to have_gitlab_http_status(:bad_request)
+        it 'fails to update pages domain with key missmatch' do
+          put api(route_secure_domain, user), params: pages_domain_secure_key_missmatch_params.slice(:certificate, :key)
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+        end
       end
     end
 
@@ -523,7 +555,16 @@ RSpec.describe API::PagesDomains do
   describe 'DELETE /projects/:project_id/pages/domains/:domain' do
     shared_examples_for 'delete pages domain' do
       it 'deletes a pages domain' do
-        delete api(route_domain, user)
+        expect { delete api(route_domain, user) }
+          .to change(PagesDomain, :count).by(-1)
+          .and publish_event(PagesDomains::PagesDomainDeletedEvent)
+          .with(
+            project_id: project.id,
+            namespace_id: project.namespace.id,
+            root_namespace_id: project.root_namespace.id,
+            domain_id: pages_domain.id,
+            domain: pages_domain.domain
+          )
 
         expect(response).to have_gitlab_http_status(:no_content)
       end

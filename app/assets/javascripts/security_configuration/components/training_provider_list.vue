@@ -3,13 +3,14 @@ import {
   GlAlert,
   GlTooltipDirective,
   GlCard,
+  GlFormRadio,
   GlToggle,
   GlLink,
   GlSkeletonLoader,
   GlIcon,
-  GlSafeHtmlDirective,
 } from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import Tracking from '~/tracking';
 import { __, s__ } from '~/locale';
 import {
@@ -17,6 +18,8 @@ import {
   TRACK_TOGGLE_TRAINING_PROVIDER_LABEL,
   TRACK_PROVIDER_LEARN_MORE_CLICK_ACTION,
   TRACK_PROVIDER_LEARN_MORE_CLICK_LABEL,
+  TEMP_PROVIDER_LOGOS,
+  TEMP_PROVIDER_URLS,
 } from '~/security_configuration/constants';
 import dismissUserCalloutMutation from '~/graphql_shared/mutations/dismiss_user_callout.mutation.graphql';
 import securityTrainingProvidersQuery from '~/security_configuration/graphql/security_training_providers.query.graphql';
@@ -25,7 +28,6 @@ import {
   updateSecurityTrainingCache,
   updateSecurityTrainingOptimisticResponse,
 } from '~/security_configuration/graphql/cache_utils';
-import { TEMP_PROVIDER_LOGOS, TEMP_PROVIDER_URLS } from './constants';
 
 const i18n = {
   providerQueryErrorMessage: __(
@@ -38,12 +40,14 @@ const i18n = {
   primaryTrainingDescription: s__(
     'SecurityTraining|Training from this partner takes precedence when more than one training partner is enabled.',
   ),
+  unavailableText: s__('SecurityConfiguration|Available with Ultimate'),
 };
 
 export default {
   components: {
     GlAlert,
     GlCard,
+    GlFormRadio,
     GlToggle,
     GlLink,
     GlSkeletonLoader,
@@ -51,7 +55,7 @@ export default {
   },
   directives: {
     GlTooltip: GlTooltipDirective,
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   mixins: [Tracking.mixin()],
   inject: ['projectFullPath'],
@@ -71,6 +75,13 @@ export default {
       },
     },
   },
+  props: {
+    securityTrainingEnabled: {
+      type: Boolean,
+      required: true,
+    },
+  },
+
   data() {
     return {
       errorMessage: '',
@@ -79,6 +90,9 @@ export default {
     };
   },
   computed: {
+    primaryProviderId() {
+      return this.securityTrainingProviders.find(({ isPrimary }) => isPrimary)?.id;
+    },
     enabledProviders() {
       return this.securityTrainingProviders.filter(({ isEnabled }) => isEnabled);
     },
@@ -225,14 +239,17 @@ export default {
         <rect width="100" height="8" x="10" y="35" rx="4" />
       </gl-skeleton-loader>
     </div>
-    <ul v-else class="gl-list-style-none gl-m-0 gl-p-0">
+    <ul v-else class="gl-list-none gl-m-0 gl-p-0">
       <li v-for="provider in securityTrainingProviders" :key="provider.id" class="gl-mb-6">
-        <gl-card>
+        <gl-card :body-class="{ 'gl-bg-gray-10': !securityTrainingEnabled }">
           <div class="gl-display-flex">
             <gl-toggle
               :value="provider.isEnabled"
               :label="__('Training mode')"
               label-position="hidden"
+              :disabled="!securityTrainingEnabled"
+              data-testid="security-training-toggle"
+              :data-qa-training-provider="provider.name"
               @change="toggleProvider(provider)"
             />
             <div v-if="$options.TEMP_PROVIDER_LOGOS[provider.name]" class="gl-ml-4">
@@ -244,7 +261,18 @@ export default {
               ></div>
             </div>
             <div class="gl-ml-3">
-              <h3 class="gl-font-lg gl-m-0 gl-mb-2">{{ provider.name }}</h3>
+              <div class="gl-display-flex gl-justify-content-space-between">
+                <h3 class="gl-font-lg gl-m-0 gl-mb-2">
+                  {{ provider.name }}
+                </h3>
+                <span
+                  v-if="!securityTrainingEnabled"
+                  data-testid="unavailable-text"
+                  class="gl-text-gray-600"
+                >
+                  {{ $options.i18n.unavailableText }}
+                </span>
+              </div>
               <p>
                 {{ provider.description }}
                 <gl-link
@@ -256,31 +284,19 @@ export default {
                   {{ __('Learn more.') }}
                 </gl-link>
               </p>
-              <!-- Note: The following `div` and it's content will be replaced by 'GlFormRadio' once https://gitlab.com/gitlab-org/gitlab-ui/-/issues/1720#note_857342988 is resolved -->
-              <div
-                class="gl-form-radio custom-control custom-radio"
-                data-testid="primary-provider-radio"
+              <gl-form-radio
+                :checked="primaryProviderId"
+                :disabled="!securityTrainingEnabled || !provider.isEnabled"
+                :value="provider.id"
+                @change="setPrimaryProvider(provider)"
               >
-                <input
-                  :id="`security-training-provider-${provider.id}`"
-                  type="radio"
-                  :checked="provider.isPrimary"
-                  class="custom-control-input"
-                  :disabled="!provider.isEnabled"
-                  @change="setPrimaryProvider(provider)"
-                />
-                <label
-                  class="custom-control-label"
-                  :for="`security-training-provider-${provider.id}`"
-                >
-                  {{ $options.i18n.primaryTraining }}
-                </label>
+                {{ $options.i18n.primaryTraining }}
                 <gl-icon
                   v-gl-tooltip="$options.i18n.primaryTrainingDescription"
                   name="information-o"
                   class="gl-ml-2 gl-cursor-help"
                 />
-              </div>
+              </gl-form-radio>
             </div>
           </div>
         </gl-card>

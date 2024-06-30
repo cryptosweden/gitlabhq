@@ -2,14 +2,19 @@
 
 module QA
   RSpec.describe 'Create' do
-    describe 'Push mirror a repository over HTTP' do
-      it 'configures and syncs a (push) mirrored repository', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347741' do
+    describe 'Push mirror a repository over HTTP', :blocking, product_group: :source_code do
+      it('configures and syncs a (push) mirrored repository',
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347741',
+        quarantine: {
+          only: { condition: -> { ENV['QA_RUN_TYPE'] == 'e2e-package-and-test-ce' } },
+          issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/412611',
+          type: :investigating
+        }
+      ) do
         Runtime::Browser.visit(:gitlab, Page::Main::Login)
         Page::Main::Login.perform(&:sign_in_using_credentials)
 
-        target_project = Resource::Project.fabricate_via_api! do |project|
-          project.name = 'push-mirror-target-project'
-        end
+        target_project = create(:project, name: 'push-mirror-target-project')
         target_project_uri = target_project.repository_http_location.uri
         target_project_uri.user = Runtime::User.username
 
@@ -27,9 +32,10 @@ module QA
             mirror_settings.repository_url = target_project_uri
             mirror_settings.mirror_direction = 'Push'
             mirror_settings.authentication_method = 'Password'
+            mirror_settings.username = Runtime::User.username
             mirror_settings.password = Runtime::User.password
             mirror_settings.mirror_repository
-            mirror_settings.update(target_project_uri) # rubocop:disable Rails/SaveBang
+            mirror_settings.update_uri(target_project_uri)
             mirror_settings.verify_update(target_project_uri)
           end
         end

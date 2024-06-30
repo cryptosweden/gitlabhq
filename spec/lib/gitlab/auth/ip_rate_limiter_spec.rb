@@ -15,17 +15,17 @@ RSpec.describe Gitlab::Auth::IpRateLimiter, :use_clean_rails_memory_store_cachin
     }
   end
 
-  subject { described_class.new(ip) }
+  subject(:rate_limiter) { described_class.new(ip) }
 
   before do
     stub_rack_attack_setting(options)
-    Rack::Attack.reset!
+    Gitlab::Redis::RateLimiting.with(&:flushdb)
     Rack::Attack.clear_configuration
     Gitlab::RackAttack.configure(Rack::Attack)
   end
 
   after do
-    subject.reset!
+    rate_limiter.reset!
   end
 
   describe '#register_fail!' do
@@ -86,7 +86,7 @@ RSpec.describe Gitlab::Auth::IpRateLimiter, :use_clean_rails_memory_store_cachin
     end
   end
 
-  context 'when IP is whitlisted' do
+  context 'when IP is allow listed' do
     let(:ip) { '127.0.0.1' }
 
     it_behaves_like 'skips the rate limiter'
@@ -96,5 +96,21 @@ RSpec.describe Gitlab::Auth::IpRateLimiter, :use_clean_rails_memory_store_cachin
     let(:options) { { enabled: false } }
 
     it_behaves_like 'skips the rate limiter'
+  end
+
+  describe '#trusted_ip?' do
+    subject { rate_limiter.trusted_ip? }
+
+    context 'when ip is in the trusted list' do
+      let(:ip) { '127.0.0.1' }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when ip is not in the trusted list' do
+      let(:ip) { '10.0.0.1' }
+
+      it { is_expected.to be_falsey }
+    end
   end
 end

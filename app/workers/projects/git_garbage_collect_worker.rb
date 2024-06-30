@@ -7,12 +7,6 @@ module Projects
 
     private
 
-    # Used for getting a project/group out of the resource in order to scope a feature flag
-    # Can be removed within https://gitlab.com/gitlab-org/gitlab/-/issues/353607
-    def container(resource)
-      resource
-    end
-
     override :find_resource
     def find_resource(id)
       Project.find(id)
@@ -30,6 +24,11 @@ module Projects
       rescue Gitlab::Git::CommandTimedOut, GRPC::Internal => e
         Gitlab::ErrorTracking.track_exception(e)
       end
+    end
+
+    override :after_gitaly_call
+    def after_gitaly_call(task, resource)
+      return unless gc?(task)
 
       cleanup_orphan_lfs_file_references(resource)
     end
@@ -44,8 +43,12 @@ module Projects
     end
 
     override :update_db_repository_statistics
-    def update_db_repository_statistics(resource)
-      Projects::UpdateStatisticsService.new(resource, nil, statistics: [:repository_size, :lfs_objects_size]).execute
+    def update_db_repository_statistics(resource, stats)
+      Projects::UpdateStatisticsService.new(resource, nil, statistics: stats).execute
+    end
+
+    def stats
+      [:repository_size, :lfs_objects_size]
     end
   end
 end

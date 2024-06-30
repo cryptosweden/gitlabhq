@@ -3,7 +3,6 @@ package staticpages
 import (
 	"bytes"
 	"compress/gzip"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,22 +14,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	nonExistingDir = "/path/to/non/existing/directory"
+)
+
 func TestServingNonExistingFile(t *testing.T) {
-	dir := "/path/to/non/existing/directory"
 	httpRequest, _ := http.NewRequest("GET", "/file", nil)
 
 	w := httptest.NewRecorder()
-	st := &Static{DocumentRoot: dir}
+	st := &Static{DocumentRoot: nonExistingDir}
 	st.ServeExisting("/", CacheDisabled, nil).ServeHTTP(w, httpRequest)
 	require.Equal(t, 404, w.Code)
 }
 
 func TestServingDirectory(t *testing.T) {
-	dir, err := ioutil.TempDir("", "deploy")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	httpRequest, _ := http.NewRequest("GET", "/file", nil)
 	w := httptest.NewRecorder()
@@ -40,21 +38,19 @@ func TestServingDirectory(t *testing.T) {
 }
 
 func TestServingMalformedUri(t *testing.T) {
-	dir := "/path/to/non/existing/directory"
 	httpRequest, _ := http.NewRequest("GET", "/../../../static/file", nil)
 
 	w := httptest.NewRecorder()
-	st := &Static{DocumentRoot: dir}
+	st := &Static{DocumentRoot: nonExistingDir}
 	st.ServeExisting("/", CacheDisabled, nil).ServeHTTP(w, httpRequest)
 	require.Equal(t, 404, w.Code)
 }
 
 func TestExecutingHandlerWhenNoFileFound(t *testing.T) {
-	dir := "/path/to/non/existing/directory"
 	httpRequest, _ := http.NewRequest("GET", "/file", nil)
 
 	executed := false
-	st := &Static{DocumentRoot: dir}
+	st := &Static{DocumentRoot: nonExistingDir}
 	st.ServeExisting("/", CacheDisabled, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		executed = (r == httpRequest)
 	})).ServeHTTP(nil, httpRequest)
@@ -64,16 +60,12 @@ func TestExecutingHandlerWhenNoFileFound(t *testing.T) {
 }
 
 func TestServingTheActualFile(t *testing.T) {
-	dir, err := ioutil.TempDir("", "deploy")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	httpRequest, _ := http.NewRequest("GET", "/file", nil)
 
 	fileContent := "STATIC"
-	ioutil.WriteFile(filepath.Join(dir, "file"), []byte(fileContent), 0600)
+	os.WriteFile(filepath.Join(dir, "file"), []byte(fileContent), 0600)
 
 	w := httptest.NewRecorder()
 	st := &Static{DocumentRoot: dir}
@@ -121,11 +113,7 @@ func TestExcludedPaths(t *testing.T) {
 }
 
 func testServingThePregzippedFile(t *testing.T, enableGzip bool) {
-	dir, err := ioutil.TempDir("", "deploy")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	httpRequest, _ := http.NewRequest("GET", "/file", nil)
 
@@ -140,8 +128,8 @@ func testServingThePregzippedFile(t *testing.T, enableGzip bool) {
 	fileGzip.Write([]byte(fileContent))
 	fileGzip.Close()
 
-	ioutil.WriteFile(filepath.Join(dir, "file.gz"), fileGzipContent.Bytes(), 0600)
-	ioutil.WriteFile(filepath.Join(dir, "file"), []byte(fileContent), 0600)
+	os.WriteFile(filepath.Join(dir, "file.gz"), fileGzipContent.Bytes(), 0600)
+	os.WriteFile(filepath.Join(dir, "file"), []byte(fileContent), 0600)
 
 	w := httptest.NewRecorder()
 	st := &Static{DocumentRoot: dir}

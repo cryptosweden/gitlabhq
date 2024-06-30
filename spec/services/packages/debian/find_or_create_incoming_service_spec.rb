@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Packages::Debian::FindOrCreateIncomingService do
+RSpec.describe Packages::Debian::FindOrCreateIncomingService, feature_category: :package_registry do
   let_it_be(:project) { create(:project) }
   let_it_be(:user) { create(:user) }
 
@@ -19,7 +19,7 @@ RSpec.describe Packages::Debian::FindOrCreateIncomingService do
         expect(package.name).to eq('incoming')
         expect(package.version).to be_nil
         expect(package.package_type).to eq('debian')
-        expect(package.debian_incoming?).to be_truthy
+        expect(package.incoming?).to be_truthy
       end
 
       it_behaves_like 'assigns the package creator'

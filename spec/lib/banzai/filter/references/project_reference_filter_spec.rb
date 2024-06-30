@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::ProjectReferenceFilter do
+RSpec.describe Banzai::Filter::References::ProjectReferenceFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   def invalidate_reference(reference)
-    "#{reference.reverse}"
+    reference.reverse.to_s
   end
 
   def get_reference(project)
@@ -22,9 +22,9 @@ RSpec.describe Banzai::Filter::References::ProjectReferenceFilter do
   it_behaves_like 'user reference or project reference'
 
   it 'ignores invalid projects' do
-    exp = act = "Hey #{invalidate_reference(reference)}"
+    act = "Hey #{invalidate_reference(reference)}"
 
-    expect(reference_filter(act).to_html).to eq(CGI.escapeHTML(exp))
+    expect(reference_filter(act).to_html).to include(CGI.escapeHTML(act))
   end
 
   context 'when invalid reference strings are very long' do
@@ -39,6 +39,7 @@ RSpec.describe Banzai::Filter::References::ProjectReferenceFilter do
 
     it_behaves_like 'fails fast', 'A' * 50000
     it_behaves_like 'fails fast', '/a' * 50000
+    it_behaves_like 'fails fast', "mailto:#{'a-' * 499_000}@aaaaaaaa..aaaaaaaa.example.com"
   end
 
   it 'allows references with text after the > character' do
@@ -46,10 +47,10 @@ RSpec.describe Banzai::Filter::References::ProjectReferenceFilter do
     expect(doc.css('a').first.attr('href')).to eq urls.project_url(subject)
   end
 
-  %w(pre code a style).each do |elem|
+  %w[pre code a style].each do |elem|
     it "ignores valid references contained inside '#{elem}' element" do
-      exp = act = "<#{elem}>Hey #{CGI.escapeHTML(reference)}</#{elem}>"
-      expect(reference_filter(act).to_html).to eq exp
+      act = "<#{elem}>Hey #{CGI.escapeHTML(reference)}</#{elem}>"
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -109,22 +110,22 @@ RSpec.describe Banzai::Filter::References::ProjectReferenceFilter do
     let_it_be(:nested_project_reference) { get_reference(nested_project) }
 
     it 'does not have N+1 per multiple project references', :use_sql_query_cache do
-      markdown = "#{normal_project_reference}"
+      markdown = normal_project_reference.to_s
 
       # warm up first
       reference_filter(markdown)
 
-      max_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+      control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         reference_filter(markdown)
-      end.count
+      end
 
-      expect(max_count).to eq 1
+      expect(control.count).to eq 1
 
       markdown = "#{normal_project_reference} #{invalidate_reference(normal_project_reference)} #{group_project_reference} #{nested_project_reference}"
 
       expect do
         reference_filter(markdown)
-      end.not_to exceed_all_query_limit(max_count)
+      end.not_to exceed_all_query_limit(control)
     end
   end
 end

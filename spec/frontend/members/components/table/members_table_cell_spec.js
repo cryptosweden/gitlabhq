@@ -1,8 +1,10 @@
 import { mount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import MembersTableCell from '~/members/components/table/members_table_cell.vue';
-import { MEMBER_TYPES } from '~/members/constants';
+import { MEMBERS_TAB_TYPES } from '~/members/constants';
+import { canRemoveBlockedByLastOwner } from '~/members/utils';
 import {
   member as memberMock,
   directMember,
@@ -11,6 +13,11 @@ import {
   invite,
   accessRequest,
 } from '../../mock_data';
+
+jest.mock('~/members/utils', () => ({
+  ...jest.requireActual('~/members/utils'),
+  canRemoveBlockedByLastOwner: jest.fn().mockImplementation(() => true),
+}));
 
 describe('MembersTableCell', () => {
   const WrappedComponent = {
@@ -55,6 +62,7 @@ describe('MembersTableCell', () => {
       provide: {
         sourceId: 1,
         currentUserId: 1,
+        canManageMembers: true,
       },
       scopedSlots: {
         default: `
@@ -69,7 +77,7 @@ describe('MembersTableCell', () => {
     });
   };
 
-  const findWrappedComponent = () => wrapper.find(WrappedComponent);
+  const findWrappedComponent = () => wrapper.findComponent(WrappedComponent);
 
   const memberCurrentUser = {
     ...memberMock,
@@ -90,17 +98,12 @@ describe('MembersTableCell', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
-  test.each`
+  it.each`
     member           | expectedMemberType
-    ${memberMock}    | ${MEMBER_TYPES.user}
-    ${group}         | ${MEMBER_TYPES.group}
-    ${invite}        | ${MEMBER_TYPES.invite}
-    ${accessRequest} | ${MEMBER_TYPES.accessRequest}
+    ${memberMock}    | ${MEMBERS_TAB_TYPES.user}
+    ${group}         | ${MEMBERS_TAB_TYPES.group}
+    ${invite}        | ${MEMBERS_TAB_TYPES.invite}
+    ${accessRequest} | ${MEMBERS_TAB_TYPES.accessRequest}
   `(
     'sets scoped slot prop `memberType` to $expectedMemberType',
     ({ member, expectedMemberType }) => {
@@ -176,6 +179,15 @@ describe('MembersTableCell', () => {
 
           expect(findWrappedComponent().props('permissions').canRemove).toBe(false);
         });
+      });
+    });
+
+    describe('canRemoveBlockedByLastOwner', () => {
+      it('calls util and returns value', () => {
+        createComponentWithDirectMember();
+
+        expect(canRemoveBlockedByLastOwner).toHaveBeenCalledWith(directMember, true);
+        expect(findWrappedComponent().props('permissions').canRemoveBlockedByLastOwner).toBe(true);
       });
     });
 

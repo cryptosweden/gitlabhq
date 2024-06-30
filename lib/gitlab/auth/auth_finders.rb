@@ -23,6 +23,7 @@ module Gitlab
       include ActionController::HttpAuthentication::Basic
       include ActionController::HttpAuthentication::Token
 
+      API_TOKEN_ENV = 'gitlab.api.token'
       PRIVATE_TOKEN_HEADER = 'HTTP_PRIVATE_TOKEN'
       PRIVATE_TOKEN_PARAM = :private_token
       JOB_TOKEN_HEADER = 'HTTP_JOB_TOKEN'
@@ -30,6 +31,18 @@ module Gitlab
       DEPLOY_TOKEN_HEADER = 'HTTP_DEPLOY_TOKEN'
       RUNNER_TOKEN_PARAM = :token
       RUNNER_JOB_TOKEN_PARAM = :token
+      PATH_DEPENDENT_FEED_TOKEN_REGEX = /\A#{User::FEED_TOKEN_PREFIX}(\h{64})-(\d+)\z/
+
+      PARAM_TOKEN_KEYS = [
+        PRIVATE_TOKEN_PARAM,
+        JOB_TOKEN_PARAM,
+        RUNNER_JOB_TOKEN_PARAM
+      ].map(&:to_s).freeze
+      HEADER_TOKEN_KEYS = [
+        PRIVATE_TOKEN_HEADER,
+        JOB_TOKEN_HEADER,
+        DEPLOY_TOKEN_HEADER
+      ].freeze
 
       # Check the Rails session for valid authentication details
       def find_user_from_warden
@@ -42,7 +55,7 @@ module Gitlab
         token = current_request.params[:token].presence || current_request.headers['X-Gitlab-Static-Object-Token'].presence
         return unless token
 
-        User.find_by_static_object_token(token) || raise(UnauthorizedError)
+        User.find_by_static_object_token(token.to_s) || raise(UnauthorizedError)
       end
 
       def find_user_from_feed_token(request_format)
@@ -54,7 +67,7 @@ module Gitlab
         token = current_request.params[:feed_token].presence || current_request.params[:rss_token].presence
         return unless token
 
-        User.find_by_feed_token(token) || raise(UnauthorizedError)
+        find_feed_token_user(token) || raise(UnauthorizedError)
       end
 
       def find_user_from_bearer_token
@@ -64,30 +77,11 @@ module Gitlab
 
       def find_user_from_job_token
         return unless route_authentication_setting[:job_token_allowed]
-        return find_user_from_basic_auth_job if route_authentication_setting[:job_token_allowed] == :basic_auth
 
-        token = current_request.params[JOB_TOKEN_PARAM].presence ||
-          current_request.params[RUNNER_JOB_TOKEN_PARAM].presence ||
-          current_request.env[JOB_TOKEN_HEADER].presence
-        return unless token
+        user = find_user_from_job_token_basic_auth if can_authenticate_job_token_basic_auth?
+        return user if user
 
-        job = find_valid_running_job_by_token!(token)
-        @current_authenticated_job = job # rubocop:disable Gitlab/ModuleWithInstanceVariables
-
-        job.user
-      end
-
-      def find_user_from_basic_auth_job
-        return unless has_basic_credentials?(current_request)
-
-        login, password = user_name_and_password(current_request)
-        return unless login.present? && password.present?
-        return unless ::Gitlab::Auth::CI_JOB_USER == login
-
-        job = find_valid_running_job_by_token!(password)
-        @current_authenticated_job = job # rubocop:disable Gitlab/ModuleWithInstanceVariables
-
-        job.user
+        find_user_from_job_token_query_params_or_header if can_authenticate_job_token_request?
       end
 
       def find_user_from_basic_auth_password
@@ -96,22 +90,22 @@ module Gitlab
         login, password = user_name_and_password(current_request)
         return if ::Gitlab::Auth::CI_JOB_USER == login
 
-        Gitlab::Auth.find_with_user_password(login, password)
+        Gitlab::Auth.find_with_user_password(login.to_s, password.to_s)
       end
 
       def find_user_from_lfs_token
         return unless has_basic_credentials?(current_request)
 
         login, token = user_name_and_password(current_request)
-        user = User.by_login(login)
+        user = User.find_by_login(login.to_s)
 
-        user if user && Gitlab::LfsToken.new(user).token_valid?(token)
+        user if user && Gitlab::LfsToken.new(user).token_valid?(token.to_s)
       end
 
       def find_user_from_personal_access_token
         return unless access_token
 
-        validate_access_token!
+        validate_and_save_access_token!
 
         access_token&.user || raise(UnauthorizedError)
       end
@@ -121,10 +115,11 @@ module Gitlab
       # It is also used by GraphQL/API requests.
       # And to allow accessing /archive programatically as it was a big pain point
       # for users https://gitlab.com/gitlab-org/gitlab/-/issues/28978.
+      # Used for release downloading as well
       def find_user_from_web_access_token(request_format, scopes: [:api])
         return unless access_token && valid_web_access_format?(request_format)
 
-        validate_access_token!(scopes: scopes)
+        validate_and_save_access_token!(scopes: scopes)
 
         ::PersonalAccessTokens::LastUsedService.new(access_token).execute
 
@@ -134,7 +129,7 @@ module Gitlab
       def find_user_from_access_token
         return unless access_token
 
-        validate_access_token!
+        validate_and_save_access_token!
 
         ::PersonalAccessTokens::LastUsedService.new(access_token).execute
 
@@ -147,6 +142,7 @@ module Gitlab
       # deploy tokens are accepted with deploy token headers and basic auth headers
       def deploy_token_from_request
         return unless route_authentication_setting[:deploy_token_allowed]
+        return unless Gitlab::ExternalAuthorization.allow_deploy_tokens_and_deploy_keys?
 
         token = current_request.env[DEPLOY_TOKEN_HEADER].presence || parsed_oauth_token
 
@@ -154,7 +150,7 @@ module Gitlab
           _, token = user_name_and_password(current_request)
         end
 
-        deploy_token = DeployToken.active.find_by_token(token)
+        deploy_token = DeployToken.active.find_by_token(token.to_s)
         @current_authenticated_deploy_token = deploy_token # rubocop:disable Gitlab/ModuleWithInstanceVariables
 
         deploy_token
@@ -166,7 +162,7 @@ module Gitlab
 
         authorization_token, _options = token_and_options(current_request)
 
-        ::Clusters::AgentToken.active.find_by_token(authorization_token)
+        ::Clusters::AgentToken.active.find_by_token(authorization_token.to_s)
       end
 
       def find_runner_from_token
@@ -175,10 +171,10 @@ module Gitlab
         token = current_request.params[RUNNER_TOKEN_PARAM].presence
         return unless token
 
-        ::Ci::Runner.find_by_token(token) || raise(UnauthorizedError)
+        ::Ci::Runner.find_by_token(token.to_s) || raise(UnauthorizedError)
       end
 
-      def validate_access_token!(scopes: [])
+      def validate_and_save_access_token!(scopes: [])
         # return early if we've already authenticated via a job token
         return if @current_authenticated_job.present? # rubocop:disable Gitlab/ModuleWithInstanceVariables
 
@@ -193,13 +189,27 @@ module Gitlab
         when AccessTokenValidationService::EXPIRED
           raise ExpiredError
         when AccessTokenValidationService::REVOKED
+          revoke_token_family(access_token)
+
           raise RevokedError
         when AccessTokenValidationService::IMPERSONATION_DISABLED
           raise ImpersonationDisabled
         end
+
+        save_current_token_in_env
+      end
+
+      def authentication_token_present?
+        PARAM_TOKEN_KEYS.intersection(current_request.params.keys).any? ||
+          HEADER_TOKEN_KEYS.intersection(current_request.env.keys).any? ||
+          parsed_oauth_token.present?
       end
 
       private
+
+      def save_current_token_in_env
+        request.env[API_TOKEN_ENV] = { token_id: access_token.id, token_type: access_token.class.to_s }
+      end
 
       def find_user_from_job_bearer_token
         return unless route_authentication_setting[:job_token_allowed]
@@ -223,6 +233,12 @@ module Gitlab
 
       def access_token
         strong_memoize(:access_token) do
+          # Kubernetes API OAuth header is not OauthAccessToken or PersonalAccessToken
+          # and should be ignored by this method. When the kubernetes API uses a different
+          # header, we can remove this guard
+          # https://gitlab.com/gitlab-org/gitlab/-/issues/406582
+          next if current_request.path.starts_with? "/api/v4/internal/kubernetes/"
+
           if try(:namespace_inheritable, :authentication)
             access_token_from_namespace_inheritable
           else
@@ -243,7 +259,7 @@ module Gitlab
         return unless token
 
         # Expiration, revocation and scopes are verified in `validate_access_token!`
-        PersonalAccessToken.find_by_token(token) || raise(UnauthorizedError)
+        PersonalAccessToken.find_by_token(token.to_s) || raise(UnauthorizedError)
       end
 
       def find_oauth_access_token
@@ -266,7 +282,67 @@ module Gitlab
         return unless has_basic_credentials?(current_request)
 
         _username, password = user_name_and_password(current_request)
-        PersonalAccessToken.find_by_token(password)
+        PersonalAccessToken.find_by_token(password.to_s)
+      end
+
+      def find_feed_token_user(token)
+        token = token.to_s
+        find_user_from_path_feed_token(token) || User.find_by_feed_token(token)
+      end
+
+      def find_user_from_path_feed_token(token)
+        glft = token.match(PATH_DEPENDENT_FEED_TOKEN_REGEX)
+
+        return unless glft
+
+        # make sure that user id uses decimal notation
+        user_id = glft[2].to_i(10)
+        digest = glft[1]
+
+        user = User.find_by_id(user_id)
+        return unless user
+
+        feed_token = user.feed_token
+        our_digest = OpenSSL::HMAC.hexdigest("SHA256", feed_token, current_request.path)
+
+        return unless ActiveSupport::SecurityUtils.secure_compare(digest, our_digest)
+
+        user
+      end
+
+      def can_authenticate_job_token_basic_auth?
+        setting = route_authentication_setting[:job_token_allowed]
+        Array.wrap(setting).include?(:basic_auth)
+      end
+
+      def can_authenticate_job_token_request?
+        setting = route_authentication_setting[:job_token_allowed]
+        setting == true || Array.wrap(setting).include?(:request)
+      end
+
+      def find_user_from_job_token_query_params_or_header
+        token = current_request.params[JOB_TOKEN_PARAM].presence ||
+          current_request.params[RUNNER_JOB_TOKEN_PARAM].presence ||
+          current_request.env[JOB_TOKEN_HEADER].presence
+        return unless token
+
+        job = find_valid_running_job_by_token!(token.to_s)
+        @current_authenticated_job = job # rubocop:disable Gitlab/ModuleWithInstanceVariables
+
+        job.user
+      end
+
+      def find_user_from_job_token_basic_auth
+        return unless has_basic_credentials?(current_request)
+
+        login, password = user_name_and_password(current_request)
+        return unless login.present? && password.present?
+        return unless ::Gitlab::Auth::CI_JOB_USER == login
+
+        job = find_valid_running_job_by_token!(password.to_s)
+        @current_authenticated_job = job # rubocop:disable Gitlab/ModuleWithInstanceVariables
+
+        job.user
       end
 
       def parsed_oauth_token
@@ -300,6 +376,8 @@ module Gitlab
           api_request?
         when :archive
           archive_request?
+        when :download
+          download_request?
         end
       end
 
@@ -351,6 +429,10 @@ module Gitlab
         current_request.path.include?('/-/archive/')
       end
 
+      def download_request?
+        current_request.path.include?('/downloads/')
+      end
+
       def blob_request?
         current_request.path.include?('/raw/')
       end
@@ -359,6 +441,17 @@ module Gitlab
         ::Ci::AuthJobFinder.new(token: token).execute.tap do |job|
           raise UnauthorizedError unless job
         end
+      end
+
+      def revoke_token_family(token)
+        return unless access_token_rotation_request?
+
+        PersonalAccessTokens::RevokeTokenFamilyService.new(token).execute
+      end
+
+      def access_token_rotation_request?
+        current_request.path.match(%r{access_tokens/\d+/rotate$}) ||
+          current_request.path.match(%r{/personal_access_tokens/self/rotate$})
       end
     end
   end

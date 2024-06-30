@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::JobEntity do
+RSpec.describe Ci::JobEntity, feature_category: :continuous_integration do
   let(:user) { create(:user) }
-  let(:job) { create(:ci_build) }
+  let(:job) { create(:ci_build, :running) }
   let(:project) { job.project }
   let(:request) { double('request') }
 
@@ -20,6 +20,11 @@ RSpec.describe Ci::JobEntity do
   end
 
   subject { entity.as_json }
+
+  it 'contains started' do
+    expect(subject).to include(:started)
+    expect(subject[:started]).to eq(true)
+  end
 
   it 'contains complete to indicate if a pipeline is completed' do
     expect(subject).to include(:complete)
@@ -45,6 +50,14 @@ RSpec.describe Ci::JobEntity do
   it 'contains details' do
     expect(subject).to include :status
     expect(subject[:status]).to include :icon, :favicon, :text, :label, :tooltip
+  end
+
+  it 'contains queued_at' do
+    expect(subject).to include :queued_at
+  end
+
+  it 'contains queued_duration' do
+    expect(subject).to include :queued_duration
   end
 
   context 'when job is retryable' do
@@ -84,8 +97,7 @@ RSpec.describe Ci::JobEntity do
       before do
         project.add_developer(user)
 
-        create(:protected_branch, :developers_can_merge,
-               name: job.ref, project: job.project)
+        create(:protected_branch, :developers_can_merge, name: job.ref, project: job.project)
       end
 
       it 'contains path to play action' do
@@ -101,8 +113,7 @@ RSpec.describe Ci::JobEntity do
       before do
         allow(job.project).to receive(:empty_repo?).and_return(false)
 
-        create(:protected_branch, :no_one_can_push,
-               name: job.ref, project: job.project)
+        create(:protected_branch, :no_one_can_push, name: job.ref, project: job.project)
       end
 
       it 'does not contain path to play action' do
@@ -125,6 +136,15 @@ RSpec.describe Ci::JobEntity do
     it 'contains scheduled_at' do
       expect(subject[:scheduled]).to be_truthy
       expect(subject[:scheduled_at]).to eq(job.scheduled_at)
+    end
+  end
+
+  context 'when job is running' do
+    let_it_be(:job) { create(:ci_build, :running) }
+
+    it 'contains started_at' do
+      expect(subject[:started]).to be_truthy
+      expect(subject[:started_at]).to eq(job.started_at)
     end
   end
 

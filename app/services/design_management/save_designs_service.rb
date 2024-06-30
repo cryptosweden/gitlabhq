@@ -4,6 +4,7 @@ module DesignManagement
   class SaveDesignsService < DesignService
     include RunsDesignActions
     include OnSuccessCallbacks
+    include Gitlab::InternalEventsTracking
 
     MAX_FILES = 10
 
@@ -35,7 +36,7 @@ module DesignManagement
     attr_reader :files
 
     def upload_designs!
-      ::DesignManagement::Version.with_lock(project.id, repository) do
+      DesignManagement::Version.with_lock(project.id, repository) do
         actions = build_actions
 
         [
@@ -113,7 +114,7 @@ module DesignManagement
 
     def file_content(file, full_path)
       transformer = ::Lfs::FileTransformer.new(project, repository, target_branch)
-      transformer.new_file(full_path, file.to_io).content
+      transformer.new_file(full_path, file.to_io, detect_content_type: Feature.enabled?(:design_management_allow_dangerous_images, project)).content
     end
 
     # Returns the latest blobs for the designs as a Hash of `{ Design => Blob }`
@@ -131,12 +132,14 @@ module DesignManagement
 
     def track_usage_metrics(action)
       if action == :update
-        ::Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_designs_modified_action(author: current_user)
+        ::Gitlab::UsageDataCounters::IssueActivityUniqueCounter
+          .track_issue_designs_modified_action(author: current_user, project: project)
+        track_internal_event('update_design_management_design', user: current_user, project: project)
       else
-        ::Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_designs_added_action(author: current_user)
+        ::Gitlab::UsageDataCounters::IssueActivityUniqueCounter
+          .track_issue_designs_added_action(author: current_user, project: project)
+        track_internal_event('create_design_management_design', user: current_user, project: project)
       end
-
-      ::Gitlab::UsageDataCounters::DesignsCounter.count(action)
     end
   end
 end

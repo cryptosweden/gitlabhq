@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module ReleasesHelper
-  IMAGE_PATH = 'illustrations/releases.svg'
+  IMAGE_PATH = 'illustrations/rocket-launch-md.svg'
   DOCUMENTATION_PATH = 'user/project/releases/index'
 
   # This needs to be kept in sync with the constant in
@@ -12,7 +12,7 @@ module ReleasesHelper
     image_path(IMAGE_PATH)
   end
 
-  def help_page(anchor: nil)
+  def releases_help_page_path(anchor: nil)
     help_page_path(DOCUMENTATION_PATH, anchor: anchor)
   end
 
@@ -21,7 +21,8 @@ module ReleasesHelper
       project_id: @project.id,
       project_path: @project.full_path,
       illustration_path: illustration,
-      documentation_path: help_page
+      documentation_path: releases_help_page_path,
+      atom_feed_path: project_releases_path(@project, rss_url_options)
     }.tap do |data|
       if can?(current_user, :create_release, @project)
         data[:new_release_path] = new_project_release_path(@project)
@@ -53,12 +54,14 @@ module ReleasesHelper
   def data_for_edit_release_page
     new_edit_pages_shared_data.merge(
       tag_name: @release.tag,
-      releases_page_path: project_releases_path(@project, anchor: @release.tag)
+      releases_page_path: project_releases_path(@project, anchor: @release.tag),
+      delete_release_docs_path: releases_help_page_path(anchor: 'delete-a-release')
     )
   end
 
   def data_for_new_release_page
     new_edit_pages_shared_data.merge(
+      tag_name: params[:tag_name],
       default_branch: @project.default_branch,
       releases_page_path: project_releases_path(@project)
     )
@@ -78,9 +81,11 @@ module ReleasesHelper
       project_path: @project.full_path,
       markdown_preview_path: preview_markdown_path(@project),
       markdown_docs_path: help_page_path('user/markdown'),
-      release_assets_docs_path: help_page(anchor: 'release-assets'),
+      release_assets_docs_path: releases_help_page_path(anchor: 'release-assets'),
       manage_milestones_path: project_milestones_path(@project),
-      new_milestone_path: new_project_milestone_path(@project)
+      new_milestone_path: new_project_milestone_path(@project, redirect_path: 'new_release'),
+      edit_release_docs_path: releases_help_page_path(anchor: 'edit-a-release'),
+      upcoming_release_docs_path: releases_help_page_path(anchor: 'upcoming-releases')
     }
   end
 end

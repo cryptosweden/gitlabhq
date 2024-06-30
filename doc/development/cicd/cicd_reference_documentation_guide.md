@@ -1,12 +1,12 @@
 ---
 stage: Verify
 group: Pipeline Authoring
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# CI/CD YAML reference style guide **(FREE)**
+# Documenting the `.gitlab-ci.yml` keywords
 
-The [CI/CD YAML reference](../../ci/yaml/index.md) uses a standard style to make it easier to use and update.
+The [CI/CD YAML syntax reference](../../ci/yaml/index.md) uses a standard style to make it easier to use and update.
 
 The reference information should be kept as simple as possible, and expanded details
 and examples should be documented on other pages.
@@ -54,7 +54,7 @@ is used, like `artifacts:reports:dast`. Afterwards, you can use just the subkey 
 ## Keyword type
 
 The keyword can be either a job or global keyword. If it can be used in a `default`
-section, make not of that as well, for example:
+section, make note of that as well. For example:
 
 - `**Keyword type**: Global keyword.`
 - `**Keyword type**: Job keyword. You can use it only as part of a job.`
@@ -125,7 +125,7 @@ can include changes introduced in different GitLab versions. For example:
 **Additional details**:
 
 - The expiration time period begins when the artifact is uploaded and stored on GitLab.
-  If the expiry time is not defined, it defaults to the [instance wide setting](../../user/admin_area/settings/continuous_integration.md#default-artifacts-expiration).
+  If the expiry time is not defined, it defaults to the [instance wide setting](../../administration/settings/continuous_integration.md#default-artifacts-expiration).
 - To override the expiration date and protect artifacts from being automatically deleted:
   - Select **Keep** on the job page.
   - [In GitLab 13.3 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/22761), set the value of

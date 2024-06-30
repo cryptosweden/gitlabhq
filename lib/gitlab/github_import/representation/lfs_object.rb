@@ -4,19 +4,17 @@ module Gitlab
   module GithubImport
     module Representation
       class LfsObject
-        include ToHash
-        include ExposeAttribute
+        include Representable
 
-        attr_reader :attributes
-
-        expose_attribute :oid, :link, :size
+        expose_attribute :oid, :link, :size, :headers
 
         # Builds a lfs_object
-        def self.from_api_response(lfs_object)
+        def self.from_api_response(lfs_object, additional_data = {})
           new(
             oid: lfs_object.oid,
             link: lfs_object.link,
-            size: lfs_object.size
+            size: lfs_object.size,
+            headers: lfs_object.headers
           )
         end
 
@@ -33,7 +31,8 @@ module Gitlab
 
         def github_identifiers
           {
-            oid: oid
+            oid: oid,
+            size: size
           }
         end
       end

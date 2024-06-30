@@ -5,7 +5,7 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
     instance_double(Gitlab::SidekiqMiddleware::DuplicateJobs::DuplicateJob, duplicate_key_ttl: Gitlab::SidekiqMiddleware::DuplicateJobs::DuplicateJob::DEFAULT_DUPLICATE_KEY_TTL)
   end
 
-  let(:expected_message) { "dropped #{strategy_name.to_s.humanize.downcase}" }
+  let(:humanized_strategy_name) { strategy_name.to_s.humanize.downcase }
 
   subject(:strategy) { Gitlab::SidekiqMiddleware::DuplicateJobs::Strategies.for(strategy_name).new(fake_duplicate_job) }
 
@@ -15,7 +15,8 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
     end
 
     it 'checks for duplicates before yielding' do
-      expect(fake_duplicate_job).to receive(:scheduled?).twice.ordered.and_return(false)
+      # twice in `.deduplicatable_job?`, once in `.expiry`
+      expect(fake_duplicate_job).to receive(:scheduled?).exactly(3).times.ordered.and_return(false)
       expect(fake_duplicate_job).to(
         receive(:check!)
           .with(fake_duplicate_job.duplicate_key_ttl)
@@ -27,6 +28,8 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
     end
 
     it 'checks worker options for scheduled jobs' do
+      expect(fake_duplicate_job).to receive(:scheduled?).ordered.and_return(true)
+      expect(fake_duplicate_job).to receive(:deferred?).ordered.and_return(false)
       expect(fake_duplicate_job).to receive(:scheduled?).ordered.and_return(true)
       expect(fake_duplicate_job).to receive(:options).ordered.and_return({})
       expect(fake_duplicate_job).not_to receive(:check!)
@@ -57,7 +60,7 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
 
         context 'scheduled in the past' do
           it 'adds the jid of the existing job to the job hash' do
-            allow(fake_duplicate_job).to receive(:scheduled?).twice.and_return(true)
+            allow(fake_duplicate_job).to receive(:scheduled?).exactly(4).times.and_return(true)
             allow(fake_duplicate_job).to receive(:scheduled_at).and_return(Time.now - time_diff)
             allow(fake_duplicate_job).to receive(:options).and_return({ including_scheduled: true })
             allow(fake_duplicate_job).to(
@@ -67,6 +70,7 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
             allow(fake_duplicate_job).to receive(:idempotent?).and_return(true)
             allow(fake_duplicate_job).to receive(:update_latest_wal_location!)
             allow(fake_duplicate_job).to receive(:set_deduplicated_flag!)
+            allow(fake_duplicate_job).to receive(:deferred?)
             job_hash = {}
 
             expect(fake_duplicate_job).to receive(:duplicate?).and_return(true)
@@ -81,7 +85,7 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
         context 'scheduled in the future' do
           it 'adds the jid of the existing job to the job hash' do
             freeze_time do
-              allow(fake_duplicate_job).to receive(:scheduled?).twice.and_return(true)
+              allow(fake_duplicate_job).to receive(:scheduled?).exactly(4).times.and_return(true)
               allow(fake_duplicate_job).to receive(:scheduled_at).and_return(Time.now + time_diff)
               allow(fake_duplicate_job).to receive(:options).and_return({ including_scheduled: true })
               allow(fake_duplicate_job).to(
@@ -89,6 +93,7 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
               allow(fake_duplicate_job).to receive(:idempotent?).and_return(true)
               allow(fake_duplicate_job).to receive(:update_latest_wal_location!)
               allow(fake_duplicate_job).to receive(:set_deduplicated_flag!)
+              allow(fake_duplicate_job).to receive(:deferred?)
               job_hash = {}
 
               expect(fake_duplicate_job).to receive(:duplicate?).and_return(true)
@@ -155,7 +160,7 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
         fake_logger = instance_double(Gitlab::SidekiqLogging::DeduplicationLogger)
 
         expect(Gitlab::SidekiqLogging::DeduplicationLogger).to receive(:instance).and_return(fake_logger)
-        expect(fake_logger).to receive(:deduplicated_log).with(a_hash_including({ 'jid' => 'new jid' }), expected_message, {})
+        expect(fake_logger).to receive(:deduplicated_log).with(a_hash_including({ 'jid' => 'new jid' }), humanized_strategy_name, {})
 
         strategy.schedule({ 'jid' => 'new jid' }) {}
       end
@@ -165,7 +170,7 @@ RSpec.shared_examples 'deduplicating jobs when scheduling' do |strategy_name|
 
         expect(Gitlab::SidekiqLogging::DeduplicationLogger).to receive(:instance).and_return(fake_logger)
         allow(fake_duplicate_job).to receive(:options).and_return({ foo: :bar })
-        expect(fake_logger).to receive(:deduplicated_log).with(a_hash_including({ 'jid' => 'new jid' }), expected_message, { foo: :bar })
+        expect(fake_logger).to receive(:deduplicated_log).with(a_hash_including({ 'jid' => 'new jid' }), humanized_strategy_name, { foo: :bar })
 
         strategy.schedule({ 'jid' => 'new jid' }) {}
       end

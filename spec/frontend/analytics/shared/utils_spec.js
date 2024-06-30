@@ -5,6 +5,7 @@ import {
   extractPaginationQueryParameters,
   getDataZoomOption,
   prepareTimeMetricsData,
+  generateValueStreamsDashboardLink,
 } from '~/analytics/shared/utils';
 import { slugify } from '~/lib/utils/text_utility';
 import { objectToQuery } from '~/lib/utils/url_utility';
@@ -202,7 +203,7 @@ describe('prepareTimeMetricsData', () => {
   });
 
   it('will add a `label` key', () => {
-    expect(prepared).toMatchObject([{ label: 'New Issues' }, { label: 'Commits' }]);
+    expect(prepared).toMatchObject([{ label: 'New issues' }, { label: 'Commits' }]);
   });
 
   it('will add a popover description using the key if it is provided', () => {
@@ -210,5 +211,30 @@ describe('prepareTimeMetricsData', () => {
       { description: 'Is a value that is good' },
       { description: '' },
     ]);
+  });
+});
+
+describe('generateValueStreamsDashboardLink', () => {
+  it.each`
+    groupPath              | result
+    ${''}                  | ${''}
+    ${'groups/fake-group'} | ${'/groups/fake-group/-/analytics/dashboards/value_streams_dashboard'}
+  `(
+    'generates the dashboard link when groupPath=$groupPath and projectPaths=$projectPaths',
+    ({ groupPath, result }) => {
+      expect(generateValueStreamsDashboardLink(groupPath)).toBe(result);
+    },
+  );
+
+  describe('with a relative url rool set', () => {
+    beforeEach(() => {
+      gon.relative_url_root = '/foobar';
+    });
+
+    it('with includes a relative path if one is set', () => {
+      expect(generateValueStreamsDashboardLink('groups/fake-path')).toBe(
+        '/foobar/groups/fake-path/-/analytics/dashboards/value_streams_dashboard',
+      );
+    });
   });
 });

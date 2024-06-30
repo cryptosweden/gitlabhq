@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GitAccess do
+RSpec.describe Gitlab::GitAccess, :aggregate_failures, feature_category: :system_access do
   include TermsHelper
-  include GitHelpers
   include AdminModeHelper
+  include ExternalAuthorizationServiceHelpers
+  include Ci::JobTokenScopeHelpers
 
   let(:user) { create(:user) }
-
   let(:actor) { user }
   let(:project) { create(:project, :repository) }
   let(:repository_path) { "#{project.full_path}.git" }
@@ -34,7 +34,7 @@ RSpec.describe Gitlab::GitAccess do
 
   describe '#check with single protocols allowed' do
     def disable_protocol(protocol)
-      allow(Gitlab::ProtocolAccess).to receive(:allowed?).with(protocol).and_return(false)
+      allow(Gitlab::ProtocolAccess).to receive(:allowed?).with(protocol, project: project).and_return(false)
     end
 
     context 'ssh disabled' do
@@ -78,9 +78,7 @@ RSpec.describe Gitlab::GitAccess do
           let(:auth_result_type) { :ci }
 
           it "doesn't block http pull" do
-            aggregate_failures do
-              expect { pull_access_check }.not_to raise_error
-            end
+            expect { pull_access_check }.not_to raise_error
           end
         end
       end
@@ -115,6 +113,19 @@ RSpec.describe Gitlab::GitAccess do
               end
             end
           end
+
+          context 'when the deploy key is restricted with external_authorization' do
+            before do
+              allow(Gitlab::ExternalAuthorization).to receive(:allow_deploy_tokens_and_deploy_keys?).and_return(false)
+            end
+
+            it 'blocks push and pull with "not found"' do
+              aggregate_failures do
+                expect { push_access_check }.to raise_not_found
+                expect { pull_access_check }.to raise_not_found
+              end
+            end
+          end
         end
 
         context 'when actor is a User' do
@@ -141,13 +152,13 @@ RSpec.describe Gitlab::GitAccess do
           end
         end
 
-        # For backwards compatibility
+        # legacy behavior that is blocked/deprecated
         context 'when actor is :ci' do
           let(:actor) { :ci }
           let(:authentication_abilities) { build_authentication_abilities }
 
-          it 'allows pull access' do
-            expect { pull_access_check }.not_to raise_error
+          it 'disallows pull access' do
+            expect { pull_access_check }.to raise_error(Gitlab::GitAccess::NotFoundError)
           end
 
           it 'does not block pushes with "not found"' do
@@ -171,6 +182,20 @@ RSpec.describe Gitlab::GitAccess do
           context 'when DeployToken does not belong to project' do
             let(:another_project) { create(:project) }
             let(:actor) { create(:deploy_token, projects: [another_project]) }
+
+            it 'blocks pull access' do
+              expect { pull_access_check }.to raise_not_found
+            end
+
+            it 'blocks the push' do
+              expect { push_access_check }.to raise_not_found
+            end
+          end
+
+          context 'when the the deploy token is restricted with external_authorization' do
+            before do
+              allow(Gitlab::ExternalAuthorization).to receive(:allow_deploy_tokens_and_deploy_keys?).and_return(false)
+            end
 
             it 'blocks pull access' do
               expect { pull_access_check }.to raise_not_found
@@ -228,12 +253,21 @@ RSpec.describe Gitlab::GitAccess do
       project.add_maintainer(user)
     end
 
+    context 'key is expired' do
+      let(:actor) { create(:deploy_key, :expired) }
+
+      it 'does not allow expired keys' do
+        expect { pull_access_check }.to raise_forbidden('Your SSH key has expired.')
+        expect { push_access_check }.to raise_forbidden('Your SSH key has expired.')
+      end
+    end
+
     context 'key is too small' do
       before do
         stub_application_setting(rsa_key_restriction: 4096)
       end
 
-      it 'does not allow keys which are too small', :aggregate_failures do
+      it 'does not allow keys which are too small' do
         expect(actor).not_to be_valid
         expect { pull_access_check }.to raise_forbidden('Your SSH key must be at least 4096 bits.')
         expect { push_access_check }.to raise_forbidden('Your SSH key must be at least 4096 bits.')
@@ -245,7 +279,7 @@ RSpec.describe Gitlab::GitAccess do
         stub_application_setting(rsa_key_restriction: ApplicationSetting::FORBIDDEN_KEY_VALUE)
       end
 
-      it 'does not allow keys which are too small', :aggregate_failures do
+      it 'does not allow keys which are too small' do
         expect(actor).not_to be_valid
         expect { pull_access_check }.to raise_forbidden(/Your SSH key type is forbidden/)
         expect { push_access_check }.to raise_forbidden(/Your SSH key type is forbidden/)
@@ -254,7 +288,7 @@ RSpec.describe Gitlab::GitAccess do
   end
 
   it_behaves_like '#check with a key that is not valid' do
-    let(:actor) { build(:rsa_key_2048, user: user) }
+    let(:actor) { build(:deploy_key, user: user) }
   end
 
   it_behaves_like '#check with a key that is not valid' do
@@ -725,9 +759,7 @@ RSpec.describe Gitlab::GitAccess do
       describe 'generic CI (build without a user)' do
         let(:actor) { :ci }
 
-        context 'pull code' do
-          it { expect { pull_access_check }.not_to raise_error }
-        end
+        specify { expect { pull_access_check }.to raise_error Gitlab::GitAccess::NotFoundError }
       end
     end
   end
@@ -771,13 +803,13 @@ RSpec.describe Gitlab::GitAccess do
 
     let(:changes) do
       { any: Gitlab::GitAccess::ANY,
-        push_new_branch: "#{Gitlab::Git::BLANK_SHA} 570e7b2ab refs/heads/wow",
+        push_new_branch: "#{Gitlab::Git::SHA1_BLANK_SHA} 570e7b2ab refs/heads/wow",
         push_master: '6f6d7e7ed 570e7b2ab refs/heads/master',
         push_protected_branch: '6f6d7e7ed 570e7b2ab refs/heads/feature',
-        push_remove_protected_branch: "570e7b2ab #{Gitlab::Git::BLANK_SHA} "\
+        push_remove_protected_branch: "570e7b2ab #{Gitlab::Git::SHA1_BLANK_SHA} "\
                                       'refs/heads/feature',
         push_tag: '6f6d7e7ed 570e7b2ab refs/tags/v1.0.0',
-        push_new_tag: "#{Gitlab::Git::BLANK_SHA} 570e7b2ab refs/tags/v7.8.9",
+        push_new_tag: "#{Gitlab::Git::SHA1_BLANK_SHA} 570e7b2ab refs/tags/v7.8.9",
         push_all: ['6f6d7e7ed 570e7b2ab refs/heads/master', '6f6d7e7ed 570e7b2ab refs/heads/feature'],
         merge_into_protected_branch: "0b4bc9a #{merge_into_protected_branch} refs/heads/feature" }
     end
@@ -785,18 +817,29 @@ RSpec.describe Gitlab::GitAccess do
     def merge_into_protected_branch
       @protected_branch_merge_commit ||= begin
         project.repository.add_branch(user, unprotected_branch, 'feature')
-        rugged = rugged_repo(project.repository)
-        target_branch = rugged.rev_parse('feature')
+        target_branch = TestEnv::BRANCH_SHA['feature']
         source_branch = project.repository.create_file(
           user,
           'filename',
           'This is the file content',
           message: 'This is a good commit message',
           branch_name: unprotected_branch)
-        author = { email: "email@example.com", time: Time.now, name: "Example Git User" }
+        merge_id = project.repository.raw.merge_to_ref(
+          user,
+          branch: target_branch,
+          first_parent_ref: target_branch,
+          source_sha: source_branch,
+          target_ref: 'refs/merge-requests/test',
+          message: 'commit message'
+        )
 
-        merge_index = rugged.merge_commits(target_branch, source_branch)
-        Rugged::Commit.create(rugged, author: author, committer: author, message: "commit message", parents: [target_branch, source_branch], tree: merge_index.write_tree(rugged))
+        # We are trying to simulate what the repository would look like
+        # during the pre-receive hook, before the actual ref is
+        # written/created. Repository#new_commits relies on there being no
+        # ref pointing to the merge commit.
+        project.repository.delete_refs('refs/merge-requests/test')
+
+        merge_id
       end
     end
 
@@ -827,11 +870,13 @@ RSpec.describe Gitlab::GitAccess do
               check = -> { push_changes(changes[action]) }
 
               if allowed
-                expect(&check).not_to raise_error,
-                  -> { "expected #{action} to be allowed" }
+                expect(&check).not_to raise_error, -> do
+                  "expected #{action} for #{role} to be allowed while #{who_can_action}"
+                end
               else
-                expect(&check).to raise_error(Gitlab::GitAccess::ForbiddenError),
-                  -> { "expected #{action} to be disallowed" }
+                expect(&check).to raise_error(Gitlab::GitAccess::ForbiddenError), -> do
+                  "expected #{action} for #{role} to be disallowed while #{who_can_action}"
+                end
               end
             end
           end
@@ -844,12 +889,12 @@ RSpec.describe Gitlab::GitAccess do
         any: true,
         push_new_branch: true,
         push_master: true,
-        push_protected_branch: true,
+        push_protected_branch: false,
         push_remove_protected_branch: false,
         push_tag: true,
         push_new_tag: true,
-        push_all: true,
-        merge_into_protected_branch: true
+        push_all: false,
+        merge_into_protected_branch: false
       },
 
       admin_without_admin_mode: {
@@ -913,27 +958,30 @@ RSpec.describe Gitlab::GitAccess do
       }
     }
 
-    [%w(feature exact), ['feat*', 'wildcard']].each do |protected_branch_name, protected_branch_type|
+    [%w[feature exact], ['feat*', 'wildcard']].each do |protected_branch_name, protected_branch_type|
       context do
-        let(:protected_branch) { create(:protected_branch, :maintainers_can_push, name: protected_branch_name, project: project) }
+        let(:who_can_action) { :maintainers_can_push }
+        let(:protected_branch) { create(:protected_branch, who_can_action, name: protected_branch_name, project: project) }
 
         run_permission_checks(permissions_matrix)
       end
 
       context "when developers are allowed to push into the #{protected_branch_type} protected branch" do
-        let(:protected_branch) { create(:protected_branch, :developers_can_push, name: protected_branch_name, project: project) }
+        let(:who_can_action) { :developers_can_push }
+        let(:protected_branch) { create(:protected_branch, who_can_action, name: protected_branch_name, project: project) }
 
         run_permission_checks(permissions_matrix.deep_merge(developer: { push_protected_branch: true, push_all: true, merge_into_protected_branch: true }))
       end
 
-      context "developers are allowed to merge into the #{protected_branch_type} protected branch" do
-        let(:protected_branch) { create(:protected_branch, :developers_can_merge, name: protected_branch_name, project: project) }
+      context "when developers are allowed to merge into the #{protected_branch_type} protected branch" do
+        let(:who_can_action) { :developers_can_merge }
+        let(:protected_branch) { create(:protected_branch, who_can_action, name: protected_branch_name, project: project) }
 
         context "when a merge request exists for the given source/target branch" do
           context "when the merge request is in progress" do
             before do
               create(:merge_request, source_project: project, source_branch: unprotected_branch, target_branch: 'feature',
-                                     state: 'locked', in_progress_merge_commit_sha: merge_into_protected_branch)
+                state: 'locked', in_progress_merge_commit_sha: merge_into_protected_branch)
             end
 
             run_permission_checks(permissions_matrix.deep_merge(developer: { merge_into_protected_branch: true }))
@@ -954,6 +1002,7 @@ RSpec.describe Gitlab::GitAccess do
       end
 
       context "when developers are allowed to push and merge into the #{protected_branch_type} protected branch" do
+        let(:who_can_action) { :developers_can_push_and_merge }
         let(:protected_branch) { create(:protected_branch, :developers_can_merge, :developers_can_push, name: protected_branch_name, project: project) }
 
         run_permission_checks(permissions_matrix.deep_merge(developer: { push_protected_branch: true, push_all: true, merge_into_protected_branch: true }))
@@ -963,14 +1012,14 @@ RSpec.describe Gitlab::GitAccess do
         let(:protected_branch) { build(:protected_branch, :no_one_can_push, name: protected_branch_name, project: project) }
 
         run_permission_checks(permissions_matrix.deep_merge(developer: { push_protected_branch: false, push_all: false, merge_into_protected_branch: false },
-                                                            maintainer: { push_protected_branch: false, push_all: false, merge_into_protected_branch: false },
-                                                            admin_with_admin_mode: { push_protected_branch: false, push_all: false, merge_into_protected_branch: false }))
+          maintainer: { push_protected_branch: false, push_all: false, merge_into_protected_branch: false },
+          admin_with_admin_mode: { push_protected_branch: false, push_all: false, merge_into_protected_branch: false }))
       end
     end
 
     context 'when pushing to a project' do
       let(:project) { create(:project, :public, :repository) }
-      let(:changes) { "#{Gitlab::Git::BLANK_SHA} 570e7b2ab refs/heads/wow" }
+      let(:changes) { "#{Gitlab::Git::SHA1_BLANK_SHA} 570e7b2ab refs/heads/wow" }
 
       before do
         project.add_developer(user)
@@ -1014,14 +1063,14 @@ RSpec.describe Gitlab::GitAccess do
         # additional queries.
         access.check('git-receive-pack', changes)
 
-        control_count = ActiveRecord::QueryRecorder.new do
+        control = ActiveRecord::QueryRecorder.new do
           access.check('git-receive-pack', changes)
         end
 
         changes = ['6f6d7e7ed 570e7b2ab refs/heads/master', '6f6d7e7ed 570e7b2ab refs/heads/feature']
 
         # There is still an N+1 query with protected branches
-        expect { access.check('git-receive-pack', changes) }.not_to exceed_query_limit(control_count).with_threshold(2)
+        expect { access.check('git-receive-pack', changes) }.not_to exceed_query_limit(control).with_threshold(2)
       end
 
       it 'raises TimeoutError when #check_access! raises a timeout error' do
@@ -1154,13 +1203,13 @@ RSpec.describe Gitlab::GitAccess do
          -> { push_access_check }]
       end
 
-      it 'blocks access when the user did not accept terms', :aggregate_failures do
+      it 'blocks access when the user did not accept terms' do
         actions.each do |action|
           expect { action.call }.to raise_forbidden(/must accept the Terms of Service in order to perform this action/)
         end
       end
 
-      it 'allows access when the user accepted the terms', :aggregate_failures do
+      it 'allows access when the user accepted the terms' do
         accept_terms(user)
 
         actions.each do |action|
@@ -1231,15 +1280,71 @@ RSpec.describe Gitlab::GitAccess do
         end
       end
     end
+
+    describe 'when request is made from CI' do
+      let(:auth_result_type) { :build }
+      let(:job) { build_stubbed(:ci_build, project: project, user: user) }
+
+      before do
+        accept_terms(user)
+        project.add_maintainer(user)
+        project.ci_push_repository_for_job_token_allowed = ci_push_repository_for_job_token_allowed
+        project.save!
+
+        allow(user).to receive(:ci_job_token_scope).and_return(user.set_ci_job_token_scope!(job))
+      end
+
+      context 'when push to repositry is allowed by project settings' do
+        let(:ci_push_repository_for_job_token_allowed) { true }
+
+        it "doesn't block push" do
+          expect { push_access_check_build(project, changes) }.not_to raise_error
+        end
+
+        context 'when push is requested to a different project' do
+          let(:another_project) do
+            create(:project, :repository, :public).tap do |accessible_project|
+              add_inbound_accessible_linkage(project, accessible_project)
+            end
+          end
+
+          before do
+            another_project.add_maintainer(user)
+            another_project.ci_push_repository_for_job_token_allowed = ci_push_repository_for_job_token_allowed
+            another_project.save!
+          end
+
+          it 'raises forbidden exception on push' do
+            expect { push_access_check_build(another_project, changes) }.to raise_error(Gitlab::GitAccess::ForbiddenError)
+          end
+        end
+      end
+
+      context 'when push to repositry is not allowed by project settings' do
+        let(:ci_push_repository_for_job_token_allowed) { false }
+
+        it 'raises forbidden exception on push' do
+          expect { push_access_check_build(project, changes) }.to raise_error(Gitlab::GitAccess::ForbiddenError)
+        end
+      end
+    end
   end
 
   private
 
   def access
     access_class.new(actor, project, protocol,
-                        authentication_abilities: authentication_abilities,
-                        repository_path: repository_path,
-                        redirected_path: redirected_path, auth_result_type: auth_result_type)
+      authentication_abilities: authentication_abilities,
+      repository_path: repository_path,
+      redirected_path: redirected_path, auth_result_type: auth_result_type)
+  end
+
+  def push_access_check_build(access_project, changes)
+    access_class.new(actor, access_project, protocol,
+      authentication_abilities: build_authentication_abilities_allowed_push,
+      repository_path: "#{access_project.full_path}.git",
+      redirected_path: redirected_path, auth_result_type: auth_result_type)
+    .check('git-receive-pack', changes)
   end
 
   def push_changes(changes)
@@ -1258,6 +1363,14 @@ RSpec.describe Gitlab::GitAccess do
     [
       :read_project,
       :build_download_code
+    ]
+  end
+
+  def build_authentication_abilities_allowed_push
+    [
+      :read_project,
+      :build_download_code,
+      :build_push_code
     ]
   end
 

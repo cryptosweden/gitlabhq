@@ -1,10 +1,11 @@
 <script>
 /* eslint-disable @gitlab/vue-require-i18n-strings */
 import { GlIcon, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState, mapGetters } from 'vuex';
 import timeAgoMixin from '~/vue_shared/mixins/timeago';
-import CiIcon from '../../vue_shared/components/ci_icon.vue';
-import userAvatarImage from '../../vue_shared/components/user_avatar/user_avatar_image.vue';
+import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
+import UserAvatarImage from '~/vue_shared/components/user_avatar/user_avatar_image.vue';
 import { rightSidebarViews } from '../constants';
 import IdeStatusList from './ide_status_list.vue';
 import IdeStatusMr from './ide_status_mr.vue';
@@ -12,7 +13,7 @@ import IdeStatusMr from './ide_status_mr.vue';
 export default {
   components: {
     GlIcon,
-    userAvatarImage,
+    UserAvatarImage,
     CiIcon,
     IdeStatusList,
     IdeStatusMr,
@@ -32,8 +33,11 @@ export default {
     ...mapState('pipelines', ['latestPipeline']),
   },
   watch: {
-    lastCommit() {
-      this.initPipelinePolling();
+    lastCommit: {
+      handler() {
+        this.initPipelinePolling();
+      },
+      immediate: true,
     },
   },
   mounted() {
@@ -84,7 +88,6 @@ export default {
           @click="openRightPane($options.rightSidebarViews.pipelines)"
         >
           <ci-icon
-            v-gl-tooltip
             :status="latestPipeline.details.status"
             :title="latestPipeline.details.status.text"
           />
@@ -102,13 +105,13 @@ export default {
         :title="lastCommit.message"
         :href="getCommitPath(lastCommit.short_id)"
         class="commit-sha"
-        data-qa-selector="commit_sha_content"
+        data-testid="commit-sha-content"
         >{{ lastCommit.short_id }}</a
       >
       by
       <user-avatar-image
         css-classes="ide-status-avatar"
-        :size="18"
+        :size="16"
         :img-src="latestPipeline && latestPipeline.commit.author_gravatar_url"
         :img-alt="lastCommit.author_name"
         :tooltip-text="lastCommit.author_name"

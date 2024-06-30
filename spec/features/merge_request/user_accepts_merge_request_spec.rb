@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inline do
+RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inline, feature_category: :code_review_workflow do
   let(:merge_request) { create(:merge_request, :simple, source_project: project) }
   let(:project) { create(:project, :public, :repository) }
   let(:user) { create(:user) }
@@ -16,9 +16,11 @@ RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inli
     it 'when merge method is set to merge commit' do
       visit(merge_request_path(merge_request))
 
-      click_button('Merge')
+      click_merge_button
 
-      expect(page).to have_content("The changes were merged into #{merge_request.target_branch} with #{merge_request.short_merged_commit_sha}")
+      puts merge_request.short_merged_commit_sha
+
+      expect(page).to have_content("Changes merged into #{merge_request.target_branch} with #{merge_request.short_merged_commit_sha}")
     end
 
     context 'when merge method is set to fast-forward merge' do
@@ -29,9 +31,9 @@ RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inli
 
         visit(merge_request_path(merge_request))
 
-        click_button('Merge')
+        click_merge_button
 
-        expect(page).to have_content("The changes were merged into #{merge_request.target_branch} with #{merge_request.short_merged_commit_sha}")
+        expect(page).to have_content("Changes merged into #{merge_request.target_branch} with #{merge_request.short_merged_commit_sha}")
       end
 
       it 'accepts a merge request with squash and merge' do
@@ -39,9 +41,9 @@ RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inli
 
         visit(merge_request_path(merge_request))
 
-        click_button('Merge')
+        click_merge_button
 
-        expect(page).to have_content("The changes were merged into #{merge_request.target_branch} with #{merge_request.short_merged_commit_sha}")
+        expect(page).to have_content("Changes merged into #{merge_request.target_branch} with #{merge_request.short_merged_commit_sha}")
       end
     end
   end
@@ -53,9 +55,9 @@ RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inli
 
     it 'accepts a merge request' do
       check('Delete source branch')
-      click_button('Merge')
+      click_merge_button
 
-      expect(page).to have_content('The changes were merged into')
+      expect(page).to have_content('Changes merged into')
       expect(page).not_to have_selector('.js-remove-branch-button')
 
       # Wait for View Resource requests to complete so they don't blow up if they are
@@ -70,9 +72,9 @@ RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inli
     end
 
     it 'accepts a merge request' do
-      click_button('Merge')
+      click_merge_button
 
-      expect(page).to have_content('The changes were merged into')
+      expect(page).to have_content('Changes merged into')
       expect(page).to have_selector('.js-remove-branch-button')
 
       # Wait for View Resource requests to complete so they don't blow up if they are
@@ -88,9 +90,9 @@ RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inli
 
     it 'accepts a merge request' do
       check('Delete source branch')
-      click_button('Merge')
+      click_merge_button
 
-      expect(page).to have_content('The changes were merged into')
+      expect(page).to have_content('Changes merged into')
       expect(page).not_to have_selector('.js-remove-branch-button')
 
       # Wait for View Resource requests to complete so they don't blow up if they are
@@ -107,14 +109,18 @@ RSpec.describe 'User accepts a merge request', :js, :sidekiq_might_not_need_inli
     end
 
     it 'accepts a merge request' do
-      find('.js-mr-widget-commits-count').click
+      find_by_testid('widget_edit_commit_message').click
       fill_in('merge-message-edit', with: 'wow such merge')
 
-      click_button('Merge')
+      click_merge_button
 
-      page.within('.status-box') do
-        expect(page).to have_content('Merged')
-      end
+      expect(page).to have_selector('.gl-badge', text: 'Merged')
+    end
+  end
+
+  def click_merge_button
+    page.within('.mr-state-widget') do
+      click_button 'Merge'
     end
   end
 end

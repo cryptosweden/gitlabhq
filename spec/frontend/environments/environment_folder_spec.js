@@ -5,7 +5,7 @@ import waitForPromises from 'helpers/wait_for_promises';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { stubTransition } from 'helpers/stub_transition';
-import { __, s__ } from '~/locale';
+import { __, s__, sprintf } from '~/locale';
 import EnvironmentsFolder from '~/environments/components/environment_folder.vue';
 import EnvironmentItem from '~/environments/components/new_environment_item.vue';
 import { resolvedEnvironmentsApp, resolvedFolder } from './graphql/mock_data';
@@ -15,12 +15,23 @@ Vue.use(VueApollo);
 describe('~/environments/components/environments_folder.vue', () => {
   let wrapper;
   let environmentFolderMock;
+  let intervalMock;
   let nestedEnvironment;
 
-  const findLink = () => wrapper.findByRole('link', { name: s__('Environments|Show all') });
+  const findLink = () => wrapper.findByText(s__('Environments|See all environments.'));
+  const findMessage = () =>
+    wrapper.findByText(
+      sprintf(
+        s__(
+          'Environments|Showing %{listedEnvironmentsCount} of %{totalEnvironmentsCount} environments in this folder.',
+        ),
+        { listedEnvironmentsCount: 2, totalEnvironmentsCount: 4 },
+      ),
+    );
+  const findFolderMessageElement = () => wrapper.findByTestId('environment-folder-message-element');
 
   const createApolloProvider = () => {
-    const mockResolvers = { Query: { folder: environmentFolderMock } };
+    const mockResolvers = { Query: { folder: environmentFolderMock, interval: intervalMock } };
 
     return createMockApollo([], mockResolvers);
   };
@@ -30,16 +41,19 @@ describe('~/environments/components/environments_folder.vue', () => {
       apolloProvider,
       propsData: {
         scope: 'available',
+        search: '',
         ...propsData,
       },
       stubs: { transition: stubTransition() },
-      provide: { helpPagePath: '/help' },
+      provide: { helpPagePath: '/help', projectId: '1', projectPath: 'path/to/project' },
     });
 
-  beforeEach(async () => {
+  beforeEach(() => {
     environmentFolderMock = jest.fn();
     [nestedEnvironment] = resolvedEnvironmentsApp.environments;
     environmentFolderMock.mockReturnValue(resolvedFolder);
+    intervalMock = jest.fn();
+    intervalMock.mockReturnValue(2000);
   });
 
   afterEach(() => {
@@ -73,26 +87,26 @@ describe('~/environments/components/environments_folder.vue', () => {
       });
 
       it('is collapsed by default', () => {
-        const link = findLink();
-
-        expect(collapse.attributes('visible')).toBeUndefined();
+        expect(collapse.props('visible')).toBe(false);
         const iconNames = icons.wrappers.map((i) => i.props('name')).slice(0, 2);
-        expect(iconNames).toEqual(['angle-right', 'folder-o']);
-        expect(folderName.classes('gl-font-weight-bold')).toBe(false);
-        expect(link.exists()).toBe(false);
+        expect(iconNames).toEqual(['chevron-lg-right', 'folder-o']);
+        expect(folderName.classes('gl-font-bold')).toBe(false);
       });
 
-      it('opens on click', async () => {
-        await button.trigger('click');
+      it('opens on click and starts polling', async () => {
+        expect(environmentFolderMock).toHaveBeenCalledTimes(1);
 
-        const link = findLink();
+        await button.trigger('click');
+        jest.advanceTimersByTime(2000);
+        await waitForPromises();
 
         expect(button.attributes('aria-label')).toBe(__('Collapse'));
-        expect(collapse.attributes('visible')).toBe('visible');
+        expect(collapse.props('visible')).toBe(true);
         const iconNames = icons.wrappers.map((i) => i.props('name')).slice(0, 2);
-        expect(iconNames).toEqual(['angle-down', 'folder-open']);
-        expect(folderName.classes('gl-font-weight-bold')).toBe(true);
-        expect(link.attributes('href')).toBe(nestedEnvironment.latest.folderPath);
+        expect(iconNames).toEqual(['chevron-lg-down', 'folder-open']);
+        expect(folderName.classes('gl-font-bold')).toBe(true);
+
+        expect(environmentFolderMock).toHaveBeenCalledTimes(2);
       });
 
       it('displays all environments when opened', async () => {
@@ -105,6 +119,49 @@ describe('~/environments/components/environments_folder.vue', () => {
           .findAllComponents(EnvironmentItem)
           .wrappers.map((w) => w.text());
         expect(environments).toEqual(expect.arrayContaining(names));
+      });
+
+      it('stops polling on click', async () => {
+        await button.trigger('click');
+        jest.advanceTimersByTime(2000);
+        await waitForPromises();
+
+        expect(environmentFolderMock).toHaveBeenCalledTimes(2);
+
+        const collapseButton = wrapper.findByRole('button', { name: __('Collapse') });
+        await collapseButton.trigger('click');
+
+        expect(environmentFolderMock).toHaveBeenCalledTimes(2);
+      });
+
+      describe('when there are more environments to show inside the folder', () => {
+        it('displays the message with the correct text and a link to navigate to all environments', async () => {
+          environmentFolderMock.mockReturnValue({ ...resolvedFolder, activeCount: 4 });
+          wrapper = createWrapper({ scope: 'active', nestedEnvironment }, createApolloProvider());
+
+          await nextTick();
+          await waitForPromises();
+
+          const link = findLink();
+          const message = findMessage();
+          const element = findFolderMessageElement();
+
+          expect(element.exists()).toBe(true);
+          expect(link.attributes('href')).toBe(nestedEnvironment.latest.folderPath);
+          expect(message.exists()).toBe(true);
+        });
+      });
+
+      describe('when all available environments inside the folder are shown', () => {
+        it("doesn't display the message and a link", () => {
+          const link = findLink();
+          const message = findMessage();
+          const element = findFolderMessageElement();
+
+          expect(element.exists()).toBe(false);
+          expect(link.exists()).toBe(false);
+          expect(message.exists()).toBe(false);
+        });
       });
     });
   });
@@ -120,13 +177,26 @@ describe('~/environments/components/environments_folder.vue', () => {
       expect(environmentFolderMock).toHaveBeenCalledTimes(1);
       expect(environmentFolderMock).toHaveBeenCalledWith(
         {},
-        {
-          environment: nestedEnvironment.latest,
-          scope,
-        },
+        expect.objectContaining({ scope }),
         expect.anything(),
         expect.anything(),
       );
     },
   );
+
+  it('should query for the entered parameter', async () => {
+    const search = 'hello';
+
+    wrapper = createWrapper({ nestedEnvironment, search }, createApolloProvider());
+
+    await nextTick();
+    await waitForPromises();
+
+    expect(environmentFolderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ search }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
 });

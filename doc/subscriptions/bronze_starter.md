@@ -1,7 +1,7 @@
 ---
 stage: Fulfillment
-group: Purchase
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Provision
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
 # Features available to Starter and Bronze subscribers
@@ -15,19 +15,19 @@ New paid features will not be released in Bronze and Starter tiers after GitLab 
 The following features remain available to Bronze and Starter customers, even though
 the tiers are no longer mentioned in GitLab documentation:
 
-- [Activate GitLab EE with a license](../user/admin_area/license.md)
-- [Add a help message to the sign-in page](../user/admin_area/settings/help_page.md#add-a-help-message-to-the-sign-in-page)
+- [Activate GitLab EE with a license](../administration/license.md)
+- [Add a help message to the sign-in page](../administration/settings/help_page.md#add-a-help-message-to-the-sign-in-page)
 - [Burndown and burnup charts](../user/project/milestones/burndown_and_burnup_charts.md) in the [Milestone View](../user/project/milestones/index.md#burndown-charts),
-- [Code owners](../user/project/code_owners.md)
+- [Code owners](../user/project/codeowners/index.md)
 - Description templates:
   - [Setting a default template for merge requests and issues](../user/project/description_templates.md#set-a-default-template-for-merge-requests-and-issues)
-- [Email from GitLab](../user/admin_area/email_from_gitlab.md)
+- [Email from GitLab](../administration/email_from_gitlab.md)
 - Groups:
-  - [Creating group memberships via CN](../user/group/index.md#create-group-links-via-cn)
-  - [Group push rules](../user/group/index.md#group-push-rules)
-  - [Managing group memberships via LDAP](../user/group/index.md#manage-group-memberships-via-ldap)
-  - [Member locking](../user/group/index.md#prevent-members-from-being-added-to-projects-in-a-group)
-  - [Overriding user permissions](../user/group/index.md#override-user-permissions)
+  - [Creating group memberships via CN](../user/group/access_and_permissions.md#create-group-links-via-cn)
+  - [Group push rules](../user/group/access_and_permissions.md#group-push-rules)
+  - [Managing group memberships via LDAP](../user/group/access_and_permissions.md#manage-group-memberships-via-ldap)
+  - [Member locking](../user/group/access_and_permissions.md#prevent-members-from-being-added-to-projects-in-a-group)
+  - [Overriding user permissions](../user/group/access_and_permissions.md#override-user-permissions)
   - [User contribution analytics](../user/group/contribution_analytics/index.md)
   - [Kerberos integration](../integration/kerberos.md)
 - Issue boards:
@@ -60,32 +60,28 @@ the tiers are no longer mentioned in GitLab documentation:
     - Rake tasks for [LDAP tasks](../administration/raketasks/ldap.md), including
       [syncing groups](../administration/raketasks/ldap.md#run-a-group-sync)
 - Logging:
-  - [`audit_json.log`](../administration/logs.md#audit_jsonlog) (specific entries)
-  - [`elasticsearch.log`](../administration/logs.md#elasticsearchlog)
+  - [`audit_json.log`](../administration/logs/index.md#audit_jsonlog) (specific entries)
+  - [`elasticsearch.log`](../administration/logs/index.md#elasticsearchlog)
 - Merge requests:
-  - [Full code quality reports in the code quality tab](../user/project/merge_requests/code_quality.md#code-quality-reports)
+  - [Full code quality reports in the code quality tab](../ci/testing/code_quality.md#pipeline-details-view)
   - [Merge request approvals](../user/project/merge_requests/approvals/index.md)
-  - [Multiple assignees](../user/project/merge_requests/getting_started.md#multiple-assignees)
-  - [Approval Rule information for Reviewers](../user/project/merge_requests/reviews/index.md#approval-rule-information-for-reviewers)
+  - [Multiple assignees](../user/project/merge_requests/index.md#assign-multiple-users)
+  - [Approval rule information for reviewers](../user/project/merge_requests/reviews/index.md#see-how-reviewers-map-to-approval-rules)
   - [Required Approvals](../user/project/merge_requests/approvals/index.md#required-approvals)
   - [Code Owners as eligible approvers](../user/project/merge_requests/approvals/rules.md#code-owners-as-eligible-approvers)
   - [Approval rules](../user/project/merge_requests/approvals/rules.md) features
   - [Restricting push and merge access to certain users](../user/project/protected_branches.md)
-  - [Visual Reviews](../ci/review_apps/index.md#visual-reviews)
 - Metrics and analytics:
   - [Contribution Analytics](../user/group/contribution_analytics/index.md)
   - [Merge Request Analytics](../user/analytics/merge_request_analytics.md)
   - [Code Review Analytics](../user/analytics/code_review_analytics.md)
-  - [Audit Events](../administration/audit_events.md), including
-    [Group events](../administration/audit_events.md#group-events) and
-    [Project events](../administration/audit_events.md#project-events)
+  - [Audit Events](../administration/audit_event_reports.md)
 - Rake tasks:
   - [Displaying GitLab license information](../administration/raketasks/maintenance.md#show-gitlab-license-information)
 - Reference Architecture information:
-  - [Traffic load balancers](../administration/reference_architectures/index.md#traffic-load-balancer)
-  - [Zero downtime updates](../administration/reference_architectures/index.md#zero-downtime-updates)
+  - [Zero-downtime upgrades](../administration/reference_architectures/index.md#zero-downtime-upgrades)
 - Repositories:
-  - [Repository size limit](../user/admin_area/settings/account_and_limit_settings.md#repository-size-limit)
+  - [Repository size limit](../administration/settings/account_and_limit_settings.md#repository-size-limit)
   - Repository mirroring:
     - [Pull mirroring](../user/project/repository/mirror/pull.md) outside repositories in a GitLab repository
     - [Overwrite diverged branches](../user/project/repository/mirror/pull.md#overwrite-diverged-branches)
@@ -97,7 +93,7 @@ the tiers are no longer mentioned in GitLab documentation:
     - [Mirror with Perforce Helix with Git Fusion](../user/project/repository/mirror/bidirectional.md#mirror-with-perforce-helix-with-git-fusion)
 - Runners:
   - Run pipelines in the parent project [for merge requests from a forked project](../ci/pipelines/merge_request_pipelines.md#run-pipelines-in-the-parent-project)
-  - [Shared runners CI/CD minutes](../ci/pipelines/cicd_minutes.md)
+  - [Instance runners compute quota](../ci/pipelines/compute_minutes.md)
 - [Push rules](../user/project/repository/push_rules.md)
 - SAML for self-managed GitLab instance:
   - [Administrator groups](../integration/saml.md#administrator-groups)
@@ -105,11 +101,11 @@ the tiers are no longer mentioned in GitLab documentation:
   - [External groups](../integration/saml.md#external-groups)
   - [Required groups](../integration/saml.md#required-groups)
 - Search:
-  - [Filtering merge requests by approvers](../user/search/index.md#filtering-merge-requests-by-approvers)
-  - [Filtering merge requests by "approved by"](../user/search/index.md#filtering-merge-requests-by-approved-by)
-  - [Advanced Search (Elasticsearch)](../user/search/advanced_search.md)
-- [Service Desk](../user/project/service_desk.md)
-- [Storage usage statistics](../user/usage_quotas.md#storage-usage-statistics)
+  - [Filtering merge requests](../user/project/merge_requests/index.md#filter-the-list-of-merge-requests) by approvers
+  - [Filtering merge requests](../user/project/merge_requests/index.md#filter-the-list-of-merge-requests) by "approved by"
+  - [Advanced search (Elasticsearch)](../user/search/advanced_search.md)
+- [Service Desk](../user/project/service_desk/index.md)
+- [Storage usage statistics](../user/usage_quotas.md)
 
 The following developer features continue to be available to Starter and
 Bronze-level subscribers:
@@ -129,10 +125,9 @@ Bronze-level subscribers:
   - [Group iterations API](../api/group_iterations.md)
   - Project milestones API: [Get all burndown chart events for a single milestone](../api/milestones.md#get-all-burndown-chart-events-for-a-single-milestone)
   - [Project iterations API](../api/iterations.md)
-  - Fields in the [Search API](../api/search.md) available only to [Advanced Search (Elasticsearch)](../integration/elasticsearch.md) users
+  - Fields in the [Search API](../api/search.md) available only to [advanced search (Elasticsearch)](../integration/advanced_search/elasticsearch.md) users
   - Fields in the [Merge requests API](../api/merge_requests.md) for [merge request approvals](../user/project/merge_requests/approvals/index.md)
   - Fields in the [Protected branches API](../api/protected_branches.md) that specify users or groups allowed to merge
   - [Merge request approvals API](../api/merge_request_approvals.md)
-  - [Visual review discussions API](../api/visual_review_discussions.md)
 - Development information:
   - [Run Jenkins in a macOS development environment](../development/integrations/jenkins.md)

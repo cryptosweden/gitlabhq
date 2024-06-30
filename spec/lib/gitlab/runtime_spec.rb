@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Runtime do
+RSpec.describe Gitlab::Runtime, feature_category: :cloud_connector do
   shared_examples "valid runtime" do |runtime, max_threads|
     it "identifies itself" do
       expect(subject.identify).to eq(runtime)
@@ -22,6 +22,7 @@ RSpec.describe Gitlab::Runtime do
 
   before do
     allow(described_class).to receive(:process_name).and_return('ruby')
+    hide_const('::Puma::Server')
     stub_rails_env('production')
   end
 
@@ -39,9 +40,21 @@ RSpec.describe Gitlab::Runtime do
     end
   end
 
+  context 'with Puma' do
+    before do
+      stub_const('::Puma::Server', double)
+    end
+
+    describe '.puma?' do
+      it 'returns true' do
+        expect(subject.puma?).to be true
+      end
+    end
+  end
+
   context "on multiple matches" do
     before do
-      stub_const('::Puma', double)
+      stub_const('::Puma::Server', double)
       stub_const('::Rails::Console', double)
     end
 
@@ -64,6 +77,7 @@ RSpec.describe Gitlab::Runtime do
 
     before do
       stub_const('::Puma', puma_type)
+      allow(described_class).to receive(:puma?).and_return(true)
     end
 
     it_behaves_like "valid runtime", :puma, 1 + Gitlab::ActionCable::Config.worker_pool_size
@@ -75,13 +89,14 @@ RSpec.describe Gitlab::Runtime do
 
     before do
       stub_const('::Puma', puma_type)
+      allow(described_class).to receive(:puma?).and_return(true)
       allow(puma_type).to receive_message_chain(:cli_config, :options).and_return(max_threads: 2, workers: max_workers)
     end
 
     it_behaves_like "valid runtime", :puma, 3 + Gitlab::ActionCable::Config.worker_pool_size
 
     it 'identifies as an application runtime' do
-      expect(Gitlab::Runtime.application?).to be true
+      expect(described_class.application?).to be true
     end
 
     context "when ActionCable worker pool size is configured" do
@@ -113,13 +128,13 @@ RSpec.describe Gitlab::Runtime do
     before do
       stub_const('::Sidekiq', sidekiq_type)
       allow(sidekiq_type).to receive(:server?).and_return(true)
-      allow(sidekiq_type).to receive(:options).and_return(concurrency: 2)
+      allow(sidekiq_type).to receive(:default_configuration).and_return({ concurrency: 2 })
     end
 
-    it_behaves_like "valid runtime", :sidekiq, 5
+    it_behaves_like "valid runtime", :sidekiq, 2
 
     it 'identifies as an application runtime' do
-      expect(Gitlab::Runtime.application?).to be true
+      expect(described_class.application?).to be true
     end
   end
 
@@ -131,7 +146,7 @@ RSpec.describe Gitlab::Runtime do
     it_behaves_like "valid runtime", :console, 1
 
     it 'does not identify as an application runtime' do
-      expect(Gitlab::Runtime.application?).to be false
+      expect(described_class.application?).to be false
     end
   end
 
@@ -143,7 +158,7 @@ RSpec.describe Gitlab::Runtime do
     it_behaves_like "valid runtime", :test_suite, 1
 
     it 'does not identify as an application runtime' do
-      expect(Gitlab::Runtime.application?).to be false
+      expect(described_class.application?).to be false
     end
   end
 
@@ -163,7 +178,7 @@ RSpec.describe Gitlab::Runtime do
     it_behaves_like "valid runtime", :rails_runner, 1
 
     it 'does not identify as an application runtime' do
-      expect(Gitlab::Runtime.application?).to be false
+      expect(described_class.application?).to be false
     end
   end
 end

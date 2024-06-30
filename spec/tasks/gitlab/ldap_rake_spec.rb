@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'rake_helper'
+require 'spec_helper'
 
 RSpec.describe 'gitlab:ldap:rename_provider rake task', :silence_stdout do
   it 'completes without error' do
@@ -88,6 +88,21 @@ RSpec.describe 'gitlab:ldap:secret rake tasks' do
     it 'displays error when $EDITOR is not set' do
       stub_env('EDITOR', nil)
       expect { run_rake_task('gitlab:ldap:secret:edit') }.to output(/No \$EDITOR specified to open file. Please provide one when running the command/).to_stderr
+    end
+
+    it 'when $EDITOR contains multiple arguments' do
+      stub_env('EDITOR', 'cat -v')
+
+      expect { run_rake_task('gitlab:ldap:secret:edit') }.to output(/File encrypted and saved./).to_stdout
+      expect(File.exist?(ldap_secret_file)).to be true
+      value = Settings.encrypted(ldap_secret_file)
+      expect(value.read).to match(/password: '123'/)
+    end
+
+    it 'when $EDITOR is set to a non-existent binary' do
+      stub_env('EDITOR', "nothing-#{SecureRandom.hex}")
+
+      expect { run_rake_task('gitlab:ldap:secret:edit') }.to raise_error(/Unable to run \$EDITOR/)
     end
   end
 

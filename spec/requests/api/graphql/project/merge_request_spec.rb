@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'getting merge request information nested in a project' do
+RSpec.describe 'getting merge request information nested in a project', feature_category: :code_review_workflow do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :repository, :public) }
@@ -21,8 +21,17 @@ RSpec.describe 'getting merge request information nested in a project' do
   end
 
   it_behaves_like 'a working graphql query' do
-    # we exclude Project.pipeline because it needs arguments
-    let(:mr_fields) { all_graphql_fields_for('MergeRequest', excluded: %w[jobs pipeline]) }
+    # we exclude Project.pipeline because it needs arguments,
+    # codequalityReportsComparer because it is behind a feature flag
+    # and runners because the user is not an admin and therefore has no access
+    # and inboundAllowlistCount, groupsAllowlistCount the user has no access
+    # mergeTrains because it is a licensed feature
+    let(:excluded) do
+      %w[jobs pipeline runners codequalityReportsComparer
+        mlModels inboundAllowlistCount groupsAllowlistCount mergeTrains]
+    end
+
+    let(:mr_fields) { all_graphql_fields_for('MergeRequest', excluded: excluded) }
 
     before do
       post_graphql(query, current_user: current_user)
@@ -66,7 +75,7 @@ RSpec.describe 'getting merge request information nested in a project' do
 
     it 'includes reviewers' do
       expected = merge_request.reviewers.map do |r|
-        a_hash_including('id' => global_id_of(r), 'username' => r.username)
+        a_graphql_entity_for(r, :username)
       end
 
       post_graphql(query, current_user: current_user)
@@ -158,6 +167,32 @@ RSpec.describe 'getting merge request information nested in a project' do
         )
       end
     end
+
+    context 'when a path includes a non UTF-8 character' do
+      let_it_be(:diff_stats) do
+        diff_stat = Gitaly::DiffStats.new(
+          additions: 10,
+          deletions: 15,
+          path: (+'romualdatchadé.yml').force_encoding(Encoding::ASCII_8BIT)
+        )
+
+        Gitlab::Git::DiffStatsCollection.new([diff_stat])
+      end
+
+      before do
+        allow_any_instance_of(MergeRequest).to receive(:diff_stats).and_return(diff_stats) # rubocop:disable RSpec/AnyInstanceOf -- Targeting simply next_instance isn't sufficient
+
+        post_graphql(query, current_user: current_user)
+      end
+
+      it 'does not raise an error' do
+        expect(graphql_errors).to be_nil
+      end
+
+      it 'returns the expected UTF-8 path' do
+        expect(merge_request_graphql_data['diffStats']).to include(a_hash_including('path' => 'romualdatchadé.yml'))
+      end
+    end
   end
 
   it 'includes correct mergedAt value when merged' do
@@ -193,7 +228,8 @@ RSpec.describe 'getting merge request information nested in a project' do
         'cherryPickOnCurrentMergeRequest' => false,
         'revertOnCurrentMergeRequest' => false,
         'updateMergeRequest' => false,
-        'canMerge' => false
+        'canMerge' => false,
+        'canApprove' => false
       }
       post_graphql(query, current_user: current_user)
 
@@ -317,9 +353,11 @@ RSpec.describe 'getting merge request information nested in a project' do
     end
 
     it 'does not error' do
-      post_graphql(query,
-                   current_user: current_user,
-                   variables: { path: project.full_path })
+      post_graphql(
+        query,
+        current_user: current_user,
+        variables: { path: project.full_path }
+      )
 
       expect(graphql_data_at(:project, :mrs, :nodes, :notes, :pageInfo)).to contain_exactly a_hash_including(
         'endCursor' => String,
@@ -365,7 +403,7 @@ RSpec.describe 'getting merge request information nested in a project' do
         expect(interaction_data).to contain_exactly a_hash_including(
           'canMerge' => false,
           'canUpdate' => can_update,
-          'reviewState' => attention_requested,
+          'reviewState' => unreviewed,
           'reviewed' => false,
           'approved' => false
         )
@@ -377,19 +415,19 @@ RSpec.describe 'getting merge request information nested in a project' do
         project.add_maintainer(user)
         assign_user(user)
         r = merge_request.merge_request_reviewers.find_or_create_by!(reviewer: user)
-        r.update!(state: 'reviewed')
+        r.update!(state: :approved)
         merge_request.approved_by_users << user
       end
 
       it 'returns appropriate data' do
         post_graphql(query)
-        enum = ::Types::MergeRequestReviewStateEnum.values['REVIEWED']
+        enum = ::Types::MergeRequestReviewStateEnum.values['APPROVED']
 
         expect(interaction_data).to contain_exactly a_hash_including(
           'canMerge' => true,
           'canUpdate' => true,
           'reviewState' => enum.graphql_name,
-          'reviewed' => true,
+          'reviewed' => false,
           'approved' => true
         )
       end
@@ -398,8 +436,8 @@ RSpec.describe 'getting merge request information nested in a project' do
     describe 'scalability' do
       let_it_be(:other_users) { create_list(:user, 3) }
 
-      let(:attention_requested) do
-        { 'reviewState' => 'ATTENTION_REQUESTED' }
+      let(:unreviewed) do
+        { 'reviewState' => 'UNREVIEWED' }
       end
 
       let(:reviewed) do
@@ -431,9 +469,9 @@ RSpec.describe 'getting merge request information nested in a project' do
           expect { post_graphql(query) }.not_to exceed_query_limit(baseline)
 
           expect(interaction_data).to contain_exactly(
-            include(attention_requested),
-            include(attention_requested),
-            include(attention_requested),
+            include(unreviewed),
+            include(unreviewed),
+            include(unreviewed),
             include(reviewed)
           )
         end
@@ -462,7 +500,7 @@ RSpec.describe 'getting merge request information nested in a project' do
 
   it_behaves_like 'when requesting information about MR interactions' do
     let(:field) { :reviewers }
-    let(:attention_requested) { 'ATTENTION_REQUESTED' }
+    let(:unreviewed) { 'UNREVIEWED' }
     let(:can_update) { false }
 
     def assign_user(user)
@@ -472,11 +510,38 @@ RSpec.describe 'getting merge request information nested in a project' do
 
   it_behaves_like 'when requesting information about MR interactions' do
     let(:field) { :assignees }
-    let(:attention_requested) { nil }
+    let(:unreviewed) { nil }
     let(:can_update) { true } # assignees can update MRs
 
     def assign_user(user)
       merge_request.assignees << user
+    end
+  end
+
+  context 'when selecting `awardEmoji`' do
+    let_it_be(:award_emoji) { create(:award_emoji, awardable: merge_request, user: current_user) }
+
+    let(:mr_fields) do
+      <<~QUERY
+      awardEmoji {
+        nodes {
+          user {
+            username
+          }
+          name
+        }
+      }
+      QUERY
+    end
+
+    it 'includes award emojis' do
+      post_graphql(query, current_user: current_user)
+
+      response = merge_request_graphql_data['awardEmoji']['nodes']
+
+      expect(response.length).to eq(1)
+      expect(response.first['user']['username']).to eq(current_user.username)
+      expect(response.first['name']).to eq(award_emoji.name)
     end
   end
 end

@@ -42,7 +42,8 @@ export default {
     milestoneDatesAbsolute() {
       if (this.milestoneDue) {
         return `(${dateInWords(this.milestoneDue)})`;
-      } else if (this.milestoneStart) {
+      }
+      if (this.milestoneStart) {
         return `(${dateInWords(this.milestoneStart)})`;
       }
       return '';
@@ -72,15 +73,17 @@ export default {
 </script>
 <template>
   <div ref="milestoneDetails" class="issue-milestone-details">
-    <gl-icon :size="16" class="gl-mr-2" name="clock" />
-    <span class="milestone-title d-inline-block">{{ milestone.title }}</span>
+    <gl-icon :size="16" class="gl-mr-2 flex-shrink-0" name="milestone" />
+    <span class="milestone-title gl-display-inline-block gl-text-truncate">{{
+      milestone.title
+    }}</span>
     <gl-tooltip :target="() => $refs.milestoneDetails" placement="bottom" class="js-item-milestone">
       <span class="bold">{{ __('Milestone') }}</span> <br />
       <span>{{ milestone.title }}</span> <br />
       <span
         v-if="milestoneStart || milestoneDue"
         :class="{
-          'text-danger-muted': isMilestonePastDue,
+          'gl-text-red-300': isMilestonePastDue,
           'text-tertiary': !isMilestonePastDue,
         }"
         ><span>{{ milestoneDatesHuman }}</span

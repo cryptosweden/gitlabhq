@@ -23,13 +23,13 @@ RSpec.describe Commit do
     shared_examples '.lazy checks' do
       context 'when the commits are found' do
         let(:oids) do
-          %w(
+          %w[
             498214de67004b1da3d820901307bed2a68a8ef6
             c642fe9b8b9f28f9225d7ea953fe14e74748d53b
             6f6d7e7ed97bb5f0054f2b1df789b39ca89b6ff9
             048721d90c449b244b7b4c53a9186b04330174ec
             281d3a76f31c812dbf48abce82ccf6860adedd81
-          )
+          ]
         end
 
         subject { oids.map { |oid| described_class.lazy(container, oid) } }
@@ -81,6 +81,24 @@ RSpec.describe Commit do
       let(:container) { project_snippet }
 
       it_behaves_like '.lazy checks'
+    end
+  end
+
+  describe '.build_from_sidekiq_hash' do
+    it 'returns a Commit' do
+      commit = described_class.build_from_sidekiq_hash(project, id: '123')
+
+      expect(commit).to be_an_instance_of(described_class)
+    end
+
+    it 'parses date strings into Time instances' do
+      commit = described_class.build_from_sidekiq_hash(
+        project,
+        id: '123',
+        authored_date: Time.current.to_s
+      )
+
+      expect(commit.authored_date).to be_a_kind_of(Time)
     end
   end
 
@@ -226,27 +244,45 @@ RSpec.describe Commit do
   end
 
   describe '#committer' do
-    context 'with a confirmed e-mail' do
-      it 'returns the user' do
-        user = create(:user, email: commit.committer_email)
+    context "when committer_email is the user's primary email" do
+      context 'when the user email is confirmed' do
+        let!(:user) { create(:user, email: commit.committer_email) }
 
-        expect(commit.committer).to eq(user)
+        it 'returns the user' do
+          expect(commit.committer).to eq(user)
+          expect(commit.committer(confirmed: false)).to eq(user)
+        end
+      end
+
+      context 'when the user email is unconfirmed' do
+        let!(:user) { create(:user, :unconfirmed, email: commit.committer_email) }
+
+        it 'returns the user according to confirmed argument' do
+          expect(commit.committer).to be_nil
+          expect(commit.committer(confirmed: false)).to eq(user)
+        end
       end
     end
 
-    context 'with an unconfirmed e-mail' do
-      let(:user) { create(:user) }
+    context "when committer_email is the user's secondary email" do
+      let!(:user) { create(:user) }
 
-      before do
-        create(:email, user: user, email: commit.committer_email)
+      context 'when the user email is confirmed' do
+        let!(:email) { create(:email, :confirmed, user: user, email: commit.committer_email) }
+
+        it 'returns the user' do
+          expect(commit.committer).to eq(user)
+          expect(commit.committer(confirmed: false)).to eq(user)
+        end
       end
 
-      it 'returns no user' do
-        expect(commit.committer).to be_nil
-      end
+      context 'when the user email is unconfirmed' do
+        let!(:email) { create(:email, user: user, email: commit.committer_email) }
 
-      it 'returns the user' do
-        expect(commit.committer(confirmed: false)).to eq(user)
+        it 'does not return the user' do
+          expect(commit.committer).to be_nil
+          expect(commit.committer(confirmed: false)).to be_nil
+        end
       end
     end
   end
@@ -299,7 +335,7 @@ RSpec.describe Commit do
       '1234567' | true
       '123456' | false
       '1' | false
-      '0' * 40 | true
+      ('0' * 40) | true
       'c1acaa58bbcbc3eafe538cb8274ba387047b69f8' | true
       'H1acaa58bbcbc3eafe538cb8274ba387047b69f8' | false
       nil | false
@@ -372,10 +408,10 @@ RSpec.describe Commit do
     end
 
     it "does not truncates a message with a newline after 80 but less 100 characters" do
-      message = <<eos
+      message = <<EOS
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sodales id felis id blandit.
 Vivamus egestas lacinia lacus, sed rutrum mauris.
-eos
+EOS
 
       allow(commit).to receive(:safe_message).and_return(message)
       expect(commit.title).to eq(message.split("\n").first)
@@ -424,20 +460,20 @@ eos
     end
 
     it 'returns description of commit message if title less than 100 characters' do
-      message = <<eos
+      message = <<EOS
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sodales id felis id blandit.
 Vivamus egestas lacinia lacus, sed rutrum mauris.
-eos
+EOS
 
       allow(commit).to receive(:safe_message).and_return(message)
       expect(commit.description).to eq('Vivamus egestas lacinia lacus, sed rutrum mauris.')
     end
 
     it 'returns full commit message if commit title more than 100 characters' do
-      message = <<eos
+      message = <<EOS
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sodales id felis id blandit. Vivamus egestas lacinia lacus, sed rutrum mauris.
 Vivamus egestas lacinia lacus, sed rutrum mauris.
-eos
+EOS
 
       allow(commit).to receive(:safe_message).and_return(message)
       expect(commit.description).to eq(message)
@@ -517,18 +553,22 @@ eos
       let(:repository) { project.repository }
 
       let(:merge_request) do
-        create(:merge_request,
-               source_branch: 'video',
-               target_branch: 'master',
-               source_project: project,
-               author: user)
+        create(
+          :merge_request,
+          source_branch: 'video',
+          target_branch: 'master',
+          source_project: project,
+          author: user
+        )
       end
 
       let(:merge_commit) do
-        merge_commit_id = repository.merge(user,
-                                           merge_request.diff_head_sha,
-                                           merge_request,
-                                           'Test message')
+        merge_commit_id = repository.merge(
+          user,
+          merge_request.diff_head_sha,
+          merge_request,
+          'Test message'
+        )
 
         repository.commit(merge_commit_id)
       end
@@ -606,17 +646,21 @@ eos
     let(:user2) { build(:user) }
 
     let!(:note1) do
-      create(:note_on_commit,
-             commit_id: commit.id,
-             project: project,
-             note: 'foo')
+      create(
+        :note_on_commit,
+        commit_id: commit.id,
+        project: project,
+        note: 'foo'
+      )
     end
 
     let!(:note2) do
-      create(:note_on_commit,
-             commit_id: commit.id,
-             project: project,
-             note: 'bar')
+      create(
+        :note_on_commit,
+        commit_id: commit.id,
+        project: project,
+        note: 'bar'
+      )
     end
 
     before do
@@ -661,16 +705,6 @@ eos
 
   describe '#uri_type with Gitaly enabled' do
     it_behaves_like "#uri_type"
-  end
-
-  describe '#uri_type with Rugged enabled', :enable_rugged do
-    it 'calls out to the Rugged implementation' do
-      allow_any_instance_of(Rugged::Tree).to receive(:path).with('files/html').and_call_original
-
-      commit.uri_type('files/html')
-    end
-
-    it_behaves_like '#uri_type'
   end
 
   describe '.diff_max_files' do
@@ -746,7 +780,7 @@ eos
     end
   end
 
-  describe '#work_in_progress?' do
+  describe '#draft?' do
     [
       'squash! ', 'fixup! ',
       'draft: ', '[Draft] ', '(draft) ', 'Draft: '
@@ -754,21 +788,21 @@ eos
       it "detects the '#{draft_prefix}' prefix" do
         commit.message = "#{draft_prefix}#{commit.message}"
 
-        expect(commit).to be_work_in_progress
+        expect(commit).to be_draft
       end
     end
 
-    it "does not detect WIP for a commit just saying 'draft'" do
+    it "does not detect a commit just saying 'draft' as draft? == true" do
       commit.message = "draft"
 
-      expect(commit).not_to be_work_in_progress
+      expect(commit).not_to be_draft
     end
 
     ["FIXUP!", "Draft - ", "Wipeout", "WIP: ", "[WIP] ", "wip: "].each do |draft_prefix|
       it "doesn't detect '#{draft_prefix}' at the start of the title as a draft" do
         commit.message = "#{draft_prefix} #{commit.message}"
 
-        expect(commit).not_to be_work_in_progress
+        expect(commit).not_to be_draft
       end
     end
   end
@@ -787,19 +821,22 @@ eos
       expect(described_class.valid_hash?('a' * 6)).to be false
       expect(described_class.valid_hash?('a' * 7)).to be true
       expect(described_class.valid_hash?('a' * 40)).to be true
-      expect(described_class.valid_hash?('a' * 41)).to be false
+      expect(described_class.valid_hash?('a' * 64)).to be true
+      expect(described_class.valid_hash?('a' * 65)).to be false
     end
   end
 
   describe 'signed commits' do
     let(:gpg_signed_commit) { project.commit_by(oid: '0b4bc9a49b562e85de7cc9e834518ea6828729b9') }
     let(:x509_signed_commit) { project.commit_by(oid: '189a6c924013fc3fe40d6f1ec1dc20214183bc97') }
+    let(:ssh_signed_commit) { project.commit_by(oid: '7b5160f9bb23a3d58a0accdbe89da13b96b1ece9') }
     let(:unsigned_commit) { project.commit_by(oid: '54fcc214b94e78d7a41a9a8fe6d87a5e59500e51') }
     let!(:commit) { create(:commit, project: project) }
 
     it 'returns signature_type properly' do
       expect(gpg_signed_commit.signature_type).to eq(:PGP)
       expect(x509_signed_commit.signature_type).to eq(:X509)
+      expect(ssh_signed_commit.signature_type).to eq(:SSH)
       expect(unsigned_commit.signature_type).to eq(:NONE)
       expect(commit.signature_type).to eq(:NONE)
     end
@@ -807,6 +844,7 @@ eos
     it 'returns has_signature? properly' do
       expect(gpg_signed_commit.has_signature?).to be_truthy
       expect(x509_signed_commit.has_signature?).to be_truthy
+      expect(ssh_signed_commit.has_signature?).to be_truthy
       expect(unsigned_commit.has_signature?).to be_falsey
       expect(commit.has_signature?).to be_falsey
     end
@@ -817,11 +855,13 @@ eos
     let(:issue) { create(:issue, author: user, project: project) }
 
     it 'returns true if the commit has been reverted' do
-      create(:note_on_issue,
-             noteable: issue,
-             system: true,
-             note: commit.revert_description(user),
-             project: issue.project)
+      create(
+        :note_on_issue,
+        noteable: issue,
+        system: true,
+        note: commit.revert_description(user),
+        project: issue.project
+      )
 
       expect_next_instance_of(Commit) do |revert_commit|
         expect(revert_commit).to receive(:reverts_commit?)
@@ -834,6 +874,127 @@ eos
 
     it 'returns false if the commit has not been reverted' do
       expect(commit.has_been_reverted?(user, issue.notes_with_associations)).to eq(false)
+    end
+  end
+
+  describe '#merged_merge_request' do
+    subject { commit.merged_merge_request(user) }
+
+    let(:user) { project.first_owner }
+
+    before do
+      allow(commit).to receive(:parent_ids).and_return(parent_ids)
+    end
+
+    context 'when commit is a merge commit' do
+      let!(:merge_request) { create(:merge_request, source_project: project, merge_commit_sha: commit.id) }
+      let(:parent_ids) { [1, 2] }
+
+      it { is_expected.to eq(merge_request) }
+    end
+
+    context 'when commit is a squash commit' do
+      let!(:merge_request) { create(:merge_request, source_project: project, squash_commit_sha: commit.id) }
+      let(:parent_ids) { [1] }
+
+      it { is_expected.to eq(merge_request) }
+    end
+
+    context 'when commit does not belong to the merge request' do
+      let!(:merge_request) { create(:merge_request, source_project: project) }
+      let(:parent_ids) { [1] }
+
+      it { is_expected.to be_nil }
+    end
+  end
+
+  describe '#tipping_refs' do
+    let_it_be(:tag_name) { 'v1.1.0' }
+    let_it_be(:branch_names) { %w[master not-merged-branch v1.1.0] }
+
+    shared_examples 'tipping ref names' do
+      context 'when called without limits' do
+        it 'return tipping refs names' do
+          expect(called_method.call).to eq(expected)
+        end
+      end
+
+      context 'when called with limits' do
+        it 'return tipping refs names' do
+          limit = 1
+          expect(called_method.call(limit).size).to be <= limit
+        end
+      end
+
+      describe '#tipping_branches' do
+        let(:called_method) { ->(limit = 0) { commit.tipping_branches(limit: limit) } }
+        let(:expected) { branch_names }
+
+        it_behaves_like 'with tipping ref names'
+      end
+
+      describe '#tipping_tags' do
+        let(:called_method) { ->(limit = 0) { commit.tipping_tags(limit: limit) } }
+        let(:expected) { [tag_name] }
+
+        it_behaves_like 'with tipping ref names'
+      end
+    end
+  end
+
+  context 'containing refs' do
+    shared_examples 'containing ref names' do
+      context 'without arguments' do
+        it 'returns branch names containing the commit' do
+          expect(ref_containing.call).to eq(containing_refs)
+        end
+      end
+
+      context 'with limit argument' do
+        it 'returns the appropriate amount branch names' do
+          limit = 2
+          expect(ref_containing.call(limit: limit).size).to be <= limit
+        end
+      end
+
+      context 'with tipping refs excluded' do
+        let(:excluded_refs) do
+          project.repository.refs_by_oid(oid: commit_sha, ref_patterns: [ref_prefix]).map { |n| n.delete_prefix(ref_prefix) }
+        end
+
+        it 'returns branch names containing the commit without the one with the commit at tip' do
+          expect(ref_containing.call(excluded_tipped: true)).to eq(containing_refs - excluded_refs)
+        end
+
+        it 'returns the appropriate amount branch names with limit argument' do
+          limit = 2
+          expect(ref_containing.call(limit: limit, excluded_tipped: true).size).to be <= limit
+        end
+      end
+    end
+
+    describe '#branches_containing' do
+      let_it_be(:commit_sha) { project.commit.sha }
+      let_it_be(:containing_refs) { project.repository.branch_names_contains(commit_sha) }
+
+      let(:ref_prefix) { Gitlab::Git::BRANCH_REF_PREFIX }
+
+      let(:ref_containing) { ->(limit: 0, excluded_tipped: false) { commit.branches_containing(exclude_tipped: excluded_tipped, limit: limit) } }
+
+      it_behaves_like 'containing ref names'
+    end
+
+    describe '#tags_containing' do
+      let_it_be(:tag_name) { 'v1.1.0' }
+      let_it_be(:commit_sha) { project.repository.find_tag(tag_name).target_commit.sha }
+      let_it_be(:containing_refs) { %w[v1.1.0 v1.1.1] }
+
+      let(:ref_prefix) { Gitlab::Git::TAG_REF_PREFIX }
+
+      let(:commit) { project.repository.commit(commit_sha) }
+      let(:ref_containing) { ->(limit: 0, excluded_tipped: false) { commit.tags_containing(exclude_tipped: excluded_tipped, limit: limit) } }
+
+      it_behaves_like 'containing ref names'
     end
   end
 end

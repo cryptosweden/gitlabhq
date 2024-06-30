@@ -6,7 +6,7 @@ import {
   GlFormSelect,
   GlLabel,
   GlSearchBoxByType,
-  GlTable,
+  GlTableLite,
 } from '@gitlab/ui';
 import { getByRole } from '@testing-library/dom';
 import { mount, shallowMount } from '@vue/test-utils';
@@ -34,19 +34,19 @@ describe('JiraImportForm', () => {
 
   const currentUsername = 'mrgitlab';
 
-  const getAlert = () => wrapper.find(GlAlert);
+  const getAlert = () => wrapper.findComponent(GlAlert);
 
-  const getSelectDropdown = () => wrapper.find(GlFormSelect);
+  const getSelectDropdown = () => wrapper.findComponent(GlFormSelect);
 
-  const getContinueButton = () => wrapper.find(GlButton);
+  const getContinueButton = () => wrapper.findComponent(GlButton);
 
-  const getCancelButton = () => wrapper.findAll(GlButton).at(1);
+  const getCancelButton = () => wrapper.findAllComponents(GlButton).at(1);
 
-  const getLabel = () => wrapper.find(GlLabel);
+  const getLabel = () => wrapper.findComponent(GlLabel);
 
-  const getTable = () => wrapper.find(GlTable);
+  const getTable = () => wrapper.findComponent(GlTableLite);
 
-  const getUserDropdown = () => getTable().find(GlDropdown);
+  const getUserDropdown = () => getTable().findComponent(GlDropdown);
 
   const getHeader = (name) => getByRole(wrapper.element, 'columnheader', { name });
 
@@ -106,15 +106,13 @@ describe('JiraImportForm', () => {
     axiosMock.restore();
     mutateSpy.mockRestore();
     querySpy.mockRestore();
-    wrapper.destroy();
-    wrapper = null;
   });
 
   describe('select dropdown project selection', () => {
     it('is shown', () => {
       wrapper = mountComponent();
 
-      expect(wrapper.find(GlFormSelect).exists()).toBe(true);
+      expect(getSelectDropdown().exists()).toBe(true);
     });
 
     it('contains a list of Jira projects to select from', () => {
@@ -165,8 +163,9 @@ describe('JiraImportForm', () => {
 
     it('shows a heading for the user mapping section', () => {
       expect(
-        getByRole(wrapper.element, 'heading', { name: 'Jira-GitLab user mapping template' }),
-      ).toBeTruthy();
+        getByRole(wrapper.element, 'heading', { name: 'Jira-GitLab user mapping template' })
+          .innerText,
+      ).toBe('Jira-GitLab user mapping template');
     });
 
     it('shows information to the user', () => {
@@ -183,15 +182,15 @@ describe('JiraImportForm', () => {
       });
 
       it('has a "Jira display name" column', () => {
-        expect(getHeader('Jira display name')).toBeTruthy();
+        expect(getHeader('Jira display name').innerText).toBe('Jira display name');
       });
 
       it('has an "arrow" column', () => {
-        expect(getHeader('Arrow')).toBeTruthy();
+        expect(getHeader('Arrow').getAttribute('aria-label')).toBe('Arrow');
       });
 
       it('has a "GitLab username" column', () => {
-        expect(getHeader('GitLab username')).toBeTruthy();
+        expect(getHeader('GitLab username').innerText).toBe('GitLab username');
       });
     });
 
@@ -273,7 +272,7 @@ describe('JiraImportForm', () => {
 
         wrapper = mountComponent({ mountFunction: mount });
 
-        wrapper.find(GlSearchBoxByType).vm.$emit('input', 'fred');
+        wrapper.findComponent(GlSearchBoxByType).vm.$emit('input', 'fred');
       });
 
       it('makes a GraphQL call', () => {
@@ -289,8 +288,8 @@ describe('JiraImportForm', () => {
       });
 
       it('updates the user list', () => {
-        expect(getUserDropdown().findAll(GlDropdownItem)).toHaveLength(1);
-        expect(getUserDropdown().find(GlDropdownItem).text()).toContain(
+        expect(getUserDropdown().findAllComponents(GlDropdownItem)).toHaveLength(1);
+        expect(getUserDropdown().findComponent(GlDropdownItem).text()).toContain(
           'fchopin (Frederic Chopin)',
         );
       });
@@ -305,7 +304,7 @@ describe('JiraImportForm', () => {
         expect(getContinueButton().text()).toBe('Continue');
       });
 
-      it('is in loading state when the form is submitting', async () => {
+      it('is in loading state when the form is submitting', () => {
         wrapper = mountComponent({ isSubmitting: true });
 
         expect(getContinueButton().props('loading')).toBe(true);
@@ -417,7 +416,7 @@ describe('JiraImportForm', () => {
         wrapper = mountComponent({ hasMoreUsers: true });
       });
 
-      it('calls the GraphQL user mapping mutation', async () => {
+      it('calls the GraphQL user mapping mutation', () => {
         const mutationArguments = {
           mutation: getJiraUserMappingMutation,
           variables: {

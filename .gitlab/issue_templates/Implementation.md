@@ -37,13 +37,20 @@ Add details for required items and delete others.
 
 ## Implementation plan
 <!--
-Steps and the parts of the code that will need to get updated. The plan can also
-call-out responsibilities for other team members or teams.
+Steps and the parts of the code that will need to get updated.
+The plan can also call-out responsibilities for other team members or teams and
+can be split into smaller MRs to simplify the code review process.
 
 e.g.:
 
+- MR 1: Part 1
 - [ ] ~frontend Step 1
-  - [ ] `@person` Step 1a
+- [ ] ~frontend Step 2
+- MR 2: Part 2
+- [ ] ~backend Step 1
+- [ ] ~backend Step 2
+- MR 3: Part 3
+- [ ] ~frontend Step 1
 - [ ] ~frontend Step 2
 
 -->
@@ -57,6 +64,18 @@ Other settings you might want to include when creating the issue.
 
 # /assign @
 # /epic &
+-->
+
+## Verification steps
+<!--
+Add verification steps to help GitLab team members test the implementation. This is particularly useful
+during the MR review and the ~"workflow::verification" step. You may not know exactly what the
+verification steps should be during issue refinement, so you can always come back later to add
+them.
+
+1. Check-out the corresponding branch
+1. ...
+1. Profit!
 -->
 
 /label ~"workflow::refinement"

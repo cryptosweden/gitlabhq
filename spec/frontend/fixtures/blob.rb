@@ -5,14 +5,13 @@ require 'spec_helper'
 RSpec.describe Projects::BlobController, '(JavaScript fixtures)', type: :controller do
   include JavaScriptFixturesHelpers
 
-  let(:namespace) { create(:namespace, name: 'frontend-fixtures' )}
+  let(:namespace) { create(:namespace, name: 'frontend-fixtures') }
   let(:project) { create(:project, :repository, namespace: namespace, path: 'branches-project') }
   let(:user) { project.first_owner }
 
   render_views
 
   before do
-    stub_feature_flags(refactor_blob_viewer: false) # This fixture is only used by the legacy (non-refactored) blob viewer
     sign_in(user)
     allow(SecureRandom).to receive(:hex).and_return('securerandomhex:thereisnospoon')
   end

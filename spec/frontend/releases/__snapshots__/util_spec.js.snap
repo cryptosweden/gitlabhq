@@ -43,21 +43,35 @@ Object {
       },
       "author": Object {
         "__typename": "UserCore",
-        "avatarUrl": "https://www.gravatar.com/avatar/16f8e2050ce10180ca571c2eb19cfce2?s=80&d=identicon",
+        "avatarUrl": "https://www.gravatar.com/avatar/47420c558894b028457615db5156a52e6b791b829a6ca611656bb2560f9dbfc3?s=80&d=identicon",
         "id": Any<String>,
-        "username": "administrator",
-        "webUrl": "http://localhost/administrator",
+        "username": "user1",
+        "webUrl": "http://localhost/user1",
       },
       "commit": Object {
         "shortId": "b83d6e39",
         "title": "Merge branch 'branch-merged' into 'master'",
       },
       "commitPath": "http://localhost/releases-namespace/releases-project/-/commit/b83d6e391c22777fca1ed3012fce84f633d7fed0",
-      "descriptionHtml": "<p data-sourcepos=\\"1:1-1:23\\" dir=\\"auto\\">An okay release <gl-emoji title=\\"shrug\\" data-name=\\"shrug\\" data-unicode-version=\\"9.0\\">🤷</gl-emoji></p>",
+      "createdAt": 2019-01-03T00:00:00.000Z,
+      "descriptionHtml": <p
+        data-sourcepos="1:1-1:23"
+        dir="auto"
+      >
+        An okay release
+        <gl-emoji
+          data-name="shrug"
+          data-unicode-version="9.0"
+          title="shrug"
+        >
+          🤷
+        </gl-emoji>
+      </p>,
       "evidences": Array [],
+      "historicalRelease": false,
       "milestones": Array [],
       "name": "The second release",
-      "releasedAt": "2019-01-10T00:00:00Z",
+      "releasedAt": 2019-01-10T00:00:00.000Z,
       "tagName": "v1.2",
       "tagPath": "/releases-namespace/releases-project/-/tags/v1.2",
       "upcomingRelease": true,
@@ -80,7 +94,6 @@ Object {
           Object {
             "__typename": "ReleaseAssetLink",
             "directAssetUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/downloads/binaries/awesome-app-3",
-            "external": true,
             "id": "gid://gitlab/Releases::Link/13",
             "linkType": "image",
             "name": "Image",
@@ -89,7 +102,6 @@ Object {
           Object {
             "__typename": "ReleaseAssetLink",
             "directAssetUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/downloads/binaries/awesome-app-2",
-            "external": true,
             "id": "gid://gitlab/Releases::Link/12",
             "linkType": "package",
             "name": "Package",
@@ -98,7 +110,6 @@ Object {
           Object {
             "__typename": "ReleaseAssetLink",
             "directAssetUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/downloads/binaries/awesome-app-1",
-            "external": false,
             "id": "gid://gitlab/Releases::Link/11",
             "linkType": "runbook",
             "name": "Runbook",
@@ -107,7 +118,6 @@ Object {
           Object {
             "__typename": "ReleaseAssetLink",
             "directAssetUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/downloads/binaries/linux-amd64",
-            "external": true,
             "id": "gid://gitlab/Releases::Link/10",
             "linkType": "other",
             "name": "linux-amd64 binaries",
@@ -139,26 +149,45 @@ Object {
       },
       "author": Object {
         "__typename": "UserCore",
-        "avatarUrl": "https://www.gravatar.com/avatar/16f8e2050ce10180ca571c2eb19cfce2?s=80&d=identicon",
+        "avatarUrl": "https://www.gravatar.com/avatar/47420c558894b028457615db5156a52e6b791b829a6ca611656bb2560f9dbfc3?s=80&d=identicon",
         "id": Any<String>,
-        "username": "administrator",
-        "webUrl": "http://localhost/administrator",
+        "username": "user1",
+        "webUrl": "http://localhost/user1",
       },
       "commit": Object {
         "shortId": "b83d6e39",
         "title": "Merge branch 'branch-merged' into 'master'",
       },
       "commitPath": "http://localhost/releases-namespace/releases-project/-/commit/b83d6e391c22777fca1ed3012fce84f633d7fed0",
-      "descriptionHtml": "<p data-sourcepos=\\"1:1-1:33\\" dir=\\"auto\\">Best. Release. <strong>Ever.</strong> <gl-emoji title=\\"rocket\\" data-name=\\"rocket\\" data-unicode-version=\\"6.0\\">🚀</gl-emoji></p>",
+      "createdAt": 2018-12-03T00:00:00.000Z,
+      "descriptionHtml": <p
+        data-sourcepos="1:1-1:33"
+        dir="auto"
+      >
+        Best. Release.
+        <strong
+          data-sourcepos="1:16-1:24"
+        >
+          Ever.
+        </strong>
+        <gl-emoji
+          data-name="rocket"
+          data-unicode-version="6.0"
+          title="rocket"
+        >
+          🚀
+        </gl-emoji>
+      </p>,
       "evidences": Array [
         Object {
           "__typename": "ReleaseEvidence",
           "collectedAt": "2018-12-03T00:00:00Z",
-          "filepath": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/evidences/1.json",
-          "id": "gid://gitlab/Releases::Evidence/1",
+          "filepath": Any<String>,
+          "id": Any<String>,
           "sha": "760d6cdfb0879c3ffedec13af470e0f71cf52c6cde4d",
         },
       ],
+      "historicalRelease": false,
       "milestones": Array [
         Object {
           "__typename": "Milestone",
@@ -188,7 +217,7 @@ Object {
         },
       ],
       "name": "The first release",
-      "releasedAt": "2018-12-10T00:00:00Z",
+      "releasedAt": 2018-12-10T00:00:00.000Z,
       "tagName": "v1.1",
       "tagPath": "/releases-namespace/releases-project/-/tags/v1.1",
       "upcomingRelease": true,
@@ -196,10 +225,10 @@ Object {
   ],
   "paginationInfo": Object {
     "__typename": "PageInfo",
-    "endCursor": "eyJyZWxlYXNlZF9hdCI6IjIwMTgtMTItMTAgMDA6MDA6MDAuMDAwMDAwMDAwIFVUQyIsImlkIjoiMSJ9",
+    "endCursor": Any<String>,
     "hasNextPage": false,
     "hasPreviousPage": false,
-    "startCursor": "eyJyZWxlYXNlZF9hdCI6IjIwMTktMDEtMTAgMDA6MDA6MDAuMDAwMDAwMDAwIFVUQyIsImlkIjoiMiJ9",
+    "startCursor": Any<String>,
   },
 }
 `;
@@ -208,6 +237,7 @@ exports[`releases/util.js convertOneReleaseForEditingGraphQLResponse matches sna
 Object {
   "data": Object {
     "_links": Object {
+      "__typename": "ReleaseLinks",
       "self": "http://localhost/releases-namespace/releases-project/-/releases/v1.1",
       "selfUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1",
     },
@@ -215,6 +245,7 @@ Object {
       "count": undefined,
       "links": Array [
         Object {
+          "__typename": "ReleaseAssetLink",
           "directAssetPath": "/binaries/awesome-app-3",
           "id": "gid://gitlab/Releases::Link/13",
           "linkType": "image",
@@ -222,6 +253,7 @@ Object {
           "url": "https://example.com/image",
         },
         Object {
+          "__typename": "ReleaseAssetLink",
           "directAssetPath": "/binaries/awesome-app-2",
           "id": "gid://gitlab/Releases::Link/12",
           "linkType": "package",
@@ -229,6 +261,7 @@ Object {
           "url": "https://example.com/package",
         },
         Object {
+          "__typename": "ReleaseAssetLink",
           "directAssetPath": "/binaries/awesome-app-1",
           "id": "gid://gitlab/Releases::Link/11",
           "linkType": "runbook",
@@ -236,6 +269,7 @@ Object {
           "url": "http://localhost/releases-namespace/releases-project/runbook",
         },
         Object {
+          "__typename": "ReleaseAssetLink",
           "directAssetPath": "/binaries/linux-amd64",
           "id": "gid://gitlab/Releases::Link/10",
           "linkType": "other",
@@ -246,10 +280,12 @@ Object {
       "sources": Array [],
     },
     "author": undefined,
+    "createdAt": 2018-12-03T00:00:00.000Z,
     "description": "Best. Release. **Ever.** :rocket:",
     "evidences": Array [],
     "milestones": Array [
       Object {
+        "__typename": "Milestone",
         "id": "gid://gitlab/Milestone/123",
         "issueStats": Object {},
         "stats": undefined,
@@ -258,6 +294,7 @@ Object {
         "webUrl": undefined,
       },
       Object {
+        "__typename": "Milestone",
         "id": "gid://gitlab/Milestone/124",
         "issueStats": Object {},
         "stats": undefined,
@@ -267,7 +304,9 @@ Object {
       },
     ],
     "name": "The first release",
+    "releasedAt": 2018-12-10T00:00:00.000Z,
     "tagName": "v1.1",
+    "tagPath": "/releases-namespace/releases-project/-/tags/v1.1",
   },
 }
 `;
@@ -292,7 +331,6 @@ Object {
         Object {
           "__typename": "ReleaseAssetLink",
           "directAssetUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/downloads/binaries/awesome-app-3",
-          "external": true,
           "id": "gid://gitlab/Releases::Link/13",
           "linkType": "image",
           "name": "Image",
@@ -301,7 +339,6 @@ Object {
         Object {
           "__typename": "ReleaseAssetLink",
           "directAssetUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/downloads/binaries/awesome-app-2",
-          "external": true,
           "id": "gid://gitlab/Releases::Link/12",
           "linkType": "package",
           "name": "Package",
@@ -310,7 +347,6 @@ Object {
         Object {
           "__typename": "ReleaseAssetLink",
           "directAssetUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/downloads/binaries/awesome-app-1",
-          "external": false,
           "id": "gid://gitlab/Releases::Link/11",
           "linkType": "runbook",
           "name": "Runbook",
@@ -319,7 +355,6 @@ Object {
         Object {
           "__typename": "ReleaseAssetLink",
           "directAssetUrl": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/downloads/binaries/linux-amd64",
-          "external": true,
           "id": "gid://gitlab/Releases::Link/10",
           "linkType": "other",
           "name": "linux-amd64 binaries",
@@ -351,26 +386,45 @@ Object {
     },
     "author": Object {
       "__typename": "UserCore",
-      "avatarUrl": "https://www.gravatar.com/avatar/16f8e2050ce10180ca571c2eb19cfce2?s=80&d=identicon",
+      "avatarUrl": "https://www.gravatar.com/avatar/47420c558894b028457615db5156a52e6b791b829a6ca611656bb2560f9dbfc3?s=80&d=identicon",
       "id": Any<String>,
-      "username": "administrator",
-      "webUrl": "http://localhost/administrator",
+      "username": "user1",
+      "webUrl": "http://localhost/user1",
     },
     "commit": Object {
       "shortId": "b83d6e39",
       "title": "Merge branch 'branch-merged' into 'master'",
     },
     "commitPath": "http://localhost/releases-namespace/releases-project/-/commit/b83d6e391c22777fca1ed3012fce84f633d7fed0",
-    "descriptionHtml": "<p data-sourcepos=\\"1:1-1:33\\" dir=\\"auto\\">Best. Release. <strong>Ever.</strong> <gl-emoji title=\\"rocket\\" data-name=\\"rocket\\" data-unicode-version=\\"6.0\\">🚀</gl-emoji></p>",
+    "createdAt": 2018-12-03T00:00:00.000Z,
+    "descriptionHtml": <p
+      data-sourcepos="1:1-1:33"
+      dir="auto"
+    >
+      Best. Release.
+      <strong
+        data-sourcepos="1:16-1:24"
+      >
+        Ever.
+      </strong>
+      <gl-emoji
+        data-name="rocket"
+        data-unicode-version="6.0"
+        title="rocket"
+      >
+        🚀
+      </gl-emoji>
+    </p>,
     "evidences": Array [
       Object {
         "__typename": "ReleaseEvidence",
         "collectedAt": "2018-12-03T00:00:00Z",
-        "filepath": "http://localhost/releases-namespace/releases-project/-/releases/v1.1/evidences/1.json",
-        "id": "gid://gitlab/Releases::Evidence/1",
+        "filepath": Any<String>,
+        "id": Any<String>,
         "sha": "760d6cdfb0879c3ffedec13af470e0f71cf52c6cde4d",
       },
     ],
+    "historicalRelease": false,
     "milestones": Array [
       Object {
         "__typename": "Milestone",
@@ -400,7 +454,7 @@ Object {
       },
     ],
     "name": "The first release",
-    "releasedAt": "2018-12-10T00:00:00Z",
+    "releasedAt": 2018-12-10T00:00:00.000Z,
     "tagName": "v1.1",
     "tagPath": "/releases-namespace/releases-project/-/tags/v1.1",
     "upcomingRelease": true,

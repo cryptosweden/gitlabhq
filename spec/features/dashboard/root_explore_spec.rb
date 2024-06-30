@@ -2,15 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Root explore' do
+RSpec.describe 'Root explore', :saas, feature_category: :shared do
   let_it_be(:public_project) { create(:project, :public) }
   let_it_be(:archived_project) { create(:project, :archived) }
   let_it_be(:internal_project) { create(:project, :internal) }
   let_it_be(:private_project) { create(:project, :private) }
-
-  before do
-    allow(Gitlab).to receive(:com?).and_return(true)
-  end
 
   context 'when logged in' do
     let_it_be(:user) { create(:user) }
@@ -29,5 +25,14 @@ RSpec.describe 'Root explore' do
     end
 
     include_examples 'shows public projects'
+  end
+
+  describe 'project language dropdown', :js do
+    it 'is conditionally rendered' do
+      visit explore_projects_path
+      find_by_testid('filtered-search-term-input').click
+
+      expect(page).to have_link('Language')
+    end
   end
 end

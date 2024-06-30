@@ -1,4 +1,5 @@
 import { editor as monacoEditor, languages as monacoLanguages } from 'monaco-editor';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import {
   SOURCE_EDITOR_INSTANCE_ERROR_NO_EL,
   URI_PREFIX,
@@ -7,21 +8,6 @@ import {
 import SourceEditor from '~/editor/source_editor';
 import { DEFAULT_THEME, themes } from '~/ide/lib/themes';
 import { joinPaths } from '~/lib/utils/url_utility';
-
-jest.mock('~/helpers/startup_css_helper', () => {
-  return {
-    waitForCSSLoaded: jest.fn().mockImplementation((cb) => {
-      // We have to artificially put the callback's execution
-      // to the end of the current call stack to be able to
-      // test that the callback is called after waitForCSSLoaded.
-      // setTimeout with 0 delay does exactly that.
-      // Otherwise we might end up with false positive results
-      setTimeout(() => {
-        cb.apply();
-      }, 0);
-    }),
-  };
-});
 
 describe('Base editor', () => {
   let editorEl;
@@ -33,7 +19,7 @@ describe('Base editor', () => {
   const blobGlobalId = 'snippet_777';
 
   beforeEach(() => {
-    setFixtures('<div id="editor" data-editor-loading></div>');
+    setHTMLFixture('<div id="editor" data-editor-loading></div>');
     editorEl = document.getElementById('editor');
     defaultArguments = { el: editorEl, blobPath, blobContent, blobGlobalId };
     editor = new SourceEditor();
@@ -45,6 +31,8 @@ describe('Base editor', () => {
     monacoEditor.getModels().forEach((model) => {
       model.dispose();
     });
+
+    resetHTMLFixture();
   });
 
   const uriFilePath = joinPaths('/', URI_PREFIX, blobGlobalId, blobPath);
@@ -89,7 +77,7 @@ describe('Base editor', () => {
 
         expect(monacoEditor.createModel).toHaveBeenCalledWith(
           blobContent,
-          undefined,
+          'markdown',
           expect.objectContaining({
             path: uriFilePath,
           }),
@@ -114,7 +102,7 @@ describe('Base editor', () => {
 
         expect(modelSpy).toHaveBeenCalledWith(
           blobContent,
-          undefined,
+          'markdown',
           expect.objectContaining({
             path: uriFilePath,
           }),
@@ -158,7 +146,7 @@ describe('Base editor', () => {
         expect(instance.getModel()).toBeNull();
       });
 
-      it('resets the layout in waitForCSSLoaded callback', async () => {
+      it('resets the layout in createInstance', () => {
         const layoutSpy = jest.fn();
         jest.spyOn(monacoEditor, 'create').mockReturnValue({
           layout: layoutSpy,
@@ -167,13 +155,32 @@ describe('Base editor', () => {
           dispose: jest.fn(),
         });
         editor.createInstance(defaultArguments);
-        expect(layoutSpy).not.toHaveBeenCalled();
-
-        // We're waiting for the waitForCSSLoaded mock to kick in
-        await jest.runOnlyPendingTimers();
 
         expect(layoutSpy).toHaveBeenCalled();
       });
+
+      it.each`
+        params                                          | expectedLanguage
+        ${{}}                                           | ${'markdown'}
+        ${{ blobPath: undefined }}                      | ${'plaintext'}
+        ${{ blobPath: undefined, language: 'ruby' }}    | ${'ruby'}
+        ${{ language: 'go' }}                           | ${'go'}
+        ${{ blobPath: undefined, language: undefined }} | ${'plaintext'}
+      `(
+        'correctly sets $expectedLanguage on the model when $params are passed',
+        ({ params, expectedLanguage }) => {
+          jest.spyOn(monacoEditor, 'createModel');
+          editor.createInstance({
+            ...defaultArguments,
+            ...params,
+          });
+          expect(monacoEditor.createModel).toHaveBeenCalledWith(
+            expect.anything(),
+            expectedLanguage,
+            expect.anything(),
+          );
+        },
+      );
     });
 
     describe('instance of the Diff Editor', () => {
@@ -207,7 +214,7 @@ describe('Base editor', () => {
         expect(modelSpy).toHaveBeenCalledTimes(2);
         expect(modelSpy.mock.calls[0]).toEqual([
           blobContent,
-          undefined,
+          'markdown',
           expect.objectContaining({
             path: uriFilePath,
           }),
@@ -241,10 +248,9 @@ describe('Base editor', () => {
     let editorEl2;
     let inst1;
     let inst2;
-    const readOnlyIndex = '78'; // readOnly option has the internal index of 78 in the editor's options
 
     beforeEach(() => {
-      setFixtures('<div id="editor1"></div><div id="editor2"></div>');
+      setHTMLFixture('<div id="editor1"></div><div id="editor2"></div>');
       editorEl1 = document.getElementById('editor1');
       editorEl2 = document.getElementById('editor2');
       inst1Args = {
@@ -262,6 +268,7 @@ describe('Base editor', () => {
 
     afterEach(() => {
       editor.dispose();
+      resetHTMLFixture();
     });
 
     it('can initialize several instances of the same editor', () => {
@@ -304,10 +311,10 @@ describe('Base editor', () => {
       });
 
       inst1 = editor.createInstance(inst1Args);
-      expect(inst1.getOption(readOnlyIndex)).toBe(true);
+      expect(inst1.getRawOptions().readOnly).toBe(true);
 
       inst2 = editor.createInstance(inst2Args);
-      expect(inst2.getOption(readOnlyIndex)).toBe(true);
+      expect(inst2.getRawOptions().readOnly).toBe(true);
     });
 
     it('allows overriding editor options on the instance level', () => {
@@ -319,7 +326,7 @@ describe('Base editor', () => {
         readOnly: false,
       });
 
-      expect(inst1.getOption(readOnlyIndex)).toBe(false);
+      expect(inst1.getRawOptions().readOnly).toBe(false);
     });
 
     it('disposes instances and relevant models independently from each other', () => {

@@ -1,64 +1,87 @@
 import { GlModal } from '@gitlab/ui';
-import { mount } from '@vue/test-utils';
 import { stubComponent } from 'helpers/stub_component';
 import { TEST_HOST } from 'helpers/test_constants';
-import { extendedWrapper } from 'helpers/vue_test_utils_helper';
+import waitForPromises from 'helpers/wait_for_promises';
+import axios from '~/lib/utils/axios_utils';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import DeleteLabelModal from '~/labels/components/delete_label_modal.vue';
-
-const MOCK_MODAL_DATA = {
-  labelName: 'label 1',
-  subjectName: 'GitLab Org',
-  destroyPath: `${TEST_HOST}/1`,
-};
+import eventHub, {
+  EVENT_DELETE_LABEL_MODAL_SUCCESS,
+  EVENT_OPEN_DELETE_LABEL_MODAL,
+} from '~/labels/event_hub';
 
 describe('~/labels/components/delete_label_modal', () => {
   let wrapper;
 
-  const createComponent = () => {
-    wrapper = extendedWrapper(
-      mount(DeleteLabelModal, {
-        propsData: {
-          selector: '.js-test-btn',
-        },
-        stubs: {
-          GlModal: stubComponent(GlModal, {
-            template:
-              '<div><slot name="modal-title"></slot><slot></slot><slot name="modal-footer"></slot></div>',
-          }),
-        },
-      }),
-    );
+  const openEventData = {
+    labelId: '1',
+    labelName: 'label 1',
+    subjectName: 'GitLab Org',
+    destroyPath: `${TEST_HOST}/1`,
+  };
+  const mountComponent = (propsData = {}) => {
+    wrapper = mountExtended(DeleteLabelModal, {
+      propsData: {
+        ...propsData,
+      },
+      stubs: {
+        GlModal: stubComponent(GlModal, {
+          template:
+            '<div><slot name="modal-title"></slot><slot></slot><slot name="modal-footer"></slot></div>',
+        }),
+      },
+    });
+
+    eventHub.$emit(EVENT_OPEN_DELETE_LABEL_MODAL, openEventData);
   };
 
   afterEach(() => {
-    wrapper.destroy();
+    eventHub.dispose();
   });
 
-  const findModal = () => wrapper.find(GlModal);
-  const findPrimaryModalButton = () => wrapper.findByTestId('delete-button');
+  const findModal = () => wrapper.findComponent(GlModal);
+  const findDeleteButton = () => wrapper.findByTestId('delete-button');
 
-  describe('template', () => {
-    describe('when modal data is set', () => {
-      beforeEach(() => {
-        createComponent();
-        wrapper.vm.labelName = MOCK_MODAL_DATA.labelName;
-        wrapper.vm.subjectName = MOCK_MODAL_DATA.subjectName;
-        wrapper.vm.destroyPath = MOCK_MODAL_DATA.destroyPath;
-      });
+  describe('when modal data is set', () => {
+    beforeEach(() => {
+      mountComponent();
+    });
 
-      it('renders GlModal', () => {
-        expect(findModal().exists()).toBe(true);
-      });
+    it('renders GlModal', () => {
+      expect(findModal().exists()).toBe(true);
+    });
 
-      it('displays the label name and subject name', () => {
-        expect(findModal().text()).toContain(
-          `${MOCK_MODAL_DATA.labelName} will be permanently deleted from ${MOCK_MODAL_DATA.subjectName}. This cannot be undone`,
-        );
-      });
+    it('displays the label name and subject name', () => {
+      expect(findModal().text()).toContain(
+        `label 1 will be permanently deleted from GitLab Org. This cannot be undone`,
+      );
+    });
 
-      it('passes the destroyPath to the button', () => {
-        expect(findPrimaryModalButton().attributes('href')).toBe(MOCK_MODAL_DATA.destroyPath);
+    it('passes the destroyPath to the button', () => {
+      expect(findDeleteButton().attributes('href')).toBe('http://test.host/1');
+    });
+  });
+
+  describe('when modal uses remote action', () => {
+    beforeEach(() => {
+      mountComponent({ remoteDestroy: true });
+    });
+
+    it('calls delete endpoint', async () => {
+      jest.spyOn(axios, 'delete').mockImplementation((url) => {
+        expect(url).toBe(`${openEventData.destroyPath}.js`);
+        return Promise.resolve({});
       });
+      jest.spyOn(eventHub, '$emit');
+
+      findDeleteButton().trigger('click');
+
+      await waitForPromises();
+
+      expect(eventHub.$emit).toHaveBeenCalledWith(
+        EVENT_DELETE_LABEL_MODAL_SUCCESS,
+        openEventData.labelId,
+      );
     });
   });
 });

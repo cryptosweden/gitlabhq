@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'sentry errors requests' do
+RSpec.describe 'sentry errors requests', feature_category: :error_tracking do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :repository) }
@@ -119,7 +119,7 @@ RSpec.describe 'sentry errors requests' do
     end
 
     let(:error_data) { graphql_data.dig('project', 'sentryErrors', 'errors', 'nodes') }
-    let(:pagination_data) {  graphql_data.dig('project', 'sentryErrors', 'errors', 'pageInfo') }
+    let(:pagination_data) { graphql_data.dig('project', 'sentryErrors', 'errors', 'pageInfo') }
 
     it_behaves_like 'a working graphql query' do
       before do
@@ -139,9 +139,7 @@ RSpec.describe 'sentry errors requests' do
 
     context 'when reactive cache returns data' do
       before do
-        stub_setting_for(:list_sentry_issues,
-                         issues: [sentry_error],
-                         pagination: pagination)
+        stub_setting_for(:list_sentry_issues, issues: [sentry_error], pagination: pagination)
 
         post_graphql(query, current_user: current_user)
       end

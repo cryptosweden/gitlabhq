@@ -2,17 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::TransferService do
-  include GitHelpers
-
+RSpec.describe Projects::TransferService, feature_category: :groups_and_projects do
   let_it_be(:group) { create(:group) }
   let_it_be(:user) { create(:user) }
   let_it_be(:group_integration) { create(:integrations_slack, :group, group: group, webhook: 'http://group.slack.com') }
 
   let(:project) { create(:project, :repository, :legacy_storage, namespace: user.namespace) }
   let(:target) { group }
+  let(:executor) { user }
 
-  subject(:execute_transfer) { described_class.new(project, user).execute(target).tap { project.reload } }
+  subject(:execute_transfer) { described_class.new(project, executor).execute(target).tap { project.reload } }
 
   context 'with npm packages' do
     before do
@@ -21,12 +20,32 @@ RSpec.describe Projects::TransferService do
 
     subject(:transfer_service) { described_class.new(project, user) }
 
-    let!(:package) { create(:npm_package, project: project) }
+    let!(:package) { create(:npm_package, project: project, name: "@testscope/test") }
 
     context 'with a root namespace change' do
+      it 'allow the transfer' do
+        expect(transfer_service.execute(group)).to be true
+        expect(project.errors[:new_namespace]).to be_empty
+      end
+    end
+
+    context 'with pending destruction package' do
+      before do
+        package.pending_destruction!
+      end
+
+      it 'allow the transfer' do
+        expect(transfer_service.execute(group)).to be true
+        expect(project.errors[:new_namespace]).to be_empty
+      end
+    end
+
+    context 'with namespaced packages present' do
+      let!(:package) { create(:npm_package, project: project, name: "@#{project.root_namespace.path}/test") }
+
       it 'does not allow the transfer' do
         expect(transfer_service.execute(group)).to be false
-        expect(project.errors[:new_namespace]).to include("Root namespace can't be updated if project has NPM packages")
+        expect(project.errors[:new_namespace]).to include("Root namespace can't be updated if the project has NPM packages scoped to the current root level namespace.")
       end
     end
 
@@ -40,7 +59,7 @@ RSpec.describe Projects::TransferService do
         other_group.add_owner(user)
       end
 
-      it 'does allow the transfer' do
+      it 'allow the transfer' do
         expect(transfer_service.execute(other_group)).to be true
         expect(project.errors[:new_namespace]).to be_empty
       end
@@ -52,9 +71,6 @@ RSpec.describe Projects::TransferService do
       allow_next_instance_of(Gitlab::UploadsTransfer) do |service|
         allow(service).to receive(:move_project).and_return(true)
       end
-      allow_next_instance_of(Gitlab::PagesTransfer) do |service|
-        allow(service).to receive(:move_project).and_return(true)
-      end
 
       group.add_owner(user)
     end
@@ -64,6 +80,30 @@ RSpec.describe Projects::TransferService do
 
       expect(transfer_result).to be_truthy
       expect(project.namespace).to eq(group)
+    end
+
+    context 'EventStore' do
+      let(:group) do
+        create(:group, :nested, owners: user)
+      end
+
+      let(:target) do
+        create(:group, :nested, owners: user)
+      end
+
+      let(:project) { create(:project, namespace: group) }
+
+      it 'publishes a ProjectTransferedEvent' do
+        expect { execute_transfer }
+          .to publish_event(Projects::ProjectTransferedEvent)
+          .with(
+            project_id: project.id,
+            old_namespace_id: group.id,
+            old_root_namespace_id: group.root_ancestor.id,
+            new_namespace_id: target.id,
+            new_root_namespace_id: target.root_ancestor.id
+          )
+      end
     end
 
     context 'when project has an associated project namespace' do
@@ -89,6 +129,72 @@ RSpec.describe Projects::TransferService do
           project_namespace_in_sync(sub_sub_group)
         end
       end
+    end
+  end
+
+  context 'project in a group -> a personal namespace', :enable_admin_mode do
+    let(:project) { create(:project, :repository, :legacy_storage, group: group) }
+    let(:target) { user.namespace }
+    # We need to use an admin user as the executor because
+    # only an admin user has required permissions to transfer projects
+    # under _all_ the different circumstances specified below.
+    let(:executor) { create(:user, :admin) }
+
+    it 'executes the transfer to personal namespace successfully' do
+      execute_transfer
+
+      expect(project.namespace).to eq(user.namespace)
+    end
+
+    it 'invalidates personal_project_count cache of the the owner of the personal namespace' do
+      expect(user).to receive(:invalidate_personal_projects_count)
+
+      execute_transfer
+    end
+
+    context 'the owner of the namespace does not have a direct membership in the project residing in the group' do
+      it 'creates a project membership record for the owner of the namespace, with OWNER access level, after the transfer' do
+        execute_transfer
+
+        expect(project.members.owners.find_by(user_id: user.id)).to be_present
+      end
+    end
+
+    context 'the owner of the namespace has a direct membership in the project residing in the group' do
+      context 'that membership has an access level of OWNER' do
+        before do
+          project.add_owner(user)
+        end
+
+        it 'retains the project membership record for the owner of the namespace, with OWNER access level, after the transfer' do
+          execute_transfer
+
+          expect(project.members.owners.find_by(user_id: user.id)).to be_present
+        end
+      end
+
+      context 'that membership has an access level that is not OWNER' do
+        before do
+          project.add_developer(user)
+        end
+
+        it 'updates the project membership record for the owner of the namespace, to OWNER access level, after the transfer' do
+          execute_transfer
+
+          expect(project.members.owners.find_by(user_id: user.id)).to be_present
+        end
+      end
+    end
+  end
+
+  context 'personal namespace -> group', :enable_admin_mode do
+    let(:executor) { create(:admin) }
+
+    it 'invalidates personal_project_count cache of the the owner of the personal namespace' \
+       'that previously held the project' do
+      expect(user).to receive(:invalidate_personal_projects_count)
+
+      execute_transfer
     end
   end
 
@@ -131,10 +237,10 @@ RSpec.describe Projects::TransferService do
       expect(project.disk_path).to start_with(group.path)
     end
 
-    it 'updates project full path in .git/config' do
+    it 'updates project full path in gitaly' do
       execute_transfer
 
-      expect(rugged_config['gitlab.fullpath']).to eq "#{group.full_path}/#{project.path}"
+      expect(project.repository.full_path).to eq "#{group.full_path}/#{project.path}"
     end
 
     it 'updates storage location' do
@@ -148,24 +254,47 @@ RSpec.describe Projects::TransferService do
 
     context 'with a project integration' do
       let_it_be_with_reload(:project) { create(:project, namespace: user.namespace) }
-      let_it_be(:instance_integration) { create(:integrations_slack, :instance, webhook: 'http://project.slack.com') }
+      let_it_be(:instance_integration) { create(:integrations_slack, :instance) }
+      let_it_be(:project_integration) { create(:integrations_slack, project: project) }
 
-      context 'with an inherited integration' do
-        let_it_be(:project_integration) { create(:integrations_slack, project: project, webhook: 'http://project.slack.com', inherit_from_id: instance_integration.id) }
+      context 'when it inherits from instance_integration' do
+        before do
+          project_integration.update!(inherit_from_id: instance_integration.id, webhook: instance_integration.webhook)
+        end
 
         it 'replaces inherited integrations', :aggregate_failures do
-          execute_transfer
-
-          expect(project.slack_integration.webhook).to eq(group_integration.webhook)
-          expect(Integration.count).to eq(3)
+          expect { execute_transfer }
+            .to change(Integration, :count).by(0)
+            .and change { project.slack_integration.webhook }.to eq(group_integration.webhook)
         end
       end
 
       context 'with a custom integration' do
-        let_it_be(:project_integration) { create(:integrations_slack, project: project, webhook: 'http://project.slack.com') }
-
-        it 'does not updates the integrations' do
+        it 'does not update the integrations' do
           expect { execute_transfer }.not_to change { project.slack_integration.webhook }
+        end
+      end
+
+      context 'when the new default integration is instance specific and deactivated' do
+        let!(:instance_specific_integration) { create(:beyond_identity_integration) }
+        let!(:project_instance_specific_integration) do
+          create(
+            :beyond_identity_integration,
+            project: project,
+            instance: false,
+            active: true,
+            inherit_from_id: instance_specific_integration.id
+          )
+        end
+
+        let!(:group_instance_specific_integration) do
+          create(:beyond_identity_integration, group: target, instance: false, active: false)
+        end
+
+        it 'creates an integration inheriting from the default' do
+          expect { execute_transfer }
+            .to change { project.beyond_identity_integration.reload.active }.from(true).to(false)
+            .and change { project.beyond_identity_integration.inherit_from_id }.to(group_instance_specific_integration.id)
         end
       end
     end
@@ -194,7 +323,7 @@ RSpec.describe Projects::TransferService do
   end
 
   context 'when transfer fails' do
-    let!(:original_path) { project_path(project) }
+    let!(:original_path) { project.repository.relative_path }
 
     def attempt_project_transfer(&block)
       expect do
@@ -208,27 +337,17 @@ RSpec.describe Projects::TransferService do
       expect_any_instance_of(Labels::TransferService).to receive(:execute).and_raise(ActiveRecord::StatementInvalid, "PG ERROR")
     end
 
-    def project_path(project)
-      Gitlab::GitalyClient::StorageSettings.allow_disk_access do
-        project.repository.path_to_repo
-      end
-    end
-
-    def current_path
-      project_path(project)
-    end
-
     it 'rolls back repo location' do
       attempt_project_transfer
 
       expect(project.repository.raw.exists?).to be(true)
-      expect(original_path).to eq current_path
+      expect(original_path).to eq project.repository.relative_path
     end
 
-    it 'rolls back project full path in .git/config' do
+    it 'rolls back project full path in gitaly' do
       attempt_project_transfer
 
-      expect(rugged_config['gitlab.fullpath']).to eq project.full_path
+      expect(project.repository.full_path).to eq project.full_path
     end
 
     it "doesn't send move notifications" do
@@ -250,6 +369,11 @@ RSpec.describe Projects::TransferService do
         disk_path: project.disk_path,
         shard_name: project.repository_storage
       )
+    end
+
+    it 'does not publish a ProjectTransferedEvent' do
+      expect { attempt_project_transfer }
+        .not_to publish_event(Projects::ProjectTransferedEvent)
     end
 
     context 'when project has pending builds', :sidekiq_inline do
@@ -324,28 +448,6 @@ RSpec.describe Projects::TransferService do
     end
   end
 
-  context 'namespace which contains orphan repository with same projects path name' do
-    let(:fake_repo_path) { File.join(TestEnv.repos_path, group.full_path, "#{project.path}.git") }
-
-    before do
-      group.add_owner(user)
-
-      TestEnv.create_bare_repository(fake_repo_path)
-    end
-
-    after do
-      FileUtils.rm_rf(fake_repo_path)
-    end
-
-    it 'does not allow the project transfer' do
-      transfer_result = execute_transfer
-
-      expect(transfer_result).to eq false
-      expect(project.namespace).to eq(user.namespace)
-      expect(project.errors[:new_namespace]).to include('Cannot move project')
-    end
-  end
-
   context 'target namespace containing the same project name' do
     before do
       group.add_owner(user)
@@ -385,6 +487,22 @@ RSpec.describe Projects::TransferService do
       expect(transfer_result).to eq false
       expect(project.namespace).to eq(user.namespace)
       expect(project.errors[:new_namespace]).to include('Project is already in this namespace.')
+    end
+  end
+
+  context 'target namespace belongs to bot user', :enable_admin_mode do
+    let(:bot) { create(:user, :project_bot) }
+    let(:target) { bot.namespace }
+    let(:executor) { create(:user, :admin) }
+
+    it 'does not allow project transfer' do
+      namespace = project.namespace
+
+      transfer_result = execute_transfer
+
+      expect(transfer_result).to eq false
+      expect(project.namespace).to eq(namespace)
+      expect(project.errors[:new_namespace]).to include("You don't have permission to transfer projects into that namespace.")
     end
   end
 
@@ -453,12 +571,12 @@ RSpec.describe Projects::TransferService do
     using RSpec::Parameterized::TableSyntax
 
     where(:project_shared_runners_enabled, :shared_runners_setting, :expected_shared_runners_enabled) do
-      true  | :disabled_and_unoverridable | false
-      false | :disabled_and_unoverridable | false
-      true  | :disabled_with_override     | true
-      false | :disabled_with_override     | false
-      true  | :shared_runners_enabled     | true
-      false | :shared_runners_enabled     | false
+      true  | :shared_runners_disabled_and_unoverridable | false
+      false | :shared_runners_disabled_and_unoverridable | false
+      true  | :shared_runners_disabled_and_overridable   | true
+      false | :shared_runners_disabled_and_overridable   | false
+      true  | :shared_runners_enabled                    | true
+      false | :shared_runners_enabled                    | false
     end
 
     with_them do
@@ -565,13 +683,16 @@ RSpec.describe Projects::TransferService do
     end
 
     it 'calls AuthorizedProjectUpdate::UserRefreshFromReplicaWorker with a delay to update project authorizations' do
+      stub_feature_flags(do_not_run_safety_net_auth_refresh_jobs: false)
+
       user_ids = [user.id, member_of_old_group.id, member_of_new_group.id].map { |id| [id] }
 
       expect(AuthorizedProjectUpdate::UserRefreshFromReplicaWorker).to(
-        receive(:bulk_perform_in)
-          .with(1.hour,
-                user_ids,
-                batch_delay: 30.seconds, batch_size: 100)
+        receive(:bulk_perform_in).with(
+          1.hour,
+          user_ids,
+          batch_delay: 30.seconds, batch_size: 100
+        )
       )
 
       subject
@@ -595,10 +716,15 @@ RSpec.describe Projects::TransferService do
       project.design_repository
     end
 
+    def clear_design_repo_memoization
+      project&.design_management_repository&.clear_memoization(:repository)
+      project.clear_memoization(:design_repository)
+    end
+
     it 'does not create a design repository' do
       expect(subject.execute(group)).to be true
 
-      project.clear_memoization(:design_repository)
+      clear_design_repo_memoization
 
       expect(design_repository.exists?).to be false
     end
@@ -614,7 +740,7 @@ RSpec.describe Projects::TransferService do
         it 'moves the repository' do
           expect(subject.execute(group)).to be true
 
-          project.clear_memoization(:design_repository)
+          clear_design_repo_memoization
 
           expect(design_repository).to have_attributes(
             disk_path: new_full_path,
@@ -626,7 +752,7 @@ RSpec.describe Projects::TransferService do
           allow(subject).to receive(:execute_system_hooks).and_raise('foo')
           expect { subject.execute(group) }.to raise_error('foo')
 
-          project.clear_memoization(:design_repository)
+          clear_design_repo_memoization
 
           expect(design_repository).to have_attributes(
             disk_path: old_full_path,
@@ -643,7 +769,7 @@ RSpec.describe Projects::TransferService do
 
           expect(subject.execute(group)).to be true
 
-          project.clear_memoization(:design_repository)
+          clear_design_repo_memoization
 
           expect(design_repository).to have_attributes(
             disk_path: old_disk_path,
@@ -657,7 +783,7 @@ RSpec.describe Projects::TransferService do
           allow(subject).to receive(:execute_system_hooks).and_raise('foo')
           expect { subject.execute(group) }.to raise_error('foo')
 
-          project.clear_memoization(:design_repository)
+          clear_design_repo_memoization
 
           expect(design_repository).to have_attributes(
             disk_path: old_disk_path,
@@ -665,29 +791,6 @@ RSpec.describe Projects::TransferService do
           )
         end
       end
-    end
-  end
-
-  context 'moving pages' do
-    let_it_be(:project) { create(:project, namespace: user.namespace) }
-
-    before do
-      group.add_owner(user)
-    end
-
-    it 'schedules a job when pages are deployed' do
-      project.mark_pages_as_deployed
-
-      expect(PagesTransferWorker).to receive(:perform_async)
-                                       .with("move_project", [project.path, user.namespace.full_path, group.full_path])
-
-      execute_transfer
-    end
-
-    it 'does not schedule a job when no pages are deployed' do
-      expect(PagesTransferWorker).not_to receive(:perform_async)
-
-      execute_transfer
     end
   end
 
@@ -715,10 +818,6 @@ RSpec.describe Projects::TransferService do
         expect { execute_transfer }.to change { CustomerRelations::IssueContact.count }.by(-2)
       end
     end
-  end
-
-  def rugged_config
-    rugged_repo(project.repository).config
   end
 
   def project_namespace_in_sync(group)

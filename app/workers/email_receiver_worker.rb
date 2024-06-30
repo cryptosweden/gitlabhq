@@ -11,9 +11,6 @@ class EmailReceiverWorker # rubocop:disable Scalability/IdempotentWorker
   urgency :high
   weight 2
 
-  # https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/1263
-  tags :needs_own_queue
-
   attr_accessor :raw
 
   def perform(raw)
@@ -24,7 +21,7 @@ class EmailReceiverWorker # rubocop:disable Scalability/IdempotentWorker
   end
 
   def should_perform?
-    Gitlab::IncomingEmail.enabled?
+    Gitlab::Email::IncomingEmail.enabled?
   end
 
   private

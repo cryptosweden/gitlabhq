@@ -2,38 +2,29 @@
 
 module QA
   RSpec.describe 'Create' do
-    describe 'Multiple file snippet' do
+    describe 'Multiple file snippet', :blocking, product_group: :source_code do
       let(:personal_snippet) do
-        Resource::Snippet.fabricate_via_api! do |snippet|
-          snippet.title = 'Personal snippet to delete file from'
-          snippet.file_name = 'Original file name'
-          snippet.file_content = 'Original file content'
-
-          snippet.add_files do |files|
-            files.append(name: 'Second file name', content: 'Second file content')
-          end
-        end
+        create(:snippet,
+          title: 'Personal snippet to delete file from',
+          file_name: 'Original file name',
+          file_content: 'Original file content',
+          files: [
+            { name: 'Second file name', content: 'Second file content' }
+          ])
       end
 
       let(:project_snippet) do
-        Resource::ProjectSnippet.fabricate_via_api! do |snippet|
-          snippet.title = 'Project snippet to delete file from'
-          snippet.file_name = 'Original file name'
-          snippet.file_content = 'Original file content'
-
-          snippet.add_files do |files|
-            files.append(name: 'Second file name', content: 'Second file content')
-          end
-        end
+        create(:project_snippet,
+          title: 'Project snippet to delete file from',
+          file_name: 'Original file name',
+          file_content: 'Original file content',
+          files: [
+            { name: 'Second file name', content: 'Second file content' }
+          ])
       end
 
       before do
         Flow::Login.sign_in
-      end
-
-      after do
-        personal_snippet&.remove_via_api!
-        project_snippet&.remove_via_api!
       end
 
       shared_examples 'deleting file from snippet' do |snippet_type, testcase|

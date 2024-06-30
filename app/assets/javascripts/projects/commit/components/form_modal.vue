@@ -1,5 +1,6 @@
 <script>
 import { GlModal, GlForm, GlFormCheckbox, GlSprintf, GlFormGroup } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 import api from '~/api';
 import { BV_SHOW_MODAL } from '~/lib/utils/constants';
@@ -52,16 +53,15 @@ export default {
       checked: true,
       actionPrimary: {
         text: this.i18n.actionPrimaryText,
-        attributes: [
-          { variant: 'success' },
-          { category: 'primary' },
-          { 'data-testid': 'submit-commit' },
-          { 'data-qa-selector': 'submit_commit_button' },
-        ],
+        attributes: {
+          variant: 'confirm',
+          category: 'primary',
+          'data-testid': 'submit-commit',
+        },
       },
       actionCancel: {
         text: this.i18n.actionCancelText,
-        attributes: [{ 'data-testid': 'cancel-commit' }],
+        attributes: { 'data-testid': 'cancel-commit' },
       },
     };
   },
@@ -73,14 +73,12 @@ export default {
       'branchCollaboration',
       'modalTitle',
       'existingBranch',
-      'prependedText',
       'targetProjectId',
       'targetProjectName',
       'branchesEndpoint',
     ]),
   },
   mounted() {
-    this.setSelectedProject(this.targetProjectId);
     eventHub.$on(this.openModal, this.show);
   },
   methods: {
@@ -136,11 +134,7 @@ export default {
           :value="targetProjectId"
         />
 
-        <projects-dropdown
-          class="gl-w-half"
-          :value="targetProjectName"
-          @selectProject="setSelectedProject"
-        />
+        <projects-dropdown :value="targetProjectName" @input="setSelectedProject" />
       </gl-form-group>
 
       <gl-form-group
@@ -150,7 +144,7 @@ export default {
       >
         <input id="start_branch" type="hidden" name="start_branch" :value="branch" />
 
-        <branches-dropdown class="gl-w-half" :value="branch" @selectBranch="setBranch" />
+        <branches-dropdown :value="branch" @input="setBranch" />
       </gl-form-group>
 
       <gl-form-checkbox

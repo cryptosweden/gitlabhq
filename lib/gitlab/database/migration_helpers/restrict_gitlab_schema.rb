@@ -6,8 +6,6 @@ module Gitlab
       module RestrictGitlabSchema
         extend ActiveSupport::Concern
 
-        MigrationSkippedError = Class.new(StandardError)
-
         included do
           class_attribute :allowed_gitlab_schemas
         end
@@ -23,16 +21,13 @@ module Gitlab
           end
         end
 
-        def migrate(direction)
+        def exec_migration(conn, direction)
           if unmatched_schemas.any?
-            # TODO: Today skipping migration would raise an exception.
-            # Ideally, skipped migration should be ignored (not loaded), or softly ignored.
-            # Read more in: https://gitlab.com/gitlab-org/gitlab/-/issues/355014
-            raise MigrationSkippedError, "Current migration is skipped since it modifies "\
-              "'#{self.class.allowed_gitlab_schemas}' which is outside of '#{allowed_schemas_for_connection}'"
+            migration_skipped
+            return
           end
 
-          Gitlab::Database::QueryAnalyzer.instance.within([validator_class]) do
+          Gitlab::Database::QueryAnalyzer.instance.within([validator_class, connection_validator_class]) do
             validator_class.allowed_gitlab_schemas = self.allowed_gitlab_schemas
 
             super
@@ -41,8 +36,18 @@ module Gitlab
 
         private
 
+        def migration_skipped
+          say "The migration is skipped since it modifies the schemas: #{self.class.allowed_gitlab_schemas}."
+          say "This database can only apply migrations in one of the following schemas: " \
+            "#{allowed_schemas_for_connection}."
+        end
+
         def validator_class
           Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas
+        end
+
+        def connection_validator_class
+          Gitlab::Database::QueryAnalyzers::GitlabSchemasValidateConnection
         end
 
         def unmatched_schemas

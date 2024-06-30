@@ -1,5 +1,6 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import DiffFileDrafts from '~/batch_comments/components/diff_file_drafts.vue';
 import DraftNote from '~/batch_comments/components/draft_note.vue';
@@ -16,7 +17,10 @@ describe('Batch comments diff file drafts component', () => {
         batchComments: {
           namespaced: true,
           getters: {
-            draftsForFile: () => () => [{ id: 1 }, { id: 2 }],
+            draftsForFile: () => () => [
+              { id: 1, position: { position_type: 'file' } },
+              { id: 2, position: { position_type: 'file' } },
+            ],
           },
         },
       },
@@ -24,24 +28,20 @@ describe('Batch comments diff file drafts component', () => {
 
     vm = shallowMount(DiffFileDrafts, {
       store,
-      propsData: { fileHash: 'filehash' },
+      propsData: { fileHash: 'filehash', positionType: 'file' },
     });
   }
-
-  afterEach(() => {
-    vm.destroy();
-  });
 
   it('renders list of draft notes', () => {
     factory();
 
-    expect(vm.findAll(DraftNote).length).toEqual(2);
+    expect(vm.findAllComponents(DraftNote).length).toEqual(2);
   });
 
   it('renders index of draft note', () => {
     factory();
 
-    const elements = vm.findAll(DesignNotePin);
+    const elements = vm.findAllComponents(DesignNotePin);
 
     expect(elements.length).toEqual(2);
 

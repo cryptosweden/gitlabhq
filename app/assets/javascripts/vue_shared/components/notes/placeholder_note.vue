@@ -16,17 +16,19 @@
  *   :note="{body: 'This is a note'}"
  *   />
  */
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+import { GlAvatarLink, GlAvatar } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { renderMarkdown } from '~/notes/utils';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
-import userAvatarLink from '../user_avatar/user_avatar_link.vue';
 
 export default {
   name: 'PlaceholderNote',
   directives: { SafeHtml },
   components: {
-    userAvatarLink,
+    GlAvatarLink,
+    GlAvatar,
     TimelineEntryItem,
   },
   props: {
@@ -44,43 +46,54 @@ export default {
       required: false,
       default: false,
     },
+    internalNote: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   computed: {
     ...mapGetters(['getUserData']),
     renderedNote() {
       return renderMarkdown(this.note.body);
     },
-    avatarSize() {
-      if (this.line && !this.isOverviewTab) {
-        return 24;
-      }
-
-      return 40;
+    internalNoteClass() {
+      return {
+        'internal-note': this.internalNote,
+      };
     },
   },
 };
 </script>
 
 <template>
-  <timeline-entry-item class="note note-wrapper being-posted fade-in-half">
-    <div class="timeline-icon">
-      <user-avatar-link
-        :link-href="getUserData.path"
-        :img-src="getUserData.avatar_url"
-        :img-size="avatarSize"
-      />
+  <timeline-entry-item
+    class="note note-wrapper note-comment being-posted fade-in-half"
+    :class="internalNoteClass"
+  >
+    <div class="timeline-avatar gl-float-left">
+      <gl-avatar-link :href="getUserData.path">
+        <gl-avatar
+          :src="getUserData.avatar_url"
+          :entity-name="getUserData.username"
+          :alt="getUserData.name"
+          :size="32"
+        />
+      </gl-avatar-link>
     </div>
     <div ref="note" :class="{ discussion: !note.individual_note }" class="timeline-content">
       <div class="note-header">
         <div class="note-header-info">
           <a :href="getUserData.path">
-            <span class="d-none d-sm-inline-block bold">{{ getUserData.name }}</span>
+            <span class="gl-hidden sm:gl-inline-block bold">{{ getUserData.name }}</span>
             <span class="note-headline-light">@{{ getUserData.username }}</span>
           </a>
         </div>
       </div>
-      <div class="note-body">
-        <div v-safe-html="renderedNote" class="note-text md"></div>
+      <div class="timeline-discussion-body">
+        <div class="note-body">
+          <div v-safe-html="renderedNote" class="note-text md"></div>
+        </div>
       </div>
     </div>
   </timeline-entry-item>

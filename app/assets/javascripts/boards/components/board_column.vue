@@ -1,5 +1,4 @@
 <script>
-import { mapGetters, mapActions, mapState } from 'vuex';
 import BoardListHeader from 'ee_else_ce/boards/components/board_list_header.vue';
 import { isListDraggable } from '../boards_util';
 import BoardList from './board_list.vue';
@@ -9,52 +8,40 @@ export default {
     BoardListHeader,
     BoardList,
   },
-  inject: {
-    boardId: {
-      default: '',
-    },
-  },
   props: {
     list: {
       type: Object,
       default: () => ({}),
       required: false,
     },
-    disabled: {
-      type: Boolean,
+    boardId: {
+      type: String,
       required: true,
     },
+    filters: {
+      type: Object,
+      required: true,
+    },
+    highlightedLists: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+  },
+  data() {
+    return {
+      showNewForm: false,
+    };
   },
   computed: {
-    ...mapState(['filterParams', 'highlightedLists']),
-    ...mapGetters(['getBoardItemsByList']),
     highlighted() {
       return this.highlightedLists.includes(this.list.id);
-    },
-    listItems() {
-      return this.getBoardItemsByList(this.list.id);
     },
     isListDraggable() {
       return isListDraggable(this.list);
     },
   },
   watch: {
-    filterParams: {
-      handler() {
-        if (this.list.id && !this.list.collapsed) {
-          this.fetchItemsForList({ listId: this.list.id });
-        }
-      },
-      deep: true,
-      immediate: true,
-    },
-    'list.id': {
-      handler(id) {
-        if (id) {
-          this.fetchItemsForList({ listId: this.list.id });
-        }
-      },
-    },
     highlighted: {
       handler(highlighted) {
         if (highlighted) {
@@ -67,7 +54,9 @@ export default {
     },
   },
   methods: {
-    ...mapActions(['fetchItemsForList']),
+    toggleNewForm() {
+      this.showNewForm = !this.showNewForm;
+    },
   },
 };
 </script>
@@ -76,19 +65,33 @@ export default {
   <div
     :class="{
       'is-draggable': isListDraggable,
-      'is-collapsed': list.collapsed,
+      'is-collapsed gl-w-10': list.collapsed,
       'board-type-assignee': list.listType === 'assignee',
     }"
     :data-list-id="list.id"
-    class="board gl-display-inline-block gl-h-full gl-px-3 gl-vertical-align-top gl-white-space-normal is-expandable"
-    data-qa-selector="board_list"
+    class="board gl-display-inline-block gl-h-full gl-px-3 gl-align-top gl-whitespace-normal is-expandable"
+    data-testid="board-list"
   >
     <div
-      class="board-inner gl-display-flex gl-flex-direction-column gl-relative gl-h-full gl-rounded-base"
+      class="gl-display-flex gl-flex-direction-column gl-relative gl-h-full gl-rounded-base gl-bg-gray-50"
       :class="{ 'board-column-highlighted': highlighted }"
     >
-      <board-list-header :list="list" :disabled="disabled" />
-      <board-list ref="board-list" :disabled="disabled" :board-items="listItems" :list="list" />
+      <board-list-header
+        :list="list"
+        :filter-params="filters"
+        :board-id="boardId"
+        @toggleNewForm="toggleNewForm"
+        @setActiveList="$emit('setActiveList', $event)"
+      />
+      <board-list
+        ref="board-list"
+        :board-id="boardId"
+        :list="list"
+        :filter-params="filters"
+        :show-new-form="showNewForm"
+        @toggleNewForm="toggleNewForm"
+        @setFilters="$emit('setFilters', $event)"
+      />
     </div>
   </div>
 </template>

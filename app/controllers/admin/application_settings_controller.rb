@@ -3,6 +3,7 @@
 class Admin::ApplicationSettingsController < Admin::ApplicationController
   include InternalRedirect
   include IntegrationsHelper
+  include DefaultBranchProtection
 
   # NOTE: Use @application_setting in this controller when you need to access
   # application_settings after it has been modified. This is because the
@@ -12,28 +13,32 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
   before_action :set_application_setting, except: :integrations
 
   before_action :disable_query_limiting, only: [:usage_data]
+  before_action :prerecorded_service_ping_data, only: [:metrics_and_profiling] # rubocop:disable Rails/LexicallyScopedActionFilter
 
-  feature_category :not_owned, [
-                     :general, :reporting, :metrics_and_profiling, :network,
-                     :preferences, :update, :reset_health_check_token
-                   ]
+  before_action do
+    push_frontend_feature_flag(:ci_variables_pages, current_user)
+  end
 
-  feature_category :metrics, [
-                     :create_self_monitoring_project,
-                     :status_create_self_monitoring_project,
-                     :delete_self_monitoring_project,
-                     :status_delete_self_monitoring_project
-                   ]
+  feature_category :not_owned, [ # rubocop:todo Gitlab/AvoidFeatureCategoryNotOwned
+    :general, :reporting, :metrics_and_profiling, :network,
+    :preferences, :update, :reset_health_check_token
+  ]
+
+  urgency :low, [
+    :reset_error_tracking_access_token
+  ]
 
   feature_category :source_code_management, [:repository, :clear_repository_check_states]
   feature_category :continuous_integration, [:ci_cd, :reset_registration_token]
-  feature_category :service_ping, [:usage_data, :service_usage_data]
-  feature_category :integrations, [:integrations]
+  urgency :low, [:ci_cd, :reset_registration_token]
+  feature_category :service_ping, [:usage_data]
+  feature_category :integrations, [:integrations, :slack_app_manifest_share, :slack_app_manifest_download]
   feature_category :pages, [:lets_encrypt_terms_of_service]
+  feature_category :error_tracking, [:reset_error_tracking_access_token]
 
-  VALID_SETTING_PANELS = %w(general repository
-                            ci_cd reporting metrics_and_profiling
-                            network preferences).freeze
+  VALID_SETTING_PANELS = %w[general repository
+    ci_cd reporting metrics_and_profiling
+    network preferences].freeze
 
   # The current size of a sidekiq job's jid is 24 characters. The size of the
   # jid is an internal detail of Sidekiq, and they do not guarantee that it'll
@@ -49,10 +54,9 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
   def integrations
     return not_found unless instance_level_integrations?
 
-    @integrations = Integration.find_or_initialize_all_non_project_specific(Integration.for_instance).sort_by(&:title)
-  end
-
-  def service_usage_data
+    @integrations = Integration.find_or_initialize_all_non_project_specific(
+      Integration.for_instance, include_instance_specific: true
+    ).sort_by(&:title)
   end
 
   def update
@@ -60,17 +64,19 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
   end
 
   def usage_data
+    return not_found unless prerecorded_service_ping_data.present?
+
     respond_to do |format|
       format.html do
-        usage_data_json = Gitlab::Json.pretty_generate(Gitlab::Usage::ServicePingReport.for(output: :all_metrics_values, cached: true))
+        usage_data_json = Gitlab::Json.pretty_generate(prerecorded_service_ping_data)
 
         render html: Gitlab::Highlight.highlight('payload.json', usage_data_json, language: 'json')
       end
 
       format.json do
-        Gitlab::UsageDataCounters::ServiceUsageDataCounter.count(:download_payload_click)
+        Gitlab::InternalEvents.track_event('usage_data_download_payload_clicked', user: current_user)
 
-        render json: Gitlab::Usage::ServicePingReport.for(output: :all_metrics_values, cached: true).to_json
+        render json: Gitlab::Json.dump(prerecorded_service_ping_data)
       end
     end
   end
@@ -86,6 +92,12 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
     @application_setting.reset_health_check_access_token!
     flash[:notice] = _('New health check access token has been generated!')
     redirect_back_or_default
+  end
+
+  def reset_error_tracking_access_token
+    @application_setting.reset_error_tracking_access_token!
+
+    redirect_to general_admin_application_settings_path, notice: _('New error tracking access token has been generated!')
   end
 
   def clear_repository_check_states
@@ -104,94 +116,15 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
     redirect_to ::Gitlab::LetsEncrypt.terms_of_service_url
   end
 
-  # Specs are in spec/requests/self_monitoring_project_spec.rb
-  def create_self_monitoring_project
-    job_id = SelfMonitoringProjectCreateWorker.with_status.perform_async # rubocop:disable CodeReuse/Worker
-
-    render status: :accepted, json: {
-      job_id: job_id,
-      monitor_status: status_create_self_monitoring_project_admin_application_settings_path
-    }
+  def slack_app_manifest_share
+    redirect_to Slack::Manifest.share_url
   end
 
-  # Specs are in spec/requests/self_monitoring_project_spec.rb
-  def status_create_self_monitoring_project
-    job_id = params[:job_id].to_s
-
-    unless job_id.length <= PARAM_JOB_ID_MAX_SIZE
-      return render status: :bad_request, json: {
-        message: _('Parameter "job_id" cannot exceed length of %{job_id_max_size}' %
-          { job_id_max_size: PARAM_JOB_ID_MAX_SIZE })
-      }
-    end
-
-    if SelfMonitoringProjectCreateWorker.in_progress?(job_id) # rubocop:disable CodeReuse/Worker
-      ::Gitlab::PollingInterval.set_header(response, interval: 3_000)
-
-      return render status: :accepted, json: {
-        message: _('Job to create self-monitoring project is in progress')
-      }
-    end
-
-    if @application_setting.self_monitoring_project_id.present?
-      return render status: :ok, json: self_monitoring_data
-    end
-
-    render status: :bad_request, json: {
-      message: _('Self-monitoring project does not exist. Please check logs ' \
-        'for any error messages')
-    }
-  end
-
-  # Specs are in spec/requests/self_monitoring_project_spec.rb
-  def delete_self_monitoring_project
-    job_id = SelfMonitoringProjectDeleteWorker.with_status.perform_async # rubocop:disable CodeReuse/Worker
-
-    render status: :accepted, json: {
-      job_id: job_id,
-      monitor_status: status_delete_self_monitoring_project_admin_application_settings_path
-    }
-  end
-
-  # Specs are in spec/requests/self_monitoring_project_spec.rb
-  def status_delete_self_monitoring_project
-    job_id = params[:job_id].to_s
-
-    unless job_id.length <= PARAM_JOB_ID_MAX_SIZE
-      return render status: :bad_request, json: {
-        message: _('Parameter "job_id" cannot exceed length of %{job_id_max_size}' %
-          { job_id_max_size: PARAM_JOB_ID_MAX_SIZE })
-      }
-    end
-
-    if SelfMonitoringProjectDeleteWorker.in_progress?(job_id) # rubocop:disable CodeReuse/Worker
-      ::Gitlab::PollingInterval.set_header(response, interval: 3_000)
-
-      return render status: :accepted, json: {
-        message: _('Job to delete self-monitoring project is in progress')
-      }
-    end
-
-    if @application_setting.self_monitoring_project_id.nil?
-      return render status: :ok, json: {
-        message: _('Self-monitoring project has been successfully deleted')
-      }
-    end
-
-    render status: :bad_request, json: {
-      message: _('Self-monitoring project was not deleted. Please check logs ' \
-        'for any error messages')
-    }
+  def slack_app_manifest_download
+    send_data Slack::Manifest.to_json, type: :json, disposition: 'attachment', filename: 'slack_manifest.json'
   end
 
   private
-
-  def self_monitoring_data
-    {
-      project_id: @application_setting.self_monitoring_project_id,
-      project_full_path: @application_setting.self_monitoring_project&.full_path
-    }
-  end
 
   def set_application_setting
     @application_setting = ApplicationSetting.current_without_cache
@@ -218,9 +151,10 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
     params[:application_setting][:valid_runner_registrars]&.delete("")
     params[:application_setting][:restricted_visibility_levels]&.delete("")
 
-    if params[:application_setting].key?(:required_instance_ci_template)
-      params[:application_setting][:required_instance_ci_template] = nil if params[:application_setting][:required_instance_ci_template].empty?
-    end
+    params[:application_setting][:package_metadata_purl_types]&.delete("")
+    params[:application_setting][:package_metadata_purl_types]&.map!(&:to_i)
+
+    normalize_default_branch_params!(:application_setting)
 
     remove_blank_params_for!(:elasticsearch_aws_secret_access_key, :eks_secret_access_key)
 
@@ -228,10 +162,6 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
     params.delete(:domain_denylist_raw) if params[:domain_denylist_file]
     params.delete(:domain_denylist_raw) if params[:domain_denylist]
     params.delete(:domain_allowlist_raw) if params[:domain_allowlist]
-
-    if params[:application_setting].key?(:user_email_lookup_limit)
-      params[:application_setting][:search_rate_limit] ||= params[:application_setting][:user_email_lookup_limit]
-    end
 
     params[:application_setting].permit(visible_application_setting_attributes)
   end
@@ -248,18 +178,29 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
       *::ApplicationSettingsHelper.visible_attributes,
       *::ApplicationSettingsHelper.external_authorization_service_attributes,
       *ApplicationSetting.kroki_formats_attributes.keys.map { |key| "kroki_formats_#{key}".to_sym },
+      { default_branch_protection_defaults: [
+        :allow_force_push,
+        :developer_can_initial_push,
+        {
+          allowed_to_merge: [:access_level],
+          allowed_to_push: [:access_level]
+        }
+      ] },
+      :can_create_organization,
       :lets_encrypt_notification_email,
       :lets_encrypt_terms_of_service_accepted,
       :domain_denylist_file,
       :raw_blob_request_limit,
       :issues_create_limit,
       :notes_create_limit,
+      :pipeline_limit_per_project_user_sha,
       :default_branch_name,
-      disabled_oauth_sign_in_sources: [],
-      import_sources: [],
-      restricted_visibility_levels: [],
-      repository_storages_weighted: {},
-      valid_runner_registrars: []
+      { disabled_oauth_sign_in_sources: [],
+        import_sources: [],
+        package_metadata_purl_types: [],
+        restricted_visibility_levels: [],
+        repository_storages_weighted: {},
+        valid_runner_registrars: [] }
     ]
   end
 
@@ -272,9 +213,7 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
       .new(@application_setting, current_user, application_setting_params)
       .execute
 
-    if recheck_user_consent?
-      session[:ask_for_usage_stats_consent] = current_user.requires_usage_stats_consent?
-    end
+    session[:ask_for_usage_stats_consent] = current_user.requires_usage_stats_consent? if recheck_user_consent?
 
     redirect_path = referer_path(request) || general_admin_application_settings_path
 
@@ -304,6 +243,11 @@ class Admin::ApplicationSettingsController < Admin::ApplicationController
   # overridden in EE
   def valid_setting_panels
     VALID_SETTING_PANELS
+  end
+
+  def prerecorded_service_ping_data
+    @service_ping_data ||= Rails.cache.fetch(Gitlab::Usage::ServicePingReport::CACHE_KEY) ||
+      ::RawUsageData.for_current_reporting_cycle.first&.payload
   end
 end
 

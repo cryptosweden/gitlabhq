@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Resolvers::TimelogResolver do
+RSpec.describe Resolvers::TimelogResolver, feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:current_user) { create(:user) }
@@ -27,6 +27,14 @@ RSpec.describe Resolvers::TimelogResolver do
 
     it 'finds all timelogs within given dates' do
       expect(timelogs).to contain_exactly(timelog1)
+    end
+
+    context 'when the project does not exist' do
+      let(:extra_args) { { project_id: "gid://gitlab/Project/#{non_existing_record_id}" } }
+
+      it 'returns an empty set' do
+        expect(timelogs).to be_empty
+      end
     end
 
     context 'when no dates specified' do
@@ -137,6 +145,20 @@ RSpec.describe Resolvers::TimelogResolver do
       expect(timelogs).to contain_exactly(timelog1)
     end
 
+    context 'when the group does not exist' do
+      let_it_be(:error_class) { Gitlab::Graphql::Errors::ResourceNotAvailable }
+
+      let(:extra_args) { { group_id: "gid://gitlab/Group/#{non_existing_record_id}" } }
+
+      it 'returns an error' do
+        expect_graphql_error_to_be_created(error_class,
+          "The resource that you are attempting to access does not exist or " \
+          "you don't have permission to perform this action") do
+          timelogs
+        end
+      end
+    end
+
     context 'when only start_date is present' do
       let(:args) { { start_date: short_time_ago } }
 
@@ -214,7 +236,11 @@ RSpec.describe Resolvers::TimelogResolver do
     let_it_be(:timelog3) { create(:merge_request_timelog, merge_request: merge_request, user: current_user) }
 
     it 'blah' do
-      expect(timelogs).to contain_exactly(timelog1, timelog3)
+      if user_found
+        expect(timelogs).to contain_exactly(timelog1, timelog3)
+      else
+        expect(timelogs).to be_empty
+      end
     end
   end
 
@@ -250,27 +276,27 @@ RSpec.describe Resolvers::TimelogResolver do
     let(:object) { current_user }
     let(:extra_args) { {} }
     let(:args) { {} }
+    let(:user_found) { true }
 
     it_behaves_like 'with a user'
   end
 
   context 'with a user filter' do
     let(:object) { nil }
-    let(:extra_args) { { username: current_user.username } }
     let(:args) { {} }
 
-    it_behaves_like 'with a user'
-  end
+    context 'when the user has timelogs' do
+      let(:extra_args) { { username: current_user.username } }
+      let(:user_found) { true }
 
-  context 'when > `default_max_page_size` records' do
-    let(:object) { nil }
-    let!(:timelog_list) { create_list(:timelog, 101, issue: issue) }
-    let(:args) { { project_id: "gid://gitlab/Project/#{project.id}" } }
-    let(:extra_args) { {} }
+      it_behaves_like 'with a user'
+    end
 
-    it 'pagination returns `default_max_page_size` and sets `has_next_page` true' do
-      expect(timelogs.items.count).to be(100)
-      expect(timelogs.has_next_page).to be(true)
+    context 'when the user doest not have timelogs' do
+      let(:extra_args) { { username: 'not_existing_user' } }
+      let(:user_found) { false }
+
+      it_behaves_like 'with a user'
     end
   end
 
@@ -282,6 +308,55 @@ RSpec.describe Resolvers::TimelogResolver do
     it 'generates an error' do
       expect_graphql_error_to_be_created(error_class, /Provide at least one argument/) do
         timelogs
+      end
+    end
+  end
+
+  context 'when the sort argument is provided' do
+    let_it_be(:timelog_a) do
+      create(
+        :issue_timelog, time_spent: 7200, spent_at: 1.hour.ago,
+        created_at: 1.hour.ago, updated_at: 1.hour.ago, user: current_user
+      )
+    end
+
+    let_it_be(:timelog_b) do
+      create(
+        :issue_timelog, time_spent: 5400, spent_at: 2.hours.ago,
+        created_at: 2.hours.ago, updated_at: 2.hours.ago, user: current_user
+      )
+    end
+
+    let_it_be(:timelog_c) do
+      create(
+        :issue_timelog, time_spent: 1800, spent_at: 30.minutes.ago,
+        created_at: 30.minutes.ago, updated_at: 30.minutes.ago, user: current_user
+      )
+    end
+
+    let_it_be(:timelog_d) do
+      create(
+        :issue_timelog, time_spent: 3600, spent_at: 1.day.ago,
+        created_at: 1.day.ago, updated_at: 1.day.ago, user: current_user
+      )
+    end
+
+    let(:object) { current_user }
+    let(:extra_args) { {} }
+
+    context 'when sort argument comes from TimelogSortEnum' do
+      let(:args) { { sort: 'TIME_SPENT_ASC' } }
+
+      it 'returns all the timelogs in the correct order' do
+        expect(timelogs.items).to eq([timelog_c, timelog_d, timelog_b, timelog_a])
+      end
+    end
+
+    context 'when sort argument comes from SortEnum' do
+      let(:args) { { sort: 'CREATED_ASC' } }
+
+      it 'returns all the timelogs in the correct order' do
+        expect(timelogs.items).to eq([timelog_d, timelog_b, timelog_a, timelog_c])
       end
     end
   end

@@ -1,126 +1,175 @@
 <script>
-import { GlToggle, GlLoadingIcon, GlTooltip, GlAlert } from '@gitlab/ui';
-import { debounce } from 'lodash';
-import axios from '~/lib/utils/axios_utils';
-import { __ } from '~/locale';
-import { DEBOUNCE_TOGGLE_DELAY, ERROR_MESSAGE } from '../constants';
+import { GlAlert, GlLink, GlSprintf, GlToggle } from '@gitlab/ui';
+import { sprintf } from '~/locale';
+import { updateGroup } from '~/api/groups_api';
+import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
+import {
+  I18N_CONFIRM_MESSAGE,
+  I18N_CONFIRM_OK,
+  I18N_CONFIRM_CANCEL,
+  I18N_CONFIRM_TITLE,
+  I18N_UPDATE_ERROR_MESSAGE,
+  I18N_REFRESH_MESSAGE,
+} from '../constants';
 
 export default {
   components: {
-    GlToggle,
-    GlLoadingIcon,
-    GlTooltip,
     GlAlert,
+    GlLink,
+    GlSprintf,
+    GlToggle,
   },
-  inject: [
-    'updatePath',
-    'sharedRunnersAvailability',
-    'parentSharedRunnersAvailability',
-    'runnerEnabled',
-    'runnerDisabled',
-    'runnerAllowOverride',
-  ],
+  inject: {
+    groupId: {},
+    groupName: {},
+    groupIsEmpty: {},
+    sharedRunnersSetting: {},
+
+    runnerEnabledValue: {},
+    runnerDisabledValue: {},
+    runnerAllowOverrideValue: {},
+
+    // Parent group, only present in sub-groups
+
+    parentSharedRunnersSetting: { default: null },
+
+    // Available when user can admin parent
+    parentName: { default: null },
+    parentSettingsPath: { default: null },
+  },
   data() {
     return {
       isLoading: false,
-      enabled: true,
-      allowOverride: false,
+      value: this.sharedRunnersSetting,
       error: null,
     };
   },
   computed: {
-    toggleDisabled() {
-      return this.parentSharedRunnersAvailability === this.runnerDisabled || this.isLoading;
+    isSharedRunnersToggleDisabled() {
+      return this.parentSharedRunnersSetting === this.runnerDisabledValue;
     },
-    enabledOrDisabledSetting() {
-      return this.enabled ? this.runnerEnabled : this.runnerDisabled;
+    sharedRunnersToggleValue() {
+      return this.value === this.runnerEnabledValue;
     },
-    disabledWithOverrideSetting() {
-      return this.allowOverride ? this.runnerAllowOverride : this.runnerDisabled;
+    isOverrideToggleDisabled() {
+      // cannot override when sharing is enabled
+      return this.isSharedRunnersToggleDisabled || this.value === this.runnerEnabledValue;
     },
-  },
-  created() {
-    if (this.sharedRunnersAvailability !== this.runnerEnabled) {
-      this.enabled = false;
-    }
-
-    if (this.sharedRunnersAvailability === this.runnerAllowOverride) {
-      this.allowOverride = true;
-    }
+    overrideToggleValue() {
+      return this.value === this.runnerAllowOverrideValue;
+    },
+    isParentAvailable() {
+      return this.parentSettingsPath && this.parentName;
+    },
   },
   methods: {
-    generatePayload(data) {
-      return { shared_runners_setting: data };
-    },
-    enableOrDisable() {
-      this.updateRunnerSettings(this.generatePayload(this.enabledOrDisabledSetting));
+    async onSharedRunnersToggle(enabled) {
+      if (enabled) {
+        this.updateSetting(this.runnerEnabledValue);
+        return;
+      }
+      if (this.groupIsEmpty) {
+        this.updateSetting(this.runnerDisabledValue);
+        return;
+      }
 
-      // reset override toggle to false if shared runners are enabled
-      this.allowOverride = false;
+      // Confirm when disabling for a group with subgroups or projects
+      const confirmDisabled = await confirmAction(I18N_CONFIRM_MESSAGE, {
+        title: sprintf(I18N_CONFIRM_TITLE, { groupName: this.groupName }),
+        cancelBtnText: I18N_CONFIRM_CANCEL,
+        primaryBtnText: I18N_CONFIRM_OK,
+        primaryBtnVariant: 'danger',
+        size: 'md',
+      });
+
+      if (confirmDisabled) {
+        this.updateSetting(this.runnerDisabledValue);
+      }
     },
-    override() {
-      this.updateRunnerSettings(this.generatePayload(this.disabledWithOverrideSetting));
+    onOverrideToggle(value) {
+      const newSetting = value ? this.runnerAllowOverrideValue : this.runnerDisabledValue;
+      this.updateSetting(newSetting);
     },
-    updateRunnerSettings: debounce(function debouncedUpdateRunnerSettings(setting) {
+    updateSetting(setting) {
+      if (this.isLoading) {
+        return;
+      }
+
       this.isLoading = true;
 
-      axios
-        .put(this.updatePath, setting)
+      updateGroup(this.groupId, { shared_runners_setting: setting })
         .then(() => {
-          this.isLoading = false;
+          this.value = setting;
         })
         .catch((error) => {
           const message = [
-            error.response?.data?.error || __('An error occurred while updating configuration.'),
-            ERROR_MESSAGE,
+            error.response?.data?.error || I18N_UPDATE_ERROR_MESSAGE,
+            I18N_REFRESH_MESSAGE,
           ].join(' ');
 
           this.error = message;
+        })
+        .finally(() => {
+          this.isLoading = false;
         });
-    }, DEBOUNCE_TOGGLE_DELAY),
+    },
   },
 };
 </script>
 
 <template>
-  <div ref="sharedRunnersForm">
-    <gl-alert v-if="error" variant="danger" :dismissible="false">{{ error }}</gl-alert>
-
-    <h4 class="gl-display-flex gl-align-items-center">
-      {{ __('Set up shared runner availability') }}
-      <gl-loading-icon v-if="isLoading" class="gl-ml-3" size="sm" inline />
-    </h4>
-
-    <section class="gl-mt-5">
+  <div>
+    <gl-alert v-if="error" variant="danger" :dismissible="false" class="gl-mb-5">
+      {{ error }}
+    </gl-alert>
+    <section class="gl-mb-5">
       <gl-toggle
-        v-model="enabled"
-        :disabled="toggleDisabled"
-        :label="__('Enable shared runners for this group')"
-        data-testid="enable-runners-toggle"
-        @change="enableOrDisable"
-      />
-
-      <span class="gl-text-gray-600">
-        {{ __('Enable shared runners for all projects and subgroups in this group.') }}
-      </span>
+        :value="sharedRunnersToggleValue"
+        :is-loading="isLoading"
+        :disabled="isSharedRunnersToggleDisabled"
+        :label="__('Enable instance runners for this group')"
+        :description="__('Enable instance runners for all projects and subgroups in this group.')"
+        data-testid="shared-runners-toggle"
+        @change="onSharedRunnersToggle"
+      >
+        <template v-if="isSharedRunnersToggleDisabled" #help>
+          {{ s__('Runners|Instance runners are disabled.') }}
+          <gl-sprintf
+            v-if="isParentAvailable"
+            :message="s__('Runners|Go to %{groupLink} to enable them.')"
+          >
+            <template #groupLink>
+              <gl-link :href="parentSettingsPath">{{ parentName }}</gl-link>
+            </template>
+          </gl-sprintf>
+        </template>
+      </gl-toggle>
     </section>
 
-    <section v-if="!enabled" class="gl-mt-5">
+    <section class="gl-mb-5">
       <gl-toggle
-        v-model="allowOverride"
-        :disabled="toggleDisabled"
+        :value="overrideToggleValue"
+        :is-loading="isLoading"
+        :disabled="isOverrideToggleDisabled"
         :label="__('Allow projects and subgroups to override the group setting')"
+        :description="
+          __('Allows projects or subgroups in this group to override the global setting.')
+        "
         data-testid="override-runners-toggle"
-        @change="override"
-      />
-
-      <span class="gl-text-gray-600">
-        {{ __('Allows projects or subgroups in this group to override the global setting.') }}
-      </span>
+        @change="onOverrideToggle"
+      >
+        <template v-if="isSharedRunnersToggleDisabled" #help>
+          {{ s__('Runners|Instance runners are disabled.') }}
+          <gl-sprintf
+            v-if="isParentAvailable"
+            :message="s__('Runners|Go to %{groupLink} to enable them.')"
+          >
+            <template #groupLink>
+              <gl-link :href="parentSettingsPath">{{ parentName }}</gl-link>
+            </template>
+          </gl-sprintf>
+        </template>
+      </gl-toggle>
     </section>
-
-    <gl-tooltip v-if="toggleDisabled" :target="() => $refs.sharedRunnersForm">
-      {{ __('Shared runners are disabled for the parent group') }}
-    </gl-tooltip>
   </div>
 </template>

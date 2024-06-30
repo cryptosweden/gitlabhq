@@ -6,7 +6,7 @@ RSpec.describe Preloaders::LabelsPreloader do
   let_it_be(:user) { create(:user) }
 
   shared_examples 'an efficient database query' do
-    let(:subscriptions) { labels.each { |l| create(:subscription, subscribable: l, project: l.project, user: user) }}
+    let(:subscriptions) { labels.each { |l| create(:subscription, subscribable: l, project: l.project, user: user) } }
 
     it 'does not make n+1 queries' do
       first_label = labels_with_preloaded_data.first
@@ -18,14 +18,24 @@ RSpec.describe Preloaders::LabelsPreloader do
 
   context 'project labels' do
     let_it_be(:projects) { create_list(:project, 3, :public, :repository) }
-    let_it_be(:labels) { projects.each { |p| create(:label, project: p) } }
+    let_it_be(:labels) { projects.map { |p| create(:label, project: p) } }
 
     it_behaves_like 'an efficient database query'
+
+    it 'preloads the max access level', :request_store do
+      labels_with_preloaded_data
+
+      query_count = ActiveRecord::QueryRecorder.new do
+        projects.first.team.max_member_access_for_user_ids([user.id])
+      end.count
+
+      expect(query_count).to eq(0)
+    end
   end
 
   context 'group labels' do
     let_it_be(:groups) { create_list(:group, 3) }
-    let_it_be(:labels) { groups.each { |g| create(:group_label, group: g) } }
+    let_it_be(:labels) { groups.map { |g| create(:group_label, group: g) } }
 
     it_behaves_like 'an efficient database query'
   end
@@ -40,10 +50,11 @@ RSpec.describe Preloaders::LabelsPreloader do
 
   def access_data(labels)
     labels.each do |label|
-      if label.is_a?(ProjectLabel)
+      case label
+      when ProjectLabel
         label.project.project_feature
         label.lazy_subscription(user, label.project)
-      elsif label.is_a?(GroupLabel)
+      when GroupLabel
         label.group.route
         label.lazy_subscription(user)
       end

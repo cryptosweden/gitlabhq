@@ -1,32 +1,46 @@
+import Vue from 'vue';
 import { escape, minBy } from 'lodash';
 import emojiRegexFactory from 'emoji-regex';
 import emojiAliases from 'emojis/aliases.json';
+import createApolloClient from '~/lib/graphql';
 import { setAttributes } from '~/lib/utils/dom_utils';
+import { getEmojiScoreWithIntent } from '~/emoji/utils';
 import AccessorUtilities from '../lib/utils/accessor';
 import axios from '../lib/utils/axios_utils';
-import { CACHE_KEY, CACHE_VERSION_KEY, CATEGORY_ICON_MAP, FREQUENTLY_USED_KEY } from './constants';
+import customEmojiQuery from './queries/custom_emoji.query.graphql';
+import { CACHE_KEY, CACHE_VERSION_KEY, CATEGORY_NAMES, FREQUENTLY_USED_KEY } from './constants';
 
 let emojiMap = null;
 let validEmojiNames = null;
+
+export const state = Vue.observable({
+  loading: true,
+});
+
 export const FALLBACK_EMOJI_KEY = 'grey_question';
 
 // Keep the version in sync with `lib/gitlab/emoji.rb`
-export const EMOJI_VERSION = '2';
+export const EMOJI_VERSION = '3';
 
 const isLocalStorageAvailable = AccessorUtilities.canUseLocalStorage();
 
 async function loadEmoji() {
-  if (
-    isLocalStorageAvailable &&
-    window.localStorage.getItem(CACHE_VERSION_KEY) === EMOJI_VERSION &&
-    window.localStorage.getItem(CACHE_KEY)
-  ) {
-    const emojis = JSON.parse(window.localStorage.getItem(CACHE_KEY));
-    // Workaround because the pride flag is broken in EMOJI_VERSION = '1'
-    if (emojis.gay_pride_flag) {
-      emojis.gay_pride_flag.e = '🏳️‍🌈';
+  try {
+    window.localStorage.removeItem(CACHE_VERSION_KEY);
+  } catch {
+    // Cleanup after us and remove the old EMOJI_VERSION_KEY
+  }
+
+  try {
+    if (isLocalStorageAvailable) {
+      const parsed = JSON.parse(window.localStorage.getItem(CACHE_KEY));
+      if (parsed?.EMOJI_VERSION === EMOJI_VERSION && parsed.data) {
+        return parsed.data;
+      }
     }
-    return emojis;
+  } catch {
+    // Maybe the stored data was corrupted or the version didn't match.
+    // Let's not error out.
   }
 
   // We load the JSON file direct from the server
@@ -35,26 +49,85 @@ async function loadEmoji() {
   const { data } = await axios.get(
     `${gon.relative_url_root || ''}/-/emojis/${EMOJI_VERSION}/emojis.json`,
   );
-  window.localStorage.setItem(CACHE_VERSION_KEY, EMOJI_VERSION);
-  window.localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+
+  try {
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify({ data, EMOJI_VERSION }));
+  } catch {
+    // Setting data in localstorage may fail when storage quota is exceeded.
+    // We should continue even when this fails.
+  }
+
   return data;
 }
 
 async function loadEmojiWithNames() {
   const emojiRegex = emojiRegexFactory();
 
-  return Object.entries(await loadEmoji()).reduce((acc, [key, value]) => {
-    // Filter out entries which aren't emojis
-    if (value.e.match(emojiRegex)?.[0] === value.e) {
-      acc[key] = { ...value, name: key };
+  return (await loadEmoji()).reduce(
+    (acc, emoji) => {
+      // Filter out entries which aren't emojis
+      if (emoji.e.match(emojiRegex)?.[0] === emoji.e) {
+        acc.emojis[emoji.n] = { ...emoji, name: emoji.n };
+        acc.names.push(emoji.n);
+      }
+      return acc;
+    },
+    { emojis: {}, names: [] },
+  );
+}
+
+export async function loadCustomEmojiWithNames() {
+  return new Promise((resolve) => {
+    const emojiData = { emojis: {}, names: [] };
+
+    if (document.body?.dataset?.groupFullPath) {
+      const client = createApolloClient();
+      const fetchEmojis = async (after = '') => {
+        const { data } = await client.query({
+          query: customEmojiQuery,
+          variables: {
+            groupPath: document.body.dataset.groupFullPath,
+            after,
+          },
+        });
+        const { pageInfo } = data?.group?.customEmoji || {};
+
+        data?.group?.customEmoji?.nodes?.forEach((e) => {
+          // Map the custom emoji into the format of the normal emojis
+          emojiData.emojis[e.name] = {
+            c: 'custom',
+            d: e.name,
+            e: undefined,
+            name: e.name,
+            src: e.url,
+            u: 'custom',
+          };
+          emojiData.names.push(e.name);
+        });
+
+        if (pageInfo?.hasNextPage) {
+          return fetchEmojis(pageInfo.endCursor);
+        }
+
+        return resolve(emojiData);
+      };
+
+      fetchEmojis();
+    } else {
+      resolve(emojiData);
     }
-    return acc;
-  }, {});
+  });
 }
 
 async function prepareEmojiMap() {
-  emojiMap = await loadEmojiWithNames();
-  validEmojiNames = [...Object.keys(emojiMap), ...Object.keys(emojiAliases)];
+  return Promise.all([loadEmojiWithNames(), loadCustomEmojiWithNames()]).then((values) => {
+    emojiMap = {
+      ...values[0].emojis,
+      ...values[1].emojis,
+    };
+    validEmojiNames = [...values[0].names, ...values[1].names];
+    state.loading = false;
+  });
 }
 
 export function initEmojiMap() {
@@ -66,10 +139,6 @@ export function normalizeEmojiName(name) {
   return Object.prototype.hasOwnProperty.call(emojiAliases, name) ? emojiAliases[name] : name;
 }
 
-export function getValidEmojiNames() {
-  return validEmojiNames;
-}
-
 export function isEmojiNameValid(name) {
   if (!emojiMap) {
     // eslint-disable-next-line @gitlab/require-i18n-strings
@@ -79,8 +148,16 @@ export function isEmojiNameValid(name) {
   return name in emojiMap || name in emojiAliases;
 }
 
-export function getAllEmoji() {
+export function getEmojiMap() {
   return emojiMap;
+}
+
+export function getAllEmoji() {
+  return validEmojiNames.map((n) => emojiMap[n]);
+}
+
+export function findCustomEmoji(name) {
+  return emojiMap[name];
 }
 
 function getAliasesMatchingQuery(query) {
@@ -144,6 +221,11 @@ function getNameMatch(emoji, query) {
   return null;
 }
 
+// Sort emoji by emoji score falling back to a string comparison
+export function sortEmoji(a, b) {
+  return a.score - b.score || a.fieldValue.localeCompare(b.fieldValue);
+}
+
 export function searchEmoji(query) {
   const lowercaseQuery = query ? `${query}`.toLowerCase() : '';
 
@@ -156,30 +238,26 @@ export function searchEmoji(query) {
         getDescriptionMatch(emoji, lowercaseQuery),
         getAliasMatch(emoji, matchingAliases),
         getNameMatch(emoji, lowercaseQuery),
-      ].filter(Boolean);
+      ]
+        .filter(Boolean)
+        .map((x) => ({ ...x, score: getEmojiScoreWithIntent(x.emoji.name, x.score) }));
 
       return minBy(matches, (x) => x.score);
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort(sortEmoji);
 }
-
-export function sortEmoji(items) {
-  // Sort results by index of and string comparison
-  return [...items].sort((a, b) => a.score - b.score || a.fieldValue.localeCompare(b.fieldValue));
-}
-
-export const CATEGORY_NAMES = Object.keys(CATEGORY_ICON_MAP);
 
 let emojiCategoryMap;
 export function getEmojiCategoryMap() {
-  if (!emojiCategoryMap) {
+  if (!emojiCategoryMap && emojiMap) {
     emojiCategoryMap = CATEGORY_NAMES.reduce((acc, category) => {
       if (category === FREQUENTLY_USED_KEY) {
         return acc;
       }
       return { ...acc, [category]: [] };
     }, {});
-    Object.keys(emojiMap).forEach((name) => {
+    validEmojiNames.forEach((name) => {
       const emoji = emojiMap[name];
       if (emojiCategoryMap[emoji.c]) {
         emojiCategoryMap[emoji.c].push(name);
@@ -214,10 +292,11 @@ export function getEmojiInfo(query, fallback = true) {
 }
 
 export function emojiFallbackImageSrc(inputName) {
-  const { name } = getEmojiInfo(inputName);
-  return `${gon.asset_host || ''}${
-    gon.relative_url_root || ''
-  }/-/emojis/${EMOJI_VERSION}/${name}.png`;
+  const { name, src } = getEmojiInfo(inputName);
+  return (
+    src ||
+    `${gon.asset_host || ''}${gon.relative_url_root || ''}/-/emojis/${EMOJI_VERSION}/${name}.png`
+  );
 }
 
 export function emojiImageTag(name, src) {
@@ -228,8 +307,6 @@ export function emojiImageTag(name, src) {
     title: `:${name}:`,
     alt: `:${name}:`,
     src,
-    width: '20',
-    height: '20',
     align: 'absmiddle',
   });
 
@@ -245,5 +322,12 @@ export function glEmojiTag(inputName, options) {
     ? `data-fallback-sprite-class="${escape(fallbackSpriteClass)}" `
     : '';
 
-  return `<gl-emoji ${fallbackSpriteAttribute}data-name="${escape(name)}"></gl-emoji>`;
+  const fallbackUrl = opts.url;
+  const fallbackSrcAttribute = fallbackUrl
+    ? `data-fallback-src="${fallbackUrl}" data-unicode-version="custom"`
+    : '';
+
+  return `<gl-emoji ${fallbackSrcAttribute}${fallbackSpriteAttribute}data-name="${escape(
+    name,
+  )}"></gl-emoji>`;
 }

@@ -8,13 +8,14 @@ module API
     before { authenticate! }
 
     feature_category :team_planning
+    urgency :low
 
     LABEL_ENDPOINT_REQUIREMENTS = API::NAMESPACE_OR_PROJECT_REQUIREMENTS.merge(
       name: API::NO_SLASH_URL_PART_REGEX,
       label_id: API::NO_SLASH_URL_PART_REGEX)
 
     params do
-      requires :id, type: String, desc: 'The ID of a project'
+      requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
     end
     resource :projects, requirements: LABEL_ENDPOINT_REQUIREMENTS do
       desc 'Get all labels of the project' do
@@ -22,11 +23,11 @@ module API
       end
       params do
         optional :with_counts, type: Boolean, default: false,
-                 desc: 'Include issue and merge request counts'
+          desc: 'Include issue and merge request counts'
         optional :include_ancestor_groups, type: Boolean, default: true,
-                 desc: 'Include ancestor groups'
+          desc: 'Include ancestor groups'
         optional :search, type: String,
-                 desc: 'Keyword to filter labels by. This feature was added in GitLab 13.6'
+          desc: 'Keyword to filter labels by. This feature was added in GitLab 13.6'
         use :pagination
       end
       get ':id/labels' do
@@ -39,7 +40,7 @@ module API
       end
       params do
         optional :include_ancestor_groups, type: Boolean, default: true,
-                 desc: 'Include ancestor groups'
+          desc: 'Include ancestor groups'
       end
       get ':id/labels/:name' do
         get_label(user_project, Entities::ProjectLabel, declared_params)

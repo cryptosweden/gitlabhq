@@ -7,31 +7,24 @@ module Integrations
 
     ALLOWED_STATES = %w[failed canceled running pending success success-with-warnings skipped not_found].freeze
 
-    prop_accessor :mock_service_url
+    field :mock_service_url,
+      title: -> { s_('ProjectService|Mock CI URL') },
+      description: -> { _('URL of the Mock CI integration.') },
+      placeholder: 'http://localhost:4004',
+      required: true
+
     validates :mock_service_url, presence: true, public_url: true, if: :activated?
 
-    def title
+    def self.title
       'MockCI'
     end
 
-    def description
-      'Mock an external CI'
+    def self.description
+      _('Mock an external CI integration.')
     end
 
     def self.to_param
       'mock_ci'
-    end
-
-    def fields
-      [
-        {
-          type: 'text',
-          name: 'mock_service_url',
-          title: s_('ProjectService|Mock service URL'),
-          placeholder: 'http://localhost:4004',
-          required: true
-        }
-      ]
     end
 
     # Return complete url to build page
@@ -57,7 +50,7 @@ module Integrations
     #   # => 'running'
     #
     def commit_status(sha, ref)
-      response = Gitlab::HTTP.get(commit_status_path(sha), verify: enable_ssl_verification, use_read_total_timeout: true)
+      response = Gitlab::HTTP.get(commit_status_path(sha), verify: enable_ssl_verification)
       read_commit_status(response)
     rescue Errno::ECONNREFUSED
       :error

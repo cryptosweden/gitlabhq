@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
-include ImportExport::CommonUtil
 
-RSpec.describe Gitlab::ImportExport::VersionChecker do
+RSpec.describe Gitlab::ImportExport::VersionChecker, feature_category: :importers do
+  include ImportExport::CommonUtil
+
   let!(:shared) { Gitlab::ImportExport::Shared.new(nil) }
 
   describe 'bundle a project Git repo' do
@@ -29,7 +30,7 @@ RSpec.describe Gitlab::ImportExport::VersionChecker do
     end
 
     context 'newer version' do
-      let(:version) { '900.0'}
+      let(:version) { '900.0' }
 
       it 'returns false if export version is newer' do
         expect(described_class.check!(shared: shared)).to be false

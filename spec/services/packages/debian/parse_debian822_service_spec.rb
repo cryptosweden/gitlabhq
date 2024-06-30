@@ -1,7 +1,8 @@
 # frozen_string_literal: true
+
 require 'spec_helper'
 
-RSpec.describe Packages::Debian::ParseDebian822Service do
+RSpec.describe Packages::Debian::ParseDebian822Service, feature_category: :package_registry do
   subject { described_class.new(input) }
 
   context 'with dpkg-deb --field output' do
@@ -76,14 +77,19 @@ RSpec.describe Packages::Debian::ParseDebian822Service do
           'Multi-Arch' => 'same',
           'Depends' => '${shlibs:Depends}, ${misc:Depends}',
           'Description' => "Some mostly empty lib\nUsed in GitLab tests.\n\nTesting another paragraph."
-         },
-         'Package: sample-udeb' => {
-           'Package' => 'sample-udeb',
-           'Package-Type' => 'udeb',
-           'Architecture' => 'any',
-           'Depends' => 'installed-base',
-           'Description' => 'Some mostly empty udeb'
-         }
+        },
+        'Package: sample-udeb' => {
+          'Package' => 'sample-udeb',
+          'Package-Type' => 'udeb',
+          'Architecture' => 'any',
+          'Depends' => 'installed-base',
+          'Description' => 'Some mostly empty udeb'
+        },
+        'Package: sample-ddeb' => {
+          'Package' => 'sample-ddeb',
+          'Architecture' => 'any',
+          'Description' => 'Some fake Ubuntu ddeb'
+        }
       }
 
       expect(subject.execute.to_s).to eq(expected.to_s)
@@ -102,7 +108,7 @@ RSpec.describe Packages::Debian::ParseDebian822Service do
     let(:input) { ' continuation' }
 
     it 'raise error' do
-      expect {subject.execute}.to raise_error(described_class::InvalidDebian822Error, 'Parse error. Unexpected continuation line')
+      expect { subject.execute }.to raise_error(described_class::InvalidDebian822Error, 'Parse error. Unexpected continuation line')
     end
   end
 
@@ -116,7 +122,7 @@ RSpec.describe Packages::Debian::ParseDebian822Service do
     end
 
     it 'raise error' do
-      expect {subject.execute}.to raise_error(described_class::InvalidDebian822Error, "Duplicate field 'Source' in section 'Package: libsample0'")
+      expect { subject.execute }.to raise_error(described_class::InvalidDebian822Error, "Duplicate field 'Source' in section 'Package: libsample0'")
     end
   end
 
@@ -128,7 +134,7 @@ RSpec.describe Packages::Debian::ParseDebian822Service do
     end
 
     it 'raise error' do
-      expect {subject.execute}.to raise_error(described_class::InvalidDebian822Error, 'Parse error on line Hello')
+      expect { subject.execute }.to raise_error(described_class::InvalidDebian822Error, 'Parse error on line Hello')
     end
   end
 
@@ -142,7 +148,7 @@ RSpec.describe Packages::Debian::ParseDebian822Service do
     end
 
     it 'raise error' do
-      expect {subject.execute}.to raise_error(described_class::InvalidDebian822Error, "Duplicate section 'Package: libsample0'")
+      expect { subject.execute }.to raise_error(described_class::InvalidDebian822Error, "Duplicate section 'Package: libsample0'")
     end
   end
 end

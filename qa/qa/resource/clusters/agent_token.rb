@@ -5,13 +5,12 @@ module QA
     module Clusters
       class AgentToken < QA::Resource::Base
         attribute :id
-        attribute :secret
+        attribute :token
         attribute :agent do
           QA::Resource::Clusters::Agent.fabricate_via_api!
         end
 
-        def fabricate!
-        end
+        def fabricate!; end
 
         def resource_web_url(resource)
           super
@@ -20,26 +19,23 @@ module QA
         end
 
         def api_get_path
-          "gid://gitlab/Clusters::AgentToken/#{id}"
+          "/projects/#{agent.project.id}/cluster_agents/#{agent.id}/tokens/#{id}"
         end
 
         def api_post_path
-          "/graphql"
+          "/projects/#{agent.project.id}/cluster_agents/#{agent.id}/tokens"
+        end
+
+        def api_delete_path
+          api_get_path
         end
 
         def api_post_body
-          <<~GQL
-          mutation createToken {
-            clusterAgentTokenCreate(input: { clusterAgentId: "gid://gitlab/Clusters::Agent/#{agent.id}" name: "token-#{agent.id}" }) {
-              secret # This is the value you need to use on the next step
-              token {
-                createdAt
-                id
-              }
-              errors
-            }
+          {
+            id: agent.project.id,
+            agent_id: agent.id,
+            name: agent.name
           }
-          GQL
         end
       end
     end

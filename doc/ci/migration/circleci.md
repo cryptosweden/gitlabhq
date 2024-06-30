@@ -1,27 +1,27 @@
 ---
 stage: Verify
 group: Pipeline Authoring
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
-type: index, howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Migrating from CircleCI **(FREE)**
+# Migrating from CircleCI
 
-If you are currently using CircleCI, you can migrate your CI/CD pipelines to [GitLab CI/CD](../introduction/index.md),
-and start making use of all its powerful features. Check out our
-[CircleCI vs GitLab](https://about.gitlab.com/devops-tools/circle-ci-vs-gitlab/)
-comparison to see what's different.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+If you are currently using CircleCI, you can migrate your CI/CD pipelines to [GitLab CI/CD](../index.md),
+and start making use of all its powerful features.
 
 We have collected several resources that you may find useful before starting to migrate.
 
 The [Quick Start Guide](../quick_start/index.md) is a good overview of how GitLab CI/CD works. You may also be interested in [Auto DevOps](../../topics/autodevops/index.md) which can be used to build, test, and deploy your applications with little to no configuration needed at all.
 
-For advanced CI/CD teams, [custom project templates](../../user/admin_area/custom_project_templates.md) can enable the reuse of pipeline configurations.
+For advanced CI/CD teams, [custom project templates](../../administration/custom_project_templates.md) can enable the reuse of pipeline configurations.
 
 If you have questions that are not answered here, the [GitLab community forum](https://forum.gitlab.com/) can be a great resource.
 
-## `config.yml` vs `gitlab-ci.yml`
+## `config.yml` vs `.gitlab-ci.yml`
 
 CircleCI's `config.yml` configuration file defines scripts, jobs, and workflows (known as "stages" in GitLab). In GitLab, a similar approach is used with a `.gitlab-ci.yml` file in the root directory of your repository.
 
@@ -136,6 +136,7 @@ job3:
 job4:
   stage: deploy
   script: make deploy
+  environment: production
 ```
 
 #### Scheduled run
@@ -166,7 +167,7 @@ job1:
   script:
     - make build
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_REF_NAME == "try-schedule-workflow"'
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_REF_NAME == "try-schedule-workflow"
 ```
 
 After the pipeline configuration is saved, you configure the cron schedule in the [GitLab UI](../pipelines/schedules.md#add-a-pipeline-schedule), and can enable or disable schedules in the UI as well.
@@ -196,6 +197,7 @@ deploy_prod:
   script:
     - echo "Deploy to production server"
   when: manual
+  environment: production
 ```
 
 ### Filter job by branch
@@ -221,7 +223,8 @@ deploy:
   script:
     - echo "Deploy job"
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH =~ /^rc-/'
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH =~ /^rc-/
+  environment: production
 ```
 
 ### Caching
@@ -247,25 +250,21 @@ jobs:
 Example of the same pipeline using `cache` in GitLab CI/CD:
 
 ```yaml
-image: node:latest
-
-# Cache modules in between jobs
-cache:
-  key: $CI_COMMIT_REF_SLUG
-  paths:
-    - .npm/
-
-before_script:
-  - npm ci --cache .npm --prefer-offline
-
 test_async:
+  image: node:latest
+  cache:  # Cache modules in between jobs
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - .npm/
+  before_script:
+    - npm ci --cache .npm --prefer-offline
   script:
     - node ./specs/start.js ./specs/async.spec.js
 ```
 
 ## Contexts and variables
 
-CircleCI provides [Contexts](https://circleci.com/docs/2.0/contexts/) to securely pass environment variables across project pipelines. In GitLab, a [Group](../../user/group/index.md) can be created to assemble related projects together. At the group level, [CI/CD variables](../variables/index.md#add-a-cicd-variable-to-a-group) can be stored outside the individual projects, and securely passed into pipelines across multiple projects.
+CircleCI provides [Contexts](https://circleci.com/docs/contexts/) to securely pass environment variables across project pipelines. In GitLab, a [Group](../../user/group/index.md) can be created to assemble related projects together. At the group level, [CI/CD variables](../variables/index.md#for-a-group) can be stored outside the individual projects, and securely passed into pipelines across multiple projects.
 
 ## Orbs
 
@@ -286,11 +285,11 @@ Self-managed runners:
 - Windows
 - macOS
 
-GitLab.com shared runners:
+GitLab.com instance runners:
 
 - Linux
-- Windows
-- [Planned: macOS](https://gitlab.com/gitlab-com/gl-infra/infrastructure/-/issues/5720)
+- [Windows](../runners/hosted_runners/windows.md) ([beta](../../policy/experiment-beta-support.md#beta)).
+- [macOS](../runners/hosted_runners/macos.md) ([beta](../../policy/experiment-beta-support.md#beta)).
 
 ### Machine and specific build environments
 
@@ -318,16 +317,14 @@ Example of the same job using `tags` in GitLab CI/CD:
 
 ```yaml
 windows job:
-  stage:
-    - build
+  stage: build
   tags:
     - windows
   script:
     - echo Hello, %USERNAME%!
 
 osx job:
-  stage:
-    - build
+  stage: build
   tags:
     - osx
   script:

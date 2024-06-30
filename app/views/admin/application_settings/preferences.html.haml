@@ -1,98 +1,87 @@
 - breadcrumb_title _("Preferences")
 - page_title _("Preferences")
-- @content_class = "limit-container-width" unless fluid_layout
+- add_page_specific_style 'page_bundles/settings'
+- @force_desktop_expanded_sidebar = true
 
-%section.settings.as-email.no-animate#js-email-settings{ class: ('expanded' if expanded_by_default?), data: { qa_selector: 'email_content' } }
-  .settings-header
-    %h4
-      = _('Email')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = _('Various email settings.')
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_('Email'),
+  id: 'js-email-settings',
+  testid: 'email-content',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _('Various email settings.')
+  - c.with_body do
     = render 'email'
 
-%section.settings.as-whats-new-page.no-animate#js-whats-new-settings{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    %h4
-      = _("What's new")
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = _("Configure %{italic_start}What's new%{italic_end} drawer and content.").html_safe % { italic_start: '<i>'.html_safe, italic_end: '</i>'.html_safe }
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_("What's new"),
+  id: 'js-whats-new-settings',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _("Configure %{italic_start}What's new%{italic_end} drawer and content.").html_safe % { italic_start: '<i>'.html_safe, italic_end: '</i>'.html_safe }
+  - c.with_body do
     = render 'whats_new'
 
-%section.settings.as-help-page.no-animate#js-help-settings{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    %h4
-      = _('Sign-in and Help page')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = _('Additional text for the sign-in and Help page.')
-      = link_to s_('Learn more.'), help_page_path('user/admin_area/settings/help_page.md'), target: '_blank', rel: 'noopener noreferrer'
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_('Help page'),
+  id: 'js-help-settings',
+  testid: 'help-page-content',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _('Additional text for the Help page.')
+    = link_to _('Learn more.'), help_page_path('administration/settings/help_page'), target: '_blank', rel: 'noopener noreferrer'
+  - c.with_body do
     = render 'help_page'
 
-%section.settings.as-pages.no-animate#js-pages-settings{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    %h4
-      = _('Pages')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = s_('AdminSettings|Size and domain settings for Pages static sites.')
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_('Pages'),
+  id: 'js-pages-settings',
+  testid: 'pages-content',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = s_('AdminSettings|Size and domain settings for Pages static sites.')
+  - c.with_body do
     = render 'pages'
 
-%section.settings.as-realtime.no-animate#js-realtime-settings{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    %h4
-      = _('Polling interval multiplier')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = _('Adjust how frequently the GitLab UI polls for updates.')
-      = link_to _('Learn more.'), help_page_path('administration/polling.md'), target: '_blank', rel: 'noopener noreferrer'
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_('Polling interval multiplier'),
+  id: 'js-realtime-settings',
+  testid: 'realtime-content',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _('Adjust how frequently the GitLab UI polls for updates.')
+    = link_to _('Learn more.'), help_page_path('administration/polling'), target: '_blank', rel: 'noopener noreferrer'
+  - c.with_body do
     = render 'realtime'
 
-%section.settings.as-gitaly.no-animate#js-gitaly-settings{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    %h4
-      = _('Gitaly timeouts')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = _('Configure Gitaly timeouts.')
-      %span
-        = link_to _('Learn more.'), help_page_path('user/admin_area/settings/gitaly_timeouts.md'), target: '_blank', rel: 'noopener noreferrer'
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_('Gitaly timeouts'),
+  id: 'js-gitaly-settings',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _('Configure Gitaly timeouts.')
+    %span
+      = link_to _('Learn more.'), help_page_path('administration/settings/gitaly_timeouts'), target: '_blank', rel: 'noopener noreferrer'
+  - c.with_body do
     = render 'gitaly'
 
-%section.settings.as-localization.no-animate#js-localization-settings{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    %h4
-      = _('Localization')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = _('Configure the default first day of the week and time tracking units.')
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_('Localization'),
+  id: 'js-localization-settings',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _('Configure the default first day of the week, time tracking units, and default language.')
+  - c.with_body do
     = render 'localization'
 
-%section.settings.as-sidekiq-job-limits.no-animate#js-sidekiq-job-limits-settings{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    %h4
-      = _('Sidekiq job size limits')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = _('Limit the size of Sidekiq jobs stored in Redis.')
-      %span
-        = link_to _('Learn more.'), help_page_path('user/admin_area/settings/sidekiq_job_limits.md'), target: '_blank', rel: 'noopener noreferrer'
-
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_('Sidekiq job size limits'),
+  id: 'js-sidekiq-job-limits-settings',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _('Limit the size of Sidekiq jobs stored in Redis.')
+    %span
+      = link_to _('Learn more.'), help_page_path('administration/settings/sidekiq_job_limits'), target: '_blank', rel: 'noopener noreferrer'
+  - c.with_body do
     = render 'sidekiq_job_limits'
+
+= render ::Layouts::SettingsBlockComponent.new(s_('TerraformLimits|Terraform limits'),
+  id: 'js-terraform-limits-settings',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = s_('TerraformLimits|Limits for Terraform features')
+    = link_to s_('TerraformLimits|Learn more about Terraform limits.'), help_page_path('administration/settings/terraform_limits'), target: '_blank', rel: 'noopener noreferrer'
+  - c.with_body do
+    = render 'terraform_limits'

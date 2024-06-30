@@ -3,38 +3,48 @@
 
   .form-group
     = f.label :name do
-      = _("Topic name")
-    = f.text_field :name, placeholder: _('My topic'), class: 'form-control input-lg', data: { qa_selector: 'topic_name_field' },
+      = _("Topic slug (name)")
+    = f.text_field :name, placeholder: _('my-topic'), class: 'form-control input-lg',
       required: true,
       title: _('Please fill in a name for your topic.'),
       autofocus: true
 
   .form-group
+    = f.label :title do
+      = _("Topic title")
+    = f.text_field :title, placeholder: _('My topic'), class: 'form-control input-lg',
+      required: true,
+      title: _('Please fill in a title for your topic.')
+
+  .form-group
     = f.label :description, _("Description")
-    = render layout: 'shared/md_preview', locals: { url: preview_markdown_admin_topics_path, referenced_users: false } do
-      = render 'shared/zen', f: f, attr: :description,
-                               classes: 'note-textarea',
-                               placeholder: _('Write a description…'),
-                               supports_quick_actions: false,
-                               supports_autocomplete: false,
-                               qa_selector: 'topic_form_description'
-      = render 'shared/notes/hints', supports_file_upload: false
+    .js-markdown-editor{ data: { render_markdown_path: preview_markdown_admin_topics_path,
+                                 markdown_docs_path: help_page_path('user/markdown'),
+                                 testid: 'topic-form-description',
+                                 form_field_placeholder: _('Write a description…'),
+                                 supports_quick_actions: 'false',
+                                 enable_autocomplete: 'false',
+                                 disable_attachments: 'true',
+                                 form_field_classes: 'note-textarea js-gfm-input markdown-area' } }
+      = f.hidden_field :description
 
   .form-group.gl-mt-3.gl-mb-3
-    = f.label :avatar, _('Topic avatar'), class: 'gl-display-block'
+    = f.label :avatar, _('Topic avatar'), class: 'gl-block'
     - if @topic.avatar?
-      .avatar-container.rect-avatar.s90
-        = topic_icon(@topic, alt: _('Topic avatar'), class: 'avatar topic-avatar s90')
+      = render Pajamas::AvatarComponent.new(@topic, alt: _('Topic avatar'), class: 'gl-float-left gl-mr-5', size: 96)
     = render 'shared/choose_avatar_button', f: f
     - if @topic.avatar?
       .js-remove-topic-avatar{ data: { path: admin_topic_avatar_path(@topic), name: @topic.name } }
 
   - if @topic.new_record?
     .form-actions
-      = f.submit _('Create topic'), class: "gl-button btn btn-confirm"
-      = link_to  _('Cancel'), admin_topics_path, class: "gl-button btn btn-default btn-cancel"
+      = f.submit _('Create topic'), pajamas_button: true
+      = render Pajamas::ButtonComponent.new(href: admin_topics_path) do
+        = _('Cancel')
 
   - else
     .form-actions
-      = f.submit _('Save changes'), class: "gl-button btn btn-confirm", data: { qa_selector: 'save_changes_button' }
-      = link_to  _('Cancel'), admin_topics_path, class: "gl-button btn btn-cancel"
+      = f.submit _('Save changes'), pajamas_button: true
+      = render Pajamas::ButtonComponent.new(href: admin_topics_path) do
+        = _('Cancel')
+

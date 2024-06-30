@@ -2,7 +2,7 @@
 
 module Network
   class Graph
-    attr_reader :days, :commits, :map, :notes, :repo
+    attr_reader :days, :commits, :map, :repo
 
     def self.max_count
       @max_count ||= 650
@@ -17,25 +17,9 @@ module Network
 
       @commits = collect_commits
       @days = index_commits
-      @notes = collect_notes
     end
 
     protected
-
-    def collect_notes
-      h = Hash.new(0)
-
-      @project
-        .notes
-        .where(noteable_type: 'Commit')
-        .group('notes.commit_id')
-        .select('notes.commit_id, count(notes.id) as note_count')
-        .each do |item|
-          h[item.commit_id] = item.note_count.to_i
-        end
-
-      h
-    end
 
     # Get commits from repository
     #
@@ -84,6 +68,7 @@ module Network
       skip = 0
       while offset == -1
         tmp_commits = find_commits(skip)
+
         if tmp_commits.present?
           index = tmp_commits.index do |c|
             c.id == @commit.id
@@ -103,22 +88,24 @@ module Network
 
       if self.class.max_count / 2 < offset
         # get max index that commit is displayed in the center.
-        offset - self.class.max_count / 2
+        offset - (self.class.max_count / 2)
       else
         0
       end
     end
 
     def find_commits(skip = 0)
-      opts = {
-        max_count: self.class.max_count,
-        skip: skip,
-        order: :date
-      }
+      Gitlab::SafeRequestStore.fetch([@project, :network_graph_commits, skip]) do
+        opts = {
+          max_count: self.class.max_count,
+          skip: skip,
+          order: :date
+        }
 
-      opts[:ref] = @commit.id if @filter_ref
+        opts[:ref] = @commit.id if @filter_ref
 
-      Gitlab::Git::Commit.find_all(@repo.raw_repository, opts)
+        Gitlab::Git::Commit.find_all(@repo.raw_repository, opts)
+      end
     end
 
     def commits_sort_by_ref
@@ -211,7 +198,7 @@ module Network
 
       # Visit branching chains
       leaves.each do |l|
-        parents = l.parents(@map).select {|p| p.space == 0}
+        parents = l.parents(@map).select { |p| p.space == 0 }
         parents.each do |p|
           place_chain(p, l.time)
         end

@@ -1,7 +1,7 @@
 package api
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,7 +20,7 @@ func TestBlocker(t *testing.T) {
 		{
 			desc:        "blocked",
 			contentType: ResponseContentType,
-			out:         "Internal server error\n",
+			out:         "Internal Server Error\n",
 		},
 		{
 			desc:        "pass",
@@ -41,16 +41,26 @@ func TestBlocker(t *testing.T) {
 			upstreamBody := []byte(upstreamResponse)
 			n, err := bl.Write(upstreamBody)
 			require.NoError(t, err)
-			require.Equal(t, len(upstreamBody), n, "bytes written")
+			require.Len(t, upstreamBody, n, "bytes written")
 
 			rw.Flush()
 
 			body := rw.Result().Body
-			data, err := ioutil.ReadAll(body)
+			data, err := io.ReadAll(body)
 			require.NoError(t, err)
 			require.NoError(t, body.Close())
 
 			require.Equal(t, tc.out, string(data))
 		})
 	}
+}
+
+func TestBlockerFlushable(t *testing.T) {
+	rw := httptest.NewRecorder()
+	b := blocker{rw: rw}
+	rc := http.NewResponseController(&b)
+
+	err := rc.Flush()
+	require.NoError(t, err, "the underlying response writer is not flushable")
+	require.True(t, rw.Flushed)
 }

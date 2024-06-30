@@ -1,13 +1,25 @@
 import waitForPromises from 'helpers/wait_for_promises';
 import initCopyAsGFM, { CopyAsGFM } from '~/behaviors/markdown/copy_as_gfm';
 
+jest.mock('~/emoji');
+
 describe('CopyAsGFM', () => {
+  beforeAll(() => {
+    initCopyAsGFM();
+
+    // Fake call to nodeToGfm so the import of lazy bundle happened
+    return CopyAsGFM.nodeToGFM(document.createElement('div'));
+  });
+
   describe('CopyAsGFM.pasteGFM', () => {
     let target;
 
     beforeEach(() => {
       target = document.createElement('input');
       target.value = 'This is code: ';
+
+      // needed for the underlying insertText to work
+      document.execCommand = jest.fn(() => false);
     });
 
     // When GFM code is copied, we put the regular plain text
@@ -86,13 +98,6 @@ describe('CopyAsGFM', () => {
       return waitForPromises();
     };
 
-    beforeAll(() => {
-      initCopyAsGFM();
-
-      // Fake call to nodeToGfm so the import of lazy bundle happened
-      return CopyAsGFM.nodeToGFM(document.createElement('div'));
-    });
-
     beforeEach(() => jest.spyOn(clipboardData, 'setData'));
 
     describe('list handling', () => {
@@ -113,7 +118,7 @@ describe('CopyAsGFM', () => {
         window.getSelection = jest.fn(() => selection);
         await simulateCopy();
 
-        const expectedGFM = '1. List Item1\n1. List Item2';
+        const expectedGFM = '1. List Item1\n2. List Item2';
 
         expect(clipboardData.setData).toHaveBeenCalledWith('text/x-gfm', expectedGFM);
       });

@@ -1,106 +1,108 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
+stage: Manage
+group: Import and Integrate
+description: Projects, issues, authentication, security providers.
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab integrations **(FREE)**
+# Integrate with GitLab
 
-GitLab can be integrated with external services for enhanced functionality.
+You can integrate GitLab with external applications for enhanced functionality.
+
+## Project integrations
+
+Applications like Jenkins, Jira, and Slack are available as [project integrations](../user/project/integrations/index.md).
 
 ## Issue trackers
 
-You can use an [external issue tracker](external-issue-tracker.md) at the same time as the GitLab
-issue tracker, or use only the external issue tracker.
+You can configure an [external issue tracker](external-issue-tracker.md) and use:
 
-## Authentication sources
+- The external issue tracker with the GitLab issue tracker
+- The external issue tracker only
 
-GitLab can be configured to authenticate access requests with the following authentication sources:
+## Authentication providers
 
-- Enable the [Auth0 OmniAuth](auth0.md) provider.
-- Enable sign in with [Bitbucket](bitbucket.md) accounts.
-- Configure GitLab to sign in using [CAS](cas.md).
-- Integrate with [Kerberos](kerberos.md).
-- Enable sign in via [LDAP](../administration/auth/ldap/index.md).
-- Enable [OAuth2 provider](oauth_provider.md) application creation.
-- Use [OmniAuth](omniauth.md) to enable sign in via Twitter, GitHub, GitLab.com, Google,
-  Bitbucket, Facebook, Shibboleth, SAML, Crowd, Azure, or Authentiq ID.
-- Use GitLab as an [OpenID Connect](openid_connect_provider.md) identity provider.
-- Authenticate to [Vault](vault.md) through GitLab OpenID Connect.
-- Configure GitLab as a [SAML](saml.md) 2.0 Service Provider.
+You can integrate GitLab with authentication providers like LDAP and SAML.
 
-## Security enhancements
+For more information, see [GitLab authentication and authorization](../administration/auth/index.md).
 
-GitLab can be integrated with the following external services to enhance security:
+## Security improvements
 
-- [Akismet](akismet.md) helps reduce spam.
-- Google [reCAPTCHA](recaptcha.md) helps verify new users.
+Solutions like Akismet and reCAPTCHA are available for spam protection.
 
-GitLab also provides features to improve the security of your own application. For more details see [GitLab Secure](../user/application_security/index.md).
+You can also integrate GitLab with the following security partners:
 
-## Security partners
+<!-- vale gitlab.Spelling = NO -->
 
-GitLab has integrated with several security partners. For more information, see
-[Security partners integration](security_partners/index.md).
+- [Anchore](https://docs.anchore.com/current/docs/integration/ci_cd/gitlab/)
+- [Prisma Cloud](https://docs.prismacloud.io/en/enterprise-edition/content-collections/application-security/get-started/connect-code-and-build-providers/code-repositories/add-gitlab)
+- [Checkmarx](https://checkmarx.atlassian.net/wiki/spaces/SD/pages/1929937052/GitLab+Integration)
+- [CodeSecure](https://codesecure.com/our-integrations/codesonar-sast-gitlab-ci-pipeline/)
+- [Deepfactor](https://www.deepfactor.io/docs/integrate-deepfactor-scanner-in-your-ci-cd-pipelines/#gitlab)
+- [Fortify](https://www.microfocus.com/en-us/fortify-integrations/gitlab)
+- [Indeni](https://docs.cloudrail.app/#/integrations/gitlab)
+- [Jscrambler](https://docs.jscrambler.com/code-integrity/documentation/gitlab-ci-integration)
+- [Mend](https://www.mend.io/gitlab/)
+- [Semgrep](https://semgrep.dev/for/gitlab/)
+- [StackHawk](https://docs.stackhawk.com/continuous-integration/gitlab.html)
+- [Tenable](https://docs.tenable.com/vulnerability-management/Content/ContainerSecurity/Dashboard.htm)
+- [Venafi](https://marketplace.venafi.com/xchange/620d2d6ed419fb06a5c5bd36/solution/6292c2ef7550f2ee553cf223)
+- [Veracode](https://community.veracode.com/s/knowledgeitem/gitlab-ci-MCEKSYPRWL35BRTGOVI55SK5RI4A)
 
-## Continuous integration
+<!-- vale gitlab.Spelling = YES -->
 
-GitLab can be integrated with the following external services for continuous integration:
-
-- [Jenkins](jenkins.md) CI.
-- [Datadog](datadog.md), to monitor for CI/CD job failures and performance issues.
-
-## Feature enhancements
-
-GitLab can be integrated with the following enhancements:
-
-- Add GitLab actions to [Gmail actions buttons](gmail_action_buttons_for_gitlab.md).
-- Configure [PlantUML](../administration/integration/plantuml.md)
-or [Kroki](../administration/integration/kroki.md) to use diagrams in AsciiDoc and Markdown documents.
-- Attach merge requests to [Trello](trello_power_up.md) cards.
-- Enable integrated code intelligence powered by [Sourcegraph](sourcegraph.md).
-- Add [Elasticsearch](elasticsearch.md) for [Advanced Search](../user/search/advanced_search.md).
-
-## Integrations
-
-Integration with services such as Campfire, Flowdock, Jira, Pivotal Tracker, and Slack are available as [Integrations](../user/project/integrations/overview.md).
+GitLab can check your application for security vulnerabilities.
+For more information, see [Secure your application](../user/application_security/secure_your_application.md).
 
 ## Troubleshooting
 
+When working with integrations, you might encounter the following issues.
+
 ### SSL certificate errors
 
-When trying to integrate GitLab with services using self-signed certificates,
-SSL certificate errors can occur in different parts of the application. Sidekiq
-is a common culprit.
+When you use a self-signed certificate to integrate GitLab with external applications, you might
+encounter SSL certificate errors in different parts of GitLab.
 
-There are two approaches you can take to solve this:
+As a workaround, do one of the following:
 
-1. Add the root certificate to the trusted chain of the OS.
-1. If using Omnibus, you can add the certificate to the GitLab trusted certificates.
+- Add the certificate to the OS trusted chain. For more information, see:
+  - [Adding trusted root certificates to the server](https://manuals.gfi.com/en/kerio/connect/content/server-configuration/ssl-certificates/adding-trusted-root-certificates-to-the-server-1605.html)
+  - [How do you add a certificate authority (CA) to Ubuntu?](https://superuser.com/questions/437330/how-do-you-add-a-certificate-authority-ca-to-ubuntu)
+- For installations that use the Linux package, add the certificate to the GitLab trusted chain:
+  1. [Install the self-signed certificate](https://docs.gitlab.com/omnibus/settings/ssl/index.html#install-custom-public-certificates).
+  1. Concatenate the self-signed certificate with the GitLab trusted certificate.
+     The self-signed certificate might be overwritten during upgrades.
 
-**OS main trusted chain**
+     ```shell
+     cat jira.pem >> /opt/gitlab/embedded/ssl/certs/cacert.pem
+     ```
 
-This [resource](https://manuals.gfi.com/en/kerio/connect/content/server-configuration/ssl-certificates/adding-trusted-root-certificates-to-the-server-1605.html)
-has all the information you need to add a certificate to the main trusted chain.
+  1. Restart GitLab.
 
-This [answer](https://superuser.com/questions/437330/how-do-you-add-a-certificate-authority-ca-to-ubuntu)
-at Super User also has relevant information.
+     ```shell
+     sudo gitlab-ctl restart
+     ```
 
-**Omnibus Trusted Chain**
+### Search Sidekiq logs in Kibana
 
-[Install the self signed certificate or custom certificate authorities](https://docs.gitlab.com/omnibus/common_installation_problems/index.html#using-self-signed-certificate-or-custom-certificate-authorities)
-in to Omnibus GitLab.
+To locate a specific integration in Kibana, use the following KQL search string:
 
-It is enough to concatenate the certificate to the main trusted certificate
-however it may be overwritten during upgrades:
-
-```shell
-cat jira.pem >> /opt/gitlab/embedded/ssl/certs/cacert.pem
+```plaintext
+`json.integration_class.keyword : "Integrations::Jira" and json.project_path : "path/to/project"`
 ```
 
-After that restart GitLab with:
+You can find information in:
 
-```shell
-sudo gitlab-ctl restart
-```
+- `json.exception.backtrace`
+- `json.exception.class`
+- `json.exception.message`
+- `json.message`
+
+### `Test Failed. Save Anyway` error
+
+When you configure an integration on an uninitialized repository, the integration might fail with
+a `Test Failed. Save Anyway` error. This error occurs because the integration uses push data
+to build the test payload when the project does not have push events.
+
+To resolve this issue, initialize the repository by pushing a test file to the project
+and configure the integration again.

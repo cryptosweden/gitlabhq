@@ -1,45 +1,30 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Verify', :runner do
+  RSpec.describe 'Verify', :runner, product_group: :pipeline_authoring do
     describe 'Include multiple files from a project' do
-      let(:executor) { "qa-runner-#{Faker::Alphanumeric.alphanumeric(8)}" }
+      let(:executor) { "qa-runner-#{Faker::Alphanumeric.alphanumeric(number: 8)}" }
       let(:expected_text) { Faker::Lorem.sentence }
       let(:unexpected_text) { Faker::Lorem.sentence }
 
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'project-with-pipeline-1'
-        end
-      end
-
-      let(:other_project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'project-with-pipeline-2'
-        end
-      end
-
-      let!(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.project = project
-          runner.name = executor
-          runner.tags = [executor]
-        end
-      end
+      let(:project) { create(:project, name: 'project-with-pipeline-1') }
+      let(:other_project) { create(:project, name: 'project-with-pipeline-2') }
+      let!(:runner) { create(:project_runner, project: project, name: executor, tags: [executor]) }
 
       before do
         Flow::Login.sign_in
         add_included_files
         add_main_ci_file
         project.visit!
-        Flow::Pipeline.visit_latest_pipeline(pipeline_condition: 'succeeded')
+        Flow::Pipeline.visit_latest_pipeline(status: 'Passed')
       end
 
       after do
         runner.remove_via_api!
       end
 
-      it 'runs the pipeline with composed config', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348087' do
+      it 'runs the pipeline with composed config', :blocking,
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348087' do
         Page::Project::Pipeline::Show.perform do |pipeline|
           aggregate_failures 'pipeline has all expected jobs' do
             expect(pipeline).to have_job('build')
@@ -52,8 +37,8 @@ module QA
 
         Page::Project::Job::Show.perform do |job|
           aggregate_failures 'main CI is not overridden' do
-            expect(job.output).not_to have_content("#{unexpected_text}")
-            expect(job.output).to have_content("#{expected_text}")
+            expect(job.output).not_to have_content(unexpected_text.to_s)
+            expect(job.output).to have_content(expected_text.to_s)
           end
         end
       end
@@ -61,23 +46,19 @@ module QA
       private
 
       def add_main_ci_file
-        Resource::Repository::Commit.fabricate_via_api! do |commit|
-          commit.project = project
-          commit.commit_message = 'Add config file'
-          commit.add_files([main_ci_file])
-        end
+        create(:commit, project: project, commit_message: 'Add config file', actions: [main_ci_file])
       end
 
       def add_included_files
-        Resource::Repository::Commit.fabricate_via_api! do |commit|
-          commit.project = other_project
-          commit.commit_message = 'Add files'
-          commit.add_files([included_file_1, included_file_2])
-        end
+        create(:commit,
+          project: other_project,
+          commit_message: 'Add files',
+          actions: [included_file_1, included_file_2])
       end
 
       def main_ci_file
         {
+          action: 'create',
           file_path: '.gitlab-ci.yml',
           content: <<~YAML
             include:
@@ -101,6 +82,7 @@ module QA
 
       def included_file_1
         {
+          action: 'create',
           file_path: 'file1.yml',
           content: <<~YAML
             test:
@@ -113,6 +95,7 @@ module QA
 
       def included_file_2
         {
+          action: 'create',
           file_path: 'file2.yml',
           content: <<~YAML
             deploy:

@@ -1,10 +1,14 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Requirements for Auto DevOps **(FREE)**
+# Requirements for Auto DevOps
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Before enabling [Auto DevOps](index.md), we recommend you to prepare it for
 deployment. If you don't, you can use it to build and test your apps, and
@@ -14,36 +18,33 @@ To prepare the deployment:
 
 1. Define the [deployment strategy](#auto-devops-deployment-strategy).
 1. Prepare the [base domain](#auto-devops-base-domain).
-1. Define where you want to deploy it to:
+1. Define where you want to deploy it:
 
    1. [Kubernetes](#auto-devops-requirements-for-kubernetes).
-   1. [Amazon Elastic Container Service (ECS)](#auto-devops-requirements-for-amazon-ecs).
-   1. [Amazon EC2](#auto-devops-requirements-for-amazon-ec2).
+   1. [Amazon Elastic Container Service (ECS)](cloud_deployments/auto_devops_with_ecs.md).
+   1. [Amazon Elastic Kubernetes Service (EKS)](https://about.gitlab.com/blog/2020/05/05/deploying-application-eks/).
+   1. [Amazon EC2](cloud_deployments/auto_devops_with_ec2.md).
+   1. [Google Kubernetes Engine](cloud_deployments/auto_devops_with_gke.md).
    1. [Bare metal](#auto-devops-requirements-for-bare-metal).
 
-When done:
-
 1. [Enable Auto DevOps](index.md#enable-or-disable-auto-devops).
-1. See the [quick start](quick_start_guide.md) process.
 
 ## Auto DevOps deployment strategy
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/38542) in GitLab 11.0.
-
 When using Auto DevOps to deploy your applications, choose the
-[continuous deployment strategy](../../ci/introduction/index.md)
+[continuous deployment strategy](../../ci/index.md)
 that works best for your needs:
 
 | Deployment strategy | Setup | Methodology |
 |--|--|--|
 | **Continuous deployment to production** | Enables [Auto Deploy](stages.md#auto-deploy) with the default branch continuously deployed to production. | Continuous deployment to production.|
-| **Continuous deployment to production using timed incremental rollout** | Sets the [`INCREMENTAL_ROLLOUT_MODE`](customize.md#timed-incremental-rollout-to-production) variable to `timed`. | Continuously deploy to production with a 5 minutes delay between rollouts. |
-| **Automatic deployment to staging, manual deployment to production** | Sets [`STAGING_ENABLED`](customize.md#deploy-policy-for-staging-and-production-environments) to `1` and [`INCREMENTAL_ROLLOUT_MODE`](customize.md#incremental-rollout-to-production) to `manual`. | The default branch is continuously deployed to staging and continuously delivered to production. |
+| **Continuous deployment to production using timed incremental rollout** | Sets the [`INCREMENTAL_ROLLOUT_MODE`](cicd_variables.md#timed-incremental-rollout-to-production) variable to `timed`. | Continuously deploy to production with a 5 minutes delay between rollouts. |
+| **Automatic deployment to staging, manual deployment to production** | Sets [`STAGING_ENABLED`](cicd_variables.md#deploy-policy-for-staging-and-production-environments) to `1` and [`INCREMENTAL_ROLLOUT_MODE`](cicd_variables.md#incremental-rollout-to-production) to `manual`. | The default branch is continuously deployed to staging and continuously delivered to production. |
 
 You can choose the deployment method when enabling Auto DevOps or later:
 
-1. In GitLab, on the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > CI/CD**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > CI/CD**.
 1. Expand **Auto DevOps**.
 1. Choose the deployment strategy.
 1. Select **Save changes**.
@@ -55,35 +56,34 @@ to minimize downtime and risk.
 ## Auto DevOps base domain
 
 The Auto DevOps base domain is required to use
-[Auto Review Apps](stages.md#auto-review-apps), [Auto Deploy](stages.md#auto-deploy), and
-[Auto Monitoring](stages.md#auto-monitoring).
+[Auto Review Apps](stages.md#auto-review-apps) and [Auto Deploy](stages.md#auto-deploy).
 
 To define the base domain, either:
 
 - In the project, group, or instance level: go to your cluster settings and add it there.
 - In the project or group level: add it as an environment variable: `KUBE_INGRESS_BASE_DOMAIN`.
-- In the instance level: go to **Menu > Admin > Settings > CI/CD > Continuous Integration and Delivery** and add it there.
+- In the instance level: go to the Admin Area, then **Settings > CI/CD > Continuous Integration and Delivery** and add it there.
 
-The base domain variable `KUBE_INGRESS_BASE_DOMAIN` follows the same order of precedence
-as other environment [variables](../../ci/variables/index.md#cicd-variable-precedence).
+The base domain variable `KUBE_INGRESS_BASE_DOMAIN` follows the same order of
+[precedence as other environment variables](../../ci/variables/index.md#cicd-variable-precedence).
 
 If you don't specify the base domain in your projects and groups, Auto DevOps uses the instance-wide **Auto DevOps domain**.
 
-Auto DevOps requires a wildcard DNS A record matching the base domain(s). For
+Auto DevOps requires a wildcard DNS `A` record that matches the base domains. For
 a base domain of `example.com`, you'd need a DNS entry like:
 
 ```plaintext
-*.example.com   3600     A     1.2.3.4
+*.example.com   3600     A     10.0.2.2
 ```
 
-In this case, the deployed applications are served from `example.com`, and `1.2.3.4`
+In this case, the deployed applications are served from `example.com`, and `10.0.2.2`
 is the IP address of your load balancer, generally NGINX ([see requirements](requirements.md)).
 Setting up the DNS record is beyond the scope of this document; check with your
 DNS provider for information.
 
 Alternatively, you can use free public services like [nip.io](https://nip.io)
 which provide automatic wildcard DNS without any configuration. For [nip.io](https://nip.io),
-set the Auto DevOps base domain to `1.2.3.4.nip.io`.
+set the Auto DevOps base domain to `10.0.2.2.nip.io`.
 
 After completing setup, all requests hit the load balancer, which routes requests
 to the Kubernetes pods running your application.
@@ -92,8 +92,8 @@ to the Kubernetes pods running your application.
 
 To make full use of Auto DevOps with Kubernetes, you need:
 
-- **Kubernetes** (for [Auto Review Apps](stages.md#auto-review-apps),
-  [Auto Deploy](stages.md#auto-deploy), and [Auto Monitoring](stages.md#auto-monitoring))
+- **Kubernetes** (for [Auto Review Apps](stages.md#auto-review-apps) and
+  [Auto Deploy](stages.md#auto-deploy))
 
   To enable deployments, you need:
 
@@ -109,10 +109,7 @@ To make full use of Auto DevOps with Kubernetes, you need:
      or manually by using the [`ingress-nginx`](https://github.com/kubernetes/ingress-nginx/tree/master/charts/ingress-nginx)
      Helm chart.
 
-     NOTE:
-     For metrics to appear when using the [Prometheus cluster integration](../../user/clusters/integrations.md#prometheus-cluster-integration), you must [enable Prometheus metrics](https://github.com/kubernetes/ingress-nginx/tree/master/charts/ingress-nginx#prometheus-metrics).
-
-     When deploying [using custom charts](customize.md#custom-helm-chart), you must also
+     When deploying [using custom charts](customize.md#custom-helm-chart), you must
      [annotate](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/)
      the Ingress manifest to be scraped by Prometheus using
      `prometheus.io/scrape: "true"` and `prometheus.io/port: "10254"`.
@@ -121,8 +118,8 @@ To make full use of Auto DevOps with Kubernetes, you need:
      If your cluster is installed on bare metal, see
      [Auto DevOps Requirements for bare metal](#auto-devops-requirements-for-bare-metal).
 
-- **Base domain** (for [Auto Review Apps](stages.md#auto-review-apps),
-  [Auto Deploy](stages.md#auto-deploy), and [Auto Monitoring](stages.md#auto-monitoring))
+- **Base domain** (for [Auto Review Apps](stages.md#auto-review-apps) and
+  [Auto Deploy](stages.md#auto-deploy))
 
   You must [specify the Auto DevOps base domain](#auto-devops-base-domain),
   which all of your Auto DevOps applications use. This domain must be configured
@@ -132,90 +129,31 @@ To make full use of Auto DevOps with Kubernetes, you need:
 
   Your runner must be configured to run Docker, usually with either the
   [Docker](https://docs.gitlab.com/runner/executors/docker.html)
-  or [Kubernetes](https://docs.gitlab.com/runner/executors/kubernetes.html) executors, with
+  or [Kubernetes](https://docs.gitlab.com/runner/executors/kubernetes/index.html) executors, with
   [privileged mode enabled](https://docs.gitlab.com/runner/executors/docker.html#use-docker-in-docker-with-privileged-mode).
   The runners don't need to be installed in the Kubernetes cluster, but the
   Kubernetes executor is easy to use and automatically autoscales.
   You can configure Docker-based runners to autoscale as well, using
   [Docker Machine](https://docs.gitlab.com/runner/executors/docker_machine.html).
 
-  Runners should be registered as [shared runners](../../ci/runners/runners_scope.md#shared-runners)
-  for the entire GitLab instance, or [specific runners](../../ci/runners/runners_scope.md#specific-runners)
+  Runners should be registered as [instance runners](../../ci/runners/runners_scope.md#instance-runners)
+  for the entire GitLab instance, or [project runners](../../ci/runners/runners_scope.md#project-runners)
   that are assigned to specific projects.
-
-- **Prometheus** (for [Auto Monitoring](stages.md#auto-monitoring))
-
-  To enable Auto Monitoring, you need Prometheus installed either inside or
-  outside your cluster, and configured to scrape your Kubernetes cluster.
-  If you've configured the GitLab integration with Kubernetes, you can
-  instruct GitLab to query an in-cluster Prometheus by enabling
-  the [Prometheus cluster integration](../../user/clusters/integrations.md#prometheus-cluster-integration).
-
-  The [Prometheus integration](../../user/project/integrations/prometheus.md)
-  integration must be activated for the project, or activated at the group or instance level.
-  Learn more about [Project integration management](../../user/admin_area/settings/project_integration_management.md).
-
-  To get response metrics (in addition to system metrics), you must
-  [configure Prometheus to monitor NGINX](../../user/project/integrations/prometheus_library/nginx_ingress.md#configuring-nginx-ingress-monitoring).
 
 - **cert-manager** (optional, for TLS/HTTPS)
 
-  To enable HTTPS endpoints for your application, you can [install cert-manager](https://cert-manager.io/docs/installation/supported-releases/),
+  To enable HTTPS endpoints for your application, you can [install cert-manager](https://cert-manager.io/docs/releases/),
   a native Kubernetes certificate management controller that helps with issuing
   certificates. Installing cert-manager on your cluster issues a
   [Let's Encrypt](https://letsencrypt.org/) certificate and ensures the
   certificates are valid and up-to-date.
 
 If you don't have Kubernetes or Prometheus configured, then
-[Auto Review Apps](stages.md#auto-review-apps),
-[Auto Deploy](stages.md#auto-deploy), and [Auto Monitoring](stages.md#auto-monitoring)
+[Auto Review Apps](stages.md#auto-review-apps) and
+[Auto Deploy](stages.md#auto-deploy)
 are skipped.
 
 After all requirements are met, you can [enable Auto DevOps](index.md#enable-or-disable-auto-devops).
-
-## Auto DevOps requirements for Amazon ECS
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/208132) in GitLab 13.0.
-
-You can choose to target [AWS ECS](../../ci/cloud_deployment/index.md) as a deployment platform instead of using Kubernetes.
-
-To get started on Auto DevOps to AWS ECS, you must add a specific CI/CD variable.
-To do so, follow these steps:
-
-1. In GitLab, on the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > CI/CD**.
-1. Expand **Auto DevOps**.
-1. Specify which AWS platform to target during the Auto DevOps deployment
-   by adding the `AUTO_DEVOPS_PLATFORM_TARGET` variable with one of the following values:
-   - `FARGATE` if the service you're targeting must be of launch type FARGATE.
-   - `ECS` if you're not enforcing any launch type check when deploying to ECS.
-
-When you trigger a pipeline, if you have Auto DevOps enabled and if you have correctly
-[entered AWS credentials as variables](../../ci/cloud_deployment/index.md#deploy-your-application-to-the-aws-elastic-container-service-ecs),
-your application is deployed to AWS ECS.
-
-If you have both a valid `AUTO_DEVOPS_PLATFORM_TARGET` variable and a Kubernetes cluster tied to your project,
-only the deployment to Kubernetes runs.
-
-WARNING:
-Setting the `AUTO_DEVOPS_PLATFORM_TARGET` variable to `ECS` triggers jobs
-defined in the [`Jobs/Deploy/ECS.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Deploy/ECS.gitlab-ci.yml).
-However, it's not recommended to [include](../../ci/yaml/index.md#includetemplate)
-it on its own. This template is designed to be used with Auto DevOps only. It may change
-unexpectedly causing your pipeline to fail if included on its own. Also, the job
-names within this template may also change. Do not override these jobs' names in your
-own pipeline, as the override stops working when the name changes.
-
-## Auto DevOps requirements for Amazon EC2
-
-[Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/216008) in GitLab 13.6.
-
-You can target [AWS EC2](../../ci/cloud_deployment/index.md)
-as a deployment platform instead of Kubernetes. To use Auto DevOps with AWS EC2, you must add a
-specific CI/CD variable.
-
-For more details, see [Custom build job for Auto DevOps](../../ci/cloud_deployment/index.md#custom-build-job-for-auto-devops)
-for deployments to AWS EC2.
 
 ## Auto DevOps requirements for bare metal
 

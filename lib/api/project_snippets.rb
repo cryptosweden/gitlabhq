@@ -6,10 +6,10 @@ module API
 
     before { check_snippets_enabled }
 
-    feature_category :snippets
+    feature_category :source_code_management
 
     params do
-      requires :id, type: String, desc: 'The ID of a project'
+      requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
     end
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
       helpers Helpers::SnippetsHelpers
@@ -34,6 +34,11 @@ module API
 
       desc 'Get all project snippets' do
         success Entities::ProjectSnippet
+        failure [
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[project_snippets]
+        is_array true
       end
       params do
         use :pagination
@@ -46,6 +51,10 @@ module API
 
       desc 'Get a single project snippet' do
         success Entities::ProjectSnippet
+        failure [
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[project_snippets]
       end
       params do
         requires :snippet_id, type: Integer, desc: 'The ID of a project snippet'
@@ -60,13 +69,19 @@ module API
 
       desc 'Create a new project snippet' do
         success Entities::ProjectSnippet
+        failure [
+          { code: 400, message: 'Validation error' },
+          { code: 404, message: 'Not found' },
+          { code: 422, message: 'Unprocessable entity' }
+        ]
+        tags %w[project_snippets]
       end
       params do
         requires :title, type: String, allow_blank: false, desc: 'The title of the snippet'
         optional :description, type: String, desc: 'The description of a snippet'
         requires :visibility, type: String,
-                              values: Gitlab::VisibilityLevel.string_values,
-                              desc: 'The visibility of the snippet'
+          values: Gitlab::VisibilityLevel.string_values,
+          desc: 'The visibility of the snippet'
         use :create_file_params
       end
       post ":id/snippets" do
@@ -75,9 +90,7 @@ module API
         authorize! :create_snippet, user_project
 
         snippet_params = process_create_params(declared_params(include_missing: false))
-
-        spam_params = ::Spam::SpamParams.new_from_request(request: request)
-        service_response = ::Snippets::CreateService.new(project: user_project, current_user: current_user, params: snippet_params, spam_params: spam_params).execute
+        service_response = ::Snippets::CreateService.new(project: user_project, current_user: current_user, params: snippet_params).execute
         snippet = service_response.payload[:snippet]
 
         if service_response.success?
@@ -91,6 +104,12 @@ module API
 
       desc 'Update an existing project snippet' do
         success Entities::ProjectSnippet
+        failure [
+          { code: 400, message: 'Validation error' },
+          { code: 404, message: 'Not found' },
+          { code: 422, message: 'Unprocessable entity' }
+        ]
+        tags %w[project_snippets]
       end
       params do
         requires :snippet_id, type: Integer, desc: 'The ID of a project snippet'
@@ -99,8 +118,8 @@ module API
         optional :file_name, type: String, desc: 'The file name of the snippet'
         optional :title, type: String, allow_blank: false, desc: 'The title of the snippet'
         optional :visibility, type: String,
-                              values: Gitlab::VisibilityLevel.string_values,
-                              desc: 'The visibility of the snippet'
+          values: Gitlab::VisibilityLevel.string_values,
+          desc: 'The visibility of the snippet'
 
         use :update_file_params
         use :minimum_update_params
@@ -117,9 +136,7 @@ module API
         validate_params_for_multiple_files(snippet)
 
         snippet_params = process_update_params(declared_params(include_missing: false))
-
-        spam_params = ::Spam::SpamParams.new_from_request(request: request)
-        service_response = ::Snippets::UpdateService.new(project: user_project, current_user: current_user, params: snippet_params, spam_params: spam_params).execute(snippet)
+        service_response = ::Snippets::UpdateService.new(project: user_project, current_user: current_user, params: snippet_params, perform_spam_check: true).execute(snippet)
         snippet = service_response.payload[:snippet]
 
         if service_response.success?
@@ -132,7 +149,14 @@ module API
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
-      desc 'Delete a project snippet'
+      desc 'Delete a project snippet' do
+        success code: 204
+        failure [
+          { code: 400, message: 'Validation error' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[project_snippets]
+      end
       params do
         requires :snippet_id, type: Integer, desc: 'The ID of a project snippet'
       end
@@ -156,7 +180,13 @@ module API
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
-      desc 'Get a raw project snippet'
+      desc 'Get a raw project snippet' do
+        success Entities::ProjectSnippet
+        failure [
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[project_snippets]
+      end
       params do
         requires :snippet_id, type: Integer, desc: 'The ID of a project snippet'
       end
@@ -168,7 +198,13 @@ module API
         present content_for(snippet)
       end
 
-      desc 'Get raw project snippet file contents from the repository'
+      desc 'Get raw project snippet file contents from the repository' do
+        success Entities::ProjectSnippet
+        failure [
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[project_snippets]
+      end
       params do
         use :raw_file_params
       end
@@ -182,6 +218,10 @@ module API
 
       desc 'Get the user agent details for a project snippet' do
         success Entities::UserAgentDetail
+        failure [
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[project_snippets]
       end
       params do
         requires :snippet_id, type: Integer, desc: 'The ID of a project snippet'

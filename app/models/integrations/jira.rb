@@ -3,35 +3,66 @@
 # Accessible as Project#external_issue_tracker
 module Integrations
   class Jira < BaseIssueTracker
-    extend ::Gitlab::Utils::Override
     include Gitlab::Routing
     include ApplicationHelper
+    include SafeFormatHelper
     include ActionView::Helpers::AssetUrlHelper
     include Gitlab::Utils::StrongMemoize
+    include HasAvatar
 
     PROJECTS_PER_PAGE = 50
     JIRA_CLOUD_HOST = '.atlassian.net'
 
-    ATLASSIAN_REFERRER_GITLAB_COM = { atlOrigin: 'eyJpIjoiY2QyZTJiZDRkNGZhNGZlMWI3NzRkNTBmZmVlNzNiZTkiLCJwIjoianN3LWdpdGxhYi1pbnQifQ' }.freeze
-    ATLASSIAN_REFERRER_SELF_MANAGED = { atlOrigin: 'eyJpIjoiYjM0MTA4MzUyYTYxNDVkY2IwMzVjOGQ3ZWQ3NzMwM2QiLCJwIjoianN3LWdpdGxhYlNNLWludCJ9' }.freeze
+    ATLASSIAN_REFERRER_GITLAB_COM = {
+      atlOrigin: 'eyJpIjoiY2QyZTJiZDRkNGZhNGZlMWI3NzRkNTBmZmVlNzNiZTkiLCJwIjoianN3LWdpdGxhYi1pbnQifQ'
+    }.freeze
+    ATLASSIAN_REFERRER_SELF_MANAGED = {
+      atlOrigin: 'eyJpIjoiYjM0MTA4MzUyYTYxNDVkY2IwMzVjOGQ3ZWQ3NzMwM2QiLCJwIjoianN3LWdpdGxhYlNNLWludCJ9'
+    }.freeze
+
+    API_ENDPOINTS = {
+      find_issue: "/rest/api/2/issue/%s",
+      server_info: "/rest/api/2/serverInfo",
+      transition_issue: "/rest/api/2/issue/%s/transitions",
+      issue_comments: "/rest/api/2/issue/%s/comment",
+      link_remote_issue: "/rest/api/2/issue/%s/remotelink",
+      client_info: "/rest/api/2/myself"
+    }.freeze
 
     SECTION_TYPE_JIRA_TRIGGER = 'jira_trigger'
     SECTION_TYPE_JIRA_ISSUES = 'jira_issues'
+    SECTION_TYPE_JIRA_ISSUE_CREATION = 'jira_issue_creation'
+
+    AUTH_TYPE_BASIC = 0
+    AUTH_TYPE_PAT = 1
+
+    SNOWPLOW_EVENT_CATEGORY = name
+
+    RE2_SYNTAX_DOC_URL = 'https://github.com/google/re2/wiki/Syntax'
 
     validates :url, public_url: true, presence: true, if: :activated?
     validates :api_url, public_url: true, allow_blank: true
-    validates :username, presence: true, if: :activated?
+    validates :username, presence: true, if: ->(object) {
+                                               object.activated? && !object.personal_access_token_authorization?
+                                             }
     validates :password, presence: true, if: :activated?
+    validates :jira_auth_type, presence: true, inclusion: { in: [AUTH_TYPE_BASIC, AUTH_TYPE_PAT] }, if: :activated?
+    validates :jira_issue_prefix, untrusted_regexp: true, length: { maximum: 255 }, if: :activated?
+    validates :jira_issue_regex,  untrusted_regexp: true, length: { maximum: 255 }, if: :activated?
+    validate :validate_jira_cloud_auth_type_is_basic, if: :activated?
 
     validates :jira_issue_transition_id,
-              format: { with: Gitlab::Regex.jira_transition_id_regex, message: s_("JiraService|IDs must be a list of numbers that can be split with , or ;") },
-              allow_blank: true
+      format: {
+        with: Gitlab::Regex.jira_transition_id_regex,
+        message: ->(*_) { s_("JiraService|IDs must be a list of numbers that can be split with , or ;") }
+      },
+      allow_blank: true
 
     # Jira Cloud version is deprecating authentication via username and password.
     # We should use username/password for Jira Server and email/api_token for Jira Cloud,
     # for more information check: https://gitlab.com/gitlab-org/gitlab-foss/issues/49936.
 
-    before_validation :reset_password
+    before_save :format_project_keys, if: :project_keys_changed?
     after_commit :update_deployment_type, on: [:create, :update], if: :update_deployment_type?
 
     enum comment_detail: {
@@ -42,71 +73,106 @@ module Integrations
     self.field_storage = :data_fields
 
     field :url,
-          section: SECTION_TYPE_CONNECTION,
-          required: true,
-          title: -> { s_('JiraService|Web URL') },
-          help: -> { s_('JiraService|Base URL of the Jira instance.') },
-          placeholder: 'https://jira.example.com'
+      section: SECTION_TYPE_CONNECTION,
+      required: true,
+      title: -> { s_('JiraService|Web URL') },
+      help: -> { s_('JiraService|Base URL of the Jira instance') },
+      placeholder: 'https://jira.example.com',
+      exposes_secrets: true
 
     field :api_url,
-          section: SECTION_TYPE_CONNECTION,
-          title: -> { s_('JiraService|Jira API URL') },
-          help: -> { s_('JiraService|If different from Web URL.') }
+      section: SECTION_TYPE_CONNECTION,
+      title: -> { s_('JiraService|Jira API URL') },
+      help: -> { s_('JiraService|If different from the Web URL') },
+      exposes_secrets: true
+
+    field :jira_auth_type,
+      type: :select,
+      required: true,
+      section: SECTION_TYPE_CONNECTION,
+      title: -> { s_('JiraService|Authentication type') },
+      choices: -> {
+        [
+          [s_('JiraService|Basic'), AUTH_TYPE_BASIC],
+          [s_('JiraService|Jira personal access token (Jira Data Center and Jira Server only)'), AUTH_TYPE_PAT]
+        ]
+      }
 
     field :username,
-          section: SECTION_TYPE_CONNECTION,
-          required: true,
-          title: -> { s_('JiraService|Username or Email') },
-          help: -> { s_('JiraService|Use a username for server version and an email for cloud version.') }
+      section: SECTION_TYPE_CONNECTION,
+      required: false,
+      title: -> { s_('JiraService|Email or username') },
+      help: -> { s_('JiraService|Email for Jira Cloud or username for Jira Data Center and Jira Server') }
 
     field :password,
-          section: SECTION_TYPE_CONNECTION,
-          required: true,
-          title: -> { s_('JiraService|Password or API token') },
-          non_empty_password_title: -> { s_('JiraService|Enter new password or API token') },
-          non_empty_password_help: -> { s_('JiraService|Leave blank to use your current password or API token.') },
-          help: -> { s_('JiraService|Use a password for server version and an API token for cloud version.') }
+      section: SECTION_TYPE_CONNECTION,
+      required: true,
+      title: -> { s_('JiraService|API token or password') },
+      non_empty_password_title: -> { s_('JiraService|New API token or password') },
+      non_empty_password_help: -> { s_('JiraService|Leave blank to use your current configuration') },
+      help: -> { s_('JiraService|API token for Jira Cloud or password for Jira Data Center and Jira Server') },
+      is_secret: true
+
+    field :jira_issue_regex,
+      section: SECTION_TYPE_CONFIGURATION,
+      required: false,
+      title: -> { s_('JiraService|Jira issue regex') },
+      help: -> do
+        format(ERB::Util.html_escape(
+          s_("JiraService|Use regular expression to match Jira issue keys. The regular expression must follow the " \
+             "%{link_start}RE2 syntax%{link_end}. If empty, the default behavior is used.")),
+          link_start: format('<a href="%{url}" target="_blank" rel="noopener noreferrer">'.html_safe,
+            url: RE2_SYNTAX_DOC_URL),
+          link_end: '</a>'.html_safe
+        )
+      end
+
+    field :jira_issue_prefix,
+      section: SECTION_TYPE_CONFIGURATION,
+      required: false,
+      title: -> { s_('JiraService|Jira issue prefix') },
+      help: -> { s_('JiraService|Use a prefix to match Jira issue keys.') }
+
+    field :jira_issue_transition_id, api_only: true
+
+    field :issues_enabled,
+      required: false,
+      api_only: true
+
+    field :project_keys,
+      required: false,
+      api_only: true
 
     # TODO: we can probably just delegate as part of
     # https://gitlab.com/gitlab-org/gitlab/issues/29404
     # These fields are API only, so no field definition is required.
     data_field :jira_issue_transition_automatic
-    data_field :jira_issue_transition_id
     data_field :project_key
-    data_field :issues_enabled
     data_field :vulnerabilities_enabled
     data_field :vulnerabilities_issuetype
 
     # When these are false GitLab does not create cross reference
     # comments on Jira except when an issue gets transitioned.
     def self.supported_events
-      %w(commit merge_request)
+      %w[commit merge_request]
     end
 
     # {PROJECT-KEY}-{NUMBER} Examples: JIRA-1, PROJECT-1
-    def self.reference_pattern(only_long: true)
-      @reference_pattern ||= /(?<issue>\b#{Gitlab::Regex.jira_issue_key_regex})/
+    def reference_pattern(*)
+      @reference_pattern ||= jira_issue_match_regex
     end
 
     def self.valid_jira_cloud_url?(url)
       return false unless url.present?
 
-      !!URI(url).hostname&.end_with?(JIRA_CLOUD_HOST)
-    end
-
-    def initialize_properties
-      {}
+      uri = URI.parse(url)
+      uri.is_a?(URI::HTTPS) && !!uri.hostname&.end_with?(JIRA_CLOUD_HOST)
+    rescue URI::InvalidURIError
+      false
     end
 
     def data_fields
-      jira_tracker_data || self.build_jira_tracker_data
-    end
-
-    def reset_password
-      return unless reset_password?
-
-      data_fields.password = nil
-      properties.delete('password') if properties
+      jira_tracker_data || build_jira_tracker_data
     end
 
     def set_default_data
@@ -121,38 +187,48 @@ module Integrations
     def options
       url = URI.parse(client_url)
 
-      {
-        username: username&.strip,
-        password: password,
-        site: URI.join(url, '/').to_s.delete_suffix('/'), # Intended to find the root
+      options = {
+        site: URI.join(url, '/').to_s.chomp('/'), # Find the root URL
         context_path: (url.path.presence || '/').delete_suffix('/'),
         auth_type: :basic,
-        use_cookies: true,
-        additional_cookies: ['OBBasicAuth=fromDialog'],
         use_ssl: url.scheme == 'https'
       }
+
+      if personal_access_token_authorization?
+        options[:default_headers] = { 'Authorization' => "Bearer #{password}" }
+      else
+        options[:username] = username&.strip
+        options[:password] = password
+        options[:use_cookies] = true
+        options[:additional_cookies] = ['OBBasicAuth=fromDialog']
+      end
+
+      options
     end
 
-    def client
-      @client ||= begin
-        JIRA::Client.new(options).tap do |client|
-          # Replaces JIRA default http client with our implementation
-          client.request_client = Gitlab::Jira::HttpClient.new(client.options)
-        end
+    def client(additional_options = {})
+      JIRA::Client.new(options.merge(additional_options)).tap do |client|
+        # Replaces JIRA default http client with our implementation
+        client.request_client = Gitlab::Jira::HttpClient.new(client.options)
       end
     end
 
-    def help
-      jira_doc_link_start = '<a href="%{url}">'.html_safe % { url: help_page_url('integration/jira/index.html') }
-      s_("JiraService|You must configure Jira before enabling this integration. %{jira_doc_link_start}Learn more.%{link_end}") % { jira_doc_link_start: jira_doc_link_start, link_end: '</a>'.html_safe }
-    end
-
-    def title
+    def self.title
       'Jira'
     end
 
-    def description
+    def self.description
       s_("JiraService|Use Jira as this project's issue tracker.")
+    end
+
+    def self.help
+      jira_doc_link_start = format('<a href="%{url}" target="_blank" rel="noopener noreferrer">'.html_safe,
+        url: Gitlab::Routing.url_helpers.help_page_path('integration/jira/index'))
+      format(
+        s_("JiraService|You must configure Jira before enabling this integration. " \
+           "%{jira_doc_link_start}Learn more.%{link_end}"),
+        jira_doc_link_start: jira_doc_link_start,
+        link_end: '</a>'.html_safe)
     end
 
     def self.to_param
@@ -160,8 +236,6 @@ module Integrations
     end
 
     def sections
-      jira_issues_link_start = '<a href="%{url}">'.html_safe % { url: help_page_url('integration/jira/issues.html') }
-
       sections = [
         {
           type: SECTION_TYPE_CONNECTION,
@@ -171,16 +245,31 @@ module Integrations
         {
           type: SECTION_TYPE_JIRA_TRIGGER,
           title: _('Trigger'),
-          description: s_('JiraService|When a Jira issue is mentioned in a commit or merge request, a remote link and comment (if enabled) will be created.')
+          description: s_('JiraService|When a Jira issue is mentioned in a commit or merge request, a remote link ' \
+                          'and comment (if enabled) will be created.')
+        },
+        {
+          type: SECTION_TYPE_CONFIGURATION,
+          title: _('Jira issue matching'),
+          description: s_('Configure custom rules for Jira issue key matching')
         }
       ]
 
-      # Jira issues is currently only configurable on the project level.
-      if project_level?
+      # Currently, Jira issues are only configurable at the project and group levels.
+      unless instance_level?
         sections.push({
           type: SECTION_TYPE_JIRA_ISSUES,
-          title: _('Issues'),
-          description: s_('JiraService|Work on Jira issues without leaving GitLab. Add a Jira menu to access a read-only list of your Jira issues. %{jira_issues_link_start}Learn more.%{link_end}') % { jira_issues_link_start: jira_issues_link_start, link_end: '</a>'.html_safe }
+          title: s_('JiraService|Jira issues (optional)'),
+          description: jira_issues_section_description,
+          plan: 'premium'
+        })
+
+        sections.push({
+          type: SECTION_TYPE_JIRA_ISSUE_CREATION,
+          title: s_('JiraService|Jira issues for vulnerabilities (optional)'),
+          description: s_('JiraService|Create Jira issues from GitLab to track any action taken ' \
+                          'to resolve or mitigate vulnerabilities.'),
+          plan: 'ultimate'
         })
       end
 
@@ -230,13 +319,17 @@ module Integrations
       # support any events.
     end
 
-    def find_issue(issue_key, rendered_fields: false, transitions: false)
+    def find_issue(issue_key, rendered_fields: false, transitions: false, restrict_project_key: false)
+      return if restrict_project_key && !issue_key_allowed?(issue_key)
+
       expands = []
       expands << 'renderedFields' if rendered_fields
       expands << 'transitions' if transitions
       options = { expand: expands.join(',') } if expands.any?
 
-      jira_request { client.Issue.find(issue_key, options || {}) }
+      path = API_ENDPOINTS[:find_issue] % issue_key
+
+      jira_request(path) { client.Issue.find(issue_key, options || {}) }
     end
 
     def close_issue(entity, external_issue, current_user)
@@ -262,7 +355,8 @@ module Integrations
     override :create_cross_reference_note
     def create_cross_reference_note(external_issue, mentioned_in, author)
       unless can_cross_reference?(mentioned_in)
-        return s_("JiraService|Events for %{noteable_model_name} are disabled.") % { noteable_model_name: mentioned_in.model_name.plural.humanize(capitalize: false) }
+        return format(s_("JiraService|Events for %{noteable_model_name} are disabled."),
+          noteable_model_name: mentioned_in.model_name.plural.humanize(capitalize: false))
       end
 
       jira_issue = find_issue(external_issue.id)
@@ -305,10 +399,10 @@ module Integrations
     end
 
     def test(_)
-      result = server_info
-      success = result.present?
-      result = @error&.message unless success
+      result = {}.merge!(server_info, client_info) if server_info && client_info
 
+      success = server_info.present? && client_info.present?
+      result = @error&.message unless success
       { success: success, result: result }
     end
 
@@ -326,17 +420,47 @@ module Integrations
       jira_issue_transition_automatic || jira_issue_transition_id.present?
     end
 
+    def personal_access_token_authorization?
+      jira_auth_type == AUTH_TYPE_PAT
+    end
+
+    def testable?
+      group_level? || project_level?
+    end
+
+    def project_keys_as_string
+      project_keys.join(',')
+    end
+
     private
+
+    def jira_issue_match_regex
+      jira_regex = jira_issue_regex.presence || Gitlab::Regex.jira_issue_key_regex.source
+
+      Gitlab::UntrustedRegexp.new("\\b#{jira_issue_prefix}(?P<issue>#{jira_regex})")
+    end
+
+    def parse_project_from_issue_key(issue_key)
+      issue_key.gsub(Gitlab::Regex.jira_issue_key_project_key_extraction_regex, '')
+    end
+
+    def issue_key_allowed?(issue_key)
+      project_keys.blank? || project_keys.include?(parse_project_from_issue_key(issue_key))
+    end
 
     def branch_name(commit)
       commit.first_ref_by_oid(project.repository)
     end
 
-    def server_info
-      strong_memoize(:server_info) do
-        client_url.present? ? jira_request { client.ServerInfo.all.attrs } : nil
-      end
+    def client_info
+      client_url.present? ? jira_request(API_ENDPOINTS[:client_info]) { client.User.myself.attrs } : nil
     end
+    strong_memoize_attr :client_info
+
+    def server_info
+      client_url.present? ? jira_request(API_ENDPOINTS[:server_info]) { client.ServerInfo.all.attrs } : nil
+    end
+    strong_memoize_attr :server_info
 
     def can_cross_reference?(mentioned_in)
       case mentioned_in
@@ -363,22 +487,19 @@ module Integrations
       )
 
       true
-    rescue StandardError => error
-      log_error(
-        "Issue transition failed",
-          error: {
-            exception_class: error.class.name,
-            exception_message: error.message,
-            exception_backtrace: Gitlab::BacktraceCleaner.clean_backtrace(error.backtrace)
-          },
-          client_url: client_url
-      )
-
+    rescue StandardError => e
+      path = API_ENDPOINTS[:transition_issue] % issue.id
+      log_exception(e, message: 'Issue transition failed', client_url: client_url, client_path: path,
+        client_status: '400')
       false
     end
 
     def transition_issue_to_done(issue)
-      transitions = issue.transitions rescue []
+      transitions = begin
+        issue.transitions
+      rescue StandardError
+        []
+      end
 
       transition = transitions.find do |transition|
         status = transition&.to&.statusCategory
@@ -394,6 +515,21 @@ module Integrations
       key = "i_ecosystem_jira_service_#{action}"
 
       Gitlab::UsageDataCounters::HLLRedisCounter.track_event(key, values: user.id)
+
+      optional_arguments = {
+        project: project,
+        namespace: group || project&.namespace
+      }.compact
+
+      Gitlab::Tracking.event(
+        SNOWPLOW_EVENT_CATEGORY,
+        Integration::SNOWPLOW_EVENT_ACTION,
+        label: Integration::SNOWPLOW_EVENT_LABEL,
+        property: key,
+        user: user,
+        context: [Gitlab::Tracking::ServicePingContext.new(data_source: :redis_hll, event: key).to_context],
+        **optional_arguments
+      )
     end
 
     def add_issue_solved_comment(issue, commit_id, commit_url)
@@ -412,9 +548,9 @@ module Integrations
       link_title   = "#{entity_name.capitalize} - #{entity_title}"
       link_props   = build_remote_link_props(url: entity_url, title: link_title)
 
-      unless comment_exists?(issue, message)
-        send_message(issue, message, link_props)
-      end
+      return if comment_exists?(issue, message)
+
+      send_message(issue, message, link_props)
     end
 
     def comment_message(data)
@@ -427,21 +563,22 @@ module Integrations
       project_link = build_jira_link(project.full_name, Gitlab::Routing.url_helpers.project_url(project))
       branch =
         if entity[:branch].present?
-          s_('JiraService| on branch %{branch_link}') % {
-            branch_link: build_jira_link(entity[:branch], project_tree_url(project, entity[:branch]))
-          }
+          format(s_('JiraService| on branch %{branch_link}'),
+            branch_link: build_jira_link(entity[:branch], project_tree_url(project, entity[:branch])))
         end
 
       entity_message = entity[:description].presence if all_details?
       entity_message ||= entity[:title].chomp
 
-      s_('JiraService|%{user_link} mentioned this issue in %{entity_link} of %{project_link}%{branch}:{quote}%{entity_message}{quote}') % {
+      format(
+        s_('JiraService|%{user_link} mentioned this issue in %{entity_link} of ' \
+           '%{project_link}%{branch}:{quote}%{entity_message}{quote}'),
         user_link: user_link,
         entity_link: entity_link,
         project_link: project_link,
         branch: branch,
         entity_message: entity_message
-      }
+      )
     end
 
     def build_jira_link(title, url)
@@ -453,7 +590,8 @@ module Integrations
     end
 
     def comment_exists?(issue, message)
-      comments = jira_request { issue.comments }
+      path = API_ENDPOINTS[:issue_comments] % issue.id
+      comments = jira_request(path) { issue.comments }
 
       comments.present? && comments.any? { |comment| comment.body.include?(message) }
     end
@@ -461,14 +599,16 @@ module Integrations
     def send_message(issue, message, remote_link_props)
       return unless client_url.present?
 
-      jira_request do
+      path = API_ENDPOINTS[:link_remote_issue] % issue.id
+
+      jira_request(path) do
         remote_link = find_remote_link(issue, remote_link_props[:object][:url])
 
         create_issue_comment(issue, message) unless remote_link
         remote_link ||= issue.remotelink.build
         remote_link.save!(remote_link_props)
 
-        log_info("Successfully posted", client_url: client_url)
+        log_info("Successfully posted", client_url: client_url, client_path: path)
         "SUCCESS: Successfully posted to #{client_url}."
       end
     end
@@ -480,7 +620,8 @@ module Integrations
     end
 
     def find_remote_link(issue, url)
-      links = jira_request { issue.remotelink.all }
+      path = API_ENDPOINTS[:link_remote_issue] % issue.id
+      links = jira_request(path) { issue.remotelink.all }
       return unless links
 
       links.find { |link| link.object["url"] == url }
@@ -506,28 +647,29 @@ module Integrations
     end
 
     def resource_url(resource)
-      "#{Settings.gitlab.base_url.chomp("/")}#{resource}"
+      "#{Settings.gitlab.base_url.chomp('/')}#{resource}"
     end
 
     def build_entity_url(entity_type, entity_id)
       polymorphic_url(
         [
-          self.project,
+          project,
           entity_type.to_sym
         ],
-        id:   entity_id,
+        id: entity_id,
         host: Settings.gitlab.base_url
       )
     end
 
     def build_entity_meta(entity)
-      if entity.is_a?(Commit)
+      case entity
+      when Commit
         {
           id: entity.short_id,
           description: entity.safe_message,
           branch: branch_name(entity)
         }
-      elsif entity.is_a?(MergeRequest)
+      when MergeRequest
         {
           id: entity.to_reference,
           branch: entity.source_branch
@@ -546,27 +688,17 @@ module Integrations
     end
 
     # Handle errors when doing Jira API calls
-    def jira_request
+    def jira_request(path)
       yield
-    rescue StandardError => error
-      @error = error
-      payload = { client_url: client_url }
-      Gitlab::ExceptionLogFormatter.format!(error, payload)
-      log_error("Error sending message", payload)
+    rescue StandardError => e
+      @error = e
+      log_exception(e, message: 'Error sending message', client_url: client_url, client_path: path,
+        client_status: e.try(:code))
       nil
     end
 
     def client_url
       api_url.presence || url
-    end
-
-    def reset_password?
-      # don't reset the password if a new one is provided
-      return false if password_touched?
-      return true if api_url_changed?
-      return false if api_url.present?
-
-      url_changed?
     end
 
     def update_deployment_type?
@@ -578,7 +710,8 @@ module Integrations
       results = server_info
 
       unless results.present?
-        Gitlab::AppLogger.warn(message: "Jira API returned no ServerInfo, setting deployment_type from URL", server_info: results, url: client_url)
+        Gitlab::AppLogger.warn(message: "Jira API returned no ServerInfo, setting deployment_type from URL",
+          server_info: results, url: client_url)
 
         return set_deployment_type_from_url
       end
@@ -588,6 +721,10 @@ module Integrations
       else
         data_fields.deployment_server!
       end
+    end
+
+    def format_project_keys
+      data_fields.project_keys = project_keys.compact_blank.map(&:strip).uniq
     end
 
     def jira_cloud?
@@ -603,12 +740,44 @@ module Integrations
       # If API-based detection methods fail here then
       # we can only assume it's either Cloud or Server
       # based on the URL being *.atlassian.net
-
       if self.class.valid_jira_cloud_url?(client_url)
         data_fields.deployment_cloud!
       else
         data_fields.deployment_server!
       end
+    end
+
+    def jira_issues_section_description
+      description = s_('JiraService|View issues from multiple Jira projects in this GitLab project. ' \
+                       'Access a read-only list of your Jira issues.')
+
+      if project&.issues_enabled?
+        description += '<br><br>'.html_safe
+
+        gitlab_issues_link = ActionController::Base.helpers.link_to(
+          '',
+          edit_project_path(project, anchor: 'js-shared-permissions')
+        )
+        tag_pair_gitlab_issues = tag_pair(gitlab_issues_link, :link_start, :link_end)
+        description += safe_format(
+          s_('JiraService|If you access Jira issues in GitLab, you might want to ' \
+             '%{link_start}disable GitLab issues%{link_end}.'),
+          tag_pair_gitlab_issues
+        )
+      end
+
+      description
+    end
+
+    def validate_jira_cloud_auth_type_is_basic
+      return unless self.class.valid_jira_cloud_url?(client_url) && jira_auth_type != AUTH_TYPE_BASIC
+
+      errors.add(:base,
+        format(
+          s_('JiraService|For Jira Cloud, the authentication type must be %{basic}'),
+          basic: s_('JiraService|Basic')
+        )
+      )
     end
   end
 end

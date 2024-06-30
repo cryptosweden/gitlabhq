@@ -1,15 +1,15 @@
 # frozen_string_literal: true
 
-require 'rake_helper'
+require 'spec_helper'
 
 RSpec.describe 'gitlab:snippets namespace rake task', :silence_stdout do
-  let_it_be(:user) { create(:user)}
-  let_it_be(:migrated) { create(:personal_snippet, :repository, author: user) }
+  let!(:user) { create(:user) }
+  let!(:migrated) { create(:personal_snippet, :repository, author: user) }
 
   let(:non_migrated) { create_list(:personal_snippet, 3, author: user) }
   let(:non_migrated_ids) { non_migrated.pluck(:id) }
 
-  before :all do
+  before(:all) do
     Rake.application.rake_require 'tasks/gitlab/snippets'
   end
 
@@ -18,6 +18,13 @@ RSpec.describe 'gitlab:snippets namespace rake task', :silence_stdout do
 
     before do
       stub_env('SNIPPET_IDS' => non_migrated_ids.join(','))
+    end
+
+    it 'looks up the appropriate shard' do
+      # the default config/gitlab.yml gives nil for all workers
+      expect(Gitlab::SidekiqSharding::Router).to receive(:get_shard_instance).with(nil).and_call_original
+
+      subject
     end
 
     it 'can migrate specific snippets passing ids' do
@@ -63,17 +70,30 @@ RSpec.describe 'gitlab:snippets namespace rake task', :silence_stdout do
     it 'fails if the snippet background migration is running' do
       Sidekiq::Testing.disable! do
         BackgroundMigrationWorker.perform_in(180, 'BackfillSnippetRepositories', [non_migrated.first.id, non_migrated.last.id])
-        expect(Sidekiq::ScheduledSet.new).to be_one
+
+        Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+          expect(Sidekiq::ScheduledSet.new).to be_one
+        end
 
         expect { subject }.to raise_error(RuntimeError, /There are already snippet migrations running/)
 
-        Sidekiq::ScheduledSet.new.clear
+        Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+          Sidekiq::ScheduledSet.new.clear
+        end
       end
     end
   end
 
   describe 'migration_status' do
     subject { run_rake_task('gitlab:snippets:migration_status') }
+
+    it 'looks up the appropriate shard' do
+      expect(Gitlab::SidekiqConfig::WorkerRouter.global).to receive(:store).and_call_original
+      # the default config/gitlab.yml gives nil for all workers
+      expect(Gitlab::SidekiqSharding::Router).to receive(:get_shard_instance).with(nil).and_call_original
+
+      subject
+    end
 
     it 'returns a message when the background migration is not running' do
       expect { subject }.to output("There are no snippet migrations running\n").to_stdout
@@ -82,11 +102,15 @@ RSpec.describe 'gitlab:snippets namespace rake task', :silence_stdout do
     it 'returns a message saying that the background migration is running' do
       Sidekiq::Testing.disable! do
         BackgroundMigrationWorker.perform_in(180, 'BackfillSnippetRepositories', [non_migrated.first.id, non_migrated.last.id])
-        expect(Sidekiq::ScheduledSet.new).to be_one
+        Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+          expect(Sidekiq::ScheduledSet.new).to be_one
+        end
 
         expect { subject }.to output("There are snippet migrations running\n").to_stdout
 
-        Sidekiq::ScheduledSet.new.clear
+        Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+          Sidekiq::ScheduledSet.new.clear
+        end
       end
     end
   end

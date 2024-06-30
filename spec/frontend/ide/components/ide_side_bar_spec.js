@@ -1,6 +1,7 @@
-import { GlSkeletonLoading } from '@gitlab/ui';
+import { GlSkeletonLoader } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import waitForPromises from 'helpers/wait_for_promises';
 import IdeReview from '~/ide/components/ide_review.vue';
@@ -29,11 +30,6 @@ describe('IdeSidebar', () => {
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   it('renders a sidebar', () => {
     wrapper = createComponent();
 
@@ -47,32 +43,32 @@ describe('IdeSidebar', () => {
 
     await nextTick();
 
-    expect(wrapper.findAll(GlSkeletonLoading)).toHaveLength(3);
+    expect(wrapper.findAllComponents(GlSkeletonLoader)).toHaveLength(3);
   });
 
   describe('deferred rendering components', () => {
     it('fetches components on demand', async () => {
       wrapper = createComponent();
 
-      expect(wrapper.find(IdeTree).exists()).toBe(true);
-      expect(wrapper.find(IdeReview).exists()).toBe(false);
-      expect(wrapper.find(RepoCommitSection).exists()).toBe(false);
+      expect(wrapper.findComponent(IdeTree).exists()).toBe(true);
+      expect(wrapper.findComponent(IdeReview).exists()).toBe(false);
+      expect(wrapper.findComponent(RepoCommitSection).exists()).toBe(false);
 
       store.state.currentActivityView = leftSidebarViews.review.name;
       await waitForPromises();
       await nextTick();
 
-      expect(wrapper.find(IdeTree).exists()).toBe(false);
-      expect(wrapper.find(IdeReview).exists()).toBe(true);
-      expect(wrapper.find(RepoCommitSection).exists()).toBe(false);
+      expect(wrapper.findComponent(IdeTree).exists()).toBe(false);
+      expect(wrapper.findComponent(IdeReview).exists()).toBe(true);
+      expect(wrapper.findComponent(RepoCommitSection).exists()).toBe(false);
 
       store.state.currentActivityView = leftSidebarViews.commit.name;
       await waitForPromises();
       await nextTick();
 
-      expect(wrapper.find(IdeTree).exists()).toBe(false);
-      expect(wrapper.find(IdeReview).exists()).toBe(false);
-      expect(wrapper.find(RepoCommitSection).exists()).toBe(true);
+      expect(wrapper.findComponent(IdeTree).exists()).toBe(false);
+      expect(wrapper.findComponent(IdeReview).exists()).toBe(false);
+      expect(wrapper.findComponent(RepoCommitSection).exists()).toBe(true);
     });
     it.each`
       view                            | tree     | review   | commit
@@ -86,23 +82,23 @@ describe('IdeSidebar', () => {
       await waitForPromises();
       await nextTick();
 
-      expect(wrapper.find(IdeTree).exists()).toBe(tree);
-      expect(wrapper.find(IdeReview).exists()).toBe(review);
-      expect(wrapper.find(RepoCommitSection).exists()).toBe(commit);
+      expect(wrapper.findComponent(IdeTree).exists()).toBe(tree);
+      expect(wrapper.findComponent(IdeReview).exists()).toBe(review);
+      expect(wrapper.findComponent(RepoCommitSection).exists()).toBe(commit);
     });
   });
 
   it('keeps the current activity view components alive', async () => {
     wrapper = createComponent();
 
-    const ideTreeComponent = wrapper.find(IdeTree).element;
+    const ideTreeComponent = wrapper.findComponent(IdeTree).element;
 
     store.state.currentActivityView = leftSidebarViews.commit.name;
     await waitForPromises();
     await nextTick();
 
-    expect(wrapper.find(IdeTree).exists()).toBe(false);
-    expect(wrapper.find(RepoCommitSection).exists()).toBe(true);
+    expect(wrapper.findComponent(IdeTree).exists()).toBe(false);
+    expect(wrapper.findComponent(RepoCommitSection).exists()).toBe(true);
 
     store.state.currentActivityView = leftSidebarViews.edit.name;
 
@@ -110,6 +106,6 @@ describe('IdeSidebar', () => {
     await nextTick();
 
     // reference to the elements remains the same, meaning the components were kept alive
-    expect(wrapper.find(IdeTree).element).toEqual(ideTreeComponent);
+    expect(wrapper.findComponent(IdeTree).element).toEqual(ideTreeComponent);
   });
 });

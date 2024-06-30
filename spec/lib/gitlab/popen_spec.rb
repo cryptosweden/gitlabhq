@@ -24,7 +24,7 @@ RSpec.describe Gitlab::Popen do
 
   context 'zero status' do
     before do
-      @output, @status = @klass.new.popen(%w(ls), path)
+      @output, @status = @klass.new.popen(%w[ls], path)
     end
 
     it { expect(@status).to be_zero }
@@ -33,7 +33,7 @@ RSpec.describe Gitlab::Popen do
 
   context 'non-zero status' do
     before do
-      @output, @status = @klass.new.popen(%w(cat NOTHING), path)
+      @output, @status = @klass.new.popen(%w[cat NOTHING], path)
     end
 
     it { expect(@status).to eq(1) }
@@ -57,6 +57,12 @@ RSpec.describe Gitlab::Popen do
     end
   end
 
+  context 'unsafe array command' do
+    it 'raises an error when it gets called with an unsafe array' do
+      expect { @klass.new.popen(['ls -l'], path) }.to raise_error(RuntimeError)
+    end
+  end
+
   context 'with custom options' do
     let(:vars) { { 'foobar' => 123, 'PWD' => path } }
     let(:options) { { chdir: path } }
@@ -64,7 +70,7 @@ RSpec.describe Gitlab::Popen do
     it 'calls popen3 with the provided environment variables' do
       expect(Open3).to receive(:popen3).with(vars, 'ls', options)
 
-      @output, @status = @klass.new.popen(%w(ls), path, { 'foobar' => 123 })
+      @output, @status = @klass.new.popen(%w[ls], path, { 'foobar' => 123 })
     end
   end
 
@@ -83,7 +89,7 @@ RSpec.describe Gitlab::Popen do
 
   context 'without a directory argument' do
     before do
-      @output, @status = @klass.new.popen(%w(ls))
+      @output, @status = @klass.new.popen(%w[ls])
     end
 
     it { expect(@status).to be_zero }
@@ -103,7 +109,7 @@ RSpec.describe Gitlab::Popen do
     it 'raises error' do
       expect do
         @klass.new.popen(%w[foobar])
-      end.to raise_error
+      end.to raise_error(Errno::ENOENT)
     end
   end
 end

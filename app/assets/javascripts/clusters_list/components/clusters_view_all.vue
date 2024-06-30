@@ -1,22 +1,8 @@
 <script>
-import {
-  GlCard,
-  GlSprintf,
-  GlPopover,
-  GlLink,
-  GlButton,
-  GlBadge,
-  GlLoadingIcon,
-  GlModalDirective,
-  GlTooltipDirective,
-} from '@gitlab/ui';
+import { GlCard, GlSprintf, GlPopover, GlLink, GlBadge, GlLoadingIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
-import {
-  AGENT_CARD_INFO,
-  CERTIFICATE_BASED_CARD_INFO,
-  MAX_CLUSTERS_LIST,
-  INSTALL_AGENT_MODAL_ID,
-} from '../constants';
+import { AGENT_CARD_INFO, CERTIFICATE_BASED_CARD_INFO, MAX_CLUSTERS_LIST } from '../constants';
 import Clusters from './clusters.vue';
 import Agents from './agents.vue';
 
@@ -26,23 +12,16 @@ export default {
     GlSprintf,
     GlPopover,
     GlLink,
-    GlButton,
     GlBadge,
     GlLoadingIcon,
     Clusters,
     Agents,
   },
-  directives: {
-    GlModalDirective,
-    GlTooltip: GlTooltipDirective,
-  },
   MAX_CLUSTERS_LIST,
-  INSTALL_AGENT_MODAL_ID,
   i18n: {
     agent: AGENT_CARD_INFO,
     certificate: CERTIFICATE_BASED_CARD_INFO,
   },
-  inject: ['addClusterPath', 'canAddCluster'],
   props: {
     defaultBranchName: {
       default: '.noBranch',
@@ -93,14 +72,6 @@ export default {
 
       return cardTitle;
     },
-    installAgentTooltip() {
-      return this.canAddCluster ? '' : this.$options.i18n.agent.installAgentDisabledHint;
-    },
-    connectExistingClusterTooltip() {
-      return this.canAddCluster
-        ? ''
-        : this.$options.i18n.certificate.connectExistingClusterDisabledHint;
-    },
   },
   methods: {
     cardFooterNumber(number) {
@@ -119,7 +90,7 @@ export default {
 </script>
 <template>
   <div>
-    <gl-loading-icon v-if="isLoading" size="md" />
+    <gl-loading-icon v-if="isLoading" size="lg" />
     <div v-show="!isLoading" data-testid="clusters-cards-container">
       <gl-card
         header-class="gl-bg-white gl-display-flex gl-align-items-center gl-justify-content-space-between gl-py-4"
@@ -127,7 +98,7 @@ export default {
         footer-class="gl-text-right"
       >
         <template #header>
-          <h3 data-testid="agent-card-title" class="gl-my-0 gl-font-weight-normal gl-font-size-h2">
+          <h3 data-testid="agent-card-title" class="gl-my-0 gl-font-normal gl-font-size-h2">
             <gl-sprintf :message="agentsCardTitle.message"
               ><template #number>{{ agentsCardTitle.number }}</template>
               <template #total>{{ agentsCardTitle.total }}</template>
@@ -177,21 +148,6 @@ export default {
               ><template #number>{{ cardFooterNumber(totalAgents) }}</template></gl-sprintf
             ></gl-link
           >
-          <div
-            v-gl-tooltip="installAgentTooltip"
-            class="gl-display-inline-block"
-            tabindex="-1"
-            data-testid="install-agent-button-tooltip"
-          >
-            <gl-button
-              v-gl-modal-directive="$options.INSTALL_AGENT_MODAL_ID"
-              class="gl-ml-4"
-              category="secondary"
-              variant="confirm"
-              :disabled="!canAddCluster"
-              >{{ $options.i18n.agent.actionText }}</gl-button
-            >
-          </div>
         </template>
       </gl-card>
 
@@ -202,10 +158,7 @@ export default {
         footer-class="gl-text-right"
       >
         <template #header>
-          <h3
-            class="gl-my-1 gl-font-weight-normal gl-font-size-h2"
-            data-testid="clusters-card-title"
-          >
+          <h3 class="gl-my-1 gl-font-normal gl-font-size-h2" data-testid="clusters-card-title">
             <gl-sprintf :message="clustersCardTitle.message"
               ><template #number>{{ clustersCardTitle.number }}</template>
               <template #total>{{ clustersCardTitle.total }}</template>
@@ -214,7 +167,7 @@ export default {
           <gl-badge variant="warning">{{ $options.i18n.certificate.badgeText }}</gl-badge>
         </template>
 
-        <clusters :limit="$options.MAX_CLUSTERS_LIST" :is-child-component="true" />
+        <clusters :limit="$options.MAX_CLUSTERS_LIST" />
 
         <template #footer>
           <gl-link
@@ -226,22 +179,6 @@ export default {
               ><template #number>{{ cardFooterNumber(totalClusters) }}</template></gl-sprintf
             ></gl-link
           >
-          <div
-            v-gl-tooltip="connectExistingClusterTooltip"
-            class="gl-display-inline-block"
-            tabindex="-1"
-            data-testid="connect-existing-cluster-button-tooltip"
-          >
-            <gl-button
-              category="secondary"
-              data-qa-selector="connect_existing_cluster_button"
-              variant="confirm"
-              class="gl-ml-4"
-              :href="addClusterPath"
-              :disabled="!canAddCluster"
-              >{{ $options.i18n.certificate.actionText }}</gl-button
-            >
-          </div>
         </template>
       </gl-card>
     </div>

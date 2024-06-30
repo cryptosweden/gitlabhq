@@ -4,22 +4,34 @@ module Integrations
   class MattermostSlashCommands < BaseSlashCommands
     include Ci::TriggersHelper
 
-    prop_accessor :token
+    MATTERMOST_URL = '%{ORIGIN}/%{TEAM}/channels/%{CHANNEL}'
+
+    field :token,
+      type: :password,
+      description: -> { _('The Mattermost token.') },
+      non_empty_password_title: -> { s_('ProjectService|Enter new token') },
+      non_empty_password_help: -> { s_('ProjectService|Leave blank to use your current token.') },
+      required: true,
+      placeholder: ''
 
     def testable?
       false
     end
 
-    def title
-      'Mattermost slash commands'
+    def self.title
+      s_('Integrations|Mattermost slash commands')
     end
 
-    def description
-      "Perform common tasks with slash commands."
+    def self.description
+      s_('Integrations|Perform common tasks with slash commands.')
     end
 
     def self.to_param
       'mattermost_slash_commands'
+    end
+
+    def avatar_url
+      ActionController::Base.helpers.image_path('illustrations/third-party-logos/integrations-logos/mattermost.svg')
     end
 
     def configure(user, params)
@@ -37,8 +49,24 @@ module Integrations
       [[], e.message]
     end
 
-    def chat_responder
-      ::Gitlab::Chat::Responder::Mattermost
+    def redirect_url(team, channel, url)
+      return if Gitlab::HTTP_V2::UrlBlocker.blocked_url?(
+        url,
+        schemes: %w[http https],
+        enforce_sanitization: true,
+        deny_all_requests_except_allowed: Gitlab::CurrentSettings.deny_all_requests_except_allowed?,
+        outbound_local_requests_allowlist: Gitlab::CurrentSettings.outbound_local_requests_whitelist) # rubocop:disable Naming/InclusiveLanguage -- existing setting
+
+      origin = Addressable::URI.parse(url).origin
+      format(MATTERMOST_URL, ORIGIN: origin, TEAM: team, CHANNEL: channel)
+    end
+
+    def confirmation_url(command_id, params)
+      team, channel, response_url = params.values_at(:team_domain, :channel_name, :response_url)
+
+      Rails.application.routes.url_helpers.project_integrations_slash_commands_url(
+        project, command_id: command_id, integration: to_param, team: team, channel: channel, response_url: response_url
+      )
     end
 
     private

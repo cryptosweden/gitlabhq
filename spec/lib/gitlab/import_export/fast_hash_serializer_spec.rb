@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::ImportExport::FastHashSerializer do
+RSpec.describe Gitlab::ImportExport::FastHashSerializer, :with_license, feature_category: :importers do
   # FastHashSerializer#execute generates the hash which is not easily accessible
   # and includes `JSONBatchRelation` items which are serialized at this point.
   # Wrapping the result into JSON generating/parsing is for making
@@ -16,10 +16,6 @@ RSpec.describe Gitlab::ImportExport::FastHashSerializer do
   let(:shared) { project.import_export_shared }
   let(:reader) { Gitlab::ImportExport::Reader.new(shared: shared) }
   let(:tree) { reader.project_tree }
-
-  before_all do
-    project.add_maintainer(user)
-  end
 
   before do
     allow_any_instance_of(MergeRequest).to receive(:source_branch_sha).and_return('ABCD')
@@ -125,13 +121,13 @@ RSpec.describe Gitlab::ImportExport::FastHashSerializer do
     expect(subject.dig('ci_pipelines', 0, 'stages')).not_to be_empty
   end
 
-  it 'has pipeline statuses' do
-    expect(subject.dig('ci_pipelines', 0, 'stages', 0, 'statuses')).not_to be_empty
+  it 'has pipeline builds' do
+    expect(subject.dig('ci_pipelines', 0, 'stages', 0, 'builds')).not_to be_empty
   end
 
   it 'has pipeline builds' do
     builds_count = subject
-      .dig('ci_pipelines', 0, 'stages', 0, 'statuses')
+      .dig('ci_pipelines', 0, 'stages', 0, 'builds')
       .count { |hash| hash['type'] == 'Ci::Build' }
 
     expect(builds_count).to eq(1)
@@ -141,8 +137,8 @@ RSpec.describe Gitlab::ImportExport::FastHashSerializer do
     expect(subject['ci_pipelines']).not_to be_empty
   end
 
-  it 'has ci pipeline notes' do
-    expect(subject['ci_pipelines'].first['notes']).not_to be_empty
+  it 'has commit notes' do
+    expect(subject['commit_notes']).not_to be_empty
   end
 
   it 'has labels with no associations' do
@@ -156,7 +152,7 @@ RSpec.describe Gitlab::ImportExport::FastHashSerializer do
   it 'has project and group labels' do
     label_types = subject['issues'].first['label_links'].map { |link| link['label']['type'] }
 
-    expect(label_types).to match_array(%w(ProjectLabel GroupLabel))
+    expect(label_types).to match_array(%w[ProjectLabel GroupLabel])
   end
 
   it 'has priorities associated to labels' do
@@ -217,17 +213,20 @@ RSpec.describe Gitlab::ImportExport::FastHashSerializer do
     release = create(:release)
     group = create(:group)
 
-    project = create(:project,
-                     :public,
-                     :repository,
-                     :issues_disabled,
-                     :wiki_enabled,
-                     :builds_private,
-                     description: 'description',
-                     releases: [release],
-                     group: group,
-                     approvals_before_merge: 1
-                    )
+    project = create(
+      :project,
+      :public,
+      :repository,
+      :issues_disabled,
+      :wiki_enabled,
+      :builds_private,
+      description: 'description',
+      releases: [release],
+      group: group,
+      approvals_before_merge: 1
+    )
+
+    project.add_maintainer(user)
 
     issue = create(:issue, assignees: [user], project: project)
     snippet = create(:project_snippet, project: project)
@@ -249,10 +248,7 @@ RSpec.describe Gitlab::ImportExport::FastHashSerializer do
     create(:discussion_note, noteable: issue, project: project)
     create(:note, noteable: merge_request, project: project)
     create(:note, noteable: snippet, project: project)
-    create(:note_on_commit,
-           author: user,
-           project: project,
-           commit_id: ci_build.pipeline.sha)
+    create(:note_on_commit, author: user, project: project, commit_id: ci_build.pipeline.sha)
 
     create(:resource_label_event, label: project_label, issue: issue)
     create(:resource_label_event, label: group_label, merge_request: merge_request)

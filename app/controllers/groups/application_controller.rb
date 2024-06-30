@@ -13,6 +13,10 @@ class Groups::ApplicationController < ApplicationController
   before_action :set_sorting
   requires_cross_project_access
 
+  before_action do
+    push_namespace_setting(:math_rendering_limits_enabled, @group)
+  end
+
   private
 
   def group
@@ -32,39 +36,27 @@ class Groups::ApplicationController < ApplicationController
   end
 
   def authorize_admin_group!
-    unless can?(current_user, :admin_group, group)
-      render_404
-    end
-  end
-
-  def authorize_admin_group_runners!
-    unless can?(current_user, :admin_group_runners, group)
-      render_404
-    end
-  end
-
-  def authorize_read_group_runners!
-    unless can?(current_user, :read_group_runners, group)
-      render_404
-    end
+    render_404 unless can?(current_user, :admin_group, group)
   end
 
   def authorize_create_deploy_token!
-    unless can?(current_user, :create_deploy_token, group)
-      render_404
-    end
+    render_404 unless can?(current_user, :create_deploy_token, group)
   end
 
   def authorize_destroy_deploy_token!
-    unless can?(current_user, :destroy_deploy_token, group)
-      render_404
-    end
+    render_404 unless can?(current_user, :destroy_deploy_token, group)
   end
 
   def authorize_admin_group_member!
-    unless can?(current_user, :admin_group_member, group)
-      render_403
-    end
+    render_403 unless can?(current_user, :admin_group_member, group)
+  end
+
+  def authorize_billings_page!
+    render_404 unless can?(current_user, :read_billing, group)
+  end
+
+  def authorize_read_group_member!
+    render_403 unless can?(current_user, :read_group_member, group)
   end
 
   def build_canonical_path(group)
@@ -74,9 +66,7 @@ class Groups::ApplicationController < ApplicationController
   end
 
   def set_sorting
-    if has_project_list?
-      @group_projects_sort = set_sort_order(Project::SORTING_PREFERENCE_FIELD, sort_value_name)
-    end
+    @group_projects_sort = set_sort_order(Project::SORTING_PREFERENCE_FIELD, sort_value_name) if has_project_list?
   end
 
   def has_project_list?
@@ -85,6 +75,28 @@ class Groups::ApplicationController < ApplicationController
 
   def validate_root_group!
     render_404 unless group.root?
+  end
+
+  def authorize_action!(action)
+    access_denied! unless can?(current_user, action, group)
+  end
+
+  def respond_to_missing?(method, *args)
+    case method.to_s
+    when /\Aauthorize_(.*)!\z/
+      true
+    else
+      super
+    end
+  end
+
+  def method_missing(method_sym, *arguments, &block)
+    case method_sym.to_s
+    when /\Aauthorize_(.*)!\z/
+      authorize_action!(Regexp.last_match(1).to_sym)
+    else
+      super
+    end
   end
 end
 

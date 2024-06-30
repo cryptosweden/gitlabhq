@@ -1,29 +1,17 @@
-import Vue from 'vue';
-import { createComponentWithStore } from 'helpers/vue_mount_component_helper';
-import emptyState from '~/ide/components/commit_sidebar/empty_state.vue';
+import { shallowMount } from '@vue/test-utils';
+import EmptyState from '~/ide/components/commit_sidebar/empty_state.vue';
 import { createStore } from '~/ide/stores';
 
-describe('IDE commit panel empty state', () => {
-  let vm;
-  let store;
+describe('IDE commit panel EmptyState component', () => {
+  let wrapper;
 
   beforeEach(() => {
-    store = createStore();
-
-    const Component = Vue.extend(emptyState);
-
-    Vue.set(store.state, 'noChangesStateSvgPath', 'no-changes');
-
-    vm = createComponentWithStore(Component, store);
-
-    vm.$mount();
-  });
-
-  afterEach(() => {
-    vm.$destroy();
+    const store = createStore();
+    store.state.noChangesStateSvgPath = 'no-changes';
+    wrapper = shallowMount(EmptyState, { store });
   });
 
   it('renders no changes text when last commit message is empty', () => {
-    expect(vm.$el.textContent).toContain('No changes');
+    expect(wrapper.find('h4').text()).toBe('No changes');
   });
 });

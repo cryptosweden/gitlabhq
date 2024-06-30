@@ -12,6 +12,9 @@ class Projects::PagesDomainsController < Projects::ApplicationController
   feature_category :pages
 
   def show
+    return unless domain_presenter.needs_verification?
+
+    flash.now[:warning] = _("This domain is not verified. You will need to verify ownership before access is enabled.")
   end
 
   def new
@@ -41,9 +44,9 @@ class Projects::PagesDomainsController < Projects::ApplicationController
   end
 
   def create
-    @domain = @project.pages_domains.create(create_params)
+    @domain = PagesDomains::CreateService.new(@project, current_user, create_params).execute
 
-    if @domain.valid?
+    if @domain&.persisted?
       redirect_to project_pages_domain_path(@project, @domain)
     else
       render 'new'
@@ -51,7 +54,9 @@ class Projects::PagesDomainsController < Projects::ApplicationController
   end
 
   def update
-    if @domain.update(update_params)
+    service = ::PagesDomains::UpdateService.new(@project, current_user, update_params)
+
+    if service.execute(@domain)
       redirect_to project_pages_path(@project),
         status: :found,
         notice: 'Domain was updated'
@@ -61,22 +66,23 @@ class Projects::PagesDomainsController < Projects::ApplicationController
   end
 
   def destroy
-    @domain.destroy
+    PagesDomains::DeleteService
+      .new(@project, current_user)
+      .execute(@domain)
 
     respond_to do |format|
       format.html do
-        redirect_to project_pages_path(@project),
-                    status: :found,
-                    notice: 'Domain was removed'
+        redirect_to project_pages_path(@project), status: :found, notice: 'Domain was removed'
       end
       format.js
     end
   end
 
   def clean_certificate
-    unless @domain.update(user_provided_certificate: nil, user_provided_key: nil)
-      flash[:alert] = @domain.errors.full_messages.join(', ')
-    end
+    update_params = { user_provided_certificate: nil, user_provided_key: nil }
+    service = ::PagesDomains::UpdateService.new(@project, current_user, update_params)
+
+    flash[:alert] = @domain.errors.full_messages.join(', ') unless service.execute(@domain)
 
     redirect_to project_pages_domain_path(@project, @domain)
   end

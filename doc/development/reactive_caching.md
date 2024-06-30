@@ -1,12 +1,12 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # `ReactiveCaching`
 
-> This doc refers to [`reactive_caching.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/models/concerns/reactive_caching.rb).
+> - This doc refers to [`reactive_caching.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/models/concerns/reactive_caching.rb).
 
 The `ReactiveCaching` concern is used for fetching some data in the background and storing it
 in the Rails cache, keeping it up-to-date for as long as it is being requested. If the
@@ -197,9 +197,8 @@ There are some `class_attribute` options which can be tweaked.
   self.reactive_cache_key = -> (record) { [model_name.singular, record.id] }
   ```
 
-- The `data` and `alive` cache keys in this case are `"ExampleModel:1:arg1:arg2"`
-  and `"ExampleModel:1:arg1:arg2:alive"` respectively, where `ExampleModel` is the
-  name of the model, `1` is the ID of the record, `arg1` and `arg2` are parameters
+- The `data` cache key is `"ExampleModel:1:arg1:arg2"` and `alive` cache keys is `"ExampleModel:1:arg1:arg2:alive"`,
+  where `ExampleModel` is the name of the model, `1` is the ID of the record, `arg1` and `arg2` are parameters
   passed to `with_reactive_cache`.
 - If you're including this concern in an integration (`app/models/integrations/`) instead, you must override
   the default by adding the following to your integration:
@@ -208,7 +207,7 @@ There are some `class_attribute` options which can be tweaked.
   self.reactive_cache_key = ->(integration) { [integration.class.model_name.singular, integration.project_id] }
   ```
 
-  If your reactive_cache_key is exactly like the above, you can use the existing
+  If your `reactive_cache_key` is exactly like the above, you can use the existing
   `Integrations::ReactivelyCached` concern instead.
 
 #### `self.reactive_cache_lease_timeout`
@@ -256,14 +255,14 @@ self.reactive_cache_hard_limit = 5.megabytes
 #### `self.reactive_cache_work_type`
 
 - This is the type of work performed by the `calculate_reactive_cache` method. Based on this attribute,
-it's able to pick the right worker to process the caching job. Make sure to
-set it as `:external_dependency` if the work performs any external request
-(for example, Kubernetes, Sentry); otherwise set it to `:no_dependency`.
+  it's able to pick the right worker to process the caching job. Make sure to
+  set it as `:external_dependency` if the work performs any external request
+  (for example, Kubernetes, Sentry); otherwise set it to `:no_dependency`.
 
 #### `self.reactive_cache_worker_finder`
 
 - This is the method used by the background worker to find or generate the object on
-which `calculate_reactive_cache` can be called.
+  which `calculate_reactive_cache` can be called.
 - By default it uses the model primary key to find the object:
 
   ```ruby

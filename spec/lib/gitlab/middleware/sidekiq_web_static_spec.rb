@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::Middleware::SidekiqWebStatic do
   let(:app) { double(:app) }
@@ -14,7 +14,7 @@ RSpec.describe Gitlab::Middleware::SidekiqWebStatic do
     end
 
     context 'with an /admin/sidekiq route' do
-      let(:path) { '/admin/sidekiq/javascripts/application.js'}
+      let(:path) { '/admin/sidekiq/javascripts/application.js' }
 
       it 'deletes the HTTP_X_SENDFILE_TYPE header' do
         expect(app).to receive(:call)

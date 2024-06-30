@@ -2,24 +2,40 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::BlobController do
+RSpec.describe Projects::BlobController, feature_category: :source_code_management do
   include ProjectForksHelper
 
-  let(:project) { create(:project, :public, :repository, previous_default_branch: previous_default_branch) }
-  let(:previous_default_branch) { nil }
+  let_it_be(:project) { create(:project, :public, :repository) }
+  let(:mutable_project) { create(:project, :public, :repository) }
 
   describe "GET show" do
-    def request
-      get(:show, params: { namespace_id: project.namespace, project_id: project, id: id })
+    let(:params) { { namespace_id: project.namespace, project_id: project, id: id, ref_type: ref_type } }
+    let(:ref_type) { nil }
+    let(:request) do
+      get(:show, params: params)
     end
 
     render_views
 
     context 'with file path' do
-      before do
-        expect(::Gitlab::GitalyClient).to receive(:allow_ref_name_caching).and_call_original
+      include_context 'with ambiguous refs for controllers'
 
+      before do
         request
+      end
+
+      context 'when the ref is ambiguous' do
+        let(:ref) { 'ambiguous_ref' }
+        let(:path) { 'README.md' }
+        let(:id) { "#{ref}/#{path}" }
+
+        it_behaves_like '#set_is_ambiguous_ref when ref is ambiguous'
+      end
+
+      describe '#set_is_ambiguous_ref with no ambiguous ref' do
+        let(:id) { 'master/invalid-path.rb' }
+
+        it_behaves_like '#set_is_ambiguous_ref when ref is not ambiguous'
       end
 
       context "valid branch, valid file" do
@@ -43,18 +59,20 @@ RSpec.describe Projects::BlobController do
         it { is_expected.to respond_with(:not_found) }
       end
 
-      context "renamed default branch, valid file" do
-        let(:id) { 'old-default-branch/README.md' }
-        let(:previous_default_branch) { 'old-default-branch' }
+      context 'when default branch was renamed' do
+        let_it_be_with_reload(:project) { create(:project, :public, :repository, previous_default_branch: 'old-default-branch') }
 
-        it { is_expected.to redirect_to("/#{project.full_path}/-/blob/#{project.default_branch}/README.md") }
-      end
+        context "renamed default branch, valid file" do
+          let(:id) { 'old-default-branch/README.md' }
 
-      context "renamed default branch, invalid file" do
-        let(:id) { 'old-default-branch/invalid-path.rb' }
-        let(:previous_default_branch) { 'old-default-branch' }
+          it { is_expected.to redirect_to("/#{project.full_path}/-/blob/#{project.default_branch}/README.md") }
+        end
 
-        it { is_expected.to redirect_to("/#{project.full_path}/-/blob/#{project.default_branch}/invalid-path.rb") }
+        context "renamed default branch, invalid file" do
+          let(:id) { 'old-default-branch/invalid-path.rb' }
+
+          it { is_expected.to redirect_to("/#{project.full_path}/-/blob/#{project.default_branch}/invalid-path.rb") }
+        end
       end
 
       context "binary file" do
@@ -75,13 +93,7 @@ RSpec.describe Projects::BlobController do
         let(:id) { 'master/README.md' }
 
         before do
-          get(:show,
-              params: {
-                namespace_id: project.namespace,
-                project_id: project,
-                id: id
-              },
-              format: :json)
+          get :show, params: params, format: :json
         end
 
         it do
@@ -95,14 +107,7 @@ RSpec.describe Projects::BlobController do
         let(:id) { 'master/README.md' }
 
         before do
-          get(:show,
-              params: {
-                namespace_id: project.namespace,
-                project_id: project,
-                id: id,
-                viewer: 'none'
-              },
-              format: :json)
+          get :show, params: { namespace_id: project.namespace, project_id: project, id: id, ref_type: 'heads', viewer: 'none' }, format: :json
         end
 
         it do
@@ -115,12 +120,8 @@ RSpec.describe Projects::BlobController do
 
     context 'with tree path' do
       before do
-        get(:show,
-            params: {
-              namespace_id: project.namespace,
-              project_id: project,
-              id: id
-            })
+        get :show, params: params
+
         controller.instance_variable_set(:@blob, nil)
       end
 
@@ -284,6 +285,7 @@ RSpec.describe Projects::BlobController do
 
     before do
       project.add_maintainer(user)
+      mutable_project.add_maintainer(user)
 
       sign_in(user)
     end
@@ -292,6 +294,27 @@ RSpec.describe Projects::BlobController do
       put :update, params: default_params
 
       expect(response).to redirect_to(blob_after_edit_path)
+    end
+
+    context 'when file is renamed' do
+      let(:default_params) do
+        {
+          namespace_id: mutable_project.namespace,
+          project_id: mutable_project,
+          id: 'master/CHANGELOG',
+          file_path: 'CHANGELOG2',
+          branch_name: 'master',
+          content: 'Added changes',
+          commit_message: 'Rename CHANGELOG'
+        }
+      end
+
+      it 'redirects to blob' do
+        put :update, params: default_params
+
+        expect(response).to redirect_to(project_blob_path(mutable_project, 'master/CHANGELOG2'))
+        expect(assigns[:commit_params]).to include(file_path: 'CHANGELOG2', previous_path: 'CHANGELOG')
+      end
     end
 
     context '?from_merge_request_iid' do
@@ -352,7 +375,6 @@ RSpec.describe Projects::BlobController do
             project_new_merge_request_path(
               forked_project,
               merge_request: {
-                source_project_id: forked_project.id,
                 target_project_id: project.id,
                 source_branch: "fork-test-1",
                 target_branch: "master"
@@ -363,11 +385,15 @@ RSpec.describe Projects::BlobController do
       end
     end
 
-    it_behaves_like 'tracking unique hll events' do
+    context 'events tracking' do
+      let(:target_event) { 'g_edit_by_sfe' }
+
       subject(:request) { put :update, params: default_params }
 
-      let(:target_event) { 'g_edit_by_sfe' }
-      let(:expected_value) { instance_of(Integer) }
+      it_behaves_like 'internal event tracking' do
+        let(:namespace) { project.namespace.reload }
+        let(:event) { target_event }
+      end
     end
   end
 
@@ -396,6 +422,10 @@ RSpec.describe Projects::BlobController do
       let(:after_delete_path) { project_tree_path(project, 'master/files') }
 
       it 'redirects to the sub directory' do
+        expect_next_instance_of(Files::DeleteService) do |instance|
+          expect(instance).to receive(:execute).and_return({ status: :success })
+        end
+
         delete :destroy, params: default_params
 
         expect(response).to redirect_to(after_delete_path)
@@ -494,7 +524,9 @@ RSpec.describe Projects::BlobController do
   end
 
   describe 'POST create' do
-    let(:user) { create(:user) }
+    let_it_be(:user) { create(:user) }
+
+    let(:target_event) { 'g_edit_by_sfe' }
     let(:default_params) do
       {
         namespace_id: project.namespace,
@@ -515,15 +547,38 @@ RSpec.describe Projects::BlobController do
 
     subject(:request) { post :create, params: default_params }
 
-    it_behaves_like 'tracking unique hll events' do
-      let(:target_event) { 'g_edit_by_sfe' }
-      let(:expected_value) { instance_of(Integer) }
+    it_behaves_like 'internal event tracking' do
+      let(:namespace) { project.namespace.reload }
+      let(:event) { target_event }
     end
 
     it 'redirects to blob' do
       request
 
       expect(response).to redirect_to(project_blob_path(project, 'master/docs/EXAMPLE_FILE'))
+    end
+
+    context 'when file_name is missing' do
+      let(:default_params) do
+        {
+          namespace_id: project.namespace,
+          project_id: project,
+          id: 'master',
+          branch_name: 'master',
+          content: 'Added changes',
+          commit_message: 'Create CHANGELOG'
+        }
+      end
+
+      render_views
+
+      it 'renders an error message' do
+        request
+
+        expect(response).to be_successful
+        expect(response).to render_template(:new)
+        expect(response.body).to include('You must provide a file path')
+      end
     end
   end
 end

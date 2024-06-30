@@ -2,6 +2,7 @@
 
 module Types
   module Projects
+    # TODO: Remove in 17.0, see https://gitlab.com/gitlab-org/gitlab/-/merge_requests/108418
     module ServiceType
       include Types::BaseInterface
       graphql_name 'Service'
@@ -9,11 +10,11 @@ module Types
       # TODO: Add all the fields that we want to expose for the project services integrations
       # https://gitlab.com/gitlab-org/gitlab/-/issues/213088
       field :type, GraphQL::Types::String, null: true,
-            description: 'Class name of the service.'
+        description: 'Class name of the service.'
       field :service_type, ::Types::Projects::ServiceTypeEnum, null: true,
-            description: 'Type of the service.'
+        description: 'Type of the service.'
       field :active, GraphQL::Types::Boolean, null: true,
-            description: 'Indicates if the service is active.'
+        description: 'Indicates if the service is active.'
 
       def type
         enum = ::Types::Projects::ServiceTypeEnum.coerce_result(service_type, context)

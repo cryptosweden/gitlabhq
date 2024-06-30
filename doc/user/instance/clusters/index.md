@@ -1,13 +1,14 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Instance-level Kubernetes clusters (certificate-based) (DEPRECATED) **(FREE SELF)**
+# Instance-level Kubernetes clusters (certificate-based) (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/39840) in GitLab 11.11.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5. To connect clusters to GitLab,
@@ -21,8 +22,8 @@ projects.
 
 To view the instance level Kubernetes clusters:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Kubernetes**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Kubernetes**.
 
 ## Cluster precedence
 
@@ -33,9 +34,13 @@ GitLab tries to match clusters in the following order:
 - Instance-level clusters.
 
 To be selected, the cluster must be enabled and
-match the [environment selector](../../../ci/environments/index.md#scope-environments-with-specs).
+match the [environment selector](../../../ci/environments/index.md#limit-the-environment-scope-of-a-cicd-variable).
 
-## Cluster environments **(PREMIUM)**
+## Cluster environments
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 For a consolidated view of which CI [environments](../../../ci/environments/index.md)
 are deployed to the Kubernetes cluster, see the documentation for

@@ -3,21 +3,26 @@
 require 'spec_helper'
 
 RSpec.describe EnvironmentStatusEntity do
-  let(:user)    { create(:user) }
+  let_it_be(:non_member) { create(:user) }
+  let_it_be(:maintainer) { create(:user) }
+  let_it_be(:deployment) { create(:deployment, :succeed, :review_app) }
+  let_it_be(:merge_request) { create(:merge_request, :deployed_review_app, deployment: deployment) }
+  let_it_be(:environment) { deployment.environment }
+  let_it_be(:project) { deployment.project }
+
+  let(:user) { non_member }
   let(:request) { double('request', project: project) }
-
-  let(:deployment)    { create(:deployment, :succeed, :review_app) }
-  let(:environment)   { deployment.environment }
-  let(:project)       { deployment.project }
-  let(:merge_request) { create(:merge_request, :deployed_review_app, deployment: deployment) }
-
   let(:environment_status) { EnvironmentStatus.new(project, environment, merge_request, merge_request.diff_head_sha) }
-  let(:entity)             { described_class.new(environment_status, request: request) }
+  let(:entity) { described_class.new(environment_status, request: request) }
 
   subject { entity.as_json }
 
-  before do
+  before_all do
+    project.add_maintainer(maintainer)
     deployment.update!(sha: merge_request.diff_head_sha)
+  end
+
+  before do
     allow(request).to receive(:current_user).and_return(user)
   end
 
@@ -31,20 +36,22 @@ RSpec.describe EnvironmentStatusEntity do
   it { is_expected.to include(:details) }
   it { is_expected.to include(:changes) }
   it { is_expected.to include(:status) }
+  it { is_expected.to include(:environment_available) }
 
+  it { is_expected.not_to include(:retry_url) }
   it { is_expected.not_to include(:stop_url) }
   it { is_expected.not_to include(:metrics_url) }
   it { is_expected.not_to include(:metrics_monitoring_url) }
 
   context 'when the user is project maintainer' do
-    before do
-      project.add_maintainer(user)
-    end
+    let(:user) { maintainer }
 
     it { is_expected.to include(:stop_url) }
+    it { is_expected.to include(:retry_url) }
   end
 
   context 'when deployment has metrics' do
+    let(:user) { maintainer }
     let(:prometheus_adapter) { double('prometheus_adapter', can_query?: true, configured?: true) }
 
     let(:simple_metrics) do
@@ -56,7 +63,6 @@ RSpec.describe EnvironmentStatusEntity do
     end
 
     before do
-      project.add_maintainer(user)
       allow(deployment).to receive(:prometheus_adapter).and_return(prometheus_adapter)
       allow(entity).to receive(:deployment).and_return(deployment)
 
@@ -69,8 +75,6 @@ RSpec.describe EnvironmentStatusEntity do
     end
 
     context 'when deployment succeeded' do
-      let(:deployment)    { create(:deployment, :succeed, :review_app) }
-
       it 'returns metrics url' do
         expect(subject[:metrics_url])
           .to eq("/#{project.full_path}/-/environments/#{environment.id}/deployments/#{deployment.iid}/metrics")
@@ -78,7 +82,9 @@ RSpec.describe EnvironmentStatusEntity do
     end
 
     context 'when deployment is running' do
-      let(:deployment)    { create(:deployment, :running, :review_app) }
+      before do
+        deployment.update!(status: :running)
+      end
 
       it 'does not return metrics url' do
         expect(subject[:metrics_url]).to be_nil

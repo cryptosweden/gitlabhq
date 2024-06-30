@@ -1,13 +1,13 @@
 import * as timeago from 'timeago.js';
-import { languageCode, s__, createDateTimeFormat } from '../../../locale';
-import { formatDate } from './date_format_utility';
+import { languageCode, s__ } from '~/locale';
+import { DEFAULT_DATE_TIME_FORMAT, localeDateFormat } from '~/lib/utils/datetime/locale_dateformat';
 
 /**
  * Timeago uses underscores instead of dashes to separate language from country code.
  *
  * see https://github.com/hustcc/timeago.js/tree/v3.0.0/locales
  */
-const timeagoLanguageCode = languageCode().replace(/-/g, '_');
+export const timeagoLanguageCode = languageCode().replace(/-/g, '_');
 
 /**
  * Registers timeago locales
@@ -70,29 +70,46 @@ const memoizedLocale = () => {
   };
 };
 
+/**
+ * Registers timeago time duration
+ */
+const memoizedLocaleDuration = () => {
+  const cache = [];
+
+  const durations = [
+    () => [s__('Duration|%s seconds')],
+    () => [s__('Duration|%s seconds')],
+    () => [s__('Duration|1 minute')],
+    () => [s__('Duration|%s minutes')],
+    () => [s__('Duration|1 hour')],
+    () => [s__('Duration|%s hours')],
+    () => [s__('Duration|1 day')],
+    () => [s__('Duration|%s days')],
+    () => [s__('Duration|1 week')],
+    () => [s__('Duration|%s weeks')],
+    () => [s__('Duration|1 month')],
+    () => [s__('Duration|%s months')],
+    () => [s__('Duration|1 year')],
+    () => [s__('Duration|%s years')],
+  ];
+
+  return (_, index) => {
+    if (cache[index]) {
+      return cache[index];
+    }
+    cache[index] = durations[index] && durations[index]();
+    return cache[index];
+  };
+};
+
 timeago.register(timeagoLanguageCode, memoizedLocale());
 timeago.register(`${timeagoLanguageCode}-remaining`, memoizedLocaleRemaining());
+timeago.register(`${timeagoLanguageCode}-duration`, memoizedLocaleDuration());
 
-let memoizedFormatter = null;
-
-function setupAbsoluteFormatter() {
-  if (memoizedFormatter === null) {
-    const formatter = createDateTimeFormat({
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-
-    memoizedFormatter = {
-      format(date) {
-        return formatter.format(date instanceof Date ? date : new Date(date));
-      },
-    };
-  }
-  return memoizedFormatter;
-}
-
-export const getTimeago = () =>
-  window.gon?.time_display_relative === false ? setupAbsoluteFormatter() : timeago;
+export const getTimeago = (formatName) =>
+  window.gon?.time_display_relative === false
+    ? localeDateFormat[formatName] ?? localeDateFormat[DEFAULT_DATE_TIME_FORMAT]
+    : timeago;
 
 /**
  * For the given elements, sets a tooltip with a formatted date.
@@ -112,7 +129,7 @@ export const localTimeAgo = (elements, updateTooltip = true) => {
   function addTimeAgoTooltip() {
     elements.forEach((el) => {
       // Recreate with custom template
-      el.setAttribute('title', formatDate(el.dateTime));
+      el.setAttribute('title', localeDateFormat.asDateTimeFull.format(el.dateTime));
     });
   }
 
@@ -132,4 +149,17 @@ export const timeFor = (time, expiredLabel) => {
     return expiredLabel || s__('Timeago|Past due');
   }
   return timeago.format(time, `${timeagoLanguageCode}-remaining`).trim();
+};
+
+/**
+ * Returns a duration of time given an amount.
+ *
+ * @param {number} milliseconds - Duration in milliseconds.
+ * @returns {string} A formatted duration, e.g. "10 minutes".
+ */
+export const duration = (milliseconds) => {
+  const now = new Date();
+  return timeago
+    .format(now.getTime() - Math.abs(milliseconds), `${timeagoLanguageCode}-duration`)
+    .trim();
 };

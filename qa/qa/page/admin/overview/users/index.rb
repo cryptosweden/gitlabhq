@@ -7,26 +7,46 @@ module QA
         module Users
           class Index < QA::Page::Base
             view 'app/views/admin/users/_users.html.haml' do
-              element :user_search_field
-              element :pending_approval_tab
+              element 'filtered-search-block'
             end
 
-            view 'app/assets/javascripts/admin/users/components/users_table.vue' do
-              element :user_row_content
+            view 'app/assets/javascripts/vue_shared/components/users_table/users_table.vue' do
+              element 'user-row-content'
             end
 
-            def search_user(username)
-              find_element(:user_search_field).set(username).send_keys(:return)
+            # Depending on how we interact with the search, one of these two selectors will be present
+            INPUT_SELECTORS = '[data-testid="filtered-search-term-input"], ' \
+                              '[data-testid="filtered-search-token-segment-input"]'
+
+            def choose_search_user(username)
+              within_element('filtered-search-block') do
+                find(INPUT_SELECTORS).set(username)
+              end
             end
 
-            def click_pending_approval_tab
-              click_element :pending_approval_tab
+            def choose_pending_approval_filter
+              within_element('filtered-search-block') do
+                find(INPUT_SELECTORS).click
+                click_link('State')
+                click_link('Pending approval')
+              end
+            end
+
+            def click_search
+              within_element('filtered-search-block') do
+                find_element('search-button').click
+              end
+              wait_for_requests
             end
 
             def click_user(username)
-              within_element(:user_row_content, text: username) do
+              within_element('user-row-content', text: username) do
                 click_link(username)
               end
+            end
+
+            def has_username?(username)
+              has_element?('user-row-content', text: username, wait: 1)
             end
           end
         end

@@ -1,23 +1,27 @@
 <script>
-import { GlButton, GlSprintf, GlLink } from '@gitlab/ui';
+import { GlButton, GlSprintf, GlLink, GlFormCheckbox } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters, mapActions, mapState } from 'vuex';
-import { getDraft, updateDraft } from '~/lib/utils/autosave';
 import { mergeUrlParams } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
-import markdownField from '~/vue_shared/components/markdown/field.vue';
+import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
+import { trackSavedUsingEditor } from '~/vue_shared/components/markdown/tracking';
 import eventHub from '../event_hub';
 import issuableStateMixin from '../mixins/issuable_state';
 import resolvable from '../mixins/resolvable';
+import { COMMENT_FORM } from '../i18n';
 import CommentFieldLayout from './comment_field_layout.vue';
 
 export default {
+  i18n: COMMENT_FORM,
   name: 'NoteForm',
   components: {
-    markdownField,
+    MarkdownEditor,
     CommentFieldLayout,
     GlButton,
     GlSprintf,
     GlLink,
+    GlFormCheckbox,
   },
   mixins: [issuableStateMixin, resolvable],
   props: {
@@ -40,10 +44,6 @@ export default {
       type: Object,
       required: false,
       default: () => ({}),
-    },
-    isEditing: {
-      type: Boolean,
-      required: true,
     },
     lineCode: {
       type: String,
@@ -95,22 +95,29 @@ export default {
       required: false,
       default: false,
     },
+    autofocus: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
   },
   data() {
-    let updatedNoteBody = this.noteBody;
-
-    if (!updatedNoteBody && this.autosaveKey) {
-      updatedNoteBody = getDraft(this.autosaveKey) || '';
-    }
-
     return {
-      updatedNoteBody,
+      updatedNoteBody: this.noteBody,
       conflictWhileEditing: false,
       isSubmitting: false,
       isResolving: this.resolveDiscussion,
       isUnresolving: !this.resolveDiscussion,
       resolveAsThread: true,
       isSubmittingWithKeydown: false,
+      formFieldProps: {
+        id: 'note_note',
+        name: 'note[note]',
+        'aria-label': __('Reply to comment'),
+        placeholder: this.$options.i18n.bodyPlaceholder,
+        class: 'note-textarea js-gfm-input js-note-text markdown-area js-vue-issue-note-form',
+        'data-testid': 'reply-field',
+      },
     };
   },
   computed: {
@@ -125,6 +132,9 @@ export default {
       withBatchComments: (state) => state.batchComments?.withBatchComments,
     }),
     ...mapGetters('batchComments', ['hasDrafts']),
+    autocompleteDataSources() {
+      return gl.GfmAutoComplete?.dataSources;
+    },
     showBatchCommentsActions() {
       return this.withBatchComments && this.noteId === '' && !this.discussion.for_commit;
     },
@@ -149,12 +159,14 @@ export default {
           filePath: this.diffFile.file_path,
           refs: this.diffFile.diff_refs,
         };
-      } else if (this.note && this.note.position) {
+      }
+      if (this.note && this.note.position) {
         return {
           filePath: this.note.position.new_path,
           refs: this.note.position,
         };
-      } else if (this.discussion && this.discussion.diff_file) {
+      }
+      if (this.discussion && this.discussion.diff_file) {
         return {
           filePath: this.discussion.diff_file.file_path,
           refs: this.discussion.diff_file.diff_refs,
@@ -183,14 +195,14 @@ export default {
     markdownDocsPath() {
       return this.getNotesDataByProp('markdownDocsPath');
     },
-    quickActionsDocsPath() {
-      return !this.isEditing ? this.getNotesDataByProp('quickActionsDocsPath') : undefined;
-    },
     currentUserId() {
       return this.getUserDataByProp('id');
     },
     isDisabled() {
       return !this.updatedNoteBody.length || this.isSubmitting;
+    },
+    isInternalNote() {
+      return this.discussionNote.internal || this.discussion.confidential;
     },
     discussionNote() {
       const discussionNote = this.discussion.id
@@ -211,6 +223,15 @@ export default {
         placeholder: { link: ['startTag', 'endTag'] },
       };
     },
+    codeSuggestionsConfig() {
+      return {
+        canSuggest: this.canSuggest,
+        line: this.line,
+        lines: this.lines,
+        showPopover: this.showSuggestPopover,
+        diffFile: this.diffFile,
+      };
+    },
   },
   watch: {
     noteBody() {
@@ -222,19 +243,20 @@ export default {
     },
   },
   mounted() {
-    this.$refs.textarea.focus();
+    this.updatePlaceholder();
   },
   methods: {
     ...mapActions(['toggleResolveNote']),
-    shouldToggleResolved(shouldResolve, beforeSubmitDiscussionState) {
-      const newResolvedStateAfterUpdate =
-        this.shouldBeResolved && this.shouldBeResolved(shouldResolve);
-
-      const shouldToggleState =
-        newResolvedStateAfterUpdate !== undefined &&
-        beforeSubmitDiscussionState !== newResolvedStateAfterUpdate;
-
-      return shouldResolve || shouldToggleState;
+    shouldToggleResolved(beforeSubmitDiscussionState) {
+      return (
+        this.showResolveDiscussionToggle && beforeSubmitDiscussionState !== this.newResolvedState()
+      );
+    },
+    newResolvedState() {
+      return (
+        (this.discussionResolved && !this.isUnresolving) ||
+        (!this.discussionResolved && this.isResolving)
+      );
     },
     editMyLastNote() {
       if (this.updatedNoteBody === '') {
@@ -248,30 +270,40 @@ export default {
       }
     },
     cancelHandler(shouldConfirm = false) {
-      // Sends information about confirm message and if the textarea has changed
-      this.$emit('cancelForm', shouldConfirm, this.noteBody !== this.updatedNoteBody);
-    },
-    onInput() {
-      if (this.isSubmittingWithKeydown) {
-        return;
-      }
-
-      if (this.autosaveKey) {
-        const { autosaveKey, updatedNoteBody: text } = this;
-        updateDraft(autosaveKey, text);
+      // check if any dropdowns are active before sending the cancelation event
+      if (
+        !this.$refs.markdownEditor.$el
+          .querySelector('textarea')
+          ?.classList.contains('at-who-active')
+      ) {
+        this.$emit('cancelForm', shouldConfirm, this.noteBody !== this.updatedNoteBody);
       }
     },
-    handleKeySubmit() {
-      if (this.showBatchCommentsActions) {
+    updatePlaceholder() {
+      this.formFieldProps.placeholder = this.discussionNote?.internal
+        ? this.$options.i18n.bodyPlaceholderInternal
+        : this.$options.i18n.bodyPlaceholder;
+    },
+    onInput(value) {
+      this.updatedNoteBody = value;
+    },
+    handleKeySubmit(forceUpdate = false) {
+      if (this.showBatchCommentsActions && !forceUpdate) {
         this.handleAddToReview();
       } else {
         this.isSubmittingWithKeydown = true;
         this.handleUpdate();
       }
+      this.updatedNoteBody = '';
     },
-    handleUpdate(shouldResolve) {
+    handleUpdate() {
       const beforeSubmitDiscussionState = this.discussionResolved;
       this.isSubmitting = true;
+
+      trackSavedUsingEditor(
+        this.$refs.markdownEditor.isContentEditorActive,
+        `${this.getNoteableData.noteableType}_note`,
+      );
 
       this.$emit(
         'handleFormUpdate',
@@ -280,31 +312,31 @@ export default {
         () => {
           this.isSubmitting = false;
 
-          if (this.shouldToggleResolved(shouldResolve, beforeSubmitDiscussionState)) {
+          if (this.shouldToggleResolved(beforeSubmitDiscussionState)) {
             this.resolveHandler(beforeSubmitDiscussionState);
           }
         },
         this.discussionResolved ? !this.isUnresolving : this.isResolving,
       );
     },
-    shouldBeResolved(resolveStatus) {
-      if (this.withBatchComments) {
-        return (
-          (this.discussionResolved && !this.isUnresolving) ||
-          (!this.discussionResolved && this.isResolving)
-        );
-      }
-
-      return resolveStatus;
-    },
     handleAddToReview() {
+      const clickType = this.hasDrafts ? 'noteFormAddToReview' : 'noteFormStartReview';
       // check if draft should resolve thread
       const shouldResolve =
         (this.discussionResolved && !this.isUnresolving) ||
         (!this.discussionResolved && this.isResolving);
       this.isSubmitting = true;
 
-      this.$emit('handleFormUpdateAddToReview', this.updatedNoteBody, shouldResolve);
+      eventHub.$emit(clickType, { name: clickType });
+      this.$emit(
+        'handleFormUpdateAddToReview',
+        this.updatedNoteBody,
+        shouldResolve,
+        this.$refs.editNoteForm,
+        () => {
+          this.isSubmitting = false;
+        },
+      );
     },
     hasEmailParticipants() {
       return this.getNoteableData.issue_email_participants?.length;
@@ -322,69 +354,58 @@ export default {
         </template>
       </gl-sprintf>
     </div>
-    <div class="flash-container timeline-content"></div>
+    <div class="flash-container"></div>
     <form :data-line-code="lineCode" class="edit-note common-note-form js-quick-submit gfm-form">
-      <comment-field-layout
-        :noteable-data="getNoteableData"
-        :note-is-confidential="discussion.confidential"
-      >
-        <markdown-field
-          :markdown-preview-path="markdownPreviewPath"
+      <comment-field-layout :noteable-data="getNoteableData" :is-internal-note="isInternalNote">
+        <markdown-editor
+          ref="markdownEditor"
+          :value="updatedNoteBody"
+          :render-markdown-path="markdownPreviewPath"
           :markdown-docs-path="markdownDocsPath"
-          :quick-actions-docs-path="quickActionsDocsPath"
-          :line="line"
-          :lines="lines"
-          :note="discussionNote"
-          :can-suggest="canSuggest"
+          :code-suggestions-config="codeSuggestionsConfig"
           :add-spacing-classes="false"
           :help-page-path="helpPagePath"
-          :show-suggest-popover="showSuggestPopover"
-          :textarea-value="updatedNoteBody"
+          :note="discussionNote"
+          :form-field-props="formFieldProps"
+          :autosave-key="autosaveKey"
+          :autocomplete-data-sources="autocompleteDataSources"
+          :disabled="isSubmitting"
+          supports-quick-actions
+          :autofocus="autofocus"
+          @keydown.shift.meta.enter="handleKeySubmit((forceUpdate = true))"
+          @keydown.shift.ctrl.enter="handleKeySubmit((forceUpdate = true))"
+          @keydown.meta.enter.exact="handleKeySubmit()"
+          @keydown.ctrl.enter.exact="handleKeySubmit()"
+          @keydown.exact.up="editMyLastNote()"
+          @keydown.exact.esc="cancelHandler(true)"
+          @input="onInput"
           @handleSuggestDismissed="() => $emit('handleSuggestDismissed')"
-        >
-          <template #textarea>
-            <textarea
-              id="note_note"
-              ref="textarea"
-              v-model="updatedNoteBody"
-              :disabled="isSubmitting"
-              :data-supports-quick-actions="!isEditing"
-              name="note[note]"
-              class="note-textarea js-gfm-input js-note-text js-autosize markdown-area js-vue-issue-note-form"
-              data-qa-selector="reply_field"
-              dir="auto"
-              :aria-label="__('Reply to comment')"
-              :placeholder="__('Write a comment or drag your files here…')"
-              @keydown.meta.enter="handleKeySubmit()"
-              @keydown.ctrl.enter="handleKeySubmit()"
-              @keydown.exact.up="editMyLastNote()"
-              @keydown.exact.esc="cancelHandler(true)"
-              @input="onInput"
-            ></textarea>
-          </template>
-        </markdown-field>
+        />
       </comment-field-layout>
-      <div class="note-form-actions">
-        <template v-if="showBatchCommentsActions">
-          <p v-if="showResolveDiscussionToggle">
-            <label>
-              <template v-if="discussionResolved">
-                <input v-model="isUnresolving" type="checkbox" class="js-unresolve-checkbox" />
+      <div class="note-form-actions gl-font-size-0">
+        <template v-if="showResolveDiscussionToggle">
+          <label>
+            <template v-if="discussionResolved">
+              <gl-form-checkbox v-model="isUnresolving" class="js-unresolve-checkbox">
                 {{ __('Unresolve thread') }}
-              </template>
-              <template v-else>
-                <input v-model="isResolving" type="checkbox" class="js-resolve-checkbox" />
+              </gl-form-checkbox>
+            </template>
+            <template v-else>
+              <gl-form-checkbox v-model="isResolving" class="js-resolve-checkbox">
                 {{ __('Resolve thread') }}
-              </template>
-            </label>
-          </p>
-          <div class="gl-display-flex gl-flex-wrap gl-mb-n3">
+              </gl-form-checkbox>
+            </template>
+          </label>
+        </template>
+
+        <template v-if="showBatchCommentsActions">
+          <div class="gl-display-flex gl-flex-wrap -gl-mb-3">
             <gl-button
               :disabled="isDisabled"
               category="primary"
               variant="confirm"
               class="gl-sm-mr-3 gl-mb-3"
-              data-qa-selector="start_review_button"
+              data-testid="start-review-button"
               @click="handleAddToReview"
             >
               <template v-if="hasDrafts">{{ __('Add to review') }}</template>
@@ -394,7 +415,7 @@ export default {
               :disabled="isDisabled"
               category="secondary"
               variant="confirm"
-              data-qa-selector="comment_now_button"
+              data-testid="comment-now-button"
               class="gl-sm-mr-3 gl-mb-3 js-comment-button"
               @click="handleUpdate()"
             >
@@ -412,25 +433,16 @@ export default {
           </div>
         </template>
         <template v-else>
-          <div class="gl-display-sm-flex gl-flex-wrap">
+          <div class="gl-display-sm-flex gl-flex-wrap gl-font-size-0">
             <gl-button
               :disabled="isDisabled"
               category="primary"
               variant="confirm"
-              data-qa-selector="reply_comment_button"
-              class="gl-mr-3 js-vue-issue-save js-comment-button"
+              data-testid="reply-comment-button"
+              class="gl-sm-mr-3 gl-mb-3 gl-sm-mb-0 js-vue-issue-save js-comment-button"
               @click="handleUpdate()"
             >
               {{ saveButtonTitle }}
-            </gl-button>
-            <gl-button
-              v-if="discussion.resolvable"
-              category="secondary"
-              variant="default"
-              class="gl-mr-3 js-comment-resolve-button"
-              @click.prevent="handleUpdate(true)"
-            >
-              {{ resolveButtonTitle }}
             </gl-button>
             <gl-button
               class="note-edit-cancel js-close-discussion-note-form"

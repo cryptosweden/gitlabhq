@@ -3,12 +3,18 @@
 require 'spec_helper'
 
 RSpec.describe Board do
-  let(:project) { create(:project) }
-  let(:other_project) { create(:project) }
+  let_it_be(:project) { create(:project) }
+  let_it_be(:other_project) { create(:project) }
 
   describe 'relationships' do
     it { is_expected.to belong_to(:project) }
-    it { is_expected.to have_many(:lists).order(list_type: :asc, position: :asc).dependent(:delete_all) }
+
+    it do
+      is_expected.to have_many(:lists).order(list_type: :asc, position: :asc).dependent(:delete_all)
+        .inverse_of(:board)
+    end
+
+    it { is_expected.to have_many(:destroyable_lists).order(list_type: :asc, position: :asc).inverse_of(:board) }
   end
 
   describe 'validations' do
@@ -21,10 +27,12 @@ RSpec.describe Board do
   end
 
   describe '#order_by_name_asc' do
+    # rubocop:disable RSpec/VariableName
     let!(:board_B) { create(:board, project: project, name: 'B') }
     let!(:board_C) { create(:board, project: project, name: 'C') }
     let!(:board_a) { create(:board, project: project, name: 'a') }
     let!(:board_A) { create(:board, project: project, name: 'A') }
+    # rubocop:enable RSpec/VariableName
 
     it 'returns in case-insensitive alphabetical order and then by ascending id' do
       expect(project.boards.order_by_name_asc).to eq [board_a, board_A, board_B, board_C]
@@ -32,10 +40,12 @@ RSpec.describe Board do
   end
 
   describe '#first_board' do
+    # rubocop:disable RSpec/VariableName
     let!(:board_B) { create(:board, project: project, name: 'B') }
     let!(:board_C) { create(:board, project: project, name: 'C') }
     let!(:board_a) { create(:board, project: project, name: 'a') }
     let!(:board_A) { create(:board, project: project, name: 'A') }
+    # rubocop:enable RSpec/VariableName
 
     it 'return the first case-insensitive alphabetical board as a relation' do
       expect(project.boards.first_board).to eq [board_a]

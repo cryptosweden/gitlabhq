@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'issuable templates', :js do
+RSpec.describe 'issuable templates', :js, feature_category: :team_planning do
   include ProjectForksHelper
 
   let(:user) { create(:user) }
@@ -16,7 +16,7 @@ RSpec.describe 'issuable templates', :js do
 
   context 'user creates an issue using templates' do
     let(:template_content) { 'this is a test "bug" template' }
-    let(:longtemplate_content) { %Q(this\n\n\n\n\nis\n\n\n\n\na\n\n\n\n\nbug\n\n\n\n\ntemplate) }
+    let(:longtemplate_content) { %(this\n\n\n\n\nis\n\n\n\n\na\n\n\n\n\nbug\n\n\n\n\ntemplate) }
     let(:issue) { create(:issue, author: user, assignees: [user], project: project) }
     let(:description_addition) { ' appending to description' }
 
@@ -64,6 +64,27 @@ RSpec.describe 'issuable templates', :js do
     end
   end
 
+  context 'user creates an issue template using issuable_template query param' do
+    let(:template_content) { 'this is a test "bug" template' }
+
+    before do
+      project.repository.create_file(
+        user,
+        '.gitlab/issue_templates/bug.md',
+        template_content,
+        message: 'added issue template',
+        branch_name: 'master')
+    end
+
+    it 'applies correctly in the rich text editor' do
+      visit new_project_issue_path project
+      click_button "Switch to rich text editing"
+      visit new_project_issue_path(project, { issuable_template: 'bug' })
+
+      expect(page).to have_content(template_content)
+    end
+  end
+
   context 'user creates an issue using templates, with a prior description' do
     let(:prior_description) { 'test issue description' }
     let(:template_content) { 'this is a test "bug" template' }
@@ -87,6 +108,34 @@ RSpec.describe 'issuable templates', :js do
       wait_for_requests
       assert_template(page_part: issue_form_location)
       save_changes
+    end
+  end
+
+  context 'user creates an issue with a default template from the repo' do
+    let(:template_content) { 'this is the default template' }
+
+    before do
+      project.repository.create_file(
+        user,
+        '.gitlab/issue_templates/default.md',
+        template_content,
+        message: 'added default issue template',
+        branch_name: 'master'
+      )
+    end
+
+    it 'does not overwrite autosaved description' do
+      visit new_project_issue_path project
+      wait_for_requests
+
+      assert_template # default template is loaded the first time
+
+      fill_in 'issue_description', with: 'my own description', fill_options: { clear: :backspace }
+
+      visit new_project_issue_path project
+      wait_for_requests
+
+      assert_template(expected_content: 'my own description')
     end
   end
 

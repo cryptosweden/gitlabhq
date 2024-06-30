@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::UserFinder, :clean_gitlab_redis_cache do
+RSpec.describe Gitlab::GithubImport::UserFinder, :clean_gitlab_redis_shared_state, feature_category: :importers do
   let(:project) do
     create(
       :project,
@@ -15,46 +15,84 @@ RSpec.describe Gitlab::GithubImport::UserFinder, :clean_gitlab_redis_cache do
   let(:finder) { described_class.new(project, client) }
 
   describe '#author_id_for' do
-    it 'returns the user ID for the author of an object' do
-      user = double(:user, id: 4, login: 'kittens')
-      note = double(:note, author: user)
+    context 'with default author_key' do
+      it 'returns the user ID for the author of an object' do
+        user = { id: 4, login: 'kittens' }
+        note = { author: user }
 
-      expect(finder).to receive(:user_id_for).with(user).and_return(42)
+        expect(finder).to receive(:user_id_for).with(user).and_return(42)
 
-      expect(finder.author_id_for(note)).to eq([42, true])
+        expect(finder.author_id_for(note)).to eq([42, true])
+      end
+
+      it 'returns the ID of the project creator if no user ID could be found' do
+        user = { id: 4, login: 'kittens' }
+        note = { author: user }
+
+        expect(finder).to receive(:user_id_for).with(user).and_return(nil)
+
+        expect(finder.author_id_for(note)).to eq([project.creator_id, false])
+      end
+
+      it 'returns the ID of the ghost user when the object has no user' do
+        note = { author: nil }
+
+        expect(finder.author_id_for(note)).to eq([Users::Internal.ghost.id, true])
+      end
+
+      it 'returns the ID of the ghost user when the given object is nil' do
+        expect(finder.author_id_for(nil)).to eq([Users::Internal.ghost.id, true])
+      end
     end
 
-    it 'returns the ID of the project creator if no user ID could be found' do
-      user = double(:user, id: 4, login: 'kittens')
-      note = double(:note, author: user)
+    context 'with a non-default author_key' do
+      let(:user) { { id: 4, login: 'kittens' } }
 
-      expect(finder).to receive(:user_id_for).with(user).and_return(nil)
+      shared_examples 'user ID finder' do |author_key|
+        it 'returns the user ID for an object' do
+          expect(finder).to receive(:user_id_for).with(user).and_return(42)
 
-      expect(finder.author_id_for(note)).to eq([project.creator_id, false])
-    end
+          expect(finder.author_id_for(issue_event, author_key: author_key)).to eq([42, true])
+        end
+      end
 
-    it 'returns the ID of the ghost user when the object has no user' do
-      note = double(:note, author: nil)
+      context 'when the author_key parameter is :actor' do
+        let(:issue_event) { { actor: user } }
 
-      expect(finder.author_id_for(note)).to eq([User.ghost.id, true])
-    end
+        it_behaves_like 'user ID finder', :actor
+      end
 
-    it 'returns the ID of the ghost user when the given object is nil' do
-      expect(finder.author_id_for(nil)).to eq([User.ghost.id, true])
+      context 'when the author_key parameter is :assignee' do
+        let(:issue_event) { { assignee: user } }
+
+        it_behaves_like 'user ID finder', :assignee
+      end
+
+      context 'when the author_key parameter is :requested_reviewer' do
+        let(:issue_event) { { requested_reviewer: user } }
+
+        it_behaves_like 'user ID finder', :requested_reviewer
+      end
+
+      context 'when the author_key parameter is :review_requester' do
+        let(:issue_event) { { review_requester: user } }
+
+        it_behaves_like 'user ID finder', :review_requester
+      end
     end
   end
 
   describe '#assignee_id_for' do
     it 'returns the user ID for the assignee of an issuable' do
-      user = double(:user, id: 4, login: 'kittens')
-      issue = double(:issue, assignee: user)
+      user = { id: 4, login: 'kittens' }
+      issue = { assignee: user }
 
       expect(finder).to receive(:user_id_for).with(user).and_return(42)
       expect(finder.assignee_id_for(issue)).to eq(42)
     end
 
     it 'returns nil if the issuable does not have an assignee' do
-      issue = double(:issue, assignee: nil)
+      issue = { assignee: nil }
 
       expect(finder).not_to receive(:user_id_for)
       expect(finder.assignee_id_for(issue)).to be_nil
@@ -63,9 +101,9 @@ RSpec.describe Gitlab::GithubImport::UserFinder, :clean_gitlab_redis_cache do
 
   describe '#user_id_for' do
     it 'returns the user ID for the given user' do
-      user = double(:user, id: 4, login: 'kittens')
+      user = { id: 4, login: 'kittens' }
 
-      expect(finder).to receive(:find).with(user.id, user.login).and_return(42)
+      expect(finder).to receive(:find).with(user[:id], user[:login]).and_return(42)
       expect(finder.user_id_for(user)).to eq(42)
     end
 
@@ -170,56 +208,296 @@ RSpec.describe Gitlab::GithubImport::UserFinder, :clean_gitlab_redis_cache do
 
   describe '#email_for_github_username' do
     let(:email) { 'kittens@example.com' }
+    let(:username) { 'kittens' }
+    let(:user) { {} }
+    let(:etag) { 'etag' }
+    let(:lease_name) { "gitlab:github_import:user_finder:#{username}" }
+    let(:cache_key) { described_class::EMAIL_FOR_USERNAME_CACHE_KEY % username }
+    let(:etag_cache_key) { described_class::USERNAME_ETAG_CACHE_KEY % username }
+    let(:email_fetched_for_project_key) do
+      format(described_class::EMAIL_FETCHED_FOR_PROJECT_CACHE_KEY, project: project.id, username: username)
+    end
 
-    context 'when an Email address is cached' do
-      it 'reads the Email address from the cache' do
-        expect(Gitlab::Cache::Import::Caching)
-          .to receive(:read)
-          .and_return(email)
+    subject(:email_for_github_username) { finder.email_for_github_username(username) }
 
-        expect(client).not_to receive(:user)
-        expect(finder.email_for_github_username('kittens')).to eq(email)
+    shared_examples 'returns and caches the email' do
+      it 'returns the email' do
+        expect(email_for_github_username).to eq(email)
+      end
+
+      it 'caches the email and expires the etag and project check caches' do
+        expect(Gitlab::Cache::Import::Caching).to receive(:write).with(cache_key, email).once
+        expect(Gitlab::Cache::Import::Caching).to receive(:expire).with(etag_cache_key, 0).once
+        expect(Gitlab::Cache::Import::Caching).to receive(:expire).with(email_fetched_for_project_key, 0).once
+
+        email_for_github_username
+        email_for_github_username
       end
     end
 
-    context 'when an Email address is not cached' do
-      let(:user) { double(:user, email: email) }
-
-      it 'retrieves the Email address from the GitHub API' do
-        expect(client).to receive(:user).with('kittens').and_return(user)
-        expect(finder.email_for_github_username('kittens')).to eq(email)
+    shared_examples 'returns nil and caches a negative lookup' do
+      it 'returns nil' do
+        expect(email_for_github_username).to be_nil
       end
 
-      it 'caches the Email address when an Email address is available' do
-        expect(client).to receive(:user).with('kittens').and_return(user)
+      it 'caches a blank email and marks the project as checked' do
+        expect(Gitlab::Cache::Import::Caching).to receive(:write).with(cache_key, '').once
+        expect(Gitlab::Cache::Import::Caching).not_to receive(:write).with(etag_cache_key, anything)
+        expect(Gitlab::Cache::Import::Caching).to receive(:write).with(email_fetched_for_project_key, 1).once
 
-        expect(Gitlab::Cache::Import::Caching)
-          .to receive(:write)
-          .with(an_instance_of(String), email, timeout: Gitlab::Cache::Import::Caching::TIMEOUT)
+        email_for_github_username
+        email_for_github_username
+      end
+    end
 
-        finder.email_for_github_username('kittens')
+    shared_examples 'does not change caches' do
+      it 'does not write to any of the caches' do
+        expect(Gitlab::Cache::Import::Caching).not_to receive(:write).with(cache_key, anything)
+        expect(Gitlab::Cache::Import::Caching).not_to receive(:write).with(etag_cache_key, anything)
+        expect(Gitlab::Cache::Import::Caching).not_to receive(:write).with(email_fetched_for_project_key, anything)
+
+        email_for_github_username
+        email_for_github_username
+      end
+    end
+
+    shared_examples 'a user resource not found on GitHub' do
+      before do
+        allow(client).to receive(:user).and_raise(::Octokit::NotFound)
       end
 
-      it 'returns nil if the user does not exist' do
-        expect(client)
-          .to receive(:user)
-          .with('kittens')
-          .and_return(nil)
-
-        expect(Gitlab::Cache::Import::Caching)
-          .not_to receive(:write)
-
-        expect(finder.email_for_github_username('kittens')).to be_nil
+      it 'returns nil' do
+        expect(email_for_github_username).to be_nil
       end
 
-      it 'shortens the timeout for Email address in cache when an Email address is private/nil from GitHub' do
-        user = double(:user, email: nil)
-        expect(client).to receive(:user).with('kittens').and_return(user)
+      it 'caches a blank email' do
+        expect(Gitlab::Cache::Import::Caching).to receive(:write).with(cache_key, '').once
+        expect(Gitlab::Cache::Import::Caching).not_to receive(:write).with(etag_cache_key, anything)
+        expect(Gitlab::Cache::Import::Caching).not_to receive(:write).with(email_fetched_for_project_key, anything)
 
-        expect(Gitlab::Cache::Import::Caching)
-          .to receive(:write).with(an_instance_of(String), nil, timeout: Gitlab::Cache::Import::Caching::SHORTER_TIMEOUT)
+        email_for_github_username
+        email_for_github_username
+      end
+    end
 
-        expect(finder.email_for_github_username('kittens')).to be_nil
+    context 'when the email is cached' do
+      before do
+        Gitlab::Cache::Import::Caching.write(cache_key, email)
+      end
+
+      it 'returns the email from the cache' do
+        expect(email_for_github_username).to eq(email)
+      end
+
+      it 'does not make a rate-limited API call' do
+        expect(client).not_to receive(:user).with(username, { headers: {} })
+
+        email_for_github_username
+        email_for_github_username
+      end
+    end
+
+    context 'when the email cache is nil' do
+      context 'if the email has not been checked for the project' do
+        context 'if the cached etag is nil' do
+          before do
+            allow(client).to receive_message_chain(:octokit, :last_response, :headers).and_return({ etag: etag })
+          end
+
+          it 'makes an API call' do
+            expect(client).to receive(:user).with(username, { headers: {} }).and_return({ email: email }).once
+            expect(finder).to receive(:in_lock).with(
+              lease_name, sleep_sec: 0.2.seconds, retries: 30
+            ).and_call_original
+
+            email_for_github_username
+          end
+
+          context 'if the response contains an email' do
+            before do
+              allow(client).to receive(:user).and_return({ email: email })
+            end
+
+            it_behaves_like 'returns and caches the email'
+
+            context 'when retried' do
+              before do
+                allow(finder).to receive(:in_lock).and_yield(true)
+              end
+
+              it_behaves_like 'returns and caches the email'
+            end
+          end
+
+          context 'if the response does not contain an email' do
+            before do
+              allow(client).to receive(:user).and_return({})
+            end
+
+            it 'returns nil' do
+              expect(email_for_github_username).to be_nil
+            end
+
+            it 'caches a blank email and etag and marks the project as checked' do
+              expect(Gitlab::Cache::Import::Caching).to receive(:write).with(cache_key, '').once
+              expect(Gitlab::Cache::Import::Caching).to receive(:write).with(etag_cache_key, etag).once
+              expect(Gitlab::Cache::Import::Caching).to receive(:write).with(email_fetched_for_project_key, 1).once
+
+              email_for_github_username
+              email_for_github_username
+            end
+          end
+        end
+
+        context 'if the cached etag is not nil' do
+          before do
+            Gitlab::Cache::Import::Caching.write(etag_cache_key, etag)
+          end
+
+          it 'makes a non-rate-limited API call' do
+            expect(client).to receive(:user).with(username, { headers: { 'If-None-Match' => etag } }).once
+            expect(finder).to receive(:in_lock).with(
+              lease_name, sleep_sec: 0.2.seconds, retries: 30
+            ).and_call_original
+
+            email_for_github_username
+          end
+
+          context 'if the response contains an email' do
+            before do
+              allow(client).to receive(:user).and_return({ email: email })
+            end
+
+            it_behaves_like 'returns and caches the email'
+          end
+
+          context 'if the response does not contain an email' do
+            before do
+              allow(client).to receive(:user).and_return({})
+            end
+
+            it_behaves_like 'returns nil and caches a negative lookup'
+          end
+
+          context 'if the response is nil' do
+            before do
+              allow(client).to receive(:user).and_return(nil)
+            end
+
+            it 'returns nil' do
+              expect(email_for_github_username).to be_nil
+            end
+
+            it 'marks the project as checked' do
+              expect(Gitlab::Cache::Import::Caching).not_to receive(:write).with(cache_key, anything)
+              expect(Gitlab::Cache::Import::Caching).not_to receive(:write).with(etag_cache_key, anything)
+              expect(Gitlab::Cache::Import::Caching).to receive(:write).with(email_fetched_for_project_key, 1).once
+
+              email_for_github_username
+              email_for_github_username
+            end
+          end
+        end
+      end
+
+      context 'if the email has been checked for the project' do
+        before do
+          Gitlab::Cache::Import::Caching.write(email_fetched_for_project_key, 1)
+        end
+
+        it 'returns nil' do
+          expect(email_for_github_username).to be_nil
+        end
+
+        it_behaves_like 'does not change caches'
+      end
+
+      it_behaves_like 'a user resource not found on GitHub'
+    end
+
+    context 'when the email cache is blank' do
+      before do
+        Gitlab::Cache::Import::Caching.write(cache_key, '')
+      end
+
+      context 'if the email has not been checked for the project' do
+        context 'if the cached etag is not nil' do
+          before do
+            Gitlab::Cache::Import::Caching.write(etag_cache_key, etag)
+          end
+
+          it 'makes a non-rate-limited API call' do
+            expect(client).to receive(:user).with(username, { headers: { 'If-None-Match' => etag } }).once
+            expect(finder).to receive(:in_lock).with(
+              lease_name, sleep_sec: 0.2.seconds, retries: 30
+            ).and_call_original
+
+            email_for_github_username
+          end
+
+          context 'if the response contains an email' do
+            before do
+              allow(client).to receive(:user).and_return({ email: email })
+            end
+
+            it_behaves_like 'returns and caches the email'
+          end
+
+          context 'if the response does not contain an email' do
+            before do
+              allow(client).to receive(:user).and_return({})
+            end
+
+            it_behaves_like 'returns nil and caches a negative lookup'
+          end
+
+          context 'if the response is nil' do
+            before do
+              allow(client).to receive(:user).and_return(nil)
+            end
+
+            it_behaves_like 'returns nil and caches a negative lookup'
+          end
+
+          it_behaves_like 'a user resource not found on GitHub'
+        end
+
+        context 'if the cached etag is nil' do
+          context 'when lock was executed by another process and an email was fetched' do
+            it 'does not fetch user detail' do
+              expect(finder).to receive(:read_email_from_cache).ordered.and_return('')
+              expect(finder).to receive(:read_email_from_cache).ordered.and_return(email)
+              expect(finder).to receive(:in_lock).and_yield(true)
+              expect(client).not_to receive(:user)
+
+              email_for_github_username
+            end
+          end
+
+          context 'when lock was executed by another process and an email in cache is still blank' do
+            it 'fetch user detail' do
+              expect(finder).to receive(:read_email_from_cache).ordered.and_return('')
+              expect(finder).to receive(:read_email_from_cache).ordered.and_return('')
+              expect(finder).to receive(:read_etag_from_cache).and_return(etag)
+              expect(finder).to receive(:in_lock).and_yield(true)
+              expect(client).to receive(:user).with(username, { headers: { 'If-None-Match' => etag } }).once
+
+              email_for_github_username
+            end
+          end
+        end
+      end
+
+      context 'if the email has been checked for the project' do
+        before do
+          Gitlab::Cache::Import::Caching.write(email_fetched_for_project_key, 1)
+        end
+
+        it 'returns nil' do
+          expect(email_for_github_username).to be_nil
+        end
+
+        it_behaves_like 'does not change caches'
       end
     end
   end

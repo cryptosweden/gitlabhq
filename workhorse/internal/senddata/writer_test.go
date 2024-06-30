@@ -2,7 +2,6 @@ package senddata
 
 import (
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,12 +41,12 @@ func TestWriter(t *testing.T) {
 
 			n, err := rw.Write([]byte(upstreamResponse))
 			require.NoError(t, err)
-			require.Equal(t, len(upstreamResponse), n, "bytes written")
+			require.Len(t, upstreamResponse, n, "bytes written")
 
 			recorder.Flush()
 
 			body := recorder.Result().Body
-			data, err := ioutil.ReadAll(body)
+			data, err := io.ReadAll(body)
 			require.NoError(t, err)
 			require.NoError(t, body.Close())
 
@@ -63,7 +62,7 @@ const (
 
 type testInjecter struct{}
 
-func (ti *testInjecter) Inject(w http.ResponseWriter, r *http.Request, sendData string) {
+func (ti *testInjecter) Inject(w http.ResponseWriter, _ *http.Request, _ string) {
 	io.WriteString(w, testInjecterData)
 }
 

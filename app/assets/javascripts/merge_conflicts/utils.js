@@ -9,7 +9,7 @@ import {
 
 export const getFilePath = (file) => {
   const { old_path, new_path } = file;
-  // eslint-disable-next-line babel/camelcase
+  // eslint-disable-next-line camelcase
   return old_path === new_path ? new_path : `${old_path} → ${new_path}`;
 };
 
@@ -61,7 +61,7 @@ export const decorateLineForInlineView = (line, id, conflict) => {
 };
 
 export const getLineForParallelView = (line, id, lineType, isHead) => {
-  const { old_line, new_line, rich_text } = line;
+  const { old_line: oldLine, new_line: newLine, rich_text: richText } = line;
   const hasConflict = lineType === 'conflict';
 
   return {
@@ -71,10 +71,9 @@ export const getLineForParallelView = (line, id, lineType, isHead) => {
     isHead: hasConflict && isHead,
     isOrigin: hasConflict && !isHead,
     hasMatch: lineType === 'match',
-    // eslint-disable-next-line babel/camelcase
-    lineNumber: isHead ? new_line : old_line,
+    lineNumber: isHead ? newLine : oldLine,
     section: isHead ? 'head' : 'origin',
-    richText: rich_text,
+    richText,
     isSelected: false,
     isUnselected: false,
   };

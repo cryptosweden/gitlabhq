@@ -2,15 +2,13 @@
 key_path: counts.service_usage_data_download_payload_click
 description: Count Download Payload button clicks
 data_category: optional
-name: count_promoted_issues
-product_section: growth
-product_stage: growth
-product_group: group::product intelligence
-product_category: collection
+product_group: analytics_instrumentation
 value_type: number
 status: active
 time_frame: all
-data_source: redis
+data_source: internal_events
+events:
+  - name: usage_data_download_payload_clicked
 distribution:
   - ce
   - ee

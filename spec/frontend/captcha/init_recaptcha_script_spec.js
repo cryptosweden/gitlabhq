@@ -1,5 +1,4 @@
 import {
-  RECAPTCHA_API_URL_PREFIX,
   RECAPTCHA_ONLOAD_CALLBACK_NAME,
   clearMemoizeCache,
   initRecaptchaScript,
@@ -26,7 +25,7 @@ describe('initRecaptchaScript', () => {
         <head>
           <script
             class="js-recaptcha-script"
-            src="${RECAPTCHA_API_URL_PREFIX}?onload=${RECAPTCHA_ONLOAD_CALLBACK_NAME}&render=explicit"
+            src="undefined?onload=recaptchaOnloadCallback&render=explicit"
           />
         </head>
       `);
@@ -51,7 +50,7 @@ describe('initRecaptchaScript', () => {
         await expect(result).resolves.toBe(window.grecaptcha);
       });
 
-      it('sets window[RECAPTCHA_ONLOAD_CALLBACK_NAME] to undefined', async () => {
+      it('sets window[RECAPTCHA_ONLOAD_CALLBACK_NAME] to undefined', () => {
         expect(getScriptOnload()).toBeUndefined();
       });
     });

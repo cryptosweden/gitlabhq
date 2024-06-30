@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe UpdateHighestRoleWorker, :clean_gitlab_redis_shared_state do
+RSpec.describe UpdateHighestRoleWorker, :clean_gitlab_redis_shared_state, feature_category: :seat_cost_management do
   include ExclusiveLeaseHelpers
 
   let(:worker) { described_class.new }
@@ -10,7 +10,7 @@ RSpec.describe UpdateHighestRoleWorker, :clean_gitlab_redis_shared_state do
   describe '#perform' do
     context 'when user is not found' do
       it 'does not update or deletes any highest role', :aggregate_failures do
-        expect { worker.perform(-1) }.not_to change(UserHighestRole, :count)
+        expect { worker.perform(-1) }.not_to change { UserHighestRole.count }
       end
     end
 
@@ -18,7 +18,7 @@ RSpec.describe UpdateHighestRoleWorker, :clean_gitlab_redis_shared_state do
       let(:active_attributes) do
         {
           state: 'active',
-          user_type: nil
+          user_type: :human
         }
       end
 
@@ -71,7 +71,7 @@ RSpec.describe UpdateHighestRoleWorker, :clean_gitlab_redis_shared_state do
           it 'does not delete a highest role' do
             user = create(:user, state: 'blocked')
 
-            expect { worker.perform(user.id) }.not_to change(UserHighestRole, :count)
+            expect { worker.perform(user.id) }.not_to change { UserHighestRole.count }
           end
         end
       end

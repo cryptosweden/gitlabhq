@@ -14,8 +14,6 @@ module Ci
     # Add a build to the pending builds queue
     #
     def push(build, transition)
-      return unless maintain_pending_builds_queue?
-
       raise InvalidQueueTransition unless transition.to == 'pending'
 
       transition.within_transaction do
@@ -33,35 +31,37 @@ module Ci
     # Remove a build from the pending builds queue
     #
     def pop(build, transition)
-      return unless maintain_pending_builds_queue?
-
       raise InvalidQueueTransition unless transition.from == 'pending'
 
-      transition.within_transaction do
-        removed = build.all_queuing_entries.delete_all
+      transition.within_transaction { remove!(build) }
+    end
 
-        if removed > 0
-          metrics.increment_queue_operation(:build_queue_pop)
+    ##
+    # Force remove build from the queue, without checking a transition state
+    #
+    def remove!(build)
+      removed = build.all_queuing_entries.delete_all
 
-          build.id
-        end
+      if removed > 0
+        metrics.increment_queue_operation(:build_queue_pop)
+
+        build.id
       end
     end
 
     ##
-    # Add shared runner build tracking entry (used for queuing).
+    # Add runner build tracking entry (used for queuing and for runner fleet dashboard).
     #
     def track(build, transition)
-      return unless maintain_pending_builds_queue?
-      return unless build.shared_runner_build?
+      return if build.runner.nil?
 
       raise InvalidQueueTransition unless transition.to == 'running'
 
       transition.within_transaction do
-        result = ::Ci::RunningBuild.upsert_shared_runner_build!(build)
+        result = ::Ci::RunningBuild.upsert_build!(build)
 
         unless result.empty?
-          metrics.increment_queue_operation(:shared_runner_build_new)
+          metrics.increment_queue_operation(:shared_runner_build_new) if build.shared_runner_build?
 
           result.rows.dig(0, 0)
         end
@@ -69,12 +69,10 @@ module Ci
     end
 
     ##
-    # Remove a runtime build tracking entry for a shared runner build (used for
-    # queuing).
+    # Remove a runtime build tracking entry for a runner build (used for queuing and for runner fleet dashboard).
     #
     def untrack(build, transition)
-      return unless maintain_pending_builds_queue?
-      return unless build.shared_runner_build?
+      return if build.runner.nil?
 
       raise InvalidQueueTransition unless transition.from == 'running'
 
@@ -82,7 +80,7 @@ module Ci
         removed = build.all_runtime_metadata.delete_all
 
         if removed > 0
-          metrics.increment_queue_operation(:shared_runner_build_done)
+          metrics.increment_queue_operation(:shared_runner_build_done) if build.shared_runner_build?
 
           build.id
         end
@@ -109,10 +107,6 @@ module Ci
 
         runner.pick_build!(build)
       end
-    end
-
-    def maintain_pending_builds_queue?
-      ::Ci::PendingBuild.maintain_denormalized_data?
     end
   end
 end

@@ -1,69 +1,47 @@
 <script>
-import { GlButton } from '@gitlab/ui';
+import { GlButton, GlCollapse } from '@gitlab/ui';
 import { uniqueId } from 'lodash';
 
 import { __ } from '~/locale';
 
 export default {
-  components: { GlButton },
+  components: { GlButton, GlCollapse },
   props: {
-    slideAnimated: {
-      type: Boolean,
-      default: true,
+    title: {
+      type: String,
       required: false,
+      default: null,
+    },
+    id: {
+      type: String,
+      required: false,
+      default: null,
     },
     defaultExpanded: {
       type: Boolean,
       default: false,
       required: false,
     },
-    collapsible: {
-      type: Boolean,
-      default: true,
-      required: false,
-    },
   },
   data() {
-    const forceOpen = !this.collapsible || this.defaultExpanded;
     return {
-      // Non-collapsible sections should always be expanded.
-      // For collapsible sections, fall back to defaultExpanded.
-      sectionExpanded: forceOpen,
-      initialised: forceOpen,
-      animating: false,
+      expanded: window.location.hash?.replace('#', '') === this.id || this.defaultExpanded,
     };
   },
   computed: {
-    toggleText() {
-      const { collapseText, expandText } = this.$options.i18n;
-      return this.sectionExpanded ? collapseText : expandText;
-    },
-    settingsContentId() {
-      return uniqueId('settings_content_');
-    },
-    settingsLabelId() {
-      return uniqueId('settings_label_');
-    },
-    toggleButtonAriaLabel() {
-      const { collapseAriaLabel, expandAriaLabel } = this.$options.i18n;
-      return this.sectionExpanded ? collapseAriaLabel : expandAriaLabel;
-    },
     ariaExpanded() {
-      return String(this.sectionExpanded);
+      return this.expanded ? 'true' : 'false';
+    },
+    toggleButtonText() {
+      return this.expanded ? this.$options.i18n.collapseText : this.$options.i18n.expandText;
+    },
+    collapseId() {
+      return this.id || uniqueId('settings-block-');
     },
   },
   methods: {
-    toggleSectionExpanded() {
-      this.sectionExpanded = !this.sectionExpanded;
-
-      if (!this.initialised) {
-        this.initialised = true;
-      }
-
-      if (this.sectionExpanded) {
-        this.animating = true;
-        this.$refs.settingsContent.focus();
-      }
+    toggleExpanded() {
+      this.expanded = !this.expanded;
     },
   },
   i18n: {
@@ -76,54 +54,44 @@ export default {
 </script>
 
 <template>
-  <section
-    class="settings"
-    :class="{ 'no-animate': !slideAnimated, expanded: sectionExpanded, animating }"
-  >
-    <div class="settings-header">
-      <h4>
-        <span
-          v-if="collapsible"
-          :id="settingsLabelId"
+  <section class="vue-settings-block">
+    <div class="gl-flex gl-justify-between gl-items-start">
+      <div class="gl-grow">
+        <h2
           role="button"
-          tabindex="0"
-          class="gl-cursor-pointer"
-          :aria-controls="settingsContentId"
+          tabindex="-1"
+          class="gl-heading-2 gl-cursor-pointer !gl-mb-2"
           :aria-expanded="ariaExpanded"
-          data-testid="section-title-button"
-          @click="toggleSectionExpanded"
-          @keydown.enter.space="toggleSectionExpanded"
+          :aria-controls="collapseId"
+          @click="toggleExpanded"
         >
-          <slot name="title"></slot>
-        </span>
-        <template v-else>
-          <slot name="title"></slot>
-        </template>
-      </h4>
-      <gl-button
-        v-if="collapsible"
-        :aria-controls="settingsContentId"
-        :aria-expanded="ariaExpanded"
-        :aria-label="toggleButtonAriaLabel"
-        @click="toggleSectionExpanded"
-      >
-        {{ toggleText }}
-      </gl-button>
-      <p>
-        <slot name="description"></slot>
-      </p>
+          <slot v-if="$scopedSlots.title" name="title"></slot>
+          <template v-else>{{ title }}</template>
+        </h2>
+        <p class="gl-text-secondary gl-m-0"><slot name="description"></slot></p>
+      </div>
+      <div class="gl-flex-shrink-0 gl-px-2">
+        <gl-button
+          class="gl-min-w-12 gl-shrink-0"
+          :aria-expanded="ariaExpanded"
+          :aria-controls="collapseId"
+          @click="toggleExpanded"
+        >
+          <span aria-hidden="true">
+            {{ toggleButtonText }}
+          </span>
+          <span class="gl-sr-only">
+            {{ toggleButtonText }}
+            <slot v-if="$scopedSlots.title" name="title"></slot>
+            <template v-else>{{ title }}</template>
+          </span>
+        </gl-button>
+      </div>
     </div>
-    <div
-      v-show="initialised"
-      :id="settingsContentId"
-      ref="settingsContent"
-      :aria-labelledby="settingsLabelId"
-      tabindex="-1"
-      role="region"
-      class="settings-content"
-      @animationend="animating = false"
-    >
-      <slot></slot>
-    </div>
+    <gl-collapse :id="collapseId" v-model="expanded">
+      <div class="gl-pt-5">
+        <slot></slot>
+      </div>
+    </gl-collapse>
   </section>
 </template>

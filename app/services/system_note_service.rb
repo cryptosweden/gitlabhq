@@ -45,6 +45,10 @@ module SystemNoteService
     ::SystemNotes::IssuablesService.new(noteable: issuable, project: project, author: author).change_issuable_reviewers(old_reviewers)
   end
 
+  def request_review(issuable, project, author, user, has_unapproved)
+    ::SystemNotes::IssuablesService.new(noteable: issuable, project: project, author: author).request_review(user, has_unapproved)
+  end
+
   def change_issuable_contacts(issuable, project, author, added_count, removed_count)
     ::SystemNotes::IssuablesService.new(noteable: issuable, project: project, author: author).change_issuable_contacts(added_count, removed_count)
   end
@@ -57,7 +61,7 @@ module SystemNoteService
     ::SystemNotes::IssuablesService.new(noteable: noteable, project: noteable.project, author: user).unrelate_issuable(noteable_ref)
   end
 
-  # Called when the due_date of a Noteable is changed
+  # Called when the due_date or start_date of a Noteable is changed
   #
   # noteable  - Noteable object
   # project   - Project owning noteable
@@ -68,11 +72,15 @@ module SystemNoteService
   #
   #   "removed due date"
   #
-  #   "changed due date to September 20, 2018"
+  #   "changed due date to September 20, 2018 and changed start date to September 25, 2018"
   #
   # Returns the created Note object
-  def change_due_date(noteable, project, author, due_date)
-    ::SystemNotes::TimeTrackingService.new(noteable: noteable, project: project, author: author).change_due_date(due_date)
+  def change_start_date_or_due_date(noteable, project, author, changed_dates)
+    ::SystemNotes::TimeTrackingService.new(
+      noteable: noteable,
+      project: project,
+      author: author
+    ).change_start_date_or_due_date(changed_dates)
   end
 
   # Called when the estimated time of a Noteable is changed
@@ -111,6 +119,39 @@ module SystemNoteService
     ::SystemNotes::TimeTrackingService.new(noteable: noteable, project: project, author: author).change_time_spent
   end
 
+  # Called when a timelog is added to an issuable
+  #
+  # issuable   - Issuable object (Issue, WorkItem or MergeRequest)
+  # project    - Project owning the issuable
+  # author     - User performing the change
+  # timelog    - Created timelog
+  #
+  # Example Note text:
+  #
+  #   "subtracted 1h 15m of time spent"
+  #
+  #   "added 2h 30m of time spent"
+  #
+  # Returns the created Note object
+  def created_timelog(issuable, project, author, timelog)
+    ::SystemNotes::TimeTrackingService.new(noteable: issuable, project: project, author: author).created_timelog(timelog)
+  end
+
+  # Called when a timelog is removed from a Noteable
+  #
+  # noteable  - Noteable object
+  # project   - Project owning the noteable
+  # author    - User performing the change
+  # timelog   - The removed timelog
+  #
+  # Example Note text:
+  #   "deleted 2h 30m of time spent from 22-03-2022"
+  #
+  # Returns the created Note object
+  def remove_timelog(noteable, project, author, timelog)
+    ::SystemNotes::TimeTrackingService.new(noteable: noteable, project: project, author: author).remove_timelog(timelog)
+  end
+
   def close_after_error_tracking_resolve(issue, project, author)
     ::SystemNotes::IssuablesService.new(noteable: issue, project: project, author: author).close_after_error_tracking_resolve
   end
@@ -119,12 +160,19 @@ module SystemNoteService
     ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).change_status(status, source)
   end
 
-  def request_attention(noteable, project, author, user)
-    ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).request_attention(user)
+  # Called when 'merge when checks pass' is executed
+  def merge_when_checks_pass(noteable, project, author, sha)
+    ::SystemNotes::MergeRequestsService.new(noteable: noteable, project: project, author: author).merge_when_checks_pass(sha)
   end
 
-  def remove_attention_request(noteable, project, author, user)
-    ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).remove_attention_request(user)
+  # Called when 'auto merge' is canceled
+  def cancel_auto_merge(noteable, project, author)
+    ::SystemNotes::MergeRequestsService.new(noteable: noteable, project: project, author: author).cancel_auto_merge
+  end
+
+  # Called when 'auto merge' is aborted
+  def abort_auto_merge(noteable, project, author, reason)
+    ::SystemNotes::MergeRequestsService.new(noteable: noteable, project: project, author: author).abort_auto_merge(reason)
   end
 
   # Called when 'merge when pipeline succeeds' is executed
@@ -241,8 +289,8 @@ module SystemNoteService
     ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).noteable_moved(noteable_ref, direction)
   end
 
-  def noteable_cloned(noteable, project, noteable_ref, author, direction:)
-    ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).noteable_cloned(noteable_ref, direction)
+  def noteable_cloned(noteable, project, noteable_ref, author, direction:, created_at: nil)
+    ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).noteable_cloned(noteable_ref, direction, created_at: created_at)
   end
 
   def mark_duplicate_issue(noteable, project, author, canonical_issue)
@@ -253,8 +301,8 @@ module SystemNoteService
     ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).mark_canonical_issue_of_duplicate(duplicate_issue)
   end
 
-  def add_email_participants(noteable, project, author, body)
-    ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).add_email_participants(body)
+  def email_participants(noteable, project, author, body)
+    ::SystemNotes::IssuablesService.new(noteable: noteable, project: project, author: author).email_participants(body)
   end
 
   def discussion_lock(issuable, author)
@@ -263,6 +311,18 @@ module SystemNoteService
 
   def cross_reference_disallowed?(mentioned, mentioned_in)
     ::SystemNotes::IssuablesService.new(noteable: mentioned).cross_reference_disallowed?(mentioned_in)
+  end
+
+  def relate_work_item(noteable, work_item, user)
+    ::SystemNotes::IssuablesService
+      .new(noteable: noteable, project: noteable.project, author: user)
+      .hierarchy_changed(work_item, 'relate')
+  end
+
+  def unrelate_work_item(noteable, work_item, user)
+    ::SystemNotes::IssuablesService
+      .new(noteable: noteable, project: noteable.project, author: user)
+      .hierarchy_changed(work_item, 'unrelate')
   end
 
   def zoom_link_added(issue, project, author)
@@ -323,6 +383,10 @@ module SystemNoteService
     merge_requests_service(noteable, noteable.project, user).unapprove_mr
   end
 
+  def requested_changes(noteable, user)
+    merge_requests_service(noteable, noteable.project, user).requested_changes
+  end
+
   def change_alert_status(alert, author, reason = nil)
     ::SystemNotes::AlertManagementService.new(noteable: alert, project: alert.project, author: author).change_alert_status(reason)
   end
@@ -347,14 +411,30 @@ module SystemNoteService
     ::SystemNotes::AlertManagementService.new(noteable: alert, project: alert.project).log_resolving_alert(monitoring_tool)
   end
 
-  def change_issue_type(issue, author)
-    ::SystemNotes::IssuablesService.new(noteable: issue, project: issue.project, author: author).change_issue_type
+  def change_issue_type(issue, author, previous_type)
+    ::SystemNotes::IssuablesService.new(noteable: issue, project: issue.project, author: author).change_issue_type(previous_type)
+  end
+
+  def add_timeline_event(timeline_event)
+    incidents_service(timeline_event.incident).add_timeline_event(timeline_event)
+  end
+
+  def edit_timeline_event(timeline_event, author, was_changed:)
+    incidents_service(timeline_event.incident).edit_timeline_event(timeline_event, author, was_changed: was_changed)
+  end
+
+  def delete_timeline_event(noteable, author)
+    incidents_service(noteable).delete_timeline_event(author)
   end
 
   private
 
   def merge_requests_service(noteable, project, author)
     ::SystemNotes::MergeRequestsService.new(noteable: noteable, project: project, author: author)
+  end
+
+  def incidents_service(incident)
+    ::SystemNotes::IncidentsService.new(noteable: incident)
   end
 end
 

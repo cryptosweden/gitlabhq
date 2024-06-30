@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::Packages::Maven::PackageFinder do
+RSpec.describe ::Packages::Maven::PackageFinder, feature_category: :package_registry do
   let_it_be(:user)    { create(:user) }
   let_it_be(:group)   { create(:group) }
   let_it_be(:project) { create(:project, namespace: group) }
@@ -13,25 +13,21 @@ RSpec.describe ::Packages::Maven::PackageFinder do
   let(:param_order_by_package_file) { false }
   let(:finder) { described_class.new(user, project_or_group, path: param_path, order_by_package_file: param_order_by_package_file) }
 
-  before do
-    group.add_developer(user)
-  end
-
-  describe '#execute!' do
-    subject { finder.execute! }
+  describe '#execute' do
+    subject { finder.execute }
 
     shared_examples 'handling valid and invalid paths' do
       context 'with a valid path' do
         let(:param_path) { package.maven_metadatum.path }
 
-        it { is_expected.to eq(package) }
+        it { is_expected.to include(package) }
       end
 
       context 'with an invalid path' do
         let(:param_path) { 'com/example/my-app/1.0-SNAPSHOT' }
 
-        it 'raises an error' do
-          expect { subject }.to raise_error(ActiveRecord::RecordNotFound)
+        it 'returns an empty array' do
+          is_expected.to be_empty
         end
       end
 
@@ -42,7 +38,9 @@ RSpec.describe ::Packages::Maven::PackageFinder do
           package.update_column(:status, :error)
         end
 
-        it { expect { subject }.to raise_error(ActiveRecord::RecordNotFound) }
+        it 'returns an empty array' do
+          is_expected.to be_empty
+        end
       end
     end
 
@@ -56,11 +54,29 @@ RSpec.describe ::Packages::Maven::PackageFinder do
       let(:project_or_group) { group }
 
       it_behaves_like 'handling valid and invalid paths'
+
+      context 'when the FF maven_remove_permissions_check_from_finder disabled' do
+        before do
+          stub_feature_flags(maven_remove_permissions_check_from_finder: false)
+        end
+
+        it 'returns an empty array' do
+          is_expected.to be_empty
+        end
+
+        context 'when an user assigned the developer role' do
+          before do
+            group.add_developer(user)
+          end
+
+          it_behaves_like 'handling valid and invalid paths'
+        end
+      end
     end
 
     context 'across all projects' do
-      it 'raises an error' do
-        expect { subject }.to raise_error(ActiveRecord::RecordNotFound)
+      it 'returns an empty array' do
+        is_expected.to be_empty
       end
     end
 
@@ -86,13 +102,13 @@ RSpec.describe ::Packages::Maven::PackageFinder do
       end
 
       context 'without order by package file' do
-        it { is_expected.to eq(package3) }
+        it { is_expected.to match_array([package1, package2, package3]) }
       end
 
       context 'with order by package file' do
         let(:param_order_by_package_file) { true }
 
-        it { is_expected.to eq(package2) }
+        it { expect(subject.last).to eq(package2) }
       end
     end
   end

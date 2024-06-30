@@ -3,16 +3,21 @@
 class GitlabUploader < CarrierWave::Uploader::Base
   include ContentTypeWhitelist::Concern
 
-  class_attribute :options
+  class_attribute :storage_location_identifier
 
-  PROTECTED_METHODS = %i(filename cache_dir work_dir store_dir).freeze
+  PROTECTED_METHODS = %i[filename cache_dir work_dir store_dir].freeze
 
   ObjectNotReadyError = Class.new(StandardError)
 
   class << self
     # DSL setter
-    def storage_options(options)
-      self.options = options
+    def storage_location(location)
+      self.storage_location_identifier = location
+      _ = options # Ensures that we have a valid storage_location_identifier
+    end
+
+    def options
+      ObjectStorage::Config::LOCATIONS.fetch(storage_location_identifier)
     end
 
     def root
@@ -31,9 +36,17 @@ class GitlabUploader < CarrierWave::Uploader::Base
     def absolute_path(upload_record)
       File.join(root, upload_record.path)
     end
+
+    def version(*args, **kwargs, &block)
+      # CarrierWave uploaded file "versions" are not tracked in the uploads
+      # table. Because of this they won't get replicated to Geo secondaries.
+      # If we ever want to use versions, we need to fix that first. Also see
+      # https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/1757.
+      raise "using CarrierWave alternate file version is not supported"
+    end
   end
 
-  storage_options Gitlab.config.uploads
+  storage_location :uploads
 
   delegate :base_dir, :file_storage?, to: :class
 
@@ -41,6 +54,10 @@ class GitlabUploader < CarrierWave::Uploader::Base
 
   def initialize(model, mounted_as = nil, **uploader_context)
     super(model, mounted_as)
+  end
+
+  def options
+    self.class.options
   end
 
   def file_cache_storage?
@@ -57,6 +74,10 @@ class GitlabUploader < CarrierWave::Uploader::Base
 
   def exists?
     file.present?
+  end
+
+  def empty_size?
+    size == 0
   end
 
   def cache_dir
@@ -93,8 +114,8 @@ class GitlabUploader < CarrierWave::Uploader::Base
     stream =
       if file_storage?
         File.open(path, "rb") if path
-      else
-        ::Gitlab::HttpIO.new(url, cached_size) if url
+      elsif url
+        ::Gitlab::HttpIO.new(url, cached_size)
       end
 
     return unless stream
@@ -104,6 +125,15 @@ class GitlabUploader < CarrierWave::Uploader::Base
       yield(stream)
     ensure
       stream.close
+    end
+  end
+
+  def multi_read(offsets)
+    open do |stream|
+      offsets.map do |start_offset, end_offset|
+        stream.seek(start_offset)
+        stream.read(end_offset - start_offset + 1)
+      end
     end
   end
 
@@ -163,10 +193,10 @@ class GitlabUploader < CarrierWave::Uploader::Base
   #
   # @param [CarrierWave::SanitizedFile]
   # @return [Nil]
-  # @raise [Gitlab::Utils::PathTraversalAttackError]
+  # @raise [Gitlab::PathTraversal::PathTraversalAttackError]
   def protect_from_path_traversal!(file)
     PROTECTED_METHODS.each do |method|
-      Gitlab::Utils.check_path_traversal!(self.send(method)) # rubocop: disable GitlabSecurity/PublicSend
+      Gitlab::PathTraversal.check_path_traversal!(self.send(method)) # rubocop: disable GitlabSecurity/PublicSend
 
     rescue ObjectNotReadyError
       # Do nothing. This test was attempted before the file was ready for that method

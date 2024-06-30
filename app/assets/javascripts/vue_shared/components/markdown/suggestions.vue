@@ -1,7 +1,8 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
 import Vue from 'vue';
-import createFlash from '~/flash';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { createAlert } from '~/alert';
 import { __ } from '~/locale';
 import SuggestionDiff from './suggestion_diff.vue';
 
@@ -40,12 +41,18 @@ export default {
     },
     defaultCommitMessage: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
     },
     suggestionsCount: {
       type: Number,
       required: false,
       default: 0,
+    },
+    failedToLoadMetadata: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
   },
   data() {
@@ -58,6 +65,9 @@ export default {
       this.reset();
     },
     noteHtml() {
+      this.reset();
+    },
+    failedToLoadMetadata() {
       this.reset();
     },
   },
@@ -83,7 +93,7 @@ export default {
       const suggestionElements = container.querySelectorAll('.js-render-suggestion');
 
       if (this.lineType === 'old') {
-        createFlash({
+        createAlert({
           message: __('Unable to apply suggestions to a deleted line.'),
           parent: this.$el,
         });
@@ -105,6 +115,7 @@ export default {
         helpPagePath,
         defaultCommitMessage,
         suggestionsCount,
+        failedToLoadMetadata,
       } = this;
       const suggestion =
         suggestions && suggestions[suggestionIndex] ? suggestions[suggestionIndex] : {};
@@ -115,8 +126,9 @@ export default {
           suggestion,
           batchSuggestionsInfo,
           helpPagePath,
-          defaultCommitMessage,
+          defaultCommitMessage: defaultCommitMessage || '',
           suggestionsCount,
+          failedToLoadMetadata,
         },
       });
 
@@ -153,6 +165,7 @@ export default {
       // resets the container HTML (replaces it with the updated noteHTML)
       // calls `renderSuggestions` once the updated noteHTML is added to the DOM
 
+      // eslint-disable-next-line no-unsanitized/property
       this.$refs.container.innerHTML = this.noteHtml;
       this.isRendered = false;
       this.renderSuggestions();
@@ -164,7 +177,13 @@ export default {
 
 <template>
   <div>
-    <div class="flash-container js-suggestions-flash"></div>
-    <div v-show="isRendered" ref="container" v-safe-html="noteHtml" class="md suggestions"></div>
+    <div class="flash-container js-suggestions-flash gl-white-space-pre-line"></div>
+    <div
+      v-show="isRendered"
+      ref="container"
+      v-safe-html="noteHtml"
+      data-testid="suggestions-container"
+      class="md suggestions"
+    ></div>
   </div>
 </template>

@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Repositories::TreeFinder do
+RSpec.describe Repositories::TreeFinder, feature_category: :source_code_management do
   include RepoHelpers
 
   let_it_be(:user) { create(:user) }
@@ -26,10 +26,10 @@ RSpec.describe Repositories::TreeFinder do
     end
 
     it "accepts a gitaly_pagination argument" do
-      expect(repository).to receive(:tree).with(anything, anything, recursive: nil, pagination_params: { limit: 20, page_token: nil }).and_call_original
+      expect(repository).to receive(:tree).with(anything, anything, recursive: nil, rescue_not_found: nil, pagination_params: { limit: 20, page_token: nil }).and_call_original
       expect(tree_finder.execute(gitaly_pagination: true)).to be_an(Array)
 
-      expect(repository).to receive(:tree).with(anything, anything, recursive: nil).and_call_original
+      expect(repository).to receive(:tree).with(anything, anything, recursive: nil, rescue_not_found: nil).and_call_original
       expect(tree_finder.execute(gitaly_pagination: false)).to be_an(Array)
     end
 
@@ -57,6 +57,60 @@ RSpec.describe Repositories::TreeFinder do
         second_page = described_class.new(project, { per_page: 5, page_token: first_page_ids.last }).execute(gitaly_pagination: true)
 
         expect(second_page.map(&:id)).not_to include(*first_page_ids)
+      end
+    end
+  end
+
+  describe '#next_cursor' do
+    subject { tree_finder.next_cursor }
+
+    it 'always nil before #execute call' do
+      is_expected.to be_nil
+    end
+
+    context 'after #execute' do
+      context 'with gitaly pagination' do
+        before do
+          tree_finder.execute(gitaly_pagination: true)
+        end
+
+        context 'without pagination params' do
+          it { is_expected.to be_present }
+        end
+
+        context 'with pagination params' do
+          let(:params) { { per_page: 5 } }
+
+          it { is_expected.to be_present }
+
+          context 'when all objects can be returned on the same page' do
+            let(:params) { { per_page: 100 } }
+
+            it { is_expected.to eq('') }
+          end
+        end
+      end
+
+      context 'without gitaly pagination' do
+        before do
+          tree_finder.execute(gitaly_pagination: false)
+        end
+
+        context 'without pagination params' do
+          it { is_expected.to be_nil }
+        end
+
+        context 'with pagination params' do
+          let(:params) { { per_page: 5 } }
+
+          it { is_expected.to be_nil }
+
+          context 'when all objects can be returned on the same page' do
+            let(:params) { { per_page: 100 } }
+
+            it { is_expected.to be_nil }
+          end
+        end
       end
     end
   end

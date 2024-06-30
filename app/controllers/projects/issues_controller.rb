@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 class Projects::IssuesController < Projects::ApplicationController
-  include RendersNotes
   include ToggleSubscriptionAction
   include IssuableActions
   include ToggleAwardEmoji
@@ -10,7 +9,7 @@ class Projects::IssuesController < Projects::ApplicationController
   include RecordUserLastActivity
 
   ISSUES_EXCEPT_ACTIONS = %i[index calendar new create bulk_update import_csv export_csv service_desk].freeze
-  SET_ISSUABLES_INDEX_ONLY_ACTIONS = %i[calendar service_desk].freeze
+  SET_ISSUABLES_INDEX_ONLY_ACTIONS = %i[index calendar service_desk].freeze
 
   prepend_before_action(only: [:index]) { authenticate_sessionless_user!(:rss) }
   prepend_before_action(only: [:calendar]) { authenticate_sessionless_user!(:ics) }
@@ -20,9 +19,17 @@ class Projects::IssuesController < Projects::ApplicationController
   before_action :disable_query_limiting, only: [:create_merge_request, :move, :bulk_update]
   before_action :check_issues_available!
   before_action :issue, unless: ->(c) { ISSUES_EXCEPT_ACTIONS.include?(c.action_name.to_sym) }
-  after_action :log_issue_show, unless: ->(c) { ISSUES_EXCEPT_ACTIONS.include?(c.action_name.to_sym) }
+  before_action :redirect_if_work_item, unless: ->(c) { work_item_redirect_except_actions.include?(c.action_name.to_sym) }
+  before_action :require_incident_for_incident_routes, only: :show
 
-  before_action :set_issuables_index, if: ->(c) { SET_ISSUABLES_INDEX_ONLY_ACTIONS.include?(c.action_name.to_sym) }
+  after_action :log_issue_show, only: :show
+
+  before_action :set_issuables_index, if: ->(c) {
+    SET_ISSUABLES_INDEX_ONLY_ACTIONS.include?(c.action_name.to_sym) && !index_html_request?
+  }
+  before_action :check_search_rate_limit!, if: ->(c) {
+    SET_ISSUABLES_INDEX_ONLY_ACTIONS.include?(c.action_name.to_sym) && !index_html_request? && params[:search].present?
+  }
 
   # Allow write(create) issue
   before_action :authorize_create_issue!, only: [:new, :create]
@@ -34,20 +41,33 @@ class Projects::IssuesController < Projects::ApplicationController
   before_action :authorize_create_merge_request_from!, only: [:create_merge_request]
 
   before_action :authorize_import_issues!, only: [:import_csv]
-  before_action :authorize_download_code!, only: [:related_branches]
+  before_action :authorize_read_code!, only: [:related_branches]
 
   before_action do
-    push_frontend_feature_flag(:vue_issues_list, project&.group, default_enabled: :yaml)
-    push_frontend_feature_flag(:iteration_cadences, project&.group, default_enabled: :yaml)
-    push_frontend_feature_flag(:contacts_autocomplete, project&.group, default_enabled: :yaml)
-    push_frontend_feature_flag(:markdown_continue_lists, project, default_enabled: :yaml)
+    push_frontend_feature_flag(:preserve_unchanged_markdown, project)
+    push_frontend_feature_flag(:issues_grid_view)
+    push_frontend_feature_flag(:service_desk_ticket)
+    push_frontend_feature_flag(:issues_list_drawer, project)
+    push_frontend_feature_flag(:display_work_item_epic_issue_sidebar, project)
+    push_frontend_feature_flag(:notifications_todos_buttons, current_user)
+  end
+
+  before_action only: [:index, :show] do
+    push_force_frontend_feature_flag(:work_items, project&.work_items_feature_flag_enabled?)
+  end
+
+  before_action only: [:index, :service_desk] do
+    push_frontend_feature_flag(:frontend_caching, project&.group)
+    push_frontend_feature_flag(:group_multi_select_tokens, project)
   end
 
   before_action only: :show do
-    push_frontend_feature_flag(:confidential_notes, project&.group, default_enabled: :yaml)
-    push_frontend_feature_flag(:issue_assignees_widget, project, default_enabled: :yaml)
-    push_frontend_feature_flag(:paginated_issue_discussions, project, default_enabled: :yaml)
-    push_force_frontend_feature_flag(:work_items, project&.work_items_feature_flag_enabled?)
+    push_frontend_feature_flag(:work_items_beta, project&.group)
+    push_force_frontend_feature_flag(:work_items_beta, project&.work_items_beta_feature_flag_enabled?)
+    push_force_frontend_feature_flag(:work_items_alpha, project&.work_items_alpha_feature_flag_enabled?)
+    push_frontend_feature_flag(:epic_widget_edit_confirmation, project)
+    push_frontend_feature_flag(:display_work_item_epic_issue_sidebar, project)
+    push_frontend_feature_flag(:namespace_level_work_items, project&.group)
   end
 
   around_action :allow_gitaly_ref_name_caching, only: [:discussions]
@@ -57,36 +77,37 @@ class Projects::IssuesController < Projects::ApplicationController
   alias_method :designs, :show
 
   feature_category :team_planning, [
-                     :index, :calendar, :show, :new, :create, :edit, :update,
-                     :destroy, :move, :reorder, :designs, :toggle_subscription,
-                     :discussions, :bulk_update, :realtime_changes,
-                     :toggle_award_emoji, :mark_as_spam, :related_branches,
-                     :can_create_branch, :create_merge_request
-                   ]
+    :index, :calendar, :show, :new, :create, :edit, :update,
+    :destroy, :move, :reorder, :designs, :toggle_subscription,
+    :discussions, :bulk_update, :realtime_changes,
+    :toggle_award_emoji, :mark_as_spam, :related_branches,
+    :can_create_branch, :create_merge_request
+  ]
+  urgency :low, [
+    :index, :calendar, :show, :new, :create, :edit, :update,
+    :destroy, :move, :reorder, :designs, :toggle_subscription,
+    :discussions, :bulk_update, :realtime_changes,
+    :toggle_award_emoji, :mark_as_spam, :related_branches,
+    :can_create_branch, :create_merge_request
+  ]
 
   feature_category :service_desk, [:service_desk]
   urgency :low, [:service_desk]
   feature_category :importers, [:import_csv, :export_csv]
+  urgency :low, [:import_csv, :export_csv]
 
   attr_accessor :vulnerability_id
 
   def index
-    if html_request? && Feature.enabled?(:vue_issues_list, project&.group, default_enabled: :yaml)
+    if index_html_request?
       set_sort_order
     else
-      set_issuables_index
       @issues = @issuables
     end
 
     respond_to do |format|
       format.html
       format.atom { render layout: 'xml' }
-      format.json do
-        render json: {
-          html: view_to_html_string("projects/issues/_issues"),
-          labels: @labels.as_json(methods: :text_color)
-        }
-      end
     end
   end
 
@@ -103,7 +124,7 @@ class Projects::IssuesController < Projects::ApplicationController
       discussion_to_resolve: params[:discussion_to_resolve],
       confidential: !!Gitlab::Utils.to_boolean(issue_params[:confidential])
     )
-    service = ::Issues::BuildService.new(project: project, current_user: current_user, params: build_params)
+    service = ::Issues::BuildService.new(container: project, current_user: current_user, params: build_params)
 
     @issue = @noteable = service.execute
 
@@ -130,21 +151,25 @@ class Projects::IssuesController < Projects::ApplicationController
       discussion_to_resolve: params[:discussion_to_resolve]
     )
 
-    spam_params = ::Spam::SpamParams.new_from_request(request: request)
-    service = ::Issues::CreateService.new(project: project, current_user: current_user, params: create_params, spam_params: spam_params)
-    @issue = service.execute
+    service = ::Issues::CreateService.new(container: project, current_user: current_user, params: create_params)
+    result = service.execute
 
-    create_vulnerability_issue_feedback(issue)
+    # Only irrecoverable errors such as unauthorized user won't contain an issue in the response
+    render_by_create_result_error(result) && return if result.error? && result[:issue].blank?
 
-    if service.discussions_to_resolve.count(&:resolved?) > 0
-      flash[:notice] = if service.discussion_to_resolve_id
-                         _("Resolved 1 discussion.")
-                       else
-                         _("Resolved all discussions.")
-                       end
-    end
+    @issue = result[:issue]
 
-    if @issue.valid?
+    if result.success?
+      create_vulnerability_issue_feedback(@issue)
+
+      if service.discussions_to_resolve.count(&:resolved?) > 0
+        flash[:notice] = if service.discussion_to_resolve_id
+                           _("Resolved 1 discussion.")
+                         else
+                           _("Resolved all discussions.")
+                         end
+      end
+
       redirect_to project_issue_path(@project, @issue)
     else
       # NOTE: this CAPTCHA support method is indirectly included via IssuableActions
@@ -159,7 +184,7 @@ class Projects::IssuesController < Projects::ApplicationController
       new_project = Project.find(params[:move_to_project_id])
       return render_404 unless issue.can_move?(current_user, new_project)
 
-      @issue = ::Issues::MoveService.new(project: project, current_user: current_user).execute(issue, new_project)
+      @issue = ::Issues::MoveService.new(container: project, current_user: current_user).execute(issue, new_project)
     end
 
     respond_to do |format|
@@ -173,7 +198,7 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def reorder
-    service = ::Issues::ReorderService.new(project: project, current_user: current_user, params: reorder_params)
+    service = ::Issues::ReorderService.new(container: project, current_user: current_user, params: reorder_params)
 
     if service.execute(issue)
       head :ok
@@ -184,7 +209,7 @@ class Projects::IssuesController < Projects::ApplicationController
 
   def related_branches
     @related_branches = ::Issues::RelatedBranchesService
-      .new(project: project, current_user: current_user)
+      .new(container: project, current_user: current_user)
       .execute(issue)
       .map { |branch| branch.merge(link: branch_link(branch)) }
 
@@ -230,23 +255,32 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def import_csv
-    if uploader = UploadService.new(project, params[:file]).execute
-      ImportIssuesCsvWorker.perform_async(current_user.id, project.id, uploader.upload.id) # rubocop:disable CodeReuse/Worker
+    result = Issues::PrepareImportCsvService.new(project, current_user, file: params[:file]).execute
 
-      flash[:notice] = _("Your issues are being imported. Once finished, you'll get a confirmation email.")
+    if result.success?
+      flash[:notice] = result.message
     else
-      flash[:alert] = _("File upload error.")
+      flash[:alert] = result.message
     end
 
     redirect_to project_issues_path(project)
   end
 
   def service_desk
-    @issues = @issuables # rubocop:disable Gitlab/ModuleWithInstanceVariables
-    @users.push(User.support_bot) # rubocop:disable Gitlab/ModuleWithInstanceVariables
+    @issues = @issuables
+  end
+
+  def discussions
+    Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/425834')
+
+    super
   end
 
   protected
+
+  def index_html_request?
+    action_name.to_sym == :index && html_request?
+  end
 
   def sorting_field
     Issue::SORTING_PREFERENCE_FIELD
@@ -294,6 +328,7 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def issue_params
+    params[:issue][:issue_type] ||= params[:issue_type] if params[:issue_type].present?
     all_params = params.require(:issue).permit(
       *issue_params_attributes,
       sentry_issue_attributes: [:sentry_issue_identifier]
@@ -324,9 +359,7 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def store_uri
-    if request.get? && request.format.html?
-      store_location_for :user, request.fullpath
-    end
+    store_location_for :user, request.fullpath if request.get? && request.format.html?
   end
 
   def serializer
@@ -334,8 +367,11 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def update_service
-    spam_params = ::Spam::SpamParams.new_from_request(request: request)
-    ::Issues::UpdateService.new(project: project, current_user: current_user, params: issue_params, spam_params: spam_params)
+    ::Issues::UpdateService.new(
+      container: project,
+      current_user: current_user,
+      params: issue_params,
+      perform_spam_check: true)
   end
 
   def finder_type
@@ -353,6 +389,25 @@ class Projects::IssuesController < Projects::ApplicationController
 
   private
 
+  def work_item_redirect_except_actions
+    ISSUES_EXCEPT_ACTIONS
+  end
+
+  def render_by_create_result_error(result)
+    Gitlab::AppLogger.warn(
+      message: 'Cannot create issue',
+      errors: result.errors,
+      http_status: result.http_status
+    )
+    error_method_name = "render_#{result.http_status}".to_sym
+
+    if respond_to?(error_method_name, true)
+      send(error_method_name) # rubocop:disable GitlabSecurity/PublicSend
+    else
+      render_404
+    end
+  end
+
   def clean_params(all_params)
     issue_type = all_params[:issue_type].to_s
     all_params.delete(:issue_type) unless WorkItems::Type.allowed_types_for_issues.include?(issue_type)
@@ -367,7 +422,7 @@ class Projects::IssuesController < Projects::ApplicationController
 
     if service_desk?
       options.reject! { |key| key == 'author_username' || key == 'author_id' }
-      options[:author_id] = User.support_bot
+      options[:author_id] = Users::Internal.support_bot
     end
 
     options
@@ -388,6 +443,21 @@ class Projects::IssuesController < Projects::ApplicationController
 
   # Overridden in EE
   def create_vulnerability_issue_feedback(issue); end
+
+  def redirect_if_work_item
+    return unless use_work_items_path?(issue)
+
+    redirect_to project_work_item_path(project, issue.iid, params: request.query_parameters)
+  end
+
+  def require_incident_for_incident_routes
+    return unless params[:incident_tab].present?
+    return if issue.work_item_type&.incident?
+
+    # Redirect instead of 404 to gracefully handle
+    # issue type changes
+    redirect_to project_issue_path(project, issue)
+  end
 end
 
 Projects::IssuesController.prepend_mod_with('Projects::IssuesController')

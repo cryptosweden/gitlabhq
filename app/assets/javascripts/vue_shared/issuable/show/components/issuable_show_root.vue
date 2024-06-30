@@ -17,17 +17,22 @@ export default {
       type: Object,
       required: true,
     },
-    statusBadgeClass: {
-      type: String,
-      required: false,
-      default: '',
-    },
     statusIcon: {
       type: String,
       required: false,
       default: '',
     },
+    statusIconClass: {
+      type: String,
+      required: false,
+      default: '',
+    },
     enableEdit: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    hideEditButton: {
       type: Boolean,
       required: false,
       default: false,
@@ -87,6 +92,16 @@ export default {
       required: false,
       default: 0,
     },
+    showWorkItemTypeIcon: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    workspaceType: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
   methods: {
     handleKeydownTitle(e, issuableMeta) {
@@ -100,15 +115,19 @@ export default {
 </script>
 
 <template>
-  <div class="issuable-show-container" data-qa-selector="issuable_show_container">
+  <div class="issuable-show-container" data-testid="issuable-show-container">
     <issuable-header
-      :status-badge-class="statusBadgeClass"
+      :issuable-state="issuable.state"
       :status-icon="statusIcon"
+      :status-icon-class="statusIconClass"
       :blocked="issuable.blocked"
       :confidential="issuable.confidential"
       :created-at="issuable.createdAt"
       :author="issuable.author"
       :task-completion-status="taskCompletionStatus"
+      :issuable-type="issuable.type"
+      :workspace-type="workspaceType"
+      :show-work-item-type-icon="showWorkItemTypeIcon"
     >
       <template #status-badge>
         <slot name="status-badge"></slot>
@@ -120,9 +139,10 @@ export default {
 
     <issuable-body
       :issuable="issuable"
-      :status-badge-class="statusBadgeClass"
       :status-icon="statusIcon"
+      :status-icon-class="statusIconClass"
       :enable-edit="enableEdit"
+      :hide-edit-button="hideEditButton"
       :enable-autocomplete="enableAutocomplete"
       :enable-autosave="enableAutosave"
       :enable-zen-mode="enableZenMode"
@@ -133,6 +153,7 @@ export default {
       :description-help-path="descriptionHelpPath"
       :task-list-update-path="taskListUpdatePath"
       :task-list-lock-version="taskListLockVersion"
+      :workspace-type="workspaceType"
       @edit-issuable="$emit('edit-issuable', $event)"
       @task-list-update-success="$emit('task-list-update-success', $event)"
       @task-list-update-failure="$emit('task-list-update-failure')"
@@ -154,6 +175,9 @@ export default {
     </issuable-discussion>
 
     <issuable-sidebar>
+      <template #right-sidebar-top-items="{ sidebarExpanded, toggleSidebar }">
+        <slot name="right-sidebar-top-items" v-bind="{ sidebarExpanded, toggleSidebar }"></slot>
+      </template>
       <template #right-sidebar-items="{ sidebarExpanded, toggleSidebar }">
         <slot name="right-sidebar-items" v-bind="{ sidebarExpanded, toggleSidebar }"></slot>
       </template>

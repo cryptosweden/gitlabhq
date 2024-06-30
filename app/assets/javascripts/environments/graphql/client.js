@@ -1,18 +1,36 @@
 import VueApollo from 'vue-apollo';
 import createDefaultClient from '~/lib/graphql';
+import pageInfoQuery from '~/graphql_shared/client/page_info.query.graphql';
 import environmentApp from './queries/environment_app.query.graphql';
-import pageInfoQuery from './queries/page_info.query.graphql';
 import environmentToDeleteQuery from './queries/environment_to_delete.query.graphql';
 import environmentToRollbackQuery from './queries/environment_to_rollback.query.graphql';
 import environmentToStopQuery from './queries/environment_to_stop.query.graphql';
+import k8sPodsQuery from './queries/k8s_pods.query.graphql';
+import k8sConnectionStatusQuery from './queries/k8s_connection_status.query.graphql';
+import k8sLogsQuery from './queries/k8s_logs.query.graphql';
+import k8sServicesQuery from './queries/k8s_services.query.graphql';
+import k8sDeploymentsQuery from './queries/k8s_deployments.query.graphql';
+import k8sNamespacesQuery from './queries/k8s_namespaces.query.graphql';
+import fluxKustomizationQuery from './queries/flux_kustomization.query.graphql';
+import fluxHelmReleaseStatusQuery from './queries/flux_helm_release_status.query.graphql';
 import { resolvers } from './resolvers';
 import typeDefs from './typedefs.graphql';
+import { connectionStatus } from './resolvers/kubernetes/constants';
 
 export const apolloProvider = (endpoint) => {
   const defaultClient = createDefaultClient(resolvers(endpoint), {
     typeDefs,
   });
   const { cache } = defaultClient;
+
+  const k8sMetadata = {
+    name: null,
+    namespace: null,
+    creationTimestamp: null,
+    labels: null,
+    annotations: null,
+  };
+  const k8sData = { nodes: { metadata: k8sMetadata, status: {}, spec: {} } };
 
   cache.writeQuery({
     query: environmentApp,
@@ -82,6 +100,76 @@ export const apolloProvider = (endpoint) => {
       },
     },
   });
+  cache.writeQuery({
+    query: k8sPodsQuery,
+    data: k8sData,
+  });
+  cache.writeQuery({
+    query: k8sConnectionStatusQuery,
+    data: {
+      k8sConnection: {
+        k8sPods: {
+          connectionStatus: connectionStatus.disconnected,
+        },
+        k8sServices: {
+          connectionStatus: connectionStatus.disconnected,
+        },
+      },
+    },
+  });
+  cache.writeQuery({
+    query: k8sServicesQuery,
+    data: k8sData,
+  });
+  cache.writeQuery({
+    query: k8sNamespacesQuery,
+    data: {
+      metadata: {
+        name: null,
+      },
+    },
+  });
+  cache.writeQuery({
+    query: fluxKustomizationQuery,
+    data: {
+      kind: '',
+      metadata: {
+        name: '',
+      },
+      conditions: {
+        message: '',
+        reason: '',
+        status: '',
+        type: '',
+      },
+      inventory: [],
+    },
+  });
+  cache.writeQuery({
+    query: fluxHelmReleaseStatusQuery,
+    data: {
+      conditions: {
+        message: '',
+        reason: '',
+        status: '',
+        type: '',
+      },
+    },
+  });
+  cache.writeQuery({
+    query: k8sDeploymentsQuery,
+    data: {
+      metadata: {
+        name: null,
+      },
+      status: {},
+    },
+  });
+  cache.writeQuery({
+    query: k8sLogsQuery,
+    data: { logs: [] },
+  });
+
   return new VueApollo({
     defaultClient,
   });

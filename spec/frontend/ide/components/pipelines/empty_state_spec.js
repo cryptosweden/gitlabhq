@@ -22,17 +22,13 @@ describe('~/ide/components/pipelines/empty_state.vue', () => {
     });
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('default', () => {
     beforeEach(() => {
       createComponent();
     });
 
     it('renders empty state', () => {
-      expect(wrapper.find(GlEmptyState).props()).toMatchObject({
+      expect(wrapper.findComponent(GlEmptyState).props()).toMatchObject({
         title: EmptyState.i18n.title,
         description: EmptyState.i18n.description,
         primaryButtonText: EmptyState.i18n.primaryButtonText,

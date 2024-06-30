@@ -9,9 +9,9 @@ import {
   GlButton,
   GlAlert,
 } from '@gitlab/ui';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-import { ContentTypeMultipartFormData } from '~/lib/utils/headers';
+import { contentTypeMultipartFormData } from '~/lib/utils/headers';
 import { numberToHumanSize } from '~/lib/utils/number_utils';
 import { visitUrl, joinPaths } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
@@ -106,23 +106,19 @@ export default {
     primaryOptions() {
       return {
         text: this.primaryBtnText,
-        attributes: [
-          {
-            variant: 'confirm',
-            loading: this.loading,
-            disabled: !this.formCompleted || this.loading,
-          },
-        ],
+        attributes: {
+          variant: 'confirm',
+          loading: this.loading,
+          disabled: !this.formCompleted || this.loading,
+        },
       };
     },
     cancelOptions() {
       return {
         text: SECONDARY_OPTIONS_TEXT,
-        attributes: [
-          {
-            disabled: this.loading,
-          },
-        ],
+        attributes: {
+          disabled: this.loading,
+        },
       };
     },
     formattedFileSize() {
@@ -163,7 +159,7 @@ export default {
         url,
         data: this.formData(),
         headers: {
-          ...ContentTypeMultipartFormData,
+          ...contentTypeMultipartFormData,
         },
       })
         .then((response) => {
@@ -171,7 +167,7 @@ export default {
         })
         .catch(() => {
           this.loading = false;
-          createFlash({ message: ERROR_MESSAGE });
+          createAlert({ message: ERROR_MESSAGE });
         });
     },
     formData() {
@@ -240,7 +236,7 @@ export default {
         </div>
       </upload-dropzone>
       <gl-form-group :label="$options.i18n.COMMIT_LABEL" label-for="commit_message">
-        <gl-form-textarea v-model="commit" name="commit_message" :disabled="loading" />
+        <gl-form-textarea v-model="commit" name="commit_message" :disabled="loading" no-resize />
       </gl-form-group>
       <gl-form-group
         v-if="canPushCode"

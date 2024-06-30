@@ -1,30 +1,19 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package', :orchestrated, :packages, :object_storage do
-    describe 'Generic Repository' do
+  RSpec.describe 'Package', :object_storage, product_group: :package_registry do
+    describe 'Generic Repository', :external_api_calls do
       include Runtime::Fixtures
 
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'generic-package-project'
-        end
-      end
-
-      let(:package) do
-        Resource::Package.init do |package|
-          package.name = "my_package-#{SecureRandom.hex(8)}"
-          package.project = project
-        end
-      end
+      let(:project) { create(:project, :private, name: 'generic-package-project') }
+      let(:package) { build(:package, name: "my_package-#{SecureRandom.hex(8)}", project: project) }
 
       let!(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.name = "qa-runner-#{Time.now.to_i}"
-          runner.tags = ["runner-for-#{project.name}"]
-          runner.executor = :docker
-          runner.project = project
-        end
+        create(:project_runner,
+          name: "qa-runner-#{Time.now.to_i}",
+          tags: ["runner-for-#{project.name}"],
+          executor: :docker,
+          project: project)
       end
 
       let(:file_txt) do
@@ -37,21 +26,12 @@ module QA
         Flow::Login.sign_in
 
         Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-          Resource::Repository::Commit.fabricate_via_api! do |commit|
-            generic_packages_yaml = ERB.new(read_fixture('package_managers/generic', 'generic_upload_install_package.yaml.erb')).result(binding)
+          generic_packages_yaml = ERB.new(read_fixture('package_managers/generic', 'generic_upload_install_package.yaml.erb')).result(binding)
 
-            commit.project = project
-            commit.commit_message = 'Add files'
-            commit.add_files([{
-                                  file_path: '.gitlab-ci.yml',
-                                  content: generic_packages_yaml
-                              },
-                              {
-                                  file_path: 'file.txt',
-                                  content: file_txt
-                              }]
-                            )
-          end
+          create(:commit, project: project, commit_message: 'Add files', actions: [
+            { action: 'create', file_path: '.gitlab-ci.yml', content: generic_packages_yaml },
+            { action: 'create', file_path: 'file.txt', content: file_txt }
+          ])
         end
 
         project.visit!
@@ -62,9 +42,9 @@ module QA
         end
 
         Page::Project::Job::Show.perform do |job|
-          expect(job).to be_successful(timeout: 800)
+          expect(job).to be_successful(timeout: 180)
 
-          job.click_element(:pipeline_path)
+          job.go_to_pipeline
         end
 
         Page::Project::Pipeline::Show.perform do |pipeline|
@@ -72,7 +52,7 @@ module QA
         end
 
         Page::Project::Job::Show.perform do |job|
-          expect(job).to be_successful(timeout: 800)
+          expect(job).to be_successful(timeout: 180)
         end
       end
 
@@ -81,8 +61,9 @@ module QA
         package.remove_via_api!
       end
 
-      it 'uploads a generic package and downloads it', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348017' do
-        Page::Project::Menu.perform(&:click_packages_link)
+      it 'uploads a generic package and downloads it', :blocking,
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348017' do
+        Page::Project::Menu.perform(&:go_to_package_registry)
 
         Page::Project::Packages::Index.perform do |index|
           expect(index).to have_package(package.name)

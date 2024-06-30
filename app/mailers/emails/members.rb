@@ -6,8 +6,6 @@ module Emails
     include MembersHelper
     include Gitlab::Experiment::Dsl
 
-    INITIAL_INVITE = 'initial_email'
-
     included do
       helper_method :member_source, :member
       helper_method :experiment
@@ -21,7 +19,7 @@ module Emails
 
       user = User.find(recipient_id)
 
-      member_email_with_layout(
+      email_with_layout(
         to: user.notification_email_for(notification_group),
         subject: subject("Request to join the #{member_source.human_name} #{member_source.model_name.singular}"))
     end
@@ -32,7 +30,7 @@ module Emails
 
       return unless member_exists?
 
-      member_email_with_layout(
+      email_with_layout(
         to: member.user.notification_email_for(notification_group),
         subject: subject("Access to the #{member_source.human_name} #{member_source.model_name.singular} was granted"))
     end
@@ -47,24 +45,9 @@ module Emails
 
       human_name = @source_hidden ? 'Hidden' : member_source.human_name
 
-      member_email_with_layout(
+      email_with_layout(
         to: user.notification_email_for(notification_group),
         subject: subject("Access to the #{human_name} #{member_source.model_name.singular} was denied"))
-    end
-
-    def member_invited_email(member_source_type, member_id, token)
-      @member_source_type = member_source_type
-      @member_id = member_id
-      @token = token
-
-      return unless member_exists?
-
-      Gitlab::Tracking.event(self.class.name, 'invite_email_sent', label: 'invite_email', property: member_id.to_s)
-
-      mail(to: member.invite_email, subject: invite_email_subject, **invite_email_headers) do |format|
-        format.html { render layout: 'unknown_user_mailer' }
-        format.text { render layout: 'unknown_user_mailer' }
-      end
     end
 
     def member_invited_reminder_email(member_source_type, member_id, token, reminder_index)
@@ -83,7 +66,7 @@ module Emails
 
       subject_line = subjects[reminder_index] % { inviter: member.created_by.name }
 
-      member_email_with_layout(
+      email_with_layout(
         layout: 'unknown_user_mailer',
         to: member.invite_email,
         subject: subject(subject_line)
@@ -97,7 +80,7 @@ module Emails
       return unless member_exists?
       return unless member.created_by
 
-      member_email_with_layout(
+      email_with_layout(
         to: member.created_by.notification_email_for(notification_group),
         subject: subject('Invitation accepted'))
     end
@@ -111,7 +94,7 @@ module Emails
 
       user = User.find(created_by_id)
 
-      member_email_with_layout(
+      email_with_layout(
         to: user.notification_email_for(notification_group),
         subject: subject('Invitation declined'))
     end
@@ -128,9 +111,25 @@ module Emails
                   _('Group membership expiration date removed')
                 end
 
-      member_email_with_layout(
+      email_with_layout(
         to: member.user.notification_email_for(notification_group),
         subject: subject(subject))
+    end
+
+    def member_about_to_expire_email(member_source_type, member_id)
+      @member_source_type = member_source_type
+      @member_id = member_id
+
+      return unless member_exists?
+      return unless member.expires_at
+
+      @days_to_expire = (member.expires_at - Date.today).to_i
+
+      return if @days_to_expire <= 0
+
+      email_with_layout(
+        to: member.user.notification_email_for(notification_group),
+        subject: subject(s_("Your membership will expire in %{days_to_expire} days") % { days_to_expire: @days_to_expire }))
     end
 
     # rubocop: disable CodeReuse/ActiveRecord
@@ -149,25 +148,6 @@ module Emails
 
     private
 
-    def invite_email_subject
-      if member.created_by
-        subject(s_("MemberInviteEmail|%{member_name} invited you to join GitLab") % { member_name: member.created_by.name })
-      else
-        subject(s_("MemberInviteEmail|Invitation to join the %{project_or_group} %{project_or_group_name}") % { project_or_group: member_source.human_name, project_or_group_name: member_source.model_name.singular })
-      end
-    end
-
-    def invite_email_headers
-      if Gitlab::CurrentSettings.mailgun_events_enabled?
-        {
-          'X-Mailgun-Tag' => ::Members::Mailgun::INVITE_EMAIL_TAG,
-          'X-Mailgun-Variables' => { ::Members::Mailgun::INVITE_EMAIL_TOKEN_KEY => @token }.to_json
-        }
-      else
-        {}
-      end
-    end
-
     def member_exists?
       Gitlab::AppLogger.info("Tried to send an email invitation for a deleted group. Member id: #{@member_id}") if member.blank?
       member.present?
@@ -175,13 +155,6 @@ module Emails
 
     def member_source_class
       @member_source_type.classify.constantize
-    end
-
-    def member_email_with_layout(to:, subject:, layout: 'mailer')
-      mail(to: to, subject: subject) do |format|
-        format.html { render layout: layout }
-        format.text { render layout: layout }
-      end
     end
   end
 end

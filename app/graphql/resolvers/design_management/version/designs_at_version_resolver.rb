@@ -14,12 +14,12 @@ module Resolvers
         DesignID = ::Types::GlobalIDType[::DesignManagement::Design]
 
         argument :filenames,
-                 [GraphQL::Types::String],
-                 required: false,
-                 description: 'Filters designs by their filename.'
+          [GraphQL::Types::String],
+          required: false,
+          description: 'Filters designs by their filename.'
         argument :ids, [DesignID],
-                 required: false,
-                 description: 'Filters designs by their ID.'
+          required: false,
+          description: 'Filters designs by their ID.'
 
         def self.single
           ::Resolvers::DesignManagement::Version::DesignAtVersionResolver
@@ -33,17 +33,14 @@ module Resolvers
 
         def find(ids, filenames)
           ::DesignManagement::DesignsFinder.new(issue, current_user,
-                                                ids: design_ids(ids),
-                                                filenames: filenames,
-                                                visible_at_version: version)
+            ids: design_ids(ids),
+            filenames: filenames,
+            visible_at_version: version)
         end
 
         def design_ids(gids)
           return if gids.nil?
 
-          # TODO: remove this line when the compatibility layer is removed
-          # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-          gids = gids.map { |id| DesignID.coerce_isolated_input(id) }
           gids.map(&:model_id)
         end
 

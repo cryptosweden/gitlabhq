@@ -3,6 +3,7 @@
 module IssuableCollections
   extend ActiveSupport::Concern
   include PaginatedCollection
+  include SearchRateLimitable
   include SortingHelper
   include SortingPreference
   include Gitlab::Utils::StrongMemoize
@@ -13,43 +14,16 @@ module IssuableCollections
 
   private
 
-  def show_alert_if_search_is_disabled
-    return if current_user || params[:search].blank? || !html_request? || Feature.disabled?(:disable_anonymous_search, type: :ops)
-
-    flash.now[:notice] = _('You must sign in to search for specific terms.')
-  end
-
   # rubocop:disable Gitlab/ModuleWithInstanceVariables
   def set_issuables_index
-    show_alert_if_search_is_disabled
-
     @issuables = issuables_collection
+    set_pagination
 
-    unless pagination_disabled?
-      set_pagination
-
-      return if redirect_out_of_range(@issuables, @total_pages)
-    end
-
-    if params[:label_name].present? && @project
-      labels_params = { project_id: @project.id, title: params[:label_name] }
-      @labels = LabelsFinder.new(current_user, labels_params).execute
-    end
-
-    @users = []
-    if params[:assignee_id].present?
-      assignee = User.find_by_id(params[:assignee_id])
-      @users.push(assignee) if assignee
-    end
-
-    if params[:author_id].present?
-      author = User.find_by_id(params[:author_id])
-      @users.push(author) if author
-    end
+    nil if redirect_out_of_range(@issuables, @total_pages)
   end
 
   def set_pagination
-    row_count = finder.row_count
+    row_count = request.format.atom? ? -1 : finder.row_count
 
     @issuables          = @issuables.page(params[:page])
     @issuables          = per_page_for_relative_position if params[:sort] == 'relative_position'
@@ -58,10 +32,6 @@ module IssuableCollections
     @total_pages        = page_count_for_relation(@issuables, row_count)
   end
   # rubocop:enable Gitlab/ModuleWithInstanceVariables
-
-  def pagination_disabled?
-    false
-  end
 
   # rubocop: disable CodeReuse/ActiveRecord
   def issuables_collection
@@ -155,11 +125,11 @@ module IssuableCollections
     common_attributes = [:author, :assignees, :labels, :milestone]
     @preload_for_collection ||= case collection_type
                                 when 'Issue'
-                                  common_attributes + [:project, project: :namespace]
+                                  common_attributes + [:work_item_type, :project, { project: :namespace }]
                                 when 'MergeRequest'
                                   common_attributes + [
                                     :target_project, :latest_merge_request_diff, :approvals, :approved_by_users, :reviewers,
-                                    source_project: :route, head_pipeline: :project, target_project: :namespace
+                                    { source_project: :route, head_pipeline: :project, target_project: :namespace }
                                   ]
                                 end
   end

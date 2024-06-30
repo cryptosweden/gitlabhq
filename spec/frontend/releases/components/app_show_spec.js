@@ -4,13 +4,15 @@ import VueApollo from 'vue-apollo';
 import oneReleaseQueryResponse from 'test_fixtures/graphql/releases/graphql/queries/one_release.query.graphql.json';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import { popCreateReleaseNotification } from '~/releases/release_notification_service';
 import ReleaseShowApp from '~/releases/components/app_show.vue';
 import ReleaseBlock from '~/releases/components/release_block.vue';
 import ReleaseSkeletonLoader from '~/releases/components/release_skeleton_loader.vue';
 import oneReleaseQuery from '~/releases/graphql/queries/one_release.query.graphql';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
+jest.mock('~/releases/release_notification_service');
 
 Vue.use(VueApollo);
 
@@ -31,13 +33,8 @@ describe('Release show component', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
-  const findLoadingSkeleton = () => wrapper.find(ReleaseSkeletonLoader);
-  const findReleaseBlock = () => wrapper.find(ReleaseBlock);
+  const findLoadingSkeleton = () => wrapper.findComponent(ReleaseSkeletonLoader);
+  const findReleaseBlock = () => wrapper.findComponent(ReleaseBlock);
 
   const expectLoadingIndicator = () => {
     it('renders a loading indicator', () => {
@@ -52,14 +49,14 @@ describe('Release show component', () => {
   };
 
   const expectNoFlash = () => {
-    it('does not show a flash message', () => {
-      expect(createFlash).not.toHaveBeenCalled();
+    it('does not show an alert message', () => {
+      expect(createAlert).not.toHaveBeenCalled();
     });
   };
 
   const expectFlashWithMessage = (message) => {
-    it(`shows a flash message that reads "${message}"`, () => {
-      expect(createFlash).toHaveBeenCalledWith({
+    it(`shows an alert message that reads "${message}"`, () => {
+      expect(createAlert).toHaveBeenCalledWith({
         message,
         captureError: true,
         error: expect.any(Error),
@@ -86,6 +83,11 @@ describe('Release show component', () => {
       const apolloProvider = createMockApollo([[oneReleaseQuery, queryHandler]]);
 
       createComponent({ apolloProvider });
+    });
+
+    it('shows info notification on mount', () => {
+      expect(popCreateReleaseNotification).toHaveBeenCalledTimes(1);
+      expect(popCreateReleaseNotification).toHaveBeenCalledWith(MOCK_FULL_PATH);
     });
 
     it('builds a GraphQL with the expected variables', () => {
@@ -143,6 +145,12 @@ describe('Release show component', () => {
 
   describe('when the request succeeded, but the returned "project.release" key was null', () => {
     beforeEach(async () => {
+      // As we return a release as `null`, Apollo also throws an error to the console
+      // about the missing field. We need to suppress console.error in order to check
+      // that alert message was called
+
+      // eslint-disable-next-line no-console
+      console.error = jest.fn();
       const apolloProvider = createMockApollo([
         [
           oneReleaseQuery,

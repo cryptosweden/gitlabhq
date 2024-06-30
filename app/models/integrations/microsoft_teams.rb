@@ -2,11 +2,27 @@
 
 module Integrations
   class MicrosoftTeams < BaseChatNotification
-    def title
+    field :webhook,
+      section: SECTION_TYPE_CONNECTION,
+      help: 'https://outlook.office.com/webhook/…',
+      required: true
+
+    field :notify_only_broken_pipelines,
+      type: :checkbox,
+      section: SECTION_TYPE_CONFIGURATION,
+      help: 'If selected, successful pipelines do not trigger a notification event.'
+
+    field :branches_to_be_notified,
+      type: :select,
+      section: SECTION_TYPE_CONFIGURATION,
+      title: -> { s_('Integrations|Branches for which notifications are to be sent') },
+      choices: -> { branch_choices }
+
+    def self.title
       'Microsoft Teams notifications'
     end
 
-    def description
+    def self.description
       'Send notifications about project events to Microsoft Teams.'
     end
 
@@ -14,15 +30,8 @@ module Integrations
       'microsoft_teams'
     end
 
-    def help
+    def self.help
       '<p>Use this service to send notifications about events in GitLab projects to your Microsoft Teams channels. <a href="https://docs.gitlab.com/ee/user/project/integrations/microsoft_teams.html" target="_blank" rel="noopener noreferrer">How do I configure this integration?</a></p>'
-    end
-
-    def webhook_placeholder
-      'https://outlook.office.com/webhook/…'
-    end
-
-    def event_field(event)
     end
 
     def default_channel_placeholder
@@ -30,20 +39,7 @@ module Integrations
 
     def self.supported_events
       %w[push issue confidential_issue merge_request note confidential_note tag_push
-         pipeline wiki_page]
-    end
-
-    def default_fields
-      [
-        { type: 'text', name: 'webhook', placeholder: "#{webhook_placeholder}" },
-        { type: 'checkbox', name: 'notify_only_broken_pipelines', help: 'If selected, successful pipelines do not trigger a notification event.' },
-        {
-          type: 'select',
-          name: 'branches_to_be_notified',
-          title: s_('Integrations|Branches for which notifications are to be sent'),
-          choices: branch_choices
-        }
-      ]
+        pipeline wiki_page]
     end
 
     private

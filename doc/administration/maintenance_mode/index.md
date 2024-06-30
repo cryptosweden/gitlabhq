@@ -1,27 +1,29 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab Maintenance Mode **(PREMIUM SELF)**
+# GitLab Maintenance Mode
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/2149) in GitLab 13.9.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
-Maintenance Mode allows administrators to reduce write operations to a minimum while maintenance tasks are performed. The main goal is to block all external actions that change the internal state, including the PostgreSQL database, but especially files, Git repositories, Container repositories, and so on.
+Maintenance Mode allows administrators to reduce write operations to a minimum while maintenance tasks are performed. The main goal is to block all external actions that change the internal state. The internal state includes the PostgreSQL database, but especially files, Git repositories, and Container repositories.
 
-Once Maintenance Mode is enabled, in-progress actions finish relatively quickly since no new actions are coming in, and internal state changes are minimal.
-In that state, various maintenance tasks are easier, and services can be stopped completely or be
-further degraded for a much shorter period of time than might otherwise be needed. For example, stopping cron jobs and draining queues should be fairly quick.
+When Maintenance Mode is enabled, in-progress actions finish relatively quickly because no new actions are coming in, and internal state changes are minimal.
+In that state, various maintenance tasks are easier. Services can be stopped completely or
+further degraded for a shorter period of time than might otherwise be needed. For example, stopping cron jobs and draining queues should be fairly quick.
 
-Maintenance Mode allows most external actions that do not change internal state. On a high-level, HTTP POST, PUT, PATCH, and DELETE requests are blocked and a detailed overview of [how special cases are handled](#rest-api) is available.
+Maintenance Mode allows most external actions that do not change internal state. On a high-level, HTTP `POST`, `PUT`, `PATCH`, and `DELETE` requests are blocked and a detailed overview of [how special cases are handled](#rest-api) is available.
 
 ## Enable Maintenance Mode
 
-There are three ways to enable Maintenance Mode as an administrator:
+Enable Maintenance Mode as an administrator in one of these ways:
 
 - **Web UI**:
-  1. On the top bar, select **Menu > Admin**.
+  1. On the left sidebar, at the bottom, select **Admin Area**.
   1. On the left sidebar, select **Settings > General**.
   1. Expand **Maintenance Mode**, and toggle **Enable Maintenance Mode**.
      You can optionally add a message for the banner as well.
@@ -42,10 +44,10 @@ There are three ways to enable Maintenance Mode as an administrator:
 
 ## Disable Maintenance Mode
 
-There are three ways to disable Maintenance Mode:
+Disable Maintenance Mode in one of three ways:
 
 - **Web UI**:
-  1. On the top bar, select **Menu > Admin**.
+  1. On the left sidebar, at the bottom, select **Admin Area**.
   1. On the left sidebar, select **Settings > General**.
   1. Expand **Maintenance Mode**, and toggle **Enable Maintenance Mode**.
      You can optionally add a message for the banner as well.
@@ -73,7 +75,7 @@ An error is displayed when a user tries to perform a write operation that isn't 
 ![Maintenance Mode banner and error message](img/maintenance_mode_error_message.png)
 
 NOTE:
-In some cases, the visual feedback from an action could be misleading, for example when starring a project, the **Star** button changes to show the **Unstar** action, however, this is only the frontend update, and it doesn't take into account the failed status of the POST request. These visual bugs are to be fixed [in follow-up iterations](https://gitlab.com/gitlab-org/gitlab/-/issues/295197).
+In some cases, the visual feedback from an action could be misleading. For example, when starring a project, the **Star** button changes to show the **Unstar** action. However, this is only the frontend update, and it doesn't take into account the failed status of the POST request. These visual bugs are to be fixed [in follow-up iterations](https://gitlab.com/gitlab-org/gitlab/-/issues/295197).
 
 ### Administrator functions
 
@@ -82,9 +84,9 @@ them to disable Maintenance Mode after it's been enabled.
 
 ### Authentication
 
-All users can log in and out of the GitLab instance but no new users can be created.
+All users can sign in and out of the GitLab instance but no new users can be created.
 
-If there are [LDAP syncs](../auth/ldap/index.md) scheduled for that time, they fail since user creation is disabled. Similarly, [user creations based on SAML](../../integration/saml.md#general-setup) fail.
+If there are [LDAP syncs](../auth/ldap/index.md) scheduled for that time, they fail because user creation is disabled. Similarly, [user creations based on SAML](../../integration/saml.md#configure-saml-support-in-gitlab) fail.
 
 ### Git actions
 
@@ -107,26 +109,30 @@ Notification emails continue to arrive, but emails that require database writes,
 
 ### REST API
 
-For most JSON requests, POST, PUT, PATCH, and DELETE are blocked, and the API returns a 403 response with the error message: `You cannot perform write operations on a read-only instance`. Only the following requests are allowed:
+For most JSON requests, `POST`, `PUT`, `PATCH`, and `DELETE` are blocked, and the API returns a 403 response with the error message: `You cannot perform write operations on a read-only instance`. Only the following requests are allowed:
 
 |HTTP request | Allowed routes |  Notes |
 |:----:|:--------------------------------------:|:----:|
-| POST | `/admin/application_settings/general` | To allow updating application settings in the administrator UI |
-| PUT  | `/api/v4/application/settings` | To allow updating application settings with the API |
-| POST | `/users/sign_in` | To allow users to log in. |
-| POST | `/users/sign_out`| To allow users to log out. |
-| POST | `/oauth/token` | To allow users to log in to a Geo secondary for the first time. |
-| POST | `/admin/session`, `/admin/session/destroy` | To allow [Administrator mode for GitLab administrators](https://gitlab.com/groups/gitlab-org/-/epics/2158) |
-| POST | Paths ending with `/compare`| Git revision routes. |
-| POST | `.git/git-upload-pack` | To allow Git pull/clone. |
-| POST | `/api/v4/internal` | [internal API routes](../../development/internal_api/index.md) |
-| POST | `/admin/sidekiq` | To allow management of background jobs in the Admin UI |
-| POST | `/admin/geo` | To allow updating Geo Nodes in the administrator UI |
-| POST | `/api/v4/geo_replication`| To allow certain Geo-specific administrator UI actions on secondary sites |
+| `POST` | `/admin/application_settings/general` | To allow updating application settings in the administrator UI |
+| `PUT`  | `/api/v4/application/settings` | To allow updating application settings with the API |
+| `POST` | `/users/sign_in` | To allow users to sign in. |
+| `POST` | `/users/sign_out`| To allow users to sign out. |
+| `POST` | `/oauth/token` | To allow users to sign in to a Geo secondary for the first time. |
+| `POST` | `/admin/session`, `/admin/session/destroy` | To allow [Admin Mode for GitLab administrators](https://gitlab.com/groups/gitlab-org/-/epics/2158) |
+| `POST` | Paths ending with `/compare`| Git revision routes. |
+| `POST` | `.git/git-upload-pack` | To allow Git pull/clone. |
+| `POST` | `/api/v4/internal` | [internal API routes](../../development/internal_api/index.md) |
+| `POST` | `/admin/sidekiq` | To allow management of background jobs in the Admin Area |
+| `POST` | `/admin/geo` | To allow updating Geo Nodes in the administrator UI |
+| `POST` | `/api/v4/geo_replication`| To allow certain Geo-specific administrator UI actions on secondary sites |
 
 ### GraphQL API
 
+> - The `GeoRegistriesUpdate` mutation addition in the allowlist was [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/124259) in GitLab 16.2.
+
 `POST /api/graphql` requests are allowed but mutations are blocked with the error message `You cannot perform write operations on a read-only instance`.
+
+The only mutation that is allowed is the `GeoRegistriesUpdate` which is used to resync and reverify registries.
 
 ### Continuous Integration
 
@@ -135,48 +141,53 @@ For most JSON requests, POST, PUT, PATCH, and DELETE are blocked, and the API re
   even if they finish running on the GitLab Runner.
 - Jobs in the `running` state for longer than the project's time limit do not time out.
 - Pipelines cannot be started, retried or canceled. No new jobs can be created either.
+- The status of the runners in `/admin/runners` isn't updated.
+- `gitlab-runner verify` returns the error `ERROR: Verifying runner... is removed`.
 
 After Maintenance Mode is disabled, new jobs are picked up again. Jobs that were
 in the `running` state before enabling Maintenance Mode resume and their logs start
 updating again.
 
 NOTE:
-It is recommended that you restart previously `running` pipelines after Maintenance Mode
+You should restart previously `running` pipelines after Maintenance Mode
 is turned off.
 
 ### Deployments
 
 Deployments don't go through because pipelines are unfinished.
 
-It is recommended to disable auto deploys during Maintenance Mode, and enable them once it is disabled.
+You should disable auto deploys during Maintenance Mode, and enable them when it is disabled.
 
 #### Terraform integration
 
 Terraform integration depends on running CI pipelines, hence it is blocked.
 
-### Container Registry
+### Container registry
 
 `docker push` fails with this error: `denied: requested access to the resource is denied`, but `docker pull` works.
 
-### Package Registry
+### Package registry
 
-Package Registry allows you to install but not publish packages.
+Package registry allows you to install but not publish packages.
 
 ### Background jobs
 
 Background jobs (cron jobs, Sidekiq) continue running as is, because background jobs are not automatically disabled.
+As background jobs perform operations that can change the internal state of your instance, you may want to disable
+some or all of them while maintenance mode is enabled.
 
-[During a planned Geo failover](../geo/disaster_recovery/planned_failover.md#prevent-updates-to-the-primary-node),
-it is recommended that you disable all cron jobs except for those related to Geo.
+[During a planned Geo failover](../geo/disaster_recovery/planned_failover.md#prevent-updates-to-the-primary-site),
+you should disable all cron jobs except for those related to Geo.
 
 To monitor queues and disable jobs:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Monitoring > Background Jobs**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Monitoring > Background Jobs**.
+1. In the Sidekiq dashboard, select **Cron** and disable jobs individually or all at once by selecting **Disable All**.
 
 ### Incident management
 
-[Incident management](../../operations/incident_management/index.md) functions are limited. The creation of [alerts](../../operations/incident_management/alerts.md) and [incidents](../../operations/incident_management/incidents.md#incident-creation) are paused entirely. Notifications and paging on alerts and incidents are therefore disabled.
+[Incident management](../../operations/incident_management/index.md) functions are limited. The creation of [alerts](../../operations/incident_management/alerts.md) and [incidents](../../operations/incident_management/manage_incidents.md#create-an-incident) are paused entirely. Notifications and paging on alerts and incidents are therefore disabled.
 
 ### Feature flags
 
@@ -189,7 +200,8 @@ When primary is in Maintenance Mode, secondary also automatically goes into Main
 
 It is important that you do not disable replication before enabling Maintenance Mode.
 
-Replication and verification continues to work but proxied Git pushes to primary do not work.
+Replication, verification and manual actions to resync and reverify registries through the Admin UI
+continue to work, but proxied Git pushes to primary don't.
 
 ### Secure features
 
@@ -204,10 +216,10 @@ SAST and Secret Detection cannot be initiated because they depend on passing CI 
 
 ## An example use case: a planned failover
 
-In the use case of [a planned failover](../geo/disaster_recovery/planned_failover.md), a few writes in the primary database are acceptable, since they are replicated quickly and are not significant in number.
+In the use case of [a planned failover](../geo/disaster_recovery/planned_failover.md), a few writes in the primary database are acceptable, because they are replicated quickly and are not significant in number.
 
 For the same reason we don't automatically block background jobs when Maintenance Mode is enabled.
 
 The resulting database writes are acceptable. Here, the trade-off is between more service degradation and the completion of replication.
 
-However, during a planned failover, we [ask users to turn off cron jobs that are not related to Geo, manually](../geo/disaster_recovery/planned_failover.md#prevent-updates-to-the-primary-node). In the absence of new database writes and non-Geo cron jobs, new background jobs would either not be created at all or be minimal.
+However, during a planned failover, we [ask users to turn off cron jobs that are not related to Geo, manually](../geo/disaster_recovery/planned_failover.md#prevent-updates-to-the-primary-site). In the absence of new database writes and non-Geo cron jobs, new background jobs would either not be created at all or be minimal.

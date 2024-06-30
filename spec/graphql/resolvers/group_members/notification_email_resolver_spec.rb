@@ -17,7 +17,7 @@ RSpec.describe Resolvers::GroupMembers::NotificationEmailResolver do
       expect(described_class).to have_nullable_graphql_type(GraphQL::Types::String)
     end
 
-    subject { batch_sync { resolve_notification_email(developer.group_members.first, current_user) }}
+    subject { batch_sync { resolve_notification_email(developer.group_members.first, current_user) } }
 
     context 'when current_user is admin' do
       let(:current_user) { create(:user, :admin) }
@@ -35,7 +35,9 @@ RSpec.describe Resolvers::GroupMembers::NotificationEmailResolver do
       let(:current_user) { create(:user) }
 
       it 'raises ResourceNotAvailable error' do
-        expect { subject }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
+        expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ResourceNotAvailable) do
+          subject
+        end
       end
     end
   end

@@ -1,5 +1,18 @@
-import AccessorUtilities from '../../lib/utils/accessor';
-import { MAX_FREQUENT_ITEMS, MAX_FREQUENCY, SIDEBAR_PARAMS } from './constants';
+import { isEqual, orderBy, isEmpty } from 'lodash';
+import AccessorUtilities from '~/lib/utils/accessor';
+import { formatNumber } from '~/locale';
+import { joinPaths, queryToObject, objectToQuery, getBaseURL } from '~/lib/utils/url_utility';
+import { languageFilterData } from '~/search/sidebar/components/language_filter/data';
+import {
+  MAX_FREQUENT_ITEMS,
+  MAX_FREQUENCY,
+  SIDEBAR_PARAMS,
+  NUMBER_FORMATING_OPTIONS,
+  REGEX_PARAM,
+  LS_REGEX_HANDLE,
+} from './constants';
+
+const LANGUAGE_AGGREGATION_NAME = languageFilterData.filterParam;
 
 function extractKeys(object, keyList) {
   return Object.fromEntries(keyList.map((key) => [key, object[key]]));
@@ -7,15 +20,30 @@ function extractKeys(object, keyList) {
 
 export const loadDataFromLS = (key) => {
   if (!AccessorUtilities.canUseLocalStorage()) {
-    return [];
+    return null;
   }
 
   try {
-    return JSON.parse(localStorage.getItem(key)) || [];
+    return JSON.parse(localStorage.getItem(key)) || null;
   } catch {
     // The LS got in a bad state, let's wipe it
     localStorage.removeItem(key);
-    return [];
+    return null;
+  }
+};
+
+export const setDataToLS = (key, value) => {
+  if (!AccessorUtilities.canUseLocalStorage()) {
+    return null;
+  }
+
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return value;
+  } catch {
+    // The LS got in a bad state, let's wipe it
+    localStorage.removeItem(key);
+    return null;
   }
 };
 
@@ -57,7 +85,8 @@ export const setFrequentItemToLS = (key, data, itemData) => {
     frequentItems.sort((a, b) => {
       if (a.frequency > b.frequency) {
         return -1;
-      } else if (a.frequency < b.frequency) {
+      }
+      if (a.frequency < b.frequency) {
         return 1;
       }
       return b.lastUsed - a.lastUsed;
@@ -87,6 +116,66 @@ export const isSidebarDirty = (currentQuery, urlQuery) => {
     const userAddedParam = !urlQuery[param] && currentQuery[param];
     const userChangedExistingParam = urlQuery[param] && urlQuery[param] !== currentQuery[param];
 
+    if (Array.isArray(currentQuery[param]) || Array.isArray(urlQuery[param])) {
+      return !isEqual(currentQuery[param], urlQuery[param]);
+    }
+
     return userAddedParam || userChangedExistingParam;
   });
+};
+
+export const formatSearchResultCount = (count) => {
+  if (!count) {
+    return '0';
+  }
+
+  const countNumber = typeof count === 'string' ? parseInt(count.replace(/,/g, ''), 10) : count;
+  return formatNumber(countNumber, NUMBER_FORMATING_OPTIONS);
+};
+
+export const getAggregationsUrl = () => {
+  const currentUrl = new URL(window.location.href);
+  currentUrl.pathname = joinPaths('/search', 'aggregations');
+  return currentUrl.toString();
+};
+
+const sortLanguages = (state, entries) => {
+  const queriedLanguages = state.query?.[LANGUAGE_AGGREGATION_NAME] || [];
+
+  if (!Array.isArray(queriedLanguages) || !queriedLanguages.length) {
+    return entries;
+  }
+
+  const queriedLanguagesSet = new Set(queriedLanguages);
+
+  return orderBy(entries, [({ key }) => queriedLanguagesSet.has(key), 'count'], ['desc', 'desc']);
+};
+
+export const prepareSearchAggregations = (state, aggregationData) =>
+  aggregationData.map((item) => {
+    if (item?.name === LANGUAGE_AGGREGATION_NAME) {
+      return {
+        ...item,
+        buckets: sortLanguages(state, item.buckets),
+      };
+    }
+
+    return item;
+  });
+
+export const addCountOverLimit = (count = '') => {
+  return count.includes('+') ? '+' : '';
+};
+
+/** @param { string } link */
+export const injectRegexSearch = (link) => {
+  const urlObject = new URL(link, getBaseURL());
+  const queryObject = queryToObject(urlObject.search);
+  if (loadDataFromLS(LS_REGEX_HANDLE) && (queryObject.project_id || queryObject.group_id)) {
+    queryObject[REGEX_PARAM] = true;
+  }
+  if (isEmpty(queryObject)) {
+    return urlObject.pathname;
+  }
+  return `${urlObject.pathname}?${objectToQuery(queryObject)}`;
 };

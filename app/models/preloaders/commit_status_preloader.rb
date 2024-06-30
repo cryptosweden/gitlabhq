@@ -9,10 +9,11 @@ module Preloaders
     end
 
     def execute(relations)
-      preloader = ActiveRecord::Associations::Preloader.new
-
       CLASSES.each do |klass|
-        preloader.preload(objects(klass), associations(klass, relations))
+        ActiveRecord::Associations::Preloader.new(
+          records: objects(klass),
+          associations: associations(klass, relations)
+        ).call
       end
     end
 
@@ -23,7 +24,24 @@ module Preloaders
     end
 
     def associations(klass, relations)
-      klass.reflections.keys.map(&:to_sym) & relations.map(&:to_sym)
+      klass_reflections = klass.reflections.keys.map(&:to_sym).to_set
+
+      result = []
+      relations.each do |entry|
+        if entry.respond_to?(:to_sym)
+          result << entry.to_sym if klass_reflections.include?(entry.to_sym)
+        elsif entry.is_a?(Hash)
+          entry = entry.select do |key, _value|
+            klass_reflections.include?(key.to_sym)
+          end
+
+          result << entry if entry.present?
+        else
+          raise ArgumentError, "Invalid relation: #{entry.inspect}"
+        end
+      end
+
+      result
     end
   end
 end

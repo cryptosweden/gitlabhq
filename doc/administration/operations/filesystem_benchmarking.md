@@ -1,17 +1,21 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# File system performance benchmarking **(FREE SELF)**
+# File system performance benchmarking
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 File system performance has a big impact on overall GitLab performance,
 especially for actions that read or write to Git repositories. This information
 helps benchmark file system performance against known good and bad real-world
 systems.
 
-Normally when talking about file system performance the biggest concern is
+When talking about file system performance the biggest concern is
 with Network File Systems (NFS). However, even some local disks can have slow
 I/O. The information on this page can be used for either scenario.
 
@@ -19,7 +23,7 @@ I/O. The information on this page can be used for either scenario.
 
 ### Benchmarking with `fio`
 
-We recommend using
+You should use
 [Fio](https://fio.readthedocs.io/en/latest/fio_doc.html) to test I/O
 performance. This test should be run both on the NFS server and on the
 application nodes that talk to the NFS server.
@@ -35,8 +39,8 @@ Then run the following:
 fio --randrepeat=1 --ioengine=libaio --direct=1 --gtod_reduce=1 --name=test --bs=4k --iodepth=64 --readwrite=randrw --rwmixread=75 --size=4G --filename=/path/to/git-data/testfile
 ```
 
-This creates a 4GB file in `/path/to/git-data/testfile`. It performs
-4KB reads and writes using a 75%/25% split within the file, with 64
+This creates a 4 GB file in `/path/to/git-data/testfile`. It performs
+4 KB reads and writes using a 75%/25% split in the file, with 64
 operations running at a time. Be sure to delete the file after the test
 completes.
 
@@ -72,7 +76,7 @@ operations per second.
 ### Simple benchmarking
 
 NOTE:
-This test is naive but may be useful if `fio` is not
+This test is naive but can be used if `fio` is not
 available on the system. It's possible to receive good results on this
 test but still have poor performance due to read speed and various other
 factors.
@@ -83,7 +87,7 @@ executed, and then reads the same 1,000 files.
 
 1. Change into the root of the appropriate
    [repository storage path](../repository_storage_paths.md).
-1. Create a temporary directory for the test so it's easy to remove the files later:
+1. Create a temporary directory for the test so it can be removed later:
 
    ```shell
    mkdir test; cd test

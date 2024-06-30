@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::MergeRequests::Mergeability::CheckResult do
+RSpec.describe Gitlab::MergeRequests::Mergeability::CheckResult, feature_category: :code_review_workflow do
   subject(:check_result) { described_class }
 
   let(:time) { Time.current }
@@ -63,6 +63,28 @@ RSpec.describe Gitlab::MergeRequests::Mergeability::CheckResult do
     end
   end
 
+  describe '.inactive' do
+    subject(:inactive) { check_result.inactive(payload: payload) }
+
+    let(:payload) { {} }
+
+    it 'creates a inactive result' do
+      expect(inactive.status).to eq described_class::INACTIVE_STATUS
+    end
+
+    it 'uses the default payload' do
+      expect(inactive.payload).to eq described_class.default_payload
+    end
+
+    context 'when given a payload' do
+      let(:payload) { { last_run_at: time + 1.day, test: 'test' } }
+
+      it 'uses the payload passed' do
+        expect(inactive.payload).to eq payload
+      end
+    end
+  end
+
   describe '.from_hash' do
     subject(:from_hash) { described_class.from_hash(hash) }
 
@@ -70,8 +92,8 @@ RSpec.describe Gitlab::MergeRequests::Mergeability::CheckResult do
     let(:payload) { { test: 'test' } }
     let(:hash) do
       {
-        'status' => status,
-        'payload' => payload
+        status: status,
+        payload: payload
       }
     end
 
@@ -136,5 +158,20 @@ RSpec.describe Gitlab::MergeRequests::Mergeability::CheckResult do
         expect(success).to eq true
       end
     end
+  end
+
+  describe '#identifier' do
+    let(:payload) { { identifier: 'ci_must_pass' } }
+
+    subject(:identifier) do
+      described_class
+        .new(
+          status: described_class::SUCCESS_STATUS,
+          payload: payload
+        )
+        .identifier
+    end
+
+    it { is_expected.to eq(:ci_must_pass) }
   end
 end

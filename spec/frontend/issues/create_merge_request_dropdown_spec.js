@@ -38,37 +38,15 @@ describe('CreateMergeRequestDropdown', () => {
   });
 
   describe('getRef', () => {
-    it('escapes branch names correctly', (done) => {
+    it('escapes branch names correctly', async () => {
       const endpoint = `${dropdown.refsPath}contains%23hash`;
       jest.spyOn(axios, 'get');
       axiosMock.onGet(endpoint).replyOnce({});
 
-      dropdown
-        .getRef('contains#hash')
-        .then(() => {
-          expect(axios.get).toHaveBeenCalledWith(
-            endpoint,
-            expect.objectContaining({ cancelToken: expect.anything() }),
-          );
-        })
-        .then(done)
-        .catch(done.fail);
-    });
-  });
-
-  describe('updateCreatePaths', () => {
-    it('escapes branch names correctly', () => {
-      dropdown.createBranchPath = `${TEST_HOST}/branches?branch_name=some-branch&issue=42`;
-      dropdown.createMrPath = `${TEST_HOST}/create_merge_request?merge_request%5Bsource_branch%5D=test&merge_request%5Btarget_branch%5D=master&merge_request%5Bissue_iid%5D=42`;
-
-      dropdown.updateCreatePaths('branch', 'contains#hash');
-
-      expect(dropdown.createBranchPath).toBe(
-        `${TEST_HOST}/branches?branch_name=contains%23hash&issue=42`,
-      );
-
-      expect(dropdown.createMrPath).toBe(
-        `${TEST_HOST}/create_merge_request?merge_request%5Bsource_branch%5D=contains%23hash&merge_request%5Btarget_branch%5D=master&merge_request%5Bissue_iid%5D=42`,
+      await dropdown.getRef('contains#hash');
+      expect(axios.get).toHaveBeenCalledWith(
+        endpoint,
+        expect.objectContaining({ cancelToken: expect.anything() }),
       );
     });
   });
@@ -89,7 +67,7 @@ describe('CreateMergeRequestDropdown', () => {
     });
 
     it('enables when can create confidential issue', () => {
-      document.querySelector('.js-create-mr').setAttribute('data-is-confidential', 'true');
+      document.querySelector('.js-create-mr').dataset.isConfidential = 'true';
       confidentialState.selectedProject = { name: 'test' };
 
       dropdown.enable();
@@ -98,7 +76,7 @@ describe('CreateMergeRequestDropdown', () => {
     });
 
     it('does not enable when can not create confidential issue', () => {
-      document.querySelector('.js-create-mr').setAttribute('data-is-confidential', 'true');
+      document.querySelector('.js-create-mr').dataset.isConfidential = 'true';
 
       dropdown.enable();
 
@@ -111,10 +89,10 @@ describe('CreateMergeRequestDropdown', () => {
       loading  | hasClass
       ${true}  | ${false}
       ${false} | ${true}
-    `('it toggle loading spinner when loading is $loading', ({ loading, hasClass }) => {
+    `('toggle loading spinner when loading is $loading', ({ loading, hasClass }) => {
       dropdown.setLoading(loading);
 
-      expect(document.querySelector('.js-spinner').classList.contains('gl-display-none')).toEqual(
+      expect(document.querySelector('.js-spinner').classList.contains('gl-hidden')).toEqual(
         hasClass,
       );
     });

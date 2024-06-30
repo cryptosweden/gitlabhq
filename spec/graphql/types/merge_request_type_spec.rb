@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe GitlabSchema.types['MergeRequest'] do
+RSpec.describe GitlabSchema.types['MergeRequest'], feature_category: :code_review_workflow do
   include GraphqlHelpers
 
   specify { expect(described_class).to expose_permissions_using(Types::PermissionTypes::MergeRequest) }
@@ -28,15 +28,17 @@ RSpec.describe GitlabSchema.types['MergeRequest'] do
       in_progress_merge_commit_sha
       merge_error allow_collaboration should_be_rebased rebase_commit_sha
       rebase_in_progress default_merge_commit_message
-      merge_ongoing mergeable_discussions_state web_url
+      merge_ongoing mergeable_discussions_state web_path web_url
       source_branch_exists target_branch_exists diverged_from_target_branch
       upvotes downvotes head_pipeline pipelines task_completion_status
       milestone assignees reviewers participants subscribed labels discussion_locked time_estimate
       total_time_spent human_time_estimate human_total_time_spent reference author merged_at
       commit_count current_user_todos conflicts auto_merge_enabled approved_by source_branch_protected
-      default_merge_commit_message_with_description squash_on_merge available_auto_merge_strategies
+      squash_on_merge available_auto_merge_strategies
       has_ci mergeable commits committers commits_without_merge_commits squash security_auto_fix default_squash_commit_message
-      auto_merge_strategy merge_user
+      auto_merge_strategy merge_user award_emoji prepared_at codequality_reports_comparer supports_lock_on_merge
+      mergeability_checks
+      allows_multiple_assignees allows_multiple_reviewers retargeted
     ]
 
     expect(described_class).to have_graphql_fields(*expected_fields).at_least
@@ -116,11 +118,11 @@ RSpec.describe GitlabSchema.types['MergeRequest'] do
   describe 'merge_status_enum' do
     let(:type) { GitlabSchema.types['MergeStatus'] }
 
+    let_it_be(:project) { create(:project, :public) }
+
     it 'has the type MergeStatus' do
       expect(described_class.fields['mergeStatusEnum']).to have_graphql_type(type)
     end
-
-    let_it_be(:project) { create(:project, :public) }
 
     %i[preparing unchecked cannot_be_merged_recheck checking cannot_be_merged_rechecking can_be_merged cannot_be_merged].each do |state|
       context "when the the DB value is #{state}" do

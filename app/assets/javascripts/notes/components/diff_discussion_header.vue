@@ -1,21 +1,22 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+import { GlAvatar, GlAvatarLink } from '@gitlab/ui';
 import { escape } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
-
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { truncateSha } from '~/lib/utils/text_utility';
 import { s__, __, sprintf } from '~/locale';
-
-import userAvatarLink from '../../vue_shared/components/user_avatar/user_avatar_link.vue';
-import noteEditedText from './note_edited_text.vue';
-import noteHeader from './note_header.vue';
+import { FILE_DIFF_POSITION_TYPE } from '~/diffs/constants';
+import NoteEditedText from './note_edited_text.vue';
+import NoteHeader from './note_header.vue';
 
 export default {
   name: 'DiffDiscussionHeader',
   components: {
-    userAvatarLink,
-    noteEditedText,
-    noteHeader,
+    GlAvatar,
+    GlAvatarLink,
+    NoteEditedText,
+    NoteHeader,
   },
   directives: {
     SafeHtml,
@@ -63,6 +64,7 @@ export default {
         for_commit: isForCommit,
         diff_discussion: isDiffDiscussion,
         active: isActive,
+        position,
       } = this.discussion;
 
       let text = s__('MergeRequests|started a thread');
@@ -76,6 +78,10 @@ export default {
           : s__(
               'MergeRequests|started a thread on an outdated change in commit %{linkStart}%{commitDisplay}%{linkEnd}',
             );
+      } else if (isDiffDiscussion && position?.position_type === FILE_DIFF_POSITION_TYPE) {
+        text = isActive
+          ? s__('MergeRequests|started a thread on %{linkStart}a file%{linkEnd}')
+          : s__('MergeRequests|started a thread on %{linkStart}an old version of a file%{linkEnd}');
       } else if (isDiffDiscussion) {
         text = isActive
           ? s__('MergeRequests|started a thread on %{linkStart}the diff%{linkEnd}')
@@ -85,6 +91,9 @@ export default {
       }
 
       return sprintf(text, { commitDisplay, linkStart, linkEnd }, false);
+    },
+    toggleClass() {
+      return this.discussion.expanded ? 'expanded' : 'collapsed';
     },
   },
   methods: {
@@ -97,17 +106,19 @@ export default {
 </script>
 
 <template>
-  <div class="discussion-header note-wrapper">
-    <div v-once class="timeline-icon align-self-start flex-shrink-0">
-      <user-avatar-link
+  <div class="discussion-header gl-display-flex gl-align-items-center">
+    <div v-once class="timeline-avatar gl-align-self-start gl-flex-shrink-0 gl-flex-shrink">
+      <gl-avatar-link
         v-if="author"
-        :link-href="author.path"
-        :img-src="author.avatar_url"
-        :img-alt="author.name"
-        :img-size="40"
-      />
+        :href="author.path"
+        :data-user-id="author.id"
+        :data-username="author.username"
+        class="js-user-link"
+      >
+        <gl-avatar :src="author.avatar_url" :alt="author.name" :size="32" />
+      </gl-avatar-link>
     </div>
-    <div class="timeline-content w-100">
+    <div class="timeline-content gl-w-full gl-ml-3" :class="toggleClass">
       <note-header
         :author="author"
         :created-at="firstNote.created_at"
@@ -123,14 +134,14 @@ export default {
         :edited-at="discussion.resolved_at"
         :edited-by="discussion.resolved_by"
         :action-text="resolvedText"
-        class-name="discussion-headline-light js-discussion-headline"
+        class-name="discussion-headline-light js-discussion-headline gl-pl-3"
       />
       <note-edited-text
         v-else-if="lastUpdatedAt"
         :edited-at="lastUpdatedAt"
         :edited-by="lastUpdatedBy"
         :action-text="__('Last updated')"
-        class-name="discussion-headline-light js-discussion-headline"
+        class-name="discussion-headline-light js-discussion-headline gl-pl-3"
       />
     </div>
   </div>

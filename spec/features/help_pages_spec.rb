@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Help Pages' do
+RSpec.describe 'Help Pages', feature_category: :shared do
   describe 'Get the main help page' do
     before do
       allow(File).to receive(:read).and_call_original
@@ -41,15 +41,17 @@ RSpec.describe 'Help Pages' do
     end
 
     it 'renders the version check badge' do
-      expect(page).to have_selector('.js-gitlab-version-check')
+      expect(page).to have_selector('.js-gitlab-version-check-badge')
     end
   end
 
   describe 'when help page is customized' do
     before do
-      stub_application_setting(help_page_hide_commercial_content: true,
-                               help_page_text: 'My Custom Text',
-                               help_page_support_url: 'http://example.com/help')
+      stub_application_setting(
+        help_page_hide_commercial_content: true,
+        help_page_text: 'My Custom Text',
+        help_page_support_url: 'http://example.com/help'
+      )
 
       sign_in(create(:user))
       visit help_path

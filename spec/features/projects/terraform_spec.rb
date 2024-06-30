@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Terraform', :js do
+RSpec.describe 'Terraform', :js, feature_category: :package_registry do
   let_it_be(:project) { create(:project) }
   let_it_be(:terraform_state) { create(:terraform_state, :locked, :with_version, project: project) }
 
@@ -22,7 +22,7 @@ RSpec.describe 'Terraform', :js do
       end
 
       it 'sees an empty state' do
-        expect(page).to have_content('Get started with Terraform')
+        expect(page).to have_content("Your project doesn't have any Terraform state files")
       end
     end
 
@@ -33,7 +33,7 @@ RSpec.describe 'Terraform', :js do
         end
 
         it 'displays a tab with states count' do
-          expect(page).to have_content("States #{project.terraform_states.size}")
+          expect(page).to have_content("Terraform states #{project.terraform_states.size}")
         end
 
         it 'displays a table with terraform states' do
@@ -56,20 +56,25 @@ RSpec.describe 'Terraform', :js do
       end
 
       context 'when clicking on the delete button' do
-        let(:additional_state) { create(:terraform_state, project: project) }
+        let!(:additional_state) { create(:terraform_state, project: project) }
 
-        it 'removes the state', :aggregate_failures, quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/333640' do
+        it 'removes the state', :aggregate_failures do
           visit project_terraform_index_path(project)
 
           expect(page).to have_content(additional_state.name)
 
-          find("[data-testid='terraform-state-actions-#{additional_state.name}']").click
-          find("[data-testid='terraform-state-remove']").click
+          find_by_testid("terraform-state-actions-#{additional_state.name}").click
+          find_by_testid('terraform-state-remove').click
           fill_in "terraform-state-remove-input-#{additional_state.name}", with: additional_state.name
           click_button 'Remove'
 
           expect(page).to have_content("#{additional_state.name} successfully removed")
-          expect { additional_state.reload }.to raise_error ActiveRecord::RecordNotFound
+
+          find_by_testid('remove-icon').hover
+          expect(page).to have_content("Deletion in progress")
+
+          additional_state.reload
+          expect(additional_state.deleted_at).not_to be_nil
         end
       end
 
@@ -79,7 +84,7 @@ RSpec.describe 'Terraform', :js do
 
           expect(page).to have_content(terraform_state.name)
 
-          page.within("[data-testid='terraform-state-actions-#{terraform_state.name}']") do
+          within_testid("terraform-state-actions-#{terraform_state.name}") do
             click_button class: 'gl-dropdown-toggle'
             click_button 'Copy Terraform init command'
           end

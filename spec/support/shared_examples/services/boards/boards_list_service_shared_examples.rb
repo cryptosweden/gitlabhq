@@ -2,7 +2,7 @@
 
 RSpec.shared_examples 'boards list service' do
   it 'does not create a new board' do
-    expect { service.execute }.not_to change(parent.boards, :count)
+    expect { service.execute }.not_to change { parent.boards.count }
   end
 
   it 'returns parent boards' do
@@ -13,10 +13,12 @@ RSpec.shared_examples 'boards list service' do
 end
 
 RSpec.shared_examples 'multiple boards list service' do
+  # rubocop:disable RSpec/VariableName
   let(:service)  { described_class.new(parent, double) }
   let!(:board_B) { create(:board, resource_parent: parent, name: 'B-board') }
   let!(:board_c) { create(:board, resource_parent: parent, name: 'c-board') }
   let!(:board_a) { create(:board, resource_parent: parent, name: 'a-board') }
+  # rubocop:enable RSpec/VariableName
 
   describe '#execute' do
     it 'returns all issue boards' do

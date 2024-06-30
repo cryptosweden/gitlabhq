@@ -1,17 +1,14 @@
 ---
-stage: Enablement
+stage: Data Stores
 group: Database
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 description: 'Learn how to scale operating on read-mostly data at scale'
 ---
 
 # Read-mostly data
 
-[Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/326037) in GitLab 14.0.
-
 This document describes the *read-mostly* pattern introduced in the
-[Database Scalability Working Group](https://about.gitlab.com/company/team/structure/working-groups/database-scalability/#read-mostly-data).
+[Database Scalability Working Group](https://handbook.gitlab.com/handbook/company/working-groups/database-scalability/#read-mostly-data).
 We discuss the characteristics of *read-mostly* data and propose best practices for GitLab development
 to consider in this context.
 
@@ -114,7 +111,7 @@ consider in this pattern (see [#327483](https://gitlab.com/gitlab-org/gitlab/-/i
 To reduce the database overhead, we implement a cache for the data and thus significantly
 reduce the query frequency on the database side. There are different scopes for caching available:
 
-- `RequestStore`: per-request in-memory cache (based on [request_store gem](https://github.com/steveklabnik/request_store))
+- `RequestStore`: per-request in-memory cache (based on [`request_store` gem](https://github.com/steveklabnik/request_store))
 - [`ProcessMemoryCache`](https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/process_memory_cache.rb#L4): per-process in-memory cache (a `ActiveSupport::Cache::MemoryStore`)
 - [`Gitlab::Redis::Cache`](https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/redis/cache.rb) and `Rails.cache`: full-blown cache in Redis
 

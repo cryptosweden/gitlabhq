@@ -1,9 +1,9 @@
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import * as actions from './actions';
 import * as getters from './getters';
 import branches from './modules/branches';
-import clientsideModule from './modules/clientside';
 import commitModule from './modules/commit';
 import editorModule from './modules/editor';
 import { setupFileEditorsSync } from './modules/editor/setup';
@@ -29,7 +29,6 @@ export const createStoreOptions = () => ({
     branches,
     fileTemplates: fileTemplates(),
     rightPane: paneModule(),
-    clientside: clientsideModule(),
     router: routerModule,
     editor: editorModule,
   },

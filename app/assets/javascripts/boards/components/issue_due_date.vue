@@ -1,6 +1,6 @@
 <script>
 import { GlTooltip, GlIcon } from '@gitlab/ui';
-import dateFormat from 'dateformat';
+import dateFormat from '~/lib/dateformat';
 import {
   getDayDifference,
   getTimeago,
@@ -52,11 +52,14 @@ export default {
 
       if (timeDifference === 0) {
         return __('Today');
-      } else if (timeDifference === 1) {
+      }
+      if (timeDifference === 1) {
         return __('Tomorrow');
-      } else if (timeDifference === -1) {
+      }
+      if (timeDifference === -1) {
         return __('Yesterday');
-      } else if (timeDifference > 0 && timeDifference < 7) {
+      }
+      if (timeDifference > 0 && timeDifference < 7) {
         return dateFormat(issueDueDate, 'dddd');
       }
 
@@ -85,20 +88,27 @@ export default {
 
 <template>
   <span>
-    <span ref="issueDueDate" :class="cssClass" class="board-card-info card-number">
+    <span
+      ref="issueDueDate"
+      :class="cssClass"
+      class="board-card-info gl-mr-3 gl-text-secondary gl-cursor-help"
+    >
       <gl-icon
         :class="{ 'text-danger': isPastDue }"
         class="board-card-info-icon gl-mr-2"
         name="calendar"
       />
-      <time :class="{ 'text-danger': isPastDue }" datetime="date" class="board-card-info-text">{{
-        body
-      }}</time>
+      <time
+        :class="{ 'text-danger': isPastDue }"
+        datetime="date"
+        class="gl-font-sm board-card-info-text"
+        >{{ body }}</time
+      >
     </span>
     <gl-tooltip :target="() => $refs.issueDueDate" :placement="tooltipPlacement">
       <span class="bold">{{ __('Due date') }}</span>
       <br />
-      <span :class="{ 'text-danger-muted': isPastDue }">{{ title }}</span>
+      <span :class="{ 'gl-text-red-300': isPastDue }">{{ title }}</span>
     </gl-tooltip>
   </span>
 </template>

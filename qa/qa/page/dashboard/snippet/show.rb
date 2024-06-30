@@ -8,8 +8,8 @@ module QA
           include Page::Component::Snippet
           include Page::Component::BlobContent
 
-          view 'app/assets/javascripts/snippets/components/snippet_title.vue' do
-            element :snippet_title_content
+          view 'app/assets/javascripts/snippets/components/snippet_header.vue' do
+            element 'snippet-title-content'
           end
         end
       end

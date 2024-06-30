@@ -4,11 +4,17 @@ module API
   # Internal access API
   module Internal
     class Base < ::API::Base
+      include Gitlab::RackLoadBalancingHelpers
+
       before { authenticate_by_gitlab_shell_token! }
 
       before do
         api_endpoint = env['api.endpoint']
         feature_category = api_endpoint.options[:for].try(:feature_category_for_app, api_endpoint).to_s
+
+        if actor.user
+          load_balancer_stick_request(::User, :user, actor.user.id)
+        end
 
         Gitlab::ApplicationContext.push(
           user: -> { actor&.user },
@@ -21,53 +27,41 @@ module API
 
       helpers ::API::Helpers::InternalHelpers
 
-      UNKNOWN_CHECK_RESULT_ERROR = 'Unknown check result'
-
       VALID_PAT_SCOPES = Set.new(
         Gitlab::Auth::API_SCOPES + Gitlab::Auth::REPOSITORY_SCOPES + Gitlab::Auth::REGISTRY_SCOPES
       ).freeze
 
       helpers do
-        def response_with_status(code: 200, success: true, message: nil, **extra_options)
-          status code
-          { status: success, message: message }.merge(extra_options).compact
-        end
-
         def lfs_authentication_url(container)
           # This is a separate method so that EE can alter its behaviour more
           # easily.
           container.lfs_http_url_to_repo
         end
 
+        # rubocop: disable Metrics/AbcSize
         def check_allowed(params)
           # This is a separate method so that EE can alter its behaviour more
           # easily.
 
-          if Feature.enabled?(:rate_limit_gitlab_shell, default_enabled: :yaml)
-            check_rate_limit!(:gitlab_shell_operation, scope: [params[:action], params[:project], actor.key_or_user])
+          check_rate_limit!(:gitlab_shell_operation, scope: [params[:action], params[:project], actor.key_or_user])
+
+          rate_limiter = Gitlab::Auth::IpRateLimiter.new(request.ip)
+
+          unless rate_limiter.trusted_ip?
+            check_rate_limit!(:gitlab_shell_operation, scope: [params[:action], params[:project], rate_limiter.ip])
           end
 
           # Stores some Git-specific env thread-safely
-          env = parse_env
-          Gitlab::Git::HookEnv.set(gl_repository, env) if container
+          #
+          # Snapshot repositories have different relative path than the main repository. For access
+          # checks that need quarantined objects the relative path in also sent with Gitaly RPCs
+          # calls as a header.
+          Gitlab::Git::HookEnv.set(gl_repository, params[:relative_path], parse_env) if container
 
           actor.update_last_used_at!
 
-          check_result = begin
-            with_admin_mode_bypass!(actor.user&.id) do
-              access_check!(actor, params)
-            end
-          rescue Gitlab::GitAccess::ForbiddenError => e
-            # The return code needs to be 401. If we return 403
-            # the custom message we return won't be shown to the user
-            # and, instead, the default message 'GitLab: API is not accessible'
-            # will be displayed
-            return response_with_status(code: 401, success: false, message: e.message)
-          rescue Gitlab::GitAccess::TimeoutError => e
-            return response_with_status(code: 503, success: false, message: e.message)
-          rescue Gitlab::GitAccess::NotFoundError => e
-            return response_with_status(code: 404, success: false, message: e.message)
-          end
+          check_result = access_check_result
+          return check_result if unsuccessful_response?(check_result)
 
           log_user_activity(actor.user)
 
@@ -76,12 +70,15 @@ module API
             payload = {
               gl_repository: gl_repository,
               gl_project_path: gl_repository_path,
+              gl_project_id: project&.id,
+              gl_root_namespace_id: project&.root_namespace&.id,
               gl_id: Gitlab::GlId.gl_id(actor.user),
               gl_username: actor.username,
               git_config_options: ["uploadpack.allowFilter=true",
                                    "uploadpack.allowAnySHA1InWant=true"],
               gitaly: gitaly_payload(params[:action]),
-              gl_console_messages: check_result.console_messages
+              gl_console_messages: check_result.console_messages,
+              need_audit: need_git_audit_event?
             }.merge!(actor.key_details)
 
             # Custom option for git-receive-pack command
@@ -92,30 +89,18 @@ module API
               payload[:git_config_options] << "receive.maxInputSize=#{receive_max_input_size.megabytes}"
             end
 
-            send_git_audit_streaming_event(protocol: params[:protocol], action: params[:action])
+            unless Feature.enabled?(:log_git_streaming_audit_events, project)
+              send_git_audit_streaming_event(protocol: params[:protocol], action: params[:action])
+            end
 
             response_with_status(**payload)
           when ::Gitlab::GitAccessResult::CustomAction
             response_with_status(code: 300, payload: check_result.payload, gl_console_messages: check_result.console_messages)
           else
-            response_with_status(code: 500, success: false, message: UNKNOWN_CHECK_RESULT_ERROR)
+            response_with_status(code: 500, success: false, message: ::API::Helpers::InternalHelpers::UNKNOWN_CHECK_RESULT_ERROR)
           end
         end
-
-        def send_git_audit_streaming_event(msg)
-          # Defined in EE
-        end
-
-        def access_check!(actor, params)
-          access_checker = access_checker_for(actor, params[:protocol])
-          access_checker.check(params[:action], params[:changes]).tap do |result|
-            break result if @project || !repo_type.project?
-
-            # If we have created a project directly from a git push
-            # we have to assign its value to both @project and @container
-            @project = @container = access_checker.container
-          end
-        end
+        # rubocop: enable Metrics/AbcSize
 
         def validate_actor(actor)
           return 'Could not find the given key' unless actor.key
@@ -123,16 +108,12 @@ module API
           'Could not find a user for the given key' unless actor.user
         end
 
-        def two_factor_otp_check
+        def two_factor_manual_otp_check
           { success: false, message: 'Feature is not available' }
         end
 
-        def with_admin_mode_bypass!(actor_id)
-          return yield unless Gitlab::CurrentSettings.admin_mode
-
-          Gitlab::Auth::CurrentUserMode.bypass_session!(actor_id) do
-            yield
-          end
+        def two_factor_push_otp_check
+          { success: false, message: 'Feature is not available' }
         end
       end
 
@@ -145,6 +126,7 @@ module API
         #   username - user name for Git over SSH in keyless SSH cert mode
         #   protocol - Git access protocol being used, e.g. HTTP or SSH
         #   project - project full_path (not path on disk)
+        #   relative_path - relative path of repository having access checks performed.
         #   action - git action (git-upload-pack or git-receive-pack)
         #   changes - changes as "oldrev newrev ref", see Gitlab::ChangesList
         #   check_ip - optional, only in EE version, may limit access to
@@ -177,7 +159,7 @@ module API
         get '/authorized_keys', feature_category: :source_code_management, urgency: :high do
           fingerprint = Gitlab::InsecureKeyFingerprint.new(params.fetch(:key)).fingerprint_sha256
 
-          key = Key.find_by_fingerprint_sha256(fingerprint)
+          key = Key.auth.find_by_fingerprint_sha256(fingerprint)
           not_found!('Key') if key.nil?
           present key, with: Entities::SSHKey
         end
@@ -185,11 +167,11 @@ module API
         #
         # Discover user by ssh key, user id or username
         #
-        get '/discover', feature_category: :authentication_and_authorization do
+        get '/discover', feature_category: :system_access do
           present actor.user, with: Entities::UserSafe
         end
 
-        get '/check', feature_category: :not_owned do
+        get '/check', feature_category: :not_owned do # rubocop:todo Gitlab/AvoidFeatureCategoryNotOwned
           {
             api_version: API.version,
             gitlab_version: Gitlab::VERSION,
@@ -198,7 +180,7 @@ module API
           }
         end
 
-        post '/two_factor_recovery_codes', feature_category: :authentication_and_authorization do
+        post '/two_factor_recovery_codes', feature_category: :system_access do
           status 200
 
           actor.update_last_used_at!
@@ -227,7 +209,7 @@ module API
           { success: true, recovery_codes: codes }
         end
 
-        post '/personal_access_token', feature_category: :authentication_and_authorization do
+        post '/personal_access_token', feature_category: :system_access do
           status 200
 
           actor.update_last_used_at!
@@ -298,7 +280,7 @@ module API
         # decided to pursue a different approach, so it's currently not used.
         # We might revive the PAM module though as it provides better user
         # flow.
-        post '/two_factor_config', feature_category: :authentication_and_authorization do
+        post '/two_factor_config', feature_category: :system_access do
           status 200
 
           break { success: false } unless Feature.enabled?(:two_factor_for_cli)
@@ -320,10 +302,16 @@ module API
           end
         end
 
-        post '/two_factor_otp_check', feature_category: :authentication_and_authorization do
+        post '/two_factor_push_otp_check', feature_category: :system_access do
           status 200
 
-          two_factor_otp_check
+          two_factor_push_otp_check
+        end
+
+        post '/two_factor_manual_otp_check', feature_category: :system_access do
+          status 200
+
+          two_factor_manual_otp_check
         end
       end
     end

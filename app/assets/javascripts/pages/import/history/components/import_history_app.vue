@@ -1,7 +1,7 @@
 <script>
 import { GlButton, GlEmptyState, GlIcon, GlLink, GlLoadingIcon, GlTable } from '@gitlab/ui';
 import { s__, __ } from '~/locale';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { parseIntPagination, normalizeHeaders } from '~/lib/utils/common_utils';
 import { getProjects } from '~/rest_api';
 import ImportStatus from '~/import_entities/components/import_status.vue';
@@ -11,11 +11,8 @@ import { DEFAULT_ERROR } from '../utils/error_messages';
 import ImportErrorDetails from './import_error_details.vue';
 
 const DEFAULT_PER_PAGE = 20;
-const DEFAULT_TH_CLASSES =
-  'gl-bg-transparent! gl-border-b-solid! gl-border-b-gray-200! gl-border-b-1! gl-p-5!';
 
 const tableCell = (config) => ({
-  thClass: DEFAULT_TH_CLASSES,
   tdClass: (value, key, item) => {
     return {
       // eslint-disable-next-line no-underscore-dangle
@@ -57,21 +54,21 @@ export default {
     tableCell({
       key: 'source',
       label: s__('BulkImport|Source'),
-      thClass: `${DEFAULT_TH_CLASSES} gl-w-30p`,
+      thClass: 'gl-w-3/10',
     }),
     tableCell({
       key: 'destination',
       label: s__('BulkImport|Destination'),
-      thClass: `${DEFAULT_TH_CLASSES} gl-w-40p`,
+      thClass: 'gl-w-4/10',
     }),
     tableCell({
       key: 'created_at',
       label: __('Date'),
     }),
+
     tableCell({
       key: 'status',
       label: __('Status'),
-      tdAttr: { 'data-qa-selector': 'import_status_indicator' },
     }),
   ],
 
@@ -104,7 +101,7 @@ export default {
         this.pageInfo = parseIntPagination(normalizeHeaders(headers));
         this.historyItems = historyItems;
       } catch (e) {
-        createFlash({ message: DEFAULT_ERROR, captureError: true, error: e });
+        createAlert({ message: DEFAULT_ERROR, captureError: true, error: e });
       } finally {
         this.loading = false;
       }
@@ -137,19 +134,14 @@ export default {
         {{ s__('BulkImport|Project import history') }}
       </h1>
     </div>
-    <gl-loading-icon v-if="loading" size="md" class="gl-mt-5" />
+    <gl-loading-icon v-if="loading" size="lg" class="gl-mt-5" />
     <gl-empty-state
       v-else-if="!hasHistoryItems"
       :title="s__('BulkImport|No history is available')"
       :description="s__('BulkImport|Your imported projects will appear here.')"
     />
     <template v-else>
-      <gl-table
-        :fields="$options.fields"
-        :items="historyItems"
-        data-qa-selector="import_history_table"
-        class="gl-w-full"
-      >
+      <gl-table :fields="$options.fields" :items="historyItems" class="gl-w-full">
         <template #cell(source)="{ item }">
           <template v-if="item.import_url">
             <gl-link
@@ -158,13 +150,11 @@ export default {
               target="_blank"
             >
               {{ item.import_url }}
-              <gl-icon name="external-link" class="gl-vertical-align-middle" />
+              <gl-icon name="external-link" class="gl-align-middle" />
             </gl-link>
             <span v-else>{{ item.import_url }}</span>
           </template>
-          <span v-else>{{
-            s__('BulkImport|Template / File-based import / GitLab Migration')
-          }}</span>
+          <span v-else>{{ s__('BulkImport|Template / File-based import / Direct transfer') }}</span>
         </template>
         <template #cell(destination)="{ item }">
           <gl-link :href="item.http_url_to_repo">

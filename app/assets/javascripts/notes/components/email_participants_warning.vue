@@ -1,11 +1,12 @@
 <script>
-import { GlSprintf } from '@gitlab/ui';
+import { GlSprintf, GlButton } from '@gitlab/ui';
 import { toNounSeriesText } from '~/lib/utils/grammar';
 import { s__, sprintf } from '~/locale';
 
 export default {
   components: {
     GlSprintf,
+    GlButton,
   },
   props: {
     emails: {
@@ -55,12 +56,12 @@ export default {
 </script>
 
 <template>
-  <div class="issuable-note-warning" data-testid="email-participants-warning">
+  <div class="issuable-note-warning">
     <gl-sprintf :message="message">
       <template #andMore>
-        <button type="button" class="btn-transparent btn-link" @click="showMoreParticipants">
+        <gl-button variant="link" class="gl-align-baseline" @click="showMoreParticipants">
           {{ moreLabel }}
-        </button>
+        </gl-button>
       </template>
       <template #emails>
         <span>{{ title }}</span>

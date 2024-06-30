@@ -4,6 +4,7 @@ import { TEST_HOST } from 'helpers/test_constants';
 import waitForPromises from 'helpers/wait_for_promises';
 import { sanitize } from '~/lib/dompurify';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import ProjectFindFile from '~/projects/project_find_file';
 
 jest.mock('~/lib/dompurify', () => ({
@@ -29,12 +30,13 @@ describe('ProjectFindFile', () => {
   let element;
   let mock;
 
-  const getProjectFindFileInstance = () =>
-    new ProjectFindFile(element, {
-      url: FILE_FIND_URL,
+  const getProjectFindFileInstance = (extraOptions) => {
+    return new ProjectFindFile(element, {
       treeUrl: FIND_TREE_URL,
       blobUrlTemplate: BLOB_URL_TEMPLATE,
+      ...extraOptions,
     });
+  };
 
   const findFiles = () =>
     element
@@ -60,12 +62,9 @@ describe('ProjectFindFile', () => {
 
     element = $(TEMPLATE);
     mock.onGet(FILE_FIND_URL).replyOnce(
-      200,
+      HTTP_STATUS_OK,
       files.map((x) => x.path),
     );
-    getProjectFindFileInstance(); // This triggers a load / axios call + subsequent render in the constructor
-
-    return waitForPromises();
   });
 
   afterEach(() => {
@@ -74,19 +73,44 @@ describe('ProjectFindFile', () => {
     sanitize.mockClear();
   });
 
-  it('loads and renders elements from remote server', () => {
-    expect(findFiles()).toEqual(
-      files.map(({ path, escaped }) => ({
-        text: path,
-        href: `${BLOB_URL_TEMPLATE}/${escaped}`,
-      })),
-    );
+  describe('rendering without refType', () => {
+    beforeEach(() => {
+      const instance = getProjectFindFileInstance();
+      instance.load(FILE_FIND_URL); // axios call + subsequent render
+      return waitForPromises();
+    });
+
+    it('loads and renders elements from remote server', () => {
+      expect(findFiles()).toEqual(
+        files.map(({ path, escaped }) => ({
+          text: path,
+          href: `${BLOB_URL_TEMPLATE}/${escaped}`,
+        })),
+      );
+    });
+
+    it('sanitizes search text', () => {
+      const searchText = element.find('.file-finder-input').val();
+
+      expect(sanitize).toHaveBeenCalledTimes(1);
+      expect(sanitize).toHaveBeenCalledWith(searchText);
+    });
   });
 
-  it('sanitizes search text', () => {
-    const searchText = element.find('.file-finder-input').val();
+  describe('with refType option', () => {
+    beforeEach(() => {
+      const instance = getProjectFindFileInstance({ refType: 'heads' });
+      instance.load(FILE_FIND_URL); // axios call + subsequent render
+      return waitForPromises();
+    });
 
-    expect(sanitize).toHaveBeenCalledTimes(1);
-    expect(sanitize).toHaveBeenCalledWith(searchText);
+    it('loads and renders elements from remote server', () => {
+      expect(findFiles()).toEqual(
+        files.map(({ path, escaped }) => ({
+          text: path,
+          href: `${BLOB_URL_TEMPLATE}/${escaped}?ref_type=heads`,
+        })),
+      );
+    });
   });
 });

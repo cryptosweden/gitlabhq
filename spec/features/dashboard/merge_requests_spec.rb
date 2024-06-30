@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Dashboard Merge Requests' do
-  include Spec::Support::Helpers::Features::SortingHelpers
+RSpec.describe 'Dashboard Merge Requests', :js, feature_category: :code_review_workflow do
+  include Features::SortingHelpers
   include FilteredSearchHelpers
   include ProjectForksHelper
 
-  let(:current_user) { create :user }
+  let(:current_user) { create(:user) }
   let(:user) { current_user }
   let(:project) { create(:project) }
 
@@ -19,10 +19,38 @@ RSpec.describe 'Dashboard Merge Requests' do
     sign_in(current_user)
   end
 
+  describe 'sidebar' do
+    it 'has nav items for assigned MRs and review requests' do
+      visit merge_requests_dashboard_path(assignee_username: user)
+
+      within('#super-sidebar') do
+        expect(page).to have_css("a[data-track-label='merge_requests_assigned'][aria-current='page']")
+      end
+
+      click_link 'Review requests'
+
+      within('#super-sidebar') do
+        expect(page).to have_css("a[data-track-label='merge_requests_to_review'][aria-current='page']")
+      end
+    end
+  end
+
   it 'disables target branch filter' do
     visit merge_requests_dashboard_path
 
     expect(page).not_to have_selector('#js-dropdown-target-branch', visible: false)
+  end
+
+  it 'disables releases filter' do
+    visit merge_requests_dashboard_path
+
+    expect(page).not_to have_selector('#js-dropdown-release', visible: false)
+  end
+
+  it 'disables environments filter' do
+    visit merge_requests_dashboard_path
+
+    expect(page).not_to have_selector('#js-dropdown-environment', visible: false)
   end
 
   context 'new merge request dropdown' do
@@ -33,21 +61,36 @@ RSpec.describe 'Dashboard Merge Requests' do
       visit merge_requests_dashboard_path
     end
 
-    it 'shows projects only with merge requests feature enabled', :js do
-      click_button 'Toggle project select'
+    it 'shows projects only with merge requests feature enabled' do
+      click_button 'Select project to create merge request'
+      wait_for_requests
 
-      page.within('.select2-results') do
+      within_testid('new-resource-dropdown') do
         expect(page).to have_content(project.full_name)
         expect(page).not_to have_content(project_with_disabled_merge_requests.full_name)
+
+        find_button(project.full_name).click
+
+        expect(page).to have_link("New merge request in #{project.name}")
       end
+    end
+
+    it 'passes axe automated accessibility testing' do
+      expect(page).to be_axe_clean.within('#content-body')
     end
   end
 
   context 'no merge requests exist' do
-    it 'shows an empty state' do
+    before do
       visit merge_requests_dashboard_path(assignee_username: current_user.username)
+    end
 
-      expect(page).to have_selector('.empty-state')
+    it 'shows an empty state' do
+      expect(page).to have_selector('.gl-empty-state')
+    end
+
+    it 'passes axe automated accessibility testing' do
+      expect(page).to be_axe_clean.within('#content-body')
     end
   end
 
@@ -72,39 +115,65 @@ RSpec.describe 'Dashboard Merge Requests' do
     end
 
     let!(:assigned_merge_request_from_fork) do
-      create(:merge_request,
-              source_branch: 'markdown', assignees: [current_user],
-              target_project: public_project, source_project: forked_project,
-              author: author_user)
+      create(
+        :merge_request,
+        source_branch: 'markdown',
+        assignees: [current_user],
+        target_project: public_project,
+        source_project: forked_project,
+        author: author_user
+      )
     end
 
     let!(:authored_merge_request) do
-      create(:merge_request,
-              source_branch: 'markdown',
-              source_project: project,
-              author: current_user)
+      create(
+        :merge_request,
+        source_branch: 'markdown',
+        source_project: project,
+        author: current_user
+      )
     end
 
     let!(:authored_merge_request_from_fork) do
-      create(:merge_request,
-              source_branch: 'feature_conflict',
-              author: current_user,
-              target_project: public_project, source_project: forked_project)
+      create(
+        :merge_request,
+        source_branch: 'feature_conflict',
+        author: current_user,
+        target_project: public_project,
+        source_project: forked_project
+      )
     end
 
     let!(:labeled_merge_request) do
-      create(:labeled_merge_request,
-              source_branch: 'labeled',
-              labels: [label],
-              author: current_user,
-              source_project: project)
+      create(
+        :labeled_merge_request,
+        source_branch: 'labeled',
+        labels: [label],
+        author: current_user,
+        source_project: project
+      )
+    end
+
+    let!(:detailed_merge_request) do
+      create(
+        :merge_request,
+        source_branch: 'accessibility_fix',
+        assignees: [current_user],
+        target_project: public_project,
+        source_project: forked_project,
+        author: author_user,
+        reviewers: [current_user],
+        labels: [label]
+      )
     end
 
     let!(:other_merge_request) do
-      create(:merge_request,
-              source_branch: 'fix',
-              source_project: project,
-              author: author_user)
+      create(
+        :merge_request,
+        source_branch: 'fix',
+        source_project: project,
+        author: author_user
+      )
     end
 
     before do
@@ -112,11 +181,10 @@ RSpec.describe 'Dashboard Merge Requests' do
     end
 
     it 'includes assigned and reviewers in badge' do
-      within("span[aria-label='#{n_("%d merge request", "%d merge requests", 3) % 3}']") do
-        expect(page).to have_content('3')
+      within('#merge-requests') do
+        expect(page).to have_css("a", text: 'Assigned 3')
+        expect(page).to have_css("a", text: 'Review requests 2')
       end
-      expect(find('.js-assigned-mr-count')).to have_content('2')
-      expect(find('.js-reviewer-mr-count')).to have_content('1')
     end
 
     it 'shows assigned merge requests' do
@@ -133,7 +201,7 @@ RSpec.describe 'Dashboard Merge Requests' do
       expect(page).not_to have_content(review_requested_merge_request.title)
     end
 
-    it 'shows authored merge requests', :js do
+    it 'shows authored merge requests' do
       reset_filters
       input_filtered_search("author:=#{current_user.to_reference}")
 
@@ -146,7 +214,7 @@ RSpec.describe 'Dashboard Merge Requests' do
       expect(page).not_to have_content(other_merge_request.title)
     end
 
-    it 'shows labeled merge requests', :js do
+    it 'shows labeled merge requests' do
       reset_filters
       input_filtered_search("label:=#{label.name}")
 
@@ -159,30 +227,34 @@ RSpec.describe 'Dashboard Merge Requests' do
       expect(page).not_to have_content(other_merge_request.title)
     end
 
-    it 'shows error message without filter', :js do
+    it 'shows error message without filter' do
       reset_filters
 
       expect(page).to have_content('Please select at least one filter to see results')
     end
 
     it 'shows sorted merge requests' do
-      sort_by('Created date')
+      pajamas_sort_by(s_('SortOptions|Priority'), from: s_('SortOptions|Created date'))
 
       visit merge_requests_dashboard_path(assignee_username: current_user.username)
 
-      expect(find('.issues-filters')).to have_content('Created date')
+      expect(find('.issues-filters')).to have_content(s_('SortOptions|Priority'))
     end
 
     it 'keeps sorting merge requests after visiting Projects MR page' do
-      sort_by('Created date')
+      pajamas_sort_by(s_('SortOptions|Priority'), from: s_('SortOptions|Created date'))
 
       visit project_merge_requests_path(project)
 
-      expect(find('.issues-filters')).to have_content('Created date')
+      expect(find('.issues-filters')).to have_content(s_('SortOptions|Priority'))
+    end
+
+    it 'passes axe automated accessibility testing' do
+      expect(page).to be_axe_clean.within('#content-body')
     end
   end
 
-  context 'merge request review', :js do
+  context 'merge request review' do
     let_it_be(:author_user) { create(:user) }
 
     let!(:review_requested_merge_request) do

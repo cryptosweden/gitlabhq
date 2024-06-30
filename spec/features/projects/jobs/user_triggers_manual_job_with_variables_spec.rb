@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User triggers manual job with variables', :js do
+RSpec.describe 'User triggers manual job with variables', :js, feature_category: :continuous_integration do
   let(:user) { create(:user) }
   let(:user_access_level) { :developer }
   let(:project) { create(:project, :repository, namespace: user.namespace) }
@@ -19,12 +19,12 @@ RSpec.describe 'User triggers manual job with variables', :js do
   end
 
   it 'passes values correctly' do
-    page.within(find("[data-testid='ci-variable-row']")) do
-      find("[data-testid='ci-variable-key']").set('key_name')
-      find("[data-testid='ci-variable-value']").set('key_value')
+    within_testid('ci-variable-row') do
+      find_by_testid('ci-variable-key').set('key_name')
+      find_by_testid('ci-variable-value').set('key_value')
     end
 
-    find("[data-testid='trigger-manual-job-btn']").click
+    find_by_testid('run-manual-job-btn').click
 
     wait_for_requests
 

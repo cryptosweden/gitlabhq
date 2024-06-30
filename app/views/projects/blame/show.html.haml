@@ -1,6 +1,20 @@
 - page_title _("Blame"), @blob.path, @ref
+- add_page_specific_style 'page_bundles/tree'
+- add_page_specific_style 'page_bundles/projects'
+- blame_streaming_url = blame_pages_streaming_url(@id, @project)
 
-#blob-content-holder.tree-holder
+- if @blame_mode.streaming? && @blame_pagination.total_extra_pages > 0
+  - content_for :startup_js do
+    = javascript_tag do
+      :plain
+        window.blamePageStream = (() => {
+          const url = new URL("#{blame_streaming_url}");
+          url.searchParams.set('page', 2);
+          return fetch(url).then(response => response.body);
+        })();
+- dataset = { testid: 'blob-content-holder', per_page: @blame_pagination.per_page, total_extra_pages: @blame_pagination.total_extra_pages - 1, pages_url: blame_streaming_url }
+
+#blob-content-holder.tree-holder.js-per-page{ data: dataset }
   = render "projects/blob/breadcrumb", blob: @blob, blame: true
 
   .file-holder
@@ -20,41 +34,24 @@
       %span.legend-box.legend-box-9
       %span.right-label Older
 
-    .table-responsive.file-content.blame.code{ class: user_color_scheme }
-      %table
-        - current_line = 1
-        - @blame.groups.each do |blame_group|
-          - commit_data = @blame.commit_data(blame_group[:commit])
-          - line_count = blame_group[:lines].count
+    .table-responsive.blame-table
+      .blame-table-wrapper
+        = render partial: 'page'
 
-          %tr{ style: intrinsic_row_css(line_count) }
-            %td.blame-commit{ class: commit_data.age_map_class }
-              .commit
-                = commit_data.author_avatar
+        - if @blame_mode.streaming?
+          #blame-stream-container.blame-stream-container
 
-                .commit-row-title
-                  %span.item-title.str-truncated-100
-                    = commit_data.commit_link
-                  %span
-                    = commit_data.project_blame_link
-                  &nbsp;
+    - if @blame_mode.pagination? && @blame_pagination.total_pages > 1
+      .gl-display-flex.gl-justify-content-center.gl-flex-direction-column.gl-align-items-center.gl-p-3.gl-bg-gray-50.gl-border-t-solid.gl-border-t-1.gl-border-gray-100
+        = render Pajamas::ButtonComponent.new(href: entire_blame_path(@id, @project), size: :small, button_options: { class: 'gl-mt-3' }) do |c|
+          = _('Show full blame')
 
-                .light
-                  = commit_data.commit_author_link
-                  = _('committed')
-                  #{commit_data.time_ago_tooltip}
+    - if @blame_mode.streaming?
+      #blame-stream-loading.blame-stream-loading
+        .gradient
+        = gl_loading_icon(size: 'sm')
+        %span.gl-mx-2
+          = _('Loading full blame...')
 
-            %td.line-numbers
-              - (current_line...(current_line + line_count)).each do |i|
-                %a.diff-line-num.gl-justify-content-end{ href: "#L#{i}", id: "L#{i}", 'data-line-number' => i, class: "gl-display-flex!" }
-                  .file-line-num
-                    = i
-                \
-
-            %td.lines.gl-w-full
-              %pre.code.highlight
-                %code
-                  - blame_group[:lines].each do |line|
-                    #{line}
-
-          - current_line += line_count
+  - if @blame_mode.pagination?
+    = paginate(@blame_pagination.paginator, theme: "gitlab")

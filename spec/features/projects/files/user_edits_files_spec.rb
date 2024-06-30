@@ -2,22 +2,25 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Files > User edits files', :js do
+RSpec.describe 'Projects > Files > User edits files', :js, feature_category: :source_code_management do
+  include Features::SourceEditorSpecHelpers
   include ProjectForksHelper
-  include BlobSpecHelpers
+  include Features::BlobSpecHelpers
+  include TreeHelper
+
+  let_it_be(:json_text) { '{"name":"Best package ever!"}' }
+  let_it_be(:project_with_json) { create(:project, :custom_repo, name: 'Project with json', files: { 'package.json' => json_text }) }
+  let_it_be(:user) { create(:user) }
 
   let(:project) { create(:project, :repository, name: 'Shop') }
   let(:project2) { create(:project, :repository, name: 'Another Project', path: 'another-project') }
   let(:project_tree_path_root_ref) { project_tree_path(project, project.repository.root_ref) }
   let(:project2_tree_path_root_ref) { project_tree_path(project2, project2.repository.root_ref) }
-  let(:user) { create(:user) }
 
   before do
-    sign_in(user)
-  end
+    stub_feature_flags(vscode_web_ide: false)
 
-  after do
-    unset_default_button
+    sign_in(user)
   end
 
   shared_examples 'unavailable for an archived project' do
@@ -45,15 +48,21 @@ RSpec.describe 'Projects > Files > User edits files', :js do
     end
 
     it 'inserts a content of a file' do
-      set_default_button('edit')
       click_link('.gitignore')
-      click_link_or_button('Edit')
+      edit_in_single_file_editor
       find('.file-editor', match: :first)
 
-      find('#editor')
-      set_editor_value('*.rbca')
+      editor_set_value('*.rbca')
 
-      expect(editor_value).to eq('*.rbca')
+      expect(find('.monaco-editor')).to have_content('*.rbca')
+    end
+
+    it 'shows ref instead of full path when editing a file' do
+      click_link('.gitignore')
+      edit_in_single_file_editor
+
+      expect(page).not_to have_selector('#editor_path')
+      expect(page).to have_selector('#editor_ref')
     end
 
     it 'does not show the edit link if a file is binary' do
@@ -67,13 +76,11 @@ RSpec.describe 'Projects > Files > User edits files', :js do
     end
 
     it 'commits an edited file' do
-      set_default_button('edit')
       click_link('.gitignore')
-      click_link_or_button('Edit')
+      edit_in_single_file_editor
       find('.file-editor', match: :first)
 
-      find('#editor')
-      set_editor_value('*.rbca')
+      editor_set_value('*.rbca')
       fill_in(:commit_message, with: 'New commit message', visible: true)
       click_button('Commit changes')
 
@@ -84,15 +91,32 @@ RSpec.describe 'Projects > Files > User edits files', :js do
       expect(page).to have_content('*.rbca')
     end
 
-    it 'commits an edited file to a new branch' do
-      set_default_button('edit')
+    it 'displays a flash message with a link when an edited file was committed' do
       click_link('.gitignore')
-      click_link_or_button('Edit')
+      edit_in_single_file_editor
+      find('.file-editor', match: :first)
+
+      editor_set_value('*.rbca')
+      fill_in(:commit_message, with: 'New commit message', visible: true)
+      click_button('Commit changes')
+
+      expect(page).to have_current_path(project_blob_path(project, 'master/.gitignore'), ignore_query: true)
+
+      wait_for_requests
+
+      expect(page).to have_content('Your changes have been committed successfully')
+      page.within '.flash-container' do
+        expect(page).to have_link 'changes'
+      end
+    end
+
+    it 'commits an edited file to a new branch' do
+      click_link('.gitignore')
+      edit_in_single_file_editor
 
       find('.file-editor', match: :first)
 
-      find('#editor')
-      set_editor_value('*.rbca')
+      editor_set_value('*.rbca')
       fill_in(:commit_message, with: 'New commit message', visible: true)
       fill_in(:branch_name, with: 'new_branch_name', visible: true)
       click_button('Commit changes')
@@ -105,13 +129,11 @@ RSpec.describe 'Projects > Files > User edits files', :js do
     end
 
     it 'shows the diff of an edited file' do
-      set_default_button('edit')
       click_link('.gitignore')
-      click_link_or_button('Edit')
+      edit_in_single_file_editor
       find('.file-editor', match: :first)
 
-      find('#editor')
-      set_editor_value('*.rbca')
+      editor_set_value('*.rbca')
       click_link('Preview changes')
 
       expect(page).to have_css('.line_holder.new')
@@ -144,9 +166,8 @@ RSpec.describe 'Projects > Files > User edits files', :js do
     end
 
     it 'inserts a content of a file in a forked project', :sidekiq_might_not_need_inline do
-      set_default_button('edit')
       click_link('.gitignore')
-      click_link_or_button('Edit')
+      edit_in_single_file_editor
 
       expect_fork_prompt
 
@@ -156,16 +177,14 @@ RSpec.describe 'Projects > Files > User edits files', :js do
 
       find('.file-editor', match: :first)
 
-      find('#editor')
-      set_editor_value('*.rbca')
+      editor_set_value('*.rbca')
 
-      expect(editor_value).to eq('*.rbca')
+      expect(find('.monaco-editor')).to have_content('*.rbca')
     end
 
     it 'opens the Web IDE in a forked project', :sidekiq_might_not_need_inline do
-      set_default_button('webide')
       click_link('.gitignore')
-      click_link_or_button('Web IDE')
+      edit_in_web_ide
 
       expect_fork_prompt
 
@@ -178,17 +197,15 @@ RSpec.describe 'Projects > Files > User edits files', :js do
     end
 
     it 'commits an edited file in a forked project', :sidekiq_might_not_need_inline do
-      set_default_button('edit')
       click_link('.gitignore')
-      click_link_or_button('Edit')
+      edit_in_single_file_editor
 
       expect_fork_prompt
       click_link_or_button('Fork')
 
       find('.file-editor', match: :first)
 
-      find('#editor')
-      set_editor_value('*.rbca')
+      editor_set_value('*.rbca')
       fill_in(:commit_message, with: 'New commit message', visible: true)
       click_button('Commit changes')
 
@@ -210,14 +227,12 @@ RSpec.describe 'Projects > Files > User edits files', :js do
       end
 
       it 'links to the forked project for editing', :sidekiq_might_not_need_inline do
-        set_default_button('edit')
         click_link('.gitignore')
-        click_link_or_button('Edit')
+        edit_in_single_file_editor
 
         expect(page).not_to have_link('Fork')
 
-        find('#editor')
-        set_editor_value('*.rbca')
+        editor_set_value('*.rbca')
         fill_in(:commit_message, with: 'Another commit', visible: true)
         click_button('Commit changes')
 
@@ -235,6 +250,18 @@ RSpec.describe 'Projects > Files > User edits files', :js do
       it_behaves_like 'unavailable for an archived project' do
         let(:project) { project2 }
       end
+    end
+  end
+
+  context 'when editing a json file', :js do
+    before_all do
+      project_with_json.add_maintainer(user)
+    end
+
+    it 'loads the content as text' do
+      visit(project_edit_blob_path(project_with_json, tree_join(project_with_json.default_branch, 'package.json')))
+      wait_for_requests
+      expect(find('.monaco-editor')).to have_content(json_text)
     end
   end
 end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::DeleteObjectsService, :aggregate_failure do
+RSpec.describe Ci::DeleteObjectsService, :aggregate_failures, feature_category: :continuous_integration do
   let(:service) { described_class.new }
   let(:artifact) { create(:ci_job_artifact, :archive) }
   let(:data) { [artifact] }
@@ -47,8 +47,8 @@ RSpec.describe Ci::DeleteObjectsService, :aggregate_failure do
     context 'with artifacts both ready and not ready for deletion' do
       let(:data) { [] }
 
-      let_it_be(:past_ready) { create(:ci_deleted_object, pick_up_at: 2.days.ago) }
-      let_it_be(:ready) { create(:ci_deleted_object, pick_up_at: 1.day.ago) }
+      let!(:past_ready) { create(:ci_deleted_object, pick_up_at: 2.days.ago) }
+      let!(:ready) { create(:ci_deleted_object, pick_up_at: 1.day.ago) }
 
       it 'skips records with pick_up_at in the future' do
         not_ready = create(:ci_deleted_object, pick_up_at: 1.day.from_now)

@@ -1,3 +1,4 @@
+import { mockAwardEmoji } from './apollo_mock';
 import DISCUSSION_1 from './discussion';
 
 const DISCUSSION_2 = {
@@ -17,11 +18,44 @@ const DISCUSSION_2 = {
           name: 'Mary',
           webUrl: 'link-to-mary-profile',
         },
+        awardEmoji: mockAwardEmoji,
         createdAt: '2020-05-08T07:10:45Z',
+        imported: false,
         userPermissions: {
           adminNote: true,
+          awardEmoji: true,
         },
         resolved: true,
+      },
+    ],
+  },
+};
+
+export const DISCUSSION_3 = {
+  id: 'discussion-id-3',
+  notes: {
+    nodes: [
+      {
+        id: 'note-id-4',
+        index: 2,
+        position: {
+          height: 50,
+          width: 50,
+          x: 35,
+          y: 25,
+        },
+        author: {
+          name: 'Smith',
+          webUrl: 'link-to-smith-profile',
+        },
+        awardEmoji: mockAwardEmoji,
+        createdAt: '2020-05-09T07:10:45Z',
+        imported: false,
+        userPermissions: {
+          adminNote: true,
+          awardEmoji: true,
+        },
+        resolved: false,
       },
     ],
   },

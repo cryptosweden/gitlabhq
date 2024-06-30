@@ -12,6 +12,7 @@ import {
 import { toSafeInteger } from 'lodash';
 import csrf from '~/lib/utils/csrf';
 import { __, n__, s__, sprintf } from '~/locale';
+import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import SignupCheckbox from './signup_checkbox.vue';
 
 const DENYLIST_TYPE_RAW = 'raw';
@@ -31,13 +32,18 @@ export default {
     GlLink,
     SignupCheckbox,
     GlModal,
+    PasswordComplexityCheckboxGroup: () =>
+      import(
+        'ee_component/pages/admin/application_settings/general/components/password_complexity_checkbox_group.vue'
+      ),
   },
+  mixins: [glFeatureFlagMixin()],
   inject: [
     'host',
     'settingsPath',
     'signupEnabled',
     'requireAdminApprovalAfterUserSignup',
-    'sendUserConfirmationEmail',
+    'emailConfirmationSetting',
     'minimumPasswordLength',
     'minimumPasswordLengthMin',
     'minimumPasswordLengthMax',
@@ -59,7 +65,7 @@ export default {
       form: {
         signupEnabled: this.signupEnabled,
         requireAdminApproval: this.requireAdminApprovalAfterUserSignup,
-        sendConfirmationEmail: this.sendUserConfirmationEmail,
+        emailConfirmationSetting: this.emailConfirmationSetting,
         minimumPasswordLength: this.minimumPasswordLength,
         minimumPasswordLengthMin: this.minimumPasswordLengthMin,
         minimumPasswordLengthMax: this.minimumPasswordLengthMax,
@@ -112,9 +118,7 @@ export default {
     },
     signupEnabledHelpText() {
       const text = sprintf(
-        s__(
-          'ApplicationSettings|When enabled, any user visiting %{host} will be able to create an account.',
-        ),
+        s__('ApplicationSettings|Any user that visits %{host} can create an account.'),
         {
           host: this.host,
         },
@@ -125,7 +129,7 @@ export default {
     requireAdminApprovalHelpText() {
       const text = sprintf(
         s__(
-          'ApplicationSettings|When enabled, any user visiting %{host} and creating an account will have to be explicitly approved by an admin before they can sign in. This setting is effective only if sign-ups are enabled.',
+          'ApplicationSettings|Any user that visits %{host} and creates an account must be explicitly approved by an administrator before they can sign in. Only effective if sign-ups are enabled.',
         ),
         {
           host: this.host,
@@ -180,6 +184,9 @@ export default {
 
       this.submitForm();
     },
+    setPasswordComplexity({ name, value }) {
+      this.$set(this.form, name, value);
+    },
     submitForm() {
       this.$refs.form.submit();
     },
@@ -191,38 +198,52 @@ export default {
     buttonText: s__('ApplicationSettings|Save changes'),
     signupEnabledLabel: s__('ApplicationSettings|Sign-up enabled'),
     requireAdminApprovalLabel: s__('ApplicationSettings|Require admin approval for new sign-ups'),
-    sendConfirmationEmailLabel: s__('ApplicationSettings|Send confirmation email on sign-up'),
+    emailConfirmationSettingsLabel: s__('ApplicationSettings|Email confirmation settings'),
+    emailConfirmationSettingsOffLabel: s__('ApplicationSettings|Off'),
+    emailConfirmationSettingsOffHelpText: s__(
+      'ApplicationSettings|New users can sign up without confirming their email address.',
+    ),
+    emailConfirmationSettingsSoftLabel: s__('ApplicationSettings|Soft'),
+    emailConfirmationSettingsSoftHelpText: s__(
+      'ApplicationSettings|Send a confirmation email during sign up. New users can log in immediately, but must confirm their email within three days.',
+    ),
+    emailConfirmationSettingsHardLabel: s__('ApplicationSettings|Hard'),
+    emailConfirmationSettingsHardHelpText: s__(
+      'ApplicationSettings|Send a confirmation email during sign up. New users must confirm their email address before they can log in.',
+    ),
     minimumPasswordLengthLabel: s__(
       'ApplicationSettings|Minimum password length (number of characters)',
     ),
     domainAllowListLabel: s__('ApplicationSettings|Allowed domains for sign-ups'),
     domainAllowListDescription: s__(
-      'ApplicationSettings|ONLY users with e-mail addresses that match these domain(s) will be able to sign-up. Wildcards allowed. Use separate lines for multiple entries. Ex: domain.com, *.domain.com',
+      'ApplicationSettings|Only users with e-mail addresses that match these domain(s) can sign up. Wildcards allowed. Enter multiple entries on separate lines. Example: domain.com, *.domain.com',
     ),
     userCapLabel: s__('ApplicationSettings|User cap'),
     userCapDescription: s__(
-      'ApplicationSettings|Once the instance reaches the user cap, any user who is added or requests access will have to be approved by an admin. Leave the field empty for unlimited.',
+      'ApplicationSettings|After the instance reaches the user cap, any user who is added or requests access must be approved by an administrator. Leave blank for unlimited.',
     ),
     domainDenyListGroupLabel: s__('ApplicationSettings|Domain denylist'),
-    domainDenyListLabel: s__('ApplicationSettings|Enable domain denylist for sign ups'),
+    domainDenyListLabel: s__('ApplicationSettings|Enable domain denylist for sign-ups'),
     domainDenyListTypeFileLabel: s__('ApplicationSettings|Upload denylist file'),
     domainDenyListTypeRawLabel: s__('ApplicationSettings|Enter denylist manually'),
     domainDenyListFileLabel: s__('ApplicationSettings|Denylist file'),
     domainDenyListFileDescription: s__(
-      'ApplicationSettings|Users with e-mail addresses that match these domain(s) will NOT be able to sign-up. Wildcards allowed. Use separate lines or commas for multiple entries.',
+      'ApplicationSettings|Users with e-mail addresses that match these domain(s) cannot sign up. Wildcards allowed. Use separate lines or commas for multiple entries.',
     ),
     domainDenyListListLabel: s__('ApplicationSettings|Denied domains for sign-ups'),
     domainDenyListListDescription: s__(
-      'ApplicationSettings|Users with e-mail addresses that match these domain(s) will NOT be able to sign-up. Wildcards allowed. Use separate lines for multiple entries. Ex: domain.com, *.domain.com',
+      'ApplicationSettings|Users with e-mail addresses that match these domain(s) cannot sign up. Wildcards allowed. Enter multiple entries on separate lines. Example: domain.com, *.domain.com',
     ),
     domainPlaceholder: s__('ApplicationSettings|domain.com'),
     emailRestrictionsEnabledGroupLabel: s__('ApplicationSettings|Email restrictions'),
     emailRestrictionsEnabledLabel: s__(
-      'ApplicationSettings|Enable email restrictions for sign ups',
+      'ApplicationSettings|Enable email restrictions for sign-ups',
     ),
     emailRestrictionsGroupLabel: s__('ApplicationSettings|Email restrictions for sign-ups'),
-    afterSignUpTextGroupLabel: s__('ApplicationSettings|After sign up text'),
-    afterSignUpTextGroupDescription: s__('ApplicationSettings|Markdown enabled'),
+    afterSignUpTextGroupLabel: s__('ApplicationSettings|After sign-up text'),
+    afterSignUpTextGroupDescription: s__(
+      'ApplicationSettings|Text shown after a user signs up. Markdown enabled.',
+    ),
   },
 };
 </script>
@@ -247,7 +268,7 @@ export default {
         name="application_setting[signup_enabled]"
         :help-text="signupEnabledHelpText"
         :label="$options.i18n.signupEnabledLabel"
-        data-qa-selector="signup_enabled_checkbox"
+        data-testid="signup-enabled-checkbox"
       />
 
       <signup-checkbox
@@ -256,16 +277,33 @@ export default {
         name="application_setting[require_admin_approval_after_user_signup]"
         :help-text="requireAdminApprovalHelpText"
         :label="$options.i18n.requireAdminApprovalLabel"
-        data-qa-selector="require_admin_approval_after_user_signup_checkbox"
         data-testid="require-admin-approval-checkbox"
       />
 
-      <signup-checkbox
-        v-model="form.sendConfirmationEmail"
-        class="gl-mb-5"
-        name="application_setting[send_user_confirmation_email]"
-        :label="$options.i18n.sendConfirmationEmailLabel"
-      />
+      <gl-form-group :label="$options.i18n.emailConfirmationSettingsLabel">
+        <gl-form-radio-group
+          v-model="form.emailConfirmationSetting"
+          name="application_setting[email_confirmation_setting]"
+        >
+          <gl-form-radio value="off">
+            {{ $options.i18n.emailConfirmationSettingsOffLabel }}
+
+            <template #help> {{ $options.i18n.emailConfirmationSettingsOffHelpText }} </template>
+          </gl-form-radio>
+
+          <gl-form-radio value="soft">
+            {{ $options.i18n.emailConfirmationSettingsSoftLabel }}
+
+            <template #help> {{ $options.i18n.emailConfirmationSettingsSoftHelpText }} </template>
+          </gl-form-radio>
+
+          <gl-form-radio value="hard">
+            {{ $options.i18n.emailConfirmationSettingsHardLabel }}
+
+            <template #help> {{ $options.i18n.emailConfirmationSettingsHardHelpText }} </template>
+          </gl-form-radio>
+        </gl-form-radio-group>
+      </gl-form-group>
 
       <gl-form-group
         :label="$options.i18n.userCapLabel"
@@ -288,21 +326,25 @@ export default {
           name="application_setting[minimum_password_length]"
         />
 
-        <gl-sprintf
-          :message="
-            s__(
-              'ApplicationSettings|See GitLab\'s %{linkStart}Password Policy Guidelines%{linkEnd}',
-            )
-          "
-        >
-          <template #link="{ content }">
-            <gl-link :href="form.minimumPasswordLengthHelpLink" target="_blank">{{
-              content
-            }}</gl-link>
-          </template>
-        </gl-sprintf>
+        <template #description>
+          <gl-sprintf
+            :message="
+              s__('ApplicationSettings|See %{linkStart}password policy guidelines%{linkEnd}.')
+            "
+          >
+            <template #link="{ content }">
+              <gl-link :href="form.minimumPasswordLengthHelpLink" target="_blank">{{
+                content
+              }}</gl-link>
+            </template>
+          </gl-sprintf>
+        </template>
       </gl-form-group>
 
+      <password-complexity-checkbox-group
+        v-if="glFeatures.passwordComplexity"
+        @set-password-complexity="setPasswordComplexity"
+      />
       <gl-form-group
         :description="$options.i18n.domainAllowListDescription"
         :label="$options.i18n.domainAllowListLabel"
@@ -380,17 +422,19 @@ export default {
           name="application_setting[email_restrictions]"
         ></textarea>
 
-        <gl-sprintf
-          :message="
-            s__(
-              'ApplicationSettings|Restricts sign-ups for email addresses that match the given regex. See the %{linkStart}supported syntax%{linkEnd} for more information.',
-            )
-          "
-        >
-          <template #link="{ content }">
-            <gl-link :href="form.supportedSyntaxLinkUrl" target="_blank">{{ content }}</gl-link>
-          </template>
-        </gl-sprintf>
+        <template #description>
+          <gl-sprintf
+            :message="
+              s__(
+                'ApplicationSettings|Restricts sign-ups for email addresses that match the given regex. %{linkStart}What is the supported syntax?%{linkEnd}',
+              )
+            "
+          >
+            <template #link="{ content }">
+              <gl-link :href="form.supportedSyntaxLinkUrl" target="_blank">{{ content }}</gl-link>
+            </template>
+          </gl-sprintf>
+        </template>
       </gl-form-group>
 
       <gl-form-group
@@ -407,7 +451,7 @@ export default {
     </section>
 
     <gl-button
-      data-qa-selector="save_changes_button"
+      data-testid="save-changes-button"
       variant="confirm"
       @click.prevent="submitButtonHandler"
     >

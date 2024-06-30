@@ -1,54 +1,69 @@
-import { __ } from '../locale';
-
-// The `scheduling` status is only present on the client-side,
-// it is used as the status when we are requesting to start an import.
+import { __, s__ } from '~/locale';
 
 export const STATUSES = {
   FINISHED: 'finished',
   FAILED: 'failed',
   SCHEDULED: 'scheduled',
+  SCHEDULING: 'scheduling', // only present client-side, used when user is requesting to start an import
   CREATED: 'created',
   STARTED: 'started',
   NONE: 'none',
-  SCHEDULING: 'scheduling',
-  CANCELLED: 'cancelled',
+  CANCELED: 'canceled',
+  TIMEOUT: 'timeout',
+  PARTIAL: 'partial', // only present client-side, finished but with failures
 };
 
-const SCHEDULED_STATUS = {
+export const PROVIDERS = {
+  GITHUB: 'github',
+  BITBUCKET_SERVER: 'bitbucket_server',
+};
+
+// Retrieved from value of `PAGE_LENGTH` in lib/bitbucket_server/paginator.rb
+export const BITBUCKET_SERVER_PAGE_LENGTH = 25;
+
+const SCHEDULED_STATUS_ICON = {
   icon: 'status-scheduled',
   text: __('Pending'),
-  iconClass: 'gl-text-orange-400',
+  variant: 'muted',
 };
 
-const STATUS_MAP = {
+export const STATUS_ICON_MAP = {
   [STATUSES.NONE]: {
     icon: 'status-waiting',
     text: __('Not started'),
-    iconClass: 'gl-text-gray-400',
+    variant: 'muted',
   },
-  [STATUSES.SCHEDULING]: SCHEDULED_STATUS,
-  [STATUSES.SCHEDULED]: SCHEDULED_STATUS,
-  [STATUSES.CREATED]: SCHEDULED_STATUS,
+  [STATUSES.SCHEDULING]: SCHEDULED_STATUS_ICON,
+  [STATUSES.SCHEDULED]: SCHEDULED_STATUS_ICON,
+  [STATUSES.CREATED]: SCHEDULED_STATUS_ICON,
   [STATUSES.STARTED]: {
     icon: 'status-running',
     text: __('Importing...'),
-    iconClass: 'gl-text-blue-400',
-  },
-  [STATUSES.FINISHED]: {
-    icon: 'status-success',
-    text: __('Complete'),
-    iconClass: 'gl-text-green-400',
+    variant: 'info',
   },
   [STATUSES.FAILED]: {
     icon: 'status-failed',
     text: __('Failed'),
-    iconClass: 'gl-text-red-600',
+    variant: 'danger',
   },
-  [STATUSES.CANCELLED]: {
+  [STATUSES.TIMEOUT]: {
+    icon: 'status-failed',
+    text: __('Timeout'),
+    variant: 'danger',
+  },
+  [STATUSES.CANCELED]: {
     icon: 'status-stopped',
     text: __('Cancelled'),
-    iconClass: 'gl-text-red-600',
+    variant: 'neutral',
+  },
+  [STATUSES.FINISHED]: {
+    icon: 'status-success',
+    text: __('Complete'),
+    variant: 'success',
+  },
+  [STATUSES.PARTIAL]: {
+    icon: 'status-alert',
+    text: s__('Import|Partially completed'),
+    variant: 'warning',
   },
 };
-
-export default STATUS_MAP;

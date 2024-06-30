@@ -2,8 +2,9 @@
 
 module QA
   RSpec.describe 'Create' do
-    describe 'Git push over HTTP' do
-      it 'user pushes code to the repository', :smoke, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347747' do
+    describe 'Git push over HTTP', product_group: :source_code do
+      it 'user pushes code to the repository', :smoke, :skip_fips_env,
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347747' do
         Flow::Login.sign_in
 
         Resource::Repository::ProjectPush.fabricate! do |push|
@@ -18,13 +19,14 @@ module QA
         end
       end
 
-      it 'pushes to a project using a specific Praefect repository storage', :smoke, :requires_admin, :requires_praefect, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347789' do
+      it 'pushes to a project using a specific Praefect repository storage',
+        :smoke, :skip_fips_env, :requires_admin, :skip_live_env, :requires_praefect,
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347789' do
         Flow::Login.sign_in_as_admin
 
-        project = Resource::Project.fabricate_via_api! do |storage_project|
-          storage_project.name = 'specific-repository-storage'
-          storage_project.repository_storage = QA::Runtime::Env.praefect_repository_storage
-        end
+        project = create(:project,
+          name: 'specific-repository-storage',
+          repository_storage: Runtime::Env.praefect_repository_storage)
 
         Resource::Repository::Push.fabricate! do |push|
           push.repository_http_uri = project.repository_http_location.uri

@@ -1,8 +1,6 @@
 fragment IssueFragment on Issue {
-  __typename
   id
   iid
-  closedAt
   confidential
   createdAt
   downvotes
@@ -11,32 +9,38 @@ fragment IssueFragment on Issue {
   humanTimeEstimate
   mergeRequestsCount
   moved
+  state
   title
   updatedAt
+  closedAt
   upvotes
   userDiscussionsCount @include(if: $isSignedIn)
   webPath
   webUrl
-  assignees {
+  type
+  assignees @skip(if: $hideUsers) {
     nodes {
-      __typename
+      __persist
       id
       avatarUrl
       name
       username
       webUrl
+      webPath
     }
   }
-  author {
-    __typename
+  author @skip(if: $hideUsers) {
+    __persist
     id
     avatarUrl
     name
     username
     webUrl
+    webPath
   }
   labels {
     nodes {
+      __persist
       id
       color
       title
@@ -44,6 +48,7 @@ fragment IssueFragment on Issue {
     }
   }
   milestone {
+    __persist
     id
     dueDate
     startDate

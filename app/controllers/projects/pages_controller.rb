@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
 class Projects::PagesController < Projects::ApplicationController
-  layout 'project_settings'
-
   before_action :require_pages_enabled!
   before_action :authorize_read_pages!, only: [:show]
   before_action :authorize_update_pages!, except: [:show, :destroy]
@@ -10,20 +8,36 @@ class Projects::PagesController < Projects::ApplicationController
 
   feature_category :pages
 
-  # rubocop: disable CodeReuse/ActiveRecord
-  def show
-    @domains = @project.pages_domains.order(:domain).present(current_user: current_user)
+  def new
+    @pipeline_wizard_data = {
+      project_path: @project.full_path,
+      default_branch: @project.repository.root_ref,
+      redirect_to_when_done: project_pages_path(@project)
+    }
   end
-  # rubocop: enable CodeReuse/ActiveRecord
+
+  def show
+    unless @project.pages_enabled?
+      render :disabled
+      return
+    end
+
+    if @project.pages_show_onboarding?
+      redirect_to action: 'new'
+      return
+    end
+
+    # rubocop: disable CodeReuse/ActiveRecord
+    @domains = @project.pages_domains.order(:domain).present(current_user: current_user)
+    # rubocop: enable CodeReuse/ActiveRecord
+  end
 
   def destroy
     ::Pages::DeleteService.new(@project, current_user).execute
 
     respond_to do |format|
       format.html do
-        redirect_to project_pages_path(@project),
-                    status: :found,
-                    notice: 'Pages were scheduled for removal'
+        redirect_to project_pages_path(@project), status: :found, notice: 'Pages were scheduled for removal'
       end
     end
   end
@@ -51,7 +65,15 @@ class Projects::PagesController < Projects::ApplicationController
   end
 
   def project_params_attributes
-    %i[pages_https_only]
+    [
+      :pages_https_only,
+      { project_setting_attributes: project_setting_attributes }
+    ]
+  end
+
+  # overridden in EE
+  def project_setting_attributes
+    [:pages_unique_domain_enabled]
   end
 end
 

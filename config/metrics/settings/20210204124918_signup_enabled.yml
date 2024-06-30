@@ -2,14 +2,14 @@
 data_category: optional
 key_path: signup_enabled
 description: Whether public signup is enabled
-product_section: dev
-product_stage: manage
-product_group: group::access
-product_category: authentication_and_authorization
+product_group: authentication
 value_type: boolean
 status: active
 time_frame: none
 data_source: system
+instrumentation_class: GitlabSettingsMetric
+options:
+  setting_method: allow_signup?
 distribution:
 - ce
 - ee

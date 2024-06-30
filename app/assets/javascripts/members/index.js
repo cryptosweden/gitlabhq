@@ -1,9 +1,12 @@
 import { GlToast } from '@gitlab/ui';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import VueApollo from 'vue-apollo';
+import createDefaultClient from '~/lib/graphql';
 import { parseDataAttributes } from '~/members/utils';
+import { TABS } from 'ee_else_ce/members/tabs_metadata';
 import MembersTabs from './components/members_tabs.vue';
-import { MEMBER_TYPES } from './constants';
 import membersStore from './store';
 
 export const initMembersApp = (el, options) => {
@@ -12,42 +15,36 @@ export const initMembersApp = (el, options) => {
   }
 
   Vue.use(Vuex);
+  Vue.use(VueApollo);
   Vue.use(GlToast);
 
   const {
     sourceId,
     canManageMembers,
+    canManageAccessRequests,
     canExportMembers,
     canFilterByEnterprise,
     exportCsvPath,
+    groupName,
+    groupPath,
+    manageMemberRolesPath,
+    canApproveAccessRequests,
+    namespaceUserLimit,
     ...vuexStoreAttributes
   } = parseDataAttributes(el);
 
-  const modules = Object.keys(MEMBER_TYPES).reduce((accumulator, namespace) => {
-    const namespacedOptions = options[namespace];
-
-    if (!namespacedOptions) {
+  const modules = TABS.reduce((accumulator, tab) => {
+    if (!options[tab.namespace]) {
       return accumulator;
     }
-
-    const {
-      tableFields = [],
-      tableAttrs = {},
-      tableSortableFields = [],
-      requestFormatter = () => {},
-      filteredSearchBar = { show: false },
-    } = namespacedOptions;
+    const store = tab.store ?? membersStore;
+    const data = vuexStoreAttributes[tab.namespace];
+    const namespacedOptions = options[tab.namespace];
+    const moduleStore = store({ ...data, ...namespacedOptions });
 
     return {
       ...accumulator,
-      [namespace]: membersStore({
-        ...vuexStoreAttributes[namespace],
-        tableFields,
-        tableAttrs,
-        tableSortableFields,
-        requestFormatter,
-        filteredSearchBar,
-      }),
+      [tab.namespace]: moduleStore,
     };
   }, {});
 
@@ -55,15 +52,25 @@ export const initMembersApp = (el, options) => {
 
   return new Vue({
     el,
+    name: 'MembersRoot',
     components: { MembersTabs },
     store,
+    apolloProvider: new VueApollo({ defaultClient: createDefaultClient() }),
     provide: {
       currentUserId: gon.current_user_id || null,
       sourceId,
       canManageMembers,
+      canManageAccessRequests,
       canFilterByEnterprise,
       canExportMembers,
       exportCsvPath,
+      manageMemberRolesPath,
+      canApproveAccessRequests,
+      namespaceUserLimit,
+      group: {
+        name: groupName,
+        path: groupPath,
+      },
     },
     render: (createElement) => createElement('members-tabs'),
   });

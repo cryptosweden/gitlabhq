@@ -10,15 +10,18 @@ class Import::ManifestController < Import::BaseController
   def new
   end
 
+  # We need to re-expose controller's internal method 'status' as action.
+  # rubocop:disable Lint/UselessMethodDefinition
   def status
     super
   end
+  # rubocop:enable Lint/UselessMethodDefinition
 
   def upload
     group = Group.find(params[:group_id])
 
-    unless can?(current_user, :create_projects, group)
-      @errors = ["You don't have enough permissions to create projects in the selected group"]
+    unless can?(current_user, :import_projects, group)
+      @errors = ["You don't have enough permissions to import projects in the selected group"]
 
       render :new && return
     end
@@ -34,10 +37,6 @@ class Import::ManifestController < Import::BaseController
 
       render :new
     end
-  end
-
-  def realtime_changes
-    super
   end
 
   def create
@@ -84,9 +83,7 @@ class Import::ManifestController < Import::BaseController
   private
 
   def ensure_import_vars
-    unless group && importable_repos.present?
-      redirect_to(new_import_manifest_path)
-    end
+    redirect_to(new_import_manifest_path) unless group && importable_repos.present?
   end
 
   # rubocop: disable CodeReuse/ActiveRecord

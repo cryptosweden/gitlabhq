@@ -1,14 +1,24 @@
 <script>
 // NOTE! For the first iteration, we are simply copying the implementation of Assignees
 // It will soon be overhauled in Issue https://gitlab.com/gitlab-org/gitlab/-/issues/233736
-import { refreshUserMergeRequestCounts } from '~/commons/nav/user_merge_requests';
-import createFlash from '~/flash';
+import Vue from 'vue';
+import { createAlert } from '~/alert';
+import { TYPE_ISSUE } from '~/issues/constants';
 import { __ } from '~/locale';
-import eventHub from '~/sidebar/event_hub';
-import Store from '~/sidebar/stores/sidebar_store';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { fetchUserCounts } from '~/super_sidebar/user_counts_fetch';
+import eventHub from '../../event_hub';
+import getMergeRequestReviewersQuery from '../../queries/get_merge_request_reviewers.query.graphql';
+import mergeRequestReviewersUpdatedSubscription from '../../queries/merge_request_reviewers.subscription.graphql';
+import Store from '../../stores/sidebar_store';
 import ReviewerTitle from './reviewer_title.vue';
 import Reviewers from './reviewers.vue';
+
+export const state = Vue.observable({
+  issuable: {},
+  loading: false,
+  initialLoading: true,
+});
 
 export default {
   name: 'SidebarReviewers',
@@ -16,7 +26,6 @@ export default {
     ReviewerTitle,
     Reviewers,
   },
-  mixins: [glFeatureFlagsMixin()],
   props: {
     mediator: {
       type: Object,
@@ -29,7 +38,7 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: 'issue',
+      default: TYPE_ISSUE,
     },
     issuableIid: {
       type: String,
@@ -40,18 +49,79 @@ export default {
       required: true,
     },
   },
+  apollo: {
+    issuable: {
+      query: getMergeRequestReviewersQuery,
+      variables() {
+        return {
+          iid: this.issuableIid,
+          fullPath: this.projectPath,
+        };
+      },
+      update(data) {
+        return data.workspace?.issuable;
+      },
+      result() {
+        this.initialLoading = false;
+      },
+      error() {
+        createAlert({ message: __('An error occurred while fetching reviewers.') });
+      },
+      subscribeToMore: {
+        document() {
+          return mergeRequestReviewersUpdatedSubscription;
+        },
+        variables() {
+          return {
+            issuableId: this.issuable?.id,
+          };
+        },
+        skip() {
+          return !this.issuable?.id;
+        },
+        updateQuery(
+          _,
+          {
+            subscriptionData: {
+              data: { mergeRequestReviewersUpdated },
+            },
+          },
+        ) {
+          if (mergeRequestReviewersUpdated) {
+            this.store.setReviewersFromRealtime(
+              mergeRequestReviewersUpdated.reviewers.nodes.map((r) => ({
+                ...r,
+                id: getIdFromGraphQLId(r.id),
+              })),
+            );
+          }
+        },
+      },
+    },
+  },
   data() {
-    return {
-      store: new Store(),
-      loading: false,
-    };
+    return state;
   },
   computed: {
     relativeUrlRoot() {
       return gon.relative_url_root ?? '';
     },
+    reviewers() {
+      return this.issuable.reviewers?.nodes || [];
+    },
+    graphqlFetching() {
+      return this.$apollo.queries.issuable.loading;
+    },
+    isLoading() {
+      return this.loading || this.$apollo.queries.issuable.loading;
+    },
+    canUpdate() {
+      return this.issuable.userPermissions?.adminMergeRequest || false;
+    },
   },
   created() {
+    this.store = new Store();
+
     this.removeReviewer = this.store.removeReviewer.bind(this.store);
     this.addReviewer = this.store.addReviewer.bind(this.store);
     this.removeAllReviewers = this.store.removeAllReviewers.bind(this.store);
@@ -69,6 +139,13 @@ export default {
     eventHub.$off('sidebar.saveReviewers', this.saveReviewers);
   },
   methods: {
+    reviewBySelf() {
+      // Notify gl dropdown that we are now assigning to current user
+      this.$el.parentElement.dispatchEvent(new Event('assignYourself'));
+
+      this.mediator.addSelfReview();
+      this.saveReviewers();
+    },
     saveReviewers() {
       this.loading = true;
 
@@ -76,20 +153,18 @@ export default {
         .saveReviewers(this.field)
         .then(() => {
           this.loading = false;
-          refreshUserMergeRequestCounts();
+          fetchUserCounts();
+          this.$apollo.queries.issuable.refetch();
         })
         .catch(() => {
           this.loading = false;
-          return createFlash({
+          return createAlert({
             message: __('Error occurred when saving reviewers'),
           });
         });
     },
     requestReview(data) {
       this.mediator.requestReview(data);
-    },
-    toggleAttentionRequested(data) {
-      this.mediator.toggleAttentionRequested('reviewer', data);
     },
   },
 };
@@ -98,18 +173,20 @@ export default {
 <template>
   <div>
     <reviewer-title
-      :number-of-reviewers="store.reviewers.length"
-      :loading="loading || store.isFetching.reviewers"
-      :editable="store.editable"
+      :number-of-reviewers="reviewers.length"
+      :loading="isLoading"
+      :editable="canUpdate"
+      @request-review="requestReview"
     />
     <reviewers
-      v-if="!store.isFetching.reviewers"
+      v-if="!initialLoading"
       :root-path="relativeUrlRoot"
-      :users="store.reviewers"
-      :editable="store.editable"
+      :users="reviewers"
+      :editable="canUpdate"
       :issuable-type="issuableType"
+      class="gl-pt-2"
       @request-review="requestReview"
-      @toggle-attention-requested="toggleAttentionRequested"
+      @assign-self="reviewBySelf"
     />
   </div>
 </template>

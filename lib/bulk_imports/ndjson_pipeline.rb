@@ -5,9 +5,10 @@ module BulkImports
     extend ActiveSupport::Concern
 
     include Pipeline
+    include Pipeline::IndexCacheStrategy
 
     included do
-      ndjson_pipeline!
+      file_extraction_pipeline!
 
       def transform(context, data)
         return unless data
@@ -16,10 +17,8 @@ module BulkImports
 
         return unless relation_hash
 
-        relation_definition = import_export_config.top_relation_tree(relation)
-
         relation_object = deep_transform_relation!(relation_hash, relation, relation_definition) do |key, hash|
-          relation_factory.create(
+          persist_relation(
             relation_index: relation_index,
             relation_sym: key.to_sym,
             relation_hash: hash,
@@ -27,7 +26,8 @@ module BulkImports
             members_mapper: members_mapper,
             object_builder: object_builder,
             user: context.current_user,
-            excluded_keys: import_export_config.relation_excluded_keys(key)
+            excluded_keys: import_export_config.relation_excluded_keys(key),
+            import_source: Import::SOURCE_DIRECT_TRANSFER
           )
         end
 
@@ -35,8 +35,29 @@ module BulkImports
         relation_object
       end
 
-      def load(_, object)
-        object&.save!
+      def load(_context, object)
+        return unless object
+
+        if object.new_record?
+          saver = Gitlab::ImportExport::Base::RelationObjectSaver.new(
+            relation_object: object,
+            relation_key: relation,
+            relation_definition: relation_definition,
+            importable: portable
+          )
+
+          saver.execute
+
+          capture_invalid_subrelations(saver.invalid_subrelations)
+        else
+          if object.invalid?
+            Gitlab::Import::Errors.merge_nested_errors(object)
+
+            raise(ActiveRecord::RecordInvalid, object)
+          end
+
+          object.save!
+        end
       end
 
       def deep_transform_relation!(relation_hash, relation_key, relation_definition, &block)
@@ -104,6 +125,27 @@ module BulkImports
       def portable_class_sym
         portable.class.to_s.downcase.to_sym
       end
+
+      def relation_definition
+        import_export_config.top_relation_tree(relation)
+      end
+
+      def capture_invalid_subrelations(invalid_subrelations)
+        invalid_subrelations.each do |record|
+          BulkImports::Failure.create(
+            bulk_import_entity_id: tracker.entity.id,
+            pipeline_class: tracker.pipeline_name,
+            exception_class: 'RecordInvalid',
+            exception_message: record.errors.full_messages.to_sentence,
+            correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id,
+            subrelation: record.class.to_s
+          )
+        end
+      end
+    end
+
+    def persist_relation(attributes)
+      relation_factory.create(**attributes)
     end
   end
 end

@@ -4,8 +4,7 @@ module Gitlab
   module AlertManagement
     module Payload
       MONITORING_TOOLS = {
-        prometheus: 'Prometheus',
-        cilium: 'Cilium'
+        prometheus: 'Prometheus'
       }.freeze
 
       class << self
@@ -19,34 +18,21 @@ module Gitlab
         # @param monitoring_tool [String]
         # @param integration [AlertManagement::HttpIntegration]
         def parse(project, payload, monitoring_tool: nil, integration: nil)
-          payload_class = payload_class_for(
-            monitoring_tool: monitoring_tool || payload&.dig('monitoring_tool'),
-            payload: payload
-          )
+          payload_class = payload_class_for(monitoring_tool: monitoring_tool || payload&.dig('monitoring_tool'))
 
           payload_class.new(project: project, payload: payload, integration: integration)
         end
 
         private
 
-        def payload_class_for(monitoring_tool:, payload:)
+        def payload_class_for(monitoring_tool:)
           if monitoring_tool == MONITORING_TOOLS[:prometheus]
-            if gitlab_managed_prometheus?(payload)
-              ::Gitlab::AlertManagement::Payload::ManagedPrometheus
-            else
-              ::Gitlab::AlertManagement::Payload::Prometheus
-            end
+            ::Gitlab::AlertManagement::Payload::Prometheus
           else
             ::Gitlab::AlertManagement::Payload::Generic
           end
-        end
-
-        def gitlab_managed_prometheus?(payload)
-          payload&.dig('labels', 'gitlab_alert_id').present?
         end
       end
     end
   end
 end
-
-Gitlab::AlertManagement::Payload.prepend_mod_with('Gitlab::AlertManagement::Payload')

@@ -2,11 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, '#execute' do
-  let_it_be(:group) { create(:group, name: 'my-organization') }
+RSpec.describe Ci::CreatePipelineService, '#execute', :ci_config_feature_flag_correctness,
+  feature_category: :continuous_integration do
+  let_it_be(:group) { create(:group) }
 
-  let(:upstream_project) { create(:project, :repository, name: 'upstream', group: group) }
-  let(:downstream_project) { create(:project, :repository, name: 'downstream', group: group) }
+  let(:upstream_project) { create(:project, :repository, group: group) }
+  let(:downstream_project) { create(:project, :repository, group: group) }
   let(:user) { create(:user) }
 
   let(:service) do
@@ -20,6 +21,23 @@ RSpec.describe Ci::CreatePipelineService, '#execute' do
     create_gitlab_ci_yml(downstream_project, downstream_config)
   end
 
+  it_behaves_like 'creating a pipeline with environment keyword' do
+    let(:execute_service) { service.execute(:push) }
+    let(:upstream_config) { config }
+    let(:expected_deployable_class) { Ci::Bridge }
+    let(:expected_deployment_status) { 'running' }
+    let(:expected_job_status) { 'running' }
+    let(:downstream_config) { YAML.dump({ deploy: { script: 'deploy' } }) }
+    let(:base_config) do
+      {
+        trigger: {
+          project: downstream_project.full_path,
+          strategy: 'depend'
+        }
+      }
+    end
+  end
+
   context 'with resource group', :aggregate_failures do
     let(:upstream_config) do
       <<~YAML
@@ -27,7 +45,7 @@ RSpec.describe Ci::CreatePipelineService, '#execute' do
         stage: test
         resource_group: iOS
         trigger:
-          project: my-organization/downstream
+          project: #{downstream_project.full_path}
           strategy: depend
       YAML
     end
@@ -57,7 +75,7 @@ RSpec.describe Ci::CreatePipelineService, '#execute' do
         pipeline = create_pipeline!
 
         test = pipeline.statuses.find_by(name: 'instrumentation_test')
-        expect(test).to be_pending
+        expect(test).to be_running
         expect(pipeline.triggered_pipelines.count).to eq(1)
       end
 

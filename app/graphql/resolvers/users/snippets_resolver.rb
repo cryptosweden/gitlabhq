@@ -1,5 +1,6 @@
 # frozen_string_literal: true
-# rubocop:disable Graphql/ResolverType (inherited from ResolvesSnippets)
+
+# rubocop:disable Graphql/ResolverType -- inherited from ResolvesSnippets
 
 module Resolvers
   module Users
@@ -10,8 +11,8 @@ module Resolvers
       alias_method :user, :object
 
       argument :type, Types::Snippets::TypeEnum,
-               required: false,
-               description: 'Type of snippet.'
+        required: false,
+        description: 'Type of snippet.'
 
       private
 
@@ -27,3 +28,4 @@ module Resolvers
     end
   end
 end
+# rubocop:enable Graphql/ResolverType

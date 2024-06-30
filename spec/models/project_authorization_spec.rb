@@ -2,7 +2,24 @@
 
 require 'spec_helper'
 
-RSpec.describe ProjectAuthorization do
+RSpec.describe ProjectAuthorization, feature_category: :groups_and_projects do
+  describe 'create' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:project_1) { create(:project) }
+
+    let(:project_auth) do
+      build(
+        :project_authorization,
+        user: user,
+        project: project_1
+      )
+    end
+
+    it 'sets is_unique' do
+      expect { project_auth.save! }.to change { project_auth.is_unique }.to(true)
+    end
+  end
+
   describe 'unique user, project authorizations' do
     let_it_be(:user) { create(:user) }
     let_it_be(:project_1) { create(:project) }
@@ -17,7 +34,12 @@ RSpec.describe ProjectAuthorization do
     end
 
     context 'with duplicate user and project authorization' do
-      subject { project_auth.dup }
+      subject do
+        project_auth.dup.tap do |auth|
+          auth.project = project_1
+          auth.user = user
+        end
+      end
 
       it { is_expected.to be_invalid }
 
@@ -35,6 +57,8 @@ RSpec.describe ProjectAuthorization do
     context 'with multiple access levels for the same user and project' do
       subject do
         project_auth.dup.tap do |auth|
+          auth.project = project_1
+          auth.user = user
           auth.access_level = Gitlab::Access::MAINTAINER
         end
       end
@@ -65,6 +89,67 @@ RSpec.describe ProjectAuthorization do
     it { is_expected.to validate_inclusion_of(:access_level).in_array(Gitlab::Access.all_values) }
   end
 
+  describe 'scopes' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:project) { create(:project, namespace: user.namespace) }
+
+    describe '.non_guests' do
+      let_it_be(:project_original_owner_authorization) { project.owner.project_authorizations.first }
+      let_it_be(:project_authorization_guest) { create(:project_authorization, :guest, project: project) }
+      let_it_be(:project_authorization_reporter) { create(:project_authorization, :reporter, project: project) }
+      let_it_be(:project_authorization_developer) { create(:project_authorization, :developer, project: project) }
+      let_it_be(:project_authorization_maintainer) { create(:project_authorization, :maintainer, project: project) }
+      let_it_be(:project_authorization_owner) { create(:project_authorization, :owner, project: project) }
+
+      it 'returns all records which are greater than Guests access' do
+        expect(described_class.non_guests.map(&:attributes)).to match_array([
+          project_authorization_reporter, project_authorization_developer,
+          project_authorization_maintainer, project_authorization_owner,
+          project_original_owner_authorization
+        ].map(&:attributes))
+      end
+    end
+
+    describe '.owners' do
+      let_it_be(:project_original_owner_authorization) { project.owner.project_authorizations.first }
+      let_it_be(:project_authorization_owner) { create(:project_authorization, :owner, project: project) }
+
+      before_all do
+        create(:project_authorization, :guest, project: project)
+        create(:project_authorization, :developer, project: project)
+      end
+
+      it 'returns all records which only have Owners access' do
+        expect(described_class.owners.map(&:attributes)).to match_array([
+          project_original_owner_authorization,
+          project_authorization_owner
+        ].map(&:attributes))
+      end
+    end
+
+    describe '.for_project' do
+      let_it_be(:project_2) { create(:project, namespace: user.namespace) }
+      let_it_be(:project_3) { create(:project, namespace: user.namespace) }
+
+      let_it_be(:project_authorization_3) { project_3.project_authorizations.first }
+      let_it_be(:project_authorization_2) { project_2.project_authorizations.first }
+      let_it_be(:project_authorization) { project.project_authorizations.first }
+
+      it 'returns all records for the project' do
+        expect(described_class.for_project(project).map(&:attributes)).to match_array([
+          project_authorization
+        ].map(&:attributes))
+      end
+
+      it 'returns all records for multiple projects' do
+        expect(described_class.for_project([project, project_3]).map(&:attributes)).to match_array([
+          project_authorization,
+          project_authorization_3
+        ].map(&:attributes))
+      end
+    end
+  end
+
   describe '.insert_all' do
     let_it_be(:user) { create(:user) }
     let_it_be(:project_1) { create(:project) }
@@ -86,26 +171,10 @@ RSpec.describe ProjectAuthorization do
     end
   end
 
-  describe '.insert_all_in_batches' do
-    let_it_be(:user) { create(:user) }
-    let_it_be(:project_1) { create(:project) }
-    let_it_be(:project_2) { create(:project) }
-    let_it_be(:project_3) { create(:project) }
-
-    let(:per_batch_size) { 2 }
-
-    it 'inserts the rows in batches, as per the `per_batch` size' do
-      attributes = [
-        { user_id: user.id, project_id: project_1.id, access_level: Gitlab::Access::MAINTAINER },
-        { user_id: user.id, project_id: project_2.id, access_level: Gitlab::Access::MAINTAINER },
-        { user_id: user.id, project_id: project_3.id, access_level: Gitlab::Access::MAINTAINER }
-      ]
-
-      expect(described_class).to receive(:insert_all).twice.and_call_original
-
-      described_class.insert_all_in_batches(attributes, per_batch_size)
-
-      expect(user.project_authorizations.pluck(:user_id, :project_id, :access_level)).to match_array(attributes.map(&:values))
+  context 'with loose foreign key on project_authorizations.user_id' do
+    it_behaves_like 'cleanup by a loose foreign key' do
+      let_it_be(:parent) { create(:user) }
+      let_it_be(:model) { create(:project_authorization, user: parent) }
     end
   end
 end

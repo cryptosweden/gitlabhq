@@ -2,6 +2,7 @@
 
 module Projects
   class ParticipantsService < BaseService
+    include Gitlab::Utils::StrongMemoize
     include Users::ParticipableService
 
     def execute(noteable)
@@ -11,60 +12,26 @@ module Projects
         noteable_owner +
         participants_in_noteable +
         all_members +
-        groups +
         project_members
+
+      participants += groups unless relation_at_search_limit?(project_members)
 
       render_participants_as_hash(participants.uniq)
     end
 
     def project_members
-      @project_members ||= sorted(get_project_members)
+      filter_and_sort_users(project_members_relation)
     end
-
-    def get_project_members
-      members = Member.from_union([project_members_through_ancestral_groups,
-                                   project_members_through_invited_groups,
-                                   individual_project_members])
-
-      User.id_in(members.select(:user_id))
-    end
+    strong_memoize_attr :project_members
 
     def all_members
-      [{ username: "all", name: "All Project and Group Members", count: project_members.count }]
+      return [] if Feature.enabled?(:disable_all_mention)
+
+      [{ username: "all", name: "All Project and Group Members", count: project_members_relation.count }]
     end
 
-    private
-
-    def project_members_through_invited_groups
-      GroupMember
-        .active_without_invites_and_requests
-        .with_source_id(visible_groups.self_and_ancestors.pluck_primary_key)
-    end
-
-    def visible_groups
-      visible_groups = project.invited_groups
-
-      unless project_owner?
-        visible_groups = visible_groups.public_or_visible_to_user(current_user)
-      end
-
-      visible_groups
-    end
-
-    def project_members_through_ancestral_groups
-      project.group.present? ? project.group.members_with_parents : Member.none
-    end
-
-    def individual_project_members
-      project.project_members
-    end
-
-    def project_owner?
-      if project.group.present?
-        project.group.owners.include?(current_user)
-      else
-        project.namespace.owner == current_user
-      end
+    def project_members_relation
+      project.authorized_users
     end
   end
 end

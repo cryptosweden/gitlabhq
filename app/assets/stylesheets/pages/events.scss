@@ -4,8 +4,8 @@
  */
 .event-item {
   font-size: $gl-font-size;
-  padding: $gl-padding 0 $gl-padding 56px;
-  border-bottom: 1px solid $white-normal;
+  padding: $gl-padding 0 $gl-padding $gl-spacing-scale-8;
+  border-bottom: 1px solid $gray-50;
   color: $gl-text-color-secondary;
   position: relative;
   line-height: $gl-line-height-20;
@@ -58,17 +58,12 @@
     }
   }
 
-  .event-title {
-    .event-type {
-      &::first-letter {
-        text-transform: capitalize;
-      }
-    }
+  .event-title .event-title-block::first-letter {
+    text-transform: capitalize;
   }
 
   .event-body {
     margin-top: $gl-padding-4;
-    margin-right: 174px;
     color: $gl-text-color;
 
     .event-note {
@@ -92,7 +87,7 @@
 
       pre {
         border: 0;
-        background: $gray-light;
+        background: $gray-10;
         border-radius: 0;
         color: $gray-500;
         overflow: hidden;
@@ -150,36 +145,8 @@
   }
 
   .event-item-timestamp {
-    float: right;
-  }
-}
-
-@include media-breakpoint-down(xs) {
-  .event-item {
-    padding-left: 0;
-
-    .event-user-info {
-      margin-bottom: $gl-padding-4;
-    }
-
-    .event-title {
-      white-space: normal;
-      overflow: visible;
-      max-width: 100%;
-    }
-
-    .system-note-image {
-      display: none;
-    }
-
-    .event-body {
-      margin-top: $gl-padding-4;
-      margin-right: 0;
-      padding-left: 0;
-    }
-
-    .event-item-timestamp {
-      display: none;
+    @include media-breakpoint-up(sm) {
+      float: right;
     }
   }
 }

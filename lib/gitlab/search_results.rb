@@ -3,14 +3,9 @@
 module Gitlab
   class SearchResults
     COUNT_LIMIT = 100
-    COUNT_LIMIT_MESSAGE = "#{COUNT_LIMIT - 1}+"
+    COUNT_LIMIT_MESSAGE = "#{COUNT_LIMIT - 1}+".freeze
     DEFAULT_PAGE = 1
     DEFAULT_PER_PAGE = 20
-
-    SCOPE_ONLY_SORT = {
-      popularity_asc: %w[issues],
-      popularity_desc: %w[issues]
-    }.freeze
 
     attr_reader :current_user, :query, :order_by, :sort, :filters
 
@@ -24,7 +19,14 @@ module Gitlab
     # query
     attr_reader :default_project_filter
 
-    def initialize(current_user, query, limit_projects = nil, order_by: nil, sort: nil, default_project_filter: false, filters: {})
+    def initialize(
+      current_user,
+      query,
+      limit_projects = nil,
+      order_by: nil,
+      sort: nil,
+      default_project_filter: false,
+      filters: {})
       @current_user = current_user
       @query = query
       @limit_projects = limit_projects || Project.all
@@ -84,7 +86,7 @@ module Gitlab
       # and confidential issues user has access to, is too complex.
       # It's faster to try to fetch all public issues first, then only
       # if necessary try to fetch all issues.
-      sum = limited_count(issues(public_only: true))
+      sum = limited_count(issues(confidential: false))
       @limited_issues_count = sum < count_limit ? limited_count(issues) : sum
     end
 
@@ -107,17 +109,25 @@ module Gitlab
     def users
       return User.none unless Ability.allowed?(current_user, :read_users_list)
 
-      UsersFinder.new(current_user, search: query).execute
+      UsersFinder.new(current_user, { search: query, use_minimum_char_limit: false }).execute
     end
 
     # highlighting is only performed by Elasticsearch backed results
-    def highlight_map(scope)
+    def highlight_map(_scope)
       {}
     end
 
     # aggregations are only performed by Elasticsearch backed results
-    def aggregations(scope)
+    def aggregations(_scope)
       []
+    end
+
+    def failed?(_scope)
+      false
+    end
+
+    def error
+      nil
     end
 
     private
@@ -144,13 +154,14 @@ module Gitlab
       sort_by = ::Gitlab::Search::SortOptions.sort_and_direction(order_by, sort)
 
       # Reset sort to default if the chosen one is not supported by scope
-      sort_by = nil if SCOPE_ONLY_SORT[sort_by] && !SCOPE_ONLY_SORT[sort_by].include?(scope)
+      if Gitlab::Search::SortOptions::SCOPE_ONLY_SORT[sort_by] &&
+          Gitlab::Search::SortOptions::SCOPE_ONLY_SORT[sort_by].exclude?(scope)
+        sort_by = nil
+      end
 
       case sort_by
       when :created_at_asc
         results.reorder('created_at ASC')
-      when :created_at_desc
-        results.reorder('created_at DESC')
       when :updated_at_asc
         results.reorder('updated_at ASC')
       when :updated_at_desc
@@ -160,20 +171,29 @@ module Gitlab
       when :popularity_desc
         results.reorder('upvotes_count DESC')
       else
+        # :created_at_desc is default
         results.reorder('created_at DESC')
       end
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
     def projects
-      limit_projects.search(query)
+      scope = limit_projects
+      scope = scope.non_archived unless filters[:include_archived]
+
+      scope.search(query)
     end
 
     def issues(finder_params = {})
       issues = IssuesFinder.new(current_user, issuable_params.merge(finder_params)).execute
+                 .preload(:work_item_type) # rubocop: disable CodeReuse/ActiveRecord -- preload for permission checks
 
       unless default_project_filter
-        issues = issues.in_projects(project_ids_relation)
+        project_ids = project_ids_relation
+        project_ids = project_ids.non_archived unless filters[:include_archived]
+
+        issues = issues.in_projects(project_ids)
+                       .allow_cross_joins_across_databases(url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/420046')
       end
 
       apply_sort(issues, scope: 'issues')
@@ -193,7 +213,11 @@ module Gitlab
       merge_requests = MergeRequestsFinder.new(current_user, issuable_params).execute
 
       unless default_project_filter
-        merge_requests = merge_requests.of_projects(project_ids_relation)
+        project_ids = project_ids_relation
+
+        project_ids = project_ids.non_archived unless filters[:include_archived]
+
+        merge_requests = merge_requests.of_projects(project_ids)
       end
 
       apply_sort(merge_requests, scope: 'merge_requests')
@@ -206,22 +230,19 @@ module Gitlab
     # Filter milestones by authorized projects.
     # For performance reasons project_id is being plucked
     # to be used on a smaller query.
-    #
-    # rubocop: disable CodeReuse/ActiveRecord
     def filter_milestones_by_project(milestones)
-      project_ids =
-        milestones.where(project_id: project_ids_relation)
-          .select(:project_id).distinct
-          .pluck(:project_id)
+      candidate_project_ids = project_ids_relation
+
+      candidate_project_ids = candidate_project_ids.non_archived unless filters[:include_archived]
+
+      project_ids = milestones.of_projects(candidate_project_ids).select(:project_id).distinct.pluck(:project_id) # rubocop: disable CodeReuse/ActiveRecord
 
       return Milestone.none if project_ids.nil?
 
-      authorized_project_ids_relation =
-        Project.where(id: project_ids).ids_with_issuables_available_for(current_user)
+      authorized_project_ids_relation = Project.id_in(project_ids).ids_with_issuables_available_for(current_user)
 
-      milestones.where(project_id: authorized_project_ids_relation)
+      milestones.of_projects(authorized_project_ids_relation)
     end
-    # rubocop: enable CodeReuse/ActiveRecord
 
     # rubocop: disable CodeReuse/ActiveRecord
     def project_ids_relation
@@ -241,9 +262,7 @@ module Gitlab
 
         params[:state] = filters[:state] if filters.key?(:state)
 
-        if [true, false].include?(filters[:confidential])
-          params[:confidential] = filters[:confidential]
-        end
+        params[:confidential] = filters[:confidential] if [true, false].include?(filters[:confidential])
       end
     end
 

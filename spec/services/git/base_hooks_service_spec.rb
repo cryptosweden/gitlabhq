@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Git::BaseHooksService do
+RSpec.describe Git::BaseHooksService, feature_category: :source_code_management do
   include RepoHelpers
-  include GitHelpers
 
-  let(:user) { create(:user) }
-  let(:project) { create(:project, :repository) }
-  let(:oldrev) { Gitlab::Git::BLANK_SHA }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :repository) }
+
+  let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
   let(:newrev) { "8a2a6eb295bb170b34c24c76c49ed0e9b2eaf34b" } # gitlab-test: git rev-parse refs/tags/v1.1.0
   let(:ref) { 'refs/tags/v1.1.0' }
   let(:checkout_sha) { '5937ac0a7beb003549fc5fd26fc247adbce4a52e' }
@@ -102,9 +102,24 @@ RSpec.describe Git::BaseHooksService do
 
         it 'executes the services' do
           expect(subject).to receive(:push_data).at_least(:once).and_call_original
-          expect(project).to receive(:execute_integrations)
+          expect(project).to receive(:execute_integrations).with(kind_of(Hash), subject.hook_name, skip_ci: false)
 
           subject.execute
+        end
+
+        context 'with integrations.skip_ci push option' do
+          before do
+            params[:push_options] = {
+              integrations: { skip_ci: true }
+            }
+          end
+
+          it 'executes the services' do
+            expect(subject).to receive(:push_data).at_least(:once).and_call_original
+            expect(project).to receive(:execute_integrations).with(kind_of(Hash), subject.hook_name, skip_ci: true)
+
+            subject.execute
+          end
         end
       end
 
@@ -150,11 +165,16 @@ RSpec.describe Git::BaseHooksService do
     end
 
     shared_examples 'creates pipeline with params and expected variables' do
+      let(:pipeline_service) { double(execute: service_response) }
+      let(:service_response) { double(error?: false, payload: pipeline, message: "Error") }
+      let(:pipeline) { double(persisted?: true) }
+
       it 'calls the create pipeline service' do
         expect(Ci::CreatePipelineService)
           .to receive(:new)
           .with(project, user, pipeline_params)
-          .and_return(double(execute!: true))
+          .and_return(pipeline_service)
+        expect(subject).not_to receive(:log_pipeline_errors)
 
         subject.execute
       end
@@ -219,7 +239,7 @@ RSpec.describe Git::BaseHooksService do
           ci: {
             variable: {
               "FOO=123": 1,
-              "BAR": 1,
+              BAR: 1,
               "=MNO": 1
             }
           }
@@ -237,6 +257,111 @@ RSpec.describe Git::BaseHooksService do
       end
 
       it_behaves_like 'creates pipeline with params and expected variables'
+    end
+  end
+
+  describe "Pipeline creation" do
+    let(:pipeline_params) do
+      {
+        after: newrev,
+        before: oldrev,
+        checkout_sha: checkout_sha,
+        push_options: push_options,
+        ref: ref,
+        variables_attributes: variables_attributes
+      }
+    end
+
+    let(:pipeline_service) { double(execute: service_response) }
+    let(:push_options) { {} }
+    let(:variables_attributes) { [] }
+
+    context "when the pipeline is persisted" do
+      let(:pipeline) { double(persisted?: true) }
+
+      context "and there are no errors" do
+        let(:service_response) { double(error?: false, payload: pipeline, message: "Error") }
+
+        it "returns success" do
+          expect(Ci::CreatePipelineService)
+            .to receive(:new)
+            .with(project, user, pipeline_params)
+            .and_return(pipeline_service)
+
+          expect(subject.execute[:status]).to eq(:success)
+        end
+      end
+
+      context "and there are errors" do
+        let(:service_response) { double(error?: true, payload: pipeline, message: "Error") }
+
+        it "does not log errors and returns success" do
+          # This behaviour is due to the save_on_errors: true setting that is the default in the execute method.
+          expect(Ci::CreatePipelineService)
+            .to receive(:new)
+            .with(project, user, pipeline_params)
+            .and_return(pipeline_service)
+          expect(subject).not_to receive(:log_pipeline_errors).with(service_response.message)
+
+          expect(subject.execute[:status]).to eq(:success)
+        end
+      end
+    end
+
+    context "when the pipeline wasn't persisted" do
+      let(:pipeline) { double(persisted?: false) }
+
+      context "and there are no errors" do
+        let(:service_response) { double(error?: false, payload: pipeline, message: nil) }
+
+        it "returns success" do
+          expect(Ci::CreatePipelineService)
+            .to receive(:new)
+            .with(project, user, pipeline_params)
+            .and_return(pipeline_service)
+          expect(subject).to receive(:log_pipeline_errors).with(service_response.message)
+
+          expect(subject.execute[:status]).to eq(:success)
+        end
+      end
+
+      context "and there are errors" do
+        let(:service_response) { double(error?: true, payload: pipeline, message: "Error") }
+
+        it "logs errors and returns success" do
+          expect(Ci::CreatePipelineService)
+            .to receive(:new)
+            .with(project, user, pipeline_params)
+            .and_return(pipeline_service)
+          expect(subject).to receive(:log_pipeline_errors).with(service_response.message)
+
+          expect(subject.execute[:status]).to eq(:success)
+        end
+      end
+    end
+  end
+
+  describe 'notifying KAS' do
+    let(:kas_enabled) { true }
+
+    before do
+      allow(Gitlab::Kas).to receive(:enabled?).and_return(kas_enabled)
+    end
+
+    it 'enqueues the notification worker' do
+      expect(Clusters::Agents::NotifyGitPushWorker).to receive(:perform_async).with(project.id).once
+
+      subject.execute
+    end
+
+    context 'when KAS is disabled' do
+      let(:kas_enabled) { false }
+
+      it do
+        expect(Clusters::Agents::NotifyGitPushWorker).not_to receive(:perform_async)
+
+        subject.execute
+      end
     end
   end
 end

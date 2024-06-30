@@ -1,56 +1,68 @@
 import { GlLabel } from '@gitlab/ui';
-import { shallowMount, mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
-import Vuex from 'vuex';
+import VueApollo from 'vue-apollo';
 
+import waitForPromises from 'helpers/wait_for_promises';
+import createMockApollo from 'helpers/mock_apollo_helper';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import BoardCard from '~/boards/components/board_card.vue';
 import BoardCardInner from '~/boards/components/board_card_inner.vue';
-import { inactiveId } from '~/boards/constants';
-import { mockLabelList, mockIssue } from '../mock_data';
+import selectedBoardItemsQuery from '~/boards/graphql/client/selected_board_items.query.graphql';
+import activeBoardItemQuery from '~/boards/graphql/client/active_board_item.query.graphql';
+import isShowingLabelsQuery from '~/graphql_shared/client/is_showing_labels.query.graphql';
+import { mockLabelList, mockIssue, DEFAULT_COLOR } from '../mock_data';
 
 describe('Board card', () => {
   let wrapper;
-  let store;
-  let mockActions;
 
-  Vue.use(Vuex);
+  Vue.use(VueApollo);
 
-  const createStore = ({ initialState = {} } = {}) => {
-    mockActions = {
-      toggleBoardItem: jest.fn(),
-      toggleBoardItemMultiSelection: jest.fn(),
-      performSearch: jest.fn(),
-    };
-
-    store = new Vuex.Store({
-      state: {
-        activeId: inactiveId,
-        selectedBoardItems: [],
-        ...initialState,
-      },
-      actions: mockActions,
-      getters: {
-        isEpicBoard: () => false,
-        isProjectBoard: () => false,
-      },
-    });
-  };
+  const mockSetActiveBoardItemResolver = jest.fn();
+  const mockSetSelectedBoardItemsResolver = jest.fn();
+  const mockApollo = createMockApollo([], {
+    Mutation: {
+      setActiveBoardItem: mockSetActiveBoardItemResolver,
+      setSelectedBoardItems: mockSetSelectedBoardItemsResolver,
+    },
+  });
 
   // this particular mount component needs to be used after the root beforeEach because it depends on list being initialized
   const mountComponent = ({
     propsData = {},
     provide = {},
-    mountFn = shallowMount,
     stubs = { BoardCardInner },
     item = mockIssue,
+    selectedBoardItems = [],
+    activeBoardItem = {},
   } = {}) => {
-    wrapper = mountFn(BoardCard, {
-      stubs,
-      store,
+    mockApollo.clients.defaultClient.cache.writeQuery({
+      query: isShowingLabelsQuery,
+      data: {
+        isShowingLabels: true,
+      },
+    });
+    mockApollo.clients.defaultClient.cache.writeQuery({
+      query: selectedBoardItemsQuery,
+      data: {
+        selectedBoardItems,
+      },
+    });
+    mockApollo.clients.defaultClient.cache.writeQuery({
+      query: activeBoardItemQuery,
+      data: {
+        activeBoardItem: { ...activeBoardItem, listId: 'gid://gitlab/List/1' },
+      },
+    });
+
+    wrapper = shallowMountExtended(BoardCard, {
+      apolloProvider: mockApollo,
+      stubs: {
+        ...stubs,
+        BoardCardInner,
+      },
       propsData: {
         list: mockLabelList,
         item,
-        disabled: false,
         index: 0,
         ...propsData,
       },
@@ -58,6 +70,12 @@ describe('Board card', () => {
         groupId: null,
         rootPath: '/',
         scopedLabelsAvailable: false,
+        isIssueBoard: true,
+        isEpicBoard: false,
+        issuableType: 'issue',
+        isGroupBoard: true,
+        disabled: false,
+        allowSubEpics: false,
         ...provide,
       },
     });
@@ -77,25 +95,17 @@ describe('Board card', () => {
     window.gon = { features: {} };
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-    store = null;
-  });
-
   describe('when GlLabel is clicked in BoardCardInner', () => {
-    it('doesnt call toggleBoardItem', () => {
-      createStore({ initialState: { isShowingLabels: true } });
-      mountComponent({ mountFn: mount, stubs: {} });
+    it("doesn't call setSelectedBoardItemsMutation", () => {
+      mountComponent();
 
-      wrapper.find(GlLabel).trigger('mouseup');
+      wrapper.findComponent(GlLabel).trigger('mouseup');
 
-      expect(mockActions.toggleBoardItem).toHaveBeenCalledTimes(0);
+      expect(mockSetSelectedBoardItemsResolver).toHaveBeenCalledTimes(0);
     });
   });
 
-  it('should not highlight the card by default', async () => {
-    createStore();
+  it('should not highlight the card by default', () => {
     mountComponent();
 
     expect(wrapper.classes()).not.toContain('is-active');
@@ -103,25 +113,15 @@ describe('Board card', () => {
   });
 
   it('should highlight the card with a correct style when selected', async () => {
-    createStore({
-      initialState: {
-        activeId: mockIssue.id,
-      },
-    });
-    mountComponent();
+    mountComponent({ activeBoardItem: { ...mockIssue, listId: 'gid://gitlab/List/1' } });
+    await waitForPromises();
 
     expect(wrapper.classes()).toContain('is-active');
     expect(wrapper.classes()).not.toContain('multi-select');
   });
 
-  it('should highlight the card with a correct style when multi-selected', async () => {
-    createStore({
-      initialState: {
-        activeId: inactiveId,
-        selectedBoardItems: [mockIssue],
-      },
-    });
-    mountComponent();
+  it('should highlight the card with a correct style when multi-selected', () => {
+    mountComponent({ selectedBoardItems: [mockIssue.id] });
 
     expect(wrapper.classes()).toContain('multi-select');
     expect(wrapper.classes()).not.toContain('is-active');
@@ -129,18 +129,23 @@ describe('Board card', () => {
 
   describe('when mouseup event is called on the card', () => {
     beforeEach(() => {
-      createStore();
       mountComponent();
     });
 
     describe('when not using multi-select', () => {
-      it('should call vuex action "toggleBoardItem" with correct parameters', async () => {
+      it('set active board item on client when clicking on card', async () => {
         await selectCard();
+        await waitForPromises();
 
-        expect(mockActions.toggleBoardItem).toHaveBeenCalledTimes(1);
-        expect(mockActions.toggleBoardItem).toHaveBeenCalledWith(expect.any(Object), {
-          boardItem: mockIssue,
-        });
+        expect(mockSetActiveBoardItemResolver).toHaveBeenCalledWith(
+          {},
+          {
+            boardItem: mockIssue,
+            listId: 'gid://gitlab/List/2',
+          },
+          expect.anything(),
+          expect.anything(),
+        );
       });
     });
 
@@ -149,13 +154,17 @@ describe('Board card', () => {
         window.gon = { features: { boardMultiSelect: true } };
       });
 
-      it('should call vuex action "multiSelectBoardItem" with correct parameters', async () => {
+      it('should call setSelectedBoardItemsMutation with correct parameters', async () => {
         await multiSelectCard();
 
-        expect(mockActions.toggleBoardItemMultiSelection).toHaveBeenCalledTimes(1);
-        expect(mockActions.toggleBoardItemMultiSelection).toHaveBeenCalledWith(
+        expect(mockSetSelectedBoardItemsResolver).toHaveBeenCalledTimes(1);
+        expect(mockSetSelectedBoardItemsResolver).toHaveBeenCalledWith(
           expect.any(Object),
-          mockIssue,
+          {
+            itemId: mockIssue.id,
+          },
+          expect.anything(),
+          expect.anything(),
         );
       });
     });
@@ -163,7 +172,6 @@ describe('Board card', () => {
 
   describe('when card is loading', () => {
     it('card is disabled and user cannot drag', () => {
-      createStore();
       mountComponent({ item: { ...mockIssue, isLoading: true } });
 
       expect(wrapper.classes()).toContain('is-disabled');
@@ -173,11 +181,40 @@ describe('Board card', () => {
 
   describe('when card is not loading', () => {
     it('user can drag', () => {
-      createStore();
       mountComponent();
 
       expect(wrapper.classes()).not.toContain('is-disabled');
       expect(wrapper.classes()).toContain('gl-cursor-grab');
+    });
+  });
+
+  describe('epic colors', () => {
+    it('applies the correct color and border', () => {
+      mountComponent({
+        item: {
+          ...mockIssue,
+          color: DEFAULT_COLOR,
+        },
+      });
+
+      expect(wrapper.classes()).toEqual(
+        expect.arrayContaining(['gl-pl-4', 'gl-border-l-solid', 'gl-border-4']),
+      );
+      expect(wrapper.attributes('style')).toContain(`border-color: ${DEFAULT_COLOR}`);
+    });
+
+    it('does not render border if color is not present', () => {
+      mountComponent({
+        item: {
+          ...mockIssue,
+          color: null,
+        },
+      });
+
+      expect(wrapper.classes()).not.toEqual(
+        expect.arrayContaining(['gl-pl-4', 'gl-border-l-solid', 'gl-border-4']),
+      );
+      expect(wrapper.attributes('style')).toBe(undefined);
     });
   });
 });

@@ -5,39 +5,60 @@ module Resolvers
     include Gitlab::Graphql::Authorize::AuthorizeResource
 
     type Types::Ci::PipelineType.connection_type, null: true
-    extension Gitlab::Graphql::Extensions::ExternallyPaginatedArrayExtension
+    extras [:lookahead]
 
     authorizes_object!
     authorize :read_pipeline
 
     alias_method :package, :object
 
-    def resolve(first: nil, last: nil, after: nil, before: nil, lookahead:)
-      finder = ::Packages::BuildInfosFinder.new(
-        package,
-        first: first,
-        last: last,
-        after: decode_cursor(after),
-        before: decode_cursor(before),
-        max_page_size: context.schema.default_max_page_size,
-        support_next_page: lookahead.selects?(:page_info)
-      )
+    # this resolver can be called for 100 packages max and we want to limit the
+    # number of build infos returned for _each_ package when using the new finder.
+    MAX_PAGE_SIZE = 20
 
-      build_infos = finder.execute
+    # This returns a promise for a connection of promises for pipelines:
+    # Lazy[Connection[Lazy[Pipeline]]] structure
+    def resolve(lookahead:, first: nil, last: nil, after: nil, before: nil)
+      default_value = default_value_for(first: first, last: last, after: after, before: before)
+      BatchLoader::GraphQL.for(package.id)
+                          .batch(default_value: default_value) do |package_ids, loader|
+        build_infos = ::Packages::BuildInfosFinder.new(
+          package_ids,
+          first: first,
+          last: last,
+          after: decode_cursor(after),
+          before: decode_cursor(before),
+          max_page_size: MAX_PAGE_SIZE,
+          support_next_page: lookahead.selects?(:page_info)
+        ).execute
 
-      # this .pluck_pipeline_ids can load max 101 pipelines ids
-      ::Ci::Pipeline.id_in(build_infos.pluck_pipeline_ids)
-    end
-
-    # we manage the pagination manually, so opt out of the connection field extension
-    def self.field_options
-      super.merge(
-        connection: false,
-        extras: [:lookahead]
-      )
+        build_infos.each do |build_info|
+          loader.call(build_info.package_id) do |connection|
+            connection.items << lazy_load_pipeline(build_info.pipeline_id)
+            connection
+          end
+        end
+      end
     end
 
     private
+
+    def lazy_load_pipeline(id)
+      ::Gitlab::Graphql::Loaders::BatchModelLoader.new(::Ci::Pipeline, id)
+        .find
+    end
+
+    def default_value_for(first:, last:, after:, before:)
+      Gitlab::Graphql::Pagination::ActiveRecordArrayConnection.new(
+        [],
+        context: context,
+        first: first,
+        last: last,
+        after: after,
+        before: before,
+        max_page_size: MAX_PAGE_SIZE
+      )
+    end
 
     def decode_cursor(encoded)
       return unless encoded

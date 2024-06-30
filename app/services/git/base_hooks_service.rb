@@ -15,6 +15,7 @@ module Git
 
       # Not a hook, but it needs access to the list of changed commits
       enqueue_invalidate_cache
+      enqueue_notify_kas
 
       success
     end
@@ -53,11 +54,11 @@ module Git
     def create_pipelines
       return unless params.fetch(:create_pipelines, true)
 
-      Ci::CreatePipelineService
-        .new(project, current_user, pipeline_params)
-        .execute!(:push, pipeline_options)
-    rescue Ci::CreatePipelineService::CreateError => ex
-      log_pipeline_errors(ex)
+      response = Ci::CreatePipelineService
+          .new(project, current_user, pipeline_params)
+          .execute(:push, **pipeline_options)
+
+      log_pipeline_errors(response.message) unless response.payload.persisted?
     end
 
     def execute_project_hooks
@@ -66,7 +67,10 @@ module Git
       # Creating push_data invokes one CommitDelta RPC per commit. Only
       # build this data if we actually need it.
       project.execute_hooks(push_data, hook_name) if project.has_active_hooks?(hook_name)
-      project.execute_integrations(push_data, hook_name) if project.has_active_integrations?(hook_name)
+
+      return unless project.has_active_integrations?(hook_name)
+
+      project.execute_integrations(push_data, hook_name, skip_ci: integration_push_options&.fetch(:skip_ci).present?)
     end
 
     def enqueue_invalidate_cache
@@ -75,6 +79,12 @@ module Git
       return unless file_types.present?
 
       ProjectCacheWorker.perform_async(project.id, file_types, [], false)
+    end
+
+    def enqueue_notify_kas
+      return unless Gitlab::Kas.enabled?
+
+      Clusters::Agents::NotifyGitPushWorker.perform_async(project.id)
     end
 
     def pipeline_params
@@ -93,7 +103,19 @@ module Git
 
     def ci_variables_from_push_options
       strong_memoize(:ci_variables_from_push_options) do
-        params[:push_options]&.deep_symbolize_keys&.dig(:ci, :variable)
+        push_options&.dig(:ci, :variable)
+      end
+    end
+
+    def integration_push_options
+      strong_memoize(:integration_push_options) do
+        push_options&.dig(:integrations)
+      end
+    end
+
+    def push_options
+      strong_memoize(:push_options) do
+        params[:push_options]&.deep_symbolize_keys
       end
     end
 
@@ -148,14 +170,14 @@ module Git
       {}
     end
 
-    def log_pipeline_errors(exception)
+    def log_pipeline_errors(error_message)
       data = {
         class: self.class.name,
         correlation_id: Labkit::Correlation::CorrelationId.current_id.to_s,
         project_id: project.id,
         project_path: project.full_path,
         message: "Error creating pipeline",
-        errors: exception.to_s,
+        errors: error_message,
         pipeline_params: sanitized_pipeline_params
       }
 
@@ -172,7 +194,7 @@ module Git
       else
         # This service runs in Sidekiq, so this shouldn't ever be
         # called, but this is included just in case.
-        Gitlab::ProjectServiceLogger
+        Gitlab::IntegrationsLogger
       end
     end
   end

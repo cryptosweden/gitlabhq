@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Usage::ServicePingReport, :use_clean_rails_memory_store_caching do
+RSpec.describe Gitlab::Usage::ServicePingReport, :use_clean_rails_memory_store_caching, feature_category: :service_ping do
   include UsageDataHelpers
 
-  let(:usage_data) { { uuid: "1111", counts: { issue: 0 } } }
+  let(:usage_data) { { uuid: "1111", counts: { issue: 0 } }.deep_stringify_keys }
 
   before do
     allow_next_instance_of(Gitlab::Usage::ServicePing::PayloadKeysProcessor) do |instance|
@@ -20,7 +20,7 @@ RSpec.describe Gitlab::Usage::ServicePingReport, :use_clean_rails_memory_store_c
   context 'all_metrics_values' do
     it 'generates the service ping when there are no missing values' do
       expect(Gitlab::UsageData).to receive(:data).and_return(usage_data)
-      expect(described_class.for(output: :all_metrics_values)).to eq({ uuid: "1111", counts: { issue: 0 } })
+      expect(described_class.for(output: :all_metrics_values)).to eq({ uuid: "1111", counts: { issue: 0 } }.deep_stringify_keys)
     end
 
     it 'generates the service ping with the missing values' do
@@ -33,7 +33,24 @@ RSpec.describe Gitlab::Usage::ServicePingReport, :use_clean_rails_memory_store_c
       end
 
       expect(Gitlab::UsageData).to receive(:data).and_return(usage_data)
-      expect(described_class.for(output: :all_metrics_values)).to eq({ uuid: "1111", counts: { issue: 0, boards: 1 } })
+      expect(described_class.for(output: :all_metrics_values)).to eq({ uuid: "1111", counts: { issue: 0, boards: 1 } }.deep_stringify_keys)
+    end
+
+    context 'with usage data payload with symbol keys and instrumented payload with string keys' do
+      let(:usage_data) { { uuid: "1111", counts: { issue: 0 } } }
+
+      it 'correctly merges string and symbol keys' do
+        expect_next_instance_of(Gitlab::Usage::ServicePing::PayloadKeysProcessor, usage_data) do |instance|
+          expect(instance).to receive(:missing_instrumented_metrics_key_paths).and_return(['counts.boards'])
+        end
+
+        expect_next_instance_of(Gitlab::Usage::ServicePing::InstrumentedPayload, ['counts.boards'], :with_value) do |instance|
+          expect(instance).to receive(:build).and_return({ 'counts' => { 'boards' => 1 } })
+        end
+
+        expect(Gitlab::UsageData).to receive(:data).and_return(usage_data)
+        expect(described_class.for(output: :all_metrics_values)).to eq({ uuid: "1111", counts: { issue: 0, boards: 1 } }.deep_stringify_keys)
+      end
     end
   end
 
@@ -54,93 +71,61 @@ RSpec.describe Gitlab::Usage::ServicePingReport, :use_clean_rails_memory_store_c
   end
 
   context 'when using cached' do
-    context 'for cached: true' do
-      let(:new_usage_data) { { uuid: "1112" } }
+    let(:new_usage_data) { { 'uuid' => '1112' } }
+    let(:instrumented_payload) { { 'instrumented' => { 'metric' => 1 } } }
+    let(:full_payload) { usage_data.merge(instrumented_payload) }
+    let(:new_full_payload) { new_usage_data.merge(instrumented_payload) }
 
+    before do
+      allow_next_instance_of(Gitlab::Usage::ServicePing::InstrumentedPayload) do |instance|
+        allow(instance).to receive(:build).and_return(instrumented_payload)
+      end
+    end
+
+    context 'for cached: true' do
       it 'caches the values' do
         allow(Gitlab::UsageData).to receive(:data).and_return(usage_data, new_usage_data)
 
-        expect(described_class.for(output: :all_metrics_values)).to eq(usage_data)
-        expect(described_class.for(output: :all_metrics_values, cached: true)).to eq(usage_data)
+        expect(described_class.for(output: :all_metrics_values)).to eq(full_payload)
+        expect(described_class.for(output: :all_metrics_values, cached: true)).to eq(full_payload)
 
-        expect(Rails.cache.fetch('usage_data')).to eq(usage_data)
+        expect(Rails.cache.fetch('usage_data')).to eq(full_payload)
       end
 
       it 'writes to cache and returns fresh data' do
         allow(Gitlab::UsageData).to receive(:data).and_return(usage_data, new_usage_data)
 
-        expect(described_class.for(output: :all_metrics_values)).to eq(usage_data)
-        expect(described_class.for(output: :all_metrics_values)).to eq(new_usage_data)
-        expect(described_class.for(output: :all_metrics_values, cached: true)).to eq(new_usage_data)
+        expect(described_class.for(output: :all_metrics_values)).to eq(full_payload)
+        expect(described_class.for(output: :all_metrics_values)).to eq(new_full_payload)
+        expect(described_class.for(output: :all_metrics_values, cached: true)).to eq(new_full_payload)
 
-        expect(Rails.cache.fetch('usage_data')).to eq(new_usage_data)
+        expect(Rails.cache.fetch('usage_data')).to eq(new_full_payload)
       end
     end
 
     context 'when no caching' do
-      let(:new_usage_data) { { uuid: "1112" } }
-
       it 'returns fresh data' do
         allow(Gitlab::UsageData).to receive(:data).and_return(usage_data, new_usage_data)
 
-        expect(described_class.for(output: :all_metrics_values)).to eq(usage_data)
-        expect(described_class.for(output: :all_metrics_values)).to eq(new_usage_data)
+        expect(described_class.for(output: :all_metrics_values)).to eq(full_payload)
+        expect(described_class.for(output: :all_metrics_values)).to eq(new_full_payload)
 
-        expect(Rails.cache.fetch('usage_data')).to eq(new_usage_data)
+        expect(Rails.cache.fetch('usage_data')).to eq(new_full_payload)
       end
     end
   end
 
   context 'cross test values against queries' do
-    # TODO: fix failing metrics https://gitlab.com/gitlab-org/gitlab/-/issues/353559
-    let(:failing_todo_metrics) do
-      ["counts.labels",
-       "counts.jira_imports_total_imported_issues_count",
-       "counts.in_product_marketing_email_create_0_sent",
-       "counts.in_product_marketing_email_create_0_cta_clicked",
-       "counts.in_product_marketing_email_create_1_sent",
-       "counts.in_product_marketing_email_create_1_cta_clicked",
-       "counts.in_product_marketing_email_create_2_sent",
-       "counts.in_product_marketing_email_create_2_cta_clicked",
-       "counts.in_product_marketing_email_verify_0_sent",
-       "counts.in_product_marketing_email_verify_0_cta_clicked",
-       "counts.in_product_marketing_email_verify_1_sent",
-       "counts.in_product_marketing_email_verify_1_cta_clicked",
-       "counts.in_product_marketing_email_verify_2_sent",
-       "counts.in_product_marketing_email_verify_2_cta_clicked",
-       "counts.in_product_marketing_email_trial_0_sent",
-       "counts.in_product_marketing_email_trial_0_cta_clicked",
-       "counts.in_product_marketing_email_trial_1_sent",
-       "counts.in_product_marketing_email_trial_1_cta_clicked",
-       "counts.in_product_marketing_email_trial_2_sent",
-       "counts.in_product_marketing_email_trial_2_cta_clicked",
-       "counts.in_product_marketing_email_team_0_sent",
-       "counts.in_product_marketing_email_team_0_cta_clicked",
-       "counts.in_product_marketing_email_team_1_sent",
-       "counts.in_product_marketing_email_team_1_cta_clicked",
-       "counts.in_product_marketing_email_team_2_sent",
-       "counts.in_product_marketing_email_team_2_cta_clicked",
-       "counts.in_product_marketing_email_experience_0_sent",
-       "counts.in_product_marketing_email_team_short_0_sent",
-       "counts.in_product_marketing_email_team_short_0_cta_clicked",
-       "counts.in_product_marketing_email_trial_short_0_sent",
-       "counts.in_product_marketing_email_trial_short_0_cta_clicked",
-       "counts.in_product_marketing_email_admin_verify_0_sent",
-       "counts.in_product_marketing_email_admin_verify_0_cta_clicked",
-       "counts.ldap_users",
-       "usage_activity_by_stage.create.projects_with_sectional_code_owner_rules",
-       "usage_activity_by_stage.monitor.clusters_integrations_prometheus",
-       "usage_activity_by_stage.monitor.projects_with_enabled_alert_integrations_histogram",
-       "usage_activity_by_stage_monthly.create.projects_with_sectional_code_owner_rules",
-       "usage_activity_by_stage_monthly.monitor.clusters_integrations_prometheus"]
-    end
-
     def fetch_value_by_query(query)
       # Because test cases are run inside a transaction, if any query raise and error all queries that follows
       # it are automatically canceled by PostgreSQL, to avoid that problem, and to provide exhaustive information
       # about every metric, queries are wrapped explicitly in sub transactions.
-      ApplicationRecord.transaction do
-        ApplicationRecord.connection.execute(query)&.first&.values&.first
+      table_name = PgQuery.parse(query).tables.first
+      gitlab_schema = Gitlab::Database::GitlabSchema.table_schema!(table_name)
+      base_model = Gitlab::Database.schemas_to_base_models.fetch(gitlab_schema).first
+
+      base_model.transaction do
+        base_model.connection.execute(query)&.first&.values&.first
       end
     rescue ActiveRecord::StatementInvalid => e
       e.message
@@ -157,6 +142,24 @@ RSpec.describe Gitlab::Usage::ServicePingReport, :use_clean_rails_memory_store_c
       accumulator
     end
 
+    def type_cast_to_defined_type(value, metric_definition)
+      case metric_definition&.value_type
+      when "string"
+        value.to_s
+      when "number"
+        value.to_i
+      when "object"
+        case metric_definition&.json_schema&.fetch("type")
+        when "array"
+          value.to_a
+        else
+          value.to_h
+        end
+      else
+        value
+      end
+    end
+
     before do
       stub_usage_data_connections
       stub_object_store_settings
@@ -169,16 +172,28 @@ RSpec.describe Gitlab::Usage::ServicePingReport, :use_clean_rails_memory_store_c
 
     let(:service_ping_payload) { described_class.for(output: :all_metrics_values) }
     let(:metrics_queries_with_values) { build_payload_from_queries(described_class.for(output: :metrics_queries)) }
+    let(:metric_definitions) { ::Gitlab::Usage::MetricDefinition.definitions }
 
     it 'generates queries that match collected data', :aggregate_failures do
-      message = "Expected %{query} result to match %{value} for %{key_path} metric"
+      message = "Expected %{query} result to match %{value} for %{key_path} metric (got %{payload_value} instead)"
 
       metrics_queries_with_values.each do |key_path, query, value|
-        next if failing_todo_metrics.include?(key_path.join('.'))
+        metric_definition = metric_definitions[key_path.join('.')]
+
+        # Skip broken metrics since they are usually overriden to return -1
+        next if metric_definition&.broken?
+
+        value = type_cast_to_defined_type(value, metric_definition)
+        payload_value = service_ping_payload.dig(*key_path)
 
         expect(value).to(
-          eq(service_ping_payload.dig(*key_path)),
-          message % { query: query, value: (value || 'NULL'), key_path: key_path.join('.') }
+          eq(payload_value),
+          message % {
+            query: query,
+            value: (value || 'NULL'),
+            payload_value: payload_value,
+            key_path: key_path.join('.')
+          }
         )
       end
     end

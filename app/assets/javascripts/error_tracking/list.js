@@ -7,21 +7,18 @@ export default () => {
   const selector = '#js-error_tracking';
 
   const domEl = document.querySelector(selector);
-  const {
-    indexPath,
-    enableErrorTrackingLink,
-    illustrationPath,
-    projectPath,
-    listPath,
-  } = domEl.dataset;
+  const { indexPath, enableErrorTrackingLink, illustrationPath, projectPath, listPath } =
+    domEl.dataset;
   let {
     errorTrackingEnabled,
     userCanEnableErrorTracking,
     showIntegratedTrackingDisabledAlert,
+    integratedErrorTrackingEnabled,
   } = domEl.dataset;
 
   errorTrackingEnabled = parseBoolean(errorTrackingEnabled);
   userCanEnableErrorTracking = parseBoolean(userCanEnableErrorTracking);
+  integratedErrorTrackingEnabled = parseBoolean(integratedErrorTrackingEnabled);
   showIntegratedTrackingDisabledAlert = parseBoolean(showIntegratedTrackingDisabledAlert);
 
   // eslint-disable-next-line no-new
@@ -42,6 +39,7 @@ export default () => {
           projectPath,
           listPath,
           showIntegratedTrackingDisabledAlert,
+          integratedErrorTrackingEnabled,
         },
       });
     },

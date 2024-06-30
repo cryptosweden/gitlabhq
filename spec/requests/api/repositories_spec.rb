@@ -3,7 +3,7 @@
 require 'spec_helper'
 require 'mime/types'
 
-RSpec.describe API::Repositories do
+RSpec.describe API::Repositories, feature_category: :source_code_management do
   include RepoHelpers
   include WorkhorseHelpers
   include ProjectForksHelper
@@ -34,6 +34,52 @@ RSpec.describe API::Repositories do
         it_behaves_like '404 response' do
           let(:request) { get api("#{route}?ref=foo", current_user) }
           let(:message) { '404 Tree Not Found' }
+        end
+      end
+
+      context 'when path does not exist' do
+        let(:path) { 'bogus' }
+
+        context 'when handle_structured_gitaly_errors feature is disabled' do
+          before do
+            stub_feature_flags(handle_structured_gitaly_errors: false)
+          end
+
+          it 'returns an empty array' do
+            get api("#{route}?path=#{path}", current_user)
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to include_pagination_headers
+            expect(json_response).to be_an(Array)
+            expect(json_response).to be_an_empty
+          end
+        end
+
+        context 'when handle_structured_gitaly_errors feature is enabled' do
+          before do
+            stub_feature_flags(handle_structured_gitaly_errors: true)
+          end
+
+          it_behaves_like '404 response' do
+            let(:request) { get api("#{route}?path=#{path}", current_user) }
+            let(:message) { '404 invalid revision or path Not Found' }
+          end
+        end
+      end
+
+      context 'when path is empty directory ' do
+        context 'when handle_structured_gitaly_errors feature is disabled' do
+          before do
+            stub_feature_flags(handle_structured_gitaly_errors: false)
+          end
+
+          it 'returns an empty array' do
+            get api(route, current_user)
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to include_pagination_headers
+            expect(json_response).to be_an(Array)
+          end
         end
       end
 
@@ -90,6 +136,32 @@ RSpec.describe API::Repositories do
           expect(json_response).to be_an(Array)
           expect(json_response).not_to eq(first_response)
           expect(json_response.map { |t| t["id"] }).not_to include(page_token)
+        end
+      end
+
+      context 'with pagination=none' do
+        context 'with recursive=1' do
+          it 'returns unpaginated recursive project paths tree' do
+            get api("#{route}?recursive=1&pagination=none", current_user)
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response).to be_an Array
+            expect(response).not_to include_pagination_headers
+            expect(json_response[4]['name']).to eq('html')
+            expect(json_response[4]['path']).to eq('files/html')
+            expect(json_response[4]['type']).to eq('tree')
+            expect(json_response[4]['mode']).to eq('040000')
+          end
+        end
+
+        context 'with recursive=0' do
+          it 'returns 400' do
+            get api("#{route}?recursive=0&pagination=none", current_user)
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(json_response['error'])
+              .to eq('pagination cannot be "none" unless "recursive" is true')
+          end
         end
       end
     end
@@ -210,7 +282,6 @@ RSpec.describe API::Repositories do
         get api(route, current_user)
 
         expect(response.headers["Cache-Control"]).to eq("max-age=0, private, must-revalidate, no-store, no-cache")
-        expect(response.headers["Pragma"]).to eq("no-cache")
         expect(response.headers["Expires"]).to eq("Fri, 01 Jan 1990 00:00:00 GMT")
       end
 
@@ -274,7 +345,7 @@ RSpec.describe API::Repositories do
         type, params = workhorse_send_data
 
         expect(type).to eq('git-archive')
-        expect(params['ArchivePath']).to match(/#{project.path}\-[^\.]+\.tar.gz/)
+        expect(params['ArchivePath']).to match(/#{project.path}-[^.]+\.tar.gz/)
         expect(response.parsed_body).to be_empty
       end
 
@@ -286,7 +357,7 @@ RSpec.describe API::Repositories do
         type, params = workhorse_send_data
 
         expect(type).to eq('git-archive')
-        expect(params['ArchivePath']).to match(/#{project.path}\-[^\.]+\.zip/)
+        expect(params['ArchivePath']).to match(/#{project.path}-[^.]+\.zip/)
       end
 
       it 'returns the repository archive archive.tar.bz2' do
@@ -297,7 +368,7 @@ RSpec.describe API::Repositories do
         type, params = workhorse_send_data
 
         expect(type).to eq('git-archive')
-        expect(params['ArchivePath']).to match(/#{project.path}\-[^\.]+\.tar.bz2/)
+        expect(params['ArchivePath']).to match(/#{project.path}-[^.]+\.tar.bz2/)
       end
 
       context 'when sha does not exist' do
@@ -316,7 +387,7 @@ RSpec.describe API::Repositories do
         type, params = workhorse_send_data
 
         expect(type).to eq('git-archive')
-        expect(params['ArchivePath']).to match(/#{project.path}\-[^\.]+\-#{path}\.tar.gz/)
+        expect(params['ArchivePath']).to match(/#{project.path}-[^.]+-#{path}\.tar.gz/)
       end
 
       it 'rate limits user when thresholds hit' do
@@ -327,15 +398,9 @@ RSpec.describe API::Repositories do
         expect(response).to have_gitlab_http_status(:too_many_requests)
       end
 
-      context "when hotlinking detection is enabled" do
-        before do
-          stub_feature_flags(repository_archive_hotlinking_interception: true)
-        end
-
-        it_behaves_like "hotlink interceptor" do
-          let(:http_request) do
-            get api(route, current_user), headers: headers
-          end
+      it_behaves_like "hotlink interceptor" do
+        let(:http_request) do
+          get api(route, current_user), headers: headers
         end
       end
     end
@@ -473,6 +538,18 @@ RSpec.describe API::Repositories do
         expect(json_response['compare_same_ref']).to be_truthy
       end
 
+      context 'when unidiff format is requested' do
+        let(:commit) { project.repository.commit('feature') }
+        let(:diff) { commit.diffs.diffs.first }
+
+        it 'returns a diff in Unified format' do
+          get api(route, current_user), params: { from: 'master', to: 'feature', unidiff: true }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response.dig('diffs', 0, 'diff')).to eq(diff.unidiff)
+        end
+      end
+
       it "returns an empty string when the diff overflows" do
         allow(Gitlab::Git::DiffCollection)
           .to receive(:default_limits)
@@ -553,6 +630,22 @@ RSpec.describe API::Repositories do
     context 'when authenticated', 'as a developer' do
       it_behaves_like 'repository compare' do
         let(:current_user) { user }
+
+        context 'when user does not have read access to the parent project' do
+          let_it_be(:group) { create(:group) }
+          let(:forked_project) { fork_project(project, current_user, repository: true, namespace: group) }
+
+          before do
+            forked_project.add_guest(current_user)
+          end
+
+          it 'returns 403 error' do
+            get api(route, current_user), params: { from: 'improve/awesome', to: 'feature', from_project_id: forked_project.id }
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+            expect(json_response['message']).to eq("403 Forbidden - You don't have access to this fork's parent project")
+          end
+        end
       end
     end
 
@@ -649,7 +742,7 @@ RSpec.describe API::Repositories do
 
   describe 'GET :id/repository/merge_base' do
     let(:refs) do
-      %w(304d257dcb821665ab5110318fc58a007bd104ed 0031876facac3f2b2702a0e53a26e89939a42209 570e7b2abdd848b95f2f578043fc23bd6f6fd24d)
+      %w[304d257dcb821665ab5110318fc58a007bd104ed 0031876facac3f2b2702a0e53a26e89939a42209 570e7b2abdd848b95f2f578043fc23bd6f6fd24d]
     end
 
     subject(:request) do
@@ -693,7 +786,7 @@ RSpec.describe API::Repositories do
 
     context 'when passing refs that do not exist' do
       it_behaves_like '400 response' do
-        let(:refs) { %w(304d257dcb821665ab5110318fc58a007bd104ed missing) }
+        let(:refs) { %w[304d257dcb821665ab5110318fc58a007bd104ed missing] }
         let(:current_user) { user }
         let(:message) { 'Could not find ref: missing' }
       end
@@ -708,7 +801,7 @@ RSpec.describe API::Repositories do
     end
 
     context 'when not enough refs are passed' do
-      let(:refs) { %w(only-one) }
+      let(:refs) { %w[only-one] }
       let(:current_user) { user }
 
       it 'renders a bad request error' do
@@ -782,6 +875,40 @@ RSpec.describe API::Repositories do
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['notes']).to be_present
+    end
+
+    it 'supports specified config file path' do
+      spy = instance_spy(Repositories::ChangelogService)
+
+      expect(Repositories::ChangelogService)
+        .to receive(:new)
+        .with(
+          project,
+          user,
+          version: '1.0.0',
+          from: 'foo',
+          to: 'bar',
+          date: DateTime.new(2020, 1, 1),
+          trailer: 'Foo',
+          config_file: 'specified_changelog_config.yml'
+        )
+        .and_return(spy)
+
+      expect(spy).to receive(:execute).with(commit_to_changelog: false)
+
+      get(
+        api("/projects/#{project.id}/repository/changelog", user),
+        params: {
+          version: '1.0.0',
+          from: 'foo',
+          to: 'bar',
+          date: '2020-01-01',
+          trailer: 'Foo',
+          config_file: 'specified_changelog_config.yml'
+        }
+      )
+
+      expect(response).to have_gitlab_http_status(:ok)
     end
 
     context 'when previous tag version does not exist' do
@@ -904,6 +1031,46 @@ RSpec.describe API::Repositories do
 
       expect(response).to have_gitlab_http_status(:unprocessable_entity)
       expect(json_response['message']).to eq('Failed to generate the changelog: oops')
+    end
+
+    it "support specified config file path" do
+      spy = instance_spy(Repositories::ChangelogService)
+
+      expect(Repositories::ChangelogService)
+        .to receive(:new)
+        .with(
+          project,
+          user,
+          version: '1.0.0',
+          from: 'foo',
+          to: 'bar',
+          date: DateTime.new(2020, 1, 1),
+          branch: 'kittens',
+          trailer: 'Foo',
+          config_file: 'specified_changelog_config.yml',
+          file: 'FOO.md',
+          message: 'Commit message'
+        )
+        .and_return(spy)
+
+      allow(spy).to receive(:execute).with(commit_to_changelog: true)
+
+      post(
+        api("/projects/#{project.id}/repository/changelog", user),
+        params: {
+          version: '1.0.0',
+          from: 'foo',
+          to: 'bar',
+          date: '2020-01-01',
+          branch: 'kittens',
+          trailer: 'Foo',
+          config_file: 'specified_changelog_config.yml',
+          file: 'FOO.md',
+          message: 'Commit message'
+        }
+      )
+
+      expect(response).to have_gitlab_http_status(:ok)
     end
   end
 end

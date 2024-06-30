@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe WikiHelper do
+RSpec.describe WikiHelper, feature_category: :wiki do
   describe '#wiki_page_title' do
     let_it_be(:page) { create(:wiki_page) }
 
@@ -75,53 +75,43 @@ RSpec.describe WikiHelper do
 
   describe '#wiki_sort_controls' do
     let(:wiki) { create(:project_wiki) }
-    let(:wiki_link) { helper.wiki_sort_controls(wiki, sort, direction) }
-    let(:classes) { "gl-button btn btn-default btn-icon has-tooltip reverse-sort-btn qa-reverse-sort rspec-reverse-sort" }
 
-    def expected_link(sort, direction, icon_class)
-      path = "/#{wiki.project.full_path}/-/wikis/pages?direction=#{direction}&sort=#{sort}"
+    before do
+      allow(Pajamas::ButtonComponent).to receive(:new).and_call_original
+    end
 
-      helper.link_to(path, type: 'button', class: classes, title: 'Sort direction') do
-        helper.sprite_icon("sort-#{icon_class}")
+    def expected_link_args(direction, icon_class)
+      path = "/#{wiki.project.full_path}/-/wikis/pages?direction=#{direction}"
+      title = direction == 'desc' ? _('Sort direction: Ascending') : _('Sort direction: Descending')
+      {
+        href: path,
+        icon: "sort-#{icon_class}",
+        button_options: hash_including(title: title)
+      }
+    end
+
+    context 'when initially rendering' do
+      it 'uses default values' do
+        helper.wiki_sort_controls(wiki, nil)
+
+        expect(Pajamas::ButtonComponent).to have_received(:new).with(expected_link_args('desc', 'lowest'))
       end
     end
 
-    context 'initial call' do
-      let(:sort) { nil }
-      let(:direction) { nil }
-
-      it 'renders with default values' do
-        expect(wiki_link).to eq(expected_link('title', 'desc', 'lowest'))
-      end
-    end
-
-    context 'sort by title' do
-      let(:sort) { 'title' }
-      let(:direction) { 'asc' }
-
+    context 'when the current sort order is ascending' do
       it 'renders a link with opposite direction' do
-        expect(wiki_link).to eq(expected_link('title', 'desc', 'lowest'))
+        helper.wiki_sort_controls(wiki, 'asc')
+
+        expect(Pajamas::ButtonComponent).to have_received(:new).with(expected_link_args('desc', 'lowest'))
       end
     end
 
-    context 'sort by created_at' do
-      let(:sort) { 'created_at' }
-      let(:direction) { 'desc' }
-
+    context 'when the current sort order is descending' do
       it 'renders a link with opposite direction' do
-        expect(wiki_link).to eq(expected_link('created_at', 'asc', 'highest'))
+        helper.wiki_sort_controls(wiki, 'desc')
+
+        expect(Pajamas::ButtonComponent).to have_received(:new).with(expected_link_args('asc', 'highest'))
       end
-    end
-  end
-
-  describe '#wiki_sort_title' do
-    it 'returns a title corresponding to a key' do
-      expect(helper.wiki_sort_title('created_at')).to eq('Created date')
-      expect(helper.wiki_sort_title('title')).to eq('Title')
-    end
-
-    it 'defaults to Title if a key is unknown' do
-      expect(helper.wiki_sort_title('unknown')).to eq('Title')
     end
   end
 
@@ -132,11 +122,11 @@ RSpec.describe WikiHelper do
 
     it 'returns the tracking context' do
       expect(subject).to eq(
-        'wiki-format'               => :markdown,
-        'wiki-title-size'           => 9,
-        'wiki-content-size'         => 4,
+        'wiki-format' => :markdown,
+        'wiki-title-size' => 9,
+        'wiki-content-size' => 4,
         'wiki-directory-nest-level' => 2,
-        'wiki-container-type'       => 'Project'
+        'wiki-container-type' => 'Project'
       )
     end
 
@@ -144,5 +134,9 @@ RSpec.describe WikiHelper do
       expect(page).to receive(:path).and_return('page')
       expect(subject).to include('wiki-directory-nest-level' => 0)
     end
+  end
+
+  it_behaves_like 'wiki endpoint helpers' do
+    let_it_be(:page) { create(:wiki_page) }
   end
 end

@@ -8,20 +8,26 @@ module UsersHelper
     }
   end
 
+  def user_clear_status_at(user)
+    # The user.status can be nil when the user has no status, so we need to protect against that case.
+    # iso8601 is the official RFC supported format for frontend parsing of date:
+    # https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/Date
+    user.status&.clear_status_at&.to_fs(:iso8601)
+  end
+
   def user_link(user)
-    link_to(user.name, user_path(user),
-            title: user.email,
-            class: 'has-tooltip commit-committer-link')
+    link_to(user.name, user_path(user), title: user.email, class: 'has-tooltip commit-committer-link')
   end
 
   def user_email_help_text(user)
-    return 'We also use email for avatar detection if no avatar is uploaded' unless user.unconfirmed_email.present?
+    return _('We also use email for avatar detection if no avatar is uploaded.') unless user.unconfirmed_email.present?
 
-    confirmation_link = link_to 'Resend confirmation e-mail', user_confirmation_path(user: { email: @user.unconfirmed_email }), method: :post
-
-    h('Please click the link in the confirmation email before continuing. It was sent to ') +
-      content_tag(:strong) { user.unconfirmed_email } + h('.') +
-      content_tag(:p) { confirmation_link }
+    confirmation_link = link_to _('Resend confirmation e-mail'), user_confirmation_path(user: { email: user.unconfirmed_email }), method: :post
+    (h(_('Please click the link in the confirmation email before continuing. It was sent to %{html_tag_strong_start}%{email}%{html_tag_strong_end}.')) % {
+      html_tag_strong_start: '<strong>'.html_safe,
+      html_tag_strong_end: '</strong>'.html_safe,
+      email: user.unconfirmed_email
+    }) + content_tag(:p) { confirmation_link }
   end
 
   def profile_tabs
@@ -52,25 +58,26 @@ module UsersHelper
   end
 
   # Used to preload when you are rendering many projects and checking access
-  #
-  # rubocop: disable CodeReuse/ActiveRecord: `projects` can be array which also responds to pluck
   def load_max_project_member_accesses(projects)
-    current_user&.max_member_access_for_project_ids(projects.pluck(:id))
+    # There are two different request store paradigms for max member access and
+    # we need to preload both of them. One is keyed User the other is keyed by
+    # Project. See https://gitlab.com/gitlab-org/gitlab/-/issues/396822
+
+    # rubocop: disable CodeReuse/ActiveRecord: `projects` can be array which also responds to pluck
+    project_ids = projects.pluck(:id)
+    # rubocop: enable CodeReuse/ActiveRecord
+
+    preload_project_associations(projects)
+
+    Preloaders::UserMaxAccessLevelInProjectsPreloader
+      .new(project_ids, current_user)
+      .execute
+
+    current_user&.max_member_access_for_project_ids(project_ids)
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def max_project_member_access(project)
     current_user&.max_member_access_for_project(project.id) || Gitlab::Access::NO_ACCESS
-  end
-
-  def max_project_member_access_cache_key(project)
-    "access:#{max_project_member_access(project)}"
-  end
-
-  def show_status_emoji?(status)
-    return false unless status
-
-    status.message.present? || status.emoji != UserStatus::DEFAULT_EMOJI
   end
 
   def user_status(user)
@@ -84,9 +91,9 @@ module UsersHelper
     return unless user.status
 
     content_tag :span,
-                class: 'user-status-emoji has-tooltip',
-                title: user.status.message_html,
-                data: { html: true, placement: 'top' } do
+      class: 'user-status-emoji has-tooltip',
+      title: user.status.message_html,
+      data: { html: true, placement: 'top' } do
       emoji_icon user.status.emoji
     end
   end
@@ -95,10 +102,30 @@ module UsersHelper
     Gitlab.config.gitlab.impersonation_enabled
   end
 
+  def can_impersonate_user(user, impersonation_in_progress)
+    can?(user, :log_in) && !user.password_expired? && !impersonation_in_progress
+  end
+
+  def impersonation_error_text(user, impersonation_in_progress)
+    if impersonation_in_progress
+      _("You are already impersonating another user")
+    elsif user.blocked?
+      _("You cannot impersonate a blocked user")
+    elsif user.password_expired?
+      _("You cannot impersonate a user with an expired password")
+    elsif user.internal?
+      _("You cannot impersonate an internal user")
+    else
+      _("You cannot impersonate a user who cannot log in")
+    end
+  end
+
   def user_badges_in_admin_section(user)
     [].tap do |badges|
       badges << blocked_user_badge(user) if user.blocked?
-      badges << { text: s_('AdminUsers|Admin'), variant: 'success' } if user.admin?
+      badges << { text: s_('AdminUsers|Admin'), variant: 'success' } if user.admin? # rubocop:disable Cop/UserAdmin
+      badges << { text: s_('AdminUsers|Bot'), variant: 'muted' } if user.bot?
+      badges << { text: s_('AdminUsers|Deactivated'), variant: 'danger' } if user.deactivated?
       badges << { text: s_('AdminUsers|External'), variant: 'secondary' } if user.external?
       badges << { text: s_("AdminUsers|It's you!"), variant: 'muted' } if current_user == user
       badges << { text: s_("AdminUsers|Locked"), variant: 'warning' } if user.access_locked?
@@ -124,13 +151,9 @@ module UsersHelper
     !user.confirmed?
   end
 
-  def ban_feature_available?
-    Feature.enabled?(:ban_user_feature_flag, default_enabled: :yaml)
-  end
-
   def confirm_user_data(user)
     message = if user.unconfirmed_email.present?
-                _('This user has an unconfirmed email address (%{email}). You may force a confirmation.') % { email: user.unconfirmed_email }
+                safe_format(_('This user has an unconfirmed email address (%{email}). You may force a confirmation.'), email: user.unconfirmed_email)
               else
                 _('This user has an unconfirmed email address. You may force a confirmation.')
               end
@@ -140,7 +163,7 @@ module UsersHelper
       messageHtml: message,
       actionPrimary: {
         text: s_('AdminUsers|Confirm user'),
-        attributes: [{ variant: 'info', 'data-qa-selector': 'confirm_user_confirm_button' }]
+        attributes: [{ variant: 'confirm', 'data-testid': 'confirm-user-confirm-button' }]
       },
       actionSecondary: {
         text: _('Cancel'),
@@ -152,7 +175,7 @@ module UsersHelper
       path: confirm_admin_user_path(user),
       method: 'put',
       modal_attributes: modal_attributes,
-      qa_selector: 'confirm_user_button'
+      testid: 'confirm-user-button'
     }
   end
 
@@ -176,6 +199,50 @@ module UsersHelper
     user.public_email.present?
   end
 
+  def user_profile_tabs_app_data(user)
+    {
+      followees_count: user.followees.count,
+      followers_count: user.followers.count,
+      user_calendar_path: user_calendar_path(user, :json),
+      user_activity_path: user_activity_path(user, :json),
+      utc_offset: local_timezone_instance(user.timezone).now.utc_offset,
+      user_id: user.id,
+      snippets_empty_state: image_path('illustrations/empty-state/empty-snippets-md.svg'),
+      new_snippet_path: (new_snippet_path if can?(current_user, :create_snippet)),
+      follow_empty_state: image_path('illustrations/empty-state/empty-friends-md.svg')
+    }
+  end
+
+  def moderation_status(user)
+    return unless user.present?
+
+    if user.banned?
+      _('Banned')
+    elsif user.blocked?
+      _('Blocked')
+    else
+      _('Active')
+    end
+  end
+
+  def user_profile_actions_data(user)
+    basic_actions_data = {
+      user_id: user.id
+    }
+
+    if can?(current_user, :read_user_profile, user)
+      basic_actions_data[:rss_subscription_path] = user_path(user, rss_url_options)
+    end
+
+    return basic_actions_data if !current_user || current_user == user
+
+    basic_actions_data.merge(
+      report_abuse_path: add_category_abuse_reports_path,
+      reported_user_id: user.id,
+      reported_from_url: user_url(user)
+    )
+  end
+
   private
 
   def admin_users_paths
@@ -192,7 +259,9 @@ module UsersHelper
       delete_with_contributions: admin_user_path(:id, hard_delete: true),
       admin_user: admin_user_path(:id),
       ban: ban_admin_user_path(:id),
-      unban: unban_admin_user_path(:id)
+      unban: unban_admin_user_path(:id),
+      trust: trust_admin_user_path(:id),
+      untrust: untrust_admin_user_path(:id)
     }
   end
 
@@ -202,6 +271,9 @@ module UsersHelper
 
     banned_badge = { text: s_('AdminUsers|Banned'), variant: 'danger' }
     return banned_badge if user.banned?
+
+    ldap_blocked_badge = { text: s_('AdminUsers|LDAP Blocked'), variant: 'danger' }
+    return ldap_blocked_badge if user.ldap_blocked?
 
     { text: s_('AdminUsers|Blocked'), variant: 'danger' }
   end
@@ -216,14 +288,6 @@ module UsersHelper
     tabs
   end
 
-  def trials_link_url
-    'https://about.gitlab.com/free-trial/'
-  end
-
-  def trials_allowed?(user)
-    false
-  end
-
   def get_current_user_menu_items
     items = []
 
@@ -234,7 +298,6 @@ module UsersHelper
     items << :help
     items << :profile if can?(current_user, :read_user, current_user)
     items << :settings if can?(current_user, :update_user, current_user)
-    items << :start_trial if trials_allowed?(current_user)
 
     items
   end
@@ -263,30 +326,30 @@ module UsersHelper
     if with_schema_markup
       job_title = '<span itemprop="jobTitle">'.html_safe + job_title + "</span>".html_safe
       organization = '<span itemprop="worksFor">'.html_safe + organization + "</span>".html_safe
-    end
 
-    html_escape(s_('Profile|%{job_title} at %{organization}')) % { job_title: job_title, organization: organization }
+      ERB::Util.html_escape(s_('Profile|%{job_title} at %{organization}')) % { job_title: job_title, organization: organization }
+    else
+      s_('Profile|%{job_title} at %{organization}') % { job_title: job_title, organization: organization }
+    end
   end
 
-  def user_table_headers
-    [
-      {
-        section_class_name: 'section-40',
-        header_text: _('Name')
-      },
-      {
-        section_class_name: 'section-10',
-        header_text: _('Projects')
-      },
-      {
-        section_class_name: 'section-15',
-        header_text: _('Created on')
-      },
-      {
-        section_class_name: 'section-15',
-        header_text: _('Last activity')
-      }
-    ]
+  # the keys should match the user model defined roles in app/models/user.rb
+  def localized_user_roles
+    {
+      software_developer: s_('User|Software Developer'),
+      development_team_lead: s_('User|Development Team Lead'),
+      devops_engineer: s_('User|Devops Engineer'),
+      systems_administrator: s_('User|Systems Administrator'),
+      security_analyst: s_('User|Security Analyst'),
+      data_analyst: s_('User|Data Analyst'),
+      product_manager: s_('User|Product Manager'),
+      product_designer: s_('User|Product Designer'),
+      other: s_('User|Other')
+    }.with_indifferent_access.freeze
+  end
+
+  def preload_project_associations(_)
+    # Overridden in EE
   end
 end
 

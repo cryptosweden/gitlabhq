@@ -2,12 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Project > Settings > CI/CD > Container registry tag expiration policy', :js do
+RSpec.describe 'Project > Settings > Packages and registries > Container registry tag expiration policy',
+  feature_category: :container_registry do
   let_it_be(:user) { create(:user) }
   let_it_be(:project, reload: true) { create(:project, namespace: user.namespace) }
 
   let(:container_registry_enabled) { true }
   let(:container_registry_enabled_on_project) { ProjectFeature::ENABLED }
+
+  let(:help_page_href) { help_page_path('administration/packages/container_registry_metadata_database') }
 
   subject { visit project_settings_packages_and_registries_path(project) }
 
@@ -17,50 +20,50 @@ RSpec.describe 'Project > Settings > CI/CD > Container registry tag expiration p
 
     sign_in(user)
     stub_container_registry_config(enabled: container_registry_enabled)
+    allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
   end
 
-  context 'as owner' do
+  context 'as owner', :js do
+    it 'passes axe automated accessibility testing' do
+      subject
+
+      wait_for_requests
+
+      expect(page).to be_axe_clean.within('[data-testid="packages-and-registries-project-settings"]') # rubocop:todo Capybara/TestidFinders -- Doesn't cover use case, see https://gitlab.com/gitlab-org/gitlab/-/issues/442224
+    end
+
+    it 'shows active tab on sidebar' do
+      subject
+
+      within_testid('super-sidebar') do
+        expect(page).to have_selector('button[aria-expanded="true"]', text: 'Settings')
+        expect(page).to have_selector('[aria-current="page"]', text: 'Packages and registries')
+      end
+    end
+
     it 'shows available section' do
       subject
 
-      settings_block = find('[data-testid="registry-settings-app"]')
-      expect(settings_block).to have_text 'Clean up image tags'
+      settings_block = find_by_testid('container-expiration-policy-project-settings')
+      expect(settings_block).to have_text 'Cleanup policies'
     end
 
-    it 'saves cleanup policy submit the form' do
+    it 'contains link to cleanup policies page' do
       subject
 
-      within '[data-testid="registry-settings-app"]' do
-        select('Every day', from: 'Run cleanup')
-        select('50 tags per image name', from: 'Keep the most recent:')
-        fill_in('Keep tags matching:', with: 'stable')
-        select('7 days', from: 'Remove tags older than:')
-        fill_in('Remove tags matching:', with: '.*-production')
-
-        submit_button = find('[data-testid="save-button"')
-        expect(submit_button).not_to be_disabled
-        submit_button.click
-      end
-
-      expect(find('.gl-toast')).to have_content('Cleanup policy successfully saved.')
+      expect(page).to have_link('Edit cleanup rules', href: cleanup_image_tags_project_settings_packages_and_registries_path(project))
     end
 
-    it 'does not save cleanup policy submit form with invalid regex' do
+    it 'has link to next generation container registry docs' do
+      allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(false)
+
       subject
 
-      within '[data-testid="registry-settings-app"]' do
-        fill_in('Remove tags matching:', with: '*-production')
-
-        submit_button = find('[data-testid="save-button"')
-        expect(submit_button).not_to be_disabled
-        submit_button.click
-      end
-
-      expect(find('.gl-toast')).to have_content('Something went wrong while updating the cleanup policy.')
+      expect(page).to have_link('next-generation container registry', href: help_page_href)
     end
   end
 
-  context 'with a project without expiration policy' do
+  context 'with a project without expiration policy', :js do
     before do
       project.container_expiration_policy.destroy!
     end
@@ -73,8 +76,8 @@ RSpec.describe 'Project > Settings > CI/CD > Container registry tag expiration p
       it 'displays the related section' do
         subject
 
-        within '[data-testid="registry-settings-app"]' do
-          expect(find('[data-testid="enable-toggle"]')).to have_content('Disabled - Tags will not be automatically deleted.')
+        within_testid 'container-expiration-policy-project-settings' do
+          expect(page).to have_link('Set cleanup rules', href: cleanup_image_tags_project_settings_packages_and_registries_path(project))
         end
       end
     end
@@ -87,7 +90,7 @@ RSpec.describe 'Project > Settings > CI/CD > Container registry tag expiration p
       it 'does not display the related section' do
         subject
 
-        within '[data-testid="registry-settings-app"]' do
+        within_testid 'container-expiration-policy-project-settings' do
           expect(find('.gl-alert-title')).to have_content('Cleanup policy for tags is disabled')
         end
       end
@@ -100,7 +103,7 @@ RSpec.describe 'Project > Settings > CI/CD > Container registry tag expiration p
     it 'does not exists' do
       subject
 
-      expect(page).not_to have_selector('[data-testid="registry-settings-app"]')
+      expect(page).not_to have_selector('[data-testid="container-expiration-policy-project-settings"]')
     end
   end
 
@@ -110,7 +113,7 @@ RSpec.describe 'Project > Settings > CI/CD > Container registry tag expiration p
     it 'does not exists' do
       subject
 
-      expect(page).not_to have_selector('[data-testid="registry-settings-app"]')
+      expect(page).not_to have_selector('[data-testid="container-expiration-policy-project-settings"]')
     end
   end
 end

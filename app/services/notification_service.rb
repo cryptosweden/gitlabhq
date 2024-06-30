@@ -16,6 +16,16 @@
 #   NotificationService.new.async.new_issue(issue, current_user)
 #
 class NotificationService
+  # These should not be called by the MailScheduler::NotificationServiceWorker -
+  # what would it even mean?
+  EXCLUDED_ACTIONS = %i[async].freeze
+
+  def self.permitted_actions
+    @permitted_actions ||= gitlab_extensions.flat_map do |klass|
+      klass.public_instance_methods(false) - EXCLUDED_ACTIONS
+    end.to_set
+  end
+
   class Async
     attr_reader :parent
 
@@ -65,6 +75,19 @@ class NotificationService
     end
   end
 
+  def bot_resource_access_token_about_to_expire(bot_user, token_name)
+    recipients = bot_user.resource_bot_owners_and_maintainers.select { |user| user.can?(:receive_notifications) }
+    resource = bot_user.resource_bot_resource
+
+    recipients.each do |recipient|
+      mailer.bot_resource_access_token_about_to_expire_email(
+        recipient,
+        resource,
+        token_name
+      ).deliver_later
+    end
+  end
+
   # Notify the owner of the account when a new personal access token is created
   def access_token_created(user, token_name)
     return unless user.can?(:receive_notifications)
@@ -81,10 +104,17 @@ class NotificationService
   end
 
   # Notify the user when at least one of their personal access tokens has expired today
-  def access_token_expired(user)
+  def access_token_expired(user, token_names = [])
     return unless user.can?(:receive_notifications)
 
-    mailer.access_token_expired_email(user).deliver_later
+    mailer.access_token_expired_email(user, token_names).deliver_later
+  end
+
+  # Notify the user when one of their personal access tokens is revoked
+  def access_token_revoked(user, token_name, source = nil)
+    return unless user.can?(:receive_notifications)
+
+    mailer.access_token_revoked_email(user, token_name, source).deliver_later
   end
 
   # Notify the user when at least one of their ssh key has expired today
@@ -107,6 +137,14 @@ class NotificationService
     return unless user.can?(:receive_notifications)
 
     mailer.unknown_sign_in_email(user, ip, time).deliver_later
+  end
+
+  # Notify a user when a wrong 2FA OTP has been entered to
+  # try to sign in to their account
+  def two_factor_otp_attempt_failed(user, ip)
+    return unless user.can?(:receive_notifications)
+
+    mailer.two_factor_otp_attempt_failed_email(user, ip).deliver_later
   end
 
   # Notify a user when a new email address is added to the their account
@@ -185,14 +223,6 @@ class NotificationService
   #
   def relabeled_issue(issue, added_labels, current_user)
     relabeled_resource_email(issue, added_labels, current_user, :relabeled_issue_email)
-  end
-
-  def removed_milestone_issue(issue, current_user)
-    removed_milestone_resource_email(issue, current_user, :removed_milestone_issue_email)
-  end
-
-  def changed_milestone_issue(issue, new_milestone, current_user)
-    changed_milestone_resource_email(issue, new_milestone, current_user, :changed_milestone_issue_email)
   end
 
   # When create a merge request we should send an email to:
@@ -328,16 +358,12 @@ class NotificationService
   def review_requested_of_merge_request(merge_request, current_user, reviewer)
     recipients = NotificationRecipients::BuildService.build_requested_review_recipients(merge_request, current_user, reviewer)
 
-    recipients.each do |recipient|
-      mailer.request_review_merge_request_email(recipient.user.id, merge_request.id, current_user.id, recipient.reason).deliver_later
-    end
-  end
-
-  def attention_requested_of_merge_request(merge_request, current_user, user)
-    recipients = NotificationRecipients::BuildService.build_attention_requested_recipients(merge_request, current_user, user)
+    deliver_option = review_request_deliver_options(merge_request.project)
 
     recipients.each do |recipient|
-      mailer.attention_requested_merge_request_email(recipient.user.id, merge_request.id, current_user.id, recipient.reason).deliver_later
+      mailer
+        .request_review_merge_request_email(recipient.user.id, merge_request.id, current_user.id, recipient.reason)
+        .deliver_later(deliver_option)
     end
   end
 
@@ -347,14 +373,6 @@ class NotificationService
   #
   def relabeled_merge_request(merge_request, added_labels, current_user)
     relabeled_resource_email(merge_request, added_labels, current_user, :relabeled_merge_request_email)
-  end
-
-  def removed_milestone_merge_request(merge_request, current_user)
-    removed_milestone_resource_email(merge_request, current_user, :removed_milestone_merge_request_email)
-  end
-
-  def changed_milestone_merge_request(merge_request, new_milestone, current_user)
-    changed_milestone_resource_email(merge_request, new_milestone, current_user, :changed_milestone_merge_request_email)
   end
 
   def close_mr(merge_request, current_user)
@@ -425,16 +443,21 @@ class NotificationService
   def send_service_desk_notification(note)
     return unless note.noteable_type == 'Issue'
     return if note.confidential
+    return unless note.project.service_desk_enabled?
 
     issue = note.noteable
-    recipients = issue.email_participants_emails
+    recipients = issue.issue_email_participants
 
     return unless recipients.any?
 
-    support_bot = User.support_bot
-    recipients.delete(issue.external_author) if note.author == support_bot
+    # Only populated if note is from external participant
+    note_external_author = note.note_metadata&.email_participant&.downcase
 
     recipients.each do |recipient|
+      # Don't send Service Desk notification if the recipient is the author of the note.
+      # We store emails as-is but compare downcased versions.
+      next if recipient.email.downcase == note_external_author
+
       mailer.service_desk_new_note_email(issue.id, note.id, recipient).deliver_later
       Gitlab::Metrics::BackgroundTransaction.current&.add_event(:service_desk_new_note_email)
     end
@@ -447,7 +470,9 @@ class NotificationService
       return false
     end
 
-    recipients = NotificationRecipients::BuildService.build_new_release_recipients(release)
+    recipients = NotificationRecipients::BuildService.build_recipients(release,
+      release.author,
+      action: "new")
 
     recipients.each do |recipient|
       mailer.new_release_email(recipient.user.id, release, recipient.reason).deliver_later
@@ -476,13 +501,7 @@ class NotificationService
   def new_access_request(member)
     return true unless member.notifiable?(:subscription)
 
-    source = member.source
-
-    recipients = source.access_request_approvers_to_be_notified
-
-    if fallback_to_group_access_request_approvers?(recipients, source)
-      recipients = source.group.access_request_approvers_to_be_notified
-    end
+    recipients = member.source.access_request_approvers_to_be_notified
 
     return true if recipients.empty?
 
@@ -495,84 +514,58 @@ class NotificationService
     mailer.member_access_denied_email(member.real_source_type, member.source_id, member.user_id).deliver_later
   end
 
-  # Project invite
-  def invite_project_member(project_member, token)
-    return true unless project_member.notifiable?(:subscription)
-
-    mailer.member_invited_email(project_member.real_source_type, project_member.id, token).deliver_later
-  end
-
-  def accept_project_invite(project_member)
-    return true unless project_member.notifiable?(:subscription)
-
-    mailer.member_invite_accepted_email(project_member.real_source_type, project_member.id).deliver_later
-  end
-
-  def decline_project_invite(project_member)
+  def decline_invite(member)
     # Must always send, regardless of project/namespace configuration since it's a
     # response to the user's action.
 
     mailer.member_invite_declined_email(
-      project_member.real_source_type,
-      project_member.project.id,
-      project_member.invite_email,
-      project_member.created_by_id
+      member.real_source_type,
+      member.source.id,
+      member.invite_email,
+      member.created_by_id
     ).deliver_later
   end
 
-  def new_project_member(project_member)
-    return true unless project_member.notifiable?(:mention, skip_read_ability: true)
+  def new_member(member)
+    notifiable_options = case member.source
+                         when Group
+                           {}
+                         when Project
+                           { skip_read_ability: true }
+                         end
 
-    mailer.member_access_granted_email(project_member.real_source_type, project_member.id).deliver_later
+    return true unless member.notifiable?(:mention, notifiable_options)
+
+    mailer.member_access_granted_email(member.real_source_type, member.id).deliver_later
   end
 
-  def update_project_member(project_member)
-    return true unless project_member.notifiable?(:mention)
+  def accept_invite(member)
+    return true if member.source.is_a?(Project) && !member.notifiable?(:subscription)
 
-    mailer.member_access_granted_email(project_member.real_source_type, project_member.id).deliver_later
+    mailer.member_invite_accepted_email(member.real_source_type, member.id).deliver_later
   end
 
-  # Group invite
-  def invite_group_member(group_member, token)
-    mailer.member_invited_email(group_member.real_source_type, group_member.id, token).deliver_later
+  def updated_member_access_level(member)
+    return true unless member.notifiable?(:mention)
+
+    mailer.member_access_granted_email(member.real_source_type, member.id).deliver_later
+  end
+
+  def updated_member_expiration(member)
+    return true unless member.source.is_a?(Group)
+    return true unless member.notifiable?(:mention)
+
+    mailer.member_expiration_date_updated_email(member.real_source_type, member.id).deliver_later
+  end
+
+  def member_about_to_expire(member)
+    return true unless member.notifiable?(:mention)
+
+    mailer.member_about_to_expire_email(member.real_source_type, member.id).deliver_later
   end
 
   def invite_member_reminder(group_member, token, reminder_index)
     mailer.member_invited_reminder_email(group_member.real_source_type, group_member.id, token, reminder_index).deliver_later
-  end
-
-  def accept_group_invite(group_member)
-    mailer.member_invite_accepted_email(group_member.real_source_type, group_member.id).deliver_later
-  end
-
-  def decline_group_invite(group_member)
-    # Must always send, regardless of project/namespace configuration since it's a
-    # response to the user's action.
-
-    mailer.member_invite_declined_email(
-      group_member.real_source_type,
-      group_member.group.id,
-      group_member.invite_email,
-      group_member.created_by_id
-    ).deliver_later
-  end
-
-  def new_group_member(group_member)
-    return true unless group_member.notifiable?(:mention)
-
-    mailer.member_access_granted_email(group_member.real_source_type, group_member.id).deliver_later
-  end
-
-  def update_group_member(group_member)
-    return true unless group_member.notifiable?(:mention)
-
-    mailer.member_access_granted_email(group_member.real_source_type, group_member.id).deliver_later
-  end
-
-  def updated_group_member_expiration(group_member)
-    return true unless group_member.notifiable?(:mention)
-
-    mailer.member_expiration_date_updated_email(group_member.real_source_type, group_member.id).deliver_later
   end
 
   def project_was_moved(project, old_path_with_namespace)
@@ -738,9 +731,12 @@ class NotificationService
   # Notify users on new review in system
   def new_review(review)
     recipients = NotificationRecipients::BuildService.build_new_review_recipients(review)
+    deliver_options = new_review_deliver_options(review)
 
     recipients.each do |recipient|
-      mailer.new_review_email(recipient.user.id, review.id).deliver_later
+      mailer
+        .new_review_email(recipient.user.id, review.id)
+        .deliver_later(deliver_options)
     end
   end
 
@@ -757,8 +753,60 @@ class NotificationService
     end
   end
 
-  def in_product_marketing(user_id, group_id, track, series)
-    mailer.in_product_marketing_email(user_id, group_id, track, series).deliver_later
+  def approve_mr(merge_request, current_user)
+    approve_mr_email(merge_request, merge_request.target_project, current_user)
+  end
+
+  def unapprove_mr(merge_request, current_user)
+    unapprove_mr_email(merge_request, merge_request.target_project, current_user)
+  end
+
+  def inactive_project_deletion_warning(project, deletion_date)
+    owners_and_maintainers_without_invites(project).each do |recipient|
+      mailer.inactive_project_deletion_warning_email(project, recipient.user, deletion_date).deliver_later
+    end
+  end
+
+  def removed_milestone(target, current_user)
+    method = case target
+             when Issue
+               :removed_milestone_issue_email
+             when MergeRequest
+               :removed_milestone_merge_request_email
+             end
+
+    recipients = NotificationRecipients::BuildService.build_recipients(
+      target,
+      current_user,
+      action: 'removed_milestone'
+    )
+
+    recipients.each do |recipient|
+      mailer.send(method, recipient.user.id, target.id, current_user.id).deliver_later
+    end
+  end
+
+  def changed_milestone(target, milestone, current_user)
+    method = case target
+             when Issue
+               :changed_milestone_issue_email
+             when MergeRequest
+               :changed_milestone_merge_request_email
+             end
+
+    recipients = NotificationRecipients::BuildService.build_recipients(
+      target,
+      current_user,
+      action: 'changed_milestone'
+    )
+
+    recipients.each do |recipient|
+      mailer.send(method, recipient.user.id, target.id, milestone, current_user.id).deliver_later
+    end
+  end
+
+  def new_achievement_email(user, achievement)
+    mailer.new_achievement_email(user, achievement)
   end
 
   protected
@@ -783,7 +831,7 @@ class NotificationService
     end
 
     recipients = NotificationRecipients::BuildService.build_recipients(target, current_user, action: "new")
-    recipients = recipients.select {|r| new_mentioned_users.include?(r.user) }
+    recipients = recipients.select { |r| new_mentioned_users.include?(r.user) }
 
     recipients.each do |recipient|
       mailer.send(method, recipient.user.id, target.id, current_user.id, recipient.reason).deliver_later
@@ -820,30 +868,6 @@ class NotificationService
     end
   end
 
-  def removed_milestone_resource_email(target, current_user, method)
-    recipients = NotificationRecipients::BuildService.build_recipients(
-      target,
-      current_user,
-      action: 'removed_milestone'
-    )
-
-    recipients.each do |recipient|
-      mailer.send(method, recipient.user.id, target.id, current_user.id).deliver_later
-    end
-  end
-
-  def changed_milestone_resource_email(target, milestone, current_user, method)
-    recipients = NotificationRecipients::BuildService.build_recipients(
-      target,
-      current_user,
-      action: 'changed_milestone'
-    )
-
-    recipients.each do |recipient|
-      mailer.send(method, recipient.user.id, target.id, milestone, current_user.id).deliver_later
-    end
-  end
-
   def reopen_resource_email(target, current_user, method, status)
     recipients = NotificationRecipients::BuildService.build_recipients(target, current_user, action: "reopen")
 
@@ -865,6 +889,22 @@ class NotificationService
   end
 
   private
+
+  def approve_mr_email(merge_request, project, current_user)
+    recipients = ::NotificationRecipients::BuildService.build_recipients(merge_request, current_user, action: 'approve')
+
+    recipients.each do |recipient|
+      mailer.approved_merge_request_email(recipient.user.id, merge_request.id, current_user.id).deliver_later
+    end
+  end
+
+  def unapprove_mr_email(merge_request, project, current_user)
+    recipients = ::NotificationRecipients::BuildService.build_recipients(merge_request, current_user, action: 'unapprove')
+
+    recipients.each do |recipient|
+      mailer.unapproved_merge_request_email(recipient.user.id, merge_request.id, current_user.id).deliver_later
+    end
+  end
 
   def pipeline_notification_status(ref_status, pipeline)
     if Ci::Ref.failing_state?(ref_status)
@@ -898,26 +938,30 @@ class NotificationService
     NotificationRecipients::BuildService.build_project_maintainers_recipients(target, action: action)
   end
 
-  def notifiable?(*args)
-    NotificationRecipients::BuildService.notifiable?(*args)
+  def notifiable?(...)
+    NotificationRecipients::BuildService.notifiable?(...)
   end
 
-  def notifiable_users(*args)
-    NotificationRecipients::BuildService.notifiable_users(*args)
+  def notifiable_users(...)
+    NotificationRecipients::BuildService.notifiable_users(...)
   end
 
   def deliver_access_request_email(recipient, member)
     mailer.member_access_requested_email(member.real_source_type, member.id, recipient.user.id).deliver_later
   end
 
-  def fallback_to_group_access_request_approvers?(recipients, source)
-    return false if recipients.present?
-
-    source.respond_to?(:group) && source.group
-  end
-
   def warn_skipping_notifications(user, object)
     Gitlab::AppLogger.warn(message: "Skipping sending notifications", user: user.id, klass: object.class.to_s, object_id: object.id)
+  end
+
+  def new_review_deliver_options(review)
+    # Overridden in EE
+    {}
+  end
+
+  def review_request_deliver_options(project)
+    # Overridden in EE
+    {}
   end
 end
 

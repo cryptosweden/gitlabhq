@@ -13,6 +13,7 @@ const renderersByType = {
   },
   header(element, data) {
     element.classList.add('dropdown-header');
+    // eslint-disable-next-line no-unsanitized/property
     element.innerHTML = data.content;
 
     return element;
@@ -88,7 +89,8 @@ function checkSelected(data, options) {
 
   if (!options.parent) {
     return !data.id;
-  } else if (value) {
+  }
+  if (value) {
     return (
       options.parent.querySelector(`input[name='${options.fieldName}'][value='${value}']`) != null
     );
@@ -103,14 +105,14 @@ function createLink(data, selected, options, index) {
   link.href = getPropertyWithDefault(data, options, 'url', '#');
 
   if (options.icon) {
-    link.classList.add('d-flex', 'align-items-center');
+    link.classList.add('gl-flex', 'align-items-center');
   }
 
   if (options.trackSuggestionClickedLabel) {
-    link.setAttribute('data-track-action', 'click_text');
-    link.setAttribute('data-track-label', options.trackSuggestionClickedLabel);
-    link.setAttribute('data-track-value', index);
-    link.setAttribute('data-track-property', slugify(data.category || 'no-category'));
+    link.dataset.trackAction = 'click_text';
+    link.dataset.trackLabel = options.trackSuggestionClickedLabel;
+    link.dataset.trackValue = index;
+    link.dataset.trackProperty = slugify(data.category || 'no-category');
   }
 
   link.classList.toggle('is-active', selected);
@@ -122,6 +124,7 @@ function assignTextToLink(el, data, options) {
   const text = getLinkText(data, options);
 
   if (options.icon || options.highlight) {
+    // eslint-disable-next-line no-unsanitized/property
     el.innerHTML = text;
   } else {
     el.textContent = text;
@@ -147,7 +150,7 @@ function renderLink(row, data, { options, group, index }) {
 }
 
 function getOptionRenderer({ options, instance }) {
-  return options.renderRow && ((li, data) => options.renderRow(data, instance));
+  return options.renderRow && ((li, data, params) => options.renderRow(data, instance, params));
 }
 
 function getRenderer(data, params) {

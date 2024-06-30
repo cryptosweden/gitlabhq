@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Discussions::CaptureDiffNotePositionsService do
+RSpec.describe Discussions::CaptureDiffNotePositionsService, feature_category: :code_review_workflow do
   context 'when merge request has a discussion' do
     let(:source_branch) { 'compare-with-merge-head-source' }
     let(:target_branch) { 'compare-with-merge-head-target' }
@@ -18,8 +18,8 @@ RSpec.describe Discussions::CaptureDiffNotePositionsService do
 
     def build_position(diff_refs, new_line: nil, old_line: nil)
       path = 'files/markdown/ruby-style-guide.md'
-      Gitlab::Diff::Position.new(old_path: path, new_path: path,
-        new_line: new_line, old_line: old_line, diff_refs: diff_refs)
+      Gitlab::Diff::Position.new(
+        old_path: path, new_path: path, new_line: new_line, old_line: old_line, diff_refs: diff_refs)
     end
 
     def note_for(new_line: nil, old_line: nil)

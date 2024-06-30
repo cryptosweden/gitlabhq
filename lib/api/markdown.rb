@@ -2,16 +2,29 @@
 
 module API
   class Markdown < ::API::Base
-    feature_category :not_owned
+    include APIGuard
+
+    # Although this API endpoint responds to POST requests, it is a read-only operation
+    allow_access_with_scope :read_api
+
+    before { authenticate! if Feature.enabled?(:authenticate_markdown_api, type: :ops) }
+
+    feature_category :team_planning
 
     params do
-      requires :text, type: String, desc: "The markdown text to render"
-      optional :gfm, type: Boolean, desc: "Render text using GitLab Flavored Markdown"
-      optional :project, type: String, desc: "The full path of a project to use as the context when creating references using GitLab Flavored Markdown"
+      requires :text, type: String, desc: "The Markdown text to render"
+      optional :gfm, type: Boolean, desc: "Render text using GitLab Flavored Markdown. Default is false"
+      optional :project, type: String, desc: "Use project as a context when creating references using GitLab Flavored Markdown"
     end
     resource :markdown do
-      desc "Render markdown text" do
+      desc "Render an arbitrary Markdown document" do
         detail "This feature was introduced in GitLab 11.0."
+        success ::API::Entities::Markdown
+        failure [
+          { code: 400, message: 'Bad request' },
+          { code: 401, message: 'Unauthorized' }
+        ]
+        tags %w[markdown]
       end
       post do
         context = { only_path: false, current_user: current_user }
@@ -27,7 +40,9 @@ module API
           context[:skip_project_check] = true
         end
 
-        { html: Banzai.render_and_post_process(params[:text], context) }
+        context[:allow_comments] = false
+
+        present({ html: Banzai.render_and_post_process(params[:text], context) }, with: Entities::Markdown)
       end
     end
   end

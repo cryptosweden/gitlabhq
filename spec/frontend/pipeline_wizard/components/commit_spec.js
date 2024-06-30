@@ -8,7 +8,7 @@ import createMockApollo from 'helpers/mock_apollo_helper';
 import createCommitMutation from '~/pipeline_wizard/queries/create_commit.graphql';
 import getFileMetadataQuery from '~/pipeline_wizard/queries/get_file_meta.graphql';
 import RefSelector from '~/ref/components/ref_selector.vue';
-import flushPromises from 'helpers/flush_promises';
+import waitForPromises from 'helpers/wait_for_promises';
 import {
   createCommitMutationErrorResult,
   createCommitMutationResult,
@@ -74,10 +74,6 @@ describe('Pipeline Wizard - Commit Page', () => {
       createComponent();
     });
 
-    afterEach(() => {
-      wrapper.destroy();
-    });
-
     it('shows a commit message input with the correct label', () => {
       expect(wrapper.findByTestId('commit_message').exists()).toBe(true);
       expect(wrapper.find('label[for="commit_message"]').text()).toBe(i18n.commitMessageLabel);
@@ -107,7 +103,7 @@ describe('Pipeline Wizard - Commit Page', () => {
 
     it('does not show a load error if call is successful', async () => {
       createComponent({ projectPath, filename });
-      await flushPromises();
+      await waitForPromises();
       expect(wrapper.findByTestId('load-error').exists()).not.toBe(true);
     });
 
@@ -117,13 +113,9 @@ describe('Pipeline Wizard - Commit Page', () => {
         { defaultBranch: branch, projectPath, filename },
         createMockApollo([[getFileMetadataQuery, () => fileQueryErrorResult]]),
       );
-      await flushPromises();
+      await waitForPromises();
       expect(wrapper.findByTestId('load-error').exists()).toBe(true);
       expect(wrapper.findByTestId('load-error').text()).toBe(i18n.errors.loadError);
-    });
-
-    afterEach(() => {
-      wrapper.destroy();
     });
   });
 
@@ -131,12 +123,12 @@ describe('Pipeline Wizard - Commit Page', () => {
     describe('successful commit', () => {
       beforeEach(async () => {
         createComponent();
-        await flushPromises();
+        await waitForPromises();
         await getButtonWithLabel(__('Commit')).trigger('click');
-        await flushPromises();
+        await waitForPromises();
       });
 
-      it('will not show an error', async () => {
+      it('will not show an error', () => {
         expect(wrapper.findByTestId('commit-error').exists()).not.toBe(true);
       });
 
@@ -149,22 +141,17 @@ describe('Pipeline Wizard - Commit Page', () => {
       it('emits a done event', () => {
         expect(wrapper.emitted().done.length).toBe(1);
       });
-
-      afterEach(() => {
-        wrapper.destroy();
-        jest.clearAllMocks();
-      });
     });
 
     describe('failed commit', () => {
       beforeEach(async () => {
         createComponent({}, getMockApollo({ commitHasError: true }));
-        await flushPromises();
+        await waitForPromises();
         await getButtonWithLabel(__('Commit')).trigger('click');
-        await flushPromises();
+        await waitForPromises();
       });
 
-      it('will show an error', async () => {
+      it('will show an error', () => {
         expect(wrapper.findByTestId('commit-error').exists()).toBe(true);
         expect(wrapper.findByTestId('commit-error').text()).toBe(i18n.errors.commitError);
       });
@@ -174,12 +161,7 @@ describe('Pipeline Wizard - Commit Page', () => {
       });
 
       it('will not emit a done event', () => {
-        expect(wrapper.emitted().done?.length).toBeFalsy();
-      });
-
-      afterEach(() => {
-        wrapper.destroy();
-        jest.clearAllMocks();
+        expect(wrapper.emitted().done?.length).toBeUndefined();
       });
     });
   });
@@ -211,7 +193,7 @@ describe('Pipeline Wizard - Commit Page', () => {
       }) => {
         let consoleSpy;
 
-        beforeAll(async () => {
+        beforeEach(async () => {
           createComponent(
             {
               filename,
@@ -229,7 +211,7 @@ describe('Pipeline Wizard - Commit Page', () => {
             }),
           );
 
-          await flushPromises();
+          await waitForPromises();
 
           consoleSpy = jest.spyOn(console, 'error');
 
@@ -243,18 +225,14 @@ describe('Pipeline Wizard - Commit Page', () => {
           }
           await Vue.nextTick();
 
-          await flushPromises();
+          await waitForPromises();
         });
 
-        afterAll(() => {
-          wrapper.destroy();
-        });
-
-        it('sets up without error', async () => {
+        it('sets up without error', () => {
           expect(consoleSpy).not.toHaveBeenCalled();
         });
 
-        it('does not show a load error', async () => {
+        it('does not show a load error', () => {
           expect(wrapper.findByTestId('load-error').exists()).not.toBe(true);
         });
 

@@ -2,33 +2,28 @@
 
 require 'spec_helper'
 
-RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
-  let(:fixture_dir_glob) { Dir.glob(File.join(Rails.root, 'spec', 'fixtures', 'whats_new', '*.yml')).grep(/\d*\_(\d*\_\d*)\.yml$/) }
+RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache, feature_category: :release_orchestration do
+  let(:fixture_dir_glob) { Dir.glob(File.join(Rails.root, 'spec', 'fixtures', 'whats_new', '*.yml')).grep(/\d*_(\d*_\d*)\.yml$/) }
 
   before do
-    allow(Dir).to receive(:glob).with(Rails.root.join('data', 'whats_new', '*.yml')).and_return(fixture_dir_glob)
+    allow(Dir).to receive(:glob).and_call_original
+    allow(Dir).to receive(:glob).with(described_class.whats_new_path).and_return(fixture_dir_glob)
     Gitlab::CurrentSettings.update!(whats_new_variant: ApplicationSetting.whats_new_variants[:all_tiers])
   end
 
   after do
-    ReleaseHighlight.instance_variable_set(:@file_paths, nil)
+    described_class.instance_variable_set(:@file_paths, nil)
   end
 
-  describe '.paginated' do
-    let(:dot_com) { false }
-
-    before do
-      allow(Gitlab).to receive(:com?).and_return(dot_com)
-    end
-
+  describe '.paginated_query' do
     context 'with page param' do
-      subject { ReleaseHighlight.paginated(page: page) }
+      subject { described_class.paginated_query(page: page) }
 
       context 'when there is another page of results' do
         let(:page) { 3 }
 
-        it 'responds with paginated results' do
-          expect(subject[:items].first['title']).to eq('bright')
+        it 'responds with paginated query results' do
+          expect(subject[:items].first['name']).to eq('bright')
           expect(subject[:next_page]).to eq(4)
         end
       end
@@ -36,8 +31,8 @@ RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
       context 'when there is NOT another page of results' do
         let(:page) { 4 }
 
-        it 'responds with paginated results and no next_page' do
-          expect(subject[:items].first['title']).to eq("It's gonna be a bright")
+        it 'responds with paginated query results and no next_page' do
+          expect(subject[:items].first['name']).to eq("It's gonna be a bright")
           expect(subject[:next_page]).to eq(nil)
         end
       end
@@ -50,9 +45,11 @@ RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
         end
       end
     end
+  end
 
+  describe '.paginated' do
     context 'with no page param' do
-      subject { ReleaseHighlight.paginated }
+      subject { described_class.paginated }
 
       it 'uses multiple levels of cache' do
         expect(Rails.cache).to receive(:fetch).with("release_highlight:all_tiers:items:page-1:#{Gitlab.revision}", { expires_in: described_class::CACHE_DURATION }).and_call_original
@@ -63,43 +60,47 @@ RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
 
       it 'returns platform specific items' do
         expect(subject[:items].count).to eq(1)
-        expect(subject[:items].first['title']).to eq("bright and sunshinin' day")
+        expect(subject[:items].first['name']).to eq("bright and sunshinin' day")
         expect(subject[:next_page]).to eq(2)
       end
 
-      it 'parses the body as markdown and returns html, and links are target="_blank"' do
-        expect(subject[:items].first['body']).to match('<p data-sourcepos="1:1-1:62" dir="auto">bright and sunshinin\' <a href="https://en.wikipedia.org/wiki/Day" rel="nofollow noreferrer noopener" target="_blank">day</a></p>')
+      it 'parses the description as markdown and returns html, and links are target="_blank"' do
+        stub_commonmark_sourcepos_disabled
+
+        expect(subject[:items].first['description']).to eq('<p dir="auto">bright and sunshinin\' <a href="https://en.wikipedia.org/wiki/Day" rel="nofollow noreferrer noopener" target="_blank">day</a></p>')
       end
 
       it 'logs an error if theres an error parsing markdown for an item, and skips it' do
+        whats_new_items_count = 6
+
         allow(Banzai).to receive(:render).and_raise
 
-        expect(Gitlab::ErrorTracking).to receive(:track_exception)
+        expect(Gitlab::ErrorTracking).to receive(:track_exception).exactly(whats_new_items_count).times
         expect(subject[:items]).to be_empty
       end
 
-      context 'when Gitlab.com' do
-        let(:dot_com) { true }
-
+      context 'when Gitlab.com', :saas do
         it 'responds with a different set of data' do
           expect(subject[:items].count).to eq(1)
-          expect(subject[:items].first['title']).to eq("I think I can make it now the pain is gone")
+          expect(subject[:items].first['name']).to eq("I think I can make it now the pain is gone")
         end
       end
 
       context 'YAML parsing throws an exception' do
         it 'fails gracefully and logs an error' do
+          whats_new_files_count = 4
+
           allow(YAML).to receive(:safe_load).and_raise(Psych::Exception)
 
-          expect(Gitlab::ErrorTracking).to receive(:track_exception)
-          expect(subject).to be_nil
+          expect(Gitlab::ErrorTracking).to receive(:track_exception).exactly(whats_new_files_count).times
+          expect(subject[:items]).to be_empty
         end
       end
     end
   end
 
   describe '.most_recent_item_count' do
-    subject { ReleaseHighlight.most_recent_item_count }
+    subject { described_class.most_recent_item_count }
 
     it 'uses process memory cache' do
       expect(Gitlab::ProcessMemoryCache.cache_backend).to receive(:fetch).with("release_highlight:all_tiers:recent_item_count:#{Gitlab.revision}", expires_in: described_class::CACHE_DURATION)
@@ -109,7 +110,7 @@ RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
 
     context 'when recent release items exist' do
       it 'returns the count from the most recent file' do
-        allow(ReleaseHighlight).to receive(:paginated).and_return(double(:paginated, items: [double(:item)]))
+        allow(described_class).to receive(:paginated).and_return(double(:paginated, items: [double(:item)]))
 
         expect(subject).to eq(1)
       end
@@ -117,7 +118,7 @@ RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
 
     context 'when recent release items do NOT exist' do
       it 'returns nil' do
-        allow(ReleaseHighlight).to receive(:paginated).and_return(nil)
+        allow(described_class).to receive(:paginated).and_return(nil)
 
         expect(subject).to be_nil
       end
@@ -125,7 +126,7 @@ RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
   end
 
   describe '.most_recent_version_digest' do
-    subject { ReleaseHighlight.most_recent_version_digest }
+    subject { described_class.most_recent_version_digest }
 
     it 'uses process memory cache' do
       expect(Gitlab::ProcessMemoryCache.cache_backend).to receive(:fetch).with("release_highlight:all_tiers:most_recent_version_digest:#{Gitlab.revision}", expires_in: described_class::CACHE_DURATION)
@@ -142,7 +143,7 @@ RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
 
     context 'when recent release items do NOT exist' do
       it 'returns nil' do
-        allow(ReleaseHighlight).to receive(:paginated).and_return(nil)
+        allow(described_class).to receive(:paginated).and_return(nil)
 
         expect(subject).to be_nil
       end
@@ -171,7 +172,19 @@ RSpec.describe ReleaseHighlight, :clean_gitlab_redis_cache do
         items = described_class.load_items(page: 2)
 
         expect(items.count).to eq(1)
-        expect(items.first['title']).to eq("View epics on a board")
+        expect(items.first['name']).to eq("View epics on a board")
+      end
+    end
+
+    context 'YAML parsing throws an exception' do
+      it 'fails gracefully and logs an error' do
+        allow(YAML).to receive(:safe_load).and_raise(Psych::Exception)
+
+        expect(Gitlab::ErrorTracking).to receive(:track_exception)
+
+        items = described_class.load_items(page: 2)
+
+        expect(items).to be_empty
       end
     end
   end

@@ -3,13 +3,32 @@
 FactoryBot.define do
   factory :commit_status, class: 'CommitStatus' do
     name { 'default' }
-    stage { 'test' }
     stage_idx { 0 }
     status { 'success' }
-    description { 'commit status'}
+    description { 'commit status' }
     pipeline factory: :ci_pipeline
-    started_at { 'Tue, 26 Jan 2016 08:21:42 +0100'}
-    finished_at { 'Tue, 26 Jan 2016 08:23:42 +0100'}
+    started_at { 'Tue, 26 Jan 2016 08:21:42 +0100' }
+    finished_at { 'Tue, 26 Jan 2016 08:23:42 +0100' }
+    partition_id { pipeline&.partition_id }
+    stage { 'test' }
+
+    before(:create) do |commit_status, evaluator|
+      next if commit_status.ci_stage
+
+      ci_stage = commit_status.pipeline.stages.find_by(name: evaluator.stage)
+
+      commit_status.ci_stage =
+        # rubocop: disable RSpec/FactoryBot/StrategyInCallback -- we need to create ci_stages if there aren't any
+        (ci_stage.presence || create(
+          :ci_stage,
+          pipeline: commit_status.pipeline,
+          project: commit_status.project || evaluator.project,
+          name: evaluator.stage,
+          position: evaluator.stage_idx,
+          status: 'created'
+        ))
+      # rubocop: enable RSpec/FactoryBot/StrategyInCallback
+    end
 
     trait :success do
       status { 'success' }
@@ -29,6 +48,10 @@ FactoryBot.define do
 
     trait :running do
       status { 'running' }
+    end
+
+    trait :waiting_for_callback do
+      status { 'waiting_for_callback' }
     end
 
     trait :pending do
@@ -56,12 +79,7 @@ FactoryBot.define do
     end
 
     after(:build) do |build, evaluator|
-      build.project = build.pipeline.project
-    end
-
-    factory :generic_commit_status, class: 'GenericCommitStatus' do
-      name { 'generic' }
-      description { 'external commit status' }
+      build.project ||= build.pipeline.project
     end
   end
 end

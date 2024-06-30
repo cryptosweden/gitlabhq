@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
-RSpec.describe Gitlab::Utils::Markdown do
+RSpec.describe Gitlab::Utils::Markdown, feature_category: :gitlab_docs do
   let(:klass) do
     Class.new do
       include Gitlab::Utils::Markdown
@@ -49,28 +49,6 @@ RSpec.describe Gitlab::Utils::Markdown do
 
       it 'adds anchor prefix' do
         is_expected.to eq 'anchor-123'
-      end
-    end
-
-    context 'when string has a product suffix' do
-      %w[CORE STARTER PREMIUM ULTIMATE FREE BRONZE SILVER GOLD].each do |tier|
-        ['', ' ONLY', ' SELF', ' SASS'].each do |modifier|
-          context "#{tier}#{modifier}" do
-            let(:string) { "My Header (#{tier}#{modifier})" }
-
-            it 'ignores a product suffix' do
-              is_expected.to eq 'my-header'
-            end
-
-            context 'with "*" around a product suffix' do
-              let(:string) { "My Header **(#{tier}#{modifier})**" }
-
-              it 'ignores a product suffix' do
-                is_expected.to eq 'my-header'
-              end
-            end
-          end
-        end
       end
     end
 

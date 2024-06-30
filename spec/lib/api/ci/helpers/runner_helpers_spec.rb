@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Ci::Helpers::Runner do
+RSpec.describe API::Ci::Helpers::Runner, feature_category: :runner do
   let(:ip_address) { '1.2.3.4' }
   let(:runner_class) do
     Class.new do
@@ -34,6 +34,7 @@ RSpec.describe API::Ci::Helpers::Runner do
 
     context 'when runner info is present' do
       let(:name) { 'runner' }
+      let(:system_id) { 's_c2d22f638c25' }
       let(:version) { '1.2.3' }
       let(:revision) { '10.0' }
       let(:platform) { 'test' }
@@ -42,6 +43,7 @@ RSpec.describe API::Ci::Helpers::Runner do
       let(:config) { { 'gpus' => 'all' } }
       let(:runner_params) do
         {
+          system_id: system_id,
           'info' =>
           {
             'name' => name,
@@ -59,7 +61,10 @@ RSpec.describe API::Ci::Helpers::Runner do
       subject(:details) { runner_helper.get_runner_details_from_request }
 
       it 'extracts the runner details', :aggregate_failures do
-        expect(details.keys).to match_array(%w(name version revision platform architecture executor config ip_address))
+        expect(details.keys).to match_array(
+          %w[system_id name version revision platform architecture executor config ip_address]
+        )
+        expect(details['system_id']).to eq(system_id)
         expect(details['name']).to eq(name)
         expect(details['version']).to eq(version)
         expect(details['revision']).to eq(revision)
@@ -69,6 +74,18 @@ RSpec.describe API::Ci::Helpers::Runner do
         expect(details['config']).to eq(config)
         expect(details['ip_address']).to eq(ip_address)
       end
+    end
+
+    describe '#log_artifacts_filesize' do
+      subject { runner_helper.log_artifacts_filesize(artifact) }
+
+      let(:runner_params) { {} }
+      let(:artifact) { create(:ci_job_artifact, size: 42) }
+      let(:expected_params) { { artifact_size: artifact.size } }
+      let(:subject_proc) { proc { subject } }
+
+      it_behaves_like 'storing arguments in the application context'
+      it_behaves_like 'not executing any extra queries for the application context'
     end
   end
 end

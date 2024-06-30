@@ -8,7 +8,8 @@ RSpec.describe Autocomplete::UsersFinder do
 
   describe '#execute' do
     let_it_be(:user1) { create(:user, name: 'zzzzzname', username: 'johndoe') }
-    let_it_be(:user2) { create(:user, :blocked, username: 'notsorandom') }
+    let_it_be(:blocked_user) { create(:user, :blocked, username: 'blocked_user') }
+    let_it_be(:banned_user) { create(:user, :banned, username: 'banned_user') }
     let_it_be(:external_user) { create(:user, :external) }
     let_it_be(:omniauth_user) { create(:omniauth_user, provider: 'twitter', extern_uid: '123456') }
 
@@ -39,7 +40,13 @@ RSpec.describe Autocomplete::UsersFinder do
         end
 
         context 'and author is blocked' do
-          let(:params) { { author_id: user2.id } }
+          let(:params) { { author_id: blocked_user.id } }
+
+          it { is_expected.to match_array([project.first_owner]) }
+        end
+
+        context 'and author is banned' do
+          let(:params) { { author_id: banned_user.id } }
 
           it { is_expected.to match_array([project.first_owner]) }
         end
@@ -62,7 +69,7 @@ RSpec.describe Autocomplete::UsersFinder do
       let_it_be(:group) { create(:group, :public) }
 
       before_all do
-        group.add_users([user1], GroupMember::DEVELOPER)
+        group.add_members([user1], GroupMember::DEVELOPER)
       end
 
       it { is_expected.to match_array([user1]) }
@@ -81,13 +88,20 @@ RSpec.describe Autocomplete::UsersFinder do
       let(:parent) { create(:group, :public, parent: grandparent) }
       let(:child) { create(:group, :public, parent: parent) }
       let(:group) { parent }
+      let(:child_project) { create(:project, group: group) }
 
       let!(:grandparent_user) { create(:group_member, :developer, group: grandparent).user }
       let!(:parent_user) { create(:group_member, :developer, group: parent).user }
       let!(:child_user) { create(:group_member, :developer, group: child).user }
+      let!(:child_project_user) { create(:project_member, :developer, project: child_project).user }
 
-      it 'includes users from parent groups as well' do
-        expect(subject).to match_array([grandparent_user, parent_user])
+      it 'includes users from parent groups, descendant groups, and descendant projects' do
+        expect(subject).to contain_exactly(
+          grandparent_user,
+          parent_user,
+          child_user,
+          child_project_user
+        )
       end
     end
 
@@ -105,12 +119,6 @@ RSpec.describe Autocomplete::UsersFinder do
           expect(subject).to be_empty
         end
       end
-    end
-
-    context 'when filtered by skip_users' do
-      let(:params) { { skip_users: [omniauth_user.id, current_user.id] } }
-
-      it { is_expected.to match_array([user1, external_user]) }
     end
 
     context 'when todos exist' do
@@ -139,10 +147,10 @@ RSpec.describe Autocomplete::UsersFinder do
     end
 
     context 'when filtered by current_user' do
-      let(:current_user) { user2 }
+      let(:current_user) { blocked_user }
       let(:params) { { current_user: true } }
 
-      it { is_expected.to match_array([user2, user1, external_user, omniauth_user]) }
+      it { is_expected.to match_array([blocked_user, user1, external_user, omniauth_user]) }
     end
 
     context 'when filtered by author_id' do
@@ -154,6 +162,38 @@ RSpec.describe Autocomplete::UsersFinder do
     it 'preloads the status association' do
       associations = subject.map { |user| user.association(:status) }
       expect(associations).to all(be_loaded)
+    end
+
+    context 'when filtered by state' do
+      context "searching without states" do
+        let(:params) { { states: nil } }
+
+        it { is_expected.to match_array([user1, external_user, omniauth_user, current_user]) }
+      end
+
+      context "searching with states=active" do
+        let(:params) { { states: %w[active] } }
+
+        it { is_expected.to match_array([user1, external_user, omniauth_user, current_user]) }
+      end
+
+      context "searching with states=blocked" do
+        let(:params) { { states: %w[blocked] } }
+
+        it { is_expected.to match_array([blocked_user]) }
+      end
+
+      context "searching with states=banned" do
+        let(:params) { { states: %w[banned] } }
+
+        it { is_expected.to match_array([banned_user]) }
+      end
+
+      context "searching with states=blocked,banned" do
+        let(:params) { { states: %w[blocked banned] } }
+
+        it { is_expected.to match_array([blocked_user, banned_user]) }
+      end
     end
   end
 end

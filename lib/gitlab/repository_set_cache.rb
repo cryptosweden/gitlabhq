@@ -7,7 +7,7 @@ module Gitlab
 
     def initialize(repository, extra_namespace: nil, expires_in: 2.weeks)
       @repository = repository
-      @namespace = "#{repository.full_path}"
+      @namespace = repository.full_path.to_s
       @namespace += ":#{repository.project.id}" if repository.project
       @namespace = "#{@namespace}:#{extra_namespace}" if extra_namespace
       @expires_in = expires_in
@@ -21,14 +21,14 @@ module Gitlab
       full_key = cache_key(key)
 
       with do |redis|
-        redis.multi do
-          redis.unlink(full_key)
+        redis.multi do |multi|
+          multi.unlink(full_key)
 
           # Splitting into groups of 1000 prevents us from creating a too-long
           # Redis command
-          value.each_slice(1000) { |subset| redis.sadd(full_key, subset) }
+          value.each_slice(1000) { |subset| multi.sadd(full_key, subset) }
 
-          redis.expire(full_key, expires_in)
+          multi.expire(full_key, expires_in)
         end
       end
 
@@ -39,9 +39,9 @@ module Gitlab
       full_key = cache_key(key)
 
       smembers, exists = with do |redis|
-        redis.multi do
-          redis.smembers(full_key)
-          redis.exists(full_key)
+        redis.multi do |multi|
+          multi.smembers(full_key)
+          multi.exists?(full_key) # rubocop:disable CodeReuse/ActiveRecord
         end
       end
 
@@ -58,11 +58,21 @@ module Gitlab
       full_key = cache_key(key)
 
       with do |redis|
-        exists = redis.exists(full_key)
+        exists = redis.exists?(full_key) # rubocop:disable CodeReuse/ActiveRecord
         write(key, yield) unless exists
 
         redis.sscan_each(full_key, match: pattern)
       end
+    end
+
+    private
+
+    def cache
+      Gitlab::Redis::RepositoryCache
+    end
+
+    def with(&blk)
+      cache.with(&blk) # rubocop:disable CodeReuse/ActiveRecord
     end
   end
 end

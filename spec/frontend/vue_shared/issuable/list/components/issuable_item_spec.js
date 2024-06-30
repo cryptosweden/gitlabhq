@@ -1,24 +1,35 @@
-import { GlLink, GlLabel, GlIcon, GlFormCheckbox, GlSprintf } from '@gitlab/ui';
+import { GlBadge, GlLink, GlLabel, GlIcon, GlFormCheckbox, GlSprintf } from '@gitlab/ui';
 import { nextTick } from 'vue';
 import { useFakeDate } from 'helpers/fake_date';
+import { TEST_HOST } from 'helpers/test_constants';
 import { shallowMountExtended as shallowMount } from 'helpers/vue_test_utils_helper';
 import IssuableItem from '~/vue_shared/issuable/list/components/issuable_item.vue';
+import WorkItemTypeIcon from '~/work_items/components/work_item_type_icon.vue';
 import IssuableAssignees from '~/issuable/components/issue_assignees.vue';
 
-import { mockIssuable, mockRegularLabel, mockScopedLabel } from '../mock_data';
+import { localeDateFormat } from '~/lib/utils/datetime/locale_dateformat';
+import { mockIssuable, mockRegularLabel } from '../mock_data';
 
 const createComponent = ({
+  hasScopedLabelsFeature = false,
   issuableSymbol = '#',
   issuable = mockIssuable,
   showCheckbox = true,
   slots = {},
+  showWorkItemTypeIcon = false,
+  isActive = false,
+  preventRedirect = false,
 } = {}) =>
   shallowMount(IssuableItem, {
     propsData: {
+      hasScopedLabelsFeature,
       issuableSymbol,
       issuable,
       showDiscussions: true,
       showCheckbox,
+      showWorkItemTypeIcon,
+      isActive,
+      preventRedirect,
     },
     slots,
     stubs: {
@@ -26,7 +37,7 @@ const createComponent = ({
     },
   });
 
-const MOCK_GITLAB_URL = 'http://0.0.0.0:3000';
+const MOCK_GITLAB_URL = TEST_HOST;
 
 describe('IssuableItem', () => {
   // The mock data is dependent that this is after our default date
@@ -34,17 +45,13 @@ describe('IssuableItem', () => {
 
   const mockLabels = mockIssuable.labels.nodes;
   const mockAuthor = mockIssuable.author;
-  const originalUrl = gon.gitlab_url;
   let wrapper;
 
-  beforeEach(() => {
-    gon.gitlab_url = MOCK_GITLAB_URL;
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-    gon.gitlab_url = originalUrl;
-  });
+  const findTimestampWrapper = () => wrapper.findByTestId('issuable-timestamp');
+  const findWorkItemTypeIcon = () => wrapper.findComponent(WorkItemTypeIcon);
+  const findIssuableTitleLink = () => wrapper.findComponentByTestId('issuable-title-link');
+  const findIssuableItemWrapper = () => wrapper.findByTestId('issuable-item-wrapper');
+  const findStatusEl = () => wrapper.findByTestId('issuable-status');
 
   describe('computed', () => {
     describe('author', () => {
@@ -52,6 +59,14 @@ describe('IssuableItem', () => {
         wrapper = createComponent();
 
         expect(wrapper.vm.author).toEqual(mockIssuable.author);
+      });
+    });
+
+    describe('externalAuthor', () => {
+      it('returns `externalAuthor` reference', () => {
+        wrapper = createComponent();
+
+        expect(wrapper.vm.externalAuthor).toEqual(mockIssuable.externalAuthor);
       });
     });
 
@@ -148,19 +163,68 @@ describe('IssuableItem', () => {
       });
     });
 
-    describe('updatedAt', () => {
-      it('returns string containing timeago string based on `issuable.updatedAt`', () => {
+    describe('timestamp', () => {
+      it('returns timestamp based on `issuable.updatedAt` when the issue is open', () => {
         wrapper = createComponent();
 
-        expect(wrapper.vm.updatedAt).toContain('updated');
-        expect(wrapper.vm.updatedAt).toContain('ago');
+        expect(findTimestampWrapper().attributes('title')).toBe(
+          localeDateFormat.asDateTimeFull.format(mockIssuable.updatedAt),
+        );
+      });
+
+      it('returns timestamp based on `issuable.closedAt` when the issue is closed', () => {
+        const closedAt = '2020-06-18T11:30:00Z';
+        wrapper = createComponent({
+          issuable: { ...mockIssuable, closedAt, state: 'closed' },
+        });
+
+        expect(findTimestampWrapper().attributes('title')).toBe(
+          localeDateFormat.asDateTimeFull.format(closedAt),
+        );
+      });
+
+      it('returns timestamp based on `issuable.updatedAt` when the issue is closed but `issuable.closedAt` is undefined', () => {
+        wrapper = createComponent({
+          issuable: { ...mockIssuable, closedAt: undefined, state: 'closed' },
+        });
+
+        expect(findTimestampWrapper().attributes('title')).toBe(
+          localeDateFormat.asDateTimeFull.format(mockIssuable.updatedAt),
+        );
+      });
+    });
+
+    describe('formattedTimestamp', () => {
+      it('returns timeago string based on `issuable.updatedAt` when the issue is open', () => {
+        wrapper = createComponent();
+
+        expect(findTimestampWrapper().text()).toContain('updated');
+        expect(findTimestampWrapper().text()).toContain('ago');
+      });
+
+      it('returns timeago string based on `issuable.closedAt` when the issue is closed', () => {
+        wrapper = createComponent({
+          issuable: { ...mockIssuable, closedAt: '2020-06-18T11:30:00Z', state: 'closed' },
+        });
+
+        expect(findTimestampWrapper().text()).toContain('closed');
+        expect(findTimestampWrapper().text()).toContain('ago');
+      });
+
+      it('returns timeago string based on `issuable.updatedAt` when the issue is closed but `issuable.closedAt` is undefined', () => {
+        wrapper = createComponent({
+          issuable: { ...mockIssuable, closedAt: undefined, state: 'closed' },
+        });
+
+        expect(findTimestampWrapper().text()).toContain('updated');
+        expect(findTimestampWrapper().text()).toContain('ago');
       });
     });
 
     describe('showDiscussions', () => {
       it.each`
         userDiscussionsCount | returnValue
-        ${0}                 | ${true}
+        ${0}                 | ${false}
         ${1}                 | ${true}
         ${undefined}         | ${false}
         ${null}              | ${false}
@@ -175,28 +239,13 @@ describe('IssuableItem', () => {
             },
           });
 
-          expect(wrapper.findByTestId('issuable-discussions').exists()).toBe(returnValue);
+          expect(wrapper.findByTestId('issuable-comments').exists()).toBe(returnValue);
         },
       );
     });
   });
 
   describe('methods', () => {
-    describe('scopedLabel', () => {
-      it.each`
-        label               | labelType    | returnValue
-        ${mockRegularLabel} | ${'regular'} | ${false}
-        ${mockScopedLabel}  | ${'scoped'}  | ${true}
-      `(
-        'return $returnValue when provided label param is a $labelType label',
-        ({ label, returnValue }) => {
-          wrapper = createComponent();
-
-          expect(wrapper.vm.scopedLabel(label)).toBe(returnValue);
-        },
-      );
-    });
-
     describe('labelTitle', () => {
       it.each`
         label               | propWithTitle | returnValue
@@ -222,29 +271,33 @@ describe('IssuableItem', () => {
 
   describe('template', () => {
     it.each`
-      gitlabWebUrl           | webUrl                        | expectedHref                  | expectedTarget
-      ${undefined}           | ${`${MOCK_GITLAB_URL}/issue`} | ${`${MOCK_GITLAB_URL}/issue`} | ${undefined}
-      ${undefined}           | ${'https://jira.com/issue'}   | ${'https://jira.com/issue'}   | ${'_blank'}
-      ${'/gitlab-org/issue'} | ${'https://jira.com/issue'}   | ${'/gitlab-org/issue'}        | ${undefined}
+      webPath                                 | gitlabWebUrl           | webUrl                        | expectedHref                            | expectedTarget
+      ${undefined}                            | ${undefined}           | ${`${MOCK_GITLAB_URL}/issue`} | ${`${MOCK_GITLAB_URL}/issue`}           | ${undefined}
+      ${undefined}                            | ${undefined}           | ${'https://jira.com/issue'}   | ${'https://jira.com/issue'}             | ${'_blank'}
+      ${undefined}                            | ${'/gitlab-org/issue'} | ${'https://jira.com/issue'}   | ${'/gitlab-org/issue'}                  | ${undefined}
+      ${'/gitlab-org/gitlab-test/-/issues/1'} | ${undefined}           | ${'https://jira.com/issue'}   | ${'/gitlab-org/gitlab-test/-/issues/1'} | ${undefined}
+      ${'/gitlab-org/gitlab-test/-/issues/1'} | ${'/gitlab-org/issue'} | ${undefined}                  | ${'/gitlab-org/gitlab-test/-/issues/1'} | ${undefined}
+      ${'/gitlab-org/gitlab-test/-/issues/1'} | ${undefined}           | ${undefined}                  | ${'/gitlab-org/gitlab-test/-/issues/1'} | ${undefined}
     `(
-      'renders issuable title correctly when `gitlabWebUrl` is `$gitlabWebUrl` and webUrl is `$webUrl`',
-      async ({ webUrl, gitlabWebUrl, expectedHref, expectedTarget }) => {
+      'renders issuable title correctly when `gitlabWebUrl` is `$gitlabWebUrl`, webUrl is `$webUrl`, and webPath is `$webPath`',
+      async ({ webUrl, gitlabWebUrl, webPath, expectedHref, expectedTarget }) => {
         wrapper = createComponent({
           issuable: {
             ...mockIssuable,
             webUrl,
+            webPath,
             gitlabWebUrl,
           },
         });
 
         await nextTick();
 
-        const titleEl = wrapper.find('[data-testid="issuable-title"]');
+        const titleEl = wrapper.findByTestId('issuable-title');
 
         expect(titleEl.exists()).toBe(true);
-        expect(titleEl.find(GlLink).attributes('href')).toBe(expectedHref);
-        expect(titleEl.find(GlLink).attributes('target')).toBe(expectedTarget);
-        expect(titleEl.find(GlLink).text()).toBe(mockIssuable.title);
+        expect(titleEl.findComponent(GlLink).attributes('href')).toBe(expectedHref);
+        expect(titleEl.findComponent(GlLink).attributes('target')).toBe(expectedTarget);
+        expect(titleEl.findComponent(GlLink).text()).toBe(mockIssuable.title);
       },
     );
 
@@ -255,8 +308,8 @@ describe('IssuableItem', () => {
 
       await nextTick();
 
-      expect(wrapper.find(GlFormCheckbox).exists()).toBe(true);
-      expect(wrapper.find(GlFormCheckbox).attributes('checked')).not.toBeDefined();
+      expect(wrapper.findComponent(GlFormCheckbox).exists()).toBe(true);
+      expect(wrapper.findComponent(GlFormCheckbox).attributes('checked')).not.toBeDefined();
 
       wrapper.setProps({
         checked: true,
@@ -264,7 +317,7 @@ describe('IssuableItem', () => {
 
       await nextTick();
 
-      expect(wrapper.find(GlFormCheckbox).attributes('checked')).toBe('true');
+      expect(wrapper.findComponent(GlFormCheckbox).attributes('checked')).toBe('true');
     });
 
     it('renders issuable title with `target` set as "_blank" when issuable.webUrl is external', async () => {
@@ -277,9 +330,9 @@ describe('IssuableItem', () => {
 
       await nextTick();
 
-      expect(wrapper.find('[data-testid="issuable-title"]').find(GlLink).attributes('target')).toBe(
-        '_blank',
-      );
+      expect(
+        wrapper.findByTestId('issuable-title').findComponent(GlLink).attributes('target'),
+      ).toBe('_blank');
     });
 
     it('renders issuable confidential icon when issuable is confidential', async () => {
@@ -292,7 +345,7 @@ describe('IssuableItem', () => {
 
       await nextTick();
 
-      const confidentialEl = wrapper.find('[data-testid="issuable-title"]').find(GlIcon);
+      const confidentialEl = wrapper.findByTestId('issuable-title').findComponent(GlIcon);
 
       expect(confidentialEl.exists()).toBe(true);
       expect(confidentialEl.props('name')).toBe('eye-slash');
@@ -302,14 +355,14 @@ describe('IssuableItem', () => {
       });
     });
 
-    it('renders spam icon when issuable is hidden', async () => {
+    it('renders spam icon when issuable is hidden', () => {
       wrapper = createComponent({ issuable: { ...mockIssuable, hidden: true } });
 
       const hiddenIcon = wrapper.findComponent(GlIcon);
 
       expect(hiddenIcon.props('name')).toBe('spam');
       expect(hiddenIcon.attributes()).toMatchObject({
-        title: 'This issue is hidden because its author has been banned',
+        title: 'This issue is hidden because its author has been banned.',
         arialabel: 'Hidden',
       });
     });
@@ -317,16 +370,28 @@ describe('IssuableItem', () => {
     it('renders task status', () => {
       wrapper = createComponent();
 
-      const taskStatus = wrapper.find('[data-testid="task-status"]');
-      const expected = `${mockIssuable.taskCompletionStatus.completedCount} of ${mockIssuable.taskCompletionStatus.count} tasks completed`;
+      const taskStatus = wrapper.findByTestId('task-status');
+      const expected = `${mockIssuable.taskCompletionStatus.completedCount} of ${mockIssuable.taskCompletionStatus.count} checklist items completed`;
 
       expect(taskStatus.text()).toBe(expected);
+    });
+
+    it('does not renders work item type icon by default', () => {
+      wrapper = createComponent();
+
+      expect(findWorkItemTypeIcon().exists()).toBe(false);
+    });
+
+    it('renders work item type icon when props passed', () => {
+      wrapper = createComponent({ showWorkItemTypeIcon: true });
+
+      expect(findWorkItemTypeIcon().props('workItemType')).toBe(mockIssuable.type);
     });
 
     it('renders issuable reference', () => {
       wrapper = createComponent();
 
-      const referenceEl = wrapper.find('[data-testid="issuable-reference"]');
+      const referenceEl = wrapper.findByTestId('issuable-reference');
 
       expect(referenceEl.exists()).toBe(true);
       expect(referenceEl.text()).toBe(`#${mockIssuable.iid}`);
@@ -351,17 +416,19 @@ describe('IssuableItem', () => {
     it('renders issuable createdAt info', () => {
       wrapper = createComponent();
 
-      const createdAtEl = wrapper.find('[data-testid="issuable-created-at"]');
+      const createdAtEl = wrapper.findByTestId('issuable-created-at');
 
       expect(createdAtEl.exists()).toBe(true);
-      expect(createdAtEl.attributes('title')).toBe('Jun 29, 2020 1:52pm UTC');
+      expect(createdAtEl.attributes('title')).toBe(
+        localeDateFormat.asDateTimeFull.format(mockIssuable.createdAt),
+      );
       expect(createdAtEl.text()).toBe(wrapper.vm.createdAt);
     });
 
     it('renders issuable author info', () => {
       wrapper = createComponent();
 
-      const authorEl = wrapper.find('[data-testid="issuable-author"]');
+      const authorEl = wrapper.findByTestId('issuable-author');
 
       expect(authorEl.exists()).toBe(true);
       expect(authorEl.attributes()).toMatchObject({
@@ -369,7 +436,7 @@ describe('IssuableItem', () => {
         'data-username': mockAuthor.username,
         'data-name': mockAuthor.name,
         'data-avatar-url': mockAuthor.avatarUrl,
-        href: mockAuthor.webUrl,
+        href: mockAuthor.webPath,
       });
       expect(authorEl.text()).toBe(mockAuthor.name);
     });
@@ -388,6 +455,15 @@ describe('IssuableItem', () => {
 
       expect(authorEl.exists()).toBe(true);
       expect(authorEl.text()).toBe(mockAuthor.name);
+    });
+
+    it('renders issuable external author info via author slot', () => {
+      wrapper = createComponent({
+        issuableSymbol: '#',
+        issuable: { ...mockIssuable, externalAuthor: 'client@example.com' },
+      });
+
+      expect(wrapper.findByTestId('external-author').text()).toBe('client@example.com via');
     });
 
     it('renders timeframe via slot', () => {
@@ -409,7 +485,7 @@ describe('IssuableItem', () => {
     it('renders gl-label component for each label present within `issuable` prop', () => {
       wrapper = createComponent();
 
-      const labelsEl = wrapper.findAll(GlLabel);
+      const labelsEl = wrapper.findAllComponents(GlLabel);
 
       expect(labelsEl.exists()).toBe(true);
       expect(labelsEl).toHaveLength(mockLabels.length);
@@ -419,44 +495,72 @@ describe('IssuableItem', () => {
         description: mockLabels[0].description,
         scoped: false,
         target: wrapper.vm.labelTarget(mockLabels[0]),
-        size: 'sm',
       });
     });
 
-    it('renders issuable status via slot', () => {
-      wrapper = createComponent({
-        issuableSymbol: '#',
-        issuable: mockIssuable,
-        slots: {
-          status: `
-            <b class="js-status">${mockIssuable.state}</b>
-          `,
-        },
-      });
-      const statusEl = wrapper.find('.js-status');
+    describe('status', () => {
+      it('renders issuable status via slot', () => {
+        wrapper = createComponent({
+          issuableSymbol: '#',
+          issuable: mockIssuable,
+          slots: {
+            status: `
+              <b data-testid="js-status">${mockIssuable.state}</b>
+            `,
+          },
+        });
+        const statusEl = wrapper.findByTestId('js-status');
 
-      expect(statusEl.exists()).toBe(true);
-      expect(statusEl.text()).toBe(`${mockIssuable.state}`);
+        expect(statusEl.exists()).toBe(true);
+        expect(statusEl.text()).toBe(`${mockIssuable.state}`);
+      });
+
+      it('renders issuable status as badge', () => {
+        const closedMockIssuable = { ...mockIssuable, state: 'closed' };
+        wrapper = createComponent({
+          issuableSymbol: '#',
+          issuable: closedMockIssuable,
+          slots: {
+            status: closedMockIssuable.state,
+          },
+        });
+        const statusEl = findStatusEl();
+
+        expect(statusEl.findComponent(GlBadge).exists()).toBe(true);
+        expect(statusEl.text()).toBe(`${closedMockIssuable.state}`);
+      });
+
+      it('renders issuable status without badge if open', () => {
+        wrapper = createComponent({
+          issuableSymbol: '#',
+          issuable: mockIssuable,
+          slots: {
+            status: mockIssuable.state,
+          },
+        });
+
+        const statusEl = findStatusEl();
+
+        expect(statusEl.findComponent(GlBadge).exists()).toBe(false);
+        expect(statusEl.text()).toBe(`${mockIssuable.state}`);
+      });
     });
 
     it('renders discussions count', () => {
       wrapper = createComponent();
 
-      const discussionsEl = wrapper.find('[data-testid="issuable-discussions"]');
+      const discussionsEl = wrapper.findByTestId('issuable-comments');
 
       expect(discussionsEl.exists()).toBe(true);
-      expect(discussionsEl.find(GlLink).attributes()).toMatchObject({
-        title: 'Comments',
-        href: `${mockIssuable.webUrl}#notes`,
-      });
-      expect(discussionsEl.find(GlIcon).props('name')).toBe('comments');
-      expect(discussionsEl.find(GlLink).text()).toContain('2');
+
+      expect(discussionsEl.findComponent(GlIcon).props('name')).toBe('comments');
+      expect(discussionsEl.text()).toBe('2');
     });
 
     it('renders issuable-assignees component', () => {
       wrapper = createComponent();
 
-      const assigneesEl = wrapper.find(IssuableAssignees);
+      const assigneesEl = wrapper.findComponent(IssuableAssignees);
 
       expect(assigneesEl.exists()).toBe(true);
       expect(assigneesEl.props()).toMatchObject({
@@ -469,36 +573,83 @@ describe('IssuableItem', () => {
     it('renders issuable updatedAt info', () => {
       wrapper = createComponent();
 
-      const updatedAtEl = wrapper.find('[data-testid="issuable-updated-at"]');
+      const timestampEl = wrapper.findByTestId('issuable-timestamp');
 
-      expect(updatedAtEl.attributes('title')).toBe('Sep 10, 2020 11:41am UTC');
-      expect(updatedAtEl.text()).toBe(wrapper.vm.updatedAt);
+      expect(timestampEl.attributes('title')).toBe(
+        localeDateFormat.asDateTimeFull.format(mockIssuable.updatedAt),
+      );
+      expect(timestampEl.text()).toBe(wrapper.vm.formattedTimestamp);
     });
 
     describe('when issuable is closed', () => {
       it('renders issuable card with a closed style', () => {
-        wrapper = createComponent({ issuable: { ...mockIssuable, closedAt: '2020-12-10' } });
+        wrapper = createComponent({
+          issuable: { ...mockIssuable, closedAt: '2020-12-10', state: 'closed' },
+        });
 
         expect(wrapper.classes()).toContain('closed');
       });
-    });
 
-    describe('when issuable was created within the past 24 hours', () => {
-      it('renders issuable card with a recently-created style', () => {
+      it('renders issuable closedAt info and does not render updatedAt info', () => {
+        const closedAt = '2022-06-18T11:30:00Z';
         wrapper = createComponent({
-          issuable: { ...mockIssuable, createdAt: '2020-12-10T12:34:56' },
+          issuable: { ...mockIssuable, closedAt, state: 'closed' },
         });
 
-        expect(wrapper.classes()).toContain('today');
+        const timestampEl = wrapper.findByTestId('issuable-timestamp');
+
+        expect(timestampEl.attributes('title')).toBe(
+          localeDateFormat.asDateTimeFull.format(closedAt),
+        );
+        expect(timestampEl.text()).toBe(wrapper.vm.formattedTimestamp);
       });
     });
 
-    describe('when issuable was created earlier than the past 24 hours', () => {
-      it('renders issuable card without a recently-created style', () => {
-        wrapper = createComponent({ issuable: { ...mockIssuable, createdAt: '2020-12-09' } });
+    describe('scoped labels', () => {
+      describe.each`
+        description                                                         | labelPosition | hasScopedLabelsFeature | scoped
+        ${'when label is not scoped and there is no scoped_labels feature'} | ${0}          | ${false}               | ${false}
+        ${'when label is scoped and there is no scoped_labels feature'}     | ${1}          | ${false}               | ${false}
+        ${'when label is not scoped and there is scoped_labels feature'}    | ${0}          | ${true}                | ${false}
+        ${'when label is scoped and there is scoped_labels feature'}        | ${1}          | ${true}                | ${true}
+      `('$description', ({ hasScopedLabelsFeature, labelPosition, scoped }) => {
+        it(`${scoped ? 'renders' : 'does not render'} as scoped label`, () => {
+          wrapper = createComponent({ hasScopedLabelsFeature });
 
-        expect(wrapper.classes()).not.toContain('today');
+          expect(wrapper.findAllComponents(GlLabel).at(labelPosition).props('scoped')).toBe(scoped);
+        });
       });
+    });
+  });
+
+  describe('when preventing redirect on clicking the link', () => {
+    it('emits an event on item click', () => {
+      const { iid, webUrl } = mockIssuable;
+
+      wrapper = createComponent({
+        preventRedirect: true,
+      });
+
+      findIssuableTitleLink().vm.$emit('click', new MouseEvent('click'));
+
+      expect(wrapper.emitted('select-issuable')).toEqual([[{ iid, webUrl }]]);
+    });
+
+    it('does not apply highlighted class when item is not active', () => {
+      wrapper = createComponent({
+        preventRedirect: true,
+      });
+
+      expect(findIssuableItemWrapper().classes('gl-bg-blue-50')).toBe(false);
+    });
+
+    it('applies highlghted class when item is active', () => {
+      wrapper = createComponent({
+        isActive: true,
+        preventRedirect: true,
+      });
+
+      expect(findIssuableItemWrapper().classes('gl-bg-blue-50')).toBe(true);
     });
   });
 });

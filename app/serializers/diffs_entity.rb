@@ -39,7 +39,7 @@ class DiffsEntity < Grape::Entity
     options[:latest_diff]
   end
 
-  expose :latest_version_path, if: -> (*) { merge_request } do |diffs|
+  expose :latest_version_path, if: ->(*) { merge_request } do |diffs|
     diffs_project_merge_request_path(merge_request&.project, merge_request)
   end
 
@@ -59,11 +59,11 @@ class DiffsEntity < Grape::Entity
     render_overflow_warning?(diffs)
   end
 
-  expose :email_patch_path, if: -> (*) { merge_request } do |diffs|
+  expose :email_patch_path, if: ->(*) { merge_request } do |diffs|
     merge_request_path(merge_request, format: :patch)
   end
 
-  expose :plain_diff_path, if: -> (*) { merge_request } do |diffs|
+  expose :plain_diff_path, if: ->(*) { merge_request } do |diffs|
     merge_request_path(merge_request, format: :diff)
   end
 
@@ -74,12 +74,12 @@ class DiffsEntity < Grape::Entity
       options.merge(
         submodule_links: submodule_links,
         code_navigation_path: code_navigation_path(diffs),
-        conflicts: conflicts(allow_tree_conflicts: options[:allow_tree_conflicts])
+        conflicts: conflicts_with_types
       )
     )
   end
 
-  expose :merge_request_diffs, using: MergeRequestDiffEntity, if: -> (_, options) { options[:merge_request_diffs]&.any? } do |diffs|
+  expose :merge_request_diffs, using: MergeRequestDiffEntity, if: ->(_, options) { options[:merge_request_diffs]&.any? } do |diffs|
     options[:merge_request_diffs]
   end
 

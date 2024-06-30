@@ -2,10 +2,106 @@
 
 require 'spec_helper'
 
-RSpec.describe Types::BaseField do
+RSpec.describe Types::BaseField, feature_category: :api do
+  describe 'authorized?' do
+    let(:object) { double }
+    let(:current_user) { nil }
+    let(:ctx) { { current_user: current_user } }
+
+    it 'defaults to true' do
+      field = described_class.new(name: 'test', type: GraphQL::Types::String, null: true)
+
+      expect(field).to be_authorized(object, nil, ctx)
+    end
+
+    it 'tests the field authorization, if provided' do
+      field = described_class.new(name: 'test', type: GraphQL::Types::String, null: true, authorize: :foo)
+
+      expect(Ability).to receive(:allowed?).with(current_user, :foo, object).and_return(false)
+
+      expect(field).not_to be_authorized(object, nil, ctx)
+    end
+
+    it 'tests the field authorization, if provided, when it succeeds' do
+      field = described_class.new(name: 'test', type: GraphQL::Types::String, null: true, authorize: :foo)
+
+      expect(Ability).to receive(:allowed?).with(current_user, :foo, object).and_return(true)
+
+      expect(field).to be_authorized(object, nil, ctx)
+    end
+
+    it 'only tests the resolver authorization if it authorizes_object?' do
+      resolver = Class.new(Resolvers::BaseResolver)
+
+      field = described_class.new(
+        name: 'test', type: GraphQL::Types::String, null: true, resolver_class: resolver
+      )
+
+      expect(field).to be_authorized(object, nil, ctx)
+    end
+
+    it 'tests the resolver authorization, if provided' do
+      resolver = Class.new(Resolvers::BaseResolver) do
+        include Gitlab::Graphql::Authorize::AuthorizeResource
+
+        authorizes_object!
+      end
+
+      field = described_class.new(
+        name: 'test', type: GraphQL::Types::String, null: true, resolver_class: resolver
+      )
+
+      expect(resolver).to receive(:authorized?).with(object, ctx).and_return(false)
+
+      expect(field).not_to be_authorized(object, nil, ctx)
+    end
+
+    it 'tests field authorization before resolver authorization, when field auth fails' do
+      resolver = Class.new(Resolvers::BaseResolver) do
+        include Gitlab::Graphql::Authorize::AuthorizeResource
+
+        authorizes_object!
+      end
+
+      field = described_class.new(
+        name: 'test',
+        type: GraphQL::Types::String,
+        null: true,
+        authorize: :foo,
+        resolver_class: resolver
+      )
+
+      expect(Ability).to receive(:allowed?).with(current_user, :foo, object).and_return(false)
+      expect(resolver).not_to receive(:authorized?)
+
+      expect(field).not_to be_authorized(object, nil, ctx)
+    end
+
+    it 'tests field authorization before resolver authorization, when field auth succeeds' do
+      resolver = Class.new(Resolvers::BaseResolver) do
+        include Gitlab::Graphql::Authorize::AuthorizeResource
+
+        authorizes_object!
+      end
+
+      field = described_class.new(
+        name: 'test',
+        type: GraphQL::Types::String,
+        null: true,
+        authorize: :foo,
+        resolver_class: resolver
+      )
+
+      expect(Ability).to receive(:allowed?).with(current_user, :foo, object).and_return(true)
+      expect(resolver).to receive(:authorized?).with(object, ctx).and_return(false)
+
+      expect(field).not_to be_authorized(object, nil, ctx)
+    end
+  end
+
   context 'when considering complexity' do
     let(:resolver) do
-      Class.new(described_class) do
+      Class.new(Resolvers::BaseResolver) do
         def self.resolver_complexity(args, child_complexity:)
           2 if args[:foo]
         end
@@ -119,39 +215,6 @@ RSpec.describe Types::BaseField do
         end
       end
     end
-
-    describe '#visible?' do
-      context 'and has a feature_flag' do
-        let(:flag) { :test_feature }
-        let(:field) { described_class.new(name: 'test', type: GraphQL::Types::String, feature_flag: flag, null: false) }
-        let(:context) { {} }
-
-        before do
-          skip_feature_flags_yaml_validation
-        end
-
-        it 'checks YAML definition for default_enabled' do
-          # Exception is indicative of a check for YAML definition
-          expect { field.visible?(context) }.to raise_error(Feature::InvalidFeatureFlagError, /The feature flag YAML definition for '#{flag}' does not exist/)
-        end
-
-        context 'skipping YAML check' do
-          before do
-            skip_default_enabled_yaml_check
-          end
-
-          it 'returns false if the feature is not enabled' do
-            stub_feature_flags(flag => false)
-
-            expect(field.visible?(context)).to eq(false)
-          end
-
-          it 'returns true if the feature is enabled' do
-            expect(field.visible?(context)).to eq(true)
-          end
-        end
-      end
-    end
   end
 
   describe '#resolve' do
@@ -165,77 +228,29 @@ RSpec.describe Types::BaseField do
     end
   end
 
-  describe '#description' do
-    context 'feature flag given' do
-      let(:field) { described_class.new(name: 'test', type: GraphQL::Types::String, feature_flag: flag, null: false, description: 'Test description.') }
-      let(:flag) { :test_flag }
-
-      it 'prepends the description' do
-        expect(field.description).to start_with 'Test description. Available only when feature flag `test_flag` is enabled.'
-      end
-
-      context 'falsey feature_flag values' do
-        using RSpec::Parameterized::TableSyntax
-
-        where(:flag, :feature_value, :default_enabled) do
-          ''  | false | false
-          ''  | true  | false
-          nil | false | true
-          nil | true  | false
-        end
-
-        with_them do
-          it 'returns the correct description' do
-            expect(field.description).to eq('Test description.')
-          end
-        end
-      end
-
-      context 'with different default_enabled values' do
-        using RSpec::Parameterized::TableSyntax
-
-        where(:feature_value, :default_enabled, :expected_description) do
-          disabled_ff_description = "Test description. Available only when feature flag `test_flag` is enabled. This flag is disabled by default, because the feature is experimental and is subject to change without notice."
-          enabled_ff_description = "Test description. Available only when feature flag `test_flag` is enabled. This flag is enabled by default."
-
-          false | false | disabled_ff_description
-          true  | false | disabled_ff_description
-          false | true  | enabled_ff_description
-          true  | true  | enabled_ff_description
-        end
-
-        with_them do
-          before do
-            stub_feature_flags("#{flag}": feature_value)
-
-            allow(Feature::Definition).to receive(:has_definition?).with(flag).and_return(true)
-            allow(Feature::Definition).to receive(:default_enabled?).and_return(default_enabled)
-          end
-
-          it 'returns the correct availability in the description' do
-            expect(field.description). to eq expected_description
-          end
-        end
-      end
-    end
-  end
-
   include_examples 'Gitlab-style deprecations' do
     def subject(args = {})
       base_args = { name: 'test', type: GraphQL::Types::String, null: true }
 
       described_class.new(**base_args.merge(args))
     end
+  end
 
-    it 'interacts well with the `feature_flag` property' do
-      field = subject(
-        deprecated: { milestone: '1.10', reason: 'Deprecation reason' },
-        description: 'Field description.',
-        feature_flag: 'foo_flag'
-      )
+  describe '#field_authorized?' do
+    let(:object) { :object }
+    let(:scope_validator) { instance_double(::Gitlab::Auth::ScopeValidator) }
+    let(:user) { :user }
+    let(:context) { { current_user: user, scope_validator: scope_validator } }
 
-      expect(field.description).to start_with('Field description. Available only when feature flag `foo_flag` is enabled.')
-      expect(field.description).to end_with('Deprecated in 1.10: Deprecation reason.')
+    it 'delegates to authorization providing the scopes' do
+      expect_next_instance_of(::Gitlab::Graphql::Authorize::ObjectAuthorization) do |authorization|
+        expect(authorization).to receive(:ok?)
+          .with(object, user, scope_validator: scope_validator)
+        expect(authorization.permitted_scopes).to eq([:api, :foobar_scope])
+      end
+
+      field = described_class.new(name: 'test', type: GraphQL::Types::String, null: true, scopes: [:api, :foobar_scope])
+      field.authorized?(object, nil, context)
     end
   end
 end

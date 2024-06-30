@@ -1,27 +1,22 @@
 <script>
-import { GlButton, GlTooltipDirective } from '@gitlab/ui';
-import { mapActions, mapState } from 'vuex';
-import { __ } from '~/locale';
+import { GlButton, GlIcon } from '@gitlab/ui';
 import Tracking from '~/tracking';
 
 export default {
   components: {
     GlButton,
-  },
-  directives: {
-    GlTooltip: GlTooltipDirective,
+    GlIcon,
   },
   mixins: [Tracking.mixin()],
-  computed: {
-    ...mapState({ isNewListShowing: ({ addColumnForm }) => addColumnForm.visible }),
-    tooltip() {
-      return this.isNewListShowing ? __('The list creation wizard is already open') : '';
+  props: {
+    isNewListShowing: {
+      type: Boolean,
+      required: true,
     },
   },
   methods: {
-    ...mapActions(['setAddColumnFormVisibility']),
     handleClick() {
-      this.setAddColumnFormVisibility(true);
+      this.$emit('setAddColumnFormVisibility', true);
       this.track('click_button', { label: 'create_list' });
     },
   },
@@ -29,14 +24,16 @@ export default {
 </script>
 
 <template>
-  <div
-    v-gl-tooltip="tooltip"
-    :tabindex="isNewListShowing ? '0' : undefined"
-    class="gl-ml-3 gl-display-flex gl-align-items-center"
-    data-testid="boards-create-list"
-  >
-    <gl-button :disabled="isNewListShowing" variant="confirm" @click="handleClick"
-      >{{ __('Create list') }}
+  <span>
+    <gl-button
+      v-show="!isNewListShowing"
+      id="boards-create-list"
+      data-testid="boards-create-list"
+      variant="default"
+      @click="handleClick"
+    >
+      <gl-icon name="plus" :size="16" />
+      {{ __('New list') }}
     </gl-button>
-  </div>
+  </span>
 </template>

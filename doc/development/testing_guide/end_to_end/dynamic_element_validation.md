@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Dynamic Element Validation
@@ -39,7 +39,7 @@ appear on the webpage, or the test to navigate away from the page entirely.
 Dynamic element validation is instituted when using
 
 ```ruby
-click_element(:my_element, Some::Page)
+click_element('my-element', Some::Page)
 ```
 
 ### Required Elements
@@ -48,7 +48,7 @@ click_element(:my_element, Some::Page)
 
 First it is important to define what a "required element" is.
 
-Simply put, a required element is a visible HTML element that appears on a UI component without any user input.
+A required element is a visible HTML element that appears on a UI component without any user input.
 
 "Visible" can be defined as
 
@@ -73,19 +73,19 @@ Given ...
 ```ruby
 class MyPage < Page::Base
   view 'app/views/view.html.haml' do
-    element :my_element, required: true
-    element :another_element, required: true
-    element :conditional_element
+    element 'my-element', required: true
+    element 'another-element', required: true
+    element 'conditional-element'
   end
 
   def open_layer
-    click_element(:my_element, Layer::MyLayer)
+    click_element('my-element', Layer::MyLayer)
   end
 end
 
 class Layer < Page::Component
   view 'app/views/mylayer/layer.html.haml' do
-    element :message_content, required: true
+    element 'message-content', required: true
   end
 end
 ```
@@ -100,7 +100,7 @@ Runtime::Browser.visit(:gitlab, Page::MyPage)
 execute_stuff
 ```
 
-invokes GitLab QA to scan `MyPage` for `my_element` and `another_element` to be on the page before continuing to
+invokes GitLab QA to scan `MyPage` for `my-element` and `another-element` to be on the page before continuing to
 `execute_stuff`
 
 ### Clicking
@@ -109,11 +109,11 @@ Given the [source](#examples) ...
 
 ```ruby
 def open_layer
-  click_element(:my_element, Layer::MyLayer)
+  click_element('my-element', Layer::MyLayer)
 end
 ```
 
-invokes GitLab QA to ensure that `message_content` appears on
-the Layer upon clicking `my_element`.
+invokes GitLab QA to ensure that `message-content` appears on
+the Layer upon clicking `my-element`.
 
 This implies that the Layer is indeed rendered before we continue our test.

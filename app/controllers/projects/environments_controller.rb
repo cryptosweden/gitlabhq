@@ -1,32 +1,39 @@
 # frozen_string_literal: true
 
 class Projects::EnvironmentsController < Projects::ApplicationController
-  # Metrics dashboard code is getting decoupled from environments and is being moved
-  # into app/controllers/projects/metrics_dashboard_controller.rb
-  # See https://gitlab.com/gitlab-org/gitlab/-/issues/226002 for more details.
+  MIN_SEARCH_LENGTH = 3
+  ACTIVE_STATES = %i[available stopping].freeze
+  SCOPES_TO_STATES = { "active" => ACTIVE_STATES, "stopped" => %i[stopped] }.freeze
 
-  include MetricsDashboard
+  include ProductAnalyticsTracking
+  include KasCookie
 
   layout 'project'
 
-  before_action only: [:metrics, :additional_metrics, :metrics_dashboard] do
-    authorize_metrics_dashboard!
-
-    push_frontend_feature_flag(:prometheus_computed_alerts)
-    push_frontend_feature_flag(:disable_metric_dashboard_refresh_rate)
+  before_action only: [:folder] do
+    push_frontend_feature_flag(:environments_folder_new_look, project)
   end
 
-  before_action :authorize_read_environment!, except: [:metrics, :additional_metrics, :metrics_dashboard, :metrics_redirect]
+  before_action only: [:show] do
+    push_frontend_feature_flag(:k8s_tree_view, project)
+  end
+
+  before_action :authorize_read_environment!
   before_action :authorize_create_environment!, only: [:new, :create]
   before_action :authorize_stop_environment!, only: [:stop]
   before_action :authorize_update_environment!, only: [:edit, :update, :cancel_auto_stop]
   before_action :authorize_admin_environment!, only: [:terminal, :terminal_websocket_authorize]
-  before_action :environment, only: [:show, :edit, :update, :stop, :terminal, :terminal_websocket_authorize, :metrics, :cancel_auto_stop]
+  before_action :environment, only: [:show, :edit, :update, :stop, :terminal, :terminal_websocket_authorize, :cancel_auto_stop, :k8s]
   before_action :verify_api_request!, only: :terminal_websocket_authorize
   before_action :expire_etag_cache, only: [:index], unless: -> { request.format.json? }
+  before_action :set_kas_cookie, only: [:edit, :new, :show, :k8s], if: -> { current_user && request.format.html? }
   after_action :expire_etag_cache, only: [:cancel_auto_stop]
 
+  track_event :index, :folder, :show, :new, :edit, :create, :update, :stop, :cancel_auto_stop, :terminal, :k8s,
+    name: 'users_visiting_environments_pages'
+
   feature_category :continuous_delivery
+  urgency :low
 
   def index
     @project = ProjectPresenter.new(project, current_user: current_user)
@@ -34,16 +41,18 @@ class Projects::EnvironmentsController < Projects::ApplicationController
     respond_to do |format|
       format.html
       format.json do
-        @environments = project.environments
-          .with_state(params[:scope] || :available)
+        states = SCOPES_TO_STATES.fetch(params[:scope], ACTIVE_STATES)
+        @environments = search_environments.with_state(states)
+
+        environments_count_by_state = search_environments.count_by_state
 
         Gitlab::PollingInterval.set_header(response, interval: 3_000)
-        environments_count_by_state = project.environments.count_by_state
-
         render json: {
           environments: serialize_environments(request, response, params[:nested]),
           review_app: serialize_review_app,
+          can_stop_stale_environments: can?(current_user, :stop_environment, @project),
           available_count: environments_count_by_state[:available],
+          active_count: environments_count_by_state[:available] + environments_count_by_state[:stopping],
           stopped_count: environments_count_by_state[:stopped]
         }
       end
@@ -58,13 +67,16 @@ class Projects::EnvironmentsController < Projects::ApplicationController
     respond_to do |format|
       format.html
       format.json do
-        folder_environments = project.environments.where(environment_type: params[:id])
-        @environments = folder_environments.with_state(params[:scope] || :available)
+        states = SCOPES_TO_STATES.fetch(params[:scope], ACTIVE_STATES)
+        folder_environments = search_environments(type: params[:id])
+
+        @environments = folder_environments.with_state(states)
           .order(:name)
 
         render json: {
           environments: serialize_environments(request, response),
           available_count: folder_environments.available.count,
+          active_count: folder_environments.active.count,
           stopped_count: folder_environments.stopped.count
         }
       end
@@ -73,7 +85,6 @@ class Projects::EnvironmentsController < Projects::ApplicationController
   # rubocop: enable CodeReuse/ActiveRecord
 
   def show
-    @deployments = environment.deployments.ordered.page(params[:page])
   end
 
   def new
@@ -81,6 +92,10 @@ class Projects::EnvironmentsController < Projects::ApplicationController
   end
 
   def edit
+  end
+
+  def k8s
+    render action: :show
   end
 
   def create
@@ -104,11 +119,12 @@ class Projects::EnvironmentsController < Projects::ApplicationController
   def stop
     return render_404 unless @environment.available?
 
-    stop_action = @environment.stop_with_action!(current_user)
+    stop_actions = @environment.stop_with_actions!(current_user)
+    job = stop_actions.first if stop_actions&.count == 1
 
     action_or_env_url =
-      if stop_action
-        polymorphic_url([project, stop_action])
+      if job
+        project_job_url(project, job)
       else
         project_environment_url(project, @environment)
       end
@@ -121,7 +137,7 @@ class Projects::EnvironmentsController < Projects::ApplicationController
 
   def cancel_auto_stop
     result = Environments::ResetAutoStopService.new(project, current_user)
-      .execute(environment)
+                                               .execute(environment)
 
     if result[:status] == :success
       respond_to do |format|
@@ -161,35 +177,6 @@ class Projects::EnvironmentsController < Projects::ApplicationController
     end
   end
 
-  def metrics_redirect
-    redirect_to project_metrics_dashboard_path(project)
-  end
-
-  def metrics
-    respond_to do |format|
-      format.html do
-        redirect_to project_metrics_dashboard_path(project, environment: environment )
-      end
-      format.json do
-        # Currently, this acts as a hint to load the metrics details into the cache
-        # if they aren't there already
-        @metrics = environment.metrics || {}
-
-        render json: @metrics, status: @metrics.any? ? :ok : :no_content
-      end
-    end
-  end
-
-  def additional_metrics
-    respond_to do |format|
-      format.json do
-        additional_metrics = environment.additional_metrics(*metrics_params) || {}
-
-        render json: additional_metrics, status: additional_metrics.any? ? :ok : :no_content
-      end
-    end
-  end
-
   def search
     respond_to do |format|
       format.json do
@@ -201,6 +188,14 @@ class Projects::EnvironmentsController < Projects::ApplicationController
   end
 
   private
+
+  def deployments
+    environment
+      .deployments
+      .with_environment_page_associations
+      .ordered
+      .page(params[:page])
+  end
 
   def verify_api_request!
     Gitlab::Workhorse.verify_api_request!(request.headers)
@@ -227,14 +222,10 @@ class Projects::EnvironmentsController < Projects::ApplicationController
     @environment ||= project.environments.find(params[:id])
   end
 
-  def metrics_params
-    params.require([:start, :end])
-  end
+  def search_environments(type: nil)
+    search = params[:search] if params[:search] && params[:search].length >= MIN_SEARCH_LENGTH
 
-  def metrics_dashboard_params
-    params
-      .permit(:embedded, :group, :title, :y_label, :dashboard_path, :environment, :sample_metrics, :embed_json)
-      .merge(dashboard_path: params[:dashboard], environment: environment)
+    @search_environments ||= Environments::EnvironmentsFinder.new(project, current_user, type: type, search: search).execute
   end
 
   def include_all_dashboards?

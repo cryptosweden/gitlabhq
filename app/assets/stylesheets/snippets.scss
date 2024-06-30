@@ -15,8 +15,7 @@
 
   .gl-snippet-icon {
     display: inline-block;
-    /* stylelint-disable-next-line function-url-quotes */
-    background: url(asset_path('ext_snippet_icons/ext_snippet_icons.png')) no-repeat;
+    background: url('ext_snippet_icons/ext_snippet_icons.png') no-repeat;
     overflow: hidden;
     text-align: left;
     width: 16px;
@@ -26,6 +25,7 @@
     &.gl-snippet-icon-doc-code { background-position: 0 0;  }
     &.gl-snippet-icon-doc-text {  background-position: 0 -16px; }
     &.gl-snippet-icon-download {  background-position: 0 -32px; }
+    &.gl-snippet-icon-copy-to-clipboard {  background-position: 0 -48px; }
   }
 
   .blob-viewer {
@@ -33,9 +33,13 @@
     text-align: left;
   }
 
+  .file-holder {
+    margin: 0;
+  }
+
   .file-content.code {
     border: $border-style;
-    border-radius: 0 0 $border-radius-default $border-radius-default;
+    border-radius: 0 0 $gl-border-radius-base $gl-border-radius-base;
     display: flex;
     box-shadow: none;
     margin: 0;
@@ -77,12 +81,12 @@
         font-size: $code-font-size;
         line-height: $code-line-height;
         white-space: nowrap;
-        color: $black-transparent;
+        color: $t-gray-a-24;
         min-width: 30px;
       }
 
       .diff-line-num:hover {
-        color: $almost-black;
+        color: $gray-950;
         cursor: pointer;
       }
     }
@@ -96,15 +100,16 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    background-color: $gray-light;
+    background-color: $gray-10;
     border: $border-style;
     border-bottom: 0;
     padding: $gl-padding;
     margin: 0;
-    border-radius: $border-radius-default $border-radius-default 0 0;
+    border-radius: $gl-border-radius-base $gl-border-radius-base 0 0;
 
     .file-header-content {
       max-width: 75%;
+      align-self: center;
 
       .file-title-name {
         font-weight: $gl-font-weight-bold;
@@ -139,6 +144,11 @@
   }
 
   .btn-group {
+    position: relative;
+    display: inline-flex;
+    vertical-align: middle;
+
+    button.btn,
     a.btn {
       background-color: $white;
       text-decoration: none;
@@ -147,19 +157,23 @@
       border-right: 0;
 
       &:hover {
-        background-color: $white-normal;
-        border-color: $border-white-normal;
+        background-color: $gray-50;
+        border-color: $gray-100;
         text-decoration: none;
       }
 
       &:first-child {
-        border-radius: $border-radius-default 0 0 $border-radius-default;
+        border-radius: $gl-border-radius-base 0 0 $gl-border-radius-base;
       }
 
       &:last-child {
-        border-radius: 0 $border-radius-default $border-radius-default 0;
+        border-radius: 0 $gl-border-radius-base $gl-border-radius-base 0;
         border-right: $border-style;
       }
+    }
+
+    button.btn {
+      padding: 9px 9px 8px;
     }
   }
 }

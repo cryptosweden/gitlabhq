@@ -6,13 +6,15 @@ module IssuablesHelper
   include ::Sidebars::Concerns::HasPill
 
   def sidebar_gutter_toggle_icon
-    content_tag(:span, class: 'js-sidebar-toggle-container', data: { is_expanded: !sidebar_gutter_collapsed? }) do
+    content_tag(:span, class: 'js-sidebar-toggle-container gl-button-text', data: { is_expanded: !sidebar_gutter_collapsed? }) do
       sprite_icon('chevron-double-lg-left', css_class: "js-sidebar-expand #{'hidden' unless sidebar_gutter_collapsed?}") +
-      sprite_icon('chevron-double-lg-right', css_class: "js-sidebar-collapse #{'hidden' if sidebar_gutter_collapsed?}")
+        sprite_icon('chevron-double-lg-right', css_class: "js-sidebar-collapse #{'hidden' if sidebar_gutter_collapsed?}")
     end
   end
 
-  def sidebar_gutter_collapsed_class
+  def sidebar_gutter_collapsed_class(is_merge_request_with_flag)
+    return "right-sidebar-expanded" if is_merge_request_with_flag
+
     "right-sidebar-#{sidebar_gutter_collapsed? ? 'collapsed' : 'expanded'}"
   end
 
@@ -29,26 +31,6 @@ module IssuablesHelper
     else
       ns_('NotificationEmail|Assignee', 'NotificationEmail|Assignees', assignees.count)
     end
-  end
-
-  def sidebar_milestone_tooltip_label(milestone)
-    return _('Milestone') unless milestone.present?
-
-    [escape_once(milestone[:title]), sidebar_milestone_remaining_days(milestone) || _('Milestone')].join('<br/>')
-  end
-
-  def sidebar_milestone_remaining_days(milestone)
-    due_date_with_remaining_days(milestone[:due_date], milestone[:start_date])
-  end
-
-  def sidebar_due_date_tooltip_label(due_date)
-    [_('Due date'), due_date_with_remaining_days(due_date)].compact.join('<br/>')
-  end
-
-  def due_date_with_remaining_days(due_date, start_date = nil)
-    return unless due_date
-
-    "#{due_date.to_s(:medium)} (#{remaining_days_in_words(due_date, start_date)})"
   end
 
   def multi_label_name(current_labels, default_label)
@@ -133,60 +115,6 @@ module IssuablesHelper
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
-  def milestone_dropdown_label(milestone_title, default_label = _('Milestone'))
-    title =
-      case milestone_title
-      when Milestone::Upcoming.name then Milestone::Upcoming.title
-      when Milestone::Started.name then Milestone::Started.title
-      else milestone_title.presence
-      end
-
-    h(title || default_label)
-  end
-
-  def issuable_meta_author_status(author)
-    return "" unless show_status_emoji?(author&.status) && status = user_status(author)
-
-    "#{status}".html_safe
-  end
-
-  def issuable_meta(issuable, project)
-    output = []
-    output << "Created #{time_ago_with_tooltip(issuable.created_at)} by ".html_safe
-
-    if issuable.is_a?(Issue) && issuable.service_desk_reply_to
-      output << "#{html_escape(issuable.service_desk_reply_to)} via "
-    end
-
-    output << content_tag(:strong) do
-      author_output = link_to_member(project, issuable.author, size: 24, mobile_classes: "d-none d-sm-inline")
-      author_output << link_to_member(project, issuable.author, size: 24, by_username: true, avatar: false, mobile_classes: "d-inline d-sm-none")
-
-      author_output << issuable_meta_author_slot(issuable.author, css_class: 'ml-1')
-      author_output << issuable_meta_author_status(issuable.author)
-
-      author_output
-    end
-
-    if access = project.team.human_max_access(issuable.author_id)
-      output << content_tag(:span, access, class: "user-access-role has-tooltip d-none d-xl-inline-block gl-ml-3 ", title: _("This user has the %{access} role in the %{name} project.") % { access: access.downcase, name: project.name })
-    elsif project.team.contributor?(issuable.author_id)
-      output << content_tag(:span, _("Contributor"), class: "user-access-role has-tooltip d-none d-xl-inline-block gl-ml-3", title: _("This user has previously committed to the %{name} project.") % { name: project.name })
-    end
-
-    output << content_tag(:span, (sprite_icon('first-contribution', css_class: 'gl-icon gl-vertical-align-middle') if issuable.first_contribution?), class: 'has-tooltip gl-ml-2', title: _('1st contribution!'))
-
-    output << content_tag(:span, (issuable.task_status if issuable.tasks?), id: "task_status", class: "d-none d-md-inline-block gl-ml-3")
-    output << content_tag(:span, (issuable.task_status_short if issuable.tasks?), id: "task_status_short", class: "d-md-none")
-
-    output.join.html_safe
-  end
-
-  # This is a dummy method, and has an override defined in ee
-  def issuable_meta_author_slot(author, css_class: nil)
-    nil
-  end
-
   def issuables_state_counter_text(issuable_type, state, display_count)
     titles = {
       opened: _("Open"),
@@ -201,7 +129,7 @@ module IssuablesHelper
 
     count = issuables_count_for_state(issuable_type, state)
     if count != -1
-      html << " " << gl_badge_tag(format_count(issuable_type, count, Gitlab::IssuablesCountForState::THRESHOLD), { variant: :muted, size: :sm }, { class: "gl-tab-counter-badge gl-display-none gl-sm-display-inline-flex" })
+      html << " " << gl_badge_tag(format_count(issuable_type, count, Gitlab::IssuablesCountForState::THRESHOLD), { variant: :muted, size: :sm }, { class: "gl-tab-counter-badge gl-hidden sm:gl-inline-flex" })
     end
 
     html.html_safe
@@ -210,7 +138,10 @@ module IssuablesHelper
   def assigned_issuables_count(issuable_type)
     case issuable_type
     when :issues
-      current_user.assigned_open_issues_count
+      ::Users::AssignedIssuesCountService.new(
+        current_user: current_user,
+        max_limit: User::MAX_LIMIT_FOR_ASSIGNEED_ISSUES_COUNT
+      ).count
     when :merge_requests
       current_user.assigned_open_merge_requests_count
     else
@@ -233,7 +164,8 @@ module IssuablesHelper
       canUpdate: can?(current_user, :"update_#{issuable.to_ability_name}", issuable),
       canDestroy: can?(current_user, :"destroy_#{issuable.to_ability_name}", issuable),
       issuableRef: issuable.to_reference,
-      markdownPreviewPath: preview_markdown_path(parent),
+      imported: issuable.imported?,
+      markdownPreviewPath: preview_markdown_path(parent, target_type: issuable.model_name, target_id: issuable.iid),
       markdownDocsPath: help_page_path('user/markdown'),
       lockVersion: issuable.lock_version,
       issuableTemplateNamesPath: template_names_path(parent, issuable),
@@ -241,7 +173,7 @@ module IssuablesHelper
       initialTitleText: issuable.title,
       initialDescriptionHtml: markdown_field(issuable, :description),
       initialDescriptionText: issuable.description,
-      initialTaskStatus: issuable.task_status
+      initialTaskCompletionStatus: issuable.task_completion_status
     }
     data.merge!(issue_only_initial_data(issuable))
     data.merge!(path_data(parent))
@@ -250,44 +182,8 @@ module IssuablesHelper
     data
   end
 
-  def issue_only_initial_data(issuable)
-    return {} unless issuable.is_a?(Issue)
-
-    {
-      hasClosingMergeRequest: issuable.merge_requests_count(current_user) != 0,
-      issueType: issuable.issue_type,
-      zoomMeetingUrl: ZoomMeeting.canonical_meeting_url(issuable),
-      sentryIssueIdentifier: SentryIssue.find_by(issue: issuable)&.sentry_issue_identifier, # rubocop:disable CodeReuse/ActiveRecord
-      iid: issuable.iid.to_s,
-      isHidden: issue_hidden?(issuable),
-      canCreateIncident: create_issue_type_allowed?(issuable.project, :incident)
-    }
-  end
-
-  def path_data(parent)
-    return { groupPath: parent.path } if parent.is_a?(Group)
-
-    {
-      projectPath: ref_project.path,
-      projectId: ref_project.id,
-      projectNamespace: ref_project.namespace.full_path
-    }
-  end
-
-  def updated_at_by(issuable)
-    return {} unless issuable.edited?
-
-    {
-      updatedAt: issuable.last_edited_at.to_time.iso8601,
-      updatedBy: {
-        name: issuable.last_edited_by.name,
-        path: user_path(issuable.last_edited_by)
-      }
-    }
-  end
-
   def issuables_count_for_state(issuable_type, state)
-    Gitlab::IssuablesCountForState.new(finder, store_in_redis_cache: true)[state]
+    Gitlab::IssuablesCountForState.new(finder, fast_fail: true, store_in_redis_cache: true)[state]
   end
 
   def close_issuable_path(issuable)
@@ -306,15 +202,6 @@ module IssuablesHelper
     issuable.author == current_user
   end
 
-  def issuable_display_type(issuable)
-    case issuable
-    when Issue
-      issuable.issue_type.downcase
-    when MergeRequest
-      issuable.model_name.human.downcase
-    end
-  end
-
   def has_filter_bar_param?
     finder.class.scalar_params.any? { |p| params[p].present? }
   end
@@ -326,12 +213,6 @@ module IssuablesHelper
     end
   end
 
-  def reviewer_sidebar_data(reviewer, merge_request: nil)
-    { avatar_url: reviewer.avatar_url, name: reviewer.name, username: reviewer.username }.tap do |data|
-      data[:can_merge] = merge_request.can_be_merged_by?(reviewer) if merge_request
-    end
-  end
-
   def issuable_squash_option?(issuable, project)
     if issuable.persisted?
       issuable.squash
@@ -340,43 +221,51 @@ module IssuablesHelper
     end
   end
 
-  def state_name_with_icon(issuable)
-    if issuable.is_a?(MergeRequest) && issuable.merged?
-      [_("Merged"), "git-merge"]
-    elsif issuable.is_a?(MergeRequest) && issuable.closed?
-      [_("Closed"), "close"]
-    elsif issuable.closed?
-      [_("Closed"), "mobile-issue-close"]
-    else
-      [_("Open"), "issue-open-m"]
+  def issuable_type_selector_data(issuable)
+    {
+      selected_type: issuable.issue_type,
+      is_issue_allowed: create_issue_type_allowed?(@project, :issue).to_s,
+      is_incident_allowed: create_issue_type_allowed?(@project, :incident).to_s,
+      issue_path: new_project_issue_path(@project),
+      incident_path: new_project_issue_path(@project, { issuable_template: 'incident', issue: { issue_type: 'incident' } })
+    }
+  end
+
+  def issuable_label_selector_data(project, issuable)
+    initial_labels = issuable.labels.map do |label|
+      {
+        __typename: "Label",
+        id: label.id,
+        title: label.title,
+        description: label.description,
+        color: label.color,
+        text_color: label.text_color,
+        lock_on_merge: label.lock_on_merge
+      }
     end
+
+    filter_base_path =
+      if issuable.issuable_type == "merge_request"
+        project_merge_requests_path(project)
+      else
+        project_issues_path(project)
+      end
+
+    {
+      field_name: "#{issuable.class.model_name.param_key}[label_ids][]",
+      full_path: project.full_path,
+      initial_labels: initial_labels.to_json,
+      issuable_type: issuable.issuable_type,
+      labels_filter_base_path: filter_base_path,
+      labels_manage_path: project_labels_path(project),
+      supports_lock_on_merge: issuable.supports_lock_on_merge?.to_s
+    }
   end
 
   private
 
   def sidebar_gutter_collapsed?
     cookies[:collapsed_gutter] == 'true'
-  end
-
-  def issuable_todo_button_data(issuable, is_collapsed)
-    {
-      todo_text: _('Add a to do'),
-      mark_text: _('Mark as done'),
-      todo_icon: sprite_icon('todo-add'),
-      mark_icon: sprite_icon('todo-done', css_class: 'todo-undone'),
-      issuable_id: issuable[:id],
-      issuable_type: issuable[:type],
-      create_path: issuable[:create_todo_path],
-      delete_path: issuable.dig(:current_user, :todo, :delete_path),
-      placement: is_collapsed ? 'left' : nil,
-      container: is_collapsed ? 'body' : nil,
-      boundary: 'viewport',
-      is_collapsed: is_collapsed,
-      track_label: "right_sidebar",
-      track_property: "update_todo",
-      track_action: "click_button",
-      track_value: ""
-    }
   end
 
   def close_reopen_params(issuable, action)
@@ -401,7 +290,7 @@ module IssuablesHelper
       toggleSubscriptionEndpoint: issuable[:toggle_subscription_path],
       moveIssueEndpoint: issuable[:move_issue_path],
       projectsAutocompleteEndpoint: issuable[:projects_autocomplete_path],
-      editable: issuable.dig(:current_user, :can_edit),
+      editable: issuable.dig(:current_user, :can_edit).to_s,
       currentUser: issuable[:current_user],
       rootPath: root_path,
       fullPath: issuable[:project_full_path],
@@ -409,6 +298,7 @@ module IssuablesHelper
       id: issuable[:id],
       severity: issuable[:severity],
       timeTrackingLimitToHours: Gitlab::CurrentSettings.time_tracking_limit_to_hours,
+      canCreateTimelogs: issuable.dig(:current_user, :can_create_timelogs),
       createNoteEmail: issuable[:create_note_email],
       issuableType: issuable[:type]
     }
@@ -448,6 +338,92 @@ module IssuablesHelper
     else
       number_with_delimiter(count)
     end
+  end
+
+  def issue_only_initial_data(issuable)
+    return {} unless issuable.is_a?(Issue)
+
+    {
+      canCreateIncident: create_issue_type_allowed?(issuable.project, :incident),
+      fullPath: issuable.project.full_path,
+      iid: issuable.iid,
+      issuableId: issuable.id,
+      issueType: issuable.issue_type,
+      isHidden: issue_hidden?(issuable),
+      zoomMeetingUrl: ZoomMeeting.canonical_meeting_url(issuable),
+      **incident_only_initial_data(issuable),
+      **issue_header_data(issuable),
+      **work_items_data
+    }
+  end
+
+  def incident_only_initial_data(issue)
+    return {} unless issue.incident_type_issue?
+
+    {
+      hasLinkedAlerts: issue.alert_management_alerts.any?,
+      canUpdateTimelineEvent: can?(current_user, :admin_incident_management_timeline_event, issue),
+      currentPath: url_for(safe_params),
+      currentTab: safe_params[:incident_tab]
+    }
+  end
+
+  def issue_header_data(issuable)
+    data = {
+      authorId: issuable.author.id,
+      authorName: issuable.author.name,
+      authorUsername: issuable.author.username,
+      authorWebUrl: url_for(user_path(issuable.author)),
+      createdAt: issuable.created_at.to_time.iso8601,
+      isFirstContribution: issuable.first_contribution?,
+      serviceDeskReplyTo: issuable.present(current_user: current_user).service_desk_reply_to
+    }
+
+    data.tap do |d|
+      if issuable.duplicated? && can?(current_user, :read_issue, issuable.duplicated_to)
+        d[:duplicatedToIssueUrl] = url_for([issuable.duplicated_to.project, issuable.duplicated_to, { only_path: false }])
+      end
+
+      if issuable.moved? && can?(current_user, :read_issue, issuable.moved_to)
+        d[:movedToIssueUrl] = url_for([issuable.moved_to.project, issuable.moved_to, { only_path: false }])
+      end
+    end
+  end
+
+  def work_items_data
+    {
+      registerPath: new_user_registration_path(redirect_to_referer: 'yes'),
+      signInPath: new_session_path(:user, redirect_to_referer: 'yes')
+    }
+  end
+
+  def path_data(parent)
+    return { groupPath: parent.path } if parent.is_a?(Group)
+
+    {
+      projectPath: ref_project.path,
+      projectId: ref_project.id,
+      projectNamespace: ref_project.namespace.full_path
+    }
+  end
+
+  def updated_at_by(issuable)
+    return {} unless issuable.edited?
+
+    {
+      updatedAt: issuable.last_edited_at.to_time.iso8601,
+      updatedBy: {
+        name: issuable.last_edited_by.name,
+        path: user_path(issuable.last_edited_by)
+      }
+    }
+  end
+
+  def new_comment_template_paths(group, project = nil)
+    [{
+      text: _('Your comment templates'),
+      href: profile_comment_templates_path
+    }]
   end
 end
 

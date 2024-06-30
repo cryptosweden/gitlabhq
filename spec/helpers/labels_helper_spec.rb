@@ -62,19 +62,19 @@ RSpec.describe LabelsHelper do
     end
 
     context 'with a project as subject' do
-      let(:namespace) { build(:namespace, name: 'foo3') }
-      let(:subject) { build(:project, namespace: namespace, name: 'bar3') }
+      let(:namespace) { build(:namespace) }
+      let(:subject) { build(:project, namespace: namespace) }
 
       it 'links to project issues page' do
-        expect(link_to_label(label_presenter)).to match %r{<a.*href="/foo3/bar3/-/issues\?label_name%5B%5D=#{label.name}".*>.*</a>}m
+        expect(link_to_label(label_presenter)).to match %r{<a.*href="/#{subject.full_path}/-/issues\?label_name%5B%5D=#{label.name}".*>.*</a>}m
       end
     end
 
     context 'with a group as subject' do
-      let(:subject) { build(:group, name: 'bar') }
+      let(:subject) { build(:group) }
 
       it 'links to group issues page' do
-        expect(link_to_label(label_presenter)).to match %r{<a.*href="/groups/bar/-/issues\?label_name%5B%5D=#{label.name}".*>.*</a>}m
+        expect(link_to_label(label_presenter)).to match %r{<a.*href="/groups/#{subject.path}/-/issues\?label_name%5B%5D=#{label.name}".*>.*</a>}m
       end
     end
 
@@ -91,7 +91,7 @@ RSpec.describe LabelsHelper do
     context 'with a tooltip argument' do
       context 'set to false' do
         it 'does not include the has-tooltip class' do
-          expect(link_to_label(label_presenter, tooltip: false)).not_to match /has-tooltip/
+          expect(link_to_label(label_presenter, tooltip: false)).not_to match(/has-tooltip/)
         end
       end
     end
@@ -112,17 +112,25 @@ RSpec.describe LabelsHelper do
     end
   end
 
+  describe 'render_label_text' do
+    it 'html escapes the bg_color correctly' do
+      xss_payload = '"><img src=x onerror=prompt(1)>'
+      label_text = render_label_text('xss', bg_color: xss_payload)
+      expect(label_text).to include(html_escape(xss_payload))
+    end
+  end
+
   describe 'text_color_for_bg' do
     it 'uses light text on dark backgrounds' do
       expect(text_color_for_bg('#222E2E')).to be_color('#FFFFFF')
     end
 
     it 'uses dark text on light backgrounds' do
-      expect(text_color_for_bg('#EEEEEE')).to be_color('#333333')
+      expect(text_color_for_bg('#EEEEEE')).to be_color('#1F1E24')
     end
 
     it 'supports RGB triplets' do
-      expect(text_color_for_bg('#FFF')).to be_color '#333333'
+      expect(text_color_for_bg('#FFF')).to be_color '#1F1E24'
       expect(text_color_for_bg('#000')).to be_color '#FFFFFF'
     end
   end
@@ -267,9 +275,18 @@ RSpec.describe LabelsHelper do
     let(:html) { '<img src="example.png">This is an image</img>' }
     let(:label_with_html_content) { create(:label, title: 'test', description: html) }
 
-    it 'removes HTML' do
-      tooltip = label_tooltip_title(label_with_html_content)
-      expect(tooltip).to eq('This is an image')
+    context 'tooltip shows description' do
+      it 'removes HTML' do
+        tooltip = label_tooltip_title(label_with_html_content)
+        expect(tooltip).to eq('This is an image')
+      end
+    end
+
+    context 'tooltip shows title' do
+      it 'shows title' do
+        tooltip = label_tooltip_title(label_with_html_content, tooltip_shows_title: true)
+        expect(tooltip).to eq('test')
+      end
     end
   end
 
@@ -300,6 +317,40 @@ RSpec.describe LabelsHelper do
       it 'returns falsey' do
         expect(show_labels_full_path?(nil, nil)).to be_falsey
       end
+    end
+  end
+
+  describe '#wrap_label_html' do
+    let(:project) { build_stubbed(:project) }
+    let(:xss_label) do
+      build_stubbed(:label, name: 'xsslabel', project: project, color: '"><img src=x onerror=prompt(1)>')
+    end
+
+    it 'does not include the color' do
+      expect(wrap_label_html('xss', label: xss_label)).not_to include('color:')
+    end
+  end
+
+  describe '#label_subscription_toggle_button_text' do
+    let(:label) { instance_double(Label) }
+    let(:current_user) { instance_double(User) }
+
+    subject { label_subscription_toggle_button_text(label) }
+
+    context 'when the label is subscribed' do
+      before do
+        allow(label).to receive(:subscribed?).and_return(true)
+      end
+
+      it { is_expected.to eq(_('Unsubscribe')) }
+    end
+
+    context 'when the label is not subscribed' do
+      before do
+        allow(label).to receive(:subscribed?).and_return(false)
+      end
+
+      it { is_expected.to eq(_('Subscribe')) }
     end
   end
 end

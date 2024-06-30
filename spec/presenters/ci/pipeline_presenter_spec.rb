@@ -6,17 +6,13 @@ RSpec.describe Ci::PipelinePresenter do
   include Gitlab::Routing
 
   let_it_be(:user) { create(:user) }
-  let_it_be_with_reload(:project) { create(:project, :test_repo) }
+  let_it_be_with_reload(:project) { create(:project, :test_repo, developers: user) }
   let_it_be_with_reload(:pipeline) { create(:ci_pipeline, project: project) }
 
   let(:current_user) { user }
 
   subject(:presenter) do
     described_class.new(pipeline)
-  end
-
-  before_all do
-    project.add_developer(user)
   end
 
   before do
@@ -90,17 +86,17 @@ RSpec.describe Ci::PipelinePresenter do
     end
   end
 
-  describe '#name' do
+  describe '#event_type_name' do
     before do
       allow(pipeline).to receive(:merge_request_event_type) { event_type }
     end
 
-    subject { presenter.name }
+    subject { presenter.event_type_name }
 
     context 'for a detached merge request pipeline' do
       let(:event_type) { :detached }
 
-      it { is_expected.to eq('Detached merge request pipeline') }
+      it { is_expected.to eq('Merge request pipeline') }
     end
 
     context 'for a merged result pipeline' do
@@ -154,8 +150,8 @@ RSpec.describe Ci::PipelinePresenter do
       let(:pipeline) { merge_request.all_pipelines.last }
 
       it 'returns a correct ref text' do
-        is_expected.to eq("for <a class=\"mr-iid\" href=\"#{project_merge_request_path(merge_request.project, merge_request)}\">#{merge_request.to_reference}</a> " \
-                          "with <a class=\"ref-name\" href=\"#{project_commits_path(merge_request.source_project, merge_request.source_branch)}\">#{merge_request.source_branch}</a>")
+        is_expected.to eq("Related merge request <a class=\"mr-iid ref-container\" href=\"#{project_merge_request_path(merge_request.project, merge_request)}\">#{merge_request.to_reference}</a> " \
+                          "to merge <a class=\"ref-container gl-link\" href=\"#{project_commits_path(merge_request.source_project, merge_request.source_branch)}\">#{merge_request.source_branch}</a>")
       end
     end
 
@@ -164,9 +160,35 @@ RSpec.describe Ci::PipelinePresenter do
       let(:pipeline) { merge_request.all_pipelines.last }
 
       it 'returns a correct ref text' do
-        is_expected.to eq("for <a class=\"mr-iid\" href=\"#{project_merge_request_path(merge_request.project, merge_request)}\">#{merge_request.to_reference}</a> " \
-                          "with <a class=\"ref-name\" href=\"#{project_commits_path(merge_request.source_project, merge_request.source_branch)}\">#{merge_request.source_branch}</a> " \
-                          "into <a class=\"ref-name\" href=\"#{project_commits_path(merge_request.target_project, merge_request.target_branch)}\">#{merge_request.target_branch}</a>")
+        is_expected.to eq("Related merge request <a class=\"mr-iid ref-container\" href=\"#{project_merge_request_path(merge_request.project, merge_request)}\">#{merge_request.to_reference}</a> " \
+                          "to merge <a class=\"ref-container gl-link\" href=\"#{project_commits_path(merge_request.source_project, merge_request.source_branch)}\">#{merge_request.source_branch}</a> " \
+                          "into <a class=\"ref-container gl-link\" href=\"#{project_commits_path(merge_request.target_project, merge_request.target_branch)}\">#{merge_request.target_branch}</a>")
+      end
+    end
+
+    context 'with multiple related merge requests' do
+      let(:mr_1) { create(:merge_request) }
+      let(:mr_2) { create(:merge_request) }
+
+      before do
+        allow(pipeline).to receive(:all_merge_requests).and_return(MergeRequest.where(id: [mr_1.id, mr_2.id]))
+      end
+
+      it 'displays the correct amount of links for the related merge requests' do
+        is_expected.to eq("2 related merge requests: <a class=\"mr-iid\" href=\"#{project_merge_request_path(mr_2.project, mr_2)}\">#{mr_2.to_reference} #{mr_2.title}</a>, " \
+                          "<a class=\"mr-iid\" href=\"#{project_merge_request_path(mr_1.project, mr_1)}\">#{mr_1.to_reference} #{mr_1.title}</a>")
+      end
+    end
+
+    context 'with just one merge request' do
+      let(:mr_1) { create(:merge_request) }
+
+      before do
+        allow(pipeline).to receive(:all_merge_requests).and_return(MergeRequest.where(id: mr_1.id))
+      end
+
+      it 'displays the link for the related merge request' do
+        is_expected.to eq("1 related merge request: <a class=\"mr-iid\" href=\"#{project_merge_request_path(mr_1.project, mr_1)}\">#{mr_1.to_reference} #{mr_1.title}</a>")
       end
     end
 
@@ -177,7 +199,7 @@ RSpec.describe Ci::PipelinePresenter do
         end
 
         it 'returns a correct ref text' do
-          is_expected.to eq("for <a class=\"ref-name\" href=\"#{project_commits_path(pipeline.project, pipeline.ref)}\">#{pipeline.ref}</a>")
+          is_expected.to eq("For <a class=\"ref-container gl-link\" href=\"#{project_commits_path(pipeline.project, pipeline.ref)}\">#{pipeline.ref}</a>")
         end
 
         context 'when ref contains malicious script' do
@@ -195,7 +217,7 @@ RSpec.describe Ci::PipelinePresenter do
         end
 
         it 'returns a correct ref text' do
-          is_expected.to eq("for <span class=\"ref-name\">#{pipeline.ref}</span>")
+          is_expected.to eq("For <span class=\"ref-name\">#{pipeline.ref}</span>")
         end
 
         context 'when ref contains malicious script' do
@@ -209,45 +231,73 @@ RSpec.describe Ci::PipelinePresenter do
     end
   end
 
-  describe '#all_related_merge_request_text' do
-    subject { presenter.all_related_merge_request_text }
+  describe '#link_to_merge_request' do
+    subject { presenter.link_to_merge_request }
 
-    let_it_be(:mr_1) { create(:merge_request) }
-    let_it_be(:mr_2) { create(:merge_request) }
+    context 'with a related merge request' do
+      let(:merge_request) { create(:merge_request, :with_detached_merge_request_pipeline, source_project: project) }
+      let(:pipeline) { merge_request.all_pipelines.take }
 
-    context 'with zero related merge requests (branch pipeline)' do
-      it { is_expected.to eq('No related merge requests found.') }
+      it 'returns a correct link' do
+        is_expected.to include(project_merge_request_path(project, merge_request))
+      end
     end
 
-    context 'with one related merge request' do
-      before do
-        allow(pipeline).to receive(:all_merge_requests).and_return(MergeRequest.where(id: mr_1.id))
-      end
+    context 'when pipeline is branch pipeline' do
+      it { is_expected.to be_nil }
+    end
+  end
 
-      it {
-        is_expected.to eq("1 related merge request: " \
-          "<a class=\"mr-iid\" href=\"#{merge_request_path(mr_1)}\">#{mr_1.to_reference} #{mr_1.title}</a>")
-      }
+  describe '#link_to_merge_request_source_branch' do
+    subject { presenter.link_to_merge_request_source_branch }
+
+    context 'with a related merge request' do
+      let(:merge_request) { create(:merge_request, :with_detached_merge_request_pipeline, source_project: project) }
+      let(:pipeline) { merge_request.all_pipelines.take }
+
+      it 'returns a correct link' do
+        is_expected.to include(project_commits_path(project, merge_request.source_branch))
+      end
     end
 
-    context 'with two related merge requests' do
-      before do
-        allow(pipeline).to receive(:all_merge_requests).and_return(MergeRequest.where(id: [mr_1.id, mr_2.id]))
+    context 'when pipeline is branch pipeline' do
+      it { is_expected.to be_nil }
+    end
+  end
+
+  describe '#link_to_merge_request_target_branch' do
+    subject { presenter.link_to_merge_request_target_branch }
+
+    context 'with a related merge request' do
+      let(:merge_request) { create(:merge_request, :with_detached_merge_request_pipeline, source_project: project) }
+      let(:pipeline) { merge_request.all_pipelines.take }
+
+      it 'returns a correct link' do
+        is_expected.to include(project_commits_path(project, merge_request.target_branch))
       end
+    end
 
-      it {
-        is_expected.to eq("2 related merge requests: " \
-          "<a class=\"mr-iid\" href=\"#{merge_request_path(mr_2)}\">#{mr_2.to_reference} #{mr_2.title}</a>, " \
-          "<a class=\"mr-iid\" href=\"#{merge_request_path(mr_1)}\">#{mr_1.to_reference} #{mr_1.title}</a>")
-      }
+    context 'when pipeline is branch pipeline' do
+      it { is_expected.to be_nil }
+    end
+  end
 
-      context 'with a limit passed' do
-        subject { presenter.all_related_merge_request_text(limit: 1) }
+  describe '#triggered_by_path' do
+    subject { presenter.triggered_by_path }
 
-        it {
-          is_expected.to eq("2 related merge requests: " \
-          "<a class=\"mr-iid\" href=\"#{merge_request_path(mr_2)}\">#{mr_2.to_reference} #{mr_2.title}</a>")
-        }
+    context 'when the pipeline is a child ' do
+      let(:upstream_pipeline) { create(:ci_pipeline) }
+      let(:pipeline) { create(:ci_pipeline, child_of: upstream_pipeline) }
+      let(:expected_path) { project_pipeline_path(upstream_pipeline.project, upstream_pipeline) }
+
+      it 'returns the pipeline path' do
+        expect(subject).to eq(expected_path)
+      end
+    end
+
+    context 'when the pipeline is not a child ' do
+      it 'returns the pipeline path' do
+        expect(subject).to eq('')
       end
     end
   end
@@ -311,89 +361,6 @@ RSpec.describe Ci::PipelinePresenter do
           it { is_expected.to contain_exactly(merge_request) }
         end
       end
-
-      context 'with a private project' do
-        it_behaves_like 'private merge requests'
-      end
-
-      context 'with a public project with private merge requests' do
-        before do
-          project.update!(visibility_level: Gitlab::VisibilityLevel::PUBLIC)
-
-          project
-            .project_feature
-            .update!(merge_requests_access_level: ProjectFeature::PRIVATE)
-        end
-
-        it_behaves_like 'private merge requests'
-      end
-
-      context 'with a public project with public merge requests' do
-        before do
-          project.update!(visibility_level: Gitlab::VisibilityLevel::PUBLIC)
-
-          project
-            .project_feature
-            .update!(merge_requests_access_level: ProjectFeature::ENABLED)
-        end
-
-        context 'when not logged in' do
-          let(:current_user) {}
-
-          it { is_expected.to contain_exactly(merge_request) }
-        end
-      end
-    end
-  end
-
-  describe '#link_to_merge_request' do
-    subject { presenter.link_to_merge_request }
-
-    context 'with a related merge request' do
-      let(:merge_request) { create(:merge_request, :with_detached_merge_request_pipeline, source_project: project) }
-      let(:pipeline) { merge_request.all_pipelines.take }
-
-      it 'returns a correct link' do
-        is_expected.to include(project_merge_request_path(project, merge_request))
-      end
-    end
-
-    context 'when pipeline is branch pipeline' do
-      it { is_expected.to be_nil }
-    end
-  end
-
-  describe '#link_to_merge_request_source_branch' do
-    subject { presenter.link_to_merge_request_source_branch }
-
-    context 'with a related merge request' do
-      let(:merge_request) { create(:merge_request, :with_detached_merge_request_pipeline, source_project: project) }
-      let(:pipeline) { merge_request.all_pipelines.take }
-
-      it 'returns a correct link' do
-        is_expected.to include(project_commits_path(project, merge_request.source_branch))
-      end
-    end
-
-    context 'when pipeline is branch pipeline' do
-      it { is_expected.to be_nil }
-    end
-  end
-
-  describe '#link_to_merge_request_target_branch' do
-    subject { presenter.link_to_merge_request_target_branch }
-
-    context 'with a related merge request' do
-      let(:merge_request) { create(:merge_request, :with_detached_merge_request_pipeline, source_project: project) }
-      let(:pipeline) { merge_request.all_pipelines.take }
-
-      it 'returns a correct link' do
-        is_expected.to include(project_commits_path(project, merge_request.target_branch))
-      end
-    end
-
-    context 'when pipeline is branch pipeline' do
-      it { is_expected.to be_nil }
     end
   end
 end

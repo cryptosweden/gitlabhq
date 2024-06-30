@@ -1,7 +1,9 @@
 import { waitFor } from '@testing-library/dom';
 import setWindowLocation from 'helpers/set_window_location_helper';
 import { TEST_HOST } from 'helpers/test_constants';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import initDiffsApp from '~/diffs';
+import { initMrStateLazyLoad } from '~/mr_notes/init';
 import { createStore } from '~/mr_notes/stores';
 import {
   getDiffCodePart,
@@ -52,40 +54,59 @@ const startDiffsApp = () => {
     endpointBatch: `${TEST_BASE_URL}diffs_batch.json`,
     projectPath: TEST_PROJECT_PATH,
     helpPagePath: '/help',
-    currentUserData: 'null',
+    currentUserData: '{}',
     changesEmptyStateIllustration: '',
     isFluidLayout: 'false',
     dismissEndpoint: '',
     showSuggestPopover: 'false',
     showWhitespaceDefault: 'true',
-    viewDiffsFileByFile: 'false',
+    fileByFileDefault: 'false',
     defaultSuggestionCommitMessage: 'Lorem ipsum',
   });
 
+  const notesEl = document.createElement('div');
+  notesEl.id = 'js-vue-mr-discussions';
+  document.body.appendChild(notesEl);
+  Object.assign(notesEl.dataset, {
+    noteableData: '{ "current_user": {} }',
+    notesData: '{}',
+    currentUserData: '{}',
+  });
+
+  window.mrTabs = {
+    getCurrentAction: () => 'diffs',
+    eventHub: {
+      $on() {},
+      $off() {},
+    },
+  };
   const store = createStore();
+  initMrStateLazyLoad(store);
 
-  const vm = initDiffsApp(store);
-
-  store.dispatch('setActiveTab', 'diffs');
-
-  return vm;
+  return initDiffsApp(store);
 };
 
 describe('diffs third party interoperability', () => {
   let vm;
+
+  beforeEach(() => {
+    stubPerformanceWebAPI();
+  });
 
   afterEach(() => {
     vm.$destroy();
     document.body.innerHTML = '';
   });
 
-  const tryOrErrorMessage = (fn) => (...args) => {
-    try {
-      return fn(...args);
-    } catch (e) {
-      return e.message;
-    }
-  };
+  const tryOrErrorMessage =
+    (fn) =>
+    (...args) => {
+      try {
+        return fn(...args);
+      } catch (e) {
+        return e.message;
+      }
+    };
 
   const findDiffFile = () => document.querySelector(`.diff-file[data-path="${TEST_DIFF_FILE}"]`);
   const hasLines = (sel = 'tr.line_holder') => findDiffFile().querySelectorAll(sel).length > 0;
@@ -112,10 +133,11 @@ describe('diffs third party interoperability', () => {
     ${'parallel view right side'} | ${'parallel'} | ${'.diff-tr.line_holder'} | ${'.diff-td.line_content.right-side'} | ${EXPECT_PARALLEL_RIGHT_SIDE}
   `('$desc', ({ view, rowSelector, codeSelector, expectation }) => {
     beforeEach(async () => {
-      setWindowLocation(`${TEST_HOST}/${TEST_BASE_URL}/diffs?view=${view}`);
+      setWindowLocation(`${TEST_HOST}${TEST_BASE_URL}diffs?view=${view}`);
 
       vm = startDiffsApp();
 
+      // eslint-disable-next-line jest/no-standalone-expect
       await waitFor(() => expect(hasLines(rowSelector)).toBe(true));
     });
 

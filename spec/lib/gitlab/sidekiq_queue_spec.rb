@@ -2,25 +2,27 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::SidekiqQueue, :clean_gitlab_redis_queues do
+RSpec.describe Gitlab::SidekiqQueue, :clean_gitlab_redis_queues, :clean_gitlab_redis_queues_metadata do
   around do |example|
-    Sidekiq::Queue.new('default').clear
+    Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls { Sidekiq::Queue.new('foobar').clear }
     Sidekiq::Testing.disable!(&example)
-    Sidekiq::Queue.new('default').clear
+    Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls { Sidekiq::Queue.new('foobar').clear }
   end
 
   def add_job(args, user:, klass: 'AuthorizedProjectsWorker')
-    Sidekiq::Client.push(
-      'class' => klass,
-      'queue' => 'default',
-      'args' => args,
-      'meta.user' => user.username
-    )
+    Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+      Sidekiq::Client.push(
+        'class' => klass,
+        'queue' => 'foobar',
+        'args' => args,
+        'meta.user' => user.username
+      )
+    end
   end
 
   describe '#drop_jobs!' do
     shared_examples 'queue processing' do
-      let(:sidekiq_queue) { described_class.new('default') }
+      let(:sidekiq_queue) { described_class.new('foobar') }
       let_it_be(:sidekiq_queue_user) { create(:user) }
 
       before do
@@ -37,8 +39,8 @@ RSpec.describe Gitlab::SidekiqQueue, :clean_gitlab_redis_queues do
         it 'returns a non-completion flag, the number of jobs deleted, and the remaining queue size' do
           expect(sidekiq_queue.drop_jobs!(search_metadata, timeout: 10))
             .to eq(completed: false,
-                   deleted_jobs: timeout_deleted,
-                   queue_size: 3 - timeout_deleted)
+              deleted_jobs: timeout_deleted,
+              queue_size: 3 - timeout_deleted)
         end
       end
 
@@ -46,8 +48,8 @@ RSpec.describe Gitlab::SidekiqQueue, :clean_gitlab_redis_queues do
         it 'returns a completion flag, the number of jobs deleted, and the remaining queue size' do
           expect(sidekiq_queue.drop_jobs!(search_metadata, timeout: 10))
             .to eq(completed: true,
-                   deleted_jobs: no_timeout_deleted,
-                   queue_size: 3 - no_timeout_deleted)
+              deleted_jobs: no_timeout_deleted,
+              queue_size: 3 - no_timeout_deleted)
         end
       end
     end
@@ -76,11 +78,35 @@ RSpec.describe Gitlab::SidekiqQueue, :clean_gitlab_redis_queues do
       end
     end
 
+    context 'when there extra queue shard instances are used' do
+      let(:search_metadata) { { user: sidekiq_queue_user.username } }
+      let(:sidekiq_queue) { described_class.new('foobar') }
+      let_it_be(:sidekiq_queue_user) { create(:user) }
+
+      before do
+        allow(Gitlab::Redis::Queues)
+            .to receive(:instances).and_return({ 'main' => Gitlab::Redis::Queues, 'shard' => Gitlab::Redis::Queues })
+
+        add_job([1], user: create(:user))
+        add_job([2], user: sidekiq_queue_user, klass: 'MergeWorker')
+        add_job([3], user: sidekiq_queue_user)
+      end
+
+      it 'tracks queues from both instances' do
+        expect(Sidekiq::Queue).to receive(:all).twice.and_call_original
+
+        expect(sidekiq_queue.drop_jobs!(search_metadata, timeout: 10))
+            .to eq(completed: true,
+              deleted_jobs: 2,
+              queue_size: 2) # Note: intentional double count
+      end
+    end
+
     context 'when there are no valid metadata keys passed' do
       it 'raises NoMetadataError' do
         add_job([1], user: create(:user))
 
-        expect { described_class.new('default').drop_jobs!({ username: 'sidekiq_queue_user' }, timeout: 1) }
+        expect { described_class.new('foobar').drop_jobs!({ username: 'sidekiq_queue_user' }, timeout: 1) }
           .to raise_error(described_class::NoMetadataError)
       end
     end

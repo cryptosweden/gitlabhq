@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'view user notifications' do
+RSpec.describe 'view user notifications', feature_category: :team_planning do
   let(:user) do
     create(:user) do |user|
       user.emails.create!(email: 'original@example.com', confirmed_at: Time.current)
@@ -25,7 +25,8 @@ RSpec.describe 'view user notifications' do
   end
 
   describe 'GET /-/profile/notifications' do
-    it 'does not have an N+1 due to an additional groups (with no parent group)' do
+    it 'does not have an N+1 due to an additional groups (with no parent group)',
+      quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446216' do
       get_profile_notifications
 
       control = ActiveRecord::QueryRecorder.new do

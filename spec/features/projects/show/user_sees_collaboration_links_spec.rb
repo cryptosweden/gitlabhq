@@ -2,22 +2,22 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Show > Collaboration links', :js do
+RSpec.describe 'Projects > Show > Collaboration links', :js, feature_category: :groups_and_projects do
   using RSpec::Parameterized::TableSyntax
 
-  let(:project) { create(:project, :repository, :public) }
-  let(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :repository, :public) }
+  let_it_be(:user) { create(:user) }
 
   before do
     sign_in(user)
   end
 
   def find_new_menu_toggle
-    find('#js-onboarding-new-project-link')
+    find_by_testid('base-dropdown-toggle', text: 'Create new...')
   end
 
   context 'with developer user' do
-    before do
+    before_all do
       project.add_developer(user)
     end
 
@@ -25,7 +25,7 @@ RSpec.describe 'Projects > Show > Collaboration links', :js do
       visit project_path(project)
 
       # The navigation bar
-      page.within('.header-new') do
+      within_testid('super-sidebar') do
         find_new_menu_toggle.click
 
         aggregate_failures 'dropdown links in the navigation bar' do
@@ -39,19 +39,20 @@ RSpec.describe 'Projects > Show > Collaboration links', :js do
 
       # The dropdown above the tree
       page.within('.repo-breadcrumb') do
-        find('.qa-add-to-tree').click # rubocop:disable QA/SelectorUsage
+        find_by_testid('add-to-tree').click
 
         aggregate_failures 'dropdown links above the repo tree' do
           expect(page).to have_link('New file')
-          expect(page).to have_link('Upload file')
-          expect(page).to have_link('New directory')
+          expect(page).to have_button('Upload file')
+          expect(page).to have_button('New directory')
           expect(page).to have_link('New branch')
           expect(page).to have_link('New tag')
         end
       end
 
       # The Web IDE
-      expect(page).to have_link('Web IDE')
+      click_button 'Edit'
+      expect(page).to have_button('Web IDE')
     end
 
     it 'hides the links when the project is archived' do
@@ -59,7 +60,7 @@ RSpec.describe 'Projects > Show > Collaboration links', :js do
 
       visit project_path(project)
 
-      page.within('.header-new') do
+      within_testid('super-sidebar') do
         find_new_menu_toggle.click
 
         aggregate_failures 'dropdown links' do
@@ -71,9 +72,9 @@ RSpec.describe 'Projects > Show > Collaboration links', :js do
         find_new_menu_toggle.click
       end
 
-      expect(page).not_to have_selector('.qa-add-to-tree') # rubocop:disable QA/SelectorUsage
+      expect(page).not_to have_selector('[data-testid="add-to-tree"]')
 
-      expect(page).not_to have_link('Web IDE')
+      expect(page).not_to have_button('Edit')
     end
   end
 
@@ -90,12 +91,12 @@ RSpec.describe 'Projects > Show > Collaboration links', :js do
     with_them do
       before do
         project.project_feature.update!({ merge_requests_access_level: merge_requests_access_level })
-        project.add_user(user, user_level)
+        project.add_member(user, user_level)
         visit project_path(project)
       end
 
       it "updates Web IDE link" do
-        expect(page.has_link?('Web IDE')).to be(expect_ide_link)
+        expect(page.has_button?('Edit')).to be(expect_ide_link)
       end
     end
   end

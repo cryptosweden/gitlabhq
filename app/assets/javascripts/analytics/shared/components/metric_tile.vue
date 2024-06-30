@@ -1,6 +1,6 @@
 <script>
 import { GlSingleStat } from '@gitlab/ui/dist/charts';
-import { redirectTo } from '~/lib/utils/url_utility';
+import { visitUrl } from '~/lib/utils/url_utility';
 import MetricPopover from './metric_popover.vue';
 
 export default {
@@ -27,7 +27,7 @@ export default {
   methods: {
     clickHandler({ links }) {
       if (this.hasLinks) {
-        redirectTo(links[0].url);
+        visitUrl(links[0].url);
       }
     },
   },
@@ -44,6 +44,7 @@ export default {
       :animation-decimal-places="decimalPlaces"
       :class="{ 'gl-hover-cursor-pointer': hasLinks }"
       tabindex="0"
+      use-delimiters
       @click="clickHandler(metric)"
     />
     <metric-popover :metric="metric" :target="metric.identifier" />

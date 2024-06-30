@@ -1,26 +1,56 @@
 ---
-stage: Create
-group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Project import/export API **(FREE)**
+# Project import and export API
 
-See also:
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-- [Project import/export documentation](../user/project/settings/import_export.md).
-- [Project import/export administration Rake tasks](../administration/raketasks/project_import_export.md). **(FREE SELF)**
+Use the project import and export API to import and export projects using file transfers.
+
+Before using the project import and export API, you might want to use the
+[group import and export API](group_import_export.md).
+
+After using the project import and export API, you might want to use the
+[Project-level CI/CD variables API](project_level_variables.md).
+
+You must still migrate your [Container Registry](../user/packages/container_registry/index.md)
+over a series of Docker pulls and pushes. Re-run any CI/CD pipelines to retrieve any build artifacts.
+
+## Prerequisites
+
+For prerequisites for project import and export API, see:
+
+- Prerequisites for [project export](../user/project/settings/import_export.md#export-a-project-and-its-data).
+- Prerequisites for [project import](../user/project/settings/import_export.md#import-a-project-and-its-data).
 
 ## Schedule an export
 
 Start a new export.
 
-The endpoint also accepts an `upload` parameter. This parameter is a hash. It contains
-all the necessary information to upload the exported project to a web server or
-to any S3-compatible platform. At the moment we only support binary
-data file uploads to the final server.
+The endpoint also accepts an `upload` hash parameter. It contains all the necessary information to upload the exported
+project to a web server or to any S3-compatible platform. For exports, GitLab:
+
+- Only supports binary data file uploads to the final server.
+- Sends the `Content-Type: application/gzip` header with upload requests. Ensure that your pre-signed URL includes this
+  as part of the signature.
+- Can take some time to complete the project export process. Make sure the upload URL doesn't have a short expiration
+  time and is available throughout the export process.
+- Administrators can modify the maximum export file size. By default, the maximum is unlimited (`0`). To change this,
+  edit `max_export_size` using either:
+  - [GitLab UI](../administration/settings/import_and_export_settings.md).
+  - [Application settings API](settings.md#change-application-settings)
+- Has a fixed limit for the maximum import file size on GitLab.com. For more information, see
+  [Account and limit settings](../user/gitlab_com/index.md#account-and-limit-settings).
 
 The `upload[url]` parameter is required if the `upload` parameter is present.
+
+For uploads to Amazon S3, refer to [Generating a pre-signed URL for uploading objects](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)
+documentation scripts to generate the `upload[url]`.
 
 ```plaintext
 POST /projects/:id/export
@@ -28,16 +58,17 @@ POST /projects/:id/export
 
 | Attribute | Type           | Required | Description                              |
 | --------- | -------------- | -------- | ---------------------------------------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `description`      | string | no | Overrides the project description |
-| `upload`      | hash | no | Hash that contains the information to upload the exported project to a web server |
-| `upload[url]`      | string | yes      | The URL to upload the project |
-| `upload[http_method]`      | string | no      | The HTTP method to upload the exported project. Only `PUT` and `POST` methods allowed. Default is `PUT` |
+| `id`                  | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `upload[url]`         | string | yes      | The URL to upload the project. |
+| `description`         | string | no | Overrides the project description. |
+| `upload`              | hash | no | Hash that contains the information to upload the exported project to a web server. |
+| `upload[http_method]` | string | no      | The HTTP method to upload the exported project. Only `PUT` and `POST` methods allowed. Default is `PUT`. |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/export" \
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+    "https://gitlab.example.com/api/v4/projects/1/export" \
     --data "upload[http_method]=PUT" \
-    --data-urlencode "upload[url]=https://example-bucket.s3.eu-west-3.amazonaws.com/backup?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIMBJHN2O62W8IELQ%2F20180312%2Feu-west-3%2Fs3%2Faws4_request&X-Amz-Date=20180312T110328Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=8413facb20ff33a49a147a0b4abcff4c8487cc33ee1f7e450c46e8f695569dbd"
+    --data-urlencode "upload[url]=https://example-bucket.s3.eu-west-3.amazonaws.com/backup?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=<your_access_token>%2F20180312%2Feu-west-3%2Fs3%2Faws4_request&X-Amz-Date=20180312T110328Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=8413facb20ff33a49a147a0b4abcff4c8487cc33ee1f7e450c46e8f695569dbd"
 ```
 
 ```json
@@ -45,9 +76,6 @@ curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitla
   "message": "202 Accepted"
 }
 ```
-
-NOTE:
-The upload request is sent with `Content-Type: application/gzip` header. Ensure that your pre-signed URL includes this as part of the signature.
 
 ## Export status
 
@@ -59,10 +87,11 @@ GET /projects/:id/export
 
 | Attribute | Type           | Required | Description                              |
 | --------- | -------------- | -------- | ---------------------------------------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/export"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  "https://gitlab.example.com/api/v4/projects/1/export"
 ```
 
 Status can be one of:
@@ -105,9 +134,9 @@ Download the finished export.
 GET /projects/:id/export/download
 ```
 
-| Attribute | Type           | Required | Description                              |
-| --------- | -------------- | -------- | ---------------------------------------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| Attribute | Type              | Required | Description                              |
+| --------- | ----------------- | -------- | ---------------------------------------- |
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" --remote-header-name \
@@ -121,18 +150,20 @@ ls *export.tar.gz
 
 ## Import a file
 
+> - Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+
 ```plaintext
 POST /projects/import
 ```
 
-| Attribute | Type           | Required | Description                              |
-| --------- | -------------- | -------- | ---------------------------------------- |
-| `namespace` | integer/string | no | The ID or path of the namespace to import the project to. Defaults to the current user's namespace |
-| `name` | string | no | The name of the project to be imported. Defaults to the path of the project if not provided |
-| `file` | string | yes | The file to be uploaded |
-| `path` | string | yes | Name and path for new project |
-| `overwrite` | boolean | no | If there is a project with the same path the import overwrites it. Default to false |
-| `override_params` | Hash | no | Supports all fields defined in the [Project API](projects.md) |
+| Attribute   | Type           | Required | Description                              |
+| ----------- | -------------- | -------- | ---------------------------------------- |
+| `file`      | string | yes | The file to be uploaded. |
+| `path`      | string | yes | Name and path for new project. |
+| `name`      | string | no | The name of the project to be imported. Defaults to the path of the project if not provided. |
+| `namespace` | integer or string | no | The ID or path of the namespace to import the project to. Defaults to the current user's namespace.<br/><br/> Requires at least the Maintainer role on the destination group to import to. |
+| `override_params` | Hash | no | Supports all fields defined in the [Project API](projects.md). |
+| `overwrite` | boolean | no | If there is a project with the same path the import overwrites it. Defaults to `false`. |
 
 The override parameters passed take precedence over all values defined inside the export file.
 
@@ -146,16 +177,14 @@ curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --form "path=a
      --form "file=@/path/to/file" "https://gitlab.example.com/api/v4/projects/import"
 ```
 
-cURL doesn't support posting a file from a remote server. Importing a project from a remote server can be accomplished through something like the following:
+cURL doesn't support posting a file from a remote server. This example imports a project
+using Python's `open` method:
 
 ```python
 import requests
-from io import BytesIO
-
-s3_file = requests.get(presigned_url)
 
 url =  'https://gitlab.example.com/api/v4/projects/import'
-files = {'file': ('file.tar.gz', BytesIO(s3_file.content))}
+files = { "file": open("project_export.tar.gz", "rb") }
 data = {
     "path": "example-project",
     "namespace": "example-group"
@@ -183,39 +212,30 @@ requests.post(url, headers=headers, data=data, files=files)
 ```
 
 NOTE:
-The maximum import file size can be set by the Administrator, default is `0` (unlimited)..
-As an administrator, you can modify the maximum import file size. To do so, use the `max_import_size` option in the [Application settings API](settings.md#change-application-settings) or the [Admin UI](../user/admin_area/settings/account_and_limit_settings.md). Default [modified](https://gitlab.com/gitlab-org/gitlab/-/issues/251106) from 50MB to 0 in GitLab 13.8.
+The maximum import file size can be set by the Administrator. It defaults to `0` (unlimited).
+As an administrator, you can modify the maximum import file size. To do so, use the `max_import_size` option in the [Application settings API](settings.md#change-application-settings) or the [Admin Area](../administration/settings/account_and_limit_settings.md).
 
 ## Import a file from a remote object storage
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/282503) in GitLab 13.12 in [Beta](../policy/alpha-beta-support.md#beta-features).
+DETAILS:
+**Status:** Beta
 
-This endpoint is behind a feature flag that is enabled by default.
-
-To enable this endpoint:
-
-```ruby
-Feature.enable(:import_project_from_remote_file)
-```
-
-To disable this endpoint:
-
-```ruby
-Feature.disable(:import_project_from_remote_file)
-```
+FLAG:
+On self-managed GitLab, by default this feature is available. To hide the feature, an administrator can [disable the feature flag](../administration/feature_flags.md) named `import_project_from_remote_file`.
+On GitLab.com and GitLab Dedicated, this feature is available.
 
 ```plaintext
 POST /projects/remote-import
 ```
 
-| Attribute         | Type           | Required | Description                              |
-| ----------------- | -------------- | -------- | ---------------------------------------- |
-| `namespace`       | integer/string | no       | The ID or path of the namespace to import the project to. Defaults to the current user's namespace. |
-| `name`            | string         | no       | The name of the project to import. If not provided, defaults to the path of the project. |
-| `url`             | string         | yes      | URL for the file to import. |
-| `path`            | string         | yes      | Name and path for the new project. |
-| `overwrite`       | boolean        | no       | Whether to overwrite a project with the same path when importing. Defaults to `false`. |
-| `override_params` | Hash           | no       | Supports all fields defined in the [Project API](projects.md). |
+| Attribute         | Type              | Required | Description                              |
+| ----------------- | ----------------- | -------- | ---------------------------------------- |
+| `path`            | string            | yes      | Name and path for the new project. |
+| `url`             | string            | yes      | URL for the file to import. |
+| `name`            | string            | no       | The name of the project to import. If not provided, defaults to the path of the project. |
+| `namespace`       | integer or string | no       | The ID or path of the namespace to import the project to. Defaults to the current user's namespace. |
+| `overwrite`       | boolean           | no       | Whether to overwrite a project with the same path when importing. Defaults to `false`. |
+| `override_params` | Hash              | no       | Supports all fields defined in the [Project API](projects.md). |
 
 The passed override parameters take precedence over all values defined in the export file.
 
@@ -243,15 +263,100 @@ curl --request POST \
 }
 ```
 
-The `Content-Length` header must return a valid number. The maximum file size is 10 gigabytes.
+The `Content-Length` header must return a valid number. The maximum file size is 10 GB.
 The `Content-Type` header must be `application/gzip`.
+
+## Import a single relation
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/425798) in GitLab 16.11 in [beta](../policy/experiment-beta-support.md#beta)), [with a flag](../administration/feature_flags.md) named `single_relation_import`. Disabled by default.
+> - [Enabled on GitLab.com, self-managed and Dedicated](https://gitlab.com/gitlab-org/gitlab/-/issues/455889) in 17.1.
+
+This endpoint accepts a project export archive and a named relation (issues,
+merge requests, pipelines, or milestones) and re-imports that relation, skipping
+items that have already been imported.
+
+The required project export file adheres to the same structure and size requirements described in
+[Import a file](#import-a-file).
+
+- The extracted files must adhere to the structure of a GitLab project export.
+- The archive must not exceed the maximum import file size configured by the Administrator.
+
+```plaintext
+POST /projects/import-relation
+```
+
+| Attribute  | Type   | Required | Description                                                                                                    |
+|------------|--------|----------|----------------------------------------------------------------------------------------------------------------|
+| `file`     | string | yes      | The file to be uploaded.                                                                                       |
+| `path`     | string | yes      | Name and path for new project.                                                                                 |
+| `relation` | string | yes      | The name of the relation to import. Must be one of `issues`, `milestones`, `ci_pipelines` or `merge_requests`. |
+
+To upload a file from your file system, use the `--form` option, which causes
+cURL to post data using the header `Content-Type: multipart/form-data`.
+The `file=` parameter must point to a file on your file system and be preceded
+by `@`. For example:
+
+```shell
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+     --form "path=api-project" \
+     --form "file=@/path/to/file" \
+     --form "relation=issues" \
+     "https://gitlab.example.com/api/v4/projects/import-relation"
+```
+
+```json
+{
+  "id": 9,
+  "project_path": "namespace1/project1",
+  "relation": "issues",
+  "status": "finished"
+}
+```
+
+## Check relation import statuses
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/425798) in GitLab 16.11.
+
+This endpoint fetches the status of any relation imports associated with a project. Because
+only one relation import can be scheduled at a time, you can use this endpoint to check whether
+the previous import completed successfully.
+
+```plaintext
+GET /projects/:id/relation-imports
+```
+
+| Attribute | Type               | Required | Description                                                                          |
+| --------- |--------------------| -------- |--------------------------------------------------------------------------------------|
+| `id`      | integer or string  | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+     "https://gitlab.example.com/api/v4/projects/18/relation-imports"
+```
+
+```json
+[
+  {
+    "id": 1,
+    "project_path": "namespace1/project1",
+    "relation": "issues",
+    "status": "created",
+    "created_at": "2024-03-25T11:03:48.074Z",
+    "updated_at": "2024-03-25T11:03:48.074Z"
+  }
+]
+```
+
+Status can be one of:
+
+- `created`: The import has been scheduled, but has not started.
+- `started`: The import is being processed.
+- `finished`: The import has completed.
+- `failed`: The import was not able to be completed.
 
 ## Import a file from AWS S3
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/348874) in GitLab 14.9 in [Beta](https://about.gitlab.com/handbook/product/gitlab-the-product/#beta), [with a flag](../administration/feature_flags.md) named `import_project_from_remote_file_s3`. Disabled by default.
-
-FLAG:
-On self-managed GitLab and GitLab.com, by default this feature is not available. To make it available, ask an administrator to [enable the feature flag](../administration/feature_flags.md) named `import_project_from_remote_file_s3`. This feature is not ready for production use.
+> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/350571) in GitLab 15.11. Feature flag `import_project_from_remote_file_s3` removed.
 
 ```plaintext
 POST /projects/remote-import-s3
@@ -259,19 +364,20 @@ POST /projects/remote-import-s3
 
 | Attribute           | Type           | Required | Description                              |
 | ------------------- | -------------- | -------- | ---------------------------------------- |
-| `namespace`         | integer/string | no       | The ID or path of the namespace to import the project to. Defaults to the current user's namespace. |
+| `access_key_id`     | string         | yes      | [AWS S3 access key ID](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html). |
+| `bucket_name`       | string         | yes      | [AWS S3 bucket name](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html) where the file is stored. |
+| `file_key`          | string         | yes      | [AWS S3 file key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingObjects.html) to identify the file. |
+| `path`              | string         | yes      | The full path of the new project. |
+| `region`            | string         | yes      | [AWS S3 region name](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#Regions) where the file is stored. |
+| `secret_access_key` | string         | yes      | [AWS S3 secret access key](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys). |
 | `name`              | string         | no       | The name of the project to import. If not provided, defaults to the path of the project. |
-| `region`            | string         | yes      | [AWS S3 region name where the file is stored.](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#Regions) |
-| `bucket_name`       | string         | yes      | [AWS S3 bucket name where the file is stored.](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html) |
-| `file_key`          | string         | yes      | [AWS S3 file key to identify the file.](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingObjects.html) |
-| `access_key_id`     | string         | yes      | [AWS S3 access key ID.](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys). |
-| `secret_access_key` | string         | yes      | [AWS S3 secret access key.](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys) |
+| `namespace`         | integer or string | no       | The ID or path of the namespace to import the project to. Defaults to the current user's namespace. |
 
 The passed override parameters take precedence over all values defined in the export file.
 
 ```shell
 curl --request POST \
-  --url "http://localhost:3000/api/v4/projects/remote-import-s3" \
+  --url "https://gitlab.example.com/api/v4/projects/remote-import-s3" \
   --header "PRIVATE-TOKEN: <your gitlab access key>" \
   --header 'Content-Type: application/json' \
   --data '{
@@ -283,6 +389,27 @@ curl --request POST \
   "access_key_id": "<Your AWS access key id>",
   "secret_access_key": "<Your AWS secret access key>"
 }'
+```
+
+This example imports from an Amazon S3 bucket, using a module that connects to Amazon S3:
+
+```python
+import requests
+from io import BytesIO
+
+s3_file = requests.get(presigned_url)
+
+url =  'https://gitlab.example.com/api/v4/projects/import'
+files = {'file': ('file.tar.gz', BytesIO(s3_file.content))}
+data = {
+    "path": "example-project",
+    "namespace": "example-group"
+}
+headers = {
+    'Private-Token': "<your_access_token>"
+}
+
+requests.post(url, headers=headers, data=data, files=files)
 ```
 
 ```json
@@ -311,10 +438,11 @@ GET /projects/:id/import
 
 | Attribute | Type           | Required | Description                              |
 | --------- | -------------- | -------- | ---------------------------------------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/import"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  "https://gitlab.example.com/api/v4/projects/1/import"
 ```
 
 Status can be one of:
@@ -327,8 +455,10 @@ Status can be one of:
 
 If the status is `failed`, it includes the import error message under `import_error`.
 If the status is `failed`, `started` or `finished`, the `failed_relations` array might
-be populated with any occurrences of relations that failed to import either due to
-unrecoverable errors or because retries were exhausted (a typical example are query timeouts.)
+be populated with any occurrences of relations that failed to import due to either:
+
+- Unrecoverable errors.
+- Retries were exhausted. A typical example: query timeouts.
 
 NOTE:
 An element's `id` field in `failed_relations` references the failure record, not the relation.
@@ -410,3 +540,9 @@ GitHub and how many were already imported:
   }
 }
 ```
+
+## Related topics
+
+- [Migrating projects using file exports](../user/project/settings/import_export.md).
+- [Project import and export Rake tasks](../administration/raketasks/project_import_export.md).
+- [Group import and export API](group_import_export.md)

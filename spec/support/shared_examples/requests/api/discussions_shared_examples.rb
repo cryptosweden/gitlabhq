@@ -1,24 +1,25 @@
 # frozen_string_literal: true
 
 RSpec.shared_examples 'with cross-reference system notes' do
-  let(:merge_request) { create(:merge_request) }
-  let(:project) { merge_request.project }
-  let(:new_merge_request) { create(:merge_request) }
-  let(:commit) { new_merge_request.project.commit }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:pat) { create(:personal_access_token, user: user) }
+  let_it_be(:project) { create(:project, :small_repo, developers: user) }
+  let_it_be(:project2) { create(:project, :small_repo, developers: user) }
+  let_it_be(:project3) { create(:project, :small_repo) }
+
+  let_it_be(:merge_request) { create(:merge_request, source_project: project) }
+  let_it_be(:new_merge_request) { create(:merge_request, source_project: project2) }
+  let_it_be(:hidden_merge_request) { create(:merge_request, source_project: project3) }
+
   let!(:note) { create(:system_note, noteable: merge_request, project: project, note: cross_reference) }
   let!(:note_metadata) { create(:system_note_metadata, note: note, action: 'cross_reference') }
   let(:cross_reference) { "test commit #{commit.to_reference(project)}" }
-  let(:pat) { create(:personal_access_token, user: user) }
+  let(:commit) { new_merge_request.project.commit }
 
-  before do
-    project.add_developer(user)
-    new_merge_request.project.add_developer(user)
-
-    hidden_merge_request = create(:merge_request)
-    new_cross_reference = "test commit #{hidden_merge_request.project.commit}"
-    new_note = create(:system_note, noteable: merge_request, project: project, note: new_cross_reference)
-    create(:system_note_metadata, note: new_note, action: 'cross_reference')
-  end
+  let!(:new_note) { create(:system_note, noteable: merge_request, project: project, note: hidden_cross_reference) }
+  let!(:new_note_metadata) { create(:system_note_metadata, note: new_note, action: 'cross_reference') }
+  let(:hidden_cross_reference) { "test commit #{hidden_commit.to_reference(project)}" }
+  let(:hidden_commit) { hidden_merge_request.project.commit }
 
   it 'returns only the note that the user should see' do
     get api(url, user, personal_access_token: pat)
@@ -115,24 +116,6 @@ RSpec.shared_examples 'discussions API' do |parent_type, noteable_type, id_name,
       post api("/#{parent_type}/#{parent.id}/#{noteable_type}/#{noteable[id_name]}/discussions"), params: { body: 'hi!' }
 
       expect(response).to have_gitlab_http_status(:unauthorized)
-    end
-
-    it 'tracks a Notes::CreateService event', :snowplow do
-      post api("/#{parent_type}/#{parent.id}/#{noteable_type}/#{noteable[id_name]}/discussions", user), params: { body: 'hi!' }
-
-      expect_snowplow_event(category: 'Notes::CreateService', action: 'execute', label: 'note', value: anything)
-    end
-
-    context 'with notes_create_service_tracking feature flag disabled' do
-      before do
-        stub_feature_flags(notes_create_service_tracking: false)
-      end
-
-      it 'does not track any events', :snowplow do
-        post api("/#{parent_type}/#{parent.id}/#{noteable_type}/#{noteable[id_name]}/discussions"), params: { body: 'hi!' }
-
-        expect_no_snowplow_event
-      end
     end
 
     context 'when an admin or owner makes the request' do
@@ -243,8 +226,7 @@ RSpec.shared_examples 'discussions API' do |parent_type, noteable_type, id_name,
 
     it 'returns a 404 error when note id not found' do
       put api("/#{parent_type}/#{parent.id}/#{noteable_type}/#{noteable[id_name]}/"\
-              "discussions/#{note.discussion_id}/notes/#{non_existing_record_id}", user),
-              params: { body: 'Hello!' }
+              "discussions/#{note.discussion_id}/notes/#{non_existing_record_id}", user), params: { body: 'Hello!' }
 
       expect(response).to have_gitlab_http_status(:not_found)
     end

@@ -6,12 +6,10 @@ import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import RecoveryCodes, {
   i18n,
 } from '~/authentication/two_factor_auth/components/recovery_codes.vue';
-import {
-  RECOVERY_CODE_DOWNLOAD_FILENAME,
-  COPY_KEYBOARD_SHORTCUT,
-} from '~/authentication/two_factor_auth/constants';
+import { RECOVERY_CODE_DOWNLOAD_FILENAME } from '~/authentication/two_factor_auth/constants';
 import Tracking from '~/tracking';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
+import { MOUSETRAP_COPY_KEYBOARD_SHORTCUT } from '~/lib/mousetrap';
 import { codes, codesFormattedString, codesDownloadHref, profileAccountPath } from '../mock_data';
 
 describe('RecoveryCodes', () => {
@@ -23,7 +21,7 @@ describe('RecoveryCodes', () => {
         propsData: {
           codes,
           profileAccountPath,
-          ...(options?.propsData || {}),
+          ...options?.propsData,
         },
         ...options,
       }),
@@ -31,16 +29,18 @@ describe('RecoveryCodes', () => {
   };
 
   const queryByText = (text, options) => within(wrapper.element).queryByText(text, options);
-  const findAlert = () => wrapper.find(GlAlert);
+  const findAlert = () => wrapper.findComponent(GlAlert);
   const findRecoveryCodes = () => wrapper.findByTestId('recovery-codes');
-  const findCopyButton = () => wrapper.find(ClipboardButton);
+  const findCopyButton = () => wrapper.findComponent(ClipboardButton);
   const findButtonByText = (text) =>
-    wrapper.findAll(GlButton).wrappers.find((buttonWrapper) => buttonWrapper.text() === text);
+    wrapper
+      .findAllComponents(GlButton)
+      .wrappers.find((buttonWrapper) => buttonWrapper.text() === text);
   const findDownloadButton = () => findButtonByText('Download codes');
   const findPrintButton = () => findButtonByText('Print codes');
   const findProceedButton = () => findButtonByText('Proceed');
   const manuallyCopyRecoveryCodes = () =>
-    wrapper.vm.$options.mousetrap.trigger(COPY_KEYBOARD_SHORTCUT);
+    wrapper.vm.$options.mousetrap.trigger(MOUSETRAP_COPY_KEYBOARD_SHORTCUT);
 
   beforeEach(() => {
     jest.spyOn(Tracking, 'event');

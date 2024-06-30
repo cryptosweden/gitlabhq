@@ -1,17 +1,21 @@
 import Vue from 'vue';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import CompareApp from './components/app.vue';
 
 export default function init() {
   const el = document.getElementById('js-compare-selector');
 
   const {
-    refsProjectPath,
+    sourceProjectRefsPath,
+    targetProjectRefsPath,
     paramsFrom,
     paramsTo,
+    straight,
     projectCompareIndexPath,
     projectMergeRequestPath,
     createMrPath,
-    projectTo,
+    sourceProject,
+    targetProject,
     projectsFrom,
   } = el.dataset;
 
@@ -23,13 +27,16 @@ export default function init() {
     render(createElement) {
       return createElement(CompareApp, {
         props: {
-          refsProjectPath,
+          sourceProjectRefsPath,
+          targetProjectRefsPath,
           paramsFrom,
           paramsTo,
+          straight: parseBoolean(straight),
           projectCompareIndexPath,
           projectMergeRequestPath,
           createMrPath,
-          defaultProject: JSON.parse(projectTo),
+          sourceProject: JSON.parse(sourceProject),
+          targetProject: JSON.parse(targetProject),
           projects: JSON.parse(projectsFrom),
         },
       });

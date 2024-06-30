@@ -17,12 +17,12 @@ class Import::FogbugzController < Import::BaseController
       res = Gitlab::FogbugzImport::Client.new(import_params.to_h.symbolize_keys)
     rescue StandardError
       # If the URI is invalid various errors can occur
-      return redirect_to new_import_fogbugz_path, alert: _('Could not connect to FogBugz, check your URL')
+      return redirect_to new_import_fogbugz_path(namespace_id: params[:namespace_id]), alert: _('Could not connect to FogBugz, check your URL')
     end
-    session[:fogbugz_token] = res.get_token
+    session[:fogbugz_token] = res.get_token.to_s
     session[:fogbugz_uri] = params[:uri]
 
-    redirect_to new_user_map_import_fogbugz_path
+    redirect_to new_user_map_import_fogbugz_path(namespace_id: params[:namespace_id])
   end
 
   def new_user_map
@@ -41,34 +41,26 @@ class Import::FogbugzController < Import::BaseController
 
     flash[:notice] = _('The user map has been saved. Continue by selecting the projects you want to import.')
 
-    redirect_to status_import_fogbugz_path
+    redirect_to status_import_fogbugz_path(namespace_id: params[:namespace_id])
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def status
-    unless client.valid?
-      return redirect_to new_import_fogbugz_path
-    end
+    return redirect_to new_import_fogbugz_path(namespace_id: params[:namespace_id]) unless client.valid?
 
-    super
-  end
-  # rubocop: enable CodeReuse/ActiveRecord
-
-  def realtime_changes
     super
   end
 
   def create
-    repo = client.repo(params[:repo_id])
-    fb_session = { uri: session[:fogbugz_uri], token: session[:fogbugz_token] }
+    credentials = { uri: session[:fogbugz_uri], token: session[:fogbugz_token] }
+
     umap = session[:fogbugz_user_map] || client.user_map
 
-    project = Gitlab::FogbugzImport::ProjectCreator.new(repo, fb_session, current_user.namespace, current_user, umap).execute
+    result = Import::FogbugzService.new(client, current_user, params.merge(umap: umap)).execute(credentials)
 
-    if project.persisted?
-      render json: ProjectSerializer.new.represent(project, serializer: :import)
+    if result[:status] == :success
+      render json: ProjectSerializer.new.represent(result[:project], serializer: :import)
     else
-      render json: { errors: project_save_error(project) }, status: :unprocessable_entity
+      render json: { errors: result[:message] }, status: result[:http_status]
     end
   end
 
@@ -112,7 +104,7 @@ class Import::FogbugzController < Import::BaseController
   end
 
   def fogbugz_unauthorized(exception)
-    redirect_to new_import_fogbugz_path, alert: exception.message
+    redirect_to new_import_fogbugz_path(namespace_id: params[:namespace_id]), alert: exception.message
   end
 
   def import_params
@@ -120,7 +112,7 @@ class Import::FogbugzController < Import::BaseController
   end
 
   def user_map_params
-    params.permit(users: %w(name email gitlab_user))
+    params.permit(users: %w[name email gitlab_user])
   end
 
   def verify_fogbugz_import_enabled
@@ -128,17 +120,23 @@ class Import::FogbugzController < Import::BaseController
   end
 
   def verify_blocked_uri
-    Gitlab::UrlBlocker.validate!(
+    Gitlab::HTTP_V2::UrlBlocker.validate!(
       params[:uri],
       allow_localhost: allow_local_requests?,
       allow_local_network: allow_local_requests?,
-      schemes: %w(http https)
+      deny_all_requests_except_allowed: deny_all_requests_except_allowed?,
+      schemes: %w[http https],
+      outbound_local_requests_allowlist: Gitlab::CurrentSettings.outbound_local_requests_whitelist # rubocop:disable Naming/InclusiveLanguage -- existing setting
     )
-  rescue Gitlab::UrlBlocker::BlockedUrlError => e
+  rescue Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError => e
     redirect_to new_import_fogbugz_url, alert: _('Specified URL cannot be used: "%{reason}"') % { reason: e.message }
   end
 
   def allow_local_requests?
     Gitlab::CurrentSettings.allow_local_requests_from_web_hooks_and_services?
+  end
+
+  def deny_all_requests_except_allowed?
+    Gitlab::CurrentSettings.deny_all_requests_except_allowed?
   end
 end

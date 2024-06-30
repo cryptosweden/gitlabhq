@@ -1,6 +1,6 @@
 <script>
 import { GlModal } from '@gitlab/ui';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { visitUrl } from '~/lib/utils/url_utility';
 import { __, s__, sprintf } from '~/locale';
@@ -9,14 +9,24 @@ export default {
   components: {
     GlModal,
   },
-  data() {
-    return {
-      milestoneTitle: '',
-      url: '',
-      groupName: '',
-      currentButton: null,
-      visible: false,
-    };
+  props: {
+    visible: {
+      type: Boolean,
+      default: false,
+      required: false,
+    },
+    milestoneTitle: {
+      type: String,
+      required: true,
+    },
+    promoteUrl: {
+      type: String,
+      required: true,
+    },
+    groupName: {
+      type: String,
+      required: true,
+    },
   },
   computed: {
     title() {
@@ -32,59 +42,33 @@ export default {
       );
     },
   },
-  mounted() {
-    this.getButtons().forEach((button) => {
-      button.addEventListener('click', this.onPromoteButtonClick);
-      button.removeAttribute('disabled');
-    });
-  },
-  beforeDestroy() {
-    this.getButtons().forEach((button) => {
-      button.removeEventListener('click', this.onPromoteButtonClick);
-    });
-  },
   methods: {
-    onPromoteButtonClick({ currentTarget }) {
-      const { milestoneTitle, url, groupName } = currentTarget.dataset;
-      currentTarget.setAttribute('disabled', '');
-      this.visible = true;
-      this.milestoneTitle = milestoneTitle;
-      this.url = url;
-      this.groupName = groupName;
-      this.currentButton = currentTarget;
-    },
-    getButtons() {
-      return document.querySelectorAll('.js-promote-project-milestone-button');
-    },
     onSubmit() {
       return axios
-        .post(this.url, { params: { format: 'json' } })
+        .post(this.promoteUrl, { params: { format: 'json' } })
         .then((response) => {
           visitUrl(response.data.url);
         })
         .catch((error) => {
-          createFlash({
+          createAlert({
             message: error,
           });
         })
         .finally(() => {
-          this.visible = false;
+          this.onClose();
         });
     },
     onClose() {
-      this.visible = false;
-      if (this.currentButton) {
-        this.currentButton.removeAttribute('disabled');
-      }
+      this.$emit('promotionModalVisible', false);
     },
   },
   primaryAction: {
     text: s__('Milestones|Promote Milestone'),
-    attributes: [{ variant: 'warning' }],
+    attributes: { variant: 'confirm' },
   },
   cancelAction: {
     text: __('Cancel'),
-    attributes: [],
+    attributes: {},
   },
 };
 </script>
@@ -92,9 +76,9 @@ export default {
   <gl-modal
     :visible="visible"
     modal-id="promote-milestone-modal"
+    :title="title"
     :action-primary="$options.primaryAction"
     :action-cancel="$options.cancelAction"
-    :title="title"
     @primary="onSubmit"
     @hide="onClose"
   >

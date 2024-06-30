@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::TransferService, :sidekiq_inline do
+RSpec.describe Groups::TransferService, :sidekiq_inline, feature_category: :groups_and_projects do
   shared_examples 'project namespace path is in sync with project path' do
     it 'keeps project and project namespace attributes in sync' do
       projects_with_project_namespace.each do |project|
@@ -17,16 +17,28 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
   end
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:new_parent_group) { create(:group, :public, :crm_enabled) }
+  let_it_be(:new_parent_group) { create(:group, :public) }
 
   let!(:group_member) { create(:group_member, :owner, group: group, user: user) }
   let(:transfer_service) { described_class.new(group, user) }
 
-  context 'handling packages' do
-    let_it_be(:group) { create(:group, :public) }
-    let_it_be(:new_group) { create(:group, :public) }
+  shared_examples 'publishes a GroupTransferedEvent' do
+    it do
+      expect { transfer_service.execute(target) }
+        .to publish_event(Groups::GroupTransferedEvent)
+        .with(
+          group_id: group.id,
+          old_root_namespace_id: group.root_ancestor.id,
+          new_root_namespace_id: target.root_ancestor.id
+        )
+    end
+  end
 
-    let(:project) { create(:project, :public, namespace: group) }
+  context 'handling packages' do
+    let_it_be(:group) { create(:group) }
+    let_it_be(:new_group) { create(:group) }
+
+    let_it_be(:project) { create(:project, namespace: group) }
 
     before do
       group.add_owner(user)
@@ -34,46 +46,63 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
     end
 
     context 'with an npm package' do
-      before do
-        create(:npm_package, project: project)
-      end
+      let_it_be(:npm_package) { create(:npm_package, project: project, name: "@testscope/test") }
 
-      shared_examples 'transfer not allowed' do
-        it 'does not allow transfer when there is a root namespace change' do
+      shared_examples 'transfer allowed' do
+        it 'allows transfer' do
           transfer_service.execute(new_group)
 
-          expect(transfer_service.error).to eq('Transfer failed: Group contains projects with NPM packages.')
-          expect(group.parent).not_to eq(new_group)
+          expect(transfer_service.error).to be nil
+          expect(group.parent).to eq(new_group)
         end
       end
 
-      it_behaves_like 'transfer not allowed'
+      it_behaves_like 'transfer allowed'
 
       context 'with a project within subgroup' do
         let_it_be(:root_group) { create(:group) }
-        let_it_be(:group) { create(:group, parent: root_group) }
+        let_it_be_with_reload(:group) { create(:group, parent: root_group) }
+        let_it_be(:project) { create(:project, namespace: group) }
 
         before do
           root_group.add_owner(user)
         end
 
-        it_behaves_like 'transfer not allowed'
+        it_behaves_like 'transfer allowed'
 
         context 'without a root namespace change' do
-          let(:new_group) { create(:group, parent: root_group) }
+          let_it_be(:new_group) { create(:group, parent: root_group) }
 
-          it 'allows transfer' do
+          it_behaves_like 'transfer allowed'
+        end
+
+        context 'with namespaced packages present' do
+          let_it_be(:package) { create(:npm_package, project: project, name: "@#{project.root_namespace.path}/test") }
+
+          it 'does not allow transfer' do
             transfer_service.execute(new_group)
 
-            expect(transfer_service.error).to be nil
-            expect(group.parent).to eq(new_group)
+            expect(transfer_service.error).to eq('Transfer failed: Group contains projects with NPM packages scoped to the current root level group.')
+            expect(group.parent).not_to eq(new_group)
+          end
+
+          context 'namespaced package is pending destruction' do
+            let!(:group) { create(:group) }
+
+            before do
+              package.pending_destruction!
+            end
+
+            it_behaves_like 'transfer allowed'
           end
         end
 
         context 'when transferring a group into a root group' do
-          let(:new_group) { nil }
+          let_it_be(:root_group) { create(:group) }
+          let_it_be(:group) { create(:group, parent: root_group) }
+          let_it_be(:new_group) { nil }
 
-          it_behaves_like 'transfer not allowed'
+          it_behaves_like 'transfer allowed'
         end
       end
     end
@@ -109,6 +138,27 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
         transfer_service.execute(new_parent_group)
         expect(transfer_service.error).to eq('Transfer failed: namespace directory cannot be moved')
       end
+    end
+  end
+
+  context 'transferring labels' do
+    let(:new_parent_group) { create(:group, :private) }
+    let(:parent_group) { create(:group) }
+    let(:group) { create(:group, parent: parent_group) }
+    let(:project) { create(:project, group: group) }
+
+    before do
+      group.add_owner(user)
+      parent_group.add_owner(user)
+      new_parent_group.add_owner(user)
+    end
+
+    it 'delegates transfer to Labels::TransferService' do
+      expect_next_instance_of(Labels::TransferService, user, project.group, project) do |labels_transfer_service|
+        expect(labels_transfer_service).to receive(:execute).once.and_call_original
+      end
+
+      transfer_service.execute(new_parent_group)
     end
   end
 
@@ -188,7 +238,7 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
           let_it_be(:project2) { create(:project, :private, namespace: group) }
 
           it_behaves_like 'project namespace path is in sync with project path' do
-            let(:group_full_path) { "#{group.path}" }
+            let(:group_full_path) { group.path.to_s }
             let(:projects_with_project_namespace) { [project1, project2] }
           end
         end
@@ -252,23 +302,6 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
           expect(transfer_service.execute(new_parent_group)).to be_falsy
           expect(transfer_service.error).to eq('Transfer failed: The parent group already has a subgroup or a project with the same path.')
         end
-
-        # currently when a project is created it gets a corresponding project namespace
-        # so we test the case where a project without a project namespace is transferred
-        # for backward compatibility
-        context 'without project namespace' do
-          before do
-            project_namespace = project.project_namespace
-            project.update_column(:project_namespace_id, nil)
-            project_namespace.delete
-          end
-
-          it 'adds an error on group' do
-            expect(project.reload.project_namespace).to be_nil
-            expect(transfer_service.execute(new_parent_group)).to be_falsy
-            expect(transfer_service.error).to eq('Transfer failed: Validation failed: Group URL has already been taken')
-          end
-        end
       end
 
       context 'when projects have project namespaces' do
@@ -279,7 +312,7 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
         end
 
         it_behaves_like 'project namespace path is in sync with project path' do
-          let(:group_full_path) { "#{new_parent_group.full_path}" }
+          let(:group_full_path) { new_parent_group.full_path.to_s }
           let(:projects_with_project_namespace) { [project] }
         end
       end
@@ -332,6 +365,31 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
             end
           end
 
+          context 'with instance specific integration' do
+            let_it_be(:instance_specific_integration) { create(:beyond_identity_integration) }
+            let_it_be(:group_instance_specific_integration) do
+              create(
+                :beyond_identity_integration,
+                group: group,
+                instance: false,
+                active: true,
+                inherit_from_id: instance_specific_integration.id
+              )
+            end
+
+            let_it_be(:parent_group_instance_specific_integration) do
+              create(:beyond_identity_integration, group: new_parent_group, instance: false, active: false)
+            end
+
+            it 'replaces inherited integrations', :aggregate_failures do
+              new_group_instance_specific_integration = Integration.find_by(group: group, type: instance_specific_integration.type)
+              expect(new_group_instance_specific_integration.inherit_from_id).to eq(parent_group_instance_specific_integration.id)
+              expect(new_group_instance_specific_integration.active).to be_falsey
+              expect(PropagateIntegrationWorker).to have_received(:perform_async).with(new_group_instance_specific_integration.id)
+              expect(Integration.count).to eq(5)
+            end
+          end
+
           context 'with a custom integration' do
             let_it_be(:group_integration) { create(:integrations_slack, :group, group: group, webhook: 'http://group.slack.com') }
 
@@ -369,7 +427,7 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
           let(:new_parent_group) { create(:group, shared_runners_enabled: false, allow_descendants_override_disabled_shared_runners: true) }
 
           it 'calls update service' do
-            expect(Groups::UpdateSharedRunnersService).to receive(:new).with(group, user, { shared_runners_setting: Namespace::SR_DISABLED_WITH_OVERRIDE }).and_call_original
+            expect(Groups::UpdateSharedRunnersService).to receive(:new).with(group, user, { shared_runners_setting: Namespace::SR_DISABLED_AND_OVERRIDABLE }).and_call_original
 
             transfer_service.execute(new_parent_group)
           end
@@ -456,13 +514,14 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
         before do
           TestEnv.clean_test_path
           create(:group_member, :owner, group: new_parent_group, user: user)
+          allow(transfer_service).to receive(:update_project_settings)
           transfer_service.execute(new_parent_group)
         end
 
         it 'updates projects path' do
           new_parent_path = new_parent_group.path
           group.projects.each do |project|
-            expect(project.full_path).to eq("#{new_parent_path}/#{group.path}/#{project.name}")
+            expect(project.full_path).to eq("#{new_parent_path}/#{group.path}/#{project.path}")
           end
         end
 
@@ -495,6 +554,11 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
             end
           end
 
+          it 'invokes #update_project_settings' do
+            expect(transfer_service).to have_received(:update_project_settings)
+                                          .with(group.projects.pluck(:id))
+          end
+
           it_behaves_like 'project namespace path is in sync with project path' do
             let(:group_full_path) { "#{new_parent_group.path}/#{group.path}" }
             let(:projects_with_project_namespace) { [project1, project2] }
@@ -524,7 +588,7 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
         it 'updates projects path' do
           new_parent_path = new_parent_group.path
           group.projects.each do |project|
-            expect(project.full_path).to eq("#{new_parent_path}/#{group.path}/#{project.name}")
+            expect(project.full_path).to eq("#{new_parent_path}/#{group.path}/#{project.path}")
           end
         end
 
@@ -575,7 +639,7 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
           it 'updates projects path' do
             new_parent_path = "#{new_parent_group.path}/#{group.path}"
             subgroup1.projects.each do |project|
-              project_full_path = "#{new_parent_path}/#{project.namespace.path}/#{project.name}"
+              project_full_path = "#{new_parent_path}/#{project.namespace.path}/#{project.path}"
               expect(project.full_path).to eq(project_full_path)
             end
           end
@@ -591,7 +655,7 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
 
         context 'resets project authorizations' do
           let_it_be(:old_parent_group) { create(:group) }
-          let_it_be_with_reload(:group) { create(:group, :private, parent: old_parent_group) }
+          let_it_be_with_refind(:group) { create(:group, :private, parent: old_parent_group) }
           let_it_be(:new_group_member) { create(:user) }
           let_it_be(:old_group_member) { create(:user) }
           let_it_be(:unique_subgroup_member) { create(:user) }
@@ -618,8 +682,8 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
             }.from(0).to(1)
           end
 
-          it 'performs authorizations job immediately' do
-            expect(AuthorizedProjectUpdate::ProjectRecalculateWorker).to receive(:bulk_perform_inline)
+          it 'performs authorizations job' do
+            expect(AuthorizedProjectUpdate::ProjectRecalculateWorker).to receive(:bulk_perform_async)
 
             transfer_service.execute(new_parent_group)
           end
@@ -676,7 +740,7 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
 
             it 'schedules authorizations job' do
               expect(AuthorizedProjectUpdate::ProjectRecalculateWorker).to receive(:bulk_perform_async)
-                .with(array_including(group.all_projects.ids.map { |id| [id, anything] }))
+                .with(array_including(group.all_projects.ids.map { |id| [id] }))
 
               transfer_service.execute(new_parent_group)
             end
@@ -823,12 +887,12 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
       let(:transfer_service) { described_class.new(subgroup, user) }
 
       it 'ensures there is still an owner for the transferred group' do
-        expect(subgroup.owners).to be_empty
+        expect(subgroup.all_owner_members).to be_empty
 
         transfer_service.execute(nil)
         subgroup.reload
 
-        expect(subgroup.owners).to match_array(user)
+        expect(subgroup.all_owner_members.map(&:user)).to match_array(user)
       end
 
       context 'when group has explicit owner' do
@@ -836,12 +900,12 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
         let!(:another_member) { create(:group_member, :owner, group: subgroup, user: another_owner) }
 
         it 'does not add additional owner' do
-          expect(subgroup.owners).to match_array(another_owner)
+          expect(subgroup.all_owner_members.map(&:user)).to match_array(another_owner)
 
           transfer_service.execute(nil)
           subgroup.reload
 
-          expect(subgroup.owners).to match_array(another_owner)
+          expect(subgroup.all_owner_members.map(&:user)).to match_array(another_owner)
         end
       end
     end
@@ -889,7 +953,7 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
       let(:subsub_project) { create(:project, group: subsubgroup) }
 
       let!(:contacts) { create_list(:contact, 4, group: root_group) }
-      let!(:organizations) { create_list(:organization, 2, group: root_group) }
+      let!(:crm_organizations) { create_list(:crm_organization, 2, group: root_group) }
 
       before do
         create(:issue_customer_relations_contact, contact: contacts[0], issue: create(:issue, project: root_project))
@@ -906,6 +970,10 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
           expect { transfer_service.execute(root_group) }
             .not_to change { CustomerRelations::IssueContact.count }
         end
+
+        it_behaves_like 'publishes a GroupTransferedEvent' do
+          let(:target) { root_group }
+        end
       end
 
       context 'moving down' do
@@ -915,6 +983,10 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
           expect { transfer_service.execute(another_subgroup) }
           .not_to change { CustomerRelations::IssueContact.count }
         end
+
+        it_behaves_like 'publishes a GroupTransferedEvent' do
+          let(:target) { another_subgroup }
+        end
       end
 
       context 'moving sideways' do
@@ -923,6 +995,10 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
         it 'retains issue contacts' do
           expect { transfer_service.execute(another_subgroup) }
           .not_to change { CustomerRelations::IssueContact.count }
+        end
+
+        it_behaves_like 'publishes a GroupTransferedEvent' do
+          let(:target) { another_subgroup }
         end
       end
 
@@ -936,12 +1012,16 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
         it 'moves all crm objects' do
           expect { transfer_service.execute(new_parent_group) }
             .to change { root_group.contacts.count }.by(-4)
-            .and change { root_group.organizations.count }.by(-2)
+            .and change { root_group.crm_organizations.count }.by(-2)
         end
 
         it 'retains issue contacts' do
           expect { transfer_service.execute(new_parent_group) }
             .not_to change { CustomerRelations::IssueContact.count }
+        end
+
+        it_behaves_like 'publishes a GroupTransferedEvent' do
+          let(:target) { new_parent_group }
         end
       end
 
@@ -957,12 +1037,16 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
           it 'moves all crm objects' do
             expect { transfer_service.execute(subgroup_in_new_parent_group) }
               .to change { root_group.contacts.count }.by(-4)
-              .and change { root_group.organizations.count }.by(-2)
+              .and change { root_group.crm_organizations.count }.by(-2)
           end
 
           it 'retains issue contacts' do
             expect { transfer_service.execute(subgroup_in_new_parent_group) }
               .not_to change { CustomerRelations::IssueContact.count }
+          end
+
+          it_behaves_like 'publishes a GroupTransferedEvent' do
+            let(:target) { subgroup_in_new_parent_group }
           end
         end
 
@@ -976,6 +1060,44 @@ RSpec.describe Groups::TransferService, :sidekiq_inline do
 
             expect(transfer_service.error).to eq("Transfer failed: Group contains contacts/organizations and you don't have enough permissions to move them to the new root group.")
           end
+
+          it 'does not publish a GroupTransferedEvent' do
+            expect { transfer_service.execute(subgroup_in_new_parent_group) }
+              .not_to publish_event(Groups::GroupTransferedEvent)
+          end
+        end
+      end
+    end
+
+    context 'with namespace_commit_emails concerns' do
+      let_it_be(:group, reload: true) { create(:group) }
+      let_it_be(:target) { create(:group) }
+
+      before do
+        group.add_owner(user)
+        target.add_owner(user)
+      end
+
+      context 'when origin is a root group' do
+        before do
+          create_list(:namespace_commit_email, 2, namespace: group)
+        end
+
+        it 'deletes all namespace_commit_emails' do
+          expect { transfer_service.execute(target) }
+            .to change { group.namespace_commit_emails.count }.by(-2)
+        end
+
+        it_behaves_like 'publishes a GroupTransferedEvent'
+      end
+
+      context 'when origin is not a root group' do
+        let(:group) { create(:group, parent: create(:group)) }
+
+        it 'does not attempt to delete namespace_commit_emails' do
+          expect(Users::NamespaceCommitEmail).not_to receive(:delete_for_namespace)
+
+          transfer_service.execute(target)
         end
       end
     end

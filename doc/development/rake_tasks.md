@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Rake tasks for developers
@@ -10,7 +10,7 @@ Rake tasks are available for developers and others contributing to GitLab.
 
 ## Set up database with developer seeds
 
-Note that if your database user does not have advanced privileges, you must create the database manually before running this command.
+If your database user does not have advanced privileges, you must create the database manually before running this command.
 
 ```shell
 bundle exec rake setup
@@ -30,7 +30,9 @@ See also [Mass inserting Rails models](mass_insert.md).
 
 **LARGE_PROJECTS**: Create large projects (through import) from a predefined set of URLs.
 
-### Seeding issues for all or a given project
+### Seeding Data
+
+#### Seeding issues for all projects or a single project
 
 You can seed issues for all or a given project with the `gitlab:seed:issues`
 task:
@@ -46,10 +48,14 @@ bin/rake "gitlab:seed:issues[group-path/project-path]"
 By default, this seeds an average of 2 issues per week for the last 5 weeks per
 project.
 
-#### Seeding issues for Insights charts **(ULTIMATE)**
+#### Seeding issues for Insights charts
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 You can seed issues specifically for working with the
-[Insights charts](../user/group/insights/index.md) with the
+[Insights charts](../user/project/insights/index.md) with the
 `gitlab:seed:insights:issues` task:
 
 ```shell
@@ -75,6 +81,54 @@ bin/rake "gitlab:seed:group_seed[subgroup_depth, username]"
 
 Group are additionally seeded with epics if GitLab instance has epics feature available.
 
+#### Seeding a runner fleet test environment
+
+Use the `gitlab:seed:runner_fleet` task to seed a full runner fleet, specifically groups with subgroups and projects that contain runners and pipelines:
+
+```shell
+bin/rake "gitlab:seed:runner_fleet[username, registration_prefix, runner_count, job_count]"
+```
+
+By default, the Rake task uses the `root` username to create 40 runners and 400 jobs.
+
+```mermaid
+graph TD
+    G1[Top level group 1] --> G11
+    G2[Top level group 2] --> G21
+    G11[Group 1.1] --> G111
+    G11[Group 1.1] --> G112
+    G111[Group 1.1.1] --> P1111
+    G112[Group 1.1.2] --> P1121
+    G21[Group 2.1] --> P211
+
+    P1111[Project 1.1.1.1<br><i>70% of jobs, sent to first 5 runners</i>]
+    P1121[Project 1.1.2.1<br><i>15% of jobs, sent to first 5 runners</i>]
+    P211[Project 2.1.1<br><i>15% of jobs, sent to first 5 runners</i>]
+
+    IR1[Instance runner]
+    P1111R1[Shared runner]
+    P1111R[Project 1.1.1.1 runners<br>20% total runners]
+    P1121R[Project 1.1.2.1 runners<br>49% total runners]
+    G111R[Group 1.1.1 runners<br>30% total runners<br><i>remaining jobs</i>]
+    G21R[Group 2.1 runners<br>1% total runners]
+
+    P1111 --> P1111R1
+    P1111 --> G111R
+    P1111 --> IR1
+    P1111 --> P1111R
+    P1121 --> P1111R1
+    P1121 --> IR1
+    P1121 --> P1121R
+    P211 --> P1111R1
+    P211 --> G21R
+    P211 --> IR1
+
+    classDef groups fill:#09f6,color:#000000,stroke:#333,stroke-width:3px;
+    classDef projects fill:#f96a,color:#000000,stroke:#333,stroke-width:2px;
+    class G1,G2,G11,G111,G112,G21 groups
+    class P1111,P1121,P211 projects
+```
+
 #### Seeding custom metrics for the monitoring dashboard
 
 A lot of different types of metrics are supported in the monitoring dashboard.
@@ -83,6 +137,84 @@ To import these metrics, you can run:
 
 ```shell
 bundle exec rake 'gitlab:seed:development_metrics[your_project_id]'
+```
+
+#### Seed a project with vulnerabilities
+
+You can seed a project with [security vulnerabilities](../user/application_security/vulnerabilities/index.md).
+
+```shell
+# Seed all projects
+bin/rake 'gitlab:seed:vulnerabilities'
+
+# Seed a specific project
+bin/rake 'gitlab:seed:vulnerabilities[group-path/project-path]'
+```
+
+#### Seed a project with environments
+
+You can seed a project with [environments](../ci/environments/index.md).
+
+By default, this creates 10 environments, each with the prefix `ENV_`.
+Only `project_path` is required to run this command.
+
+```shell
+bundle exec rake "gitlab:seed:project_environments[project_path, seed_count, prefix]"
+
+# Examples
+bundle exec rake "gitlab:seed:project_environments[flightjs/Flight]"
+bundle exec rake "gitlab:seed:project_environments[flightjs/Flight, 25, FLIGHT_ENV_]"
+```
+
+#### Seed a group with dependencies
+
+```shell
+bundle exec rake gitlab:seed:dependencies
+```
+
+#### Seed CI variables
+
+You can seed a project, group, or instance with [CI variables](../ci/variables/index.md).
+
+By default, each command creates 10 CI variables. Variable names are prepended with its own
+default prefix (`VAR_` for project-level variables, `GROUP_VAR_` for group-level variables,
+and `INSTANCE_VAR_` for instance-level variables).
+
+Instance-level variables do not have environment scopes. Project-level and group-level variables
+use the default `"*"` environment scope if no `environment_scope` is supplied. If `environment_scope`
+is set to `"unique"`, each variable is created with its own unique environment.
+
+```shell
+# Seed a project with project-level CI variables
+# Only `project_path` is required to run this command.
+bundle exec rake "gitlab:seed:ci_variables_project[project_path, seed_count, environment_scope, prefix]"
+
+# Seed a group with group-level CI variables
+# Only `group_name` is required to run this command.
+bundle exec rake "gitlab:seed:ci_variables_group[group_name, seed_count, environment_scope, prefix]"
+
+# Seed an instance with instance-level CI variables
+bundle exec rake "gitlab:seed:ci_variables_instance[seed_count, prefix]"
+
+# Examples
+bundle exec rake "gitlab:seed:ci_variables_project[flightjs/Flight]"
+bundle exec rake "gitlab:seed:ci_variables_project[flightjs/Flight, 25, staging]"
+bundle exec rake "gitlab:seed:ci_variables_project[flightjs/Flight, 25, unique, CI_VAR_]"
+
+bundle exec rake "gitlab:seed:ci_variables_group[group_name]"
+bundle exec rake "gitlab:seed:ci_variables_group[group_name, 25, staging]"
+bundle exec rake "gitlab:seed:ci_variables_group[group_name, 25, unique, CI_VAR_]"
+
+bundle exec rake "gitlab:seed:ci_variables_instance"
+bundle exec rake "gitlab:seed:ci_variables_instance[25, CI_VAR_]"
+```
+
+#### Seed a project for merge train development
+
+Seeds a project with merge trains configured and 20 merge requests(each with 3 commits). The command:
+
+```shell
+rake gitlab:seed:merge_trains:project
 ```
 
 ### Automation
@@ -94,7 +226,7 @@ seeds, you can set the `FORCE` environment variable to `yes`:
 FORCE=yes bundle exec rake setup
 ```
 
-This will skip the action confirmation/safety check, saving you from answering
+This skips the action confirmation/safety check, saving you from answering
 `yes` manually.
 
 ### Discard `stdout`
@@ -108,7 +240,7 @@ it to a file. If we don't care about the output, we could just redirect it to
 echo 'yes' | bundle exec rake setup > /dev/null
 ```
 
-Note that since you can't see the questions from `stdout`, you might just want
+Because you can't see the questions from `stdout`, you might just want
 to `echo 'yes'` to keep it running. It would still print the errors on `stderr`
 so no worries about missing errors.
 
@@ -122,7 +254,7 @@ There are a few environment flags you can pass to change how projects are seeded
 
 ## Run tests
 
-In order to run the test you can use the following commands:
+To run the test you can use the following commands:
 
 - `bin/rake spec` to run the RSpec suite
 - `bin/rake spec:unit` to run only the unit tests
@@ -166,7 +298,7 @@ There are a few caveats for this Rake task:
 - The pipeline must have been completed.
 - You may need to wait for the test report to be parsed and retry again.
 
-This Rake task depends on the [unit test reports](../ci/unit_test_reports.md) feature,
+This Rake task depends on the [unit test reports](../ci/testing/unit_test_reports.md) feature,
 which only gets parsed when it is requested for the first time.
 
 ### Speed up tests, Rake tasks, and migrations
@@ -188,6 +320,8 @@ Alternatively you can use the following on each spec run,
 bundle exec spring rspec some_spec.rb
 ```
 
+## RuboCop tasks
+
 ## Generate initial RuboCop TODO list
 
 One way to generate the initial list is to run the Rake task `rubocop:todo:generate`:
@@ -196,7 +330,7 @@ One way to generate the initial list is to run the Rake task `rubocop:todo:gener
 bundle exec rake rubocop:todo:generate
 ```
 
-To generate TODO list for specific RuboCop rules, pass them comma-seperated as
+To generate TODO list for specific RuboCop rules, pass them comma-separated as
 argument to the Rake task:
 
 ```shell
@@ -206,8 +340,20 @@ bundle exec rake rubocop:todo:generate\[Gitlab/NamespacedClass,Lint/Syntax\]
 
 Some shells require brackets to be escaped or quoted.
 
-See [Resolving RuboCop exceptions](contributing/style_guides.md#resolving-rubocop-exceptions)
+See [Resolving RuboCop exceptions](../development/rubocop_development_guide.md#resolving-rubocop-exceptions)
 on how to proceed from here.
+
+### Run RuboCop in graceful mode
+
+You can run RuboCop in "graceful mode". This means all enabled cop rules are
+silenced which have "grace period" activated (via `Details: grace period`).
+
+Run:
+
+```shell
+bundle exec rake 'rubocop:check:graceful'
+bundle exec rake 'rubocop:check:graceful[Gitlab/NamespacedClass]'
+```
 
 ## Compile Frontend Assets
 
@@ -255,26 +401,7 @@ task, then check the dimensions of the new sprite sheet and update the
 
 ## Update project templates
 
-Starting a project from a template needs this project to be exported. On a
-up to date main branch run:
-
-```shell
-gdk start
-bundle exec rake gitlab:update_project_templates
-git checkout -b update-project-templates
-git add vendor/project_templates
-git commit
-git push -u origin update-project-templates
-```
-
-Now create a merge request and merge that to main.
-
-To update just a single template instead of all of them, specify the template name
-between square brackets. For example, for the `cluster_management` template, run:
-
-```shell
-bundle exec rake gitlab:update_project_templates\[cluster_management\]
-```
+See [contributing to project templates for GitLab team members](project_templates.md#for-gitlab-team-members).
 
 ## Generate route lists
 
@@ -298,7 +425,7 @@ a file for quick reference.
 
 ## Show obsolete `ignored_columns`
 
-To see a list of all obsolete `ignored_columns` run:
+To see a list of all obsolete `ignored_columns` definitions run:
 
 ```shell
 bundle exec rake db:obsolete_ignored_columns
@@ -313,11 +440,11 @@ run:
 
 ```shell
 # Validate all queries
-bundle exec rake gitlab::graphql:validate
+bundle exec rake gitlab:graphql:validate
 # Validate one query
-bundle exec rake gitlab::graphql:validate[path/to/query.graphql]
+bundle exec rake gitlab:graphql:validate[path/to/query.graphql]
 # Validate a directory
-bundle exec rake gitlab::graphql:validate[path/to/queries]
+bundle exec rake gitlab:graphql:validate[path/to/queries]
 ```
 
 This prints out a report with an entry for each query, explaining why
@@ -335,11 +462,11 @@ Usage:
 
 ```shell
 # Analyze all queries
-bundle exec rake gitlab::graphql:analyze
+bundle exec rake gitlab:graphql:analyze
 # Analyze one query
-bundle exec rake gitlab::graphql:analyze[path/to/query.graphql]
+bundle exec rake gitlab:graphql:analyze[path/to/query.graphql]
 # Analyze a directory
-bundle exec rake gitlab::graphql:analyze[path/to/queries]
+bundle exec rake gitlab:graphql:analyze[path/to/queries]
 ```
 
 This prints out a report for each query, including the complexity
@@ -366,8 +493,8 @@ The docs generator code comes from our side giving us more flexibility, like usi
 
 To edit the content, you may need to edit the following:
 
-- The template. You can edit the template at `lib/gitlab/graphql/docs/templates/default.md.haml`.
-  The actual renderer is at `Gitlab::Graphql::Docs::Renderer`.
+- The template. You can edit the template at `tooling/graphql/docs/templates/default.md.haml`.
+  The actual renderer is at `Tooling::Graphql::Docs::Renderer`.
 - The applicable `description` field in the code, which
   [Updates machine-readable schema files](#update-machine-readable-schema-files),
   which is then used by the `rake` task described earlier.
@@ -392,4 +519,63 @@ The following command combines the intent of [Update GraphQL documentation and s
 
 ```shell
 bundle exec rake gitlab:graphql:update_all
+```
+
+## Update audit event types documentation
+
+For information on updating audit event types documentation, see
+[Generate documentation](audit_event_guide/index.md#generate-documentation).
+
+## Update OpenAPI client for Error Tracking feature
+
+NOTE:
+This Rake task needs `docker` to be installed.
+
+To update generated code for OpenAPI client located in
+`gems/error_tracking_open_api` run the following commands:
+
+```shell
+# Run rake task
+bundle exec rake gems:error_tracking_open_api:generate
+
+# Review and test the changes
+
+# Commit the changes
+git commit -m 'Update ErrorTrackingOpenAPI from OpenAPI definition' gems/error_tracking_open_api
+```
+
+## Update banned SSH keys
+
+You can add [banned SSH keys](../security/ssh_keys_restrictions.md#block-banned-or-compromised-keys)
+from any Git repository by using the `gitlab:security:update_banned_ssh_keys` Rake task:
+
+1. Find a public remote Git repository containing SSH public keys.
+   The public key files must have the `.pub` file extension.
+1. Make sure that `/tmp/` directory has enough space to store the remote Git repository.
+1. To add the SSH keys to your banned-key list, run this command, replacing
+   `GIT_URL` and `OUTPUT_FILE` with appropriate values:
+
+   ```shell
+   # @param git_url - Remote Git URL.
+   # @param output_file - Update keys to an output file. Default is config/security/banned_ssh_keys.yml.
+
+   bundle exec rake "gitlab:security:update_banned_ssh_keys[GIT_URL, OUTPUT_FILE]"
+   ```
+
+This task clones the remote repository, recursively walks the file system looking for files
+ending in `.pub`, parses those files as SSH public keys, and then adds the public key fingerprints
+to `output_file`. The contents of `config/security/banned_ssh_keys.yml` is read by GitLab and kept
+in memory. It is not recommended to increase the size of this file beyond 1 megabyte in size.
+
+## Output current navigation structure to YAML
+
+_This task relies on your current environment setup (licensing, feature flags, projects/groups), so output may vary from run-to-run or environment-to-environment. We may look to standardize output in a future iteration._
+
+Product, UX, and tech writing need a way to audit the entire GitLab navigation,
+yet may not be comfortable directly reviewing the code in `lib/sidebars`. You
+can dump the entire nav structure to YAML via the `gitlab:nav:dump_structure`
+Rake task:
+
+```shell
+bundle exec rake gitlab:nav:dump_structure
 ```

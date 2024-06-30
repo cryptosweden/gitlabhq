@@ -17,7 +17,7 @@ module Gitlab
       end
 
       def function_exists?(name)
-        connection.select_value("SELECT 1 FROM pg_proc WHERE proname = '#{name}'")
+        !!connection.select_value("SELECT 1 FROM pg_proc WHERE proname = '#{name}'")
       end
 
       def create_trigger(table_name, name, function_name, fires:)
@@ -31,8 +31,8 @@ module Gitlab
       end
 
       def trigger_exists?(table_name, name)
-        connection.select_value(<<~SQL)
-          SELECT 1
+        result = connection.select_value(<<~SQL.squish)
+          SELECT true
           FROM pg_catalog.pg_trigger trgr
             INNER JOIN pg_catalog.pg_class rel
               ON trgr.tgrelid = rel.oid
@@ -42,6 +42,8 @@ module Gitlab
             AND rel.relname = #{connection.quote(table_name)}
             AND trgr.tgname = #{connection.quote(name)}
         SQL
+
+        !!result
       end
 
       def drop_function(name, if_exists: true)
@@ -69,14 +71,6 @@ module Gitlab
         hashed_identifier = Digest::SHA256.hexdigest(identifier).first(10)
 
         "#{type}_#{hashed_identifier}"
-      end
-
-      def with_lock_retries(&block)
-        Gitlab::Database::WithLockRetries.new(
-          connection: connection,
-          klass: self.class,
-          logger: Gitlab::BackgroundMigration::Logger
-        ).run(&block)
       end
 
       def assert_not_in_transaction_block(scope:)

@@ -1,13 +1,14 @@
 ---
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Knowledge
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Create redirects for GitLab Pages **(FREE)**
+# GitLab Pages redirects
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-pages/-/issues/24) in GitLab Pages 1.25.0 and GitLab 13.4 behind a feature flag, disabled by default.
-> - [Became enabled by default](https://gitlab.com/gitlab-org/gitlab-pages/-/merge_requests/367) in GitLab 13.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 In GitLab Pages, you can configure rules to forward one URL to another using
 [Netlify style](https://docs.netlify.com/routing/redirects/#syntax-for-the-redirects-file)
@@ -19,14 +20,14 @@ are supported.
 
 | Feature | Supported | Example |
 | ------- | --------- | ------- |
-| [Redirects (`301`, `302`)](#redirects) | **{check-circle}** Yes  | `/wardrobe.html /narnia.html 302`
+| [Redirects (`301`, `302`)](#redirects) | **{check-circle}** Yes  | `/wardrobe.html /narnia.html 302` |
 | [Rewrites (`200`)](#rewrites)          | **{check-circle}** Yes  | `/* / 200` |
 | [Splats](#splats)                      | **{check-circle}** Yes  | `/news/*  /blog/:splat` |
 | [Placeholders](#placeholders)          | **{check-circle}** Yes  | `/news/:year/:month/:date /blog-:year-:month-:date.html` |
 | Rewrites (other than `200`)            | **{dotted-circle}** No  | `/en/* /en/404.html 404` |
 | Query parameters | **{dotted-circle}** No | `/store id=:id  /blog/:id  301` |
 | Force ([shadowing](https://docs.netlify.com/routing/redirects/rewrites-proxies/#shadowing)) | **{dotted-circle}** No | `/app/  /app/index.html  200!` |
-| Domain-level redirects | **{dotted-circle}** No | `http://blog.example.com/* https://www.example.com/blog/:splat 301` |
+| [Domain-level redirects](#domain-level-redirects) | **{check-circle}** Yes | `http://blog.example.com/* https://www.example.com/blog/:splat 301` |
 | Redirect by country or language | **{dotted-circle}** No | `/  /anz     302  Country=au,nz` |
 | Redirect by role | **{dotted-circle}** No | `/admin/*  200!  Role=admin` |
 
@@ -41,21 +42,20 @@ this test suite!
 To create redirects, create a configuration file named `_redirects` in the
 `public/` directory of your GitLab Pages site.
 
-Note that:
-
 - All paths must start with a forward slash `/`.
 - A default status code of `301` is applied if no [status code](#http-status-codes) is provided.
-- The `_redirects` file has a file size limit of 64KB and a maximum of 1,000 rules per project.
-  Only the first 1,000 rules are processed.
+- The `_redirects` file has a file size limit and a maximum number of rules per project,
+  configured at the instance level. Only the first matching rules within the configured maximum are processed.
+  The default file size limit is 64 KB, and the default maximum number of rules is 1,000.
 - If your GitLab Pages site uses the default domain name (such as
-  `namespace.gitlab.io/projectname`) you must prefix every rule with the project name:
+  `namespace.gitlab.io/project-slug`) you must prefix every rule with the path:
 
   ```plaintext
-  /projectname/wardrobe.html /projectname/narnia.html 302
+  /project-slug/wardrobe.html /project-slug/narnia.html 302
   ```
 
 - If your GitLab Pages site uses [custom domains](custom_domains_ssl_tls_certification/index.md),
-  no project name prefix is needed. For example, if your custom domain is `example.com`,
+  no project path prefix is needed. For example, if your custom domain is `example.com`,
   your `_redirects` file would look like:
 
   ```plaintext
@@ -70,10 +70,10 @@ the file instead of your redirect. For example, if the files `hello.html` and
 is ignored because `hello.html` exists:
 
 ```plaintext
-/projectname/hello.html /projectname/world.html 302
+/project-slug/hello.html /project-slug/world.html 302
 ```
 
-GitLab doesn't support Netlify's
+GitLab does not support Netlify
 [force option](https://docs.netlify.com/routing/redirects/rewrites-proxies/#shadowing)
 to change this behavior.
 
@@ -90,10 +90,6 @@ you can explicitly set your own. The following HTTP codes are supported:
 
 ## Redirects
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-pages/-/merge_requests/458) in GitLab 14.3.
-> - Enabled on GitLab.com.
-> - Enabled on self-managed in [GitLab 14.6](https://gitlab.com/gitlab-org/gitlab-pages/-/issues/618).
-
 To create a redirect, add a rule that includes a `from` path, a `to` path,
 and an [HTTP status code](#http-status-codes):
 
@@ -107,9 +103,7 @@ and an [HTTP status code](#http-status-codes):
 
 ## Rewrites
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-pages/-/merge_requests/458) in GitLab 14.3.
-> - Enabled on GitLab.com.
-> - Disabled by default in self-managed GitLab behind the [`FF_ENABLE_PLACEHOLDERS` feature flag](#feature-flag-for-rewrites).
+> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab-pages/-/issues/619) in GitLab 15.2.
 
 Provide a status code of `200` to serve the content of the `to` path when the
 request matches the `from`:
@@ -121,9 +115,38 @@ request matches the `from`:
 This status code can be used in combination with [splat rules](#splats) to dynamically
 rewrite the URL.
 
-## Splats
+## Domain-level redirects
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-pages/-/merge_requests/458) in GitLab 14.3.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab-pages/-/merge_requests/936) in GitLab 16.8 [with a flag](../../../administration/pages/index.md#use-environment-variables) named `FF_ENABLE_DOMAIN_REDIRECT`. Disabled by default.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-com/gl-infra/k8s-workloads/gitlab-com/-/merge_requests/3395) in GitLab 16.9.
+
+FLAG:
+On self-managed GitLab, by default this feature is not available.
+To make it available, an administrator can [enable the feature flag](../../../administration/pages/index.md#use-environment-variables) named `FF_ENABLE_DOMAIN_REDIRECT`.
+On GitLab.com, this feature is available. On GitLab Dedicated, this feature is not available.
+
+To create a domain-level redirect, add a domain-level path (beginning with `http://`
+or `https://`) to either:
+
+- The `to` path only.
+- The `from` and `to` paths.
+
+The supported [HTTP status codes](#http-status-codes) are `301` and `302`:
+
+```plaintext
+# 301 permanent redirect
+http://blog.example.com/file_1.html https://www.example.com/blog/file_1.html 301
+/file_2.html https://www.example.com/blog/file_2.html 301
+
+# 302 temporary redirect
+http://blog.example.com/file_3.html https://www.example.com/blog/file_3.html 302
+/file_4.html https://www.example.com/blog/file_4.html 302
+```
+
+Domain-level redirects can be used in combination with [splat rules](#splats) (including splat placeholders)
+to dynamically rewrite the URL path.
+
+## Splats
 
 A rule with an asterisk (`*`) in its `from` path, known as a splat, matches
 anything at the start, middle, or end of the requested path. This example
@@ -164,7 +187,7 @@ Splats also match empty strings, so the previous rule redirects
 ### Rewrite all requests to a root `index.html`
 
 NOTE:
-If you are using [GitLab Pages integration with Let’s Encrypt](custom_domains_ssl_tls_certification/lets_encrypt_integration.md),
+If you are using [GitLab Pages integration with Let's Encrypt](custom_domains_ssl_tls_certification/lets_encrypt_integration.md),
 you must enable it before adding this rule. Otherwise, the redirection breaks the Let's Encrypt
 integration. For more details, see
 [GitLab Pages issue 649](https://gitlab.com/gitlab-org/gitlab-pages/-/issues/649).
@@ -180,8 +203,6 @@ rule like:
 ```
 
 ## Placeholders
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-pages/-/merge_requests/458) in GitLab 14.3.
 
 Use placeholders in rules to match portions of the requested URL and use these
 matches when rewriting or redirecting to a new URL.
@@ -212,8 +233,7 @@ would **not** match a request URL like `/old/file`:
 ## Debug redirect rules
 
 If a redirect isn't working as expected, or you want to check your redirect syntax, visit
-`https://[namespace.gitlab.io]/projectname/_redirects`, replacing `[namespace.gitlab.io]` with
-your domain name. The `_redirects` file isn't served directly, but your browser
+`[your pages url]/_redirects`. The `_redirects` file isn't served directly, but your browser
 displays a numbered list of your redirect rules, and whether the rule is valid or invalid:
 
 ```plaintext
@@ -231,7 +251,7 @@ rule 10: valid
 rule 11: valid
 ```
 
-## Differences from Netlify's implementation
+## Differences from Netlify implementation
 
 Most supported `_redirects` rules behave the same in both GitLab and Netlify.
 However, there are some minor differences:
@@ -263,31 +283,5 @@ However, there are some minor differences:
 
   Given a request to `/old`:
 
-  - Netlify redirects to `/new/:placeholder` (with a
-  literal `:placeholder`).
+  - Netlify redirects to `/new/:placeholder` (with a literal `:placeholder`).
   - GitLab redirects to `/new/`.
-
-## Feature flag for rewrites
-
-FLAG:
-Rewrites in GitLab Pages is under development, and is deployed behind a feature flag
-that is **disabled by default**.
-
-To enable rewrites, for [Omnibus installations](../../../administration/pages/index.md), define the
-`FF_ENABLE_PLACEHOLDERS` environment variable in the
-[global settings](../../../administration/pages/index.md#global-settings).
-Add the following line to `/etc/gitlab/gitlab.rb` and
-[reconfigure the instance](../../../administration/restart_gitlab.md#omnibus-gitlab-reconfigure):
-
-```ruby
-gitlab_pages['env']['FF_ENABLE_PLACEHOLDERS'] = 'true'
-```
-
-For [source installations](../../../administration/pages/source.md), define the
-`FF_ENABLE_PLACEHOLDERS` environment variable, then
-[restart GitLab](../../../administration/restart_gitlab.md#installations-from-source):
-
-```shell
-export FF_ENABLE_PLACEHOLDERS="true"
-/path/to/pages/bin/gitlab-pages -config gitlab-pages.conf
-```

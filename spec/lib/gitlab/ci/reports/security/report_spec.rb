@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Reports::Security::Report do
+RSpec.describe Gitlab::Ci::Reports::Security::Report, feature_category: :vulnerability_management do
   let_it_be(:pipeline) { create(:ci_pipeline) }
 
   let(:created_at) { 2.weeks.ago }
@@ -89,7 +89,7 @@ RSpec.describe Gitlab::Ci::Reports::Security::Report do
     let(:other_report) do
       create(
         :ci_reports_security_report,
-        findings: [create(:ci_reports_security_finding, compare_key: 'other_finding')],
+        findings: [create(:ci_reports_security_finding)],
         scanners: [create(:ci_reports_security_scanner, external_id: 'other_scanner', name: 'Other Scanner')],
         identifiers: [create(:ci_reports_security_identifier, external_id: 'other_id', name: 'other_scanner')]
       )
@@ -140,6 +140,24 @@ RSpec.describe Gitlab::Ci::Reports::Security::Report do
     it { is_expected.to eq(scanner_1) }
   end
 
+  describe '#primary_identifiers' do
+    it 'returns matching identifiers' do
+      scanner_with_identifiers = create(
+        :ci_reports_security_scanner,
+        external_id: 'external_id_1',
+        primary_identifiers: [create(:ci_reports_security_identifier, external_id: 'other_id', name: 'other_scanner')]
+      )
+      scanner_without_identifiers = create(
+        :ci_reports_security_scanner,
+        external_id: 'external_id_2')
+
+      report.add_scanner(scanner_with_identifiers)
+      report.add_scanner(scanner_without_identifiers)
+
+      expect(report.primary_identifiers).to eq(scanner_with_identifiers.primary_identifiers)
+    end
+  end
+
   describe '#add_error' do
     context 'when the message is not given' do
       it 'adds a new error to report with the generic error message' do
@@ -178,6 +196,22 @@ RSpec.describe Gitlab::Ci::Reports::Security::Report do
     context 'when the report has errors' do
       before do
         report.add_error('foo', 'bar')
+      end
+
+      it { is_expected.to be_truthy }
+    end
+  end
+
+  describe 'warnings?' do
+    subject { report.warnings? }
+
+    context 'when the report does not have any errors' do
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when the report has warnings' do
+      before do
+        report.add_warning('foo', 'bar')
       end
 
       it { is_expected.to be_truthy }

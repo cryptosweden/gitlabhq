@@ -1,8 +1,8 @@
-import _ from 'lodash';
-import Vue, { nextTick } from 'vue';
+import { clone } from 'lodash';
 import { TEST_HOST } from 'helpers/test_constants';
-import { createComponentWithStore } from 'helpers/vue_mount_component_helper';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import IdeStatusBar from '~/ide/components/ide_status_bar.vue';
+import IdeStatusMR from '~/ide/components/ide_status_mr.vue';
 import { rightSidebarViews } from '~/ide/constants';
 import { createStore } from '~/ide/stores';
 import { projectData } from '../mock_data';
@@ -11,113 +11,113 @@ const TEST_PROJECT_ID = 'abcproject';
 const TEST_MERGE_REQUEST_ID = '9001';
 const TEST_MERGE_REQUEST_URL = `${TEST_HOST}merge-requests/${TEST_MERGE_REQUEST_ID}`;
 
-describe('ideStatusBar', () => {
-  let store;
-  let vm;
+jest.mock('~/lib/utils/poll');
 
-  const createComponent = () => {
-    vm = createComponentWithStore(Vue.extend(IdeStatusBar), store).$mount();
-  };
-  const findMRStatus = () => vm.$el.querySelector('.js-ide-status-mr');
+describe('IdeStatusBar component', () => {
+  let wrapper;
+  const dummyIntervalId = 1337;
+  let dispatchMock;
 
-  beforeEach(() => {
-    store = createStore();
-    store.state.currentProjectId = TEST_PROJECT_ID;
-    store.state.projects[TEST_PROJECT_ID] = _.clone(projectData);
-    store.state.currentBranchId = 'main';
-  });
+  const findMRStatus = () => wrapper.findComponent(IdeStatusMR);
 
-  afterEach(() => {
-    vm.$destroy();
-  });
-
-  describe('default', () => {
-    beforeEach(() => {
-      createComponent();
+  const mountComponent = (state = {}) => {
+    const store = createStore();
+    store.replaceState({
+      ...store.state,
+      currentBranchId: 'main',
+      currentProjectId: TEST_PROJECT_ID,
+      projects: {
+        ...store.state.projects,
+        [TEST_PROJECT_ID]: clone(projectData),
+      },
+      ...state,
     });
 
+    wrapper = mountExtended(IdeStatusBar, { store });
+    dispatchMock = jest.spyOn(store, 'dispatch');
+  };
+
+  beforeEach(() => {
+    jest.spyOn(window, 'setInterval').mockReturnValue(dummyIntervalId);
+  });
+
+  const findCommitShaLink = () => wrapper.findByTestId('commit-sha-content');
+
+  describe('default', () => {
     it('triggers a setInterval', () => {
-      expect(vm.intervalId).not.toBe(null);
+      mountComponent();
+
+      expect(window.setInterval).toHaveBeenCalledTimes(1);
     });
 
     it('renders the statusbar', () => {
-      expect(vm.$el.className).toBe('ide-status-bar');
-    });
+      mountComponent();
 
-    describe('commitAgeUpdate', () => {
-      beforeEach(() => {
-        jest.spyOn(vm, 'commitAgeUpdate').mockImplementation(() => {});
-      });
-
-      afterEach(() => {
-        jest.clearAllTimers();
-      });
-
-      it('gets called every second', () => {
-        expect(vm.commitAgeUpdate).not.toHaveBeenCalled();
-
-        jest.advanceTimersByTime(1000);
-
-        expect(vm.commitAgeUpdate.mock.calls.length).toEqual(1);
-
-        jest.advanceTimersByTime(1000);
-
-        expect(vm.commitAgeUpdate.mock.calls.length).toEqual(2);
-      });
+      expect(wrapper.classes()).toEqual(['ide-status-bar']);
     });
 
     describe('getCommitPath', () => {
       it('returns the path to the commit details', () => {
-        expect(vm.getCommitPath('abc123de')).toBe('/commit/abc123de');
+        mountComponent();
+        expect(findCommitShaLink().attributes('href')).toBe('/commit/abc123de');
       });
     });
 
     describe('pipeline status', () => {
-      it('opens right sidebar on clicking icon', async () => {
-        jest.spyOn(vm, 'openRightPane').mockImplementation(() => {});
-        Vue.set(vm.$store.state.pipelines, 'latestPipeline', {
-          details: {
-            status: {
-              text: 'success',
-              details_path: 'test',
-              icon: 'status_success',
+      it('opens right sidebar on clicking icon', () => {
+        const pipelines = {
+          latestPipeline: {
+            details: {
+              status: {
+                text: 'success',
+                details_path: 'test',
+                icon: 'status_success',
+              },
+            },
+            commit: {
+              author_gravatar_url: 'www',
             },
           },
-          commit: {
-            author_gravatar_url: 'www',
-          },
-        });
+        };
+        mountComponent({ pipelines });
 
-        await nextTick();
-        vm.$el.querySelector('.ide-status-pipeline button').click();
+        wrapper.find('button').trigger('click');
 
-        expect(vm.openRightPane).toHaveBeenCalledWith(rightSidebarViews.pipelines);
+        expect(dispatchMock).toHaveBeenCalledWith('rightPane/open', rightSidebarViews.pipelines);
       });
     });
 
     it('does not show merge request status', () => {
-      expect(findMRStatus()).toBe(null);
+      mountComponent();
+
+      expect(findMRStatus().exists()).toBe(false);
     });
   });
 
   describe('with merge request in store', () => {
     beforeEach(() => {
-      store.state.projects[TEST_PROJECT_ID].mergeRequests = {
-        [TEST_MERGE_REQUEST_ID]: {
-          web_url: TEST_MERGE_REQUEST_URL,
-          references: {
-            short: `!${TEST_MERGE_REQUEST_ID}`,
+      const state = {
+        currentMergeRequestId: TEST_MERGE_REQUEST_ID,
+        projects: {
+          [TEST_PROJECT_ID]: {
+            ...clone(projectData),
+            mergeRequests: {
+              [TEST_MERGE_REQUEST_ID]: {
+                web_url: TEST_MERGE_REQUEST_URL,
+                references: {
+                  short: `!${TEST_MERGE_REQUEST_ID}`,
+                },
+              },
+            },
           },
         },
       };
-      store.state.currentMergeRequestId = TEST_MERGE_REQUEST_ID;
-
-      createComponent();
+      mountComponent(state);
     });
 
     it('shows merge request status', () => {
-      expect(findMRStatus().textContent.trim()).toEqual(`Merge request !${TEST_MERGE_REQUEST_ID}`);
-      expect(findMRStatus().querySelector('a').href).toEqual(TEST_MERGE_REQUEST_URL);
+      expect(findMRStatus().text()).toBe(`Merge request !${TEST_MERGE_REQUEST_ID}`);
+      expect(findMRStatus().find('a').attributes('href')).toBe(TEST_MERGE_REQUEST_URL);
     });
   });
 });

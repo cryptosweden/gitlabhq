@@ -1,8 +1,26 @@
 import { GlFilteredSearchToken } from '@gitlab/ui';
 import { keyBy } from 'lodash';
-import { ListType } from '~/boards/constants';
-import { __ } from '~/locale';
-import AuthorToken from '~/vue_shared/components/filtered_search_bar/tokens/author_token.vue';
+import {
+  OPERATORS_IS,
+  OPERATORS_IS_NOT,
+  TOKEN_TITLE_ASSIGNEE,
+  TOKEN_TITLE_AUTHOR,
+  TOKEN_TITLE_CONFIDENTIAL,
+  TOKEN_TITLE_LABEL,
+  TOKEN_TITLE_MILESTONE,
+  TOKEN_TITLE_MY_REACTION,
+  TOKEN_TITLE_RELEASE,
+  TOKEN_TITLE_TYPE,
+  TOKEN_TYPE_ASSIGNEE,
+  TOKEN_TYPE_AUTHOR,
+  TOKEN_TYPE_CONFIDENTIAL,
+  TOKEN_TYPE_LABEL,
+  TOKEN_TYPE_MILESTONE,
+  TOKEN_TYPE_MY_REACTION,
+  TOKEN_TYPE_RELEASE,
+  TOKEN_TYPE_TYPE,
+} from '~/vue_shared/components/filtered_search_bar/constants';
+import UserToken from '~/vue_shared/components/filtered_search_bar/tokens/user_token.vue';
 import EmojiToken from '~/vue_shared/components/filtered_search_bar/tokens/emoji_token.vue';
 import LabelToken from '~/vue_shared/components/filtered_search_bar/tokens/label_token.vue';
 import MilestoneToken from '~/vue_shared/components/filtered_search_bar/tokens/milestone_token.vue';
@@ -17,6 +35,10 @@ export const mockBoard = {
     id: 'gid://gitlab/Iteration/124',
     title: 'Iteration 9',
   },
+  iterationCadence: {
+    id: 'gid://gitlab/Iteration::Cadence/134',
+    title: 'Cadence 3',
+  },
   assignee: {
     id: 'gid://gitlab/User/1',
     username: 'admin',
@@ -27,16 +49,24 @@ export const mockBoard = {
   weight: 2,
 };
 
-export const mockBoardConfig = {
-  milestoneId: 'gid://gitlab/Milestone/114',
-  milestoneTitle: '14.9',
-  iterationId: 'gid://gitlab/Iteration/124',
-  iterationTitle: 'Iteration 9',
-  assigneeId: 'gid://gitlab/User/1',
-  assigneeUsername: 'admin',
-  labels: [{ id: 'gid://gitlab/Label/32', title: 'Deliverable' }],
-  labelIds: ['gid://gitlab/Label/32'],
-  weight: 2,
+export const mockProjectBoardResponse = {
+  data: {
+    workspace: {
+      id: 'gid://gitlab/Project/114',
+      board: mockBoard,
+      __typename: 'Project',
+    },
+  },
+};
+
+export const mockGroupBoardResponse = {
+  data: {
+    workspace: {
+      id: 'gid://gitlab/Group/114',
+      board: mockBoard,
+      __typename: 'Group',
+    },
+  },
 };
 
 export const boardObj = {
@@ -66,12 +96,10 @@ function boardGenerator(n) {
     const name = `board${id}`;
 
     return {
-      node: {
-        id,
-        name,
-        weight: 0,
-        __typename: 'Board',
-      },
+      id,
+      name,
+      weight: 0,
+      __typename: 'Board',
     };
   });
 }
@@ -83,7 +111,7 @@ export const mockSmallProjectAllBoardsResponse = {
   data: {
     project: {
       id: 'gid://gitlab/Project/114',
-      boards: { edges: boardGenerator(3) },
+      boards: { nodes: boardGenerator(3) },
       __typename: 'Project',
     },
   },
@@ -93,7 +121,7 @@ export const mockEmptyProjectRecentBoardsResponse = {
   data: {
     project: {
       id: 'gid://gitlab/Project/114',
-      recentIssueBoards: { edges: [] },
+      recentIssueBoards: { nodes: [] },
       __typename: 'Project',
     },
   },
@@ -103,7 +131,7 @@ export const mockGroupAllBoardsResponse = {
   data: {
     group: {
       id: 'gid://gitlab/Group/114',
-      boards: { edges: boards },
+      boards: { nodes: boards },
       __typename: 'Group',
     },
   },
@@ -113,7 +141,7 @@ export const mockProjectAllBoardsResponse = {
   data: {
     project: {
       id: 'gid://gitlab/Project/1',
-      boards: { edges: boards },
+      boards: { nodes: boards },
       __typename: 'Project',
     },
   },
@@ -123,7 +151,7 @@ export const mockGroupRecentBoardsResponse = {
   data: {
     group: {
       id: 'gid://gitlab/Group/114',
-      recentIssueBoards: { edges: recentIssueBoards },
+      recentIssueBoards: { nodes: recentIssueBoards },
       __typename: 'Group',
     },
   },
@@ -133,31 +161,7 @@ export const mockProjectRecentBoardsResponse = {
   data: {
     project: {
       id: 'gid://gitlab/Project/1',
-      recentIssueBoards: { edges: recentIssueBoards },
-      __typename: 'Project',
-    },
-  },
-};
-
-export const mockGroupBoardResponse = {
-  data: {
-    workspace: {
-      board: {
-        id: 'gid://gitlab/Board/1',
-        name: 'Development',
-      },
-      __typename: 'Group',
-    },
-  },
-};
-
-export const mockProjectBoardResponse = {
-  data: {
-    workspace: {
-      board: {
-        id: 'gid://gitlab/Board/2',
-        name: 'Development',
-      },
+      recentIssueBoards: { nodes: recentIssueBoards },
       __typename: 'Project',
     },
   },
@@ -172,6 +176,7 @@ export const mockAssigneesList = [
     avatar_url: 'https://www.gravatar.com/avatar/598fd02741ac58b88854a99d16704309?s=80&d=identicon',
     web_url: 'http://127.0.0.1:3001/monserrate.gleichner',
     path: '/monserrate.gleichner',
+    webPath: '/monserrate.gleichner',
   },
   {
     id: 12,
@@ -181,6 +186,7 @@ export const mockAssigneesList = [
     avatar_url: 'https://www.gravatar.com/avatar/e021a7b0f3e4ae53b5068d487e68c031?s=80&d=identicon',
     web_url: 'http://127.0.0.1:3001/tana_harvey',
     path: '/tana_harvey',
+    webPath: '/tana_harvey',
   },
   {
     id: 20,
@@ -190,6 +196,7 @@ export const mockAssigneesList = [
     avatar_url: 'https://www.gravatar.com/avatar/c43c506cb6fd7b37017d3b54b94aa937?s=80&d=identicon',
     web_url: 'http://127.0.0.1:3001/juliana_gulgowski',
     path: '/juliana_gulgowski',
+    webPath: '/juliana_gulgowski',
   },
   {
     id: 6,
@@ -199,6 +206,7 @@ export const mockAssigneesList = [
     avatar_url: 'https://www.gravatar.com/avatar/cc2518f2c6f19f8fac49e1a5ee092a9b?s=80&d=identicon',
     web_url: 'http://127.0.0.1:3001/melynda',
     path: '/melynda',
+    webPath: '/melynda',
   },
   {
     id: 1,
@@ -208,6 +216,7 @@ export const mockAssigneesList = [
     avatar_url: 'https://www.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=80&d=identicon',
     web_url: 'http://127.0.0.1:3001/root',
     path: '/root',
+    webPath: '/root',
   },
 ];
 
@@ -219,17 +228,6 @@ export const mockMilestone = {
   start_date: '2018-01-01',
   due_date: '2019-12-31',
 };
-
-export const mockMilestones = [
-  {
-    id: 'gid://gitlab/Milestone/1',
-    title: 'Milestone 1',
-  },
-  {
-    id: 'gid://gitlab/Milestone/2',
-    title: 'Milestone 2',
-  },
-];
 
 export const assignees = [
   {
@@ -256,10 +254,15 @@ export const labels = [
   },
 ];
 
+export const mockIssueFullPath = 'gitlab-org/test-subgroup/gitlab-test';
+export const mockIssueDirectNamespace = 'gitlab-test';
+export const mockEpicFullPath = 'gitlab-org/test-subgroup';
+
 export const rawIssue = {
   title: 'Issue 1',
   id: 'gid://gitlab/Issue/436',
   iid: '27',
+  closedAt: null,
   dueDate: null,
   timeEstimate: 0,
   confidential: false,
@@ -281,58 +284,125 @@ export const rawIssue = {
   epic: {
     id: 'gid://gitlab/Epic/41',
   },
+  totalTimeSpent: 0,
+  humanTimeEstimate: null,
+  humanTotalTimeSpent: null,
+  emailsDisabled: false,
+  hidden: false,
+  webUrl: `${mockIssueFullPath}/-/issue/27`,
+  relativePosition: null,
+  severity: null,
+  milestone: null,
+  weight: null,
+  blocked: false,
+  blockedByCount: 0,
+  iteration: null,
+  healthStatus: null,
+  type: 'ISSUE',
+  __typename: 'Issue',
 };
-
-export const mockIssueFullPath = 'gitlab-org/test-subgroup/gitlab-test';
 
 export const mockIssue = {
   id: 'gid://gitlab/Issue/436',
   iid: '27',
   title: 'Issue 1',
+  closedAt: null,
   dueDate: null,
   timeEstimate: 0,
   confidential: false,
   referencePath: `${mockIssueFullPath}#27`,
   path: `/${mockIssueFullPath}/-/issues/27`,
-  assignees,
-  labels: [
-    {
-      id: 1,
-      title: 'test',
-      color: '#F0AD4E',
-      description: 'testing',
-    },
-  ],
+  assignees: { nodes: assignees },
+  labels: {
+    nodes: [
+      {
+        id: 1,
+        title: 'test',
+        color: '#F0AD4E',
+        description: 'testing',
+      },
+    ],
+  },
   epic: {
     id: 'gid://gitlab/Epic/41',
   },
+  totalTimeSpent: 0,
+  humanTimeEstimate: null,
+  humanTotalTimeSpent: null,
+  emailsDisabled: false,
+  hidden: false,
+  webUrl: `${mockIssueFullPath}/-/issue/27`,
+  relativePosition: null,
+  severity: null,
+  milestone: null,
+  weight: null,
+  blocked: false,
+  blockedByCount: 0,
+  iteration: null,
+  healthStatus: null,
+  type: 'ISSUE',
+  __typename: 'Issue',
 };
 
-export const mockActiveIssue = {
-  ...mockIssue,
-  id: 'gid://gitlab/Issue/436',
-  iid: '27',
-  subscribed: false,
-  emailsDisabled: false,
+export const mockEpic = {
+  id: 'gid://gitlab/Epic/26',
+  iid: '1',
+  group: {
+    id: 'gid://gitlab/Group/33',
+    fullPath: 'twitter',
+    __typename: 'Group',
+  },
+  title: 'Eum animi debitis occaecati ad non odio repellat voluptatem similique.',
+  state: 'opened',
+  reference: '&1',
+  referencePath: `${mockEpicFullPath}&1`,
+  webPath: `/groups/${mockEpicFullPath}/-/epics/1`,
+  webUrl: `${mockEpicFullPath}/-/epics/1`,
+  createdAt: '2022-01-18T05:15:15Z',
+  closedAt: null,
+  __typename: 'Epic',
+  relativePosition: null,
+  confidential: false,
+  subscribed: true,
+  blocked: true,
+  blockedByCount: 1,
+  labels: {
+    nodes: [],
+    __typename: 'LabelConnection',
+  },
+  hasIssues: true,
+  descendantCounts: {
+    closedEpics: 0,
+    closedIssues: 0,
+    openedEpics: 0,
+    openedIssues: 2,
+    __typename: 'EpicDescendantCount',
+  },
+  descendantWeightSum: {
+    closedIssues: 0,
+    openedIssues: 0,
+    __typename: 'EpicDescendantWeights',
+  },
 };
 
 export const mockIssue2 = {
+  ...rawIssue,
   id: 'gid://gitlab/Issue/437',
   iid: 28,
   title: 'Issue 2',
+  closedAt: null,
   dueDate: null,
   timeEstimate: 0,
   confidential: false,
   referencePath: 'gitlab-org/test-subgroup/gitlab-test#28',
   path: '/gitlab-org/test-subgroup/gitlab-test/-/issues/28',
-  assignees,
-  labels,
   epic: {
     id: 'gid://gitlab/Epic/40',
   },
 };
 
 export const mockIssue3 = {
+  ...rawIssue,
   id: 'gid://gitlab/Issue/438',
   iid: 29,
   title: 'Issue 3',
@@ -341,12 +411,11 @@ export const mockIssue3 = {
   timeEstimate: 0,
   confidential: false,
   path: '/gitlab-org/gitlab-test/-/issues/28',
-  assignees,
-  labels,
   epic: null,
 };
 
 export const mockIssue4 = {
+  ...rawIssue,
   id: 'gid://gitlab/Issue/439',
   iid: 30,
   title: 'Issue 4',
@@ -355,49 +424,58 @@ export const mockIssue4 = {
   timeEstimate: 0,
   confidential: false,
   path: '/gitlab-org/gitlab-test/-/issues/28',
-  assignees,
-  labels,
+  epic: null,
+};
+
+export const mockIssue5 = {
+  ...rawIssue,
+  id: 'gid://gitlab/Issue/440',
+  iid: 40,
+  title: 'Issue 5',
+  referencePath: '#40',
+  dueDate: null,
+  timeEstimate: 0,
+  confidential: false,
+  path: '/gitlab-org/gitlab-test/-/issues/40',
+  epic: null,
+};
+
+export const mockIssue6 = {
+  ...rawIssue,
+  id: 'gid://gitlab/Issue/441',
+  iid: 41,
+  title: 'Issue  6',
+  referencePath: '#41',
+  dueDate: null,
+  timeEstimate: 0,
+  confidential: false,
+  path: '/gitlab-org/gitlab-test/-/issues/41',
+  epic: null,
+};
+
+export const mockIssue7 = {
+  ...rawIssue,
+  id: 'gid://gitlab/Issue/442',
+  iid: 42,
+  title: 'Issue  6',
+  referencePath: '#42',
+  dueDate: null,
+  timeEstimate: 0,
+  confidential: false,
+  path: '/gitlab-org/gitlab-test/-/issues/42',
   epic: null,
 };
 
 export const mockIssues = [mockIssue, mockIssue2];
-
-export const BoardsMockData = {
-  GET: {
-    '/test/-/boards/1/lists/300/issues?id=300&page=1': {
-      issues: [
-        {
-          title: 'Testing',
-          id: 1,
-          iid: 1,
-          confidential: false,
-          labels: [],
-          assignees: [],
-        },
-      ],
-    },
-    '/test/issue-boards/-/milestones.json': [
-      {
-        id: 1,
-        title: 'test',
-      },
-    ],
-  },
-  POST: {
-    '/test/-/boards/1/lists': listObj,
-  },
-  PUT: {
-    '/test/issue-boards/-/board/1/lists{/id}': {},
-  },
-  DELETE: {
-    '/test/issue-boards/-/board/1/lists{/id}': {},
-  },
-};
-
-export const boardsMockInterceptor = (config) => {
-  const body = BoardsMockData[config.method.toUpperCase()][config.url];
-  return [200, body];
-};
+export const mockIssuesMore = [
+  mockIssue,
+  mockIssue2,
+  mockIssue3,
+  mockIssue4,
+  mockIssue5,
+  mockIssue6,
+  mockIssue7,
+];
 
 export const mockList = {
   id: 'gid://gitlab/List/1',
@@ -408,8 +486,35 @@ export const mockList = {
   label: null,
   assignee: null,
   milestone: null,
+  iteration: null,
   loading: false,
   issuesCount: 1,
+  maxIssueCount: 0,
+  metadata: {
+    epicsCount: 1,
+  },
+  __typename: 'BoardList',
+};
+
+export const labelsQueryResponse = {
+  data: {
+    project: {
+      id: 'gid://gitlab/Project/33',
+      labels: {
+        nodes: [
+          {
+            id: 'gid://gitlab/GroupLabel/121',
+            title: 'To Do',
+            color: '#F0AD4E',
+            textColor: '#FFFFFF',
+            description: null,
+            descriptionHtml: null,
+          },
+        ],
+      },
+      __typename: 'Project',
+    },
+  },
 };
 
 export const mockLabelList = {
@@ -424,11 +529,15 @@ export const mockLabelList = {
     color: '#F0AD4E',
     textColor: '#FFFFFF',
     description: null,
+    descriptionHtml: null,
   },
   assignee: null,
   milestone: null,
+  iteration: null,
   loading: false,
   issuesCount: 0,
+  maxIssueCount: 0,
+  __typename: 'BoardList',
 };
 
 export const mockMilestoneList = {
@@ -450,11 +559,6 @@ export const mockMilestoneList = {
 export const mockLists = [mockList, mockLabelList];
 
 export const mockListsById = keyBy(mockLists, 'id');
-
-export const mockIssuesByListId = {
-  'gid://gitlab/List/1': [mockIssue.id, mockIssue3.id, mockIssue4.id],
-  'gid://gitlab/List/2': mockIssues.map(({ id }) => id),
-};
 
 export const participants = [
   {
@@ -480,23 +584,6 @@ export const issues = {
   [mockIssue4.id]: mockIssue4,
 };
 
-// The response from group project REST API
-export const mockRawGroupProjects = [
-  {
-    id: 0,
-    name: 'Example Project',
-    name_with_namespace: 'Awesome Group / Example Project',
-    path_with_namespace: 'awesome-group/example-project',
-  },
-  {
-    id: 1,
-    name: 'Foobar Project',
-    name_with_namespace: 'Awesome Group / Foobar Project',
-    path_with_namespace: 'awesome-group/foobar-project',
-  },
-];
-
-// The response from GraphQL endpoint
 export const mockGroupProject1 = {
   id: 0,
   name: 'Example Project',
@@ -513,20 +600,7 @@ export const mockGroupProject2 = {
   archived: false,
 };
 
-export const mockArchivedGroupProject = {
-  id: 2,
-  name: 'Archived Project',
-  nameWithNamespace: 'Awesome Group / Archived Project',
-  fullPath: 'awesome-group/archived-project',
-  archived: true,
-};
-
 export const mockGroupProjects = [mockGroupProject1, mockGroupProject2];
-
-export const mockActiveGroupProjects = [
-  { ...mockGroupProject1, archived: false },
-  { ...mockGroupProject2, archived: false },
-];
 
 export const mockIssueGroupPath = 'gitlab-org';
 export const mockIssueProjectPath = `${mockIssueGroupPath}/gitlab-test`;
@@ -538,6 +612,15 @@ export const mockBlockingIssue1 = {
   reference: 'gitlab-org/my-project-1#6',
   webUrl: 'http://gdk.test:3000/gitlab-org/my-project-1/-/issues/6',
   __typename: 'Issue',
+};
+
+export const mockBlockingEpic1 = {
+  id: 'gid://gitlab/Epic/29',
+  iid: '4',
+  title: 'Sint nihil exercitationem aspernatur unde molestiae rem accusantium.',
+  reference: 'twitter&4',
+  webUrl: 'http://gdk.test:3000/groups/gitlab-org/test-subgroup/-/epics/4',
+  __typename: 'Epic',
 };
 
 export const mockBlockingIssue2 = {
@@ -581,6 +664,23 @@ export const mockBlockingIssuablesResponse1 = {
   },
 };
 
+export const mockBlockingEpicIssuablesResponse1 = {
+  data: {
+    group: {
+      __typename: 'Group',
+      id: 'gid://gitlab/Group/33',
+      issuable: {
+        __typename: 'Epic',
+        id: 'gid://gitlab/Epic/26',
+        blockingIssuables: {
+          __typename: 'EpicConnection',
+          nodes: [mockBlockingEpic1],
+        },
+      },
+    },
+  },
+};
+
 export const mockBlockingIssuablesResponse2 = {
   data: {
     issuable: {
@@ -618,6 +718,12 @@ export const mockBlockedIssue2 = {
   webUrl: 'http://gdk.test:3000/gitlab-org/my-project-1/-/issues/0',
 };
 
+export const mockBlockedEpic1 = {
+  id: '26',
+  blockedByCount: 1,
+  webUrl: 'http://gdk.test:3000/gitlab-org/test-subgroup/-/epics/1',
+};
+
 export const mockMoveIssueParams = {
   itemId: 1,
   fromListId: 'gid://gitlab/List/1',
@@ -626,111 +732,81 @@ export const mockMoveIssueParams = {
   moveAfterId: undefined,
 };
 
-export const mockMoveState = {
-  boardLists: {
-    'gid://gitlab/List/1': {
-      listType: ListType.backlog,
-    },
-    'gid://gitlab/List/2': {
-      listType: ListType.closed,
-    },
-  },
-  boardItems: {
-    [mockMoveIssueParams.itemId]: { foo: 'bar' },
-  },
-  boardItemsByListId: {
-    [mockMoveIssueParams.fromListId]: [mockMoveIssueParams.itemId],
-    [mockMoveIssueParams.toListId]: [],
-  },
-};
-
-export const mockMoveData = {
-  reordering: false,
-  shouldClone: false,
-  itemNotInToList: true,
-  originalIndex: 0,
-  originalIssue: { foo: 'bar' },
-  ...mockMoveIssueParams,
-};
-
 export const mockEmojiToken = {
-  type: 'my-reaction',
+  type: TOKEN_TYPE_MY_REACTION,
   icon: 'thumb-up',
-  title: 'My-Reaction',
+  title: TOKEN_TITLE_MY_REACTION,
   unique: true,
   token: EmojiToken,
   fetchEmojis: expect.any(Function),
 };
 
 export const mockConfidentialToken = {
-  type: 'confidential',
+  type: TOKEN_TYPE_CONFIDENTIAL,
   icon: 'eye-slash',
-  title: 'Confidential',
+  title: TOKEN_TITLE_CONFIDENTIAL,
   unique: true,
   token: GlFilteredSearchToken,
-  operators: [{ value: '=', description: 'is' }],
+  operators: OPERATORS_IS,
   options: [
     { icon: 'eye-slash', value: 'yes', title: 'Yes' },
     { icon: 'eye', value: 'no', title: 'No' },
   ],
 };
 
-export const mockTokens = (fetchLabels, fetchAuthors, fetchMilestones, isSignedIn) => [
+export const mockTokens = (fetchLabels, isSignedIn) => [
   {
     icon: 'user',
-    title: __('Assignee'),
-    type: 'assignee',
-    operators: [
-      { value: '=', description: 'is' },
-      { value: '!=', description: 'is not' },
-    ],
-    token: AuthorToken,
+    title: TOKEN_TITLE_ASSIGNEE,
+    type: TOKEN_TYPE_ASSIGNEE,
+    operators: OPERATORS_IS_NOT,
+    token: UserToken,
+    dataType: 'user',
     unique: true,
-    fetchAuthors,
-    preloadedAuthors: [],
+    fullPath: 'gitlab-org',
+    isProject: false,
+    preloadedUsers: [],
   },
   {
     icon: 'pencil',
-    title: __('Author'),
-    type: 'author',
-    operators: [
-      { value: '=', description: 'is' },
-      { value: '!=', description: 'is not' },
-    ],
+    title: TOKEN_TITLE_AUTHOR,
+    type: TOKEN_TYPE_AUTHOR,
+    operators: OPERATORS_IS_NOT,
     symbol: '@',
-    token: AuthorToken,
+    token: UserToken,
+    dataType: 'user',
     unique: true,
-    fetchAuthors,
-    preloadedAuthors: [],
+    fullPath: 'gitlab-org',
+    isProject: false,
+    preloadedUsers: [],
   },
   {
     icon: 'labels',
-    title: __('Label'),
-    type: 'label',
-    operators: [
-      { value: '=', description: 'is' },
-      { value: '!=', description: 'is not' },
-    ],
+    title: TOKEN_TITLE_LABEL,
+    type: TOKEN_TYPE_LABEL,
+    operators: OPERATORS_IS_NOT,
     token: LabelToken,
     unique: false,
     symbol: '~',
     fetchLabels,
+    recentSuggestionsStorageKey: 'gitlab-org-board-recent-tokens-label',
   },
   ...(isSignedIn ? [mockEmojiToken, mockConfidentialToken] : []),
   {
-    icon: 'clock',
-    title: __('Milestone'),
+    icon: 'milestone',
+    title: TOKEN_TITLE_MILESTONE,
     symbol: '%',
-    type: 'milestone',
+    type: TOKEN_TYPE_MILESTONE,
     shouldSkipSort: true,
     token: MilestoneToken,
     unique: true,
-    fetchMilestones,
+    fullPath: 'gitlab-org',
+    isProject: false,
   },
   {
     icon: 'issues',
-    title: __('Type'),
-    type: 'type',
+    title: TOKEN_TITLE_TYPE,
+    type: TOKEN_TYPE_TYPE,
     token: GlFilteredSearchToken,
     unique: true,
     options: [
@@ -739,8 +815,8 @@ export const mockTokens = (fetchLabels, fetchAuthors, fetchMilestones, isSignedI
     ],
   },
   {
-    type: 'release',
-    title: __('Release'),
+    type: TOKEN_TYPE_RELEASE,
+    title: TOKEN_TITLE_RELEASE,
     icon: 'rocket',
     token: ReleaseToken,
     fetchReleases: expect.any(Function),
@@ -787,13 +863,183 @@ export const mockGroupLabelsResponse = {
   },
 };
 
-export const boardListQueryResponse = (issuesCount = 20) => ({
+export const boardListsQueryResponse = {
+  data: {
+    project: {
+      id: 'gid://gitlab/Project/1',
+      board: {
+        id: 'gid://gitlab/Board/1',
+        hideBacklogList: false,
+        lists: {
+          nodes: mockLists,
+        },
+      },
+      __typename: 'Project',
+    },
+  },
+};
+
+export const issueBoardListsQueryResponse = {
+  data: {
+    group: {
+      id: 'gid://gitlab/Group/1',
+      board: {
+        id: 'gid://gitlab/Board/1',
+        hideBacklogList: false,
+        lists: {
+          nodes: [mockLabelList],
+        },
+      },
+      __typename: 'Group',
+    },
+  },
+};
+
+export const boardListQueryResponse = ({
+  listId = 'gid://gitlab/List/5',
+  issuesCount = 20,
+} = {}) => ({
   data: {
     boardList: {
       __typename: 'BoardList',
-      id: 'gid://gitlab/BoardList/5',
-      totalWeight: 5,
+      id: listId,
+      totalIssueWeight: '5',
       issuesCount,
     },
   },
 });
+
+export const epicBoardListQueryResponse = (totalWeight = 5) => ({
+  data: {
+    epicBoardList: {
+      __typename: 'EpicList',
+      id: 'gid://gitlab/Boards::EpicList/3',
+      metadata: {
+        epicsCount: 1,
+        totalWeight,
+      },
+    },
+  },
+});
+
+export const updateIssueTitleResponse = {
+  data: {
+    updateIssuableTitle: {
+      issue: {
+        id: 'gid://gitlab/Issue/436',
+        title: 'Issue 1 edit',
+      },
+    },
+  },
+};
+
+export const updateEpicTitleResponse = {
+  data: {
+    updateIssuableTitle: {
+      epic: {
+        id: 'gid://gitlab/Epic/426',
+        title: 'Epic 1 edit',
+      },
+    },
+  },
+};
+
+export const createBoardListResponse = {
+  data: {
+    boardListCreate: {
+      list: mockLabelList,
+      errors: [],
+    },
+  },
+};
+
+export const updateBoardListResponse = {
+  data: {
+    updateBoardList: {
+      list: mockList,
+      errors: [],
+    },
+  },
+};
+
+export const destroyBoardListMutationResponse = {
+  data: {
+    destroyBoardList: {
+      errors: [],
+      __typename: 'DestroyBoardListPayload',
+    },
+  },
+};
+
+export const mockProjects = [
+  {
+    id: 'gid://gitlab/Project/1',
+    name: 'Gitlab Shell',
+    nameWithNamespace: 'Gitlab Org / Gitlab Shell',
+    fullPath: 'gitlab-org/gitlab-shell',
+    archived: false,
+    __typename: 'Project',
+  },
+  {
+    id: 'gid://gitlab/Project/2',
+    name: 'Gitlab Test',
+    nameWithNamespace: 'Gitlab Org / Gitlab Test',
+    fullPath: 'gitlab-org/gitlab-test',
+    archived: true,
+    __typename: 'Project',
+  },
+];
+
+export const mockGroupProjectsResponse = (projects = mockProjects) => ({
+  data: {
+    group: {
+      id: 'gid://gitlab/Group/1',
+      projects: {
+        nodes: projects,
+        pageInfo: {
+          hasNextPage: true,
+          hasPreviousPage: false,
+          startCursor: 'abc',
+          endCursor: 'bcd',
+          __typename: 'PageInfo',
+        },
+        __typename: 'ProjectConnection',
+      },
+      __typename: 'Group',
+    },
+  },
+});
+
+export const mockGroupIssuesResponse = (
+  listId = 'gid://gitlab/List/1',
+  rawIssues = [rawIssue],
+) => ({
+  data: {
+    group: {
+      id: 'gid://gitlab/Group/1',
+      board: {
+        __typename: 'Board',
+        id: 'gid://gitlab/Board/1',
+        lists: {
+          nodes: [
+            {
+              id: listId,
+              listType: 'backlog',
+              issues: {
+                nodes: rawIssues,
+                pageInfo: {
+                  endCursor: null,
+                  hasNextPage: true,
+                },
+              },
+              __typename: 'BoardList',
+            },
+          ],
+        },
+      },
+      __typename: 'Group',
+    },
+  },
+});
+
+export const DEFAULT_COLOR = '#1068bf';

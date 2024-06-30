@@ -8,32 +8,40 @@ import {
   GlSprintf,
   GlTooltipDirective,
 } from '@gitlab/ui';
-import { mapActions, mapGetters, mapState } from 'vuex';
 import { isListDraggable } from '~/boards/boards_util';
 import { isScopedLabel, parseBoolean } from '~/lib/utils/common_utils';
+import { fetchPolicies } from '~/lib/graphql';
 import { BV_HIDE_TOOLTIP } from '~/lib/utils/constants';
-import { n__, s__, __ } from '~/locale';
-import sidebarEventHub from '~/sidebar/event_hub';
+import { n__, s__ } from '~/locale';
 import Tracking from '~/tracking';
+import { TYPE_ISSUE } from '~/issues/constants';
 import { formatDate } from '~/lib/utils/datetime_utility';
 import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import listQuery from 'ee_else_ce/boards/graphql/board_lists_deferred.query.graphql';
-import AccessorUtilities from '../../lib/utils/accessor';
-import { inactiveId, LIST, ListType, toggleFormEventPrefix } from '../constants';
-import eventHub from '../eventhub';
+import setActiveBoardItemMutation from 'ee_else_ce/boards/graphql/client/set_active_board_item.mutation.graphql';
+import AccessorUtilities from '~/lib/utils/accessor';
+import {
+  ListType,
+  updateListQueries,
+  toggleCollapsedMutations,
+  listsDeferredQuery,
+} from 'ee_else_ce/boards/constants';
+import { setError } from '../graphql/cache_updates';
 import ItemCount from './item_count.vue';
 
 export default {
   i18n: {
-    newIssue: __('New issue'),
-    newEpic: s__('Boards|New epic'),
-    listSettings: __('List settings'),
+    newIssue: s__('Boards|Create new issue'),
+    newEpic: s__('Boards|Create new epic'),
+    listSettings: s__('Boards|Edit list settings'),
     expand: s__('Boards|Expand'),
     collapse: s__('Boards|Collapse'),
+    fetchError: s__(
+      "Boards|An error occurred while fetching list's information. Please try again.",
+    ),
   },
   components: {
-    GlButtonGroup,
     GlButton,
+    GlButtonGroup,
     GlLabel,
     GlTooltip,
     GlIcon,
@@ -45,9 +53,6 @@ export default {
   },
   mixins: [Tracking.mixin(), glFeatureFlagMixin()],
   inject: {
-    boardId: {
-      default: '',
-    },
     weightFeatureAvailable: {
       default: false,
     },
@@ -57,6 +62,18 @@ export default {
     currentUserId: {
       default: null,
     },
+    canCreateEpic: {
+      default: false,
+    },
+    isEpicBoard: {
+      default: false,
+    },
+    disabled: {
+      default: true,
+    },
+    issuableType: {
+      default: TYPE_ISSUE,
+    },
   },
   props: {
     list: {
@@ -64,24 +81,35 @@ export default {
       default: () => ({}),
       required: false,
     },
-    disabled: {
-      type: Boolean,
-      required: true,
-    },
     isSwimlanesHeader: {
       type: Boolean,
       required: false,
       default: false,
     },
+    filterParams: {
+      type: Object,
+      required: true,
+    },
+    boardId: {
+      type: String,
+      required: true,
+    },
   },
   computed: {
-    ...mapState(['activeId', 'filterParams']),
-    ...mapGetters(['isEpicBoard', 'isSwimlanesOn']),
     isLoggedIn() {
       return Boolean(this.currentUserId);
     },
     listType() {
       return this.list.listType;
+    },
+    isLabelList() {
+      return this.listType === ListType.label;
+    },
+    itemsCount() {
+      return this.isEpicBoard ? this.list.metadata.epicsCount : this.boardList?.issuesCount;
+    },
+    boardItemsSizeExceedsMax() {
+      return this.list.maxIssueCount > 0 && this.itemsCount > this.list.maxIssueCount;
     },
     listAssignee() {
       return this.list?.assignee?.username || '';
@@ -109,7 +137,10 @@ export default {
     },
     showListHeaderActions() {
       if (this.isLoggedIn) {
-        return this.isNewIssueShown || this.isNewEpicShown || this.isSettingsShown;
+        return (
+          (this.isNewIssueShown || this.isNewEpicShown || this.isSettingsShown) &&
+          !this.list.collapsed
+        );
       }
       return false;
     },
@@ -117,23 +148,25 @@ export default {
       return 'issues';
     },
     itemsTooltipLabel() {
-      return n__(`%d issue`, `%d issues`, this.boardLists?.issuesCount);
+      return n__(`%d issue`, `%d issues`, this.boardList?.issuesCount);
     },
     chevronTooltip() {
       return this.list.collapsed ? this.$options.i18n.expand : this.$options.i18n.collapse;
     },
     chevronIcon() {
-      return this.list.collapsed ? 'chevron-down' : 'chevron-right';
+      return this.list.collapsed ? 'chevron-lg-right' : 'chevron-lg-down';
     },
     isNewIssueShown() {
       return (this.listType === ListType.backlog || this.showListHeaderButton) && !this.isEpicBoard;
     },
     isNewEpicShown() {
-      return this.isEpicBoard && this.listType !== ListType.closed;
+      return this.isEpicBoard && this.canCreateEpic && this.listType !== ListType.closed;
     },
     isSettingsShown() {
       return (
-        this.listType !== ListType.backlog && this.showListHeaderButton && !this.list.collapsed
+        this.listType !== ListType.backlog &&
+        this.listType !== ListType.closed &&
+        !this.list.collapsed
       );
     },
     uniqueKey() {
@@ -149,66 +182,84 @@ export default {
     userCanDrag() {
       return !this.disabled && isListDraggable(this.list);
     },
+    // due to the issues with cache-and-network, we need this hack to check if there is any data for the query in the cache.
+    // if we have cached data, we disregard the loading state
     isLoading() {
-      return this.$apollo.queries.boardList.loading;
+      return (
+        this.$apollo.queries.boardList.loading &&
+        !this.$apollo.provider.clients.defaultClient.readQuery({
+          query: listsDeferredQuery[this.issuableType].query,
+          variables: this.countQueryVariables,
+        })
+      );
+    },
+    totalIssueWeight() {
+      return this.boardList?.totalIssueWeight;
+    },
+    canShowTotalWeight() {
+      return this.weightFeatureAvailable && !this.isLoading;
+    },
+    countQueryVariables() {
+      return {
+        id: this.list.id,
+        filters: this.filterParams,
+      };
     },
   },
   apollo: {
     boardList: {
-      query: listQuery,
-      variables() {
-        return {
-          id: this.list.id,
-          filters: this.filterParams,
-        };
+      fetchPolicy: fetchPolicies.CACHE_AND_NETWORK,
+      query() {
+        return listsDeferredQuery[this.issuableType].query;
       },
-      skip() {
-        return this.isEpicBoard;
+      variables() {
+        return this.countQueryVariables;
+      },
+      error(error) {
+        setError({
+          error,
+          message: this.$options.i18n.fetchError,
+        });
       },
     },
   },
   created() {
     const localCollapsed = parseBoolean(localStorage.getItem(`${this.uniqueKey}.collapsed`));
     if ((!this.isLoggedIn || this.isEpicBoard) && localCollapsed) {
-      this.toggleListCollapsed({ listId: this.list.id, collapsed: true });
+      this.updateLocalCollapsedStatus(true);
     }
   },
   methods: {
-    ...mapActions(['updateList', 'setActiveId', 'toggleListCollapsed']),
     openSidebarSettings() {
-      if (this.activeId === inactiveId) {
-        sidebarEventHub.$emit('sidebar.closeAll');
-      }
-
-      this.setActiveId({ id: this.list.id, sidebarType: LIST });
+      this.$apollo.mutate({
+        mutation: setActiveBoardItemMutation,
+        variables: { boardItem: null, listId: null },
+      });
+      this.$emit('setActiveList', this.list.id);
 
       this.track('click_button', { label: 'list_settings' });
     },
     showScopedLabels(label) {
       return this.scopedLabelsAvailable && isScopedLabel(label);
     },
-
-    showNewIssueForm() {
-      if (this.isSwimlanesOn) {
-        eventHub.$emit('open-unassigned-lane');
+    showNewForm() {
+      if (this.isSwimlanesHeader) {
+        this.$emit('openUnassignedLane');
         this.$nextTick(() => {
-          eventHub.$emit(`${toggleFormEventPrefix.issue}${this.list.id}`);
+          this.$emit('toggleNewForm');
         });
       } else {
-        eventHub.$emit(`${toggleFormEventPrefix.issue}${this.list.id}`);
+        this.$emit('toggleNewForm');
       }
-    },
-    showNewEpicForm() {
-      eventHub.$emit(`${toggleFormEventPrefix.epic}${this.list.id}`);
     },
     toggleExpanded() {
       const collapsed = !this.list.collapsed;
-      this.toggleListCollapsed({ listId: this.list.id, collapsed });
+      this.updateLocalCollapsedStatus(collapsed);
 
       if (!this.isLoggedIn) {
-        this.addToLocalStorage();
+        this.addToLocalStorage(collapsed);
       } else {
-        this.updateListFunction();
+        this.updateListFunction(collapsed);
       }
 
       // When expanding/collapsing, the tooltip on the caret button sometimes stays open.
@@ -220,13 +271,36 @@ export default {
         property: collapsed ? 'closed' : 'open',
       });
     },
-    addToLocalStorage() {
+    addToLocalStorage(collapsed) {
       if (AccessorUtilities.canUseLocalStorage()) {
-        localStorage.setItem(`${this.uniqueKey}.collapsed`, this.list.collapsed);
+        localStorage.setItem(`${this.uniqueKey}.collapsed`, collapsed);
       }
     },
-    updateListFunction() {
-      this.updateList({ listId: this.list.id, collapsed: this.list.collapsed });
+    async updateListFunction(collapsed) {
+      try {
+        await this.$apollo.mutate({
+          mutation: updateListQueries[this.issuableType].mutation,
+          variables: {
+            listId: this.list.id,
+            collapsed,
+          },
+          optimisticResponse: {
+            updateBoardList: {
+              __typename: 'UpdateBoardListPayload',
+              errors: [],
+              list: {
+                ...this.list,
+                collapsed,
+              },
+            },
+          },
+        });
+      } catch (error) {
+        setError({
+          error,
+          message: s__('Boards|An error occurred while updating the list. Please try again.'),
+        });
+      }
     },
     /**
      * TODO: https://gitlab.com/gitlab-org/gitlab/-/issues/344619
@@ -238,6 +312,15 @@ export default {
       const due = formatDate(dueDate, 'mmm d, yyyy', true);
       return `${start} - ${due}`;
     },
+    updateLocalCollapsedStatus(collapsed) {
+      this.$apollo.mutate({
+        mutation: toggleCollapsedMutations[this.issuableType].mutation,
+        variables: {
+          list: this.list,
+          collapsed,
+        },
+      });
+    },
   },
 };
 </script>
@@ -245,13 +328,14 @@ export default {
 <template>
   <header
     :class="{
-      'has-border': list.label && list.label.color,
       'gl-h-full': list.collapsed,
-      'board-inner gl-rounded-top-left-base gl-rounded-top-right-base': isSwimlanesHeader,
+      'gl-bg-gray-50': isSwimlanesHeader,
+      'gl-border-t-solid gl-border-4 gl-rounded-top-left-base gl-rounded-top-right-base':
+        isLabelList,
+      'gl-bg-red-50 gl-rounded-top-left-base gl-rounded-top-right-base': boardItemsSizeExceedsMax,
     }"
     :style="headerStyle"
     class="board-header gl-relative"
-    data-qa-selector="board_list_header"
     data-testid="board-list-header"
   >
     <h3
@@ -262,42 +346,21 @@ export default {
         'gl-py-2': list.collapsed && isSwimlanesHeader,
         'gl-flex-direction-column': list.collapsed,
       }"
-      class="board-title gl-m-0 gl-display-flex gl-align-items-center gl-font-base gl-px-3 js-board-handle"
+      class="board-title gl-m-0 gl-display-flex gl-align-items-center gl-font-base gl-px-3 gl-h-9"
     >
       <gl-button
         v-gl-tooltip.hover
         :aria-label="chevronTooltip"
         :title="chevronTooltip"
         :icon="chevronIcon"
-        class="board-title-caret no-drag gl-cursor-pointer"
+        class="board-title-caret no-drag gl-cursor-pointer gl-hover-bg-gray-50"
+        :class="{ 'gl-mt-1': list.collapsed, 'gl-mr-2': !list.collapsed }"
         category="tertiary"
         size="small"
         data-testid="board-title-caret"
         @click="toggleExpanded"
       />
       <!-- EE start -->
-      <span
-        v-if="showMilestoneListDetails"
-        aria-hidden="true"
-        class="milestone-icon"
-        :class="{
-          'gl-mt-3 gl-rotate-90': list.collapsed,
-          'gl-mr-2': !list.collapsed,
-        }"
-      >
-        <gl-icon name="timer" />
-      </span>
-
-      <span
-        v-if="showIterationListDetails"
-        aria-hidden="true"
-        :class="{
-          'gl-mt-3 gl-rotate-90': list.collapsed,
-          'gl-mr-2': !list.collapsed,
-        }"
-      >
-        <gl-icon name="iteration" />
-      </span>
 
       <a
         v-if="showAssigneeListDetails"
@@ -324,6 +387,7 @@ export default {
           'gl-display-none': list.collapsed && isSwimlanesHeader,
           'gl-flex-grow-0 gl-my-3 gl-mx-0': list.collapsed,
           'gl-flex-grow-1': !list.collapsed,
+          'gl-rotate-90': list.collapsed,
         }"
       >
         <!-- EE start -->
@@ -331,7 +395,8 @@ export default {
           v-if="listType !== 'label'"
           v-gl-tooltip.hover
           :class="{
-            'gl-display-block': list.collapsed || listType === 'milestone',
+            'gl-text-gray-500': list.collapsed,
+            'gl-block': list.collapsed || listType === 'milestone',
           }"
           :title="listTitle"
           class="board-title-main-text gl-text-truncate"
@@ -341,7 +406,7 @@ export default {
         <span
           v-if="listType === 'assignee'"
           v-show="!list.collapsed"
-          class="gl-ml-2 gl-font-weight-normal gl-text-gray-500"
+          class="gl-ml-2 gl-font-normal gl-text-secondary"
         >
           @{{ listAssignee }}
         </span>
@@ -352,7 +417,6 @@ export default {
           :background-color="list.label.color"
           :description="list.label.description"
           :scoped="showScopedLabels(list.label)"
-          :size="list.collapsed ? 'sm' : ''"
           :title="list.label.title"
         />
       </div>
@@ -362,53 +426,57 @@ export default {
         v-if="isSwimlanesHeader && list.collapsed"
         ref="collapsedInfo"
         aria-hidden="true"
-        class="board-header-collapsed-info-icon gl-cursor-pointer gl-text-gray-500"
+        class="board-header-collapsed-info-icon gl-cursor-pointer gl-text-secondary gl-hover-text-gray-900"
       >
         <gl-icon name="information" />
       </span>
       <gl-tooltip v-if="isSwimlanesHeader && list.collapsed" :target="() => $refs.collapsedInfo">
-        <div class="gl-font-weight-bold gl-pb-2">{{ collapsedTooltipTitle }}</div>
+        <div class="gl-font-bold gl-pb-2">{{ collapsedTooltipTitle }}</div>
         <div v-if="list.maxIssueCount !== 0">
           •
           <gl-sprintf :message="__('%{issuesSize} with a limit of %{maxIssueCount}')">
-            <template #issuesSize>{{ itemsTooltipLabel }}</template>
+            <template #issuesSize>{{ itemsCount }}</template>
             <template #maxIssueCount>{{ list.maxIssueCount }}</template>
           </gl-sprintf>
         </div>
         <div v-else>• {{ itemsTooltipLabel }}</div>
         <div v-if="weightFeatureAvailable && !isLoading">
           •
-          <gl-sprintf :message="__('%{totalWeight} total weight')">
-            <template #totalWeight>{{ boardList.totalWeight }}</template>
+          <gl-sprintf :message="__('%{totalIssueWeight} total weight')">
+            <template #totalIssueWeight>{{ totalIssueWeight }}</template>
           </gl-sprintf>
         </div>
       </gl-tooltip>
       <!-- EE end -->
 
       <div
-        class="issue-count-badge gl-display-inline-flex gl-pr-2 no-drag gl-text-gray-500"
+        class="gl-font-sm issue-count-badge gl-inline-flex gl-pr-2 no-drag gl-text-secondary"
         data-testid="issue-count-badge"
         :class="{
-          'gl-display-none!': list.collapsed && isSwimlanesHeader,
+          '!gl-hidden': list.collapsed && isSwimlanesHeader,
           'gl-p-0': list.collapsed,
         }"
       >
-        <span class="gl-display-inline-flex">
+        <span class="gl-inline-flex" :class="{ 'gl-rotate-90': list.collapsed }">
           <gl-tooltip :target="() => $refs.itemCount" :title="itemsTooltipLabel" />
-          <span ref="itemCount" class="gl-display-inline-flex gl-align-items-center">
-            <gl-icon class="gl-mr-2" :name="countIcon" />
+          <span
+            ref="itemCount"
+            class="gl-inline-flex gl-align-items-center"
+            data-testid="item-count"
+          >
+            <gl-icon class="gl-mr-2" :name="countIcon" :size="14" />
             <item-count
               v-if="!isLoading"
-              :items-size="isEpicBoard ? list.epicsCount : boardList.issuesCount"
+              :items-size="itemsCount"
               :max-issue-count="list.maxIssueCount"
             />
           </span>
           <!-- EE start -->
-          <template v-if="weightFeatureAvailable && !isEpicBoard && !isLoading">
+          <template v-if="canShowTotalWeight">
             <gl-tooltip :target="() => $refs.weightTooltip" :title="weightCountToolTip" />
-            <span ref="weightTooltip" class="gl-display-inline-flex gl-ml-3">
-              <gl-icon class="gl-mr-2" name="weight" />
-              {{ boardList.totalWeight }}
+            <span ref="weightTooltip" class="gl-inline-flex gl-ml-3" data-testid="weight">
+              <gl-icon class="gl-mr-2" name="weight" :size="14" />
+              {{ totalIssueWeight }}
             </span>
           </template>
           <!-- EE end -->
@@ -417,25 +485,25 @@ export default {
       <gl-button-group v-if="showListHeaderActions" class="board-list-button-group gl-pl-2">
         <gl-button
           v-if="isNewIssueShown"
-          v-show="!list.collapsed"
           ref="newIssueBtn"
           v-gl-tooltip.hover
           :aria-label="$options.i18n.newIssue"
           :title="$options.i18n.newIssue"
-          class="no-drag"
+          size="small"
           icon="plus"
-          @click="showNewIssueForm"
+          data-testid="new-issue-btn"
+          @click="showNewForm"
         />
 
         <gl-button
           v-if="isNewEpicShown"
-          v-show="!list.collapsed"
           v-gl-tooltip.hover
           :aria-label="$options.i18n.newEpic"
           :title="$options.i18n.newEpic"
-          class="no-drag"
+          size="small"
           icon="plus"
-          @click="showNewEpicForm"
+          data-testid="new-epic-btn"
+          @click="showNewForm"
         />
 
         <gl-button
@@ -443,12 +511,12 @@ export default {
           ref="settingsBtn"
           v-gl-tooltip.hover
           :aria-label="$options.i18n.listSettings"
-          class="no-drag js-board-settings-button"
+          size="small"
           :title="$options.i18n.listSettings"
           icon="settings"
+          data-testid="settings-btn"
           @click="openSidebarSettings"
         />
-        <gl-tooltip :target="() => $refs.settingsBtn">{{ $options.i18n.listSettings }}</gl-tooltip>
       </gl-button-group>
     </h3>
   </header>

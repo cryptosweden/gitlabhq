@@ -4,21 +4,22 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 
 	"gitlab.com/gitlab-org/labkit/log"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/proxy"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/testhelper"
@@ -41,7 +42,7 @@ func TestMain(m *testing.M) {
 		log.WithError(err).Fatal()
 	}
 
-	os.Exit(m.Run())
+	testhelper.VerifyNoGoroutines(m)
 }
 
 func testArtifactsUploadServer(t *testing.T, authResponse *api.Response, bodyProcessor func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
@@ -72,20 +73,18 @@ func testArtifactsUploadServer(t *testing.T, authResponse *api.Response, bodyPro
 				return
 			}
 
-			_, err := ioutil.ReadFile(r.FormValue("file.path"))
+			_, err := os.ReadFile(r.FormValue("file.path"))
 			if err != nil {
 				t.Fatal("Expected file to be readable")
 				return
 			}
-		} else {
-			if r.FormValue("file.remote_url") == "" {
-				t.Fatal("Expected file to be remote accessible")
-				return
-			}
+		} else if r.FormValue("file.remote_url") == "" {
+			t.Fatal("Expected file to be remote accessible")
+			return
 		}
 
 		if r.FormValue("metadata.path") != "" {
-			metadata, err := ioutil.ReadFile(r.FormValue("metadata.path"))
+			metadata, err := os.ReadFile(r.FormValue("metadata.path"))
 			if err != nil {
 				t.Fatal("Expected metadata to be readable")
 				return
@@ -96,7 +95,7 @@ func testArtifactsUploadServer(t *testing.T, authResponse *api.Response, bodyPro
 				return
 			}
 			defer gz.Close()
-			metadata, err = ioutil.ReadAll(gz)
+			metadata, err = io.ReadAll(gz)
 			if err != nil {
 				t.Fatal("Expected metadata to be valid")
 				return
@@ -107,7 +106,6 @@ func testArtifactsUploadServer(t *testing.T, authResponse *api.Response, bodyPro
 			}
 
 			w.Header().Set(MetadataHeaderKey, MetadataHeaderPresent)
-
 		} else {
 			w.Header().Set(MetadataHeaderKey, MetadataHeaderMissing)
 		}
@@ -126,12 +124,10 @@ type testServer struct {
 	writer     *multipart.Writer
 	buffer     *bytes.Buffer
 	fileWriter io.Writer
-	cleanup    func()
 }
 
 func setupWithTmpPath(t *testing.T, filename string, includeFormat bool, format string, authResponse *api.Response, bodyProcessor func(w http.ResponseWriter, r *http.Request)) *testServer {
-	tempPath, err := ioutil.TempDir("", "uploads")
-	require.NoError(t, err)
+	tempPath := t.TempDir()
 
 	if authResponse == nil {
 		authResponse = &api.Response{TempPath: tempPath}
@@ -145,11 +141,10 @@ func setupWithTmpPath(t *testing.T, filename string, includeFormat bool, format 
 	require.NotNil(t, fileWriter)
 	require.NoError(t, err)
 
-	cleanup := func() {
+	t.Cleanup(func() {
 		ts.Close()
-		require.NoError(t, os.RemoveAll(tempPath))
 		require.NoError(t, writer.Close())
-	}
+	})
 
 	qs := ""
 
@@ -157,11 +152,14 @@ func setupWithTmpPath(t *testing.T, filename string, includeFormat bool, format 
 		qs = fmt.Sprintf("?%s=%s", ArtifactFormatKey, format)
 	}
 
-	return &testServer{url: ts.URL + Path + qs, writer: writer, buffer: &buffer, fileWriter: fileWriter, cleanup: cleanup}
+	return &testServer{url: ts.URL + Path + qs, writer: writer, buffer: &buffer, fileWriter: fileWriter}
 }
 
 func testUploadArtifacts(t *testing.T, contentType, url string, body io.Reader) *httptest.ResponseRecorder {
-	httpRequest, err := http.NewRequest("POST", url, body)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	httpRequest, err := http.NewRequestWithContext(ctx, "POST", url, body)
 	require.NoError(t, err)
 
 	httpRequest.Header.Set("Content-Type", contentType)
@@ -171,7 +169,8 @@ func testUploadArtifacts(t *testing.T, contentType, url string, body io.Reader) 
 	testhelper.ConfigureSecret()
 	apiClient := api.NewAPI(parsedURL, "123", roundTripper)
 	proxyClient := proxy.NewProxy(parsedURL, "123", roundTripper)
-	Artifacts(apiClient, proxyClient, &DefaultPreparer{}).ServeHTTP(response, httpRequest)
+
+	Artifacts(apiClient, proxyClient, &DefaultPreparer{}, config.NewDefaultConfig()).ServeHTTP(response, httpRequest)
 	return response
 }
 
@@ -206,7 +205,7 @@ func TestUploadHandlerAddingMetadata(t *testing.T) {
 					require.NoError(t, err)
 
 					rewrittenFields := token.Claims.(*MultipartClaims).RewrittenFields
-					require.Equal(t, 2, len(rewrittenFields))
+					require.Len(t, rewrittenFields, 2)
 
 					require.Contains(t, rewrittenFields, "file")
 					require.Contains(t, rewrittenFields, "metadata")
@@ -214,7 +213,6 @@ func TestUploadHandlerAddingMetadata(t *testing.T) {
 					require.Contains(t, r.PostForm, "metadata.gitlab-workhorse-upload")
 				},
 			)
-			defer s.cleanup()
 
 			archive := zip.NewWriter(s.fileWriter)
 			file, err := archive.Create("test.file")
@@ -238,13 +236,12 @@ func TestUploadHandlerTarArtifact(t *testing.T) {
 			require.NoError(t, err)
 
 			rewrittenFields := token.Claims.(*MultipartClaims).RewrittenFields
-			require.Equal(t, 1, len(rewrittenFields))
+			require.Len(t, rewrittenFields, 1)
 
 			require.Contains(t, rewrittenFields, "file")
 			require.Contains(t, r.PostForm, "file.gitlab-workhorse-upload")
 		},
 	)
-	defer s.cleanup()
 
 	file, err := os.Open("../../testdata/tarfile.tar")
 	require.NoError(t, err)
@@ -261,7 +258,6 @@ func TestUploadHandlerTarArtifact(t *testing.T) {
 
 func TestUploadHandlerForUnsupportedArchive(t *testing.T) {
 	s := setupWithTmpPath(t, "file", true, "other", nil, nil)
-	defer s.cleanup()
 	require.NoError(t, s.writer.Close())
 
 	response := testUploadArtifacts(t, s.writer.FormDataContentType(), s.url, s.buffer)
@@ -271,7 +267,6 @@ func TestUploadHandlerForUnsupportedArchive(t *testing.T) {
 
 func TestUploadHandlerForMultipleFiles(t *testing.T) {
 	s := setupWithTmpPath(t, "file", true, "", nil, nil)
-	defer s.cleanup()
 
 	file, err := s.writer.CreateFormFile("file", "my.file")
 	require.NotNil(t, file)
@@ -284,7 +279,6 @@ func TestUploadHandlerForMultipleFiles(t *testing.T) {
 
 func TestUploadFormProcessing(t *testing.T) {
 	s := setupWithTmpPath(t, "metadata", true, "", nil, nil)
-	defer s.cleanup()
 	require.NoError(t, s.writer.Close())
 
 	response := testUploadArtifacts(t, s.writer.FormDataContentType(), s.url, s.buffer)
@@ -292,11 +286,9 @@ func TestUploadFormProcessing(t *testing.T) {
 }
 
 func TestLsifFileProcessing(t *testing.T) {
-	tempPath, err := ioutil.TempDir("", "uploads")
-	require.NoError(t, err)
+	tempPath := t.TempDir()
 
 	s := setupWithTmpPath(t, "file", true, "zip", &api.Response{TempPath: tempPath, ProcessLsif: true}, nil)
-	defer s.cleanup()
 
 	file, err := os.Open("../../testdata/lsif/valid.lsif.zip")
 	require.NoError(t, err)
@@ -312,11 +304,9 @@ func TestLsifFileProcessing(t *testing.T) {
 }
 
 func TestInvalidLsifFileProcessing(t *testing.T) {
-	tempPath, err := ioutil.TempDir("", "uploads")
-	require.NoError(t, err)
+	tempPath := t.TempDir()
 
 	s := setupWithTmpPath(t, "file", true, "zip", &api.Response{TempPath: tempPath, ProcessLsif: true}, nil)
-	defer s.cleanup()
 
 	file, err := os.Open("../../testdata/lsif/invalid.lsif.zip")
 	require.NoError(t, err)

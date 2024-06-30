@@ -1,15 +1,18 @@
 ---
-stage: Create
+stage: Systems
 group: Gitaly
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Moving repositories managed by GitLab **(FREE SELF)**
+# Moving repositories managed by GitLab
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 You can move all repositories managed by GitLab to another file system or another server.
 
-## Moving data within a GitLab instance
+## Moving data in a GitLab instance
 
 The GitLab API is the recommended way to move Git repositories:
 
@@ -26,28 +29,14 @@ For more information, see:
 - [The API documentation](../../api/snippet_repository_storage_moves.md) details the endpoints for
   querying and scheduling snippet repository moves.
 - [The API documentation](../../api/group_repository_storage_moves.md) details the endpoints for
-  querying and scheduling group repository moves **(PREMIUM SELF)**.
-- [Migrating to Gitaly Cluster](../gitaly/index.md#migrating-to-gitaly-cluster).
+  querying and scheduling group repository moves.
+- [Migrate to Gitaly Cluster](../gitaly/index.md#migrate-to-gitaly-cluster).
 
-### Move Repositories
+### Moving Repositories
 
 GitLab repositories can be associated with projects, groups, and snippets. Each of these types
-have a separate API to schedule the respective repositories to move. To move all repositories
+has a separate API to schedule the respective repositories to move. To move all repositories
 on a GitLab instance, each of these types must be scheduled to move for each storage.
-
-WARNING:
-To move repositories into a [Gitaly Cluster](../gitaly/index.md#gitaly-cluster) in GitLab versions
-13.12 to 14.1, you must [enable the `gitaly_replicate_repository_direct_fetch` feature flag](../feature_flags.md).
-
-WARNING:
-Repositories can be **permanently deleted** by a call to `/projects/:project_id/repository_storage_moves`
-that attempts to move a project already stored in a Gitaly Cluster back into that cluster.
-See [this issue for more details](https://gitlab.com/gitlab-org/gitaly/-/issues/3752). This was fixed in
-GitLab 14.3.0 and backported to
-[14.2.4](https://about.gitlab.com/releases/2021/09/17/gitlab-14-2-4-released/),
-[14.1.6](https://about.gitlab.com/releases/2021/09/27/gitlab-14-1-6-released/),
-[14.0.11](https://about.gitlab.com/releases/2021/09/27/gitlab-14-0-11-released/), and
-[13.12.12](https://about.gitlab.com/releases/2021/09/22/gitlab-13-12-12-released/).
 
 Each repository is made read-only for the duration of the move. The repository is not writable
 until the move has completed.
@@ -60,13 +49,18 @@ To move repositories:
    so that the new storages receives all new projects. This stops new projects from being created
    on existing storages while the migration is in progress.
 1. Schedule repository moves for:
-   - [Projects](#bulk-schedule-project-moves).
-   - [Snippets](#bulk-schedule-snippet-moves).
-   - [Groups](#bulk-schedule-group-moves). **(PREMIUM SELF)**
+   - [All projects](#move-all-projects) or
+     [individual projects](../../api/project_repository_storage_moves.md#schedule-a-repository-storage-move-for-a-project).
+   - [All snippets](#move-all-snippets) or
+     [individual snippets](../../api/snippet_repository_storage_moves.md#schedule-a-repository-storage-move-for-a-snippet).
+   - [All groups](#move-all-groups) or
+     [individual groups](../../api/group_repository_storage_moves.md#schedule-a-repository-storage-move-for-a-group).
+1. If [Geo](../geo/index.md) is enabled,
+   [resync all repositories](../geo/replication/troubleshooting/synchronization.md#queue-up-all-repositories-for-resync).
 
-### Bulk schedule project moves
+#### Move all projects
 
-Use the API to schedule project moves:
+To move all projects by using the API:
 
 1. [Schedule repository storage moves for all projects on a storage shard](../../api/project_repository_storage_moves.md#schedule-repository-storage-moves-for-all-projects-on-a-storage-shard)
    using the API. For example:
@@ -101,9 +95,9 @@ Use the API to schedule project moves:
 
 1. Repeat for each storage as required.
 
-### Bulk schedule snippet moves
+#### Move all snippets
 
-Use the API to schedule snippet moves:
+To move all snippets by using the API:
 
 1. [Schedule repository storage moves for all snippets on a storage shard](../../api/snippet_repository_storage_moves.md#schedule-repository-storage-moves-for-all-snippets-on-a-storage-shard). For example:
 
@@ -114,8 +108,8 @@ Use the API to schedule snippet moves:
         "https://gitlab.example.com/api/v4/snippet_repository_storage_moves"
    ```
 
-1. [Query the most recent repository moves](../../api/snippet_repository_storage_moves.md#retrieve-all-snippet-repository-storage-moves)
-The response indicates either:
+1. [Query the most recent repository moves](../../api/snippet_repository_storage_moves.md#retrieve-all-snippet-repository-storage-moves).
+   The response indicates either:
    - The moves have completed successfully. The `state` field is `finished`.
    - The moves are in progress. Re-query the repository move until it completes successfully.
    - The moves have failed. Most failures are temporary and are solved by rescheduling the move.
@@ -130,22 +124,26 @@ The response indicates either:
 
 1. Repeat for each storage as required.
 
-### Bulk schedule group moves **(PREMIUM SELF)**
+#### Move all groups
 
-Use the API to schedule group moves:
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
-1. [Schedule repository storage moves for all groups on a storage shard](../../api/group_repository_storage_moves.md#schedule-repository-storage-moves-for-all-groups-on-a-storage-shard)
-. For example:
+To move all groups by using the API:
 
-    ```shell
-    curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
-         --header "Content-Type: application/json" \
-         --data '{"source_storage_name":"<original_storage_name>","destination_storage_name":"<cluster_storage_name>"}' \
-         "https://gitlab.example.com/api/v4/group_repository_storage_moves"
-    ```
+1. [Schedule repository storage moves for all groups on a storage shard](../../api/group_repository_storage_moves.md#schedule-repository-storage-moves-for-all-groups-on-a-storage-shard).
+   For example:
 
-1. [Query the most recent repository moves](../../api/group_repository_storage_moves.md#retrieve-all-group-repository-storage-moves)
-. The response indicates either:
+   ```shell
+   curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+        --header "Content-Type: application/json" \
+        --data '{"source_storage_name":"<original_storage_name>","destination_storage_name":"<cluster_storage_name>"}' \
+        "https://gitlab.example.com/api/v4/group_repository_storage_moves"
+   ```
+
+1. [Query the most recent repository moves](../../api/group_repository_storage_moves.md#retrieve-all-group-repository-storage-moves).
+   The response indicates either:
    - The moves have completed successfully. The `state` field is `finished`.
    - The moves are in progress. Re-query the repository move until it completes successfully.
    - The moves have failed. Most failures are temporary and are solved by rescheduling the move.
@@ -162,7 +160,7 @@ Use the API to schedule group moves:
 
 ## Migrating to another GitLab instance
 
-[Using the API](#moving-data-within-a-gitlab-instance) isn't an option if you are migrating to a new
+[Using the API](#moving-data-in-a-gitlab-instance) isn't an option if you are migrating to a new
 GitLab environment, for example:
 
 - From a single-node GitLab to a scaled-out architecture.
@@ -184,14 +182,14 @@ Each of the approaches we list can or does overwrite data in the target director
 
 ### Recommended approach in all cases
 
-For either Gitaly or Gitaly Cluster targets, the GitLab [backup and restore capability](../../raketasks/backup_restore.md)
+For either Gitaly or Gitaly Cluster targets, the GitLab [backup and restore capability](../../administration/backup_restore/index.md)
 should be used. Git repositories are accessed, managed, and stored on GitLab servers by Gitaly as a database. Data loss
-can result from directly accessing and copying Gitaly's files using tools like `rsync`.
+can result from directly accessing and copying Gitaly files using tools like `rsync`.
 
-- From GitLab 13.3, backup performance can be improved by
-  [processing multiple repositories concurrently](../../raketasks/backup_restore.md#back-up-git-repositories-concurrently).
+- Backup performance can be improved by
+  [processing multiple repositories concurrently](../../administration/backup_restore/backup_gitlab.md#back-up-git-repositories-concurrently).
 - Backups can be created of just the repositories using the
-  [skip feature](../../raketasks/backup_restore.md#excluding-specific-directories-from-the-backup).
+  [skip feature](../../administration/backup_restore/backup_gitlab.md#excluding-specific-data-from-the-backup).
 
 No other method works for Gitaly Cluster targets.
 
@@ -258,122 +256,4 @@ For Gitaly targets (use [recommended approach](#recommended-approach-in-all-case
 ```shell
 sudo -u git sh -c 'rsync -a --delete /var/opt/gitlab/git-data/repositories/. \
   git@newserver:/mnt/gitlab/repositories'
-```
-
-### Thousands of Git repositories: use one `rsync` per repository
-
-WARNING:
-Using `rsync` to migrate Git data can cause data loss and repository corruption.
-[These instructions are being reviewed](https://gitlab.com/gitlab-org/gitlab/-/issues/270422).
-
-Every time you start an `rsync` job it must:
-
-- Inspect all files in the source directory.
-- Inspect all files in the target directory.
-- Decide whether or not to copy files.
-
-If the source or target directory has many contents, this startup phase of `rsync` can become a burden for your GitLab
-server. You can reduce the workload of `rsync` by dividing its work into smaller pieces, and sync one repository at a
-time.
-
-In addition to `rsync` we use [GNU Parallel](http://www.gnu.org/software/parallel/).
-This utility is not included in GitLab, so you must install it yourself with `apt`
-or `yum`.
-
-This process:
-
-- Doesn't clean up repositories at the target location that no longer exist at the source.
-- Only works for Gitaly targets. Use [recommended approach](#recommended-approach-in-all-cases) for Gitaly Cluster targets.
-
-#### Parallel `rsync` for all repositories known to GitLab
-
-WARNING:
-Using `rsync` to migrate Git data can cause data loss and repository corruption.
-[These instructions are being reviewed](https://gitlab.com/gitlab-org/gitlab/-/issues/270422).
-
-This syncs repositories with 10 `rsync` processes at a time. We keep
-track of progress so that the transfer can be restarted if necessary.
-
-First we create a new directory, owned by `git`, to hold transfer
-logs. We assume the directory is empty before we start the transfer
-procedure, and that we are the only ones writing files in it.
-
-```shell
-# Omnibus
-sudo mkdir /var/opt/gitlab/transfer-logs
-sudo chown git:git /var/opt/gitlab/transfer-logs
-
-# Source
-sudo -u git -H mkdir /home/git/transfer-logs
-```
-
-We seed the process with a list of the directories we want to copy.
-
-```shell
-# Omnibus
-sudo -u git sh -c 'gitlab-rake gitlab:list_repos > /var/opt/gitlab/transfer-logs/all-repos-$(date +%s).txt'
-
-# Source
-cd /home/git/gitlab
-sudo -u git -H sh -c 'bundle exec rake gitlab:list_repos > /home/git/transfer-logs/all-repos-$(date +%s).txt'
-```
-
-Now we can start the transfer. The command below is idempotent, and
-the number of jobs done by GNU Parallel should converge to zero. If it
-does not, some repositories listed in `all-repos-1234.txt` may have been
-deleted/renamed before they could be copied.
-
-```shell
-# Omnibus
-sudo -u git sh -c '
-cat /var/opt/gitlab/transfer-logs/* | sort | uniq -u |\
-  /usr/bin/env JOBS=10 \
-  /opt/gitlab/embedded/service/gitlab-rails/bin/parallel-rsync-repos \
-    /var/opt/gitlab/transfer-logs/success-$(date +%s).log \
-    /var/opt/gitlab/git-data/repositories \
-    /mnt/gitlab/repositories
-'
-
-# Source
-cd /home/git/gitlab
-sudo -u git -H sh -c '
-cat /home/git/transfer-logs/* | sort | uniq -u |\
-  /usr/bin/env JOBS=10 \
-  bin/parallel-rsync-repos \
-    /home/git/transfer-logs/success-$(date +%s).log \
-    /home/git/repositories \
-    /mnt/gitlab/repositories
-`
-```
-
-#### Parallel `rsync` only for repositories with recent activity
-
-WARNING:
-Using `rsync` to migrate Git data can cause data loss and repository corruption.
-[These instructions are being reviewed](https://gitlab.com/gitlab-org/gitlab/-/issues/270422).
-
-Suppose you have already done one sync that started after 2015-10-1 12:00 UTC.
-Then you might only want to sync repositories that were changed by using GitLab
-after that time. You can use the `SINCE` variable to tell `rake
-gitlab:list_repos` to only print repositories with recent activity.
-
-```shell
-# Omnibus
-sudo gitlab-rake gitlab:list_repos SINCE='2015-10-1 12:00 UTC' |\
-  sudo -u git \
-  /usr/bin/env JOBS=10 \
-  /opt/gitlab/embedded/service/gitlab-rails/bin/parallel-rsync-repos \
-    success-$(date +%s).log \
-    /var/opt/gitlab/git-data/repositories \
-    /mnt/gitlab/repositories
-
-# Source
-cd /home/git/gitlab
-sudo -u git -H bundle exec rake gitlab:list_repos SINCE='2015-10-1 12:00 UTC' |\
-  sudo -u git -H \
-  /usr/bin/env JOBS=10 \
-  bin/parallel-rsync-repos \
-    success-$(date +%s).log \
-    /home/git/repositories \
-    /mnt/gitlab/repositories
 ```

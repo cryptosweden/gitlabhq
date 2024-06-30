@@ -1,29 +1,32 @@
 <script>
+import { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters, mapActions } from 'vuex';
-import { s__ } from '~/locale';
+import { s__, __, sprintf } from '~/locale';
+import { createAlert } from '~/alert';
 import diffLineNoteFormMixin from '~/notes/mixins/diff_line_note_form';
+import { clearDraft } from '~/lib/utils/autosave';
 import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
+import { ignoreWhilePending } from '~/lib/utils/ignore_while_pending';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import MultilineCommentForm from '../../notes/components/multiline_comment_form.vue';
-import {
-  commentLineOptions,
-  formatLineRange,
-} from '../../notes/components/multiline_comment_utils';
-import noteForm from '../../notes/components/note_form.vue';
-import autosave from '../../notes/mixins/autosave';
+import MultilineCommentForm from '~/notes/components/multiline_comment_form.vue';
+import { commentLineOptions, formatLineRange } from '~/notes/components/multiline_comment_utils';
+import NoteForm from '~/notes/components/note_form.vue';
+import { capitalizeFirstCharacter } from '~/lib/utils/text_utility';
 import {
   DIFF_NOTE_TYPE,
   INLINE_DIFF_LINES_KEY,
   PARALLEL_DIFF_VIEW_TYPE,
   OLD_LINE_TYPE,
 } from '../constants';
+import { SAVING_THE_COMMENT_FAILED, SOMETHING_WENT_WRONG } from '../i18n';
 
 export default {
   components: {
-    noteForm,
+    NoteForm,
     MultilineCommentForm,
   },
-  mixins: [autosave, diffLineNoteFormMixin, glFeatureFlagsMixin()],
+  mixins: [diffLineNoteFormMixin, glFeatureFlagsMixin()],
   props: {
     diffFileHash: {
       type: String,
@@ -148,6 +151,27 @@ export default {
 
       return lines;
     },
+    autosaveKey() {
+      if (!this.isLoggedIn) return '';
+
+      const {
+        id,
+        noteable_type: noteableTypeUnderscored,
+        noteableType,
+        diff_head_sha: diffHeadSha,
+        source_project_id: sourceProjectId,
+      } = this.noteableData;
+
+      return [
+        s__('Autosave|Note'),
+        capitalizeFirstCharacter(noteableTypeUnderscored || noteableType),
+        id,
+        diffHeadSha,
+        DIFF_NOTE_TYPE,
+        sourceProjectId,
+        this.line.line_code,
+      ].join('/');
+    },
   },
   created() {
     if (this.range) {
@@ -157,17 +181,6 @@ export default {
     }
   },
   mounted() {
-    if (this.isLoggedIn) {
-      const keys = [
-        this.noteableData.diff_head_sha,
-        DIFF_NOTE_TYPE,
-        this.noteableData.source_project_id,
-        this.line.line_code,
-      ];
-
-      this.initAutoSave(this.noteableData, keys);
-    }
-
     if (this.selectedCommentPosition) {
       this.commentLineStart = this.selectedCommentPosition.start;
     }
@@ -178,30 +191,48 @@ export default {
       'saveDiffDiscussion',
       'setSuggestPopoverDismissed',
     ]),
-    async handleCancelCommentForm(shouldConfirm, isDirty) {
-      if (shouldConfirm && isDirty) {
-        const msg = s__('Notes|Are you sure you want to cancel creating this comment?');
+    handleCancelCommentForm: ignoreWhilePending(
+      async function handleCancelCommentForm(shouldConfirm, isDirty) {
+        if (shouldConfirm && isDirty) {
+          const msg = s__('Notes|Are you sure you want to cancel creating this comment?');
 
-        const confirmed = await confirmAction(msg);
+          const confirmed = await confirmAction(msg, {
+            primaryBtnText: __('Discard changes'),
+            cancelBtnText: __('Continue editing'),
+          });
 
-        if (!confirmed) {
-          return;
+          if (!confirmed) {
+            return;
+          }
         }
-      }
-      this.cancelCommentForm({
-        lineCode: this.line.line_code,
-        fileHash: this.diffFileHash,
-      });
-      this.$nextTick(() => {
-        this.resetAutoSave();
-      });
-    },
-    handleSaveNote(note) {
-      return this.saveDiffDiscussion({ note, formData: this.formData }).then(() =>
-        this.handleCancelCommentForm(),
-      );
+        this.cancelCommentForm({
+          lineCode: this.line.line_code,
+          fileHash: this.diffFileHash,
+        });
+        nextTick(() => {
+          clearDraft(this.autosaveKey);
+        });
+      },
+    ),
+    handleSaveNote(note, parentElement, errorCallback) {
+      return this.saveDiffDiscussion({ note, formData: this.formData })
+        .then(() => this.handleCancelCommentForm())
+        .catch((e) => {
+          const reason = e.response?.data?.errors;
+          const errorMessage = reason
+            ? sprintf(SAVING_THE_COMMENT_FAILED, { reason })
+            : SOMETHING_WENT_WRONG;
+
+          createAlert({
+            message: errorMessage,
+            parent: parentElement,
+          });
+
+          errorCallback();
+        });
     },
     updateStartLine(line) {
+      this.commentLineStart = line;
       this.lines.start = line;
     },
   },
@@ -212,7 +243,6 @@ export default {
   <div class="content discussion-form discussion-form-container discussion-notes">
     <div class="gl-mb-3 gl-text-gray-500 gl-pb-3">
       <multiline-comment-form
-        v-model="commentLineStart"
         :line="line"
         :line-range="lines"
         :comment-line-options="commentLineOptions"
@@ -221,7 +251,6 @@ export default {
     </div>
     <note-form
       ref="noteForm"
-      :is-editing="false"
       :line-code="line.line_code"
       :line="line"
       :lines="commentLines"
@@ -229,6 +258,8 @@ export default {
       :diff-file="diffFile"
       :show-suggest-popover="showSuggestPopover"
       :save-button-title="__('Comment')"
+      :autosave-key="autosaveKey"
+      :autofocus="false"
       class="diff-comment-form gl-mt-3"
       @handleFormUpdateAddToReview="addToReview"
       @cancelForm="handleCancelCommentForm"

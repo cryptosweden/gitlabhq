@@ -1,33 +1,20 @@
 ---
-type: reference, howto
 stage: Manage
-group: Import
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Project importing from GitLab.com to your private GitLab instance **(FREE)**
+# Import a project from GitLab.com to your self-managed GitLab instance (removed)
 
-You can import your existing GitLab.com projects to your GitLab instance, but keep in
-mind that it is possible only if GitLab.com integration is enabled on your GitLab instance.
-[Read more about GitLab.com integration for self-managed GitLab instances](../../../integration/gitlab.md).
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-To get to the importer page you need to go to "New project" page.
+WARNING:
+The GitLab.com importer was [deprecated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/108502) in GitLab 15.8
+and removed in GitLab 16.0. To import GitLab projects from GitLab.com to a self-managed GitLab instance use
+[migrating groups and projects by direct transfer](../../group/import/index.md).
 
-NOTE:
-If you are interested in importing Wiki and merge request data to your new instance,
-you'll need to follow the instructions for [exporting a project](../settings/import_export.md#export-a-project-and-its-data)
+## Related topics
 
-![New project page](img/gitlab_new_project_page_v12_2.png)
-
-Go to the **Import Projects** tab, then click on **GitLab.com**, and you are redirected to GitLab.com
-for permission to access your projects. After accepting, you are automatically redirected to the importer.
-
-![Importer page](img/gitlab_importer.png)
-
-To import a project, click "Import". The importer imports your repository and issues.
-Once the importer is done, a new GitLab project is created with your imported data.
-
-## Automate group and project import **(PREMIUM)**
-
-For information on automating user, group, and project import API calls, see
-[Automate group and project import](index.md#automate-group-and-project-import).
+- [Export a project](../settings/import_export.md#export-a-project-and-its-data)

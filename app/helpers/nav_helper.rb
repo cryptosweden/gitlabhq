@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 module NavHelper
+  extend self
+
   def header_links
     @header_links ||= get_header_links
   end
@@ -11,19 +13,23 @@ module NavHelper
 
   def page_with_sidebar_class
     class_name = page_gutter_class
-    class_name << 'page-with-contextual-sidebar' if defined?(@left_sidebar) && @left_sidebar
-    class_name << 'page-with-icon-sidebar' if collapsed_sidebar? && @left_sidebar
+
+    class_name << 'page-with-super-sidebar'
+    class_name << 'page-with-super-sidebar-collapsed' if collapsed_super_sidebar?
+
     class_name -= ['right-sidebar-expanded'] if defined?(@right_sidebar) && !@right_sidebar
 
     class_name
   end
 
   def page_gutter_class
-    if page_has_markdown?
+    merge_request_sidebar = current_controller?('merge_requests')
+
+    if (page_has_markdown? || current_path?('projects/merge_requests#diffs')) && !current_controller?('conflicts')
       if cookies[:collapsed_gutter] == 'true'
-        %w[page-gutter right-sidebar-collapsed]
+        ["page-gutter", ('right-sidebar-collapsed' unless merge_request_sidebar).to_s]
       else
-        %w[page-gutter right-sidebar-expanded]
+        ["page-gutter", ('right-sidebar-expanded' unless merge_request_sidebar).to_s]
       end
     elsif current_path?('jobs#show')
       %w[page-gutter build-sidebar right-sidebar-expanded]
@@ -34,20 +40,8 @@ module NavHelper
     end
   end
 
-  def nav_control_class
-    "nav-control" if current_user
-  end
-
-  def user_dropdown_class
-    class_names = []
-    class_names << 'header-user-dropdown-toggle'
-    class_names << 'impersonated-user' if session[:impersonator_id]
-
-    class_names
-  end
-
   def page_has_markdown?
-    current_path?('merge_requests#show') ||
+    current_path?('projects/merge_requests#show') ||
       current_path?('projects/merge_requests/conflicts#show') ||
       current_path?('issues#show') ||
       current_path?('milestones#show') ||
@@ -56,11 +50,7 @@ module NavHelper
   end
 
   def admin_monitoring_nav_links
-    %w(system_info background_migrations background_jobs health_check requests_profiles)
-  end
-
-  def admin_analytics_nav_links
-    %w(dev_ops_report usage_trends)
+    %w[system_info background_migrations background_jobs health_check]
   end
 
   private

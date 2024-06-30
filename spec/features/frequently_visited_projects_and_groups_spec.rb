@@ -2,9 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Frequently visited items', :js do
-  include Spec::Support::Helpers::Features::TopNavSpecHelpers
-
+RSpec.describe 'Frequently visited items', :js, feature_category: :shared do
   let_it_be(:user) { create(:user) }
 
   before do
@@ -16,7 +14,6 @@ RSpec.describe 'Frequently visited items', :js do
 
     it 'increments localStorage counter when visiting the project' do
       visit project_path(project)
-      open_top_nav_projects
 
       frequent_projects = nil
 
@@ -35,7 +32,6 @@ RSpec.describe 'Frequently visited items', :js do
 
     it 'increments localStorage counter when visiting the group' do
       visit group_path(group)
-      open_top_nav_groups
 
       frequent_groups = nil
 

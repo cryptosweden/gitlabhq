@@ -1,10 +1,10 @@
 <script>
 import { GlFormGroup, GlFormRadioGroup, GlButton } from '@gitlab/ui';
+import { TYPE_ISSUE } from '~/issues/constants';
 import { mergeUrlParams } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
 
 import {
-  issuableTypesMap,
   itemAddFailureTypesMap,
   linkedIssueTypesMap,
   addRelatedIssueErrorMap,
@@ -54,7 +54,7 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: issuableTypesMap.ISSUE,
+      default: TYPE_ISSUE,
     },
     hasError: {
       type: Boolean,
@@ -115,7 +115,8 @@ export default {
     addRelatedErrorMessage() {
       if (this.itemAddFailureMessage) {
         return this.itemAddFailureMessage;
-      } else if (this.itemAddFailureType === itemAddFailureTypesMap.NOT_FOUND) {
+      }
+      if (this.itemAddFailureType === itemAddFailureTypesMap.NOT_FOUND) {
         return addRelatedIssueErrorMap[this.issuableType];
       }
       // Only other failure is MAX_NUMBER_OF_CHILD_EPICS at the moment
@@ -173,7 +174,7 @@ export default {
         :label="issuableCategoryHeaderText"
         label-for="linked-issue-type-radio"
         label-class="label-bold"
-        class="mb-2"
+        class="gl-mb-3"
       >
         <gl-form-radio-group
           id="linked-issue-type-radio"
@@ -182,7 +183,7 @@ export default {
           :checked="linkedIssueType"
         />
       </gl-form-group>
-      <p class="bold">
+      <p class="bold gl-mb-2">
         {{ issuableInputText }}
       </p>
     </template>
@@ -195,7 +196,10 @@ export default {
       :path-id-separator="pathIdSeparator"
       :input-value="inputValue"
       :auto-complete-sources="transformedAutocompleteSources"
-      :auto-complete-options="{ issues: autoCompleteIssues, epics: autoCompleteEpics }"
+      :auto-complete-options="/* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */ {
+        issues: autoCompleteIssues,
+        epics: autoCompleteEpics,
+      } /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */"
       :issuable-type="issuableType"
       @pendingIssuableRemoveRequest="onPendingIssuableRemoveRequest"
       @formCancel="onFormCancel"
@@ -205,7 +209,7 @@ export default {
     <p v-if="hasError" class="gl-field-error">
       {{ addRelatedErrorMessage }}
     </p>
-    <div class="gl-mt-5 gl-clearfix">
+    <div class="gl-mt-5">
       <gl-button
         ref="addButton"
         category="primary"
@@ -213,12 +217,13 @@ export default {
         :disabled="isSubmitButtonDisabled"
         :loading="isSubmitting"
         type="submit"
-        class="float-left"
-        data-qa-selector="add_issue_button"
+        size="small"
+        class="gl-mr-2"
+        data-testid="add-issue-button"
       >
         {{ __('Add') }}
       </gl-button>
-      <gl-button class="float-right" @click="onFormCancel">
+      <gl-button size="small" @click="onFormCancel">
         {{ __('Cancel') }}
       </gl-button>
     </div>

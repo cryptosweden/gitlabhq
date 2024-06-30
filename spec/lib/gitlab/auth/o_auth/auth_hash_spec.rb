@@ -2,14 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Auth::OAuth::AuthHash do
-  let(:provider) { 'ldap' }
+RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management do
+  let(:provider) { 'openid_connect' }
   let(:auth_hash) do
     described_class.new(
       OmniAuth::AuthHash.new(
         provider: provider,
         uid: uid_ascii,
-        info: info_hash
+        info: info_hash,
+        extra: {
+          raw_info: {
+            'https://example.com/claims/username': username_claim_utf8
+          }
+        }
       )
     )
   end
@@ -23,6 +28,7 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash do
   let(:first_name_raw) { +'Onur' }
   let(:last_name_raw) { +"K\xC3\xBC\xC3\xA7\xC3\xBCk" }
   let(:name_raw) { +"Onur K\xC3\xBC\xC3\xA7\xC3\xBCk" }
+  let(:username_claim_raw) { +'onur.partner' }
 
   let(:uid_ascii) { uid_raw.force_encoding(Encoding::ASCII_8BIT) }
   let(:email_ascii) { email_raw.force_encoding(Encoding::ASCII_8BIT) }
@@ -35,15 +41,17 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash do
   let(:email_utf8) { email_ascii.force_encoding(Encoding::UTF_8) }
   let(:nickname_utf8) { nickname_ascii.force_encoding(Encoding::UTF_8) }
   let(:name_utf8) { name_ascii.force_encoding(Encoding::UTF_8) }
+  let(:first_name_utf8) { first_name_ascii.force_encoding(Encoding::UTF_8) }
+  let(:username_claim_utf8) { username_claim_raw.force_encoding(Encoding::ASCII_8BIT) }
 
   let(:info_hash) do
     {
-      email:      email_ascii,
+      email: email_ascii,
       first_name: first_name_ascii,
-      last_name:  last_name_ascii,
-      name:       name_ascii,
-      nickname:   nickname_ascii,
-      uid:        uid_ascii,
+      last_name: last_name_ascii,
+      name: name_ascii,
+      nickname: nickname_ascii,
+      uid: uid_ascii,
       address: {
         locality: 'some locality',
         country: 'some country'
@@ -81,6 +89,22 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash do
     end
   end
 
+  context 'when username claim is in email format' do
+    let(:info_hash) do
+      {
+        email: nil,
+        name: 'GitLab test',
+        nickname: 'GitLab@gitlabsandbox.onmicrosoft.com',
+        uid: uid_ascii
+      }
+    end
+
+    it 'creates proper email and username fields' do
+      expect(auth_hash.username).to eql 'GitLab'
+      expect(auth_hash.email).to eql 'temp-email-for-oauth-GitLab@gitlab.localhost'
+    end
+  end
+
   context 'name not provided' do
     before do
       info_hash.delete(:name)
@@ -88,6 +112,49 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash do
 
     it 'concats first and lastname as the name' do
       expect(auth_hash.name).to eql name_utf8
+    end
+  end
+
+  context 'custom username field provided' do
+    let(:provider_config) do
+      GitlabSettings::Options.build(
+        {
+          name: provider,
+          args: { 'gitlab_username_claim' => 'first_name' }
+        }
+      )
+    end
+
+    before do
+      stub_omniauth_setting(providers: [provider_config])
+    end
+
+    it 'uses the custom field for the username within info' do
+      expect(auth_hash.username).to eql first_name_utf8
+    end
+
+    it 'uses the custom field for the username within extra.raw_info' do
+      provider_config['args']['gitlab_username_claim'] = 'https://example.com/claims/username'
+
+      expect(auth_hash.username).to eql username_claim_utf8
+    end
+
+    it 'uses the default claim for the username when the custom claim is not found' do
+      provider_config['args']['gitlab_username_claim'] = 'nonexistent'
+
+      expect(auth_hash.username).to eql nickname_utf8
+    end
+
+    it 'uses the default claim for the username when the custom claim is empty' do
+      info_hash[:first_name] = ''
+
+      expect(auth_hash.username).to eql nickname_utf8
+    end
+
+    it 'uses the default claim for the username when the custom claim is nil' do
+      info_hash[:first_name] = nil
+
+      expect(auth_hash.username).to eql nickname_utf8
     end
   end
 
@@ -114,6 +181,68 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash do
 
     it 'forces utf8 encoding on password' do
       expect(auth_hash.password.encoding).to eql Encoding::UTF_8
+    end
+  end
+
+  describe '#get_from_auth_hash_or_info' do
+    context 'for a key not within auth_hash' do
+      let(:auth_hash) do
+        described_class.new(
+          OmniAuth::AuthHash.new(
+            provider: provider,
+            uid: uid_ascii,
+            info: info_hash
+          )
+        )
+      end
+
+      let(:info_hash) { { nickname: nickname_ascii } }
+
+      it 'provides username from info_hash' do
+        expect(auth_hash.username).to eql nickname_utf8
+      end
+    end
+
+    context 'for a key within auth_hash' do
+      let(:auth_hash) do
+        described_class.new(
+          OmniAuth::AuthHash.new(
+            provider: provider,
+            uid: uid_ascii,
+            info: info_hash,
+            username: nickname_ascii
+          )
+        )
+      end
+
+      let(:info_hash) { { something: nickname_ascii } }
+
+      it 'provides username from auth_hash' do
+        expect(auth_hash.username).to eql nickname_utf8
+      end
+    end
+
+    context 'for a key within auth_hash extra' do
+      let(:auth_hash) do
+        described_class.new(
+          OmniAuth::AuthHash.new(
+            provider: provider,
+            uid: uid_ascii,
+            info: info_hash,
+            extra: {
+              raw_info: {
+                nickname: nickname_ascii
+              }
+            }
+          )
+        )
+      end
+
+      let(:info_hash) { { something: nickname_ascii } }
+
+      it 'provides username from auth_hash extra' do
+        expect(auth_hash.username).to eql nickname_utf8
+      end
     end
   end
 end

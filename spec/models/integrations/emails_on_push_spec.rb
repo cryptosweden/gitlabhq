@@ -78,16 +78,17 @@ RSpec.describe Integrations::EmailsOnPush do
   end
 
   describe '.valid_recipients' do
-    let(:recipients) { '<invalid> foobar Valid@recipient.com Dup@lica.te dup@lica.te Dup@Lica.te' }
+    let(:recipients) { '<invalid> foobar valid@dup@asd Valid@recipient.com Dup@lica.te dup@lica.te Dup@Lica.te' }
 
     it 'removes invalid email addresses and removes duplicates by keeping the original capitalization' do
+      expect(described_class.valid_recipients(recipients)).not_to contain_exactly('valid@dup@asd')
       expect(described_class.valid_recipients(recipients)).to contain_exactly('Valid@recipient.com', 'Dup@lica.te')
     end
   end
 
   describe '#execute' do
+    let_it_be(:project) { create(:project, :repository) }
     let(:push_data) { { object_kind: 'push' } }
-    let(:project)   { create(:project, :repository) }
     let(:integration) { create(:emails_on_push_integration, project: project) }
     let(:recipients) { 'test@gitlab.com' }
 

@@ -21,11 +21,6 @@ describe('boards sidebar remove issue', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('template', () => {
     it('renders title', () => {
       const title = 'Sidebar item title';
@@ -67,15 +62,33 @@ describe('boards sidebar remove issue', () => {
       expect(findLoader().exists()).toBe(true);
     });
 
-    it('shows expanded content and hides collapsed content when clicking edit button', async () => {
-      const slots = { default: '<div>Select item</div>' };
-      createComponent({ canUpdate: true, slots });
-      findEditButton().vm.$emit('click');
+    describe('when clicking edit button', () => {
+      describe('when can edit', () => {
+        it('shows expanded (editable) content', async () => {
+          const slots = { default: '<div>Select item</div>' };
+          createComponent({ canUpdate: true, slots });
+          findEditButton().vm.$emit('click');
 
-      await nextTick;
+          await nextTick();
 
-      expect(findCollapsed().isVisible()).toBe(false);
-      expect(findExpanded().isVisible()).toBe(true);
+          expect(findCollapsed().isVisible()).toBe(false);
+          expect(findExpanded().isVisible()).toBe(true);
+        });
+      });
+
+      describe('when cannot edit', () => {
+        it('shows collapsed (non-editable) content', async () => {
+          const slots = { default: '<div>Select item</div>' };
+          createComponent({ canUpdate: false, slots });
+          // Simulate parent component calling `expand` method when user
+          // clicks on collapsed sidebar (e.g. in sidebar_weight_widget.vue)
+          wrapper.vm.expand();
+          await nextTick();
+
+          expect(findCollapsed().isVisible()).toBe(true);
+          expect(findExpanded().isVisible()).toBe(false);
+        });
+      });
     });
   });
 

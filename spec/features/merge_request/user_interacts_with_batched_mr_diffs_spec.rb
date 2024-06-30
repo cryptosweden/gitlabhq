@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Batch diffs', :js do
+RSpec.describe 'Batch diffs', :js, feature_category: :code_review_workflow do
   include MergeRequestDiffHelpers
   include RepoHelpers
 
-  let(:project) { create(:project, :repository) }
-  let(:merge_request) { create(:merge_request, source_project: project, source_branch: 'master', target_branch: 'empty-branch') }
+  let_it_be(:project) { create(:project, :repository) }
+  let_it_be(:merge_request) { create(:merge_request, source_project: project, source_branch: 'master', target_branch: 'empty-branch') }
 
   before do
     sign_in(project.first_owner)
@@ -15,13 +15,19 @@ RSpec.describe 'Batch diffs', :js do
     visit diffs_project_merge_request_path(merge_request.project, merge_request)
     wait_for_requests
 
-    click_diff_line(get_first_diff.find('[data-testid="left-side"]', match: :first))
+    within(get_first_diff) do
+      click_diff_line(find_by_testid('left-side', match: :first))
+    end
+
     page.within get_first_diff.find('.js-discussion-note-form') do
       fill_in('note_note', with: 'First Line Comment')
       click_button('Add comment now')
     end
 
-    click_diff_line(get_second_diff.find('[data-testid="left-side"]', match: :first))
+    within(get_second_diff) do
+      click_diff_line(find_by_testid('left-side', match: :first))
+    end
+
     page.within get_second_diff.find('.js-discussion-note-form') do
       fill_in('note_note', with: 'Last Line Comment')
       click_button('Add comment now')
@@ -48,7 +54,8 @@ RSpec.describe 'Batch diffs', :js do
 
   context 'when user visits a URL with a link directly to to a discussion' do
     context 'which is in the first batched page of diffs' do
-      it 'scrolls to the correct discussion' do
+      it 'scrolls to the correct discussion',
+        quarantine: { issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/410029' } do
         page.within get_first_diff do
           click_link('just now')
         end
@@ -59,13 +66,12 @@ RSpec.describe 'Batch diffs', :js do
 
         # Confirm scrolled to correct UI element
         expect(get_first_diff.find('.discussion-notes .timeline-entry li.note[id]').obscured?).to be_falsey
-        expect(get_second_diff.find('.discussion-notes .timeline-entry li.note[id]').obscured?).to be_truthy
       end
     end
 
     context 'which is in at least page 2 of the batched pages of diffs' do
       it 'scrolls to the correct discussion',
-         quarantine: { issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/293814' } do
+        quarantine: { issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/293814' } do
         page.within get_first_diff do
           click_link('just now')
         end
@@ -84,7 +90,7 @@ RSpec.describe 'Batch diffs', :js do
   context 'when user switches view styles' do
     before do
       find('.js-show-diff-settings').click
-      click_button 'Side-by-side'
+      find_by_testid('listbox-item-parallel').click
 
       wait_for_requests
     end

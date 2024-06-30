@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User activates Slack notifications', :js do
+RSpec.describe 'User activates Slack notifications', :js, feature_category: :integrations do
   include_context 'project integration activation'
 
   context 'when integration is not configured yet' do
@@ -34,7 +34,7 @@ RSpec.describe 'User activates Slack notifications', :js do
         pipeline_channel: 6,
         wiki_page_channel: 7)
 
-      visit(edit_project_integration_path(project, integration))
+      visit(edit_project_settings_integration_path(project, integration))
     end
 
     it 'filters events by channel' do

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Import::ImportFailureService, :aggregate_failures do
+RSpec.describe Gitlab::Import::ImportFailureService, :aggregate_failures, feature_category: :importers do
   let_it_be(:import_type) { 'import_type' }
   let_it_be(:project) { create(:project, :import_started, import_type: import_type) }
 
@@ -10,15 +10,18 @@ RSpec.describe Gitlab::Import::ImportFailureService, :aggregate_failures do
   let(:import_state) { nil }
   let(:fail_import) { false }
   let(:metrics) { false }
+  let(:external_identifiers) { { foo: 'bar' } }
+  let(:project_id) { project.id }
 
   let(:arguments) do
     {
-      project_id: project.id,
+      project_id: project_id,
       error_source: 'SomeImporter',
       exception: exception,
       fail_import: fail_import,
       metrics: metrics,
-      import_state: import_state
+      import_state: import_state,
+      external_identifiers: external_identifiers
     }
   end
 
@@ -33,7 +36,8 @@ RSpec.describe Gitlab::Import::ImportFailureService, :aggregate_failures do
           project_id: '_project_id_',
           error_source: '_error_source_',
           fail_import: '_fail_import_',
-          metrics: '_metrics_'
+          metrics: '_metrics_',
+          external_identifiers: { id: 1 }
         }
       end
 
@@ -59,66 +63,90 @@ RSpec.describe Gitlab::Import::ImportFailureService, :aggregate_failures do
     subject(:service) { described_class.new(**arguments) }
 
     shared_examples 'logs the exception and fails the import' do
-      it 'when the failure does not abort the import' do
+      specify do
         expect(Gitlab::ErrorTracking)
           .to receive(:track_exception)
           .with(
             exception,
-            project_id: project.id,
-            import_type: import_type,
-            source: 'SomeImporter'
+            {
+              project_id: project.id,
+              import_type: import_type,
+              source: 'SomeImporter',
+              external_identifiers: external_identifiers
+            }
           )
 
-        expect(Gitlab::Import::Logger)
+        expect(::Import::Framework::Logger)
           .to receive(:error)
           .with(
-            message: 'importer failed',
-            'error.message': 'some error',
-            project_id: project.id,
-            import_type: import_type,
-            source: 'SomeImporter'
+            {
+              message: 'importer failed',
+              'exception.message': 'some error',
+              project_id: project.id,
+              import_type: import_type,
+              source: 'SomeImporter',
+              external_identifiers: external_identifiers
+            }
           )
 
         service.execute
+        project.reload
 
-        expect(project.import_state.reload.status).to eq('failed')
-
-        expect(project.import_failures).not_to be_empty
-        expect(project.import_failures.last.exception_class).to eq('StandardError')
-        expect(project.import_failures.last.exception_message).to eq('some error')
-        expect(project.import_failures.last.retry_count).to eq(0)
+        expect(project.import_state.status).to eq('failed')
+        expect(project.import_failures).to contain_exactly(
+          have_attributes(
+            retry_count: 0,
+            exception_class: 'StandardError',
+            exception_message: 'some error',
+            external_identifiers: external_identifiers.with_indifferent_access,
+            correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id,
+            source: 'SomeImporter'
+          )
+        )
       end
     end
 
     shared_examples 'logs the exception and does not fail the import' do
-      it 'when the failure does not abort the import' do
+      specify do
         expect(Gitlab::ErrorTracking)
           .to receive(:track_exception)
           .with(
             exception,
-            project_id: project.id,
-            import_type: import_type,
-            source: 'SomeImporter'
+            {
+              project_id: project.id,
+              import_type: import_type,
+              source: 'SomeImporter',
+              external_identifiers: external_identifiers
+            }
           )
 
-        expect(Gitlab::Import::Logger)
+        expect(::Import::Framework::Logger)
           .to receive(:error)
           .with(
-            message: 'importer failed',
-            'error.message': 'some error',
-            project_id: project.id,
-            import_type: import_type,
-            source: 'SomeImporter'
+            {
+              message: 'importer failed',
+              'exception.message': 'some error',
+              project_id: project.id,
+              import_type: import_type,
+              source: 'SomeImporter',
+              external_identifiers: external_identifiers
+            }
           )
 
         service.execute
+        project.reload
 
         expect(project.import_state.reload.status).to eq('started')
-
-        expect(project.import_failures).not_to be_empty
-        expect(project.import_failures.last.exception_class).to eq('StandardError')
-        expect(project.import_failures.last.exception_message).to eq('some error')
-        expect(project.import_failures.last.retry_count).to eq(nil)
+        expect(project.import_failures).to contain_exactly(
+          have_attributes(
+            retry_count: nil,
+            exception_class: 'StandardError',
+            exception_message: 'some error',
+            external_identifiers: external_identifiers.with_indifferent_access,
+            correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id,
+            source: 'SomeImporter'
+          )
+        )
       end
     end
 
@@ -151,6 +179,7 @@ RSpec.describe Gitlab::Import::ImportFailureService, :aggregate_failures do
     end
 
     context 'when using the import_state as reference' do
+      let(:project_id) { nil }
       let(:import_state) { project.import_state }
 
       context 'when it fails the import' do

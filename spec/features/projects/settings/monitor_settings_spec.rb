@@ -2,10 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Settings > For a forked project', :js do
-  let_it_be(:project) { create(:project, :repository, create_templates: :issue) }
+RSpec.describe 'Projects > Settings > For a forked project', :js, feature_category: :incident_management do
+  include ListboxHelpers
 
-  let(:user) { project.first_owner }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :repository, create_templates: :issue, namespace: user.namespace) }
 
   before do
     sign_in(user)
@@ -14,10 +15,10 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
   describe 'Sidebar > Monitor' do
     it 'renders the menu in the sidebar' do
       visit project_path(project)
-      wait_for_requests
 
-      expect(page).to have_selector('.sidebar-sub-level-items a[aria-label="Monitor"]',
-                                    text: 'Monitor', visible: :hidden)
+      within_testid('super-sidebar') do
+        expect(page).to have_link('Error Tracking', visible: :hidden)
+      end
     end
   end
 
@@ -47,7 +48,7 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
         check(create_issue)
         uncheck(send_email)
         click_on('No template selected')
-        click_on('bug')
+        select_listbox_item('bug')
 
         save_form
         click_settings_tab
@@ -58,13 +59,13 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
       end
 
       def click_settings_tab
-        within '[data-testid="alert-integration-settings"]' do
+        within_testid 'alert-integration-settings' do
           click_link 'Alert settings'
         end
       end
 
       def save_form
-        page.within '[data-testid="alert-integration-settings"]' do
+        within_testid 'alert-integration-settings' do
           click_button 'Save changes'
         end
 
@@ -96,7 +97,7 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
 
           wait_for_requests
 
-          within '.js-error-tracking-settings' do
+          within '#js-error-tracking-settings' do
             click_button('Expand')
             choose('cloud-hosted Sentry')
           end
@@ -113,7 +114,7 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
 
           within('div#project-dropdown') do
             click_button('Select project')
-            click_button('Sentry | internal')
+            find('li', text: 'Sentry | internal').click
           end
 
           click_button('Save changes')
@@ -141,7 +142,7 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
 
           wait_for_requests
 
-          within '.js-error-tracking-settings' do
+          within '#js-error-tracking-settings' do
             click_button('Expand')
             choose('cloud-hosted Sentry')
             check('Active')
@@ -162,13 +163,13 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
 
           wait_for_requests
 
-          within '.js-error-tracking-settings' do
+          within '#js-error-tracking-settings' do
             click_button('Expand')
           end
 
           expect(page).to have_content('Error tracking backend')
 
-          within '.js-error-tracking-settings' do
+          within '#js-error-tracking-settings' do
             check('Active')
             choose('GitLab')
           end
@@ -181,37 +182,12 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
 
           assert_text('Your changes have been saved')
 
-          within '.js-error-tracking-settings' do
+          within '#js-error-tracking-settings' do
             click_button('Expand')
           end
 
-          expect(page).to have_content('Paste this DSN into your Sentry SDK')
+          expect(page).to have_content('Paste this Data Source Name (DSN) into your Sentry SDK')
         end
-      end
-    end
-
-    describe 'grafana integration settings form' do
-      it 'successfully fills and completes the form' do
-        visit project_settings_operations_path(project)
-
-        wait_for_requests
-
-        within '.js-grafana-integration' do
-          click_button('Expand')
-        end
-
-        expect(page).to have_content('Grafana URL')
-        expect(page).to have_content('API token')
-        expect(page).to have_button('Save changes')
-
-        fill_in('grafana-url', with: 'http://gitlab-test.grafana.net')
-        fill_in('grafana-token', with: 'token')
-
-        click_button('Save changes')
-
-        wait_for_requests
-
-        assert_text('Your changes have been saved')
       end
     end
   end

@@ -17,7 +17,7 @@ RSpec.describe StubFeatureFlags do
   # We inject dummy feature flag defintion
   # to ensure that we strong validate it's usage
   # as well
-  before(:all) do
+  before_all do
     Feature::Definition.definitions[dummy_feature_flag] = dummy_definition
   end
 
@@ -47,13 +47,13 @@ RSpec.describe StubFeatureFlags do
         it { expect(Feature.enabled?(feature_name)).to eq(expected_result) }
         it { expect(Feature.disabled?(feature_name)).not_to eq(expected_result) }
 
-        context 'default_enabled does not impact feature state' do
+        context 'default_enabled_if_undefined does not impact feature state' do
           before do
             allow(dummy_definition).to receive(:default_enabled).and_return(true)
           end
 
-          it { expect(Feature.enabled?(feature_name, default_enabled: true)).to eq(expected_result) }
-          it { expect(Feature.disabled?(feature_name, default_enabled: true)).not_to eq(expected_result) }
+          it { expect(Feature.enabled?(feature_name, default_enabled_if_undefined: true)).to eq(expected_result) }
+          it { expect(Feature.disabled?(feature_name, default_enabled_if_undefined: true)).not_to eq(expected_result) }
         end
       end
     end
@@ -83,13 +83,13 @@ RSpec.describe StubFeatureFlags do
         it { expect(Feature.enabled?(feature_name, actor(tested_actor))).to eq(expected_result) }
         it { expect(Feature.disabled?(feature_name, actor(tested_actor))).not_to eq(expected_result) }
 
-        context 'default_enabled does not impact feature state' do
+        context 'default_enabled_if_undefined does not impact feature state' do
           before do
             allow(dummy_definition).to receive(:default_enabled).and_return(true)
           end
 
-          it { expect(Feature.enabled?(feature_name, actor(tested_actor), default_enabled: true)).to eq(expected_result) }
-          it { expect(Feature.disabled?(feature_name, actor(tested_actor), default_enabled: true)).not_to eq(expected_result) }
+          it { expect(Feature.enabled?(feature_name, actor(tested_actor), default_enabled_if_undefined: true)).to eq(expected_result) }
+          it { expect(Feature.disabled?(feature_name, actor(tested_actor), default_enabled_if_undefined: true)).not_to eq(expected_result) }
         end
       end
     end
@@ -154,6 +154,7 @@ RSpec.describe StubFeatureFlags do
       it { expect(let_it_be_var).to eq true }
     end
 
+    # rubocop: disable RSpec/BeforeAll
     context 'before_all variable' do
       before_all do
         @suite_var = Feature.enabled?(dummy_feature_flag)
@@ -169,6 +170,7 @@ RSpec.describe StubFeatureFlags do
 
       it { expect(@suite_var).to eq true }
     end
+    # rubocop: enable RSpec/BeforeAll
 
     context 'with stub_feature_flags meta' do
       let(:var) { Feature.enabled?(dummy_feature_flag) }

@@ -2,12 +2,10 @@
 data_category: optional
 key_path: usage_activity_by_stage_monthly.create.merge_requests
 description: Count distinct authors of merge requests
-product_section: dev
-product_stage: create
-product_group: group::code review
-product_category: code_review
+product_group: code_review
 value_type: number
-status: active
+status: removed
+milestone_removed: '14.10'
 time_frame: 28d
 data_source: database
 distribution:
@@ -17,5 +15,7 @@ tier:
 - free
 - premium
 - ultimate
-performance_indicator_type: []
+performance_indicator_type:
+- customer_health_score
 milestone: "<13.9"
+removed_by_url:

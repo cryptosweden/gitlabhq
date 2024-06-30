@@ -2,52 +2,67 @@
 
 class WebHook < ApplicationRecord
   include Sortable
+  include WebHooks::AutoDisabling
 
-  MAX_FAILURES = 100
-  FAILURE_THRESHOLD = 3 # three strikes
-  INITIAL_BACKOFF = 10.minutes
-  MAX_BACKOFF = 1.day
-  BACKOFF_GROWTH_FACTOR = 2.0
+  InterpolationError = Class.new(StandardError)
+
+  SECRET_MASK = '************'
 
   attr_encrypted :token,
-                 mode:      :per_attribute_iv,
-                 algorithm: 'aes-256-gcm',
-                 key:       Settings.attr_encrypted_db_key_base_32
+    mode: :per_attribute_iv,
+    algorithm: 'aes-256-gcm',
+    key: Settings.attr_encrypted_db_key_base_32
 
   attr_encrypted :url,
-                 mode:      :per_attribute_iv,
-                 algorithm: 'aes-256-gcm',
-                 key:       Settings.attr_encrypted_db_key_base_32
+    mode: :per_attribute_iv,
+    algorithm: 'aes-256-gcm',
+    key: Settings.attr_encrypted_db_key_base_32
+
+  attr_encrypted :url_variables,
+    mode: :per_attribute_iv,
+    key: Settings.attr_encrypted_db_key_base_32,
+    algorithm: 'aes-256-gcm',
+    marshal: true,
+    marshaler: ::Gitlab::Json,
+    encode: false,
+    encode_iv: false
+
+  attr_encrypted :custom_headers,
+    mode: :per_attribute_iv,
+    key: Settings.attr_encrypted_db_key_base_32,
+    algorithm: 'aes-256-gcm',
+    marshal: true,
+    marshaler: ::Gitlab::Json,
+    encode: false,
+    encode_iv: false
 
   has_many :web_hook_logs
 
   validates :url, presence: true
-  validates :url, public_url: true, unless: ->(hook) { hook.is_a?(SystemHook) }
+  validates :url, public_url: true, unless: ->(hook) { hook.is_a?(SystemHook) || hook.url_variables? }
 
   validates :token, format: { without: /\n/ }
-  validates :push_events_branch_filter, branch_filter: true
+  after_initialize :initialize_url_variables
+  after_initialize :initialize_custom_headers
 
-  scope :executable, -> do
-    next all unless Feature.enabled?(:web_hooks_disable_failed)
+  before_validation :reset_token
+  before_validation :reset_url_variables, unless: ->(hook) { hook.is_a?(ServiceHook) }, on: :update
+  before_validation :reset_custom_headers, unless: ->(hook) { hook.is_a?(ServiceHook) }, on: :update
+  before_validation :set_branch_filter_nil, if: :branch_filter_strategy_all_branches?
+  validates :push_events_branch_filter, untrusted_regexp: true, if: :branch_filter_strategy_regex?
+  validates :push_events_branch_filter, "web_hooks/wildcard_branch_filter": true, if: :branch_filter_strategy_wildcard?
 
-    where('recent_failures <= ? AND (disabled_until IS NULL OR disabled_until < ?)', FAILURE_THRESHOLD, Time.current)
-  end
+  validates :url_variables, json_schema: { filename: 'web_hooks_url_variables' }
+  validate :no_missing_url_variables
+  validates :interpolated_url, public_url: true, if: ->(hook) { hook.url_variables? && hook.errors.empty? }
+  validates :custom_headers, json_schema: { filename: 'web_hooks_custom_headers' }
+  validates :custom_webhook_template, length: { maximum: 4096 }
 
-  def executable?
-    !temporarily_disabled? && !permanently_disabled?
-  end
-
-  def temporarily_disabled?(ignore_flag: false)
-    return false unless ignore_flag || web_hooks_disable_failed?
-
-    disabled_until.present? && disabled_until >= Time.current
-  end
-
-  def permanently_disabled?(ignore_flag: false)
-    return false unless ignore_flag || web_hooks_disable_failed?
-
-    recent_failures > FAILURE_THRESHOLD
-  end
+  enum branch_filter_strategy: {
+    wildcard: 0,
+    regex: 1,
+    all_branches: 2
+  }, _prefix: true
 
   # rubocop: disable CodeReuse/ServiceClass
   def execute(data, hook_name, force: false)
@@ -71,63 +86,14 @@ class WebHook < ApplicationRecord
     'user/project/integrations/webhooks'
   end
 
-  def next_backoff
-    return MAX_BACKOFF if backoff_count >= 8 # optimization to prevent expensive exponentiation and possible overflows
-
-    (INITIAL_BACKOFF * (BACKOFF_GROWTH_FACTOR**backoff_count))
-      .clamp(INITIAL_BACKOFF, MAX_BACKOFF)
-      .seconds
-  end
-
-  def disable!
-    return if permanently_disabled?
-
-    update_attribute(:recent_failures, FAILURE_THRESHOLD + 1)
-  end
-
-  def enable!
-    return if recent_failures == 0 && disabled_until.nil? && backoff_count == 0
-
-    assign_attributes(recent_failures: 0, disabled_until: nil, backoff_count: 0)
-    save(validate: false)
-  end
-
-  def backoff!
-    return if permanently_disabled? || (backoff_count >= MAX_FAILURES && temporarily_disabled?)
-
-    assign_attributes(disabled_until: next_backoff.from_now, backoff_count: backoff_count.succ.clamp(0, MAX_FAILURES))
-    save(validate: false)
-  end
-
-  def failed!
-    return unless recent_failures < MAX_FAILURES
-
-    assign_attributes(recent_failures: recent_failures + 1)
-    save(validate: false)
-  end
-
-  def active_state(ignore_flag: false)
-    return :permanently_disabled if permanently_disabled?(ignore_flag: ignore_flag)
-    return :temporarily_disabled if temporarily_disabled?(ignore_flag: ignore_flag)
-
-    :enabled
-  end
-
   # @return [Boolean] Whether or not the WebHook is currently throttled.
   def rate_limited?
-    return false unless rate_limit
-
-    Gitlab::ApplicationRateLimiter.peek(
-      :web_hook_calls,
-      scope: [self],
-      threshold: rate_limit
-    )
+    rate_limiter.rate_limited?
   end
 
-  # Threshold for the rate-limit.
-  # Overridden in ProjectHook and GroupHook, other WebHooks are not rate-limited.
+  # @return [Integer] The rate limit for the WebHook. `0` for no limit.
   def rate_limit
-    nil
+    rate_limiter.limit
   end
 
   # Returns the associated Project or Group for the WebHook if one exists.
@@ -140,9 +106,95 @@ class WebHook < ApplicationRecord
     { related_class: type }
   end
 
+  # Exclude binary columns by default - they have no sensible JSON encoding
+  def serializable_hash(options = nil)
+    options = options.try(:dup) || {}
+    options[:except] = Array(options[:except]).dup
+    options[:except].concat [:encrypted_url_variables, :encrypted_url_variables_iv]
+
+    super(options)
+  end
+
+  # See app/validators/json_schemas/web_hooks_url_variables.json
+  VARIABLE_REFERENCE_RE = /\{([A-Za-z]+[0-9]*(?:[._-][A-Za-z0-9]+)*)\}/
+
+  def interpolated_url(url = self.url, url_variables = self.url_variables)
+    return url unless url.include?('{')
+
+    vars = url_variables
+    url.gsub(VARIABLE_REFERENCE_RE) do
+      vars.fetch(_1.delete_prefix('{').delete_suffix('}'))
+    end
+  rescue KeyError => e
+    raise InterpolationError, "Invalid URL template. Missing key #{e.key}"
+  end
+
+  def masked_token
+    token.present? ? SECRET_MASK : nil
+  end
+
   private
 
-  def web_hooks_disable_failed?
-    Feature.enabled?(:web_hooks_disable_failed)
+  def reset_token
+    self.token = nil if url_changed? && !encrypted_token_changed?
+  end
+
+  def reset_url_variables
+    return if url_variables_were.blank? || !interpolated_url_changed?
+
+    self.url_variables = {} if url_variables_were.keys.intersection(url_variables.keys).any?
+    self.url_variables = {} if url_changed? && url_variables_were.to_a.intersection(url_variables.to_a).any?
+  end
+
+  def reset_custom_headers
+    return if url.nil? # checking interpolated_url with a nil url causes errors
+    return unless interpolated_url_changed?
+
+    self.custom_headers = {}
+  rescue InterpolationError
+    # ignore -- record is invalid and won't be saved. no need to reset custom_headers
+  end
+
+  def interpolated_url_changed?
+    interpolated_url_was = interpolated_url(decrypt_url_was, url_variables_were)
+
+    interpolated_url_was != interpolated_url
+  end
+
+  def decrypt_url_was
+    self.class.decrypt_url(encrypted_url_was, iv: Base64.decode64(encrypted_url_iv_was))
+  end
+
+  def url_variables_were
+    self.class.decrypt_url_variables(encrypted_url_variables_was, iv: encrypted_url_variables_iv_was)
+  end
+
+  def initialize_url_variables
+    self.url_variables = {} if encrypted_url_variables.nil?
+  end
+
+  def initialize_custom_headers
+    self.custom_headers = {} if encrypted_custom_headers.nil?
+  end
+
+  def rate_limiter
+    @rate_limiter ||= Gitlab::WebHooks::RateLimiter.new(self)
+  end
+
+  def no_missing_url_variables
+    return if url.nil?
+
+    variable_names = url_variables.keys
+    used_variables = url.scan(VARIABLE_REFERENCE_RE).map(&:first)
+
+    missing = used_variables - variable_names
+
+    return if missing.empty?
+
+    errors.add(:url, "Invalid URL template. Missing keys: #{missing}")
+  end
+
+  def set_branch_filter_nil
+    self.push_events_branch_filter = nil
   end
 end

@@ -39,14 +39,6 @@ RSpec.describe Subscriptions::IssuableUpdated do
           expect { subject }.to raise_error(GraphQL::ExecutionError)
         end
       end
-
-      context 'when a GraphQL::Types::ID is provided' do
-        let(:issuable_id) { issue.to_gid.to_s }
-
-        it 'raises an exception' do
-          expect { subject }.to raise_error(Gitlab::Graphql::Errors::ArgumentError)
-        end
-      end
     end
 
     context 'subscription updates' do
@@ -60,7 +52,8 @@ RSpec.describe Subscriptions::IssuableUpdated do
         let(:current_user) { unauthorized_user }
 
         it 'unsubscribes the user' do
-          expect { subject }.to throw_symbol(:graphql_subscription_unsubscribed)
+          # GraphQL::Execution::Skip is returned when unsubscribed
+          expect(subject).to be_an(GraphQL::Execution::Skip)
         end
       end
     end

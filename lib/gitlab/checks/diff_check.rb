@@ -10,11 +10,15 @@ module Gitlab
       }.freeze
 
       def validate!
+        # git-notes stores notes history as commits in refs/notes/commits (by
+        # default but is configurable) so we restrict the diff checks to tag
+        # and branch refs
+        return unless tag_ref? || branch_ref?
         return if deletion?
         return unless should_run_validations?
         return if commits.empty?
 
-        paths = project.repository.find_changed_paths(commits.map(&:sha))
+        paths = project.repository.find_changed_paths(commits, merge_commit_diff_mode: :all_parents)
         paths.each do |path|
           validate_path(path)
         end
@@ -67,7 +71,8 @@ module Gitlab
           lfs_lock = project.lfs_file_locks.where(path: paths).where.not(user_id: user_access.user.id).take
 
           if lfs_lock
-            return "The path '#{lfs_lock.path}' is locked in Git LFS by #{lfs_lock.user.name}"
+            return format(_("'%{lock_path}' is locked in Git LFS by @%{lock_user_name}"),
+              lock_path: lfs_lock.path, lock_user_name: lfs_lock.user.username)
           end
         end
       end

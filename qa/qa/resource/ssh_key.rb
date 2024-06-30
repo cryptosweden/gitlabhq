@@ -3,14 +3,12 @@
 module QA
   module Resource
     class SSHKey < Base
-      extend Forwardable
-
       attr_reader :title
       attr_accessor :expires_at
 
       attribute :id
 
-      def_delegators :key, :private_key, :public_key, :md5_fingerprint
+      delegate :private_key, :public_key, :md5_fingerprint, :sha256_fingerprint, to: :key
 
       def initialize
         self.title = Time.now.to_f
@@ -39,7 +37,7 @@ module QA
       end
 
       def api_delete
-        QA::Runtime::Logger.debug("Deleting SSH key with title '#{title}' and fingerprint '#{md5_fingerprint}'")
+        QA::Runtime::Logger.debug("Deleting SSH key with title '#{title}' and fingerprint '#{sha256_fingerprint}'")
 
         super
       end
@@ -64,10 +62,10 @@ module QA
         "/user/keys/#{id}"
       end
 
-      def replicated?
+      def accessible_on_secondary?
         api_client = Runtime::API::Client.new(:geo_secondary)
 
-        QA::Runtime::Logger.debug('Checking for SSH key replication')
+        QA::Runtime::Logger.debug('Checking for SSH key on secondary Geo site')
 
         Support::Retrier.retry_until(max_duration: QA::EE::Runtime::Geo.max_db_replication_time, sleep_interval: 3) do
           response = get Runtime::API::Request.new(api_client, api_get_path).url

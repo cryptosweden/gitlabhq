@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Marking todos done' do
+RSpec.describe 'Marking todos done', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
   let_it_be(:issue) { create(:issue, project: project) }
-  let_it_be(:current_user) { create(:user) }
+  let_it_be(:current_user) { create(:user, developer_of: project) }
   let_it_be(:author) { create(:user) }
   let_it_be(:other_user) { create(:user) }
 
@@ -19,20 +19,18 @@ RSpec.describe 'Marking todos done' do
   let(:input) { { id: todo1.to_global_id.to_s } }
 
   let(:mutation) do
-    graphql_mutation(:todo_mark_done, input,
-                     <<-QL.strip_heredoc
-                       clientMutationId
-                       errors
-                       todo {
-                         id
-                         state
-                       }
-                     QL
+    graphql_mutation(
+      :todo_mark_done,
+      input,
+      <<-QL.strip_heredoc
+        clientMutationId
+        errors
+        todo {
+          id
+          state
+        }
+      QL
     )
-  end
-
-  before_all do
-    project.add_developer(current_user)
   end
 
   def mutation_response

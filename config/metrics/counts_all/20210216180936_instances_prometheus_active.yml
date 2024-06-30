@@ -2,10 +2,7 @@
 data_category: optional
 key_path: counts.instances_prometheus_active
 description: Count of active instance-level integrations for Prometheus
-product_section: ops
-product_stage: monitor
-product_group: group::monitor
-product_category: metrics
+product_group: respond
 value_type: number
 status: active
 time_frame: all

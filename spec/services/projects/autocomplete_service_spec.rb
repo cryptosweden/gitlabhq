@@ -2,7 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::AutocompleteService do
+RSpec.describe Projects::AutocompleteService, feature_category: :groups_and_projects do
+  let_it_be(:group) { create(:group) }
+  let_it_be(:project) { create(:project, :public, group: group) }
+  let_it_be(:owner) { create(:user, owner_of: project) }
+  let_it_be(:issue) { create(:issue, project: project, title: 'Issue 1') }
+
   describe '#issues' do
     describe 'confidential issues' do
       let(:author) { create(:user) }
@@ -10,10 +15,15 @@ RSpec.describe Projects::AutocompleteService do
       let(:non_member) { create(:user) }
       let(:member) { create(:user) }
       let(:admin) { create(:admin) }
-      let(:project) { create(:project, :public) }
-      let!(:issue) { create(:issue, project: project, title: 'Issue 1') }
       let!(:security_issue_1) { create(:issue, :confidential, project: project, title: 'Security issue 1', author: author) }
       let!(:security_issue_2) { create(:issue, :confidential, title: 'Security issue 2', project: project, assignees: [assignee]) }
+
+      it 'includes work item icons in list' do
+        autocomplete = described_class.new(project, nil)
+        issues = autocomplete.issues.map(&:icon_name)
+
+        expect(issues).to include 'issue-type-issue'
+      end
 
       it 'does not list project confidential issues for guests' do
         autocomplete = described_class.new(project, nil)
@@ -107,8 +117,6 @@ RSpec.describe Projects::AutocompleteService do
 
   describe '#milestones' do
     let(:user) { create(:user) }
-    let(:group) { create(:group) }
-    let(:project) { create(:project, group: group) }
     let!(:group_milestone1) { create(:milestone, group: group, due_date: '2017-01-01', title: 'Second Title') }
     let!(:group_milestone2) { create(:milestone, group: group, due_date: '2017-01-01', title: 'First Title') }
     let!(:project_milestone) { create(:milestone, project: project, due_date: '2016-01-01') }
@@ -148,29 +156,85 @@ RSpec.describe Projects::AutocompleteService do
     end
   end
 
-  describe '#contacts' do
+  describe '#wikis' do
     let_it_be(:user) { create(:user) }
-    let_it_be(:group) { create(:group, :crm_enabled) }
-    let_it_be(:project) { create(:project, group: group) }
-    let_it_be(:contact_1) { create(:contact, group: group) }
-    let_it_be(:contact_2) { create(:contact, group: group) }
-
-    subject { described_class.new(project, user).contacts.as_json }
+    let_it_be(:group) { create(:group, :public) }
+    let_it_be(:project) { create(:project, :public, group: group) }
+    let_it_be(:wiki) { create(:project_wiki, project: project) }
 
     before do
-      stub_feature_flags(customer_relations: true)
+      create(:wiki_page, wiki: wiki, title: 'page1', content: 'content1')
+      create(:wiki_page, wiki: wiki, title: 'templates/page2', content: 'content2')
+    end
+
+    context 'when user can read wiki' do
+      it 'returns wiki pages (except templates)' do
+        service = described_class.new(project, user)
+        results = service.wikis
+
+        expect(results.size).to eq(1)
+        expect(results.first).to include(path: "/#{project.full_path}/-/wikis/page1", slug: 'page1', title: 'page1')
+      end
+    end
+
+    context 'when user cannot read wiki' do
+      it 'returns empty array' do
+        project.project_feature.update!(wiki_access_level: ProjectFeature::PRIVATE)
+
+        service = described_class.new(project, nil)
+        results = service.wikis
+
+        expect(results).to be_empty
+      end
+    end
+  end
+
+  describe '#contacts' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:contact_1) { create(:contact, group: group) }
+    let_it_be(:contact_2) { create(:contact, group: group) }
+    let_it_be(:contact_3) { create(:contact, :inactive, group: group) }
+
+    let(:issue) { nil }
+
+    subject { described_class.new(project, user).contacts(issue).as_json }
+
+    before do
       group.add_developer(user)
     end
 
-    it 'returns contact data correctly' do
+    it 'returns CRM contacts from group' do
       expected_contacts = [
         { 'id' => contact_1.id, 'email' => contact_1.email,
-          'first_name' => contact_1.first_name, 'last_name' => contact_1.last_name },
+          'first_name' => contact_1.first_name, 'last_name' => contact_1.last_name, 'state' => contact_1.state },
         { 'id' => contact_2.id, 'email' => contact_2.email,
-          'first_name' => contact_2.first_name, 'last_name' => contact_2.last_name }
+          'first_name' => contact_2.first_name, 'last_name' => contact_2.last_name, 'state' => contact_2.state },
+        { 'id' => contact_3.id, 'email' => contact_3.email,
+          'first_name' => contact_3.first_name, 'last_name' => contact_3.last_name, 'state' => contact_3.state }
       ]
 
       expect(subject).to match_array(expected_contacts)
+    end
+
+    context 'some contacts are already assigned to the issue' do
+      let(:issue) { create(:issue, project: project) }
+
+      before do
+        issue.customer_relations_contacts << [contact_2, contact_3]
+      end
+
+      it 'marks already assigned contacts as set' do
+        expected_contacts = [
+          { 'id' => contact_1.id, 'email' => contact_1.email,
+            'first_name' => contact_1.first_name, 'last_name' => contact_1.last_name, 'state' => contact_1.state, 'set' => false },
+          { 'id' => contact_2.id, 'email' => contact_2.email,
+            'first_name' => contact_2.first_name, 'last_name' => contact_2.last_name, 'state' => contact_2.state, 'set' => true },
+          { 'id' => contact_3.id, 'email' => contact_3.email,
+            'first_name' => contact_3.first_name, 'last_name' => contact_3.last_name, 'state' => contact_3.state, 'set' => true }
+        ]
+
+        expect(subject).to match_array(expected_contacts)
+      end
     end
   end
 
@@ -223,6 +287,32 @@ RSpec.describe Projects::AutocompleteService do
           else
             expect(hash.key?(:set)).to eq(false)
           end
+        end
+      end
+    end
+  end
+
+  describe '#commands' do
+    subject(:commands) { described_class.new(project, owner).commands(issue) }
+
+    context 'spend' do
+      it 'params include timecategory' do
+        expect(commands).to include(a_hash_including(
+          name: :spend,
+          params: ['time(1h30m | -1h30m) <date(YYYY-MM-DD)> <[timecategory:category-name]>']
+        ))
+      end
+
+      context 'when timelog_category_quick_action feature flag is disabled' do
+        before do
+          stub_feature_flags(timelog_categories: false)
+        end
+
+        it 'params do not include timecategory' do
+          expect(commands).to include(a_hash_including(
+            name: :spend,
+            params: ['time(1h30m | -1h30m) <date(YYYY-MM-DD)>']
+          ))
         end
       end
     end

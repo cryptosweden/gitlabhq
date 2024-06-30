@@ -4,21 +4,29 @@ module Resolvers
   class UserMergeRequestsResolverBase < MergeRequestsResolver
     include ResolvesProject
 
+    argument :group_id,
+      type: ::Types::GlobalIDType[::Group],
+      required: false,
+      description: <<~DESC
+               The global ID of the group the authored merge requests should be in.
+               Merge requests in subgroups are included.
+      DESC
+
     argument :project_path,
-             type: GraphQL::Types::String,
-             required: false,
-             description: <<~DESC
+      type: GraphQL::Types::String,
+      required: false,
+      description: <<~DESC
                The full-path of the project the authored merge requests should be in.
                Incompatible with projectId.
-             DESC
+      DESC
 
     argument :project_id,
-             type: ::Types::GlobalIDType[::Project],
-             required: false,
-             description: <<~DESC
+      type: ::Types::GlobalIDType[::Project],
+      required: false,
+      description: <<~DESC
                The global ID of the project the authored merge requests should be in.
                Incompatible with projectPath.
-             DESC
+      DESC
 
     attr_reader :project
     alias_method :user, :object
@@ -57,9 +65,6 @@ module Resolvers
     end
 
     def load_project(project_path, project_id)
-      # TODO: remove this line when the compatibility layer is removed
-      # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-      project_id &&= ::Types::GlobalIDType[::Project].coerce_isolated_input(project_id)
       @project = ::Gitlab::Graphql::Lazy.force(resolve_project(full_path: project_path, project_id: project_id))
     end
 

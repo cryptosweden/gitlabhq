@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe LabelsFinder do
+RSpec.describe LabelsFinder, feature_category: :team_planning do
   describe '#execute' do
     let_it_be(:group_1) { create(:group) }
     let_it_be(:group_2) { create(:group) }
@@ -16,14 +16,16 @@ RSpec.describe LabelsFinder do
     let_it_be(:project_4) { create(:project, :public) }
     let_it_be(:project_5) { create(:project, namespace: group_1) }
 
-    let_it_be(:project_label_1) { create(:label, project: project_1, title: 'Label 1', description: 'awesome label') }
+    let_it_be(:project_label_1) { create(:label, project: project_1, title: 'Label 1', description: 'awesome label name') }
     let_it_be(:project_label_2) { create(:label, project: project_2, title: 'Label 2') }
-    let_it_be(:project_label_4) { create(:label, project: project_4, title: 'Label 4') }
+    let_it_be(:project_label_4) { create(:label, project: project_4, title: 'Renamed', description: 'old label 5') }
     let_it_be(:project_label_5) { create(:label, project: project_5, title: 'Label 5') }
+    let_it_be(:project_label_locked) { create(:label, project: project_1, title: 'Label Locked', lock_on_merge: true) }
 
     let_it_be(:group_label_1) { create(:group_label, group: group_1, title: 'Label 1 (group)') }
     let_it_be(:group_label_2) { create(:group_label, group: group_1, title: 'Group Label 2') }
     let_it_be(:group_label_3) { create(:group_label, group: group_2, title: 'Group Label 3') }
+    let_it_be(:group_label_locked) { create(:group_label, group: group_1, title: 'Group Label Locked', lock_on_merge: true) }
     let_it_be(:private_group_label_1) { create(:group_label, group: private_group_1, title: 'Private Group Label 1') }
     let_it_be(:private_subgroup_label_1) { create(:group_label, group: private_subgroup_1, title: 'Private Sub Group Label 1') }
 
@@ -42,7 +44,7 @@ RSpec.describe LabelsFinder do
 
         finder = described_class.new(user)
 
-        expect(finder.execute).to match_array([group_label_2, group_label_3, project_label_1, group_label_1, project_label_2, project_label_4])
+        expect(finder.execute).to match_array([group_label_2, group_label_3, group_label_locked, project_label_1, group_label_1, project_label_2, project_label_4, project_label_locked])
       end
 
       it 'returns labels available if nil title is supplied' do
@@ -50,7 +52,7 @@ RSpec.describe LabelsFinder do
         # params[:title] will return `nil` regardless whether it is specified
         finder = described_class.new(user, title: nil)
 
-        expect(finder.execute).to match_array([group_label_2, group_label_3, project_label_1, group_label_1, project_label_2, project_label_4])
+        expect(finder.execute).to match_array([group_label_2, group_label_3, group_label_locked, project_label_1, group_label_1, project_label_2, project_label_4, project_label_locked])
       end
     end
 
@@ -60,7 +62,7 @@ RSpec.describe LabelsFinder do
         ::Projects::UpdateService.new(project_1, user, archived: true).execute
         finder = described_class.new(user, **group_params(group_1))
 
-        expect(finder.execute).to match_array([group_label_2, group_label_1, project_label_5])
+        expect(finder.execute).to match_array([group_label_2, group_label_1, project_label_5, group_label_locked])
       end
 
       context 'when only_group_labels is true' do
@@ -69,7 +71,7 @@ RSpec.describe LabelsFinder do
 
           finder = described_class.new(user, only_group_labels: true, **group_params(group_1))
 
-          expect(finder.execute).to match_array([group_label_2, group_label_1])
+          expect(finder.execute).to match_array([group_label_2, group_label_1, group_label_locked])
         end
       end
 
@@ -233,7 +235,7 @@ RSpec.describe LabelsFinder do
 
     context 'filtering by project_id' do
       context 'when include_ancestor_groups is true' do
-        let!(:sub_project) { create(:project, namespace: private_subgroup_1 ) }
+        let_it_be(:sub_project) { create(:project, namespace: private_subgroup_1) }
         let!(:project_label) { create(:label, project: sub_project, title: 'Label 5') }
         let(:finder) { described_class.new(user, project_id: sub_project.id, include_ancestor_groups: true) }
 
@@ -249,7 +251,7 @@ RSpec.describe LabelsFinder do
       it 'returns labels available for the project' do
         finder = described_class.new(user, project_id: project_1.id)
 
-        expect(finder.execute).to match_array([group_label_2, project_label_1, group_label_1])
+        expect(finder.execute).to match_array([group_label_2, group_label_locked, project_label_1, project_label_locked, group_label_1])
       end
 
       context 'as an administrator' do
@@ -320,6 +322,28 @@ RSpec.describe LabelsFinder do
       end
     end
 
+    context 'when searching by title only' do
+      it 'returns labels partially matching the title' do
+        finder = described_class.new(user, search: 'label', search_in: [:title])
+
+        expect(finder.execute).to match_array([group_label_1, group_label_2, group_label_locked, project_label_1, project_label_locked])
+      end
+
+      it 'returns label matching the "name" in their title' do
+        finder = described_class.new(user, search: 'name', search_in: [:title])
+
+        expect(finder.execute).to match_array([project_label_4])
+      end
+    end
+
+    context 'when searching by description only' do
+      it 'returns labels partially matching the description' do
+        finder = described_class.new(user, search: 'label', search_in: [:description])
+
+        expect(finder.execute).to match_array([project_label_1, project_label_4])
+      end
+    end
+
     context 'filter by subscription' do
       it 'returns labels user subscribed to' do
         project_label_1.subscribe(user)
@@ -327,6 +351,14 @@ RSpec.describe LabelsFinder do
         finder = described_class.new(user, subscribed: 'true')
 
         expect(finder.execute).to match_array([project_label_1])
+      end
+    end
+
+    context 'filter by locked labels' do
+      it 'returns labels that are locked' do
+        finder = described_class.new(user, locked_labels: true)
+
+        expect(finder.execute).to match_array([project_label_locked, group_label_locked])
       end
     end
 

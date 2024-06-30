@@ -8,6 +8,7 @@ FactoryBot.define do
     sha { 'b83d6e391c22777fca1ed3012fce84f633d7fed0' }
     status { 'pending' }
     add_attribute(:protected) { false }
+    partition_id { Ci::Pipeline.current_partition_value }
 
     project
 
@@ -18,6 +19,14 @@ FactoryBot.define do
     transient { child_of { nil } }
     transient { upstream_of { nil } }
 
+    transient { name { nil } }
+
+    transient { ci_ref_presence { true } }
+
+    before(:create) do |pipeline, evaluator|
+      pipeline.ensure_ci_ref! if evaluator.ci_ref_presence && pipeline.ci_ref_id.nil?
+    end
+
     after(:build) do |pipeline, evaluator|
       if evaluator.child_of
         pipeline.project = evaluator.child_of.project
@@ -25,6 +34,10 @@ FactoryBot.define do
       end
 
       pipeline.ensure_project_iid!
+
+      if evaluator.name
+        pipeline.pipeline_metadata = build(:ci_pipeline_metadata, name: evaluator.name, project: pipeline.project, pipeline: pipeline)
+      end
     end
 
     after(:create) do |pipeline, evaluator|
@@ -47,12 +60,6 @@ FactoryBot.define do
     end
 
     factory :ci_pipeline do
-      transient { ci_ref_presence { true } }
-
-      before(:create) do |pipeline, evaluator|
-        pipeline.ensure_ci_ref! if evaluator.ci_ref_presence && pipeline.ci_ref_id.nil?
-      end
-
       trait :invalid do
         status { :failed }
         yaml_errors { 'invalid YAML' }
@@ -75,12 +82,29 @@ FactoryBot.define do
         status { :success }
       end
 
+      trait :manual do
+        status { :manual }
+      end
+
       trait :running do
+        started_at { Time.current }
         status { :running }
+      end
+
+      trait :pending do
+        status { :pending }
+      end
+
+      trait :canceled do
+        status { :canceled }
       end
 
       trait :failed do
         status { :failed }
+      end
+
+      trait :skipped do
+        status { :skipped }
       end
 
       trait :unlocked do

@@ -3,11 +3,11 @@
 class Projects::AvatarsController < Projects::ApplicationController
   include SendsBlob
 
-  skip_before_action :default_cache_headers, only: :show
-
   before_action :authorize_admin_project!, only: [:destroy]
 
-  feature_category :projects
+  feature_category :groups_and_projects
+
+  urgency :low, [:show]
 
   def show
     @blob = @repository.blob_at_branch(@repository.root_ref, @project.avatar_in_git)

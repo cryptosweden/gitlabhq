@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group Boards' do
+RSpec.describe 'Group Boards', feature_category: :portfolio_management do
   include DragTo
   include MobileHelpers
   include BoardHelpers
@@ -21,10 +21,10 @@ RSpec.describe 'Group Boards' do
       visit group_boards_path(group)
     end
 
-    it 'adds an issue to the backlog' do
+    it 'adds an issue to the backlog', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/458723' do
       page.within(find('.board', match: :first)) do
-        issue_title = 'New Issue'
-        click_button 'New issue'
+        issue_title = 'Create new issue'
+        click_button issue_title
 
         wait_for_requests
 
@@ -32,10 +32,10 @@ RSpec.describe 'Group Boards' do
 
         fill_in 'issue_title', with: issue_title
 
-        page.within("[data-testid='project-select-dropdown']") do
-          find('button.gl-dropdown-toggle').click
+        within_testid('project-select-dropdown') do
+          find('button.gl-new-dropdown-toggle').click
 
-          find('.gl-new-dropdown-item button').click
+          find('.gl-new-dropdown-item').click
         end
 
         click_button 'Create issue'
@@ -48,7 +48,6 @@ RSpec.describe 'Group Boards' do
   context "when user is a Reporter in one of the group's projects", :js do
     let_it_be(:board) { create(:board, group: group) }
 
-    let_it_be(:backlog_list) { create(:backlog_list, board: board) }
     let_it_be(:group_label1) { create(:group_label, title: "bug", group: group) }
     let_it_be(:group_label2) { create(:group_label, title: "dev", group: group) }
     let_it_be(:list1) { create(:list, board: board, label: group_label1, position: 0) }

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 
 require_relative '../../../../rubocop/cop/style/regexp_literal_mixed_preserve'
 
@@ -10,10 +10,10 @@ require_relative '../../../../rubocop/cop/style/regexp_literal_mixed_preserve'
 RSpec.describe RuboCop::Cop::Style::RegexpLiteralMixedPreserve, :config do
   let(:config) do
     supported_styles = { 'SupportedStyles' => %w[slashes percent_r mixed mixed_preserve] }
-    RuboCop::Config.new('Style/PercentLiteralDelimiters' =>
-                          percent_literal_delimiters_config,
-                        'Style/RegexpLiteralMixedPreserve' =>
-                          cop_config.merge(supported_styles))
+    RuboCop::Config.new(
+      'Style/PercentLiteralDelimiters' => percent_literal_delimiters_config,
+      'Style/RegexpLiteralMixedPreserve' => cop_config.merge(supported_styles)
+    )
   end
 
   let(:percent_literal_delimiters_config) { { 'PreferredDelimiters' => { '%r' => '{}' } } }

@@ -43,6 +43,10 @@ module HasRepository
     repository.commit(ref)
   end
 
+  def branch_exists?(branch)
+    repository.branch_exists?(branch)
+  end
+
   def commit_by(oid:)
     repository.commit_by(oid: oid)
   end
@@ -119,6 +123,9 @@ module HasRepository
 
   def after_repository_change_head
     reload_default_branch
+
+    Gitlab::EventStore.publish(
+      Repositories::DefaultBranchChangedEvent.new(data: { container_id: id, container_type: self.class.name }))
   end
 
   def after_change_head_branch_does_not_exist(branch)

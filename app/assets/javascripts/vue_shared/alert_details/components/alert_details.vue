@@ -9,29 +9,28 @@ import {
   GlTabs,
   GlTab,
   GlButton,
-  GlSafeHtmlDirective,
 } from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import highlightCurrentUser from '~/behaviors/markdown/highlight_current_user';
 import { fetchPolicies } from '~/lib/graphql';
 import { toggleContainerClasses } from '~/lib/utils/dom_utils';
 import { visitUrl, joinPaths } from '~/lib/utils/url_utility';
 import { s__ } from '~/locale';
 import Tracking from '~/tracking';
-import initUserPopovers from '~/user_popovers';
 import AlertDetailsTable from '~/vue_shared/components/alert_details_table.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
+import MetricImagesTab from '~/vue_shared/components/metric_images/metric_images_tab.vue';
 import { PAGE_CONFIG, SEVERITY_LEVELS } from '../constants';
 import createIssueMutation from '../graphql/mutations/alert_issue_create.mutation.graphql';
 import toggleSidebarStatusMutation from '../graphql/mutations/alert_sidebar_status.mutation.graphql';
 import alertQuery from '../graphql/queries/alert_sidebar_details.query.graphql';
 import sidebarStatusQuery from '../graphql/queries/alert_sidebar_status.query.graphql';
-import AlertMetrics from './alert_metrics.vue';
 import AlertSidebar from './alert_sidebar.vue';
 import AlertSummaryRow from './alert_summary_row.vue';
 import SystemNote from './system_notes/system_note.vue';
 
-const containerEl = document.querySelector('.page-with-contextual-sidebar');
+const containerEl = document.querySelector('.layout-page');
 
 export default {
   i18n: {
@@ -42,7 +41,7 @@ export default {
     reportedAtWithTool: s__('AlertManagement|Reported %{when} by %{tool}'),
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   severityLabels: SEVERITY_LEVELS,
   tabsConfig: [
@@ -74,7 +73,7 @@ export default {
     TimeAgoTooltip,
     AlertSidebar,
     SystemNote,
-    AlertMetrics,
+    MetricImagesTab,
   },
   inject: {
     projectPath: {
@@ -82,9 +81,6 @@ export default {
     },
     alertId: {
       default: '',
-    },
-    isThreatMonitoringPage: {
-      default: false,
     },
     projectId: {
       default: '',
@@ -149,11 +145,14 @@ export default {
     },
     currentTabIndex: {
       get() {
-        return this.$options.tabsConfig.findIndex((tab) => tab.id === this.activeTab);
+        const tabIndex = this.$options.tabsConfig.findIndex((tab) => tab.id === this.activeTab);
+        return tabIndex >= 0 ? tabIndex : 0;
       },
       set(tabIdx) {
         const tabId = this.$options.tabsConfig[tabIdx].id;
-        this.$router.replace({ name: 'tab', params: { tabId } });
+        if (this.$route.params?.tabId !== tabId) {
+          this.$router.push({ name: 'tab', params: { tabId } });
+        }
       },
     },
     environmentName() {
@@ -175,7 +174,6 @@ export default {
   updated() {
     this.$nextTick(() => {
       highlightCurrentUser(this.$el.querySelectorAll('.gfm-project_member'));
-      initUserPopovers(this.$el.querySelectorAll('.js-user-link'));
     });
   },
   methods: {
@@ -225,9 +223,7 @@ export default {
         });
     },
     incidentPath(issueId) {
-      return this.isThreatMonitoringPage
-        ? joinPaths(this.projectIssuesPath, issueId)
-        : joinPaths(this.projectIssuesPath, 'incident', issueId);
+      return joinPaths(this.projectIssuesPath, 'incident', issueId);
     },
     trackPageViews() {
       const { category, action } = this.trackAlertsDetailsViewsOptions;
@@ -278,7 +274,7 @@ export default {
           data-testid="viewIncidentBtn"
           :href="incidentPath(alert.issue.iid)"
           category="primary"
-          variant="success"
+          variant="confirm"
         >
           {{ s__('AlertManagement|View incident') }}
         </gl-button>
@@ -288,7 +284,7 @@ export default {
           data-testid="createIncidentBtn"
           :loading="incidentCreationInProgress"
           category="primary"
-          variant="success"
+          variant="confirm"
           @click="createIncident()"
         >
           {{ s__('AlertManagement|Create incident') }}
@@ -314,7 +310,7 @@ export default {
           <alert-summary-row v-if="alert.severity" :label="`${s__('AlertManagement|Severity')}:`">
             <span data-testid="severity">
               <gl-icon
-                class="gl-vertical-align-middle"
+                class="gl-align-middle"
                 :size="12"
                 :name="`severity-${alert.severity.toLowerCase()}`"
                 :class="`icon-${alert.severity.toLowerCase()}`"
@@ -372,13 +368,11 @@ export default {
           </alert-summary-row>
           <alert-details-table :alert="alert" :loading="loading" :statuses="statuses" />
         </gl-tab>
-        <gl-tab
-          v-if="!isThreatMonitoringPage"
-          :data-testid="$options.tabsConfig[1].id"
-          :title="$options.tabsConfig[1].title"
-        >
-          <alert-metrics :dashboard-url="alert.metricsDashboardUrl" />
+
+        <gl-tab :title="$options.tabsConfig[1].title">
+          <metric-images-tab :data-testid="$options.tabsConfig[1].id" />
         </gl-tab>
+
         <gl-tab :data-testid="$options.tabsConfig[2].id" :title="$options.tabsConfig[2].title">
           <div v-if="alert.notes.nodes.length > 0" class="issuable-discussion">
             <ul class="notes main-notes-list timeline">

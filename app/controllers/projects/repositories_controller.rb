@@ -8,8 +8,6 @@ class Projects::RepositoriesController < Projects::ApplicationController
 
   prepend_before_action(only: [:archive]) { authenticate_sessionless_user!(:archive) }
 
-  skip_before_action :default_cache_headers, only: :archive
-
   # Authorize
   before_action :check_archive_rate_limiting!, only: :archive
   before_action :require_non_empty_project, except: :create
@@ -29,14 +27,13 @@ class Projects::RepositoriesController < Projects::ApplicationController
   end
 
   def archive
-    return render_404 if html_request?
-
     set_cache_headers
+
     return if archive_not_modified?
 
     send_git_archive @repository, **repo_params
-  rescue StandardError => ex
-    logger.error("#{self.class.name}: #{ex}")
+  rescue StandardError => e
+    logger.error("#{self.class.name}: #{e}")
     git_not_found!
   end
 
@@ -47,8 +44,18 @@ class Projects::RepositoriesController < Projects::ApplicationController
   end
 
   def set_cache_headers
-    expires_in cache_max_age(archive_metadata['CommitId']), public: Guest.can?(:download_code, project)
-    fresh_when(etag: archive_metadata['ArchivePath'])
+    commit_id = archive_metadata['CommitId']
+
+    expires_in(
+      cache_max_age(commit_id),
+      public: ::Users::Anonymous.can?(:download_code, project),
+      must_revalidate: true,
+      stale_if_error: 5.minutes,
+      stale_while_revalidate: 1.minute,
+      's-maxage': 1.minute
+    )
+
+    fresh_when(strong_etag: [commit_id, archive_metadata['ArchivePath']])
   end
 
   def archive_not_modified?

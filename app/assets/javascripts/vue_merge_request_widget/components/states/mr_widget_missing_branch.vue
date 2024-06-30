@@ -1,7 +1,6 @@
 <script>
 import { GlIcon, GlTooltipDirective, GlSprintf } from '@gitlab/ui';
 import { sprintf } from '~/locale';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import mergeRequestQueryVariablesMixin from '../../mixins/merge_request_query_variables';
 import missingBranchQuery from '../../queries/states/missing_branch.query.graphql';
 import {
@@ -9,7 +8,7 @@ import {
   MR_WIDGET_MISSING_BRANCH_RESTORE,
   MR_WIDGET_MISSING_BRANCH_MANUALCLI,
 } from '../../i18n';
-import statusIcon from '../mr_widget_status_icon.vue';
+import StatusIcon from '../mr_widget_status_icon.vue';
 
 export default {
   name: 'MRWidgetMissingBranch',
@@ -19,15 +18,12 @@ export default {
   components: {
     GlIcon,
     GlSprintf,
-    statusIcon,
+    StatusIcon,
   },
-  mixins: [glFeatureFlagMixin(), mergeRequestQueryVariablesMixin],
+  mixins: [mergeRequestQueryVariablesMixin],
   apollo: {
     state: {
       query: missingBranchQuery,
-      skip() {
-        return !this.glFeatures.mergeRequestWidgetGraphql;
-      },
       variables() {
         return this.mergeRequestQueryVariables;
       },
@@ -44,15 +40,8 @@ export default {
     return { state: {} };
   },
   computed: {
-    sourceBranchRemoved() {
-      if (this.glFeatures.mergeRequestWidgetGraphql) {
-        return !this.state.sourceBranchExists;
-      }
-
-      return this.mr.sourceBranchRemoved;
-    },
     type() {
-      return this.sourceBranchRemoved ? 'source' : 'target';
+      return this.mr.sourceBranchRemoved ? 'source' : 'target';
     },
     name() {
       return this.type === 'source' ? this.mr.sourceBranch : this.mr.targetBranch;
@@ -71,21 +60,17 @@ export default {
 </script>
 <template>
   <div class="mr-widget-body media">
-    <status-icon :show-disabled-button="true" status="warning" />
+    <status-icon :show-disabled-button="true" status="failed" />
 
-    <div class="media-body space-children">
-      <span
-        :class="{
-          'gl-ml-0! gl-text-body!': glFeatures.restructuredMrWidget,
-        }"
-        class="bold js-branch-text"
-        data-testid="widget-content"
-      >
-        <gl-sprintf :message="warning">
-          <template #code="{ content }">
-            <code>{{ content }}</code>
-          </template>
-        </gl-sprintf>
+    <div class="media-body">
+      <span class="js-branch-text" data-testid="widget-content">
+        <span class="gl-font-bold">
+          <gl-sprintf :message="warning">
+            <template #code="{ content }">
+              <code>{{ content }}</code>
+            </template>
+          </gl-sprintf>
+        </span>
         {{ restore }}
         <gl-icon
           v-gl-tooltip

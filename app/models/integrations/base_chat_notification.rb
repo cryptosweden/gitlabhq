@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Base class for Chat notifications services
+# Base class for Chat notifications integrations
 # This class is not meant to be used directly, but only to inherit from.
 
 module Integrations
@@ -10,8 +10,10 @@ module Integrations
 
     SUPPORTED_EVENTS = %w[
       push issue confidential_issue merge_request note confidential_note
-      tag_push pipeline wiki_page deployment
+      tag_push pipeline wiki_page deployment incident
     ].freeze
+
+    GROUP_ONLY_SUPPORTED_EVENTS = %w[group_mention group_confidential_mention].freeze
 
     SUPPORTED_EVENTS_FOR_LABEL_FILTER = %w[issue confidential_issue merge_request note confidential_note].freeze
 
@@ -22,33 +24,40 @@ module Integrations
       MATCH_ALL_LABELS = 'match_all'
     ].freeze
 
-    default_value_for :category, 'chat'
+    SECRET_MASK = '************'
 
-    prop_accessor :webhook, :username, :channel, :branches_to_be_notified, :labels_to_be_notified, :labels_to_be_notified_behavior
+    attribute :category, default: 'chat'
+
+    prop_accessor :webhook, :username, :channel, :branches_to_be_notified, :labels_to_be_notified,
+      :labels_to_be_notified_behavior, :notify_only_default_branch
 
     # Custom serialized properties initialization
     prop_accessor(*SUPPORTED_EVENTS.map { |event| EVENT_CHANNEL[event] })
+    prop_accessor(*GROUP_ONLY_SUPPORTED_EVENTS.map { |event| EVENT_CHANNEL[event] })
 
-    boolean_accessor :notify_only_broken_pipelines, :notify_only_default_branch
-
-    validates :webhook, presence: true, public_url: true, if: :activated?
-    validates :labels_to_be_notified_behavior, inclusion: { in: LABEL_NOTIFICATION_BEHAVIOURS }, allow_blank: true
+    validates :webhook,
+      presence: true,
+      public_url: true,
+      if: ->(integration) { integration.activated? && integration.class.requires_webhook? }
+    validates :labels_to_be_notified_behavior, inclusion: { in: LABEL_NOTIFICATION_BEHAVIOURS }, allow_blank: true, if: :activated?
+    validate :validate_channel_limit, if: :activated?
 
     def initialize_properties
-      if properties.nil?
-        self.properties = {}
-        self.notify_only_broken_pipelines = true
+      super
+
+      if properties.empty?
+        self.notify_only_broken_pipelines = true if respond_to?(:notify_only_broken_pipelines)
         self.branches_to_be_notified = "default"
         self.labels_to_be_notified_behavior = MATCH_ANY_LABEL
-      elsif !self.notify_only_default_branch.nil?
+      elsif !notify_only_default_branch.nil?
         # In older versions, there was only a boolean property named
         # `notify_only_default_branch`. Now we have a string property named
         # `branches_to_be_notified`. Instead of doing a background migration, we
         # opted to set a value for the new property based on the old one, if
-        # users haven't specified one already. When users edit the service and
+        # users haven't specified one already. When users edit the integration and
         # select a value for this new property, it will override everything.
 
-        self.branches_to_be_notified ||= notify_only_default_branch? ? "default" : "all"
+        self.branches_to_be_notified ||= notify_only_default_branch == 'true' ? "default" : "all"
       end
     end
 
@@ -65,47 +74,17 @@ module Integrations
     end
 
     def fields
-      default_fields + build_event_channels
-    end
-
-    def default_fields
-      [
-        { type: 'text', name: 'webhook', placeholder: "#{webhook_placeholder}", required: true }.freeze,
-        { type: 'text', name: 'username', placeholder: 'GitLab-integration' }.freeze,
-        { type: 'checkbox', name: 'notify_only_broken_pipelines', help: 'Do not send notifications for successful pipelines.' }.freeze,
-        {
-          type: 'select',
-          name: 'branches_to_be_notified',
-          title: s_('Integrations|Branches for which notifications are to be sent'),
-          choices: branch_choices
-        }.freeze,
-        {
-          type: 'text',
-          name: 'labels_to_be_notified',
-          placeholder: '~backend,~frontend',
-          help: 'Send notifications for issue, merge request, and comment events with the listed labels only. Leave blank to receive notifications for all events.'
-        }.freeze,
-        {
-          type: 'select',
-          name: 'labels_to_be_notified_behavior',
-          choices: [
-            ['Match any of the labels', MATCH_ANY_LABEL],
-            ['Match all of the labels', MATCH_ALL_LABELS]
-          ]
-        }.freeze
-      ].freeze
+      self.class.fields + build_event_channels
     end
 
     def execute(data)
-      return unless supported_events.include?(data[:object_kind])
-
-      return unless webhook.present?
-
       object_kind = data[:object_kind]
+
+      return false unless should_execute?(object_kind)
 
       data = custom_data(data)
 
-      return unless notify_label?(data)
+      return false unless notify_label?(data)
 
       # WebHook events often have an 'update' event that follows a 'open' or
       # 'close' action. Ignore update events for now to prevent duplicate
@@ -115,17 +94,15 @@ module Integrations
 
       return false unless message
 
-      event_type = data[:event_type] || object_kind
-
-      channel_names = get_channel_field(event_type).presence || channel.presence
-      channels = channel_names&.split(',')&.map(&:strip)
+      event = data[:event_type] || object_kind
+      channels = channels_for_event(event)
 
       opts = {}
       opts[:channel] = channels if channels.present?
       opts[:username] = username if username
 
       if notify(message, opts)
-        log_usage(event_type, user_id_from_hook_data(data))
+        log_usage(event, user_id_from_hook_data(data))
         return true
       end
 
@@ -133,22 +110,86 @@ module Integrations
     end
 
     def event_channel_names
+      return [] unless configurable_channels?
+
       supported_events.map { |event| event_channel_name(event) }
     end
 
-    def event_field(event)
-      fields.find { |field| field[:name] == event_channel_name(event) }
+    override :api_field_names
+    def api_field_names
+      if mask_configurable_channels?
+        super - event_channel_names
+      else
+        super
+      end
     end
 
-    def global_fields
-      fields.reject { |field| field[:name].end_with?('channel') }
+    def form_fields
+      super.reject { |field| field[:name].end_with?('channel') }
     end
 
     def default_channel_placeholder
       raise NotImplementedError
     end
 
+    def webhook_help
+      raise NotImplementedError
+    end
+
+    # With some integrations the webhook is already tied to a specific channel,
+    # for others the channels are configurable for each event.
+    def configurable_channels?
+      false
+    end
+
+    def event_channel_name(event)
+      EVENT_CHANNEL[event]
+    end
+
+    def event_channel_value(event)
+      field_name = event_channel_name(event)
+      self.public_send(field_name) # rubocop:disable GitlabSecurity/PublicSend
+    end
+
+    def self.requires_webhook?
+      true
+    end
+
+    def channel_limit_per_event
+      10
+    end
+
+    def mask_configurable_channels?
+      false
+    end
+
+    override :sections
+    def sections
+      [
+        {
+          type: SECTION_TYPE_CONNECTION,
+          title: s_('Integrations|Connection details'),
+          description: help
+        },
+        {
+          type: SECTION_TYPE_TRIGGER,
+          title: s_('Integrations|Trigger'),
+          description: s_('Integrations|An event will be triggered when one of the following items happen.')
+        },
+        {
+          type: SECTION_TYPE_CONFIGURATION,
+          title: s_('Integrations|Notification settings'),
+          description: s_('Integrations|Configure the scope of notifications.')
+        }
+      ]
+    end
+
     private
+
+    def should_execute?(object_kind)
+      supported_events.include?(object_kind) &&
+        (!self.class.requires_webhook? || webhook.present?)
+    end
 
     def log_usage(_, _)
       # Implement in child class
@@ -189,11 +230,12 @@ module Integrations
       data.merge(project_url: project_url, project_name: project_name).with_indifferent_access
     end
 
+    # rubocop:disable Metrics/CyclomaticComplexity
     def get_message(object_kind, data)
       case object_kind
       when "push", "tag_push"
         Integrations::ChatMessage::PushMessage.new(data) if notify_for_ref?(data)
-      when "issue"
+      when "issue", "incident"
         Integrations::ChatMessage::IssueMessage.new(data) unless update?(data)
       when "merge_request"
         Integrations::ChatMessage::MergeMessage.new(data) unless update?(data)
@@ -205,30 +247,24 @@ module Integrations
         Integrations::ChatMessage::WikiPageMessage.new(data)
       when "deployment"
         Integrations::ChatMessage::DeploymentMessage.new(data) if notify_for_ref?(data)
+      when "group_mention"
+        Integrations::ChatMessage::GroupMentionMessage.new(data)
       end
     end
-
-    def get_channel_field(event)
-      field_name = event_channel_name(event)
-      self.public_send(field_name) # rubocop:disable GitlabSecurity/PublicSend
-    end
+    # rubocop:enable Metrics/CyclomaticComplexity
 
     def build_event_channels
-      supported_events.reduce([]) do |channels, event|
-        channels << { type: 'text', name: event_channel_name(event), placeholder: default_channel_placeholder }
+      event_channel_names.map do |channel_field|
+        Field.new(name: channel_field, type: :text, placeholder: default_channel_placeholder, integration_class: self)
       end
-    end
-
-    def event_channel_name(event)
-      EVENT_CHANNEL[event]
     end
 
     def project_name
-      project.full_name
+      project.try(:full_name)
     end
 
     def project_url
-      project.web_url
+      project.try(:web_url)
     end
 
     def update?(data)
@@ -244,7 +280,7 @@ module Integrations
 
       ref = data[:ref] || data.dig(:object_attributes, :ref)
       return true if ref.blank? # No need to check protected branches when there is no ref
-      return true if Gitlab::Git.tag_ref?(ref) # Skip protected branch check because it doesn't support tags
+      return true if Gitlab::Git.tag_ref?(project.repository.expand_ref(ref) || ref) # Skip protected branch check because it doesn't support tags
 
       notify_for_branch?(data)
     end
@@ -257,6 +293,34 @@ module Integrations
         true
       else
         false
+      end
+    end
+
+    def channels_for_event(event)
+      channel_names = event_channel_value(event).presence || channel.presence
+      return [] unless channel_names
+
+      channel_names.split(',').map(&:strip).uniq
+    end
+
+    def unique_channels
+      @unique_channels ||= supported_events.flat_map do |event|
+        channels_for_event(event)
+      end.uniq
+    end
+
+    def validate_channel_limit
+      supported_events.each do |event|
+        count = channels_for_event(event).count
+        next unless count > channel_limit_per_event
+
+        errors.add(
+          event_channel_name(event).to_sym,
+          format(
+            s_('SlackIntegration|cannot have more than %{limit} channels'),
+            limit: channel_limit_per_event
+          )
+        )
       end
     end
   end

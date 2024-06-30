@@ -1,12 +1,15 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Debian project distributions API **(FREE SELF)**
+# Debian project distributions API
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/42670) in GitLab 13.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
 > - [Deployed behind a feature flag](../../user/feature_flags.md), disabled by default.
 
 This is the reference documentation for the Debian project distributions API. This API is behind a
@@ -25,6 +28,10 @@ The Debian API is behind a feature flag that is disabled by default.
 can opt to enable it. To enable it, follow the instructions in
 [Enable the Debian API](../../user/packages/debian_repository/index.md#enable-the-debian-api).
 
+## Authenticate to the Debian distributions APIs
+
+See [Authenticate to the Debian distributions APIs](../../user/packages/debian_repository/index.md#authenticate-to-the-debian-distributions-apis).
+
 ## List all Debian distributions in a project
 
 Lists Debian distributions in the given project.
@@ -35,7 +42,7 @@ GET /projects/:id/debian_distributions
 
 | Attribute  | Type           | Required | Description |
 | ---------- | -------------- | -------- | ----------- |
-| `id`       | integer/string | yes      | The ID or [URL-encoded path of the project](../index.md#namespaced-path-encoding). |
+| `id`       | integer/string | yes      | The ID or [URL-encoded path of the project](../rest/index.md#namespaced-path-encoding). |
 | `codename` | string         | no       | Filter with a specific `codename`. |
 | `suite`    | string         | no       | Filter with a specific `suite`. |
 
@@ -49,7 +56,7 @@ Example response:
 [
   {
     "id": 1,
-    "codename": "unstable",
+    "codename": "sid",
     "suite": null,
     "origin": null,
     "label": null,
@@ -77,8 +84,8 @@ GET /projects/:id/debian_distributions/:codename
 
 | Attribute  | Type           | Required | Description |
 | ---------- | -------------- | -------- | ----------- |
-| `id`       | integer/string | yes      | The ID or [URL-encoded path of the project](../index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `codename` | integer        | yes      | The `codename` of a distribution. |
+| `id`       | integer/string | yes      | The ID or [URL-encoded path of the project](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `codename` | string         | yes      | The `codename` of a distribution. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/debian_distributions/unstable"
@@ -89,7 +96,7 @@ Example response:
 ```json
 {
   "id": 1,
-  "codename": "unstable",
+  "codename": "sid",
   "suite": null,
   "origin": null,
   "label": null,
@@ -116,8 +123,8 @@ GET /projects/:id/debian_distributions/:codename/key.asc
 
 | Attribute  | Type           | Required | Description |
 | ---------- | -------------- | -------- | ----------- |
-| `id`       | integer/string | yes      | The ID or [URL-encoded path of the project](../index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `codename` | integer        | yes      | The `codename` of a distribution. |
+| `id`       | integer/string | yes      | The ID or [URL-encoded path of the project](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `codename` | string         | yes      | The `codename` of a distribution. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/debian_distributions/unstable/key.asc"
@@ -153,7 +160,7 @@ POST /projects/:id/debian_distributions
 
 | Attribute                     | Type           | Required | Description |
 | ----------------------------- | -------------- | -------- | ----------- |
-| `id`                          | integer/string | yes      | The ID or [URL-encoded path of the project](../index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`                          | integer/string | yes      | The ID or [URL-encoded path of the project](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 | `codename`                    | string         | yes      | The Debian distribution's codename.  |
 | `suite`                       | string         | no       | The new Debian distribution's suite. |
 | `origin`                      | string         | no       | The new Debian distribution's origin. |
@@ -161,11 +168,11 @@ POST /projects/:id/debian_distributions
 | `version`                     | string         | no       | The new Debian distribution's version. |
 | `description`                 | string         | no       | The new Debian distribution's description. |
 | `valid_time_duration_seconds` | integer        | no       | The new Debian distribution's valid time duration (in seconds). |
-| `components`                  | architectures  | no       | The new Debian distribution's list of components. |
-| `architectures`               | architectures  | no       | The new Debian distribution's list of architectures. |
+| `components`                  | string array   | no       | The new Debian distribution's list of components. |
+| `architectures`               | string array   | no       | The new Debian distribution's list of architectures. |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/debian_distributions?codename=unstable"
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/debian_distributions?codename=sid"
 ```
 
 Example response:
@@ -173,7 +180,7 @@ Example response:
 ```json
 {
   "id": 1,
-  "codename": "unstable",
+  "codename": "sid",
   "suite": null,
   "origin": null,
   "label": null,
@@ -200,7 +207,7 @@ PUT /projects/:id/debian_distributions/:codename
 
 | Attribute                     | Type           | Required | Description |
 | ----------------------------- | -------------- | -------- | ----------- |
-| `id`                          | integer/string | yes      | The ID or [URL-encoded path of the project](../index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`                          | integer/string | yes      | The ID or [URL-encoded path of the project](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 | `codename`                    | string         | yes      | The Debian distribution's codename. |
 | `suite`                       | string         | no       | The Debian distribution's new suite. |
 | `origin`                      | string         | no       | The Debian distribution's new origin. |
@@ -208,8 +215,8 @@ PUT /projects/:id/debian_distributions/:codename
 | `version`                     | string         | no       | The Debian distribution's new version. |
 | `description`                 | string         | no       | The Debian distribution's new description. |
 | `valid_time_duration_seconds` | integer        | no       | The Debian distribution's new valid time duration (in seconds). |
-| `components`                  | architectures  | no       | The Debian distribution's new list of components. |
-| `architectures`               | architectures  | no       | The Debian distribution's new list of architectures. |
+| `components`                  | string array   | no       | The Debian distribution's new list of components. |
+| `architectures`               | string array   | no       | The Debian distribution's new list of architectures. |
 
 ```shell
 curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/debian_distributions/unstable?suite=new-suite&valid_time_duration_seconds=604800"
@@ -220,7 +227,7 @@ Example response:
 ```json
 {
   "id": 1,
-  "codename": "unstable",
+  "codename": "sid",
   "suite": "new-suite",
   "origin": null,
   "label": null,
@@ -247,8 +254,8 @@ DELETE /projects/:id/debian_distributions/:codename
 
 | Attribute  | Type           | Required | Description |
 | ---------- | -------------- | -------- | ----------- |
-| `id`       | integer/string | yes      | The ID or [URL-encoded path of the project](../index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `codename` | integer        | yes      | The Debian distribution's codename. |
+| `id`       | integer/string | yes      | The ID or [URL-encoded path of the project](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `codename` | string         | yes      | The Debian distribution's codename. |
 
 ```shell
 curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/debian_distributions/unstable"

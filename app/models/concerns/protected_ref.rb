@@ -3,11 +3,12 @@
 module ProtectedRef
   extend ActiveSupport::Concern
 
+  include Importable
+
   included do
     belongs_to :project, touch: true
 
     validates :name, presence: true
-    validates :project, presence: true
 
     delegate :matching, :matches?, :wildcard?, to: :ref_matcher
 
@@ -19,7 +20,7 @@ module ProtectedRef
   end
 
   def commit
-    project.commit(self.name)
+    project&.commit(name)
   end
 
   class_methods do
@@ -33,7 +34,13 @@ module ProtectedRef
         # to fail.
         has_many :"#{type}_access_levels", inverse_of: self.model_name.singular
 
-        validates :"#{type}_access_levels", length: { is: 1, message: "are restricted to a single instance per #{self.model_name.human}." }, unless: -> { allow_multiple?(type) }
+        # Overridden in EE with `if: -> { false }` so this validation does not apply on an EE instance.
+        validates :"#{type}_access_levels",
+          length: {
+            is: 1,
+            message: "are restricted to a single instance per #{self.model_name.human}."
+          },
+          unless: -> { allow_multiple?(type) || importing? }
 
         accepts_nested_attributes_for :"#{type}_access_levels", allow_destroy: true
       end
@@ -41,7 +48,7 @@ module ProtectedRef
 
     def protected_ref_accessible_to?(ref, user, project:, action:, protected_refs: nil)
       access_levels_for_ref(ref, action: action, protected_refs: protected_refs).any? do |access_level|
-        access_level.check_access(user)
+        access_level.check_access(user, project)
       end
     end
 
@@ -52,7 +59,7 @@ module ProtectedRef
     end
 
     def access_levels_for_ref(ref, action:, protected_refs: nil)
-      self.matching(ref, protected_refs: protected_refs)
+      matching(ref, protected_refs: protected_refs)
         .flat_map(&:"#{action}_access_levels")
     end
 
@@ -63,14 +70,14 @@ module ProtectedRef
     # This method optionally takes in a list of `protected_refs` to search
     # through, to avoid calling out to the database.
     def matching(ref_name, protected_refs: nil)
-      (protected_refs || self.all).select { |protected_ref| protected_ref.matches?(ref_name) }
+      (protected_refs || all).select { |protected_ref| protected_ref.matches?(ref_name) }
     end
   end
 
   private
 
   def ref_matcher
-    @ref_matcher ||= RefMatcher.new(self.name)
+    @ref_matcher ||= RefMatcher.new(name)
   end
 end
 

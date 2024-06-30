@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::BuildReportResult do
-  let(:build_report_result) { build(:ci_build_report_result, :with_junit_success) }
+RSpec.describe Ci::BuildReportResult, feature_category: :continuous_integration do
+  let_it_be_with_reload(:build_report_result) { create(:ci_build_report_result, :with_junit_success) }
 
   it_behaves_like 'cleanup by a loose foreign key' do
     let!(:parent) { create(:project) }
@@ -28,6 +28,19 @@ RSpec.describe Ci::BuildReportResult do
     context 'when data is invalid' do
       it 'returns errors' do
         build_report_result.data = { invalid: 'data' }
+
+        expect(build_report_result).to be_invalid
+        expect(build_report_result.errors.full_messages).to eq(["Data must be a valid json schema"])
+      end
+    end
+
+    context 'when data tests is invalid' do
+      it 'returns errors' do
+        build_report_result.data = {
+          'tests' => {
+            'invalid' => 'invalid'
+          }
+        }
 
         expect(build_report_result).to be_invalid
         expect(build_report_result.errors.full_messages).to eq(["Data must be a valid json schema"])
@@ -71,9 +84,33 @@ RSpec.describe Ci::BuildReportResult do
     end
   end
 
-  describe '#tests_total' do
-    it 'returns the total count' do
-      expect(build_report_result.tests_total).to eq(2)
+  describe 'partitioning' do
+    let(:build_report_result) { FactoryBot.build(:ci_build_report_result, build: build) }
+
+    context 'with build' do
+      let(:build) { FactoryBot.build(:ci_build, partition_id: ci_testing_partition_id) }
+
+      it 'copies the partition_id from build' do
+        expect { build_report_result.valid? }.to change { build_report_result.partition_id }.to(ci_testing_partition_id)
+      end
+
+      context 'when it is already set' do
+        let(:build_report_result) { FactoryBot.build(:ci_build_report_result, partition_id: 125) }
+
+        it 'does not change the partition_id value' do
+          expect { build_report_result.valid? }.not_to change { build_report_result.partition_id }
+        end
+      end
+    end
+
+    context 'without build' do
+      subject(:build_report_result) { FactoryBot.build(:ci_build_report_result, build: nil, partition_id: 125) }
+
+      it { is_expected.to validate_presence_of(:partition_id) }
+
+      it 'does not change the partition_id value' do
+        expect { build_report_result.valid? }.not_to change { build_report_result.partition_id }
+      end
     end
   end
 end

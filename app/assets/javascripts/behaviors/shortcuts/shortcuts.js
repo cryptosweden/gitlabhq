@@ -1,15 +1,19 @@
 import $ from 'jquery';
 import { flatten } from 'lodash';
-import Mousetrap from 'mousetrap';
 import Vue from 'vue';
+import { InternalEvents } from '~/tracking';
+import { FIND_FILE_SHORTCUT_CLICK } from '~/tracking/constants';
+import { Mousetrap, addStopCallback } from '~/lib/mousetrap';
 import { getCookie, setCookie, parseBoolean } from '~/lib/utils/common_utils';
-
+import { waitForElement } from '~/lib/utils/dom_utils';
 import findAndFollowLink from '~/lib/utils/navigation_utility';
-import { refreshCurrentPage, visitUrl } from '~/lib/utils/url_utility';
+import { refreshCurrentPage } from '~/lib/utils/url_utility';
+import { helpCenterState } from '~/super_sidebar/constants';
 import {
   keysFor,
   TOGGLE_KEYBOARD_SHORTCUTS_DIALOG,
   START_SEARCH,
+  START_SEARCH_PROJECT_FILE,
   FOCUS_FILTER_BAR,
   TOGGLE_PERFORMANCE_BAR,
   HIDE_APPEARING_CONTENT,
@@ -21,26 +25,18 @@ import {
   GO_TO_YOUR_MERGE_REQUESTS,
   GO_TO_YOUR_PROJECTS,
   GO_TO_YOUR_GROUPS,
+  TOGGLE_DUO_CHAT,
   GO_TO_MILESTONE_LIST,
   GO_TO_YOUR_SNIPPETS,
-  GO_TO_PROJECT_FIND_FILE,
+  GO_TO_YOUR_REVIEW_REQUESTS,
 } from './keybindings';
 import { disableShortcuts, shouldDisableShortcuts } from './shortcuts_toggle';
-
-const defaultStopCallback = Mousetrap.prototype.stopCallback;
-Mousetrap.prototype.stopCallback = function customStopCallback(e, element, combo) {
-  if (keysFor(TOGGLE_MARKDOWN_PREVIEW).indexOf(combo) !== -1) {
-    return false;
-  }
-
-  return defaultStopCallback.call(this, e, element, combo);
-};
 
 /**
  * The key used to save and fetch the local Mousetrap instance
  * attached to a `<textarea>` element using `jQuery.data`
  */
-const LOCAL_MOUSETRAP_DATA_KEY = 'local-mousetrap-instance';
+export const LOCAL_MOUSETRAP_DATA_KEY = 'local-mousetrap-instance';
 
 /**
  * Gets a mapping of toolbar button => keyboard shortcuts
@@ -71,61 +67,130 @@ function getToolbarBtnToShortcutsMap($textarea) {
 
 export default class Shortcuts {
   constructor() {
+    if (process.env.NODE_ENV !== 'production' && this.constructor !== Shortcuts) {
+      // eslint-disable-next-line @gitlab/require-i18n-strings
+      throw new Error('Shortcuts cannot be subclassed.');
+    }
+
+    this.extensions = new Map();
     this.onToggleHelp = this.onToggleHelp.bind(this);
     this.helpModalElement = null;
     this.helpModalVueInstance = null;
 
-    Mousetrap.bind(keysFor(TOGGLE_KEYBOARD_SHORTCUTS_DIALOG), this.onToggleHelp);
-    Mousetrap.bind(keysFor(START_SEARCH), Shortcuts.focusSearch);
-    Mousetrap.bind(keysFor(FOCUS_FILTER_BAR), this.focusFilter.bind(this));
-    Mousetrap.bind(keysFor(TOGGLE_PERFORMANCE_BAR), Shortcuts.onTogglePerfBar);
-    Mousetrap.bind(keysFor(HIDE_APPEARING_CONTENT), Shortcuts.hideAppearingContent);
-    Mousetrap.bind(keysFor(TOGGLE_CANARY), Shortcuts.onToggleCanary);
+    this.addAll([
+      [TOGGLE_KEYBOARD_SHORTCUTS_DIALOG, this.onToggleHelp],
+      [START_SEARCH_PROJECT_FILE, Shortcuts.focusSearchFile],
+      [START_SEARCH, Shortcuts.focusSearch],
+      [FOCUS_FILTER_BAR, this.focusFilter.bind(this)],
+      [TOGGLE_PERFORMANCE_BAR, Shortcuts.onTogglePerfBar],
+      [HIDE_APPEARING_CONTENT, Shortcuts.hideAppearingContent],
+      [TOGGLE_CANARY, Shortcuts.onToggleCanary],
+      [TOGGLE_DUO_CHAT, Shortcuts.onToggleDuoChat],
 
-    const findFileURL = document.body.dataset.findFile;
+      [GO_TO_YOUR_TODO_LIST, () => findAndFollowLink('.shortcuts-todos')],
+      [GO_TO_ACTIVITY_FEED, () => findAndFollowLink('.dashboard-shortcuts-activity')],
+      [GO_TO_YOUR_ISSUES, () => findAndFollowLink('.dashboard-shortcuts-issues')],
+      [GO_TO_YOUR_MERGE_REQUESTS, () => findAndFollowLink('.dashboard-shortcuts-merge_requests')],
+      [GO_TO_YOUR_REVIEW_REQUESTS, () => findAndFollowLink('.dashboard-shortcuts-review_requests')],
+      [GO_TO_YOUR_PROJECTS, () => findAndFollowLink('.dashboard-shortcuts-projects')],
+      [GO_TO_YOUR_GROUPS, () => findAndFollowLink('.dashboard-shortcuts-groups')],
+      [GO_TO_MILESTONE_LIST, () => findAndFollowLink('.dashboard-shortcuts-milestones')],
+      [GO_TO_YOUR_SNIPPETS, () => findAndFollowLink('.dashboard-shortcuts-snippets')],
 
-    Mousetrap.bind(keysFor(GO_TO_YOUR_TODO_LIST), () => findAndFollowLink('.shortcuts-todos'));
-    Mousetrap.bind(keysFor(GO_TO_ACTIVITY_FEED), () =>
-      findAndFollowLink('.dashboard-shortcuts-activity'),
-    );
-    Mousetrap.bind(keysFor(GO_TO_YOUR_ISSUES), () =>
-      findAndFollowLink('.dashboard-shortcuts-issues'),
-    );
-    Mousetrap.bind(keysFor(GO_TO_YOUR_MERGE_REQUESTS), () =>
-      findAndFollowLink('.dashboard-shortcuts-merge_requests'),
-    );
-    Mousetrap.bind(keysFor(GO_TO_YOUR_PROJECTS), () =>
-      findAndFollowLink('.dashboard-shortcuts-projects'),
-    );
-    Mousetrap.bind(keysFor(GO_TO_YOUR_GROUPS), () =>
-      findAndFollowLink('.dashboard-shortcuts-groups'),
-    );
-    Mousetrap.bind(keysFor(GO_TO_MILESTONE_LIST), () =>
-      findAndFollowLink('.dashboard-shortcuts-milestones'),
-    );
-    Mousetrap.bind(keysFor(GO_TO_YOUR_SNIPPETS), () =>
-      findAndFollowLink('.dashboard-shortcuts-snippets'),
+      [TOGGLE_MARKDOWN_PREVIEW, Shortcuts.toggleMarkdownPreview],
+    ]);
+
+    addStopCallback((e, element, combo) =>
+      keysFor(TOGGLE_MARKDOWN_PREVIEW).includes(combo) ? false : undefined,
     );
 
-    Mousetrap.bind(keysFor(TOGGLE_MARKDOWN_PREVIEW), Shortcuts.toggleMarkdownPreview);
-
-    if (typeof findFileURL !== 'undefined' && findFileURL !== null) {
-      Mousetrap.bind(keysFor(GO_TO_PROJECT_FIND_FILE), () => {
-        visitUrl(findFileURL);
-      });
-    }
-
-    $(document).on('click.more_help', '.js-more-help-button', function clickMoreHelp(e) {
-      $(this).remove();
-      e.preventDefault();
-    });
-
-    // eslint-disable-next-line @gitlab/no-global-event-off
-    $('.js-shortcuts-modal-trigger').off('click').on('click', this.onToggleHelp);
+    $(document).on('click', '.js-shortcuts-modal-trigger', this.onToggleHelp);
 
     if (shouldDisableShortcuts()) {
       disableShortcuts();
     }
+  }
+
+  /**
+   * Instantiate a legacy shortcut extension class.
+   *
+   * NOTE: The preferred approach for adding shortcuts is described in
+   * https://docs.gitlab.com/ee/development/fe_guide/keyboard_shortcuts.html.
+   * This method is only for existing legacy shortcut classes.
+   *
+   * A shortcut extension class packages up several shortcuts and behaviors for
+   * a page or set of pages. They are considered legacy because they usually do
+   * not follow modern best practices. For instance, they may hook into the UI
+   * in brittle ways, e.g.. querySelectors.
+   *
+   * Extension classes can declare dependencies on other shortcut extension
+   * classes by listing them in a static `dependencies` property. This is
+   * essentially a reimplementation of the previous subclassing approach, but
+   * with idempotency: a shortcut extension class can now only be added at most
+   * one time.
+   *
+   * Extension classes are instantiated and given the Shortcuts singleton
+   * instance as their first argument. If the class constructor needs
+   * additional arguments, pass them via the second argument as an array.
+   *
+   * See https://gitlab.com/gitlab-org/gitlab/-/issues/392845 for more context.
+   *
+   * @param {Function} Extension The extension class to add/instantiate.
+   * @param {Array} [args] A list of additional args to pass to the extension
+   *     class constructor.
+   * @param {Set} [extensionsCurrentlyLoading] For internal use only. Do not
+   *     use.
+   * @returns The instantiated shortcut extension class.
+   */
+  addExtension(Extension, args = [], extensionsCurrentlyLoading = new Set()) {
+    extensionsCurrentlyLoading.add(Extension);
+
+    let instance = this.extensions.get(Extension);
+    if (!instance) {
+      for (const Dep of Extension.dependencies ?? []) {
+        if (extensionsCurrentlyLoading.has(Dep) || Dep === Shortcuts) {
+          // We've encountered a circular dependency, so stop recursing.
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        extensionsCurrentlyLoading.add(Dep);
+
+        this.addExtension(Dep, [], extensionsCurrentlyLoading);
+      }
+
+      instance = new Extension(this, ...args);
+      this.extensions.set(Extension, instance);
+    }
+
+    extensionsCurrentlyLoading.delete(Extension);
+    return instance;
+  }
+
+  /**
+   * Bind the keyboard shortcut(s) defined by the given command to the given
+   * callback.
+   *
+   * @param {Object} command A command object.
+   * @param {Function} callback The callback to call when the command's key
+   *     combo has been pressed.
+   * @returns {void}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  add(command, callback) {
+    Mousetrap.bind(keysFor(command), callback);
+  }
+
+  /**
+   * Bind the keyboard shortcut(s) defined by the given commands to the given
+   * callbacks.
+   *
+   * @param {Array<[Object, Function]>} commandsAndCallbacks An array of
+   *     command/callback pairs.
+   * @returns {void}
+   */
+  addAll(commandsAndCallbacks) {
+    commandsAndCallbacks.forEach((commandAndCallback) => this.add(...commandAndCallback));
   }
 
   onToggleHelp(e) {
@@ -158,6 +223,11 @@ export default class Shortcuts {
     }
   }
 
+  static onToggleDuoChat(e) {
+    e.preventDefault();
+    helpCenterState.showTanukiBotChatDrawer = !helpCenterState.showTanukiBotChatDrawer;
+  }
+
   static onTogglePerfBar(e) {
     e.preventDefault();
     const performanceBarCookieName = 'perf_bar_enabled';
@@ -178,13 +248,6 @@ export default class Shortcuts {
   }
 
   static toggleMarkdownPreview(e) {
-    // Check if short-cut was triggered while in Write Mode
-    const $target = $(e.target);
-    const $form = $target.closest('form');
-
-    if ($target.hasClass('js-note-text')) {
-      $('.js-md-preview-button', $form).focus();
-    }
     $(document).triggerHandler('markdown-preview:toggle', [e]);
   }
 
@@ -197,11 +260,28 @@ export default class Shortcuts {
   }
 
   static focusSearch(e) {
-    $('#search').focus();
+    document.querySelector('#super-sidebar-search')?.click();
+    InternalEvents.trackEvent('press_keyboard_shortcut_to_activate_command_palette');
 
     if (e.preventDefault) {
       e.preventDefault();
     }
+  }
+
+  static async focusSearchFile(e) {
+    if (e?.key) {
+      InternalEvents.trackEvent(FIND_FILE_SHORTCUT_CLICK);
+    }
+    e?.preventDefault();
+    document.querySelector('#super-sidebar-search')?.click();
+
+    const searchInput = await waitForElement('#super-sidebar-search-modal #search');
+    if (!searchInput) return;
+
+    const currentPath = document.querySelector('.js-repo-breadcrumbs')?.dataset.currentPath;
+
+    searchInput.value = `~${currentPath ? `${currentPath}/` : ''}`;
+    searchInput.dispatchEvent(new Event('input'));
   }
 
   static hideAppearingContent(e) {

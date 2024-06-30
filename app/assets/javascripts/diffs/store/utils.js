@@ -15,13 +15,16 @@ import {
   CONFLICT_MARKER,
   CONFLICT_MARKER_OUR,
   CONFLICT_MARKER_THEIR,
+  EXPANDED_LINE_TYPE,
 } from '../constants';
 import { prepareRawDiffFile } from '../utils/diff_file';
+import { extractFileHash } from '../utils/merge_request';
 
 export const isAdded = (line) => ['new', 'new-nonewline'].includes(line.type);
 export const isRemoved = (line) => ['old', 'old-nonewline'].includes(line.type);
 export const isUnchanged = (line) => !line.type;
-export const isMeta = (line) => ['match', 'new-nonewline', 'old-nonewline'].includes(line.type);
+export const isMeta = (line) =>
+  ['match', EXPANDED_LINE_TYPE, 'new-nonewline', 'old-nonewline'].includes(line.type);
 export const isConflictMarker = (line) =>
   [CONFLICT_MARKER_OUR, CONFLICT_MARKER_THEIR].includes(line.type);
 export const isConflictSeperator = (line) => line.type === CONFLICT_MARKER;
@@ -60,7 +63,7 @@ export const parallelizeDiffLines = (diffLines, inline) => {
     const line = diffLines[i];
     line.chunk = chunk;
 
-    if (isMeta(line)) chunk += 1;
+    if (isMeta(line) && line.type !== EXPANDED_LINE_TYPE) chunk += 1;
 
     if (isRemoved(line) || isConflictOur(line) || inline) {
       lines.push({
@@ -124,14 +127,6 @@ export function findDiffFile(files, match, matchKey = 'file_hash') {
   return files.find((file) => file[matchKey] === match);
 }
 
-export const getReversePosition = (linePosition) => {
-  if (linePosition === LINE_POSITION_RIGHT) {
-    return LINE_POSITION_LEFT;
-  }
-
-  return LINE_POSITION_RIGHT;
-};
-
 export function getFormData(params) {
   const {
     commit,
@@ -144,6 +139,7 @@ export function getFormData(params) {
     linePosition,
     positionType,
     lineRange,
+    showWhitespace,
   } = params;
 
   const position = JSON.stringify({
@@ -160,6 +156,7 @@ export function getFormData(params) {
     width: params.width,
     height: params.height,
     line_range: lineRange,
+    ignore_whitespace_change: diffFile.whitespaceOnlyChange ? false : !showWhitespace,
   });
 
   const postData = {
@@ -205,7 +202,7 @@ export const findIndexInInlineLines = (lines, lineNumbers) => {
   );
 };
 
-export const getPreviousLineIndex = (diffViewType, file, lineNumbers) => {
+export const getPreviousLineIndex = (file, lineNumbers) => {
   return findIndexInInlineLines(file[INLINE_DIFF_LINES_KEY], lineNumbers);
 };
 
@@ -309,7 +306,6 @@ function mergeTwoFiles(target, source) {
     ...target,
     [INLINE_DIFF_LINES_KEY]: missingInline ? source[INLINE_DIFF_LINES_KEY] : originalInline,
     parallel_diff_lines: null,
-    renderIt: source.renderIt,
     collapsed: source.collapsed,
   };
 }
@@ -330,15 +326,24 @@ function cleanRichText(text) {
 }
 
 function prepareLine(line, file) {
+  const problems = {
+    brokenSymlink: file.brokenSymlink,
+    brokenLineCode: !line.line_code,
+    fileOnlyMoved: file.renamed_file && file.added_lines === 0 && file.removed_lines === 0,
+  };
+
   if (!line.alreadyPrepared) {
     Object.assign(line, {
-      commentsDisabled: file.brokenSymlink,
+      commentsDisabled: Boolean(
+        problems.brokenSymlink || problems.fileOnlyMoved || problems.brokenLineCode,
+      ),
       rich_text: cleanRichText(line.rich_text),
-      discussionsExpanded: true,
+      discussionsExpanded: false,
       discussions: [],
       hasForm: false,
       text: undefined,
       alreadyPrepared: true,
+      problems,
     });
   }
 }
@@ -381,19 +386,25 @@ function prepareDiffFileLines(file) {
 
 function finalizeDiffFile(file) {
   Object.assign(file, {
-    renderIt: true,
     isShowingFullFile: false,
     isLoadingFullFile: false,
     discussions: [],
     renderingLines: false,
+    whitespaceOnlyChange: file.viewer?.whitespace_only,
   });
 
   return file;
 }
 
-function deduplicateFilesList(files) {
+function deduplicateFilesList(files, updatePosition) {
   const dedupedFiles = files.reduce((newList, file) => {
     const id = diffFileUniqueId(file);
+    if (updatePosition && id in newList) {
+      // Object.values preserves key order but doesn't update order when writing to the same key
+      // In order to update position of the item we have to delete it first and then add it back
+      // eslint-disable-next-line no-param-reassign
+      delete newList[id];
+    }
 
     return {
       ...newList,
@@ -404,14 +415,20 @@ function deduplicateFilesList(files) {
   return Object.values(dedupedFiles);
 }
 
-export function prepareDiffData({ diff, priorFiles = [], meta = false }) {
-  const cleanedFiles = (diff.diff_files || [])
-    .map((file, index, allFiles) => prepareRawDiffFile({ file, allFiles, meta }))
-    .map(ensureBasicDiffFileLines)
-    .map(prepareDiffFileLines)
-    .map((file) => finalizeDiffFile(file));
+export function prepareDiffData({ diff, priorFiles = [], meta = false, updatePosition = false }) {
+  const transformersChain = [
+    (file, index, allFiles) => prepareRawDiffFile({ file, index, allFiles, meta }),
+    ensureBasicDiffFileLines,
+    prepareDiffFileLines,
+    finalizeDiffFile,
+  ];
+  const cleanedFiles = (diff.diff_files || []).map((file, index, allFiles) => {
+    return transformersChain.reduce((fileResult, transformer) => {
+      return transformer(fileResult, index, allFiles);
+    }, file);
+  });
 
-  return deduplicateFilesList([...priorFiles, ...cleanedFiles]);
+  return deduplicateFilesList([...priorFiles, ...cleanedFiles], updatePosition);
 }
 
 export function getDiffPositionByLineCode(diffFiles) {
@@ -481,9 +498,8 @@ export const getDiffMode = (diffFile) => {
   const diffModeKey = Object.keys(diffModes).find((key) => diffFile[`${key}_file`]);
   return (
     diffModes[diffModeKey] ||
-    (diffFile.viewer &&
-      diffFile.viewer.name === diffViewerModes.mode_changed &&
-      diffViewerModes.mode_changed) ||
+    (diffFile.viewer?.name === diffViewerModes.mode_changed && diffViewerModes.mode_changed) ||
+    (diffFile.viewer?.name === diffViewerModes.no_preview && diffViewerModes.no_preview) ||
     diffModes.replaced
   );
 };
@@ -553,3 +569,47 @@ export const allDiscussionWrappersExpanded = (diff) => {
 
   return discussionsExpanded;
 };
+
+export function isUrlHashNoteLink(urlHash = '') {
+  const id = urlHash.replace(/^#/, '');
+
+  return id.startsWith('note');
+}
+
+export function isUrlHashFileHeader(urlHash = '') {
+  const id = urlHash.replace(/^#/, '');
+
+  return id.startsWith('diff-content');
+}
+
+export function parseUrlHashAsFileHash(urlHash = '', currentDiffFileId = '') {
+  const hashless = urlHash.replace(/^#/, '');
+  const isNoteLink = isUrlHashNoteLink(hashless);
+  const extractedSha1 = extractFileHash({ input: hashless });
+  let id = extractedSha1;
+
+  if (isNoteLink && currentDiffFileId) {
+    id = currentDiffFileId;
+  } else if (isUrlHashFileHeader(hashless)) {
+    id = hashless.replace('diff-content-', '');
+  } else if (!extractedSha1 || isNoteLink) {
+    id = null;
+  }
+
+  return id;
+}
+
+export function markTreeEntriesLoaded({ priorEntries, loadedFiles }) {
+  const newEntries = { ...priorEntries };
+
+  loadedFiles.forEach((newFile) => {
+    const entry = newEntries[newFile.new_path];
+
+    if (entry) {
+      entry.diffLoaded = true;
+      entry.diffLoading = false;
+    }
+  });
+
+  return newEntries;
+}

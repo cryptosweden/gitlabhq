@@ -4,12 +4,24 @@ module Clusters
   module Platforms
     class Kubernetes < ApplicationRecord
       include Gitlab::Kubernetes
-      include EnumWithNil
       include AfterCommitQueue
       include ReactiveCaching
       include NullifyIfBlank
 
-      RESERVED_NAMESPACES = %w(gitlab-managed-apps).freeze
+      RESERVED_NAMESPACES = %w[gitlab-managed-apps].freeze
+      REQUIRED_K8S_MIN_VERSION = 23
+
+      IGNORED_CONNECTION_EXCEPTIONS = [
+        Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError,
+        Kubeclient::HttpError,
+        Errno::ECONNREFUSED,
+        URI::InvalidURIError,
+        Errno::EHOSTUNREACH,
+        OpenSSL::X509::StoreError,
+        OpenSSL::SSL::SSLError
+      ].freeze
+
+      FailedVersionCheckError = Class.new(StandardError)
 
       self.table_name = 'cluster_platforms_kubernetes'
       self.reactive_cache_work_type = :external_dependency
@@ -50,13 +62,11 @@ module Clusters
 
       alias_attribute :ca_pem, :ca_cert
 
-      enum_with_nil authorization_type: {
+      enum authorization_type: {
         unknown_authorization: nil,
         rbac: 1,
         abac: 2
-      }
-
-      default_value_for :authorization_type, :rbac
+      }, _default: :rbac
 
       nullify_if_blank :namespace
 
@@ -102,10 +112,23 @@ module Clusters
       def calculate_reactive_cache_for(environment)
         return unless enabled?
 
-        pods = read_pods(environment.deployment_namespace)
-        deployments = read_deployments(environment.deployment_namespace)
+        pods = []
+        deployments = []
+        ingresses = []
 
-        ingresses = read_ingresses(environment.deployment_namespace)
+        begin
+          pods = read_pods(environment.deployment_namespace)
+          deployments = read_deployments(environment.deployment_namespace)
+
+          ingresses = read_ingresses(environment.deployment_namespace)
+        rescue *IGNORED_CONNECTION_EXCEPTIONS => e
+          log_kube_connection_error(e)
+
+          # Return hash with default values so that it is cached.
+          return {
+            pods: pods, deployments: deployments, ingresses: ingresses
+          }
+        end
 
         # extract only the data required for display to avoid unnecessary caching
         {
@@ -185,6 +208,29 @@ module Clusters
         kubeclient.get_ingresses(namespace: namespace).as_json
       rescue Kubeclient::ResourceNotFoundError
         []
+      rescue NoMethodError => e
+        # We get NoMethodError for Kubernetes versions < 1.19. Since we only support >= 1.23
+        # we will ignore this error for previous versions. For more details read:
+        # https://gitlab.com/gitlab-org/gitlab/-/issues/371249#note_1079866043
+        return [] if server_version < REQUIRED_K8S_MIN_VERSION
+
+        raise e
+      end
+
+      def server_version
+        full_url = Gitlab::UrlSanitizer.new("#{api_url}/version").full_url
+
+        # We can't use `kubeclient` to check the cluster version because it does not support it
+        # https://github.com/ManageIQ/kubeclient/issues/309
+        response = Gitlab::HTTP.perform_request(
+          Net::HTTP::Get, full_url,
+          headers: { "Authorization" => "Bearer #{token}" },
+          cert_store: kubeclient_ssl_options[:cert_store])
+
+        Gitlab::ErrorTracking.track_exception(FailedVersionCheckError.new) unless response.success?
+
+        json_response = Gitlab::Json.parse(response.body)
+        json_response["minor"].to_i
       end
 
       def build_kube_client!
@@ -291,6 +337,23 @@ module Clusters
             'metadata' => ingress.fetch('metadata', {}).slice('name', 'labels', 'annotations')
           }
         end
+      end
+
+      def log_kube_connection_error(error)
+        logger.error({
+          exception: {
+            class: error.class.name,
+            message: error.message
+          },
+          status_code: error.try(:error_code),
+          namespace: self.namespace,
+          class_name: self.class.name,
+          event: :kube_connection_error
+        })
+      end
+
+      def logger
+        @logger ||= Gitlab::Kubernetes::Logger.build
       end
     end
   end

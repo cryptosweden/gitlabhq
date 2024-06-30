@@ -4,9 +4,11 @@ module Gitlab
   module ImportExport
     module Project
       class TreeSaver
+        include DurationMeasuring
+
         attr_reader :full_path
 
-        def initialize(project:, current_user:, shared:, params: {}, logger: Gitlab::Import::Logger)
+        def initialize(project:, current_user:, shared:, params: {}, logger: Gitlab::Export::Logger)
           @params       = params
           @project      = project
           @current_user = current_user
@@ -15,9 +17,11 @@ module Gitlab
         end
 
         def save
-          stream_export
+          with_duration_measuring do
+            stream_export
 
-          true
+            true
+          end
         rescue StandardError => e
           @shared.error(e)
           false
@@ -45,7 +49,9 @@ module Gitlab
             exportable,
             reader.project_tree,
             json_writer,
-            exportable_path: "project"
+            exportable_path: "project",
+            logger: @logger,
+            current_user: @current_user
           )
 
           Retriable.retriable(on: Net::OpenTimeout, on_retry: on_retry) do
@@ -76,13 +82,8 @@ module Gitlab
 
         def json_writer
           @json_writer ||= begin
-            if ::Feature.enabled?(:project_export_as_ndjson, @project.namespace, default_enabled: true)
-              full_path = File.join(@shared.export_path, 'tree')
-              Gitlab::ImportExport::Json::NdjsonWriter.new(full_path)
-            else
-              full_path = File.join(@shared.export_path, ImportExport.project_filename)
-              Gitlab::ImportExport::Json::LegacyWriter.new(full_path, allowed_path: 'project')
-            end
+            full_path = File.join(@shared.export_path, 'tree')
+            Gitlab::ImportExport::Json::NdjsonWriter.new(full_path)
           end
         end
       end

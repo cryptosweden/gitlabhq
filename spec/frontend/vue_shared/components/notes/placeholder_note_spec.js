@@ -1,9 +1,9 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import IssuePlaceholderNote from '~/vue_shared/components/notes/placeholder_note.vue';
-import UserAvatarLink from '~/vue_shared/components/user_avatar/user_avatar_link.vue';
-import { userDataMock } from '../../../notes/mock_data';
+import { userDataMock } from 'jest/notes/mock_data';
 
 Vue.use(Vuex);
 
@@ -14,7 +14,7 @@ const getters = {
 describe('Issue placeholder note component', () => {
   let wrapper;
 
-  const findNote = () => wrapper.find({ ref: 'note' });
+  const findNote = () => wrapper.findComponent({ ref: 'note' });
 
   const createComponent = (isIndividual = false, propsData = {}) => {
     wrapper = shallowMount(IssuePlaceholderNote, {
@@ -30,11 +30,6 @@ describe('Issue placeholder note component', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   it('matches snapshot', () => {
     createComponent();
@@ -52,18 +47,5 @@ describe('Issue placeholder note component', () => {
     createComponent();
 
     expect(findNote().classes()).toContain('discussion');
-  });
-
-  describe('avatar size', () => {
-    it.each`
-      size  | line                    | isOverviewTab
-      ${40} | ${null}                 | ${false}
-      ${24} | ${{ line_code: '123' }} | ${false}
-      ${40} | ${{ line_code: '123' }} | ${true}
-    `('renders avatar $size for $line and $isOverviewTab', ({ size, line, isOverviewTab }) => {
-      createComponent(false, { line, isOverviewTab });
-
-      expect(wrapper.findComponent(UserAvatarLink).props('imgSize')).toBe(size);
-    });
   });
 });

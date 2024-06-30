@@ -2,14 +2,12 @@
 data_category: optional
 key_path: counts_monthly.personal_snippets
 description: Monthly count of personal Snippets
-product_section: dev
-product_stage: create
-product_group: group::editor
-product_category: snippets
+product_group: ide
 value_type: number
 status: active
 time_frame: 28d
 data_source: database
+instrumentation_class: CountPersonalSnippetsMetric
 distribution:
 - ce
 - ee

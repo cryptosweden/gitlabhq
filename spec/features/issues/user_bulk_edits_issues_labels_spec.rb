@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Issues > Labels bulk assignment' do
+RSpec.describe 'Issues > Labels bulk assignment', feature_category: :team_planning do
   let(:user)      { create(:user) }
   let!(:project)  { create(:project) }
   let!(:bug)      { create(:label, project: project, title: 'bug') }
@@ -12,8 +12,8 @@ RSpec.describe 'Issues > Labels bulk assignment' do
   let!(:issue1)   { create(:issue, project: project, title: "Issue 1", labels: [frontend]) }
   let!(:issue2)   { create(:issue, project: project, title: "Issue 2") }
 
-  let(:issue_1_selector) { "#issue_#{issue1.id}" }
-  let(:issue_2_selector) { "#issue_#{issue2.id}" }
+  let(:issue_1_selector) { "#issuable_#{issue1.id}" }
+  let(:issue_2_selector) { "#issuable_#{issue2.id}" }
 
   context 'as an allowed user', :js do
     before do
@@ -105,7 +105,7 @@ RSpec.describe 'Issues > Labels bulk assignment' do
         context 'to all issues' do
           before do
             check 'Select all'
-            open_labels_dropdown %w(bug feature)
+            open_labels_dropdown %w[bug feature]
             update_issues
           end
 
@@ -120,7 +120,7 @@ RSpec.describe 'Issues > Labels bulk assignment' do
         context 'to a issue' do
           before do
             check issue1.title
-            open_labels_dropdown %w(bug feature)
+            open_labels_dropdown %w[bug feature]
             update_issues
           end
 
@@ -162,7 +162,7 @@ RSpec.describe 'Issues > Labels bulk assignment' do
 
           enable_bulk_update
           check 'Select all'
-          unmark_labels_in_dropdown %w(bug feature)
+          unmark_labels_in_dropdown %w[bug feature]
           update_issues
         end
 
@@ -406,7 +406,7 @@ RSpec.describe 'Issues > Labels bulk assignment' do
 
     context 'cannot bulk assign labels' do
       it do
-        expect(page).not_to have_button 'Edit issues'
+        expect(page).not_to have_button 'Bulk edit'
         expect(page).not_to have_unchecked_field 'Select all'
         expect(page).not_to have_unchecked_field issue1.title
       end
@@ -417,7 +417,7 @@ RSpec.describe 'Issues > Labels bulk assignment' do
     click_button 'Select milestone'
     wait_for_requests
     items.map do |item|
-      click_link item
+      click_button item
     end
   end
 
@@ -455,14 +455,14 @@ RSpec.describe 'Issues > Labels bulk assignment' do
   end
 
   def update_issues
-    click_button 'Update all'
+    click_button 'Update selected'
     wait_for_requests
   end
 
   def enable_bulk_update
     visit project_issues_path(project)
     wait_for_requests
-    click_button 'Edit issues'
+    click_button 'Bulk edit'
   end
 
   def disable_bulk_update

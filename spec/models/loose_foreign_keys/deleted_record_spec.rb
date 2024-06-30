@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe LooseForeignKeys::DeletedRecord, type: :model do
+RSpec.describe LooseForeignKeys::DeletedRecord, type: :model, feature_category: :database do
+  using RSpec::Parameterized::TableSyntax
+
   let_it_be(:table) { 'public.projects' }
 
   describe 'class methods' do
@@ -22,6 +24,12 @@ RSpec.describe LooseForeignKeys::DeletedRecord, type: :model do
         records = described_class.load_batch_for_table(table, 2)
 
         expect(records).to eq([deleted_record_1, deleted_record_2])
+      end
+
+      it 'returns the partition number in each returned record' do
+        records = described_class.load_batch_for_table(table, 4)
+
+        expect(records).to all(have_attributes(partition: (a_value > 0)))
       end
     end
 
@@ -44,9 +52,9 @@ RSpec.describe LooseForeignKeys::DeletedRecord, type: :model do
         records.each(&:reload)
 
         expect(records).to all(have_attributes(
-                                 cleanup_attempts: 0,
-                                 consume_after: time
-                               ))
+          cleanup_attempts: 0,
+          consume_after: time
+        ))
       end
     end
 
@@ -66,7 +74,7 @@ RSpec.describe LooseForeignKeys::DeletedRecord, type: :model do
     let(:partition_manager) { Gitlab::Database::Partitioning::PartitionManager.new(described_class) }
 
     describe 'next_partition_if callback' do
-      let(:active_partition) { described_class.partitioning_strategy.active_partition.value }
+      let(:active_partition) { described_class.partitioning_strategy.active_partition }
 
       subject(:value) { described_class.partitioning_strategy.next_partition_if.call(active_partition) }
 
@@ -94,19 +102,11 @@ RSpec.describe LooseForeignKeys::DeletedRecord, type: :model do
         end
 
         it { is_expected.to eq(true) }
-
-        context 'when the lfk_automatic_partition_creation FF is off' do
-          before do
-            stub_feature_flags(lfk_automatic_partition_creation: false)
-          end
-
-          it { is_expected.to eq(false) }
-        end
       end
     end
 
     describe 'detach_partition_if callback' do
-      let(:active_partition) { described_class.partitioning_strategy.active_partition.value }
+      let(:active_partition) { described_class.partitioning_strategy.active_partition }
 
       subject(:value) { described_class.partitioning_strategy.detach_partition_if.call(active_partition) }
 
@@ -126,14 +126,6 @@ RSpec.describe LooseForeignKeys::DeletedRecord, type: :model do
         end
 
         it { is_expected.to eq(true) }
-
-        context 'when the lfk_automatic_partition_dropping FF is off' do
-          before do
-            stub_feature_flags(lfk_automatic_partition_dropping: false)
-          end
-
-          it { is_expected.to eq(false) }
-        end
       end
     end
 
@@ -162,7 +154,7 @@ RSpec.describe LooseForeignKeys::DeletedRecord, type: :model do
         expect { described_class.create!(fully_qualified_table_name: table, primary_key_value: 5) }.not_to raise_error
 
         # after processing old records
-        LooseForeignKeys::DeletedRecord.for_partition(1).update_all(status: :processed)
+        described_class.for_partition(1).update_all(status: :processed)
 
         partition_manager.sync_partitions
 

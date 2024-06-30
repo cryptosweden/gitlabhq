@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User searches group settings', :js do
+RSpec.describe 'User searches group settings', :js, feature_category: :groups_and_projects do
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group) }
 
@@ -43,11 +43,11 @@ RSpec.describe 'User searches group settings', :js do
     it_behaves_like 'can search settings', 'Variables', 'Auto DevOps'
   end
 
-  context 'in Packages & Registries page' do
+  context 'in Packages and registries page' do
     before do
       visit group_settings_packages_and_registries_path(group)
     end
 
-    it_behaves_like 'can highlight results', 'Use GitLab as a private registry'
+    it_behaves_like 'can highlight results', 'Allow packages with the same name and version'
   end
 end

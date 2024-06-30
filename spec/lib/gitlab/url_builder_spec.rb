@@ -22,13 +22,20 @@ RSpec.describe Gitlab::UrlBuilder do
       :group_board       | ->(board)         { "/groups/#{board.group.full_path}/-/boards/#{board.id}" }
       :commit            | ->(commit)        { "/#{commit.project.full_path}/-/commit/#{commit.id}" }
       :issue             | ->(issue)         { "/#{issue.project.full_path}/-/issues/#{issue.iid}" }
+      [:issue, :task]    | ->(issue)         { "/#{issue.project.full_path}/-/work_items/#{issue.iid}" }
+      [:work_item, :task] | ->(work_item)    { "/#{work_item.project.full_path}/-/work_items/#{work_item.iid}" }
+      [:work_item, :issue] | ->(work_item)   { "/#{work_item.project.full_path}/-/issues/#{work_item.iid}" }
       :merge_request     | ->(merge_request) { "/#{merge_request.project.full_path}/-/merge_requests/#{merge_request.iid}" }
       :project_milestone | ->(milestone)     { "/#{milestone.project.full_path}/-/milestones/#{milestone.iid}" }
       :project_snippet   | ->(snippet)       { "/#{snippet.project.full_path}/-/snippets/#{snippet.id}" }
       :project_wiki      | ->(wiki)          { "/#{wiki.container.full_path}/-/wikis/home" }
       :release           | ->(release)       { "/#{release.project.full_path}/-/releases/#{release.tag}" }
+      :organization      | ->(organization)  { "/-/organizations/#{organization.path}" }
       :ci_build          | ->(build)         { "/#{build.project.full_path}/-/jobs/#{build.id}" }
       :design            | ->(design)        { "/#{design.project.full_path}/-/design_management/designs/#{design.id}/raw_image" }
+
+      [:issue, :group_level]     | ->(issue)     { "/groups/#{issue.namespace.full_path}/-/work_items/#{issue.iid}" }
+      [:work_item, :group_level] | ->(work_item) { "/groups/#{work_item.namespace.full_path}/-/work_items/#{work_item.iid}" }
 
       :group             | ->(group)         { "/groups/#{group.full_path}" }
       :group_milestone   | ->(milestone)     { "/groups/#{milestone.group.full_path}/-/milestones/#{milestone.iid}" }
@@ -54,10 +61,12 @@ RSpec.describe Gitlab::UrlBuilder do
       :discussion_note_on_project_snippet  | ->(note) { "/#{note.project.full_path}/-/snippets/#{note.noteable_id}#note_#{note.id}" }
       :discussion_note_on_personal_snippet | ->(note) { "/-/snippets/#{note.noteable_id}#note_#{note.id}" }
       :note_on_personal_snippet            | ->(note) { "/-/snippets/#{note.noteable_id}#note_#{note.id}" }
+      :note_on_abuse_report | ->(note) { "/admin/abuse_reports/#{note.noteable_id}#note_#{note.id}" }
+      :package | ->(package) { "/#{package.project.full_path}/-/packages/#{package.id}" }
     end
 
     with_them do
-      let(:object) { build_stubbed(factory) }
+      let(:object) { build_stubbed(*Array(factory)) }
       let(:path) { path_generator.call(object) }
 
       it 'returns the full URL' do
@@ -178,6 +187,18 @@ RSpec.describe Gitlab::UrlBuilder do
           url = subject.wiki_page_url(wiki, 'foo', action: :edit)
 
           expect(url).to eq "#{Gitlab.config.gitlab.url}/#{wiki.project.full_path}/-/wikis/foo/edit"
+        end
+      end
+    end
+
+    context 'when passing Packages::Package' do
+      let(:package) { build_stubbed(:terraform_module_package) }
+
+      context 'with terraform module package' do
+        it 'returns the url for terraform module registry' do
+          url = subject.build(package)
+
+          expect(url).to eq "#{Gitlab.config.gitlab.url}/#{package.project.full_path}/-/terraform_module_registry/#{package.id}"
         end
       end
     end

@@ -1,70 +1,100 @@
 # frozen_string_literal: true
 
-class Admin::BroadcastMessagesController < Admin::ApplicationController
-  include BroadcastMessagesHelper
+module Admin
+  class BroadcastMessagesController < ApplicationController
+    include Admin::BroadcastMessagesHelper
 
-  before_action :finder, only: [:edit, :update, :destroy]
+    before_action :find_broadcast_message, only: [:edit, :update, :destroy]
+    before_action :find_broadcast_messages, only: [:index, :create]
 
-  feature_category :navigation
+    feature_category :notifications
+    urgency :low
 
-  # rubocop: disable CodeReuse/ActiveRecord
-  def index
-    @broadcast_messages = BroadcastMessage.order(ends_at: :desc).page(params[:page])
-    @broadcast_message  = BroadcastMessage.new
-  end
-  # rubocop: enable CodeReuse/ActiveRecord
-
-  def edit
-  end
-
-  def create
-    @broadcast_message = BroadcastMessage.new(broadcast_message_params)
-
-    if @broadcast_message.save
-      redirect_to admin_broadcast_messages_path, notice: _('Broadcast Message was successfully created.')
-    else
-      render :index
+    def index
+      @broadcast_message = System::BroadcastMessage.new
     end
-  end
 
-  def update
-    if @broadcast_message.update(broadcast_message_params)
-      redirect_to admin_broadcast_messages_path, notice: _('Broadcast Message was successfully updated.')
-    else
-      render :edit
+    def edit; end
+
+    def create
+      @broadcast_message = System::BroadcastMessage.new(broadcast_message_params)
+      success = @broadcast_message.save
+
+      respond_to do |format|
+        format.json do
+          if success
+            render json: @broadcast_message, status: :ok
+          else
+            render json: { errors: @broadcast_message.errors.full_messages }, status: :bad_request
+          end
+        end
+        format.html do
+          if success
+            redirect_to admin_broadcast_messages_path, notice: _('Broadcast Message was successfully created.')
+          else
+            render :index
+          end
+        end
+      end
     end
-  end
 
-  def destroy
-    @broadcast_message.destroy
+    def update
+      success = @broadcast_message.update(broadcast_message_params)
 
-    respond_to do |format|
-      format.html { redirect_back_or_default(default: { action: 'index' }) }
-      format.js { head :ok }
+      respond_to do |format|
+        format.json do
+          if success
+            render json: @broadcast_message, status: :ok
+          else
+            render json: { errors: @broadcast_message.errors.full_messages }, status: :bad_request
+          end
+        end
+        format.html do
+          if success
+            redirect_to admin_broadcast_messages_path, notice: _('Broadcast Message was successfully updated.')
+          else
+            render :edit
+          end
+        end
+      end
     end
-  end
 
-  def preview
-    broadcast_message = BroadcastMessage.new(broadcast_message_params)
-    render json: { message: render_broadcast_message(broadcast_message) }
-  end
+    def destroy
+      @broadcast_message.destroy
 
-  protected
+      respond_to do |format|
+        format.html { redirect_back_or_default(default: { action: 'index' }) }
+        format.js { head :ok }
+      end
+    end
 
-  def finder
-    @broadcast_message = BroadcastMessage.find(params[:id])
-  end
+    def preview
+      @broadcast_message = System::BroadcastMessage.new(broadcast_message_params)
+      render plain: render_broadcast_message(@broadcast_message), status: :ok
+    end
 
-  def broadcast_message_params
-    params.require(:broadcast_message).permit(%i(
-      color
-      ends_at
-      font
-      message
-      starts_at
-      target_path
-      broadcast_type
-      dismissable
-    ), target_access_levels: []).reverse_merge!(target_access_levels: [])
+    protected
+
+    def find_broadcast_message
+      @broadcast_message = System::BroadcastMessage.find(params[:id])
+    end
+
+    def find_broadcast_messages
+      @broadcast_messages = System::BroadcastMessage.order(ends_at: :desc).page(params[:page]) # rubocop: disable CodeReuse/ActiveRecord
+    end
+
+    def broadcast_message_params
+      params.require(:broadcast_message)
+        .permit(%i[
+          theme
+          ends_at
+          message
+          starts_at
+          target_path
+          broadcast_type
+          dismissable
+          show_in_cli
+        ], target_access_levels: []).reverse_merge!(target_access_levels: [])
+    end
   end
 end

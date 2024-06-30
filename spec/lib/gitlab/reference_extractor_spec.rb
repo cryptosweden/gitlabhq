@@ -31,7 +31,7 @@ RSpec.describe Gitlab::ReferenceExtractor do
     project.add_reporter(@u_foo)
     project.add_reporter(@u_bar)
 
-    subject.analyze(%Q{
+    subject.analyze(%(
       Inline code: `@foo`
 
       Code block:
@@ -43,7 +43,7 @@ RSpec.describe Gitlab::ReferenceExtractor do
       Quote:
 
       > @offteam
-    })
+    ))
 
     expect(subject.users).to match_array([])
   end
@@ -193,7 +193,7 @@ RSpec.describe Gitlab::ReferenceExtractor do
   end
 
   context 'with an external issue tracker' do
-    let(:project) { create(:jira_project) }
+    let_it_be(:project) { create(:project, :with_jira_integration) }
     let(:issue)   { create(:issue, project: project) }
 
     context 'when GitLab issues are enabled' do
@@ -262,8 +262,11 @@ RSpec.describe Gitlab::ReferenceExtractor do
 
   describe '#all' do
     let(:issue) { create(:issue, project: project) }
+    let(:issue2) { create(:issue, project: project) }
+    let(:issue2_url) { Rails.application.routes.url_helpers.project_issue_url(project, issue2) }
     let(:label) { create(:label, project: project) }
-    let(:text) { "Ref. #{issue.to_reference} and #{label.to_reference}" }
+    let(:alert) { create(:alert_management_alert, project: project) }
+    let(:text) { "Ref. #{issue.to_reference} and #{label.to_reference} and #{alert.to_reference} and #{issue2_url}" }
 
     before do
       project.add_developer(project.creator)
@@ -271,7 +274,22 @@ RSpec.describe Gitlab::ReferenceExtractor do
     end
 
     it 'returns all referables' do
-      expect(subject.all).to match_array([issue, label])
+      expect(subject.all).to match_array([issue, label, alert, issue2])
+    end
+  end
+
+  describe '#alerts' do
+    let(:alert1) { create(:alert_management_alert, project: project) }
+    let(:alert2) { create(:alert_management_alert, project: project) }
+    let(:text) { "Alert ref: #{alert1.to_reference} URL: #{alert2.details_url} Infalid ref: ^alert#0" }
+
+    before do
+      project.add_developer(project.creator)
+      subject.analyze(text)
+    end
+
+    it 'returns alert referables' do
+      expect(subject.alerts).to match_array([alert1, alert2])
     end
   end
 
@@ -283,7 +301,7 @@ RSpec.describe Gitlab::ReferenceExtractor do
 
   describe 'referables prefixes' do
     def prefixes
-      described_class::REFERABLES.each_with_object({}) do |referable, result|
+      described_class.referrables.each_with_object({}) do |referable, result|
         class_name = referable.to_s.camelize
         klass = class_name.constantize if Object.const_defined?(class_name)
 
@@ -296,7 +314,7 @@ RSpec.describe Gitlab::ReferenceExtractor do
     end
 
     it 'returns all supported prefixes' do
-      expect(prefixes.keys.uniq).to match_array(%w(@ # ~ % ! $ & [vulnerability: *iteration:))
+      expect(prefixes.keys.uniq).to include(*%w(@ # ~ % ! $ & [vulnerability:))
     end
 
     it 'does not allow one prefix for multiple referables if not allowed specificly' do

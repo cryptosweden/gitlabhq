@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe SessionsController do
+RSpec.describe SessionsController, feature_category: :system_access do
   include DeviseHelpers
   include LdapHelpers
 
@@ -69,6 +69,16 @@ RSpec.describe SessionsController do
 
       expect(controller.stored_location_for(:redirect)).to eq(search_path)
     end
+
+    it 'redirects when in_initial_setup_state? is detected' do
+      allow(controller).to receive(:in_initial_setup_state?).and_return(true)
+
+      get(:new)
+
+      expect(response).to redirect_to(new_admin_initial_setup_path)
+    end
+
+    it_behaves_like "switches to user preferred language", 'Sign in'
   end
 
   describe '#create' do
@@ -85,7 +95,39 @@ RSpec.describe SessionsController do
         it 'does not authenticate user' do
           post(:create, params: { user: { login: 'invalid', password: 'invalid' } })
 
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(@request.env['warden']).not_to be_authenticated
           expect(controller).to set_flash.now[:alert].to(/Invalid login or password/)
+        end
+      end
+
+      context 'mass assignment' do
+        it 'does not authenticate with multiple usernames' do
+          expect do
+            post(:create, params: { user: { login: ['invalid', user.username], password: user.password } })
+          end.to raise_error(NoMethodError)
+          expect(@request.env['warden']).not_to be_authenticated
+        end
+
+        it 'does not authenticate with multiple passwords' do
+          expect do
+            post(:create, params: { user: { login: user.username, password: ['aaaaaa', user.password] } })
+          end.to raise_error(NoMethodError)
+          expect(@request.env['warden']).not_to be_authenticated
+        end
+      end
+
+      context 'when user with LDAP identity' do
+        before do
+          create(:identity, provider: 'ldapmain', user: user)
+        end
+
+        it 'does not authenticate user' do
+          post_action
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(@request.env['warden']).not_to be_authenticated
+          expect(flash[:alert]).to include(I18n.t('devise.failure.invalid'))
         end
       end
 
@@ -178,7 +220,7 @@ RSpec.describe SessionsController do
         end
 
         include_examples 'user login request with unique ip limit', 302 do
-          def request
+          def gitlab_request
             post(:create, params: { user: user_params })
             expect(subject.current_user).to eq user
             subject.sign_out user
@@ -192,12 +234,73 @@ RSpec.describe SessionsController do
         end
       end
 
-      context 'with reCAPTCHA' do
-        before do
-          stub_feature_flags(arkose_labs_login_challenge: false)
+      context 'when user has dismissed broadcast_messages' do
+        let_it_be(:user) { create(:user) }
+        let_it_be(:message_banner) { create(:broadcast_message, broadcast_type: :banner, message: 'banner') }
+        let_it_be(:message_notification) { create(:broadcast_message, broadcast_type: :notification, message: 'notification') }
+        let_it_be(:other_message) { create(:broadcast_message, broadcast_type: :banner, message: 'other') }
+
+        before_all do
+          create(:broadcast_message_dismissal, broadcast_message: message_banner, user: user)
+          create(:broadcast_message_dismissal, broadcast_message: message_notification, user: user)
+          create(:broadcast_message_dismissal, broadcast_message: other_message, user: build(:user))
         end
 
-        def unsuccesful_login(user_params, sesion_params: {})
+        context 'when new_broadcast_message_dismissal feature flag is not enabled' do
+          before do
+            stub_feature_flags(new_broadcast_message_dismissal: false)
+          end
+
+          it 'does not create dismissed cookies based on db records' do
+            expect(cookies["hide_broadcast_message_#{message_banner.id}"]).to be_nil
+            expect(cookies["hide_broadcast_message_#{message_notification.id}"]).to be_nil
+            expect(cookies["hide_broadcast_message_#{other_message.id}"]).to be_nil
+
+            post_action
+
+            expect(cookies["hide_broadcast_message_#{message_banner.id}"]).to be_nil
+            expect(cookies["hide_broadcast_message_#{message_notification.id}"]).to be_nil
+            expect(cookies["hide_broadcast_message_#{other_message.id}"]).to be_nil
+          end
+        end
+
+        context 'when new_broadcast_message_dismissal feature flag is enabled' do
+          before do
+            stub_feature_flags(new_broadcast_message_dismissal: true)
+          end
+
+          it 'creates dismissed cookies based on db records' do
+            expect(cookies["hide_broadcast_message_#{message_banner.id}"]).to be_nil
+            expect(cookies["hide_broadcast_message_#{message_notification.id}"]).to be_nil
+            expect(cookies["hide_broadcast_message_#{other_message.id}"]).to be_nil
+
+            post_action
+
+            expect(cookies["hide_broadcast_message_#{message_banner.id}"]).to be(true)
+            expect(cookies["hide_broadcast_message_#{message_notification.id}"]).to be(true)
+            expect(cookies["hide_broadcast_message_#{other_message.id}"]).to be_nil
+          end
+
+          context 'when dismissal is expired' do
+            let_it_be(:message) { create(:broadcast_message, broadcast_type: :banner, message: 'banner') }
+
+            before do
+              create(:broadcast_message_dismissal, :expired, broadcast_message: message, user: user)
+            end
+
+            it 'does not create cookie' do
+              expect(cookies["hide_broadcast_message_#{message.id}"]).to be_nil
+
+              post_action
+
+              expect(cookies["hide_broadcast_message_#{message.id}"]).to be_nil
+            end
+          end
+        end
+      end
+
+      context 'with reCAPTCHA' do
+        def unsuccessful_login(user_params, sesion_params: {})
           # Without this, `verify_recaptcha` arbitrarily returns true in test env
           Recaptcha.configuration.skip_verify_env.delete('test')
           counter = double(:counter)
@@ -210,7 +313,7 @@ RSpec.describe SessionsController do
           post(:create, params: { user: user_params }, session: sesion_params)
         end
 
-        def succesful_login(user_params, sesion_params: {})
+        def successful_login(user_params, sesion_params: {})
           # Avoid test ordering issue and ensure `verify_recaptcha` returns true
           Recaptcha.configuration.skip_verify_env << 'test'
           counter = double(:counter)
@@ -219,7 +322,7 @@ RSpec.describe SessionsController do
           expect(Gitlab::Metrics).to receive(:counter)
                                       .with(:successful_login_captcha_total, anything)
                                       .and_return(counter)
-          expect(Gitlab::Metrics).to receive(:counter).and_call_original
+          expect(Gitlab::Metrics).to receive(:counter).at_least(1).time.and_call_original
 
           post(:create, params: { user: user_params }, session: sesion_params)
         end
@@ -233,18 +336,27 @@ RSpec.describe SessionsController do
             request.headers[described_class::CAPTCHA_HEADER] = '1'
           end
 
-          it 'displays an error when the reCAPTCHA is not solved' do
-            # Without this, `verify_recaptcha` arbitrarily returns true in test env
+          context 'when the reCAPTCHA is not solved' do
+            it 'displays an error' do
+              unsuccessful_login(user_params)
 
-            unsuccesful_login(user_params)
+              expect(response).to render_template(:new)
+              expect(flash[:alert]).to include _('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.')
+              expect(subject.current_user).to be_nil
+            end
 
-            expect(response).to render_template(:new)
-            expect(flash[:alert]).to include _('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.')
-            expect(subject.current_user).to be_nil
+            it 'sets gon variables' do
+              Gon.clear
+
+              unsuccessful_login(user_params)
+
+              expect(response).to render_template(:new)
+              expect(Gon.all_variables).not_to be_empty
+            end
           end
 
           it 'successfully logs in a user when reCAPTCHA is solved' do
-            succesful_login(user_params)
+            successful_login(user_params)
 
             expect(subject.current_user).to eq user
           end
@@ -260,7 +372,7 @@ RSpec.describe SessionsController do
 
           context 'when user tried to login 5 times' do
             it 'displays an error when the reCAPTCHA is not solved' do
-              unsuccesful_login(user_params, sesion_params: { failed_login_attempts: 6 })
+              unsuccessful_login(user_params, sesion_params: { failed_login_attempts: 6 })
 
               expect(response).to render_template(:new)
               expect(flash[:alert]).to include _('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.')
@@ -268,7 +380,7 @@ RSpec.describe SessionsController do
             end
 
             it 'successfully logs in a user when reCAPTCHA is solved' do
-              succesful_login(user_params, sesion_params: { failed_login_attempts: 6 })
+              successful_login(user_params, sesion_params: { failed_login_attempts: 6 })
 
               expect(subject.current_user).to eq user
             end
@@ -280,7 +392,7 @@ RSpec.describe SessionsController do
             end
 
             it 'displays an error when the reCAPTCHA is not solved' do
-              unsuccesful_login(user_params)
+              unsuccessful_login(user_params)
 
               expect(response).to render_template(:new)
               expect(flash[:alert]).to include _('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.')
@@ -290,7 +402,7 @@ RSpec.describe SessionsController do
             it 'successfully logs in a user when reCAPTCHA is solved' do
               expect(Gitlab::AnonymousSession).to receive_message_chain(:new, :cleanup_session_per_ip_count)
 
-              succesful_login(user_params)
+              successful_login(user_params)
 
               expect(subject.current_user).to eq user
             end
@@ -364,8 +476,7 @@ RSpec.describe SessionsController do
 
           context 'when OTP is valid for another user' do
             it 'does not authenticate' do
-              authenticate_2fa(login: another_user.username,
-                               otp_attempt: another_user.current_otp)
+              authenticate_2fa(login: another_user.username, otp_attempt: another_user.current_otp)
 
               expect(subject.current_user).not_to eq another_user
             end
@@ -373,8 +484,7 @@ RSpec.describe SessionsController do
 
           context 'when OTP is invalid for another user' do
             it 'does not authenticate' do
-              authenticate_2fa(login: another_user.username,
-                               otp_attempt: 'invalid')
+              authenticate_2fa(login: another_user.username, otp_attempt: 'invalid')
 
               expect(subject.current_user).not_to eq another_user
             end
@@ -390,17 +500,39 @@ RSpec.describe SessionsController do
             end
 
             context 'when OTP is invalid' do
-              before do
-                authenticate_2fa(otp_attempt: 'invalid')
-              end
+              let(:code) { 'invalid' }
 
               it 'does not authenticate' do
+                authenticate_2fa(otp_attempt: code)
+
                 expect(subject.current_user).not_to eq user
               end
 
               it 'warns about invalid OTP code' do
+                authenticate_2fa(otp_attempt: code)
+
                 expect(controller).to set_flash.now[:alert]
                   .to(/Invalid two-factor code/)
+              end
+
+              it 'sends an email to the user informing about the attempt to sign in with a wrong OTP code' do
+                controller.request.remote_addr = '1.2.3.4'
+
+                expect_next_instance_of(NotificationService) do |instance|
+                  expect(instance).to receive(:two_factor_otp_attempt_failed).with(user, '1.2.3.4')
+                end
+
+                authenticate_2fa(otp_attempt: code)
+              end
+            end
+
+            context 'when OTP is an array' do
+              let(:code) { %w[000000 000001] }
+
+              it 'does not authenticate' do
+                authenticate_2fa(otp_attempt: code)
+
+                expect(subject.current_user).not_to eq user
               end
             end
           end
@@ -454,53 +586,107 @@ RSpec.describe SessionsController do
         expect { authenticate_2fa(login: user.username, otp_attempt: user.current_otp) }.to change { AuthenticationEvent.count }.by(1)
         expect(AuthenticationEvent.last.provider).to eq("two-factor")
       end
+
+      context 'when rendering devise two factor' do
+        render_views
+
+        before do
+          Gon.clear
+        end
+
+        it "adds gon variables" do
+          authenticate_2fa(login: user.username, password: user.password)
+
+          expect(response).to render_template('devise/sessions/two_factor')
+          expect(Gon.all_variables).not_to be_empty
+          expect(response.body).to match('gon.api_version')
+        end
+      end
     end
 
-    context 'when using two-factor authentication via U2F device' do
-      let(:user) { create(:user, :two_factor) }
+    context 'when using two-factor authentication via WebAuthn device' do
+      let(:user) { create(:user, :two_factor_via_webauthn) }
 
-      def authenticate_2fa_u2f(user_params)
+      def authenticate_2fa(user_params)
         post(:create, params: { user: user_params }, session: { otp_user_id: user.id })
-      end
-
-      before do
-        stub_feature_flags(webauthn: false)
       end
 
       context 'remember_me field' do
         it 'sets a remember_user_token cookie when enabled' do
-          allow(U2fRegistration).to receive(:authenticate).and_return(true)
+          allow_any_instance_of(Webauthn::AuthenticateService).to receive(:execute).and_return(true)
           allow(controller).to receive(:find_user).and_return(user)
-          expect(controller)
-            .to receive(:remember_me).with(user).and_call_original
+          expect(controller).to receive(:remember_me).with(user).and_call_original
 
-          authenticate_2fa_u2f(remember_me: '1', login: user.username, device_response: "{}")
+          authenticate_2fa(remember_me: '1', login: user.username, device_response: "{}")
 
           expect(response.cookies['remember_user_token']).to be_present
         end
 
         it 'does nothing when disabled' do
-          allow(U2fRegistration).to receive(:authenticate).and_return(true)
+          allow_any_instance_of(Webauthn::AuthenticateService).to receive(:execute).and_return(true)
           allow(controller).to receive(:find_user).and_return(user)
           expect(controller).not_to receive(:remember_me)
 
-          authenticate_2fa_u2f(remember_me: '0', login: user.username, device_response: "{}")
+          authenticate_2fa(remember_me: '0', login: user.username, device_response: "{}")
 
           expect(response.cookies['remember_user_token']).to be_nil
         end
       end
 
       it "creates an audit log record" do
-        allow(U2fRegistration).to receive(:authenticate).and_return(true)
-        expect { authenticate_2fa_u2f(login: user.username, device_response: "{}") }.to change { AuditEvent.count }.by(1)
-        expect(AuditEvent.last.details[:with]).to eq("two-factor-via-u2f-device")
+        allow_any_instance_of(Webauthn::AuthenticateService).to receive(:execute).and_return(true)
+
+        expect { authenticate_2fa(login: user.username, device_response: "{}") }.to(
+          change { AuditEvent.count }.by(1))
+        expect(AuditEvent.last.details[:with]).to eq("two-factor-via-webauthn-device")
       end
 
       it "creates an authentication event record" do
-        allow(U2fRegistration).to receive(:authenticate).and_return(true)
+        allow_any_instance_of(Webauthn::AuthenticateService).to receive(:execute).and_return(true)
 
-        expect { authenticate_2fa_u2f(login: user.username, device_response: "{}") }.to change { AuthenticationEvent.count }.by(1)
-        expect(AuthenticationEvent.last.provider).to eq("two-factor-via-u2f-device")
+        expect { authenticate_2fa(login: user.username, device_response: "{}") }.to(
+          change { AuthenticationEvent.count }.by(1))
+        expect(AuthenticationEvent.last.provider).to eq("two-factor-via-webauthn-device")
+      end
+    end
+
+    context 'when the user is locked and submits a valid verification token' do
+      let(:user) { create(:user) }
+      let(:user_params) { { verification_token: 'token' } }
+      let(:session_params) { { verification_user_id: user.id } }
+      let(:post_action) { post(:create, params: { user: user_params }, session: session_params) }
+
+      before do
+        encrypted_token = Devise.token_generator.digest(User, user.email, 'token')
+        user.update!(locked_at: Time.current, unlock_token: encrypted_token)
+      end
+
+      it_behaves_like 'known sign in'
+
+      it 'successfully logs in a user' do
+        post_action
+
+        expect(subject.current_user).to eq user
+      end
+
+      context 'when the verification token is invalid' do
+        let(:user_params) { { verification_token: 'not-the-token' } }
+
+        it 'does not log the user in' do
+          post_action
+
+          expect(subject.current_user).to eq nil
+        end
+      end
+
+      context 'when the verification token is an array' do
+        let(:user_params) { { verification_token: %w[not-the-token still-not-the-token] } }
+
+        it 'does not log the user in' do
+          post_action
+
+          expect(subject.current_user).to eq nil
+        end
       end
     end
   end
@@ -528,8 +714,7 @@ RSpec.describe SessionsController do
       it 'sets the username and caller_id in the context' do
         expect(controller).to receive(:destroy).and_wrap_original do |m, *args|
           expect(Gitlab::ApplicationContext.current)
-            .to include('meta.user' => user.username,
-                        'meta.caller_id' => 'SessionsController#destroy')
+            .to include('meta.user' => user.username, 'meta.caller_id' => 'SessionsController#destroy')
 
           m.call(*args)
         end
@@ -568,8 +753,7 @@ RSpec.describe SessionsController do
           m.call(*args)
         end
 
-        post(:create,
-             params: { user: { login: user.username, password: user.password.succ } })
+        post :create, params: { user: { login: user.username, password: user.password.succ } }
       end
     end
   end

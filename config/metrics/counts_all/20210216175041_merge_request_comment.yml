@@ -2,14 +2,13 @@
 data_category: optional
 key_path: counts.merge_request_comment
 description: Count of the number of merge request comments
-product_section: dev
-product_stage: create
-product_group: group::code review
-product_category: code_review
+product_group: code_review
 value_type: number
 status: active
 time_frame: all
-data_source: redis
+data_source: internal_events
+events:
+- name: create_merge_request_note
 distribution:
 - ce
 - ee

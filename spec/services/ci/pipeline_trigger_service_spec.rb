@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PipelineTriggerService do
+RSpec.describe Ci::PipelineTriggerService, feature_category: :continuous_integration do
   include AfterNextHelpers
 
   let_it_be(:project) { create(:project, :repository) }
@@ -23,8 +23,8 @@ RSpec.describe Ci::PipelineTriggerService do
     shared_examples 'detecting an unprocessable pipeline trigger' do
       context 'when the pipeline was not created successfully' do
         let(:fail_pipeline) do
-          receive(:execute).and_wrap_original do |original, *args|
-            response = original.call(*args)
+          receive(:execute).and_wrap_original do |original, *args, **kwargs|
+            response = original.call(*args, **kwargs)
             pipeline = response.payload
             pipeline.update!(failure_reason: 'unknown_failure')
 
@@ -56,6 +56,15 @@ RSpec.describe Ci::PipelineTriggerService do
         end
       end
 
+      context 'when trigger owner does not have a permission to read a project' do
+        let(:params) { { token: trigger.token, ref: 'master', variables: nil } }
+        let(:trigger) { create(:ci_trigger, project: project, owner: create(:user)) }
+
+        it 'does nothing' do
+          expect { result }.not_to change { Ci::Pipeline.count }
+        end
+      end
+
       context 'when params have an existing trigger token' do
         context 'when params have an existing ref' do
           let(:params) { { token: trigger.token, ref: 'master', variables: nil } }
@@ -78,6 +87,7 @@ RSpec.describe Ci::PipelineTriggerService do
             expect(var.key).to eq('TRIGGER_PAYLOAD')
             expect(var.value).to eq('{"ref":"master","variables":null}')
             expect(var.variable_type).to eq('file')
+            expect(var.raw).to eq(true)
           end
 
           context 'when commit message has [ci skip]' do
@@ -185,6 +195,13 @@ RSpec.describe Ci::PipelineTriggerService do
             expect(result[:pipeline].project).to eq(project)
             expect(result[:pipeline].user).to eq(job.user)
             expect(result[:status]).to eq(:success)
+          end
+
+          it_behaves_like 'logs downstream pipeline creation' do
+            let(:downstream_pipeline) { result[:pipeline] }
+            let(:expected_root_pipeline) { pipeline }
+            let(:expected_hierarchy_size) { 2 }
+            let(:expected_downstream_relationship) { :multi_project }
           end
 
           context 'when commit message has [ci skip]' do

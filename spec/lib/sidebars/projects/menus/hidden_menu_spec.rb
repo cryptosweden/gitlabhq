@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Sidebars::Projects::Menus::HiddenMenu do
+RSpec.describe Sidebars::Projects::Menus::HiddenMenu, feature_category: :navigation do
   let_it_be(:project) { create(:project, :repository) }
 
   let(:user) { project.first_owner }
@@ -67,7 +67,7 @@ RSpec.describe Sidebars::Projects::Menus::HiddenMenu do
       it_behaves_like 'access rights checks'
     end
 
-    describe 'New Issue' do
+    describe 'New issue' do
       let(:item_id) { :new_issue }
 
       it_behaves_like 'access rights checks'

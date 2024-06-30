@@ -1,10 +1,14 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import waitForPromises from 'helpers/wait_for_promises';
+import { stubPerformanceWebAPI } from 'helpers/performance';
+import { __ } from '~/locale';
 import CannotPushCodeAlert from '~/ide/components/cannot_push_code_alert.vue';
 import ErrorMessage from '~/ide/components/error_message.vue';
 import Ide from '~/ide/components/ide.vue';
+import eventHub from '~/ide/eventhub';
 import { MSG_CANNOT_PUSH_CODE_GO_TO_FORK, MSG_GO_TO_FORK } from '~/ide/messages';
 import { createStore } from '~/ide/stores';
 import { file } from '../helpers';
@@ -13,6 +17,7 @@ import { projectData } from '../mock_data';
 Vue.use(Vuex);
 
 const TEST_FORK_IDE_PATH = '/test/ide/path';
+const MSG_ARE_YOU_SURE = __('Are you sure you want to lose unsaved changes?');
 
 describe('WebIDE', () => {
   const emptyProjData = { ...projectData, empty_repo: true, branches: {} };
@@ -39,13 +44,23 @@ describe('WebIDE', () => {
 
   const findAlert = () => wrapper.findComponent(CannotPushCodeAlert);
 
+  const callOnBeforeUnload = (e = {}) => window.onbeforeunload(e);
+
+  beforeAll(() => {
+    // HACK: Workaround readonly property in Jest
+    Object.defineProperty(window, 'onbeforeunload', {
+      writable: true,
+    });
+  });
+
   beforeEach(() => {
+    stubPerformanceWebAPI();
+
     store = createStore();
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
+    window.onbeforeunload = null;
   });
 
   describe('ide component, empty repo', () => {
@@ -57,7 +72,7 @@ describe('WebIDE', () => {
       });
     });
 
-    it('renders "New file" button in empty repo', async () => {
+    it('renders "New file" button in empty repo', () => {
       expect(wrapper.find('[title="New file"]').exists()).toBe(true);
     });
   });
@@ -79,7 +94,7 @@ describe('WebIDE', () => {
 
           await waitForPromises();
 
-          expect(wrapper.find(ErrorMessage).exists()).toBe(exists);
+          expect(wrapper.findComponent(ErrorMessage).exists()).toBe(exists);
         },
       );
     });
@@ -87,7 +102,8 @@ describe('WebIDE', () => {
     describe('onBeforeUnload', () => {
       it('returns undefined when no staged files or changed files', () => {
         createComponent();
-        expect(wrapper.vm.onBeforeUnload()).toBe(undefined);
+
+        expect(callOnBeforeUnload()).toBe(undefined);
       });
 
       it('returns warning text when their are changed files', () => {
@@ -97,7 +113,10 @@ describe('WebIDE', () => {
           },
         });
 
-        expect(wrapper.vm.onBeforeUnload()).toBe('Are you sure you want to lose unsaved changes?');
+        const e = {};
+
+        expect(callOnBeforeUnload(e)).toBe(MSG_ARE_YOU_SURE);
+        expect(e.returnValue).toBe(MSG_ARE_YOU_SURE);
       });
 
       it('returns warning text when their are staged files', () => {
@@ -107,20 +126,27 @@ describe('WebIDE', () => {
           },
         });
 
-        expect(wrapper.vm.onBeforeUnload()).toBe('Are you sure you want to lose unsaved changes?');
+        const e = {};
+
+        expect(callOnBeforeUnload(e)).toBe(MSG_ARE_YOU_SURE);
+        expect(e.returnValue).toBe(MSG_ARE_YOU_SURE);
       });
 
-      it('updates event object', () => {
-        const event = {};
+      it('returns undefined once after "skip-beforeunload" was emitted', () => {
         createComponent({
           state: {
             stagedFiles: [file()],
           },
         });
 
-        wrapper.vm.onBeforeUnload(event);
+        eventHub.$emit('skip-beforeunload');
+        const e = {};
 
-        expect(event.returnValue).toBe('Are you sure you want to lose unsaved changes?');
+        expect(callOnBeforeUnload()).toBe(undefined);
+        expect(e.returnValue).toBe(undefined);
+
+        expect(callOnBeforeUnload(e)).toBe(MSG_ARE_YOU_SURE);
+        expect(e.returnValue).toBe(MSG_ARE_YOU_SURE);
       });
     });
 
@@ -151,7 +177,7 @@ describe('WebIDE', () => {
     });
   });
 
-  it('when user cannot push code, shows alert', () => {
+  it('when user cannot push code, shows an alert', () => {
     store.state.links = {
       forkInfo: {
         ide_path: TEST_FORK_IDE_PATH,

@@ -15,6 +15,14 @@ class MemberPresenter < Gitlab::View::Presenter::Delegated
     end
   end
 
+  def valid_member_roles
+    []
+  end
+
+  def role_type
+    'default'
+  end
+
   def can_resend_invite?
     invite? &&
       can?(current_user, admin_member_permission, source)
@@ -36,6 +44,12 @@ class MemberPresenter < Gitlab::View::Presenter::Delegated
   def can_override?
     false
   end
+
+  def last_owner?
+    raise NotImplementedError
+  end
+
+  def member_role_description; end
 
   private
 

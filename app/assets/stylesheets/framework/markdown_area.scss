@@ -44,52 +44,6 @@
   }
 }
 
-.div-dropzone-alert {
-  margin-top: 5px;
-  margin-bottom: 0;
-  transition: opacity 200ms ease-in-out;
-}
-
-.md-header {
-  .nav-links {
-    a {
-      width: 100%;
-      padding-top: 0;
-      line-height: 19px;
-
-      &.btn.btn-sm {
-        padding: 2px 5px;
-      }
-
-      &:focus {
-        margin-top: -10px;
-        padding-top: 10px;
-      }
-    }
-  }
-
-  .gl-tabs-nav {
-    @include media-breakpoint-down(xs) {
-      .nav-item {
-        flex: 1;
-      }
-
-      .gl-tab-nav-item {
-        padding-top: $gl-padding-4;
-        padding-bottom: $gl-padding-8;
-      }
-
-      .md-header-toolbar {
-        width: 100%;
-        display: flex;
-        flex-wrap: wrap;
-        padding-top: $gl-padding-8;
-        border-top: 1px solid $border-color;
-      }
-    }
-  }
-}
-
 .md-header-tab {
   @include media-breakpoint-down(xs) {
     flex: 1;
@@ -104,7 +58,6 @@
   li.md-header-toolbar {
     margin-left: auto;
     visibility: hidden;
-    padding-bottom: $gl-padding-8;
 
     &.active {
       visibility: visible;
@@ -123,13 +76,13 @@
 
 .referenced-users {
   color: $gl-text-color;
-  padding-top: 10px;
+  padding: 0 $gl-padding $gl-padding-8;
 }
 
 .referenced-commands {
   background: $blue-50;
   padding: $gl-padding-8 $gl-padding;
-  border-radius: $border-radius-default;
+  border-radius: 0 0 $gl-border-radius-base-inner $gl-border-radius-base-inner;
 
   p {
     margin: 0;
@@ -137,7 +90,7 @@
 }
 
 .md-preview-holder {
-  min-height: 172px;
+  min-height: 177px;
   padding: 10px 0;
   overflow-x: auto;
 }
@@ -151,37 +104,49 @@
   padding: 5px;
   box-shadow: none;
   width: 100%;
+  resize: none !important;
+  transition: box-shadow $gl-transition-duration-medium ease;
 }
 
 .md-suggestion-diff {
   display: table !important;
   border: 1px solid $border-color !important;
-  width: 100% !important;
-  font-family: $monospace-font !important;
+
+  td {
+    border: 0 !important;
+  }
+
+  tr.old {
+    td {
+      border-radius: 0 !important;
+    }
+  }
 }
 
 .suggestions.md > .markdown-code-block {
-  @include gl-static;
+  position: static;
 }
 
 .md-suggestion-header {
-  height: $suggestion-header-height;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background-color: $gray-light;
+  background-color: $gray-10;
   border: 1px solid $border-color;
-  padding: $gl-padding;
-  border-radius: $border-radius-default $border-radius-default 0 0;
+  border-radius: $gl-border-radius-base $gl-border-radius-base 0 0;
+}
 
-  svg {
-    vertical-align: middle;
-    margin-bottom: 3px;
-  }
+/* these two styles are important to prevent certain LaTeX from
+   hijacking a page: https://gitlab.com/gitlab-org/gitlab/-/issues/394770
+*/
+.math-content-inline {
+  overflow: hidden;
+  display: inline-flex;
+}
 
-  .dropdown-chevron {
-    margin-bottom: 0;
-  }
+.math-content-display {
+  overflow: auto;
+  display: block;
 }
 
 @include media-breakpoint-down(xs) {

@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
-require 'set'
+require 'set' # rubocop:disable Lint/RedundantRequireStatement -- Ruby 3.1 and earlier needs this. Drop this line after Ruby 3.2+ is only supported.
 
 class Compare
   include Gitlab::Utils::StrongMemoize
   include ActsAsPaginatedDiff
 
-  delegate :same, :head, :base, to: :@compare
+  delegate :same, :head, :base, :generated_files, to: :@compare
 
   attr_reader :project
 
@@ -30,7 +30,7 @@ class Compare
   # See `namespace_project_compare_url`
   def to_param
     {
-      from: @straight ? start_commit_sha : base_commit_sha,
+      from: @straight ? start_commit_sha : (base_commit_sha || start_commit_sha),
       to: head_commit_sha
     }
   end
@@ -40,7 +40,10 @@ class Compare
   end
 
   def commits
-    @commits ||= Commit.decorate(@compare.commits, project)
+    @commits ||= begin
+      decorated_commits = Commit.decorate(@compare.commits, project)
+      CommitCollection.new(project, decorated_commits)
+    end
   end
 
   def start_commit
@@ -76,8 +79,8 @@ class Compare
     commit&.sha
   end
 
-  def raw_diffs(*args)
-    @compare.diffs(*args)
+  def raw_diffs(...)
+    @compare.diffs(...)
   end
 
   def diffs(diff_options = nil)
@@ -89,7 +92,7 @@ class Compare
 
   def diff_refs
     Gitlab::Diff::DiffRefs.new(
-      base_sha:  @straight ? start_commit_sha : base_commit_sha,
+      base_sha: @straight ? start_commit_sha : base_commit_sha,
       start_sha: start_commit_sha,
       head_sha: head_commit_sha
     )

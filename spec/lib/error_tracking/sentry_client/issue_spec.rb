@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ErrorTracking::SentryClient::Issue do
+RSpec.describe ErrorTracking::SentryClient::Issue, feature_category: :error_tracking do
   include SentryClientHelpers
 
   let(:token) { 'test-token' }
@@ -13,7 +13,7 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
   describe '#list_issues' do
     shared_examples 'issues have correct return type' do |klass|
       it "returns objects of type #{klass}" do
-        expect(subject[:issues]).to all( be_a(klass) )
+        expect(subject[:issues]).to all(be_a(klass))
       end
     end
 
@@ -41,18 +41,28 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
     let(:cursor) { nil }
     let(:sort) { 'last_seen' }
     let(:sentry_api_response) { issues_sample_response }
-    let(:sentry_request_url) { sentry_url + '/issues/?limit=20&query=is:unresolved' }
+    let(:sentry_request_url) { "#{sentry_url}/issues/?limit=20&query=is:unresolved" }
     let!(:sentry_api_request) { stub_sentry_request(sentry_request_url, body: sentry_api_response) }
 
-    subject { client.list_issues(issue_status: issue_status, limit: limit, search_term: search_term, sort: sort, cursor: cursor) }
+    subject do
+      client.list_issues(
+        issue_status: issue_status,
+        limit: limit,
+        search_term: search_term,
+        sort: sort,
+        cursor: cursor
+      )
+    end
 
     it_behaves_like 'calls sentry api'
 
     it_behaves_like 'issues have correct return type', Gitlab::ErrorTracking::Error
     it_behaves_like 'issues have correct length', 3
+    it_behaves_like 'maps Sentry exceptions'
+    it_behaves_like 'Sentry API response size limit'
 
     shared_examples 'has correct external_url' do
-      context 'external_url' do
+      describe '#external_url' do
         it 'is constructed correctly' do
           expect(subject[:issues][0].external_url).to eq('https://sentrytest.gitlab.com/sentry-org/sentry-project/issues/11')
         end
@@ -62,7 +72,8 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
     context 'when response has a pagination info' do
       let(:headers) do
         {
-          link: '<https://sentrytest.gitlab.com>; rel="previous"; results="true"; cursor="1573556671000:0:1", <https://sentrytest.gitlab.com>; rel="next"; results="true"; cursor="1572959139000:0:0"'
+          link: '<https://sentrytest.gitlab.com>; rel="previous"; results="true"; cursor="1573556671000:0:1",' \
+                '<https://sentrytest.gitlab.com>; rel="next"; results="true"; cursor="1572959139000:0:0"'
         }
       end
 
@@ -76,7 +87,7 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
       end
     end
 
-    context 'error object created from sentry response' do
+    context 'when error object created from sentry response' do
       using RSpec::Parameterized::TableSyntax
 
       where(:error_object, :sentry_response) do
@@ -104,13 +115,13 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
       it_behaves_like 'has correct external_url'
     end
 
-    context 'redirects' do
-      let(:sentry_api_url) { sentry_url + '/issues/?limit=20&query=is:unresolved' }
+    context 'with redirects' do
+      let(:sentry_api_url) { "#{sentry_url}/issues/?limit=20&query=is:unresolved" }
 
       it_behaves_like 'no Sentry redirects'
     end
 
-    context 'requests with sort parameter in sentry api' do
+    context 'with sort parameter in sentry api' do
       let(:sentry_request_url) do
         'https://sentrytest.gitlab.com/api/0/projects/sentry-org/sentry-project/' \
           'issues/?limit=20&query=is:unresolved&sort=freq'
@@ -140,9 +151,9 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
       end
     end
 
-    context 'Older sentry versions where keys are not present' do
+    context 'with older sentry versions where keys are not present' do
       let(:sentry_api_response) do
-        issues_sample_response[0...1].map do |issue|
+        issues_sample_response.first(1).map do |issue|
           issue[:project].delete(:id)
           issue
         end
@@ -156,28 +167,18 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
       it_behaves_like 'has correct external_url'
     end
 
-    context 'essential keys missing in API response' do
+    context 'when essential keys are missing in API response' do
       let(:sentry_api_response) do
-        issues_sample_response[0...1].map do |issue|
+        issues_sample_response.first(1).map do |issue|
           issue.except(:id)
         end
       end
 
       it 'raises exception' do
-        expect { subject }.to raise_error(ErrorTracking::SentryClient::MissingKeysError, 'Sentry API response is missing keys. key not found: "id"')
+        expect { subject }.to raise_error(ErrorTracking::SentryClient::MissingKeysError,
+                                          'Sentry API response is missing keys. key not found: "id"')
       end
     end
-
-    context 'sentry api response too large' do
-      it 'raises exception' do
-        deep_size = double('Gitlab::Utils::DeepSize', valid?: false)
-        allow(Gitlab::Utils::DeepSize).to receive(:new).with(sentry_api_response).and_return(deep_size)
-
-        expect { subject }.to raise_error(ErrorTracking::SentryClient::ResponseInvalidSizeError, 'Sentry API response is too big. Limit is 1 MB.')
-      end
-    end
-
-    it_behaves_like 'maps Sentry exceptions'
 
     context 'when search term is present' do
       let(:search_term) { 'NoMethodError' }
@@ -198,6 +199,15 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
       it_behaves_like 'issues have correct return type', Gitlab::ErrorTracking::Error
       it_behaves_like 'issues have correct length', 3
     end
+
+    it_behaves_like 'non-numeric input handling in Sentry response', 'id' do
+      let(:sentry_api_response) do
+        issues_sample_response.first(1).map do |issue|
+          issue[:id] = id_input
+          issue
+        end
+      end
+    end
   end
 
   describe '#issue_details' do
@@ -207,12 +217,16 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
       )
     end
 
+    let(:sentry_api_response) { issue_sample_response }
     let(:sentry_request_url) { "#{sentry_url}/issues/#{issue_id}/" }
-    let!(:sentry_api_request) { stub_sentry_request(sentry_request_url, body: issue_sample_response) }
+    let!(:sentry_api_request) { stub_sentry_request(sentry_request_url, body: sentry_api_response) }
 
     subject { client.issue_details(issue_id: issue_id) }
 
-    context 'error object created from sentry response' do
+    it_behaves_like 'maps Sentry exceptions'
+    it_behaves_like 'Sentry API response size limit'
+
+    context 'with error object created from sentry response' do
       using RSpec::Parameterized::TableSyntax
 
       where(:error_object, :sentry_response) do
@@ -293,23 +307,34 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
         expect(subject.tags).to eq({ level: issue_sample_response['level'], logger: issue_sample_response['logger'] })
       end
     end
+
+    it_behaves_like 'non-numeric input handling in Sentry response', 'id' do
+      let(:sentry_api_response) do
+        issue_sample_response.tap do |issue|
+          issue[:id] = id_input
+        end
+      end
+    end
   end
 
   describe '#update_issue' do
     let(:sentry_url) { 'https://sentrytest.gitlab.com/api/0' }
     let(:sentry_request_url) { "#{sentry_url}/issues/#{issue_id}/" }
-
-    before do
-      stub_sentry_request(sentry_request_url, :put)
-    end
-
     let(:params) do
       {
         status: 'resolved'
       }
     end
 
+    before do
+      stub_sentry_request(sentry_request_url, :put)
+    end
+
     subject { client.update_issue(issue_id: issue_id, params: params) }
+
+    it_behaves_like 'Sentry API response size limit' do
+      let(:sentry_api_response) { {} }
+    end
 
     it_behaves_like 'calls sentry api' do
       let(:sentry_api_request) { stub_sentry_request(sentry_request_url, :put) }
@@ -319,7 +344,7 @@ RSpec.describe ErrorTracking::SentryClient::Issue do
       expect(subject).to be_truthy
     end
 
-    context 'error encountered' do
+    context 'when error is encountered' do
       let(:error) { StandardError.new('error') }
 
       before do

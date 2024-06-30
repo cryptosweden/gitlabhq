@@ -1,23 +1,30 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Labels **(FREE)**
+# Labels
 
-As your count of issues, merge requests, and epics grows in GitLab, it gets more challenging
-to keep track of those items. Especially as your organization grows from just a few people to
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+Labels are a way to categorize and filter issues, merge requests, and epics in GitLab.
+
+As your projects grow in GitLab, it gets more challenging to keep track of the work that's done.
+Especially as your organization grows from just a few people to
 hundreds or thousands. With labels, you can organize and tag your work, and track the work items
 you're interested in.
 
-Labels are a key part of [issue boards](issue_board.md). With labels you can:
+Labels are a key part of [issue boards](issue_board.md).
 
-- Categorize [epics](../group/epics/index.md), issues, and merge requests using colors and descriptive titles like
-`bug`, `feature request`, or `docs`.
-- Dynamically filter and manage [epics](../group/epics/index.md), issues, and merge requests.
-- [Search lists of issues, merge requests, and epics](../search/index.md#search-issues-and-merge-requests),
-  as well as [issue boards](../search/index.md#issue-boards).
+Use labels on [epics](../group/epics/index.md), issues, and merge requests to:
+
+- Categorize items using colors and descriptive titles like `bug`, `feature request`, or `docs`.
+- Dynamically filter and manage items to view work that's in progress or completed.
+- Search lists and boards.
+- Communicate priority or severity of items, using [scoped labels](#scoped-labels).
 
 ## Types of labels
 
@@ -29,9 +36,19 @@ You can use two types of labels in GitLab:
 
 ## Assign and unassign labels
 
-> Unassigning labels with the **X** button [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/216881) in GitLab 13.5.
+> - Real-time updates in the sidebar [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/241538) in GitLab 14.10 with a [feature flag](../../administration/feature_flags.md) named `realtime_labels`, disabled by default.
+> - Real-time updates in the sidebar [enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/357370#note_991987201) in GitLab 15.1.
+> - Real-time updates in the sidebar [enabled by default](https://gitlab.com/gitlab-org/gitlab/-/issues/357370) in GitLab 15.5.
+> - Real-time updates in the sidebar [generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/103199) in GitLab 15.6. Feature flag `realtime_labels` removed.
 
 You can assign labels to any issue, merge request, or epic.
+
+Changed labels are immediately visible to other users, without refreshing the page, on the following:
+
+- Epics
+- Incidents
+- Issues
+- Merge requests
 
 To assign or unassign a label:
 
@@ -55,12 +72,10 @@ You can also assign and unassign labels with [quick actions](quick_actions.md):
 
 ### View project labels
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/241990) in GitLab 13.5: the label list in a project also shows all inherited labels.
-
 To view the **project's labels**:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Project information > Labels**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Manage > Labels**.
 
 Or:
 
@@ -76,8 +91,8 @@ project or group path where it was created.
 
 To view the **group's labels**:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Group information > Labels**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Manage > Labels**.
 
 Or:
 
@@ -98,8 +113,8 @@ Prerequisites:
 
 To create a project label:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Project information > Labels**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Manage > Labels**.
 1. Select **New label**.
 1. In the **Title** field, enter a short, descriptive name for the label. You
    can also use this field to create [scoped, mutually exclusive labels](#scoped-labels).
@@ -125,16 +140,15 @@ To do so:
 1. Select **Create project label**.
 1. Fill in the name field. You can't specify a description if creating a label this way.
    You can add a description later by [editing the label](#edit-a-label).
-1. Optional. Select a color by selecting from the available colors, or enter a hex color value for
-   a specific color.
-1. Select **Create**.
+1. Select a color by selecting from the available colors, or enter a hex color value for a specific color.
+1. Select **Create**. Your label is created and selected.
 
 ### Create a group label
 
 To create a group label:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Group information > Labels**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Manage > Labels**.
 1. Select **New label**.
 1. In the **Title** field, enter a short, descriptive name for the label. You
    can also use this field to create [scoped, mutually exclusive labels](#scoped-labels).
@@ -144,7 +158,11 @@ To create a group label:
    a specific color in the **Background color** field.
 1. Select **Create label**.
 
-### Create a group label from an epic **(PREMIUM)**
+### Create a group label from an epic
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 You can also create a new group label from an epic.
 Labels you create this way belong to the same group as the epic.
@@ -160,8 +178,7 @@ To do so:
 1. Select **Create group label**.
 1. Fill in the name field. You can't specify a description if creating a label this way.
    You can add a description later by [editing the label](#edit-a-label).
-1. Optional. Select a color by selecting from the available colors,enter input a hex color value
-   for a specific color.
+1. Select a color by selecting from the available colors,enter input a hex color value for a specific color.
 1. Select **Create**.
 
 ## Edit a label
@@ -174,17 +191,19 @@ Prerequisites:
 
 To edit a **project** label:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Project information > Labels**.
-1. Next to the label you want to edit, select **Edit** (**{pencil}**).
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Manage > Labels**.
+1. Next to the label you want to edit, select the vertical ellipsis (**{ellipsis_v}**), and then select **Edit**.
+1. Select **Save changes**.
 
 ### Edit a group label
 
 To edit a **group** label:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Group information > Labels**.
-1. Next to the label you want to edit, select **Edit** (**{pencil}**).
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Manage > Labels**.
+1. Next to the label you want to edit, select the vertical ellipsis (**{ellipsis_v}**), and then select **Edit**.
+1. Select **Save changes**.
 
 ## Delete a label
 
@@ -200,21 +219,16 @@ Prerequisites:
 
 To delete a **project** label:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Project information > Labels**.
-1. Either:
-
-   - Next to the **Subscribe** button, select (**{ellipsis_v}**).
-   - Next to the label you want to edit, select **Edit** (**{pencil}**).
-
-1. Select **Delete**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Manage > Labels**.
+1. Next to the **Subscribe** button, select (**{ellipsis_v}**), and then select **Delete**.
 
 ### Delete a group label
 
 To delete a **group** label:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Group information > Labels**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Manage > Labels**.
 1. Either:
 
    - Next to the **Subscribe** button, select (**{ellipsis_v}**).
@@ -223,8 +237,6 @@ To delete a **group** label:
 1. Select **Delete**.
 
 ## Promote a project label to a group label
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/231472) in GitLab 13.6: promoting a project label keeps that label's ID and changes it into a group label. Previously, promoting a project label created a new group label with a new ID and deleted the old label.
 
 You might want to make a project label available for other
 projects in the same group. Then, you can promote the label to a group label.
@@ -243,8 +255,8 @@ Prerequisites:
 
 To promote a project label to a group label:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Project information > Labels**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Manage > Labels**.
 1. Next to the **Subscribe** button, select the three dots (**{ellipsis_v}**) and
    select **Promote to group label**.
 
@@ -294,8 +306,8 @@ Prerequisites:
 
 To add the default labels to the project:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Project information > Labels**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Manage > Labels**.
 1. Select **Generate a default set of labels**.
 
 The following labels are created:
@@ -309,7 +321,11 @@ The following labels are created:
 - `suggestion`
 - `support`
 
-## Scoped labels **(PREMIUM)**
+## Scoped labels
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Teams can use scoped labels to annotate issues, merge requests, and epics with mutually exclusive
 labels. By preventing certain labels from being used together, you can create more complex workflows.
@@ -322,12 +338,14 @@ An issue, merge request, or epic cannot have two scoped labels, of the form `key
 with the same `key`. If you add a new label with the same `key` but a different `value`,
 the previous `key` label is replaced with the new label.
 
-<i class="fa fa-youtube-play youtube" aria-hidden="true"></i>
-For a video overview, see [Scoped Labels Speed Run](https://www.youtube.com/watch?v=ebyCiKMFODg).
+<div class="video-fallback">
+  See the video: <a href="https://www.youtube.com/watch?v=7l7tnEva6I8">Scoped Labels - Setting up your Organization with GitLab</a>.
+</div>
+<figure class="video-container">
+  <iframe src="https://www.youtube-nocookie.com/embed/7l7tnEva6I8" frameborder="0" allowfullscreen> </iframe>
+</figure>
 
 ### Filter by scoped labels
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/12285) in GitLab 14.4.
 
 To filter issue, merge request, or epic lists by a given scope, enter
 `<scope>::*` in the searched label name.
@@ -336,7 +354,7 @@ For example, filtering by the `platform::*` label returns issues that have `plat
 `platform::Android`, or `platform::Linux` labels.
 
 NOTE:
-Filtering by scoped labels not available on the [issues or merge requests dashboard pages](../search/index.md#search-issues-and-merge-requests).
+Filtering by scoped labels not available on the issues or merge requests dashboard pages.
 
 ### Scoped labels examples
 
@@ -373,7 +391,7 @@ issue is now under review, they assign the `workflow::review`, and the `workflow
 is removed.
 
 The same happens when you move issues across label lists in an
-[issue board](issue_board.md#create-workflows). With scoped labels, team members not working in an
+[issue board](issue_board.md). With scoped labels, team members not working in an
 issue board can also advance workflow states consistently in issues themselves.
 
 For a video explanation, see:
@@ -382,7 +400,7 @@ For a video explanation, see:
   See the video: <a href="https://www.youtube.com/watch?v=4BCBby6du3c">Use scoped labels for custom fields and custom workflows</a>.
 </div>
 <figure class="video-container">
-  <iframe src="https://www.youtube.com/embed/4BCBby6du3c" frameborder="0" allowfullscreen="true"> </iframe>
+  <iframe src="https://www.youtube-nocookie.com/embed/4BCBby6du3c" frameborder="0" allowfullscreen> </iframe>
 </figure>
 
 ### Nested scopes
@@ -413,7 +431,7 @@ To subscribe to a label:
 1. To the right of any label, select **Subscribe**.
 1. Optional. If you are subscribing to a group label from a project, select either:
    - **Subscribe at project level** to be notified about events in this project.
-   - **Subscribe at group level**: to be notified about events in the whole group.
+   - **Subscribe at group level** to be notified about events in the whole group.
 
 ## Set label priority
 
@@ -433,8 +451,8 @@ Prerequisites:
 
 To prioritize a label:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Project information > Labels**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Manage > Labels**.
 1. Next to a label you want to prioritize, select the star (**{star-o}**).
 
 ![Labels prioritized](img/labels_prioritized_v13_5.png)
@@ -444,20 +462,45 @@ This label now appears at the top of the label list, under **Prioritized Labels*
 To change the relative priority of these labels, drag them up and down the list.
 The labels higher in the list get higher priority.
 
-![Drag to change label priority](img/labels_drag_priority_v12_1.gif)
-
 To learn what happens when you sort by priority or label priority, see
 [Sorting and ordering issue lists](issues/sorting_issue_lists.md).
 
-## Troubleshooting
+## Lock labels when a merge request is merged
 
-### Some label titles end with `_duplicate<number>`
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com
+**Status:** Beta
 
-In specific circumstances it was possible to create labels with duplicate titles in the same
-namespace.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/408676) in GitLab 16.3 [with a flag](../../administration/feature_flags.md) named `enforce_locked_labels_on_merge`. This feature is [beta](../../policy/experiment-beta-support.md).
 
-To resolve the duplication, [in GitLab 13.2](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/21384)
-and later, some duplicate labels have `_duplicate<number>` appended to their titles.
+FLAG:
+On self-managed GitLab and GitLab Dedicated, this feature is not available.
+On GitLab.com, this feature is available but can be configured by GitLab.com administrators only. To make it available per group or per project, an administrator can [enable the feature flag](../../administration/feature_flags.md) named `enforce_locked_labels_on_merge`.
 
-You can safely change these labels' titles if you prefer.
-For details of the original problem, see [issue 30390](https://gitlab.com/gitlab-org/gitlab/-/issues/30390).
+To comply with certain auditing requirements, you can set a label to be locked.
+When a merge request with locked labels gets merged, nobody can remove them from the MR.
+
+When you add locked labels to issues or epics, they behave like regular labels.
+
+Prerequisites:
+
+- You must have at least the Reporter role for the project or group.
+
+WARNING:
+After you set a label as locked, nobody can undo it or delete the label.
+
+To set a label to get locked on merge:
+
+1. On the left sidebar, select **Search or go to** and find your group or project.
+1. Select **Manage > Labels**.
+1. Next to the label you want to edit, select the vertical ellipsis (**{ellipsis_v}**), and then select **Edit**.
+1. Select the **Lock label after a merge request is merged** checkbox.
+1. Select **Save changes**.
+
+## Related topics
+
+Practice working with labels in the following tutorials:
+
+- [Set up a single project for issue triage](../../tutorials/issue_triage/index.md)
+- [Set up issue boards for team hand-off](../../tutorials/boards_for_teams/index.md)

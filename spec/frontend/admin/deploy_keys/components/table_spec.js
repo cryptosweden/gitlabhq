@@ -1,18 +1,18 @@
 import { merge } from 'lodash';
 import { GlLoadingIcon, GlEmptyState, GlPagination, GlModal } from '@gitlab/ui';
 import { nextTick } from 'vue';
-
 import responseBody from 'test_fixtures/api/deploy_keys/index.json';
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { stubComponent } from 'helpers/stub_component';
 import DeployKeysTable from '~/admin/deploy_keys/components/table.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import Api, { DEFAULT_PER_PAGE } from '~/api';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 
 jest.mock('~/api');
-jest.mock('~/flash');
+jest.mock('~/alert');
 jest.mock('~/lib/utils/csrf', () => ({ token: 'mock-csrf-token' }));
 
 describe('DeployKeysTable', () => {
@@ -27,6 +27,7 @@ describe('DeployKeysTable', () => {
 
   const deployKey = responseBody[0];
   const deployKey2 = responseBody[1];
+  const deployKeyWithoutMd5Fingerprint = responseBody[2];
 
   const createComponent = (provide = {}) => {
     wrapper = mountExtended(DeployKeysTable, {
@@ -44,6 +45,8 @@ describe('DeployKeysTable', () => {
     });
   };
 
+  const findCrud = () => wrapper.findComponent(CrudComponent);
+  const findCrudTitle = () => wrapper.findByTestId('crud-title');
   const findEditButton = (index) =>
     wrapper.findAllByLabelText(DeployKeysTable.i18n.edit, { selector: 'a' }).at(index);
   const findRemoveButton = (index) =>
@@ -57,14 +60,22 @@ describe('DeployKeysTable', () => {
     const timeAgoTooltip = findTimeAgoTooltip(expectedRowIndex);
 
     expect(wrapper.findByText(expectedDeployKey.title).exists()).toBe(true);
-    expect(wrapper.findByText(expectedDeployKey.fingerprint, { selector: 'code' }).exists()).toBe(
-      true,
-    );
+
+    expect(
+      wrapper.findByText(expectedDeployKey.fingerprint_sha256, { selector: 'div' }).exists(),
+    ).toBe(true);
     expect(timeAgoTooltip.exists()).toBe(true);
     expect(timeAgoTooltip.props('time')).toBe(expectedDeployKey.created_at);
     expect(editButton.exists()).toBe(true);
     expect(editButton.attributes('href')).toBe(`/admin/deploy_keys/${expectedDeployKey.id}/edit`);
     expect(findRemoveButton(expectedRowIndex).exists()).toBe(true);
+  };
+
+  const expectDeployKeyWithFingerprintIsRendered = (expectedDeployKey, expectedRowIndex) => {
+    expect(wrapper.findByText(expectedDeployKey.fingerprint, { selector: 'div' }).exists()).toBe(
+      true,
+    );
+    expectDeployKeyIsRendered(expectedDeployKey, expectedRowIndex);
   };
 
   const itRendersTheEmptyState = () => {
@@ -76,15 +87,9 @@ describe('DeployKeysTable', () => {
         svgPath: defaultProvide.emptyStateSvgPath,
         title: DeployKeysTable.i18n.emptyStateTitle,
         description: DeployKeysTable.i18n.emptyStateDescription,
-        primaryButtonText: DeployKeysTable.i18n.newDeployKeyButtonText,
-        primaryButtonLink: defaultProvide.createPath,
       });
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   it('renders page title', () => {
     createComponent();
@@ -126,9 +131,23 @@ describe('DeployKeysTable', () => {
         createComponent();
       });
 
+      it('renders card with the deploy keys', () => {
+        expect(findCrud().exists()).toBe(true);
+      });
+
+      it('shows the correct number of deploy keys', () => {
+        expect(findCrudTitle().text()).toMatchInterpolatedText(
+          `Public deploy keys ${responseBody.length}`,
+        );
+      });
+
       it('renders deploy keys in table', () => {
-        expectDeployKeyIsRendered(deployKey, 0);
-        expectDeployKeyIsRendered(deployKey2, 1);
+        expectDeployKeyWithFingerprintIsRendered(deployKey, 0);
+        expectDeployKeyWithFingerprintIsRendered(deployKey2, 1);
+      });
+
+      it('renders deploy keys that do not have an MD5 fingerprint', () => {
+        expectDeployKeyIsRendered(deployKeyWithoutMd5Fingerprint, 2);
       });
 
       describe('when delete button is clicked', () => {
@@ -157,7 +176,7 @@ describe('DeployKeysTable', () => {
       beforeEach(() => {
         Api.deployKeys.mockResolvedValueOnce({
           data: [deployKey],
-          headers: { 'x-total': '2' },
+          headers: { 'x-total': '3' },
         });
 
         createComponent();
@@ -179,7 +198,7 @@ describe('DeployKeysTable', () => {
       describe('when pagination is changed', () => {
         it('calls API with `page` parameter', async () => {
           const pagination = findPagination();
-          expectDeployKeyIsRendered(deployKey, 0);
+          expectDeployKeyWithFingerprintIsRendered(deployKey, 0);
 
           Api.deployKeys.mockResolvedValue({
             data: [deployKey2],
@@ -199,7 +218,7 @@ describe('DeployKeysTable', () => {
             page: 2,
             public: true,
           });
-          expectDeployKeyIsRendered(deployKey2, 0);
+          expectDeployKeyWithFingerprintIsRendered(deployKey2, 0);
         });
       });
     });
@@ -229,8 +248,8 @@ describe('DeployKeysTable', () => {
 
     itRendersTheEmptyState();
 
-    it('displays flash', () => {
-      expect(createFlash).toHaveBeenCalledWith({
+    it('displays alert', () => {
+      expect(createAlert).toHaveBeenCalledWith({
         message: DeployKeysTable.i18n.apiErrorMessage,
         captureError: true,
         error,

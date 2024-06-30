@@ -1,45 +1,40 @@
-import $ from 'jquery';
 import syntaxHighlight from '~/syntax_highlight';
-import initUserPopovers from '../../user_popovers';
 import highlightCurrentUser from './highlight_current_user';
+import { renderKroki } from './render_kroki';
 import renderMath from './render_math';
-import renderMermaid from './render_mermaid';
 import renderSandboxedMermaid from './render_sandboxed_mermaid';
-import renderMetrics from './render_metrics';
+import { renderJSONTable } from './render_json_table';
 
-// Render GitLab flavoured Markdown
-//
-// Delegates to syntax highlight and render math & mermaid diagrams.
-//
-$.fn.renderGFM = function renderGFM() {
-  syntaxHighlight(this.find('.js-syntax-highlight').get());
-  renderMath(this.find('.js-render-math'));
-  if (gon.features?.sandboxedMermaid) {
-    renderSandboxedMermaid(this.find('.js-render-mermaid'));
-  } else {
-    renderMermaid(this.find('.js-render-mermaid'));
-  }
-  highlightCurrentUser(this.find('.gfm-project_member').get());
-  initUserPopovers(this.find('.js-user-link').get());
+function initPopovers(elements) {
+  if (!elements.length) return;
+  import(/* webpackChunkName: 'IssuablePopoverBundle' */ 'ee_else_ce/issuable/popover')
+    .then(({ default: initIssuablePopovers }) => {
+      initIssuablePopovers(elements);
+    })
+    .catch(() => {});
+}
 
-  const mrPopoverElements = this.find('.gfm-merge_request').get();
-  if (mrPopoverElements.length) {
-    import(/* webpackChunkName: 'MrPopoverBundle' */ '../../mr_popover')
-      .then(({ default: initMRPopovers }) => {
-        initMRPopovers(mrPopoverElements);
-      })
-      .catch(() => {});
+// Render GitLab flavored Markdown
+export function renderGFM(element) {
+  if (!element) {
+    return;
   }
 
-  renderMetrics(this.find('.js-render-metrics').get());
-  return this;
-};
+  const [highlightEls, krokiEls, mathEls, mermaidEls, tableEls, userEls, popoverEls] = [
+    '.js-syntax-highlight',
+    '.js-render-kroki[hidden]',
+    '.js-render-math',
+    '.js-render-mermaid',
+    '[data-canonical-lang="json"][data-lang-params="table"]',
+    '.gfm-project_member',
+    '.gfm-issue, .gfm-work_item, .gfm-merge_request, .gfm-epic, .gfm-milestone',
+  ].map((selector) => Array.from(element.querySelectorAll(selector)));
 
-$(() => {
-  window.requestIdleCallback(
-    () => {
-      $('body').renderGFM();
-    },
-    { timeout: 500 },
-  );
-});
+  syntaxHighlight(highlightEls);
+  renderKroki(krokiEls);
+  renderMath(mathEls);
+  renderSandboxedMermaid(mermaidEls);
+  renderJSONTable(tableEls.map((e) => e.parentNode));
+  highlightCurrentUser(userEls);
+  initPopovers(popoverEls);
+}

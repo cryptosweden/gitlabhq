@@ -1,4 +1,5 @@
-import { createLocalVue, mount } from '@vue/test-utils';
+import { mount } from '@vue/test-utils';
+import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import { GlBadge } from '@gitlab/ui';
 import Hierarchy from '~/work_items_hierarchy/components/hierarchy.vue';
@@ -6,8 +7,7 @@ import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import RESPONSE from '~/work_items_hierarchy/static_response';
 import { workItemTypes } from '~/work_items_hierarchy/constants';
 
-const localVue = createLocalVue();
-localVue.use(VueApollo);
+Vue.use(VueApollo);
 
 describe('WorkItemsHierarchy Hierarchy', () => {
   let wrapper;
@@ -32,7 +32,6 @@ describe('WorkItemsHierarchy Hierarchy', () => {
   const createComponent = (props = {}) => {
     wrapper = extendedWrapper(
       mount(Hierarchy, {
-        localVue,
         propsData: {
           workItemTypes: props.workItemTypes,
           ...props,
@@ -40,10 +39,6 @@ describe('WorkItemsHierarchy Hierarchy', () => {
       }),
     );
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('available structure', () => {
     let items = [];
@@ -58,7 +53,7 @@ describe('WorkItemsHierarchy Hierarchy', () => {
     });
 
     it('does not render badges', () => {
-      expect(wrapper.find(GlBadge).exists()).toBe(false);
+      expect(wrapper.findComponent(GlBadge).exists()).toBe(false);
     });
   });
 
@@ -75,7 +70,7 @@ describe('WorkItemsHierarchy Hierarchy', () => {
     });
 
     it('renders license badges for all work items', () => {
-      expect(wrapper.findAll(GlBadge)).toHaveLength(items.length);
+      expect(wrapper.findAllComponents(GlBadge)).toHaveLength(items.length);
     });
 
     it('does not render svg icon for linking', () => {

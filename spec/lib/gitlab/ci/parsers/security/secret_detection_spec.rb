@@ -9,7 +9,7 @@ RSpec.describe Gitlab::Ci::Parsers::Security::SecretDetection do
     let(:created_at) { 2.weeks.ago }
 
     context "when parsing valid reports" do
-      where(report_format: %i(secret_detection))
+      where(report_format: %i[secret_detection])
 
       with_them do
         let(:report) { Gitlab::Ci::Reports::Security::Report.new(artifact.file_type, pipeline, created_at) }
@@ -39,7 +39,7 @@ RSpec.describe Gitlab::Ci::Parsers::Security::SecretDetection do
         end
 
         it "generates expected metadata_version" do
-          expect(report.findings.first.metadata_version).to eq('3.0')
+          expect(report.findings.first.metadata_version).to eq('15.0.0')
         end
       end
     end

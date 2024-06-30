@@ -30,6 +30,8 @@ class NotesFinder
     notes = init_collection
     notes = since_fetch_at(notes)
     notes = notes.with_notes_filter(@params[:notes_filter]) if notes_filter?
+    notes = redact_internal(notes)
+    notes = notes.without_hidden if without_hidden_notes?
     sort(notes)
   end
 
@@ -65,9 +67,7 @@ class NotesFinder
 
     @target =
       if target_type == "commit"
-        if Ability.allowed?(@current_user, :download_code, @project)
-          @project.commit(target_id)
-        end
+        @project.commit(target_id) if Ability.allowed?(@current_user, :read_code, @project)
       else
         noteable_for_type_by_id(target_type, target_id, target_iid)
       end
@@ -101,7 +101,7 @@ class NotesFinder
 
   # rubocop: disable CodeReuse/ActiveRecord
   def notes_of_any_type
-    types = %w(commit issue merge_request snippet)
+    types = %w[commit issue merge_request snippet]
     note_relations = types.map { |t| notes_for_type(t) }
     note_relations.map! { |notes| search(notes) }
     UnionFinder.new.find_union(note_relations, Note.includes(:author)) # rubocop: disable CodeReuse/Finder
@@ -117,7 +117,7 @@ class NotesFinder
     when "snippet", "project_snippet"
       SnippetsFinder.new(@current_user, project: @project).execute # rubocop: disable CodeReuse/Finder
     when "personal_snippet"
-      PersonalSnippet.all
+      SnippetsFinder.new(@current_user, only_personal: true).execute # rubocop: disable CodeReuse/Finder
     else
       raise "invalid target_type '#{noteable_type}'"
     end
@@ -126,7 +126,7 @@ class NotesFinder
   # rubocop: disable CodeReuse/ActiveRecord
   def notes_for_type(noteable_type)
     if noteable_type == "commit"
-      if Ability.allowed?(@current_user, :download_code, @project)
+      if Ability.allowed?(@current_user, :read_code, @project)
         @project.notes.where(noteable_type: 'Commit')
       else
         Note.none
@@ -180,6 +180,20 @@ class NotesFinder
     return notes.fresh unless sort
 
     notes.order_by(sort)
+  end
+
+  def redact_internal(notes)
+    subject = @project || target
+    return notes if Ability.allowed?(@current_user, :read_internal_note, subject)
+
+    notes.not_internal
+  end
+
+  def without_hidden_notes?
+    return false unless Feature.enabled?(:hidden_notes)
+    return false if @current_user&.can_admin_all_resources?
+
+    true
   end
 end
 

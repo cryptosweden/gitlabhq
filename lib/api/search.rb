@@ -7,10 +7,12 @@ module API
     before do
       authenticate!
 
-      check_rate_limit!(:search_rate_limit, scope: [current_user])
+      check_rate_limit!(:search_rate_limit, scope: [current_user],
+        users_allowlist: Gitlab::CurrentSettings.current_application_settings.search_rate_limit_allowlist)
     end
 
     feature_category :global_search
+    urgency :low
 
     rescue_from ActiveRecord::QueryCanceled do |e|
       render_api_error!({ error: 'Request timed out' }, 408)
@@ -41,32 +43,77 @@ module API
       end
 
       def search_service(additional_params = {})
-        search_params = {
-          scope: params[:scope],
-          search: params[:search],
-          state: params[:state],
-          confidential: params[:confidential],
-          snippets: snippets?,
-          basic_search: params[:basic_search],
-          page: params[:page],
-          per_page: params[:per_page],
-          order_by: params[:order_by],
-          sort: params[:sort]
-        }.merge(additional_params)
+        strong_memoize_with(:search_service, additional_params) do
+          search_params = {
+            scope: params[:scope],
+            search: params[:search],
+            state: params[:state],
+            confidential: params[:confidential],
+            snippets: snippets?,
+            basic_search: params[:basic_search],
+            num_context_lines: params[:num_context_lines],
+            search_type: params[:search_type],
+            page: params[:page],
+            per_page: params[:per_page],
+            order_by: params[:order_by],
+            sort: params[:sort],
+            source: 'api'
+          }.merge(additional_params)
 
-        SearchService.new(current_user, search_params)
+          SearchService.new(current_user, search_params)
+        end
       end
 
       def search(additional_params = {})
-        results = search_service(additional_params).search_objects(preload_method)
+        return Kaminari.paginate_array([]) if @project.present? && !project_scope_allowed?
 
-        Gitlab::UsageDataCounters::SearchCounter.count(:all_searches)
+        search_service = search_service(additional_params)
+        if search_service.global_search? && !search_service.global_search_enabled_for_scope?
+          forbidden!('Global Search is disabled for this scope')
+        end
 
-        paginate(results)
+        search_type_errors = search_service.search_type_errors
+        bad_request!(search_type_errors) if search_type_errors
+
+        @search_duration_s = Benchmark.realtime do
+          @results = search_service.search_objects(preload_method)
+        end
+
+        search_results = search_service.search_results
+        if search_results.respond_to?(:failed?) && search_results.failed?(search_scope)
+          bad_request!(search_results.error)
+        end
+
+        set_global_search_log_information(additional_params)
+
+        Gitlab::Metrics::GlobalSearchSlis.record_apdex(
+          elapsed: @search_duration_s,
+          search_type: search_type(additional_params),
+          search_level: search_service.level,
+          search_scope: search_scope
+        )
+
+        Gitlab::InternalEvents.track_event('perform_search', category: 'API::Search', user: current_user)
+
+        paginate(@results)
+
+      ensure
+        # If we raise an error somewhere in the @search_duration_s benchmark block, we will end up here
+        # with a 200 status code, but an empty @search_duration_s.
+        Gitlab::Metrics::GlobalSearchSlis.record_error_rate(
+          error: @search_duration_s.nil? || (status < 200 || status >= 400),
+          search_type: search_type(additional_params),
+          search_level: search_service(additional_params).level,
+          search_scope: search_scope
+        )
+      end
+
+      def project_scope_allowed?
+        ::Search::Navigation.new(user: current_user, project: @project).tab_enabled_for_project?(params[:scope].to_sym)
       end
 
       def snippets?
-        %w(snippet_titles).include?(params[:scope]).to_s
+        %w[snippet_titles].include?(params[:scope]).to_s
       end
 
       def entity
@@ -78,9 +125,32 @@ module API
       end
 
       def verify_search_scope!(resource:)
-        # In EE we have additional validation requirements for searches.
-        # Defining this method here as a noop allows us to easily extend it in
-        # EE, without having to modify this file directly.
+        # no-op
+      end
+
+      def search_type(additional_params = {})
+        search_service(additional_params).search_type
+      end
+
+      def search_scope
+        params[:scope]
+      end
+
+      def set_global_search_log_information(additional_params)
+        Gitlab::Instrumentation::GlobalSearchApi.set_information(
+          type: search_type(additional_params),
+          level: search_service(additional_params).level,
+          scope: search_scope,
+          search_duration_s: @search_duration_s
+        )
+      end
+
+      def set_headers(additional = {})
+        header['X-Search-Type'] = search_type
+
+        additional.each do |key, value|
+          header[key] = value
+        end
       end
     end
 
@@ -101,7 +171,9 @@ module API
       get do
         verify_search_scope!(resource: nil)
 
-        present search, with: entity
+        set_headers('Content-Transfer-Encoding' => 'binary')
+
+        present search, with: entity, current_user: current_user
       end
     end
 
@@ -123,7 +195,9 @@ module API
       get ':id/(-/)search' do
         verify_search_scope!(resource: user_group)
 
-        present search(group_id: user_group.id), with: entity
+        set_headers
+
+        present search(group_id: user_group.id), with: entity, current_user: current_user
       end
     end
 
@@ -132,7 +206,7 @@ module API
         detail 'This feature was introduced in GitLab 10.5.'
       end
       params do
-        requires :id, type: String, desc: 'The ID of a project'
+        requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
         requires :search, type: String, desc: 'The expression it should be searched for'
         requires :scope,
           type: String,
@@ -144,7 +218,9 @@ module API
         use :pagination
       end
       get ':id/(-/)search' do
-        present search({ project_id: user_project.id, repository_ref: params[:ref] }), with: entity
+        set_headers
+
+        present search({ project_id: user_project.id, repository_ref: params[:ref] }), with: entity, current_user: current_user
       end
     end
   end

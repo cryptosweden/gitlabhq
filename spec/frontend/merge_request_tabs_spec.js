@@ -1,13 +1,22 @@
 import MockAdapter from 'axios-mock-adapter';
 import $ from 'jquery';
+import htmlMergeRequestsWithTaskList from 'test_fixtures/merge_requests/merge_request_with_task_list.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import initMrPage from 'helpers/init_vue_mr_page_helper';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import axios from '~/lib/utils/axios_utils';
-import MergeRequestTabs from '~/merge_request_tabs';
+import MergeRequestTabs, { getActionFromHref } from '~/merge_request_tabs';
+import Diff from '~/diff';
 import '~/lib/utils/common_utils';
-import '~/lib/utils/url_utility';
+import { visitUrl } from '~/lib/utils/url_utility';
 
 jest.mock('~/lib/utils/webpack', () => ({
   resetServiceWorkersPublicPath: jest.fn(),
+}));
+
+jest.mock('~/lib/utils/url_utility', () => ({
+  ...jest.requireActual('~/lib/utils/url_utility'),
+  visitUrl: jest.fn(),
 }));
 
 describe('MergeRequestTabs', () => {
@@ -23,6 +32,8 @@ describe('MergeRequestTabs', () => {
   };
 
   beforeEach(() => {
+    stubPerformanceWebAPI();
+
     initMrPage();
 
     testContext.class = new MergeRequestTabs({ stubLocation });
@@ -33,6 +44,10 @@ describe('MergeRequestTabs', () => {
     };
 
     gl.mrWidget = {};
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
   });
 
   describe('clickTab', () => {
@@ -79,7 +94,7 @@ describe('MergeRequestTabs', () => {
     let tabUrl;
 
     beforeEach(() => {
-      loadFixtures('merge_requests/merge_request_with_task_list.html');
+      setHTMLFixture(htmlMergeRequestsWithTaskList);
 
       tabUrl = $('.commits-tab a').attr('href');
 
@@ -95,6 +110,10 @@ describe('MergeRequestTabs', () => {
           },
         },
       };
+    });
+
+    afterEach(() => {
+      resetHTMLFixture();
     });
 
     describe('meta click', () => {
@@ -113,7 +132,7 @@ describe('MergeRequestTabs', () => {
         testContext.class.bindEvents();
         $('.merge-request-tabs .commits-tab a').trigger(metakeyEvent);
 
-        expect(window.open).toHaveBeenCalled();
+        expect(visitUrl).toHaveBeenCalledWith(expect.any(String), true);
       });
 
       it('opens page when commits badge is clicked', () => {
@@ -125,7 +144,7 @@ describe('MergeRequestTabs', () => {
         testContext.class.bindEvents();
         $('.merge-request-tabs .commits-tab a .badge').trigger(metakeyEvent);
 
-        expect(window.open).toHaveBeenCalled();
+        expect(visitUrl).toHaveBeenCalledWith(expect.any(String), true);
       });
     });
 
@@ -137,7 +156,7 @@ describe('MergeRequestTabs', () => {
 
       testContext.class.clickTab({ ...clickTabParams, metaKey: true });
 
-      expect(window.open).toHaveBeenCalled();
+      expect(visitUrl).toHaveBeenCalledWith(expect.any(String), true);
     });
 
     it('opens page tab in a new browser tab with Cmd+Click - Mac', () => {
@@ -148,7 +167,7 @@ describe('MergeRequestTabs', () => {
 
       testContext.class.clickTab({ ...clickTabParams, ctrlKey: true });
 
-      expect(window.open).toHaveBeenCalled();
+      expect(visitUrl).toHaveBeenCalledWith(expect.any(String), true);
     });
 
     it('opens page tab in a new browser tab with Middle-click - Mac/PC', () => {
@@ -159,7 +178,7 @@ describe('MergeRequestTabs', () => {
 
       testContext.class.clickTab({ ...clickTabParams, which: 2 });
 
-      expect(window.open).toHaveBeenCalled();
+      expect(visitUrl).toHaveBeenCalledWith(expect.any(String), true);
     });
   });
 
@@ -259,34 +278,50 @@ describe('MergeRequestTabs', () => {
 
   describe('expandViewContainer', () => {
     beforeEach(() => {
-      $('body').append(
-        '<div class="content-wrapper"><div class="container-fluid container-limited"></div></div>',
+      $('.content-wrapper .container-fluid').addClass('container-limited');
+    });
+
+    it('removes `container-limited` class from content container', () => {
+      expect($('.content-wrapper .container-limited')).toHaveLength(1);
+      testContext.class.expandViewContainer();
+      expect($('.content-wrapper .container-limited')).toHaveLength(0);
+    });
+
+    it('adds the diff-specific width-limiter', () => {
+      testContext.class.expandViewContainer();
+
+      expect(testContext.class.contentWrapper.classList.contains('diffs-container-limited')).toBe(
+        true,
       );
     });
+  });
 
-    afterEach(() => {
-      $('.content-wrapper').remove();
-    });
-
-    it('removes container-limited from containers', () => {
-      testContext.class.expandViewContainer();
+  describe('resetViewContainer', () => {
+    it('does not add `container-limited` CSS class when fluid layout is preferred', () => {
+      testContext.class.resetViewContainer();
 
       expect($('.content-wrapper .container-limited')).toHaveLength(0);
     });
 
-    it('does not add container-limited when fluid layout is prefered', () => {
+    it('adds `container-limited` CSS class back when fixed layout is preferred', () => {
+      document.body.innerHTML = '';
+      initMrPage();
+      $('.content-wrapper .container-fluid').addClass('container-limited');
+      // recreate the instance so that `isFixedLayoutPreferred` is re-evaluated
+      testContext.class = new MergeRequestTabs({ stubLocation });
       $('.content-wrapper .container-fluid').removeClass('container-limited');
 
-      testContext.class.expandViewContainer(false);
-
-      expect($('.content-wrapper .container-limited')).toHaveLength(0);
-    });
-
-    it('does remove container-limited from breadcrumbs', () => {
-      $('.container-limited').addClass('breadcrumbs');
-      testContext.class.expandViewContainer();
+      testContext.class.resetViewContainer();
 
       expect($('.content-wrapper .container-limited')).toHaveLength(1);
+    });
+
+    it('removes the diff-specific width-limiter', () => {
+      testContext.class.resetViewContainer();
+
+      expect(testContext.class.contentWrapper.classList.contains('diffs-container-limited')).toBe(
+        false,
+      );
     });
   });
 
@@ -295,6 +330,7 @@ describe('MergeRequestTabs', () => {
     const tabContent = document.createElement('div');
 
     beforeEach(() => {
+      $.fn.renderGFM = jest.fn();
       jest.spyOn(mainContent, 'getBoundingClientRect').mockReturnValue({ top: 10 });
       jest.spyOn(tabContent, 'getBoundingClientRect').mockReturnValue({ top: 100 });
       jest.spyOn(window, 'scrollTo').mockImplementation(() => {});
@@ -320,12 +356,32 @@ describe('MergeRequestTabs', () => {
       expect(window.scrollTo.mock.calls[0]).toEqual([0, 39]);
     });
 
+    it.each`
+      tab          | hides    | hidesText
+      ${'show'}    | ${false} | ${'shows'}
+      ${'diffs'}   | ${true}  | ${'hides'}
+      ${'commits'} | ${true}  | ${'hides'}
+    `('$hidesText expand button on $tab tab', ({ tab, hides }) => {
+      const expandButton = document.createElement('div');
+      expandButton.classList.add('js-expand-sidebar');
+
+      const tabsContainer = document.createElement('div');
+      tabsContainer.innerHTML =
+        '<div class="tab-content"><div id="diff-notes-app"></div><div class="commits tab-pane"></div></div>';
+      tabsContainer.classList.add('merge-request-tabs-container');
+      tabsContainer.appendChild(expandButton);
+      document.body.appendChild(tabsContainer);
+
+      testContext.class = new MergeRequestTabs({ stubLocation });
+      testContext.class.tabShown(tab, 'foobar');
+
+      testContext.class.expandSidebar.forEach((el) => {
+        expect(el.classList.contains('!gl-hidden')).toBe(hides);
+      });
+    });
+
     describe('when switching tabs', () => {
       const SCROLL_TOP = 100;
-
-      beforeAll(() => {
-        jest.useFakeTimers();
-      });
 
       beforeEach(() => {
         jest.spyOn(window, 'scrollTo').mockImplementation(() => {});
@@ -333,10 +389,6 @@ describe('MergeRequestTabs', () => {
         testContext.class.mergeRequestTabPanes = document.createElement('div');
         testContext.class.currentTab = 'tab';
         testContext.class.scrollPositions = { newTab: SCROLL_TOP };
-      });
-
-      afterAll(() => {
-        jest.useRealTimers();
       });
 
       it('scrolls to the stored position, if one is stored', () => {
@@ -351,13 +403,95 @@ describe('MergeRequestTabs', () => {
         });
       });
 
-      it('scrolls to 0, if no position is stored', () => {
+      it('does not scroll if no position is stored', () => {
         testContext.class.tabShown('unknownTab');
 
         jest.advanceTimersByTime(250);
 
-        expect(window.scrollTo.mock.calls[0][0]).toEqual({ top: 0, left: 0, behavior: 'auto' });
+        expect(window.scrollTo).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('tabs <-> diff interactions', () => {
+    beforeEach(() => {
+      jest.spyOn(testContext.class, 'loadDiff').mockImplementation(() => {});
+    });
+
+    describe('switchViewType', () => {
+      it('marks the class as having not loaded diffs already', () => {
+        testContext.class.diffsLoaded = true;
+
+        testContext.class.switchViewType({});
+
+        expect(testContext.class.diffsLoaded).toBe(false);
+      });
+
+      it('reloads the diffs', () => {
+        testContext.class.switchViewType({ source: 'a new url' });
+
+        expect(testContext.class.loadDiff).toHaveBeenCalledWith({
+          endpoint: 'a new url',
+          strip: false,
+        });
+      });
+    });
+
+    describe('createDiff', () => {
+      it("creates a Diff if there isn't one", () => {
+        expect(testContext.class.diffsClass).toBe(null);
+
+        testContext.class.createDiff();
+
+        expect(testContext.class.diffsClass).toBeInstanceOf(Diff);
+      });
+
+      it("doesn't create a Diff if one already exists", () => {
+        testContext.class.diffsClass = 'truthy';
+
+        testContext.class.createDiff();
+
+        expect(testContext.class.diffsClass).toBe('truthy');
+      });
+
+      it('sets the available MR Tabs event hub to the new Diff', () => {
+        expect(testContext.class.diffsClass).toBe(null);
+
+        testContext.class.createDiff();
+
+        expect(testContext.class.diffsClass.mrHub).toBe(testContext.class.eventHub);
+      });
+    });
+
+    describe('setHubToDiff', () => {
+      it('sets the MR Tabs event hub to the child Diff', () => {
+        testContext.class.diffsClass = {};
+
+        testContext.class.setHubToDiff();
+
+        expect(testContext.class.diffsClass.mrHub).toBe(testContext.class.eventHub);
+      });
+
+      it('does not fatal if theres no child Diff', () => {
+        testContext.class.diffsClass = null;
+
+        expect(() => {
+          testContext.class.setHubToDiff();
+        }).not.toThrow();
+      });
+    });
+  });
+
+  describe('getActionFromHref', () => {
+    it.each`
+      pathName                                        | action
+      ${'/user/pipelines/-/merge_requests/1/diffs'}   | ${'diffs'}
+      ${'/user/diffs/-/merge_requests/1/pipelines'}   | ${'pipelines'}
+      ${'/user/pipelines/-/merge_requests/1/commits'} | ${'commits'}
+      ${'/user/pipelines/1/-/merge_requests/1/diffs'} | ${'diffs'}
+      ${'/user/pipelines/-/merge_requests/1'}         | ${'show'}
+    `('returns $action for $location', ({ pathName, action }) => {
+      expect(getActionFromHref(pathName)).toBe(action);
     });
   });
 });

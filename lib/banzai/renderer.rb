@@ -2,6 +2,9 @@
 
 module Banzai
   module Renderer
+    USER_CONTENT_ID_PREFIX = 'user-content-'
+    HTML_PIPELINE_SUBSCRIPTION = 'call_filter.html_pipeline'
+
     # Convert a Markdown String into an HTML-safe String of HTML
     #
     # Note that while the returned HTML will have been sanitized of dangerous
@@ -21,10 +24,8 @@ module Banzai
       cache_key = full_cache_key(cache_key, context[:pipeline])
 
       if cache_key
-        Gitlab::Metrics.measure(:banzai_cached_render) do
-          Rails.cache.fetch(cache_key) do
-            cacheless_render(text, context)
-          end
+        Rails.cache.fetch(cache_key) do
+          cacheless_render(text, context)
         end
       else
         cacheless_render(text, context)
@@ -125,9 +126,10 @@ module Banzai
     end
 
     def self.render_result(text, context = {})
-      text = Pipeline[:pre_process].to_html(text, context) if text
-
-      Pipeline[context[:pipeline]].call(text, context)
+      instrument_filters do
+        text = Pipeline[:pre_process].to_html(text, context) if text
+        Pipeline[context[:pipeline]].call(text, context)
+      end
     end
 
     # Perform post-processing on an HTML String
@@ -160,40 +162,14 @@ module Banzai
     def self.cacheless_render(text, context = {})
       return text.to_s unless text.present?
 
-      real_start = Gitlab::Metrics::System.monotonic_time
-      cpu_start = Gitlab::Metrics::System.cpu_time
-
       result = render_result(text, context)
 
       output = result[:output]
-      rendered = if output.respond_to?(:to_html)
-                   output.to_html
-                 else
-                   output.to_s
-                 end
-
-      cpu_duration_histogram.observe({}, Gitlab::Metrics::System.cpu_time - cpu_start)
-      real_duration_histogram.observe({}, Gitlab::Metrics::System.monotonic_time - real_start)
-
-      rendered
-    end
-
-    def self.real_duration_histogram
-      Gitlab::Metrics.histogram(
-        :gitlab_banzai_cacheless_render_real_duration_seconds,
-        'Duration of Banzai pipeline rendering in real time',
-        {},
-        [0.01, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10.0, 50, 100]
-      )
-    end
-
-    def self.cpu_duration_histogram
-      Gitlab::Metrics.histogram(
-        :gitlab_banzai_cacheless_render_cpu_duration_seconds,
-        'Duration of Banzai pipeline rendering in cpu time',
-        {},
-        Gitlab::Metrics::EXECUTION_MEASUREMENT_BUCKETS
-      )
+      if output.respond_to?(:to_html)
+        output.to_html
+      else
+        output.to_s
+      end
     end
 
     def self.full_cache_key(cache_key, pipeline_name)
@@ -209,6 +185,53 @@ module Banzai
       return unless cache_key
 
       Rails.cache.__send__(:expanded_key, full_cache_key(cache_key, pipeline_name)) # rubocop:disable GitlabSecurity/PublicSend
+    end
+
+    # this is built specifically for outputting debug timing/information for the Banzai pipeline.
+    # Example usage:
+    #   Banzai.render(markdown, project: nil, debug_timing: true)
+    #   Banzai.render(markdown, project: Project.first, debug: true)
+    def self.instrument_filters
+      service = ActiveSupport::Notifications
+      HTML::Pipeline.default_instrumentation_service = service
+
+      service.monotonic_subscribe(HTML_PIPELINE_SUBSCRIPTION) do |_event, start, ending, _transaction_id, payload|
+        duration = ending - start
+        payload[:result][:pipeline_timing] = payload[:result][:pipeline_timing].to_f + duration
+
+        if payload[:context][:debug] || payload[:context][:debug_timing]
+          duration_str = formatted_duration(duration)
+          pipeline_timing_str = formatted_duration(payload[:result][:pipeline_timing])
+          filter_name = payload[:filter].delete_prefix('Banzai::Filter::')
+          pipeline_name = payload[:pipeline].delete_prefix('Banzai::Pipeline::')
+
+          logger = Logger.new($stdout)
+          logger.debug "#{duration_str} (#{pipeline_timing_str}): #{filter_name} [#{pipeline_name}]"
+
+          if payload[:context][:debug]
+            logger.debug(payload)
+          end
+        end
+      end
+
+      yield
+    ensure
+      service.unsubscribe(HTML_PIPELINE_SUBSCRIPTION) if service
+    end
+
+    def self.formatted_duration(duration)
+      color = color_for_duration(duration)
+      Rainbow.new.wrap(format('%5f_s', duration)).color(color)
+    end
+
+    def self.color_for_duration(duration, min: 1, max: 2)
+      if duration < min
+        :green
+      elsif duration >= min && duration < max
+        :orange
+      else
+        :red
+      end
     end
   end
 end

@@ -10,6 +10,10 @@ class Projects::ApplicationController < ApplicationController
   before_action :repository
   layout 'project'
 
+  before_action do
+    push_namespace_setting(:math_rendering_limits_enabled, @project&.parent)
+  end
+
   helper_method :repository, :can_collaborate_with_project?, :user_access
 
   rescue_from Gitlab::Template::Finders::RepoTemplateFinder::FileNotFoundError do |exception|
@@ -44,9 +48,7 @@ class Projects::ApplicationController < ApplicationController
   end
 
   def authorize_action!(action)
-    unless can?(current_user, action, project)
-      access_denied!
-    end
+    access_denied! unless can?(current_user, action, project)
   end
 
   def check_project_feature_available!(feature)
@@ -55,7 +57,7 @@ class Projects::ApplicationController < ApplicationController
 
   def check_issuables_available!
     render_404 unless project.feature_available?(:issues, current_user) ||
-        project.feature_available?(:merge_requests, current_user)
+      project.feature_available?(:merge_requests, current_user)
   end
 
   def method_missing(method_sym, *arguments, &block)
@@ -85,11 +87,31 @@ class Projects::ApplicationController < ApplicationController
   end
 
   def require_pages_enabled!
-    not_found unless @project.pages_available?
+    not_found unless ::Gitlab::Pages.enabled?
   end
 
   def check_issues_available!
-    return render_404 unless @project.feature_available?(:issues, current_user)
+    render_404 unless @project.feature_available?(:issues, current_user)
+  end
+
+  def set_is_ambiguous_ref
+    return @is_ambiguous_ref if defined? @is_ambiguous_ref
+
+    @is_ambiguous_ref = ExtractsRef::RequestedRef
+                                                .new(@project.repository, ref_type: ref_type, ref: @ref)
+                                                .find
+                                                .fetch(:ambiguous, false)
+  end
+
+  def handle_update_result(result)
+    if result[:status] == :success
+      flash[:notice] = format(_("Project '%{project_name}' was successfully updated."), project_name: @project.name)
+      redirect_to(edit_project_path(@project, anchor: 'js-general-project-settings'))
+    else
+      flash[:alert] = result[:message]
+      @project.reset
+      render 'edit'
+    end
   end
 end
 

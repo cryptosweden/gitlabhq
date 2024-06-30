@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Import::BitbucketServerService do
+RSpec.describe Import::BitbucketServerService, feature_category: :importers do
   let_it_be(:user) { create(:user) }
 
   let(:base_uri) { "https://test:7990" }
@@ -31,6 +31,25 @@ RSpec.describe Import::BitbucketServerService do
     allow(subject).to receive(:authorized?).and_return(true)
   end
 
+  context 'execute' do
+    before do
+      allow(subject).to receive(:authorized?).and_return(true)
+      allow(client).to receive(:repo).with(project_key, repo_slug).and_return(double(repo))
+    end
+
+    it 'tracks an access level event' do
+      subject.execute(credentials)
+
+      expect_snowplow_event(
+        category: 'Import::BitbucketServerService',
+        action: 'create',
+        label: 'import_access_level',
+        user: user,
+        extra: { import_type: 'bitbucket', user_role: 'Owner' }
+      )
+    end
+  end
+
   context 'when no repo is found' do
     before do
       allow(subject).to receive(:authorized?).and_return(true)
@@ -48,6 +67,36 @@ RSpec.describe Import::BitbucketServerService do
     end
   end
 
+  context 'when import source is disabled' do
+    before do
+      stub_application_setting(import_sources: nil)
+      stub_feature_flags(override_bitbucket_server_disabled: false)
+      allow(subject).to receive(:authorized?).and_return(true)
+      allow(client).to receive(:repo).with(project_key, repo_slug).and_return(double(repo))
+    end
+
+    it 'returns forbidden' do
+      result = subject.execute(credentials)
+
+      expect(result).to include(
+        status: :error,
+        http_status: :forbidden
+      )
+    end
+
+    context 'when override_bitbucket_server_disabled ops flag is enabled for the user' do
+      before do
+        stub_feature_flags(override_bitbucket_server_disabled: user)
+      end
+
+      it 'succeeds' do
+        result = subject.execute(credentials)
+
+        expect(result).to include(status: :success)
+      end
+    end
+  end
+
   context 'when user is unauthorized' do
     before do
       allow(subject).to receive(:authorized?).and_return(false)
@@ -57,7 +106,7 @@ RSpec.describe Import::BitbucketServerService do
       result = subject.execute(credentials)
 
       expect(result).to include(
-        message: "You don't have permissions to create this project",
+        message: "You don't have permissions to import this project",
         status: :error,
         http_status: :unauthorized
       )
@@ -107,7 +156,7 @@ RSpec.describe Import::BitbucketServerService do
 
     allow(client).to receive(:repo).and_raise(exception)
 
-    expect(Gitlab::Import::Logger).not_to receive(:error)
+    expect(::Import::Framework::Logger).not_to receive(:error)
 
     expect { subject.execute(credentials) }.to raise_error(exception)
   end

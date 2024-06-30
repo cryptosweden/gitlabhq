@@ -2,9 +2,22 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
+RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner, feature_category: :database do
+  let(:connection) { Gitlab::Database.database_base_models[:main].connection }
   let(:migration_wrapper) { double('test wrapper') }
-  let(:runner) { described_class.new(migration_wrapper) }
+
+  let(:runner) { described_class.new(connection: connection, migration_wrapper: migration_wrapper) }
+
+  around do |example|
+    Gitlab::Database::SharedModel.using_connection(connection) do
+      example.run
+    end
+  end
+
+  before do
+    normal_signal = instance_double(Gitlab::Database::HealthStatus::Signals::Normal, stop?: false)
+    allow(Gitlab::Database::HealthStatus).to receive(:evaluate).and_return([normal_signal])
+  end
 
   describe '#run_migration_job' do
     shared_examples_for 'it has completed the migration' do
@@ -51,13 +64,48 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
             sub_batch_size: migration.sub_batch_size)
         end
 
-        it 'optimizes the migration after executing the job' do
-          migration.update!(min_value: event1.id, max_value: event2.id)
+        context 'migration health' do
+          let(:health_status) { Gitlab::Database::HealthStatus }
+          let(:stop_signal) { health_status::Signals::Stop.new(:indicator, reason: 'Take a break') }
+          let(:normal_signal) { health_status::Signals::Normal.new(:indicator, reason: 'All good') }
+          let(:not_available_signal) { health_status::Signals::NotAvailable.new(:indicator, reason: 'Indicator is disabled') }
+          let(:unknown_signal) { health_status::Signals::Unknown.new(:indicator, reason: 'Something went wrong') }
 
-          expect(migration_wrapper).to receive(:perform).ordered
-          expect(migration).to receive(:optimize!).ordered
+          before do
+            migration.update!(min_value: event1.id, max_value: event2.id)
+            expect(migration_wrapper).to receive(:perform)
+          end
 
-          runner.run_migration_job(migration)
+          it 'puts migration on hold on stop signal' do
+            expect(health_status).to receive(:evaluate).and_return([stop_signal])
+
+            expect { runner.run_migration_job(migration) }.to change { migration.on_hold? }
+              .from(false).to(true)
+          end
+
+          it 'optimizes migration on normal signal' do
+            expect(health_status).to receive(:evaluate).and_return([normal_signal])
+
+            expect(migration).to receive(:optimize!)
+
+            expect { runner.run_migration_job(migration) }.not_to change { migration.on_hold? }
+          end
+
+          it 'optimizes migration on no signal' do
+            expect(health_status).to receive(:evaluate).and_return([not_available_signal])
+
+            expect(migration).to receive(:optimize!)
+
+            expect { runner.run_migration_job(migration) }.not_to change { migration.on_hold? }
+          end
+
+          it 'optimizes migration on unknown signal' do
+            expect(health_status).to receive(:evaluate).and_return([unknown_signal])
+
+            expect(migration).to receive(:optimize!)
+
+            expect { runner.run_migration_job(migration) }.not_to change { migration.on_hold? }
+          end
         end
       end
 
@@ -83,6 +131,19 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
 
       context 'when the migration has no batches to process' do
         it_behaves_like 'it has completed the migration'
+      end
+    end
+
+    context 'when the migration should stop' do
+      let(:migration) { create(:batched_background_migration, :active) }
+
+      let!(:job) { create(:batched_background_migration_job, :failed, batched_migration: migration) }
+
+      it 'changes the status to failure' do
+        expect(migration).to receive(:should_stop?).and_return(true)
+        expect(migration_wrapper).to receive(:perform).and_return(job)
+
+        expect { runner.run_migration_job(migration) }.to change { migration.status_name }.from(:active).to(:failed)
       end
     end
 
@@ -282,19 +343,21 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
   end
 
   describe '#finalize' do
-    let(:migration_wrapper) { Gitlab::Database::BackgroundMigration::BatchedMigrationWrapper.new }
+    let(:migration_wrapper) do
+      Gitlab::Database::BackgroundMigration::BatchedMigrationWrapper.new(connection: connection)
+    end
 
     let(:migration_helpers) { ActiveRecord::Migration.new }
     let(:table_name) { :_test_batched_migrations_test_table }
     let(:column_name) { :some_id }
     let(:job_arguments) { [:some_id, :some_id_convert_to_bigint] }
+    let(:gitlab_schemas) { Gitlab::Database.gitlab_schemas_for_connection(connection) }
 
     let(:migration_status) { :active }
 
     let!(:batched_migration) do
       create(
-        :batched_background_migration,
-        status: migration_status,
+        :batched_background_migration, migration_status,
         max_value: 8,
         batch_size: 2,
         sub_batch_size: 1,
@@ -336,10 +399,12 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
 
       it 'completes the migration' do
         expect(Gitlab::Database::BackgroundMigration::BatchedMigration).to receive(:find_for_configuration)
-          .with('CopyColumnUsingBackgroundMigrationJob', table_name, column_name, job_arguments)
+          .with(gitlab_schemas, 'CopyColumnUsingBackgroundMigrationJob', table_name, column_name, job_arguments)
           .and_return(batched_migration)
 
-        expect(batched_migration).to receive(:finalizing!).and_call_original
+        expect(batched_migration).to receive(:reset_attempts_of_blocked_jobs!).and_call_original
+
+        expect(batched_migration).to receive(:finalize!).and_call_original
 
         expect do
           runner.finalize(
@@ -348,7 +413,7 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
             column_name,
             job_arguments
           )
-        end.to change { batched_migration.reload.status }.from('active').to('finished')
+        end.to change { batched_migration.reload.status_name }.from(:active).to(:finished)
 
         expect(batched_migration.batched_jobs).to all(be_succeeded)
 
@@ -357,8 +422,15 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
       end
 
       context 'when migration fails to complete' do
+        let(:error_message) do
+          "Batched migration #{batched_migration.job_class_name} could not be completed and a manual action is required."\
+          "Check the admin panel at (`/admin/background_migrations`) for more details."
+        end
+
         it 'raises an error' do
-          batched_migration.batched_jobs.with_status(:failed).update_all(attempts: Gitlab::Database::BackgroundMigration::BatchedJob::MAX_ATTEMPTS)
+          allow(Gitlab::Database::BackgroundMigration::BatchedMigration).to receive(:find_for_configuration).and_return(batched_migration)
+
+          allow(batched_migration).to receive(:finished?).and_return(false)
 
           expect do
             runner.finalize(
@@ -367,7 +439,7 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
               column_name,
               job_arguments
             )
-          end.to raise_error described_class::FailedToFinalize
+          end.to raise_error(described_class::FailedToFinalize, error_message)
         end
       end
     end
@@ -377,7 +449,7 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
 
       it 'is a no-op' do
         expect(Gitlab::Database::BackgroundMigration::BatchedMigration).to receive(:find_for_configuration)
-          .with('CopyColumnUsingBackgroundMigrationJob', table_name, column_name, job_arguments)
+          .with(gitlab_schemas, 'CopyColumnUsingBackgroundMigrationJob', table_name, column_name, job_arguments)
           .and_return(batched_migration)
 
         configuration = {
@@ -390,7 +462,7 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
         expect(Gitlab::AppLogger).to receive(:warn)
           .with("Batched background migration for the given configuration is already finished: #{configuration}")
 
-        expect(batched_migration).not_to receive(:finalizing!)
+        expect(batched_migration).not_to receive(:finalize!)
 
         runner.finalize(
           batched_migration.job_class_name,
@@ -404,7 +476,7 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
     context 'when the migration does not exist' do
       it 'is a no-op' do
         expect(Gitlab::Database::BackgroundMigration::BatchedMigration).to receive(:find_for_configuration)
-          .with('CopyColumnUsingBackgroundMigrationJob', table_name, column_name, [:some, :other, :arguments])
+          .with(gitlab_schemas, 'CopyColumnUsingBackgroundMigrationJob', table_name, column_name, [:some, :other, :arguments])
           .and_return(nil)
 
         configuration = {
@@ -417,7 +489,7 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
         expect(Gitlab::AppLogger).to receive(:warn)
           .with("Could not find batched background migration for the given configuration: #{configuration}")
 
-        expect(batched_migration).not_to receive(:finalizing!)
+        expect(batched_migration).not_to receive(:finalize!)
 
         runner.finalize(
           batched_migration.job_class_name,
@@ -431,8 +503,6 @@ RSpec.describe Gitlab::Database::BackgroundMigration::BatchedMigrationRunner do
 
   describe '.finalize' do
     context 'when the connection is passed' do
-      let(:connection) { double('connection') }
-
       let(:table_name) { :_test_batched_migrations_test_table }
       let(:column_name) { :some_id }
       let(:job_arguments) { [:some, :other, :arguments] }

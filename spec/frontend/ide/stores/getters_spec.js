@@ -24,20 +24,13 @@ const TEST_FORK_PATH = '/test/fork/path';
 describe('IDE store getters', () => {
   let localState;
   let localStore;
-  let origGon;
 
   beforeEach(() => {
-    origGon = window.gon;
-
     // Feature flag is defaulted to on in prod
     window.gon = { features: { rejectUnsignedCommitsByGitlab: true } };
 
     localStore = createStore();
     localState = localStore.state;
-  });
-
-  afterEach(() => {
-    window.gon = origGon;
   });
 
   describe('activeFile', () => {
@@ -268,7 +261,7 @@ describe('IDE store getters', () => {
         currentProject: undefined,
       };
 
-      expect(getters.isOnDefaultBranch({}, localGetters)).toBeFalsy();
+      expect(getters.isOnDefaultBranch({}, localGetters)).toBe(undefined);
     });
 
     it("returns true when project's default branch matches current branch", () => {
@@ -279,7 +272,7 @@ describe('IDE store getters', () => {
         branchName: 'main',
       };
 
-      expect(getters.isOnDefaultBranch({}, localGetters)).toBeTruthy();
+      expect(getters.isOnDefaultBranch({}, localGetters)).toBe(true);
     });
 
     it("returns false when project's default branch doesn't match current branch", () => {
@@ -290,19 +283,7 @@ describe('IDE store getters', () => {
         branchName: 'feature',
       };
 
-      expect(getters.isOnDefaultBranch({}, localGetters)).toBeFalsy();
-    });
-  });
-
-  describe('packageJson', () => {
-    it('returns package.json entry', () => {
-      localState.entries['package.json'] = {
-        name: 'package.json',
-      };
-
-      expect(getters.packageJson(localState)).toEqual({
-        name: 'package.json',
-      });
+      expect(getters.isOnDefaultBranch({}, localGetters)).toBe(false);
     });
   });
 

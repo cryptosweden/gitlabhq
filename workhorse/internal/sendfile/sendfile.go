@@ -1,15 +1,13 @@
 /*
-The xSendFile middleware transparently sends static files in HTTP responses
+Package sendfile middleware transparently sends static files in HTTP responses
 via the X-Sendfile mechanism. All that is needed in the Rails code is the
 'send_file' method.
 */
-
 package sendfile
 
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"regexp"
 
@@ -21,6 +19,8 @@ import (
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/headers"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/nginx"
 )
 
 var (
@@ -50,6 +50,7 @@ type sendFileResponseWriter struct {
 	req      *http.Request
 }
 
+// SendFile wraps an HTTP handler and serves static files efficiently using sendfile.
 func SendFile(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		s := &sendFileResponseWriter{
@@ -94,12 +95,17 @@ func (s *sendFileResponseWriter) WriteHeader(status int) {
 		s.hijacked = true
 
 		// Serve the file
-		helper.DisableResponseBuffering(s.rw)
+		nginx.DisableResponseBuffering(s.rw)
 		sendFileFromDisk(s.rw, s.req, file)
 		return
 	}
 
 	s.rw.WriteHeader(s.status)
+}
+
+// Unwrap lets http.ResponseController get the underlying http.ResponseWriter.
+func (s *sendFileResponseWriter) Unwrap() http.ResponseWriter {
+	return s.rw
 }
 
 func sendFileFromDisk(w http.ResponseWriter, r *http.Request, file string) {
@@ -123,18 +129,26 @@ func sendFileFromDisk(w http.ResponseWriter, r *http.Request, file string) {
 		http.NotFound(w, r)
 		return
 	}
-	defer content.Close()
+	defer func() {
+		if err = content.Close(); err != nil {
+			fmt.Printf("Error closing file: %v", err)
+		}
+	}()
 
 	countSendFileMetrics(fi.Size(), r)
 
 	if contentTypeHeaderPresent {
-		data, err := ioutil.ReadAll(io.LimitReader(content, headers.MaxDetectSize))
+		data, err := io.ReadAll(io.LimitReader(content, headers.MaxDetectSize))
 		if err != nil {
-			helper.Fail500(w, r, fmt.Errorf("content type detection: %v", err))
+			fail.Request(w, r, fmt.Errorf("content type detection: %v", err))
 			return
 		}
 
-		content.Seek(0, io.SeekStart)
+		_, err = content.Seek(0, io.SeekStart)
+		if err != nil {
+			fail.Request(w, r, fmt.Errorf("error rewinding file: %v", err))
+			return
+		}
 
 		contentType, contentDisposition := headers.SafeContentHeaders(data, w.Header().Get(headers.ContentDispositionHeader))
 		w.Header().Set(headers.ContentTypeHeader, contentType)

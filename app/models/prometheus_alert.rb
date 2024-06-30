@@ -20,12 +20,12 @@ class PrometheusAlert < ApplicationRecord
   has_many :related_issues, through: :prometheus_alert_events
   has_many :alert_management_alerts, class_name: 'AlertManagement::Alert', inverse_of: :prometheus_alert
 
-  after_save :clear_prometheus_adapter_cache!
   after_destroy :clear_prometheus_adapter_cache!
+  after_save :clear_prometheus_adapter_cache!
 
   validates :environment, :project, :prometheus_metric, :threshold, :operator, presence: true
   validates :runbook_url, length: { maximum: 255 }, allow_blank: true,
-            addressable_url: { enforce_sanitization: true, ascii_only: true }
+    addressable_url: { enforce_sanitization: true, ascii_only: true }
   validate :require_valid_environment_project!
   validate :require_valid_metric_project!
 
@@ -33,9 +33,9 @@ class PrometheusAlert < ApplicationRecord
 
   delegate :title, :query, to: :prometheus_metric
 
-  scope :for_metric, -> (metric) { where(prometheus_metric: metric) }
-  scope :for_project, -> (project) { where(project_id: project) }
-  scope :for_environment, -> (environment) { where(environment_id: environment) }
+  scope :for_metric, ->(metric) { where(prometheus_metric: metric) }
+  scope :for_project, ->(project) { where(project_id: project) }
+  scope :for_environment, ->(environment) { where(environment_id: environment) }
   scope :get_environment_id, -> { select(:environment_id).pluck(:environment_id) }
 
   def self.distinct_projects

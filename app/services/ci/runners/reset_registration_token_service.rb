@@ -11,16 +11,19 @@ module Ci
       end
 
       def execute
-        return unless @user.present? && @user.can?(:update_runners_registration_token, scope)
-
-        case scope
-        when ::ApplicationSetting
-          scope.reset_runners_registration_token!
-          ApplicationSetting.current_without_cache.runners_registration_token
-        when ::Group, ::Project
-          scope.reset_runners_token!
-          scope.runners_token
+        unless @user.present? && @user.can?(:update_runners_registration_token, scope)
+          return ServiceResponse.error(message: 'user not allowed to update runners registration token')
         end
+
+        if scope.respond_to?(:runners_registration_token)
+          scope.reset_runners_registration_token!
+          runners_token = scope.runners_registration_token
+        else
+          scope.reset_runners_token!
+          runners_token = scope.runners_token
+        end
+
+        ServiceResponse.success(payload: { new_registration_token: runners_token })
       end
 
       private
@@ -29,3 +32,5 @@ module Ci
     end
   end
 end
+
+Ci::Runners::ResetRegistrationTokenService.prepend_mod

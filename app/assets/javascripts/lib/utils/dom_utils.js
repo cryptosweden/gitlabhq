@@ -1,4 +1,5 @@
 import { has } from 'lodash';
+import { __ } from '~/locale';
 import { isInIssuePage, isInMRPage, isInEpicPage } from './common_utils';
 
 /**
@@ -39,7 +40,7 @@ export const toggleContainerClasses = (containerEl, classList) => {
  * Return a object mapping element dataset names to booleans.
  *
  * This is useful for data- attributes whose presense represent
- * a truthiness, no matter the value of the attribute. The absense of the
+ * a truthiness, no matter the value of the attribute. The absence of the
  * attribute represents  falsiness.
  *
  * This can be useful when Rails-provided boolean-like values are passed
@@ -67,17 +68,6 @@ export const parseBooleanDataAttributes = ({ dataset }, names) =>
 export const isElementVisible = (element) =>
   Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
 
-/**
- * The opposite of `isElementVisible`.
- * Returns whether or not the provided element is currently hidden.
- * This function operates identically to jQuery's `:hidden` pseudo-selector.
- * Documentation for this selector: https://api.jquery.com/hidden-selector/
- * Implementation of this selector: https://github.com/jquery/jquery/blob/d0ce00cdfa680f1f0c38460bc51ea14079ae8b07/src/css/hiddenVisibleSelectors.js#L6
- * @param {HTMLElement} element The element to test
- * @returns {Boolean} `true` if the element is currently hidden, otherwise false
- */
-export const isElementHidden = (element) => !isElementVisible(element);
-
 export const getParents = (element) => {
   const parents = [];
   let parent = element.parentNode;
@@ -88,6 +78,20 @@ export const getParents = (element) => {
   } while (parent);
 
   return parents;
+};
+
+export const getParentByTagName = (element, tagName) => {
+  let parent = element.parentNode;
+
+  do {
+    if (parent.nodeName?.toLowerCase() === tagName?.toLowerCase()) {
+      return parent;
+    }
+
+    parent = parent.parentElement;
+  } while (parent);
+
+  return undefined;
 };
 
 /**
@@ -103,3 +107,72 @@ export const setAttributes = (el, attributes) => {
     el.setAttribute(key, attributes[key]);
   });
 };
+
+/**
+ * Get the height of the wrapper page element
+ * This height can be used to determine where the highest element goes in a page
+ * Useful for gl-drawer's header-height prop
+ * @param {String} contentWrapperClass the content wrapper class
+ * @returns {String} height in px
+ */
+export const getContentWrapperHeight = (contentWrapperClass = '.content-wrapper') => {
+  const wrapperEl = document.querySelector(contentWrapperClass);
+  return wrapperEl ? `${wrapperEl.offsetTop}px` : '';
+};
+
+/**
+ * Replaces comment nodes in a DOM tree with a different element
+ * containing the text of the comment.
+ *
+ * @param {*} el
+ * @param {*} tagName
+ */
+export const replaceCommentsWith = (el, tagName) => {
+  const iterator = document.createNodeIterator(el, NodeFilter.SHOW_COMMENT);
+  let commentNode = iterator.nextNode();
+
+  while (commentNode) {
+    const newNode = document.createElement(tagName);
+    newNode.textContent = commentNode.textContent;
+
+    commentNode.parentNode.replaceChild(newNode, commentNode);
+
+    commentNode = iterator.nextNode();
+  }
+};
+
+/**
+ * Wait for an element to become available in the DOM
+ * @param {String} selector - the query selector for the target element
+ * @param {Number} timeoutDelay - how long to wait before timing out
+ * @returns {Promise} A promise that resolves when the element becomes available
+ */
+export const waitForElement = (selector, timeoutDelay = 5000) =>
+  new Promise((resolve, reject) => {
+    let element;
+
+    const findElement = () => {
+      // Set `element` here to prevent unnecessary DOM lookups
+      if (!element) element = document.querySelector(selector);
+      return element;
+    };
+
+    if (findElement()) {
+      resolve(findElement());
+    } else {
+      let timeout;
+      const observer = new MutationObserver(() => {
+        if (findElement()) {
+          observer.disconnect();
+          clearTimeout(timeout);
+          resolve(findElement());
+        }
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true });
+      timeout = setTimeout(() => {
+        observer.disconnect();
+        reject(__('Timeout: Element not found'));
+      }, timeoutDelay); // disconnect if no element was found
+    }
+  });

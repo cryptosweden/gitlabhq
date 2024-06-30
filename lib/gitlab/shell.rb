@@ -14,14 +14,29 @@ module Gitlab
   class Shell
     Error = Class.new(StandardError)
 
+    API_HEADER = 'Gitlab-Shell-Api-Request'
+    JWT_ISSUER = 'gitlab-shell'
+
     class << self
+      def verify_api_request(headers)
+        payload, header = JSONWebToken::HMACToken.decode(headers[API_HEADER], secret_token)
+        return unless payload['iss'] == JWT_ISSUER
+
+        [payload, header]
+      rescue JWT::DecodeError, JWT::ExpiredSignature, JWT::ImmatureSignature => ex
+        Gitlab::ErrorTracking.track_exception(ex)
+        nil
+      end
+
+      def header_set?(headers)
+        headers[API_HEADER].present?
+      end
+
       # Retrieve GitLab Shell secret token
       #
       # @return [String] secret token
       def secret_token
-        @secret_token ||= begin
-          File.read(Gitlab.config.gitlab_shell.secret_file).chomp
-        end
+        @secret_token ||= File.read(Gitlab.config.gitlab_shell.secret_file).chomp
       end
 
       # Ensure gitlab shell has a secret token stored in the secret_file
@@ -70,108 +85,11 @@ module Gitlab
 
         link_path = File.join(shell_path, '.gitlab_shell_secret')
         if File.exist?(shell_path) && !File.exist?(link_path)
-          FileUtils.symlink(secret_file, link_path)
+          # It could happen that link_path is a broken symbolic link.
+          # In that case !File.exist?(link_path) is true, but we still want to overwrite the (broken) symbolic link.
+          FileUtils.ln_sf(secret_file, link_path)
         end
       end
-    end
-
-    # Move or rename a repository
-    #
-    # @example Move/rename a repository
-    #   mv_repository("/path/to/storage", "gitlab/gitlab-ci", "randx/gitlab-ci-new")
-    #
-    # @param [String] storage project's storage path
-    # @param [String] disk_path current project path on disk
-    # @param [String] new_disk_path new project path on disk
-    # @return [Boolean] whether repository could be moved/renamed on disk
-    #
-    # @deprecated
-    def mv_repository(storage, disk_path, new_disk_path)
-      return false if disk_path.empty? || new_disk_path.empty?
-
-      Gitlab::Git::Repository.new(storage, "#{disk_path}.git", nil, nil).rename("#{new_disk_path}.git")
-
-      true
-    rescue StandardError => e
-      Gitlab::ErrorTracking.track_exception(e, path: disk_path, new_path: new_disk_path, storage: storage)
-
-      false
-    end
-
-    # Removes a repository from file system, using rm_diretory which is an alias
-    # for rm_namespace. Given the underlying implementation removes the name
-    # passed as second argument on the passed storage.
-    #
-    # @example Remove a repository
-    #   remove_repository("/path/to/storage", "gitlab/gitlab-ci")
-    #
-    # @param [String] storage project's storage path
-    # @param [String] disk_path current project path on disk
-    #
-    # @deprecated
-    def remove_repository(storage, disk_path)
-      return false if disk_path.empty?
-
-      Gitlab::Git::Repository.new(storage, "#{disk_path}.git", nil, nil).remove
-
-      true
-    rescue StandardError => e
-      Gitlab::AppLogger.warn("Repository does not exist: #{e} at: #{disk_path}.git")
-      Gitlab::ErrorTracking.track_exception(e, path: disk_path, storage: storage)
-
-      false
-    end
-
-    # Add empty directory for storing repositories
-    #
-    # @example Add new namespace directory
-    #   add_namespace("default", "gitlab")
-    #
-    # @param [String] storage project's storage path
-    # @param [String] name namespace name
-    #
-    # @deprecated
-    def add_namespace(storage, name)
-      Gitlab::GitalyClient.allow_n_plus_1_calls do
-        Gitlab::GitalyClient::NamespaceService.new(storage).add(name)
-      end
-    rescue GRPC::InvalidArgument => e
-      raise ArgumentError, e.message
-    end
-
-    # Remove directory from repositories storage
-    # Every repository inside this directory will be removed too
-    #
-    # @example Remove namespace directory
-    #   rm_namespace("default", "gitlab")
-    #
-    # @param [String] storage project's storage path
-    # @param [String] name namespace name
-    #
-    # @deprecated
-    def rm_namespace(storage, name)
-      Gitlab::GitalyClient::NamespaceService.new(storage).remove(name)
-    rescue GRPC::InvalidArgument => e
-      raise ArgumentError, e.message
-    end
-    alias_method :rm_directory, :rm_namespace
-
-    # Move namespace directory inside repositories storage
-    #
-    # @example Move/rename a namespace directory
-    #   mv_namespace("/path/to/storage", "gitlab", "gitlabhq")
-    #
-    # @param [String] storage project's storage path
-    # @param [String] old_name current namespace name
-    # @param [String] new_name new namespace name
-    #
-    # @deprecated
-    def mv_namespace(storage, old_name, new_name)
-      Gitlab::GitalyClient::NamespaceService.new(storage).rename(old_name, new_name)
-    rescue GRPC::InvalidArgument => e
-      Gitlab::ErrorTracking.track_exception(e, old_name: old_name, new_name: new_name, storage: storage)
-
-      false
     end
 
     # Check if repository exists on disk

@@ -2,22 +2,27 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group issues page' do
+RSpec.describe 'Group issues page', feature_category: :groups_and_projects do
+  include Features::SortingHelpers
   include FilteredSearchHelpers
   include DragTo
 
   let(:group) { create(:group) }
-  let(:project) { create(:project, :public, group: group)}
+  let(:project) { create(:project, :public, group: group) }
   let(:project_with_issues_disabled) { create(:project, :issues_disabled, group: group) }
   let(:path) { issues_group_path(group) }
 
   context 'with shared examples', :js do
-    let(:issuable) { create(:issue, project: project, title: "this is my created issuable")}
+    let(:issuable) { create(:issue, project: project, title: "this is my created issuable") }
 
     include_examples 'project features apply to issuables', Issue
 
     context 'rss feed' do
       let(:access_level) { ProjectFeature::ENABLED }
+
+      before do
+        click_button 'Actions'
+      end
 
       context 'when signed in' do
         let(:user) do
@@ -26,29 +31,15 @@ RSpec.describe 'Group issues page' do
           user_in_group
         end
 
+        it_behaves_like "it has an RSS link with current_user's feed token"
         it_behaves_like "an autodiscoverable RSS feed with current_user's feed token"
-
-        # Note: The one from rss_shared_example.rb uses a css pseudo-class `:has`
-        # which is VERY experimental and only supported in Nokogiri used by Capybara
-        # However,`:js` option forces Capybara to use Selenium that doesn't support`:has`
-        context "it has an RSS button with current_user's feed token" do
-          it "shows the RSS button with current_user's feed token" do
-            expect(page).to have_link 'Subscribe to RSS feed', href: /feed_token=#{user.feed_token}/
-          end
-        end
       end
 
       context 'when signed out' do
         let(:user) { nil }
 
+        it_behaves_like "it has an RSS link without a feed token"
         it_behaves_like "an autodiscoverable RSS feed without a feed token"
-
-        # Note: please see the above
-        context "it has an RSS button without a feed token" do
-          it "shows the RSS button without a feed token" do
-            expect(page).not_to have_link 'Subscribe to RSS feed', href: /feed_token/
-          end
-        end
       end
     end
 
@@ -58,41 +49,27 @@ RSpec.describe 'Group issues page' do
       let(:user2) { user_outside_group }
 
       it 'filters by only group users' do
-        filtered_search.set('assignee:=')
+        select_tokens 'Assignee', '='
 
-        expect(find('#js-dropdown-assignee .filter-dropdown')).to have_content(user.name)
-        expect(find('#js-dropdown-assignee .filter-dropdown')).not_to have_content(user2.name)
+        expect_suggestion(user.name)
+        expect_no_suggestion(user2.name)
       end
     end
   end
 
   context 'issues list', :js do
     let(:subgroup) { create(:group, parent: group) }
-    let(:subgroup_project) { create(:project, :public, group: subgroup)}
-    let(:user_in_group) { create(:group_member, :maintainer, user: create(:user), group: group ).user }
+    let(:subgroup_project) { create(:project, :public, group: subgroup) }
+    let(:user_in_group) { create(:group_member, :maintainer, user: create(:user), group: group).user }
     let!(:issue) { create(:issue, project: project, title: 'root group issue') }
     let!(:subgroup_issue) { create(:issue, project: subgroup_project, title: 'subgroup issue') }
 
     it 'returns all group and subgroup issues' do
       visit issues_group_path(group)
 
-      page.within('.issuable-list') do
-        expect(page).to have_selector('li.issue', count: 2)
-        expect(page).to have_content('root group issue')
-        expect(page).to have_content('subgroup issue')
-      end
-    end
-
-    it 'truncates issue counts if over the threshold', :clean_gitlab_redis_cache do
-      allow(Rails.cache).to receive(:read).and_call_original
-      allow(Rails.cache).to receive(:read).with(
-        ['group', group.id, 'issues'],
-        { expires_in: Gitlab::IssuablesCountForState::CACHE_EXPIRES_IN }
-      ).and_return({ opened: 1050, closed: 500, all: 1550 })
-
-      visit issues_group_path(group)
-
-      expect(page).to have_text('Open 1.1k Closed 500 All 1.6k')
+      expect(page).to have_selector('li.issue', count: 2)
+      expect(page).to have_content('root group issue')
+      expect(page).to have_content('subgroup issue')
     end
 
     context 'when project is archived' do
@@ -115,7 +92,6 @@ RSpec.describe 'Group issues page' do
     let!(:subgroup_issue) { create(:issue, project: subgroup_project) }
 
     before do
-      stub_feature_flags(vue_issues_list: true)
       visit issues_group_path(group_with_no_issues)
     end
 
@@ -126,7 +102,7 @@ RSpec.describe 'Group issues page' do
 
   context 'projects with issues disabled' do
     describe 'issue dropdown' do
-      let(:user_in_group) { create(:group_member, :maintainer, user: create(:user), group: group ).user }
+      let(:user_in_group) { create(:group_member, :maintainer, user: create(:user), group: group).user }
 
       before do
         [project, project_with_issues_disabled].each { |project| project.add_maintainer(user_in_group) }
@@ -135,20 +111,16 @@ RSpec.describe 'Group issues page' do
       end
 
       it 'shows projects only with issues feature enabled', :js do
-        within '.empty-state' do
-          click_button 'Toggle project select'
-        end
+        click_button 'Toggle project select'
 
-        page.within('.select2-results') do
-          expect(page).to have_content(project.full_name)
-          expect(page).not_to have_content(project_with_issues_disabled.full_name)
-        end
+        expect(page).to have_button project.full_name
+        expect(page).not_to have_button project_with_issues_disabled.full_name
       end
     end
   end
 
   context 'manual ordering', :js do
-    let(:user_in_group) { create(:group_member, :maintainer, user: create(:user), group: group ).user }
+    let(:user_in_group) { create(:group_member, :maintainer, user: create(:user), group: group).user }
 
     let!(:issue1) { create(:issue, project: project, title: 'Issue #1', relative_position: 1) }
     let!(:issue2) { create(:issue, project: project, title: 'Issue #2', relative_position: 2) }
@@ -161,9 +133,7 @@ RSpec.describe 'Group issues page' do
     it 'displays all issues' do
       visit issues_group_path(group, sort: 'relative_position')
 
-      page.within('.issues-list') do
-        expect(page).to have_selector('li.issue', count: 3)
-      end
+      expect(page).to have_selector('li.issue', count: 3)
     end
 
     it 'has manual-ordering css applied' do
@@ -179,55 +149,47 @@ RSpec.describe 'Group issues page' do
     end
 
     it 'issues should be draggable and persist order' do
-      visit issues_group_path(group, sort: 'relative_position')
+      visit issues_group_path(group)
+      select_manual_sort
 
       wait_for_requests
 
-      drag_to(selector: '.manual-ordering',
-        from_index: 0,
-        to_index: 2)
+      drag_to(selector: '.manual-ordering', from_index: 0, to_index: 2)
 
-      wait_for_requests
+      expect_issue_order
 
-      check_issue_order
+      visit issues_group_path(group)
 
-      visit issues_group_path(group, sort: 'relative_position')
-
-      check_issue_order
+      expect_issue_order
     end
 
     it 'issues should not be draggable when user is not logged in' do
       sign_out(user_in_group)
-
-      visit issues_group_path(group, sort: 'relative_position')
+      wait_for_requests
+      visit issues_group_path(group)
+      select_manual_sort
 
       wait_for_requests
 
-      drag_to(selector: '.manual-ordering',
-        from_index: 0,
-        to_index: 2)
+      drag_to(selector: '.manual-ordering', from_index: 0, to_index: 2)
 
-      wait_for_requests
-
-      # Issue order should remain the same
-      page.within('.manual-ordering') do
-        expect(find('.issue:nth-child(1) .title')).to have_content('Issue #1')
-        expect(find('.issue:nth-child(2) .title')).to have_content('Issue #2')
-        expect(find('.issue:nth-child(3) .title')).to have_content('Issue #3')
-      end
+      expect(page).to have_text 'An error occurred while reordering issues.'
     end
 
-    def check_issue_order
-      page.within('.manual-ordering') do
-        expect(find('.issue:nth-child(1) .title')).to have_content('Issue #2')
-        expect(find('.issue:nth-child(2) .title')).to have_content('Issue #3')
-        expect(find('.issue:nth-child(3) .title')).to have_content('Issue #1')
-      end
+    def select_manual_sort
+      pajamas_sort_by 'Manual', from: 'Created date'
+      wait_for_requests
+    end
+
+    def expect_issue_order
+      expect(page).to have_css('.issue:nth-child(1) .title', text: 'Issue #2')
+      expect(page).to have_css('.issue:nth-child(2) .title', text: 'Issue #3')
+      expect(page).to have_css('.issue:nth-child(3) .title', text: 'Issue #1')
     end
   end
 
   context 'issues pagination', :js do
-    let(:user_in_group) { create(:group_member, :maintainer, user: create(:user), group: group ).user }
+    let(:user_in_group) { create(:group_member, :maintainer, user: create(:user), group: group).user }
 
     let!(:issues) do
       (1..25).to_a.map { |index| create(:issue, project: project, title: "Issue #{index}") }
@@ -239,14 +201,8 @@ RSpec.describe 'Group issues page' do
     end
 
     it 'shows the pagination' do
-      expect(page).to have_link 'Prev'
-      expect(page).to have_link 'Next'
-    end
-
-    it 'first pagination item is active' do
-      page.within('.gl-pagination') do
-        expect(find('li.active')).to have_content('1')
-      end
+      expect(page).to have_button 'Prev', disabled: true
+      expect(page).to have_button 'Next'
     end
   end
 end

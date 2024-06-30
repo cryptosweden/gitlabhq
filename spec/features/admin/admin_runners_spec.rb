@@ -2,123 +2,118 @@
 
 require 'spec_helper'
 
-RSpec.describe "Admin Runners" do
-  include StubENV
+RSpec.describe "Admin Runners", :freeze_time, feature_category: :fleet_visibility do
+  include Features::SortingHelpers
+  include Features::RunnersHelpers
   include Spec::Support::Helpers::ModalHelpers
 
-  before do
-    stub_env('IN_MEMORY_APPLICATION_SETTINGS', 'false')
-    admin = create(:admin)
-    sign_in(admin)
-    gitlab_enable_admin_mode_sign_in(admin)
+  let_it_be(:admin) { create(:admin) }
 
-    wait_for_requests
+  before do
+    sign_in(admin)
+    enable_admin_mode!(admin)
   end
 
-  describe "Runners page", :js do
+  describe "Admin Runners page", :js do
     let_it_be(:user) { create(:user) }
     let_it_be(:group) { create(:group) }
     let_it_be(:namespace) { create(:namespace) }
     let_it_be(:project) { create(:project, namespace: namespace, creator: user) }
 
+    describe "runners creation and registration" do
+      before do
+        visit admin_runners_path
+      end
+
+      it 'shows a create button' do
+        expect(page).to have_link s_('Runner|New instance runner'), href: new_admin_runner_path
+      end
+
+      it_behaves_like "shows and resets runner registration token" do
+        let(:dropdown_text) { s_('Runners|Register an instance runner') }
+        let(:registration_token) { Gitlab::CurrentSettings.runners_registration_token }
+      end
+    end
+
     context "when there are runners" do
-      it 'has all necessary texts' do
-        create(:ci_runner, :instance, created_at: 1.year.ago, contacted_at: Time.zone.now)
-        create(:ci_runner, :instance, created_at: 1.year.ago, contacted_at: 1.week.ago)
-        create(:ci_runner, :instance, created_at: 1.year.ago, contacted_at: 1.year.ago)
+      context "with an instance runner" do
+        let_it_be(:instance_runner) { create(:ci_runner, :instance) }
 
-        visit admin_runners_path
+        before do
+          visit admin_runners_path
+        end
 
-        expect(page).to have_text "Register an instance runner"
-        expect(page).to have_text "Online runners 1"
-        expect(page).to have_text "Offline runners 2"
-        expect(page).to have_text "Stale runners 1"
-      end
+        it_behaves_like 'shows runner summary and navigates to details' do
+          let(:runner) { instance_runner }
+          let(:runner_page_path) { admin_runner_path(instance_runner) }
+        end
 
-      it 'with an instance runner shows an instance badge' do
-        runner = create(:ci_runner, :instance)
+        it_behaves_like 'pauses, resumes and deletes a runner' do
+          let(:runner) { instance_runner }
+        end
 
-        visit admin_runners_path
-
-        within "[data-testid='runner-row-#{runner.id}']" do
-          expect(page).to have_selector '.badge', text: 'shared'
+        it 'shows an instance badge' do
+          within_runner_row(instance_runner.id) do
+            expect(page).to have_selector '.badge', text: s_('Runners|Instance')
+          end
         end
       end
 
-      it 'with a group runner shows a group badge' do
-        runner = create(:ci_runner, :group, groups: [group])
+      context "with multiple runners" do
+        before do
+          create(:ci_runner, :instance, :online)
+          create(:ci_runner, :instance, :offline)
+          create(:ci_runner, :instance, :stale)
 
-        visit admin_runners_path
-
-        within "[data-testid='runner-row-#{runner.id}']" do
-          expect(page).to have_selector '.badge', text: 'group'
+          visit admin_runners_path
         end
-      end
 
-      it 'with a project runner shows a project badge' do
-        runner = create(:ci_runner, :project, projects: [project])
+        it 'has all necessary texts' do
+          expect(page).to have_text "#{s_('Runners|All')} 3"
+          expect(page).to have_text "#{s_('Runners|Online')} 1"
+          expect(page).to have_text "#{s_('Runners|Offline')} 2"
+          expect(page).to have_text "#{s_('Runners|Stale')} 1"
+        end
 
-        visit admin_runners_path
-
-        within "[data-testid='runner-row-#{runner.id}']" do
-          expect(page).to have_selector '.badge', text: 'specific'
+        it_behaves_like 'deletes runners in bulk' do
+          let(:runner_count) { '3' }
         end
       end
 
       it 'shows a job count' do
         runner = create(:ci_runner, :project, projects: [project])
-
-        create(:ci_build, runner: runner)
-        create(:ci_build, runner: runner)
+        create_list(:ci_build, 2, runner: runner)
 
         visit admin_runners_path
 
-        within "[data-testid='runner-row-#{runner.id}'] [data-label='Jobs']" do
-          expect(page).to have_content '2'
+        within_runner_row(runner.id) do
+          expect(find_by_testid('job-count')).to have_content '2'
         end
       end
 
-      describe 'delete runner' do
-        let!(:runner) { create(:ci_runner, description: 'runner-foo') }
+      it 'shows a running status badge that links to jobs tab' do
+        runner = create(:ci_runner, :project, projects: [project])
+        job = create(:ci_build, :running, runner: runner)
 
-        before do
-          visit admin_runners_path
+        visit admin_runners_path
 
-          within "[data-testid='runner-row-#{runner.id}']" do
-            click_on 'Delete runner'
-          end
+        within_runner_row(runner.id) do
+          click_on(s_('Runners|Running'))
         end
 
-        it 'shows a confirmation modal' do
-          expect(page).to have_text "Delete runner ##{runner.id} (#{runner.short_sha})?"
-          expect(page).to have_text "Are you sure you want to continue?"
-        end
+        expect(current_url).to match(admin_runner_path(runner))
 
-        it 'deletes a runner' do
-          within '.modal' do
-            click_on 'Delete runner'
-          end
-
-          expect(page.find('.gl-toast')).to have_text(/Runner .+ deleted/)
-          expect(page).not_to have_content 'runner-foo'
-        end
-
-        it 'cancels runner deletion' do
-          within '.modal' do
-            click_on 'Cancel'
-          end
-
-          wait_for_requests
-
-          expect(page).to have_content 'runner-foo'
-        end
+        expect(find_by_testid('td-status')).to have_content "Running"
+        expect(find_by_testid('td-job')).to have_content "##{job.id}"
       end
 
       describe 'search' do
-        before do
-          create(:ci_runner, :instance, description: 'runner-foo')
-          create(:ci_runner, :instance, description: 'runner-bar')
+        before_all do
+          create(:ci_runner, :instance, description: 'runner foo')
+          create(:ci_runner, :instance, description: 'runner bar')
+        end
 
+        before do
           visit admin_runners_path
         end
 
@@ -130,79 +125,180 @@ RSpec.describe "Admin Runners" do
         end
 
         it 'shows runners' do
-          expect(page).to have_content("runner-foo")
-          expect(page).to have_content("runner-bar")
+          expect(page).to have_content("runner foo")
+          expect(page).to have_content("runner bar")
         end
 
         it 'shows correct runner when description matches' do
-          input_filtered_search_keys('runner-foo')
+          input_filtered_search_keys('runner foo')
 
           expect(page).to have_link('All 1')
           expect(page).to have_link('Instance 1')
 
-          expect(page).to have_content("runner-foo")
-          expect(page).not_to have_content("runner-bar")
+          expect(page).to have_content("runner foo")
+          expect(page).not_to have_content("runner bar")
         end
 
-        it 'shows no runner when description does not match' do
-          input_filtered_search_keys('runner-baz')
+        context 'when description does not match' do
+          before do
+            input_filtered_search_keys('runner baz')
+          end
 
-          expect(page).to have_link('All 0')
-          expect(page).to have_link('Instance 0')
+          it_behaves_like 'shows no runners found'
 
-          expect(page).to have_text 'No runners found'
+          it 'shows no runner' do
+            expect(page).to have_link('All 0')
+            expect(page).to have_link('Instance 0')
+          end
         end
       end
 
-      describe 'filter by status' do
-        let!(:never_contacted) { create(:ci_runner, :instance, description: 'runner-never-contacted', contacted_at: nil) }
+      describe 'filter by paused' do
+        before_all do
+          create(:ci_runner, :instance, description: 'runner-active')
+          create(:ci_runner, :instance, description: 'runner-paused', active: false)
+        end
 
         before do
-          create(:ci_runner, :instance, description: 'runner-1', contacted_at: Time.zone.now)
-          create(:ci_runner, :instance, description: 'runner-2', contacted_at: Time.zone.now)
-          create(:ci_runner, :instance, description: 'runner-paused', active: false, contacted_at: Time.zone.now)
-
           visit admin_runners_path
         end
 
         it 'shows all runners' do
+          expect(page).to have_link('All 2')
+
+          expect(page).to have_content 'runner-active'
+          expect(page).to have_content 'runner-paused'
+        end
+
+        it 'shows paused runners' do
+          input_filtered_search_filter_is_only(s_('Runners|Paused'), 'Yes')
+
+          expect(page).to have_link('All 1')
+
+          expect(page).not_to have_content 'runner-active'
+          expect(page).to have_content 'runner-paused'
+        end
+
+        it 'shows active runners' do
+          input_filtered_search_filter_is_only(s_('Runners|Paused'), 'No')
+
+          expect(page).to have_link('All 1')
+
+          expect(page).to have_content 'runner-active'
+          expect(page).not_to have_content 'runner-paused'
+        end
+      end
+
+      describe 'filter by version prefix' do
+        before_all do
+          runner_v15 = create(:ci_runner, :instance, description: 'runner-v15')
+          runner_v14 = create(:ci_runner, :instance, description: 'runner-v14')
+
+          create(:ci_runner_machine, runner: runner_v15, version: '15.0.0')
+          create(:ci_runner_machine, runner: runner_v14, version: '14.0.0')
+        end
+
+        before do
+          visit admin_runners_path
+        end
+
+        it 'shows all runners' do
+          expect(page).to have_link('All 2')
+
+          expect(page).to have_content 'runner-v15'
+          expect(page).to have_content 'runner-v14'
+        end
+
+        it 'shows filtered runner based on supplied prefix' do
+          input_filtered_search_filter_is_only(s_('Runners|Version starts with'), '15.0')
+
+          expect(page).to have_link('All 1')
+
+          expect(page).not_to have_content 'runner-v14'
+          expect(page).to have_content 'runner-v15'
+        end
+      end
+
+      describe 'filter by creator' do
+        before_all do
+          create(:ci_runner, :instance, description: 'runner-creator-admin', creator: admin)
+          create(:ci_runner, :instance, description: 'runner-creator-user', creator: user)
+        end
+
+        before do
+          visit admin_runners_path
+        end
+
+        it 'shows all runners' do
+          expect(page).to have_link('All 2')
+
+          expect(page).to have_content 'runner-creator-admin'
+          expect(page).to have_content 'runner-creator-user'
+        end
+
+        it 'shows filtered runner based on creator' do
+          input_filtered_search_filter_is_only(s_('Runners|Creator'), admin.username)
+
+          expect(page).to have_link('All 1')
+
+          expect(page).to have_content 'runner-creator-admin'
+          expect(page).not_to have_content 'runner-creator-user'
+        end
+
+        it 'shows filtered search suggestions' do
+          open_filtered_search_suggestions(s_('Runners|Creator'))
+          page.within(search_bar_selector) do
+            expect(page).to have_content admin.username
+            expect(page).to have_content user.username
+          end
+        end
+      end
+
+      describe 'filter by status' do
+        let_it_be(:never_contacted) do
+          create(:ci_runner, :instance, :unregistered, description: 'runner-never-contacted')
+        end
+
+        before_all do
+          create(:ci_runner, :instance, :online, description: 'runner-1')
+          create(:ci_runner, :instance, :online, description: 'runner-2')
+          create(:ci_runner, :instance, :contacted_within_stale_deadline, description: 'runner-offline')
+        end
+
+        before do
+          visit admin_runners_path
+        end
+
+        it 'shows all runners' do
+          expect(page).to have_link('All 4')
+
           expect(page).to have_content 'runner-1'
           expect(page).to have_content 'runner-2'
-          expect(page).to have_content 'runner-paused'
+          expect(page).to have_content 'runner-offline'
           expect(page).to have_content 'runner-never-contacted'
-
-          expect(page).to have_link('All 4')
         end
 
         it 'shows correct runner when status matches' do
-          input_filtered_search_filter_is_only('Status', 'Active')
+          input_filtered_search_filter_is_only('Status', s_('Runners|Online'))
 
-          expect(page).to have_link('All 3')
+          expect(page).to have_link('All 2')
 
           expect(page).to have_content 'runner-1'
           expect(page).to have_content 'runner-2'
-          expect(page).to have_content 'runner-never-contacted'
-          expect(page).not_to have_content 'runner-paused'
-        end
-
-        it 'shows no runner when status does not match' do
-          input_filtered_search_filter_is_only('Status', 'Stale')
-
-          expect(page).to have_link('All 0')
-
-          expect(page).to have_text 'No runners found'
+          expect(page).not_to have_content 'runner-offline'
+          expect(page).not_to have_content 'runner-never-contacted'
         end
 
         it 'shows correct runner when status is selected and search term is entered' do
-          input_filtered_search_filter_is_only('Status', 'Active')
+          input_filtered_search_filter_is_only('Status', s_('Runners|Online'))
           input_filtered_search_keys('runner-1')
 
           expect(page).to have_link('All 1')
 
           expect(page).to have_content 'runner-1'
           expect(page).not_to have_content 'runner-2'
+          expect(page).not_to have_content 'runner-offline'
           expect(page).not_to have_content 'runner-never-contacted'
-          expect(page).not_to have_content 'runner-paused'
         end
 
         it 'shows correct runner when status filter is entered' do
@@ -216,14 +312,26 @@ RSpec.describe "Admin Runners" do
           expect(page).not_to have_content 'runner-paused'
           expect(page).to have_content 'runner-never-contacted'
 
-          within "[data-testid='runner-row-#{never_contacted.id}']" do
-            expect(page).to have_selector '.badge', text: 'never contacted'
+          within_runner_row(never_contacted.id) do
+            expect(page).to have_selector '.badge', text: s_('Runners|Never contacted')
+          end
+        end
+
+        context 'when status does not match' do
+          before do
+            input_filtered_search_filter_is_only('Status', 'Stale')
+          end
+
+          it_behaves_like 'shows no runners found'
+
+          it 'shows no runner' do
+            expect(page).to have_link('All 0')
           end
         end
       end
 
       describe 'filter by type' do
-        before do
+        before_all do
           create(:ci_runner, :project, description: 'runner-project', projects: [project])
           create(:ci_runner, :group, description: 'runner-group', groups: [group])
         end
@@ -235,7 +343,7 @@ RSpec.describe "Admin Runners" do
           expect(page).to have_link('Group 1')
           expect(page).to have_link('Project 1')
 
-          page.within('[data-testid="runner-type-tabs"]') do
+          within_testid('runner-type-tabs') do
             expect(page).to have_link('All', class: 'active')
           end
         end
@@ -246,7 +354,7 @@ RSpec.describe "Admin Runners" do
           expect(page).to have_content 'runner-project'
           expect(page).to have_content 'runner-group'
 
-          page.within('[data-testid="runner-type-tabs"]') do
+          within_testid('runner-type-tabs') do
             click_on('Project')
 
             expect(page).to have_link('Project', class: 'active')
@@ -259,7 +367,7 @@ RSpec.describe "Admin Runners" do
         it 'show the same counts after selecting another tab' do
           visit admin_runners_path
 
-          page.within('[data-testid="runner-type-tabs"]') do
+          within_testid('runner-type-tabs') do
             click_on('Project')
 
             expect(page).to have_link('All 2')
@@ -268,27 +376,12 @@ RSpec.describe "Admin Runners" do
           end
         end
 
-        it 'shows no runner when type does not match' do
-          visit admin_runners_path
-
-          page.within('[data-testid="runner-type-tabs"]') do
-            click_on 'Instance'
-
-            expect(page).to have_link('Instance', class: 'active')
-          end
-
-          expect(page).not_to have_content 'runner-project'
-          expect(page).not_to have_content 'runner-group'
-
-          expect(page).to have_text 'No runners found'
-        end
-
         it 'shows correct runner when type is selected and search term is entered' do
           create(:ci_runner, :project, description: 'runner-2-project', projects: [project])
 
           visit admin_runners_path
 
-          page.within('[data-testid="runner-type-tabs"]') do
+          within_testid('runner-type-tabs') do
             click_on 'Project'
           end
 
@@ -308,13 +401,13 @@ RSpec.describe "Admin Runners" do
 
           visit admin_runners_path
 
-          input_filtered_search_filter_is_only('Status', 'Active')
+          input_filtered_search_filter_is_only(s_('Runners|Paused'), 'No')
 
           expect(page).to have_content 'runner-project'
           expect(page).to have_content 'runner-group'
           expect(page).not_to have_content 'runner-paused-project'
 
-          page.within('[data-testid="runner-type-tabs"]') do
+          within_testid('runner-type-tabs') do
             click_on 'Project'
           end
 
@@ -322,40 +415,56 @@ RSpec.describe "Admin Runners" do
           expect(page).not_to have_content 'runner-group'
           expect(page).not_to have_content 'runner-paused-project'
         end
+
+        context 'when type does not match' do
+          before do
+            visit admin_runners_path
+            within_testid('runner-type-tabs') do
+              click_on 'Instance'
+            end
+          end
+
+          it_behaves_like 'shows no runners found'
+
+          it 'shows active tab' do
+            expect(page).to have_link('Instance', class: 'active')
+          end
+        end
       end
 
       describe 'filter by tag' do
+        let_it_be(:runner_1) { create(:ci_runner, :instance, description: 'runner-blue', tag_list: ['blue']) }
+        let_it_be(:runner_2) { create(:ci_runner, :instance, description: 'runner-2-blue', tag_list: ['blue']) }
+        let_it_be(:runner_3) { create(:ci_runner, :instance, description: 'runner-red', tag_list: ['red']) }
+
         before do
-          create(:ci_runner, :instance, description: 'runner-blue', tag_list: ['blue'])
-          create(:ci_runner, :instance, description: 'runner-red', tag_list: ['red'])
+          visit admin_runners_path
         end
 
-        it 'shows correct runner when tag matches' do
-          visit admin_runners_path
+        it 'shows tags suggestions' do
+          open_filtered_search_suggestions('Tags')
 
-          expect(page).to have_content 'runner-blue'
-          expect(page).to have_content 'runner-red'
-
-          input_filtered_search_filter_is_only('Tags', 'blue')
-
-          expect(page).to have_content 'runner-blue'
-          expect(page).not_to have_content 'runner-red'
+          page.within(search_bar_selector) do
+            expect(page).to have_content 'blue'
+            expect(page).to have_content 'red'
+          end
         end
 
-        it 'shows no runner when tag does not match' do
-          visit admin_runners_path
+        it_behaves_like 'filters by tag' do
+          let(:tag) { 'blue' }
+          let(:found_runner) { runner_1.description }
+          let(:missing_runner) { runner_3.description }
+        end
 
-          input_filtered_search_filter_is_only('Tags', 'green')
+        context 'when tag does not match' do
+          before do
+            input_filtered_search_filter_is_only('Tags', 'green')
+          end
 
-          expect(page).not_to have_content 'runner-blue'
-          expect(page).to have_text 'No runners found'
+          it_behaves_like 'shows no runners found'
         end
 
         it 'shows correct runner when tag is selected and search term is entered' do
-          create(:ci_runner, :instance, description: 'runner-2-blue', tag_list: ['blue'])
-
-          visit admin_runners_path
-
           input_filtered_search_filter_is_only('Tags', 'blue')
 
           expect(page).to have_content 'runner-blue'
@@ -371,29 +480,32 @@ RSpec.describe "Admin Runners" do
       end
 
       it 'sorts by last contact date' do
-        create(:ci_runner, :instance, description: 'runner-1', created_at: '2018-07-12 15:37', contacted_at: '2018-07-12 15:37')
-        create(:ci_runner, :instance, description: 'runner-2', created_at: '2018-07-12 16:37', contacted_at: '2018-07-12 16:37')
+        create(:ci_runner, :instance, description: 'runner-1', contacted_at: '2018-07-12')
+        create(:ci_runner, :instance, description: 'runner-2', contacted_at: '2018-07-13')
 
         visit admin_runners_path
 
-        within '[data-testid="runner-list"] tbody tr:nth-child(1)' do
-          expect(page).to have_content 'runner-2'
+        within_testid('runner-list') do
+          within('tbody tr:nth-child(1)') do
+            expect(page).to have_content 'runner-2'
+          end
+
+          within('tbody tr:nth-child(2)') do
+            expect(page).to have_content 'runner-1'
+          end
         end
 
-        within '[data-testid="runner-list"] tbody tr:nth-child(2)' do
-          expect(page).to have_content 'runner-1'
-        end
-
-        click_on 'Created date' # Open "sort by" dropdown
-        click_on 'Last contact'
+        pajamas_sort_by 'Last contact', from: 'Created date'
         click_on 'Sort direction: Descending'
 
-        within '[data-testid="runner-list"] tbody tr:nth-child(1)' do
-          expect(page).to have_content 'runner-1'
-        end
+        within_testid('runner-list') do
+          within('tbody tr:nth-child(1)') do
+            expect(page).to have_content 'runner-1'
+          end
 
-        within '[data-testid="runner-list"] tbody tr:nth-child(2)' do
-          expect(page).to have_content 'runner-2'
+          within('tbody tr:nth-child(2)') do
+            expect(page).to have_content 'runner-2'
+          end
         end
       end
     end
@@ -403,103 +515,46 @@ RSpec.describe "Admin Runners" do
         visit admin_runners_path
       end
 
-      it 'has all necessary texts including no runner message' do
-        expect(page).to have_text "Register an instance runner"
-
-        expect(page).to have_text "Online runners 0"
-        expect(page).to have_text "Offline runners 0"
-        expect(page).to have_text "Stale runners 0"
-
-        expect(page).to have_text 'No runners found'
-      end
+      it_behaves_like 'shows no runners registered'
 
       it 'shows tabs with total counts equal to 0' do
-        expect(page).to have_link('All 0')
-        expect(page).to have_link('Instance 0')
-        expect(page).to have_link('Group 0')
-        expect(page).to have_link('Project 0')
+        aggregate_failures do
+          expect(page).to have_link('All 0')
+          expect(page).to have_link('Instance 0')
+          expect(page).to have_link('Group 0')
+          expect(page).to have_link('Project 0')
+        end
       end
     end
 
     context "when visiting outdated URLs" do
-      it 'updates NOT_CONNECTED runner status to NEVER_CONNECTED' do
-        visit admin_runners_path('status[]': 'NOT_CONNECTED')
+      it 'updates ACTIVE runner status to paused=false' do
+        visit admin_runners_path('status[]': 'ACTIVE')
 
-        expect(page).to have_current_path(admin_runners_path('status[]': 'NEVER_CONTACTED') )
-      end
-    end
-
-    describe 'runners registration' do
-      let!(:token) { Gitlab::CurrentSettings.runners_registration_token }
-
-      before do
-        visit admin_runners_path
-
-        click_on 'Register an instance runner'
+        expect(page).to have_current_path(admin_runners_path('paused[]': 'false'))
       end
 
-      describe 'show registration instructions' do
-        before do
-          click_on 'Show runner installation and registration instructions'
+      it 'updates PAUSED runner status to paused=true' do
+        visit admin_runners_path('status[]': 'PAUSED')
 
-          wait_for_requests
-        end
-
-        it 'opens runner installation modal' do
-          expect(page).to have_text "Install a runner"
-
-          expect(page).to have_text "Environment"
-          expect(page).to have_text "Architecture"
-          expect(page).to have_text "Download and install binary"
-        end
-
-        it 'dismisses runner installation modal' do
-          within_modal do
-            click_button('Close', match: :first)
-          end
-
-          expect(page).not_to have_text "Install a runner"
-        end
-      end
-
-      it 'has a registration token' do
-        click_on 'Click to reveal'
-        expect(page.find('[data-testid="token-value"]')).to have_content(token)
-      end
-
-      describe 'reset registration token' do
-        let(:page_token) { find('[data-testid="token-value"]').text }
-
-        before do
-          click_on 'Reset registration token'
-
-          within_modal do
-            click_button('Reset token', match: :first)
-          end
-
-          wait_for_requests
-        end
-
-        it 'changes registration token' do
-          click_on 'Register an instance runner'
-
-          click_on 'Click to reveal'
-          expect(page_token).not_to eq token
-        end
+        expect(page).to have_current_path(admin_runners_path('paused[]': 'true'))
       end
     end
   end
 
-  describe "Runner show page", :js do
-    let(:runner) do
-      create(
-        :ci_runner,
-        description: 'runner-foo',
-        version: '14.0',
-        ip_address: '127.0.0.1',
-        tag_list: ['tag1']
-      )
+  describe "Runner create page", :js do
+    before do
+      visit new_admin_runner_path
     end
+
+    it_behaves_like 'creates runner and shows register page' do
+      let(:register_path_pattern) { register_admin_runner_path('.*') }
+    end
+  end
+
+  describe "Runner show page", :js do
+    let_it_be(:runner) { create(:ci_runner, description: 'runner-foo', tag_list: ['tag1']) }
+    let_it_be(:runner_job) { create(:ci_build, runner: runner) }
 
     before do
       visit admin_runner_path(runner)
@@ -507,8 +562,8 @@ RSpec.describe "Admin Runners" do
 
     describe 'runner show page breadcrumbs' do
       it 'contains the current runner id and token' do
-        page.within '[data-testid="breadcrumb-links"]' do
-          expect(page.find('h2')).to have_link("##{runner.id} (#{runner.short_sha})")
+        within_testid('breadcrumb-links') do
+          expect(find('li:last-of-type')).to have_link("##{runner.id} (#{runner.short_sha})")
         end
       end
     end
@@ -517,101 +572,128 @@ RSpec.describe "Admin Runners" do
       aggregate_failures do
         expect(page).to have_content 'Description runner-foo'
         expect(page).to have_content 'Last contact Never contacted'
-        expect(page).to have_content 'Version 14.0'
-        expect(page).to have_content 'IP Address 127.0.0.1'
         expect(page).to have_content 'Configuration Runs untagged jobs'
         expect(page).to have_content 'Maximum job timeout None'
         expect(page).to have_content 'Tags tag1'
       end
     end
-  end
 
-  describe "Runner edit page" do
-    let(:runner) { create(:ci_runner) }
-
-    before do
-      @project1 = create(:project)
-      @project2 = create(:project)
-      visit edit_admin_runner_path(runner)
-
-      wait_for_requests
+    it_behaves_like 'shows runner jobs tab' do
+      let(:job_count) { '1' }
+      let(:job) { runner_job }
     end
 
-    describe 'runner edit page breadcrumbs' do
+    describe 'when a runner is deleted' do
+      before do
+        click_on 'Delete runner'
+
+        within_modal do
+          click_on 'Permanently delete runner'
+        end
+      end
+
+      it 'deletes runner and redirects to runner list' do
+        expect(find_by_testid('alert-success')).to have_content('deleted')
+        expect(current_url).to match(admin_runners_path)
+      end
+    end
+  end
+
+  describe "Runner edit page", :js do
+    let_it_be(:project1) { create(:project) }
+    let_it_be(:project2) { create(:project) }
+    let_it_be(:project_runner) { create(:ci_runner, :unregistered, :project) }
+
+    before do
+      visit edit_admin_runner_path(project_runner)
+    end
+
+    it_behaves_like 'submits edit runner form' do
+      let(:runner) { project_runner }
+      let(:runner_page_path) { admin_runner_path(project_runner) }
+    end
+
+    it_behaves_like 'shows locked field'
+
+    describe 'breadcrumbs' do
       it 'contains the current runner id and token' do
-        page.within '[data-testid="breadcrumb-links"]' do
-          expect(page).to have_link("##{runner.id} (#{runner.short_sha})")
-          expect(page.find('h2')).to have_content("Edit")
+        within_testid('breadcrumb-links') do
+          expect(page).to have_link("##{project_runner.id} (#{project_runner.short_sha})")
+          expect(find('li:last-of-type')).to have_content("Edit")
         end
       end
     end
 
     describe 'runner header', :js do
       it 'contains the runner status, type and id' do
-        expect(page).to have_content("never contacted shared Runner ##{runner.id} created")
+        expect(page).to have_content(
+          "##{project_runner.id} (#{project_runner.short_sha}) #{s_('Runners|Never contacted')} Project Created"
+        )
+      end
+    end
+
+    context 'when a runner is updated', :js do
+      before do
+        click_on _('Save changes')
+      end
+
+      it 'show success alert and redirects to runner page' do
+        expect(current_url).to match(admin_runner_path(project_runner))
+        expect(find_by_testid('alert-success')).to have_content('saved')
       end
     end
 
     describe 'projects' do
       it 'contains project names' do
-        expect(page).to have_content(@project1.full_name)
-        expect(page).to have_content(@project2.full_name)
+        expect(page).to have_content(project1.full_name)
+        expect(page).to have_content(project2.full_name)
       end
     end
 
     describe 'search' do
       before do
         search_form = find('#runner-projects-search')
-        search_form.fill_in 'search', with: @project1.name
+        search_form.fill_in 'search', with: project1.name
         search_form.click_button 'Search'
       end
 
       it 'contains name of correct project' do
-        expect(page).to have_content(@project1.full_name)
-        expect(page).not_to have_content(@project2.full_name)
+        expect(page).to have_content(project1.full_name)
+        expect(page).not_to have_content(project2.full_name)
       end
     end
 
     describe 'enable/create' do
       shared_examples 'assignable runner' do
         it 'enables a runner for a project' do
-          within '[data-testid="unassigned-projects"]' do
-            click_on 'Enable'
+          within_testid('unassigned-projects') do
+            within('tr', text: project2.full_name) do
+              click_on 'Enable'
+            end
           end
 
-          assigned_project = page.find('[data-testid="assigned-projects"]')
+          assigned_project = find_by_testid('assigned-projects')
 
           expect(page).to have_content('Runner assigned to project.')
-          expect(assigned_project).to have_content(@project2.path)
+          expect(assigned_project).to have_content(project2.name)
         end
       end
 
-      context 'with specific runner' do
-        let(:runner) { create(:ci_runner, :project, projects: [@project1]) }
+      context 'with project runner' do
+        let_it_be(:project_runner) { create(:ci_runner, :project, projects: [project1]) }
 
         before do
-          visit edit_admin_runner_path(runner)
+          visit edit_admin_runner_path(project_runner)
         end
 
         it_behaves_like 'assignable runner'
       end
 
       context 'with locked runner' do
-        let(:runner) { create(:ci_runner, :project, projects: [@project1], locked: true) }
+        let_it_be(:locked_runner) { create(:ci_runner, :project, projects: [project1], locked: true) }
 
         before do
-          visit edit_admin_runner_path(runner)
-        end
-
-        it_behaves_like 'assignable runner'
-      end
-
-      context 'with shared runner' do
-        let(:runner) { create(:ci_runner, :instance) }
-
-        before do
-          @project1.destroy!
-          visit edit_admin_runner_path(runner)
+          visit edit_admin_runner_path(locked_runner)
         end
 
         it_behaves_like 'assignable runner'
@@ -619,65 +701,22 @@ RSpec.describe "Admin Runners" do
     end
 
     describe 'disable/destroy' do
-      let(:runner) { create(:ci_runner, :project, projects: [@project1]) }
+      let_it_be(:runner) { create(:ci_runner, :project, projects: [project1]) }
 
       before do
         visit edit_admin_runner_path(runner)
       end
 
-      it 'removed specific runner from project' do
-        within '[data-testid="assigned-projects"]' do
+      it 'removed project runner from project' do
+        within_testid('assigned-projects') do
           click_on 'Disable'
         end
 
-        new_runner_project = page.find('[data-testid="unassigned-projects"]')
+        new_runner_project = find_by_testid('unassigned-projects')
 
         expect(page).to have_content('Runner unassigned from project.')
-        expect(new_runner_project).to have_content(@project1.path)
+        expect(new_runner_project).to have_content(project1.name)
       end
     end
-  end
-
-  private
-
-  def search_bar_selector
-    '[data-testid="runners-filtered-search"]'
-  end
-
-  # The filters must be clicked first to be able to receive events
-  # See: https://gitlab.com/gitlab-org/gitlab-ui/-/issues/1493
-  def focus_filtered_search
-    page.within(search_bar_selector) do
-      page.find('.gl-filtered-search-term-token').click
-    end
-  end
-
-  def input_filtered_search_keys(search_term)
-    focus_filtered_search
-
-    page.within(search_bar_selector) do
-      page.find('input').send_keys(search_term)
-      click_on 'Search'
-    end
-
-    wait_for_requests
-  end
-
-  def input_filtered_search_filter_is_only(filter, value)
-    focus_filtered_search
-
-    page.within(search_bar_selector) do
-      click_on filter
-
-      # For OPERATOR_IS_ONLY, clicking the filter
-      # immediately preselects "=" operator
-
-      page.find('input').send_keys(value)
-      page.find('input').send_keys(:enter)
-
-      click_on 'Search'
-    end
-
-    wait_for_requests
   end
 end

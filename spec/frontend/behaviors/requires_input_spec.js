@@ -1,12 +1,18 @@
 import $ from 'jquery';
+import htmlNewBranch from 'test_fixtures/branches/new_branch.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import '~/behaviors/requires_input';
 
 describe('requiresInput', () => {
   let submitButton;
 
   beforeEach(() => {
-    loadFixtures('branches/new_branch.html');
+    setHTMLFixture(htmlNewBranch);
     submitButton = $('button[type="submit"]');
+  });
+
+  afterEach(() => {
+    resetHTMLFixture();
   });
 
   it('disables submit when any field is required', () => {

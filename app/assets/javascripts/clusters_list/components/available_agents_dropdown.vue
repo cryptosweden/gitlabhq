@@ -1,21 +1,13 @@
 <script>
-import {
-  GlDropdown,
-  GlDropdownItem,
-  GlDropdownDivider,
-  GlSearchBoxByType,
-  GlSprintf,
-} from '@gitlab/ui';
+import { GlCollapsibleListbox, GlButton, GlSprintf } from '@gitlab/ui';
 import { I18N_AVAILABLE_AGENTS_DROPDOWN } from '../constants';
 
 export default {
   name: 'AvailableAgentsDropdown',
   i18n: I18N_AVAILABLE_AGENTS_DROPDOWN,
   components: {
-    GlDropdown,
-    GlDropdownItem,
-    GlDropdownDivider,
-    GlSearchBoxByType,
+    GlCollapsibleListbox,
+    GlButton,
     GlSprintf,
   },
   props: {
@@ -38,19 +30,28 @@ export default {
     dropdownText() {
       if (this.isRegistering) {
         return this.$options.i18n.registeringAgent;
-      } else if (this.selectedAgent === null) {
+      }
+      if (this.selectedAgent === null) {
         return this.$options.i18n.selectAgent;
       }
 
       return this.selectedAgent;
+    },
+    dropdownItems() {
+      return this.availableAgents.map((agent) => {
+        return {
+          value: agent,
+          text: agent,
+        };
+      });
     },
     shouldRenderCreateButton() {
       return this.searchTerm && !this.availableAgents.includes(this.searchTerm);
     },
     filteredResults() {
       const lowerCasedSearchTerm = this.searchTerm.toLowerCase();
-      return this.availableAgents.filter((resultString) =>
-        resultString.toLowerCase().includes(lowerCasedSearchTerm),
+      return this.dropdownItems.filter((item) =>
+        item.value.toLowerCase().includes(lowerCasedSearchTerm),
       );
     },
   },
@@ -58,48 +59,45 @@ export default {
     selectAgent(agent) {
       this.$emit('agentSelected', agent);
       this.selectedAgent = agent;
-      this.clearSearch();
     },
-    isSelected(agent) {
-      return this.selectedAgent === agent;
+    onKeyEnter() {
+      if (!this.searchTerm?.length) {
+        return;
+      }
+      this.selectAgent(this.searchTerm);
     },
-    clearSearch() {
-      this.searchTerm = '';
-    },
-    focusSearch() {
-      this.$refs.searchInput.focusInput();
-    },
-    handleShow() {
-      this.clearSearch();
-      this.focusSearch();
+    searchAgent(searchQuery) {
+      this.searchTerm = searchQuery;
     },
   },
 };
 </script>
 <template>
-  <gl-dropdown :text="dropdownText" :loading="isRegistering" @shown="handleShow">
-    <template #header>
-      <gl-search-box-by-type ref="searchInput" v-model.trim="searchTerm" />
-    </template>
-    <gl-dropdown-item
-      v-for="agent in filteredResults"
-      :key="agent"
-      :is-checked="isSelected(agent)"
-      is-check-item
-      @click="selectAgent(agent)"
+  <div @keydown.enter.stop.prevent="onKeyEnter">
+    <gl-collapsible-listbox
+      v-model="selectedAgent"
+      class="gl-w-full"
+      toggle-class="select-agent-dropdown"
+      :items="filteredResults"
+      :toggle-text="dropdownText"
+      :loading="isRegistering"
+      :searchable="true"
+      :no-results-text="$options.i18n.noResults"
+      @search="searchAgent"
+      @select="selectAgent"
     >
-      {{ agent }}
-    </gl-dropdown-item>
-    <gl-dropdown-item v-if="!filteredResults.length" ref="noMatchingResults">{{
-      $options.i18n.noResults
-    }}</gl-dropdown-item>
-    <template v-if="shouldRenderCreateButton">
-      <gl-dropdown-divider />
-      <gl-dropdown-item data-testid="create-config-button" @click="selectAgent(searchTerm)">
-        <gl-sprintf :message="$options.i18n.createButton">
-          <template #searchTerm>{{ searchTerm }}</template>
-        </gl-sprintf>
-      </gl-dropdown-item>
-    </template>
-  </gl-dropdown>
+      <template v-if="shouldRenderCreateButton" #footer>
+        <gl-button
+          category="tertiary"
+          class="gl-justify-content-start! gl-border-t-1! gl-border-t-solid gl-border-t-gray-200 gl-pl-7! gl-rounded-top-left-none! gl-rounded-top-right-none!"
+          :class="{ 'gl-mt-3': !filteredResults.length }"
+          @click="selectAgent(searchTerm)"
+        >
+          <gl-sprintf :message="$options.i18n.createButton">
+            <template #searchTerm>{{ searchTerm }}</template>
+          </gl-sprintf>
+        </gl-button>
+      </template>
+    </gl-collapsible-listbox>
+  </div>
 </template>

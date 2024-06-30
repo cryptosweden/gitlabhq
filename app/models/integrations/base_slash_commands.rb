@@ -4,11 +4,10 @@
 # This class is not meant to be used directly, but only to inherrit from.
 module Integrations
   class BaseSlashCommands < Integration
-    default_value_for :category, 'chat'
+    CACHE_KEY = "slash-command-requests:%{secret}"
+    CACHE_EXPIRATION_TIME = 3.minutes
 
-    prop_accessor :token
-
-    has_many :chat_names, foreign_key: :service_id, dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
+    attribute :category, default: 'chat'
 
     def valid_token?(token)
       self.respond_to?(:token) &&
@@ -17,17 +16,11 @@ module Integrations
     end
 
     def self.supported_events
-      %w()
+      %w[]
     end
 
     def testable?
       false
-    end
-
-    def fields
-      [
-        { type: 'text', name: 'token', placeholder: 'XXxxXXxxXXxxXXxxXXxxXXxx' }
-      ]
     end
 
     def trigger(params)
@@ -36,32 +29,44 @@ module Integrations
       chat_user = find_chat_user(params)
       user = chat_user&.user
 
-      if user
-        unless user.can?(:use_slash_commands)
-          return Gitlab::SlashCommands::Presenters::Access.new.deactivated if user.deactivated?
+      return unknown_user_message(params) unless user
 
-          return Gitlab::SlashCommands::Presenters::Access.new.access_denied(project)
-        end
+      unless user.can?(:use_slash_commands)
+        return Gitlab::SlashCommands::Presenters::Access.new.deactivated if user.deactivated?
 
+        return Gitlab::SlashCommands::Presenters::Access.new.access_denied(project)
+      end
+
+      if Gitlab::SlashCommands::VerifyRequest.new(self, chat_user).valid?
         Gitlab::SlashCommands::Command.new(project, chat_user, params).execute
       else
-        url = authorize_chat_name_url(params)
-        Gitlab::SlashCommands::Presenters::Access.new(url).authorize
+        command_id = cache_slash_commands_request!(params)
+        Gitlab::SlashCommands::Presenters::Access.new.confirm(confirmation_url(command_id, params))
       end
     end
 
     private
 
-    # rubocop: disable CodeReuse/ServiceClass
     def find_chat_user(params)
-      ChatNames::FindUserService.new(self, params).execute
+      ChatNames::FindUserService.new(params[:team_id], params[:user_id]).execute # rubocop: disable CodeReuse/ServiceClass
     end
-    # rubocop: enable CodeReuse/ServiceClass
 
-    # rubocop: disable CodeReuse/ServiceClass
     def authorize_chat_name_url(params)
-      ChatNames::AuthorizeUserService.new(self, params).execute
+      ChatNames::AuthorizeUserService.new(params).execute # rubocop: disable CodeReuse/ServiceClass
     end
-    # rubocop: enable CodeReuse/ServiceClass
+
+    def unknown_user_message(params)
+      url = authorize_chat_name_url(params)
+      Gitlab::SlashCommands::Presenters::Access.new(url).authorize
+    end
+
+    def cache_slash_commands_request!(params)
+      secret = SecureRandom.uuid
+      Kernel.format(CACHE_KEY, secret: secret).tap do |cache_key|
+        Rails.cache.write(cache_key, params, expires_in: CACHE_EXPIRATION_TIME)
+      end
+
+      secret
+    end
   end
 end

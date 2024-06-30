@@ -5,43 +5,61 @@
 @import '../common';
 
 @mixin match-line {
-  color: $black-transparent;
-  background-color: $white-normal;
+  color: $t-gray-a-24;
+  background-color: $gray-50;
+}
+
+:root {
+  --default-diff-color-deletion: #b4b4b4;
+  --default-diff-color-addition: #b4b4b4;
 }
 
 .code.none {
+  // Highlight.js theme overrides (https://gitlab.com/gitlab-org/gitlab/-/issues/365167)
+  // We should be able to remove the overrides once the upstream issue is fixed (https://github.com/sourcegraph/sourcegraph/issues/23251)
+  &.blob-viewer {
+    [class^="hljs-"] {
+      color: $gl-text-color;
+    }
+  }
+
   // Line numbers
-  .file-line-num {
-    @include line-number-link($black-transparent);
+  .file-line-blame {
+    @include line-link($black, 'git');
+  }
+
+  .line-links {
+    @include line-hover-bg;
   }
 
   .line-numbers,
   .diff-line-num,
   .code-search-line {
-    background-color: $gray-light;
+    background-color: $gray-10;
   }
 
   .diff-line-num,
   .diff-line-num a {
-    color: $black-transparent;
+    color: $t-gray-a-24;
   }
 
   // Code itself
   pre.code,
   .diff-line-num {
-    border-color: $white-normal;
+    border-color: $gray-50;
   }
 
   &,
   pre.code,
-  .line_holder .line_content {
+  .line_holder .line_content:not(.hll) {
     background-color: $white;
     color: $gl-text-color;
   }
 
-  .line_expansion {
-    @include diff-expansion($gray-light, $white-normal, $gl-text-color);
+  .diff-line-expand-button {
+    @include diff-expansion($gray-100, $gray-700, $gray-200, $gray-800);
   }
+
 
   // Diff line
   $none-expanded-border: #e0e0e0;
@@ -54,15 +72,21 @@
       @include match-line;
     }
 
+    &.diff-grid-row {
+      --diff-expansion-background-color: #{$gray-100};
+    }
+
     .line-coverage {
       @include line-coverage-border-color($green-500, $orange-500);
     }
 
-    .line-coverage,
-    .line-codequality {
+    .line-coverage:not(.hll),
+    .line-inline-findings:not(.hll) {
       &.old,
-      &.new {
-        background-color: $white-normal;
+      &.new,
+      &.new-nomappinginraw,
+      &.old-nomappinginraw {
+        background-color: $gray-50;
       }
     }
 
@@ -91,11 +115,6 @@
       &.hll:not(.empty-cell).is-over {
         @include line-number-hover;
       }
-
-      &.hll:not(.empty-cell) {
-        background-color: $white;
-        border-color: $white-normal;
-      }
     }
 
     &:not(.diff-expanded) + .diff-expanded,
@@ -117,28 +136,28 @@
     }
 
     .line_content {
-      &.old {
-        background-color: $white-normal;
+      &.old, &.old-nomappinginraw {
+        background-color: $gray-50;
 
         &::before {
           color: $gl-text-color;
         }
 
         span.idiff {
-          background-color: $white-normal;
+          background-color: $gray-50;
           text-decoration: underline;
         }
       }
 
-      &.new {
-        background-color: $white-normal;
+      &.new, &.new-nomappinginraw {
+        background-color: $gray-50;
 
         &::before {
           color: $gl-text-color;
         }
 
         span.idiff {
-          background-color: $white-normal;
+          background-color: $gray-50;
           text-decoration: underline;
         }
       }
@@ -147,20 +166,16 @@
         @include match-line;
       }
 
-      &.hll:not(.empty-cell) {
-        background-color: $white-normal;
+      &.hll {
+        --highlight-border-color: #{$orange-200};
+        background-color: $orange-50;
       }
     }
   }
 
-  // highlight line via anchor
-  pre .hll {
-    background-color: $white-normal;
-  }
-
   // Search result highlight
   span.highlight_word {
-    background-color: $white-normal;
+    background-color: $gray-50;
   }
 
   // Links to URLs, emails, or dependencies
@@ -169,7 +184,10 @@
     text-decoration: underline;
   }
 
-  .hll { background-color: $white; }
+  .hll {
+    --highlight-border-color: #{$orange-200};
+    background-color: $orange-50;
+  }
 
   .gd {
     color: $gl-text-color;

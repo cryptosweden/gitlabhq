@@ -1,14 +1,10 @@
 import { isEmpty } from 'lodash';
+import { s__ } from '~/locale';
 import { hasContent } from '~/lib/utils/text_utility';
 import { getDuplicateItemsFromArray } from '~/lib/utils/array_utility';
-
-/**
- * @returns {Boolean} `true` if the app is editing an existing release.
- * `false` if the app is creating a new release.
- */
-export const isExistingRelease = (state) => {
-  return Boolean(state.tagName);
-};
+import { validateTag, ValidationResult } from '~/lib/utils/ref_validator';
+import { i18n } from '~/releases/constants';
+import { SEARCH, CREATE, EXISTING_TAG, NEW_TAG } from './constants';
 
 /**
  * @param {Object} link The link to test
@@ -42,14 +38,21 @@ export const validationErrors = (state) => {
     assets: {
       links: {},
     },
+    tagNameValidation: new ValidationResult(),
   };
 
   if (!state.release) {
     return errors;
   }
 
-  if (!state.release.tagName?.trim?.().length) {
-    errors.isTagNameEmpty = true;
+  if (!state.release.tagName || typeof state.release.tagName !== 'string') {
+    errors.tagNameValidation.addValidationError(i18n.tagNameIsRequiredMessage);
+  } else {
+    errors.tagNameValidation = validateTag(state.release.tagName);
+  }
+
+  if (state.existingRelease) {
+    errors.tagNameValidation.addValidationError(i18n.tagIsAlredyInUseMessage);
   }
 
   // Each key of this object is a URL, and the value is an
@@ -113,11 +116,15 @@ export const validationErrors = (state) => {
 /** Returns whether or not the release object is valid */
 export const isValid = (_state, getters) => {
   const errors = getters.validationErrors;
-  return Object.values(errors.assets.links).every(isEmpty) && !errors.isTagNameEmpty;
+  return (
+    Object.values(errors.assets.links).every(isEmpty) &&
+    !errors.isTagNameEmpty &&
+    !errors.existingRelease
+  );
 };
 
 /** Returns all the variables for a `releaseUpdate` GraphQL mutation */
-export const releaseUpdateMutatationVariables = (state) => {
+export const releaseUpdateMutatationVariables = (state, getters) => {
   const name = state.release.name?.trim().length > 0 ? state.release.name.trim() : null;
 
   // Milestones may be either a list of milestone objects OR just a list
@@ -129,7 +136,10 @@ export const releaseUpdateMutatationVariables = (state) => {
       projectPath: state.projectPath,
       tagName: state.release.tagName,
       name,
-      description: state.release.description,
+      releasedAt: getters.releasedAtChanged ? state.release.releasedAt : null,
+      description: state.includeTagNotes
+        ? getters.formattedReleaseNotes
+        : state.release.description,
       milestones,
     },
   };
@@ -141,6 +151,7 @@ export const releaseCreateMutatationVariables = (state, getters) => {
     input: {
       ...getters.releaseUpdateMutatationVariables.input,
       ref: state.createFrom,
+      tagMessage: state.release.tagMessage,
       assets: {
         links: getters.releaseLinksToCreate.map(({ name, url, linkType }) => ({
           name: name.trim(),
@@ -151,3 +162,33 @@ export const releaseCreateMutatationVariables = (state, getters) => {
     },
   };
 };
+
+export const releaseDeleteMutationVariables = (state) => ({
+  input: {
+    projectPath: state.projectPath,
+    tagName: state.release.tagName,
+  },
+});
+
+export const formattedReleaseNotes = (
+  { includeTagNotes, release: { description, tagMessage }, tagNotes },
+  { isNewTag },
+) => {
+  const notes = isNewTag ? tagMessage : tagNotes;
+  return includeTagNotes && notes
+    ? `${description}\n\n### ${s__('Releases|Tag message')}\n\n${notes}\n`
+    : description;
+};
+
+export const releasedAtChanged = ({ originalReleasedAt, release }) =>
+  originalReleasedAt !== release.releasedAt;
+
+export const isSearching = ({ step }) => step === SEARCH;
+export const isCreating = ({ step }) => step === CREATE;
+
+export const isExistingTag = ({ tagStep }) => tagStep === EXISTING_TAG;
+export const isNewTag = ({ tagStep }) => tagStep === NEW_TAG;
+
+export const localStorageKey = ({ projectPath }) => `${projectPath}/release/new`;
+export const localStorageCreateFromKey = ({ projectPath }) =>
+  `${projectPath}/release/new/createFrom`;

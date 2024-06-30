@@ -2,6 +2,64 @@
 
 require 'spec_helper'
 
+RSpec.describe TokenAuthenticatable, feature_category: :shared do
+  describe '.token_authenticatable_sensitive_fields' do
+    let(:base_class) do
+      Class.new do
+        include TokenAuthenticatable
+
+        attr_accessor :name, :super_secret
+      end
+    end
+
+    let(:test_class) do
+      Class.new(base_class) do
+        add_authentication_token_field :super_secret
+      end
+    end
+
+    subject(:token_authenticatable_fields) { test_class.token_authenticatable_sensitive_fields }
+
+    it { is_expected.to contain_exactly(:super_secret) }
+
+    context 'with encrypted: true' do
+      let(:test_class) do
+        Class.new(base_class) do
+          attr_accessor :name, :super_secret
+
+          add_authentication_token_field :super_secret, encrypted: true
+        end
+      end
+
+      it { is_expected.to contain_exactly(:super_secret, :super_secret_encrypted) }
+    end
+
+    context 'with digest: true' do
+      let(:test_class) do
+        Class.new(base_class) do
+          attr_accessor :name, :super_secret
+
+          add_authentication_token_field :super_secret, digest: true
+        end
+      end
+
+      it { is_expected.to contain_exactly(:super_secret, :super_secret_digest) }
+    end
+
+    context 'with expires_at option' do
+      let(:test_class) do
+        Class.new(base_class) do
+          attr_accessor :name, :super_secret
+
+          add_authentication_token_field :super_secret, expires_at: -> { Time.current }
+        end
+      end
+
+      it { is_expected.to contain_exactly(:super_secret) }
+    end
+  end
+end
+
 RSpec.shared_examples 'TokenAuthenticatable' do
   describe 'dynamically defined methods' do
     it { expect(described_class).to respond_to("find_by_#{token_field}") }
@@ -10,9 +68,9 @@ RSpec.shared_examples 'TokenAuthenticatable' do
     it { is_expected.to respond_to("reset_#{token_field}!") }
   end
 
-  describe 'SensitiveSerializableHash' do
-    it 'includes the token field in list of sensitive attributes prevented from serialization' do
-      expect(described_class.attributes_exempt_from_serializable_hash).to include(token_field)
+  describe '.token_authenticatable_fields' do
+    it 'includes the token field' do
+      expect(described_class.token_authenticatable_fields).to include(token_field)
     end
   end
 end
@@ -89,11 +147,12 @@ RSpec.describe ApplicationSetting, 'TokenAuthenticatable' do
   end
 
   describe 'multiple token fields' do
-    before(:all) do
+    before_all do
       described_class.send(:add_authentication_token_field, :yet_another_token)
     end
 
     it { is_expected.to respond_to(:ensure_runners_registration_token) }
+    it { is_expected.to respond_to(:ensure_error_tracking_access_token) }
     it { is_expected.to respond_to(:ensure_yet_another_token) }
   end
 
@@ -101,7 +160,7 @@ RSpec.describe ApplicationSetting, 'TokenAuthenticatable' do
     subject { described_class.send(:add_authentication_token_field, :runners_registration_token) }
 
     it 'raises error' do
-      expect {subject}.to raise_error(ArgumentError)
+      expect { subject }.to raise_error(ArgumentError)
     end
   end
 end
@@ -111,8 +170,8 @@ RSpec.describe PersonalAccessToken, 'TokenAuthenticatable' do
     it 'sets new token' do
       subject
 
-      expect(personal_access_token.token).to eq("#{PersonalAccessToken.token_prefix}#{token_value}")
-      expect(personal_access_token.token_digest).to eq(Gitlab::CryptoHelper.sha256("#{PersonalAccessToken.token_prefix}#{token_value}"))
+      expect(personal_access_token.token).to eq("#{described_class.token_prefix}#{token_value}")
+      expect(personal_access_token.token_digest).to eq(Gitlab::CryptoHelper.sha256("#{described_class.token_prefix}#{token_value}"))
     end
   end
 
@@ -125,14 +184,11 @@ RSpec.describe PersonalAccessToken, 'TokenAuthenticatable' do
     end
   end
 
-  let(:token_value) { 'token' }
+  let(:token_value) { Devise.friendly_token }
   let(:token_digest) { Gitlab::CryptoHelper.sha256(token_value) }
   let(:user) { create(:user) }
   let(:personal_access_token) do
-    described_class.new(name: 'test-pat-01',
-                        user_id: user.id,
-                        scopes: [:api],
-                        token_digest: token_digest)
+    described_class.new(name: 'test-pat-01', user_id: user.id, scopes: [:api], token_digest: token_digest, expires_at: 30.days.from_now)
   end
 
   before do
@@ -140,7 +196,7 @@ RSpec.describe PersonalAccessToken, 'TokenAuthenticatable' do
   end
 
   describe '.find_by_token' do
-    subject { PersonalAccessToken.find_by_token(token_value) }
+    subject { described_class.find_by_token(token_value) }
 
     it 'finds the token' do
       personal_access_token.save!
@@ -213,19 +269,15 @@ end
 
 RSpec.describe Ci::Build, 'TokenAuthenticatable' do
   let(:token_field) { :token }
-  let(:build) { FactoryBot.build(:ci_build) }
+  let(:build) { FactoryBot.build(:ci_build, :created, ci_stage: create(:ci_stage)) }
 
   it_behaves_like 'TokenAuthenticatable'
 
   describe 'generating new token' do
     context 'token is not generated yet' do
       describe 'token field accessor' do
-        it 'makes it possible to access token' do
-          expect(build.token).to be_nil
-
-          build.save!
-
-          expect(build.token).to be_present
+        it 'does not generate a token when saving a build' do
+          expect { build.save! }.not_to change(build, :token).from(nil)
         end
       end
 
@@ -266,7 +318,7 @@ RSpec.describe Ci::Build, 'TokenAuthenticatable' do
       it 'persists a new token' do
         build.save!
 
-        build.token.yield_self do |previous_token|
+        build.token.then do |previous_token|
           build.reset_token!
 
           expect(build.token).not_to eq previous_token
@@ -313,52 +365,22 @@ RSpec.describe Ci::Runner, 'TokenAuthenticatable', :freeze_time do
   describe '#token_expired?' do
     subject { runner.token_expired? }
 
-    context 'when enforce_runner_token_expires_at feature flag is disabled' do
-      before do
-        stub_feature_flags(enforce_runner_token_expires_at: false)
-      end
+    context 'when runner has no token expiration' do
+      let(:runner) { non_expirable_runner }
 
-      context 'when runner has no token expiration' do
-        let(:runner) { non_expirable_runner }
-
-        it { is_expected.to eq(false) }
-      end
-
-      context 'when runner token is not expired' do
-        let(:runner) { non_expired_runner }
-
-        it { is_expected.to eq(false) }
-      end
-
-      context 'when runner token is expired' do
-        let(:runner) { expired_runner }
-
-        it { is_expected.to eq(false) }
-      end
+      it { is_expected.to eq(false) }
     end
 
-    context 'when enforce_runner_token_expires_at feature flag is enabled' do
-      before do
-        stub_feature_flags(enforce_runner_token_expires_at: true)
-      end
+    context 'when runner token is not expired' do
+      let(:runner) { non_expired_runner }
 
-      context 'when runner has no token expiration' do
-        let(:runner) { non_expirable_runner }
+      it { is_expected.to eq(false) }
+    end
 
-        it { is_expected.to eq(false) }
-      end
+    context 'when runner token is expired' do
+      let(:runner) { expired_runner }
 
-      context 'when runner token is not expired' do
-        let(:runner) { non_expired_runner }
-
-        it { is_expected.to eq(false) }
-      end
-
-      context 'when runner token is expired' do
-        let(:runner) { expired_runner }
-
-        it { is_expected.to eq(true) }
-      end
+      it { is_expected.to eq(true) }
     end
   end
 
@@ -383,54 +405,24 @@ RSpec.describe Ci::Runner, 'TokenAuthenticatable', :freeze_time do
   end
 
   describe '.find_by_token' do
-    subject { Ci::Runner.find_by_token(runner.token) }
+    subject { described_class.find_by_token(runner.token) }
 
-    context 'when enforce_runner_token_expires_at feature flag is disabled' do
-      before do
-        stub_feature_flags(enforce_runner_token_expires_at: false)
-      end
+    context 'when runner has no token expiration' do
+      let(:runner) { non_expirable_runner }
 
-      context 'when runner has no token expiration' do
-        let(:runner) { non_expirable_runner }
-
-        it { is_expected.to eq(non_expirable_runner) }
-      end
-
-      context 'when runner token is not expired' do
-        let(:runner) { non_expired_runner }
-
-        it { is_expected.to eq(non_expired_runner) }
-      end
-
-      context 'when runner token is expired' do
-        let(:runner) { expired_runner }
-
-        it { is_expected.to eq(expired_runner) }
-      end
+      it { is_expected.to eq(non_expirable_runner) }
     end
 
-    context 'when enforce_runner_token_expires_at feature flag is enabled' do
-      before do
-        stub_feature_flags(enforce_runner_token_expires_at: true)
-      end
+    context 'when runner token is not expired' do
+      let(:runner) { non_expired_runner }
 
-      context 'when runner has no token expiration' do
-        let(:runner) { non_expirable_runner }
+      it { is_expected.to eq(non_expired_runner) }
+    end
 
-        it { is_expected.to eq(non_expirable_runner) }
-      end
+    context 'when runner token is expired' do
+      let(:runner) { expired_runner }
 
-      context 'when runner token is not expired' do
-        let(:runner) { non_expired_runner }
-
-        it { is_expected.to eq(non_expired_runner) }
-      end
-
-      context 'when runner token is expired' do
-        let(:runner) { expired_runner }
-
-        it { is_expected.to be_nil }
-      end
+      it { is_expected.to be_nil }
     end
   end
 end
@@ -441,7 +433,7 @@ RSpec.shared_examples 'prefixed token rotation' do
 
     context 'token is not set' do
       it 'generates a new token' do
-        expect(subject).to match(/^#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}/)
+        expect(subject).to match(/^#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}/o)
         expect(instance).not_to be_persisted
       end
     end
@@ -452,7 +444,7 @@ RSpec.shared_examples 'prefixed token rotation' do
       end
 
       it 'generates a new token' do
-        expect(subject).to match(/^#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}/)
+        expect(subject).to match(/^#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}/o)
         expect(instance).not_to be_persisted
       end
     end
@@ -474,7 +466,7 @@ RSpec.shared_examples 'prefixed token rotation' do
 
     context 'token is not set' do
       it 'generates a new token' do
-        expect(subject).to match(/^#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}/)
+        expect(subject).to match(/^#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}/o)
         expect(instance).to be_persisted
       end
     end
@@ -485,7 +477,7 @@ RSpec.shared_examples 'prefixed token rotation' do
       end
 
       it 'generates a new token' do
-        expect(subject).to match(/^#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}/)
+        expect(subject).to match(/^#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}/o)
         expect(instance).to be_persisted
       end
     end

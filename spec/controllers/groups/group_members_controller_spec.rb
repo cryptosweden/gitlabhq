@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::GroupMembersController do
+RSpec.describe Groups::GroupMembersController, feature_category: :groups_and_projects do
   include ExternalAuthorizationServiceHelpers
 
   let_it_be(:user) { create(:user) }
@@ -55,6 +55,20 @@ RSpec.describe Groups::GroupMembersController do
 
         expect(assigns(:invited_members).count).to eq(1)
       end
+
+      context 'when filtering by user type' do
+        let_it_be(:service_account) { create(:user, :service_account) }
+
+        before do
+          group.add_developer(service_account)
+        end
+
+        it 'returns only service accounts' do
+          get :index, params: { group_id: group, user_type: 'service_account' }
+
+          expect(assigns(:members).map(&:user_id)).to match_array([service_account.id])
+        end
+      end
     end
 
     context 'when user cannot manage members' do
@@ -67,22 +81,41 @@ RSpec.describe Groups::GroupMembersController do
 
         expect(assigns(:invited_members)).to be_nil
       end
+
+      context 'when filtering by user type' do
+        let_it_be(:service_account) { create(:user, :service_account) }
+
+        before do
+          group.add_developer(user)
+          group.add_developer(service_account)
+        end
+
+        it 'returns only service accounts' do
+          get :index, params: { group_id: group, user_type: 'service_account' }
+
+          expect(assigns(:members).map(&:user_id)).to match_array([user.id, service_account.id])
+        end
+      end
     end
 
     context 'when user has owner access to subgroup' do
       let_it_be(:nested_group) { create(:group, parent: group) }
       let_it_be(:nested_group_user) { create(:user) }
+      let_it_be(:shared_group) { create(:group, parent: group) }
+      let_it_be(:shared_group_user) { create(:user) }
 
       before do
         group.add_owner(user)
         nested_group.add_owner(nested_group_user)
+        shared_group.add_owner(shared_group_user)
+        create(:group_group_link, shared_group: nested_group, shared_with_group: shared_group)
         sign_in(user)
       end
 
-      it 'lists inherited group members by default' do
+      it 'lists all group members including members from shared group by default' do
         get :index, params: { group_id: nested_group }
 
-        expect(assigns(:members).map(&:user_id)).to contain_exactly(user.id, nested_group_user.id)
+        expect(assigns(:members).map(&:user_id)).to contain_exactly(user.id, nested_group_user.id, shared_group_user.id)
       end
 
       it 'lists direct group members only' do
@@ -91,10 +124,29 @@ RSpec.describe Groups::GroupMembersController do
         expect(assigns(:members).map(&:user_id)).to contain_exactly(nested_group_user.id)
       end
 
-      it 'lists inherited group members only' do
+      it 'lists inherited and shared group members only' do
         get :index, params: { group_id: nested_group, with_inherited_permissions: 'only' }
 
-        expect(assigns(:members).map(&:user_id)).to contain_exactly(user.id)
+        expect(assigns(:members).map(&:user_id)).to contain_exactly(user.id, shared_group_user.id)
+      end
+    end
+
+    context 'when webui_members_inherited_users is disabled' do
+      let_it_be(:shared_group) { create(:group) }
+      let_it_be(:shared_group_user) { create(:user) }
+      let_it_be(:group_link) { create(:group_group_link, shared_group: shared_group, shared_with_group: group) }
+
+      before do
+        group.add_owner(user)
+        shared_group.add_owner(shared_group_user)
+        stub_feature_flags(webui_members_inherited_users: false)
+        sign_in(user)
+      end
+
+      it 'lists inherited group members only' do
+        get :index, params: { group_id: shared_group }
+
+        expect(assigns(:members).map(&:user_id)).to contain_exactly(shared_group_user.id)
       end
     end
   end
@@ -184,9 +236,9 @@ RSpec.describe Groups::GroupMembersController do
 
       context 'when `expires_at` is set' do
         it 'returns correct json response' do
-          expect(json_response).to eq({
+          expect(json_response).to include({
             "expires_soon" => false,
-            "expires_at_formatted" => expiry_date.to_time.in_time_zone.to_s(:medium)
+            "expires_at_formatted" => expiry_date.to_time.in_time_zone.to_fs(:medium)
           })
         end
       end
@@ -194,8 +246,9 @@ RSpec.describe Groups::GroupMembersController do
       context 'when `expires_at` is not set' do
         let(:expiry_date) { nil }
 
-        it 'returns empty json response' do
-          expect(json_response).to be_empty
+        it 'returns json response without expiration data' do
+          expect(json_response).not_to have_key(:expires_soon)
+          expect(json_response).not_to have_key(:expires_at_formatted)
         end
       end
     end
@@ -243,7 +296,7 @@ RSpec.describe Groups::GroupMembersController do
           expect(controller).to set_flash.to 'User was successfully removed from group.'
           expect(response).to redirect_to(group_group_members_path(group))
           expect(group.members).not_to include member
-          expect(sub_group.members).to include sub_member
+          expect(sub_group.reload.members).to include sub_member
         end
 
         it '[HTML] removes user from members including subgroups and projects', :aggregate_failures do
@@ -252,7 +305,7 @@ RSpec.describe Groups::GroupMembersController do
           expect(controller).to set_flash.to 'User was successfully removed from group and any subgroups and projects.'
           expect(response).to redirect_to(group_group_members_path(group))
           expect(group.members).not_to include member
-          expect(sub_group.members).not_to include sub_member
+          expect(sub_group.reload.members).not_to include sub_member
         end
 
         it '[JS] removes user from members', :aggregate_failures do
@@ -289,7 +342,7 @@ RSpec.describe Groups::GroupMembersController do
 
           expect(controller).to set_flash.to "You left the \"#{group.name}\" group."
           expect(response).to redirect_to(dashboard_groups_path)
-          expect(group.users).not_to include user
+          expect(group).not_to have_user(user)
         end
 
         it 'supports json request', :aggregate_failures do
@@ -305,10 +358,71 @@ RSpec.describe Groups::GroupMembersController do
           group.add_owner(user)
         end
 
-        it 'cannot removes himself from the group' do
+        it 'cannot remove user from the group' do
           delete :leave, params: { group_id: group }
 
           expect(response).to have_gitlab_http_status(:forbidden)
+        end
+
+        context 'and there is a group project bot owner' do
+          before do
+            create(:group_member, :owner, source: group, user: create(:user, :project_bot))
+          end
+
+          it 'cannot remove user from the group' do
+            delete :leave, params: { group_id: group }
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+          end
+        end
+
+        context 'with owners from a parent' do
+          context 'when top-level group' do
+            context 'with group sharing' do
+              let!(:subgroup) { create(:group, parent: group) }
+
+              before do
+                create(:group_group_link, :owner, shared_group: group, shared_with_group: subgroup)
+                create(:group_member, :owner, group: subgroup)
+              end
+
+              it 'does not allow removal of last direct group owner' do
+                delete :leave, params: { group_id: group }
+
+                expect(response).to have_gitlab_http_status(:forbidden)
+              end
+            end
+          end
+
+          context 'when subgroup' do
+            let!(:subgroup) { create(:group, parent: group) }
+
+            before do
+              subgroup.add_owner(user)
+            end
+
+            it 'allows removal of last direct group owner', :aggregate_failures do
+              delete :leave, params: { group_id: subgroup }
+
+              expect(controller).to set_flash.to "You left the \"#{subgroup.human_name}\" group."
+              expect(response).to redirect_to(dashboard_groups_path)
+              expect(subgroup).not_to have_user(user)
+            end
+          end
+        end
+
+        context 'and there is another owner' do
+          before do
+            create(:group_member, :owner, source: group)
+          end
+
+          it 'removes user from members', :aggregate_failures do
+            delete :leave, params: { group_id: group }
+
+            expect(controller).to set_flash.to "You left the \"#{group.name}\" group."
+            expect(response).to redirect_to(dashboard_groups_path)
+            expect(group).not_to have_user(user)
+          end
         end
       end
 
@@ -325,7 +439,7 @@ RSpec.describe Groups::GroupMembersController do
           expect(controller).to set_flash.to 'Your access request to the group has been withdrawn.'
           expect(response).to redirect_to(group_path(group))
           expect(group.requesters).to be_empty
-          expect(group.users).not_to include user
+          expect(group).not_to have_user(user)
         end
       end
     end
@@ -342,7 +456,7 @@ RSpec.describe Groups::GroupMembersController do
       expect(controller).to set_flash.to 'Your request for access has been queued for review.'
       expect(response).to redirect_to(group_path(group))
       expect(group.requesters.exists?(user_id: user)).to be_truthy
-      expect(group.users).not_to include user
+      expect(group).not_to have_user(user)
     end
   end
 
@@ -409,13 +523,11 @@ RSpec.describe Groups::GroupMembersController do
 
     describe 'PUT #update' do
       it 'is successful' do
-        put :update,
-            params: {
-              group_member: { access_level: Gitlab::Access::GUEST },
-              group_id: group,
-              id: membership
-            },
-            format: :json
+        put :update, params: {
+          group_member: { access_level: Gitlab::Access::GUEST },
+          group_id: group,
+          id: membership
+        }, format: :json
 
         expect(response).to have_gitlab_http_status(:ok)
       end
@@ -425,7 +537,7 @@ RSpec.describe Groups::GroupMembersController do
       it 'is successful' do
         delete :destroy, params: { group_id: group, id: membership }
 
-        expect(response).to have_gitlab_http_status(:found)
+        expect(response).to have_gitlab_http_status(:see_other)
       end
     end
 

@@ -1,82 +1,120 @@
 <script>
 import {
   GlButton,
-  GlEmptyState,
+  GlButtonGroup,
+  GlDisclosureDropdown,
+  GlDisclosureDropdownGroup,
   GlFilteredSearchToken,
-  GlIcon,
-  GlLink,
-  GlSprintf,
   GlTooltipDirective,
 } from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
+
+import produce from 'immer';
 import fuzzaldrinPlus from 'fuzzaldrin-plus';
+import { isEmpty } from 'lodash';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
+import IssueCardStatistics from 'ee_else_ce/issues/list/components/issue_card_statistics.vue';
 import IssueCardTimeInfo from 'ee_else_ce/issues/list/components/issue_card_time_info.vue';
 import getIssuesQuery from 'ee_else_ce/issues/list/queries/get_issues.query.graphql';
 import getIssuesCountsQuery from 'ee_else_ce/issues/list/queries/get_issues_counts.query.graphql';
-import createFlash, { FLASH_TYPES } from '~/flash';
-import { TYPE_USER } from '~/graphql_shared/constants';
-import { convertToGraphQLId, getIdFromGraphQLId } from '~/graphql_shared/utils';
-import { ITEM_TYPE } from '~/groups/constants';
+import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
+import { createAlert, VARIANT_INFO } from '~/alert';
+import { TYPENAME_USER } from '~/graphql_shared/constants';
 import CsvImportExportButtons from '~/issuable/components/csv_import_export_buttons.vue';
+import { convertToGraphQLId, getIdFromGraphQLId } from '~/graphql_shared/utils';
 import IssuableByEmail from '~/issuable/components/issuable_by_email.vue';
+import {
+  STATUS_ALL,
+  STATUS_CLOSED,
+  STATUS_OPEN,
+  WORKSPACE_GROUP,
+  WORKSPACE_PROJECT,
+} from '~/issues/constants';
 import axios from '~/lib/utils/axios_utils';
+import { fetchPolicies } from '~/lib/graphql';
+import { isPositiveInteger } from '~/lib/utils/number_utils';
 import { scrollUp } from '~/lib/utils/scroll_utils';
 import { getParameterByName, joinPaths } from '~/lib/utils/url_utility';
+import { __ } from '~/locale';
 import {
-  DEFAULT_NONE_ANY,
-  OPERATOR_IS_ONLY,
+  OPERATORS_IS,
+  OPERATORS_IS_NOT_OR,
+  OPERATORS_AFTER_BEFORE,
   TOKEN_TITLE_ASSIGNEE,
   TOKEN_TITLE_AUTHOR,
   TOKEN_TITLE_CONFIDENTIAL,
+  TOKEN_TITLE_CONTACT,
   TOKEN_TITLE_LABEL,
   TOKEN_TITLE_MILESTONE,
   TOKEN_TITLE_MY_REACTION,
+  TOKEN_TITLE_ORGANIZATION,
   TOKEN_TITLE_RELEASE,
+  TOKEN_TITLE_SEARCH_WITHIN,
   TOKEN_TITLE_TYPE,
-} from '~/vue_shared/components/filtered_search_bar/constants';
-import IssuableList from '~/vue_shared/issuable/list/components/issuable_list_root.vue';
-import { IssuableListTabs, IssuableStates } from '~/vue_shared/issuable/list/constants';
-import {
-  CREATED_DESC,
-  i18n,
-  ISSUE_REFERENCE,
-  MAX_LIST_SIZE,
-  PAGE_SIZE,
-  PARAM_PAGE_AFTER,
-  PARAM_PAGE_BEFORE,
-  PARAM_STATE,
-  RELATIVE_POSITION_ASC,
+  TOKEN_TITLE_CREATED,
+  TOKEN_TITLE_CLOSED,
   TOKEN_TYPE_ASSIGNEE,
   TOKEN_TYPE_AUTHOR,
   TOKEN_TYPE_CONFIDENTIAL,
+  TOKEN_TYPE_CONTACT,
   TOKEN_TYPE_LABEL,
   TOKEN_TYPE_MILESTONE,
   TOKEN_TYPE_MY_REACTION,
+  TOKEN_TYPE_ORGANIZATION,
   TOKEN_TYPE_RELEASE,
+  TOKEN_TYPE_SEARCH_WITHIN,
   TOKEN_TYPE_TYPE,
+  TOKEN_TYPE_CREATED,
+  TOKEN_TYPE_CLOSED,
+} from '~/vue_shared/components/filtered_search_bar/constants';
+import IssuableList from '~/vue_shared/issuable/list/components/issuable_list_root.vue';
+import { DEFAULT_PAGE_SIZE, issuableListTabs } from '~/vue_shared/issuable/list/constants';
+import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import NewResourceDropdown from '~/vue_shared/components/new_resource_dropdown/new_resource_dropdown.vue';
+import deleteWorkItemMutation from '~/work_items/graphql/delete_work_item.mutation.graphql';
+import { WORK_ITEM_TYPE_ENUM_OBJECTIVE } from '~/work_items/constants';
+import WorkItemDrawer from '~/work_items/components/work_item_drawer.vue';
+import GitlabExperiment from '~/experimentation/components/gitlab_experiment.vue';
+import {
+  CREATED_DESC,
+  defaultTypeTokenOptions,
+  defaultWorkItemTypes,
+  i18n,
+  ISSUE_REFERENCE,
+  ISSUES_GRID_VIEW_KEY,
+  ISSUES_LIST_VIEW_KEY,
+  ISSUES_VIEW_TYPE_KEY,
+  MAX_LIST_SIZE,
+  PARAM_FIRST_PAGE_SIZE,
+  PARAM_LAST_PAGE_SIZE,
+  PARAM_PAGE_AFTER,
+  PARAM_PAGE_BEFORE,
+  PARAM_SORT,
+  PARAM_STATE,
+  RELATIVE_POSITION_ASC,
   UPDATED_DESC,
   urlSortParams,
 } from '../constants';
 import eventHub from '../eventhub';
 import reorderIssuesMutation from '../queries/reorder_issues.mutation.graphql';
 import searchLabelsQuery from '../queries/search_labels.query.graphql';
-import searchMilestonesQuery from '../queries/search_milestones.query.graphql';
-import searchUsersQuery from '../queries/search_users.query.graphql';
 import setSortPreferenceMutation from '../queries/set_sort_preference.mutation.graphql';
 import {
   convertToApiParams,
   convertToSearchQuery,
   convertToUrlParams,
+  deriveSortKey,
   getFilterTokens,
   getInitialPageParams,
-  getSortKey,
   getSortOptions,
-  isSortKey,
+  groupMultiSelectFilterTokens,
+  mapWorkItemWidgetsToIssueFields,
+  updateUpvotesCount,
 } from '../utils';
-import NewIssueDropdown from './new_issue_dropdown.vue';
+import { hasNewIssueDropdown } from '../has_new_issue_dropdown_mixin';
+import EmptyStateWithAnyIssues from './empty_state_with_any_issues.vue';
+import EmptyStateWithoutAnyIssues from './empty_state_without_any_issues.vue';
 
-const AuthorToken = () =>
-  import('~/vue_shared/components/filtered_search_bar/tokens/author_token.vue');
+const UserToken = () => import('~/vue_shared/components/filtered_search_bar/tokens/user_token.vue');
 const EmojiToken = () =>
   import('~/vue_shared/components/filtered_search_bar/tokens/emoji_token.vue');
 const LabelToken = () =>
@@ -85,49 +123,67 @@ const MilestoneToken = () =>
   import('~/vue_shared/components/filtered_search_bar/tokens/milestone_token.vue');
 const ReleaseToken = () =>
   import('~/vue_shared/components/filtered_search_bar/tokens/release_token.vue');
+const CrmContactToken = () =>
+  import('~/vue_shared/components/filtered_search_bar/tokens/crm_contact_token.vue');
+const CrmOrganizationToken = () =>
+  import('~/vue_shared/components/filtered_search_bar/tokens/crm_organization_token.vue');
+const DateToken = () => import('~/vue_shared/components/filtered_search_bar/tokens/date_token.vue');
 
 export default {
+  name: 'IssuesListAppCE',
   i18n,
-  IssuableListTabs,
+  issuableListTabs,
+  ISSUES_VIEW_TYPE_KEY,
+  ISSUES_GRID_VIEW_KEY,
+  ISSUES_LIST_VIEW_KEY,
   components: {
     CsvImportExportButtons,
+    GlDisclosureDropdown,
+    GlDisclosureDropdownGroup,
+    EmptyStateWithAnyIssues,
+    EmptyStateWithoutAnyIssues,
     GlButton,
-    GlEmptyState,
-    GlIcon,
-    GlLink,
-    GlSprintf,
+    GlButtonGroup,
     IssuableByEmail,
     IssuableList,
+    IssueCardStatistics,
     IssueCardTimeInfo,
-    NewIssueDropdown,
+    NewResourceDropdown,
+    LocalStorageSync,
+    GitlabExperiment,
+    WorkItemDrawer,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
   },
+  mixins: [glFeatureFlagMixin(), hasNewIssueDropdown()],
   inject: [
     'autocompleteAwardEmojisPath',
     'calendarPath',
     'canBulkUpdate',
-    'emptyStateSvgPath',
+    'canCreateIssue',
+    'canReadCrmContact',
+    'canReadCrmOrganization',
     'exportCsvPath',
     'fullPath',
     'hasAnyIssues',
     'hasAnyProjects',
     'hasBlockedIssuesFeature',
+    'hasIssuableHealthStatusFeature',
+    'hasIssueDateFilterFeature',
     'hasIssueWeightsFeature',
-    'hasMultipleIssueAssigneesFeature',
+    'hasScopedLabelsFeature',
     'initialEmail',
     'initialSort',
-    'isAnonymousSearchDisabled',
     'isIssueRepositioningDisabled',
     'isProject',
+    'isPublicVisibilityRestricted',
     'isSignedIn',
-    'jiraIntegrationPath',
     'newIssuePath',
     'releasesPath',
     'rssPath',
     'showNewIssueLink',
-    'signInPath',
+    'groupId',
   ],
   props: {
     eeSearchTokens: {
@@ -135,45 +191,46 @@ export default {
       required: false,
       default: () => [],
     },
+    eeTypeTokenOptions: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+    eeWorkItemTypes: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
   },
   data() {
-    const pageAfter = getParameterByName(PARAM_PAGE_AFTER);
-    const pageBefore = getParameterByName(PARAM_PAGE_BEFORE);
-    const state = getParameterByName(PARAM_STATE);
-    const defaultSortKey = state === IssuableStates.Closed ? UPDATED_DESC : CREATED_DESC;
-    const dashboardSortKey = getSortKey(this.initialSort);
-    const graphQLSortKey =
-      isSortKey(this.initialSort?.toUpperCase()) && this.initialSort.toUpperCase();
-
-    // The initial sort is an old enum value when it is saved on the dashboard issues page.
-    // The initial sort is a GraphQL enum value when it is saved on the Vue issues list page.
-    let sortKey = dashboardSortKey || graphQLSortKey || defaultSortKey;
-
-    if (this.isIssueRepositioningDisabled && sortKey === RELATIVE_POSITION_ASC) {
-      this.showIssueRepositioningMessage();
-      sortKey = defaultSortKey;
-    }
-
-    const isSearchDisabled =
-      this.isAnonymousSearchDisabled &&
-      !this.isSignedIn &&
-      window.location.search.includes('search=');
-
-    if (isSearchDisabled) {
-      this.showAnonymousSearchingMessage();
-    }
-
     return {
       exportCsvPathWithQuery: this.getExportCsvPathWithQuery(),
-      filterTokens: isSearchDisabled ? [] : getFilterTokens(window.location.search),
+      filterTokens: [],
       issues: [],
       issuesCounts: {},
       issuesError: null,
       pageInfo: {},
-      pageParams: getInitialPageParams(sortKey, pageAfter, pageBefore),
+      pageParams: {},
       showBulkEditSidebar: false,
-      sortKey,
-      state: state || IssuableStates.Opened,
+      sortKey: CREATED_DESC,
+      state: STATUS_OPEN,
+      pageSize: DEFAULT_PAGE_SIZE,
+      viewType: ISSUES_LIST_VIEW_KEY,
+      subscribeDropdownOptions: {
+        items: [
+          {
+            text: __('Subscribe to RSS feed'),
+            href: this.rssPath,
+            extraAttrs: { 'data-testid': 'subscribe-rss' },
+          },
+          {
+            text: __('Subscribe to calendar'),
+            href: this.calendarPath,
+            extraAttrs: { 'data-testid': 'subscribe-calendar' },
+          },
+        ],
+      },
+      activeIssuable: null,
     };
   },
   apollo: {
@@ -185,6 +242,11 @@ export default {
       update(data) {
         return data[this.namespace]?.issues.nodes ?? [];
       },
+      fetchPolicy: fetchPolicies.CACHE_AND_NETWORK,
+      nextFetchPolicy: fetchPolicies.CACHE_FIRST,
+      // We need this for handling loading state when using frontend cache
+      // See https://gitlab.com/gitlab-org/gitlab/-/merge_requests/106004#note_1217325202 for details
+      notifyOnNetworkStatusChange: true,
       result({ data }) {
         if (!data) {
           return;
@@ -197,9 +259,8 @@ export default {
         Sentry.captureException(error);
       },
       skip() {
-        return !this.hasAnyIssues;
+        return !this.hasAnyIssues || isEmpty(this.pageParams);
       },
-      debounce: 200,
     },
     issuesCounts: {
       query: getIssuesCountsQuery,
@@ -214,11 +275,7 @@ export default {
         Sentry.captureException(error);
       },
       skip() {
-        return !this.hasAnyIssues;
-      },
-      debounce: 200,
-      context: {
-        isSingleRequest: true,
+        return !this.hasAnyIssues || isEmpty(this.pageParams);
       },
     },
   },
@@ -227,25 +284,33 @@ export default {
       const isIidSearch = ISSUE_REFERENCE.test(this.searchQuery);
       return {
         fullPath: this.fullPath,
+        hideUsers: this.isPublicVisibilityRestricted && !this.isSignedIn,
         iid: isIidSearch ? this.searchQuery.slice(1) : undefined,
         isProject: this.isProject,
         isSignedIn: this.isSignedIn,
-        search: isIidSearch ? undefined : this.searchQuery,
         sort: this.sortKey,
         state: this.state,
         ...this.pageParams,
         ...this.apiFilterParams,
+        search: isIidSearch ? undefined : this.searchQuery,
+        types: this.apiFilterParams.types || this.defaultWorkItemTypes,
       };
     },
     namespace() {
-      return this.isProject ? ITEM_TYPE.PROJECT : ITEM_TYPE.GROUP;
+      return this.isProject ? WORKSPACE_PROJECT : WORKSPACE_GROUP;
+    },
+    defaultWorkItemTypes() {
+      return [...defaultWorkItemTypes, ...this.eeWorkItemTypes];
+    },
+    typeTokenOptions() {
+      return [...defaultTypeTokenOptions, ...this.eeTypeTokenOptions];
     },
     hasSearch() {
-      return (
+      return Boolean(
         this.searchQuery ||
-        Object.keys(this.urlFilterParams).length ||
-        this.pageParams.afterCursor ||
-        this.pageParams.beforeCursor
+          Object.keys(this.urlFilterParams).length ||
+          this.pageParams.afterCursor ||
+          this.pageParams.beforeCursor,
       );
     },
     isBulkEditButtonDisabled() {
@@ -255,13 +320,13 @@ export default {
       return this.sortKey === RELATIVE_POSITION_ASC;
     },
     isOpenTab() {
-      return this.state === IssuableStates.Opened;
+      return this.state === STATUS_OPEN;
     },
     showCsvButtons() {
       return this.isProject && this.isSignedIn;
     },
     showIssuableByEmail() {
-      return this.initialEmail && this.isSignedIn;
+      return this.initialEmail && this.canCreateIssue;
     },
     showNewIssueDropdown() {
       return !this.isProject && this.hasAnyProjects;
@@ -273,14 +338,14 @@ export default {
       return convertToUrlParams(this.filterTokens);
     },
     searchQuery() {
-      return convertToSearchQuery(this.filterTokens) || undefined;
+      return convertToSearchQuery(this.filterTokens);
     },
     searchTokens() {
-      const preloadedAuthors = [];
+      const preloadedUsers = [];
 
       if (gon.current_user_id) {
-        preloadedAuthors.push({
-          id: convertToGraphQLId(TYPE_USER, gon.current_user_id),
+        preloadedUsers.push({
+          id: convertToGraphQLId(TYPENAME_USER, gon.current_user_id),
           name: gon.current_user_fullname,
           username: gon.current_username,
           avatar_url: gon.current_user_avatar_url,
@@ -289,57 +354,75 @@ export default {
 
       const tokens = [
         {
+          type: TOKEN_TYPE_SEARCH_WITHIN,
+          title: TOKEN_TITLE_SEARCH_WITHIN,
+          icon: 'search',
+          token: GlFilteredSearchToken,
+          unique: true,
+          operators: OPERATORS_IS,
+          options: [
+            { icon: 'title', value: 'TITLE', title: this.$options.i18n.titles },
+            {
+              icon: 'text-description',
+              value: 'DESCRIPTION',
+              title: this.$options.i18n.descriptions,
+            },
+          ],
+        },
+        {
           type: TOKEN_TYPE_AUTHOR,
           title: TOKEN_TITLE_AUTHOR,
           icon: 'pencil',
-          token: AuthorToken,
+          token: UserToken,
           dataType: 'user',
-          unique: true,
-          defaultAuthors: [],
-          fetchAuthors: this.fetchUsers,
+          defaultUsers: [],
+          operators: OPERATORS_IS_NOT_OR,
+          fullPath: this.fullPath,
+          isProject: this.isProject,
           recentSuggestionsStorageKey: `${this.fullPath}-issues-recent-tokens-author`,
-          preloadedAuthors,
+          preloadedUsers,
+          multiSelect: this.glFeatures.groupMultiSelectTokens,
         },
         {
           type: TOKEN_TYPE_ASSIGNEE,
           title: TOKEN_TITLE_ASSIGNEE,
           icon: 'user',
-          token: AuthorToken,
+          token: UserToken,
           dataType: 'user',
-          unique: !this.hasMultipleIssueAssigneesFeature,
-          defaultAuthors: DEFAULT_NONE_ANY,
-          fetchAuthors: this.fetchUsers,
+          operators: OPERATORS_IS_NOT_OR,
+          fullPath: this.fullPath,
+          isProject: this.isProject,
           recentSuggestionsStorageKey: `${this.fullPath}-issues-recent-tokens-assignee`,
-          preloadedAuthors,
+          preloadedUsers,
+          multiSelect: this.glFeatures.groupMultiSelectTokens,
         },
         {
           type: TOKEN_TYPE_MILESTONE,
           title: TOKEN_TITLE_MILESTONE,
-          icon: 'clock',
+          icon: 'milestone',
           token: MilestoneToken,
-          fetchMilestones: this.fetchMilestones,
           recentSuggestionsStorageKey: `${this.fullPath}-issues-recent-tokens-milestone`,
           shouldSkipSort: true,
+          fullPath: this.fullPath,
+          isProject: this.isProject,
         },
         {
           type: TOKEN_TYPE_LABEL,
           title: TOKEN_TITLE_LABEL,
           icon: 'labels',
           token: LabelToken,
-          defaultLabels: DEFAULT_NONE_ANY,
+          operators: OPERATORS_IS_NOT_OR,
           fetchLabels: this.fetchLabels,
+          fetchLatestLabels: this.glFeatures.frontendCaching ? this.fetchLatestLabels : null,
           recentSuggestionsStorageKey: `${this.fullPath}-issues-recent-tokens-label`,
+          multiSelect: this.glFeatures.groupMultiSelectTokens,
         },
         {
           type: TOKEN_TYPE_TYPE,
           title: TOKEN_TITLE_TYPE,
           icon: 'issues',
           token: GlFilteredSearchToken,
-          options: [
-            { icon: 'issue-type-issue', title: 'issue', value: 'issue' },
-            { icon: 'issue-type-incident', title: 'incident', value: 'incident' },
-            { icon: 'issue-type-test-case', title: 'test_case', value: 'test_case' },
-          ],
+          options: this.typeTokenOptions,
         },
       ];
 
@@ -371,11 +454,57 @@ export default {
           icon: 'eye-slash',
           token: GlFilteredSearchToken,
           unique: true,
-          operators: OPERATOR_IS_ONLY,
+          operators: OPERATORS_IS,
           options: [
             { icon: 'eye-slash', value: 'yes', title: this.$options.i18n.confidentialYes },
             { icon: 'eye', value: 'no', title: this.$options.i18n.confidentialNo },
           ],
+        });
+
+        if (this.hasIssueDateFilterFeature) {
+          tokens.push({
+            type: TOKEN_TYPE_CREATED,
+            title: TOKEN_TITLE_CREATED,
+            icon: 'history',
+            token: DateToken,
+            operators: OPERATORS_AFTER_BEFORE,
+          });
+
+          tokens.push({
+            type: TOKEN_TYPE_CLOSED,
+            title: TOKEN_TITLE_CLOSED,
+            icon: 'history',
+            token: DateToken,
+            operators: OPERATORS_AFTER_BEFORE,
+          });
+        }
+      }
+
+      if (this.canReadCrmContact) {
+        tokens.push({
+          type: TOKEN_TYPE_CONTACT,
+          title: TOKEN_TITLE_CONTACT,
+          icon: 'user',
+          token: CrmContactToken,
+          fullPath: this.fullPath,
+          isProject: this.isProject,
+          recentSuggestionsStorageKey: `${this.fullPath}-issues-recent-tokens-crm-contacts`,
+          operators: OPERATORS_IS,
+          unique: true,
+        });
+      }
+
+      if (this.canReadCrmOrganization) {
+        tokens.push({
+          type: TOKEN_TYPE_ORGANIZATION,
+          title: TOKEN_TITLE_ORGANIZATION,
+          icon: 'users',
+          token: CrmOrganizationToken,
+          fullPath: this.fullPath,
+          isProject: this.isProject,
+          recentSuggestionsStorageKey: `${this.fullPath}-issues-recent-tokens-crm-organizations`,
+          operators: OPERATORS_IS,
+          unique: true,
         });
       }
 
@@ -388,17 +517,24 @@ export default {
       return tokens;
     },
     showPaginationControls() {
-      return this.issues.length > 0 && (this.pageInfo.hasNextPage || this.pageInfo.hasPreviousPage);
+      return !this.isLoading && (this.pageInfo.hasNextPage || this.pageInfo.hasPreviousPage);
+    },
+    showPageSizeSelector() {
+      return this.issues.length > 0;
     },
     sortOptions() {
-      return getSortOptions(this.hasIssueWeightsFeature, this.hasBlockedIssuesFeature);
+      return getSortOptions({
+        hasBlockedIssuesFeature: this.hasBlockedIssuesFeature,
+        hasIssuableHealthStatusFeature: this.hasIssuableHealthStatusFeature,
+        hasIssueWeightsFeature: this.hasIssueWeightsFeature,
+      });
     },
     tabCounts() {
       const { openedIssues, closedIssues, allIssues } = this.issuesCounts;
       return {
-        [IssuableStates.Opened]: openedIssues?.count,
-        [IssuableStates.Closed]: closedIssues?.count,
-        [IssuableStates.All]: allIssues?.count,
+        [STATUS_OPEN]: openedIssues?.count,
+        [STATUS_CLOSED]: closedIssues?.count,
+        [STATUS_ALL]: allIssues?.count,
       };
     },
     currentTabCount() {
@@ -406,16 +542,48 @@ export default {
     },
     urlParams() {
       return {
-        page_after: this.pageParams.afterCursor,
-        page_before: this.pageParams.beforeCursor,
-        search: this.searchQuery,
         sort: urlSortParams[this.sortKey],
         state: this.state,
         ...this.urlFilterParams,
+        first_page_size: this.pageParams.firstPageSize,
+        last_page_size: this.pageParams.lastPageSize,
+        page_after: this.pageParams.afterCursor ?? undefined,
+        page_before: this.pageParams.beforeCursor ?? undefined,
       };
+    },
+    // due to the issues with cache-and-network, we need this hack to check if there is any data for the query in the cache.
+    // if we have cached data, we disregard the loading state
+    isLoading() {
+      return (
+        this.$apollo.queries.issues.loading &&
+        !this.$apollo.provider.clients.defaultClient.readQuery({
+          query: getIssuesQuery,
+          variables: this.queryVariables,
+        })
+      );
+    },
+    gridViewFeatureEnabled() {
+      return Boolean(this.glFeatures?.issuesGridView);
+    },
+    isGridView() {
+      return this.viewType === ISSUES_GRID_VIEW_KEY;
+    },
+    isIssuableSelected() {
+      return !isEmpty(this.activeIssuable);
+    },
+    issuesDrawerEnabled() {
+      return this.glFeatures?.issuesListDrawer;
+    },
+  },
+  watch: {
+    $route(newValue, oldValue) {
+      if (newValue.fullPath !== oldValue.fullPath) {
+        this.updateData(getParameterByName(PARAM_SORT));
+      }
     },
   },
   created() {
+    this.updateData(this.initialSort);
     this.cache = {};
   },
   mounted() {
@@ -425,18 +593,17 @@ export default {
     eventHub.$off('issuables:toggleBulkEdit', this.toggleBulkEditSidebar);
   },
   methods: {
-    fetchWithCache(path, cacheName, searchKey, search, wrapData = false) {
+    fetchWithCache(path, cacheName, searchKey, search) {
       if (this.cache[cacheName]) {
         const data = search
           ? fuzzaldrinPlus.filter(this.cache[cacheName], search, { key: searchKey })
           : this.cache[cacheName].slice(0, MAX_LIST_SIZE);
-        return wrapData ? Promise.resolve({ data }) : Promise.resolve(data);
+        return Promise.resolve(data);
       }
 
       return axios.get(path).then(({ data }) => {
         this.cache[cacheName] = data;
-        const result = data.slice(0, MAX_LIST_SIZE);
-        return wrapData ? { data: result } : result;
+        return data.slice(0, MAX_LIST_SIZE);
       });
     },
     fetchEmojis(search) {
@@ -445,11 +612,12 @@ export default {
     fetchReleases(search) {
       return this.fetchWithCache(this.releasesPath, 'releases', 'tag', search);
     },
-    fetchLabels(search) {
+    fetchLabelsWithFetchPolicy(search, fetchPolicy = fetchPolicies.CACHE_FIRST) {
       return this.$apollo
         .query({
           query: searchLabelsQuery,
           variables: { fullPath: this.fullPath, search, isProject: this.isProject },
+          fetchPolicy,
         })
         .then(({ data }) => data[this.namespace]?.labels.nodes)
         .then((labels) =>
@@ -458,32 +626,20 @@ export default {
           labels.filter((label) => label.title.toLowerCase().includes(search.toLowerCase())),
         );
     },
-    fetchMilestones(search) {
-      return this.$apollo
-        .query({
-          query: searchMilestonesQuery,
-          variables: { fullPath: this.fullPath, search, isProject: this.isProject },
-        })
-        .then(({ data }) => data[this.namespace]?.milestones.nodes);
+    fetchLabels(search) {
+      return this.fetchLabelsWithFetchPolicy(search);
     },
-    fetchUsers(search) {
-      return this.$apollo
-        .query({
-          query: searchUsersQuery,
-          variables: { fullPath: this.fullPath, search, isProject: this.isProject },
-        })
-        .then(({ data }) =>
-          data[this.namespace]?.[`${this.namespace}Members`].nodes.map((member) => member.user),
-        );
+    fetchLatestLabels(search) {
+      return this.fetchLabelsWithFetchPolicy(search, fetchPolicies.NETWORK_ONLY);
     },
     getExportCsvPathWithQuery() {
       return `${this.exportCsvPath}${window.location.search}`;
     },
     getStatus(issue) {
-      if (issue.closedAt && issue.moved) {
+      if (issue.state === STATUS_CLOSED && issue.moved) {
         return this.$options.i18n.closedMoved;
       }
-      if (issue.closedAt) {
+      if (issue.state === STATUS_CLOSED) {
         return this.$options.i18n.closed;
       }
       return undefined;
@@ -497,13 +653,8 @@ export default {
     },
     async handleBulkUpdateClick() {
       if (!this.hasInitBulkEdit) {
-        const bulkUpdateSidebar = await import('~/issuable/bulk_update_sidebar');
+        const bulkUpdateSidebar = await import('~/issuable');
         bulkUpdateSidebar.initBulkUpdateSidebar('issuable_');
-        bulkUpdateSidebar.initIssueStatusSelect();
-
-        const usersSelect = await import('~/users_select');
-        const UsersSelect = usersSelect.default;
-        new UsersSelect(); // eslint-disable-line no-new
 
         this.hasInitBulkEdit = true;
       }
@@ -511,35 +662,41 @@ export default {
       eventHub.$emit('issuables:enableBulkEdit');
     },
     handleClickTab(state) {
-      if (this.state !== state) {
-        this.pageParams = getInitialPageParams(this.sortKey);
+      if (this.state === state) {
+        return;
       }
+
       this.state = state;
+      this.pageParams = getInitialPageParams(this.pageSize);
+
+      this.$router.push({ query: this.urlParams });
     },
     handleDismissAlert() {
       this.issuesError = null;
     },
-    handleFilter(filter) {
-      if (this.isAnonymousSearchDisabled && !this.isSignedIn) {
-        this.showAnonymousSearchingMessage();
-        return;
-      }
-      this.pageParams = getInitialPageParams(this.sortKey);
-      this.filterTokens = filter;
+    handleFilter(tokens) {
+      this.filterTokens = tokens;
+      this.pageParams = getInitialPageParams(this.pageSize);
+
+      this.$router.push({ query: this.urlParams });
     },
     handleNextPage() {
       this.pageParams = {
         afterCursor: this.pageInfo.endCursor,
-        firstPageSize: PAGE_SIZE,
+        firstPageSize: this.pageSize,
       };
       scrollUp();
+
+      this.$router.push({ query: this.urlParams });
     },
     handlePreviousPage() {
       this.pageParams = {
         beforeCursor: this.pageInfo.startCursor,
-        lastPageSize: PAGE_SIZE,
+        lastPageSize: this.pageSize,
       };
       scrollUp();
+
+      this.$router.push({ query: this.urlParams });
     },
     handleReorder({ newIndex, oldIndex }) {
       const issueToMove = this.issues[oldIndex];
@@ -573,24 +730,28 @@ export default {
           });
         })
         .catch((error) => {
-          this.issuesError = this.$options.i18n.reorderError;
+          this.issuesError = __('An error occurred while reordering issues.');
           Sentry.captureException(error);
         });
     },
     handleSort(sortKey) {
+      if (this.sortKey === sortKey) {
+        return;
+      }
+
       if (this.isIssueRepositioningDisabled && sortKey === RELATIVE_POSITION_ASC) {
         this.showIssueRepositioningMessage();
         return;
       }
 
-      if (this.sortKey !== sortKey) {
-        this.pageParams = getInitialPageParams(sortKey);
-      }
       this.sortKey = sortKey;
+      this.pageParams = getInitialPageParams(this.pageSize);
 
       if (this.isSignedIn) {
         this.saveSortPreference(sortKey);
       }
+
+      this.$router.push({ query: this.urlParams });
     },
     saveSortPreference(sortKey) {
       this.$apollo
@@ -607,20 +768,132 @@ export default {
           Sentry.captureException(error);
         });
     },
-    showAnonymousSearchingMessage() {
-      createFlash({
-        message: this.$options.i18n.anonymousSearchingMessage,
-        type: FLASH_TYPES.NOTICE,
-      });
-    },
     showIssueRepositioningMessage() {
-      createFlash({
+      createAlert({
         message: this.$options.i18n.issueRepositioningMessage,
-        type: FLASH_TYPES.NOTICE,
+        variant: VARIANT_INFO,
       });
     },
     toggleBulkEditSidebar(showBulkEditSidebar) {
       this.showBulkEditSidebar = showBulkEditSidebar;
+    },
+    handlePageSizeChange(pageSize) {
+      this.pageSize = pageSize;
+      this.pageParams = getInitialPageParams(pageSize);
+      scrollUp();
+
+      this.$router.push({ query: this.urlParams });
+    },
+    updateData(sort) {
+      const firstPageSize = getParameterByName(PARAM_FIRST_PAGE_SIZE);
+      const lastPageSize = getParameterByName(PARAM_LAST_PAGE_SIZE);
+      const state = getParameterByName(PARAM_STATE);
+
+      let sortKey = deriveSortKey({ sort, state });
+
+      if (this.isIssueRepositioningDisabled && sortKey === RELATIVE_POSITION_ASC) {
+        this.showIssueRepositioningMessage();
+        sortKey = state === STATUS_CLOSED ? UPDATED_DESC : CREATED_DESC;
+      }
+
+      const tokens = getFilterTokens(window.location.search);
+      if (this.glFeatures.groupMultiSelectTokens) {
+        this.filterTokens = groupMultiSelectFilterTokens(tokens, this.searchTokens);
+      } else {
+        this.filterTokens = tokens;
+      }
+
+      this.exportCsvPathWithQuery = this.getExportCsvPathWithQuery();
+      this.pageParams = getInitialPageParams(
+        this.pageSize,
+        isPositiveInteger(firstPageSize) ? parseInt(firstPageSize, 10) : undefined,
+        isPositiveInteger(lastPageSize) ? parseInt(lastPageSize, 10) : undefined,
+        getParameterByName(PARAM_PAGE_AFTER),
+        getParameterByName(PARAM_PAGE_BEFORE),
+      );
+      this.sortKey = sortKey;
+      this.state = state || STATUS_OPEN;
+    },
+    switchViewType(type) {
+      // Filter the wrong data from localStorage
+      if (type === ISSUES_GRID_VIEW_KEY) {
+        this.viewType = ISSUES_GRID_VIEW_KEY;
+        return;
+      }
+      // The default view is list view
+      this.viewType = ISSUES_LIST_VIEW_KEY;
+    },
+    handleSelectIssuable(issuable) {
+      this.activeIssuable = issuable;
+    },
+    updateIssuablesCache(workItem) {
+      const client = this.$apollo.provider.clients.defaultClient;
+      const issuesList = client.readQuery({
+        query: getIssuesQuery,
+        variables: this.queryVariables,
+      });
+
+      const activeIssuable = issuesList.project.issues.nodes.find(
+        (issue) => issue.iid === workItem.iid,
+      );
+
+      // when we change issuable state, it's moved to a different tab
+      // to ensure that we show 20 items of the first page, we need to refetch issuables
+      if (!activeIssuable.state.includes(workItem.state.toLowerCase())) {
+        this.refetchIssuables();
+        return;
+      }
+
+      // handle all other widgets
+      const data = mapWorkItemWidgetsToIssueFields(issuesList, workItem);
+
+      client.writeQuery({ query: getIssuesQuery, variables: this.queryVariables, data });
+    },
+    promoteToObjective(workItemIid) {
+      const { cache } = this.$apollo.provider.clients.defaultClient;
+
+      cache.updateQuery({ query: getIssuesQuery, variables: this.queryVariables }, (issuesList) =>
+        produce(issuesList, (draftData) => {
+          const activeItem = draftData.project.issues.nodes.find(
+            (issue) => issue.iid === workItemIid,
+          );
+
+          activeItem.type = WORK_ITEM_TYPE_ENUM_OBJECTIVE;
+        }),
+      );
+    },
+    refetchIssuables() {
+      this.$apollo.queries.issues.refetch();
+      this.$apollo.queries.issuesCounts.refetch();
+    },
+    deleteIssuable({ workItemId }) {
+      this.$apollo
+        .mutate({
+          mutation: deleteWorkItemMutation,
+          variables: { input: { id: workItemId } },
+        })
+        .then(({ data }) => {
+          if (data.workItemDelete.errors?.length) {
+            throw new Error(data.workItemDelete.errors[0]);
+          }
+          this.activeIssuable = null;
+          this.refetchIssuables();
+        })
+        .catch((error) => {
+          this.issuesError = __('An error occurred while deleting an issuable.');
+          Sentry.captureException(error);
+        });
+    },
+    updateIssuableEmojis(workItem) {
+      const client = this.$apollo.provider.clients.defaultClient;
+      const issuesList = client.readQuery({
+        query: getIssuesQuery,
+        variables: this.queryVariables,
+      });
+
+      const data = updateUpvotesCount(issuesList, workItem);
+
+      client.writeQuery({ query: getIssuesQuery, variables: this.queryVariables, data });
     },
   },
 };
@@ -628,30 +901,48 @@ export default {
 
 <template>
   <div>
+    <work-item-drawer
+      v-if="issuesDrawerEnabled"
+      :open="isIssuableSelected"
+      :active-item="activeIssuable"
+      @close="activeIssuable = null"
+      @work-item-updated="updateIssuablesCache"
+      @work-item-emoji-updated="updateIssuableEmojis"
+      @addChild="refetchIssuables"
+      @deleteWorkItem="deleteIssuable"
+      @promotedToObjective="promoteToObjective"
+    />
     <issuable-list
       v-if="hasAnyIssues"
       :namespace="fullPath"
       recent-searches-storage-key="issues"
-      :search-input-placeholder="$options.i18n.searchPlaceholder"
       :search-tokens="searchTokens"
+      :has-scoped-labels-feature="hasScopedLabelsFeature"
       :initial-filter-value="filterTokens"
       :sort-options="sortOptions"
       :initial-sort-by="sortKey"
       :issuables="issues"
       :error="issuesError"
       label-filter-param="label_name"
-      :tabs="$options.IssuableListTabs"
+      :tabs="$options.issuableListTabs"
       :current-tab="state"
       :tab-counts="tabCounts"
       :truncate-counts="!isProject"
-      :issuables-loading="$apollo.queries.issues.loading"
+      :issuables-loading="isLoading"
       :is-manual-ordering="isManualOrdering"
       :show-bulk-edit-sidebar="showBulkEditSidebar"
       :show-pagination-controls="showPaginationControls"
-      :use-keyset-pagination="true"
+      :default-page-size="pageSize"
+      show-filtered-search-friendly-text
+      sync-filter-and-sort
+      use-keyset-pagination
+      :show-page-size-selector="showPageSizeSelector"
       :has-next-page="pageInfo.hasNextPage"
       :has-previous-page="pageInfo.hasPreviousPage"
-      :url-params="urlParams"
+      :is-grid-view="isGridView"
+      :active-issuable="activeIssuable"
+      show-work-item-type-icon
+      :prevent-redirect="issuesDrawerEnabled"
       @click-tab="handleClickTab"
       @dismiss-alert="handleDismissAlert"
       @filter="handleFilter"
@@ -660,39 +951,82 @@ export default {
       @reorder="handleReorder"
       @sort="handleSort"
       @update-legacy-bulk-edit="handleUpdateLegacyBulkEdit"
+      @page-size-change="handlePageSizeChange"
+      @select-issuable="handleSelectIssuable"
     >
       <template #nav-actions>
-        <gl-button
-          v-gl-tooltip
-          :href="rssPath"
-          icon="rss"
-          :title="$options.i18n.rssLabel"
-          :aria-label="$options.i18n.rssLabel"
-        />
-        <gl-button
-          v-gl-tooltip
-          :href="calendarPath"
-          icon="calendar"
-          :title="$options.i18n.calendarLabel"
-          :aria-label="$options.i18n.calendarLabel"
-        />
-        <csv-import-export-buttons
-          v-if="showCsvButtons"
-          class="gl-md-mr-3"
-          :export-csv-path="exportCsvPathWithQuery"
-          :issuable-count="currentTabCount"
-        />
-        <gl-button
-          v-if="canBulkUpdate"
-          :disabled="isBulkEditButtonDisabled"
-          @click="handleBulkUpdateClick"
-        >
-          {{ $options.i18n.editIssues }}
-        </gl-button>
-        <gl-button v-if="showNewIssueLink" :href="newIssuePath" variant="confirm">
-          {{ $options.i18n.newIssueLabel }}
-        </gl-button>
-        <new-issue-dropdown v-if="showNewIssueDropdown" />
+        <div class="gl-display-flex gl-gap-3">
+          <local-storage-sync
+            v-if="gridViewFeatureEnabled"
+            :value="viewType"
+            :storage-key="$options.ISSUES_VIEW_TYPE_KEY"
+            @input="switchViewType"
+          >
+            <gl-button-group>
+              <gl-button
+                :variant="isGridView ? 'default' : 'confirm'"
+                data-testid="list-view-type"
+                @click="switchViewType($options.ISSUES_LIST_VIEW_KEY)"
+              >
+                {{ __('List') }}
+              </gl-button>
+              <gl-button
+                :variant="isGridView ? 'confirm' : 'default'"
+                data-testid="grid-view-type"
+                @click="switchViewType($options.ISSUES_GRID_VIEW_KEY)"
+              >
+                {{ __('Grid') }}
+              </gl-button>
+            </gl-button-group>
+          </local-storage-sync>
+
+          <gl-button
+            v-if="canBulkUpdate"
+            :disabled="isBulkEditButtonDisabled"
+            class="gl-flex-grow-1"
+            @click="handleBulkUpdateClick"
+          >
+            {{ __('Bulk edit') }}
+          </gl-button>
+          <slot name="new-issuable-button">
+            <gl-button
+              v-if="showNewIssueLink"
+              :href="newIssuePath"
+              variant="confirm"
+              class="gl-flex-grow-1"
+            >
+              {{ __('New issue') }}
+            </gl-button>
+          </slot>
+          <new-resource-dropdown
+            v-if="showNewIssueDropdown"
+            :query="$options.searchProjectsQuery"
+            :query-variables="newIssueDropdownQueryVariables"
+            :extract-projects="extractProjects"
+            :group-id="groupId"
+          />
+          <gl-disclosure-dropdown
+            v-gl-tooltip.hover="$options.i18n.actionsLabel"
+            category="tertiary"
+            icon="ellipsis_v"
+            no-caret
+            :toggle-text="$options.i18n.actionsLabel"
+            text-sr-only
+            data-testid="issues-list-more-actions-dropdown"
+            toggle-class="!gl-m-0 gl-h-full"
+            class="!gl-w-7"
+          >
+            <csv-import-export-buttons
+              v-if="showCsvButtons"
+              :export-csv-path="exportCsvPathWithQuery"
+              :issuable-count="currentTabCount"
+            />
+            <gl-disclosure-dropdown-group
+              :bordered="showCsvButtons"
+              :group="subscribeDropdownOptions"
+            />
+          </gl-disclosure-dropdown>
+        </div>
       </template>
 
       <template #timeframe="{ issuable = {} }">
@@ -704,118 +1038,40 @@ export default {
       </template>
 
       <template #statistics="{ issuable = {} }">
-        <li
-          v-if="issuable.mergeRequestsCount"
-          v-gl-tooltip
-          class="gl-display-none gl-sm-display-block"
-          :title="$options.i18n.relatedMergeRequests"
-          data-testid="merge-requests"
-        >
-          <gl-icon name="merge-request" />
-          {{ issuable.mergeRequestsCount }}
-        </li>
-        <li
-          v-if="issuable.upvotes"
-          v-gl-tooltip
-          class="issuable-upvotes gl-display-none gl-sm-display-block"
-          :title="$options.i18n.upvotes"
-          data-testid="issuable-upvotes"
-        >
-          <gl-icon name="thumb-up" />
-          {{ issuable.upvotes }}
-        </li>
-        <li
-          v-if="issuable.downvotes"
-          v-gl-tooltip
-          class="issuable-downvotes gl-display-none gl-sm-display-block"
-          :title="$options.i18n.downvotes"
-          data-testid="issuable-downvotes"
-        >
-          <gl-icon name="thumb-down" />
-          {{ issuable.downvotes }}
-        </li>
-        <slot :issuable="issuable"></slot>
+        <issue-card-statistics :issue="issuable" />
       </template>
 
       <template #empty-state>
-        <gl-empty-state
-          v-if="hasSearch"
-          :description="$options.i18n.noSearchResultsDescription"
-          :title="$options.i18n.noSearchResultsTitle"
-          :svg-path="emptyStateSvgPath"
-        >
-          <template #actions>
-            <gl-button v-if="showNewIssueLink" :href="newIssuePath" variant="confirm">
-              {{ $options.i18n.newIssueLabel }}
-            </gl-button>
-          </template>
-        </gl-empty-state>
+        <empty-state-with-any-issues :has-search="hasSearch" :is-open-tab="isOpenTab" />
+      </template>
 
-        <gl-empty-state
-          v-else-if="isOpenTab"
-          :description="$options.i18n.noOpenIssuesDescription"
-          :title="$options.i18n.noOpenIssuesTitle"
-          :svg-path="emptyStateSvgPath"
-        >
-          <template #actions>
-            <gl-button v-if="showNewIssueLink" :href="newIssuePath" variant="confirm">
-              {{ $options.i18n.newIssueLabel }}
-            </gl-button>
-          </template>
-        </gl-empty-state>
+      <template #list-body>
+        <slot name="list-body"></slot>
+      </template>
 
-        <gl-empty-state
-          v-else
-          :title="$options.i18n.noClosedIssuesTitle"
-          :svg-path="emptyStateSvgPath"
-        />
+      <template #title-icons="{ issuable }">
+        <slot name="title-icons" v-bind="{ issuable, apiFilterParams }"></slot>
       </template>
     </issuable-list>
 
-    <template v-else-if="isSignedIn">
-      <gl-empty-state
-        :description="$options.i18n.noIssuesSignedInDescription"
-        :title="$options.i18n.noIssuesSignedInTitle"
-        :svg-path="emptyStateSvgPath"
-      >
-        <template #actions>
-          <gl-button v-if="showNewIssueLink" :href="newIssuePath" variant="confirm">
-            {{ $options.i18n.newIssueLabel }}
-          </gl-button>
-          <csv-import-export-buttons
-            v-if="showCsvButtons"
-            class="gl-mr-3"
-            :export-csv-path="exportCsvPathWithQuery"
-            :issuable-count="currentTabCount"
-          />
-          <new-issue-dropdown v-if="showNewIssueDropdown" />
-        </template>
-      </gl-empty-state>
-      <hr />
-      <p class="gl-text-center gl-font-weight-bold gl-mb-0">
-        {{ $options.i18n.jiraIntegrationTitle }}
-      </p>
-      <p class="gl-text-center gl-mb-0">
-        <gl-sprintf :message="$options.i18n.jiraIntegrationMessage">
-          <template #jiraDocsLink="{ content }">
-            <gl-link :href="jiraIntegrationPath">{{ content }}</gl-link>
-          </template>
-        </gl-sprintf>
-      </p>
-      <p class="gl-text-center gl-text-gray-500">
-        {{ $options.i18n.jiraIntegrationSecondaryMessage }}
-      </p>
-    </template>
-
-    <gl-empty-state
+    <empty-state-without-any-issues
       v-else
-      :description="$options.i18n.noIssuesSignedOutDescription"
-      :title="$options.i18n.noIssuesSignedOutTitle"
-      :svg-path="emptyStateSvgPath"
-      :primary-button-text="$options.i18n.noIssuesSignedOutButtonText"
-      :primary-button-link="signInPath"
+      :current-tab-count="currentTabCount"
+      :export-csv-path-with-query="exportCsvPathWithQuery"
+      :show-csv-buttons="showCsvButtons"
+      :show-new-issue-dropdown="showNewIssueDropdown"
+      :show-issuable-by-email="showIssuableByEmail"
     />
 
-    <issuable-by-email v-if="showIssuableByEmail" class="gl-text-center gl-pt-5 gl-pb-7" />
+    <gitlab-experiment v-if="showIssuableByEmail" name="issues_mrs_empty_state">
+      <template #control>
+        <issuable-by-email
+          class="gl-text-center gl-pt-5 gl-pb-7"
+          data-track-action="click_email_issue_project_issues_empty_list_page"
+          data-track-label="email_issue_project_issues_empty_list"
+          data-track-experiment="issues_mrs_empty_state"
+        />
+      </template>
+    </gitlab-experiment>
   </div>
 </template>

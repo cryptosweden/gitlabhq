@@ -22,16 +22,12 @@
 
 .row-content-block {
   margin-top: 0;
-  background-color: $gray-light;
+  background-color: $gray-10;
   padding: $gl-padding;
   margin-bottom: 0;
-  border-top: 1px solid $white-dark;
-  border-bottom: 1px solid $white-dark;
+  border-top: 1px solid $border-color;
+  border-bottom: 1px solid $border-color;
   color: $gl-text-color;
-
-  &.oneline-block {
-    line-height: 42px;
-  }
 
   &.white {
     background-color: $white;
@@ -66,7 +62,6 @@
   }
 
   &.content-component-block {
-    padding: 8px 0;
     background-color: $body-bg;
   }
 
@@ -79,103 +74,9 @@
   }
 }
 
-.sub-header-block {
-  background-color: $white;
-  border-bottom: 1px solid $white-dark;
-  padding: 11px 0;
-  margin-bottom: 11px;
-
-  &.no-bottom-space {
-    border-bottom: 0;
-    margin-bottom: 0;
-  }
-}
-
-.cover-block {
-  text-align: center;
-  background: $gray-light;
-  padding-top: 44px;
-  position: relative;
-
-  .avatar-holder {
-    .avatar,
-    .identicon {
-      margin: 0 auto;
-      float: none;
-    }
-
-    .identicon {
-      border-radius: 50%;
-    }
-  }
-
-  .cover-title {
-    color: $gl-text-color;
-    font-size: 23px;
-
-    h1 {
-      color: $gl-text-color;
-      margin-bottom: 6px;
-      font-size: 23px;
-    }
-
-    .visibility-icon {
-      display: inline-block;
-      margin-left: 5px;
-      font-size: 18px;
-      color: color('gray');
-    }
-
-    p {
-      padding: 0 $gl-padding;
-      color: $gl-text-color;
-    }
-  }
-
-  .cover-controls {
-    @include media-breakpoint-up(sm) {
-      position: absolute;
-      top: 1rem;
-      right: 1.25rem;
-    }
-
-    &.left {
-      @include media-breakpoint-up(sm) {
-        left: 1.25rem;
-        right: auto;
-      }
-    }
-  }
-
-  &.user-cover-block {
-    padding: 24px 0 0;
-
-    .nav-links {
-      width: 100%;
-      float: none;
-
-      &.scrolling-tabs {
-        float: none;
-      }
-    }
-
-    li:first-child {
-      margin-left: auto;
-    }
-
-    li:last-child {
-      margin-right: auto;
-    }
-  }
-}
-
 .content-block {
   padding: $gl-padding 0;
-  border-bottom: 1px solid $white-dark;
-
-  &.oneline-block {
-    line-height: 36px;
-  }
+  border-bottom: 1px solid $border-color;
 
   > .controls {
     float: right;
@@ -196,7 +97,7 @@
   display: flex;
   position: relative;
   border: 1px solid $blue-300;
-  border-radius: $border-radius-default;
+  border-radius: $gl-border-radius-base;
   background-color: $blue-50;
   justify-content: center;
 
@@ -283,4 +184,8 @@
     background-color: inherit;
     padding: inherit;
   }
+}
+
+.gl-empty-state {
+  margin-top: $gl-spacing-scale-7;
 }

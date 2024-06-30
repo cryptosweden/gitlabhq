@@ -8,10 +8,11 @@ module Gitlab
 
         data_consistency :always
 
-        sidekiq_options retry: 3
         include ProjectStartImport
         include ProjectImportOptions
         include Gitlab::JiraImport::QueueOptions
+
+        sidekiq_options retry: 6
 
         attr_reader :project
 
@@ -31,7 +32,7 @@ module Gitlab
           return false unless project
           return true if start(project.latest_jira_import)
 
-          Gitlab::Import::Logger.info(
+          ::Import::Framework::Logger.info(
             {
               project_id: project.id,
               project_path: project.full_path,

@@ -16,7 +16,7 @@ module RuboCop
       #   # good
       #   element :some_element
       #   element :some_element, required: true
-      class ElementWithPattern < RuboCop::Cop::Cop
+      class ElementWithPattern < RuboCop::Cop::Base
         include QAHelpers
 
         MESSAGE = "Don't use a pattern for element, create a corresponding `%s` instead."
@@ -30,7 +30,7 @@ module RuboCop
           return if args.first.nil?
 
           args.first.each_node(:str) do |arg|
-            add_offense(arg, message: MESSAGE % "data-qa-selector=#{element_name.value}")
+            add_offense(arg, message: MESSAGE % "data-testid=#{element_name.value}")
           end
         end
 

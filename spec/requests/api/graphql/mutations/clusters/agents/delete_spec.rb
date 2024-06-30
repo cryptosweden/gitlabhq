@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Delete a cluster agent' do
+RSpec.describe 'Delete a cluster agent', feature_category: :deployment_management do
   include GraphqlHelpers
 
   let(:cluster_agent) { create(:cluster_agent) }
@@ -22,11 +22,11 @@ RSpec.describe 'Delete a cluster agent' do
 
   context 'without project permissions' do
     it_behaves_like 'a mutation that returns top-level errors',
-                    errors: ['The resource that you are attempting to access does not exist '\
-               'or you don\'t have permission to perform this action']
+      errors: ['The resource that you are attempting to access does not exist '\
+        'or you don\'t have permission to perform this action']
 
     it 'does not delete cluster agent' do
-      expect { cluster_agent.reload }.not_to raise_error(ActiveRecord::RecordNotFound)
+      expect { cluster_agent.reload }.not_to raise_error
     end
   end
 

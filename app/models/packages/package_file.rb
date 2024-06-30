@@ -7,6 +7,7 @@ class Packages::PackageFile < ApplicationRecord
   include Packages::Destructible
 
   INSTALLABLE_STATUSES = [:default].freeze
+  ENCODED_SLASH = "%2F"
 
   delegate :project, :project_id, to: :package
   delegate :conan_file_type, to: :conan_file_metadatum
@@ -34,7 +35,8 @@ class Packages::PackageFile < ApplicationRecord
   validates :file, presence: true
   validates :file_name, presence: true
 
-  validates :file_name, uniqueness: { scope: :package }, if: -> { package&.pypi? }
+  validates :file_name, uniqueness: { scope: :package }, if: -> { !pending_destruction? && package&.pypi? }
+  validates :file_sha256, format: { with: Gitlab::Regex.sha256_regex }, if: -> { package&.pypi? }, allow_nil: true
 
   scope :recent, -> { order(id: :desc) }
   scope :limit_recent, ->(limit) { recent.limit(limit) }
@@ -43,6 +45,7 @@ class Packages::PackageFile < ApplicationRecord
   scope :with_file_name_like, ->(file_name) { where(arel_table[:file_name].matches(file_name)) }
   scope :with_files_stored_locally, -> { where(file_store: ::Packages::PackageFileUploader::Store::LOCAL) }
   scope :with_format, ->(format) { where(::Packages::PackageFile.arel_table[:file_name].matches("%.#{format}")) }
+  scope :with_nuget_format, -> { where("reverse(split_part(reverse(packages_package_files.file_name), '.', 1)) = :format", format: Packages::Nuget::FORMAT) }
 
   scope :preload_package, -> { preload(:package) }
   scope :preload_pipelines, -> { preload(pipelines: :user) }
@@ -81,6 +84,13 @@ class Packages::PackageFile < ApplicationRecord
   scope :with_debian_architecture_name, ->(architecture_name) do
     joins(:debian_file_metadatum)
       .where(packages_debian_file_metadata: { architecture: architecture_name })
+  end
+
+  scope :with_debian_unknown_since, ->(updated_before) do
+    file_metadata = Packages::Debian::FileMetadatum.with_file_type(:unknown)
+                                                   .updated_before(updated_before)
+                                                   .where('packages_package_files.id = packages_debian_file_metadata.package_file_id')
+    where('EXISTS (?)', file_metadata.select(1))
   end
 
   scope :with_conan_package_reference, ->(conan_package_reference) do
@@ -125,6 +135,10 @@ class Packages::PackageFile < ApplicationRecord
 
   def download_path
     Gitlab::Routing.url_helpers.download_project_package_file_path(project, self)
+  end
+
+  def file_name_for_download
+    file_name.split(ENCODED_SLASH)[-1]
   end
 
   private

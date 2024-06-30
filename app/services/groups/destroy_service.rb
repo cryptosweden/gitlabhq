@@ -14,8 +14,6 @@ module Groups
       # TODO - add a policy check here https://gitlab.com/gitlab-org/gitlab/-/issues/353082
       raise DestroyError, "You can't delete this group because you're blocked." if current_user.blocked?
 
-      group.prepare_for_destroy
-
       group.projects.includes(:project_feature).each do |project|
         # Execute the destruction of the models immediately to ensure atomic cleanup.
         success = ::Projects::DestroyService.new(project, current_user).execute
@@ -35,13 +33,17 @@ module Groups
 
       user_ids_for_project_authorizations_refresh = obtain_user_ids_for_project_authorizations_refresh
 
+      destroy_associated_users
+
       group.destroy
 
       if user_ids_for_project_authorizations_refresh.present?
         UserProjectAccessChangedService
           .new(user_ids_for_project_authorizations_refresh)
-          .execute(blocking: true)
+          .execute
       end
+
+      publish_event
 
       group
     end
@@ -75,6 +77,39 @@ module Groups
       return group.user_ids_for_project_authorizations if any_projects_shared_with_this_group?
 
       group.users_ids_of_direct_members
+    end
+
+    # rubocop:disable CodeReuse/ActiveRecord
+    def destroy_associated_users
+      current_user_id = current_user.id
+      bot_ids = users_to_destroy
+
+      group.run_after_commit do
+        bot_ids.each do |user_id|
+          DeleteUserWorker.perform_async(current_user_id, user_id, skip_authorization: true)
+        end
+      end
+    end
+    # rubocop:enable CodeReuse/ActiveRecord
+
+    # rubocop:disable CodeReuse/ActiveRecord
+    def users_to_destroy
+      group.members_and_requesters.joins(:user)
+        .merge(User.project_bot)
+        .allow_cross_joins_across_databases(url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/422405')
+        .pluck(:user_id)
+    end
+    # rubocop:enable CodeReuse/ActiveRecord
+
+    def publish_event
+      event = Groups::GroupDeletedEvent.new(
+        data: {
+          group_id: group.id,
+          root_namespace_id: group.root_ancestor.id
+        }
+      )
+
+      Gitlab::EventStore.publish(event)
     end
   end
 end

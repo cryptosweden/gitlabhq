@@ -9,14 +9,12 @@ module Projects
       def execute
         return success unless project&.lfs_enabled?
 
-        lfs_objects_to_download = LfsObjectDownloadListService.new(project).execute
-
-        lfs_objects_to_download.each do |lfs_download_object|
+        LfsObjectDownloadListService.new(project).each_list_item do |lfs_download_object|
           LfsDownloadService.new(project, lfs_download_object).execute
         end
 
         success
-      rescue StandardError => e
+      rescue StandardError, GRPC::Core::CallError => e
         error(e.message)
       end
     end

@@ -11,6 +11,14 @@ module ResolvesMergeRequests
   end
 
   def resolve_with_lookahead(**args)
+    if args[:group_id]
+      args[:group_id] = ::GitlabSchema.parse_gid(args[:group_id], expected_type: ::Group).model_id
+      args[:include_subgroups] = true
+    end
+
+    rewrite_param_name(args, :reviewer_wildcard_id, :reviewer_id)
+    rewrite_param_name(args, :assignee_wildcard_id, :assignee_id)
+
     mr_finder = MergeRequestsFinder.new(current_user, args.compact)
     finder = Gitlab::Graphql::Loaders::IssuableLoader.new(mr_parent, mr_finder)
 
@@ -34,15 +42,19 @@ module ResolvesMergeRequests
   end
 
   def unconditional_includes
-    [:target_project]
+    [:target_project, :author]
+  end
+
+  def rewrite_param_name(params, old_name, new_name)
+    params[new_name] = params.delete(old_name) if params && params[old_name].present?
   end
 
   def preloads
     {
       assignees: [:assignees],
+      award_emoji: { award_emoji: [:awardable] },
       reviewers: [:reviewers],
       participants: MergeRequest.participant_includes,
-      labels: [:labels],
       author: [:author],
       merged_at: [:metrics],
       commit_count: [:metrics],
@@ -52,7 +64,12 @@ module ResolvesMergeRequests
       security_auto_fix: [:author],
       head_pipeline: [:merge_request_diff, { head_pipeline: [:merge_request] }],
       timelogs: [:timelogs],
-      committers: [merge_request_diff: [:merge_request_diff_commits]]
+      pipelines: [:merge_request_diffs], # used by `recent_diff_head_shas` to load pipelines
+      committers: [merge_request_diff: [:merge_request_diff_commits]],
+      suggested_reviewers: [:predictions],
+      diff_stats: [latest_merge_request_diff: [:merge_request_diff_commits]]
     }
   end
 end
+
+ResolvesMergeRequests.prepend_mod

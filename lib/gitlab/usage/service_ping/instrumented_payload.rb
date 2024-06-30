@@ -22,7 +22,7 @@ module Gitlab
 
         private
 
-        # Not all metrics defintions have instrumentation classes
+        # Not all metrics definitions have instrumentation classes
         # The value can be computed only for those that have it
         def instrumented_metrics_defintions
           Gitlab::Usage::MetricDefinition.with_instrumentation_class
@@ -34,6 +34,13 @@ module Gitlab
           return {} unless definition.present?
 
           Gitlab::Usage::Metric.new(definition).method(output_method).call
+        rescue StandardError => error
+          Gitlab::ErrorTracking.track_and_raise_for_dev_exception(error)
+          metric_fallback(key_path)
+        end
+
+        def metric_fallback(key_path)
+          ::Gitlab::Usage::Metrics::KeyPathProcessor.process(key_path, ::Gitlab::Utils::UsageData::FALLBACK)
         end
       end
     end

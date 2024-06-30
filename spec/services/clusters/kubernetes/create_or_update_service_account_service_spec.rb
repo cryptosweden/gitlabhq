@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Clusters::Kubernetes::CreateOrUpdateServiceAccountService do
+RSpec.describe Clusters::Kubernetes::CreateOrUpdateServiceAccountService, feature_category: :deployment_management do
   include KubernetesHelpers
 
   let(:api_url) { 'http://111.111.111.111' }
@@ -9,9 +9,12 @@ RSpec.describe Clusters::Kubernetes::CreateOrUpdateServiceAccountService do
   let(:cluster_project) { cluster.cluster_project }
   let(:project) { cluster_project.project }
   let(:cluster) do
-    create(:cluster,
-           :project, :provided_by_gcp,
-           platform_kubernetes: create(:cluster_platform_kubernetes, :configured))
+    create(
+      :cluster,
+      :project,
+      :provided_by_gcp,
+      platform_kubernetes: create(:cluster_platform_kubernetes, :configured)
+    )
   end
 
   let(:kubeclient) do
@@ -136,7 +139,7 @@ RSpec.describe Clusters::Kubernetes::CreateOrUpdateServiceAccountService do
 
     context 'With RBAC enabled cluster' do
       let(:rbac) { true }
-      let(:role_binding_name) { "gitlab-#{namespace}"}
+      let(:role_binding_name) { "gitlab-#{namespace}" }
 
       before do
         cluster.platform_kubernetes.rbac!
@@ -147,8 +150,6 @@ RSpec.describe Clusters::Kubernetes::CreateOrUpdateServiceAccountService do
         stub_kubeclient_put_role_binding(api_url, Clusters::Kubernetes::GITLAB_KNATIVE_SERVING_ROLE_BINDING_NAME, namespace: namespace)
         stub_kubeclient_put_role(api_url, Clusters::Kubernetes::GITLAB_CROSSPLANE_DATABASE_ROLE_NAME, namespace: namespace)
         stub_kubeclient_put_role_binding(api_url, Clusters::Kubernetes::GITLAB_CROSSPLANE_DATABASE_ROLE_BINDING_NAME, namespace: namespace)
-        stub_kubeclient_put_role(api_url, Clusters::Kubernetes::GITLAB_CILIUM_ROLE_NAME, namespace: namespace)
-        stub_kubeclient_put_role_binding(api_url, Clusters::Kubernetes::GITLAB_CILIUM_ROLE_BINDING_NAME, namespace: namespace)
       end
 
       it 'creates a namespace object' do
@@ -168,7 +169,7 @@ RSpec.describe Clusters::Kubernetes::CreateOrUpdateServiceAccountService do
 
         expect(WebMock).to have_requested(:put, api_url + "/apis/rbac.authorization.k8s.io/v1/namespaces/#{namespace}/rolebindings/#{role_binding_name}").with(
           body: hash_including(
-            metadata: { name: "gitlab-#{namespace}", namespace: "#{namespace}" },
+            metadata: { name: "gitlab-#{namespace}", namespace: namespace.to_s },
             roleRef: {
               apiGroup: 'rbac.authorization.k8s.io',
               kind: 'ClusterRole',
@@ -220,9 +221,9 @@ RSpec.describe Clusters::Kubernetes::CreateOrUpdateServiceAccountService do
               namespace: namespace
             },
             rules: [{
-              apiGroups: %w(serving.knative.dev),
-              resources: %w(configurations configurationgenerations routes revisions revisionuids autoscalers services),
-              verbs: %w(get list create update delete patch watch)
+              apiGroups: %w[serving.knative.dev],
+              resources: %w[configurations configurationgenerations routes revisions revisionuids autoscalers services],
+              verbs: %w[get list create update delete patch watch]
             }]
           )
         )
@@ -238,50 +239,9 @@ RSpec.describe Clusters::Kubernetes::CreateOrUpdateServiceAccountService do
               namespace: namespace
             },
             rules: [{
-              apiGroups: %w(database.crossplane.io),
-              resources: %w(postgresqlinstances),
-              verbs: %w(get list create watch)
-            }]
-          )
-        )
-      end
-
-      it 'creates a role granting cilium permissions to the service account' do
-        subject
-
-        expect(WebMock).to have_requested(:put, api_url + "/apis/rbac.authorization.k8s.io/v1/namespaces/#{namespace}/roles/#{Clusters::Kubernetes::GITLAB_CILIUM_ROLE_NAME}").with(
-          body: hash_including(
-            metadata: {
-              name: Clusters::Kubernetes::GITLAB_CILIUM_ROLE_NAME,
-              namespace: namespace
-            },
-            rules: [{
-              apiGroups: %w(cilium.io),
-              resources: %w(ciliumnetworkpolicies),
-              verbs: %w(get list create update patch)
-            }]
-          )
-        )
-      end
-
-      it 'creates a role binding granting cilium permissions to the service account' do
-        subject
-
-        expect(WebMock).to have_requested(:put, api_url + "/apis/rbac.authorization.k8s.io/v1/namespaces/#{namespace}/rolebindings/#{Clusters::Kubernetes::GITLAB_CILIUM_ROLE_BINDING_NAME}").with(
-          body: hash_including(
-            metadata: {
-              name: Clusters::Kubernetes::GITLAB_CILIUM_ROLE_BINDING_NAME,
-              namespace: namespace
-            },
-            roleRef: {
-              apiGroup: 'rbac.authorization.k8s.io',
-              kind: 'Role',
-              name: Clusters::Kubernetes::GITLAB_CILIUM_ROLE_NAME
-            },
-            subjects: [{
-              kind: 'ServiceAccount',
-              name: service_account_name,
-              namespace: namespace
+              apiGroups: %w[database.crossplane.io],
+              resources: %w[postgresqlinstances],
+              verbs: %w[get list create watch]
             }]
           )
         )

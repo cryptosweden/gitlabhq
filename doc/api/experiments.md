@@ -1,12 +1,14 @@
 ---
 stage: Growth
-group: Expansion
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Acquisition
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Experiments API (GitLab team only) **(FREE SAAS)**
+# Experiments API (GitLab team only)
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/262725) in GitLab 13.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com
 
 This API is for listing A/B experiments [defined in GitLab](../development/experiment_guide/index.md).
 

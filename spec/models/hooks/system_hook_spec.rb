@@ -2,9 +2,19 @@
 
 require "spec_helper"
 
-RSpec.describe SystemHook do
+RSpec.describe SystemHook, feature_category: :webhooks do
+  it_behaves_like 'a hook that does not get automatically disabled on failure' do
+    let(:hook) { build(:system_hook) }
+    let(:hook_factory) { :system_hook }
+    let(:default_factory_arguments) { {} }
+
+    def find_hooks
+      described_class.all
+    end
+  end
+
   context 'default attributes' do
-    let(:system_hook) { build(:system_hook) }
+    let(:system_hook) { described_class.new }
 
     it 'sets defined default parameters' do
       attrs = {
@@ -32,12 +42,12 @@ RSpec.describe SystemHook do
   end
 
   describe "execute", :sidekiq_might_not_need_inline do
-    let(:system_hook) { create(:system_hook) }
-    let(:user)        { create(:user) }
-    let(:project)     { create(:project, namespace: user.namespace) }
-    let(:group)       { create(:group) }
+    let_it_be(:system_hook) { create(:system_hook) }
+    let_it_be(:user) { create(:user) }
+    let(:project) { build(:project, namespace: user.namespace) }
+    let(:group) { build(:group) }
     let(:params) do
-      { name: 'John Doe', username: 'jduser', email: 'jg@example.com', password: Gitlab::Password.test_default }
+      { name: 'John Doe', username: 'jduser', email: 'jg@example.com', password: User.random_password }
     end
 
     before do
@@ -117,7 +127,7 @@ RSpec.describe SystemHook do
     end
 
     it 'group destroy hook' do
-      group.destroy!
+      create(:group).destroy!
 
       expect(WebMock).to have_requested(:post, system_hook.url).with(
         body: /group_destroy/,
@@ -145,6 +155,7 @@ RSpec.describe SystemHook do
     end
 
     it 'group member update hook' do
+      group = create(:group)
       group.add_guest(user)
       group.add_maintainer(user)
 
@@ -182,14 +193,6 @@ RSpec.describe SystemHook do
       expect_any_instance_of(WebHookService).to receive(:async_execute)
 
       hook.async_execute(data, hook_name)
-    end
-  end
-
-  describe '#rate_limit' do
-    let(:hook) { build(:system_hook) }
-
-    it 'returns nil' do
-      expect(hook.rate_limit).to be_nil
     end
   end
 

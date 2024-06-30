@@ -26,24 +26,28 @@ export default {
     },
     stateName: {
       type: String,
-      required: true,
+      required: false,
+      default: '',
     },
   },
   computed: {
     closeModalProps() {
       return {
         text: this.$options.i18n.closeText,
-        attributes: [],
+        attributes: {},
       };
     },
   },
   methods: {
     getModalInfoCopyStr() {
+      const stateNameEncoded = this.stateName ? encodeURIComponent(this.stateName) : 'default';
+
       return `export GITLAB_ACCESS_TOKEN=<YOUR-ACCESS-TOKEN>
+export TF_STATE_NAME=${stateNameEncoded}
 terraform init \\
-    -backend-config="address=${this.terraformApiUrl}/${this.stateName}" \\
-    -backend-config="lock_address=${this.terraformApiUrl}/${this.stateName}/lock" \\
-    -backend-config="unlock_address=${this.terraformApiUrl}/${this.stateName}/lock" \\
+    -backend-config="address=${this.terraformApiUrl}/$TF_STATE_NAME" \\
+    -backend-config="lock_address=${this.terraformApiUrl}/$TF_STATE_NAME/lock" \\
+    -backend-config="unlock_address=${this.terraformApiUrl}/$TF_STATE_NAME/lock" \\
     -backend-config="username=${this.username}" \\
     -backend-config="password=$GITLAB_ACCESS_TOKEN" \\
     -backend-config="lock_method=POST" \\
@@ -71,14 +75,13 @@ terraform init \\
     </p>
 
     <div class="gl-display-flex">
-      <pre class="gl-bg-gray gl-white-space-pre-wrap" data-testid="terraform-init-command">{{
+      <pre class="gl-bg-gray gl-whitespace-pre-wrap" data-testid="terraform-init-command">{{
         getModalInfoCopyStr()
       }}</pre>
       <modal-copy-button
         :title="$options.i18n.copyToClipboardText"
         :text="getModalInfoCopyStr()"
         :modal-id="$options.modalId"
-        data-testid="init-command-copy-clipboard"
         css-classes="gl-align-self-start gl-ml-2"
       />
     </div>

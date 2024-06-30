@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Users > User browses projects on user page', :js do
-  let!(:user) { create :user }
+RSpec.describe 'Users > User browses projects on user page', :js, feature_category: :groups_and_projects do
+  let!(:user) { create(:user) }
   let!(:private_project) do
     create :project, :private, name: 'private', namespace: user.namespace do |project|
       project.add_maintainer(user)
@@ -23,9 +23,13 @@ RSpec.describe 'Users > User browses projects on user page', :js do
   end
 
   def click_nav_link(name)
-    page.within '.nav-links' do
+    within_testid('super-sidebar') do
       click_link name
     end
+  end
+
+  before do
+    stub_feature_flags(profile_tabs_vue: false)
   end
 
   it 'hides loading spinner after load', :js do
@@ -38,8 +42,8 @@ RSpec.describe 'Users > User browses projects on user page', :js do
   end
 
   it 'paginates projects', :js do
-    project = create(:project, namespace: user.namespace, updated_at: 2.minutes.since)
-    project2 = create(:project, namespace: user.namespace, updated_at: 1.minute.since)
+    project = create(:project, namespace: user.namespace, last_activity_at: 2.minutes.since)
+    project2 = create(:project, namespace: user.namespace, last_activity_at: 1.minute.since)
     allow(Project).to receive(:default_per_page).and_return(1)
 
     sign_in(user)
@@ -83,7 +87,7 @@ RSpec.describe 'Users > User browses projects on user page', :js do
   end
 
   context 'when signed in as another user' do
-    let(:another_user) { create :user }
+    let(:another_user) { create(:user) }
 
     before do
       sign_in(another_user)
@@ -125,7 +129,7 @@ RSpec.describe 'Users > User browses projects on user page', :js do
         end
 
         before do
-          Issues::CreateService.new(project: contributed_project, current_user: user, params: { title: 'Bug in old browser' }, spam_params: nil).execute
+          Issues::CreateService.new(container: contributed_project, current_user: user, params: { title: 'Bug in old browser' }).execute
           event = create(:push_event, project: contributed_project, author: user)
           create(:push_event_payload, event: event, commit_count: 3)
         end

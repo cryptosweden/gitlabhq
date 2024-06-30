@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks do
+RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks, feature_category: :runner do
   include StubGitlabCalls
   include RedisHelpers
   include WorkhorseHelpers
@@ -23,14 +23,28 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks do
     let(:runner) { create(:ci_runner, :project, projects: [project]) }
     let(:user) { create(:user) }
     let(:job) do
-      create(:ci_build, :artifacts, :extended_options,
-             pipeline: pipeline, name: 'spinach', stage: 'test', stage_idx: 0)
+      create(
+        :ci_build,
+        :artifacts,
+        :extended_options,
+        pipeline: pipeline,
+        name: 'spinach',
+        stage: 'test',
+        stage_idx: 0
+      )
     end
 
     describe 'PATCH /api/v4/jobs/:id/trace' do
       let(:job) do
-        create(:ci_build, :running, :trace_live,
-               project: project, user: user, runner_id: runner.id, pipeline: pipeline)
+        create(
+          :ci_build,
+          :running,
+          :trace_live,
+          project: project,
+          user: user,
+          runner_id: runner.id,
+          pipeline: pipeline
+        )
       end
 
       let(:headers) { { API::Ci::Helpers::Runner::JOB_TOKEN_HEADER => job.token, 'Content-Type' => 'text/plain' } }
@@ -43,6 +57,10 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks do
 
       it_behaves_like 'API::CI::Runner application context metadata', 'PATCH /api/:version/jobs/:id/trace' do
         let(:send_request) { patch_the_trace }
+      end
+
+      it_behaves_like 'runner migrations backoff' do
+        let(:request) { patch_the_trace }
       end
 
       it 'updates runner info' do
@@ -61,7 +79,7 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks do
         end
 
         context 'when job has been updated recently' do
-          it { expect { patch_the_trace }.not_to change { job.updated_at }}
+          it { expect { patch_the_trace }.not_to change { job.updated_at } }
 
           it "changes the job's trace" do
             patch_the_trace
@@ -70,7 +88,7 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks do
           end
 
           context 'when Runner makes a force-patch' do
-            it { expect { force_patch_the_trace }.not_to change { job.updated_at }}
+            it { expect { force_patch_the_trace }.not_to change { job.updated_at } }
 
             it "doesn't change the build.trace" do
               force_patch_the_trace
@@ -124,17 +142,35 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks do
             expect(job.reload.trace.raw).to eq 'BUILD TRACE appended appended'
           end
 
-          context 'when job is cancelled' do
-            before do
-              job.cancel
-            end
+          context 'when canceling is supported' do
+            include_context 'when canceling support'
 
-            context 'when trace is patched' do
+            context 'when job is cancelled' do
               before do
-                patch_the_trace
+                job.cancel
               end
 
-              it 'returns Forbidden' do
+              it 'patching the trace is allowed' do
+                patch_the_trace
+
+                expect(response).to have_gitlab_http_status(:accepted)
+              end
+            end
+          end
+
+          context 'when canceling is not supported' do
+            before do
+              stub_feature_flags(ci_canceling_status: false)
+            end
+
+            context 'when job is canceled' do
+              before do
+                job.cancel
+              end
+
+              it 'patching the trace returns forbidden' do
+                patch_the_trace
+
                 expect(response).to have_gitlab_http_status(:forbidden)
               end
             end
@@ -185,13 +221,26 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks do
           end
         end
 
-        context 'when the job is canceled' do
-          before do
+        context 'when canceling is supported' do
+          include_context 'when canceling support'
+
+          it 'receives status in header' do
             job.cancel
             patch_the_trace
+
+            expect(response.header['Job-Status']).to eq 'canceling'
+          end
+        end
+
+        context 'when canceling is not supported' do
+          before do
+            stub_feature_flags(ci_canceling_status: false)
           end
 
           it 'receives status in header' do
+            job.cancel
+            patch_the_trace
+
             expect(response.header['Job-Status']).to eq 'canceled'
           end
         end
@@ -272,7 +321,7 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks do
         it { expect(response).to have_gitlab_http_status(:forbidden) }
       end
 
-      context 'when the job trace is too big' do
+      context 'when the job log is too big' do
         before do
           project.actual_limits.update!(ci_jobs_trace_size_limit: 1)
         end

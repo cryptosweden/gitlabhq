@@ -6,7 +6,7 @@ require 'spec_helper'
 # updated.
 # This can occur when the fork a merge request is created from is in the process
 # of being destroyed.
-RSpec.describe 'User views merged merge request from deleted fork' do
+RSpec.describe 'User views merged merge request from deleted fork', feature_category: :code_review_workflow do
   include ProjectForksHelper
 
   let(:project) { create(:project, :repository) }
@@ -17,7 +17,7 @@ RSpec.describe 'User views merged merge request from deleted fork' do
   before do
     sign_in user
 
-    fork_owner = source_project.namespace.owners.first
+    fork_owner = source_project.namespace.all_owner_members.non_invite.first.user
     # Place the source_project in the weird in between state
     source_project.update_attribute(:pending_delete, true)
     Projects::DestroyService.new(source_project, fork_owner, {}).__send__(:trash_project_repositories!)

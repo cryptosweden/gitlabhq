@@ -8,9 +8,9 @@ module Gitlab
 
         data_consistency :always
 
-        sidekiq_options retry: 3
-        include GithubImport::Queue
         include StageMethods
+
+        resumes_work_when_interrupted!
 
         # client - An instance of Gitlab::GithubImport::Client.
         # project - An instance of Project.
@@ -21,7 +21,7 @@ module Gitlab
             hash[waiter.key] = waiter.jobs_remaining
           end
 
-          AdvanceStageWorker.perform_async(project.id, waiters, :notes)
+          AdvanceStageWorker.perform_async(project.id, waiters.deep_stringify_keys, 'issue_events')
         end
 
         # The importers to run in this stage. Issues can't be imported earlier
@@ -36,7 +36,7 @@ module Gitlab
         private
 
         def diff_notes_importer(project)
-          if project.group.present? && Feature.enabled?(:github_importer_single_endpoint_notes_import, project.group, type: :ops, default_enabled: :yaml)
+          if import_settings(project).enabled?(:single_endpoint_notes_import)
             Importer::SingleEndpointDiffNotesImporter
           else
             Importer::DiffNotesImporter

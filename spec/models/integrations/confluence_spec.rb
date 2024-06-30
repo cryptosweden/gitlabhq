@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::Confluence do
+RSpec.describe Integrations::Confluence, feature_category: :integrations do
+  let_it_be(:project) { create(:project) }
+
   describe 'Validations' do
     before do
       subject.active = active
@@ -40,7 +42,6 @@ RSpec.describe Integrations::Confluence do
 
   describe '#help' do
     it 'can correctly return a link to the project wiki when active' do
-      project = create(:project)
       subject.project = project
       subject.active = true
 
@@ -48,10 +49,11 @@ RSpec.describe Integrations::Confluence do
     end
 
     context 'when the project wiki is not enabled' do
-      it 'returns nil when both active or inactive', :aggregate_failures do
-        project = create(:project, :wiki_disabled)
-        subject.project = project
+      before do
+        allow(project).to receive(:wiki_enabled?).and_return(false)
+      end
 
+      it 'returns nil when both active or inactive', :aggregate_failures do
         [true, false].each do |active|
           subject.active = active
 
@@ -61,9 +63,13 @@ RSpec.describe Integrations::Confluence do
     end
   end
 
-  describe 'Caching has_confluence on project_settings' do
-    let(:project) { create(:project) }
+  describe '#avatar_url' do
+    it 'returns the avatar image path' do
+      expect(subject.avatar_url).to eq(ActionController::Base.helpers.image_path('confluence.svg'))
+    end
+  end
 
+  describe 'Caching has_confluence on project_settings' do
     subject { project.project_setting.has_confluence? }
 
     it 'sets the property to true when integration is active' do

@@ -1,13 +1,17 @@
 ---
 stage: Create
 group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-disqus_identifier: 'https://docs.gitlab.com/ee/workflow/repository_mirroring.html'
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "Create bidirectional mirrors to push and pull changes between two Git repositories."
 ---
 
-# Bidirectional mirroring **(PREMIUM)**
+# Bidirectional mirroring
 
-> Moved to GitLab Premium in 13.9.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - Moved to GitLab Premium in 13.9.
 
 WARNING:
 Bidirectional mirroring may cause conflicts.
@@ -40,13 +44,13 @@ instance can help reduce race conditions by syncing changes more frequently.
 Prerequisites:
 
 - You have configured the [push](push.md#set-up-a-push-mirror-to-another-gitlab-instance-with-2fa-activated)
-and [pull](pull.md#pull-from-a-remote-repository) mirrors in the upstream GitLab instance.
+  and [pull](pull.md#pull-from-a-remote-repository) mirrors in the upstream GitLab instance.
 
 To create the webhook in the downstream instance:
 
 1. Create a [personal access token](../../../profile/personal_access_tokens.md) with `API` scope.
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > Webhooks**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Webhooks**.
 1. Add the webhook **URL**, which (in this case) uses the
    [Pull Mirror API](../../../../api/projects.md#start-the-pull-mirroring-process-for-a-project)
    request to trigger an immediate pull after a repository update:
@@ -139,9 +143,13 @@ This sample has a few limitations:
 - The script circumvents the Git hook quarantine environment because the update of `$TARGET_REPO`
   is seen as a ref update, and Git displays warnings about it.
 
-## Mirror with Perforce Helix with Git Fusion **(PREMIUM)**
+## Mirror with Perforce Helix with Git Fusion
 
-> Moved to GitLab Premium in 13.9.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - Moved to GitLab Premium in 13.9.
 
 WARNING:
 Bidirectional mirroring should not be used as a permanent configuration. Refer to
@@ -164,8 +172,7 @@ settings:
 - Use the `unknown_git` user as the commit author, if the GitLab user doesn't exist in
   Perforce Helix.
 
-Read about [Git Fusion settings on Perforce.com](https://www.perforce.com/manuals/git-fusion/Content/Git-Fusion/section_vss_bdw_w3.html#section_zdp_zz1_3l).
-
 ## Related topics
 
-- [Configure server hooks](../../../../administration/server_hooks.md) on a GitLab server.
+- [Troubleshooting](troubleshooting.md) for repository mirroring.
+- [Configure server hooks](../../../../administration/server_hooks.md)

@@ -1,56 +1,50 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package', :orchestrated, :packages, :object_storage do
-    describe 'PyPI Repository' do
+  RSpec.describe 'Package', :object_storage, product_group: :package_registry do
+    describe 'PyPI Repository', :external_api_calls do
       include Runtime::Fixtures
+      include Support::Helpers::MaskToken
 
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'pypi-package-project'
-        end
-      end
-
-      let(:package) do
-        Resource::Package.init do |package|
-          package.name = "mypypipackage-#{SecureRandom.hex(8)}"
-          package.project = project
-        end
-      end
+      let(:project) { create(:project, :private, name: 'pypi-package-project') }
+      let(:package) { build(:package, name: "mypypipackage-#{SecureRandom.hex(8)}", project: project) }
 
       let!(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.name = "qa-runner-#{Time.now.to_i}"
-          runner.tags = ["runner-for-#{project.name}"]
-          runner.executor = :docker
-          runner.project = project
-        end
+        create(:project_runner,
+          name: "qa-runner-#{Time.now.to_i}",
+          tags: ["runner-for-#{project.name}"],
+          executor: :docker,
+          project: project)
       end
 
       let(:uri) { URI.parse(Runtime::Scenario.gitlab_address) }
-      let(:gitlab_address_with_port) { "#{uri.scheme}://#{uri.host}:#{uri.port}" }
-      let(:gitlab_host_with_port) { "#{uri.host}:#{uri.port}" }
-      let(:personal_access_token) { Runtime::Env.personal_access_token }
+
+      let!(:personal_access_token) do
+        use_ci_variable(name: 'PERSONAL_ACCESS_TOKEN', value: Runtime::Env.personal_access_token, project: project)
+      end
+
+      let(:gitlab_address_with_port) { Support::GitlabAddress.address_with_port }
+      let(:gitlab_host_with_port) { Support::GitlabAddress.host_with_port(with_default_port: false) }
 
       before do
         Flow::Login.sign_in
 
         Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-          Resource::Repository::Commit.fabricate_via_api! do |commit|
-            pypi_yaml = ERB.new(read_fixture('package_managers/pypi', 'pypi_upload_install_package.yaml.erb')).result(binding)
-            pypi_setup_file = ERB.new(read_fixture('package_managers/pypi', 'setup.py.erb')).result(binding)
+          pypi_yaml = ERB.new(read_fixture('package_managers/pypi', 'pypi_upload_install_package.yaml.erb')).result(binding)
+          pypi_setup_file = ERB.new(read_fixture('package_managers/pypi', 'setup.py.erb')).result(binding)
 
-            commit.project = project
-            commit.commit_message = 'Add files'
-            commit.add_files([{
-                                  file_path: '.gitlab-ci.yml',
-                                  content: pypi_yaml
-                              },
-                              {
-                                  file_path: 'setup.py',
-                                  content: pypi_setup_file
-                              }])
-          end
+          create(:commit, project: project, actions: [
+            {
+              action: 'create',
+              file_path: '.gitlab-ci.yml',
+              content: pypi_yaml
+            },
+            {
+              action: 'create',
+              file_path: 'setup.py',
+              content: pypi_setup_file
+            }
+          ])
         end
 
         project.visit!
@@ -82,8 +76,8 @@ module QA
       end
 
       context 'when at the project level' do
-        it 'publishes and installs a pypi package', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348015' do
-          Page::Project::Menu.perform(&:click_packages_link)
+        it 'publishes and installs a pypi package', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348015' do
+          Page::Project::Menu.perform(&:go_to_package_registry)
 
           Page::Project::Packages::Index.perform do |index|
             expect(index).to have_package(package.name)
@@ -92,14 +86,10 @@ module QA
       end
 
       context 'Geo', :orchestrated, :geo do
-        it 'replicates a published pypi package to the Geo secondary site', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348090', quarantine: { issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/325556', type: :investigating } do
+        it 'a published pypi package is accessible on a secondary Geo site', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348090', quarantine: { issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/325556', type: :investigating } do
           QA::Runtime::Logger.debug('Visiting the secondary Geo site')
 
           QA::Flow::Login.while_signed_in(address: :geo_secondary) do
-            EE::Page::Main::Banner.perform do |banner|
-              expect(banner).to have_secondary_read_only_banner
-            end
-
             Page::Main::Menu.perform(&:go_to_projects)
 
             Page::Dashboard::Projects.perform do |dashboard|
@@ -107,7 +97,7 @@ module QA
               dashboard.go_to_project(project.name)
             end
 
-            Page::Project::Menu.perform(&:click_packages_link)
+            Page::Project::Menu.perform(&:go_to_package_registry)
 
             Page::Project::Packages::Index.perform do |index|
               index.wait_for_package_replication(package.name)

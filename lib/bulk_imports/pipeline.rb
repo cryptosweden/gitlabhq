@@ -12,7 +12,8 @@ module BulkImports
     FailedError = Class.new(StandardError)
 
     CACHE_KEY_EXPIRATION = 2.hours
-    NDJSON_EXPORT_TIMEOUT = 30.minutes
+    NDJSON_EXPORT_TIMEOUT = 90.minutes
+    EMPTY_EXPORT_STATUS_TIMEOUT = 5.minutes
 
     def initialize(context)
       @context = context
@@ -170,12 +171,12 @@ module BulkImports
         class_attributes[:abort_on_failure]
       end
 
-      def ndjson_pipeline!
-        class_attributes[:ndjson_pipeline] = true
+      def file_extraction_pipeline!
+        class_attributes[:file_extraction_pipeline] = true
       end
 
-      def ndjson_pipeline?
-        class_attributes[:ndjson_pipeline]
+      def file_extraction_pipeline?
+        class_attributes[:file_extraction_pipeline]
       end
 
       def relation_name(name)
@@ -183,7 +184,11 @@ module BulkImports
       end
 
       def relation
-        class_attributes[:relation_name]
+        class_attributes[:relation_name] || default_relation
+      end
+
+      def default_relation
+        self.name.demodulize.chomp('Pipeline').underscore
       end
 
       private

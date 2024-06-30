@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan', :reliable do
+  RSpec.describe 'Plan', :blocking, product_group: :project_management do
     describe 'collapse comments in issue discussions' do
       let(:my_first_reply) { 'My first reply' }
       let(:one_reply) { '1 reply' }
-      let(:issue) { Resource::Issue.fabricate_via_api! }
+      let(:issue) { create(:issue) }
 
       before do
         Flow::Login.sign_in

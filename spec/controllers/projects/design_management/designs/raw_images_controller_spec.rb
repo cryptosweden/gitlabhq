@@ -80,8 +80,12 @@ RSpec.describe Projects::DesignManagement::Designs::RawImagesController do
         let(:oldest_version) { design.versions.ordered.last }
 
         shared_examples 'a successful request for sha' do
+          before do
+            allow(DesignManagement::GitRepository).to receive(:new).and_call_original
+          end
+
           it do
-            expect_next_instance_of(DesignManagement::Repository) do |repository|
+            expect_next_instance_of(DesignManagement::GitRepository) do |repository|
               expect(repository).to receive(:blob_at).with(expected_ref, design.full_path).and_call_original
             end
 
@@ -125,14 +129,14 @@ RSpec.describe Projects::DesignManagement::Designs::RawImagesController do
       it 'serves files with `Content-Disposition: attachment`' do
         subject
 
-        expect(response.header['Content-Disposition']).to eq(%Q(attachment; filename=\"#{filename}\"; filename*=UTF-8''#{filename}))
+        expect(response.header['Content-Disposition']).to eq(%(attachment; filename=\"#{filename}\"; filename*=UTF-8''#{filename}))
       end
 
       it 'sets appropriate caching headers' do
         subject
 
         expect(response.header['ETag']).to be_present
-        expect(response.header['Cache-Control']).to eq("max-age=60, private")
+        expect(response.header['Cache-Control']).to eq("max-age=60, private, must-revalidate, stale-while-revalidate=60, stale-if-error=300, s-maxage=60")
       end
     end
 

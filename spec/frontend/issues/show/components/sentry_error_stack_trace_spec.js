@@ -1,6 +1,7 @@
 import Vue from 'vue';
 import { GlLoadingIcon } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import Stacktrace from '~/error_tracking/components/stacktrace.vue';
 import SentryErrorStackTrace from '~/issues/show/components/sentry_error_stack_trace.vue';
@@ -53,17 +54,11 @@ describe('Sentry Error Stack Trace', () => {
     });
   });
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
-  });
-
   describe('loading', () => {
     it('should show spinner while loading', () => {
       mountComponent();
-      expect(wrapper.find(GlLoadingIcon).exists()).toBe(true);
-      expect(wrapper.find(Stacktrace).exists()).toBe(false);
+      expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
+      expect(wrapper.findComponent(Stacktrace).exists()).toBe(false);
     });
   });
 
@@ -74,8 +69,8 @@ describe('Sentry Error Stack Trace', () => {
 
     it('should show stacktrace', () => {
       mountComponent({ stubs: {} });
-      expect(wrapper.find(GlLoadingIcon).exists()).toBe(false);
-      expect(wrapper.find(Stacktrace).exists()).toBe(true);
+      expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(false);
+      expect(wrapper.findComponent(Stacktrace).exists()).toBe(true);
     });
   });
 });

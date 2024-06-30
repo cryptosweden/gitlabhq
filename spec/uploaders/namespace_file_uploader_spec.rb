@@ -13,9 +13,9 @@ RSpec.describe NamespaceFileUploader do
   it_behaves_like 'builds correct paths' do
     let(:patterns) do
       {
-        store_dir: %r[uploads/-/system/namespace/\d+],
+        store_dir: %r{uploads/-/system/namespace/\d+},
         upload_path: identifier,
-        absolute_path: %r[#{CarrierWave.root}/uploads/-/system/namespace/\d+/#{identifier}]
+        absolute_path: %r{#{CarrierWave.root}/uploads/-/system/namespace/\d+/#{identifier}}
       }
     end
   end
@@ -30,7 +30,7 @@ RSpec.describe NamespaceFileUploader do
     it_behaves_like 'builds correct paths' do
       let(:patterns) do
         {
-          store_dir: %r[namespace/\d+/\h+],
+          store_dir: %r{namespace/\d+/\h+},
           upload_path: identifier
         }
       end
@@ -73,9 +73,9 @@ RSpec.describe NamespaceFileUploader do
 
     shared_examples 'returns a valid uploader' do
       it 'generates a new secret' do
-        expect(subject).to be
+        expect(subject).to be_present
         expect(described_class).to receive(:generate_secret).once.and_call_original
-        expect(moved).to be
+        expect(moved).to be_present
       end
 
       it 'creates new upload correctly' do

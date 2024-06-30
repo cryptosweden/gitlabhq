@@ -1,8 +1,7 @@
 <script>
 import { GlButton, GlModalDirective, GlTooltipDirective } from '@gitlab/ui';
 import { formType } from '~/boards/constants';
-import eventHub from '~/boards/eventhub';
-import { s__, __ } from '~/locale';
+import { s__ } from '~/locale';
 import Tracking from '~/tracking';
 
 export default {
@@ -10,48 +9,33 @@ export default {
     GlButton,
   },
   directives: {
-    GlTooltip: GlTooltipDirective,
     GlModalDirective,
+    GlTooltipDirective,
   },
   mixins: [Tracking.mixin()],
-  props: {
-    canAdminList: {
-      type: Boolean,
-      required: true,
-    },
-    hasScope: {
-      type: Boolean,
-      required: true,
-    },
-  },
+  inject: ['canAdminList'],
   computed: {
     buttonText() {
-      return this.canAdminList ? s__('Boards|Edit board') : s__('Boards|View scope');
-    },
-    tooltipTitle() {
-      return this.hasScope ? __("This board's scope is reduced") : '';
+      return this.canAdminList ? s__('Boards|Configure board') : s__('Boards|Board configuration');
     },
   },
   methods: {
     showPage() {
       this.track('click_button', { label: 'edit_board' });
-      eventHub.$emit('showBoardModal', formType.edit);
+      this.$emit('showBoardModal', formType.edit);
     },
   },
 };
 </script>
 
 <template>
-  <div class="gl-ml-3 gl-display-flex gl-align-items-center">
-    <gl-button
-      v-gl-modal-directive="'board-config-modal'"
-      v-gl-tooltip
-      :title="tooltipTitle"
-      :class="{ 'dot-highlight': hasScope }"
-      data-qa-selector="boards_config_button"
-      @click.prevent="showPage"
-    >
-      {{ buttonText }}
-    </gl-button>
-  </div>
+  <gl-button
+    v-gl-modal-directive="'board-config-modal'"
+    v-gl-tooltip-directive
+    data-testid="boards-config-button"
+    icon="settings"
+    :title="buttonText"
+    category="tertiary"
+    @click.prevent="showPage"
+  />
 </template>

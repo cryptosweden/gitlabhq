@@ -13,14 +13,14 @@ RSpec.describe Resolvers::Kas::AgentConnectionsResolver do
     let_it_be(:agent1) { create(:cluster_agent, project: project) }
     let_it_be(:agent2) { create(:cluster_agent, project: project) }
 
-    let(:user) { create(:user, maintainer_projects: [project]) }
+    let(:user) { create(:user, maintainer_of: project) }
     let(:ctx) { Hash(current_user: user) }
 
     let(:connection1) { double(agent_id: agent1.id) }
     let(:connection2) { double(agent_id: agent1.id) }
     let(:connection3) { double(agent_id: agent2.id) }
     let(:connected_agents) { [connection1, connection2, connection3] }
-    let(:kas_client) { instance_double(Gitlab::Kas::Client, get_connected_agents: connected_agents) }
+    let(:kas_client) { instance_double(Gitlab::Kas::Client, get_connected_agents_by_agent_ids: connected_agents) }
 
     subject do
       batch_sync do
@@ -37,7 +37,7 @@ RSpec.describe Resolvers::Kas::AgentConnectionsResolver do
     end
 
     it 'queries KAS once when multiple agents are requested' do
-      expect(kas_client).to receive(:get_connected_agents).once
+      expect(kas_client).to receive(:get_connected_agents_by_agent_ids).once
 
       response = batch_sync do
         resolve(described_class, obj: agent1, ctx: ctx)
@@ -49,7 +49,7 @@ RSpec.describe Resolvers::Kas::AgentConnectionsResolver do
 
     context 'an error is returned from the KAS client' do
       before do
-        allow(kas_client).to receive(:get_connected_agents).and_raise(GRPC::DeadlineExceeded)
+        allow(kas_client).to receive(:get_connected_agents_by_agent_ids).and_raise(GRPC::DeadlineExceeded)
       end
 
       it 'raises a graphql error' do

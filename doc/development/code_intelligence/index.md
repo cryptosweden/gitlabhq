@@ -1,12 +1,11 @@
 ---
 stage: Create
 group: Code Review
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+description: "Developer documentation for the Code Intelligence feature."
 ---
 
-# Code Intelligence **(FREE)**
-
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/1576) in GitLab 13.1.
+# Code intelligence development guidelines
 
 This document describes the design behind [Code Intelligence](../../user/project/code_intelligence.md).
 
@@ -18,7 +17,11 @@ displaying this information for the files in the project.
 Here is a sequence diagram for uploading an LSIF artifact:
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 sequenceDiagram
+    accTitle: Sequence diagram for LSIF artifact uploads
+    accDescr: The process of how Runner, Workhorse, Rails, and object storage work together to upload an artifact.
+
     participant Runner
     participant Workhorse
     participant Rails
@@ -35,10 +38,10 @@ sequenceDiagram
     Workhorse-->>-Runner: request results
 ```
 
-1. The CI/CD job generates a document in an LSIF format (usually `dump.lsif`) using [an
-   indexer](https://lsif.dev) for the language of a project. The format
+1. The CI/CD job generates a document in an LSIF format (usually `dump.lsif`) using
+   [an indexer](https://lsif.dev) for the language of a project. The format
    [describes](https://github.com/sourcegraph/sourcegraph/blob/main/doc/code_intelligence/explanations/writing_an_indexer.md)
-   interactions between a method or function and its definition(s) or references. The
+   interactions between a method or function and its definitions or references. The
    document is marked to be stored as an LSIF report artifact.
 
 1. After receiving a request for storing the artifact, Workhorse asks

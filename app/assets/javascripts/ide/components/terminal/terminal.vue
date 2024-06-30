@@ -1,5 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlLoadingIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 import { __ } from '~/locale';
 import GLTerminal from '~/terminal/terminal';
@@ -35,7 +37,8 @@ export default {
     loadingText() {
       if (isStartingStatus(this.status)) {
         return __('Starting...');
-      } else if (this.status === STOPPING) {
+      }
+      if (this.status === STOPPING) {
         return __('Stopping...');
       }
 
@@ -90,9 +93,9 @@ export default {
 </script>
 
 <template>
-  <div class="d-flex flex-column flex-fill min-height-0 pr-3">
-    <div class="top-bar d-flex border-left-0 align-items-center">
-      <div v-if="loadingText" data-qa-selector="loading_container">
+  <div class="gl-flex flex-column flex-fill min-height-0 pr-3">
+    <div class="top-bar gl-flex border-left-0 gl-items-center">
+      <div v-if="loadingText">
         <gl-loading-icon size="sm" :inline="true" />
         <span>{{ loadingText }}</span>
       </div>
@@ -105,12 +108,11 @@ export default {
         @scroll-down="glterminal.scrollToBottom()"
       />
     </div>
-    <div class="terminal-wrapper d-flex flex-fill min-height-0">
+    <div class="terminal-wrapper gl-flex flex-fill min-height-0">
       <div
         ref="terminal"
-        class="ide-terminal-trace flex-fill min-height-0 w-100"
+        class="ide-terminal-trace flex-fill min-height-0 gl-w-full"
         :data-project-path="terminalPath"
-        data-qa-selector="terminal_screen"
       ></div>
     </div>
   </div>

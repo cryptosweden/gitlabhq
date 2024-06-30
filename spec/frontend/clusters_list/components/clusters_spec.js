@@ -1,18 +1,21 @@
-import {
-  GlLoadingIcon,
-  GlPagination,
-  GlDeprecatedSkeletonLoading as GlSkeletonLoading,
-  GlTableLite,
-} from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
+import { GlLoadingIcon, GlPagination, GlSkeletonLoader, GlTableLite } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
 import { nextTick } from 'vue';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import Clusters from '~/clusters_list/components/clusters.vue';
 import ClustersEmptyState from '~/clusters_list/components/clusters_empty_state.vue';
 import ClusterStore from '~/clusters_list/store';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import {
+  SET_LOADING_NODES,
+  SET_CLUSTERS_DATA,
+  SET_LOADING_CLUSTERS,
+} from '~/clusters_list/store/mutation_types';
 import { apiData } from '../mock_data';
+
+jest.mock('~/sentry/sentry_browser_wrapper');
 
 describe('Clusters', () => {
   let mock;
@@ -63,27 +66,21 @@ describe('Clusters', () => {
     };
   };
 
-  let captureException;
-
   beforeEach(() => {
-    captureException = jest.spyOn(Sentry, 'captureException');
-
     mock = new MockAdapter(axios);
-    mockPollingApi(200, apiData, paginationHeader());
+    mockPollingApi(HTTP_STATUS_OK, apiData, paginationHeader());
 
     return createWrapper({});
   });
 
   afterEach(() => {
-    wrapper.destroy();
     mock.restore();
-    captureException.mockRestore();
   });
 
   describe('clusters table', () => {
     describe('when data is loading', () => {
       beforeEach(() => {
-        wrapper.vm.$store.state.loadingClusters = true;
+        store.commit(SET_LOADING_CLUSTERS, true);
       });
 
       it('displays a loader instead of the table while loading', () => {
@@ -100,7 +97,12 @@ describe('Clusters', () => {
 
     describe('when there are no clusters', () => {
       beforeEach(() => {
-        wrapper.vm.$store.state.totalClusters = 0;
+        store.commit(SET_CLUSTERS_DATA, {
+          data: {},
+          paginationInformation: {
+            total: 0,
+          },
+        });
       });
       it('should render empty state', () => {
         expect(findEmptyState().exists()).toBe(true);
@@ -108,11 +110,9 @@ describe('Clusters', () => {
     });
 
     describe('when is loaded as a child component', () => {
-      beforeEach(() => {
-        createWrapper({ limit: 6 });
-      });
-
       it("shouldn't render pagination buttons", () => {
+        createWrapper({ limit: 6 });
+
         expect(findPaginatedButtons().exists()).toBe(false);
       });
     });
@@ -149,7 +149,7 @@ describe('Clusters', () => {
       ({ lineNumber, result }) => {
         const statuses = findStatuses();
         const status = statuses.at(lineNumber);
-        expect(status.find(GlLoadingIcon).exists()).toBe(result);
+        expect(status.findComponent(GlLoadingIcon).exists()).toBe(result);
       },
     );
   });
@@ -171,14 +171,14 @@ describe('Clusters', () => {
         if (nodeSize) {
           expect(size.text()).toBe(nodeSize);
         } else {
-          expect(size.find(GlSkeletonLoading).exists()).toBe(true);
+          expect(size.findComponent(GlSkeletonLoader).exists()).toBe(true);
         }
       });
     });
 
     describe('nodes finish loading', () => {
       beforeEach(async () => {
-        wrapper.vm.$store.state.loadingNodes = false;
+        store.commit(SET_LOADING_NODES, false);
         await nextTick();
       });
 
@@ -195,25 +195,29 @@ describe('Clusters', () => {
         const size = sizes.at(lineNumber);
 
         expect(size.text()).toContain(nodeText);
-        expect(size.find(GlSkeletonLoading).exists()).toBe(false);
+        expect(size.findComponent(GlSkeletonLoader).exists()).toBe(false);
       });
     });
 
     describe('nodes with unknown quantity', () => {
       it('notifies Sentry about all missing quantity types', () => {
-        expect(captureException).toHaveBeenCalledTimes(8);
+        expect(Sentry.captureException).toHaveBeenCalledTimes(8);
       });
 
       it('notifies Sentry about CPU missing quantity types', () => {
         const missingCpuTypeError = new Error('UnknownK8sCpuQuantity:1missingCpuUnit');
 
-        expect(captureException).toHaveBeenCalledWith(missingCpuTypeError);
+        expect(Sentry.captureException).toHaveBeenCalledWith(missingCpuTypeError, {
+          tags: { javascript_clusters_list: 'totalCpuAndUsageError' },
+        });
       });
 
       it('notifies Sentry about Memory missing quantity types', () => {
         const missingMemoryTypeError = new Error('UnknownK8sMemoryQuantity:1missingMemoryUnit');
 
-        expect(captureException).toHaveBeenCalledWith(missingMemoryTypeError);
+        expect(Sentry.captureException).toHaveBeenCalledWith(missingMemoryTypeError, {
+          tags: { javascript_clusters_list: 'totalMemoryAndUsageError' },
+        });
       });
     });
   });
@@ -221,12 +225,12 @@ describe('Clusters', () => {
   describe('cluster CPU', () => {
     it.each`
       clusterCpu           | lineNumber
-      ${''}                | ${0}
+      ${'Loading'}         | ${0}
       ${'1.93 (87% free)'} | ${1}
       ${'3.87 (86% free)'} | ${2}
       ${'(% free)'}        | ${3}
       ${'(% free)'}        | ${4}
-      ${''}                | ${5}
+      ${'Loading'}         | ${5}
     `('renders total cpu for each cluster', ({ clusterCpu, lineNumber }) => {
       const clusterCpus = findTable().findAll('td:nth-child(4)');
       const cpuData = clusterCpus.at(lineNumber);
@@ -238,12 +242,12 @@ describe('Clusters', () => {
   describe('cluster Memory', () => {
     it.each`
       clusterMemory         | lineNumber
-      ${''}                 | ${0}
+      ${'Loading'}          | ${0}
       ${'5.92 (78% free)'}  | ${1}
       ${'12.86 (79% free)'} | ${2}
       ${'(% free)'}         | ${3}
       ${'(% free)'}         | ${4}
-      ${''}                 | ${5}
+      ${'Loading'}          | ${5}
     `('renders total memory for each cluster', ({ clusterMemory, lineNumber }) => {
       const clusterMemories = findTable().findAll('td:nth-child(5)');
       const memoryData = clusterMemories.at(lineNumber);
@@ -258,7 +262,7 @@ describe('Clusters', () => {
     const totalSecondPage = 500;
 
     beforeEach(() => {
-      mockPollingApi(200, apiData, paginationHeader(totalFirstPage, perPage, 1));
+      mockPollingApi(HTTP_STATUS_OK, apiData, paginationHeader(totalFirstPage, perPage, 1));
       return createWrapper({});
     });
 
@@ -272,10 +276,8 @@ describe('Clusters', () => {
 
     describe('when updating currentPage', () => {
       beforeEach(() => {
-        mockPollingApi(200, apiData, paginationHeader(totalSecondPage, perPage, 2));
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({ currentPage: 2 });
+        mockPollingApi(HTTP_STATUS_OK, apiData, paginationHeader(totalSecondPage, perPage, 2));
+        findPaginatedButtons().vm.$emit('input', 2);
         return axios.waitForAll();
       });
 

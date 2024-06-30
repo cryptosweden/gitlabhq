@@ -27,14 +27,14 @@ RSpec.describe Gitlab::MarkdownCache::Redis::Store, :clean_gitlab_redis_cache do
   def read_values
     Gitlab::Redis::Cache.with do |r|
       r.mapped_hmget(cache_key,
-                     :field_1_html, :field_2_html, :cached_markdown_version)
+        :field_1_html, :field_2_html, :cached_markdown_version)
     end
   end
 
   def store_values(values)
     Gitlab::Redis::Cache.with do |r|
       r.mapped_hmset(cache_key,
-                     values)
+        values)
     end
   end
 
@@ -50,7 +50,7 @@ RSpec.describe Gitlab::MarkdownCache::Redis::Store, :clean_gitlab_redis_cache do
 
       results = described_class.bulk_read([storable])
 
-      expect(results[storable.cache_key].value.symbolize_keys)
+      expect(results[storable.cache_key].symbolize_keys)
         .to eq(field_1_html: "hello", field_2_html: "world", cached_markdown_version: "1")
     end
   end

@@ -1,6 +1,7 @@
 <script>
 import { GlBadge, GlButton } from '@gitlab/ui';
 import { isEmpty } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapActions } from 'vuex';
 import EmptyState from '~/feature_flags/components/empty_state.vue';
 import { buildUrlWithCurrentLocation, historyPushState } from '~/lib/utils/common_utils';
@@ -75,7 +76,7 @@ export default {
 <template>
   <div>
     <div class="gl-display-flex gl-flex-direction-column">
-      <div class="gl-display-flex gl-flex-direction-column gl-md-display-none!">
+      <div class="gl-flex md:!gl-hidden gl-flex-direction-column">
         <gl-button v-if="hasNewPath" :href="newUserListPath" variant="confirm">
           {{ s__('UserLists|New user list') }}
         </gl-button>

@@ -1,12 +1,13 @@
 import { getByTestId, fireEvent } from '@testing-library/dom';
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import DiffRow from '~/diffs/components/diff_row.vue';
 import { mapParallel } from '~/diffs/components/diff_row_utils';
 import diffsModule from '~/diffs/store/modules';
 import { findInteropAttributes } from '../find_interop_attributes';
-import diffFileMockData from '../mock_data/diff_file';
+import { getDiffFileMock } from '../mock_data/diff_file';
 
 const showCommentForm = jest.fn();
 const enterdragging = jest.fn();
@@ -32,6 +33,14 @@ describe('DiffRow', () => {
     {
       left: { old_line: 1, discussions: [] },
       right: { new_line: 1, discussions: [] },
+    },
+    {
+      left: {},
+      right: {},
+      isMetaLineLeft: true,
+      isMetaLineRight: false,
+      isContextLineLeft: true,
+      isContextLineRight: false,
     },
   ];
 
@@ -62,7 +71,8 @@ describe('DiffRow', () => {
         const hits = coverageFileData[file]?.[line];
         if (hits) {
           return { text: `Test coverage: ${hits} hits`, class: 'coverage' };
-        } else if (hits === 0) {
+        }
+        if (hits === 0) {
           return { text: 'No test coverage', class: 'no-coverage' };
         }
 
@@ -89,10 +99,6 @@ describe('DiffRow', () => {
   };
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-
-    window.gon = {};
     showCommentForm.mockReset();
     enterdragging.mockReset();
     stopdragging.mockReset();
@@ -106,6 +112,8 @@ describe('DiffRow', () => {
   });
 
   const getCommentButton = (side) => wrapper.find(`[data-testid="${side}-comment-button"]`);
+  const findRightCommentButton = () => wrapper.find('[data-testid="right-comment-button"]');
+  const findLeftCommentButton = () => wrapper.find('[data-testid="left-comment-button"]');
 
   describe.each`
     side
@@ -129,6 +137,10 @@ describe('DiffRow', () => {
 
       it('renders', () => {
         wrapper = createWrapper({ props: { line, inline: false } });
+        expect(findRightCommentButton().attributes('draggable')).toBe('true');
+        expect(findLeftCommentButton().attributes('draggable')).toBe(
+          side === 'left' ? 'true' : 'false',
+        );
         expect(getCommentButton(side).exists()).toBe(true);
       });
 
@@ -210,6 +222,7 @@ describe('DiffRow', () => {
   });
 
   describe('sets coverage title and class', () => {
+    const diffFileMockData = getDiffFileMock();
     const thisLine = diffFileMockData.parallel_diff_lines[2];
     const rightLine = diffFileMockData.parallel_diff_lines[2].right;
 
@@ -218,7 +231,7 @@ describe('DiffRow', () => {
       shouldRenderDraftRow: jest.fn(),
       hasParallelDraftLeft: jest.fn(),
       hasParallelDraftRight: jest.fn(),
-      draftForLine: jest.fn(),
+      draftsForLine: jest.fn().mockReturnValue([]),
     };
 
     const applyMap = mapParallel(mockDiffContent);
@@ -238,7 +251,7 @@ describe('DiffRow', () => {
       const coverage = wrapper.find('.line-coverage.right-side');
 
       expect(coverage.attributes('title')).toContain('Test coverage: 5 hits');
-      expect(coverage.classes('coverage')).toBeTruthy();
+      expect(coverage.classes('coverage')).toBe(true);
     });
 
     it('for lines without coverage', () => {
@@ -247,7 +260,7 @@ describe('DiffRow', () => {
       const coverage = wrapper.find('.line-coverage.right-side');
 
       expect(coverage.attributes('title')).toContain('No test coverage');
-      expect(coverage.classes('no-coverage')).toBeTruthy();
+      expect(coverage.classes('no-coverage')).toBe(true);
     });
 
     it('for unknown lines', () => {
@@ -255,9 +268,9 @@ describe('DiffRow', () => {
       wrapper = createWrapper({ props, state: { coverageFiles } });
       const coverage = wrapper.find('.line-coverage.right-side');
 
-      expect(coverage.attributes('title')).toBeFalsy();
-      expect(coverage.classes('coverage')).toBeFalsy();
-      expect(coverage.classes('no-coverage')).toBeFalsy();
+      expect(coverage.attributes('title')).toBeUndefined();
+      expect(coverage.classes('coverage')).toBe(false);
+      expect(coverage.classes('no-coverage')).toBe(false);
     });
   });
 
@@ -275,6 +288,12 @@ describe('DiffRow', () => {
       expect(findInteropAttributes(wrapper, '[data-testid="left-side"]')).toEqual(leftSide);
       expect(findInteropAttributes(wrapper, '[data-testid="right-side"]')).toEqual(rightSide);
     });
+  });
+
+  it('renders comment button when isMetaLineLeft is false and isMetaLineRight is true', () => {
+    wrapper = createWrapper({ props: { line: testLines[4], inline: false } });
+
+    expect(wrapper.find('.add-diff-note').exists()).toBe(true);
   });
 });
 

@@ -11,7 +11,7 @@ RSpec.shared_examples 'creates an alert management alert or errors' do
   it 'creates AlertManagement::Alert' do
     expect(Gitlab::AppLogger).not_to receive(:warn)
 
-    expect { subject }.to change(AlertManagement::Alert, :count).by(1)
+    expect { subject }.to change { AlertManagement::Alert.count }.by(1)
   end
 
   it 'executes the alert service hooks' do
@@ -23,24 +23,63 @@ RSpec.shared_examples 'creates an alert management alert or errors' do
   end
 
   context 'and fails to save' do
-    let(:errors) { double(messages: { hosts: ['hosts array is over 255 chars'] })}
-
     before do
-      allow(service).to receive(:alert).and_call_original
-      allow(service).to receive_message_chain(:alert, :save).and_return(false)
-      allow(service).to receive_message_chain(:alert, :errors).and_return(errors)
+      allow(AlertManagement::Alert).to receive(:new).and_wrap_original do |m, **args|
+        m.call(**args, hosts: ['a' * 256]) # hosts should be 255
+      end
     end
 
     it_behaves_like 'alerts service responds with an error', :bad_request
 
     it 'writes a warning to the log' do
       expect(Gitlab::AppLogger).to receive(:warn).with(
-        message: "Unable to create AlertManagement::Alert from #{source}",
+        message: "Unable to create AlertManagement::Alert",
         project_id: project.id,
-        alert_errors: { hosts: ['hosts array is over 255 chars'] }
+        alert_errors: { hosts: ['hosts array is over 255 chars'] },
+        alert_source: source
       )
 
       subject
+    end
+  end
+end
+
+RSpec.shared_examples 'handles race condition in alert creation' do
+  let(:other_alert) { create(:alert_management_alert, project: project) }
+
+  context 'when another alert is saved at the same time' do
+    before do
+      allow_next_instance_of(::AlertManagement::Alert) do |alert|
+        allow(alert).to receive(:save) do
+          other_alert.update!(fingerprint: alert.fingerprint)
+
+          raise ActiveRecord::RecordNotUnique
+        end
+      end
+    end
+
+    it 'finds the other alert and increments the counter' do
+      subject
+
+      expect(other_alert.reload.events).to eq(2)
+    end
+  end
+
+  context 'when another alert is saved before the validation runes' do
+    before do
+      allow_next_instance_of(::AlertManagement::Alert) do |alert|
+        allow(alert).to receive(:save).and_wrap_original do |method, *args|
+          other_alert.update!(fingerprint: alert.fingerprint)
+
+          method.call(*args)
+        end
+      end
+    end
+
+    it 'finds the other alert and increments the counter' do
+      subject
+
+      expect(other_alert.reload.events).to eq(2)
     end
   end
 end
@@ -79,7 +118,7 @@ end
 
 RSpec.shared_examples 'does not create an alert management alert' do
   specify do
-    expect { subject }.not_to change(AlertManagement::Alert, :count)
+    expect { subject }.not_to change { AlertManagement::Alert.count }
   end
 end
 

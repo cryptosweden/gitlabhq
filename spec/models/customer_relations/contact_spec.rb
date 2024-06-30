@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe CustomerRelations::Contact, type: :model do
+RSpec.describe CustomerRelations::Contact, type: :model, feature_category: :team_planning do
   let_it_be(:group) { create(:group) }
 
   describe 'associations' do
@@ -127,7 +127,7 @@ RSpec.describe CustomerRelations::Contact, type: :model do
 
     before do
       old_root_group.update!(parent: new_root_group)
-      CustomerRelations::Contact.move_to_root_group(old_root_group)
+      described_class.move_to_root_group(old_root_group)
     end
 
     it 'moves contacts with unique emails and deletes the rest' do
@@ -140,6 +140,165 @@ RSpec.describe CustomerRelations::Contact, type: :model do
     it 'updates issue_contact.contact_id for dupes and leaves the rest untouched' do
       expect(issue_contact1.reload.contact_id).to eq(contacts[0].id)
       expect(issue_contact2.reload.contact_id).to eq(dupe_contact1.id)
+    end
+  end
+
+  describe '.search' do
+    let_it_be(:contact_a) do
+      create(
+        :contact,
+        group: group,
+        first_name: "ABC",
+        last_name: "DEF",
+        email: "ghi@test.com",
+        description: "LMNO",
+        state: "inactive"
+      )
+    end
+
+    let_it_be(:contact_b) do
+      create(
+        :contact,
+        group: group,
+        first_name: "PQR",
+        last_name: "STU",
+        email: "vwx@test.com",
+        description: "YZ",
+        state: "active"
+      )
+    end
+
+    subject(:found_contacts) { group.contacts.search(search_term) }
+
+    context 'when search term is empty' do
+      let(:search_term) { "" }
+
+      it 'returns all group contacts' do
+        expect(found_contacts).to contain_exactly(contact_a, contact_b)
+      end
+    end
+
+    context 'when search term is not empty' do
+      context 'when searching for first name ignoring casing' do
+        let(:search_term) { "aBc" }
+
+        it { is_expected.to contain_exactly(contact_a) }
+      end
+
+      context 'when searching for last name ignoring casing' do
+        let(:search_term) { "StU" }
+
+        it { is_expected.to contain_exactly(contact_b) }
+      end
+
+      context 'when searching for email' do
+        let(:search_term) { "ghi" }
+
+        it { is_expected.to contain_exactly(contact_a) }
+      end
+
+      context 'when searching description ignoring casing' do
+        let(:search_term) { "Yz" }
+
+        it { is_expected.to contain_exactly(contact_b) }
+      end
+
+      context 'when fuzzy searching for email and last name' do
+        let(:search_term) { "s" }
+
+        it { is_expected.to contain_exactly(contact_a, contact_b) }
+      end
+    end
+  end
+
+  describe '.search_by_state' do
+    let_it_be(:contact_a) { create(:contact, group: group, state: "inactive") }
+    let_it_be(:contact_b) { create(:contact, group: group, state: "active") }
+
+    context 'when searching for contacts state' do
+      it 'returns only inactive contacts' do
+        expect(group.contacts.search_by_state(:inactive)).to contain_exactly(contact_a)
+      end
+
+      it 'returns only active contacts' do
+        expect(group.contacts.search_by_state(:active)).to contain_exactly(contact_b)
+      end
+    end
+  end
+
+  describe '.counts_by_state' do
+    before do
+      create_list(:contact, 3, group: group)
+      create_list(:contact, 2, group: group, state: 'inactive')
+    end
+
+    it 'returns correct contact counts' do
+      counts = group.contacts.counts_by_state
+
+      expect(counts['active']).to be(3)
+      expect(counts['inactive']).to be(2)
+    end
+  end
+
+  describe 'sorting' do
+    let_it_be(:crm_organization_a) { create(:crm_organization, name: 'a') }
+    let_it_be(:crm_organization_b) { create(:crm_organization, name: 'b') }
+    let_it_be(:contact_a) { create(:contact, group: group, first_name: "c", last_name: "d") }
+    let_it_be(:contact_b) do
+      create(:contact,
+        group: group,
+        first_name: "a",
+        last_name: "b",
+        phone: "123",
+        organization: crm_organization_a)
+    end
+
+    let_it_be(:contact_c) do
+      create(:contact,
+        group: group,
+        first_name: "e",
+        last_name: "d",
+        phone: "456",
+        organization: crm_organization_b)
+    end
+
+    describe '.sort_by_name' do
+      it 'sorts them by last name then first name in ascending order' do
+        expect(group.contacts.sort_by_name).to eq([contact_b, contact_a, contact_c])
+      end
+    end
+
+    describe '.sort_by_organization' do
+      it 'sorts them by organization in descending order' do
+        expect(group.contacts.sort_by_organization(:desc)).to eq([contact_c, contact_b, contact_a])
+      end
+    end
+
+    describe '.sort_by_field' do
+      it 'sorts them by phone in ascending order' do
+        expect(group.contacts.sort_by_field('phone', :asc)).to eq([contact_b, contact_c, contact_a])
+      end
+    end
+  end
+
+  describe '#hook_attrs' do
+    let_it_be(:contact) { create(:contact, group: group) }
+
+    it 'includes the expected attributes' do
+      expect(contact.hook_attrs).to match a_hash_including(
+        {
+          'created_at' => contact.created_at,
+          'description' => contact.description,
+          'first_name' => contact.first_name,
+          'group_id' => group.id,
+          'id' => contact.id,
+          'last_name' => contact.last_name,
+          'organization_id' => contact.organization_id,
+          'state' => contact.state,
+          'updated_at' => contact.updated_at
+        }
+      )
+      expect(contact.hook_attrs.keys).to match_array(described_class::SAFE_ATTRIBUTES)
     end
   end
 end

@@ -14,18 +14,20 @@ module Gitlab
       has_many :queued_reindexing_actions, class_name: 'Gitlab::Database::Reindexing::QueuedAction', foreign_key: :index_identifier
 
       scope :by_identifier, ->(identifier) do
-        raise ArgumentError, "Index name is not fully qualified with a schema: #{identifier}" unless identifier =~ /^\w+\.\w+$/
+        unless Gitlab::Database::FULLY_QUALIFIED_IDENTIFIER.match?(identifier)
+          raise ArgumentError, "Index name is not fully qualified with a schema: #{identifier}"
+        end
 
         find(identifier)
       end
 
       # Indexes with reindexing support
       scope :reindexing_support, -> do
-        where(partitioned: false, exclusion: false, expression: false, type: Gitlab::Database::Reindexing::SUPPORTED_TYPES)
+        where(exclusion: false, expression: false, type: Gitlab::Database::Reindexing::SUPPORTED_TYPES)
           .not_match("#{Gitlab::Database::Reindexing::ReindexConcurrently::TEMPORARY_INDEX_PATTERN}$")
       end
 
-      scope :reindexing_leftovers, -> { match("#{Gitlab::Database::Reindexing::ReindexConcurrently::TEMPORARY_INDEX_PATTERN}$") }
+      scope :reindexing_leftovers, -> { match("#{Gitlab::Database::Reindexing::ReindexConcurrently::TEMPORARY_INDEX_PATTERN}$").order(:name) }
 
       scope :not_match, ->(regex) { where("name !~ ?", regex) }
 

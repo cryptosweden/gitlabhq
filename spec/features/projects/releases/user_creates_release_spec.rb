@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User creates release', :js do
-  include Spec::Support::Helpers::Features::ReleasesHelpers
+RSpec.describe 'User creates release', :js, feature_category: :continuous_delivery do
+  include Features::ReleasesHelpers
 
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:milestone_1) { create(:milestone, project: project, title: '1.1') }
@@ -11,6 +11,7 @@ RSpec.describe 'User creates release', :js do
   let_it_be(:user) { create(:user) }
 
   let(:new_page_url) { new_project_release_path(project) }
+  let(:tag_name) { 'new-tag' }
 
   before do
     project.add_developer(user)
@@ -23,17 +24,23 @@ RSpec.describe 'User creates release', :js do
   end
 
   it 'renders the breadcrumbs', :aggregate_failures do
-    within('.breadcrumbs') do
-      expect(page).to have_content("#{project.creator.name} #{project.name} New Release")
+    within_testid('breadcrumb-links') do
+      expect(page).to have_content("#{project.creator.name} #{project.name} Releases New release")
 
       expect(page).to have_link(project.creator.name, href: user_path(project.creator))
       expect(page).to have_link(project.name, href: project_path(project))
-      expect(page).to have_link('New Release', href: new_project_release_path(project))
+      expect(page).to have_link('Releases', href: project_releases_path(project))
+      expect(page).to have_link('New release', href: new_project_release_path(project))
     end
   end
 
   it 'defaults the "Create from" dropdown to the project\'s default branch' do
-    expect(page.find('[data-testid="create-from-field"] .ref-selector button')).to have_content(project.default_branch)
+    select_new_tag_name(tag_name)
+
+    expect(page).to have_button(project.default_branch)
+    within_testid('create-from-field') do
+      expect(page.find('.ref-selector button')).to have_content(project.default_branch)
+    end
   end
 
   context 'when the "Save release" button is clicked' do
@@ -47,7 +54,7 @@ RSpec.describe 'User creates release', :js do
       fill_out_form_and_submit
     end
 
-    it 'creates a new release when "Create release" is clicked and redirects to the release\'s dedicated page', :aggregate_failures do
+    it 'creates a new release when "Create release" is clicked and redirects to the release\'s dedicated page', :aggregate_failures, :sidekiq_inline do
       release = project.releases.last
 
       expect(release.tag).to eq(tag_name)
@@ -65,6 +72,11 @@ RSpec.describe 'User creates release', :js do
       link = release.links.find { |l| l.link_type == link_2[:type] }
       expect(link.url).to eq(link_2[:url])
       expect(link.name).to eq(link_2[:title])
+
+      expect(release).not_to be_historical_release
+      expect(release).not_to be_upcoming_release
+
+      expect(release.evidences.length).to eq(1)
 
       expect(page).to have_current_path(project_release_path(project, release))
     end
@@ -99,15 +111,35 @@ RSpec.describe 'User creates release', :js do
 
       fill_release_notes('**some** _markdown_ [content](https://example.com)')
 
-      click_on 'Preview'
+      click_button("Preview")
 
       wait_for_all_requests
     end
 
     it 'renders a preview of the release notes markdown' do
-      within('[data-testid="release-notes"]') do
+      within_testid('release-notes') do
         expect(page).to have_text('some markdown content')
       end
+    end
+  end
+
+  context 'when tag name supplied in the parameters' do
+    let(:new_page_url) { new_project_release_path(project, tag_name: 'v1.1.0') }
+
+    it 'creates release with preselected tag' do
+      expect(page).to have_button 'v1.1.0'
+
+      open_tag_popover 'v1.1.0'
+
+      expect(page).not_to have_selector('[data-testid="create-from-field"]')
+
+      click_button('Create release')
+
+      wait_for_all_requests
+
+      release = project.releases.last
+
+      expect(release.tag).to eq('v1.1.0')
     end
   end
 
@@ -118,8 +150,7 @@ RSpec.describe 'User creates release', :js do
 
     fill_release_title(release_title)
 
-    select_milestone(milestone_1.title)
-    select_milestone(milestone_2.title)
+    select_milestones(milestone_1.title, milestone_2.title)
 
     fill_release_notes(release_notes)
 

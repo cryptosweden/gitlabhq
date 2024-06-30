@@ -3,13 +3,37 @@
     "AlertManagementHttpIntegration",
     "AlertManagementPrometheusIntegration"
   ],
+  "AmazonS3ConfigurationInterface": [
+    "AmazonS3ConfigurationType",
+    "InstanceAmazonS3ConfigurationType"
+  ],
+  "BaseHeaderInterface": [
+    "AuditEventStreamingHeader",
+    "AuditEventsStreamingInstanceHeader"
+  ],
+  "CiRunnerCloudProvisioning": [
+    "CiRunnerGoogleCloudProvisioning"
+  ],
+  "CiVariable": [
+    "CiGroupVariable",
+    "CiInstanceVariable",
+    "CiManualVariable",
+    "CiProjectVariable",
+    "PipelineScheduleVariable"
+  ],
+  "CommitSignature": [
+    "GpgSignature",
+    "SshSignature",
+    "X509Signature"
+  ],
   "CurrentUserTodos": [
     "BoardEpic",
     "Design",
     "Epic",
     "EpicIssue",
     "Issue",
-    "MergeRequest"
+    "MergeRequest",
+    "WorkItemWidgetCurrentUserTodos"
   ],
   "DependencyLinkMetadata": [
     "NugetDependencyLinkMetadata"
@@ -27,6 +51,24 @@
     "BoardEpic",
     "Epic"
   ],
+  "ExternalAuditEventDestinationInterface": [
+    "ExternalAuditEventDestination",
+    "InstanceExternalAuditEventDestination"
+  ],
+  "AuditEventStreamingDestinationInterface": [
+    "GroupAuditEventStreamingDestination",
+    "InstanceAuditEventStreamingDestination"
+  ],
+  "GoogleCloudArtifactRegistryArtifact": [
+    "GoogleCloudArtifactRegistryDockerImage"
+  ],
+  "GoogleCloudArtifactRegistryArtifactDetails": [
+    "GoogleCloudArtifactRegistryDockerImageDetails"
+  ],
+  "GoogleCloudLoggingConfigurationInterface": [
+    "GoogleCloudLoggingConfigurationType",
+    "InstanceGoogleCloudLoggingConfigurationType"
+  ],
   "Issuable": [
     "Epic",
     "Issue",
@@ -39,9 +81,11 @@
   ],
   "MemberInterface": [
     "GroupMember",
+    "PendingGroupMember",
     "ProjectMember"
   ],
   "NoteableInterface": [
+    "AbuseReport",
     "AlertManagementAlert",
     "BoardEpic",
     "Design",
@@ -58,6 +102,8 @@
     "MergeRequest"
   ],
   "OrchestrationPolicy": [
+    "ApprovalPolicy",
+    "PipelineExecutionPolicy",
     "ScanExecutionPolicy",
     "ScanResultPolicy"
   ],
@@ -72,9 +118,31 @@
     "NugetMetadata",
     "PypiMetadata"
   ],
+  "Registrable": [
+    "CiSecureFileRegistry",
+    "ContainerRepositoryRegistry",
+    "DependencyProxyBlobRegistry",
+    "DependencyProxyManifestRegistry",
+    "DesignManagementRepositoryRegistry",
+    "GroupWikiRepositoryRegistry",
+    "JobArtifactRegistry",
+    "LfsObjectRegistry",
+    "MergeRequestDiffRegistry",
+    "PackageFileRegistry",
+    "PagesDeploymentRegistry",
+    "PipelineArtifactRegistry",
+    "ProjectWikiRepositoryRegistry",
+    "SnippetRepositoryRegistry",
+    "TerraformStateVersionRegistry",
+    "UploadRegistry"
+  ],
   "ResolvableInterface": [
     "Discussion",
     "Note"
+  ],
+  "SecurityPolicySource": [
+    "GroupSecurityPolicySource",
+    "ProjectSecurityPolicySource"
   ],
   "Service": [
     "BaseService",
@@ -92,9 +160,13 @@
     "Epic",
     "EpicIssue",
     "Issue",
-    "MergeRequest"
+    "MergeRequest",
+    "WorkItem"
   ],
   "User": [
+    "AddOnUser",
+    "AutocompletedUser",
+    "CurrentUser",
     "MergeRequestAssignee",
     "MergeRequestAuthor",
     "MergeRequestParticipant",
@@ -112,6 +184,7 @@
     "VulnerabilityDetailList",
     "VulnerabilityDetailMarkdown",
     "VulnerabilityDetailModuleLocation",
+    "VulnerabilityDetailNamedList",
     "VulnerabilityDetailTable",
     "VulnerabilityDetailText",
     "VulnerabilityDetailUrl"
@@ -125,5 +198,37 @@
     "VulnerabilityLocationGeneric",
     "VulnerabilityLocationSast",
     "VulnerabilityLocationSecretDetection"
+  ],
+  "WorkItemWidget": [
+    "WorkItemWidgetAssignees",
+    "WorkItemWidgetAwardEmoji",
+    "WorkItemWidgetColor",
+    "WorkItemWidgetCurrentUserTodos",
+    "WorkItemWidgetDescription",
+    "WorkItemWidgetDesigns",
+    "WorkItemWidgetDevelopment",
+    "WorkItemWidgetHealthStatus",
+    "WorkItemWidgetHierarchy",
+    "WorkItemWidgetIteration",
+    "WorkItemWidgetLabels",
+    "WorkItemWidgetLinkedItems",
+    "WorkItemWidgetMilestone",
+    "WorkItemWidgetNotes",
+    "WorkItemWidgetNotifications",
+    "WorkItemWidgetParticipants",
+    "WorkItemWidgetProgress",
+    "WorkItemWidgetRequirementLegacy",
+    "WorkItemWidgetRolledupDates",
+    "WorkItemWidgetStartAndDueDate",
+    "WorkItemWidgetStatus",
+    "WorkItemWidgetTestReports",
+    "WorkItemWidgetTimeTracking",
+    "WorkItemWidgetWeight"
+  ],
+  "WorkItemWidgetDefinition": [
+    "WorkItemWidgetDefinitionAssignees",
+    "WorkItemWidgetDefinitionGeneric",
+    "WorkItemWidgetDefinitionHierarchy",
+    "WorkItemWidgetDefinitionLabels"
   ]
 }

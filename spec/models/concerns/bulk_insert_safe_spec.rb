@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkInsertSafe do
-  before(:all) do
+RSpec.describe BulkInsertSafe, feature_category: :database do
+  before_all do
     ActiveRecord::Schema.define do
       create_table :_test_bulk_insert_parent_items, force: true do |t|
         t.string :name, null: false
@@ -73,9 +73,9 @@ RSpec.describe BulkInsertSafe do
         key: Settings.attr_encrypted_db_key_base_32,
         insecure_mode: false
 
-      default_value_for :enum_value, 'case_1'
-      default_value_for :sha_value, '2fd4e1c67a2d28fced849ee1bb76e7391b93eb12'
-      default_value_for :jsonb_value, { "key" => "value" }
+      attribute :enum_value, default: 'case_1'
+      attribute :sha_value, default: '2fd4e1c67a2d28fced849ee1bb76e7391b93eb12'
+      attribute :jsonb_value, default: -> { { "key" => "value" } }
 
       def self.name
         'BulkInsertItem'
@@ -170,7 +170,9 @@ RSpec.describe BulkInsertSafe do
         all_items = bulk_insert_item_class.valid_list(10) + bulk_insert_item_class.invalid_list(10)
 
         expect do
-          bulk_insert_item_class.bulk_insert!(all_items, batch_size: 2) rescue nil
+          bulk_insert_item_class.bulk_insert!(all_items, batch_size: 2)
+        rescue StandardError
+          nil
         end.not_to change { bulk_insert_item_class.count }
       end
 

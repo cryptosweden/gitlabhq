@@ -20,10 +20,10 @@ module Gitlab
 
               if duplicate_job.idempotent?
                 duplicate_job.update_latest_wal_location!
-                duplicate_job.set_deduplicated_flag!(expiry)
+                duplicate_job.set_deduplicated_flag!
 
                 Gitlab::SidekiqLogging::DeduplicationLogger.instance.deduplicated_log(
-                  job, "dropped #{strategy_name}", duplicate_job.options)
+                  job, strategy_name, duplicate_job.options)
                 return false
               end
             end
@@ -43,7 +43,15 @@ module Gitlab
           end
 
           def deduplicatable_job?
+            return false if scheduled_deferred_job?
+
             !duplicate_job.scheduled? || duplicate_job.options[:including_scheduled]
+          end
+
+          # we do not deduplicate deferred perform_in/perform_at.
+          # note that the schedule enq will push the jobs out of the zset with `deferred: true`
+          def scheduled_deferred_job?
+            duplicate_job.scheduled? && duplicate_job.deferred?
           end
 
           def check!

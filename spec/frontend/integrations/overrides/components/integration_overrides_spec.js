@@ -1,20 +1,21 @@
 import { GlTable, GlLink, GlPagination, GlAlert } from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
 import { shallowMount, mount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { DEFAULT_PER_PAGE } from '~/api';
 import IntegrationOverrides from '~/integrations/overrides/components/integration_overrides.vue';
 import IntegrationTabs from '~/integrations/overrides/components/integration_tabs.vue';
 
 import axios from '~/lib/utils/axios_utils';
-import httpStatus from '~/lib/utils/http_status';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import ProjectAvatar from '~/vue_shared/components/project_avatar.vue';
 import UrlSync from '~/vue_shared/components/url_sync.vue';
 
 const mockOverrides = Array(DEFAULT_PER_PAGE * 3)
   .fill(1)
   .map((_, index) => ({
+    id: index,
     name: `test-proj-${index}`,
     avatar_url: `avatar-${index}`,
     full_path: `test-proj-${index}`,
@@ -38,7 +39,7 @@ describe('IntegrationOverrides', () => {
 
   beforeEach(() => {
     mockAxios = new MockAdapter(axios);
-    mockAxios.onGet(defaultProps.overridesPath).reply(httpStatus.OK, mockOverrides, {
+    mockAxios.onGet(defaultProps.overridesPath).reply(HTTP_STATUS_OK, mockOverrides, {
       'X-TOTAL': mockOverrides.length,
       'X-PAGE': 1,
     });
@@ -46,7 +47,6 @@ describe('IntegrationOverrides', () => {
 
   afterEach(() => {
     mockAxios.restore();
-    wrapper.destroy();
   });
 
   const findGlTable = () => wrapper.findComponent(GlTable);
@@ -59,6 +59,7 @@ describe('IntegrationOverrides', () => {
         const avatar = link.findComponent(ProjectAvatar);
 
         return {
+          id: avatar.props('projectId'),
           href: link.attributes('href'),
           avatarUrl: avatar.props('projectAvatarUrl'),
           avatarName: avatar.props('projectName'),
@@ -90,7 +91,7 @@ describe('IntegrationOverrides', () => {
 
       const table = findGlTable();
       expect(table.exists()).toBe(true);
-      expect(table.attributes('busy')).toBeFalsy();
+      expect(table.attributes('busy')).toBeUndefined();
     });
 
     it('renders IntegrationTabs with count', async () => {
@@ -109,6 +110,7 @@ describe('IntegrationOverrides', () => {
       it('renders overrides as rows in table', () => {
         expect(findRowsAsModel()).toEqual(
           mockOverrides.map((x) => ({
+            id: x.id,
             href: x.full_path,
             avatarUrl: x.avatar_url,
             avatarName: x.name,
@@ -122,7 +124,7 @@ describe('IntegrationOverrides', () => {
   describe('when request fails', () => {
     beforeEach(async () => {
       jest.spyOn(Sentry, 'captureException');
-      mockAxios.onGet(defaultProps.overridesPath).reply(httpStatus.INTERNAL_SERVER_ERROR);
+      mockAxios.onGet(defaultProps.overridesPath).reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
 
       createComponent();
       await waitForPromises();
@@ -147,7 +149,7 @@ describe('IntegrationOverrides', () => {
   describe('pagination', () => {
     describe('when total items does not exceed the page limit', () => {
       it('does not render', async () => {
-        mockAxios.onGet(defaultProps.overridesPath).reply(httpStatus.OK, [mockOverrides[0]], {
+        mockAxios.onGet(defaultProps.overridesPath).reply(HTTP_STATUS_OK, [mockOverrides[0]], {
           'X-TOTAL': DEFAULT_PER_PAGE - 1,
           'X-PAGE': 1,
         });
@@ -166,7 +168,7 @@ describe('IntegrationOverrides', () => {
 
       beforeEach(async () => {
         createComponent({ stubs: { UrlSync } });
-        mockAxios.onGet(defaultProps.overridesPath).reply(httpStatus.OK, [mockOverrides[0]], {
+        mockAxios.onGet(defaultProps.overridesPath).reply(HTTP_STATUS_OK, [mockOverrides[0]], {
           'X-TOTAL': DEFAULT_PER_PAGE * 2,
           'X-PAGE': mockPage,
         });

@@ -1,8 +1,7 @@
 ---
-stage: Enablement
+stage: Data Stores
 group: Database
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 description: 'Learn how to scale the database through the use of best-of-class database scalability patterns'
 ---
 

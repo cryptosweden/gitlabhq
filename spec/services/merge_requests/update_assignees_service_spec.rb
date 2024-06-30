@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::UpdateAssigneesService do
+RSpec.describe MergeRequests::UpdateAssigneesService, feature_category: :code_review_workflow do
   include AfterNextHelpers
 
   let_it_be(:group) { create(:group, :public) }
@@ -12,13 +12,17 @@ RSpec.describe MergeRequests::UpdateAssigneesService do
   let_it_be(:user3) { create(:user) }
 
   let_it_be_with_reload(:merge_request) do
-    create(:merge_request, :simple, :unique_branches,
-           title: 'Old title',
-           description: "FYI #{user2.to_reference}",
-           assignee_ids: [user3.id],
-           source_project: project,
-           target_project: project,
-           author: create(:user))
+    create(
+      :merge_request,
+      :simple,
+      :unique_branches,
+      title: 'Old title',
+      description: "FYI #{user2.to_reference}",
+      assignee_ids: [user3.id],
+      source_project: project,
+      target_project: project,
+      author: create(:user)
+    )
   end
 
   before do
@@ -34,6 +38,20 @@ RSpec.describe MergeRequests::UpdateAssigneesService do
   describe 'execute' do
     def update_merge_request
       service.execute(merge_request)
+    end
+
+    shared_examples 'it updates and enqueues the job' do
+      it 'correctly updates the MR and enqueues the job' do
+        expect_next(MergeRequests::HandleAssigneesChangeService, project: project, current_user: user) do |service|
+          expect(service)
+            .to receive(:async_execute).with(merge_request, [user3], execute_hooks: true)
+        end
+
+        expect { update_merge_request }
+          .to change { merge_request.reload.assignees }.from([user3]).to(new_users)
+          .and change(merge_request, :updated_at)
+          .and change(merge_request, :updated_by).to(user)
+      end
     end
 
     shared_examples 'removing all assignees' do
@@ -73,16 +91,8 @@ RSpec.describe MergeRequests::UpdateAssigneesService do
         it_behaves_like 'removing all assignees'
       end
 
-      it 'updates the MR, and queues the more expensive work for later' do
-        expect_next(MergeRequests::HandleAssigneesChangeService, project: project, current_user: user) do |service|
-          expect(service)
-            .to receive(:async_execute).with(merge_request, [user3], execute_hooks: true)
-        end
-
-        expect { update_merge_request }
-          .to change { merge_request.reload.assignees }.from([user3]).to([user2])
-          .and change(merge_request, :updated_at)
-          .and change(merge_request, :updated_by).to(user)
+      it_behaves_like 'it updates and enqueues the job' do
+        let(:new_users) { [user2] }
       end
 
       it 'does not update the assignees if they do not have access' do
@@ -101,17 +111,37 @@ RSpec.describe MergeRequests::UpdateAssigneesService do
             .with(merge_request, [user3], execute_hooks: true)
         end
 
-        other_mr = create(:merge_request, :simple, :unique_branches,
-                          title: merge_request.title,
-                          description: merge_request.description,
-                          assignee_ids: merge_request.assignee_ids,
-                          source_project: merge_request.project,
-                          author: merge_request.author)
+        other_mr = create(
+          :merge_request,
+          :simple,
+          :unique_branches,
+          title: merge_request.title,
+          description: merge_request.description,
+          assignee_ids: merge_request.assignee_ids,
+          source_project: merge_request.project,
+          author: merge_request.author
+        )
 
         update_service = ::MergeRequests::UpdateService.new(project: project, current_user: user, params: opts)
 
         expect { service.execute(merge_request) }
           .to issue_fewer_queries_than { update_service.execute(other_mr) }
+      end
+    end
+
+    context 'when user has no set_merge_request_metadata permissions' do
+      before do
+        allow(user).to receive(:can?).and_call_original
+
+        allow(user)
+          .to receive(:can?)
+          .with(:set_merge_request_metadata, merge_request)
+          .and_return(false)
+      end
+
+      it 'does not update the MR assignees' do
+        expect { update_merge_request }
+          .not_to change { merge_request.reload.assignees.to_a }
       end
     end
   end

@@ -1,16 +1,18 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Clean up **(FREE SELF)**
+# Clean up Rake tasks
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 GitLab provides Rake tasks for cleaning up GitLab instances.
 
 ## Remove unreferenced LFS files
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/36628) in GitLab 12.10.
 
 WARNING:
 Do not run this within 12 hours of a GitLab upgrade. This is to ensure that all background migrations
@@ -35,7 +37,8 @@ You can also specify the project with `PROJECT_ID` instead of `PROJECT_PATH`.
 For example:
 
 ```shell
-$ sudo gitlab-rake gitlab:cleanup:orphan_lfs_file_references PROJECT_PATH="gitlab-org/gitlab-foss"
+$ sudo gitlab-rake gitlab:cleanup:orphan_lfs_file_references PROJECT_ID="13083"
+
 I, [2019-12-13T16:35:31.764962 #82356]  INFO -- :  Looking for orphan LFS files for project GitLab Org / GitLab Foss
 I, [2019-12-13T16:35:31.923659 #82356]  INFO -- :  Removed invalid references: 12
 ```
@@ -44,13 +47,11 @@ By default, this task does not delete anything but shows how many file reference
 delete. Run the command with `DRY_RUN=false` if you actually want to
 delete the references. You can also use `LIMIT={number}` parameter to limit the number of deleted references.
 
-Note that this Rake task only removes the references to LFS files. Unreferenced LFS files are garbage-collected
+This Rake task only removes the references to LFS files. Unreferenced LFS files are garbage-collected
 later (once a day). If you need to garbage collect them immediately, run
 `rake gitlab:cleanup:orphan_lfs_files` described below.
 
 ### Remove unreferenced LFS files immediately
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/36628) in GitLab 12.10.
 
 Unreferenced LFS files are removed on a daily basis but you can remove them immediately if
 you need to. For example:
@@ -75,8 +76,6 @@ I, [2020-01-08T20:51:17.148765 #43765]  INFO -- : Removed unreferenced LFS files
 Clean up project upload files if they don't exist in GitLab database.
 
 ### Clean up project upload files from file system
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/20863) in GitLab 11.2.
 
 Clean up local project upload files if they don't exist in GitLab database. The
 task attempts to fix the file if it can find its project, otherwise it moves the
@@ -110,9 +109,9 @@ I, [2018-07-27T12:08:33.755624 #89817]  INFO -- : Did fix /opt/gitlab/embedded/s
 I, [2018-07-27T12:08:33.760257 #89817]  INFO -- : Did move to lost and found /opt/gitlab/embedded/service/gitlab-rails/public/uploads/foo/bar/1dd6f0f7eefd2acc4c2233f89a0f7b0b/image.png -> /opt/gitlab/embedded/service/gitlab-rails/public/uploads/-/project-lost-found/foo/bar/1dd6f0f7eefd2acc4c2233f89a0f7b0b/image.png
 ```
 
-### Clean up project upload files from object storage
+If using object storage, run the [All-in-one Rake task](../administration/raketasks/uploads/migrate.md#all-in-one-rake-task) to ensure all uploads are migrated to object storage and there are no files on disk in the uploads folder.
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/20918) in GitLab 11.2.
+### Clean up project upload files from object storage
 
 Move object store upload files to a lost and found directory if they don't exist in GitLab database.
 
@@ -144,9 +143,6 @@ I, [2018-08-02T10:26:47.764356 #45087]  INFO -- : Moved to lost and found: @hash
 ```
 
 ## Remove orphan artifact files
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/29681) in GitLab 12.1.
-> - [`ionice` support fixed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/28023) in GitLab 12.10.
 
 NOTE:
 These commands don't work for artifacts stored on
@@ -197,8 +193,6 @@ level with `NICENESS`. Below are the valid levels, but consult
 
 ## Remove expired ActiveSession lookup keys
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/30668) in GitLab 12.2.
-
 ```shell
 # omnibus-gitlab
 sudo gitlab-rake gitlab:cleanup:sessions:active_sessions_lookup_keys
@@ -207,7 +201,7 @@ sudo gitlab-rake gitlab:cleanup:sessions:active_sessions_lookup_keys
 bundle exec rake gitlab:cleanup:sessions:active_sessions_lookup_keys RAILS_ENV=production
 ```
 
-## Container Registry garbage collection
+## Container registry garbage collection
 
 Container Registry can use considerable amounts of disk space. To clear up
 unused layers, the registry includes a [garbage collect command](../administration/packages/container_registry.md#container-registry-garbage-collection).

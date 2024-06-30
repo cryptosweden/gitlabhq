@@ -1,18 +1,27 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Running tests that require special setup
 
 ## Jenkins spec
 
-The [`jenkins_build_status_spec`](https://gitlab.com/gitlab-org/gitlab/-/blob/163c8a8c814db26d11e104d1cb2dcf02eb567dbe/qa/qa/specs/features/ee/browser_ui/3_create/jenkins/jenkins_build_status_spec.rb) spins up a Jenkins instance in a Docker container based on an image stored in the [GitLab-QA container registry](https://gitlab.com/gitlab-org/gitlab-qa/container_registry).
-The Docker image it uses is preconfigured with some base data and plugins.
-The test then configures the GitLab plugin in Jenkins with a URL of the GitLab instance that are used
-to run the tests. Unfortunately, the GitLab Jenkins plugin does not accept ports so `http://localhost:3000` would
-not be accepted. Therefore, this requires us to run GitLab on port 80 or inside a Docker container.
+The [`jenkins_build_status_spec`](https://gitlab.com/gitlab-org/gitlab/-/blob/24a86debf49f3aed6f2ecfd6e8f9233b3a214181/qa/qa/specs/features/browser_ui/3_create/jenkins/jenkins_build_status_spec.rb)
+spins up a Jenkins instance in a Docker container with the Jenkins GitLab plugin pre-installed. Due to a license restriction we are unable to distribute this image.
+To build a QA compatible image, visit the [third party images project](https://gitlab.com/gitlab-org/quality/third-party-docker-public), where third party Dockerfiles can be found.
+The project also has instructions for forking and building the images automatically in CI.
+
+Some extra environment variables for the location of the forked repository are also needed.
+
+- `QA_THIRD_PARTY_DOCKER_REGISTRY` (the container registry where the repository/images are hosted, for example `registry.gitlab.com`)
+- `QA_THIRD_PARTY_DOCKER_REPOSITORY` (the base repository path where the images are hosted, for example `registry.gitlab.com/<project path>`)
+- `QA_THIRD_PARTY_DOCKER_USER` (a username that has access to the container registry for this repository)
+- `QA_THIRD_PARTY_DOCKER_PASSWORD` (a password/token for the username to authenticate with)
+
+The test configures the GitLab plugin in Jenkins with a URL of the GitLab instance that are used
+to run the tests. Bi-directional networking is needed between a GitLab instance and Jenkins, so GitLab can also be started in a Docker container.
 
 To start a Docker container for GitLab based on the nightly image:
 
@@ -21,34 +30,25 @@ docker run \
   --publish 80:80 \
   --name gitlab \
   --hostname localhost \
+  --network test
   gitlab/gitlab-ee:nightly
 ```
 
 To run the tests from the `/qa` directory:
 
 ```shell
-WEBDRIVER_HEADLESS=false bin/qa Test::Instance::All http://localhost -- qa/specs/features/ee/browser_ui/3_create/jenkins/jenkins_build_status_spec.rb
+export QA_THIRD_PARTY_DOCKER_REGISTRY=<registry>
+export QA_THIRD_PARTY_DOCKER_REPOSITORY=<repository>
+export QA_THIRD_PARTY_DOCKER_USER=<user with registry access>
+export QA_THIRD_PARTY_DOCKER_PASSWORD=<password for user>
+export WEBDRIVER_HEADLESS=0
+bin/qa Test::Instance::All http://localhost -- qa/specs/features/ee/browser_ui/3_create/jenkins/jenkins_build_status_spec.rb
 ```
 
 The test automatically spins up a Docker container for Jenkins and tear down once the test completes.
 
-However, if you need to run Jenkins manually outside of the tests, use this command:
-
-```shell
-docker run \
-  --hostname localhost \
-  --name jenkins-server \
-  --env JENKINS_HOME=jenkins_home \
-  --publish 8080:8080 \
-  registry.gitlab.com/gitlab-org/gitlab-qa/jenkins-gitlab:version1
-```
-
-Jenkins is available on `http://localhost:8080`.
-
-Administrator username is `admin` and password is `password`.
-
-It is worth noting that this is not an orchestrated test. It is [tagged with the `:orchestrated` meta](https://gitlab.com/gitlab-org/gitlab/-/blob/163c8a8c814db26d11e104d1cb2dcf02eb567dbe/qa/qa/specs/features/ee/browser_ui/3_create/jenkins/jenkins_build_status_spec.rb#L5)
-only to prevent it from running in the pipelines for live environments such as Staging.
+If you need to run Jenkins manually outside of the tests, refer to the README for the
+[third party images project](https://gitlab.com/gitlab-org/quality/third-party-docker-public/-/blob/main/jenkins/README.md)
 
 ### Troubleshooting
 
@@ -153,7 +153,7 @@ Examples of tests which require a runner:
 Example:
 
 ```shell
-docker run \ 
+docker run \
   --detach \
   --hostname interface_ip_address \
   --publish 80:80 \
@@ -185,7 +185,7 @@ WEBDRIVER_HEADLESS=false bundle exec bin/qa QA::EE::Scenario::Test::Geo --primar
 
 You can use [GitLab-QA Orchestrator](https://gitlab.com/gitlab-org/gitlab-qa) to orchestrate two GitLab containers and configure them as a Geo setup.
 
-Geo requires an EE license. To visit the Geo sites in your browser, you need a reverse proxy server (for example, [NGINX](https://www.nginx.com/)).
+Geo requires an EE license. To visit the Geo sites in your browser, you need a reverse proxy server (for example, [NGINX](https://www.f5.com/go/product/welcome-to-nginx)).
 
 1. Export your EE license
 
@@ -219,7 +219,7 @@ Geo requires an EE license. To visit the Geo sites in your browser, you need a r
 
    # Using a full image address
    GITLAB_QA_ACCESS_TOKEN=your-token-here gitlab-qa Test::Integration::Geo registry.gitlab.com/gitlab-org/build/omnibus-gitlab-mirror/gitlab-ee:examplesha123456789 --no-teardown
-    ```
+   ```
 
    You can use the `--no-tests` option to build the containers only, and then run the [`EE::Scenario::Test::Geo` scenario](https://gitlab.com/gitlab-org/gitlab/-/blob/f7272b77e80215c39d1ffeaed27794c220dbe03f/qa/qa/ee/scenario/test/geo.rb) from your GDK to complete setup and run tests. However, there might be configuration issues if your GDK and the containers are based on different GitLab versions. With the `--no-teardown` option, GitLab-QA uses the same GitLab version for the GitLab containers and the GitLab QA container used to configure the Geo setup.
 
@@ -274,7 +274,7 @@ Geo requires an EE license. To visit the Geo sites in your browser, you need a r
 1. To run end-to-end tests from your local GDK, run the [`EE::Scenario::Test::Geo` scenario](https://gitlab.com/gitlab-org/gitlab/-/blob/f7272b77e80215c39d1ffeaed27794c220dbe03f/qa/qa/ee/scenario/test/geo.rb) from the [`gitlab/qa/` directory](https://gitlab.com/gitlab-org/gitlab/-/blob/f7272b77e80215c39d1ffeaed27794c220dbe03f/qa). Include `--without-setup` to skip the Geo configuration steps.
 
    ```shell
-   QA_DEBUG=true GITLAB_QA_ACCESS_TOKEN=[add token here] GITLAB_QA_ADMIN_ACCESS_TOKEN=[add token here] bundle exec bin/qa QA::EE::Scenario::Test::Geo \
+   QA_LOG_LEVEL=debug GITLAB_QA_ACCESS_TOKEN=[add token here] GITLAB_QA_ADMIN_ACCESS_TOKEN=[add token here] bundle exec bin/qa QA::EE::Scenario::Test::Geo \
    --primary-address http://gitlab-primary.geo \
    --secondary-address http://gitlab-secondary.geo \
    --without-setup
@@ -283,7 +283,7 @@ Geo requires an EE license. To visit the Geo sites in your browser, you need a r
    If the containers need to be configured first (for example, if you used the `--no-tests` option in the previous step), run the `QA::EE::Scenario::Test::Geo scenario` as shown below to first do the Geo configuration steps, and then run Geo end-to-end tests. Make sure that `EE_LICENSE` is (still) defined in your shell session.
 
    ```shell
-   QA_DEBUG=true bundle exec bin/qa QA::EE::Scenario::Test::Geo \
+   QA_LOG_LEVEL=debug bundle exec bin/qa QA::EE::Scenario::Test::Geo \
    --primary-address http://gitlab-primary.geo \
    --primary-name gitlab-primary \
    --secondary-address http://gitlab-secondary.geo \
@@ -299,9 +299,78 @@ Geo requires an EE license. To visit the Geo sites in your browser, you need a r
 
 #### Notes
 
-- You can find the full image address from a pipeline by [following these instructions](https://about.gitlab.com/handbook/engineering/quality/guidelines/tips-and-tricks/#running-gitlab-qa-pipeline-against-a-specific-gitlab-release). You might be prompted to set the `GITLAB_QA_ACCESS_TOKEN` variable if you specify the full image address.
+- You can find the full image address from a pipeline by [following these instructions](https://handbook.gitlab.com/handbook/engineering/infrastructure/test-platform/tips-and-tricks/#running-gitlab-qa-pipeline-against-a-specific-gitlab-release). You might be prompted to set the `GITLAB_QA_ACCESS_TOKEN` variable if you specify the full image address.
 - You can increase the wait time for replication by setting `GEO_MAX_FILE_REPLICATION_TIME` and `GEO_MAX_DB_REPLICATION_TIME`. The default is 120 seconds.
 - To save time during tests, create a Personal Access Token with API access on the Geo primary node, and pass that value in as `GITLAB_QA_ACCESS_TOKEN` and `GITLAB_QA_ADMIN_ACCESS_TOKEN`.
+
+## Group SAML Tests
+
+Tests that are tagged with `:group_saml` meta are orchestrated tests where the user accesses a group via SAML SSO.
+
+These tests depend on a SAML IDP Docker container ([jamedjo/test-SAML-idp](https://hub.docker.com/r/jamedjo/test-saml-idp)). The tests spin up the container themselves.
+
+To run these tests on your computer against the GDK:
+
+1. Add these settings to your `gitlab.yml` file:
+
+   ```yaml
+   omniauth:
+     enabled: true
+     providers:
+       - { name: 'group_saml' }
+   ```
+
+1. Run a group SAML test from [`gitlab/qa`](https://gitlab.com/gitlab-org/gitlab/-/tree/d5447ebb5f99d4c72780681ddf4dc25b0738acba/qa) directory:
+
+   ```shell
+   QA_DEBUG=true CHROME_HEADLESS=false bundle exec bin/qa Test::Instance::All http://localhost:3000 qa/specs/features/ee/browser_ui/1_manage/group/group_saml_enforced_sso_spec.rb -- --tag orchestrated
+   ```
+
+For instructions on how to run these tests using the `gitlab-qa` gem, refer to [the GitLab QA documentation](https://gitlab.com/gitlab-org/gitlab-qa/-/blob/master/docs/what_tests_can_be_run.md#testintegrationgroupsaml-eefull-image-address).
+
+## Instance SAML Tests
+
+Tests that are tagged with `:instance_saml` meta are orchestrated tests where the instance level sign-in happens using SAML SSO.
+
+These tests require a SAML IDP Docker container ([jamedjo/test-SAML-idp](https://hub.docker.com/r/jamedjo/test-saml-idp)) to be configured and running.
+
+To run these tests on your computer against the GDK:
+
+1. Add these settings to your `gitlab.yml` file:
+
+   ```yaml
+   omniauth:
+     enabled: true
+     allow_single_sign_on: ["saml"]
+     block_auto_created_users: false
+     auto_link_saml_user: true
+     providers:
+       - { name: 'saml',
+         args: {
+         assertion_consumer_service_url: 'http://gdk.test:3000/users/auth/saml/callback',
+         idp_cert_fingerprint: '11:9b:9e:02:79:59:cd:b7:c6:62:cf:d0:75:d9:e2:ef:38:4e:44:5f',
+         idp_sso_target_url: 'https://gdk.test:8443/simplesaml/saml2/idp/SSOService.php',
+         issuer: 'http://gdk.test:3000',
+         name_identifier_format: 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent'
+       } }
+   ```
+
+1. Start the SAML IDP Docker container:
+
+   ```shell
+   docker run --name=group_saml_qa_idp -p 8080:8080 -p 8443:8443 \
+   -e SIMPLESAMLPHP_SP_ENTITY_ID=http://localhost:3000 \
+   -e SIMPLESAMLPHP_SP_ASSERTION_CONSUMER_SERVICE=http://localhost:3000/users/auth/saml/callback \
+   -d jamedjo/test-saml-idp
+   ```
+
+1. Run the test from [`gitlab/qa`](https://gitlab.com/gitlab-org/gitlab/-/tree/d5447ebb5f99d4c72780681ddf4dc25b0738acba/qa) directory:
+
+   ```shell
+   QA_DEBUG=true CHROME_HEADLESS=false bundle exec bin/qa Test::Instance::All http://localhost:3000 qa/specs/features/browser_ui/1_manage/login/login_via_instance_wide_saml_sso_spec.rb -- --tag orchestrated
+   ```
+
+For instructions on how to run these tests using the `gitlab-qa` gem, refer to [the GitLab QA documentation](https://gitlab.com/gitlab-org/gitlab-qa/-/blob/master/docs/what_tests_can_be_run.md#testintegrationinstancesaml-ceeefull-image-address).
 
 ## LDAP Tests
 
@@ -354,7 +423,7 @@ To run the LDAP tests on your local with TLS enabled, follow these steps:
 1. Run an LDAP test from [`gitlab/qa`](https://gitlab.com/gitlab-org/gitlab/-/tree/d5447ebb5f99d4c72780681ddf4dc25b0738acba/qa) directory:
 
    ```shell
-   GITLAB_LDAP_USERNAME="tanuki" GITLAB_LDAP_PASSWORD="password" QA_DEBUG=true WEBDRIVER_HEADLESS=false bin/qa Test::Instance::All https://gitlab.test qa/specs/features/browser_ui/1_manage/login/log_into_gitlab_via_ldap_spec.rb
+   GITLAB_LDAP_USERNAME="tanuki" GITLAB_LDAP_PASSWORD="password" QA_LOG_LEVEL=debug WEBDRIVER_HEADLESS=false bin/qa Test::Instance::All https://gitlab.test qa/specs/features/browser_ui/1_manage/login/log_into_gitlab_via_ldap_spec.rb
    ```
 
 ### Running LDAP tests with TLS disabled
@@ -369,124 +438,156 @@ To run the LDAP tests on your local with TLS disabled, follow these steps:
 
 1. Run the GitLab container:
 
-  ```shell
-  sudo docker run \
-    --hostname localhost \
-    --net test \
-    --publish 443:443 --publish 80:80 --publish 22:22 \
-    --name gitlab \
-    --env GITLAB_OMNIBUS_CONFIG="gitlab_rails['ldap_enabled'] = true; gitlab_rails['ldap_servers'] = {\"main\"=>{\"label\"=>\"LDAP\", \"host\"=>\"ldap-server.test\", \"port\"=>389, \"uid\"=>\"uid\", \"bind_dn\"=>\"cn=admin,dc=example,dc=org\", \"password\"=>\"admin\", \"encryption\"=>\"plain\", \"verify_certificates\"=>false, \"base\"=>\"dc=example,dc=org\", \"user_filter\"=>\"\", \"group_base\"=>\"ou=Global Groups,dc=example,dc=org\", \"admin_group\"=>\"AdminGroup\", \"external_groups\"=>\"\", \"sync_ssh_keys\"=>false}}; gitlab_rails['ldap_sync_worker_cron'] = '* * * * *'; gitlab_rails['ldap_group_sync_worker_cron'] = '* * * * *'; " \
-  gitlab/gitlab-ee:latest
-  ```
+   ```shell
+   sudo docker run \
+     --hostname localhost \
+     --net test \
+     --publish 443:443 --publish 80:80 --publish 22:22 \
+     --name gitlab \
+     --env GITLAB_OMNIBUS_CONFIG="gitlab_rails['ldap_enabled'] = true; gitlab_rails['ldap_servers'] = {\"main\"=>{\"label\"=>\"LDAP\", \"host\"=>\"ldap-server.test\", \"port\"=>389, \"uid\"=>\"uid\", \"bind_dn\"=>\"cn=admin,dc=example,dc=org\", \"password\"=>\"admin\", \"encryption\"=>\"plain\", \"verify_certificates\"=>false, \"base\"=>\"dc=example,dc=org\", \"user_filter\"=>\"\", \"group_base\"=>\"ou=Global Groups,dc=example,dc=org\", \"admin_group\"=>\"AdminGroup\", \"external_groups\"=>\"\", \"sync_ssh_keys\"=>false}}; gitlab_rails['ldap_sync_worker_cron'] = '* * * * *'; gitlab_rails['ldap_group_sync_worker_cron'] = '* * * * *'; " \
+   gitlab/gitlab-ee:latest
+   ```
 
 1. Run an LDAP test from [`gitlab/qa`](https://gitlab.com/gitlab-org/gitlab/-/tree/d5447ebb5f99d4c72780681ddf4dc25b0738acba/qa) directory:
 
    ```shell
-   GITLAB_LDAP_USERNAME="tanuki" GITLAB_LDAP_PASSWORD="password" QA_DEBUG=true WEBDRIVER_HEADLESS=false bin/qa Test::Instance::All http://localhost qa/specs/features/browser_ui/1_manage/login/log_into_gitlab_via_ldap_spec.rb
+   GITLAB_LDAP_USERNAME="tanuki" GITLAB_LDAP_PASSWORD="password" QA_LOG_LEVEL=debug WEBDRIVER_HEADLESS=false bin/qa Test::Instance::All http://localhost qa/specs/features/browser_ui/1_manage/login/log_into_gitlab_via_ldap_spec.rb
    ```
 
-## Guide to the mobile suite
+## SMTP tests
 
-### What are mobile tests
+Tests that are tagged with `:smtp` meta tag are orchestrated tests that ensure email notifications are received by a user.
 
-Tests that are tagged with `:mobile` can be run against specified mobile devices using cloud emulator/simulator services.
+These tests require a GitLab instance with SMTP enabled and integrated with an SMTP server, [MailHog](https://github.com/mailhog/MailHog).
 
-### How to run mobile tests with Sauce Labs
+To run these tests locally against the GDK:
 
-Running directly against an environment like staging is not recommended because Sauce Labs test logs expose credentials. Therefore, it is best practice and the default to use a tunnel.
+1. Add these settings to your `gitlab.yml` file:
 
-For tunnel installation instructions, read [Sauce Connect Proxy Installation](https://docs.saucelabs.com/secure-connections/sauce-connect/installation). To start the tunnel, after following the installation above, copy the run command in Sauce Labs > Tunnels (must be logged in to Sauce Labs with the credentials found in 1Password) and run in terminal.
+   ```yaml
+   smtp:
+     enabled: true
+     address: "mailhog.test"
+     port: 1025
+   ```
 
-NOTE:
-It is highly recommended to use `GITLAB_QA_ACCESS_TOKEN` to speed up tests and reduce flakiness.
+1. Start MailHog in a Docker container:
 
-`QA_REMOTE_MOBILE_DEVICE_NAME` can be any device name listed in [Supported browsers and devices](https://saucelabs.com/platform/supported-browsers-devices) under Emulators/simulators and the latest versions of Android or iOS. `QA_BROWSER` must be set to `safari` for iOS devices and `chrome` for Android devices.
+   ```shell
+   docker network create test && docker run \
+     --network test \
+     --hostname mailhog.test \
+     --name mailhog \
+     --publish 1025:1025 \
+     --publish 8025:8025 \
+     mailhog/mailhog:v1.0.0
+   ```
 
-1. To test against a local instance with a tunnel running, in `gitlab/qa` run:
+1. Run the test from [`gitlab/qa`](https://gitlab.com/gitlab-org/gitlab/-/tree/d5447ebb5f99d4c72780681ddf4dc25b0738acba/qa) directory:
+
+   ```shell
+   QA_LOG_LEVEL=debug WEBDRIVER_HEADLESS=false bin/qa Test::Instance::All http://localhost:3000 qa/specs/features/browser_ui/2_plan/email/trigger_email_notification_spec.rb -- --tag orchestrated
+   ```
+
+For instructions on how to run these tests using the `gitlab-qa` gem, refer to [the GitLab QA documentation](https://gitlab.com/gitlab-org/gitlab-qa/-/blob/master/docs/what_tests_can_be_run.md#testintegrationsmtp-ceeefull-image-address).
+
+## Targeting canary vs non-canary components in live environments
+
+Use the `QA_COOKIES` ENV variable to have the entire test target a `canary` (`staging-canary` or `canary`) or `non-canary` (`staging` or `production`) environment.
+
+Locally, that would mean prepending the ENV variable to your call to bin/qa. To target the `canary` version of that environment:
 
 ```shell
-$ QA_BROWSER="safari" \
-  QA_REMOTE_MOBILE_DEVICE_NAME="iPhone 12 Simulator" \
-  QA_REMOTE_GRID="ondemand.saucelabs.com:80" \
-  QA_REMOTE_GRID_USERNAME="gitlab-sl" \
-  QA_REMOTE_GRID_ACCESS_KEY="<found in Sauce Lab account>" \
-  GITLAB_QA_ACCESS_TOKEN="<token>" \
-  bundle exec bin/qa Test::Instance::All http://<local_ip>:3000 -- <relative_spec_path>
+QA_COOKIES="gitlab_canary=true" WEBDRIVER_HEADLESS=false bin/qa Test::Instance::Staging <YOUR SPECIFIC TAGS OR TESTS>
 ```
 
-Results can be watched in real time while logged into Sauce Labs under AUTOMATED > Test Results.
+Alternatively, you may set the cookie to `false` to ensure the `non-canary` version is targeted.
 
-### How to add an existing test to the mobile suite
+You can also export the cookie for your current session to avoid prepending it each time:
 
-The main reason a test might fail when adding the `:mobile` tag is navigation differences in desktop vs mobile layouts, therefore the test needs to be updated to use mobile navigation when running mobile tests.
-
-If an existing method needs to be changed or a new one created, a new mobile page object should be created in `qa/qa/mobile/page/` and it should be prepended in the original page object by adding:
-
-```ruby
-prepend Mobile::Page::NewPageObject if Runtime::Env.mobile_layout?
+```shell
+export QA_COOKIES="gitlab_canary=true"
 ```
 
-For example to change an existing method when running mobile tests:
+### Updating the cookie within a running spec
 
-New mobile page object:
+Within a specific test, you can target either the `canary` or `non-canary` nodes within live environments, such as `staging` and `production`.
+
+For example, to switch back and forth between the two environments, you could utilize the `target_canary` method:
 
 ```ruby
-module QA
-  module Mobile
-    module Page
-      module Project
-        module Show
-          extend QA::Page::PageConcern
+it 'tests toggling between canary and non-canary nodes' do
+  Runtime::Browser.visit(:gitlab, Page::Main::Login)
 
-          def self.prepended(base)
-            super
+  # After starting the browser session, use the target_canary method ...
 
-            base.class_eval do
-              prepend QA::Mobile::Page::Main::Menu
+  Runtime::Browser::Session.target_canary(true)
+  Flow::Login.sign_in
 
-              view 'app/assets/javascripts/nav/components/top_nav_new_dropdown.vue' do
-                element :new_issue_mobile_button
-              end
-            end
-          end
+  verify_session_on_canary(true)
 
-          def go_to_new_issue
-            open_mobile_new_dropdown
+  Runtime::Browser::Session.target_canary(false)
 
-            click_element(:new_issue_mobile_button)
-          end
-        end
-      end
+  # Refresh the page ...
+
+  verify_session_on_canary(false)
+
+  # Log out and clean up ...
+end
+
+def verify_session_on_canary(enable_canary)
+  Page::Main::Menu.perform do |menu|
+    aggregate_failures 'testing session log in' do
+      expect(menu.canary?).to be(enable_canary)
     end
   end
 end
 ```
 
-Original page object prepending the new mobile if there's a mobile layout:
+You can verify whether GitLab is appropriately redirecting your session to the `canary` or `non-canary` nodes with the `menu.canary?` method.
 
-```ruby
-module QA
-  module Page
-    module Project
-      class Show < Page::Base
-        prepend Mobile::Page::Project::Show if Runtime::Env.mobile_layout?
+The above spec is verbose, written specifically this way to ensure the idea behind the implementation is clear. We recommend following the practices detailed within our [Beginner's guide to writing end-to-end tests](beginners_guide.md).
 
-        view 'app/views/layouts/header/_new_dropdown.html.haml' do
-          element :new_menu_toggle
-        end
+## Tests for GitLab as OpenID Connect (OIDC) and OAuth provider
 
-        view 'app/helpers/nav/new_dropdown_helper.rb' do
-          element :new_issue_link
-        end
+To run the [`login_via_oauth_and_oidc_with_gitlab_as_idp_spec`](https://gitlab.com/gitlab-org/gitlab/-/blob/2e2c8bcfa4f68cd39041806af531038ce4d2ab04/qa/qa/specs/features/browser_ui/1_manage/login/login_via_oauth_and_oidc_with_gitlab_as_idp_spec.rb) on your local machine:
 
-        def go_to_new_issue
-          click_element(:new_menu_toggle)
-          click_element(:new_issue_link)
-        end
-      end
-    end
-  end
-end
+1. Make sure your GDK is set to run on a non-localhost address such as `gdk.test:3000`.
+1. Configure a [loopback interface to 172.16.123.1](https://gitlab.com/gitlab-org/gitlab-development-kit/-/blob/6fe7b46403229f12ab6d903f99b024e0b82cb94a/doc/howto/local_network.md#create-loopback-interface).
+1. Make sure Docker Desktop or Rancher Desktop is running.
+1. Add an entry to your `/etc/hosts` file for `gitlab-oidc-consumer.bridge` and `gitlab-oauth-consumer.bridge` pointing to `127.0.0.1`.
+1. From the `qa` directory, run the following command. To set the GitLab image you want to use, update the `RELEASE` variable. For example, to use the latest EE image, set `RELEASE` to `gitlab/gitlab-ee:latest`:
+
+   ```shell
+   bundle install
+
+   RELEASE_REGISTRY_URL='registry.gitlab.com' RELEASE_REGISTRY_USERNAME='<your_gitlab_username>' RELEASE_REGISTRY_PASSWORD='<your_gitlab_personal_access_token>' RELEASE='registry.gitlab.com/gitlab-org/build/omnibus-gitlab-mirror/gitlab-ee:c0ae46db6b31ea231b2de88961cd687acf634179' GITLAB_QA_ADMIN_ACCESS_TOKEN="<your_gdk_admin_personal_access_token>" QA_DEBUG=true CHROME_HEADLESS=false bundle exec bin/qa Test::Instance::All http://gdk.test:3000 qa/specs/features/browser_ui/1_manage/login/login_via_oauth_and_oidc_with_gitlab_as_idp_spec.rb
+   ```
+
+## Product Analytics tests
+
+Product Analytics e2e tests require Product Analytics services running and connected to your GDK.
+
+In order to run Product Analytics services, devkit can be used. Instructions to set it up and connect to your GDK can be found in the [devkit project's `README.md`](https://gitlab.com/gitlab-org/analytics-section/product-analytics/devkit).
+
+Additionally, the following setup is required on the GDK:
+
+- Set environment variables for product analytics configuration. The following variables are default for running devkit locally.
+
+  ```shell
+  export PA_CONFIGURATOR_URL=http://test:test@localhost:4567
+  export PA_COLLECTOR_HOST=http://localhost:9091
+  export PA_CUBE_API_URL=http://localhost:4000
+  export PA_CUBE_API_KEY=thisisnotarealkey43ff15165ce01e4ff47d75092e3b25b2c0b20dc27f6cd5a8aed7b7bd855df88c9e0748d7afd37adda6d981c16177b086acf496bbdc62dbb
+  ```
+
+- Ultimate license applied.
+  - [How to request the license](https://handbook.gitlab.com/handbook/developer-onboarding/#working-on-gitlab-ee-developer-licenses).
+  - [How to activate GitLab EE with a license file or key](https://gitlab.com/gitlab-org/gitlab/-/blob/master/doc/administration/license_file.md#activate-gitlab-ee-with-a-license-file-or-key).
+- Simulate SaaS enabled. Instructions can be [found here](https://gitlab.com/gitlab-org/gitlab/-/blob/master/doc/development/ee_features.md#simulate-a-saas-instance).
+
+Once Product Analytics services are running and are connected to your GDK, the tests can be executed with:
+
+```shell
+bundle exec rspec qa/specs/features/ee/browser_ui/8_monitor/product_analytics/onboarding_spec.rb
 ```
-
-When running mobile tests for phone layouts, both `remote_mobile_device_name` and `mobile_layout` are `true` but when using a tablet layout, only `remote_mobile_device_name` is true. This is because phone layouts have more menus closed by default such as how both tablets and phones have the left nav closed but unlike phone layouts, tablets have the regular top navigation bar, not the mobile one. So in the case where the navigation being edited needs to be used in tablet layouts as well, use `remote_mobile_device_name` instead of `mobile_layout?` when prepending so it will use it if it's a tablet layout as well.

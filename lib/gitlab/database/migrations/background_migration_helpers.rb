@@ -41,6 +41,25 @@ module Gitlab
         #       end
         #     end
         def queue_background_migration_jobs_by_range_at_intervals(model_class, job_class_name, delay_interval, batch_size: BATCH_SIZE, other_job_arguments: [], initial_delay: 0, track_jobs: false, primary_column_name: :id)
+          if transaction_open?
+            raise 'The `#queue_background_migration_jobs_by_range_at_intervals` can not be run inside a transaction, ' \
+              'you can disable transactions by calling disable_ddl_transaction! ' \
+              'in the body of your migration class'
+          end
+
+          # Background Migrations do not work well for in cases requiring to update `gitlab_shared`
+          # Once the decomposition is done, enqueued jobs for `gitlab_shared` tables (on CI database)
+          # will not be executed since the queue (which is stored in Redis) is tied to main database, not to schema.
+          # The batched background migrations do not have those limitations since the tracking tables
+          # are properly database-only.
+          if background_migration_restrict_gitlab_migration_schemas&.include?(:gitlab_shared)
+            raise 'The `#queue_background_migration_jobs_by_range_at_intervals` cannot " \
+              "use `restrict_gitlab_migration:` " with `:gitlab_shared`. ' \
+              'Background migrations do encode migration worker which is tied to a given database. ' \
+              'After split this worker will not be properly duplicated into decomposed database. ' \
+              'Use batched background migrations instead that do support well working across all databases.'
+          end
+
           raise "#{model_class} does not have an ID column of #{primary_column_name} to use for batch ranges" unless model_class.column_names.include?(primary_column_name.to_s)
           raise "#{primary_column_name} is not an integer or string column" unless [:integer, :string].include?(model_class.columns_hash[primary_column_name.to_s].type)
 
@@ -57,12 +76,12 @@ module Gitlab
             max = relation.arel_table[primary_column_name].maximum
             min = relation.arel_table[primary_column_name].minimum
 
-            start_id, end_id = relation.pluck(min, max).first
+            start_id, end_id = relation.pick(min, max)
 
             # `SingleDatabaseWorker.bulk_perform_in` schedules all jobs for
             # the same time, which is not helpful in most cases where we wish to
             # spread the work over time.
-            final_delay = initial_delay + delay_interval * index
+            final_delay = initial_delay + (delay_interval * index)
             full_job_arguments = [start_id, end_id] + other_job_arguments
 
             track_in_database(job_class_name, full_job_arguments) if track_jobs
@@ -71,7 +90,7 @@ module Gitlab
             batch_counter += 1
           end
 
-          duration = initial_delay + delay_interval * batch_counter
+          duration = initial_delay + (delay_interval * batch_counter)
           say <<~SAY
             Scheduled #{batch_counter} #{job_class_name} jobs with a maximum of #{batch_size} records per batch and an interval of #{delay_interval} seconds.
 
@@ -90,6 +109,18 @@ module Gitlab
         # delay_interval - The duration between each job's scheduled time
         # batch_size - The maximum number of jobs to fetch to memory from the database.
         def requeue_background_migration_jobs_by_range_at_intervals(job_class_name, delay_interval, batch_size: BATCH_SIZE, initial_delay: 0)
+          if transaction_open?
+            raise 'The `#requeue_background_migration_jobs_by_range_at_intervals` can not be run inside a transaction, ' \
+              'you can disable transactions by calling disable_ddl_transaction! ' \
+              'in the body of your migration class'
+          end
+
+          if background_migration_restrict_gitlab_migration_schemas&.any?
+            raise 'The `#requeue_background_migration_jobs_by_range_at_intervals` cannot use `restrict_gitlab_migration:`. ' \
+              'The `#requeue_background_migration_jobs_by_range_at_intervals` needs to be executed on all databases since ' \
+              'each database has its own queue of background migrations.'
+          end
+
           job_coordinator = coordinator_for_tracking_database
 
           # To not overload the worker too much we enforce a minimum interval both
@@ -102,7 +133,7 @@ module Gitlab
           jobs = Gitlab::Database::BackgroundMigrationJob.pending.where(class_name: job_class_name)
           jobs.each_batch(of: batch_size) do |job_batch|
             job_batch.each do |job|
-              final_delay = initial_delay + delay_interval * job_counter
+              final_delay = initial_delay + (delay_interval * job_counter)
 
               migrate_in(final_delay, job_class_name, job.arguments, coordinator: job_coordinator)
 
@@ -110,7 +141,7 @@ module Gitlab
             end
           end
 
-          duration = initial_delay + delay_interval * job_counter
+          duration = initial_delay + (delay_interval * job_counter)
           say <<~SAY
             Scheduled #{job_counter} #{job_class_name} jobs with an interval of #{delay_interval} seconds.
 
@@ -133,23 +164,40 @@ module Gitlab
         # This method does not garauntee that all jobs completed successfully.
         # It can only be used if the previous background migration used the queue_background_migration_jobs_by_range_at_intervals helper.
         def finalize_background_migration(class_name, delete_tracking_jobs: ['succeeded'])
-          job_coordinator = coordinator_for_tracking_database
-
-          # Empty the sidekiq queue.
-          job_coordinator.steal(class_name)
-
-          # Process pending tracked jobs.
-          jobs = Gitlab::Database::BackgroundMigrationJob.pending.for_migration_class(class_name)
-
-          jobs.find_each do |job|
-            job_coordinator.perform(job.class_name, job.arguments)
+          if transaction_open?
+            raise 'The `#finalize_background_migration` can not be run inside a transaction, ' \
+              'you can disable transactions by calling disable_ddl_transaction! ' \
+              'in the body of your migration class'
           end
 
-          # Empty the sidekiq queue.
-          job_coordinator.steal(class_name)
+          if background_migration_restrict_gitlab_migration_schemas&.any?
+            raise 'The `#finalize_background_migration` cannot use `restrict_gitlab_migration:`. ' \
+              'The `#finalize_background_migration` needs to be executed on all databases since ' \
+              'each database has its own queue of background migrations.'
+          end
 
-          # Delete job tracking rows.
-          delete_job_tracking(class_name, status: delete_tracking_jobs) if delete_tracking_jobs
+          job_coordinator = coordinator_for_tracking_database
+
+          with_restored_connection_stack do
+            # Since we are running trusted code (background migration class) allow to execute any type of finalize
+            Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.with_suppressed do
+              # Empty the sidekiq queue.
+              job_coordinator.steal(class_name)
+
+              # Process pending tracked jobs.
+              jobs = Gitlab::Database::BackgroundMigrationJob.pending.for_migration_class(class_name)
+
+              jobs.find_each do |job|
+                job_coordinator.perform(job.class_name, job.arguments)
+              end
+
+              # Empty the sidekiq queue.
+              job_coordinator.steal(class_name)
+
+              # Delete job tracking rows.
+              delete_job_tracking(class_name, status: delete_tracking_jobs) if delete_tracking_jobs
+            end
+          end
         end
 
         def migrate_in(*args, coordinator: coordinator_for_tracking_database)
@@ -174,8 +222,12 @@ module Gitlab
 
         private
 
-        def with_migration_context(&block)
-          Gitlab::ApplicationContext.with_context(caller_id: self.class.to_s, &block)
+        def background_migration_restrict_gitlab_migration_schemas
+          self.allowed_gitlab_schemas if self.respond_to?(:allowed_gitlab_schemas)
+        end
+
+        def with_migration_context(&)
+          Gitlab::ApplicationContext.with_context(caller_id: self.class.to_s, &)
         end
 
         def track_in_database(class_name, arguments)
@@ -183,11 +235,9 @@ module Gitlab
         end
 
         def coordinator_for_tracking_database
-          Gitlab::BackgroundMigration.coordinator_for_database(tracking_database)
-        end
+          tracking_database = Gitlab::Database.db_config_name(connection)
 
-        def tracking_database
-          Gitlab::BackgroundMigration::DEFAULT_TRACKING_DATABASE
+          Gitlab::BackgroundMigration.coordinator_for_database(tracking_database)
         end
       end
     end

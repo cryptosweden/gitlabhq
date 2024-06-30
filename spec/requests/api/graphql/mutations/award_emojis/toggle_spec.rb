@@ -2,13 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Toggling an AwardEmoji' do
+RSpec.describe 'Toggling an AwardEmoji', feature_category: :shared do
   include GraphqlHelpers
 
   let_it_be(:current_user) { create(:user) }
-  let_it_be(:project, reload: true) { create(:project) }
-  let_it_be(:awardable) { create(:note, project: project) }
+  let_it_be(:group) { create(:group) }
+  let_it_be(:project, reload: true) { create(:project, group: group) }
+  let_it_be(:issue_note) { create(:note, project: project) }
 
+  let(:awardable) { issue_note }
   let(:emoji_name) { 'thumbsup' }
   let(:mutation) do
     variables = {
@@ -32,12 +34,12 @@ RSpec.describe 'Toggling an AwardEmoji' do
   end
 
   def create_award_emoji(user)
-    create(:award_emoji, name: emoji_name, awardable: awardable, user: user )
+    create(:award_emoji, name: emoji_name, awardable: awardable, user: user)
   end
 
   context 'when the user has permission' do
-    before do
-      project.add_developer(current_user)
+    before_all do
+      group.add_developer(current_user)
     end
 
     context 'when the given awardable is not an Awardable' do
@@ -56,10 +58,37 @@ RSpec.describe 'Toggling an AwardEmoji' do
       it_behaves_like 'a mutation that does not create or destroy an AwardEmoji'
 
       it_behaves_like 'a mutation that returns top-level errors',
-        errors: ['You cannot award emoji to this resource.']
+        errors: ['You cannot add emoji reactions to this resource.']
     end
 
     context 'when the given awardable is an Awardable' do
+      context 'when the awardable is a work item' do
+        context 'when the work item is associated directly with a group' do
+          let_it_be(:group_work_item) { create(:work_item, :group_level, namespace: group) }
+          let(:awardable) { group_work_item }
+
+          context 'when no emoji has been awarded by the current_user yet' do
+            it 'creates an emoji' do
+              expect do
+                post_graphql_mutation(mutation, current_user: current_user)
+              end.to change { AwardEmoji.count }.by(1)
+            end
+          end
+
+          context 'when an emoji has been awarded by the current_user' do
+            before do
+              create_award_emoji(current_user)
+            end
+
+            it 'removes the emoji' do
+              expect do
+                post_graphql_mutation(mutation, current_user: current_user)
+              end.to change { AwardEmoji.count }.by(-1)
+            end
+          end
+        end
+      end
+
       context 'when no emoji has been awarded by the current_user yet' do
         # Create an award emoji for another user. This therefore tests that
         # toggling is correctly scoped to the user's emoji only.
@@ -84,7 +113,7 @@ RSpec.describe 'Toggling an AwardEmoji' do
         end
 
         describe 'marking Todos as done' do
-          let(:user) { current_user}
+          let(:user) { current_user }
 
           subject { post_graphql_mutation(mutation, current_user: user) }
 

@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Ci::PipelinesFinder do
-  let(:project) { create(:project, :public, :repository) }
+  let_it_be(:project) { create(:project, :public, :repository) }
   let(:current_user) { nil }
   let(:params) { {} }
 
@@ -50,6 +50,28 @@ RSpec.describe Ci::PipelinesFinder do
       context 'when scope is branches' do
         let(:params) { { scope: 'branches' } }
 
+        context 'when project has child pipelines' do
+          let!(:child_pipeline) { create(:ci_pipeline, project: project, source: :parent_pipeline) }
+
+          let!(:pipeline_source) do
+            create(:ci_sources_pipeline, pipeline: child_pipeline, source_pipeline: pipeline_branch)
+          end
+
+          it 'displays child pipelines' do
+            is_expected.to contain_exactly(pipeline_branch)
+          end
+
+          context 'when exclude_child_pipelines_from_tag_branch_query FF is disabled' do
+            before do
+              stub_feature_flags(exclude_child_pipelines_from_tag_branch_query: false)
+            end
+
+            it 'displays child pipelines' do
+              is_expected.to contain_exactly(child_pipeline)
+            end
+          end
+        end
+
         it 'returns matched pipelines' do
           is_expected.to eq([pipeline_branch])
         end
@@ -57,6 +79,28 @@ RSpec.describe Ci::PipelinesFinder do
 
       context 'when scope is tags' do
         let(:params) { { scope: 'tags' } }
+
+        context 'when project has child pipelines' do
+          let!(:child_pipeline) { create(:ci_pipeline, project: project, source: :parent_pipeline, ref: 'v1.0.0', tag: true) }
+
+          let!(:pipeline_source) do
+            create(:ci_sources_pipeline, pipeline: child_pipeline, source_pipeline: pipeline_tag)
+          end
+
+          it 'filters out child pipelines and shows only the parents by default' do
+            is_expected.to contain_exactly(pipeline_tag)
+          end
+
+          context 'when exclude_child_pipelines_from_tag_branch_query FF is disabled' do
+            before do
+              stub_feature_flags(exclude_child_pipelines_from_tag_branch_query: false)
+            end
+
+            it 'displays child pipelines' do
+              is_expected.to contain_exactly(child_pipeline)
+            end
+          end
+        end
 
         it 'returns matched pipelines' do
           is_expected.to eq([pipeline_tag])
@@ -74,6 +118,14 @@ RSpec.describe Ci::PipelinesFinder do
 
       it 'filters out child pipelines and shows only the parents by default' do
         is_expected.to eq([parent_pipeline])
+      end
+
+      context 'when source is parent_pipeline' do
+        let(:params) { { source: 'parent_pipeline' } }
+
+        it 'does not filter out child pipelines' do
+          is_expected.to eq([child_pipeline])
+        end
       end
     end
 
@@ -184,7 +236,7 @@ RSpec.describe Ci::PipelinesFinder do
         is_expected.to match_array([pipeline1, pipeline3])
       end
 
-      it 'does not fitler out child pipelines' do
+      it 'does not filter out child pipelines' do
         is_expected.to include(pipeline3)
       end
     end
@@ -239,6 +291,25 @@ RSpec.describe Ci::PipelinesFinder do
 
       it 'returns only the matched pipeline' do
         is_expected.to eq([web_pipeline])
+      end
+    end
+
+    context 'when name is specified' do
+      let_it_be(:pipeline) { create(:ci_pipeline, project: project, name: 'Build pipeline') }
+      let_it_be(:pipeline_other) { create(:ci_pipeline, project: project, name: 'Some other pipeline') }
+
+      let(:params) { { name: 'Build pipeline' } }
+
+      it 'performs exact compare' do
+        is_expected.to contain_exactly(pipeline)
+      end
+
+      context 'when name does not exist' do
+        let(:params) { { name: 'absent-name' } }
+
+        it 'returns empty' do
+          is_expected.to be_empty
+        end
       end
     end
 

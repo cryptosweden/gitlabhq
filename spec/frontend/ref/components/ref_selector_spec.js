@@ -1,15 +1,20 @@
-import { GlLoadingIcon, GlSearchBoxByType, GlDropdownItem, GlDropdown, GlIcon } from '@gitlab/ui';
-import { mount } from '@vue/test-utils';
+import { GlLoadingIcon, GlCollapsibleListbox, GlListboxItem } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { merge, last } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import tags from 'test_fixtures/api/tags/tags.json';
 import commit from 'test_fixtures/api/commits/commit.json';
 import branches from 'test_fixtures/api/branches/branches.json';
-import tags from 'test_fixtures/api/tags/tags.json';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { trimText } from 'helpers/text_helper';
-import { ENTER_KEY } from '~/lib/utils/keys';
+import {
+  HTTP_STATUS_INTERNAL_SERVER_ERROR,
+  HTTP_STATUS_NOT_FOUND,
+  HTTP_STATUS_OK,
+} from '~/lib/utils/http_status';
 import { sprintf } from '~/locale';
 import RefSelector from '~/ref/components/ref_selector.vue';
 import {
@@ -18,15 +23,28 @@ import {
   REF_TYPE_BRANCHES,
   REF_TYPE_TAGS,
   REF_TYPE_COMMITS,
+  BRANCH_REF_TYPE_ICON,
+  TAG_REF_TYPE_ICON,
 } from '~/ref/constants';
 import createStore from '~/ref/stores/';
 
 Vue.use(Vuex);
 
 describe('Ref selector component', () => {
-  const fixtures = { branches, tags, commit };
+  const branchRefTypeMock = { name: 'refs/heads/test_branch' };
+  const tagRefTypeMock = { name: 'refs/tags/test_tag' };
+  const protectedBranchMock = { name: 'protected_mock_branch', protected: true };
+  const protectedTagMock = { name: 'protected_tag_mock', protected: true };
+  const fixtures = {
+    branches: [branchRefTypeMock, tagRefTypeMock, protectedBranchMock, ...branches],
+    tags: [protectedTagMock, ...tags],
+    commit,
+  };
 
   const projectId = '8';
+  const totalBranchesCount = 123;
+  const totalTagsCount = 456;
+  const queryParams = { sort: 'updated_desc' };
 
   let wrapper;
   let branchesApiCallSpy;
@@ -34,14 +52,15 @@ describe('Ref selector component', () => {
   let commitApiCallSpy;
   let requestSpies;
 
-  const createComponent = (mountOverrides = {}) => {
-    wrapper = mount(
+  const createComponent = ({ overrides = {}, propsData = {} } = {}) => {
+    wrapper = mountExtended(
       RefSelector,
       merge(
         {
           propsData: {
             projectId,
             value: '',
+            ...propsData,
           },
           listeners: {
             // simulate a parent component v-model binding
@@ -49,12 +68,9 @@ describe('Ref selector component', () => {
               wrapper.setProps({ value: selectedRef });
             },
           },
-          stubs: {
-            GlSearchBoxByType: true,
-          },
           store: createStore(),
         },
-        mountOverrides,
+        overrides,
       ),
     );
   };
@@ -65,9 +81,15 @@ describe('Ref selector component', () => {
 
     branchesApiCallSpy = jest
       .fn()
-      .mockReturnValue([200, fixtures.branches, { [X_TOTAL_HEADER]: '123' }]);
-    tagsApiCallSpy = jest.fn().mockReturnValue([200, fixtures.tags, { [X_TOTAL_HEADER]: '456' }]);
-    commitApiCallSpy = jest.fn().mockReturnValue([200, fixtures.commit]);
+      .mockReturnValue([
+        HTTP_STATUS_OK,
+        fixtures.branches,
+        { [X_TOTAL_HEADER]: totalBranchesCount },
+      ]);
+    tagsApiCallSpy = jest
+      .fn()
+      .mockReturnValue([HTTP_STATUS_OK, fixtures.tags, { [X_TOTAL_HEADER]: totalTagsCount }]);
+    commitApiCallSpy = jest.fn().mockReturnValue([HTTP_STATUS_OK, fixtures.commit]);
     requestSpies = { branchesApiCallSpy, tagsApiCallSpy, commitApiCallSpy };
 
     mock
@@ -81,74 +103,63 @@ describe('Ref selector component', () => {
       .reply((config) => commitApiCallSpy(config));
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   //
   // Finders
   //
-  const findButtonContent = () => wrapper.find('button');
+  const findListbox = () => wrapper.findComponent(GlCollapsibleListbox);
 
-  const findNoResults = () => wrapper.find('[data-testid="no-results"]');
+  const findButtonToggle = () => wrapper.findByTestId('base-dropdown-toggle');
 
-  const findLoadingIcon = () => wrapper.find(GlLoadingIcon);
+  const findNoResults = () => wrapper.findByTestId('listbox-no-results-text');
 
-  const findSearchBox = () => wrapper.find(GlSearchBoxByType);
+  const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
 
-  const findBranchesSection = () => wrapper.find('[data-testid="branches-section"]');
-  const findBranchDropdownItems = () => findBranchesSection().findAll(GlDropdownItem);
-  const findFirstBranchDropdownItem = () => findBranchDropdownItems().at(0);
+  const findListBoxSection = (section) => {
+    const foundSections = wrapper
+      .findAll('[role="group"]')
+      .filter((ul) => ul.text().includes(section));
+    return foundSections.length > 0 ? foundSections.at(0) : foundSections;
+  };
 
-  const findTagsSection = () => wrapper.find('[data-testid="tags-section"]');
-  const findTagDropdownItems = () => findTagsSection().findAll(GlDropdownItem);
-  const findFirstTagDropdownItem = () => findTagDropdownItems().at(0);
+  const findErrorListWrapper = () => wrapper.findByTestId('red-selector-error-list');
 
-  const findCommitsSection = () => wrapper.find('[data-testid="commits-section"]');
-  const findCommitDropdownItems = () => findCommitsSection().findAll(GlDropdownItem);
-  const findFirstCommitDropdownItem = () => findCommitDropdownItems().at(0);
+  const findBranchesSection = () => findListBoxSection('Branches');
+  const findBranchDropdownItems = () => wrapper.findAllComponents(GlListboxItem);
+
+  const findTagsSection = () => findListBoxSection('Tags');
+
+  const findCommitsSection = () => findListBoxSection('Commits');
+
+  const findHiddenInputField = () => wrapper.findByTestId('selected-ref-form-field');
 
   //
   // Expecters
   //
-  const branchesSectionContainsErrorMessage = () => {
-    const branchesSection = findBranchesSection();
+  const sectionContainsErrorMessage = (message) => {
+    const errorSection = findErrorListWrapper();
 
-    return branchesSection.text().includes(DEFAULT_I18N.branchesErrorMessage);
-  };
-
-  const tagsSectionContainsErrorMessage = () => {
-    const tagsSection = findTagsSection();
-
-    return tagsSection.text().includes(DEFAULT_I18N.tagsErrorMessage);
-  };
-
-  const commitsSectionContainsErrorMessage = () => {
-    const commitsSection = findCommitsSection();
-
-    return commitsSection.text().includes(DEFAULT_I18N.commitsErrorMessage);
+    return errorSection ? errorSection.text().includes(message) : false;
   };
 
   //
   // Convenience methods
   //
   const updateQuery = (newQuery) => {
-    findSearchBox().vm.$emit('input', newQuery);
+    findListbox().vm.$emit('search', newQuery);
   };
 
   const selectFirstBranch = async () => {
-    findFirstBranchDropdownItem().vm.$emit('click');
+    findListbox().vm.$emit('select', fixtures.branches[0].name);
     await nextTick();
   };
 
   const selectFirstTag = async () => {
-    findFirstTagDropdownItem().vm.$emit('click');
+    findListbox().vm.$emit('select', fixtures.tags[0].name);
     await nextTick();
   };
 
   const selectFirstCommit = async () => {
-    findFirstCommitDropdownItem().vm.$emit('click');
+    findListbox().vm.$emit('select', fixtures.commit.id);
     await nextTick();
   };
 
@@ -162,9 +173,9 @@ describe('Ref selector component', () => {
     });
 
   describe('initialization behavior', () => {
-    beforeEach(createComponent);
-
     it('initializes the dropdown with branches and tags when mounted', () => {
+      createComponent();
+
       return waitForRequests().then(() => {
         expect(branchesApiCallSpy).toHaveBeenCalledTimes(1);
         expect(tagsApiCallSpy).toHaveBeenCalledTimes(1);
@@ -173,10 +184,30 @@ describe('Ref selector component', () => {
     });
 
     it('shows a spinner while network requests are in progress', () => {
+      createComponent();
+
       expect(findLoadingIcon().exists()).toBe(true);
 
       return waitForRequests().then(() => {
         expect(findLoadingIcon().exists()).toBe(false);
+      });
+    });
+
+    describe('when name property is provided', () => {
+      it('renders an form input hidden field', () => {
+        const name = 'default_tag';
+
+        createComponent({ propsData: { name } });
+
+        expect(findHiddenInputField().attributes().name).toBe(name);
+      });
+    });
+
+    describe('when name property is not provided', () => {
+      it('renders an form input hidden field', () => {
+        createComponent();
+
+        expect(findHiddenInputField().exists()).toBe(false);
       });
     });
   });
@@ -186,13 +217,13 @@ describe('Ref selector component', () => {
       const id = 'git-ref';
 
       beforeEach(() => {
-        createComponent({ attrs: { id } });
+        createComponent({ overrides: { attrs: { id } } });
 
         return waitForRequests();
       });
 
       it('adds the provided ID to the GlDropdown instance', () => {
-        expect(wrapper.attributes().id).toBe(id);
+        expect(findListbox().attributes().id).toBe(id);
       });
     });
 
@@ -200,13 +231,17 @@ describe('Ref selector component', () => {
       const preselectedRef = fixtures.branches[0].name;
 
       beforeEach(() => {
-        createComponent({ propsData: { value: preselectedRef } });
+        createComponent({ propsData: { value: preselectedRef, name: 'selectedRef' } });
 
         return waitForRequests();
       });
 
       it('renders the pre-selected ref name', () => {
-        expect(findButtonContent().text()).toBe(preselectedRef);
+        expect(findButtonToggle().text()).toBe(preselectedRef);
+      });
+
+      it('binds hidden input field to the pre-selected ref', () => {
+        expect(findHiddenInputField().attributes().value).toBe(preselectedRef);
       });
     });
 
@@ -223,7 +258,7 @@ describe('Ref selector component', () => {
         wrapper.setProps({ value: updatedRef });
 
         await nextTick();
-        expect(findButtonContent().text()).toBe(updatedRef);
+        expect(findButtonToggle().text()).toBe(updatedRef);
       });
     });
 
@@ -260,28 +295,13 @@ describe('Ref selector component', () => {
       });
     });
 
-    describe('when the Enter is pressed', () => {
-      beforeEach(() => {
-        createComponent();
-
-        return waitForRequests({ andClearMocks: true });
-      });
-
-      it('requeries the endpoints when Enter is pressed', () => {
-        findSearchBox().vm.$emit('keydown', new KeyboardEvent({ key: ENTER_KEY }));
-
-        return waitForRequests().then(() => {
-          expect(branchesApiCallSpy).toHaveBeenCalledTimes(1);
-          expect(tagsApiCallSpy).toHaveBeenCalledTimes(1);
-        });
-      });
-    });
-
     describe('when no results are found', () => {
       beforeEach(() => {
-        branchesApiCallSpy = jest.fn().mockReturnValue([200, [], { [X_TOTAL_HEADER]: '0' }]);
-        tagsApiCallSpy = jest.fn().mockReturnValue([200, [], { [X_TOTAL_HEADER]: '0' }]);
-        commitApiCallSpy = jest.fn().mockReturnValue([404]);
+        branchesApiCallSpy = jest
+          .fn()
+          .mockReturnValue([HTTP_STATUS_OK, [], { [X_TOTAL_HEADER]: '0' }]);
+        tagsApiCallSpy = jest.fn().mockReturnValue([HTTP_STATUS_OK, [], { [X_TOTAL_HEADER]: '0' }]);
+        commitApiCallSpy = jest.fn().mockReturnValue([HTTP_STATUS_NOT_FOUND]);
 
         createComponent();
 
@@ -312,7 +332,7 @@ describe('Ref selector component', () => {
     describe('branches', () => {
       describe('when the branches search returns results', () => {
         beforeEach(() => {
-          createComponent();
+          createComponent({ propsData: { useSymbolicRefNames: true } });
 
           return waitForRequests();
         });
@@ -321,24 +341,8 @@ describe('Ref selector component', () => {
           expect(findBranchesSection().exists()).toBe(true);
         });
 
-        it('renders the "Branches" heading with a total number indicator', () => {
-          expect(
-            findBranchesSection().find('[data-testid="section-header"]').text(),
-          ).toMatchInterpolatedText('Branches 123');
-        });
-
         it("does not render an error message in the branches section's body", () => {
-          expect(branchesSectionContainsErrorMessage()).toBe(false);
-        });
-
-        it('renders each non-default branch as a selectable item', () => {
-          const dropdownItems = findBranchDropdownItems();
-
-          fixtures.branches.forEach((b, i) => {
-            if (!b.default) {
-              expect(dropdownItems.at(i).text()).toBe(b.name);
-            }
-          });
+          expect(findErrorListWrapper().exists()).toBe(false);
         });
 
         it('renders the default branch as a selectable item with a "default" badge', () => {
@@ -351,11 +355,23 @@ describe('Ref selector component', () => {
             `${defaultBranch.name} default`,
           );
         });
+
+        it('renders the protected branch as a selectable item with a "protected" badge', () => {
+          const dropdownItems = findBranchDropdownItems();
+          const protectedBranch = fixtures.branches.find((b) => b.protected);
+          const protectedBranchIndex = fixtures.branches.indexOf(protectedBranch);
+
+          expect(trimText(dropdownItems.at(protectedBranchIndex).text())).toBe(
+            `${protectedBranch.name} protected`,
+          );
+        });
       });
 
       describe('when the branches search returns no results', () => {
         beforeEach(() => {
-          branchesApiCallSpy = jest.fn().mockReturnValue([200, [], { [X_TOTAL_HEADER]: '0' }]);
+          branchesApiCallSpy = jest
+            .fn()
+            .mockReturnValue([HTTP_STATUS_OK, [], { [X_TOTAL_HEADER]: '0' }]);
 
           createComponent();
 
@@ -369,7 +385,7 @@ describe('Ref selector component', () => {
 
       describe('when the branches search returns an error', () => {
         beforeEach(() => {
-          branchesApiCallSpy = jest.fn().mockReturnValue([500]);
+          branchesApiCallSpy = jest.fn().mockReturnValue([HTTP_STATUS_INTERNAL_SERVER_ERROR]);
 
           createComponent();
 
@@ -377,11 +393,11 @@ describe('Ref selector component', () => {
         });
 
         it('renders the branches section in the dropdown', () => {
-          expect(findBranchesSection().exists()).toBe(true);
+          expect(findBranchesSection().exists()).toBe(false);
         });
 
         it("renders an error message in the branches section's body", () => {
-          expect(branchesSectionContainsErrorMessage()).toBe(true);
+          expect(sectionContainsErrorMessage(DEFAULT_I18N.branchesErrorMessage)).toBe(true);
         });
       });
     });
@@ -389,7 +405,7 @@ describe('Ref selector component', () => {
     describe('tags', () => {
       describe('when the tags search returns results', () => {
         beforeEach(() => {
-          createComponent();
+          createComponent({ propsData: { useSymbolicRefNames: true } });
 
           return waitForRequests();
         });
@@ -399,27 +415,31 @@ describe('Ref selector component', () => {
         });
 
         it('renders the "Tags" heading with a total number indicator', () => {
-          expect(
-            findTagsSection().find('[data-testid="section-header"]').text(),
-          ).toMatchInterpolatedText('Tags 456');
+          expect(findTagsSection().find('[role="presentation"]').text()).toMatchInterpolatedText(
+            `Tags ${fixtures.tags.length}`,
+          );
         });
 
         it("does not render an error message in the tags section's body", () => {
-          expect(tagsSectionContainsErrorMessage()).toBe(false);
+          expect(findErrorListWrapper().exists()).toBe(false);
         });
 
-        it('renders each tag as a selectable item', () => {
-          const dropdownItems = findTagDropdownItems();
+        it('renders the protected tag as a selectable item with a "protected" badge', () => {
+          const dropdownItems = findBranchDropdownItems();
+          const protectedTag = fixtures.tags.find((b) => b.protected);
+          const protectedTagIndex = fixtures.tags.indexOf(protectedTag) + fixtures.branches.length;
 
-          fixtures.tags.forEach((t, i) => {
-            expect(dropdownItems.at(i).text()).toBe(t.name);
-          });
+          expect(trimText(dropdownItems.at(protectedTagIndex).text())).toBe(
+            `${protectedTag.name} protected`,
+          );
         });
       });
 
       describe('when the tags search returns no results', () => {
         beforeEach(() => {
-          tagsApiCallSpy = jest.fn().mockReturnValue([200, [], { [X_TOTAL_HEADER]: '0' }]);
+          tagsApiCallSpy = jest
+            .fn()
+            .mockReturnValue([HTTP_STATUS_OK, [], { [X_TOTAL_HEADER]: '0' }]);
 
           createComponent();
 
@@ -433,7 +453,7 @@ describe('Ref selector component', () => {
 
       describe('when the tags search returns an error', () => {
         beforeEach(() => {
-          tagsApiCallSpy = jest.fn().mockReturnValue([500]);
+          tagsApiCallSpy = jest.fn().mockReturnValue([HTTP_STATUS_INTERNAL_SERVER_ERROR]);
 
           createComponent();
 
@@ -441,11 +461,11 @@ describe('Ref selector component', () => {
         });
 
         it('renders the tags section in the dropdown', () => {
-          expect(findTagsSection().exists()).toBe(true);
+          expect(findTagsSection().exists()).toBe(false);
         });
 
         it("renders an error message in the tags section's body", () => {
-          expect(tagsSectionContainsErrorMessage()).toBe(true);
+          expect(sectionContainsErrorMessage(DEFAULT_I18N.tagsErrorMessage)).toBe(true);
         });
       });
     });
@@ -465,25 +485,19 @@ describe('Ref selector component', () => {
         });
 
         it('renders the "Commits" heading with a total number indicator', () => {
-          expect(
-            findCommitsSection().find('[data-testid="section-header"]').text(),
-          ).toMatchInterpolatedText('Commits 1');
+          expect(findCommitsSection().find('[role="presentation"]').text()).toMatchInterpolatedText(
+            `Commits 1`,
+          );
         });
 
-        it("does not render an error message in the comits section's body", () => {
-          expect(commitsSectionContainsErrorMessage()).toBe(false);
-        });
-
-        it('renders each commit as a selectable item with the short SHA and commit title', () => {
-          const dropdownItems = findCommitDropdownItems();
-
-          expect(dropdownItems.at(0).text()).toBe(`${commit.short_id} ${commit.title}`);
+        it("does not render an error message in the commits section's body", () => {
+          expect(findErrorListWrapper().exists()).toBe(false);
         });
       });
 
       describe('when the commit search returns no results (i.e. a 404)', () => {
         beforeEach(() => {
-          commitApiCallSpy = jest.fn().mockReturnValue([404]);
+          commitApiCallSpy = jest.fn().mockReturnValue([HTTP_STATUS_NOT_FOUND]);
 
           createComponent();
 
@@ -499,7 +513,7 @@ describe('Ref selector component', () => {
 
       describe('when the commit search returns an error (other than a 404)', () => {
         beforeEach(() => {
-          commitApiCallSpy = jest.fn().mockReturnValue([500]);
+          commitApiCallSpy = jest.fn().mockReturnValue([HTTP_STATUS_INTERNAL_SERVER_ERROR]);
 
           createComponent();
 
@@ -509,11 +523,11 @@ describe('Ref selector component', () => {
         });
 
         it('renders the commits section in the dropdown', () => {
-          expect(findCommitsSection().exists()).toBe(true);
+          expect(findCommitsSection().exists()).toBe(false);
         });
 
         it("renders an error message in the commits section's body", () => {
-          expect(commitsSectionContainsErrorMessage()).toBe(true);
+          expect(sectionContainsErrorMessage(DEFAULT_I18N.commitsErrorMessage)).toBe(true);
         });
       });
     });
@@ -527,73 +541,72 @@ describe('Ref selector component', () => {
         return waitForRequests();
       });
 
-      it('renders a checkmark by the selected item', async () => {
-        expect(findFirstBranchDropdownItem().find(GlIcon).element).toHaveClass(
-          'gl-visibility-hidden',
-        );
-
-        await selectFirstBranch();
-
-        expect(findFirstBranchDropdownItem().find(GlIcon).element).not.toHaveClass(
-          'gl-visibility-hidden',
-        );
-      });
-
-      describe('when a branch is seleceted', () => {
+      describe('when a branch is selected', () => {
         it("displays the branch name in the dropdown's button", async () => {
-          expect(findButtonContent().text()).toBe(DEFAULT_I18N.noRefSelected);
+          expect(findButtonToggle().text()).toBe(DEFAULT_I18N.noRefSelected);
 
           await selectFirstBranch();
 
-          await nextTick();
-          expect(findButtonContent().text()).toBe(fixtures.branches[0].name);
+          expect(findButtonToggle().text()).toBe(fixtures.branches[0].name);
         });
 
         it("updates the v-model binding with the branch's name", async () => {
-          expect(wrapper.vm.value).toEqual('');
+          expect(findListbox().props('selected')).toBe('');
 
           await selectFirstBranch();
 
-          expect(wrapper.vm.value).toEqual(fixtures.branches[0].name);
+          expect(findListbox().props('selected')).toBe(fixtures.branches[0].name);
         });
       });
 
       describe('when a tag is seleceted', () => {
         it("displays the tag name in the dropdown's button", async () => {
-          expect(findButtonContent().text()).toBe(DEFAULT_I18N.noRefSelected);
+          expect(findButtonToggle().text()).toBe(DEFAULT_I18N.noRefSelected);
 
           await selectFirstTag();
 
-          await nextTick();
-          expect(findButtonContent().text()).toBe(fixtures.tags[0].name);
+          expect(findButtonToggle().text()).toBe(fixtures.tags[0].name);
         });
 
         it("updates the v-model binding with the tag's name", async () => {
-          expect(wrapper.vm.value).toEqual('');
+          expect(findListbox().props('selected')).toBe('');
 
           await selectFirstTag();
 
-          expect(wrapper.vm.value).toEqual(fixtures.tags[0].name);
+          expect(findListbox().props('selected')).toBe(fixtures.tags[0].name);
         });
       });
 
       describe('when a commit is selected', () => {
         it("displays the full SHA in the dropdown's button", async () => {
-          expect(findButtonContent().text()).toBe(DEFAULT_I18N.noRefSelected);
+          expect(findButtonToggle().text()).toBe(DEFAULT_I18N.noRefSelected);
 
           await selectFirstCommit();
 
-          await nextTick();
-          expect(findButtonContent().text()).toBe(fixtures.commit.id);
+          expect(findButtonToggle().text()).toBe(fixtures.commit.id);
         });
 
         it("updates the v-model binding with the commit's full SHA", async () => {
-          expect(wrapper.vm.value).toEqual('');
+          expect(findListbox().props('selected')).toBe('');
 
           await selectFirstCommit();
 
-          expect(wrapper.vm.value).toEqual(fixtures.commit.id);
+          expect(findListbox().props('selected')).toBe(fixtures.commit.id);
         });
+      });
+    });
+
+    describe('disabled', () => {
+      it('does not disable the dropdown', () => {
+        createComponent();
+        expect(findListbox().props('disabled')).toBe(false);
+      });
+
+      it('disables the dropdown', async () => {
+        createComponent({ propsData: { disabled: true } });
+        expect(findListbox().props('disabled')).toBe(true);
+        await selectFirstBranch();
+        expect(wrapper.emitted('input')).toBeUndefined();
       });
     });
   });
@@ -644,19 +657,17 @@ describe('Ref selector component', () => {
       expect(tagsApiCallSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('if a ref type becomes disabled, its section is hidden, even if it had some results in store', async () => {
-      createComponent({ propsData: { enabledRefTypes: [REF_TYPE_BRANCHES, REF_TYPE_COMMITS] } });
-      updateQuery('abcd1234');
-      await waitForRequests();
+    it.each`
+      selectedBranch            | icon
+      ${branchRefTypeMock.name} | ${BRANCH_REF_TYPE_ICON}
+      ${tagRefTypeMock.name}    | ${TAG_REF_TYPE_ICON}
+      ${branches[0].name}       | ${''}
+    `('renders the correct icon for the selected ref', async ({ selectedBranch, icon }) => {
+      createComponent();
+      findListbox().vm.$emit('select', selectedBranch);
+      await nextTick();
 
-      expect(findBranchesSection().exists()).toBe(true);
-      expect(findCommitsSection().exists()).toBe(true);
-
-      wrapper.setProps({ enabledRefTypes: [REF_TYPE_COMMITS] });
-      await waitForRequests();
-
-      expect(findBranchesSection().exists()).toBe(false);
-      expect(findCommitsSection().exists()).toBe(true);
+      expect(findListbox().props('icon')).toBe(icon);
     });
 
     it.each`
@@ -681,8 +692,8 @@ describe('Ref selector component', () => {
   });
 
   describe('validation state', () => {
-    const invalidClass = 'gl-inset-border-1-red-500!';
-    const isInvalidClassApplied = () => wrapper.find(GlDropdown).props('toggleClass')[invalidClass];
+    const invalidClass = '!gl-shadow-inner-1-red-500';
+    const isInvalidClassApplied = () => findListbox().props('toggleClass')[0][invalidClass];
 
     describe('valid state', () => {
       describe('when the state prop is not provided', () => {
@@ -720,9 +731,7 @@ describe('Ref selector component', () => {
     });
 
     beforeEach(() => {
-      createComponent({
-        scopedSlots: { footer: createFooter },
-      });
+      createComponent({ overrides: { scopedSlots: { footer: createFooter } } });
 
       updateQuery('abcd1234');
 
@@ -742,7 +751,67 @@ describe('Ref selector component', () => {
       // is updated. For the sake of this test, we'll just test the last call, which
       // represents the final state of the slot props.
       const lastCallProps = last(createFooter.mock.calls)[0];
-      expect(lastCallProps).toMatchSnapshot();
+      expect(lastCallProps.isLoading).toBe(false);
+      expect(lastCallProps.query).toBe('abcd1234');
+
+      const branchesList = fixtures.branches.map((branch) => {
+        return {
+          default: branch.default,
+          name: branch.name,
+        };
+      });
+
+      const commitsList = [
+        {
+          name: fixtures.commit.short_id,
+          subtitle: fixtures.commit.title,
+          value: fixtures.commit.id,
+        },
+      ];
+
+      const tagsList = fixtures.tags.map((tag) => {
+        return {
+          name: tag.name,
+        };
+      });
+
+      const expectedMatches = {
+        branches: {
+          list: branchesList,
+          totalCount: totalBranchesCount,
+        },
+        commits: {
+          list: commitsList,
+          totalCount: 1,
+        },
+        tags: {
+          list: tagsList,
+          totalCount: totalTagsCount,
+        },
+      };
+
+      expect(lastCallProps.matches).toMatchObject(expectedMatches);
+    });
+  });
+  describe('when queryParam prop is present', () => {
+    it('passes params to a branches API call', () => {
+      createComponent({ propsData: { queryParams } });
+
+      return waitForRequests().then(() => {
+        expect(branchesApiCallSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ params: { per_page: 20, search: '', sort: queryParams.sort } }),
+        );
+      });
+    });
+
+    it('does not pass params to tags API call', () => {
+      createComponent({ propsData: { queryParams } });
+
+      return waitForRequests().then(() => {
+        expect(tagsApiCallSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ params: { per_page: 20, search: '' } }),
+        );
+      });
     });
   });
 });

@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService do
+RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
+  feature_category: :continuous_integration do
   context 'cache' do
     let(:project)  { create(:project, :custom_repo, files: files) }
     let(:user)     { project.first_owner }
@@ -33,11 +34,13 @@ RSpec.describe Ci::CreatePipelineService do
 
       it 'uses the provided key' do
         expected = {
-          key: 'a-key',
+          key: a_string_matching(/^a-key-(?>protected|non_protected)$/),
           paths: ['logs/', 'binaries/'],
           policy: 'pull-push',
           untracked: true,
-          when: 'on_success'
+          unprotect: false,
+          when: 'on_success',
+          fallback_keys: []
         }
 
         expect(pipeline).to be_persisted
@@ -69,7 +72,9 @@ RSpec.describe Ci::CreatePipelineService do
             key: /[a-f0-9]{40}/,
             paths: ['logs/'],
             policy: 'pull-push',
-            when: 'on_success'
+            when: 'on_success',
+            unprotect: false,
+            fallback_keys: []
           }
 
           expect(pipeline).to be_persisted
@@ -85,7 +90,9 @@ RSpec.describe Ci::CreatePipelineService do
             key: /default/,
             paths: ['logs/'],
             policy: 'pull-push',
-            when: 'on_success'
+            when: 'on_success',
+            unprotect: false,
+            fallback_keys: []
           }
 
           expect(pipeline).to be_persisted
@@ -118,7 +125,9 @@ RSpec.describe Ci::CreatePipelineService do
             key: /\$ENV_VAR-[a-f0-9]{40}/,
             paths: ['logs/'],
             policy: 'pull-push',
-            when: 'on_success'
+            when: 'on_success',
+            unprotect: false,
+            fallback_keys: []
           }
 
           expect(pipeline).to be_persisted
@@ -134,7 +143,9 @@ RSpec.describe Ci::CreatePipelineService do
             key: /\$ENV_VAR-default/,
             paths: ['logs/'],
             policy: 'pull-push',
-            when: 'on_success'
+            when: 'on_success',
+            unprotect: false,
+            fallback_keys: []
           }
 
           expect(pipeline).to be_persisted

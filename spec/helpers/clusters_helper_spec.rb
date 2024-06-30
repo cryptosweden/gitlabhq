@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ClustersHelper do
+RSpec.describe ClustersHelper, feature_category: :deployment_management do
   describe '#has_rbac_enabled?' do
     context 'when kubernetes platform has been created' do
       let(:platform_kubernetes) { build_stubbed(:cluster_platform_kubernetes) }
@@ -48,9 +48,9 @@ RSpec.describe ClustersHelper do
     end
 
     it 'generates svg image data', :aggregate_failures do
-      expect(subject.dig(:img_tags, :aws, :path)).to match(%r(/illustrations/logos/amazon_eks|svg))
-      expect(subject.dig(:img_tags, :default, :path)).to match(%r(/illustrations/logos/kubernetes|svg))
-      expect(subject.dig(:img_tags, :gcp, :path)).to match(%r(/illustrations/logos/google_gke|svg))
+      expect(subject.dig(:img_tags, :aws, :path)).to match(%r{/illustrations/logos/amazon_eks|svg})
+      expect(subject.dig(:img_tags, :default, :path)).to match(%r{/illustrations/logos/kubernetes|svg})
+      expect(subject.dig(:img_tags, :gcp, :path)).to match(%r{/illustrations/logos/google_gke|svg})
 
       expect(subject.dig(:img_tags, :aws, :text)).to eq('Amazon EKS')
       expect(subject.dig(:img_tags, :default, :text)).to eq('Kubernetes Cluster')
@@ -62,16 +62,16 @@ RSpec.describe ClustersHelper do
     end
 
     it 'displays empty image path' do
-      expect(subject[:clusters_empty_state_image]).to match(%r(/illustrations/empty-state/empty-state-clusters|svg))
-      expect(subject[:empty_state_image]).to match(%r(/illustrations/empty-state/empty-state-agents|svg))
-    end
-
-    it 'displays create cluster using certificate path' do
-      expect(subject[:new_cluster_path]).to eq("#{project_path(project)}/-/clusters/new")
+      expect(subject[:clusters_empty_state_image]).to match(%r{/illustrations/empty-state/empty-state-clusters|svg})
+      expect(subject[:empty_state_image]).to match(%r{/illustrations/empty-state/empty-environment-md|svg})
     end
 
     it 'displays add cluster using certificate path' do
       expect(subject[:add_cluster_path]).to eq("#{project_path(project)}/-/clusters/connect")
+    end
+
+    it 'displays create cluster path' do
+      expect(subject[:new_cluster_docs_path]).to eq("#{project_path(project)}/-/clusters/new_cluster_docs")
     end
 
     it 'displays project default branch' do
@@ -86,8 +86,9 @@ RSpec.describe ClustersHelper do
       expect(subject[:kas_address]).to eq(Gitlab::Kas.external_url)
     end
 
-    it 'displays GitLab version' do
-      expect(subject[:gitlab_version]).to eq(Gitlab.version_info)
+    it 'displays KAS versions' do
+      expect(subject[:kas_install_version]).to eq(Gitlab::Kas.install_version_info)
+      expect(subject[:kas_check_version]).to eq(Gitlab::Kas.display_version_info)
     end
 
     context 'user has no permissions to create a cluster' do
@@ -162,11 +163,63 @@ RSpec.describe ClustersHelper do
     end
   end
 
-  describe '#js_cluster_new' do
-    subject { helper.js_cluster_new }
+  describe '#render_cluster_info_tab_content' do
+    subject { helper.render_cluster_info_tab_content(tab, expanded) }
 
-    it 'displays a cluster_connect_help_path' do
-      expect(subject[:cluster_connect_help_path]).to eq(help_page_path('user/project/clusters/add_remove_clusters', anchor: 'add-existing-cluster'))
+    let(:expanded) { true }
+
+    context 'environments' do
+      let(:tab) { 'environments' }
+
+      it 'renders environemtns tab' do
+        expect(helper).to receive(:render_if_exists).with('clusters/clusters/environments')
+        subject
+      end
+    end
+
+    context 'health' do
+      let(:tab) { 'health' }
+
+      it 'renders details tab' do
+        expect(helper).to receive(:render).with('details', { expanded: expanded })
+        subject
+      end
+    end
+
+    context 'apps' do
+      let(:tab) { 'apps' }
+
+      it 'renders apps tab' do
+        expect(helper).to receive(:render).with('applications')
+        subject
+      end
+    end
+
+    context 'integrations ' do
+      let(:tab) { 'integrations' }
+
+      it 'renders details tab' do
+        expect(helper).to receive(:render).with('details', { expanded: expanded })
+        subject
+      end
+    end
+
+    context 'settings' do
+      let(:tab) { 'settings' }
+
+      it 'renders settings tab' do
+        expect(helper).to receive(:render).with('advanced_settings_container')
+        subject
+      end
+    end
+
+    context 'details ' do
+      let(:tab) { 'details' }
+
+      it 'renders details tab' do
+        expect(helper).to receive(:render).with('details', { expanded: expanded })
+        subject
+      end
     end
   end
 

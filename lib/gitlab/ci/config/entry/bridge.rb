@@ -18,7 +18,7 @@ module Gitlab
             validates :config, allowed_keys: ALLOWED_KEYS + PROCESSABLE_ALLOWED_KEYS
 
             with_options allow_nil: true do
-              validates :when, inclusion: {
+              validates :when, type: String, inclusion: {
                 in: ALLOWED_WHEN,
                 message: "should be one of: #{ALLOWED_WHEN.join(', ')}"
               }
@@ -51,7 +51,7 @@ module Gitlab
           entry :parallel, Entry::Product::Parallel,
             description: 'Parallel configuration for this job.',
             inherit: false,
-            metadata: { allowed_strategies: %i(matrix) }
+            metadata: { allowed_strategies: %i[matrix] }
 
           attributes :when, :allow_failure, :parallel
 

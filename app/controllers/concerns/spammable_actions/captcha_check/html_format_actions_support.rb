@@ -24,11 +24,18 @@ module SpammableActions::CaptchaCheck::HtmlFormatActionsSupport
   # Convert spam/CAPTCHA values from form field params to headers, because all spam-related services
   # expect these values to be passed as headers.
   #
-  # The 'g-recaptcha-response' field name comes from `Recaptcha::ClientHelper#recaptcha_tags` in the
+  # The 'g-recaptcha-response' field name comes from `Recaptcha::Adapters::ViewMethods#recaptcha_tags` in the
   # recaptcha gem. This is a field which is automatically included by calling the
   # `#recaptcha_tags` method within a HAML template's form.
   def convert_html_spam_params_to_headers
+    return unless params['g-recaptcha-response'] || params[:spam_log_id]
+
     request.headers['X-GitLab-Captcha-Response'] = params['g-recaptcha-response'] if params['g-recaptcha-response']
     request.headers['X-GitLab-Spam-Log-Id'] = params[:spam_log_id] if params[:spam_log_id]
+
+    # Reset the spam_params on the request context, since they have changed mid-request
+    Gitlab::RequestContext.instance.spam_params = ::Spam::SpamParams.new_from_request(request: request)
   end
 end
+
+SpammableActions::CaptchaCheck::HtmlFormatActionsSupport.prepend_mod

@@ -1,11 +1,10 @@
 ---
-stage: Create
+stage: Systems
 group: Gitaly
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# Gitaly developers guide
+# Gitaly development guidelines
 
 [Gitaly](https://gitlab.com/gitlab-org/gitaly) is a high-level Git RPC service used by GitLab Rails,
 Workhorse and GitLab Shell.
@@ -15,7 +14,7 @@ Workhorse and GitLab Shell.
 <!-- vale gitlab.Spelling = NO -->
 
 In May 2019, Bob Van Landuyt
-hosted a Deep Dive (GitLab team members only: `https://gitlab.com/gitlab-org/create-stage/issues/1`)
+hosted a Deep Dive (GitLab team members only: `https://gitlab.com/gitlab-org/create-stage/-/issues/1`)
 on the [Gitaly project](https://gitlab.com/gitlab-org/gitaly). It included how to contribute to it as a
 Ruby developer, and shared domain-specific knowledge with anyone who may work in this part of the
 codebase in the future.
@@ -42,8 +41,8 @@ To read or write Git data, a request has to be made to Gitaly. This means that
 if you're developing a new feature where you need data that's not yet available
 in `lib/gitlab/git` changes have to be made to Gitaly.
 
-There should be no new code that touches Git repositories via disk access (for example,
-Rugged, `git`, `rm -rf`) anywhere in the `gitlab` repository. Anything that
+There should be no new code that touches Git repositories via disk access
+anywhere in the `gitlab` repository. Anything that
 needs direct access to the Git repository *must* be implemented in Gitaly, and
 exposed via an RPC.
 
@@ -55,17 +54,6 @@ they are merged.
 - See [below](#running-tests-with-a-locally-modified-version-of-gitaly) for instructions on running GitLab tests with a modified version of Gitaly.
 - In GDK run `gdk install` and restart GDK using `gdk restart` to use a locally modified Gitaly version for development
 
-### `gitaly-ruby`
-
-It is possible to implement and test RPC's in Gitaly using Ruby code,
-in
-[`gitaly-ruby`](https://gitlab.com/gitlab-org/gitaly/tree/master/ruby).
-This should make it easier to contribute for developers who are less
-comfortable writing Go code.
-
-There is documentation for this approach in [the Gitaly
-repository](https://gitlab.com/gitlab-org/gitaly/blob/master/doc/ruby_endpoint.md).
-
 ## Gitaly-Related Test Failures
 
 If your test-suite is failing with Gitaly issues, as a first step, try running:
@@ -76,46 +64,6 @@ rm -rf tmp/tests/gitaly
 
 During RSpec tests, the Gitaly instance writes logs to `gitlab/log/gitaly-test.log`.
 
-## Legacy Rugged code
-
-While Gitaly can handle all Git access, many of GitLab customers still
-run Gitaly atop NFS. The legacy Rugged implementation for Git calls may
-be faster than the Gitaly RPC due to N+1 Gitaly calls and other
-reasons. See [the
-issue](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/57317) for more
-details.
-
-Until GitLab has eliminated most of these inefficiencies or the use of
-NFS is discontinued for Git data, Rugged implementations of some of the
-most commonly-used RPCs can be enabled via feature flags:
-
-- `rugged_find_commit`
-- `rugged_get_tree_entries`
-- `rugged_tree_entry`
-- `rugged_commit_is_ancestor`
-- `rugged_commit_tree_entry`
-- `rugged_list_commits_by_oid`
-
-A convenience Rake task can be used to enable or disable these flags
-all together. To enable:
-
-```shell
-bundle exec rake gitlab:features:enable_rugged
-```
-
-To disable:
-
-```shell
-bundle exec rake gitlab:features:disable_rugged
-```
-
-Most of this code exists in the `lib/gitlab/git/rugged_impl` directory.
-
-NOTE:
-You should *not* have to add or modify code related to Rugged unless explicitly discussed with the
-[Gitaly Team](https://gitlab.com/groups/gl-gitaly/group_members). This code does not work on GitLab.com or other GitLab
-instances that do not use NFS.
-
 ## `TooManyInvocationsError` errors
 
 During development and testing, you may experience `Gitlab::GitalyClient::TooManyInvocationsError` failures.
@@ -125,13 +73,13 @@ when Gitaly is called more than 30 times in a single Rails request or Sidekiq ex
 As a temporary measure, export `GITALY_DISABLE_REQUEST_LIMITS=1` to suppress the error. This disables the n+1 detection
 in your development environment.
 
-Please raise an issue in the GitLab CE or EE repositories to report the issue. Include the labels ~Gitaly
-~performance ~"technical debt". Please ensure that the issue contains the full stack trace and error message of the
+Raise an issue in the GitLab CE or EE repositories to report the issue. Include the labels ~Gitaly
+~performance ~"technical debt". Ensure that the issue contains the full stack trace and error message of the
 `TooManyInvocationsError`. Also include any known failing tests if possible.
 
-Isolate the source of the n+1 problem. This is normally a loop that results in Gitaly being called for each
-element in an array. If you are unable to isolate the problem, please contact a member
-of the [Gitaly Team](https://gitlab.com/groups/gl-gitaly/group_members) for assistance.
+Isolate the source of the n+1 problem. This is usually a loop that results in Gitaly being called for each
+element in an array. If you are unable to isolate the problem, contact a member
+of the [Gitaly Team](https://gitlab.com/groups/gl-gitaly/-/group_members) for assistance.
 
 After the source has been found, wrap it in an `allow_n_plus_1_calls` block, as follows:
 
@@ -165,7 +113,7 @@ end
 
 ## Running tests with a locally modified version of Gitaly
 
-Normally, GitLab CE/EE tests use a local clone of Gitaly in
+Usually, GitLab CE/EE tests use a local clone of Gitaly in
 `tmp/tests/gitaly` pinned at the version specified in
 `GITALY_SERVER_VERSION`. The `GITALY_SERVER_VERSION` file supports also
 branches and SHA to use a custom commit in [the repository](https://gitlab.com/gitlab-org/gitaly).
@@ -181,7 +129,8 @@ can replace `tmp/tests/gitaly` with a symlink. This is much faster
 because it avoids a Gitaly re-install each time you run `rspec`.
 
 Make sure this directory contains the files `config.toml` and `praefect.config.toml`.
-You can copy them from `config.toml.example` and `config.praefect.toml.example` respectively.
+You can copy `config.toml` from `config.toml.example`, and `praefect.config.toml`
+from `config.praefect.toml.example`.
 After copying, make sure to edit them so everything points to the correct paths.
 
 ```shell
@@ -197,7 +146,7 @@ to manually run `make` again.
 
 Note that CI tests do not use your locally modified version of
 Gitaly. To use a custom Gitaly version in CI, you must update
-GITALY_SERVER_VERSION as described at the beginning of this section.
+`GITALY_SERVER_VERSION` as described at the beginning of this section.
 
 To use a different Gitaly repository, such as if your changes are present
 on a fork, you can specify a `GITALY_REPO_URL` environment variable when
@@ -222,25 +171,37 @@ as a [CI/CD variable](../ci/variables/index.md).
 
 If you are making changes to the RPC client, such as adding a new endpoint or adding a new
 parameter to an existing endpoint, follow the guide for
-[Gitaly protobuf specifications](https://gitlab.com/gitlab-org/gitaly/blob/master/proto/README.md). After pushing
-the branch with the changes (`new-feature-branch`, for example):
+[Gitaly protobuf specifications](https://gitlab.com/gitlab-org/gitaly/blob/master/doc/protobuf.md). Then:
+
+1. Run `bundle install` in the `tools/protogem` directory of Gitaly.
+1. Build the RPC client gem from the root directory of Gitaly:
+
+   ```shell
+   BUILD_GEM_OPTIONS=--skip-verify-tag make build-proto-gem
+   ```
+
+1. In the `_build` directory of Gitaly, unpack the newly created `.gem` file and create a `gemspec`:
+
+   ```shell
+   gem unpack gitaly.gem &&
+   gem spec gitaly.gem > gitaly/gitaly.gemspec
+   ```
 
 1. Change the `gitaly` line in the Rails' `Gemfile` to:
 
    ```ruby
-   gem 'gitaly', git: 'https://gitlab.com/gitlab-org/gitaly.git', branch: 'new-feature-branch'
+   gem 'gitaly', path: '../gitaly/_build'
    ```
 
 1. Run `bundle install` to use the modified RPC client.
 
-Re-run `bundle install` in the `gitlab` project each time the Gitaly branch
-changes to embed a new SHA in the `Gemfile.lock` file.
+Re-run steps 2-5 each time you want to try out new changes.
 
 ---
 
 [Return to Development documentation](index.md)
 
-## Wrapping RPCs in Feature Flags
+## Wrapping RPCs in feature flags
 
 Here are the steps to gate a new feature in Gitaly behind a feature flag.
 
@@ -248,13 +209,13 @@ Here are the steps to gate a new feature in Gitaly behind a feature flag.
 
 1. Create a package scoped flag name:
 
-   ```golang
+   ```go
    var findAllTagsFeatureFlag = "go-find-all-tags"
    ```
 
 1. Create a switch in the code using the `featureflag` package:
 
-   ```golang
+   ```go
    if featureflag.IsEnabled(ctx, findAllTagsFeatureFlag) {
      // go implementation
    } else {
@@ -264,7 +225,7 @@ Here are the steps to gate a new feature in Gitaly behind a feature flag.
 
 1. Create Prometheus metrics:
 
-   ```golang
+   ```go
    var findAllTagsRequests = prometheus.NewCounterVec(
      prometheus.CounterOpts{
        Name: "gitaly_find_all_tags_requests_total",
@@ -288,7 +249,7 @@ Here are the steps to gate a new feature in Gitaly behind a feature flag.
 
 1. Set headers in tests:
 
-   ```golang
+   ```go
    import (
      "google.golang.org/grpc/metadata"
 
@@ -327,7 +288,7 @@ the integration by using GDK:
 
 1. The state of the flag must be observable. To check it, you must enable it
    by fetching the Prometheus metrics:
-   1. Navigate to GDK's root directory.
+   1. Go to the GDK root directory.
    1. Make sure you have the proper branch checked out for Gitaly.
    1. Recompile it with `make gitaly-setup` and restart the service with `gdk restart gitaly`.
    1. Make sure your setup is running: `gdk status | grep praefect`.
@@ -345,7 +306,7 @@ the integration by using GDK:
 
 1. After you observe the metrics for the new feature flag and it increments, you
    can enable the new feature:
-   1. Navigate to GDK's root directory.
+   1. Go to the GDK root directory.
    1. Start a Rails console:
 
       ```shell
@@ -372,3 +333,45 @@ the integration by using GDK:
       ```shell
       curl --silent "http://localhost:9236/metrics" | grep go_find_all_tags
       ```
+
+## Using Praefect in test
+
+By default Praefect in test uses an in-memory election strategy. This strategy
+is deprecated and no longer used in production. It mainly is kept for
+unit-testing purposes.
+
+A more modern election strategy requires a connection with a PostgreSQL
+database. This behavior is disabled by default when running tests, but you can
+enable it by setting `GITALY_PRAEFECT_WITH_DB=1` in your environment.
+
+This requires you have PostgreSQL running, and you have the database created.
+When you are using GDK, you can set it up with:
+
+1. Start the database: `gdk start db`
+1. Load the environment from GDK: `eval $(cd ../gitaly && gdk env)`
+1. Create the database: `createdb --encoding=UTF8 --locale=C --echo praefect_test`
+
+## Git references used by Gitaly
+
+Gitaly uses many Git references ([refs](https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefrefaref)) to provide Git services to GitLab.
+
+### Standard Git references
+
+These standard Git references are used by GitLab (through Gitaly) in any Git repository:
+
+- `refs/heads/`. Used for branches. See the [`git branch`](https://git-scm.com/docs/git-branch) documentation.
+- `refs/tags/`. Used for tags. See the [`git tag`](https://git-scm.com/docs/git-tag) documentation.
+
+### GitLab-specific references
+
+These GitLab-specific references are used exclusively by GitLab (through Gitaly):
+
+- `refs/keep-around/<object-id>`. References to commits that have pipeline jobs or merge requests. The `object-id` points to the commit the pipeline was run on.
+- `refs/merge-requests/<merge-request-iid>/`. [Merges](https://git-scm.com/docs/git-merge) merge two histories together. This ref namespace tracks information about a
+  merge using the following refs under it:
+  - `head`. Current `HEAD` of the merge request.
+  - `merge`. Commit for the merge request. Every merge request creates a commit object under `refs/keep-around`.
+  - If [merge trains are enabled](../ci/pipelines/merge_trains.md): `train`. Commit for the merge train.
+- `refs/pipelines/<pipeline-iid>`. References to pipelines. Temporarily used to store the pipeline commit object ID.
+- `refs/environments/<environment-slug>`. References to commits where deployments to environments were performed.
+- `refs/heads/revert-<source-commit-short-object-id>`. References to the commit's object ID created when [reverting changes](../user/project/merge_requests/revert_changes.md).

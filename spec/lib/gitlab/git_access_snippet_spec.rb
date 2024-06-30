@@ -4,6 +4,7 @@ require 'spec_helper'
 
 RSpec.describe Gitlab::GitAccessSnippet do
   include ProjectHelpers
+  include UserHelpers
   include TermsHelper
   include AdminModeHelper
   include_context 'ProjectPolicyTable context'
@@ -12,7 +13,7 @@ RSpec.describe Gitlab::GitAccessSnippet do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :public) }
   let_it_be(:snippet) { create(:project_snippet, :public, :repository, project: project) }
-  let_it_be(:migration_bot) { User.migration_bot }
+  let_it_be(:migration_bot) { Users::Internal.migration_bot }
 
   let(:repository) { snippet.repository }
   let(:actor) { user }
@@ -23,7 +24,7 @@ RSpec.describe Gitlab::GitAccessSnippet do
   let(:push_access_check) { access.check('git-receive-pack', changes) }
   let(:pull_access_check) { access.check('git-upload-pack', changes) }
 
-  subject(:access) { Gitlab::GitAccessSnippet.new(actor, snippet, protocol, authentication_abilities: authentication_abilities) }
+  subject(:access) { described_class.new(actor, snippet, protocol, authentication_abilities: authentication_abilities) }
 
   describe 'when actor is a DeployKey' do
     let(:actor) { build(:deploy_key) }
@@ -121,13 +122,19 @@ RSpec.describe Gitlab::GitAccessSnippet do
             if Ability.allowed?(user, :update_snippet, snippet)
               expect { push_access_check }.not_to raise_error
             else
-              expect { push_access_check }.to raise_error(described_class::ForbiddenError)
+              expect { push_access_check }.to raise_error(
+                described_class::ForbiddenError,
+                described_class::ERROR_MESSAGES[:update_snippet]
+              )
             end
 
             if Ability.allowed?(user, :read_snippet, snippet)
               expect { pull_access_check }.not_to raise_error
             else
-              expect { pull_access_check }.to raise_error(described_class::ForbiddenError)
+              expect { pull_access_check }.to raise_error(
+                described_class::ForbiddenError,
+                described_class::ERROR_MESSAGES[:read_snippet]
+              )
             end
           end
         end
@@ -304,7 +311,7 @@ RSpec.describe Gitlab::GitAccessSnippet do
   end
 
   describe 'repository size restrictions' do
-    let_it_be(:snippet) { create(:personal_snippet, :public, :repository) }
+    let_it_be_with_refind(:snippet) { create(:personal_snippet, :public, :repository) }
 
     let(:actor) { snippet.author }
     let(:oldrev) { TestEnv::BRANCH_SHA["snippet/single-file"] }
@@ -339,7 +346,7 @@ RSpec.describe Gitlab::GitAccessSnippet do
         expect(snippet.repository_size_checker).to receive(:above_size_limit?).and_return(false)
         expect(snippet.repository_size_checker)
           .to receive(:changes_will_exceed_size_limit?)
-            .with(change_size)
+            .with(change_size, nil)
             .and_return(false)
 
         expect { push_access_check }.not_to raise_error
@@ -353,7 +360,7 @@ RSpec.describe Gitlab::GitAccessSnippet do
         expect(snippet.repository_size_checker).to receive(:above_size_limit?).and_return(false)
         expect(snippet.repository_size_checker)
           .to receive(:changes_will_exceed_size_limit?)
-            .with(change_size)
+            .with(change_size, nil)
             .and_return(true)
 
         expect do
@@ -364,14 +371,13 @@ RSpec.describe Gitlab::GitAccessSnippet do
       it_behaves_like 'migration bot does not err'
     end
 
-    context 'when GIT_OBJECT_DIRECTORY_RELATIVE env var is set' do
+    context 'when GIT_OBJECT_DIRECTORY_RELATIVE env var is set', :request_store do
       let(:change_size) { 100 }
 
       before do
-        allow(Gitlab::Git::HookEnv)
-          .to receive(:all)
-            .with(repository.gl_repository)
-            .and_return({ 'GIT_OBJECT_DIRECTORY_RELATIVE' => 'objects' })
+        ::Gitlab::Git::HookEnv.set(repository.gl_repository,
+          repository.raw_repository.relative_path,
+          'GIT_OBJECT_DIRECTORY_RELATIVE' => 'objects')
 
         # Stub the object directory size to "simulate" quarantine size
         allow(repository).to receive(:object_directory_size).and_return(change_size)

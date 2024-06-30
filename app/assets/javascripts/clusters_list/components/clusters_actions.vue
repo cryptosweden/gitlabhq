@@ -1,12 +1,10 @@
 <script>
 import {
   GlButton,
-  GlDropdown,
-  GlDropdownItem,
+  GlButtonGroup,
   GlModalDirective,
-  GlTooltipDirective,
-  GlDropdownDivider,
-  GlDropdownSectionHeader,
+  GlTooltip,
+  GlDisclosureDropdown,
 } from '@gitlab/ui';
 
 import { INSTALL_AGENT_MODAL_ID, CLUSTERS_ACTIONS } from '../constants';
@@ -16,83 +14,104 @@ export default {
   INSTALL_AGENT_MODAL_ID,
   components: {
     GlButton,
-    GlDropdown,
-    GlDropdownItem,
-    GlDropdownDivider,
-    GlDropdownSectionHeader,
+    GlButtonGroup,
+    GlDisclosureDropdown,
+    GlTooltip,
   },
   directives: {
     GlModalDirective,
-    GlTooltip: GlTooltipDirective,
   },
   inject: [
-    'newClusterPath',
     'addClusterPath',
+    'newClusterDocsPath',
     'canAddCluster',
     'displayClusterAgents',
     'certificateBasedClustersEnabled',
   ],
   computed: {
-    tooltip() {
-      const { connectWithAgent, connectExistingCluster, dropdownDisabledHint } = this.$options.i18n;
-
-      if (!this.canAddCluster) {
-        return dropdownDisabledHint;
-      } else if (this.displayClusterAgents) {
-        return connectWithAgent;
-      }
-
-      return connectExistingCluster;
-    },
     shouldTriggerModal() {
       return this.canAddCluster && this.displayClusterAgents;
+    },
+    defaultActionText() {
+      const { connectCluster, connectWithAgent, connectClusterDeprecated } = this.$options.i18n;
+
+      if (!this.displayClusterAgents) {
+        return connectClusterDeprecated;
+      }
+      if (!this.certificateBasedClustersEnabled) {
+        return connectCluster;
+      }
+      return connectWithAgent;
+    },
+    defaultActionUrl() {
+      if (this.displayClusterAgents) {
+        return null;
+      }
+      return this.addClusterPath;
+    },
+    actionItems() {
+      const createCluster = {
+        href: this.newClusterDocsPath,
+        text: this.$options.i18n.createCluster,
+        extraAttrs: {
+          'data-testid': 'create-cluster-link',
+        },
+      };
+      const connectCluster = {
+        href: this.addClusterPath,
+        text: this.$options.i18n.connectClusterCertificate,
+        extraAttrs: {
+          'data-testid': 'connect-cluster-link',
+        },
+      };
+      const actions = [];
+
+      if (this.displayClusterAgents) {
+        actions.push(createCluster);
+      }
+      if (this.displayClusterAgents && this.certificateBasedClustersEnabled) {
+        actions.push(connectCluster);
+      }
+      return actions;
+    },
+  },
+  methods: {
+    getTooltipTarget() {
+      return this.actionItems.length ? this.$refs.actions.$el : this.$refs.actionsContainer;
     },
   },
 };
 </script>
 
 <template>
-  <div class="nav-controls gl-ml-auto">
-    <gl-dropdown
-      v-if="certificateBasedClustersEnabled"
-      ref="dropdown"
-      v-gl-modal-directive="shouldTriggerModal && $options.INSTALL_AGENT_MODAL_ID"
-      v-gl-tooltip="tooltip"
-      category="primary"
-      variant="confirm"
-      :text="$options.i18n.actionsButton"
-      :disabled="!canAddCluster"
-      :split="displayClusterAgents"
-      right
-    >
-      <template v-if="displayClusterAgents">
-        <gl-dropdown-section-header>{{ $options.i18n.agent }}</gl-dropdown-section-header>
-        <gl-dropdown-item
-          v-gl-modal-directive="$options.INSTALL_AGENT_MODAL_ID"
-          data-testid="connect-new-agent-link"
-        >
-          {{ $options.i18n.connectWithAgent }}
-        </gl-dropdown-item>
-        <gl-dropdown-divider />
-        <gl-dropdown-section-header>{{ $options.i18n.certificate }}</gl-dropdown-section-header>
-      </template>
+  <div ref="actionsContainer" class="nav-controls gl-ml-auto">
+    <gl-tooltip
+      v-if="!canAddCluster"
+      :target="() => getTooltipTarget()"
+      :title="$options.i18n.actionsDisabledHint"
+    />
 
-      <gl-dropdown-item :href="newClusterPath" data-testid="new-cluster-link" @click.stop>
-        {{ $options.i18n.createNewCluster }}
-      </gl-dropdown-item>
-      <gl-dropdown-item :href="addClusterPath" data-testid="connect-cluster-link" @click.stop>
-        {{ $options.i18n.connectExistingCluster }}
-      </gl-dropdown-item>
-    </gl-dropdown>
-    <gl-button
-      v-else
-      v-gl-modal-directive="$options.INSTALL_AGENT_MODAL_ID"
-      v-gl-tooltip="tooltip"
-      :disabled="!canAddCluster"
-      category="primary"
-      variant="confirm"
-    >
-      {{ $options.i18n.connectWithAgent }}
-    </gl-button>
+    <gl-button-group ref="actions" class="gl-w-full gl-mb-3 gl-md-w-auto gl-md-mb-0">
+      <gl-button
+        v-gl-modal-directive="shouldTriggerModal && $options.INSTALL_AGENT_MODAL_ID"
+        :href="defaultActionUrl"
+        :disabled="!canAddCluster"
+        data-testid="clusters-default-action-button"
+        category="primary"
+        variant="confirm"
+      >
+        {{ defaultActionText }}
+      </gl-button>
+      <gl-disclosure-dropdown
+        v-if="actionItems.length"
+        category="primary"
+        variant="confirm"
+        placement="bottom-end"
+        :toggle-text="defaultActionText"
+        :items="actionItems"
+        :disabled="!canAddCluster"
+        text-sr-only
+      />
+    </gl-button-group>
   </div>
 </template>

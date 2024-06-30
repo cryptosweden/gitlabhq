@@ -1,7 +1,7 @@
 # To contribute improvements to CI/CD templates, please follow the Development guide at:
 # https://docs.gitlab.com/ee/development/cicd/templates.html
 # This specific template is located at:
-# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/Dast-API.gitlab-ci.yml
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/Dast-API.latest.gitlab-ci.yml
 
 # To use this template, add the following to your .gitlab-ci.yml file:
 #
@@ -24,25 +24,47 @@
 variables:
   # Setting this variable affects all Security templates
   # (SAST, Dependency Scanning, ...)
-  SECURE_ANALYZERS_PREFIX: "registry.gitlab.com/security-products"
+  SECURE_ANALYZERS_PREFIX: "$CI_TEMPLATE_REGISTRY_HOST/security-products"
   #
-  DAST_API_VERSION: "1"
-  DAST_API_IMAGE: api-fuzzing
+  DAST_API_VERSION: "5"
+  DAST_API_IMAGE_SUFFIX: ""
+  DAST_API_IMAGE: api-security
 
 dast_api:
   stage: dast
-  image: $SECURE_ANALYZERS_PREFIX/$DAST_API_IMAGE:$DAST_API_VERSION
+  image: $SECURE_ANALYZERS_PREFIX/$DAST_API_IMAGE:$DAST_API_VERSION$DAST_API_IMAGE_SUFFIX
   allow_failure: true
   rules:
-    - if: $DAST_API_DISABLED
+    - if: $DAST_API_DISABLED == 'true' || $DAST_API_DISABLED == '1'
       when: never
-    - if: $DAST_API_DISABLED_FOR_DEFAULT_BRANCH &&
+    - if: $DAST_API_DISABLED_FOR_DEFAULT_BRANCH == 'true' &&
           $CI_DEFAULT_BRANCH == $CI_COMMIT_REF_NAME
       when: never
+    - if: $DAST_API_DISABLED_FOR_DEFAULT_BRANCH == '1' &&
+          $CI_DEFAULT_BRANCH == $CI_COMMIT_REF_NAME
+      when: never
+
+    # Add the job to merge request pipelines if there's an open merge request.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" &&
+          $CI_GITLAB_FIPS_MODE == "true"
+      variables:
+        DAST_API_IMAGE_SUFFIX: "-fips"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+    # Don't add it to a *branch* pipeline if it's already in a merge request pipeline.
+    - if: $CI_OPEN_MERGE_REQUESTS
+      when: never
+
+    # Add the job to branch pipelines.
+    - if: $CI_COMMIT_BRANCH &&
+          $CI_GITLAB_FIPS_MODE == "true"
+      variables:
+        DAST_API_IMAGE_SUFFIX: "-fips"
     - if: $CI_COMMIT_BRANCH
   script:
     - /peach/analyzer-dast-api
   artifacts:
+    access: 'developer'
     when: always
     paths:
       - gl-assets
@@ -50,3 +72,5 @@ dast_api:
       - gl-*.log
     reports:
       dast: gl-dast-api-report.json
+
+# end

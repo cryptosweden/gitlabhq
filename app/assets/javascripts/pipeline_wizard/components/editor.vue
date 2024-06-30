@@ -5,6 +5,7 @@ import { CONTENT_UPDATE_DEBOUNCE } from '~/editor/constants';
 import SourceEditor from '~/editor/source_editor';
 import { YamlEditorExtension } from '~/editor/extensions/source_editor_yaml_ext';
 import { SourceEditorExtension } from '~/editor/extensions/source_editor_extension_base';
+import { markRaw } from '~/lib/utils/vue3compat/mark_raw';
 
 export default {
   name: 'YamlEditor',
@@ -27,7 +28,7 @@ export default {
   data() {
     return {
       editor: null,
-      isUpdating: false,
+      isFocused: false,
       yamlEditorExtension: null,
     };
   },
@@ -43,11 +44,13 @@ export default {
     },
   },
   mounted() {
-    this.editor = new SourceEditor().createInstance({
-      el: this.$el,
-      blobPath: this.filename,
-      language: 'yaml',
-    });
+    this.editor = markRaw(
+      new SourceEditor().createInstance({
+        el: this.$el,
+        blobPath: this.filename,
+        language: 'yaml',
+      }),
+    );
     [, this.yamlEditorExtension] = this.editor.use([
       { definition: SourceEditorExtension },
       {
@@ -60,19 +63,23 @@ export default {
     this.editor.onDidChangeModelContent(
       debounce(() => this.handleChange(), CONTENT_UPDATE_DEBOUNCE),
     );
+    this.editor.onDidFocusEditorText(() => {
+      this.isFocused = true;
+    });
+    this.editor.onDidBlurEditorText(() => {
+      this.isFocused = false;
+    });
     this.updateEditorContent();
     this.emitValue();
   },
   methods: {
     async updateEditorContent() {
-      this.isUpdating = true;
       this.editor.setDoc(this.doc);
-      this.isUpdating = false;
       this.requestHighlight(this.highlight);
     },
     handleChange() {
       this.emitValue();
-      if (!this.isUpdating) {
+      if (this.isFocused) {
         this.handleTouch();
       }
     },

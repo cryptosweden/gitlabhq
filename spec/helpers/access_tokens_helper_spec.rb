@@ -9,6 +9,7 @@ RSpec.describe AccessTokensHelper do
     where(:prefix, :description_location) do
       :personal_access_token  | [:doorkeeper, :scope_desc]
       :project_access_token   | [:doorkeeper, :project_access_token_scope_desc]
+      :group_access_token     | [:doorkeeper, :group_access_token_scope_desc]
     end
 
     with_them do
@@ -37,7 +38,7 @@ RSpec.describe AccessTokensHelper do
         disable_feed_token: false,
         static_objects_external_storage_enabled?: true
       )
-      allow(Gitlab::IncomingEmail).to receive(:supports_issue_creation?).and_return(true)
+      allow(Gitlab::Email::IncomingEmail).to receive(:supports_issue_creation?).and_return(true)
       allow(helper).to receive_messages(
         current_user: user,
         reset_feed_token_profile_path: feed_token_reset_path,
@@ -62,6 +63,14 @@ RSpec.describe AccessTokensHelper do
           reset_path: static_object_token_reset_path
         }
       }.to_json)
+    end
+  end
+
+  describe '#expires_at_field_data', :freeze_time do
+    it 'returns expected hash' do
+      expect(helper.expires_at_field_data).to eq({
+        min_date: 1.day.from_now.iso8601
+      })
     end
   end
 end

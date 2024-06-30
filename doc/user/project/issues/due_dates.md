@@ -1,10 +1,14 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Due dates **(FREE)**
+# Due dates
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Due dates can be used in [issues](index.md) to keep track of deadlines and make sure features are
 shipped on time. Users need at least the Reporter role
@@ -35,7 +39,7 @@ The last way to set a due date is by using [quick actions](../quick_actions.md),
 
 You can see issues with their due dates in the issues list.
 Overdue issues have their icon and date colored red.
-To sort issues by their due dates, select **Due date** from the dropdown menu on the right.
+To sort issues by their due dates, select **Due date** from the dropdown list on the right.
 Issues are then sorted from the earliest due date to the latest.
 To display issues with the latest due dates at the top, select **Sort direction** (**{sort-lowest}**).
 
@@ -49,7 +53,8 @@ server's time zone.
 
 Issues with due dates can also be exported as an iCalendar feed. The URL of the
 feed can be added to calendar applications. The feed is accessible by selecting
-the **Subscribe to calendar** button on the following pages:
+the **Subscribe to calendar** option in the  **Actions** (**{ellipsis_v}**) dropdown
+list on the following pages:
 
 - The **Assigned Issues** page linked on the right side of the GitLab header
 - The **Project Issues** page

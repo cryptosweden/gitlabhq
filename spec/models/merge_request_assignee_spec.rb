@@ -28,47 +28,28 @@ RSpec.describe MergeRequestAssignee do
 
     context 'in_projects' do
       it 'returns issue assignees for given project' do
-        expect(MergeRequestAssignee.count).to eq 2
+        expect(described_class.count).to eq 2
 
-        assignees = MergeRequestAssignee.in_projects([project])
+        assignees = described_class.in_projects([project])
 
         expect(assignees.count).to eq 1
         expect(assignees.first.user_id).to eq project_merge_request.merge_request_assignees.first.user_id
         expect(assignees.first.merge_request_id).to eq project_merge_request.merge_request_assignees.first.merge_request_id
       end
     end
-  end
 
-  it_behaves_like 'having unique enum values'
+    context 'for_assignee' do
+      let_it_be(:another_user) { create(:user) }
+      let_it_be(:merge_request_assignee) { create(:merge_request, source_project: project, source_branch: 'another-branch-1', assignee_ids: [another_user.id]) }
 
-  it_behaves_like 'having reviewer state'
+      let(:assignees) { described_class.for_assignee(user) }
 
-  describe 'syncs to reviewer state' do
-    before do
-      reviewer = merge_request.merge_request_reviewers.build(reviewer: assignee)
-      reviewer.update!(state: :reviewed)
-    end
-
-    it { is_expected.to have_attributes(state: 'reviewed') }
-  end
-
-  describe '#attention_requested_by' do
-    let(:current_user) { create(:user) }
-
-    before do
-      subject.update!(updated_state_by: current_user)
-    end
-
-    context 'attention requested' do
-      it { expect(subject.attention_requested_by).to eq(current_user) }
-    end
-
-    context 'attention requested' do
-      before do
-        subject.update!(state: :reviewed)
+      it 'returns merge request assignees for a given assignee' do
+        expect(described_class.count).to eq 3
+        expect(assignees.count).to eq 2
+        expect(assignees.first.user_id).to eq user.id
+        expect(assignees.last.user_id).to eq user.id
       end
-
-      it { expect(subject.attention_requested_by).to eq(nil) }
     end
   end
 end

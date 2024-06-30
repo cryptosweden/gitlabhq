@@ -6,14 +6,30 @@ module Integrations
 
     RECIPIENTS_LIMIT = 30
 
-    prop_accessor :recipients, :branches_to_be_notified
-    boolean_accessor :notify_only_broken_pipelines, :notify_only_default_branch
     validates :recipients, presence: true, if: :validate_recipients?
     validate :number_of_recipients_within_limit, if: :validate_recipients?
 
+    field :recipients,
+      type: :textarea,
+      help: -> { _('Comma-separated list of email addresses.') },
+      required: true
+
+    field :notify_only_broken_pipelines,
+      type: :checkbox
+
+    field :notify_only_default_branch,
+      type: :checkbox,
+      api_only: true
+
+    field :branches_to_be_notified,
+      type: :select,
+      title: -> { s_('Integrations|Branches for which notifications are to be sent') },
+      choices: branch_choices
+
     def initialize_properties
-      if properties.nil?
-        self.properties = {}
+      super
+
+      if properties.blank?
         self.notify_only_broken_pipelines = true
         self.branches_to_be_notified = "default"
       elsif !self.notify_only_default_branch.nil?
@@ -21,18 +37,18 @@ module Integrations
         # `notify_only_default_branch`. Now we have a string property named
         # `branches_to_be_notified`. Instead of doing a background migration, we
         # opted to set a value for the new property based on the old one, if
-        # users hasn't specified one already. When users edit the service and
-        # selects a value for this new property, it will override everything.
+        # users haven't specified one already. When users edit the integration and
+        # select a value for this new property, it will override everything.
 
         self.branches_to_be_notified ||= notify_only_default_branch? ? "default" : "all"
       end
     end
 
-    def title
+    def self.title
       _('Pipeline status emails')
     end
 
-    def description
+    def self.description
       _('Email the pipeline status to a list of recipients.')
     end
 
@@ -64,27 +80,12 @@ module Integrations
       project&.ci_pipelines&.any?
     end
 
-    def fields
-      [
-        { type: 'textarea',
-          name: 'recipients',
-          help: _('Comma-separated list of email addresses.'),
-          required: true },
-        { type: 'checkbox',
-          name: 'notify_only_broken_pipelines' },
-        { type: 'select',
-          name: 'branches_to_be_notified',
-          title: s_('Integrations|Branches for which notifications are to be sent'),
-          choices: branch_choices }
-      ]
-    end
-
     def test(data)
       result = execute(data, force: true)
 
       { success: true, result: result }
-    rescue StandardError => error
-      { success: false, result: error }
+    rescue StandardError => e
+      { success: false, result: e }
     end
 
     def should_pipeline_be_notified?(data)

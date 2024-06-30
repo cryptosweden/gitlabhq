@@ -9,12 +9,19 @@ module Gitlab
         def self.bulk_read(subjects)
           results = {}
 
-          Gitlab::Redis::Cache.with do |r|
-            r.pipelined do
-              subjects.each do |subject|
-                results[subject.cache_key] = new(subject).read
+          data = Gitlab::Redis::Cache.with do |r|
+            Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
+              r.pipelined do |pipeline|
+                subjects.each do |subject|
+                  new(subject).read(pipeline)
+                end
               end
             end
+          end
+
+          # enumerate data
+          data.each_with_index do |elem, idx|
+            results[subjects[idx].cache_key] = elem
           end
 
           results
@@ -28,17 +35,21 @@ module Gitlab
         def save(updates)
           @loaded = false
 
-          Gitlab::Redis::Cache.with do |r|
+          with_redis do |r|
             r.mapped_hmset(markdown_cache_key, updates)
             r.expire(markdown_cache_key, EXPIRES_IN)
           end
         end
 
-        def read
+        def read(pipeline = nil)
           @loaded = true
 
-          Gitlab::Redis::Cache.with do |r|
-            r.mapped_hmget(markdown_cache_key, *fields)
+          if pipeline
+            pipeline.mapped_hmget(markdown_cache_key, *fields)
+          else
+            with_redis do |r|
+              r.mapped_hmget(markdown_cache_key, *fields)
+            end
           end
         end
 
@@ -55,10 +66,14 @@ module Gitlab
         def markdown_cache_key
           unless @subject.respond_to?(:cache_key)
             raise Gitlab::MarkdownCache::UnsupportedClassError,
-                  "This class has no cache_key to use for caching"
+              "This class has no cache_key to use for caching"
           end
 
           "markdown_cache:#{@subject.cache_key}"
+        end
+
+        def with_redis(&block)
+          Gitlab::Redis::Cache.with(&block) # rubocop:disable CodeReuse/ActiveRecord
         end
       end
     end

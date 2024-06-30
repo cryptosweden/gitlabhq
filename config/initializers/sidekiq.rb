@@ -5,48 +5,77 @@ module SidekiqLogArguments
   end
 end
 
-def enable_reliable_fetch?
-  return true unless Feature::FlipperFeature.table_exists?
+def load_cron_jobs!
+  Sidekiq::Cron::Job.load_from_hash! Gitlab::SidekiqConfig.cron_jobs
 
-  Feature.enabled?(:gitlab_sidekiq_reliable_fetcher, type: :ops, default_enabled: true)
+  Gitlab.ee do
+    Gitlab::Mirror.configure_cron_job!
+
+    Gitlab::Geo.configure_cron_jobs!
+  end
 end
 
-def enable_semi_reliable_fetch_mode?
-  return true unless Feature::FlipperFeature.table_exists?
-
-  Feature.enabled?(:gitlab_sidekiq_enable_semi_reliable_fetcher, type: :ops, default_enabled: true)
-end
+# initialise migrated_shards on start-up to catch any malformed SIDEKIQ_MIGRATED_SHARD lists.
+Gitlab::SidekiqSharding::Router.migrated_shards
 
 # Custom Queues configuration
-queues_config_hash = Gitlab::Redis::Queues.params
-queues_config_hash[:namespace] = Gitlab::Redis::Queues::SIDEKIQ_NAMESPACE
+#
+# We omit :command_builder since Sidekiq::RedisConnection performs a deep clone using
+# Marshal.load(Marshal.dump(options.slice(*keys))) on the Redis config and Gitlab::Redis::CommandBuilder
+# can't be referred to.
+#
+# We do not need the custom command builder since Sidekiq will handle the typing of Redis arguments.
+queues_config_hash = Gitlab::Redis::Queues.params.except(:command_builder)
+queue_instance = ENV.fetch('SIDEKIQ_SHARD_NAME', Gitlab::Redis::Queues::SIDEKIQ_MAIN_SHARD_INSTANCE_NAME)
+queues_config_hash = Gitlab::Redis::Queues.instances[queue_instance].params.except(:command_builder)
 
-enable_json_logs = Gitlab.config.sidekiq.log_format == 'json'
-enable_sidekiq_memory_killer = ENV['SIDEKIQ_MEMORY_KILLER_MAX_RSS'].to_i.nonzero?
-use_sidekiq_daemon_memory_killer = ENV.fetch("SIDEKIQ_DAEMON_MEMORY_KILLER", 1).to_i.nonzero?
-use_sidekiq_legacy_memory_killer = !use_sidekiq_daemon_memory_killer
+enable_json_logs = Gitlab.config.sidekiq.log_format != 'text'
+
+# Sidekiq's `strict_args!` raises an exception by default in 7.0
+# https://github.com/sidekiq/sidekiq/blob/31bceff64e10d501323bc06ac0552652a47c082e/docs/7.0-Upgrade.md?plain=1#L59
+Sidekiq.strict_args!(false)
+
+# Perform version check before configuring server with the custome scheduled job enqueue class
+unless Gem::Version.new(Sidekiq::VERSION) == Gem::Version.new('7.1.6')
+  raise 'New version of Sidekiq detected, please either update the version for this check ' \
+        'and update Gitlab::SidekiqSharding::ScheduledEnq is compatible.'
+end
 
 Sidekiq.configure_server do |config|
-  config.options[:strict] = false
-  config.options[:queues] = Gitlab::SidekiqConfig.expand_queues(config.options[:queues])
+  config[:strict] = false
+  config[:scheduled_enq] = Gitlab::SidekiqSharding::ScheduledEnq
+  config[:queues] = Gitlab::SidekiqConfig.expand_queues(config[:queues])
 
   if enable_json_logs
-    config.log_formatter = Gitlab::SidekiqLogging::JSONFormatter.new
-    config.options[:job_logger] = Gitlab::SidekiqLogging::StructuredLogger
+    config.logger.formatter = Gitlab::SidekiqLogging::JSONFormatter.new
+    config[:job_logger] = Gitlab::SidekiqLogging::StructuredLogger
 
     # Remove the default-provided handler. The exception is logged inside
     # Gitlab::SidekiqLogging::StructuredLogger
-    config.error_handlers.reject! { |handler| handler.is_a?(Sidekiq::ExceptionHandler::Logger) }
+    config.error_handlers.delete(Sidekiq::Config::ERROR_HANDLER)
   end
 
-  Sidekiq.logger.info "Listening on queues #{config.options[:queues].uniq.sort}"
+  config.logger.level = ENV.fetch("GITLAB_LOG_LEVEL", ::Logger::INFO)
 
-  config.redis = queues_config_hash
+  Sidekiq.logger.info "Listening on queues #{config[:queues].uniq.sort}"
+
+  # In Sidekiq 6.x, connection pools have a size of concurrency+5.
+  # ref: https://github.com/sidekiq/sidekiq/blob/v6.5.10/lib/sidekiq/redis_connection.rb#L93
+  #
+  # In Sidekiq 7.x, capsule connection pools have a size equal to its concurrency. Internal
+  # housekeeping pool has a size of 10.
+  # ref: https://github.com/sidekiq/sidekiq/blob/v7.1.6/lib/sidekiq/capsule.rb#L94
+  # ref: https://github.com/sidekiq/sidekiq/blob/v7.1.6/lib/sidekiq/config.rb#L133
+  #
+  # We restore the concurrency+5 in Sidekiq 7.x to ensure that we do not experience resource bottlenecks with Redis
+  # connections. The connections are created lazily so slightly over-provisioning a connection pool is not an issue.
+  # This also increases the internal redis pool from 10 to concurrency+5.
+  config.redis = queues_config_hash.merge({ size: config.concurrency + 5 })
 
   config.server_middleware(&Gitlab::SidekiqMiddleware.server_configurator(
     metrics: Settings.monitoring.sidekiq_exporter,
     arguments_logger: SidekiqLogArguments.enabled? && !enable_json_logs,
-    memory_killer: enable_sidekiq_memory_killer && use_sidekiq_legacy_memory_killer
+    skip_jobs: Gitlab::Utils.to_boolean(ENV['SIDEKIQ_SKIP_JOBS'], default: true)
   ))
 
   config.client_middleware(&Gitlab::SidekiqMiddleware.client_configurator)
@@ -56,44 +85,37 @@ Sidekiq.configure_server do |config|
   config.on :startup do
     # Clear any connections that might have been obtained before starting
     # Sidekiq (e.g. in an initializer).
-    ActiveRecord::Base.clear_all_connections!
+    ActiveRecord::Base.clear_all_connections! # rubocop:disable Database/MultipleDatabases
 
     # Start monitor to track running jobs. By default, cancel job is not enabled
     # To cancel job, it requires `SIDEKIQ_MONITOR_WORKER=1` to enable notification channel
     Gitlab::SidekiqDaemon::Monitor.instance.start
 
-    Gitlab::SidekiqDaemon::MemoryKiller.instance.start if enable_sidekiq_memory_killer && use_sidekiq_daemon_memory_killer
-  end
+    first_sidekiq_worker = !ENV['SIDEKIQ_WORKER_ID'] || ENV['SIDEKIQ_WORKER_ID'] == '0'
+    health_checks = Settings.monitoring.sidekiq_health_checks
 
-  if enable_reliable_fetch?
-    config.options[:semi_reliable_fetch] = enable_semi_reliable_fetch_mode?
-    Sidekiq::ReliableFetch.setup_reliable_fetch!(config)
-  end
-
-  Gitlab.config.load_dynamic_cron_schedules!
-
-  # Sidekiq-cron: load recurring jobs from gitlab.yml
-  # UGLY Hack to get nested hash from settingslogic
-  cron_jobs = Gitlab::Json.parse(Gitlab.config.cron_jobs.to_json)
-  # UGLY hack: Settingslogic doesn't allow 'class' key
-  cron_jobs_required_keys = %w(job_class cron)
-  cron_jobs.each do |k, v|
-    if cron_jobs[k] && cron_jobs_required_keys.all? { |s| cron_jobs[k].key?(s) }
-      cron_jobs[k]['class'] = cron_jobs[k].delete('job_class')
-    else
-      cron_jobs.delete(k)
-      Gitlab::AppLogger.error("Invalid cron_jobs config key: '#{k}'. Check your gitlab config file.")
+    # Start health-check in-process server
+    if first_sidekiq_worker && health_checks.enabled
+      Gitlab::HealthChecks::Server.instance(
+        address: health_checks.address,
+        port: health_checks.port
+      ).start
     end
   end
-  Sidekiq::Cron::Job.load_from_hash! cron_jobs
+
+  config.on(:shutdown) do
+    Gitlab::Cluster::LifecycleEvents.do_worker_stop
+  end
+
+  config[:semi_reliable_fetch] = true # Default value is false
+
+  Sidekiq::ReliableFetch.setup_reliable_fetch!(config)
 
   Gitlab::SidekiqVersioning.install!
 
-  Gitlab.ee do
-    Gitlab::Mirror.configure_cron_job!
-
-    Gitlab::Geo.configure_cron_jobs!
-  end
+  config[:cron_poll_interval] = Gitlab.config.cron_jobs.poll_interval
+  config[:cron_poll_interval] = 0 if queue_instance != Gitlab::Redis::Queues::SIDEKIQ_MAIN_SHARD_INSTANCE_NAME
+  load_cron_jobs!
 
   # Avoid autoload issue such as 'Mail::Parsers::AddressStruct'
   # https://github.com/mikel/mail/issues/912#issuecomment-214850355
@@ -108,11 +130,20 @@ Sidekiq.configure_client do |config|
   # We only need to do this for other clients. If Sidekiq-server is the
   # client scheduling jobs, we have access to the regular sidekiq logger that
   # writes to STDOUT
-  Sidekiq.logger = Gitlab::SidekiqLogging::ClientLogger.build
-  Sidekiq.logger.formatter = Gitlab::SidekiqLogging::JSONFormatter.new if enable_json_logs
+  config.logger = Gitlab::SidekiqLogging::ClientLogger.build
+  config.logger.formatter = Gitlab::SidekiqLogging::JSONFormatter.new if enable_json_logs
 
   config.client_middleware(&Gitlab::SidekiqMiddleware.client_configurator)
 end
 
+Gitlab::Application.configure do |config|
+  config.middleware.use(Gitlab::Middleware::SidekiqShardAwarenessValidation)
+end
+
 Sidekiq::Scheduled::Poller.prepend Gitlab::Patch::SidekiqPoller
 Sidekiq::Cron::Poller.prepend Gitlab::Patch::SidekiqPoller
+Sidekiq::Cron::Poller.prepend Gitlab::Patch::SidekiqCronPoller
+
+Sidekiq::Client.prepend Gitlab::SidekiqSharding::Validator::Client
+Sidekiq::RedisClientAdapter::CompatMethods.prepend Gitlab::SidekiqSharding::Validator
+Sidekiq::Job::Setter.prepend Gitlab::Patch::SidekiqJobSetter

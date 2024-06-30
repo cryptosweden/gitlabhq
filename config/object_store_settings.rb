@@ -2,35 +2,76 @@
 
 # Set default values for object_store settings
 class ObjectStoreSettings
-  SUPPORTED_TYPES = %w(artifacts external_diffs lfs uploads packages dependency_proxy terraform_state pages secure_files).freeze
-  ALLOWED_OBJECT_STORE_OVERRIDES = %w(bucket enabled proxy_download).freeze
+  SUPPORTED_TYPES = %w[artifacts external_diffs lfs uploads packages dependency_proxy terraform_state pages
+    ci_secure_files].freeze
+  ALLOWED_OBJECT_STORE_OVERRIDES = %w[bucket enabled proxy_download cdn].freeze
 
   # To ensure the one Workhorse credential matches the Rails config, we
   # enforce consolidated settings on those accelerated
   # endpoints. Technically dependency_proxy and terraform_state fall
   # into this category, but they will likely be handled by Workhorse in
   # the future.
-  WORKHORSE_ACCELERATED_TYPES = SUPPORTED_TYPES - %w(pages)
+  #
+  # ci_secure_files doesn't support Workhorse yet
+  # (https://gitlab.com/gitlab-org/gitlab/-/issues/461124), and it was
+  # introduced first as a storage-specific setting. To avoid breaking
+  # consolidated settings for other object types, exclude it here.
+  WORKHORSE_ACCELERATED_TYPES = SUPPORTED_TYPES - %w[pages ci_secure_files]
 
-  # pages may be enabled but use legacy disk storage
+  # pages and ci_secure_files may be enabled but use legacy disk storage
   # we don't need to raise an error in that case
-  ALLOWED_INCOMPLETE_TYPES = %w(pages).freeze
+  ALLOWED_INCOMPLETE_TYPES = %w[pages ci_secure_files].freeze
 
   attr_accessor :settings
 
   # Legacy parser
-  def self.legacy_parse(object_store)
-    object_store ||= Settingslogic.new({})
+  def self.legacy_parse(object_store, object_store_type)
+    object_store ||= GitlabSettings::Options.build({})
     object_store['enabled'] = false if object_store['enabled'].nil?
-    object_store['remote_directory'] ||= nil
-    object_store['direct_upload'] = false if object_store['direct_upload'].nil?
-    object_store['background_upload'] = true if object_store['background_upload'].nil?
+    object_store['remote_directory'], object_store['bucket_prefix'] = split_bucket_prefix(
+      object_store['remote_directory']
+    )
+
+    object_store['direct_upload'] = true
+
     object_store['proxy_download'] = false if object_store['proxy_download'].nil?
     object_store['storage_options'] ||= {}
 
-    # Convert upload connection settings to use string keys, to make Fog happy
-    object_store['connection']&.deep_stringify_keys!
     object_store
+  end
+
+  def self.split_bucket_prefix(bucket)
+    return [nil, nil] unless bucket.present?
+
+    # Strictly speaking, object storage keys are not Unix paths and
+    # characters like '/' and '.' have no special meaning. But in practice,
+    # we do treat them like paths, and somewhere along the line something or
+    # somebody may turn '//' into '/' or try to resolve '/..'. To guard
+    # against this we reject "bad" combinations of '/' and '.'.
+    [%r{\A\.*/}, %r{/\.*/}, %r{/\.*\z}].each do |re|
+      raise 'invalid bucket' if re.match(bucket)
+    end
+
+    bucket, prefix = bucket.split('/', 2)
+    [bucket, prefix]
+  end
+
+  def self.enabled_endpoint_uris
+    SUPPORTED_TYPES.filter_map do |type|
+      section_setting = Gitlab.config.try(type)
+
+      next unless section_setting && section_setting['enabled']
+
+      object_store_setting = section_setting['object_store']
+
+      next unless object_store_setting && object_store_setting['enabled']
+
+      endpoint = object_store_setting.dig('connection', 'endpoint')
+
+      next unless endpoint
+
+      URI(endpoint)
+    end.uniq
   end
 
   def initialize(settings)
@@ -77,7 +118,6 @@ class ObjectStoreSettings
   #     "server_side_encryption" => "AES256"
   #   },
   #   "direct_upload" => true,
-  #   "background_upload" => false,
   #   "proxy_download" => false,
   #   "remote_directory" => "artifacts"
   # }
@@ -96,7 +136,6 @@ class ObjectStoreSettings
   #     "server_side_encryption" => "AES256"
   #   },
   #   "direct_upload" => true,
-  #   "background_upload" => false,
   #   "proxy_download" => true,
   #   "remote_directory" => "lfs-objects"
   # }
@@ -108,17 +147,15 @@ class ObjectStoreSettings
   # 2. However, a bucket has to be specified for each object
   #    type. Reusing buckets is not really supported, but we don't
   #    enforce that yet.
-  # 3. direct_upload and background_upload cannot be configured anymore.
+  # 3. direct_upload cannot be configured anymore.
   def parse!
     return unless use_consolidated_settings?
 
     main_config = settings['object_store']
     common_config = main_config.slice('enabled', 'connection', 'proxy_download', 'storage_options')
-    # Convert connection settings to use string keys, to make Fog happy
-    common_config['connection']&.deep_stringify_keys!
+
     # These are no longer configurable if common config is used
     common_config['direct_upload'] = true
-    common_config['background_upload'] = false
     common_config['storage_options'] ||= {}
 
     SUPPORTED_TYPES.each do |store_type|
@@ -141,10 +178,12 @@ class ObjectStoreSettings
       next if allowed_storage_specific_settings?(store_type, section.to_h)
 
       # Map bucket (external name) -> remote_directory (internal representation)
-      target_config['remote_directory'] = target_config.delete('bucket')
+      target_config['remote_directory'], target_config['bucket_prefix'] = self.class.split_bucket_prefix(
+        target_config.delete('bucket')
+      )
       target_config['consolidated_settings'] = true
       section['object_store'] = target_config
-      # Settingslogic internally stores data as a Hash, but it also
+      # GitlabSettings::Options internally stores data as a Hash, but it also
       # creates a Settings object for every key. To avoid confusion, we should
       # update both so that Settings.artifacts and Settings['artifacts'] return
       # the same result.
@@ -161,24 +200,26 @@ class ObjectStoreSettings
   # 2. The legacy settings are not defined
   def use_consolidated_settings?
     return false unless settings.dig('object_store', 'enabled')
-    return false unless settings.dig('object_store', 'connection').present?
+
+    connection = settings.dig('object_store', 'connection')
+
+    return false unless connection.present?
 
     WORKHORSE_ACCELERATED_TYPES.each do |store|
-      # to_h is needed because we define `default` as a Gitaly storage name
-      # in stub_storage_settings. This causes Settingslogic to redefine Hash#default,
-      # which causes Hash#dig to fail when the key doesn't exist: https://gitlab.com/gitlab-org/gitlab/-/issues/286873
-      #
-      # (byebug) section.dig
-      # *** ArgumentError Exception: wrong number of arguments (given 0, expected 1+)
-      # (byebug) section.dig('object_store')
-      # *** ArgumentError Exception: wrong number of arguments (given 1, expected 0)
-      section = settings.try(store)&.to_h
+      section = settings.try(store)
 
       next unless section
+      next unless section.dig('object_store', 'enabled')
 
-      return false if section.dig('object_store', 'enabled')
-      # Omnibus defaults to an empty hash
-      return false if section.dig('object_store', 'connection').present?
+      section_connection = section.dig('object_store', 'connection')
+
+      # We can use consolidated settings if the main object store
+      # connection matches the section-specific connection. This makes
+      # it possible to automatically use consolidated settings as new
+      # settings (such as ci_secure_files) get promoted to a supported
+      # type. Omnibus defaults to an empty hash for the
+      # section-specific connection.
+      return false if section_connection.present? && section_connection.to_h != connection.to_h
     end
 
     true

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PlayManualStageService, '#execute' do
+RSpec.describe Ci::PlayManualStageService, '#execute', feature_category: :continuous_integration do
   let(:current_user) { create(:user) }
   let(:pipeline) { create(:ci_pipeline, user: current_user) }
   let(:project) { pipeline.project }
@@ -11,10 +11,7 @@ RSpec.describe Ci::PlayManualStageService, '#execute' do
   let(:stage_status) { 'manual' }
 
   let(:stage) do
-    create(:ci_stage_entity,
-           pipeline: pipeline,
-           project: project,
-           name: 'test')
+    create(:ci_stage, pipeline: pipeline, project: project, name: 'test')
   end
 
   before do
@@ -75,7 +72,6 @@ RSpec.describe Ci::PlayManualStageService, '#execute' do
     options.merge!({
       when: 'manual',
       pipeline: pipeline,
-      stage: stage.name,
       stage_id: stage.id,
       user: pipeline.user
     })
@@ -87,7 +83,6 @@ RSpec.describe Ci::PlayManualStageService, '#execute' do
     options.merge!({
       when: 'manual',
       pipeline: pipeline,
-      stage: stage.name,
       stage_id: stage.id,
       user: pipeline.user,
       downstream: downstream_project

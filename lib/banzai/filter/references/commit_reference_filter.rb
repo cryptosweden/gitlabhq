@@ -19,7 +19,12 @@ module Banzai
         def find_object(project, id)
           return unless project.is_a?(Project) && project.valid_repo?
 
-          _, record = reference_cache.records_per_parent[project].detect { |k, _v| Gitlab::Git.shas_eql?(k, id) }
+          # Optimization: try exact commit hash match first
+          record = reference_cache.records_per_parent[project].fetch(id, nil)
+
+          unless record
+            _, record = reference_cache.records_per_parent[project].detect { |k, _v| Gitlab::Git.shas_eql?(k, id) }
+          end
 
           record
         end
@@ -44,14 +49,14 @@ module Banzai
           h = Gitlab::Routing.url_helpers
 
           if referenced_merge_request_commit_shas.include?(commit.id)
-            h.diffs_project_merge_request_url(project,
-                                              noteable,
-                                              commit_id: commit.id,
-                                              only_path: only_path?)
+            h.diffs_project_merge_request_url(
+              project,
+              noteable,
+              commit_id: commit.id,
+              only_path: only_path?
+            )
           else
-            h.project_commit_url(project,
-                                 commit,
-                                 only_path: only_path?)
+            h.project_commit_url(project, commit, only_path: only_path?)
           end
         end
 

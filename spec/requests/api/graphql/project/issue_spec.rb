@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query.project(fullPath).issue(iid)' do
+RSpec.describe 'Query.project(fullPath).issue(iid)', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
   let_it_be(:issue) { create(:issue, project: project) }
   let_it_be(:issue_b) { create(:issue, project: project) }
-  let_it_be(:developer) { create(:user) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
   let(:current_user) { developer }
 
   let_it_be(:project_params) { { 'fullPath' => project.full_path } }
@@ -80,10 +80,6 @@ RSpec.describe 'Query.project(fullPath).issue(iid)' do
     end
   end
 
-  before do
-    project.add_developer(developer)
-  end
-
   let(:post_query) { post_graphql(query, current_user: current_user) }
 
   describe '.designCollection' do
@@ -108,7 +104,7 @@ RSpec.describe 'Query.project(fullPath).issue(iid)' do
       let(:object_field_name) { :design }
 
       let(:no_argument_error) do
-        custom_graphql_error(path, a_string_matching(%r/id or filename/))
+        custom_graphql_error(path, a_string_matching(%r{id or filename}))
       end
 
       let_it_be(:object_on_other_issue) { create(:design, issue: issue_b) }
@@ -134,7 +130,7 @@ RSpec.describe 'Query.project(fullPath).issue(iid)' do
         it 'raises an error' do
           post_query
 
-          expect(graphql_errors).to include(custom_graphql_error(path, a_string_matching(%r/id or sha/)))
+          expect(graphql_errors).to include(custom_graphql_error(path, a_string_matching(%r{id or sha})))
         end
       end
 
@@ -144,10 +140,7 @@ RSpec.describe 'Query.project(fullPath).issue(iid)' do
 
           data = graphql_data.dig(*path)
 
-          expect(data).to match(
-            a_hash_including('id' => global_id_of(version),
-                             'sha' => version.sha)
-          )
+          expect(data).to match a_graphql_entity_for(version, :sha)
         end
       end
 
@@ -184,6 +177,6 @@ RSpec.describe 'Query.project(fullPath).issue(iid)' do
   end
 
   def id_hash(object)
-    a_hash_including('id' => global_id_of(object))
+    a_graphql_entity_for(object)
   end
 end

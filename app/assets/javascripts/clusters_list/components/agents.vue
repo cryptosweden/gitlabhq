@@ -1,15 +1,13 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlAlert, GlKeysetPagination, GlLoadingIcon, GlBanner } from '@gitlab/ui';
+import { GlAlert, GlLoadingIcon, GlBanner } from '@gitlab/ui';
+import feedbackBannerIllustration from '@gitlab/svgs/dist/illustrations/chat-sm.svg?url';
 import { s__ } from '~/locale';
 import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
-import {
-  MAX_LIST_COUNT,
-  ACTIVE_CONNECTION_TIME,
-  AGENT_FEEDBACK_ISSUE,
-  AGENT_FEEDBACK_KEY,
-} from '../constants';
+import { AGENT_FEEDBACK_ISSUE, AGENT_FEEDBACK_KEY } from '../constants';
 import getAgentsQuery from '../graphql/queries/get_agents.query.graphql';
+import { getAgentLastContact, getAgentStatus } from '../clusters_util';
 import AgentEmptyState from './agent_empty_state.vue';
 import AgentTable from './agent_table.vue';
 
@@ -20,7 +18,7 @@ export default {
       'ClusterAgents|We would love to learn more about your experience with the GitLab Agent.',
     ),
     feedbackBannerButton: s__('ClusterAgents|Give feedback'),
-    error: s__('ClusterAgents|An error occurred while loading your Agents'),
+    error: s__('ClusterAgents|An error occurred while loading your agents'),
   },
   AGENT_FEEDBACK_ISSUE,
   AGENT_FEEDBACK_KEY,
@@ -31,7 +29,6 @@ export default {
         return {
           defaultBranchName: this.defaultBranchName,
           projectPath: this.projectPath,
-          ...this.cursor,
         };
       },
       update(data) {
@@ -41,13 +38,15 @@ export default {
       result() {
         this.emitAgentsLoaded();
       },
+      error() {
+        this.queryErrored = true;
+      },
     },
   },
   components: {
     AgentEmptyState,
     AgentTable,
     GlAlert,
-    GlKeysetPagination,
     GlLoadingIcon,
     GlBanner,
     LocalStorageSync,
@@ -73,40 +72,40 @@ export default {
   },
   data() {
     return {
-      cursor: {
-        first: this.limit ? this.limit : MAX_LIST_COUNT,
-        last: null,
-      },
       folderList: {},
       feedbackBannerDismissed: false,
+      queryErrored: false,
     };
   },
   computed: {
     agentList() {
-      let list = this.agents?.project?.clusterAgents?.nodes;
+      const localAgents = this.agents?.project?.clusterAgents?.nodes || [];
+      const sharedAgents = [
+        ...(this.agents?.project?.ciAccessAuthorizedAgents?.nodes || []),
+        ...(this.agents?.project?.userAccessAuthorizedAgents?.nodes || []),
+      ].map((node) => {
+        return {
+          ...node.agent,
+          isShared: true,
+        };
+      });
 
-      if (list) {
-        list = list.map((agent) => {
+      const filteredList = [...localAgents, ...sharedAgents]
+        .filter((node, index, list) => {
+          return node && index === list.findIndex((agent) => agent.id === node.id);
+        })
+        .map((agent) => {
           const configFolder = this.folderList[agent.name];
-          const lastContact = this.getLastContact(agent);
-          const status = this.getStatus(lastContact);
+          const lastContact = getAgentLastContact(agent?.tokens?.nodes);
+          const status = getAgentStatus(lastContact);
           return { ...agent, configFolder, lastContact, status };
-        });
-      }
+        })
+        .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 
-      return list;
-    },
-    agentPageInfo() {
-      return this.agents?.project?.clusterAgents?.pageInfo || {};
+      return filteredList;
     },
     isLoading() {
       return this.$apollo.queries.agents.loading;
-    },
-    showPagination() {
-      return !this.limit && (this.agentPageInfo.hasPreviousPage || this.agentPageInfo.hasNextPage);
-    },
-    treePageInfo() {
-      return this.agents?.project?.repository?.tree?.trees?.pageInfo || {};
     },
     feedbackBannerEnabled() {
       return this.glFeatures.showGitlabAgentFeedback;
@@ -114,24 +113,11 @@ export default {
     feedbackBannerClasses() {
       return this.isChildComponent ? 'gl-my-2' : 'gl-mb-4';
     },
+    feedbackBannerIllustration() {
+      return feedbackBannerIllustration;
+    },
   },
   methods: {
-    nextPage() {
-      this.cursor = {
-        first: MAX_LIST_COUNT,
-        last: null,
-        afterAgent: this.agentPageInfo.endCursor,
-        afterTree: this.treePageInfo.endCursor,
-      };
-    },
-    prevPage() {
-      this.cursor = {
-        first: null,
-        last: MAX_LIST_COUNT,
-        beforeAgent: this.agentPageInfo.startCursor,
-        beforeTree: this.treePageInfo.endCursor,
-      };
-    },
     updateTreeList(data) {
       const configFolders = data?.project?.repository?.tree?.trees?.nodes;
 
@@ -141,31 +127,8 @@ export default {
         });
       }
     },
-    getLastContact(agent) {
-      const tokens = agent?.tokens?.nodes;
-      let lastContact = null;
-      if (tokens?.length) {
-        tokens.forEach((token) => {
-          const lastContactToDate = new Date(token.lastUsedAt).getTime();
-          if (lastContactToDate > lastContact) {
-            lastContact = lastContactToDate;
-          }
-        });
-      }
-      return lastContact;
-    },
-    getStatus(lastContact) {
-      if (lastContact) {
-        const now = new Date().getTime();
-        const diff = now - lastContact;
-
-        return diff > ACTIVE_CONNECTION_TIME ? 'inactive' : 'active';
-      }
-      return 'unused';
-    },
     emitAgentsLoaded() {
-      const count = this.agents?.project?.clusterAgents?.count;
-      this.$emit('onAgentsLoad', count);
+      this.$emit('onAgentsLoad', this.agentList?.length);
     },
     handleBannerClose() {
       this.feedbackBannerDismissed = true;
@@ -175,9 +138,9 @@ export default {
 </script>
 
 <template>
-  <gl-loading-icon v-if="isLoading" size="md" />
+  <gl-loading-icon v-if="isLoading" size="lg" />
 
-  <section v-else-if="agentList">
+  <section v-else-if="!queryErrored">
     <div v-if="agentList.length">
       <local-storage-sync
         v-if="feedbackBannerEnabled"
@@ -186,11 +149,11 @@ export default {
       >
         <gl-banner
           v-if="!feedbackBannerDismissed"
-          variant="introduction"
           :class="feedbackBannerClasses"
           :title="$options.i18n.feedbackBannerTitle"
           :button-text="$options.i18n.feedbackBannerButton"
           :button-link="$options.AGENT_FEEDBACK_ISSUE"
+          :svg-path="feedbackBannerIllustration"
           @close="handleBannerClose"
         >
           <p>{{ $options.i18n.feedbackBannerText }}</p>
@@ -200,15 +163,11 @@ export default {
       <agent-table
         :agents="agentList"
         :default-branch-name="defaultBranchName"
-        :max-agents="cursor.first"
+        :max-agents="limit"
       />
-
-      <div v-if="showPagination" class="gl-display-flex gl-justify-content-center gl-mt-5">
-        <gl-keyset-pagination v-bind="agentPageInfo" @prev="prevPage" @next="nextPage" />
-      </div>
     </div>
 
-    <agent-empty-state v-else :is-child-component="isChildComponent" />
+    <agent-empty-state v-else />
   </section>
 
   <gl-alert v-else variant="danger" :dismissible="false">

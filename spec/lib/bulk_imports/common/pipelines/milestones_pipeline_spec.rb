@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Common::Pipelines::MilestonesPipeline do
+RSpec.describe BulkImports::Common::Pipelines::MilestonesPipeline, feature_category: :importers do
   let(:user) { create(:user) }
   let(:group) { create(:group) }
   let(:bulk_import) { create(:bulk_import, user: user) }
@@ -13,16 +13,16 @@ RSpec.describe BulkImports::Common::Pipelines::MilestonesPipeline do
   let(:exported_milestone_for_project) do
     exported_milestone_for_group.merge(
       'events' => [{
-         'project_id' => source_project_id,
-         'author_id' => 9,
-         'created_at' => "2021-08-12T19:12:49.810Z",
-         'updated_at' => "2021-08-12T19:12:49.810Z",
-         'target_type' => "Milestone",
-         'group_id' => source_group_id,
-         'fingerprint' => 'f270eb9b27d0',
-         'id' => 66,
-         'action' => "created"
-       }]
+        'project_id' => source_project_id,
+        'author_id' => 9,
+        'created_at' => "2021-08-12T19:12:49.810Z",
+        'updated_at' => "2021-08-12T19:12:49.810Z",
+        'target_type' => "Milestone",
+        'group_id' => source_group_id,
+        'fingerprint' => 'f270eb9b27d0',
+        'id' => 66,
+        'action' => "created"
+      }]
     )
   end
 
@@ -48,6 +48,8 @@ RSpec.describe BulkImports::Common::Pipelines::MilestonesPipeline do
     allow_next_instance_of(BulkImports::Common::Extractors::NdjsonExtractor) do |extractor|
       allow(extractor).to receive(:extract).and_return(BulkImports::Pipeline::ExtractedData.new(data: exported_milestones))
     end
+
+    allow(subject).to receive(:set_source_objects_counter)
   end
 
   subject { described_class.new(context) }
@@ -97,7 +99,7 @@ RSpec.describe BulkImports::Common::Pipelines::MilestonesPipeline do
         group: group,
         bulk_import: bulk_import,
         source_full_path: 'source/full/path',
-        destination_name: 'My Destination Group',
+        destination_slug: 'My-Destination-Group',
         destination_namespace: group.full_path
       )
     end
@@ -119,7 +121,7 @@ RSpec.describe BulkImports::Common::Pipelines::MilestonesPipeline do
         project: project,
         bulk_import: bulk_import,
         source_full_path: 'source/full/path',
-        destination_name: 'My Destination Project',
+        destination_slug: 'My-Destination-Project',
         destination_namespace: group.full_path
       )
     end

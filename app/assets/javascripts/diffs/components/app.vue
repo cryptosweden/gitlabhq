@@ -1,8 +1,11 @@
 <script>
 import { GlLoadingIcon, GlPagination, GlSprintf, GlAlert } from '@gitlab/ui';
 import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
-import Mousetrap from 'mousetrap';
+import { debounce, throttle } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters, mapActions } from 'vuex';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { convertToGraphQLId } from '~/graphql_shared/utils';
 import api from '~/api';
 import {
   keysFor,
@@ -11,22 +14,20 @@ import {
   MR_COMMITS_NEXT_COMMIT,
   MR_COMMITS_PREVIOUS_COMMIT,
 } from '~/behaviors/shortcuts/keybindings';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import { InternalEvents } from '~/tracking';
 import { isSingleViewStyle } from '~/helpers/diffs_helper';
 import { helpPagePath } from '~/helpers/help_page_helper';
-import { parseBoolean } from '~/lib/utils/common_utils';
-import { updateHistory } from '~/lib/utils/url_utility';
+import { parseBoolean, handleLocationHash } from '~/lib/utils/common_utils';
+import { BV_HIDE_TOOLTIP, DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
+import { Mousetrap } from '~/lib/mousetrap';
+import { updateHistory, getLocationHash } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
-import MrWidgetHowToMergeModal from '~/vue_merge_request_widget/components/mr_widget_how_to_merge_modal.vue';
-import PanelResizer from '~/vue_shared/components/panel_resizer.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 
-import notesEventHub from '../../notes/event_hub';
+import notesEventHub from '~/notes/event_hub';
+import { DynamicScroller, DynamicScrollerItem } from 'vendor/vue-virtual-scroller';
+import { sortFindingsByFile } from '../utils/sort_findings_by_file';
 import {
-  TREE_LIST_WIDTH_STORAGE_KEY,
-  INITIAL_TREE_WIDTH,
-  MIN_TREE_WIDTH,
-  TREE_HIDE_STATS_WIDTH,
   MR_TREE_SHOW_KEY,
   ALERT_OVERFLOW_HIDDEN,
   ALERT_MERGE_CONFLICT,
@@ -40,29 +41,40 @@ import {
   TRACKING_WHITESPACE_HIDE,
   TRACKING_SINGLE_FILE_MODE,
   TRACKING_MULTIPLE_FILES_MODE,
+  EVT_MR_PREPARED,
+  EVT_DISCUSSIONS_ASSIGNED,
 } from '../constants';
 
+import { isCollapsed } from '../utils/diff_file';
 import diffsEventHub from '../event_hub';
 import { reviewStatuses } from '../utils/file_reviews';
 import { diffsApp } from '../utils/performance';
+import { updateChangesTabCount, extractFileHash } from '../utils/merge_request';
 import { queueRedisHllEvents } from '../utils/queue_events';
+import FindingsDrawer from './shared/findings_drawer.vue';
 import CollapsedFilesWarning from './collapsed_files_warning.vue';
 import CommitWidget from './commit_widget.vue';
 import CompareVersions from './compare_versions.vue';
 import DiffFile from './diff_file.vue';
 import HiddenFilesWarning from './hidden_files_warning.vue';
 import NoChanges from './no_changes.vue';
-import TreeList from './tree_list.vue';
 import VirtualScrollerScrollSync from './virtual_scroller_scroll_sync';
+import DiffsFileTree from './diffs_file_tree.vue';
+import getMRCodequalityAndSecurityReports from './graphql/get_mr_codequality_and_security_reports.query.graphql';
+
+export const FINDINGS_STATUS_PARSED = 'PARSED';
+export const FINDINGS_STATUS_ERROR = 'ERROR';
+export const FINDINGS_POLL_INTERVAL = 1000;
 
 export default {
   name: 'DiffsApp',
+  FINDINGS_STATUS_PARSED,
+  FINDINGS_STATUS_ERROR,
   components: {
-    DynamicScroller: () =>
-      import('vendor/vue-virtual-scroller').then(({ DynamicScroller }) => DynamicScroller),
-    DynamicScrollerItem: () =>
-      import('vendor/vue-virtual-scroller').then(({ DynamicScrollerItem }) => DynamicScrollerItem),
-    PreRenderer: () => import('./pre_renderer.vue').then((PreRenderer) => PreRenderer),
+    DiffsFileTree,
+    FindingsDrawer,
+    DynamicScroller,
+    DynamicScrollerItem,
     VirtualScrollerScrollSync,
     CompareVersions,
     DiffFile,
@@ -70,51 +82,47 @@ export default {
     HiddenFilesWarning,
     CollapsedFilesWarning,
     CommitWidget,
-    TreeList,
     GlLoadingIcon,
-    PanelResizer,
     GlPagination,
     GlSprintf,
-    MrWidgetHowToMergeModal,
     GlAlert,
   },
-  mixins: [glFeatureFlagsMixin()],
+  mixins: [glFeatureFlagsMixin(), InternalEvents.mixin()],
   alerts: {
     ALERT_OVERFLOW_HIDDEN,
     ALERT_MERGE_CONFLICT,
     ALERT_COLLAPSED_FILES,
   },
   props: {
-    endpoint: {
-      type: String,
-      required: true,
-    },
-    endpointMetadata: {
-      type: String,
-      required: true,
-    },
-    endpointBatch: {
-      type: String,
-      required: true,
-    },
     endpointCoverage: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    endpointCodequality: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    endpointUpdateUser: {
       type: String,
       required: false,
       default: '',
     },
     projectPath: {
       type: String,
-      required: true,
+      required: false,
+      default: '',
+    },
+    iid: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    sastReportAvailable: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    codequalityReportAvailable: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    endpointCodequality: {
+      type: String,
+      required: false,
+      default: '',
     },
     shouldShow: {
       type: Boolean,
@@ -135,72 +143,80 @@ export default {
       required: false,
       default: '',
     },
-    isFluidLayout: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
-    dismissEndpoint: {
+    pinnedFileUrl: {
       type: String,
       required: false,
       default: '',
-    },
-    showSuggestPopover: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
-    fileByFileUserPreference: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
-    defaultSuggestionCommitMessage: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    rehydratedMrReviews: {
-      type: Object,
-      required: false,
-      default: () => ({}),
-    },
-    sourceProjectDefaultUrl: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    sourceProjectFullPath: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    isForked: {
-      type: Boolean,
-      required: false,
-      default: false,
     },
   },
   data() {
-    const treeWidth =
-      parseInt(localStorage.getItem(TREE_LIST_WIDTH_STORAGE_KEY), 10) || INITIAL_TREE_WIDTH;
-
     return {
-      treeWidth,
       diffFilesLength: 0,
       virtualScrollCurrentIndex: -1,
       subscribedToVirtualScrollingEvents: false,
+      autoScrolled: false,
+      activeProject: undefined,
+      hasScannerError: false,
+      pinnedFileStatus: '',
+      codequalityData: {},
+      sastData: {},
+      keydownTime: undefined,
+      listenersAttached: false,
     };
+  },
+  apollo: {
+    getMRCodequalityAndSecurityReports: {
+      query: getMRCodequalityAndSecurityReports,
+      pollInterval: FINDINGS_POLL_INTERVAL,
+      variables() {
+        return { fullPath: this.projectPath, iid: this.iid };
+      },
+      skip() {
+        if (this.hasScannerError) {
+          return true;
+        }
+
+        return !this.codequalityReportAvailable && !this.sastReportAvailable;
+      },
+      update(data) {
+        const { codequalityReportsComparer, sastReport } = data?.project?.mergeRequest || {};
+        this.activeProject = data?.project?.mergeRequest?.project;
+        if (
+          (sastReport?.status === FINDINGS_STATUS_PARSED || !this.sastReportAvailable) &&
+          (!this.codequalityReportAvailable ||
+            codequalityReportsComparer.status === FINDINGS_STATUS_PARSED)
+        ) {
+          this.$apollo.queries.getMRCodequalityAndSecurityReports.stopPolling();
+        }
+
+        if (sastReport?.status === FINDINGS_STATUS_ERROR && this.sastReportAvailable) {
+          this.fetchScannerFindingsError();
+
+          this.$apollo.queries.getMRCodequalityAndSecurityReports.stopPolling();
+        }
+
+        if (codequalityReportsComparer?.report?.newErrors) {
+          this.codequalityData = sortFindingsByFile(codequalityReportsComparer.report.newErrors);
+        }
+
+        if (sastReport?.report) {
+          this.sastData = sastReport.report;
+        }
+      },
+      error() {
+        this.fetchScannerFindingsError();
+        this.$apollo.queries.getMRCodequalityAndSecurityReports.stopPolling();
+      },
+    },
   },
   computed: {
     ...mapState('diffs', {
       numTotalFiles: 'realSize',
       numVisibleFiles: 'size',
     }),
+    ...mapState('findingsDrawer', ['activeDrawer']),
     ...mapState('diffs', [
-      'showTreeList',
       'isLoading',
-      'diffFiles',
       'diffViewType',
       'commit',
       'renderOverflowWarning',
@@ -220,6 +236,7 @@ export default {
       'showWhitespace',
       'targetBranchName',
       'branchName',
+      'showTreeList',
     ]),
     ...mapGetters('diffs', [
       'whichCollapsedTypes',
@@ -228,8 +245,11 @@ export default {
       'isVirtualScrollingEnabled',
       'isBatchLoading',
       'isBatchLoadingError',
+      'flatBlobsList',
+      'diffFiles',
     ]),
     ...mapGetters(['isNotesFetched', 'getNoteableData']),
+    ...mapGetters('findingsDrawer', ['activeDrawer']),
     diffs() {
       if (!this.viewDiffsFileByFile) {
         return this.diffFiles;
@@ -243,19 +263,16 @@ export default {
       return this.currentUser.can_fork === true && this.currentUser.can_create_merge_request;
     },
     renderDiffFiles() {
-      return this.diffFiles.length > 0;
+      return this.flatBlobsList.length > 0;
     },
-    renderFileTree() {
-      return this.renderDiffFiles && this.showTreeList;
-    },
-    hideFileStats() {
-      return this.treeWidth <= TREE_HIDE_STATS_WIDTH;
+    diffsIncomplete() {
+      return this.flatBlobsList.length !== this.diffFiles.length;
     },
     isFullChangeset() {
       return this.startVersion === null && this.latestDiff;
     },
     showFileByFileNavigation() {
-      return this.diffFiles.length > 1 && this.viewDiffsFileByFile;
+      return this.flatBlobsList.length > 1 && this.viewDiffsFileByFile;
     },
     currentFileNumber() {
       return this.currentDiffIndex + 1;
@@ -266,9 +283,9 @@ export default {
       return currentDiffIndex >= 1 ? currentDiffIndex : null;
     },
     nextFileNumber() {
-      const { currentFileNumber, diffFiles } = this;
+      const { currentFileNumber, flatBlobsList } = this;
 
-      return currentFileNumber < diffFiles.length ? currentFileNumber + 1 : null;
+      return currentFileNumber < flatBlobsList.length ? currentFileNumber + 1 : null;
     },
     visibleWarning() {
       let visible = false;
@@ -285,6 +302,19 @@ export default {
     },
     fileReviews() {
       return reviewStatuses(this.diffFiles, this.mrReviews);
+    },
+    resourceId() {
+      return convertToGraphQLId('MergeRequest', this.getNoteableData.id);
+    },
+    renderFileTree() {
+      return this.renderDiffFiles && this.showTreeList;
+    },
+    hideTooltips() {
+      const hide = () => {
+        if (!this.shouldShow) return;
+        this.$root.$emit(BV_HIDE_TOOLTIP);
+      };
+      return throttle(hide, 100);
     },
   },
   watch: {
@@ -305,6 +335,11 @@ export default {
     diffViewType() {
       this.adjustView();
     },
+    viewDiffsFileByFile(newViewFileByFile) {
+      if (!newViewFileByFile && this.diffsIncomplete) {
+        this.refetchDiffData({ refetchMeta: false });
+      }
+    },
     shouldShow() {
       // When the shouldShow property changed to true, the route is rendered for the first time
       // and if we have the isLoading as true this means we didn't fetch the data
@@ -315,28 +350,10 @@ export default {
       this.adjustView();
       this.subscribeToVirtualScrollingEvents();
     },
-    isLoading: 'adjustView',
     renderFileTree: 'adjustView',
+    isLoading: 'adjustView',
   },
   mounted() {
-    this.setBaseConfig({
-      endpoint: this.endpoint,
-      endpointMetadata: this.endpointMetadata,
-      endpointBatch: this.endpointBatch,
-      endpointCoverage: this.endpointCoverage,
-      endpointUpdateUser: this.endpointUpdateUser,
-      projectPath: this.projectPath,
-      dismissEndpoint: this.dismissEndpoint,
-      showSuggestPopover: this.showSuggestPopover,
-      viewDiffsFileByFile: this.fileByFileUserPreference || false,
-      defaultSuggestionCommitMessage: this.defaultSuggestionCommitMessage,
-      mrReviews: this.rehydratedMrReviews,
-    });
-
-    if (this.endpointCodequality) {
-      this.setCodequalityEndpoint(this.endpointCodequality);
-    }
-
     if (this.shouldShow) {
       this.fetchData();
     }
@@ -344,40 +361,40 @@ export default {
     const id = window?.location?.hash;
 
     if (id && id.indexOf('#note') !== 0) {
-      this.setHighlightedRow(id.split('diff-content').pop().slice(1));
+      this.setHighlightedRow({ lineCode: id.split('diff-content').pop().slice(1) });
     }
 
-    if (window.gon?.features?.diffSettingsUsageData) {
-      const events = [];
+    const events = [];
 
-      if (this.renderTreeList) {
-        events.push(TRACKING_FILE_BROWSER_TREE);
-      } else {
-        events.push(TRACKING_FILE_BROWSER_LIST);
-      }
-
-      if (this.diffViewType === INLINE_DIFF_VIEW_TYPE) {
-        events.push(TRACKING_DIFF_VIEW_INLINE);
-      } else {
-        events.push(TRACKING_DIFF_VIEW_PARALLEL);
-      }
-
-      if (this.showWhitespace) {
-        events.push(TRACKING_WHITESPACE_SHOW);
-      } else {
-        events.push(TRACKING_WHITESPACE_HIDE);
-      }
-
-      if (this.viewDiffsFileByFile) {
-        events.push(TRACKING_SINGLE_FILE_MODE);
-      } else {
-        events.push(TRACKING_MULTIPLE_FILES_MODE);
-      }
-
-      queueRedisHllEvents(events);
+    if (this.renderTreeList) {
+      events.push(TRACKING_FILE_BROWSER_TREE);
+    } else {
+      events.push(TRACKING_FILE_BROWSER_LIST);
     }
+
+    if (this.diffViewType === INLINE_DIFF_VIEW_TYPE) {
+      events.push(TRACKING_DIFF_VIEW_INLINE);
+    } else {
+      events.push(TRACKING_DIFF_VIEW_PARALLEL);
+    }
+
+    if (this.showWhitespace) {
+      events.push(TRACKING_WHITESPACE_SHOW);
+    } else {
+      events.push(TRACKING_WHITESPACE_HIDE);
+    }
+
+    if (this.viewDiffsFileByFile) {
+      events.push(TRACKING_SINGLE_FILE_MODE);
+    } else {
+      events.push(TRACKING_MULTIPLE_FILES_MODE);
+    }
+
+    queueRedisHllEvents(events, { verifyCap: true });
 
     this.subscribeToVirtualScrollingEvents();
+    window.addEventListener('hashchange', this.handleHashChange);
+    window.addEventListener('scroll', this.hideTooltips);
   },
   beforeCreate() {
     diffsApp.instrument();
@@ -386,17 +403,15 @@ export default {
     this.adjustView();
     this.subscribeToEvents();
 
-    this.unwatchDiscussions = this.$watch(
-      () => `${this.diffFiles.length}:${this.$store.state.notes.discussions.length}`,
-      () => this.setDiscussions(),
-    );
-
-    this.unwatchRetrievingBatches = this.$watch(
-      () => `${this.retrievingBatches}:${this.$store.state.notes.discussions.length}`,
-      () => {
-        if (!this.retrievingBatches && this.$store.state.notes.discussions.length) {
-          this.unwatchDiscussions();
-          this.unwatchRetrievingBatches();
+    this.slowHashHandler = debounce(() => {
+      handleLocationHash();
+      this.autoScrolled = true;
+    }, DEFAULT_DEBOUNCE_AND_THROTTLE_MS);
+    this.$watch(
+      () => this.$store.state.notes.discussions.length,
+      (newVal, prevVal) => {
+        if (newVal > prevVal) {
+          this.setDiscussions();
         }
       },
     );
@@ -406,6 +421,9 @@ export default {
     this.unsubscribeFromEvents();
     this.removeEventListeners();
 
+    window.removeEventListener('hashchange', this.handleHashChange);
+    window.removeEventListener('scroll', this.hideTooltips);
+
     diffsEventHub.$off('scrollToFileHash', this.scrollVirtualScrollerToFileHash);
     diffsEventHub.$off('scrollToIndex', this.scrollVirtualScrollerToIndex);
   },
@@ -413,35 +431,103 @@ export default {
     ...mapActions(['startTaskList']),
     ...mapActions('diffs', [
       'moveToNeighboringCommit',
-      'setBaseConfig',
-      'setCodequalityEndpoint',
       'fetchDiffFilesMeta',
       'fetchDiffFilesBatch',
+      'fetchFileByFile',
+      'loadCollapsedDiff',
+      'setFileForcedOpen',
       'fetchCoverageFiles',
-      'fetchCodequality',
+      'rereadNoteHash',
       'startRenderDiffsQueue',
       'assignDiscussionsToDiff',
+      'setCurrentFileHash',
       'setHighlightedRow',
-      'cacheTreeListWidth',
-      'scrollToFile',
+      'goToFile',
       'setShowTreeList',
       'navigateToDiffFileIndex',
       'setFileByFile',
       'disableVirtualScroller',
+      'fetchPinnedFile',
+      'toggleTreeList',
     ]),
+    ...mapActions('findingsDrawer', ['setDrawer']),
+    closeDrawer() {
+      this.setDrawer({});
+    },
+    fetchScannerFindingsError() {
+      this.hasScannerError = true;
+      createAlert({
+        message: __('Something went wrong fetching the scanner findings. Please try again.'),
+      });
+    },
     subscribeToEvents() {
       notesEventHub.$once('fetchDiffData', this.fetchData);
       notesEventHub.$on('refetchDiffData', this.refetchDiffData);
+      notesEventHub.$on('fetchedNotesData', this.rereadNoteHash);
+      notesEventHub.$on('noteFormAddToReview', this.handleReviewTracking);
+      notesEventHub.$on('noteFormStartReview', this.handleReviewTracking);
+      diffsEventHub.$on('diffFilesModified', this.setDiscussions);
+      diffsEventHub.$on('doneLoadingBatches', this.autoScroll);
+      diffsEventHub.$on(EVT_MR_PREPARED, this.fetchData);
+      diffsEventHub.$on(EVT_DISCUSSIONS_ASSIGNED, this.handleHash);
     },
     unsubscribeFromEvents() {
+      diffsEventHub.$off(EVT_DISCUSSIONS_ASSIGNED, this.handleHash);
+      diffsEventHub.$off(EVT_MR_PREPARED, this.fetchData);
+      diffsEventHub.$off('doneLoadingBatches', this.autoScroll);
+      diffsEventHub.$off('diffFilesModified', this.setDiscussions);
+      notesEventHub.$off('noteFormStartReview', this.handleReviewTracking);
+      notesEventHub.$off('noteFormAddToReview', this.handleReviewTracking);
+      notesEventHub.$off('fetchedNotesData', this.rereadNoteHash);
       notesEventHub.$off('refetchDiffData', this.refetchDiffData);
       notesEventHub.$off('fetchDiffData', this.fetchData);
+    },
+    autoScroll() {
+      const lineCode = window.location.hash;
+      const sha1InHash = extractFileHash({ input: lineCode });
+
+      if (sha1InHash) {
+        const idx = this.diffs.findIndex((diffFile) => diffFile.file_hash === sha1InHash);
+        const file = this.diffs[idx];
+
+        if (!isCollapsed(file)) return;
+
+        this.loadCollapsedDiff({ file })
+          .then(() => {
+            this.setDiscussions();
+            this.setFileForcedOpen({ filePath: file.new_path });
+
+            this.$nextTick(() => this.scrollVirtualScrollerToIndex(idx));
+          })
+          .catch(() => {});
+      }
+    },
+    handleHash() {
+      if (this.viewDiffsFileByFile && !this.autoScrolled) {
+        const file = this.diffs[0];
+
+        if (file && !file.isLoadingFullFile) {
+          requestIdleCallback(() => this.slowHashHandler());
+        }
+      }
+    },
+    handleHashChange() {
+      let hash = getLocationHash();
+
+      if (this.viewDiffsFileByFile) {
+        if (!hash) {
+          hash = this.diffFiles[0].file_hash;
+        }
+
+        this.setCurrentFileHash(hash);
+        this.fetchFileByFile();
+      }
     },
     navigateToDiffFileNumber(number) {
       this.navigateToDiffFileIndex(number - 1);
     },
-    refetchDiffData() {
-      this.fetchData(false);
+    refetchDiffData({ refetchMeta = true } = {}) {
+      this.fetchData({ toggleTree: false, fetchMeta: refetchMeta });
     },
     needsReload() {
       return this.diffFiles.length && isSingleViewStyle(this.diffFiles[0]);
@@ -449,39 +535,69 @@ export default {
     needsFirstLoad() {
       return !this.diffFiles.length;
     },
-    fetchData(toggleTree = true) {
-      this.fetchDiffFilesMeta()
-        .then(({ real_size }) => {
-          this.diffFilesLength = parseInt(real_size, 10);
-          if (toggleTree) this.setTreeDisplay();
-        })
-        .catch(() => {
-          createFlash({
-            message: __('Something went wrong on our end. Please try again!'),
+    fetchData({ toggleTree = true, fetchMeta = true } = {}) {
+      if (this.pinnedFileUrl && this.pinnedFileStatus !== 'loaded') {
+        this.pinnedFileStatus = 'loading';
+        this.fetchPinnedFile(this.pinnedFileUrl)
+          .then(() => {
+            this.pinnedFileStatus = 'loaded';
+            if (toggleTree) this.setTreeDisplay();
+          })
+          .catch(() => {
+            this.pinnedFileStatus = 'error';
+            createAlert({
+              message: __("Couldn't fetch the pinned file."),
+            });
           });
-        });
+      }
+      if (fetchMeta) {
+        this.fetchDiffFilesMeta()
+          .then((data) => {
+            let realSize = 0;
 
-      this.fetchDiffFilesBatch()
-        .then(() => {
-          if (toggleTree) this.setTreeDisplay();
-          // Guarantee the discussions are assigned after the batch finishes.
-          // Just watching the length of the discussions or the diff files
-          // isn't enough, because with split diff loading, neither will
-          // change when loading the other half of the diff files.
-          this.setDiscussions();
-        })
-        .catch(() => {
-          createFlash({
-            message: __('Something went wrong on our end. Please try again!'),
+            if (data) {
+              realSize = data.real_size;
+
+              if (this.viewDiffsFileByFile) {
+                this.fetchFileByFile();
+              }
+            }
+
+            this.diffFilesLength = parseInt(realSize, 10) || 0;
+            if (toggleTree) {
+              this.setTreeDisplay();
+            }
+
+            updateChangesTabCount({
+              count: this.diffFilesLength,
+            });
+          })
+          .catch(() => {
+            createAlert({
+              message: __('Something went wrong on our end. Please try again.'),
+            });
           });
-        });
+      }
+
+      if (!this.viewDiffsFileByFile) {
+        this.fetchDiffFilesBatch(Boolean(this.pinnedFileUrl))
+          .then(() => {
+            if (toggleTree) this.setTreeDisplay();
+            // Guarantee the discussions are assigned after the batch finishes.
+            // Just watching the length of the discussions or the diff files
+            // isn't enough, because with split diff loading, neither will
+            // change when loading the other half of the diff files.
+            this.setDiscussions();
+          })
+          .catch(() => {
+            createAlert({
+              message: __('Something went wrong on our end. Please try again.'),
+            });
+          });
+      }
 
       if (this.endpointCoverage) {
         this.fetchCoverageFiles();
-      }
-
-      if (this.endpointCodequality) {
-        this.fetchCodequality();
       }
 
       if (!this.isNotesFetched) {
@@ -508,6 +624,8 @@ export default {
       }
     },
     setEventListeners() {
+      if (this.listenersAttached) return;
+
       Mousetrap.bind(keysFor(MR_PREVIOUS_FILE_IN_DIFF), () => this.jumpToFile(-1));
       Mousetrap.bind(keysFor(MR_NEXT_FILE_IN_DIFF), () => this.jumpToFile(+1));
 
@@ -520,39 +638,41 @@ export default {
         );
       }
 
-      let keydownTime;
       Mousetrap.bind(['mod+f', 'mod+g'], () => {
-        keydownTime = new Date().getTime();
+        this.keydownTime = new Date().getTime();
       });
 
-      window.addEventListener('blur', () => {
-        if (keydownTime) {
-          const delta = new Date().getTime() - keydownTime;
+      window.addEventListener('blur', this.handleBrowserFindActivation);
 
-          // To make sure the user is using the find function we need to wait for blur
-          // and max 1000ms to be sure it the search box is filtered
-          if (delta >= 0 && delta < 1000) {
-            this.disableVirtualScroller();
-
-            if (window.gon?.features?.usageDataDiffSearches) {
-              api.trackRedisHllUserEvent('i_code_review_user_searches_diff');
-              api.trackRedisCounterEvent('diff_searches');
-            }
-          }
-        }
-      });
+      this.listenersAttached = true;
     },
     removeEventListeners() {
       Mousetrap.unbind(keysFor(MR_PREVIOUS_FILE_IN_DIFF));
       Mousetrap.unbind(keysFor(MR_NEXT_FILE_IN_DIFF));
       Mousetrap.unbind(keysFor(MR_COMMITS_NEXT_COMMIT));
       Mousetrap.unbind(keysFor(MR_COMMITS_PREVIOUS_COMMIT));
-      Mousetrap.unbind(['ctrl+f', 'command+f']);
+      Mousetrap.unbind(['ctrl+f', 'command+f', 'mod+f', 'mod+g']);
+      window.removeEventListener('blur', this.handleBrowserFindActivation);
+      this.listenersAttached = false;
+    },
+    handleBrowserFindActivation() {
+      if (!this.keydownTime) return;
+
+      const delta = new Date().getTime() - this.keydownTime;
+
+      // To make sure the user is using the find function we need to wait for blur
+      // and max 1000ms to be sure it the search box is filtered
+      if (delta >= 0 && delta < 1000) {
+        this.disableVirtualScroller();
+
+        api.trackRedisHllUserEvent('i_code_review_user_searches_diff');
+        api.trackRedisCounterEvent('diff_searches');
+      }
     },
     jumpToFile(step) {
       const targetIndex = this.currentDiffIndex + step;
-      if (targetIndex >= 0 && targetIndex < this.diffFiles.length) {
-        this.scrollToFile({ path: this.diffFiles[targetIndex].file_path });
+      if (targetIndex >= 0 && targetIndex < this.flatBlobsList.length) {
+        this.goToFile({ path: this.flatBlobsList[targetIndex].path });
       }
     },
     setTreeDisplay() {
@@ -561,7 +681,7 @@ export default {
 
       if (storedTreeShow !== null) {
         showTreeList = parseBoolean(storedTreeShow);
-      } else if (!bp.isDesktop() || (!this.isBatchLoading && this.diffFiles.length <= 1)) {
+      } else if (!bp.isDesktop() || (!this.isBatchLoading && this.flatBlobsList.length <= 1)) {
         showTreeList = false;
       }
 
@@ -574,12 +694,8 @@ export default {
         this.scrollVirtualScrollerToIndex(index);
       }
     },
-    async scrollVirtualScrollerToIndex(index) {
+    scrollVirtualScrollerToIndex(index) {
       this.virtualScrollCurrentIndex = index;
-
-      await this.$nextTick();
-
-      this.virtualScrollCurrentIndex = -1;
     },
     scrollVirtualScrollerToDiffNote() {
       const id = window?.location?.hash;
@@ -606,17 +722,30 @@ export default {
     reloadPage() {
       window.location.reload();
     },
+    handleReviewTracking(event) {
+      const types = {
+        noteFormStartReview: 'merge_request_click_start_review_on_changes_tab',
+        noteFormAddToReview: 'merge_request_click_add_to_review_on_changes_tab',
+      };
+
+      if (this.shouldShow && types[event.name]) {
+        this.trackEvent(types[event.name]);
+      }
+    },
+    fileTreeToggled() {
+      this.toggleTreeList();
+      this.adjustView();
+    },
   },
-  minTreeWidth: MIN_TREE_WIDTH,
-  maxTreeWidth: window.innerWidth / 2,
-  howToMergeDocsPath: helpPagePath('user/project/merge_requests/reviews/index.md', {
-    anchor: 'checkout-merge-requests-locally-through-the-head-ref',
+  howToMergeDocsPath: helpPagePath('user/project/merge_requests/merge_request_troubleshooting.md', {
+    anchor: 'check-out-merge-requests-locally-through-the-head-ref',
   }),
 };
 </script>
 
 <template>
   <div v-show="shouldShow">
+    <findings-drawer :project="activeProject" :drawer="activeDrawer" @close="closeDrawer" />
     <div v-if="isLoading || !isTreeLoaded" class="loading"><gl-loading-icon size="lg" /></div>
     <div v-else id="diffs" :class="{ active: shouldShow }" class="diffs tab-pane">
       <compare-versions :diff-files-count-text="numTotalFiles" />
@@ -634,23 +763,9 @@ export default {
 
       <div
         :data-can-create-note="getNoteableData.current_user.can_create_note"
-        class="files d-flex gl-mt-2"
+        class="files gl-flex gl-mt-2"
       >
-        <div
-          v-if="renderFileTree"
-          :style="{ width: `${treeWidth}px` }"
-          class="diff-tree-list js-diff-tree-list gl-px-5"
-        >
-          <panel-resizer
-            :size.sync="treeWidth"
-            :start-size="treeWidth"
-            :min-size="$options.minTreeWidth"
-            :max-size="$options.maxTreeWidth"
-            side="right"
-            @resize-end="cacheTreeListWidth"
-          />
-          <tree-list :hide-file-stats="hideFileStats" />
-        </div>
+        <diffs-file-tree :visible="renderFileTree" @toggled="fileTreeToggled" />
         <div class="col-12 col-md-auto diff-files-holder">
           <commit-widget v-if="commit" :commit="commit" :collapsible="false" />
           <gl-alert
@@ -666,6 +781,9 @@ export default {
             <gl-loading-icon size="lg" />
           </div>
           <template v-else-if="renderDiffFiles">
+            <div v-if="pinnedFileStatus === 'loading'" class="loading">
+              <gl-loading-icon size="lg" />
+            </div>
             <dynamic-scroller
               v-if="isVirtualScrollingEnabled"
               :items="diffs"
@@ -675,9 +793,16 @@ export default {
               page-mode
             >
               <template #default="{ item, index, active }">
-                <dynamic-scroller-item :item="item" :active="active" :class="{ active }">
+                <dynamic-scroller-item
+                  v-if="active"
+                  :item="item"
+                  :active="active"
+                  :class="{ active }"
+                >
                   <diff-file
                     :file="item"
+                    :codequality-data="codequalityData"
+                    :sast-data="sastData"
                     :reviewed="fileReviews[item.id]"
                     :is-first-file="index === 0"
                     :is-last-file="index === diffFilesLength - 1"
@@ -689,23 +814,7 @@ export default {
                 </dynamic-scroller-item>
               </template>
               <template #before>
-                <pre-renderer :max-length="diffFilesLength">
-                  <template #default="{ item, index, active }">
-                    <dynamic-scroller-item :item="item" :active="active">
-                      <diff-file
-                        :file="item"
-                        :reviewed="fileReviews[item.id]"
-                        :is-first-file="index === 0"
-                        :is-last-file="index === diffFilesLength - 1"
-                        :help-page-path="helpPagePath"
-                        :can-current-user-fork="canCurrentUserFork"
-                        :view-diffs-file-by-file="viewDiffsFileByFile"
-                        pre-render
-                      />
-                    </dynamic-scroller-item>
-                  </template>
-                </pre-renderer>
-                <virtual-scroller-scroll-sync :index="virtualScrollCurrentIndex" />
+                <virtual-scroller-scroll-sync v-model="virtualScrollCurrentIndex" />
               </template>
             </dynamic-scroller>
             <template v-else>
@@ -713,6 +822,8 @@ export default {
                 v-for="(file, index) in diffs"
                 :key="file.new_path"
                 :file="file"
+                :codequality-data="codequalityData"
+                :sast-data="sastData"
                 :reviewed="fileReviews[file.id]"
                 :is-first-file="index === 0"
                 :is-last-file="index === diffFilesLength - 1"
@@ -735,7 +846,7 @@ export default {
               />
               <gl-sprintf :message="__('File %{current} of %{total}')">
                 <template #current>{{ currentFileNumber }}</template>
-                <template #total>{{ diffFiles.length }}</template>
+                <template #total>{{ flatBlobsList.length }}</template>
               </gl-sprintf>
             </div>
             <gl-loading-icon v-else-if="retrievingBatches" size="lg" />
@@ -746,15 +857,6 @@ export default {
           />
         </div>
       </div>
-      <mr-widget-how-to-merge-modal
-        :is-fork="isForked"
-        :can-merge="canMerge"
-        :source-branch="branchName"
-        :source-project-path="sourceProjectFullPath"
-        :target-branch="targetBranchName"
-        :source-project-default-url="sourceProjectDefaultUrl"
-        :reviewing-docs-path="$options.howToMergeDocsPath"
-      />
     </div>
   </div>
 </template>

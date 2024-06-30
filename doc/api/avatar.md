@@ -1,12 +1,14 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Avatar API **(FREE)**
+# Avatar API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/19121) in GitLab 11.0.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 ## Get a single avatar URL
 

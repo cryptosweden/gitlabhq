@@ -16,6 +16,8 @@ module MergeRequests
       merge_request.source_project = find_source_project
       merge_request.target_project = find_target_project
 
+      initialize_callbacks!(merge_request)
+
       process_params
 
       merge_request.compare_commits = []
@@ -40,17 +42,17 @@ module MergeRequests
     attr_accessor :merge_request
 
     delegate :target_branch,
-             :target_branch_ref,
-             :target_project,
-             :source_branch,
-             :source_branch_ref,
-             :source_project,
-             :compare_commits,
-             :wip_title,
-             :description,
-             :first_multiline_commit,
-             :errors,
-             to: :merge_request
+      :target_branch_ref,
+      :target_project,
+      :source_branch,
+      :source_branch_ref,
+      :source_project,
+      :compare_commits,
+      :draft_title,
+      :description,
+      :first_multiline_commit,
+      :errors,
+      to: :merge_request
 
     def force_remove_source_branch
       if params.key?(:force_remove_source_branch)
@@ -72,7 +74,7 @@ module MergeRequests
       # IssuableBaseService#process_label_ids and
       # IssuableBaseService#process_assignee_ids take care
       # of the removal.
-      params[:label_ids] = process_label_ids(params, extra_label_ids: merge_request.label_ids.to_a)
+      params[:label_ids] = process_label_ids(params, issuable: merge_request, extra_label_ids: merge_request.label_ids.to_a)
 
       params[:assignee_ids] = process_assignee_ids(params, extra_assignee_ids: merge_request.assignee_ids.to_a)
 
@@ -128,8 +130,12 @@ module MergeRequests
       if source_branch_default? && !target_branch_specified?
         merge_request.target_branch = nil
       else
-        merge_request.target_branch ||= target_project.default_branch
+        merge_request.target_branch ||= get_target_branch
       end
+    end
+
+    def get_target_branch
+      target_project.default_branch
     end
 
     def source_branch_specified?
@@ -196,11 +202,17 @@ module MergeRequests
     end
 
     def source_branch_exists?
-      source_branch.blank? || source_project.commit(source_branch)
+      source_branch.blank? || source_project.branch_exists?(source_branch)
     end
 
     def target_branch_exists?
-      target_branch.blank? || target_project.commit(target_branch)
+      target_branch.blank? || target_project.branch_exists?(target_branch)
+    end
+
+    def set_draft_title_if_needed
+      return unless compare_commits.empty? || Gitlab::Utils.to_boolean(params[:draft])
+
+      merge_request.title = draft_title
     end
 
     # When your branch name starts with an iid followed by a dash this pattern will be
@@ -217,10 +229,12 @@ module MergeRequests
     #   more than one commit in the MR
     #
     def assign_title_and_description
+      assign_description_from_repository_template
+      replace_variables_in_description
       assign_title_and_description_from_commits
       merge_request.title ||= title_from_issue if target_project.issues_enabled? || target_project.external_issue_tracker
       merge_request.title ||= source_branch.titleize.humanize
-      merge_request.title = wip_title if compare_commits.empty?
+      set_draft_title_if_needed
 
       append_closes_description
     end
@@ -280,11 +294,51 @@ module MergeRequests
       title_parts.join(' ')
     end
 
+    def assign_description_from_repository_template
+      return unless merge_request.description.blank?
+
+      # Use TemplateFinder to load the default template. We need this mainly for
+      # the project_id, in case it differs from the target project. Conveniently,
+      # since the underlying merge_request_template_names_hash is cached, this
+      # should also be relatively cheap and allows us to bail early if the project
+      # does not have a default template.
+      templates = TemplateFinder.all_template_names(target_project, :merge_requests)
+      template = templates.values.flatten.find { |tmpl| tmpl[:name].casecmp?('default') }
+
+      return unless template
+
+      begin
+        repository_template = TemplateFinder.build(
+          :merge_requests,
+          target_project,
+          {
+            name: template[:name],
+            source_template_project_id: template[:project_id]
+          }
+        ).execute
+      rescue ::Gitlab::Template::Finders::RepoTemplateFinder::FileNotFoundError
+        return
+      end
+
+      return unless repository_template.present?
+
+      merge_request.description = repository_template.content
+    end
+
+    def replace_variables_in_description
+      return unless merge_request.description.present?
+
+      merge_request.description = ::Gitlab::MergeRequests::MessageGenerator.new(
+        merge_request: merge_request,
+        current_user: current_user
+      ).new_mr_description
+    end
+
     def issue_iid
       strong_memoize(:issue_iid) do
         @params_issue_iid || begin
           id = if target_project.external_issue_tracker
-                 source_branch.match(target_project.external_issue_reference_pattern).try(:[], 0)
+                 target_project.external_issue_reference_pattern.match(source_branch).try(:[], 0)
                end
 
           id || source_branch.match(/\A(\d+)-/).try(:[], 1)

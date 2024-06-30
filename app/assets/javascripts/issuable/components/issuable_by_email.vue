@@ -9,6 +9,7 @@ import {
   GlFormInputGroup,
   GlIcon,
 } from '@gitlab/ui';
+import { TYPE_ISSUE } from '~/issues/constants';
 import axios from '~/lib/utils/axios_utils';
 import { sprintf, __ } from '~/locale';
 import ModalCopyButton from '~/vue_shared/components/modal_copy_button.vue';
@@ -36,7 +37,7 @@ export default {
       default: null,
     },
     issuableType: {
-      default: 'issue',
+      default: TYPE_ISSUE,
     },
     emailsHelpPagePath: {
       default: '',
@@ -51,10 +52,27 @@ export default {
       default: '',
     },
   },
+  props: {
+    buttonClass: {
+      type: String,
+      required: false,
+      default: null,
+    },
+    variant: {
+      type: String,
+      required: false,
+      default: 'link',
+    },
+    text: {
+      type: String,
+      required: false,
+      default: __('Email a new %{name} to this project'),
+    },
+  },
   data() {
     return {
       email: this.initialEmail,
-      issuableName: this.issuableType === 'issue' ? __('issue') : __('merge request'),
+      issuableName: this.issuableType === TYPE_ISSUE ? __('issue') : __('merge request'),
     };
   },
   computed: {
@@ -89,8 +107,8 @@ export default {
 
 <template>
   <div>
-    <gl-button v-gl-modal="$options.modalId" variant="link"
-      ><gl-sprintf :message="__('Email a new %{name} to this project')"
+    <gl-button v-gl-modal="$options.modalId" :class="buttonClass" :variant="variant"
+      ><gl-sprintf :message="text"
         ><template #name>{{ issuableName }}</template></gl-sprintf
       ></gl-button
     >

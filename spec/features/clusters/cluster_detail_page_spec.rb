@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Clusterable > Show page' do
+RSpec.describe 'Clusterable > Show page', feature_category: :deployment_management do
   include KubernetesHelpers
 
   let(:current_user) { create(:user) }
@@ -35,20 +35,6 @@ RSpec.describe 'Clusterable > Show page' do
       visit cluster_path
 
       expect(page).not_to have_selector('[data-testid="cluster-environments-tab"]')
-    end
-
-    context 'content-security policy' do
-      it 'has AWS domains in the CSP' do
-        visit cluster_path
-
-        expect(response_headers['Content-Security-Policy']).to include(::Clusters::ClustersController::AWS_CSP_DOMAINS.join(' '))
-      end
-
-      it 'keeps existing connect-src in the CSP' do
-        visit cluster_path
-
-        expect(response_headers['Content-Security-Policy']).to include("connect-src #{Gitlab::ContentSecurityPolicy::Directives.connect_src}")
-      end
     end
   end
 
@@ -159,7 +145,7 @@ RSpec.describe 'Clusterable > Show page' do
     let(:cluster) { create(:cluster, :provided_by_gcp, :instance) }
 
     before do
-      gitlab_enable_admin_mode_sign_in(current_user)
+      enable_admin_mode!(current_user)
     end
 
     it_behaves_like 'show page' do

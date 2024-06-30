@@ -6,8 +6,11 @@ module BulkImports
       class MembersPipeline
         include Pipeline
 
+        GROUP_MEMBER_RELATIONS = %i[direct inherited shared_from_groups].freeze
+        PROJECT_MEMBER_RELATIONS = %i[direct inherited invited_groups shared_into_ancestors].freeze
+
         transformer Common::Transformers::ProhibitedAttributesTransformer
-        transformer BulkImports::Groups::Transformers::MemberAttributesTransformer
+        transformer Common::Transformers::MemberAttributesTransformer
 
         def extract(context)
           graphql_extractor.extract(context)
@@ -27,7 +30,9 @@ module BulkImports
           return if user_membership && user_membership[:access_level] >= data[:access_level]
 
           # Create new membership for any other access level
-          portable.members.create!(data)
+          member = portable.members.new(data)
+          member.importing = true # avoid sending new member notification to the invited user
+          member.save!
         end
 
         private
@@ -38,15 +43,27 @@ module BulkImports
         end
 
         def existing_user_membership(user_id)
-          members_finder.execute.find_by_user_id(user_id)
+          execute_finder.find_by_user_id(user_id)
         end
 
-        def members_finder
-          @members_finder ||= if context.entity.group?
-                                ::GroupMembersFinder.new(portable, current_user)
-                              else
-                                ::MembersFinder.new(portable, current_user)
-                              end
+        def finder
+          @finder ||= if context.entity.group?
+                        ::GroupMembersFinder.new(portable, current_user)
+                      else
+                        ::MembersFinder.new(portable, current_user)
+                      end
+        end
+
+        def execute_finder
+          finder.execute(include_relations: finder_relations)
+        end
+
+        def finder_relations
+          if context.entity.group?
+            GROUP_MEMBER_RELATIONS
+          else
+            PROJECT_MEMBER_RELATIONS
+          end
         end
       end
     end

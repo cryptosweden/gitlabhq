@@ -1,17 +1,12 @@
 <script>
 import { GlIcon, GlDatepicker, GlTooltipDirective, GlLink, GlPopover } from '@gitlab/ui';
-import createFlash from '~/flash';
-import { IssuableType } from '~/issues/constants';
+import { createAlert } from '~/alert';
+import { TYPE_ISSUE } from '~/issues/constants';
 import { dateInWords, formatDate, parsePikadayDate } from '~/lib/utils/datetime_utility';
 import { __, sprintf } from '~/locale';
-import SidebarEditableItem from '~/sidebar/components/sidebar_editable_item.vue';
-import {
-  dateFields,
-  dateTypes,
-  dueDateQueries,
-  startDateQueries,
-  Tracking,
-} from '~/sidebar/constants';
+import { dateFields, dateTypes, Tracking } from '../../constants';
+import { dueDateQueries, startDateQueries } from '../../queries/constants';
+import SidebarEditableItem from '../sidebar_editable_item.vue';
 import SidebarFormattedDate from './sidebar_formatted_date.vue';
 import SidebarInheritDate from './sidebar_inherit_date.vue';
 
@@ -60,6 +55,16 @@ export default {
       type: Boolean,
       default: false,
     },
+    minDate: {
+      required: false,
+      type: Date,
+      default: null,
+    },
+    maxDate: {
+      required: false,
+      type: Date,
+      default: null,
+    },
   },
   data() {
     return {
@@ -82,6 +87,9 @@ export default {
           iid: String(this.iid),
         };
       },
+      skip() {
+        return !this.iid;
+      },
       update(data) {
         return data.workspace?.issuable || {};
       },
@@ -92,7 +100,7 @@ export default {
         this.$emit(`${this.dateType}Updated`, data.workspace?.issuable?.[this.dateType]);
       },
       error() {
-        createFlash({
+        createAlert({
           message: sprintf(
             __('Something went wrong while setting %{issuableType} %{dateType} date.'),
             {
@@ -101,6 +109,19 @@ export default {
             },
           ),
         });
+      },
+      subscribeToMore: {
+        document() {
+          return this.dateQueries[this.issuableType].subscription;
+        },
+        variables() {
+          return {
+            issuableId: this.issuableId,
+          };
+        },
+        skip() {
+          return this.skipIssueDueDateSubscription;
+        },
       },
     },
   },
@@ -148,7 +169,7 @@ export default {
       return dateInWords(this.parsedDate, true);
     },
     workspacePath() {
-      return this.issuableType === IssuableType.Issue
+      return this.issuableType === TYPE_ISSUE
         ? {
             projectPath: this.fullPath,
           }
@@ -158,6 +179,12 @@ export default {
     },
     dataTestId() {
       return this.dateType === dateTypes.start ? 'sidebar-start-date' : 'sidebar-due-date';
+    },
+    issuableId() {
+      return this.issuable.id;
+    },
+    skipIssueDueDateSubscription() {
+      return this.issuableType !== TYPE_ISSUE || !this.issuableId || this.isLoading;
     },
   },
   methods: {
@@ -170,7 +197,7 @@ export default {
       this.$emit('closeForm');
     },
     openDatePicker() {
-      this.$refs.datePicker.calendar.show();
+      this.$refs.datePicker.show();
     },
     setFixedDate(isFixed) {
       const date = this.issuable[dateFields[this.dateType].dateFixed];
@@ -205,7 +232,7 @@ export default {
             },
           }) => {
             if (errors.length) {
-              createFlash({
+              createAlert({
                 message: errors[0],
               });
             } else {
@@ -214,7 +241,7 @@ export default {
           },
         )
         .catch(() => {
-          createFlash({
+          createAlert({
             message: sprintf(
               __('Something went wrong while setting %{issuableType} %{dateType} date.'),
               {
@@ -241,7 +268,7 @@ export default {
     help: __('Help'),
     learnMore: __('Learn more'),
   },
-  dateHelpUrl: '/help/user/group/epics/index.md#start-date-and-due-date',
+  dateHelpUrl: '/help/user/group/epics/manage_epics.md#start-and-due-date-inheritance',
 };
 </script>
 
@@ -274,7 +301,7 @@ export default {
     <template #collapsed>
       <div v-gl-tooltip.viewport.left :title="dateLabel" class="sidebar-collapsed-icon">
         <gl-icon :size="16" name="calendar" />
-        <span class="collapse-truncated-title">{{ formattedDate }}</span>
+        <span class="gl-pt-2 gl-px-3 gl-font-sm">{{ formattedDate }}</span>
       </div>
       <sidebar-inherit-date
         v-if="canInherit && !initialLoading"
@@ -298,6 +325,9 @@ export default {
         v-if="!isLoading"
         ref="datePicker"
         class="gl-relative"
+        :value="parsedDate"
+        :min-date="minDate"
+        :max-date="maxDate"
         :default-date="parsedDate"
         :first-day="firstDay"
         show-clear-button

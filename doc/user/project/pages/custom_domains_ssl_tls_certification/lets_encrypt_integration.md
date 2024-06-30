@@ -1,14 +1,15 @@
 ---
-type: reference
 description: "Automatic Let's Encrypt SSL certificates for GitLab Pages."
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Knowledge
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab Pages integration with Let's Encrypt **(FREE)**
+# GitLab Pages Let's Encrypt certificates
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/28996) in GitLab 12.1. For versions earlier than GitLab 12.1, see the [manual Let's Encrypt instructions](../lets_encrypt_for_gitlab_pages.md).
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 The GitLab Pages integration with Let's Encrypt (LE) allows you
 to use LE certificates for your Pages website with custom domains
@@ -19,9 +20,11 @@ GitLab does it for you, out-of-the-box.
 open source Certificate Authority.
 
 WARNING:
-This feature covers only certificates for **custom domains**, not the wildcard certificate required to run [Pages daemon](../../../../administration/pages/index.md) **(FREE SELF)**. Wildcard certificate generation is tracked in [this issue](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/3342).
+This feature covers only certificates for **custom domains**, not the wildcard certificate required to run
+[Pages daemon](../../../../administration/pages/index.md) (Self-managed, Free, Premium, and Ultimate only). Wildcard
+certificate generation is tracked in [this issue](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/3342).
 
-## Requirements
+## Prerequisites
 
 Before you can enable automatic provisioning of an SSL certificate for your domain, make sure you have:
 
@@ -30,7 +33,7 @@ Before you can enable automatic provisioning of an SSL certificate for your doma
 - Acquired a domain (`example.com`) and added a [DNS entry](index.md)
   pointing it to your Pages website. The top-level domain (`.com`) must be a
   [public suffix](https://publicsuffix.org/).
-- [Added your domain to your Pages project](index.md#1-add-a-custom-domain-to-pages)
+- [Added your domain to your Pages project](index.md#1-add-a-custom-domain)
   and verified your ownership.
 - Verified your website is up and running, accessible through your custom domain.
 
@@ -42,14 +45,14 @@ For **self-managed** GitLab instances, make sure your administrator has
 
 Once you've met the requirements, enable Let's Encrypt integration:
 
-1. Navigate to your project's **Settings > Pages**.
-1. Find your domain and click **Details**.
-1. Click **Edit** in the top-right corner.
-1. Enable Let's Encrypt integration by switching **Automatic certificate management using Let's Encrypt**:
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Deploy > Pages**.
+1. Next to the domain name, select **Edit** (**{pencil}**).
+1. Turn on the **Automatic certificate management using Let's Encrypt** toggle.
 
    ![Enable Let's Encrypt](img/lets_encrypt_integration_v12_1.png)
 
-1. Click **Save changes**.
+1. Select **Save changes**.
 
 Once enabled, GitLab obtains a LE certificate and add it to the
 associated Pages domain. GitLab also renews it automatically.
@@ -59,41 +62,46 @@ associated Pages domain. GitLab also renews it automatically.
 > - Issuing the certificate and updating Pages configuration
 >   **can take up to an hour**.
 > - If you already have an SSL certificate in domain settings it
->   continues to work until replaced by the Let's Encrypt's certificate.
+>   continues to work until replaced by the Let's Encrypt certificate.
 
 ## Troubleshooting
 
-### Error "Something went wrong while obtaining the Let's Encrypt certificate"
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/30146) in GitLab 13.0.
+### Something went wrong while obtaining the Let's Encrypt certificate
 
 If you get an error **Something went wrong while obtaining the Let's Encrypt certificate**, first, make sure that your pages site is set to "Everyone" in your project's **Settings > General > Visibility**. This allows the Let's Encrypt Servers reach your pages site. Once this is confirmed, you can try obtaining the certificate again by following these steps:
 
-1. Go to your project's **Settings > Pages**.
-1. Click **Edit** on your domain.
-1. Click **Retry**.
-1. If you're still seeing the same error:
-    1. Make sure you have properly set only one `CNAME` or `A` DNS record for your domain.
-    1. Make sure your domain **doesn't have** an `AAAA` DNS record.
-    1. If you have a `CAA` DNS record for your domain or any higher level domains, make sure [it includes `letsencrypt.org`](https://letsencrypt.org/docs/caa/).
-    1. Make sure [your domain is verified](index.md#1-add-a-custom-domain-to-pages).
-    1. Go to step 1.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Deploy > Pages**.
+1. Next to the domain name, select **Edit** (**{pencil}**).
+1. In **Verification status**, select **Retry verification** (**{retry}**).
+1. If you're still getting the same error:
+   1. Make sure you have properly set only one `CNAME` or `A` DNS record for your domain.
+   1. Make sure your domain **doesn't have** an `AAAA` DNS record.
+   1. If you have a `CAA` DNS record for your domain or any higher level domains, make sure [it includes `letsencrypt.org`](https://letsencrypt.org/docs/caa/).
+   1. Make sure [your domain is verified](index.md#1-add-a-custom-domain).
+   1. Go to step 1.
 
-Another possible cause of this error is the `_redirects` file because the current implementation relies on an HTTP ACME challenge. If you redirect the `.acme-challenge/` endpoint Let's Encrypt cannot validate the domain. Make sure you don't have a wildcard (`*`) redirect either as that too breaks validation. The problem with wildcard redirects is tracked in the [Wildcard redirects break Let's Encrypt integration](https://gitlab.com/gitlab-org/gitlab-pages/-/issues/649) issue.
+### Obtaining a certificate hangs for more than an hour
 
-### Message "GitLab is obtaining a Let's Encrypt SSL certificate for this domain. This process can take some time. Please try again later." hangs for more than an hour
+If you've enabled Let's Encrypt integration, but a certificate is absent after an hour and you see the message:
 
-If you've enabled Let's Encrypt integration, but a certificate is absent after an hour and you see the message, "GitLab is obtaining a Let's Encrypt SSL certificate for this domain. This process can take some time. Please try again later.", try to remove and add the domain for GitLab Pages again by following these steps:
+```plaintext
+GitLab is obtaining a Let's Encrypt SSL certificate for this domain.
+This process can take some time. Please try again later.
+```
 
-1. Go to your project's **Settings > Pages**.
-1. Click **Remove** on your domain.
-1. [Add the domain again and verify it](index.md#1-add-a-custom-domain-to-pages).
+Remove and add the domain for GitLab Pages again by following these steps:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Deploy > Pages**.
+1. Next to the domain name, select **Remove**.
+1. [Add the domain again, and verify it](index.md#1-add-a-custom-domain).
 1. [Enable Let's Encrypt integration for your domain](#enabling-lets-encrypt-integration-for-your-custom-domain).
-1. If you still see the same message after some time:
-    1. Make sure you have properly set only one `CNAME` or `A` DNS record for your domain.
-    1. Make sure your domain **doesn't have** an `AAAA` DNS record.
-    1. If you have a `CAA` DNS record for your domain or any higher level domains, make sure [it includes `letsencrypt.org`](https://letsencrypt.org/docs/caa/).
-    1. Go to step 1.
+1. If you're still getting the same error:
+   1. Make sure you have properly set only one `CNAME` or `A` DNS record for your domain.
+   1. Make sure your domain **doesn't have** an `AAAA` DNS record.
+   1. If you have a `CAA` DNS record for your domain or any higher level domains, make sure [it includes `letsencrypt.org`](https://letsencrypt.org/docs/caa/).
+   1. Go to step 1.
 
 <!-- Include any troubleshooting steps that you can foresee. If you know beforehand what issues
 one might have when setting this up, or when something is changed, or on upgrading, it's

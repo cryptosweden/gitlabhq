@@ -15,7 +15,15 @@ RSpec.describe Resolvers::ContainerRepositoriesResolver do
   describe '#resolve' do
     let(:object) { project }
 
-    subject { resolve(described_class, ctx: { current_user: user }, args: args, obj: object) }
+    subject do
+      resolve(
+        described_class,
+        ctx: { current_user: user },
+        args: args,
+        obj: object,
+        arg_style: :internal
+      )
+    end
 
     shared_examples 'returning container repositories' do
       it { is_expected.to contain_exactly(container_repositories) }
@@ -40,7 +48,7 @@ RSpec.describe Resolvers::ContainerRepositoriesResolver do
         end
 
         [:created_desc, :updated_asc, :name_desc].each do |order|
-          context "#{order}" do
+          context order.to_s do
             let(:args) { { sort: order } }
 
             it { is_expected.to eq([sort_repository2, sort_repository]) }
@@ -48,7 +56,7 @@ RSpec.describe Resolvers::ContainerRepositoriesResolver do
         end
 
         [:created_asc, :updated_desc, :name_asc].each do |order|
-          context "#{order}" do
+          context order.to_s do
             let(:args) { { sort: order } }
 
             it { is_expected.to eq([sort_repository, sort_repository2]) }
@@ -59,7 +67,7 @@ RSpec.describe Resolvers::ContainerRepositoriesResolver do
 
     context 'with authorized user' do
       before do
-        group.add_user(user, :maintainer)
+        group.add_member(user, :maintainer)
       end
 
       context 'when the object is a project' do

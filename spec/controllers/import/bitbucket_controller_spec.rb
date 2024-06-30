@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Import::BitbucketController do
+RSpec.describe Import::BitbucketController, feature_category: :importers do
   include ImportSpecHelper
 
   let(:user) { create(:user) }
@@ -31,6 +31,16 @@ RSpec.describe Import::BitbucketController do
       let(:external_bitbucket_auth_url) { "http://fake.bitbucket.host/url" }
 
       it "redirects to external auth url" do
+        expected_client_options = {
+          site: OmniAuth::Strategies::Bitbucket.default_options[:client_options]['site'],
+          authorize_url: OmniAuth::Strategies::Bitbucket.default_options[:client_options]['authorize_url'],
+          token_url: OmniAuth::Strategies::Bitbucket.default_options[:client_options]['token_url']
+        }
+
+        expect(OAuth2::Client)
+          .to receive(:new)
+          .with(anything, anything, expected_client_options)
+
         allow(SecureRandom).to receive(:base64).and_return(random_key)
         allow_next_instance_of(OAuth2::Client) do |client|
           allow(client).to receive_message_chain(:auth_code, :authorize_url)
@@ -45,25 +55,30 @@ RSpec.describe Import::BitbucketController do
     end
 
     context "when auth state param is valid" do
+      let(:expires_at) { Time.current + 1.day }
+      let(:expires_in) { 1.day }
+      let(:access_token) do
+        double(
+          token: token,
+          secret: secret,
+          expires_at: expires_at,
+          expires_in: expires_in,
+          refresh_token: refresh_token
+        )
+      end
+
       before do
         session[:bitbucket_auth_state] = 'state'
       end
 
       it "updates access token" do
-        expires_at = Time.current + 1.day
-        expires_in = 1.day
-        access_token = double(token: token,
-                              secret: secret,
-                              expires_at: expires_at,
-                              expires_in: expires_in,
-                              refresh_token: refresh_token)
         allow_any_instance_of(OAuth2::Client)
           .to receive(:get_token)
           .with(hash_including(
-                  'grant_type' => 'authorization_code',
-                  'code' => code,
-                  redirect_uri: users_import_bitbucket_callback_url),
-                {})
+            'grant_type' => 'authorization_code',
+            'code' => code,
+            'redirect_uri' => users_import_bitbucket_callback_url),
+            {})
           .and_return(access_token)
         stub_omniauth_provider('bitbucket')
 
@@ -75,6 +90,18 @@ RSpec.describe Import::BitbucketController do
         expect(session[:bitbucket_expires_in]).to eq(expires_in)
         expect(controller).to redirect_to(status_import_bitbucket_url)
       end
+
+      it "passes namespace_id query param to status if provided" do
+        namespace_id = 30
+
+        allow_any_instance_of(OAuth2::Client)
+          .to receive(:get_token)
+          .and_return(access_token)
+
+        get :callback, params: { code: code, state: 'state', namespace_id: namespace_id }
+
+        expect(controller).to redirect_to(status_import_bitbucket_url(namespace_id: namespace_id))
+      end
     end
   end
 
@@ -82,10 +109,9 @@ RSpec.describe Import::BitbucketController do
     before do
       @repo = double(name: 'vim', slug: 'vim', owner: 'asd', full_name: 'asd/vim', clone_url: 'http://test.host/demo/url.git', 'valid?' => true)
       @invalid_repo = double(name: 'mercurialrepo', slug: 'mercurialrepo', owner: 'asd', full_name: 'asd/mercurialrepo', clone_url: 'http://test.host/demo/mercurialrepo.git', 'valid?' => false)
-      allow(controller).to receive(:provider_url).and_return('http://demobitbucket.org')
     end
 
-    context "when token does not exists" do
+    context "when token does not exist" do
       let(:random_key) { "pure_random"  }
       let(:external_bitbucket_auth_url) { "http://fake.bitbucket.host/url" }
 
@@ -109,10 +135,6 @@ RSpec.describe Import::BitbucketController do
       end
 
       it_behaves_like 'import controller status' do
-        before do
-          allow(controller).to receive(:provider_url).and_return('http://demobitbucket.org')
-        end
-
         let(:repo) { @repo }
         let(:repo_id) { @repo.full_name }
         let(:import_source) { @repo.full_name }
@@ -174,6 +196,14 @@ RSpec.describe Import::BitbucketController do
         .and_return(double(execute: project))
 
       post :create, format: :json
+
+      expect_snowplow_event(
+        category: 'Import::BitbucketController',
+        action: 'create',
+        label: 'import_access_level',
+        user: user,
+        extra: { user_role: 'Owner', import_type: 'bitbucket' }
+      )
 
       expect(response).to have_gitlab_http_status(:ok)
     end
@@ -287,6 +317,14 @@ RSpec.describe Import::BitbucketController do
               .to receive(:new).and_return(double(execute: project))
 
             expect { post :create, format: :json }.not_to change(Namespace, :count)
+
+            expect_snowplow_event(
+              category: 'Import::BitbucketController',
+              action: 'create',
+              label: 'import_access_level',
+              user: user,
+              extra: { user_role: 'Owner', import_type: 'bitbucket' }
+            )
           end
 
           it "takes the current user's namespace" do
@@ -407,6 +445,25 @@ RSpec.describe Import::BitbucketController do
         post :create, params: { target_namespace: other_namespace.name }, format: :json
 
         expect(response).to have_gitlab_http_status(:unprocessable_entity)
+
+        expect_snowplow_event(
+          category: 'Import::BitbucketController',
+          action: 'create',
+          label: 'import_access_level',
+          user: user,
+          extra: { user_role: 'Not a member', import_type: 'bitbucket' }
+        )
+      end
+    end
+
+    context 'when user can not import projects' do
+      let!(:other_namespace) { create(:group, name: 'other_namespace', developers: user) }
+
+      it 'returns 422 response' do
+        post :create, params: { target_namespace: other_namespace.name }, format: :json
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+        expect(response.parsed_body['errors']).to eq(s_('BitbucketImport|You are not allowed to import projects in this namespace.'))
       end
     end
   end

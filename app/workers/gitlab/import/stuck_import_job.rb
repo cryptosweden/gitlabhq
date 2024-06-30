@@ -37,7 +37,7 @@ module Gitlab
 
       def mark_imports_without_jid_as_failed!
         enqueued_import_states_without_jid
-          .each(&method(:mark_as_failed))
+          .each { |import_state| mark_as_failed(import_state) }
           .size
       end
 
@@ -55,13 +55,13 @@ module Gitlab
         completed_import_states = enqueued_import_states_with_jid.id_in(completed_import_state_ids)
         completed_import_state_jids = completed_import_states.map { |import_state| import_state.jid }.join(', ')
 
-        Gitlab::Import::Logger.info(
+        ::Import::Framework::Logger.info(
           message: 'Marked stuck import jobs as failed',
           job_ids: completed_import_state_jids
         )
 
         completed_import_states
-          .each(&method(:mark_as_failed))
+          .each { |import_state| mark_as_failed(import_state) }
           .size
       end
 

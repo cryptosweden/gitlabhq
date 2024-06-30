@@ -2,10 +2,7 @@
 
 require 'spec_helper'
 
-require 'google/rpc/status_pb'
-require 'google/protobuf/well_known_types'
-
-RSpec.describe Gitlab::GitalyClient::OperationService do
+RSpec.describe Gitlab::GitalyClient::OperationService, feature_category: :source_code_management do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :repository) }
 
@@ -45,18 +42,82 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
       expect(subject.dereferenced_target).to eq(commit)
     end
 
-    context "when pre_receive_error is present" do
-      let(:response) do
-        Gitaly::UserCreateBranchResponse.new(pre_receive_error: "GitLab: something failed")
-      end
+    context 'with structured errors' do
+      context 'with CustomHookError' do
+        let(:stdout) { nil }
+        let(:stderr) { nil }
+        let(:error_message) { "error_message" }
 
-      it "throws a PreReceive exception" do
-        expect_any_instance_of(Gitaly::OperationService::Stub)
-          .to receive(:user_create_branch).with(request, kind_of(Hash))
-          .and_return(response)
+        let(:custom_hook_error) do
+          new_detailed_error(
+            GRPC::Core::StatusCodes::PERMISSION_DENIED,
+            error_message,
+            Gitaly::UserCreateBranchError.new(
+              custom_hook: Gitaly::CustomHookError.new(
+                stdout: stdout,
+                stderr: stderr,
+                hook_type: Gitaly::CustomHookError::HookType::HOOK_TYPE_PRERECEIVE
+              )))
+        end
 
-        expect { subject }.to raise_error(
-          Gitlab::Git::PreReceiveError, "something failed")
+        shared_examples 'failed branch creation' do
+          it 'raised a PreRecieveError' do
+            expect_any_instance_of(Gitaly::OperationService::Stub)
+              .to receive(:user_create_branch)
+              .and_raise(custom_hook_error)
+
+            expect { subject }.to raise_error do |error|
+              expect(error).to be_a(Gitlab::Git::PreReceiveError)
+              expect(error.message).to eq(expected_message)
+              expect(error.raw_message).to eq(expected_raw_message)
+            end
+          end
+        end
+
+        context 'when details contain stderr without prefix' do
+          let(:stderr) { "something" }
+          let(:stdout) { "GL-HOOK-ERR: stdout is overridden by stderr" }
+          let(:expected_message) { Gitlab::GitalyClient::OperationService::CUSTOM_HOOK_FALLBACK_MESSAGE }
+          let(:expected_raw_message) { stderr }
+
+          it_behaves_like 'failed branch creation'
+        end
+
+        context 'when details contain stderr with prefix' do
+          let(:stderr) { "GL-HOOK-ERR: something" }
+          let(:stdout) { "GL-HOOK-ERR: stdout is overridden by stderr" }
+          let(:expected_message) { "something" }
+          let(:expected_raw_message) { stderr }
+
+          it_behaves_like 'failed branch creation'
+        end
+
+        context 'when details contain stdout without prefix' do
+          let(:stderr) { "      \n" }
+          let(:stdout) { "something" }
+          let(:expected_message) { Gitlab::GitalyClient::OperationService::CUSTOM_HOOK_FALLBACK_MESSAGE }
+          let(:expected_raw_message) { stdout }
+
+          it_behaves_like 'failed branch creation'
+        end
+
+        context 'when details contain stdout with prefix' do
+          let(:stderr) { "      \n" }
+          let(:stdout) { "GL-HOOK-ERR: something" }
+          let(:expected_message) { "something" }
+          let(:expected_raw_message) { stdout }
+
+          it_behaves_like 'failed branch creation'
+        end
+
+        context 'when details contain no stderr or stdout' do
+          let(:stderr) { "      \n" }
+          let(:stdout) { "\n    \n" }
+          let(:expected_message) { Gitlab::GitalyClient::OperationService::CUSTOM_HOOK_FALLBACK_MESSAGE }
+          let(:expected_raw_message) { "\n    \n" }
+
+          it_behaves_like 'failed branch creation'
+        end
       end
     end
   end
@@ -87,37 +148,6 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
       subject
     end
 
-    describe '#user_merge_to_ref' do
-      let(:first_parent_ref) { 'refs/heads/my-branch' }
-      let(:source_sha) { 'cfe32cf61b73a0d5e9f13e774abde7ff789b1660' }
-      let(:ref) { 'refs/merge-requests/x/merge' }
-      let(:message) { 'validación' }
-      let(:response) { Gitaly::UserMergeToRefResponse.new(commit_id: 'new-commit-id') }
-
-      let(:payload) do
-        { source_sha: source_sha, branch: 'branch', target_ref: ref,
-          message: message, first_parent_ref: first_parent_ref, allow_conflicts: true }
-      end
-
-      it 'sends a user_merge_to_ref message' do
-        freeze_time do
-          expect_any_instance_of(Gitaly::OperationService::Stub).to receive(:user_merge_to_ref) do |_, request, options|
-            expect(options).to be_kind_of(Hash)
-            expect(request.to_h).to eq(
-              payload.merge({
-                repository: repository.gitaly_repository.to_h,
-                message: message.dup.force_encoding(Encoding::ASCII_8BIT),
-                user: Gitlab::Git::User.from_gitlab(user).to_gitaly.to_h,
-                timestamp: { nanos: 0, seconds: Time.current.to_i }
-              })
-            )
-          end.and_return(response)
-
-          client.user_merge_to_ref(user, **payload)
-        end
-      end
-    end
-
     context "when pre_receive_error is present" do
       let(:response) do
         Gitaly::UserUpdateBranchResponse.new(pre_receive_error: "GitLab: something failed")
@@ -130,6 +160,39 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
 
         expect { subject }.to raise_error(
           Gitlab::Git::PreReceiveError, "something failed")
+      end
+    end
+  end
+
+  describe '#user_merge_to_ref' do
+    let(:first_parent_ref) { 'refs/heads/my-branch' }
+    let(:source_sha) { 'cfe32cf61b73a0d5e9f13e774abde7ff789b1660' }
+    let(:ref) { 'refs/merge-requests/x/merge' }
+    let(:message) { 'validación' }
+    let(:response) { Gitaly::UserMergeToRefResponse.new(commit_id: 'new-commit-id') }
+
+    let(:payload) do
+      { source_sha: source_sha, branch: 'branch', target_ref: ref,
+        message: message, first_parent_ref: first_parent_ref }
+    end
+
+    it 'sends a user_merge_to_ref message' do
+      freeze_time do
+        expect_any_instance_of(Gitaly::OperationService::Stub).to receive(:user_merge_to_ref) do |_, request, options|
+          expect(options).to be_kind_of(Hash)
+          expect(request.to_h).to eq(
+            payload.merge({
+              allow_conflicts: false,
+              expected_old_oid: "",
+              repository: repository.gitaly_repository.to_h,
+              message: message.dup.force_encoding(Encoding::ASCII_8BIT),
+              user: Gitlab::Git::User.from_gitlab(user).to_gitaly.to_h,
+              timestamp: { nanos: 0, seconds: Time.current.to_i }
+            })
+          )
+        end.and_return(response)
+
+        client.user_merge_to_ref(user, **payload)
       end
     end
   end
@@ -156,34 +219,114 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
       subject
     end
 
-    context "when pre_receive_error is present" do
-      let(:response) do
-        Gitaly::UserDeleteBranchResponse.new(pre_receive_error: "GitLab: something failed")
+    context 'with a custom hook error' do
+      let(:stdout) { nil }
+      let(:stderr) { nil }
+      let(:error_message) { "error_message" }
+      let(:custom_hook_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::PERMISSION_DENIED,
+          error_message,
+          Gitaly::UserDeleteBranchError.new(
+            custom_hook: Gitaly::CustomHookError.new(
+              stdout: stdout,
+              stderr: stderr,
+              hook_type: Gitaly::CustomHookError::HookType::HOOK_TYPE_PRERECEIVE
+            )))
       end
 
-      it "throws a PreReceive exception" do
+      shared_examples 'a failed branch deletion' do
+        it 'raises a PreReceiveError' do
+          expect_any_instance_of(Gitaly::OperationService::Stub)
+            .to receive(:user_delete_branch).with(request, kind_of(Hash))
+            .and_raise(custom_hook_error)
+
+          expect { subject }.to raise_error do |error|
+            expect(error).to be_a(Gitlab::Git::PreReceiveError)
+            expect(error.message).to eq(expected_message)
+            expect(error.raw_message).to eq(expected_raw_message)
+          end
+        end
+      end
+
+      context 'when details contain stderr' do
+        let(:stderr) { "something" }
+        let(:stdout) { "GL-HOOK-ERR: stdout is overridden by stderr" }
+        let(:expected_message) { Gitlab::GitalyClient::OperationService::CUSTOM_HOOK_FALLBACK_MESSAGE }
+        let(:expected_raw_message) { stderr }
+
+        it_behaves_like 'a failed branch deletion'
+      end
+
+      context 'when details contain stdout' do
+        let(:stderr) { "      \n" }
+        let(:stdout) { "something" }
+        let(:expected_message) { Gitlab::GitalyClient::OperationService::CUSTOM_HOOK_FALLBACK_MESSAGE }
+        let(:expected_raw_message) { stdout }
+
+        it_behaves_like 'a failed branch deletion'
+      end
+    end
+
+    context 'with a non-detailed error' do
+      it 'raises a GRPC error' do
         expect_any_instance_of(Gitaly::OperationService::Stub)
           .to receive(:user_delete_branch).with(request, kind_of(Hash))
-          .and_return(response)
+          .and_raise(GRPC::Internal.new('non-detailed error'))
 
-        expect { subject }.to raise_error(
-          Gitlab::Git::PreReceiveError, "something failed")
+        expect { subject }.to raise_error(GRPC::Internal)
       end
     end
   end
 
   describe '#user_merge_branch' do
     let(:target_branch) { 'master' }
+    let(:target_sha) { repository.commit(target_branch).sha }
     let(:source_sha) { '5937ac0a7beb003549fc5fd26fc247adbce4a52e' }
     let(:message) { 'Merge a branch' }
 
-    subject { client.user_merge_branch(user, source_sha, target_branch, message) {} }
+    subject do
+      client.user_merge_branch(user,
+        source_sha: source_sha,
+        target_branch: target_branch,
+        target_sha: target_sha,
+        message: message
+      ) {}
+    end
 
-    it 'sends a user_merge_branch message' do
+    it 'succeeds' do
       expect(subject).to be_a(Gitlab::Git::OperationService::BranchUpdate)
       expect(subject.newrev).to be_present
       expect(subject.repo_created).to be(false)
       expect(subject.branch_created).to be(false)
+    end
+
+    it 'receives a bad status' do
+      expect(client).to receive(:gitaly_client_call)
+        .and_wrap_original { |original, *args, **kwargs|
+          response_enum = original.call(*args, **kwargs)
+          Enumerator.new do |y|
+            y << response_enum.next
+            y << response_enum.next
+            raise 'bad status'
+          end
+        }
+
+      expect { subject }.to raise_error(RuntimeError, 'bad status')
+    end
+
+    it 'receives an unexpected response' do
+      expect(client).to receive(:gitaly_client_call)
+        .and_wrap_original { |original, *args, **kwargs|
+          response_enum = original.call(*args, **kwargs)
+          Enumerator.new do |y|
+            y << response_enum.next
+            y << response_enum.next
+            y << 'unexpected response'
+          end
+        }
+
+      expect { subject }.to raise_error(RuntimeError, 'expected response stream to finish')
     end
 
     context 'with an exception with the UserMergeBranchError' do
@@ -212,6 +355,82 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
       end
     end
 
+    context 'with a custom hook error' do
+      let(:stdout) { nil }
+      let(:stderr) { nil }
+      let(:error_message) { "error_message" }
+      let(:custom_hook_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::PERMISSION_DENIED,
+          error_message,
+          Gitaly::UserMergeBranchError.new(
+            custom_hook: Gitaly::CustomHookError.new(
+              stdout: stdout,
+              stderr: stderr,
+              hook_type: Gitaly::CustomHookError::HookType::HOOK_TYPE_PRERECEIVE
+            )))
+      end
+
+      shared_examples 'a failed merge' do
+        it 'raises a PreReceiveError' do
+          expect_any_instance_of(Gitaly::OperationService::Stub)
+            .to receive(:user_merge_branch).with(kind_of(Enumerator), kind_of(Hash))
+            .and_raise(custom_hook_error)
+
+          expect { subject }.to raise_error do |error|
+            expect(error).to be_a(Gitlab::Git::PreReceiveError)
+            expect(error.message).to eq(expected_message)
+            expect(error.raw_message).to eq(expected_raw_message)
+          end
+        end
+      end
+
+      context 'when details contain stderr without prefix' do
+        let(:stderr) { "something" }
+        let(:stdout) { "GL-HOOK-ERR: stdout is overridden by stderr" }
+        let(:expected_message) { Gitlab::GitalyClient::OperationService::CUSTOM_HOOK_FALLBACK_MESSAGE }
+        let(:expected_raw_message) { stderr }
+
+        it_behaves_like 'a failed merge'
+      end
+
+      context 'when details contain stderr with prefix' do
+        let(:stderr) { "GL-HOOK-ERR: something" }
+        let(:stdout) { "GL-HOOK-ERR: stdout is overridden by stderr" }
+        let(:expected_message) { "something" }
+        let(:expected_raw_message) { stderr }
+
+        it_behaves_like 'a failed merge'
+      end
+
+      context 'when details contain stdout without prefix' do
+        let(:stderr) { "      \n" }
+        let(:stdout) { "something" }
+        let(:expected_message) { Gitlab::GitalyClient::OperationService::CUSTOM_HOOK_FALLBACK_MESSAGE }
+        let(:expected_raw_message) { stdout }
+
+        it_behaves_like 'a failed merge'
+      end
+
+      context 'when details contain stdout with prefix' do
+        let(:stderr) { "      \n" }
+        let(:stdout) { "GL-HOOK-ERR: something" }
+        let(:expected_message) { "something" }
+        let(:expected_raw_message) { stdout }
+
+        it_behaves_like 'a failed merge'
+      end
+
+      context 'when details contain no stderr or stdout' do
+        let(:stderr) { "      \n" }
+        let(:stdout) { "\n    \n" }
+        let(:expected_message) { Gitlab::GitalyClient::OperationService::CUSTOM_HOOK_FALLBACK_MESSAGE }
+        let(:expected_raw_message) { "\n    \n" }
+
+        it_behaves_like 'a failed merge'
+      end
+    end
+
     context 'with an exception without the detailed error' do
       let(:permission_error) do
         GRPC::PermissionDenied.new
@@ -229,13 +448,13 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
     context 'with ReferenceUpdateError' do
       let(:reference_update_error) do
         new_detailed_error(GRPC::Core::StatusCodes::FAILED_PRECONDITION,
-                           "some ignored error message",
-                           Gitaly::UserMergeBranchError.new(
-                             reference_update: Gitaly::ReferenceUpdateError.new(
-                               reference_name: "refs/heads/something",
-                               old_oid: "1234",
-                               new_oid: "6789"
-                             )))
+          "some ignored error message",
+          Gitaly::UserMergeBranchError.new(
+            reference_update: Gitaly::ReferenceUpdateError.new(
+              reference_name: "refs/heads/something",
+              old_oid: "1234",
+              new_oid: "6789"
+            )))
       end
 
       it 'returns nil' do
@@ -250,12 +469,14 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
 
   describe '#user_ff_branch' do
     let(:target_branch) { 'my-branch' }
+    let(:target_sha) { '6d394385cf567f80a8fd85055db1ab4c5295806f' }
     let(:source_sha) { 'cfe32cf61b73a0d5e9f13e774abde7ff789b1660' }
     let(:request) do
       Gitaly::UserFFBranchRequest.new(
         repository: repository.gitaly_repository,
         branch: target_branch,
         commit_id: source_sha,
+        expected_old_oid: target_sha,
         user: gitaly_user
       )
     end
@@ -276,7 +497,13 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
         .and_return(response)
     end
 
-    subject { client.user_ff_branch(user, source_sha, target_branch) }
+    subject do
+      client.user_ff_branch(user,
+        source_sha: source_sha,
+        target_branch: target_branch,
+        target_sha: target_sha
+      )
+    end
 
     it 'sends a user_ff_branch message and returns a BranchUpdate object' do
       expect(subject).to be_a(Gitlab::Git::OperationService::BranchUpdate)
@@ -340,64 +567,327 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
     end
   end
 
-  describe '#user_cherry_pick' do
+  shared_examples '#user_cherry_pick with a gRPC error' do
+    it 'raises an exception' do
+      expect_any_instance_of(Gitaly::OperationService::Stub).to receive(:user_cherry_pick)
+        .and_raise(raised_error)
+
+      expect { subject }.to raise_error(expected_error, expected_error_message)
+    end
+  end
+
+  describe '#user_cherry_pick', :freeze_time do
     let(:response_class) { Gitaly::UserCherryPickResponse }
+    let(:sha) { '54cec5282aa9f21856362fe321c800c236a61615' }
+    let(:branch_name) { 'master' }
+    let(:cherry_pick_message) { 'Cherry-pick message' }
+    let(:time) { Time.now.utc }
+    let(:author_name) { user.name }
+    let(:author_email) { user.email }
+    let(:dry_run) { false }
+
+    let(:branch_update) do
+      Gitaly::OperationBranchUpdate.new(
+        commit_id: sha,
+        repo_created: false,
+        branch_created: false
+      )
+    end
+
+    let(:request) do
+      Gitaly::UserCherryPickRequest.new(
+        repository: repository.gitaly_repository,
+        user: gitaly_user,
+        commit: repository.commit.to_gitaly_commit,
+        branch_name: branch_name,
+        start_branch_name: branch_name,
+        start_repository: repository.gitaly_repository,
+        message: cherry_pick_message,
+        commit_author_name: author_name,
+        commit_author_email: author_email,
+        timestamp: Google::Protobuf::Timestamp.new(seconds: time.to_i),
+        dry_run: dry_run
+      )
+    end
+
+    let(:response) { Gitaly::UserCherryPickResponse.new(branch_update: branch_update) }
 
     subject do
       client.user_cherry_pick(
         user: user,
         commit: repository.commit,
-        branch_name: 'master',
-        message: 'Cherry-pick message',
-        start_branch_name: 'master',
-        start_repository: repository
+        branch_name: branch_name,
+        message: cherry_pick_message,
+        start_branch_name: branch_name,
+        start_repository: repository,
+        author_name: author_name,
+        author_email: author_email,
+        dry_run: dry_run
       )
     end
 
-    before do
+    it 'sends a user_cherry_pick message and returns a BranchUpdate' do
       expect_any_instance_of(Gitaly::OperationService::Stub)
-        .to receive(:user_cherry_pick).with(kind_of(Gitaly::UserCherryPickRequest), kind_of(Hash))
-        .and_return(response)
+        .to receive(:user_cherry_pick).with(request, kind_of(Hash))
+                                      .and_return(response)
+
+      expect(subject).to be_a(Gitlab::Git::OperationService::BranchUpdate)
+      expect(subject.newrev).to be_present
+      expect(subject.repo_created).to be(false)
+      expect(subject.branch_created).to be(false)
     end
 
-    it_behaves_like 'cherry pick and revert errors'
+    context 'when AccessCheckError is raised' do
+      let(:raised_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::INTERNAL,
+          'something failed',
+          Gitaly::UserCherryPickError.new(
+            access_check: Gitaly::AccessCheckError.new(
+              error_message: 'something went wrong'
+            )))
+      end
+
+      let(:expected_error) { Gitlab::Git::PreReceiveError }
+      let(:expected_error_message) { "something went wrong" }
+
+      it_behaves_like '#user_cherry_pick with a gRPC error'
+    end
+
+    context 'when NotAncestorError is raised' do
+      let(:raised_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::FAILED_PRECONDITION,
+          'Branch diverged',
+          Gitaly::UserCherryPickError.new(
+            target_branch_diverged: Gitaly::NotAncestorError.new
+          )
+        )
+      end
+
+      let(:expected_error) { Gitlab::Git::CommitError }
+      let(:expected_error_message) { 'branch diverged' }
+
+      it_behaves_like '#user_cherry_pick with a gRPC error'
+    end
+
+    context 'when MergeConflictError is raised' do
+      let(:raised_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::FAILED_PRECONDITION,
+          'Conflict',
+          Gitaly::UserCherryPickError.new(
+            cherry_pick_conflict: Gitaly::MergeConflictError.new
+          )
+        )
+      end
+
+      let(:expected_error) { Gitlab::Git::Repository::CreateTreeError }
+      let(:expected_error_message) {}
+
+      it_behaves_like '#user_cherry_pick with a gRPC error'
+    end
+
+    context 'when a non-detailed gRPC error is raised' do
+      let(:raised_error) { GRPC::Internal.new('non-detailed error') }
+      let(:expected_error) { GRPC::Internal }
+      let(:expected_error_message) {}
+
+      it_behaves_like '#user_cherry_pick with a gRPC error'
+    end
   end
 
-  describe '#user_revert' do
-    let(:response_class) { Gitaly::UserRevertResponse }
+  shared_examples '#user_revert with a gRPC error' do
+    it 'raises an exception' do
+      expect_any_instance_of(Gitaly::OperationService::Stub).to receive(:user_revert)
+        .and_raise(raised_error)
+
+      expect { subject }.to raise_error(expected_error)
+    end
+  end
+
+  describe '#user_revert', :freeze_time do
+    let(:sha) { '54cec5282aa9f21856362fe321c800c236a61615' }
+    let(:branch_name) { 'master' }
+    let(:revert_message) { 'revert message' }
+    let(:time) { Time.now.utc }
+
+    let(:branch_update) do
+      Gitaly::OperationBranchUpdate.new(
+        commit_id: sha,
+        repo_created: false,
+        branch_created: false
+      )
+    end
+
+    let(:request) do
+      Gitaly::UserRevertRequest.new(
+        repository: repository.gitaly_repository,
+        user: gitaly_user,
+        commit: repository.commit.to_gitaly_commit,
+        branch_name: branch_name,
+        start_branch_name: branch_name,
+        start_repository: repository.gitaly_repository,
+        message: revert_message,
+        timestamp: Google::Protobuf::Timestamp.new(seconds: time.to_i)
+      )
+    end
+
+    let(:response) { Gitaly::UserRevertResponse.new(branch_update: branch_update) }
 
     subject do
       client.user_revert(
         user: user,
         commit: repository.commit,
-        branch_name: 'master',
-        message: 'Revert message',
-        start_branch_name: 'master',
+        branch_name: branch_name,
+        message: revert_message,
+        start_branch_name: branch_name,
         start_repository: repository
       )
     end
 
-    before do
+    it 'sends a user_revert message and returns a BranchUpdate' do
       expect_any_instance_of(Gitaly::OperationService::Stub)
-        .to receive(:user_revert).with(kind_of(Gitaly::UserRevertRequest), kind_of(Hash))
-        .and_return(response)
+        .to receive(:user_revert).with(request, kind_of(Hash))
+                                 .and_return(response)
+
+      expect(subject).to be_a(Gitlab::Git::OperationService::BranchUpdate)
+      expect(subject.newrev).to be_present
+      expect(subject.repo_created).to be(false)
+      expect(subject.branch_created).to be(false)
     end
 
-    it_behaves_like 'cherry pick and revert errors'
+    context 'when errors are raised' do
+      let(:response_class) { Gitaly::UserRevertResponse }
+
+      before do
+        expect_any_instance_of(Gitaly::OperationService::Stub)
+          .to receive(:user_revert).with(kind_of(Gitaly::UserRevertRequest), kind_of(Hash))
+                                   .and_return(response)
+      end
+
+      it_behaves_like 'cherry pick and revert errors'
+    end
+
+    context 'when MergeConflictError is raised' do
+      let(:raised_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::FAILED_PRECONDITION,
+          'revert: there are conflicting files',
+          Gitaly::UserRevertError.new(
+            merge_conflict: Gitaly::MergeConflictError.new
+          )
+        )
+      end
+
+      let(:expected_error) { Gitlab::Git::Repository::CreateTreeError }
+
+      it_behaves_like '#user_revert with a gRPC error'
+    end
+
+    context 'when ChangesAlreadyAppliedError is raised' do
+      let(:raised_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::FAILED_PRECONDITION,
+          'revert: could not apply because the result was empty',
+          Gitaly::UserRevertError.new(
+            changes_already_applied: Gitaly::ChangesAlreadyAppliedError.new
+          )
+        )
+      end
+
+      let(:expected_error) { Gitlab::Git::Repository::CreateTreeError }
+
+      it_behaves_like '#user_revert with a gRPC error'
+    end
+
+    context 'when NotAncestorError is raised' do
+      let(:raised_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::FAILED_PRECONDITION,
+          'revert: branch diverged',
+          Gitaly::UserRevertError.new(
+            not_ancestor: Gitaly::NotAncestorError.new
+          )
+        )
+      end
+
+      let(:expected_error) { Gitlab::Git::CommitError }
+
+      it_behaves_like '#user_revert with a gRPC error'
+    end
+
+    context 'when CustomHookError is raised' do
+      let(:raised_error) do
+        new_detailed_error(
+          GRPC::Core::StatusCodes::PERMISSION_DENIED,
+          'revert: custom hook error',
+          Gitaly::UserRevertError.new(
+            custom_hook: Gitaly::CustomHookError.new
+          )
+        )
+      end
+
+      let(:expected_error) { Gitlab::Git::PreReceiveError }
+
+      it_behaves_like '#user_revert with a gRPC error'
+    end
+
+    context 'when a non-detailed gRPC error is raised' do
+      let(:raised_error) { GRPC::Internal.new('non-detailed error') }
+      let(:expected_error) { GRPC::Internal }
+      let(:expected_error_message) {}
+
+      it_behaves_like '#user_revert with a gRPC error'
+    end
   end
 
   describe '#rebase' do
-    let(:response) { Gitaly::UserRebaseConfirmableResponse.new }
-
     subject do
       client.rebase(
         user,
         '',
-        branch: 'master',
-        branch_sha: 'b83d6e391c22777fca1ed3012fce84f633d7fed0',
+        branch: 'feature',
+        branch_sha: '0b4bc9a49b562e85de7cc9e834518ea6828729b9',
         remote_repository: repository,
         remote_branch: 'master'
-      )
+      ) {}
+    end
+
+    context 'with clean repository' do
+      let(:project) { create(:project, :repository) }
+
+      it 'succeeds' do
+        expect(subject).to be_present
+      end
+
+      it 'receives a bad status' do
+        expect(client).to receive(:gitaly_client_call)
+          .and_wrap_original { |original, *args, **kwargs|
+            response_enum = original.call(*args, **kwargs)
+            Enumerator.new do |y|
+              y << response_enum.next
+              y << response_enum.next
+              raise 'bad status'
+            end
+          }
+
+        expect { subject }.to raise_error(RuntimeError, 'bad status')
+      end
+
+      it 'receives an unexpected response' do
+        expect(client).to receive(:gitaly_client_call)
+          .and_wrap_original { |original, *args, **kwargs|
+            response_enum = original.call(*args, **kwargs)
+            Enumerator.new do |y|
+              y << response_enum.next
+              y << response_enum.next
+              y << 'unexpected response'
+            end
+          }
+
+        expect { subject }.to raise_error(RuntimeError, 'expected response stream to finish')
+      end
     end
 
     shared_examples '#rebase with an error' do
@@ -453,6 +943,39 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
     end
   end
 
+  describe '#user_rebase_to_ref' do
+    let(:first_parent_ref) { 'refs/heads/my-branch' }
+    let(:source_sha) { 'cfe32cf61b73a0d5e9f13e774abde7ff789b1660' }
+    let(:target_ref) { 'refs/merge-requests/x/merge' }
+    let(:response) { Gitaly::UserRebaseToRefResponse.new(commit_id: 'new-commit-id') }
+
+    let(:payload) do
+      { source_sha: source_sha, target_ref: target_ref, first_parent_ref: first_parent_ref }
+    end
+
+    it 'sends a user_rebase_to_ref message' do
+      freeze_time do
+        expect_any_instance_of(Gitaly::OperationService::Stub).to receive(:user_rebase_to_ref) do |_, request, options|
+          expect(options).to be_kind_of(Hash)
+          expect(request.to_h).to(
+            eq(
+              payload.merge(
+                {
+                  expected_old_oid: "",
+                  repository: repository.gitaly_repository.to_h,
+                  user: Gitlab::Git::User.from_gitlab(user).to_gitaly.to_h,
+                  timestamp: { nanos: 0, seconds: Time.current.to_i }
+                }
+              )
+            )
+          )
+        end.and_return(response)
+
+        client.user_rebase_to_ref(user, **payload)
+      end
+    end
+  end
+
   describe '#user_squash' do
     let(:start_sha) { 'b83d6e391c22777fca1ed3012fce84f633d7fed0' }
     let(:end_sha) { '54cec5282aa9f21856362fe321c800c236a61615' }
@@ -487,21 +1010,6 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
         .and_return(response)
 
       expect(subject).to eq(squash_sha)
-    end
-
-    context "when git_error is present" do
-      let(:response) do
-        Gitaly::UserSquashResponse.new(git_error: "something failed")
-      end
-
-      it "raises a GitError exception" do
-        expect_any_instance_of(Gitaly::OperationService::Stub)
-          .to receive(:user_squash).with(request, kind_of(Hash))
-          .and_return(response)
-
-        expect { subject }.to raise_error(
-          Gitlab::Git::Repository::GitError, "something failed")
-      end
     end
 
     shared_examples '#user_squash with an error' do
@@ -558,38 +1066,270 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
   end
 
   describe '#user_commit_files' do
+    let(:force) { false }
+    let(:start_sha) { nil }
+    let(:sign) { true }
+
     subject do
       client.user_commit_files(
-        gitaly_user, 'my-branch', 'Commit files message', [], 'janedoe@example.com', 'Jane Doe',
-        'master', repository)
+        user, 'my-branch', 'Commit files message', [], 'janedoe@example.com', 'Jane Doe',
+        'master', repository, force, start_sha, sign)
     end
 
-    before do
-      expect_any_instance_of(Gitaly::OperationService::Stub)
-        .to receive(:user_commit_files).with(kind_of(Enumerator), kind_of(Hash))
-        .and_return(response)
-    end
+    context 'when UserCommitFiles RPC is called' do
+      let(:force) { true }
+      let(:start_sha) { project.commit.id }
+      let(:sign) { false }
 
-    context 'when a pre_receive_error is present' do
-      let(:response) { Gitaly::UserCommitFilesResponse.new(pre_receive_error: "GitLab: something failed") }
+      it 'successfully builds the header' do
+        expect_any_instance_of(Gitaly::OperationService::Stub).to receive(:user_commit_files) do |_, req_enum|
+          header = req_enum.first.header
 
-      it 'raises a PreReceiveError' do
-        expect { subject }.to raise_error(Gitlab::Git::PreReceiveError, "something failed")
+          expect(header.force).to eq(force)
+          expect(header.start_sha).to eq(start_sha)
+          expect(header.sign).to eq(sign)
+        end.and_return(Gitaly::UserCommitFilesResponse.new)
+
+        subject
       end
     end
 
-    context 'when an index_error is present' do
-      let(:response) { Gitaly::UserCommitFilesResponse.new(index_error: "something failed") }
+    context 'with unstructured errors' do
+      before do
+        expect_any_instance_of(Gitaly::OperationService::Stub)
+          .to receive(:user_commit_files).with(kind_of(Enumerator), kind_of(Hash))
+          .and_return(response)
+      end
 
-      it 'raises a PreReceiveError' do
-        expect { subject }.to raise_error(Gitlab::Git::Index::IndexError, "something failed")
+      context 'when a pre_receive_error is present' do
+        let(:response) { Gitaly::UserCommitFilesResponse.new(pre_receive_error: "GitLab: something failed") }
+
+        it 'raises a PreReceiveError' do
+          expect { subject }.to raise_error(Gitlab::Git::PreReceiveError, "something failed")
+        end
+      end
+
+      context 'when an index_error is present' do
+        let(:response) { Gitaly::UserCommitFilesResponse.new(index_error: "something failed") }
+
+        it 'raises an IndexError' do
+          expect { subject }.to raise_error(Gitlab::Git::Index::IndexError, "something failed")
+        end
+      end
+
+      context 'when branch_update is nil' do
+        let(:response) { Gitaly::UserCommitFilesResponse.new }
+
+        it { expect(subject).to be_nil }
       end
     end
 
-    context 'when branch_update is nil' do
-      let(:response) { Gitaly::UserCommitFilesResponse.new }
+    context 'with structured errors' do
+      context 'with AccessCheckError' do
+        before do
+          expect_any_instance_of(Gitaly::OperationService::Stub)
+            .to receive(:user_commit_files).with(kind_of(Enumerator), kind_of(Hash))
+            .and_raise(raised_error)
+        end
 
-      it { expect(subject).to be_nil }
+        let(:raised_error) do
+          new_detailed_error(
+            GRPC::Core::StatusCodes::PERMISSION_DENIED,
+            "error updating file",
+            Gitaly::UserCommitFilesError.new(
+              access_check: Gitaly::AccessCheckError.new(
+                error_message: "something went wrong"
+              )))
+        end
+
+        it 'raises a PreReceiveError' do
+          expect { subject }.to raise_error do |error|
+            expect(error).to be_a(Gitlab::Git::PreReceiveError)
+            expect(error.message).to eq("something went wrong")
+          end
+        end
+      end
+
+      context 'with IndexError' do
+        let(:status_code) { nil }
+        let(:expected_error) { nil }
+
+        let(:structured_error) do
+          new_detailed_error(
+            status_code,
+            "unused error message",
+            expected_error)
+        end
+
+        shared_examples '#user_commit_files failure' do
+          it 'raises an IndexError' do
+            expect_any_instance_of(Gitaly::OperationService::Stub)
+              .to receive(:user_commit_files).with(kind_of(Enumerator), kind_of(Hash))
+              .and_raise(structured_error)
+
+            expect { subject }.to raise_error do |error|
+              expect(error).to be_a(Gitlab::Git::Index::IndexError)
+              expect(error.message).to eq(expected_message)
+            end
+          end
+        end
+
+        context 'with missing file' do
+          let(:status_code) { GRPC::Core::StatusCodes::NOT_FOUND }
+          let(:expected_message) { "A file with this name doesn't exist" }
+          let(:expected_error) do
+            Gitaly::UserCommitFilesError.new(
+              index_update: Gitaly::IndexError.new(
+                path: "README.md",
+                error_type: Gitaly::IndexError::ErrorType::ERROR_TYPE_FILE_NOT_FOUND
+              ))
+          end
+
+          it_behaves_like '#user_commit_files failure'
+        end
+
+        context 'with existing directory' do
+          let(:status_code) { GRPC::Core::StatusCodes::ALREADY_EXISTS }
+          let(:expected_message) { "A directory with this name already exists" }
+          let(:expected_error) do
+            Gitaly::UserCommitFilesError.new(
+              index_update: Gitaly::IndexError.new(
+                path: "dir1",
+                error_type: Gitaly::IndexError::ErrorType::ERROR_TYPE_DIRECTORY_EXISTS
+              ))
+          end
+
+          it_behaves_like '#user_commit_files failure'
+        end
+
+        context 'with existing file' do
+          let(:status_code) { GRPC::Core::StatusCodes::ALREADY_EXISTS }
+          let(:expected_message) { "A file with this name already exists" }
+          let(:expected_error) do
+            Gitaly::UserCommitFilesError.new(
+              index_update: Gitaly::IndexError.new(
+                path: "README.md",
+                error_type: Gitaly::IndexError::ErrorType::ERROR_TYPE_FILE_EXISTS
+              ))
+          end
+
+          it_behaves_like '#user_commit_files failure'
+        end
+
+        context 'with invalid path' do
+          let(:status_code) { GRPC::Core::StatusCodes::INVALID_ARGUMENT }
+          let(:expected_message) { "invalid path: 'invalid://file/name'" }
+          let(:expected_error) do
+            Gitaly::UserCommitFilesError.new(
+              index_update: Gitaly::IndexError.new(
+                path: "invalid://file/name",
+                error_type: Gitaly::IndexError::ErrorType::ERROR_TYPE_INVALID_PATH
+              ))
+          end
+
+          it_behaves_like '#user_commit_files failure'
+        end
+
+        context 'with directory traversal' do
+          let(:status_code) { GRPC::Core::StatusCodes::INVALID_ARGUMENT }
+          let(:expected_message) { "Path cannot include directory traversal" }
+          let(:expected_error) do
+            Gitaly::UserCommitFilesError.new(
+              index_update: Gitaly::IndexError.new(
+                path: "../../../../etc/shadow",
+                error_type: Gitaly::IndexError::ErrorType::ERROR_TYPE_DIRECTORY_TRAVERSAL
+              ))
+          end
+
+          it_behaves_like '#user_commit_files failure'
+        end
+
+        context 'with empty path' do
+          let(:status_code) { GRPC::Core::StatusCodes::INVALID_ARGUMENT }
+          let(:expected_message) { "You must provide a file path" }
+          let(:expected_error) do
+            Gitaly::UserCommitFilesError.new(
+              index_update: Gitaly::IndexError.new(
+                path: "",
+                error_type: Gitaly::IndexError::ErrorType::ERROR_TYPE_EMPTY_PATH
+              ))
+          end
+
+          it_behaves_like '#user_commit_files failure'
+        end
+
+        context 'with unspecified error' do
+          let(:status_code) { GRPC::Core::StatusCodes::INVALID_ARGUMENT }
+          let(:expected_message) { "Unknown error performing git operation" }
+          let(:expected_error) do
+            Gitaly::UserCommitFilesError.new(
+              index_update: Gitaly::IndexError.new(
+                path: "",
+                error_type: Gitaly::IndexError::ErrorType::ERROR_TYPE_UNSPECIFIED
+              ))
+          end
+
+          it_behaves_like '#user_commit_files failure'
+        end
+
+        context 'with an exception without the detailed error' do
+          before do
+            expect_any_instance_of(Gitaly::OperationService::Stub)
+              .to receive(:user_commit_files).with(kind_of(Enumerator), kind_of(Hash))
+              .and_raise(raised_error)
+          end
+
+          context 'with an index error from libgit2' do
+            let(:raised_error) do
+              GRPC::Internal.new('invalid path: .git/foo')
+            end
+
+            it 'raises IndexError' do
+              expect { subject }.to raise_error do |error|
+                expect(error).to be_a(Gitlab::Git::Index::IndexError)
+                expect(error.message).to eq('invalid path: .git/foo')
+              end
+            end
+          end
+
+          context 'with a generic error' do
+            let(:raised_error) do
+              GRPC::PermissionDenied.new
+            end
+
+            it 'raises PermissionDenied' do
+              expect { subject }.to raise_error(GRPC::PermissionDenied)
+            end
+          end
+        end
+      end
+
+      context 'with CustomHookError' do
+        before do
+          expect_any_instance_of(Gitaly::OperationService::Stub)
+            .to receive(:user_commit_files).with(kind_of(Enumerator), kind_of(Hash))
+            .and_raise(raised_error)
+        end
+
+        let(:raised_error) do
+          new_detailed_error(
+            GRPC::Core::StatusCodes::PERMISSION_DENIED,
+            "error updating file",
+            Gitaly::UserCommitFilesError.new(
+              custom_hook: Gitaly::CustomHookError.new(
+                stdout: "some stdout",
+                stderr: "GitLab: some custom hook error message",
+                hook_type: Gitaly::CustomHookError::HookType::HOOK_TYPE_PRERECEIVE
+              )))
+        end
+
+        it 'raises a PreReceiveError' do
+          expect { subject }.to raise_error do |error|
+            expect(error).to be_a(Gitlab::Git::PreReceiveError)
+            expect(error.message).to eq("some custom hook error message")
+          end
+        end
+      end
     end
   end
 
@@ -599,7 +1339,7 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
       patch_names.map { |name| File.read(File.join(patches_folder, name)) }.join("\n")
     end
 
-    let(:patch_names) { %w(0001-This-does-not-apply-to-the-feature-branch.patch) }
+    let(:patch_names) { %w[0001-This-does-not-apply-to-the-feature-branch.patch] }
     let(:branch_name) { 'branch-with-patches' }
 
     subject(:commit_patches) do
@@ -618,7 +1358,7 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
     end
 
     context 'when the patch could not be applied' do
-      let(:patch_names) { %w(0001-This-does-not-apply-to-the-feature-branch.patch) }
+      let(:patch_names) { %w[0001-This-does-not-apply-to-the-feature-branch.patch] }
       let(:branch_name) { 'feature' }
 
       it 'raises the correct error' do
@@ -627,13 +1367,133 @@ RSpec.describe Gitlab::GitalyClient::OperationService do
     end
   end
 
-  def new_detailed_error(error_code, error_message, details)
-    status_error = Google::Rpc::Status.new(
-      code: error_code,
-      message: error_message,
-      details: [Google::Protobuf::Any.pack(details)]
-    )
+  describe '#add_tag' do
+    let(:tag_name) { 'some-tag' }
+    let(:tag_message) { nil }
+    let(:target) { 'master' }
 
-    GRPC::BadStatus.new(error_code, error_message, { "grpc-status-details-bin" => Google::Rpc::Status.encode(status_error) })
+    subject(:add_tag) do
+      client.add_tag(tag_name, user, target, tag_message)
+    end
+
+    context 'without tag message' do
+      let(:tag_name) { 'lightweight-tag' }
+
+      it 'creates a lightweight tag' do
+        tag = add_tag
+        expect(tag.name).to eq(tag_name)
+        expect(tag.message).to eq('')
+      end
+    end
+
+    context 'with tag message' do
+      let(:tag_name) { 'annotated-tag' }
+      let(:tag_message) { "tag message" }
+
+      it 'creates an annotated tag' do
+        tag = add_tag
+        expect(tag.name).to eq(tag_name)
+        expect(tag.message).to eq(tag_message)
+      end
+    end
+
+    context 'with preexisting tag' do
+      let(:tag_name) { 'v1.0.0' }
+
+      it 'raises a TagExistsError' do
+        expect { add_tag }.to raise_error(Gitlab::Git::Repository::TagExistsError)
+      end
+    end
+
+    context 'with invalid target' do
+      let(:target) { 'refs/heads/does-not-exist' }
+
+      it 'raises an InvalidRef error' do
+        expect { add_tag }.to raise_error(Gitlab::Git::Repository::InvalidRef)
+      end
+    end
+
+    context 'with internal error' do
+      before do
+        expect_any_instance_of(Gitaly::OperationService::Stub)
+          .to receive(:user_create_tag)
+          .and_raise(GRPC::Internal.new('undetailed internal error'))
+      end
+
+      it 'raises an Internal error' do
+        expect { add_tag }.to raise_error do |error|
+          expect(error).to be_a(GRPC::Internal)
+          expect(error.details).to eq('undetailed internal error')
+        end
+      end
+    end
+
+    context 'with structured errors' do
+      before do
+        expect_any_instance_of(Gitaly::OperationService::Stub)
+          .to receive(:user_create_tag)
+          .and_raise(structured_error)
+      end
+
+      context 'with ReferenceExistsError' do
+        let(:structured_error) do
+          new_detailed_error(
+            GRPC::Core::StatusCodes::ALREADY_EXISTS,
+            'tag exists already',
+            Gitaly::UserCreateTagError.new(
+              reference_exists: Gitaly::ReferenceExistsError.new(
+                reference_name: tag_name,
+                oid: 'something'
+              )))
+        end
+
+        it 'raises a TagExistsError' do
+          expect { add_tag }.to raise_error(Gitlab::Git::Repository::TagExistsError)
+        end
+      end
+
+      context 'with AccessCheckError' do
+        let(:structured_error) do
+          new_detailed_error(
+            GRPC::Core::StatusCodes::PERMISSION_DENIED,
+            "error creating tag",
+            Gitaly::UserCreateTagError.new(
+              access_check: Gitaly::AccessCheckError.new(
+                error_message: "You are not allowed to create this tag.",
+                protocol: "web",
+                user_id: "user-15",
+                changes: "df15b32277d2c55c6c595845a87109b09c913c556 5d6e0f935ad9240655f64e883cd98fad6f9a17ee refs/tags/v1.0.0\n"
+              )))
+        end
+
+        it 'raises a PreReceiveError' do
+          expect { add_tag }.to raise_error do |error|
+            expect(error).to be_a(Gitlab::Git::PreReceiveError)
+            expect(error.message).to eq("You are not allowed to create this tag.")
+          end
+        end
+      end
+
+      context 'with CustomHookError' do
+        let(:structured_error) do
+          new_detailed_error(
+            GRPC::Core::StatusCodes::PERMISSION_DENIED,
+            "custom hook error",
+            Gitaly::UserCreateTagError.new(
+              custom_hook: Gitaly::CustomHookError.new(
+                stdout: "some stdout",
+                stderr: "GitLab: some custom hook error message",
+                hook_type: Gitaly::CustomHookError::HookType::HOOK_TYPE_PRERECEIVE
+              )))
+        end
+
+        it 'raises a PreReceiveError' do
+          expect { add_tag }.to raise_error do |error|
+            expect(error).to be_a(Gitlab::Git::PreReceiveError)
+            expect(error.message).to eq("some custom hook error message")
+          end
+        end
+      end
+    end
   end
 end

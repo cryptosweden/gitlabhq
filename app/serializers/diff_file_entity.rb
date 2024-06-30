@@ -9,7 +9,7 @@ class DiffFileEntity < DiffFileBaseEntity
   expose :added_lines
   expose :removed_lines
 
-  expose :load_collapsed_diff_url, if: -> (diff_file, options) { options[:merge_request] } do |diff_file|
+  expose :load_collapsed_diff_url, if: ->(diff_file, options) { options[:merge_request] } do |diff_file|
     merge_request = options[:merge_request]
     project = merge_request.target_project
 
@@ -25,7 +25,7 @@ class DiffFileEntity < DiffFileBaseEntity
     )
   end
 
-  expose :view_path, if: -> (_, options) { options[:merge_request] } do |diff_file|
+  expose :view_path, if: ->(_, options) { options[:merge_request] } do |diff_file|
     merge_request = options[:merge_request]
 
     project = merge_request.target_project
@@ -36,7 +36,7 @@ class DiffFileEntity < DiffFileBaseEntity
     project_blob_path(project, tree_join(diff_file.content_sha, diff_file.new_path))
   end
 
-  expose :replaced_view_path, if: -> (_, options) { options[:merge_request] } do |diff_file|
+  expose :replaced_view_path, if: ->(_, options) { options[:merge_request] } do |diff_file|
     image_diff = diff_file.rich_viewer && diff_file.rich_viewer.partial_name == 'image'
     image_replaced = diff_file.old_content_sha && diff_file.old_content_sha != diff_file.content_sha
 
@@ -48,34 +48,50 @@ class DiffFileEntity < DiffFileBaseEntity
     project_blob_path(project, tree_join(diff_file.old_content_sha, diff_file.old_path)) if image_diff && image_replaced
   end
 
-  expose :context_lines_path, if: -> (diff_file, _) { diff_file.text? } do |diff_file|
+  expose :context_lines_path, if: ->(diff_file, _) { diff_file.text? } do |diff_file|
     next unless diff_file.content_sha
 
     project_blob_diff_path(diff_file.repository.project, tree_join(diff_file.content_sha, diff_file.file_path))
   end
 
   # Used for inline diffs
-  expose :highlighted_diff_lines, using: DiffLineEntity, if: -> (diff_file, options) { inline_diff_view?(options) && diff_file.text? } do |diff_file|
-    file = conflict_file(options, diff_file) || diff_file
-    file.diff_lines_for_serializer
+  expose :diff_lines_for_serializer, as: :highlighted_diff_lines, using: DiffLineEntity, if: ->(diff_file, options) { display_highlighted_diffs?(diff_file, options) }
+
+  expose :viewer do |diff_file, options|
+    whitespace_only = if !display_highlighted_diffs?(diff_file, options)
+                        nil
+                      elsif whitespace_only_change?(diff_file)
+                        true
+                      else
+                        false
+                      end
+
+    DiffViewerEntity.represent diff_file.viewer, options.merge(whitespace_only: whitespace_only)
   end
 
-  expose :is_fully_expanded do |diff_file|
-    if conflict_file(options, diff_file)
-      false
-    else
-      diff_file.fully_expanded?
-    end
-  end
+  expose :fully_expanded?, as: :is_fully_expanded
 
   # Used for parallel diffs
-  expose :parallel_diff_lines, using: DiffLineParallelEntity, if: -> (diff_file, options) { parallel_diff_view?(options) && diff_file.text? }
+  expose :parallel_diff_lines, using: DiffLineParallelEntity, if: ->(diff_file, options) { parallel_diff_view?(options) && diff_file.text? }
 
-  expose :code_navigation_path, if: -> (diff_file) { options[:code_navigation_path] } do |diff_file|
+  expose :code_navigation_path, if: ->(diff_file) { options[:code_navigation_path] } do |diff_file|
     options[:code_navigation_path].full_json_path_for(diff_file.new_path)
   end
 
   private
+
+  def whitespace_only_change?(diff_file)
+    !diff_file.collapsed? &&
+      diff_file.diff_lines_for_serializer.nil? &&
+      (
+        diff_file.added_lines != 0 ||
+        diff_file.removed_lines != 0
+      )
+  end
+
+  def display_highlighted_diffs?(diff_file, options)
+    inline_diff_view?(options) && diff_file.text?
+  end
 
   def parallel_diff_view?(options)
     diff_view(options) == :parallel

@@ -6,6 +6,8 @@ module Banzai
     # a `src` attribute ending with an audio or video extension, add a new audio or video node and
     # a "Download" link in the case the media cannot be played.
     class PlayableLinkFilter < HTML::Pipeline::Filter
+      prepend Concerns::PipelineTimingCheck
+
       def call
         doc.xpath('descendant-or-self::img[not(ancestor::a)]').each do |el|
           el.replace(media_node(doc, el)) if has_media_extension?(el)
@@ -24,7 +26,7 @@ module Banzai
         raise NotImplementedError
       end
 
-      def extra_element_attrs
+      def extra_element_attrs(element)
         {}
       end
 
@@ -43,7 +45,7 @@ module Banzai
             controls: true,
             'data-setup': '{}',
             'data-title': element['title'] || element['alt']
-        }.merge!(extra_element_attrs)
+        }.merge!(extra_element_attrs(element))
 
         if element['data-canonical-src']
           media_element_attrs['data-canonical-src'] = element['data-canonical-src']

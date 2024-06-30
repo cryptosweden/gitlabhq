@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Projects::Pipelines::MergeRequestsPipeline do
+RSpec.describe BulkImports::Projects::Pipelines::MergeRequestsPipeline, feature_category: :importers do
   let_it_be(:user) { create(:user) }
+  let_it_be(:another_user) { create(:user) }
   let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, :repository, group: group) }
   let_it_be(:bulk_import) { create(:bulk_import, user: user) }
@@ -14,7 +15,7 @@ RSpec.describe BulkImports::Projects::Pipelines::MergeRequestsPipeline do
       project: project,
       bulk_import: bulk_import,
       source_full_path: 'source/full/path',
-      destination_name: 'My Destination Project',
+      destination_slug: 'My-Destination-Project',
       destination_namespace: group.full_path
     )
   end
@@ -42,6 +43,7 @@ RSpec.describe BulkImports::Projects::Pipelines::MergeRequestsPipeline do
         'base_commit_sha' => 'ae73cb07c9eeaf35924a10f713b364d32b2dd34f',
         'head_commit_sha' => 'a97f74ddaa848b707bea65441c903ae4bf5d844d',
         'start_commit_sha' => '9eea46b5c72ead701c22f516474b95049c9d9462',
+        'diff_type' => 1,
         'merge_request_diff_commits' => [
           {
             'sha' => 'COMMIT1',
@@ -82,9 +84,12 @@ RSpec.describe BulkImports::Projects::Pipelines::MergeRequestsPipeline do
 
   subject(:pipeline) { described_class.new(context) }
 
-  describe '#run' do
+  describe '#run', :clean_gitlab_redis_shared_state do
     before do
       group.add_owner(user)
+      group.add_maintainer(another_user)
+
+      ::BulkImports::UsersMapper.new(context: context).cache_source_user_id(42, another_user.id)
 
       allow_next_instance_of(BulkImports::Common::Extractors::NdjsonExtractor) do |extractor|
         allow(extractor).to receive(:remove_tmp_dir)
@@ -94,6 +99,9 @@ RSpec.describe BulkImports::Projects::Pipelines::MergeRequestsPipeline do
       allow(project.repository).to receive(:fetch_source_branch!).and_return(true)
       allow(project.repository).to receive(:branch_exists?).and_return(false)
       allow(project.repository).to receive(:create_branch)
+
+      allow(::Projects::ImportExport::AfterImportMergeRequestsWorker).to receive(:perform_async)
+      allow(pipeline).to receive(:set_source_objects_counter)
 
       pipeline.run
     end
@@ -240,8 +248,10 @@ RSpec.describe BulkImports::Projects::Pipelines::MergeRequestsPipeline do
         expect(imported_mr.merge_request_diff).to be_present
       end
 
-      it 'has the correct data for merge request latest_merge_request_diff' do
-        expect(imported_mr.latest_merge_request_diff_id).to eq(imported_mr.merge_request_diffs.maximum(:id))
+      it 'enqueues AfterImportMergeRequestsWorker worker' do
+        expect(::Projects::ImportExport::AfterImportMergeRequestsWorker)
+          .to have_received(:perform_async)
+          .with(project.id)
       end
 
       it 'imports diff files' do
@@ -291,6 +301,53 @@ RSpec.describe BulkImports::Projects::Pipelines::MergeRequestsPipeline do
 
       it 'imports milestone' do
         expect(imported_mr.milestone.title).to eq(attributes.dig('milestone', 'title'))
+      end
+    end
+
+    context 'user assignments' do
+      let(:attributes) do
+        {
+          key => [
+            {
+              'user_id' => 22,
+              'created_at' => '2020-01-07T11:21:21.235Z'
+            },
+            {
+              'user_id' => 42,
+              'created_at' => '2020-01-08T12:21:21.235Z'
+            }
+          ]
+        }
+      end
+
+      context 'assignees' do
+        let(:key) { 'merge_request_assignees' }
+
+        it 'imports mr assignees' do
+          assignees = imported_mr.merge_request_assignees
+
+          expect(assignees.pluck(:user_id)).to contain_exactly(user.id, another_user.id)
+        end
+      end
+
+      context 'approvals' do
+        let(:key) { 'approvals' }
+
+        it 'imports mr approvals' do
+          approvals = imported_mr.approvals
+
+          expect(approvals.pluck(:user_id)).to contain_exactly(user.id, another_user.id)
+        end
+      end
+
+      context 'reviewers' do
+        let(:key) { 'merge_request_reviewers' }
+
+        it 'imports mr reviewers' do
+          reviewers = imported_mr.merge_request_reviewers
+
+          expect(reviewers.pluck(:user_id)).to contain_exactly(user.id, another_user.id)
+        end
       end
     end
   end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Deployments::CreateService do
+RSpec.describe Deployments::CreateService, feature_category: :continuous_delivery do
   let(:user) { create(:user) }
 
   describe '#execute' do
@@ -86,7 +86,6 @@ RSpec.describe Deployments::CreateService do
       )
 
       expect(service.deployment_attributes).to eq(
-        cluster_id: 1,
         project_id: 2,
         environment_id: 3,
         ref: 'master',

@@ -17,22 +17,33 @@ module Ci
         title = s_("Runners|Runner is online; last contact was %{runner_contact} ago") % { runner_contact: time_ago_in_words(contacted_at) }
         icon = 'status-active'
         span_class = 'gl-text-green-500'
-      when :not_connected, :never_contacted
+      when :never_contacted
         title = s_("Runners|Runner has never contacted this instance")
         icon = 'warning-solid'
       when :offline
-        title = s_("Runners|Runner is offline; last contact was %{runner_contact} ago") % { runner_contact: time_ago_in_words(contacted_at) }
-        icon = 'status-failed'
-        span_class = 'gl-text-red-500'
+        title =
+          if contacted_at
+            s_("Runners|Runner is offline; last contact was %{runner_contact} ago") % { runner_contact: time_ago_in_words(contacted_at) }
+          else
+            s_("Runners|Runner is offline; it has never contacted this instance")
+          end
+
+        icon = 'status-waiting'
+        span_class = 'gl-text-gray-500'
       when :stale
         # runner may have contacted (or not) and be stale: consider both cases.
         title = contacted_at ? s_("Runners|Runner is stale; last contact was %{runner_contact} ago") % { runner_contact: time_ago_in_words(contacted_at) } : s_("Runners|Runner is stale; it has never contacted this instance")
-        icon = 'warning-solid'
+        icon = 'time-out'
+        span_class = 'gl-text-orange-500'
       end
 
-      content_tag(:span, class: span_class, title: title, data: { toggle: 'tooltip', container: 'body', testid: 'runner_status_icon', qa_selector: "runner_status_#{status}_content" }) do
+      content_tag(:span, class: span_class, title: title, data: { toggle: 'tooltip', container: 'body', testid: 'runner-status-icon', qa_status: status }) do
         sprite_icon(icon, size: size, css_class: icon_class)
       end
+    end
+
+    def runner_short_name(runner)
+      "##{runner.id} (#{runner.short_sha})"
     end
 
     def runner_link(runner)
@@ -48,51 +59,73 @@ module Ci
       end
     end
 
-    # Due to inability of performing sorting of runners by cached "contacted_at" values we have to show uncached values if sorting by "contacted_asc" is requested.
-    # Please refer to the following issue for more details: https://gitlab.com/gitlab-org/gitlab-foss/issues/55920
-    def runner_contacted_at(runner)
-      if params[:sort] == 'contacted_asc'
-        runner.uncached_contacted_at
-      else
-        runner.contacted_at
-      end
-    end
-
     def admin_runners_data_attributes
       {
         # Runner install help page is external, located at
         # https://gitlab.com/gitlab-org/gitlab-runner
         runner_install_help_page: 'https://docs.gitlab.com/runner/install/',
-        registration_token: Gitlab::CurrentSettings.runners_registration_token
+        new_runner_path: new_admin_runner_path,
+        allow_registration_token: Gitlab::CurrentSettings.allow_runner_registration_token.to_s,
+        registration_token: Gitlab::CurrentSettings.runners_registration_token,
+        online_contact_timeout_secs: ::Ci::Runner::ONLINE_CONTACT_TIMEOUT.to_i,
+        stale_timeout_secs: ::Ci::Runner::STALE_TIMEOUT.to_i,
+        tag_suggestions_path: tag_list_admin_runners_path(format: :json)
       }
     end
 
     def group_shared_runners_settings_data(group)
-      {
-        update_path: api_v4_groups_path(id: group.id),
-        shared_runners_availability: group.shared_runners_setting,
-        parent_shared_runners_availability: group.parent&.shared_runners_setting,
-        runner_enabled: Namespace::SR_ENABLED,
-        runner_disabled: Namespace::SR_DISABLED_AND_UNOVERRIDABLE,
-        runner_allow_override: Namespace::SR_DISABLED_WITH_OVERRIDE
+      data = {
+        group_id: group.id,
+        group_name: group.name,
+        group_is_empty: (group.projects.empty? && group.children.empty?).to_s,
+        shared_runners_setting: group.shared_runners_setting,
+
+        runner_enabled_value: Namespace::SR_ENABLED,
+        runner_disabled_value: Namespace::SR_DISABLED_AND_UNOVERRIDABLE,
+        runner_allow_override_value: Namespace::SR_DISABLED_AND_OVERRIDABLE,
+
+        parent_shared_runners_setting: group.parent&.shared_runners_setting,
+        parent_name: nil,
+        parent_settings_path: nil
       }
+
+      if group.parent && can?(current_user, :admin_group, group.parent)
+        data.merge!({
+          parent_name: group.parent.name,
+          parent_settings_path: group_settings_ci_cd_path(group.parent, anchor: 'runners-settings')
+        })
+      end
+
+      data
     end
 
     def group_runners_data_attributes(group)
       {
-        registration_token: group.runners_token,
         group_id: group.id,
         group_full_path: group.full_path,
-        runner_install_help_page: 'https://docs.gitlab.com/runner/install/'
+        runner_install_help_page: 'https://docs.gitlab.com/runner/install/',
+        online_contact_timeout_secs: ::Ci::Runner::ONLINE_CONTACT_TIMEOUT.to_i,
+        stale_timeout_secs: ::Ci::Runner::STALE_TIMEOUT.to_i
       }
     end
 
     def toggle_shared_runners_settings_data(project)
-      {
-        is_enabled: "#{project.shared_runners_enabled?}",
-        is_disabled_and_unoverridable: "#{project.group&.shared_runners_setting == Namespace::SR_DISABLED_AND_UNOVERRIDABLE}",
-        update_path: toggle_shared_runners_project_runners_path(project)
+      data = {
+        is_enabled: project.shared_runners_enabled?.to_s,
+        is_disabled_and_unoverridable: (project.group&.shared_runners_setting == Namespace::SR_DISABLED_AND_UNOVERRIDABLE).to_s,
+        update_path: toggle_shared_runners_project_runners_path(project),
+        group_name: nil,
+        group_settings_path: nil
       }
+
+      if project.group && can?(current_user, :admin_group, project.group)
+        data.merge!({
+          group_name: project.group.name,
+          group_settings_path: group_settings_ci_cd_path(project.group, anchor: 'runners-settings')
+        })
+      end
+
+      data
     end
   end
 end

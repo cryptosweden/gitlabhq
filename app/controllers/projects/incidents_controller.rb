@@ -7,12 +7,14 @@ class Projects::IncidentsController < Projects::ApplicationController
   before_action :authorize_read_issue!
   before_action :load_incident, only: [:show]
   before_action do
-    push_frontend_feature_flag(:incident_escalations, @project)
-    push_frontend_feature_flag(:incident_timeline, @project, default_enabled: :yaml)
-    push_licensed_feature(:incident_timeline_events) if @project.licensed_feature_available?(:incident_timeline_events)
+    push_force_frontend_feature_flag(:work_items, @project&.work_items_feature_flag_enabled?)
+    push_force_frontend_feature_flag(:work_items_beta, @project&.work_items_beta_feature_flag_enabled?)
+    push_force_frontend_feature_flag(:work_items_alpha, @project&.work_items_alpha_feature_flag_enabled?)
+    push_frontend_feature_flag(:notifications_todos_buttons, current_user)
   end
 
   feature_category :incident_management
+  urgency :low
 
   def index
   end
@@ -26,7 +28,7 @@ class Projects::IncidentsController < Projects::ApplicationController
         .inc_relations_for_view
         .iid_in(params[:id])
         .without_order
-        .first
+        .take # rubocop:disable CodeReuse/ActiveRecord
     end
   end
 

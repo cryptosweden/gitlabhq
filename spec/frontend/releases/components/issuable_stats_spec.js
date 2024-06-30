@@ -16,9 +16,11 @@ describe('~/releases/components/issuable_stats.vue', () => {
     });
   };
 
-  const findOpenStatLink = () => wrapper.find('[data-testid="open-stat"]').find(GlLink);
-  const findMergedStatLink = () => wrapper.find('[data-testid="merged-stat"]').find(GlLink);
-  const findClosedStatLink = () => wrapper.find('[data-testid="closed-stat"]').find(GlLink);
+  const findOpenStatLink = () => wrapper.find('[data-testid="open-stat"]').findComponent(GlLink);
+  const findMergedStatLink = () =>
+    wrapper.find('[data-testid="merged-stat"]').findComponent(GlLink);
+  const findClosedStatLink = () =>
+    wrapper.find('[data-testid="closed-stat"]').findComponent(GlLink);
 
   beforeEach(() => {
     defaultProps = {
@@ -30,11 +32,6 @@ describe('~/releases/components/issuable_stats.vue', () => {
       closedPath: 'path/to/closed/items',
       mergedPath: 'path/to/merged/items',
     };
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
   });
 
   it('matches snapshot', () => {

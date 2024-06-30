@@ -6,22 +6,45 @@ module Packages
       include Gitlab::Utils::StrongMemoize
 
       def execute
-        return error('Version is empty.', 400) if params[:module_version].blank?
-        return error('Access Denied', 403) if current_package_exists_elsewhere?
-        return error('Package version already exists.', 403) if current_package_version_exists?
-        return error('File is too large.', 400) if file_size_exceeded?
+        if params[:module_version].blank?
+          return ServiceResponse.error(message: 'Version is empty.', reason: :bad_request)
+        end
 
-        ApplicationRecord.transaction { create_terraform_module_package! }
+        if duplicates_not_allowed? && current_package_exists_elsewhere?
+          return ServiceResponse.error(
+            message: 'A package with the same name already exists in the namespace',
+            reason: :forbidden
+          )
+        end
+
+        if current_package_version_exists?
+          return ServiceResponse.error(message: 'Package version already exists.', reason: :forbidden)
+        end
+
+        package, package_file = ApplicationRecord.transaction { create_terraform_module_package! }
+
+        ::Packages::TerraformModule::ProcessPackageFileWorker.perform_async(package_file.id)
+
+        ServiceResponse.success(payload: { package: package })
+      rescue ActiveRecord::RecordInvalid => e
+        ServiceResponse.error(message: e.message, reason: :unprocessable_entity)
       end
 
       private
 
       def create_terraform_module_package!
         package = create_package!(:terraform_module, name: name, version: params[:module_version])
+        package_file = ::Packages::CreatePackageFileService.new(package, file_params).execute
+        [package, package_file]
+      end
 
-        ::Packages::CreatePackageFileService.new(package, file_params).execute
+      def duplicates_not_allowed?
+        return true if package_settings_with_duplicates_allowed.blank?
 
-        package
+        package_settings_with_duplicates_allowed.none? do |setting|
+          setting.terraform_module_duplicates_allowed ||
+            ::Gitlab::UntrustedRegexp.new("\\A#{setting.terraform_module_duplicate_exception_regex}\\z").match?(name)
+        end
       end
 
       def current_package_exists_elsewhere?
@@ -43,16 +66,14 @@ module Packages
       end
 
       def name
-        strong_memoize(:name) do
-          "#{params[:module_name]}/#{params[:module_system]}"
-        end
+        "#{params[:module_name]}/#{params[:module_system]}"
       end
+      strong_memoize_attr :name
 
       def file_name
-        strong_memoize(:file_name) do
-          "#{params[:module_name]}-#{params[:module_system]}-#{params[:module_version]}.tgz"
-        end
+        "#{params[:module_name]}-#{params[:module_system]}-#{params[:module_version]}.tgz"
       end
+      strong_memoize_attr :file_name
 
       def file_params
         {
@@ -64,9 +85,13 @@ module Packages
         }
       end
 
-      def file_size_exceeded?
-        project.actual_limits.exceeded?(:generic_packages_max_file_size, params[:file].size)
+      def package_settings_with_duplicates_allowed
+        ::Namespace::PackageSetting
+          .select(:terraform_module_duplicates_allowed, :terraform_module_duplicate_exception_regex)
+          .namespace_id_in(project.namespace.self_and_ancestor_ids)
+          .with_terraform_module_duplicates_allowed_or_exception_regex
       end
+      strong_memoize_attr :package_settings_with_duplicates_allowed
     end
   end
 end

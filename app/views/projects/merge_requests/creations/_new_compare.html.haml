@@ -1,65 +1,34 @@
-%h3.page-title
+%h1.page-title.gl-font-size-h-display
   = _('New merge request')
 
-= form_for [@project, @merge_request], url: project_new_merge_request_path(@project), method: :get, html: { class: "merge-request-form js-requires-input" } do |f|
+- if @saml_groups.present?
+  = render Pajamas::AlertComponent.new(variant: :warning, dismissible: false) do |c|
+    - c.with_body do
+      = s_('GroupSAML|Some branches are inaccessible because your SAML session has expired. To access the branches, select the group’s path to reauthenticate.')
+    - c.with_actions do
+      .gl-display-flex.gl-flex-wrap
+        - @saml_groups.each do |group|
+          = render Pajamas::ButtonComponent.new(href: sso_group_saml_providers_path(group, { token: group.saml_discovery_token, redirect: project_new_merge_request_branch_from_path(@source_project) }), button_options: { class: "gl-mr-3 gl-mb-3" }) do
+            = group.path
+
+= gitlab_ui_form_for [@project, @merge_request], url: project_new_merge_request_path(@project), method: :get, html: { class: "merge-request-form js-requires-input" } do |f|
   - if params[:nav_source].present?
     = hidden_field_tag(:nav_source, params[:nav_source])
-  .js-merge-request-new-compare.row{ 'data-source-branch-url': project_new_merge_request_branch_from_path(@source_project), 'data-target-branch-url': project_new_merge_request_branch_to_path(@source_project) }
+  .js-merge-request-new-compare.row{ data: mr_compare_form_data(current_user, @merge_request) }
     .col-lg-6
-      .card.card-new-merge-request
-        .card-header
-          Source branch
-        .card-body.clearfix
-          .merge-request-select.dropdown
-            = f.hidden_field :source_project_id
-            = dropdown_toggle @merge_request.source_project_path, { toggle: "dropdown", 'field-name': "#{f.object_name}[source_project_id]", disabled: @merge_request.persisted? }, { toggle_class: "js-compare-dropdown js-source-project" }
-            .dropdown-menu.dropdown-menu-selectable.dropdown-source-project
-              = dropdown_title("Select source project")
-              = dropdown_filter("Search projects")
-              = dropdown_content do
-                = render 'projects/merge_requests/dropdowns/project',
-                  projects: [@merge_request.source_project],
-                  selected: f.object.source_project_id
-          .merge-request-select.dropdown
-            = f.hidden_field :source_branch
-            = dropdown_toggle f.object.source_branch.presence || _("Select source branch"), { toggle: "dropdown", 'field-name': "#{f.object_name}[source_branch]", 'refs-url': refs_project_path(@source_project), selected: f.object.source_branch }, { toggle_class: "js-compare-dropdown js-source-branch monospace" }
-            .dropdown-menu.dropdown-menu-selectable.js-source-branch-dropdown.git-revision-dropdown
-              = dropdown_title(_("Select source branch"))
-              = dropdown_filter(_("Search branches"))
-              = dropdown_content
-              = dropdown_loading
-        .card-footer
-          = gl_loading_icon(css_class: 'js-source-loading gl-my-3')
-          %ul.list-unstyled.mr_source_commit
+      .card-new-merge-request
+        %h2.gl-font-size-h2
+          = _('Source branch')
+        #js-source-project-dropdown{ data: { current_project: { value: f.object.source_project_id.to_s, text: f.object.source_project.full_path, refsUrl: refs_project_path(f.object.source_project) }.to_json, current_branch: { value: f.object.source_branch.presence, text: f.object.source_branch.presence }.to_json } }
 
     .col-lg-6
-      .card.card-new-merge-request
-        .card-header
-          Target branch
-        .card-body.clearfix
-          - projects = target_projects(@project)
-          .merge-request-select.dropdown
-            = f.hidden_field :target_project_id
-            = dropdown_toggle f.object.target_project.full_path, { toggle: "dropdown", 'field-name': "#{f.object_name}[target_project_id]", disabled: @merge_request.persisted? }, { toggle_class: "js-compare-dropdown js-target-project" }
-            .dropdown-menu.dropdown-menu-selectable.dropdown-target-project
-              = dropdown_title("Select target project")
-              = dropdown_filter("Search projects")
-              = dropdown_content do
-                = render 'projects/merge_requests/dropdowns/project',
-                  projects: projects,
-                  selected: f.object.target_project_id
-          .merge-request-select.dropdown
-            = f.hidden_field :target_branch
-            = dropdown_toggle f.object.target_branch.presence || _("Select target branch"), { toggle: "dropdown", 'field-name': "#{f.object_name}[target_branch]", 'refs-url': refs_project_path(f.object.target_project), selected: f.object.target_branch }, { toggle_class: "js-compare-dropdown js-target-branch monospace" }
-            .dropdown-menu.dropdown-menu-selectable.js-target-branch-dropdown.git-revision-dropdown
-              = dropdown_title(_("Select target branch"))
-              = dropdown_filter(_("Search branches"))
-              = dropdown_content
-              = dropdown_loading
-        .card-footer
-          = gl_loading_icon(css_class: 'js-target-loading gl-my-3')
-          %ul.list-unstyled.mr_target_commit
+      .card-new-merge-request
+        %h2.gl-font-size-h2
+          = _('Target branch')
+        #js-target-project-dropdown{ data: { target_projects_path: project_new_merge_request_json_target_projects_path(@project), current_project: { value: f.object.target_project_id.to_s, text: f.object.target_project.full_path, refsUrl: refs_project_path(f.object.target_project) }.to_json, current_branch: { value: f.object.target_branch.presence, text: f.object.target_branch.presence }.to_json } }
 
   - if @merge_request.errors.any?
     = form_errors(@merge_request)
-  = f.submit 'Compare branches and continue', class: "gl-button btn btn-confirm mr-compare-btn"
+  .row
+    .col-12
+      = f.submit _('Compare branches and continue'), data: { testid: 'compare-branches-button' }, pajamas_button: true

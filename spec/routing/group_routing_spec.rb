@@ -49,15 +49,29 @@ RSpec.shared_examples 'groups routing' do
 
   it 'routes to the avatars controller' do
     expect(delete("/groups/#{group_path}/-/avatar"))
-      .to route_to(group_id: group_path,
-                   controller: 'groups/avatars',
-                   action: 'destroy')
+      .to route_to(group_id: group_path, controller: 'groups/avatars', action: 'destroy')
   end
 
   it 'routes to the boards controller' do
     allow(Group).to receive(:find_by_full_path).with('gitlabhq', any_args).and_return(true)
 
     expect(get('/groups/gitlabhq/-/boards')).to route_to('groups/boards#index', group_id: 'gitlabhq')
+  end
+
+  it 'routes to the harbor repositories controller' do
+    expect(get("groups/#{group_path}/-/harbor/repositories")).to route_to('groups/harbor/repositories#index', group_id: group_path)
+  end
+
+  it 'routes to the harbor artifacts controller' do
+    expect(get("groups/#{group_path}/-/harbor/repositories/test/artifacts")).to route_to('groups/harbor/artifacts#index', group_id: group_path, repository_id: 'test')
+  end
+
+  it 'routes to the harbor tags controller' do
+    expect(get("groups/#{group_path}/-/harbor/repositories/test/artifacts/test/tags")).to route_to('groups/harbor/tags#index', group_id: group_path, repository_id: 'test', artifact_id: 'test')
+  end
+
+  it 'routes to the usage quotas controller' do
+    expect(get("groups/#{group_path}/-/usage_quotas")).to route_to("groups/usage_quotas#index", group_id: group_path)
   end
 end
 

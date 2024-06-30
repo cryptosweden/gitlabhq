@@ -1,12 +1,16 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Connect existing clusters through cluster certificates (DEPRECATED) **(FREE)**
+# Connect existing clusters through cluster certificates (deprecated)
 
-> [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed
+
+> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
@@ -25,9 +29,8 @@ See the prerequisites below to add existing clusters to GitLab.
 To add any cluster to GitLab, you need:
 
 - Either a GitLab.com account or an account for a self-managed installation
-running GitLab 12.5 or later.
 - The Maintainer role for group-level and project-level clusters.
-- Access to the Admin area for instance-level clusters.
+- Access to the Admin Area for instance-level clusters.
 - A Kubernetes cluster.
 - Cluster administration access to the cluster with `kubectl`.
 
@@ -48,7 +51,7 @@ To add an existing **EKS** cluster, you need:
 
 - An Amazon EKS cluster with worker nodes properly configured.
 - `kubectl` [installed and configured](https://docs.aws.amazon.com/eks/latest/userguide/getting-started.html#get-started-kubectl)
-for access to the EKS cluster.
+  for access to the EKS cluster.
 - Ensure the token of the account has administrator privileges for the cluster.
 
 ### GKE clusters
@@ -56,8 +59,8 @@ for access to the EKS cluster.
 To add an existing **GKE** cluster, you need:
 
 - The `container.clusterRoleBindings.create` permission to create a cluster
-role binding. You can follow the [Google Cloud documentation](https://cloud.google.com/iam/docs/granting-changing-revoking-access)
-to grant access.
+  role binding. You can follow the [Google Cloud documentation](https://cloud.google.com/iam/docs/granting-changing-revoking-access)
+  to grant access.
 
 ## How to add an existing cluster
 
@@ -65,11 +68,11 @@ to grant access.
 
 To add a Kubernetes cluster to your project, group, or instance:
 
-1. Navigate to your:
-   1. Project's **{cloud-gear}** **Infrastructure > Kubernetes clusters** page, for a project-level cluster.
+1. Go to your:
+   1. Project's **{cloud-gear}** **Operate > Kubernetes clusters** page, for a project-level cluster.
    1. Group's **{cloud-gear}** **Kubernetes** page, for a group-level cluster.
-   1. **Menu > Admin > Kubernetes** page, for an instance-level cluster.
-1. On the **Kubernetes clusters** page, select the **Connect with a certificate** option from the **Actions** dropdown menu.
+   1. The Admin Area's **Kubernetes** page, for an instance-level cluster.
+1. On the **Kubernetes clusters** page, select the **Connect with a certificate** option from the **Actions** dropdown list.
 1. On the **Connect a cluster** page, fill in the details:
    1. **Kubernetes cluster name** (required) - The name you wish to give the cluster.
    1. **Environment scope** (required) - The
@@ -230,3 +233,28 @@ kubectl create clusterrolebinding permissive-binding \
   --user=kubelet \
   --group=system:serviceaccounts
 ```
+
+## Troubleshooting
+
+### CA certificate and token errors during authentication
+
+If you encounter this error while connecting a Kubernetes cluster:
+
+```plaintext
+There was a problem authenticating with your cluster.
+Please ensure your CA Certificate and Token are valid
+```
+
+Ensure you're properly pasting the service token. Some shells may add a line break to the
+service token, making it invalid. Ensure that there are no line breaks by
+pasting your token into an editor and removing any additional spaces.
+
+You may also experience this error if your certificate is not valid. To check that your certificate's
+subject alternative names contain the correct domain for your cluster's API, run this command:
+
+```shell
+echo | openssl s_client -showcerts -connect kubernetes.example.com:443 -servername kubernetes.example.com 2>/dev/null |
+openssl x509 -inform pem -noout -text
+```
+
+The `-connect` argument expects a `host:port` combination. For example, `https://kubernetes.example.com` would be `kubernetes.example.com:443`. The `-servername` argument expects a domain without any URI, for example `kubernetes.example.com`.

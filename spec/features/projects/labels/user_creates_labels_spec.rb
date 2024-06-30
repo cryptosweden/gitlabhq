@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe "User creates labels" do
+RSpec.describe "User creates labels", feature_category: :team_planning do
   let_it_be(:project) { create(:project_empty_repo, :public) }
   let_it_be(:user) { create(:user) }
 
@@ -63,6 +63,8 @@ RSpec.describe "User creates labels" do
         end
       end
     end
+
+    it_behaves_like "lock_on_merge when creating labels"
   end
 
   context "in another project" do

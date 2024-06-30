@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 class Groups::DependencyProxyForContainersController < ::Groups::DependencyProxy::ApplicationController
-  include Gitlab::Utils::StrongMemoize
   include DependencyProxy::GroupAccess
   include SendFileUpload
   include ::PackagesHelper # for event tracking
@@ -16,7 +15,8 @@ class Groups::DependencyProxyForContainersController < ::Groups::DependencyProxy
 
   attr_reader :token
 
-  feature_category :dependency_proxy
+  feature_category :virtual_registry
+  urgency :low
 
   def manifest
     result = DependencyProxy::FindCachedManifestService.new(group, image, tag, token).execute
@@ -116,17 +116,11 @@ class Groups::DependencyProxyForContainersController < ::Groups::DependencyProxy
   end
 
   def blob_file_name
-    @blob_file_name ||= params[:sha].sub('sha256:', '') + '.gz'
+    @blob_file_name ||= "#{params[:sha].sub('sha256:', '')}.gz"
   end
 
   def manifest_file_name
-    @manifest_file_name ||= Gitlab::Utils.check_path_traversal!("#{image}:#{tag}.json")
-  end
-
-  def group
-    strong_memoize(:group) do
-      Group.find_by_full_path(params[:group_id], follow_redirects: true)
-    end
+    @manifest_file_name ||= Gitlab::PathTraversal.check_path_traversal!("#{image}:#{tag}.json")
   end
 
   def image
@@ -171,6 +165,6 @@ class Groups::DependencyProxyForContainersController < ::Groups::DependencyProxy
   end
 
   def manifest_header
-    token_header.merge(Accept: ::ContainerRegistry::Client::ACCEPTED_TYPES)
+    token_header.merge(Accept: ::DependencyProxy::Manifest::ACCEPTED_TYPES)
   end
 end

@@ -2,14 +2,26 @@
 
 module Integrations
   class Assembla < Integration
-    prop_accessor :token, :subdomain
     validates :token, presence: true, if: :activated?
 
-    def title
+    field :token,
+      type: :password,
+      description: -> { s_('The authentication token.') },
+      non_empty_password_title: -> { s_('ProjectService|Enter new token') },
+      non_empty_password_help: -> { s_('ProjectService|Leave blank to use your current token.') },
+      placeholder: '',
+      required: true
+
+    field :subdomain,
+      description: -> { s_('The subdomain setting.') },
+      exposes_secrets: true,
+      placeholder: ''
+
+    def self.title
       'Assembla'
     end
 
-    def description
+    def self.description
       _('Manage projects.')
     end
 
@@ -17,22 +29,17 @@ module Integrations
       'assembla'
     end
 
-    def fields
-      [
-        { type: 'text', name: 'token', placeholder: '', required: true },
-        { type: 'text', name: 'subdomain', placeholder: '' }
-      ]
-    end
-
     def self.supported_events
-      %w(push)
+      %w[push]
     end
 
     def execute(data)
       return unless supported_events.include?(data[:object_kind])
 
       url = "https://atlas.assembla.com/spaces/#{subdomain}/github_tool?secret_key=#{token}"
-      Gitlab::HTTP.post(url, body: { payload: data }.to_json, headers: { 'Content-Type' => 'application/json' })
+      body = { payload: data }
+
+      Gitlab::HTTP.post(url, body: Gitlab::Json.dump(body), headers: { 'Content-Type' => 'application/json' })
     end
   end
 end

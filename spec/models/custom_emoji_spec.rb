@@ -25,7 +25,7 @@ RSpec.describe CustomEmoji do
     end
 
     it 'disallows very long invalid emoji name without regular expression backtracking issues' do
-      new_emoji = build(:custom_emoji, name: 'a' * 10000 + '!', group: group)
+      new_emoji = build(:custom_emoji, name: ('a' * 10000) + '!', group: group)
 
       Timeout.timeout(1) do
         expect(new_emoji).not_to be_valid
@@ -38,7 +38,7 @@ RSpec.describe CustomEmoji do
       new_emoji = build(:custom_emoji, name: old_emoji.name, namespace: old_emoji.namespace, group: group)
 
       expect(new_emoji).not_to be_valid
-      expect(new_emoji.errors.messages).to eq(creator: ["can't be blank"], name: ["has already been taken"])
+      expect(new_emoji.errors.messages).to eq(name: ["has already been taken"])
     end
 
     it 'disallows non http and https file value' do
@@ -46,6 +46,55 @@ RSpec.describe CustomEmoji do
 
       expect(emoji).not_to be_valid
       expect(emoji.errors.messages).to eq(file: ["is blocked: Only allowed schemes are http, https"])
+    end
+  end
+
+  describe '#for_resource' do
+    let_it_be(:group) { create(:group) }
+    let_it_be(:custom_emoji) { create(:custom_emoji, namespace: group) }
+
+    context 'when group is nil' do
+      let_it_be(:group) { nil }
+
+      it { expect(described_class.for_resource(group)).to eq([]) }
+    end
+
+    context 'when resource is a project' do
+      let_it_be(:project) { create(:project) }
+
+      it { expect(described_class.for_resource(project)).to eq([]) }
+    end
+
+    it { expect(described_class.for_resource(group)).to eq([custom_emoji]) }
+  end
+
+  describe '#for_namespaces' do
+    let_it_be(:group) { create(:group) }
+    let_it_be(:custom_emoji) { create(:custom_emoji, namespace: group, name: 'parrot') }
+
+    it { expect(described_class.for_namespaces([group.id])).to eq([custom_emoji]) }
+
+    context 'with subgroup' do
+      let_it_be(:subgroup) { create(:group, parent: group) }
+      let_it_be(:subgroup_emoji) { create(:custom_emoji, namespace: subgroup, name: 'parrot') }
+
+      it { expect(described_class.for_namespaces([subgroup.id, group.id])).to eq([subgroup_emoji]) }
+    end
+  end
+
+  describe '#url' do
+    before do
+      stub_asset_proxy_setting(
+        enabled: true,
+        secret_key: 'shared-secret',
+        url: 'https://assets.example.com'
+      )
+    end
+
+    it 'uses the asset proxy' do
+      emoji = build(:custom_emoji, name: 'gitlab', file: "http://example.com/test.png")
+
+      expect(emoji.url).to eq("https://assets.example.com/08df250eeeef1a8cf2c761475ac74c5065105612/687474703a2f2f6578616d706c652e636f6d2f746573742e706e67")
     end
   end
 end

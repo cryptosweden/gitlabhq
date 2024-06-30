@@ -36,18 +36,18 @@ files in this repository.
 
 ## Hiring
 
-We're hiring developers, support people, and production engineers all the time, please see our [jobs page](https://about.gitlab.com/jobs/).
+We are hiring developers, support people, and production engineers all the time, please see our [jobs page](https://about.gitlab.com/jobs/).
 
 ## Website
 
 On [about.gitlab.com](https://about.gitlab.com/) you can find more information about:
 
 - [Subscriptions](https://about.gitlab.com/pricing/)
-- [Consultancy](https://about.gitlab.com/consultancy/)
+- [Professional Services](https://about.gitlab.com/services/)
 - [Community](https://about.gitlab.com/community/)
 - [Hosted GitLab.com](https://about.gitlab.com/gitlab-com/) use GitLab as a free service
 - [GitLab Enterprise Edition](https://about.gitlab.com/features/#enterprise) with additional features aimed at larger organizations.
-- [GitLab CI](https://about.gitlab.com/gitlab-ci/) a continuous integration (CI) server that is easy to integrate with GitLab.
+- [GitLab CI](https://about.gitlab.com/solutions/continuous-integration/) a continuous integration (CI) server that is easy to integrate with GitLab.
 
 ## Requirements
 
@@ -71,7 +71,9 @@ To work on GitLab itself, we recommend setting up your development environment w
 If you do not use the GitLab Development Kit you need to install and configure all the dependencies yourself, this is a lot of work and error prone.
 One small thing you also have to do when installing it yourself is to copy the example development Puma configuration file:
 
-    cp config/puma.example.development.rb config/puma.rb
+```shell
+cp config/puma.example.development.rb config/puma.rb
+```
 
 Instructions on how to start GitLab and how to run the tests can be found in the [getting started section of the GitLab Development Kit](https://gitlab.com/gitlab-org/gitlab-development-kit#getting-started).
 
@@ -80,10 +82,10 @@ Instructions on how to start GitLab and how to run the tests can be found in the
 GitLab is a Ruby on Rails application that runs on the following software:
 
 - Ubuntu/Debian/CentOS/RHEL/OpenSUSE
-- Ruby (MRI) 2.7.4
+- Ruby (MRI) 3.1.4
 - Git 2.33+
-- Redis 5.0+
-- PostgreSQL 12+
+- Redis 6.0+
+- PostgreSQL 14.9+
 
 For more information please see the [architecture](https://docs.gitlab.com/ee/development/architecture.html) and [requirements](https://docs.gitlab.com/ee/install/requirements.html) documentation.
 
@@ -111,14 +113,6 @@ All documentation can be found on <https://docs.gitlab.com>.
 
 Please see [Getting help for GitLab](https://about.gitlab.com/getting-help/) on our website for the many options to get help.
 
-## Why?
+## Why should I use GitLab?
 
-[Read here](https://about.gitlab.com/why/)
-
-## Is it any good?
-
-[Yes](https://about.gitlab.com/is-it-any-good/)
-
-## Is it awesome?
-
-[These people](https://twitter.com/gitlab/followers) seem to like it.
+Read [why our customers choose GitLab](https://about.gitlab.com/why-gitlab/).

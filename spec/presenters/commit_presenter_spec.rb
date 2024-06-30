@@ -2,39 +2,62 @@
 
 require 'spec_helper'
 
-RSpec.describe CommitPresenter do
-  let(:project) { create(:project, :repository) }
+RSpec.describe CommitPresenter, feature_category: :source_code_management do
   let(:commit) { project.commit }
-  let(:user) { create(:user) }
   let(:presenter) { described_class.new(commit, current_user: user) }
+
+  let_it_be(:user) { build_stubbed(:user) }
+  let_it_be(:project) { create(:project, :repository) }
 
   describe '#web_path' do
     it { expect(presenter.web_path).to eq("/#{project.full_path}/-/commit/#{commit.sha}") }
   end
 
-  describe '#status_for' do
-    subject { presenter.status_for('ref') }
+  describe '#detailed_status_for' do
+    using RSpec::Parameterized::TableSyntax
 
-    context 'when user can read_commit_status' do
-      before do
-        allow(presenter).to receive(:can?).with(user, :read_commit_status, project).and_return(true)
-      end
+    let(:pipeline) { create(:ci_pipeline, :success, project: project, sha: commit.sha, ref: 'ref') }
 
-      it 'returns commit status for ref' do
-        pipeline = double
-        status = double
+    subject { presenter.detailed_status_for('ref')&.text }
 
-        expect(commit).to receive(:latest_pipeline).with('ref').and_return(pipeline)
-        expect(pipeline).to receive(:detailed_status).with(user).and_return(status)
-
-        expect(subject).to eq(status)
-      end
+    where(:read_commit_status, :read_pipeline, :expected_result) do
+      true  | true  | 'Passed'
+      true  | false | nil
+      false | true  | nil
+      false | false | nil
     end
 
-    context 'when user can not read_commit_status' do
-      it 'is nil' do
-        is_expected.to eq(nil)
+    with_them do
+      before do
+        allow(presenter).to receive(:can?).with(user, :read_commit_status, project).and_return(read_commit_status)
+        allow(presenter).to receive(:can?).with(user, :read_pipeline, pipeline).and_return(read_pipeline)
       end
+
+      it { is_expected.to eq expected_result }
+    end
+  end
+
+  describe '#status_for' do
+    using RSpec::Parameterized::TableSyntax
+
+    let(:pipeline) { create(:ci_pipeline, :success, project: project, sha: commit.sha) }
+
+    subject { presenter.status_for }
+
+    where(:read_commit_status, :read_pipeline, :expected_result) do
+      true  | true  | 'success'
+      true  | false | nil
+      false | true  | nil
+      false | false | nil
+    end
+
+    with_them do
+      before do
+        allow(presenter).to receive(:can?).with(user, :read_commit_status, project).and_return(read_commit_status)
+        allow(presenter).to receive(:can?).with(user, :read_pipeline, pipeline).and_return(read_pipeline)
+      end
+
+      it { is_expected.to eq expected_result }
     end
   end
 
@@ -70,6 +93,17 @@ RSpec.describe CommitPresenter do
 
     it 'renders html for displaying signature' do
       expect(presenter.signature_html).to eq(signature)
+    end
+  end
+
+  describe '#tags_for_display' do
+    subject { presenter.tags_for_display }
+
+    let(:stubbed_tags) { %w[refs/tags/v1.0 refs/tags/v1.1] }
+
+    it 'removes the refs prefix from tags' do
+      allow(commit).to receive(:referenced_by).and_return(stubbed_tags)
+      expect(subject).to eq(%w[v1.0 v1.1])
     end
   end
 end

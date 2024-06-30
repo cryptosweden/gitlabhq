@@ -1,21 +1,30 @@
 ---
 stage: Growth
-group: Activation
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Acquisition
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Broadcast Messages API **(FREE SELF)**
+# Broadcast Messages API
 
-> 'target_access_levels' [introduced](https://gitlab.com/gitlab-org/growth/team-tasks/-/issues/461) in GitLab 14.8 [with a flag](../administration/feature_flags.md) named `role_targeted_broadcast_messages`. Disabled by default.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
-Broadcast messages API operates on [broadcast messages](../user/admin_area/broadcast_messages.md).
+> - `target_access_levels` [introduced](https://gitlab.com/gitlab-org/growth/team-tasks/-/issues/461) in GitLab 14.8 [with a flag](../administration/feature_flags.md) named `role_targeted_broadcast_messages`. Disabled by default.
+> - `color` parameter [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/95829) in GitLab 15.6.
 
-As of GitLab 12.8, GET requests do not require authentication. All other broadcast message API endpoints are accessible only to administrators. Non-GET requests by:
+Broadcast messages API operates on [broadcast messages](../administration/broadcast_messages.md).
+
+GET requests do not require authentication. All other broadcast message API endpoints are accessible only to administrators. Non-GET requests by:
 
 - Guests result in `401 Unauthorized`.
 - Regular users result in `403 Forbidden`.
 
-## Get all broadcast messages **(FREE)**
+## Get all broadcast messages
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 List all broadcast messages.
 
@@ -37,7 +46,6 @@ Example response:
         "message":"Example broadcast message",
         "starts_at":"2016-08-24T23:21:16.078Z",
         "ends_at":"2016-08-26T23:21:16.080Z",
-        "color":"#E75E40",
         "font":"#FFFFFF",
         "id":1,
         "active": false,
@@ -49,7 +57,11 @@ Example response:
 ]
 ```
 
-## Get a specific broadcast message **(FREE)**
+## Get a specific broadcast message
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Get a specific broadcast message.
 
@@ -76,7 +88,6 @@ Example response:
     "message":"Deploy in progress",
     "starts_at":"2016-08-24T23:21:16.078Z",
     "ends_at":"2016-08-26T23:21:16.080Z",
-    "color":"#cecece",
     "font":"#FFFFFF",
     "id":1,
     "active":false,
@@ -100,9 +111,8 @@ Parameters:
 | Attribute              | Type              | Required | Description                                           |
 |:-----------------------|:------------------|:---------|:------------------------------------------------------|
 | `message`              | string            | yes      | Message to display.                                   |
-| `starts_at`            | datetime          | no       | Starting time (defaults to current time). Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
-| `ends_at`              | datetime          | no       | Ending time (defaults to one hour from current time). Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
-| `color`                | string            | no       | Background color hex code.                            |
+| `starts_at`            | datetime          | no       | Starting time (defaults to current time in UTC). Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
+| `ends_at`              | datetime          | no       | Ending time (defaults to one hour from current time in UTC). Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
 | `font`                 | string            | no       | Foreground color hex code.                            |
 | `target_access_levels` | array of integers | no       | Target access levels (roles) of the broadcast message.|
 | `target_path`          | string            | no       | Target path of the broadcast message.                 |
@@ -121,7 +131,7 @@ following levels are valid:
 Example request:
 
 ```shell
-curl --data "message=Deploy in progress&color=#cecece&target_access_levels[]=10&target_access_levels[]=30" \
+curl --data "message=Deploy in progress&target_access_levels[]=10&target_access_levels[]=30" \
      --header "PRIVATE-TOKEN: <your_access_token>" \
      "https://gitlab.example.com/api/v4/broadcast_messages"
 ```
@@ -133,7 +143,6 @@ Example response:
     "message":"Deploy in progress",
     "starts_at":"2016-08-26T00:41:35.060Z",
     "ends_at":"2016-08-26T01:41:35.060Z",
-    "color":"#cecece",
     "font":"#FFFFFF",
     "id":1,
     "active": true,
@@ -158,9 +167,8 @@ Parameters:
 |:-----------------------|:------------------|:---------|:------------------------------------------------------|
 | `id`                   | integer           | yes      | ID of broadcast message to update.                    |
 | `message`              | string            | no       | Message to display.                                   |
-| `starts_at`            | datetime          | no       | Starting time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
-| `ends_at`              | datetime          | no       | Ending time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
-| `color`                | string            | no       | Background color hex code.                            |
+| `starts_at`            | datetime          | no       | Starting time (UTC). Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
+| `ends_at`              | datetime          | no       | Ending time (UTC). Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
 | `font`                 | string            | no       | Foreground color hex code.                            |
 | `target_access_levels` | array of integers | no       | Target access levels (roles) of the broadcast message.|
 | `target_path`          | string            | no       | Target path of the broadcast message.                 |
@@ -179,7 +187,7 @@ following levels are valid:
 Example request:
 
 ```shell
-curl --request PUT --data "message=Update message&color=#000" \
+curl --request PUT --data "message=Update message" \
      --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/broadcast_messages/1"
 ```
 
@@ -190,7 +198,6 @@ Example response:
     "message":"Update message",
     "starts_at":"2016-08-26T00:41:35.060Z",
     "ends_at":"2016-08-26T01:41:35.060Z",
-    "color":"#000",
     "font":"#FFFFFF",
     "id":1,
     "active": true,
@@ -205,7 +212,7 @@ Example response:
 
 Delete a broadcast message.
 
-```shell
+```plaintext
 DELETE /broadcast_messages/:id
 ```
 

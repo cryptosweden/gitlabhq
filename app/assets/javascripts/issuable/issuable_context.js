@@ -1,7 +1,6 @@
 import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
 import $ from 'jquery';
 import { setCookie } from '~/lib/utils/common_utils';
-import { loadCSSFile } from '~/lib/utils/css_utils';
 import UsersSelect from '~/users_select';
 
 export default class IssuableContext {
@@ -9,23 +8,28 @@ export default class IssuableContext {
     this.userSelect = new UsersSelect(currentUser);
     this.reviewersSelect = new UsersSelect(currentUser, '.js-reviewer-search');
 
-    const $select2 = $('select.select2');
+    this.reviewersSelect.dropdowns.forEach((glDropdownInstance) => {
+      const jQueryWrapper = glDropdownInstance.dropdown;
+      const domElement = jQueryWrapper[0];
+      const content = domElement.querySelector('.dropdown-content');
+      const loader = domElement.querySelector('.dropdown-loading');
+      const spinner = loader.querySelector('.gl-spinner-container');
+      const realParent = loader.parentNode;
 
-    if ($select2.length) {
-      import(/* webpackChunkName: 'select2' */ 'select2/select2')
-        .then(() => {
-          // eslint-disable-next-line promise/no-nesting
-          loadCSSFile(gon.select2_css_path)
-            .then(() => {
-              $select2.select2({
-                width: 'resolve',
-                dropdownAutoWidth: true,
-              });
-            })
-            .catch(() => {});
-        })
-        .catch(() => {});
-    }
+      domElement.classList.add('non-blocking-loader');
+      spinner.classList.remove('gl-mt-7');
+      spinner.classList.add('gl-mt-2');
+
+      jQueryWrapper.on('shown.bs.dropdown', () => {
+        glDropdownInstance.filterInput.focus();
+      });
+      jQueryWrapper.on('toggle.on.loading.gl.dropdown filtering.gl.dropdown', () => {
+        content.appendChild(loader);
+      });
+      jQueryWrapper.on('done.remote.loading.gl.dropdown done.filtering.gl.dropdown', () => {
+        realParent.appendChild(loader);
+      });
+    });
 
     $('.issuable-sidebar .inline-update').on('change', 'select', function onClickSelect() {
       return $(this).submit();

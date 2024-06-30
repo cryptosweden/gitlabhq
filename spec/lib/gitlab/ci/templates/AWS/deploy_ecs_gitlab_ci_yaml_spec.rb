@@ -11,7 +11,7 @@ RSpec.describe 'Deploy-ECS.gitlab-ci.yml' do
     let(:project) { create(:project, :auto_devops, :custom_repo, files: { 'README.md' => '' }) }
     let(:user) { project.first_owner }
     let(:service) { Ci::CreatePipelineService.new(project, user, ref: pipeline_branch ) }
-    let(:pipeline) { service.execute!(:push).payload }
+    let(:pipeline) { service.execute(:push).payload }
     let(:build_names) { pipeline.builds.pluck(:name) }
     let(:platform_target) { 'ECS' }
 
@@ -32,6 +32,16 @@ RSpec.describe 'Deploy-ECS.gitlab-ci.yml' do
 
     it 'creates the expected jobs' do
       expect(build_names).to include('production_ecs')
+    end
+
+    context 'when the DAST template is also included' do
+      let(:dast_template) { Gitlab::Template::GitlabCiYmlTemplate.find('Security/DAST') }
+
+      before do
+        stub_ci_pipeline_yaml_file(template.content + dast_template.content)
+      end
+
+      include_examples 'no pipeline yaml error'
     end
 
     context 'when running a pipeline for a branch' do

@@ -10,8 +10,8 @@ RSpec.describe Gitlab::Diff::Formatters::TextFormatter do
       head_sha: 789,
       old_path: 'old_path.txt',
       new_path: 'new_path.txt',
-      file_identifier_hash: '777',
-      line_range: nil
+      line_range: nil,
+      ignore_whitespace_change: false
     }
   end
 
@@ -47,8 +47,8 @@ RSpec.describe Gitlab::Diff::Formatters::TextFormatter do
 
   describe "#==" do
     it "is false when the line_range changes" do
-      formatter_1 = described_class.new(base.merge(line_range: { "start": { "line_code" => "foo" }, "end": { "line_code" => "bar" } }))
-      formatter_2 = described_class.new(base.merge(line_range: { "start": { "line_code" => "foo" }, "end": { "line_code" => "baz" } }))
+      formatter_1 = described_class.new(base.merge(line_range: { start: { "line_code" => "foo" }, end: { "line_code" => "bar" } }))
+      formatter_2 = described_class.new(base.merge(line_range: { start: { "line_code" => "foo" }, end: { "line_code" => "baz" } }))
 
       expect(formatter_1).not_to eq(formatter_2)
     end

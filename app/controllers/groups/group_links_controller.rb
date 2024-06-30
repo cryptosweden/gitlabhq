@@ -4,14 +4,14 @@ class Groups::GroupLinksController < Groups::ApplicationController
   before_action :authorize_admin_group!
   before_action :group_link, only: [:update, :destroy]
 
-  feature_category :subgroups
+  feature_category :groups_and_projects
 
   def update
-    Groups::GroupLinks::UpdateService.new(@group_link).execute(group_link_params)
+    Groups::GroupLinks::UpdateService.new(@group_link, current_user).execute(group_link_params)
 
     if @group_link.expires?
       render json: {
-        expires_in: helpers.distance_of_time_in_words_to_now(@group_link.expires_at),
+        expires_in: helpers.time_ago_with_tooltip(@group_link.expires_at),
         expires_soon: @group_link.expires_soon?
       }
     else

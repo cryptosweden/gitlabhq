@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
+RSpec.describe Banzai::Filter::References::SnippetReferenceFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   let(:project)   { create(:project, :public) }
@@ -13,10 +13,10 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
     expect { described_class.call('') }.to raise_error(ArgumentError, /:project/)
   end
 
-  %w(pre code a style).each do |elem|
+  %w[pre code a style].each do |elem|
     it "ignores valid references contained inside '#{elem}' element" do
-      exp = act = "<#{elem}>Snippet #{reference}</#{elem}>"
-      expect(reference_filter(act).to_html).to eq exp
+      act = "<#{elem}>Snippet #{reference}</#{elem}>"
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -34,9 +34,9 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
     end
 
     it 'ignores invalid snippet IDs' do
-      exp = act = "Snippet #{invalidate_reference(reference)}"
+      act = "Snippet #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
 
     it 'includes a title attribute' do
@@ -45,7 +45,7 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
     end
 
     it 'escapes the title attribute' do
-      snippet.update_attribute(:title, %{"></a>whatever<a title="})
+      snippet.update_attribute(:title, %("></a>whatever<a title="))
 
       doc = reference_filter("Snippet #{reference}")
       expect(doc.text).to eq "Snippet #{reference}"
@@ -76,7 +76,7 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
       doc = reference_filter("Snippet #{reference}", only_path: true)
       link = doc.css('a').first.attr('href')
 
-      expect(link).not_to match %r(https?://)
+      expect(link).not_to match %r{https?://}
       expect(link).to eq urls.project_snippet_url(project, snippet, only_path: true)
     end
   end
@@ -107,9 +107,16 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
     end
 
     it 'ignores invalid snippet IDs on the referenced project' do
-      exp = act = "See #{invalidate_reference(reference)}"
+      act = "See #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
+    end
+
+    it 'ignores when attempting to reference a group with full path' do
+      create(:group, name: 'a_group')
+      act = "/a_group$12345"
+
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -140,9 +147,9 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
     end
 
     it 'ignores invalid snippet IDs on the referenced project' do
-      exp = act = "See #{invalidate_reference(reference)}"
+      act = "See #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -173,9 +180,9 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
     end
 
     it 'ignores invalid snippet IDs on the referenced project' do
-      exp = act = "See #{invalidate_reference(reference)}"
+      act = "See #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -214,9 +221,9 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
     end
 
     it 'ignores internal references' do
-      exp = act = "See $#{snippet.id}"
+      act = "See $#{snippet.id}"
 
-      expect(reference_filter(act, project: nil, group: create(:group)).to_html).to eq exp
+      expect(reference_filter(act, project: nil, group: create(:group)).to_html).to include act
     end
   end
 
@@ -229,23 +236,27 @@ RSpec.describe Banzai::Filter::References::SnippetReferenceFilter do
     it 'does not have N+1 per multiple references per project', :use_sql_query_cache do
       markdown = "#{reference} $9999990"
 
-      control_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+      control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         reference_filter(markdown)
-      end.count
+      end
 
-      expect(control_count).to eq 1
+      expect(control.count).to eq 1
 
       markdown = "#{reference} $9999990 $9999991 $9999992 $9999993 #{reference2} something/cool$12"
 
       # Since we're not batching snippet queries across projects,
       # we have to account for that.
-      # 1 for both projects, 1 for snippets in each project == 3
+      # 1 for for routes to find routes.source_id of projects matching paths
+      # 1 for projects belonging to the above routes
+      # 1 for preloading routes of the projects
+      # 1 for loading the namespaces associated to the project
+      # 1 for loading the routes associated with the namespace
+      # 1x2 for snippets in each project == 2
+      # Total = 7
       # TODO: https://gitlab.com/gitlab-org/gitlab/-/issues/330359
-      max_count = control_count + 2
-
       expect do
         reference_filter(markdown)
-      end.not_to exceed_all_query_limit(max_count)
+      end.not_to exceed_all_query_limit(control).with_threshold(6)
     end
   end
 end

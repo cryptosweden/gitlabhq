@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
+RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter, feature_category: :feature_flags do
   include FilterSpecHelper
 
   let_it_be(:project) { create(:project, :public) }
@@ -13,11 +13,11 @@ RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
     expect { described_class.call('') }.to raise_error(ArgumentError, /:project/)
   end
 
-  %w(pre code a style).each do |elem|
+  %w[pre code a style].each do |elem|
     it "ignores valid references contained inside '#{elem}' element" do
-      exp = act = "<#{elem}>Feature Flag #{reference}</#{elem}>"
+      act = "<#{elem}>Feature Flag #{reference}</#{elem}>"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -35,9 +35,9 @@ RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
     end
 
     it 'ignores invalid feature flag IIDs' do
-      exp = act = "Check [feature_flag:#{non_existing_record_id}]"
+      act = "Check [feature_flag:#{non_existing_record_id}]"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
 
     it 'includes a title attribute' do
@@ -47,7 +47,7 @@ RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
     end
 
     it 'escapes the title attribute' do
-      allow(feature_flag).to receive(:name).and_return(%{"></a>whatever<a title="})
+      allow(feature_flag).to receive(:name).and_return(%("></a>whatever<a title="))
       doc = reference_filter("Feature Flag #{reference}")
 
       expect(doc.text).to eq "Feature Flag #{reference}"
@@ -79,7 +79,7 @@ RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
       doc = reference_filter("Feature Flag #{reference}", only_path: true)
       link = doc.css('a').first.attr('href')
 
-      expect(link).not_to match %r(https?://)
+      expect(link).not_to match %r{https?://}
       expect(link).to eq urls.edit_project_feature_flag_url(project, feature_flag.iid, only_path: true)
     end
   end
@@ -109,9 +109,9 @@ RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
     end
 
     it 'ignores invalid feature flag IIDs on the referenced project' do
-      exp = act = "Check [feature_flag:#{non_existing_record_id}]"
+      act = "Check [feature_flag:#{non_existing_record_id}]"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -141,9 +141,9 @@ RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
     end
 
     it 'ignores invalid feature flag IIDs on the referenced project' do
-      exp = act = "Check [feature_flag:#{non_existing_record_id}]"
+      act = "Check [feature_flag:#{non_existing_record_id}]"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -173,9 +173,9 @@ RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
     end
 
     it 'ignores invalid feature flag IDs on the referenced project' do
-      exp = act = "Check [feature_flag:#{non_existing_record_id}]"
+      act = "Check [feature_flag:#{non_existing_record_id}]"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -215,9 +215,9 @@ RSpec.describe Banzai::Filter::References::FeatureFlagReferenceFilter do
     end
 
     it 'ignores internal references' do
-      exp = act = "See [feature_flag:#{feature_flag.iid}]"
+      act = "See [feature_flag:#{feature_flag.iid}]"
 
-      expect(reference_filter(act, project: nil, group: group).to_html).to eq exp
+      expect(reference_filter(act, project: nil, group: group).to_html).to include act
     end
   end
 end

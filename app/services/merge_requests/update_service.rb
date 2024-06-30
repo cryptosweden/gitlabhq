@@ -11,6 +11,10 @@ module MergeRequests
     end
 
     def execute(merge_request)
+      if Gitlab::Utils.to_boolean(params[:draft])
+        merge_request.title = merge_request.draft_title
+      end
+
       update_merge_request_with_specialized_service(merge_request) || general_fallback(merge_request)
     end
 
@@ -32,7 +36,6 @@ module MergeRequests
       end
 
       handle_target_branch_change(merge_request)
-      handle_milestone_change(merge_request)
       handle_draft_status_change(merge_request, changed_fields)
 
       track_title_and_desc_edits(changed_fields)
@@ -66,7 +69,8 @@ module MergeRequests
       MergeRequests::CloseService
     end
 
-    def after_update(issuable)
+    def after_update(issuable, old_associations)
+      super
       issuable.cache_merge_request_closes_issues!(current_user)
     end
 
@@ -90,7 +94,7 @@ module MergeRequests
     end
 
     def track_title_and_desc_edits(changed_fields)
-      tracked_fields = %w(title description)
+      tracked_fields = %w[title description]
 
       return unless changed_fields.any? { |field| tracked_fields.include?(field) }
 
@@ -150,11 +154,7 @@ module MergeRequests
     def resolve_todos(merge_request, old_labels, old_assignees, old_reviewers)
       return unless has_changes?(merge_request, old_labels: old_labels, old_assignees: old_assignees, old_reviewers: old_reviewers)
 
-      service_user = current_user
-
-      merge_request.run_after_commit_or_now do
-        ::MergeRequests::ResolveTodosService.new(merge_request, service_user).async_execute
-      end
+      resolve_todos_for(merge_request)
     end
 
     def handle_target_branch_change(merge_request)
@@ -168,6 +168,20 @@ module MergeRequests
         merge_request.target_branch
       )
 
+      delete_approvals_on_target_branch_change(merge_request)
+
+      # `target_branch_was_deleted` is set to true when MR gets re-targeted due to
+      # deleted target branch. In this case we don't want to create a new pipeline
+      # on behalf of MR author.
+      # We nullify head_pipeline_id to force that a new pipeline is explicitly
+      # created in order to pass mergeability checks.
+      if target_branch_was_deleted
+        merge_request.head_pipeline_id = nil
+        merge_request.retargeted = true
+      else
+        refresh_pipelines_on_merge_requests(merge_request, allow_duplicate: true)
+      end
+
       abort_auto_merge(merge_request, 'target branch was changed')
     end
 
@@ -175,22 +189,32 @@ module MergeRequests
       return unless changed_fields.include?("title")
 
       old_title, new_title = merge_request.previous_changes["title"]
-      old_title_wip = MergeRequest.work_in_progress?(old_title)
-      new_title_wip = MergeRequest.work_in_progress?(new_title)
+      old_title_draft = MergeRequest.draft?(old_title)
+      new_title_draft = MergeRequest.draft?(new_title)
 
-      if !old_title_wip && new_title_wip
-        # Marked as Draft/WIP
-        #
-        merge_request_activity_counter
-          .track_marked_as_draft_action(user: current_user)
-      elsif old_title_wip && !new_title_wip
-        # Unmarked as Draft/WIP
-        #
+      if old_title_draft || new_title_draft
+        # notify the draft status changed. Added/removed message is handled in the
+        # email template itself, see `change_in_merge_request_draft_status_email` template.
         notify_draft_status_changed(merge_request)
-
-        merge_request_activity_counter
-          .track_unmarked_as_draft_action(user: current_user)
+        trigger_merge_request_status_updated(merge_request)
+        publish_draft_change_event(merge_request) if Feature.enabled?(:merge_when_checks_pass, project)
       end
+
+      if !old_title_draft && new_title_draft
+        # Marked as Draft
+        merge_request_activity_counter.track_marked_as_draft_action(user: current_user)
+      elsif old_title_draft && !new_title_draft
+        # Unmarked as Draft
+        merge_request_activity_counter.track_unmarked_as_draft_action(user: current_user)
+      end
+    end
+
+    def publish_draft_change_event(merge_request)
+      Gitlab::EventStore.publish(
+        MergeRequests::DraftStateChangeEvent.new(
+          data: { current_user_id: current_user.id, merge_request_id: merge_request.id }
+        )
+      )
     end
 
     def notify_draft_status_changed(merge_request)
@@ -200,29 +224,15 @@ module MergeRequests
       )
     end
 
-    def handle_milestone_change(merge_request)
-      return if skip_milestone_email
-
-      return unless merge_request.previous_changes.include?('milestone_id')
-
-      merge_request_activity_counter.track_milestone_changed_action(user: current_user)
-
-      previous_milestone = Milestone.find_by_id(merge_request.previous_changes['milestone_id'].first)
-      delete_milestone_total_merge_requests_counter_cache(previous_milestone)
-
-      if merge_request.milestone.nil?
-        notification_service.async.removed_milestone_merge_request(merge_request, current_user)
-      else
-        notification_service.async.changed_milestone_merge_request(merge_request, merge_request.milestone, current_user)
-
-        delete_milestone_total_merge_requests_counter_cache(merge_request.milestone)
-      end
-    end
-
     def create_branch_change_note(issuable, branch_type, event_type, old_branch, new_branch)
       SystemNoteService.change_branch(
         issuable, issuable.project, current_user, branch_type, event_type,
         old_branch, new_branch)
+    end
+
+    override :before_update
+    def before_update(merge_request, skip_spam_check: false)
+      merge_request.check_for_spam(user: current_user, action: :update) unless skip_spam_check
     end
 
     override :handle_quick_actions
@@ -278,8 +288,6 @@ module MergeRequests
         assignees_service.execute(merge_request)
       when :spend_time
         add_time_spent_service.execute(merge_request)
-      else
-        nil
       end
     end
 
@@ -290,6 +298,44 @@ module MergeRequests
 
     def add_time_spent_service
       @add_time_spent_service ||= ::MergeRequests::AddSpentTimeService.new(project: project, current_user: current_user, params: params)
+    end
+
+    def new_user_ids(merge_request, user_ids, attribute)
+      # prime the cache - prevent N+1 lookup during authorization loop.
+      return [] if user_ids.empty?
+
+      merge_request.project.team.max_member_access_for_user_ids(user_ids)
+      User.id_in(user_ids).map do |user|
+        if user.can?(:read_merge_request, merge_request)
+          user.id
+        else
+          merge_request.errors.add(
+            attribute,
+            "Cannot assign #{user.to_reference} to #{merge_request.to_reference}"
+          )
+          nil
+        end
+      end.compact
+    end
+
+    def resolve_todos_for(merge_request)
+      service_user = current_user
+
+      merge_request.run_after_commit_or_now do
+        ::MergeRequests::ResolveTodosService.new(merge_request, service_user).async_execute
+      end
+    end
+
+    def filter_sentinel_values(param)
+      param.reject { _1 == 0 }
+    end
+
+    def trigger_merge_request_status_updated(merge_request)
+      GraphqlTriggers.merge_request_merge_status_updated(merge_request)
+    end
+
+    def delete_approvals_on_target_branch_change(_merge_request)
+      # Overridden in EE. No-op since we only want to delete approvals in EE.
     end
   end
 end

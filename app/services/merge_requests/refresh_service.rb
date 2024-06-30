@@ -16,7 +16,7 @@ module MergeRequests
 
     def refresh_merge_requests!
       # n + 1: https://gitlab.com/gitlab-org/gitlab-foss/issues/60289
-      Gitlab::GitalyClient.allow_n_plus_1_calls(&method(:find_new_commits))
+      Gitlab::GitalyClient.allow_n_plus_1_calls { find_new_commits }
 
       # Be sure to close outstanding MRs before reloading them to avoid generating an
       # empty diff during a manual merge
@@ -31,7 +31,7 @@ module MergeRequests
         mark_pending_todos_done(mr)
       end
 
-      abort_ff_merge_requests_with_when_pipeline_succeeds
+      abort_ff_merge_requests_with_auto_merges
       cache_merge_requests_closing_issues
 
       merge_requests_for_source_branch.each do |mr|
@@ -94,11 +94,28 @@ module MergeRequests
       )
 
       merge_requests.each do |merge_request|
-        merge_request.merge_commit_sha = analyzer.get_merge_commit(merge_request.diff_head_sha)
+        sha = analyzer.get_merge_commit(merge_request.diff_head_sha)
+        merge_request.merge_commit_sha = sha
+        merge_request.merged_commit_sha = sha
+
+        # Look for a merged MR that includes the SHA to associate it with
+        # the MR we're about to mark as merged.
+        # Only the merged MRs without the event source would be considered
+        # to avoid associating it with other MRs that we may have marked as merged here.
+        source_merge_request = MergeRequestsFinder.new(
+          @current_user,
+          project_id: @project.id,
+          merged_without_event_source: true,
+          state: 'merged',
+          sort: 'merged_at',
+          commit_sha: sha
+        ).execute.first
+
+        source = source_merge_request || @project.commit(sha)
 
         MergeRequests::PostMergeService
           .new(project: merge_request.target_project, current_user: @current_user)
-          .execute(merge_request)
+          .execute(merge_request, source)
       end
     end
     # rubocop: enable CodeReuse/ActiveRecord
@@ -127,16 +144,23 @@ module MergeRequests
 
       merge_requests_array = merge_requests.to_a + merge_requests_from_forks.to_a
       filter_merge_requests(merge_requests_array).each do |merge_request|
+        skip_merge_status_trigger = true
+
         if branch_and_project_match?(merge_request) || @push.force_push?
           merge_request.reload_diff(current_user)
           # Clear existing merge error if the push were directed at the
           # source branch. Clearing the error when the target branch
           # changes will hide the error from the user.
           merge_request.merge_error = nil
+
+          # Don't skip trigger since we to update the MR's merge status in real-time
+          # when the push if for the MR's source branch and project.
+          skip_merge_status_trigger = false
         elsif merge_request.merge_request_diff.includes_any_commits?(push_commit_ids)
           merge_request.reload_diff(current_user)
         end
 
+        merge_request.skip_merge_status_trigger = skip_merge_status_trigger
         merge_request.mark_as_unchecked
       end
 
@@ -162,31 +186,29 @@ module MergeRequests
       @outdate_service ||= Suggestions::OutdateService.new
     end
 
-    def refresh_pipelines_on_merge_requests(merge_request)
-      create_pipeline_for(merge_request, current_user, async: true)
+    def abort_auto_merges?(merge_request)
+      merge_request.merge_params.with_indifferent_access[:sha] != @push.newrev
     end
 
     def abort_auto_merges(merge_request)
+      return unless abort_auto_merges?(merge_request)
+
       abort_auto_merge(merge_request, 'source branch was updated')
     end
 
-    def abort_ff_merge_requests_with_when_pipeline_succeeds
+    def abort_ff_merge_requests_with_auto_merges
       return unless @project.ff_merge_must_be_possible?
 
       merge_requests_with_auto_merge_enabled_to(@push.branch_name).each do |merge_request|
-        next unless merge_request.auto_merge_strategy == AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS
+        unless merge_request.auto_merge_strategy == AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS ||
+            merge_request.auto_merge_strategy == AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS
+          next
+        end
+
         next unless merge_request.should_be_rebased?
 
         abort_auto_merge_with_todo(merge_request, 'target branch was updated')
       end
-    end
-
-    def abort_auto_merge_with_todo(merge_request, reason)
-      response = abort_auto_merge(merge_request, reason)
-      response = ServiceResponse.new(**response)
-      return unless response.success?
-
-      todo_service.merge_request_became_unmergeable(merge_request)
     end
 
     def merge_requests_with_auto_merge_enabled_to(target_branch)
@@ -233,7 +255,8 @@ module MergeRequests
         :source, @push.branch_name, presence)
     end
 
-    # Add comment about pushing new commits to merge requests and send nofitication emails
+    # Add comment about pushing new commits to merge requests and send notification emails
+    #
     def notify_about_push(merge_request)
       return unless @commits.present?
 
@@ -243,9 +266,11 @@ module MergeRequests
         mr_commit_ids.include?(commit.id)
       end
 
-      SystemNoteService.add_commits(merge_request, merge_request.project,
-                                    @current_user, new_commits,
-                                    existing_commits, @push.oldrev)
+      SystemNoteService.add_commits(
+        merge_request, merge_request.project,
+        @current_user, new_commits,
+        existing_commits, @push.oldrev
+      )
 
       notification_service.push_to_merge_request(merge_request, @current_user, new_commits: new_commits, existing_commits: existing_commits)
     end
@@ -255,17 +280,17 @@ module MergeRequests
 
       commit_shas = merge_request.commit_shas
 
-      wip_commit = @commits.detect do |commit|
-        commit.work_in_progress? && commit_shas.include?(commit.sha)
+      draft_commit = @commits.detect do |commit|
+        commit.draft? && commit_shas.include?(commit.sha)
       end
 
-      if wip_commit && !merge_request.work_in_progress?
-        merge_request.update(title: merge_request.wip_title)
+      if draft_commit && !merge_request.draft?
+        merge_request.update(title: merge_request.draft_title)
         SystemNoteService.add_merge_request_draft_from_commit(
           merge_request,
           merge_request.project,
           @current_user,
-          wip_commit
+          draft_commit
         )
       end
     end

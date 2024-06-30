@@ -3,19 +3,25 @@
 module Ci
   class PendingBuild < Ci::ApplicationRecord
     include EachBatch
+    include Ci::Partitionable
 
     belongs_to :project
-    belongs_to :build, class_name: 'Ci::Build'
+
+    belongs_to :build, # rubocop: disable Rails/InverseOf -- this relation is not present on build
+      ->(pending_build) { in_partition(pending_build) },
+      class_name: 'Ci::Build',
+      partition_foreign_key: :partition_id
     belongs_to :namespace, inverse_of: :pending_builds, class_name: 'Namespace'
+
+    partitionable scope: :build
 
     validates :namespace, presence: true
 
     scope :ref_protected, -> { where(protected: true) }
-    scope :queued_before, ->(time) { where(arel_table[:created_at].lt(time)) }
     scope :with_instance_runners, -> { where(instance_runners_enabled: true) }
     scope :for_tags, ->(tag_ids) do
       if tag_ids.present?
-        where('ci_pending_builds.tag_ids <@ ARRAY[?]::int[]', Array.wrap(tag_ids))
+        where("ci_pending_builds.tag_ids <@ '{?}'", Array.wrap(tag_ids))
       else
         where("ci_pending_builds.tag_ids = '{}'")
       end
@@ -30,8 +36,11 @@ module Ci
         self.upsert(entry.attributes.compact, returning: %w[build_id], unique_by: :build_id)
       end
 
-      def maintain_denormalized_data?
-        ::Feature.enabled?(:ci_pending_builds_maintain_denormalized_data, default_enabled: :yaml)
+      def namespace_transfer_params(namespace)
+        {
+          namespace_traversal_ids: namespace.traversal_ids,
+          namespace_id: namespace.id
+        }
       end
 
       private
@@ -43,13 +52,13 @@ module Ci
           build: build,
           project: project,
           protected: build.protected?,
-          namespace: project.namespace
+          namespace: project.namespace,
+          tag_ids: build.tags_ids,
+          instance_runners_enabled: shared_runners_enabled?(project)
         }
 
-        if maintain_denormalized_data?
-          args.store(:tag_ids, build.tags_ids)
-          args.store(:instance_runners_enabled, shared_runners_enabled?(project))
-          args.store(:namespace_traversal_ids, project.namespace.traversal_ids) if group_runners_enabled?(project)
+        if group_runners_enabled?(project)
+          args.store(:namespace_traversal_ids, project.namespace.traversal_ids)
         end
 
         args

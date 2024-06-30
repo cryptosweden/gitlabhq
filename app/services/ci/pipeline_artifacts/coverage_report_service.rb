@@ -2,30 +2,57 @@
 module Ci
   module PipelineArtifacts
     class CoverageReportService
-      def execute(pipeline)
-        return unless pipeline.can_generate_coverage_reports?
-        return if pipeline.has_coverage_reports?
+      include Gitlab::Utils::StrongMemoize
 
-        file = build_carrierwave_file(pipeline)
+      def initialize(pipeline)
+        @pipeline = pipeline
+      end
 
-        pipeline.pipeline_artifacts.create!(
-          project_id: pipeline.project_id,
-          file_type: :code_coverage,
-          file_format: Ci::PipelineArtifact::REPORT_TYPES.fetch(:code_coverage),
-          size: file["tempfile"].size,
-          file: file,
-          expire_at: Ci::PipelineArtifact::EXPIRATION_DATE.from_now
-        )
+      def execute
+        return if report.empty?
+
+        Ci::PipelineArtifact.create_or_replace_for_pipeline!(**pipeline_artifact_params).tap do |pipeline_artifact|
+          Gitlab::AppLogger.info(log_params(pipeline_artifact))
+        end
       end
 
       private
 
-      def build_carrierwave_file(pipeline)
-        CarrierWaveStringFile.new_file(
-          file_content: pipeline.coverage_reports.to_json,
-          filename: Ci::PipelineArtifact::DEFAULT_FILE_NAMES.fetch(:code_coverage),
-          content_type: 'application/json'
-        )
+      attr_reader :pipeline
+
+      def report
+        strong_memoize(:report) do
+          Gitlab::Ci::Reports::CoverageReportGenerator.new(pipeline).report
+        end
+      end
+
+      def pipeline_artifact_params
+        {
+          pipeline: pipeline,
+          file_type: :code_coverage,
+          file: carrierwave_file,
+          size: carrierwave_file['tempfile'].size,
+          locked: pipeline.locked
+        }
+      end
+
+      def carrierwave_file
+        strong_memoize(:carrier_wave_file) do
+          CarrierWaveStringFile.new_file(
+            file_content: Gitlab::Json.dump(report),
+            filename: Ci::PipelineArtifact::DEFAULT_FILE_NAMES.fetch(:code_coverage),
+            content_type: 'application/json'
+          )
+        end
+      end
+
+      def log_params(pipeline_artifact)
+        {
+          project_id: pipeline.project_id,
+          pipeline_id: pipeline.id,
+          pipeline_artifact_id: pipeline_artifact.id,
+          message: "Created code coverage for pipeline."
+        }
       end
     end
   end

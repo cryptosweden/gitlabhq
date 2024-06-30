@@ -10,7 +10,13 @@ module Users
     REGISTRATION_ENABLED_CALLOUT = 'registration_enabled_callout'
     UNFINISHED_TAG_CLEANUP_CALLOUT = 'unfinished_tag_cleanup_callout'
     SECURITY_NEWSLETTER_CALLOUT = 'security_newsletter_callout'
+    PAGES_MOVED_CALLOUT = 'pages_moved_callout'
     REGISTRATION_ENABLED_CALLOUT_ALLOWED_CONTROLLER_PATHS = [/^root/, /^dashboard\S*/, /^admin\S*/].freeze
+    WEB_HOOK_DISABLED = 'web_hook_disabled'
+    BRANCH_RULES_INFO_CALLOUT = 'branch_rules_info_callout'
+    NEW_NAV_FOR_EVERYONE_CALLOUT = 'new_nav_for_everyone_callout'
+    TRANSITION_TO_JIHU_CALLOUT = 'transition_to_jihu_callout'
+    PERIOD_IN_TERRAFORM_STATE_NAME_ALERT = 'period_in_terraform_state_name_alert'
 
     def show_gke_cluster_integration_callout?(project)
       active_nav_link?(controller: sidebar_operations_paths) &&
@@ -20,10 +26,6 @@ module Users
 
     def show_gcp_signup_offer?
       !user_dismissed?(GCP_SIGNUP_OFFER)
-    end
-
-    def render_flash_user_callout(flash_type, message, feature_name)
-      render 'shared/flash_user_callout', flash_type: flash_type, message: message, feature_name: feature_name
     end
 
     def render_dashboard_ultimate_trial(user)
@@ -46,7 +48,7 @@ module Users
 
     def show_registration_enabled_user_callout?
       !Gitlab.com? &&
-        current_user&.admin? &&
+        current_user&.can_admin_all_resources? &&
         signup_enabled? &&
         !user_dismissed?(REGISTRATION_ENABLED_CALLOUT) &&
         REGISTRATION_ENABLED_CALLOUT_ALLOWED_CONTROLLER_PATHS.any? { |path| controller.controller_path.match?(path) }
@@ -56,16 +58,55 @@ module Users
     end
 
     def show_security_newsletter_user_callout?
-      current_user&.admin? &&
+      current_user&.can_admin_all_resources? &&
         !user_dismissed?(SECURITY_NEWSLETTER_CALLOUT)
+    end
+
+    def web_hook_disabled_dismissed?(object)
+      return false unless object.is_a?(::WebHooks::HasWebHooks)
+
+      user_dismissed?(WEB_HOOK_DISABLED, object.last_webhook_failure, object: object)
+    end
+
+    def show_branch_rules_info?
+      !user_dismissed?(BRANCH_RULES_INFO_CALLOUT)
+    end
+
+    def show_new_nav_for_everyone_callout?
+      # The use_new_navigation user preference was controlled by the now removed "New navigation" toggle in the UI.
+      # We want to show this banner only to signed-in users who chose to disable the new nav (`false`).
+      # We don't want to show it for users who never touched the toggle and already had the new nav by default (`nil`)
+      user_had_new_nav_off = current_user && current_user.use_new_navigation == false
+      user_had_new_nav_off && !user_dismissed?(NEW_NAV_FOR_EVERYONE_CALLOUT)
+    end
+
+    def show_transition_to_jihu_callout?
+      !Gitlab.jh? &&
+        current_user&.can_admin_all_resources? &&
+        %w[Asia/Hong_Kong Asia/Shanghai Asia/Macau Asia/Chongqing].include?(current_user.timezone) &&
+        !user_dismissed?(TRANSITION_TO_JIHU_CALLOUT)
+    end
+
+    def show_period_in_terraform_state_name_alert_callout?
+      !user_dismissed?(PERIOD_IN_TERRAFORM_STATE_NAME_ALERT)
     end
 
     private
 
-    def user_dismissed?(feature_name, ignore_dismissal_earlier_than = nil)
+    def user_dismissed?(feature_name, ignore_dismissal_earlier_than = nil, object: nil)
       return false unless current_user
 
-      current_user.dismissed_callout?(feature_name: feature_name, ignore_dismissal_earlier_than: ignore_dismissal_earlier_than)
+      query = { feature_name: feature_name, ignore_dismissal_earlier_than: ignore_dismissal_earlier_than }
+
+      if object
+        dismissed_callout?(object, query)
+      else
+        current_user.dismissed_callout?(**query)
+      end
+    end
+
+    def dismissed_callout?(object, query)
+      current_user.dismissed_callout_for_project?(project: object, **query)
     end
   end
 end

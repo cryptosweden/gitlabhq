@@ -1,17 +1,18 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Container Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Reduce Container Registry data transfers **(FREE)**
+# Reduce container registry data transfers
 
-Depending on the frequency with which images or tags are downloaded from the Container Registry,
-data transfers can exceed the GitLab limit. This page offers several recommendations and tips for
-reducing the amount of data you transfer with the Container Registry.
-are downloaded from the Container Registry, data transfers can exceed the GitLab limit. This page
-offers several recommendations and tips for reducing the amount of data you transfer with the
-Container Registry.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+Depending on the frequency with which images or tags are downloaded from the container registry,
+data transfers can exceed the GitLab.com limit. This page offers several recommendations and tips for
+reducing the amount of data you transfer with the container registry.
 
 ## Check data transfer use
 
@@ -25,13 +26,13 @@ usage.
 Use these tools and techniques to determine your image's size:
 
 - [Skopeo](https://github.com/containers/skopeo):
-  use Skopeo's `inspect` command to examine layer count and sizes through API calls. You can
+  use the Skopeo `inspect` command to examine layer count and sizes through API calls. You can
   therefore inspect this data prior to running `docker pull IMAGE`.
 
 - Docker in CI: examine and record the image size when using GitLab CI prior to pushing an image
   with Docker. For example:
 
-  ```yaml
+  ```shell
   docker inspect "$CI_REGISTRY_IMAGE:$IMAGE_TAG" \
         | awk '/"Size": ([0-9]+)[,]?/{ printf "Final Image Size: %d\n", $2 }'
   ```
@@ -44,10 +45,10 @@ Use these tools and techniques to determine your image's size:
 ### Use a smaller base image
 
 Consider using a smaller base image, such as [Alpine Linux](https://alpinelinux.org/).
-An Alpine image is around 5MB, which is several times smaller than popular base images such as
+An Alpine image is around 5 MB, which is several times smaller than popular base images such as
 [Debian](https://hub.docker.com/_/debian).
 If your application is distributed as a self-contained static binary, such as for Go applications,
-you can also consider using Docker's [scratch](https://hub.docker.com/_/scratch/)
+you can also consider using the Docker [scratch](https://hub.docker.com/_/scratch/)
 base image.
 
 If you need to use a specific base image OS, look for `-slim` or `-minimal` variants, as this helps
@@ -83,7 +84,7 @@ Another useful strategy is to ensure that you remove all transient build depende
 empty the operating system package manager cache before and after installing a package.
 
 When building your images, make sure you only copy the relevant files. For Docker, using a
-[`.dockerignore`](https://docs.docker.com/engine/reference/builder/#dockerignore-file)
+[`.dockerignore`](https://docs.docker.com/reference/dockerfile/#dockerignore-file)
 helps ensure that the build process ignores irrelevant files.
 
 You can use other third-party tools to minify your images, such as [DockerSlim](https://github.com/docker-slim/docker-slim).
@@ -93,7 +94,7 @@ build process instead of trying to minify images afterward.
 
 ### Use multi-stage builds
 
-With [multi-stage builds](https://docs.docker.com/develop/develop-images/multistage-build/),
+With [multi-stage builds](https://docs.docker.com/build/building/multi-stage/),
 you use multiple `FROM` statements in your Dockerfile. Each `FROM` instruction can use a different
 base, and each begins a new build stage. You can selectively copy artifacts from one stage to
 another, leaving behind everything you don't want in the final image. This is especially useful when
@@ -115,14 +116,20 @@ images can be specified as a cache source by using multiple `--cache-from` argum
 up your builds and reduce the amount of data transferred. For more information, see the
 [documentation on Docker layer caching](../../../ci/docker/using_docker_build.md#make-docker-in-docker-builds-faster-with-docker-layer-caching).
 
+## Check automation frequency
+
+We often create automation scripts bundled into container images to perform regular tasks on specific intervals.
+You can reduce the frequency of those intervals in cases where the automation is pulling container images from
+the GitLab Registry to a service outside of GitLab.com.
+
 ## Move to GitLab Premium or Ultimate
 
-GitLab data transfer limits are set at the tier level. If you need a higher limit, consider
+GitLab.com data transfer limits are set at the tier level. If you need a higher limit, consider
 upgrading to [GitLab Premium or Ultimate](https://about.gitlab.com/upgrade/).
 
 ## Purchase additional data transfer
 
-Read more about managing your [data transfer limits](../../../subscriptions/gitlab_com/#purchase-more-storage-and-transfer).
+Read more about managing your [data transfer limits](../../../subscriptions/gitlab_com/index.md#purchase-more-storage).
 
 ## Related issues
 

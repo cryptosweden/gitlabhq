@@ -1,14 +1,17 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Gmail actions buttons for GitLab **(FREE)**
+# Gmail actions
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 GitLab supports [Google actions in email](https://developers.google.com/gmail/markup/actions/actions-overview).
-
-If correctly set up, emails that require an action are marked in Gmail.
+When you configure this integration, emails that require an action are marked in Gmail.
 
 ![Gmail actions button](img/gmail_action_buttons_for_gitlab.png)
 

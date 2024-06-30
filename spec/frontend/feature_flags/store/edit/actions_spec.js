@@ -17,6 +17,7 @@ import * as types from '~/feature_flags/store/edit/mutation_types';
 import state from '~/feature_flags/store/edit/state';
 import { mapStrategiesToRails } from '~/feature_flags/store/helpers';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
 jest.mock('~/lib/utils/url_utility');
 
@@ -40,7 +41,7 @@ describe('Feature flags Edit Module actions', () => {
     });
 
     describe('success', () => {
-      it('dispatches requestUpdateFeatureFlag and receiveUpdateFeatureFlagSuccess ', (done) => {
+      it('dispatches requestUpdateFeatureFlag and receiveUpdateFeatureFlagSuccess', () => {
         const featureFlag = {
           name: 'name',
           description: 'description',
@@ -55,9 +56,11 @@ describe('Feature flags Edit Module actions', () => {
             },
           ],
         };
-        mock.onPut(mockedState.endpoint, mapStrategiesToRails(featureFlag)).replyOnce(200);
+        mock
+          .onPut(mockedState.endpoint, mapStrategiesToRails(featureFlag))
+          .replyOnce(HTTP_STATUS_OK);
 
-        testAction(
+        return testAction(
           updateFeatureFlag,
           featureFlag,
           mockedState,
@@ -70,16 +73,17 @@ describe('Feature flags Edit Module actions', () => {
               type: 'receiveUpdateFeatureFlagSuccess',
             },
           ],
-          done,
         );
       });
     });
 
     describe('error', () => {
-      it('dispatches requestUpdateFeatureFlag and receiveUpdateFeatureFlagError ', (done) => {
-        mock.onPut(`${TEST_HOST}/endpoint.json`).replyOnce(500, { message: [] });
+      it('dispatches requestUpdateFeatureFlag and receiveUpdateFeatureFlagError', () => {
+        mock
+          .onPut(`${TEST_HOST}/endpoint.json`)
+          .replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR, { message: [] });
 
-        testAction(
+        return testAction(
           updateFeatureFlag,
           {
             name: 'feature_flag',
@@ -97,28 +101,26 @@ describe('Feature flags Edit Module actions', () => {
               payload: { message: [] },
             },
           ],
-          done,
         );
       });
     });
   });
 
   describe('requestUpdateFeatureFlag', () => {
-    it('should commit REQUEST_UPDATE_FEATURE_FLAG mutation', (done) => {
-      testAction(
+    it('should commit REQUEST_UPDATE_FEATURE_FLAG mutation', () => {
+      return testAction(
         requestUpdateFeatureFlag,
         null,
         mockedState,
         [{ type: types.REQUEST_UPDATE_FEATURE_FLAG }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveUpdateFeatureFlagSuccess', () => {
-    it('should commit RECEIVE_UPDATE_FEATURE_FLAG_SUCCESS mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_UPDATE_FEATURE_FLAG_SUCCESS mutation', () => {
+      return testAction(
         receiveUpdateFeatureFlagSuccess,
         null,
         mockedState,
@@ -128,20 +130,18 @@ describe('Feature flags Edit Module actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
 
   describe('receiveUpdateFeatureFlagError', () => {
-    it('should commit RECEIVE_UPDATE_FEATURE_FLAG_ERROR mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_UPDATE_FEATURE_FLAG_ERROR mutation', () => {
+      return testAction(
         receiveUpdateFeatureFlagError,
         'There was an error',
         mockedState,
         [{ type: types.RECEIVE_UPDATE_FEATURE_FLAG_ERROR, payload: 'There was an error' }],
         [],
-        done,
       );
     });
   });
@@ -159,10 +159,10 @@ describe('Feature flags Edit Module actions', () => {
     });
 
     describe('success', () => {
-      it('dispatches requestFeatureFlag and receiveFeatureFlagSuccess ', (done) => {
-        mock.onGet(`${TEST_HOST}/endpoint.json`).replyOnce(200, { id: 1 });
+      it('dispatches requestFeatureFlag and receiveFeatureFlagSuccess', () => {
+        mock.onGet(`${TEST_HOST}/endpoint.json`).replyOnce(HTTP_STATUS_OK, { id: 1 });
 
-        testAction(
+        return testAction(
           fetchFeatureFlag,
           { id: 1 },
           mockedState,
@@ -176,16 +176,17 @@ describe('Feature flags Edit Module actions', () => {
               payload: { id: 1 },
             },
           ],
-          done,
         );
       });
     });
 
     describe('error', () => {
-      it('dispatches requestFeatureFlag and receiveUpdateFeatureFlagError ', (done) => {
-        mock.onGet(`${TEST_HOST}/endpoint.json`, {}).replyOnce(500, {});
+      it('dispatches requestFeatureFlag and receiveUpdateFeatureFlagError', () => {
+        mock
+          .onGet(`${TEST_HOST}/endpoint.json`, {})
+          .replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR, {});
 
-        testAction(
+        return testAction(
           fetchFeatureFlag,
           null,
           mockedState,
@@ -198,41 +199,38 @@ describe('Feature flags Edit Module actions', () => {
               type: 'receiveFeatureFlagError',
             },
           ],
-          done,
         );
       });
     });
   });
 
   describe('requestFeatureFlag', () => {
-    it('should commit REQUEST_FEATURE_FLAG mutation', (done) => {
-      testAction(
+    it('should commit REQUEST_FEATURE_FLAG mutation', () => {
+      return testAction(
         requestFeatureFlag,
         null,
         mockedState,
         [{ type: types.REQUEST_FEATURE_FLAG }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveFeatureFlagSuccess', () => {
-    it('should commit RECEIVE_FEATURE_FLAG_SUCCESS mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_FEATURE_FLAG_SUCCESS mutation', () => {
+      return testAction(
         receiveFeatureFlagSuccess,
         { id: 1 },
         mockedState,
         [{ type: types.RECEIVE_FEATURE_FLAG_SUCCESS, payload: { id: 1 } }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveFeatureFlagError', () => {
-    it('should commit RECEIVE_FEATURE_FLAG_ERROR mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_FEATURE_FLAG_ERROR mutation', () => {
+      return testAction(
         receiveFeatureFlagError,
         null,
         mockedState,
@@ -242,20 +240,18 @@ describe('Feature flags Edit Module actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
 
   describe('toggelActive', () => {
-    it('should commit TOGGLE_ACTIVE mutation', (done) => {
-      testAction(
+    it('should commit TOGGLE_ACTIVE mutation', () => {
+      return testAction(
         toggleActive,
         true,
         mockedState,
         [{ type: types.TOGGLE_ACTIVE, payload: true }],
         [],
-        done,
       );
     });
   });

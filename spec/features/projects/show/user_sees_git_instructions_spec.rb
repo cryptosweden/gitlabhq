@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Show > User sees Git instructions' do
+RSpec.describe 'Projects > Show > User sees Git instructions', feature_category: :groups_and_projects do
   let_it_be(:user) { create(:user) }
 
   before do
@@ -22,23 +22,27 @@ RSpec.describe 'Projects > Show > User sees Git instructions' do
     it 'shows Git command line instructions' do
       click_link 'Create empty repository'
 
-      page.within '.empty-wrapper' do
+      page.within '.project-page-layout-content' do
         expect(page).to have_content('Command line instructions')
       end
 
-      expect(page).to have_content("git push -u origin master")
+      expect(page).to have_content("git push --set-upstream origin master")
     end
   end
 
   shared_examples_for 'shows details of empty project' do
     let(:user_has_ssh_key) { false }
 
-    it 'shows details' do
+    it 'shows details', :js do
       expect(page).not_to have_content('Git global setup')
 
       page.all(:css, '.git-empty .clone').each do |element|
         expect(element.text).to include(project.http_url_to_repo)
       end
+
+      find_by_testid('code-dropdown').click
+
+      wait_for_requests
 
       expect(page).to have_field('http_project_clone', with: project.http_url_to_repo) unless user_has_ssh_key
     end
@@ -47,10 +51,14 @@ RSpec.describe 'Projects > Show > User sees Git instructions' do
   shared_examples_for 'shows details of non empty project' do
     let(:user_has_ssh_key) { false }
 
-    it 'shows details' do
-      page.within('.breadcrumbs .breadcrumb-item-text') do
-        expect(page).to have_content(project.title)
+    it 'shows details', :js do
+      within_testid('breadcrumb-links') do
+        expect(find('li:last-of-type')).to have_content(project.title)
       end
+
+      find_by_testid('code-dropdown').click
+
+      wait_for_requests
 
       expect(page).to have_field('http_project_clone', with: project.http_url_to_repo) unless user_has_ssh_key
     end
@@ -84,7 +92,7 @@ RSpec.describe 'Projects > Show > User sees Git instructions' do
       it "recommends default_branch_name instead of master" do
         click_link 'Create empty repository'
 
-        expect(page).to have_content("git push -u origin example_branch")
+        expect(page).to have_content("git push --set-upstream origin example_branch")
       end
     end
 

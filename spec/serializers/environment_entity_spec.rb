@@ -12,12 +12,8 @@ RSpec.describe EnvironmentEntity do
   end
 
   let_it_be(:user)    { create(:user) }
-  let_it_be(:project) { create(:project, :repository) }
+  let_it_be(:project) { create(:project, :repository, developers: user) }
   let_it_be(:environment, refind: true) { create(:environment, project: project) }
-
-  before_all do
-    project.add_developer(user)
-  end
 
   before do
     allow(request).to receive(:current_user).and_return(user)
@@ -83,24 +79,8 @@ RSpec.describe EnvironmentEntity do
     end
   end
 
-  context 'metrics disabled' do
-    before do
-      allow(environment).to receive(:has_metrics?).and_return(false)
-    end
-
-    it "doesn't expose metrics path" do
-      expect(subject).not_to include(:metrics_path)
-    end
-  end
-
-  context 'metrics enabled' do
-    before do
-      allow(environment).to receive(:has_metrics?).and_return(true)
-    end
-
-    it 'exposes metrics path' do
-      expect(subject).to include(:metrics_path)
-    end
+  it "doesn't expose metrics path" do
+    expect(subject).not_to include(:metrics_path)
   end
 
   context 'with deployment platform' do
@@ -109,11 +89,13 @@ RSpec.describe EnvironmentEntity do
 
     context 'when deployment platform is a cluster' do
       before do
-        create(:cluster,
-               :provided_by_gcp,
-               :project,
-               environment_scope: '*',
-               projects: [project])
+        create(
+          :cluster,
+          :provided_by_gcp,
+          :project,
+          environment_scope: '*',
+          projects: [project]
+        )
       end
 
       it 'includes cluster_type' do
@@ -130,42 +112,6 @@ RSpec.describe EnvironmentEntity do
       project.add_maintainer(user)
 
       expect(subject).to include(:cancel_auto_stop_path, :auto_stop_at)
-    end
-  end
-
-  context 'pod_logs' do
-    context 'with reporter access' do
-      before do
-        project.add_reporter(user)
-      end
-
-      it 'does not expose logs keys' do
-        expect(subject).not_to include(:logs_path)
-        expect(subject).not_to include(:logs_api_path)
-        expect(subject).not_to include(:enable_advanced_logs_querying)
-      end
-    end
-
-    context 'with developer access' do
-      before do
-        project.add_developer(user)
-      end
-
-      it 'exposes logs keys' do
-        expect(subject).to include(:logs_path)
-        expect(subject).to include(:logs_api_path)
-        expect(subject).to include(:enable_advanced_logs_querying)
-      end
-
-      it 'uses k8s api when ES is not available' do
-        expect(subject[:logs_api_path]).to eq(k8s_project_logs_path(project, environment_name: environment.name, format: :json))
-      end
-
-      it 'uses ES api when ES is available' do
-        allow(environment).to receive(:elastic_stack_available?).and_return(true)
-
-        expect(subject[:logs_api_path]).to eq(elasticsearch_project_logs_path(project, environment_name: environment.name, format: :json))
-      end
     end
   end
 

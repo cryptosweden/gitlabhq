@@ -10,18 +10,9 @@ module Mutations
       NB
 
       field :note,
-            Types::Notes::NoteType,
-            null: true,
-            description: 'Note after mutation.'
-
-      private
-
-      def find_object(id:)
-        # TODO: remove explicit coercion once compatibility layer has been removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = ::Types::GlobalIDType[::Note].coerce_isolated_input(id)
-        GitlabSchema.find_by_gid(id)
-      end
+        Types::Notes::NoteType,
+        null: true,
+        description: 'Note after mutation.'
     end
   end
 end

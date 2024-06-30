@@ -1,4 +1,4 @@
-import { GlSprintf, GlIcon } from '@gitlab/ui';
+import { GlSprintf, GlIcon, GlTruncate } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { trimText } from 'helpers/text_helper';
 import StackTraceEntry from '~/error_tracking/components/stacktrace_entry.vue';
@@ -28,18 +28,12 @@ describe('Stacktrace Entry', () => {
     });
   }
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
-  });
-
   it('should render stacktrace entry collapsed', () => {
     mountComponent({ lines });
-    expect(wrapper.find(StackTraceEntry).exists()).toBe(true);
-    expect(wrapper.find(ClipboardButton).exists()).toBe(true);
-    expect(wrapper.find(GlIcon).exists()).toBe(true);
-    expect(wrapper.find(FileIcon).exists()).toBe(true);
+    expect(wrapper.findComponent(StackTraceEntry).exists()).toBe(true);
+    expect(wrapper.findComponent(ClipboardButton).exists()).toBe(true);
+    expect(wrapper.findComponent(GlIcon).exists()).toBe(true);
+    expect(wrapper.findComponent(FileIcon).exists()).toBe(true);
     expect(wrapper.find('table').exists()).toBe(false);
   });
 
@@ -50,19 +44,34 @@ describe('Stacktrace Entry', () => {
     expect(wrapper.findAll('.line_content.old').length).toBe(1);
   });
 
+  it('should render file information if filePath exists', () => {
+    mountComponent({ lines });
+    expect(wrapper.findComponent(FileIcon).exists()).toBe(true);
+    expect(wrapper.findComponent(ClipboardButton).exists()).toBe(true);
+    expect(wrapper.findComponent(GlTruncate).exists()).toBe(true);
+    expect(wrapper.findComponent(GlTruncate).props('text')).toBe('sidekiq/util.rb');
+  });
+
+  it('should not render file information if filePath does not exists', () => {
+    mountComponent({ lines, filePath: undefined });
+    expect(wrapper.findComponent(FileIcon).exists()).toBe(false);
+    expect(wrapper.findComponent(ClipboardButton).exists()).toBe(false);
+    expect(wrapper.findComponent(GlTruncate).exists()).toBe(false);
+  });
+
   describe('entry caption', () => {
     const findFileHeaderContent = () => wrapper.find('.file-header-content').text();
 
     it('should hide collapse icon and render error fn name and error line when there is no code block', () => {
       const extraInfo = { errorLine: 34, errorFn: 'errorFn', errorColumn: 77 };
       mountComponent({ expanded: false, lines: [], ...extraInfo });
-      expect(wrapper.find(GlIcon).exists()).toBe(false);
+      expect(wrapper.findComponent(GlIcon).exists()).toBe(false);
       expect(trimText(findFileHeaderContent())).toContain(
         `in ${extraInfo.errorFn} at line ${extraInfo.errorLine}:${extraInfo.errorColumn}`,
       );
     });
 
-    it('should render only lineNo:columnNO when there is no errorFn ', () => {
+    it('should render only lineNo:columnNO when there is no errorFn', () => {
       const extraInfo = { errorLine: 34, errorFn: null, errorColumn: 77 };
       mountComponent({ expanded: false, lines: [], ...extraInfo });
       const fileHeaderContent = trimText(findFileHeaderContent());
@@ -70,7 +79,7 @@ describe('Stacktrace Entry', () => {
       expect(fileHeaderContent).toContain(`${extraInfo.errorLine}:${extraInfo.errorColumn}`);
     });
 
-    it('should render only lineNo when there is no errorColumn ', () => {
+    it('should render only lineNo when there is no errorColumn', () => {
       const extraInfo = { errorLine: 34, errorFn: 'errorFn', errorColumn: null };
       mountComponent({ expanded: false, lines: [], ...extraInfo });
       const fileHeaderContent = trimText(findFileHeaderContent());

@@ -2,37 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe EnvironmentHelper do
-  describe '#render_deployment_status' do
-    context 'when using a manual deployment' do
-      it 'renders a span tag' do
-        deploy = build(:deployment, deployable: nil, status: :success)
-        html = helper.render_deployment_status(deploy)
-
-        expect(html).to have_css('span.ci-status.ci-success')
-      end
-    end
-
-    context 'when using a deployment from a build' do
-      it 'renders a link tag' do
-        deploy = build(:deployment, status: :success)
-        html = helper.render_deployment_status(deploy)
-
-        expect(html).to have_css('a.ci-status.ci-success')
-      end
-    end
-
-    context 'for a blocked deployment' do
-      subject { helper.render_deployment_status(deployment) }
-
-      let(:deployment) { build(:deployment, :blocked) }
-
-      it 'indicates the status' do
-        expect(subject).to have_text('blocked')
-      end
-    end
-  end
-
+RSpec.describe EnvironmentHelper, feature_category: :environment_management do
   describe '#environments_detail_data_json' do
     subject { helper.environments_detail_data_json(user, project, environment) }
 
@@ -50,12 +20,13 @@ RSpec.describe EnvironmentHelper do
       expect(subject).to eq({
         name: environment.name,
         id: environment.id,
+        project_full_path: project.full_path,
+        base_path: project_environment_path(project, environment),
         external_url: environment.external_url,
         can_update_environment: true,
         can_destroy_environment: true,
         can_stop_environment: true,
         can_admin_environment: true,
-        environment_metrics_path: environment_metrics_path(environment),
         environments_fetch_path: project_environments_path(project, format: :json),
         environment_edit_path: edit_project_environment_path(project, environment),
         environment_stop_path: stop_project_environment_path(project, environment),
@@ -64,7 +35,8 @@ RSpec.describe EnvironmentHelper do
         environment_terminal_path: terminal_project_environment_path(project, environment),
         has_terminals: false,
         is_environment_available: true,
-        auto_stop_at: auto_stop_at
+        auto_stop_at: auto_stop_at,
+        graphql_etag_key: environment.etag_cache_key
       }.to_json)
     end
   end

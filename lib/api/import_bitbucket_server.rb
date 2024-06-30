@@ -3,10 +3,7 @@
 module API
   class ImportBitbucketServer < ::API::Base
     feature_category :importers
-
-    before do
-      forbidden! unless Gitlab::CurrentSettings.import_sources&.include?('bitbucket_server')
-    end
+    urgency :low
 
     helpers do
       def client
@@ -25,6 +22,14 @@ module API
     desc 'Import a BitBucket Server repository' do
       detail 'This feature was introduced in GitLab 13.2.'
       success ::ProjectEntity
+      failure [
+        { code: 400, message: 'Bad request' },
+        { code: 401, message: 'Unauthorized' },
+        { code: 403, message: 'Forbidden' },
+        { code: 422, message: 'Unprocessable entity' },
+        { code: 503, message: 'Service unavailable' }
+      ]
+      tags ['project_import_bitbucket']
     end
 
     params do
@@ -35,6 +40,8 @@ module API
       requires :bitbucket_server_repo, type: String, desc: 'BitBucket Server Repository Name'
       optional :new_name, type: String, desc: 'New repo name'
       optional :new_namespace, type: String, desc: 'Namespace to import repo into'
+      optional :timeout_strategy, type: String, values: ::ProjectImportData::TIMEOUT_STRATEGIES,
+        desc: 'Strategy for behavior on timeouts'
     end
 
     post 'import/bitbucket_server' do

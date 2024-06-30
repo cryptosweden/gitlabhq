@@ -1,16 +1,24 @@
-import { GlKeysetPagination, GlModal, GlSprintf } from '@gitlab/ui';
+import { GlAlert, GlButton } from '@gitlab/ui';
 import { nextTick } from 'vue';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { TEST_HOST } from 'spec/test_constants';
+import { stubComponent } from 'helpers/stub_component';
 import PackagesListRow from '~/packages_and_registries/package_registry/components/list/package_list_row.vue';
 import PackagesListLoader from '~/packages_and_registries/shared/components/packages_list_loader.vue';
+import DeleteModal from '~/packages_and_registries/package_registry/components/delete_modal.vue';
+import RegistryList from '~/packages_and_registries/shared/components/registry_list.vue';
+import setWindowLocation from 'helpers/set_window_location_helper';
 import {
   DELETE_PACKAGE_TRACKING_ACTION,
+  DELETE_PACKAGES_TRACKING_ACTION,
   REQUEST_DELETE_PACKAGE_TRACKING_ACTION,
+  REQUEST_DELETE_PACKAGES_TRACKING_ACTION,
   CANCEL_DELETE_PACKAGE_TRACKING_ACTION,
+  CANCEL_DELETE_PACKAGES_TRACKING_ACTION,
 } from '~/packages_and_registries/package_registry/constants';
 import PackagesList from '~/packages_and_registries/package_registry/components/list/packages_list.vue';
-import Tracking from '~/tracking';
-import { packageData } from '../../mock_data';
+import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
+import { defaultPackageGroupSettings, packageData } from '../../mock_data';
 
 describe('packages_list', () => {
   let wrapper;
@@ -21,35 +29,49 @@ describe('packages_list', () => {
     id: 'gid://gitlab/Packages::Package/112',
     name: 'second-package',
   };
+  const errorPackage = {
+    ...packageData(),
+    id: 'gid://gitlab/Packages::Package/121',
+    status: 'ERROR',
+    name: 'error package',
+  };
 
   const defaultProps = {
     list: [firstPackage, secondPackage],
     isLoading: false,
-    pageInfo: {},
+    groupSettings: defaultPackageGroupSettings,
+  };
+
+  const defaultProvide = {
+    canDeletePackages: true,
   };
 
   const EmptySlotStub = { name: 'empty-slot-stub', template: '<div>bar</div>' };
-  const GlModalStub = {
-    name: GlModal.name,
-    template: '<div><slot></slot></div>',
-    methods: { show: jest.fn() },
-  };
 
   const findPackagesListLoader = () => wrapper.findComponent(PackagesListLoader);
-  const findPackageListPagination = () => wrapper.findComponent(GlKeysetPagination);
-  const findPackageListDeleteModal = () => wrapper.findComponent(GlModalStub);
   const findEmptySlot = () => wrapper.findComponent(EmptySlotStub);
+  const findRegistryList = () => wrapper.findComponent(RegistryList);
   const findPackagesListRow = () => wrapper.findComponent(PackagesListRow);
+  const findErrorPackageAlert = () => wrapper.findComponent(GlAlert);
+  const findErrorAlertButton = () => findErrorPackageAlert().findComponent(GlButton);
+  const findDeletePackagesModal = () => wrapper.findComponent(DeleteModal);
 
-  const mountComponent = (props) => {
+  const showMock = jest.fn();
+
+  const mountComponent = ({ props = {}, provide = defaultProvide, stubs = {} } = {}) => {
     wrapper = shallowMountExtended(PackagesList, {
+      provide,
       propsData: {
         ...defaultProps,
         ...props,
       },
       stubs: {
-        GlModal: GlModalStub,
-        GlSprintf,
+        DeleteModal: stubComponent(DeleteModal, {
+          methods: {
+            show: showMock,
+          },
+        }),
+        ...stubs,
       },
       slots: {
         'empty-state': EmptySlotStub,
@@ -57,39 +79,44 @@ describe('packages_list', () => {
     });
   };
 
-  beforeEach(() => {
-    GlModalStub.methods.show.mockReset();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('when is loading', () => {
     beforeEach(() => {
-      mountComponent({ isLoading: true });
+      mountComponent({ props: { isLoading: true } });
     });
 
     it('shows skeleton loader', () => {
       expect(findPackagesListLoader().exists()).toBe(true);
     });
 
-    it('does not show the rows', () => {
-      expect(findPackagesListRow().exists()).toBe(false);
+    it('does not show the registry list', () => {
+      expect(findRegistryList().exists()).toBe(false);
     });
 
-    it('does not show the pagination', () => {
-      expect(findPackageListPagination().exists()).toBe(false);
+    it('does not show the rows', () => {
+      expect(findPackagesListRow().exists()).toBe(false);
     });
   });
 
   describe('when is not loading', () => {
     beforeEach(() => {
-      mountComponent();
+      mountComponent({ stubs: { RegistryList } });
     });
 
     it('does not show skeleton loader', () => {
       expect(findPackagesListLoader().exists()).toBe(false);
+    });
+
+    it('shows the registry list', () => {
+      expect(findRegistryList().exists()).toBe(true);
+    });
+
+    it('shows the registry list with the right props', () => {
+      expect(findRegistryList().props()).toMatchObject({
+        title: '2 packages',
+        items: defaultProps.list,
+        hiddenDelete: false,
+        isLoading: false,
+      });
     });
 
     it('shows the rows', () => {
@@ -98,114 +125,269 @@ describe('packages_list', () => {
   });
 
   describe('layout', () => {
-    it('contains a pagination component', () => {
-      mountComponent({ pageInfo: { hasPreviousPage: true } });
-
-      expect(findPackageListPagination().exists()).toBe(true);
-    });
-
-    it('contains a modal component', () => {
-      mountComponent();
-
-      expect(findPackageListDeleteModal().exists()).toBe(true);
-    });
-  });
-
-  describe('when the user can destroy the package', () => {
     beforeEach(() => {
       mountComponent();
-      findPackagesListRow().vm.$emit('packageToDelete', firstPackage);
-      return nextTick();
     });
 
-    it('deleting a package opens the modal', () => {
-      expect(findPackageListDeleteModal().text()).toContain(firstPackage.name);
+    it('modal component is not shown', () => {
+      expect(showMock).not.toHaveBeenCalled();
     });
 
-    it('confirming on the modal emits package:delete', async () => {
-      findPackageListDeleteModal().vm.$emit('ok');
-
-      await nextTick();
-
-      expect(wrapper.emitted('package:delete')[0]).toEqual([firstPackage]);
+    it('modal component props is empty', () => {
+      expect(findDeletePackagesModal().props('itemsToBeDeleted')).toEqual([]);
+      expect(findDeletePackagesModal().props('showRequestForwardingContent')).toBe(false);
     });
 
-    it('closing the modal resets itemToBeDeleted', async () => {
-      // triggering the v-model
-      findPackageListDeleteModal().vm.$emit('input', false);
-
-      await nextTick();
-
-      expect(findPackageListDeleteModal().text()).not.toContain(firstPackage.name);
+    it('does not have an error alert displayed', () => {
+      expect(findErrorPackageAlert().exists()).toBe(false);
     });
   });
 
-  describe('when the list is empty', () => {
+  describe('when the user does not have permission to destroy packages', () => {
     beforeEach(() => {
-      mountComponent({ list: [] });
+      mountComponent({ provide: { canDeletePackages: false } });
     });
 
-    it('show the empty slot', () => {
-      const emptySlot = findEmptySlot();
-      expect(emptySlot.exists()).toBe(true);
-    });
-  });
-
-  describe('pagination ', () => {
-    beforeEach(() => {
-      mountComponent({ pageInfo: { hasPreviousPage: true } });
-    });
-
-    it('emits prev-page events when the prev event is fired', () => {
-      findPackageListPagination().vm.$emit('prev');
-
-      expect(wrapper.emitted('prev-page')).toEqual([[]]);
-    });
-
-    it('emits next-page events when the next event is fired', () => {
-      findPackageListPagination().vm.$emit('next');
-
-      expect(wrapper.emitted('next-page')).toEqual([[]]);
+    it('sets the hidden delete prop of registry list to true', () => {
+      expect(findRegistryList().props('hiddenDelete')).toBe(true);
     });
   });
 
-  describe('tracking', () => {
-    let eventSpy;
+  describe.each`
+    description                                                               | finderFunction         | deletePayload
+    ${'when the user can destroy the package'}                                | ${findPackagesListRow} | ${firstPackage}
+    ${'when the user can bulk destroy packages and deletes only one package'} | ${findRegistryList}    | ${[firstPackage]}
+  `('$description', ({ finderFunction, deletePayload }) => {
+    let trackingSpy;
     const category = 'UI::NpmPackages';
 
     beforeEach(() => {
-      eventSpy = jest.spyOn(Tracking, 'event');
-      mountComponent();
-      findPackagesListRow().vm.$emit('packageToDelete', firstPackage);
-      return nextTick();
+      trackingSpy = mockTracking(undefined, undefined, jest.spyOn);
+      mountComponent({ stubs: { RegistryList } });
+      finderFunction().vm.$emit('delete', deletePayload);
     });
 
-    it('requesting the delete tracks the right action', () => {
-      expect(eventSpy).toHaveBeenCalledWith(
+    afterEach(() => {
+      unmockTracking();
+    });
+
+    it('passes itemsToBeDeleted to the modal', () => {
+      expect(findDeletePackagesModal().props('itemsToBeDeleted')).toStrictEqual([firstPackage]);
+    });
+
+    it('requesting delete tracks the right action', () => {
+      expect(trackingSpy).toHaveBeenCalledWith(
         category,
         REQUEST_DELETE_PACKAGE_TRACKING_ACTION,
         expect.any(Object),
       );
     });
 
-    it('confirming delete tracks the right action', () => {
-      findPackageListDeleteModal().vm.$emit('ok');
+    it('modal component is shown', () => {
+      expect(showMock).toHaveBeenCalledTimes(1);
+    });
 
-      expect(eventSpy).toHaveBeenCalledWith(
-        category,
-        DELETE_PACKAGE_TRACKING_ACTION,
-        expect.any(Object),
-      );
+    describe('when modal confirms', () => {
+      beforeEach(() => {
+        findDeletePackagesModal().vm.$emit('confirm');
+      });
+
+      it('emits delete when modal confirms', () => {
+        expect(wrapper.emitted('delete')[0][0]).toEqual([firstPackage]);
+      });
+
+      it('tracks the right action', () => {
+        expect(trackingSpy).toHaveBeenCalledWith(
+          category,
+          DELETE_PACKAGE_TRACKING_ACTION,
+          expect.any(Object),
+        );
+      });
+    });
+
+    it.each(['confirm', 'cancel'])('resets itemsToBeDeleted when modal emits %s', async (event) => {
+      await findDeletePackagesModal().vm.$emit(event);
+
+      expect(findDeletePackagesModal().props('itemsToBeDeleted')).toEqual([]);
     });
 
     it('canceling delete tracks the right action', () => {
-      findPackageListDeleteModal().vm.$emit('cancel');
+      findDeletePackagesModal().vm.$emit('cancel');
 
-      expect(eventSpy).toHaveBeenCalledWith(
+      expect(trackingSpy).toHaveBeenCalledWith(
         category,
         CANCEL_DELETE_PACKAGE_TRACKING_ACTION,
         expect.any(Object),
       );
+    });
+  });
+
+  describe('when the user can bulk destroy packages', () => {
+    let trackingSpy;
+    const items = [firstPackage, secondPackage];
+
+    beforeEach(() => {
+      trackingSpy = mockTracking(undefined, undefined, jest.spyOn);
+      mountComponent();
+      findRegistryList().vm.$emit('delete', items);
+    });
+
+    afterEach(() => {
+      unmockTracking();
+    });
+
+    it('passes itemsToBeDeleted to the modal', () => {
+      expect(findDeletePackagesModal().props('itemsToBeDeleted')).toStrictEqual(items);
+      expect(wrapper.emitted('delete')).toBeUndefined();
+    });
+
+    it('requesting delete tracks the right action', () => {
+      expect(trackingSpy).toHaveBeenCalledWith(
+        undefined,
+        REQUEST_DELETE_PACKAGES_TRACKING_ACTION,
+        expect.any(Object),
+      );
+    });
+
+    describe('when modal confirms', () => {
+      beforeEach(() => {
+        findDeletePackagesModal().vm.$emit('confirm');
+      });
+
+      it('emits delete event', () => {
+        expect(wrapper.emitted('delete')[0]).toEqual([items]);
+      });
+
+      it('tracks the right action', () => {
+        expect(trackingSpy).toHaveBeenCalledWith(
+          undefined,
+          DELETE_PACKAGES_TRACKING_ACTION,
+          expect.any(Object),
+        );
+      });
+    });
+
+    it.each(['confirm', 'cancel'])('resets itemsToBeDeleted when modal emits %s', async (event) => {
+      await findDeletePackagesModal().vm.$emit(event);
+
+      expect(findDeletePackagesModal().props('itemsToBeDeleted')).toEqual([]);
+    });
+
+    it('canceling delete tracks the right action', () => {
+      findDeletePackagesModal().vm.$emit('cancel');
+
+      expect(trackingSpy).toHaveBeenCalledWith(
+        undefined,
+        CANCEL_DELETE_PACKAGES_TRACKING_ACTION,
+        expect.any(Object),
+      );
+    });
+  });
+
+  describe('when an error package is present', () => {
+    beforeEach(() => {
+      mountComponent({ props: { list: [firstPackage, errorPackage] } });
+    });
+
+    it('should display an alert with default body message', () => {
+      expect(findErrorPackageAlert().exists()).toBe(true);
+      expect(findErrorPackageAlert().props('title')).toBe(
+        'There was an error publishing a error package package',
+      );
+      expect(findErrorPackageAlert().text()).toBe(
+        'There was a timeout and the package was not published. Delete this package and try again.',
+      );
+    });
+
+    it('should display alert body with message set in `statusMessage`', () => {
+      mountComponent({
+        props: { list: [firstPackage, { ...errorPackage, statusMessage: 'custom error message' }] },
+      });
+
+      expect(findErrorPackageAlert().exists()).toBe(true);
+      expect(findErrorPackageAlert().props('title')).toBe(
+        'There was an error publishing a error package package',
+      );
+      expect(findErrorPackageAlert().text()).toBe('custom error message');
+    });
+
+    describe('`Delete this package` button', () => {
+      beforeEach(() => {
+        mountComponent({ props: { list: [firstPackage, errorPackage] }, stubs: { GlAlert } });
+      });
+
+      it('displays the button within the alert', () => {
+        expect(findErrorAlertButton().text()).toBe('Delete this package');
+      });
+
+      it('should display the deletion modal when clicked on the `Delete this package` button', async () => {
+        findErrorAlertButton().vm.$emit('click');
+
+        await nextTick();
+
+        expect(showMock).toHaveBeenCalledTimes(1);
+
+        expect(findDeletePackagesModal().props('itemsToBeDeleted')).toStrictEqual([errorPackage]);
+      });
+    });
+
+    describe('when `hideErrorAlert` is true', () => {
+      beforeEach(() => {
+        mountComponent({
+          props: { list: [firstPackage, errorPackage], hideErrorAlert: true },
+        });
+      });
+
+      it('does not display alert message', () => {
+        expect(findErrorPackageAlert().exists()).toBe(false);
+      });
+    });
+  });
+
+  describe('when multiple error packages are present', () => {
+    beforeEach(() => {
+      mountComponent({
+        props: { list: [{ ...firstPackage, status: errorPackage.status }, errorPackage] },
+      });
+    });
+
+    it('should display an alert with default body message', () => {
+      expect(findErrorPackageAlert().props('title')).toBe(
+        'There was an error publishing 2 packages',
+      );
+      expect(findErrorPackageAlert().text()).toBe(
+        '2 packages were not published to the registry. Remove these packages and try again.',
+      );
+    });
+
+    describe('`Show packages with errors` button', () => {
+      beforeEach(() => {
+        setWindowLocation(`${TEST_HOST}/foo?type=maven&after=1234`);
+        mountComponent({
+          props: {
+            list: [{ ...firstPackage, status: errorPackage.status }, errorPackage],
+          },
+          stubs: { GlAlert },
+        });
+      });
+
+      it('is shown with correct href within the alert', () => {
+        expect(findErrorAlertButton().text()).toBe('Show packages with errors');
+        expect(findErrorAlertButton().attributes('href')).toBe(
+          `${TEST_HOST}/foo?type=maven&status=error`,
+        );
+      });
+    });
+  });
+
+  describe('when the list is empty', () => {
+    beforeEach(() => {
+      mountComponent({ props: { list: [] } });
+    });
+
+    it('show the empty slot', () => {
+      const emptySlot = findEmptySlot();
+      expect(emptySlot.exists()).toBe(true);
     });
   });
 });

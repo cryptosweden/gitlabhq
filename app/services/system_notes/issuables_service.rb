@@ -2,19 +2,40 @@
 
 module SystemNotes
   class IssuablesService < ::SystemNotes::BaseService
+    # We create cross-referenced system notes when a commit relates to an issue.
+    # There are two options what time to use for the system note:
+    # 1. The push date (default)
+    # 2. The commit date
     #
-    # noteable_ref - Referenced noteable object
+    # The commit date is useful when an existing Git repository is imported to GitLab.
+    # It helps to preserve an original order of all notes (comments, commits, status changes, e.t.c)
+    # in the imported issues. Otherwise, all commits will be linked before or after all other imported notes.
+    #
+    # See also the discussion in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/60700#note_612724683
+    USE_COMMIT_DATE_FOR_CROSS_REFERENCE_NOTE = false
+
+    def self.issuable_events
+      {
+        assigned: s_('IssuableEvents|assigned to'),
+        unassigned: s_('IssuableEvents|unassigned'),
+        review_requested: s_('IssuableEvents|requested review from'),
+        review_request_removed: s_('IssuableEvents|removed review request for')
+      }.freeze
+    end
+
+    #
+    # noteable_ref - Referenced noteable object, or array of objects
     #
     # Example Note text:
     #
     #   "marked this issue as related to gitlab-foss#9001"
+    #   "marked this issue as related to gitlab-foss#9001, gitlab-foss#9002, and gitlab-foss#9003"
     #
     # Returns the created Note object
     def relate_issuable(noteable_ref)
-      issuable_type = noteable.to_ability_name.humanize(capitalize: false)
-      body = "marked this #{issuable_type} as related to #{noteable_ref.to_reference(noteable.resource_parent)}"
+      body = "marked this #{noteable_name} as related to #{extract_issuable_reference(noteable_ref)}"
 
-      issue_activity_counter.track_issue_related_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_related_action)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'relate'))
     end
@@ -30,7 +51,7 @@ module SystemNotes
     def unrelate_issuable(noteable_ref)
       body = "removed the relation with #{noteable_ref.to_reference(noteable.resource_parent)}"
 
-      issue_activity_counter.track_issue_unrelated_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_unrelated_action)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'unrelate'))
     end
@@ -49,7 +70,7 @@ module SystemNotes
     def change_assignee(assignee)
       body = assignee.nil? ? 'removed assignee' : "assigned to #{assignee.to_reference}"
 
-      issue_activity_counter.track_issue_assignee_changed_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_assignee_changed_action)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'assignee'))
     end
@@ -64,7 +85,7 @@ module SystemNotes
     #
     #   "assigned to @user1 additionally to @user2"
     #
-    #   "assigned to @user1, @user2 and @user3 and unassigned from @user4 and @user5"
+    #   "assigned to @user1, @user2 and @user3 and unassigned @user4 and @user5"
     #
     #   "assigned to @user1 and @user2"
     #
@@ -75,13 +96,13 @@ module SystemNotes
       text_parts = []
 
       Gitlab::I18n.with_default_locale do
-        text_parts << "assigned to #{added_users.map(&:to_reference).to_sentence}" if added_users.any?
-        text_parts << "unassigned #{unassigned_users.map(&:to_reference).to_sentence}" if unassigned_users.any?
+        text_parts << "#{self.class.issuable_events[:assigned]} #{added_users.map(&:to_reference).to_sentence}" if added_users.any?
+        text_parts << "#{self.class.issuable_events[:unassigned]} #{unassigned_users.map(&:to_reference).to_sentence}" if unassigned_users.any?
       end
 
       body = text_parts.join(' and ')
 
-      issue_activity_counter.track_issue_assignee_changed_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_assignee_changed_action)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'assignee'))
     end
@@ -103,13 +124,21 @@ module SystemNotes
       text_parts = []
 
       Gitlab::I18n.with_default_locale do
-        text_parts << "requested review from #{added_users.map(&:to_reference).to_sentence}" if added_users.any?
-        text_parts << "removed review request for #{unassigned_users.map(&:to_reference).to_sentence}" if unassigned_users.any?
+        text_parts << "#{self.class.issuable_events[:review_requested]} #{added_users.map(&:to_reference).to_sentence}" if added_users.any?
+        text_parts << "#{self.class.issuable_events[:review_request_removed]} #{unassigned_users.map(&:to_reference).to_sentence}" if unassigned_users.any?
       end
 
       body = text_parts.join(' and ')
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'reviewer'))
+    end
+
+    def request_review(user, has_unapproved)
+      body = ["#{self.class.issuable_events[:review_requested]} #{user.to_reference}"]
+
+      body << "removed approval" if has_unapproved
+
+      create_note(NoteSummary.new(noteable, project, author, body.to_sentence, action: 'reviewer'))
     end
 
     # Called when the contacts of an issuable are changed or removed
@@ -160,10 +189,28 @@ module SystemNotes
 
       body = "changed title from **#{marked_old_title}** to **#{marked_new_title}**"
 
-      issue_activity_counter.track_issue_title_changed_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_title_changed_action)
       work_item_activity_counter.track_work_item_title_changed_action(author: author) if noteable.is_a?(WorkItem)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'title'))
+    end
+
+    # Called when the hierarchy of a work item is changed
+    #
+    # noteable  - Noteable object that responds to `work_item_parent` and `work_item_children`
+    # project   - Project owning noteable
+    # author    - User performing the change
+    #
+    # Example Note text:
+    #
+    #   "added #1 as child Task"
+    #
+    # Returns the created Note object
+    def hierarchy_changed(work_item, action)
+      params = hierarchy_note_params(action, noteable, work_item)
+
+      create_note(NoteSummary.new(noteable, project, author, params[:parent_note_body], action: params[:parent_action]))
+      create_note(NoteSummary.new(work_item, work_item.project, author, params[:child_note_body], action: params[:child_action]))
     end
 
     # Called when the description of a Noteable is changed
@@ -180,7 +227,7 @@ module SystemNotes
     def change_description
       body = 'changed the description'
 
-      issue_activity_counter.track_issue_description_changed_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_description_changed_action)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'description'))
     end
@@ -216,7 +263,9 @@ module SystemNotes
         )
       else
         track_cross_reference_action
-        create_note(NoteSummary.new(noteable, noteable.project, author, body, action: 'cross_reference'))
+
+        created_at = mentioner.created_at if USE_COMMIT_DATE_FOR_CROSS_REFERENCE_NOTE && mentioner.is_a?(Commit)
+        create_note(NoteSummary.new(noteable, noteable.project, author, body, action: 'cross_reference', created_at: created_at))
       end
     end
 
@@ -242,14 +291,14 @@ module SystemNotes
     #
     # Example Note text:
     #
-    #   "marked the task Whatever as completed."
+    #   "marked the checklist item Whatever as completed."
     #
     # Returns the created Note object
     def change_task_status(new_task)
       status_label = new_task.complete? ? Taskable::COMPLETED : Taskable::INCOMPLETE
-      body = "marked the task **#{new_task.source}** as #{status_label}"
+      body = "marked the checklist item **#{new_task.source}** as #{status_label}"
 
-      issue_activity_counter.track_issue_description_changed_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_description_changed_action)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'task'))
     end
@@ -272,7 +321,7 @@ module SystemNotes
       cross_reference = noteable_ref.to_reference(project)
       body = "moved #{direction} #{cross_reference}"
 
-      issue_activity_counter.track_issue_moved_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_moved_action)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'moved'))
     end
@@ -281,13 +330,14 @@ module SystemNotes
     #
     # noteable_ref - Referenced noteable
     # direction    - symbol, :to or :from
+    # created_at   - timestamp for the system note, defaults to current time
     #
     # Example Note text:
     #
     #   "cloned to some_namespace/project_new#11"
     #
     # Returns the created Note object
-    def noteable_cloned(noteable_ref, direction)
+    def noteable_cloned(noteable_ref, direction, created_at: nil)
       unless [:to, :from].include?(direction)
         raise ArgumentError, "Invalid direction `#{direction}`"
       end
@@ -295,9 +345,9 @@ module SystemNotes
       cross_reference = noteable_ref.to_reference(project)
       body = "cloned #{direction} #{cross_reference}"
 
-      issue_activity_counter.track_issue_cloned_action(author: author) if noteable.is_a?(Issue) && direction == :to
+      track_issue_event(:track_issue_cloned_action) if direction == :to
 
-      create_note(NoteSummary.new(noteable, project, author, body, action: 'cloned'))
+      create_note(NoteSummary.new(noteable, project, author, body, action: 'cloned', created_at: created_at))
     end
 
     # Called when the confidentiality changes
@@ -309,15 +359,15 @@ module SystemNotes
     # Returns the created Note object
     def change_issue_confidentiality
       if noteable.confidential
-        body = 'made the issue confidential'
+        body = "made the #{noteable_name} confidential"
         action = 'confidential'
 
-        issue_activity_counter.track_issue_made_confidential_action(author: author) if noteable.is_a?(Issue)
+        track_issue_event(:track_issue_made_confidential_action)
       else
-        body = 'made the issue visible to everyone'
+        body = "made the #{noteable_name} visible to everyone"
         action = 'visible'
 
-        issue_activity_counter.track_issue_made_visible_action(author: author) if noteable.is_a?(Issue)
+        track_issue_event(:track_issue_made_visible_action)
       end
 
       create_note(NoteSummary.new(noteable, project, author, body, action: action))
@@ -354,36 +404,6 @@ module SystemNotes
       existing_mentions_for(mentioned_in, noteable, notes).exists?
     end
 
-    # Called when a user's attention has been requested for a Notable
-    #
-    # user - User's whos attention has been requested
-    #
-    # Example Note text:
-    #
-    #   "requested attention from @eli.wisoky"
-    #
-    # Returns the created Note object
-    def request_attention(user)
-      body = "requested attention from #{user.to_reference}"
-
-      create_note(NoteSummary.new(noteable, project, author, body, action: 'attention_requested'))
-    end
-
-    # Called when a user's attention request has been removed for a Notable
-    #
-    # user - User's whos attention request has been removed
-    #
-    # Example Note text:
-    #
-    #   "removed attention request from @eli.wisoky"
-    #
-    # Returns the created Note object
-    def remove_attention_request(user)
-      body = "removed attention request from #{user.to_reference}"
-
-      create_note(NoteSummary.new(noteable, project, author, body, action: 'attention_request_removed'))
-    end
-
     # Called when a Noteable has been marked as the canonical Issue of a duplicate
     #
     # duplicate_issue - Issue that was a duplicate of this
@@ -414,25 +434,23 @@ module SystemNotes
     def mark_duplicate_issue(canonical_issue)
       body = "marked this issue as a duplicate of #{canonical_issue.to_reference(project)}"
 
-      issue_activity_counter.track_issue_marked_as_duplicate_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_marked_as_duplicate_action)
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'duplicate'))
     end
 
-    def add_email_participants(body)
-      create_note(NoteSummary.new(noteable, project, author, body))
+    def email_participants(body)
+      create_note(NoteSummary.new(noteable, project, author, body, action: 'issue_email_participants'))
     end
 
     def discussion_lock
       action = noteable.discussion_locked? ? 'locked' : 'unlocked'
-      body = "#{action} this #{noteable.class.to_s.titleize.downcase}"
+      body = "#{action} the discussion in this #{noteable.class.to_s.titleize.downcase}"
 
-      if noteable.is_a?(Issue)
-        if action == 'locked'
-          issue_activity_counter.track_issue_locked_action(author: author)
-        else
-          issue_activity_counter.track_issue_unlocked_action(author: author)
-        end
+      if action == 'locked'
+        track_issue_event(:track_issue_locked_action)
+      else
+        track_issue_event(:track_issue_unlocked_action)
       end
 
       create_note(NoteSummary.new(noteable, project, author, body, action: action))
@@ -446,8 +464,10 @@ module SystemNotes
       create_resource_state_event(status: 'closed', close_auto_resolve_prometheus_alert: true)
     end
 
-    def change_issue_type
-      body = "changed issue type to #{noteable.issue_type.humanize(capitalize: false)}"
+    def change_issue_type(previous_type)
+      previous = previous_type.humanize(capitalize: false)
+      new = noteable.issue_type.humanize(capitalize: false)
+      body = "changed type from #{previous} to #{new}"
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'issue_type'))
     end
@@ -491,7 +511,55 @@ module SystemNotes
     end
 
     def track_cross_reference_action
-      issue_activity_counter.track_issue_cross_referenced_action(author: author) if noteable.is_a?(Issue)
+      track_issue_event(:track_issue_cross_referenced_action)
+    end
+
+    def hierarchy_note_params(action, parent, child)
+      return {} unless child && parent
+
+      child_type = child.issue_type.humanize(capitalize: false)
+      parent_type = parent.issue_type.humanize(capitalize: false)
+      child_reference, parent_reference = if child.namespace_id == parent.namespace_id
+                                            [child.to_reference, parent.to_reference]
+                                          else
+                                            [child.to_reference(full: true), parent.to_reference(full: true)]
+                                          end
+
+      if action == 'relate'
+        {
+          parent_note_body: "added #{child_reference} as child #{child_type}",
+          child_note_body: "added #{parent_reference} as parent #{parent_type}",
+          parent_action: 'relate_to_child',
+          child_action: 'relate_to_parent'
+        }
+      else
+        {
+          parent_note_body: "removed child #{child_type} #{child_reference}",
+          child_note_body: "removed parent #{parent_type} #{parent_reference}",
+          parent_action: 'unrelate_from_child',
+          child_action: 'unrelate_from_parent'
+        }
+      end
+    end
+
+    def track_issue_event(event_name)
+      return unless noteable.is_a?(Issue)
+
+      issue_activity_counter.public_send(event_name, author: author, project: project || noteable.project) # rubocop: disable GitlabSecurity/PublicSend
+    end
+
+    def noteable_name
+      name = noteable.try(:issue_type) || noteable.to_ability_name
+
+      name.humanize(capitalize: false)
+    end
+
+    def extract_issuable_reference(reference)
+      if reference.is_a?(Array)
+        reference.map { |item| item.to_reference(noteable.resource_parent) }.to_sentence
+      else
+        reference.to_reference(noteable.resource_parent)
+      end
     end
   end
 end

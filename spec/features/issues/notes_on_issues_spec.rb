@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Create notes on issues', :js do
+RSpec.describe 'Create notes on issues', :js, feature_category: :team_planning do
   let(:user) { create(:user) }
 
   def submit_comment(text)
@@ -108,7 +108,7 @@ RSpec.describe 'Create notes on issues', :js do
       it 'does not show the user the reference' do
         visit project_issue_path(project, issue)
 
-        expect(page).not_to have_content('closed via')
+        expect(page).not_to have_content('closed with')
       end
     end
 
@@ -121,7 +121,7 @@ RSpec.describe 'Create notes on issues', :js do
         visit project_issue_path(project, issue)
 
         page.within('div#notes li.note .system-note-message') do
-          expect(page).to have_content('closed via')
+          expect(page).to have_content('closed with')
           expect(page.find('a')).to have_content(reference_content)
         end
       end

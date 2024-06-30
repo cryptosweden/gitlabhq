@@ -2,13 +2,21 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_analyzers: false, stub_feature_flags: false do
+RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_analyzers: false,
+  stub_feature_flags: false, use_clean_rails_redis_caching: true, feature_category: :cell do
   let(:schema_class) { Class.new(Gitlab::Database::Migration[1.0]).include(described_class) }
+
+  # We keep only the GitlabSchemasValidateConnection analyzer running
+  around do |example|
+    Gitlab::Database::QueryAnalyzers::GitlabSchemasValidateConnection.with_suppressed(false) do
+      example.run
+    end
+  end
 
   describe '#restrict_gitlab_migration' do
     it 'invalid schema raises exception' do
-      expect { schema_class.restrict_gitlab_migration gitlab_schema: :gitlab_non_exisiting }
-        .to raise_error /Unknown 'gitlab_schema:/
+      expect { schema_class.restrict_gitlab_migration gitlab_schema: :gitlab_non_existing }
+        .to raise_error(/Unknown 'gitlab_schema:/)
     end
 
     it 'does configure allowed_gitlab_schema' do
@@ -70,13 +78,13 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
             }
           }
         },
-        "does add column to ci_builds in gitlab_main and gitlab_ci" => {
+        "does add column to p_ci_builds in gitlab_main and gitlab_ci" => {
           migration: ->(klass) do
             def change
-              add_column :ci_builds, :__test_column, :integer
+              add_column :p_ci_builds, :__test_column, :integer
             end
           end,
-          query_matcher: /ALTER TABLE "ci_builds" ADD "__test_column" integer/,
+          query_matcher: /ALTER TABLE "p_ci_builds" ADD "__test_column" integer/,
           expected: {
             no_gitlab_schema: {
               main: :success,
@@ -95,7 +103,7 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
         "does add index to projects in gitlab_main and gitlab_ci" => {
           migration: ->(klass) do
             def change
-              # Due to running in transactin we cannot use `add_concurrent_index`
+              # Due to running in transaction we cannot use `add_concurrent_index`
               add_index :projects, :hidden
             end
           end,
@@ -118,8 +126,9 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
         "does add index to ci_builds in gitlab_main and gitlab_ci" => {
           migration: ->(klass) do
             def change
-              # Due to running in transactin we cannot use `add_concurrent_index`
-              add_index :ci_builds, :tag, where: "type = 'Ci::Build'", name: 'index_ci_builds_on_tag_and_type_eq_ci_build'
+              # Due to running in transaction we cannot use `add_concurrent_index`
+              index_name = 'index_ci_builds_on_tag_and_type_eq_ci_build'
+              add_index :ci_builds, :tag, where: "type = 'Ci::Build'", name: index_name
             end
           end,
           query_matcher: /CREATE INDEX/,
@@ -178,8 +187,7 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
               execute("create schema __test_schema")
             end
 
-            def down
-            end
+            def down; end
           end,
           query_matcher: /create schema __test_schema/,
           expected: {
@@ -240,7 +248,7 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
             end
 
             def software_license_class
-              Class.new(ActiveRecord::Base) do
+              Class.new(Gitlab::Database::Migration[2.0]::MigrationRecord) do
                 self.table_name = 'software_licenses'
               end
             end
@@ -272,7 +280,7 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
             end
 
             def ci_instance_variables_class
-              Class.new(ActiveRecord::Base) do
+              Class.new(Gitlab::Database::Migration[2.0]::MigrationRecord) do
                 self.table_name = 'ci_instance_variables'
               end
             end
@@ -299,11 +307,10 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
               detached_partitions_class.create!(drop_after: Time.current, table_name: '_test_table')
             end
 
-            def down
-            end
+            def down; end
 
             def detached_partitions_class
-              Class.new(ActiveRecord::Base) do
+              Class.new(Gitlab::Database::Migration[2.0]::MigrationRecord) do
                 self.table_name = 'detached_partitions'
               end
             end
@@ -401,8 +408,8 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
               ci: :dml_not_allowed
             },
             gitlab_schema_gitlab_shared: {
-              main: :dml_access_denied,
-              ci: :dml_access_denied
+              main: :runtime_error,
+              ci: :runtime_error
             },
             gitlab_schema_gitlab_main: {
               main: :success,
@@ -443,8 +450,7 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
               ApplicationSetting.last
             end
 
-            def down
-            end
+            def down; end
           end,
           query_matcher: /FROM "application_settings"/,
           expected: {
@@ -465,11 +471,10 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
         "does raise exception when accessing feature flags" => {
           migration: ->(klass) do
             def up
-              Feature.enabled?(:redis_hll_tracking, type: :ops, default_enabled: :yaml)
+              Feature.enabled?(:redis_hll_tracking, type: :ops)
             end
 
-            def down
-            end
+            def down; end
           end,
           query_matcher: /FROM "features"/,
           expected: {
@@ -486,6 +491,36 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
               ci: :skipped
             }
           }
+        },
+        "does raise exception about cross schema access when suppressing restriction to ensure" => {
+          migration: ->(klass) do
+            # The purpose of this test is to ensure that we use ApplicationRecord
+            # a correct connection will be used:
+            # - this is a case for finalizing background migrations
+            def up
+              Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.with_suppressed do
+                ::ApplicationRecord.connection.execute("SELECT 1 FROM ci_builds")
+              end
+            end
+
+            def down; end
+          end,
+          query_matcher: /FROM ci_builds/,
+          setup: ->(_) { skip_if_shared_database(:ci) },
+          expected: {
+            no_gitlab_schema: {
+              main: :cross_schema_error,
+              ci: :success
+            },
+            gitlab_schema_gitlab_shared: {
+              main: :cross_schema_error,
+              ci: :success
+            },
+            gitlab_schema_gitlab_main: {
+              main: :cross_schema_error,
+              ci: :skipped
+            }
+          }
         }
       }
     end
@@ -496,11 +531,16 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
       Gitlab::Database.database_base_models.each do |db_config_name, model|
         context "for db_config_name=#{db_config_name}" do
           around do |example|
+            verbose_was = ActiveRecord::Migration.verbose
+            ActiveRecord::Migration.verbose = false
+
             with_reestablished_active_record_base do
               reconfigure_db_connection(model: ActiveRecord::Base, config_model: model)
 
               example.run
             end
+          ensure
+            ActiveRecord::Migration.verbose = verbose_was
           end
 
           before do
@@ -512,6 +552,8 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
           %i[no_gitlab_schema gitlab_schema_gitlab_main gitlab_schema_gitlab_shared].each do |restrict_gitlab_migration|
             context "while restrict_gitlab_migration=#{restrict_gitlab_migration}" do
               it "does run migrate :up and :down" do
+                instance_eval(&setup) if setup
+
                 expected_result = expected.fetch(restrict_gitlab_migration)[db_config_name.to_sym]
                 skip "not configured" unless expected_result
 
@@ -538,13 +580,28 @@ RSpec.describe Gitlab::Database::MigrationHelpers::RestrictGitlabSchema, query_a
                   expect { migration_class.migrate(:up) }.to raise_error(Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas::DMLAccessDeniedError)
                   expect { ignore_error(Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas::DMLAccessDeniedError) { migration_class.migrate(:down) } }.not_to raise_error
 
+                when :runtime_error
+                  expect { migration_class.migrate(:up) }.to raise_error(RuntimeError)
+                  expect { ignore_error(RuntimeError) { migration_class.migrate(:down) } }.not_to raise_error
+
                 when :ddl_not_allowed
                   expect { migration_class.migrate(:up) }.to raise_error(Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas::DDLNotAllowedError)
                   expect { ignore_error(Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas::DDLNotAllowedError) { migration_class.migrate(:down) } }.not_to raise_error
 
+                when :cross_schema_error
+                  expect { migration_class.migrate(:up) }.to raise_error(Gitlab::Database::QueryAnalyzers::GitlabSchemasValidateConnection::CrossSchemaAccessError)
+                  expect { ignore_error(Gitlab::Database::QueryAnalyzers::GitlabSchemasValidateConnection::CrossSchemaAccessError) { migration_class.migrate(:down) } }.not_to raise_error
+
                 when :skipped
-                  expect { migration_class.migrate(:up) }.to raise_error(Gitlab::Database::MigrationHelpers::RestrictGitlabSchema::MigrationSkippedError)
-                  expect { migration_class.migrate(:down) }.to raise_error(Gitlab::Database::MigrationHelpers::RestrictGitlabSchema::MigrationSkippedError)
+                  expect_next_instance_of(migration_class) do |migration_object|
+                    expect(migration_object).to receive(:migration_skipped).and_call_original
+                    expect(migration_object).not_to receive(:up)
+                    expect(migration_object).not_to receive(:down)
+                    expect(migration_object).not_to receive(:change)
+                  end
+
+                  migration_class.migrate(:up)
+                  migration_class.migrate(:down)
                 end
               end
             end

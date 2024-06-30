@@ -1,4 +1,6 @@
 PREFIX=/usr/local
+
+FIPS_MODE ?= 0
 PKG := gitlab.com/gitlab-org/gitlab/workhorse
 BUILD_DIR ?= $(CURDIR)
 TARGET_DIR ?= $(BUILD_DIR)/_build
@@ -19,7 +21,25 @@ EXE_ALL := gitlab-resize-image gitlab-zip-cat gitlab-zip-metadata gitlab-workhor
 INSTALL := install
 BUILD_TAGS := tracer_static tracer_static_jaeger continuous_profiler_stackdriver
 
-MINIMUM_SUPPORTED_GO_VERSION := 1.11
+OS := $(shell uname | tr A-Z a-z)
+ARCH ?= $(shell uname -m | sed -e 's/x86_64/amd64/' | sed -e 's/aarch64/arm64/')
+
+GOLANGCI_LINT_VERSION := 1.59.1
+GOLANGCI_LINT_ARCH ?= ${ARCH}
+GOLANGCI_LINT_FILE := _support/bin/golangci-lint-${GOLANGCI_LINT_VERSION}
+
+ifeq (${FIPS_MODE}, 1)
+    # boringcrypto tag is added automatically by golang-fips compiler
+    BUILD_TAGS += fips
+    # If the golang-fips compiler is built with CGO_ENABLED=0, this needs to be
+    # explicitly switched on.
+    export CGO_ENABLED=1
+    # Go 1.19+ now requires GOEXPERIMENT=boringcrypto for FIPS compilation.
+    # See https://github.com/golang/go/issues/51940 for more details.
+    ifeq ($(shell GOEXPERIMENT=boringcrypto go version > /dev/null 2>&1; echo $$?), 0)
+      export GOEXPERIMENT=boringcrypto
+    endif
+endif
 
 export GOBIN := $(TARGET_DIR)/bin
 export PATH := $(GOBIN):$(PATH)
@@ -44,22 +64,13 @@ WITHOUT_BUILD_ID ?=
 .PHONY:	all
 all:	clean-build $(EXE_ALL)
 
-.PHONY: gitlab-resize-image gitlab-zip-cat gitlab-zip-metadata
-gitlab-resize-image gitlab-zip-cat gitlab-zip-metadata:
+.PHONY: gitlab-resize-image gitlab-zip-cat gitlab-zip-metadata gitlab-workhorse
+gitlab-resize-image gitlab-zip-cat gitlab-zip-metadata gitlab-workhorse:
 	$(call message,Building $@)
 	go build -ldflags "$(GO_BUILD_GENERIC_LDFLAGS)" -tags "$(BUILD_TAGS)" -o $(BUILD_DIR)/$@ $(PKG)/cmd/$@
 ifndef WITHOUT_BUILD_ID
 	go build -ldflags "$(GO_BUILD_GENERIC_LDFLAGS) -B 0x$$(_support/make-gnu-build-id.sh $(BUILD_DIR)/$@)" -tags "$(BUILD_TAGS)" -o $(BUILD_DIR)/$@ $(PKG)/cmd/$@
 endif
-
-.PHONY: gitlab-workhorse
-gitlab-workhorse:
-	$(call message,Building $@)
-	go build -ldflags "$(GO_BUILD_GENERIC_LDFLAGS)" -tags "$(BUILD_TAGS)" -o $(BUILD_DIR)/$@ $(PKG)
-ifndef WITHOUT_BUILD_ID
-	go build -ldflags "$(GO_BUILD_GENERIC_LDFLAGS) -B 0x$$(_support/make-gnu-build-id.sh $(BUILD_DIR)/$@)" -tags "$(BUILD_TAGS)" -o $(BUILD_DIR)/$@ $(PKG)
-endif
-
 .PHONY:	install
 install: $(EXE_ALL)
 	$(call message,$@)
@@ -74,8 +85,8 @@ test: prepare-tests
 	else \
 		$(MAKE) run-gitaly ; \
 	fi
-	@go test -tags "$(BUILD_TAGS)" ./... ;\
-	status="$$?" ;\
+	go test ${TEST_OPTIONS} -tags "$(BUILD_TAGS)" ./...
+	@status="$$?" ;\
 	if [ -f "$(GITALY_PID_FILE)" ] ; then \
 		echo "Clean up Gitaly server for workhorse integration test" ;\
 		kill -9 $$(cat $(GITALY_PID_FILE)) ;\
@@ -86,10 +97,21 @@ test: prepare-tests
 	exit "$$status"
 	@echo SUCCESS
 
+.PHONY: test-race
+test-race: TEST_OPTIONS = -race
+test-race: test
+
+.PHONY: test-coverage
+test-coverage: TEST_OPTIONS = -cover -coverprofile=cover.out
+test-coverage: test
+	$(call message, "Calculating the coverage")
+	[ -f cover.out ] && go tool cover -html cover.out -o coverage.html
+	[ -f cover.out ] && go tool cover -func cover.out
+
 .PHONY:	clean
 clean: clean-workhorse clean-build
 	$(call message,$@)
-	rm -rf testdata/data testdata/scratch
+	rm -rf testdata/data testdata/scratch cover.out coverage.html
 
 .PHONY:	clean-workhorse
 clean-workhorse:
@@ -102,8 +124,7 @@ clean-build:
 	rm -rf $(TARGET_DIR)
 
 .PHONY:	prepare-tests
-prepare-tests:	testdata/data/group/test.git $(EXE_ALL)
-prepare-tests:	testdata/scratch
+prepare-tests: testdata/scratch $(EXE_ALL)
 
 .PHONY: run-gitaly
 run-gitaly: $(GITALY_PID_FILE)
@@ -120,21 +141,25 @@ gitaly.toml: ../tmp/tests/gitaly/config.toml
 	$(call message, "Building a complete test environment")
 	cd .. ; ./scripts/setup-test-env
 
-testdata/data/group/test.git:
-	$(call message,$@)
-	git clone --quiet --bare https://gitlab.com/gitlab-org/gitlab-test.git $@
-
 testdata/scratch:
 	mkdir -p testdata/scratch
 
 .PHONY: verify
-verify: lint vet detect-context detect-assert check-formatting staticcheck deps-check
+verify: lint vet detect-context detect-external-tests check-formatting staticcheck deps-check
 
 .PHONY: lint
 lint:
 	$(call message,Verify: $@)
-	go install golang.org/x/lint/golint
 	@_support/lint.sh ./...
+
+.PHONY: golangci
+golangci: ${GOLANGCI_LINT_FILE}
+	@${GOLANGCI_LINT_FILE} cache clean
+	@${GOLANGCI_LINT_FILE} run --issues-exit-code 0 --print-issued-lines=false ${GOLANGCI_LINT_ARGS}
+
+${GOLANGCI_LINT_FILE}:
+	@mkdir -p $(shell dirname ${GOLANGCI_LINT_FILE})
+	@curl -L https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-${OS}-${GOLANGCI_LINT_ARCH}.tar.gz | tar --strip-components 1 -zOxf - golangci-lint-${GOLANGCI_LINT_VERSION}-${OS}-${GOLANGCI_LINT_ARCH}/golangci-lint > ${GOLANGCI_LINT_FILE} && chmod +x ${GOLANGCI_LINT_FILE}
 
 .PHONY: vet
 vet:
@@ -146,10 +171,10 @@ detect-context:
 	$(call message,Verify: $@)
 	_support/detect-context.sh
 
-.PHONY: detect-assert
-detect-assert:
+.PHONY: detect-external-tests
+detect-external-tests:
 	$(call message,Verify: $@)
-	_support/detect-assert.sh
+	_support/detect-external-tests.sh
 
 .PHONY: check-formatting
 check-formatting: install-goimports
@@ -163,7 +188,7 @@ check-formatting: install-goimports
 staticcheck:
 	$(call message,Verify: $@)
 	go install honnef.co/go/tools/cmd/staticcheck
-	@ $(GOBIN)/staticcheck -go $(MINIMUM_SUPPORTED_GO_VERSION) ./...
+	@ $(GOBIN)/staticcheck ./...
 
 # In addition to fixing imports, goimports also formats your code in the same style as gofmt
 # so it can be used as a replacement.

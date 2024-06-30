@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Shell scripting standards and style guidelines
@@ -38,7 +38,7 @@ in a particular case.
 
 According to the [GitLab installation requirements](../../install/requirements.md),
 this guide covers only those shells that are used by
-[supported Linux distributions](../../install/requirements.md#supported-linux-distributions),
+[supported Linux distributions](../../administration/package_information/supported_os.md#supported-operating-systems),
 that is:
 
 - [POSIX Shell](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html)

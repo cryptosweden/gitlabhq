@@ -26,7 +26,7 @@ require 'erb'
 #
 # See the MarkdownFeature class for setup details.
 
-RSpec.describe 'GitLab Markdown', :aggregate_failures do
+RSpec.describe 'GitLab Markdown', :aggregate_failures, feature_category: :team_planning do
   include Capybara::Node::Matchers
   include MarkupHelper
   include MarkdownMatchers
@@ -51,6 +51,10 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
         expect(doc.to_html).not_to match('foo<em>bar</em>baz')
       end
 
+      aggregate_failures 'parses multiline blockquotes' do
+        expect(doc).to have_selector('blockquote:contains("A multiline blockquote")')
+      end
+
       aggregate_failures 'parses table Markdown' do
         expect(doc).to have_selector('th:contains("Header")')
         expect(doc).to have_selector('th:contains("Row")')
@@ -59,7 +63,7 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
 
       aggregate_failures 'allows Markdown in tables' do
         expect(doc.at_css('td:contains("Baz")').children.to_html)
-          .to eq '<strong>Baz</strong>'
+          .to eq_no_sourcepos '<strong>Baz</strong>'
       end
 
       aggregate_failures 'parses fenced code blocks' do
@@ -68,7 +72,7 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
       end
 
       aggregate_failures 'parses mermaid code block' do
-        expect(doc).to have_selector('pre[lang=mermaid] > code.js-render-mermaid')
+        expect(doc).to have_selector('pre[data-canonical-lang=mermaid] > code.js-render-mermaid')
       end
 
       aggregate_failures 'parses strikethroughs' do
@@ -167,13 +171,13 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
       it 'allows markup inside link elements' do
         aggregate_failures do
           expect(doc.at_css('a[href="#link-emphasis"]').to_html)
-            .to eq %{<a href="#link-emphasis"><em>text</em></a>}
+            .to eq_no_sourcepos %(<a href="#link-emphasis"><em>text</em></a>)
 
           expect(doc.at_css('a[href="#link-strong"]').to_html)
-            .to eq %{<a href="#link-strong"><strong>text</strong></a>}
+            .to eq_no_sourcepos %(<a href="#link-strong"><strong>text</strong></a>)
 
           expect(doc.at_css('a[href="#link-code"]').to_html)
-            .to eq %{<a href="#link-code"><code>text</code></a>}
+            .to eq_no_sourcepos %(<a href="#link-code"><code>text</code></a>)
         end
       end
     end
@@ -221,10 +225,24 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
 
   context 'default pipeline' do
     before do
+      stub_feature_flags(disable_all_mention: false)
+
       @html = markdown(@feat.raw_markdown)
     end
 
     it_behaves_like 'all pipelines'
+
+    context 'when `disable_all_mention` FF is enabled' do
+      before do
+        stub_feature_flags(disable_all_mention: true)
+
+        @html = markdown(@feat.raw_markdown)
+      end
+
+      it 'includes custom filters' do
+        expect(doc).to reference_users_excluding_all
+      end
+    end
 
     it 'includes custom filters' do
       aggregate_failures 'UploadLinkFilter' do
@@ -239,17 +257,22 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
         expect(doc).to parse_emoji
       end
 
-      aggregate_failures 'TableOfContentsFilter' do
+      aggregate_failures 'TableOfContentsLegacyFilter' do
         expect(doc).to create_header_links
       end
 
-      aggregate_failures 'AutolinkFilter' do
+      aggregate_failures 'TableOfContentsTagFilter' do
+        expect(doc).to create_toc
+      end
+
+      aggregate_failures 'Autolinking in MarkdownFilter' do
         expect(doc).to create_autolinks
       end
 
       aggregate_failures 'all reference filters' do
         expect(doc).to reference_users
         expect(doc).to reference_issues
+        expect(doc).to reference_work_items
         expect(doc).to reference_merge_requests
         expect(doc).to reference_snippets
         expect(doc).to reference_commit_ranges
@@ -261,6 +284,10 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
 
       aggregate_failures 'TaskListFilter' do
         expect(doc).to parse_task_lists
+      end
+
+      aggregate_failures 'MathFilter' do
+        expect(doc).to parse_math
       end
 
       aggregate_failures 'InlineDiffFilter' do
@@ -286,21 +313,56 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
       aggregate_failures 'KrokiFilter' do
         expect(doc).to parse_kroki
       end
+
+      aggregate_failures 'AttributeFilter' do
+        img = doc.at_css('img[alt="Sized Image"]')
+
+        expect(img.attr('width')).to eq('75%')
+        expect(img.attr('height')).to eq('100')
+
+        vid = doc.at_css('video[data-title="Sized Video"]')
+
+        expect(vid.attr('width')).to eq('75%')
+        expect(vid.attr('height')).to eq('100')
+      end
     end
   end
 
   context 'wiki pipeline' do
     before do
+      stub_feature_flags(disable_all_mention: false)
+
       @wiki = @feat.wiki
       @wiki_page = @feat.wiki_page
 
       name = 'example.jpg'
       path = "images/#{name}"
-      blob = double(name: name, path: path, mime_type: 'image/jpeg', data: nil)
+      blob = instance_double('Gitlab::Git::Blob', name: name, path: path, mime_type: 'image/jpeg', data: nil)
       expect(@wiki).to receive(:find_file).with(path, load_content: false).and_return(Gitlab::Git::WikiFile.new(blob))
       allow(@wiki).to receive(:wiki_base_path) { '/namespace1/gitlabhq/wikis' }
 
       @html = markdown(@feat.raw_markdown, { pipeline: :wiki, wiki: @wiki, page_slug: @wiki_page.slug })
+    end
+
+    context 'when `disable_all_mention` FF is enabled' do
+      before do
+        stub_feature_flags(disable_all_mention: true)
+
+        @wiki = @feat.wiki
+        @wiki_page = @feat.wiki_page
+
+        name = 'example.jpg'
+        path = "images/#{name}"
+        blob = instance_double('Gitlab::Git::Blob', name: name, path: path, mime_type: 'image/jpeg', data: nil)
+        expect(@wiki).to receive(:find_file).with(path, load_content: false).and_return(Gitlab::Git::WikiFile.new(blob))
+        allow(@wiki).to receive(:wiki_base_path) { '/namespace1/gitlabhq/wikis' }
+
+        @html = markdown(@feat.raw_markdown, { pipeline: :wiki, wiki: @wiki, page_slug: @wiki_page.slug })
+      end
+
+      it 'includes custom filters' do
+        expect(doc).to reference_users_excluding_all
+      end
     end
 
     it_behaves_like 'all pipelines'
@@ -318,8 +380,12 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
         expect(doc).to parse_emoji
       end
 
-      aggregate_failures 'TableOfContentsFilter' do
+      aggregate_failures 'TableOfContentsLegacyFilter' do
         expect(doc).to create_header_links
+      end
+
+      aggregate_failures 'TableOfContentsTagFilter' do
+        expect(doc).to create_toc
       end
 
       aggregate_failures 'AutolinkFilter' do
@@ -329,6 +395,7 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
       aggregate_failures 'all reference filters' do
         expect(doc).to reference_users
         expect(doc).to reference_issues
+        expect(doc).to reference_work_items
         expect(doc).to reference_merge_requests
         expect(doc).to reference_snippets
         expect(doc).to reference_commit_ranges
@@ -341,8 +408,8 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures do
         expect(doc).to parse_task_lists
       end
 
-      aggregate_failures 'GollumTagsFilter' do
-        expect(doc).to parse_gollum_tags
+      aggregate_failures 'WikiLinkGollumFilter' do
+        expect(doc).to parse_wiki_link_gollum_tags
       end
 
       aggregate_failures 'InlineDiffFilter' do

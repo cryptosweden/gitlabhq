@@ -1,12 +1,14 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
-type: index
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab CI/CD Examples **(FREE)**
+# GitLab CI/CD examples
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This page contains links to a variety of examples that can help you understand how to
 implement [GitLab CI/CD](../index.md) for your specific use case.
@@ -15,7 +17,7 @@ Examples are available in several forms. As a collection of:
 
 - `.gitlab-ci.yml` [template files](#cicd-templates) maintained in GitLab, for many
   common frameworks and programming languages.
-- Repositories with [example projects](https://gitlab.com/gitlab-examples) for various languages. You can fork and adjust them to your own needs. Projects include an example of using [Review Apps with a static site served by NGINX](https://gitlab.com/gitlab-examples/review-apps-nginx/).
+- Repositories with [example projects](https://gitlab.com/gitlab-examples) for various languages. You can fork and adjust them to your own needs. Projects include an example of using [review apps with a static site served by NGINX](https://gitlab.com/gitlab-examples/review-apps-nginx/).
 - Examples and [other resources](#other-resources) listed below.
 
 ## CI/CD examples
@@ -24,16 +26,14 @@ The following table lists examples with step-by-step tutorials that are containe
 
 | Use case                      | Resource |
 |-------------------------------|----------|
-| Browser performance testing   | [Browser Performance Testing with the Sitespeed.io container](../../user/project/merge_requests/browser_performance_testing.md). |
 | Deployment with Dpl           | [Using `dpl` as deployment tool](deployment/index.md). |
 | GitLab Pages                  | See the [GitLab Pages](../../user/project/pages/index.md) documentation for a complete example of deploying a static site. |
 | End-to-end testing            | [End-to-end testing with GitLab CI/CD and WebdriverIO](end_to_end_testing_webdriverio/index.md). |
-| Load performance testing      | [Load Performance Testing with the k6 container](../../user/project/merge_requests/load_performance_testing.md). |
 | Multi project pipeline        | [Build, test deploy using multi project pipeline](https://gitlab.com/gitlab-examples/upstream-project). |
-| npm with semantic-release     | [Publish npm packages to the GitLab Package Registry using semantic-release](semantic-release.md). |
+| npm with semantic-release     | [Publish npm packages to the GitLab package registry using semantic-release](semantic-release.md). |
 | PHP with Laravel, Envoy       | [Test and deploy Laravel applications with GitLab CI/CD and Envoy](laravel_with_gitlab_and_envoy/index.md). |
 | PHP with npm, SCP             | [Running Composer and npm scripts with deployment via SCP in GitLab CI/CD](deployment/composer-npm-deploy.md). |
-| PHP with PHPunit, `atoum`     | [Testing PHP projects](php.md). |
+| PHP with PHPUnit, `atoum`     | [Testing PHP projects](php.md). |
 | Secrets management with Vault | [Authenticating and Reading Secrets With HashiCorp Vault](authenticating-with-hashicorp-vault/index.md). |
 
 ### Contributed examples
@@ -76,7 +76,7 @@ choose one of these templates:
 - [dotNET Core (`dotNET-Core.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/dotNET-Core.gitlab-ci.yml)
 - [Elixir (`Elixir.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Elixir.gitlab-ci.yml)
 - [Flutter (`Flutter.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Flutter.gitlab-ci.yml)
-- [Golang (`Go.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Go.gitlab-ci.yml)
+- [Go (`Go.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Go.gitlab-ci.yml)
 - [Gradle (`Gradle.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Gradle.gitlab-ci.yml)
 - [Grails (`Grails.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Grails.gitlab-ci.yml)
 - [iOS with fastlane (`iOS-Fastlane.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/iOS-Fastlane.gitlab-ci.yml)
@@ -95,22 +95,27 @@ choose one of these templates:
 - [Rust (`Rust.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Rust.gitlab-ci.yml)
 - [Scala (`Scala.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Scala.gitlab-ci.yml)
 - [Swift (`Swift.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Swift.gitlab-ci.yml)
+- [Terraform (`Terraform.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Terraform.gitlab-ci.yml)
 - [Terraform (`Terraform.latest.gitlab-ci.yml`)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Terraform.latest.gitlab-ci.yml)
 
 If a programming language or framework template is not in this list, you can contribute
 one. To create a template, submit a merge request
 to [the templates list](https://gitlab.com/gitlab-org/gitlab/-/tree/master/lib/gitlab/ci/templates).
 
-### Adding templates to your GitLab installation **(PREMIUM SELF)**
+### Adding templates to your GitLab installation
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
 You can add custom examples and templates to your self-managed GitLab instance.
-Your GitLab administrator can [designate an instance template repository](../../user/admin_area/settings/instance_template_repository.md)
+Your GitLab administrator can [designate an instance template repository](../../administration/settings/instance_template_repository.md)
 that contains examples and templates specific to your organization.
 
 ## Other resources
 
 This section provides further resources to help you get familiar with various uses of GitLab CI/CD.
-Note that older articles and videos may not reflect the state of the latest GitLab release.
+Older articles and videos may not reflect the state of the latest GitLab release.
 
 ### CI/CD in the cloud
 
@@ -119,9 +124,9 @@ For examples of setting up GitLab CI/CD for cloud-based environments, see:
 - [How to set up multi-account AWS SAM deployments with GitLab CI](https://about.gitlab.com/blog/2019/02/04/multi-account-aws-sam-deployments-with-gitlab-ci/)
 - Video: [Automating Kubernetes Deployments with GitLab CI/CD](https://www.youtube.com/watch?v=wEDRfAz6_Uw)
 - [How to autoscale continuous deployment with GitLab Runner on DigitalOcean](https://about.gitlab.com/blog/2018/06/19/autoscale-continuous-deployment-gitlab-runner-digital-ocean/)
-- [How to create a CI/CD pipeline with Auto Deploy to Kubernetes using GitLab and Helm](https://about.gitlab.com/blog/2017/09/21/how-to-create-ci-cd-pipeline-with-autodeploy-to-kubernetes-using-gitlab-and-helm/)
+- [How to create a CI/CD pipeline with Auto Deploy to Kubernetes using GitLab and Helm](https://about.gitlab.com/blog/2017/09/21/how-to-create-a-ci-cd-pipeline-with-auto-deploy-to-kubernetes-using-gitlab/)
 - Video: [Demo - Deploying from GitLab to OpenShift Container Cluster](https://youtu.be/EwbhA53Jpp4)
-- Tutorial: [Set up a GitLab.com Civo Kubernetes integration with GitPod](https://gitlab.com/k33g_org/k33g_org.gitlab.io/-/issues/82)
+- Tutorial: [Set up a GitLab.com Civo Kubernetes integration with Gitpod](https://gitlab.com/k33g_org/k33g_org.gitlab.io/-/issues/82)
 
 See also the following video overviews:
 
@@ -152,18 +157,22 @@ For examples of others who have implemented GitLab CI/CD, see:
 - [Test all the things in GitLab CI with Docker by example](https://about.gitlab.com/blog/2018/02/05/test-all-the-things-gitlab-ci-docker-examples/)
 - [A Craftsman looks at continuous integration](https://about.gitlab.com/blog/2018/01/17/craftsman-looks-at-continuous-integration/)
 - [Go tools and GitLab: How to do continuous integration like a boss](https://about.gitlab.com/blog/2017/11/27/go-tools-and-gitlab-how-to-do-continuous-integration-like-a-boss/)
-- [GitBot – automating boring Git operations with CI](https://about.gitlab.com/blog/2017/11/02/automating-boring-git-operations-gitlab-ci/)
+- [GitBot - automating boring Git operations with CI](https://about.gitlab.com/blog/2017/11/02/automating-boring-git-operations-gitlab-ci/)
 - [How to use GitLab CI for Vue.js](https://about.gitlab.com/blog/2017/09/12/vuejs-app-gitlab/)
 - Video: [GitLab CI/CD Deep Dive](https://youtu.be/pBe4t1CD8Fc?t=195)
-- [Dockerizing GitLab Review Apps](https://about.gitlab.com/blog/2017/07/11/dockerizing-review-apps/)
+- [Dockerizing GitLab review apps](https://about.gitlab.com/blog/2017/07/11/dockerizing-review-apps/)
 - [Fast and natural continuous integration with GitLab CI](https://about.gitlab.com/blog/2017/05/22/fast-and-natural-continuous-integration-with-gitlab-ci/)
 - [Demo: CI/CD with GitLab in action](https://about.gitlab.com/blog/2017/03/13/ci-cd-demo/)
 
 ### Migrating to GitLab from third-party CI tools
 
-- [Migrating from CircleCI to GitLab](../migration/circleci.md)
-- [Migrating from Jenkins to GitLab](../migration/jenkins.md)
-- Video: [Migrating from Jenkins to GitLab](https://youtu.be/RlEVGOpYF5Y)
+Examples of migration to GitLab CI/CD from other tools:
+
+- [Bamboo](../migration/bamboo.md)
+- [CircleCI](../migration/circleci.md)
+- [GitHub Actions](../migration/github_actions.md)
+- [Jenkins](../migration/jenkins.md)
+- [TeamCity](../migration/teamcity.md)
 
 ### Integrating GitLab CI/CD with other systems
 

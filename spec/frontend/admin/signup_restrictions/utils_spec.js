@@ -10,10 +10,13 @@ describe('utils', () => {
           booleanAttributes: [
             'signupEnabled',
             'requireAdminApprovalAfterUserSignup',
-            'sendUserConfirmationEmail',
             'domainDenylistEnabled',
             'denylistTypeRawSelected',
             'emailRestrictionsEnabled',
+            'passwordNumberRequired',
+            'passwordLowercaseRequired',
+            'passwordUppercaseRequired',
+            'passwordSymbolRequired',
           ],
         }),
       ).toEqual(mockData);

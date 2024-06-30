@@ -23,13 +23,16 @@ module API
 
           expose :runner_variables, as: :variables
           expose :steps, using: Entities::Ci::JobRequest::Step
+          expose :runtime_hooks, as: :hooks, using: Entities::Ci::JobRequest::Hook
           expose :image, using: Entities::Ci::JobRequest::Image
           expose :services, using: Entities::Ci::JobRequest::Service
           expose :artifacts, using: Entities::Ci::JobRequest::Artifacts
           expose :cache, using: Entities::Ci::JobRequest::Cache
           expose :credentials, using: Entities::Ci::JobRequest::Credentials
-          expose :all_dependencies, as: :dependencies, using: Entities::Ci::JobRequest::Dependency
           expose :features
+          expose :dependencies do |job, options|
+            Entities::Ci::JobRequest::Dependency.represent(job.all_dependencies, options.merge(running_job: job))
+          end
         end
       end
     end

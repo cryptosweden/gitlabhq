@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User Cluster', :js do
+RSpec.describe 'User Cluster', :js, feature_category: :environment_management do
   include GoogleApi::CloudPlatformHelpers
 
   let(:group) { create(:group) }
@@ -25,7 +25,7 @@ RSpec.describe 'User Cluster', :js do
     before do
       visit group_clusters_path(group)
 
-      click_link 'Connect with a certificate'
+      click_link 'Connect a cluster (deprecated)'
     end
 
     context 'when user filled form with valid parameters' do
@@ -112,14 +112,32 @@ RSpec.describe 'User Cluster', :js do
     context 'when user destroys the cluster' do
       before do
         click_link 'Advanced Settings'
-        click_button 'Remove integration and resources'
+        find_by_testid('remove-integration-button').click
         fill_in 'confirm_cluster_name_input', with: cluster.name
-        click_button 'Remove integration'
+        find_by_testid('remove-integration-modal-button').click
       end
 
       it 'user sees creation form with the successful message' do
         expect(page).to have_content('Kubernetes cluster integration was successfully removed.')
-        expect(page).to have_link('Connect with a certificate')
+      end
+    end
+
+    context 'when signed in user is an admin in admin_mode' do
+      let(:admin) { create(:admin) }
+
+      before do
+        # signs out the user with `maintainer` role in the project
+        gitlab_sign_out
+
+        gitlab_sign_in(admin)
+        enable_admin_mode!(admin)
+
+        visit group_clusters_path(group)
+      end
+
+      it 'can visit the clusters index page', :aggregate_failures do
+        expect(page).to have_title("Kubernetes Clusters · #{group.name} · #{_('GitLab')}")
+        expect(page).to have_content('Connect a cluster')
       end
     end
   end

@@ -6,11 +6,12 @@ module Banzai
       def self.filters
         @filters ||= FilterArray[
           Filter::SanitizationFilter,
+          Filter::CodeLanguageFilter,
           Filter::AssetProxyFilter,
           Filter::ExternalLinkFilter,
           Filter::PlantumlFilter,
-          Filter::SyntaxHighlightFilter,
-          Filter::KrokiFilter
+          Filter::KrokiFilter,
+          Filter::SyntaxHighlightFilter # this filter should remain at the end
         ]
       end
 

@@ -1,11 +1,9 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 require_relative '../../../rubocop/cop/inject_enterprise_edition_module'
 
 RSpec.describe RuboCop::Cop::InjectEnterpriseEditionModule do
-  subject(:cop) { described_class.new }
-
   it 'flags the use of `prepend_mod_with` in the middle of a file' do
     expect_offense(<<~SOURCE)
     class Foo
@@ -23,6 +21,7 @@ RSpec.describe RuboCop::Cop::InjectEnterpriseEditionModule do
     end
     SOURCE
   end
+
   it 'flags the use of `extend_mod_with` in the middle of a file' do
     expect_offense(<<~SOURCE)
     class Foo

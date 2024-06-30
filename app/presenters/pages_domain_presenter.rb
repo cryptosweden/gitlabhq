@@ -3,8 +3,6 @@
 class PagesDomainPresenter < Gitlab::View::Presenter::Delegated
   presents ::PagesDomain, as: :pages_domain
 
-  delegator_override :subject # TODO: Fix `Gitlab::View::Presenter::Delegated#subject` not to override `PagesDomain#subject`.
-
   def needs_verification?
     Gitlab::CurrentSettings.pages_domain_verification_enabled? && unverified?
   end
@@ -14,5 +12,12 @@ class PagesDomainPresenter < Gitlab::View::Presenter::Delegated
     return false if needs_verification?
 
     ::Gitlab::LetsEncrypt.enabled? && auto_ssl_failed
+  end
+
+  def user_defined_certificate?
+    persisted? &&
+      certificate.present? &&
+      certificate_user_provided? &&
+      errors[:certificate].blank?
   end
 end

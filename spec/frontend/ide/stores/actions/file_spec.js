@@ -7,6 +7,8 @@ import { createStore } from '~/ide/stores';
 import * as actions from '~/ide/stores/actions/file';
 import * as types from '~/ide/stores/mutation_types';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import { file, createTriggerRenameAction, createTriggerUpdatePayload } from '../../helpers';
 
 const ORIGINAL_CONTENT = 'original content';
@@ -14,15 +16,14 @@ const RELATIVE_URL_ROOT = '/gitlab';
 
 describe('IDE store file actions', () => {
   let mock;
-  let originalGon;
   let store;
   let router;
 
   beforeEach(() => {
+    stubPerformanceWebAPI();
+
     mock = new MockAdapter(axios);
-    originalGon = window.gon;
     window.gon = {
-      ...window.gon,
       relative_url_root: RELATIVE_URL_ROOT,
     };
 
@@ -40,7 +41,6 @@ describe('IDE store file actions', () => {
 
   afterEach(() => {
     mock.restore();
-    window.gon = originalGon;
   });
 
   describe('closeFile', () => {
@@ -57,8 +57,8 @@ describe('IDE store file actions', () => {
 
     it('closes open files', () => {
       return store.dispatch('closeFile', localFile).then(() => {
-        expect(localFile.opened).toBeFalsy();
-        expect(localFile.active).toBeFalsy();
+        expect(localFile.opened).toBe(false);
+        expect(localFile.active).toBe(false);
         expect(store.state.openFiles.length).toBe(0);
       });
     });
@@ -75,7 +75,7 @@ describe('IDE store file actions', () => {
         });
     });
 
-    it('switches to the next available file before closing the current one ', () => {
+    it('switches to the next available file before closing the current one', () => {
       const f = file('newOpenFile');
 
       store.state.openFiles.push(f);
@@ -240,7 +240,7 @@ describe('IDE store file actions', () => {
     describe('success', () => {
       beforeEach(() => {
         mock.onGet(`${RELATIVE_URL_ROOT}/test/test/-/7297abc/${localFile.path}`).replyOnce(
-          200,
+          HTTP_STATUS_OK,
           {
             raw_path: 'raw_path',
           },
@@ -266,7 +266,7 @@ describe('IDE store file actions', () => {
 
       it('sets the file as active', () => {
         return store.dispatch('getFileData', { path: localFile.path }).then(() => {
-          expect(localFile.active).toBeTruthy();
+          expect(localFile.active).toBe(true);
         });
       });
 
@@ -274,7 +274,7 @@ describe('IDE store file actions', () => {
         return store
           .dispatch('getFileData', { path: localFile.path, makeFileActive: false })
           .then(() => {
-            expect(localFile.active).toBeFalsy();
+            expect(localFile.active).toBe(false);
           });
       });
 
@@ -317,7 +317,7 @@ describe('IDE store file actions', () => {
         store.state.entries[localFile.path] = localFile;
 
         mock.onGet(`${RELATIVE_URL_ROOT}/test/test/-/7297abc/old-dull-file`).replyOnce(
-          200,
+          HTTP_STATUS_OK,
           {
             raw_path: 'raw_path',
           },
@@ -374,7 +374,7 @@ describe('IDE store file actions', () => {
 
     describe('success', () => {
       beforeEach(() => {
-        mock.onGet(/(.*)/).replyOnce(200, 'raw');
+        mock.onGet(/(.*)/).replyOnce(HTTP_STATUS_OK, 'raw');
       });
 
       it('calls getRawFileData service method', () => {
@@ -467,7 +467,7 @@ describe('IDE store file actions', () => {
 
     describe('return JSON', () => {
       beforeEach(() => {
-        mock.onGet(/(.*)/).replyOnce(200, JSON.stringify({ test: '123' }));
+        mock.onGet(/(.*)/).replyOnce(HTTP_STATUS_OK, JSON.stringify({ test: '123' }));
       });
 
       it('does not parse returned JSON', () => {

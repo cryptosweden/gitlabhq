@@ -15,7 +15,8 @@ module Gitlab
           include ::Gitlab::Config::Entry::Inheritable
 
           PROCESSABLE_ALLOWED_KEYS = %i[extends stage only except rules variables
-                                        inherit allow_failure when needs resource_group].freeze
+                                        inherit allow_failure when needs resource_group environment
+                                        interruptible].freeze
           MAX_NESTING_LEVEL = 10
 
           included do
@@ -23,13 +24,15 @@ module Gitlab
               validates :config, presence: true
               validates :name, presence: true
               validates :name, type: Symbol
-              validates :name, length: { maximum: 255 }, if: -> { ::Feature.enabled?(:ci_validate_job_length, default_enabled: :yaml) }
+              validates :name, length: { maximum: 255 }
+
+              validates :config, mutually_exclusive_keys: %i[script trigger]
 
               validates :config, disallowed_keys: {
                   in: %i[only except start_in],
-                  message: 'key may not be used with `rules`'
-                },
-                if: :has_rules?
+                  message: 'key may not be used with `rules`',
+                  ignore_nil: true
+                }, if: :has_rules_value?
 
               with_options allow_nil: true do
                 validates :extends, array_of_strings_or_string: true
@@ -55,11 +58,13 @@ module Gitlab
               description: 'List of evaluable Rules to determine job inclusion.',
               inherit: false,
               metadata: {
-                allowed_when: %w[on_success on_failure always never manual delayed].freeze
+                allowed_when: %w[on_success on_failure always never manual delayed].freeze,
+                allowed_keys: %i[if changes exists when start_in allow_failure variables needs interruptible].freeze
               }
 
             entry :variables, ::Gitlab::Ci::Config::Entry::Variables,
               description: 'Environment variables available for this job.',
+              metadata: { allowed_value_data: %i[value expand] },
               inherit: false
 
             entry :inherit, ::Gitlab::Ci::Config::Entry::Inherit,
@@ -67,13 +72,21 @@ module Gitlab
               inherit: false,
               default: {}
 
+            entry :environment, Entry::Environment,
+              description: 'Environment configuration for this job.',
+              inherit: false
+
+            entry :interruptible, ::Gitlab::Config::Entry::Boolean,
+              description: 'Set jobs interruptible value.',
+              inherit: true
+
             attributes :extends, :rules, :resource_group
           end
 
           def compose!(deps = nil)
-            super do
-              has_workflow_rules = deps&.workflow_entry&.has_rules?
+            has_workflow_rules = deps&.workflow_entry&.has_rules?
 
+            super do
               # If workflow:rules: or rules: are used
               # they are considered not compatible
               # with `only/except` defaults
@@ -86,12 +99,10 @@ module Gitlab
                 @entries.delete(:except) unless except_defined? # rubocop:disable Gitlab/ModuleWithInstanceVariables
               end
 
-              unless has_workflow_rules
-                validate_against_warnings
-              end
-
               yield if block_given?
             end
+
+            validate_against_warnings unless has_workflow_rules
           end
 
           def validate_against_warnings
@@ -122,11 +133,14 @@ module Gitlab
               stage: stage_value,
               extends: extends,
               rules: rules_value,
-              job_variables: variables_value.to_h,
+              job_variables: variables_entry.value_with_data,
               root_variables_inheritance: root_variables_inheritance,
               only: only_value,
               except: except_value,
-              resource_group: resource_group }.compact
+              environment: environment_defined? ? environment_value : nil,
+              environment_name: environment_defined? ? environment_value[:name] : nil,
+              resource_group: resource_group,
+              interruptible: interruptible_defined? ? interruptible_value : nil }.compact
           end
 
           def root_variables_inheritance

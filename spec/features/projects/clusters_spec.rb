@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Clusters', :js do
+RSpec.describe 'Clusters', :js, feature_category: :environment_management do
   include GoogleApi::CloudPlatformHelpers
 
   let(:project) { create(:project) }
@@ -20,8 +20,7 @@ RSpec.describe 'Clusters', :js do
     end
 
     it 'sees empty state' do
-      expect(page).to have_link('Connect with a certificate')
-      expect(page).to have_selector('.empty-state')
+      expect(page).to have_selector('[data-testid="clusters-empty-state"]')
     end
   end
 
@@ -82,101 +81,6 @@ RSpec.describe 'Clusters', :js do
         end
       end
     end
-
-    context 'when user adds a Google Kubernetes Engine cluster' do
-      before do
-        allow_any_instance_of(Projects::ClustersController)
-          .to receive(:token_in_session).and_return('token')
-        allow_any_instance_of(Projects::ClustersController)
-          .to receive(:expires_at_in_session).and_return(1.hour.since.to_i.to_s)
-
-        allow_any_instance_of(Projects::ClustersController).to receive(:authorize_google_project_billing)
-        allow_any_instance_of(Projects::ClustersController).to receive(:google_project_billing_status).and_return(true)
-
-        allow_any_instance_of(GoogleApi::CloudPlatform::Client)
-          .to receive(:projects_zones_clusters_create) do
-          double(
-            'cluster_control',
-            self_link: 'projects/gcp-project-12345/zones/us-central1-a/operations/ope-123',
-            status: 'RUNNING'
-          )
-        end
-
-        allow(WaitForClusterCreationWorker).to receive(:perform_in).and_return(nil)
-
-        create(:cluster, :provided_by_gcp, name: 'default-cluster', environment_scope: '*', projects: [project])
-        visit project_clusters_path(project)
-        click_link 'Certificate'
-      end
-
-      context 'when user filled form with environment scope' do
-        before do
-          visit_create_cluster_page
-          click_link 'Google GKE'
-
-          sleep 2 # wait for ajax
-          execute_script('document.querySelector(".js-gcp-project-id-dropdown input").setAttribute("type", "text")')
-          execute_script('document.querySelector(".js-gcp-zone-dropdown input").setAttribute("type", "text")')
-          execute_script('document.querySelector(".js-gcp-machine-type-dropdown input").setAttribute("type", "text")')
-          execute_script('document.querySelector(".js-gke-cluster-creation-submit").removeAttribute("disabled")')
-
-          fill_in 'cluster_name', with: 'staging-cluster'
-          fill_in 'cluster_environment_scope', with: 'staging/*'
-          fill_in 'cluster[provider_gcp_attributes][gcp_project_id]', with: 'gcp-project-123'
-          fill_in 'cluster[provider_gcp_attributes][zone]', with: 'us-central1-a'
-          fill_in 'cluster[provider_gcp_attributes][machine_type]', with: 'n1-standard-2'
-          click_button 'Create Kubernetes cluster'
-
-          # The frontend won't show the details until the cluster is
-          # created, and we don't want to make calls out to GCP.
-          provider = Clusters::Cluster.last.provider
-          provider.make_created
-        end
-
-        it 'user sees a cluster details page' do
-          expect(page).to have_content('GitLab Integration')
-          expect(page.find_field('cluster[environment_scope]').value).to eq('staging/*')
-        end
-      end
-
-      context 'when user updates environment scope' do
-        before do
-          click_link 'default-cluster'
-          fill_in 'cluster_environment_scope', with: 'production/*'
-          within ".js-cluster-details-form" do
-            click_button 'Save changes'
-          end
-        end
-
-        it 'updates the environment scope' do
-          expect(page.find_field('cluster[environment_scope]').value).to eq('production/*')
-        end
-      end
-
-      context 'when user updates duplicated environment scope' do
-        before do
-          visit_create_cluster_page
-          click_link 'Google GKE'
-
-          sleep 2 # wait for ajax
-          execute_script('document.querySelector(".js-gcp-project-id-dropdown input").setAttribute("type", "text")')
-          execute_script('document.querySelector(".js-gcp-zone-dropdown input").setAttribute("type", "text")')
-          execute_script('document.querySelector(".js-gcp-machine-type-dropdown input").setAttribute("type", "text")')
-          execute_script('document.querySelector(".js-gke-cluster-creation-submit").removeAttribute("disabled")')
-
-          fill_in 'cluster_name', with: 'staging-cluster'
-          fill_in 'cluster_environment_scope', with: '*'
-          fill_in 'cluster[provider_gcp_attributes][gcp_project_id]', with: 'gcp-project-123'
-          fill_in 'cluster[provider_gcp_attributes][zone]', with: 'us-central1-a'
-          fill_in 'cluster[provider_gcp_attributes][machine_type]', with: 'n1-standard-2'
-          click_button 'Create Kubernetes cluster'
-        end
-
-        it 'users sees an environment scope validation error' do
-          expect(page).to have_content('cannot add duplicated environment scope')
-        end
-      end
-    end
   end
 
   context 'when user has a cluster and visits cluster index page' do
@@ -221,12 +125,12 @@ RSpec.describe 'Clusters', :js do
   def visit_create_cluster_page
     visit project_clusters_path(project)
 
-    click_button(class: 'dropdown-toggle-split')
-    click_link 'Create a new cluster'
+    click_button(class: 'gl-new-dropdown-toggle', text: 'Connect a cluster (agent)')
+    click_link 'Create a cluster'
   end
 
   def visit_connect_cluster_page
-    click_button(class: 'dropdown-toggle-split')
-    click_link 'Connect with a certificate'
+    click_button(class: 'gl-new-dropdown-toggle', text: 'Connect a cluster (agent)')
+    click_link 'Connect a cluster (certificate - deprecated)'
   end
 end

@@ -1,18 +1,22 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Load Balancer for multi-node GitLab **(FREE SELF)**
+# Load Balancer for multi-node GitLab
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 In a multi-node GitLab configuration, you need a load balancer to route
 traffic to the application servers. The specifics on which load balancer to use
 or the exact configuration is beyond the scope of GitLab documentation. We hope
 that if you're managing HA systems like GitLab you have a load balancer of
 choice already. Some examples including HAProxy (open-source), F5 Big-IP LTM,
-and Citrix Net Scaler. This documentation outlines what ports and protocols
-you need to use with GitLab.
+and Citrix NetScaler. This documentation outlines what ports and protocols
+to use with GitLab.
 
 ## SSL
 
@@ -31,31 +35,31 @@ Configure your load balancers to pass connections on port 443 as 'TCP' rather
 than 'HTTP(S)' protocol. This passes the connection to the application nodes
 NGINX service untouched. NGINX has the SSL certificate and listen on port 443.
 
-See [NGINX HTTPS documentation](https://docs.gitlab.com/omnibus/settings/nginx.html#enable-https)
+See the [HTTPS documentation](https://docs.gitlab.com/omnibus/settings/ssl/index.html)
 for details on managing SSL certificates and configuring NGINX.
 
 ### Load Balancers terminate SSL without backend SSL
 
-Configure your load balancers to use the 'HTTP(S)' protocol rather than 'TCP'.
-The load balancers is be responsible for managing SSL certificates and
+Configure your load balancers to use the `HTTP(S)` protocol rather than `TCP`.
+The load balancers are responsible for managing SSL certificates and
 terminating SSL.
 
-Since communication between the load balancers and GitLab isn't secure,
-there is some additional configuration needed. See
-[NGINX Proxied SSL documentation](https://docs.gitlab.com/omnibus/settings/nginx.html#supporting-proxied-ssl)
+Because communication between the load balancers and GitLab isn't secure,
+there is some additional configuration needed. See the
+[proxied SSL documentation](https://docs.gitlab.com/omnibus/settings/ssl/index.html#configure-a-reverse-proxy-or-load-balancer-ssl-termination)
 for details.
 
 ### Load Balancers terminate SSL with backend SSL
 
-Configure your load balancers to use the 'HTTP(S)' protocol rather than 'TCP'.
+Configure your load balancers to use the `HTTP(S)` protocol rather than `TCP`.
 The load balancers is responsible for managing SSL certificates that
 end users see.
 
 Traffic is secure between the load balancers and NGINX in this
-scenario. There is no need to add configuration for proxied SSL since the
+scenario. There is no need to add configuration for proxied SSL because the
 connection is secure all the way. However, configuration must be
 added to GitLab to configure SSL certificates. See
-[NGINX HTTPS documentation](https://docs.gitlab.com/omnibus/settings/nginx.html#enable-https)
+the [HTTPS documentation](https://docs.gitlab.com/omnibus/settings/ssl/index.html)
 for details on managing SSL certificates and configuring NGINX.
 
 ## Ports
@@ -113,16 +117,33 @@ Configure DNS for an alternate SSH hostname such as `altssh.gitlab.example.com`.
 
 ## Readiness check
 
-It is strongly recommend that multi-node deployments configure load balancers to use the [readiness check](../user/admin_area/monitoring/health_check.md#readiness) to ensure a node is ready to accept traffic, before routing traffic to it. This is especially important when utilizing Puma, as there is a brief period during a restart where Puma doesn't accept requests.
+It is strongly recommend that multi-node deployments configure load balancers to use the [readiness check](../administration/monitoring/health_check.md#readiness) to ensure a node is ready to accept traffic, before routing traffic to it. This is especially important when using Puma, because there is a brief period during a restart where Puma doesn't accept requests.
 
-<!-- ## Troubleshooting
+WARNING:
+Using the `all=1` parameter with the readiness check in GitLab versions 15.4 to 15.8 may cause [increased Praefect memory usage](https://gitlab.com/gitlab-org/gitaly/-/issues/4751) and lead to memory errors.
 
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
+## Troubleshooting
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->
+### The health check is returning a `408` HTTP code via the load balancer
+
+If you are using [AWS's Classic Load Balancer](https://docs.aws.amazon.com/en_en/elasticloadbalancing/latest/classic/elb-ssl-security-policy.html#ssl-ciphers)
+in GitLab 15.0 or later, you must to enable the `AES256-GCM-SHA384` cipher in NGINX.
+See [AES256-GCM-SHA384 SSL cipher no longer allowed by default by NGINX](https://docs.gitlab.com/omnibus/update/gitlab_15_changes.html#aes256-gcm-sha384-ssl-cipher-no-longer-allowed-by-default-by-nginx)
+for more information.
+
+The default ciphers for a GitLab version can be
+viewed in the [`files/gitlab-cookbooks/gitlab/attributes/default.rb`](https://gitlab.com/gitlab-org/omnibus-gitlab/-/blob/master/files/gitlab-cookbooks/gitlab/attributes/default.rb)
+file and selecting the Git tag that correlates with your target GitLab version
+(for example `15.0.5+ee.0`). If required by your load balancer, you can then define
+[custom SSL ciphers](https://docs.gitlab.com/omnibus/settings/ssl/index.html#use-custom-ssl-ciphers)
+for NGINX.
+
+### Some pages and links are downloaded instead of rendered in the browser
+
+Some GitLab features require the use of WebSockets. In some scenarios where WebSockets support is not enabled on your load balancer, you could experience some links or pages downloading instead of being rendered in the browser. The files downloaded may contain content that look like the following:
+
+```plaintext
+One or more reserved bits are on: reserved1 = 1, reserved2 = 0, reserved3 = 0
+```
+
+Your load balancer must be capable of supporting HTTP WebSocket requests. If links are downloading this way, check your load balancer configuration and ensure that HTTP WebSocket requests are enabled.

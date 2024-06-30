@@ -1,38 +1,81 @@
 import { isUndefined } from 'lodash';
+import { s__ } from '~/locale';
+import showGlobalToast from '~/vue_shared/plugins/global_toast';
 import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
 import { getParameterByName, setUrlParams } from '~/lib/utils/url_utility';
-import { __ } from '~/locale';
+import { ACCESS_LEVEL_GUEST_INTEGER } from '~/access_level/constants';
 import {
   FIELDS,
   DEFAULT_SORT,
   GROUP_LINK_BASE_PROPERTY_NAME,
   GROUP_LINK_ACCESS_LEVEL_PROPERTY_NAME,
+  I18N_USER_YOU,
+  I18N_USER_BLOCKED,
+  I18N_USER_BOT,
+  I188N_USER_2FA,
 } from './constants';
 
 export const generateBadges = ({ member, isCurrentUser, canManageMembers }) => [
   {
     show: isCurrentUser,
-    text: __("It's you"),
+    text: I18N_USER_YOU,
     variant: 'success',
   },
   {
     show: member.user?.blocked,
-    text: __('Blocked'),
+    text: I18N_USER_BLOCKED,
     variant: 'danger',
   },
   {
+    show: member.user?.isBot,
+    text: I18N_USER_BOT,
+    variant: 'muted',
+  },
+  {
     show: member.user?.twoFactorEnabled && (canManageMembers || isCurrentUser),
-    text: __('2FA'),
+    text: I188N_USER_2FA,
     variant: 'info',
   },
 ];
+
+/**
+ * Creates the dropdowns options for static roles
+ *
+ * @param {object} member
+ *   @param {Map<string, number>} member.validRoles
+ */
+export const roleDropdownItems = ({ validRoles }) => {
+  const staticRoleDropdownItems = Object.entries(validRoles).map(([text, accessLevel]) => ({
+    text,
+    accessLevel,
+    memberRoleId: null, // The value `null` is need to downgrade from custom role to static role. See: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/133430#note_1595153555
+    value: `role-static-${accessLevel}`,
+    // For base roles, only Guest and Minimal Access users won't occupy a seat.
+    occupiesSeat: accessLevel > ACCESS_LEVEL_GUEST_INTEGER,
+  }));
+
+  return { flatten: staticRoleDropdownItems, formatted: staticRoleDropdownItems };
+};
+
+/**
+ * Finds and returns unique value
+ *
+ * @param {Array<{accessLevel: number, memberRoleId: null, text: string, value: string}>} flattenDropdownItems
+ * @param {object} member
+ *   @param {{integerValue: number}} member.accessLevel
+ */
+export const initialSelectedRole = (flattenDropdownItems, member) => {
+  return flattenDropdownItems.find(
+    ({ accessLevel }) => accessLevel === member.accessLevel.integerValue,
+  )?.value;
+};
 
 export const isGroup = (member) => {
   return Boolean(member.sharedWithGroup);
 };
 
 export const isDirectMember = (member) => {
-  return isGroup(member) || member.isDirectMember;
+  return member.isDirectMember;
 };
 
 export const isCurrentUser = (member, currentUserId) => {
@@ -42,6 +85,9 @@ export const isCurrentUser = (member, currentUserId) => {
 export const canRemove = (member) => {
   return isDirectMember(member) && member.canRemove;
 };
+
+export const canRemoveBlockedByLastOwner = (member, canManageMembers) =>
+  isDirectMember(member) && canManageMembers && member.isLastOwner;
 
 export const canResend = (member) => {
   return Boolean(member.invite?.canResend);
@@ -97,8 +143,14 @@ export const buildSortHref = ({
   return setUrlParams({ ...filterParams, sort: sortParam }, window.location.href, true);
 };
 
-// Defined in `ee/app/assets/javascripts/vue_shared/components/members/utils.js`
+// Defined in `ee/app/assets/javascripts/members/utils.js`
+export const canDisableTwoFactor = () => false;
+
+// Defined in `ee/app/assets/javascripts/members/utils.js`
 export const canOverride = () => false;
+
+// Defined in `ee/app/assets/javascripts/members/utils.js`
+export const canUnban = () => false;
 
 export const parseDataAttributes = (el) => {
   const { membersData } = el.dataset;
@@ -109,23 +161,37 @@ export const parseDataAttributes = (el) => {
   });
 };
 
-export const baseRequestFormatter = (basePropertyName, accessLevelPropertyName) => ({
-  accessLevel,
-  ...otherProperties
-}) => {
-  const accessLevelProperty = !isUndefined(accessLevel)
-    ? { [accessLevelPropertyName]: accessLevel }
-    : {};
+export const baseRequestFormatter =
+  (basePropertyName, accessLevelPropertyName) =>
+  ({ accessLevel, memberRoleId, ...otherProperties }) => {
+    const accessLevelProperty = !isUndefined(accessLevel)
+      ? { [accessLevelPropertyName]: accessLevel }
+      : {};
 
-  return {
-    [basePropertyName]: {
-      ...accessLevelProperty,
-      ...otherProperties,
-    },
+    return {
+      [basePropertyName]: {
+        ...accessLevelProperty,
+        member_role_id: memberRoleId ?? null,
+        ...otherProperties,
+      },
+    };
   };
-};
 
 export const groupLinkRequestFormatter = baseRequestFormatter(
   GROUP_LINK_BASE_PROPERTY_NAME,
   GROUP_LINK_ACCESS_LEVEL_PROPERTY_NAME,
 );
+
+/**
+ * Handles role change response. Has an EE override
+ *
+ * @param {object} update
+ *  @param {string} update.currentRole
+ *  @param {string} update.requestedRole
+ *  @param {object} update.response server response
+ * @returns {string} actual new member role
+ */
+export const handleMemberRoleUpdate = ({ requestedRole }) => {
+  showGlobalToast(s__('Members|Role updated successfully.'));
+  return requestedRole;
+};

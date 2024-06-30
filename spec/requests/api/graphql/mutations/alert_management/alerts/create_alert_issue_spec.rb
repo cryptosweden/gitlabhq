@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Create an alert issue from an alert' do
+RSpec.describe 'Create an alert issue from an alert', feature_category: :incident_management do
   include GraphqlHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project) }
+  let_it_be(:project) { create(:project, developers: user) }
   let_it_be(:alert) { create(:alert_management_alert, project: project) }
 
   let(:mutation) do
@@ -14,29 +14,27 @@ RSpec.describe 'Create an alert issue from an alert' do
       project_path: project.full_path,
       iid: alert.iid.to_s
     }
-    graphql_mutation(:create_alert_issue, variables,
-                     <<~QL
-                       clientMutationId
-                       errors
-                       alert {
-                         iid
-                         issue {
-                           iid
-                         }
-                       }
-                       issue {
-                         iid
-                         title
-                       }
-                     QL
+    graphql_mutation(
+      :create_alert_issue,
+      variables,
+      <<~QL
+        clientMutationId
+        errors
+        alert {
+          iid
+          issue {
+            iid
+          }
+        }
+        issue {
+          iid
+          title
+        }
+      QL
     )
   end
 
   let(:mutation_response) { graphql_mutation_response(:create_alert_issue) }
-
-  before do
-    project.add_developer(user)
-  end
 
   context 'when there is no issue associated with the alert' do
     it 'creates an alert issue' do

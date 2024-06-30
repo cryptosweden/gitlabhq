@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
-# Check a user's access to perform a git action. All public methods in this
-# class return an instance of `GitlabAccessStatus`
+# Checks a user's access to perform a git action.
+# All public methods in this class return an instance of `GitlabAccessStatus`
+
 module Gitlab
   class GitAccess
     include Gitlab::Utils::StrongMemoize
@@ -37,18 +38,18 @@ module Gitlab
       Timing information for debugging purposes:
     MESSAGE
 
-    DOWNLOAD_COMMANDS = %w{git-upload-pack git-upload-archive}.freeze
-    PUSH_COMMANDS = %w{git-receive-pack}.freeze
+    DOWNLOAD_COMMANDS = %w[git-upload-pack git-upload-archive].freeze
+    PUSH_COMMANDS = %w[git-receive-pack].freeze
     ALL_COMMANDS = DOWNLOAD_COMMANDS + PUSH_COMMANDS
 
     attr_reader :actor, :protocol, :authentication_abilities,
-                :repository_path, :redirected_path, :auth_result_type,
-                :cmd, :changes
+      :repository_path, :redirected_path, :auth_result_type,
+      :cmd, :changes, :push_options
     attr_accessor :container
 
     def self.error_message(key)
       self.ancestors.each do |cls|
-        return cls.const_get('ERROR_MESSAGES', false).fetch(key)
+        return cls.const_get(:ERROR_MESSAGES, false).fetch(key)
       rescue NameError, KeyError
         next
       end
@@ -56,7 +57,7 @@ module Gitlab
       raise ArgumentError, "No error message defined for #{key}"
     end
 
-    def initialize(actor, container, protocol, authentication_abilities:, repository_path: nil, redirected_path: nil, auth_result_type: nil)
+    def initialize(actor, container, protocol, authentication_abilities:, repository_path: nil, redirected_path: nil, auth_result_type: nil, push_options: nil)
       @actor     = actor
       @container = container
       @protocol  = protocol
@@ -64,6 +65,7 @@ module Gitlab
       @repository_path = repository_path
       @redirected_path = redirected_path
       @auth_result_type = auth_result_type
+      @push_options = Gitlab::PushOptions.new(push_options)
     end
 
     def check(cmd, changes)
@@ -99,18 +101,18 @@ module Gitlab
       @logger ||= Checks::TimedLogger.new(timeout: INTERNAL_TIMEOUT, header: LOG_HEADER)
     end
 
-    def guest_can_download_code?
-      Guest.can?(download_ability, container)
+    def guest_can_download?
+      ::Users::Anonymous.can?(download_ability, container)
     end
 
     def deploy_key_can_download_code?
       authentication_abilities.include?(:download_code) &&
         deploy_key? &&
         deploy_key.has_access_to?(container) &&
-        (project? && project&.repository_access_level != ::Featurable::DISABLED)
+        (project? && repository_access_level != ::Featurable::DISABLED)
     end
 
-    def user_can_download_code?
+    def user_can_download?
       authentication_abilities.include?(:download_code) &&
         user_access.can_do_action?(download_ability)
     end
@@ -125,10 +127,6 @@ module Gitlab
       raise NotImplementedError
     end
 
-    def build_can_download_code?
-      authentication_abilities.include?(:build_download_code) && user_access.can_do_action?(:build_download_code)
-    end
-
     def request_from_ci_build?
       return false unless protocol == 'http'
 
@@ -136,10 +134,39 @@ module Gitlab
     end
 
     def protocol_allowed?
-      Gitlab::ProtocolAccess.allowed?(protocol)
+      Gitlab::ProtocolAccess.allowed?(protocol, project: project)
     end
 
     private
+
+    # when accessing via the CI_JOB_TOKEN
+    def build_can_download_code?
+      authentication_abilities.include?(:build_download_code) && user_access.can_do_action?(:build_download_code)
+    end
+
+    def build_can_push?
+      authentication_abilities.include?(:build_push_code) && user_access.can_do_action?(:build_push_code)
+    end
+
+    def build_can_download?
+      build_can_download_code?
+    end
+
+    def deploy_token_can_download?
+      deploy_token?
+    end
+
+    # When overriding this method, be careful using super
+    # as deploy_token_can_download? and build_can_download?
+    # do not consider the download_ability in the inheriting class
+    # for deploy tokens and builds
+    def can_download?
+      deploy_key_can_download_code? ||
+        deploy_token_can_download? ||
+        build_can_download? ||
+        user_can_download? ||
+        guest_can_download?
+    end
 
     def check_container!
       # Strict nil check, to avoid any surprises with Object#present?
@@ -177,8 +204,10 @@ module Gitlab
     def check_valid_actor!
       return unless key?
 
-      unless actor.valid?
+      if !actor.valid?
         raise ForbiddenError, "Your SSH key #{actor.errors[:key].first}."
+      elsif actor.expired?
+        raise ForbiddenError, "Your SSH key has expired."
       end
     end
 
@@ -206,7 +235,7 @@ module Gitlab
           raise ForbiddenError, error_message(:auth_download)
         end
       when *PUSH_COMMANDS
-        unless authentication_abilities.include?(:push_code)
+        unless authentication_abilities.include?(:push_code) || authentication_abilities.include?(:build_push_code)
           raise ForbiddenError, error_message(:auth_upload)
         end
       end
@@ -271,15 +300,9 @@ module Gitlab
     end
 
     def check_download_access!
-      passed = deploy_key_can_download_code? ||
-        deploy_token? ||
-        user_can_download_code? ||
-        build_can_download_code? ||
-        guest_can_download_code?
+      return if can_download?
 
-      unless passed
-        raise ForbiddenError, download_forbidden_message
-      end
+      raise ForbiddenError, download_forbidden_message
     end
 
     def download_forbidden_message
@@ -315,13 +338,15 @@ module Gitlab
     end
 
     def user_can_push?
-      user_access.can_do_action?(push_ability)
+      authentication_abilities.include?(:push_code) &&
+        user_access.can_do_action?(push_ability)
     end
 
     def check_change_access!
       if changes == ANY
         can_push = deploy_key? ||
-                   user_can_push? ||
+          build_can_push? ||
+          user_can_push? ||
           project&.any_branch_allows_collaboration?(user_access.user)
 
         unless can_push
@@ -338,7 +363,8 @@ module Gitlab
         user_access: user_access,
         project: project,
         protocol: protocol,
-        logger: logger
+        logger: logger,
+        push_options: push_options
       ).validate!
     rescue Checks::TimedLogger::TimeoutError
       raise TimeoutError, logger.full_message
@@ -349,7 +375,7 @@ module Gitlab
     end
 
     def deploy_key?
-      actor.is_a?(DeployKey)
+      actor.is_a?(DeployKey) && Gitlab::ExternalAuthorization.allow_deploy_tokens_and_deploy_keys?
     end
 
     def deploy_token
@@ -357,7 +383,7 @@ module Gitlab
     end
 
     def deploy_token?
-      actor.is_a?(DeployToken)
+      actor.is_a?(DeployToken) && Gitlab::ExternalAuthorization.allow_deploy_tokens_and_deploy_keys?
     end
 
     def ci?
@@ -376,8 +402,8 @@ module Gitlab
       elsif user
         user.can?(:read_project, project)
       elsif ci?
-        true # allow CI (build without a user) for backwards compatibility
-      end || Guest.can?(:read_project, project)
+        false
+      end || ::Users::Anonymous.can?(:read_project, project)
     end
 
     def http?
@@ -427,8 +453,6 @@ module Gitlab
           nil
         when Key
           actor.user
-        when :ci
-          nil
         end
       end
     end
@@ -497,7 +521,7 @@ module Gitlab
     end
 
     def check_size_against_limit(size)
-      if size_checker.changes_will_exceed_size_limit?(size)
+      if size_checker.changes_will_exceed_size_limit?(size, project)
         raise ForbiddenError, size_checker.error_message.new_changes_error
       end
     end
@@ -514,6 +538,10 @@ module Gitlab
 
     # overriden in EE
     def check_additional_conditions!
+    end
+
+    def repository_access_level
+      project&.repository_access_level
     end
   end
 end

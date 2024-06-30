@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User visits the profile preferences page', :js do
-  include Select2Helper
+RSpec.describe 'User visits the profile preferences page', :js, feature_category: :user_profile do
+  include ListboxHelpers
 
   let(:user) { create(:user) }
 
@@ -13,19 +13,7 @@ RSpec.describe 'User visits the profile preferences page', :js do
     visit(profile_preferences_path)
   end
 
-  it 'shows correct menu item' do
-    expect(page).to have_active_navigation('Preferences')
-  end
-
   describe 'User changes their syntax highlighting theme', :js do
-    it 'creates a flash message' do
-      choose 'user_color_scheme_id_5'
-
-      wait_for_requests
-
-      expect_preferences_saved_message
-    end
-
     it 'updates their preference' do
       choose 'user_color_scheme_id_5'
 
@@ -38,7 +26,7 @@ RSpec.describe 'User visits the profile preferences page', :js do
 
   describe 'User changes their default dashboard', :js do
     it 'creates a flash message' do
-      select2('stars', from: '#user_dashboard')
+      select_from_listbox 'Starred Projects', from: 'Your Projects', exact_item_text: true
       click_button 'Save changes'
 
       wait_for_requests
@@ -47,12 +35,12 @@ RSpec.describe 'User visits the profile preferences page', :js do
     end
 
     it 'updates their preference' do
-      select2('stars', from: '#user_dashboard')
+      select_from_listbox 'Starred Projects', from: 'Your Projects', exact_item_text: true
       click_button 'Save changes'
 
       wait_for_requests
 
-      find('#logo').click
+      find('[data-track-label="gitlab_logo_link"]').click
 
       expect(page).to have_content("You don't have starred projects yet")
       expect(page).to have_current_path starred_dashboard_projects_path, ignore_query: true
@@ -65,8 +53,8 @@ RSpec.describe 'User visits the profile preferences page', :js do
   end
 
   describe 'User changes their language', :js do
-    it 'creates a flash message', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/31404' do
-      select2('en', from: '#user_preferred_language')
+    it 'creates a flash message' do
+      select_from_listbox 'English', from: 'English'
       click_button 'Save changes'
 
       wait_for_requests
@@ -76,7 +64,7 @@ RSpec.describe 'User visits the profile preferences page', :js do
 
     it 'updates their preference' do
       wait_for_requests
-      select2('pt_BR', from: '#user_preferred_language')
+      select_from_listbox 'Portuguese', from: 'English'
       click_button 'Save changes'
 
       wait_for_requests
@@ -106,7 +94,7 @@ RSpec.describe 'User visits the profile preferences page', :js do
   end
 
   def expect_preferences_saved_message
-    page.within('.flash-container') do
+    page.within('.b-toaster') do
       expect(page).to have_content('Preferences saved.')
     end
   end

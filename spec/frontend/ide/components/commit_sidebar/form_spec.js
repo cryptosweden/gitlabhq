@@ -1,6 +1,6 @@
 import { GlModal } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
-import Vue, { nextTick } from 'vue';
+import { nextTick } from 'vue';
 import { stubComponent } from 'helpers/stub_component';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import waitForPromises from 'helpers/wait_for_promises';
@@ -21,15 +21,20 @@ import { COMMIT_TO_NEW_BRANCH } from '~/ide/stores/modules/commit/constants';
 describe('IDE commit form', () => {
   let wrapper;
   let store;
+  const showModalSpy = jest.fn();
 
   const createComponent = () => {
     wrapper = shallowMount(CommitForm, {
       store,
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
       stubs: {
-        GlModal: stubComponent(GlModal),
+        GlModal: stubComponent(GlModal, {
+          methods: {
+            show: showModalSpy,
+          },
+        }),
       },
     });
   };
@@ -57,8 +62,9 @@ describe('IDE commit form', () => {
     tooltip: getBinding(findCommitButtonTooltip().element, 'gl-tooltip').value.title,
   });
   const findForm = () => wrapper.find('form');
+  const findModal = () => wrapper.findComponent(GlModal);
   const submitForm = () => findForm().trigger('submit');
-  const findCommitMessageInput = () => wrapper.find(CommitMessageField);
+  const findCommitMessageInput = () => wrapper.findComponent(CommitMessageField);
   const setCommitMessageInput = (val) => findCommitMessageInput().vm.$emit('input', val);
   const findDiscardDraftButton = () => wrapper.find('[data-testid="discard-draft"]');
 
@@ -67,14 +73,13 @@ describe('IDE commit form', () => {
     store.state.stagedFiles.push('test');
     store.state.currentProjectId = 'abcproject';
     store.state.currentBranchId = 'main';
-    Vue.set(store.state.projects, 'abcproject', {
-      ...projectData,
-      userPermissions: { pushCode: true },
-    });
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
+    store.state.projects = {
+      ...store.state.projects,
+      abcproject: {
+        ...projectData,
+        userPermissions: { pushCode: true },
+      },
+    };
   });
 
   // Notes:
@@ -87,7 +92,7 @@ describe('IDE commit form', () => {
     ${'when user cannot push'}     | ${['test']} | ${{ pushCode: false }} | ${goToEditView}   | ${findBeginCommitButtonData} | ${true}  | ${MSG_CANNOT_PUSH_CODE}
     ${'when user cannot push'}     | ${['test']} | ${{ pushCode: false }} | ${goToCommitView} | ${findCommitButtonData}      | ${true}  | ${MSG_CANNOT_PUSH_CODE}
   `('$desc', ({ stagedFiles, userPermissions, viewFn, buttonFn, disabled, tooltip }) => {
-    beforeEach(async () => {
+    beforeEach(() => {
       store.state.stagedFiles = stagedFiles;
       store.state.projects.abcproject.userPermissions = userPermissions;
 
@@ -120,7 +125,7 @@ describe('IDE commit form', () => {
 
     it('renders commit button in compact mode', () => {
       expect(findBeginCommitButton().exists()).toBe(true);
-      expect(findBeginCommitButton().text()).toBe('Commit…');
+      expect(findBeginCommitButton().text()).toBe('Create commit...');
     });
 
     it('does not render form', () => {
@@ -302,22 +307,19 @@ describe('IDE commit form', () => {
         ${() => createCodeownersCommitError('test message')} | ${{ actionPrimary: { text: 'Create new branch' } }}
         ${createUnexpectedCommitError}                       | ${{ actionPrimary: null }}
       `('opens error modal if commitError with $error', async ({ createError, props }) => {
-        const modal = wrapper.find(GlModal);
-        modal.vm.show = jest.fn();
-
         const error = createError();
         store.state.commit.commitError = error;
 
         await nextTick();
 
-        expect(modal.vm.show).toHaveBeenCalled();
-        expect(modal.props()).toMatchObject({
+        expect(showModalSpy).toHaveBeenCalled();
+        expect(findModal().props()).toMatchObject({
           actionCancel: { text: 'Cancel' },
           ...props,
         });
         // Because of the legacy 'mountComponent' approach here, the only way to
         // test the text of the modal is by viewing the content of the modal added to the document.
-        expect(modal.html()).toContain(error.messageHTML);
+        expect(findModal().html()).toContain(error.messageHTML);
       });
     });
 
@@ -343,7 +345,7 @@ describe('IDE commit form', () => {
 
           await nextTick();
 
-          wrapper.find(GlModal).vm.$emit('ok');
+          findModal().vm.$emit('ok');
 
           await waitForPromises();
 

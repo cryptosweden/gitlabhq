@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
-require 'set'
+require 'set' # rubocop:disable Lint/RedundantRequireStatement -- Ruby 3.1 and earlier needs this. Drop this line after Ruby 3.2+ is only supported.
 require 'rubocop'
 require 'yaml'
 
 require_relative '../todo_dir'
+require_relative '../cop_todo'
+require_relative '../formatter/graceful_formatter'
 
 module RuboCop
   module Formatter
@@ -14,40 +16,30 @@ module RuboCop
     # For example, this formatter stores offenses for `RSpec/VariableName`
     # in `.rubocop_todo/rspec/variable_name.yml`.
     class TodoFormatter < BaseFormatter
-      # Disable a cop which exceeds this limit. This way we ensure that we
-      # don't enable a cop by accident when moving it from
-      # .rubocop_todo.yml to .rubocop_todo/.
-      # We keep the cop disabled if it has been disabled previously explicitly
-      # via `Enabled: false` in .rubocop_todo.yml or .rubocop_todo/.
-      MAX_OFFENSE_COUNT = 15
+      DEFAULT_BASE_DIRECTORY = File.expand_path('../../.rubocop_todo', __dir__)
 
-      class Todo
-        attr_reader :cop_name, :files, :offense_count
+      # Make sure that HAML exclusions are retained.
+      # This allows enabling cop rules in haml-lint and only exclude HAML files
+      # with offenses.
+      #
+      # See https://gitlab.com/gitlab-org/gitlab/-/issues/415330#caveats
+      # on why the entry must end with `.haml.rb`.
+      RETAIN_EXCLUSIONS = %r{\.haml\.rb$}
 
-        def initialize(cop_name)
-          @cop_name = cop_name
-          @files = Set.new
-          @offense_count = 0
-          @cop_class = RuboCop::Cop::Registry.global.find_by_cop_name(cop_name)
-        end
-
-        def record(file, offense_count)
-          @files << file
-          @offense_count += offense_count
-        end
-
-        def autocorrectable?
-          @cop_class&.support_autocorrect?
-        end
+      class << self
+        attr_accessor :base_directory
       end
 
-      def initialize(output, options = {})
-        directory = options.delete(:rubocop_todo_dir) || TodoDir::DEFAULT_TODO_DIR
-        @todos = Hash.new { |hash, cop_name| hash[cop_name] = Todo.new(cop_name) }
+      self.base_directory = DEFAULT_BASE_DIRECTORY
+
+      def initialize(output, _options = {})
+        @directory = self.class.base_directory
+        @todos = Hash.new { |hash, cop_name| hash[cop_name] = CopTodo.new(cop_name) }
         @todo_dir = TodoDir.new(directory)
-        @config_inspect_todo_dir = load_config_inspect_todo_dir(directory)
-        @config_old_todo_yml = load_config_old_todo_yml(directory)
+        @config_inspect_todo_dir = load_config_inspect_todo_dir
+        @config_old_todo_yml = load_config_old_todo_yml
         check_multiple_configurations!
+        create_todos_retaining_exclusions(@config_inspect_todo_dir)
 
         super
       end
@@ -64,43 +56,29 @@ module RuboCop
 
       def finished(_inspected_files)
         @todos.values.sort_by(&:cop_name).each do |todo|
-          yaml = to_yaml(todo)
-          path = @todo_dir.write(todo.cop_name, yaml)
+          next unless configure_and_validate_todo(todo)
 
+          path = @todo_dir.write(todo.cop_name, todo.to_yaml)
           output.puts "Written to #{relative_path(path)}\n"
         end
       end
 
+      def self.with_base_directory(directory)
+        old = base_directory
+        self.base_directory = directory
+
+        yield
+      ensure
+        self.base_directory = old
+      end
+
       private
 
+      attr_reader :directory
+
       def relative_path(path)
-        parent = File.expand_path('..', @todo_dir.directory)
+        parent = File.expand_path('..', directory)
         path.delete_prefix("#{parent}/")
-      end
-
-      def to_yaml(todo)
-        yaml = []
-        yaml << '---'
-        yaml << '# Cop supports --auto-correct.' if todo.autocorrectable?
-        yaml << "#{todo.cop_name}:"
-
-        if previously_disabled?(todo) && offense_count_exceeded?(todo)
-          yaml << "  # Offense count: #{todo.offense_count}"
-          yaml << '  # Temporarily disabled due to too many offenses'
-          yaml << '  Enabled: false'
-        end
-
-        yaml << '  Exclude:'
-
-        files = todo.files.sort.map { |file| "    - '#{file}'" }
-        yaml.concat files
-        yaml << ''
-
-        yaml.join("\n")
-      end
-
-      def offense_count_exceeded?(todo)
-        todo.offense_count > MAX_OFFENSE_COUNT
       end
 
       def check_multiple_configurations!
@@ -111,17 +89,45 @@ module RuboCop
         raise "Multiple configurations found for cops:\n#{list}\n"
       end
 
-      def previously_disabled?(todo)
+      def create_todos_retaining_exclusions(inspected_cop_config)
+        inspected_cop_config.each do |cop_name, config|
+          todo = @todos[cop_name]
+          excluded_files = config['Exclude'] || []
+          todo.add_files(excluded_files.grep(RETAIN_EXCLUSIONS))
+        end
+      end
+
+      def config_for(todo)
         cop_name = todo.cop_name
 
-        config = @config_old_todo_yml[cop_name] ||
-          @config_inspect_todo_dir[cop_name] || {}
+        @config_old_todo_yml[cop_name] || @config_inspect_todo_dir[cop_name] || {}
+      end
+
+      def previously_disabled?(todo)
+        config = config_for(todo)
         return false if config.empty?
 
         config['Enabled'] == false
       end
 
-      def load_config_inspect_todo_dir(directory)
+      def grace_period?(todo)
+        config = config_for(todo)
+
+        GracefulFormatter.grace_period?(todo.cop_name, config)
+      end
+
+      def configure_and_validate_todo(todo)
+        todo.previously_disabled = previously_disabled?(todo)
+        todo.grace_period = grace_period?(todo)
+
+        if todo.previously_disabled && todo.grace_period
+          raise "#{todo.cop_name}: Cop must be enabled to use `#{GracefulFormatter.grace_period_key_value}`."
+        end
+
+        todo.generate?
+      end
+
+      def load_config_inspect_todo_dir
         @todo_dir.list_inspect.each_with_object({}) do |path, combined|
           config = YAML.load_file(path)
           combined.update(config) if Hash === config
@@ -130,7 +136,7 @@ module RuboCop
 
       # Load YAML configuration from `.rubocop_todo.yml`.
       # We consider this file already old, obsolete, and to be removed soon.
-      def load_config_old_todo_yml(directory)
+      def load_config_old_todo_yml
         path = File.expand_path(File.join(directory, '../.rubocop_todo.yml'))
         config = YAML.load_file(path) if File.exist?(path)
 

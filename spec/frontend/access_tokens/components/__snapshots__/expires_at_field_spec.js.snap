@@ -8,25 +8,20 @@ exports[`~/access_tokens/components/expires_at_field should render datepicker wi
   optionaltext="(optional)"
 >
   <gl-datepicker-stub
-    ariallabel=""
+    arialabel=""
     autocomplete=""
     container=""
+    data-testid="expiry-date-field"
+    defaultdate="Wed Aug 05 2020 00:00:00 GMT+0000 (Greenwich Mean Time)"
     displayfield="true"
     firstday="0"
+    inputid="personal_access_token_expires_at"
     inputlabel="Enter date"
+    inputname="personal_access_token[expires_at]"
     mindate="Mon Jul 06 2020 00:00:00 GMT+0000 (Greenwich Mean Time)"
     placeholder="YYYY-MM-DD"
+    showclearbutton="true"
     theme=""
-  >
-    <gl-form-input-stub
-      autocomplete="off"
-      class="datepicker gl-datepicker-input"
-      data-qa-selector="expiry_date_field"
-      id="personal_access_token_expires_at"
-      inputmode="none"
-      name="personal_access_token[expires_at]"
-      placeholder="YYYY-MM-DD"
-    />
-  </gl-datepicker-stub>
+  />
 </gl-form-group-stub>
 `;

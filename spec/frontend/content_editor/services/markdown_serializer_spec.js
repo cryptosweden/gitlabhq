@@ -7,16 +7,17 @@ import DescriptionItem from '~/content_editor/extensions/description_item';
 import DescriptionList from '~/content_editor/extensions/description_list';
 import Details from '~/content_editor/extensions/details';
 import DetailsContent from '~/content_editor/extensions/details_content';
-import Division from '~/content_editor/extensions/division';
+import DrawioDiagram from '~/content_editor/extensions/drawio_diagram';
 import Emoji from '~/content_editor/extensions/emoji';
 import Figure from '~/content_editor/extensions/figure';
 import FigureCaption from '~/content_editor/extensions/figure_caption';
 import FootnoteDefinition from '~/content_editor/extensions/footnote_definition';
 import FootnoteReference from '~/content_editor/extensions/footnote_reference';
-import FootnotesSection from '~/content_editor/extensions/footnotes_section';
 import HardBreak from '~/content_editor/extensions/hard_break';
 import Heading from '~/content_editor/extensions/heading';
 import HorizontalRule from '~/content_editor/extensions/horizontal_rule';
+import Highlight from '~/content_editor/extensions/highlight';
+import HTMLNodes from '~/content_editor/extensions/html_nodes';
 import Image from '~/content_editor/extensions/image';
 import InlineDiff from '~/content_editor/extensions/inline_diff';
 import Italic from '~/content_editor/extensions/italic';
@@ -24,6 +25,10 @@ import Link from '~/content_editor/extensions/link';
 import ListItem from '~/content_editor/extensions/list_item';
 import OrderedList from '~/content_editor/extensions/ordered_list';
 import Paragraph from '~/content_editor/extensions/paragraph';
+import Reference from '~/content_editor/extensions/reference';
+import ReferenceLabel from '~/content_editor/extensions/reference_label';
+import ReferenceDefinition from '~/content_editor/extensions/reference_definition';
+import Sourcemap from '~/content_editor/extensions/sourcemap';
 import Strike from '~/content_editor/extensions/strike';
 import Table from '~/content_editor/extensions/table';
 import TableCell from '~/content_editor/extensions/table_cell';
@@ -31,50 +36,19 @@ import TableHeader from '~/content_editor/extensions/table_header';
 import TableRow from '~/content_editor/extensions/table_row';
 import TaskItem from '~/content_editor/extensions/task_item';
 import TaskList from '~/content_editor/extensions/task_list';
-import markdownSerializer from '~/content_editor/services/markdown_serializer';
-import { createTestEditor, createDocBuilder } from '../test_utils';
+import MarkdownSerializer from '~/content_editor/services/markdown_serializer';
+import remarkMarkdownDeserializer from '~/content_editor/services/remark_markdown_deserializer';
+import { createTiptapEditor, createDocBuilder } from '../test_utils';
 
 jest.mock('~/emoji');
 
-const tiptapEditor = createTestEditor({
-  extensions: [
-    Blockquote,
-    Bold,
-    BulletList,
-    Code,
-    CodeBlockHighlight,
-    DescriptionItem,
-    DescriptionList,
-    Details,
-    DetailsContent,
-    Division,
-    Emoji,
-    FootnoteDefinition,
-    FootnoteReference,
-    FootnotesSection,
-    Figure,
-    FigureCaption,
-    HardBreak,
-    Heading,
-    HorizontalRule,
-    Image,
-    InlineDiff,
-    Italic,
-    Link,
-    ListItem,
-    OrderedList,
-    Strike,
-    Table,
-    TableCell,
-    TableHeader,
-    TableRow,
-    TaskItem,
-    TaskList,
-  ],
-});
+const tiptapEditor = createTiptapEditor([Sourcemap]);
+
+const text = (val) => tiptapEditor.state.schema.text(val);
 
 const {
   builders: {
+    audio,
     doc,
     blockquote,
     bold,
@@ -83,17 +57,18 @@ const {
     codeBlock,
     details,
     detailsContent,
-    division,
+    div,
     descriptionItem,
     descriptionList,
+    drawioDiagram,
     emoji,
     footnoteDefinition,
     footnoteReference,
-    footnotesSection,
     figure,
     figureCaption,
     heading,
     hardBreak,
+    highlight,
     horizontalRule,
     image,
     inlineDiff,
@@ -102,6 +77,9 @@ const {
     listItem,
     orderedList,
     paragraph,
+    referenceDefinition,
+    reference,
+    referenceLabel,
     strike,
     table,
     tableCell,
@@ -109,6 +87,7 @@ const {
     tableRow,
     taskItem,
     taskList,
+    video,
   },
 } = createDocBuilder({
   tiptapEditor,
@@ -120,18 +99,18 @@ const {
     codeBlock: { nodeType: CodeBlockHighlight.name },
     details: { nodeType: Details.name },
     detailsContent: { nodeType: DetailsContent.name },
-    division: { nodeType: Division.name },
     descriptionItem: { nodeType: DescriptionItem.name },
     descriptionList: { nodeType: DescriptionList.name },
+    drawioDiagram: { nodeType: DrawioDiagram.name },
     emoji: { markType: Emoji.name },
     figure: { nodeType: Figure.name },
     figureCaption: { nodeType: FigureCaption.name },
     footnoteDefinition: { nodeType: FootnoteDefinition.name },
     footnoteReference: { nodeType: FootnoteReference.name },
-    footnotesSection: { nodeType: FootnotesSection.name },
     hardBreak: { nodeType: HardBreak.name },
     heading: { nodeType: Heading.name },
     horizontalRule: { nodeType: HorizontalRule.name },
+    highlight: { markType: Highlight.name },
     image: { nodeType: Image.name },
     inlineDiff: { markType: InlineDiff.name },
     italic: { nodeType: Italic.name },
@@ -139,6 +118,9 @@ const {
     listItem: { nodeType: ListItem.name },
     orderedList: { nodeType: OrderedList.name },
     paragraph: { nodeType: Paragraph.name },
+    referenceDefinition: { nodeType: ReferenceDefinition.name },
+    reference: { nodeType: Reference.name },
+    referenceLabel: { nodeType: ReferenceLabel.name },
     strike: { markType: Strike.name },
     table: { nodeType: Table.name },
     tableCell: { nodeType: TableCell.name },
@@ -146,14 +128,20 @@ const {
     tableRow: { nodeType: TableRow.name },
     taskItem: { nodeType: TaskItem.name },
     taskList: { nodeType: TaskList.name },
+    ...HTMLNodes.reduce(
+      (builders, htmlNode) => ({
+        ...builders,
+        [htmlNode.name]: { nodeType: htmlNode.name },
+      }),
+      {},
+    ),
   },
 });
 
-const serialize = (...content) =>
-  markdownSerializer({}).serialize({
-    schema: tiptapEditor.schema,
-    content: doc(...content).toJSON(),
-  });
+const serializeWithOptions = (options, ...content) =>
+  new MarkdownSerializer().serialize({ doc: doc(...content) }, options);
+
+const serialize = (...content) => new MarkdownSerializer().serialize({ doc: doc(...content) });
 
 describe('markdownSerializer', () => {
   it('correctly serializes bold', () => {
@@ -164,15 +152,26 @@ describe('markdownSerializer', () => {
     expect(serialize(paragraph(italic('italics')))).toBe('_italics_');
   });
 
-  it('correctly serializes code blocks wrapped by italics and bold marks', () => {
-    const text = 'code block';
+  it.each`
+    input                          | output
+    ${'code'}                      | ${'`code`'}
+    ${'code `with` backticks'}     | ${'``code `with` backticks``'}
+    ${'this is `inline-code`'}     | ${'`` this is `inline-code` ``'}
+    ${'`inline-code` in markdown'} | ${'`` `inline-code` in markdown ``'}
+    ${'```js'}                     | ${'`` ```js ``'}
+  `('correctly serializes inline code ("$input")', ({ input, output }) => {
+    expect(serialize(paragraph(code(input)))).toBe(output);
+  });
 
-    expect(serialize(paragraph(italic(code(text))))).toBe(`_\`${text}\`_`);
-    expect(serialize(paragraph(code(italic(text))))).toBe(`_\`${text}\`_`);
-    expect(serialize(paragraph(bold(code(text))))).toBe(`**\`${text}\`**`);
-    expect(serialize(paragraph(code(bold(text))))).toBe(`**\`${text}\`**`);
-    expect(serialize(paragraph(strike(code(text))))).toBe(`~~\`${text}\`~~`);
-    expect(serialize(paragraph(code(strike(text))))).toBe(`~~\`${text}\`~~`);
+  it('correctly serializes inline code wrapped by italics and bold marks', () => {
+    const content = 'code';
+
+    expect(serialize(paragraph(italic(code(content))))).toBe(`_\`${content}\`_`);
+    expect(serialize(paragraph(code(italic(content))))).toBe(`_\`${content}\`_`);
+    expect(serialize(paragraph(bold(code(content))))).toBe(`**\`${content}\`**`);
+    expect(serialize(paragraph(code(bold(content))))).toBe(`**\`${content}\`**`);
+    expect(serialize(paragraph(strike(code(content))))).toBe(`~~\`${content}\`~~`);
+    expect(serialize(paragraph(code(strike(content))))).toBe(`~~\`${content}\`~~`);
   });
 
   it('correctly serializes inline diff', () => {
@@ -184,6 +183,18 @@ describe('markdownSerializer', () => {
         ),
       ),
     ).toBe('{++30 lines+}{--10 lines-}');
+  });
+
+  it('correctly serializes highlight', () => {
+    expect(serialize(paragraph('this is some ', highlight('highlighted'), ' text'))).toBe(
+      'this is some <mark>highlighted</mark> text',
+    );
+  });
+
+  it('escapes < and > in a paragraph', () => {
+    expect(
+      serialize(paragraph(text("some prose: <this> and </this> looks like code, but isn't"))),
+    ).toBe("some prose: \\<this\\> and \\</this\\> looks like code, but isn't");
   });
 
   it('correctly serializes a line break', () => {
@@ -198,8 +209,16 @@ describe('markdownSerializer', () => {
 
   it('correctly serializes a plain URL link', () => {
     expect(serialize(paragraph(link({ href: 'https://example.com' }, 'https://example.com')))).toBe(
-      '<https://example.com>',
+      'https://example.com',
     );
+  });
+
+  it('correctly serializes a malformed URL-encoded link', () => {
+    expect(
+      serialize(
+        paragraph(link({ href: 'https://example.com/%E0%A4%A' }, 'https://example.com/%E0%A4%A')),
+      ),
+    ).toBe('https://example.com/%E0%A4%A');
   });
 
   it('correctly serializes a link with a title', () => {
@@ -237,8 +256,172 @@ describe('markdownSerializer', () => {
     ).toBe('[download file](file.zip "click here to download")');
   });
 
+  it('correctly serializes link references', () => {
+    expect(
+      serialize(
+        paragraph(
+          link(
+            {
+              href: 'gitlab-url',
+              isReference: true,
+            },
+            'GitLab',
+          ),
+        ),
+      ),
+    ).toBe('[GitLab][gitlab-url]');
+  });
+
+  it.each`
+    title          | canonicalSrc        | serialized
+    ${'Usage'}     | ${'usage'}          | ${'[[Usage]]'}
+    ${'Changelog'} | ${'docs/changelog'} | ${'[[Changelog|docs/changelog]]'}
+  `(
+    'correctly serializes a gollum (wiki) link: $serialized',
+    ({ title, canonicalSrc, serialized }) => {
+      expect(
+        serialize(
+          paragraph(
+            link(
+              {
+                isGollumLink: true,
+                isWikiPage: true,
+                href: '/gitlab-org/gitlab-test/-/wikis/link/to/some/wiki/page',
+                canonicalSrc,
+              },
+              title,
+            ),
+          ),
+        ),
+      ).toBe(serialized);
+    },
+  );
+
+  it('correctly serializes image references', () => {
+    expect(
+      serialize(
+        paragraph(
+          image({
+            canonicalSrc: 'gitlab-url',
+            src: 'image.svg',
+            alt: 'GitLab',
+            isReference: true,
+          }),
+        ),
+      ),
+    ).toBe('![GitLab][gitlab-url]');
+  });
+
+  it('correctly serializes references', () => {
+    expect(
+      serialize(
+        paragraph(
+          reference({
+            referenceType: 'issue',
+            originalText: '#123',
+            href: '/gitlab-org/gitlab-test/-/issues/123',
+            text: '#123',
+          }),
+        ),
+      ),
+    ).toBe('#123');
+  });
+
+  it('correctly renders a reference label', () => {
+    expect(
+      serialize(
+        paragraph(
+          referenceLabel({
+            referenceType: 'label',
+            originalText: '~foo',
+            href: '/gitlab-org/gitlab-test/-/labels/foo',
+            text: '~foo',
+          }),
+        ),
+      ),
+    ).toBe('~foo');
+  });
+
+  it('correctly renders a reference label without originalText', () => {
+    expect(
+      serialize(
+        paragraph(
+          referenceLabel({
+            referenceType: 'label',
+            href: '/gitlab-org/gitlab-test/-/labels/foo',
+            text: 'Foo Bar',
+          }),
+        ),
+      ),
+    ).toBe('~"Foo Bar"');
+  });
+
+  it('ensures spaces between multiple references', () => {
+    expect(
+      serialize(
+        paragraph(
+          reference({
+            referenceType: 'issue',
+            originalText: '#123',
+            href: '/gitlab-org/gitlab-test/-/issues/123',
+            text: '#123',
+          }),
+          referenceLabel({
+            referenceType: 'label',
+            originalText: '~foo',
+            href: '/gitlab-org/gitlab-test/-/labels/foo',
+            text: '~foo',
+          }),
+          reference({
+            referenceType: 'issue',
+            originalText: '#456',
+            href: '/gitlab-org/gitlab-test/-/issues/456',
+            text: '#456',
+          }),
+        ),
+        paragraph(
+          reference({
+            referenceType: 'command',
+            originalText: '/assign_reviewer',
+            text: '/assign_reviewer',
+          }),
+          reference({
+            referenceType: 'user',
+            originalText: '@johndoe',
+            href: '/johndoe',
+            text: '@johndoe',
+          }),
+        ),
+      ),
+    ).toBe('#123 ~foo #456\n\n/assign_reviewer @johndoe');
+  });
+
+  it.each`
+    src
+    ${'data:image/png;base64,iVBORw0KGgoAAAAN'}
+    ${'blob:https://gitlab.com/1234-5678-9012-3456'}
+  `('omits images with data/blob urls when serializing', ({ src }) => {
+    expect(serialize(paragraph(image({ src, alt: 'image' })))).toBe('');
+  });
+
+  it('does not escape url in an image', () => {
+    expect(
+      serialize(paragraph(image({ src: 'https://example.com/image__1_.png', alt: 'image' }))),
+    ).toBe('![image](https://example.com/image__1_.png)');
+  });
+
   it('correctly serializes strikethrough', () => {
     expect(serialize(paragraph(strike('deleted content')))).toBe('~~deleted content~~');
+  });
+
+  it.each`
+    strikeTag
+    ${'s'}
+    ${'strike'}
+  `('correctly serializes strikethrough with "$strikeTag" tag', ({ strikeTag }) => {
+    expect(serialize(paragraph(strike({ htmlTag: strikeTag }, 'deleted content')))).toBe(
+      `<${strikeTag}>deleted content</${strikeTag}>`,
+    );
   });
 
   it('correctly serializes blockquotes with hard breaks', () => {
@@ -261,6 +444,32 @@ describe('markdownSerializer', () => {
 > \`\`\`
       `.trim(),
     );
+  });
+
+  it('correctly serializes a blockquote with a nested blockquote', () => {
+    expect(
+      serialize(
+        blockquote(
+          paragraph('some paragraph'),
+          blockquote(paragraph('nested paragraph'), codeBlock('var x = 10;')),
+        ),
+      ),
+    ).toBe(
+      `
+> some paragraph
+>
+> > nested paragraph
+> >
+> > \`\`\`
+> > var x = 10;
+> > \`\`\`
+      `.trim(),
+    );
+  });
+
+  it('skips serializing an empty blockquote if skipEmptyNodes=true', () => {
+    expect(serializeWithOptions({ skipEmptyNodes: true }, blockquote())).toBe('');
+    expect(serializeWithOptions({ skipEmptyNodes: true }, blockquote(paragraph()))).toBe('');
   });
 
   it('correctly serializes a multiline blockquote', () => {
@@ -290,7 +499,7 @@ var y = 10;
     expect(
       serialize(
         codeBlock(
-          { language: 'json' },
+          { language: 'json', langParams: '' },
           'this is not really json but just trying out whether this case works or not',
         ),
       ),
@@ -301,6 +510,90 @@ this is not really json but just trying out whether this case works or not
 \`\`\`
       `.trim(),
     );
+  });
+
+  it('renders a plaintext code block without a prefix', () => {
+    expect(
+      serialize(
+        codeBlock(
+          { language: 'plaintext', langParams: '' },
+          'this is not really json but just trying out whether this case works or not',
+        ),
+      ),
+    ).toBe(
+      `
+\`\`\`
+this is not really json but just trying out whether this case works or not
+\`\`\`
+      `.trim(),
+    );
+  });
+
+  it('correctly serializes a code block with language parameters', () => {
+    expect(
+      serialize(
+        codeBlock(
+          { language: 'json', langParams: 'table' },
+          'this is not really json:table but just trying out whether this case works or not',
+        ),
+      ),
+    ).toBe(
+      `
+\`\`\`json:table
+this is not really json:table but just trying out whether this case works or not
+\`\`\`
+      `.trim(),
+    );
+  });
+
+  it('correctly serializes a markdown code block containing a nested code block', () => {
+    expect(
+      serialize(
+        codeBlock(
+          { language: 'markdown' },
+          'markdown code block **bold** _italic_ `code`\n\n```js\nvar a = 0;\n```\n\nend markdown code block',
+        ),
+      ),
+    ).toBe(
+      `
+\`\`\`\`markdown
+markdown code block **bold** _italic_ \`code\`
+
+\`\`\`js
+var a = 0;
+\`\`\`
+
+end markdown code block
+\`\`\`\`
+      `.trim(),
+    );
+  });
+
+  it('correctly serializes a markdown code block containing a markdown code block containing another code block', () => {
+    expect(
+      serialize(
+        codeBlock(
+          { language: 'markdown' },
+          '````md\na nested code block\n\n```js\nvar a = 0;\n```\n````',
+        ),
+      ),
+    ).toBe(
+      `
+\`\`\`\`\`markdown
+\`\`\`\`md
+a nested code block
+
+\`\`\`js
+var a = 0;
+\`\`\`
+\`\`\`\`
+\`\`\`\`\`
+      `.trim(),
+    );
+  });
+
+  it('skips serializing an empty code block if skipEmptyNodes=true', () => {
+    expect(serializeWithOptions({ skipEmptyNodes: true }, codeBlock())).toBe('');
   });
 
   it('correctly serializes emoji', () => {
@@ -334,6 +627,20 @@ this is not really json but just trying out whether this case works or not
     );
   });
 
+  it('skips serializing an empty heading if skipEmptyNodes=true', () => {
+    expect(
+      serializeWithOptions(
+        { skipEmptyNodes: true },
+        heading({ level: 1 }),
+        heading({ level: 2 }),
+        heading({ level: 3 }),
+        heading({ level: 4 }),
+        heading({ level: 5 }),
+        heading({ level: 6 }),
+      ),
+    ).toBe('');
+  });
+
   it('correctly serializes horizontal rule', () => {
     expect(serialize(horizontalRule(), horizontalRule(), horizontalRule())).toBe(
       `
@@ -351,6 +658,32 @@ this is not really json but just trying out whether this case works or not
       '![foo bar](img.jpg)',
     );
   });
+
+  it('correctly serializes a drawio_diagram', () => {
+    expect(
+      serialize(paragraph(drawioDiagram({ src: 'diagram.drawio.svg', alt: 'Draw.io Diagram' }))),
+    ).toBe('![Draw.io Diagram](diagram.drawio.svg)');
+  });
+
+  it.each`
+    width        | height       | outputAttributes
+    ${300}       | ${undefined} | ${'width=300'}
+    ${undefined} | ${300}       | ${'height=300'}
+    ${300}       | ${300}       | ${'width=300 height=300'}
+    ${'300%'}    | ${'300px'}   | ${'width="300%" height="300px"'}
+  `(
+    'correctly serializes an image with width and height attributes',
+    ({ width, height, outputAttributes }) => {
+      const imageAttrs = { src: 'img.jpg', alt: 'foo bar' };
+
+      if (width) imageAttrs.width = width;
+      if (height) imageAttrs.height = height;
+
+      expect(serialize(paragraph(image(imageAttrs)))).toBe(
+        `![foo bar](img.jpg){${outputAttributes}}`,
+      );
+    },
+  );
 
   it('does not serialize an image when src and canonicalSrc are empty', () => {
     expect(serialize(paragraph(image({})))).toBe('');
@@ -375,6 +708,22 @@ this is not really json but just trying out whether this case works or not
         ),
       ),
     ).toBe('![this is an image](file.png "foo bar baz")');
+  });
+
+  it('does not use the canonicalSrc if options.useCanonicalSrc=false', () => {
+    expect(
+      serializeWithOptions(
+        { useCanonicalSrc: false },
+        paragraph(
+          image({
+            src: '/uploads/abcde/file.png',
+            alt: 'this is an image',
+            canonicalSrc: 'file.png',
+            title: 'foo bar baz',
+          }),
+        ),
+      ),
+    ).toBe('![this is an image](/uploads/abcde/file.png "foo bar baz")');
   });
 
   it('correctly serializes bullet list', () => {
@@ -419,6 +768,52 @@ this is not really json but just trying out whether this case works or not
 + list item 3
   - sub-list item 1
   - sub-list item 2
+      `.trim(),
+    );
+  });
+
+  it('correctly serializes a task list with inapplicable items', () => {
+    expect(
+      serialize(
+        taskList(
+          taskItem({ checked: true }, paragraph('list item 1')),
+          taskItem({ checked: true, inapplicable: true }, paragraph('list item 2')),
+          taskItem(paragraph('list item 3')),
+        ),
+      ),
+    ).toBe(
+      `
+* [x] list item 1
+* [~] list item 2
+* [ ] list item 3
+    `.trim(),
+    );
+  });
+
+  it('correctly serializes bullet task list with different bullet styles', () => {
+    expect(
+      serialize(
+        taskList(
+          { bullet: '+' },
+          taskItem({ checked: true }, paragraph('list item 1')),
+          taskItem(paragraph('list item 2')),
+          taskItem(
+            paragraph('list item 3'),
+            taskList(
+              { bullet: '-' },
+              taskItem({ checked: true }, paragraph('sub-list item 1')),
+              taskItem(paragraph('sub-list item 2')),
+            ),
+          ),
+        ),
+      ),
+    ).toBe(
+      `
++ [x] list item 1
++ [ ] list item 2
++ [ ] list item 3
+  - [x] sub-list item 1
+  - [ ] sub-list item 2
       `.trim(),
     );
   });
@@ -688,7 +1083,8 @@ content 2
     expect(
       serialize(
         details(
-          detailsContent(paragraph('dream level 1')),
+          // if paragraph contains special characters, it should be escaped and rendered as block
+          detailsContent(paragraph('dream level 1*')),
           detailsContent(
             details(
               detailsContent(paragraph('dream level 2')),
@@ -705,7 +1101,10 @@ content 2
     ).toBe(
       `
 <details>
-<summary>dream level 1</summary>
+<summary>
+
+dream level 1\\*
+</summary>
 
 <details>
 <summary>dream level 2</summary>
@@ -727,8 +1126,8 @@ _inception_
   it('correctly renders div', () => {
     expect(
       serialize(
-        division(paragraph('just a paragraph in a div')),
-        division(paragraph('just some ', bold('styled'), ' ', italic('content'), ' in a div')),
+        div(paragraph('just a paragraph in a div')),
+        div(paragraph('just some ', bold('styled'), ' ', italic('content'), ' in a div')),
       ),
     ).toBe(
       '<div>just a paragraph in a div</div>\n<div>\n\njust some **styled** _content_ in a div\n\n</div>',
@@ -811,6 +1210,116 @@ _An elephant at sunset_
     );
   });
 
+  it('correctly serializes a table with inline content with alignment', () => {
+    expect(
+      serialize(
+        table(
+          // each table cell must contain at least one paragraph
+          tableRow(
+            tableHeader({ align: 'center' }, paragraph('header')),
+            tableHeader({ align: 'right' }, paragraph('header')),
+            tableHeader({ align: 'left' }, paragraph('header')),
+          ),
+          tableRow(
+            tableCell(paragraph('cell')),
+            tableCell(paragraph('cell')),
+            tableCell(paragraph('cell')),
+          ),
+          tableRow(
+            tableCell(paragraph('cell')),
+            tableCell(paragraph('cell')),
+            tableCell(paragraph('cell')),
+          ),
+        ),
+      ).trim(),
+    ).toBe(
+      `
+| header | header | header |
+|:------:|-------:|--------|
+| cell | cell | cell |
+| cell | cell | cell |
+    `.trim(),
+    );
+  });
+
+  it('correctly serializes a table with a pipe in a cell', () => {
+    expect(
+      serialize(
+        table(
+          tableRow(
+            tableHeader(paragraph('header')),
+            tableHeader(paragraph('header')),
+            tableHeader(paragraph('header')),
+          ),
+          tableRow(
+            tableCell(paragraph('cell')),
+            tableCell(paragraph('cell | cell')),
+            tableCell(paragraph(bold('a|b|c'))),
+          ),
+        ),
+      ).trim(),
+    ).toBe(
+      `
+| header | header | header |
+|--------|--------|--------|
+| cell | cell \\| cell | **a\\|b\\|c** |
+      `.trim(),
+    );
+  });
+
+  it('correctly renders a table with checkboxes', () => {
+    expect(
+      serialize(
+        table(
+          // each table cell must contain at least one paragraph
+          tableRow(
+            tableHeader(paragraph('')),
+            tableHeader(paragraph('Item')),
+            tableHeader(paragraph('Description')),
+          ),
+          tableRow(
+            tableCell(taskList(taskItem(paragraph('')))),
+            tableCell(paragraph('Item 1')),
+            tableCell(paragraph('Description 1')),
+          ),
+          tableRow(
+            tableCell(taskList(taskItem(paragraph('some text')))),
+            tableCell(paragraph('Item 2')),
+            tableCell(paragraph('Description 2')),
+          ),
+        ),
+      ).trim(),
+    ).toBe(
+      `
+<table>
+<tr>
+<th>
+
+</th>
+<th>Item</th>
+<th>Description</th>
+</tr>
+<tr>
+<td>
+
+* [ ] &nbsp;
+</td>
+<td>Item 1</td>
+<td>Description 1</td>
+</tr>
+<tr>
+<td>
+
+* [ ] some text
+</td>
+<td>Item 2</td>
+<td>Description 2</td>
+</tr>
+</table>
+    `.trim(),
+    );
+  });
+
   it('correctly serializes a table with line breaks', () => {
     expect(
       serialize(
@@ -868,7 +1377,8 @@ _An elephant at sunset_
         table(
           tableRow(
             tableHeader(paragraph('examples of')),
-            tableHeader(paragraph('block content')),
+            // if a node contains special characters, it should be escaped and rendered as block
+            tableHeader(paragraph('block content*')),
             tableHeader(paragraph('in tables')),
             tableHeader(paragraph('in content editor')),
           ),
@@ -925,7 +1435,10 @@ _An elephant at sunset_
 <table>
 <tr>
 <th>examples of</th>
-<th>block content</th>
+<th>
+
+block content\\*
+</th>
 <th>in tables</th>
 <th>in content editor</th>
 </tr>
@@ -1145,18 +1658,170 @@ there
   it('correctly serializes footnotes', () => {
     expect(
       serialize(
-        paragraph(
-          'Oranges are orange ',
-          footnoteReference({ footnoteId: '1', footnoteNumber: '1' }),
-        ),
-        footnotesSection(footnoteDefinition(paragraph('Oranges are fruits'))),
+        paragraph('Oranges are orange ', footnoteReference({ label: '1', identifier: '1' })),
+        footnoteDefinition({ label: '1', identifier: '1' }, 'Oranges are fruits'),
       ),
     ).toBe(
       `
 Oranges are orange [^1]
 
 [^1]: Oranges are fruits
-      `.trim(),
+`.trimLeft(),
     );
   });
+
+  it('correctly adds a space between a preceding block element and a markdown table', () => {
+    expect(
+      serialize(
+        bulletList(listItem(paragraph('List item 1')), listItem(paragraph('List item 2'))),
+        table(tableRow(tableHeader(paragraph('header'))), tableRow(tableCell(paragraph('cell')))),
+      ).trim(),
+    ).toBe(
+      `
+* List item 1
+* List item 2
+
+| header |
+|--------|
+| cell |
+    `.trim(),
+    );
+  });
+
+  it('correctly serializes reference definition', () => {
+    expect(
+      serialize(
+        referenceDefinition('[gitlab]: https://gitlab.com'),
+        referenceDefinition('[foobar]: foobar.com'),
+      ),
+    ).toBe(
+      `
+[gitlab]: https://gitlab.com
+[foobar]: foobar.com`.trimLeft(),
+    );
+  });
+
+  it('correctly adds a space between a reference definition and a block content', () => {
+    expect(
+      serialize(
+        paragraph('paragraph'),
+        referenceDefinition('[gitlab]: https://gitlab.com'),
+        referenceDefinition('[foobar]: foobar.com'),
+        heading({ level: 2 }, 'heading'),
+      ),
+    ).toBe(
+      `
+paragraph
+
+[gitlab]: https://gitlab.com
+[foobar]: foobar.com
+
+## heading`.trimLeft(),
+    );
+  });
+
+  it('serializes audio and video elements', () => {
+    expect(
+      serialize(
+        paragraph(
+          audio({ alt: 'audio', canonicalSrc: 'audio.mp3' }),
+          ' and ',
+          video({ alt: 'video', canonicalSrc: 'video.mov' }),
+        ),
+      ),
+    ).toBe(
+      `
+![audio](audio.mp3) and ![video](video.mov)`.trimLeft(),
+    );
+  });
+
+  const defaultEditAction = (initialContent) => {
+    tiptapEditor.chain().setContent(initialContent.toJSON()).insertContent(' modified').run();
+  };
+
+  const prependContentEditAction = (initialContent) => {
+    tiptapEditor
+      .chain()
+      .setContent(initialContent.toJSON())
+      .setTextSelection(0)
+      .insertContent('modified ')
+      .run();
+  };
+
+  const editNonInclusiveMarkAction = (initialContent) => {
+    tiptapEditor.commands.setContent(initialContent.toJSON());
+    tiptapEditor.commands.selectTextblockEnd();
+
+    let { from } = tiptapEditor.state.selection;
+    tiptapEditor.commands.setTextSelection({
+      from: from - 1,
+      to: from - 1,
+    });
+
+    const sel = tiptapEditor.state.doc.textBetween(from - 1, from, ' ');
+    tiptapEditor.commands.insertContent(`${sel} modified`);
+
+    tiptapEditor.commands.selectTextblockEnd();
+    from = tiptapEditor.state.selection.from;
+
+    tiptapEditor.commands.deleteRange({ from: from - 1, to: from });
+  };
+
+  it.each`
+    mark                   | markdown                                        | modifiedMarkdown                                         | editAction
+    ${'bold'}              | ${'**bold**'}                                   | ${'**bold modified**'}                                   | ${defaultEditAction}
+    ${'bold'}              | ${'__bold__'}                                   | ${'__bold modified__'}                                   | ${defaultEditAction}
+    ${'bold'}              | ${'<strong>bold</strong>'}                      | ${'<strong>bold modified</strong>'}                      | ${defaultEditAction}
+    ${'bold'}              | ${'<b>bold</b>'}                                | ${'<b>bold modified</b>'}                                | ${defaultEditAction}
+    ${'italic'}            | ${'_italic_'}                                   | ${'_italic modified_'}                                   | ${defaultEditAction}
+    ${'italic'}            | ${'*italic*'}                                   | ${'*italic modified*'}                                   | ${defaultEditAction}
+    ${'italic'}            | ${'<em>italic</em>'}                            | ${'<em>italic modified</em>'}                            | ${defaultEditAction}
+    ${'italic'}            | ${'<i>italic</i>'}                              | ${'<i>italic modified</i>'}                              | ${defaultEditAction}
+    ${'link'}              | ${'[gitlab](https://gitlab.com)'}               | ${'[gitlab modified](https://gitlab.com)'}               | ${editNonInclusiveMarkAction}
+    ${'link'}              | ${'<a href="https://gitlab.com">link</a>'}      | ${'<a href="https://gitlab.com">link modified</a>'}      | ${editNonInclusiveMarkAction}
+    ${'link'}              | ${'link www.gitlab.com'}                        | ${'modified link www.gitlab.com'}                        | ${prependContentEditAction}
+    ${'link'}              | ${'link https://www.gitlab.com'}                | ${'modified link https://www.gitlab.com'}                | ${prependContentEditAction}
+    ${'link'}              | ${'link(https://www.gitlab.com)'}               | ${'modified link(https://www.gitlab.com)'}               | ${prependContentEditAction}
+    ${'link'}              | ${'link(engineering@gitlab.com)'}               | ${'modified link(engineering@gitlab.com)'}               | ${prependContentEditAction}
+    ${'link'}              | ${'link <https://www.gitlab.com>'}              | ${'modified link <https://www.gitlab.com>'}              | ${prependContentEditAction}
+    ${'link'}              | ${'link https://www.gitlab.com/path'}           | ${'modified link https://www.gitlab.com/path'}           | ${prependContentEditAction}
+    ${'link'}              | ${'link https://www.gitlab.com?query=search'}   | ${'modified link https://www.gitlab.com?query=search'}   | ${prependContentEditAction}
+    ${'link'}              | ${'link https://www.gitlab.com/#fragment'}      | ${'modified link https://www.gitlab.com/#fragment'}      | ${prependContentEditAction}
+    ${'link'}              | ${'link https://www.gitlab.com/?query=search'}  | ${'modified link https://www.gitlab.com/?query=search'}  | ${prependContentEditAction}
+    ${'link'}              | ${'link https://www.gitlab.com#fragment'}       | ${'modified link https://www.gitlab.com#fragment'}       | ${prependContentEditAction}
+    ${'link'}              | ${'link **https://www.gitlab.com]**'}           | ${'modified link **https://www.gitlab.com\\]**'}         | ${prependContentEditAction}
+    ${'code'}              | ${'`code`'}                                     | ${'`code modified`'}                                     | ${defaultEditAction}
+    ${'code'}              | ${'<code>code</code>'}                          | ${'<code>code modified</code>'}                          | ${defaultEditAction}
+    ${'strike'}            | ${'~~striked~~'}                                | ${'~~striked modified~~'}                                | ${defaultEditAction}
+    ${'strike'}            | ${'<del>striked</del>'}                         | ${'<del>striked modified</del>'}                         | ${defaultEditAction}
+    ${'strike'}            | ${'<strike>striked</strike>'}                   | ${'<strike>striked modified</strike>'}                   | ${defaultEditAction}
+    ${'strike'}            | ${'<s>striked</s>'}                             | ${'<s>striked modified</s>'}                             | ${defaultEditAction}
+    ${'list'}              | ${'- list item'}                                | ${'- list item modified'}                                | ${defaultEditAction}
+    ${'list'}              | ${'* list item'}                                | ${'* list item modified'}                                | ${defaultEditAction}
+    ${'list'}              | ${'+ list item'}                                | ${'+ list item modified'}                                | ${defaultEditAction}
+    ${'list'}              | ${'- list item 1\n- list item 2'}               | ${'- list item 1\n- list item 2 modified'}               | ${defaultEditAction}
+    ${'list'}              | ${'2) list item'}                               | ${'2) list item modified'}                               | ${defaultEditAction}
+    ${'list'}              | ${'1. list item'}                               | ${'1. list item modified'}                               | ${defaultEditAction}
+    ${'taskList'}          | ${'2) [ ] task list item'}                      | ${'2) [ ] task list item modified'}                      | ${defaultEditAction}
+    ${'taskList'}          | ${'2) [x] task list item'}                      | ${'2) [x] task list item modified'}                      | ${defaultEditAction}
+    ${'image'}             | ${'![image](image.png)'}                        | ${'![image](image.png) modified'}                        | ${defaultEditAction}
+    ${'footnoteReference'} | ${'[^1] footnote\n\n[^1]: footnote definition'} | ${'modified [^1] footnote\n\n[^1]: footnote definition'} | ${prependContentEditAction}
+  `(
+    'preserves original $mark syntax when sourceMarkdown is available for $markdown',
+    async ({ markdown, modifiedMarkdown, editAction }) => {
+      const { document } = await remarkMarkdownDeserializer().deserialize({
+        schema: tiptapEditor.schema,
+        markdown,
+      });
+
+      editAction(document);
+
+      const serialized = new MarkdownSerializer().serialize({
+        pristineDoc: document,
+        doc: tiptapEditor.state.doc,
+      });
+
+      expect(serialized).toEqual(modifiedMarkdown);
+    },
+  );
 });

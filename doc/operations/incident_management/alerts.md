@@ -1,19 +1,20 @@
 ---
 stage: Monitor
 group: Respond
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Alerts **(FREE)**
+# Alerts
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Alerts are a critical entity in your incident management workflow. They represent a notable event that might indicate a service outage or disruption. GitLab provides a list view for triage and detail view for deeper investigation of what happened.
 
-## Alert List
+## Alert list
 
-Users with at least the Developer role can
-access the Alert list at **Monitor > Alerts** in your project's
-sidebar. The Alert list displays alerts sorted by start time, but
-you can change the sort order by clicking the headers in the Alert list.
+Users with at least the Developer role can access the Alert list at **Monitor > Alerts** in your project's sidebar. The Alert list displays alerts sorted by start time, but you can change the sort order by selecting the headers in the Alert list.
 
 The alert list displays the following information:
 
@@ -21,7 +22,6 @@ The alert list displays the following information:
 
 - **Search**: The alert list supports a simple free text search on the title,
   description, monitoring tool, and service fields.
-  ([Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/213884) in GitLab 13.1.)
 - **Severity**: The current importance of a alert and how much attention it
   should receive. For a listing of all statuses, read [Alert Management severity](#alert-severity).
 - **Start time**: How long ago the alert fired. This field uses the standard
@@ -35,18 +35,11 @@ The alert list displays the following information:
   - **Triggered**: Investigation has not started.
   - **Acknowledged**: Someone is actively investigating the problem.
   - **Resolved**: No further work is required.
-  - **Ignored**: No action will be taken on the alert.
-
-NOTE:
-Check out a live example available from the
-[`tanuki-inc` project page](https://gitlab-examples-ops-incident-setup-everyone-tanuki-inc.34.69.64.147.nip.io/)
-in GitLab to examine alerts in action.
+  - **Ignored**: No action is taken on the alert.
 
 ## Alert severity
 
-Each level of alert contains a uniquely shaped and color-coded icon to help
-you identify the severity of a particular alert. These severity icons help you
-immediately identify which alerts you should prioritize investigating:
+Each level of alert contains a uniquely shaped and color-coded icon to help you identify the severity of a particular alert. These severity icons help you immediately identify which alerts you should prioritize investigating:
 
 ![Alert Management Severity System](img/alert_management_severity_v13_0.png)
 
@@ -67,18 +60,9 @@ Alerts contain one of the following icons:
 
 ## Alert details page
 
-Navigate to the Alert details view by visiting the [Alert list](alerts.md)
-and selecting an alert from the list. You need at least the Developer role
-to access alerts.
+Go to the Alert details view by visiting the [Alert list](alerts.md) and selecting an alert from the list. You need at least the Developer role to access alerts. Select any alert in the list to examine its alert details page.
 
-NOTE:
-To review live examples of GitLab alerts, visit the
-[alert list](https://gitlab.com/gitlab-examples/ops/incident-setup/everyone/tanuki-inc/-/alert_management)
-for this demo project. Select any alert in the list to examine its alert details
-page.
-
-Alerts provide **Overview** and **Alert details** tabs to give you the right
-amount of information you need.
+Alerts provide **Overview** and **Alert details** tabs to give you the right amount of information you need.
 
 ### Alert details tab
 
@@ -86,63 +70,27 @@ The **Alert details** tab has two sections. The top section provides a short lis
 
 ### Metrics tab
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/217768) in GitLab 13.2.
+This tab shows a metrics chart for alerts coming from Prometheus. In many cases, alerts are associated to metrics. You can upload screenshots of metric charts in the **Metrics** tab.
 
-The **Metrics** tab displays a metrics chart for alerts coming from Prometheus. If the alert originated from any other tool, the **Metrics** tab is empty.
-For externally-managed Prometheus instances, you must configure your alerting rules to display a chart in the alert. For information about how to configure
-your alerting rules, see [Embedding metrics based on alerts in incident issues](../metrics/embed.md#embedding-metrics-based-on-alerts-in-incident-issues). See
-[External Prometheus instances](../metrics/alerts.md#external-prometheus-instances) for information about setting up alerts for your self-managed Prometheus
-instance.
+To do so, either:
 
-Prerequisite:
+- Select **upload** and then select an image from your file browser.
+- Drag a file from your file browser and drop it in the drop zone.
 
-- You must have at least the Developer role.
+When you upload an image, you can add text to the image and link it to the original graph.
 
-To view the metrics for an alert:
+![Text link modal](img/incident_metrics_tab_text_link_modal_v14_9.png)
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Monitor > Alerts**.
-1. Select the alert you want to view.
-1. Below the title of the alert, select the **Metrics** tab.
-
-![Alert Metrics View](img/alert_detail_metrics_v13_2.png)
-
-#### View an alert's logs
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/201846) in GitLab Ultimate 12.8.
-> - [Improved](https://gitlab.com/gitlab-org/gitlab/-/issues/217768) in GitLab 13.3.
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/25455) from GitLab Ultimate to GitLab Free in 12.9.
-
-Viewing logs from a metrics panel can be useful if you're triaging an
-application incident and need to [explore logs](../metrics/dashboards/index.md#chart-context-menu)
-from across your application. These logs help you understand what's affecting
-your application's performance and how to resolve any problems.
-
-Prerequisite:
-
-- You must have at least the Developer role.
-
-To view the logs for an alert:
-
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Monitor > Alerts**.
-1. Select the alert you want to view.
-1. Below the title of the alert, select the **Metrics** tab.
-1. Select the [menu](../metrics/dashboards/index.md#chart-context-menu) of
-   the metric chart to view options.
-1. Select **View logs**.
+If you add a link, it is shown above the uploaded image.
 
 ### Activity feed tab
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/3066) in GitLab 13.1.
-
-The **Activity feed** tab is a log of activity on the alert. When you take action on an alert, this is logged as a system note. This gives you a linear
-timeline of the alert's investigation and assignment history.
+The **Activity feed** tab is a log of activity on the alert. When you take action on an alert, this is logged as a system note. This gives you a linear timeline of the alert's investigation and assignment history.
 
 The following actions result in a system note:
 
-- [Updating the status of an alert](#update-an-alerts-status)
-- [Creating an incident based on an alert](#create-an-incident-from-an-alert)
+- [Updating the status of an alert](#change-an-alerts-status)
+- [Creating an incident based on an alert](manage_incidents.md#from-an-alert)
 - [Assignment of an alert to a user](#assign-an-alert)
 - [Escalation of an alert to on-call responders](paging.md#escalating-an-alert)
 
@@ -152,89 +100,110 @@ The following actions result in a system note:
 
 There are different actions available in GitLab to help triage and respond to alerts.
 
-### Update an alert's status
+### Change an alert's status
 
-**Triggered** is the default status for new alerts. For users with the Developer role or higher, the
-alert status can be updated from these locations:
+You can change the status of an alert.
 
-- [Alert list](#alert-list): select the status dropdown corresponding to an alert, then select an
-  alternate status.
-- [Alert details page](#alert-details-page): select **Edit** in the right-hand side bar, then select
-  an alternate status.
+The available statuses are:
 
-To stop email notifications for alert reoccurrences in projects with [email notifications enabled](paging.md#email-notifications-for-alerts),
-[change the alert's status](alerts.md#update-an-alerts-status) away from **Triggered**.
+- Triggered (default for new alerts)
+- Acknowledged
+- Resolved
 
-In projects with GitLab Premium, on-call responders can respond to [alert pages](paging.md#escalating-an-alert)
-by changing the status. Setting the status to:
+Prerequisites:
 
-- **Resolved** silences all on-call pages for the alert.
-- **Acknowledged** limits on-call pages based on the project's [escalation policy](escalation_policies.md).
-- **Triggered** from **Resolved** restarts the alert escalating from the beginning.
+- You must have at least the Developer role.
 
-For [alerts with an associated incident](alerts.md#create-an-incident-from-an-alert),
-updating the alert status also updates the incident status.
+To change an alert's status:
 
-### Create an incident from an alert
+- From the [alert list](#alert-list):
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/217745) in GitLab 13.1.
+  1. In the **Status** column, next to an alert, select the status dropdown list.
+  1. Select a status.
 
-The Alert detail view enables you to create an issue with a
-description populated from an alert. To create the issue,
-select the **Create Issue** button. You can then view the issue from the
-alert by selecting the **View Issue** button.
+- From the [alert details page](#alert-details-page):
 
-You can also [create incidents for alerts automatically](incidents.md#create-incidents-automatically).
+  1. On the right sidebar, select **Edit**.
+  1. Select a status.
 
-Closing a GitLab issue associated with an alert [changes the alert's status](#update-an-alerts-status) to
-**Resolved**. See [Alert List](#alert-list) for more details
-about alert statuses.
+To stop email notifications for alert recurrences in projects with [email notifications enabled](paging.md#email-notifications-for-alerts), change the alert's status away from **Triggered**.
+
+#### Resolve an alert by closing the linked incident
+
+Prerequisites:
+
+- You must have at least the Reporter role.
+
+When you [close an incident](manage_incidents.md#close-an-incident) that is linked to an alert, GitLab [changes the alert's status](#change-an-alerts-status) to **Resolved**. You are then credited with the alert's status change.
+
+#### As an on-call responder
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+On-call responders can respond to [alert pages](paging.md#escalating-an-alert) by changing the alert status.
+
+Changing the status has the following effects:
+
+- To **Acknowledged**: limits on-call pages based on the project's [escalation policy](escalation_policies.md).
+- To **Resolved**: silences all on-call pages for the alert.
+- From **Resolved** to **Triggered**: restarts the alert escalating.
+
+In GitLab 15.1 and earlier, updating the status of an [alert with an associated incident](manage_incidents.md#from-an-alert) also updates the incident status. In [GitLab 15.2 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/356057), the incident status is independent and does not update when the alert status changes.
 
 ### Assign an alert
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/3066) in GitLab 13.1.
-
-In large teams, where there is shared ownership of an alert, it can be
-difficult to track who is investigating and working on it. Assigning alerts eases collaboration and delegation by indicating which user is owning the alert. GitLab supports only a single assignee per alert.
+In large teams, where there is shared ownership of an alert, it can be difficult to track who is investigating and working on it. Assigning alerts eases collaboration and delegation by indicating which user is owning the alert. GitLab supports only a single assignee per alert.
 
 To assign an alert:
 
 1. Display the list of current alerts:
 
-   1. On the top bar, select **Menu > Projects** and find your project.
-   1. On the left sidebar, select **Monitor > Alerts**.
+   1. On the left sidebar, select **Search or go to** and find your project.
+   1. Select **Monitor > Alerts**.
 
 1. Select your desired alert to display its details.
 
-   ![Alert Details View Assignee(s)](img/alert_details_assignees_v13_1.png)
+   ![Alert Details View Assignees](img/alert_details_assignees_v13_1.png)
 
 1. If the right sidebar is not expanded, select
-   **Expand sidebar** (**{angle-double-right}**) to expand it.
+   **Expand sidebar** (**{chevron-double-lg-right}**) to expand it.
 
 1. On the right sidebar, locate the **Assignee**, and then select **Edit**.
    From the list, select each user you want to assign to the alert.
    GitLab creates a [to-do item](../../user/todos.md) for each user.
 
-After completing their portion of investigating or fixing the alert, users can
-unassign themselves from the alert. To remove an assignee, select **Edit** next to the **Assignee** dropdown menu
-and clear the user from the list of assignees, or select **Unassigned**.
+After completing their portion of investigating or fixing the alert, users can unassign themselves from the alert. To remove an assignee, select **Edit** next to the **Assignee** dropdown list and clear the user from the list of assignees, or select **Unassigned**.
 
 ### Create a to-do item from an alert
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/3066) in GitLab 13.1.
+You can manually create a [to-do item](../../user/todos.md) for yourself from an alert, and view it later on your **To-Do List**.
 
-You can manually create [To-Do list items](../../user/todos.md) for yourself
-from the Alert details screen, and view them later on your **To-Do List**. To
-add a to-do item:
+To add a to-do item, on the right sidebar, select **Add a to do**.
 
-1. Display the list of current alerts:
+### Trigger actions from alerts
 
-   1. On the top bar, select **Menu > Projects** and find your project.
-   1. On the left sidebar, select **Monitor > Alerts**.
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-1. Select your desired alert to display its **Alert Management Details View**.
-1. On the right sidebar, select **Add a to do**:
+Turn on creating [incidents](incidents.md) automatically whenever an alert is triggered.
 
-   ![Alert Details Add a to do](img/alert_detail_add_todo_v13_9.png)
+Prerequisites:
 
-To view your To-Do List, on the top bar, select **To-Do List** (**{todo-done}**).
+- You must have at least the Maintainer role for the project.
+
+To configure the actions:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Monitor**.
+1. Expand the **Alerts** section, then select the **Alert settings** tab.
+1. Select the **Create an incident** checkbox.
+1. Optional. To customize the incident, from the **Incident template**, select a template to be
+   appended to the [incident summary](incidents.md#summary).
+   If the dropdown list is empty,
+   [create an issue template](../../user/project/description_templates.md#create-an-issue-template) first.
+1. Optional. To send [an email notification](paging.md#email-notifications-for-alerts), select the
+   **Send a single email notification to Owners and Maintainers for new alerts** checkbox.
+1. Select **Save changes**.

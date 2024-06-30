@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/golang/gddo/httputil"
 	grpccodes "google.golang.org/grpc/codes"
@@ -13,7 +14,7 @@ import (
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/gitaly"
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 )
 
 func GetInfoRefsHandler(a *api.API) http.Handler {
@@ -21,7 +22,7 @@ func GetInfoRefsHandler(a *api.API) http.Handler {
 }
 
 func handleGetInfoRefs(rw http.ResponseWriter, r *http.Request, a *api.Response) {
-	responseWriter := NewHttpResponseWriter(rw)
+	responseWriter := NewHTTPResponseWriter(rw)
 	// Log 0 bytes in because we ignore the request body (and there usually is none anyway).
 	defer responseWriter.Log(r, 0)
 
@@ -46,14 +47,15 @@ func handleGetInfoRefs(rw http.ResponseWriter, r *http.Request, a *api.Response)
 		err = fmt.Errorf("handleGetInfoRefs: %v", err)
 
 		if status != nil && status.Code() == grpccodes.Unavailable {
-			helper.CaptureAndFail(responseWriter, r, err, "The git server, Gitaly, is not available at this time. Please contact your administrator.", http.StatusServiceUnavailable)
+			fail.Request(responseWriter, r, err, fail.WithStatus(http.StatusServiceUnavailable),
+				fail.WithBody("The git server, Gitaly, is not available at this time. Please contact your administrator."))
 		} else {
-			helper.Fail500(responseWriter, r, err)
+			fail.Request(responseWriter, r, err)
 		}
 	}
 }
 
-func handleGetInfoRefsWithGitaly(ctx context.Context, responseWriter *HttpResponseWriter, a *api.Response, rpc, gitProtocol, encoding string) error {
+func handleGetInfoRefsWithGitaly(ctx context.Context, responseWriter *HTTPResponseWriter, a *api.Response, rpc, gitProtocol, encoding string) error {
 	ctx, smarthttp, err := gitaly.NewSmartHTTPClient(ctx, a.GitalyServer)
 	if err != nil {
 		return err
@@ -64,21 +66,43 @@ func handleGetInfoRefsWithGitaly(ctx context.Context, responseWriter *HttpRespon
 		return err
 	}
 
-	var w io.Writer
-
+	var w io.WriteCloser = nopCloser{responseWriter}
 	if encoding == "gzip" {
-		gzWriter := gzip.NewWriter(responseWriter)
-		w = gzWriter
-		defer gzWriter.Close()
+		gzWriter := getGzWriter(responseWriter)
+		defer putGzWriter(gzWriter)
 
+		w = gzWriter
 		responseWriter.Header().Set("Content-Encoding", "gzip")
-	} else {
-		w = responseWriter
 	}
 
 	if _, err = io.Copy(w, infoRefsResponseReader); err != nil {
 		return err
 	}
 
+	if err := w.Close(); err != nil {
+		return err
+	}
+
 	return nil
 }
+
+var gzipPool = &sync.Pool{New: func() interface{} {
+	// Invariant: the inner writer is io.Discard. We do not want to retain
+	// response writers of past requests in the pool.
+	return gzip.NewWriter(io.Discard)
+}}
+
+func getGzWriter(w io.Writer) *gzip.Writer {
+	gzWriter := gzipPool.Get().(*gzip.Writer)
+	gzWriter.Reset(w)
+	return gzWriter
+}
+
+func putGzWriter(w *gzip.Writer) {
+	w.Reset(io.Discard) // Maintain pool invariant
+	gzipPool.Put(w)
+}
+
+type nopCloser struct{ io.Writer }
+
+func (nc nopCloser) Close() error { return nil }

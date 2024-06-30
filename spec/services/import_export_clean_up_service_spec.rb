@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe ImportExportCleanUpService do
+RSpec.describe ImportExportCleanUpService, feature_category: :importers do
   describe '#execute' do
     let(:service) { described_class.new }
 
     let(:tmp_import_export_folder) { 'tmp/gitlab_exports' }
 
     before do
-      allow_next_instance_of(Gitlab::Import::Logger) do |logger|
+      allow_next_instance_of(::Import::Framework::Logger) do |logger|
         allow(logger).to receive(:info)
       end
     end
@@ -28,7 +28,7 @@ RSpec.describe ImportExportCleanUpService do
     context 'when the import/export tmp storage directory exists' do
       shared_examples 'removes old tmp files' do |subdir|
         it 'removes old files and logs' do
-          expect_next_instance_of(Gitlab::Import::Logger) do |logger|
+          expect_next_instance_of(::Import::Framework::Logger) do |logger|
             expect(logger)
               .to receive(:info)
               .with(
@@ -41,7 +41,7 @@ RSpec.describe ImportExportCleanUpService do
         end
 
         it 'does not remove new files or logs' do
-          expect(Gitlab::Import::Logger).not_to receive(:new)
+          expect(::Import::Framework::Logger).not_to receive(:new)
 
           validate_cleanup(subdir: subdir, mtime: 2.hours.ago, expected: true)
         end
@@ -53,11 +53,13 @@ RSpec.describe ImportExportCleanUpService do
 
     context 'with uploader exports' do
       it 'removes old files and logs' do
-        upload = create(:import_export_upload,
-                        updated_at: 2.days.ago,
-                        export_file: fixture_file_upload('spec/fixtures/project_export.tar.gz'))
+        upload = create(
+          :import_export_upload,
+          updated_at: 2.days.ago,
+          export_file: fixture_file_upload('spec/fixtures/project_export.tar.gz')
+        )
 
-        expect_next_instance_of(Gitlab::Import::Logger) do |logger|
+        expect_next_instance_of(::Import::Framework::Logger) do |logger|
           expect(logger)
             .to receive(:info)
             .with(
@@ -73,11 +75,13 @@ RSpec.describe ImportExportCleanUpService do
       end
 
       it 'does not remove new files or logs' do
-        upload = create(:import_export_upload,
-                        updated_at: 1.hour.ago,
-                        export_file: fixture_file_upload('spec/fixtures/project_export.tar.gz'))
+        upload = create(
+          :import_export_upload,
+          updated_at: 1.hour.ago,
+          export_file: fixture_file_upload('spec/fixtures/project_export.tar.gz')
+        )
 
-        expect(Gitlab::Import::Logger).not_to receive(:new)
+        expect(::Import::Framework::Logger).not_to receive(:new)
 
         expect { service.execute }.not_to change { upload.reload.export_file.file.nil? }
 

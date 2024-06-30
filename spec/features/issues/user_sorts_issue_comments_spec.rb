@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Comment sort direction' do
+RSpec.describe 'Comment sort direction', feature_category: :team_planning do
   let_it_be(:project) { create(:project, :public, :repository) }
   let_it_be(:issue) { create(:issue, project: project) }
   let_it_be(:comment_1) { create(:note_on_issue, noteable: issue, project: project, note: 'written first') }
@@ -16,7 +16,7 @@ RSpec.describe 'Comment sort direction' do
     it 'saves sort order' do
       # open dropdown, and select 'Newest first'
       page.within('.issuable-details') do
-        click_button('Oldest first')
+        click_button('Sort or filter')
         click_button('Newest first')
       end
 

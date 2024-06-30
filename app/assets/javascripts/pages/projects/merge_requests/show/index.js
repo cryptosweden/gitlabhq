@@ -1,15 +1,5 @@
-import { initReviewBar } from '~/batch_comments';
-import { initIssuableHeaderWarnings } from '~/issuable';
-import initMrNotes from '~/mr_notes';
-import store from '~/mr_notes/stores';
-import initSidebarBundle from '~/sidebar/sidebar_bundle';
-import initShow from '../init_merge_request_show';
+import mountNotesApp from '~/mr_notes/mount_app';
+import { initMrPage } from '~/pages/projects/merge_requests/page';
 
-initMrNotes();
-initShow();
-
-requestIdleCallback(() => {
-  initSidebarBundle(store);
-  initReviewBar();
-  initIssuableHeaderWarnings(store);
-});
+initMrPage();
+mountNotesApp();

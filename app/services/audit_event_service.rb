@@ -14,14 +14,16 @@ class AuditEventService
   # @param [Hash] details extra data of audit event
   # @param [Symbol] save_type the type to save the event
   #   Can be selected from the following, :database, :stream, :database_and_stream .
+  # @params [DateTime] created_at the time the action occured
   #
   # @return [AuditEventService]
-  def initialize(author, entity, details = {}, save_type = :database_and_stream)
+  def initialize(author, entity, details = {}, save_type = :database_and_stream, created_at = DateTime.current)
     @author = build_author(author)
     @entity = entity
     @details = details
     @ip_address = resolve_ip_address(@author)
     @save_type = save_type
+    @created_at = created_at
   end
 
   # Builds the @details attribute for authentication
@@ -79,7 +81,8 @@ class AuditEventService
       author_id: @author.id,
       author_name: @author.name,
       entity_id: @entity.id,
-      entity_type: @entity.class.name
+      entity_type: @entity.class.name,
+      created_at: @created_at
     }
   end
 
@@ -118,10 +121,13 @@ class AuditEventService
   def log_security_event_to_database
     return if Gitlab::Database.read_only?
 
-    event = AuditEvent.new(base_payload.merge(details: @details))
+    event = build_event
     save_or_track event
-
     event
+  end
+
+  def build_event
+    AuditEvent.new(base_payload.merge(details: @details))
   end
 
   def stream_event_to_external_destinations(_event)

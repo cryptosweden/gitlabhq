@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Deployments::LinkMergeRequestsService do
+RSpec.describe Deployments::LinkMergeRequestsService, feature_category: :continuous_delivery do
   let(:project) { create(:project, :repository) }
 
   # *   ddd0f15 Merge branch 'po-fix-test-env-path' into 'master'
@@ -158,11 +158,9 @@ RSpec.describe Deployments::LinkMergeRequestsService do
     end
 
     it "doesn't link the same merge_request twice" do
-      create(:merge_request, :merged, merge_commit_sha: mr1_merge_commit_sha,
-             source_project: project)
+      create(:merge_request, :merged, merge_commit_sha: mr1_merge_commit_sha, source_project: project)
 
-      picked_mr = create(:merge_request, :merged, merge_commit_sha: '123abc',
-                         source_project: project)
+      picked_mr = create(:merge_request, :merged, merge_commit_sha: '123abc', source_project: project)
 
       # the first MR includes c1c67abba which is a cherry-pick of the fake picked_mr merge request
       create(:track_mr_picking_note, noteable: picked_mr, project: project, commit_id: 'c1c67abbaf91f624347bb3ae96eabe3a1b742478')
@@ -183,6 +181,100 @@ RSpec.describe Deployments::LinkMergeRequestsService do
       )
 
       expect(deploy.merge_requests).to be_empty
+    end
+
+    context 'when the deploy commits are the merge_commit_sha and head_commit_sha of one merge_request' do
+      let(:mr_head_commit_sha) { mr1_merge_commit_sha }
+      let(:mr_merge_commit_sha) { mr2_merge_commit_sha }
+
+      let!(:merge_request) do
+        create(
+          :merge_request,
+          :merged,
+          source_project: project,
+          target_project: project,
+          merge_commit_sha: mr_merge_commit_sha
+        ).tap do |merge_request|
+          create(:merge_request_diff, merge_request: merge_request, head_commit_sha: mr_head_commit_sha)
+        end
+      end
+
+      let!(:environment) { create(:environment, project: project) }
+      let!(:deploy) { create(:deployment, :success, project: project, environment: environment) }
+
+      it 'only links the merge request once' do
+        described_class.new(deploy).link_merge_requests_for_range(
+          first_deployment_sha,
+          mr2_merge_commit_sha
+        )
+
+        expect(deploy.merge_requests).to eq([merge_request])
+      end
+    end
+
+    context "when merge request is fast-forward merged and commits are not squashed" do
+      def create_fast_forward_merge_request(reference_commit_sha)
+        create(
+          :merge_request,
+          :merged,
+          source_project: project,
+          target_project: project,
+          merge_commit_sha: nil
+        ).tap do |merge_request|
+          create(:merge_request_diff, merge_request: merge_request, head_commit_sha: reference_commit_sha)
+        end
+      end
+
+      let!(:merge_request_1) { create_fast_forward_merge_request(mr1_merge_commit_sha) }
+      let!(:merge_request_2) { create_fast_forward_merge_request(mr2_merge_commit_sha) }
+
+      let!(:environment) { create(:environment, project: project) }
+      let!(:deploy) { create(:deployment, :success, project: project, environment: environment) }
+
+      subject(:link_merge_requests_for_range) do
+        described_class.new(deploy).link_merge_requests_for_range(
+          first_deployment_sha,
+          mr2_merge_commit_sha
+        )
+      end
+
+      it "links merge requests by the HEAD commit sha of the MR's diff" do
+        link_merge_requests_for_range
+
+        expect(deploy.merge_requests).to match_array([merge_request_1, merge_request_2])
+      end
+    end
+
+    context "when merge request is fast-forward merged and commits are squashed" do
+      def create_fast_forward_merge_request(reference_commit_sha)
+        create(
+          :merge_request,
+          :merged,
+          source_project: project,
+          target_project: project,
+          merge_commit_sha: nil,
+          squash_commit_sha: reference_commit_sha
+        )
+      end
+
+      let!(:merge_request_1) { create_fast_forward_merge_request(mr1_merge_commit_sha) }
+      let!(:merge_request_2) { create_fast_forward_merge_request(mr2_merge_commit_sha) }
+
+      let!(:environment) { create(:environment, project: project) }
+      let!(:deploy) { create(:deployment, :success, project: project, environment: environment) }
+
+      subject(:link_merge_requests_for_range) do
+        described_class.new(deploy).link_merge_requests_for_range(
+          first_deployment_sha,
+          mr2_merge_commit_sha
+        )
+      end
+
+      it "links merge requests by the squash commit of the MR" do
+        link_merge_requests_for_range
+
+        expect(deploy.merge_requests).to match_array([merge_request_1, merge_request_2])
+      end
     end
   end
 

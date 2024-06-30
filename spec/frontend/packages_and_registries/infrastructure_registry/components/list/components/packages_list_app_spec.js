@@ -1,22 +1,23 @@
 import { GlEmptyState, GlSprintf, GlLink } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import setWindowLocation from 'helpers/set_window_location_helper';
-import createFlash from '~/flash';
+import { helpPagePath } from '~/helpers/help_page_helper';
+import { createAlert, VARIANT_INFO } from '~/alert';
 import * as commonUtils from '~/lib/utils/common_utils';
 import PackageListApp from '~/packages_and_registries/infrastructure_registry/list/components/packages_list_app.vue';
 import { DELETE_PACKAGE_SUCCESS_MESSAGE } from '~/packages_and_registries/infrastructure_registry/list/constants';
-import {
-  SHOW_DELETE_SUCCESS_ALERT,
-  FILTERED_SEARCH_TERM,
-} from '~/packages_and_registries/shared/constants';
+import { SHOW_DELETE_SUCCESS_ALERT } from '~/packages_and_registries/shared/constants';
 
 import * as packageUtils from '~/packages_and_registries/shared/utils';
 import InfrastructureSearch from '~/packages_and_registries/infrastructure_registry/list/components/infrastructure_search.vue';
+import InfrastructureTitle from '~/packages_and_registries/infrastructure_registry/list/components/infrastructure_title.vue';
+import { FILTERED_SEARCH_TERM } from '~/vue_shared/components/filtered_search_bar/constants';
 
 jest.mock('~/lib/utils/common_utils');
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 Vue.use(Vuex);
 
@@ -30,21 +31,15 @@ describe('packages_list_app', () => {
   };
   const GlLoadingIcon = { name: 'gl-loading-icon', template: '<div>loading</div>' };
 
-  const emptyListHelpUrl = 'helpUrl';
-  const findEmptyState = () => wrapper.find(GlEmptyState);
-  const findListComponent = () => wrapper.find(PackageList);
-  const findInfrastructureSearch = () => wrapper.find(InfrastructureSearch);
+  const findEmptyState = () => wrapper.findComponent(GlEmptyState);
+  const findListComponent = () => wrapper.findComponent(PackageList);
+  const findInfrastructureSearch = () => wrapper.findComponent(InfrastructureSearch);
+  const findInfrastructureTitle = () => wrapper.findComponent(InfrastructureTitle);
 
   const createStore = ({ filter = [], packageCount = 0 } = {}) => {
     store = new Vuex.Store({
       state: {
         isLoading: false,
-        config: {
-          resourceId: 'project_id',
-          emptyListIllustration: 'helpSvg',
-          emptyListHelpUrl,
-          packageHelpUrl: 'foo',
-        },
         filter,
         pagination: {
           total: packageCount,
@@ -54,9 +49,14 @@ describe('packages_list_app', () => {
     store.dispatch = jest.fn();
   };
 
-  const mountComponent = (provide) => {
+  const mountComponent = ({ isGroupPage = false } = {}) => {
     wrapper = shallowMount(PackageListApp, {
       store,
+      provide: {
+        isGroupPage,
+        emptyListIllustration: 'helpSvg',
+        resourceId: 'project_id',
+      },
       stubs: {
         GlEmptyState,
         GlLoadingIcon,
@@ -64,7 +64,6 @@ describe('packages_list_app', () => {
         GlSprintf,
         GlLink,
       },
-      provide,
     });
   };
 
@@ -72,10 +71,6 @@ describe('packages_list_app', () => {
     createStore();
     jest.spyOn(packageUtils, 'getQueryParams').mockReturnValue({});
     mountComponent();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   it('renders', () => {
@@ -88,21 +83,37 @@ describe('packages_list_app', () => {
   it('calls requestPackagesList on page:changed', () => {
     const list = findListComponent();
     list.vm.$emit('page:changed', 1);
-    expect(store.dispatch).toHaveBeenCalledWith('requestPackagesList', { page: 1 });
+    expect(store.dispatch).toHaveBeenCalledWith('requestPackagesList', {
+      page: 1,
+      isGroupPage: false,
+      resourceId: 'project_id',
+    });
   });
 
   it('calls requestDeletePackage on package:delete', () => {
+    const payload = {
+      _links: {
+        delete_api_path: 'foo',
+      },
+    };
     const list = findListComponent();
-    list.vm.$emit('package:delete', 'foo');
+    list.vm.$emit('package:delete', payload);
 
-    expect(store.dispatch).toHaveBeenCalledWith('requestDeletePackage', 'foo');
+    expect(store.dispatch).toHaveBeenCalledWith('requestDeletePackage', {
+      ...payload,
+      isGroupPage: false,
+      resourceId: 'project_id',
+    });
   });
 
   it('calls requestPackagesList only once on render', () => {
     expect(store.dispatch).toHaveBeenCalledTimes(3);
     expect(store.dispatch).toHaveBeenNthCalledWith(1, 'setSorting', expect.any(Object));
     expect(store.dispatch).toHaveBeenNthCalledWith(2, 'setFilter', expect.any(Array));
-    expect(store.dispatch).toHaveBeenNthCalledWith(3, 'requestPackagesList');
+    expect(store.dispatch).toHaveBeenNthCalledWith(3, 'requestPackagesList', {
+      isGroupPage: false,
+      resourceId: 'project_id',
+    });
   });
 
   describe('url query string handling', () => {
@@ -150,17 +161,34 @@ describe('packages_list_app', () => {
   });
 
   describe('empty state', () => {
-    it('generate the correct empty list link', () => {
-      const link = findListComponent().find(GlLink);
+    const heading = () => findEmptyState().find('h1');
 
-      expect(link.attributes('href')).toBe(emptyListHelpUrl);
+    it('generate the correct empty list link', () => {
+      const link = findListComponent().findComponent(GlLink);
+
+      expect(link.attributes('href')).toBe(
+        helpPagePath('user/packages/terraform_module_registry/index'),
+      );
       expect(link.text()).toBe('publish and share your packages');
     });
 
     it('includes the right content on the default tab', () => {
-      const heading = findEmptyState().find('h1');
+      expect(heading().text()).toBe('You have no Terraform modules in your project');
+    });
 
-      expect(heading.text()).toBe('There are no packages yet');
+    it('does not show infrastructure registry title', () => {
+      expect(findInfrastructureTitle().exists()).toBe(false);
+    });
+
+    describe('when group page', () => {
+      beforeEach(() => {
+        createStore();
+        mountComponent({ isGroupPage: true });
+      });
+
+      it('includes the right content', () => {
+        expect(heading().text()).toBe('You have no Terraform modules in your group');
+      });
     });
   });
 
@@ -195,12 +223,19 @@ describe('packages_list_app', () => {
         expect(findInfrastructureSearch().exists()).toBe(true);
       });
 
+      it('shows infrastructure registry title', () => {
+        expect(findInfrastructureTitle().exists()).toBe(true);
+      });
+
       it('on update fetches data from the store', () => {
         store.dispatch.mockClear();
 
         findInfrastructureSearch().vm.$emit('update');
 
-        expect(store.dispatch).toHaveBeenCalledWith('requestPackagesList');
+        expect(store.dispatch).toHaveBeenCalledWith('requestPackagesList', {
+          isGroupPage: false,
+          resourceId: 'project_id',
+        });
       });
     });
   });
@@ -219,12 +254,12 @@ describe('packages_list_app', () => {
       setWindowLocation(originalLocation);
     });
 
-    it(`creates a flash if the query string contains ${SHOW_DELETE_SUCCESS_ALERT}`, () => {
+    it(`creates an alert if the query string contains ${SHOW_DELETE_SUCCESS_ALERT}`, () => {
       mountComponent();
 
-      expect(createFlash).toHaveBeenCalledWith({
+      expect(createAlert).toHaveBeenCalledWith({
         message: DELETE_PACKAGE_SUCCESS_MESSAGE,
-        type: 'notice',
+        variant: VARIANT_INFO,
       });
     });
 
@@ -238,7 +273,7 @@ describe('packages_list_app', () => {
       setWindowLocation('?');
       mountComponent();
 
-      expect(createFlash).not.toHaveBeenCalled();
+      expect(createAlert).not.toHaveBeenCalled();
       expect(commonUtils.historyReplaceState).not.toHaveBeenCalled();
     });
   });

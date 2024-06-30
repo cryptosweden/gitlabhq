@@ -5,14 +5,17 @@ import {
 } from 'jest/vue_shared/components/filtered_search_bar/mock_data';
 
 export const mockAuthor = {
+  __typename: 'UserCore',
   id: 'gid://gitlab/User/1',
   avatarUrl: 'https://www.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=80&d=identicon',
   name: 'Administrator',
   username: 'root',
   webUrl: 'http://0.0.0.0:3000/root',
+  webPath: '/root',
 };
 
 export const mockRegularLabel = {
+  __typename: 'Label',
   id: 'gid://gitlab/GroupLabel/2048',
   title: 'Documentation Update',
   description: null,
@@ -21,6 +24,7 @@ export const mockRegularLabel = {
 };
 
 export const mockScopedLabel = {
+  __typename: 'Label',
   id: 'gid://gitlab/ProjectLabel/2049',
   title: 'status::confirmed',
   description: null,
@@ -31,6 +35,7 @@ export const mockScopedLabel = {
 export const mockLabels = [mockRegularLabel, mockScopedLabel];
 
 export const mockCurrentUserTodo = {
+  __typename: 'Todo',
   id: 'gid://gitlab/Todo/489',
   state: 'done',
 };
@@ -57,7 +62,14 @@ export const mockIssuable = {
     count: 2,
     completedCount: 1,
   },
+  type: 'issue',
 };
+
+export const mockIssuableItems = (n) =>
+  [...Array(n).keys()].map((i) => ({
+    id: i,
+    ...mockIssuable,
+  }));
 
 export const mockIssuables = [
   mockIssuable,

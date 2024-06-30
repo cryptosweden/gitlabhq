@@ -2,12 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Editing file blob', :js do
+RSpec.describe 'Editing file blob', :js, feature_category: :source_code_management do
+  include Features::SourceEditorSpecHelpers
   include TreeHelper
-  include BlobSpecHelpers
+  include Features::BlobSpecHelpers
 
-  let(:project) { create(:project, :public, :repository) }
-  let(:merge_request) { create(:merge_request, source_project: project, source_branch: 'feature', target_branch: 'master') }
+  let_it_be(:project) { create(:project, :public, :repository) }
+  let_it_be(:merge_request) { create(:merge_request, source_project: project, source_branch: 'feature', target_branch: 'master') }
   let(:branch) { 'master' }
   let(:file_path) { project.repository.ls_files(project.repository.root_ref)[1] }
   let(:readme_file_path) { 'README.md' }
@@ -22,15 +23,11 @@ RSpec.describe 'Editing file blob', :js do
     end
 
     def edit_and_commit(commit_changes: true, is_diff: false)
-      set_default_button('edit')
-      refresh
-      wait_for_requests
-
       if is_diff
         first('.js-diff-more-actions').click
         click_link('Edit in single-file editor')
       else
-        click_link('Edit')
+        edit_in_single_file_editor
       end
 
       fill_editor(content: 'class NextFeature\\nend\\n')
@@ -42,7 +39,7 @@ RSpec.describe 'Editing file blob', :js do
 
     def fill_editor(content: 'class NextFeature\\nend\\n')
       wait_for_requests
-      execute_script("monaco.editor.getModels()[0].setValue('#{content}')")
+      editor_set_value(content)
     end
 
     context 'from MR diff' do
@@ -81,6 +78,40 @@ RSpec.describe 'Editing file blob', :js do
       end
     end
 
+    context 'blob edit toolbar' do
+      def has_toolbar_buttons
+        toolbar_buttons = [
+          "Add bold text",
+          "Add italic text",
+          "Add strikethrough text",
+          "Insert a quote",
+          "Insert code",
+          "Add a link",
+          "Add a bullet list",
+          "Add a numbered list",
+          "Add a checklist",
+          "Add a collapsible section",
+          "Add a table"
+        ]
+        visit project_edit_blob_path(project, tree_join(branch, readme_file_path))
+        buttons = page.all('.file-buttons .md-header-toolbar button[type="button"]')
+        expect(buttons.length).to eq(toolbar_buttons.length)
+        toolbar_buttons.each_with_index do |button_title, i|
+          expect(buttons[i]['title']).to include(button_title)
+        end
+      end
+
+      it "has defined set of toolbar buttons when the flag is on" do
+        stub_feature_flags(source_editor_toolbar: true)
+        has_toolbar_buttons
+      end
+
+      it "has defined set of toolbar buttons when the flag is off" do
+        stub_feature_flags(source_editor_toolbar: false)
+        has_toolbar_buttons
+      end
+    end
+
     context 'from blob file path' do
       before do
         visit project_blob_path(project, tree_join(branch, file_path))
@@ -89,19 +120,17 @@ RSpec.describe 'Editing file blob', :js do
       it 'updates content' do
         edit_and_commit
 
-        expect(page).to have_content 'successfully committed'
+        expect(page).to have_content 'committed successfully.'
         expect(page).to have_content 'NextFeature'
       end
 
-      it 'previews content' do
+      it 'previews content', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/448293' do
         edit_and_commit(commit_changes: false)
         click_link 'Preview changes'
         wait_for_requests
 
-        old_line_count = page.all('.line_holder.old').size
         new_line_count = page.all('.line_holder.new').size
 
-        expect(old_line_count).to be > 0
         expect(new_line_count).to be > 0
       end
     end
@@ -110,7 +139,7 @@ RSpec.describe 'Editing file blob', :js do
       it 'renders content with CommonMark' do
         visit project_edit_blob_path(project, tree_join(branch, readme_file_path))
         fill_editor(content: '1. one\\n  - sublist\\n')
-        click_link 'Preview'
+        click_on "Preview"
         wait_for_requests
 
         # the above generates two separate lists (not embedded) in CommonMark
@@ -157,11 +186,14 @@ RSpec.describe 'Editing file blob', :js do
     end
 
     context 'as developer' do
-      let(:user) { create(:user) }
+      let_it_be(:user) { create(:user) }
       let(:protected_branch) { 'protected-branch' }
 
-      before do
+      before_all do
         project.add_developer(user)
+      end
+
+      before do
         project.repository.add_branch(user, protected_branch, 'master')
         create(:protected_branch, project: project, name: protected_branch)
         sign_in(user)

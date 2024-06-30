@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Smoke Tests
@@ -23,6 +23,11 @@ Our suite consists of this basic functionality coverage:
 - Snippet creation
 
 Smoke tests have the `:smoke` RSpec metadata.
+
+## Health Check suite
+
+This is a very small subset smoke tests with the `:health_check` RSpec metadata.
+Its function is to monitor the status and health of the application. 
 
 See [End-to-end Testing](end_to_end/index.md) for more details about
 end-to-end tests.

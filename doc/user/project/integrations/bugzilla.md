@@ -1,10 +1,14 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Bugzilla service **(FREE)**
+# Bugzilla
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 [Bugzilla](https://www.bugzilla.org/) is a web-based general-purpose bug tracking system and testing
 tool.
@@ -14,9 +18,10 @@ You can configure Bugzilla as an
 
 To enable the Bugzilla integration in a project:
 
-1. Go to the [Integrations page](overview.md#accessing-integrations).
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Integrations**.
 1. Select **Bugzilla**.
-1. Select the checkbox under **Enable integration**.
+1. Under **Enable integration**, select the **Active** checkbox.
 1. Fill in the required fields:
 
    - **Project URL**: The URL to the project in Bugzilla.
@@ -30,14 +35,15 @@ To enable the Bugzilla integration in a project:
      For example, for a project named "My Cool App":
      `https://bugzilla.example.org/enter_bug.cgi#h=dupes%7CMy+Cool+App`.
 
-1. Select **Save changes** or optionally select **Test settings**.
+1. Optional. Select **Test settings**.
+1. Select **Save changes**.
 
 After you configure and enable Bugzilla, a link appears on the GitLab
 project pages. This link takes you to the appropriate Bugzilla project.
 
 You can also disable [GitLab internal issue tracking](../issues/index.md) in this project.
-Learn more about the steps and consequences of disabling GitLab issues in
-[Sharing and permissions](../settings/index.md#sharing-and-permissions).
+For more information about the steps and consequences of disabling GitLab issues, see
+Configure project [visibility](../../../user/public_access.md#change-project-visibility), [features, and permissions](../settings/index.md#configure-project-features-and-permissions).
 
 ## Reference Bugzilla issues in GitLab
 
@@ -56,4 +62,4 @@ internal issue tracker, the internal issue is linked.
 
 ## Troubleshooting
 
-To see recent service hook deliveries, check [service hook logs](overview.md#troubleshooting-integrations).
+For recent integration webhook deliveries, check the integration webhook logs.

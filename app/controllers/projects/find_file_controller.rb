@@ -8,13 +8,15 @@ class Projects::FindFileController < Projects::ApplicationController
 
   before_action :require_non_empty_project
   before_action :assign_ref_vars
-  before_action :authorize_download_code!
+  before_action :authorize_read_code!
 
   feature_category :source_code_management
   urgency :low, [:show, :list]
 
   def show
-    return render_404 unless @repository.commit(@ref)
+    return render_404 unless @commit
+
+    @ref_type = ref_type
 
     respond_to do |format|
       format.html
@@ -22,7 +24,7 @@ class Projects::FindFileController < Projects::ApplicationController
   end
 
   def list
-    file_paths = @repo.ls_files(@ref)
+    file_paths = @repo.ls_files(@commit.id)
 
     respond_to do |format|
       format.json { render json: file_paths }

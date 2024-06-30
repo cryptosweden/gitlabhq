@@ -1,9 +1,7 @@
 import ClustersBundle from '~/clusters/clusters_bundle';
 import initIntegrationForm from '~/clusters/forms/show';
-import initGkeNamespace from '~/create_cluster/gke_cluster_namespace';
-import initClusterHealth from './cluster_health';
+import initGkeNamespace from '~/clusters/gke_cluster_namespace';
 
 new ClustersBundle(); // eslint-disable-line no-new
 initGkeNamespace();
-initClusterHealth();
 initIntegrationForm();

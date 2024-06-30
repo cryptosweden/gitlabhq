@@ -22,7 +22,7 @@ module Gitlab
           return unless async_index_creation_available?
 
           PostgresAsyncIndex.find_by(name: index_name).try do |async_index|
-            async_index.destroy
+            async_index.destroy!
           end
         end
 
@@ -35,10 +35,22 @@ module Gitlab
         #
         # If the requested index has already been created, it is not stored in the table for
         # asynchronous creation.
+        #
+        # Note: The `add_index_options` is the same method Rails uses to generate the index creation statements.
+        # As such, we can pass index creation options to the method the same as we would standard index creation.
+        #
+        # Example usage:
+        #
+        # INITIAL_PIPELINE_INDEX = 'tmp_index_vulnerability_occurrences_id_and_initial_pipline_id'
+        # INITIAL_PIPELINE_COLUMNS = [:id, :initial_pipeline_id]
+        #
+        # prepare_async_index TABLE_NAME, INITIAL_PIPELINE_COLUMNS, name: INITIAL_PIPELINE_INDEX, where: 'initial_pipeline_id IS NULL'
+
         def prepare_async_index(table_name, column_name, **options)
           Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.require_ddl_mode!
 
           return unless async_index_creation_available?
+          raise "Table #{table_name} does not exist" unless table_exists?(table_name)
 
           index_name = options[:name] || index_name(table_name, column_name)
 
@@ -77,8 +89,92 @@ module Gitlab
           async_index
         end
 
+        def prepare_async_index_from_sql(definition)
+          Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.require_ddl_mode!
+
+          return unless async_index_creation_available?
+
+          table_name, index_name = extract_table_and_index_names_from_concurrent_index!(definition)
+
+          if index_name_exists?(table_name, index_name)
+            Gitlab::AppLogger.warn(
+              message: 'Index not prepared because it already exists',
+              table_name: table_name,
+              index_name: index_name)
+
+            return
+          end
+
+          async_index = Gitlab::Database::AsyncIndexes::PostgresAsyncIndex.find_or_create_by!(name: index_name) do |rec|
+            rec.table_name = table_name
+            rec.definition = definition.to_s.strip
+          end
+
+          Gitlab::AppLogger.info(
+            message: 'Prepared index for async creation',
+            table_name: async_index.table_name,
+            index_name: async_index.name)
+
+          async_index
+        end
+
+        # Prepares an index for asynchronous destruction.
+        #
+        # Stores the index information in the postgres_async_indexes table to be removed later. The
+        # index will be always be removed CONCURRENTLY, so that option does not need to be given.
+        #
+        # If the requested index has already been removed, it is not stored in the table for
+        # asynchronous destruction.
+        def prepare_async_index_removal(table_name, column_name, options = {})
+          index_name = options.fetch(:name)
+          raise 'prepare_async_index_removal must get an index name defined' if index_name.blank?
+
+          unless index_exists?(table_name, column_name, **options)
+            Gitlab::AppLogger.warn "Index not removed because it does not exist (this may be due to an aborted migration or similar): table_name: #{table_name}, index_name: #{index_name}"
+            return
+          end
+
+          definition = "DROP INDEX CONCURRENTLY #{quote_column_name(index_name)}"
+
+          async_index = PostgresAsyncIndex.find_or_create_by!(name: index_name) do |rec|
+            rec.table_name = table_name
+            rec.definition = definition
+          end
+
+          Gitlab::AppLogger.info(
+            message: 'Prepared index for async destruction',
+            table_name: async_index.table_name,
+            index_name: async_index.name
+          )
+
+          async_index
+        end
+
         def async_index_creation_available?
-          connection.table_exists?(:postgres_async_indexes)
+          table_exists?(:postgres_async_indexes)
+        end
+
+        private
+
+        delegate :table_exists?, to: :connection, private: true
+
+        def extract_table_and_index_names_from_concurrent_index!(definition)
+          statement = index_statement_from!(definition)
+
+          raise 'Index statement not found!' unless statement
+          raise 'Index must be created concurrently!' unless statement.concurrent
+          raise 'Table does not exist!' unless table_exists?(statement.relation.relname)
+
+          [statement.relation.relname, statement.idxname]
+        end
+
+        # This raises `PgQuery::ParseError` if the given statement
+        # is syntactically incorrect, therefore, validates that the
+        # index definition is correct.
+        def index_statement_from!(definition)
+          parsed_query = PgQuery.parse(definition)
+
+          parsed_query.tree.stmts[0].stmt.index_stmt
         end
       end
     end

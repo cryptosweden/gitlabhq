@@ -1,6 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlIcon } from '@gitlab/ui';
-import CiIcon from '../../../../vue_shared/components/ci_icon.vue';
+import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
 
 export default {
   components: {
@@ -22,8 +23,8 @@ export default {
 </script>
 
 <template>
-  <div class="d-flex align-items-center">
-    <ci-icon :status="job.status" :borderless="true" :size="24" class="d-flex" />
+  <div class="gl-flex gl-items-center">
+    <ci-icon :status="job.status" class="gl-items-center gl-border gl-inline-flex gl-z-1" />
     <span class="gl-ml-3">
       {{ job.name }}
       <a

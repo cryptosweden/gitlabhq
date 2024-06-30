@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 class Projects::VariablesController < Projects::ApplicationController
-  before_action :authorize_admin_build!
+  before_action :authorize_admin_build!, except: :update
+  before_action :authorize_admin_cicd_variables!, only: :update
 
-  feature_category :pipeline_authoring
+  feature_category :secrets_management
 
   urgency :low, [:show, :update]
 
@@ -43,10 +44,10 @@ class Projects::VariablesController < Projects::ApplicationController
   end
 
   def variables_params
-    params.permit(variables_attributes: [*variable_params_attributes])
+    params.permit(variables_attributes: Array(variable_params_attributes))
   end
 
   def variable_params_attributes
-    %i[id variable_type key secret_value protected masked environment_scope _destroy]
+    %i[id variable_type key description secret_value protected masked raw environment_scope _destroy]
   end
 end

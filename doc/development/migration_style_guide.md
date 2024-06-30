@@ -1,7 +1,7 @@
 ---
-stage: none
-group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Data Stores
+group: Database
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Migration Style Guide
@@ -27,7 +27,7 @@ When writing your migrations, also consider that databases might have stale data
 or inconsistencies and guard for that. Try to make as few assumptions as
 possible about the state of the database.
 
-Please don't depend on GitLab-specific code since it can change in future
+Don't depend on GitLab-specific code since it can change in future
 versions. If needed copy-paste GitLab code into the migration to make it forward
 compatible.
 
@@ -45,16 +45,31 @@ work it needs to perform and how long it takes to complete:
    One exception is a migration that takes longer but is absolutely critical for the application to operate correctly.
    For example, you might have indices that enforce unique tuples, or that are needed for query performance in critical parts of the application. In cases where the migration would be unacceptably slow, however, a better option might be to guard the feature with a [feature flag](feature_flags/index.md)
    and perform a post-deployment migration instead. The feature can then be turned on after the migration finishes.
-1. [**Post-deployment migrations.**](post_deployment_migrations.md) These are Rails migrations in `db/post_migrate` and
-   run _after_ new application code has been deployed (for GitLab.com after the production deployment has finished).
-   They can be used for schema changes that aren't critical for the application to operate, or data migrations that take at most a few minutes.
+
+   Migrations used to add new models are also part of these regular schema migrations. The only differences are the Rails command used to generate the migrations and the additional generated files, one for the model and one for the model's spec.
+1. [**Post-deployment migrations.**](database/post_deployment_migrations.md) These are Rails migrations in `db/post_migrate` and
+   are run independently from the GitLab.com deployments. Pending post migrations are executed on a daily basis at the discretion
+   of release manager through the [post-deploy migration pipeline](https://gitlab.com/gitlab-org/release/docs/-/blob/master/general/post_deploy_migration/readme.md#how-to-determine-if-a-post-deploy-migration-has-been-executed-on-gitlabcom).
+   These migrations can be used for schema changes that aren't critical for the application to operate, or data migrations that take at most a few minutes.
    Common examples for schema changes that should run post-deploy include:
+
      - Clean-ups, like removing unused columns.
      - Adding non-critical indices on high-traffic tables.
      - Adding non-critical indices that take a long time to create.
-1. [**Background migrations.**](background_migrations.md) These aren't regular Rails migrations, but application code that is
+
+   These migrations should not be used for schema changes that are critical for the application to operate. Making such
+   schema changes in a post-deployment migration have caused issues in the past, for example [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/378582).
+   Changes that should always be a regular schema migration and not be executed in a post-deployment migration include:
+
+     - Creating a new table, example: `create_table`.
+     - Adding a new column to an existing table, example: `add_column`.
+
+    NOTE:
+    Post-deployment migration is often abbreviated as PDM.
+
+1. [**Batched background migrations.**](database/batched_background_migrations.md) These aren't regular Rails migrations, but application code that is
    executed via Sidekiq jobs, although a post-deployment migration is used to schedule them. Use them only for data migrations that
-   exceed the timing guidelines for post-deploy migrations. Background migrations should _not_ change the schema.
+   exceed the timing guidelines for post-deploy migrations. Batched background migrations should _not_ change the schema.
 
 Use the following diagram to guide your decision, but keep in mind that it is just a tool, and
 the final outcome will always be dependent on the specific changes being made:
@@ -75,6 +90,9 @@ graph LR
     D -->|No| G[Background migration]
 ```
 
+Also refer to [Migration type to use](database/adding_database_indexes.md#migration-type-to-use)
+when choosing which migration type to use when adding a database index.
+
 ### How long a migration should take
 
 In general, all migrations for a single deploy shouldn't take longer than
@@ -84,11 +102,23 @@ estimated to keep migration duration to a minimum.
 NOTE:
 Keep in mind that all durations should be measured against GitLab.com.
 
+NOTE:
+The result of a [database migration pipeline](database/database_migration_pipeline.md)
+includes the timing information for migrations.
+
 | Migration Type | Recommended Duration | Notes |
 |----|----|---|
 | Regular migrations | `<= 3 minutes` | A valid exception are changes without which application functionality or performance would be severely degraded and which cannot be delayed. |
 | Post-deployment migrations | `<= 10 minutes` | A valid exception are schema changes, since they must not happen in background migrations. |
-| Background migrations | `> 10 minutes` | Since these are suitable for larger tables, it's not possible to set a precise timing guideline, however, any single query must stay below [`1 second` execution time](query_performance.md#timing-guidelines-for-queries) with cold caches. |
+| Background migrations | `> 10 minutes` | Since these are suitable for larger tables, it's not possible to set a precise timing guideline, however, any single query must stay below [`1 second` execution time](database/query_performance.md#timing-guidelines-for-queries) with cold caches. |
+
+## Decide which database to target
+
+GitLab connects to two different Postgres databases: `main` and `ci`. This split can affect migrations
+as they may run on either or both of these databases.
+
+Read [Migrations for Multiple databases](database/migrations_for_multiple_databases.md) to understand if or how
+a migration you add should account for this.
 
 ## Create a regular schema migration
 
@@ -100,15 +130,34 @@ bundle exec rails g migration migration_name_here
 
 This generates the migration file in `db/migrate`.
 
+### Regular schema migrations to add new models
+
+To create a new model you can use the following Rails generator:
+
+```shell
+bundle exec rails g model model_name_here
+```
+
+This will generate:
+
+- the migration file in `db/migrate`
+- the model file in `app/models`
+- the spec file in `spec/models`
+
 ## Schema Changes
 
 Changes to the schema should be committed to `db/structure.sql`. This
 file is automatically generated by Rails when you run
-`bundle exec rails db:migrate`, so you normally should not
+`bundle exec rails db:migrate`, so you typically should not
 edit this file by hand. If your migration is adding a column to a
-table, that column is added at the bottom. Please do not reorder
+table, that column is added at the bottom. Do not reorder
 columns manually for existing tables as this causes confusion to
 other people using `db/structure.sql` generated by Rails.
+
+NOTE:
+[Creating an index asynchronously requires two merge requests.](database/adding_database_indexes.md#add-a-migration-to-create-the-index-synchronously)
+When done, commit the schema change in the merge request
+that adds the index with `add_concurrent_index`.
 
 When your local database in your GDK is diverging from the schema from
 `main` it might be hard to cleanly commit the schema changes to
@@ -117,7 +166,7 @@ regenerate a clean `db/structure.sql` for the migrations you're
 adding. This script applies all migrations found in `db/migrate`
 or `db/post_migrate`, so if there are any migrations you don't want to
 commit to the schema, rename or remove them. If your branch is not
-targeting `main` you can set the `TARGET` environment variable.
+targeting the default Git branch, you can set the `TARGET` environment variable.
 
 ```shell
 # Regenerate schema against `main`
@@ -127,15 +176,35 @@ scripts/regenerate-schema
 TARGET=12-9-stable-ee scripts/regenerate-schema
 ```
 
+The `scripts/regenerate-schema` script can create additional differences.
+If this happens, use a manual procedure where `<migration ID>` is the `DATETIME`
+part of the migration file.
+
+```shell
+# Rebase against master
+git rebase master
+
+# Rollback changes
+VERSION=<migration ID> bundle exec rails db:rollback:main
+
+# Checkout db/structure.sql from master
+git checkout origin/master db/structure.sql
+
+# Migrate changes
+VERSION=<migration ID> bundle exec rails db:migrate:main
+```
+
+After a table has been created, it should be added to the database dictionary, following the steps mentioned in the [database dictionary guide](database/database_dictionary.md#adding-tables).
+
 ## Avoiding downtime
 
-The document ["Avoiding downtime in migrations"](avoiding_downtime_in_migrations.md) specifies
+The document ["Avoiding downtime in migrations"](database/avoiding_downtime_in_migrations.md) specifies
 various database operations, such as:
 
-- [dropping and renaming columns](avoiding_downtime_in_migrations.md#dropping-columns)
-- [changing column constraints and types](avoiding_downtime_in_migrations.md#changing-column-constraints)
-- [adding and dropping indexes, tables, and foreign keys](avoiding_downtime_in_migrations.md#adding-indexes)
-- [migrating `integer` primary keys to `bigint`](avoiding_downtime_in_migrations.md#migrating-integer-primary-keys-to-bigint)
+- [dropping and renaming columns](database/avoiding_downtime_in_migrations.md#dropping-columns)
+- [changing column constraints and types](database/avoiding_downtime_in_migrations.md#changing-column-constraints)
+- [adding and dropping indexes, tables, and foreign keys](database/avoiding_downtime_in_migrations.md#adding-indexes)
+- [migrating `integer` primary keys to `bigint`](database/avoiding_downtime_in_migrations.md#migrating-integer-primary-keys-to-bigint)
 
 and explains how to perform them without requiring downtime.
 
@@ -143,6 +212,11 @@ and explains how to perform them without requiring downtime.
 
 Your migration **must be** reversible. This is very important, as it should
 be possible to downgrade in case of a vulnerability or bugs.
+
+**Note**: On GitLab production environments, if a problem occurs, a roll-forward strategy is used instead of rolling back migrations using `db:rollback`.
+On self-managed instances we advise users to restore the backup which was created before the upgrade process started.
+The `down` method is used primarily in the development environment, for example, when a developer wants to ensure
+their local copy of `structure.sql` file and database are in a consistent state when switching between commits or branches.
 
 In your migration, add a comment describing how the reversibility of the
 migration was tested.
@@ -165,13 +239,13 @@ end
 Migrations like this are inherently risky and [additional actions](database_review.md#preparation-when-adding-data-migrations)
 are required when preparing the migration for review.
 
-## Atomicity
+## Atomicity and transaction
 
-By default, migrations are single transaction. That is, a transaction is opened
+By default, migrations are a single transaction: it's opened
 at the beginning of the migration, and committed after all steps are processed.
 
 Running migrations in a single transaction makes sure that if one of the steps fails,
-none of the steps are executed, leaving the database in valid state.
+none of the steps are executed, leaving the database in a valid state.
 Therefore, either:
 
 - Put all migrations in one single-transaction migration.
@@ -179,22 +253,147 @@ Therefore, either:
   for the steps that cannot be done in a single transaction.
 
 For example, if you create an empty table and need to build an index for it,
-it is recommended to use a regular single-transaction migration and the default
-rails schema statement: [`add_index`](https://api.rubyonrails.org/v5.2/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html#method-i-add_index).
-This is a blocking operation, but it doesn't cause problems because the table is not yet used,
+you should use a regular single-transaction migration and the default
+rails schema statement: [`add_index`](https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html#method-i-add_index).
+This operation is a blocking operation, but it doesn't cause problems because the table is not yet used,
 and therefore it does not have any records yet.
+
+NOTE:
+Subtransactions are [disallowed](https://about.gitlab.com/blog/2021/09/29/why-we-spent-the-last-month-eliminating-postgresql-subtransactions/) in general.
+Use multiple, separate transactions
+if needed as described in [Heavy operations in a single transaction](#heavy-operations-in-a-single-transaction).
+
+### Heavy operations in a single transaction
+
+When using a single-transaction migration, a transaction holds a database connection
+for the duration of the migration, so you must make sure the actions in the migration
+do not take too much time.
+In general, transactions must [execute quickly](database/transaction_guidelines.md#transaction-speed).
+To that end, observe [the maximum query time limit](database/query_performance.md#timing-guidelines-for-queries)
+for each query run in the migration.
+
+If your single-transaction migration takes long to finish, you have several options.
+In all cases, remember to select the appropriate migration type
+depending on [how long a migration takes](#how-long-a-migration-should-take)
+
+- Split the migration into **multiple single-transaction migrations**.
+
+- Use **multiple transactions** by [using `disable_ddl_transaction!`](#disable-transaction-wrapped-migration).
+
+- Keep using a single-transaction migration after **adjusting statement and lock timeout settings**.
+  If your heavy workload must use the guarantees of a transaction,
+  you should check your migration can execute without hitting the timeout limits.
+  The same advice applies to both single-transaction migrations and individual transactions.
+
+  - Statement timeout: the statement timeout is configured to be `15s` for GitLab.com's production database
+    but creating an index often takes more than 15 seconds.
+    When you use the existing helpers including `add_concurrent_index`,
+    they automatically turn off the statement timeout as needed.
+    In rare cases, you might need to set the timeout limit yourself by [using `disable_statement_timeout`](#temporarily-turn-off-the-statement-timeout-limit).
+
+NOTE:
+To run migrations, we directly connect to the primary database, bypassing PgBouncer
+to control settings like `statement_timeout` and `lock_wait_timeout`.
+
+#### Temporarily turn off the statement timeout limit
+
+The migration helper `disable_statement_timeout` enables you to
+temporarily set the statement timeout to `0` per transaction or per connection.
+
+- You use the per-connection option when your statement does not support
+  running inside an explicit transaction, like `CREATE INDEX CONCURRENTLY`.
+
+- If your statement does support an explicit transaction block,
+  like `ALTER TABLE ... VALIDATE CONSTRAINT`,
+  the per-transaction option should be used.
+
+Using `disable_statement_timeout` is rarely needed, because
+the most migration helpers already use them internally when needed.
+For example, creating an index usually takes more than 15 seconds,
+which is the default statement timeout configured for GitLab.com's production database.
+The helper `add_concurrent_index` creates an index inside the block
+passed to `disable_statement_timeout` to disable the statement timeout per connection.
+
+If you are writing raw SQL statements in a migration,
+you may need to manually use `disable_statement_timeout`.
+Consult the database reviewers and maintainers when you do.
+
+### Disable transaction-wrapped migration
+
+You can opt out of running your migration as a single transaction by using
+`disable_ddl_transaction!`, an ActiveRecord method.
+The method might be called in other database systems, with different results.
+At GitLab we exclusively use PostgreSQL.
+You should always read `disable_ddl_transaction!` as meaning:
+
+"Do not execute this migration in a single PostgreSQL transaction. I'll open PostgreSQL transaction(s) only _when_ and _if_ I need them."
+
+NOTE:
+Even if you don't use an explicit PostgreSQL transaction `.transaction` (or `BEGIN; COMMIT;`),
+every SQL statement is still executed as a transaction.
+See [the PostgreSQL documentation on transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html).
+
+NOTE:
+In GitLab, we've sometimes referred to
+the migrations that used `disable_ddl_transaction!` as non-transactional migrations.
+It just meant the migrations were not executed as _single_ transactions.
+
+When should you use `disable_ddl_transaction!`? In most cases,
+the existing RuboCop rules or migration helpers can detect if you should be
+using `disable_ddl_transaction!`.
+Skip `disable_ddl_transaction!` if you are unsure whether to use it or not in your migration,
+and let the RuboCop rules and database reviews guide you.
+
+Use `disable_ddl_transaction!` when PostgreSQL requires an operation to be executed outside an explicit transaction.
+
+- The most prominent example of such operation is the command `CREATE INDEX CONCURRENTLY`.
+  PostgreSQL allows the blocking version (`CREATE INDEX`) to be run inside a transaction.
+  Unlike `CREATE INDEX`, `CREATE INDEX CONCURRENTLY` must be performed outside a transaction.
+  Therefore, even though a migration may run just one statement `CREATE INDEX CONCURRENTLY`,
+  you should disable `disable_ddl_transaction!`.
+  It's also the reason why the use of the helper `add_concurrent_index` requires `disable_ddl_transaction!`
+  `CREATE INDEX CONCURRENTLY` is more of the exception than the rule.
+
+Use `disable_ddl_transaction!` when you need to run multiple transactions in a migration for any reason.
+Most of the time you would be using multiple transactions to avoid [running one slow transaction](#heavy-operations-in-a-single-transaction).
+
+- For example, when you insert, update, or delete (DML) a large amount of data,
+  you should [perform them in batches](database/iterating_tables_in_batches.md#eachbatch-in-data-migrations).
+  Should you need to group operations for each batch,
+  you can explicitly open a transaction block when processing a batch.
+  Consider using a [batched background migration](database/batched_background_migrations.md) for
+  any reasonably large workload.
+
+Use `disable_ddl_transaction!` when migration helpers require them.
+Various migration helpers need to run with `disable_ddl_transaction!`
+because they require a precise control on when and how to open transactions.
+
+- A foreign key _can_ be added inside a transaction, unlike `CREATE INDEX CONCURRENTLY`.
+  However, PostgreSQL does not provide an option similar to `CREATE INDEX CONCURRENTLY`.
+  The helper [`add_concurrent_foreign_key`](database/foreign_keys.md#adding-foreign-keys-in-migrations)
+  instead opens its own transactions to lock the source and target table
+  in a manner that minimizes locking while adding and validating the foreign key.
+- As advised earlier, skip `disable_ddl_transaction!` if you are unsure
+  and see if any RuboCop check is violated.
+
+Use `disable_ddl_transaction!` when your migration does not actually touch PostgreSQL databases
+or does touch _multiple_ PostgreSQL databases.
+
+- For example, your migration might target a Redis server. As a rule,
+  you cannot [interact with an external service](database/transaction_guidelines.md#dangerous-example-third-party-api-calls)
+  inside a PostgreSQL transaction.
+- A transaction is used for a single database connection.
+  If your migrations are targeting multiple databases, such as both `ci` and `main` database,
+  follow [Migrations for multiple databases](database/migrations_for_multiple_databases.md).
 
 ## Naming conventions
 
+Names for database objects (such as tables, indexes, and views) must be lowercase.
+Lowercase names ensure that queries with unquoted names don't cause errors.
+
 We keep column names consistent with [ActiveRecord's schema conventions](https://guides.rubyonrails.org/active_record_basics.html#schema-conventions).
 
-Custom index names should follow the pattern `index_#{table_name}_on_#{column_1}_and_#{column_2}_#{condition}`.
-
-Examples:
-
-- `index_services_on_type_and_id_and_template_when_active`
-- `index_projects_on_id_service_desk_enabled`
-- `index_clusters_on_enabled_cluster_type_id_and_created_at`
+Custom index and constraint names should follow the [constraint naming convention guidelines](database/constraint_naming_convention.md).
 
 ### Truncate long index names
 
@@ -208,22 +407,40 @@ to be longer. Some methods for shortening a name that's too long:
   `index_vulnerability_findings_remediations_on_remediation_id`.
 - Instead of columns, specify the purpose of the index, such as `index_users_for_unconfirmation_notification`.
 
-## Heavy operations in a single transaction
+### Migration timestamp age
 
-When using a single-transaction migration, a transaction holds a database connection
-for the duration of the migration, so you must make sure the actions in the migration
-do not take too much time: GitLab.com's production database has a `15s` timeout, so
-in general, the cumulative execution time in a migration should aim to fit comfortably
-in that limit. Singular query timings should fit within the [standard limit](query_performance.md#timing-guidelines-for-queries)
+The timestamp portion of a migration filename determines the order in which migrations
+are run. It's important to maintain a rough correlation between:
 
-In case you need to insert, update, or delete a significant amount of data, you:
+1. When a migration is added to the GitLab codebase.
+1. The timestamp of the migration itself.
 
-- Must disable the single transaction with `disable_ddl_transaction!`.
-- Should consider doing it in a [Background Migration](background_migrations.md).
+A new migration's timestamp should *never* be before the previous hard stop.
+Migrations are occasionally squashed, and if a migration is added whose timestamp
+falls before the previous hard stop, a problem like what happened in
+[issue 408304](https://gitlab.com/gitlab-org/gitlab/-/issues/408304) can occur.
+
+For example, if we are currently developing against GitLab 16.0, the previous
+hard stop is 15.11. 15.11 was released on April 23rd, 2023. Therefore, the
+minimum acceptable timestamp would be 20230424000000.
+
+#### Best practice
+
+While the above should be considered a hard rule, it is a best practice to try to keep migration timestamps to within three weeks of the date it is anticipated that the migration will be merged upstream, regardless of how much time has elapsed since the last hard stop.
+
+To update a migration timestamp:
+
+1. Migrate down the migration for the `ci` and `main` databases:
+
+   ```ruby
+   rake db:migrate:down:main VERSION=<timestamp>
+   rake db:migrate:down:ci VERSION=<timestamp>
+   ```
+
+1. Delete the migration file.
+1. Recreate the migration following the [migration style guide](#choose-an-appropriate-migration-type).
 
 ## Migration helpers and versioning
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/339115) in GitLab 14.3.
 
 Various helper methods are available for many common patterns in database migrations. Those
 helpers can be found in `Gitlab::Database::MigrationHelpers` and related modules.
@@ -237,10 +454,10 @@ which is a "versioned" class. For new migrations, the latest version should be u
 can be looked up in `Gitlab::Database::Migration::MIGRATION_CLASSES`) to use the latest version
 of migration helpers.
 
-In this example, we use version 1.0 of the migration class:
+In this example, we use version 2.1 of the migration class:
 
 ```ruby
-class TestMigration < Gitlab::Database::Migration[1.0]
+class TestMigration < Gitlab::Database::Migration[2.1]
   def change
   end
 end
@@ -249,11 +466,6 @@ end
 Do not include `Gitlab::Database::MigrationHelpers` directly into a
 migration. Instead, use the latest version of `Gitlab::Database::Migration`, which exposes the latest
 version of migration helpers automatically.
-
-Migration helpers and versioning were [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/68986)
-in GitLab 14.3.
-For merge requests targeting previous stable branches, use the old format and still inherit from
-`ActiveRecord::Migration[6.1]` instead of `Gitlab::Database::Migration[1.0]`.
 
 ## Retry mechanism when acquiring database locks
 
@@ -273,9 +485,9 @@ is concurrently accessed and modified by other processes, acquiring the lock may
 a while. The lock request is waiting in a queue and it may also block other queries
 on the `users` table once it has been enqueued.
 
-More information about PostgresSQL locks: [Explicit Locking](https://www.postgresql.org/docs/current/explicit-locking.html)
+More information about PostgreSQL locks: [Explicit Locking](https://www.postgresql.org/docs/current/explicit-locking.html)
 
-For stability reasons, GitLab.com has a specific [`statement_timeout`](../user/gitlab_com/index.md#postgresql)
+For stability reasons, GitLab.com has a short `statement_timeout`
 set. When the migration is invoked, any database query has
 a fixed time to execute. In a worst-case scenario, the request sits in the
 lock queue, blocking other queries for the duration of the configured statement timeout,
@@ -289,47 +501,29 @@ offers a method to retry the operations with different `lock_timeout` settings
 and wait time between the attempts. Multiple shorter attempts to acquire the necessary
 lock allow the database to process other statements.
 
-There are two distinct ways to use lock retries:
+Lock retries are controlled by two different helpers:
 
-1. Inside a transactional migration: use `enable_lock_retries!`.
-1. Inside a non-transactional migration: use `with_lock_retries`.
+1. `enable_lock_retries!`: enabled by default for all `transactional` migrations.
+1. `with_lock_retries`: enabled manually for a block within `non-transactional` migrations.
 
-If possible, enable lock-retries for any migration that touches a [high-traffic table](#high-traffic-tables).
+### Transactional migrations
 
-### Usage with transactional migrations
+Regular migrations execute the full migration in a transaction. lock-retry mechanism is enabled by default (unless `disable_ddl_transaction!`).
 
-Regular migrations execute the full migration in a transaction. We can enable the
-lock-retry methodology by calling `enable_lock_retries!` at the migration level.
-
-This leads to the lock timeout being controlled for this migration. Also, it can lead to retrying the full
+This leads to the lock timeout being controlled for the migration. Also, it can lead to retrying the full
 migration if the lock could not be granted within the timeout.
-
-Note that, while this is currently an opt-in setting, we prefer to use lock-retries for all migrations and
-plan to make this the default going forward.
 
 Occasionally a migration may need to acquire multiple locks on different objects.
 To prevent catalog bloat, ask for all those locks explicitly before performing any DDL.
 A better strategy is to split the migration, so that we only need to acquire one lock at the time.
 
-**Removing a column:**
-
-```ruby
-enable_lock_retries!
-
-def change
-  remove_column :users, :full_name, :string
-end
-```
-
-**Multiple changes on the same table:**
+#### Multiple changes on the same table
 
 With the lock-retry methodology enabled, all operations wrap into a single transaction. When you have the lock,
 you should do as much as possible inside the transaction rather than trying to get another lock later.
 Be careful about running long database statements within the block. The acquired locks are kept until the transaction (block) finishes and depending on the lock type, it might block other database operations.
 
 ```ruby
-enable_lock_retries!
-
 def up
   add_column :users, :full_name, :string
   add_column :users, :bio, :string
@@ -341,25 +535,12 @@ def down
 end
 ```
 
-**Removing a foreign key:**
+#### Changing default value for a column
+
+Note that changing column defaults can cause application downtime if a multi-release process is not followed.
+See [avoiding downtime in migrations for changing column defaults](database/avoiding_downtime_in_migrations.md#changing-column-defaults) for details.
 
 ```ruby
-enable_lock_retries!
-
-def up
-  remove_foreign_key :issues, :projects
-end
-
-def down
-  add_foreign_key :issues, :projects
-end
-```
-
-**Changing default value for a column:**
-
-```ruby
-enable_lock_retries!
-
 def up
   change_column_default :merge_requests, :lock_version, from: nil, to: 0
 end
@@ -369,26 +550,7 @@ def down
 end
 ```
 
-**Creating a new table with a foreign key:**
-
-We can wrap the `create_table` method with `with_lock_retries`:
-
-```ruby
-enable_lock_retries!
-
-def up
-  create_table :issues do |t|
-    t.references :project, index: true, null: false, foreign_key: { on_delete: :cascade }
-    t.string :title, limit: 255
-  end
-end
-
-def down
-  drop_table :issues
-end
-```
-
-**Creating a new table when we have two foreign keys:**
+#### Creating a new table when we have two foreign keys
 
 Only one foreign key should be created per transaction. This is because [the addition of a foreign key constraint requires a `SHARE ROW EXCLUSIVE` lock on the referenced table](https://www.postgresql.org/docs/12/sql-createtable.html#:~:text=The%20addition%20of%20a%20foreign%20key%20constraint%20requires%20a%20SHARE%20ROW%20EXCLUSIVE%20lock%20on%20the%20referenced%20table), and locking multiple tables in the same transaction should be avoided.
 
@@ -452,7 +614,7 @@ def down
 end
 ```
 
-### Usage with non-transactional migrations (`disable_ddl_transaction!`)
+### Usage with non-transactional migrations
 
 Only when we disable transactional migrations using `disable_ddl_transaction!`, we can use
 the `with_lock_retries` helper to guard an individual sequence of steps. It opens a transaction
@@ -465,14 +627,14 @@ disable_ddl_transaction!
 
 def up
   with_lock_retries do
-    add_column :users, :name, :text unless column_exists?(:users, :name)
+    add_column(:users, :name, :text, if_not_exists: true)
   end
 
   add_text_limit :users, :name, 255 # Includes constraint validation (full table scan)
 end
 ```
 
-The RuboCop rule generally allows standard Rails migration methods, listed below. This example causes a Rubocop offense:
+The RuboCop rule generally allows standard Rails migration methods, listed below. This example causes a RuboCop offense:
 
 ```ruby
 disable_ddl_transaction!
@@ -487,7 +649,7 @@ end
 ### When to use the helper method
 
 You can **only** use the `with_lock_retries` helper method when the execution is not already inside
-an open transaction (using Postgres subtransactions is discouraged). It can be used with
+an open transaction (using PostgreSQL subtransactions is discouraged). It can be used with
 standard Rails migration helper methods. Calling more than one migration
 helper is not a problem if they're executed on the same table.
 
@@ -509,7 +671,7 @@ The `with_lock_retries` method **cannot** be used within the `change` method, yo
 1. For each iteration, set a pre-configured `lock_timeout`.
 1. Try to execute the given block. (`remove_column`).
 1. If `LockWaitTimeout` error is raised, sleep for the pre-configured `sleep_time`
-and retry the block.
+   and retry the block.
 1. If no error is raised, the current iteration has successfully executed the block.
 
 For more information check the [`Gitlab::Database::WithLockRetries`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/with_lock_retries.rb) class. The `with_lock_retries` helper method is implemented in the [`Gitlab::Database::MigrationHelpers`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/migration_helpers.rb) module.
@@ -519,11 +681,76 @@ In a worst-case scenario, the method:
 - Executes the block for a maximum of 50 times over 40 minutes.
   - Most of the time is spent in a pre-configured sleep period after each iteration.
 - After the 50th retry, the block is executed without `lock_timeout`, just
-like a standard migration invocation.
+  like a standard migration invocation.
 - If a lock cannot be acquired, the migration fails with `statement timeout` error.
 
 The migration might fail if there is a very long running transaction (40+ minutes)
 accessing the `users` table.
+
+#### Lock-retry methodology at the SQL level
+
+In this section, we provide a simplified SQL example that demonstrates the use of `lock_timeout`.
+You can follow along by running the given snippets in multiple `psql` sessions.
+
+When altering a table to add a column,
+`AccessExclusiveLock`, which conflicts with most lock types, is required on the table.
+If the target table is a very busy one, the transaction adding the column
+may fail to acquire `AccessExclusiveLock` in a timely fashion.
+
+Suppose a transaction is attempting to insert a row into a table:
+
+```sql
+-- Transaction 1
+BEGIN;
+INSERT INTO my_notes (id) VALUES (1);
+```
+
+At this point Transaction 1 acquired `RowExclusiveLock` on `my_notes`.
+Transaction 1 could still execute more statements prior to committing or aborting.
+There could be other similar, concurrent transactions that touch `my_notes`.
+
+Suppose a transactional migration is attempting to add a column to the table
+without using any lock retry helper:
+
+```sql
+-- Transaction 2
+BEGIN;
+ALTER TABLE my_notes ADD COLUMN title text;
+```
+
+Transaction 2 is now blocked because it cannot acquire
+`AccessExclusiveLock` on `my_notes` table
+as Transaction 1 is still executing and holding the `RowExclusiveLock`
+on `my_notes`.
+
+A more pernicious effect is blocking the transactions that would
+normally not conflict with Transaction 1 because Transaction 2
+is queueing to acquire `AccessExclusiveLock`.
+In a normal situation, if another transaction attempted to read from and write
+to the same table `my_notes` at the same time as Transaction 1,
+the transaction would go through
+since the locks needed for reading and writing would not
+conflict with `RowExclusiveLock` held by Transaction 1.
+However, when the request to acquire `AccessExclusiveLock` is queued,
+the subsequent requests for conflicting locks on the table would block although
+they could be executed concurrently alongside Transaction 1.
+
+If we used `with_lock_retries`, Transaction 2 would instead quickly
+timeout after failing to acquire the lock within the specified time period
+and allow other transactions to proceed:
+
+```sql
+-- Transaction 2 (version with with lock timeout)
+BEGIN;
+SET LOCAL lock_timeout to '100ms'; -- added by the lock retry helper.
+ALTER TABLE my_notes ADD COLUMN title text;
+```
+
+The lock retry helper would repeatedly try the same transaction
+at different time intervals until it succeeded.
+
+Note that `SET LOCAL` scopes the parameter (`lock_timeout`) change to
+the transaction.
 
 ## Removing indexes
 
@@ -535,7 +762,7 @@ by calling the method `disable_ddl_transaction!` in the body of your migration
 class like so:
 
 ```ruby
-class MyMigration < Gitlab::Database::Migration[1.0]
+class MyMigration < Gitlab::Database::Migration[2.1]
   disable_ddl_transaction!
 
   INDEX_NAME = 'index_name'
@@ -546,11 +773,17 @@ class MyMigration < Gitlab::Database::Migration[1.0]
 end
 ```
 
+You can verify that the index is not being used with [Thanos](https://thanos-query.ops.gitlab.net/graph?g0.expr=sum%20by%20(type)(rate(pg_stat_user_indexes_idx_scan%7Benv%3D%22gprd%22%2C%20indexrelname%3D%22INSERT%20INDEX%20NAME%20HERE%22%7D%5B30d%5D))&g0.tab=1&g0.stacked=0&g0.range_input=1h&g0.max_source_resolution=0s&g0.deduplicate=1&g0.partial_response=0&g0.store_matches=%5B%5D):
+
+```sql
+sum by (type)(rate(pg_stat_user_indexes_idx_scan{env="gprd", indexrelname="INSERT INDEX NAME HERE"}[30d]))
+```
+
 Note that it is not necessary to check if the index exists prior to
 removing it, however it is required to specify the name of the
 index that is being removed. This can be done either by passing the name
 as an option to the appropriate form of `remove_index` or `remove_concurrent_index`,
-or more simply by using the `remove_concurrent_index_by_name` method. Explicitly
+or by using the `remove_concurrent_index_by_name` method. Explicitly
 specifying the name is important to ensure the correct index is removed.
 
 For a small table (such as an empty one or one with less than `1,000` records),
@@ -559,95 +792,18 @@ combining it with other operations that don't require `disable_ddl_transaction!`
 
 ### Disabling an index
 
-There are certain situations in which you might want to disable an index before removing it.
-See the [maintenance operations guide](database/maintenance_operations.md#disabling-an-index)
-for more details.
+[Disabling an index is not a safe operation](database/maintenance_operations.md#disabling-an-index-is-not-safe).
 
 ## Adding indexes
 
-Before adding an index, consider if this one is necessary. There are situations in which an index
-might not be required, like:
-
-- The table is small (less than `1,000` records) and it's not expected to exponentially grow in size.
-- Any existing indexes filter out enough rows.
-- The reduction in query timings after the index is added is not significant.
-
-Additionally, wide indexes are not required to match all filter criteria of queries, we just need
-to cover enough columns so that the index lookup has a small enough selectivity. Please review our
-[Adding Database indexes](adding_database_indexes.md) guide for more details.
-
-When adding an index to a non-empty table make sure to use the method
-`add_concurrent_index` instead of the regular `add_index` method.
-The `add_concurrent_index` method automatically creates concurrent indexes
-when using PostgreSQL, removing the need for downtime.
-
-To use this method, you must disable single-transactions mode
-by calling the method `disable_ddl_transaction!` in the body of your migration
-class like so:
-
-```ruby
-class MyMigration < Gitlab::Database::Migration[1.0]
-  disable_ddl_transaction!
-
-  INDEX_NAME = 'index_name'
-
-  def up
-    add_concurrent_index :table, :column, name: INDEX_NAME
-  end
-
-  def down
-    remove_concurrent_index :table, :column, name: INDEX_NAME
-  end
-end
-```
-
-You must explicitly name indexes that are created with more complex
-definitions beyond table name, column name(s) and uniqueness constraint.
-Consult the [Adding Database Indexes](adding_database_indexes.md#requirements-for-naming-indexes)
-guide for more details.
-
-If you need to add a unique index, please keep in mind there is the possibility
-of existing duplicates being present in the database. This means that should
-always _first_ add a migration that removes any duplicates, before adding the
-unique index.
-
-For a small table (such as an empty one or one with less than `1,000` records),
-it is recommended to use `add_index` in a single-transaction migration, combining it with other
-operations that don't require `disable_ddl_transaction!`.
+Before adding an index, consider if one is necessary. The [Adding Database indexes](database/adding_database_indexes.md) guide contains more details to help you decide if an index is necessary and provides best practices for adding indexes.
 
 ## Testing for existence of indexes
 
-If a migration requires conditional logic based on the absence or
-presence of an index, you must test for existence of that index using
-its name. This helps avoids problems with how Rails compares index definitions,
-which can lead to unexpected results. For more details, review the
-[Adding Database Indexes](adding_database_indexes.md#why-explicit-names-are-required)
+If a migration requires conditional logic based on the absence or presence of an index, you must test for existence of that index using its name. This helps avoids problems with how Rails compares index definitions, which can lead to unexpected results.
+
+For more details, review the [Adding Database Indexes](database/adding_database_indexes.md#testing-for-existence-of-indexes)
 guide.
-
-The easiest way to test for existence of an index by name is to use the
-`index_name_exists?` method, but the `index_exists?` method can also
-be used with a name option. For example:
-
-```ruby
-class MyMigration < Gitlab::Database::Migration[1.0]
-  INDEX_NAME = 'index_name'
-
-  def up
-    # an index must be conditionally created due to schema inconsistency
-    unless index_exists?(:table_name, :column_name, name: INDEX_NAME)
-      add_index :table_name, :column_name, name: INDEX_NAME
-    end
-  end
-
-  def down
-    # no op
-  end
-end
-```
-
-Keep in mind that concurrent index helpers like `add_concurrent_index`,
-`remove_concurrent_index`, and `remove_concurrent_index_by_name` already
-perform existence checks internally.
 
 ## Adding foreign-key constraints
 
@@ -664,7 +820,7 @@ Here's an example where we add a new column with a foreign key
 constraint. Note it includes `index: true` to create an index for it.
 
 ```ruby
-class Migration < Gitlab::Database::Migration[1.0]
+class Migration < Gitlab::Database::Migration[2.1]
 
   def change
     add_reference :model, :other_model, index: true, foreign_key: { on_delete: :cascade }
@@ -685,22 +841,30 @@ You can read more about adding [foreign key constraints to an existing column](d
 
 ## `NOT NULL` constraints
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/38358) in GitLab 13.0.
-
 See the style guide on [`NOT NULL` constraints](database/not_null_constraints.md) for more information.
 
 ## Adding Columns With Default Values
 
-With PostgreSQL 11 being the minimum version in GitLab 13.0 and later, adding columns with default values has become much easier and
+With PostgreSQL 11 being the minimum version in GitLab, adding columns with default values has become much easier and
 the standard `add_column` helper should be used in all cases.
 
 Before PostgreSQL 11, adding a column with a default was problematic as it would
-have caused a full table rewrite. The corresponding helper `add_column_with_default`
-has been deprecated and is scheduled to be removed in a later release.
+have caused a full table rewrite.
 
-If a backport adding a column with a default value is needed for %12.9 or earlier versions,
-it should use `add_column_with_default` helper. If a [large table](https://gitlab.com/gitlab-org/gitlab/-/blob/master/rubocop/rubocop-migrations.yml#L3)
-is involved, backporting to %12.9 is contraindicated.
+## Removing the column default for non-nullable columns
+
+If you have added a non-nullable column, and used the default value to populate
+existing data, you need to keep that default value around until at least after
+the application code is updated. You cannot remove the default value in the
+same migration, as the migrations run before the model code is updated and
+models will have an old schema cache, meaning they won't know about this column
+and won't be able to set it. In this case it's recommended to:
+
+1. Add the column with default value in a standard migration.
+1. Remove the default in a post-deployment migration.
+
+The post-deployment migration happens after the application restarts,
+ensuring the new column has been discovered.
 
 ## Changing the column default
 
@@ -710,7 +874,7 @@ expensive and disruptive operation for larger tables, but in reality it's not.
 Take the following migration as an example:
 
 ```ruby
-class DefaultRequestAccessGroups < Gitlab::Database::Migration[1.0]
+class DefaultRequestAccessGroups < Gitlab::Database::Migration[2.1]
   def change
     change_column_default(:namespaces, :request_access_enabled, from: false, to: true)
   end
@@ -732,7 +896,7 @@ in the `namespaces` table. Only when creating a new column with a default, all t
 
 NOTE:
 A faster [ALTER TABLE ADD COLUMN with a non-null default](https://www.depesz.com/2018/04/04/waiting-for-postgresql-11-fast-alter-table-add-column-with-a-non-null-default/)
-was introduced on PostgresSQL 11.0, removing the need of rewriting the table when a new column with a default value is added.
+was introduced on PostgreSQL 11.0, removing the need of rewriting the table when a new column with a default value is added.
 
 For the reasons mentioned above, it's safe to use `change_column_default` in a single-transaction migration
 without requiring `disable_ddl_transaction!`.
@@ -766,8 +930,7 @@ update_column_in_batches(:projects, :foo, update_value) do |table, query|
 end
 ```
 
-Like `add_column_with_default`, there is a RuboCop cop to detect usage of this
-on large tables. In the case of `update_column_in_batches`, it may be acceptable
+In the case of `update_column_in_batches`, it may be acceptable
 to run on a large table, as long as it is only updating a small subset of the
 rows in the table, but do not ignore that without validating on the GitLab.com
 staging environment - or asking someone else to do so for you - beforehand.
@@ -800,9 +963,13 @@ end
 
 ## Dropping a database table
 
+NOTE:
+After a table has been dropped, it should be added to the database dictionary, following the
+steps in the [database dictionary guide](database/database_dictionary.md#dropping-tables).
+
 Dropping a database table is uncommon, and the `drop_table` method
 provided by Rails is generally considered safe. Before dropping the table,
-please consider the following:
+consider the following:
 
 If your table has foreign keys on a [high-traffic table](#high-traffic-tables) (like `projects`), then
 the `DROP TABLE` statement is likely to stall concurrent traffic until it fails with **statement timeout** error.
@@ -820,9 +987,14 @@ end
 
 Table **has records** but **no foreign keys**:
 
-- First release: Remove the application code related to the table, such as models,
-controllers and services.
-- Second release: Use the `drop_table` method in your migration.
+- Remove the application code related to the table, such as models,
+  controllers and services.
+- In a post-deployment migration, use `drop_table`.
+
+This can all be in a single migration if you're sure the code is not used.
+If you want to reduce risk slightly, consider putting the migrations into a
+second merge request after the application changes are merged. This approach
+provides an opportunity to roll back.
 
 ```ruby
 def up
@@ -836,27 +1008,32 @@ end
 
 Table **has foreign keys**:
 
-- First release: Remove the application code related to the table, such as models,
-controllers, and services.
-- Second release: Remove the foreign keys using the `with_lock_retries`
-helper method. Use `drop_table` in another migration file.
+- Remove the application code related to the table, such as models,
+  controllers, and services.
+- In a post-deployment migration, remove the foreign keys using the
+  `with_lock_retries` helper method. In another subsequent post-deployment
+  migration, use `drop_table`.
 
-**Migrations for the second release:**
+This can all be in a single migration if you're sure the code is not used.
+If you want to reduce risk slightly, consider putting the migrations into a
+second merge request after the application changes are merged. This approach
+provides an opportunity to roll back.
 
-Removing the foreign key on the `projects` table:
+Removing the foreign key on the `projects` table using a non-transactional migration:
 
 ```ruby
 # first migration file
+class RemovingForeignKeyMigrationClass < Gitlab::Database::Migration[2.1]
+  disable_ddl_transaction!
 
-def up
-  with_lock_retries do
-    remove_foreign_key :my_table, :projects
+  def up
+    with_lock_retries do
+      remove_foreign_key :my_table, :projects
+    end
   end
-end
 
-def down
-  with_lock_retries do
-    add_foreign_key :my_table, :projects
+  def down
+    add_concurrent_foreign_key :my_table, :projects, column: COLUMN_NAME
   end
 end
 ```
@@ -865,15 +1042,107 @@ Dropping the table:
 
 ```ruby
 # second migration file
+class DroppingTableMigrationClass < Gitlab::Database::Migration[2.1]
+  def up
+    drop_table :my_table
+  end
 
-def up
-  drop_table :my_table
-end
-
-def down
-  # create_table ...
+  def down
+    # create_table with the same schema but without the removed foreign key ...
+  end
 end
 ```
+
+## Dropping a sequence
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88387) in GitLab 15.1.
+
+Dropping a sequence is uncommon, but you can use the `drop_sequence` method provided by the database team.
+
+Under the hood, it works like this:
+
+Remove a sequence:
+
+- Remove the default value if the sequence is actually used.
+- Execute `DROP SEQUENCE`.
+
+Re-add a sequence:
+
+- Create the sequence, with the possibility of specifying the current value.
+- Change the default value of the column.
+
+A Rails migration example:
+
+```ruby
+class DropSequenceTest < Gitlab::Database::Migration[2.1]
+  def up
+    drop_sequence(:ci_pipelines_config, :pipeline_id, :ci_pipelines_config_pipeline_id_seq)
+  end
+
+  def down
+    default_value = Ci::Pipeline.maximum(:id) + 10_000
+
+    add_sequence(:ci_pipelines_config, :pipeline_id, :ci_pipelines_config_pipeline_id_seq, default_value)
+  end
+end
+```
+
+NOTE:
+`add_sequence` should be avoided for columns with foreign keys.
+Adding sequence to these columns is **only allowed** in the down method (restore previous schema state).
+
+## Truncate a table
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/117373) in GitLab 15.11.
+
+Truncating a table is uncommon, but you can use the `truncate_tables!` method provided by the database team.
+
+Under the hood, it works like this:
+
+- Finds the `gitlab_schema` for the tables to be truncated.
+- If the `gitlab_schema` for the tables is included in the connection's `gitlab_schema`s,
+  it then executes the `TRUNCATE` statement.
+- If the `gitlab_schema` for the tables is not included in the connection's
+  `gitlab_schema`s, it does nothing.
+
+## Swapping primary key
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/98645) in GitLab 15.5.
+
+Swapping the primary key is required to partition a table as the **partition key must be included in the primary key**.
+
+You can use the `swap_primary_key` method provided by the database team.
+
+Under the hood, it works like this:
+
+- Drop the primary key constraint.
+- Add the primary key using the index defined beforehand.
+
+```ruby
+class SwapPrimaryKey < Gitlab::Database::Migration[2.1]
+  disable_ddl_transaction!
+
+  TABLE_NAME = :table_name
+  PRIMARY_KEY = :table_name_pkey
+  OLD_INDEX_NAME = :old_index_name
+  NEW_INDEX_NAME = :new_index_name
+
+  def up
+    swap_primary_key(TABLE_NAME, PRIMARY_KEY, NEW_INDEX_NAME)
+  end
+
+  def down
+    add_concurrent_index(TABLE_NAME, :id, unique: true, name: OLD_INDEX_NAME)
+    add_concurrent_index(TABLE_NAME, [:id, :partition_id], unique: true, name: NEW_INDEX_NAME)
+
+    unswap_primary_key(TABLE_NAME, PRIMARY_KEY, OLD_INDEX_NAME)
+  end
+end
+```
+
+NOTE:
+Make sure to introduce the new index beforehand in a separate migration in order
+to swap the primary key.
 
 ## Integer column type
 
@@ -893,8 +1162,6 @@ add_column(:projects, :foo, :integer, default: 10, limit: 8)
 ```
 
 ## Strings and the Text data type
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/30453) in GitLab 13.0.
 
 See the [text data type](database/strings_and_the_text_data_type.md) style guide for more information.
 
@@ -943,18 +1210,18 @@ The Rails 5 natively supports `JSONB` (binary JSON) column type.
 Example migration adding this column:
 
 ```ruby
-class AddOptionsToBuildMetadata < Gitlab::Database::Migration[1.0]
+class AddOptionsToBuildMetadata < Gitlab::Database::Migration[2.1]
   def change
     add_column :ci_builds_metadata, :config_options, :jsonb
   end
 end
 ```
 
-You have to use a serializer to provide a translation layer:
+By default hash keys will be strings. Optionally you can add a custom data type to provide different access to keys.
 
 ```ruby
 class BuildMetadata
-  serialize :config_options, Serializers::Json # rubocop:disable Cop/ActiveRecordSerialize
+  attribute :config_options, :ind_jsonb # for indifferent accesss or :sym_jsonb if you need symbols only as keys.
 end
 ```
 
@@ -966,16 +1233,56 @@ class BuildMetadata
 end
 ```
 
-## Encrypted attributes
+Additionally, you can expose the keys in a `JSONB` column as
+ActiveRecord attributes. Do this when you need complex validations,
+or ActiveRecord change tracking. This feature is provided by the
+[`jsonb_accessor`](https://github.com/madeintandem/jsonb_accessor) gem,
+and does not replace `JsonSchemaValidator`.
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/227779) in GitLab 14.0.
+```ruby
+module Organizations
+  class OrganizationSetting < ApplicationRecord
+    belongs_to :organization
+
+    validates :settings, json_schema: { filename: "organization_settings" }
+
+    jsonb_accessor :settings,
+      restricted_visibility_levels: [:integer, { array: true }]
+
+    validates_each :restricted_visibility_levels do |record, attr, value|
+      value&.each do |level|
+        unless Gitlab::VisibilityLevel.options.value?(level)
+          record.errors.add(attr, format(_("'%{level}' is not a valid visibility level"), level: level))
+        end
+      end
+    end
+  end
+end
+```
+
+You can now use `restricted_visibility_levels` as an ActiveRecord attribute:
+
+```ruby
+> s = Organizations::OrganizationSetting.find(1)
+=> #<Organizations::OrganizationSetting:0x0000000148d67628>
+> s.settings
+=> {"restricted_visibility_levels"=>[20]}
+> s.restricted_visibility_levels
+=> [20]
+> s.restricted_visibility_levels = [0]
+=> [0]
+> s.changes
+=> {"settings"=>[{"restricted_visibility_levels"=>[20]}, {"restricted_visibility_levels"=>[0]}], "restricted_visibility_levels"=>[[20], [0]]}
+```
+
+## Encrypted attributes
 
 Do not store `attr_encrypted` attributes as `:text` in the database; use
 `:binary` instead. This uses the `bytea` type in PostgreSQL and makes storage more
 efficient:
 
 ```ruby
-class AddSecretToSomething < Gitlab::Database::Migration[1.0]
+class AddSecretToSomething < Gitlab::Database::Migration[2.1]
   def change
     add_column :something, :encrypted_secret, :binary
     add_column :something, :encrypted_secret_iv, :binary
@@ -1003,7 +1310,7 @@ See the [Testing Rails migrations](testing_guide/testing_migrations_guide.md) st
 
 ## Data migration
 
-Please prefer Arel and plain SQL over usual ActiveRecord syntax. In case of
+Prefer Arel and plain SQL over usual ActiveRecord syntax. In case of
 using plain SQL, you need to quote all input manually with `quote_string` helper.
 
 Example with Arel:
@@ -1033,8 +1340,8 @@ If you need more complex logic, you can define and use models local to a
 migration. For example:
 
 ```ruby
-class MyMigration < Gitlab::Database::Migration[1.0]
-  class Project < ActiveRecord::Base
+class MyMigration < Gitlab::Database::Migration[2.1]
+  class Project < MigrationRecord
     self.table_name = 'projects'
   end
 
@@ -1051,13 +1358,13 @@ end
 When doing so be sure to explicitly set the model's table name, so it's not
 derived from the class name or namespace.
 
-Be aware of the limitations [when using models in migrations](#using-models-in-migrations-discouraged).
+Be aware of the limitations [when using models in migrations](#using-application-code-in-migrations-discouraged).
 
 ### Modifying existing data
 
 In most circumstances, prefer migrating data in **batches** when modifying data in the database.
 
-We introduced a new helper [each_batch_range](https://gitlab.com/gitlab-org/gitlab/-/blob/cd3e0a5cddcb464cb9b8c6e3275839cf57dfa6e2/lib/gitlab/database/dynamic_model_helpers.rb#L28-32) which facilitates the process of iterating over a collection in a performant way. The default size of the batch is defined in the `BATCH_SIZE` constant.
+We introduced a new helper [`each_batch_range`](https://gitlab.com/gitlab-org/gitlab/-/blob/cd3e0a5cddcb464cb9b8c6e3275839cf57dfa6e2/lib/gitlab/database/dynamic_model_helpers.rb#L28-32) which facilitates the process of iterating over a collection in a performant way. The default size of the batch is defined in the `BATCH_SIZE` constant.
 
 See the following example to get an idea.
 
@@ -1088,52 +1395,41 @@ end
 
 Here is an [example MR](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/62195) illustrating how to use our new helper.
 
-### Renaming reserved paths
+## Using application code in migrations (discouraged)
 
-When a new route for projects is introduced, it could conflict with any
-existing records. The path for these records should be renamed, and the
-related data should be moved on disk.
+The use of application code (including models) in migrations is generally
+discouraged. This is because the migrations stick around for a long time and
+the application code it depends on may change and break the migration in
+future. In the past some background migrations needed to use
+application code in order to avoid copying hundreds of lines of code spread
+across multiple files into the migration. In these rare cases it's critical to
+ensure the migration has good tests so that anyone refactoring the code in
+future will learn if they break the migration. Using application code is also
+[discouraged for batched background migrations](database/batched_background_migrations.md#isolation)
+, the model needs to be declared in the migration.
 
-Since we had to do this a few times already, there are now some helpers to help
-with this.
+Usually you can avoid using application code (specifically models) in a
+migration by defining a class that inherits from `MigrationRecord` (see
+examples below).
 
-To use this you can include `Gitlab::Database::RenameReservedPathsMigration::V1`
-in your migration. This provides 3 methods which you can pass one or more
-paths that need to be rejected.
-
-- **`rename_root_paths`**: Renames the path of all _namespaces_ with the
-given name that don't have a `parent_id`.
-- **`rename_child_paths`**: Renames the path of all _namespaces_ with the
-given name that have a `parent_id`.
-- **`rename_wildcard_paths`**: Renames the path of all _projects_, and all
-_namespaces_ that have a `project_id`.
-
-The `path` column for these rows are renamed to their previous value followed
-by an integer. For example: `users` would turn into `users0`
-
-## Using models in migrations (discouraged)
-
-The use of models in migrations is generally discouraged. As such models are
-[contraindicated for background migrations](background_migrations.md#isolation),
-the model needs to be declared in the migration.
-
-If using a model in the migrations, you should first
+If using are using a model (including defined in the migration), you should
+first
 [clear the column cache](https://api.rubyonrails.org/classes/ActiveRecord/ModelSchema/ClassMethods.html#method-i-reset_column_information)
 using `reset_column_information`.
 
-If using a model that leverages single table inheritance (STI), there are [special
-considerations](single_table_inheritance.md#in-migrations).
+If using a model that leverages single table inheritance (STI), there are
+[special considerations](database/single_table_inheritance.md#in-migrations).
 
 This avoids problems where a column that you are using was altered and cached
 in a previous migration.
 
 ### Example: Add a column `my_column` to the users table
 
-It is important not to leave out the `User.reset_column_information` command, in order to ensure that the old schema is dropped from the cache and ActiveRecord loads the updated schema information.
+It is important not to leave out the `User.reset_column_information` command, to ensure that the old schema is dropped from the cache and ActiveRecord loads the updated schema information.
 
 ```ruby
-class AddAndSeedMyColumn < Gitlab::Database::Migration[1.0]
-  class User < ActiveRecord::Base
+class AddAndSeedMyColumn < Gitlab::Database::Migration[2.1]
+  class User < MigrationRecord
     self.table_name = 'users'
   end
 
@@ -1208,3 +1504,41 @@ Any table which has some high read operation compared to current [high-traffic t
 As a general rule, we discourage adding columns to high-traffic tables that are purely for
 analytics or reporting of GitLab.com. This can have negative performance impacts for all
 self-managed instances without providing direct feature value to them.
+
+## Milestone
+
+Beginning in GitLab 16.6, all new migrations must specify a milestone, using the following syntax:
+
+```ruby
+class AddFooToBar < Gitlab::Database::Migration[2.2]
+  milestone '16.6'
+
+  def change
+    # Your migration here
+  end
+end
+```
+
+Adding the correct milestone to a migration enables us to logically partition migrations into
+their corresponding GitLab minor versions. This:
+
+- Simplifies the upgrade process.
+- Alleviates potential migration ordering issues that arise when we rely solely on the migration's timestamp for ordering.
+
+## Autovacuum wraparound protection
+
+This is a [special autovacuum](https://www.cybertec-postgresql.com/en/autovacuum-wraparound-protection-in-postgresql/)
+run mode for PostgreSQL and it requires a `ShareUpdateExclusiveLock` on the
+table that it is vacuuming. For [larger tables](https://gitlab.com/gitlab-org/release-tools/-/blob/master/lib/release_tools/prometheus/wraparound_vacuum_checks.rb#L11)
+this could take hours and the lock can conflict with most DDL migrations that
+try to modify the table at the same time. Because the migrations will not be
+able to acquire the lock in time, they will fail and block the deployments.
+
+The [post-deploy migration (PDM) pipeline](https://gitlab.com/gitlab-org/release/docs/-/tree/master/general/post_deploy_migration) can check and halt its execution if it
+detects a wraparound prevention vacuum process on one of the tables. For this to
+happen we need to use the complete table name in the migration name. For example
+`add_foreign_key_between_ci_builds_and_ci_job_artifacts` will check for vacuum
+on `ci_builds` and `ci_job_artifacts` before executing the migrations.
+
+If the migration doesn't have conflicting locks, the vacuum check can be skipped
+by not using the complete table name, for example `create_async_index_on_job_artifacts`.

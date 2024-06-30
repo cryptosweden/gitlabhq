@@ -12,12 +12,13 @@ import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import {
   mockRegularLabel,
   mockLabels,
-} from 'jest/vue_shared/components/sidebar/labels_select_vue/mock_data';
+} from 'jest/sidebar/components/labels/labels_select_vue/mock_data';
 
 import {
-  DEFAULT_NONE_ANY,
+  OPTIONS_NONE_ANY,
   OPERATOR_IS,
-  OPERATOR_IS_NOT,
+  OPERATOR_NOT,
+  OPERATOR_OR,
 } from '~/vue_shared/components/filtered_search_bar/constants';
 import {
   getRecentlyUsedSuggestions,
@@ -30,9 +31,7 @@ import { mockLabelToken } from '../mock_data';
 jest.mock('~/vue_shared/components/filtered_search_bar/filtered_search_utils', () => ({
   getRecentlyUsedSuggestions: jest.fn(),
   setTokenValueToRecentlyUsed: jest.fn(),
-  stripQuotes: jest.requireActual(
-    '~/vue_shared/components/filtered_search_bar/filtered_search_utils',
-  ).stripQuotes,
+  stripQuotes: jest.requireActual('~/lib/utils/text_utility').stripQuotes,
 }));
 
 const mockStorageKey = 'recent-tokens-label_name';
@@ -70,14 +69,16 @@ const defaultScopedSlots = {
   'suggestions-list': `<div data-testid="${mockSuggestionListTestId}" :data-suggestions="JSON.stringify(props.suggestions)"></div>`,
 };
 
+const mockConfig = { ...mockLabelToken, recentSuggestionsStorageKey: mockStorageKey };
 const mockProps = {
-  config: { ...mockLabelToken, recentSuggestionsStorageKey: mockStorageKey },
+  config: mockConfig,
   value: { data: '' },
   active: false,
   suggestions: [],
   suggestionsLoading: false,
-  defaultSuggestions: DEFAULT_NONE_ANY,
+  defaultSuggestions: OPTIONS_NONE_ANY,
   getActiveTokenValue: (labels, data) => labels.find((label) => label.title === data),
+  cursorPosition: 'start',
 };
 
 function createComponent({
@@ -87,6 +88,7 @@ function createComponent({
   slots = defaultSlots,
   scopedSlots = defaultScopedSlots,
   mountFn = mount,
+  groupMultiSelectTokens = false,
 } = {}) {
   return mountFn(BaseToken, {
     propsData: {
@@ -94,9 +96,13 @@ function createComponent({
       ...props,
     },
     provide: {
+      glFeatures: {
+        groupMultiSelectTokens,
+      },
       portalName: 'fake target',
       alignSuggestions: jest.fn(),
       suggestionsListClass: () => 'custom-class',
+      termsAsTokens: () => false,
       filteredSearchSuggestionListInstance: {
         register: jest.fn(),
         unregister: jest.fn(),
@@ -116,18 +122,19 @@ describe('BaseToken', () => {
 
   const findGlFilteredSearchToken = () => wrapper.findComponent(GlFilteredSearchToken);
   const findMockSuggestionList = () => wrapper.findByTestId(mockSuggestionListTestId);
+
   const getMockSuggestionListSuggestions = () =>
     JSON.parse(findMockSuggestionList().attributes('data-suggestions'));
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('data', () => {
     it('calls `getRecentlyUsedSuggestions` to populate `recentSuggestions` when `recentSuggestionsStorageKey` is defined', () => {
       wrapper = createComponent();
 
-      expect(getRecentlyUsedSuggestions).toHaveBeenCalledWith(mockStorageKey);
+      expect(getRecentlyUsedSuggestions).toHaveBeenCalledWith(
+        mockStorageKey,
+        expect.anything(),
+        expect.anything(),
+      );
     });
   });
 
@@ -149,6 +156,27 @@ describe('BaseToken', () => {
           mockLabels,
           `"${mockRegularLabel.title}"`,
         );
+      });
+
+      it('uses last item in list when value is an array', () => {
+        const mockGetActiveTokenValue = jest.fn();
+
+        const config = { ...mockConfig, multiSelect: true };
+
+        wrapper = createComponent({
+          props: {
+            config,
+            value: { data: mockLabels.map((l) => l.title), operator: '||' },
+            suggestions: mockLabels,
+            getActiveTokenValue: mockGetActiveTokenValue,
+          },
+          groupMultiSelectTokens: true,
+        });
+
+        const lastTitle = mockLabels[mockLabels.length - 1].title;
+
+        expect(mockGetActiveTokenValue).toHaveBeenCalledTimes(1);
+        expect(mockGetActiveTokenValue).toHaveBeenCalledWith(mockLabels, lastTitle);
       });
     });
   });
@@ -222,6 +250,20 @@ describe('BaseToken', () => {
           });
         },
       );
+
+      it('limits the length of the rendered list using config.maxSuggestions', () => {
+        mockSuggestions = ['a', 'b', 'c', 'd'].map((id) => ({ id }));
+
+        const maxSuggestions = 2;
+        const config = { ...mockConfig, maxSuggestions };
+        const props = { defaultSuggestions: [], suggestions: mockSuggestions, config };
+
+        getRecentlyUsedSuggestions.mockReturnValue([]);
+        wrapper = createComponent({ props, mountFn: shallowMountExtended, stubs: {} });
+
+        expect(findMockSuggestionList().exists()).toBe(true);
+        expect(getMockSuggestionListSuggestions().length).toEqual(maxSuggestions);
+      });
     });
 
     describe('with preloaded suggestions', () => {
@@ -300,13 +342,14 @@ describe('BaseToken', () => {
 
     describe('with default suggestions', () => {
       describe.each`
-        operator           | shouldRenderFilteredSearchSuggestion
-        ${OPERATOR_IS}     | ${true}
-        ${OPERATOR_IS_NOT} | ${false}
+        operator        | shouldRenderFilteredSearchSuggestion
+        ${OPERATOR_IS}  | ${true}
+        ${OPERATOR_NOT} | ${false}
+        ${OPERATOR_OR}  | ${false}
       `('when operator is $operator', ({ shouldRenderFilteredSearchSuggestion, operator }) => {
         beforeEach(() => {
           const props = {
-            defaultSuggestions: DEFAULT_NONE_ANY,
+            defaultSuggestions: OPTIONS_NONE_ANY,
             value: { data: '', operator },
           };
 
@@ -316,12 +359,13 @@ describe('BaseToken', () => {
         it(`${
           shouldRenderFilteredSearchSuggestion ? 'should' : 'should not'
         } render GlFilteredSearchSuggestion`, () => {
-          const filteredSearchSuggestions = wrapper.findAllComponents(GlFilteredSearchSuggestion)
-            .wrappers;
+          const filteredSearchSuggestions = wrapper.findAllComponents(
+            GlFilteredSearchSuggestion,
+          ).wrappers;
 
           if (shouldRenderFilteredSearchSuggestion) {
             expect(filteredSearchSuggestions.map((c) => c.props())).toMatchObject(
-              DEFAULT_NONE_ANY.map((opt) => ({ value: opt.value })),
+              OPTIONS_NONE_ANY.map((opt) => ({ value: opt.value })),
             );
           } else {
             expect(filteredSearchSuggestions).toHaveLength(0);
@@ -407,6 +451,12 @@ describe('BaseToken', () => {
       expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
     });
 
+    it('renders  `footer` slot when present', () => {
+      wrapper = createComponent({ slots: { footer: "<div class='custom-footer' />" } });
+
+      expect(wrapper.find('.custom-footer').exists()).toBe(true);
+    });
+
     describe('events', () => {
       describe('when activeToken has been selected', () => {
         beforeEach(() => {
@@ -417,8 +467,6 @@ describe('BaseToken', () => {
         });
 
         it('does not emit `fetch-suggestions` event on component after a delay when component emits `input` event', async () => {
-          jest.useFakeTimers();
-
           findGlFilteredSearchToken().vm.$emit('input', { data: 'foo' });
           await nextTick();
 
@@ -436,8 +484,6 @@ describe('BaseToken', () => {
         });
 
         it('emits `fetch-suggestions` event on component after a delay when component emits `input` event', async () => {
-          jest.useFakeTimers();
-
           findGlFilteredSearchToken().vm.$emit('input', { data: 'foo' });
           await nextTick();
 
@@ -460,6 +506,14 @@ describe('BaseToken', () => {
 
             expect(wrapper.emitted('fetch-suggestions')[2]).toEqual(['foo']);
           });
+        });
+
+        it('does not emit `fetch-suggestions` when value is array', () => {
+          expect(wrapper.emitted('fetch-suggestions')).toEqual([[''], ['']]);
+
+          findGlFilteredSearchToken().vm.$emit('input', { data: ['first item'] });
+
+          expect(wrapper.emitted('fetch-suggestions')).toEqual([[''], ['']]);
         });
       });
     });

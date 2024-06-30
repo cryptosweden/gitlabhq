@@ -9,25 +9,38 @@ class UsersController < ApplicationController
   include Gitlab::NoteableMetadata
 
   requires_cross_project_access show: false,
-                                groups: false,
-                                projects: false,
-                                contributed: false,
-                                snippets: true,
-                                calendar: false,
-                                followers: false,
-                                following: false,
-                                calendar_activities: true
+    groups: false,
+    projects: false,
+    contributed: false,
+    snippets: true,
+    calendar: false,
+    followers: false,
+    following: false,
+    calendar_activities: true
 
   skip_before_action :authenticate_user!
   prepend_before_action(only: [:show]) { authenticate_sessionless_user!(:rss) }
   before_action :user, except: [:exists]
-  before_action :authorize_read_user_profile!,
-                only: [:calendar, :calendar_activities, :groups, :projects, :contributed, :starred, :snippets, :followers, :following]
+  before_action :authorize_read_user_profile!, only: [
+    :calendar, :calendar_activities, :groups, :projects, :contributed, :starred, :snippets, :followers, :following
+  ]
   before_action only: [:exists] do
     check_rate_limit!(:username_exists, scope: request.ip)
   end
+  before_action only: [:show] do
+    push_frontend_feature_flag(:profile_tabs_vue, current_user)
+  end
 
-  feature_category :users
+  feature_category :user_profile, [:show, :activity, :groups, :projects, :contributed, :starred,
+    :followers, :following, :calendar, :calendar_activities,
+    :exists, :activity, :follow, :unfollow, :ssh_keys]
+
+  feature_category :source_code_management, [:snippets, :gpg_keys]
+
+  # TODO: Set higher urgency after resolving https://gitlab.com/gitlab-org/gitlab/-/issues/357914
+  urgency :low, [:show, :calendar_activities, :contributed, :activity, :projects, :groups, :calendar, :snippets]
+  urgency :default, [:followers, :following, :starred]
+  urgency :high, [:exists]
 
   def show
     respond_to do |format|
@@ -48,7 +61,9 @@ class UsersController < ApplicationController
   # Get all keys of a user(params[:username]) in a text format
   # Helpful for sysadmins to put in respective servers
   def ssh_keys
-    render plain: user.all_ssh_keys.join("\n")
+    keys = user.all_ssh_keys.join("\n")
+    keys << "\n" unless keys.empty?
+    render plain: keys
   end
 
   def activity
@@ -57,22 +72,36 @@ class UsersController < ApplicationController
 
       format.json do
         load_events
-        pager_json("events/_events", @events.count, events: @events)
+
+        if Feature.enabled?(:profile_tabs_vue, current_user)
+          @events = if user.include_private_contributions?
+                      @events
+                    else
+                      @events.select { |event| event.visible_to_user?(current_user) }
+                    end
+
+          render json: ::Profile::EventSerializer.new(current_user: current_user, target_user: user)
+                                                 .represent(@events)
+        else
+          pager_json("events/_events", @events.count, events: @events)
+        end
       end
     end
   end
 
   # Get all gpg keys of a user(params[:username]) in a text format
   def gpg_keys
-    render plain: user.gpg_keys.select(&:verified?).map(&:key).join("\n")
+    keys = user.gpg_keys.filter_map { |gpg_key| gpg_key.key if gpg_key.verified? }.join("\n")
+    keys << "\n" unless keys.empty?
+    render plain: keys
   end
 
   def groups
-    load_groups
-
     respond_to do |format|
       format.html { render 'show' }
       format.json do
+        load_groups
+
         render json: {
           html: view_to_html_string("shared/groups/_list", groups: @groups)
         }
@@ -81,54 +110,57 @@ class UsersController < ApplicationController
   end
 
   def projects
-    load_projects
-
-    present_projects(@projects)
+    present_projects do
+      load_projects
+    end
   end
 
   def contributed
-    load_contributed_projects
-
-    present_projects(@contributed_projects)
+    present_projects do
+      load_contributed_projects
+    end
   end
 
   def starred
-    load_starred_projects
-
-    present_projects(@starred_projects)
+    present_projects do
+      load_starred_projects
+    end
   end
 
   def followers
-    @user_followers = user.followers.page(params[:page])
-
-    present_users(@user_followers)
+    present_users do
+      @user_followers = user.followers.page(params[:page])
+    end
   end
 
   def following
-    @user_following = user.followees.page(params[:page])
-
-    present_users(@user_following)
+    present_users do
+      @user_following = user.followees.page(params[:page])
+    end
   end
 
-  def present_projects(projects)
+  def present_projects
     skip_pagination = Gitlab::Utils.to_boolean(params[:skip_pagination])
     skip_namespace = Gitlab::Utils.to_boolean(params[:skip_namespace])
     compact_mode = Gitlab::Utils.to_boolean(params[:compact_mode])
+    card_mode = Gitlab::Utils.to_boolean(params[:card_mode])
 
     respond_to do |format|
       format.html { render 'show' }
       format.json do
-        pager_json("shared/projects/_list", projects.count, projects: projects, skip_pagination: skip_pagination, skip_namespace: skip_namespace, compact_mode: compact_mode)
+        projects = yield
+
+        pager_json("shared/projects/_list", projects.count, projects: projects, skip_pagination: skip_pagination, skip_namespace: skip_namespace, compact_mode: compact_mode, card_mode: card_mode)
       end
     end
   end
 
   def snippets
-    load_snippets
-
     respond_to do |format|
       format.html { render 'show' }
       format.json do
+        load_snippets
+
         render json: {
           html: view_to_html_string("snippets/_snippets", collection: @snippets)
         }
@@ -141,7 +173,11 @@ class UsersController < ApplicationController
   end
 
   def calendar_activities
-    @calendar_date = Date.parse(params[:date]) rescue Date.today
+    @calendar_date = begin
+      Date.parse(params[:date])
+    rescue StandardError
+      Date.today
+    end
     @events = contributions_calendar.events_by_date(@calendar_date).map(&:present)
 
     render 'calendar_activities', layout: false
@@ -149,14 +185,20 @@ class UsersController < ApplicationController
 
   def exists
     if Gitlab::CurrentSettings.signup_enabled? || current_user
-      render json: { exists: !!Namespace.find_by_path_or_name(params[:username]) }
+      render json: { exists: !!Namespace.without_project_namespaces.find_by_path_or_name(params[:username]) }
     else
       render json: { error: _('You must be authenticated to access this path.') }, status: :unauthorized
     end
   end
 
   def follow
-    current_user.follow(user)
+    followee = current_user.follow(user)
+
+    if followee
+      flash[:alert] = followee.errors.full_messages.join(', ') if followee&.errors&.any?
+    else
+      flash[:alert] = s_('Action not allowed.')
+    end
 
     redirect_path = referer_path(request) || @user
 
@@ -164,8 +206,12 @@ class UsersController < ApplicationController
   end
 
   def unfollow
-    current_user.unfollow(user)
+    response = ::Users::UnfollowService.new(
+      follower: current_user,
+      followee: user
+    ).execute
 
+    flash[:alert] = response.message if response.error?
     redirect_path = referer_path(request) || @user
 
     redirect_to redirect_path
@@ -182,7 +228,7 @@ class UsersController < ApplicationController
   end
 
   def contributed_projects
-    ContributedProjectsFinder.new(user).execute(current_user)
+    ContributedProjectsFinder.new(user).execute(current_user, order_by: 'latest_activity_desc')
   end
 
   def starred_projects
@@ -208,7 +254,7 @@ class UsersController < ApplicationController
   end
 
   def load_contributed_projects
-    @contributed_projects = contributed_projects.joined(user)
+    @contributed_projects = contributed_projects.with_route.joined(user).page(params[:page]).without_count
 
     prepare_projects_for_rendering(@contributed_projects)
   end
@@ -220,7 +266,8 @@ class UsersController < ApplicationController
   end
 
   def load_groups
-    @groups = JoinedGroupsFinder.new(user).execute(current_user)
+    groups = JoinedGroupsFinder.new(user).execute(current_user)
+    @groups = groups.page(params[:page]).without_count
 
     prepare_groups_for_rendering(@groups)
   end
@@ -242,10 +289,11 @@ class UsersController < ApplicationController
     access_denied! unless can?(current_user, :read_user_profile, user)
   end
 
-  def present_users(users)
+  def present_users
     respond_to do |format|
       format.html { render 'show' }
       format.json do
+        users = yield
         render json: {
           html: view_to_html_string("shared/users/index", users: users)
         }
@@ -255,8 +303,6 @@ class UsersController < ApplicationController
 
   def finder_params
     {
-      # don't display projects pending deletion
-      without_deleted: true,
       # don't display projects marked for deletion
       not_aimed_for_deletion: true
     }

@@ -1,9 +1,10 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import Prompt from '../prompt.vue';
 
 export default {
   components: {
-    prompt: Prompt,
+    Prompt,
   },
   props: {
     count: {

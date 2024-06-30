@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::UsageDataMetrics do
+RSpec.describe Gitlab::UsageDataMetrics, :with_license, feature_category: :service_ping do
   describe '.uncached_data' do
     subject { described_class.uncached_data }
 
@@ -16,6 +16,10 @@ RSpec.describe Gitlab::UsageDataMetrics do
       allow_next_instance_of(Gitlab::Database::BatchCounter) do |batch_counter|
         allow(batch_counter).to receive(:transaction_open?).and_return(false)
       end
+
+      allow_next_instance_of(Gitlab::Database::BatchAverageCounter) do |instance|
+        allow(instance).to receive(:transaction_open?).and_return(false)
+      end
     end
 
     context 'with instrumentation_class' do
@@ -24,16 +28,19 @@ RSpec.describe Gitlab::UsageDataMetrics do
         expect(subject).to include(:hostname)
       end
 
-      it 'includes counts keys' do
+      it 'includes counts keys', :aggregate_failures do
         expect(subject[:counts]).to include(:boards)
-      end
-
-      it 'includes counts keys' do
         expect(subject[:counts]).to include(:issues)
+        expect(subject[:counts]).to include(:gitlab_for_jira_app_direct_installations)
+        expect(subject[:counts]).to include(:gitlab_for_jira_app_proxy_installations)
       end
 
       it 'includes usage_activity_by_stage keys' do
         expect(subject[:usage_activity_by_stage][:plan]).to include(:issues)
+      end
+
+      it 'includes usage_activity_by_stage metrics' do
+        expect(subject[:usage_activity_by_stage][:manage]).to include(:count_user_auth)
       end
 
       it 'includes usage_activity_by_stage_monthly keys' do
@@ -41,14 +48,18 @@ RSpec.describe Gitlab::UsageDataMetrics do
       end
 
       it 'includes settings keys' do
-        expect(subject[:settings]).to include(:collected_data_categories)
+        expect(subject[:settings]).to include(:allow_runner_registration_token, :collected_data_categories)
       end
 
       describe 'Redis_HLL_counters' do
         let(:metric_files_key_paths) do
           Gitlab::Usage::MetricDefinition
             .definitions
-            .select { |k, v| v.attributes[:data_source] == 'redis_hll' && v.key_path.starts_with?('redis_hll_counters') && v.available? }
+            .select do |_, v|
+              (v.data_source == 'redis_hll' || v.data_source == 'internal_events') &&
+                v.key_path.starts_with?('redis_hll_counters') &&
+                v.available?
+            end
             .keys
             .sort
         end
@@ -76,18 +87,6 @@ RSpec.describe Gitlab::UsageDataMetrics do
           expect(metric_files_key_paths).to match_array(service_ping_key_paths)
         end
       end
-    end
-  end
-
-  describe '.suggested_names' do
-    subject { described_class.suggested_names }
-
-    let(:suggested_names) do
-      ::Gitlab::Usage::Metric.all.map(&:with_suggested_name).reduce({}, :deep_merge)
-    end
-
-    it 'includes Service Ping suggested names' do
-      expect(subject).to match_array(suggested_names)
     end
   end
 end

@@ -2,19 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe "Profile access" do
+RSpec.describe "Profile access", feature_category: :user_management do
   include AccessMatchers
 
-  describe "GET /-/profile/keys" do
-    subject { profile_keys_path }
+  describe "GET /-/user_settings/ssh_keys" do
+    subject { user_settings_ssh_keys_path }
 
     it { is_expected.to be_allowed_for :admin }
     it { is_expected.to be_allowed_for :user }
     it { is_expected.to be_denied_for :visitor }
   end
 
-  describe "GET /-/profile" do
-    subject { profile_path }
+  describe "GET /-/user_settings/profile" do
+    subject { user_settings_profile_path }
 
     it { is_expected.to be_allowed_for :admin }
     it { is_expected.to be_allowed_for :user }

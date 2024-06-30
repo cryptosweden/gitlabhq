@@ -3,11 +3,7 @@
 module Integrations
   module ChatMessage
     class BaseMessage
-      RELATIVE_LINK_REGEX = %r{!\[[^\]]*\]\((/uploads/[^\)]*)\)}.freeze
-
-      # Markup characters which are used for links in HTML, Markdown,
-      # and Slack "mrkdwn" syntax (`<http://example.com|Label>`).
-      UNSAFE_MARKUP_CHARACTERS = '<>[]|'
+      RELATIVE_LINK_REGEX = Gitlab::UntrustedRegexp.new('!\[[^\]]*\]\((/uploads/[^\)]*)\)')
 
       attr_reader :markdown
       attr_reader :user_full_name
@@ -71,7 +67,11 @@ module Integrations
       end
 
       def format_relative_links(string)
-        string.gsub(RELATIVE_LINK_REGEX, "#{project_url}\\1")
+        return string unless RELATIVE_LINK_REGEX.match?(string)
+
+        RELATIVE_LINK_REGEX.replace_gsub(string) do |match|
+          "#{project_url}#{match[1]}"
+        end
       end
 
       # Remove unsafe markup from user input, which can be used to hijack links in our own markup,
@@ -85,7 +85,7 @@ module Integrations
       # - https://api.slack.com/reference/surfaces/formatting#escaping
       # - https://gitlab.com/gitlab-org/slack-notifier#escaping
       def strip_markup(string)
-        string&.delete(UNSAFE_MARKUP_CHARACTERS)
+        SlackMarkdownSanitizer.sanitize(string)
       end
 
       def attachment_color

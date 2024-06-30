@@ -12,7 +12,7 @@ module Banzai
         self.object_class   = Snippet
 
         def parent_records(project, ids)
-          return unless project.is_a?(Project)
+          return Snippet.none unless project.is_a?(Project)
 
           project.snippets.where(id: ids.to_a)
         end
@@ -23,8 +23,7 @@ module Banzai
 
         def url_for_object(snippet, project)
           h = Gitlab::Routing.url_helpers
-          h.project_snippet_url(project, snippet,
-                                          only_path: context[:only_path])
+          h.project_snippet_url(project, snippet, only_path: context[:only_path])
         end
       end
     end

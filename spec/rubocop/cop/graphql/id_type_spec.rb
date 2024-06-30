@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 
 require_relative '../../../../rubocop/cop/graphql/id_type'
 
 RSpec.describe RuboCop::Cop::Graphql::IDType do
-  subject(:cop) { described_class.new }
-
   it 'adds an offense when GraphQL::Types::ID is used as a param to #argument' do
     expect_offense(<<~TYPE)
       argument :some_arg, GraphQL::Types::ID, some: other, params: do_not_matter
@@ -14,8 +12,8 @@ RSpec.describe RuboCop::Cop::Graphql::IDType do
     TYPE
   end
 
-  context 'whitelisted arguments' do
-    RuboCop::Cop::Graphql::IDType::WHITELISTED_ARGUMENTS.each do |arg|
+  context 'allowlisted arguments' do
+    RuboCop::Cop::Graphql::IDType::ALLOWLISTED_ARGUMENTS.each do |arg|
       it "does not add an offense for calls to #argument with #{arg} as argument name" do
         expect_no_offenses(<<~TYPE.strip)
           argument #{arg}, GraphQL::Types::ID, some: other, params: do_not_matter

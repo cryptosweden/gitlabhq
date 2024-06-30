@@ -17,7 +17,10 @@ resources :merge_requests, concerns: :awardable, except: [:new, :create, :show],
     get :accessibility_reports
     get :coverage_reports
     get :terraform_reports
+
+    # documented in doc/development/rails_endpoints/index.md
     get :codequality_reports
+    # documented in doc/development/rails_endpoints/index.md
     get :codequality_mr_diff_reports
 
     scope constraints: ->(req) { req.format == :json }, as: :json do
@@ -34,10 +37,19 @@ resources :merge_requests, concerns: :awardable, except: [:new, :create, :show],
     scope action: :show do
       get :commits, defaults: { tab: 'commits' }
       get :pipelines, defaults: { tab: 'pipelines' }
-      get :diffs, defaults: { tab: 'diffs' }
+      get :diffs, to: 'merge_requests#rapid_diffs', defaults: { tab: 'diffs' },
+        constraints: ->(params) { params[:rapid_diffs] == 'true' }
+      get :diffs, to: 'merge_requests#diffs', defaults: { tab: 'diffs' }
     end
 
     get :diff_for_path, controller: 'merge_requests/diffs'
+    get 'diff_by_file_hash/:file_hash', to: 'merge_requests/diffs#diff_by_file_hash', as: :diff_by_file_hash
+    get :diffs_stream, to: 'merge_requests/diffs_stream#diffs'
+
+    # NOTE: Fallback to `merge_requests/diffs#diff_for_path` to handle `collapsed_diff_url` from the collapsed partial
+    scope controller: 'merge_requests/diffs_stream' do
+      get :diff_for_path
+    end
 
     scope controller: 'merge_requests/conflicts' do
       get :conflicts, action: :show
@@ -50,13 +62,6 @@ resources :merge_requests, concerns: :awardable, except: [:new, :create, :show],
     get :diff_for_path
     post :bulk_update
     post :export_csv
-  end
-
-  resources :discussions, only: [:show], constraints: { id: /\h{40}/ } do
-    member do
-      post :resolve
-      delete :resolve, action: :unresolve
-    end
   end
 
   scope module: :merge_requests do
@@ -78,6 +83,7 @@ scope path: 'merge_requests', controller: 'merge_requests/creations' do
     scope constraints: ->(req) { req.format == :json }, as: :json do
       get :diffs
       get :pipelines
+      get :target_projects
     end
 
     scope action: :new do

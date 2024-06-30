@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User edits Release', :js do
+RSpec.describe 'User edits Release', :js, feature_category: :continuous_delivery do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) { create(:user) }
 
-  let(:release) { create(:release, :with_milestones, milestones_count: 1, project: project, name: 'The first release', tag: "v1.1.0" ) }
+  let(:release) { create(:release, :with_milestones, milestones_count: 1, project: project, name: 'The first release', tag: "v1.1.0") }
   let(:release_link) { create(:release_link, release: release) }
 
   before do
@@ -20,8 +20,8 @@ RSpec.describe 'User edits Release', :js do
   end
 
   def fill_out_form_and_click(button_to_click)
-    fill_in 'Release title', with: 'Updated Release title'
-    fill_in 'Release notes', with: 'Updated Release notes'
+    fill_in 'release-title', with: 'Updated Release title', fill_options: { clear: :backspace }
+    fill_in 'release-notes', with: 'Updated Release notes'
 
     click_link_or_button button_to_click
 
@@ -29,21 +29,23 @@ RSpec.describe 'User edits Release', :js do
   end
 
   it 'renders the breadcrumbs' do
-    within('.breadcrumbs') do
-      expect(page).to have_content("#{project.creator.name} #{project.name} Edit Release")
+    within_testid('breadcrumb-links') do
+      expect(page).to have_content("#{project.creator.name} #{project.name} Releases #{release.name} Edit Release")
 
       expect(page).to have_link(project.creator.name, href: user_path(project.creator))
       expect(page).to have_link(project.name, href: project_path(project))
+      expect(page).to have_link(_('Releases'), href: project_releases_path(project))
+      expect(page).to have_link(release.name, href: project_release_path(project, release))
       expect(page).to have_link('Edit Release', href: edit_project_release_path(project, release))
     end
   end
 
   it 'renders the edit Release form' do
-    expect(page).to have_content('Releases are based on Git tags. We recommend tags that use semantic versioning, for example v1.0.0, v2.1.0-pre.')
+    expect(page).to have_content('Releases are based on Git tags. We recommend tags that use semantic versioning, for example 1.0.0, 2.1.0-pre.')
 
     expect(find_field('Tag name', disabled: true).value).to eq(release.tag)
-    expect(find_field('Release title').value).to eq(release.name)
-    expect(find_field('Release notes').value).to eq(release.description)
+    expect(find_field('release-title').value).to eq(release.name)
+    expect(find_field('release-notes').value).to eq(release.description)
 
     expect(page).to have_button('Save changes')
     expect(page).to have_link('Cancel')

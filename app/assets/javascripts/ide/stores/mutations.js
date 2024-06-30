@@ -1,6 +1,5 @@
 import Vue from 'vue';
 import * as types from './mutation_types';
-import alertMutations from './mutations/alert';
 import branchMutations from './mutations/branch';
 import fileMutations from './mutations/file';
 import mergeRequestMutation from './mutations/merge_request';
@@ -110,6 +109,7 @@ export default {
       committedStateSvgPath,
       pipelinesEmptyStateSvgPath,
       promotionSvgPath,
+      switchEditorSvgPath,
     },
   ) {
     Object.assign(state, {
@@ -118,6 +118,7 @@ export default {
       committedStateSvgPath,
       pipelinesEmptyStateSvgPath,
       promotionSvgPath,
+      switchEditorSvgPath,
     });
   },
   [types.TOGGLE_FILE_FINDER](state, fileFindVisible) {
@@ -236,8 +237,9 @@ export default {
     if (oldEntry.type === 'blob') {
       updateFileCollections(state, oldEntry.key, newPath);
     }
-
-    Vue.delete(state.entries, oldEntry.path);
+    const stateCopy = { ...state.entries };
+    delete stateCopy[oldEntry.path];
+    state.entries = stateCopy;
   },
 
   ...projectMutations,
@@ -245,5 +247,4 @@ export default {
   ...fileMutations,
   ...treeMutations,
   ...branchMutations,
-  ...alertMutations,
 };

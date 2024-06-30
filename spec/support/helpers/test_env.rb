@@ -2,86 +2,124 @@
 
 require 'parallel'
 require_relative 'gitaly_setup'
+require_relative '../../../lib/gitlab/setup_helper'
 
 module TestEnv
   extend self
 
+  def self.included(_)
+    raise "Don't include TestEnv. Use TestEnv.<method> instead."
+  end
+
   ComponentFailedToInstallError = Class.new(StandardError)
 
-  # When developing the seed repository, comment out the branch you will modify.
+  # https://gitlab.com/gitlab-org/gitlab-test is used to seed your local gdk
+  # GitLab application and is also used in rspec tests.  Because of this, when
+  # building and testing features that require a specific type of file, you can
+  # add them to the gitlab-test repo in order to access that blob during
+  # development or testing.
+  #
+  # To add new branches
+  #
+  # 1. Push a new branch to gitlab-org/gitlab-test.
+  # 2. Execute rm -rf tmp/tests in your gitlab repo.
+  # 3. Add your branch and its HEAD commit sha to the BRANCH_SHA hash
+  #
+  # To add new commits to an existing branch
+  #
+  # 1. Push a new commit to a branch in gitlab-org/gitlab-test.
+  # 2. Execute rm -rf tmp/tests in your gitlab repo.
+  # 3. Update the HEAD sha value in the BRANCH_SHA hash
+  #
   BRANCH_SHA = {
-    'signed-commits'                     => 'c7794c1',
-    'not-merged-branch'                  => 'b83d6e3',
-    'branch-merged'                      => '498214d',
-    'empty-branch'                       => '7efb185',
-    'ends-with.json'                     => '98b0d8b',
-    'flatten-dir'                        => 'e56497b',
-    'feature'                            => '0b4bc9a',
-    'feature_conflict'                   => 'bb5206f',
-    'fix'                                => '48f0be4',
-    'improve/awesome'                    => '5937ac0',
-    'merged-target'                      => '21751bf',
-    'markdown'                           => '0ed8c6c',
-    'lfs'                                => '55bc176',
-    'master'                             => 'b83d6e3',
-    'merge-test'                         => '5937ac0',
-    "'test'"                             => 'e56497b',
-    'orphaned-branch'                    => '45127a9',
-    'binary-encoding'                    => '7b1cf43',
-    'gitattributes'                      => '5a62481',
-    'expand-collapse-diffs'              => '4842455',
-    'symlink-expand-diff'                => '81e6355',
-    'diff-files-symlink-to-image'        => '8cfca84',
-    'diff-files-image-to-symlink'        => '3e94fda',
-    'diff-files-symlink-to-text'         => '689815e',
-    'diff-files-text-to-symlink'         => '5e2c270',
-    'expand-collapse-files'              => '025db92',
-    'expand-collapse-lines'              => '238e82d',
-    'pages-deploy'                       => '7897d5b',
-    'pages-deploy-target'                => '7975be0',
-    'audio'                              => 'c3c21fd',
-    'video'                              => '8879059',
-    'crlf-diff'                          => '5938907',
-    'conflict-start'                     => '824be60',
-    'conflict-resolvable'                => '1450cd6',
-    'conflict-binary-file'               => '259a6fb',
+    'signed-commits' => 'c7794c1',
+    'gpg-signed' => '8a852d5',
+    'x509-signed' => 'a4df3c8',
+    'not-merged-branch' => 'b83d6e3',
+    'branch-merged' => '498214d',
+    'empty-branch' => '7efb185',
+    'ends-with.json' => '98b0d8b',
+    'flatten-dir' => 'e56497b',
+    'feature' => '0b4bc9a',
+    'feature_conflict' => 'bb5206f',
+    'fix' => '48f0be4',
+    'improve/awesome' => '5937ac0',
+    'merged-target' => '21751bf',
+    'markdown' => '0ed8c6c',
+    'lfs' => '55bc176',
+    'master' => 'b83d6e391c22777fca1ed3012fce84f633d7fed0',
+    'merge-test' => '5937ac0',
+    "'test'" => 'e56497b',
+    'orphaned-branch' => '45127a9',
+    'binary-encoding' => '7b1cf43',
+    'gitattributes' => '5a62481',
+    'expand-collapse-diffs' => '4842455',
+    'symlink-expand-diff' => '81e6355',
+    'diff-files-symlink-to-image' => '8cfca84',
+    'diff-files-image-to-symlink' => '3e94fda',
+    'diff-files-symlink-to-text' => '689815e',
+    'diff-files-text-to-symlink' => '5e2c270',
+    'expand-collapse-files' => '025db92',
+    'expand-collapse-lines' => '238e82d',
+    'pages-deploy' => '7897d5b',
+    'pages-deploy-target' => '7975be0',
+    'audio' => 'c3c21fd',
+    'video' => '8879059',
+    'crlf-diff' => '5938907',
+    'conflict-start' => '824be60',
+    'conflict-resolvable' => '1450cd639e0bc6721eb02800169e464f212cde06',
+    'conflict-binary-file' => '259a6fb',
     'conflict-contains-conflict-markers' => '78a3086',
-    'conflict-missing-side'              => 'eb227b3',
-    'conflict-non-utf8'                  => 'd0a293c',
-    'conflict-too-large'                 => '39fa04f',
-    'deleted-image-test'                 => '6c17798',
-    'wip'                                => 'b9238ee',
-    'csv'                                => '3dd0896',
-    'v1.1.0'                             => 'b83d6e3',
-    'add-ipython-files'                  => 'a867a602',
-    'add-pdf-file'                       => 'e774ebd',
-    'squash-large-files'                 => '54cec52',
-    'add-pdf-text-binary'                => '79faa7b',
-    'add_images_and_changes'             => '010d106',
-    'update-gitlab-shell-v-6-0-1'        => '2f61d70',
-    'update-gitlab-shell-v-6-0-3'        => 'de78448',
-    'merge-commit-analyze-before'        => '1adbdef',
-    'merge-commit-analyze-side-branch'   => '8a99451',
-    'merge-commit-analyze-after'         => '646ece5',
-    'snippet/single-file'                => '43e4080aaa14fc7d4b77ee1f5c9d067d5a7df10e',
-    'snippet/multiple-files'             => '40232f7eb98b3f221886432def6e8bab2432add9',
-    'snippet/rename-and-edit-file'       => '220a1e4b4dff37feea0625a7947a4c60fbe78365',
-    'snippet/edit-file'                  => 'c2f074f4f26929c92795a75775af79a6ed6d8430',
-    'snippet/no-files'                   => '671aaa842a4875e5f30082d1ab6feda345fdb94d',
-    '2-mb-file'                          => 'bf12d25',
-    'before-create-delete-modify-move'   => '845009f',
-    'between-create-delete-modify-move'  => '3f5f443',
-    'after-create-delete-modify-move'    => 'ba3faa7',
-    'with-codeowners'                    => '219560e',
-    'submodule_inside_folder'            => 'b491b92',
-    'png-lfs'                            => 'fe42f41',
-    'sha-starting-with-large-number'     => '8426165',
-    'invalid-utf8-diff-paths'            => '99e4853',
-    'compare-with-merge-head-source'     => 'f20a03d',
-    'compare-with-merge-head-target'     => '2f1e176',
-    'trailers'                           => 'f0a5ed6',
-    'add_commit_with_5mb_subject'        => '8cf8e80',
-    'blame-on-renamed'                   => '32c33da'
+    'conflict-missing-side' => 'eb227b3',
+    'conflict-non-utf8' => 'd0a293c',
+    'conflict-too-large' => '39fa04f',
+    'deleted-image-test' => '6c17798',
+    'wip' => 'b9238ee',
+    'csv' => '3dd0896',
+    'v1.1.0' => 'b83d6e3',
+    'add-ipython-files' => '4963fef',
+    'add-pdf-file' => 'e774ebd',
+    'squash-large-files' => '54cec52',
+    'add-pdf-text-binary' => '79faa7b',
+    'add_images_and_changes' => '010d106',
+    'update-gitlab-shell-v-6-0-1' => '2f61d70',
+    'update-gitlab-shell-v-6-0-3' => 'de78448',
+    'merge-commit-analyze-before' => '1adbdef',
+    'merge-commit-analyze-side-branch' => '8a99451',
+    'merge-commit-analyze-after' => '646ece5',
+    'snippet/single-file' => '43e4080aaa14fc7d4b77ee1f5c9d067d5a7df10e',
+    'snippet/multiple-files' => '40232f7eb98b3f221886432def6e8bab2432add9',
+    'snippet/rename-and-edit-file' => '220a1e4b4dff37feea0625a7947a4c60fbe78365',
+    'snippet/edit-file' => 'c2f074f4f26929c92795a75775af79a6ed6d8430',
+    'snippet/no-files' => '671aaa842a4875e5f30082d1ab6feda345fdb94d',
+    '2-mb-file' => 'bf12d25',
+    'before-create-delete-modify-move' => '845009f',
+    'between-create-delete-modify-move' => '3f5f443',
+    'after-create-delete-modify-move' => 'ba3faa7',
+    'with-codeowners' => '219560e',
+    'submodule_inside_folder' => 'b491b92',
+    'png-lfs' => 'fe42f41',
+    'sha-starting-with-large-number' => '8426165',
+    'invalid-utf8-diff-paths' => '99e4853',
+    'compare-with-merge-head-source' => 'f20a03d',
+    'compare-with-merge-head-target' => '2f1e176',
+    'trailers' => 'f0a5ed6',
+    'add_commit_with_5mb_subject' => '8cf8e80',
+    'blame-on-renamed' => '32c33da',
+    'with-executables' => '6b8dc4a',
+    'spooky-stuff' => 'ba3343b',
+    'few-commits' => '0031876',
+    'two-commits' => '304d257',
+    'utf-16' => 'f05a987',
+    'gitaly-rename-test' => '94bb47c',
+    'smime-signed-commits' => 'ed775cc',
+    'Ääh-test-utf-8' => '7975be0',
+    'ssh-signed-commit' => '7b5160f',
+    'changes-with-whitespace' => 'f2d141fadb33ceaafc95667c1a0a308ad5edc5f9',
+    'changes-with-only-whitespace' => '80cffbb2ad86202171dd3c05b38b5b4523b447d3',
+    'lock-detection' => '1ada92f78a19f27cb442a0a205f1c451a3a15432',
+    'expanded-whitespace-target' => '279aa723d4688e711652d230c93f1fc33801dcb8',
+    'expanded-whitespace-source' => 'e6f8b802fe2288b1b5e367c5dde736594971ebd1'
   }.freeze
 
   # gitlab-test-fork is a fork of gitlab-fork, but we don't necessarily
@@ -89,13 +127,12 @@ module TestEnv
   # We currently only need a subset of the branches
   FORKED_BRANCH_SHA = {
     'add-submodule-version-bump' => '3f547c0',
-    'master'                     => '5937ac0',
-    'remove-submodule'           => '2a33e0c',
-    'conflict-resolvable-fork'   => '404fa3f'
+    'master' => '5937ac0',
+    'remove-submodule' => '2a33e0c',
+    'conflict-resolvable-fork' => '404fa3f'
   }.freeze
 
   TMP_TEST_PATH = Rails.root.join('tmp', 'tests').freeze
-  SECOND_STORAGE_PATH = Rails.root.join('tmp', 'tests', 'second_storage')
   SETUP_METHODS = %i[setup_gitaly setup_gitlab_shell setup_workhorse setup_factory_repo setup_forked_repo].freeze
 
   # Can be overriden
@@ -142,16 +179,14 @@ module TestEnv
       end
     end
 
-    FileUtils.mkdir_p(
-      Gitlab::GitalyClient::StorageSettings.allow_disk_access { GitalySetup.repos_path }
-    )
-    FileUtils.mkdir_p(SECOND_STORAGE_PATH)
     FileUtils.mkdir_p(backup_path)
     FileUtils.mkdir_p(pages_path)
     FileUtils.mkdir_p(artifacts_path)
     FileUtils.mkdir_p(lfs_path)
     FileUtils.mkdir_p(terraform_state_path)
     FileUtils.mkdir_p(packages_path)
+    FileUtils.mkdir_p(ci_secure_files_path)
+    FileUtils.mkdir_p(external_diffs_path)
   end
 
   def setup_gitlab_shell
@@ -164,7 +199,7 @@ module TestEnv
       version: Gitlab::GitalyClient.expected_server_version,
       task: "gitlab:gitaly:clone",
       fresh_install: ENV.key?('FORCE_GITALY_INSTALL'),
-      task_args: [GitalySetup.gitaly_dir, GitalySetup.repos_path, gitaly_url].compact) do
+      task_args: [GitalySetup.gitaly_dir, GitalySetup.storage_path, gitaly_url].compact) do
       GitalySetup.setup_gitaly
     end
   end
@@ -222,7 +257,7 @@ module TestEnv
   end
 
   def workhorse_dir
-    @workhorse_path ||= File.join('tmp', 'tests', 'gitlab-workhorse')
+    @workhorse_path ||= Rails.root.join('tmp', 'tests', 'gitlab-workhorse')
   end
 
   def with_workhorse(host, port, upstream, &blk)
@@ -258,67 +293,48 @@ module TestEnv
 
   # Create repository for FactoryBot.create(:project)
   def setup_factory_repo
-    setup_repo(factory_repo_path, factory_repo_path_bare, factory_repo_name, BRANCH_SHA)
+    setup_repo(factory_repo_path, factory_repo_bundle_path, factory_repo_name, BRANCH_SHA)
   end
 
   # Create repository for FactoryBot.create(:forked_project_with_submodules)
   # This repo has a submodule commit that is not present in the main test
   # repository.
   def setup_forked_repo
-    setup_repo(forked_repo_path, forked_repo_path_bare, forked_repo_name, FORKED_BRANCH_SHA)
+    setup_repo(forked_repo_path, forked_repo_bundle_path, forked_repo_name, FORKED_BRANCH_SHA)
   end
 
-  def setup_repo(repo_path, repo_path_bare, repo_name, refs)
+  def setup_repo(repo_path, repo_bundle_path, repo_name, refs)
     clone_url = "https://gitlab.com/gitlab-org/#{repo_name}.git"
 
     unless File.directory?(repo_path)
       start = Time.now
-      system(*%W(#{Gitlab.config.git.bin_path} clone --quiet -- #{clone_url} #{repo_path}))
+      system(*%W[#{Gitlab.config.git.bin_path} clone --quiet -- #{clone_url} #{repo_path}])
       puts "==> #{repo_path} set up in #{Time.now - start} seconds...\n"
     end
 
-    set_repo_refs(repo_path, refs)
+    create_bundle = !File.file?(repo_bundle_path)
 
-    unless File.directory?(repo_path_bare)
+    unless set_repo_refs(repo_path, refs)
+      # Prefer not to fetch over the network. Only fetch when we have failed to
+      # set all the required local branches. This would happen when a new
+      # branch is added to BRANCH_SHA, in which case we want to update
+      # everything.
+      unless system(*%W[#{Gitlab.config.git.bin_path} -C #{repo_path} fetch origin])
+        raise 'Could not fetch test seed repository.'
+      end
+
+      unless set_repo_refs(repo_path, refs)
+        raise "Could not update test seed repository, please delete #{repo_path} and try again"
+      end
+
+      create_bundle = true
+    end
+
+    if create_bundle
       start = Time.now
-      # We must copy bare repositories because we will push to them.
-      system(git_env, *%W(#{Gitlab.config.git.bin_path} clone --quiet --bare -- #{repo_path} #{repo_path_bare}))
-      puts "==> #{repo_path_bare} set up in #{Time.now - start} seconds...\n"
+      system(git_env, *%W[#{Gitlab.config.git.bin_path} -C #{repo_path} bundle create #{repo_bundle_path} --exclude refs/remotes/* --all])
+      puts "==> #{repo_bundle_path} generated in #{Time.now - start} seconds...\n"
     end
-  end
-
-  def copy_repo(subject, bare_repo:, refs:)
-    target_repo_path = File.expand_path(repos_path + "/#{subject.disk_path}.git")
-
-    FileUtils.mkdir_p(target_repo_path)
-    FileUtils.cp_r("#{File.expand_path(bare_repo)}/.", target_repo_path)
-    FileUtils.chmod_R 0755, target_repo_path
-  end
-
-  def rm_storage_dir(storage, dir)
-    Gitlab::GitalyClient::StorageSettings.allow_disk_access do
-      target_repo_refs_path = File.join(GitalySetup.repos_path(storage), dir)
-      FileUtils.remove_dir(target_repo_refs_path)
-    end
-  rescue Errno::ENOENT
-  end
-
-  def storage_dir_exists?(storage, dir)
-    Gitlab::GitalyClient::StorageSettings.allow_disk_access do
-      File.exist?(File.join(GitalySetup.repos_path(storage), dir))
-    end
-  end
-
-  def create_bare_repository(path)
-    FileUtils.mkdir_p(path)
-
-    system(git_env, *%W(#{Gitlab.config.git.bin_path} -C #{path} init --bare),
-           out: '/dev/null',
-           err: '/dev/null')
-  end
-
-  def repos_path
-    @repos_path ||= GitalySetup.repos_path
   end
 
   def backup_path
@@ -345,6 +361,14 @@ module TestEnv
     Gitlab.config.packages.storage_path
   end
 
+  def ci_secure_files_path
+    Gitlab.config.ci_secure_files.storage_path
+  end
+
+  def external_diffs_path
+    Gitlab.config.external_diffs.storage_path
+  end
+
   # When no cached assets exist, manually hit the root path to create them
   #
   # Otherwise they'd be created by the first test, often timing out and
@@ -356,53 +380,51 @@ module TestEnv
     Capybara.current_session.visit '/'
   end
 
-  def factory_repo_path_bare
-    "#{factory_repo_path}_bare"
+  def factory_repo_path
+    @factory_repo_path ||= Rails.root.join('tmp', 'tests', factory_repo_name)
   end
 
-  def forked_repo_path_bare
-    "#{forked_repo_path}_bare"
+  def forked_repo_path
+    @forked_repo_path ||= Rails.root.join('tmp', 'tests', forked_repo_name)
   end
 
-  def with_empty_bare_repository(name = nil)
-    path = Rails.root.join('tmp/tests', name || 'empty-bare-repository').to_s
+  def factory_repo_bundle_path
+    "#{factory_repo_path}.bundle"
+  end
 
-    yield(Rugged::Repository.init_at(path, :bare))
-  ensure
-    FileUtils.rm_rf(path)
+  def forked_repo_bundle_path
+    "#{forked_repo_path}.bundle"
   end
 
   def seed_db
-    Gitlab::DatabaseImporters::WorkItems::BaseTypeImporter.import
+    # Adjust `deletion_except_tables` method to exclude seeded tables from
+    # record deletions.
+    Gitlab::DatabaseImporters::WorkItems::BaseTypeImporter.upsert_types
+    Gitlab::DatabaseImporters::WorkItems::HierarchyRestrictionsImporter.upsert_restrictions
+    Gitlab::DatabaseImporters::WorkItems::RelatedLinksRestrictionsImporter.upsert_restrictions
   end
 
   private
 
   # These are directories that should be preserved at cleanup time
   def test_dirs
-    @test_dirs ||= %w[
-      frontend
-      gitaly
-      gitlab-shell
-      gitlab-test
-      gitlab-test_bare
-      gitlab-test-fork
-      gitlab-test-fork_bare
-      gitlab-workhorse
-      gitlab_workhorse_secret
+    @test_dirs ||= [
+      'frontend',
+      'gitaly',
+      'gitlab-shell',
+      'gitlab-test',
+      'gitlab-test.bundle',
+      'gitlab-test-fork',
+      'gitlab-test-fork.bundle',
+      'gitlab-workhorse',
+      'gitlab_workhorse_secret',
+      File.basename(GitalySetup.storage_path),
+      File.basename(GitalySetup.second_storage_path)
     ]
-  end
-
-  def factory_repo_path
-    @factory_repo_path ||= Rails.root.join('tmp', 'tests', factory_repo_name)
   end
 
   def factory_repo_name
     'gitlab-test'
-  end
-
-  def forked_repo_path
-    @forked_repo_path ||= Rails.root.join('tmp', 'tests', forked_repo_name)
   end
 
   def forked_repo_name
@@ -416,20 +438,13 @@ module TestEnv
   end
 
   def set_repo_refs(repo_path, branch_sha)
-    instructions = branch_sha.map { |branch, sha| "update refs/heads/#{branch}\x00#{sha}\x00" }.join("\x00") << "\x00"
-    update_refs = %W(#{Gitlab.config.git.bin_path} update-ref --stdin -z)
-    reset = proc do
-      Dir.chdir(repo_path) do
-        IO.popen(update_refs, "w") { |io| io.write(instructions) }
-        $?.success?
+    IO.popen(%W[#{Gitlab.config.git.bin_path} -C #{repo_path} update-ref --stdin -z], "w") do |io|
+      branch_sha.each do |branch, sha|
+        io.write("update refs/heads/#{branch}\x00#{sha}\x00\x00")
       end
     end
 
-    # Try to reset without fetching to avoid using the network.
-    unless reset.call
-      raise 'Could not fetch test seed repository.' unless system(*%W(#{Gitlab.config.git.bin_path} -C #{repo_path} fetch origin))
-      raise "Could not update test seed repository, please delete #{repo_path} and try again" unless reset.call
-    end
+    $?.success?
   end
 
   def component_timed_setup(component, install_dir:, version:, task:, fresh_install: true, task_args: [])
@@ -441,6 +456,8 @@ module TestEnv
     return if File.exist?(install_dir) && ci?
 
     if component_needs_update?(install_dir, version)
+      puts "==> Starting #{component} (#{version}) set up...\n"
+
       # Cleanup the component entirely to ensure we start fresh
       FileUtils.rm_rf(install_dir) if fresh_install
 
@@ -500,23 +517,25 @@ module TestEnv
     # The HEAD of the component_folder will be used as heuristic for the version
     # of the binaries, allowing to use Git to determine if HEAD is later than
     # the expected version. Note: Git considers HEAD to be an anchestor of HEAD.
-    _out, exit_status = Gitlab::Popen.popen(%W[
-      #{Gitlab.config.git.bin_path}
-      -C #{component_folder}
-      merge-base --is-ancestor
-      #{expected_version} HEAD
-])
+    _out, exit_status = Gitlab::Popen.popen(
+      %W[
+        #{Gitlab.config.git.bin_path}
+        -C #{component_folder}
+        merge-base --is-ancestor
+        #{expected_version} HEAD
+      ]
+    )
 
     exit_status == 0
   end
 
   def component_matches_git_sha?(component_folder, expected_version)
     # Not a git SHA, so return early
-    return false unless expected_version =~ ::Gitlab::Git::COMMIT_ID
+    return false unless ::Gitlab::Git::COMMIT_ID.match?(expected_version)
 
     return false unless Dir.exist?(component_folder)
 
-    sha, exit_status = Gitlab::Popen.popen(%W(#{Gitlab.config.git.bin_path} rev-parse HEAD), component_folder)
+    sha, exit_status = Gitlab::Popen.popen(%W[#{Gitlab.config.git.bin_path} rev-parse HEAD], component_folder)
     return false if exit_status != 0
 
     expected_version == sha.chomp

@@ -3,18 +3,21 @@
 module Gitlab
   module Checks
     class ChangesAccess
-      ATTRIBUTES = %i[user_access project protocol changes logger].freeze
+      include Gitlab::Utils::StrongMemoize
+
+      ATTRIBUTES = %i[user_access project protocol changes logger push_options].freeze
 
       attr_reader(*ATTRIBUTES)
 
       def initialize(
-        changes, user_access:, project:, protocol:, logger:
+        changes, user_access:, project:, protocol:, logger:, push_options:
       )
         @changes = changes
         @user_access = user_access
         @project = project
         @protocol = protocol
         @logger = logger
+        @push_options = push_options
       end
 
       def validate!
@@ -33,29 +36,19 @@ module Gitlab
       # changes. This set may also contain commits which are not referenced by
       # any of the new revisions.
       def commits
-        allow_quarantine = true
+        strong_memoize(:commits) do
+          newrevs = @changes.filter_map do |change|
+            newrev = change[:newrev]
 
-        newrevs = @changes.map do |change|
-          oldrev = change[:oldrev]
-          newrev = change[:newrev]
+            next if blank_rev?(newrev)
 
-          next if blank_rev?(newrev)
+            newrev
+          end
 
-          # In case any of the old revisions is blank, then we cannot reliably
-          # detect which commits are new for a given change when enumerating
-          # objects via the object quarantine directory given that the client
-          # may have pushed too many commits, and we don't know when to
-          # terminate the walk. We thus fall back to using `git rev-list --not
-          # --all`, which is a lot less efficient but at least can only ever
-          # returns commits which really are new.
-          allow_quarantine = false if allow_quarantine && blank_rev?(oldrev)
+          next [] if newrevs.empty?
 
-          newrev
-        end.compact
-
-        return [] if newrevs.empty?
-
-        @commits ||= project.repository.new_commits(newrevs, allow_quarantine: allow_quarantine)
+          project.repository.new_commits(newrevs)
+        end
       end
 
       # All commits which have been newly introduced via the given revision.
@@ -97,7 +90,7 @@ module Gitlab
         @single_changes_accesses ||=
           changes.map do |change|
             commits =
-              if blank_rev?(change[:newrev])
+              if !commitish_ref?(change[:ref]) || blank_rev?(change[:newrev])
                 []
               else
                 Gitlab::Lazy.new { commits_for(change[:oldrev], change[:newrev]) }
@@ -125,10 +118,20 @@ module Gitlab
 
       def bulk_access_checks!
         Gitlab::Checks::LfsCheck.new(self).validate!
+        Gitlab::Checks::GlobalFileSizeCheck.new(self).validate!
+        Gitlab::Checks::IntegrationsCheck.new(self).validate!
       end
 
       def blank_rev?(rev)
         rev.blank? || Gitlab::Git.blank_ref?(rev)
+      end
+
+      # refs/notes/commits contains commits added via `git-notes`. We currently
+      # have no features that check notes so we can skip them. To future-proof
+      # we are skipping anything that isn't a branch or tag ref as those are
+      # the only refs that can contain commits.
+      def commitish_ref?(ref)
+        Gitlab::Git.branch_ref?(ref) || Gitlab::Git.tag_ref?(ref)
       end
     end
   end

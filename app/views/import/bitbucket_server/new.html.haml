@@ -2,15 +2,16 @@
 - header_title _("New project"), new_project_path
 - add_to_breadcrumbs s_('ProjectsNew|Import project'), new_project_path(anchor: 'import_project')
 
-%h3.page-title.d-flex
-  .gl-display-flex.gl-align-items-center.gl-justify-content-center
-    = sprite_icon('bitbucket', css_class: 'gl-mr-2')
+%h1.page-title.gl-font-size-h-display.gl-flex.gl-items-center
+  .gl-flex.gl-items-center.gl-justify-content-center
+    = sprite_icon('bitbucket', css_class: 'gl-mr-3', size: 48)
   = _('Import repositories from Bitbucket Server')
+%hr
 
 %p
   = _('Enter in your Bitbucket Server URL and personal access token below')
 
-= form_tag configure_import_bitbucket_server_path, method: :post do
+= form_tag configure_import_bitbucket_server_path(namespace_id: params[:namespace_id]), method: :post do
   .form-group.row
     = label_tag :bitbucket_server_url, 'Bitbucket Server URL', class: 'col-form-label col-md-2'
     .col-md-4
@@ -24,4 +25,5 @@
     .col-md-4
       = password_field_tag :personal_access_token, '', class: 'form-control gl-form-input gl-mr-3', placeholder: _('Personal Access Token'), size: 40
   .form-actions
-    = submit_tag _('List your Bitbucket Server repositories'), class: 'gl-button btn btn-confirm'
+    = render Pajamas::ButtonComponent.new(type: 'submit', variant: :confirm) do
+      = _('List your Bitbucket Server repositories')

@@ -9,7 +9,7 @@ class LfsDownloadObject
 
   validates :oid, format: { with: /\A\h{64}\z/ }
   validates :size, numericality: { greater_than_or_equal_to: 0 }
-  validates :link, public_url: { protocols: %w(http https) }
+  validates :link, public_url: { protocols: %w[http https] }
   validate :headers_must_be_hash
 
   def initialize(oid:, size:, link:, headers: {})
@@ -17,6 +17,15 @@ class LfsDownloadObject
     @size = size
     @link = link
     @headers = headers || {}
+  end
+
+  def to_hash
+    {
+      oid: oid,
+      size: size,
+      link: link,
+      headers: headers
+    }.stringify_keys
   end
 
   def sanitized_uri

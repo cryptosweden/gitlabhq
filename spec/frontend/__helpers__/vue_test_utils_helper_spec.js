@@ -6,6 +6,7 @@ import {
   WrapperArray as VTUWrapperArray,
   ErrorWrapper as VTUErrorWrapper,
 } from '@vue/test-utils';
+import Vue from 'vue';
 import {
   extendedWrapper,
   shallowMountExtended,
@@ -127,6 +128,55 @@ describe('Vue test utils helpers', () => {
       });
     });
 
+    describe('findComponentByTestId', () => {
+      const testId = 'a-component';
+      let mockChild;
+      let mockComponent;
+
+      beforeEach(() => {
+        mockChild = {
+          template: '<div></div>',
+        };
+        mockComponent = extendedWrapper(
+          shallowMount({
+            render(h) {
+              return h('div', {}, [h(mockChild, { attrs: { 'data-testid': testId } })]);
+            },
+          }),
+        );
+      });
+
+      it('should find the element by test id', () => {
+        expect(mockComponent.findComponentByTestId(testId).exists()).toBe(true);
+      });
+    });
+
+    describe('findAllComponentsByTestId', () => {
+      const testId = 'a-component';
+      let mockComponent;
+      let mockChild;
+
+      beforeEach(() => {
+        mockChild = {
+          template: `<div></div>`,
+        };
+        mockComponent = extendedWrapper(
+          shallowMount({
+            render(h) {
+              return h('div', [
+                h(mockChild, { attrs: { 'data-testid': testId } }),
+                h(mockChild, { attrs: { 'data-testid': testId } }),
+              ]);
+            },
+          }),
+        );
+      });
+
+      it('should find all components by test id', () => {
+        expect(mockComponent.findAllComponentsByTestId(testId)).toHaveLength(2);
+      });
+    });
+
     describe.each`
       findMethod                 | expectedQuery
       ${'findByRole'}            | ${'queryAllByRole'}
@@ -139,9 +189,13 @@ describe('Vue test utils helpers', () => {
       const text = 'foo bar';
       const options = { selector: 'div' };
       const mockDiv = document.createElement('div');
+      let mockVm;
 
       let wrapper;
       beforeEach(() => {
+        jest.spyOn(vtu, 'createWrapper');
+        mockVm = new Vue({ render: (h) => h('div') }).$mount();
+
         wrapper = extendedWrapper(
           shallowMount({
             template: `<div>foo bar</div>`,
@@ -164,7 +218,6 @@ describe('Vue test utils helpers', () => {
       describe('when element is found', () => {
         beforeEach(() => {
           jest.spyOn(testingLibrary, expectedQuery).mockImplementation(() => [mockDiv]);
-          jest.spyOn(vtu, 'createWrapper');
         });
 
         it('returns a VTU wrapper', () => {
@@ -172,14 +225,27 @@ describe('Vue test utils helpers', () => {
 
           expect(vtu.createWrapper).toHaveBeenCalledWith(mockDiv, wrapper.options);
           expect(result).toBeInstanceOf(VTUWrapper);
+          expect(result.vm).toBeUndefined();
         });
       });
 
+      describe('when a Vue instance element is found', () => {
+        beforeEach(() => {
+          jest.spyOn(testingLibrary, expectedQuery).mockImplementation(() => [mockVm.$el]);
+        });
+
+        it('returns a VTU wrapper', () => {
+          const result = wrapper[findMethod](text, options);
+
+          expect(vtu.createWrapper).toHaveBeenCalledWith(mockVm, wrapper.options);
+          expect(result).toBeInstanceOf(VTUWrapper);
+          expect(result.vm).toBeInstanceOf(Vue);
+        });
+      });
       describe('when multiple elements are found', () => {
         beforeEach(() => {
           const mockSpan = document.createElement('span');
           jest.spyOn(testingLibrary, expectedQuery).mockImplementation(() => [mockDiv, mockSpan]);
-          jest.spyOn(vtu, 'createWrapper');
         });
 
         it('returns the first element as a VTU wrapper', () => {
@@ -187,6 +253,24 @@ describe('Vue test utils helpers', () => {
 
           expect(vtu.createWrapper).toHaveBeenCalledWith(mockDiv, wrapper.options);
           expect(result).toBeInstanceOf(VTUWrapper);
+          expect(result.vm).toBeUndefined();
+        });
+      });
+
+      describe('when multiple Vue instances are found', () => {
+        beforeEach(() => {
+          const mockVm2 = new Vue({ render: (h) => h('span') }).$mount();
+          jest
+            .spyOn(testingLibrary, expectedQuery)
+            .mockImplementation(() => [mockVm.$el, mockVm2.$el]);
+        });
+
+        it('returns the first element as a VTU wrapper', () => {
+          const result = wrapper[findMethod](text, options);
+
+          expect(vtu.createWrapper).toHaveBeenCalledWith(mockVm, wrapper.options);
+          expect(result).toBeInstanceOf(VTUWrapper);
+          expect(result.vm).toBeInstanceOf(Vue);
         });
       });
 
@@ -211,11 +295,16 @@ describe('Vue test utils helpers', () => {
       ${'findAllByAltText'}         | ${'queryAllByAltText'}
     `('$findMethod', ({ findMethod, expectedQuery }) => {
       const text = 'foo bar';
-      const options = { selector: 'div' };
+      const options = { selector: 'li' };
       const mockElements = [
         document.createElement('li'),
         document.createElement('li'),
         document.createElement('li'),
+      ];
+      const mockVms = [
+        new Vue({ render: (h) => h('li') }).$mount(),
+        new Vue({ render: (h) => h('li') }).$mount(),
+        new Vue({ render: (h) => h('li') }).$mount(),
       ];
 
       let wrapper;
@@ -245,9 +334,13 @@ describe('Vue test utils helpers', () => {
         );
       });
 
-      describe('when elements are found', () => {
+      describe.each`
+        case                       | mockResult      | isVueInstance
+        ${'HTMLElements'}          | ${mockElements} | ${false}
+        ${'Vue instance elements'} | ${mockVms}      | ${true}
+      `('when $case are found', ({ mockResult, isVueInstance }) => {
         beforeEach(() => {
-          jest.spyOn(testingLibrary, expectedQuery).mockImplementation(() => mockElements);
+          jest.spyOn(testingLibrary, expectedQuery).mockImplementation(() => mockResult);
         });
 
         it('returns a VTU wrapper array', () => {
@@ -257,7 +350,9 @@ describe('Vue test utils helpers', () => {
           expect(
             result.wrappers.every(
               (resultWrapper) =>
-                resultWrapper instanceof VTUWrapper && resultWrapper.options === wrapper.options,
+                resultWrapper instanceof VTUWrapper &&
+                resultWrapper.vm instanceof Vue === isVueInstance &&
+                resultWrapper.options === wrapper.options,
             ),
           ).toBe(true);
           expect(result.length).toBe(3);
@@ -279,34 +374,34 @@ describe('Vue test utils helpers', () => {
     });
   });
 
-  describe.each`
-    mountExtendedFunction   | expectedMountFunction
-    ${shallowMountExtended} | ${'shallowMount'}
-    ${mountExtended}        | ${'mount'}
-  `('$mountExtendedFunction', ({ mountExtendedFunction, expectedMountFunction }) => {
-    const FakeComponent = jest.fn();
-    const options = {
-      propsData: {
-        foo: 'bar',
+  describe('mount extended functions', () => {
+    // eslint-disable-next-line vue/one-component-per-file
+    const FakeChildComponent = Vue.component('FakeChildComponent', {
+      template: '<div>Bar <div data-testid="fake-id"/></div>',
+    });
+
+    // eslint-disable-next-line vue/one-component-per-file
+    const FakeComponent = Vue.component('FakeComponent', {
+      components: {
+        FakeChildComponent,
       },
-    };
-
-    beforeEach(() => {
-      const mockWrapper = { find: jest.fn() };
-      jest.spyOn(vtu, expectedMountFunction).mockImplementation(() => mockWrapper);
+      template: '<div>Foo <fake-child-component data-testid="fake-id" /></div>',
     });
 
-    it(`calls \`${expectedMountFunction}\` with passed arguments`, () => {
-      mountExtendedFunction(FakeComponent, options);
-
-      expect(vtu[expectedMountFunction]).toHaveBeenCalledWith(FakeComponent, options);
+    describe('mountExtended', () => {
+      it('mounts component and provides extended queries', () => {
+        const wrapper = mountExtended(FakeComponent);
+        expect(wrapper.text()).toBe('Foo Bar');
+        expect(wrapper.findAllByTestId('fake-id').length).toBe(2);
+      });
     });
 
-    it('returns extended wrapper', () => {
-      const result = mountExtendedFunction(FakeComponent, options);
-
-      expect(result).toHaveProperty('find');
-      expect(result).toHaveProperty('findByTestId');
+    describe('shallowMountExtended', () => {
+      it('shallow mounts component and provides extended queries', () => {
+        const wrapper = shallowMountExtended(FakeComponent);
+        expect(wrapper.text()).toBe('Foo');
+        expect(wrapper.findAllByTestId('fake-id').length).toBe(1);
+      });
     });
   });
 });

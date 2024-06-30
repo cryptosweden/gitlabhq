@@ -6,7 +6,7 @@ import { illustration, jiraIntegrationPath } from '../mock_data';
 describe('JiraImportSetup', () => {
   let wrapper;
 
-  const getGlEmptyStateProp = (attribute) => wrapper.find(GlEmptyState).props(attribute);
+  const getGlEmptyStateProp = (attribute) => wrapper.findComponent(GlEmptyState).props(attribute);
 
   beforeEach(() => {
     wrapper = shallowMount(JiraImportSetup, {
@@ -15,11 +15,6 @@ describe('JiraImportSetup', () => {
         jiraIntegrationPath,
       },
     });
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
   });
 
   it('contains illustration', () => {

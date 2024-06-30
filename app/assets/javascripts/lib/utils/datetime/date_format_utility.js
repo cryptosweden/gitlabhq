@@ -1,8 +1,9 @@
-import dateFormat from 'dateformat';
 import { isString, mapValues, reduce, isDate, unescape } from 'lodash';
+import dateFormat from '~/lib/dateformat';
 import { roundToNearestHalf } from '~/lib/utils/common_utils';
 import { sanitize } from '~/lib/dompurify';
-import { s__, n__, __, sprintf } from '../../../locale';
+import { s__, n__, __, sprintf } from '~/locale';
+import { parsePikadayDate } from './pikaday_utility';
 
 /**
  * Returns i18n month names array.
@@ -86,22 +87,25 @@ export const dateInWords = (date, abbreviated = false, hideYear = false) => {
  * The largest supported unit is "days".
  *
  * @param {Number} intervalInSeconds The time interval in seconds
+ * @param {Object} params.abbreviated - Abbreviate the returned units (seconds = s, days = d, etc)
  * @returns {String} A humanized description of the time interval
  */
-export const humanizeTimeInterval = (intervalInSeconds) => {
+export const humanizeTimeInterval = (intervalInSeconds, { abbreviated = false } = {}) => {
   if (intervalInSeconds < 60 /* = 1 minute */) {
     const seconds = Math.round(intervalInSeconds * 10) / 10;
-    return n__('%d second', '%d seconds', seconds);
-  } else if (intervalInSeconds < 3600 /* = 1 hour */) {
+    return abbreviated ? `${seconds}s` : n__('%d second', '%d seconds', seconds);
+  }
+  if (intervalInSeconds < 3600 /* = 1 hour */) {
     const minutes = Math.round(intervalInSeconds / 6) / 10;
-    return n__('%d minute', '%d minutes', minutes);
-  } else if (intervalInSeconds < 86400 /* = 1 day */) {
+    return abbreviated ? `${minutes}min` : n__('%d minute', '%d minutes', minutes);
+  }
+  if (intervalInSeconds < 86400 /* = 1 day */) {
     const hours = Math.round(intervalInSeconds / 360) / 10;
-    return n__('%d hour', '%d hours', hours);
+    return abbreviated ? `${hours}h` : n__('%d hour', '%d hours', hours);
   }
 
   const days = Math.round(intervalInSeconds / 8640) / 10;
-  return n__('%d day', '%d days', days);
+  return abbreviated ? `${days}d` : n__('%d day', '%d days', days);
 };
 
 /**
@@ -162,16 +166,24 @@ export const formatDate = (datetime, format = 'mmm d, yyyy h:MMtt Z', utc = fals
  * @returns {string}
  */
 export const formatTime = (milliseconds) => {
-  const remainingSeconds = Math.floor(milliseconds / 1000) % 60;
-  const remainingMinutes = Math.floor(milliseconds / 1000 / 60) % 60;
-  const remainingHours = Math.floor(milliseconds / 1000 / 60 / 60);
+  const seconds = Math.round(milliseconds / 1000);
+  const absSeconds = Math.abs(seconds);
+
+  const remainingSeconds = Math.floor(absSeconds) % 60;
+  const remainingMinutes = Math.floor(absSeconds / 60) % 60;
+  const hours = Math.floor(absSeconds / 60 / 60);
+
   let formattedTime = '';
-  if (remainingHours < 10) formattedTime += '0';
-  formattedTime += `${remainingHours}:`;
+  if (hours < 10) formattedTime += '0';
+  formattedTime += `${hours}:`;
   if (remainingMinutes < 10) formattedTime += '0';
   formattedTime += `${remainingMinutes}:`;
   if (remainingSeconds < 10) formattedTime += '0';
   formattedTime += remainingSeconds;
+
+  if (seconds < 0) {
+    return `-${formattedTime}`;
+  }
   return formattedTime;
 };
 
@@ -203,7 +215,7 @@ export const stringifyTime = (timeObject, fullNameFormat = false) => {
       const isNonZero = Boolean(unitValue);
 
       if (fullNameFormat && isNonZero) {
-        // Remove traling 's' if unit value is singular
+        // Remove trailing 's' if unit value is singular
         const formattedUnitName = unitValue > 1 ? unitName : unitName.replace(/s$/, '');
         return `${memo} ${unitValue} ${formattedUnitName}`;
       }
@@ -366,43 +378,109 @@ export const dateToTimeInputValue = (date) => {
 
 export const formatTimeAsSummary = ({ seconds, hours, days, minutes, weeks, months }) => {
   if (months) {
-    return sprintf(s__('ValueStreamAnalytics|%{value}M'), {
-      value: roundToNearestHalf(months),
-    });
-  } else if (weeks) {
-    return sprintf(s__('ValueStreamAnalytics|%{value}w'), {
-      value: roundToNearestHalf(weeks),
-    });
-  } else if (days) {
-    return sprintf(s__('ValueStreamAnalytics|%{value}d'), {
-      value: roundToNearestHalf(days),
-    });
-  } else if (hours) {
-    return sprintf(s__('ValueStreamAnalytics|%{value}h'), { value: hours });
-  } else if (minutes) {
-    return sprintf(s__('ValueStreamAnalytics|%{value}m'), { value: minutes });
-  } else if (seconds) {
-    return unescape(sanitize(s__('ValueStreamAnalytics|&lt;1m'), { ALLOWED_TAGS: [] }));
+    const value = roundToNearestHalf(months);
+    return sprintf(
+      n__('ValueStreamAnalytics|%{value} month', 'ValueStreamAnalytics|%{value} months', value),
+      {
+        value,
+      },
+    );
+  }
+  if (weeks) {
+    const value = roundToNearestHalf(weeks);
+    return sprintf(
+      n__('ValueStreamAnalytics|%{value} week', 'ValueStreamAnalytics|%{value} weeks', value),
+      {
+        value,
+      },
+    );
+  }
+  if (days) {
+    const value = roundToNearestHalf(days);
+    return sprintf(
+      n__('ValueStreamAnalytics|%{value} day', 'ValueStreamAnalytics|%{value} days', value),
+      {
+        value,
+      },
+    );
+  }
+  if (hours) {
+    return sprintf(
+      n__('ValueStreamAnalytics|%{value} hour', 'ValueStreamAnalytics|%{value} hours', hours),
+      {
+        value: hours,
+      },
+    );
+  }
+  if (minutes) {
+    return sprintf(
+      n__('ValueStreamAnalytics|%{value} minute', 'ValueStreamAnalytics|%{value} minutes', minutes),
+      {
+        value: minutes,
+      },
+    );
+  }
+  if (seconds) {
+    return unescape(sanitize(s__('ValueStreamAnalytics|&lt;1 minute'), { ALLOWED_TAGS: [] }));
   }
   return '-';
 };
 
-export const durationTimeFormatted = (duration) => {
-  const date = new Date(duration * 1000);
-
-  let hh = date.getUTCHours();
-  let mm = date.getUTCMinutes();
-  let ss = date.getSeconds();
-
-  if (hh < 10) {
-    hh = `0${hh}`;
+/**
+ * Converts a numeric utc offset in seconds to +/- hours
+ * ie -32400 => -9 hours
+ * ie -12600 => -3.5 hours
+ *
+ * @param {Number} offset UTC offset in seconds as a integer
+ *
+ * @return {String} the + or - offset in hours, e.g. `-10`, ` 0`, `+4`
+ */
+export const formatUtcOffset = (offset) => {
+  const parsed = parseInt(offset, 10);
+  if (Number.isNaN(parsed) || parsed === 0) {
+    return ` 0`;
   }
-  if (mm < 10) {
-    mm = `0${mm}`;
-  }
-  if (ss < 10) {
-    ss = `0${ss}`;
-  }
+  const prefix = offset > 0 ? '+' : '-';
+  return `${prefix}${Math.abs(offset / 3600)}`;
+};
 
-  return `${hh}:${mm}:${ss}`;
+/**
+ * Returns formatted timezone
+ *
+ * @param {Object} timezone item with offset and name
+ * @returns {String} the UTC timezone with the offset, e.g. `[UTC+2] Berlin, [UTC 0] London`
+ */
+export const formatTimezone = ({ offset, name }) => `[UTC${formatUtcOffset(offset)}] ${name}`;
+
+/**
+ * Returns humanized string showing date range from provided start and due dates.
+ *
+ * @param {Date} startDate
+ * @param {Date} dueDate
+ * @returns
+ */
+export const humanTimeframe = (startDate, dueDate) => {
+  const start = startDate ? parsePikadayDate(startDate) : null;
+  const due = dueDate ? parsePikadayDate(dueDate) : null;
+
+  if (startDate && dueDate) {
+    const startDateInWords = dateInWords(start, true, start.getFullYear() === due.getFullYear());
+    const dueDateInWords = dateInWords(due, true);
+
+    return sprintf(__('%{startDate} – %{dueDate}'), {
+      startDate: startDateInWords,
+      dueDate: dueDateInWords,
+    });
+  }
+  if (startDate && !dueDate) {
+    return sprintf(__('%{startDate} – No due date'), {
+      startDate: dateInWords(start, true, false),
+    });
+  }
+  if (!startDate && dueDate) {
+    return sprintf(__('No start date – %{dueDate}'), {
+      dueDate: dateInWords(due, true, false),
+    });
+  }
+  return '';
 };

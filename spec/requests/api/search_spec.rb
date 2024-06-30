@@ -2,15 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Search do
+RSpec.describe API::Search, :clean_gitlab_redis_rate_limiting, feature_category: :global_search do
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group) }
   let_it_be(:project, reload: true) { create(:project, :wiki_repo, :public, name: 'awesome project', group: group) }
   let_it_be(:repo_project) { create(:project, :public, :repository, group: group) }
 
   before do
-    allow(Gitlab::ApplicationRateLimiter).to receive(:threshold).with(:search_rate_limit).and_return(1000)
-    allow(Gitlab::ApplicationRateLimiter).to receive(:threshold).with(:search_rate_limit_unauthenticated).and_return(1000)
+    allow(Gitlab::ApplicationRateLimiter).to receive(:threshold).and_return(0)
   end
 
   shared_examples 'response is correct' do |schema:, size: 1|
@@ -20,9 +19,14 @@ RSpec.describe API::Search do
     it { expect(json_response.size).to eq(size) }
   end
 
-  shared_examples 'ping counters' do |scope:, search: ''|
-    it 'increases usage ping searches counter' do
-      expect(Gitlab::UsageDataCounters::SearchCounter).to receive(:count).with(:all_searches)
+  shared_examples 'apdex recorded' do |scope:, level:, search: ''|
+    it 'increments the custom search sli apdex' do
+      expect(Gitlab::Metrics::GlobalSearchSlis).to receive(:record_apdex).with(
+        elapsed: a_kind_of(Numeric),
+        search_scope: scope,
+        search_type: 'basic',
+        search_level: level
+      )
 
       get api(endpoint, user), params: { scope: scope, search: search }
     end
@@ -127,15 +131,15 @@ RSpec.describe API::Search do
       end
     end
 
-    context 'when DB timeouts occur from global searches', :aggregate_errors do
-      %w(
+    context 'when DB timeouts occur from global searches', :aggregate_failures do
+      %w[
         issues
         merge_requests
         milestones
         projects
         snippet_titles
         users
-      ).each do |scope|
+      ].each do |scope|
         it "returns a 408 error if search with scope: #{scope} times out" do
           allow(SearchService).to receive(:new).and_raise ActiveRecord::QueryCanceled
           get api(endpoint, user), params: { scope: scope, search: 'awesome' }
@@ -160,7 +164,39 @@ RSpec.describe API::Search do
       end
     end
 
+    context 'when there is a search error' do
+      let(:results) { instance_double('Gitlab::SearchResults', failed?: true, error: 'failed to parse query') }
+
+      before do
+        allow_next_instance_of(SearchService) do |service|
+          allow(service).to receive(:search_objects).and_return([])
+          allow(service).to receive(:search_results).and_return(results)
+        end
+      end
+
+      it 'returns 400 error' do
+        get api(endpoint, user), params: { scope: 'issues', search: 'expected to fail' }
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+      end
+    end
+
     context 'with correct params' do
+      [:issues, :merge_requests, :projects, :milestones, :users, :snippet_titles].each do |scope|
+        context "with correct params for scope #{scope}" do
+          it_behaves_like 'internal event tracking' do
+            let(:event) { 'perform_search' }
+            let(:category) { described_class.to_s }
+            let(:project) { nil }
+            let(:namespace) { nil }
+
+            subject(:tracked_event) do
+              get api(endpoint, user), params: { scope: scope, search: 'foobar' }
+            end
+          end
+        end
+      end
+
       context 'for projects scope' do
         before do
           get api(endpoint, user), params: { scope: 'projects', search: 'awesome' }
@@ -170,7 +206,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'pagination', scope: :projects
 
-        it_behaves_like 'ping counters', scope: :projects
+        it_behaves_like 'apdex recorded', scope: 'projects', level: 'global'
       end
 
       context 'for issues scope' do
@@ -183,7 +219,7 @@ RSpec.describe API::Search do
 
           it_behaves_like 'response is correct', schema: 'public_api/v4/issues'
 
-          it_behaves_like 'ping counters', scope: :issues
+          it_behaves_like 'apdex recorded', scope: 'issues', level: 'global'
 
           it_behaves_like 'issues orderable by created_at'
 
@@ -245,7 +281,7 @@ RSpec.describe API::Search do
 
           it_behaves_like 'response is correct', schema: 'public_api/v4/merge_requests'
 
-          it_behaves_like 'ping counters', scope: :merge_requests
+          it_behaves_like 'apdex recorded', scope: 'merge_requests', level: 'global'
 
           it_behaves_like 'merge_requests orderable by created_at'
 
@@ -290,7 +326,7 @@ RSpec.describe API::Search do
 
           it_behaves_like 'response is correct', schema: 'public_api/v4/milestones'
 
-          it_behaves_like 'ping counters', scope: :milestones
+          it_behaves_like 'apdex recorded', scope: 'milestones', level: 'global'
 
           describe 'pagination' do
             before do
@@ -328,7 +364,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'pagination', scope: :users
 
-        it_behaves_like 'ping counters', scope: :users
+        it_behaves_like 'apdex recorded', scope: 'users', level: 'global'
       end
 
       context 'for snippet_titles scope' do
@@ -340,7 +376,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/snippets'
 
-        it_behaves_like 'ping counters', scope: :snippet_titles
+        it_behaves_like 'apdex recorded', scope: 'snippet_titles', level: 'global'
 
         describe 'pagination' do
           before do
@@ -350,6 +386,79 @@ RSpec.describe API::Search do
           include_examples 'pagination', scope: :snippet_titles
         end
       end
+
+      context 'global search is disabled for the given scope' do
+        it 'returns forbidden response' do
+          allow_next_instance_of(SearchService) do |instance|
+            allow(instance).to receive(:global_search_enabled_for_scope?).and_return false
+          end
+          get api(endpoint, user), params: { search: 'awesome', scope: 'issues' }
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+
+      context 'global search is enabled for the given scope' do
+        it 'returns forbidden response' do
+          allow_next_instance_of(SearchService) do |instance|
+            allow(instance).to receive(:global_search_enabled_for_scope?).and_return true
+          end
+          get api(endpoint, user), params: { search: 'awesome', scope: 'issues' }
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+
+      context 'global snippet search is disabled' do
+        it 'returns forbidden response' do
+          stub_feature_flags(global_search_snippet_titles_tab: false)
+          get api(endpoint, user), params: { search: 'awesome', scope: 'snippet_titles' }
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+
+      context 'global snippet search is enabled' do
+        it 'returns ok response' do
+          stub_feature_flags(global_search_snippet_titles_tab: true)
+          get api(endpoint, user), params: { search: 'awesome', scope: 'snippet_titles' }
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+
+      it 'increments the custom search sli error rate with error false if no error occurred' do
+        expect(Gitlab::Metrics::GlobalSearchSlis).to receive(:record_error_rate).with(
+          error: false,
+          search_scope: 'issues',
+          search_type: 'basic',
+          search_level: 'global'
+        )
+
+        get api(endpoint, user), params: { scope: 'issues', search: 'john doe' }
+      end
+
+      it 'increments the custom search sli error rate with error true if an error occurred' do
+        allow_next_instance_of(SearchService) do |service|
+          allow(service).to receive(:search_results).and_raise(ActiveRecord::QueryCanceled)
+        end
+
+        expect(Gitlab::Metrics::GlobalSearchSlis).to receive(:record_error_rate).with(
+          error: true,
+          search_scope: 'issues',
+          search_type: 'basic',
+          search_level: 'global'
+        )
+
+        get api(endpoint, user), params: { scope: 'issues', search: 'john doe' }
+      end
+
+      it 'sets global search information for logging' do
+        expect(Gitlab::Instrumentation::GlobalSearchApi).to receive(:set_information).with(
+          type: 'basic',
+          level: 'global',
+          scope: 'issues',
+          search_duration_s: a_kind_of(Numeric)
+        )
+
+        get api(endpoint, user), params: { scope: 'issues', search: 'john doe' }
+      end
     end
 
     it_behaves_like 'rate limited endpoint', rate_limit_key: :search_rate_limit do
@@ -357,6 +466,21 @@ RSpec.describe API::Search do
 
       def request
         get api(endpoint, current_user), params: { scope: 'users', search: 'foo@bar.com' }
+      end
+    end
+
+    context 'when request exceeds the rate limit', :freeze_time, :clean_gitlab_redis_rate_limiting do
+      before do
+        stub_application_setting(search_rate_limit: 1)
+      end
+
+      it 'allows user whose username is in the allowlist' do
+        stub_application_setting(search_rate_limit_allowlist: [user.username])
+
+        get api(endpoint, user), params: { scope: 'users', search: 'foo@bar.com' }
+        get api(endpoint, user), params: { scope: 'users', search: 'foo@bar.com' }
+
+        expect(response).to have_gitlab_http_status(:ok)
       end
     end
   end
@@ -416,7 +540,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'pagination', scope: :projects
 
-        it_behaves_like 'ping counters', scope: :projects
+        it_behaves_like 'apdex recorded', scope: 'projects', level: 'group'
       end
 
       context 'for issues scope' do
@@ -428,7 +552,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/issues'
 
-        it_behaves_like 'ping counters', scope: :issues
+        it_behaves_like 'apdex recorded', scope: 'issues', level: 'group'
 
         it_behaves_like 'issues orderable by created_at'
 
@@ -450,7 +574,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/merge_requests'
 
-        it_behaves_like 'ping counters', scope: :merge_requests
+        it_behaves_like 'apdex recorded', scope: 'merge_requests', level: 'group'
 
         it_behaves_like 'merge_requests orderable by created_at'
 
@@ -472,7 +596,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/milestones'
 
-        it_behaves_like 'ping counters', scope: :milestones
+        it_behaves_like 'apdex recorded', scope: 'milestones', level: 'group'
 
         describe 'pagination' do
           before do
@@ -505,7 +629,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/user/basics'
 
-        it_behaves_like 'ping counters', scope: :users
+        it_behaves_like 'apdex recorded', scope: 'users', level: 'group'
 
         describe 'pagination' do
           before do
@@ -532,6 +656,21 @@ RSpec.describe API::Search do
 
         def request
           get api(endpoint, current_user), params: { scope: 'users', search: 'foo@bar.com' }
+        end
+      end
+
+      context 'when request exceeds the rate limit', :freeze_time, :clean_gitlab_redis_rate_limiting do
+        before do
+          stub_application_setting(search_rate_limit: 1)
+        end
+
+        it 'allows user whose username is in the allowlist' do
+          stub_application_setting(search_rate_limit_allowlist: [user.username])
+
+          get api(endpoint, user), params: { scope: 'users', search: 'foo@bar.com' }
+          get api(endpoint, user), params: { scope: 'users', search: 'foo@bar.com' }
+
+          expect(response).to have_gitlab_http_status(:ok)
         end
       end
     end
@@ -564,6 +703,16 @@ RSpec.describe API::Search do
       end
     end
 
+    context 'when user does not have permissions for scope' do
+      it 'returns an empty array' do
+        project.project_feature.update!(issues_access_level: Gitlab::VisibilityLevel::PRIVATE)
+
+        get api(endpoint, user), params: { scope: 'issues', search: 'awesome' }
+
+        expect(json_response).to be_empty
+      end
+    end
+
     context 'when project does not exist' do
       it 'returns 404 error' do
         get api('/projects/0/search', user), params: { scope: 'issues', search: 'awesome' }
@@ -592,9 +741,9 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/issues'
 
-        it_behaves_like 'ping counters', scope: :issues
-
         it_behaves_like 'issues orderable by created_at'
+
+        it_behaves_like 'apdex recorded', scope: 'issues', level: 'project'
 
         describe 'pagination' do
           before do
@@ -624,9 +773,9 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/merge_requests'
 
-        it_behaves_like 'ping counters', scope: :merge_requests
-
         it_behaves_like 'merge_requests orderable by created_at'
+
+        it_behaves_like 'apdex recorded', scope: 'merge_requests', level: 'project'
 
         describe 'pagination' do
           before do
@@ -649,7 +798,7 @@ RSpec.describe API::Search do
 
           it_behaves_like 'response is correct', schema: 'public_api/v4/milestones'
 
-          it_behaves_like 'ping counters', scope: :milestones
+          it_behaves_like 'apdex recorded', scope: 'milestones', level: 'project'
 
           describe 'pagination' do
             before do
@@ -686,7 +835,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/user/basics'
 
-        it_behaves_like 'ping counters', scope: :users
+        it_behaves_like 'apdex recorded', scope: 'users', level: 'project'
 
         describe 'pagination' do
           before do
@@ -706,7 +855,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/notes'
 
-        it_behaves_like 'ping counters', scope: :notes
+        it_behaves_like 'apdex recorded', scope: 'notes', level: 'project'
 
         describe 'pagination' do
           before do
@@ -727,9 +876,9 @@ RSpec.describe API::Search do
           get api(endpoint, user), params: { scope: 'wiki_blobs', search: 'awesome' }
         end
 
-        it_behaves_like 'response is correct', schema: 'public_api/v4/blobs'
+        it_behaves_like 'response is correct', schema: 'public_api/v4/wiki_blobs'
 
-        it_behaves_like 'ping counters', scope: :wiki_blobs
+        it_behaves_like 'apdex recorded', scope: 'wiki_blobs', level: 'project'
 
         describe 'pagination' do
           before do
@@ -751,7 +900,97 @@ RSpec.describe API::Search do
 
         it_behaves_like 'pagination', scope: :commits, search: 'merge'
 
-        it_behaves_like 'ping counters', scope: :commits
+        it_behaves_like 'apdex recorded', scope: 'commits', level: 'project'
+
+        describe 'pipeline visibility' do
+          shared_examples 'pipeline information visible' do
+            it 'contains status and last_pipeline' do
+              request
+
+              expect(json_response[0]['status']).to eq 'success'
+              expect(json_response[0]['last_pipeline']).not_to be_nil
+            end
+          end
+
+          shared_examples 'pipeline information not visible' do
+            it 'does not contain status and last_pipeline' do
+              request
+
+              expect(json_response[0]['status']).to be_nil
+              expect(json_response[0]['last_pipeline']).to be_nil
+            end
+          end
+
+          let(:request) { get api(endpoint, user), params: { scope: 'commits', search: repo_project.commit.sha } }
+
+          before do
+            create(:ci_pipeline, :success, project: repo_project, sha: repo_project.commit.sha)
+          end
+
+          context 'with non public pipeline' do
+            let_it_be(:repo_project) do
+              create(:project, :public, :repository, public_builds: false, group: group)
+            end
+
+            context 'user is project member with reporter role or above' do
+              before do
+                repo_project.add_reporter(user)
+              end
+
+              it_behaves_like 'pipeline information visible'
+            end
+
+            context 'user is project member with guest role' do
+              before do
+                repo_project.add_guest(user)
+              end
+
+              it_behaves_like 'pipeline information not visible'
+            end
+
+            context 'user is not project member' do
+              let_it_be(:user) { create(:user) }
+
+              it_behaves_like 'pipeline information not visible'
+            end
+          end
+
+          context 'with public pipeline' do
+            let_it_be(:repo_project) do
+              create(:project, :public, :repository, public_builds: true, group: group)
+            end
+
+            context 'user is project member with reporter role or above' do
+              before do
+                repo_project.add_reporter(user)
+              end
+
+              it_behaves_like 'pipeline information visible'
+            end
+
+            context 'user is project member with guest role' do
+              before do
+                repo_project.add_guest(user)
+              end
+
+              it_behaves_like 'pipeline information visible'
+            end
+
+            context 'user is not project member' do
+              let_it_be(:user) { create(:user) }
+
+              it_behaves_like 'pipeline information visible'
+
+              context 'when CI/CD is set to only project members' do
+                before do
+                  repo_project.project_feature.update!(builds_access_level: ProjectFeature::PRIVATE)
+                end
+
+                it_behaves_like 'pipeline information not visible'
+              end
+            end
+          end
+        end
       end
 
       context 'for commits scope with project path as id' do
@@ -760,6 +999,8 @@ RSpec.describe API::Search do
         end
 
         it_behaves_like 'response is correct', schema: 'public_api/v4/commits_details'
+
+        it_behaves_like 'apdex recorded', scope: 'commits', level: 'project'
       end
 
       context 'for blobs scope' do
@@ -773,7 +1014,7 @@ RSpec.describe API::Search do
 
         it_behaves_like 'pagination', scope: :blobs, search: 'monitors'
 
-        it_behaves_like 'ping counters', scope: :blobs
+        it_behaves_like 'apdex recorded', scope: 'blobs', level: 'project'
 
         context 'filters' do
           it 'by filename' do
@@ -813,6 +1054,21 @@ RSpec.describe API::Search do
 
         def request
           get api(endpoint, current_user), params: { scope: 'users', search: 'foo@bar.com' }
+        end
+      end
+
+      context 'when request exceeds the rate limit', :freeze_time, :clean_gitlab_redis_rate_limiting do
+        before do
+          stub_application_setting(search_rate_limit: 1)
+        end
+
+        it 'allows user whose username is in the allowlist' do
+          stub_application_setting(search_rate_limit_allowlist: [user.username])
+
+          get api(endpoint, user), params: { scope: 'users', search: 'foo@bar.com' }
+          get api(endpoint, user), params: { scope: 'users', search: 'foo@bar.com' }
+
+          expect(response).to have_gitlab_http_status(:ok)
         end
       end
     end

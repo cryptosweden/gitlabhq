@@ -1,17 +1,21 @@
-import { GlLoadingIcon } from '@gitlab/ui';
+import { GlLoadingIcon, GlFormCheckbox } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
-import { ApolloMutation } from 'vue-apollo';
 import { nextTick } from 'vue';
+import waitForPromises from 'helpers/wait_for_promises';
+import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
 import DesignDiscussion from '~/design_management/components/design_notes/design_discussion.vue';
 import DesignNote from '~/design_management/components/design_notes/design_note.vue';
 import DesignNoteSignedOut from '~/design_management/components/design_notes/design_note_signed_out.vue';
 import DesignReplyForm from '~/design_management/components/design_notes/design_reply_form.vue';
 import ToggleRepliesWidget from '~/design_management/components/design_notes/toggle_replies_widget.vue';
-import createNoteMutation from '~/design_management/graphql/mutations/create_note.mutation.graphql';
 import toggleResolveDiscussionMutation from '~/design_management/graphql/mutations/toggle_resolve_discussion.mutation.graphql';
-import ReplyPlaceholder from '~/notes/components/discussion_reply_placeholder.vue';
+import DiscussionReplyPlaceholder from '~/notes/components/discussion_reply_placeholder.vue';
+import destroyNoteMutation from '~/design_management/graphql/mutations/destroy_note.mutation.graphql';
+import { DELETE_NOTE_ERROR_MSG } from '~/design_management/constants';
 import mockDiscussion from '../../mock_data/discussion';
 import notes from '../../mock_data/notes';
+
+jest.mock('~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal');
 
 const defaultMockDiscussion = {
   id: '0',
@@ -20,33 +24,19 @@ const defaultMockDiscussion = {
   notes,
 };
 
-const DEFAULT_TODO_COUNT = 2;
-
 describe('Design discussions component', () => {
-  const originalGon = window.gon;
   let wrapper;
 
-  const findDesignNotes = () => wrapper.findAll(DesignNote);
-  const findReplyPlaceholder = () => wrapper.find(ReplyPlaceholder);
-  const findReplyForm = () => wrapper.find(DesignReplyForm);
-  const findRepliesWidget = () => wrapper.find(ToggleRepliesWidget);
+  const findDesignNotesList = () => wrapper.find('[data-testid="design-discussion-content"]');
+  const findDesignNotes = () => wrapper.findAllComponents(DesignNote);
+  const findReplyPlaceholder = () => wrapper.findComponent(DiscussionReplyPlaceholder);
+  const findReplyForm = () => wrapper.findComponent(DesignReplyForm);
+  const findRepliesWidget = () => wrapper.findComponent(ToggleRepliesWidget);
   const findResolveButton = () => wrapper.find('[data-testid="resolve-button"]');
-  const findResolveIcon = () => wrapper.find('[data-testid="resolve-icon"]');
   const findResolvedMessage = () => wrapper.find('[data-testid="resolved-message"]');
-  const findResolveLoadingIcon = () => wrapper.find(GlLoadingIcon);
-  const findResolveCheckbox = () => wrapper.find('[data-testid="resolve-checkbox"]');
-  const findApolloMutation = () => wrapper.findComponent(ApolloMutation);
+  const findResolveLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
+  const findResolveCheckbox = () => wrapper.findComponent(GlFormCheckbox);
 
-  const mutationVariables = {
-    mutation: createNoteMutation,
-    variables: {
-      input: {
-        noteableId: 'noteable-id',
-        body: 'test',
-        discussionId: '0',
-      },
-    },
-  };
   const registerPath = '/users/sign_up?redirect_to_referer=yes';
   const signInPath = '/users/sign_in?redirect_to_referer=yes';
   const mutate = jest.fn().mockResolvedValue({ data: { createNote: { errors: [] } } });
@@ -60,7 +50,7 @@ describe('Design discussions component', () => {
     provider: { clients: { defaultClient: { readQuery } } },
   };
 
-  function createComponent(props = {}, data = {}) {
+  function createComponent({ props = {}, data = {}, apolloConfig = {} } = {}) {
     wrapper = mount(DesignDiscussion, {
       propsData: {
         resolvedDiscussionsExpanded: true,
@@ -83,7 +73,10 @@ describe('Design discussions component', () => {
         issueIid: '1',
       },
       mocks: {
-        $apollo,
+        $apollo: {
+          ...$apollo,
+          ...apolloConfig,
+        },
         $route: {
           hash: '#note_1',
           params: {
@@ -94,6 +87,9 @@ describe('Design discussions component', () => {
           },
         },
       },
+      stubs: {
+        EmojiPicker: true,
+      },
     });
   }
 
@@ -102,22 +98,23 @@ describe('Design discussions component', () => {
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    window.gon = originalGon;
+    confirmAction.mockReset();
   });
 
   describe('when discussion is not resolvable', () => {
     beforeEach(() => {
       createComponent({
-        discussion: {
-          ...defaultMockDiscussion,
-          resolvable: false,
+        props: {
+          discussion: {
+            ...defaultMockDiscussion,
+            resolvable: false,
+          },
         },
       });
     });
 
     it('does not render an icon to resolve a thread', () => {
-      expect(findResolveIcon().exists()).toBe(false);
+      expect(findResolveButton().exists()).toBe(false);
     });
 
     it('does not render a checkbox in reply form', async () => {
@@ -142,12 +139,12 @@ describe('Design discussions component', () => {
       expect(findReplyPlaceholder().isVisible()).toBe(true);
     });
 
-    it('does not render toggle replies widget', () => {
-      expect(findRepliesWidget().exists()).toBe(false);
+    it('renders toggle replies widget', () => {
+      expect(findRepliesWidget().exists()).toBe(true);
     });
 
     it('renders a correct icon to resolve a thread', () => {
-      expect(findResolveIcon().props('name')).toBe('check-circle');
+      expect(findResolveButton().props('icon')).toBe('check-circle');
     });
 
     it('renders a checkbox with Resolve thread text in reply form', async () => {
@@ -161,6 +158,14 @@ describe('Design discussions component', () => {
     it('does not render resolved message', () => {
       expect(findResolvedMessage().exists()).toBe(false);
     });
+
+    it('renders toggle replies widget with correct props', () => {
+      expect(findRepliesWidget().exists()).toBe(true);
+      expect(findRepliesWidget().props()).toEqual({
+        collapsed: false,
+        replies: notes.slice(1),
+      });
+    });
   });
 
   describe('when discussion is resolved', () => {
@@ -168,15 +173,15 @@ describe('Design discussions component', () => {
 
     beforeEach(() => {
       dispatchEventSpy = jest.spyOn(document, 'dispatchEvent');
-      jest.spyOn(document, 'querySelector').mockReturnValue({
-        innerText: DEFAULT_TODO_COUNT,
-      });
+
       createComponent({
-        discussion: {
-          ...defaultMockDiscussion,
-          resolved: true,
-          resolvedBy: notes[0].author,
-          resolvedAt: '2020-05-08T07:10:45Z',
+        props: {
+          discussion: {
+            ...defaultMockDiscussion,
+            resolved: true,
+            resolvedBy: notes[0].author,
+            resolvedAt: '2020-05-08T07:10:45Z',
+          },
         },
       });
     });
@@ -203,14 +208,14 @@ describe('Design discussions component', () => {
     });
 
     it('renders a correct icon to resolve a thread', () => {
-      expect(findResolveIcon().props('name')).toBe('check-circle-filled');
+      expect(findResolveButton().props('icon')).toBe('check-circle-filled');
     });
 
     it('emit todo:toggle when discussion is resolved', async () => {
-      createComponent(
-        { discussionWithOpenForm: defaultMockDiscussion.id },
-        { discussionComment: 'test', isFormRendered: true },
-      );
+      createComponent({
+        props: { discussionWithOpenForm: defaultMockDiscussion.id },
+        data: { isFormRendered: true },
+      });
       findResolveButton().trigger('click');
       findReplyForm().vm.$emit('submitForm');
 
@@ -220,7 +225,7 @@ describe('Design discussions component', () => {
       const dispatchedEvent = dispatchEventSpy.mock.calls[0][0];
 
       expect(dispatchEventSpy).toHaveBeenCalledTimes(1);
-      expect(dispatchedEvent.detail).toEqual({ count: DEFAULT_TODO_COUNT });
+      expect(dispatchedEvent.detail).toEqual({ delta: 0 });
       expect(dispatchedEvent.type).toBe('todo:toggle');
     });
 
@@ -262,31 +267,27 @@ describe('Design discussions component', () => {
     expect(findReplyForm().exists()).toBe(true);
   });
 
-  it('calls mutation on submitting form and closes the form', async () => {
-    createComponent(
-      { discussionWithOpenForm: defaultMockDiscussion.id },
-      { discussionComment: 'test', isFormRendered: true },
-    );
+  it('closes the form when note submit mutation is completed', async () => {
+    createComponent({
+      props: { discussionWithOpenForm: defaultMockDiscussion.id },
+      data: { isFormRendered: true },
+    });
 
-    findReplyForm().vm.$emit('submit-form');
-    expect(mutate).toHaveBeenCalledWith(mutationVariables);
+    findReplyForm().vm.$emit('note-submit-complete', { data: { createNote: {} } });
 
-    await mutate();
     await nextTick();
 
     expect(findReplyForm().exists()).toBe(false);
   });
 
   it('clears the discussion comment on closing comment form', async () => {
-    createComponent(
-      { discussionWithOpenForm: defaultMockDiscussion.id },
-      { discussionComment: 'test', isFormRendered: true },
-    );
+    createComponent({
+      props: { discussionWithOpenForm: defaultMockDiscussion.id },
+      data: { isFormRendered: true },
+    });
 
     await nextTick();
     findReplyForm().vm.$emit('cancel-form');
-
-    expect(wrapper.vm.discussionComment).toBe('');
 
     await nextTick();
     expect(findReplyForm().exists()).toBe(false);
@@ -294,23 +295,19 @@ describe('Design discussions component', () => {
 
   describe('when any note from a discussion is active', () => {
     it.each([notes[0], notes[0].discussion.notes.nodes[1]])(
-      'applies correct class to all notes in the active discussion',
+      'applies correct class to the active discussion',
       (note) => {
-        createComponent(
-          { discussion: mockDiscussion },
-          {
+        createComponent({
+          props: { discussion: mockDiscussion },
+          data: {
             activeDiscussion: {
               id: note.id,
               source: 'pin',
             },
           },
-        );
+        });
 
-        expect(
-          wrapper
-            .findAll(DesignNote)
-            .wrappers.every((designNote) => designNote.classes('gl-bg-blue-50')),
-        ).toBe(true);
+        expect(findDesignNotesList().classes('gl-bg-blue-50')).toBe(true);
       },
     );
   });
@@ -330,10 +327,10 @@ describe('Design discussions component', () => {
   });
 
   it('calls toggleResolveDiscussion mutation after adding a note if checkbox was checked', () => {
-    createComponent(
-      { discussionWithOpenForm: defaultMockDiscussion.id },
-      { discussionComment: 'test', isFormRendered: true },
-    );
+    createComponent({
+      props: { discussionWithOpenForm: defaultMockDiscussion.id },
+      data: { isFormRendered: true },
+    });
     findResolveButton().trigger('click');
     findReplyForm().vm.$emit('submitForm');
 
@@ -352,7 +349,7 @@ describe('Design discussions component', () => {
     createComponent();
     findReplyPlaceholder().vm.$emit('focus');
 
-    expect(wrapper.emitted('open-form')).toBeTruthy();
+    expect(wrapper.emitted('open-form')).toHaveLength(1);
   });
 
   describe('when user is not logged in', () => {
@@ -360,15 +357,15 @@ describe('Design discussions component', () => {
 
     beforeEach(() => {
       window.gon = { current_user_id: null };
-      createComponent(
-        {
+      createComponent({
+        props: {
           discussion: {
             ...defaultMockDiscussion,
           },
           discussionWithOpenForm: defaultMockDiscussion.id,
         },
-        { discussionComment: 'test', isFormRendered: true },
-      );
+        data: { isFormRendered: true },
+      });
     });
 
     it('does not render resolve discussion button', () => {
@@ -379,10 +376,6 @@ describe('Design discussions component', () => {
       expect(findReplyPlaceholder().exists()).toBe(false);
     });
 
-    it('does not render apollo-mutation component', () => {
-      expect(findApolloMutation().exists()).toBe(false);
-    });
-
     it('renders design-note-signed-out component', () => {
       expect(findDesignNoteSignedOut().exists()).toBe(true);
       expect(findDesignNoteSignedOut().props()).toMatchObject({
@@ -390,5 +383,77 @@ describe('Design discussions component', () => {
         signInPath,
       });
     });
+  });
+
+  it('should open confirmation modal when the note emits `delete-note` event', () => {
+    createComponent();
+
+    findDesignNotes().at(0).vm.$emit('delete-note', { id: '1' });
+    expect(confirmAction).toHaveBeenCalled();
+  });
+
+  describe('when confirmation modal is opened', () => {
+    const noteId = 'note-test-id';
+
+    it('sends the mutation with correct variables', async () => {
+      confirmAction.mockResolvedValueOnce(true);
+      const destroyNoteMutationSuccess = jest.fn().mockResolvedValue({
+        data: { destroyNote: { note: null, __typename: 'DestroyNote', errors: [] } },
+      });
+      createComponent({ apolloConfig: { mutate: destroyNoteMutationSuccess } });
+
+      findDesignNotes().at(0).vm.$emit('delete-note', { id: noteId });
+
+      expect(confirmAction).toHaveBeenCalled();
+
+      await waitForPromises();
+
+      expect(destroyNoteMutationSuccess).toHaveBeenCalledWith({
+        update: expect.any(Function),
+        mutation: destroyNoteMutation,
+        variables: {
+          input: {
+            id: noteId,
+          },
+        },
+        optimisticResponse: {
+          destroyNote: {
+            note: null,
+            errors: [],
+            __typename: 'DestroyNotePayload',
+          },
+        },
+      });
+    });
+
+    it('emits `delete-note-error` event if GraphQL mutation fails', async () => {
+      confirmAction.mockResolvedValueOnce(true);
+      const destroyNoteMutationError = jest.fn().mockRejectedValue(new Error('GraphQL error'));
+      createComponent({ apolloConfig: { mutate: destroyNoteMutationError } });
+
+      findDesignNotes().at(0).vm.$emit('delete-note', { id: noteId });
+
+      await waitForPromises();
+
+      expect(destroyNoteMutationError).toHaveBeenCalled();
+
+      await waitForPromises();
+
+      expect(wrapper.emitted()).toEqual({
+        'delete-note-error': [[DELETE_NOTE_ERROR_MSG]],
+      });
+    });
+  });
+
+  it('does not render toggle replies widget if there are no threads', () => {
+    createComponent({
+      props: {
+        discussion: {
+          id: 'gid://gitlab/Discussion/fac4739884a66ebe979480dab8a7cc151f9ab63a',
+          notes: [{ ...notes[0], notes: [] }],
+        },
+      },
+    });
+    expect(findRepliesWidget().exists()).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Guidelines for reusing abstractions
@@ -38,7 +38,7 @@ projects =
   if current_user && params[:authorized_only].presence && !current_user_related?
     current_user.authorized_projects
   elsif group
-    finder_options = { include_subgroups: params[:include_subgroups], only_owned: true }
+    finder_options = { include_subgroups: params[:include_subgroups], exclude_shared: true }
     GroupProjectsFinder.new(group: group, current_user: current_user, options: finder_options).execute
   else
     ProjectsFinder.new(current_user: current_user).execute
@@ -63,7 +63,7 @@ do so, but then we'd need as many options as we have features. Every option adds
 two code paths, which means that for four features we have to cover 8 different
 code paths.
 
-A much more reliable (and pleasant) way of dealing with this, is to simply use
+A much more reliable (and pleasant) way of dealing with this, is to use
 the underlying bits that make up `GroupProjectsFinder` directly. This means we
 may need a little bit more code in `IssuableFinder`, but it also gives us much
 more control and certainty. This means we might end up with something like this:
@@ -96,7 +96,7 @@ This is just a sketch, but it shows the general idea: we would use whatever the
 ## End goal
 
 The guidelines in this document are meant to foster _better_ code reuse, by
-clearly defining what can be reused where, and what to do when you can not reuse
+clearly defining what can be reused where, and what to do when you cannot reuse
 something. Clearly separating abstractions makes it harder to use the wrong one,
 makes it easier to debug the code, and (hopefully) results in fewer performance
 problems.
@@ -109,7 +109,7 @@ the various abstractions and what they can (not) reuse:
 
 | Abstraction            | Service classes  | Finders  | Presenters  | Serializers   | Model instance method   | Model class methods   | Active Record   | Worker
 |:-----------------------|:-----------------|:---------|:------------|:--------------|:------------------------|:----------------------|:----------------|:--------
-| Controller             | Yes              | Yes      | Yes         | Yes           | Yes                     | No                    | No              | No
+| Controller/API endpoint| Yes              | Yes      | Yes         | Yes           | Yes                     | No                    | No              | No
 | Service class          | Yes              | Yes      | No          | No            | Yes                     | No                    | No              | Yes
 | Finder                 | No               | No       | No          | No            | Yes                     | Yes                   | No              | No
 | Presenter              | No               | Yes      | No          | No            | Yes                     | Yes                   | No              | No
@@ -122,30 +122,97 @@ the various abstractions and what they can (not) reuse:
 
 Everything in `app/controllers`.
 
-Controllers should not do much work on their own, instead they simply pass input
+Controllers should not do much work on their own, instead they pass input
 to other classes and present the results.
 
-### Grape endpoint
+### API endpoints
 
-Everything in `lib/api`.
+Everything in `lib/api` (the REST API) and `app/graphql` (the GraphQL API).
+
+API endpoints have the same abstraction level as controllers.
 
 ### Service classes
 
 Everything that resides in `app/services`.
 
-Services should consider inheriting from:
+Service classes represent operations that coordinates changes between models
+(such as entities and value objects). Changes impact the state of the application.
 
-- `BaseContainerService` for services scoped by container (project or group)
-- `BaseProjectService` for services scoped to projects
-- `BaseGroupService` for services scoped to groups
+1. When an object makes no changes to the state of the application, then it's not a service.
+   It may be a [finder](#finders) or a value object.
+1. When there is no operation, there is no need to execute a service. The class would
+   probably be better designed as an entity, a value object, or a policy.
 
-or, create a new base class and update the list above.
+When implementing a service class, consider using the following patterns:
 
-Legacy classes inherited from `BaseService` for historical reasons.
+1. A service class initializer should contain in its arguments:
+   1. A [model](#models) instance that is being acted upon. Should be first positional
+      argument of the initializer. The argument name of the argument is left to the
+      developer's discretion, such as: `issue`, `project`, `merge_request`.
+   1. When service represents an action initiated by a user or executed in the
+      context of a user, the initializer must have the `current_user:` keyword argument.
+      Services with the `current_user:` argument run high-level business logic
+      and must validate user authorization to perform their operations.
+   1. When service does not have a user context and it's not directly initiated
+      by a user (like background service or side-effects), the `current_user:`
+      argument is not needed. This describes low-level domain logic or instance-wide logic.
+   1. For all additional data required by a service, the explicit keyword arguments are recommended.
+      When a service requires too long of a list of arguments, consider splitting them into:
+      - `params`: A hash with model properties that will be assigned directly.
+      - `options`: A hash with extra parameters (which need to be processed,
+        and are not model properties). The `options` hash should be stored in an instance variable.
 
-In Service classes the use of `execute` and `#execute` is preferred over `call` and `#call`.
+      ```ruby
+      # merge_request: A model instance that is being acted upon.
+      # assignee: new MR assignee that will be assigned to the MR
+      #   after the service is executed.
+      def initialize(merge_request, assignee:)
+        @merge_request = merge_request
+        @assignee = assignee
+      end
+      ```
 
-Classes that are not service objects should be [created elsewhere](directory_structure.md#use-namespaces-to-define-bounded-contexts), such as in `lib`.
+      ```ruby
+      # issue: A model instance that is being acted upon.
+      # current_user: Current user.
+      # params: Model properties.
+      # options: Configuration for this service. Can be any of the following:
+      #   - notify: Whether to send a notification to the current user.
+      #   - cc: Email address to copy when sending a notification.
+      def initialize(issue:, current_user:, params: {}, options: {})
+        @issue = issue
+        @current_user = current_user
+        @params = params
+        @options = options
+      end
+      ```
+
+1. The service class should implements a single public instance method `#execute`, which invokes service class behavior:
+   - The `#execute` method takes no arguments. All required data is passed into initializer.
+
+1. If a return value is needed, the `#execute` method should returns its result via [`ServiceResponse`](#serviceresponse) object.
+
+Several base classes implement the service classes convention. You may consider inheriting from:
+
+- `BaseContainerService` for services scoped by container (project or group).
+- `BaseProjectService` for services scoped to projects.
+- `BaseGroupService` for services scoped to groups.
+
+For some domains or [bounded contexts](software_design.md#bounded-contexts), it may make sense for
+service classes to use different patterns. For example, the Remote Development domain uses a
+[layered architecture](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/remote_development/README.md#layered-architecture)
+with domain logic isolated to a separate domain layer following a standard pattern, which allows for a very
+[minimal service layer](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/remote_development/README.md#minimal-service-layer)
+which consists of only a single reusable `CommonService` class. It also uses
+[functional patterns with stateless singleton class methods](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/remote_development/README.md#functional-patterns).
+See the Remote Development [service layer code example](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/remote_development/README.md#service-layer-code-example) for more details.
+However, even though the invocation signature of services via this pattern is different,
+it still respects the standard Service Class contract of always returning all results via a
+[`ServiceResponse`](#serviceresponse) object.
+
+Classes that are not service objects should be
+[created elsewhere](software_design.md#use-namespaces-to-define-bounded-contexts),
+such as in `lib`.
 
 #### ServiceResponse
 
@@ -183,12 +250,41 @@ response = ServiceResponse.success(payload: { issue: issue })
 response.payload[:issue] # => issue
 ```
 
+Error responses can also specify the failure `reason` which can be used by the caller
+to understand the nature of the failure.
+The caller, if an HTTP endpoint, could translate the reason symbol into an HTTP status code:
+
+```ruby
+response = ServiceResponse.error(
+  message: 'Job is in a state that cannot be retried',
+  reason: :job_not_retrieable)
+
+if response.success?
+  head :ok
+elsif response.reason == :job_not_retriable
+  head :unprocessable_entity
+else
+  head :bad_request
+end
+```
+
+For common failures such as resource `:not_found` or operation `:forbidden`, we could
+leverage the Rails [HTTP status symbols](http://www.railsstatuscodes.com/) as long as
+they are sufficiently specific for the domain logic involved.
+For other failures use domain-specific reasons whenever possible.
+
+For example: `:job_not_retriable`, `:duplicate_package`, `:merge_request_not_mergeable`.
+
 ### Finders
 
 Everything in `app/finders`, typically used for retrieving data from a database.
 
-Finders can not reuse other finders in an attempt to better control the SQL
+Finders cannot reuse other finders in an attempt to better control the SQL
 queries they produce.
+
+Finders' `execute` method should return `ActiveRecord::Relation`. Exceptions
+can be added to `spec/support/finder_collection_allowlist.yml`.
+See [`#298771`](https://gitlab.com/gitlab-org/gitlab/-/issues/298771) for more details.
 
 ### Presenters
 
@@ -202,7 +298,27 @@ See [the documentation](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/p
 Everything in `app/serializers`, used for presenting the response to a request,
 typically in JSON.
 
-### Model class methods
+### Models
+
+Classes and modules in `app/models` represent domain concepts that encapsulate both
+[data and behavior](https://en.wikipedia.org/wiki/Domain_model).
+
+These classes can interact directly with a data store (like ActiveRecord models) or
+can be a thin wrapper (Plain Old Ruby Objects) on top of ActiveRecord models to express a
+richer domain concept.
+
+[Entities and Value Objects](https://martinfowler.com/bliki/EvansClassification.html)
+that represent domain concepts are considered domain models.
+
+Some examples:
+
+- [`DesignManagement::DesignAtVersion`](https://gitlab.com/gitlab-org/gitlab/-/blob/b62ce98cff8e0530210670f9cb0314221181b77f/app/models/design_management/design_at_version.rb)
+  is a model that leverages validations to combine designs and versions.
+- [`Ci::Minutes::Usage`](https://gitlab.com/gitlab-org/gitlab/-/blob/ec52f19f7325410177c00fef06379f55ab7cab67/ee/app/models/ci/minutes/usage.rb)
+  is a Value Object that provides [compute usage](../ci/pipelines/compute_minutes.md)
+  for a given namespace.
+
+#### Model class methods
 
 These are class methods defined by _GitLab itself_, including the following
 methods provided by Active Record:
@@ -216,7 +332,7 @@ methods provided by Active Record:
 Any other methods such as `find_by(some_column: X)` are not included, and
 instead fall under the "Active Record" abstraction.
 
-### Model instance methods
+#### Model instance methods
 
 Instance methods defined on Active Record models by _GitLab itself_. Methods
 provided by Active Record are not included, except for the following methods:
@@ -226,7 +342,7 @@ provided by Active Record are not included, except for the following methods:
 - `destroy`
 - `delete`
 
-### Active Record
+#### Active Record
 
 The API provided by Active Record itself, such as the `where` method, `save`,
 `delete_all`, and so on.

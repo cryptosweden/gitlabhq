@@ -1,81 +1,47 @@
 # frozen_string_literal: true
 
 class Projects::HooksController < Projects::ApplicationController
-  include ::Integrations::HooksExecution
+  include ::WebHooks::HookActions
 
   # Authorize
-  before_action :authorize_admin_project!
-  before_action :hook_logs, only: :edit
-  before_action -> { check_rate_limit!(:project_testing_hook, scope: [@project, current_user]) }, only: :test
+  before_action :authorize_read_hook!, only: [:index, :show]
+  before_action :authorize_admin_hook!, except: [:index, :show]
+  before_action -> { check_rate_limit!(:web_hook_test, scope: [@project, current_user]) }, only: :test
 
   respond_to :html
 
   layout "project_settings"
 
-  feature_category :integrations
   urgency :low, [:test]
 
-  def index
-    @hooks = @project.hooks.load
-    @hook = ProjectHook.new
-  end
-
-  def create
-    @hook = @project.hooks.new(hook_params)
-    @hook.save
-
-    unless @hook.valid?
-      @hooks = @project.hooks.select(&:persisted?)
-      flash[:alert] = @hook.errors.full_messages.join.html_safe
-    end
-
-    redirect_to action: :index
-  end
-
-  def edit
-    redirect_to(action: :index) unless hook
-  end
-
-  def update
-    if hook.update(hook_params)
-      flash[:notice] = _('Hook was successfully updated.')
-      redirect_to action: :index
-    else
-      render 'edit'
-    end
-  end
-
   def test
-    result = TestHooks::ProjectService.new(hook, current_user, params[:trigger]).execute
+    trigger = params.fetch(:trigger, ::ProjectHook.triggers.each_value.first.to_s)
+    result = TestHooks::ProjectService.new(hook, current_user, trigger).execute
 
     set_hook_execution_notice(result)
 
     redirect_back_or_default(default: { action: :index })
   end
 
-  def destroy
-    destroy_hook(hook)
-
-    redirect_to action: :index, status: :found
-  end
-
   private
+
+  def relation
+    @project.hooks
+  end
 
   def hook
     @hook ||= @project.hooks.find(params[:id])
   end
 
-  def hook_logs
-    @hook_logs ||= hook.web_hook_logs.recent.page(params[:page])
+  def trigger_values
+    ProjectHook.triggers.values
   end
 
-  def hook_params
-    params.require(:hook).permit(
-      :enable_ssl_verification,
-      :token,
-      :url,
-      :push_events_branch_filter,
-      *ProjectHook.triggers.values
-    )
+  def authorize_admin_hook!
+    render_404 unless can?(current_user, :admin_web_hook, project)
+  end
+
+  def authorize_read_hook!
+    render_404 unless can?(current_user, :read_web_hook, project)
   end
 end

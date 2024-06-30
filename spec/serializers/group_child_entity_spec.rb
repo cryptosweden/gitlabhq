@@ -43,8 +43,7 @@ RSpec.describe GroupChildEntity do
 
   describe 'for a project' do
     let(:object) do
-      create(:project, :with_avatar,
-             description: 'Awesomeness')
+      create(:project, :with_avatar, description: 'Awesomeness')
     end
 
     before do
@@ -73,8 +72,7 @@ RSpec.describe GroupChildEntity do
   describe 'for a group' do
     let(:description) { 'Awesomeness' }
     let(:object) do
-      create(:group, :nested, :with_avatar,
-             description: description)
+      create(:group, :nested, :with_avatar, description: description)
     end
 
     before do
@@ -146,13 +144,13 @@ RSpec.describe GroupChildEntity do
       end
 
       it 'includes the counts' do
-        expect(json.keys).to include(*%i(project_count subgroup_count))
+        expect(json.keys).to include(*%i[project_count subgroup_count])
       end
     end
 
     describe 'user is not a member of the group' do
       it 'does not include the counts' do
-        expect(json.keys).not_to include(*%i(project_count subgroup_count))
+        expect(json.keys).not_to include(*%i[project_count subgroup_count])
       end
     end
 
@@ -164,15 +162,14 @@ RSpec.describe GroupChildEntity do
       end
 
       it 'does not include the counts' do
-        expect(json.keys).not_to include(*%i(project_count subgroup_count))
+        expect(json.keys).not_to include(*%i[project_count subgroup_count])
       end
     end
   end
 
   describe 'for a project with external authorization enabled' do
     let(:object) do
-      create(:project, :with_avatar,
-             description: 'Awesomeness')
+      create(:project, :with_avatar, description: 'Awesomeness')
     end
 
     before do

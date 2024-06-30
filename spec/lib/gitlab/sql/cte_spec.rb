@@ -3,25 +3,37 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::SQL::CTE do
-  describe '#to_arel' do
+  shared_examples '#to_arel' do
     it 'generates an Arel relation for the CTE body' do
-      relation = User.where(id: 1)
       cte = described_class.new(:cte_name, relation)
       sql = cte.to_arel.to_sql
       name = ApplicationRecord.connection.quote_table_name(:cte_name)
 
       sql1 = ApplicationRecord.connection.unprepared_statement do
-        relation.except(:order).to_sql
+        relation.is_a?(String) ? relation : relation.to_sql
       end
 
       expected = [
         "#{name} AS ",
-        Gitlab::Database::AsWithMaterialized.materialized_if_supported,
-        (' ' unless Gitlab::Database::AsWithMaterialized.materialized_if_supported.blank?),
+        'MATERIALIZED ',
         "(#{sql1})"
       ].join
 
       expect(sql).to eq(expected)
+    end
+  end
+
+  describe '#to_arel' do
+    context 'when relation is an ActiveRecord::Relation' do
+      let(:relation) { User.where(id: 1) }
+
+      include_examples '#to_arel'
+    end
+
+    context 'when relation is a String' do
+      let(:relation) { User.where(id: 1).to_sql }
+
+      include_examples '#to_arel'
     end
   end
 

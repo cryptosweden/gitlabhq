@@ -24,12 +24,13 @@ module API
           file_content_encoding: attrs[:encoding],
           author_email: attrs[:author_email],
           author_name: attrs[:author_name],
-          last_commit_sha: attrs[:last_commit_id]
+          last_commit_sha: attrs[:last_commit_id],
+          execute_filemode: attrs[:execute_filemode]
         }
       end
 
       def assign_file_vars!
-        authorize! :download_code, user_project
+        authorize_read_code!
 
         @commit = user_project.commit(params[:ref])
         not_found!('Commit') unless @commit
@@ -48,11 +49,34 @@ module API
       end
 
       def content_sha
-        Rails.cache.fetch("blob_content_sha256:#{user_project.full_path}:#{@blob.id}") do
+        cache_client.fetch(
+          "blob_content_sha256:#{user_project.full_path}:#{@blob.id}",
+          nil,
+          {
+            cache_identifier: 'API::Files#content_sha',
+            backing_resource: :gitaly
+          }
+        ) do
           @blob.load_all_data!
 
           Digest::SHA256.hexdigest(@blob.data)
         end
+      end
+
+      def cache_client
+        @cache_client ||= Gitlab::Cache::Client.new(
+          Gitlab::Cache::Metrics.new(Gitlab::Cache::Metadata.new(feature_category: :source_code_management))
+        )
+      end
+
+      def fetch_blame_range(blame_params)
+        return if blame_params[:range].blank?
+
+        range = Range.new(blame_params[:range][:start], blame_params[:range][:end])
+
+        render_api_error!('range[start] must be less than or equal to range[end]', 400) if range.begin > range.end
+
+        range
       end
 
       def blob_data
@@ -65,37 +89,50 @@ module API
           ref: params[:ref],
           blob_id: @blob.id,
           commit_id: @commit.id,
-          last_commit_id: @repo.last_commit_id_for_path(@commit.sha, params[:file_path], literal_pathspec: true)
+          last_commit_id: @repo.last_commit_id_for_path(@commit.sha, params[:file_path], literal_pathspec: true),
+          execute_filemode: @blob.executable?
         }
       end
 
       params :simple_file_params do
-        requires :file_path, type: String, file_path: true, desc: 'The url encoded path to the file. Ex. lib%2Fclass%2Erb'
-        requires :branch, type: String, desc: 'Name of the branch to commit into. To create a new branch, also provide `start_branch`.', allow_blank: false
-        requires :commit_message, type: String, allow_blank: false, desc: 'Commit message'
-        optional :start_branch, type: String, desc: 'Name of the branch to start the new commit from'
-        optional :author_email, type: String, desc: 'The email of the author'
-        optional :author_name, type: String, desc: 'The name of the author'
+        requires :file_path, type: String, file_path: true,
+          desc: 'The url encoded path to the file.', documentation: { example: 'lib%2Fclass%2Erb' }
+        requires :branch, type: String,
+          desc: 'Name of the branch to commit into. To create a new branch, also provide `start_branch`.', allow_blank: false,
+          documentation: { example: 'main' }
+        requires :commit_message, type: String,
+          allow_blank: false, desc: 'Commit message', documentation: { example: 'Initial commit' }
+        optional :start_branch, type: String,
+          desc: 'Name of the branch to start the new commit from', documentation: { example: 'main' }
+        optional :author_email, type: String,
+          desc: 'The email of the author', documentation: { example: 'johndoe@example.com' }
+        optional :author_name, type: String,
+          desc: 'The name of the author', documentation: { example: 'John Doe' }
       end
 
       params :extended_file_params do
         use :simple_file_params
-        requires :content, type: String, desc: 'File content'
-        optional :encoding, type: String, values: %w[base64], desc: 'File encoding'
-        optional :last_commit_id, type: String, desc: 'Last known commit id for this file'
+        requires :content, type: String, desc: 'File content', documentation: { example: 'file content' }
+        optional :encoding, type: String, values: %w[base64 text], default: 'text', desc: 'File encoding'
+        optional :last_commit_id, type: String,
+          desc: 'Last known commit id for this file',
+          documentation: { example: '2695effb5807a22ff3d138d593fd856244e155e7' }
+        optional :execute_filemode, type: Boolean, desc: 'Enable / Disable the executable flag on the file path'
       end
     end
 
     params do
-      requires :id, type: String, desc: 'The project ID'
+      requires :id, type: String, desc: 'The project ID', documentation: { example: 'gitlab-org/gitlab' }
     end
     resource :projects, requirements: FILE_ENDPOINT_REQUIREMENTS do
-      allow_access_with_scope :read_repository, if: -> (request) { request.get? || request.head? }
+      allow_access_with_scope :read_repository, if: ->(request) { request.get? || request.head? }
 
       desc 'Get blame file metadata from repository'
       params do
-        requires :file_path, type: String, file_path: true, desc: 'The url encoded path to the file. Ex. lib%2Fclass%2Erb'
-        requires :ref, type: String, desc: 'The name of branch, tag or commit', allow_blank: false
+        requires :file_path, type: String, file_path: true,
+          desc: 'The url encoded path to the file.', documentation: { example: 'lib%2Fclass%2Erb' }
+        requires :ref, type: String,
+          desc: 'The name of branch, tag or commit', allow_blank: false, documentation: { example: 'main' }
       end
       head ":id/repository/files/:file_path/blame", requirements: FILE_ENDPOINT_REQUIREMENTS do
         assign_file_vars!
@@ -105,47 +142,62 @@ module API
 
       desc 'Get blame file from the repository'
       params do
-        requires :file_path, type: String, file_path: true, desc: 'The url encoded path to the file. Ex. lib%2Fclass%2Erb'
-        requires :ref, type: String, desc: 'The name of branch, tag or commit', allow_blank: false
+        requires :file_path, type: String, file_path: true,
+          desc: 'The url encoded path to the file.', documentation: { example: 'lib%2Fclass%2Erb' }
+        requires :ref, type: String,
+          desc: 'The name of branch, tag or commit', allow_blank: false, documentation: { example: 'main' }
+        optional :range, type: Hash do
+          requires :start, type: Integer,
+            desc: 'The first line of the range to blame', allow_blank: false, values: ->(v) { v > 0 }
+          requires :end, type: Integer,
+            desc: 'The last line of the range to blame', allow_blank: false, values: ->(v) { v > 0 }
+        end
       end
       get ":id/repository/files/:file_path/blame", requirements: FILE_ENDPOINT_REQUIREMENTS do
+        blame_params = declared_params(include_missing: false)
+
         assign_file_vars!
 
         set_http_headers(blob_data)
 
-        blame_ranges = Gitlab::Blame.new(@blob, @commit).groups(highlight: false)
+        blame_ranges = Gitlab::Blame.new(@blob, @commit, range: fetch_blame_range(blame_params)).groups(highlight: false)
         present blame_ranges, with: Entities::BlameRange
       end
 
-      desc 'Get raw file metadata from repository'
-      params do
-        requires :file_path, type: String, file_path: true, desc: 'The url encoded path to the file. Ex. lib%2Fclass%2Erb'
-        optional :ref, type: String, desc: 'The name of branch, tag or commit', allow_blank: false
+      desc 'Get raw file contents from the repository' do
+        success File
       end
-      head ":id/repository/files/:file_path/raw", requirements: FILE_ENDPOINT_REQUIREMENTS, urgency: :low do
-        assign_file_vars!
-
-        set_http_headers(blob_data)
-      end
-
-      desc 'Get raw file contents from the repository'
       params do
-        requires :file_path, type: String, file_path: true, desc: 'The url encoded path to the file. Ex. lib%2Fclass%2Erb'
-        optional :ref, type: String, desc: 'The name of branch, tag or commit', allow_blank: false
+        requires :file_path, type: String, file_path: true,
+          desc: 'The url encoded path to the file.', documentation: { example: 'lib%2Fclass%2Erb' }
+        optional :ref, type: String,
+          desc: 'The name of branch, tag or commit', allow_blank: false, documentation: { example: 'main' }
+        optional :lfs, type: Boolean,
+          desc: 'Retrieve binary data for a file that is an lfs pointer',
+          default: false
       end
       get ":id/repository/files/:file_path/raw", requirements: FILE_ENDPOINT_REQUIREMENTS, urgency: :low do
         assign_file_vars!
 
-        no_cache_headers
-        set_http_headers(blob_data)
+        if params[:lfs] && @blob.stored_externally?
+          lfs_object = LfsObject.find_by_oid(@blob.lfs_oid)
+          not_found! unless lfs_object&.project_allowed_access?(@project)
 
-        send_git_blob @repo, @blob
+          present_carrierwave_file!(lfs_object.file)
+        else
+          no_cache_headers
+          set_http_headers(blob_data)
+
+          send_git_blob @repo, @blob
+        end
       end
 
       desc 'Get file metadata from repository'
       params do
-        requires :file_path, type: String, file_path: true, desc: 'The url encoded path to the file. Ex. lib%2Fclass%2Erb'
-        requires :ref, type: String, desc: 'The name of branch, tag or commit', allow_blank: false
+        requires :file_path, type: String, file_path: true,
+          desc: 'The url encoded path to the file.', documentation: { example: 'lib%2Fclass%2Erb' }
+        requires :ref, type: String,
+          desc: 'The name of branch, tag or commit', allow_blank: false, documentation: { example: 'main' }
       end
       head ":id/repository/files/:file_path", requirements: FILE_ENDPOINT_REQUIREMENTS, urgency: :low do
         assign_file_vars!
@@ -155,8 +207,10 @@ module API
 
       desc 'Get a file from the repository'
       params do
-        requires :file_path, type: String, file_path: true, desc: 'The url encoded path to the file. Ex. lib%2Fclass%2Erb'
-        requires :ref, type: String, desc: 'The name of branch, tag or commit', allow_blank: false
+        requires :file_path, type: String, file_path: true,
+          desc: 'The url encoded path to the file.', documentation: { example: 'lib%2Fclass%2Erb' }
+        requires :ref, type: String,
+          desc: 'The name of branch, tag or commit', allow_blank: false, documentation: { example: 'main' }
       end
       get ":id/repository/files/:file_path", requirements: FILE_ENDPOINT_REQUIREMENTS do
         assign_file_vars!

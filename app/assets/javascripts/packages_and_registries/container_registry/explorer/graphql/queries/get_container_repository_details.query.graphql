@@ -1,13 +1,11 @@
-query getContainerRepositoryDetails($id: ID!) {
+query getContainerRepositoryDetails($id: ContainerRepositoryID!) {
   containerRepository(id: $id) {
     id
     name
     path
     status
     location
-    canDelete
     createdAt
-    updatedAt
     expirationPolicyStartedAt
     expirationPolicyCleanupStatus
     project {
@@ -18,6 +16,9 @@ query getContainerRepositoryDetails($id: ID!) {
         enabled
         nextRunAt
       }
+    }
+    userPermissions {
+      destroyContainerRepository
     }
   }
 }

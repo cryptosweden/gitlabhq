@@ -1,17 +1,23 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Sorting and ordering issue lists **(FREE)**
+# Sorting and ordering issue lists
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 You can sort a list of issues several ways.
 The available sorting options can change based on the context of the list.
 
-## Sorting by blocking issues **(PREMIUM)**
+## Sorting by blocking issues
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/34247/) in GitLab 13.7.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 When you sort by **Blocking**, the issue list changes to sort descending by the
 number of issues each issue is [blocking](related_issues.md#blocking-issues).
@@ -45,8 +51,6 @@ update. Issues changed the most recently are shown first.
 
 ## Manual sorting
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/62178) in GitLab 12.2.
-
 When you sort by **Manual** order, you can change
 the order by dragging and dropping the issues. The changed order persists, and
 everyone who visits the same list sees the updated issue order, with some exceptions.
@@ -73,8 +77,12 @@ then issues with a milestone without a due date.
 ## Sorting by popularity
 
 When you sort by **Popularity**, the issue order changes to sort descending by the
-number of upvotes ([awarded](../../award_emojis.md) a "thumbs up" emoji)
+number of upvotes ([emoji reactions](../../emoji_reactions.md) with the "thumbs up")
 on each issue. You can use this to identify issues that are in high demand.
+
+The total number of votes is not summed up. An issue with 18 upvotes and 5
+downvotes is considered more popular than an issue with 17 upvotes and no
+downvotes.
 
 ## Sorting by priority
 
@@ -91,8 +99,6 @@ To learn how to change label priority, see [Label priority](../labels.md#set-lab
 
 ## Sorting by title
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/67234) in GitLab 14.3.
-
 When you sort by **Title**, the issue order changes to sort alphabetically by the issue
 title in this order:
 
@@ -100,6 +106,23 @@ title in this order:
 - Special characters
 - Numbers
 - Letters: first Latin, then accented (for example, `ö`)
+
+## Sorting by health status
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/377841) in GitLab 15.7.
+
+When you sort by **Health**, the issue list changes to sort by the
+[health status](managing_issues.md#health-status) of the issues
+When in descending order, the issues are shown in the following order:
+
+1. **At risk** issues
+1. **Needs attention** issues
+1. **On track** issues
+1. All other issues
 
 ## Sorting by weight
 

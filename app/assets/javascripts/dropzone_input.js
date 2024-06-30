@@ -6,6 +6,7 @@ import { spriteIcon } from '~/lib/utils/common_utils';
 import { getFilename } from '~/lib/utils/file_upload';
 import { truncate } from '~/lib/utils/text_utility';
 import { n__, __ } from '~/locale';
+import { getRetinaDimensions } from '~/lib/utils/image_utils';
 import PasteMarkdownTable from './behaviors/markdown/paste_markdown_table';
 import axios from './lib/utils/axios_utils';
 import csrf from './lib/utils/csrf';
@@ -28,7 +29,6 @@ function getErrorMessage(res) {
 export default function dropzoneInput(form, config = { parallelUploads: 2 }) {
   const divHover = '<div class="div-dropzone-hover"></div>';
   const iconPaperclip = spriteIcon('paperclip', 'div-dropzone-icon s24');
-  const $attachButton = form.find('.button-attach-file');
   const $attachingFileMessage = form.find('.attaching-file-message');
   const $cancelButton = form.find('.button-cancel-uploading-files');
   const $retryLink = form.find('.retry-uploading-link');
@@ -47,7 +47,6 @@ export default function dropzoneInput(form, config = { parallelUploads: 2 }) {
   let hasPlainText;
 
   formTextarea.wrap('<div class="div-dropzone"></div>');
-  formTextarea.on('paste', (event) => handlePaste(event));
 
   // Add dropzone area to the form.
   const $mdArea = formTextarea.closest('.md-area');
@@ -61,10 +60,12 @@ export default function dropzoneInput(form, config = { parallelUploads: 2 }) {
     return null;
   }
 
+  formTextarea.on('paste', (event) => handlePaste(event));
+
   const dropzone = $formDropzone.dropzone({
     url: uploadsPath,
     dictDefaultMessage: '',
-    clickable: true,
+    clickable: form.get(0).querySelector('[data-button-type="attach-file"]') ?? true,
     paramName: 'file',
     maxFilesize: maxFileSize,
     uploadMultiple: false,
@@ -88,10 +89,8 @@ export default function dropzoneInput(form, config = { parallelUploads: 2 }) {
       const processingFileCount = this.getQueuedFiles().length + this.getUploadingFiles().length;
       const shouldPad = processingFileCount >= 1;
 
+      addFileToForm(response.link.url, header.size);
       pasteText(response.link.markdown, shouldPad);
-      // Show 'Attach a file' link only when all files have been uploaded.
-      if (!processingFileCount) $attachButton.removeClass('hide');
-      addFileToForm(response.link.url);
     },
     error: (file, errorMessage = __('Attaching the file failed.'), xhr) => {
       // If 'error' event is fired by dropzone, the second parameter is error message.
@@ -104,7 +103,6 @@ export default function dropzoneInput(form, config = { parallelUploads: 2 }) {
 
       $uploadingErrorContainer.removeClass('hide');
       $uploadingErrorMessage.html(message);
-      $attachButton.addClass('hide');
       $cancelButton.addClass('hide');
     },
     totaluploadprogress(totalUploadProgress) {
@@ -115,13 +113,11 @@ export default function dropzoneInput(form, config = { parallelUploads: 2 }) {
       // DOM elements already exist.
       // Instead of dynamically generating them,
       // we just either hide or show them.
-      $attachButton.addClass('hide');
       $uploadingErrorContainer.addClass('hide');
       $uploadingProgressContainer.removeClass('hide');
       $cancelButton.removeClass('hide');
     },
     removedfile: () => {
-      $attachButton.removeClass('hide');
       $cancelButton.addClass('hide');
       $uploadingProgressContainer.addClass('hide');
       $uploadingErrorContainer.addClass('hide');
@@ -261,8 +257,14 @@ export default function dropzoneInput(form, config = { parallelUploads: 2 }) {
 
     axios
       .post(uploadsPath, formData)
-      .then(({ data }) => {
-        const md = data.link.markdown;
+      .then(async ({ data }) => {
+        let md = data.link.markdown;
+
+        const { width, height } = (await getRetinaDimensions(item)) || {};
+        if (width && height) {
+          // eslint-disable-next-line @gitlab/require-i18n-strings
+          md += `{width=${width} height=${height}}`;
+        }
 
         insertToTextArea(filename, md);
         closeSpinner();
@@ -282,11 +284,18 @@ export default function dropzoneInput(form, config = { parallelUploads: 2 }) {
     messageContainer.text(`${attachingMessage} -`);
   };
 
-  form.find('.markdown-selector').click(function onMarkdownClick(e) {
+  function handleAttachFile(e) {
     e.preventDefault();
     $(this).closest('.gfm-form').find('.div-dropzone').click();
     formTextarea.focus();
-  });
+  }
+
+  form.find('.markdown-selector').click(handleAttachFile);
+
+  const $attachFileButton = form.find('.js-attach-file-button');
+  if ($attachFileButton.length) {
+    $attachFileButton.get(0).addEventListener('click', handleAttachFile);
+  }
 
   return $formDropzone.get(0) ? Dropzone.forElement($formDropzone.get(0)) : null;
 }

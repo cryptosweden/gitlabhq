@@ -3,7 +3,7 @@
 # These shared examples expect a `snippets` array of snippets
 RSpec.shared_examples 'paginated snippets' do |remote: false|
   it "is limited to #{Snippet.default_per_page} items per page" do
-    expect(page.all('.snippets-list-holder .snippet-row').count).to eq(Snippet.default_per_page)
+    expect(page.all('[data-testid="snippet-link"]').count).to eq(Snippet.default_per_page)
   end
 
   context 'clicking on the link to the second page' do
@@ -14,7 +14,7 @@ RSpec.shared_examples 'paginated snippets' do |remote: false|
 
     it 'shows the remaining snippets' do
       remaining_snippets_count = [snippets.size - Snippet.default_per_page, Snippet.default_per_page].min
-      expect(page).to have_selector('.snippets-list-holder .snippet-row', count: remaining_snippets_count)
+      expect(page).to have_css('[data-testid="snippet-link"]', count: remaining_snippets_count)
     end
   end
 end
@@ -52,30 +52,27 @@ RSpec.shared_examples 'tabs with counts' do
 end
 
 RSpec.shared_examples 'does not show New Snippet button' do
-  let(:user) { create(:user, :external) }
-
   specify do
-    sign_in(user)
-
-    subject
-
-    wait_for_requests
-
+    expect(page).to have_link(text: "$#{snippet.id}")
     expect(page).not_to have_link('New snippet')
   end
 end
 
-RSpec.shared_examples 'show and render proper snippet blob' do
-  before do
-    allow_any_instance_of(Snippet).to receive(:blobs).and_return([snippet.repository.blob_at('master', file_path)])
-  end
+RSpec.shared_examples 'does show New Snippet button' do
+  specify do
+    find_by_testid('snippets-more-actions-dropdown-toggle').click
 
+    expect(page).to have_link(text: "$#{snippet.id}")
+    expect(page).to have_selector('[data-testid="snippets-more-actions-dropdown"]')
+    expect(page).to have_link('New snippet')
+  end
+end
+
+RSpec.shared_examples 'show and render proper snippet blob' do
   context 'Ruby file' do
     let(:file_path) { 'files/ruby/popen.rb' }
 
     it 'displays the blob' do
-      subject
-
       aggregate_failures do
         # shows highlighted Ruby code
         expect(page).to have_content("require 'fileutils'")
@@ -99,10 +96,6 @@ RSpec.shared_examples 'show and render proper snippet blob' do
     let(:file_path) { 'files/markdown/ruby-style-guide.md' }
 
     context 'visiting directly' do
-      before do
-        subject
-      end
-
       it 'displays the blob using the rich viewer' do
         aggregate_failures do
           # hides the simple viewer
@@ -171,8 +164,6 @@ RSpec.shared_examples 'show and render proper snippet blob' do
       let(:anchor) { 'LC1' }
 
       it 'displays the blob using the simple viewer' do
-        subject
-
         aggregate_failures do
           # hides the rich viewer
           expect(page).to have_selector('.blob-viewer[data-type="simple"]')
@@ -194,7 +185,7 @@ end
 RSpec.shared_examples 'personal snippet with references' do
   let_it_be(:project)         { create(:project, :repository) }
   let_it_be(:merge_request)   { create(:merge_request, source_project: project) }
-  let_it_be(:project_snippet) { create(:project_snippet, :repository, project: project)}
+  let_it_be(:project_snippet) { create(:project_snippet, :repository, project: project) }
   let_it_be(:issue)           { create(:issue, project: project) }
   let_it_be(:commit)          { project.commit }
 

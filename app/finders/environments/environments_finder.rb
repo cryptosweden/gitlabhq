@@ -14,6 +14,7 @@ module Environments
 
     def execute
       environments = project.environments
+      environments = by_type(environments)
       environments = by_name(environments)
       environments = by_search(environments)
       environments = by_ids(environments)
@@ -23,6 +24,12 @@ module Environments
     end
 
     private
+
+    def by_type(environments)
+      return environments unless params[:type].present?
+
+      environments.for_type(params[:type])
+    end
 
     def by_name(environments)
       if params[:name].present?
@@ -34,7 +41,13 @@ module Environments
 
     def by_search(environments)
       if params[:search].present?
-        environments.for_name_like(params[:search], limit: nil)
+        if Feature.enabled?(:enable_environments_search_within_folder, project)
+          Environment.from_union(
+            environments.for_name_like(params[:search], limit: nil),
+            environments.for_name_like_within_folder(params[:search], limit: nil))
+        else
+          environments.for_name_like(params[:search], limit: nil)
+        end
       else
         environments
       end
@@ -50,7 +63,7 @@ module Environments
 
     def by_ids(environments)
       if params[:environment_ids].present?
-        environments.for_id(params[:environment_ids])
+        environments.id_in(params[:environment_ids])
       else
         environments
       end

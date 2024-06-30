@@ -9,35 +9,40 @@ class PagesDomain < ApplicationRecord
   VERIFICATION_THRESHOLD = 3.days.freeze
   SSL_RENEWAL_THRESHOLD = 30.days.freeze
 
+  MAX_CERTIFICATE_KEY_LENGTH = 8192
+
+  X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN = 19
+
   enum certificate_source: { user_provided: 0, gitlab_provided: 1 }, _prefix: :certificate
-  enum scope: { instance: 0, group: 1, project: 2 }, _prefix: :scope
-  enum usage: { pages: 0, serverless: 1 }, _prefix: :usage
+  enum scope: { instance: 0, group: 1, project: 2 }, _prefix: :scope, _default: :project
+  enum usage: { pages: 0, serverless: 1 }, _prefix: :usage, _default: :pages
 
   belongs_to :project
   has_many :acme_orders, class_name: "PagesDomainAcmeOrder"
-  has_many :serverless_domain_clusters, class_name: 'Serverless::DomainCluster', inverse_of: :pages_domain
 
+  after_initialize :set_verification_code
   before_validation :clear_auto_ssl_failure, unless: :auto_ssl_enabled
 
   validates :domain, hostname: { allow_numeric_hostname: true }
   validates :domain, uniqueness: { case_sensitive: false }
   validates :certificate, :key, presence: true, if: :usage_serverless?
   validates :certificate, presence: { message: 'must be present if HTTPS-only is enabled' },
-            if: :certificate_should_be_present?
+    if: :certificate_should_be_present?
   validates :certificate, certificate: true, if: ->(domain) { domain.certificate.present? }
   validates :key, presence: { message: 'must be present if HTTPS-only is enabled' },
-            if: :certificate_should_be_present?
+    if: :certificate_should_be_present?
   validates :key, certificate_key: true, named_ecdsa_key: true, if: ->(domain) { domain.key.present? }
   validates :verification_code, presence: true, allow_blank: false
 
   validate :validate_pages_domain
+  validate :max_certificate_key_length, if: ->(domain) { domain.key.present? }
   validate :validate_matching_key, if: ->(domain) { domain.certificate.present? || domain.key.present? }
-  validate :validate_intermediates, if: ->(domain) { domain.certificate.present? && domain.certificate_changed? }
+  # validate_intermediates must run after key validations to skip expensive SSL validation when there is a key error
+  validate :validate_intermediates, if: ->(domain) { domain.certificate.present? && domain.certificate_changed? && errors[:key].blank? }
+  validate :validate_custom_domain_count_per_project, on: :create
 
-  default_value_for(:auto_ssl_enabled, allows_nil: false) { ::Gitlab::LetsEncrypt.enabled? }
-  default_value_for :scope, allows_nil: false, value: :project
-  default_value_for :wildcard, allows_nil: false, value: false
-  default_value_for :usage, allows_nil: false, value: :pages
+  attribute :auto_ssl_enabled, default: -> { ::Gitlab::LetsEncrypt.enabled? }
+  attribute :wildcard, default: false
 
   attr_encrypted :key,
     mode: :per_attribute_iv_and_salt,
@@ -45,11 +50,9 @@ class PagesDomain < ApplicationRecord
     key: Settings.attr_encrypted_db_key_base,
     algorithm: 'aes-256-cbc'
 
-  after_initialize :set_verification_code
-
   scope :for_project, ->(project) { where(project: project) }
 
-  scope :enabled, -> { where('enabled_until >= ?', Time.current ) }
+  scope :enabled, -> { where('enabled_until >= ?', Time.current) }
   scope :needs_verification, -> do
     verified_at = arel_table[:verified_at]
     enabled_until = arel_table[:enabled_until]
@@ -57,6 +60,7 @@ class PagesDomain < ApplicationRecord
 
     where(verified_at.eq(nil).or(enabled_until.eq(nil).or(enabled_until.lt(threshold))))
   end
+  scope :verified, -> { where.not(verified_at: nil) }
 
   scope :need_auto_ssl_renewal, -> do
     enabled_and_not_failed = where(auto_ssl_enabled: true, auto_ssl_failed: false)
@@ -77,6 +81,10 @@ class PagesDomain < ApplicationRecord
 
   def self.find_by_domain_case_insensitive(domain)
     find_by("LOWER(domain) = LOWER(?)", domain)
+  end
+
+  def self.ids_for_project(project_id)
+    where(project_id: project_id).ids
   end
 
   def verified?
@@ -117,14 +125,22 @@ class PagesDomain < ApplicationRecord
     x509.check_private_key(pkey)
   end
 
-  def has_intermediates?
+  def has_valid_intermediates?
     return false unless x509
 
-    # self-signed certificates doesn't have the certificate chain
+    # self-signed certificates don't have the certificate chain
     return true if x509.verify(x509.public_key)
 
     store = OpenSSL::X509::Store.new
     store.set_default_paths
+
+    store.verify_callback = ->(is_valid, store_ctx) {
+      # allow self signed certs, see https://gitlab.com/gitlab-org/gitlab/-/issues/356447
+      return true if store_ctx.error == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN
+
+      self.errors.add(:certificate, store_ctx.error_string) unless is_valid
+      is_valid
+    }
 
     store.verify(x509, untrusted_ca_certs_bundle)
   rescue OpenSSL::X509::StoreError
@@ -170,6 +186,10 @@ class PagesDomain < ApplicationRecord
     "#{VERIFICATION_KEY}=#{verification_code}"
   end
 
+  def verification_record
+    "#{verification_domain} TXT #{keyed_verification_code}"
+  end
+
   def certificate=(certificate)
     super(certificate)
 
@@ -206,22 +226,34 @@ class PagesDomain < ApplicationRecord
     self.certificate_source = 'gitlab_provided' if attribute_changed?(:key)
   end
 
-  def pages_virtual_domain
-    return unless pages_deployed?
-
-    Pages::VirtualDomain.new([project], domain: self)
-  end
-
   def clear_auto_ssl_failure
     self.auto_ssl_failed = false
   end
 
-  private
+  def validate_custom_domain_count_per_project
+    return unless project
+
+    unless project.can_create_custom_domains?
+      self.errors.add(
+        :base,
+        _("This project reached the limit of custom domains. (Max %d)") % Gitlab::CurrentSettings.max_pages_custom_domains_per_project)
+    end
+  end
 
   def pages_deployed?
-    return false unless project
+    project&.pages_deployed?
+  end
 
-    project.pages_metadatum&.deployed?
+  private
+
+  def max_certificate_key_length
+    return unless pkey.is_a?(OpenSSL::PKey::RSA)
+    return if pkey.to_s.bytesize <= MAX_CERTIFICATE_KEY_LENGTH
+
+    errors.add(
+      :key,
+      s_("PagesDomain|Certificate Key is too long. (Max %d bytes)") % MAX_CERTIFICATE_KEY_LENGTH
+    )
   end
 
   def set_verification_code
@@ -237,16 +269,15 @@ class PagesDomain < ApplicationRecord
   end
 
   def validate_intermediates
-    unless has_intermediates?
-      self.errors.add(:certificate, 'misses intermediates')
-    end
+    self.errors.add(:certificate, 'misses intermediates') unless has_valid_intermediates?
   end
 
   def validate_pages_domain
     return unless domain
 
-    if domain.downcase.ends_with?(".#{Settings.pages.host.downcase}") || domain.casecmp(Settings.pages.host) == 0
-      self.errors.add(:domain, "#{Settings.pages.host} and its subdomains cannot be used as custom pages domains. Please compare our documentation at https://docs.gitlab.com/ee/administration/pages/#advanced-configuration against your configuration.")
+    if domain.downcase.ends_with?(".#{Settings.pages.host.downcase}")
+      error_template = _("Subdomains of the Pages root domain %{root_domain} are reserved and cannot be used as custom Pages domains.")
+      self.errors.add(:domain, error_template % { root_domain: Settings.pages.host })
     end
   end
 

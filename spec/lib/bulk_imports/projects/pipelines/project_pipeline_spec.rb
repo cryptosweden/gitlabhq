@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Projects::Pipelines::ProjectPipeline do
-  describe '#run' do
+RSpec.describe BulkImports::Projects::Pipelines::ProjectPipeline, feature_category: :importers do
+  describe '#run', :clean_gitlab_redis_shared_state do
     let_it_be(:user) { create(:user) }
     let_it_be(:group) { create(:group) }
     let_it_be(:bulk_import) { create(:bulk_import, user: user) }
@@ -14,7 +14,7 @@ RSpec.describe BulkImports::Projects::Pipelines::ProjectPipeline do
         source_type: :project_entity,
         bulk_import: bulk_import,
         source_full_path: 'source/full/path',
-        destination_name: 'My Destination Project',
+        destination_slug: 'My-Destination-Project',
         destination_namespace: group.full_path
       )
     end
@@ -25,18 +25,7 @@ RSpec.describe BulkImports::Projects::Pipelines::ProjectPipeline do
     let(:project_data) do
       {
         'visibility' => 'private',
-        'created_at' => 10.days.ago,
-        'archived' => false,
-        'shared_runners_enabled' => true,
-        'container_registry_enabled' => true,
-        'only_allow_merge_if_pipeline_succeeds' => true,
-        'only_allow_merge_if_all_discussions_are_resolved' => true,
-        'request_access_enabled' => true,
-        'printing_merge_request_link_enabled' => true,
-        'remove_source_branch_after_merge' => true,
-        'autoclose_referenced_issues' => true,
-        'suggestion_commit_message' => 'message',
-        'wiki_enabled' => true
+        'created_at' => '2016-08-12T09:41:03'
       }
     end
 
@@ -46,6 +35,8 @@ RSpec.describe BulkImports::Projects::Pipelines::ProjectPipeline do
       allow_next_instance_of(BulkImports::Common::Extractors::GraphqlExtractor) do |extractor|
         allow(extractor).to receive(:extract).and_return(BulkImports::Pipeline::ExtractedData.new(data: project_data))
       end
+
+      allow(project_pipeline).to receive(:set_source_objects_counter)
 
       group.add_owner(user)
     end
@@ -58,17 +49,13 @@ RSpec.describe BulkImports::Projects::Pipelines::ProjectPipeline do
 
       expect(imported_project).not_to be_nil
       expect(imported_project.group).to eq(group)
-      expect(imported_project.suggestion_commit_message).to eq('message')
-      expect(imported_project.archived?).to eq(project_data['archived'])
-      expect(imported_project.shared_runners_enabled?).to eq(project_data['shared_runners_enabled'])
-      expect(imported_project.container_registry_enabled?).to eq(project_data['container_registry_enabled'])
-      expect(imported_project.only_allow_merge_if_pipeline_succeeds?).to eq(project_data['only_allow_merge_if_pipeline_succeeds'])
-      expect(imported_project.only_allow_merge_if_all_discussions_are_resolved?).to eq(project_data['only_allow_merge_if_all_discussions_are_resolved'])
-      expect(imported_project.request_access_enabled?).to eq(project_data['request_access_enabled'])
-      expect(imported_project.printing_merge_request_link_enabled?).to eq(project_data['printing_merge_request_link_enabled'])
-      expect(imported_project.remove_source_branch_after_merge?).to eq(project_data['remove_source_branch_after_merge'])
-      expect(imported_project.autoclose_referenced_issues?).to eq(project_data['autoclose_referenced_issues'])
-      expect(imported_project.wiki_enabled?).to eq(project_data['wiki_enabled'])
+      expect(imported_project.visibility).to eq(project_data['visibility'])
+      expect(imported_project.created_at).to eq(project_data['created_at'])
+    end
+
+    it 'skips duplicate projects on pipeline re-run' do
+      expect { project_pipeline.run }.to change { Project.count }.by(1)
+      expect { project_pipeline.run }.not_to change { Project.count }
     end
   end
 

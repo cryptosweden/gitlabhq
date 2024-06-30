@@ -26,7 +26,7 @@ module ReactiveCaching
     class_attribute :reactive_cache_worker_finder
 
     # defaults
-    self.reactive_cache_key = -> (record) { [model_name.singular, record.id] }
+    self.reactive_cache_key = ->(record) { [model_name.singular, record.id] }
     self.reactive_cache_lease_timeout = 2.minutes
     self.reactive_cache_refresh_interval = 1.minute
     self.reactive_cache_lifetime = 10.minutes
@@ -122,8 +122,8 @@ module ReactiveCaching
       worker_class.perform_async(self.class, id, *args)
     end
 
-    def keep_alive_reactive_cache!(*args)
-      Rails.cache.write(alive_reactive_cache_key(*args), true, expires_in: self.class.reactive_cache_lifetime)
+    def keep_alive_reactive_cache!(...)
+      Rails.cache.write(alive_reactive_cache_key(...), true, expires_in: self.class.reactive_cache_lifetime)
     end
 
     def full_reactive_cache_key(*qualifiers)
@@ -145,8 +145,8 @@ module ReactiveCaching
       Gitlab::ExclusiveLease.cancel(full_reactive_cache_key(*args), uuid)
     end
 
-    def within_reactive_cache_lifetime?(*args)
-      Rails.cache.exist?(alive_reactive_cache_key(*args))
+    def within_reactive_cache_lifetime?(...)
+      Rails.cache.exist?(alive_reactive_cache_key(...))
     end
 
     def enqueuing_update(*args)

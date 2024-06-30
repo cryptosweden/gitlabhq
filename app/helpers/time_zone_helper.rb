@@ -18,7 +18,7 @@ module TimeZoneHelper
   #
   def timezone_data(format: :short)
     attrs = TIME_ZONE_FORMAT_ATTRS.fetch(format) do
-      valid_formats = TIME_ZONE_FORMAT_ATTRS.keys.map { |k| ":#{k}"}.join(", ")
+      valid_formats = TIME_ZONE_FORMAT_ATTRS.keys.map { |k| ":#{k}" }.join(", ")
       raise ArgumentError, "Invalid format :#{format}. Valid formats are #{valid_formats}."
     end
 
@@ -31,6 +31,19 @@ module TimeZoneHelper
         formatted_offset: timezone.now.formatted_offset
       }.slice(*attrs)
     end
+  end
+
+  # The identifiers in `timezone_data` are not unique. Some cities (e.g. London and Edinburgh) have
+  # the same `identifier` value (e.g. "Europe/London").
+  # This method merges such entries into one, joining the city names.
+  # This unique list is better suited for selectboxes etc.
+  def timezone_data_with_unique_identifiers(format: :short)
+    timezone_data(format: format)
+      .group_by { |entry| entry[:identifier] }
+      .map do |_identifier, entries|
+        names = entries.map { |entry| entry[:name] }.sort.join(', ') # rubocop:disable Rails/Pluck -- Not a ActiveRecord object
+        entries.first.merge({ name: names })
+      end
   end
 
   def local_timezone_instance(timezone)

@@ -2,7 +2,7 @@
 
 RSpec.shared_examples 'store ActiveRecord info in RequestStore' do |db_role|
   let(:db_config_name) do
-    db_config_name = ::Gitlab::Database.db_config_names.first
+    db_config_name = ::Gitlab::Database.db_config_names(with_schema: :gitlab_shared).first
     db_config_name += "_replica" if db_role == :secondary
     db_config_name
   end
@@ -34,10 +34,11 @@ RSpec.shared_examples 'store ActiveRecord info in RequestStore' do |db_role|
 
   it 'prevents db counters from leaking to the next transaction' do
     2.times do
-      Gitlab::WithRequestStore.with_request_store do
+      Gitlab::SafeRequestStore.ensure_request_store do
         subscriber.sql(event)
 
-        expected = if db_role == :primary
+        expected = case db_role
+                   when :primary
                      transform_hash(expected_payload_defaults, {
                        db_count: record_query ? 1 : 0,
                        db_write_count: record_write_query ? 1 : 0,
@@ -53,7 +54,7 @@ RSpec.shared_examples 'store ActiveRecord info in RequestStore' do |db_role|
                        db_primary_wal_cached_count: record_wal_query && record_cached_query ? 1 : 0,
                        "db_#{db_config_name}_wal_cached_count": record_wal_query && record_cached_query ? 1 : 0
                      })
-                   elsif db_role == :replica
+                   when :replica
                      transform_hash(expected_payload_defaults, {
                        db_count: record_query ? 1 : 0,
                        db_write_count: record_write_query ? 1 : 0,
@@ -95,7 +96,7 @@ end
 
 RSpec.shared_examples 'record ActiveRecord metrics in a metrics transaction' do |db_role|
   let(:db_config_name) do
-    db_config_name = ::Gitlab::Database.db_config_names.first
+    db_config_name = ::Gitlab::Database.db_config_names(with_schema: :gitlab_shared).first
     db_config_name += "_replica" if db_role == :secondary
     db_config_name
   end
@@ -128,8 +129,8 @@ RSpec.shared_examples 'record ActiveRecord metrics in a metrics transaction' do 
         expect(transaction).to receive(:increment).with("gitlab_transaction_db_#{db_role}_wal_count_total".to_sym, 1, { db_config_name: db_config_name })
         expect(transaction).to receive(:increment).with("gitlab_transaction_db_#{db_role}_wal_cached_count_total".to_sym, 1, { db_config_name: db_config_name }) if record_cached_query
       end
-    else
-      expect(transaction).not_to receive(:increment).with("gitlab_transaction_db_#{db_role}_wal_count_total".to_sym, 1, { db_config_name: db_config_name }) if db_role
+    elsif db_role
+      expect(transaction).not_to receive(:increment).with("gitlab_transaction_db_#{db_role}_wal_count_total".to_sym, 1, { db_config_name: db_config_name })
     end
 
     subscriber.sql(event)

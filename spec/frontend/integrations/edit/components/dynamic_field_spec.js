@@ -1,24 +1,36 @@
 import { GlFormGroup, GlFormCheckbox, GlFormInput, GlFormSelect, GlFormTextarea } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 
+import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
+import Vuex from 'vuex';
+
 import DynamicField from '~/integrations/edit/components/dynamic_field.vue';
 import { mockField } from '../mock_data';
 
+Vue.use(Vuex);
+
 describe('DynamicField', () => {
   let wrapper;
+  let store;
 
-  const createComponent = (props, isInheriting = false) => {
-    wrapper = mount(DynamicField, {
-      propsData: { ...mockField, ...props },
-      computed: {
+  const createComponent = (props, isInheriting = false, editable = true) => {
+    store = new Vuex.Store({
+      getters: {
         isInheriting: () => isInheriting,
+        propsSource: () => {
+          return {
+            editable,
+          };
+        },
       },
     });
-  };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
+    wrapper = mount(DynamicField, {
+      propsData: { ...mockField, ...props },
+      store,
+    });
+  };
 
   const findGlFormGroup = () => wrapper.findComponent(GlFormGroup);
   const findGlFormCheckbox = () => wrapper.findComponent(GlFormCheckbox);
@@ -28,12 +40,14 @@ describe('DynamicField', () => {
 
   describe('template', () => {
     describe.each`
-      isInheriting | disabled      | readonly      | checkboxLabel
-      ${true}      | ${'disabled'} | ${'readonly'} | ${undefined}
-      ${false}     | ${undefined}  | ${undefined}  | ${'Custom checkbox label'}
+      isInheriting | editable | disabled      | readonly | checkboxLabel
+      ${true}      | ${true}  | ${'disabled'} | ${true}  | ${undefined}
+      ${false}     | ${true}  | ${undefined}  | ${false} | ${'Custom checkbox label'}
+      ${true}      | ${false} | ${'disabled'} | ${true}  | ${undefined}
+      ${false}     | ${false} | ${'disabled'} | ${false} | ${'Custom checkbox label'}
     `(
-      'dynamic field, when isInheriting = `%p`',
-      ({ isInheriting, disabled, readonly, checkboxLabel }) => {
+      'dynamic field, when isInheriting = `$isInheriting` and editable = `$editable`',
+      ({ isInheriting, editable, disabled, readonly, checkboxLabel }) => {
         describe('type is checkbox', () => {
           beforeEach(() => {
             createComponent(
@@ -42,6 +56,7 @@ describe('DynamicField', () => {
                 checkboxLabel,
               },
               isInheriting,
+              editable,
             );
           });
 
@@ -74,6 +89,7 @@ describe('DynamicField', () => {
                 ],
               },
               isInheriting,
+              editable,
             );
           });
 
@@ -97,12 +113,13 @@ describe('DynamicField', () => {
                 type: 'textarea',
               },
               isInheriting,
+              editable,
             );
           });
 
           it(`renders GlFormTextarea, which ${isInheriting ? 'is' : 'is not'} readonly`, () => {
             expect(findGlFormTextarea().exists()).toBe(true);
-            expect(findGlFormTextarea().find('textarea').attributes('readonly')).toBe(readonly);
+            expect('readonly' in findGlFormTextarea().find('textarea').attributes()).toBe(readonly);
           });
 
           it('does not render other types of input', () => {
@@ -119,13 +136,14 @@ describe('DynamicField', () => {
                 type: 'password',
               },
               isInheriting,
+              editable,
             );
           });
 
           it(`renders GlFormInput, which ${isInheriting ? 'is' : 'is not'} readonly`, () => {
             expect(findGlFormInput().exists()).toBe(true);
             expect(findGlFormInput().attributes('type')).toBe('password');
-            expect(findGlFormInput().attributes('readonly')).toBe(readonly);
+            expect('readonly' in findGlFormInput().attributes()).toBe(readonly);
           });
 
           it('does not render other types of input', () => {
@@ -143,6 +161,7 @@ describe('DynamicField', () => {
                 required: true,
               },
               isInheriting,
+              editable,
             );
           });
 
@@ -150,12 +169,12 @@ describe('DynamicField', () => {
             expect(findGlFormInput().exists()).toBe(true);
             expect(findGlFormInput().attributes()).toMatchObject({
               type: 'text',
-              id: 'service_project_url',
+              id: 'service-project_url',
               name: 'service[project_url]',
               placeholder: mockField.placeholder,
-              required: 'required',
+              required: expect.any(String),
             });
-            expect(findGlFormInput().attributes('readonly')).toBe(readonly);
+            expect('readonly' in findGlFormInput().attributes()).toBe(readonly);
           });
 
           it('does not render other types of input', () => {
@@ -195,6 +214,16 @@ describe('DynamicField', () => {
         expect(findGlFormGroup().find('small').html()).toContain(helpHTML);
       });
 
+      it('applies custom classes to the form group field', () => {
+        const fieldClass = 'class1 class2';
+
+        createComponent({
+          fieldClass,
+        });
+
+        expect(findGlFormGroup().attributes('class')).toContain(fieldClass);
+      });
+
       it('strips unsafe HTML from the help text', () => {
         const helpHTML =
           '[<code>1</code> <iframe>2</iframe> <a href="javascript:alert(document.cookie)">3</a> <a href="foo" target="_blank">4</a>]';
@@ -204,9 +233,18 @@ describe('DynamicField', () => {
         });
 
         expect(findGlFormGroup().find('small').html()).toContain(
-          '[<code>1</code>  <a>3</a> <a target="_blank" href="foo">4</a>]',
+          '[<code>1</code>  <a>3</a> <a href="foo" target="_blank" rel="noopener noreferrer">4</a>',
         );
       });
+    });
+
+    it('emits update event when model is changed', async () => {
+      createComponent();
+      findGlFormInput().vm.$emit('input', 'example');
+
+      await nextTick();
+
+      expect(wrapper.emitted('update')).toEqual([['example']]);
     });
 
     describe('label text', () => {
@@ -214,6 +252,16 @@ describe('DynamicField', () => {
         createComponent();
 
         expect(findGlFormGroup().find('label').text()).toBe(mockField.title);
+      });
+    });
+
+    describe('with label description', () => {
+      it('renders label description', () => {
+        createComponent({
+          labelDescription: 'This is a description',
+        });
+
+        expect(findGlFormGroup().props('labelDescription')).toBe('This is a description');
       });
     });
 

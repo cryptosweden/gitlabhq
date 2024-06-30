@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'getting user information' do
+RSpec.describe 'getting user information', feature_category: :user_management do
   include GraphqlHelpers
 
   let(:query) do
@@ -24,53 +24,44 @@ RSpec.describe 'getting user information' do
   context 'looking up a user by username' do
     let_it_be(:project_a) { create(:project, :repository) }
     let_it_be(:project_b) { create(:project, :repository) }
-    let_it_be(:user, reload: true) { create(:user, developer_projects: [project_a, project_b]) }
-    let_it_be(:authorised_user) { create(:user, developer_projects: [project_a, project_b]) }
+    let_it_be(:user, reload: true) { create(:user, developer_of: [project_a, project_b]) }
+    let_it_be(:authorised_user) { create(:user, developer_of: [project_a, project_b]) }
     let_it_be(:unauthorized_user) { create(:user) }
 
     let_it_be(:assigned_mr) do
-      create(:merge_request, :unique_branches, :unique_author,
-             source_project: project_a, assignees: [user])
+      create(:merge_request, :unique_branches, :unique_author, source_project: project_a, assignees: [user])
     end
 
     let_it_be(:assigned_mr_b) do
-      create(:merge_request, :unique_branches, :unique_author,
-             source_project: project_b, assignees: [user])
+      create(:merge_request, :unique_branches, :unique_author, source_project: project_b, assignees: [user])
     end
 
     let_it_be(:assigned_mr_c) do
-      create(:merge_request, :unique_branches, :unique_author,
-             source_project: project_b, assignees: [user])
+      create(:merge_request, :unique_branches, :unique_author, source_project: project_b, assignees: [user])
     end
 
     let_it_be(:authored_mr) do
-      create(:merge_request, :unique_branches,
-             source_project: project_a, author: user)
+      create(:merge_request, :unique_branches, source_project: project_a, author: user)
     end
 
     let_it_be(:authored_mr_b) do
-      create(:merge_request, :unique_branches,
-             source_project: project_b, author: user)
+      create(:merge_request, :unique_branches, source_project: project_b, author: user)
     end
 
     let_it_be(:authored_mr_c) do
-      create(:merge_request, :unique_branches,
-             source_project: project_b, author: user)
+      create(:merge_request, :unique_branches, source_project: project_b, author: user)
     end
 
     let_it_be(:reviewed_mr) do
-      create(:merge_request, :unique_branches, :unique_author,
-             source_project: project_a, reviewers: [user])
+      create(:merge_request, :unique_branches, :unique_author, source_project: project_a, reviewers: [user])
     end
 
     let_it_be(:reviewed_mr_b) do
-      create(:merge_request, :unique_branches, :unique_author,
-             source_project: project_b, reviewers: [user])
+      create(:merge_request, :unique_branches, :unique_author, source_project: project_b, reviewers: [user])
     end
 
     let_it_be(:reviewed_mr_c) do
-      create(:merge_request, :unique_branches, :unique_author,
-             source_project: project_b, reviewers: [user])
+      create(:merge_request, :unique_branches, :unique_author, source_project: project_b, reviewers: [user])
     end
 
     let(:current_user) { authorised_user }
@@ -91,11 +82,11 @@ RSpec.describe 'getting user information' do
         presenter = UserPresenter.new(user)
 
         expect(graphql_data['user']).to match(
-          a_hash_including(
-            'id' => global_id_of(user),
+          a_graphql_entity_for(
+            user,
+            :username,
             'state' => presenter.state,
             'name' => presenter.name,
-            'username' => presenter.username,
             'webUrl' => presenter.web_url,
             'avatarUrl' => presenter.avatar_url,
             'email' => presenter.public_email,
@@ -121,9 +112,9 @@ RSpec.describe 'getting user information' do
 
         it 'can be found' do
           expect(assigned_mrs).to contain_exactly(
-            a_hash_including('id' => global_id_of(assigned_mr)),
-            a_hash_including('id' => global_id_of(assigned_mr_b)),
-            a_hash_including('id' => global_id_of(assigned_mr_c))
+            a_graphql_entity_for(assigned_mr),
+            a_graphql_entity_for(assigned_mr_b),
+            a_graphql_entity_for(assigned_mr_c)
           )
         end
 
@@ -145,7 +136,7 @@ RSpec.describe 'getting user information' do
 
             it 'selects the correct MRs' do
               expect(assigned_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(assigned_mr_b))
+                a_graphql_entity_for(assigned_mr_b)
               )
             end
           end
@@ -157,8 +148,8 @@ RSpec.describe 'getting user information' do
 
             it 'selects the correct MRs' do
               expect(assigned_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(assigned_mr_b)),
-                a_hash_including('id' => global_id_of(assigned_mr_c))
+                a_graphql_entity_for(assigned_mr_b),
+                a_graphql_entity_for(assigned_mr_c)
               )
             end
           end
@@ -169,7 +160,7 @@ RSpec.describe 'getting user information' do
 
             it 'finds the authored mrs' do
               expect(assigned_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(assigned_mr_b))
+                a_graphql_entity_for(assigned_mr_b)
               )
             end
           end
@@ -185,8 +176,8 @@ RSpec.describe 'getting user information' do
               post_graphql(query, current_user: current_user)
 
               expect(assigned_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(assigned_mr_b)),
-                a_hash_including('id' => global_id_of(assigned_mr_c))
+                a_graphql_entity_for(assigned_mr_b),
+                a_graphql_entity_for(assigned_mr_c)
               )
             end
           end
@@ -212,9 +203,9 @@ RSpec.describe 'getting user information' do
 
         it 'can be found' do
           expect(reviewed_mrs).to contain_exactly(
-            a_hash_including('id' => global_id_of(reviewed_mr)),
-            a_hash_including('id' => global_id_of(reviewed_mr_b)),
-            a_hash_including('id' => global_id_of(reviewed_mr_c))
+            a_graphql_entity_for(reviewed_mr),
+            a_graphql_entity_for(reviewed_mr_b),
+            a_graphql_entity_for(reviewed_mr_c)
           )
         end
 
@@ -236,7 +227,7 @@ RSpec.describe 'getting user information' do
 
             it 'selects the correct MRs' do
               expect(reviewed_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(reviewed_mr_b))
+                a_graphql_entity_for(reviewed_mr_b)
               )
             end
           end
@@ -248,8 +239,8 @@ RSpec.describe 'getting user information' do
 
             it 'selects the correct MRs' do
               expect(reviewed_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(reviewed_mr_b)),
-                a_hash_including('id' => global_id_of(reviewed_mr_c))
+                a_graphql_entity_for(reviewed_mr_b),
+                a_graphql_entity_for(reviewed_mr_c)
               )
             end
           end
@@ -260,7 +251,7 @@ RSpec.describe 'getting user information' do
 
             it 'finds the authored mrs' do
               expect(reviewed_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(reviewed_mr_b))
+                a_graphql_entity_for(reviewed_mr_b)
               )
             end
           end
@@ -275,7 +266,7 @@ RSpec.describe 'getting user information' do
               post_graphql(query, current_user: current_user)
 
               expect(reviewed_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(reviewed_mr_c))
+                a_graphql_entity_for(reviewed_mr_c)
               )
             end
           end
@@ -301,9 +292,9 @@ RSpec.describe 'getting user information' do
 
         it 'can be found' do
           expect(authored_mrs).to contain_exactly(
-            a_hash_including('id' => global_id_of(authored_mr)),
-            a_hash_including('id' => global_id_of(authored_mr_b)),
-            a_hash_including('id' => global_id_of(authored_mr_c))
+            a_graphql_entity_for(authored_mr),
+            a_graphql_entity_for(authored_mr_b),
+            a_graphql_entity_for(authored_mr_c)
           )
         end
 
@@ -329,8 +320,8 @@ RSpec.describe 'getting user information' do
               post_graphql(query, current_user: current_user)
 
               expect(authored_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(authored_mr)),
-                a_hash_including('id' => global_id_of(authored_mr_c))
+                a_graphql_entity_for(authored_mr),
+                a_graphql_entity_for(authored_mr_c)
               )
             end
           end
@@ -346,8 +337,8 @@ RSpec.describe 'getting user information' do
               post_graphql(query, current_user: current_user)
 
               expect(authored_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(authored_mr_b)),
-                a_hash_including('id' => global_id_of(authored_mr_c))
+                a_graphql_entity_for(authored_mr_b),
+                a_graphql_entity_for(authored_mr_c)
               )
             end
           end
@@ -359,7 +350,7 @@ RSpec.describe 'getting user information' do
 
             it 'selects the correct MRs' do
               expect(authored_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(authored_mr_b))
+                a_graphql_entity_for(authored_mr_b)
               )
             end
           end
@@ -371,8 +362,8 @@ RSpec.describe 'getting user information' do
 
             it 'selects the correct MRs' do
               expect(authored_mrs).to contain_exactly(
-                a_hash_including('id' => global_id_of(authored_mr_b)),
-                a_hash_including('id' => global_id_of(authored_mr_c))
+                a_graphql_entity_for(authored_mr_b),
+                a_graphql_entity_for(authored_mr_c)
               )
             end
           end
@@ -417,7 +408,7 @@ RSpec.describe 'getting user information' do
 
           it 'can be found' do
             expect(group_memberships).to include(
-              a_hash_including('id' => global_id_of(membership_a))
+              a_graphql_entity_for(membership_a)
             )
           end
         end
@@ -440,7 +431,7 @@ RSpec.describe 'getting user information' do
 
           it 'can be found' do
             expect(project_memberships).to include(
-              a_hash_including('id' => global_id_of(membership_a))
+              a_graphql_entity_for(membership_a)
             )
           end
         end
@@ -460,7 +451,7 @@ RSpec.describe 'getting user information' do
 
           it 'can be found' do
             expect(authored_mrs).to include(
-              a_hash_including('id' => global_id_of(authored_mr))
+              a_graphql_entity_for(authored_mr)
             )
           end
         end
@@ -480,9 +471,9 @@ RSpec.describe 'getting user information' do
 
           it 'can be found' do
             expect(assigned_mrs).to contain_exactly(
-              a_hash_including('id' => global_id_of(assigned_mr)),
-              a_hash_including('id' => global_id_of(assigned_mr_b)),
-              a_hash_including('id' => global_id_of(assigned_mr_c))
+              a_graphql_entity_for(assigned_mr),
+              a_graphql_entity_for(assigned_mr_b),
+              a_graphql_entity_for(assigned_mr_c)
             )
           end
         end
@@ -501,6 +492,53 @@ RSpec.describe 'getting user information' do
 
         it_behaves_like 'a working graphql query'
       end
+    end
+  end
+
+  context 'authored merge requests' do
+    let_it_be(:current_user) { create(:user) }
+    let_it_be(:group) { create(:group) }
+    let_it_be(:subgroup) { create(:group, parent: group) }
+    let_it_be(:project) { create(:project, :public, group: group) }
+    let_it_be(:merge_request1) do
+      create(:merge_request, source_project: project, source_branch: '1', author: current_user)
+    end
+
+    let_it_be(:merge_request2) do
+      create(:merge_request, source_project: project, source_branch: '2', author: current_user)
+    end
+
+    let_it_be(:merge_request_different_user) do
+      create(:merge_request, source_project: project, source_branch: '3', author: create(:user))
+    end
+
+    let_it_be(:merge_request_different_group) do
+      create(:merge_request, source_project: create(:project, :public), author: current_user)
+    end
+
+    let_it_be(:merge_request_subgroup) do
+      create(:merge_request, source_project: create(:project, :public, group: subgroup), author: current_user)
+    end
+
+    let(:query) do
+      %(
+        query {
+          currentUser {
+            authoredMergeRequests(groupId: "#{group.to_global_id}") {
+              nodes {
+                id
+              }
+            }
+          }
+        }
+      )
+    end
+
+    it 'returns merge requests for the current user for the specified group' do
+      post_graphql(query, current_user: current_user)
+
+      expect(graphql_data_at(:current_user, :authored_merge_requests, :nodes).pluck('id')).to contain_exactly(
+        merge_request1.to_global_id.to_s, merge_request2.to_global_id.to_s, merge_request_subgroup.to_global_id.to_s)
     end
   end
 end

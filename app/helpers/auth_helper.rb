@@ -1,26 +1,25 @@
 # frozen_string_literal: true
 
 module AuthHelper
-  PROVIDERS_WITH_ICONS = %w(
+  PROVIDERS_WITH_ICONS = %w[
+    alicloud
     atlassian_oauth2
     auth0
-    authentiq
     azure_activedirectory_v2
     azure_oauth2
     bitbucket
-    facebook
-    dingtalk
     github
     gitlab
     google_oauth2
     jwt
     openid_connect
-    salesforce
     shibboleth
     twitter
-  ).freeze
-  LDAP_PROVIDER = /\Aldap/.freeze
-  POPULAR_PROVIDERS = %w(google_oauth2 github).freeze
+  ].freeze
+  LDAP_PROVIDER = /\Aldap/
+  POPULAR_PROVIDERS = %w[google_oauth2 github].freeze
+
+  delegate :slack_app_id, to: :'Gitlab::CurrentSettings.current_application_settings'
 
   def ldap_enabled?
     Gitlab::Auth::Ldap::Config.enabled?
@@ -46,9 +45,12 @@ module AuthHelper
     provider_has_builtin_icon?(name) || provider_has_custom_icon?(name)
   end
 
-  def qa_class_for_provider(provider)
+  def test_id_for_provider(provider)
     {
-      saml: 'qa-saml-login-button'
+      saml: 'saml-login-button',
+      openid_connect: 'oidc-login-button',
+      github: 'github-login-button',
+      gitlab: 'gitlab-oauth-login-button'
     }[provider.to_sym]
   end
 
@@ -65,15 +67,13 @@ module AuthHelper
   end
 
   def form_based_provider_priority
-    ['crowd', /^ldap/, 'kerberos']
+    ['crowd', /^ldap/]
   end
 
   def form_based_provider_with_highest_priority
-    @form_based_provider_with_highest_priority ||= begin
-      form_based_provider_priority.each do |provider_regexp|
-        highest_priority = form_based_providers.find { |provider| provider.match?(provider_regexp) }
-        break highest_priority unless highest_priority.nil?
-      end
+    @form_based_provider_with_highest_priority ||= form_based_provider_priority.each do |provider_regexp|
+      highest_priority = form_based_providers.find { |provider| provider.match?(provider_regexp) }
+      break highest_priority unless highest_priority.nil?
     end
   end
 
@@ -90,14 +90,11 @@ module AuthHelper
   end
 
   def saml_providers
-    auth_providers.select { |provider| auth_strategy_class(provider) == 'OmniAuth::Strategies::SAML' }
-  end
+    providers = Gitlab.config.omniauth.providers.select do |provider|
+      provider.name == 'saml' || provider.dig('args', 'strategy_class') == 'OmniAuth::Strategies::SAML'
+    end
 
-  def auth_strategy_class(provider)
-    config = Gitlab::Auth::OAuth::Provider.config_for(provider)
-    return if config.nil? || config['args'].blank?
-
-    config.args['strategy_class']
+    providers.map(&:name).map(&:to_sym)
   end
 
   def any_form_based_providers_enabled?
@@ -177,35 +174,15 @@ module AuthHelper
     current_user.allow_password_authentication_for_web? && !current_user.password_automatically_set?
   end
 
-  def google_tag_manager_enabled?
-    return false unless Gitlab.com?
-
-    if Feature.enabled?(:gtm_nonce, type: :ops)
-      extra_config.has_key?('google_tag_manager_nonce_id') &&
-         extra_config.google_tag_manager_nonce_id.present?
-    else
-      extra_config.has_key?('google_tag_manager_id') &&
-         extra_config.google_tag_manager_id.present?
-    end
-  end
-
-  def google_tag_manager_id
-    return unless google_tag_manager_enabled?
-
-    return extra_config.google_tag_manager_nonce_id if Feature.enabled?(:gtm_nonce, type: :ops)
-
-    extra_config.google_tag_manager_id
-  end
-
   def auth_app_owner_text(owner)
-    return unless owner
+    return _('An administrator added this OAuth application ') unless owner
 
     if owner.is_a?(Group)
       group_link = link_to(owner.name, group_path(owner))
-      _("This application was created for group %{group_link}.").html_safe % { group_link: group_link }
+      _("%{group_link} added this OAuth application ").html_safe % { group_link: group_link }
     else
       user_link = link_to(owner.name, user_path(owner))
-      _("This application was created by %{user_link}.").html_safe % { user_link: user_link }
+      _("%{user_link} added this OAuth application ").html_safe % { user_link: user_link }
     end
   end
 

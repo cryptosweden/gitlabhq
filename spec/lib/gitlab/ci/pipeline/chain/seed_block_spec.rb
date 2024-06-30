@@ -4,8 +4,8 @@ require 'spec_helper'
 
 RSpec.describe Gitlab::Ci::Pipeline::Chain::SeedBlock do
   let(:project) { create(:project, :repository) }
-  let(:user) { create(:user, developer_projects: [project]) }
-  let(:seeds_block) { }
+  let(:user) { create(:user, developer_of: project) }
+  let(:seeds_block) {}
 
   let(:command) do
     Gitlab::Ci::Pipeline::Chain::Command.new(

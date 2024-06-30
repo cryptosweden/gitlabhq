@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'getting dependency proxy manifests in a group' do
+RSpec.describe 'getting dependency proxy manifests in a group', feature_category: :virtual_registry do
   using RSpec::Parameterized::TableSyntax
   include GraphqlHelpers
 
@@ -73,7 +73,7 @@ RSpec.describe 'getting dependency proxy manifests in a group' do
     with_them do
       before do
         group.update_column(:visibility_level, Gitlab::VisibilityLevel.const_get(group_visibility.to_s.upcase, false))
-        group.add_user(user, role) unless role == :anonymous
+        group.add_member(user, role) unless role == :anonymous
       end
 
       it 'return the proper response' do
@@ -122,19 +122,20 @@ RSpec.describe 'getting dependency proxy manifests in a group' do
     let(:current_user) { owner }
 
     context 'with default sorting' do
-      let_it_be(:descending_manifests) { manifests.reverse.map { |manifest| global_id_of(manifest)} }
+      let_it_be(:descending_manifests) { manifests.reverse.map { |manifest| global_id_of(manifest) } }
 
       it_behaves_like 'sorted paginated query' do
-        let(:sort_param) { '' }
+        include_context 'no sort argument'
+
         let(:first_param) { 2 }
-        let(:all_records) { descending_manifests }
+        let(:all_records) { descending_manifests.map(&:to_s) }
       end
     end
 
     def pagination_query(params)
       # remove sort since the type does not accept sorting, but be future proof
       graphql_query_for('group', { 'fullPath' => group.full_path },
-        query_nodes(:dependencyProxyManifests, :id, include_pagination_info: true, args: params.merge(sort: nil))
+        query_nodes(:dependencyProxyManifests, :id, include_pagination_info: true, args: params)
       )
     end
   end

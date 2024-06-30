@@ -14,12 +14,14 @@ module Gitlab
         #
         # mapping - Write multiple cache values at once
         def write_multiple(mapping)
-          Redis::Cache.with do |redis|
-            redis.multi do |multi|
-              mapping.each do |raw_key, value|
-                key = cache_key_for(raw_key)
+          with_redis do |redis|
+            Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
+              redis.pipelined do |pipelined|
+                mapping.each do |raw_key, value|
+                  key = cache_key_for(raw_key)
 
-                multi.set(key, gzip_compress(value.to_json), ex: EXPIRATION)
+                  pipelined.set(key, gzip_compress(value.to_json), ex: EXPIRATION)
+                end
               end
             end
           end
@@ -37,16 +39,22 @@ module Gitlab
           keys = raw_keys.map { |id| cache_key_for(id) }
 
           content =
-            Redis::Cache.with do |redis|
+            with_redis do |redis|
               Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
-                redis.mget(keys)
+                if Gitlab::Redis::ClusterUtil.cluster?(redis)
+                  redis.pipelined do |pipeline|
+                    keys.each { |key| pipeline.get(key) }
+                  end
+                else
+                  redis.mget(keys)
+                end
               end
             end
 
           content.map! do |lines|
             next unless lines
 
-            Gitlab::Json.parse(gzip_decompress(lines)).map! do |line|
+            Gitlab::Json.parse(gzip_decompress(lines.force_encoding(Encoding::UTF_8))).map! do |line|
               Gitlab::Diff::Line.safe_init_from_hash(line)
             end
           end
@@ -62,9 +70,13 @@ module Gitlab
 
           keys = raw_keys.map { |id| cache_key_for(id) }
 
-          Redis::Cache.with do |redis|
+          with_redis do |redis|
             Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
-              redis.del(keys)
+              if Gitlab::Redis::ClusterUtil.cluster?(redis)
+                Gitlab::Redis::ClusterUtil.batch_unlink(keys, redis)
+              else
+                redis.del(keys)
+              end
             end
           end
         end
@@ -77,6 +89,10 @@ module Gitlab
 
         def cache_key_prefix
           "#{Redis::Cache::CACHE_NAMESPACE}:#{VERSION}:discussion-highlight"
+        end
+
+        def with_redis(&block)
+          Redis::Cache.with(&block) # rubocop:disable CodeReuse/ActiveRecord
         end
       end
     end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
+RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state, feature_category: :source_code_management do
   include RepoHelpers
   include ProjectForksHelper
 
@@ -29,6 +29,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
         before: oldrev,
         after: newrev,
         ref: ref,
+        ref_protected: project.protected_for?(ref),
         user_id: user.id,
         user_name: user.name,
         project_id: project.id
@@ -121,7 +122,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
         let!(:commit_author) { create(:user, email: sample_commit.author_email) }
 
         let(:tracking_params) do
-          ['o_pipeline_authoring_unique_users_committing_ciconfigfile', values: commit_author.id]
+          ['o_pipeline_authoring_unique_users_committing_ciconfigfile', { values: commit_author.id }]
         end
 
         it 'tracks the event' do
@@ -132,27 +133,14 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
           expect(Gitlab::UsageDataCounters::HLLRedisCounter.unique_events(event_names: 'o_pipeline_authoring_unique_users_committing_ciconfigfile', start_date: time, end_date: time + 7.days)).to eq(1)
         end
 
-        context 'when usage ping is disabled' do
-          before do
-            allow(::ServicePing::ServicePingSettings).to receive(:enabled?).and_return(false)
-          end
-
-          it 'does not track the event' do
-            execute_service
-
-            expect(Gitlab::UsageDataCounters::HLLRedisCounter)
-              .not_to receive(:track_event).with(*tracking_params)
-          end
-        end
-
         context 'when the branch is not the main branch' do
           let(:branch) { 'feature' }
 
           it 'does not track the event' do
-            execute_service
-
             expect(Gitlab::UsageDataCounters::HLLRedisCounter)
               .not_to receive(:track_event).with(*tracking_params)
+
+            execute_service
           end
         end
 
@@ -162,17 +150,17 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
           end
 
           it 'does not track the event' do
-            execute_service
-
             expect(Gitlab::UsageDataCounters::HLLRedisCounter)
               .not_to receive(:track_event).with(*tracking_params)
+
+            execute_service
           end
         end
       end
     end
 
     context "with a new default branch" do
-      let(:oldrev) { Gitlab::Git::BLANK_SHA }
+      let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
 
       it 'generates a push event with more than one commit' do
         execute_service
@@ -190,7 +178,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
     end
 
     context "with a new non-default branch" do
-      let(:oldrev) { Gitlab::Git::BLANK_SHA }
+      let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
       let(:branch) { 'fix' }
       let(:commit_id) { project.commit(branch).id }
 
@@ -210,7 +198,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
     end
 
     context 'removing a branch' do
-      let(:newrev) { Gitlab::Git::BLANK_SHA }
+      let(:newrev) { Gitlab::Git::SHA1_BLANK_SHA }
 
       it 'generates a push event with no commits' do
         execute_service
@@ -234,7 +222,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
       )
     end
 
-    let(:blank_sha) { Gitlab::Git::BLANK_SHA }
+    let(:blank_sha) { Gitlab::Git::SHA1_BLANK_SHA }
 
     def clears_cache(extended: [])
       expect(service).to receive(:invalidated_file_types).and_return(extended)
@@ -373,7 +361,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
     end
 
     context 'creating the default branch' do
-      let(:oldrev) { Gitlab::Git::BLANK_SHA }
+      let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
 
       it 'processes a limited number of commit messages' do
         expect(project.repository)
@@ -386,6 +374,27 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
         service.execute
 
         expect(commits_count).to eq(project.repository.commit_count_for_ref(newrev))
+      end
+
+      it 'collects the related metrics' do
+        expect(Gitlab::Metrics).to receive(:add_event).with(:push_commit, { branch: 'master' })
+        expect(Gitlab::Metrics).to receive(:add_event).with(:push_branch, {})
+        expect(Gitlab::Metrics).to receive(:add_event).with(:change_default_branch, {})
+        expect(Gitlab::Metrics).to receive(:add_event).with(:process_commit_limit_overflow)
+
+        service.execute
+      end
+
+      context 'when limit is not hit' do
+        before do
+          stub_const("::Git::BaseHooksService::PROCESS_COMMIT_LIMIT", 100)
+        end
+
+        it 'does not collect the corresponding metric' do
+          expect(Gitlab::Metrics).not_to receive(:add_event).with(:process_commit_limit_overflow)
+
+          service.execute
+        end
       end
     end
 
@@ -405,7 +414,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
     end
 
     context 'removing the default branch' do
-      let(:newrev) { Gitlab::Git::BLANK_SHA }
+      let(:newrev) { Gitlab::Git::SHA1_BLANK_SHA }
 
       it 'does not process commit messages' do
         expect(project.repository).not_to receive(:commits)
@@ -420,7 +429,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
 
     context 'creating a normal branch' do
       let(:branch) { 'fix' }
-      let(:oldrev) { Gitlab::Git::BLANK_SHA }
+      let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
 
       it 'processes a limited number of commit messages' do
         expect(project.repository)
@@ -454,12 +463,13 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
 
     context 'removing a normal branch' do
       let(:branch) { 'fix' }
-      let(:newrev) { Gitlab::Git::BLANK_SHA }
+      let(:newrev) { Gitlab::Git::SHA1_BLANK_SHA }
 
       it 'does not process commit messages' do
         expect(project.repository).not_to receive(:commits)
         expect(project.repository).not_to receive(:commits_between)
         expect(ProcessCommitWorker).not_to receive(:perform_async)
+        expect(service).to receive(:branch_remove_hooks)
 
         service.execute
 
@@ -521,7 +531,7 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
     let(:branch) { 'fix' }
 
     context 'oldrev is the blank SHA' do
-      let(:oldrev) { Gitlab::Git::BLANK_SHA }
+      let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
 
       it 'is treated as a new branch' do
         expect(service).to receive(:branch_create_hooks)
@@ -551,104 +561,66 @@ RSpec.describe Git::BranchHooksService, :clean_gitlab_redis_shared_state do
     end
   end
 
-  describe 'Metrics dashboard sync' do
-    shared_examples 'trigger dashboard sync' do
-      it 'imports metrics to database' do
-        expect(Metrics::Dashboard::SyncDashboardsWorker).to receive(:perform_async)
+  describe '#enqueue_jira_connect_remove_branches' do
+    let(:newrev) { Gitlab::Git::SHA1_BLANK_SHA }
+
+    context 'when the feature flag is not enabled' do
+      it 'does not call JiraConnect' do
+        expect(Integrations::JiraConnect::RemoveBranchWorker).not_to receive(:perform_async)
 
         service.execute
       end
     end
 
-    shared_examples 'no dashboard sync' do
-      it 'does not sync metrics to database' do
-        expect(Metrics::Dashboard::SyncDashboardsWorker).not_to receive(:perform_async)
-
-        service.execute
+    context 'when the feature flag is enabled' do
+      before do
+        stub_feature_flags(jira_connect_remove_branches: true)
       end
-    end
 
-    def change_repository(**changes)
-      actions = changes.flat_map do |(action, paths)|
-        Array(paths).flat_map do |file_path|
-          { action: action, file_path: file_path, content: SecureRandom.hex }
+      context 'when there is no jira subscription' do
+        it 'does not call JiraConnect' do
+          expect(Integrations::JiraConnect::RemoveBranchWorker).not_to receive(:perform_async)
+
+          service.execute
         end
       end
 
-      project.repository.multi_action(
-        user, message: 'message', branch_name: branch, actions: actions
-      )
-    end
+      context 'when there is a jira subscription' do
+        context 'when the branch does not exist on jira' do
+          before do
+            allow(Atlassian::JiraIssueKeyExtractors::Branch)
+                .to receive(:has_keys?)
+                .with(project, branch)
+                .and_return(nil)
 
-    let(:charts) { '.gitlab/dashboards/charts.yml' }
-    let(:readme) { 'README.md' }
-    let(:commit_id) { change_repository(**commit_changes) }
+            allow(project).to receive(:jira_subscription_exists?).and_return(true)
+          end
 
-    context 'with default branch' do
-      context 'when adding files' do
-        let(:new_file) { 'somenewfile.md' }
+          it 'does not call JiraConnect' do
+            expect(Integrations::JiraConnect::RemoveBranchWorker).not_to receive(:perform_async)
 
-        context 'also related' do
-          let(:commit_changes) { { create: [charts, new_file] } }
-
-          include_examples 'trigger dashboard sync'
+            service.execute
+          end
         end
 
-        context 'only unrelated' do
-          let(:commit_changes) { { create: new_file } }
+        context 'when the branch does exist on jira' do
+          before do
+            allow(Atlassian::JiraIssueKeyExtractors::Branch)
+                .to receive(:has_keys?)
+                .with(project, branch)
+                .and_return(branch)
 
-          include_examples 'no dashboard sync'
-        end
-      end
+            allow(project).to receive(:jira_subscription_exists?).and_return(true)
+          end
 
-      context 'when deleting files' do
-        before do
-          change_repository(create: charts)
-        end
+          it 'calls JiraConnect' do
+            expect(Integrations::JiraConnect::RemoveBranchWorker)
+              .to receive(:perform_async)
 
-        context 'also related' do
-          let(:commit_changes) { { delete: [charts, readme] } }
-
-          include_examples 'trigger dashboard sync'
-        end
-
-        context 'only unrelated' do
-          let(:commit_changes) { { delete: readme } }
-
-          include_examples 'no dashboard sync'
+            service.execute
+          end
         end
       end
-
-      context 'when updating files' do
-        before do
-          change_repository(create: charts)
-        end
-
-        context 'also related' do
-          let(:commit_changes) { { update: [charts, readme] } }
-
-          include_examples 'trigger dashboard sync'
-        end
-
-        context 'only unrelated' do
-          let(:commit_changes) { { update: readme } }
-
-          include_examples 'no dashboard sync'
-        end
-      end
-
-      context 'without changes' do
-        let(:commit_changes) { {} }
-
-        include_examples 'no dashboard sync'
-      end
-    end
-
-    context 'with other branch' do
-      let(:branch) { 'fix' }
-      let(:commit_changes) { { create: charts } }
-
-      include_examples 'no dashboard sync'
     end
   end
 end

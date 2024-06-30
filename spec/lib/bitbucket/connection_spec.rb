@@ -2,44 +2,45 @@
 
 require 'spec_helper'
 
-RSpec.describe Bitbucket::Connection do
-  before do
-    allow_next_instance_of(described_class) do |instance|
-      allow(instance).to receive(:provider).and_return(double(app_id: '', app_secret: ''))
+RSpec.describe Bitbucket::Connection, feature_category: :integrations do
+  subject(:bitbucket_connection) { described_class.new(options) }
+
+  let(:options) do
+    {
+      token: 'foo',
+      refresh_token: 'bar',
+      expires_in: 7200
+    }
+  end
+
+  describe '#connection' do
+    context 'when oauth' do
+      it 'uses OAuth connection' do
+        expect(bitbucket_connection.connection).to be_an_instance_of(Bitbucket::OauthConnection)
+      end
+    end
+
+    context 'when app password' do
+      let(:options) do
+        {
+          username: 'foo',
+          app_password: 'bar'
+        }
+      end
+
+      it 'uses App Password connection' do
+        expect(bitbucket_connection.connection).to be_an_instance_of(Bitbucket::AppPasswordConnection)
+      end
     end
   end
 
   describe '#get' do
-    it 'calls OAuth2::AccessToken::get' do
-      expect_next_instance_of(OAuth2::AccessToken) do |instance|
-        expect(instance).to receive(:get).and_return(double(parsed: true))
+    it 'delegates to underlying connection' do
+      expect_next_instance_of(Bitbucket::OauthConnection) do |connection|
+        expect(connection).to receive(:get)
       end
 
-      connection = described_class.new({})
-
-      connection.get('/users')
-    end
-  end
-
-  describe '#expired?' do
-    it 'calls connection.expired?' do
-      expect_next_instance_of(OAuth2::AccessToken) do |instance|
-        expect(instance).to receive(:expired?).and_return(true)
-      end
-
-      expect(described_class.new({}).expired?).to be_truthy
-    end
-  end
-
-  describe '#refresh!' do
-    it 'calls connection.refresh!' do
-      response = double(token: nil, expires_at: nil, expires_in: nil, refresh_token: nil)
-
-      expect_next_instance_of(OAuth2::AccessToken) do |instance|
-        expect(instance).to receive(:refresh!).and_return(response)
-      end
-
-      described_class.new({}).refresh!
+      bitbucket_connection.get
     end
   end
 end

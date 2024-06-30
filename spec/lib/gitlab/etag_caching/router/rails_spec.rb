@@ -3,20 +3,6 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::EtagCaching::Router::Rails do
-  it 'matches issue notes endpoint' do
-    result = match_route('/my-group/and-subgroup/here-comes-the-project/noteable/issue/1/notes')
-
-    expect(result).to be_present
-    expect(result.name).to eq 'issue_notes'
-  end
-
-  it 'matches MR notes endpoint' do
-    result = match_route('/my-group/and-subgroup/here-comes-the-project/noteable/merge_request/1/notes')
-
-    expect(result).to be_present
-    expect(result.name).to eq 'merge_request_notes'
-  end
-
   it 'matches issue title endpoint' do
     result = match_route('/my-group/my-project/-/issues/123/realtime_changes')
 
@@ -109,14 +95,20 @@ RSpec.describe Gitlab::EtagCaching::Router::Rails do
   it 'has a valid feature category for every route', :aggregate_failures do
     feature_categories = Gitlab::FeatureCategories.default.categories
 
-    described_class::ROUTES.each do |route|
+    described_class.all_routes.each do |route|
       expect(feature_categories).to include(route.feature_category), "#{route.name} has a category of #{route.feature_category}, which is not valid"
     end
   end
 
   it 'has a caller_id for every route', :aggregate_failures do
-    described_class::ROUTES.each do |route|
+    described_class.all_routes.each do |route|
       expect(route.caller_id).to include('#'), "#{route.name} has caller_id #{route.caller_id}, which is not valid"
+    end
+  end
+
+  it 'has an urgency for every route', :aggregate_failures do
+    described_class.all_routes.each do |route|
+      expect(route.urgency).to be_an_instance_of(Gitlab::EndpointAttributes::Config::RequestUrgency)
     end
   end
 

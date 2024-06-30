@@ -7,7 +7,6 @@ module Gitlab
 
       data_consistency :always
 
-      sidekiq_options retry: 3
       include QueueOptions
       include ::Gitlab::Import::AdvanceStage
 
@@ -20,8 +19,12 @@ module Gitlab
         finish: Gitlab::JiraImport::Stage::FinishImportWorker
       }.freeze
 
-      def find_import_state(project_id)
+      def find_import_state_jid(project_id)
         JiraImportState.jid_by(project_id: project_id, status: :started)
+      end
+
+      def find_import_state(id)
+        JiraImportState.find(id)
       end
 
       private

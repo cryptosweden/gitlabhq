@@ -1,13 +1,16 @@
 ---
-type: reference
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Troubleshooting Redis **(FREE SELF)**
+# Troubleshooting Redis
 
-There are a lot of moving parts that needs to be taken care carefully
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+There are a lot of moving parts that must be taken care carefully
 in order for the HA setup to work as expected.
 
 Before proceeding with the troubleshooting below, check your firewall rules:
@@ -26,8 +29,8 @@ Start Redis troubleshooting with a basic Redis activity check:
 
 1. Open a terminal on your GitLab server.
 1. Run `gitlab-redis-cli --stat` and observe the output while it runs.
-1. Go to your GitLab UI and browse to a handful of pages. Any page works, like
-   group or project overviews, issues, files in repositories, and so on.
+1. Go to your GitLab UI and browse to a handful of pages. Any page works, such as
+   group or project overviews, issues, or files in repositories.
 1. Check the `stat` output again and verify that the values for `keys`, `clients`,
    `requests`, and `connections` increases as you browse. If the numbers go up,
    basic Redis functionality is working and GitLab can connect to it.
@@ -41,7 +44,7 @@ You can check if everything is correct by connecting to each server using
 /opt/gitlab/embedded/bin/redis-cli -h <redis-host-or-ip> -a '<redis-password>' info replication
 ```
 
-When connected to a `Primary` Redis, you will see the number of connected
+When connected to a `Primary` Redis, you see the number of connected
 `replicas`, and a list of each with connection details:
 
 ```plaintext
@@ -56,7 +59,7 @@ repl_backlog_first_byte_offset:206989083
 repl_backlog_histlen:1048576
 ```
 
-When it's a `replica`, you will see details of the primary connection and if
+When it's a `replica`, you see details of the primary connection and if
 its `up` or `down`:
 
 ```plaintext
@@ -78,6 +81,20 @@ repl_backlog_first_byte_offset:0
 repl_backlog_histlen:0
 ```
 
+## High CPU usage on Redis instance
+
+By default, GitLab uses over 600 Sidekiq queues, each stored as a Redis list. Each Sidekiq thread issues a `BRPOP` command with all the queues listed in a long string.
+Redis CPU utilization grows as the number of queues and the rate of `BRPOP` calls increases. If your GitLab instance has many Sidekiq processes, this can cause Redis
+CPU utilization to approach 100%. High CPU utilization degrades GitLab performance significantly.
+
+To reduce CPU usage on Redis caused by Sidekiq you can both:
+
+- Use [routing rules](../sidekiq/processing_specific_job_classes.md#routing-rules) to reduce the number of Sidekiq queues.
+- If you are using GitLab 16.6 and earlier, increase the [`SIDEKIQ_SEMI_RELIABLE_FETCH_TIMEOUT` environment variable](../environment_variables.md) to improve CPU usage on Redis.
+  On GitLab 16.7 and later, the [default value is 5](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/139583), which should be sufficient.
+
+The `SIDEKIQ_SEMI_RELIABLE_FETCH_TIMEOUT` option reduces the overhead that tearing down and connecting causes, but increase the shutdown delay of Sidekiq.
+
 ## Troubleshooting Sentinel
 
 If you get an error like: `Redis::CannotConnectError: No sentinels available.`,
@@ -88,10 +105,8 @@ You must make sure you are defining the same value in `redis['master_name']`
 and `redis['master_password']` as you defined for your sentinel node.
 
 The way the Redis connector `redis-rb` works with sentinel is a bit
-non-intuitive. We try to hide the complexity in omnibus, but it still requires
+non-intuitive. We try to hide the complexity in the Linux package, but it still requires
 a few extra configurations.
-
----
 
 To make sure your configuration is correct:
 
@@ -109,18 +124,22 @@ To make sure your configuration is correct:
 1. Run in the console:
 
    ```ruby
-   redis = Redis.new(Gitlab::Redis::SharedState.params)
+   redis = Gitlab::Redis::SharedState.redis
    redis.info
    ```
 
-   Keep this screen open and try to simulate a failover below.
+   Keep this screen open, and proceed to trigger a failover as described below.
 
-1. To simulate a failover on primary Redis, SSH into the Redis server and run:
+1. To trigger a failover on the primary Redis, SSH into the Redis server and run:
 
    ```shell
    # port must match your primary redis port, and the sleep time must be a few seconds bigger than defined one
     redis-cli -h localhost -p 6379 DEBUG sleep 20
    ```
+
+   WARNING:
+   This action affects services, and takes the instance down for up to 20 seconds. If successful,
+   it should recover after that.
 
 1. Then back in the Rails console from the first step, run:
 
@@ -131,14 +150,14 @@ To make sure your configuration is correct:
    You should see a different port after a few seconds delay
    (the failover/reconnect time).
 
-## Troubleshooting a non-bundled Redis with an installation from source
+## Troubleshooting a non-bundled Redis with a self-compiled installation
 
 If you get an error in GitLab like `Redis::CannotConnectError: No sentinels available.`,
 there may be something wrong with your configuration files or it can be related
 to [this upstream issue](https://github.com/redis/redis-rb/issues/531).
 
 You must make sure that `resque.yml` and `sentinel.conf` are configured correctly,
-otherwise `redis-rb` will not work properly.
+otherwise `redis-rb` does not work properly.
 
 The `master-group-name` (`gitlab-redis`) defined in (`sentinel.conf`)
 **must** be used as the hostname in GitLab (`resque.yml`):
@@ -167,4 +186,4 @@ production:
       port: 26379  # point to sentinel, not to redis port
 ```
 
-When in doubt, read the [Redis Sentinel documentation](https://redis.io/topics/sentinel).
+When in doubt, read the [Redis Sentinel](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/) documentation.

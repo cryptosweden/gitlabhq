@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::CreateFromTemplateService do
+RSpec.describe Projects::CreateFromTemplateService, feature_category: :groups_and_projects do
   let(:user) { create(:user) }
   let(:template_name) { 'rails' }
   let(:project_params) do
@@ -49,7 +49,7 @@ RSpec.describe Projects::CreateFromTemplateService do
     end
 
     it 'is not scheduled' do
-      expect(project.import_scheduled?).to be_nil
+      expect(project.import_scheduled?).to be(false)
     end
 
     it 'repository is empty' do

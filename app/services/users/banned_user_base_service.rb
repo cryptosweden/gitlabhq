@@ -12,6 +12,7 @@ module Users
 
       if update_user(user)
         log_event(user)
+        track_event(user)
         success
       else
         messages = user.errors.full_messages
@@ -22,6 +23,9 @@ module Users
     private
 
     attr_reader :current_user
+
+    # Overridden in Users::BanService
+    def track_event(_); end
 
     def state_error(user)
       error(_("You cannot %{action} %{state} users." % { action: action.to_s, state: user.state }), :forbidden)
@@ -36,7 +40,14 @@ module Users
     end
 
     def log_event(user)
-      Gitlab::AppLogger.info(message: "User #{action}", user: "#{user.username}", email: "#{user.email}", "#{action}_by": "#{current_user.username}", ip_address: "#{current_user.current_sign_in_ip}")
+      Gitlab::AppLogger.info(
+        message: "User #{action}",
+        username: user.username.to_s,
+        user_id: user.id,
+        email: user.email.to_s,
+        "#{action}_by": current_user.username.to_s,
+        ip_address: current_user.current_sign_in_ip.to_s
+      )
     end
   end
 end

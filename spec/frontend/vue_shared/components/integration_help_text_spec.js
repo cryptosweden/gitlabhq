@@ -22,17 +22,12 @@ describe('IntegrationHelpText component', () => {
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   it('should use the gl components', () => {
     wrapper = createComponent();
 
-    expect(wrapper.find(GlSprintf).exists()).toBe(true);
-    expect(wrapper.find(GlIcon).exists()).toBe(true);
-    expect(wrapper.find(GlLink).exists()).toBe(true);
+    expect(wrapper.findComponent(GlSprintf).exists()).toBe(true);
+    expect(wrapper.findComponent(GlIcon).exists()).toBe(true);
+    expect(wrapper.findComponent(GlLink).exists()).toBe(true);
   });
 
   it('should render the help text', () => {
@@ -44,9 +39,9 @@ describe('IntegrationHelpText component', () => {
   it('should not use the gl-link and gl-icon components', () => {
     wrapper = createComponent({ message: 'Click nowhere!' });
 
-    expect(wrapper.find(GlSprintf).exists()).toBe(true);
-    expect(wrapper.find(GlIcon).exists()).toBe(false);
-    expect(wrapper.find(GlLink).exists()).toBe(false);
+    expect(wrapper.findComponent(GlSprintf).exists()).toBe(true);
+    expect(wrapper.findComponent(GlIcon).exists()).toBe(false);
+    expect(wrapper.findComponent(GlLink).exists()).toBe(false);
   });
 
   it('should not render the link when start and end is not provided', () => {

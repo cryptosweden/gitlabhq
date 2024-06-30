@@ -1,9 +1,11 @@
+// Package helper provides various helper functions and types for HTTP handling
 package helper
 
 import (
 	"net/http"
 )
 
+// CountingResponseWriter is an interface that wraps http.ResponseWriter
 type CountingResponseWriter interface {
 	http.ResponseWriter
 	Count() int64
@@ -16,6 +18,7 @@ type countingResponseWriter struct {
 	count  int64
 }
 
+// NewCountingResponseWriter creates a new CountingResponseWriter
 func NewCountingResponseWriter(rw http.ResponseWriter) CountingResponseWriter {
 	return &countingResponseWriter{rw: rw}
 }
@@ -53,4 +56,9 @@ func (c *countingResponseWriter) Count() int64 {
 // ResponseWriter. This function is not thread-safe.
 func (c *countingResponseWriter) Status() int {
 	return c.status
+}
+
+// Unwrap lets http.ResponseController get the underlying http.ResponseWriter.
+func (c *countingResponseWriter) Unwrap() http.ResponseWriter {
+	return c.rw
 }

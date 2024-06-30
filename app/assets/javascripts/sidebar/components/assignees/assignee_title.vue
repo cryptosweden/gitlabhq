@@ -1,12 +1,11 @@
 <script>
-import { GlLoadingIcon, GlIcon } from '@gitlab/ui';
+import { GlLoadingIcon } from '@gitlab/ui';
 import { n__, __ } from '~/locale';
 
 export default {
   name: 'AssigneeTitle',
   components: {
     GlLoadingIcon,
-    GlIcon,
   },
   props: {
     loading: {
@@ -21,11 +20,6 @@ export default {
     editable: {
       type: Boolean,
       required: true,
-    },
-    showToggle: {
-      type: Boolean,
-      required: false,
-      default: false,
     },
     changing: {
       type: Boolean,
@@ -45,12 +39,12 @@ export default {
 };
 </script>
 <template>
-  <div class="hide-collapsed gl-line-height-20 gl-mb-2 gl-text-gray-900">
+  <div class="hide-collapsed gl-leading-20 gl-mb-2 gl-text-gray-900 gl-font-bold">
     {{ assigneeTitle }}
     <gl-loading-icon v-if="loading" size="sm" inline class="align-bottom" />
     <a
       v-if="editable"
-      class="js-sidebar-dropdown-toggle edit-link btn gl-text-gray-900! gl-ml-auto hide-collapsed btn-default btn-sm gl-button btn-default-tertiary float-right"
+      class="js-sidebar-dropdown-toggle edit-link btn gl-text-gray-900! gl-ml-auto hide-collapsed btn-default btn-sm gl-button btn-default-tertiary gl-float-right"
       href="#"
       data-test-id="edit-link"
       data-track-action="click_edit_button"
@@ -58,15 +52,6 @@ export default {
       data-track-property="assignee"
     >
       {{ titleCopy }}
-    </a>
-    <a
-      v-if="showToggle"
-      :aria-label="__('Toggle sidebar')"
-      class="gutter-toggle float-right js-sidebar-toggle"
-      href="#"
-      role="button"
-    >
-      <gl-icon data-hidden="true" name="chevron-double-lg-right" :size="12" />
     </a>
   </div>
 </template>

@@ -1,19 +1,16 @@
-package zipartifacts_test
+package zipartifacts
 
 import (
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	zip "gitlab.com/gitlab-org/golang-archive-zip"
-
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/zipartifacts"
 )
 
 func generateTestArchive(w io.Writer) error {
@@ -41,7 +38,7 @@ func validateMetadata(r io.Reader) error {
 		return err
 	}
 
-	meta, err := ioutil.ReadAll(gz)
+	meta, err := io.ReadAll(gz)
 	if err != nil {
 		return err
 	}
@@ -53,13 +50,18 @@ func validateMetadata(r io.Reader) error {
 		}
 	}
 
+	emptyEntry := `{"crc":0,"size":0,"zipped":0}`
+	if !bytes.Contains(meta, []byte(emptyEntry)) {
+		return fmt.Errorf("zipartifacts: metadata for empty file not found")
+	}
+
 	return nil
 }
 
 func TestGenerateZipMetadataFromFile(t *testing.T) {
 	var metaBuffer bytes.Buffer
 
-	f, err := ioutil.TempFile("", "workhorse-metadata.zip-")
+	f, err := os.CreateTemp("", "workhorse-metadata.zip-")
 	if f != nil {
 		defer os.Remove(f.Name())
 	}
@@ -73,10 +75,10 @@ func TestGenerateZipMetadataFromFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	archive, err := zipartifacts.OpenArchive(ctx, f.Name())
+	archive, err := OpenArchive(ctx, f.Name())
 	require.NoError(t, err, "zipartifacts: OpenArchive failed")
 
-	err = zipartifacts.GenerateZipMetadata(&metaBuffer, archive)
+	err = GenerateZipMetadata(&metaBuffer, archive)
 	require.NoError(t, err, "zipartifacts: GenerateZipMetadata failed")
 
 	err = validateMetadata(&metaBuffer)
@@ -84,7 +86,7 @@ func TestGenerateZipMetadataFromFile(t *testing.T) {
 }
 
 func TestErrNotAZip(t *testing.T) {
-	f, err := ioutil.TempFile("", "workhorse-metadata.zip-")
+	f, err := os.CreateTemp("", "workhorse-metadata.zip-")
 	if f != nil {
 		defer os.Remove(f.Name())
 	}
@@ -97,6 +99,6 @@ func TestErrNotAZip(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	_, err = zipartifacts.OpenArchive(ctx, f.Name())
-	require.Equal(t, zipartifacts.ErrorCode[zipartifacts.CodeNotZip], err, "OpenArchive requires a zip file")
+	_, err = OpenArchive(ctx, f.Name())
+	require.Equal(t, ErrorCode[CodeNotZip], err, "OpenArchive requires a zip file")
 }

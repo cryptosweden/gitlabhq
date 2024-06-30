@@ -1,10 +1,14 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Monorepo package management workflows **(FREE)**
+# Monorepo package management workflows
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 One project or Git repository can contain multiple different subprojects or submodules that are all
 packaged and published individually.
@@ -40,7 +44,7 @@ and by doing one of the following:
 If you follow the instructions, you can publish `MyProject` by running `npm publish` from the root
 directory.
 
-Publishing `Foo` is almost exactly the same. Simply follow the same steps while in the `Foo`
+Publishing `Foo` is almost exactly the same. Follow the same steps while in the `Foo`
 directory. `Foo` needs its own `package.json` file, which you can add manually by using `npm init`.
 `Foo` also needs its own configuration settings. Since you are publishing to the same place, if you
 used `npm config set` to set the registry for the parent project, then no additional setup is

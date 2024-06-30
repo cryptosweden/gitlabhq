@@ -1,64 +1,131 @@
 ---
-stage: none
-group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Optimize
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Insights **(ULTIMATE)**
+# Insights
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/725) in GitLab 12.0.
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-Configure the Insights that matter for your projects to explore data such as
-triage hygiene, issues created/closed per a given period, average time for merge
-requests to be merged and much more.
+Configure insights for your projects and groups to explore data such as:
 
-![Insights example bar chart](img/project_insights.png)
+- Issues created and closed during a specified period.
+- Average time for merge requests to be merged.
+- Triage hygiene.
 
-NOTE:
-This feature is [also available at the group level](../../group/insights/index.md).
+You can also create custom Insights reports that are relevant for your group.
 
-## View your project's Insights
+## View insights
 
-You can access your project's Insights by clicking the **Analytics > Insights**
-link in the left sidebar.
+Prerequisites:
 
-## Configure your Insights
+- For project insights, you must have access to the project and permission to view information about its merge requests and issues.
+- For group insights, you must have permission to view the group.
 
-Insights are configured using a YAML file called `.gitlab/insights.yml` within
-a project. That file is used in the project's Insights page.
+To view insights for a project or group:
 
-See [Writing your `.gitlab/insights.yml`](#writing-your-gitlabinsightsyml) below
-for details about the content of this file.
+1. On the left sidebar, select **Search or go to** and find your project or group.
+1. Select **Analyze > Insights**.
+1. To view a report, select the **Select report** dropdown list.
 
-NOTE:
-After the configuration file is created, you can also
-[use it for your project's group](../../group/insights/index.md#configure-your-insights).
+### Access Insights reports with deep links
 
-NOTE:
-If the project doesn't have any configuration file, it attempts to use
-the group configuration if possible. If the group doesn't have any
-configuration, the default configuration is used.
+You can direct users to a specific report in Insights by using the deep-linked URL.
 
-## Permissions
+To create a deep link, append the report key to the end of the Insights report URL.
+For example, a GitLab report with the key `bugsCharts` has the deep link URL `https://gitlab.com/gitlab-org/gitlab/insights/#/bugsCharts`.
 
-If you have access to view a project, then you have access to view their
-Insights.
+## Interact with Insights charts
 
-NOTE:
-Issues or merge requests that you don't have access to (because you don't have
-access to the project they belong to, or because they are confidential) are
-filtered out of the Insights charts.
+You can interact with the insights charts to view details about your group's activity.
 
-You may also consult the [group permissions table](../../permissions.md#group-members-permissions).
+### Display different reports
 
-## Writing your `.gitlab/insights.yml`
+To display one of the available reports on the insights page, from the **Select report** dropdown list,
+select the report you want to display.
 
-The `.gitlab/insights.yml` file defines the structure and order of the Insights
-charts displayed in each Insights page of your project or group.
+### View bar chart annotations
 
-Each page has a unique key and a collection of charts to fetch and display.
+To view annotations, hover over each bar in the chart.
 
-For example, here's a single definition for Insights that displays one page with one chart:
+### Zoom in on chart
+
+Insights display data from the last 90 days. You can zoom in to display data only from a subset of the 90-day range.
+
+To do this, select the pause icons (**{status-paused}**) and slide them along the horizontal axis:
+
+- To change the start date, slide the left pause icon to the left or right.
+- To change the end date, slide the right pause icon to the left or right.
+
+### Exclude dimensions from charts
+
+By default, insights display all available dimensions on the chart.
+
+To exclude a dimension, from the legend below the chart, select the name of the dimension.
+
+### Drill down on charts
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/372215/) in GitLab 16.7.
+> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/436704) to extend support to all `issuables` charts in GitLab 16.9.
+
+You can drill down into the data of all charts whose `query.data_source` is `issuables`.
+
+To view a drill-down report of the data for a specific priority or severity in a month:
+
+- On the chart, select the bar stack you want to drill down on.
+
+## Configure project insights
+
+Prerequisites:
+
+- Depending on your project configuration, you must have at least the Developer role.
+
+Project insights are configured with the [`.gitlab/insights.yml`](#insights-configuration-file) file in the project. If a project doesn't have a configuration file, it uses the [group configuration](#configure-group-insights).
+
+The `.gitlab/insights.yml` file is a YAML file where you define:
+
+- The structure and order of charts in a report.
+- The style of charts displayed in the report of your project or group.
+
+To configure project insights, create a file `.gitlab/insights.yml` either:
+
+- Locally, in the root directory of your project, and push your changes.
+- From the UI:
+  1. On the left sidebar, select **Search or go to** and find your project.
+  1. Above the file list, select the branch you want to commit to, select the plus icon, then select **New file**.
+  1. In the **File name** text box, enter `.gitlab/insights.yml`.
+  1. In the large text box, update the file contents.
+  1. Select **Commit changes**.
+
+After you create the configuration file, you can also
+use it for the project's group.
+
+## Configure group insights
+
+GitLab reads insights from the
+[default configuration file](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/fixtures/insights/default.yml).
+
+To configure group insights:
+
+1. In a project that belongs to your group, [create a `.gitlab/insights.yml` file](#configure-project-insights).
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Settings > General**.
+1. Expand **Analytics** and find the **Insights** section.
+1. Select the project that contains your `.gitlab/insights.yml` configuration file.
+1. Select **Save changes**.
+
+## Insights configuration file
+
+In the `.gitlab/insights.yml` file:
+
+- [Configuration parameters](#insights-configuration-parameters) define the chart behavior.
+- Each report has a unique key and a collection of charts to fetch and display.
+- Each chart definition is made up of a hash composed of key-value pairs.
+
+The following example shows a single definition that displays one report with one chart.
 
 ```yaml
 bugsCharts:
@@ -68,53 +135,32 @@ bugsCharts:
       description: "Open bugs created per month"
       type: bar
       query:
-        issuable_type: issue
-        issuable_state: opened
-        filter_labels:
-          - bug
-        group_by: month
-        period_limit: 24
+        data_source: issuables
+        params:
+          issuable_type: issue
+          issuable_state: opened
+          filter_labels:
+            - bug
+          group_by: month
+          period_limit: 24
 ```
 
-Each chart definition is made up of a hash composed of key-value pairs.
+## Insights configuration parameters
 
-For example, here's single chart definition:
-
-```yaml
-- title: "Monthly bugs created"
-  description: "Open bugs created per month"
-  type: bar
-  query:
-    issuable_type: issue
-    issuable_state: opened
-    filter_labels:
-      - bug
-    group_by: month
-    period_limit: 24
-```
-
-## Configuration parameters
-
-A chart is defined as a list of parameters that define the chart's behavior.
-
-The following table lists available parameters for charts:
+The following table lists the chart parameters:
 
 | Keyword                                            | Description |
 |:---------------------------------------------------|:------------|
 | [`title`](#title)                                  | The title of the chart. This displays on the Insights page. |
 | [`description`](#description)                      | A description for the individual chart. This displays above the relevant chart. |
 | [`type`](#type)                                    | The type of chart: `bar`, `line` or `stacked-bar`. |
-| [`query`](#query)                                  | A hash that defines the conditions for issues / merge requests to be part of the chart. |
-
-## Parameter details
-
-The following are detailed explanations for parameters used to configure
-Insights charts.
+| [`query`](#query)                                  | A hash that defines the data source and filtering conditions for the chart. |
 
 ### `title`
 
-`title` is the title of the chart as it displays on the Insights page.
-For example:
+Use `title` to update the chart title. The title displays on the insights report.
+
+**Example:**
 
 ```yaml
 monthlyBugsCreated:
@@ -123,8 +169,9 @@ monthlyBugsCreated:
 
 ### `description`
 
-The `description` text is displayed above the chart, but below the title. It's used
-to give extra details regarding the chart, for example:
+Use `description` to add a description of the chart. The description displays above the chart, below the title.
+
+**Example:**
 
 ```yaml
 monthlyBugsCreated:
@@ -134,9 +181,20 @@ monthlyBugsCreated:
 
 ### `type`
 
-`type` is the chart type.
+Use `type` to define the chart type.
 
-For example:
+**Supported values:**
+
+| Name  | Example: |
+| ----- | ------- |
+| `bar` | ![Insights example bar chart](img/insights_example_bar_chart.png) |
+| `bar` (time series, that is when `group_by` is used) | ![Insights example bar time series chart](img/insights_example_bar_time_series_chart.png) |
+| `line` | ![Insights example stacked bar chart](img/insights_example_line_chart.png) |
+| `stacked-bar` | ![Insights example stacked bar chart](img/insights_example_stacked_bar_chart.png) |
+
+The `dora` data source supports the `bar` and `line` [chart types](#type).
+
+**Example:**
 
 ```yaml
 monthlyBugsCreated:
@@ -144,21 +202,34 @@ monthlyBugsCreated:
   type: bar
 ```
 
-Supported values are:
-
-| Name  | Example |
-| ----- | ------- |
-| `bar` | ![Insights example bar chart](img/insights_example_bar_chart.png) |
-| `bar` (time series, that is when `group_by` is used) | ![Insights example bar time series chart](img/insights_example_bar_time_series_chart.png) |
-| `line` | ![Insights example stacked bar chart](img/insights_example_line_chart.png) |
-| `stacked-bar` | ![Insights example stacked bar chart](img/insights_example_stacked_bar_chart.png) |
-
 ### `query`
 
-`query` allows to define the conditions for issues / merge requests to be part
-of the chart.
+Use `query` to define the data source and filtering conditions for the chart.
 
-Example:
+**Example:**
+
+```yaml
+monthlyBugsCreated:
+  title: "Monthly bugs created"
+  description: "Open bugs created per month"
+  type: bar
+  query:
+    data_source: issuables
+    params:
+      issuable_type: issue
+      issuable_state: opened
+      filter_labels:
+        - bug
+      collection_labels:
+        - S1
+        - S2
+        - S3
+        - S4
+      group_by: week
+      period_limit: 104
+```
+
+The legacy format without the `data_source` parameter is still supported:
 
 ```yaml
 monthlyBugsCreated:
@@ -179,92 +250,106 @@ monthlyBugsCreated:
     period_limit: 104
 ```
 
-#### `query.issuable_type`
+#### `query.data_source`
 
-Defines the type of "issuable" you want to create a chart for.
+> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/725) in GitLab 15.3.
 
-Supported values are:
+Use `data_source` to define the data source that exposes the data.
+
+**Supported values:**
+
+- `issuables`: Exposes merge request or issue data.
+- `dora`: Exposes DORA metrics.
+
+#### `issuable` query parameters
+
+##### `query.params.issuable_type`
+
+Use `query.params.issuable_type` to define the type of issuable to create a chart for.
+
+**Supported values:**
 
 - `issue`: The chart displays issues' data.
 - `merge_request`: The chart displays merge requests' data.
 
-#### `query.issuable_state`
+##### `query.params.issuable_state`
 
-Filter by the current state of the queried "issuable".
+Use `query.params.issuable_state` to filter by the current state of the queried issuable.
 
 By default, the `opened` state filter is applied.
 
-Supported values are:
+**Supported values:**
 
-- `opened`: Open issues / merge requests.
-- `closed`: Closed Open issues / merge requests.
-- `locked`: Issues / merge requests that have their discussion locked.
+- `opened`: Open issues or merge requests.
+- `closed`: Closed issues or merge requests.
+- `locked`: Issues or merge requests that have their discussion locked.
 - `merged`: Merged merge requests.
-- `all`: Issues / merge requests in all states
+- `all`: Issues or merge requests in all states.
 
-#### `query.filter_labels`
+##### `query.params.filter_labels`
 
-Filter by labels currently applied to the queried "issuable".
+Use `query.params.filter_labels` to filter by labels applied to the queried issuable.
 
-By default, no labels filter is applied. All the defined labels must be
-currently applied to the "issuable" in order for it to be selected.
+By default, no label filter is applied. All defined labels must
+be applied to the issuable for it to be selected.
 
-Example:
+**Example:**:
 
 ```yaml
 monthlyBugsCreated:
   title: "Monthly regressions created"
   type: bar
   query:
-    issuable_type: issue
-    issuable_state: opened
-    filter_labels:
-      - bug
-      - regression
+    data_source: issuables
+    params:
+      issuable_type: issue
+      issuable_state: opened
+      filter_labels:
+        - bug
+        - regression
 ```
 
-#### `query.collection_labels`
+##### `query.params.collection_labels`
 
-Group "issuable" by the configured labels.
+Use `query.params.collection_labels` to group issuables by the configured labels.
+Grouping is not applied by default.
 
-By default, no grouping is done. When using this keyword, you need to
-set `type` to either `line` or `stacked-bar`.
-
-Example:
+**Example:**
 
 ```yaml
 weeklyBugsBySeverity:
   title: "Weekly bugs by severity"
   type: stacked-bar
   query:
-    issuable_type: issue
-    issuable_state: opened
-    filter_labels:
-      - bug
-    collection_labels:
-      - S1
-      - S2
-      - S3
-      - S4
+    data_source: issuables
+    params:
+      issuable_type: issue
+      issuable_state: opened
+      filter_labels:
+        - bug
+      collection_labels:
+        - S1
+        - S2
+        - S3
+        - S4
 ```
 
-#### `query.group_by`
+##### `query.group_by`
 
-Define the X-axis of your chart.
+Use `query.group_by` to define the X-axis of the chart.
 
-Supported values are:
+**Supported values:**
 
 - `day`: Group data per day.
 - `week`: Group data per week.
 - `month`: Group data per month.
 
-#### `query.period_limit`
+##### `query.period_limit`
 
-Define how far "issuables" are queried in the past (using the `query.period_field`).
+Use `query.period_limit` to define how far back in time to query issuables (using the `query.period_field`).
 
-The unit is related to the `query.group_by` you defined. For instance if you
-defined `query.group_by: 'day'`  then `query.period_limit: 365` would mean
-"Gather and display data for the last 365 days".
+The unit is related to the value defined in `query.group_by`. For example, if you
+defined `query.group_by: 'day'`, and `query.period_limit: 365`, the chart displays data from the last 365 days.
 
 By default, default values are applied depending on the `query.group_by`
 you defined.
@@ -277,9 +362,9 @@ you defined.
 
 #### `query.period_field`
 
-Define the timestamp field used to group "issuables".
+Use `query.period_field` to define the timestamp field by which to group issuables.
 
-Supported values are:
+**Supported values:**
 
 - `created_at` (default): Group data using the `created_at` field.
 - `closed_at`: Group data using the `closed_at` field (for issues only).
@@ -295,29 +380,97 @@ NOTE:
 Until [this bug](https://gitlab.com/gitlab-org/gitlab/-/issues/26911), is resolved,
 you may see `created_at` in place of `merged_at`. `created_at` is used instead.
 
+#### `DORA` query parameters
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/367248) in GitLab 15.3.
+
+Use DORA-specific queries with the `dora` data source to create a DORA chart definition.
+
+**Example:**
+
+```yaml
+dora:
+  title: "DORA charts"
+  charts:
+    - title: "DORA deployment frequency"
+      type: bar # or line
+      query:
+        data_source: dora
+        params:
+          metric: deployment_frequency
+          group_by: day
+          period_limit: 10
+      projects:
+        only:
+          - 38
+    - title: "DORA lead time for changes"
+      description: "DORA lead time for changes"
+      type: bar
+      query:
+        data_source: dora
+        params:
+          metric: lead_time_for_changes
+          group_by: day
+          environment_tiers:
+            - staging
+          period_limit: 30
+```
+
+##### `query.metric`
+
+Use `query.metric` to define the [DORA metrics](../../../api/dora/metrics.md#the-value-field) to query.
+
+**Supported values:**
+
+- `deployment_frequency` (default)
+- `lead_time_for_changes`
+- `time_to_restore_service`
+- `change_failure_rate`
+
+##### `query.group_by`
+
+Use `query.group_by` to define the X-axis of your chart.
+
+**Supported values:**
+
+- `day` (default): Group data per day.
+- `month`: Group data per month.
+
+##### `query.period_limit`
+
+Use `query.period_limit` to define how far the metrics are queried in the past (default: 15). The maximum period is 180 days or 6 months.
+
+##### `query.environment_tiers`
+
+Use `query.environment_tiers` to define an array of environments to include the calculation.
+
+**Supported values:**
+
+- `production`(default)
+- `staging`
+- `testing`
+- `development`
+- `other`
+
 ### `projects`
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/10904) in GitLab 12.4.
+Use `projects` to limit where issuables are queried from:
 
-You can limit where the "issuables" can be queried from:
-
-- If `.gitlab/insights.yml` is used for a [group's insights](../../group/insights/index.md#configure-your-insights), with `projects`, you can limit the projects to be queried. By default, all projects currently under the group are used.
-- If `.gitlab/insights.yml` is used for a project's insights, specifying any other projects yields no results. By default, the project itself is used.
+- If `.gitlab/insights.yml` is used for a group's insights, use `projects` to define the projects from which to query issuables. By default, all projects under the group are used.
+- If `.gitlab/insights.yml` is used for a project's insights, specifying other projects does not yield results. By default, the project is used.
 
 #### `projects.only`
 
-The `projects.only` option specifies the projects which the "issuables"
-should be queried from.
+Use `projects.only` to specify the projects from which issuables
+are queried.
 
-Projects listed here are ignored when:
+Projects listed in this parameter are ignored when:
 
 - They don't exist.
 - The current user doesn't have sufficient permissions to read them.
-- They are outside of the group.
+- They are outside the group.
 
-In the following `insights.yml` example, we specify the projects
-the queries are used on. This example is useful when setting
-a group's insights:
+**Example:**
 
 ```yaml
 monthlyBugsCreated:
@@ -325,10 +478,12 @@ monthlyBugsCreated:
   description: "Open bugs created per month"
   type: bar
   query:
-    issuable_type: issue
-    issuable_state: opened
-    filter_labels:
-      - bug
+    data_source: issuables
+    params:
+      issuable_type: issue
+      issuable_state: opened
+      filter_labels:
+        - bug
   projects:
     only:
       - 3                         # You can use the project ID
@@ -337,7 +492,7 @@ monthlyBugsCreated:
       - groupB/project            # Projects outside the group will be ignored
 ```
 
-## Complete example
+## Complete insights configuration example
 
 ```yaml
 .projectsOnly: &projectsOnly
@@ -355,41 +510,47 @@ bugsCharts:
       type: bar
       <<: *projectsOnly
       query:
-        issuable_type: issue
-        issuable_state: opened
-        filter_labels:
-          - bug
-        group_by: month
-        period_limit: 24
+        data_source: issuables
+        params:
+          issuable_type: issue
+          issuable_state: opened
+          filter_labels:
+            - bug
+          group_by: month
+          period_limit: 24
 
     - title: "Weekly bugs by severity"
       type: stacked-bar
       <<: *projectsOnly
       query:
-        issuable_type: issue
-        issuable_state: opened
-        filter_labels:
-          - bug
-        collection_labels:
-          - S1
-          - S2
-          - S3
-          - S4
-        group_by: week
-        period_limit: 104
+        data_source: issuables
+        params:
+          issuable_type: issue
+          issuable_state: opened
+          filter_labels:
+            - bug
+          collection_labels:
+            - S1
+            - S2
+            - S3
+            - S4
+          group_by: week
+          period_limit: 104
 
     - title: "Monthly bugs by team"
       type: line
       <<: *projectsOnly
       query:
-        issuable_type: merge_request
-        issuable_state: opened
-        filter_labels:
-          - bug
-        collection_labels:
-          - Manage
-          - Plan
-          - Create
-        group_by: month
-        period_limit: 24
+        data_source: issuables
+        params:
+          issuable_type: merge_request
+          issuable_state: opened
+          filter_labels:
+            - bug
+          collection_labels:
+            - Manage
+            - Plan
+            - Create
+          group_by: month
+          period_limit: 24
 ```

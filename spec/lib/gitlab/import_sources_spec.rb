@@ -2,22 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::ImportSources do
+RSpec.describe Gitlab::ImportSources, feature_category: :importers do
   describe '.options' do
     it 'returns a hash' do
       expected =
         {
-          'GitHub'           => 'github',
-          'Bitbucket Cloud'  => 'bitbucket',
+          'GitHub' => 'github',
+          'Bitbucket Cloud' => 'bitbucket',
           'Bitbucket Server' => 'bitbucket_server',
-          'GitLab.com'       => 'gitlab',
-          'Google Code'      => 'google_code',
-          'FogBugz'          => 'fogbugz',
-          'Repo by URL'      => 'git',
-          'GitLab export'    => 'gitlab_project',
-          'Gitea'            => 'gitea',
-          'Manifest file'    => 'manifest',
-          'Phabricator'      => 'phabricator'
+          'FogBugz' => 'fogbugz',
+          'Repository by URL' => 'git',
+          'GitLab export' => 'gitlab_project',
+          'Gitea' => 'gitea',
+          'Manifest file' => 'manifest'
         }
 
       expect(described_class.options).to eq(expected)
@@ -27,19 +24,16 @@ RSpec.describe Gitlab::ImportSources do
   describe '.values' do
     it 'returns an array' do
       expected =
-        %w(
+        %w[
           github
           bitbucket
           bitbucket_server
-          gitlab
-          google_code
           fogbugz
           git
           gitlab_project
           gitea
           manifest
-          phabricator
-        )
+        ]
 
       expect(described_class.values).to eq(expected)
     end
@@ -48,16 +42,14 @@ RSpec.describe Gitlab::ImportSources do
   describe '.importer_names' do
     it 'returns an array of importer names' do
       expected =
-        %w(
+        %w[
           github
           bitbucket
           bitbucket_server
-          gitlab
           fogbugz
           gitlab_project
           gitea
-          phabricator
-        )
+        ]
 
       expect(described_class.importer_names).to eq(expected)
     end
@@ -66,16 +58,13 @@ RSpec.describe Gitlab::ImportSources do
   describe '.importer' do
     import_sources = {
       'github' => Gitlab::GithubImport::ParallelImporter,
-      'bitbucket' => Gitlab::BitbucketImport::Importer,
-      'bitbucket_server' => Gitlab::BitbucketServerImport::Importer,
-      'gitlab' => Gitlab::GitlabImport::Importer,
-      'google_code' => nil,
+      'bitbucket' => Gitlab::BitbucketImport::ParallelImporter,
+      'bitbucket_server' => Gitlab::BitbucketServerImport::ParallelImporter,
       'fogbugz' => Gitlab::FogbugzImport::Importer,
       'git' => nil,
       'gitlab_project' => Gitlab::ImportExport::Importer,
       'gitea' => Gitlab::LegacyGithubImport::Importer,
-      'manifest' => nil,
-      'phabricator' => Gitlab::PhabricatorImport::Importer
+      'manifest' => nil
     }
 
     import_sources.each do |name, klass|
@@ -90,14 +79,11 @@ RSpec.describe Gitlab::ImportSources do
       'github' => 'GitHub',
       'bitbucket' => 'Bitbucket Cloud',
       'bitbucket_server' => 'Bitbucket Server',
-      'gitlab' => 'GitLab.com',
-      'google_code' => 'Google Code',
       'fogbugz' => 'FogBugz',
-      'git' => 'Repo by URL',
+      'git' => 'Repository by URL',
       'gitlab_project' => 'GitLab export',
       'gitea' => 'Gitea',
-      'manifest' => 'Manifest file',
-      'phabricator' => 'Phabricator'
+      'manifest' => 'Manifest file'
     }
 
     import_sources.each do |name, title|
@@ -108,7 +94,7 @@ RSpec.describe Gitlab::ImportSources do
   end
 
   describe 'imports_repository? checker' do
-    let(:allowed_importers) { %w[github gitlab_project bitbucket_server phabricator] }
+    let(:allowed_importers) { %w[github gitlab_project bitbucket bitbucket_server] }
 
     it 'fails if any importer other than the allowed ones implements this method' do
       current_importers = described_class.values.select { |kind| described_class.importer(kind).try(:imports_repository?) }

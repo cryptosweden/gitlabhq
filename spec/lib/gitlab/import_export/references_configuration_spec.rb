@@ -6,10 +6,10 @@ require 'spec_helper'
 # Checks whether there are new reference attributes ending with _id in models that are currently being exported as part of the
 # project Import/Export feature.
 # If there are new references (foreign keys), these will have to either be replaced with actual relation
-# or to be blacklisted by using the import_export.yml configuration file.
+# or to be denylisted by using the import_export.yml configuration file.
 # Likewise, new models added to import_export.yml, will need to be added with their correspondent relations
 # to this spec.
-RSpec.describe 'Import/Export Project configuration' do
+RSpec.describe 'Import/Export Project configuration', feature_category: :importers do
   include ConfigurationHelper
 
   where(:relation_path, :relation_name) do
@@ -24,7 +24,7 @@ RSpec.describe 'Import/Export Project configuration' do
     context "where relation #{params[:relation_path]}" do
       it 'does not have prohibited keys' do
         relation_class = relation_class_for_name(relation_name)
-        relation_attributes = relation_class.new.attributes.keys - relation_class.encrypted_attributes.keys.map(&:to_s)
+        relation_attributes = relation_class.new.attributes.keys - relation_class.attr_encrypted_attributes.keys.map(&:to_s)
         current_attributes = parsed_attributes(relation_name, relation_attributes)
         prohibited_keys = current_attributes.select do |attribute|
           prohibited_key?(attribute) || !relation_class.attribute_method?(attribute)

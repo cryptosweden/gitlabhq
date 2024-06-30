@@ -4,19 +4,21 @@ class GrafanaIntegration < ApplicationRecord
   belongs_to :project
 
   attr_encrypted :token,
-    mode:      :per_attribute_iv,
+    mode: :per_attribute_iv,
     algorithm: 'aes-256-gcm',
-    key:       Settings.attr_encrypted_db_key_base_32
+    key: Settings.attr_encrypted_db_key_base_32
 
   before_validation :check_token_changes
 
   validates :grafana_url,
-            length: { maximum: 1024 },
-            addressable_url: { enforce_sanitization: true, ascii_only: true }
+    length: { maximum: 1024 },
+    addressable_url: { enforce_sanitization: true, ascii_only: true }
 
   validates :encrypted_token, :project, presence: true
 
   validates :enabled, inclusion: { in: [true, false] }
+
+  before_validation :reset_token
 
   scope :enabled, -> { where(enabled: true) }
 
@@ -36,8 +38,14 @@ class GrafanaIntegration < ApplicationRecord
 
   private
 
+  def reset_token
+    if grafana_url_changed? && !encrypted_token_changed?
+      self.token = nil
+    end
+  end
+
   def token
-    decrypt(:token, encrypted_token)
+    attr_decrypt(:token, encrypted_token)
   end
 
   def check_token_changes

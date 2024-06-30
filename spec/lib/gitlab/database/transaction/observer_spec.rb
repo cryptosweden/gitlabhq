@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::Transaction::Observer do
+RSpec.describe Gitlab::Database::Transaction::Observer, feature_category: :database do
   # Use the delete DB strategy so that the test won't be wrapped in a transaction
   describe '.instrument_transactions', :delete do
     let(:transaction_context) { ActiveRecord::Base.connection.transaction_manager.transaction_context }
@@ -21,11 +21,13 @@ RSpec.describe Gitlab::Database::Transaction::Observer do
 
     it 'tracks transaction data', :aggregate_failures do
       ActiveRecord::Base.transaction do
+        User.first
+
         ActiveRecord::Base.transaction(requires_new: true) do
           User.first
 
           expect(transaction_context).to be_a(::Gitlab::Database::Transaction::Context)
-          expect(context.keys).to match_array(%i(start_time depth savepoints queries backtraces external_http_count_start external_http_duration_start))
+          expect(context.keys).to match_array(%i[start_time depth savepoints queries backtraces external_http_count_start external_http_duration_start])
           expect(context[:depth]).to eq(2)
           expect(context[:savepoints]).to eq(1)
           expect(context[:queries].length).to eq(1)

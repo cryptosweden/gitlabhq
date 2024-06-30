@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::ForksController do
+RSpec.describe Projects::ForksController, feature_category: :source_code_management do
   let(:user) { create(:user) }
   let(:project) { create(:project, :public, :repository) }
-  let(:forked_project) { Projects::ForkService.new(project, user, name: 'Some name').execute }
+  let(:forked_project) { Projects::ForkService.new(project, user, name: 'Some name').execute[:project] }
   let(:group) { create(:group) }
 
   before do
@@ -168,12 +168,7 @@ RSpec.describe Projects::ForksController do
     let(:format) { :html }
 
     subject(:do_request) do
-      get :new,
-          format: format,
-          params: {
-            namespace_id: project.namespace,
-            project_id: project
-          }
+      get :new, format: format, params: { namespace_id: project.namespace, project_id: project }
     end
 
     context 'when user is signed in' do
@@ -273,6 +268,34 @@ RSpec.describe Projects::ForksController do
           subject
 
           expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when fork already exists' do
+        before do
+          forked_project
+        end
+
+        it 'responds with status 302' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:found)
+          expect(response).to redirect_to(namespace_project_import_path(user.namespace, project))
+        end
+      end
+
+      context 'when fork process fails' do
+        before do
+          allow_next_instance_of(Projects::ForkService) do |instance|
+            allow(instance).to receive(:execute).and_return(ServiceResponse.error(message: 'Error'))
+          end
+        end
+
+        it 'responds with an error page' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template(:error)
         end
       end
 

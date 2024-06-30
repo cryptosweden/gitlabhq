@@ -21,8 +21,8 @@ module Gitlab
 
         def deactivated
           ephemeral_response(text: <<~MESSAGE)
-            You are not allowed to perform the given chatops command since
-            your account has been deactivated by your administrator.
+            You are not allowed to perform the given ChatOps command. Most likely
+            your #{Gitlab.config.gitlab.url} account needs to be reactivated.
 
             Please log back in from a web browser to reactivate your account at #{Gitlab.config.gitlab.url}
           MESSAGE
@@ -41,6 +41,17 @@ module Gitlab
             end
 
           ephemeral_response(text: message)
+        end
+
+        def confirm(url)
+          text = [
+            _("To ensure the highest security standards, we verify the source of all slash commands."),
+            Kernel.format(_("Please confirm the request by accessing %{url} through a web browser."),
+              url: "<#{url}|this link>"),
+            _("Upon successful validation, you're granted access to slash commands.")
+          ].join("\n\n")
+
+          ephemeral_response(text: text)
         end
       end
     end

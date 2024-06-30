@@ -1,8 +1,8 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlAlert } from '@gitlab/ui';
-import $ from 'jquery';
-import Autosave from '~/autosave';
-import { IssuableType } from '~/issues/constants';
+import { getDraft, updateDraft, getLockVersion, clearDraft } from '~/lib/utils/autosave';
+import { TYPE_INCIDENT, TYPE_ISSUE } from '~/issues/constants';
 import eventHub from '../event_hub';
 import EditActions from './edit_actions.vue';
 import DescriptionField from './fields/description.vue';
@@ -22,10 +22,6 @@ export default {
     LockedWarning,
   },
   props: {
-    canDestroy: {
-      type: Boolean,
-      required: true,
-    },
     endpoint: {
       type: String,
       required: true,
@@ -63,11 +59,6 @@ export default {
       type: String,
       required: true,
     },
-    showDeleteButton: {
-      type: Boolean,
-      required: false,
-      default: true,
-    },
     canAttachFile: {
       type: Boolean,
       required: false,
@@ -85,7 +76,18 @@ export default {
     },
   },
   data() {
+    const autosaveKey = [document.location.pathname, document.location.search];
+    const descriptionAutosaveKey = [...autosaveKey, 'description'];
+    const titleAutosaveKey = [...autosaveKey, 'title'];
+
     return {
+      titleAutosaveKey,
+      descriptionAutosaveKey,
+      autosaveReset: false,
+      formData: {
+        title: getDraft(titleAutosaveKey) || this.formState.title,
+        description: getDraft(descriptionAutosaveKey) || this.formState.description,
+      },
       showOutdatedDescriptionWarning: false,
     };
   },
@@ -96,8 +98,16 @@ export default {
     showLockedWarning() {
       return this.formState.lockedWarningVisible && !this.formState.updateLoading;
     },
-    isIssueType() {
-      return this.issuableType === IssuableType.Issue;
+    showTypeField() {
+      return [TYPE_INCIDENT, TYPE_ISSUE].includes(this.issuableType);
+    },
+  },
+  watch: {
+    formData: {
+      handler(value) {
+        this.$emit('updateForm', value);
+      },
+      deep: true,
     },
   },
   created() {
@@ -115,65 +125,47 @@ export default {
   },
   methods: {
     initAutosave() {
-      const {
-        description: {
-          $refs: { textarea },
-        },
-        title: {
-          $refs: { input },
-        },
-      } = this.$refs;
-
-      this.autosaveDescription = new Autosave(
-        $(textarea),
-        [document.location.pathname, document.location.search, 'description'],
-        null,
-        this.formState.lock_version,
-      );
-
-      const savedLockVersion = this.autosaveDescription.getSavedLockVersion();
+      const savedLockVersion = getLockVersion(this.descriptionAutosaveKey);
 
       this.showOutdatedDescriptionWarning =
         savedLockVersion && String(this.formState.lock_version) !== savedLockVersion;
-
-      this.autosaveTitle = new Autosave($(input), [
-        document.location.pathname,
-        document.location.search,
-        'title',
-      ]);
     },
     resetAutosave() {
-      this.autosaveDescription.reset();
-      this.autosaveTitle.reset();
+      this.autosaveReset = true;
+      clearDraft(this.descriptionAutosaveKey);
+      clearDraft(this.titleAutosaveKey);
     },
     keepAutosave() {
-      const {
-        description: {
-          $refs: { textarea },
-        },
-      } = this.$refs;
-
-      textarea.focus();
+      this.$refs.description.focus();
       this.showOutdatedDescriptionWarning = false;
     },
     discardAutosave() {
-      const {
-        description: {
-          $refs: { textarea },
-        },
-      } = this.$refs;
-
-      textarea.value = this.initialDescriptionText;
-      textarea.focus();
+      this.formData.description = this.initialDescriptionText;
+      clearDraft(this.descriptionAutosaveKey);
+      this.$refs.description.focus();
       this.showOutdatedDescriptionWarning = false;
+    },
+    updateTitleDraft(title) {
+      updateDraft(this.titleAutosaveKey, title);
+    },
+    updateDescriptionDraft(description) {
+      /*
+       * This conditional statement prevents a race-condition
+       * between clearing the draft and submitting a new draft
+       * update while the user is typing. It happens when saving
+       * using the cmd + enter keyboard shortcut.
+       */
+      if (!this.autosaveReset) {
+        updateDraft(this.descriptionAutosaveKey, description, this.formState.lock_version);
+      }
     },
   },
 };
 </script>
 
 <template>
-  <form data-testid="issuable-form">
-    <locked-warning v-if="showLockedWarning" />
+  <form data-testid="issuable-form" class="gl-mt-1">
+    <locked-warning v-if="showLockedWarning" :issuable-type="issuableType" />
     <gl-alert
       v-if="showOutdatedDescriptionWarning"
       class="gl-mb-5"
@@ -191,16 +183,17 @@ export default {
     >
     <div class="row gl-mb-3">
       <div class="col-12">
-        <issuable-title-field ref="title" :form-state="formState" />
+        <issuable-title-field ref="title" v-model="formData.title" @input="updateTitleDraft" />
       </div>
     </div>
-    <div class="row">
-      <div v-if="isIssueType" class="col-12 col-md-4 pr-md-0">
+    <div class="row gl-gap-3">
+      <div v-if="showTypeField" class="col-12 col-md-4 pr-md-0">
         <issuable-type-field ref="issue-type" />
       </div>
-      <div v-if="hasIssuableTemplates" class="col-12 col-md-4 pl-md-2">
+
+      <div v-if="hasIssuableTemplates" class="col-12 col-md-4 gl-md-pl-0 gl-md-pr-0">
         <description-template-field
-          :form-state="formState"
+          v-model="formData.description"
           :issuable-templates="issuableTemplates"
           :project-path="projectPath"
           :project-id="projectId"
@@ -208,20 +201,17 @@ export default {
         />
       </div>
     </div>
+
     <description-field
       ref="description"
-      :form-state="formState"
+      v-model="formData.description"
       :markdown-preview-path="markdownPreviewPath"
       :markdown-docs-path="markdownDocsPath"
       :can-attach-file="canAttachFile"
       :enable-autocomplete="enableAutocomplete"
+      @input="updateDescriptionDraft"
     />
-    <edit-actions
-      :endpoint="endpoint"
-      :form-state="formState"
-      :can-destroy="canDestroy"
-      :show-delete-button="showDeleteButton"
-      :issuable-type="issuableType"
-    />
+
+    <edit-actions :endpoint="endpoint" :form-state="formState" :issuable-type="issuableType" />
   </form>
 </template>

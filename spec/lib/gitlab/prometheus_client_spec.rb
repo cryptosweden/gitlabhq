@@ -104,7 +104,7 @@ RSpec.describe Gitlab::PrometheusClient do
   end
 
   describe 'failure to reach a provided prometheus url' do
-    let(:prometheus_url) {"https://prometheus.invalid.example.com/api/v1/query?query=1"}
+    let(:prometheus_url) { "https://prometheus.invalid.example.com/api/v1/query?query=1" }
 
     shared_examples 'exceptions are raised' do
       Gitlab::HTTP::HTTP_ERRORS.each do |error|
@@ -175,17 +175,17 @@ RSpec.describe Gitlab::PrometheusClient do
     let(:query) { 'avg (metric) by (job)' }
     let(:prometheus_response) do
       {
-        "status": "success",
-        "data": {
-          "resultType": "vector",
-          "result": [
+        status: "success",
+        data: {
+          resultType: "vector",
+          result: [
             {
-              "metric": { "job" => "gitlab-rails" },
-              "value": [1488758662.506, "1"]
+              metric: { "job" => "gitlab-rails" },
+              value: [1488758662.506, "1"]
             },
             {
-              "metric": { "job" => "gitlab-sidekiq" },
-              "value": [1488758662.506, "2"]
+              metric: { "job" => "gitlab-sidekiq" },
+              value: [1488758662.506, "2"]
             }
           ]
         }
@@ -300,12 +300,13 @@ RSpec.describe Gitlab::PrometheusClient do
       it 'returns data from the API call' do
         req_stub = stub_prometheus_request(query_url, body: prometheus_values_body('matrix'))
 
-        expect(subject.query_range(prometheus_query)).to eq([
-          {
-            "metric" => {},
-            "values" => [[1488758662.506, "0.00002996364761904785"], [1488758722.506, "0.00003090239047619091"]]
-          }
-        ])
+        expect(subject.query_range(prometheus_query)).to eq(
+          [
+            {
+              "metric" => {},
+              "values" => [[1488758662.506, "0.00002996364761904785"], [1488758722.506, "0.00003090239047619091"]]
+            }
+          ])
         expect(req_stub).to have_been_requested
       end
     end
@@ -334,7 +335,7 @@ RSpec.describe Gitlab::PrometheusClient do
     where(:time_interval_in_seconds, :step) do
       0               | 60
       10.hours        | 60
-      10.hours + 1    | 61
+      (10.hours + 1) | 61
       # frontend options
       30.minutes      | 60
       3.hours         | 60

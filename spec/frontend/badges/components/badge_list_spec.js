@@ -1,81 +1,149 @@
-import Vue, { nextTick } from 'vue';
-import { mountComponentWithStore } from 'helpers/vue_mount_component_helper';
-import BadgeList from '~/badges/components/badge_list.vue';
+import { GlTable, GlButton } from '@gitlab/ui';
+import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
+import Vuex from 'vuex';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { GROUP_BADGE, PROJECT_BADGE } from '~/badges/constants';
-import store from '~/badges/store';
+import createState from '~/badges/store/state';
+import mutations from '~/badges/store/mutations';
+import actions from '~/badges/store/actions';
+import BadgeList from '~/badges/components/badge_list.vue';
 import { createDummyBadge } from '../dummy_badge';
 
+Vue.use(Vuex);
+
+const numberOfDummyBadges = 3;
+const badges = Array.from({ length: numberOfDummyBadges }).map((_, idx) => ({
+  ...createDummyBadge(),
+  id: idx,
+}));
+
 describe('BadgeList component', () => {
-  const Component = Vue.extend(BadgeList);
-  const numberOfDummyBadges = 3;
-  let vm;
+  let wrapper;
+  let mockedActions;
 
-  beforeEach(() => {
-    setFixtures('<div id="dummy-element"></div>');
-    const badges = [];
-    for (let id = 0; id < numberOfDummyBadges; id += 1) {
-      badges.push({ id, ...createDummyBadge() });
-    }
-    store.replaceState({
-      ...store.state,
-      badges,
-      kind: PROJECT_BADGE,
-      isLoading: false,
+  const findTable = () => wrapper.findComponent(GlTable);
+  const findTableRow = (pos) => findTable().find('tbody').findAll('tr').at(pos);
+  const findButtons = () => wrapper.findByTestId('badge-actions').findAllComponents(GlButton);
+  const findEditButton = () => wrapper.findByTestId('edit-badge-button');
+  const findDeleteButton = () => wrapper.findByTestId('delete-badge');
+
+  const createComponent = (customState) => {
+    mockedActions = Object.fromEntries(Object.keys(actions).map((name) => [name, jest.fn()]));
+
+    const store = new Vuex.Store({
+      state: {
+        ...createState(),
+        isLoading: false,
+        ...customState,
+      },
+      mutations,
+      actions: mockedActions,
     });
 
-    // Can be removed once GlLoadingIcon no longer throws a warning
-    jest.spyOn(global.console, 'warn').mockImplementation(() => jest.fn());
-
-    vm = mountComponentWithStore(Component, {
-      el: '#dummy-element',
+    wrapper = mountExtended(BadgeList, {
       store,
+      stubs: {
+        GlTable,
+        GlButton,
+      },
     });
-  });
+  };
 
-  afterEach(() => {
-    vm.$destroy();
-  });
+  describe('for project badges', () => {
+    it('renders a row for each badge', () => {
+      createComponent({
+        kind: PROJECT_BADGE,
+        badges,
+      });
 
-  it('renders a header with the badge count', () => {
-    const header = vm.$el.querySelector('.card-header');
+      const rows = findTable().find('tbody').findAll('tr');
 
-    expect(header).toHaveText(new RegExp(`Your badges\\s+${numberOfDummyBadges}`));
-  });
+      expect(rows).toHaveLength(numberOfDummyBadges);
+    });
 
-  it('renders a row for each badge', () => {
-    const rows = vm.$el.querySelectorAll('.gl-responsive-table-row');
+    it('renders a message if no badges exist', () => {
+      createComponent({
+        kind: PROJECT_BADGE,
+        badges: [],
+      });
 
-    expect(rows).toHaveLength(numberOfDummyBadges);
-  });
+      expect(wrapper.text()).toMatch('This project has no badges');
+    });
 
-  it('renders a message if no badges exist', async () => {
-    store.state.badges = [];
+    it('shows a loading icon when loading', () => {
+      createComponent({ isLoading: true });
 
-    await nextTick();
-    expect(vm.$el.innerText).toMatch('This project has no badges');
-  });
+      const loadingIcon = wrapper.find('.gl-spinner');
 
-  it('shows a loading icon when loading', async () => {
-    store.state.isLoading = true;
-
-    await nextTick();
-    const loadingIcon = vm.$el.querySelector('.gl-spinner');
-
-    expect(loadingIcon).toBeVisible();
+      expect(loadingIcon.isVisible()).toBe(true);
+    });
   });
 
   describe('for group badges', () => {
-    beforeEach(async () => {
-      store.state.kind = GROUP_BADGE;
+    it('renders a message if no badges exist', () => {
+      createComponent({
+        kind: GROUP_BADGE,
+        badges: [],
+      });
 
-      await nextTick();
+      expect(wrapper.text()).toMatch('This group has no badges');
+    });
+  });
+
+  describe('BadgeList item', () => {
+    beforeEach(() => {
+      createComponent({
+        kind: PROJECT_BADGE,
+        badges,
+      });
     });
 
-    it('renders a message if no badges exist', async () => {
-      store.state.badges = [];
+    it('renders the badge', () => {
+      const badgeImage = wrapper.find('.project-badge');
 
-      await nextTick();
-      expect(vm.$el.innerText).toMatch('This group has no badges');
+      expect(badgeImage.exists()).toBe(true);
+      expect(badgeImage.attributes('src')).toBe(badges[0].renderedImageUrl);
+    });
+
+    it('renders the badge name', () => {
+      const badgeCell = findTableRow(0).findAll('td').at(0);
+
+      expect(badgeCell.text()).toMatch(badges[0].name);
+    });
+
+    it('renders the badge link', () => {
+      expect(wrapper.text()).toMatch(badges[0].linkUrl);
+    });
+
+    it('renders the badge kind', () => {
+      expect(wrapper.text()).toMatch('Project Badge');
+    });
+
+    it('shows edit and delete buttons', () => {
+      expect(findButtons()).toHaveLength(2);
+
+      const editButton = findEditButton();
+
+      expect(editButton.isVisible()).toBe(true);
+      expect(editButton.element).toHaveSpriteIcon('pencil');
+
+      const deleteButton = findDeleteButton();
+
+      expect(deleteButton.isVisible()).toBe(true);
+      expect(deleteButton.element).toHaveSpriteIcon('remove');
+    });
+
+    it('calls editBadge when clicking then edit button', () => {
+      findEditButton().trigger('click');
+
+      expect(mockedActions.editBadge).toHaveBeenCalled();
+    });
+
+    it('calls updateBadgeInModal and shows modal when clicking then delete button', () => {
+      findDeleteButton().trigger('click');
+
+      expect(mockedActions.updateBadgeInModal).toHaveBeenCalled();
     });
   });
 });

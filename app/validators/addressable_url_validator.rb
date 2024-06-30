@@ -31,6 +31,8 @@
 # * <tt>allow_blank</tt> - Allow urls to be +blank+. Default: +false+
 # * <tt>allow_nil</tt> - Allow urls to be +nil+. Default: +false+
 # * <tt>ports</tt> - Allowed ports. Default: +all+.
+# * <tt>deny_all_requests_except_allowed</tt> - Deny all requests. Default: Respects the instance app setting.
+#                                               Note: Regardless of whether enforced during validation, an HTTP request that uses the URI may still be blocked.
 # * <tt>enforce_user</tt> - Validate user format. Default: +false+
 # * <tt>enforce_sanitization</tt> - Validate that there are no html/css/js tags. Default: +false+
 #
@@ -43,20 +45,24 @@
 class AddressableUrlValidator < ActiveModel::EachValidator
   attr_reader :record
 
+  DENY_ALL_REQUESTS_EXCEPT_ALLOWED_DEFAULT = proc { deny_all_requests_except_allowed? }.freeze
+
   # By default, we avoid checking the dns rebinding protection
   # when saving/updating a record. Sometimes, the url
   # is not resolvable at that point, and some automated
   # tasks that uses that url won't work.
   # See https://gitlab.com/gitlab-org/gitlab-foss/issues/66723
   BLOCKER_VALIDATE_OPTIONS = {
-    schemes: %w(http https),
+    schemes: %w[http https],
     ports: [],
     allow_localhost: true,
     allow_local_network: true,
     ascii_only: false,
+    deny_all_requests_except_allowed: DENY_ALL_REQUESTS_EXCEPT_ALLOWED_DEFAULT,
     enforce_user: false,
     enforce_sanitization: false,
-    dns_rebind_protection: false
+    dns_rebind_protection: false,
+    outbound_local_requests_allowlist: []
   }.freeze
 
   DEFAULT_OPTIONS = BLOCKER_VALIDATE_OPTIONS.merge({
@@ -80,8 +86,8 @@ class AddressableUrlValidator < ActiveModel::EachValidator
 
     value = strip_value!(record, attribute, value)
 
-    Gitlab::UrlBlocker.validate!(value, **blocker_args)
-  rescue Gitlab::UrlBlocker::BlockedUrlError => e
+    Gitlab::HTTP_V2::UrlBlocker.validate!(value, **blocker_args)
+  rescue Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError => e
     record.errors.add(attribute, options.fetch(:blocked_message) % { exception_message: e.message })
   end
 
@@ -105,6 +111,8 @@ class AddressableUrlValidator < ActiveModel::EachValidator
       if self.class.allow_setting_local_requests?
         args[:allow_localhost] = args[:allow_local_network] = true
       end
+
+      args[:outbound_local_requests_allowlist] = self.class.outbound_local_requests_allowlist
     end
   end
 
@@ -116,5 +124,13 @@ class AddressableUrlValidator < ActiveModel::EachValidator
     #
     # See https://gitlab.com/gitlab-org/gitlab/issues/9833
     ApplicationSetting.current&.allow_local_requests_from_web_hooks_and_services?
+  end
+
+  def self.deny_all_requests_except_allowed?
+    ApplicationSetting.current&.deny_all_requests_except_allowed?
+  end
+
+  def self.outbound_local_requests_allowlist
+    ApplicationSetting.current&.outbound_local_requests_whitelist || [] # rubocop:disable Naming/InclusiveLanguage -- existing setting
   end
 end

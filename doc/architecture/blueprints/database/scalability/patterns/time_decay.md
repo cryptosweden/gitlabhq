@@ -1,17 +1,14 @@
 ---
-stage: Enablement
+stage: Data Stores
 group: Database
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 description: 'Learn how to operate on large time-decay data'
 ---
 
 # Time-decay data
 
-[Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/326035) in GitLab 14.0.
-
 This document describes the *time-decay pattern* introduced in the
-[Database Scalability Working Group](https://about.gitlab.com/company/team/structure/working-groups/database-scalability/#time-decay-data).
+[Database Scalability Working Group](https://handbook.gitlab.com/handbook/company/working-groups/database-scalability/#time-decay-data).
 We discuss the characteristics of time-decay data, and propose best practices for GitLab development
 to consider in this context.
 
@@ -27,7 +24,7 @@ application.
 Let's first consider entities with no inherent time-related bias for their data.
 
 A record for a user or a project may be equally important and frequently accessed, irrelevant to when
-it was created. We can not predict by using a user's `id` or `created_at` how often the related
+it was created. We cannot predict by using a user's `id` or `created_at` how often the related
 record is accessed or updated.
 
 On the other hand, a good example for datasets with extreme time-decay effects are logs and time
@@ -71,7 +68,7 @@ The second and most important characteristic of time-decay data is that most of 
 able to implicitly or explicitly access the data using a date filter,
 **restricting our results based on a time-related dimension**.
 
-There can be many such dimensions, but we are only going to focus on the creation date as it is both
+There can be many such dimensions, but we focus only on the creation date as it is both
 the most commonly used, and the one that we can control and optimize against. It:
 
 - Is immutable.
@@ -91,7 +88,7 @@ a maximum of a month of events, restricted to 6 months in the past.
 ### Immutability
 
 The third characteristic of time-decay data is that their **time-decay status does not change**.
-Once they are considered "old", they can not switch back to "new" or relevant again.
+Once they are considered "old", they cannot switch back to "new" or relevant again.
 
 This definition may sound trivial, but we have to be able to make operations over "old" data **more**
 expensive (for example, by archiving or moving them to less expensive storage) without having to worry about
@@ -107,7 +104,7 @@ perspective, but that definition is volatile and not actionable.
 Finally, a characteristic that further differentiates time-decay data in sub-categories with
 slightly different approaches available is **whether we want to keep the old data or not**
 (for example, retention policy) and/or
-**whether old data will be accessible by users through the application**.
+**whether old data is accessible by users through the application**.
 
 #### (optional) Extended definition of time-decay data
 
@@ -133,8 +130,8 @@ You can find more information on table partitioning for PostgreSQL in the
 [documentation page for table partitioning](https://www.postgresql.org/docs/12/ddl-partitioning.html).
 
 Partitioning by date intervals (for example, month, year) allows us to create much smaller tables
-(partitions) for each date interval and only access the most recent partition(s) for any
-application related operation.
+(partitions) for each date interval and only access the most recent partitions for any
+application-related operation.
 
 We have to set the partitioning key based on the date interval of interest, which may depend on two
 factors:
@@ -148,13 +145,13 @@ factors:
    would include too many unnecessary records in each partition, as is the case for `web_hook_logs`.
 1. **How large are the partitions created?**
    The major purpose of partitioning is accessing tables that are as small as possible. If they get too
-   large by themselves, queries will start underperforming. We may have to re-partition (split) them
+   large by themselves, queries start underperforming. We may have to re-partition (split) them
    in even smaller partitions.
 
 The perfect partitioning scheme keeps **all queries over a dataset almost always over a single partition**,
 with some cases going over two partitions and seldom over multiple partitions being
 an acceptable balance. We should also target for **partitions that are as small as possible**, below
-5-10M records and/or 10GB each maximum.
+5-10M records and/or 10 GB each maximum.
 
 Partitioning can be combined with other strategies to either prune (drop) old partitions, move them
 to cheaper storage inside the database or move them outside of the database (archive or use of other
@@ -194,7 +191,7 @@ The disadvantage of such a solution over large, non-partitioned tables is that w
 access and delete all the records that are considered as not relevant any more. That is a very
 expensive operation, due to multi-version concurrency control in PostgreSQL. It also leads to the
 pruning worker not being able to catch up with new records being created, if that rate exceeds a
-threshold, as is the case of [web_hook_logs](https://gitlab.com/gitlab-org/gitlab/-/issues/256088)
+threshold, as is the case of [`web_hook_logs`](https://gitlab.com/gitlab-org/gitlab/-/issues/256088)
 at the time of writing this document.
 
 For the aforementioned reasons, our proposal is that
@@ -214,7 +211,7 @@ offloading metadata but only for the case of old data.
 In the simplest use case we can provide fast and direct access to recent data, while allowing users
 to download an archive with older data. This is an option evaluated in the `audit_events` use case.
 Depending on the country and industry, audit events may have a very long retention period, while
-only the past month(s) of data are actively accessed through GitLab interface.
+only the past months of data are actively accessed through GitLab interface.
 
 Additional use cases may include exporting data to a data warehouse or other types of data stores as
 they may be better suited for processing that type of data. An example can be JSON logs that we
@@ -241,7 +238,7 @@ Related epic: [Partitioning: `web_hook_logs` table](https://gitlab.com/groups/gi
 The important characteristics of `web_hook_logs` are the following:
 
 1. Size of the dataset: it is a really large table. At the moment we decided to
-   partition it (`2021-03-01`), it had roughly 527M records and a total size of roughly 1TB
+   partition it (`2021-03-01`), it had roughly 527M records and a total size of roughly 1 TB
 
    - Table: `web_hook_logs`
    - Rows: approximately 527M
@@ -261,7 +258,7 @@ As a result, on March 2021 there were still not deleted records since July 2020 
 increasing in size by more than 2 million records per day instead of staying at a more or less
 stable size.
 
-Finally, the rate of inserts has grown to more than 170GB of data per month by March 2021 and keeps
+Finally, the rate of inserts has grown to more than 170 GB of data per month by March 2021 and keeps
 on growing, so the only viable solution to pruning old data was through partitioning.
 
 Our approach was to partition the table per month as it aligned with the 90 days retention policy.
@@ -315,7 +312,7 @@ The process required follows:
 1. After the non-partitioned table is dropped, we can add a worker to implement the
    pruning strategy by dropping past partitions.
 
-   In this case, the worker will make sure that only 4 partitions are always active (as the
+   In this case, the worker makes sure that only 4 partitions are always active (as the
    retention policy is 90 days) and drop any partitions older than four months. We have to keep 4
    months of partitions while the current month is still active, as going 90 days back takes you to
    the fourth oldest partition.
@@ -325,7 +322,7 @@ The process required follows:
 Related epic: [Partitioning: Design and implement partitioning strategy for Audit Events](https://gitlab.com/groups/gitlab-org/-/epics/3206)
 
 The `audit_events` table shares a lot of characteristics with the `web_hook_logs` table discussed
-in the previous sub-section, so we are going to focus on the points they differ.
+in the previous sub-section, so we focus on the points they differ.
 
 The consensus was that
 [partitioning could solve most of the performance issues](https://gitlab.com/groups/gitlab-org/-/epics/3206#note_338157248).

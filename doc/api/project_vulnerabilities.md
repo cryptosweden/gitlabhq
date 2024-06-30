@@ -1,22 +1,29 @@
 ---
-stage: Create
-group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
-type: reference, api
+stage: Govern
+group: Threat Insights
+info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
 ---
 
-# Project Vulnerabilities API **(ULTIMATE)**
+# Project vulnerabilities API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/10242) in GitLab 12.6.
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - `last_edited_at` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
+> - `start_date` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
+> - `updated_by_id` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
+> - `last_edited_by_id` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
+> - `due_date` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
 
 WARNING:
 This API is in the process of being deprecated and considered unstable.
 The response payload may be subject to change or breakage
-across GitLab releases. Please use the
+across GitLab releases. Use the
 [GraphQL API](graphql/reference/index.md#queryvulnerabilities)
 instead.
 
-Every API call to vulnerabilities must be [authenticated](index.md#authentication).
+Every API call to vulnerabilities must be [authenticated](rest/index.md#authentication).
 
 Vulnerability permissions inherit permissions from their project. If a project is
 private, and a user isn't a member of the project to which the vulnerability
@@ -26,7 +33,7 @@ belongs, requests to that project returns a `404 Not Found` status code.
 
 API results are paginated, and `GET` requests return 20 results at a time by default.
 
-Read more on [pagination](index.md#pagination).
+Read more on [pagination](rest/index.md#pagination).
 
 ## List project vulnerabilities
 
@@ -42,7 +49,7 @@ GET /projects/:id/vulnerabilities
 
 | Attribute     | Type           | Required | Description                                                                                                                                                                 |
 | ------------- | -------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `id`          | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user.                                                            |
+| `id`          | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user.                                                            |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/4/vulnerabilities"
@@ -59,7 +66,6 @@ Example response:
         "description": null,
         "dismissed_at": null,
         "dismissed_by_id": null,
-        "due_date": null,
         "finding": {
             "confidence": "medium",
             "created_at": "2020-04-07T14:01:04.630Z",
@@ -79,8 +85,6 @@ Example response:
             "vulnerability_id": 103
         },
         "id": 103,
-        "last_edited_at": null,
-        "last_edited_by_id": null,
         "project": {
             "created_at": "2020-04-07T13:54:25.634Z",
             "description": "",
@@ -90,17 +94,15 @@ Example response:
             "path": "security-reports",
             "path_with_namespace": "gitlab-org/security-reports"
         },
-        "project_default_branch": "master",
+        "project_default_branch": "main",
         "report_type": "dependency_scanning",
         "resolved_at": null,
         "resolved_by_id": null,
         "resolved_on_default_branch": false,
         "severity": "low",
-        "start_date": null,
         "state": "detected",
         "title": "Regular Expression Denial of Service in debug",
-        "updated_at": "2020-04-07T14:01:04.655Z",
-        "updated_by_id": null
+        "updated_at": "2020-04-07T14:01:04.655Z"
     }
 ]
 ```
@@ -119,7 +121,7 @@ POST /projects/:id/vulnerabilities?finding_id=<your_finding_id>
 
 | Attribute           | Type              | Required   | Description                                                                                                                  |
 | ------------------- | ----------------- | ---------- | -----------------------------------------------------------------------------------------------------------------------------|
-| `id`                | integer or string | yes        | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) which the authenticated user is a member of  |
+| `id`                | integer or string | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) which the authenticated user is a member of  |
 | `finding_id`        | integer or string | yes        | The ID of a Vulnerability Finding to create the new Vulnerability from |
 
 The other attributes of a newly created Vulnerability are populated from
@@ -147,7 +149,6 @@ Example response:
     "description": null,
     "dismissed_at": null,
     "dismissed_by_id": null,
-    "due_date": null,
     "finding": {
         "confidence": "medium",
         "created_at": "2020-04-07T14:01:04.630Z",
@@ -167,8 +168,6 @@ Example response:
         "vulnerability_id": 103
     },
     "id": 103,
-    "last_edited_at": null,
-    "last_edited_by_id": null,
     "project": {
         "created_at": "2020-04-07T13:54:25.634Z",
         "description": "",
@@ -178,17 +177,15 @@ Example response:
         "path": "security-reports",
         "path_with_namespace": "gitlab-org/security-reports"
     },
-    "project_default_branch": "master",
+    "project_default_branch": "main",
     "report_type": "dependency_scanning",
     "resolved_at": null,
     "resolved_by_id": null,
     "resolved_on_default_branch": false,
     "severity": "low",
-    "start_date": null,
     "state": "detected",
     "title": "Regular Expression Denial of Service in debug",
-    "updated_at": "2020-04-07T14:01:04.655Z",
-    "updated_by_id": null
+    "updated_at": "2020-04-07T14:01:04.655Z"
 }
 ```
 

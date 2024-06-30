@@ -31,7 +31,7 @@ RSpec.describe Limitable do
     it 'triggers scoped validations' do
       instance = MinimalTestClass.new
 
-      expect(instance).to receive(:validate_scoped_plan_limit_not_exceeded)
+      expect(instance).to receive(:scoped_plan_limits)
 
       instance.valid?(:create)
     end
@@ -59,7 +59,6 @@ RSpec.describe Limitable do
 
           stub_feature_flags("#{limit_feature_flag}": limit_feature_flag_value ? [instance.project] : false) if limit_feature_flag
           stub_feature_flags("#{limit_feature_flag_for_override}": limit_feature_flag_override_value ? [instance.project] : false) if limit_feature_flag_for_override
-          skip_feature_flags_yaml_validation
           skip_default_enabled_yaml_check
 
           MinimalTestClass.limit_relation = :custom_relation
@@ -94,7 +93,7 @@ RSpec.describe Limitable do
     it 'triggers scoped validations' do
       instance = MinimalTestClass.new
 
-      expect(instance).to receive(:validate_global_plan_limit_not_exceeded)
+      expect(instance).to receive(:global_plan_limits)
 
       instance.valid?(:create)
     end

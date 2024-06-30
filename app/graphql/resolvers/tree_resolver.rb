@@ -7,24 +7,28 @@ module Resolvers
     calls_gitaly!
 
     argument :path, GraphQL::Types::String,
-              required: false,
-              default_value: '',
-              description: 'Path to get the tree for. Default value is the root of the repository.'
+      required: false,
+      default_value: '',
+      description: 'Path to get the tree for. Default value is the root of the repository.'
     argument :recursive, GraphQL::Types::Boolean,
-              required: false,
-              default_value: false,
-              description: 'Used to get a recursive tree. Default is false.'
+      required: false,
+      default_value: false,
+      description: 'Used to get a recursive tree. Default is false.'
     argument :ref, GraphQL::Types::String,
-              required: false,
-              default_value: :head,
-              description: 'Commit ref to get the tree for. Default value is HEAD.'
+      required: false,
+      description: 'Commit ref to get the tree for. Default value is HEAD.'
+    argument :ref_type, Types::RefTypeEnum,
+      required: false,
+      description: 'Type of ref.'
 
     alias_method :repository, :object
 
     def resolve(**args)
       return unless repository.exists?
 
-      repository.tree(args[:ref], args[:path], recursive: args[:recursive])
+      ref = (args[:ref].presence || :head)
+
+      repository.tree(ref, args[:path], recursive: args[:recursive], ref_type: args[:ref_type])
     end
   end
 end

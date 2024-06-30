@@ -1,6 +1,7 @@
 <script>
-import { GlSearchBoxByType } from '@gitlab/ui';
-import { uniq, escapeRegExp } from 'lodash';
+import { GlEmptyState, GlSearchBoxByType } from '@gitlab/ui';
+import EmptyStateSvg from '@gitlab/svgs/dist/illustrations/empty-state/empty-search-md.svg';
+import { escapeRegExp } from 'lodash';
 import {
   EXCLUDED_NODES,
   HIDE_CLASS,
@@ -60,41 +61,44 @@ const hideSectionsExcept = (sectionSelector, visibleSections) => {
     });
 };
 
-const transformMatchElement = (element, searchTerm) => {
-  const textStr = element.textContent;
+const highlightTextNode = (textNode, searchTerm) => {
   const escapedSearchTerm = new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi');
+  const textList = textNode.data.split(escapedSearchTerm);
 
-  const textList = textStr.split(escapedSearchTerm);
-  const replaceFragment = document.createDocumentFragment();
-  textList.forEach((text) => {
-    let addElement = document.createTextNode(text);
+  return textList.reduce((documentFragment, text) => {
+    let addElement;
+
     if (escapedSearchTerm.test(text)) {
       addElement = document.createElement('mark');
       addElement.className = `${HIGHLIGHT_CLASS} ${NONE_PADDING_CLASS}`;
       addElement.textContent = text;
       escapedSearchTerm.lastIndex = 0;
+    } else {
+      addElement = document.createTextNode(text);
     }
-    replaceFragment.appendChild(addElement);
-  });
 
-  return replaceFragment;
+    documentFragment.appendChild(addElement);
+    return documentFragment;
+  }, document.createDocumentFragment());
 };
 
-const highlightElements = (elements = [], searchTerm) => {
-  elements.forEach((element) => {
-    const replaceFragment = transformMatchElement(element, searchTerm);
-    element.innerHTML = '';
-    element.appendChild(replaceFragment);
+const highlightText = (textNodes = [], searchTerm) => {
+  textNodes.forEach((textNode) => {
+    const fragmentWithHighlights = highlightTextNode(textNode, searchTerm);
+    textNode.parentElement.replaceChild(fragmentWithHighlights, textNode);
   });
 };
 
-const displayResults = ({ sectionSelector, expandSection, searchTerm }, matches) => {
-  const elements = matches.map((match) => match.parentElement);
-  const sections = uniq(elements.map((element) => findSettingsSection(sectionSelector, element)));
+const displayResults = ({ sectionSelector, expandSection, searchTerm }, matchingTextNodes) => {
+  const sections = Array.from(
+    new Set(matchingTextNodes.map((node) => findSettingsSection(sectionSelector, node))),
+  );
 
   hideSectionsExcept(sectionSelector, sections);
   sections.forEach(expandSection);
-  highlightElements(elements, searchTerm);
+  highlightText(matchingTextNodes, searchTerm);
+
+  return sections.length > 0;
 };
 
 const clearResults = (params) => {
@@ -114,17 +118,18 @@ const search = (root, searchTerm) => {
         : NodeFilter.FILTER_REJECT;
     },
   });
-  const results = [];
+  const textNodes = [];
 
   for (let currentNode = iterator.nextNode(); currentNode; currentNode = iterator.nextNode()) {
-    results.push(currentNode);
+    textNodes.push(currentNode);
   }
 
-  return results;
+  return textNodes;
 };
 
 export default {
   components: {
+    GlEmptyState,
     GlSearchBoxByType,
   },
   props: {
@@ -136,6 +141,11 @@ export default {
       type: String,
       required: true,
     },
+    hideWhenEmptySelector: {
+      type: String,
+      required: true,
+      default: null,
+    },
     isExpandedFn: {
       type: Function,
       required: false,
@@ -146,7 +156,15 @@ export default {
   data() {
     return {
       searchTerm: '',
+      hasMatches: true,
     };
+  },
+  watch: {
+    hasMatches(newHasMatches) {
+      document.querySelectorAll(this.hideWhenEmptySelector).forEach((section) => {
+        section.classList.toggle(HIDE_CLASS, !newHasMatches);
+      });
+    },
   },
   methods: {
     search(value) {
@@ -160,11 +178,12 @@ export default {
       };
 
       clearResults(displayOptions);
+      this.hasMatches = true;
 
       if (value.length) {
         saveExpansionState(document.querySelectorAll(this.sectionSelector), displayOptions);
 
-        displayResults(displayOptions, search(this.searchRoot, this.searchTerm));
+        this.hasMatches = displayResults(displayOptions, search(this.searchRoot, this.searchTerm));
       } else {
         restoreExpansionState(displayOptions);
       }
@@ -177,13 +196,23 @@ export default {
     },
   },
   TYPING_DELAY,
+  EmptyStateSvg,
 };
 </script>
 <template>
-  <gl-search-box-by-type
-    :value="searchTerm"
-    :debounce="$options.TYPING_DELAY"
-    :placeholder="__('Search settings')"
-    @input="search"
-  />
+  <div>
+    <gl-search-box-by-type
+      :value="searchTerm"
+      :debounce="$options.TYPING_DELAY"
+      :placeholder="__('Search page')"
+      @input="search"
+    />
+
+    <gl-empty-state
+      v-if="!hasMatches"
+      :title="__('No results found')"
+      :description="__('Edit your search and try again')"
+      :svg-path="$options.EmptyStateSvg"
+    />
+  </div>
 </template>

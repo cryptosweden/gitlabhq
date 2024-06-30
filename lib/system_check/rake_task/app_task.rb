@@ -13,10 +13,13 @@ module SystemCheck
       def self.checks
         [
           SystemCheck::App::DatabaseConfigExistsCheck,
+          SystemCheck::App::TableTruncateCheck,
           SystemCheck::App::MigrationsAreUpCheck,
           SystemCheck::App::OrphanedGroupMembersCheck,
           SystemCheck::App::GitlabConfigExistsCheck,
           SystemCheck::App::GitlabConfigUpToDateCheck,
+          SystemCheck::App::GitlabCableConfigExistsCheck,
+          SystemCheck::App::GitlabResqueConfigExistsCheck,
           SystemCheck::App::LogWritableCheck,
           SystemCheck::App::TmpWritableCheck,
           SystemCheck::App::UploadsDirectoryExistsCheck,

@@ -22,15 +22,15 @@ const DATA_REFETCH_DELAY = 250;
 export default {
   i18n: {
     FETCH_USERS_ERROR: s__(
-      'AlertManagement|There was an error while updating the assignee(s) list. Please try again.',
+      'AlertManagement|There was an error while updating the assignees list. Please try again.',
     ),
     UPDATE_ALERT_ASSIGNEES_ERROR: s__(
-      'AlertManagement|There was an error while updating the assignee(s) of the alert. Please try again.',
+      'AlertManagement|There was an error while updating the assignees of the alert. Please try again.',
     ),
     UPDATE_ALERT_ASSIGNEES_GRAPHQL_ERROR: s__(
       'AlertManagement|This assignee cannot be assigned to this alert.',
     ),
-    ASSIGNEES_BLOCK: s__('AlertManagement|Alert assignee(s): %{assignees}'),
+    ASSIGNEES_BLOCK: s__('AlertManagement|Alert assignees: %{assignees}'),
   },
   components: {
     GlIcon,
@@ -193,7 +193,7 @@ export default {
 
 <template>
   <div
-    class="alert-assignees gl-py-5 gl-w-70p"
+    class="alert-assignees gl-py-5 gl-w-7/10"
     :class="{ 'gl-border-b-1 gl-border-b-solid gl-border-b-gray-100': !sidebarCollapsed }"
   >
     <template v-if="sidebarCollapsed">
@@ -217,7 +217,7 @@ export default {
 
     <div v-else>
       <p
-        class="gl-text-gray-900 gl-mb-2 gl-line-height-20 gl-display-flex gl-justify-content-space-between"
+        class="gl-text-gray-900 gl-mb-2 gl-leading-20 gl-display-flex gl-justify-content-space-between"
       >
         {{ __('Assignee') }}
         <gl-button
@@ -242,8 +242,8 @@ export default {
         @keydown.esc.native="hideDropdown"
         @hide="hideDropdown"
       >
-        <p class="gl-new-dropdown-header-top">
-          {{ __('Assign To') }}
+        <p class="gl-dropdown-header-top">
+          {{ __('Select assignees') }}
         </p>
         <gl-search-box-by-type v-model.trim="search" :placeholder="__('Search users')" />
         <div class="dropdown-content dropdown-body">
@@ -282,15 +282,9 @@ export default {
       class="hide-collapsed value gl-m-0"
       :class="{ 'no-value': !userName }"
     >
-      <div v-if="userName" class="gl-display-inline-flex gl-mt-2" data-testid="assigned-users">
+      <div v-if="userName" class="gl-inline-flex gl-mt-2" data-testid="assigned-users">
         <span class="gl-relative gl-mr-4">
-          <img
-            :alt="userName"
-            :src="userImg"
-            :width="32"
-            class="avatar avatar-inline gl-m-0 s32"
-            data-qa-selector="avatar_image"
-          />
+          <img :alt="userName" :src="userImg" :width="32" class="avatar avatar-inline gl-m-0 s32" />
         </span>
         <span class="gl-display-flex gl-flex-direction-column gl-overflow-hidden">
           <strong class="dropdown-menu-user-full-name">
@@ -299,12 +293,14 @@ export default {
           <span class="dropdown-menu-user-username">@{{ userName }}</span>
         </span>
       </div>
-      <span v-else class="gl-display-flex gl-align-items-center gl-line-height-normal">
+      <span v-else class="gl-display-flex gl-align-items-center gl-leading-normal">
         {{ __('None') }} -
         <gl-button
-          class="gl-ml-2"
+          class="gl-ml-2 !gl-text-inherit"
           href="#"
+          category="tertiary"
           variant="link"
+          size="small"
           data-testid="unassigned-users"
           @click="updateAlertAssignees(currentUser)"
         >

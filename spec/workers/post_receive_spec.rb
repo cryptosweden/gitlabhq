@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe PostReceive do
+RSpec.describe PostReceive, feature_category: :source_code_management do
   include AfterNextHelpers
 
   let(:changes) do
@@ -121,6 +121,17 @@ RSpec.describe PostReceive do
         expect(Git::ProcessRefChangesService).not_to receive(:new)
 
         expect(perform).to be false
+      end
+    end
+
+    context 'when identifier is for a deploy key' do
+      let(:deploy_key) { create(:deploy_key, user: project.first_owner) }
+      let!(:key_id) { deploy_key.shell_id }
+
+      it 'calls Git::ProcessRefChangesService' do
+        expect(Git::ProcessRefChangesService).to receive(:new).with(project, project.first_owner, kind_of(Hash)).and_call_original
+
+        perform
       end
     end
 
@@ -269,10 +280,10 @@ RSpec.describe PostReceive do
           perform
         end
 
-        it 'increments the usage data counter of pushes event' do
-          counter = Gitlab::UsageDataCounters::SourceCodeCounter
-
-          expect { perform }.to change { counter.read(:pushes) }.by(1)
+        it_behaves_like 'internal event tracking' do
+          let(:event) { 'source_code_pushed' }
+          let(:user) { project.first_owner }
+          subject(:perform_action) { perform }
         end
       end
     end
@@ -298,8 +309,8 @@ RSpec.describe PostReceive do
         expect do
           perform
           project.reload
-        end.to change(project, :last_activity_at)
-           .and change(project, :last_repository_updated_at)
+        end.to change { project.last_activity_at }
+           .and change { project.last_repository_updated_at }
       end
     end
 
@@ -354,7 +365,7 @@ RSpec.describe PostReceive do
 
   context 'webhook' do
     it 'fetches the correct project' do
-      expect(Project).to receive(:find_by).with(id: project.id)
+      expect(Project).to receive(:find_by).with({ id: project.id })
 
       perform
     end
@@ -379,7 +390,7 @@ RSpec.describe PostReceive do
 
     it 'enqueues a UpdateMergeRequestsWorker job' do
       allow(Project).to receive(:find_by).and_return(project)
-      expect_next(MergeRequests::PushedBranchesService).to receive(:execute).and_return(%w(tést))
+      expect_next(MergeRequests::PushedBranchesService).to receive(:execute).and_return(%w[tést])
 
       expect(UpdateMergeRequestsWorker).to receive(:perform_async).with(project.id, project.first_owner.id, any_args)
 
@@ -422,6 +433,12 @@ RSpec.describe PostReceive do
           it 'expires the status cache' do
             expect(snippet.repository).to receive(:empty?).at_least(:once).and_return(true)
             expect(snippet.repository).to receive(:expire_status_cache)
+
+            perform
+          end
+
+          it 'updates the snippet model updated_at' do
+            expect(snippet).to receive(:touch)
 
             perform
           end
@@ -473,16 +490,26 @@ RSpec.describe PostReceive do
     end
   end
 
-  describe 'processing design changes' do
-    let(:gl_repository) { "design-#{project.id}" }
+  describe '#process_design_management_repository_changes' do
+    let(:gl_repository) { "design-#{project.design_management_repository.id}" }
 
-    it 'does not do anything' do
-      worker = described_class.new
+    before do
+      project.create_design_management_repository
+      project.design_management_repository.repository.create_if_not_exists
+    end
 
-      expect(worker).not_to receive(:process_wiki_changes)
-      expect(worker).not_to receive(:process_project_changes)
+    it 'does not log an error' do
+      expect(Gitlab::GitLogger).not_to receive(:error)
+      expect(Gitlab::GitPostReceive).to receive(:new).and_call_original
+      expect_next(described_class).to receive(:process_design_management_repository_changes)
 
-      described_class.new.perform(gl_repository, key_id, base64_changes)
+      perform
+    end
+
+    it 'expires cache' do
+      expect_next(described_class).to receive(:expire_caches).with(anything, project.design_management_repository.repository)
+
+      perform
     end
 
     it_behaves_like 'an idempotent worker'

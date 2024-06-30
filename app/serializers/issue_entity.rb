@@ -3,11 +3,19 @@
 class IssueEntity < IssuableEntity
   include TimeTrackableEntity
 
+  format_with(:upcase) do |item|
+    item.try(:upcase)
+  end
+
+  format_with(:iso8601) do |item|
+    item.try(:iso8601)
+  end
+
   expose :state
   expose :milestone_id
   expose :updated_by_id
-  expose :created_at
-  expose :updated_at
+  expose :created_at, format_with: :iso8601
+  expose :updated_at, format_with: :iso8601
   expose :milestone, using: API::Entities::Milestone
   expose :labels, using: LabelEntity
   expose :lock_version
@@ -31,7 +39,7 @@ class IssueEntity < IssuableEntity
   end
 
   expose :web_url do |issue|
-    project_issue_path(issue.project, issue)
+    Gitlab::UrlBuilder.build(issue, only_path: true)
   end
 
   expose :current_user do
@@ -39,8 +47,16 @@ class IssueEntity < IssuableEntity
       can?(request.current_user, :create_note, issue)
     end
 
+    expose :can_create_confidential_note do |issue|
+      can?(request.current_user, :mark_note_as_internal, issue)
+    end
+
     expose :can_update do |issue|
       can?(request.current_user, :update_issue, issue)
+    end
+
+    expose :can_set_issue_metadata do |issue|
+      can?(request.current_user, :set_issue_metadata, issue)
     end
 
     expose :can_award_emoji do |issue|
@@ -56,25 +72,36 @@ class IssueEntity < IssuableEntity
     preview_markdown_path(issue.project, target_type: 'Issue', target_id: issue.iid)
   end
 
-  expose :confidential_issues_docs_path, if: -> (issue) { issue.confidential? } do |issue|
-    help_page_path('user/project/issues/confidential_issues.md')
+  expose :confidential_issues_docs_path, if: ->(issue) { issue.confidential? } do |issue|
+    help_page_path('user/project/issues/confidential_issues')
   end
 
-  expose :locked_discussion_docs_path, if: -> (issue) { issue.discussion_locked? } do |issue|
-    help_page_path('user/discussions/index.md', anchor: 'prevent-comments-by-locking-an-issue')
+  expose :locked_discussion_docs_path, if: ->(issue) { issue.discussion_locked? } do |issue|
+    help_page_path('user/discussions/index', anchor: 'prevent-comments-by-locking-an-issue')
   end
 
   expose :is_project_archived do |issue|
     issue.project.archived?
   end
 
-  expose :archived_project_docs_path, if: -> (issue) { issue.project.archived? } do |issue|
-    help_page_path('user/project/settings/index.md', anchor: 'archiving-a-project')
+  expose :archived_project_docs_path, if: ->(issue) { issue.project.archived? } do |issue|
+    help_page_path('user/project/settings/index', anchor: 'archive-a-project')
   end
 
   expose :issue_email_participants do |issue|
-    issue.issue_email_participants.map { |x| { email: x.email } }
+    presented_issue = issue.present(current_user: request.current_user)
+
+    presented_issue.issue_email_participants.map do |participant|
+      {
+        email: participant.email
+      }
+    end
   end
+
+  expose :issue_type,
+    as: :type,
+    format_with: :upcase,
+    documentation: { type: "String", desc: "One of #{::WorkItems::Type.base_types.keys.map(&:upcase)}" }
 end
 
 IssueEntity.prepend_mod_with('IssueEntity')

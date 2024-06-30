@@ -6,13 +6,13 @@ def match_mr1_note(content_regex)
   MergeRequest.find_by(title: 'MR1').notes.find { |n| n.note.match(/#{content_regex}/) }
 end
 
-RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
+RSpec.describe Gitlab::ImportExport::Project::TreeRestorer, feature_category: :importers do
   include ImportExport::CommonUtil
   using RSpec::Parameterized::TableSyntax
 
   let(:shared) { project.import_export_shared }
 
-  RSpec.shared_examples 'project tree restorer work properly' do |reader, ndjson_enabled|
+  RSpec.shared_examples 'project tree restorer work properly' do
     describe 'restore project tree' do
       before_all do
         # Using an admin for import, so we can check assignment of existing members
@@ -27,10 +27,9 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           @shared = @project.import_export_shared
 
           stub_all_feature_flags
-          stub_feature_flags(project_import_ndjson: ndjson_enabled)
 
           setup_import_export_config('complex')
-          setup_reader(reader)
+          setup_reader
 
           allow_any_instance_of(Repository).to receive(:fetch_source_branch!).and_return(true)
           allow_any_instance_of(Gitlab::Git::Repository).to receive(:branch_exists?).and_return(false)
@@ -40,7 +39,9 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
 
           project_tree_restorer = described_class.new(user: @user, shared: @shared, project: @project)
 
-          @restored_project_json = project_tree_restorer.restore
+          @restored_project_json = Gitlab::ExclusiveLease.skipping_transaction_check do
+            project_tree_restorer.restore
+          end
         end
       end
 
@@ -111,6 +112,10 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           end
         end
 
+        it 'does not import ci config path' do
+          expect(@project.ci_config_path).to be_nil
+        end
+
         it 'creates a valid pipeline note' do
           expect(Ci::Pipeline.find_by_sha('sha-notes').notes).not_to be_empty
         end
@@ -132,17 +137,21 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           expect(pipeline.merge_request.id).to be > 0
           expect(pipeline.merge_request.target_branch).to eq('feature')
           expect(pipeline.merge_request.source_branch).to eq('feature_conflict')
+          expect(pipeline.merge_request.merge_when_pipeline_succeeds).to eq(false)
         end
 
         it 'restores pipelines based on ascending id order' do
           expected_ordered_shas = %w[
-          2ea1f3dec713d940208fb5ce4a38765ecb5d3f73
-          ce84140e8b878ce6e7c4d298c7202ff38170e3ac
-          048721d90c449b244b7b4c53a9186b04330174ec
-          sha-notes
-          5f923865dde3436854e9ceb9cdb7815618d4e849
-          d2d430676773caa88cdaf7c55944073b2fd5561a
-          2ea1f3dec713d940208fb5ce4a38765ecb5d3f73
+            2ea1f3dec713d940208fb5ce4a38765ecb5d3f73
+            ce84140e8b878ce6e7c4d298c7202ff38170e3ac
+            048721d90c449b244b7b4c53a9186b04330174ec
+            sha-notes
+            5f923865dde3436854e9ceb9cdb7815618d4e849
+            d2d430676773caa88cdaf7c55944073b2fd5561a
+            2ea1f3dec713d940208fb5ce4a38765ecb5d3f73
+            1b6c4f044c63217d1ed06e514c84d22871bed912
+            ded178474ef2ba1f80a9964ba15da3ddb3cf664b
+            fd459e5c514d70dc525c5e70990ca5e0debb3105
           ]
 
           project = Project.find_by_path('project')
@@ -150,6 +159,36 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           project.ci_pipelines.order(:id).each_with_index do |pipeline, i|
             expect(pipeline['sha']).to eq expected_ordered_shas[i]
           end
+        end
+
+        it 'restores pipeline metadata' do
+          pipeline = Ci::Pipeline.find_by_sha('sha-notes')
+          pipeline_metadata = pipeline.pipeline_metadata
+
+          expect(pipeline_metadata.name).to eq('Build pipeline')
+          expect(pipeline_metadata.pipeline_id).to eq(pipeline.id)
+          expect(pipeline_metadata.project_id).to eq(pipeline.project_id)
+        end
+
+        it 'preserves work_item_type for all issues (legacy with issue_type and new with work_item_type)',
+          :aggregate_failures do
+          task_issue1 = Issue.find_by(title: 'task by issue_type')
+          task_issue2 = Issue.find_by(title: 'task by both attributes')
+          incident_issue = Issue.find_by(title: 'incident by work_item_type')
+          issue_with_invalid_type = Issue.find_by(title: 'invalid issue type')
+          issue_type = WorkItems::Type.default_by_type(:issue)
+          task_type = WorkItems::Type.default_by_type(:task)
+
+          expect(task_issue1.work_item_type).to eq(task_type)
+          expect(task_issue2.work_item_type).to eq(task_type)
+          expect(incident_issue.work_item_type).to eq(WorkItems::Type.default_by_type(:incident))
+          expect(issue_with_invalid_type.work_item_type).to eq(issue_type)
+
+          other_issue_types = Issue.preload(:work_item_type).where.not(
+            id: [task_issue1.id, task_issue2.id, incident_issue.id, issue_with_invalid_type]
+          ).map(&:work_item_type)
+
+          expect(other_issue_types).to all(eq(issue_type))
         end
 
         it 'preserves updated_at on issues' do
@@ -188,8 +227,24 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           expect(Issue.find_by(title: 'Voluptatem').resource_label_events).not_to be_empty
         end
 
+        it 'restores issue resource milestone events' do
+          expect(Issue.find_by(title: 'Voluptatem').resource_milestone_events).not_to be_empty
+        end
+
+        it 'restores issue resource state events' do
+          expect(Issue.find_by(title: 'Voluptatem').resource_state_events).not_to be_empty
+        end
+
         it 'restores merge requests resource label events' do
           expect(MergeRequest.find_by(title: 'MR1').resource_label_events).not_to be_empty
+        end
+
+        it 'restores merge request resource milestone events' do
+          expect(MergeRequest.find_by(title: 'MR1').resource_milestone_events).not_to be_empty
+        end
+
+        it 'restores merge request resource state events' do
+          expect(MergeRequest.find_by(title: 'MR1').resource_state_events).not_to be_empty
         end
 
         it 'restores suggestion' do
@@ -250,12 +305,34 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           end
         end
 
+        it 'sets MWPS to false for all merge requests' do
+          MergeRequest.find_each do |merge_request|
+            expect(merge_request.merge_when_pipeline_succeeds).to eq(false)
+          end
+        end
+
+        it 'has multiple merge request assignees' do
+          expect(MergeRequest.find_by(title: 'MR1').assignees).to contain_exactly(@user, *@existing_members)
+          expect(MergeRequest.find_by(title: 'MR2').assignees).to be_empty
+        end
+
+        it 'has multiple merge request reviewers' do
+          expect(MergeRequest.find_by(title: 'MR1').reviewers).to contain_exactly(@user, *@existing_members)
+          expect(MergeRequest.find_by(title: 'MR2').reviewers).to be_empty
+        end
+
         it 'has labels associated to label links, associated to issues' do
           expect(Label.first.label_links.first.target).not_to be_nil
         end
 
         it 'has project labels' do
           expect(ProjectLabel.count).to eq(3)
+          expect(ProjectLabel.pluck(:group_id).compact).to be_empty
+        end
+
+        it 'has merge request approvals' do
+          expect(MergeRequest.find_by(title: 'MR1').approvals.pluck(:user_id)).to contain_exactly(@user.id, *@existing_members.map(&:id))
+          expect(MergeRequest.find_by(title: 'MR2').approvals).to be_empty
         end
 
         it 'has no group labels' do
@@ -376,22 +453,56 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
             expect(pipeline_schedule.cron).to eq('0 4 * * 0')
             expect(pipeline_schedule.cron_timezone).to eq('UTC')
             expect(pipeline_schedule.active).to eq(false)
+            expect(pipeline_schedule.owner_id).to eq(@user.id)
           end
         end
 
-        it 'restores releases with links' do
-          release = @project.releases.last
-          link = release.links.last
+        context 'restores releases' do
+          it 'with links & milestones' do
+            release = @project.releases.last
+            link = release.links.last
 
-          aggregate_failures do
-            expect(release.tag).to eq('release-1.1')
-            expect(release.description).to eq('Some release notes')
-            expect(release.name).to eq('release-1.1')
-            expect(release.sha).to eq('901de3a8bd5573f4a049b1457d28bc1592ba6bf9')
-            expect(release.released_at).to eq('2019-12-26T10:17:14.615Z')
+            aggregate_failures do
+              expect(release.tag).to eq('release-1.2')
+              expect(release.description).to eq('Some release notes')
+              expect(release.name).to eq('release-1.2')
+              expect(release.sha).to eq('903de3a8bd5573f4a049b1457d28bc1592ba6bf9')
+              expect(release.released_at).to eq('2019-12-27T10:17:14.615Z')
+              expect(release.milestone_releases.count).to eq(1)
+              expect(release.milestone_releases.first.milestone.title).to eq('test milestone')
 
-            expect(link.url).to eq('http://localhost/namespace6/project6/-/jobs/140463678/artifacts/download')
-            expect(link.name).to eq('release-1.1.dmg')
+              expect(link.url).to eq('http://localhost/namespace6/project6/-/jobs/140463678/artifacts/download')
+              expect(link.name).to eq('release-1.2.dmg')
+            end
+          end
+
+          context 'with author' do
+            it 'as ghost user when imported release author is empty' do
+              release = @project.releases.first
+
+              aggregate_failures do
+                expect(release.tag).to eq('release-1.0')
+                expect(release.author_id).to eq(Users::Internal.ghost.id)
+              end
+            end
+
+            it 'as existing member when imported release author is matched with existing user' do
+              release = @project.releases.second
+
+              aggregate_failures do
+                expect(release.tag).to eq('release-1.1')
+                expect(release.author_id).to eq(@existing_members.first.id)
+              end
+            end
+
+            it 'as import user when imported release author cannot be matched' do
+              release = @project.releases.last
+
+              aggregate_failures do
+                expect(release.tag).to eq('release-1.2')
+                expect(release.author_id).to eq(@user.id)
+              end
+            end
           end
         end
 
@@ -425,6 +536,13 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
 
               expect(award_emoji.name).to eq('tada')
             end
+
+            it 'has diff note diff file' do
+              merge_request_note = match_mr1_note('MR1 diff note')
+              note_diff_file = merge_request_note.note_diff_file
+
+              expect(note_diff_file.diff).to eq("@@ -14,3 +14,18 @@\n 1")
+            end
           end
         end
 
@@ -435,7 +553,7 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           end
 
           it 'has a new CI build token' do
-            expect(Ci::Build.where(token: 'abcd')).to be_empty
+            expect(Ci::Build.find_by_token('abcd')).to be_nil
           end
         end
 
@@ -449,9 +567,9 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           end
 
           it 'has the correct number of pipelines and statuses' do
-            expect(@project.ci_pipelines.size).to eq(7)
+            expect(@project.ci_pipelines.size).to eq(10)
 
-            @project.ci_pipelines.order(:id).zip([2, 0, 2, 2, 2, 2, 0])
+            @project.ci_pipelines.order(:id).zip([2, 0, 2, 3, 2, 8, 0, 0, 0, 0])
               .each do |(pipeline, expected_status_size)|
               expect(pipeline.statuses.size).to eq(expected_status_size)
             end
@@ -459,20 +577,58 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
         end
 
         context 'when restoring hierarchy of pipeline, stages and jobs' do
-          it 'restores pipelines' do
-            expect(Ci::Pipeline.all.count).to be 7
+          context 'pipelines' do
+            it 'restores pipelines' do
+              expect(Ci::Pipeline.all.count).to be 10
+            end
+
+            it 'marks cancelable pipelines as canceled' do
+              expect(Ci::Pipeline.where(status: 'canceled').count).to eq 7
+            end
           end
 
-          it 'restores pipeline stages' do
-            expect(Ci::Stage.all.count).to be 6
+          context 'stages' do
+            it 'restores pipeline stages' do
+              expect(Ci::Stage.all.count).to be 7
+            end
+
+            it 'marks cancelable stages as canceled' do
+              expect(Ci::Stage.where(status: 'canceled').count).to eq 6
+            end
+
+            it 'correctly restores association between stage and a pipeline' do
+              expect(Ci::Stage.all).to all(have_attributes(pipeline_id: a_value > 0))
+            end
           end
 
-          it 'correctly restores association between stage and a pipeline' do
-            expect(Ci::Stage.all).to all(have_attributes(pipeline_id: a_value > 0))
+          context 'builds' do
+            it 'restores builds' do
+              expect(Ci::Build.all.count).to be 7
+            end
+
+            it 'marks cancelable builds as canceled' do
+              expect(Ci::Build.where(status: 'canceled').count).to eq 3
+            end
           end
 
-          it 'restores statuses' do
-            expect(CommitStatus.all.count).to be 10
+          context 'bridges' do
+            it 'restores bridges' do
+              expect(Ci::Bridge.all.count).to be 5
+            end
+
+            it 'marks cancelable bridges as canceled' do
+              expect(Ci::Bridge.where(status: 'canceled').count).to eq 4
+            end
+          end
+
+          context 'generic commit statuses' do
+            it 'restores generic commit statuses' do
+              expect(GenericCommitStatus.all.count).to be 3
+            end
+
+            it 'marks cancelable generic commit statuses as canceled' do
+              expect(GenericCommitStatus.where(status: 'canceled').count).to eq 2
+            end
           end
 
           it 'correctly restores association between a stage and a job' do
@@ -497,6 +653,10 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
             expect(@project.import_failures.size).to eq 0
           end
         end
+
+        it 'restores commit notes' do
+          expect(@project.commit_notes.count).to eq(3)
+        end
       end
     end
 
@@ -516,23 +676,15 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       end
     end
 
-    context 'project.json file access check' do
+    context 'when expect tree structure is not present in the export path' do
       let(:user) { create(:user) }
-      let!(:project) { create(:project, :builds_disabled, :issues_disabled, name: 'project', path: 'project') }
-      let(:project_tree_restorer) do
-        described_class.new(user: user, shared: shared, project: project)
-      end
+      let_it_be(:project) { create(:project, :builds_disabled, :issues_disabled, name: 'project', path: 'project') }
 
-      let(:restored_project_json) { project_tree_restorer.restore }
+      it 'fails to restore the project' do
+        result = described_class.new(user: user, shared: shared, project: project).restore
 
-      it 'does not read a symlink' do
-        Dir.mktmpdir do |tmpdir|
-          setup_symlink(tmpdir, 'project.json')
-          allow(shared).to receive(:export_path).and_call_original
-
-          expect(project_tree_restorer.restore).to eq(false)
-          expect(shared.errors).to include('invalid import format')
-        end
+        expect(result).to eq(false)
+        expect(shared.errors).to include('invalid import format')
       end
     end
 
@@ -545,14 +697,14 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       context 'with a simple project' do
         before do
           setup_import_export_config('light')
-          setup_reader(reader)
+          setup_reader
 
           expect(restored_project_json).to eq(true)
         end
 
         it 'issue system note metadata restored successfully' do
           note_content = 'created merge request !1 to address this issue'
-          note = project.issues.first.notes.find { |n| n.note.match(/#{note_content}/)}
+          note = project.issues.first.notes.find { |n| n.note.match(/#{note_content}/) }
 
           expect(note.noteable_type).to eq('Issue')
           expect(note.system).to eq(true)
@@ -562,20 +714,10 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
 
         context 'when there is an existing build with build token' do
           before do
-            create(:ci_build, token: 'abcd')
-          end
-
-          it_behaves_like 'restores project successfully',
-            issues: 1,
-            labels: 2,
-            label_with_priorities: 'A project label',
-            milestones: 1,
-            first_issue_labels: 1
-        end
-
-        context 'when there is an existing build with build token' do
-          before do
-            create(:ci_build, token: 'abcd')
+            create(:ci_build).tap do |job|
+              job.set_token('abcd')
+              job.save!
+            end
           end
 
           it_behaves_like 'restores project successfully',
@@ -590,7 +732,7 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       context 'multiple pipelines reference the same external pull request' do
         before do
           setup_import_export_config('multi_pipeline_ref_one_external_pr')
-          setup_reader(reader)
+          setup_reader
 
           expect(restored_project_json).to eq(true)
         end
@@ -618,7 +760,7 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
 
         before do
           setup_import_export_config('light')
-          setup_reader(reader)
+          setup_reader
 
           expect(project).to receive(:merge_requests).and_call_original
           expect(project).to receive(:merge_requests).and_raise(exception)
@@ -635,7 +777,7 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
 
         before do
           setup_import_export_config('light')
-          setup_reader(reader)
+          setup_reader
 
           expect(project).to receive(:merge_requests).and_call_original
           expect(project).to receive(:merge_requests).and_raise(exception)
@@ -667,7 +809,7 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       context 'when the project has overridden params in import data' do
         before do
           setup_import_export_config('light')
-          setup_reader(reader)
+          setup_reader
         end
 
         it 'handles string versions of visibility_level' do
@@ -701,7 +843,7 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
 
         it 'overrides project feature access levels' do
           access_level_keys = ProjectFeature.available_features.map { |feature| ProjectFeature.access_level_attribute(feature) }
-          disabled_access_levels = access_level_keys.to_h { |item| [item, 'disabled'] }
+          disabled_access_levels = access_level_keys.index_with { 'disabled' }
 
           project.create_import_data(data: { override_params: disabled_access_levels })
 
@@ -723,17 +865,19 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
         end
 
         let!(:project) do
-          create(:project,
-                 :builds_disabled,
-                 :issues_disabled,
-                 name: 'project',
-                 path: 'project',
-                 group: group)
+          create(
+            :project,
+            :builds_disabled,
+            :issues_disabled,
+            name: 'project',
+            path: 'project',
+            group: group
+          )
         end
 
         before do
           setup_import_export_config('group')
-          setup_reader(reader)
+          setup_reader
 
           expect(restored_project_json).to eq(true)
         end
@@ -757,19 +901,21 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       end
 
       context 'with existing group models' do
-        let(:group) { create(:group).tap { |g| g.add_maintainer(user) } }
+        let(:group) { create(:group, maintainers: user) }
         let!(:project) do
-          create(:project,
-                 :builds_disabled,
-                 :issues_disabled,
-                 name: 'project',
-                 path: 'project',
-                 group: group)
+          create(
+            :project,
+            :builds_disabled,
+            :issues_disabled,
+            name: 'project',
+            path: 'project',
+            group: group
+          )
         end
 
         before do
           setup_import_export_config('light')
-          setup_reader(reader)
+          setup_reader
         end
 
         it 'imports labels' do
@@ -793,19 +939,21 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       end
 
       context 'with clashing milestones on IID' do
-        let(:group) { create(:group).tap { |g| g.add_maintainer(user) } }
+        let(:group) { create(:group, maintainers: user) }
         let!(:project) do
-          create(:project,
-                 :builds_disabled,
-                 :issues_disabled,
-                 name: 'project',
-                 path: 'project',
-                 group: group)
+          create(
+            :project,
+            :builds_disabled,
+            :issues_disabled,
+            name: 'project',
+            path: 'project',
+            group: group
+          )
         end
 
         before do
           setup_import_export_config('milestone-iid')
-          setup_reader(reader)
+          setup_reader
         end
 
         it 'preserves the project milestone IID' do
@@ -821,7 +969,7 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       context 'with external authorization classification labels' do
         before do
           setup_import_export_config('light')
-          setup_reader(reader)
+          setup_reader
         end
 
         it 'converts empty external classification authorization labels to nil' do
@@ -848,53 +996,16 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
         described_class.new(user: user, shared: shared, project: project)
       end
 
-      before do
-        allow_any_instance_of(Gitlab::ImportExport::Json::LegacyReader::File).to receive(:exist?).and_return(true)
-        allow_any_instance_of(Gitlab::ImportExport::Json::NdjsonReader).to receive(:exist?).and_return(false)
-        allow_any_instance_of(Gitlab::ImportExport::Json::LegacyReader::File).to receive(:tree_hash) { tree_hash }
-      end
-
-      context 'no group visibility' do
-        let(:visibility) { Gitlab::VisibilityLevel::PRIVATE }
-
-        it 'uses the project visibility' do
-          expect(restorer.restore).to eq(true)
-          expect(restorer.project.visibility_level).to eq(visibility)
-        end
-      end
-
-      context 'with restricted internal visibility' do
-        describe 'internal project' do
-          let(:visibility) { Gitlab::VisibilityLevel::INTERNAL }
-
-          it 'uses private visibility' do
-            stub_application_setting(restricted_visibility_levels: [Gitlab::VisibilityLevel::INTERNAL])
-
-            expect(restorer.restore).to eq(true)
-            expect(restorer.project.visibility_level).to eq(Gitlab::VisibilityLevel::PRIVATE)
-          end
-        end
-      end
-
-      context 'with group visibility' do
+      describe 'visibility level' do
         before do
-          group = create(:group, visibility_level: group_visibility)
-          group.add_users([user], GroupMember::MAINTAINER)
-          project.update!(group: group)
-        end
+          setup_import_export_config('light')
 
-        context 'private group visibility' do
-          let(:group_visibility) { Gitlab::VisibilityLevel::PRIVATE }
-          let(:visibility) { Gitlab::VisibilityLevel::PUBLIC }
-
-          it 'uses the group visibility' do
-            expect(restorer.restore).to eq(true)
-            expect(restorer.project.visibility_level).to eq(group_visibility)
+          allow_next_instance_of(Gitlab::ImportExport::Json::NdjsonReader) do |relation_reader|
+            allow(relation_reader).to receive(:consume_attributes).and_return(tree_hash)
           end
         end
 
-        context 'public group visibility' do
-          let(:group_visibility) { Gitlab::VisibilityLevel::PUBLIC }
+        context 'no group visibility' do
           let(:visibility) { Gitlab::VisibilityLevel::PRIVATE }
 
           it 'uses the project visibility' do
@@ -903,21 +1014,62 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           end
         end
 
-        context 'internal group visibility' do
-          let(:group_visibility) { Gitlab::VisibilityLevel::INTERNAL }
-          let(:visibility) { Gitlab::VisibilityLevel::PUBLIC }
+        context 'with restricted internal visibility' do
+          describe 'internal project' do
+            let(:visibility) { Gitlab::VisibilityLevel::INTERNAL }
 
-          it 'uses the group visibility' do
-            expect(restorer.restore).to eq(true)
-            expect(restorer.project.visibility_level).to eq(group_visibility)
-          end
-
-          context 'with restricted internal visibility' do
-            it 'sets private visibility' do
+            it 'uses private visibility' do
               stub_application_setting(restricted_visibility_levels: [Gitlab::VisibilityLevel::INTERNAL])
 
               expect(restorer.restore).to eq(true)
               expect(restorer.project.visibility_level).to eq(Gitlab::VisibilityLevel::PRIVATE)
+            end
+          end
+        end
+
+        context 'with group visibility' do
+          before do
+            group = create(:group, visibility_level: group_visibility)
+            group.add_members([user], GroupMember::MAINTAINER)
+            project.update!(group: group)
+          end
+
+          context 'private group visibility' do
+            let(:group_visibility) { Gitlab::VisibilityLevel::PRIVATE }
+            let(:visibility) { Gitlab::VisibilityLevel::PUBLIC }
+
+            it 'uses the group visibility' do
+              expect(restorer.restore).to eq(true)
+              expect(restorer.project.visibility_level).to eq(group_visibility)
+            end
+          end
+
+          context 'public group visibility' do
+            let(:group_visibility) { Gitlab::VisibilityLevel::PUBLIC }
+            let(:visibility) { Gitlab::VisibilityLevel::PRIVATE }
+
+            it 'uses the project visibility' do
+              expect(restorer.restore).to eq(true)
+              expect(restorer.project.visibility_level).to eq(visibility)
+            end
+          end
+
+          context 'internal group visibility' do
+            let(:group_visibility) { Gitlab::VisibilityLevel::INTERNAL }
+            let(:visibility) { Gitlab::VisibilityLevel::PUBLIC }
+
+            it 'uses the group visibility' do
+              expect(restorer.restore).to eq(true)
+              expect(restorer.project.visibility_level).to eq(group_visibility)
+            end
+
+            context 'with restricted internal visibility' do
+              it 'sets private visibility' do
+                stub_application_setting(restricted_visibility_levels: [Gitlab::VisibilityLevel::INTERNAL])
+
+                expect(restorer.restore).to eq(true)
+                expect(restorer.project.visibility_level).to eq(Gitlab::VisibilityLevel::PRIVATE)
+              end
             end
           end
         end
@@ -928,24 +1080,35 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
         let(:user2) { create(:user) }
         let(:project_members) do
           [
-            {
-              "id" => 2,
-              "access_level" => 40,
-              "source_type" => "Project",
-              "notification_level" => 3,
-              "user" => {
-                "id" => user2.id,
-                "email" => user2.email,
-                "username" => 'test'
-              }
-            }
+            [
+              {
+                "id" => 2,
+                "access_level" => 40,
+                "source_type" => "Project",
+                "notification_level" => 3,
+                "user" => {
+                  "id" => user2.id,
+                  "email" => user2.email,
+                  "username" => 'test'
+                }
+              },
+              0
+            ]
           ]
         end
 
-        let(:tree_hash) { { 'project_members' => project_members } }
-
         before do
           project.add_maintainer(user)
+
+          setup_import_export_config('light')
+
+          allow_next_instance_of(Gitlab::ImportExport::Json::NdjsonReader) do |relation_reader|
+            allow(relation_reader).to receive(:consume_relation).and_call_original
+
+            allow(relation_reader).to receive(:consume_relation)
+              .with('project', 'project_members')
+              .and_return(project_members)
+          end
         end
 
         it 'restores project members' do
@@ -962,10 +1125,11 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       let(:user) { create(:user) }
       let!(:project) { create(:project, :builds_disabled, :issues_disabled, name: 'project', path: 'project') }
       let(:project_tree_restorer) { described_class.new(user: user, shared: shared, project: project) }
+      let(:project_fixture) { 'with_invalid_records' }
 
       before do
-        setup_import_export_config('with_invalid_records')
-        setup_reader(reader)
+        setup_import_export_config(project_fixture)
+        setup_reader
 
         subject
       end
@@ -990,6 +1154,21 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
           expect(import_failure.correlation_id_value).not_to be_empty
           expect(import_failure.created_at).to be_present
         end
+
+        context 'when there are a mix of invalid milestones and issues with IIDs' do
+          let(:project_fixture) { 'with_invalid_issues_and_milestones' }
+
+          it 'tracks the relation IID if present' do
+            iids_for_failures = project.import_failures.collect { |f| [f.relation_key, f.external_identifiers] }
+            expected_iids = [
+              ["milestones", { "iid" => 1 }],
+              ["issues", { "iid" => 9 }],
+              ["issues", {}]
+            ]
+
+            expect(iids_for_failures).to match_array(expected_iids)
+          end
+        end
       end
     end
 
@@ -997,8 +1176,7 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
       let_it_be(:user) { create(:admin, email: 'user_1@gitlabexample.com') }
       let_it_be(:second_user) { create(:user, email: 'user_2@gitlabexample.com') }
       let_it_be(:project) do
-        create(:project, :builds_disabled, :issues_disabled,
-               { name: 'project', path: 'project' })
+        create(:project, :builds_disabled, :issues_disabled, { name: 'project', path: 'project' })
       end
 
       let(:shared) { project.import_export_shared }
@@ -1058,35 +1236,5 @@ RSpec.describe Gitlab::ImportExport::Project::TreeRestorer do
     end
   end
 
-  context 'when import_relation_object_persistence feature flag is enabled' do
-    before do
-      stub_feature_flags(import_relation_object_persistence: true)
-    end
-
-    context 'enable ndjson import' do
-      it_behaves_like 'project tree restorer work properly', :legacy_reader, true
-
-      it_behaves_like 'project tree restorer work properly', :ndjson_reader, true
-    end
-
-    context 'disable ndjson import' do
-      it_behaves_like 'project tree restorer work properly', :legacy_reader, false
-    end
-  end
-
-  context 'when import_relation_object_persistence feature flag is disabled' do
-    before do
-      stub_feature_flags(import_relation_object_persistence: false)
-    end
-
-    context 'enable ndjson import' do
-      it_behaves_like 'project tree restorer work properly', :legacy_reader, true
-
-      it_behaves_like 'project tree restorer work properly', :ndjson_reader, true
-    end
-
-    context 'disable ndjson import' do
-      it_behaves_like 'project tree restorer work properly', :legacy_reader, false
-    end
-  end
+  it_behaves_like 'project tree restorer work properly'
 end

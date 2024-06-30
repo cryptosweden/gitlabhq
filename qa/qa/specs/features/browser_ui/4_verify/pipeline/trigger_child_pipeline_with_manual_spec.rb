@@ -1,29 +1,17 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Verify', :runner do
+  RSpec.describe 'Verify', :runner, product_group: :pipeline_execution do
     describe "Trigger child pipeline with 'when:manual'" do
-      let(:executor) { "qa-runner-#{Faker::Alphanumeric.alphanumeric(8)}" }
-
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'project-with-pipeline'
-        end
-      end
-
-      let!(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.project = project
-          runner.name = executor
-          runner.tags = [executor]
-        end
-      end
+      let(:executor) { "qa-runner-#{Faker::Alphanumeric.alphanumeric(number: 8)}" }
+      let(:project) { create(:project, name: 'project-with-pipeline') }
+      let!(:runner) { create(:project_runner, project: project, name: executor, tags: [executor]) }
 
       before do
         Flow::Login.sign_in
         add_ci_files
         project.visit!
-        Flow::Pipeline.visit_latest_pipeline(pipeline_condition: 'succeeded')
+        Flow::Pipeline.visit_latest_pipeline(status: 'Passed')
       end
 
       after do
@@ -45,20 +33,14 @@ module QA
       private
 
       def add_ci_files
-        Resource::Repository::Commit.fabricate_via_api! do |commit|
-          commit.project = project
-          commit.commit_message = 'Add parent and child pipelines CI files.'
-          commit.add_files(
-            [
-              child_ci_file,
-              parent_ci_file
-            ]
-          )
-        end
+        create(:commit, project: project, commit_message: 'Add parent and child pipelines CI files.', actions: [
+          child_ci_file, parent_ci_file
+        ])
       end
 
       def parent_ci_file
         {
+          action: 'create',
           file_path: '.gitlab-ci.yml',
           content: <<~YAML
             build:
@@ -82,6 +64,7 @@ module QA
 
       def child_ci_file
         {
+          action: 'create',
           file_path: '.child-pipeline.yml',
           content: <<~YAML
             child_build:

@@ -4,6 +4,7 @@ module Gitlab
   module GitalyClient
     class ConflictsService
       include Gitlab::EncodingHelper
+      include WithFeatureFlagActors
 
       MAX_MSG_SIZE = 128.kilobytes.freeze
 
@@ -12,21 +13,25 @@ module Gitlab
         @repository = repository
         @our_commit_oid = our_commit_oid
         @their_commit_oid = their_commit_oid
+
+        self.repository_actor = repository
       end
 
-      def list_conflict_files(allow_tree_conflicts: false)
+      def list_conflict_files(allow_tree_conflicts: false, skip_content: false)
         request = Gitaly::ListConflictFilesRequest.new(
           repository: @gitaly_repo,
           our_commit_oid: @our_commit_oid,
           their_commit_oid: @their_commit_oid,
-          allow_tree_conflicts: allow_tree_conflicts
+          allow_tree_conflicts: allow_tree_conflicts,
+          skip_content: skip_content
         )
-        response = GitalyClient.call(@repository.storage, :conflicts_service, :list_conflict_files, request, timeout: GitalyClient.long_timeout)
+        response = gitaly_client_call(@repository.storage, :conflicts_service, :list_conflict_files, request, timeout: GitalyClient.long_timeout)
         GitalyClient::ConflictFilesStitcher.new(response, @gitaly_repo)
       end
 
       def conflicts?
-        list_conflict_files.any?
+        list_conflict_files(skip_content: true).any?
+
       rescue GRPC::FailedPrecondition, GRPC::Unknown
         # The server raises FailedPrecondition when it encounters
         # ConflictSideMissing, which means a conflict exists but its `theirs` or
@@ -50,7 +55,7 @@ module Gitlab
           end
         end
 
-        response = GitalyClient.call(@repository.storage, :conflicts_service, :resolve_conflicts, req_enum, remote_storage: target_repository.storage, timeout: GitalyClient.long_timeout)
+        response = gitaly_client_call(@repository.storage, :conflicts_service, :resolve_conflicts, req_enum, remote_storage: target_repository.storage, timeout: GitalyClient.long_timeout)
 
         if response.resolution_error.present?
           raise Gitlab::Git::Conflict::Resolver::ResolutionError, response.resolution_error

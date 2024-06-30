@@ -2,15 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin::HookLogs' do
-  let(:project) { create(:project) }
-  let(:system_hook) { create(:system_hook) }
-  let(:hook_log) { create(:web_hook_log, web_hook: system_hook, internal_error_message: 'some error') }
+RSpec.describe 'Admin::HookLogs', feature_category: :webhooks do
+  let_it_be(:system_hook) { create(:system_hook) }
+  let_it_be(:hook_log) { create(:web_hook_log, web_hook: system_hook, internal_error_message: 'some error') }
+  let_it_be(:admin) { create(:admin) }
 
   before do
-    admin = create(:admin)
     sign_in(admin)
-    gitlab_enable_admin_mode_sign_in(admin)
+    enable_admin_mode!(admin)
   end
 
   it 'show list of hook logs' do
@@ -40,5 +39,19 @@ RSpec.describe 'Admin::HookLogs' do
     click_link 'Resend Request'
 
     expect(page).to have_current_path(edit_admin_hook_path(system_hook), ignore_query: true)
+  end
+
+  context 'response data is too large' do
+    let(:hook_log) { create(:web_hook_log, web_hook: system_hook, request_data: WebHookLog::OVERSIZE_REQUEST_DATA) }
+
+    it 'shows request data as too large and disables retry function' do
+      visit(admin_hook_hook_log_path(system_hook, hook_log))
+
+      expect(page).to have_content('Request data is too large')
+      expect(page).not_to have_button(
+        _('Resent request'),
+        disabled: true, class: 'has-tooltip', title: _("Request data is too large")
+      )
+    end
   end
 end

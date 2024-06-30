@@ -3,7 +3,6 @@
 require 'spec_helper'
 
 RSpec.describe 'validate database config' do
-  include RakeHelpers
   include StubENV
 
   let(:rails_configuration) { Rails::Application::Configuration.new(Rails.root) }
@@ -14,9 +13,6 @@ RSpec.describe 'validate database config' do
   end
 
   before do
-    allow(File).to receive(:exist?).and_call_original
-    allow(File).to receive(:exist?).with(Rails.root.join("config/database_geo.yml")).and_return(false)
-
     # The `AS::ConfigurationFile` calls `read` in `def initialize`
     # thus we cannot use `expect_next_instance_of`
     # rubocop:disable RSpec/AnyInstanceOf
@@ -39,47 +35,21 @@ RSpec.describe 'validate database config' do
   end
 
   context 'when config/database.yml is valid' do
-    context 'uses legacy syntax' do
-      let(:database_yml) do
-        <<-EOS
-          production:
+    let(:database_yml) do
+      <<-EOS
+        production:
+          main:
             adapter: postgresql
             encoding: unicode
             database: gitlabhq_production
             username: git
             password: "secure password"
             host: localhost
-        EOS
-      end
-
-      it 'validates configuration with a warning' do
-        expect(main_object).to receive(:warn).with /uses a deprecated syntax for/
-
-        expect { subject }.not_to raise_error
-      end
-
-      it_behaves_like 'with SKIP_DATABASE_CONFIG_VALIDATION=true'
+      EOS
     end
 
-    context 'uses new syntax' do
-      let(:database_yml) do
-        <<-EOS
-          production:
-            main:
-              adapter: postgresql
-              encoding: unicode
-              database: gitlabhq_production
-              username: git
-              password: "secure password"
-              host: localhost
-        EOS
-      end
-
-      it 'validates configuration without errors and warnings' do
-        expect(main_object).not_to receive(:warn)
-
-        expect { subject }.not_to raise_error
-      end
+    it 'validates configuration without errors and warnings' do
+      expect { subject }.not_to output.to_stderr
     end
   end
 
@@ -107,7 +77,7 @@ RSpec.describe 'validate database config' do
       end
 
       it 'raises exception' do
-        expect { subject }.to raise_error /This installation of GitLab uses unsupported database names/
+        expect { subject }.to raise_error(/This installation of GitLab uses unsupported database names/)
       end
 
       it_behaves_like 'with SKIP_DATABASE_CONFIG_VALIDATION=true'
@@ -129,7 +99,7 @@ RSpec.describe 'validate database config' do
       end
 
       it 'raises exception' do
-        expect { subject }.to raise_error /with 'replica: true' parameter in/
+        expect { subject }.to raise_error(/with 'replica: true' parameter in/)
       end
 
       it_behaves_like 'with SKIP_DATABASE_CONFIG_VALIDATION=true'
@@ -160,7 +130,7 @@ RSpec.describe 'validate database config' do
       end
 
       it 'raises exception' do
-        expect { subject }.to raise_error /The `main:` database needs to be defined as a first configuration item/
+        expect { subject }.to raise_error(/The `main:` database needs to be defined as a first configuration item/)
       end
 
       it_behaves_like 'with SKIP_DATABASE_CONFIG_VALIDATION=true'

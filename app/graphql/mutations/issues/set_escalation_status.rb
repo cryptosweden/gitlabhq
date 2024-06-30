@@ -6,8 +6,8 @@ module Mutations
       graphql_name 'IssueSetEscalationStatus'
 
       argument :status, Types::IncidentManagement::EscalationStatusEnum,
-               required: true,
-               description: 'Set the escalation status.'
+        required: true,
+        description: 'Set the escalation status.'
 
       def resolve(project_path:, iid:, status:)
         issue = authorized_find!(project_path: project_path, iid: iid)
@@ -17,7 +17,7 @@ module Mutations
         check_feature_availability!(issue)
 
         ::Issues::UpdateService.new(
-          project: project,
+          container: project,
           current_user: current_user,
           params: { escalation_status: { status: status } }
         ).execute(issue)

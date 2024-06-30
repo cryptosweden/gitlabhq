@@ -51,16 +51,17 @@ RSpec.describe OmniAuth::Strategies::Jwt do
         context "when the #{algorithm} algorithm is used" do
           let(:algorithm) { algorithm }
           let(:secret) do
+            # rubocop:disable Style/CaseLikeIf
             if private_key_class == OpenSSL::PKey::RSA
               private_key_class.generate(2048)
                 .to_pem
             elsif private_key_class == OpenSSL::PKey::EC
-              private_key_class.new(ecdsa_named_curves[algorithm])
-                .tap { |key| key.generate_key! }
+              private_key_class.generate(ecdsa_named_curves[algorithm])
                 .to_pem
             else
               private_key_class.new(jwt_config.strategy.secret)
             end
+            # rubocop:enable Style/CaseLikeIf
           end
 
           let(:private_key) { private_key_class ? private_key_class.new(secret) : secret }

@@ -1,18 +1,7 @@
 import Vue from 'vue';
-import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
+import VueApollo from 'vue-apollo';
+import createDefaultClient from '~/lib/graphql';
 import TransferProjectForm from './components/transfer_project_form.vue';
-
-const prepareNamespaces = (rawNamespaces = '') => {
-  if (!rawNamespaces) {
-    return { groupNamespaces: [], userNamespaces: [] };
-  }
-
-  const data = JSON.parse(rawNamespaces);
-  return {
-    groupNamespaces: data?.group?.map(convertObjectPropsToCamelCase) || [],
-    userNamespaces: data?.user?.map(convertObjectPropsToCamelCase) || [],
-  };
-};
 
 export default () => {
   const el = document.querySelector('.js-transfer-project-form');
@@ -20,29 +9,37 @@ export default () => {
     return false;
   }
 
+  Vue.use(VueApollo);
+
   const {
+    projectId: resourceId,
     targetFormId = null,
     targetHiddenInputId = null,
     buttonText: confirmButtonText = '',
     phrase: confirmationPhrase = '',
     confirmDangerMessage = '',
-    namespaces = '',
+    additionalInformation = '',
   } = el.dataset;
 
   return new Vue({
     el,
+    apolloProvider: new VueApollo({
+      defaultClient: createDefaultClient(),
+    }),
     provide: {
       confirmDangerMessage,
+      additionalInformation,
+      resourceId,
+      htmlConfirmationMessage: true,
     },
     render(createElement) {
       return createElement(TransferProjectForm, {
         props: {
           confirmButtonText,
           confirmationPhrase,
-          ...prepareNamespaces(namespaces),
         },
         on: {
-          selectNamespace: (id) => {
+          selectTransferLocation: (id) => {
             if (targetHiddenInputId && document.getElementById(targetHiddenInputId)) {
               document.getElementById(targetHiddenInputId).value = id;
             }

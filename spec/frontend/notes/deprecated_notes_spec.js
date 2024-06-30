@@ -1,13 +1,15 @@
 /* eslint-disable import/no-commonjs, no-new */
 
-import MockAdapter from 'axios-mock-adapter';
 import $ from 'jquery';
+import MockAdapter from 'axios-mock-adapter';
+import htmlPipelineSchedulesEditSnippets from 'test_fixtures/snippets/show.html';
+import htmlPipelineSchedulesEditCommit from 'test_fixtures/commit/show.html';
 import '~/behaviors/markdown/render_gfm';
-import { createSpyObj } from 'helpers/jest_helpers';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { TEST_HOST } from 'helpers/test_constants';
 import waitForPromises from 'helpers/wait_for_promises';
-import { setTestTimeoutOnce } from 'helpers/timeout';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import * as urlUtility from '~/lib/utils/url_utility';
 
 // These must be imported synchronously because they pull dependencies
@@ -19,21 +21,22 @@ const Notes = require('~/deprecated_notes').default;
 
 const FLASH_TYPE_ALERT = 'alert';
 const NOTES_POST_PATH = /(.*)\/notes\?html=true$/;
-const fixture = 'snippets/show.html';
 let mockAxios;
 
 window.project_uploads_path = `${TEST_HOST}/uploads`;
-window.gon = window.gon || {};
 window.gl = window.gl || {};
 gl.utils = gl.utils || {};
 gl.utils.disableButtonIfEmptyField = () => {};
 
-// the following test is unreliable and failing in main 2-3 times a day
-// see https://gitlab.com/gitlab-org/gitlab/issues/206906#note_290602581
+function wrappedDiscussionNote(note) {
+  return `<table><tbody>${note}</tbody></table>`;
+}
+
+// quarantine: https://gitlab.com/gitlab-org/gitlab/-/issues/208441
 // eslint-disable-next-line jest/no-disabled-tests
 describe.skip('Old Notes (~/deprecated_notes.js)', () => {
   beforeEach(() => {
-    loadFixtures(fixture);
+    setHTMLFixture(htmlPipelineSchedulesEditSnippets);
 
     // Re-declare this here so that test_setup.js#beforeEach() doesn't
     // overwrite it.
@@ -47,15 +50,16 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
     // random failures.
     // It seems that running tests in parallel increases failure rate.
     jest.setTimeout(4000);
-    setTestTimeoutOnce(4000);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     // The Notes component sets a polling interval. Clear it after every run.
     // Make sure to use jest.runOnlyPendingTimers() instead of runAllTimers().
     jest.clearAllTimers();
 
-    return axios.waitForAll().finally(() => mockAxios.restore());
+    await axios.waitForAll().finally(() => mockAxios.restore());
+
+    resetHTMLFixture();
   });
 
   it('loads the Notes class into the DOM', () => {
@@ -75,7 +79,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
 
   describe('task lists', () => {
     beforeEach(() => {
-      mockAxios.onAny().reply(200, {});
+      mockAxios.onAny().reply(HTTP_STATUS_OK, {});
       new Notes('', []);
     });
 
@@ -181,7 +185,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
       const $form = $('form.js-main-target-form');
       $form.find('textarea.js-note-text').val(sampleComment);
 
-      mockAxios.onPost(NOTES_POST_PATH).reply(200, noteEntity);
+      mockAxios.onPost(NOTES_POST_PATH).reply(HTTP_STATUS_OK, noteEntity);
     });
 
     it('updates note and resets edit form', () => {
@@ -253,16 +257,19 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
         note: 'heya',
         html: '<div>heya</div>',
       };
-      $notesList = createSpyObj('$notesList', ['find', 'append']);
-
-      notes = createSpyObj('notes', [
-        'setupNewNote',
-        'refresh',
-        'collapseLongCommitList',
-        'updateNotesCount',
-        'putConflictEditWarningInPlace',
-      ]);
-      notes.taskList = createSpyObj('tasklist', ['init']);
+      $notesList = {
+        find: jest.fn(),
+        append: jest.fn(),
+      };
+      notes = {
+        setupNewNote: jest.fn(),
+        refresh: jest.fn(),
+        updateNotesCount: jest.fn(),
+        putConflictEditWarningInPlace: jest.fn(),
+      };
+      notes.taskList = {
+        init: jest.fn(),
+      };
       notes.note_ids = [];
       notes.updatedNotesTrackingMap = {};
 
@@ -382,11 +389,21 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
         discussion_resolvable: false,
         diff_discussion_html: false,
       };
-      $form = createSpyObj('$form', ['closest', 'find']);
+      $form = {
+        closest: jest.fn(),
+        find: jest.fn(),
+      };
       $form.length = 1;
-      row = createSpyObj('row', ['prevAll', 'first', 'find']);
+      row = {
+        prevAll: jest.fn(),
+        first: jest.fn(),
+        find: jest.fn(),
+      };
 
-      notes = createSpyObj('notes', ['isParallelView', 'updateNotesCount']);
+      notes = {
+        isParallelView: jest.fn(),
+        updateNotesCount: jest.fn(),
+      };
       notes.note_ids = [];
 
       jest.spyOn(Notes, 'isNewNote');
@@ -402,7 +419,9 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
       let body;
 
       beforeEach(() => {
-        body = createSpyObj('body', ['attr']);
+        body = {
+          attr: jest.fn(),
+        };
         discussionContainer = { length: 0 };
 
         $form.closest.mockReturnValueOnce(row).mockReturnValue($form);
@@ -419,22 +438,40 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
         );
       });
 
-      it('should append to row selected with line_code', () => {
-        $form.length = 0;
-        note.discussion_line_code = 'line_code';
-        note.diff_discussion_html = '<tr></tr>';
+      describe('HTML output', () => {
+        let line;
 
-        const line = document.createElement('div');
-        line.id = note.discussion_line_code;
-        document.body.appendChild(line);
+        beforeEach(() => {
+          $form.length = 0;
+          note.discussion_line_code = 'line_code';
+          note.diff_discussion_html = '<tr></tr>';
 
-        // Override mocks for this single test
-        $form.closest.mockReset();
-        $form.closest.mockReturnValue($form);
+          line = document.createElement('div');
+          line.id = note.discussion_line_code;
+          document.body.appendChild(line);
 
-        Notes.prototype.renderDiscussionNote.call(notes, note, $form);
+          // Override mocks for these tests
+          $form.closest.mockReset();
+          $form.closest.mockReturnValue($form);
+        });
 
-        expect(line.nextSibling.outerHTML).toEqual(note.diff_discussion_html);
+        it('should append to row selected with line_code', () => {
+          Notes.prototype.renderDiscussionNote.call(notes, note, $form);
+
+          expect(line.nextSibling.outerHTML).toEqual(
+            wrappedDiscussionNote(note.diff_discussion_html),
+          );
+        });
+
+        it('sanitizes the output html without stripping leading <tr> or <td> elements', () => {
+          const sanitizedDiscussion = '<tr><td><a>I am a dolphin!</a></td></tr>';
+          note.diff_discussion_html =
+            '<tr><td><a href="javascript:alert(1)">I am a dolphin!</a></td></tr>';
+
+          Notes.prototype.renderDiscussionNote.call(notes, note, $form);
+
+          expect(line.nextSibling.outerHTML).toEqual(wrappedDiscussionNote(sanitizedDiscussion));
+        });
       });
     });
 
@@ -461,7 +498,9 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
 
     beforeEach(() => {
       noteHTML = '<div></div>';
-      $notesList = createSpyObj('$notesList', ['append']);
+      $notesList = {
+        append: jest.fn(),
+      };
 
       $resultantNote = Notes.animateAppendNote(noteHTML, $notesList);
     });
@@ -482,7 +521,9 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
 
     beforeEach(() => {
       noteHTML = '<div></div>';
-      $note = createSpyObj('$note', ['replaceWith']);
+      $note = {
+        replaceWith: jest.fn(),
+      };
 
       $updatedNote = Notes.animateUpdateNote(noteHTML, $note);
     });
@@ -507,7 +548,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
 
       notes.putEditFormInPlace($el);
 
-      expect(notes.glForm.enableGFM).toBeTruthy();
+      expect(notes.glForm.enableGFM).toBe('');
     });
   });
 
@@ -526,7 +567,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
     let $notesContainer;
 
     function mockNotesPost() {
-      mockAxios.onPost(NOTES_POST_PATH).reply(200, note);
+      mockAxios.onPost(NOTES_POST_PATH).reply(HTTP_STATUS_OK, note);
     }
 
     function mockNotesPostError() {
@@ -561,7 +602,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
     });
 
     describe('postComment', () => {
-      it('disables the submit button', (done) => {
+      it('disables the submit button', async () => {
         const $submitButton = $form.find('.js-comment-submit-button');
 
         expect($submitButton).not.toBeDisabled();
@@ -571,16 +612,11 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
         };
         mockAxios.onPost(NOTES_POST_PATH).replyOnce(() => {
           expect($submitButton).toBeDisabled();
-          return [200, note];
+          return [HTTP_STATUS_OK, note];
         });
 
-        notes
-          .postComment(dummyEvent)
-          .then(() => {
-            expect($submitButton).not.toBeDisabled();
-          })
-          .then(done)
-          .catch(done.fail);
+        await notes.postComment(dummyEvent);
+        expect($submitButton).not.toBeDisabled();
       });
     });
 
@@ -634,8 +670,8 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
     let $notesContainer;
 
     beforeEach(() => {
-      loadFixtures('commit/show.html');
-      mockAxios.onPost(NOTES_POST_PATH).reply(200, note);
+      setHTMLFixture(htmlPipelineSchedulesEditCommit);
+      mockAxios.onPost(NOTES_POST_PATH).reply(HTTP_STATUS_OK, note);
 
       new Notes('', []);
       window.gon.current_username = 'root';
@@ -680,7 +716,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
         note: sampleComment,
         valid: true,
       };
-      mockAxios.onPost(NOTES_POST_PATH).reply(200, note);
+      mockAxios.onPost(NOTES_POST_PATH).reply(HTTP_STATUS_OK, note);
 
       new Notes('', []);
       $form = $('form.js-main-target-form');
@@ -715,7 +751,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
     let $notesContainer;
 
     beforeEach(() => {
-      mockAxios.onPost(NOTES_POST_PATH).reply(200, note);
+      mockAxios.onPost(NOTES_POST_PATH).reply(HTTP_STATUS_OK, note);
 
       new Notes('', []);
       window.gon.current_username = 'root';
@@ -785,21 +821,21 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
       const sampleComment = '/wip\n/milestone %1.0\n/merge\n/unassign Merging this';
       const hasQuickActions = notes.hasQuickActions(sampleComment);
 
-      expect(hasQuickActions).toBeTruthy();
+      expect(hasQuickActions).toBe(true);
     });
 
     it('should return false when comment does NOT begin with a quick action', () => {
       const sampleComment = 'Hey, /unassign Merging this';
       const hasQuickActions = notes.hasQuickActions(sampleComment);
 
-      expect(hasQuickActions).toBeFalsy();
+      expect(hasQuickActions).toBe(false);
     });
 
     it('should return false when comment does NOT have any quick actions', () => {
       const sampleComment = 'Looking good, Awesome!';
       const hasQuickActions = notes.hasQuickActions(sampleComment);
 
-      expect(hasQuickActions).toBeFalsy();
+      expect(hasQuickActions).toBe(false);
     });
   });
 
@@ -889,15 +925,15 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
 
       expect($tempNote.prop('nodeName')).toEqual('LI');
       expect($tempNote.attr('id')).toEqual(uniqueId);
-      expect($tempNote.hasClass('being-posted')).toBeTruthy();
-      expect($tempNote.hasClass('fade-in-half')).toBeTruthy();
+      expect($tempNote.hasClass('being-posted')).toBe(true);
+      expect($tempNote.hasClass('fade-in-half')).toBe(true);
       $tempNote.find('.timeline-icon > a, .note-header-info > a').each((i, el) => {
         expect(el.getAttribute('href')).toEqual(`/${currentUsername}`);
       });
 
       expect($tempNote.find('.timeline-icon .avatar').attr('src')).toEqual(currentUserAvatar);
-      expect($tempNote.find('.timeline-content').hasClass('discussion')).toBeFalsy();
-      expect($tempNoteHeader.find('.d-none.d-sm-inline-block').text().trim()).toEqual(
+      expect($tempNote.find('.timeline-content').hasClass('discussion')).toBe(false);
+      expect($tempNoteHeader.find('.gl-hidden.sm:gl-inline-block').text().trim()).toEqual(
         currentUserFullname,
       );
 
@@ -918,7 +954,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
       });
 
       expect($tempNote.prop('nodeName')).toEqual('LI');
-      expect($tempNote.find('.timeline-content').hasClass('discussion')).toBeTruthy();
+      expect($tempNote.find('.timeline-content').hasClass('discussion')).toBe(true);
     });
 
     it('should return a escaped user name', () => {
@@ -933,7 +969,7 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
       });
       const $tempNoteHeader = $tempNote.find('.note-header');
 
-      expect($tempNoteHeader.find('.d-none.d-sm-inline-block').text().trim()).toEqual(
+      expect($tempNoteHeader.find('.gl-hidden.sm:gl-inline-block').text().trim()).toEqual(
         'Foo &lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;',
       );
     });
@@ -956,8 +992,8 @@ describe.skip('Old Notes (~/deprecated_notes.js)', () => {
 
       expect($tempNote.prop('nodeName')).toEqual('LI');
       expect($tempNote.attr('id')).toEqual(uniqueId);
-      expect($tempNote.hasClass('being-posted')).toBeTruthy();
-      expect($tempNote.hasClass('fade-in-half')).toBeTruthy();
+      expect($tempNote.hasClass('being-posted')).toBe(true);
+      expect($tempNote.hasClass('fade-in-half')).toBe(true);
       expect($tempNote.find('.timeline-content i').text().trim()).toEqual(sampleCommandDescription);
     });
   });

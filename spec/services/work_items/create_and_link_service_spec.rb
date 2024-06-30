@@ -2,31 +2,45 @@
 
 require 'spec_helper'
 
-RSpec.describe WorkItems::CreateAndLinkService do
+RSpec.describe WorkItems::CreateAndLinkService, feature_category: :portfolio_management do
   let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, group: group) }
-  let_it_be(:user) { create(:user) }
-  let_it_be(:related_work_item) { create(:work_item, project: project) }
+  let_it_be(:user) { create(:user, developer_of: project) }
+  let_it_be(:related_work_item, refind: true) { create(:work_item, project: project) }
+  let_it_be(:invalid_parent) { create(:work_item, :task, project: project) }
 
-  let(:spam_params) { double }
   let(:link_params) { {} }
+
   let(:params) do
     {
       title: 'Awesome work item',
-      description: 'please fix'
+      description: 'please fix',
+      work_item_type_id: WorkItems::Type.default_by_type(:task).id
     }
   end
 
-  before_all do
-    project.add_developer(user)
+  shared_examples 'successful work item and link creator' do
+    it 'creates a work item successfully with links' do
+      expect do
+        service_result
+      end.to change(WorkItem, :count).by(1).and(
+        change(WorkItems::ParentLink, :count).by(1)
+      )
+    end
+
+    it 'copies confidential status from the parent' do
+      expect do
+        service_result
+      end.to change(WorkItem, :count).by(1)
+
+      created_task = WorkItem.last
+
+      expect(created_task.confidential).to eq(related_work_item.confidential)
+    end
   end
 
   describe '#execute' do
-    subject(:service_result) { described_class.new(project: project, current_user: user, params: params, spam_params: spam_params, link_params: link_params).execute }
-
-    before do
-      stub_spam_services
-    end
+    subject(:service_result) { described_class.new(project: project, current_user: user, params: params, link_params: link_params).execute }
 
     context 'when work item params are valid' do
       it { is_expected.to be_success }
@@ -39,33 +53,39 @@ RSpec.describe WorkItems::CreateAndLinkService do
         )
       end
 
-      context 'when link params are valid' do
-        let(:link_params) { { issuable_references: [related_work_item.to_reference] } }
+      it_behaves_like 'title with extra spaces'
 
-        it 'creates a work item successfully with links' do
-          expect do
-            service_result
-          end.to change(WorkItem, :count).by(1).and(
-            change(IssueLink, :count).by(1)
-          )
+      context 'when link params are valid' do
+        let(:link_params) { { parent_work_item: related_work_item } }
+
+        context 'when parent is not confidential' do
+          it_behaves_like 'successful work item and link creator'
+        end
+
+        context 'when parent is confidential' do
+          before do
+            related_work_item.update!(confidential: true)
+          end
+
+          it_behaves_like 'successful work item and link creator'
         end
       end
 
-      context 'when link params are invalid' do
-        let(:link_params) { { issuable_references: ['invalid reference'] } }
+      context 'when link creation fails' do
+        let(:link_params) { { parent_work_item: invalid_parent } }
 
         it { is_expected.to be_error }
 
         it 'does not create a link and does not rollback transaction' do
           expect do
             service_result
-          end.to not_change(IssueLink, :count).and(
+          end.to not_change(WorkItems::ParentLink, :count).and(
             change(WorkItem, :count).by(1)
           )
         end
 
         it 'returns a link creation error message' do
-          expect(service_result.errors).to contain_exactly('No matching issue found. Make sure that you are adding a valid issue URL.')
+          expect(service_result.errors).to contain_exactly(/it's not allowed to add this type of parent item/)
         end
       end
     end
@@ -84,7 +104,7 @@ RSpec.describe WorkItems::CreateAndLinkService do
         expect do
           service_result
         end.to not_change(WorkItem, :count).and(
-          not_change(IssueLink, :count)
+          not_change(WorkItems::ParentLink, :count)
         )
       end
 

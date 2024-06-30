@@ -1,12 +1,14 @@
 ---
 stage: Monitor
 group: Respond
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Status Page **(ULTIMATE)**
+# Status Page
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/2479) in GitLab 12.10.
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 With a GitLab Status Page, you can create and deploy a static website to communicate
 efficiently to users during an incident. The Status Page landing page displays an
@@ -14,15 +16,15 @@ overview of recent incidents:
 
 ![Status Page landing page](img/status_page_incidents_v12_10.png)
 
-Clicking an incident displays a detail page with more information about a particular incident:
+Selecting an incident displays a detail page with more information about a particular incident:
 
 ![Status Page detail](img/status_page_detail_v12_10.png)
 
 - Status on the incident, including when the incident was last updated.
-- The incident title, including any emojis.
-- The description of the incident, including emojis.
+- The incident title, including any emoji.
+- The description of the incident, including emoji.
 - Any file attachments provided in the incident description, or comments with a
-  valid image extension. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/205166) in GitLab 13.1.
+  valid image extension.
 - A chronological ordered list of updates to the incident.
 
 ## Set up a Status Page
@@ -39,15 +41,15 @@ To configure a GitLab Status Page you must:
 
 Only AWS S3 is supported as a deploy target.
 
-Prerequisite:
+Prerequisites:
 
 - You must have at least the Maintainer role.
 
 To provide GitLab with the AWS account information needed to push content to your Status Page:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > Monitor**.
-1. Expand **Status Page**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Monitor**.
+1. Expand **Status page**.
 1. Select the **Active** checkbox.
 1. In the **Status Page URL** box, provide the URL for your external status page.
 1. In the **S3 Bucket name** box, type the name of your S3 bucket. For more information, see
@@ -84,7 +86,7 @@ the necessary CI/CD variables to deploy the Status Page to AWS S3:
    - `AWS_DEFAULT_REGION` - The AWS region.
    - `AWS_ACCESS_KEY_ID` - The AWS access key ID.
    - `AWS_SECRET_ACCESS_KEY` - The AWS secret.
-1. On the left sidebar, select **CI/CD > Pipelines**.
+1. On the left sidebar, select **Build > Pipelines**.
 1. To deploy the Status Page to S3, select **Run pipeline**.
 
 WARNING:
@@ -96,8 +98,8 @@ the issue can potentially [publish comments to your GitLab Status Page](#publish
 After creating the CI/CD variables, configure the Project you want to use for
 Incident issues:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > Monitor**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Monitor**.
 1. Expand **Status page**.
 1. Fill in your cloud provider's credentials and make sure to select the **Active** checkbox.
 1. Select **Save changes**.
@@ -111,7 +113,11 @@ and displays it to users, providing information about ongoing incidents without
 extra effort from your team:
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 graph TB
+    accTitle: Understand your status page
+    accDescr: How GitLab fetches, formats, and displays incident data
+
     subgraph GitLab Instance
     issues(issue updates) -- trigger --> middleware(Background job: JSON generation)
     end
@@ -138,9 +144,8 @@ you provided during setup. As part of publication, GitLab:
 - Anonymizes user and group mentions with `Incident Responder`.
 - Removes titles of non-public [GitLab references](../../user/markdown.md#gitlab-specific-references).
 - Publishes any files attached to incident issue descriptions, up to 5000 per issue.
-  ([Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/205166) in GitLab 13.1.)
 
-After publication, you can access the incident's details page by clicking the
+After publication, you can access the incident's details page by selecting the
 **Published on status page** button displayed under the Incident's title.
 
 ![Status Page detail link](img/status_page_detail_link_v13_1.png)
@@ -159,13 +164,12 @@ To publish comments to the Status Page Incident:
 
 - Create a comment on the incident issue.
 - When you're ready to publish the comment, mark the comment for publication by
-  adding a microphone [award emoji](../../user/award_emojis.md)
+  adding a microphone [emoji reaction](../../user/emoji_reactions.md)
   reaction (`:microphone:` 🎤) to the comment.
 - Any files attached to the comment (up to 5000 per issue) are also published.
-  ([Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/205166) in GitLab 13.1.)
 
 WARNING:
-Anyone with access to view the Issue can add an emoji award to a comment, so
+Anyone with access to view the Issue can add an emoji reaction to a comment, so
 consider limiting access to issues to team members only.
 
 ### Update the incident status

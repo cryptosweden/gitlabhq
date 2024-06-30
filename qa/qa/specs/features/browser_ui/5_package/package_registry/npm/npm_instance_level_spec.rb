@@ -1,64 +1,45 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package Registry', :orchestrated, :reliable, :packages, :object_storage do
-    describe 'npm instance level endpoint' do
+  RSpec.describe 'Package' do
+    describe 'npm Registry instance level endpoint', :object_storage, :external_api_calls,
+      product_group: :package_registry do
       using RSpec::Parameterized::TableSyntax
       include Runtime::Fixtures
+      include Support::Helpers::MaskToken
 
       let!(:registry_scope) { Runtime::Namespace.sandbox_name }
       let!(:personal_access_token) do
-        unless Page::Main::Menu.perform(&:signed_in?)
-          Flow::Login.sign_in
-        end
+        Flow::Login.sign_in unless Page::Main::Menu.perform(&:signed_in?)
 
         Resource::PersonalAccessToken.fabricate!.token
       end
 
       let(:project_deploy_token) do
-        Resource::ProjectDeployToken.fabricate_via_api! do |deploy_token|
-          deploy_token.name = 'npm-deploy-token'
-          deploy_token.project = project
-          deploy_token.scopes = %w[
+        create(:project_deploy_token,
+          name: 'npm-deploy-token',
+          project: project,
+          scopes: %w[
             read_repository
             read_package_registry
             write_package_registry
-          ]
-        end
+          ])
       end
 
-      let(:uri) { URI.parse(Runtime::Scenario.gitlab_address) }
-      let(:gitlab_address_with_port) { "#{uri.scheme}://#{uri.host}:#{uri.port}" }
-      let(:gitlab_host_with_port) { "#{uri.host}:#{uri.port}" }
-
-      let!(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'npm-instace-level-publish'
-        end
-      end
-
-      let!(:another_project) do
-        Resource::Project.fabricate_via_api! do |another_project|
-          another_project.name = 'npm-instance-level-install'
-          another_project.template_name = 'express'
-          another_project.group = project.group
-        end
-      end
-
+      let(:gitlab_address_without_port) { Support::GitlabAddress.address_with_port(with_default_port: false) }
+      let(:gitlab_host_without_port) { Support::GitlabAddress.host_with_port(with_default_port: false) }
+      let!(:project) { create(:project, name: 'npm-instance-level-publish') }
+      let!(:another_project) { create(:project, name: 'npm-instance-level-install', group: project.group) }
       let!(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.name = "qa-runner-#{Time.now.to_i}"
-          runner.tags = ["runner-for-#{project.group.name}"]
-          runner.executor = :docker
-          runner.token = project.group.reload!.runners_token
-        end
+        create(:group_runner,
+          name: "qa-runner-#{Time.now.to_i}",
+          tags: ["runner-for-#{project.group.name}"],
+          executor: :docker,
+          group: project.group)
       end
 
       let(:package) do
-        Resource::Package.init do |package|
-          package.name = "@#{registry_scope}/#{project.name}-#{SecureRandom.hex(8)}"
-          package.project = project
-        end
+        build(:package, name: "@#{registry_scope}/#{project.name}-#{SecureRandom.hex(8)}", project: project)
       end
 
       after do
@@ -78,33 +59,33 @@ module QA
         let(:auth_token) do
           case authentication_token_type
           when :personal_access_token
-            "\"#{personal_access_token}\""
+            use_ci_variable(name: 'PERSONAL_ACCESS_TOKEN', value: personal_access_token, project: project)
+            use_ci_variable(name: 'PERSONAL_ACCESS_TOKEN', value: personal_access_token, project: another_project)
           when :ci_job_token
             '${CI_JOB_TOKEN}'
           when :project_deploy_token
-            "\"#{project_deploy_token.token}\""
+            use_ci_variable(name: 'PROJECT_DEPLOY_TOKEN', value: project_deploy_token.token, project: project)
+            use_ci_variable(name: 'PROJECT_DEPLOY_TOKEN', value: project_deploy_token.token, project: another_project)
           end
         end
 
-        it 'push and pull a npm package via CI', testcase: params[:testcase] do
-          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-            npm_upload_yaml = ERB.new(read_fixture('package_managers/npm', 'npm_upload_package_instance.yaml.erb')).result(binding)
-            package_json = ERB.new(read_fixture('package_managers/npm', 'package_instance.json.erb')).result(binding)
+        it 'push and pull a npm package via CI', :blocking, testcase: params[:testcase] do
+          npm_upload_yaml = ERB.new(read_fixture('package_managers/npm', 'npm_upload_package_instance.yaml.erb')).result(binding)
+          package_json = ERB.new(read_fixture('package_managers/npm', 'package.json.erb')).result(binding)
 
-            Resource::Repository::Commit.fabricate_via_api! do |commit|
-              commit.project = project
-              commit.commit_message = 'Add files'
-              commit.add_files([
-                                {
-                                  file_path: '.gitlab-ci.yml',
-                                  content: npm_upload_yaml
-                                },
-                                {
-                                  file_path: 'package.json',
-                                  content: package_json
-                                }
-                              ])
-            end
+          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
+            create(:commit, project: project, actions: [
+              {
+                action: 'create',
+                file_path: '.gitlab-ci.yml',
+                content: npm_upload_yaml
+              },
+              {
+                action: 'create',
+                file_path: 'package.json',
+                content: package_json
+              }
+            ])
           end
 
           project.visit!
@@ -115,22 +96,15 @@ module QA
           end
 
           Page::Project::Job::Show.perform do |job|
-            expect(job).to be_successful(timeout: 800)
+            expect(job).to be_successful(timeout: 180)
           end
 
-          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-            Resource::Repository::Commit.fabricate_via_api! do |commit|
-              npm_install_yaml = ERB.new(read_fixture('package_managers/npm', 'npm_install_package_instance.yaml.erb')).result(binding)
+          npm_install_yaml = ERB.new(read_fixture('package_managers/npm', 'npm_install_package_instance.yaml.erb')).result(binding)
 
-              commit.project = another_project
-              commit.commit_message = 'Add .gitlab-ci.yml'
-              commit.add_files([
-                {
-                  file_path: '.gitlab-ci.yml',
-                  content: npm_install_yaml
-                }
-              ])
-            end
+          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
+            create(:commit, project: another_project, commit_message: 'Add .gitlab-ci.yml', actions: [
+              { action: 'create', file_path: '.gitlab-ci.yml', content: npm_install_yaml }
+            ])
           end
 
           another_project.visit!
@@ -141,18 +115,18 @@ module QA
           end
 
           Page::Project::Job::Show.perform do |job|
-            expect(job).to be_successful(timeout: 800)
+            expect(job).to be_successful(timeout: 180)
             job.click_browse_button
           end
 
           Page::Project::Artifact::Show.perform do |artifacts|
             artifacts.go_to_directory('node_modules')
             artifacts.go_to_directory("@#{registry_scope}")
-            expect(artifacts).to have_content("#{project.name}")
+            expect(artifacts).to have_content(project.name.to_s)
           end
 
           project.visit!
-          Page::Project::Menu.perform(&:click_packages_link)
+          Page::Project::Menu.perform(&:go_to_package_registry)
 
           Page::Project::Packages::Index.perform do |index|
             expect(index).to have_package(package.name)

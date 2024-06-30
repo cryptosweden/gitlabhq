@@ -2,18 +2,15 @@
 
 require "spec_helper"
 
-RSpec.describe "User comments on commit", :js do
-  include Spec::Support::Helpers::Features::NotesHelpers
+RSpec.describe "User comments on commit", :js, feature_category: :source_code_management do
+  include Features::NotesHelpers
+  include Spec::Support::Helpers::ModalHelpers
   include RepoHelpers
 
   let_it_be(:project) { create(:project, :repository) }
-  let_it_be(:user) { create(:user) }
+  let_it_be(:user) { create(:user, developer_of: project) }
 
   let(:comment_text) { "XML attached" }
-
-  before_all do
-    project.add_developer(user)
-  end
 
   before do
     sign_in(user)
@@ -37,7 +34,7 @@ RSpec.describe "User comments on commit", :js do
         expect(page).not_to have_css(".js-note-text")
 
         # Check on `Write` tab
-        click_button("Write")
+        click_button("Continue editing")
 
         expect(page).to have_field("note[note]", with: "#{comment_text} #{emoji_code}")
 
@@ -93,8 +90,6 @@ RSpec.describe "User comments on commit", :js do
 
   context "when deleting comment" do
     before do
-      stub_feature_flags(bootstrap_confirmation_modals: false)
-
       visit(project_commit_path(project, sample_commit.id))
 
       add_note(comment_text)
@@ -110,10 +105,12 @@ RSpec.describe "User comments on commit", :js do
         note.hover
 
         find(".more-actions").click
-        find(".more-actions .dropdown-menu li", match: :first)
+        find(".more-actions li", match: :first)
 
-        accept_confirm { find(".js-note-delete").click }
+        find(".js-note-delete").click
       end
+
+      accept_gl_confirm(button_text: 'Delete comment')
 
       expect(page).not_to have_css(".note")
     end

@@ -14,7 +14,6 @@ module WebHooks
       @hook = hook
       @log_data = log_data.transform_keys(&:to_sym)
       @response_category = response_category
-      @prev_state = hook.active_state(ignore_flag: true)
     end
 
     def execute
@@ -25,13 +24,29 @@ module WebHooks
     private
 
     def log_execution
+      mask_response_headers
+
+      log_data[:request_headers]['X-Gitlab-Token'] = _('[REDACTED]') if hook.token?
+
       WebHookLog.create!(web_hook: hook, **log_data)
+    end
+
+    def mask_response_headers
+      return unless hook.url_variables?
+      return unless log_data.key?(:response_headers)
+
+      variables_map = hook.url_variables.invert.transform_values { "{#{_1}}" }
+      regex = Regexp.union(variables_map.keys)
+
+      log_data[:response_headers].transform_values! do |value|
+        regex === value ? value.gsub(regex, variables_map) : value
+      end
     end
 
     # Perform this operation within an `Gitlab::ExclusiveLease` lock to make it
     # safe to be called concurrently from different workers.
     def update_hook_failure_state
-      in_lock(lock_name, ttl: LOCK_TTL, sleep_sec: LOCK_SLEEP, retries: LOCK_RETRY) do |retried|
+      in_lock(lock_name, ttl: LOCK_TTL, sleep_sec: LOCK_SLEEP, retries: LOCK_RETRY) do |_retried|
         hook.reset # Reload within the lock so properties are guaranteed to be current.
 
         case response_category
@@ -43,33 +58,10 @@ module WebHooks
           hook.failed!
         end
 
-        log_state_change
+        hook.parent.update_last_webhook_failure(hook) if hook.parent
       end
     rescue Gitlab::ExclusiveLeaseHelpers::FailedToObtainLockError
       raise if raise_lock_error?
-    end
-
-    def log_state_change
-      new_state = hook.active_state(ignore_flag: true)
-
-      return if @prev_state == new_state
-
-      Gitlab::AuthLogger.info(
-        message: 'WebHook change active_state',
-        # identification
-        hook_id: hook.id,
-        hook_type: hook.type,
-        project_id: hook.project_id,
-        group_id: hook.group_id,
-        # relevant data
-        prev_state: @prev_state,
-        new_state: new_state,
-        duration: log_data[:execution_duration],
-        response_status: log_data[:response_status],
-        recent_hook_failures: hook.recent_failures,
-        # context
-        **Gitlab::ApplicationContext.current
-      )
     end
 
     def lock_name

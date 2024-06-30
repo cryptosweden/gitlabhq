@@ -2,10 +2,7 @@
 data_category: optional
 key_path: usage_activity_by_stage_monthly.monitor.clusters_applications_prometheus
 description: Users creating clusters with Prometheus enabled in last 28 days.
-product_section: ops
-product_stage: monitor
-product_group: group::monitor
-product_category: metrics
+product_group: respond
 value_type: number
 status: removed
 time_frame: 28d
@@ -20,3 +17,4 @@ tier:
 performance_indicator_type: []
 milestone: "<13.9"
 milestone_removed: "14.4"
+removed_by_url:

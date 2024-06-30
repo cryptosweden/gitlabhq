@@ -2,13 +2,103 @@
 
 require 'spec_helper'
 
-RSpec.describe Admin::GroupsController do
-  let_it_be(:group) { create(:group) }
+RSpec.describe Admin::GroupsController, feature_category: :groups_and_projects do
+  let_it_be_with_reload(:group) { create(:group, :allow_runner_registration_token) }
   let_it_be(:project) { create(:project, namespace: group) }
   let_it_be(:admin) { create(:admin) }
 
   before do
     sign_in(admin)
+  end
+
+  describe 'GET #index' do
+    let!(:group_2) { create(:group, name: 'Ygroup') }
+    let!(:group_3) { create(:group, name: 'Jgroup', created_at: 2.days.ago, updated_at: 1.day.ago) }
+
+    render_views
+
+    it 'lists available groups' do
+      get :index
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(response).to render_template(:index)
+      expect(assigns(:groups)).to match_array([group, group_2, group_3])
+    end
+
+    it 'renders a correct list of sort by options' do
+      get :index
+
+      html_rendered = Nokogiri::HTML(response.body)
+      sort_options = Gitlab::Json.parse(html_rendered.css('[data-items]')[0]['data-items'])
+
+      expect(response).to render_template('shared/groups/_dropdown')
+
+      expect(sort_options.size).to eq(7)
+      expect(sort_options[0]['value']).to eq('name_asc')
+      expect(sort_options[0]['text']).to eq(s_('SortOptions|Name'))
+
+      expect(sort_options[1]['value']).to eq('name_desc')
+      expect(sort_options[1]['text']).to eq(s_('SortOptions|Name, descending'))
+
+      expect(sort_options[2]['value']).to eq('created_desc')
+      expect(sort_options[2]['text']).to eq(s_('SortOptions|Last created'))
+
+      expect(sort_options[3]['value']).to eq('created_asc')
+      expect(sort_options[3]['text']).to eq(s_('SortOptions|Oldest created'))
+
+      expect(sort_options[4]['value']).to eq('latest_activity_desc')
+      expect(sort_options[4]['text']).to eq(_('Updated date'))
+
+      expect(sort_options[5]['value']).to eq('latest_activity_asc')
+      expect(sort_options[5]['text']).to eq(s_('SortOptions|Oldest updated'))
+
+      expect(sort_options[6]['value']).to eq('storage_size_desc')
+      expect(sort_options[6]['text']).to eq(s_('SortOptions|Largest group'))
+    end
+
+    context 'when a sort param is present' do
+      it 'returns a sorted by name_asc result' do
+        get :index, params: { sort: 'name_asc' }
+
+        expect(assigns(:groups)).to eq([group, group_3, group_2])
+      end
+    end
+
+    context 'when a name param is present' do
+      it 'returns a search by name result' do
+        get :index, params: { name: 'Ygr' }
+
+        expect(assigns(:groups)).to eq([group_2])
+      end
+
+      it 'returns an empty list if no match' do
+        get :index, params: { name: 'nomatch' }
+
+        expect(assigns(:groups)).to be_empty
+      end
+    end
+
+    context 'when page is specified' do
+      before do
+        allow(Kaminari.config).to receive(:default_per_page).and_return(1)
+      end
+
+      it 'redirects to the page', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/464681' do
+        get :index, params: { page: 1 }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(assigns(:groups).current_page).to eq(1)
+        expect(assigns(:groups)).to eq([group])
+      end
+
+      it 'redirects to the page', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/464681' do
+        get :index, params: { page: 2 }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(assigns(:groups).current_page).to eq(2)
+        expect(assigns(:groups)).to eq([group_2])
+      end
+    end
   end
 
   describe 'DELETE #destroy' do
@@ -21,6 +111,7 @@ RSpec.describe Admin::GroupsController do
     it 'redirects to the admin group path' do
       delete :destroy, params: { id: project.group.path }
 
+      expect(flash[:toast]).to eq(format(_("Group '%{group_name}' is being deleted."), group_name: group.full_name))
       expect(response).to redirect_to(admin_groups_path)
     end
   end
@@ -43,65 +134,92 @@ RSpec.describe Admin::GroupsController do
         post :create, params: { group: {  path: 'test', name: 'test', admin_note_attributes: { note: 'test' } } }
       end.to change { Namespace::AdminNote.count }.by(1)
     end
+
+    it 'delegates to Groups::CreateService service instance' do
+      expect_next_instance_of(::Groups::CreateService) do |service|
+        expect(service).to receive(:execute).once.and_call_original
+      end
+
+      post :create, params: { group: { path: 'test', name: 'test' } }
+    end
+
+    context 'when organization_id is not in params', :with_current_organization do
+      it 'assigns Current.organization to newly created group' do
+        post :create, params: { group: { path: 'test', name: 'test' } }
+
+        expect(Group.last.organization_id).to eq(Current.organization.id)
+      end
+    end
+
+    context 'when organization_id is set' do
+      let_it_be(:organization) { create(:organization) }
+
+      it 'assigns specified organization to newly created group' do
+        post :create, params: { group: { organization_id: organization.id, path: 'test', name: 'test' } }
+
+        expect(Group.last.organization_id).to eq(organization.id)
+      end
+    end
   end
 
-  describe 'PUT #members_update' do
-    let_it_be(:group_user) { create(:user) }
+  describe 'PUT #update' do
+    let(:allow_runner_registration_token) { false }
 
-    it 'adds user to members', :aggregate_failures, :snowplow do
-      put :members_update, params: {
-                             id: group,
-                             user_ids: group_user.id,
-                             access_level: Gitlab::Access::GUEST
-                           }
-
-      expect(controller).to set_flash.to 'Users were successfully added.'
-      expect(response).to redirect_to(admin_group_path(group))
-      expect(group.users).to include group_user
-      expect_snowplow_event(
-        category: 'Members::CreateService',
-        action: 'create_member',
-        label: 'admin-group-page',
-        property: 'existing_user',
-        user: admin
-      )
+    subject(:update!) do
+      put :update, params: { id: group.to_param, group: { runner_registration_enabled: new_value } }
     end
 
-    it 'can add unlimited members', :aggregate_failures do
-      put :members_update, params: {
-                             id: group,
-                             user_ids: 1.upto(1000).to_a.join(','),
-                             access_level: Gitlab::Access::GUEST
-                           }
-
-      expect(controller).to set_flash.to 'Users were successfully added.'
-      expect(response).to redirect_to(admin_group_path(group))
+    before do
+      stub_application_setting(allow_runner_registration_token: allow_runner_registration_token)
     end
 
-    it 'adds no user to members', :aggregate_failures do
-      put :members_update, params: {
-                             id: group,
-                             user_ids: '',
-                             access_level: Gitlab::Access::GUEST
-                           }
+    context 'when enabling runner registration' do
+      let(:runner_registration_enabled) { false }
+      let(:new_value) { '1' }
 
-      expect(controller).to set_flash.to 'No users specified.'
-      expect(response).to redirect_to(admin_group_path(group))
-      expect(group.users).not_to include group_user
+      it 'updates the setting successfully' do
+        update!
+
+        expect(response).to have_gitlab_http_status(:found)
+        expect(group.reload.runner_registration_enabled).to eq(true)
+      end
+
+      it 'does not change the registration token' do
+        expect do
+          update!
+          group.reload
+        end.not_to change(group, :runners_token)
+      end
     end
 
-    it 'updates the project_creation_level successfully' do
-      expect do
-        post :update, params: { id: group.to_param, group: { project_creation_level: ::Gitlab::Access::NO_ONE_PROJECT_ACCESS } }
-      end.to change { group.reload.project_creation_level }.to(::Gitlab::Access::NO_ONE_PROJECT_ACCESS)
-    end
+    context 'when disabling runner registration' do
+      let(:runner_registration_enabled) { true }
+      let(:new_value) { '0' }
 
-    it 'updates the subgroup_creation_level successfully' do
-      expect do
-        post :update,
-             params: { id: group.to_param,
-                       group: { subgroup_creation_level: ::Gitlab::Access::OWNER_SUBGROUP_ACCESS } }
-      end.to change { group.reload.subgroup_creation_level }.to(::Gitlab::Access::OWNER_SUBGROUP_ACCESS)
+      it 'does not change the registration token' do
+        expect do
+          update!
+          group.reload
+        end.not_to change(group, :runners_token)
+      end
+
+      context 'with registration tokens enabled' do
+        let(:allow_runner_registration_token) { true }
+
+        it 'updates the setting successfully' do
+          update!
+
+          expect(response).to have_gitlab_http_status(:found)
+          expect(group.reload.runner_registration_enabled).to eq(false)
+        end
+
+        it 'changes the registration token' do
+          expect do
+            update!
+            group.reload
+          end.to change(group, :runners_token)
+        end
+      end
     end
   end
 end

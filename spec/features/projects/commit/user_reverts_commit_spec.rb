@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User reverts a commit', :js do
+RSpec.describe 'User reverts a commit', :js, feature_category: :source_code_management do
   include RepoHelpers
 
   let_it_be(:user) { create(:user) }
@@ -34,20 +34,20 @@ RSpec.describe 'User reverts a commit', :js do
     end
 
     context 'without creating a new merge request' do
-      it 'reverts a commit' do
+      it 'reverts a commit', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446062' do
         revert_commit
 
         expect(page).to have_content('The commit has been successfully reverted.')
       end
 
-      it 'does not revert a previously reverted commit' do
+      it 'does not revert a previously reverted commit', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446063' do
         revert_commit
         # Visit the comment again once it was reverted.
         visit project_commit_path(project, sample_commit.id)
 
         revert_commit
 
-        expect(page).to have_content('Sorry, we cannot revert this commit automatically.')
+        expect(page).to have_content('Commit revert failed:')
       end
     end
 

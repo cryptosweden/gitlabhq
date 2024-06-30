@@ -6,6 +6,12 @@
     width: 20px;
     height: 20px;
   }
+
+  // Show active state.
+  .gl-button.selected {
+    background-color: $blue-50;
+    box-shadow: inset 0 0 0 2px $blue-500;
+  }
 }
 
 .emoji-menu {
@@ -18,7 +24,7 @@
   width: $award-emoji-width;
   font-size: 14px;
   background-color: $white;
-  border: 1px solid $border-white-light;
+  border: 1px solid $border-color;
   border-radius: $border-radius-base;
   box-shadow: 0 6px 12px $award-emoji-menu-shadow;
   pointer-events: none;
@@ -173,7 +179,7 @@
 
   &.user-authored {
     cursor: default;
-    background-color: $gray-light;
+    background-color: $gray-10;
     border-color: $gray-100;
     color: $gl-text-color-disabled;
 
@@ -212,7 +218,7 @@
   }
 
   .award-control-icon {
-    color: $border-gray-normal;
+    color: $gray-100;
 
     svg {
       height: $default-icon-size;
@@ -244,9 +250,16 @@
 // above will be deprecated once all instances of "award emoji" are
 // migrated to Vue.
 
-.gl-button .award-emoji-block gl-emoji {
-  margin-top: -1px;
-  margin-bottom: -1px;
+.gl-button .award-emoji-block {
+  display: contents;
+
+  gl-emoji {
+    margin-block: -0.1em;
+
+    img {
+      top: -0.025em;
+    }
+  }
 }
 
 .add-reaction-button {
@@ -255,7 +268,6 @@
   // This forces the height and width of the inner content to match
   // other gl-buttons despite all child elements being set to
   // `position:absolute`
-
 
   .reaction-control-icon {
     .gl-icon {
@@ -321,4 +333,26 @@
       }
     }
   }
+}
+
+.add-reaction-search {
+  $input-focus-ring-border-radius: calc(#{$gl-border-radius-large} - #{$gl-border-size-1});
+
+  input {
+    border-top-left-radius: $input-focus-ring-border-radius !important;
+    border-top-right-radius: $input-focus-ring-border-radius !important;
+  }
+}
+
+.award-list .gl-button:focus {
+  @include gl-focus(
+    $outline: true,
+    $outline-offset: -2px,
+    $important: true
+  );
+  box-shadow: none !important;
+}
+
+.design-note.note-form .emoji-picker .gl-new-dropdown-panel {
+  left: 0 !important;
 }

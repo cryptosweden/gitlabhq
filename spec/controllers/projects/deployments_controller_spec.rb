@@ -84,6 +84,33 @@ RSpec.describe Projects::DeploymentsController do
     end
   end
 
+  describe 'GET #show' do
+    let(:deployment) { create(:deployment, :success, environment: environment) }
+
+    subject do
+      get :show, params: deployment_params(id: deployment.iid)
+    end
+
+    context 'as maintainer' do
+      it 'renders show with 200 status code' do
+        is_expected.to have_gitlab_http_status(:ok)
+        is_expected.to render_template(:show)
+      end
+    end
+
+    context 'as anonymous user' do
+      let(:anonymous_user) { create(:user) }
+
+      before do
+        sign_in(anonymous_user)
+      end
+
+      it 'renders a 404' do
+        is_expected.to have_gitlab_http_status(:not_found)
+      end
+    end
+  end
+
   describe 'GET #metrics' do
     let(:deployment) { create(:deployment, :success, project: project, environment: environment) }
 
@@ -210,8 +237,6 @@ RSpec.describe Projects::DeploymentsController do
   end
 
   def deployment_params(opts = {})
-    opts.reverse_merge(namespace_id: project.namespace,
-                       project_id: project,
-                       environment_id: environment.id)
+    opts.reverse_merge(namespace_id: project.namespace, project_id: project, environment_id: environment.id)
   end
 end

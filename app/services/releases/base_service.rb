@@ -19,6 +19,10 @@ module Releases
       params[:tag]
     end
 
+    def tag_message
+      params[:tag_message]
+    end
+
     def ref
       params[:ref]
     end
@@ -54,7 +58,7 @@ module Releases
     end
 
     def milestones
-      return [] unless param_for_milestone_titles_provided?
+      return [] unless param_for_milestones_exists?
 
       strong_memoize(:milestones) do
         MilestonesFinder.new(
@@ -63,20 +67,42 @@ module Releases
           project_ids: Array(project.id),
           group_ids: Array(project_group_id),
           state: 'all',
-          title: params[:milestones]
+          title: params[:milestones],
+          ids: params[:milestone_ids]
         ).execute
       end
     end
 
-    def inexistent_milestones
+    def inexistent_milestone_titles
       return [] unless param_for_milestone_titles_provided?
 
       existing_milestone_titles = milestones.map(&:title)
+
       Array(params[:milestones]) - existing_milestone_titles
+    end
+
+    def inexistent_milestone_ids
+      return [] unless param_for_milestone_ids_provided?
+
+      existing_milestone_ids = milestones.map(&:id)
+
+      Array(params[:milestone_ids]) - existing_milestone_ids
     end
 
     def param_for_milestone_titles_provided?
       !!params[:milestones]
+    end
+
+    def param_for_milestone_ids_provided?
+      !!params[:milestone_ids]
+    end
+
+    def param_for_milestones_provided?
+      param_for_milestone_titles_provided? || param_for_milestone_ids_provided?
+    end
+
+    def param_for_milestones_exists?
+      params[:milestones].present? || params[:milestone_ids].present?
     end
 
     def execute_hooks(release, action = 'create')
@@ -85,6 +111,10 @@ module Releases
 
     # overridden in EE
     def project_group_id; end
+
+    def audit(release, action:)
+      # overridden in EE
+    end
   end
 end
 

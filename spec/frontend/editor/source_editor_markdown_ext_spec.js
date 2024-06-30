@@ -1,6 +1,9 @@
 import MockAdapter from 'axios-mock-adapter';
 import { Range, Position } from 'monaco-editor';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
+import { EXTENSION_MARKDOWN_BUTTONS } from '~/editor/constants';
 import { EditorMarkdownExtension } from '~/editor/extensions/source_editor_markdown_ext';
+import { ToolbarExtension } from '~/editor/extensions/source_editor_toolbar_ext';
 import SourceEditor from '~/editor/source_editor';
 import axios from '~/lib/utils/axios_utils';
 
@@ -14,6 +17,7 @@ describe('Markdown Extension for Source Editor', () => {
   const thirdLine = 'string with some **markup**';
   const text = `${firstLine}\n${secondLine}\n${thirdLine}`;
   const markdownPath = 'foo.md';
+  let extensions;
 
   const setSelection = (startLineNumber = 1, startColumn = 1, endLineNumber = 1, endColumn = 1) => {
     const selection = new Range(startLineNumber, startColumn, endLineNumber, endColumn);
@@ -27,7 +31,7 @@ describe('Markdown Extension for Source Editor', () => {
 
   beforeEach(() => {
     mockAxios = new MockAdapter(axios);
-    setFixtures('<div id="editor" data-editor-loading></div>');
+    setHTMLFixture('<div id="editor" data-editor-loading></div>');
     editorEl = document.getElementById('editor');
     editor = new SourceEditor();
     instance = editor.createInstance({
@@ -35,13 +39,47 @@ describe('Markdown Extension for Source Editor', () => {
       blobPath: markdownPath,
       blobContent: text,
     });
-    instance.use({ definition: EditorMarkdownExtension });
+    extensions = instance.use([
+      { definition: ToolbarExtension },
+      { definition: EditorMarkdownExtension },
+    ]);
   });
 
   afterEach(() => {
     instance.dispose();
     editorEl.remove();
     mockAxios.restore();
+
+    resetHTMLFixture();
+  });
+
+  describe('toolbar', () => {
+    it('renders all the buttons', () => {
+      const btns = instance.toolbar.getAllItems();
+      expect(btns).toHaveLength(EXTENSION_MARKDOWN_BUTTONS.length);
+      EXTENSION_MARKDOWN_BUTTONS.forEach((btn, i) => {
+        expect(btns[i].id).toBe(btn.id);
+      });
+    });
+  });
+
+  describe('markdown keystrokes', () => {
+    it('registers all keystrokes as actions', () => {
+      EXTENSION_MARKDOWN_BUTTONS.forEach((button) => {
+        if (button.data.mdShortcuts) {
+          expect(instance.getAction(button.id)).toBeDefined();
+        }
+      });
+    });
+
+    it('disposes all keystrokes on unuse', () => {
+      instance.unuse(extensions[1]);
+      EXTENSION_MARKDOWN_BUTTONS.forEach((button) => {
+        if (button.data.mdShortcuts) {
+          expect(instance.getAction(button.id)).toBeNull();
+        }
+      });
+    });
   });
 
   describe('getSelectedText', () => {

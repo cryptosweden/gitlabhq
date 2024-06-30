@@ -2,14 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::LoadBalancing::SidekiqClientMiddleware do
+RSpec.describe Gitlab::Database::LoadBalancing::SidekiqClientMiddleware, feature_category: :database do
   let(:middleware) { described_class.new }
 
   let(:worker_class) { 'TestDataConsistencyWorker' }
   let(:job) { { "job_id" => "a180b47c-3fd6-41b8-81e9-34da61c3400e" } }
 
   before do
-    skip_feature_flags_yaml_validation
     skip_default_enabled_yaml_check
   end
 
@@ -34,8 +33,7 @@ RSpec.describe Gitlab::Database::LoadBalancing::SidekiqClientMiddleware do
 
           data_consistency data_consistency, feature_flag: feature_flag
 
-          def perform(*args)
-          end
+          def perform(*args); end
         end
       end
 
@@ -57,45 +55,48 @@ RSpec.describe Gitlab::Database::LoadBalancing::SidekiqClientMiddleware do
         run_middleware
 
         expect(job['wal_locations']).to be_nil
+        expect(job['wal_location_source']).to be_nil
       end
 
       include_examples 'job data consistency'
     end
 
-    shared_examples_for 'mark data consistency location' do |data_consistency|
-      include_context 'data consistency worker class', data_consistency, :load_balancing_for_test_data_consistency_worker
-
+    shared_examples_for 'mark data consistency location' do |data_consistency, worker_klass|
       let(:location) { '0/D525E3A8' }
+      include_context 'when tracking WAL location reference'
 
-      context 'when feature flag is disabled' do
-        let(:expected_consistency) { :always }
-
-        before do
-          stub_feature_flags(load_balancing_for_test_data_consistency_worker: false)
-        end
-
-        include_examples 'does not pass database locations'
+      if worker_klass
+        let(:worker_class) { worker_klass }
+        let(:expected_consistency) { data_consistency }
+      else
+        include_context 'data consistency worker class', data_consistency, :load_balancing_for_test_data_consistency_worker
       end
 
       context 'when write was not performed' do
         before do
-          allow(Gitlab::Database::LoadBalancing::Session.current).to receive(:use_primary?).and_return(false)
+          stub_no_writes_performed!
         end
 
-        it 'passes database_replica_location' do
-          expected_location = {}
+        context 'when replica hosts are available' do
+          it 'passes database_replica_location' do
+            expected_locations = expect_tracked_locations_when_replicas_available
 
-          Gitlab::Database::LoadBalancing.each_load_balancer do |lb|
-            expect(lb.host)
-              .to receive(:database_replica_location)
-              .and_return(location)
+            run_middleware
 
-            expected_location[lb.name] = location
+            expect(job['wal_locations']).to eq(expected_locations)
+            expect(job['wal_location_source']).to eq(:replica)
           end
+        end
 
-          run_middleware
+        context 'when no replica hosts are available' do
+          it 'passes primary_write_location' do
+            expected_locations = expect_tracked_locations_when_no_replicas_available
 
-          expect(job['wal_locations']).to eq(expected_location)
+            run_middleware
+
+            expect(job['wal_locations']).to eq(expected_locations)
+            expect(job['wal_location_source']).to eq(:replica)
+          end
         end
 
         include_examples 'job data consistency'
@@ -103,23 +104,16 @@ RSpec.describe Gitlab::Database::LoadBalancing::SidekiqClientMiddleware do
 
       context 'when write was performed' do
         before do
-          allow(Gitlab::Database::LoadBalancing::Session.current).to receive(:use_primary?).and_return(true)
+          stub_write_performed!
         end
 
         it 'passes primary write location', :aggregate_failures do
-          expected_location = {}
-
-          Gitlab::Database::LoadBalancing.each_load_balancer do |lb|
-            expect(lb)
-              .to receive(:primary_write_location)
-              .and_return(location)
-
-            expected_location[lb.name] = location
-          end
+          expected_locations = expect_tracked_locations_from_primary_only
 
           run_middleware
 
-          expect(job['wal_locations']).to eq(expected_location)
+          expect(job['wal_locations']).to eq(expected_locations)
+          expect(job['wal_location_source']).to eq(:primary)
         end
 
         include_examples 'job data consistency'
@@ -127,17 +121,34 @@ RSpec.describe Gitlab::Database::LoadBalancing::SidekiqClientMiddleware do
     end
 
     context 'when worker cannot be constantized' do
-      let(:worker_class) { 'ActionMailer::MailDeliveryJob' }
+      let(:worker_class) { 'InvalidWorker' }
       let(:expected_consistency) { :always }
 
       include_examples 'does not pass database locations'
     end
 
     context 'when worker class does not include ApplicationWorker' do
-      let(:worker_class) { ActiveJob::QueueAdapters::SidekiqAdapter::JobWrapper }
+      let(:worker_class) { Gitlab::SidekiqConfig::DummyWorker }
       let(:expected_consistency) { :always }
 
       include_examples 'does not pass database locations'
+    end
+
+    context 'when job contains wrapped worker' do
+      let(:worker_class) { ActiveJob::QueueAdapters::SidekiqAdapter::JobWrapper }
+
+      context 'when wrapped worker does not include WorkerAttributes' do
+        let(:job) { { "job_id" => "a180b47c-3fd6-41b8-81e9-34da61c3400e", "wrapped" => Gitlab::SidekiqConfig::DummyWorker } }
+        let(:expected_consistency) { :always }
+
+        include_examples 'does not pass database locations'
+      end
+
+      context 'when wrapped worker includes WorkerAttributes' do
+        let(:job) { { "job_id" => "a180b47c-3fd6-41b8-81e9-34da61c3400e", "wrapped" => ActionMailer::MailDeliveryJob } }
+
+        include_examples 'mark data consistency location', :delayed, ActiveJob::QueueAdapters::SidekiqAdapter::JobWrapper
+      end
     end
 
     context 'database wal location was already provided' do
@@ -162,6 +173,7 @@ RSpec.describe Gitlab::Database::LoadBalancing::SidekiqClientMiddleware do
           run_middleware
 
           expect(job['wal_locations']).to eq(wal_locations)
+          expect(job['wal_location_source']).to be_nil
         end
       end
 

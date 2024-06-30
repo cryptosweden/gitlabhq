@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe StuckMergeJobsWorker do
+RSpec.describe StuckMergeJobsWorker, feature_category: :code_review_workflow do
   describe 'perform' do
     let(:worker) { described_class.new }
 
     context 'merge job identified as completed' do
       it 'updates merge request to merged when locked but has merge_commit_sha' do
-        allow(Gitlab::SidekiqStatus).to receive(:completed_jids).and_return(%w(123 456))
+        allow(Gitlab::SidekiqStatus).to receive(:completed_jids).and_return(%w[123 456])
         mr_with_sha = create(:merge_request, :locked, merge_jid: '123', state: :locked, merge_commit_sha: 'foo-bar-baz')
         mr_without_sha = create(:merge_request, :locked, merge_jid: '123', state: :locked, merge_commit_sha: nil)
 
@@ -23,7 +23,7 @@ RSpec.describe StuckMergeJobsWorker do
       end
 
       it 'updates merge request to opened when locked but has not been merged', :sidekiq_might_not_need_inline do
-        allow(Gitlab::SidekiqStatus).to receive(:completed_jids).and_return(%w(123))
+        allow(Gitlab::SidekiqStatus).to receive(:completed_jids).and_return(%w[123])
         merge_request = create(:merge_request, :locked, merge_jid: '123', state: :locked)
         pipeline = create(:ci_empty_pipeline, project: merge_request.project, ref: merge_request.source_branch, sha: merge_request.source_branch_sha)
 
@@ -34,14 +34,20 @@ RSpec.describe StuckMergeJobsWorker do
         expect(merge_request.head_pipeline).to eq(pipeline)
       end
 
-      it 'logs updated stuck merge job ids' do
-        allow(Gitlab::SidekiqStatus).to receive(:completed_jids).and_return(%w(123 456))
+      it 'logs updated stuck merge job ids and errored MRs' do
+        allow(Gitlab::SidekiqStatus).to receive(:completed_jids).and_return(%w[123 456 789])
 
         create(:merge_request, :locked, merge_jid: '123')
         create(:merge_request, :locked, merge_jid: '456')
 
-        expect(described_class).to receive_message_chain(:logger, :info)
-          .with('Updated state of locked merge jobs. JIDs: 123, 456')
+        broken_mr = create(:merge_request, :locked, merge_jid: '789')
+        broken_mr.update_attribute(:title, '')
+
+        expect(Gitlab::AppLogger).to receive(:info)
+          .with('Updated state of locked merge jobs. JIDs: 123, 456, 789')
+
+        expect(Gitlab::AppLogger).to receive(:info)
+          .with("Errors:\nTitle can't be blank - IDS: 789|#{broken_mr.id}\n")
 
         worker.perform
       end

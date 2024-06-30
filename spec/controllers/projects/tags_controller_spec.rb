@@ -52,6 +52,18 @@ RSpec.describe Projects::TagsController do
       expect(assigns(:releases)).not_to include(invalid_release)
     end
 
+    context 'when releases are private' do
+      before do
+        project.project_feature.update!(releases_access_level: ProjectFeature::PRIVATE)
+      end
+
+      it 'does not contain release data' do
+        subject
+
+        expect(assigns(:releases)).to be_empty
+      end
+    end
+
     context '@tag_pipeline_status' do
       context 'when no pipelines exist' do
         it 'is empty' do
@@ -205,15 +217,13 @@ RSpec.describe Projects::TagsController do
     before do
       project.add_developer(user)
       sign_in(user)
+      request
     end
 
-    it 'deletes tag' do
-      request
-
-      expect(response).to be_successful
-      expect(response.body).to include("Tag was removed")
-
+    it 'deletes tag and redirects to tags path' do
       expect(project.repository.find_tag(tag.name)).not_to be_present
+      expect(controller).to set_flash[:notice].to(/Tag was removed/)
+      expect(response).to redirect_to(project_tags_path(project))
     end
   end
 end

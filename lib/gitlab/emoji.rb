@@ -6,27 +6,13 @@ module Gitlab
 
     # When updating emoji assets increase the version below
     # and update the version number in `app/assets/javascripts/emoji/index.js`
-    EMOJI_VERSION = 2
+    EMOJI_VERSION = 3
 
     # Return a Pathname to emoji's current versioned folder
     #
     # @return [Pathname] Absolute Path to versioned emojis folder in `public`
     def emoji_public_absolute_path
       Rails.root.join("public/-/emojis/#{EMOJI_VERSION}")
-    end
-
-    def emoji_image_tag(name, src)
-      image_options = {
-        class:  'emoji',
-        src:    src,
-        title:  ":#{name}:",
-        alt:    ":#{name}:",
-        height: 20,
-        width:  20,
-        align:  'absmiddle'
-      }
-
-      ActionController::Base.helpers.tag(:img, image_options)
     end
 
     # CSS sprite fallback takes precedence over image fallback
@@ -46,12 +32,13 @@ module Gitlab
 
     def custom_emoji_tag(name, image_source)
       data = {
-        name: name
+        name: name,
+        fallback_src: image_source,
+        unicode_version: 'custom' # Prevents frontend to check for Unicode support
       }
+      options = { title: name, data: data }
 
-      ActionController::Base.helpers.content_tag('gl-emoji', title: name, data: data) do
-        emoji_image_tag(name, image_source).html_safe
-      end
+      ActionController::Base.helpers.content_tag('gl-emoji', "", options)
     end
   end
 end

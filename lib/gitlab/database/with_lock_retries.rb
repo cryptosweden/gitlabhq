@@ -61,7 +61,7 @@ module Gitlab
         [10.seconds, 10.minutes]
       ].freeze
 
-      def initialize(logger: NULL_LOGGER, allow_savepoints: true, timing_configuration: DEFAULT_TIMING_CONFIGURATION, klass: nil, env: ENV, connection:)
+      def initialize(connection:, logger: NULL_LOGGER, allow_savepoints: true, timing_configuration: DEFAULT_TIMING_CONFIGURATION, klass: nil, env: ENV)
         @logger = logger
         @klass = klass
         @allow_savepoints = allow_savepoints
@@ -83,7 +83,7 @@ module Gitlab
       # @param [Boolean] raise_on_exhaustion whether to raise `AttemptsExhaustedError` when exhausting max attempts
       # @param [Proc] block of code that will be executed
       def run(raise_on_exhaustion: false, &block)
-        raise 'no block given' unless block_given?
+        raise 'no block given' unless block
 
         @block = block
 

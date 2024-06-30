@@ -18,13 +18,14 @@ module Quality
       unit: %w[
         bin
         channels
+        components
         config
+        contracts
         db
         dependencies
         elastic
         elastic_integration
         experiments
-        events
         factories
         finders
         frontend
@@ -32,7 +33,7 @@ module Quality
         haml_lint
         helpers
         initializers
-        javascripts
+        keeps
         lib
         metrics_server
         models
@@ -55,8 +56,8 @@ module Quality
         views
         workers
         tooling
-        component
-      ],
+        dot_gitlab_ci
+      ], # ^ tooling and dot_gitlab_ci might be worth to move to another level
       integration: %w[
         commands
         controllers
@@ -75,18 +76,21 @@ module Quality
     end
 
     def pattern(level)
-      @patterns[level] ||= "#{prefixes_for_pattern}spec/#{folders_pattern(level)}{,/**/}*#{suffix(level)}"
+      @patterns[level] ||= "#{prefixes_for_pattern}spec/#{folders_pattern(level)}{,/**/}*#{suffix(level)}".freeze # rubocop:disable Style/RedundantFreeze
     end
 
-    def regexp(level)
-      @regexps[level] ||= Regexp.new("#{prefixes_for_regex}spec/#{folders_regex(level)}").freeze
+    def regexp(level, start_with = false)
+      @regexps[level] ||= Regexp.new("#{'^' if start_with}#{prefixes_for_regex}spec/#{folders_regex(level)}").freeze
     end
 
     def level_for(file_path)
       case file_path
-      # Detect migration first since some background migration tests are under
-      # spec/lib/gitlab/background_migration and tests under spec/lib are unit by default
-      when regexp(:migration), regexp(:background_migration)
+      # Detect background migration first since some are under
+      #     spec/lib/gitlab/background_migration
+      # and tests under spec/lib are unit by default
+      when regexp(:background_migration)
+        :background_migration
+      when regexp(:migration)
         :migration
       # Detect frontend fixture before matching other unit tests
       when regexp(:frontend_fixture)
@@ -102,10 +106,6 @@ module Quality
       end
     end
 
-    def background_migration?(file_path)
-      !!(file_path =~ regexp(:background_migration))
-    end
-
     private
 
     def prefixes_for_pattern
@@ -117,7 +117,7 @@ module Quality
     def prefixes_for_regex
       return '' if prefixes.empty?
 
-      regex_prefix = prefixes.map(&Regexp.method(:escape)).join('|')
+      regex_prefix = prefixes.map { |prefix| Regexp.escape(prefix) }.join('|')
 
       "(#{regex_prefix})"
     end
@@ -131,16 +131,9 @@ module Quality
       end
     end
 
-    def migration_and_background_migration_folders
-      TEST_LEVEL_FOLDERS.fetch(:migration) + TEST_LEVEL_FOLDERS.fetch(:background_migration)
-    end
-
     def folders_pattern(level)
       case level
-      when :migration
-        "{#{migration_and_background_migration_folders.join(',')}}"
-      # Geo specs aren't in a specific folder, but they all have the :geo tag, so we must search for them globally
-      when :all, :geo
+      when :all
         '**'
       else
         "{#{TEST_LEVEL_FOLDERS.fetch(level).join(',')}}"
@@ -149,13 +142,10 @@ module Quality
 
     def folders_regex(level)
       case level
-      when :migration
-        "(#{migration_and_background_migration_folders.join('|')})"
-      # Geo specs aren't in a specific folder, but they all have the :geo tag, so we must search for them globally
-      when :all, :geo
+      when :all
         ''
       else
-        "(#{TEST_LEVEL_FOLDERS.fetch(level).join('|')})"
+        "(#{TEST_LEVEL_FOLDERS.fetch(level).join('|')})/"
       end
     end
   end

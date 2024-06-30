@@ -3,13 +3,24 @@
 import $ from 'jquery';
 import { setCookie } from '~/lib/utils/common_utils';
 import { hide, fixTitle } from '~/tooltips';
-import createFlash from './flash';
-import axios from './lib/utils/axios_utils';
-import { sprintf, s__, __ } from './locale';
+import { __ } from './locale';
+
+const updateSidebarClasses = (layoutPage, rightSidebar) => {
+  if (window.innerWidth >= 992) {
+    layoutPage.classList.remove('right-sidebar-expanded', 'right-sidebar-collapsed');
+    rightSidebar.classList.remove('right-sidebar-collapsed');
+    rightSidebar.classList.add('right-sidebar-expanded');
+  } else {
+    layoutPage.classList.add('right-sidebar-collapsed', 'is-merge-request');
+    rightSidebar.classList.add('right-sidebar-collapsed');
+    rightSidebar.classList.remove('right-sidebar-expanded');
+  }
+};
 
 function Sidebar() {
-  this.toggleTodo = this.toggleTodo.bind(this);
   this.sidebar = $('aside');
+
+  this.isMR = /projects:merge_requests:/.test(document.body.dataset.page);
 
   this.removeListeners();
   this.addEventListeners();
@@ -42,13 +53,18 @@ Sidebar.prototype.addEventListeners = function () {
   this.sidebar.on('hiddenGlDropdown', this, this.onSidebarDropdownHidden);
 
   $document.on('click', '.js-sidebar-toggle', this.sidebarToggleClicked);
-  return $(document)
-    .off('click', '.js-issuable-todo')
-    .on('click', '.js-issuable-todo', this.toggleTodo);
+
+  const layoutPage = document.querySelector('.layout-page');
+  const rightSidebar = document.querySelector('.js-right-sidebar');
+
+  if (rightSidebar.classList.contains('right-sidebar-merge-requests')) {
+    updateSidebarClasses(layoutPage, rightSidebar);
+    window.addEventListener('resize', () => updateSidebarClasses(layoutPage, rightSidebar));
+  }
 };
 
 Sidebar.prototype.sidebarToggleClicked = function (e, triggered) {
-  const $this = $(this);
+  const $toggleButtons = $('.js-sidebar-toggle');
   const $collapseIcon = $('.js-sidebar-collapse');
   const $expandIcon = $('.js-sidebar-expand');
   const $toggleContainer = $('.js-sidebar-toggle-container');
@@ -63,7 +79,10 @@ Sidebar.prototype.sidebarToggleClicked = function (e, triggered) {
     $('aside.right-sidebar')
       .removeClass('right-sidebar-expanded')
       .addClass('right-sidebar-collapsed');
-    $('.layout-page').removeClass('right-sidebar-expanded').addClass('right-sidebar-collapsed');
+
+    if (!this.isMR) {
+      $('.layout-page').removeClass('right-sidebar-expanded').addClass('right-sidebar-collapsed');
+    }
   } else {
     $toggleContainer.data('is-expanded', true);
     $expandIcon.addClass('hidden');
@@ -71,43 +90,20 @@ Sidebar.prototype.sidebarToggleClicked = function (e, triggered) {
     $('aside.right-sidebar')
       .removeClass('right-sidebar-collapsed')
       .addClass('right-sidebar-expanded');
-    $('.layout-page').removeClass('right-sidebar-collapsed').addClass('right-sidebar-expanded');
+
+    if (!this.isMR) {
+      $('.layout-page').removeClass('right-sidebar-collapsed').addClass('right-sidebar-expanded');
+    }
   }
 
-  $this.attr('data-original-title', tooltipLabel);
-  $this.attr('title', tooltipLabel);
-  fixTitle($this);
-  hide($this);
+  $toggleButtons.attr('data-original-title', tooltipLabel);
+  $toggleButtons.attr('title', tooltipLabel);
+  fixTitle($toggleButtons);
+  hide($toggleButtons);
 
   if (!triggered) {
     setCookie('collapsed_gutter', $('.right-sidebar').hasClass('right-sidebar-collapsed'));
   }
-};
-
-Sidebar.prototype.toggleTodo = function (e) {
-  const $this = $(e.currentTarget);
-  const ajaxType = $this.data('deletePath') ? 'delete' : 'post';
-  const url = String($this.data('deletePath') || $this.data('createPath'));
-
-  hide($this);
-
-  $('.js-issuable-todo').disable().addClass('is-loading');
-
-  axios[ajaxType](url, {
-    issuable_id: $this.data('issuableId'),
-    issuable_type: $this.data('issuableType'),
-  })
-    .then(({ data }) => {
-      this.todoUpdateDone(data);
-    })
-    .catch(() =>
-      createFlash({
-        message: sprintf(__('There was an error %{message} to-do item.'), {
-          message:
-            ajaxType === 'post' ? s__('RightSidebar|adding a') : s__('RightSidebar|deleting the'),
-        }),
-      }),
-    );
 };
 
 Sidebar.prototype.sidebarCollapseClicked = function (e) {

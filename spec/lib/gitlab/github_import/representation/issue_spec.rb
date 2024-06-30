@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::GithubImport::Representation::Issue do
+  let_it_be(:work_item_type_id) { ::WorkItems::Type.default_issue_type.id }
+
   let(:created_at) { Time.new(2017, 1, 1, 12, 00) }
   let(:updated_at) { Time.new(2017, 1, 1, 12, 15) }
 
@@ -60,6 +62,10 @@ RSpec.describe Gitlab::GithubImport::Representation::Issue do
         expect(issue.updated_at).to eq(updated_at)
       end
 
+      it 'includes the work_item_type_id' do
+        expect(issue.work_item_type_id).to eq(work_item_type_id)
+      end
+
       it 'is not a pull request' do
         expect(issue.pull_request?).to eq(false)
       end
@@ -68,32 +74,31 @@ RSpec.describe Gitlab::GithubImport::Representation::Issue do
 
   describe '.from_api_response' do
     let(:response) do
-      double(
-        :response,
+      {
         number: 42,
         title: 'My Issue',
         body: 'This is my issue',
-        milestone: double(:milestone, number: 4),
+        milestone: { number: 4 },
         state: 'open',
-        assignees: [double(:user, id: 4, login: 'alice')],
-        labels: [double(:label, name: 'bug')],
-        user: double(:user, id: 4, login: 'alice'),
+        assignees: [{ id: 4, login: 'alice' }],
+        labels: [{ name: 'bug' }],
+        user: { id: 4, login: 'alice' },
         created_at: created_at,
         updated_at: updated_at,
         pull_request: false
-      )
+      }
     end
 
+    let(:additional_data) { { work_item_type_id: work_item_type_id } }
+
     it_behaves_like 'an Issue' do
-      let(:issue) { described_class.from_api_response(response) }
+      let(:issue) { described_class.from_api_response(response, additional_data) }
     end
 
     it 'does not set the user if the response did not include a user' do
-      allow(response)
-        .to receive(:user)
-        .and_return(nil)
+      response[:user] = nil
 
-      issue = described_class.from_api_response(response)
+      issue = described_class.from_api_response(response, additional_data)
 
       expect(issue.author).to be_nil
     end
@@ -113,7 +118,8 @@ RSpec.describe Gitlab::GithubImport::Representation::Issue do
           'author' => { 'id' => 4, 'login' => 'alice' },
           'created_at' => created_at.to_s,
           'updated_at' => updated_at.to_s,
-          'pull_request' => false
+          'pull_request' => false,
+          'work_item_type_id' => work_item_type_id
         }
       end
 
@@ -186,7 +192,8 @@ RSpec.describe Gitlab::GithubImport::Representation::Issue do
     it 'returns a hash with needed identifiers' do
       github_identifiers = {
         iid: 42,
-        issuable_type: 'MergeRequest'
+        issuable_type: 'MergeRequest',
+        title: 'Implement cool feature'
       }
       other_attributes = { pull_request: true, something_else: '_something_else_' }
       issue = described_class.new(github_identifiers.merge(other_attributes))

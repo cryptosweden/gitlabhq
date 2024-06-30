@@ -3,10 +3,11 @@
 FactoryBot.define do
   factory :chat_name, class: 'ChatName' do
     user
-    integration
 
     team_id { 'T0001' }
     team_domain { 'Awesome Team' }
+
+    token { SecureRandom.uuid }
 
     sequence(:chat_id) { |n| "U#{n}" }
     chat_name { generate(:username) }

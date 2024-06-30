@@ -1,6 +1,7 @@
 import { GlButtonGroup, GlButton } from '@gitlab/ui';
-import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
+import { mockTracking } from 'helpers/tracking_helper';
 import BlobHeaderViewerSwitcher from '~/blob/components/blob_header_viewer_switcher.vue';
 import {
   RICH_BLOB_VIEWER,
@@ -11,21 +12,23 @@ import {
 
 describe('Blob Header Viewer Switcher', () => {
   let wrapper;
+  let trackingSpy;
 
-  function createComponent(propsData = {}) {
-    wrapper = mount(BlobHeaderViewerSwitcher, {
+  function createComponent(propsData = { showViewerToggles: true }) {
+    wrapper = mountExtended(BlobHeaderViewerSwitcher, {
       propsData,
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findSimpleViewerButton = () => wrapper.findComponent('[data-viewer="simple"]');
+  const findRichViewerButton = () => wrapper.findComponent('[data-viewer="rich"]');
+  const findBlameButton = () => wrapper.findByText('Blame');
 
   describe('intiialization', () => {
     it('is initialized with simple viewer as active', () => {
       createComponent();
-      expect(wrapper.vm.value).toBe(SIMPLE_BLOB_VIEWER);
+      expect(findSimpleViewerButton().props('selected')).toBe(true);
+      expect(findRichViewerButton().props('selected')).toBe(false);
     });
   });
 
@@ -35,8 +38,8 @@ describe('Blob Header Viewer Switcher', () => {
 
     beforeEach(() => {
       createComponent();
-      btnGroup = wrapper.find(GlButtonGroup);
-      buttons = wrapper.findAll(GlButton);
+      btnGroup = wrapper.findComponent(GlButtonGroup);
+      buttons = wrapper.findAllComponents(GlButton);
     });
 
     it('renders gl-button-group component', () => {
@@ -52,45 +55,72 @@ describe('Blob Header Viewer Switcher', () => {
   });
 
   describe('viewer changes', () => {
-    let buttons;
-    let simpleBtn;
-    let richBtn;
+    it('does not switch the viewer if the selected one is already active', async () => {
+      createComponent();
+      expect(findSimpleViewerButton().props('selected')).toBe(true);
 
-    function factory(propsData = {}) {
-      createComponent(propsData);
-      buttons = wrapper.findAll(GlButton);
-      simpleBtn = buttons.at(0);
-      richBtn = buttons.at(1);
+      findSimpleViewerButton().vm.$emit('click');
+      await nextTick();
 
-      jest.spyOn(wrapper.vm, '$emit');
-    }
-
-    it('does not switch the viewer if the selected one is already active', () => {
-      factory();
-      expect(wrapper.vm.value).toBe(SIMPLE_BLOB_VIEWER);
-      simpleBtn.vm.$emit('click');
-      expect(wrapper.vm.value).toBe(SIMPLE_BLOB_VIEWER);
-      expect(wrapper.vm.$emit).not.toHaveBeenCalled();
+      expect(findSimpleViewerButton().props('selected')).toBe(true);
+      expect(wrapper.emitted('input')).toBe(undefined);
     });
 
     it('emits an event when a Rich Viewer button is clicked', async () => {
-      factory();
-      expect(wrapper.vm.value).toBe(SIMPLE_BLOB_VIEWER);
+      createComponent();
+      expect(findSimpleViewerButton().props('selected')).toBe(true);
 
-      richBtn.vm.$emit('click');
-
+      findRichViewerButton().vm.$emit('click');
       await nextTick();
-      expect(wrapper.vm.$emit).toHaveBeenCalledWith('input', RICH_BLOB_VIEWER);
+
+      expect(wrapper.emitted('input')).toEqual([[RICH_BLOB_VIEWER]]);
     });
 
     it('emits an event when a Simple Viewer button is clicked', async () => {
-      factory({
-        value: RICH_BLOB_VIEWER,
-      });
-      simpleBtn.vm.$emit('click');
+      createComponent({ value: RICH_BLOB_VIEWER, showViewerToggles: true });
 
+      findSimpleViewerButton().vm.$emit('click');
       await nextTick();
-      expect(wrapper.vm.$emit).toHaveBeenCalledWith('input', SIMPLE_BLOB_VIEWER);
+
+      expect(wrapper.emitted('input')).toEqual([[SIMPLE_BLOB_VIEWER]]);
     });
+  });
+
+  it('does not render simple and rich viewer buttons if `showViewerToggles` is `false`', async () => {
+    createComponent({ showViewerToggles: false });
+    await nextTick();
+
+    expect(findSimpleViewerButton().exists()).toBe(false);
+    expect(findRichViewerButton().exists()).toBe(false);
+  });
+
+  it('does not render a Blame button if `showBlameToggle` is `false`', async () => {
+    createComponent({ showBlameToggle: false });
+    await nextTick();
+
+    expect(findBlameButton().exists()).toBe(false);
+  });
+
+  it('emits an event when the Blame button is clicked', async () => {
+    createComponent({ showBlameToggle: true });
+
+    findBlameButton().trigger('click');
+    await nextTick();
+
+    expect(wrapper.emitted('blame')).toHaveLength(1);
+  });
+
+  it('emits a tracking event when the Blame button is clicked', async () => {
+    trackingSpy = mockTracking(undefined, wrapper.element, jest.spyOn);
+    createComponent({ showBlameToggle: true });
+
+    findBlameButton().trigger('click');
+    await nextTick();
+
+    expect(trackingSpy).toHaveBeenCalledWith(
+      undefined,
+      'open_blame_viewer_on_blob_page',
+      expect.any(Object),
+    );
   });
 });

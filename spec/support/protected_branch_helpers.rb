@@ -2,19 +2,24 @@
 
 module ProtectedBranchHelpers
   def set_allowed_to(operation, option = 'Maintainers', form: '.js-new-protected-branch')
-    within form do
-      select_elem = find(".js-allowed-to-#{operation}")
-      select_elem.click
+    # Maximize window to accommodate dropdown
+    page.driver.browser.manage.window.maximize
 
-      wait_for_requests
+    # Make sure dropdown is in view
+    execute_script('window.scrollTo(0,0)')
 
-      within('.dropdown-content') do
+    within(form) do
+      within_select(".js-allowed-to-#{operation}:not([disabled])") do
         Array(option).each { |opt| click_on(opt) }
       end
-
-      # Enhanced select is used in EE, therefore an extra click is needed.
-      select_elem.click if select_elem['aria-expanded'] == 'true'
     end
+
+    # Close dropdown
+    find('body').click
+  end
+
+  def show_add_form
+    click_button 'Add protected branch'
   end
 
   def set_protected_branch_name(branch_name)
@@ -31,5 +36,16 @@ module ProtectedBranchHelpers
   def click_on_protect
     click_on "Protect"
     wait_for_requests
+  end
+
+  def within_select(selector, &block)
+    select_input = find(selector)
+    select_input.click
+    wait_for_requests
+
+    within('.dropdown .dropdown-menu.show', &block)
+
+    # Enhanced select is used in EE, therefore an extra click is needed.
+    select_input.click if select_input['aria-expanded'] == 'true'
   end
 end

@@ -1,70 +1,104 @@
-.md h1,
-.md h2,
-.md h3,
-.md h4,
-.md h5,
-.md h6 {
-  margin-top: 17px;
-}
+@import 'framework/variables';
+@import 'framework/variables_overrides';
 
-.md h1 {
-  font-size: 30px;
-}
+@import '@gitlab/ui/src/scss/variables';
+@import '@gitlab/ui/src/scss/utility-mixins/index';
 
-.md h2 {
-  font-size: 22px;
-}
+@media print {
+  .md h1,
+  .md h2,
+  .md h3,
+  .md h4,
+  .md h5,
+  .md h6 {
+    margin-top: 17px;
+  }
 
-.md h3 {
-  font-size: 18px;
-  font-weight: 600;
-}
+  .md h1 {
+    font-size: 30px;
+  }
 
-header,
-nav,
-nav.navbar-collapse,
-nav.navbar-collapse.collapse,
-.nav-sidebar,
-.profiler-results,
-.tree-ref-holder,
-.tree-holder .breadcrumb,
-.nav,
-.btn,
-ul.notes-form,
-.ci-status-link::after,
-.issuable-gutter-toggle,
-.gutter-toggle,
-.issuable-details .content-block-small,
-.edit-link,
-.note-action-button,
-.right-sidebar,
-.flash-container,
-#js-peek {
-  display: none !important;
-}
+  .md h2 {
+    font-size: 22px;
+  }
 
-pre {
-  page-break-before: avoid;
-  page-break-inside: auto;
-}
+  .md h3 {
+    font-size: 18px;
+    font-weight: 600;
+  }
 
-.page-gutter {
-  padding-top: 0;
-  padding-left: 0;
-}
+  .md {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
 
-.right-sidebar {
-  top: 0;
-}
+    // fix blockquote style in print
+    blockquote {
+      &::before {
+        position: absolute;
+        top: 0;
+        left: -4px;
+        content: ' ';
+        height: 100%;
+        width: 4px;
+        background-color: $gray-100;
+      }
 
-a[href]::after {
-  content: none !important;
-}
+      position: relative;
+      font-size: inherit;
+      color: $gray-700;
+      padding-top: $gl-spacing-scale-3;
+      padding-bottom: $gl-spacing-scale-3;
+      padding-left: $gl-spacing-scale-6;
+      margin-top: $gl-spacing-scale-3;
+      margin-bottom: $gl-spacing-scale-3;
+      margin-right: 0;
+      @apply gl-shadow-inner-l-4-gray-100;
+      margin-left: 4px;
+      border: 0 !important;
+    }
+  }
 
-.with-performance-bar .layout-page {
-  margin-top: 0;
-}
+  header,
+  nav,
+  .super-sidebar,
+  .super-sidebar-overlay,
+  .profiler-results,
+  .tree-ref-holder,
+  .tree-holder .breadcrumb,
+  .nav,
+  .btn,
+  ul.notes-form,
+  .issuable-gutter-toggle,
+  .gutter-toggle,
+  .issuable-details .content-block-small,
+  .edit-link,
+  .note-action-button,
+  .right-sidebar,
+  .flash-container,
+  copy-code,
+  #js-peek {
+    display: none !important;
+  }
 
-.content-wrapper-margin {
-  margin-top: 0;
+  pre {
+    page-break-before: avoid;
+    page-break-inside: auto;
+  }
+
+  .page-gutter {
+    padding-top: 0;
+    padding-left: 0;
+  }
+
+  .right-sidebar {
+    top: 0;
+  }
+
+  a[href]::after {
+    content: none !important;
+  }
+
+  .with-performance-bar .layout-page {
+    padding-top: 0;
+  }
 }

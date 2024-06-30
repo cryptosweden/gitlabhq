@@ -1,3 +1,3 @@
-import initForm from '../shared/init_form';
+import initPipelineSchedulesFormApp from '~/ci/pipeline_schedules/mount_pipeline_schedules_form_app';
 
-initForm();
+initPipelineSchedulesFormApp('#pipeline-schedules-form-edit', true);

@@ -10,7 +10,7 @@ RSpec.shared_examples 'board lists create mutation' do
   let(:mutation) { described_class.new(object: nil, context: { current_user: user }, field: nil) }
   let(:list_create_params) { {} }
 
-  subject { mutation.resolve(board_id: board.to_global_id.to_s, **list_create_params) }
+  subject { mutation.resolve(board_id: board.to_global_id, **list_create_params) }
 
   describe '#ready?' do
     it 'raises an error if required arguments are missing' do
@@ -32,6 +32,10 @@ RSpec.shared_examples 'board lists create mutation' do
 
       describe 'backlog list' do
         let(:list_create_params) { { backlog: true } }
+
+        before do
+          board.lists.backlog.delete_all
+        end
 
         it 'creates one and only one backlog' do
           expect { subject }.to change { board.lists.backlog.count }.by(1)

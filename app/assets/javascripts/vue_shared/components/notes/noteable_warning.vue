@@ -2,10 +2,13 @@
 import { GlLink, GlIcon, GlSprintf } from '@gitlab/ui';
 import { __, sprintf } from '~/locale';
 
-const NoteableTypeText = {
+const noteableTypeText = {
   Issue: __('issue'),
   Epic: __('epic'),
   MergeRequest: __('merge request'),
+  Task: __('task'),
+  KeyResult: __('key result'),
+  Objective: __('objective'),
 };
 
 export default {
@@ -53,7 +56,7 @@ export default {
       return this.isConfidential && this.isLocked;
     },
     noteableTypeText() {
-      return NoteableTypeText[this.noteableType];
+      return noteableTypeText[this.noteableType];
     },
     confidentialContextText() {
       return sprintf(__('This is a confidential %{noteableTypeText}.'), {
@@ -61,7 +64,7 @@ export default {
       });
     },
     lockedContextText() {
-      return sprintf(__('This %{noteableTypeText} is locked.'), {
+      return sprintf(__('The discussion in this %{noteableTypeText} is locked.'), {
         noteableTypeText: this.noteableTypeText,
       });
     },
@@ -69,7 +72,7 @@ export default {
 };
 </script>
 <template>
-  <div class="issuable-note-warning" data-testid="confidential-warning">
+  <div class="issuable-note-warning" data-testid="issuable-note-warning">
     <gl-icon v-if="!isLockedAndConfidential" :name="warningIcon" :size="16" class="icon inline" />
 
     <span v-if="isLockedAndConfidential" ref="lockedAndConfidential">
@@ -77,7 +80,7 @@ export default {
         <gl-sprintf
           :message="
             __(
-              'This %{noteableTypeText} is %{confidentialLinkStart}confidential%{confidentialLinkEnd} and %{lockedLinkStart}locked%{lockedLinkEnd}.',
+              'This %{noteableTypeText} is %{confidentialLinkStart}confidential%{confidentialLinkEnd} and its %{lockedLinkStart}discussion is locked%{lockedLinkEnd}.',
             )
           "
         >
@@ -98,13 +101,15 @@ export default {
     <span v-else-if="isConfidential" ref="confidential">
       {{ confidentialContextText }}
       {{ __('People without permission will never get a notification.') }}
-      <gl-link :href="confidentialNoteableDocsPath" target="_blank">{{ __('Learn more') }}</gl-link>
+      <gl-link :href="confidentialNoteableDocsPath" target="_blank">{{
+        __('Learn more.')
+      }}</gl-link>
     </span>
 
     <span v-else-if="isLocked" ref="locked">
       {{ lockedContextText }}
       {{ __('Only project members can comment.') }}
-      <gl-link :href="lockedNoteableDocsPath" target="_blank">{{ __('Learn more') }}</gl-link>
+      <gl-link :href="lockedNoteableDocsPath" target="_blank">{{ __('Learn more.') }}</gl-link>
     </span>
   </div>
 </template>

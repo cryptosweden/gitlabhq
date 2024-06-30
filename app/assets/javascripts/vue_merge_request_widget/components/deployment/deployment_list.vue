@@ -23,16 +23,6 @@ export default {
       type: Boolean,
       required: true,
     },
-    visualReviewAppMeta: {
-      type: Object,
-      required: false,
-      default: () => ({
-        sourceProjectId: '',
-        sourceProjectPath: '',
-        mergeRequestId: '',
-        appUrl: '',
-      }),
-    },
   },
   computed: {
     showCollapsedDeployments() {
@@ -49,16 +39,12 @@ export default {
 };
 </script>
 <template>
-  <mr-collapsible-extension
-    v-if="showCollapsedDeployments"
-    :title="__('View all environments.')"
-    data-testid="mr-collapsed-deployments"
-  >
+  <mr-collapsible-extension v-if="showCollapsedDeployments" :title="__('View all environments.')">
     <template #header>
-      <div class="gl-mr-3 gl-line-height-normal">
+      <div class="gl-mr-3 gl-leading-normal">
         <gl-sprintf :message="multipleDeploymentsTitle">
           <template #deployments>
-            <span class="gl-font-weight-bold gl-mr-2">{{ deployments.length }}</span>
+            <span class="gl-font-bold gl-mr-2">{{ deployments.length }}</span>
           </template>
         </gl-sprintf>
       </div>
@@ -67,7 +53,6 @@ export default {
       v-for="deployment in deployments"
       :key="deployment.id"
       :class="deploymentClass"
-      class="gl-bg-gray-50"
       :deployment="deployment"
       :show-metrics="hasDeploymentMetrics"
     />

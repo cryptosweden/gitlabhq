@@ -26,9 +26,14 @@ RSpec.shared_examples 'querying a GraphQL type with labels' do
   let_it_be(:current_user) { create(:user) }
 
   let_it_be(:label_a) { create(label_factory, :described, **label_attrs) }
-  let_it_be(:label_b) { create(label_factory, :described, **label_attrs) }
-  let_it_be(:label_c) { create(label_factory, :described, :scoped, prefix: 'matching', **label_attrs) }
-  let_it_be(:label_d) { create(label_factory, :described, :scoped, prefix: 'matching', **label_attrs) }
+  let_it_be(:label_b) { create(label_factory, :described, description: 'matching', **label_attrs) }
+  let_it_be(:label_c) do
+    create(label_factory, :described, :scoped, description: 'test', prefix: 'matching', **label_attrs)
+  end
+
+  let_it_be(:label_d) do
+    create(label_factory, :described, :scoped, description: 'test', prefix: 'matching', **label_attrs)
+  end
 
   let(:label_title) { label_b.title }
 
@@ -42,9 +47,7 @@ RSpec.shared_examples 'querying a GraphQL type with labels' do
     make_query(
       [
         query_graphql_field(:label, label_params, all_graphql_fields_for(Label)),
-        query_graphql_field(:labels, labels_params, [
-          query_graphql_field(:nodes, nil, all_graphql_fields_for(Label))
-        ])
+        query_graphql_field(:labels, labels_params, [query_graphql_field(:nodes, nil, all_graphql_fields_for(Label))])
       ]
     )
   end
@@ -77,9 +80,29 @@ RSpec.shared_examples 'querying a GraphQL type with labels' do
 
       it 'finds the matching labels' do
         expect(labels_response.pluck('title')).to contain_exactly(
+          label_b.title,
           label_c.title,
           label_d.title
         )
+      end
+
+      context 'when searching only in the title' do
+        let(:labels_params) { { search_term: 'matching', search_in: [:TITLE] } }
+
+        it 'finds the matching labels' do
+          expect(labels_response.pluck('title')).to contain_exactly(
+            label_c.title,
+            label_d.title
+          )
+        end
+      end
+
+      context 'when searching only in the description' do
+        let(:labels_params) { { search_term: 'matching', search_in: [:DESCRIPTION] } }
+
+        it 'finds the matching labels' do
+          expect(labels_response.pluck('title')).to contain_exactly(label_b.title)
+        end
       end
     end
 
@@ -95,7 +118,7 @@ RSpec.shared_examples 'querying a GraphQL type with labels' do
   describe 'performance' do
     def query_for(*labels)
       selections = labels.map do |label|
-        %Q[#{label.title.gsub(/:+/, '_')}: label(title: "#{label.title}") { description }]
+        %[#{label.title.gsub(/:+/, '_')}: label(title: "#{label.title}") { description }]
       end
 
       make_query(selections)

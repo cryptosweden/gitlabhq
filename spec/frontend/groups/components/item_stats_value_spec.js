@@ -18,14 +18,7 @@ describe('ItemStatsValue', () => {
     });
   };
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
-  });
-
-  const findGlIcon = () => wrapper.find(GlIcon);
+  const findGlIcon = () => wrapper.findComponent(GlIcon);
   const findStatValue = () => wrapper.find('[data-testid="itemStatValue"]');
 
   describe('template', () => {

@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Boards do
+RSpec.describe API::Boards, :with_license, feature_category: :portfolio_management do
   let_it_be(:user) { create(:user) }
   let_it_be(:non_member) { create(:user) }
   let_it_be(:guest) { create(:user) }
   let_it_be(:admin) { create(:user, :admin) }
-  let_it_be(:board_parent, reload: true) { create(:project, :public, creator_id: user.id, namespace: user.namespace ) }
+  let_it_be(:board_parent, reload: true) { create(:project, :public, creator_id: user.id, namespace: user.namespace) }
 
   let_it_be(:dev_label) do
     create(:label, title: 'Development', color: '#FFAABB', project: board_parent)
@@ -57,9 +57,11 @@ RSpec.describe API::Boards do
     let(:url) { "/projects/#{board_parent.id}/boards/#{board.id}" }
 
     it 'delete the issue board' do
-      delete api(url, user)
+      expect do
+        delete api(url, user)
 
-      expect(response).to have_gitlab_http_status(:no_content)
+        expect(response).to have_gitlab_http_status(:no_content)
+      end.to change { board_parent.boards.count }.by(-1)
     end
   end
 
@@ -95,7 +97,7 @@ RSpec.describe API::Boards do
 
   describe "POST /groups/:id/boards/:board_id/lists" do
     let_it_be(:group) { create(:group) }
-    let_it_be(:board_parent) { create(:group, parent: group ) }
+    let_it_be(:board_parent) { create(:group, parent: group) }
     let(:url) { "/groups/#{board_parent.id}/boards/#{board.id}/lists" }
 
     let_it_be(:board) { create(:board, group: board_parent) }

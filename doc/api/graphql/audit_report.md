@@ -1,10 +1,14 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Compliance
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Set up an Audit Report with GraphQL **(FREE)**
+# Set up an Audit Report with GraphQL
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This page describes how you can use the GraphiQL explorer to set up an audit report
 for a specific subset of users.
@@ -20,13 +24,13 @@ The query includes:
 - [`pageInfo`](#pageinfo)
 - [`nodes`](#nodes)
 
-## pageInfo
+## `pageInfo`
 
 This contains the data needed to implement pagination. GitLab uses cursor-based
 [pagination](getting_started.md#pagination). For more information, see
 [Pagination](https://graphql.org/learn/pagination/) in the GraphQL documentation.
 
-## nodes
+## `nodes`
 
 In a GraphQL query, `nodes` is used to represent a collection of [`nodes` on a graph](https://en.wikipedia.org/wiki/Vertex_(graph_theory)).
 In this case, the collection of nodes is a collection of `User` objects. For each one,
@@ -101,7 +105,7 @@ explorer. GraphiQL explorer is available for:
 
 1. Open the [GraphiQL explorer tool](https://gitlab.com/-/graphql-explorer).
 1. Paste the `query` listed above into the left window of your GraphiQL explorer tool.
-1. Click Play to get the result shown here:
+1. Select **Play** to get the result shown here:
 
 ![GraphiQL explorer search for boards](img/user_query_example_v13_2.png)
 
@@ -111,7 +115,7 @@ a single integer.
 
 This GraphQL query returns the groups and projects that the user has been *explicitly* made a member of.
 Since the GraphiQL explorer uses the session token to authorize access to resources,
-the output is limited to the projects and groups accessible to the currently signed-in user.
+the output is limited to the projects and groups accessible to the currently authenticated user.
 
 If you've signed in as an instance administrator, you would have access to all records, regardless of ownership.
 

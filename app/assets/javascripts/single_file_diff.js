@@ -1,10 +1,10 @@
-/* eslint-disable consistent-return */
-
 import $ from 'jquery';
+import { GlButton } from '@gitlab/ui';
+import { createAlert } from '~/alert';
 import { loadingIconForLegacyJS } from '~/loading_icon_for_legacy_js';
+import { renderVueComponentForLegacyJS } from '~/render_vue_component_for_legacy_js';
 import { spriteIcon } from '~/lib/utils/common_utils';
 import FilesCommentButton from './files_comment_button';
-import createFlash from './flash';
 import initImageDiffHelper from './image_diff/helpers/init_image_diff';
 import axios from './lib/utils/axios_utils';
 import { __ } from './locale';
@@ -16,8 +16,15 @@ const ERROR_HTML = `<div class="nothing-here-block">${spriteIcon(
   'warning-solid',
   's16',
 )} Could not load diff</div>`;
-const COLLAPSED_HTML =
-  '<div class="nothing-here-block diff-collapsed">This diff is collapsed. <button class="click-to-expand btn btn-link">Click to expand it.</button></div>';
+const CLICK_TO_EXPAND_BUTTON_HTML = renderVueComponentForLegacyJS(
+  GlButton,
+  {
+    class: 'click-to-expand',
+    props: { variant: 'link' },
+  },
+  __('Click to expand it.'),
+).outerHTML;
+const COLLAPSED_HTML = `<div class="nothing-here-block diff-collapsed">This diff is collapsed. ${CLICK_TO_EXPAND_BUTTON_HTML}</div>`;
 
 export default class SingleFileDiff {
   constructor(file) {
@@ -26,7 +33,9 @@ export default class SingleFileDiff {
     this.content = $('.diff-content', this.file);
     this.$chevronRightIcon = $('.diff-toggle-caret .chevron-right', this.file);
     this.$chevronDownIcon = $('.diff-toggle-caret .chevron-down', this.file);
-    this.diffForPath = this.content.find('[data-diff-for-path]').data('diffForPath');
+    this.diffForPath = this.content
+      .find('div:not(.note-text)[data-diff-for-path]')
+      .data('diffForPath');
     this.isOpen = !this.diffForPath;
     if (this.diffForPath) {
       this.collapsedContent = this.content;
@@ -40,8 +49,11 @@ export default class SingleFileDiff {
       this.$chevronDownIcon.removeClass('gl-display-none');
     }
 
-    $('.js-file-title, .click-to-expand', this.file).on('click', (e) => {
+    $('.js-file-title', this.file).on('click', (e) => {
       this.toggleDiff($(e.target));
+    });
+    $('.click-to-expand', this.file).on('click', (e) => {
+      this.toggleDiff($(e.currentTarget));
     });
   }
 
@@ -66,7 +78,7 @@ export default class SingleFileDiff {
     } else {
       this.$chevronDownIcon.removeClass('gl-display-none');
       this.$chevronRightIcon.addClass('gl-display-none');
-      return this.getContentHTML(cb);
+      return this.getContentHTML(cb); // eslint-disable-line consistent-return
     }
   }
 
@@ -96,7 +108,7 @@ export default class SingleFileDiff {
         if (cb) cb();
       })
       .catch(() => {
-        createFlash({
+        createAlert({
           message: __('An error occurred while retrieving diff'),
         });
       });

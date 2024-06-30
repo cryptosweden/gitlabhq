@@ -8,7 +8,10 @@ module Packages
       DEFAULT_PLATFORM = 'ruby'
 
       def execute
-        return ServiceResponse.error(message: "forbidden", http_status: :forbidden) unless Ability.allowed?(current_user, :read_package, project)
+        unless Ability.allowed?(current_user, :read_package, project&.packages_policy_subject)
+          return ServiceResponse.error(message: "forbidden", http_status: :forbidden)
+        end
+
         return ServiceResponse.error(message: "#{gem_name} not found", http_status: :not_found) if packages.empty?
 
         payload = packages.map do |package|
@@ -30,10 +33,9 @@ module Packages
       private
 
       def packages
-        strong_memoize(:packages) do
-          project.packages.with_name(gem_name)
-        end
+        project.packages.with_name(gem_name)
       end
+      strong_memoize_attr :packages
 
       def gem_name
         params[:gem_name]

@@ -28,11 +28,9 @@
 .timeline-entry {
   color: $gl-text-color;
 
-  // [dark-theme]: only give background color to actual notes
-  // in the timeline, the note form textarea has a background
-  // of it's own
-  &:not(.note-form) {
-    background-color: $white;
+  &:not(.note-form).internal-note .timeline-content,
+  &:not(.note-form).draft-note .timeline-content {
+    background-color: $orange-50 !important;
   }
 
   .timeline-entry-inner {
@@ -41,20 +39,16 @@
 
   &:target,
   &.target {
-    background: $line-target-blue;
+    .timeline-content {
+      background-color: $line-target-blue;
+    }
+
+    + .public-note.discussion-reply-holder {
+      padding-top: $gl-padding-12 !important;
+    }
 
     &.system-note .note-body .note-text.system-note-commit-list::after {
       background: linear-gradient(rgba($line-target-blue, 0.1) -100px, $line-target-blue 100%);
-    }
-  }
-
-  img.avatar {
-    margin-right: $gl-padding;
-
-    @include media-breakpoint-down(sm) {
-      width: $gl-spacing-scale-6;
-      height: $gl-spacing-scale-6;
-      margin-right: $gl-padding-8;
     }
   }
 
@@ -67,5 +61,5 @@
 .discussion .timeline-entry {
   margin: 0;
   border-right: 0;
-  border-radius: $border-radius-default $border-radius-default 0 0;
+  border-radius: $gl-border-radius-base $gl-border-radius-base 0 0;
 }

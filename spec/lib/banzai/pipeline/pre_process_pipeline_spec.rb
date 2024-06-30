@@ -2,17 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Pipeline::PreProcessPipeline do
+RSpec.describe Banzai::Pipeline::PreProcessPipeline, feature_category: :team_planning do
   it 'pre-processes the source text' do
     markdown = <<~MD
       \xEF\xBB\xBF---
       foo: :foo_symbol
       bar: :bar_symbol
       ---
-
-      >>>
-      blockquote
-      >>>
     MD
 
     result = described_class.call(markdown, {})
@@ -21,7 +17,6 @@ RSpec.describe Banzai::Pipeline::PreProcessPipeline do
       expect(result[:output]).not_to include "\xEF\xBB\xBF"
       expect(result[:output]).not_to include '---'
       expect(result[:output]).to include "```yaml:frontmatter\nfoo: :foo_symbol\n"
-      expect(result[:output]).to include "> blockquote\n"
     end
   end
 

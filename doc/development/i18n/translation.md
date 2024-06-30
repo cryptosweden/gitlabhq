@@ -1,7 +1,7 @@
 ---
 stage: Manage
-group: Import
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Import and Integrate
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Translating GitLab
@@ -20,7 +20,7 @@ GitLab is being translated into many languages. To select a language to contribu
 
    - If the language you want is available, proceed to the next step.
    - If the language you want is not available,
-      [open an issue](https://gitlab.com/gitlab-org/gitlab/-/issues?scope=all&utf8=✓&state=all&label_name[]=Category%3AInternationalization).
+     [open an issue](https://gitlab.com/gitlab-org/gitlab/-/issues?scope=all&utf8=✓&state=all&label_name[]=Category%3AInternationalization).
       Notify our Crowdin administrators by including `@gitlab-org/manage/import` in your issue.
    - After the issue and any merge requests are complete, restart this procedure.
 
@@ -75,13 +75,14 @@ The level of formality used in software varies by language:
 | -------- | --------- | ------- |
 | French   | formal    | `vous` for `you` |
 | German   | informal  | `du` for `you` |
+| Spanish   | informal  | `tú` for `you` |
 
 Refer to other translated strings and notes in the glossary to assist you in determining a suitable
 level of formality.
 
 ### Inclusive language
 
-[Diversity, inclusion, and belonging](https://about.gitlab.com/handbook/values/#diversity-inclusion)
+[Diversity, inclusion, and belonging](https://handbook.gitlab.com/handbook/values/#diversity-inclusion)
 are GitLab values. We ask you to avoid translations that exclude people based on their gender or
 ethnicity. In languages that distinguish between a male and female form, use both or choose a
 neutral formulation.
@@ -95,7 +96,7 @@ For example, in German, the word _user_ can be translated into _Benutzer_ (male)
 
 ### Updating the glossary
 
-To propose additions to the glossary, please
+To propose additions to the glossary,
 [open an issue](https://gitlab.com/gitlab-org/gitlab/-/issues?scope=all&utf8=✓&state=all&label_name[]=Category%3AInternationalization).
 
 ## French translation guidelines

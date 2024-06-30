@@ -11,7 +11,7 @@ module QA
             super
 
             base.view 'app/views/projects/blob/_editor.html.haml' do
-              element :editor
+              element 'source-editor-preview-container'
             end
           end
 
@@ -20,13 +20,17 @@ module QA
           end
 
           def remove_content
-            text_area.send_keys([:command, 'a'], :backspace)
+            if page.driver.browser.capabilities.platform_name.include? "mac"
+              text_area.send_keys([:command, 'a'], :backspace)
+            else
+              text_area.send_keys([:control, 'a'], :backspace)
+            end
           end
 
           private
 
           def text_area
-            within_element :editor do
+            within_element 'source-editor-preview-container' do
               find('textarea', visible: false)
             end
           end

@@ -4,27 +4,23 @@ import { uniqueId } from 'lodash';
 import BlobContent from '~/blob/components/blob_content.vue';
 import BlobHeader from '~/blob/components/blob_header.vue';
 import { SIMPLE_BLOB_VIEWER, RICH_BLOB_VIEWER } from '~/blob/components/constants';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-import { isLoggedIn } from '~/lib/utils/common_utils';
+import { isLoggedIn, handleLocationHash } from '~/lib/utils/common_utils';
 import { __ } from '~/locale';
-import { redirectTo } from '~/lib/utils/url_utility';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import WebIdeLink from '~/vue_shared/components/web_ide_link.vue';
+import { visitUrl, getLocationHash } from '~/lib/utils/url_utility';
 import CodeIntelligence from '~/code_navigation/components/app.vue';
+import LineHighlighter from '~/blob/line_highlighter';
+import blobInfoQuery from 'shared_queries/repository/blob_info.query.graphql';
+import highlightMixin from '~/repository/mixins/highlight_mixin';
+import projectInfoQuery from '../queries/project_info.query.graphql';
 import getRefMixin from '../mixins/get_ref';
-import blobInfoQuery from '../queries/blob_info.query.graphql';
-import userInfoQuery from '../queries/user_info.query.graphql';
-import applicationInfoQuery from '../queries/application_info.query.graphql';
-import { DEFAULT_BLOB_INFO, TEXT_FILE_TYPE, LFS_STORAGE } from '../constants';
+import { DEFAULT_BLOB_INFO, TEXT_FILE_TYPE, LFS_STORAGE, LEGACY_FILE_TYPES } from '../constants';
 import BlobButtonGroup from './blob_button_group.vue';
 import ForkSuggestion from './fork_suggestion.vue';
 import { loadViewer } from './blob_viewers';
 
 export default {
-  i18n: {
-    pipelineEditor: __('Pipeline Editor'),
-  },
   components: {
     BlobHeader,
     BlobButtonGroup,
@@ -32,40 +28,57 @@ export default {
     GlLoadingIcon,
     GlButton,
     ForkSuggestion,
-    WebIdeLink,
     CodeIntelligence,
+    AiGenie: () => import('ee_component/ai/components/ai_genie.vue'),
   },
-  mixins: [getRefMixin, glFeatureFlagMixin()],
+  mixins: [getRefMixin, highlightMixin],
   inject: {
     originalBranch: {
       default: '',
     },
+    explainCodeAvailable: { default: false },
   },
   apollo: {
-    gitpodEnabled: {
-      query: applicationInfoQuery,
+    projectInfo: {
+      query: projectInfoQuery,
+      variables() {
+        return {
+          projectPath: this.projectPath,
+        };
+      },
       error() {
         this.displayError();
       },
-    },
-    currentUser: {
-      query: userInfoQuery,
-      error() {
-        this.displayError();
+      update({ project }) {
+        this.pathLocks = project.pathLocks || DEFAULT_BLOB_INFO.pathLocks;
+        this.userPermissions = project.userPermissions;
       },
     },
     project: {
       query: blobInfoQuery,
       variables() {
-        return {
+        const queryVariables = {
           projectPath: this.projectPath,
           filePath: this.path,
-          ref: this.originalBranch || this.ref,
-          shouldFetchRawText: Boolean(this.glFeatures.highlightJs),
+          ref: this.currentRef,
+          refType: this.refType?.toUpperCase() || null,
+          shouldFetchRawText: true,
         };
+
+        return queryVariables;
       },
-      result() {
-        this.switchViewer(this.hasRichViewer ? RICH_BLOB_VIEWER : SIMPLE_BLOB_VIEWER);
+      result({ data }) {
+        const repository = data.project?.repository || {};
+        this.blobInfo = repository.blobs?.nodes[0] || {};
+        this.isEmptyRepository = repository.empty;
+        this.projectId = data.project?.id;
+
+        const usePlain = this.$route?.query?.plain === '1'; // When the 'plain' URL param is present, its value determines which viewer to render
+        const urlHash = getLocationHash(); // If there is a code line hash in the URL we render with the simple viewer
+        const useSimpleViewer = usePlain || urlHash?.startsWith('L') || !this.hasRichViewer;
+
+        this.initHighlightWorker(this.blobInfo, this.isUsingLfs);
+        this.switchViewer(useSimpleViewer ? SIMPLE_BLOB_VIEWER : RICH_BLOB_VIEWER); // By default, if present, use the rich viewer to render
       },
       error() {
         this.displayError();
@@ -73,9 +86,7 @@ export default {
     },
   },
   provide() {
-    return {
-      blobHash: uniqueId(),
-    };
+    return { blobHash: uniqueId() };
   },
   props: {
     path: {
@@ -85,6 +96,11 @@ export default {
     projectPath: {
       type: String,
       required: true,
+    },
+    refType: {
+      type: String,
+      required: false,
+      default: null,
     },
   },
   data() {
@@ -97,8 +113,14 @@ export default {
       isRenderingLegacyTextViewer: false,
       activeViewerType: SIMPLE_BLOB_VIEWER,
       project: DEFAULT_BLOB_INFO.project,
-      gitpodEnabled: DEFAULT_BLOB_INFO.gitpodEnabled,
       currentUser: DEFAULT_BLOB_INFO.currentUser,
+      useFallback: false,
+      pathLocks: DEFAULT_BLOB_INFO.pathLocks,
+      userPermissions: DEFAULT_BLOB_INFO.userPermissions,
+      blobInfo: {},
+      isEmptyRepository: false,
+      projectId: null,
+      showBlame: this.$route?.query?.blame === '1',
     };
   },
   computed: {
@@ -111,10 +133,8 @@ export default {
     isBinaryFileType() {
       return this.isBinary || this.blobInfo.simpleViewer?.fileType !== TEXT_FILE_TYPE;
     },
-    blobInfo() {
-      const nodes = this.project?.repository?.blobs?.nodes || [];
-
-      return nodes[0] || {};
+    currentRef() {
+      return this.originalBranch || this.ref;
     },
     viewer() {
       const { richViewer, simpleViewer } = this.blobInfo;
@@ -131,7 +151,7 @@ export default {
       return this.shouldLoadLegacyViewer ? null : loadViewer(fileType, this.isUsingLfs);
     },
     shouldLoadLegacyViewer() {
-      return this.viewer.fileType === TEXT_FILE_TYPE && !this.glFeatures.highlightJs;
+      return LEGACY_FILE_TYPES.includes(this.blobInfo.fileType) || this.useFallback;
     },
     legacyViewerLoaded() {
       return (
@@ -140,7 +160,7 @@ export default {
       );
     },
     canLock() {
-      const { pushCode, downloadCode } = this.project.userPermissions;
+      const { pushCode, downloadCode } = this.userPermissions;
       const currentUsername = window.gon?.current_username;
 
       if (this.pathLockedByUser && this.pathLockedByUser.username !== currentUsername) {
@@ -150,15 +170,17 @@ export default {
       return pushCode && downloadCode;
     },
     pathLockedByUser() {
-      const pathLock = this.project?.pathLocks?.nodes.find((node) => node.path === this.path);
+      const pathLock = this.pathLocks?.nodes.find((node) => node.path === this.path);
 
       return pathLock ? pathLock.user : null;
     },
     showForkSuggestion() {
-      const { createMergeRequestIn, forkProject } = this.project.userPermissions;
+      const { createMergeRequestIn, forkProject } = this.userPermissions;
       const { canModifyBlob } = this.blobInfo;
 
-      return this.isLoggedIn && !canModifyBlob && createMergeRequestIn && forkProject;
+      return (
+        this.isLoggedIn && !this.isUsingLfs && !canModifyBlob && createMergeRequestIn && forkProject
+      );
     },
     forkPath() {
       const forkPaths = {
@@ -173,7 +195,21 @@ export default {
       return this.blobInfo.storedExternally && this.blobInfo.externalStorage === LFS_STORAGE;
     },
   },
+  watch: {
+    // Watch the URL 'plain' query value to know if the viewer needs changing.
+    // This is the case when the user switches the viewer and then goes back through the history
+    '$route.query.plain': {
+      handler(plainValue) {
+        const useSimpleViewer = plainValue === '1' || !this.hasRichViewer;
+        this.switchViewer(useSimpleViewer ? SIMPLE_BLOB_VIEWER : RICH_BLOB_VIEWER);
+      },
+    },
+  },
   methods: {
+    onError() {
+      this.useFallback = true;
+      this.loadLegacyViewer();
+    },
     loadLegacyViewer() {
       if (this.legacyViewerLoaded) {
         return;
@@ -182,28 +218,39 @@ export default {
       const type = this.activeViewerType;
 
       this.isLoadingLegacyViewer = true;
+
+      const newUrl = new URL(this.blobInfo.webPath, window.location.origin);
+      newUrl.searchParams.set('format', 'json');
+      newUrl.searchParams.set('viewer', type);
       axios
-        .get(`${this.blobInfo.webPath}?format=json&viewer=${type}`)
-        .then(({ data: { html, binary } }) => {
+        .get(newUrl.pathname + newUrl.search)
+        .then(async ({ data: { html, binary } }) => {
+          this.isRenderingLegacyTextViewer = true;
+
           if (type === SIMPLE_BLOB_VIEWER) {
-            this.isRenderingLegacyTextViewer = true;
-
             this.legacySimpleViewer = html;
-
-            window.requestIdleCallback(() => {
-              this.isRenderingLegacyTextViewer = false;
-            });
           } else {
             this.legacyRichViewer = html;
           }
 
           this.isBinary = binary;
           this.isLoadingLegacyViewer = false;
+
+          window.requestIdleCallback(() => {
+            this.isRenderingLegacyTextViewer = false;
+
+            if (type === SIMPLE_BLOB_VIEWER) {
+              new LineHighlighter(); // eslint-disable-line no-new
+            }
+          });
+
+          await this.$nextTick();
+          handleLocationHash(); // Ensures that we scroll to the hash when async content is loaded
         })
         .catch(() => this.displayError());
     },
     displayError() {
-      createFlash({ message: __('An error occurred while loading the file. Please try again.') });
+      createAlert({ message: __('An error occurred while loading the file. Please try again.') });
     },
     switchViewer(newViewer) {
       this.activeViewerType = newViewer || SIMPLE_BLOB_VIEWER;
@@ -212,6 +259,12 @@ export default {
         this.loadLegacyViewer();
       }
     },
+    handleViewerChanged(newViewer) {
+      this.switchViewer(newViewer);
+      const plain = newViewer === SIMPLE_BLOB_VIEWER ? '1' : '0';
+      if (this.$route?.query?.plain === plain) return;
+      this.$router.push({ path: this.$route.path, query: { ...this.$route.query, plain } });
+    },
     editBlob(target) {
       if (this.showForkSuggestion) {
         this.setForkTarget(target);
@@ -219,61 +272,70 @@ export default {
       }
 
       const { ideEditPath, editBlobPath } = this.blobInfo;
-      redirectTo(target === 'ide' ? ideEditPath : editBlobPath);
+      visitUrl(target === 'ide' ? ideEditPath : editBlobPath);
     },
     setForkTarget(target) {
       this.forkTarget = target;
+    },
+    onCopy() {
+      navigator.clipboard.writeText(this.blobInfo.rawTextBlob);
+    },
+    handleToggleBlame() {
+      this.switchViewer(SIMPLE_BLOB_VIEWER);
+
+      if (this.$route?.query?.plain === '0') {
+        // If the user is not viewing plain code and clicks the blame button, we always want to show blame info
+        // For instance, when viewing the rendered version of a Markdown file
+        this.showBlame = true;
+      } else {
+        this.showBlame = !this.showBlame;
+      }
+
+      const blame = this.showBlame === true ? '1' : '0';
+      if (this.$route?.query?.blame === blame) return;
+      this.$router.push({ path: this.$route.path, query: { ...this.$route.query, blame } });
     },
   },
 };
 </script>
 
 <template>
-  <div>
+  <div class="gl-relative">
     <gl-loading-icon v-if="isLoading" size="sm" />
-    <div v-if="blobInfo && !isLoading" class="file-holder">
+    <div v-if="blobInfo && !isLoading" id="fileHolder" class="file-holder">
       <blob-header
         :blob="blobInfo"
-        :hide-viewer-switcher="!hasRichViewer || isBinaryFileType || isUsingLfs"
+        :hide-viewer-switcher="isBinaryFileType || isUsingLfs"
         :is-binary="isBinaryFileType"
         :active-viewer-type="viewer.type"
         :has-render-error="hasRenderError"
         :show-path="false"
-        @viewer-changed="switchViewer"
+        :override-copy="true"
+        :show-fork-suggestion="showForkSuggestion"
+        :show-blame-toggle="true"
+        :project-path="projectPath"
+        :project-id="projectId"
+        @viewer-changed="handleViewerChanged"
+        @copy="onCopy"
+        @edit="editBlob"
+        @error="displayError"
+        @blame="handleToggleBlame"
       >
         <template #actions>
-          <web-ide-link
-            v-if="!blobInfo.archived"
-            :show-edit-button="!isBinaryFileType"
-            class="gl-mr-3"
-            :edit-url="blobInfo.editBlobPath"
-            :web-ide-url="blobInfo.ideEditPath"
-            :needs-to-fork="showForkSuggestion"
-            :show-pipeline-editor-button="Boolean(blobInfo.pipelineEditorPath)"
-            :pipeline-editor-url="blobInfo.pipelineEditorPath"
-            :gitpod-url="blobInfo.gitpodBlobUrl"
-            :show-gitpod-button="gitpodEnabled"
-            :gitpod-enabled="currentUser && currentUser.gitpodEnabled"
-            :user-preferences-gitpod-path="currentUser && currentUser.preferencesGitpodPath"
-            :user-profile-enable-gitpod-path="currentUser && currentUser.profileEnableGitpodPath"
-            is-blob
-            disable-fork-modal
-            @edit="editBlob"
-          />
-
           <blob-button-group
             v-if="isLoggedIn && !blobInfo.archived"
             :path="path"
             :name="blobInfo.name"
             :replace-path="blobInfo.replacePath"
             :delete-path="blobInfo.webPath"
-            :can-push-code="project.userPermissions.pushCode"
+            :can-push-code="userPermissions.pushCode"
             :can-push-to-branch="blobInfo.canCurrentUserPushToBranch"
-            :empty-repo="project.repository.empty"
+            :empty-repo="isEmptyRepository"
             :project-path="projectPath"
             :is-locked="Boolean(pathLockedByUser)"
             :can-lock="canLock"
             :show-fork-suggestion="showForkSuggestion"
+            :is-using-lfs="isUsingLfs"
             @fork="setForkTarget('view')"
           />
         </template>
@@ -291,17 +353,36 @@ export default {
         :content="legacySimpleViewer"
         :is-raw-content="true"
         :active-viewer="viewer"
-        :hide-line-numbers="true"
+        :show-blame="showBlame"
+        :current-ref="currentRef"
         :loading="isLoadingLegacyViewer"
+        :project-path="projectPath"
         :data-loading="isRenderingLegacyTextViewer"
       />
-      <component :is="blobViewer" v-else :blob="blobInfo" class="blob-viewer" />
+      <component
+        :is="blobViewer"
+        v-else
+        :blob="blobInfo"
+        :chunks="chunks"
+        :show-blame="showBlame"
+        :project-path="projectPath"
+        :current-ref="currentRef"
+        class="blob-viewer"
+        @error="onError"
+      />
       <code-intelligence
         v-if="blobViewer || legacyViewerLoaded"
         :code-navigation-path="blobInfo.codeNavigationPath"
         :blob-path="blobInfo.path"
         :path-prefix="blobInfo.projectBlobPathRoot"
+        :wrap-text-nodes="true"
       />
     </div>
+    <ai-genie
+      v-if="explainCodeAvailable"
+      container-selector=".file-content"
+      :file-path="path"
+      class="gl-ml-7"
+    />
   </div>
 </template>

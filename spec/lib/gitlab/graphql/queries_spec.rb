@@ -85,11 +85,15 @@ RSpec.describe Gitlab::Graphql::Queries do
   describe '.all' do
     it 'is the combination of finding queries in CE and EE' do
       expect(described_class)
-        .to receive(:find).with(Rails.root / 'app/assets/javascripts').and_return([:ce])
+        .to receive(:find).with(Rails.root / 'app/assets/javascripts').and_return([:ce_assets])
       expect(described_class)
-        .to receive(:find).with(Rails.root / 'ee/app/assets/javascripts').and_return([:ee])
+        .to receive(:find).with(Rails.root / 'ee/app/assets/javascripts').and_return([:ee_assets])
+      expect(described_class)
+        .to receive(:find).with(Rails.root / 'app/graphql/queries').and_return([:ce_gql])
+      expect(described_class)
+        .to receive(:find).with(Rails.root / 'ee/app/graphql/queries').and_return([:ee_gql])
 
-      expect(described_class.all).to eq([:ce, :ee])
+      expect(described_class.all).to contain_exactly(:ce_assets, :ee_assets, :ce_gql, :ee_gql)
     end
   end
 
@@ -339,7 +343,7 @@ RSpec.describe Gitlab::Graphql::Queries do
       it_behaves_like 'an invalid GraphQL query for the blog schema' do
         let(:errors) do
           contain_exactly(
-            have_attributes(message: include('Parse error'))
+            have_attributes(message: include('Expected LCURLY, actual: RCURLY ("}") at [1, 7]'))
           )
         end
       end
@@ -355,6 +359,30 @@ RSpec.describe Gitlab::Graphql::Queries do
           )
         end
       end
+    end
+
+    context 'a query containing a persist directive' do
+      let(:path) { 'persist_directive.query.graphql' }
+
+      it_behaves_like 'a valid GraphQL query for the blog schema'
+
+      it 'is tagged as a client query' do
+        expect(subject.validate(schema).first).to eq :client_query
+      end
+    end
+
+    context 'a query containing a persistantly directive' do
+      let(:path) { 'persistantly_directive.query.graphql' }
+
+      it 'is not tagged as a client query' do
+        expect(subject.validate(schema).first).not_to eq :client_query
+      end
+    end
+
+    context 'a query containing a persist field' do
+      let(:path) { 'persist_field.query.graphql' }
+
+      it_behaves_like 'a valid GraphQL query for the blog schema'
     end
   end
 end

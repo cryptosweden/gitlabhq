@@ -29,6 +29,9 @@ tree:
       - resource_label_events:
         - label:
           - :priorities
+      - resource_milestone_events:
+        - :milestone
+      - :resource_state_events
       - designs:
         - notes:
           - :author
@@ -41,6 +44,7 @@ tree:
       - :zoom_meetings
       - :sentry_issue
       - :award_emoji
+      - :work_item_type
     - snippets:
       - :award_emoji
       - notes:
@@ -48,11 +52,16 @@ tree:
         - :award_emoji
     - releases:
       - :links
+      - milestone_releases:
+        - :milestone
     - project_members:
       - :user
     - merge_requests:
+      - :approvals
       - :metrics
       - :award_emoji
+      - :merge_request_assignees
+      - :merge_request_reviewers
       - notes:
         - :author
         - :award_emoji
@@ -60,6 +69,7 @@ tree:
         - events:
           - :push_event_payload
         - :suggestions
+        - :note_diff_file
       - merge_request_diff:
         - merge_request_diff_commits:
           - :commit_author
@@ -77,16 +87,22 @@ tree:
       - resource_label_events:
         - label:
           - :priorities
+      - resource_milestone_events:
+        - :milestone
+      - :resource_state_events
     - :external_pull_requests
+    - commit_notes:
+      - :author
+      - events:
+        - :push_event_payload
     - ci_pipelines:
-      - notes:
-        - :author
-        - events:
-          - :push_event_payload
       - stages:
-        - :statuses
+        - :builds
+        - :generic_commit_statuses
+        - :bridges
       - :external_pull_request
       - :merge_request
+      - :pipeline_metadata
     - :auto_devops
     - :pipeline_schedules
     - :container_expiration_policy
@@ -101,14 +117,29 @@ tree:
     - :project_badges
     - :ci_cd_settings
     - :error_tracking_setting
-    - :metrics_setting
     - boards:
       - lists:
         - label:
           - :priorities
     - :service_desk_setting
+    - :user_contributions
   group_members:
     - :user
+
+# Used to support old exports that were exported before the removal/rename of the associations
+#
+# For example, statuses of ci_pipelines are no longer exported, and instead, statuses are
+# exported as builds, generic_commit_statuses, and bridges. So in order to allow statuses
+# to be still imported, it is added to the list below.
+import_only_tree:
+  project:
+    - ci_pipelines:
+      - notes:
+        - :author
+        - events:
+          - :push_event_payload
+      - stages:
+        - :statuses
 
 # Only include the following attributes for the models specified.
 included_attributes:
@@ -116,15 +147,20 @@ included_attributes:
     - :id
     - :public_email
     - :username
+  user_contributions:
+    - :public_email
+    - :username
+    - :name
   author:
     - :name
+  approvals:
+    - :user_id
+    - :created_at
+    - :updated_at
   ci_cd_settings:
     - :group_runners_enabled
     - :runner_token_expiration_interval
-  metrics_setting:
-    - :dashboard_timezone
-    - :external_dashboard_url
-    - :project_id
+    - :default_git_depth
   project_badges:
     - :created_at
     - :image_url
@@ -139,10 +175,10 @@ included_attributes:
     - :cron_timezone
     - :description
     - :next_run_at
-    - :owner_id
     - :project_id
     - :ref
     - :updated_at
+    - :owner_id
   error_tracking_setting:
     - :api_url
     - :organization_name
@@ -278,9 +314,17 @@ included_attributes:
     - :forking_access_level
     - :metrics_dashboard_access_level
     - :operations_access_level
+    - :monitor_access_level
     - :analytics_access_level
     - :security_and_compliance_access_level
     - :container_registry_access_level
+    - :package_registry_access_level
+    - :environments_access_level
+    - :feature_flags_access_level
+    - :releases_access_level
+    - :infrastructure_access_level
+    - :model_experiments_access_level
+    - :model_registry_access_level
   prometheus_metrics:
     - :created_at
     - :updated_at
@@ -325,7 +369,6 @@ included_attributes:
     - :source_branch
     - :source_project_id
     - :author_id
-    - :assignee_id
     - :title
     - :created_at
     - :updated_at
@@ -337,7 +380,6 @@ included_attributes:
     - :updated_by_id
     - :merge_error
     - :merge_params
-    - :merge_when_pipeline_succeeds
     - :merge_user_id
     - :merge_commit_sha
     - :squash_commit_sha
@@ -507,7 +549,7 @@ included_attributes:
     - :source_sha
     - :target_sha
   external_pull_requests: *external_pull_request_definition
-  statuses:
+  statuses: &statuses_definition
     - :project_id
     - :status
     - :finished_at
@@ -539,6 +581,10 @@ included_attributes:
     - :failure_reason
     - :scheduled_at
     - :scheduling_type
+    - :ci_stage
+  builds: *statuses_definition
+  generic_commit_statuses: *statuses_definition
+  bridges: *statuses_definition
   ci_pipelines:
     - :ref
     - :sha
@@ -562,6 +608,9 @@ included_attributes:
     - :iid
     - :source_sha
     - :target_sha
+  pipeline_metadata:
+    - :project_id
+    - :name
   stages:
     - :name
     - :status
@@ -570,6 +619,7 @@ included_attributes:
     - :project_id
     - :created_at
     - :updated_at
+    # - :statuses # old exports use statuses instead of builds, generic_commit_statuses and bridges
   actions:
     - :event
   design: &design_definition
@@ -584,6 +634,13 @@ included_attributes:
     - :author_id
   issue_assignees:
     - :user_id
+  merge_request_assignees:
+    - :user_id
+    - :created_at
+  merge_request_reviewers:
+    - :user_id
+    - :created_at
+    - :state
   sentry_issue:
     - :sentry_issue_identifier
   zoom_meetings:
@@ -637,9 +694,7 @@ included_attributes:
     - :auto_cancel_pending_pipelines
     - :autoclose_referenced_issues
     - :build_allow_git_fetch
-    - :build_coverage_regex
     - :build_timeout
-    - :ci_config_path
     - :delete_error
     - :description
     - :disable_overriding_approvers_per_merge_request
@@ -681,9 +736,16 @@ included_attributes:
     - :metrics_dashboard_access_level
     - :analytics_access_level
     - :operations_access_level
+    - :monitor_access_level
     - :security_and_compliance_access_level
     - :container_registry_access_level
-    - :allow_merge_on_skipped_pipeline
+    - :package_registry_access_level
+    - :environments_access_level
+    - :feature_flags_access_level
+    - :releases_access_level
+    - :infrastructure_access_level
+    - :model_experiments_access_level
+    - :model_registry_access_level
     - :auto_devops_deploy_strategy
     - :auto_devops_enabled
     - :container_registry_enabled
@@ -692,13 +754,36 @@ included_attributes:
     - :merge_method
     - :merge_requests_enabled
     - :snippets_enabled
-    - :squash_option
     - :topics
     - :visibility
     - :wiki_enabled
     - :build_git_strategy
     - :build_enabled
     - :security_and_compliance_enabled
+    - :allow_merge_on_skipped_pipeline
+    - :squash_option
+  resource_milestone_events:
+    - :user_id
+    - :action
+    - :created_at
+    - :state
+  resource_state_events:
+    - :user_id
+    - :state
+    - :created_at
+    - :source_commit
+    - :close_after_error_tracking_resolve
+    - :close_auto_resolve_prometheus_alert
+  work_item_type:
+    - :base_type
+  note_diff_file:
+    - :new_file
+    - :renamed_file
+    - :deleted_file
+    - :a_mode
+    - :b_mode
+    - :new_path
+    - :old_path
 
 # Do not include the following attributes for the models specified.
 excluded_attributes:
@@ -715,6 +800,20 @@ excluded_attributes:
     - :import_type
     - :import_source
     - :integrations
+    - :push_hooks_integrations
+    - :tag_push_hooks_integrations
+    - :issue_hooks_integrations
+    - :confidential_issue_hooks_integrations
+    - :merge_request_hooks_integrations
+    - :note_hooks_integrations
+    - :confidential_note_hooks_integrations
+    - :job_hooks_integrations
+    - :archive_trace_hooks_integrations
+    - :pipeline_hooks_integrations
+    - :wiki_page_hooks_integrations
+    - :deployment_hooks_integrations
+    - :alert_hooks_integrations
+    - :incident_hooks_integrations
     - :mirror
     - :runners_token
     - :runners_token_encrypted
@@ -750,13 +849,18 @@ excluded_attributes:
     - :max_artifacts_size
     - :marked_for_deletion_at
     - :marked_for_deletion_by_user_id
-    - :compliance_framework_setting
+    - :compliance_framework_settings
     - :show_default_award_emojis
     - :warn_about_potentially_unwanted_characters
+    - :enforce_auth_checks_on_uploads
     - :services
     - :exported_protected_branches
     - :repository_size_limit
     - :external_webhook_token
+    - :incident_management_issuable_escalation_statuses
+  approvals:
+    - :id
+    - :merge_request_id
   namespaces:
     - :runners_token
     - :runners_token_encrypted
@@ -815,6 +919,7 @@ excluded_attributes:
     - :upvotes_count
     - :work_item_type_id
     - :email_message_id
+    - :incident_management_issuable_escalation_status
   merge_request: &merge_request_excluded_definition
     - :milestone_id
     - :sprint_id
@@ -827,7 +932,7 @@ excluded_attributes:
   merge_requests: *merge_request_excluded_definition
   award_emoji:
     - :awardable_id
-  statuses:
+  statuses: &statuses_excluded_definition
     - :trace
     - :token
     - :token_encrypted
@@ -849,6 +954,9 @@ excluded_attributes:
     - :processed
     - :id_convert_to_bigint
     - :stage_id_convert_to_bigint
+  builds: *statuses_excluded_definition
+  generic_commit_statuses: *statuses_excluded_definition
+  bridges: *statuses_excluded_definition
   sentry_issue:
     - :issue_id
   push_event_payload:
@@ -886,6 +994,11 @@ excluded_attributes:
   notes:
     - :noteable_id
     - :review_id
+    - :namespace_id
+  commit_notes:
+    - :noteable_id
+    - :review_id
+    - :namespace_id
   label_links:
     - :label_id
     - :target_id
@@ -923,6 +1036,8 @@ excluded_attributes:
     - :external_pull_request_id
     - :ci_ref_id
     - :locked
+  pipeline_metadata:
+    - :pipeline_id
   stages:
     - :pipeline_id
   merge_access_levels:
@@ -934,6 +1049,7 @@ excluded_attributes:
     - :protected_branch_id
   create_access_levels:
     - :protected_tag_id
+    - :deploy_key_id
   deploy_access_levels:
     - :protected_environment_id
   boards:
@@ -952,14 +1068,76 @@ excluded_attributes:
     - :state_id
     - :start_date_sourcing_epic_id
     - :due_date_sourcing_epic_id
+    - :issue_id
   epic_issue:
     - :epic_id
     - :issue_id
   system_note_metadata:
     - :description_version_id
     - :note_id
+  milestone_releases:
+    - :milestone_id
+    - :release_id
+  resource_milestone_events:
+    - :id
+    - :issue_id
+    - :merge_request_id
+    - :milestone_id
+  resource_state_events:
+    - :id
+    - :issue_id
+    - :merge_request_id
+    - :epic_id
+    - :source_merge_request_id
+  iteration:
+    - :id
+    - :title
+    - :title_html
+    - :project_id
+    - :description_html
+    - :cached_markdown_version
+    - :iterations_cadence_id
+    - :sequence
+  resource_iteration_events:
+    - :id
+    - :issue_id
+    - :merge_request_id
+    - :iteration_id
+  iterations_cadence:
+    - :id
+    - :last_run_date
+    - :duration_in_weeks
+    - :iterations_in_advance
+    - :automatic
+    - :group_id
+    - :created_at
+    - :updated_at
+    - :start_date
+    - :active
+    - :roll_over
+    - :description
+    - :sequence
+  work_item_type:
+    - :id
+    - :cached_markdown_version
+    - :name
+    - :description
+    - :description_html
+    - :icon_name
+    - :namespace_id
+    - :updated_at
+  note_diff_file:
+    - :id
+    - :diff_note_id
+    - :diff
+
 methods:
+  project:
+    - :allow_merge_on_skipped_pipeline
+    - :squash_option
   notes:
+    - :type
+  commit_notes:
     - :type
   labels:
     - :type
@@ -982,21 +1160,25 @@ methods:
     - :type
   lists:
     - :list_type
-  ci_pipelines:
-    - :notes
   issues:
     - :state
+  note_diff_file:
+    - :diff_export
 
+# Add in this list the nested associations that are used to export the parent
+# association, but are not present in the tree list. In other words, the associations
+# that needs to be preloaded but do not need to be exported.
 preloads:
   issues:
     project: :route
-  statuses:
-    # TODO: We cannot preload tags, as they are not part of `GenericCommitStatus`
-    # tags: # needed by tag_list
-    project: # deprecated: needed by coverage_regex of Ci::Build
+  builds:
+    metadata:
+    project:
+  bridges:
+    metadata:
   merge_requests:
-    source_project: # needed by source_branch_sha and diff_head_sha
-    target_project: # needed by target_branch_sha
+    source_project: :route # needed by source_branch_sha and diff_head_sha
+    target_project: :route # needed by target_branch_sha
     assignees: # needed by assigne_id that is implemented by DeprecatedAssignee
 
 # Specify a custom export reordering for a given relationship
@@ -1031,6 +1213,11 @@ ee:
         - epic_issue:
           - :epic
         - :issuable_sla
+        - iteration:
+          - :iterations_cadence
+        - resource_iteration_events:
+          - iteration:
+            - :iterations_cadence
       - protected_branches:
         - :unprotect_access_levels
       - protected_environments:
@@ -1041,6 +1228,9 @@ ee:
         - :milestone
         - lists:
           - :milestone
+      - approval_rules:
+        - :approval_project_rules_protected_branches
+        - :approval_project_rules_users
 
   included_attributes:
     issuable_sla:
@@ -1062,6 +1252,8 @@ ee:
       - :reject_unsigned_commits
       - :commit_committer_check
       - :regexp_uses_re2
+      - :reject_non_dco_commits
+      - :organization
     unprotect_access_levels:
       - :access_level
       - :user_id
@@ -1084,10 +1276,68 @@ ee:
       - :project_id
       - :created_at
       - :updated_at
-      - :auto_fix_container_scanning
-      - :auto_fix_dast
-      - :auto_fix_dependency_scanning
-      - :auto_fix_sast
     project:
-    - :requirements_enabled
-    - :requirements_access_level
+      - :requirements_enabled
+      - :requirements_access_level
+    resource_iteration_events:
+      - :user_id
+      - :action
+      - :created_at
+    iteration:
+      - :iid
+      - :created_at
+      - :updated_at
+      - :start_date
+      - :due_date
+      - :group_id
+      - :description
+    iterations_cadence:
+      - :title
+    approval_rules:
+      - :approvals_required
+      - :name
+      - :rule_type
+      - :scanners
+      - :vulnerabilities_allowed
+      - :severity_levels
+      - :report_type
+      - :vulnerability_states
+      - :orchestration_policy_idx
+      - :applies_to_all_protected_branches
+    approval_project_rules_protected_branches:
+      - :protected_branch
+    approval_project_rules_users:
+      - :user_id
+  excluded_attributes:
+    project:
+      - :vulnerability_hooks_integrations
+    approval_rules:
+      - :created_at
+      - :updated_at
+  methods:
+    approval_project_rules_protected_branches:
+      - :branch_name
+  preloads:
+    issues:
+      epic:
+
+  # When associated resources are from outside the project, you might need to
+  # validate that a user who is exporting the project or group can access these
+  # associations. `include_if_exportable` accepts an array of associations for a
+  # resource. During export, the `exportable_association?` method on the
+  # resource is called with the association's name and user to validate if
+  # associated resource can be included in the export.
+  #
+  # This definition will call issue's `exportable_association?(:epic_issue,
+  # current_user: current_user)` method and include issue's epic_issue association
+  # for each issue only if the method returns true:
+  #
+  # Example:
+  # include_if_exportable:
+  #   project:
+  #     issues:
+  #       - epic_issue
+  include_if_exportable:
+    project:
+      issues:
+        - :epic_issue

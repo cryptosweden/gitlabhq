@@ -1,9 +1,15 @@
 import MockAdapter from 'axios-mock-adapter';
 import { TEST_HOST } from 'helpers/test_constants';
 import testAction from 'helpers/vuex_action_helper';
+import { sprintf } from '~/locale';
+import { createAlert } from '~/alert';
 import service from '~/batch_comments/services/drafts_service';
 import * as actions from '~/batch_comments/stores/modules/batch_comments/actions';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { UPDATE_COMMENT_FORM } from '~/notes/i18n';
+
+jest.mock('~/alert');
 
 describe('Batch comments store actions', () => {
   let res = {};
@@ -29,53 +35,67 @@ describe('Batch comments store actions', () => {
   });
 
   describe('addDraftToDiscussion', () => {
-    it('commits ADD_NEW_DRAFT if no errors returned', (done) => {
+    it('commits ADD_NEW_DRAFT if no errors returned', () => {
       res = { id: 1 };
-      mock.onAny().reply(200, res);
+      mock.onAny().reply(HTTP_STATUS_OK, res);
 
-      testAction(
+      return testAction(
         actions.addDraftToDiscussion,
         { endpoint: TEST_HOST, data: 'test' },
         null,
         [{ type: 'ADD_NEW_DRAFT', payload: res }],
         [],
-        done,
       );
     });
 
-    it('does not commit ADD_NEW_DRAFT if errors returned', (done) => {
-      mock.onAny().reply(500);
+    it('does not commit ADD_NEW_DRAFT if errors returned', () => {
+      const commit = jest.fn();
 
-      testAction(
-        actions.addDraftToDiscussion,
-        { endpoint: TEST_HOST, data: 'test' },
-        null,
-        [],
-        [],
-        done,
-      );
+      mock.onAny().reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
+
+      return actions
+        .addDraftToDiscussion({ commit }, { endpoint: TEST_HOST, data: 'test' })
+        .catch(() => {
+          expect(commit).not.toHaveBeenCalledWith('ADD_NEW_DRAFT', expect.anything());
+        });
     });
   });
 
   describe('createNewDraft', () => {
-    it('commits ADD_NEW_DRAFT if no errors returned', (done) => {
+    it('commits ADD_NEW_DRAFT if no errors returned', () => {
       res = { id: 1 };
-      mock.onAny().reply(200, res);
+      mock.onAny().reply(HTTP_STATUS_OK, res);
 
-      testAction(
+      return testAction(
         actions.createNewDraft,
         { endpoint: TEST_HOST, data: 'test' },
         null,
         [{ type: 'ADD_NEW_DRAFT', payload: res }],
         [],
-        done,
       );
     });
 
-    it('does not commit ADD_NEW_DRAFT if errors returned', (done) => {
-      mock.onAny().reply(500);
+    it('dispatchs addDraftToFile if draft is on file', () => {
+      res = { id: 1, position: { position_type: 'file' }, file_path: 'index.js' };
+      mock.onAny().reply(HTTP_STATUS_OK, res);
 
-      testAction(actions.createNewDraft, { endpoint: TEST_HOST, data: 'test' }, null, [], [], done);
+      return testAction(
+        actions.createNewDraft,
+        { endpoint: TEST_HOST, data: 'test' },
+        null,
+        [{ type: 'ADD_NEW_DRAFT', payload: res }],
+        [{ type: 'diffs/addDraftToFile', payload: { draft: res, filePath: 'index.js' } }],
+      );
+    });
+
+    it('does not commit ADD_NEW_DRAFT if errors returned', () => {
+      const commit = jest.fn();
+
+      mock.onAny().reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
+
+      return actions.createNewDraft({ commit }, { endpoint: TEST_HOST, data: 'test' }).catch(() => {
+        expect(commit).not.toHaveBeenCalledWith('ADD_NEW_DRAFT', expect.anything());
+      });
     });
   });
 
@@ -90,39 +110,31 @@ describe('Batch comments store actions', () => {
       };
     });
 
-    it('commits DELETE_DRAFT if no errors returned', (done) => {
+    it('commits DELETE_DRAFT if no errors returned', () => {
       const commit = jest.fn();
       const context = {
         getters,
         commit,
       };
       res = { id: 1 };
-      mock.onAny().reply(200);
+      mock.onAny().reply(HTTP_STATUS_OK);
 
-      actions
-        .deleteDraft(context, { id: 1 })
-        .then(() => {
-          expect(commit).toHaveBeenCalledWith('DELETE_DRAFT', 1);
-        })
-        .then(done)
-        .catch(done.fail);
+      return actions.deleteDraft(context, { id: 1 }).then(() => {
+        expect(commit).toHaveBeenCalledWith('DELETE_DRAFT', 1);
+      });
     });
 
-    it('does not commit DELETE_DRAFT if errors returned', (done) => {
+    it('does not commit DELETE_DRAFT if errors returned', () => {
       const commit = jest.fn();
       const context = {
         getters,
         commit,
       };
-      mock.onAny().reply(500);
+      mock.onAny().reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
 
-      actions
-        .deleteDraft(context, { id: 1 })
-        .then(() => {
-          expect(commit).not.toHaveBeenCalledWith('DELETE_DRAFT', 1);
-        })
-        .then(done)
-        .catch(done.fail);
+      return actions.deleteDraft(context, { id: 1 }).then(() => {
+        expect(commit).not.toHaveBeenCalledWith('DELETE_DRAFT', 1);
+      });
     });
   });
 
@@ -137,7 +149,7 @@ describe('Batch comments store actions', () => {
       };
     });
 
-    it('commits SET_BATCH_COMMENTS_DRAFTS with returned data', (done) => {
+    it('commits SET_BATCH_COMMENTS_DRAFTS with returned data', () => {
       const commit = jest.fn();
       const dispatch = jest.fn();
       const context = {
@@ -149,16 +161,12 @@ describe('Batch comments store actions', () => {
         },
       };
       res = { id: 1 };
-      mock.onAny().reply(200, res);
+      mock.onAny().reply(HTTP_STATUS_OK, res);
 
-      actions
-        .fetchDrafts(context)
-        .then(() => {
-          expect(commit).toHaveBeenCalledWith('SET_BATCH_COMMENTS_DRAFTS', { id: 1 });
-          expect(dispatch).toHaveBeenCalledWith('convertToDiscussion', '1', { root: true });
-        })
-        .then(done)
-        .catch(done.fail);
+      return actions.fetchDrafts(context).then(() => {
+        expect(commit).toHaveBeenCalledWith('SET_BATCH_COMMENTS_DRAFTS', { id: 1 });
+        expect(dispatch).toHaveBeenCalledWith('convertToDiscussion', '1', { root: true });
+      });
     });
   });
 
@@ -177,32 +185,33 @@ describe('Batch comments store actions', () => {
       rootGetters = { discussionsStructuredByLineCode: 'discussions' };
     });
 
-    it('dispatches actions & commits', (done) => {
-      mock.onAny().reply(200);
+    it('dispatches actions & commits', () => {
+      mock.onAny().reply(HTTP_STATUS_OK);
 
-      actions
-        .publishReview({ dispatch, commit, getters, rootGetters })
-        .then(() => {
-          expect(commit.mock.calls[0]).toEqual(['REQUEST_PUBLISH_REVIEW']);
-          expect(commit.mock.calls[1]).toEqual(['RECEIVE_PUBLISH_REVIEW_SUCCESS']);
-
-          expect(dispatch.mock.calls[0]).toEqual(['updateDiscussionsAfterPublish']);
-        })
-        .then(done)
-        .catch(done.fail);
+      return actions.publishReview({ dispatch, commit, getters, rootGetters }).then(() => {
+        expect(commit.mock.calls[0]).toEqual(['REQUEST_PUBLISH_REVIEW']);
+        expect(commit.mock.calls[1]).toEqual(['RECEIVE_PUBLISH_REVIEW_SUCCESS']);
+      });
     });
 
-    it('dispatches error commits', (done) => {
-      mock.onAny().reply(500);
+    it('calls service with notes data', () => {
+      mock.onAny().reply(HTTP_STATUS_OK);
+      jest.spyOn(axios, 'post');
 
-      actions
-        .publishReview({ dispatch, commit, getters, rootGetters })
+      return actions
+        .publishReview({ dispatch, commit, getters, rootGetters }, { note: 'test' })
         .then(() => {
-          expect(commit.mock.calls[0]).toEqual(['REQUEST_PUBLISH_REVIEW']);
-          expect(commit.mock.calls[1]).toEqual(['RECEIVE_PUBLISH_REVIEW_ERROR']);
-        })
-        .then(done)
-        .catch(done.fail);
+          expect(axios.post.mock.calls[0]).toEqual(['http://test.host', { note: 'test' }]);
+        });
+    });
+
+    it('dispatches error commits', () => {
+      mock.onAny().reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
+
+      return actions.publishReview({ dispatch, commit, getters, rootGetters }).catch(() => {
+        expect(commit.mock.calls[0]).toEqual(['REQUEST_PUBLISH_REVIEW']);
+        expect(commit.mock.calls[1]).toEqual(['RECEIVE_PUBLISH_REVIEW_ERROR']);
+      });
     });
   });
 
@@ -227,11 +236,9 @@ describe('Batch comments store actions', () => {
         commit,
       };
       res = { id: 1 };
-      mock.onAny().reply(200, res);
+      mock.onAny().reply(HTTP_STATUS_OK, res);
       params = { note: { id: 1 }, noteText: 'test' };
     });
-
-    afterEach(() => jest.clearAllMocks());
 
     it('commits RECEIVE_DRAFT_UPDATE_SUCCESS with returned data', () => {
       return actions.updateDraft(context, { ...params, callback() {} }).then(() => {
@@ -259,10 +266,32 @@ describe('Batch comments store actions', () => {
         expect(service.update.mock.calls[0][1].position).toBe(expectation);
       });
     });
+
+    describe('when updating a draft returns an error', () => {
+      const errorCallback = jest.fn();
+      const flashContainer = null;
+      const error = 'server error';
+
+      beforeEach(async () => {
+        service.update.mockRejectedValue({ response: { data: { errors: error } } });
+        await actions.updateDraft(context, { ...params, flashContainer, errorCallback });
+      });
+
+      it('renders an error message', () => {
+        expect(createAlert).toHaveBeenCalledWith({
+          message: sprintf(UPDATE_COMMENT_FORM.error, { reason: error }),
+          parent: flashContainer,
+        });
+      });
+
+      it('calls errorCallback', () => {
+        expect(errorCallback).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   describe('expandAllDiscussions', () => {
-    it('dispatches expandDiscussion for all drafts', (done) => {
+    it('dispatches expandDiscussion for all drafts', () => {
       const state = {
         drafts: [
           {
@@ -271,7 +300,7 @@ describe('Batch comments store actions', () => {
         ],
       };
 
-      testAction(
+      return testAction(
         actions.expandAllDiscussions,
         null,
         state,
@@ -282,7 +311,6 @@ describe('Batch comments store actions', () => {
             payload: { discussionId: '1' },
           },
         ],
-        done,
       );
     });
   });
@@ -306,17 +334,27 @@ describe('Batch comments store actions', () => {
       const draft = {
         discussion_id: '1',
         id: '2',
+        file_path: 'lib/example.js',
       };
 
       actions.scrollToDraft({ dispatch, rootGetters }, draft);
 
-      expect(dispatch.mock.calls[0]).toEqual([
-        'expandDiscussion',
-        { discussionId: '1' },
-        { root: true },
+      expect(dispatch.mock.calls).toEqual([
+        [
+          'diffs/setFileCollapsedAutomatically',
+          { filePath: draft.file_path, collapsed: false },
+          { root: true },
+        ],
+        ['expandDiscussion', { discussionId: '1' }, { root: true }],
       ]);
 
       expect(window.mrTabs.tabShown).toHaveBeenCalledWith('diffs');
+    });
+  });
+
+  describe('clearDrafts', () => {
+    it('commits CLEAR_DRAFTS', () => {
+      return testAction(actions.clearDrafts, null, null, [{ type: 'CLEAR_DRAFTS' }], []);
     });
   });
 });

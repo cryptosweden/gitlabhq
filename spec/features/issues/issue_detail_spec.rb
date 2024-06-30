@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Issue Detail', :js do
+RSpec.describe 'Issue Detail', :js, feature_category: :team_planning do
   let_it_be_with_refind(:project) { create(:project, :public) }
 
   let(:user)     { create(:user) }
@@ -48,6 +48,30 @@ RSpec.describe 'Issue Detail', :js do
     end
   end
 
+  context 'when issue description has task list items' do
+    before do
+      description = '- [ ] I am a task
+
+| Table |
+|-------|
+| <ul><li>[ ] I am inside a table</li><ul> |'
+      issue.update!(description: description)
+
+      sign_in(user)
+      visit project_issue_path(project, issue)
+    end
+
+    it 'shows task actions ellipsis button when hovering over the task list item, but not within a table', :aggregate_failures do
+      find('li', text: 'I am a task').hover
+
+      expect(page).to have_button 'Task actions'
+
+      find('li', text: 'I am inside a table').hover
+
+      expect(page).not_to have_button 'Task actions'
+    end
+  end
+
   context 'when issue description has xss snippet' do
     before do
       issue.update!(description: '![xss" onload=alert(1);//](a)')
@@ -68,8 +92,12 @@ RSpec.describe 'Issue Detail', :js do
   end
 
   context 'when edited by a user who is later deleted' do
+    let(:user_to_be_deleted)     { create(:user) }
+
     before do
-      sign_in(user)
+      project.add_developer(user_to_be_deleted)
+
+      sign_in(user_to_be_deleted)
       visit project_issue_path(project, issue)
       wait_for_requests
 
@@ -78,8 +106,10 @@ RSpec.describe 'Issue Detail', :js do
       click_button 'Save changes'
       wait_for_requests
 
-      Users::DestroyService.new(user).execute(user)
+      visit_blank_page # Prevent CSRF errors from AJAX requests when we are switching users
+      Users::DestroyService.new(user_to_be_deleted).execute(user_to_be_deleted)
 
+      sign_in(user)
       visit project_issue_path(project, issue)
     end
 
@@ -100,7 +130,6 @@ RSpec.describe 'Issue Detail', :js do
     describe 'when an issue `issue_type` is edited' do
       before do
         sign_in(user)
-
         visit project_issue_path(project, issue)
         wait_for_requests
       end
@@ -109,7 +138,7 @@ RSpec.describe 'Issue Detail', :js do
         it 'cannot see Incident option' do
           open_issue_edit_form
 
-          page.within('[data-testid="issuable-form"]') do
+          within_testid('issuable-form') do
             expect(page).to have_content('Issue')
             expect(page).not_to have_content('Incident')
           end
@@ -122,10 +151,10 @@ RSpec.describe 'Issue Detail', :js do
         it 'routes the user to the incident details page when the `issue_type` is set to incident' do
           open_issue_edit_form
 
-          page.within('[data-testid="issuable-form"]') do
+          within_testid('issuable-form') do
             update_type_select('Issue', 'Incident')
 
-            expect(page).to have_current_path(project_issues_incident_path(project, issue))
+            expect(page).to have_current_path(incident_project_issues_path(project, issue))
           end
         end
       end
@@ -134,19 +163,14 @@ RSpec.describe 'Issue Detail', :js do
     describe 'when an incident `issue_type` is edited' do
       before do
         sign_in(user)
-
         visit project_issue_path(project, incident)
         wait_for_requests
       end
 
       context 'by non-member author' do
-        it 'routes the user to the issue details page when the `issue_type` is set to issue' do
-          open_issue_edit_form
-
-          page.within('[data-testid="issuable-form"]') do
-            update_type_select('Incident', 'Issue')
-
-            expect(page).to have_current_path(project_issue_path(project, incident))
+        it 'cannot edit issuable' do
+          page.within('.content') do
+            expect(page).to have_no_button('Edit title and description')
           end
         end
       end
@@ -157,7 +181,7 @@ RSpec.describe 'Issue Detail', :js do
         it 'routes the user to the issue details page when the `issue_type` is set to issue' do
           open_issue_edit_form
 
-          page.within('[data-testid="issuable-form"]') do
+          within_testid('issuable-form') do
             update_type_select('Incident', 'Issue')
 
             expect(page).to have_current_path(project_issue_path(project, incident))
@@ -169,7 +193,7 @@ RSpec.describe 'Issue Detail', :js do
 
   def update_type_select(from, to)
     click_button from
-    click_button to
+    find_by_testid('issue-type-list-item', text: to).click
     click_button 'Save changes'
 
     wait_for_requests

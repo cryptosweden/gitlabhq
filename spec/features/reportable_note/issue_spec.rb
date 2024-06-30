@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Reportable note on issue', :js do
+RSpec.describe 'Reportable note on issue', :js, feature_category: :team_planning do
   let(:user) { create(:user) }
   let(:project) { create(:project) }
   let(:issue) { create(:issue, project: project) }
@@ -11,7 +11,6 @@ RSpec.describe 'Reportable note on issue', :js do
   before do
     project.add_maintainer(user)
     sign_in(user)
-
     visit project_issue_path(project, issue)
   end
 

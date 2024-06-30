@@ -1,17 +1,24 @@
 <script>
-import { GlSprintf } from '@gitlab/ui';
+import { GlSprintf, GlLink } from '@gitlab/ui';
 import { escape } from 'lodash';
+import { STATUS_CLOSED, STATUS_MERGED } from '~/issues/constants';
 import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import { n__, s__ } from '~/locale';
+import { n__, s__, sprintf } from '~/locale';
 
-const mergeCommitCount = s__('mrWidgetCommitsAdded|1 merge commit');
+const mergeCommitCount = s__('mrWidgetCommitsAdded|%{strongStart}1%{strongEnd} merge commit');
 
 export default {
   components: {
     GlSprintf,
+    GlLink,
   },
   mixins: [glFeatureFlagMixin()],
   props: {
+    state: {
+      type: String,
+      required: false,
+      default: '',
+    },
     isSquashEnabled: {
       type: Boolean,
       required: false,
@@ -30,23 +37,65 @@ export default {
       type: String,
       required: true,
     },
+    mergeCommitSha: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    mergeCommitPath: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
   computed: {
+    isMerged() {
+      return this.state === STATUS_MERGED;
+    },
     targetBranchEscaped() {
       return escape(this.targetBranch);
     },
     commitsCountMessage() {
-      return n__('%d commit', '%d commits', this.isSquashEnabled ? 1 : this.commitsCount);
+      const count = this.isSquashEnabled ? 1 : this.commitsCount;
+
+      return sprintf(
+        n__(
+          '%{strongStart}%{count}%{strongEnd} commit',
+          '%{strongStart}%{count}%{strongEnd} commits',
+          count,
+        ),
+        { count },
+      );
     },
     message() {
+      if (this.state === STATUS_CLOSED) {
+        return s__('mrWidgetCommitsAdded|The changes were not merged into %{targetBranch}.');
+      }
+      if (this.isMerged) {
+        return s__(
+          'mrWidgetCommitsAdded|Changes merged into %{targetBranch} with %{mergeCommitSha}%{squashedCommits}.',
+        );
+      }
+
       return this.isFastForwardEnabled
-        ? s__('mrWidgetCommitsAdded|Adds %{commitCount} to %{targetBranch}.')
+        ? s__('mrWidgetCommitsAdded|%{commitCount} will be added to %{targetBranch}.')
         : s__(
-            'mrWidgetCommitsAdded|Adds %{commitCount} and %{mergeCommitCount} to %{targetBranch}%{squashedCommits}.',
+            'mrWidgetCommitsAdded|%{commitCount} and %{mergeCommitCount} will be added to %{targetBranch}%{squashedCommits}.',
           );
     },
-    textDecorativeComponent() {
-      return this.glFeatures.restructuredMrWidget ? 'span' : 'strong';
+    squashCommitMessage() {
+      if (this.isMerged) {
+        return s__('mergedCommitsAdded| (commits were squashed)');
+      }
+
+      return sprintf(
+        n__(
+          ' (squashes %{strongStart}%{count}%{strongEnd} commit)',
+          ' (squashes %{strongStart}%{count}%{strongEnd} commits)',
+          this.commitsCount,
+        ),
+        { count: this.commitsCount },
+      );
     },
   },
   mergeCommitCount,
@@ -57,21 +106,36 @@ export default {
   <span>
     <gl-sprintf :message="message">
       <template #commitCount>
-        <component :is="textDecorativeComponent" class="commits-count-message">{{
-          commitsCountMessage
-        }}</component>
+        <gl-sprintf :message="commitsCountMessage">
+          <template #strong="{ content }">
+            <span class="gl-font-bold">{{ content }}</span>
+          </template>
+        </gl-sprintf>
       </template>
       <template #mergeCommitCount>
-        <component :is="textDecorativeComponent">{{ $options.mergeCommitCount }}</component>
+        <gl-sprintf :message="$options.mergeCommitCount">
+          <template #strong="{ content }">
+            <span class="gl-font-bold">{{ content }}</span>
+          </template>
+        </gl-sprintf>
       </template>
       <template #targetBranch>
-        <span class="label-branch">{{ targetBranchEscaped }}</span>
+        <span class="label-branch gl-font-bold">{{ targetBranchEscaped }}</span>
       </template>
       <template #squashedCommits>
-        <template v-if="glFeatures.restructuredMrWidget && isSquashEnabled">
-          {{ n__('(squashes %d commit)', '(squashes %d commits)', commitsCount) }}</template
-        ></template
-      >
+        <template v-if="isSquashEnabled">
+          <gl-sprintf :message="squashCommitMessage">
+            <template #strong="{ content }">
+              <span class="gl-font-bold">{{ content }}</span>
+            </template>
+          </gl-sprintf>
+        </template>
+      </template>
+      <template #mergeCommitSha>
+        <gl-link :href="mergeCommitPath" class="label-branch" data-testid="merge-commit-sha">{{
+          mergeCommitSha
+        }}</gl-link>
+      </template>
     </gl-sprintf>
   </span>
 </template>

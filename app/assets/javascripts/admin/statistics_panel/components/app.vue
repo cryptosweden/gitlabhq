@@ -1,10 +1,12 @@
 <script>
-import { GlLoadingIcon } from '@gitlab/ui';
+import { GlCard, GlLoadingIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters, mapActions } from 'vuex';
 import statisticsLabels from '../constants';
 
 export default {
   components: {
+    GlCard,
     GlLoadingIcon,
   },
   data() {
@@ -26,10 +28,10 @@ export default {
 </script>
 
 <template>
-  <div class="gl-card">
-    <div class="gl-card-body">
-      <h4>{{ __('Statistics') }}</h4>
-      <gl-loading-icon v-if="isLoading" size="md" class="my-3" />
+  <gl-card>
+    <h4 class="gl-heading-4">{{ __('Statistics') }}</h4>
+    <slot name="footer">
+      <gl-loading-icon v-if="isLoading" size="lg" class="my-3" />
       <template v-else>
         <p
           v-for="statistic in getStatistics(statisticsLabels)"
@@ -37,9 +39,9 @@ export default {
           class="js-stats"
         >
           {{ statistic.label }}
-          <span class="light float-right">{{ statistic.value }}</span>
+          <span class="light gl-float-right">{{ statistic.value }}</span>
         </p>
       </template>
-    </div>
-  </div>
+    </slot>
+  </gl-card>
 </template>

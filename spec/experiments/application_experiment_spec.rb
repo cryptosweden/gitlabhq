@@ -2,19 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe ApplicationExperiment, :experiment do
+RSpec.describe ApplicationExperiment, :experiment, feature_category: :acquisition do
   subject(:application_experiment) { described_class.new('namespaced/stub', **context) }
 
   let(:context) { {} }
   let(:feature_definition) { { name: 'namespaced_stub', type: 'experiment', default_enabled: false } }
 
-  around do |example|
-    Feature::Definition.definitions[:namespaced_stub] = Feature::Definition.new('namespaced_stub.yml', feature_definition)
-    example.run
-    Feature::Definition.definitions.delete(:namespaced_stub)
-  end
-
   before do
+    stub_feature_flag_definition(:namespaced_stub, feature_definition)
+
+    allow(Gitlab::FIPS).to receive(:enabled?).and_return(true)
     allow(application_experiment).to receive(:enabled?).and_return(true)
   end
 
@@ -24,7 +21,13 @@ RSpec.describe ApplicationExperiment, :experiment do
     # them optional there.
 
     expect(experiment(:example)).to register_behavior(:control).with(nil)
-    expect { experiment(:example) { } }.not_to raise_error
+    expect { experiment(:example) {} }.not_to raise_error
+  end
+
+  describe ".available?" do
+    it 'is false for foss' do
+      expect(described_class).not_to be_available
+    end
   end
 
   describe "#publish" do
@@ -39,78 +42,12 @@ RSpec.describe ApplicationExperiment, :experiment do
       # _published_experiments.html.haml partial.
       application_experiment.publish
 
-      expect(ApplicationExperiment.published_experiments['namespaced/stub']).to include(
+      expect(described_class.published_experiments['namespaced/stub']).to include(
         experiment: 'namespaced/stub',
         excluded: false,
         key: anything,
         variant: 'control'
       )
-    end
-
-    describe '#publish_to_database' do
-      using RSpec::Parameterized::TableSyntax
-
-      let(:publish_to_database) { ActiveSupport::Deprecation.silence { application_experiment.publish_to_database } }
-
-      shared_examples 'does not record to the database' do
-        it 'does not create an experiment record' do
-          expect { publish_to_database }.not_to change(Experiment, :count)
-        end
-
-        it 'does not create an experiment subject record' do
-          expect { publish_to_database }.not_to change(ExperimentSubject, :count)
-        end
-      end
-
-      context 'when there is a usable subject' do
-        let(:context) { { context_key => context_value } }
-
-        where(:context_key, :context_value, :object_type) do
-          :namespace | build(:namespace, id: non_existing_record_id) | :namespace
-          :group     | build(:namespace, id: non_existing_record_id) | :namespace
-          :project   | build(:project, id: non_existing_record_id)   | :project
-          :user      | build(:user, id: non_existing_record_id)      | :user
-          :actor     | build(:user, id: non_existing_record_id)      | :user
-        end
-
-        with_them do
-          it 'creates an experiment and experiment subject record' do
-            expect { publish_to_database }.to change(Experiment, :count).by(1)
-
-            expect(Experiment.last.name).to eq('namespaced/stub')
-            expect(ExperimentSubject.last.send(object_type)).to eq(context[context_key])
-          end
-        end
-      end
-
-      context "when experiment hasn't ran" do
-        let(:context) { { user: create(:user) } }
-
-        it 'sets a variant on the experiment subject' do
-          publish_to_database
-
-          expect(ExperimentSubject.last.variant).to eq('control')
-        end
-      end
-
-      context 'when there is not a usable subject' do
-        let(:context) { { context_key => context_value } }
-
-        where(:context_key, :context_value) do
-          :namespace | nil
-          :foo       | :bar
-        end
-
-        with_them do
-          include_examples 'does not record to the database'
-        end
-      end
-
-      context 'but we should not track' do
-        let(:should_track) { false }
-
-        include_examples 'does not record to the database'
-      end
     end
   end
 
@@ -132,7 +69,7 @@ RSpec.describe ApplicationExperiment, :experiment do
 
       expect_snowplow_event(
         category: 'namespaced/stub',
-        action: 'action',
+        action: :action,
         property: '_property_',
         context: [
           {
@@ -141,7 +78,11 @@ RSpec.describe ApplicationExperiment, :experiment do
           },
           {
             schema: 'iglu:com.gitlab/gitlab_experiment/jsonschema/1-0-0',
-            data: { experiment: 'namespaced/stub', key: '86208ac54ca798e11f127e8b23ec396a', variant: 'control' }
+            data: {
+              experiment: 'namespaced/stub',
+              key: '300b002687ba1f68591adb2f45ae67f1e56be05ad55f317cc00f1c4aa38f081a',
+              variant: 'control'
+            }
           }
         ]
       )
@@ -161,7 +102,7 @@ RSpec.describe ApplicationExperiment, :experiment do
 
         expect_snowplow_event(
           category: 'namespaced/stub',
-          action: 'action',
+          action: :action,
           user: user,
           project: project,
           namespace: namespace,
@@ -176,7 +117,7 @@ RSpec.describe ApplicationExperiment, :experiment do
 
         expect_snowplow_event(
           category: 'namespaced/stub',
-          action: 'action',
+          action: :action,
           user: user,
           project: project,
           namespace: group,
@@ -192,7 +133,7 @@ RSpec.describe ApplicationExperiment, :experiment do
 
           expect_snowplow_event(
             category: 'namespaced/stub',
-            action: 'action',
+            action: :action,
             user: actor,
             project: project,
             namespace: namespace,
@@ -207,7 +148,7 @@ RSpec.describe ApplicationExperiment, :experiment do
 
           expect_snowplow_event(
             category: 'namespaced/stub',
-            action: 'action',
+            action: :action,
             project: project,
             namespace: namespace,
             context: an_instance_of(Array)
@@ -218,41 +159,22 @@ RSpec.describe ApplicationExperiment, :experiment do
   end
 
   describe "#key_for" do
-    it "generates MD5 hashes" do
-      expect(application_experiment.key_for(foo: :bar)).to eq('6f9ac12afdb9b58c2f19a136d09f9153')
+    it "generates FIPS compliant SHA2 hashes" do
+      expect(application_experiment.key_for(foo: :bar))
+        .to eq('1206febc4d022294fc639d68c2905079898ea4fee99290785b822e5010f1a9d1')
+    end
+
+    it "falls back to legacy MD5 when FIPS isn't forced" do
+      # Please see https://gitlab.com/gitlab-org/gitlab/-/issues/334590 about
+      # why this remains and why it hasn't been prioritized.
+
+      allow(Gitlab::FIPS).to receive(:enabled?).and_return(false)
+      expect(application_experiment.key_for(foo: :bar))
+        .to eq('6f9ac12afdb9b58c2f19a136d09f9153')
     end
   end
 
   describe "#process_redirect_url" do
-    using RSpec::Parameterized::TableSyntax
-
-    where(:url, :processed_url) do
-      'https://about.gitlab.com/'                 | 'https://about.gitlab.com/'
-      'https://gitlab.com/'                       | 'https://gitlab.com/'
-      'http://docs.gitlab.com'                    | 'http://docs.gitlab.com'
-      'https://docs.gitlab.com/some/path?foo=bar' | 'https://docs.gitlab.com/some/path?foo=bar'
-      'http://badgitlab.com'                      | nil
-      'https://gitlab.com.nefarious.net'          | nil
-      'https://unknown.gitlab.com'                | nil
-      "https://badplace.com\nhttps://gitlab.com"  | nil
-      'https://gitlabbcom'                        | nil
-      'https://gitlabbcom/'                       | nil
-      'http://gdk.test/foo/bar'                   | 'http://gdk.test/foo/bar'
-      'http://localhost:3000/foo/bar'             | 'http://localhost:3000/foo/bar'
-    end
-
-    with_them do
-      it "returns the url or nil if invalid" do
-        allow(Gitlab).to receive(:com?).and_return(true)
-        expect(application_experiment.process_redirect_url(url)).to eq(processed_url)
-      end
-
-      it "considers all urls invalid when not on dev or com" do
-        allow(Gitlab).to receive(:com?).and_return(false)
-        expect(application_experiment.process_redirect_url(url)).to be_nil
-      end
-    end
-
     it "generates the correct urls based on where the engine was mounted" do
       url = Rails.application.routes.url_helpers.experiment_redirect_url(application_experiment, url: 'https://docs.gitlab.com')
       expect(url).to include("/-/experiment/namespaced%2Fstub:#{application_experiment.context.key}?https://docs.gitlab.com")
@@ -268,7 +190,7 @@ RSpec.describe ApplicationExperiment, :experiment do
       application_experiment.variant(:variant1) {}
       application_experiment.variant(:variant2) {}
 
-      expect(application_experiment.assigned.name).to eq('variant2')
+      expect(application_experiment.assigned.name).to eq(:variant2)
     end
   end
 
@@ -278,15 +200,15 @@ RSpec.describe ApplicationExperiment, :experiment do
     end
 
     it "doesn't raise an exception" do
-      expect { experiment(:top) { |e| e.control { experiment(:nested) { } } } }.not_to raise_error
+      expect { experiment(:top) { |e| e.control { experiment(:nested) {} } } }.not_to raise_error
     end
 
     it "tracks an event", :snowplow do
-      experiment(:top) { |e| e.control { experiment(:nested) { } } }
+      experiment(:top) { |e| e.control { experiment(:nested) {} } }
 
-      expect(Gitlab::Tracking).to have_received(:event).with( # rubocop:disable RSpec/ExpectGitlabTracking
+      expect(Gitlab::Tracking).to have_received(:event).with( # rubocop:disable RSpec/ExpectGitlabTracking -- Testing nested functionality
         'top',
-        'nested',
+        :nested,
         hash_including(label: 'nested')
       )
     end
@@ -300,12 +222,12 @@ RSpec.describe ApplicationExperiment, :experiment do
 
       cache.clear(key: application_experiment.name)
 
-      application_experiment.control { }
-      application_experiment.candidate { }
+      application_experiment.control {}
+      application_experiment.candidate {}
     end
 
     it "caches the variant determined by the variant resolver" do
-      expect(application_experiment.assigned.name).to eq('candidate') # we should be in the experiment
+      expect(application_experiment.assigned.name).to eq(:candidate) # we should be in the experiment
 
       application_experiment.run
 
@@ -320,7 +242,7 @@ RSpec.describe ApplicationExperiment, :experiment do
       # the control.
       stub_feature_flags(namespaced_stub: false) # simulate being not rolled out
 
-      expect(application_experiment.assigned.name).to eq('control') # if we ask, it should be control
+      expect(application_experiment.assigned.name).to eq(:control) # if we ask, it should be control
 
       application_experiment.run
 
@@ -354,31 +276,6 @@ RSpec.describe ApplicationExperiment, :experiment do
         expect(application_experiment.cache.attr_inc(:foo)).to eq(1)
         expect(application_experiment.cache.attr_inc(:foo)).to eq(2)
       end
-    end
-  end
-
-  context "with deprecation warnings" do
-    before do
-      Gitlab::Experiment::Configuration.instance_variable_set(:@__dep_versions, nil) # clear the internal memoization
-
-      allow(ActiveSupport::Deprecation).to receive(:new).and_call_original
-    end
-
-    it "doesn't warn on non dev/test environments" do
-      allow(Gitlab).to receive(:dev_or_test_env?).and_return(false)
-
-      expect { experiment(:example) { |e| e.use { } } }.not_to raise_error
-      expect(ActiveSupport::Deprecation).not_to have_received(:new).with(anything, 'Gitlab::Experiment')
-    end
-
-    it "warns on dev and test environments" do
-      allow(Gitlab).to receive(:dev_or_test_env?).and_return(true)
-
-      # This will eventually raise an ActiveSupport::Deprecation exception,
-      # it's ok to change it when that happens.
-      expect { experiment(:example) { |e| e.use { } } }.not_to raise_error
-
-      expect(ActiveSupport::Deprecation).to have_received(:new).with(anything, 'Gitlab::Experiment')
     end
   end
 end

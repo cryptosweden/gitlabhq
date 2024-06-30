@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Packages::Composer::ComposerJsonService do
+RSpec.describe Packages::Composer::ComposerJsonService, feature_category: :package_registry do
   describe '#execute' do
     let(:branch) { project.repository.find_branch('master') }
     let(:target) { branch.target }
@@ -9,7 +9,7 @@ RSpec.describe Packages::Composer::ComposerJsonService do
     subject { described_class.new(project, target).execute }
 
     context 'with an existing file' do
-      let(:project) { create(:project, :custom_repo, files: { 'composer.json' => json } ) }
+      let(:project) { create(:project, :custom_repo, files: { 'composer.json' => json }) }
 
       context 'with a valid file' do
         let(:json) { '{ "name": "package-name"}' }

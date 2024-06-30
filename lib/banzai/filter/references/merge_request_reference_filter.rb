@@ -13,14 +13,7 @@ module Banzai
 
         def url_for_object(mr, project)
           h = Gitlab::Routing.url_helpers
-          h.project_merge_request_url(project, mr,
-                                              only_path: context[:only_path])
-        end
-
-        def object_link_title(object, matches)
-          # The method will return `nil` if object is not a commit
-          # allowing for properly handling the extended MR Tooltip
-          object_link_commit_title(object, matches)
+          h.project_merge_request_url(project, mr, only_path: context[:only_path])
         end
 
         def object_link_text_extras(object, matches)
@@ -53,19 +46,15 @@ module Banzai
             .includes(target_project: :namespace)
         end
 
-        def reference_class(object_sym, options = {})
-          super(object_sym, tooltip: false)
+        def reference_class(object_sym, tooltip: false)
+          super
         end
 
         def data_attributes_for(text, parent, object, **data)
-          super.merge(project_path: parent.full_path, iid: object.iid, mr_title: object.title)
+          super.merge(project_path: parent.full_path, iid: object.iid)
         end
 
         private
-
-        def object_link_commit_title(object, matches)
-          object_link_commit(object, matches)&.title
-        end
 
         def object_link_commit_ref(object, matches)
           object_link_commit(object, matches)&.short_id

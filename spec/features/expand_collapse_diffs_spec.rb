@@ -2,22 +2,27 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Expand and collapse diffs', :js do
+RSpec.describe 'Expand and collapse diffs', :js, feature_category: :source_code_management do
   let(:branch) { 'expand-collapse-diffs' }
-  let(:project) { create(:project, :repository) }
+
+  let_it_be(:project) { create(:project, :repository) }
+  let_it_be(:admin) { create(:admin) }
 
   before do
     allow(Gitlab::CurrentSettings).to receive(:diff_max_patch_bytes).and_return(100.kilobytes)
 
-    admin = create(:admin)
     sign_in(admin)
-    gitlab_enable_admin_mode_sign_in(admin)
+    enable_admin_mode!(admin)
 
     wait_for_requests
 
-    # Ensure that undiffable.md is in .gitattributes
-    project.repository.copy_gitattributes(branch)
+    # This line is added to make sure this test works when gitaly stops using
+    # info/attributes. See https://gitlab.com/gitlab-org/gitaly/-/issues/5348 for details.
+    project.repository.raw_repository.write_ref("HEAD", "refs/heads/#{branch}")
+
     visit project_commit_path(project, project.commit(branch))
+
+    wait_for_requests
   end
 
   def file_container(filename)
@@ -221,13 +226,19 @@ RSpec.describe 'Expand and collapse diffs', :js do
     let(:branch) { 'expand-collapse-files' }
 
     # safe-files -> 100 | safe-lines -> 5000 | commit-files -> 105
-    it 'does collapsing from the safe number of files to the end on small files' do
-      expect(page).to have_link('Expand all')
+    it 'does collapsing from the safe number of files to the end on small files', :aggregate_failures do
+      expect(page).not_to have_link('Expand all')
+      expect(page).to have_selector('.diff-content', count: 20)
+      expect(page).to have_selector('.diff-collapsed', count: 0)
 
-      expect(page).to have_selector('.diff-content', count: 105)
+      visit project_commit_path(project, project.commit(branch), page: 6)
+      wait_for_requests
+
+      expect(page).to have_link('Expand all')
+      expect(page).to have_selector('.diff-content', count: 5)
       expect(page).to have_selector('.diff-collapsed', count: 5)
 
-      %w(file-95.txt file-96.txt file-97.txt file-98.txt file-99.txt).each do |filename|
+      %w[file-95.txt file-96.txt file-97.txt file-98.txt file-99.txt].each do |filename|
         expect(find("[data-blob-diff-path*='#{filename}']")).to have_selector('.diff-collapsed')
       end
     end
@@ -237,13 +248,14 @@ RSpec.describe 'Expand and collapse diffs', :js do
     let(:branch) { 'expand-collapse-lines' }
 
     # safe-files -> 100 | safe-lines -> 5000 | commit_files -> 8 (each 1250 lines)
-    it 'does collapsing from the safe number of lines to the end' do
+    it 'does collapsing from the safe number of lines to the end',
+      quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/436532' do
       expect(page).to have_link('Expand all')
 
       expect(page).to have_selector('.diff-content', count: 6)
       expect(page).to have_selector('.diff-collapsed', count: 2)
 
-      %w(file-4.txt file-5.txt).each do |filename|
+      %w[file-4.txt file-5.txt].each do |filename|
         expect(find("[data-blob-diff-path*='#{filename}']")).to have_selector('.diff-collapsed')
       end
     end
@@ -255,7 +267,7 @@ RSpec.describe 'Expand and collapse diffs', :js do
 
       # Wait for elements to appear to ensure full page reload
       expect(page).to have_content("File suppressed by a .gitattributes entry or the file's encoding is unsupported.")
-      expect(page).to have_content('This source diff could not be displayed because it is too large.')
+      expect(page).to have_content('source diff could not be displayed: it is too large.')
       expect(page).to have_content('too_large_image.jpg')
       find('.note-textarea')
 

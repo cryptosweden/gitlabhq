@@ -2,70 +2,77 @@ import { shallowMount } from '@vue/test-utils';
 import DescriptionField from '~/issues/show/components/fields/description.vue';
 import eventHub from '~/issues/show/event_hub';
 import MarkdownField from '~/vue_shared/components/markdown/field.vue';
+import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
+import { mockTracking } from 'helpers/tracking_helper';
 
 describe('Description field component', () => {
   let wrapper;
+  let trackingSpy;
 
-  const findTextarea = () => wrapper.find({ ref: 'textarea' });
-
-  const mountComponent = (description = 'test') =>
-    shallowMount(DescriptionField, {
+  const findMarkdownEditor = () => wrapper.findComponent(MarkdownEditor);
+  const mountComponent = ({ description = 'test' } = {}) => {
+    wrapper = shallowMount(DescriptionField, {
       attachTo: document.body,
       propsData: {
         markdownPreviewPath: '/',
         markdownDocsPath: '/',
-        formState: {
-          description,
-        },
+        value: description,
       },
       stubs: {
         MarkdownField,
       },
     });
+  };
 
   beforeEach(() => {
+    trackingSpy = mockTracking(undefined, null, jest.spyOn);
     jest.spyOn(eventHub, '$emit');
-    gon.features = { markdownContinueLists: true };
+
+    mountComponent();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
+  it('uses the MarkdownEditor component to edit markdown', () => {
+    expect(findMarkdownEditor().props()).toMatchObject({
+      value: 'test',
+      renderMarkdownPath: '/',
+      autofocus: true,
+      supportsQuickActions: true,
+      markdownDocsPath: '/',
+      enableAutocomplete: true,
+    });
   });
 
-  it('renders markdown field with description', () => {
-    wrapper = mountComponent();
+  describe.each`
+    testDescription                 | metaKey  | ctrlKey
+    ${'when meta+enter is pressed'} | ${true}  | ${false}
+    ${'when ctrl+enter is pressed'} | ${false} | ${true}
+  `('$testDescription', ({ metaKey, ctrlKey }) => {
+    beforeEach(() => {
+      findMarkdownEditor().vm.$emit('keydown', {
+        type: 'keydown',
+        keyCode: 13,
+        metaKey,
+        ctrlKey,
+      });
+    });
 
-    expect(findTextarea().element.value).toBe('test');
+    it('triggers update', () => {
+      expect(eventHub.$emit).toHaveBeenCalledWith('update.issuable');
+    });
+
+    it('tracks event', () => {
+      expect(trackingSpy).toHaveBeenCalledWith(undefined, 'save_markdown', {
+        label: 'markdown_editor',
+        property: 'Issue',
+      });
+    });
   });
 
-  it('renders markdown field with a markdown description', () => {
-    const markdown = '**test**';
+  it('emits input event when MarkdownEditor emits input event', () => {
+    const markdown = 'markdown';
 
-    wrapper = mountComponent(markdown);
+    findMarkdownEditor().vm.$emit('input', markdown);
 
-    expect(findTextarea().element.value).toBe(markdown);
-  });
-
-  it('focuses field when mounted', () => {
-    wrapper = mountComponent();
-
-    expect(document.activeElement).toBe(findTextarea().element);
-  });
-
-  it('triggers update with meta+enter', () => {
-    wrapper = mountComponent();
-
-    findTextarea().trigger('keydown.enter', { metaKey: true });
-
-    expect(eventHub.$emit).toHaveBeenCalledWith('update.issuable');
-  });
-
-  it('triggers update with ctrl+enter', () => {
-    wrapper = mountComponent();
-
-    findTextarea().trigger('keydown.enter', { ctrlKey: true });
-
-    expect(eventHub.$emit).toHaveBeenCalledWith('update.issuable');
+    expect(wrapper.emitted('input')).toEqual([[markdown]]);
   });
 });

@@ -15,7 +15,7 @@ FactoryBot.define do
       deployment.user ||= deployment.project.creator
 
       unless deployment.project.repository_exists?
-        allow(deployment.project.repository).to receive(:create_ref)
+        stub_method(deployment.project.repository, :create_ref) { nil }
       end
 
       if deployment.cluster && deployment.cluster.project_type? && deployment.cluster.project.nil?
@@ -29,7 +29,11 @@ FactoryBot.define do
     end
 
     trait :on_cluster do
-      cluster factory: %i(cluster provided_by_gcp)
+      deployment_cluster factory: %i[deployment_cluster provided_by_gcp]
+    end
+
+    trait :on_cluster_not_managed do
+      deployment_cluster factory: %i[deployment_cluster not_managed]
     end
 
     trait :running do
@@ -64,6 +68,10 @@ FactoryBot.define do
       after(:create) do |deployment, evaluator|
         deployment.succeed!
       end
+    end
+
+    trait :with_bridge do
+      deployable { association :ci_bridge, environment: environment.name, pipeline: association(:ci_pipeline, project: environment.project) }
     end
   end
 end

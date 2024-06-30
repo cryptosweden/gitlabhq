@@ -4,8 +4,23 @@ require 'spec_helper'
 
 RSpec.describe MergeRequestPresenter do
   let_it_be(:project) { create(:project, :repository) }
-  let_it_be(:resource) { create(:merge_request, source_project: project) }
+  let(:resource) { create(:merge_request, source_project: project) }
+
   let_it_be(:user) { create(:user) }
+
+  describe '#mergeable_discussions_state' do
+    subject { described_class.new(resource).mergeable_discussions_state }
+
+    let(:discussions_state) { double }
+
+    before do
+      allow(resource).to receive(:mergeable_discussions_state?).and_return(discussions_state)
+    end
+
+    it 'returns the mergeable_discussions_state' do
+      is_expected.to eq(discussions_state)
+    end
+  end
 
   describe '#ci_status' do
     subject { described_class.new(resource).ci_status }
@@ -33,7 +48,7 @@ RSpec.describe MergeRequestPresenter do
       let(:pipeline) { build_stubbed(:ci_pipeline) }
 
       before do
-        allow(resource).to receive(:actual_head_pipeline).and_return(pipeline)
+        allow(resource).to receive(:diff_head_pipeline).and_return(pipeline)
       end
 
       context 'success with warnings' do
@@ -106,13 +121,16 @@ RSpec.describe MergeRequestPresenter do
 
   context 'issues links' do
     let_it_be(:project) { create(:project, :private, :repository, creator: user, namespace: user.namespace) }
-    let_it_be(:issue_a) { create(:issue, project: project) }
-    let_it_be(:issue_b) { create(:issue, project: project) }
+    let_it_be(:issue_a) { create(:issue, project: project, iid: 1) }
+    let_it_be(:issue_b) { create(:issue, project: project, iid: 3) }
 
     let_it_be(:resource) do
-      create(:merge_request,
-             source_project: project, target_project: project,
-             description: "Fixes #{issue_a.to_reference} Related #{issue_b.to_reference}")
+      create(
+        :merge_request,
+        source_project: project,
+        target_project: project,
+        description: "Fixes #{issue_a.to_reference} Related #{issue_b.to_reference}"
+      )
     end
 
     before_all do
@@ -123,6 +141,17 @@ RSpec.describe MergeRequestPresenter do
       allow(resource.project).to receive(:default_branch)
         .and_return(resource.target_branch)
       resource.cache_merge_request_closes_issues!
+    end
+
+    describe '#issues_sentence' do
+      let(:issue_c) { create(:issue, project: project, iid: 10) }
+      let(:issues) { [issue_b, issue_c, issue_a] }
+
+      subject { described_class.new(resource, current_user: user).send(:issues_sentence, project, issues) }
+
+      it 'orders issues numerically' do
+        is_expected.to eq("##{issue_a.iid}, ##{issue_b.iid}, and ##{issue_c.iid}")
+      end
     end
 
     describe '#closing_issues_links' do
@@ -308,7 +337,7 @@ RSpec.describe MergeRequestPresenter do
     end
 
     before do
-      allow(resource).to receive(:work_in_progress?).and_return(true)
+      allow(resource).to receive(:draft?).and_return(true)
     end
 
     context 'when merge request enabled and has permission' do
@@ -456,7 +485,7 @@ RSpec.describe MergeRequestPresenter do
         allow(resource).to receive(:source_branch_exists?) { true }
 
         is_expected
-          .to eq("<a class=\"ref-name\" href=\"#{presenter.source_branch_commits_path}\">#{presenter.source_branch}</a>")
+          .to eq("<a class=\"ref-container gl-link\" href=\"#{presenter.source_branch_commits_path}\">#{presenter.source_branch}</a>")
       end
     end
 
@@ -479,7 +508,7 @@ RSpec.describe MergeRequestPresenter do
         allow(resource).to receive(:target_branch_exists?) { true }
 
         is_expected
-          .to eq("<a class=\"ref-name\" href=\"#{presenter.target_branch_commits_path}\">#{presenter.target_branch}</a>")
+          .to eq("<a class=\"ref-container gl-link\" href=\"#{presenter.target_branch_commits_path}\">#{presenter.target_branch}</a>")
       end
     end
 
@@ -657,6 +686,29 @@ RSpec.describe MergeRequestPresenter do
 
       it 'returns nil' do
         expect(subject).to be_nil
+      end
+    end
+  end
+
+  describe '#jenkins_integration_active' do
+    subject do
+      described_class.new(resource, current_user: user)
+        .jenkins_integration_active
+    end
+
+    context 'when Jenkins integration is active' do
+      it 'returns true' do
+        allow(resource.source_project).to receive(:jenkins_integration_active?).and_return(true)
+
+        is_expected.to eq(true)
+      end
+    end
+
+    context 'when Jenkins integration is not active' do
+      it 'returns false' do
+        allow(resource.source_project).to receive(:jenkins_integration_active?).and_return(false)
+
+        is_expected.to eq(false)
       end
     end
   end

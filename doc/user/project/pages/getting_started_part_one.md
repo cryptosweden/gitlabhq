@@ -1,10 +1,14 @@
 ---
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Knowledge
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab Pages domain names, URLs, and base URLs **(FREE)**
+# GitLab Pages default domain names and URLs
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 On this document, learn how to name your project for GitLab Pages
 according to your intended website's URL.
@@ -18,20 +22,34 @@ replace the Pages wildcard domain on GitLab.com (`*.gitlab.io`) with your own.
 If you set up a GitLab Pages project on GitLab,
 it's automatically accessible under a
 subdomain of `namespace.example.io`.
-The [`namespace`](../../group/index.md#namespaces)
+The [`namespace`](../../namespace/index.md)
 is defined by your username on GitLab.com,
 or the group name you created this project under.
 For GitLab self-managed instances, replace `example.io`
 with your instance's Pages domain. For GitLab.com,
 Pages domains are `*.gitlab.io`.
 
-| Type of GitLab Pages | The name of the project created in GitLab | Website URL |
+| Type of GitLab Pages | Example path of a project in GitLab | Website URL |
 | -------------------- | ------------ | ----------- |
-| User pages  | `username.example.io`  | `http(s)://username.example.io`  |
-| Group pages | `groupname.example.io` | `http(s)://groupname.example.io` |
-| Project pages owned by a user  | `projectname` | `http(s)://username.example.io/projectname` |
-| Project pages owned by a group | `projectname` | `http(s)://groupname.example.io/projectname`|
-| Project pages owned by a subgroup | `subgroup/projectname` | `http(s)://groupname.example.io/subgroup/projectname`|
+| User pages  | `username/username.example.io`  | `http(s)://username.example.io`  |
+| Group pages | `acmecorp/acmecorp.example.io` | `http(s)://acmecorp.example.io` |
+| Project pages owned by a user  | `username/my-website` | `http(s)://username.example.io/my-website` |
+| Project pages owned by a group | `acmecorp/webshop` | `http(s)://acmecorp.example.io/webshop`|
+| Project pages owned by a subgroup | `acmecorp/documentation/product-manual` | `http(s)://acmecorp.example.io/documentation/product-manual`|
+
+When **Use unique domain** setting is enabled, all URLs
+are flattened with the following structure:
+
+| Type of GitLab Pages | Example path of a project in GitLab | Website URL |
+| -------------------- | ------------ | ----------- |
+| User pages  | `username/username.example.io`  | `http(s)://username-example-io-username.example.io`  |
+| Group pages | `acmecorp/acmecorp.example.io` | `http(s)://acmecorp-example-io-acmecorp-uniqueid.example.io` |
+| Project pages owned by a user  | `username/my-website` | `https://my-website-username-uniqueid.gitlab.io/` |
+| Project pages owned by a group | `acmecorp/webshop` | `http(s)://webshop-acmecorp-uniqueid.example.io/`|
+| Project pages owned by a subgroup | `acmecorp/documentation/product-manual` | `http(s)://product-manual-documentation-acmecorp-uniqueid.example.io/`|
+
+The `unique_id` portion of the URL is an alphanumeric string. For example, if the `unique_id` is `30bae2547a50der6ed7d9a08d417a33525a5c4dc6fdd68`, the last example would be
+`http(s)://product-manual-documentation-acmecorp-30bae2547a50der6ed7d9a08d417a33525a5c4dc6fdd68.example.io/`.
 
 WARNING:
 There are some known [limitations](introduction.md#subdomains-of-subdomains)
@@ -40,21 +58,24 @@ Make sure to read that section.
 
 To understand Pages domains clearly, read the examples below.
 
+NOTE:
+The following examples imply you disabled the **Use unique domain** setting. If you did not, refer to the previous table, replacing `example.io` by `gitlab.io`.
+
 ### Project website examples
 
 - You created a project called `blog` under your username `john`,
   therefore your project URL is `https://gitlab.com/john/blog/`.
-  Once you enable GitLab Pages for this project, and build your site,
+  After you enabled GitLab Pages for this project, and build your site,
   you can access it at `https://john.gitlab.io/blog/`.
 - You created a group for all your websites called `websites`,
-  and a project within this group is called `blog`. Your project
-  URL is `https://gitlab.com/websites/blog/`. Once you enable
+  and a project in this group is called `blog`. Your project
+  URL is `https://gitlab.com/websites/blog/`. After you enabled
   GitLab Pages for this project, the site is available at
   `https://websites.gitlab.io/blog/`.
 - You created a group for your engineering department called `engineering`,
   a subgroup for all your documentation websites called `docs`,
-  and a project within this subgroup is called `workflows`. Your project
-  URL is `https://gitlab.com/engineering/docs/workflows/`. Once you enable
+  and a project in this subgroup is called `workflows`. Your project
+  URL is `https://gitlab.com/engineering/docs/workflows/`. After you enabled
   GitLab Pages for this project, the site is available at
   `https://engineering.gitlab.io/docs/workflows`.
 
@@ -62,17 +83,17 @@ To understand Pages domains clearly, read the examples below.
 
 - Under your username, `john`, you created a project called
   `john.gitlab.io`. Your project URL is `https://gitlab.com/john/john.gitlab.io`.
-  Once you enable GitLab Pages for your project, your website
+  After you enabled GitLab Pages for your project, your website
   is published under `https://john.gitlab.io`.
 - Under your group `websites`, you created a project called
   `websites.gitlab.io`. Your project's URL is `https://gitlab.com/websites/websites.gitlab.io`.
-  Once you enable GitLab Pages for your project,
+  After you enabled GitLab Pages for your project,
   your website is published under `https://websites.gitlab.io`.
 
 **General example:**
 
 - On GitLab.com, a project site is always available under
-  `https://namespace.gitlab.io/project-name`
+  `https://namespace.gitlab.io/project-slug`
 - On GitLab.com, a user or group website is available under
   `https://namespace.gitlab.io/`
 - On your GitLab instance, replace `gitlab.io` above with your
@@ -86,8 +107,8 @@ The `baseurl` option might be named differently in some static site generators.
 Every Static Site Generator (SSG) default configuration expects
 to find your website under a (sub)domain (`example.com`), not
 in a subdirectory of that domain (`example.com/subdir`). Therefore,
-whenever you publish a project website (`namespace.gitlab.io/project-name`),
-you must look for this configuration (base URL) on your SSG's
+whenever you publish a project website (for example, `namespace.gitlab.io/project-slug`),
+you must look for this configuration (base URL) on your static site generator's
 documentation and set it up to reflect this pattern.
 
 For example, for a Jekyll site, the `baseurl` is defined in the Jekyll

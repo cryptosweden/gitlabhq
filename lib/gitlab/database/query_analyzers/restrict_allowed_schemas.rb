@@ -9,7 +9,19 @@ module Gitlab
         DMLNotAllowedError = Class.new(UnsupportedSchemaError)
         DMLAccessDeniedError = Class.new(UnsupportedSchemaError)
 
-        IGNORED_SCHEMAS = %i[gitlab_shared].freeze
+        # Re-map schemas observed schemas to a single cluster mode
+        # - symbol:
+        #     The mapped schema indicates that it contains all data in a single-cluster mode
+        # - nil:
+        #     Inidicates that changes made to this schema are ignored and always allowed
+        SCHEMA_MAPPING = {
+          gitlab_shared: nil,
+          gitlab_internal: nil,
+
+          # Pods specific changes
+          gitlab_main_clusterwide: :gitlab_main,
+          gitlab_main_cell: :gitlab_main
+        }.freeze
 
         class << self
           def enabled?
@@ -50,6 +62,7 @@ module Gitlab
           def restrict_to_ddl_only(parsed)
             tables = self.dml_tables(parsed)
             schemas = self.dml_schemas(tables)
+            schemas = self.map_schemas(schemas)
 
             if schemas.any?
               self.raise_dml_not_allowed_error("Modifying of '#{tables}' (#{schemas.to_a}) with '#{parsed.sql}'")
@@ -67,10 +80,14 @@ module Gitlab
 
             tables = self.dml_tables(parsed)
             schemas = self.dml_schemas(tables)
+            schemas = self.map_schemas(schemas)
+            allowed_schemas = self.map_schemas(self.allowed_gitlab_schemas)
 
-            if (schemas - self.allowed_gitlab_schemas).any?
-              raise DMLAccessDeniedError, "Select/DML queries (SELECT/UPDATE/DELETE) do access '#{tables}' (#{schemas.to_a}) " \
-                "which is outside of list of allowed schemas: '#{self.allowed_gitlab_schemas}'."
+            if (schemas - allowed_schemas).any?
+              raise DMLAccessDeniedError, \
+                "Select/DML queries (SELECT/UPDATE/DELETE) do access '#{tables}' (#{schemas.to_a}) " \
+                "which is outside of list of allowed schemas: '#{self.allowed_gitlab_schemas}'. " \
+                "#{documentation_url}"
             end
           end
 
@@ -82,22 +99,53 @@ module Gitlab
             !self.dml_mode?
           end
 
+          # There is a special case where CREATE VIEW DDL statement can include DML statements.
+          # For this case, +select_tables+ should be empty, to avoid false positives.
+          #
+          # @example
+          #          CREATE VIEW issues AS SELECT * FROM tickets
           def dml_tables(parsed)
-            parsed.pg.select_tables + parsed.pg.dml_tables
+            select_tables = self.dml_from_create_view?(parsed) ? [] : parsed.pg.select_tables
+
+            select_tables + parsed.pg.dml_tables
+          end
+
+          def dml_from_create_view?(parsed)
+            return unless ddl_mode?
+
+            QueryAnalyzerHelpers.dml_from_create_view?(parsed)
           end
 
           def dml_schemas(tables)
-            extra_schemas = ::Gitlab::Database::GitlabSchema.table_schemas(tables)
-            extra_schemas.subtract(IGNORED_SCHEMAS)
-            extra_schemas
+            ::Gitlab::Database::GitlabSchema.table_schemas!(tables)
+          end
+
+          def map_schemas(schemas)
+            schemas = schemas.to_set
+
+            SCHEMA_MAPPING.each do |in_schema, mapped_schema|
+              next unless schemas.delete?(in_schema)
+
+              schemas.add(mapped_schema) if mapped_schema
+            end
+
+            schemas
           end
 
           def raise_dml_not_allowed_error(message)
-            raise DMLNotAllowedError, "Select/DML queries (SELECT/UPDATE/DELETE) are disallowed in the DDL (structure) mode. #{message}"
+            raise DMLNotAllowedError, \
+              "Select/DML queries (SELECT/UPDATE/DELETE) are disallowed in the DDL (structure) mode. " \
+              "#{message}. #{documentation_url}" \
           end
 
           def raise_ddl_not_allowed_error(message)
-            raise DDLNotAllowedError, "DDL queries (structure) are disallowed in the Select/DML (SELECT/UPDATE/DELETE) mode. #{message}"
+            raise DDLNotAllowedError, \
+              "DDL queries (structure) are disallowed in the Select/DML (SELECT/UPDATE/DELETE) mode. " \
+              "#{message}. #{documentation_url}"
+          end
+
+          def documentation_url
+            "For more information visit: https://docs.gitlab.com/ee/development/database/migrations_for_multiple_databases.html"
           end
         end
       end

@@ -1,12 +1,12 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # HTML style guide
 
-See also our [accessibility page](../accessibility.md).
+See also our [accessibility best practices](../accessibility/best_practices.md).
 
 ## Semantic elements
 
@@ -34,7 +34,7 @@ for a description on what each tag semantically means.
 <!-- good - prefer semantic classes used accurately -->
 <section class="...">
   <p>
-    Simply visit your <span class="gl-font-weight-bold">Settings</span> to say hello to the world.
+    Simply visit your <span class="gl-font-bold">Settings</span> to say hello to the world.
   </p>
   <footer class="...">...</footer>
 </section>
@@ -58,11 +58,9 @@ Button tags requires a `type` attribute according to the [W3C HTML specification
 
 ### Blank target
 
-Avoid forcing links to open in a new window as this reduces the control the user has over the link.
-However, it might be a good idea to use a blank target when replacing the current page with
-the link makes the user lose content or progress.
+Arbitrarily opening links in a new tab is not recommended, so refer to the [Pajamas guidelines on links](https://design.gitlab.com/components/link) when considering adding `target="_blank"` to links.
 
-Use `rel="noopener noreferrer"` whenever your links open in a new window, that is, `target="_blank"`. This prevents a security vulnerability [documented by JitBit](https://www.jitbit.com/alexblog/256-targetblank---the-most-underestimated-vulnerability-ever/).
+When using `target="_blank"` with `a` tags, you must also add the `rel="noopener noreferrer"` attribute. This prevents a security vulnerability [documented by JitBit](https://www.jitbit.com/alexblog/256-targetblank---the-most-underestimated-vulnerability-ever/).
 
 When using `gl-link`, using `target="_blank"` is sufficient as it automatically adds `rel="noopener noreferrer"` to the link.
 

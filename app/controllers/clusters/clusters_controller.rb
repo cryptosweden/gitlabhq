@@ -1,33 +1,18 @@
 # frozen_string_literal: true
 
-class Clusters::ClustersController < Clusters::BaseController
+class Clusters::ClustersController < ::Clusters::BaseController
   include RoutableActions
-  include Metrics::Dashboard::PrometheusApiProxy
-  include MetricsDashboard
 
   before_action :cluster, only: [:cluster_status, :show, :update, :destroy, :clear_cache]
-  before_action :generate_gcp_authorize_url, only: [:new]
-  before_action :validate_gcp_token, only: [:new]
-  before_action :gcp_cluster, only: [:new]
-  before_action :user_cluster, only: [:new, :connect]
+  before_action :user_cluster, only: [:connect]
   before_action :authorize_read_cluster!, only: [:show, :index]
-  before_action :authorize_create_cluster!, only: [:new, :connect, :authorize_aws_role]
+  before_action :authorize_create_cluster!, only: [:connect]
   before_action :authorize_update_cluster!, only: [:update]
-  before_action :update_applications_status, only: [:cluster_status]
-  before_action :ensure_feature_enabled!, except: :index
+  before_action :ensure_feature_enabled!, except: [:index, :new_cluster_docs]
 
   helper_method :token_in_session
 
   STATUS_POLLING_INTERVAL = 10_000
-  AWS_CSP_DOMAINS = %w[https://ec2.ap-east-1.amazonaws.com https://ec2.ap-northeast-1.amazonaws.com https://ec2.ap-northeast-2.amazonaws.com https://ec2.ap-northeast-3.amazonaws.com https://ec2.ap-south-1.amazonaws.com https://ec2.ap-southeast-1.amazonaws.com https://ec2.ap-southeast-2.amazonaws.com https://ec2.ca-central-1.amazonaws.com https://ec2.eu-central-1.amazonaws.com https://ec2.eu-north-1.amazonaws.com https://ec2.eu-west-1.amazonaws.com https://ec2.eu-west-2.amazonaws.com https://ec2.eu-west-3.amazonaws.com https://ec2.me-south-1.amazonaws.com https://ec2.sa-east-1.amazonaws.com https://ec2.us-east-1.amazonaws.com https://ec2.us-east-2.amazonaws.com https://ec2.us-west-1.amazonaws.com https://ec2.us-west-2.amazonaws.com https://ec2.af-south-1.amazonaws.com https://iam.amazonaws.com].freeze
-
-  content_security_policy do |p|
-    next if p.directives.blank?
-
-    default_connect_src = p.directives['connect-src'] || p.directives['default-src']
-    connect_src_values = Array.wrap(default_connect_src) | AWS_CSP_DOMAINS
-    p.connect_src(*connect_src_values)
-  end
 
   def index
     @clusters = cluster_list
@@ -43,16 +28,6 @@ class Clusters::ClustersController < Clusters::BaseController
           has_ancestor_clusters: @has_ancestor_clusters
         }
       end
-    end
-  end
-
-  def new
-    if params[:provider] == 'aws'
-      @aws_role = Aws::Role.create_or_find_by!(user: current_user)
-      @instance_types = load_instance_types.to_json
-
-    elsif params[:provider] == 'gcp'
-      redirect_to @authorize_url if @authorize_url && !@valid_gcp_token
     end
   end
 
@@ -72,7 +47,6 @@ class Clusters::ClustersController < Clusters::BaseController
   def show
     if params[:tab] == 'integrations'
       @prometheus_integration = Clusters::IntegrationPresenter.new(@cluster.find_or_build_integration_prometheus)
-      @elastic_stack_integration = Clusters::IntegrationPresenter.new(@cluster.find_or_build_integration_elastic_stack)
     end
   end
 
@@ -108,37 +82,6 @@ class Clusters::ClustersController < Clusters::BaseController
     redirect_to clusterable.index_path, status: :found
   end
 
-  def create_gcp
-    @gcp_cluster = ::Clusters::CreateService
-      .new(current_user, create_gcp_cluster_params)
-      .execute(access_token: token_in_session)
-      .present(current_user: current_user)
-
-    if @gcp_cluster.persisted?
-      redirect_to @gcp_cluster.show_path
-    else
-      generate_gcp_authorize_url
-      validate_gcp_token
-      user_cluster
-      params[:provider] = 'gcp'
-
-      render :new, locals: { active_tab: 'create' }
-    end
-  end
-
-  def create_aws
-    @aws_cluster = ::Clusters::CreateService
-      .new(current_user, create_aws_cluster_params)
-      .execute
-      .present(current_user: current_user)
-
-    if @aws_cluster.persisted?
-      head :created, location: @aws_cluster.show_path
-    else
-      render status: :unprocessable_entity, json: @aws_cluster.errors
-    end
-  end
-
   def create_user
     @user_cluster = ::Clusters::CreateService
       .new(current_user, create_user_cluster_params)
@@ -148,21 +91,8 @@ class Clusters::ClustersController < Clusters::BaseController
     if @user_cluster.persisted?
       redirect_to @user_cluster.show_path
     else
-      generate_gcp_authorize_url
-      validate_gcp_token
-      gcp_cluster
-
       render :connect
     end
-  end
-
-  def authorize_aws_role
-    response = Clusters::Aws::AuthorizeRoleService.new(
-      current_user,
-      params: aws_role_params
-    ).execute
-
-    render json: response.body, status: response.status
   end
 
   def clear_cache
@@ -173,18 +103,14 @@ class Clusters::ClustersController < Clusters::BaseController
 
   private
 
-  def certificate_based_clusters_enabled?
-    Feature.enabled?(:certificate_based_clusters, clusterable, default_enabled: :yaml, type: :ops)
-  end
-
   def ensure_feature_enabled!
-    render_404 unless certificate_based_clusters_enabled?
+    render_404 unless clusterable.certificate_based_clusters_enabled?
   end
 
   def cluster_list
-    return [] unless certificate_based_clusters_enabled?
+    return [] unless clusterable.certificate_based_clusters_enabled?
 
-    finder = ClusterAncestorsFinder.new(clusterable.subject, current_user)
+    finder = ClusterAncestorsFinder.new(clusterable.__subject__, current_user)
     clusters = finder.execute
 
     @has_ancestor_clusters = finder.has_ancestor_clusters?
@@ -239,45 +165,6 @@ class Clusters::ClustersController < Clusters::BaseController
     end
   end
 
-  def create_gcp_cluster_params
-    params.require(:cluster).permit(
-      *base_permitted_cluster_params,
-      :name,
-      provider_gcp_attributes: [
-        :gcp_project_id,
-        :zone,
-        :num_nodes,
-        :machine_type,
-        :cloud_run,
-        :legacy_abac
-      ]).merge(
-        provider_type: :gcp,
-        platform_type: :kubernetes,
-        clusterable: clusterable.subject
-      )
-  end
-
-  def create_aws_cluster_params
-    params.require(:cluster).permit(
-      *base_permitted_cluster_params,
-      :name,
-      provider_aws_attributes: [
-        :kubernetes_version,
-        :key_name,
-        :role_arn,
-        :region,
-        :vpc_id,
-        :instance_type,
-        :num_nodes,
-        :security_group_id,
-        subnet_ids: []
-      ]).merge(
-        provider_type: :aws,
-        platform_type: :kubernetes,
-        clusterable: clusterable.subject
-      )
-  end
-
   def create_user_cluster_params
     params.require(:cluster).permit(
       *base_permitted_cluster_params,
@@ -291,31 +178,8 @@ class Clusters::ClustersController < Clusters::BaseController
       ]).merge(
         provider_type: :user,
         platform_type: :kubernetes,
-        clusterable: clusterable.subject
+        clusterable: clusterable.__subject__
       )
-  end
-
-  def aws_role_params
-    params.require(:cluster).permit(:role_arn, :region)
-  end
-
-  def generate_gcp_authorize_url
-    new_path = clusterable.new_path(provider: :gcp).to_s
-    error_path = @project ? project_clusters_path(@project) : new_path
-
-    state = generate_session_key_redirect(new_path, error_path)
-
-    @authorize_url = GoogleApi::CloudPlatform::Client.new(
-      nil, callback_google_api_auth_url,
-      state: state).authorize_url
-  rescue GoogleApi::Auth::ConfigMissingError
-    # no-op
-  end
-
-  def gcp_cluster
-    cluster = Clusters::BuildService.new(clusterable.subject).execute
-    cluster.build_provider_gcp
-    @gcp_cluster = cluster.present(current_user: current_user)
   end
 
   def proxyable
@@ -343,14 +207,9 @@ class Clusters::ClustersController < Clusters::BaseController
   end
 
   def user_cluster
-    cluster = Clusters::BuildService.new(clusterable.subject).execute
+    cluster = Clusters::BuildService.new(clusterable.__subject__).execute
     cluster.build_platform_kubernetes
     @user_cluster = cluster.present(current_user: current_user)
-  end
-
-  def validate_gcp_token
-    @valid_gcp_token = GoogleApi::CloudPlatform::Client.new(token_in_session, nil)
-      .validate_token(expires_at_in_session)
   end
 
   def token_in_session
@@ -360,30 +219,6 @@ class Clusters::ClustersController < Clusters::BaseController
   def expires_at_in_session
     @expires_at_in_session ||=
       session[GoogleApi::CloudPlatform::Client.session_key_for_expires_at]
-  end
-
-  def generate_session_key_redirect(uri, error_uri)
-    GoogleApi::CloudPlatform::Client.new_session_key_for_redirect_uri do |key|
-      session[key] = uri
-      session[:error_uri] = error_uri
-    end
-  end
-
-  ##
-  # Unfortunately the EC2 API doesn't provide a list of
-  # possible instance types. There is a workaround, using
-  # the Pricing API, but instead of requiring the
-  # user to grant extra permissions for this we use the
-  # values that validate the CloudFormation template.
-  def load_instance_types
-    stack_template = File.read(Rails.root.join('vendor', 'aws', 'cloudformation', 'eks_cluster.yaml'))
-    instance_types = YAML.safe_load(stack_template).dig('Parameters', 'NodeInstanceType', 'AllowedValues')
-
-    instance_types.map { |type| Hash(name: type, value: type) }
-  end
-
-  def update_applications_status
-    @cluster.applications.each(&:schedule_status_update)
   end
 end
 

@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query' do
+RSpec.describe 'Query', feature_category: :shared do
   include GraphqlHelpers
 
-  let_it_be(:project) { create(:project) }
+  let_it_be(:project) { create(:project, public_builds: false) }
   let_it_be(:issue) { create(:issue, project: project) }
   let_it_be(:developer) { create(:user) }
 
@@ -76,10 +76,8 @@ RSpec.describe 'Query' do
       it_behaves_like 'a working graphql query'
       it_behaves_like 'a query that needs authorization'
 
-      context 'the current user is able to read designs' do
-        it 'fetches the expected data' do
-          expect(query_result).to eq('id' => global_id_of(version), 'sha' => version.sha)
-        end
+      it 'fetches the expected data' do
+        expect(query_result).to match a_graphql_entity_for(version, :sha)
       end
     end
 
@@ -106,15 +104,47 @@ RSpec.describe 'Query' do
 
       context 'the current user is able to read designs' do
         it 'fetches the expected data, including the correct associations' do
-          expect(query_result).to eq(
-            'id' => global_id_of(design_at_version),
+          expect(query_result).to match a_graphql_entity_for(
+            design_at_version,
             'filename' => design_at_version.design.filename,
-            'version' => { 'id' => global_id_of(version), 'sha' => version.sha },
-            'design'  => { 'id' => global_id_of(design) },
-            'issue'   => { 'title' => issue.title, 'iid' => issue.iid.to_s },
-            'project' => { 'id' => global_id_of(project), 'fullPath' => project.full_path }
+            'version' => a_graphql_entity_for(version, :sha),
+            'design' => a_graphql_entity_for(design),
+            'issue' => { 'title' => issue.title, 'iid' => issue.iid.to_s },
+            'project' => a_graphql_entity_for(project, :full_path)
           )
         end
+      end
+    end
+  end
+
+  describe '.ciPipelineStage' do
+    let_it_be(:ci_stage) { create(:ci_stage, name: 'graphql test stage', project: project) }
+
+    let(:query) do
+      <<~GRAPHQL
+        {
+          ciPipelineStage(id: "#{ci_stage.to_global_id}") {
+            name
+          }
+        }
+      GRAPHQL
+    end
+
+    context 'when the current user has access to the stage' do
+      it 'fetches the stage for the given ID' do
+        project.add_developer(developer)
+
+        post_graphql(query, current_user: developer)
+
+        expect(graphql_data.dig('ciPipelineStage', 'name')).to eq('graphql test stage')
+      end
+    end
+
+    context 'when the current user does not have access to the stage' do
+      it 'returns nil' do
+        post_graphql(query, current_user: developer)
+
+        expect(graphql_data['ciPipelineStage']).to be_nil
       end
     end
   end

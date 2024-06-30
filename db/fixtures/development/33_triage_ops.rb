@@ -7,39 +7,120 @@ class Gitlab::Seeder::TriageOps
   WEBHOOK_URL = 'http://0.0.0.0:$PORT$'
   WEBHOOK_TOKEN = "triage-ops-webhook-token"
 
+  WORK_TYPE_LABELS = <<~LABELS.split("\n")
+    bug::availability
+    bug::mobile
+    bug::performance
+    bug::vulnerability
+    feature::addition
+    feature::consolidation
+    feature::enhancement
+    feature::removal
+    maintenance::dependency
+    maintenance::pipelines
+    maintenance::refactor
+    maintenance::test-gap
+    maintenance::usability
+    maintenance::workflow
+    type::bug
+    type::feature
+    type::maintenance
+  LABELS
+
+  WORKFLOW_LABELS = <<~LABELS.split("\n")
+    workflow::blocked
+    workflow::design
+    workflow::in dev
+    workflow::in review
+    workflow::planning breakdown
+    workflow::production
+    workflow::ready
+    workflow::ready for design
+    workflow::ready for development
+    workflow::ready for review
+    workflow::refinement
+    workflow::validation backlog
+    workflow::verification
+  LABELS
+
+  OTHER_LABELS = <<~LABELS.split("\n")
+    ep::contributor tooling
+    ep::meta
+    ep::metrics
+    ep::pipeline
+    ep::review-apps
+    ep::triage
+    master-broken::caching
+    master-broken::ci-config
+    master-broken::dependency-upgrade
+    master-broken::flaky-test
+    master-broken::fork-repo-test-gap
+    master-broken::infrastructure
+    master-broken::need-merge-train
+    master-broken::pipeline-skipped-before-merge
+    master-broken::test-selection-gap
+    master-broken::undetermined
+    pipeline::expedited
+    pipeline:mr-approved
+    pipeline:run-all-jest
+    pipeline:run-all-rspec
+    pipeline:run-as-if-foss
+    pipeline:run-as-if-jh
+    pipeline:run-flaky-tests
+    pipeline:run-praefect-with-db
+    pipeline:run-review-app
+    pipeline:run-single-db
+    pipeline:skip-undercoverage
+    pipeline:update-cache
+    documentation
+    Community contribution
+  LABELS
+
   def seed!
     puts "Updating settings to allow web hooks to localhost"
     ApplicationSetting.current_without_cache.update!(allow_local_requests_from_web_hooks_and_services: true)
 
-    Sidekiq::Testing.inline! do
-      puts "Ensuring required groups"
-      ensure_group('gitlab-com')
-      ensure_group('gitlab-jh/jh-team')
-      ensure_group('gitlab-org')
-      ensure_group('gitlab-org/gitlab-core-team/community-members')
-      ensure_group('gitlab-org/security')
-      puts "Ensuring required projects"
-      ensure_project('gitlab-org/gitlab')
-      ensure_project('gitlab-org/security/gitlab')
-      puts "Ensuring required bot user"
-      ensure_bot_user
-      puts "Setting up webhooks"
-      ensure_webhook_for('gitlab-com')
-      ensure_webhook_for('gitlab-org')
+    Sidekiq::Worker.skipping_transaction_check do
+      Sidekiq::Testing.inline! do
+        puts "Ensuring required groups"
+        ensure_group('gitlab-com')
+        ensure_group('gitlab-com/support')
+        ensure_group('gitlab-com/gl-security/appsec')
+        ensure_group('gitlab-jh/jh-team')
+        ensure_group('gitlab-org')
+        ensure_group('gitlab-org/gitlab-core-team/community-members')
+        ensure_group('gitlab-org/security')
+
+        puts "Ensuring required projects"
+        ensure_project('gitlab-org/gitlab')
+        ensure_project('gitlab-org/security/gitlab')
+
+        puts "Ensuring required bot user"
+        ensure_bot_user
+
+        puts "Setting up webhooks"
+        ensure_webhook_for('gitlab-com')
+        ensure_webhook_for('gitlab-org')
+
+        puts "Ensuring work type labels"
+        ensure_labels_for(WORK_TYPE_LABELS, 'gitlab-com')
+        ensure_labels_for(WORK_TYPE_LABELS, 'gitlab-org')
+
+        puts "Ensuring workflow type labels"
+        ensure_labels_for(WORKFLOW_LABELS, 'gitlab-com')
+        ensure_labels_for(WORKFLOW_LABELS, 'gitlab-org')
+
+        puts "Ensuring other labels"
+        ensure_labels_for(OTHER_LABELS, 'gitlab-com')
+        ensure_labels_for(OTHER_LABELS, 'gitlab-org')
+      end
     end
   end
 
   private
 
   def ensure_bot_user
-    bot = User.find_by_username('triagebot')
-    bot ||= User.create!(
-      username: 'triagebot',
-      name: 'Triage Bot',
-      email: 'triagebot@example.com',
-      confirmed_at: DateTime.now,
-      password: SecureRandom.hex.slice(0, 16)
-    )
+    bot = User.find_by_username('triagebot') || build_bot_user!
 
     ensure_group('gitlab-org').add_maintainer(bot)
     ensure_group('gitlab-com').add_maintainer(bot)
@@ -57,6 +138,18 @@ class Gitlab::Seeder::TriageOps
     puts "Bot with API_TOKEN=#{response[:personal_access_token].token} is present now."
 
     bot
+  end
+
+  def build_bot_user!
+    User.create!(
+      username: 'triagebot',
+      name: 'Triage Bot',
+      email: 'triagebot@example.com',
+      confirmed_at: DateTime.now,
+      password: SecureRandom.hex.slice(0, 16)
+    ) do |user|
+      user.assign_personal_namespace(Organizations::Organization.default_organization)
+    end
   end
 
   def ensure_webhook_for(group_path)
@@ -79,6 +172,18 @@ class Gitlab::Seeder::TriageOps
     puts "Hook with url '#{hook.url}' and token '#{hook.token}' for '#{group_path}' is present now."
   end
 
+  def ensure_labels_for(label_titles, group_path)
+    group = Group.find_by_full_path(group_path)
+
+    label_titles.each do |label_title|
+      color = ::Gitlab::Color.color_for(label_title[/[^:]+/])
+
+      Labels::CreateService
+        .new(title: label_title, color: "#{color}")
+        .execute(group: group)
+    end
+  end
+
   def ensure_group(full_path)
     group = Group.find_by_full_path(full_path)
 
@@ -92,7 +197,7 @@ class Gitlab::Seeder::TriageOps
     group = Group.new(
       name: group_path.titleize,
       path: group_path,
-      parent_id: parent&.id
+      parent: parent
     )
     group.description = FFaker::Lorem.sentence
     group.save!

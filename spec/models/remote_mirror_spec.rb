@@ -2,8 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe RemoteMirror, :mailer do
-  include GitHelpers
+RSpec.describe RemoteMirror, :mailer, feature_category: :source_code_management do
+  before do
+    stub_feature_flags(remote_mirror_no_delay: false)
+  end
+
+  describe 'validations' do
+    it { is_expected.to allow_value(true, false).for(:only_protected_branches) }
+    it { is_expected.not_to allow_value(nil).for(:only_protected_branches) }
+  end
 
   describe 'URL validation' do
     context 'with a valid URL' do
@@ -91,16 +98,6 @@ RSpec.describe RemoteMirror, :mailer do
 
         expect(mirror.url).to eq('http://foo:bar@test.com')
         expect(mirror.credentials).to eq({ user: 'foo', password: 'bar' })
-      end
-
-      it 'does not update the repository config if credentials changed' do
-        mirror = create_mirror(url: 'http://foo:bar@test.com')
-        repo = mirror.project.repository
-        old_config = rugged_repo(repo).config
-
-        mirror.update_attribute(:url, 'http://foo:baz@test.com')
-
-        expect(rugged_repo(repo).config.to_hash).to eq(old_config.to_hash)
       end
     end
   end
@@ -227,7 +224,7 @@ RSpec.describe RemoteMirror, :mailer do
   end
 
   describe '#hard_retry!' do
-    let(:remote_mirror) { create(:remote_mirror).tap {|mirror| mirror.update_column(:url, 'invalid') } }
+    let(:remote_mirror) { create(:remote_mirror).tap { |mirror| mirror.update_column(:url, 'invalid') } }
 
     it 'transitions an invalid mirror to the to_retry state' do
       remote_mirror.hard_retry!('Invalid')
@@ -238,7 +235,7 @@ RSpec.describe RemoteMirror, :mailer do
   end
 
   describe '#hard_fail!' do
-    let(:remote_mirror) { create(:remote_mirror).tap {|mirror| mirror.update_column(:url, 'invalid') } }
+    let(:remote_mirror) { create(:remote_mirror).tap { |mirror| mirror.update_column(:url, 'invalid') } }
 
     it 'transitions an invalid mirror to the failed state' do
       remote_mirror.hard_fail!('Invalid')
@@ -254,27 +251,29 @@ RSpec.describe RemoteMirror, :mailer do
     it 'does not remove the remote' do
       mirror = create_mirror(url: 'http://foo:bar@test.com')
 
-      expect(RepositoryRemoveRemoteWorker).not_to receive(:perform_async)
-
       mirror.destroy!
     end
   end
 
   context 'stuck mirrors' do
     it 'includes mirrors that were started over an hour ago' do
-      mirror = create_mirror(url: 'http://cantbeblank',
-                             update_status: 'started',
-                             last_update_started_at: 3.hours.ago,
-                             last_update_at: 2.hours.ago)
+      mirror = create_mirror(
+        url: 'http://cantbeblank',
+        update_status: 'started',
+        last_update_started_at: 3.hours.ago,
+        last_update_at: 2.hours.ago
+      )
 
       expect(described_class.stuck.last).to eq(mirror)
     end
 
     it 'includes mirrors started over 3 hours ago for their first sync' do
-      mirror = create_mirror(url: 'http://cantbeblank',
-                             update_status: 'started',
-                             last_update_at: nil,
-                             last_update_started_at: 4.hours.ago)
+      mirror = create_mirror(
+        url: 'http://cantbeblank',
+        update_status: 'started',
+        last_update_at: nil,
+        last_update_started_at: 4.hours.ago
+      )
 
       expect(described_class.stuck.last).to eq(mirror)
     end
@@ -290,6 +289,14 @@ RSpec.describe RemoteMirror, :mailer do
     context 'with remote mirroring disabled' do
       it 'returns nil' do
         remote_mirror.update!(enabled: false)
+
+        expect(remote_mirror.sync).to be_nil
+      end
+    end
+
+    context 'with silent mode enabled' do
+      it 'returns nil' do
+        allow(Gitlab::SilentMode).to receive(:enabled?).and_return(true)
 
         expect(remote_mirror.sync).to be_nil
       end
@@ -345,6 +352,20 @@ RSpec.describe RemoteMirror, :mailer do
 
             remote_mirror.sync
           end
+
+          context 'when remote_mirror_no_delay is enabled' do
+            before do
+              stub_feature_flags(remote_mirror_no_delay: true)
+            end
+
+            it 'schedules a RepositoryUpdateRemoteMirrorWorker to run now' do
+              remote_mirror.last_update_started_at = Time.current - 30.seconds
+
+              expect(RepositoryUpdateRemoteMirrorWorker).to receive(:perform_async).with(remote_mirror.id, Time.current)
+
+              remote_mirror.sync
+            end
+          end
         end
       end
     end
@@ -354,11 +375,13 @@ RSpec.describe RemoteMirror, :mailer do
     let(:remote_mirror) { create(:project, :repository, :remote_mirror).remote_mirrors.first }
 
     it 'resets all the columns when URL changes' do
-      remote_mirror.update!(last_error: Time.current,
-                           last_update_at: Time.current,
-                           last_successful_update_at: Time.current,
-                           update_status: 'started',
-                           error_notification_sent: true)
+      remote_mirror.update!(
+        last_error: Time.current,
+        last_update_at: Time.current,
+        last_successful_update_at: Time.current,
+        update_status: 'started',
+        error_notification_sent: true
+      )
 
       expect { remote_mirror.update_attribute(:url, 'http://new.example.com') }
         .to change { remote_mirror.last_error }.to(nil)
@@ -402,11 +425,13 @@ RSpec.describe RemoteMirror, :mailer do
 
   context 'no project' do
     it 'includes mirror with a project in pending_delete' do
-      mirror = create_mirror(url: 'http://cantbeblank',
-                             update_status: 'finished',
-                             enabled: true,
-                             last_update_at: nil,
-                             updated_at: 25.hours.ago)
+      mirror = create_mirror(
+        url: 'http://cantbeblank',
+        update_status: 'finished',
+        enabled: true,
+        last_update_at: nil,
+        updated_at: 25.hours.ago
+      )
       project = mirror.project
       project.pending_delete = true
       project.save!

@@ -1,17 +1,17 @@
 ---
 stage: Verify
 group: Pipeline Authoring
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Pipeline Editor **(FREE)**
+# Pipeline editor
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/4540) in GitLab 13.8.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/270059) in GitLab 13.10.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 The pipeline editor is the primary place to edit the GitLab CI/CD configuration in
-the `.gitlab-ci.yml` file in the root of your repository. To access the editor, go to **CI/CD > Editor**.
+the `.gitlab-ci.yml` file in the root of your repository. To access the editor, go to **Build > Pipeline editor**.
 
 From the pipeline editor page you can:
 
@@ -19,12 +19,10 @@ From the pipeline editor page you can:
 - [Validate](#validate-ci-configuration) your configuration syntax while editing the file.
 - Do a deeper [lint](#lint-ci-configuration) of your configuration, that verifies it with any configuration
   added with the [`include`](../yaml/index.md#include) keyword.
+- View a [list of the CI/CD configuration added with the `include` keyword](#view-included-cicd-configuration).
 - See a [visualization](#visualize-ci-configuration) of the current configuration.
-- View an [expanded](#view-expanded-configuration) version of your configuration.
+- View the [full configuration](#view-full-configuration), which displays the configuration with any configuration from `include` added.
 - [Commit](#commit-changes-to-ci-configuration) the changes to a specific branch.
-
-In GitLab 13.9 and earlier, you must already have [a `.gitlab-ci.yml` file](../quick_start/index.md#create-a-gitlab-ciyml-file)
-on the default branch of your project to use the editor.
 
 ## Validate CI configuration
 
@@ -39,8 +37,16 @@ is invalid, a tip is shown to help you fix the problem:
 
 ## Lint CI configuration
 
+NOTE:
+The **Lint** tab is replaced with the **Validate** tab in GitLab 15.3. The lint results are included
+in a successful [pipeline simulation](#simulate-a-cicd-pipeline).
+
 To test the validity of your GitLab CI/CD configuration before committing the changes,
-you can use the CI lint tool. To access it, go to **CI/CD > Editor** and select the **Lint** tab.
+you can use the CI lint tool:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Build > Pipeline editor**.
+1. Select the **Lint** tab.
 
 This tool checks for syntax and logical errors but goes into more detail than the
 automatic [validation](#validate-ci-configuration) in the editor.
@@ -50,14 +56,29 @@ reflected in the CI lint. It displays the same results as the existing [CI Lint 
 
 ![Linting errors in a CI configuration](img/pipeline_editor_lint_v13_8.png)
 
+## Simulate a CI/CD pipeline
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/337282) in GitLab 15.3.
+
+To look for pipeline syntax and logic issues, you can simulate the creation of a
+GitLab CI/CD pipeline in the **Validate** tab. A pipeline simulation can help find
+problems such as incorrect `rules` and `needs` job dependencies, and is similar to
+simulations in the [CI Lint tool](../lint.md#simulate-a-pipeline).
+
+## View included CI/CD configuration
+
+> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/7064) in GitLab 15.0 [with a flag](../../administration/feature_flags.md) named `pipeline_editor_file_tree`. Disabled by default.
+> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/357219) in GitLab 15.1.
+
+You can review configuration added with the [`include`](../yaml/index.md#include)
+keyword in the pipeline editor. In the upper-right corner, select the file tree (**{file-tree}**)
+to see a list of all included configuration files. Selected files open in a new tab
+for review.
+
 ## Visualize CI configuration
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/241722) in GitLab 13.5.
-> - [Moved to **CI/CD > Editor**](https://gitlab.com/gitlab-org/gitlab/-/issues/263141) in GitLab 13.7.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/290117) in GitLab 13.12.
-
 To view a visualization of your `.gitlab-ci.yml` configuration, in your project,
-go to **CI/CD > Editor**, and then select the **Visualize** tab. The
+go to **Build > Pipeline editor**, and then select the **Visualize** tab. The
 visualization shows all stages and jobs. Any [`needs`](../yaml/index.md#needs)
 relationships are displayed as lines connecting jobs together, showing the
 hierarchy of execution:
@@ -71,13 +92,12 @@ Hover over a job to highlight its `needs` relationships:
 If the configuration does not have any `needs` relationships, then no lines are drawn because
 each job depends only on the previous stage being completed successfully.
 
-## View expanded configuration
+## View full configuration
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/246801) in GitLab 13.9.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/301103) in GitLab 13.12.
+> - **View merged YAML** tab [renamed to **Full configuration**](https://gitlab.com/gitlab-org/gitlab/-/issues/377404) in GitLab 16.0.
 
 To view the fully expanded CI/CD configuration as one combined file, go to the
-pipeline editor's **View merged YAML** tab. This tab displays an expanded configuration
+pipeline editor's **Full configuration** tab. This tab displays an expanded configuration
 where:
 
 - Configuration imported with [`include`](../yaml/index.md#include) is copied into the view.
@@ -87,8 +107,8 @@ where:
 - [YAML `!reference` tags](../yaml/yaml_optimization.md#reference-tags) are also replaced
   with the linked configuration.
 
-Using `!refence` tags can cause nested configuration that display with
-multiple hyphens (`-`) in the expanded view. This behavior is expected, and the extra
+Using `!reference` tags can cause nested configuration that display with
+multiple hyphens (`-`) at the start of the line in the expanded view. This behavior is expected, and the extra
 hyphens do not affect the job's execution. For example, this configuration and
 fully expanded version are both valid:
 
@@ -99,24 +119,59 @@ fully expanded version are both valid:
     script:
       - pip install pyflakes
 
+  .rule-01:
+    rules:
+      - if: $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^feature/
+        when: manual
+        allow_failure: true
+      - if: $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME
+
+  .rule-02:
+    rules:
+      - if: $CI_COMMIT_BRANCH == "main"
+        when: manual
+        allow_failure: true
+
   lint-python:
     image: python:latest
     script:
       - !reference [.python-req, script]
       - pyflakes python/
+    rules:
+      - !reference [.rule-01, rules]
+      - !reference [.rule-02, rules]
   ```
 
-- Expanded configuration in **View merged YAML** tab:
+- Expanded configuration in **Full configuration** tab:
 
   ```yaml
   ".python-req":
     script:
     - pip install pyflakes
+  ".rule-01":
+    rules:
+    - if: "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^feature/"
+      when: manual
+      allow_failure: true
+    - if: "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+  ".rule-02":
+    rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
   lint-python:
-    script:
-    - - pip install pyflakes  # <- The extra hyphens do not affect the job's execution.
-    - pyflakes python/
     image: python:latest
+    script:
+    - - pip install pyflakes                                     # <- The extra hyphens do not affect the job's execution.
+    - pyflakes python/
+    rules:
+    - - if: "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^feature/" # <- The extra hyphens do not affect the job's execution.
+        when: manual
+        allow_failure: true
+      - if: "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"               # <- No extra hyphen but aligned with previous rule
+    - - if: $CI_COMMIT_BRANCH == "main"                          # <- The extra hyphens do not affect the job's execution.
+        when: manual
+        allow_failure: true
   ```
 
 ## Commit changes to CI configuration
@@ -136,15 +191,23 @@ checkbox appears. Select it to start a new merge request after you commit the ch
 
 ### `Configuration validation currently not available` message
 
-This message is due to a problem with the syntax validation in the pipeline editor.
-If GitLab is unable to communicate with the service that validates the syntax, the
-information in these sections may not display properly:
+This message is caused by a problem validating the syntax in the pipeline editor.
+It can happen when:
 
-- The syntax status on the **Edit** tab (valid or invalid).
-- The **Visualize** tab.
-- The **Lint** tab.
-- The **View merged YAML** tab.
+- GitLab is unable to communicate with the service that validates the syntax, so the
+  information in these sections may not display properly:
 
-You can still work on your CI/CD configuration and commit the changes you made without
-any issues. As soon as the service becomes available again, the syntax validation
-should display immediately.
+  - The syntax status on the **Edit** tab (valid or invalid).
+  - The **Visualize** tab.
+  - The **Lint** tab.
+  - The **Full configuration** tab.
+
+  You can still work on your CI/CD configuration and commit the changes you made without
+  any issues. As soon as the service becomes available again, the syntax validation
+  should display immediately.
+
+- Using [`include`](../yaml/index.md#include), but the included configuration files create a loop.
+  For example, `.gitlab-ci.yml` includes `file1.yml`, which includes `file2.yml`,
+  which includes `file1.yml`, creating a loop between `file1.yml` and `file2.yml`.
+
+  Remove one of the `include` lines to eliminate the loop and resolve the issue.

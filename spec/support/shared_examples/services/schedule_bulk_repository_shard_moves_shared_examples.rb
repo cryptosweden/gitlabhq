@@ -5,13 +5,13 @@ RSpec.shared_examples 'moves repository shard in bulk' do
   let(:destination_storage_name) { 'test_second_storage' }
 
   before do
-    stub_storage_settings(destination_storage_name => { 'path' => 'tmp/tests/extra_storage' })
+    stub_storage_settings(destination_storage_name => {})
   end
 
   describe '#execute' do
     it 'schedules container repository storage moves' do
       expect { subject.execute(source_storage_name, destination_storage_name) }
-        .to change(move_service_klass, :count).by(1)
+        .to change { move_service_klass.count }.by(1)
 
       storage_move = container.repository_storage_moves.last!
 
@@ -29,7 +29,7 @@ RSpec.shared_examples 'moves repository shard in bulk' do
         expect(subject).to receive(:log_info)
           .with(/Container #{container.full_path} \(#{container.id}\) was skipped: #{container.class} is read-only/)
         expect { subject.execute(source_storage_name, destination_storage_name) }
-          .to change(move_service_klass, :count).by(0)
+          .to change { move_service_klass.count }.by(0)
       end
     end
   end

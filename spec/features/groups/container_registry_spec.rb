@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Container Registry', :js do
+RSpec.describe 'Container Registry', :js, feature_category: :container_registry do
   let(:user) { create(:user) }
   let(:group) { create(:group) }
   let(:project) { create(:project, namespace: group) }
@@ -11,12 +11,23 @@ RSpec.describe 'Container Registry', :js do
     create(:container_repository, name: 'my/image')
   end
 
+  let(:help_page_href) { help_page_path('administration/packages/container_registry_metadata_database') }
+
   before do
     group.add_owner(user)
     sign_in(user)
     stub_container_registry_config(enabled: true)
     stub_container_registry_tags(repository: :any, tags: [])
     stub_container_registry_info
+    allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
+  end
+
+  it 'has link to next generation container registry docs' do
+    allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(false)
+
+    visit_container_registry
+
+    expect(page).to have_link('next-generation container registry', href: help_page_href)
   end
 
   it 'has a page title set' do
@@ -28,8 +39,8 @@ RSpec.describe 'Container Registry', :js do
   it 'sidebar menu is open' do
     visit_container_registry
 
-    sidebar = find('.nav-sidebar')
-    expect(sidebar).to have_link _('Container Registry')
+    expect(page).to have_active_navigation('Deploy')
+    expect(page).to have_active_sub_navigation('Container Registry')
   end
 
   context 'when there are no image repositories' do
@@ -49,6 +60,7 @@ RSpec.describe 'Container Registry', :js do
     it 'list page has a list of images' do
       visit_container_registry
 
+      expect(page).to have_content '1 Image repository'
       expect(page).to have_content 'my/image'
     end
 
@@ -74,7 +86,7 @@ RSpec.describe 'Container Registry', :js do
       end
 
       it 'shows the details breadcrumb' do
-        expect(find('.breadcrumbs')).to have_link 'my/image'
+        expect(find_by_testid('breadcrumb-links')).to have_link 'my/image'
       end
 
       it 'shows the image title' do
@@ -95,10 +107,12 @@ RSpec.describe 'Container Registry', :js do
         first('[data-testid="additional-actions"]').click
         first('[data-testid="single-delete-button"]').click
         expect(find('.modal .modal-title')).to have_content _('Remove tag')
+        stub_container_registry_tags(repository: %r{my/image}, tags: [], with_manifest: true)
         find('.modal .modal-footer .btn-danger').click
-      end
 
-      it_behaves_like 'rejecting tags destruction for an importing repository on', tags: ['latest']
+        expect(page).to have_content '0 tags'
+        expect(page).not_to have_content '1 tag'
+      end
     end
   end
 

@@ -8,8 +8,8 @@ RSpec.describe Mutations::Boards::Issues::IssueMoveList do
   let_it_be(:group) { create(:group, :public) }
   let_it_be(:project) { create(:project, group: group) }
   let_it_be(:board) { create(:board, group: group) }
-  let_it_be(:user)  { create(:user) }
-  let_it_be(:guest) { create(:user) }
+  let_it_be(:user)  { create(:user, maintainer_of: group) }
+  let_it_be(:guest) { create(:user, guest_of: group) }
   let_it_be(:development) { create(:label, project: project, name: 'Development') }
   let_it_be(:testing) { create(:label, project: project, name: 'Testing') }
   let_it_be(:list1)   { create(:list, board: board, label: development, position: 0) }
@@ -19,7 +19,7 @@ RSpec.describe Mutations::Boards::Issues::IssueMoveList do
   let_it_be(:existing_issue2) { create(:labeled_issue, project: project, labels: [testing], relative_position: 50) }
 
   let(:current_ctx) { { current_user: user } }
-  let(:params) { { board_id: global_id_of(board), project_path: project.full_path, iid: issue1.iid } }
+  let(:params) { { board_id: global_id_of(board), project_path: project.full_path, iid: issue1.iid.to_s } }
   let(:move_params) do
     {
       from_list_id: list1.id,
@@ -27,11 +27,6 @@ RSpec.describe Mutations::Boards::Issues::IssueMoveList do
       move_before_id: existing_issue2.id,
       move_after_id: existing_issue1.id
     }
-  end
-
-  before_all do
-    group.add_maintainer(user)
-    group.add_guest(guest)
   end
 
   describe '#resolve' do
@@ -55,7 +50,7 @@ RSpec.describe Mutations::Boards::Issues::IssueMoveList do
       let(:move_params) { {} }
 
       it 'generates an error' do
-        expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ArgumentError, 'At least one of the arguments fromListId, toListId, afterId or beforeId is required') do
+        expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ArgumentError, 'At least one of the arguments fromListId, toListId, positionInList, moveAfterId, or moveBeforeId is required') do
           subject
         end
       end
@@ -67,7 +62,52 @@ RSpec.describe Mutations::Boards::Issues::IssueMoveList do
       end
 
       it 'raises an error' do
-        expect { subject }.to raise_error(::GraphQL::LoadApplicationObjectFailedError)
+        expect(subject).to be_a(::GraphQL::CoercionError)
+        expect(subject.message).to eq("\"#{params[:board_id]}\" does not represent an instance of Board")
+      end
+    end
+
+    context 'when positionInList is given' do
+      let(:move_params) { { from_list_id: list1.id, to_list_id: list2.id, position_in_list: 0 } }
+
+      context 'when fromListId and toListId are missing' do
+        let(:move_params) { { position_in_list: 0 } }
+
+        it 'generates an error' do
+          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ArgumentError, 'Both fromListId and toListId are required when positionInList is given') do
+            subject
+          end
+        end
+      end
+
+      context 'when move_before_id is also given' do
+        let(:move_params) { { from_list_id: list1.id, to_list_id: list2.id, position_in_list: 0, move_before_id: 1 } }
+
+        it 'generates an error' do
+          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ArgumentError, 'positionInList is mutually exclusive with any of moveBeforeId or moveAfterId') do
+            subject
+          end
+        end
+      end
+
+      context 'when move_after_id is also given' do
+        let(:move_params) { { from_list_id: list1.id, to_list_id: list2.id, position_in_list: 0, move_after_id: 1 } }
+
+        it 'generates an error' do
+          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ArgumentError, 'positionInList is mutually exclusive with any of moveBeforeId or moveAfterId') do
+            subject
+          end
+        end
+      end
+
+      context 'when position_in_list is invalid' do
+        let(:move_params) { { from_list_id: list1.id, to_list_id: list2.id, position_in_list: -5 } }
+
+        it 'generates an error' do
+          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ArgumentError, "positionInList must be >= 0 or #{Boards::Issues::MoveService::LIST_END_POSITION}") do
+            subject
+          end
+        end
       end
     end
 

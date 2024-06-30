@@ -9,7 +9,10 @@ module Gitlab
         private
 
         def import(project)
-          jobs_waiter = Gitlab::JiraImport::IssuesImporter.new(project).execute
+          jobs_waiter = Gitlab::JiraImport::IssuesImporter.new(
+            project,
+            project.jira_integration.client(read_timeout: 2.minutes)
+          ).execute
 
           project.latest_jira_import.refresh_jid_expiration
 

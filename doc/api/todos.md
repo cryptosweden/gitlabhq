@@ -1,10 +1,14 @@
 ---
-stage: Plan
-group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Personal Productivity
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab To-Do List API **(FREE)**
+# GitLab To-Do List API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Interact with [to-do items](../user/todos.md) using the REST API.
 
@@ -20,14 +24,14 @@ GET /todos
 
 Parameters:
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `action` | string | no | The action to be filtered. Can be `assigned`, `mentioned`, `build_failed`, `marked`, `approval_required`, `unmergeable`, `directly_addressed` or `merge_train_removed`. |
-| `author_id` | integer | no | The ID of an author |
-| `project_id` | integer | no | The ID of a project |
-| `group_id` | integer | no | The ID of a group |
-| `state` | string | no | The state of the to-do item. Can be either `pending` or `done` |
-| `type` | string | no | The type of to-do item. Can be either `Issue`, `MergeRequest`, `Commit`, `Epic`, `DesignManagement::Design` or `AlertManagement::Alert` |
+| Attribute | Type | Required | Description                                                                                                                                                                                        |
+| --------- | ---- | -------- |----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `action` | string | no | The action to be filtered. Can be `assigned`, `mentioned`, `build_failed`, `marked`, `approval_required`, `unmergeable`, `directly_addressed`, `merge_train_removed` or `member_access_requested`. |
+| `author_id` | integer | no | The ID of an author                                                                                                                                                                                |
+| `project_id` | integer | no | The ID of a project                                                                                                                                                                                |
+| `group_id` | integer | no | The ID of a group                                                                                                                                                                                  |
+| `state` | string | no | The state of the to-do item. Can be either `pending` or `done`                                                                                                                                     |
+| `type` | string | no | The type of to-do item. Can be either `Issue`, `MergeRequest`, `Commit`, `Epic`, `DesignManagement::Design` or `AlertManagement::Alert`                                                            |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/todos"

@@ -2,28 +2,21 @@
 
 require "spec_helper"
 
-RSpec.describe NotesHelper do
+RSpec.describe NotesHelper, feature_category: :team_planning do
   include RepoHelpers
 
   let_it_be(:owner) { create(:owner) }
-  let_it_be(:group) { create(:group) }
+  let_it_be(:group) { create(:group, owners: owner) }
   let_it_be(:project) { create(:project, namespace: group) }
-  let_it_be(:maintainer) { create(:user) }
-  let_it_be(:reporter) { create(:user) }
-  let_it_be(:guest) { create(:user) }
+  let_it_be(:maintainer) { create(:user, maintainer_of: project) }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
+  let_it_be(:guest) { create(:user, guest_of: project) }
 
   let_it_be(:owner_note) { create(:note, author: owner, project: project) }
   let_it_be(:maintainer_note) { create(:note, author: maintainer, project: project) }
   let_it_be(:reporter_note) { create(:note, author: reporter, project: project) }
 
   let!(:notes) { [owner_note, maintainer_note, reporter_note] }
-
-  before_all do
-    group.add_owner(owner)
-    project.add_maintainer(maintainer)
-    project.add_reporter(reporter)
-    project.add_guest(guest)
-  end
 
   describe '#note_target_title' do
     context 'note does not exist' do
@@ -52,23 +45,6 @@ RSpec.describe NotesHelper do
         note = build_stubbed(:note, noteable: issue)
         expect(helper.note_target_title(note)).to eq('Issue 1')
       end
-    end
-  end
-
-  describe "#notes_max_access_for_users" do
-    it 'returns access levels' do
-      expect(helper.note_max_access_for_user(owner_note)).to eq(Gitlab::Access::OWNER)
-      expect(helper.note_max_access_for_user(maintainer_note)).to eq(Gitlab::Access::MAINTAINER)
-      expect(helper.note_max_access_for_user(reporter_note)).to eq(Gitlab::Access::REPORTER)
-    end
-
-    it 'handles access in different projects' do
-      second_project = create(:project)
-      second_project.add_reporter(maintainer)
-      other_note = create(:note, author: maintainer, project: second_project)
-
-      expect(helper.note_max_access_for_user(maintainer_note)).to eq(Gitlab::Access::MAINTAINER)
-      expect(helper.note_max_access_for_user(other_note)).to eq(Gitlab::Access::REPORTER)
     end
   end
 
@@ -223,6 +199,17 @@ RSpec.describe NotesHelper do
     end
   end
 
+  describe '#initial_notes_data' do
+    it 'return initial notes data for issuable' do
+      autocomplete = '/autocomplete/users'
+      @project = project
+      @noteable = create(:issue, project: @project)
+
+      expect(helper.initial_notes_data(autocomplete).keys).to match_array(%i[notesUrl now diffView enableGFM])
+      expect(helper.initial_notes_data(autocomplete)[:enableGFM].keys).to match(%i[emojis members issues mergeRequests vulnerabilities epics milestones labels])
+    end
+  end
+
   describe '#notes_url' do
     it 'return snippet notes path for personal snippet' do
       @snippet = create(:personal_snippet)
@@ -301,26 +288,10 @@ RSpec.describe NotesHelper do
     end
   end
 
-  describe '#discussion_resolved_intro' do
-    context 'when the discussion was resolved by a push' do
-      let(:discussion) { double(:discussion, resolved_by_push?: true) }
-
-      it 'returns "Automatically resolved"' do
-        expect(discussion_resolved_intro(discussion)).to eq('Automatically resolved')
-      end
-    end
-
-    context 'when the discussion was not resolved by a push' do
-      let(:discussion) { double(:discussion, resolved_by_push?: false) }
-
-      it 'returns "Resolved"' do
-        expect(discussion_resolved_intro(discussion)).to eq('Resolved')
-      end
-    end
-  end
-
   describe '#notes_data' do
-    let(:issue) { create(:issue, project: project) }
+    let_it_be(:issue) { create(:issue, project: project) }
+
+    let(:notes_data) { helper.notes_data(issue) }
 
     before do
       @project = project
@@ -329,14 +300,17 @@ RSpec.describe NotesHelper do
       allow(helper).to receive(:current_user).and_return(guest)
     end
 
-    it 'sets last_fetched_at to 0 when start_at_zero is true' do
-      expect(helper.notes_data(issue, true)[:lastFetchedAt]).to eq(0)
-    end
-
     it 'includes the current notes filter for the user' do
       guest.set_notes_filter(UserPreference::NOTES_FILTERS[:only_comments], issue)
 
-      expect(helper.notes_data(issue)[:notesFilter]).to eq(UserPreference::NOTES_FILTERS[:only_comments])
+      expect(notes_data[:notesFilter]).to eq(UserPreference::NOTES_FILTERS[:only_comments])
+    end
+
+    it 'includes info about the noteable', :aggregate_failures do
+      expect(notes_data[:noteableType]).to eq('issue')
+      expect(notes_data[:noteableId]).to eq(issue.id)
+      expect(notes_data[:projectId]).to eq(project.id)
+      expect(notes_data[:groupId]).to be_nil
     end
   end
 end

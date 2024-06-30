@@ -5,14 +5,26 @@ en:
   hello: "Hello world"
   activerecord:
     attributes:
+      appearance:
+        pwa_name: "PWA name"
+        pwa_short_name: "PWA short name"
+        pwa_description: "PWA description"
+        pwa_icon: "Icon"
+      incident_management/timeline_event:
+        note: 'Timeline text'
       issue_link:
         source: Source issue
         target: Target issue
       group:
         path: Group URL
+      namespace_setting:
+        unique_project_download_limit: "Number of projects"
+        unique_project_download_limit_interval_in_seconds: "Interval (seconds)"
       member:
         user: "The member's email address"
         invite_email: "The member's email address"
+      personal_access_token:
+        expires_at: "Expiration date"
       project/error_tracking_setting:
         token: "Auth Token"
         project: "Project"
@@ -25,10 +37,21 @@ en:
         grafana_enabled: "Grafana integration enabled"
       service_desk_setting:
         project_key: "Project name suffix"
+      system_access/microsoft_application:
+        tenant_xid: "Tenant ID"
+        client_xid: "Client ID"
+        encrypted_client_secret: "Client secret"
+        login_endpoint: "Login API endpoint"
+        graph_endpoint: "Graph API endpoint"
       user/user_detail:
         job_title: 'Job title'
-      user/user_detail:
         bio: 'Bio'
+        linkedin: 'Linkedin'
+        twitter: 'Twitter'
+        skype: 'Skype'
+        location: 'Location'
+        organization: 'Organization'
+        website_url: 'Website url'
   views:
     pagination:
       previous: "Prev"
@@ -173,6 +196,7 @@ en:
     messages:
       label_already_exists_at_group_level: "already exists at group level for %{group}. Please choose another one."
       username_exists_as_a_different_namespace: A user, alias, or group already exists with that username.
+      does_not_start_with_project_full_path: should start with the project's full path
       wrong_size: "is the wrong size (should be %{file_size})"
       size_too_small: "is too small (should be at least %{file_size})"
       size_too_big: "is too big (should be at most %{file_size})"
@@ -254,13 +278,13 @@ en:
       storage_units:
         format: "%n %u"
         units:
-          byte:
-            one: Byte
-            other: Bytes
-          gb: GB
-          kb: KB
-          mb: MB
-          tb: TB
+          byte: B
+          kb: KiB
+          mb: MiB
+          gb: GiB
+          tb: TiB
+          pb: PiB
+          eb: EiB
     percentage:
       format:
         delimiter: ''

@@ -8,7 +8,9 @@ module PartitionedTable
 
     PARTITIONING_STRATEGIES = {
       monthly: Gitlab::Database::Partitioning::MonthlyStrategy,
-      sliding_list: Gitlab::Database::Partitioning::SlidingListStrategy
+      sliding_list: Gitlab::Database::Partitioning::SlidingListStrategy,
+      ci_sliding_list: Gitlab::Database::Partitioning::CiSlidingListStrategy,
+      int_range: Gitlab::Database::Partitioning::IntRangeStrategy
     }.freeze
 
     def partitioned_by(partitioning_key, strategy:, **kwargs)

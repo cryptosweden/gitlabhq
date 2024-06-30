@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::AfterCreateService do
+RSpec.describe MergeRequests::AfterCreateService, feature_category: :code_review_workflow do
   let_it_be(:merge_request) { create(:merge_request) }
+  let(:project) { merge_request.project }
 
   subject(:after_create_service) do
     described_class.new(project: merge_request.target_project, current_user: merge_request.author)
@@ -30,7 +31,7 @@ RSpec.describe MergeRequests::AfterCreateService do
     it 'calls the merge request activity counter' do
       expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
         .to receive(:track_create_mr_action)
-        .with(user: merge_request.author)
+        .with(user: merge_request.author, merge_request: merge_request)
 
       expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
         .to receive(:track_mr_including_ci_config)
@@ -68,6 +69,25 @@ RSpec.describe MergeRequests::AfterCreateService do
       execute_service
     end
 
+    it 'executes hooks and integrations' do
+      expected_payload = hash_including(
+        object_kind: 'merge_request',
+        event_type: 'merge_request',
+        object_attributes: be_present
+      )
+
+      expect(project).to receive(:execute_hooks).with(expected_payload, :merge_request_hooks)
+      expect(project).to receive(:execute_integrations).with(expected_payload, :merge_request_hooks)
+
+      execute_service
+    end
+
+    it 'calls GroupMentionWorker' do
+      expect(Integrations::GroupMentionWorker).to receive(:perform_async)
+
+      execute_service
+    end
+
     it_behaves_like 'records an onboarding progress action', :merge_request_created do
       let(:namespace) { merge_request.target_project.namespace }
     end
@@ -91,6 +111,19 @@ RSpec.describe MergeRequests::AfterCreateService do
 
       it 'checks for mergeability' do
         expect(merge_request).to receive(:check_mergeability).with(async: true)
+
+        execute_service
+      end
+
+      it 'executes hooks and integrations with correct merge_status' do
+        expected_payload = hash_including(
+          object_attributes: hash_including(
+            merge_status: 'checking'
+          )
+        )
+
+        expect(project).to receive(:execute_hooks).with(expected_payload, :merge_request_hooks)
+        expect(project).to receive(:execute_integrations).with(expected_payload, :merge_request_hooks)
 
         execute_service
       end
@@ -126,26 +159,23 @@ RSpec.describe MergeRequests::AfterCreateService do
       end
     end
 
-    it 'increments the usage data counter of create event' do
-      counter = Gitlab::UsageDataCounters::MergeRequestCounter
+    it 'updates the prepared_at' do
+      # Need to reset the `prepared_at` since it can be already set in preceding tests.
+      merge_request.update!(prepared_at: nil)
 
-      expect { execute_service }.to change { counter.read(:create) }.by(1)
+      freeze_time do
+        expect { execute_service }.to change { merge_request.prepared_at }
+          .from(nil)
+          .to(Time.current)
+      end
     end
 
-    context 'with a milestone' do
-      let(:milestone) { create(:milestone, project: merge_request.target_project) }
+    it_behaves_like 'internal event tracking' do
+      let(:user) { merge_request.author }
+      let(:event) { 'create_merge_request' }
+      let(:project) { merge_request.project }
 
-      before do
-        merge_request.update!(milestone_id: milestone.id)
-      end
-
-      it 'deletes the cache key for milestone merge request counter', :use_clean_rails_memory_store_caching do
-        expect_next_instance_of(Milestones::MergeRequestsCountService, milestone) do |service|
-          expect(service).to receive(:delete_cache).and_call_original
-        end
-
-        execute_service
-      end
+      subject(:track_event) { execute_service }
     end
 
     context 'todos' do
@@ -208,17 +238,15 @@ RSpec.describe MergeRequests::AfterCreateService do
         merge_request.target_branch = merge_request.target_project.default_branch
         merge_request.save!
 
-        execute_service
+        expect do
+          execute_service
+        end.to change { MergeRequestsClosingIssues.count }.by(2)
 
-        issue_ids = MergeRequestsClosingIssues.where(merge_request: merge_request).pluck(:issue_id)
-        expect(issue_ids).to match_array([first_issue.id, second_issue.id])
+        expect(MergeRequestsClosingIssues.where(merge_request: merge_request)).to contain_exactly(
+          have_attributes(issue_id: first_issue.id, from_mr_description: true),
+          have_attributes(issue_id: second_issue.id, from_mr_description: true)
+        )
       end
-    end
-
-    it 'tracks merge request creation in usage data' do
-      expect(Gitlab::UsageDataCounters::MergeRequestCounter).to receive(:count).with(:create)
-
-      execute_service
     end
 
     it 'calls MergeRequests::LinkLfsObjectsService#execute' do
@@ -228,6 +256,31 @@ RSpec.describe MergeRequests::AfterCreateService do
       execute_service
 
       expect(service).to have_received(:execute).with(merge_request)
+    end
+
+    describe 'logging' do
+      it 'logs specific events' do
+        ::Gitlab::ApplicationContext.push(caller_id: 'NewMergeRequestWorker')
+
+        allow(Gitlab::AppLogger).to receive(:info).and_call_original
+
+        [
+          'Executing hooks',
+          'Executed hooks',
+          'Creating pipeline',
+          'Pipeline created'
+        ].each do |message|
+          expect(Gitlab::AppLogger).to receive(:info).with(
+            hash_including(
+              'meta.caller_id' => 'NewMergeRequestWorker',
+              message: message,
+              merge_request_id: merge_request.id
+            )
+          ).and_call_original
+        end
+
+        execute_service
+      end
     end
   end
 end

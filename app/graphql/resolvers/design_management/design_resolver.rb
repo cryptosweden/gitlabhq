@@ -8,12 +8,12 @@ module Resolvers
       requires_argument!
 
       argument :id, ::Types::GlobalIDType[::DesignManagement::Design],
-               required: false,
-               description: 'Find a design by its ID.'
+        required: false,
+        description: 'Find a design by its ID.'
 
       argument :filename, GraphQL::Types::String,
-               required: false,
-               description: 'Find a design by its filename.'
+        required: false,
+        description: 'Find a design by its filename.'
 
       def resolve(filename: nil, id: nil)
         params = parse_args(filename, id)
@@ -54,10 +54,6 @@ module Resolvers
       end
 
       def parse_gid(gid)
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        gid = ::Types::GlobalIDType[::DesignManagement::Design].coerce_isolated_input(gid)
-
         gid.model_id
       end
     end

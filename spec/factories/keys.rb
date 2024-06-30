@@ -3,13 +3,45 @@
 FactoryBot.define do
   factory :key do
     title
-    key { SSHData::PrivateKey::RSA.generate(1024, unsafe_allow_small_key: true).public_key.openssh(comment: 'dummy@gitlab.com') }
-
-    factory :key_without_comment do
-      key { SSHData::PrivateKey::RSA.generate(1024, unsafe_allow_small_key: true).public_key.openssh }
+    key do
+      # Larger keys take longer to generate, and since this factory gets called frequently,
+      # let's only create the smallest one we need.
+      SSHData::PrivateKey::RSA.generate(
+        ::Gitlab::SSHPublicKey.supported_sizes(:rsa).min, unsafe_allow_small_key: true
+      ).public_key.openssh(comment: 'dummy@gitlab.com')
+    end
+    trait :expired do
+      to_create { |key| key.save!(validate: false) }
+      expires_at { 2.days.ago }
     end
 
-    factory :deploy_key, class: 'DeployKey'
+    trait :expired_today do
+      to_create { |key| key.save!(validate: false) }
+      expires_at { Date.current.beginning_of_day + 3.hours }
+    end
+
+    trait :without_md5_fingerprint do
+      after(:create) do |key|
+        key.update_column(:fingerprint, nil)
+      end
+    end
+
+    factory :key_without_comment do
+      key { SSHData::PrivateKey::RSA.generate(3072, unsafe_allow_small_key: true).public_key.openssh }
+    end
+
+    factory :deploy_key, class: 'DeployKey' do
+      after(:build) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(true) }
+      after(:create) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(nil) }
+
+      trait :private do
+        public { false }
+      end
+
+      trait :public do
+        public { true }
+      end
+    end
 
     factory :group_deploy_key, class: 'GroupDeployKey' do
       user
@@ -19,7 +51,16 @@ FactoryBot.define do
       user
     end
 
+    factory :personal_key_4096 do
+      user
+
+      key { SSHData::PrivateKey::RSA.generate(4096, unsafe_allow_small_key: true).public_key.openssh(comment: 'dummy@gitlab.com') }
+    end
+
     factory :another_key do
+      after(:build) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(true) }
+      after(:create) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(nil) }
+
       factory :another_deploy_key, class: 'DeployKey'
     end
 
@@ -35,7 +76,10 @@ FactoryBot.define do
         KEY
       end
 
-      factory :rsa_deploy_key_2048, class: 'DeployKey'
+      factory :rsa_deploy_key_2048, class: 'DeployKey' do
+        after(:build) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(true) }
+        after(:create) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(nil) }
+      end
     end
 
     factory :rsa_key_4096 do
@@ -73,6 +117,11 @@ FactoryBot.define do
           ZpUqrXdTr9qwZEOaC75T74AJ7KBl9VvO3vPLZuJrt38R2OZG/4SlNEUA6bb5TWQLtdor/
           qpPN5jAskkAUzOh5L/M+dmq2jNn03U9xwORCYPZj+fFM9bL99/0knsV0ypZDZyWH dummy@gitlab.com
         KEY
+      end
+
+      factory :rsa_deploy_key_5120, class: 'DeployKey' do
+        after(:build) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(true) }
+        after(:create) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(nil) }
       end
     end
 

@@ -1,10 +1,11 @@
-import { GlFormText } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
+import { nextTick } from 'vue';
+import { GlFormGroup } from '@gitlab/ui';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 
 import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
 import IntegrationView from '~/profile/preferences/components/integration_view.vue';
 import IntegrationHelpText from '~/vue_shared/components/integrations_help_text.vue';
-import { integrationViews, userFields } from '../mock_data';
+import { integrationViews } from '../mock_data';
 
 const viewProps = convertObjectPropsToCamelCase(integrationViews[0]);
 
@@ -16,16 +17,12 @@ describe('IntegrationView component', () => {
       label: 'Enable foo',
       formName: 'foo_enabled',
     },
+    value: true,
     ...viewProps,
   };
 
-  function createComponent(options = {}) {
-    const { props = {}, provide = {} } = options;
-    return shallowMount(IntegrationView, {
-      provide: {
-        userFields,
-        ...provide,
-      },
+  function createComponent(props = {}) {
+    return mountExtended(IntegrationView, {
       propsData: {
         ...defaultProps,
         ...props,
@@ -33,28 +30,15 @@ describe('IntegrationView component', () => {
     });
   }
 
-  function findCheckbox() {
-    return wrapper.find('[data-testid="profile-preferences-integration-checkbox"]');
-  }
-  function findFormGroup() {
-    return wrapper.find('[data-testid="profile-preferences-integration-form-group"]');
-  }
-  function findHiddenField() {
-    return wrapper.find('[data-testid="profile-preferences-integration-hidden-field"]');
-  }
-  function findFormGroupLabel() {
-    return wrapper.find('[data-testid="profile-preferences-integration-form-group"] label');
-  }
+  const findCheckbox = () => wrapper.findByLabelText(new RegExp(defaultProps.config.label));
+  const findFormGroup = () => wrapper.findComponent(GlFormGroup);
+  const findHiddenField = () =>
+    wrapper.findByTestId('profile-preferences-integration-hidden-field');
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
-  it('should render the title correctly', () => {
+  it('should render the form group legend correctly', () => {
     wrapper = createComponent();
 
-    expect(wrapper.find('label.label-bold').text()).toBe('Foo');
+    expect(wrapper.findByText(defaultProps.config.title).exists()).toBe(true);
   });
 
   it('should render the form correctly', () => {
@@ -86,19 +70,7 @@ describe('IntegrationView component', () => {
   });
 
   it('should set the checkbox value to be false when false is provided', () => {
-    wrapper = createComponent({
-      provide: {
-        userFields: {
-          foo_enabled: false,
-        },
-      },
-    });
-
-    expect(findCheckbox().element.checked).toBe(false);
-  });
-
-  it('should set the checkbox value to be false when not provided', () => {
-    wrapper = createComponent({ provide: { userFields: {} } });
+    wrapper = createComponent({ value: false });
 
     expect(findCheckbox().element.checked).toBe(false);
   });
@@ -106,13 +78,30 @@ describe('IntegrationView component', () => {
   it('should render the help text', () => {
     wrapper = createComponent();
 
-    expect(wrapper.find(GlFormText).exists()).toBe(true);
-    expect(wrapper.find(IntegrationHelpText).exists()).toBe(true);
+    expect(wrapper.findComponent(IntegrationHelpText).exists()).toBe(true);
   });
 
-  it('should render the label correctly', () => {
-    wrapper = createComponent();
+  describe('when prop value changes', () => {
+    beforeEach(async () => {
+      wrapper = createComponent();
 
-    expect(findFormGroupLabel().text()).toBe('Enable foo');
+      wrapper.setProps({ value: false });
+      await nextTick();
+    });
+
+    it('should update the checkbox value', () => {
+      expect(findCheckbox().element.checked).toBe(false);
+    });
+  });
+
+  it('when checkbox clicked, should update the checkbox value', async () => {
+    wrapper = createComponent({ value: false });
+
+    expect(wrapper.emitted('input')).toBe(undefined);
+
+    findCheckbox().setChecked(true);
+    await nextTick();
+
+    expect(wrapper.emitted('input')).toEqual([[true]]);
   });
 });

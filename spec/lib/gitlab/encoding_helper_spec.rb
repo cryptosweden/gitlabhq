@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Gitlab::EncodingHelper do
+RSpec.describe Gitlab::EncodingHelper, feature_category: :shared do
   using RSpec::Parameterized::TableSyntax
 
   let(:ext_class) { Class.new { extend Gitlab::EncodingHelper } }
@@ -45,16 +45,26 @@ RSpec.describe Gitlab::EncodingHelper do
     end
 
     context 'with corrupted diff' do
+      let(:project) { create(:project, :empty_repo) }
+      let(:repository) { project.repository }
+      let(:content) { fixture_file('encoding/Japanese.md') }
       let(:corrupted_diff) do
-        with_empty_bare_repository do |repo|
-          content = File.read(Rails.root.join(
-            'spec/fixtures/encoding/Japanese.md').to_s)
-          commit_a = commit(repo, 'Japanese.md', content)
-          commit_b = commit(repo, 'Japanese.md',
-            content.sub('[TODO: Link]', '[現在作業中です: Link]'))
+        commit_a = repository.create_file(
+          project.creator,
+          'Japanese.md',
+          content,
+          branch_name: 'HEAD',
+          message: 'Create Japanese.md'
+        )
+        commit_b = repository.update_file(
+          project.creator,
+          'Japanese.md',
+          content.sub('[TODO: Link]', '[現在作業中です: Link]'),
+          branch_name: 'HEAD',
+          message: 'Update Japanese.md'
+        )
 
-          repo.diff(commit_a, commit_b).each_line.map(&:content).join
-        end
+        repository.diff(commit_a, commit_b).map(&:diff).join
       end
 
       let(:cleaned_diff) do
@@ -68,26 +78,6 @@ RSpec.describe Gitlab::EncodingHelper do
 
       it 'does not corrupt data but remove invalid characters' do
         expect(encoded_diff).to eq(cleaned_diff)
-      end
-
-      def commit(repo, path, content)
-        oid = repo.write(content, :blob)
-        index = repo.index
-
-        index.read_tree(repo.head.target.tree) unless repo.empty?
-
-        index.add(path: path, oid: oid, mode: 0100644)
-        user = { name: 'Test', email: 'test@example.com' }
-
-        Rugged::Commit.create(
-          repo,
-          tree: index.write_tree(repo),
-          author: user,
-          committer: user,
-          message: "Update #{path}",
-          parents: repo.empty? ? [] : [repo.head.target].compact,
-          update_ref: 'HEAD'
-        )
       end
     end
   end
@@ -104,6 +94,24 @@ RSpec.describe Gitlab::EncodingHelper do
       it 'drops invalid UTF-8' do
         expect(ext_class.encode_utf8_no_detect(input.dup.force_encoding(Encoding::ASCII_8BIT))).to eq(expected)
         expect(ext_class.encode_utf8_no_detect(input)).to eq(expected)
+      end
+    end
+  end
+
+  describe '#encode_utf8_with_escaping!' do
+    where(:input, :expected) do
+      "abcd" | "abcd"
+      "ǲǲǲ" | "ǲǲǲ"
+      "\xC7\xB2\xC7ǲǲǲ" | "ǲ%C7ǲǲǲ"
+      "🐤🐤🐤🐤\xF0\x9F\x90" | "🐤🐤🐤🐤%F0%9F%90"
+      "\xD0\x9F\xD1\x80 \x90" | "Пр %90"
+      "\x41" | "A"
+    end
+
+    with_them do
+      it 'escapes invalid UTF-8' do
+        expect(ext_class.encode_utf8_with_escaping!(input.dup.force_encoding(Encoding::ASCII_8BIT))).to eq(expected)
+        expect(ext_class.encode_utf8_with_escaping!(input)).to eq(expected)
       end
     end
   end
@@ -206,7 +214,7 @@ RSpec.describe Gitlab::EncodingHelper do
       [nil, ""],
       ["", ""],
       ["  ", "  "],
-      %w(a1 a1),
+      %w[a1 a1],
       ["编码", "\xE7\xBC\x96\xE7\xA0\x81".b]
     ].each do |input, result|
       it "encodes #{input.inspect} to #{result.inspect}" do
@@ -275,4 +283,47 @@ RSpec.describe Gitlab::EncodingHelper do
       expect(described_class.unquote_path('"\a\b\e\f\n\r\t\v\""')).to eq("\a\b\e\f\n\r\t\v\"")
     end
   end
+
+  describe '#strip_bom' do
+    it do
+      expect(described_class.strip_bom('no changes')).to eq('no changes')
+      expect(described_class.strip_bom("\xEF\xBB\xBFhello world")).to eq('hello world')
+      expect(described_class.strip_bom("BOM at the end\xEF\xBB\xBF")).to eq("BOM at the end\xEF\xBB\xBF")
+    end
+  end
+
+  # This cop's alternative to .dup doesn't work in this context for some reason.
+  # rubocop: disable Performance/UnfreezeString
+  describe "#force_encode_utf8" do
+    let(:stringish) do
+      Class.new(String) do
+        undef :force_encoding
+      end
+    end
+
+    it "raises an ArgumentError if the argument can't force encoding" do
+      expect { described_class.force_encode_utf8(stringish.new("foo")) }.to raise_error(ArgumentError)
+    end
+
+    it "returns the message if already UTF-8 and valid encoding" do
+      string = "føø".dup
+
+      expect(string).not_to receive(:force_encoding).and_call_original
+      expect(described_class.force_encode_utf8(string)).to eq("føø")
+    end
+
+    it "forcibly encodes a string to UTF-8" do
+      string = "føø".dup.force_encoding("ISO-8859-1")
+
+      expect(string).to receive(:force_encoding).with("UTF-8").and_call_original
+      expect(described_class.force_encode_utf8(string)).to eq("føø")
+    end
+
+    it "forcibly encodes a frozen string to UTF-8" do
+      string = "bår".dup.force_encoding("ISO-8859-1").freeze
+
+      expect(described_class.force_encode_utf8(string)).to eq("bår")
+    end
+  end
+  # rubocop: enable Performance/UnfreezeString
 end

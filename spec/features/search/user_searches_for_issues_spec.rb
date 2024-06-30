@@ -2,15 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User searches for issues', :js do
-  let(:user) { create(:user) }
-  let(:project) { create(:project, namespace: user.namespace) }
+RSpec.describe 'User searches for issues', :js, :clean_gitlab_redis_rate_limiting, feature_category: :global_search do
+  include ListboxHelpers
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, namespace: user.namespace) }
+
   let!(:issue1) { create(:issue, title: 'issue Foo', project: project, created_at: 1.hour.ago) }
   let!(:issue2) { create(:issue, :closed, :confidential, title: 'issue Bar', project: project) }
 
   def search_for_issue(search)
-    fill_in('dashboard_search', with: search)
-    find('.gl-search-box-by-click-search-button').click
+    submit_dashboard_search(search)
     select_search_scope('Issues')
   end
 
@@ -76,7 +77,7 @@ RSpec.describe 'User searches for issues', :js do
         expect(page.all('.search-result-row').last).to have_link(issue1.title)
       end
 
-      find('[data-testid="sort-highest-icon"]').click
+      find_by_testid('sort-highest-icon').click
 
       page.within('.results') do
         expect(page.all('.search-result-row').first).to have_link(issue1.title)
@@ -86,12 +87,12 @@ RSpec.describe 'User searches for issues', :js do
 
     context 'when on a project page' do
       it 'finds an issue' do
-        find('[data-testid="project-filter"]').click
+        find_by_testid('project-filter').click
 
         wait_for_requests
 
-        page.within('[data-testid="project-filter"]') do
-          click_on(project.name)
+        within_testid('project-filter') do
+          select_listbox_item project.name
         end
 
         search_for_issue(issue1.title)
@@ -102,14 +103,23 @@ RSpec.describe 'User searches for issues', :js do
         end
       end
     end
+
+    it 'shows scopes when there is no search term' do
+      search_for_issue('')
+
+      within_testid('search-filter') do
+        expect(page).to have_selector('[data-testid="nav-item"]', minimum: 5)
+      end
+    end
   end
 
   context 'when signed out' do
     context 'when block_anonymous_global_searches is disabled' do
-      let(:project) { create(:project, :public) }
+      let_it_be(:project) { create(:project, :public) }
 
       before do
         stub_feature_flags(block_anonymous_global_searches: false)
+
         visit(search_path)
       end
 
@@ -126,11 +136,9 @@ RSpec.describe 'User searches for issues', :js do
     end
 
     context 'when block_anonymous_global_searches is enabled' do
-      before do
-        visit(search_path)
-      end
-
       it 'is redirected to login page' do
+        visit(search_path)
+
         expect(page).to have_content('You must be logged in to search across all of GitLab')
       end
     end

@@ -2,13 +2,18 @@
 
 class ReleaseHighlight
   CACHE_DURATION = 1.hour
-  FILES_PATH = Rails.root.join('data', 'whats_new', '*.yml')
 
   FREE_PACKAGE = 'Free'
   PREMIUM_PACKAGE = 'Premium'
   ULTIMATE_PACKAGE = 'Ultimate'
 
   def self.paginated(page: 1)
+    result = self.paginated_query(page: page)
+    result = self.paginated_query(page: result.next_page) while next_page?(result)
+    result
+  end
+
+  def self.paginated_query(page:)
     key = self.cache_key("items:page-#{page}")
 
     Rails.cache.fetch(key, expires_in: CACHE_DURATION) do
@@ -33,7 +38,7 @@ class ReleaseHighlight
       next unless include_item?(item)
 
       begin
-        item.tap {|i| i['body'] = Banzai.render(i['body'], { project: nil }) }
+        item.tap { |i| i['description'] = Banzai.render(i['description'], { project: nil }) }
       rescue StandardError => e
         Gitlab::ErrorTracking.track_exception(e, file_path: file_path)
 
@@ -45,7 +50,11 @@ class ReleaseHighlight
   rescue Psych::Exception => e
     Gitlab::ErrorTracking.track_exception(e, file_path: file_path)
 
-    nil
+    []
+  end
+
+  def self.whats_new_path
+    Rails.root.join('data/whats_new/*.yml')
   end
 
   def self.file_paths
@@ -54,7 +63,7 @@ class ReleaseHighlight
 
   def self.relative_file_paths
     Rails.cache.fetch(self.cache_key('file_paths'), expires_in: CACHE_DURATION) do
-      Dir.glob(FILES_PATH).sort.reverse.map { |path| path.delete_prefix(Rails.root.to_s) }
+      Dir.glob(whats_new_path).reverse.map { |path| path.delete_prefix(Rails.root.to_s) }
     end
   end
 
@@ -116,6 +125,16 @@ class ReleaseHighlight
 
     return true unless Gitlab::CurrentSettings.current_application_settings.whats_new_variant_current_tier?
 
-    item['packages']&.include?(current_package)
+    item['available_in']&.include?(current_package)
+  end
+
+  def self.next_page?(result)
+    return false unless result
+
+    # if all items for the current page doesn't belong to the current tier
+    # or failed to parse current YAML, loading next page
+    result.items == [] && result.next_page.present?
   end
 end
+
+ReleaseHighlight.prepend_mod

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe LooseForeignKeys::CleanerService do
+RSpec.describe LooseForeignKeys::CleanerService, feature_category: :database do
   let(:schema) { ApplicationRecord.connection.current_schema }
   let(:deleted_records) do
     [
@@ -123,7 +123,7 @@ RSpec.describe LooseForeignKeys::CleanerService do
             expect(instance).to receive(:delete_query).and_return('wrong query')
           end
 
-          expect { cleaner_service.execute }.to raise_error /FATAL: foreign key condition is missing from the generated query/
+          expect { cleaner_service.execute }.to raise_error(/FATAL: foreign key condition is missing from the generated query/)
         end
       end
     end

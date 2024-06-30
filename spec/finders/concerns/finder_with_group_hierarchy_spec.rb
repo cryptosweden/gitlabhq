@@ -35,12 +35,13 @@ RSpec.describe FinderWithGroupHierarchy do
     end
   end
 
-  let_it_be(:parent_group) { create(:group) }
-  let_it_be(:group) { create(:group, parent: parent_group) }
-  let_it_be(:private_group) { create(:group, :private) }
-  let_it_be(:private_subgroup) { create(:group, :private, parent: private_group) }
+  let_it_be(:organization) { create(:organization) }
+  let_it_be(:parent_group) { create(:group, organization: organization) }
+  let_it_be(:group) { create(:group, parent: parent_group, organization: organization) }
+  let_it_be(:private_group) { create(:group, :private, organization: organization) }
+  let_it_be(:private_subgroup) { create(:group, :private, parent: private_group, organization: organization) }
 
-  let(:user) { create(:user) }
+  let!(:user) { create(:user) }
 
   context 'when specifying group' do
     it 'returns only the group by default' do
@@ -107,6 +108,26 @@ RSpec.describe FinderWithGroupHierarchy do
       finder = finder_class.new(user, group: private_group, include_descendant_groups: true)
 
       expect(finder.execute(skip_authorization: true)).to match_array([private_group.id, private_subgroup.id])
+    end
+  end
+
+  context 'with N+1 query check' do
+    def run_query(group)
+      finder_class
+        .new(user, group: group, include_descendant_groups: true)
+        .execute
+        .to_a
+
+      RequestStore.clear!
+    end
+
+    it 'does not produce N+1 query', :request_store do
+      private_group.add_developer(user)
+
+      run_query(private_subgroup) # warmup
+      control = ActiveRecord::QueryRecorder.new { run_query(private_subgroup) }
+
+      expect { run_query(private_group) }.not_to exceed_query_limit(control)
     end
   end
 end

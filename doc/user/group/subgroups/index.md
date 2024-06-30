@@ -1,21 +1,23 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Data Stores
+group: Tenant Scale
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Subgroups **(FREE)**
+# Subgroups
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/2772) in GitLab 9.0.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 You can organize GitLab [groups](../index.md) into subgroups. You can use subgroups to:
 
-- Separate internal and external organizations. Because every subgroup can have its own
-  [visibility level](../../../development/permissions.md#general-permissions), you can host groups for different
+- Separate internal and external content. Because every subgroup can have its own
+  [visibility level](../../public_access.md), you can host groups for different
   purposes under the same parent group.
-- Organize large projects. You can use subgroups to give different access to parts of
+- Organize large projects. You can use subgroups to manage who can access parts of
   the source code.
-- Manage people and control visibility. Give a user a different
+- Manage permissions. Give a user a different
   [role](../../permissions.md#group-members-permissions) for each group they're [a member of](#subgroup-membership).
 
 Subgroups can:
@@ -25,13 +27,17 @@ Subgroups can:
 - Be nested up to 20 levels.
 - Use [runners](../../../ci/runners/index.md) registered to parent groups:
   - Secrets configured for the parent group are available to subgroup jobs.
-  - Users with the Maintainer role in projects that belong to subgroups can see the details of runners registered to
+  - Users with at least the Maintainer role in projects that belong to subgroups can see the details of runners registered to
     parent groups.
 
 For example:
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 graph TD
+accTitle: Parent and subgroup nesting
+accDescr: How parent groups, subgroups, and projects nest.
+
     subgraph "Parent group"
       subgraph "Subgroup A"
         subgraph "Subgroup A1"
@@ -47,56 +53,98 @@ graph TD
     end
 ```
 
+## View subgroups of a group
+
+Prerequisites:
+
+- To view private nested subgroups, you must be a direct or inherited member of
+  the private subgroup.
+
+To view the subgroups of a group:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select the **Subgroups and projects** tab.
+1. Select the subgroup you want to view.
+   To view nested subgroups, expand (**{chevron-down}**) a subgroup.
+
+### Private subgroups in public parent groups
+
+In the hierarchy list, public groups with private subgroups have an expand option (**{chevron-down}**),
+which indicates the group has nested subgroups. The expand option (**{chevron-down}**) is visible
+to all users, but the private group is displayed only to users who are direct or inherited members
+of the private subgroup.
+
+If you prefer to keep information about the presence of nested subgroups private,
+you should add private subgroups only to private parent groups.
+
 ## Create a subgroup
 
-Users with the at least the Maintainer role on a group can create subgroups immediately below the group, unless
-[configured otherwise](#change-who-can-create-subgroups). These users can create subgroups even if group creation is
-[disabled by an Administrator](../../admin_area/index.md#prevent-a-user-from-creating-groups) in the user's settings.
+Prerequisites:
+
+- You must have either:
+  - At least the Maintainer role for a group.
+  - The [role determined by a setting](#change-who-can-create-subgroups). These users can create
+    subgroups even if group creation is
+    [disabled by an Administrator](../../../administration/admin_area.md#prevent-a-user-from-creating-top-level-groups) in the user's settings.
+
+NOTE:
+You cannot host a GitLab Pages subgroup website with a top-level domain name. For example, `subgroupname.example.io`.
 
 To create a subgroup:
 
-1. On the top bar, select **Menu > Groups** and find and select the parent group to add a subgroup to.
-1. On the parent group's overview page, in the top right, select **New subgroup**.
-1. Select **Create group**.
+1. On the left sidebar, select **Search or go to** and find the group you want to create the subgroup in.
+1. On the parent group's overview page, in the upper-right corner, select **New subgroup**.
 1. Fill in the fields. View a list of [reserved names](../../reserved_names.md) that cannot be used as group names.
-1. Select **Create group**.
+1. Select **Create subgroup**.
 
 ### Change who can create subgroups
 
-To create a subgroup, you must have at least the Maintainer role on the group, depending on the group's setting. By
-default:
+Prerequisites:
 
-- In GitLab 12.2 or later, users with at least the Maintainer role can create subgroups.
-- In GitLab 12.1 or earlier, only users with the Owner role can create subgroups.
+- You must have at least the Maintainer role on the group, depending on the group's setting.
 
 To change who can create subgroups on a group:
 
 - As a user with the Owner role on the group:
-  1. On the top bar, select **Menu > Groups** and find the group.
-  1. On the left sidebar, select **Settings > General**.
+  1. On the left sidebar, select **Search or go to** and find your group.
+  1. Select **Settings > General**.
   1. Expand **Permissions and group features**.
-  1. Select a role from the **Allowed to create subgroups** dropdown.
+  1. From **Roles allowed to create subgroups**, select an option.
+  1. Select **Save changes**.
 - As an administrator:
-  1. On the top bar, select **Menu > Admin**.
-  1. On the left sidebar, select **Overview > Groups**.
-  1. Select the group, and select **Edit**.
-  1. Select a role from the **Allowed to create subgroups** dropdown.
+  1. On the left sidebar, at the bottom, select **Admin Area**.
+  1. On the left sidebar, select **Overview > Groups** and find your group.
+  1. In the group's row, select **Edit**.
+  1. From the **Allowed to create subgroups** dropdown list, select an option.
+  1. Select **Save changes**.
 
 For more information, view the [permissions table](../../permissions.md#group-members-permissions).
 
 ## Subgroup membership
 
-When you add a member to a group, that member is also added to all subgroups. The user's permissions are inherited from
-the group's parent.
+> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) to display invited group members on the Members tab of the Members page in GitLab 16.10 [with a flag](../../../administration/feature_flags.md) named `webui_members_inherited_users`. Disabled by default.
+> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) in GitLab 17.0.
 
-Subgroup members can:
+FLAG:
+On self-managed GitLab, by default this feature is available. To hide the feature per user, an administrator can [disable the feature flag](../../../administration/feature_flags.md) named `webui_members_inherited_users`.
+On GitLab.com and GitLab Dedicated, this feature is available.
 
-1. Be [direct members](../../project/members/index.md#add-users-to-a-project) of the subgroup.
-1. [Inherit membership](../../project/members/index.md#inherited-membership) of the subgroup from the subgroup's parent group.
-1. Be a member of a group that was [shared with the subgroup's top-level group](../index.md#share-a-group-with-another-group).
+When you add a member to a group, that member is also added to all subgroups of that group.
+The member's permissions are inherited from the group into all subgroups.
+
+Subgroup members can be:
+
+1. [Direct members](../../project/members/index.md#add-users-to-a-project) of the subgroup.
+1. [Inherited members](../../project/members/index.md#inherited-membership) of the subgroup from the subgroup's parent group.
+1. Members of a group that was [shared with the subgroup's top-level group](../manage.md#share-a-group-with-another-group).
+1. [Indirect members](../../project/members/index.md#indirect-membership) include [inherited members](../../project/members/index.md#inherited-membership) and members of a group that was [invited to the subgroup or its ancestors](../manage.md#share-a-group-with-another-group).
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 flowchart RL
+accTitle: Subgroup membership
+accDescr: How users become members of a subgroup - through direct, indirect, or inherited membership.
+
   subgraph Group A
     A(Direct member)
     B{{Shared member}}
@@ -128,8 +176,9 @@ Group permissions for a member can be changed only by:
 
 To see if a member has inherited the permissions from a parent group:
 
-1. On the top bar, select **Menu > Groups** and find the group.
-1. Select **Group information > Members**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Manage > Members**.
+   The member's inheritance is displayed in the **Source** column.
 
 Members list for an example subgroup _Four_:
 
@@ -156,22 +205,23 @@ Members can be [filtered by inherited or direct membership](../index.md#filter-a
 
 ### Override ancestor group membership
 
-Users with the Owner role on a subgroup can add members to it.
+Users with the Owner role in a subgroup can add members to it.
 
-You can't give a user a role on a subgroup that's lower than the roles they have on ancestor groups. To override a user's
-role on an ancestor group, add the user to the subgroup again with a higher role. For example:
+You can't give a user a role in a subgroup that is lower than the roles the user has in parent groups.
+To override a user's role in a parent group, add the user to the subgroup again with a higher role.
+For example:
 
-- If User 1 is added to group _Two_ with the Developer role, they inherit that role in every subgroup of group _Two_.
-- To give User 1 the Maintainer role on group _Four_ (under _One / Two / Three_), add them again to group _Four_ with
+- If User 1 is added to group _Two_ with the Developer role, User 1 inherits that role in every subgroup of group _Two_.
+- To give User 1 the Maintainer role in group _Four_ (under _One / Two / Three_), add User 1 again to group _Four_ with
   the Maintainer role.
-- If User 1 is removed from group _Four_, their role falls back to their role on group _Two_. They have the Developer
-  role on group _Four_ again.
+- If User 1 is removed from group _Four_, the user's role falls back to their role in group _Two_. User 1 has the Developer
+  role in group _Four_ again.
 
 ## Mention subgroups
 
-Mentioning subgroups ([`@<subgroup_name>`](../../discussions/index.md#mentions)) in issues, commits, and merge requests
-notifies all members of that group. Mentioning works the same as for projects and groups, and you can choose the group
-of people to be notified.
+Mentioning subgroups ([`@<subgroup_name>`](../../discussions/index.md#mentions)) in epics, issues, commits, and merge requests
+notifies all direct members of that group. Inherited members of a subgroup are not notified by mentions.
+Mentioning works the same as for projects and groups, and you can choose the group of members to be notified.
 
 <!-- ## Troubleshooting
 
@@ -181,6 +231,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

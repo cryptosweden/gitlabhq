@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'GitlabSchema configurations' do
+RSpec.describe 'GitlabSchema configurations', feature_category: :integrations do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
@@ -15,7 +15,7 @@ RSpec.describe 'GitlabSchema configurations' do
 
           subject
 
-          expect_graphql_errors_to_include /Timeout/
+          expect_graphql_errors_to_include(/Timeout/)
         end
       end
     end
@@ -27,7 +27,7 @@ RSpec.describe 'GitlabSchema configurations' do
 
           subject
 
-          expect_graphql_errors_to_include /which exceeds max complexity of 1/
+          expect_graphql_errors_to_include(/which exceeds max complexity of 1/)
         end
       end
     end
@@ -39,7 +39,7 @@ RSpec.describe 'GitlabSchema configurations' do
 
           subject
 
-          expect_graphql_errors_to_include /exceeds max depth/
+          expect_graphql_errors_to_include(/exceeds max depth/)
         end
       end
 
@@ -113,7 +113,7 @@ RSpec.describe 'GitlabSchema configurations' do
 
   context 'regular queries' do
     subject do
-      query = graphql_query_for('project', { 'fullPath' => project.full_path }, %w(id name description))
+      query = graphql_query_for('project', { 'fullPath' => project.full_path }, %w[id name description])
       post_graphql(query)
     end
 
@@ -125,7 +125,7 @@ RSpec.describe 'GitlabSchema configurations' do
 
     subject do
       queries = [
-        { query: graphql_query_for('project', { 'fullPath' => '$fullPath' }, %w(id name description)) }, # Complexity 4
+        { query: graphql_query_for('project', { 'fullPath' => '$fullPath' }, %w[id name description]) }, # Complexity 4
         { query: graphql_query_for('echo', { 'text' => "$test" }, []), variables: { "test" => "Hello world" } }, # Complexity 1
         { query: graphql_query_for('project', { 'fullPath' => project.full_path }, "userPermissions { createIssue }") } # Complexity 3
       ]
@@ -190,7 +190,7 @@ RSpec.describe 'GitlabSchema configurations' do
     let(:query) { File.read(Rails.root.join('spec/fixtures/api/graphql/introspection.graphql')) }
 
     it 'logs the query complexity and depth' do
-      expect_any_instance_of(Gitlab::Graphql::QueryAnalyzers::LoggerAnalyzer).to receive(:duration).and_return(7)
+      expect_any_instance_of(Gitlab::Graphql::QueryAnalyzers::AST::LoggerAnalyzer).to receive(:duration).and_return(7)
 
       expect(Gitlab::GraphqlLogger).to receive(:info).with(
         hash_including(
@@ -199,6 +199,7 @@ RSpec.describe 'GitlabSchema configurations' do
           "query_analysis.complexity" => 181,
           "query_analysis.depth" => 13,
           "query_analysis.used_deprecated_fields" => an_instance_of(Array),
+          "query_analysis.used_deprecated_arguments" => an_instance_of(Array),
           "query_analysis.used_fields" => an_instance_of(Array)
         )
       )
@@ -215,12 +216,111 @@ RSpec.describe 'GitlabSchema configurations' do
 
   context "global id's" do
     it 'uses GlobalID to expose ids' do
-      post_graphql(graphql_query_for('project', { 'fullPath' => project.full_path }, %w(id)),
-                   current_user: project.first_owner)
+      post_graphql(
+        graphql_query_for('project', { 'fullPath' => project.full_path }, %w[id]),
+        current_user: project.first_owner
+      )
 
       parsed_id = GlobalID.parse(graphql_data['project']['id'])
 
       expect(parsed_id).to eq(project.to_global_id)
+    end
+  end
+
+  describe 'removal of deprecated items' do
+    let(:mock_schema) do
+      Class.new(GraphQL::Schema) do
+        lazy_resolve ::Gitlab::Graphql::Lazy, :force
+
+        query(Class.new(::Types::BaseObject) do
+          graphql_name 'Query'
+
+          field :foo, GraphQL::Types::Boolean, deprecated: { milestone: '0.1', reason: :renamed }
+
+          field :bar, (Class.new(::Types::BaseEnum) do
+            graphql_name 'BarEnum'
+
+            value 'FOOBAR', value: 'foobar', deprecated: { milestone: '0.1', reason: :renamed }
+            value 'FOOBARNEW', value: 'foobarnew'
+          end)
+
+          field :baz, GraphQL::Types::Boolean do
+            argument :arg, String, required: false, deprecated: { milestone: '0.1', reason: :renamed }
+          end
+
+          def foo
+            false
+          end
+
+          def bar
+            'foobar'
+          end
+
+          def baz(arg:)
+            false
+          end
+        end)
+      end
+    end
+
+    let(:params) { {} }
+    let(:headers) { {} }
+
+    before do
+      allow(GitlabSchema).to receive(:execute).and_wrap_original do |method, *args, **kwargs|
+        mock_schema.execute(*args, **kwargs)
+      end
+    end
+
+    context 'without `remove_deprecated` param' do
+      it 'shows deprecated items' do
+        query = '{ foo bar baz(arg: "test") }'
+
+        post_graphql(query, params: params, headers: headers)
+
+        expect(json_response).to include('data' => { 'foo' => false, 'bar' => 'FOOBAR', 'baz' => false })
+      end
+    end
+
+    context 'with `remove_deprecated` param' do
+      let(:params) { { remove_deprecated: '1' } }
+
+      it 'hides deprecated field' do
+        query = '{ foo }'
+
+        post_graphql(query, params: params)
+
+        expect(json_response).not_to include('data' => { 'foo' => false })
+        expect(json_response).to include(
+          'errors' => include(a_hash_including('message' => /Field 'foo' doesn't exist on type 'Query'/))
+        )
+      end
+
+      it 'hides deprecated enum value' do
+        query = '{ bar }'
+
+        post_graphql(query, params: params)
+
+        expect(json_response).not_to include('data' => { 'bar' => 'FOOBAR' })
+        expect(json_response).to include(
+          'errors' => include(
+            a_hash_including(
+              'message' => /`Query.bar` returned `"foobar"` at `bar`, but this isn't a valid value for `BarEnum`/
+            )
+          )
+        )
+      end
+
+      it 'hides deprecated argument' do
+        query = '{ baz(arg: "test") }'
+
+        post_graphql(query, params: params)
+
+        expect(json_response).not_to include('data' => { 'bar' => 'FOOBAR' })
+        expect(json_response).to include(
+          'errors' => include(a_hash_including('message' => /Field 'baz' doesn't accept argument 'arg'/))
+        )
+      end
     end
   end
 end

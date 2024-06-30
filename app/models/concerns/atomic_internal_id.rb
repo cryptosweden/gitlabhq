@@ -61,6 +61,8 @@ module AtomicInternalId
         AtomicInternalId.project_init(self)
       when :group
         AtomicInternalId.group_init(self)
+      when :namespace
+        AtomicInternalId.namespace_init(self)
       else
         # We require init here to retain the ability to recalculate in the absence of a
         # InternalId record (we may delete records in `internal_ids` for example).
@@ -174,6 +176,13 @@ module AtomicInternalId
     #
     #     bulk_insert(attributes)
     #   end
+    #
+    # - track_#{scope}_#{column}!
+    #   This method can be used to set a new greatest IID value during import operations.
+    #
+    #   Example:
+    #
+    #   MyClass.track_project_iid!(project, value)
     def define_singleton_internal_id_methods(scope, column, init)
       define_singleton_method("with_#{scope}_#{column}_supply") do |scope_value, &block|
         subject = find_by(scope => scope_value) || self
@@ -182,6 +191,16 @@ module AtomicInternalId
 
         supply = Supply.new(-> { InternalId.generate_next(subject, scope_attrs, usage, init) })
         block.call(supply)
+      end
+
+      define_singleton_method("track_#{scope}_#{column}!") do |scope_value, value|
+        InternalId.track_greatest(
+          self,
+          ::AtomicInternalId.scope_attrs(scope_value),
+          ::AtomicInternalId.scope_usage(self),
+          value,
+          init
+        )
       end
     end
   end
@@ -200,8 +219,8 @@ module AtomicInternalId
     ::AtomicInternalId.scope_usage(self.class)
   end
 
-  def self.scope_usage(including_class)
-    including_class.table_name.to_sym
+  def self.scope_usage(klass)
+    klass.respond_to?(:internal_id_scope_usage) ? klass.internal_id_scope_usage : klass.table_name.to_sym
   end
 
   def self.project_init(klass, column_name = :iid)
@@ -220,6 +239,16 @@ module AtomicInternalId
         klass.where(group_id: instance.group_id).maximum(column_name)
       elsif scope.present?
         klass.where(group: scope[:namespace]).maximum(column_name)
+      end
+    end
+  end
+
+  def self.namespace_init(klass, column_name = :iid)
+    ->(instance, scope) do
+      if instance
+        klass.where(namespace_id: instance.namespace_id).maximum(column_name)
+      elsif scope.present?
+        klass.where(**scope).maximum(column_name)
       end
     end
   end

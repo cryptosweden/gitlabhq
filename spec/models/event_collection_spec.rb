@@ -19,19 +19,18 @@ RSpec.describe EventCollection do
     context 'with project events' do
       let_it_be(:push_event_payloads) do
         Array.new(9) do
-          create(:push_event_payload,
-                 event: create(:push_event, project: project, author: user))
+          create(:push_event_payload, event: create(:push_event, project: project, author: user))
         end
       end
 
-      let_it_be(:merge_request_events) { create_list(:event, 10, :commented, project: project, target: merge_request) }
+      let_it_be(:merge_request_events) { create_list(:event, 10, :merged, project: project, target: merge_request) }
       let_it_be(:closed_issue_event) { create(:closed_issue_event, project: project, author: user) }
       let_it_be(:wiki_page_event) { create(:wiki_page_event, project: project) }
       let_it_be(:design_event) { create(:design_event, project: project) }
 
       let(:push_events) { push_event_payloads.map(&:event) }
 
-      it 'returns an Array of events', :aggregate_failures do
+      it 'returns an Array of all event types when no filter is passed', :aggregate_failures do
         most_recent_20_events = [
           wiki_page_event,
           design_event,
@@ -89,8 +88,27 @@ RSpec.describe EventCollection do
         expect(events).to contain_exactly(closed_issue_event)
       end
 
+      context 'when there are multiple issue events' do
+        let!(:work_item_event) do
+          create(
+            :event,
+            :created,
+            project: project,
+            target: create(:work_item, :task, project: project),
+            target_type: 'WorkItem'
+          )
+        end
+
+        it 'includes work item events too' do
+          filter = EventFilter.new(EventFilter::ISSUE)
+          events = described_class.new(projects, filter: filter).to_a
+
+          expect(events).to contain_exactly(closed_issue_event, work_item_event)
+        end
+      end
+
       it 'allows filtering of events using an EventFilter, returning several items' do
-        filter = EventFilter.new(EventFilter::COMMENTS)
+        filter = EventFilter.new(EventFilter::MERGED)
         events = described_class.new(projects, filter: filter).to_a
 
         expect(events).to match_array(merge_request_events)
@@ -122,10 +140,10 @@ RSpec.describe EventCollection do
         event1 = create(:event, project: nil, group: group, author: user)
         create(:event, project: nil, group: subgroup, author: user)
 
-        expect(subject).to eq([event1])
+        expect(subject).to match_array([event1])
       end
 
-      context 'pagination through events' do
+      context 'with pagination through events' do
         let_it_be(:project_events) { create_list(:event, 10, project: project) }
         let_it_be(:group_events) { create_list(:event, 10, group: group, author: user) }
 
@@ -137,6 +155,38 @@ RSpec.describe EventCollection do
           expect(subject).to eq(recent_events_with_offset)
         end
       end
+
+      context 'with project exclusive event types' do
+        using RSpec::Parameterized::TableSyntax
+
+        where(:filter, :event) do
+          EventFilter::PUSH | lazy { create(:push_event, project: project) }
+          EventFilter::MERGED | lazy { create(:event, :merged, project: project, target: merge_request) }
+          EventFilter::TEAM | lazy { create(:event, :joined, project: project) }
+          EventFilter::ISSUE | lazy { create(:closed_issue_event, project: project) }
+          EventFilter::DESIGNS | lazy { create(:design_event, project: project) }
+        end
+
+        with_them do
+          let(:subject) do
+            described_class.new(projects, groups: Group.where(id: group.id), filter: EventFilter.new(filter))
+          end
+
+          it "queries only project events" do
+            expected_event = event # Forcing lazy evaluation
+            expect(subject).to receive(:project_events).with(no_args).and_call_original
+            expect(subject).not_to receive(:group_events)
+
+            expect(subject.to_a).to match_array(expected_event)
+          end
+        end
+      end
+    end
+
+    it 'returns no events if no projects are passed' do
+      events = described_class.new(Project.none).to_a
+
+      expect(events).to be_empty
     end
   end
 end

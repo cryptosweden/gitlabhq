@@ -1,6 +1,6 @@
 <script>
 import { GlBadge, GlTabs, GlTab } from '@gitlab/ui';
-import $ from 'jquery';
+import { initScrollingTabs } from '~/layout_nav';
 
 /**
  * Given an array of tabs, renders non linked bootstrap tabs.
@@ -41,7 +41,7 @@ export default {
     },
   },
   mounted() {
-    $(document).trigger('init.scrolling-tabs');
+    initScrollingTabs();
   },
   methods: {
     shouldRenderBadge(count) {
@@ -60,14 +60,16 @@ export default {
     <gl-tab
       v-for="(tab, i) in tabs"
       :key="i"
-      :title-link-class="`js-${scope}-tab-${tab.scope} gl-display-inline-flex`"
-      :title-link-attributes="{ 'data-testid': `${scope}-tab-${tab.scope}` }"
+      :title-link-class="`js-${scope}-tab-${tab.scope} gl-inline-flex`"
+      :title-link-attributes="/* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */ {
+        'data-testid': `${scope}-tab-${tab.scope}`,
+      } /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */"
       :active="tab.isActive"
       @click="onTabClick(tab)"
     >
       <template #title>
         <span class="gl-mr-2"> {{ tab.name }} </span>
-        <gl-badge v-if="shouldRenderBadge(tab.count)" size="sm" class="gl-tab-counter-badge">{{
+        <gl-badge v-if="shouldRenderBadge(tab.count)" class="gl-tab-counter-badge">{{
           tab.count
         }}</gl-badge>
       </template>

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe MergeRequests::BuildService do
+RSpec.describe MergeRequests::BuildService, feature_category: :code_review_workflow do
   using RSpec::Parameterized::TableSyntax
   include RepoHelpers
   include ProjectForksHelper
@@ -9,29 +9,47 @@ RSpec.describe MergeRequests::BuildService do
   let(:project) { create(:project, :repository) }
   let(:source_project) { nil }
   let(:target_project) { nil }
-  let(:user) { create(:user) }
+  let(:user) { create(:user, name: "John Doe", email: "jdoe@gitlab.com") }
   let(:issue_confidential) { false }
   let(:issue) { create(:issue, project: project, title: 'A bug', confidential: issue_confidential) }
   let(:description) { nil }
-  let(:source_branch) { 'feature-branch' }
+  let(:source_branch) { 'feature' }
   let(:target_branch) { 'master' }
   let(:milestone_id) { nil }
   let(:label_ids) { [] }
   let(:merge_request) { service.execute }
   let(:compare) { double(:compare, commits: commits) }
   let(:commit_1) do
-    double(:commit_1, sha: 'f00ba6', safe_message: 'Initial commit',
-                          gitaly_commit?: false, id: 'f00ba6', parent_ids: ['f00ba5'])
+    double(:commit_1,
+      sha: 'f00ba6',
+      safe_message: 'Initial commit',
+      gitaly_commit?: false,
+      id: 'f00ba6',
+      parent_ids: ['f00ba5'],
+      author_email: 'tom@example.com',
+      author_name: 'Tom Example')
   end
 
   let(:commit_2) do
-    double(:commit_2, sha: 'f00ba7', safe_message: "Closes #1234 Second commit\n\nCreate the app",
-                          gitaly_commit?: false, id: 'f00ba7', parent_ids: ['f00ba6'])
+    double(:commit_2,
+      sha: 'f00ba7',
+      safe_message: "Closes #1234 Second commit\n\nCreate the app",
+      gitaly_commit?: false,
+      id: 'f00ba7',
+      parent_ids: ['f00ba6'],
+      author_email: 'alice@example.com',
+      author_name: 'Alice Example')
   end
 
   let(:commit_3) do
-    double(:commit_3, sha: 'f00ba8', safe_message: 'This is a bad commit message!',
-                          gitaly_commit?: false, id: 'f00ba8', parent_ids: ['f00ba7'])
+    double(:commit_3,
+      sha: 'f00ba8',
+      safe_message: 'This is a bad commit message!',
+      gitaly_commit?: false,
+      id: 'f00ba8',
+      parent_ids: ['f00ba7'],
+      author_email: 'jo@example.com',
+      author_name: 'Jo Example')
   end
 
   let(:commits) { nil }
@@ -53,6 +71,8 @@ RSpec.describe MergeRequests::BuildService do
   end
 
   before do
+    project.repository.create_branch(source_branch, target_branch) if source_branch && target_branch
+
     project.add_guest(user)
   end
 
@@ -76,6 +96,15 @@ RSpec.describe MergeRequests::BuildService do
 
     it 'adds an error message to the merge request' do
       expect(merge_request.errors).to contain_exactly(*Array(error_message))
+    end
+  end
+
+  shared_examples 'with a Default.md template' do
+    let(:files) { { '.gitlab/merge_request_templates/Default.md' => 'Default template contents' } }
+    let(:project) { create(:project, :custom_repo, files: files) }
+
+    it 'the template description is preferred' do
+      expect(merge_request.description).to eq('Default template contents')
     end
   end
 
@@ -142,7 +171,7 @@ RSpec.describe MergeRequests::BuildService do
     end
 
     context 'missing source branch' do
-      let(:source_branch) { '' }
+      let(:source_branch) { nil }
 
       it_behaves_like 'forbids the merge request from being created' do
         let(:error_message) { 'You must select source and target branch' }
@@ -208,7 +237,7 @@ RSpec.describe MergeRequests::BuildService do
       it_behaves_like 'allows the merge request to be created'
 
       it 'adds a Draft prefix to the merge request title' do
-        expect(merge_request.title).to eq('Draft: Feature branch')
+        expect(merge_request.title).to eq('Draft: Feature')
       end
     end
 
@@ -221,6 +250,7 @@ RSpec.describe MergeRequests::BuildService do
       end
 
       it_behaves_like 'allows the merge request to be created'
+      it_behaves_like 'with a Default.md template'
 
       it 'uses the title of the commit as the title of the merge request' do
         expect(merge_request.title).to eq(commit_2.safe_message.split("\n").first)
@@ -240,6 +270,8 @@ RSpec.describe MergeRequests::BuildService do
 
       context 'commit has no description' do
         let(:commits) { Commit.decorate([commit_3], project) }
+
+        it_behaves_like 'with a Default.md template'
 
         it 'uses the title of the commit as the title of the merge request' do
           expect(merge_request.title).to eq(commit_3.safe_message)
@@ -278,6 +310,17 @@ RSpec.describe MergeRequests::BuildService do
             expected_description = [commit_description, closing_message].compact.join("\n\n")
 
             expect(merge_request.description).to eq(expected_description)
+          end
+
+          context 'a Default.md template is defined' do
+            let(:files) { { '.gitlab/merge_request_templates/Default.md' => 'Default template contents' } }
+            let(:project) { create(:project, :custom_repo, files: files) }
+
+            it 'appends the closing description to a Default.md template' do
+              expected_description = ['Default template contents', closing_message].compact.join("\n\n")
+
+              expect(merge_request.description).to eq(expected_description)
+            end
           end
         end
 
@@ -332,9 +375,10 @@ RSpec.describe MergeRequests::BuildService do
       end
 
       it_behaves_like 'allows the merge request to be created'
+      it_behaves_like 'with a Default.md template'
 
       it 'uses the title of the branch as the merge request title' do
-        expect(merge_request.title).to eq('Feature branch')
+        expect(merge_request.title).to eq('Feature')
       end
 
       it 'does not add a description' do
@@ -346,6 +390,15 @@ RSpec.describe MergeRequests::BuildService do
 
         it 'keeps the description from the initial params' do
           expect(merge_request.description).to eq(description)
+        end
+
+        context 'a Default.md template is defined' do
+          let(:files) { { '.gitlab/merge_request_templates/Default.md' => 'Default template contents' } }
+          let(:project) { create(:project, :custom_repo, files: files) }
+
+          it 'keeps the description from the initial params' do
+            expect(merge_request.description).to eq(description)
+          end
         end
       end
 
@@ -377,6 +430,17 @@ RSpec.describe MergeRequests::BuildService do
           it 'sets the closing description' do
             expect(merge_request.description).to eq(closing_message)
           end
+
+          context 'a Default.md template is defined' do
+            let(:files) { { '.gitlab/merge_request_templates/Default.md' => 'Default template contents' } }
+            let(:project) { create(:project, :custom_repo, files: files) }
+
+            it 'appends the closing description to a Default.md template' do
+              expected_description = ['Default template contents', closing_message].compact.join("\n\n")
+
+              expect(merge_request.description).to eq(expected_description)
+            end
+          end
         end
       end
     end
@@ -389,6 +453,7 @@ RSpec.describe MergeRequests::BuildService do
       end
 
       it_behaves_like 'allows the merge request to be created'
+      it_behaves_like 'with a Default.md template'
 
       it 'uses the first line of the first multi-line commit message as the title' do
         expect(merge_request.title).to eq('Closes #1234 Second commit')
@@ -426,6 +491,17 @@ RSpec.describe MergeRequests::BuildService do
           it 'sets the closing description' do
             expect(merge_request.description).to eq("Create the app#{closing_message ? "\n\n" + closing_message : ''}")
           end
+
+          context 'a Default.md template is defined' do
+            let(:files) { { '.gitlab/merge_request_templates/Default.md' => 'Default template contents' } }
+            let(:project) { create(:project, :custom_repo, files: files) }
+
+            it 'appends the closing description to a Default.md template' do
+              expected_description = ['Default template contents', closing_message].compact.join("\n\n")
+
+              expect(merge_request.description).to eq(expected_description)
+            end
+          end
         end
       end
 
@@ -461,19 +537,19 @@ RSpec.describe MergeRequests::BuildService do
 
     context 'source branch does not exist' do
       before do
-        allow(project).to receive(:commit).with(source_branch).and_return(nil)
-        allow(project).to receive(:commit).with(target_branch).and_return(commit_2)
+        allow(project).to receive(:branch_exists?).with(target_branch).and_return(true)
+        allow(project).to receive(:branch_exists?).with(source_branch).and_return(false)
       end
 
       it_behaves_like 'forbids the merge request from being created' do
-        let(:error_message) { 'Source branch "feature-branch" does not exist' }
+        let(:error_message) { 'Source branch "feature" does not exist' }
       end
     end
 
     context 'target branch does not exist' do
       before do
-        allow(project).to receive(:commit).with(source_branch).and_return(commit_2)
-        allow(project).to receive(:commit).with(target_branch).and_return(nil)
+        allow(project).to receive(:branch_exists?).with(target_branch).and_return(false)
+        allow(project).to receive(:branch_exists?).with(source_branch).and_return(true)
       end
 
       it_behaves_like 'forbids the merge request from being created' do
@@ -483,19 +559,19 @@ RSpec.describe MergeRequests::BuildService do
 
     context 'both source and target branches do not exist' do
       before do
-        allow(project).to receive(:commit).and_return(nil)
+        allow(project).to receive(:branch_exists?).and_return(false)
       end
 
       it_behaves_like 'forbids the merge request from being created' do
         let(:error_message) do
-          ['Source branch "feature-branch" does not exist', 'Target branch "master" does not exist']
+          ['Source branch "feature" does not exist', 'Target branch "master" does not exist']
         end
       end
     end
 
     context 'upstream project has disabled merge requests' do
       let(:upstream_project) { create(:project, :merge_requests_disabled) }
-      let(:project) { create(:project, forked_from_project: upstream_project) }
+      let(:project) { create(:project, :repository, forked_from_project: upstream_project) }
       let(:commits) { Commit.decorate([commit_2], project) }
 
       it 'sets target project correctly' do
@@ -622,6 +698,144 @@ RSpec.describe MergeRequests::BuildService do
 
         it 'only assigns related labels' do
           expect(merge_request.label_ids).to contain_exactly(project_label.id)
+        end
+      end
+    end
+  end
+
+  describe '#assign_description_from_repository_template' do
+    subject { service.send(:assign_description_from_repository_template) }
+
+    it 'performs no action if the merge request description is not blank' do
+      merge_request.description = 'foo'
+      subject
+      expect(merge_request.description).to eq 'foo'
+    end
+
+    context 'when a Default template is not found' do
+      it 'does not modify the merge request description' do
+        merge_request.description = nil
+        subject
+        expect(merge_request.description).to be_nil
+      end
+    end
+
+    context 'when a Default template is found' do
+      context 'when its contents cannot be retrieved' do
+        let(:files) { { '.gitlab/merge_request_templates/OtherTemplate.md' => 'Other template contents' } }
+        let(:project) { create(:project, :custom_repo, files: files) }
+
+        it 'does not modify the merge request description' do
+          allow(TemplateFinder).to receive(:all_template_names).and_return({
+            merge_requests: [
+              { name: 'Default', id: 'default', key: 'default', project_id: project.id }
+            ]
+          })
+
+          merge_request.description = nil
+          subject
+          expect(merge_request.description).to be_nil
+        end
+      end
+
+      context 'when its contents can be retrieved' do
+        let(:files) { { '.gitlab/merge_request_templates/Default.md' => 'Default template contents' } }
+        let(:project) { create(:project, :custom_repo, files: files) }
+
+        it 'modifies the merge request description' do
+          merge_request.description = nil
+          subject
+          expect(merge_request.description).to eq 'Default template contents'
+        end
+      end
+    end
+  end
+
+  describe '#replace_variables_in_description' do
+    context 'when the merge request description is blank' do
+      let(:description) { nil }
+
+      it 'does not update the description' do
+        expect(merge_request.description).to eq(nil)
+      end
+    end
+
+    context 'when the merge request description contains template variables' do
+      let(:description) { <<~MSG.rstrip }
+        source_branch:%{source_branch}
+        target_branch:%{target_branch}
+        title:%{title}
+        issues:%{issues}
+        description:%{description}
+        first_commit:%{first_commit}
+        first_multiline_commit:%{first_multiline_commit}
+        url:%{url}
+        approved_by:%{approved_by}
+        merged_by:%{merged_by}
+        co_authored_by:%{co_authored_by}
+        merge_request_author:%{merge_request_author}
+        all_commits:%{all_commits}
+      MSG
+
+      context 'when there are multiple commits in the diff' do
+        let(:commits) { Commit.decorate([commit_1, commit_2, commit_3], project) }
+
+        before do
+          stub_compare
+        end
+
+        it 'replaces the variables in the description' do
+          expect(merge_request.description).to eq <<~MSG.rstrip
+            source_branch:feature
+            target_branch:master
+            title:
+            issues:
+            description:
+            first_commit:Initial commit
+            first_multiline_commit:Closes #1234 Second commit
+
+            Create the app
+            url:
+            approved_by:
+            merged_by:
+            co_authored_by:Co-authored-by: Jo Example <jo@example.com>
+            Co-authored-by: Alice Example <alice@example.com>
+            Co-authored-by: Tom Example <tom@example.com>
+            merge_request_author:
+            all_commits:* This is a bad commit message!
+
+            * Closes #1234 Second commit
+
+            Create the app
+
+            * Initial commit
+          MSG
+        end
+      end
+
+      context 'when there are no commits in the diff' do
+        let(:commits) { [] }
+
+        before do
+          stub_compare
+        end
+
+        it 'replaces the variables in the description' do
+          expect(merge_request.description).to eq <<~MSG.rstrip
+            source_branch:feature
+            target_branch:master
+            title:
+            issues:
+            description:
+            first_commit:
+            first_multiline_commit:
+            url:
+            approved_by:
+            merged_by:
+            co_authored_by:
+            merge_request_author:
+            all_commits:
+          MSG
         end
       end
     end

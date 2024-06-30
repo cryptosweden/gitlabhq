@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe "Compare", :js do
+RSpec.describe "Compare", :js, feature_category: :groups_and_projects do
   let(:user)    { create(:user) }
   let(:project) { create(:project, :repository) }
 
@@ -11,20 +11,20 @@ RSpec.describe "Compare", :js do
     sign_in user
   end
 
-  describe "branches" do
+  shared_examples "compare view of branches" do
     shared_examples 'compares branches' do
       it 'compares branches' do
         visit project_compare_index_path(project, from: 'master', to: 'master')
 
         select_using_dropdown 'from', 'feature'
-        expect(find('.js-compare-from-dropdown .gl-new-dropdown-button-text')).to have_content('feature')
+        expect(find('.js-compare-from-dropdown .gl-dropdown-button-text')).to have_content('feature')
 
         select_using_dropdown 'to', 'binary-encoding'
-        expect(find('.js-compare-to-dropdown .gl-new-dropdown-button-text')).to have_content('binary-encoding')
+        expect(find('.js-compare-to-dropdown .gl-dropdown-button-text')).to have_content('binary-encoding')
 
         click_button 'Compare'
 
-        expect(page).to have_content 'Commits'
+        expect(page).to have_content 'Commits on Source'
         expect(page).to have_link 'Create merge request'
       end
     end
@@ -32,8 +32,8 @@ RSpec.describe "Compare", :js do
     it "pre-populates fields" do
       visit project_compare_index_path(project, from: "master", to: "master")
 
-      expect(find(".js-compare-from-dropdown .gl-new-dropdown-button-text")).to have_content("master")
-      expect(find(".js-compare-to-dropdown .gl-new-dropdown-button-text")).to have_content("master")
+      expect(find(".js-compare-from-dropdown .gl-dropdown-button-text")).to have_content("master")
+      expect(find(".js-compare-to-dropdown .gl-dropdown-button-text")).to have_content("master")
     end
 
     it_behaves_like 'compares branches'
@@ -53,7 +53,7 @@ RSpec.describe "Compare", :js do
       select_using_dropdown('to', RepoHelpers.sample_commit.id, commit: true)
 
       click_button 'Compare'
-      expect(page).to have_content 'Commits (1)'
+      expect(page).to have_content 'Commits on Source (1)'
       expect(page).to have_content "Showing 2 changed files"
 
       diff = first('.js-unfold')
@@ -85,7 +85,7 @@ RSpec.describe "Compare", :js do
 
         click_button 'Compare'
 
-        expect(page).to have_content 'Commits (1)'
+        expect(page).to have_content 'Commits on Source (1)'
         expect(page).to have_content 'Showing 1 changed file with 5 additions and 0 deletions'
         expect(page).to have_link 'View open merge request', href: project_merge_request_path(project, merge_request)
         expect(page).not_to have_link 'Create merge request'
@@ -99,7 +99,7 @@ RSpec.describe "Compare", :js do
 
       find(".js-compare-from-dropdown .compare-dropdown-toggle").click
 
-      expect(find(".js-compare-from-dropdown .gl-new-dropdown-contents")).to have_selector('li.gl-new-dropdown-item', count: 1)
+      expect(find(".js-compare-from-dropdown .gl-dropdown-contents")).to have_selector('li.gl-dropdown-item', count: 1)
     end
 
     context 'when commit has overflow', :js do
@@ -113,8 +113,8 @@ RSpec.describe "Compare", :js do
 
         click_button('Compare')
 
-        page.within('.gl-alert') do
-          expect(page).to have_text("Too many changes to show. To preserve performance only 3 of 3+ files are displayed.")
+        within_testid('too-many-changes-alert') do
+          expect(page).to have_text("Some changes are not shown. For a faster browsing experience, only 3 of 3+ files are shown. Download one of the files below to see all changes.")
         end
       end
     end
@@ -136,30 +136,30 @@ RSpec.describe "Compare", :js do
         visit project_compare_index_path(project, from: "feature", to: "master")
         click_button('Compare')
 
-        expect(page).to have_content 'Commits (29)'
+        expect(page).to have_content 'Commits on Source (29)'
 
         # go to the second page
         within(".files .gl-pagination") do
           click_on("2")
         end
 
-        expect(page).not_to have_content 'Commits (29)'
+        expect(page).not_to have_content 'Commits on Source (29)'
       end
     end
   end
 
-  describe "tags" do
+  shared_examples "compare view of tags" do
     it "compares tags" do
       visit project_compare_index_path(project, from: "master", to: "master")
 
       select_using_dropdown "from", "v1.0.0"
-      expect(find(".js-compare-from-dropdown .gl-new-dropdown-button-text")).to have_content("v1.0.0")
+      expect(find(".js-compare-from-dropdown .gl-dropdown-button-text")).to have_content("v1.0.0")
 
       select_using_dropdown "to", "v1.1.0"
-      expect(find(".js-compare-to-dropdown .gl-new-dropdown-button-text")).to have_content("v1.1.0")
+      expect(find(".js-compare-to-dropdown .gl-dropdown-button-text")).to have_content("v1.1.0")
 
       click_button "Compare"
-      expect(page).to have_content "Commits"
+      expect(page).to have_content "Commits on Source"
     end
   end
 
@@ -182,4 +182,7 @@ RSpec.describe "Compare", :js do
       dropdown.all(".js-compare-#{dropdown_type}-dropdown .dropdown-item", text: selection).first.click
     end
   end
+
+  it_behaves_like "compare view of branches"
+  it_behaves_like "compare view of tags"
 end

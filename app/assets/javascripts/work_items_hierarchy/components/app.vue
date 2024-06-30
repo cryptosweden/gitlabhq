@@ -1,6 +1,6 @@
 <script>
 import { GlBanner } from '@gitlab/ui';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/utils/cookies';
 import { parseBoolean } from '~/lib/utils/common_utils';
 import RESPONSE from '../static_response';
 import { WORK_ITEMS_SURVEY_COOKIE_NAME, workItemTypes } from '../constants';
@@ -25,7 +25,7 @@ export default {
     workItemTypes() {
       return this.workItemHierarchy.reduce(
         (itemTypes, item) => {
-          const skipItem = workItemTypes[item.type].isWorkItem && !window.gon?.features?.workItems;
+          const skipItem = workItemTypes[item.type].isWorkItem;
 
           if (skipItem) {
             return itemTypes;
@@ -82,14 +82,14 @@ export default {
       }}
     </p>
 
-    <div class="gl-font-weight-bold gl-mb-2">{{ s__('Hierarchy|Current structure') }}</div>
+    <div class="gl-font-bold gl-mb-2">{{ s__('Hierarchy|Current structure') }}</div>
     <p class="gl-mb-3!">{{ s__('Hierarchy|You can start using these items now.') }}</p>
     <hierarchy :work-item-types="workItemTypes.available" />
 
     <div
       v-if="hasUnavailableStructure"
       data-testid="unavailable-structure"
-      class="gl-font-weight-bold gl-mt-5 gl-mb-2"
+      class="gl-font-bold gl-mt-5 gl-mb-2"
     >
       {{ s__('Hierarchy|Unavailable structure') }}
     </div>

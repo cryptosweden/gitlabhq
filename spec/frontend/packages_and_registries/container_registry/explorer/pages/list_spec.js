@@ -1,13 +1,11 @@
-import { GlSkeletonLoader, GlSprintf, GlAlert } from '@gitlab/ui';
+import { GlSkeletonLoader, GlSprintf, GlAlert, GlButton } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
-
 import VueApollo from 'vue-apollo';
+import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import getContainerRepositoriesQuery from 'shared_queries/container_registry/get_container_repositories.query.graphql';
-import CleanupPolicyEnabledAlert from '~/packages_and_registries/shared/components/cleanup_policy_enabled_alert.vue';
-import { FILTERED_SEARCH_TERM } from '~/packages_and_registries/shared/constants';
 import DeleteImage from '~/packages_and_registries/container_registry/explorer/components/delete_image.vue';
 import CliCommands from '~/packages_and_registries/shared/components/cli_commands.vue';
 import GroupEmptyState from '~/packages_and_registries/container_registry/explorer/components/list_page/group_empty_state.vue';
@@ -17,13 +15,18 @@ import RegistryHeader from '~/packages_and_registries/container_registry/explore
 import {
   DELETE_IMAGE_SUCCESS_MESSAGE,
   DELETE_IMAGE_ERROR_MESSAGE,
+  GRAPHQL_PAGE_SIZE,
   SORT_FIELDS,
+  SETTINGS_TEXT,
 } from '~/packages_and_registries/container_registry/explorer/constants';
 import deleteContainerRepositoryMutation from '~/packages_and_registries/container_registry/explorer/graphql/mutations/delete_container_repository.mutation.graphql';
 import getContainerRepositoriesDetails from '~/packages_and_registries/container_registry/explorer/graphql/queries/get_container_repositories_details.query.graphql';
 import component from '~/packages_and_registries/container_registry/explorer/pages/list.vue';
-import Tracking from '~/tracking';
+import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
+import PersistedPagination from '~/packages_and_registries/shared/components/persisted_pagination.vue';
 import PersistedSearch from '~/packages_and_registries/shared/components/persisted_search.vue';
+import MetadataDatabaseAlert from '~/packages_and_registries/shared/components/container_registry_metadata_database_alert.vue';
+import { FILTERED_SEARCH_TERM } from '~/vue_shared/components/filtered_search_bar/constants';
 import TitleArea from '~/vue_shared/components/registry/title_area.vue';
 
 import { $toast } from 'jest/packages_and_registries/shared/mocks';
@@ -37,31 +40,34 @@ import {
   graphQLProjectImageRepositoriesDetailsMock,
   dockerCommands,
 } from '../mock_data';
-import { GlModal, GlEmptyState } from '../stubs';
+import { GlEmptyState, DeleteModal } from '../stubs';
 
 describe('List Page', () => {
   let wrapper;
   let apolloProvider;
 
-  const findDeleteModal = () => wrapper.findComponent(GlModal);
+  const findDeleteModal = () => wrapper.findComponent(DeleteModal);
   const findSkeletonLoader = () => wrapper.findComponent(GlSkeletonLoader);
 
   const findEmptyState = () => wrapper.findComponent(GlEmptyState);
 
   const findCliCommands = () => wrapper.findComponent(CliCommands);
+  const findSettingsLink = () => wrapper.findComponent(GlButton);
   const findProjectEmptyState = () => wrapper.findComponent(ProjectEmptyState);
   const findGroupEmptyState = () => wrapper.findComponent(GroupEmptyState);
   const findRegistryHeader = () => wrapper.findComponent(RegistryHeader);
 
   const findDeleteAlert = () => wrapper.findComponent(GlAlert);
+  const findMetadataDatabaseAlert = () => wrapper.findComponent(MetadataDatabaseAlert);
   const findImageList = () => wrapper.findComponent(ImageList);
   const findPersistedSearch = () => wrapper.findComponent(PersistedSearch);
   const findEmptySearchMessage = () => wrapper.find('[data-testid="emptySearch"]');
   const findDeleteImage = () => wrapper.findComponent(DeleteImage);
-  const findCleanupAlert = () => wrapper.findComponent(CleanupPolicyEnabledAlert);
+
+  const findPersistedPagination = () => wrapper.findComponent(PersistedPagination);
 
   const fireFirstSortUpdate = () => {
-    findPersistedSearch().vm.$emit('update', { sort: 'UPDATED_DESC', filters: [] });
+    findPersistedSearch().vm.$emit('update', { sort: 'UPDATED_DESC', filters: [], pageInfo: {} });
   };
 
   const waitForApolloRequestRender = async () => {
@@ -91,12 +97,13 @@ describe('List Page', () => {
     wrapper = shallowMount(component, {
       apolloProvider,
       stubs: {
-        GlModal,
+        DeleteModal,
         GlEmptyState,
         GlSprintf,
         RegistryHeader,
         TitleArea,
         DeleteImage,
+        MetadataContainerScanning: true,
       },
       mocks: {
         $toast,
@@ -112,12 +119,11 @@ describe('List Page', () => {
           ...dockerCommands,
         };
       },
+      directives: {
+        GlTooltip: createMockDirective('gl-tooltip'),
+      },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   it('contains registry header', async () => {
     mountComponent();
@@ -128,6 +134,60 @@ describe('List Page', () => {
     expect(findRegistryHeader().props()).toMatchObject({
       imagesCount: 2,
       metadataLoading: false,
+      helpPagePath: '',
+      hideExpirationPolicyData: false,
+      showCleanupPolicyLink: false,
+      expirationPolicy: {},
+      cleanupPoliciesSettingsPath: '',
+    });
+  });
+
+  describe('metadata database alert', () => {
+    it('is rendered when metadata database is not enabled', () => {
+      mountComponent();
+
+      expect(findMetadataDatabaseAlert().exists()).toBe(true);
+    });
+
+    it('is not rendered when metadata database is enabled', () => {
+      mountComponent({
+        config: {
+          isMetadataDatabaseEnabled: true,
+        },
+      });
+
+      expect(findMetadataDatabaseAlert().exists()).toBe(false);
+    });
+  });
+
+  describe('link to settings', () => {
+    beforeEach(() => {
+      const config = {
+        showContainerRegistrySettings: true,
+        cleanupPoliciesSettingsPath: 'bar',
+      };
+      mountComponent({ config });
+    });
+
+    it('is rendered', () => {
+      expect(findSettingsLink().exists()).toBe(true);
+    });
+
+    it('has the right icon', () => {
+      expect(findSettingsLink().props('icon')).toBe('settings');
+    });
+
+    it('has the right attributes', () => {
+      expect(findSettingsLink().attributes()).toMatchObject({
+        'aria-label': SETTINGS_TEXT,
+        href: 'bar',
+      });
+    });
+
+    it('sets tooltip with right label', () => {
+      const tooltip = getBinding(findSettingsLink().element, 'gl-tooltip');
+
+      expect(tooltip.value).toBe(SETTINGS_TEXT);
     });
   });
 
@@ -183,7 +243,13 @@ describe('List Page', () => {
       expect(findImageList().exists()).toBe(false);
     });
 
-    it('cli commands is not visible', () => {
+    it('pagination is set to empty object', () => {
+      mountComponent();
+
+      expect(findPersistedPagination().props('pagination')).toEqual({});
+    });
+
+    it('cli commands are not visible', () => {
       mountComponent();
 
       expect(findCliCommands().exists()).toBe(false);
@@ -198,11 +264,42 @@ describe('List Page', () => {
     });
   });
 
+  describe('when mutation is loading', () => {
+    beforeEach(async () => {
+      mountComponent();
+      fireFirstSortUpdate();
+      await waitForApolloRequestRender();
+      findImageList().vm.$emit('delete', deletedContainerRepository);
+      findDeleteModal().vm.$emit('confirmDelete');
+      findDeleteImage().vm.$emit('start');
+    });
+
+    it('shows the skeleton loader', () => {
+      expect(findSkeletonLoader().exists()).toBe(true);
+    });
+
+    it('imagesList is not visible', () => {
+      expect(findImageList().exists()).toBe(false);
+    });
+
+    it('pagination is hidden', () => {
+      expect(findPersistedPagination().exists()).toBe(false);
+    });
+
+    it('cli commands are not visible', () => {
+      expect(findCliCommands().exists()).toBe(false);
+    });
+
+    it('title has the metadataLoading props set to true', () => {
+      expect(findRegistryHeader().props('metadataLoading')).toBe(true);
+    });
+  });
+
   describe('list is empty', () => {
     describe('project page', () => {
       const resolver = jest.fn().mockResolvedValue(graphQLEmptyImageListMock);
 
-      it('cli commands is not visible', async () => {
+      it('cli commands are not visible', async () => {
         mountComponent({ resolver });
 
         await waitForApolloRequestRender();
@@ -234,12 +331,20 @@ describe('List Page', () => {
         expect(findGroupEmptyState().exists()).toBe(true);
       });
 
-      it('cli commands is not visible', async () => {
+      it('cli commands are not visible', async () => {
         mountComponent({ resolver, config });
 
         await waitForApolloRequestRender();
 
         expect(findCliCommands().exists()).toBe(false);
+      });
+
+      it('link to settings is not visible', async () => {
+        mountComponent({ resolver, config });
+
+        await waitForApolloRequestRender();
+
+        expect(findSettingsLink().exists()).toBe(false);
       });
     });
   });
@@ -312,7 +417,7 @@ describe('List Page', () => {
 
           await selectImageForDeletion();
 
-          findDeleteModal().vm.$emit('primary');
+          findDeleteModal().vm.$emit('confirmDelete');
 
           expect(mutationResolver).toHaveBeenCalledWith({ id: deletedContainerRepository.id });
         });
@@ -418,7 +523,15 @@ describe('List Page', () => {
     });
 
     describe('pagination', () => {
-      it('prev-page event triggers a fetchMore request', async () => {
+      it('exists', async () => {
+        mountComponent();
+        fireFirstSortUpdate();
+        await waitForApolloRequestRender();
+
+        expect(findPersistedPagination().props('pagination')).toEqual(pageInfo);
+      });
+
+      it('prev event triggers a previous page request', async () => {
         const resolver = jest.fn().mockResolvedValue(graphQLImageListMock);
         const detailsResolver = jest
           .fn()
@@ -427,18 +540,58 @@ describe('List Page', () => {
         fireFirstSortUpdate();
         await waitForApolloRequestRender();
 
-        findImageList().vm.$emit('prev-page');
+        findPersistedPagination().vm.$emit('prev');
         await waitForPromises();
 
         expect(resolver).toHaveBeenCalledWith(
-          expect.objectContaining({ before: pageInfo.startCursor }),
+          expect.objectContaining({
+            before: pageInfo.startCursor,
+            first: null,
+            last: GRAPHQL_PAGE_SIZE,
+          }),
         );
         expect(detailsResolver).toHaveBeenCalledWith(
-          expect.objectContaining({ before: pageInfo.startCursor }),
+          expect.objectContaining({
+            before: pageInfo.startCursor,
+            first: null,
+            last: GRAPHQL_PAGE_SIZE,
+          }),
         );
       });
 
-      it('next-page event triggers a fetchMore request', async () => {
+      it('calls resolver with pagination params when persisted search returns before', async () => {
+        const resolver = jest.fn().mockResolvedValue(graphQLImageListMock);
+        const detailsResolver = jest
+          .fn()
+          .mockResolvedValue(graphQLProjectImageRepositoriesDetailsMock);
+        mountComponent({ resolver, detailsResolver });
+
+        findPersistedSearch().vm.$emit('update', {
+          sort: 'UPDATED_DESC',
+          filters: [],
+          pageInfo: { before: pageInfo.startCursor },
+        });
+        await waitForApolloRequestRender();
+
+        expect(resolver).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'UPDATED_DESC',
+            before: pageInfo.startCursor,
+            first: null,
+            last: GRAPHQL_PAGE_SIZE,
+          }),
+        );
+        expect(detailsResolver).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'UPDATED_DESC',
+            before: pageInfo.startCursor,
+            first: null,
+            last: GRAPHQL_PAGE_SIZE,
+          }),
+        );
+      });
+
+      it('next event triggers a next page request', async () => {
         const resolver = jest.fn().mockResolvedValue(graphQLImageListMock);
         const detailsResolver = jest
           .fn()
@@ -447,14 +600,50 @@ describe('List Page', () => {
         fireFirstSortUpdate();
         await waitForApolloRequestRender();
 
-        findImageList().vm.$emit('next-page');
+        findPersistedPagination().vm.$emit('next');
         await waitForPromises();
 
         expect(resolver).toHaveBeenCalledWith(
-          expect.objectContaining({ after: pageInfo.endCursor }),
+          expect.objectContaining({
+            after: pageInfo.endCursor,
+            first: GRAPHQL_PAGE_SIZE,
+          }),
         );
         expect(detailsResolver).toHaveBeenCalledWith(
-          expect.objectContaining({ after: pageInfo.endCursor }),
+          expect.objectContaining({
+            after: pageInfo.endCursor,
+            first: GRAPHQL_PAGE_SIZE,
+          }),
+        );
+      });
+
+      it('calls resolver with pagination params when persisted search returns after', async () => {
+        const resolver = jest.fn().mockResolvedValue(graphQLImageListMock);
+        const detailsResolver = jest
+          .fn()
+          .mockResolvedValue(graphQLProjectImageRepositoriesDetailsMock);
+        mountComponent({ resolver, detailsResolver });
+
+        findPersistedSearch().vm.$emit('update', {
+          sort: 'UPDATED_DESC',
+          filters: [],
+          pageInfo: { after: pageInfo.endCursor },
+        });
+        await waitForApolloRequestRender();
+
+        expect(resolver).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'UPDATED_DESC',
+            after: pageInfo.endCursor,
+            first: GRAPHQL_PAGE_SIZE,
+          }),
+        );
+        expect(detailsResolver).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sort: 'UPDATED_DESC',
+            after: pageInfo.endCursor,
+            first: GRAPHQL_PAGE_SIZE,
+          }),
         );
       });
     });
@@ -470,31 +659,39 @@ describe('List Page', () => {
       expect(findDeleteModal().exists()).toBe(true);
     });
 
-    it('contains a description with the path of the item to delete', async () => {
+    it('contains the deleted image as props', async () => {
       await waitForPromises();
-      findImageList().vm.$emit('delete', { path: 'foo' });
-      await waitForPromises();
-      expect(findDeleteModal().html()).toContain('foo');
+      findImageList().vm.$emit('delete', deletedContainerRepository);
+      await nextTick();
+
+      expect(findDeleteModal().props()).toEqual({
+        itemsToBeDeleted: [deletedContainerRepository],
+        deleteImage: true,
+      });
     });
   });
 
   describe('tracking', () => {
+    let trackingSpy;
+
     beforeEach(() => {
+      trackingSpy = mockTracking(undefined, undefined, jest.spyOn);
       mountComponent();
       fireFirstSortUpdate();
     });
 
+    afterEach(() => {
+      unmockTracking();
+    });
+
     const testTrackingCall = (action) => {
-      expect(Tracking.event).toHaveBeenCalledWith(undefined, action, {
+      expect(trackingSpy).toHaveBeenCalledWith(undefined, action, {
         label: 'registry_repository_delete',
       });
     };
 
-    beforeEach(() => {
-      jest.spyOn(Tracking, 'event');
-    });
-
-    it('send an event when delete button is clicked', () => {
+    it('send an event when delete button is clicked', async () => {
+      await waitForPromises();
       findImageList().vm.$emit('delete', {});
 
       testTrackingCall('click_button');
@@ -509,35 +706,6 @@ describe('List Page', () => {
     it('send an event when the deletion starts', () => {
       findDeleteImage().vm.$emit('start');
       testTrackingCall('confirm_delete');
-    });
-  });
-
-  describe('cleanup is on alert', () => {
-    it('exist when showCleanupPolicyOnAlert is true and has the correct props', async () => {
-      mountComponent({
-        config: {
-          showCleanupPolicyOnAlert: true,
-          projectPath: 'foo',
-          isGroupPage: false,
-          cleanupPoliciesSettingsPath: 'bar',
-        },
-      });
-
-      await waitForApolloRequestRender();
-
-      expect(findCleanupAlert().exists()).toBe(true);
-      expect(findCleanupAlert().props()).toMatchObject({
-        projectPath: 'foo',
-        cleanupPoliciesSettingsPath: 'bar',
-      });
-    });
-
-    it('is hidden when showCleanupPolicyOnAlert is false', async () => {
-      mountComponent();
-
-      await waitForApolloRequestRender();
-
-      expect(findCleanupAlert().exists()).toBe(false);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { AVAILABILITY_STATUS } from '~/set_status_modal/utils';
+import { AVAILABILITY_STATUS } from '~/set_status_modal/constants';
 import UserNameWithStatus from '~/sidebar/components/assignees/user_name_with_status.vue';
 
 const name = 'Administrator';
@@ -16,10 +16,6 @@ describe('UserNameWithStatus', () => {
 
   beforeEach(() => {
     createComponent();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   it('will render the users name', () => {
@@ -41,7 +37,7 @@ describe('UserNameWithStatus', () => {
     });
 
     it('will render "Busy"', () => {
-      expect(wrapper.text()).toContain('(Busy)');
+      expect(wrapper.text()).toContain('Busy');
     });
   });
 
@@ -53,7 +49,7 @@ describe('UserNameWithStatus', () => {
     });
 
     it("renders user's name with pronouns", () => {
-      expect(wrapper.text()).toMatchInterpolatedText(`${name} (${pronouns})`);
+      expect(wrapper.text()).toMatchInterpolatedText(`${name}(${pronouns})`);
     });
   });
 

@@ -1,10 +1,14 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Ruby gems API **(FREE SELF)**
+# Ruby gems API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
 This is the API documentation for [Ruby gems](../../user/packages/rubygems_registry/index.md).
 
@@ -19,7 +23,7 @@ package registry, see the [Ruby gems registry documentation](../../user/packages
 NOTE:
 These endpoints do not adhere to the standard API authentication methods.
 See the [Ruby gems registry documentation](../../user/packages/rubygems_registry/index.md)
-for details on which headers and token types are supported.
+for details on which headers and token types are supported. Undocumented authentication methods might be removed in the future.
 
 ## Enable the Ruby gems API
 
@@ -47,8 +51,6 @@ Feature.disable(:rubygem_packages, Project.find(2))
 
 ## Download a gem file
 
-> Introduced in GitLab 13.10.
-
 Download a gem:
 
 ```plaintext
@@ -73,8 +75,6 @@ curl --header "Authorization:<personal_access_token>" "https://gitlab.example.co
 This writes the downloaded file to `my_gem-1.0.0.gem` in the current directory.
 
 ## Fetch a list of dependencies
-
-> Introduced in GitLab 13.10.
 
 Fetch a list of dependencies for a list of gems:
 
@@ -128,8 +128,6 @@ $ ruby -ropen-uri -rpp -e \
 This writes the downloaded file to `mypkg-1.0-SNAPSHOT.jar` in the current directory.
 
 ## Upload a gem
-
-> Introduced in GitLab 13.11.
 
 Upload a gem:
 

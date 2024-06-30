@@ -1,11 +1,16 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: concepts, howto
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Deployments API **(FREE)**
+# Deployments API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> Support for [GitLab CI/CD job token](../ci/jobs/ci_job_token.md) authentication [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/414549) in GitLab 16.2.
 
 ## List project deployments
 
@@ -15,19 +20,24 @@ Get a list of deployments in a project.
 GET /projects/:id/deployments
 ```
 
-| Attribute        | Type           | Required | Description                                                                                                     |
-|------------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------|
-| `id`             | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `order_by`       | string         | no       | Return deployments ordered by either one of `id`, `iid`, `created_at`, `updated_at` or `ref` fields. Default is `id`.    |
-| `sort`           | string         | no       | Return deployments sorted in `asc` or `desc` order. Default is `asc`.                                            |
-| `updated_after`  | datetime       | no       | Return deployments updated after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
-| `updated_before` | datetime       | no       | Return deployments updated before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
-| `environment`    | string         | no       | The [name of the environment](../ci/environments/index.md) to filter deployments by.       |
-| `status`         | string         | no       | The status to filter deployments by. One of `created`, `running`, `success`, `failed`, `canceled`, `blocked`.
+| Attribute         | Type           | Required | Description                                                                                                     |
+|-------------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------|
+| `id`              | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `order_by`        | string         | no       | Return deployments ordered by either one of `id`, `iid`, `created_at`, `updated_at`, `finished_at` or `ref` fields. Default is `id`.    |
+| `sort`            | string         | no       | Return deployments sorted in `asc` or `desc` order. Default is `asc`.                                            |
+| `updated_after`   | datetime       | no       | Return deployments updated after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
+| `updated_before`  | datetime       | no       | Return deployments updated before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
+| `finished_after`  | datetime       | no       | Return deployments finished after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
+| `finished_before` | datetime       | no       | Return deployments finished before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
+| `environment`     | string         | no       | The [name of the environment](../ci/environments/index.md) to filter deployments by.       |
+| `status`          | string         | no       | The status to filter deployments by. One of `created`, `running`, `success`, `failed`, `canceled`, or `blocked`. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments"
 ```
+
+NOTE:
+When using `finished_before` or `finished_after`, you should specify the `order_by` to be `finished_at` and `status` should be `success`.
 
 Example response:
 
@@ -58,6 +68,9 @@ Example response:
       "started_at": null,
       "status": "success",
       "tag": false,
+      "project": {
+        "ci_job_token_scope_enabled": false
+      },
       "user": {
         "id": 1,
         "name": "Administrator",
@@ -128,6 +141,9 @@ Example response:
       "started_at": null,
       "status": "success",
       "tag": false,
+      "project": {
+        "ci_job_token_scope_enabled": false
+      },
       "user": {
         "id": 1,
         "name": "Administrator",
@@ -184,7 +200,7 @@ GET /projects/:id/deployments/:deployment_id
 
 | Attribute | Type    | Required | Description         |
 |-----------|---------|----------|---------------------|
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `deployment_id` | integer | yes      | The ID of the deployment |
 
 ```shell
@@ -226,6 +242,9 @@ Example response:
     "created_at": "2016-08-11T11:32:24.456Z",
     "started_at": null,
     "finished_at": "2016-08-11T11:32:35.145Z",
+    "project": {
+      "ci_job_token_scope_enabled": false
+    },
     "user": {
       "id": 1,
       "name": "Administrator",
@@ -265,26 +284,44 @@ Example response:
 }
 ```
 
-Deployments created by users on GitLab Premium or higher include the `approvals` and `pending_approval_count` properties:
+When [multiple approval rules](../ci/environments/deployment_approvals.md#add-multiple-approval-rules) are configured, deployments created by users on GitLab Premium or Ultimate include the `approval_summary` property:
 
 ```json
 {
-  "status": "created",
-  "pending_approval_count": 0,
-  "approvals": [
-    {
-      "user": {
-        "id": 49,
-        "username": "project_6_bot",
-        "name": "****",
-        "state": "active",
-        "avatar_url": "https://www.gravatar.com/avatar/e83ac685f68ea07553ad3054c738c709?s=80&d=identicon",
-        "web_url": "http://localhost:3000/project_6_bot"
+  "approval_summary": {
+    "rules": [
+      {
+        "user_id": null,
+        "group_id": 134,
+        "access_level": null,
+        "access_level_description": "qa-group",
+        "required_approvals": 1,
+        "deployment_approvals": []
       },
-      "status": "approved",
-      "created_at": "2022-02-24T20:22:30.097Z"
-    }
-  ],
+      {
+        "user_id": null,
+        "group_id": 135,
+        "access_level": null,
+        "access_level_description": "security-group",
+        "required_approvals": 2,
+        "deployment_approvals": [
+          {
+            "user": {
+              "id": 100,
+              "username": "security-user-1",
+              "name": "security user-1",
+              "state": "active",
+              "avatar_url": "https://www.gravatar.com/avatar/e130fcd3a1681f41a3de69d10841afa9?s=80&d=identicon",
+              "web_url": "http://localhost:3000/security-user-1"
+            },
+            "status": "approved",
+            "created_at": "2022-04-11T03:37:03.058Z",
+            "comment": null
+          }
+        ]
+      }
+    ]
+  }
   ...
 }
 ```
@@ -297,12 +334,12 @@ POST /projects/:id/deployments
 
 | Attribute     | Type           | Required | Description                                                                                                     |
 |---------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------|
-| `id`          | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user.|
+| `id`          | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user.|
 | `environment` | string         | yes      | The [name of the environment](../ci/environments/index.md) to create the deployment for.                        |
 | `sha`         | string         | yes      | The SHA of the commit that is deployed.                                                                         |
 | `ref`         | string         | yes      | The name of the branch or tag that is deployed.                                                                 |
 | `tag`         | boolean        | yes      | A boolean that indicates if the deployed ref is a tag (`true`) or not (`false`).                                |
-| `status`      | string         | no       | The status to filter deployments by. One of `created`, `running`, `success`, `failed`, or `canceled`.           |
+| `status`      | string         | yes      | The status of the deployment that is created. One of `running`, `success`, `failed`, or `canceled`        |
 
 ```shell
 curl --data "environment=production&sha=a91957a858320c0e17f3a0eca7cfacbff50ea29a&ref=main&tag=false&status=success" \
@@ -336,26 +373,13 @@ Example response:
 }
 ```
 
-Deployments created by users on GitLab Premium or higher include the `approvals` and `pending_approval_count` properties:
+Deployments created by users on GitLab Premium or Ultimate include the `approvals` and `pending_approval_count` properties:
 
 ```json
 {
   "status": "created",
   "pending_approval_count": 0,
-  "approvals": [
-    {
-      "user": {
-        "id": 49,
-        "username": "project_6_bot",
-        "name": "****",
-        "state": "active",
-        "avatar_url": "https://www.gravatar.com/avatar/e83ac685f68ea07553ad3054c738c709?s=80&d=identicon",
-        "web_url": "http://localhost:3000/project_6_bot"
-      },
-      "status": "approved",
-      "created_at": "2022-02-24T20:22:30.097Z"
-    }
-  ],
+  "approvals": [],
   ...
 }
 ```
@@ -368,9 +392,9 @@ PUT /projects/:id/deployments/:deployment_id
 
 | Attribute        | Type           | Required | Description         |
 |------------------|----------------|----------|---------------------|
-| `id`             | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`             | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 | `deployment_id`  | integer        | yes      | The ID of the deployment to update. |
-| `status`         | string         | no       | The new status of the deployment. One of `created`, `running`, `success`, `failed`, or `canceled`.           |
+| `status`         | string         | yes      | The new status of the deployment. One of `running`, `success`, `failed`, or `canceled`.                         |
 
 ```shell
 curl --request PUT --data "status=success" --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/42"
@@ -403,7 +427,7 @@ Example response:
 }
 ```
 
-Deployments created by users on GitLab Premium or higher include the `approvals` and `pending_approval_count` properties:
+Deployments created by users on GitLab Premium or Ultimate include the `approvals` and `pending_approval_count` properties:
 
 ```json
 {
@@ -420,20 +444,53 @@ Deployments created by users on GitLab Premium or higher include the `approvals`
         "web_url": "http://localhost:3000/project_6_bot"
       },
       "status": "approved",
-      "created_at": "2022-02-24T20:22:30.097Z"
+      "created_at": "2022-02-24T20:22:30.097Z",
+      "comment": "Looks good to me"
     }
   ],
   ...
 }
 ```
 
+## Delete a specific deployment
+
+Delete a specific deployment that is not currently the last deployment for an environment or in a `running` state
+
+```plaintext
+DELETE /projects/:id/deployments/:deployment_id
+```
+
+| Attribute | Type    | Required | Description         |
+|-----------|---------|----------|---------------------|
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `deployment_id` | integer | yes      | The ID of the deployment |
+
+```shell
+curl --request "DELETE" --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/1"
+```
+
+Example responses:
+
+```json
+{ "message": "204 Deployment destroyed" }
+```
+
+```json
+{ "message": "403 Forbidden" }
+```
+
+```json
+{ "message": "400 Cannot destroy running deployment" }
+```
+
+```json
+{ "message": "400 Deployment currently deployed to environment" }
+```
+
 ## List of merge requests associated with a deployment
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/35739) in GitLab 12.7.
-
 NOTE:
-Not all deployments can be associated with merge requests.
-Please see
+Not all deployments can be associated with merge requests. See
 [Track what merge requests were deployed to an environment](../ci/environments/index.md#track-newly-included-merge-requests-per-deployment)
 for more information.
 
@@ -449,7 +506,11 @@ It supports the same parameters as the [Merge Requests API](merge_requests.md#li
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/42/merge_requests"
 ```
 
-## Approve or reject a blocked deployment **(PREMIUM)**
+## Approve or reject a blocked deployment
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 > - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/343864) in GitLab 14.7 [with a flag](../administration/feature_flags.md) named `deployment_approvals`. Disabled by default.
 > - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/347342) in GitLab 14.8.
@@ -462,13 +523,14 @@ POST /projects/:id/deployments/:deployment_id/approval
 
 | Attribute       | Type           | Required | Description                                                                                                     |
 |-----------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------|
-| `id`            | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`            | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 | `deployment_id` | integer        | yes      | The ID of the deployment.                                                                                       |
 | `status`        | string         | yes      | The status of the approval (either `approved` or `rejected`).                                                   |
 | `comment`       | string         | no       | A comment to go with the approval                                                                               |
+| `represented_as`| string         | no       | The name of the User/Group/Role to use for the approval, when the user belongs to [multiple approval rules](../ci/environments/deployment_approvals.md#add-multiple-approval-rules). |
 
 ```shell
-curl --data "status=approved&comment=Looks good to me" \
+curl --data "status=approved&comment=Looks good to me&represented_as=security" \
      --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/1/approval"
 ```
 
@@ -477,12 +539,12 @@ Example response:
 ```json
 {
   "user": {
-    "name": "Administrator",
-    "username": "root",
-    "id": 1,
+    "id": 100,
+    "username": "security-user-1",
+    "name": "security user-1",
     "state": "active",
-    "avatar_url": "http://www.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=80&d=identicon",
-    "web_url": "http://localhost:3000/root"
+    "avatar_url": "https://www.gravatar.com/avatar/e130fcd3a1681f41a3de69d10841afa9?s=80&d=identicon",
+    "web_url": "http://localhost:3000/security-user-1"
   },
   "status": "approved",
   "created_at": "2022-02-24T20:22:30.097Z",

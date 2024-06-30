@@ -16,11 +16,7 @@ describe('vue_shared/components/dismissible_alert', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  const findAlert = () => wrapper.find(GlAlert);
+  const findAlert = () => wrapper.findComponent(GlAlert);
 
   describe('default', () => {
     beforeEach(() => {
@@ -45,7 +41,7 @@ describe('vue_shared/components/dismissible_alert', () => {
       });
 
       it('emmits alertDismissed', () => {
-        expect(wrapper.emitted('alertDismissed')).toBeTruthy();
+        expect(wrapper.emitted()).toHaveProperty('alertDismissed');
       });
     });
   });

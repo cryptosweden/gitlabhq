@@ -1,15 +1,19 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import markdownField from '~/vue_shared/components/markdown/field.vue';
+import { __ } from '~/locale';
+import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
+import { trackSavedUsingEditor } from '~/vue_shared/components/markdown/tracking';
+import { ISSUE_NOTEABLE_TYPE } from '~/notes/constants';
 import updateMixin from '../../mixins/update';
 
 export default {
   components: {
-    markdownField,
+    MarkdownEditor,
   },
   mixins: [updateMixin],
   props: {
-    formState: {
-      type: Object,
+    value: {
+      type: String,
       required: true,
     },
     markdownPreviewPath: {
@@ -31,8 +35,32 @@ export default {
       default: true,
     },
   },
+  data() {
+    return {
+      formFieldProps: {
+        id: 'issue-description',
+        name: 'issue-description',
+        placeholder: __('Write a comment or drag your files here…'),
+        'aria-label': __('Description'),
+      },
+    };
+  },
+  computed: {
+    autocompleteDataSources() {
+      return gl.GfmAutoComplete?.dataSources;
+    },
+  },
   mounted() {
-    this.$refs.textarea.focus();
+    this.focus();
+  },
+  methods: {
+    focus() {
+      this.$refs.textarea?.focus();
+    },
+    saveIssuable() {
+      trackSavedUsingEditor(this.$refs.markdownEditor.isContentEditorActive, ISSUE_NOTEABLE_TYPE);
+      this.updateIssuable();
+    },
   },
 };
 </script>
@@ -40,30 +68,20 @@ export default {
 <template>
   <div class="common-note-form">
     <label class="sr-only" for="issue-description">{{ __('Description') }}</label>
-    <markdown-field
-      :markdown-preview-path="markdownPreviewPath"
+    <markdown-editor
+      ref="markdownEditor"
+      class="gl-mt-3"
+      :value="value"
+      :render-markdown-path="markdownPreviewPath"
       :markdown-docs-path="markdownDocsPath"
-      :can-attach-file="canAttachFile"
+      :form-field-props="formFieldProps"
       :enable-autocomplete="enableAutocomplete"
-      :textarea-value="formState.description"
-    >
-      <template #textarea>
-        <!-- eslint-disable vue/no-mutating-props -->
-        <textarea
-          id="issue-description"
-          ref="textarea"
-          v-model="formState.description"
-          class="note-textarea js-gfm-input js-autosize markdown-area qa-description-textarea"
-          dir="auto"
-          data-supports-quick-actions="true"
-          :aria-label="__('Description')"
-          :placeholder="__('Write a comment or drag your files here…')"
-          @keydown.meta.enter="updateIssuable"
-          @keydown.ctrl.enter="updateIssuable"
-        >
-        </textarea>
-        <!-- eslint-enable vue/no-mutating-props -->
-      </template>
-    </markdown-field>
+      :autocomplete-data-sources="autocompleteDataSources"
+      supports-quick-actions
+      autofocus
+      @input="$emit('input', $event)"
+      @keydown.meta.enter="saveIssuable"
+      @keydown.ctrl.enter="saveIssuable"
+    />
   </div>
 </template>

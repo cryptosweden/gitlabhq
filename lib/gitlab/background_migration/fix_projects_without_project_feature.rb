@@ -14,7 +14,7 @@ module Gitlab
       private
 
       def create_missing!(from_id, to_id)
-        result = ActiveRecord::Base.connection.select_one(sql(from_id, to_id))
+        result = ApplicationRecord.connection.select_one(sql(from_id, to_id))
         return 0 unless result
 
         result['number_of_created_records']
@@ -22,7 +22,7 @@ module Gitlab
 
       def sql(from_id, to_id)
         <<~SQL
-          WITH created_records AS #{Gitlab::Database::AsWithMaterialized.materialized_if_supported} (
+          WITH created_records AS MATERIALIZED (
             INSERT INTO project_features (
               project_id,
               merge_requests_access_level,

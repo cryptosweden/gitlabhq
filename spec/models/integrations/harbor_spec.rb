@@ -7,7 +7,11 @@ RSpec.describe Integrations::Harbor do
   let(:project_name) { 'testproject' }
   let(:username) { 'harborusername' }
   let(:password) { 'harborpassword' }
-  let(:harbor_integration) { create(:harbor_integration) }
+  let(:harbor_integration) { build(:harbor_integration) }
+
+  it_behaves_like Integrations::ResetSecretFields do
+    let(:integration) { described_class.new }
+  end
 
   describe "masked password" do
     subject { build(:harbor_integration) }
@@ -17,6 +21,20 @@ RSpec.describe Integrations::Harbor do
     it { is_expected.not_to allow_value('hello$VARIABLEworld').for(:password) }
     it { is_expected.not_to allow_value('hello\rworld').for(:password) }
     it { is_expected.to allow_value('helloworld').for(:password) }
+  end
+
+  describe 'url' do
+    subject { build(:harbor_integration) }
+
+    it { is_expected.not_to allow_value('https://192.168.1.1').for(:url) }
+    it { is_expected.not_to allow_value('https://127.0.0.1').for(:url) }
+    it { is_expected.to allow_value('https://demo.goharbor.io').for(:url) }
+  end
+
+  describe 'hostname' do
+    it 'returns the host of the integration url' do
+      expect(harbor_integration.hostname).to eq('demo.goharbor.io')
+    end
   end
 
   describe '#fields' do
@@ -30,7 +48,7 @@ RSpec.describe Integrations::Harbor do
 
     before do
       allow_next_instance_of(Gitlab::Harbor::Client) do |client|
-        allow(client).to receive(:ping).and_return(test_response)
+        allow(client).to receive(:check_project_availability).and_return(test_response)
       end
     end
 
@@ -52,9 +70,13 @@ RSpec.describe Integrations::Harbor do
   end
 
   context 'ci variables' do
+    let(:harbor_integration) { build_stubbed(:harbor_integration) }
+
     it 'returns vars when harbor_integration is activated' do
       ci_vars = [
         { key: 'HARBOR_URL', value: url },
+        { key: 'HARBOR_HOST', value: 'demo.goharbor.io' },
+        { key: 'HARBOR_OCI', value: 'oci://demo.goharbor.io' },
         { key: 'HARBOR_PROJECT', value: project_name },
         { key: 'HARBOR_USERNAME', value: username },
         { key: 'HARBOR_PASSWORD', value: password, public: false, masked: true }
@@ -63,71 +85,22 @@ RSpec.describe Integrations::Harbor do
       expect(harbor_integration.ci_variables).to match_array(ci_vars)
     end
 
-    it 'returns [] when harbor_integration is inactive' do
-      harbor_integration.update!(active: false)
-      expect(harbor_integration.ci_variables).to match_array([])
-    end
-  end
+    context 'when harbor_integration is inactive' do
+      let(:harbor_integration) { build_stubbed(:harbor_integration, active: false) }
 
-  describe 'before_validation :reset_username_and_password' do
-    context 'when username/password was previously set' do
-      it 'resets username and password if url changed' do
-        harbor_integration.url = 'https://anotherharbor.com'
-        harbor_integration.valid?
-
-        expect(harbor_integration.password).to be_nil
-        expect(harbor_integration.username).to be_nil
-      end
-
-      it 'does not reset password if username changed' do
-        harbor_integration.username = 'newusername'
-        harbor_integration.valid?
-
-        expect(harbor_integration.password).to eq('harborpassword')
-      end
-
-      it 'does not reset username if password changed' do
-        harbor_integration.password = 'newpassword'
-        harbor_integration.valid?
-
-        expect(harbor_integration.username).to eq('harborusername')
-      end
-
-      it "does not reset password if new url is set together with password, even if it's the same password" do
-        harbor_integration.url = 'https://anotherharbor.com'
-        harbor_integration.password = 'harborpassword'
-        harbor_integration.valid?
-
-        expect(harbor_integration.password).to eq('harborpassword')
-        expect(harbor_integration.username).to be_nil
-        expect(harbor_integration.url).to eq('https://anotherharbor.com')
-      end
-
-      it "does not reset username if new url is set together with username, even if it's the same username" do
-        harbor_integration.url = 'https://anotherharbor.com'
-        harbor_integration.username = 'harborusername'
-        harbor_integration.valid?
-
-        expect(harbor_integration.password).to be_nil
-        expect(harbor_integration.username).to eq('harborusername')
-        expect(harbor_integration.url).to eq('https://anotherharbor.com')
+      it 'returns []' do
+        expect(harbor_integration.ci_variables).to match_array([])
       end
     end
 
-    it 'saves password if new url is set together with password when no password was previously set' do
-      harbor_integration.password = nil
-      harbor_integration.username = nil
+    context 'with robot username' do
+      it 'returns username variable with $$' do
+        harbor_integration.username = 'robot$project+user'
 
-      harbor_integration.url = 'https://anotherharbor.com'
-      harbor_integration.password = 'newpassword'
-      harbor_integration.username = 'newusername'
-      harbor_integration.save!
-
-      expect(harbor_integration).to have_attributes(
-        url: 'https://anotherharbor.com',
-        password: 'newpassword',
-        username: 'newusername'
-      )
+        expect(harbor_integration.ci_variables).to include(
+          { key: 'HARBOR_USERNAME', value: 'robot$$project+user' }
+        )
+      end
     end
   end
 end

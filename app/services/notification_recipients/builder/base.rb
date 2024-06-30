@@ -44,9 +44,12 @@ module NotificationRecipients
       def add_recipients(users, type, reason)
         if users.is_a?(ActiveRecord::Relation)
           users = users.includes(:notification_settings)
+            .allow_cross_joins_across_databases(url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/421821')
         end
 
         users = Array(users).compact
+        preload_users_namespace_bans(users)
+
         recipients.concat(users.map { |u| make_recipient(u, type, reason) })
       end
       # rubocop: enable CodeReuse/ActiveRecord
@@ -181,58 +184,6 @@ module NotificationRecipients
         add_recipients(target.subscribers(project), :subscription, NotificationReason::SUBSCRIBED)
       end
 
-      # rubocop: disable CodeReuse/ActiveRecord
-      def user_ids_notifiable_on(resource, notification_level = nil)
-        return [] unless resource
-
-        scope = resource.notification_settings
-
-        if notification_level
-          scope = scope.where(level: NotificationSetting.levels[notification_level])
-        end
-
-        scope.pluck(:user_id)
-      end
-      # rubocop: enable CodeReuse/ActiveRecord
-
-      # Build a list of user_ids based on project notification settings
-      def select_project_members_ids(global_setting, user_ids_global_level_watch)
-        user_ids = user_ids_notifiable_on(project, :watch)
-
-        # If project setting is global, add to watch list if global setting is watch
-        user_ids + (global_setting & user_ids_global_level_watch)
-      end
-
-      # Build a list of user_ids based on group notification settings
-      def select_group_members_ids(group, project_members, global_setting, user_ids_global_level_watch)
-        uids = user_ids_notifiable_on(group, :watch)
-
-        # Group setting is global, add to user_ids list if global setting is watch
-        uids + (global_setting & user_ids_global_level_watch) - project_members
-      end
-
-      # rubocop: disable CodeReuse/ActiveRecord
-      def user_ids_with_global_level_watch(ids)
-        settings_with_global_level_of(:watch, ids).pluck(:user_id)
-      end
-      # rubocop: enable CodeReuse/ActiveRecord
-
-      # rubocop: disable CodeReuse/ActiveRecord
-      def user_ids_with_global_level_custom(ids, action)
-        settings_with_global_level_of(:custom, ids).pluck(:user_id)
-      end
-      # rubocop: enable CodeReuse/ActiveRecord
-
-      # rubocop: disable CodeReuse/ActiveRecord
-      def settings_with_global_level_of(level, ids)
-        NotificationSetting.where(
-          user_id: ids,
-          source_type: nil,
-          level: NotificationSetting.levels[level]
-        )
-      end
-      # rubocop: enable CodeReuse/ActiveRecord
-
       def add_labels_subscribers(labels: nil)
         return unless target.respond_to? :labels
 
@@ -240,6 +191,14 @@ module NotificationRecipients
           add_recipients(label.subscribers(project), :subscription, NotificationReason::SUBSCRIBED)
         end
       end
+
+      private
+
+      def preload_users_namespace_bans(_users)
+        # overridden in EE
+      end
     end
   end
 end
+
+NotificationRecipients::Builder::Base.prepend_mod_with('NotificationRecipients::Builder::Base')

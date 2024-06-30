@@ -1,5 +1,6 @@
 import { flatten, isString } from 'lodash';
 import { languages } from 'monaco-editor';
+import { setDiagnosticsOptions as yamlDiagnosticsOptions } from 'monaco-yaml';
 import { performanceMarkAndMeasure } from '~/performance/utils';
 import { SIDE_LEFT, SIDE_RIGHT } from './constants';
 
@@ -81,17 +82,17 @@ export function registerLanguages(def, ...defs) {
   languages.setLanguageConfiguration(languageId, def.conf);
 }
 
-export function registerSchema(schema) {
-  const defaults = [languages.json.jsonDefaults, languages.yaml.yamlDefaults];
-  defaults.forEach((d) =>
-    d.setDiagnosticsOptions({
-      validate: true,
-      enableSchemaRequest: true,
-      hover: true,
-      completion: true,
-      schemas: [schema],
-    }),
-  );
+export function registerSchema(schema, options = {}) {
+  const defaultOptions = {
+    validate: true,
+    enableSchemaRequest: true,
+    hover: true,
+    completion: true,
+    schemas: [schema],
+    ...options,
+  };
+  languages.json.jsonDefaults.setDiagnosticsOptions(defaultOptions);
+  yamlDiagnosticsOptions(defaultOptions);
 }
 
 export const otherSide = (side) => (side === SIDE_RIGHT ? SIDE_LEFT : SIDE_RIGHT);
@@ -120,19 +121,6 @@ export function getPathParents(path, maxDepth = Infinity) {
 
 export function getPathParent(path) {
   return getPathParents(path, 1)[0];
-}
-
-/**
- * Takes a file object and returns a data uri of its contents.
- *
- * @param {File} file
- */
-export function readFileAsDataURL(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.addEventListener('load', (e) => resolve(e.target.result), { once: true });
-    reader.readAsDataURL(file);
-  });
 }
 
 export function getFileEOL(content = '') {

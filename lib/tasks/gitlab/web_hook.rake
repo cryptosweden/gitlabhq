@@ -14,18 +14,20 @@ namespace :gitlab do
         print "- #{project.name} ... "
         web_hook = project.hooks.new(url: web_hook_url)
         if web_hook.save
-          puts "added".color(:green)
+          puts Rainbow("added").green
         else
-          print "failed".color(:red)
+          print Rainbow("failed").red
           puts "  [#{web_hook.errors.full_messages.to_sentence}]"
         end
       end
     end
 
-    desc "GitLab | Webhook | Remove a webhook from the projects"
-    task rm: :environment do
+    desc "GitLab | Webhook | Remove a webhook from a namespace"
+    task rm: :environment do |task|
       web_hook_url = ENV['URL']
       namespace_path = ENV['NAMESPACE']
+
+      raise ArgumentError, 'URL is required' unless web_hook_url
 
       web_hooks = find_web_hooks(namespace_path)
 
@@ -36,10 +38,12 @@ namespace :gitlab do
       # we could consider storing a hash of the URL alongside the encrypted
       # value to speed up searches
       count = 0
+      service = WebHooks::AdminDestroyService.new(rake_task: task)
+
       web_hooks.find_each do |hook|
         next unless hook.url == web_hook_url
 
-        result = WebHooks::DestroyService.new(nil).sync_destroy(hook)
+        result = service.execute(hook)
 
         raise "Unable to destroy Web hook" unless result[:status] == :success
 
@@ -69,7 +73,7 @@ namespace :gitlab do
       namespace = Namespace.find_by_full_path(namespace_path)
 
       unless namespace
-        puts "Namespace not found: #{namespace_path}".color(:red)
+        puts Rainbow("Namespace not found: #{namespace_path}").red
         exit 2
       end
 

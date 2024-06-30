@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # GitLab scalability
@@ -35,8 +35,8 @@ The application has a tight coupling to the database schema. When the
 application starts, Rails queries the database schema, caching the tables and
 column types for the data requested. Because of this schema cache, dropping a
 column or table while the application is running can produce 500 errors to the
-user. This is why we have a [process for dropping columns and other
-no-downtime changes](avoiding_downtime_in_migrations.md).
+user. This is why we have a
+[process for dropping columns and other no-downtime changes](database/avoiding_downtime_in_migrations.md).
 
 #### Multi-tenancy
 
@@ -61,11 +61,11 @@ There are two ways to deal with this:
 - Sharding. Distribute data across multiple databases.
 
 Partitioning is a built-in PostgreSQL feature and requires minimal changes
-in the application. However, it [requires PostgreSQL
-11](https://www.2ndquadrant.com/en/blog/partitioning-evolution-postgresql-11/).
+in the application. However, it
+[requires PostgreSQL 11](https://www.2ndquadrant.com/en/blog/partitioning-evolution-postgresql-11/).
 
-For example, a natural way to partition is to [partition tables by
-dates](https://gitlab.com/groups/gitlab-org/-/epics/2023). For example,
+For example, a natural way to partition is to
+[partition tables by dates](https://gitlab.com/groups/gitlab-org/-/epics/2023). For example,
 the `events` and `audit_events` table are natural candidates for this
 kind of partitioning.
 
@@ -77,10 +77,10 @@ to abstract data access into API calls that abstract the database from
 the application, but this is a significant amount of work.
 
 There are solutions that may help abstract the sharding to some extent
-from the application. For example, we want to look at [Citus
-Data](https://www.citusdata.com/product/community) closely. Citus Data
-provides a Rails plugin that adds a [tenant ID to ActiveRecord
-models](https://www.citusdata.com/blog/2017/01/05/easily-scale-out-multi-tenant-apps/).
+from the application. For example, we want to look at
+[Citus Data](https://www.citusdata.com/product/community) closely. Citus Data
+provides a Rails plugin that adds a
+[tenant ID to ActiveRecord models](https://www.citusdata.com/blog/2017/01/05/easily-scale-out-multi-tenant-apps/).
 
 Sharding can also be done based on feature verticals. This is the
 microservice approach to sharding, where each service represents a
@@ -97,12 +97,12 @@ systems.
 
 #### Database size
 
-A recent [database checkup shows a breakdown of the table sizes on
-GitLab.com](https://gitlab.com/gitlab-com/gl-infra/infrastructure/-/issues/8022#master-1022016101-8).
+A recent
+[database checkup shows a breakdown of the table sizes on GitLab.com](https://gitlab.com/gitlab-com/gl-infra/production-engineering/-/issues/8022#master-1022016101-8).
 Since `merge_request_diff_files` contains over 1 TB of data, we want to
-reduce/eliminate this table first. GitLab has support for [storing diffs in
-object storage](../administration/merge_request_diffs.md), which we [want to do on
-GitLab.com](https://gitlab.com/gitlab-com/gl-infra/infrastructure/-/issues/7356).
+reduce/eliminate this table first. GitLab has support for
+[storing diffs in object storage](../administration/merge_request_diffs.md), which we
+[want to do on GitLab.com](https://gitlab.com/gitlab-com/gl-infra/production-engineering/-/issues/7356).
 
 #### High availability
 
@@ -123,13 +123,12 @@ the read replicas. [Omnibus ships with Patroni](../administration/postgresql/rep
 
 #### Load-balancing
 
-GitLab EE has [application support for load balancing using read replicas](../administration/postgresql/database_load_balancing.md). This load balancer does
+GitLab EE has [application support for load balancing using read replicas](database/load_balancing.md). This load balancer does
 some actions that aren't traditionally available in standard load balancers. For
 example, the application considers a replica only if its replication lag is low
 (for example, WAL data behind by less than 100 MB).
 
-More [details are in a blog
-post](https://about.gitlab.com/blog/2017/10/02/scaling-the-gitlab-database/).
+More [details are in a blog post](https://about.gitlab.com/blog/2017/10/02/scaling-the-gitlab-database/).
 
 ### PgBouncer
 
@@ -148,10 +147,10 @@ limitation:
 
 - Run multiple PgBouncer instances.
 - Use a multi-threaded connection pooler (for example,
-  [Odyssey](https://gitlab.com/gitlab-com/gl-infra/infrastructure/-/issues/7776).
+  [Odyssey](https://gitlab.com/gitlab-com/gl-infra/production-engineering/-/issues/7776).
 
-On some Linux systems, it's possible to run [multiple PgBouncer instances on
-the same port](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/4796).
+On some Linux systems, it's possible to run
+[multiple PgBouncer instances on the same port](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/4796).
 
 On GitLab.com, we run multiple PgBouncer instances on different ports to
 avoid saturating a single core.
@@ -217,12 +216,12 @@ core. It does not support multi-threading.
 
 Dumb secondaries: Redis secondaries (also known as replicas) don't actually
 handle any load. Unlike PostgreSQL secondaries, they don't even serve
-read queries. They simply replicate data from the primary and take over
+read queries. They replicate data from the primary and take over
 only when the primary fails.
 
 ### Redis Sentinels
 
-[Redis Sentinel](https://redis.io/topics/sentinel) provides high
+[Redis Sentinel](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/) provides high
 availability for Redis by watching the primary. If multiple Sentinels
 detect that the primary has gone away, the Sentinels performs an
 election to determine a new leader.
@@ -232,8 +231,7 @@ election to determine a new leader.
 No leader: A Redis cluster can get into a mode where there are no
 primaries. For example, this can happen if Redis nodes are misconfigured
 to follow the wrong node. Sometimes this requires forcing one node to
-become a primary by using the [`REPLICAOF NO ONE`
-command](https://redis.io/commands/replicaof).
+become a primary by using the [`REPLICAOF NO ONE` command](https://redis.io/docs/latest/commands/replicaof/).
 
 ### Sidekiq
 
@@ -269,14 +267,14 @@ However, there are a number of strategies to ensure queues get drained
 in a timely manner:
 
 - Add more processing capacity. This can be done by spinning up more
-  instances of Sidekiq or [Sidekiq Cluster](../administration/operations/extra_sidekiq_processes.md).
+  instances of Sidekiq or [Sidekiq Cluster](../administration/sidekiq/extra_sidekiq_processes.md).
 - Split jobs into smaller units of work. For example, `PostReceive`
   used to process each commit message in the push, but now it farms out
   this to `ProcessCommitWorker`.
 - Redistribute/gerrymander Sidekiq processes by queue
   types. Long-running jobs (for example, relating to project import) can often
-  squeeze out jobs that run fast (for example, delivering email). [This technique
-  was used in to optimize our existing Sidekiq deployment](https://gitlab.com/gitlab-com/gl-infra/infrastructure/-/issues/7219#note_218019483).
+  squeeze out jobs that run fast (for example, delivering email).
+  [We used this technique to optimize our existing Sidekiq deployment](https://gitlab.com/gitlab-com/gl-infra/production-engineering/-/issues/7219#note_218019483).
 - Optimize jobs. Eliminating unnecessary work, reducing network calls
   (including SQL and Gitaly), and optimizing processor time can yield significant
   benefits.

@@ -23,13 +23,15 @@ Your caret can stop touching a `rawReference` can happen in a variety of ways:
    and hide the `AddIssuableForm` area.
 
 */
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import { getIdFromGraphQLId, isGid } from '~/graphql_shared/utils';
+import { TYPE_ISSUE } from '~/issues/constants';
+import { HTTP_STATUS_NOT_FOUND } from '~/lib/utils/http_status';
 import { __ } from '~/locale';
 import {
   relatedIssuesRemoveErrorMap,
   pathIndeterminateErrorMap,
   addRelatedIssueErrorMap,
-  issuableTypesMap,
   PathIdSeparator,
 } from '../constants';
 import RelatedIssuesService from '../services/related_issues_service';
@@ -39,7 +41,7 @@ import RelatedIssuesBlock from './related_issues_block.vue';
 export default {
   name: 'RelatedIssuesRoot',
   components: {
-    relatedIssuesBlock: RelatedIssuesBlock,
+    RelatedIssuesBlock,
   },
   props: {
     endpoint: {
@@ -64,7 +66,7 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: issuableTypesMap.ISSUE,
+      default: TYPE_ISSUE,
     },
     allowAutoComplete: {
       type: Boolean,
@@ -106,6 +108,8 @@ export default {
       isSubmitting: false,
       isFormVisible: false,
       inputValue: '',
+      hasError: false,
+      errorMessage: null,
     };
   },
   computed: {
@@ -123,6 +127,14 @@ export default {
       return this.state.relatedIssues.find((issue) => issue.id === id);
     },
     onRelatedIssueRemoveRequest(idToRemove) {
+      if (isGid(idToRemove)) {
+        const deletedId = getIdFromGraphQLId(idToRemove);
+        this.state.relatedIssues = this.state.relatedIssues.filter(
+          (issue) => issue.id !== deletedId,
+        );
+        return;
+      }
+
       const issueToRemove = this.findRelatedIssueById(idToRemove);
 
       if (issueToRemove) {
@@ -131,12 +143,12 @@ export default {
             this.store.setRelatedIssues(data.issuables);
           })
           .catch((res) => {
-            if (res && res.status !== 404) {
-              createFlash({ message: relatedIssuesRemoveErrorMap[this.issuableType] });
+            if (res && res.status !== HTTP_STATUS_NOT_FOUND) {
+              createAlert({ message: relatedIssuesRemoveErrorMap[this.issuableType] });
             }
           });
       } else {
-        createFlash({ message: pathIndeterminateErrorMap[this.issuableType] });
+        createAlert({ message: pathIndeterminateErrorMap[this.issuableType] });
       }
     },
     onToggleAddRelatedIssuesForm() {
@@ -161,11 +173,11 @@ export default {
             this.isFormVisible = false;
           })
           .catch(({ response }) => {
-            let errorMessage = addRelatedIssueErrorMap[this.issuableType];
+            this.hasError = true;
+            this.errorMessage = addRelatedIssueErrorMap[this.issuableType];
             if (response && response.data && response.data.message) {
-              errorMessage = response.data.message;
+              this.errorMessage = response.data.message;
             }
-            createFlash({ message: errorMessage });
           })
           .finally(() => {
             this.isSubmitting = false;
@@ -186,7 +198,7 @@ export default {
         })
         .catch(() => {
           this.store.setRelatedIssues([]);
-          createFlash({ message: __('An error occurred while fetching issues.') });
+          createAlert({ message: __('An error occurred while fetching issues.') });
         })
         .finally(() => {
           this.isFetching = false;
@@ -207,7 +219,7 @@ export default {
             }
           })
           .catch(() => {
-            createFlash({ message: __('An error occurred while reordering issues.') });
+            createAlert({ message: __('An error occurred while reordering issues.') });
           });
       }
     },
@@ -220,7 +232,8 @@ export default {
       const startsWithNumber = String(touchedReference).match(/^[0-9]/) !== null;
 
       if (startsWithNumber) {
-        this.inputValue = `#${touchedReference}`;
+        const { pathIdSeparator } = this;
+        this.inputValue = `${pathIdSeparator}${touchedReference}`;
       } else {
         this.inputValue = `${touchedReference}`;
       }
@@ -256,6 +269,8 @@ export default {
     :issuable-type="issuableType"
     :path-id-separator="pathIdSeparator"
     :show-categorized-issues="showCategorizedIssues"
+    :has-error="hasError"
+    :item-add-failure-message="errorMessage"
     @saveReorder="saveIssueOrder"
     @toggleAddRelatedIssuesForm="onToggleAddRelatedIssuesForm"
     @addIssuableFormInput="onInput"

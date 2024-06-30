@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Checks::SingleChangeAccess do
+RSpec.describe Gitlab::Checks::SingleChangeAccess, feature_category: :source_code_management do
   describe '#validate!' do
     include_context 'change access checks context'
 
@@ -98,6 +98,7 @@ RSpec.describe Gitlab::Checks::SingleChangeAccess do
         before do
           expect(project.repository)
             .to receive(:new_commits)
+            .with(newrev)
             .once
             .and_return(expected_commits)
         end

@@ -21,10 +21,6 @@ module Gitlab
     class << self
       def default_arguments_for(provider_name)
         case provider_name
-        when 'cas3'
-          { on_single_sign_out: cas3_signout_handler }
-        when 'authentiq'
-          { remote_sign_out_handler: authentiq_signout_handler }
         when 'shibboleth'
           { fail_with_empty_uid: true }
         when 'google_oauth2'
@@ -33,40 +29,22 @@ module Gitlab
           {
             authorize_params: { gl_auth_type: 'login' }
           }
+        when ->(provider_name) { AuthHelper.saml_providers.include?(provider_name.to_sym) }
+          { attribute_statements: ::Gitlab::Auth::Saml::Config.default_attribute_statements }
         else
           {}
         end
       end
 
-      private
-
-      def cas3_signout_handler
-        lambda do |request|
-          ticket = request.params[:session_index]
-          raise "Service Ticket not found." unless Gitlab::Auth::OAuth::Session.valid?(:cas3, ticket)
-
-          Gitlab::Auth::OAuth::Session.destroy(:cas3, ticket)
-          true
-        end
-      end
-
-      def authentiq_signout_handler
-        lambda do |request|
-          authentiq_session = request.params['sid']
-          if Gitlab::Auth::OAuth::Session.valid?(:authentiq, authentiq_session)
-            Gitlab::Auth::OAuth::Session.destroy(:authentiq, authentiq_session)
-            true
-          else
-            false
-          end
-        end
+      def full_host
+        proc { |_env| Settings.gitlab['base_url'] }
       end
     end
 
     private
 
-    def add_provider_to_devise(*args)
-      @devise_config.omniauth(*args)
+    def add_provider_to_devise(...)
+      @devise_config.omniauth(...)
     end
 
     def arguments_for(provider)
@@ -84,8 +62,8 @@ module Gitlab
         # An Array from the configuration will be expanded
         provider_arguments.concat arguments
         provider_arguments << defaults unless defaults.empty?
-      when Hash
-        hash_arguments = arguments.deep_symbolize_keys.deep_merge(defaults)
+      when Hash, GitlabSettings::Options
+        hash_arguments = merge_hash_defaults_and_args(defaults, arguments)
         normalized = normalize_hash_arguments(hash_arguments)
 
         # A Hash from the configuration will be passed as is.
@@ -102,6 +80,15 @@ module Gitlab
       end
 
       provider_arguments
+    end
+
+    def merge_hash_defaults_and_args(defaults, arguments)
+      return arguments.to_hash if defaults.empty?
+
+      revert_merging = Gitlab::Utils.to_boolean(ENV['REVERT_OMNIAUTH_DEFAULT_MERGING'])
+      return arguments.to_hash.deep_symbolize_keys.deep_merge(defaults) if revert_merging
+
+      defaults.deep_merge(arguments.deep_symbolize_keys)
     end
 
     def normalize_hash_arguments(args)
@@ -132,8 +119,6 @@ module Gitlab
 
     def setup_provider(provider)
       case provider
-      when :kerberos
-        require 'omniauth-kerberos'
       when *omniauth_customized_providers
         require_dependency "omni_auth/strategies/#{provider}"
       end

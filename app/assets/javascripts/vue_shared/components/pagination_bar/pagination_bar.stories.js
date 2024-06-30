@@ -1,9 +1,8 @@
-/* eslint-disable @gitlab/require-i18n-strings */
 import PaginationBar from './pagination_bar.vue';
 
 export default {
   component: PaginationBar,
-  title: 'vue_shared/components/pagination_bar/pagination_bar',
+  title: 'vue_shared/pagination_bar/pagination_bar',
 };
 
 const Template = (args, { argTypes }) => ({

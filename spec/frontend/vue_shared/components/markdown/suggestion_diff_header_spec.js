@@ -25,7 +25,7 @@ describe('Suggestion Diff component', () => {
         ...props,
       },
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
     });
   };
@@ -34,17 +34,13 @@ describe('Suggestion Diff component', () => {
     window.gon.current_user_id = 1;
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  const findApplyButton = () => wrapper.find(ApplySuggestion);
+  const findApplyButton = () => wrapper.findComponent(ApplySuggestion);
   const findApplyBatchButton = () => wrapper.find('.js-apply-batch-btn');
   const findAddToBatchButton = () => wrapper.find('.js-add-to-batch-btn');
   const findRemoveFromBatchButton = () => wrapper.find('.js-remove-from-batch-btn');
   const findHeader = () => wrapper.find('.js-suggestion-diff-header');
   const findHelpButton = () => wrapper.find('.js-help-btn');
-  const findLoading = () => wrapper.find(GlLoadingIcon);
+  const findLoading = () => wrapper.findComponent(GlLoadingIcon);
 
   it('renders a suggestion header', () => {
     createComponent();
@@ -223,12 +219,11 @@ describe('Suggestion Diff component', () => {
   describe('tooltip message for apply button', () => {
     const findTooltip = () => getBinding(findApplyButton().element, 'gl-tooltip');
 
-    it('renders correct tooltip message when button is applicable', () => {
-      createComponent({ batchSuggestionsCount: 0 });
+    it('renders no tooltip message when button is applicable', () => {
+      createComponent({ batchSuggestionsCount: 1, isBatched: true });
       const tooltip = findTooltip();
 
-      expect(tooltip.modifiers.viewport).toBe(true);
-      expect(tooltip.value).toBe('This also resolves this thread');
+      expect(tooltip.value).toBe(false);
     });
 
     it('renders the inapplicable reason in the tooltip when button is not applicable', () => {

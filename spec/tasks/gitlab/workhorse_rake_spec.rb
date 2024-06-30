@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-require 'rake_helper'
+require 'spec_helper'
 
-RSpec.describe 'gitlab:workhorse namespace rake task', :silence_stdout do
-  before :all do
+RSpec.describe 'gitlab:workhorse namespace rake task', :silence_stdout, feature_category: :source_code_management do
+  before(:all) do
     Rake.application.rake_require 'tasks/gitlab/workhorse'
   end
 
@@ -20,7 +20,7 @@ RSpec.describe 'gitlab:workhorse namespace rake task', :silence_stdout do
       it 'aborts and display a help message' do
         # avoid writing task output to spec progress
         allow($stderr).to receive :write
-        expect { run_rake_task('gitlab:workhorse:install') }.to raise_error /Please specify the directory where you want to install gitlab-workhorse/
+        expect { run_rake_task('gitlab:workhorse:install') }.to raise_error(/Please specify the directory where you want to install gitlab-workhorse/)
       end
     end
 

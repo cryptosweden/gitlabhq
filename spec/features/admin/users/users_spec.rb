@@ -2,22 +2,22 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin::Users' do
-  include Spec::Support::Helpers::Features::AdminUsersHelpers
+RSpec.describe 'Admin::Users', feature_category: :user_management do
+  include Features::AdminUsersHelpers
   include Spec::Support::Helpers::ModalHelpers
+  include ListboxHelpers
 
   let_it_be(:user, reload: true) { create(:omniauth_user, provider: 'twitter', extern_uid: '123456') }
-  let_it_be(:current_user) { create(:admin) }
+  let_it_be(:admin) { create(:admin) }
 
   before do
-    stub_feature_flags(bootstrap_confirmation_modals: false)
-    sign_in(current_user)
-    gitlab_enable_admin_mode_sign_in(current_user)
+    sign_in(admin)
+    enable_admin_mode!(admin)
   end
 
   describe 'GET /admin/users', :js do
     before do
-      visit admin_users_path
+      visit admin_users_path(filter: 'active')
     end
 
     it "is ok" do
@@ -25,13 +25,12 @@ RSpec.describe 'Admin::Users' do
     end
 
     it "has users list" do
-      current_user.reload
+      admin.reload
 
-      expect(page).to have_content(current_user.email)
-      expect(page).to have_content(current_user.name)
-      expect(page).to have_content(current_user.created_at.strftime('%e %b, %Y'))
-      expect(page).to have_content(user.email)
-      expect(page).to have_content(user.name)
+      expect(has_user?(text: admin.name)).to be(true)
+      expect(has_user?(text: admin.created_at.strftime('%b %d, %Y'))).to be(true)
+      expect(has_user?(text: user.email)).to be(true)
+      expect(has_user?(text: user.name)).to be(true)
       expect(page).to have_content('Projects')
 
       click_user_dropdown_toggle(user.id)
@@ -43,7 +42,7 @@ RSpec.describe 'Admin::Users' do
     end
 
     it 'clicking edit user takes us to edit page', :aggregate_failures do
-      page.within("[data-testid='user-actions-#{user.id}']") do
+      within_testid("user-actions-#{user.id}") do
         click_link 'Edit'
       end
 
@@ -51,50 +50,29 @@ RSpec.describe 'Admin::Users' do
       expect(page).to have_content('Password')
     end
 
-    describe 'view extra user information' do
-      it 'shows the user popover on hover', :js, quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/11290' do
-        expect(page).not_to have_selector('#__BV_popover_1__')
+    it 'shows the user popover on hover', :js do
+      expect(has_testid?('user-popover', count: 0)).to eq(true)
 
-        first_user_link = page.first('.js-user-link')
-        first_user_link.hover
+      within('body.page-initialised') do
+        find_link(user.email).hover
 
-        expect(page).to have_selector('#__BV_popover_1__')
+        within_testid('user-popover') do
+          expect(page).to have_content user.name
+          expect(page).to have_content user.username
+          expect(page).to have_button 'Follow'
+        end
       end
     end
 
     context 'user project count' do
       before do
-        project = create(:project)
-        project.add_maintainer(current_user)
+        create(:project, maintainers: admin)
       end
 
       it 'displays count of users projects' do
         visit admin_users_path
 
-        expect(page.find("[data-testid='user-project-count-#{current_user.id}']").text).to eq("1")
-      end
-    end
-
-    describe 'tabs' do
-      it 'has multiple tabs to filter users' do
-        expect(page).to have_link('Active', href: admin_users_path)
-        expect(page).to have_link('Admins', href: admin_users_path(filter: 'admins'))
-        expect(page).to have_link('2FA Enabled', href: admin_users_path(filter: 'two_factor_enabled'))
-        expect(page).to have_link('2FA Disabled', href: admin_users_path(filter: 'two_factor_disabled'))
-        expect(page).to have_link('External', href: admin_users_path(filter: 'external'))
-        expect(page).to have_link('Blocked', href: admin_users_path(filter: 'blocked'))
-        expect(page).to have_link('Deactivated', href: admin_users_path(filter: 'deactivated'))
-        expect(page).to have_link('Without projects', href: admin_users_path(filter: 'wop'))
-      end
-
-      context '`Pending approval` tab' do
-        before do
-          visit admin_users_path
-        end
-
-        it 'shows the `Pending approval` tab' do
-          expect(page).to have_link('Pending approval', href: admin_users_path(filter: 'blocked_pending_approval'))
-        end
+        expect(find_by_testid("user-project-count-#{admin.id}").text).to eq("1")
       end
     end
 
@@ -108,9 +86,9 @@ RSpec.describe 'Admin::Users' do
       it 'searches users by name' do
         visit admin_users_path(search_query: 'Foo')
 
-        expect(page).to have_content('Foo Bar')
-        expect(page).to have_content('Foo Baz')
-        expect(page).not_to have_content('Dmitriy')
+        expect(has_user?(text: 'Foo Bar')).to be(true)
+        expect(has_user?(text: 'Foo Baz')).to be(true)
+        expect(has_user?(text: 'Dmitriy')).to be(false)
       end
 
       it 'sorts users by name' do
@@ -126,16 +104,13 @@ RSpec.describe 'Admin::Users' do
         visit admin_users_path(search_query: 'Foo')
 
         sort_by('Name')
-        expect(page).not_to have_content('Dmitriy')
+        expect(has_user?(text: 'Dmitriy')).to be(false)
         expect(first_row.text).to include('Foo Bar')
         expect(second_row.text).to include('Foo Baz')
       end
 
       it 'searches with respect of sorting' do
-        visit admin_users_path(sort: 'name_asc')
-
-        fill_in :search_query, with: 'Foo'
-        click_button('Search users')
+        visit admin_users_path(sort: 'name_asc', search_query: 'Foo')
 
         expect(first_row.text).to include('Foo Bar')
         expect(second_row.text).to include('Foo Baz')
@@ -161,38 +136,21 @@ RSpec.describe 'Admin::Users' do
     end
 
     describe 'Two-factor Authentication filters' do
-      it 'counts users who have enabled 2FA' do
-        create(:user, :two_factor)
-
-        visit admin_users_path
-
-        page.within('.filter-two-factor-enabled .gl-tab-counter-badge') do
-          expect(page).to have_content('1')
-        end
-      end
-
       it 'filters by users who have enabled 2FA' do
-        user = create(:user, :two_factor)
+        user_2fa = create(:user, :two_factor)
 
-        visit admin_users_path
-        click_link '2FA Enabled'
+        visit admin_users_path(filter: 'two_factor_enabled')
 
-        expect(page).to have_content(user.email)
+        expect(has_user?(text: user_2fa.email)).to be(true)
+        expect(all_users.length).to be(1)
       end
 
-      it 'counts users who have not enabled 2FA' do
-        visit admin_users_path
+      it 'filters users who have not enabled 2FA' do
+        visit admin_users_path(filter: 'two_factor_disabled')
 
-        page.within('.filter-two-factor-disabled .gl-tab-counter-badge') do
-          expect(page).to have_content('2') # Including admin
-        end
-      end
-
-      it 'filters by users who have not enabled 2FA' do
-        visit admin_users_path
-        click_link '2FA Disabled'
-
-        expect(page).to have_content(user.email)
+        expect(has_user?(text: user.email)).to be(true)
+        expect(has_user?(text: admin.email)).to be(true)
+        expect(all_users.length).to be(2)
       end
     end
 
@@ -200,26 +158,24 @@ RSpec.describe 'Admin::Users' do
       it 'counts users who are pending approval' do
         create_list(:user, 2, :blocked_pending_approval)
 
-        visit admin_users_path
+        visit admin_users_path(filter: 'blocked_pending_approval')
 
-        page.within('.filter-blocked-pending-approval .gl-tab-counter-badge') do
-          expect(page).to have_content('2')
-        end
+        expect(all_users.length).to be(2)
       end
 
       it 'filters by users who are pending approval' do
-        user = create(:user, :blocked_pending_approval)
+        blocked_user = create(:user, :blocked_pending_approval)
 
-        visit admin_users_path
-        click_link 'Pending approval'
+        visit admin_users_path(filter: 'blocked_pending_approval')
 
-        expect(page).to have_content(user.email)
+        expect(has_user?(text: blocked_user.email)).to be(true)
+        expect(all_users.length).to be(1)
       end
     end
 
     context 'when blocking/unblocking a user' do
       it 'shows confirmation and allows blocking and unblocking', :js do
-        expect(page).to have_content(user.email)
+        expect(has_user?(text: user.email)).to be(true)
 
         click_action_in_user_dropdown(user.id, 'Block')
 
@@ -235,13 +191,13 @@ RSpec.describe 'Admin::Users' do
         wait_for_requests
 
         expect(page).to have_content('Successfully blocked')
-        expect(page).not_to have_content(user.email)
+        expect(has_user?(text: user.email)).to be(false)
 
-        click_link 'Blocked'
+        visit admin_users_path(filter: 'blocked')
 
         wait_for_requests
 
-        expect(page).to have_content(user.email)
+        expect(has_user?(text: user.email)).to be(true)
 
         click_action_in_user_dropdown(user.id, 'Unblock')
 
@@ -253,13 +209,13 @@ RSpec.describe 'Admin::Users' do
         wait_for_requests
 
         expect(page).to have_content('Successfully unblocked')
-        expect(page).not_to have_content(user.email)
+        expect(has_user?(text: user.email)).to be(false)
       end
     end
 
     context 'when deactivating/re-activating a user' do
       it 'shows confirmation and allows deactivating and re-activating', :js do
-        expect(page).to have_content(user.email)
+        expect(has_user?(text: user.email)).to be(true)
 
         click_action_in_user_dropdown(user.id, 'Deactivate')
 
@@ -275,11 +231,11 @@ RSpec.describe 'Admin::Users' do
         expect(page).to have_content('Successfully deactivated')
         expect(page).not_to have_content(user.email)
 
-        click_link 'Deactivated'
+        visit admin_users_path(filter: 'deactivated')
 
         wait_for_requests
 
-        expect(page).to have_content(user.email)
+        expect(has_user?(text: user.email)).to be(true)
 
         click_action_in_user_dropdown(user.id, 'Activate')
 
@@ -291,7 +247,7 @@ RSpec.describe 'Admin::Users' do
         wait_for_requests
 
         expect(page).to have_content('Successfully activated')
-        expect(page).not_to have_content(user.email)
+        expect(has_user?(text: user.email)).to be(false)
       end
     end
 
@@ -307,7 +263,39 @@ RSpec.describe 'Admin::Users' do
           click_action_in_user_dropdown(locked_user.id, 'Unlock')
         end
 
-        expect(page).not_to have_content("#{locked_user.name} (Locked)")
+        expect(page).not_to have_content("#{locked_user.name} Locked")
+      end
+    end
+
+    describe 'users pending approval' do
+      it 'sends a welcome email and a password reset email to the user upon admin approval', :sidekiq_inline do
+        user = create(:user, :blocked_pending_approval, created_by_id: admin.id)
+
+        visit admin_users_path(filter: 'blocked_pending_approval')
+
+        click_user_dropdown_toggle(user.id)
+
+        find_by_testid('approve').click
+
+        expect(page).to have_content("Approve user #{user.name}?")
+
+        within_modal do
+          perform_enqueued_jobs do
+            click_button 'Approve'
+          end
+        end
+
+        expect(page).to have_content('Successfully approved')
+
+        welcome_email = ActionMailer::Base.deliveries.find { |m| m.subject == 'Welcome to GitLab!' }
+        expect(welcome_email.to).to eq([user.email])
+        expect(welcome_email.text_part.body).to have_content('Your GitLab account request has been approved!')
+
+        password_reset_email = ActionMailer::Base.deliveries.find { |m| m.subject == 'Account was created for you' }
+        expect(password_reset_email.to).to eq([user.email])
+        expect(password_reset_email.text_part.body).to have_content('Click here to set your password')
+
+        expect(ActionMailer::Base.deliveries.count).to eq(2)
       end
     end
 
@@ -316,7 +304,8 @@ RSpec.describe 'Admin::Users' do
         let_it_be(:ghost_user) { create(:user, :ghost) }
 
         it 'does not render actions dropdown' do
-          expect(page).not_to have_css("[data-testid='user-actions-#{ghost_user.id}'] [data-testid='dropdown-toggle']")
+          expect(page).not_to have_css(
+            "[data-testid='user-actions-#{ghost_user.id}'] [data-testid='user-actions-dropdown-toggle']")
         end
       end
 
@@ -324,17 +313,16 @@ RSpec.describe 'Admin::Users' do
         let_it_be(:bot_user) { create(:user, user_type: :alert_bot) }
 
         it 'does not render actions dropdown' do
-          expect(page).not_to have_css("[data-testid='user-actions-#{bot_user.id}'] [data-testid='dropdown-toggle']")
+          expect(page).not_to have_css(
+            "[data-testid='user-actions-#{bot_user.id}'] [data-testid='user-actions-dropdown-toggle']")
         end
       end
     end
 
     context 'user group count', :js do
       before do
-        group = create(:group)
-        group.add_developer(current_user)
-        project = create(:project, group: create(:group))
-        project.add_reporter(current_user)
+        create(:group, developers: admin)
+        create(:project, group: create(:group), reporters: admin)
       end
 
       it 'displays count of the users authorized groups' do
@@ -342,7 +330,26 @@ RSpec.describe 'Admin::Users' do
 
         wait_for_requests
 
-        expect(page.find("[data-testid='user-group-count-#{current_user.id}']").text).to eq("2")
+        within_testid("user-group-count-#{admin.id}") do
+          expect(page).to have_content('2')
+        end
+      end
+    end
+
+    context 'user pending approval' do
+      it 'shows user info', :aggregate_failures do
+        user = create(:user, :blocked_pending_approval)
+
+        visit admin_users_path(filter: 'blocked_pending_approval')
+        click_link user.name
+
+        expect(page).to have_content(user.name)
+        expect(page).to have_content('Pending approval')
+
+        click_user_dropdown_toggle(user.id)
+
+        expect(page).to have_button('Approve')
+        expect(page).to have_button('Reject')
       end
     end
   end
@@ -358,7 +365,7 @@ RSpec.describe 'Admin::Users' do
     end
 
     it 'creates new user' do
-      expect { click_button 'Create user' }.to change {User.count}.by(1)
+      expect { click_button 'Create user' }.to change { User.count }.by(1)
     end
 
     it 'applies defaults to user' do
@@ -367,7 +374,9 @@ RSpec.describe 'Admin::Users' do
       expect(user.projects_limit)
         .to eq(Gitlab.config.gitlab.default_projects_limit)
       expect(user.can_create_group)
-        .to eq(Gitlab.config.gitlab.default_can_create_group)
+        .to eq(Gitlab::CurrentSettings.can_create_group)
+      expect(user.private_profile)
+        .to eq(Gitlab::CurrentSettings.user_defaults_to_private_profile)
     end
 
     it 'creates user with valid data' do
@@ -401,7 +410,7 @@ RSpec.describe 'Admin::Users' do
       let_it_be(:user_username) { 'Bing bang' }
 
       it "doesn't create the user and shows an error message" do
-        expect { click_button 'Create user' }.to change {User.count}.by(0)
+        expect { click_button 'Create user' }.to change { User.count }.by(0)
 
         expect(page).to have_content('The form contains the following error')
         expect(page).to have_content('Username can contain only letters, digits')
@@ -472,49 +481,48 @@ RSpec.describe 'Admin::Users' do
   end
 
   describe 'GET /admin/users/:id/projects' do
-    let_it_be(:group) { create(:group) }
+    let_it_be(:group) { create(:group, developers: user) }
     let_it_be(:project) { create(:project, group: group) }
 
     before do
-      group.add_developer(user)
-
       visit projects_admin_user_path(user)
     end
 
     it 'lists groups' do
-      within(:css, '.gl-mb-3 + .card') do
+      within(:css, '.gl-mb-3 + .gl-card') do
         expect(page).to have_content 'Groups'
         expect(page).to have_link group.name, href: admin_group_path(group)
       end
     end
 
     it 'allows navigation to the group details' do
-      within(:css, '.gl-mb-3 + .card') do
+      within(:css, '.gl-mb-3 + .gl-card') do
         click_link group.name
       end
-      within(:css, 'h3.page-title') do
-        expect(page).to have_content "Group: #{group.name}"
-      end
+      expect(page).to have_content group.name
       expect(page).to have_content project.name
     end
 
     it 'shows the group access level' do
-      within(:css, '.gl-mb-3 + .card') do
+      within(:css, '.gl-mb-3 + .gl-card') do
         expect(page).to have_content 'Developer'
       end
     end
 
     it 'allows group membership to be revoked', :js do
       page.within(first('.group_member')) do
-        accept_confirm { find('.btn[data-testid="remove-user"]').click }
+        find_by_testid('remove-user').click
       end
+
+      accept_gl_confirm(button_text: 'Remove')
+
       wait_for_requests
 
       expect(page).not_to have_selector('.group_member')
     end
   end
 
-  describe 'show breadcrumbs' do
+  describe 'show breadcrumbs', :js do
     it do
       visit admin_user_path(user)
 
@@ -548,7 +556,7 @@ RSpec.describe 'Admin::Users' do
     end
 
     def check_breadcrumb(content)
-      expect(find('.breadcrumbs-sub-title')).to have_content(content)
+      expect(find_by_testid('breadcrumb-links').find('li:last-of-type')).to have_content(content)
     end
   end
 
@@ -564,6 +572,7 @@ RSpec.describe 'Admin::Users' do
         fill_in 'user_password', with: 'AValidPassword1'
         fill_in 'user_password_confirmation', with: 'AValidPassword1'
         choose 'user_access_level_admin'
+        check 'Private profile'
         click_button 'Save changes'
       end
 
@@ -577,6 +586,7 @@ RSpec.describe 'Admin::Users' do
         expect(user.name).to eq('Big Bang')
         expect(user.admin?).to be_truthy
         expect(user.password_expires_at).to be <= Time.zone.now
+        expect(user.private_profile).to eq(true)
       end
     end
 
@@ -595,17 +605,25 @@ RSpec.describe 'Admin::Users' do
   end
 
   def first_row
-    page.all('[role="row"]')[1]
+    all_users[0]
   end
 
   def second_row
-    page.all('[role="row"]')[2]
+    all_users[1]
+  end
+
+  def all_users
+    page.all('tbody[role="rowgroup"] > tr')
+  end
+
+  def has_user?(**kwargs)
+    page.has_selector?('tbody[role="rowgroup"] > tr', **kwargs)
   end
 
   def sort_by(option)
-    page.within('.filtered-search-block') do
+    within_testid('filtered-search-block') do
       find('.gl-new-dropdown').click
-      find('.gl-new-dropdown-item', text: option).click
+      select_listbox_item(option)
     end
   end
 end

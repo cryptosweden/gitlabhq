@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::CronParser do
+RSpec.describe Gitlab::Ci::CronParser, feature_category: :continuous_integration do
   shared_examples_for "returns time in the future" do
     it { is_expected.to be > Time.now }
   end
@@ -37,7 +37,7 @@ RSpec.describe Gitlab::Ci::CronParser do
       end
     end
 
-    context 'when slash used' do
+    context 'when */ used' do
       let(:cron) { '*/10 */6 */10 */10 *' }
       let(:cron_timezone) { 'UTC' }
 
@@ -63,8 +63,19 @@ RSpec.describe Gitlab::Ci::CronParser do
       end
     end
 
-    context 'when range and slash used' do
+    context 'when range and / are used' do
       let(:cron) { '3-59/10 * * * *' }
+      let(:cron_timezone) { 'UTC' }
+
+      it_behaves_like returns_time_for_epoch
+
+      it 'returns specific time' do
+        expect(subject.min).to be_in([3, 13, 23, 33, 43, 53])
+      end
+    end
+
+    context 'when / is used' do
+      let(:cron) { '3/10 * * * *' }
       let(:cron_timezone) { 'UTC' }
 
       it_behaves_like returns_time_for_epoch
@@ -178,7 +189,7 @@ RSpec.describe Gitlab::Ci::CronParser do
     end
 
     context 'when time crosses a Daylight Savings boundary' do
-      let(:cron) { '* 0 1 12 *'}
+      let(:cron) { '* 0 1 12 *' }
 
       # Note this previously only failed if the time zone is set
       # to a zone that observes Daylight Savings
@@ -223,7 +234,9 @@ RSpec.describe Gitlab::Ci::CronParser do
   end
 
   describe '#next_time_from' do
-    subject { described_class.new(cron, cron_timezone).next_time_from(Time.now) }
+    subject { described_class.new(cron, cron_timezone).next_time_from(current_time) }
+
+    let(:current_time) { Time.now }
 
     it_behaves_like 'when cron and cron_timezone are valid', 'returns time in the future'
 
@@ -236,6 +249,27 @@ RSpec.describe Gitlab::Ci::CronParser do
     it_behaves_like 'when cron syntax is rufus-scheduler syntax'
 
     it_behaves_like 'when cron is scheduled to a non existent day'
+
+    context 'for modulo' do
+      let(:cron) { '0 6 * * tue%2' }
+      let(:cron_timezone) { 'America/Los_Angeles' }
+
+      context 'when before daylight saving' do
+        let(:current_time) { ActiveSupport::TimeZone.new(cron_timezone).parse('2024-02-01') }
+
+        it 'returns the correct future time' do
+          expect(subject.to_s).to eq('2024-02-13 14:00:00 UTC')
+        end
+      end
+
+      context 'when after daylight saving' do
+        let(:current_time) { ActiveSupport::TimeZone.new(cron_timezone).parse('2024-05-01') }
+
+        it 'returns the correct future time' do
+          expect(subject.to_s).to eq('2024-05-14 13:00:00 UTC')
+        end
+      end
+    end
   end
 
   describe '#previous_time_from' do
@@ -356,6 +390,24 @@ RSpec.describe Gitlab::Ci::CronParser do
       it 'raises an exception' do
         expect { subject }.to raise_error(NotImplementedError, 'The cadence unit quarterly is not implemented')
       end
+    end
+  end
+
+  describe '#match?' do
+    let(:run_date) { Time.zone.local(2021, 3, 2, 1, 0) }
+
+    subject(:matched) { described_class.new(cron, Gitlab::Ci::CronParser::VALID_SYNTAX_SAMPLE_TIME_ZONE).match?(run_date) }
+
+    context 'when cron matches up' do
+      let(:cron) { '0 1 2 3 *' }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'when cron does not match' do
+      let(:cron) { '5 4 3 2 1' }
+
+      it { is_expected.to eq(false) }
     end
   end
 end

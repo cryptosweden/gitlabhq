@@ -2,7 +2,6 @@
 
 FactoryBot.define do
   factory :deploy_token do
-    token { nil }
     token_encrypted { Gitlab::CryptoHelper.aes256_gcm_encrypt(SecureRandom.hex(50)) }
     sequence(:name) { |n| "PDT #{n}" }
     read_repository { true }
@@ -11,7 +10,7 @@ FactoryBot.define do
     read_package_registry { false }
     write_package_registry { false }
     revoked { false }
-    expires_at { 5.days.from_now }
+    expires_at { 5.days.from_now.to_datetime }
     deploy_token_type { DeployToken.deploy_token_types[:project_type] }
 
     trait :revoked do
@@ -23,7 +22,7 @@ FactoryBot.define do
     end
 
     trait :expired do
-      expires_at { Date.today - 1.month }
+      expires_at { Date.current - 1.month }
     end
 
     trait :group do

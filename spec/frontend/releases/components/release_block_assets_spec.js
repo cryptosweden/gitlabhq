@@ -44,7 +44,7 @@ describe('Release block assets', () => {
     });
 
     it('renders the accordion as expanded by default', () => {
-      const accordion = wrapper.find(GlCollapse);
+      const accordion = wrapper.findComponent(GlCollapse);
 
       expect(accordion.exists()).toBe(true);
       expect(accordion.isVisible()).toBe(true);
@@ -123,42 +123,13 @@ describe('Release block assets', () => {
     });
   });
 
-  describe('external vs internal links', () => {
-    const containsExternalSourceIndicator = () =>
-      wrapper.find('[data-testid="external-link-indicator"]').exists();
+  describe('links', () => {
+    const findAllExternalIcons = () => wrapper.findAll('[data-testid="external-link-indicator"]');
 
-    describe('when a link is external', () => {
-      beforeEach(() => {
-        defaultProps.assets.sources = [];
-        defaultProps.assets.links = [
-          {
-            ...defaultProps.assets.links[0],
-            external: true,
-          },
-        ];
-        createComponent(defaultProps);
-      });
+    beforeEach(() => createComponent(defaultProps));
 
-      it('renders the link with an "external source" indicator', () => {
-        expect(containsExternalSourceIndicator()).toBe(true);
-      });
-    });
-
-    describe('when a link is internal', () => {
-      beforeEach(() => {
-        defaultProps.assets.sources = [];
-        defaultProps.assets.links = [
-          {
-            ...defaultProps.assets.links[0],
-            external: false,
-          },
-        ];
-        createComponent(defaultProps);
-      });
-
-      it('renders the link without the "external source" indicator', () => {
-        expect(containsExternalSourceIndicator()).toBe(false);
-      });
+    it('renders with an external source indicator', () => {
+      expect(findAllExternalIcons()).toHaveLength(defaultProps.assets.count);
     });
   });
 });

@@ -1,19 +1,15 @@
 import { groupMemberRequestFormatter } from '~/groups/members/utils';
 import initInviteGroupTrigger from '~/invite_members/init_invite_group_trigger';
 import initInviteGroupsModal from '~/invite_members/init_invite_groups_modal';
-import initInviteMembersModal from '~/invite_members/init_invite_members_modal';
-import initInviteMembersTrigger from '~/invite_members/init_invite_members_trigger';
 import { s__ } from '~/locale';
 import { initMembersApp } from '~/members';
-import { MEMBER_TYPES } from '~/members/constants';
+import { GROUPS_APP_OPTIONS, MEMBERS_TAB_TYPES } from 'ee_else_ce/members/constants';
 import { groupLinkRequestFormatter } from '~/members/utils';
 
 const SHARED_FIELDS = ['account', 'maxRole', 'expiration', 'actions'];
-
-initMembersApp(document.querySelector('.js-group-members-list-app'), {
-  [MEMBER_TYPES.user]: {
-    tableFields: SHARED_FIELDS.concat(['source', 'granted', 'userCreatedAt', 'lastActivityOn']),
-    tableAttrs: { tr: { 'data-qa-selector': 'member_row' } },
+const APP_OPTIONS = {
+  [MEMBERS_TAB_TYPES.user]: {
+    tableFields: SHARED_FIELDS.concat(['source', 'activity']),
     tableSortableFields: [
       'account',
       'granted',
@@ -25,21 +21,24 @@ initMembersApp(document.querySelector('.js-group-members-list-app'), {
     requestFormatter: groupMemberRequestFormatter,
     filteredSearchBar: {
       show: true,
-      tokens: ['two_factor', 'with_inherited_permissions', 'enterprise'],
+      tokens: ['two_factor', 'with_inherited_permissions', 'enterprise', 'user_type'],
       searchParam: 'search',
       placeholder: s__('Members|Filter members'),
       recentSearchesStorageKey: 'group_members',
     },
   },
-  [MEMBER_TYPES.group]: {
-    tableFields: SHARED_FIELDS.concat('granted'),
-    tableAttrs: {
-      table: { 'data-qa-selector': 'groups_list' },
-      tr: { 'data-qa-selector': 'group_row' },
-    },
+  [MEMBERS_TAB_TYPES.group]: {
+    tableFields: SHARED_FIELDS.concat(['source', 'granted']),
     requestFormatter: groupLinkRequestFormatter,
+    filteredSearchBar: {
+      show: true,
+      tokens: ['groups_with_inherited_permissions'],
+      searchParam: 'search_groups',
+      placeholder: s__('Members|Filter groups'),
+      recentSearchesStorageKey: 'group_links_members',
+    },
   },
-  [MEMBER_TYPES.invite]: {
+  [MEMBERS_TAB_TYPES.invite]: {
     tableFields: SHARED_FIELDS.concat('invited'),
     requestFormatter: groupMemberRequestFormatter,
     filteredSearchBar: {
@@ -50,13 +49,14 @@ initMembersApp(document.querySelector('.js-group-members-list-app'), {
       recentSearchesStorageKey: 'group_invited_members',
     },
   },
-  [MEMBER_TYPES.accessRequest]: {
+  [MEMBERS_TAB_TYPES.accessRequest]: {
     tableFields: SHARED_FIELDS.concat('requested'),
     requestFormatter: groupMemberRequestFormatter,
   },
-});
+  ...GROUPS_APP_OPTIONS,
+};
 
-initInviteMembersModal();
+initMembersApp(document.querySelector('.js-group-members-list-app'), APP_OPTIONS);
+
 initInviteGroupsModal();
-initInviteMembersTrigger();
 initInviteGroupTrigger();

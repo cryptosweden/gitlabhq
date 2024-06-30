@@ -1,33 +1,33 @@
 <script>
-import { GlBreadcrumb, GlIcon, GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
-
+import { GlBreadcrumb, GlIcon, GlAlert } from '@gitlab/ui';
+import NewTopLevelGroupAlert from '~/groups/components/new_top_level_group_alert.vue';
+import SuperSidebarToggle from '~/super_sidebar/components/super_sidebar_toggle.vue';
+import { sidebarState, JS_TOGGLE_EXPAND_CLASS } from '~/super_sidebar/constants';
+import { s__ } from '~/locale';
 import LegacyContainer from './components/legacy_container.vue';
 import WelcomePage from './components/welcome.vue';
 
 export default {
+  JS_TOGGLE_EXPAND_CLASS,
   components: {
+    NewTopLevelGroupAlert,
     GlBreadcrumb,
     GlIcon,
+    GlAlert,
     WelcomePage,
     LegacyContainer,
-    CreditCardVerification: () =>
-      import('ee_component/namespaces/verification/components/credit_card_verification.vue'),
+    SuperSidebarToggle,
   },
-  directives: {
-    SafeHtml,
-  },
-  inject: {
-    verificationRequired: {
-      default: false,
-    },
-  },
+
+  inject: ['identityVerificationRequired', 'identityVerificationPath'],
+
   props: {
     title: {
       type: String,
       required: true,
     },
-    initialBreadcrumb: {
-      type: String,
+    initialBreadcrumbs: {
+      type: Array,
       required: true,
     },
     panels: {
@@ -43,18 +43,26 @@ export default {
       type: String,
       required: true,
     },
+    isSaas: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
 
   data() {
     return {
       activePanelName: null,
-      verificationCompleted: false,
     };
   },
 
   computed: {
     activePanel() {
       return this.panels.find((p) => p.name === this.activePanelName);
+    },
+
+    detailProps() {
+      return this.activePanel.detailProps || {};
     },
 
     details() {
@@ -66,18 +74,23 @@ export default {
     },
 
     breadcrumbs() {
-      if (!this.activePanel) {
-        return null;
-      }
-
-      return [
-        { text: this.initialBreadcrumb, href: '#' },
-        { text: this.activePanel.title, href: `#${this.activePanel.name}` },
-      ];
+      return this.activePanel
+        ? [
+            ...this.initialBreadcrumbs,
+            {
+              text: this.activePanel.title,
+              href: `#${this.activePanel.name}`,
+            },
+          ]
+        : this.initialBreadcrumbs;
     },
 
-    shouldVerify() {
-      return this.verificationRequired && !this.verificationCompleted;
+    showNewTopLevelGroupAlert() {
+      return this.isSaas && this.activePanel.detailProps?.parentGroupName === '';
+    },
+
+    showSuperSidebarToggle() {
+      return sidebarState.isCollapsed;
     },
   },
 
@@ -105,37 +118,77 @@ export default {
         localStorage.setItem(this.persistenceKey, this.activePanelName);
       }
     },
-    onVerified() {
-      this.verificationCompleted = true;
+  },
+
+  i18n: {
+    restrictedAlert: {
+      title: s__(
+        'IdentityVerification|Before you can create additional groups, we need to verify your account.',
+      ),
+      description: s__(
+        `IdentityVerification|We won't ask you for this information again. It will never be used for marketing purposes.`,
+      ),
+      buttonText: s__('IdentityVerification|Verify my account'),
     },
   },
 };
 </script>
 
 <template>
-  <credit-card-verification v-if="shouldVerify" @verified="onVerified" />
-  <welcome-page v-else-if="!activePanelName" :panels="panels" :title="title">
-    <template #footer>
-      <slot name="welcome-footer"> </slot>
+  <div>
+    <div class="top-bar-fixed container-fluid" data-testid="top-bar">
+      <div
+        class="top-bar-container gl-display-flex gl-align-items-center gl-border-b-1 gl-border-b-gray-100 gl-border-b-solid"
+      >
+        <super-sidebar-toggle
+          v-if="showSuperSidebarToggle"
+          class="gl-mr-2"
+          :class="$options.JS_TOGGLE_EXPAND_CLASS"
+        />
+        <gl-breadcrumb :items="breadcrumbs" data-testid="breadcrumb-links" class="gl-flex-grow-1" />
+      </div>
+    </div>
+
+    <template v-if="activePanel">
+      <div
+        data-testid="active-panel-template"
+        class="gl-display-flex gl-align-items-center gl-py-5"
+      >
+        <div class="col-auto">
+          <img aria-hidden :src="activePanel.imageSrc" />
+        </div>
+        <div class="col">
+          <h4>{{ activePanel.title }}</h4>
+
+          <p v-if="hasTextDetails">{{ details }}</p>
+          <component :is="details" v-else v-bind="detailProps" />
+        </div>
+
+        <slot name="extra-description"></slot>
+      </div>
+
+      <gl-alert
+        v-if="identityVerificationRequired"
+        :title="$options.i18n.restrictedAlert.title"
+        :dismissible="false"
+        :primary-button-text="$options.i18n.restrictedAlert.buttonText"
+        :primary-button-link="identityVerificationPath"
+        variant="danger"
+      >
+        {{ $options.i18n.restrictedAlert.description }}
+      </gl-alert>
+
+      <div v-else>
+        <new-top-level-group-alert v-if="showNewTopLevelGroupAlert" />
+
+        <legacy-container :key="activePanel.name" :selector="activePanel.selector" />
+      </div>
     </template>
-  </welcome-page>
-  <div v-else class="row">
-    <div class="col-lg-3">
-      <div v-safe-html="activePanel.illustration" class="gl-text-white"></div>
-      <h4>{{ activePanel.title }}</h4>
 
-      <p v-if="hasTextDetails">{{ details }}</p>
-      <component :is="details" v-else />
-
-      <slot name="extra-description"></slot>
-    </div>
-    <div class="col-lg-9">
-      <gl-breadcrumb v-if="breadcrumbs" :items="breadcrumbs">
-        <template #separator>
-          <gl-icon name="chevron-right" :size="8" />
-        </template>
-      </gl-breadcrumb>
-      <legacy-container :key="activePanel.name" :selector="activePanel.selector" />
-    </div>
+    <welcome-page v-else :panels="panels" :title="title">
+      <template #footer>
+        <slot name="welcome-footer"></slot>
+      </template>
+    </welcome-page>
   </div>
 </template>

@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::MattermostSlashCommands do
+RSpec.describe Integrations::MattermostSlashCommands, feature_category: :integrations do
   it_behaves_like Integrations::BaseSlashCommands
 
   describe 'Mattermost API' do
-    let(:project) { create(:project) }
+    let_it_be_with_reload(:project) { create(:project) }
     let(:integration) { project.build_mattermost_slash_commands_integration }
-    let(:user) { create(:user) }
+    let(:user) { build_stubbed(:user) }
 
     before do
       session = ::Mattermost::Session.new(nil)
@@ -20,11 +20,13 @@ RSpec.describe Integrations::MattermostSlashCommands do
 
     describe '#configure' do
       subject do
-        integration.configure(user,
-                              team_id: 'abc',
-                              trigger: 'gitlab',
-                              url: 'http://trigger.url',
-                              icon_url: 'http://icon.url/icon.png')
+        integration.configure(
+          user,
+          team_id: 'abc',
+          trigger: 'gitlab',
+          url: 'http://trigger.url',
+          icon_url: 'http://icon.url/icon.png'
+        )
       end
 
       context 'when the request succeeds' do
@@ -124,11 +126,46 @@ RSpec.describe Integrations::MattermostSlashCommands do
       end
     end
 
-    describe '#chat_responder' do
-      it 'returns the responder to use for Mattermost' do
-        expect(described_class.new.chat_responder)
-          .to eq(Gitlab::Chat::Responder::Mattermost)
+    describe '#redirect_url' do
+      let(:url) { 'http://www.mattermost.com/hooks' }
+
+      subject { integration.redirect_url('team', 'channel', url) }
+
+      it { is_expected.to eq("http://www.mattermost.com/team/channels/channel") }
+
+      context 'with invalid URL scheme' do
+        let(:url) { 'javascript://www.mattermost.com/hooks' }
+
+        it { is_expected.to be_nil }
       end
+
+      context 'with unsafe URL' do
+        let(:url) { "https://replaceme.com/'><script>alert(document.cookie)</script>" }
+
+        it { is_expected.to be_nil }
+      end
+    end
+
+    describe '#confirmation_url' do
+      let(:params) do
+        {
+          team_domain: 'gitlab',
+          channel_name: 'test-channel',
+          response_url: 'http://mattermost.gitlab.com/hooks/commands/my123command'
+        }
+      end
+
+      subject { integration.confirmation_url('command-id', params) }
+
+      it { is_expected.to be_present }
+    end
+  end
+
+  describe '#avatar_url' do
+    it 'returns the avatar image path' do
+      expect(subject.avatar_url).to eq(
+        ActionController::Base.helpers.image_path('illustrations/third-party-logos/integrations-logos/mattermost.svg')
+      )
     end
   end
 end

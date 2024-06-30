@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.shared_examples 'PyPI package creation' do |user_type, status, add_member = true|
+RSpec.shared_examples 'PyPI package creation' do |user_type, status, add_member = true, md5_digest = true|
   RSpec.shared_examples 'creating pypi package files' do
     it 'creates package files' do
       expect { subject }
@@ -14,6 +14,13 @@ RSpec.shared_examples 'PyPI package creation' do |user_type, status, add_member 
       expect(package.name).to eq params[:name]
       expect(package.version).to eq params[:version]
       expect(package.pypi_metadatum.required_python).to eq params[:requires_python]
+      expect(package.package_files.first.file_sha256).to eq params[:sha256_digest]
+
+      if md5_digest
+        expect(package.package_files.first.file_md5).to be_present
+      else
+        expect(package.package_files.first.file_md5).to be_nil
+      end
     end
   end
 
@@ -84,25 +91,13 @@ RSpec.shared_examples 'PyPI package creation' do |user_type, status, add_member 
       end
 
       context 'and direct upload disabled' do
-        context 'and background upload disabled' do
-          let(:fog_connection) do
-            stub_package_file_object_storage(direct_upload: false, background_upload: false)
-          end
-
-          it_behaves_like 'creating pypi package files'
+        let(:fog_connection) do
+          stub_package_file_object_storage(direct_upload: false)
         end
 
-        context 'and background upload enabled' do
-          let(:fog_connection) do
-            stub_package_file_object_storage(direct_upload: false, background_upload: true)
-          end
-
-          it_behaves_like 'creating pypi package files'
-        end
+        it_behaves_like 'creating pypi package files'
       end
     end
-
-    it_behaves_like 'background upload schedules a file migration'
   end
 end
 
@@ -124,6 +119,23 @@ RSpec.shared_examples 'PyPI package versions' do |user_type, status, add_member 
   end
 end
 
+RSpec.shared_examples 'PyPI package index' do |user_type, status, add_member = true|
+  context "for user type #{user_type}" do
+    before do
+      project.send("add_#{user_type}", user) if add_member && user_type != :anonymous
+      group.send("add_#{user_type}", user) if add_member && user_type != :anonymous
+    end
+
+    it 'returns the package index' do
+      subject
+
+      expect(response.body).to match(package.name)
+    end
+
+    it_behaves_like 'returning response status', status
+  end
+end
+
 RSpec.shared_examples 'PyPI package download' do |user_type, status, add_member = true|
   context "for user type #{user_type}" do
     before do
@@ -139,6 +151,18 @@ RSpec.shared_examples 'PyPI package download' do |user_type, status, add_member 
 
     it_behaves_like 'returning response status', status
     it_behaves_like 'a package tracking event', described_class.name, 'pull_package'
+    it_behaves_like 'bumping the package last downloaded at field'
+  end
+end
+
+RSpec.shared_examples 'rejected package download' do |user_type, status, add_member = true|
+  context "for user type #{user_type}" do
+    before do
+      project.send("add_#{user_type}", user) if add_member && user_type != :anonymous
+      group.send("add_#{user_type}", user) if add_member && user_type != :anonymous
+    end
+
+    it_behaves_like 'returning response status', status
   end
 end
 
@@ -181,6 +205,27 @@ RSpec.shared_examples 'rejects PyPI access with unknown group id' do
   end
 end
 
+RSpec.shared_examples 'allow access for everyone with public package_registry_access_level' do
+  context 'with private project but public access to package registry' do
+    before do
+      project.update_column(:visibility_level, Gitlab::VisibilityLevel::PRIVATE)
+      project.project_feature.update!(package_registry_access_level: ProjectFeature::PUBLIC)
+    end
+
+    context 'as non-member user' do
+      let(:headers) { basic_auth_header(user.username, personal_access_token.token) }
+
+      it_behaves_like 'returning response status', :success
+    end
+
+    context 'as anonymous' do
+      let(:headers) { {} }
+
+      it_behaves_like 'returning response status', :success
+    end
+  end
+end
+
 RSpec.shared_examples 'pypi simple API endpoint' do
   using RSpec::Parameterized::TableSyntax
 
@@ -209,6 +254,13 @@ RSpec.shared_examples 'pypi simple API endpoint' do
     with_them do
       let(:token) { user_token ? personal_access_token.token : 'wrong' }
       let(:headers) { user_role == :anonymous ? {} : basic_auth_header(user.username, token) }
+      let(:snowplow_gitlab_standard_context) do
+        if user_role == :anonymous || (visibility_level == :public && !user_token)
+          snowplow_context
+        else
+          snowplow_context.merge(user: user)
+        end
+      end
 
       before do
         project.update_column(:visibility_level, Gitlab::VisibilityLevel.level_value(visibility_level.to_s))
@@ -224,7 +276,7 @@ RSpec.shared_examples 'pypi simple API endpoint' do
 
     let(:url) { "/projects/#{project.id}/packages/pypi/simple/my-package" }
     let(:headers) { basic_auth_header(user.username, personal_access_token.token) }
-    let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace } }
+    let(:snowplow_gitlab_standard_context) { snowplow_context.merge({ project: project, user: user }) }
 
     it_behaves_like 'PyPI package versions', :developer, :success
   end
@@ -251,7 +303,7 @@ RSpec.shared_examples 'pypi simple API endpoint' do
       end
 
       before do
-        allow_fetch_application_setting(attribute: "pypi_package_requests_forwarding", return_value: forward)
+        allow_fetch_cascade_application_setting(attribute: "pypi_package_requests_forwarding", return_value: forward)
       end
 
       it_behaves_like params[:shared_examples_name], :reporter, params[:expected_status]
@@ -259,29 +311,29 @@ RSpec.shared_examples 'pypi simple API endpoint' do
   end
 end
 
-RSpec.shared_examples 'pypi file download endpoint' do
+RSpec.shared_examples 'pypi simple index API endpoint' do
   using RSpec::Parameterized::TableSyntax
 
   context 'with valid project' do
-    where(:visibility_level, :user_role, :member, :user_token) do
-      :public  | :developer  | true  | true
-      :public  | :guest      | true  | true
-      :public  | :developer  | true  | false
-      :public  | :guest      | true  | false
-      :public  | :developer  | false | true
-      :public  | :guest      | false | true
-      :public  | :developer  | false | false
-      :public  | :guest      | false | false
-      :public  | :anonymous  | false | true
-      :private | :developer  | true  | true
-      :private | :guest      | true  | true
-      :private | :developer  | true  | false
-      :private | :guest      | true  | false
-      :private | :developer  | false | true
-      :private | :guest      | false | true
-      :private | :developer  | false | false
-      :private | :guest      | false | false
-      :private | :anonymous  | false | true
+    where(:visibility_level, :user_role, :member, :user_token, :shared_examples_name, :expected_status) do
+      :public  | :developer  | true  | true  | 'PyPI package index' | :success
+      :public  | :guest      | true  | true  | 'PyPI package index' | :success
+      :public  | :developer  | true  | false | 'PyPI package index' | :success
+      :public  | :guest      | true  | false | 'PyPI package index' | :success
+      :public  | :developer  | false | true  | 'PyPI package index' | :success
+      :public  | :guest      | false | true  | 'PyPI package index' | :success
+      :public  | :developer  | false | false | 'PyPI package index' | :success
+      :public  | :guest      | false | false | 'PyPI package index' | :success
+      :public  | :anonymous  | false | true  | 'PyPI package index' | :success
+      :private | :developer  | true  | true  | 'PyPI package index' | :success
+      :private | :guest      | true  | true  | 'process PyPI api request' | :forbidden
+      :private | :developer  | true  | false | 'process PyPI api request' | :unauthorized
+      :private | :guest      | true  | false | 'process PyPI api request' | :unauthorized
+      :private | :developer  | false | true  | 'process PyPI api request' | :not_found
+      :private | :guest      | false | true  | 'process PyPI api request' | :not_found
+      :private | :developer  | false | false | 'process PyPI api request' | :unauthorized
+      :private | :guest      | false | false | 'process PyPI api request' | :unauthorized
+      :private | :anonymous  | false | true  | 'process PyPI api request' | :unauthorized
     end
 
     with_them do
@@ -293,7 +345,46 @@ RSpec.shared_examples 'pypi file download endpoint' do
         group.update_column(:visibility_level, Gitlab::VisibilityLevel.level_value(visibility_level.to_s))
       end
 
-      it_behaves_like 'PyPI package download', params[:user_role], :success, params[:member]
+      it_behaves_like params[:shared_examples_name], params[:user_role], params[:expected_status], params[:member]
+    end
+  end
+end
+
+RSpec.shared_examples 'pypi file download endpoint' do
+  using RSpec::Parameterized::TableSyntax
+
+  context 'with valid project' do
+    where(:visibility_level, :user_role, :member, :user_token, :shared_examples_name, :expected_status) do
+      :public  | :developer  | true  | true  | 'PyPI package download'     | :success
+      :public  | :guest      | true  | true  | 'PyPI package download'     | :success
+      :public  | :developer  | true  | false | 'PyPI package download'     | :success
+      :public  | :guest      | true  | false | 'PyPI package download'     | :success
+      :public  | :developer  | false | true  | 'PyPI package download'     | :success
+      :public  | :guest      | false | true  | 'PyPI package download'     | :success
+      :public  | :developer  | false | false | 'PyPI package download'     | :success
+      :public  | :guest      | false | false | 'PyPI package download'     | :success
+      :public  | :anonymous  | false | true  | 'PyPI package download'     | :success
+      :private | :developer  | true  | true  | 'PyPI package download'     | :success
+      :private | :guest      | true  | true  | 'rejected package download' | :forbidden
+      :private | :developer  | true  | false | 'rejected package download' | :unauthorized
+      :private | :guest      | true  | false | 'rejected package download' | :unauthorized
+      :private | :developer  | false | true  | 'rejected package download' | :not_found
+      :private | :guest      | false | true  | 'rejected package download' | :not_found
+      :private | :developer  | false | false | 'rejected package download' | :unauthorized
+      :private | :guest      | false | false | 'rejected package download' | :unauthorized
+      :private | :anonymous  | false | true  | 'rejected package download' | :unauthorized
+    end
+
+    with_them do
+      let(:token) { user_token ? personal_access_token.token : 'wrong' }
+      let(:headers) { user_role == :anonymous ? {} : basic_auth_header(user.username, token) }
+
+      before do
+        project.update_column(:visibility_level, Gitlab::VisibilityLevel.level_value(visibility_level.to_s))
+        group.update_column(:visibility_level, Gitlab::VisibilityLevel.level_value(visibility_level.to_s))
+      end
+
+      it_behaves_like params[:shared_examples_name], params[:user_role], params[:expected_status], params[:member]
     end
   end
 

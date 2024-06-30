@@ -1,13 +1,12 @@
 <script>
 import paginatedTreeQuery from 'shared_queries/repository/paginated_tree.query.graphql';
-import createFlash from '~/flash';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import { __ } from '../../locale';
+import { createAlert } from '~/alert';
 import {
   TREE_PAGE_SIZE,
-  TREE_INITIAL_FETCH_COUNT,
   TREE_PAGE_LIMIT,
   COMMIT_BATCH_SIZE,
+  GITALY_UNAVAILABLE_CODE,
+  i18n,
 } from '../constants';
 import getRefMixin from '../mixins/get_ref';
 import projectPathQuery from '../queries/project_path.query.graphql';
@@ -17,16 +16,18 @@ import FilePreview from './preview/index.vue';
 import FileTable from './table/index.vue';
 
 export default {
+  i18n,
   components: {
     FileTable,
     FilePreview,
   },
-  mixins: [getRefMixin, glFeatureFlagMixin()],
+  mixins: [getRefMixin],
   apollo: {
     projectPath: {
       query: projectPathQuery,
     },
   },
+  inject: ['refType'],
   props: {
     path: {
       type: String,
@@ -57,13 +58,6 @@ export default {
     };
   },
   computed: {
-    pageSize() {
-      // we want to exponentially increase the page size to reduce the load on the frontend
-      const exponentialSize = (TREE_PAGE_SIZE / TREE_INITIAL_FETCH_COUNT) * (this.fetchCounter + 1);
-      return exponentialSize < TREE_PAGE_SIZE && this.glFeatures.increasePageSizeExponentially
-        ? exponentialSize
-        : TREE_PAGE_SIZE;
-    },
     totalEntries() {
       return Object.values(this.entries).flat().length;
     },
@@ -106,9 +100,10 @@ export default {
           variables: {
             projectPath: this.projectPath,
             ref: this.ref,
+            refType: this.refType?.toUpperCase(),
             path: originalPath,
             nextPageCursor: this.nextPageCursor,
-            pageSize: this.pageSize,
+            pageSize: TREE_PAGE_SIZE,
           },
         })
         .then(({ data }) => {
@@ -142,10 +137,19 @@ export default {
           }
         })
         .catch((error) => {
-          createFlash({
-            message: __('An error occurred while fetching folder content.'),
+          let gitalyUnavailableError;
+          if (error.graphQLErrors) {
+            gitalyUnavailableError = error.graphQLErrors.find(
+              (e) => e?.extensions?.code === GITALY_UNAVAILABLE_CODE,
+            );
+          }
+          const message = gitalyUnavailableError
+            ? this.$options.i18n.gitalyError
+            : this.$options.i18n.generalError;
+          createAlert({
+            message,
+            captureError: true,
           });
-          throw error;
         });
     },
     normalizeData(key, data) {
@@ -157,19 +161,15 @@ export default {
         .find(({ hasNextPage }) => hasNextPage);
     },
     handleRowAppear(rowNumber) {
-      if (!this.glFeatures.lazyLoadCommits || isRequested(rowNumber)) {
+      if (isRequested(rowNumber)) {
         return;
       }
 
-      // Since a user could scroll either up or down, we want to support lazy loading in both directions
-      this.loadCommitData(rowNumber);
-
-      if (rowNumber - COMMIT_BATCH_SIZE >= 0) {
-        this.loadCommitData(rowNumber - COMMIT_BATCH_SIZE);
-      }
+      // Assume we are loading from the top and greedily choose offsets in multiples of COMMIT_BATCH_SIZE to minimize number of requests
+      this.loadCommitData(rowNumber - (rowNumber % COMMIT_BATCH_SIZE));
     },
     loadCommitData(rowNumber) {
-      loadCommits(this.projectPath, this.path, this.ref, rowNumber)
+      loadCommits(this.projectPath, this.path, this.ref, rowNumber, this.refType)
         .then(this.setCommitData)
         .catch(() => {});
     },

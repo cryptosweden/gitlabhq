@@ -2,21 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin Groups' do
-  include Select2Helper
-  include Spec::Support::Helpers::Features::MembersHelpers
-  include Spec::Support::Helpers::Features::InviteMembersModalHelper
+RSpec.describe 'Admin Groups', feature_category: :groups_and_projects do
+  include Features::MembersHelpers
+  include Features::InviteMembersModalHelpers
   include Spec::Support::Helpers::ModalHelpers
 
   let(:internal) { Gitlab::VisibilityLevel::INTERNAL }
 
   let_it_be(:user) { create :user }
   let_it_be(:group) { create :group }
-  let_it_be(:current_user) { create(:admin) }
+  let_it_be_with_reload(:current_user) { create(:admin) }
 
   before do
     sign_in(current_user)
-    gitlab_enable_admin_mode_sign_in(current_user)
+    enable_admin_mode!(current_user)
     stub_application_setting(default_group_visibility: internal)
   end
 
@@ -28,7 +27,7 @@ RSpec.describe 'Admin Groups' do
     end
   end
 
-  describe 'create a group' do
+  describe 'create a group', :js do
     describe 'with expected fields' do
       it 'renders from as expected', :aggregate_failures do
         visit new_admin_group_path
@@ -60,8 +59,7 @@ RSpec.describe 'Admin Groups' do
 
       expect(page).to have_current_path admin_group_path(Group.find_by(path: path_component)), ignore_query: true
       content = page.find('#content-body')
-      h3_texts = content.all('h3').collect(&:text).join("\n")
-      expect(h3_texts).to match group_name
+      expect(page).to have_content group_name
       li_texts = content.all('li').collect(&:text).join("\n")
       expect(li_texts).to match group_name
       expect(li_texts).to match path_component
@@ -76,7 +74,7 @@ RSpec.describe 'Admin Groups' do
       expect_selected_visibility(internal)
     end
 
-    it 'when entered in group name, it auto filled the group path', :js do
+    it 'when entered in group name, it auto filled the group path' do
       visit admin_groups_path
       click_link "New group"
       group_name = 'gitlab'
@@ -85,7 +83,7 @@ RSpec.describe 'Admin Groups' do
       expect(path_field.value).to eq group_name
     end
 
-    it 'auto populates the group path with the group name', :js do
+    it 'auto populates the group path with the group name' do
       visit admin_groups_path
       click_link "New group"
       group_name = 'my gitlab project'
@@ -94,7 +92,7 @@ RSpec.describe 'Admin Groups' do
       expect(path_field.value).to eq 'my-gitlab-project'
     end
 
-    it 'when entering in group path, group name does not change anymore', :js do
+    it 'when entering in group path, group name does not change anymore' do
       visit admin_groups_path
       click_link "New group"
       group_path = 'my-gitlab-project'
@@ -112,7 +110,7 @@ RSpec.describe 'Admin Groups' do
 
       visit admin_group_path(group)
 
-      expect(page).to have_content("Group: #{group.name}")
+      expect(page).to have_content group.name
       expect(page).to have_content("ID: #{group.id}")
     end
 
@@ -140,7 +138,7 @@ RSpec.describe 'Admin Groups' do
       it 'shows access requests with link to manage access' do
         visit admin_group_path(group)
 
-        page.within '[data-testid="access-requests"]' do
+        within_testid('access-requests') do
           expect(page).to have_content access_request.user.name
           expect(page).to have_link 'Manage access', href: group_group_members_path(group, tab: 'access_requests')
         end
@@ -162,7 +160,7 @@ RSpec.describe 'Admin Groups' do
 
       visit admin_group_edit_path(group)
 
-      expect(page).to have_content('Allowed to create subgroups')
+      expect(page).to have_content('Roles allowed to create subgroups')
     end
 
     it 'edit group path does not change group name', :js do
@@ -205,38 +203,46 @@ RSpec.describe 'Admin Groups' do
 
       expect(page).to have_content(new_admin_note_text)
     end
+
+    it 'hides removed note' do
+      group = create(:group, :private)
+      group.create_admin_note(note: 'A note by an administrator')
+
+      visit admin_group_edit_path(group)
+      fill_in 'group_admin_note_attributes_note', with: ''
+      click_button 'Save changes'
+
+      expect(page).not_to have_content(s_('Admin|Admin notes'))
+    end
   end
 
   describe 'add user into a group', :js do
-    shared_examples 'adds user into a group' do
-      it do
+    context 'when membership is set to expire' do
+      it 'renders relative time', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/460029' do
+        expire_time = Time.current + 2.days
+        current_user.update!(time_display_relative: true)
+        group.add_member(user, Gitlab::Access::REPORTER, expires_at: expire_time)
+
         visit admin_group_path(group)
 
-        select2(user_selector, from: '#user_ids', multiple: true)
-        page.within '#new_project_member' do
-          select2(Gitlab::Access::REPORTER, from: '#access_level')
-        end
-        click_button "Add users to group"
-
-        page.within ".group-users-list" do
-          expect(page).to have_content(user.name)
-          expect(page).to have_content('Reporter')
-        end
+        expect(page).to have_content(/Expires in \d day/)
       end
-    end
 
-    it_behaves_like 'adds user into a group' do
-      let(:user_selector) { user.id }
-    end
+      it 'renders absolute time' do
+        expire_time = Time.current.tomorrow.middle_of_day
+        current_user.update!(time_display_relative: false)
+        group.add_member(user, Gitlab::Access::REPORTER, expires_at: expire_time)
 
-    it_behaves_like 'adds user into a group' do
-      let(:user_selector) { user.email }
+        visit admin_group_path(group)
+
+        expect(page).to have_content("Expires on #{expire_time.strftime('%b %-d')}")
+      end
     end
   end
 
   describe 'add admin himself to a group' do
     before do
-      group.add_user(:user, Gitlab::Access::OWNER)
+      group.add_member(:user, Gitlab::Access::OWNER)
     end
 
     it 'adds admin a to a group as developer', :js do
@@ -253,7 +259,7 @@ RSpec.describe 'Admin Groups' do
 
   describe 'admin removes themself from a group', :js do
     it 'removes admin from the group' do
-      group.add_user(current_user, Gitlab::Access::DEVELOPER)
+      group.add_member(current_user, Gitlab::Access::DEVELOPER)
 
       visit group_group_members_path(group)
 
@@ -262,9 +268,12 @@ RSpec.describe 'Admin Groups' do
         expect(page).to have_content('Developer')
       end
 
-      find_member_row(current_user).click_button(title: 'Leave')
+      show_actions_for_username(current_user)
+      click_button _('Leave group')
 
-      accept_gl_confirm(button_text: 'Leave')
+      within_modal do
+        click_button _('Leave')
+      end
 
       wait_for_all_requests
 

@@ -23,7 +23,7 @@ module Sidebars
         def render?
           clusterable = context.group
 
-          Feature.enabled?(:certificate_based_clusters, clusterable, default_enabled: :yaml, type: :ops) &&
+          clusterable.certificate_based_clusters_enabled? &&
             can?(context.current_user, :read_cluster, clusterable)
         end
 
@@ -37,6 +37,14 @@ module Sidebars
         override :active_routes
         def active_routes
           { controller: :clusters }
+        end
+
+        override :serialize_as_menu_item_args
+        def serialize_as_menu_item_args
+          super.merge({
+            super_sidebar_parent: ::Sidebars::Groups::SuperSidebarMenus::OperationsMenu,
+            item_id: :group_kubernetes_clusters
+          })
         end
       end
     end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::AbsoluteLinkFilter do
+RSpec.describe Banzai::Filter::AbsoluteLinkFilter, feature_category: :team_planning do
   def filter(doc, context = {})
     described_class.call(doc, context)
   end
@@ -54,6 +54,8 @@ RSpec.describe Banzai::Filter::AbsoluteLinkFilter do
       end
     end
   end
+
+  it_behaves_like 'pipeline timing check'
 
   def link(path, css_class = '')
     %(<a class="#{css_class}" href="#{path}">example</a>)

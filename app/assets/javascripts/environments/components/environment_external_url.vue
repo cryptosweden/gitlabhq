@@ -30,6 +30,7 @@ export default {
     :title="$options.i18n.title"
     :aria-label="$options.i18n.title"
     :href="externalUrl"
+    is-unsafe-link
     class="external-url"
     target="_blank"
     icon="external-link"

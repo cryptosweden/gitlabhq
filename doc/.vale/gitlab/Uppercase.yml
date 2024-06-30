@@ -1,55 +1,80 @@
 ---
-# Warning: gitlab.Uppercase
+# Suggestion: gitlab.Uppercase
 #
 # Checks for use of all uppercase letters with unknown reason.
 #
-# For a list of all options, see https://docs.errata.ai/vale/styles.
+# For a list of all options, see https://vale.sh/docs/topics/styles/
 extends: conditional
-message: "'%s' is uppercase. Use lowercase or `backticks` if possible. Otherwise add this word to the rule's exception list."
-link: https://about.gitlab.com/handbook/marketing/growth-marketing/content/editorial-team/#acronyms
-level: warning
+message: "Instead of uppercase for '%s', use lowercase or backticks (`) if possible. Otherwise, ask a Technical Writer to add this word or acronym to the rule's exception list."
+link: https://docs.gitlab.com/ee/development/documentation/testing/vale.html#vale-uppercase-acronym-test
+level: suggestion
 ignorecase: false
 # Ensures that the existence of 'first' implies the existence of 'second'.
 first: '\b([A-Z]{3,5})\b'
 second: '(?:\b[A-Z][a-z]+ )+\(([A-Z]{3,5})\)'
 # ... with the exception of these:
 exceptions:
+  - ACL
   - AJAX
+  - ALL
+  - AMI
   - ANSI
+  - APAC
   - API
   - APM
   - ARM
   - ARN
   - ASCII
+  - ASG
+  - AST
   - AWS
+  - BETA
+  - BMP
   - BSD
   - CAS
   - CDN
+  - CGI
   - CIDR
   - CLI
   - CNA
-  - CNAME
+  - CNCF
   - CORE
+  - CORS
   - CPU
+  - CRAN
   - CRIME
+  - CRM
+  - CRUD
   - CSRF
   - CSS
   - CSV
+  - CTE
   - CVE
   - CVS
+  - CVSS
+  - CWE
   - DAG
   - DAST
+  - DDL
   - DHCP
+  - DML
   - DNS
+  - DSN
   - DOM
+  - DORA
   - DSA
   - DSL
+  - DUOPRO
+  - DUOENT
   - DVCS
+  - DVD
+  - EBS
   - ECDSA
   - ECS
   - EFS
   - EKS
   - ELB
+  - ENA
   - EOL
   - EWM
   - EXIF
@@ -69,24 +94,32 @@ exceptions:
   - GID
   - GIF
   - GKE
+  - GLEX
+  - GLFM
   - GNU
   - GPG
   - GPL
+  - GPS
+  - GPT
   - GPU
   - GUI
   - HAML
+  - HAR
   - HDD
   - HEAD
   - HIPAA
   - HLL
+  - HSTS
   - HTML
   - HTTP
   - HTTPS
   - IAM
   - IANA
   - IBM
+  - ICO
   - IDE
   - IID
+  - IIS
   - IMAP
   - IOPS
   - IRC
@@ -96,17 +129,22 @@ exceptions:
   - JSON
   - JVM
   - JWT
+  - KICS
   - LAN
   - LDAP
   - LDAPS
   - LESS
   - LFS
   - LRU
+  - LSIF
   - LTM
   - LTS
+  - LVM
   - MIME
   - MIT
+  - MITRE
   - MVC
+  - NAS
   - NAT
   - NDA
   - NFS
@@ -114,6 +152,10 @@ exceptions:
   - NOTE
   - NPM
   - NTP
+  - OCI
+  - OIDC
+  - OKD
+  - OKR
   - ONLY
   - OSS
   - OTP
@@ -130,7 +172,9 @@ exceptions:
   - PNG
   - POSIX
   - POST
+  - PROXY
   - PUT
+  - QPS
   - RAID
   - RAM
   - RBAC
@@ -142,17 +186,22 @@ exceptions:
   - RHEL
   - RPC
   - RPM
+  - RPO
   - RPS
   - RSA
   - RSS
   - RTC
+  - RTO
   - RVM
   - SAAS
   - SAML
   - SAN
   - SAST
   - SATA
+  - SBOM
+  - SBT
   - SCIM
+  - SCM
   - SCP
   - SCSS
   - SDK
@@ -160,13 +209,17 @@ exceptions:
   - SEO
   - SFTP
   - SHA
+  - SKI
   - SLA
   - SLI
+  - SLO
   - SMS
   - SMTP
+  - SOAP
   - SOC
   - SOX
   - SPDX
+  - SPDY
   - SPF
   - SQL
   - SRE
@@ -176,6 +229,7 @@ exceptions:
   - SSL
   - SSO
   - STI
+  - SUSE
   - SVG
   - SVN
   - TCP
@@ -186,7 +240,9 @@ exceptions:
   - TODO
   - TOML
   - TOTP
+  - TPS
   - TTL
+  - UBI
   - UDP
   - UID
   - UID
@@ -200,6 +256,8 @@ exceptions:
   - VCS
   - VPC
   - VPN
+  - WAF
+  - WEBP
   - WIP
   - WSL
   - XML

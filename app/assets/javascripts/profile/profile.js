@@ -1,49 +1,36 @@
 import $ from 'jquery';
-import createFlash, { FLASH_TYPES } from '~/flash';
+import Vue from 'vue';
+import { VARIANT_DANGER, VARIANT_INFO, createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { parseBoolean } from '~/lib/utils/common_utils';
+import { parseRailsFormFields } from '~/lib/utils/forms';
 import { Rails } from '~/lib/utils/rails_ujs';
-import TimezoneDropdown, {
-  formatTimezone,
-} from '~/pages/projects/pipeline_schedules/shared/components/timezone_dropdown';
+import UserProfileSetStatusWrapper from '~/set_status_modal/user_profile_set_status_wrapper.vue';
 
 export default class Profile {
   constructor({ form } = {}) {
     this.onSubmitForm = this.onSubmitForm.bind(this);
-    this.form = form || $('.edit-user');
+    this.form = form || $('.js-edit-user');
     this.setRepoRadio();
     this.bindEvents();
     this.initAvatarGlCrop();
-
-    this.$inputEl = $('#user_timezone');
-
-    this.timezoneDropdown = new TimezoneDropdown({
-      $inputEl: this.$inputEl,
-      $dropdownEl: $('.js-timezone-dropdown'),
-      displayFormat: (selectedItem) => formatTimezone(selectedItem),
-      allowEmpty: true,
-    });
+    this.form.attr('data-testid', 'form-ready');
   }
 
   initAvatarGlCrop() {
     const cropOpts = {
       filename: '.js-avatar-filename',
-      previewImage: '.avatar-image .avatar',
+      previewImage: '.avatar-image .gl-avatar',
       modalCrop: '.modal-profile-crop',
       pickImageEl: '.js-choose-user-avatar-button',
       uploadImageBtn: '.js-upload-user-avatar',
-      modalCropImg: '.modal-profile-crop-image',
+      modalCropImg: document.querySelector('.modal-profile-crop-image'),
     };
     this.avatarGlCrop = $('.js-user-avatar-input').glCrop(cropOpts).data('glcrop');
   }
 
   bindEvents() {
     $('.js-preferences-form').on('change.preference', 'input[type=radio]', this.submitForm);
-    $('.js-group-notification-email').on('change', this.submitForm);
-    $('#user_notification_email').on('select2-selecting', (event) => {
-      setTimeout(this.submitForm.bind(event.currentTarget));
-    });
-    $('#user_email_opted_in').on('change', this.submitForm);
     $('#user_notified_of_own_activity').on('change', this.submitForm);
     this.form.on('submit', this.onSubmitForm);
   }
@@ -84,9 +71,9 @@ export default class Profile {
           this.updateHeaderAvatar();
         }
 
-        createFlash({
+        createAlert({
           message: data.message,
-          type: data.status === 'error' ? FLASH_TYPES.ALERT : FLASH_TYPES.NOTICE,
+          variant: data.status === 'error' ? VARIANT_DANGER : VARIANT_INFO,
         });
       })
       .then(() => {
@@ -95,15 +82,17 @@ export default class Profile {
         self.form.find(':input[disabled]').enable();
       })
       .catch((error) =>
-        createFlash({
+        createAlert({
           message: error.message,
+          variant: VARIANT_DANGER,
         }),
       );
   }
 
   updateHeaderAvatar() {
-    $('.header-user-avatar').attr('src', this.avatarGlCrop.dataURL);
-    $('.js-sidebar-user-avatar').attr('src', this.avatarGlCrop.dataURL);
+    const url = URL.createObjectURL(this.avatarGlCrop.getBlob());
+
+    document.dispatchEvent(new CustomEvent('userAvatar:update', { detail: { url } }));
   }
 
   setRepoRadio() {
@@ -115,3 +104,24 @@ export default class Profile {
     }
   }
 }
+
+export const initSetStatusForm = () => {
+  const el = document.getElementById('js-user-profile-set-status-form');
+
+  if (!el) {
+    return null;
+  }
+
+  const fields = parseRailsFormFields(el);
+
+  return new Vue({
+    el,
+    name: 'UserProfileStatusForm',
+    provide: {
+      fields,
+    },
+    render(h) {
+      return h(UserProfileSetStatusWrapper);
+    },
+  });
+};

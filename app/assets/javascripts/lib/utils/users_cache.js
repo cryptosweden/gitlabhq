@@ -29,10 +29,24 @@ class UsersCache extends Cache {
     }
 
     return getUser(userId).then(({ data }) => {
-      this.internalStorage[userId] = data;
-      return data;
+      this.internalStorage[userId] = {
+        ...this.get(userId),
+        ...data,
+      };
+      return this.internalStorage[userId];
     });
     // missing catch is intentional, error handling depends on use case
+  }
+
+  updateById(userId, data) {
+    if (!this.hasData(userId)) {
+      return;
+    }
+
+    this.internalStorage[userId] = {
+      ...this.internalStorage[userId],
+      ...data,
+    };
   }
 
   retrieveStatusById(userId) {

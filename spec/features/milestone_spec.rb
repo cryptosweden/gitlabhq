@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Milestone' do
+RSpec.describe 'Milestone', feature_category: :team_planning do
   let(:group) { create(:group, :public) }
   let(:project) { create(:project, :public, namespace: group) }
   let(:user) { create(:user) }
@@ -23,10 +23,15 @@ RSpec.describe 'Milestone' do
         fill_in "milestone_due_date", with: '2016-12-16'
       end
 
-      find('input[name="commit"]').click
+      click_button 'Create milestone'
 
-      expect(find('[data-testid="no-issues-alert"]')).to have_content('Assign some issues to this milestone.')
       expect(page).to have_content('Nov 16, 2016–Dec 16, 2016')
+    end
+
+    it 'passes redirect_path through to form' do
+      visit new_project_milestone_path(project, redirect_path: 'new_release')
+
+      expect(find('#redirect_path', visible: :all)[:value]).to eq('new_release')
     end
   end
 
@@ -37,7 +42,7 @@ RSpec.describe 'Milestone' do
       create(:issue, title: "Bugfix1", project: project, milestone: milestone, state: "closed")
       visit project_milestone_path(project, milestone)
 
-      expect(find('[data-testid="all-issues-closed-alert"]')).to have_content('All issues for this milestone are closed. You may close this milestone now.')
+      expect(find_by_testid('all-issues-closed-alert')).to have_content('All issues for this milestone are closed. You may close this milestone now.')
     end
   end
 
@@ -49,9 +54,9 @@ RSpec.describe 'Milestone' do
       page.within '.milestone-form' do
         fill_in "milestone_title", with: milestone.title
       end
-      find('input[name="commit"]').click
+      click_button 'Create milestone'
 
-      expect(find('.alert-danger')).to have_content('already being used for another group or project milestone.')
+      expect(find('.gl-alert-danger')).to have_content('already being used for another group or project milestone.')
     end
 
     it 'displays validation message when there is a group milestone with same title' do
@@ -62,9 +67,9 @@ RSpec.describe 'Milestone' do
       page.within '.milestone-form' do
         fill_in "milestone_title", with: milestone.title
       end
-      find('input[name="commit"]').click
+      click_button 'Create milestone'
 
-      expect(find('.alert-danger')).to have_content('already being used for another group or project milestone.')
+      expect(find('.gl-alert-danger')).to have_content('already being used for another group or project milestone.')
     end
   end
 
@@ -76,7 +81,7 @@ RSpec.describe 'Milestone' do
 
       wait_for_requests
 
-      page.within('[data-testid="noTrackingPane"]') do
+      within_testid('noTrackingPane') do
         expect(page).to have_content 'No estimate or time spent'
       end
     end
@@ -94,24 +99,24 @@ RSpec.describe 'Milestone' do
 
       wait_for_requests
 
-      page.within('[data-testid="spentOnlyPane"]') do
+      within_testid('spentOnlyPane') do
         expect(page).to have_content 'Spent: 3h'
       end
     end
   end
 
-  describe 'Deleting a milestone' do
+  describe 'Deleting a milestone', :js do
     it "the delete milestone button does not show for unauthorized users" do
       create(:milestone, project: project, title: 8.7)
       sign_out(user)
 
       visit group_milestones_path(group)
 
-      expect(page).to have_selector('.js-delete-milestone-button', count: 0)
+      expect(page).to have_selector('[data-testid="milestone-delete-item"]', count: 0)
     end
   end
 
-  describe 'reopen closed milestones' do
+  describe 'reopen closed milestones', :js do
     before do
       create(:milestone, :closed, project: project)
     end
@@ -120,21 +125,23 @@ RSpec.describe 'Milestone' do
       it 'reopens the milestone' do
         visit group_milestones_path(group, { state: 'closed' })
 
-        click_link 'Reopen Milestone'
+        find_by_testid('milestone-more-actions-dropdown-toggle').click
+        click_link 'Reopen'
 
-        expect(page).not_to have_selector('.status-box-closed')
-        expect(page).to have_selector('.status-box-open')
+        expect(page).not_to have_selector('.badge-danger')
+        expect(page).to have_selector('.badge-success')
       end
     end
 
-    describe 'project milestones page' do
+    describe 'project milestones page', :js do
       it 'reopens the milestone' do
         visit project_milestones_path(project, { state: 'closed' })
 
-        click_link 'Reopen Milestone'
+        find_by_testid('milestone-more-actions-dropdown-toggle').click
+        click_link 'Reopen'
 
-        expect(page).not_to have_selector('.status-box-closed')
-        expect(page).to have_selector('.status-box-open')
+        expect(page).not_to have_selector('.badge-danger')
+        expect(page).to have_selector('.badge-success')
       end
     end
   end

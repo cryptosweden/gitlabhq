@@ -1,9 +1,9 @@
-import ShortcutsNavigation from '../../behaviors/shortcuts/shortcuts_navigation';
-import initTerraformNotification from '../../projects/terraform_notification';
-import { initSidebarTracking } from '../shared/nav/sidebar_tracking';
+import { addShortcutsExtension } from '~/behaviors/shortcuts';
+import ShortcutsNavigation from '~/behaviors/shortcuts/shortcuts_navigation';
+import initReadMore from '~/read_more';
 import Project from './project';
 
 new Project(); // eslint-disable-line no-new
-new ShortcutsNavigation(); // eslint-disable-line no-new
-initSidebarTracking();
-initTerraformNotification();
+addShortcutsExtension(ShortcutsNavigation);
+
+initReadMore();

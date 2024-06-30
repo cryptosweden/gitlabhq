@@ -2,52 +2,59 @@ import { GlDrawer, GlLabel, GlModal, GlButton } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { MountingPortal } from 'portal-vue';
 import Vue, { nextTick } from 'vue';
-import Vuex from 'vuex';
+import VueApollo from 'vue-apollo';
+import createMockApollo from 'helpers/mock_apollo_helper';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
+import waitForPromises from 'helpers/wait_for_promises';
 import { stubComponent } from 'helpers/stub_component';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import BoardSettingsSidebar from '~/boards/components/board_settings_sidebar.vue';
-import { inactiveId, LIST } from '~/boards/constants';
-import actions from '~/boards/stores/actions';
-import getters from '~/boards/stores/getters';
-import mutations from '~/boards/stores/mutations';
-import sidebarEventHub from '~/sidebar/event_hub';
-import { mockLabelList } from '../mock_data';
+import destroyBoardListMutation from '~/boards/graphql/board_list_destroy.mutation.graphql';
+import * as cacheUpdates from '~/boards/graphql/cache_updates';
+import { mockLabelList, destroyBoardListMutationResponse } from '../mock_data';
 
-Vue.use(Vuex);
+Vue.use(VueApollo);
 
 describe('BoardSettingsSidebar', () => {
   let wrapper;
+  let mockApollo;
   const labelTitle = mockLabelList.label.title;
   const labelColor = mockLabelList.label.color;
-  const listId = mockLabelList.id;
   const modalID = 'board-settings-sidebar-modal';
+
+  const destroyBoardListMutationHandlerSuccess = jest
+    .fn()
+    .mockResolvedValue(destroyBoardListMutationResponse);
+  const errorMessage = 'Failed to delete list';
+  const destroyBoardListMutationHandlerFailure = jest
+    .fn()
+    .mockRejectedValue(new Error(errorMessage));
 
   const createComponent = ({
     canAdminList = false,
     list = {},
-    sidebarType = LIST,
-    activeId = inactiveId,
+    destroyBoardListMutationHandler = destroyBoardListMutationHandlerSuccess,
   } = {}) => {
-    const boardLists = {
-      [listId]: list,
-    };
-    const store = new Vuex.Store({
-      state: { sidebarType, activeId, boardLists },
-      getters,
-      mutations,
-      actions,
-    });
+    mockApollo = createMockApollo([[destroyBoardListMutation, destroyBoardListMutationHandler]]);
 
     wrapper = extendedWrapper(
       shallowMount(BoardSettingsSidebar, {
-        store,
+        apolloProvider: mockApollo,
         provide: {
           canAdminList,
           scopedLabelsAvailable: false,
+          isIssueBoard: true,
+          boardType: 'group',
+          issuableType: 'issue',
+        },
+        propsData: {
+          listId: list.id || '',
+          boardId: 'gid://gitlab/Board/1',
+          list,
+          queryVariables: {},
         },
         directives: {
-          GlModal: createMockDirective(),
+          GlModal: createMockDirective('gl-modal'),
         },
         stubs: {
           GlDrawer: stubComponent(GlDrawer, {
@@ -56,101 +63,62 @@ describe('BoardSettingsSidebar', () => {
         },
       }),
     );
+
+    // Necessary for cache update
+    mockApollo.clients.defaultClient.cache.updateQuery = jest.fn();
   };
-  const findLabel = () => wrapper.find(GlLabel);
-  const findDrawer = () => wrapper.find(GlDrawer);
-  const findModal = () => wrapper.find(GlModal);
-  const findRemoveButton = () => wrapper.find(GlButton);
+  const findLabel = () => wrapper.findComponent(GlLabel);
+  const findDrawer = () => wrapper.findComponent(GlDrawer);
+  const findModal = () => wrapper.findComponent(GlModal);
+  const findRemoveButton = () => wrapper.findComponent(GlButton);
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-    wrapper.destroy();
-    wrapper = null;
+  beforeEach(() => {
+    cacheUpdates.setError = jest.fn();
   });
 
-  it('finds a MountingPortal component', () => {
-    createComponent();
-
-    expect(wrapper.find(MountingPortal).props()).toMatchObject({
-      mountTo: '#js-right-sidebar-portal',
-      append: true,
-      name: 'board-settings-sidebar',
-    });
-  });
-
-  describe('when sidebarType is "list"', () => {
-    it('finds a GlDrawer component', () => {
+  describe('default', () => {
+    beforeEach(() => {
       createComponent();
+    });
+    it('renders a MountingPortal component', () => {
+      expect(wrapper.findComponent(MountingPortal).props()).toMatchObject({
+        mountTo: '#js-right-sidebar-portal',
+        append: true,
+        name: 'board-settings-sidebar',
+      });
+    });
 
+    it('renders a GlDrawer component', () => {
       expect(findDrawer().exists()).toBe(true);
     });
 
     describe('on close', () => {
       it('closes the sidebar', async () => {
-        createComponent();
-
         findDrawer().vm.$emit('close');
 
         await nextTick();
 
-        expect(wrapper.find(GlDrawer).exists()).toBe(false);
-      });
-
-      it('closes the sidebar when emitting the correct event', async () => {
-        createComponent();
-
-        sidebarEventHub.$emit('sidebar.closeAll');
-
-        await nextTick();
-
-        expect(wrapper.find(GlDrawer).exists()).toBe(false);
+        expect(wrapper.findComponent(GlDrawer).props('open')).toBe(false);
       });
     });
 
-    describe('when activeId is zero', () => {
+    describe('when there is no active list', () => {
       it('renders GlDrawer with open false', () => {
         createComponent();
 
         expect(findDrawer().props('open')).toBe(false);
-      });
-    });
-
-    describe('when activeId is greater than zero', () => {
-      it('renders GlDrawer with open true', () => {
-        createComponent({ list: mockLabelList, activeId: listId });
-
-        expect(findDrawer().props('open')).toBe(true);
-      });
-    });
-
-    describe('when activeId is in state', () => {
-      it('renders label title', () => {
-        createComponent({ list: mockLabelList, activeId: listId });
-
-        expect(findLabel().props('title')).toBe(labelTitle);
-      });
-
-      it('renders label background color', () => {
-        createComponent({ list: mockLabelList, activeId: listId });
-
-        expect(findLabel().props('backgroundColor')).toBe(labelColor);
-      });
-    });
-
-    describe('when activeId is not in state', () => {
-      it('does not render GlLabel', () => {
-        createComponent({ list: mockLabelList });
-
         expect(findLabel().exists()).toBe(false);
       });
     });
-  });
 
-  describe('when sidebarType is not List', () => {
-    it('does not render GlDrawer', () => {
-      createComponent({ sidebarType: '' });
+    describe('when there is an active list', () => {
+      it('renders GlDrawer with list title and label', () => {
+        createComponent({ list: mockLabelList });
 
-      expect(findDrawer().exists()).toBe(false);
+        expect(findDrawer().props('open')).toBe(true);
+        expect(findLabel().props('title')).toBe(labelTitle);
+        expect(findLabel().props('backgroundColor')).toBe(labelColor);
+      });
     });
   });
 
@@ -161,21 +129,45 @@ describe('BoardSettingsSidebar', () => {
   });
 
   describe('when user can admin the boards list', () => {
-    it('renders "Remove list" button', () => {
-      createComponent({ canAdminList: true, activeId: listId, list: mockLabelList });
+    beforeEach(() => {
+      createComponent({ canAdminList: true, list: mockLabelList });
+    });
 
+    it('renders "Remove list" button', () => {
       expect(findRemoveButton().exists()).toBe(true);
     });
 
+    it('removes the list', () => {
+      findRemoveButton().vm.$emit('click');
+
+      wrapper.findComponent(GlModal).vm.$emit('primary');
+
+      expect(destroyBoardListMutationHandlerSuccess).toHaveBeenCalled();
+    });
+
     it('has the correct ID on the button', () => {
-      createComponent({ canAdminList: true, activeId: listId, list: mockLabelList });
       const binding = getBinding(findRemoveButton().element, 'gl-modal');
       expect(binding.value).toBe(modalID);
     });
 
     it('has the correct ID on the modal', () => {
-      createComponent({ canAdminList: true, activeId: listId, list: mockLabelList });
       expect(findModal().props('modalId')).toBe(modalID);
+    });
+
+    it('sets error when destroy list mutation fails', async () => {
+      createComponent({
+        canAdminList: true,
+        list: mockLabelList,
+        destroyBoardListMutationHandler: destroyBoardListMutationHandlerFailure,
+      });
+
+      findRemoveButton().vm.$emit('click');
+
+      wrapper.findComponent(GlModal).vm.$emit('primary');
+
+      await waitForPromises();
+
+      expect(cacheUpdates.setError).toHaveBeenCalled();
     });
   });
 });

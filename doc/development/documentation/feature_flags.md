@@ -1,5 +1,5 @@
 ---
-info: For assistance with this Style Guide page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments-to-other-projects-and-subjects.
+info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
 stage: none
 group: unassigned
 description: "GitLab development - how to document features deployed behind feature flags"
@@ -7,110 +7,158 @@ description: "GitLab development - how to document features deployed behind feat
 
 # Document features deployed behind feature flags
 
-GitLab uses [feature flags](../feature_flags/index.md) to strategically roll
-out the deployment of its own features. The way we document a feature behind a
-feature flag depends on its state (enabled or disabled). When the state
-changes, the developer who made the change **must update the documentation**
-accordingly.
+GitLab uses [feature flags](../feature_flags/index.md) to roll
+out the deployment of its own features.
 
-Every feature introduced to the codebase, even if it's behind a feature flag,
-must be documented. For context, see the
-[latest merge request that updated this guideline](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/47917#note_459984428).
+When the state of a feature flag changes, the developer who made the change
+**must update the documentation**.
 
-When you document feature flags, you must:
+## When to document features behind a feature flag
 
-- [Add a note at the start of the topic](#use-a-note-to-describe-the-state-of-the-feature-flag).
-- [Add version history text](#add-version-history-text).
+Every feature introduced to the codebase, even if it's behind a disabled flag,
+must be documented. For more information, see
+[the discussion that led to this decision](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/47917#note_459984428). [Experiment and beta](../../policy/experiment-beta-support.md) features are usually behind a flag and must also be documented. For more information, see [Document experiment or beta features](experiment_beta.md).
 
-## Use a note to describe the state of the feature flag
+When the feature is [implemented in multiple merge requests](../feature_flags/index.md#feature-flags-in-gitlab-development),
+discuss the plan with your technical writer.
 
-Information about feature flags should be in a **Note** at the start of the topic (just below the version history).
+You can create a documentation issue and delay the documentation if the feature:
 
-The note has three parts, and follows this structure:
+- Is far-reaching (makes changes across many areas of GitLab), like navigation changes.
+- Includes many MRs.
+- Affects more than a few documentation pages.
+- Is not fully functional if the feature flag is enabled for testing.
+
+The PM, EM, and writer should make sure the documentation work is assigned and scheduled.
+
+Every feature flag in the codebase is [in the documentation](../../user/feature_flags.md),
+even when the feature is not fully functional or otherwise documented.
+
+## How to add feature flag documentation
+
+To document feature flags:
+
+- [Add history text](#add-history-text).
+- [Add a flag note](#add-a-flag-note).
+
+## Add history text
+
+When the state of a flag changes (for example, from disabled by default to enabled by default), add the change to the
+[history](versions.md#add-a-history-item).
+
+Possible history entries are:
+
+```markdown
+> - [Introduced](https://issue-link) in GitLab X.X [with a flag](../../administration/feature_flags.md) named `flag_name`. Disabled by default.
+> - [Enabled on GitLab.com](https://issue-link) in GitLab X.X.
+> - [Enabled on self-managed and GitLab Dedicated](https://issue-link) in GitLab X.X.
+> - [Enabled on GitLab.com, self-managed, and GitLab Dedicated](https://issue-link) in GitLab X.X.
+> - [Generally available](https://issue-link) in GitLab X.Y. Feature flag `flag_name` removed.
+```
+
+These entries might not fit every scenario. You can adjust to suit your needs.
+For example, a flag might be enabled for a group, project, or subset of users only.
+In that case, you can use a history entry like:
+
+`> - [Enabled on GitLab.com](https://issue-link) in GitLab X.X for a subset of users.`
+
+## Add a flag note
+
+Add this feature flag note at the start of the topic, just below the history.
+
+The final sentence (`not ready for production use`) is optional.
 
 ```markdown
 FLAG:
-<Self-managed GitLab availability information.> <GitLab.com availability information.>
-<This feature is not ready for production use.>
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+This feature is available for testing, but not ready for production use.
 ```
 
-### Self-managed GitLab availability information
-
-| If the feature is...     | Use this text |
-|--------------------------|---------------|
-| Available                | `On self-managed GitLab, by default this feature is available. To hide the feature, ask an administrator to [disable the feature flag](<path to>/administration/feature_flags.md) named <flag name>.` |
-| Unavailable              | `On self-managed GitLab, by default this feature is not available. To make it available, ask an administrator to [enable the feature flag](<path to>/administration/feature_flags.md) named <flag name>.` |
-| Available, per-group     | `On self-managed GitLab, by default this feature is available. To hide the feature per group, ask an administrator to [disable the feature flag](<path to>/administration/feature_flags.md) named <flag name>.` |
-| Unavailable, per-group   | `On self-managed GitLab, by default this feature is not available. To make it available per group, ask an administrator to [enable the feature flag](<path to>/administration/feature_flags.md) named <flag name>.` |
-| Available, per-project   | `On self-managed GitLab, by default this feature is available. To hide the feature per project or for your entire instance, ask an administrator to [disable the feature flag](<path to>/administration/feature_flags.md) named <flag name>.` |
-| Unavailable, per-project | `On self-managed GitLab, by default this feature is not available. To make it available per project or for your entire instance, ask an administrator to [enable the feature flag](<path to>/administration/feature_flags.md) named <flag name>.` |
-| Available, per-user      | `On self-managed GitLab, by default this feature is available. To hide the feature per user, ask an administrator to [disable the feature flag](<path to>/administration/feature_flags.md) named <flag name>.` |
-| Unavailable, per-user    | `On self-managed GitLab, by default this feature is not available. To make it available per user, ask an administrator to [enable the feature flag](<path to>/administration/feature_flags.md) named <flag name>.` |
-
-### GitLab.com availability information
-
-| If the feature is...                | Use this text |
-|-------------------------------------|---------------|
-| Available                           | `On GitLab.com, this feature is available.` |
-| Available to GitLab.com admins only | `On GitLab.com, this feature is available but can be configured by GitLab.com administrators only.`
-| Unavailable                         | `On GitLab.com, this feature is not available.`|
-
-### Optional information
-
-If needed, you can add this sentence:
-
-`The feature is not ready for production use.`
-
-## Add version history text
-
-When the state of a flag changes (for example, disabled by default to enabled by default), add the change to the version history.
-
-Possible version history entries are:
-
-```markdown
-> - [Introduced](issue-link) in GitLab X.X [with a flag](../../administration/feature_flags.md) named <flag name>. Disabled by default.
-> - [Enabled on GitLab.com](issue-link) in GitLab X.X.
-> - [Enabled on GitLab.com](issue-link) in GitLab X.X. Available to GitLab.com administrators only.
-> - [Enabled on self-managed](issue-link) in GitLab X.X.
-> - [Generally available](issue-link) in GitLab X.Y. [Feature flag <flag name>](issue-link) removed.
-```
-
-You can combine entries if they happened in the same release:
-
-```markdown
-> - Introduced in GitLab 14.2 [with a flag](../../administration/feature_flags.md) named `ci_include_rules`. Disabled by default.
-> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/337507) in GitLab 14.3.
-```
-
-## Feature flag documentation examples
-
-The following examples show the progression of a feature flag.
-
-```markdown
-> Introduced in GitLab 13.7 [with a flag](../../administration/feature_flags.md) named `forti_token_cloud`. Disabled by default.
+This note renders on the GitLab documentation site as:
 
 FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available,
-ask an administrator to [enable the feature flag](../administration/feature_flags.md) named `forti_token_cloud`.
-The feature is not ready for production use.
-```
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+This feature is available for testing, but not ready for production use.
 
-When the feature is enabled in production, you can update the version history:
+## History examples
+
+The following examples show the progression of a feature flag. Update the history with every change:
 
 ```markdown
-> - Introduced in GitLab 13.7 [with a flag](../../administration/feature_flags.md) named `forti_token_cloud`. Disabled by default.
-> - [Enabled on self-managed](https://gitlab.com/issue/etc) GitLab 13.8.
+> - [Introduced](https://issue-link) in GitLab 13.7 [with a flag](../../administration/feature_flags.md) named `forti_token_cloud`. Disabled by default.
 
 FLAG:
-On self-managed GitLab, by default this feature is available. To hide the feature per user,
-ask an administrator to [disable the feature flag](../administration/feature_flags.md) named `forti_token_cloud`.
+The availability of this feature is controlled by a feature flag. For more information, see the history.
 ```
 
-And, when the feature is done and fully available to all users:
+When the feature is enabled by default on GitLab.com:
 
 ```markdown
-> - Introduced in GitLab 13.7 [with a flag](../../administration/feature_flags.md) named `forti_token_cloud`. Disabled by default.
-> - [Enabled on self-managed](https://gitlab.com/issue/etc) in GitLab 13.8.
-> - [Enabled on GitLab.com](https://gitlab.com/issue/etc) in GitLab 13.9.
-> - [Generally available](issue-link) in GitLab 14.0. [Feature flag <flag name>](issue-link) removed.
+> - [Introduced](https://issue-link) in GitLab 13.7 [with a flag](../../administration/feature_flags.md) named `forti_token_cloud`. Disabled by default.
+> - [Enabled on GitLab.com](https://issue-link) in GitLab 13.8.
+
+FLAG:
+The availability of this feature is controlled by a feature flag. For more information, see the history.
 ```
+
+When the feature is enabled by default for all offerings:
+
+```markdown
+> - [Introduced](https://issue-link) in GitLab 13.7 [with a flag](../../administration/feature_flags.md) named `forti_token_cloud`. Disabled by default.
+> - [Enabled on GitLab.com](https://issue-link) in GitLab 13.8.
+> - [Enabled on self-managed and GitLab Dedicated](https://issue-link) in GitLab 13.9.
+
+FLAG:
+The availability of this feature is controlled by a feature flag. For more information, see the history.
+```
+
+When the flag is removed, add a `Generally available` entry. Ensure that you delete the `FLAG` note as well:
+
+```markdown
+> - [Introduced](https://issue-link) in GitLab 13.7 [with a flag](../../administration/feature_flags.md) named `forti_token_cloud`. Disabled by default.
+> - [Enabled on GitLab.com](https://issue-link) in GitLab 13.8.
+> - [Enabled on self-managed and GitLab Dedicated](https://issue-link) in GitLab 13.9.
+> - [Generally available](https://issue-link) in GitLab 14.0. Feature flag `forti_token_cloud` removed.
+```
+
+## Simplify long history
+
+The history can get long, but you can sometimes simplify or delete entries.
+
+Combine entries if they happened in the same release:
+
+- Before:
+
+  ```markdown
+  > - [Introduced](https://issue-link) in GitLab 14.2 [with a flag](../../administration/feature_flags.md) named `ci_include_rules`. Disabled by default.
+  > - [Enabled on GitLab.com](https://issue-link) in GitLab 14.3.
+  > - [Enabled on self-managed and GitLab Dedicated](https://issue-link) in GitLab 14.3.
+  ```
+
+- After:
+
+  ```markdown
+  > - [Introduced](https://issue-link) in GitLab 14.2 [with a flag](../../administration/feature_flags.md) named `ci_include_rules`. Disabled by default.
+  > - [Enabled on GitLab.com, self-managed, and GitLab Dedicated](https://issue-link) in GitLab 14.3.
+  ```
+
+Delete `Enabled on GitLab.com` entries only when the feature is enabled by default for all offerings and the flag is removed:
+
+- Before:
+
+  ```markdown
+  > - [Introduced](https://issue-link) in GitLab 15.6 [with a flag](../../administration/feature_flags.md) named `ci_hooks_pre_get_sources_script`. Disabled by default.
+  > - [Enabled on GitLab.com](https://issue-link) in GitLab 15.7.
+  > - [Enabled on self-managed and GitLab Dedicated](https://issue-link) in GitLab 15.8.
+  > - [Generally available](https://issue-link) in GitLab 15.9. Feature flag `ci_hooks_pre_get_sources_script` removed.
+  ```
+
+- After:
+
+  ```markdown
+  > - [Introduced](https://issue-link) in GitLab 15.6 [with a flag](../../administration/feature_flags.md) named `ci_hooks_pre_get_sources_script`. Disabled by default.
+  > - [Enabled on self-managed and GitLab Dedicated](https://issue-link) in GitLab 15.8.
+  > - [Generally available](https://issue-link) in GitLab 15.9. Feature flag `ci_hooks_pre_get_sources_script` removed.
+  ```

@@ -1,3 +1,4 @@
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { getWebSocketUrl, mergeUrlParams } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
 import createDiff from './create_diff';
@@ -26,12 +27,13 @@ const cancellableWait = (time) => {
 
 const isErrorResponse = (error) => error && error.code !== 0;
 
-const isErrorPayload = (payload) => payload && payload.status_code !== 200;
+const isErrorPayload = (payload) => payload && payload.status_code !== HTTP_STATUS_OK;
 
 const getErrorFromResponse = (data) => {
   if (isErrorResponse(data.error)) {
     return { message: data.error.Message };
-  } else if (isErrorPayload(data.payload)) {
+  }
+  if (isErrorPayload(data.payload)) {
     return { message: data.payload.error_message };
   }
 

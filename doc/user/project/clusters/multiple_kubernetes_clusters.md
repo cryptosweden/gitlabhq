@@ -1,14 +1,14 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Multiple clusters per project with cluster certificates (DEPRECATED) **(FREE)**
+# Multiple clusters per project with cluster certificates (deprecated)
 
-> - Introduced in GitLab 10.3
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/35094) from GitLab Premium to GitLab Free in 13.2.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed
 
 WARNING:
 Using multiple Kubernetes clusters for a single project **with cluster
@@ -26,7 +26,7 @@ differentiates the new cluster from the rest.
 
 When adding more than one Kubernetes cluster to your project, you need to differentiate
 them with an environment scope. The environment scope associates clusters with [environments](../../../ci/environments/index.md) similar to how the
-[environment-specific CI/CD variables](../../../ci/variables/index.md#limit-the-environment-scope-of-a-cicd-variable) work.
+[environment-specific CI/CD variables](../../../ci/environments/index.md#limit-the-environment-scope-of-a-cicd-variable) work.
 
 The default environment scope is `*`, which means all jobs, regardless of their
 environment, use that cluster. Each scope can be used only by a single cluster
@@ -40,8 +40,7 @@ For example, let's say the following Kubernetes clusters exist in a project:
 | Development | `*`               |
 | Production  | `production`      |
 
-And the following environments are set in
-[`.gitlab-ci.yml`](../../../ci/yaml/index.md):
+And the following environments are set in the `.gitlab-ci.yml` file:
 
 ```yaml
 stages:

@@ -1,77 +1,53 @@
-import { GlDropdown, GlDropdownItem, GlLoadingIcon, GlSearchBoxByType } from '@gitlab/ui';
-import { mount, shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
+import { GlCollapsibleListbox } from '@gitlab/ui';
+import { shallowMount } from '@vue/test-utils';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
+
 import SourceBranchDropdown from '~/jira_connect/branches/components/source_branch_dropdown.vue';
 import { BRANCHES_PER_PAGE } from '~/jira_connect/branches/constants';
 import getProjectQuery from '~/jira_connect/branches/graphql/queries/get_project.query.graphql';
-import { mockProjects } from '../mock_data';
+import {
+  mockBranchNames,
+  mockBranchNames2,
+  mockProjects,
+  mockProjectQueryResponse,
+} from '../mock_data';
 
-const mockProject = {
-  id: 'test',
-  repository: {
-    branchNames: ['main', 'f-test', 'release'],
-    rootRef: 'main',
-  },
-};
-const mockSelectedProject = mockProjects[0];
-
-const mockProjectQueryResponse = {
-  data: {
-    project: mockProject,
-  },
-};
-const mockGetProjectQuery = jest.fn().mockResolvedValue(mockProjectQueryResponse);
-const mockQueryLoading = jest.fn().mockReturnValue(new Promise(() => {}));
+Vue.use(VueApollo);
 
 describe('SourceBranchDropdown', () => {
   let wrapper;
 
-  const findDropdown = () => wrapper.findComponent(GlDropdown);
-  const findAllDropdownItems = () => wrapper.findAllComponents(GlDropdownItem);
-  const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
-  const findDropdownItemByText = (text) =>
-    findAllDropdownItems().wrappers.find((item) => item.text() === text);
-  const findSearchBox = () => wrapper.findComponent(GlSearchBoxByType);
+  const mockSelectedProject = mockProjects[0];
+  const querySuccessHandler = jest.fn().mockResolvedValue(mockProjectQueryResponse());
+  const queryLoadingHandler = jest.fn().mockReturnValue(new Promise(() => {}));
 
-  const assertDropdownItems = () => {
-    const dropdownItems = findAllDropdownItems();
-    expect(dropdownItems.wrappers).toHaveLength(mockProject.repository.branchNames.length);
-    expect(dropdownItems.wrappers.map((item) => item.text())).toEqual(
-      mockProject.repository.branchNames,
-    );
+  const findListbox = () => wrapper.findComponent(GlCollapsibleListbox);
+
+  const assertListboxItems = (branchNames = mockBranchNames) => {
+    const listboxItems = findListbox().props('items');
+    expect(listboxItems).toHaveLength(branchNames.length);
+    expect(listboxItems.map((item) => item.text)).toEqual(branchNames);
   };
 
-  function createMockApolloProvider({ getProjectQueryLoading = false } = {}) {
-    Vue.use(VueApollo);
+  const createComponent = ({ props, handler = querySuccessHandler } = {}) => {
+    const mockApollo = createMockApollo([[getProjectQuery, handler]]);
 
-    const mockApollo = createMockApollo([
-      [getProjectQuery, getProjectQueryLoading ? mockQueryLoading : mockGetProjectQuery],
-    ]);
-
-    return mockApollo;
-  }
-
-  function createComponent({ mockApollo, props, mountFn = shallowMount } = {}) {
-    wrapper = mountFn(SourceBranchDropdown, {
-      apolloProvider: mockApollo || createMockApolloProvider(),
+    wrapper = shallowMount(SourceBranchDropdown, {
+      apolloProvider: mockApollo,
       propsData: props,
     });
-  }
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  };
 
   describe('when `selectedProject` prop is not specified', () => {
     beforeEach(() => {
       createComponent();
     });
 
-    it('sets dropdown `disabled` prop to `true`', () => {
-      expect(findDropdown().props('disabled')).toBe(true);
+    it('sets listbox `disabled` prop to `true`', () => {
+      expect(findListbox().props('disabled')).toBe(true);
     });
 
     describe('when `selectedProject` becomes specified', () => {
@@ -83,43 +59,47 @@ describe('SourceBranchDropdown', () => {
         await waitForPromises();
       });
 
-      it('sets dropdown props correctly', () => {
-        expect(findDropdown().props()).toMatchObject({
-          loading: false,
+      it('sets listbox props correctly', () => {
+        expect(findListbox().props()).toMatchObject({
           disabled: false,
-          text: 'Select a branch',
+          loading: false,
+          searchable: true,
+          searching: false,
+          selected: null,
+          toggleText: 'Select a branch',
         });
       });
 
-      it('renders available source branches as dropdown items', () => {
-        assertDropdownItems();
+      it('renders available source branches as listbox items', () => {
+        assertListboxItems();
       });
     });
   });
 
   describe('when `selectedProject` prop is specified', () => {
     describe('when branches are loading', () => {
-      it('renders loading icon in dropdown', () => {
+      it('sets loading prop to true', () => {
         createComponent({
-          mockApollo: createMockApolloProvider({ getProjectQueryLoading: true }),
           props: { selectedProject: mockSelectedProject },
+          handler: queryLoadingHandler,
         });
-
-        expect(findLoadingIcon().isVisible()).toBe(true);
+        expect(findListbox().props('loading')).toBe(true);
       });
     });
 
     describe('when branches have loaded', () => {
       describe('when searching branches', () => {
         it('triggers a refetch', async () => {
-          createComponent({ mountFn: mount, props: { selectedProject: mockSelectedProject } });
+          createComponent({ props: { selectedProject: mockSelectedProject } });
           await waitForPromises();
-          jest.clearAllMocks();
 
           const mockSearchTerm = 'mai';
-          await findSearchBox().vm.$emit('input', mockSearchTerm);
+          expect(querySuccessHandler).toHaveBeenCalledTimes(1);
 
-          expect(mockGetProjectQuery).toHaveBeenCalledWith({
+          await findListbox().vm.$emit('search', mockSearchTerm);
+
+          expect(querySuccessHandler).toHaveBeenCalledTimes(2);
+          expect(querySuccessHandler).toHaveBeenLastCalledWith({
             branchNamesLimit: BRANCHES_PER_PAGE,
             branchNamesOffset: 0,
             branchNamesSearchPattern: `*${mockSearchTerm}*`,
@@ -134,56 +114,121 @@ describe('SourceBranchDropdown', () => {
           await waitForPromises();
         });
 
-        it('sets dropdown props correctly', () => {
-          expect(findDropdown().props()).toMatchObject({
-            loading: false,
+        it('sets listbox props correctly', () => {
+          expect(findListbox().props()).toMatchObject({
             disabled: false,
-            text: 'Select a branch',
+            loading: false,
+            searchable: true,
+            searching: false,
+            selected: null,
+            toggleText: 'Select a branch',
           });
         });
 
-        it('omits monospace styling from dropdown', () => {
-          expect(findDropdown().classes()).not.toContain('gl-font-monospace');
+        it('disables infinite scroll', () => {
+          expect(findListbox().props('infiniteScroll')).toBe(false);
         });
 
-        it('renders available source branches as dropdown items', () => {
-          assertDropdownItems();
+        it('omits monospace styling from listbox', () => {
+          expect(findListbox().classes()).not.toContain('gl-font-monospace');
+        });
+
+        it('renders available source branches as listbox items', () => {
+          assertListboxItems();
         });
 
         it("emits `change` event with the repository's `rootRef` by default", () => {
-          expect(wrapper.emitted('change')[0]).toEqual([mockProject.repository.rootRef]);
+          expect(wrapper.emitted('change')[0]).toEqual([mockBranchNames[0]]);
         });
 
-        describe('when selecting a dropdown item', () => {
-          it('emits `change` event with the selected branch name', async () => {
-            const mockBranchName = mockProject.repository.branchNames[1];
-            const itemToSelect = findDropdownItemByText(mockBranchName);
-            await itemToSelect.vm.$emit('click');
-
+        describe('when selecting a listbox item', () => {
+          it('emits `change` event with the selected branch name', () => {
+            const mockBranchName = mockBranchNames[1];
+            findListbox().vm.$emit('select', mockBranchName);
             expect(wrapper.emitted('change')[1]).toEqual([mockBranchName]);
           });
         });
 
         describe('when `selectedBranchName` prop is specified', () => {
-          const mockBranchName = mockProject.repository.branchNames[2];
+          const mockBranchName = mockBranchNames[2];
 
-          beforeEach(async () => {
+          beforeEach(() => {
             wrapper.setProps({
               selectedBranchName: mockBranchName,
             });
           });
 
-          it('sets `isChecked` prop of the corresponding dropdown item to `true`', () => {
-            expect(findDropdownItemByText(mockBranchName).props('isChecked')).toBe(true);
+          it('sets listbox selected to `selectedBranchName`', () => {
+            expect(findListbox().props('selected')).toBe(mockBranchName);
           });
 
-          it('sets dropdown text to `selectedBranchName` value', () => {
-            expect(findDropdown().props('text')).toBe(mockBranchName);
+          it('sets listbox text to `selectedBranchName` value', () => {
+            expect(findListbox().props('toggleText')).toBe(mockBranchName);
           });
 
-          it('adds monospace styling to dropdown', () => {
-            expect(findDropdown().classes()).toContain('gl-font-monospace');
+          it('adds monospace styling to listbox', () => {
+            expect(findListbox().classes()).toContain('gl-font-monospace');
           });
+        });
+
+        describe('when full page of branches returns', () => {
+          const fullPageBranchNames = Array(BRANCHES_PER_PAGE)
+            .fill(1)
+            .map((_, i) => mockBranchNames[i % mockBranchNames.length]);
+
+          beforeEach(async () => {
+            createComponent({
+              props: { selectedProject: mockSelectedProject },
+              handler: () => Promise.resolve(mockProjectQueryResponse(fullPageBranchNames)),
+            });
+            await waitForPromises();
+          });
+
+          it('enables infinite scroll', () => {
+            expect(findListbox().props('infiniteScroll')).toBe(true);
+          });
+        });
+      });
+
+      describe('when loading more branches from infinite scroll', () => {
+        const queryLoadMoreHandler = jest.fn();
+
+        beforeEach(async () => {
+          queryLoadMoreHandler.mockResolvedValueOnce(mockProjectQueryResponse());
+          queryLoadMoreHandler.mockResolvedValueOnce(mockProjectQueryResponse(mockBranchNames2));
+          createComponent({
+            props: { selectedProject: mockSelectedProject },
+            handler: queryLoadMoreHandler,
+          });
+
+          await waitForPromises();
+
+          await findListbox().vm.$emit('bottom-reached');
+        });
+
+        it('sets loading more prop to true', () => {
+          expect(findListbox().props('infiniteScrollLoading')).toBe(true);
+        });
+
+        it('triggers load more query', () => {
+          expect(queryLoadMoreHandler).toHaveBeenLastCalledWith({
+            branchNamesLimit: BRANCHES_PER_PAGE,
+            branchNamesOffset: 3,
+            branchNamesSearchPattern: '*',
+            projectPath: 'test-path',
+          });
+        });
+
+        it('renders available source branches as listbox items', async () => {
+          await waitForPromises();
+
+          assertListboxItems([...mockBranchNames, ...mockBranchNames2]);
+        });
+
+        it('sets loading more prop to false once done', async () => {
+          await waitForPromises();
+
+          expect(findListbox().props('infiniteScrollLoading')).toBe(false);
         });
       });
     });

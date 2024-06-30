@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
-require 'rake_helper'
+require 'spec_helper'
 
-RSpec.describe 'gitlab:web_hook namespace rake tasks', :silence_stdout do
-  let_it_be(:group, refind: true) { create(:group) }
-  let_it_be(:project1, reload: true) { create(:project, namespace: group) }
-  let_it_be(:project2, reload: true) { create(:project, namespace: group) }
-  let_it_be(:other_group_project, reload: true) { create(:project) }
+RSpec.describe 'gitlab:web_hook namespace rake tasks', :silence_stdout, feature_category: :webhooks do
+  let!(:group) { create(:group) }
+  let!(:project1) { create(:project, namespace: group) }
+  let!(:project2) { create(:project, namespace: group) }
+  let!(:other_group_project) { create(:project) }
 
   let(:url) { 'http://example.com' }
   let(:hook_urls) { (project1.hooks + project2.hooks).map(&:url) }
@@ -49,6 +49,10 @@ RSpec.describe 'gitlab:web_hook namespace rake tasks', :silence_stdout do
     let!(:other_url_hook) { create(:project_hook, url: other_url, project: project1) }
 
     let(:other_url) { 'http://other.example.com' }
+
+    it 'complains if URL is not provided' do
+      expect { run_rake_task('gitlab:web_hook:rm') }.to raise_error(ArgumentError, 'URL is required')
+    end
 
     it 'removes a web hook from all projects by URL' do
       stub_env('URL' => url)

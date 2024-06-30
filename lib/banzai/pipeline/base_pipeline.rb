@@ -13,10 +13,13 @@ module Banzai
 
       def self.html_pipeline
         @html_pipeline ||= HTML::Pipeline.new(filters)
+        @html_pipeline.setup_instrumentation(name)
+
+        @html_pipeline
       end
 
       class << self
-        %i(call to_document to_html).each do |meth|
+        %i[call to_document to_html].each do |meth|
           define_method(meth) do |text, context|
             context = transform_context(context)
 

@@ -12,15 +12,15 @@ module Gitlab
     VERSION_FILE = 'GITLAB_WORKHORSE_VERSION'
     INTERNAL_API_CONTENT_TYPE = 'application/vnd.gitlab-workhorse+json'
     INTERNAL_API_REQUEST_HEADER = 'Gitlab-Workhorse-Api-Request'
-    NOTIFICATION_CHANNEL = 'workhorse:notifications'
+    NOTIFICATION_PREFIX = 'workhorse:notifications:'
     ALLOWED_GIT_HTTP_ACTIONS = %w[git_receive_pack git_upload_pack info_refs].freeze
     DETECT_HEADER = 'Gitlab-Workhorse-Detect-Content-Type'
-    ARCHIVE_FORMATS = %w(zip tar.gz tar.bz2 tar).freeze
+    ARCHIVE_FORMATS = %w[zip tar.gz tar.bz2 tar].freeze
 
     include JwtAuthenticatable
 
     class << self
-      def git_http_ok(repository, repo_type, user, action, show_all_refs: false)
+      def git_http_ok(repository, repo_type, user, action, show_all_refs: false, need_audit: false)
         raise "Unsupported action: #{action}" unless ALLOWED_GIT_HTTP_ACTIONS.include?(action.to_s)
 
         attrs = {
@@ -28,13 +28,18 @@ module Gitlab
           GL_REPOSITORY: repo_type.identifier_for_container(repository.container),
           GL_USERNAME: user&.username,
           ShowAllRefs: show_all_refs,
+          NeedAudit: need_audit,
           Repository: repository.gitaly_repository.to_h,
           GitConfigOptions: [],
           GitalyServer: {
             address: Gitlab::GitalyClient.address(repository.storage),
             token: Gitlab::GitalyClient.token(repository.storage),
-            features: Feature::Gitaly.server_feature_flags(repository.project),
-            sidechannel: Feature.enabled?(:workhorse_use_sidechannel, repository.project, default_enabled: :yaml)
+            call_metadata: Feature::Gitaly.server_feature_flags(
+              user: ::Feature::Gitaly.user_actor(user),
+              repository: repository,
+              project: ::Feature::Gitaly.project_actor(repository.container),
+              group: ::Feature::Gitaly.group_actor(repository.container)
+            )
           }
         }
 
@@ -43,6 +48,12 @@ module Gitlab
         if receive_max_input_size > 0
           attrs[:GitConfigOptions] << "receive.maxInputSize=#{receive_max_input_size.megabytes}"
         end
+
+        attrs[:GitalyServer][:call_metadata].merge!(
+          'user_id' => attrs[:GL_ID].presence,
+          'username' => attrs[:GL_USERNAME].presence,
+          'remote_ip' => Gitlab::ApplicationContext.current_context_attribute(:remote_ip).presence
+        ).compact!
 
         attrs
       end
@@ -146,15 +157,41 @@ module Gitlab
         ]
       end
 
-      def send_url(url, allow_redirects: false)
+      # response_statuses can be set for 'error' and 'timeout'. They are optional.
+      # Their values must be a symbol accepted by Rack::Utils::SYMBOL_TO_STATUS_CODE.
+      # Example: response_statuses : { error: :internal_server_error, timeout: :bad_request }
+      # timeouts can be given for the opening the connection and reading the response headers.
+      # Their values must be given in seconds.
+      # Example: timeouts: { open: 5, read: 5 }
+      def send_url(
+        url, allow_redirects: false, method: 'GET', body: nil, headers: {}, timeouts: {}, response_statuses: {}
+      )
         params = {
           'URL' => url,
-          'AllowRedirects' => allow_redirects
-        }
+          'AllowRedirects' => allow_redirects,
+          'Body' => body.to_s,
+          'Header' => headers.transform_values { |v| Array.wrap(v) },
+          'Method' => method
+        }.compact
+
+        if timeouts.present?
+          params['DialTimeout'] = "#{timeouts[:open]}s" if timeouts[:open]
+          params['ResponseHeaderTimeout'] = "#{timeouts[:read]}s" if timeouts[:read]
+        end
+
+        if response_statuses.present?
+          if response_statuses[:error]
+            params['ErrorResponseStatus'] = Rack::Utils::SYMBOL_TO_STATUS_CODE[response_statuses[:error]]
+          end
+
+          if response_statuses[:timeout]
+            params['TimeoutResponseStatus'] = Rack::Utils::SYMBOL_TO_STATUS_CODE[response_statuses[:timeout]]
+          end
+        end
 
         [
           SEND_DATA_HEADER,
-          "send-url:#{encode(params)}"
+          "send-url:#{encode(params.compact)}"
         ]
       end
 
@@ -171,11 +208,17 @@ module Gitlab
         ]
       end
 
-      def send_dependency(headers, url)
+      def send_dependency(headers, url, upload_config: {})
         params = {
-          'Header' => headers,
-          'Url' => url
+          'Headers' => headers.transform_values { |v| Array.wrap(v) },
+          'Url' => url,
+          'UploadConfig' => {
+            'Method' => upload_config[:method],
+            'Url' => upload_config[:url],
+            'Headers' => (upload_config[:headers] || {}).transform_values { |v| Array.wrap(v) }
+          }.compact_blank!
         }
+        params.compact_blank!
 
         [
           SEND_DATA_HEADER,
@@ -214,11 +257,16 @@ module Gitlab
         Gitlab.config.workhorse.secret_file
       end
 
+      def cleanup_key(key)
+        with_redis { |redis| redis.del(key) }
+      end
+
       def set_key_and_notify(key, value, expire: nil, overwrite: true)
-        Gitlab::Redis::SharedState.with do |redis|
+        with_redis do |redis|
           result = redis.set(key, value, ex: expire, nx: !overwrite)
           if result
-            redis.publish(NOTIFICATION_CHANNEL, "#{key}=#{value}")
+            redis.publish(NOTIFICATION_PREFIX + key, value)
+
             value
           else
             redis.get(key)
@@ -226,7 +274,18 @@ module Gitlab
         end
       end
 
+      def detect_content_type
+        [
+          Gitlab::Workhorse::DETECT_HEADER,
+          'true'
+        ]
+      end
+
       protected
+
+      def with_redis(&blk)
+        Gitlab::Redis::Workhorse.with(&blk) # rubocop:disable CodeReuse/ActiveRecord
+      end
 
       # This is the outermost encoding of a senddata: header. It is safe for
       # inclusion in HTTP response headers
@@ -245,7 +304,12 @@ module Gitlab
         {
           address: Gitlab::GitalyClient.address(repository.shard),
           token: Gitlab::GitalyClient.token(repository.shard),
-          features: Feature::Gitaly.server_feature_flags(repository.project)
+          call_metadata: Feature::Gitaly.server_feature_flags(
+            user: ::Feature::Gitaly.user_actor,
+            repository: repository,
+            project: ::Feature::Gitaly.project_actor(repository.container),
+            group: ::Feature::Gitaly.group_actor(repository.container)
+          )
         }
       end
 
@@ -283,7 +347,7 @@ module Gitlab
               commit_id: metadata['CommitId'],
               prefix: metadata['ArchivePrefix'],
               format: format,
-              path: path.presence || "",
+              path: Gitlab::EncodingHelper.encode_binary(path.presence || ""),
               include_lfs_blobs: true
             ).to_proto
           )

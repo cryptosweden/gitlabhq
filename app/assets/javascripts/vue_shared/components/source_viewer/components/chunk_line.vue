@@ -1,12 +1,10 @@
 <script>
-import { GlLink, GlSafeHtmlDirective } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { getPageParamValue, getPageSearchString } from '~/blob/utils';
 
 export default {
-  components: {
-    GlLink,
-  },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   props: {
     number: {
@@ -21,24 +19,40 @@ export default {
       type: String,
       required: true,
     },
+    blamePath: {
+      type: String,
+      required: true,
+    },
+  },
+  computed: {
+    pageSearchString() {
+      const page = getPageParamValue(this.number);
+      return getPageSearchString(this.blamePath, page);
+    },
   },
 };
 </script>
 <template>
   <div class="gl-display-flex">
-    <div class="line-numbers gl-pt-0! gl-pb-0! gl-absolute gl-z-index-3">
-      <gl-link
+    <div
+      class="gl-p-0! gl-absolute gl-z-3 diff-line-num gl-border-r gl-display-flex line-links line-numbers"
+    >
+      <a
+        class="gl-select-none !gl-shadow-none file-line-blame -gl-mx-2 gl-flex-grow-1"
+        :href="`${blamePath}${pageSearchString}#L${number}`"
+      ></a>
+      <a
         :id="`L${number}`"
-        class="file-line-num diff-line-num gl-user-select-none"
-        :to="`#L${number}`"
+        class="gl-select-none !gl-shadow-none file-line-num"
+        :href="`#L${number}`"
         :data-line-number="number"
       >
         {{ number }}
-      </gl-link>
+      </a>
     </div>
 
     <pre
-      class="code highlight gl-p-0! gl-w-full gl-overflow-visible! gl-ml-11!"
+      class="gl-p-0! gl-w-full gl-overflow-visible! gl-border-none! code highlight gl-leading-0"
     ><code><span :id="`LC${number}`" v-safe-html="content" :lang="language" class="line" data-testid="content"></span></code></pre>
   </div>
 </template>

@@ -1,12 +1,14 @@
 # frozen_string_literal: true
 
 RSpec.shared_context 'project navbar structure' do
-  let(:security_and_compliance_nav_item) do
+  include NavbarStructureHelper
+
+  let(:secure_nav_item) do
     {
-      nav_item: _('Security & Compliance'),
+      nav_item: _('Secure'),
       nav_sub_items: [
         (_('Audit events') if Gitlab.ee?),
-        _('Configuration')
+        _('Security configuration')
       ]
     }
   end
@@ -14,100 +16,74 @@ RSpec.shared_context 'project navbar structure' do
   let(:structure) do
     [
       {
-        nav_item: "#{project.name[0, 1].upcase} #{project.name}",
-        nav_sub_items: []
-      },
-      {
-        nav_item: _('Project information'),
+        nav_item: _('Manage'),
         nav_sub_items: [
           _('Activity'),
-          _('Labels'),
-          _('Members')
+          _('Members'),
+          _('Labels')
         ]
       },
       {
-        nav_item: _('Repository'),
+        nav_item: _('Plan'),
         nav_sub_items: [
-          _('Files'),
-          _('Commits'),
-          _('Branches'),
-          _('Tags'),
-          _('Contributors'),
-          _('Graph'),
-          _('Compare'),
-          (_('Locked Files') if Gitlab.ee?)
-        ]
-      },
-      {
-        nav_item: _('Issues'),
-        nav_sub_items: [
-          _('List'),
-          _('Boards'),
-          _('Service Desk'),
+          _('Issues'),
+          _('Issue boards'),
           _('Milestones'),
-          (_('Iterations') if Gitlab.ee?)
+          _('Wiki')
         ]
       },
       {
-        nav_item: _('Merge requests'),
-        nav_sub_items: []
+        nav_item: _('Code'),
+        nav_sub_items: [
+          _('Merge requests'),
+          _('Repository'),
+          _('Branches'),
+          _('Commits'),
+          _('Tags'),
+          _('Repository graph'),
+          _('Compare revisions'),
+          _('Snippets'),
+          (_('Locked files') if Gitlab.ee?)
+        ]
       },
       {
-        nav_item: _('CI/CD'),
+        nav_item: _('Build'),
         nav_sub_items: [
           _('Pipelines'),
-          s_('Pipelines|Editor'),
           _('Jobs'),
-          _('Artifacts'),
-          _('Schedules')
+          _('Pipeline editor'),
+          _('Pipeline schedules'),
+          _('Artifacts')
         ]
       },
-      security_and_compliance_nav_item,
+      secure_nav_item,
       {
-        nav_item: _('Deployments'),
+        nav_item: _('Deploy'),
         nav_sub_items: [
-          _('Feature Flags'),
+          _('Releases'),
+          s_('FeatureFlags|Feature flags')
+        ]
+      },
+      {
+        nav_item: _('Operate'),
+        nav_sub_items: [
           _('Environments'),
-          _('Releases')
+          _('Kubernetes clusters'),
+          s_('Terraform|Terraform states')
         ]
       },
       {
         nav_item: _('Monitor'),
         nav_sub_items: [
-          _('Metrics'),
-          _('Logs'),
-          _('Tracing'),
           _('Error Tracking'),
           _('Alerts'),
           _('Incidents'),
-          _('Product Analytics')
+          _('Service Desk')
         ]
       },
       {
-        nav_item: _('Infrastructure'),
-        nav_sub_items: [
-          _('Kubernetes clusters'),
-          _('Serverless platform'),
-          _('Terraform')
-        ]
-      },
-      {
-        nav_item: _('Analytics'),
-        nav_sub_items: [
-          _('Value stream'),
-          _('CI/CD'),
-          (_('Code review') if Gitlab.ee?),
-          (_('Merge request') if Gitlab.ee?),
-          _('Repository')
-        ]
-      },
-      {
-        nav_item: _('Wiki'),
-        nav_sub_items: []
-      },
-      {
-        nav_item: _('Snippets'),
-        nav_sub_items: []
+        nav_item: _('Analyze'),
+        nav_sub_items: project_analytics_sub_nav_item
       },
       {
         nav_item: _('Settings'),
@@ -117,22 +93,41 @@ RSpec.shared_context 'project navbar structure' do
           _('Webhooks'),
           _('Access Tokens'),
           _('Repository'),
+          _('Merge requests'),
           _('CI/CD'),
+          _('Packages and registries'),
           _('Monitor'),
           s_('UsageQuota|Usage Quotas')
         ]
       }
     ].compact
   end
+
+  # Projects belonging to a group have
+  # different menu elements
+  let(:group_owned_structure) do
+    structure.last[:nav_sub_items] = [
+      _('General'),
+      _('Integrations'),
+      _('Webhooks'),
+      _('Access Tokens'),
+      _('Repository'),
+      _('Merge requests'),
+      _('CI/CD'),
+      _('Packages and registries'),
+      _('Monitor'),
+      _('Analytics'),
+      s_('UsageQuota|Usage Quotas')
+    ]
+    structure
+  end
 end
 
 RSpec.shared_context 'group navbar structure' do
-  let(:analytics_nav_item) do
+  let(:analyze_nav_item) do
     {
-      nav_item: _('Analytics'),
-      nav_sub_items: [
-        _('Contribution')
-      ]
+      nav_item: _("Analyze"),
+      nav_sub_items: group_analytics_sub_nav_item
     }
   end
 
@@ -142,89 +137,144 @@ RSpec.shared_context 'group navbar structure' do
       nav_sub_items: [
         _('General'),
         _('Integrations'),
+        _('Webhooks'),
         _('Access Tokens'),
         _('Projects'),
         _('Repository'),
         _('CI/CD'),
         _('Applications'),
-        _('Packages & Registries'),
-        _('Webhooks')
+        _('Packages and registries'),
+        s_('UsageQuota|Usage Quotas'),
+        _('Domain Verification')
       ]
     }
   end
 
-  let(:administration_nav_item) do
+  let(:settings_for_maintainer_nav_item) do
     {
-      nav_item: _('Administration'),
+      nav_item: _("Settings"),
+      nav_sub_items: [_("Repository")]
+    }
+  end
+
+  let(:secure_nav_item) do
+    {
+      nav_item: _("Secure"),
+      nav_sub_items: [_("Audit events")]
+    }
+  end
+
+  let(:plan_nav_items) do
+    [_("Issues"), _("Issue board"), _("Milestones"), (_('Iterations') if Gitlab.ee?)]
+  end
+
+  let(:customer_relations_nav_item) do
+    {
+      nav_item: _('Customer relations'),
       nav_sub_items: [
-        s_('UsageQuota|Usage Quotas')
+        _('Contacts'),
+        _('Organizations')
       ]
     }
-  end
-
-  let(:security_and_compliance_nav_item) do
-    {
-      nav_item: _('Security & Compliance'),
-      nav_sub_items: [
-        _('Audit events')
-      ]
-    }
-  end
-
-  let(:push_rules_nav_item) do
-    {
-      nav_item: _('Push Rules'),
-      nav_sub_items: []
-    }
-  end
-
-  let(:ci_cd_nav_item) do
-    {
-      nav_item: _('CI/CD'),
-      nav_sub_items: [
-        s_('Runners|Runners')
-      ]
-    }
-  end
-
-  let(:issues_nav_items) do
-    [
-      _('List'),
-      _('Board'),
-      _('Milestones'),
-      (_('Iterations') if Gitlab.ee?)
-    ]
   end
 
   let(:structure) do
     [
       {
-        nav_item: "#{group.name[0, 1].upcase} #{group.name}",
+        nav_item: _("Manage"),
+        nav_sub_items: [_("Activity"), _("Members"), _("Labels")]
+      },
+      {
+        nav_item: _("Plan"),
+        nav_sub_items: plan_nav_items
+      },
+      {
+        nav_item: _("Code"),
+        nav_sub_items: [_("Merge requests")]
+      },
+      {
+        nav_item: _("Build"),
+        nav_sub_items: [_("Runners")]
+      },
+      (secure_nav_item if Gitlab.ee?),
+      {
+        nav_item: _("Operate"),
+        nav_sub_items: [_("Kubernetes")]
+      },
+      (analyze_nav_item if Gitlab.ee?)
+    ]
+  end
+end
+
+RSpec.shared_context 'dashboard navbar structure' do
+  let(:structure) do
+    [
+      {
+        nav_item: _("Projects"),
         nav_sub_items: []
       },
       {
-        nav_item: group.root? ? _('Group information') : _('Subgroup information'),
+        nav_item: _("Groups"),
+        nav_sub_items: []
+      },
+      {
+        nav_item: _('Organizations'),
+        nav_sub_items: []
+      },
+      {
+        nav_item: _("Issues"),
+        nav_sub_items: []
+      },
+      {
+        nav_item: _("Merge requests"),
         nav_sub_items: [
-          _('Activity'),
-          _('Labels'),
-          _('Members')
+          _('Assigned'),
+          _('Review requests')
         ]
       },
       {
-        nav_item: _('Issues'),
-        nav_sub_items: issues_nav_items
-      },
-      {
-        nav_item: _('Merge requests'),
+        nav_item: _("To-Do List"),
         nav_sub_items: []
       },
-      (security_and_compliance_nav_item if Gitlab.ee?),
-      (push_rules_nav_item if Gitlab.ee?),
       {
-        nav_item: _('Kubernetes'),
+        nav_item: _("Milestones"),
         nav_sub_items: []
       },
-      (analytics_nav_item if Gitlab.ee?)
+      {
+        nav_item: _("Snippets"),
+        nav_sub_items: []
+      },
+      {
+        nav_item: _("Activity"),
+        nav_sub_items: []
+      }
+    ]
+  end
+end
+
+RSpec.shared_context '"Explore" navbar structure' do
+  let(:structure) do
+    [
+      {
+        nav_item: _("Projects"),
+        nav_sub_items: []
+      },
+      {
+        nav_item: _("Groups"),
+        nav_sub_items: []
+      },
+      {
+        nav_item: _("CI/CD Catalog"),
+        nav_sub_items: []
+      },
+      {
+        nav_item: _("Topics"),
+        nav_sub_items: []
+      },
+      {
+        nav_item: _("Snippets"),
+        nav_sub_items: []
+      }
     ]
   end
 end

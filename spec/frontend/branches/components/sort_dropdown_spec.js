@@ -1,6 +1,7 @@
 import { GlSearchBoxByClick } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
+import setWindowLocation from 'helpers/set_window_location_helper';
 import SortDropdown from '~/branches/components/sort_dropdown.vue';
 import * as urlUtils from '~/lib/utils/url_utility';
 
@@ -18,6 +19,8 @@ describe('Branches Sort Dropdown', () => {
             updated_asc: 'Oldest updated',
             updated_desc: 'Last updated',
           },
+          showDropdown: false,
+          sortedBy: 'updated_desc',
           ...props,
         },
       }),
@@ -26,12 +29,6 @@ describe('Branches Sort Dropdown', () => {
 
   const findSearchBox = () => wrapper.findComponent(GlSearchBoxByClick);
   const findBranchesDropdown = () => wrapper.findByTestId('branches-dropdown');
-
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
-  });
 
   describe('When in overview mode', () => {
     beforeEach(() => {
@@ -54,7 +51,7 @@ describe('Branches Sort Dropdown', () => {
 
   describe('when in All branches mode', () => {
     beforeEach(() => {
-      wrapper = createWrapper({ mode: 'all' });
+      wrapper = createWrapper({ mode: 'all', showDropdown: true });
     });
 
     it('should have a search box with a placeholder', () => {
@@ -64,27 +61,40 @@ describe('Branches Sort Dropdown', () => {
       expect(searchBox.find('input').attributes('placeholder')).toBe('Filter by branch name');
     });
 
-    it('should have a branches dropdown when in all branches mode', () => {
+    it('should have a branches dropdown', () => {
       const branchesDropdown = findBranchesDropdown();
 
       expect(branchesDropdown.exists()).toBe(true);
     });
   });
 
+  describe('when url contains a search param', () => {
+    const branchName = 'branch-1';
+
+    beforeEach(() => {
+      setWindowLocation(`/root/ci-cd-project-demo/-/branches?search=${branchName}`);
+      wrapper = createWrapper();
+    });
+
+    it('should set the default the input value to search param', () => {
+      expect(findSearchBox().props('value')).toBe(branchName);
+    });
+  });
+
   describe('when submitting a search term', () => {
     beforeEach(() => {
       urlUtils.visitUrl = jest.fn();
-
       wrapper = createWrapper();
     });
 
     it('should call visitUrl', () => {
+      const searchTerm = 'branch-1';
       const searchBox = findSearchBox();
-
+      searchBox.vm.$emit('input', searchTerm);
       searchBox.vm.$emit('submit');
 
       expect(urlUtils.visitUrl).toHaveBeenCalledWith(
-        '/root/ci-cd-project-demo/-/branches?state=all',
+        '/root/ci-cd-project-demo/-/branches?state=all&sort=updated_desc&search=branch-1',
       );
     });
   });

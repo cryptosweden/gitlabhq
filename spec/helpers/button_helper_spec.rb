@@ -149,7 +149,7 @@ RSpec.describe ButtonHelper do
   describe 'clipboard_button' do
     include IconsHelper
 
-    let(:user) { create(:user) }
+    let_it_be(:user) { create(:user) }
     let(:project) { build_stubbed(:project) }
 
     def element(data = {})
@@ -164,7 +164,10 @@ RSpec.describe ButtonHelper do
     context 'with default options' do
       context 'when no `text` attribute is not provided' do
         it 'shows copy to clipboard button with default configuration and no text set to copy' do
-          expect(element.attr('class')).to eq('btn btn-clipboard btn-transparent')
+          expect(element.attr('class')).to match('btn-sm')
+          expect(element.attr('class')).to match('btn-default')
+          expect(element.attr('class')).to match('btn-default-tertiary')
+          expect(element.attr('title')).to eq('Copy')
           expect(element.attr('type')).to eq('button')
           expect(element.attr('aria-label')).to eq('Copy')
           expect(element.attr('aria-live')).to eq('polite')
@@ -173,9 +176,9 @@ RSpec.describe ButtonHelper do
           expect(element.attr('data-container')).to eq('body')
           expect(element.attr('data-clipboard-text')).to eq(nil)
           expect(element.attr('itemprop')).to eq(nil)
-          expect(element.inner_text).to eq("")
+          expect(element.inner_text.strip).to eq('')
 
-          expect(element.to_html).to include sprite_icon('copy-to-clipboard', css_class: 'gl-icon')
+          expect(element.to_html).to match('svg#copy-to-clipboard')
         end
       end
 
@@ -194,7 +197,7 @@ RSpec.describe ButtonHelper do
 
     context 'with `button_text` attribute provided' do
       it 'shows copy to clipboard button with provided `button_text` as button label' do
-        expect(element(button_text: 'Copy text').inner_text).to eq('Copy text')
+        expect(element(button_text: 'Copy text').inner_text.strip).to eq('Copy text')
       end
 
       it 'adds `gl-button-icon` class to icon' do
@@ -212,14 +215,151 @@ RSpec.describe ButtonHelper do
 
     context 'with `hide_button_icon` attribute provided' do
       it 'shows copy to clipboard button without tooltip support' do
-        expect(element(hide_button_icon: true).to_html).not_to include sprite_icon('duplicate')
+        expect(element(hide_button_icon: true).to_html).not_to match('svg#copy-to-clipboard')
       end
     end
 
     context 'with `itemprop` attribute provided' do
       it 'shows copy to clipboard button with `itemprop` attribute' do
-        expect(element(itemprop: "identifier").attr('itemprop')).to eq("identifier")
+        expect(element(itemprop: 'identifier').attr('itemprop')).to eq('identifier')
       end
+    end
+
+    context 'when variant option is provided' do
+      it 'inherits the correct ButtonComponent class' do
+        expect(element(variant: :confirm).attr('class')).to match('btn-confirm-tertiary')
+      end
+    end
+
+    context 'when category option is provided' do
+      it 'inherits the correct ButtonComponent class' do
+        expect(element(category: :secondary).attr('class')).to match('btn-default-secondary')
+      end
+    end
+
+    context 'when size option is provided' do
+      it 'inherits the correct ButtonComponent class' do
+        expect(element(size: :medium).attr('class')).to match('btn-md')
+      end
+    end
+  end
+
+  describe '#link_button_to', feature_category: :design_system do
+    let(:content) { 'Button content' }
+    let(:href) { '#' }
+    let(:options) { {} }
+
+    RSpec.shared_examples 'basic behavior' do
+      it 'renders a basic link button' do
+        expect(subject.name).to eq('a')
+        expect(subject.classes).to include(*%w[gl-button btn btn-md btn-default])
+        expect(subject.attr('href')).to eq(href)
+        expect(subject.content.strip).to eq(content)
+      end
+
+      describe 'variant option' do
+        let(:options) { { variant: :danger } }
+
+        it 'renders the variant class' do
+          expect(subject.classes).to include('btn-danger')
+        end
+      end
+
+      describe 'category option' do
+        let(:options) { { category: :tertiary } }
+
+        it 'renders the category class' do
+          expect(subject.classes).to include('btn-default-tertiary')
+        end
+      end
+
+      describe 'size option' do
+        let(:options) { { size: :small } }
+
+        it 'renders the small class' do
+          expect(subject.classes).to include('btn-sm')
+        end
+      end
+
+      describe 'block option' do
+        let(:options) { { block: true } }
+
+        it 'renders the block class' do
+          expect(subject.classes).to include('btn-block')
+        end
+      end
+
+      describe 'selected option' do
+        let(:options) { { selected: true } }
+
+        it 'renders the selected class' do
+          expect(subject.classes).to include('selected')
+        end
+      end
+
+      describe 'target option' do
+        let(:options) { { target: '_blank' } }
+
+        it 'renders the target attribute' do
+          expect(subject.attr('target')).to eq('_blank')
+        end
+      end
+
+      describe 'method option' do
+        let(:options) { { method: :post } }
+
+        it 'renders the data-method attribute' do
+          expect(subject.attr('data-method')).to eq('post')
+        end
+      end
+
+      describe 'icon option' do
+        let(:options) { { icon: 'remove' } }
+
+        it 'renders the icon' do
+          icon = subject.at_css('svg.gl-icon')
+          expect(icon.attr('data-testid')).to eq('remove-icon')
+        end
+      end
+
+      describe 'icon only' do
+        let(:content) { nil }
+        let(:options) { { icon: 'remove' } }
+
+        it 'renders the icon-only class' do
+          expect(subject.classes).to include('btn-icon')
+        end
+      end
+
+      describe 'arbitrary html options' do
+        let(:content) { nil }
+        let(:options) { { data: { foo: true }, aria: { labelledby: 'foo' } } }
+
+        it 'renders the attributes' do
+          expect(subject.attr('data-foo')).to eq('true')
+          expect(subject.attr('aria-labelledby')).to eq('foo')
+        end
+      end
+    end
+
+    describe 'without block' do
+      subject do
+        tag = helper.link_button_to content, href, options
+        Nokogiri::HTML.fragment(tag).first_element_child
+      end
+
+      include_examples 'basic behavior'
+    end
+
+    describe 'with block' do
+      subject do
+        tag = helper.link_button_to href, options do
+          content
+        end
+        Nokogiri::HTML.fragment(tag).first_element_child
+      end
+
+      include_examples 'basic behavior'
     end
   end
 end

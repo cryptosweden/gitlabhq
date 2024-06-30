@@ -1,78 +1,45 @@
 # frozen_string_literal: true
 
 module WebHooks
+  # Destroy a hook, and schedule the logs for deletion.
   class DestroyService
-    include BaseServiceUtility
+    include Services::ReturnServiceResponses
 
-    BATCH_SIZE = 1000
-    LOG_COUNT_THRESHOLD = 10000
+    attr_accessor :current_user
 
-    DestroyError = Class.new(StandardError)
-
-    attr_accessor :current_user, :web_hook
+    DENIED = 'Insufficient permissions'
 
     def initialize(current_user)
       @current_user = current_user
     end
 
     def execute(web_hook)
-      @web_hook = web_hook
+      return error(DENIED, 401) unless authorized?(web_hook)
 
-      async = false
-      # For a better user experience, it's better if the Web hook is
-      # destroyed right away without waiting for Sidekiq. However, if
-      # there are a lot of Web hook logs, we will need more time to
-      # clean them up, so schedule a Sidekiq job to do this.
-      if needs_async_destroy?
-        Gitlab::AppLogger.info("User #{current_user&.id} scheduled a deletion of hook ID #{web_hook.id}")
-        async_destroy(web_hook)
-        async = true
+      if web_hook.destroy
+        after_destroy(web_hook)
       else
-        sync_destroy(web_hook)
-      end
-
-      success({ async: async })
-    end
-
-    def sync_destroy(web_hook)
-      @web_hook = web_hook
-
-      delete_web_hook_logs
-      result = web_hook.destroy
-
-      if result
-        success({ async: false })
-      else
-        error("Unable to destroy #{web_hook.model_name.human}")
+        error("Unable to destroy #{web_hook.model_name.human}", 500)
       end
     end
 
     private
 
-    def async_destroy(web_hook)
-      WebHooks::DestroyWorker.perform_async(current_user.id, web_hook.id)
+    def after_destroy(web_hook)
+      WebHooks::LogDestroyWorker.perform_async({ 'hook_id' => web_hook.id })
+      Gitlab::AppLogger.info(log_message(web_hook))
+
+      success({ async: false })
     end
 
-    # rubocop: disable CodeReuse/ActiveRecord
-    def needs_async_destroy?
-      web_hook.web_hook_logs.limit(LOG_COUNT_THRESHOLD).count == LOG_COUNT_THRESHOLD
-    end
-    # rubocop: enable CodeReuse/ActiveRecord
-
-    def delete_web_hook_logs
-      loop do
-        count = delete_web_hook_logs_in_batches
-        break if count < BATCH_SIZE
-      end
+    def log_message(hook)
+      "User #{current_user&.id} scheduled a deletion of logs for hook ID #{hook.id}"
     end
 
-    # rubocop: disable CodeReuse/ActiveRecord
-    def delete_web_hook_logs_in_batches
-      # We can't use EachBatch because that does an ORDER BY id, which can
-      # easily time out. We don't actually care about ordering when
-      # we are deleting these rows.
-      web_hook.web_hook_logs.limit(BATCH_SIZE).delete_all
+    def authorized?(web_hook)
+      Ability.allowed?(current_user, :admin_web_hook, web_hook)
     end
-    # rubocop: enable CodeReuse/ActiveRecord
   end
 end
+
+WebHooks::DestroyService.prepend_mod_with('WebHooks::DestroyService')

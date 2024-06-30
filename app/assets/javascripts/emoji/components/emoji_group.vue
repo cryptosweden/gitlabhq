@@ -1,5 +1,10 @@
 <script>
+import { GlButton } from '@gitlab/ui';
+
 export default {
+  components: {
+    GlButton,
+  },
   props: {
     emojis: {
       type: Array,
@@ -9,28 +14,34 @@ export default {
       type: Boolean,
       required: true,
     },
-    clickEmoji: {
-      type: Function,
-      required: true,
+  },
+  methods: {
+    clickEmoji(emoji) {
+      this.$emit('emoji-click', emoji);
     },
   },
 };
 </script>
 
-<!-- eslint-disable-next-line vue/no-deprecated-functional-template -->
-<template functional>
+<template>
   <div class="gl-display-flex gl-flex-wrap gl-mb-2">
-    <template v-if="props.renderGroup">
-      <button
-        v-for="emoji in props.emojis"
+    <template v-if="renderGroup">
+      <gl-button
+        v-for="emoji in emojis"
         :key="emoji"
         type="button"
-        class="gl-border-0 gl-bg-transparent gl-px-0 gl-py-2 gl-text-center emoji-picker-emoji"
+        category="tertiary"
+        class="emoji-picker-emoji"
+        :aria-label="emoji"
         data-testid="emoji-button"
-        @click="props.clickEmoji(emoji)"
+        button-text-classes="!gl-hidden"
+        @click="clickEmoji(emoji)"
+        @keydown.enter="clickEmoji(emoji)"
       >
-        <gl-emoji :data-name="emoji" />
-      </button>
+        <template #emoji>
+          <gl-emoji :data-name="emoji" class="gl-mr-0!" />
+        </template>
+      </gl-button>
     </template>
   </div>
 </template>

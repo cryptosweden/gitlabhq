@@ -1,6 +1,7 @@
-import { GlModal, GlSearchBoxByType } from '@gitlab/ui';
+import { GlModal, GlFilteredSearch } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import getDiffWithCommit from 'test_fixtures/merge_request_diffs/with_commit.json';
 import AddReviewItemsModal from '~/add_context_commits_modal/components/add_context_commits_modal_wrapper.vue';
@@ -45,18 +46,13 @@ describe('AddContextCommitsModal', () => {
         ...props,
       },
     });
-    return wrapper;
   };
 
-  const findModal = () => wrapper.find(GlModal);
-  const findSearch = () => wrapper.find(GlSearchBoxByType);
+  const findModal = () => wrapper.findComponent(GlModal);
+  const findSearch = () => wrapper.findComponent(GlFilteredSearch);
 
   beforeEach(() => {
-    wrapper = createWrapper();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
+    createWrapper();
   });
 
   it('renders modal with 2 tabs', () => {
@@ -72,12 +68,29 @@ describe('AddContextCommitsModal', () => {
       expect(findSearch().exists()).toBe(true);
     });
 
-    it('when user starts entering text in search box, it calls action "searchCommits" after waiting for 500s', () => {
-      const searchText = 'abcd';
-      findSearch().vm.$emit('input', searchText);
-      expect(searchCommits).not.toBeCalled();
-      jest.advanceTimersByTime(500);
-      expect(searchCommits).toHaveBeenCalledWith(expect.anything(), searchText);
+    it('when user submits after entering filters in search box, then it calls action "searchCommits"', () => {
+      const search = [
+        'abcd',
+        {
+          type: 'author',
+          value: { operator: '=', data: 'abhi' },
+        },
+        {
+          type: 'committed-before-date',
+          value: { operator: '=', data: '2022-10-31' },
+        },
+        {
+          type: 'committed-after-date',
+          value: { operator: '=', data: '2022-10-28' },
+        },
+      ];
+      findSearch().vm.$emit('submit', search);
+      expect(searchCommits).toHaveBeenCalledWith(expect.anything(), {
+        searchText: 'abcd',
+        author: 'abhi',
+        committed_before: '2022-10-31',
+        committed_after: '2022-10-28',
+      });
     });
 
     it('disabled ok button when no row is selected', () => {
@@ -85,35 +98,35 @@ describe('AddContextCommitsModal', () => {
     });
 
     it('enabled ok button when atleast one row is selected', async () => {
-      wrapper.vm.$store.state.selectedCommits = [{ ...commit, isSelected: true }];
+      store.state.selectedCommits = [{ ...commit, isSelected: true }];
       await nextTick();
-      expect(findModal().attributes('ok-disabled')).toBeFalsy();
+      expect(findModal().attributes('ok-disabled')).toBe(undefined);
     });
   });
 
   describe('when in second tab, renders a modal with', () => {
     beforeEach(() => {
-      wrapper.vm.$store.state.tabIndex = 1;
+      store.state.tabIndex = 1;
     });
     it('a disabled ok button when no row is selected', () => {
       expect(findModal().attributes('ok-disabled')).toBe('true');
     });
 
     it('an enabled ok button when atleast one row is selected', async () => {
-      wrapper.vm.$store.state.selectedCommits = [{ ...commit, isSelected: true }];
+      store.state.selectedCommits = [{ ...commit, isSelected: true }];
       await nextTick();
-      expect(findModal().attributes('ok-disabled')).toBeFalsy();
+      expect(findModal().attributes('ok-disabled')).toBe(undefined);
     });
 
     it('a disabled ok button in first tab, when row is selected in second tab', () => {
       createWrapper({ selectedContextCommits: [commit] });
-      expect(wrapper.find(GlModal).attributes('ok-disabled')).toBe('true');
+      expect(wrapper.findComponent(GlModal).attributes('ok-disabled')).toBe('true');
     });
   });
 
   describe('has an ok button when clicked calls action', () => {
-    it('"createContextCommits" when only new commits to be added ', async () => {
-      wrapper.vm.$store.state.selectedCommits = [{ ...commit, isSelected: true }];
+    it('"createContextCommits" when only new commits to be added', async () => {
+      store.state.selectedCommits = [{ ...commit, isSelected: true }];
       findModal().vm.$emit('ok');
       await nextTick();
       expect(createContextCommits).toHaveBeenCalledWith(expect.anything(), {
@@ -121,15 +134,15 @@ describe('AddContextCommitsModal', () => {
         forceReload: true,
       });
     });
-    it('"removeContextCommits" when only added commits are to be removed ', async () => {
-      wrapper.vm.$store.state.toRemoveCommits = [commit.short_id];
+    it('"removeContextCommits" when only added commits are to be removed', async () => {
+      store.state.toRemoveCommits = [commit.short_id];
       findModal().vm.$emit('ok');
       await nextTick();
       expect(removeContextCommits).toHaveBeenCalledWith(expect.anything(), true);
     });
     it('"createContextCommits" and "removeContextCommits" when new commits are to be added and old commits are to be removed', async () => {
-      wrapper.vm.$store.state.selectedCommits = [{ ...commit, isSelected: true }];
-      wrapper.vm.$store.state.toRemoveCommits = [commit.short_id];
+      store.state.selectedCommits = [{ ...commit, isSelected: true }];
+      store.state.toRemoveCommits = [commit.short_id];
       findModal().vm.$emit('ok');
       await nextTick();
       expect(createContextCommits).toHaveBeenCalledWith(expect.anything(), {

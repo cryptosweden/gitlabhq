@@ -33,7 +33,7 @@ module Peek
       def details
         call_details
           .sort { |a, b| b[:duration] <=> a[:duration] }
-          .map(&method(:format_call_details))
+          .map { |call| format_call_details(call) }
       end
 
       def warnings
@@ -51,7 +51,7 @@ module Peek
         duration = (call[:duration] * 1000).round(3)
 
         call.merge(duration: duration,
-                   warnings: warning_for(duration, self.class.thresholds[:individual_call]))
+          warnings: warning_for(duration, self.class.thresholds[:individual_call]))
       end
 
       def warning_for(actual, threshold, label: nil)

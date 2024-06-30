@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User sees merge widget', :js do
+RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: :code_review_workflow do
   include ProjectForksHelper
   include TestReportsHelper
   include ReactiveCachingHelpers
@@ -13,13 +13,14 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
   let(:merge_request) { create(:merge_request, source_project: project) }
   let(:merge_request_in_only_mwps_project) { create(:merge_request, source_project: project_only_mwps) }
 
+  def click_expand_button
+    find_by_testid('toggle-button').click
+  end
+
   before do
     project.add_maintainer(user)
     project_only_mwps.add_maintainer(user)
     sign_in(user)
-
-    stub_feature_flags(refactor_mr_widgets_extensions: false)
-    stub_feature_flags(refactor_mr_widgets_extensions_user: false)
   end
 
   context 'new merge request', :sidekiq_might_not_need_inline do
@@ -61,7 +62,8 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
       wait_for_requests
 
       page.within('.js-pre-deployment') do
-        expect(page).to have_content("Deployed to #{environment.name}")
+        expect(find('.js-deploy-env-name')[:title]).to have_text(environment.name)
+        expect(page).to have_content("Deployed to")
         expect(find('.js-deploy-url')[:href]).to include(environment.formatted_external_url)
       end
     end
@@ -74,25 +76,27 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
     end
 
     it 'allows me to merge, see cherry-pick modal and load branches list', :sidekiq_might_not_need_inline do
-      modal_selector = '[data-testid="modal-commit"]'
-
       wait_for_requests
       click_button 'Merge'
 
       wait_for_requests
 
+      page.refresh
+
       click_button 'Cherry-pick'
 
-      page.within(modal_selector) do
+      within_testid('modal-commit') do
         click_button 'master'
       end
 
-      page.within("#{modal_selector} .dropdown-menu") do
-        find('[data-testid="dropdown-search-box"]').set('')
+      within_testid('modal-commit') do
+        within_testid('base-dropdown-menu') do
+          fill_in 'Search branches', with: ''
 
-        wait_for_requests
+          wait_for_requests
 
-        expect(page.all('[data-testid="dropdown-item"]').size).to be > 1
+          expect(page).to have_selector('[data-testid="listbox-item-master"]', visible: true)
+        end
       end
     end
   end
@@ -115,12 +119,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
   context 'view merge request with failed GitLab CI pipelines' do
     before do
       commit_status = create(:commit_status, project: project, status: 'failed')
-      pipeline = create(:ci_pipeline, project: project,
-                                      sha: merge_request.diff_head_sha,
-                                      ref: merge_request.source_branch,
-                                      status: 'failed',
-                                      statuses: [commit_status],
-                                      head_pipeline_of: merge_request)
+      pipeline = create(
+        :ci_pipeline,
+        project: project,
+        sha: merge_request.diff_head_sha,
+        ref: merge_request.source_branch,
+        status: 'failed',
+        statuses: [commit_status],
+        head_pipeline_of: merge_request
+      )
       create(:ci_build, :pending, pipeline: pipeline)
 
       visit project_merge_request_path(project, merge_request)
@@ -136,17 +143,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
     end
 
     it 'allows me to merge with a failed pipeline' do
-      modal_selector = '[data-testid="merge-failed-pipeline-confirmation-dialog"]'
-
       wait_for_requests
 
       click_button 'Merge...'
 
-      page.within(modal_selector) do
+      within_testid('merge-failed-pipeline-confirmation-dialog') do
         click_button 'Merge unverified changes'
       end
 
-      expect(find('.media-body h4')).to have_content('Merging!')
+      expect(find_by_testid('merging-state')).to have_content('Merging!')
     end
   end
 
@@ -166,10 +171,11 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
     end
 
     it 'shows information about blocked pipeline' do
+      click_button 'Expand merge checks'
+
       expect(page).to have_content("Merge blocked")
-      expect(page).to have_content(
-        "pipeline must succeed. It's waiting for a manual action to continue.")
-      expect(page).to have_css('.ci-status-icon-manual')
+      expect(page).to have_content("Pipeline must succeed.")
+      expect(page).to have_css('[data-testid="status_manual_borderless-icon"]')
     end
   end
 
@@ -188,7 +194,8 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
     it 'shows head pipeline information' do
       within '.ci-widget-content' do
-        expect(page).to have_content("Pipeline ##{pipeline.id} pending " \
+        expect(page).to have_content("Pipeline ##{pipeline.id} pending")
+        expect(page).to have_content("Pipeline pending " \
                                      "for #{pipeline.short_sha} " \
                                      "on #{pipeline.ref}")
       end
@@ -218,7 +225,8 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
     shared_examples 'pipeline widget' do
       it 'shows head pipeline information', :sidekiq_might_not_need_inline do
         within '.ci-widget-content' do
-          expect(page).to have_content("Detached merge request pipeline ##{pipeline.id} pending for #{pipeline.short_sha}")
+          expect(page).to have_content("Merge request pipeline ##{pipeline.id} pending")
+          expect(page).to have_content("Merge request pipeline pending for #{pipeline.short_sha}")
         end
       end
     end
@@ -257,7 +265,8 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
     shared_examples 'pipeline widget' do
       it 'shows head pipeline information', :sidekiq_might_not_need_inline do
         within '.ci-widget-content' do
-          expect(page).to have_content("Merged result pipeline ##{pipeline.id} pending for #{pipeline.short_sha}")
+          expect(page).to have_content("Merged result pipeline ##{pipeline.id} pending")
+          expect(page).to have_content("Merged result pipeline pending for #{pipeline.short_sha}")
         end
       end
     end
@@ -275,12 +284,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
   context 'view merge request with MWBS button' do
     before do
       commit_status = create(:commit_status, project: project, status: 'pending')
-      pipeline = create(:ci_pipeline, project: project,
-                                      sha: merge_request.diff_head_sha,
-                                      ref: merge_request.source_branch,
-                                      status: 'pending',
-                                      statuses: [commit_status],
-                                      head_pipeline_of: merge_request)
+      pipeline = create(
+        :ci_pipeline,
+        project: project,
+        sha: merge_request.diff_head_sha,
+        ref: merge_request.source_branch,
+        status: 'pending',
+        statuses: [commit_status],
+        head_pipeline_of: merge_request
+      )
       create(:ci_build, :pending, pipeline: pipeline)
 
       visit project_merge_request_path(project, merge_request)
@@ -295,9 +307,12 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
   context 'view merge request where there is no pipeline yet' do
     before do
-      pipeline = create(:ci_pipeline, project: project,
-                                      sha: merge_request.diff_head_sha,
-                                      ref: merge_request.source_branch)
+      pipeline = create(
+        :ci_pipeline,
+        project: project,
+        sha: merge_request.diff_head_sha,
+        ref: merge_request.source_branch
+      )
       create(:ci_build, pipeline: pipeline)
 
       visit project_merge_request_path(project, merge_request)
@@ -316,12 +331,26 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
       visit project_merge_request_path(project_only_mwps, merge_request_in_only_mwps_project)
     end
 
-    it 'is allowed to merge' do
-      # Wait for the `ci_status` and `merge_check` requests
-      wait_for_requests
+    context 'when using merge when pipeline succeeds' do
+      before do
+        stub_feature_flags(merge_when_checks_pass: false)
+      end
 
-      expect(page).to have_selector('.accept-merge-request')
-      expect(find('.accept-merge-request')['disabled']).not_to be(true)
+      it 'is not allowed to merge' do
+        # Wait for the `ci_status` and `merge_check` requests
+        wait_for_requests
+
+        expect(page).not_to have_selector('.accept-merge-request')
+      end
+    end
+
+    context 'when using merge when checks pass' do
+      it 'is not allowed to set auto merge' do
+        # Wait for the `ci_status` and `merge_check` requests
+        wait_for_requests
+
+        expect(page).to have_selector('.accept-merge-request')
+      end
     end
   end
 
@@ -341,7 +370,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
       # Wait for the `ci_status` and `merge_check` requests
       wait_for_requests
 
-      page.within('.mr-section-container') do
+      page.within('.mr-state-widget') do
         expect(page).to have_content('Something went wrong.')
       end
     end
@@ -362,7 +391,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
       # Wait for the `ci_status` and `merge_check` requests
       wait_for_requests
 
-      page.within('.mr-section-container') do
+      page.within('.mr-state-widget') do
         expect(page).to have_content('Something went wrong.')
       end
     end
@@ -384,9 +413,9 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
       # Wait for the `ci_status` and `merge_check` requests
       wait_for_requests
 
-      page.within('.mr-widget-body') do
-        expect(page).to have_content('Merge Merge blocked: fast-forward merge is not possible. To merge this request, first rebase locally.')
-      end
+      click_button 'Expand merge checks'
+
+      expect(page).to have_content('Merge request must be rebased, because a fast-forward merge is not possible.')
     end
   end
 
@@ -397,11 +426,11 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
     end
 
     it 'updates the MR widget', :sidekiq_might_not_need_inline do
-      click_button 'Merge'
-
-      page.within('.mr-widget-body') do
-        expect(page).to have_content('An error occurred while merging')
+      page.within('.mr-state-widget') do
+        click_button 'Merge'
       end
+
+      expect(page).to have_content('An error occurred while merging')
     end
   end
 
@@ -444,7 +473,6 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
     it 'user cannot remove source branch', :sidekiq_might_not_need_inline do
       expect(page).not_to have_field('remove-source-branch-input')
-      expect(page).to have_content('Deletes the source branch')
     end
   end
 
@@ -456,7 +484,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
       wait_for_requests
 
-      expect(page).not_to have_button('Merge')
+      expect(page).not_to have_button('Merge', exact: true)
       expect(page).to have_content('Merging!')
     end
   end
@@ -511,11 +539,13 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
   context 'when merge request has test reports' do
     let!(:head_pipeline) do
-      create(:ci_pipeline,
-             :success,
-             project: project,
-             ref: merge_request.source_branch,
-             sha: merge_request.diff_head_sha)
+      create(
+        :ci_pipeline,
+        :success,
+        project: project,
+        ref: merge_request.source_branch,
+        sha: merge_request.diff_head_sha
+      )
     end
 
     let!(:build) { create(:ci_build, :success, pipeline: head_pipeline, project: project) }
@@ -532,7 +562,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
       end
 
       it 'shows parsing status' do
-        expect(page).to have_content('Test summary results are being parsed')
+        expect(page).to have_content('Test summary results are loading')
       end
     end
 
@@ -547,7 +577,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
         end
 
         it 'shows parsed results' do
-          expect(page).to have_content('Test summary contained')
+          expect(page).to have_content('Test summary:')
         end
       end
 
@@ -561,7 +591,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
         end
 
         it 'shows the error state' do
-          expect(page).to have_content('Test summary failed loading results')
+          expect(page).to have_content('Test summary failed to load results')
         end
       end
 
@@ -594,27 +624,27 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
       context 'when a new failures exists' do
         let(:base_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_success)
             reports.get_suite('junit').add_test_case(create_test_case_java_success)
           end
         end
 
         let(:head_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_success)
             reports.get_suite('junit').add_test_case(create_test_case_java_failed)
           end
         end
 
         it 'shows test reports summary which includes the new failure' do
-          within(".js-reports-container") do
-            click_button 'Expand'
+          within_testid('widget-extension') do
+            click_expand_button
 
-            expect(page).to have_content('Test summary contained 1 failed out of 2 total tests')
-            within(".js-report-section-container") do
-              expect(page).to have_content('rspec found no changed test results out of 1 total test')
-              expect(page).to have_content('junit found 1 failed out of 1 total test')
+            expect(page).to have_content('Test summary: 1 failed, 2 total tests')
+            within_testid('widget-extension-collapsed-section') do
+              expect(page).to have_content('rspec: no changed test results, 1 total test')
+              expect(page).to have_content('junit: 1 failed, 1 total test')
               expect(page).to have_content('New')
               expect(page).to have_content('addTest')
             end
@@ -623,15 +653,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
         context 'when user clicks the new failure' do
           it 'shows the test report detail' do
-            within(".js-reports-container") do
-              click_button 'Expand'
+            within_testid('widget-extension') do
+              click_expand_button
 
-              within(".js-report-section-container") do
-                click_button 'addTest'
+              within_testid('widget-extension-collapsed-section') do
+                click_button 'View details'
               end
             end
 
-            within("#modal-mrwidget-reports") do
+            within_testid('test-case-details-modal') do
               expect(page).to have_content('addTest')
               expect(page).to have_content('6.66')
               expect(page).to have_content(sample_java_failed_message.gsub(/\s+/, ' ').strip)
@@ -642,27 +672,27 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
       context 'when an existing failure exists' do
         let(:base_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_failed)
             reports.get_suite('junit').add_test_case(create_test_case_java_success)
           end
         end
 
         let(:head_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_failed)
             reports.get_suite('junit').add_test_case(create_test_case_java_success)
           end
         end
 
         it 'shows test reports summary which includes the existing failure' do
-          within(".js-reports-container") do
-            click_button 'Expand'
+          within_testid('widget-extension') do
+            click_expand_button
 
-            expect(page).to have_content('Test summary contained 1 failed out of 2 total tests')
-            within(".js-report-section-container") do
-              expect(page).to have_content('rspec found 1 failed out of 1 total test')
-              expect(page).to have_content('junit found no changed test results out of 1 total test')
+            expect(page).to have_content('Test summary: 1 failed, 2 total tests')
+            within_testid('widget-extension-collapsed-section') do
+              expect(page).to have_content('rspec: 1 failed, 1 total test')
+              expect(page).to have_content('junit: no changed test results, 1 total test')
               expect(page).to have_content('Test#sum when a is 1 and b is 3 returns summary')
             end
           end
@@ -670,15 +700,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
         context 'when user clicks the existing failure' do
           it 'shows test report detail of it' do
-            within(".js-reports-container") do
-              click_button 'Expand'
+            within_testid('widget-extension') do
+              click_expand_button
 
-              within(".js-report-section-container") do
-                click_button 'Test#sum when a is 1 and b is 3 returns summary'
+              within_testid('widget-extension-collapsed-section') do
+                click_button 'View details'
               end
             end
 
-            within("#modal-mrwidget-reports") do
+            within_testid('test-case-details-modal') do
               expect(page).to have_content('Test#sum when a is 1 and b is 3 returns summary')
               expect(page).to have_content('2.22')
               expect(page).to have_content(sample_rspec_failed_message.gsub(/\s+/, ' ').strip)
@@ -689,27 +719,28 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
       context 'when a resolved failure exists' do
         let(:base_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_success)
             reports.get_suite('junit').add_test_case(create_test_case_java_failed)
           end
         end
 
         let(:head_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_success)
             reports.get_suite('junit').add_test_case(create_test_case_java_success)
           end
         end
 
         it 'shows test reports summary which includes the resolved failure' do
-          within(".js-reports-container") do
-            click_button 'Expand'
+          within_testid('widget-extension') do
+            click_expand_button
 
-            expect(page).to have_content('Test summary contained 1 fixed test result out of 2 total tests')
-            within(".js-report-section-container") do
-              expect(page).to have_content('rspec found no changed test results out of 1 total test')
-              expect(page).to have_content('junit found 1 fixed test result out of 1 total test')
+            expect(page).to have_content('Test summary: 1 fixed test result, 2 total tests')
+            within_testid('widget-extension-collapsed-section') do
+              expect(page).to have_content('rspec: no changed test results, 1 total test')
+              expect(page).to have_content('junit: 1 fixed test result, 1 total test')
+              expect(page).to have_content('Fixed')
               expect(page).to have_content('addTest')
             end
           end
@@ -717,15 +748,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
         context 'when user clicks the resolved failure' do
           it 'shows test report detail of it' do
-            within(".js-reports-container") do
-              click_button 'Expand'
+            within_testid('widget-extension') do
+              click_expand_button
 
-              within(".js-report-section-container") do
-                click_button 'addTest'
+              within_testid('widget-extension-collapsed-section') do
+                click_button 'View details'
               end
             end
 
-            within("#modal-mrwidget-reports") do
+            within_testid('test-case-details-modal') do
               expect(page).to have_content('addTest')
               expect(page).to have_content('5.55')
             end
@@ -735,27 +766,27 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
       context 'when a new error exists' do
         let(:base_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_success)
             reports.get_suite('junit').add_test_case(create_test_case_java_success)
           end
         end
 
         let(:head_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_success)
             reports.get_suite('junit').add_test_case(create_test_case_java_error)
           end
         end
 
         it 'shows test reports summary which includes the new error' do
-          within(".js-reports-container") do
-            click_button 'Expand'
+          within_testid('widget-extension') do
+            click_expand_button
 
-            expect(page).to have_content('Test summary contained 1 error out of 2 total tests')
-            within(".js-report-section-container") do
-              expect(page).to have_content('rspec found no changed test results out of 1 total test')
-              expect(page).to have_content('junit found 1 error out of 1 total test')
+            expect(page).to have_content('Test summary: 1 error, 2 total tests')
+            within_testid('widget-extension-collapsed-section') do
+              expect(page).to have_content('rspec: no changed test results, 1 total test')
+              expect(page).to have_content('junit: 1 error, 1 total test')
               expect(page).to have_content('New')
               expect(page).to have_content('addTest')
             end
@@ -764,15 +795,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
         context 'when user clicks the new error' do
           it 'shows the test report detail' do
-            within(".js-reports-container") do
-              click_button 'Expand'
+            within_testid('widget-extension') do
+              click_expand_button
 
-              within(".js-report-section-container") do
-                click_button 'addTest'
+              within_testid('widget-extension-collapsed-section') do
+                click_button 'View details'
               end
             end
 
-            within("#modal-mrwidget-reports") do
+            within_testid('test-case-details-modal') do
               expect(page).to have_content('addTest')
               expect(page).to have_content('8.88')
             end
@@ -782,27 +813,27 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
       context 'when an existing error exists' do
         let(:base_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_error)
             reports.get_suite('junit').add_test_case(create_test_case_java_success)
           end
         end
 
         let(:head_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_error)
             reports.get_suite('junit').add_test_case(create_test_case_java_success)
           end
         end
 
         it 'shows test reports summary which includes the existing error' do
-          within(".js-reports-container") do
-            click_button 'Expand'
+          within_testid('widget-extension') do
+            click_expand_button
 
-            expect(page).to have_content('Test summary contained 1 error out of 2 total tests')
-            within(".js-report-section-container") do
-              expect(page).to have_content('rspec found 1 error out of 1 total test')
-              expect(page).to have_content('junit found no changed test results out of 1 total test')
+            expect(page).to have_content('Test summary: 1 error, 2 total tests')
+            within_testid('widget-extension-collapsed-section') do
+              expect(page).to have_content('rspec: 1 error, 1 total test')
+              expect(page).to have_content('junit: no changed test results, 1 total test')
               expect(page).to have_content('Test#sum when a is 4 and b is 4 returns summary')
             end
           end
@@ -810,15 +841,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
         context 'when user clicks the existing error' do
           it 'shows test report detail of it' do
-            within(".js-reports-container") do
-              click_button 'Expand'
+            within_testid('widget-extension') do
+              click_expand_button
 
-              within(".js-report-section-container") do
-                click_button 'Test#sum when a is 4 and b is 4 returns summary'
+              within_testid('widget-extension-collapsed-section') do
+                click_button 'View details'
               end
             end
 
-            within("#modal-mrwidget-reports") do
+            within_testid('test-case-details-modal') do
               expect(page).to have_content('Test#sum when a is 4 and b is 4 returns summary')
               expect(page).to have_content('4.44')
             end
@@ -828,27 +859,28 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
       context 'when a resolved error exists' do
         let(:base_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_success)
             reports.get_suite('junit').add_test_case(create_test_case_java_error)
           end
         end
 
         let(:head_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             reports.get_suite('rspec').add_test_case(create_test_case_rspec_success)
             reports.get_suite('junit').add_test_case(create_test_case_java_success)
           end
         end
 
         it 'shows test reports summary which includes the resolved error' do
-          within(".js-reports-container") do
-            click_button 'Expand'
+          within_testid('widget-extension') do
+            click_expand_button
 
-            expect(page).to have_content('Test summary contained 1 fixed test result out of 2 total tests')
-            within(".js-report-section-container") do
-              expect(page).to have_content('rspec found no changed test results out of 1 total test')
-              expect(page).to have_content('junit found 1 fixed test result out of 1 total test')
+            expect(page).to have_content('Test summary: 1 fixed test result, 2 total tests')
+            within_testid('widget-extension-collapsed-section') do
+              expect(page).to have_content('rspec: no changed test results, 1 total test')
+              expect(page).to have_content('junit: 1 fixed test result, 1 total test')
+              expect(page).to have_content('Fixed')
               expect(page).to have_content('addTest')
             end
           end
@@ -856,15 +888,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
         context 'when user clicks the resolved error' do
           it 'shows test report detail of it' do
-            within(".js-reports-container") do
-              click_button 'Expand'
+            within_testid('widget-extension') do
+              click_expand_button
 
-              within(".js-report-section-container") do
-                click_button 'addTest'
+              within_testid('widget-extension-collapsed-section') do
+                click_button 'View details'
               end
             end
 
-            within("#modal-mrwidget-reports") do
+            within_testid('test-case-details-modal') do
               expect(page).to have_content('addTest')
               expect(page).to have_content('5.55')
             end
@@ -874,7 +906,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
 
       context 'properly truncates the report' do
         let(:base_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             10.times do |index|
               reports.get_suite('rspec').add_test_case(
                 create_test_case_rspec_failed(index))
@@ -885,7 +917,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
         end
 
         let(:head_reports) do
-          Gitlab::Ci::Reports::TestReports.new.tap do |reports|
+          Gitlab::Ci::Reports::TestReport.new.tap do |reports|
             10.times do |index|
               reports.get_suite('rspec').add_test_case(
                 create_test_case_rspec_failed(index))
@@ -896,13 +928,13 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
         end
 
         it 'shows test reports summary which includes the resolved failure' do
-          within(".js-reports-container") do
-            click_button 'Expand'
+          within_testid('widget-extension') do
+            click_expand_button
 
-            expect(page).to have_content('Test summary contained 20 failed out of 20 total tests')
-            within(".js-report-section-container") do
-              expect(page).to have_content('rspec found 10 failed out of 10 total tests')
-              expect(page).to have_content('junit found 10 failed out of 10 total tests')
+            expect(page).to have_content('Test summary: 20 failed, 20 total tests')
+            within_testid('widget-extension-collapsed-section') do
+              expect(page).to have_content('rspec: 10 failed, 10 total tests')
+              expect(page).to have_content('junit: 10 failed, 10 total tests')
 
               expect(page).to have_content('Test#sum when a is 1 and b is 3 returns summary', count: 2)
             end
@@ -934,6 +966,23 @@ RSpec.describe 'Merge request > User sees merge widget', :js do
     it 'renders a CI pipeline loading state' do
       within '.ci-widget' do
         expect(page).to have_content('Checking pipeline status')
+      end
+    end
+  end
+
+  context 'views MR when pipeline has code coverage enabled' do
+    let!(:pipeline) { create(:ci_pipeline, status: 'success', project: project, ref: merge_request.source_branch) }
+    let!(:build) { create(:ci_build, :success, :coverage, pipeline: pipeline) }
+
+    before do
+      merge_request.update!(head_pipeline: pipeline)
+
+      visit project_merge_request_path(project, merge_request)
+    end
+
+    it 'shows the coverage' do
+      within '.ci-widget' do
+        expect(find_by_testid('pipeline-coverage')).to have_content('Test coverage 99.90% ')
       end
     end
   end

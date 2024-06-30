@@ -2,17 +2,7 @@
 
 module Ci
   class BuildPresenter < ProcessablePresenter
-    presents ::Ci::Build
-
-    def erased_by_user?
-      # Build can be erased through API, therefore it does not have
-      # `erased_by` user assigned in that case.
-      erased? && erased_by
-    end
-
-    def erased_by_name
-      erased_by.name if erased_by_user?
-    end
+    presents ::Ci::Build, as: :build
 
     def status_title(status = detailed_status)
       if auto_canceled?
@@ -33,12 +23,12 @@ module Ci
         end
     end
 
-    def tooltip_message
-      "#{subject.name} - #{detailed_status.status_tooltip}"
-    end
-
     def execute_in
       scheduled? && scheduled_at && [0, scheduled_at - Time.now].max
+    end
+
+    def failure_message
+      callout_failure_message if build.failed?
     end
 
     private
@@ -48,7 +38,7 @@ module Ci
     end
 
     def detailed_status
-      @detailed_status ||= subject.detailed_status(user)
+      @detailed_status ||= build.detailed_status(user)
     end
   end
 end

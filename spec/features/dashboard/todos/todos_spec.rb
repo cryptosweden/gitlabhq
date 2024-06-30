@@ -2,18 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Dashboard Todos' do
+RSpec.describe 'Dashboard Todos', :js, feature_category: :team_planning do
   include DesignManagementTestHelpers
 
   let_it_be(:user) { create(:user, username: 'john') }
   let_it_be(:user2) { create(:user, username: 'diane') }
+  let_it_be(:user3) { create(:user) }
   let_it_be(:author) { create(:user) }
-  let_it_be(:project) { create(:project, :public) }
+  let_it_be(:project) { create(:project, :public, developers: user) }
   let_it_be(:issue) { create(:issue, project: project, due_date: Date.today, title: "Fix bug") }
 
-  before_all do
-    project.add_developer(user)
-  end
+  it_behaves_like 'a "Your work" page with sidebar and breadcrumbs', :dashboard_todos_path, :todos
 
   context 'User does not have todos' do
     before do
@@ -21,8 +20,10 @@ RSpec.describe 'Dashboard Todos' do
       visit dashboard_todos_path
     end
 
-    it 'shows "All done" message' do
+    it 'shows empty state but not the page title' do
       expect(page).to have_content 'Your To-Do List shows what to work on next'
+      expect(page).to have_selector('.gl-empty-state')
+      expect(page).not_to have_selector('.page-title-holder')
     end
 
     context 'when user was assigned to an issue and marked it as done' do
@@ -30,11 +31,11 @@ RSpec.describe 'Dashboard Todos' do
         sign_in(user)
       end
 
-      it 'shows "Are you looking for things to do?" message' do
+      it 'shows "Not sure where to go next?" message' do
         create(:todo, :assigned, :done, user: user, project: project, target: issue, author: user2)
         visit dashboard_todos_path
 
-        expect(page).to have_content 'Are you looking for things to do? Take a look at open issues, contribute to a merge request, or mention someone in a comment to automatically assign them a new to-do item.'
+        expect(page).to have_content 'Not sure where to go next? Take a look at your assigned issues or merge requests.'
       end
     end
   end
@@ -49,13 +50,8 @@ RSpec.describe 'Dashboard Todos' do
       visit dashboard_todos_path
     end
 
-    it 'renders the mr link with the extra attributes' do
-      link = page.find_link(referenced_mr.to_reference)
-
-      expect(link).not_to be_nil
-      expect(link['data-iid']).to eq(referenced_mr.iid.to_s)
-      expect(link['data-project-path']).to eq(referenced_mr.project.full_path)
-      expect(link['data-mr-title']).to eq(referenced_mr.title)
+    it 'renders the mr reference' do
+      expect(page).to have_content(referenced_mr.to_reference)
     end
   end
 
@@ -75,7 +71,7 @@ RSpec.describe 'Dashboard Todos' do
     end
   end
 
-  context 'User has a todo', :js do
+  context 'User has a todo' do
     let_it_be(:user_todo) { create(:todo, :mentioned, user: user, project: project, target: issue, author: author) }
 
     before do
@@ -97,7 +93,7 @@ RSpec.describe 'Dashboard Todos' do
     shared_examples 'deleting the todo' do
       before do
         within first('.todo') do
-          click_link 'Done'
+          find_by_testid('check-icon').click
         end
       end
 
@@ -123,9 +119,9 @@ RSpec.describe 'Dashboard Todos' do
     shared_examples 'deleting and restoring the todo' do
       before do
         within first('.todo') do
-          click_link 'Done'
+          find_by_testid('check-icon').click
           wait_for_requests
-          click_link 'Undo'
+          find_by_testid('redo-icon').click
         end
       end
 
@@ -157,6 +153,22 @@ RSpec.describe 'Dashboard Todos' do
       it_behaves_like 'deleting the todo'
       it_behaves_like 'deleting and restoring the todo'
     end
+
+    context 'when todo has a note' do
+      let(:note) { create(:note, project: project, note: "Check out stuff", noteable: create(:issue, project: project)) }
+      let!(:todo) { create(:todo, :mentioned, user: user, project: project, author: author, note: note, target: note.noteable) }
+
+      before do
+        sign_in(user)
+        visit dashboard_todos_path
+      end
+
+      it 'shows note preview' do
+        expect(page).to have_no_content('mentioned you:')
+        expect(page).to have_no_content('"Check out stuff"')
+        expect(page).to have_content('Check out stuff')
+      end
+    end
   end
 
   context 'User created todos for themself' do
@@ -172,7 +184,8 @@ RSpec.describe 'Dashboard Todos' do
 
       it 'shows issue assigned to yourself message' do
         page.within('.js-todos-all') do
-          expect(page).to have_content("You assigned issue #{issue.to_reference} \"Fix bug\" at #{project.namespace.owner_name} / #{project.name} to yourself")
+          expect(page).to have_content("Fix bug · #{project.namespace.owner_name} / #{project.name} #{issue.to_reference}")
+          expect(page).to have_content("You assigned to yourself.")
         end
       end
     end
@@ -183,10 +196,10 @@ RSpec.describe 'Dashboard Todos' do
         visit dashboard_todos_path
       end
 
-      it 'shows you added a todo message' do
+      it 'shows you added a to-do item message' do
         page.within('.js-todos-all') do
-          expect(page).to have_content("You added a todo for issue #{issue.to_reference} \"Fix bug\" at #{project.namespace.owner_name} / #{project.name}")
-          expect(page).not_to have_content('to yourself')
+          expect(page).to have_content("Fix bug · #{project.namespace.owner_name} / #{project.name} #{issue.to_reference}")
+          expect(page).to have_content("You added a to-do item.")
         end
       end
     end
@@ -199,8 +212,8 @@ RSpec.describe 'Dashboard Todos' do
 
       it 'shows you mentioned yourself message' do
         page.within('.js-todos-all') do
-          expect(page).to have_content("You mentioned yourself on issue #{issue.to_reference} \"Fix bug\" at #{project.namespace.owner_name} / #{project.name}")
-          expect(page).not_to have_content('to yourself')
+          expect(page).to have_content("Fix bug · #{project.namespace.owner_name} / #{project.name} #{issue.to_reference}")
+          expect(page).to have_content("You mentioned yourself.")
         end
       end
     end
@@ -211,10 +224,10 @@ RSpec.describe 'Dashboard Todos' do
         visit dashboard_todos_path
       end
 
-      it 'shows you directly addressed yourself message' do
+      it 'shows you directly addressed yourself message being displayed as mentioned yourself' do
         page.within('.js-todos-all') do
-          expect(page).to have_content("You directly addressed yourself on issue #{issue.to_reference} \"Fix bug\" at #{project.namespace.owner_name} / #{project.name}")
-          expect(page).not_to have_content('to yourself')
+          expect(page).to have_content("Fix bug · #{project.namespace.owner_name} / #{project.name} #{issue.to_reference}")
+          expect(page).to have_content("You mentioned yourself.")
         end
       end
     end
@@ -229,8 +242,8 @@ RSpec.describe 'Dashboard Todos' do
 
       it 'shows you set yourself as an approver message' do
         page.within('.js-todos-all') do
-          expect(page).to have_content("You set yourself as an approver for merge request #{merge_request.to_reference} \"Fixes issue\" at #{project.namespace.owner_name} / #{project.name}")
-          expect(page).not_to have_content('to yourself')
+          expect(page).to have_content("Fixes issue · #{project.namespace.owner_name} / #{project.name} #{merge_request.to_reference}")
+          expect(page).to have_content("You set yourself as an approver.")
         end
       end
     end
@@ -245,13 +258,34 @@ RSpec.describe 'Dashboard Todos' do
 
       it 'shows you set yourself as an reviewer message' do
         page.within('.js-todos-all') do
-          expect(page).to have_content("You requested a review of merge request #{merge_request.to_reference} \"Fixes issue\" at #{project.namespace.owner_name} / #{project.name} from yourself")
+          expect(page).to have_content("Fixes issue · #{project.namespace.owner_name} / #{project.name} #{merge_request.to_reference}")
+          expect(page).to have_content("You requested a review from yourself.")
         end
       end
     end
   end
 
-  context 'User has done todos', :js do
+  context 'User has automatically created todos' do
+    before do
+      sign_in(user)
+    end
+
+    context 'unmergeable todo' do
+      before do
+        create(:todo, :unmergeable, user: user, project: project, target: issue, author: user)
+        visit dashboard_todos_path
+      end
+
+      it 'shows unmergeable message' do
+        page.within('.js-todos-all') do
+          expect(page).to have_content("Fix bug · #{project.namespace.owner_name} / #{project.name} #{issue.to_reference}")
+          expect(page).to have_content("Could not merge.")
+        end
+      end
+    end
+  end
+
+  context 'User has done todos' do
     before do
       create(:todo, :mentioned, :done, user: user, project: project, target: issue, author: author)
       sign_in(user)
@@ -265,7 +299,7 @@ RSpec.describe 'Dashboard Todos' do
     describe 'restoring the todo' do
       before do
         within first('.todo') do
-          click_link 'Add a to do'
+          find_by_testid('redo-icon').click
         end
       end
 
@@ -323,7 +357,7 @@ RSpec.describe 'Dashboard Todos' do
       expect(page).to have_selector('.gl-pagination .js-pagination-page', count: 2)
     end
 
-    describe 'mark all as done', :js do
+    describe 'mark all as done' do
       before do
         visit dashboard_todos_path
         find('.js-todos-mark-all').click
@@ -341,7 +375,7 @@ RSpec.describe 'Dashboard Todos' do
       end
     end
 
-    describe 'undo mark all as done', :js do
+    describe 'undo mark all as done' do
       before do
         visit dashboard_todos_path
       end
@@ -371,7 +405,7 @@ RSpec.describe 'Dashboard Todos' do
       context 'User has deleted a todo' do
         before do
           within first('.todo') do
-            click_link 'Done'
+            find_by_testid('check-icon').click
           end
         end
 
@@ -389,6 +423,25 @@ RSpec.describe 'Dashboard Todos' do
         wait_for_requests
       end
     end
+
+    describe 'shows a count of todos' do
+      before do
+        allow(Todo).to receive(:default_per_page).and_return(1)
+        create_list(:todo, 2, :mentioned, user: user3, project: project, target: issue, author: author, state: :pending)
+        create_list(:todo, 2, :mentioned, user: user3, project: project, target: issue, author: author, state: :done)
+        sign_in(user3)
+      end
+
+      it 'displays a count of all pending todos' do
+        visit dashboard_todos_path
+        expect(find('.js-todos-pending')).to have_content('2')
+      end
+
+      it 'displays a count of all done todos' do
+        visit dashboard_todos_path(state: 'done')
+        expect(find('.js-todos-done')).to have_content('2')
+      end
+    end
   end
 
   context 'User has a Build Failed todo' do
@@ -400,13 +453,7 @@ RSpec.describe 'Dashboard Todos' do
     end
 
     it 'shows the todo' do
-      expect(page).to have_content 'The pipeline failed in merge request'
-    end
-
-    it 'links to the pipelines for the merge request' do
-      href = pipelines_project_merge_request_path(project, todo.target)
-
-      expect(page).to have_link "merge request #{todo.target.to_reference}", href: href
+      expect(page).to have_content 'The pipeline failed.'
     end
   end
 
@@ -414,12 +461,15 @@ RSpec.describe 'Dashboard Todos' do
     let_it_be(:target) { create(:design, issue: issue, project: project) }
     let_it_be(:note) { create(:note, project: project, note: 'I am note, hear me roar') }
     let_it_be(:todo) do
-      create(:todo, :mentioned,
-             user: user,
-             project: project,
-             target: target,
-             author: author,
-             note: note)
+      create(
+        :todo,
+        :mentioned,
+        user: user,
+        project: project,
+        target: target,
+        author: author,
+        note: note
+      )
     end
 
     before do
@@ -433,15 +483,56 @@ RSpec.describe 'Dashboard Todos' do
     it 'has todo present' do
       expect(page).to have_selector('.todos-list .todo', count: 1)
     end
+  end
 
-    it 'has a link that will take me to the design page' do
-      click_link "design #{target.to_reference}"
+  context 'User requested access' do
+    shared_examples 'has todo present with access request content' do
+      specify do
+        sign_in(user)
+        visit dashboard_todos_path
 
-      expectation = Gitlab::Routing.url_helpers.designs_project_issue_path(
-        target.project, target.issue, target.filename
-      )
+        expect(page).to have_selector('.todos-list .todo', count: 1)
+        expect(page).to have_content "#{author.name} has requested access to #{target_type} #{target_name}"
+      end
+    end
 
-      expect(page).to have_current_path(expectation, ignore_query: true)
+    context 'when user requests access to project or group' do
+      using RSpec::Parameterized::TableSyntax
+
+      let(:project_todo) do
+        create(
+          :todo,
+          :member_access_requested,
+          user: user,
+          project: project,
+          target: project,
+          author: author
+        )
+      end
+
+      let(:group) { create(:group, :public).tap { |g| g.add_owner(user) } }
+      let(:group_todo) do
+        create(
+          :todo,
+          :member_access_requested,
+          user: user,
+          project: nil,
+          group: group,
+          target: group,
+          author: author
+        )
+      end
+
+      where(:target_type, :todo) do
+        'project' | ref(:project_todo)
+        'group'   | ref(:group_todo)
+      end
+
+      with_them do
+        it_behaves_like 'has todo present with access request content' do
+          let!(:target_name) { todo.target.name }
+        end
+      end
     end
   end
 end

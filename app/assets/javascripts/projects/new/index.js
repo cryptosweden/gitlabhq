@@ -2,6 +2,7 @@ import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createDefaultClient from '~/lib/graphql';
 import { parseBoolean } from '~/lib/utils/common_utils';
+import initAccordion from '~/accordion';
 import NewProjectCreationApp from './components/app.vue';
 import NewProjectUrlSelect from './components/new_project_url_select.vue';
 import DeploymentTargetSelect from './components/deployment_target_select.vue';
@@ -11,20 +12,30 @@ export function initNewProjectCreation() {
 
   const {
     pushToCreateProjectCommand,
-    workingWithProjectsHelpPath,
+    projectHelpPath,
     newProjectGuidelines,
     hasErrors,
     isCiCdAvailable,
+    parentGroupUrl,
+    parentGroupName,
+    projectsUrl,
+    rootPath,
+    canImportProjects,
   } = el.dataset;
 
   const props = {
     hasErrors: parseBoolean(hasErrors),
     isCiCdAvailable: parseBoolean(isCiCdAvailable),
     newProjectGuidelines,
+    parentGroupUrl,
+    parentGroupName,
+    projectsUrl,
+    rootPath,
+    canImportProjects: parseBoolean(canImportProjects),
   };
 
   const provide = {
-    workingWithProjectsHelpPath,
+    projectHelpPath,
     pushToCreateProjectCommand,
   };
 
@@ -58,8 +69,9 @@ export function initNewProjectUrlSelect() {
           namespaceId: el.dataset.namespaceId,
           rootUrl: el.dataset.rootUrl,
           trackLabel: el.dataset.trackLabel,
-          userNamespaceFullPath: el.dataset.userNamespaceFullPath,
           userNamespaceId: el.dataset.userNamespaceId,
+          inputId: el.dataset.inputId,
+          inputName: el.dataset.inputName,
         },
         render: (createElement) => createElement(NewProjectUrlSelect),
       }),
@@ -78,3 +90,5 @@ export function initDeploymentTargetSelect() {
     render: (createElement) => createElement(DeploymentTargetSelect),
   });
 }
+
+initAccordion(document.getElementById('js-experimental-setting-accordion'));

@@ -1,26 +1,24 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto, reference
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Deploy boards (DEPRECATED) **(FREE)**
+# Deploy boards (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/1589) in GitLab 9.0.
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/212320) from GitLab Premium to GitLab Free in 13.8.
-> - In GitLab 13.5 and earlier, apps that consist of multiple deployments are shown as
->   duplicates on the deploy board. This is [fixed](https://gitlab.com/gitlab-org/gitlab/-/issues/8463)
->   in GitLab 13.6.
-> - In GitLab 13.11 and earlier, environments in folders do not show deploy boards.
->   This is [fixed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/60525) in
->   GitLab 13.12.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - [Disabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/353410) in GitLab 15.0.
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
 [An epic exists](https://gitlab.com/groups/gitlab-org/-/epics/2493)
-to add this functionality to the [agent](../index.md).
+to add this functionality to the [agent](../clusters/agent/index.md).
+
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../administration/feature_flags.md) named `certificate_based_clusters`.
 
 GitLab deploy boards offer a consolidated view of the current health and
 status of each CI [environment](../../ci/environments/index.md) running on [Kubernetes](https://kubernetes.io), displaying the status
@@ -56,7 +54,7 @@ knowledge. In particular, you should be familiar with:
 - [Kubernetes pods](https://kubernetes.io/docs/concepts/workloads/pods/)
 - [Kubernetes labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
 - [Kubernetes namespaces](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/)
-- [Kubernetes canary deployments](https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/#canary-deployments)
+- [Kubernetes canary deployments](https://kubernetes.io/docs/concepts/workloads/management/#canary-deployments)
 
 ## Use cases
 
@@ -65,7 +63,7 @@ specific environment, there are a lot of use cases. To name a few:
 
 - You want to promote what's running in staging, to production. You go to the
   environments list, verify that what's running in staging is what you think is
-  running, then click on the [manual job](../../ci/jobs/job_control.md#create-a-job-that-must-be-run-manually) to deploy to production.
+  running, then select the [manual job](../../ci/jobs/job_control.md#create-a-job-that-must-be-run-manually) to deploy to production.
 - You trigger a deploy, and you have many containers to upgrade so you know
   this takes a while (you've also throttled your deploy to only take down X
   containers at a time). But you need to tell someone when it's deployed, so you
@@ -76,7 +74,7 @@ specific environment, there are a lot of use cases. To name a few:
   stuck or failed.
 - You've got an MR that looks good, but you want to run it on staging because
   staging is set up in some way closer to production. You go to the environment
-  list, find the [Review App](../../ci/review_apps/index.md) you're interested in, and click the
+  list, find the [Review App](../../ci/review_apps/index.md) you're interested in, and select the
   manual action to deploy it to staging.
 
 ## Enabling deploy boards
@@ -95,7 +93,7 @@ To display the deploy boards for a specific [environment](../../ci/environments/
    and [GitLab issue #4584](https://gitlab.com/gitlab-org/gitlab/-/issues/4584).
 
 1. [Configure GitLab Runner](../../ci/runners/index.md) with the [`docker`](https://docs.gitlab.com/runner/executors/docker.html) or
-   [`kubernetes`](https://docs.gitlab.com/runner/executors/kubernetes.html) executor.
+   [`kubernetes`](https://docs.gitlab.com/runner/executors/kubernetes/index.html) executor.
 1. Configure the [Kubernetes integration](../infrastructure/clusters/index.md) in your project for the
    cluster. The Kubernetes namespace is of particular note as you need it
    for your deployment scripts (exposed by the `KUBE_NAMESPACE` deployment variable).
@@ -111,22 +109,15 @@ To display the deploy boards for a specific [environment](../../ci/environments/
    Kubernetes as well. The image below demonstrates how this is shown inside
    Kubernetes.
 
-   NOTE:
-   Matching based on the Kubernetes `app` label was removed in [GitLab
-   12.1](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/14020).
-   To migrate, please apply the required annotations (see above) and
-   re-deploy your application. If you are using Auto DevOps, this will
-   be done automatically and no action is necessary.
-
    If you use GCP to manage clusters, you can see the deployment details in GCP itself by navigating to **Workloads > deployment name > Details**:
 
    ![deploy boards Kubernetes Label](img/deploy_boards_kubernetes_label.png)
 
 Once all of the above are set up and the pipeline has run at least once,
-navigate to the environments page under **Deployments > Environments**.
+go to the environments page under **Operate > Environments**.
 
-Deploy boards are visible by default. You can explicitly click
-the triangle next to their respective environment name in order to hide them.
+Deploy boards are visible by default. You can explicitly select
+the triangle next to their respective environment name to hide them.
 
 ### Example manifest file
 

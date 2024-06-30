@@ -1,9 +1,9 @@
 <script>
 import { GlAlert } from '@gitlab/ui';
 import { GlAreaChart } from '@gitlab/ui/dist/charts';
-import * as Sentry from '@sentry/browser';
 import produce from 'immer';
 import { sortBy } from 'lodash';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { formatDateAsMonth } from '~/lib/utils/datetime_utility';
 import { __ } from '~/locale';
 import ChartSkeletonLoader from '~/vue_shared/components/resizable_chart/skeleton_loader.vue';
@@ -49,11 +49,13 @@ export default {
         return data.users?.nodes || [];
       },
       result({ data }) {
-        const {
-          users: { pageInfo },
-        } = data;
-        this.pageInfo = pageInfo;
-        this.fetchNextPage();
+        if (data) {
+          const {
+            users: { pageInfo },
+          } = data;
+          this.pageInfo = pageInfo;
+          this.fetchNextPage();
+        }
       },
       error(error) {
         this.handleError(error);
@@ -122,7 +124,7 @@ export default {
   <div>
     <h3>{{ $options.i18n.yAxisTitle }}</h3>
     <gl-alert v-if="loadingError" variant="danger" :dismissible="false" class="gl-mt-3">
-      {{ this.$options.i18n.loadUserChartError }}
+      {{ $options.i18n.loadUserChartError }}
     </gl-alert>
     <chart-skeleton-loader v-else-if="isLoading" />
     <gl-alert v-else-if="!chartUserData.length" variant="info" :dismissible="false" class="gl-mt-3">
@@ -132,12 +134,12 @@ export default {
       v-else
       :option="options"
       :include-legend-avg-max="true"
-      :data="[
+      :data="/* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */ [
         {
           name: $options.i18n.yAxisTitle,
           data: chartUserData,
         },
-      ]"
+      ] /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */"
     />
   </div>
 </template>

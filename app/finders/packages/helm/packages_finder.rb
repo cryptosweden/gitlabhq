@@ -5,7 +5,7 @@ module Packages
     class PackagesFinder
       include ::Packages::FinderHelper
 
-      MAX_PACKAGES_COUNT = 300
+      MAX_PACKAGES_COUNT = 1000
 
       def initialize(project, channel)
         @project = project
@@ -13,9 +13,7 @@ module Packages
       end
 
       def execute
-        if @channel.blank? || @project.blank?
-          return ::Packages::Package.none
-        end
+        return ::Packages::Package.none if @channel.blank? || @project.blank?
 
         pkg_files = ::Packages::PackageFile.for_helm_with_channel(@project, @channel)
 

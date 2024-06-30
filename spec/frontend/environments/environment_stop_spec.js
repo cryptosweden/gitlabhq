@@ -22,7 +22,7 @@ describe('Stop Component', () => {
     });
   };
 
-  const findButton = () => wrapper.find(GlButton);
+  const findButton = () => wrapper.findComponent(GlButton);
 
   describe('eventHub', () => {
     beforeEach(() => {
@@ -73,7 +73,7 @@ describe('Stop Component', () => {
       });
     });
 
-    it('should show a loading icon if the environment is currently stopping', async () => {
+    it('should show a loading icon if the environment is currently stopping', () => {
       expect(findButton().props('loading')).toBe(true);
     });
   });

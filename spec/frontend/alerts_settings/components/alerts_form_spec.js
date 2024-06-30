@@ -5,7 +5,7 @@ describe('Alert integration settings form', () => {
   let wrapper;
   const service = { updateSettings: jest.fn().mockResolvedValue() };
 
-  const findForm = () => wrapper.find({ ref: 'settingsForm' });
+  const findForm = () => wrapper.findComponent({ ref: 'settingsForm' });
 
   beforeEach(() => {
     wrapper = shallowMount(AlertsSettingsForm, {
@@ -20,12 +20,6 @@ describe('Alert integration settings form', () => {
         },
       },
     });
-  });
-
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
   });
 
   describe('default state', () => {

@@ -9,22 +9,22 @@ module Gitlab
       class Parser
         # keys represent the trailing digit in color changing command (30-37, 40-47, 90-97. 100-107)
         COLOR = {
-          0 => 'black', # not that this is gray in the intense color table
+          0 => 'black', # Note: This is gray in the intense color table.
           1 => 'red',
           2 => 'green',
           3 => 'yellow',
           4 => 'blue',
           5 => 'magenta',
           6 => 'cyan',
-          7 => 'white' # not that this is gray in the dark (aka default) color table
+          7 => 'white' # Note: This is gray in the dark (aka default) color table.
         }.freeze
 
         STYLE_SWITCHES = {
-          bold:       0x01,
-          italic:     0x02,
-          underline:  0x04,
-          conceal:    0x08,
-          cross:      0x10
+          bold: 0x01,
+          italic: 0x02,
+          underline: 0x04,
+          conceal: 0x08,
+          cross: 0x10
         }.freeze
 
         def self.bold?(mask)
@@ -34,7 +34,7 @@ module Gitlab
         def self.matching_formats(mask)
           formats = []
           STYLE_SWITCHES.each do |text_format, flag|
-            formats << "term-#{text_format}" if mask & flag != 0
+            formats << "term-#{text_format}" if (mask & flag) != 0
           end
 
           formats
@@ -46,9 +46,9 @@ module Gitlab
         end
 
         def changes
-          if self.respond_to?("on_#{@command}")
-            send("on_#{@command}", @ansi_stack) # rubocop:disable GitlabSecurity/PublicSend
-          end
+          # rubocop:disable GitlabSecurity/PublicSend -- we want to call dynamic methods based on ANSI codes
+          try("on_#{@command}", @ansi_stack)
+          # rubocop:enable GitlabSecurity/PublicSend
         end
 
         # rubocop:disable Style/SingleLineMethods

@@ -1,6 +1,8 @@
 <template>
-  <div class="mr-widget-heading">
-    <div class="mr-widget-content"><slot name="default"></slot></div>
-    <slot name="footer"></slot>
+  <div class="mr-section-container">
+    <div class="mr-widget-section">
+      <div class="mr-widget-content"><slot name="default"></slot></div>
+      <slot name="footer"></slot>
+    </div>
   </div>
 </template>

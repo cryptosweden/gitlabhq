@@ -6,17 +6,32 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
   include DiffHelper
   include TreeHelper
   include ChecksCollaboration
+  include Gitlab::EncodingHelper
 
   presents ::Blob, as: :blob
 
-  def highlight(to: nil, plain: nil)
+  def highlight_and_trim(ellipsis_svg:, trim_length:, plain: nil)
+    load_all_blob_data
+
+    trimmed_lines, trimmed_idx = trimmed_blob_data(trim_length)
+    Gitlab::Highlight.highlight(
+      blob.path,
+      trimmed_lines,
+      language: blob_language,
+      plain: plain,
+      context: { ellipsis_indexes: trimmed_idx, ellipsis_svg: ellipsis_svg }
+    )
+  end
+
+  def highlight(to: nil, plain: nil, used_on: :blob)
     load_all_blob_data
 
     Gitlab::Highlight.highlight(
       blob.path,
       blob_data(to),
       language: blob_language,
-      plain: plain
+      plain: plain,
+      used_on: used_on
     )
   end
 
@@ -26,12 +41,16 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
     highlight(plain: false)
   end
 
+  def trimmed_blob_data(trim_length)
+    @_trimmed_blob_data ||= limited_trimmed_blob_data(trim_length)
+  end
+
   def blob_data(to)
-    @_blob_data ||= Gitlab::Diff::CustomDiff.transformed_blob_data(blob) || limited_blob_data(to: to)
+    @_blob_data ||= limited_blob_data(to: to)
   end
 
   def blob_language
-    @_blob_language ||= Gitlab::Diff::CustomDiff.transformed_blob_language(blob) || gitattr_language || detect_language
+    @_blob_language ||= gitattr_language || detect_language
   end
 
   def raw_plain_data
@@ -39,27 +58,27 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
   end
 
   def web_url
-    url_helpers.project_blob_url(project, ref_qualified_path)
+    url_helpers.project_blob_url(*path_params)
   end
 
   def web_path
-    url_helpers.project_blob_path(project, ref_qualified_path)
+    url_helpers.project_blob_path(*path_params)
   end
 
   def edit_blob_path
-    url_helpers.project_edit_blob_path(project, ref_qualified_path)
+    url_helpers.project_edit_blob_path(*path_params)
   end
 
   def raw_path
-    url_helpers.project_raw_path(project, ref_qualified_path)
+    url_helpers.project_raw_path(*path_params)
   end
 
   def replace_path
-    url_helpers.project_update_blob_path(project, ref_qualified_path)
+    url_helpers.project_update_blob_path(*path_params)
   end
 
   def pipeline_editor_path
-    project_ci_pipeline_editor_path(project, branch_name: blob.commit_id) if can_collaborate_with_project?(project) && blob.path == project.ci_config_path_or_default
+    project_ci_pipeline_editor_path(project, branch_name: commit_id) if can_collaborate_with_project?(project) && blob.path == project.ci_config_path_or_default
   end
 
   def gitpod_blob_url
@@ -69,19 +88,25 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
   end
 
   def find_file_path
-    url_helpers.project_find_file_path(project, ref_qualified_path)
+    url_helpers.project_find_file_path(project, commit_id, ref_type: ref_type)
   end
 
   def blame_path
-    url_helpers.project_blame_path(project, ref_qualified_path)
+    url_helpers.project_blame_path(*path_params)
+  end
+
+  def base64_encoded_blob
+    return unless Feature.enabled?(:unicode_escaped_blob)
+
+    Base64.encode64(blob.raw)
   end
 
   def history_path
-    url_helpers.project_commits_path(project, ref_qualified_path)
+    url_helpers.project_commits_path(*path_params)
   end
 
   def permalink_path
-    url_helpers.project_blob_path(project, File.join(project.repository.commit.sha, blob.path))
+    url_helpers.project_blob_path(project, File.join(project.repository.commit(blob.commit_id).sha, blob.path))
   end
 
   def environment_formatted_external_url
@@ -114,13 +139,13 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
   end
 
   def can_modify_blob?
-    super(blob, project, blob.commit_id)
+    super(blob, project, commit_id)
   end
 
   def can_current_user_push_to_branch?
-    return false unless current_user && project.repository.branch_exists?(blob.commit_id)
+    return false unless current_user && project.repository.branch_exists?(commit_id)
 
-    user_access(project).can_push_to_branch?(blob.commit_id)
+    user_access(project).can_push_to_branch?(commit_id)
   end
 
   def archived?
@@ -128,7 +153,7 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
   end
 
   def ide_edit_path
-    super(project, blob.commit_id, blob.path)
+    super(project, commit_id, blob.path)
   end
 
   def external_storage_url
@@ -142,17 +167,29 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
   end
 
   def project_blob_path_root
-    project_blob_path(project, blob.commit_id)
+    project_blob_path(project, commit_id)
   end
 
   private
+
+  def path_params
+    if ref_type.present?
+      [project, ref_qualified_path, { ref_type: ref_type }]
+    else
+      [project, ref_qualified_path]
+    end
+  end
+
+  def ref_type
+    blob.ref_type
+  end
 
   def url_helpers
     Gitlab::Routing.url_helpers
   end
 
   def environment
-    environment_params = project.repository.branch_exists?(blob.commit_id) ? { ref: blob.commit_id } : { sha: blob.commit_id }
+    environment_params = project.repository.branch_exists?(commit_id) ? { ref: commit_id } : { sha: commit_id }
     environment_params[:find_latest] = true
     ::Environments::EnvironmentsByDeploymentsFinder.new(project, current_user, environment_params).execute.last
   end
@@ -161,12 +198,31 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
     blob.repository.project
   end
 
+  def commit_id
+    # If `ref_type` is present the commit_id will include the ref qualifier e.g. `refs/heads/`.
+    # We only accept/return unqualified refs so we need to remove the qualifier from the `commit_id`.
+    ExtractsRef::RefExtractor.unqualify_ref(blob.commit_id, ref_type)
+  end
+
   def ref_qualified_path
-    File.join(blob.commit_id, blob.path)
+    File.join(commit_id, blob.path)
   end
 
   def load_all_blob_data
     blob.load_all_data! if blob.respond_to?(:load_all_data!)
+  end
+
+  def limited_trimmed_blob_data(trim_length)
+    trimmed_idx = []
+
+    trimmed_lines = all_lines.map.with_index do |line, index|
+      next line if line.length <= trim_length
+
+      trimmed_idx << index
+      "#{line[0, trim_length]}\n"
+    end
+
+    [trimmed_lines.join, trimmed_idx]
   end
 
   def limited_blob_data(to: nil)

@@ -1,6 +1,6 @@
 <script>
 import { GlIcon, GlPopover } from '@gitlab/ui';
-import { __, sprintf } from '../../../locale';
+import { __, sprintf } from '~/locale';
 import { MAX_TITLE_LENGTH, MAX_BODY_LENGTH } from '../../constants';
 
 export default {
@@ -82,7 +82,7 @@ export default {
             {{ __('Commit Message') }}
             <div id="ide-commit-message-popover-container">
               <span id="ide-commit-message-question" class="form-text text-muted gl-ml-3">
-                <gl-icon name="question" />
+                <gl-icon name="question-o" />
               </span>
               <gl-popover
                 target="ide-commit-message-question"
@@ -112,7 +112,6 @@ export default {
           :placeholder="placeholder"
           :value="text"
           class="note-textarea ide-commit-message-textarea"
-          data-qa-selector="ide_commit_message_field"
           dir="auto"
           name="commit-message"
           @scroll="handleScroll"

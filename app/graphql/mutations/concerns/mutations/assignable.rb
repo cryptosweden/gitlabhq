@@ -6,15 +6,15 @@ module Mutations
 
     included do
       argument :assignee_usernames,
-               [GraphQL::Types::String],
-               required: true,
-               description: 'Usernames to assign to the resource. Replaces existing assignees by default.'
+        [GraphQL::Types::String],
+        required: true,
+        description: 'Usernames to assign to the resource. Replaces existing assignees by default.'
 
       argument :operation_mode,
-               Types::MutationOperationModeEnum,
-               required: false,
-               default_value: Types::MutationOperationModeEnum.default_mode,
-               description: 'Operation to perform. Defaults to REPLACE.'
+        Types::MutationOperationModeEnum,
+        required: false,
+        default_value: Types::MutationOperationModeEnum.default_mode,
+        description: 'Operation to perform. Defaults to REPLACE.'
     end
 
     def resolve(project_path:, iid:, assignee_usernames:, operation_mode:)
@@ -33,7 +33,7 @@ module Mutations
 
     def assign!(resource, users, operation_mode)
       update_service_class.new(
-        project: resource.project,
+        **update_service_class.constructor_container_arg(resource.project),
         current_user: current_user,
         params: { assignee_ids: assignee_ids(resource, users, operation_mode) }
       ).execute(resource)

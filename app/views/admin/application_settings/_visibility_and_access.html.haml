@@ -4,8 +4,7 @@
   %fieldset
     = render 'shared/project_creation_levels', f: f, method: :default_project_creation, legend: s_('ProjectCreationLevel|Default project creation protection')
     = render_if_exists 'admin/application_settings/default_project_deletion_protection_setting', form: f
-    = render_if_exists 'admin/application_settings/default_delayed_project_deletion_setting', form: f
-    = render_if_exists 'admin/application_settings/default_project_deletion_adjourned_period_setting', form: f
+    = render_if_exists 'admin/application_settings/deletion_protection_settings', form: f
     .form-group.visibility-level-setting
       = f.label :default_project_visibility, class: 'label-bold'
       = render('shared/visibility_radios', model_method: :default_project_visibility, form: f, selected_level: @application_setting.default_project_visibility, form_model: Project.new)
@@ -15,35 +14,21 @@
     .form-group.visibility-level-setting
       = f.label :default_group_visibility, class: 'label-bold'
       = render('shared/visibility_radios', model_method: :default_group_visibility, form: f, selected_level: @application_setting.default_group_visibility, form_model: Group.new)
-    .form-group
-      = f.label :restricted_visibility_levels, class: 'label-bold'
-      - checkbox_name = 'application_setting[restricted_visibility_levels][]'
-      = hidden_field_tag(checkbox_name)
-      - restricted_level_checkboxes('restricted-visibility-help', checkbox_name, class: 'form-check-input').each do |level|
-        .form-check
-          = level
-      %span.form-text.text-muted#restricted-visibility-help
-        = _('Selected levels cannot be used by non-admin users for groups, projects or snippets. If the public level is restricted, user profiles are only visible to logged in users.')
-    .form-group
-      = f.label :import_sources, class: 'label-bold'
-      = hidden_field_tag 'application_setting[import_sources][]'
-      - import_sources_checkboxes('import-sources-help', class: 'form-check-input').each do |source|
-        .form-check= source
-      %span.form-text.text-muted#import-sources-help
-        = _('Enabled sources for code import during project creation. OmniAuth must be configured for GitHub')
-        = link_to sprite_icon('question-o'), help_page_path("integration/github")
-        , Bitbucket
-        = link_to sprite_icon('question-o'), help_page_path("integration/bitbucket")
-        and GitLab.com
-        = link_to sprite_icon('question-o'), help_page_path("integration/gitlab")
+    %fieldset.form-group.gl-form-group{ data: { testid: 'restricted-visibility-levels' } }
+      %legend.col-form-label
+        = s_('AdminSettings|Restricted visibility levels')
+        %small.form-text.gl-text-secondary
+          = s_('AdminSettings|Prevent non-administrators from using the selected visibility levels for groups, projects and snippets.')
+          = s_('AdminSettings|The selected level must be different from the selected default group and project visibility.')
+          = link_to _('Learn more.'), help_page_path('administration/settings/visibility_and_access_controls', anchor: 'restrict-visibility-levels'), target: '_blank', rel: 'noopener noreferrer'
+      = hidden_field_tag 'application_setting[restricted_visibility_levels][]'
+      .gl-form-checkbox-group
+        - restricted_level_checkboxes(f).each do |checkbox|
+          = checkbox
 
     = render_if_exists 'admin/application_settings/ldap_access_setting', form: f
 
-    .form-group
-      .form-check
-        = f.check_box :project_export_enabled, class: 'form-check-input'
-        = f.label :project_export_enabled, class: 'form-check-label' do
-          = _('Project export enabled')
+    = render_if_exists 'admin/application_settings/saml_group_locks_setting', form: f
 
     .form-group
       %label.label-bold= _('Enabled Git access protocols')
@@ -57,7 +42,7 @@
       %span.form-text.text-muted#custom_http_clone_url_root_help_block
         = _('Replaces the clone URL root.')
 
-    - ApplicationSetting::SUPPORTED_KEY_TYPES.each do |type|
+    - Gitlab::SSHPublicKey.supported_types.each do |type|
       - field_name = :"#{type}_key_restriction"
       .form-group
         = f.label field_name, "#{type.upcase} SSH keys", class: 'label-bold'
@@ -65,9 +50,11 @@
 
     .form-group
       %label.label-bold= s_('AdminSettings|Feed token')
-      .form-check
-        = f.check_box :disable_feed_token, class: 'form-check-input'
-        = f.label :disable_feed_token, class: 'form-check-label' do
-          = s_('AdminSettings|Disable feed token')
+      = f.gitlab_ui_checkbox_component :disable_feed_token, s_('AdminSettings|Disable feed token')
 
-  = f.submit _('Save changes'), class: "gl-button btn btn-confirm"
+    = render_if_exists 'admin/application_settings/globally_allowed_ips', form: f
+
+    -# This is added for Jihu edition in https://jihulab.com/gitlab-cn/gitlab/-/merge_requests/1112
+    = render_if_exists 'admin/application_settings/disable_download_button', f: f
+
+  = f.submit _('Save changes'), pajamas_button: true

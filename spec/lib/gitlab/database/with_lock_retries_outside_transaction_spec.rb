@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::WithLockRetriesOutsideTransaction do
+RSpec.describe Gitlab::Database::WithLockRetriesOutsideTransaction, feature_category: :database do
   let(:env) { {} }
   let(:logger) { Gitlab::Database::WithLockRetries::NULL_LOGGER }
   let(:subject) { described_class.new(connection: connection, env: env, logger: logger, timing_configuration: timing_configuration) }
@@ -61,12 +61,12 @@ RSpec.describe Gitlab::Database::WithLockRetriesOutsideTransaction do
 
       context 'lock_fiber' do
         it 'acquires lock successfully' do
-          check_exclusive_lock_query = """
+          check_exclusive_lock_query = <<~QUERY
             SELECT 1
             FROM pg_locks l
             JOIN pg_class t ON l.relation = t.oid
             WHERE t.relkind = 'r' AND l.mode = 'ExclusiveLock' AND t.relname = '#{Project.table_name}'
-          """
+          QUERY
 
           expect(connection.execute(check_exclusive_lock_query).to_a).to be_present
         end
@@ -232,14 +232,14 @@ RSpec.describe Gitlab::Database::WithLockRetriesOutsideTransaction do
       expect(connection).to receive(:execute).with('RESET idle_in_transaction_session_timeout; RESET lock_timeout').and_call_original
       expect(connection).to receive(:execute).with("SET lock_timeout TO '15ms'").and_call_original
 
-      subject.run { }
+      subject.run {}
     end
 
     it 'calls `sleep` after the first iteration fails, using the configured sleep time' do
       expect(subject).to receive(:run_block_with_lock_timeout).and_raise(ActiveRecord::LockWaitTimeout).twice
       expect(subject).to receive(:sleep).with(0.025)
 
-      subject.run { }
+      subject.run {}
     end
   end
 end

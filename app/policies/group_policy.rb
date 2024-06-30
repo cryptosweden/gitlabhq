@@ -22,6 +22,8 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
   condition(:share_with_group_locked, scope: :subject) { @subject.share_with_group_lock? }
   condition(:parent_share_with_group_locked, scope: :subject) { @subject.parent&.share_with_group_lock? }
   condition(:can_change_parent_share_with_group_lock) { can?(:change_share_with_group_lock, @subject.parent) }
+  condition(:migration_bot, scope: :user) { @user&.migration_bot? }
+  condition(:can_read_group_member) { can_read_group_member? }
 
   desc "User is a project bot"
   condition(:project_bot) { user.project_bot? && access_level >= GroupMember::GUEST }
@@ -30,35 +32,69 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
     group_projects_for(user: @user, group: @subject).any?
   end
 
+  desc "User owns the group's organization"
+  condition(:organization_owner) do
+    owns_group_organization?
+  end
+
+  rule { admin | organization_owner }.enable :admin_organization
+
   with_options scope: :subject, score: 0
   condition(:request_access_enabled) { @subject.request_access_enabled }
 
-  condition(:create_projects_disabled) do
-    @subject.project_creation_level == ::Gitlab::Access::NO_ONE_PROJECT_ACCESS
+  condition(:create_projects_disabled, scope: :subject) do
+    next true if @user.nil?
+
+    visibility_levels = if @user.can_admin_all_resources?
+                          # admin can create projects even with restricted visibility levels
+                          Gitlab::VisibilityLevel.values
+                        else
+                          Gitlab::VisibilityLevel.allowed_levels
+                        end
+
+    allowed_visibility_levels = visibility_levels.select do |level|
+      Project.new(namespace: @subject).visibility_level_allowed?(level)
+    end
+
+    @subject.project_creation_level == ::Gitlab::Access::NO_ONE_PROJECT_ACCESS || allowed_visibility_levels.empty?
   end
 
-  condition(:developer_maintainer_access) do
+  condition(:create_subgroup_disabled, scope: :subject) do
+    next true if @user.nil?
+
+    visibility_levels = if @user.can_admin_all_resources?
+                          # admin can create groups even with restricted visibility levels
+                          Gitlab::VisibilityLevel.values
+                        else
+                          Gitlab::VisibilityLevel.allowed_levels
+                        end
+
+    # visibility_level_allowed? is not supporting root-groups, so we have to create a dummy sub-group.
+    subgroup = Group.new(parent_id: @subject.id)
+
+    # if a subgroup with none of the remaining visibility levels can be allowed by the group,
+    # then it means that the `Create subgroup` button must be disabled.
+    visibility_levels.none? { |level| subgroup.visibility_level_allowed?(level) }
+  end
+
+  condition(:developer_maintainer_access, scope: :subject) do
     @subject.project_creation_level == ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS
   end
 
-  condition(:maintainer_can_create_group) do
+  condition(:maintainer_can_create_group, scope: :subject) do
     @subject.subgroup_creation_level == ::Gitlab::Access::MAINTAINER_SUBGROUP_ACCESS
   end
 
   condition(:design_management_enabled) do
-    group_projects_for(user: @user, group: @subject, only_owned: false).any? { |p| p.design_management_enabled? }
+    group_projects_for(user: @user, group: @subject, exclude_shared: false).any? { |p| p.design_management_enabled? }
   end
 
-  condition(:dependency_proxy_available) do
+  condition(:dependency_proxy_available, scope: :subject) do
     @subject.dependency_proxy_feature_available?
   end
 
   condition(:dependency_proxy_access_allowed) do
-    if Feature.enabled?(:dependency_proxy_for_private_groups, default_enabled: true)
-      access_level(for_any_session: true) >= GroupMember::GUEST || valid_dependency_proxy_deploy_token
-    else
-      can?(:read_group)
-    end
+    access_level(for_any_session: true) >= GroupMember::GUEST || valid_dependency_proxy_deploy_token
   end
 
   desc "Deploy token with read_package_registry scope"
@@ -74,14 +110,24 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
   with_scope :subject
   condition(:resource_access_token_feature_available) { resource_access_token_feature_available? }
   condition(:resource_access_token_creation_allowed) { resource_access_token_creation_allowed? }
+  condition(:resource_access_token_create_feature_available) { resource_access_token_create_feature_available? }
 
   with_scope :subject
   condition(:has_project_with_service_desk_enabled) { @subject.has_project_with_service_desk_enabled? }
 
-  condition(:crm_enabled, score: 0, scope: :subject) { Feature.enabled?(:customer_relations, @subject) && @subject.crm_enabled? }
+  with_scope :subject
+  condition(:crm_enabled, score: 0, scope: :subject) { @subject.crm_enabled? }
 
-  condition(:group_runner_registration_allowed) do
-    Feature.disabled?(:runner_registration_control, default_enabled: :yaml) || Gitlab::CurrentSettings.valid_runner_registrars.include?('group')
+  condition(:achievements_enabled, scope: :subject) do
+    Feature.enabled?(:achievements, @subject)
+  end
+
+  condition(:group_runner_registration_allowed, scope: :subject) do
+    @subject.runner_registration_enabled?
+  end
+
+  condition(:runner_registration_token_enabled, scope: :subject) do
+    @subject.allow_runner_registration_token?
   end
 
   rule { can?(:read_group) & design_management_enabled }.policy do
@@ -100,10 +146,14 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
     enable :upload_file
     enable :guest_access
     enable :read_release
+    enable :award_emoji
+  end
+
+  rule { admin | organization_owner }.policy do
+    enable :read_group
   end
 
   rule { admin }.policy do
-    enable :read_group
     enable :update_max_artifacts_size
   end
 
@@ -123,48 +173,78 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
     enable :read_group_member
     enable :read_custom_emoji
     enable :read_counts
+    enable :read_issue
+    enable :read_work_item
+    enable :read_namespace
+  end
+
+  rule { ~achievements_enabled }.policy do
+    prevent :read_achievement
+    prevent :admin_achievement
+    prevent :award_achievement
+    prevent :destroy_user_achievement
+  end
+
+  rule { can?(:read_group) }.policy do
+    enable :read_achievement
+  end
+
+  rule { can?(:maintainer_access) }.policy do
+    enable :admin_achievement
+    enable :award_achievement
+  end
+
+  rule { can?(:owner_access) }.policy do
+    enable :destroy_user_achievement
   end
 
   rule { ~public_group & ~has_access }.prevent :read_counts
+
+  rule { ~can_read_group_member }.policy do
+    prevent :read_group_member
+  end
 
   rule { ~can?(:read_group) }.policy do
     prevent :read_design_activity
   end
 
-  rule { has_access }.enable :read_namespace
+  rule { has_access }.enable :read_namespace_via_membership
 
   rule { developer }.policy do
-    enable :admin_milestone
-    enable :create_metrics_dashboard_annotation
-    enable :delete_metrics_dashboard_annotation
-    enable :update_metrics_dashboard_annotation
+    enable :admin_metrics_dashboard_annotation
     enable :create_custom_emoji
     enable :create_package
-    enable :create_package_settings
     enable :developer_access
     enable :admin_crm_organization
     enable :admin_crm_contact
-    enable :read_cluster
+    enable :read_cluster # Deprecated as certificate-based cluster integration (`Clusters::Cluster`).
+    enable :read_cluster_agent
+    enable :read_group_all_available_runners
+    enable :use_k8s_proxies
   end
 
   rule { reporter }.policy do
     enable :reporter_access
     enable :read_container_image
+    enable :read_harbor_registry
     enable :admin_issue_board
     enable :admin_label
+    enable :admin_milestone
     enable :admin_issue_board_list
     enable :admin_issue
+    enable :update_issue
     enable :read_metrics_dashboard_annotation
     enable :read_prometheus
     enable :read_package
-    enable :read_package_settings
     enable :read_crm_organization
     enable :read_crm_contact
+    enable :read_confidential_issues
   end
 
   rule { maintainer }.policy do
     enable :destroy_package
     enable :create_projects
+    enable :import_projects
     enable :admin_pipeline
     enable :admin_build
     enable :add_cluster
@@ -172,29 +252,47 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
     enable :update_cluster
     enable :admin_cluster
     enable :read_deploy_token
+    enable :read_group_runners
     enable :create_jira_connect_subscription
     enable :maintainer_access
+    enable :read_upload
+    enable :destroy_upload
+    enable :admin_push_rules
   end
 
   rule { owner }.policy do
     enable :admin_group
     enable :admin_namespace
     enable :admin_group_member
+    enable :admin_package
+    enable :admin_runner
+    enable :admin_integrations
     enable :change_visibility_level
 
+    enable :read_usage_quotas
     enable :read_group_runners
-    enable :admin_group_runners
     enable :register_group_runners
+    enable :create_runner
+    enable :destroy_issue
 
     enable :set_note_created_at
     enable :set_emails_disabled
     enable :change_prevent_sharing_groups_outside_hierarchy
+    enable :set_show_diff_preview_in_email
     enable :change_new_user_signups_cap
     enable :update_default_branch_protection
     enable :create_deploy_token
     enable :destroy_deploy_token
     enable :update_runners_registration_token
     enable :owner_access
+    enable :update_git_access_protocol
+    enable :admin_cicd_variables
+
+    enable :read_billing
+    enable :edit_billing
+
+    enable :remove_group
+    enable :manage_merge_request_settings
   end
 
   rule { can?(:read_nested_project_resources) }.policy do
@@ -222,17 +320,29 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
   rule { ~can?(:view_globally) }.prevent   :request_access
   rule { has_access }.prevent              :request_access
 
-  rule { owner & (~share_with_group_locked | ~has_parent | ~parent_share_with_group_locked | can_change_parent_share_with_group_lock) }.enable :change_share_with_group_lock
+  rule do
+    owner & (~share_with_group_locked | ~has_parent | ~parent_share_with_group_locked | can_change_parent_share_with_group_lock)
+  end.enable :change_share_with_group_lock
 
   rule { developer & developer_maintainer_access }.enable :create_projects
-  rule { create_projects_disabled }.prevent :create_projects
+  rule { create_projects_disabled }.policy do
+    prevent :create_projects
+    prevent :import_projects
+  end
 
-  rule { owner | admin }.policy do
+  rule { create_subgroup_disabled }.policy do
+    prevent :create_subgroup
+  end
+
+  rule { owner | admin | organization_owner }.policy do
     enable :owner_access
     enable :read_statistics
   end
 
-  rule { maintainer & can?(:create_projects) }.enable :transfer_projects
+  rule { maintainer & can?(:create_projects) }.policy do
+    enable :transfer_projects
+    enable :import_projects
+  end
 
   rule { read_package_registry_deploy_token }.policy do
     enable :read_package
@@ -248,7 +358,7 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
   rule { dependency_proxy_access_allowed & dependency_proxy_available }
     .enable :read_dependency_proxy
 
-  rule { developer & dependency_proxy_available }.policy do
+  rule { owner & dependency_proxy_available }.policy do
     enable :admin_dependency_proxy
   end
 
@@ -257,15 +367,25 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
   rule { can?(:admin_group) & resource_access_token_feature_available }.policy do
     enable :read_resource_access_tokens
     enable :destroy_resource_access_tokens
-    enable :admin_setting_to_allow_project_access_token_creation
+  end
+
+  rule { can?(:admin_group) & resource_access_token_create_feature_available }.policy do
+    enable :admin_setting_to_allow_resource_access_token_creation
   end
 
   rule { resource_access_token_creation_allowed & can?(:read_resource_access_tokens) }.policy do
     enable :create_resource_access_tokens
+    enable :manage_resource_access_tokens
   end
 
   rule { can?(:project_bot_access) }.policy do
     prevent :create_resource_access_tokens
+    prevent :manage_resource_access_tokens
+  end
+
+  rule { can?(:admin_group_member) }.policy do
+    # ability to read, approve or reject member access requests of other users
+    enable :admin_member_access_request
   end
 
   rule { support_bot & has_project_with_service_desk_enabled }.policy do
@@ -281,7 +401,23 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
 
   rule { ~admin & ~group_runner_registration_allowed }.policy do
     prevent :register_group_runners
+    prevent :create_runner
   end
+
+  rule { ~runner_registration_token_enabled }.policy do
+    prevent :register_group_runners
+    prevent :update_runners_registration_token
+  end
+
+  rule { migration_bot }.policy do
+    enable :read_resource_access_tokens
+    enable :destroy_resource_access_tokens
+  end
+
+  # Should be matched with ProjectPolicy#read_internal_note
+  rule { admin | reporter }.enable :read_internal_note
+
+  rule { can?(:remove_group) }.enable :view_edit_page
 
   def access_level(for_any_session: false)
     return GroupMember::NO_ACCESS if @user.nil?
@@ -296,10 +432,6 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
 
   private
 
-  def user_is_user?
-    user.is_a?(User)
-  end
-
   def group
     @subject
   end
@@ -308,13 +440,38 @@ class GroupPolicy < Namespaces::GroupProjectNamespaceSharedPolicy
     true
   end
 
-  def resource_access_token_creation_allowed?
-    resource_access_token_feature_available? && group.root_ancestor.namespace_settings.resource_access_token_creation_allowed?
+  def resource_access_token_create_feature_available?
+    true
   end
 
+  def can_read_group_member?
+    !(@subject.private? && access_level == GroupMember::NO_ACCESS)
+  end
+
+  def resource_access_token_creation_allowed?
+    resource_access_token_create_feature_available? && group.root_ancestor.namespace_settings.resource_access_token_creation_allowed?
+  end
+
+  # TODO: Remove this when we rollout the feature flag packages_dependency_proxy_pass_token_to_policy
+  # https://gitlab.com/gitlab-org/gitlab/-/issues/441588
   def valid_dependency_proxy_deploy_token
     @user.is_a?(DeployToken) && @user&.valid_for_dependency_proxy? && @user&.has_access_to_group?(@subject)
   end
+
+  # rubocop:disable Cop/UserAdmin -- specifically check the admin attribute
+  def owns_group_organization?
+    return false unless @user
+    return false unless user_is_user?
+    return false unless @subject.organization
+    # Ensure admins can't bypass admin mode.
+    return false if @user.admin? && !can?(:admin)
+
+    # Load the owners with a single query.
+    @subject.organization
+            .owner_user_ids
+            .include?(@user.id)
+  end
+  # rubocop:enable Cop/UserAdmin
 end
 
 GroupPolicy.prepend_mod_with('GroupPolicy')

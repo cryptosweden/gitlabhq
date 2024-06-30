@@ -3,6 +3,10 @@
 module BitbucketServer
   module Representation
     class Activity < Representation::Base
+      def id
+        raw['id']
+      end
+
       def comment?
         action == 'COMMENTED'
       end
@@ -45,8 +49,47 @@ module BitbucketServer
         commit['id']
       end
 
+      def approved_event?
+        action == 'APPROVED'
+      end
+
+      def approver_username
+        raw.dig('user', 'slug')
+      end
+
+      def approver_email
+        raw.dig('user', 'emailAddress')
+      end
+
+      def declined_event?
+        action == 'DECLINED'
+      end
+
+      def decliner_username
+        raw.dig('user', 'slug')
+      end
+
+      def decliner_email
+        raw.dig('user', 'emailAddress')
+      end
+
       def created_at
         self.class.convert_timestamp(created_date)
+      end
+
+      def to_hash
+        {
+          id: id,
+          committer_user: committer_user,
+          committer_email: committer_email,
+          merge_timestamp: merge_timestamp,
+          merge_commit: merge_commit,
+          approver_username: approver_username,
+          approver_email: approver_email,
+          decliner_username: decliner_username,
+          decliner_email: decliner_email,
+          created_at: created_at
+        }
       end
 
       private

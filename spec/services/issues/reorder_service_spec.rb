@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Issues::ReorderService do
+RSpec.describe Issues::ReorderService, feature_category: :team_planning do
   let_it_be(:user)    { create_default(:user) }
   let_it_be(:group)   { create(:group) }
   let_it_be(:project, reload: true) { create(:project, namespace: group) }
@@ -85,6 +85,6 @@ RSpec.describe Issues::ReorderService do
   end
 
   def service(params)
-    described_class.new(project: project, current_user: user, params: params)
+    described_class.new(container: project, current_user: user, params: params)
   end
 end

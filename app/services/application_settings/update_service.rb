@@ -6,7 +6,7 @@ module ApplicationSettings
 
     attr_reader :params, :application_setting
 
-    MARKDOWN_CACHE_INVALIDATING_PARAMS = %w(asset_proxy_enabled asset_proxy_url asset_proxy_secret_key asset_proxy_whitelist).freeze
+    MARKDOWN_CACHE_INVALIDATING_PARAMS = %w[asset_proxy_enabled asset_proxy_url asset_proxy_secret_key asset_proxy_whitelist].freeze
 
     def execute
       result = update_settings
@@ -25,7 +25,13 @@ module ApplicationSettings
         return false
       end
 
+      if params[:enabled_git_access_protocol] == 'all'
+        params[:enabled_git_access_protocol] = ''
+      end
+
       update_terms(@params.delete(:terms))
+      update_default_branch_protection_defaults(@params[:default_branch_protection_defaults])
+      update_legacy_default_branch_protection_defaults(@params[:default_branch_protection])
 
       add_to_outbound_local_requests_whitelist(@params.delete(:add_to_outbound_local_requests_whitelist))
 
@@ -75,6 +81,25 @@ module ApplicationSettings
 
       ApplicationSetting::Term.create(terms: terms)
       @application_setting.reset_memoized_terms
+    end
+
+    def update_legacy_default_branch_protection_defaults(default_branch_protection)
+      return unless default_branch_protection.present?
+
+      # We are migrating default_branch_protection from an integer
+      # column to a jsonb column. While completing the rest of the
+      # work, we want to start translating the updates sent to the
+      # existing column into the json. Eventually, we will be updating
+      # the jsonb column directly and deprecating the original update
+      # path. Until then, we want to sync up both columns.
+      protection = Gitlab::Access::BranchProtection.new(default_branch_protection.to_i)
+      @application_setting.default_branch_protection_defaults = protection.to_hash
+    end
+
+    def update_default_branch_protection_defaults(default_branch_protection_defaults)
+      return unless default_branch_protection_defaults.present?
+
+      @application_setting.default_branch_protection_defaults.merge!(default_branch_protection_defaults)
     end
 
     def process_performance_bar_allowed_group_id

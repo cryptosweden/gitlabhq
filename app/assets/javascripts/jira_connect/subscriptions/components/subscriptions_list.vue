@@ -1,7 +1,8 @@
 <script>
-import { GlButton, GlTable } from '@gitlab/ui';
+import { GlButton, GlTableLite } from '@gitlab/ui';
 import { isEmpty } from 'lodash';
-import { mapMutations } from 'vuex';
+// eslint-disable-next-line no-restricted-imports
+import { mapMutations, mapState } from 'vuex';
 import { removeSubscription } from '~/jira_connect/subscriptions/api';
 import { reloadPage } from '~/jira_connect/subscriptions/utils';
 import { __, s__ } from '~/locale';
@@ -12,14 +13,9 @@ import GroupItemName from './group_item_name.vue';
 export default {
   components: {
     GlButton,
-    GlTable,
+    GlTableLite,
     GroupItemName,
     TimeagoTooltip,
-  },
-  inject: {
-    subscriptions: {
-      default: [],
-    },
   },
   data() {
     return {
@@ -29,21 +25,24 @@ export default {
   fields: [
     {
       key: 'name',
-      label: s__('Integrations|Linked namespaces'),
+      label: s__('JiraConnect|Linked groups'),
     },
     {
       key: 'created_at',
-      label: __('Added'),
-      tdClass: 'gl-vertical-align-middle! gl-w-20p',
+      label: __('Created on'),
+      tdClass: '!gl-align-middle gl-w-2/10',
     },
     {
       key: 'actions',
       label: '',
-      tdClass: 'gl-text-right gl-vertical-align-middle! gl-pl-0!',
+      tdClass: 'gl-text-right !gl-align-middle gl-pl-0!',
     },
   ],
   i18n: {
-    unlinkError: s__('Integrations|Failed to unlink namespace. Please try again.'),
+    unlinkError: s__('JiraConnect|Failed to unlink group. Please try again.'),
+  },
+  computed: {
+    ...mapState(['subscriptions']),
   },
   methods: {
     ...mapMutations({
@@ -78,7 +77,7 @@ export default {
 </script>
 
 <template>
-  <gl-table :items="subscriptions" :fields="$options.fields">
+  <gl-table-lite :items="subscriptions" :fields="$options.fields">
     <template #cell(name)="{ item }">
       <group-item-name :group="item.group" />
     </template>
@@ -95,5 +94,5 @@ export default {
         >{{ __('Unlink') }}</gl-button
       >
     </template>
-  </gl-table>
+  </gl-table-lite>
 </template>

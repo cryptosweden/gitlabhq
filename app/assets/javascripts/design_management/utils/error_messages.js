@@ -1,4 +1,5 @@
 import { __, s__, n__, sprintf } from '~/locale';
+import { MAXIMUM_FILE_UPLOAD_LIMIT } from '../constants';
 
 export const ADD_DISCUSSION_COMMENT_ERROR = s__(
   'DesignManagement|Could not add a new comment. Please try again.',
@@ -12,7 +13,13 @@ export const UPDATE_IMAGE_DIFF_NOTE_ERROR = s__(
   'DesignManagement|Could not update discussion. Please try again.',
 );
 
-export const UPDATE_NOTE_ERROR = s__('DesignManagement|Could not update note. Please try again.');
+export const UPDATE_NOTE_ERROR = s__(
+  'DesignManagement|Could not update comment. Please try again.',
+);
+
+export const DELETE_NOTE_ERROR = s__(
+  'DesignManagement|Could not delete comment. Please try again.',
+);
 
 export const UPLOAD_DESIGN_ERROR = s__(
   'DesignManagement|Error uploading a new design. Please try again.',
@@ -27,11 +34,11 @@ export const DESIGN_NOT_FOUND_ERROR = __('Could not find design.');
 export const DESIGN_VERSION_NOT_EXIST_ERROR = __('Requested design version does not exist.');
 
 export const EXISTING_DESIGN_DROP_MANY_FILES_MESSAGE = __(
-  'You can only upload one design when dropping onto an existing design.',
+  'Your update failed. You can only upload one design when dropping onto an existing design.',
 );
 
 export const EXISTING_DESIGN_DROP_INVALID_FILENAME_MESSAGE = __(
-  'You must upload a file with the same file name when dropping onto an existing design.',
+  'Your update failed. You must upload a file with the same file name when dropping onto an existing design.',
 );
 
 export const MOVE_DESIGN_ERROR = __(
@@ -122,3 +129,16 @@ export const designUploadSkippedWarning = (uploadedDesigns, skippedFiles) => {
 
   return someDesignsSkippedMessage(skippedFiles);
 };
+
+export const MAXIMUM_FILE_UPLOAD_LIMIT_REACHED = sprintf(
+  s__(
+    'DesignManagement|The maximum number of designs allowed to be uploaded is %{upload_limit}. Please try again.',
+  ),
+  {
+    upload_limit: MAXIMUM_FILE_UPLOAD_LIMIT,
+  },
+);
+
+export const UPDATE_DESCRIPTION_ERROR = s__(
+  'DesignManagement|Could not update description. Please try again.',
+);

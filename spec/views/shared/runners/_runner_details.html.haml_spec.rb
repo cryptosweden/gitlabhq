@@ -2,15 +2,23 @@
 
 require 'spec_helper'
 
-RSpec.describe 'shared/runners/_runner_details.html.haml' do
+RSpec.describe 'shared/runners/_runner_details.html.haml', feature_category: :fleet_visibility do
   include PageLayoutHelper
 
-  let(:runner) do
-    create(:ci_runner, name: 'test runner',
-                       version: '11.4.0',
-                       ip_address: '127.1.2.3',
-                       revision: 'abcd1234',
-                       architecture: 'amd64' )
+  let_it_be(:runner) do
+    create(:ci_runner, description: 'Test runner') # rubocop:disable RSpec/FactoryBot/AvoidCreate -- must be linked to a manager
+  end
+
+  let_it_be(:runner_manager) do
+    create( # rubocop:disable RSpec/FactoryBot/AvoidCreate -- must be linked to a runner
+      :ci_runner_machine,
+      runner: runner,
+      version: '11.4.0',
+      ip_address: '127.1.2.3',
+      revision: 'abcd1234',
+      architecture: 'amd64',
+      contacted_at: 1.second.ago
+    )
   end
 
   before do
@@ -22,14 +30,8 @@ RSpec.describe 'shared/runners/_runner_details.html.haml' do
     rendered
   end
 
-  describe 'Page title' do
-    before do
-      expect(view).to receive(:page_title).with("##{runner.id} (#{runner.short_sha})")
-    end
-
-    it 'sets proper page title' do
-      render
-    end
+  describe 'Runner description' do
+    it { is_expected.to have_content("Description #{runner.description}") }
   end
 
   describe 'Runner id and type' do
@@ -38,27 +40,27 @@ RSpec.describe 'shared/runners/_runner_details.html.haml' do
     end
 
     context 'when runner is of type group' do
-      let(:runner) { create(:ci_runner, :group) }
+      let(:runner) { build_stubbed(:ci_runner, :group) }
 
       it { is_expected.to have_content("Runner ##{runner.id} group") }
     end
 
     context 'when runner is of type project' do
-      let(:runner) { create(:ci_runner, :project) }
+      let(:runner) { build_stubbed(:ci_runner, :project) }
 
-      it { is_expected.to have_content("Runner ##{runner.id} specific") }
+      it { is_expected.to have_content("Runner ##{runner.id} project") }
     end
   end
 
-  describe 'Active value' do
+  describe 'Paused value' do
     context 'when runner is active' do
-      it { is_expected.to have_content('Active Yes') }
+      it { is_expected.to have_content('Paused No') }
     end
 
     context 'when runner is inactive' do
-      let(:runner) { create(:ci_runner, :inactive) }
+      let(:runner) { build_stubbed(:ci_runner, :inactive) }
 
-      it { is_expected.to have_content('Active No') }
+      it { is_expected.to have_content('Paused Yes') }
     end
   end
 
@@ -68,7 +70,7 @@ RSpec.describe 'shared/runners/_runner_details.html.haml' do
     end
 
     context 'when runner is protected' do
-      let(:runner) { create(:ci_runner, :ref_protected) }
+      let(:runner) { build_stubbed(:ci_runner, :ref_protected) }
 
       it { is_expected.to have_content('Protected Yes') }
     end
@@ -80,7 +82,7 @@ RSpec.describe 'shared/runners/_runner_details.html.haml' do
     end
 
     context 'when runner run untagged job is unset' do
-      let(:runner) { create(:ci_runner, :tagged_only) }
+      let(:runner) { build_stubbed(:ci_runner, :tagged_only) }
 
       it { is_expected.to have_content('Can run untagged jobs No') }
     end
@@ -91,19 +93,19 @@ RSpec.describe 'shared/runners/_runner_details.html.haml' do
       it { is_expected.to have_content('Locked to this project No') }
 
       context 'when runner is of type group' do
-        let(:runner) { create(:ci_runner, :group) }
+        let(:runner) { build_stubbed(:ci_runner, :group) }
 
         it { is_expected.not_to have_content('Locked to this project') }
       end
     end
 
     context 'when runner locked is set' do
-      let(:runner) { create(:ci_runner, :locked) }
+      let(:runner) { build_stubbed(:ci_runner, :locked) }
 
       it { is_expected.to have_content('Locked to this project Yes') }
 
       context 'when runner is of type group' do
-        let(:runner) { create(:ci_runner, :group, :locked) }
+        let(:runner) { build_stubbed(:ci_runner, :group, :locked) }
 
         it { is_expected.not_to have_content('Locked to this project') }
       end
@@ -113,29 +115,19 @@ RSpec.describe 'shared/runners/_runner_details.html.haml' do
   describe 'Tags value' do
     context 'when runner does not have tags' do
       it { is_expected.to have_content('Tags') }
-      it { is_expected.not_to have_selector('span.gl-badge.badge.badge-info')}
+      it { is_expected.not_to have_selector('span.gl-badge.badge.badge-info') }
     end
 
     context 'when runner have tags' do
-      let(:runner) { create(:ci_runner, tag_list: %w(tag2 tag3 tag1)) }
+      let(:runner) { build_stubbed(:ci_runner, tag_list: %w[tag2 tag3 tag1]) }
 
       it { is_expected.to have_content('Tags tag1 tag2 tag3') }
-      it { is_expected.to have_selector('span.gl-badge.badge.badge-info')}
+      it { is_expected.to have_selector('span.gl-badge.badge.badge-info') }
     end
   end
 
-  describe 'Metadata values' do
-    it { is_expected.to have_content("Name #{runner.name}") }
-    it { is_expected.to have_content("Version #{runner.version}") }
-    it { is_expected.to have_content("IP Address #{runner.ip_address}") }
-    it { is_expected.to have_content("Revision #{runner.revision}") }
-    it { is_expected.to have_content("Platform #{runner.platform}") }
-    it { is_expected.to have_content("Architecture #{runner.architecture}") }
-    it { is_expected.to have_content("Description #{runner.description}") }
-  end
-
   describe 'Maximum job timeout value' do
-    let(:runner) { create(:ci_runner, maximum_timeout: 5400) }
+    let(:runner) { build_stubbed(:ci_runner, maximum_timeout: 5400) }
 
     it { is_expected.to have_content('Maximum job timeout 1h 30m') }
   end
@@ -146,10 +138,18 @@ RSpec.describe 'shared/runners/_runner_details.html.haml' do
     end
 
     context 'when runner have already contacted' do
-      let(:runner) { create(:ci_runner, contacted_at: DateTime.now - 6.days) }
+      let(:runner) { build_stubbed(:ci_runner, contacted_at: DateTime.now - 6.days) }
       let(:expected_contacted_at) { I18n.l(runner.contacted_at, format: "%b %d, %Y") }
 
       it { is_expected.to have_content("Last contact #{expected_contacted_at}") }
     end
+  end
+
+  describe 'Runner manager values' do
+    it { is_expected.to have_content("Version #{runner_manager.version}") }
+    it { is_expected.to have_content("IP Address #{runner_manager.ip_address}") }
+    it { is_expected.to have_content("Revision #{runner_manager.revision}") }
+    it { is_expected.to have_content("Platform #{runner_manager.platform}") }
+    it { is_expected.to have_content("Architecture #{runner_manager.architecture}") }
   end
 end

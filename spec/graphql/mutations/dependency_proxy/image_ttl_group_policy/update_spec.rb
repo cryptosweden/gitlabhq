@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::DependencyProxy::ImageTtlGroupPolicy::Update do
+RSpec.describe Mutations::DependencyProxy::ImageTtlGroupPolicy::Update, feature_category: :virtual_registry do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be_with_reload(:group) { create(:group) }
@@ -71,8 +71,9 @@ RSpec.describe Mutations::DependencyProxy::ImageTtlGroupPolicy::Update do
       end
 
       where(:user_role, :shared_examples_name) do
-        :maintainer | 'updating the dependency proxy image ttl policy'
-        :developer  | 'updating the dependency proxy image ttl policy'
+        :owner      | 'updating the dependency proxy image ttl policy'
+        :maintainer | 'denying access to dependency proxy image ttl policy'
+        :developer  | 'denying access to dependency proxy image ttl policy'
         :reporter   | 'denying access to dependency proxy image ttl policy'
         :guest      | 'denying access to dependency proxy image ttl policy'
         :anonymous  | 'denying access to dependency proxy image ttl policy'
@@ -91,8 +92,9 @@ RSpec.describe Mutations::DependencyProxy::ImageTtlGroupPolicy::Update do
       let_it_be(:ttl_policy) { group.dependency_proxy_image_ttl_policy }
 
       where(:user_role, :shared_examples_name) do
-        :maintainer | 'creating the dependency proxy image ttl policy'
-        :developer  | 'creating the dependency proxy image ttl policy'
+        :owner      | 'creating the dependency proxy image ttl policy'
+        :maintainer | 'denying access to dependency proxy image ttl policy'
+        :developer  | 'denying access to dependency proxy image ttl policy'
         :reporter   | 'denying access to dependency proxy image ttl policy'
         :guest      | 'denying access to dependency proxy image ttl policy'
         :anonymous  | 'denying access to dependency proxy image ttl policy'

@@ -1,5 +1,6 @@
 <script>
 import { GlIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 import DropdownButton from '~/vue_shared/components/dropdown/dropdown_button.vue';
 
@@ -30,12 +31,12 @@ export default {
 </script>
 
 <template>
-  <dropdown-button>
+  <dropdown-button class="!gl-w-full">
     <span class="row gl-flex-nowrap">
       <span class="col-auto flex-fill text-truncate">
         <gl-icon :size="16" :aria-label="__('Current Branch')" name="branch" /> {{ branchLabel }}
       </span>
-      <span v-if="showMergeRequests" class="col-5 pl-0 text-truncate">
+      <span v-if="showMergeRequests" class="col-auto pl-0 text-truncate">
         <gl-icon :size="16" :aria-label="__('Merge request')" name="merge-request" />
         {{ mergeRequestLabel }}
       </span>

@@ -63,7 +63,7 @@ module Gitlab
           end
 
           def parse_source(node)
-            return unless project_path && paths && !node.include?(GO_SOURCE_PATTERN)
+            return unless project_path && paths && node.exclude?(GO_SOURCE_PATTERN)
 
             source = build_source_path(node)
             self.sources << source if source.present?
@@ -76,7 +76,12 @@ module Gitlab
             # | /builds/foo/test/something  | something  |
             # | /builds/foo/test/           | nil        |
             # | /builds/foo/test            | nil        |
-            node.split("#{project_path}/", 2)[1]
+            # | D:\builds\foo\bar\app\      | app\       |
+            unixify(node).split("#{project_path}/", 2)[1]
+          end
+
+          def unixify(path)
+            path.tr('\\', '/')
           end
 
           def remove_matched_filenames

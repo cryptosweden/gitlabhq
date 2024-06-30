@@ -22,22 +22,23 @@ module Sidebars
         override :extra_container_html_options
         def extra_container_html_options
           {
-            class: 'shortcuts-project rspec-project-link'
-          }
-        end
-
-        override :extra_nav_link_html_options
-        def extra_nav_link_html_options
-          {
-            class: 'context-header has-tooltip',
-            title: context.project.name,
-            data: { container: 'body', placement: 'right' }
+            class: 'shortcuts-project'
           }
         end
 
         override :render?
         def render?
           true
+        end
+
+        override :serialize_as_menu_item_args
+        def serialize_as_menu_item_args
+          super.merge({
+            avatar: context.project.avatar_url,
+            entity_id: context.project.id,
+            super_sidebar_parent: ::Sidebars::StaticMenu,
+            item_id: :project_overview
+          })
         end
       end
     end

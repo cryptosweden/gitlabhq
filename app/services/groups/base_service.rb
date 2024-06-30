@@ -13,15 +13,15 @@ module Groups
     private
 
     def handle_namespace_settings
-      settings_params = params.slice(*::NamespaceSetting::NAMESPACE_SETTINGS_PARAMS)
+      settings_params = params.slice(*::NamespaceSetting.allowed_namespace_settings_params)
 
       return if settings_params.empty?
 
-      ::NamespaceSetting::NAMESPACE_SETTINGS_PARAMS.each do |nsp|
+      ::NamespaceSetting.allowed_namespace_settings_params.each do |nsp|
         params.delete(nsp)
       end
 
-      ::NamespaceSettings::UpdateService.new(current_user, group, settings_params).execute
+      ::NamespaceSettings::AssignAttributesService.new(current_user, group, settings_params).execute
     end
 
     def remove_unallowed_params

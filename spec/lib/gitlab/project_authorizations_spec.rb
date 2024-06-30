@@ -2,15 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::ProjectAuthorizations do
+RSpec.describe Gitlab::ProjectAuthorizations, feature_category: :system_access do
   def map_access_levels(rows)
     rows.each_with_object({}) do |row, hash|
       hash[row.project_id] = row.access_level
     end
   end
 
+  let(:service) { described_class.new(user) }
+
   subject(:authorizations) do
-    described_class.new(user).calculate
+    service.calculate
   end
 
   context 'user added to group and project' do

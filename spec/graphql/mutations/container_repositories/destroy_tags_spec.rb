@@ -2,11 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::ContainerRepositories::DestroyTags do
+RSpec.describe Mutations::ContainerRepositories::DestroyTags, feature_category: :container_registry do
+  include GraphqlHelpers
+
   include_context 'container repository delete tags service shared context'
   using RSpec::Parameterized::TableSyntax
 
-  let(:id) { repository.to_global_id.to_s }
+  let(:id) { repository.to_global_id }
 
   specify { expect(described_class).to require_graphql_authorizations(:destroy_container_image) }
 
@@ -21,7 +23,7 @@ RSpec.describe Mutations::ContainerRepositories::DestroyTags do
     shared_examples 'destroying container repository tags' do
       before do
         stub_delete_reference_requests(tags)
-        expect_delete_tag_by_names(tags)
+        expect_delete_tags(tags)
         allow_next_instance_of(ContainerRegistry::Client) do |client|
           allow(client).to receive(:supports_tag_delete?).and_return(true)
         end
@@ -37,7 +39,7 @@ RSpec.describe Mutations::ContainerRepositories::DestroyTags do
       it 'creates a package event' do
         expect(::Packages::CreateEventService)
           .to receive(:new).with(nil, user, event_name: :delete_tag_bulk, scope: :tag).and_call_original
-        expect { subject }.to change { ::Packages::Event.count }.by(1)
+        subject
       end
     end
 
@@ -67,8 +69,8 @@ RSpec.describe Mutations::ContainerRepositories::DestroyTags do
       end
     end
 
-    context 'with invalid id' do
-      let(:id) { 'gid://gitlab/ContainerRepository/5555' }
+    context 'with non-existing id' do
+      let(:id) { global_id_of(id: non_existing_record_id, model_name: 'ContainerRepository') }
 
       it_behaves_like 'denying access to container respository'
     end
@@ -85,7 +87,7 @@ RSpec.describe Mutations::ContainerRepositories::DestroyTags do
 
       it 'does not create a package event' do
         expect(::Packages::CreateEventService).not_to receive(:new)
-        expect { subject }.not_to change { ::Packages::Event.count }
+        subject
       end
     end
   end

@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::FileMarkdownLinkBuilder do
   let(:custom_class) do
@@ -13,7 +13,7 @@ RSpec.describe Gitlab::FileMarkdownLinkBuilder do
   end
 
   describe 'markdown_link' do
-    let(:url) { "/uploads/#{filename}"}
+    let(:url) { "/uploads/#{filename}" }
 
     before do
       allow(custom_class).to receive(:secure_url).and_return(url)

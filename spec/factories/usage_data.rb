@@ -35,8 +35,8 @@ FactoryBot.define do
       create(:custom_issue_tracker_integration, project: projects[2], active: true)
       create(:project_error_tracking_setting, project: projects[0])
       create(:project_error_tracking_setting, project: projects[1], enabled: false)
-      alert_bot_issues = create_list(:incident, 2, project: projects[0], author: User.alert_bot)
-      create_list(:incident, 2, project: projects[1], author: User.alert_bot)
+      alert_bot_issues = create_list(:incident, 2, project: projects[0], author: Users::Internal.alert_bot)
+      create_list(:incident, 2, project: projects[1], author: Users::Internal.alert_bot)
       issues = create_list(:issue, 4, project: projects[0])
       create_list(:prometheus_alert, 2, project: projects[0])
       create(:prometheus_alert, project: projects[1])
@@ -59,17 +59,13 @@ FactoryBot.define do
       create(:alert_management_http_integration, project: projects[0], name: 'DataCat')
       create(:alert_management_http_integration, :inactive, project: projects[1], name: 'DataFox')
 
-      # Tracing
-      create(:project_tracing_setting, project: projects[0])
-
       # Alert Issues
       create(:alert_management_alert, issue: issues[0], project: projects[0])
       create(:alert_management_alert, issue: alert_bot_issues[0], project: projects[0])
-      create(:self_managed_prometheus_alert_event, related_issues: [issues[1]], project: projects[0])
 
       # Kubernetes agents
       create(:cluster_agent, project: projects[0])
-      create(:cluster_agent_token, agent: create(:cluster_agent, project: projects[1]) )
+      create(:cluster_agent_token, agent: create(:cluster_agent, project: projects[1]))
 
       # Enabled clusters
       gcp_cluster = create(:cluster_provider_gcp, :created).cluster
@@ -86,7 +82,6 @@ FactoryBot.define do
 
       # Cluster Integrations
       create(:clusters_integrations_prometheus, cluster: gcp_cluster)
-      create(:clusters_integrations_elastic_stack, cluster: gcp_cluster)
 
       create(:grafana_integration, project: projects[0], enabled: true)
       create(:grafana_integration, project: projects[1], enabled: true)

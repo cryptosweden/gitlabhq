@@ -1,17 +1,8 @@
 <script>
 import { GlFormGroup, GlFormCheckbox, GlFormInput } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
-import { __ } from '~/locale';
-
-const typeWithPlaceholder = {
-  SLACK: 'slack',
-  MATTERMOST: 'mattermost',
-};
-
-const placeholderForType = {
-  [typeWithPlaceholder.SLACK]: __('#general, #development'),
-  [typeWithPlaceholder.MATTERMOST]: __('my-channel'),
-};
+import { placeholderForType } from 'jh_else_ce/integrations/constants';
 
 export default {
   name: 'TriggerFields',
@@ -33,7 +24,7 @@ export default {
   },
   computed: {
     ...mapGetters(['isInheriting']),
-    placeholder() {
+    defaultPlaceholder() {
       return placeholderForType[this.type];
     },
   },
@@ -65,7 +56,7 @@ export default {
           v-if="event.field"
           v-model="event.field.value"
           :name="fieldName(event.field.name)"
-          :placeholder="placeholder"
+          :placeholder="event.field.placeholder || defaultPlaceholder"
           :readonly="isInheriting"
         />
       </gl-form-group>

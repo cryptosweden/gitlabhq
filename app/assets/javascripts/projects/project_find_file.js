@@ -2,7 +2,7 @@
 
 import fuzzaldrinPlus from 'fuzzaldrin-plus';
 import $ from 'jquery';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { sanitize } from '~/lib/dompurify';
 import axios from '~/lib/utils/axios_utils';
 import { spriteIcon } from '~/lib/utils/common_utils';
@@ -50,8 +50,6 @@ export default class ProjectFindFile {
     this.initEvent();
     // focus text input box
     this.inputElement.focus();
-    // load file list
-    this.load(this.options.url);
   }
 
   initEvent() {
@@ -89,7 +87,7 @@ export default class ProjectFindFile {
         this.element.find('.files-slider tr.tree-item').eq(0).addClass('selected').focus();
       })
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('An error occurred while loading filenames'),
         }),
       );
@@ -110,7 +108,14 @@ export default class ProjectFindFile {
       if (searchText) {
         matches = fuzzaldrinPlus.match(filePath, searchText);
       }
-      const blobItemUrl = joinPaths(this.options.blobUrlTemplate, escapeFileUrl(filePath));
+
+      let blobItemUrl = joinPaths(this.options.blobUrlTemplate, escapeFileUrl(filePath));
+
+      if (this.options.refType) {
+        const blobUrlObject = new URL(blobItemUrl, window.location.origin);
+        blobUrlObject.searchParams.append('ref_type', this.options.refType);
+        blobItemUrl = blobUrlObject.toString();
+      }
       const html = ProjectFindFile.makeHtml(filePath, matches, blobItemUrl);
       results.push(this.element.find('.tree-table > tbody').append(html));
     }

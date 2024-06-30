@@ -1,20 +1,17 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Sidekiq logging
 
 ## Worker context
 
-> [Introduced](https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/9) in GitLab 12.8.
-
 To have some more information about workers in the logs, we add
-[metadata to the jobs in the form of an
-`ApplicationContext`](../logging.md#logging-context-metadata-through-rails-or-grape-requests).
+[metadata to the jobs in the form of an `ApplicationContext`](../logging.md#logging-context-metadata-through-rails-or-grape-requests).
 In most cases, when scheduling a job from a request, this context is already
-deducted from the request and added to the scheduled job.
+deduced from the request and added to the scheduled job.
 
 When a job runs, the context that was active when it was scheduled
 is restored. This causes the context to be propagated to any job
@@ -25,7 +22,7 @@ need to do anything.
 
 There are however some instances when there would be no context
 present when the job is scheduled, or the context that is present is
-likely to be incorrect. For these instances, we've added Rubocop rules
+likely to be incorrect. For these instances, we've added RuboCop rules
 to draw attention and avoid incorrect metadata in our logs.
 
 As with most our cops, there are perfectly valid reasons for disabling
@@ -128,7 +125,7 @@ blocks:
 
 ## Arguments logging
 
-As of GitLab 13.6, Sidekiq job arguments are logged by default, unless [`SIDEKIQ_LOG_ARGUMENTS`](../../administration/troubleshooting/sidekiq.md#log-arguments-to-sidekiq-jobs)
+Sidekiq job arguments are logged by default, unless [`SIDEKIQ_LOG_ARGUMENTS`](../../administration/sidekiq/sidekiq_troubleshooting.md#log-arguments-to-sidekiq-jobs)
 is disabled.
 
 By default, the only arguments logged are numeric arguments, because

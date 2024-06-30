@@ -1,7 +1,9 @@
-import { GlDropdown, GlDropdownItem } from '@gitlab/ui';
-import { nextTick } from 'vue';
-import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import Vue from 'vue';
+import VueApollo from 'vue-apollo';
+import { GlCollapsibleListbox, GlListboxItem } from '@gitlab/ui';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
+import createMockApollo from 'helpers/mock_apollo_helper';
 import updateAlertStatusMutation from '~/graphql_shared//mutations/alert_status_update.mutation.graphql';
 import Tracking from '~/tracking';
 import AlertManagementStatus from '~/vue_shared/alert_details/components/alert_status.vue';
@@ -11,19 +13,52 @@ const mockAlert = mockAlerts[0];
 
 describe('AlertManagementStatus', () => {
   let wrapper;
-  const findStatusDropdown = () => wrapper.findComponent(GlDropdown);
-  const findFirstStatusOption = () => findStatusDropdown().findComponent(GlDropdownItem);
-  const findAllStatusOptions = () => findStatusDropdown().findAll(GlDropdownItem);
-  const findStatusDropdownHeader = () => wrapper.findByTestId('dropdown-header');
+  let requestHandler;
+
+  const iid = '1527542';
+  const mockUpdatedMutationResult = ({ errors = [], nodes = [] } = {}) =>
+    jest.fn().mockResolvedValue({
+      data: {
+        updateAlertStatus: {
+          errors,
+          alert: {
+            id: '1',
+            iid,
+            status: 'acknowledged',
+            endedAt: 'endedAt',
+            notes: {
+              nodes,
+            },
+          },
+        },
+      },
+    });
+
+  const findStatusDropdown = () => wrapper.findComponent(GlCollapsibleListbox);
+  const findFirstStatusOption = () => findStatusDropdown().findComponent(GlListboxItem);
+  const findAllStatusOptions = () => findStatusDropdown().findAllComponents(GlListboxItem);
+  const findStatusDropdownHeader = () => wrapper.findByTestId('listbox-header-text');
 
   const selectFirstStatusOption = () => {
-    findFirstStatusOption().vm.$emit('click');
+    findFirstStatusOption().vm.$emit('select', new Event('click'));
 
     return waitForPromises();
   };
 
-  function mountComponent({ props = {}, provide = {}, loading = false, stubs = {} } = {}) {
-    wrapper = shallowMountExtended(AlertManagementStatus, {
+  const createMockApolloProvider = (handler) => {
+    Vue.use(VueApollo);
+    requestHandler = handler;
+
+    return createMockApollo([[updateAlertStatusMutation, handler]]);
+  };
+
+  function mountComponent({
+    props = {},
+    provide = {},
+    handler = mockUpdatedMutationResult(),
+  } = {}) {
+    wrapper = mountExtended(AlertManagementStatus, {
+      apolloProvider: createMockApolloProvider(handler),
       propsData: {
         alert: { ...mockAlert },
         projectPath: 'gitlab-org/gitlab',
@@ -31,25 +66,8 @@ describe('AlertManagementStatus', () => {
         ...props,
       },
       provide,
-      mocks: {
-        $apollo: {
-          mutate: jest.fn(),
-          queries: {
-            alert: {
-              loading,
-            },
-          },
-        },
-      },
-      stubs,
     });
   }
-
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
-  });
 
   describe('sidebar', () => {
     it('displays the dropdown status header', () => {
@@ -64,48 +82,36 @@ describe('AlertManagementStatus', () => {
 
     it('shows the dropdown', () => {
       mountComponent({ props: { isSidebar: true, isDropdownShowing: true } });
-      expect(wrapper.classes()).toContain('show');
+      expect(wrapper.classes()).not.toContain('gl-display-none');
     });
   });
 
   describe('updating the alert status', () => {
-    const iid = '1527542';
-    const mockUpdatedMutationResult = {
-      data: {
-        updateAlertStatus: {
-          errors: [],
-          alert: {
-            iid,
-            status: 'acknowledged',
-          },
-        },
-      },
-    };
-
     beforeEach(() => {
-      mountComponent({});
+      mountComponent();
     });
 
-    it('calls `$apollo.mutate` with `updateAlertStatus` mutation and variables containing `iid`, `status`, & `projectPath`', () => {
-      jest.spyOn(wrapper.vm.$apollo, 'mutate').mockResolvedValue(mockUpdatedMutationResult);
-      findFirstStatusOption().vm.$emit('click');
+    it('calls `$apollo.mutate` with `updateAlertStatus` mutation and variables containing `iid`, `status`, & `projectPath`', async () => {
+      await selectFirstStatusOption();
 
-      expect(wrapper.vm.$apollo.mutate).toHaveBeenCalledWith({
-        mutation: updateAlertStatusMutation,
-        variables: {
-          iid,
-          status: 'TRIGGERED',
-          projectPath: 'gitlab-org/gitlab',
-        },
+      expect(requestHandler).toHaveBeenCalledWith({
+        iid,
+        status: 'TRIGGERED',
+        projectPath: 'gitlab-org/gitlab',
       });
     });
 
     describe('when a request fails', () => {
-      beforeEach(() => {
-        jest.spyOn(wrapper.vm.$apollo, 'mutate').mockReturnValue(Promise.reject(new Error()));
+      beforeEach(async () => {
+        mountComponent({
+          handler: mockUpdatedMutationResult({ errors: ['<span data-testid="htmlError" />'] }),
+        });
+        await waitForPromises();
       });
 
       it('emits an error', async () => {
+        mountComponent({ handler: jest.fn().mockRejectedValue({}) });
+        await waitForPromises();
         await selectFirstStatusOption();
 
         expect(wrapper.emitted('alert-error')[0]).toEqual([
@@ -122,7 +128,6 @@ describe('AlertManagementStatus', () => {
 
       it('emits an error when triggered a second time', async () => {
         await selectFirstStatusOption();
-        await nextTick();
         await selectFirstStatusOption();
         // Should emit two errors [0,1]
         expect(wrapper.emitted('alert-error').length > 1).toBe(true);
@@ -130,19 +135,9 @@ describe('AlertManagementStatus', () => {
     });
 
     it('shows an error when response includes HTML errors', async () => {
-      const mockUpdatedMutationErrorResult = {
-        data: {
-          updateAlertStatus: {
-            errors: ['<span data-testid="htmlError" />'],
-            alert: {
-              iid,
-              status: 'acknowledged',
-            },
-          },
-        },
-      };
-
-      jest.spyOn(wrapper.vm.$apollo, 'mutate').mockResolvedValue(mockUpdatedMutationErrorResult);
+      mountComponent({
+        handler: mockUpdatedMutationResult({ errors: ['<span data-testid="htmlError" />'] }),
+      });
 
       await selectFirstStatusOption();
 
@@ -166,7 +161,7 @@ describe('AlertManagementStatus', () => {
       mountComponent({
         props: { alert: { ...mockAlert, status }, statuses: { [status]: translatedStatus } },
       });
-      expect(findAllStatusOptions().length).toBe(1);
+      expect(findAllStatusOptions()).toHaveLength(1);
       expect(findFirstStatusOption().text()).toBe(translatedStatus);
     });
   });
@@ -179,10 +174,10 @@ describe('AlertManagementStatus', () => {
     it('should not track alert status updates when the tracking options do not exist', async () => {
       mountComponent({});
       Tracking.event.mockClear();
-      jest.spyOn(wrapper.vm.$apollo, 'mutate').mockResolvedValue({});
+
       findFirstStatusOption().vm.$emit('click');
 
-      await nextTick();
+      await waitForPromises();
 
       expect(Tracking.event).not.toHaveBeenCalled();
     });
@@ -193,12 +188,12 @@ describe('AlertManagementStatus', () => {
         action: 'update_alert_status',
         label: 'Status',
       };
-      mountComponent({ provide: { trackAlertStatusUpdateOptions } });
+      mountComponent({
+        provide: { trackAlertStatusUpdateOptions },
+        handler: mockUpdatedMutationResult({ nodes: mockAlerts }),
+      });
       Tracking.event.mockClear();
-      jest.spyOn(wrapper.vm.$apollo, 'mutate').mockResolvedValue({});
-      findFirstStatusOption().vm.$emit('click');
-
-      await nextTick();
+      await selectFirstStatusOption();
 
       const status = findFirstStatusOption().text();
       const { category, action, label } = trackAlertStatusUpdateOptions;

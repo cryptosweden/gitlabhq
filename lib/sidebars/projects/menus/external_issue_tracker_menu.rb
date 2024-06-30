@@ -18,24 +18,9 @@ module Sidebars
           }
         end
 
-        override :extra_collapsed_container_html_options
-        def extra_collapsed_container_html_options
-          {
-            target: '_blank',
-            rel: 'noopener noreferrer'
-          }
-        end
-
         override :title
         def title
           external_issue_tracker.title
-        end
-
-        override :title_html_options
-        def title_html_options
-          {
-            id: 'js-onboarding-issues-link'
-          }
         end
 
         override :sprite_icon
@@ -46,6 +31,14 @@ module Sidebars
         override :render?
         def render?
           external_issue_tracker.present?
+        end
+
+        override :serialize_as_menu_item_args
+        def serialize_as_menu_item_args
+          super.merge({
+            item_id: :external_issue_tracker,
+            super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::PlanMenu
+          })
         end
 
         private

@@ -1,31 +1,30 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import {
   GlBadge,
   GlLink,
-  GlDeprecatedSkeletonLoading as GlSkeletonLoading,
+  GlSkeletonLoader,
   GlTooltipDirective,
   GlLoadingIcon,
   GlIcon,
   GlHoverLoadDirective,
-  GlSafeHtmlDirective,
   GlIntersectionObserver,
 } from '@gitlab/ui';
 import { escapeRegExp } from 'lodash';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import paginatedTreeQuery from 'shared_queries/repository/paginated_tree.query.graphql';
-import { escapeFileUrl } from '~/lib/utils/url_utility';
+import { buildURLwithRefType, joinPaths } from '~/lib/utils/url_utility';
 import { TREE_PAGE_SIZE, ROW_APPEAR_DELAY } from '~/repository/constants';
 import FileIcon from '~/vue_shared/components/file_icon.vue';
 import TimeagoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import blobInfoQuery from 'shared_queries/repository/blob_info.query.graphql';
 import getRefMixin from '../../mixins/get_ref';
-import blobInfoQuery from '../../queries/blob_info.query.graphql';
-import commitQuery from '../../queries/commit.query.graphql';
 
 export default {
   components: {
     GlBadge,
     GlLink,
-    GlSkeletonLoading,
+    GlSkeletonLoader,
     GlLoadingIcon,
     GlIcon,
     TimeagoTooltip,
@@ -35,26 +34,10 @@ export default {
   directives: {
     GlTooltip: GlTooltipDirective,
     GlHoverLoad: GlHoverLoadDirective,
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
-  apollo: {
-    commit: {
-      query: commitQuery,
-      variables() {
-        return {
-          fileName: this.name,
-          type: this.type,
-          path: this.currentPath,
-          projectPath: this.projectPath,
-          maxOffset: this.totalEntries,
-        };
-      },
-      skip() {
-        return this.glFeatures.lazyLoadCommits;
-      },
-    },
-  },
-  mixins: [getRefMixin, glFeatureFlagMixin()],
+  mixins: [getRefMixin],
+  inject: ['refType'],
   props: {
     commitInfo: {
       type: Object,
@@ -126,27 +109,28 @@ export default {
   },
   data() {
     return {
-      commit: null,
       hasRowAppeared: false,
       delayedRowAppear: null,
     };
   },
   computed: {
     commitData() {
-      return this.glFeatures.lazyLoadCommits ? this.commitInfo : this.commit;
-    },
-    refactorBlobViewerEnabled() {
-      return this.glFeatures.refactorBlobViewer;
+      return this.commitInfo;
     },
     routerLinkTo() {
-      const blobRouteConfig = { path: `/-/blob/${this.escapedRef}/${escapeFileUrl(this.path)}` };
-      const treeRouteConfig = { path: `/-/tree/${this.escapedRef}/${escapeFileUrl(this.path)}` };
-
-      if (this.refactorBlobViewerEnabled && this.isBlob) {
-        return blobRouteConfig;
+      if (this.isBlob) {
+        return buildURLwithRefType({
+          path: joinPaths('/-/blob', this.escapedRef, encodeURI(this.path)),
+          refType: this.refType,
+        });
       }
-
-      return this.isFolder ? treeRouteConfig : null;
+      if (this.isFolder) {
+        return buildURLwithRefType({
+          path: joinPaths('/-/tree', this.escapedRef, encodeURI(this.path)),
+          refType: this.refType,
+        });
+      }
+      return null;
     },
     isBlob() {
       return this.type === 'blob';
@@ -158,7 +142,7 @@ export default {
       return this.type === 'commit';
     },
     linkComponent() {
-      return this.isFolder || (this.refactorBlobViewerEnabled && this.isBlob) ? 'router-link' : 'a';
+      return this.isFolder || this.isBlob ? 'router-link' : 'a';
     },
     fullPath() {
       return this.path.replace(new RegExp(`^${escapeRegExp(this.currentPath)}/`), '');
@@ -181,21 +165,19 @@ export default {
       this.apolloQuery(paginatedTreeQuery, {
         projectPath: this.projectPath,
         ref: this.ref,
+        refType: this.refType?.toUpperCase() || null,
         path: this.path,
         nextPageCursor: '',
         pageSize: TREE_PAGE_SIZE,
       });
     },
     loadBlob() {
-      if (!this.refactorBlobViewerEnabled) {
-        return;
-      }
-
       this.apolloQuery(blobInfoQuery, {
         projectPath: this.projectPath,
         filePath: this.path,
         ref: this.ref,
-        shouldFetchRawText: Boolean(this.glFeatures.highlightJs),
+        refType: this.refType?.toUpperCase() || null,
+        shouldFetchRawText: true,
       });
     },
     apolloQuery(query, variables) {
@@ -208,12 +190,10 @@ export default {
         return;
       }
 
-      if (this.glFeatures.lazyLoadCommits) {
-        this.delayedRowAppear = setTimeout(
-          () => this.$emit('row-appear', this.rowNumber),
-          ROW_APPEAR_DELAY,
-        );
-      }
+      this.delayedRowAppear = setTimeout(
+        () => this.$emit('row-appear', this.rowNumber),
+        ROW_APPEAR_DELAY,
+      );
     },
     rowDisappeared() {
       clearTimeout(this.delayedRowAppear);
@@ -231,7 +211,7 @@ export default {
         :is="linkComponent"
         ref="link"
         v-gl-hover-load="handlePreload"
-        v-gl-tooltip:tooltip-container
+        v-gl-tooltip="{ placement: 'left', boundary: 'viewport' }"
         :title="fullPath"
         :to="routerLinkTo"
         :href="url"
@@ -239,7 +219,7 @@ export default {
           'is-submodule': isSubmodule,
         }"
         class="tree-item-link str-truncated"
-        data-qa-selector="file_name_link"
+        data-testid="file-name-link"
       >
         <file-icon
           :file-name="fullPath"
@@ -252,9 +232,7 @@ export default {
         /><span class="position-relative">{{ fullPath }}</span>
       </component>
       <!-- eslint-disable @gitlab/vue-require-i18n-strings -->
-      <gl-badge v-if="lfsOid" variant="muted" size="sm" class="ml-1" data-qa-selector="label-lfs"
-        >LFS</gl-badge
-      >
+      <gl-badge v-if="lfsOid" variant="muted" class="ml-1" data-testid="label-lfs">LFS</gl-badge>
       <!-- eslint-enable @gitlab/vue-require-i18n-strings -->
       <template v-if="isSubmodule">
         @ <gl-link :href="submoduleTreeUrl" class="commit-sha">{{ shortSha }}</gl-link>
@@ -268,21 +246,23 @@ export default {
         class="ml-1"
       />
     </td>
-    <td class="d-none d-sm-table-cell tree-commit cursor-default">
+    <td class="gl-hidden sm:gl-table-cell tree-commit cursor-default">
       <gl-link
         v-if="commitData"
         v-safe-html:[$options.safeHtmlConfig]="commitData.titleHtml"
         :href="commitData.commitPath"
         :title="commitData.message"
-        class="str-truncated-100 tree-commit-link"
+        class="str-truncated-100 tree-commit-link gl-text-gray-600"
       />
       <gl-intersection-observer @appear="rowAppeared" @disappear="rowDisappeared">
-        <gl-skeleton-loading v-if="showSkeletonLoader" :lines="1" class="h-auto" />
+        <gl-skeleton-loader v-if="showSkeletonLoader" :lines="1" />
       </gl-intersection-observer>
     </td>
-    <td class="tree-time-ago text-right cursor-default">
-      <timeago-tooltip v-if="commitData" :time="commitData.committedDate" />
-      <gl-skeleton-loading v-if="showSkeletonLoader" :lines="1" class="ml-auto h-auto w-50" />
+    <td class="tree-time-ago text-right cursor-default gl-text-gray-600">
+      <gl-intersection-observer @appear="rowAppeared" @disappear="rowDisappeared">
+        <timeago-tooltip v-if="commitData" :time="commitData.committedDate" />
+      </gl-intersection-observer>
+      <gl-skeleton-loader v-if="showSkeletonLoader" :lines="1" />
     </td>
   </tr>
 </template>

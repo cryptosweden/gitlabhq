@@ -4,7 +4,7 @@ module RuboCop
   module Cop
     module Gitlab
       # Cop that checks for correct calling of #feature_available?
-      class FeatureAvailableUsage < RuboCop::Cop::Cop
+      class FeatureAvailableUsage < RuboCop::Cop::Base
         OBSERVED_METHOD = :feature_available?
         LICENSED_FEATURE_LITERAL_ARG_MSG = '`feature_available?` should not be called for features that can be licensed (`%s` given), use `licensed_feature_available?(feature)` instead.'
         LICENSED_FEATURE_DYNAMIC_ARG_MSG = "`feature_available?` should not be called for features that can be licensed (`%s` isn't a literal so we cannot say if it's legit or not), using `licensed_feature_available?(feature)` may be more appropriate."
@@ -21,12 +21,19 @@ module RuboCop
           metrics_dashboard
           analytics
           operations
+          monitor
           security_and_compliance
           container_registry
+          environments
+          feature_flags
+          releases
+          infrastructure
+          model_experiments
+          model_registry
         ].freeze
         EE_FEATURES = %i[requirements].freeze
         ALL_FEATURES = (FEATURES + EE_FEATURES).freeze
-        SPECIAL_CLASS = %w[License].freeze
+        SPECIAL_CLASS = %w[License Gitlab::Saas].freeze
 
         def on_send(node)
           return unless method_name(node) == OBSERVED_METHOD
@@ -34,10 +41,10 @@ module RuboCop
           return if feature_name(node).nil?
           return if ALL_FEATURES.include?(feature_name(node)) && args_count(node) == 2
 
-          if !ALL_FEATURES.include?(feature_name(node))
-            add_offense(node, location: :expression, message: licensed_feature_message(node))
+          if !ALL_FEATURES.include?(feature_name(node)) # rubocop:disable Rails/NegateInclude
+            add_offense(node, message: licensed_feature_message(node))
           elsif args_count(node) < 2
-            add_offense(node, location: :expression, message: NOT_ENOUGH_ARGS_MSG)
+            add_offense(node, message: NOT_ENOUGH_ARGS_MSG)
           end
         end
 

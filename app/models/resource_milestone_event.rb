@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
 class ResourceMilestoneEvent < ResourceTimeboxEvent
+  include EachBatch
+  include Import::HasImportSource
   include IgnorableColumns
+
+  ignore_column :imported, remove_with: '17.2', remove_after: '2024-07-22'
 
   belongs_to :milestone
 
@@ -10,8 +14,6 @@ class ResourceMilestoneEvent < ResourceTimeboxEvent
   # state is used for issue and merge request states.
   enum state: Issue.available_states.merge(MergeRequest.available_states)
 
-  ignore_columns %i[reference reference_html cached_markdown_version], remove_with: '13.1', remove_after: '2020-06-22'
-
   def milestone_title
     milestone&.title
   end
@@ -19,4 +21,10 @@ class ResourceMilestoneEvent < ResourceTimeboxEvent
   def milestone_parent
     milestone&.parent
   end
+
+  def synthetic_note_class
+    MilestoneNote
+  end
 end
+
+ResourceMilestoneEvent.prepend_mod

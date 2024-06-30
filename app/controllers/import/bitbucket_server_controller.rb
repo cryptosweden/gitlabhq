@@ -22,8 +22,8 @@ class Import::BitbucketServerController < Import::BaseController
   # (https://community.atlassian.com/t5/Answers-Developer-Questions/stash-repository-names/qaq-p/499054)
   #
   # Bitbucket Server starts personal project names with a tilde.
-  VALID_BITBUCKET_PROJECT_CHARS = /\A~?[\w\-\.\s]+\z/.freeze
-  VALID_BITBUCKET_CHARS = /\A[\w\-\.\s]+\z/.freeze
+  VALID_BITBUCKET_PROJECT_CHARS = /\A~?[\w\-\.\s]+\z/
+  VALID_BITBUCKET_CHARS = /\A[\w\-\.\s]+\z/
 
   def new
   end
@@ -49,27 +49,26 @@ class Import::BitbucketServerController < Import::BaseController
     session[bitbucket_server_username_key] = params[:bitbucket_server_username]
     session[bitbucket_server_url_key] = params[:bitbucket_server_url]
 
-    redirect_to status_import_bitbucket_server_path
+    redirect_to status_import_bitbucket_server_path(namespace_id: params[:namespace_id])
   end
 
+  # We need to re-expose controller's internal method 'status' as action.
+  # rubocop:disable Lint/UselessMethodDefinition
   def status
     super
   end
-
-  def realtime_changes
-    super
-  end
+  # rubocop:enable Lint/UselessMethodDefinition
 
   protected
 
   override :importable_repos
   def importable_repos
-    bitbucket_repos.filter { |repo| repo.valid? }
+    bitbucket_repos.filter(&:valid?)
   end
 
   override :incompatible_repos
   def incompatible_repos
-    bitbucket_repos.reject { |repo| repo.valid? }
+    bitbucket_repos.reject(&:valid?)
   end
 
   override :provider_name
@@ -104,8 +103,9 @@ class Import::BitbucketServerController < Import::BaseController
 
     return render_validation_error('Missing project key') unless @project_key.present? && @repo_slug.present?
     return render_validation_error('Missing repository slug') unless @repo_slug.present?
-    return render_validation_error('Invalid project key') unless @project_key =~ VALID_BITBUCKET_PROJECT_CHARS
-    return render_validation_error('Invalid repository slug') unless @repo_slug =~ VALID_BITBUCKET_CHARS
+    return render_validation_error('Invalid project key') unless VALID_BITBUCKET_PROJECT_CHARS.match?(@project_key)
+
+    render_validation_error('Invalid repository slug') unless VALID_BITBUCKET_CHARS.match?(@repo_slug)
   end
 
   def render_validation_error(message)
@@ -116,7 +116,7 @@ class Import::BitbucketServerController < Import::BaseController
     unless session[bitbucket_server_url_key].present? &&
         session[bitbucket_server_username_key].present? &&
         session[personal_access_token_key].present?
-      redirect_to new_import_bitbucket_server_path
+      redirect_to new_import_bitbucket_server_path(namespace_id: params[:namespace_id])
     end
   end
 
@@ -170,9 +170,6 @@ class Import::BitbucketServerController < Import::BaseController
             redirect: new_import_bitbucket_server_path
           }
         }, status: :unprocessable_entity
-      end
-      format.html do
-        redirect_to new_import_bitbucket_server_path
       end
     end
   end

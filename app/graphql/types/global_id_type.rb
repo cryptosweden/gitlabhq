@@ -1,21 +1,5 @@
 # frozen_string_literal: true
 
-module GraphQLExtensions
-  module ScalarExtensions
-    # Allow ID to unify with GlobalID Types
-    def ==(other)
-      if name == 'ID' && other.is_a?(self.class) &&
-          other.type_class.ancestors.include?(::Types::GlobalIDType)
-        return true
-      end
-
-      super
-    end
-  end
-end
-
-::GraphQL::ScalarType.prepend(GraphQLExtensions::ScalarExtensions)
-
 module Types
   class GlobalIDType < BaseScalar
     graphql_name 'GlobalID'
@@ -23,7 +7,11 @@ module Types
       A global identifier.
 
       A global identifier represents an object uniquely across the application.
-      An example of such an identifier is `"gid://gitlab/User/1"`.
+      An example of a global identifier is `"gid://gitlab/User/1"`.
+
+      `gid://gitlab` stands for the root name.
+      `User` is the name of the ActiveRecord class of the record.
+      `1` is the record id as per the id in the db table.
 
       Global identifiers are encoded as strings.
     DESC
@@ -65,9 +53,7 @@ module Types
           An example `#{graphql_name}` is: `"#{::Gitlab::GlobalId.build(model_name: model_name, id: 1)}"`.
           #{
             if deprecation = Gitlab::GlobalId::Deprecations.deprecation_by(model_name)
-              'The older format `"' +
-              ::Gitlab::GlobalId.build(model_name: deprecation.old_model_name, id: 1).to_s +
-              '"` was deprecated in ' +  deprecation.milestone + '.'
+              "The older format `\"#{::Gitlab::GlobalId.build(model_name: deprecation.old_name, id: 1)}\"` was deprecated in #{deprecation.milestone}."
             end}
 
         MD
@@ -100,7 +86,8 @@ module Types
         end
 
         define_singleton_method(:suitable?) do |gid|
-          next false if gid.nil?
+          # an argument can be nil, so allow it here
+          next true if gid.nil?
 
           gid.model_name.safe_constantize.present? &&
             gid.model_class.ancestors.include?(model_class)

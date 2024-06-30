@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Pipeline Badge' do
+RSpec.describe 'Pipeline Badge', feature_category: :continuous_integration do
   let_it_be(:project) { create(:project, :repository, :public) }
 
   let(:ref) { project.default_branch }
@@ -75,7 +75,7 @@ RSpec.describe 'Pipeline Badge' do
     def expect_badge(status)
       svg = Nokogiri::XML.parse(page.body)
       expect(page.response_headers['Content-Type']).to include('image/svg+xml')
-      expect(svg.at(%Q{text:contains("#{status}")})).to be_truthy
+      expect(svg.at(%{text:contains("#{status}")})).to be_truthy
     end
   end
 end

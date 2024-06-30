@@ -1,24 +1,30 @@
 <script>
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import statusIcon from '../mr_widget_status_icon.vue';
+import { s__ } from '~/locale';
+import BoldText from '~/vue_merge_request_widget/components/bold_text.vue';
+import StateContainer from '../state_container.vue';
+
+const message = s__(
+  'mrWidget|%{boldStart}Merge unavailable:%{boldEnd} merge requests are read-only on archived projects.',
+);
 
 export default {
   name: 'MRWidgetArchived',
+  message,
   components: {
-    statusIcon,
+    BoldText,
+    StateContainer,
   },
-  mixins: [glFeatureFlagMixin()],
+  props: {
+    mr: {
+      type: Object,
+      required: true,
+    },
+  },
 };
 </script>
+
 <template>
-  <div class="mr-widget-body media">
-    <div class="space-children">
-      <status-icon status="warning" show-disabled-button />
-    </div>
-    <div class="media-body">
-      <span :class="{ 'gl-ml-0! gl-text-body!': glFeatures.restructuredMrWidget }" class="bold">
-        {{ s__('mrWidget|Merge unavailable: merge requests are read-only on archived projects.') }}
-      </span>
-    </div>
-  </div>
+  <state-container status="failed" is-collapsible>
+    <bold-text :message="$options.message" />
+  </state-container>
 </template>

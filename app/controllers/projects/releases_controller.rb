@@ -9,14 +9,26 @@ class Projects::ReleasesController < Projects::ApplicationController
   before_action :authorize_create_release!, only: :new
   before_action :validate_suffix_path, :fetch_latest_tag, only: :latest_permalink
 
+  prepend_before_action(only: [:index]) { authenticate_sessionless_user!(:rss) }
+  prepend_before_action(only: [:downloads]) do
+    authenticate_sessionless_user!(:download)
+  end
+
   feature_category :release_orchestration
+  urgency :low
 
   def index
     respond_to do |format|
       format.html do
         require_non_empty_project
       end
-      format.json { render json: releases }
+      format.json do
+        render json: ReleaseSerializer.new.represent(releases)
+      end
+      format.atom do
+        @releases = releases
+        render layout: 'xml'
+      end
     end
   end
 
@@ -25,9 +37,7 @@ class Projects::ReleasesController < Projects::ApplicationController
   end
 
   def latest_permalink
-    unless @latest_tag.present?
-      return render_404
-    end
+    return render_404 unless @latest_tag.present?
 
     query_parameters_except_order_by = request.query_parameters.except(:order_by)
 
@@ -49,19 +59,11 @@ class Projects::ReleasesController < Projects::ApplicationController
   end
 
   def release
-    @release ||= project.releases.find_by_tag!(sanitized_tag_name)
+    @release ||= project.releases.find_by_tag!(params[:tag])
   end
 
   def link
-    release.links.find_by_filepath!(sanitized_filepath)
-  end
-
-  def sanitized_filepath
-    "/#{CGI.unescape(params[:filepath])}"
-  end
-
-  def sanitized_tag_name
-    CGI.unescape(params[:tag])
+    release.links.find_by_filepath!("/#{params[:filepath]}")
   end
 
   # Default order_by is 'released_at', which is set in ReleasesFinder.
@@ -75,6 +77,6 @@ class Projects::ReleasesController < Projects::ApplicationController
   end
 
   def validate_suffix_path
-    Gitlab::Utils.check_path_traversal!(params[:suffix_path]) if params[:suffix_path]
+    Gitlab::PathTraversal.check_path_traversal!(params[:suffix_path]) if params[:suffix_path]
   end
 end

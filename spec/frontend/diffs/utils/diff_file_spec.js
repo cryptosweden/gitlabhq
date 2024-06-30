@@ -3,9 +3,10 @@ import {
   getShortShaFromFile,
   stats,
   isNotDiffable,
+  match,
 } from '~/diffs/utils/diff_file';
 import { diffViewerModes } from '~/ide/constants';
-import mockDiffFile from '../mock_data/diff_file';
+import { getDiffFileMock } from '../mock_data/diff_file';
 
 function getDiffFiles() {
   const loadFull = 'namespace/project/-/merge_requests/12345/diff_for_path?file_identifier=abc';
@@ -149,6 +150,38 @@ describe('diff_file utilities', () => {
 
       expect(preppedFile).not.toHaveProp('id');
     });
+
+    it.each`
+      index
+      ${null}
+      ${undefined}
+      ${-1}
+      ${false}
+      ${true}
+      ${'idx'}
+      ${'42'}
+    `('does not set the order property if an invalid index ($index) is provided', ({ index }) => {
+      const preppedFile = prepareRawDiffFile({
+        file: files[0],
+        allFiles: files,
+        index,
+      });
+
+      /* expect.anything() doesn't match null or undefined */
+      expect(preppedFile).toEqual(expect.not.objectContaining({ order: null }));
+      expect(preppedFile).toEqual(expect.not.objectContaining({ order: undefined }));
+      expect(preppedFile).toEqual(expect.not.objectContaining({ order: expect.anything() }));
+    });
+
+    it('sets the provided valid index to the order property', () => {
+      const preppedFile = prepareRawDiffFile({
+        file: files[0],
+        allFiles: files,
+        index: 42,
+      });
+
+      expect(preppedFile).toEqual(expect.objectContaining({ order: 42 }));
+    });
   });
 
   describe('getShortShaFromFile', () => {
@@ -177,7 +210,7 @@ describe('diff_file utilities', () => {
     ];
     const validFile = [
       'computes the correct stats from a file',
-      mockDiffFile,
+      getDiffFileMock(),
       {
         changed: 1024,
         percent: 100,
@@ -190,7 +223,7 @@ describe('diff_file utilities', () => {
     const negativeChange = [
       'computed the correct states from a file with a negative size change',
       {
-        ...mockDiffFile,
+        ...getDiffFileMock(),
         new_size: 0,
         old_size: 1024,
       },
@@ -228,6 +261,44 @@ describe('diff_file utilities', () => {
       ${{ viewer: null }}
     `('reports `false` when the file is `$file`', ({ file }) => {
       expect(isNotDiffable(file)).toBe(false);
+    });
+  });
+
+  describe('match', () => {
+    const authorityFileId = '68296a4f-f1c7-445a-bd0e-6e3b02c4eec0';
+    const fih = 'file_identifier_hash';
+    const fihs = 'file identifier hashes';
+    let authorityFile;
+
+    beforeAll(() => {
+      const files = getDiffFiles();
+
+      authorityFile = prepareRawDiffFile({
+        file: files[0],
+        allFiles: files,
+      });
+
+      Object.freeze(authorityFile);
+    });
+
+    describe.each`
+      mode           | comparisonFiles                                                    | keyName
+      ${'universal'} | ${[{ [fih]: 'ABC1' }, { id: 'foo' }, { id: authorityFileId }]}     | ${'ids'}
+      ${'mr'}        | ${[{ id: authorityFileId }, { [fih]: 'ABC2' }, { [fih]: 'ABC1' }]} | ${fihs}
+    `('$mode mode', ({ mode, comparisonFiles, keyName }) => {
+      it(`fails to match if files or ${keyName} aren't present`, () => {
+        expect(match({ fileA: authorityFile, fileB: undefined, mode })).toBe(false);
+        expect(match({ fileA: authorityFile, fileB: null, mode })).toBe(false);
+        expect(match({ fileA: authorityFile, fileB: comparisonFiles[0], mode })).toBe(false);
+      });
+
+      it(`fails to match if the ${keyName} aren't the same`, () => {
+        expect(match({ fileA: authorityFile, fileB: comparisonFiles[1], mode })).toBe(false);
+      });
+
+      it(`matches if the ${keyName} are the same`, () => {
+        expect(match({ fileA: authorityFile, fileB: comparisonFiles[2], mode })).toBe(true);
+      });
     });
   });
 });

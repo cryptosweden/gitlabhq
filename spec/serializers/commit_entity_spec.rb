@@ -3,8 +3,6 @@
 require 'spec_helper'
 
 RSpec.describe CommitEntity do
-  let(:signature_html) { 'TEST' }
-
   let(:entity) do
     described_class.new(commit, request: request)
   end
@@ -16,11 +14,7 @@ RSpec.describe CommitEntity do
   subject { entity.as_json }
 
   before do
-    render = double('render')
-    allow(render).to receive(:call).and_return(signature_html)
-
     allow(request).to receive(:project).and_return(project)
-    allow(request).to receive(:render).and_return(render)
   end
 
   context 'when commit author is a user' do
@@ -57,7 +51,7 @@ RSpec.describe CommitEntity do
   end
 
   it 'exposes gravatar url that belongs to author' do
-    expect(subject.fetch(:author_gravatar_url)).to match /gravatar/
+    expect(subject.fetch(:author_gravatar_url)).to match(/gravatar/)
   end
 
   context 'when type is not set' do
@@ -83,8 +77,7 @@ RSpec.describe CommitEntity do
       let(:commit) { project.commit(TestEnv::BRANCH_SHA['signed-commits']) }
 
       it 'exposes "signature_html"' do
-        expect(request.render).to receive(:call)
-        expect(subject.fetch(:signature_html)).to be signature_html
+        expect(subject.fetch(:signature_html)).not_to be_nil
       end
     end
 

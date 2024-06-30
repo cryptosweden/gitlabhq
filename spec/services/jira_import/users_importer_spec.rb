@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe JiraImport::UsersImporter do
-  include JiraServiceHelper
+RSpec.describe JiraImport::UsersImporter, feature_category: :integrations do
+  include JiraIntegrationHelpers
 
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group) }

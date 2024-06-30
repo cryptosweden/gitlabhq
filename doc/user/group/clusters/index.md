@@ -1,14 +1,14 @@
 ---
-type: reference
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Group-level Kubernetes clusters (certificate-based) (DEPRECATED) **(FREE)**
+# Group-level Kubernetes clusters (certificate-based) (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/34758) in GitLab 11.6.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5. To connect clusters to GitLab,
@@ -21,8 +21,8 @@ your group, enabling you to use the same cluster across multiple projects.
 
 To view your group-level Kubernetes clusters:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Kubernetes**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Operate > Kubernetes**.
 
 ## Cluster management project
 
@@ -31,9 +31,6 @@ to your cluster to manage shared resources requiring `cluster-admin` privileges 
 installation, such as an Ingress controller.
 
 ## RBAC compatibility
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/29398) in GitLab 11.4.
-> - Project namespace restriction was [introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/51716) in GitLab 11.5.
 
 For each project under a group with a Kubernetes cluster, GitLab creates a restricted
 service account with [`edit` privileges](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles)
@@ -49,8 +46,6 @@ to the project, provided the cluster is not disabled.
 
 ## Multiple Kubernetes clusters
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/35094) in GitLab 13.2.
-
 You can associate more than one Kubernetes cluster to your group, and maintain different clusters
 for different environments, such as development, staging, and production.
 
@@ -59,9 +54,6 @@ When adding another cluster,
 differentiate the new cluster from your other clusters.
 
 ## GitLab-managed clusters
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/22011) in GitLab 11.5.
-> - Became [optional](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/26565) in GitLab 11.11.
 
 You can choose to allow GitLab to manage your cluster for you. If GitLab manages
 your cluster, resources for your projects are automatically created. See the
@@ -80,8 +72,6 @@ for deployments with a cluster not managed by GitLab, you must ensure:
 
 ### Clearing the cluster cache
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/31759) in GitLab 12.6.
-
 If you choose to allow GitLab to manage your cluster for you, GitLab stores a cached
 version of the namespaces and service accounts it creates for your projects. If you
 modify these resources in your cluster manually, this cache can fall out of sync with
@@ -89,15 +79,13 @@ your cluster, which can cause deployment jobs to fail.
 
 To clear the cache:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Kubernetes**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Operate > Kubernetes**.
 1. Select your cluster.
 1. Expand **Advanced settings**.
 1. Select **Clear cluster cache**.
 
 ## Base domain
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/24580) in GitLab 11.8.
 
 Domains at the cluster level permit support for multiple domains
 per [multiple Kubernetes clusters](#multiple-kubernetes-clusters) When specifying a domain,
@@ -106,12 +94,16 @@ the [Auto DevOps](../../../topics/autodevops/index.md) stages.
 
 The domain should have a wildcard DNS configured to the Ingress IP address. [More details](../../project/clusters/gitlab_managed_clusters.md#base-domain).
 
-## Environment scopes **(PREMIUM)**
+## Environment scopes
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 When adding more than one Kubernetes cluster to your project, you need to differentiate
 them with an environment scope. The environment scope associates clusters with
 [environments](../../../ci/environments/index.md) similar to how the
-[environment-specific CI/CD variables](../../../ci/variables/index.md#limit-the-environment-scope-of-a-cicd-variable)
+[environment-specific CI/CD variables](../../../ci/environments/index.md#limit-the-environment-scope-of-a-cicd-variable)
 work.
 
 While evaluating which environment matches the environment scope of a
@@ -130,7 +122,7 @@ For example, if your project has the following Kubernetes clusters:
 | Test       | `test`              | Group     |
 | Development| `*`                 | Group     |
 
-And the following environments are set in [`.gitlab-ci.yml`](../../../ci/yaml/index.md):
+And the following environments are set in the `.gitlab-ci.yml` file:
 
 ```yaml
 stages:
@@ -162,7 +154,11 @@ The result is:
 - The Staging cluster is used for the `deploy to staging` job.
 - The Production cluster is used for the `deploy to production` job.
 
-## Cluster environments **(PREMIUM)**
+## Cluster environments
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 For a consolidated view of which CI [environments](../../../ci/environments/index.md)
 are deployed to the Kubernetes cluster, see the documentation for
@@ -187,6 +183,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

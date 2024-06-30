@@ -1,10 +1,14 @@
 ---
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Knowledge
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Tutorial: Create a GitLab Pages website from scratch **(FREE)**
+# Tutorial: Create a GitLab Pages website from scratch
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This tutorial shows you how to create a Pages site from scratch using
 the [Jekyll](https://jekyllrb.com/) Static Site Generator (SSG). You start with
@@ -27,17 +31,17 @@ To create a GitLab Pages website:
 
 ## Prerequisites
 
-You must have a [blank project](../../working_with_projects.md#create-a-blank-project) in GitLab.
+You must have a [blank project](../../index.md#create-a-blank-project) in GitLab.
 
 ## Create the project files
 
 Create three files in the root (top-level) directory:
 
 - `.gitlab-ci.yml`: A YAML file that contains the commands you want to run.
-   For now, leave the file's contents blank.
+  For now, leave the file's contents blank.
 
 - `index.html`: An HTML file you can populate with whatever HTML content
-   you'd like, for example:
+  you'd like, for example:
 
    ```html
    <html>
@@ -70,7 +74,7 @@ This specific Ruby image is maintained on [DockerHub](https://hub.docker.com/_/r
 Edit your `.gitlab-ci.yml` file and add this text as the first line:
 
 ```yaml
-image: ruby:2.7
+image: ruby:3.2
 ```
 
 If your SSG needs [NodeJS](https://nodejs.org/) to build, you must specify an
@@ -156,7 +160,7 @@ pages:
 Your `.gitlab-ci.yml` file should now look like this:
 
 ```yaml
-image: ruby:2.7
+image: ruby:3.2
 
 pages:
   script:
@@ -174,9 +178,9 @@ After you have completed the preceding steps,
 deploy your website:
 
 1. Save and commit the `.gitlab-ci.yml` file.
-1. Go to **CI/CD > Pipelines** to watch the pipeline.
-1. When the pipeline succeeds, go to **Settings > Pages**
-   to view the URL where your site is now available.
+1. Go to **Build > Pipelines** to watch the pipeline.
+1. When the pipeline is finished, go to **Deploy > Pages** to find the link to
+   your Pages website.
 
 When this `pages` job completes successfully, a special `pages:deploy` job
 appears in the pipeline view. It prepares the content of the website for the
@@ -185,7 +189,7 @@ GitLab Pages daemon. GitLab runs it in the background and doesn't use a runner.
 ## Other options for your CI/CD file
 
 If you want to do more advanced tasks, you can update your `.gitlab-ci.yml` file
-with [any of the available settings](../../../../ci/yaml/index.md). You can validate
+with [other CI/CD YAML keywords](../../../../ci/yaml/index.md). You can validate
 your `.gitlab-ci.yml` file with the [CI Lint](../../../../ci/lint.md) tool that's included with GitLab.
 
 The following topics show other examples of other options you can add to your CI/CD file.
@@ -198,11 +202,11 @@ First, add a `workflow` section to force the pipeline to run only when changes a
 pushed to branches:
 
 ```yaml
-image: ruby:2.7
+image: ruby:3.2
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH'
+    - if: $CI_COMMIT_BRANCH
 
 pages:
   script:
@@ -218,11 +222,11 @@ Then configure the pipeline to run the job for the
 [default branch](../../repository/branches/default.md) (here, `main`) only.
 
 ```yaml
-image: ruby:2.7
+image: ruby:3.2
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH'
+    - if: $CI_COMMIT_BRANCH
 
 pages:
   script:
@@ -233,7 +237,7 @@ pages:
     paths:
       - public
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: $CI_COMMIT_BRANCH == "main"
 ```
 
 ### Specify a stage to deploy
@@ -249,11 +253,11 @@ To specify a stage for your job to run in,
 add a `stage` line to your CI file:
 
 ```yaml
-image: ruby:2.7
+image: ruby:3.2
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH'
+    - if: $CI_COMMIT_BRANCH
 
 pages:
   stage: deploy
@@ -265,18 +269,19 @@ pages:
     paths:
       - public
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment: production
 ```
 
 Now add another job to the CI file, telling it to
 test every push to every branch **except** the `main` branch:
 
 ```yaml
-image: ruby:2.7
+image: ruby:3.2
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH'
+    - if: $CI_COMMIT_BRANCH
 
 pages:
   stage: deploy
@@ -288,7 +293,8 @@ pages:
     paths:
       - public
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment: production
 
 test:
   stage: test
@@ -300,7 +306,7 @@ test:
     paths:
       - test
   rules:
-    - if: '$CI_COMMIT_BRANCH != "main"'
+    - if: $CI_COMMIT_BRANCH != "main"
 ```
 
 When the `test` job runs in the `test` stage, Jekyll
@@ -323,11 +329,11 @@ for both jobs, `pages` and `test`.
 Move these commands to a `before_script` section:
 
 ```yaml
-image: ruby:2.7
+image: ruby:3.2
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH'
+    - if: $CI_COMMIT_BRANCH
 
 before_script:
   - gem install bundler
@@ -341,7 +347,8 @@ pages:
     paths:
       - public
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment: production
 
 test:
   stage: test
@@ -351,7 +358,7 @@ test:
     paths:
       - test
   rules:
-    - if: '$CI_COMMIT_BRANCH != "main"'
+    - if: $CI_COMMIT_BRANCH != "main"
 ```
 
 ### Build faster with cached dependencies
@@ -363,11 +370,11 @@ This example caches Jekyll dependencies in a `vendor` directory
 when you run `bundle install`:
 
 ```yaml
-image: ruby:2.7
+image: ruby:3.2
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH'
+    - if: $CI_COMMIT_BRANCH
 
 cache:
   paths:
@@ -385,7 +392,8 @@ pages:
     paths:
       - public
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment: production
 
 test:
   stage: test
@@ -395,7 +403,7 @@ test:
     paths:
       - test
   rules:
-    - if: '$CI_COMMIT_BRANCH != "main"'
+    - if: $CI_COMMIT_BRANCH != "main"
 ```
 
 In this case, you need to exclude the `/vendor`
@@ -416,14 +424,12 @@ Now GitLab CI/CD not only builds the website, but also:
 - **Caches** dependencies installed with Bundler.
 - **Continuously deploys** every push to the `main` branch.
 
+To view the HTML and other assets that were created for the site,
+[download the job artifacts](../../../../ci/jobs/job_artifacts.md#download-job-artifacts).
+
 ## Related topics
 
-For more information, see the following blog posts.
-
-- [Use GitLab CI/CD `environments` to deploy your
-  web app to staging and production](https://about.gitlab.com/blog/2021/02/05/ci-deployment-and-environments/).
-- Learn [how to run jobs sequentially,
-  in parallel, or build a custom pipeline](https://about.gitlab.com/blog/2016/07/29/the-basics-of-gitlab-ci/).
-- Learn [how to pull specific directories from different projects](https://about.gitlab.com/blog/2016/12/07/building-a-new-gitlab-docs-site-with-nanoc-gitlab-ci-and-gitlab-pages/)
-  to deploy this website, <https://docs.gitlab.com>.
-- Learn [how to use GitLab Pages to produce a code coverage report](https://about.gitlab.com/blog/2016/11/03/publish-code-coverage-report-with-gitlab-pages/).
+- [Deploy your web app to staging and production](https://about.gitlab.com/blog/2021/02/05/ci-deployment-and-environments/)
+- [Run jobs sequentially, in parallel, or build a custom pipeline](https://about.gitlab.com/blog/2020/12/10/basics-of-gitlab-ci-updated/)
+- [Pull specific directories from different projects](https://about.gitlab.com/blog/2016/12/07/building-a-new-gitlab-docs-site-with-nanoc-gitlab-ci-and-gitlab-pages/)
+- [Use GitLab Pages to produce a code coverage report](https://about.gitlab.com/blog/2016/11/03/publish-code-coverage-report-with-gitlab-pages/)

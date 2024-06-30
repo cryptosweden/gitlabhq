@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Release' do
-    describe 'Deploy key creation', :skip_fips_env do
-      it 'user adds a deploy key', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348023' do
+  RSpec.describe 'Release', product_group: :environments do
+    describe 'Deploy key creation' do
+      it 'user adds a deploy key', :smoke,
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348023' do
         Flow::Login.sign_in
 
         key = Runtime::Key::RSA.new
@@ -15,11 +16,11 @@ module QA
           resource.key = deploy_key_value
         end
 
-        expect(deploy_key.md5_fingerprint).to eq key.md5_fingerprint
+        expect(deploy_key.sha256_fingerprint).to eq key.sha256_fingerprint
 
         Page::Project::Settings::Repository.perform do |setting|
           setting.expand_deploy_keys do |keys|
-            expect(keys).to have_key(deploy_key_title, key.md5_fingerprint)
+            expect(keys).to have_key(deploy_key_title, key.sha256_fingerprint)
           end
         end
       end

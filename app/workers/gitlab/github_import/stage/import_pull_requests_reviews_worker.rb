@@ -8,25 +8,9 @@ module Gitlab
 
         data_consistency :always
 
-        sidekiq_options retry: 3
-        include GithubImport::Queue
         include StageMethods
 
-        # client - An instance of Gitlab::GithubImport::Client.
-        # project - An instance of Project.
-        def import(client, project)
-          waiter = Importer::PullRequestsReviewsImporter
-            .new(project, client)
-            .execute
-
-          project.import_state.refresh_jid_expiration
-
-          AdvanceStageWorker.perform_async(
-            project.id,
-            { waiter.key => waiter.jobs_remaining },
-            :issues_and_diff_notes
-          )
-        end
+        def perform(_project_id); end
       end
     end
   end

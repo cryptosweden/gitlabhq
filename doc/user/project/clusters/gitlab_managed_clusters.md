@@ -1,23 +1,28 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab-managed clusters (DEPRECATED) **(FREE)**
+# GitLab-managed clusters (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/22011) in GitLab 11.5.
-> - Became [optional](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/26565) in GitLab 11.11.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed
+
+> - [Disabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/353410) in GitLab 15.0.
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
 To connect your cluster to GitLab, use the [GitLab agent](../../../user/clusters/agent/index.md).
 To manage applications, use the [Cluster Project Management Template](../../../user/clusters/management_project_template.md).
 
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../../administration/feature_flags.md) named `certificate_based_clusters`.
+
 You can choose to allow GitLab to manage your cluster for you. If your cluster
 is managed by GitLab, resources for your projects are automatically created. See
-the [Access controls](add_remove_clusters.md#access-controls) section for
+the [Access controls](cluster_access.md) section for
 details about the created resources.
 
 If you choose to manage your own cluster, project-specific resources aren't created
@@ -32,8 +37,6 @@ namespaces and service accounts, can cause unexpected errors. If this occurs, tr
 
 ## Clearing the cluster cache
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/31759) in GitLab 12.6.
-
 If you allow GitLab to manage your cluster, GitLab stores a cached
 version of the namespaces and service accounts it creates for your projects. If you
 modify these resources in your cluster manually, this cache can fall out of sync with
@@ -41,13 +44,11 @@ your cluster. This can cause deployment jobs to fail.
 
 To clear the cache:
 
-1. Navigate to your project's **Infrastructure > Kubernetes clusters** page, and select your cluster.
+1. Go to your project's **Operate > Kubernetes clusters** page, and select your cluster.
 1. Expand the **Advanced settings** section.
-1. Click **Clear cluster cache**.
+1. Select **Clear cluster cache**.
 
 ## Base domain
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/24580) in GitLab 11.8.
 
 Specifying a base domain automatically sets `KUBE_INGRESS_BASE_DOMAIN` as an deployment variable.
 If you are using [Auto DevOps](../../../topics/autodevops/index.md), this domain is used for the different
@@ -62,10 +63,10 @@ You can either:
 To determine the external Ingress IP address, or external Ingress hostname:
 
 - *If the cluster is on GKE*:
-  1. Click the **Google Kubernetes Engine** link in the **Advanced settings**,
+  1. Select the **Google Kubernetes Engine** link in the **Advanced settings**,
      or go directly to the [Google Kubernetes Engine dashboard](https://console.cloud.google.com/kubernetes/).
   1. Select the proper project and cluster.
-  1. Click **Connect**
+  1. Select **Connect**.
   1. Execute the `gcloud` command in a local terminal or using the **Cloud Shell**.
 
 - *If the cluster is not on GKE*: Follow the specific instructions for your

@@ -40,22 +40,27 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
 
   let(:has_yaml_errors) { false }
 
-  it_behaves_like Integrations::ChatMessage
-
   before do
     test_commit = double("A test commit", committer: args[:user], title: "A test commit message")
-    test_project = double("A test project", commit_by: test_commit, name: args[:project][:name], web_url: args[:project][:web_url])
+    test_project = build(:project, name: args[:project][:name])
+
+    allow(test_project).to receive(:commit_by).and_return(test_commit)
+    allow(test_project).to receive(:web_url).and_return(args[:project][:web_url])
     allow(test_project).to receive(:avatar_url).with(no_args).and_return("/avatar")
     allow(test_project).to receive(:avatar_url).with(only_path: false).and_return(args[:project][:avatar_url])
     allow(Project).to receive(:find) { test_project }
 
-    test_pipeline = double("A test pipeline", has_yaml_errors?: has_yaml_errors,
-                          yaml_errors: "yaml error description here")
+    test_pipeline = build(:ci_empty_pipeline, name: 'Build pipeline')
+
+    allow(test_pipeline).to receive(:has_yaml_errors?).and_return(has_yaml_errors)
+    allow(test_pipeline).to receive(:yaml_errors).and_return("yaml error description here")
     allow(Ci::Pipeline).to receive(:find) { test_pipeline }
 
     allow(Gitlab::UrlBuilder).to receive(:build).with(test_commit).and_return("http://example.com/commit")
     allow(Gitlab::UrlBuilder).to receive(:build).with(args[:user]).and_return("http://example.gitlab.com/hacker")
   end
+
+  it_behaves_like Integrations::ChatMessage
 
   it 'returns an empty pretext' do
     expect(subject.pretext).to be_empty
@@ -63,10 +68,16 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
 
   it "returns the pipeline summary in the activity's title" do
     expect(subject.activity[:title]).to eq(
-      "Pipeline [#123](http://example.gitlab.com/-/pipelines/123)" \
-        " of branch [develop](http://example.gitlab.com/-/commits/develop)" \
-        " by The Hacker (hacker) has passed"
+      "Pipeline [#123](http://example.gitlab.com/-/pipelines/123) " \
+        "of branch [develop](http://example.gitlab.com/-/commits/develop) " \
+        "by The Hacker (hacker) has passed"
     )
+  end
+
+  it 'returns pipeline name' do
+    name_field = subject.attachments.first[:fields].find { |a| a[:title] == 'Pipeline name' }
+
+    expect(name_field[:value]).to eq('Build pipeline')
   end
 
   context "when the pipeline failed" do
@@ -76,9 +87,9 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
 
     it "returns the summary with a 'failed' status" do
       expect(subject.activity[:title]).to eq(
-        "Pipeline [#123](http://example.gitlab.com/-/pipelines/123)" \
-          " of branch [develop](http://example.gitlab.com/-/commits/develop)" \
-          " by The Hacker (hacker) has failed"
+        "Pipeline [#123](http://example.gitlab.com/-/pipelines/123) " \
+          "of branch [develop](http://example.gitlab.com/-/commits/develop) " \
+          "by The Hacker (hacker) has failed"
       )
     end
   end
@@ -90,9 +101,9 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
 
     it "returns the summary with a 'passed with warnings' status" do
       expect(subject.activity[:title]).to eq(
-        "Pipeline [#123](http://example.gitlab.com/-/pipelines/123)" \
-          " of branch [develop](http://example.gitlab.com/-/commits/develop)" \
-          " by The Hacker (hacker) has passed with warnings"
+        "Pipeline [#123](http://example.gitlab.com/-/pipelines/123) " \
+          "of branch [develop](http://example.gitlab.com/-/commits/develop) " \
+          "by The Hacker (hacker) has passed with warnings"
       )
     end
   end
@@ -104,9 +115,9 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
 
     it "returns the summary with 'API' as the username" do
       expect(subject.activity[:title]).to eq(
-        "Pipeline [#123](http://example.gitlab.com/-/pipelines/123)" \
-          " of branch [develop](http://example.gitlab.com/-/commits/develop)" \
-          " by API has passed"
+        "Pipeline [#123](http://example.gitlab.com/-/pipelines/123) " \
+          "of branch [develop](http://example.gitlab.com/-/commits/develop) " \
+          "by API has passed"
       )
     end
   end
@@ -135,10 +146,10 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
 
   it "returns the pipeline summary as the attachment's fallback property" do
     expect(subject.attachments.first[:fallback]).to eq(
-      "<http://example.gitlab.com|project_name>:" \
-        " Pipeline <http://example.gitlab.com/-/pipelines/123|#123>" \
-        " of branch <http://example.gitlab.com/-/commits/develop|develop>" \
-        " by The Hacker (hacker) has passed in 02:00:10"
+      "<http://example.gitlab.com|project_name>: " \
+        "Pipeline <http://example.gitlab.com/-/pipelines/123|#123> " \
+        "of branch <http://example.gitlab.com/-/commits/develop|develop> " \
+        "by The Hacker (hacker) has passed in 02:00:10"
     )
   end
 
@@ -204,8 +215,8 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
     expect(subject.attachments.first[:title_link]).to eq("http://example.gitlab.com/-/pipelines/123")
   end
 
-  it "returns two attachment fields" do
-    expect(subject.attachments.first[:fields].count).to eq(2)
+  it "returns three attachment fields" do
+    expect(subject.attachments.first[:fields].count).to eq(3)
   end
 
   it "returns the commit message as the attachment's second field property" do
@@ -232,8 +243,8 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
       ]
     end
 
-    it "returns four attachment fields" do
-      expect(subject.attachments.first[:fields].count).to eq(4)
+    it "returns five attachment fields" do
+      expect(subject.attachments.first[:fields].count).to eq(5)
     end
 
     it "returns the stage name and link to the 'Failed jobs' tab on the pipeline's page as the attachment's third field property" do
@@ -337,8 +348,8 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
   context "when the CI config file contains a YAML error" do
     let(:has_yaml_errors) { true }
 
-    it "returns three attachment fields" do
-      expect(subject.attachments.first[:fields].count).to eq(3)
+    it "returns four attachment fields" do
+      expect(subject.attachments.first[:fields].count).to eq(4)
     end
 
     it "returns the YAML error deatils as the attachment's third field property" do
@@ -370,11 +381,38 @@ RSpec.describe Integrations::ChatMessage::PipelineMessage do
 
     it 'returns the pipeline summary as the attachments in markdown format' do
       expect(subject.attachments).to eq(
-        "[project_name](http://example.gitlab.com):" \
-          " Pipeline [#123](http://example.gitlab.com/-/pipelines/123)" \
-          " of branch [develop](http://example.gitlab.com/-/commits/develop)" \
-          " by The Hacker (hacker) has passed in 02:00:10"
+        "[project_name](http://example.gitlab.com): " \
+          "Pipeline [#123](http://example.gitlab.com/-/pipelines/123) " \
+          "of branch [develop](http://example.gitlab.com/-/commits/develop) " \
+          "by The Hacker (hacker) has passed in 02:00:10"
       )
+    end
+  end
+
+  describe '#attachment_color' do
+    context 'when success' do
+      before do
+        args[:object_attributes][:status] = 'success'
+      end
+
+      it { expect(subject.attachment_color).to eq('good') }
+    end
+
+    context 'when passed with warnings' do
+      before do
+        args[:object_attributes][:status] = 'success'
+        args[:object_attributes][:detailed_status] = 'passed with warnings'
+      end
+
+      it { expect(subject.attachment_color).to eq('warning') }
+    end
+
+    context 'when failed' do
+      before do
+        args[:object_attributes][:status] = 'failed'
+      end
+
+      it { expect(subject.attachment_color).to eq('danger') }
     end
   end
 end

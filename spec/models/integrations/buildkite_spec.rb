@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching do
+RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching, feature_category: :integrations do
   include ReactiveCachingHelpers
   include StubRequests
 
-  let(:project) { create(:project) }
+  let_it_be(:project) { create(:project) }
 
   subject(:integration) do
     described_class.create!(
@@ -18,9 +18,15 @@ RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching do
     )
   end
 
+  it_behaves_like Integrations::BaseCi
+
+  it_behaves_like Integrations::ResetSecretFields
+
   it_behaves_like Integrations::HasWebHook do
-    let(:hook_url) { 'https://webhook.buildkite.com/deliver/secret-sauce-webhook-token' }
+    let(:hook_url) { 'https://webhook.buildkite.com/deliver/{webhook_token}' }
   end
+
+  it_behaves_like Integrations::HasAvatar
 
   describe 'Validations' do
     context 'when integration is active' do
@@ -30,6 +36,7 @@ RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching do
 
       it { is_expected.to validate_presence_of(:project_url) }
       it { is_expected.to validate_presence_of(:token) }
+
       it_behaves_like 'issue tracker integration URL attribute', :project_url
     end
 
@@ -45,7 +52,7 @@ RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching do
 
   describe '.supported_events' do
     it 'supports push, merge_request, and tag_push events' do
-      expect(integration.supported_events).to eq %w(push merge_request tag_push)
+      expect(integration.supported_events).to eq %w[push merge_request tag_push]
     end
   end
 
@@ -66,9 +73,7 @@ RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching do
 
     describe '#hook_url' do
       it 'returns the webhook url' do
-        expect(integration.hook_url).to eq(
-          'https://webhook.buildkite.com/deliver/secret-sauce-webhook-token'
-        )
+        expect(integration.hook_url).to eq('https://webhook.buildkite.com/deliver/{webhook_token}')
       end
     end
 
@@ -98,9 +103,7 @@ RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching do
 
     describe '#calculate_reactive_cache' do
       describe '#commit_status' do
-        let(:buildkite_full_url) do
-          'https://gitlab.buildkite.com/status/secret-sauce-status-token.json?commit=123'
-        end
+        let(:buildkite_full_url) { 'https://gitlab.buildkite.com/status/secret-sauce-status-token.json?commit=123' }
 
         subject { integration.calculate_reactive_cache('123', 'unused')[:commit_status] }
 
@@ -129,7 +132,7 @@ RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching do
 
             expect(Gitlab::ErrorTracking)
               .to receive(:log_exception)
-              .with(instance_of(http_error), project_id: project.id)
+              .with(instance_of(http_error), { project_id: project.id })
 
             is_expected.to eq(:error)
           end
@@ -141,9 +144,10 @@ RSpec.describe Integrations::Buildkite, :use_clean_rails_memory_store_caching do
   def stub_request(status: 200, body: nil)
     body ||= %q({"status":"success"})
 
-    stub_full_request(buildkite_full_url)
-      .to_return(status: status,
-                 headers: { 'Content-Type' => 'application/json' },
-                 body: body)
+    stub_full_request(buildkite_full_url).to_return(
+      status: status,
+      headers: { 'Content-Type' => 'application/json' },
+      body: body
+    )
   end
 end

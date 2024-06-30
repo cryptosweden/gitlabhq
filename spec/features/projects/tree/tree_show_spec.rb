@@ -2,8 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects tree', :js do
+RSpec.describe 'Projects tree', :js, feature_category: :web_ide do
+  include Features::WebIdeSpecHelpers
   include RepoHelpers
+  include ListboxHelpers
 
   let(:user) { create(:user) }
   let(:project) { create(:project, :repository) }
@@ -19,6 +21,15 @@ RSpec.describe 'Projects tree', :js do
     sign_in(user)
   end
 
+  it 'passes axe automated accessibility testing' do
+    visit project_tree_path(project, test_sha)
+    wait_for_requests
+
+    expect(page).to be_axe_clean.within('.project-last-commit')
+    expect(page).to be_axe_clean.within('.nav-block')
+    expect(page).to be_axe_clean.within('.tree-content-holder').skipping :'link-in-text-block'
+  end
+
   it 'renders tree table without errors' do
     visit project_tree_path(project, test_sha)
     wait_for_requests
@@ -26,7 +37,7 @@ RSpec.describe 'Projects tree', :js do
     expect(page).to have_selector('.tree-item')
     expect(page).to have_content('add tests for .gitattributes custom highlighting')
     expect(page).not_to have_selector('[data-testid="alert-danger"]')
-    expect(page).not_to have_selector('[data-qa-selector="label-lfs"]', text: 'LFS') # rubocop:disable QA/SelectorUsage
+    expect(page).not_to have_selector('[data-testid="label-lfs"]', text: 'LFS')
   end
 
   it 'renders tree table for a subtree without errors' do
@@ -35,7 +46,7 @@ RSpec.describe 'Projects tree', :js do
 
     expect(page).to have_selector('.tree-item')
     expect(page).to have_content('add spaces in whitespace file')
-    expect(page).not_to have_selector('[data-qa-selector="label-lfs"]', text: 'LFS') # rubocop:disable QA/SelectorUsage
+    expect(page).not_to have_selector('[data-testid="label-lfs"]', text: 'LFS')
     expect(page).not_to have_selector('[data-testid="alert-danger"]')
   end
 
@@ -54,7 +65,7 @@ RSpec.describe 'Projects tree', :js do
     let(:filename) { File.join(path, 'test.txt') }
     let(:newrev) { project.repository.commit('master').sha }
     let(:short_newrev) { project.repository.commit('master').short_id }
-    let(:message) { 'Glob characters'}
+    let(:message) { 'Glob characters' }
 
     before do
       create_file_in_repo(project, 'master', 'master', filename, 'Test file', commit_message: message)
@@ -81,7 +92,7 @@ RSpec.describe 'Projects tree', :js do
       wait_for_requests
 
       page.within('.project-last-commit') do
-        expect(page).to have_selector('.user-avatar-link')
+        expect(page).to have_selector('.gl-avatar')
         expect(page).to have_content('Merge branch')
       end
     end
@@ -92,8 +103,8 @@ RSpec.describe 'Projects tree', :js do
       visit project_tree_path(project, '33f3729a45c02fc67d00adb1b8bca394b0e761d9')
       wait_for_requests
 
-      expect(page).not_to have_selector '.gpg-status-box.js-loading-gpg-badge'
-      expect(page).to have_selector '.gpg-status-box.invalid'
+      expect(page).not_to have_selector '.js-loading-signature-badge'
+      expect(page).to have_selector '.gl-badge.badge-muted'
     end
 
     context 'on a directory that has not changed recently' do
@@ -102,27 +113,37 @@ RSpec.describe 'Projects tree', :js do
         visit project_tree_path(project, tree_path)
         wait_for_requests
 
-        expect(page).not_to have_selector '.gpg-status-box.js-loading-gpg-badge'
-        expect(page).to have_selector '.gpg-status-box.invalid'
+        expect(page).not_to have_selector '.js-loading-signature-badge'
+        expect(page).to have_selector '.gl-badge.badge-muted'
       end
     end
   end
 
   context 'LFS' do
-    it 'renders LFS badge on blob item' do
+    before do
       visit project_tree_path(project, File.join('master', 'files/lfs'))
+      wait_for_requests
+    end
 
-      expect(page).to have_selector('[data-qa-selector="label-lfs"]', text: 'LFS') # rubocop:disable QA/SelectorUsage
+    it 'passes axe automated accessibility testing' do
+      expect(page).to be_axe_clean.within('.tree-content-holder').skipping :'link-in-text-block'
+    end
+
+    it 'renders LFS badge on blob item' do
+      expect(page).to have_selector('[data-testid="label-lfs"]', text: 'LFS')
     end
   end
 
   context 'web IDE' do
+    before do
+      stub_feature_flags(vscode_web_ide: false)
+    end
+
     it 'opens folder in IDE' do
       visit project_tree_path(project, File.join('master', 'bar'))
+      ide_visit_from_link
 
-      click_link 'Web IDE'
-
-      wait_for_requests
+      wait_for_all_requests
       find('.ide-file-list')
       wait_for_requests
       expect(page).to have_selector('.is-open', text: 'bar')
@@ -147,9 +168,24 @@ RSpec.describe 'Projects tree', :js do
         visit project_tree_path(project, '33f3729a45c02fc67d00adb1b8bca394b0e761d9')
         wait_for_requests
 
-        expect(page).not_to have_selector '.gpg-status-box.js-loading-gpg-badge'
-        expect(page).to have_selector '.gpg-status-box.invalid'
+        expect(page).not_to have_selector '.js-loading-signature-badge'
+        expect(page).to have_selector '.gl-badge.badge-muted'
       end
+    end
+  end
+
+  context 'ref switcher', :js do
+    it 'switches ref to branch', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/391780' do
+      ref_selector = '.ref-selector'
+      ref_name = 'fix'
+      visit project_tree_path(project, 'master')
+
+      click_button 'master'
+      send_keys ref_name
+
+      select_listbox_item ref_name
+
+      expect(find(ref_selector)).to have_text(ref_name)
     end
   end
 end

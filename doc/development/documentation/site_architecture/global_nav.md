@@ -1,16 +1,11 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
 description: "Learn how GitLab docs' global navigation works and how to add new items."
 ---
 
 # Global navigation
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-docs/-/merge_requests/362) in GitLab 11.6.
-> - [Updated](https://gitlab.com/gitlab-org/gitlab-docs/-/merge_requests/482) in GitLab 12.1.
-> - [Per-project](https://gitlab.com/gitlab-org/gitlab-docs/-/merge_requests/498) navigation added in GitLab 12.2.
-> - [Unified global navigation](https://gitlab.com/gitlab-org/gitlab-docs/-/merge_requests/1482) added in GitLab 13.11.
 
 Global navigation is the left-most pane in the documentation. You can use the
 "global nav" to browse the content.
@@ -18,11 +13,18 @@ Global navigation is the left-most pane in the documentation. You can use the
 Research shows that people use Google to search for GitLab product documentation. When they land on a result,
 we want them to find topics nearby that are related to the content they're reading. The global nav provides this information.
 
-At the highest level, our global nav is workflow-based. Navigation needs to help users build a mental model of how to use GitLab.
+At the highest level, our global nav is **workflow-based**. Navigation needs to help users build a mental model of how to use GitLab.
 The levels under each of the higher workflow-based topics are the names of features.
 For example:
 
-**Use GitLab** (_workflow_) **> Build your application** (_workflow_) **> CI/CD** (_feature_) **> Pipelines** (_feature)
+**Use GitLab** (_workflow_) **> Build your application** (_workflow_) **> CI/CD** (_feature_) **> Pipelines** (_feature_)
+
+While some older sections of the nav are alphabetical, the nav should primarily be workflow-based.
+
+Without a navigation entry:
+
+- The navigation closes when the page is opened, and the reader loses their place.
+- The page isn't visible in a group with other pages.
 
 ## Choose the right words for your navigation entry
 
@@ -39,20 +41,14 @@ as helpful as **Get started with runners**.
 
 ## Add a navigation entry
 
-All topics should be included in the left nav.
+**Do not** add items to the global nav without
+the consent of one of the technical writers.
 
-To add a topic to the global nav, edit
-[`navigation.yaml`](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/content/_data/navigation.yaml)
-and add your item.
+To add a topic to the global navigation:
 
-All new pages need a navigation item. Without a navigation, the page becomes "orphaned." That
-is:
-
-- The navigation shuts when the page is opened, and the reader loses their place.
-- The page doesn't belong in a group with other pages.
-
-This means the decision to create a new page is a decision to create new navigation item and vice
-versa.
+1. In the [`navigation.yaml`](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/content/_data/navigation.yaml)
+   file, add the item.
+1. Assign the MR to a technical writer for review and merge.
 
 ### Where to add
 
@@ -93,7 +89,28 @@ mechanics of what is required is [documented below](#data-file) but, in principl
     substitution for **Continuous Integration**.
 - Navigation links must follow the rules documented in the [data file](#data-file).
 
-## How it works
+### Pages you don't need to add
+
+Exclude these pages from the global nav:
+
+- Legal notices.
+- Pages in the `architecture/blueprints` directory.
+- Pages in the `user/application_security/dast/checks/` directory.
+
+The following pages should probably be in the global nav, but the technical writers
+do not actively work to add them:
+
+- Pages in the `/development` directory.
+- Pages authored by the support team, which are under the `doc/administration/troubleshooting` directory.
+
+Sometimes pages for deprecated features are not in the global nav, depending on how long ago the feature was deprecated.
+
+All other pages should be in the global nav.
+
+The technical writing team runs a report to determine which pages are not in the nav.
+The team reviews this list each month.
+
+## Navigation structure
 
 The global nav has five levels:
 
@@ -103,10 +120,7 @@ The global nav has five levels:
       - Doc
         - Doc
 
-You can view this structure in [the navigation.yml file](https://gitlab.com/gitlab-org/gitlab-docs/-/blob/main/content/_data/navigation.yaml).
-
-**Do not** [add items](#add-a-navigation-entry) to the global nav without
-the consent of one of the technical writers.
+You can view this structure in [the `navigation.yml` file](https://gitlab.com/gitlab-org/gitlab-docs/-/blob/main/content/_data/navigation.yaml).
 
 ## Composition
 
@@ -218,7 +232,7 @@ below the doc link:
   external_url: true
 ```
 
-All nav links are clickable. If the higher-level link does not have a link
+All nav links are selectable. If the higher-level link does not have a link
 of its own, it must link to its first sub-item link, mimicking the navigation in GitLab.
 This must be avoided so that we don't have duplicated links nor two `.active` links
 at the same time.
@@ -283,7 +297,7 @@ The [layout](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/layouts/global_
 is fed by the [data file](#data-file), builds the global nav, and is rendered by the
 [default](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/layouts/default.html) layout.
 
-The global nav contains links from all [four upstream projects](index.md#architecture).
+The global nav contains links from all [four upstream projects](https://gitlab.com/gitlab-org/gitlab-docs/-/blob/main/doc/architecture.md).
 The [global nav URL](#urls) has a different prefix depending on the documentation file you change.
 
 | Repository                                                     | Link prefix | Final URL                          |

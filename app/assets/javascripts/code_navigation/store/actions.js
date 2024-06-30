@@ -22,7 +22,7 @@ export default {
                 ...d,
                 definitionLineNumber: parseInt(d.definition_path?.split('#L').pop() || 0, 10),
               };
-              addInteractionClass(path, d);
+              addInteractionClass({ path, d, wrapTextNodes: state.wrapTextNodes });
             }
             return acc;
           }, {});
@@ -34,7 +34,9 @@ export default {
   },
   showBlobInteractionZones({ state }, path) {
     if (state.data && state.data[path]) {
-      Object.values(state.data[path]).forEach((d) => addInteractionClass(path, d));
+      Object.values(state.data[path]).forEach((d) =>
+        addInteractionClass({ path, d, wrapTextNodes: state.wrapTextNodes }),
+      );
     }
   },
   showDefinition({ commit, state }, { target: el }) {
@@ -63,12 +65,12 @@ export default {
     if (!data) return;
 
     if (el.closest('.js-code-navigation') && !isCurrentElementPopoverOpen) {
+      const fileTitle = document.querySelector('.js-file-title');
       const { lineIndex, charIndex } = el.dataset;
-      const { x, y } = el.getBoundingClientRect();
 
       position = {
-        x: x || 0,
-        y: y + window.scrollY || 0,
+        x: el.offsetLeft || 0,
+        y: el.offsetTop + (fileTitle?.offsetHeight || 0) || 0,
         height: el.offsetHeight,
         lineIndex: parseInt(lineIndex, 10),
       };

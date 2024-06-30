@@ -1,12 +1,12 @@
 ---
-stage: Enablement
+stage: Data Stores
 group: Database
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Add a foreign key constraint to an existing column
 
-Foreign keys ensure consistency between related database tables. The current database review process **always** encourages you to add [foreign keys](../foreign_keys.md) when creating tables that reference records from other tables.
+Foreign keys ensure consistency between related database tables. The current database review process **always** encourages you to add [foreign keys](foreign_keys.md) when creating tables that reference records from other tables.
 
 Starting with Rails version 4, Rails includes migration helpers to add foreign key constraints
 to database tables. Before Rails 4, the only way for ensuring some level of consistency was the
@@ -64,18 +64,14 @@ emails = Email.where(user_id: 1) # returns emails for the deleted user
 
 Add a `NOT VALID` foreign key constraint to the table, which enforces consistency on the record changes.
 
-[Using the `with_lock_retries` helper method is advised when performing operations on high-traffic tables](../migration_style_guide.md#when-to-use-the-helper-method),
-in this case, if the table or the foreign table is a high-traffic table, we should use the helper method.
-
 In the example above, you'd be still able to update records in the `emails` table. However, when you'd try to update the `user_id` with non-existent value, the constraint causes a database error.
 
 Migration file for adding `NOT VALID` foreign key:
 
 ```ruby
-class AddNotValidForeignKeyToEmailsUser < Gitlab::Database::Migration[1.0]
+class AddNotValidForeignKeyToEmailsUser < Gitlab::Database::Migration[2.1]
   def up
-    # safe to use: it requires short lock on the table since we don't validate the foreign key
-    add_foreign_key :emails, :users, on_delete: :cascade, validate: false
+    add_concurrent_foreign_key :emails, :users, column: :user_id, on_delete: :cascade, validate: false
   end
 
   def down
@@ -84,8 +80,14 @@ class AddNotValidForeignKeyToEmailsUser < Gitlab::Database::Migration[1.0]
 end
 ```
 
+Adding a foreign key without validating it is a fast operation. It only requires a
+short lock on the table before being able to enforce the constraint on new data.
+We do still want to enable lock retries for high traffic and large tables.
+`add_concurrent_foreign_key` does this for us, and also checks if the foreign key already exists.
+
 WARNING:
-Avoid using the `add_foreign_key` constraint more than once per migration file, unless the source and target tables are identical.
+Avoid using `add_foreign_key` or `add_concurrent_foreign_key` constraints more than
+once per migration file, unless the source and target tables are identical.
 
 #### Data migration to fix existing records
 
@@ -93,12 +95,12 @@ The approach here depends on the data volume and the cleanup strategy. If we can
 records by doing a database query and the record count is not high, then the data migration can
 be executed in a Rails migration.
 
-In case the data volume is higher (>1000 records), it's better to create a background migration. If unsure, please contact the database team for advice.
+In case the data volume is higher (>1000 records), it's better to create a background migration. If unsure, contact the database team for advice.
 
 Example for cleaning up records in the `emails` table in a database migration:
 
 ```ruby
-class RemoveRecordsWithoutUserFromEmailsTable < Gitlab::Database::Migration[1.0]
+class RemoveRecordsWithoutUserFromEmailsTable < Gitlab::Database::Migration[2.1]
   disable_ddl_transaction!
 
   class Email < ActiveRecord::Base
@@ -121,16 +123,17 @@ end
 ### Validate the foreign key
 
 Validating the foreign key scans the whole table and makes sure that each relation is correct.
+Fortunately, this does not lock the source table (`users`) while running.
 
 NOTE:
-When using [background migrations](../background_migrations.md), foreign key validation should happen in the next GitLab release.
+When using [batched background migrations](batched_background_migrations.md), foreign key validation should happen in the next GitLab release.
 
 Migration file for validating the foreign key:
 
 ```ruby
 # frozen_string_literal: true
 
-class ValidateForeignKeyOnEmailUsers < Gitlab::Database::Migration[1.0]
+class ValidateForeignKeyOnEmailUsers < Gitlab::Database::Migration[2.1]
   def up
     validate_foreign_key :emails, :user_id
   end
@@ -140,3 +143,119 @@ class ValidateForeignKeyOnEmailUsers < Gitlab::Database::Migration[1.0]
   end
 end
 ```
+
+### Validate the foreign key asynchronously
+
+For very large tables, foreign key validation can be a challenge to manage when
+it runs for many hours. Necessary database operations like `autovacuum` cannot
+run, and on GitLab.com, the deployment process is blocked waiting for the
+migrations to finish.
+
+To limit impact on GitLab.com, a process exists to validate them asynchronously
+during weekend hours. Due to generally lower traffic and fewer deployments,
+FK validation can proceed at a lower level of risk.
+
+#### Schedule foreign key validation for a low-impact time
+
+1. [Schedule the FK to be validated](#schedule-the-fk-to-be-validated).
+1. [Verify the MR was deployed and the FK is valid in production](#verify-the-mr-was-deployed-and-the-fk-is-valid-in-production).
+1. [Add a migration to validate the FK synchronously](#add-a-migration-to-validate-the-fk-synchronously).
+
+#### Schedule the FK to be validated
+
+1. Create a merge request containing a post-deployment migration, which prepares
+   the foreign key for asynchronous validation.
+1. Create a follow-up issue to add a migration that validates the foreign key
+   synchronously.
+1. In the merge request that prepares the asynchronous foreign key, add a
+   comment mentioning the follow-up issue.
+
+An example of validating the foreign key using the asynchronous helpers can be
+seen in the block below. This migration enters the foreign key name into the
+`postgres_async_foreign_key_validations` table. The process that runs on
+weekends pulls foreign keys from this table and attempts to validate them.
+
+```ruby
+# in db/post_migrate/
+
+FK_NAME = :fk_be5624bf37
+
+# TODO: FK to be validated synchronously in issue or merge request
+def up
+  # `some_column` can be an array of columns, and is not mandatory if `name` is supplied.
+  # `name` takes precedence over other arguments.
+  prepare_async_foreign_key_validation :ci_builds, :some_column, name: FK_NAME
+
+  # Or in case of partitioned tables, use:
+  prepare_partitioned_async_foreign_key_validation :p_ci_builds, :some_column, name: FK_NAME
+end
+
+def down
+  unprepare_async_foreign_key_validation :ci_builds, :some_column, name: FK_NAME
+
+  # Or in case of partitioned tables, use:
+  unprepare_partitioned_async_foreign_key_validation :p_ci_builds, :some_column, name: FK_NAME
+end
+```
+
+#### Verify the MR was deployed and the FK is valid in production
+
+1. Verify that the post-deploy migration was executed on GitLab.com using ChatOps with
+   `/chatops run auto_deploy status <merge_sha>`. If the output returns `db/gprd`,
+   the post-deploy migration has been executed in the production database. For more information, see
+   [How to determine if a post-deploy migration has been executed on GitLab.com](https://gitlab.com/gitlab-org/release/docs/-/blob/master/general/post_deploy_migration/readme.md#how-to-determine-if-a-post-deploy-migration-has-been-executed-on-gitlabcom).
+1. Wait until the next week so that the FK can be validated over a weekend.
+1. Use [Database Lab](database_lab.md) to check if validation was successful.
+   Ensure the output does not indicate the foreign key is `NOT VALID`.
+
+#### Add a migration to validate the FK synchronously
+
+After the foreign key is valid on the production database, create a second
+merge request that validates the foreign key synchronously. The schema changes
+must be updated and committed to `structure.sql` in this second merge request.
+The synchronous migration results in a no-op on GitLab.com, but you should still
+add the migration as expected for other installations. The below block
+demonstrates how to create the second migration for the previous
+asynchronous example.
+
+WARNING:
+Verify that the foreign key is valid in production before merging a second
+migration with `validate_foreign_key`. If the second migration is deployed
+before the validation has been executed, the foreign key is validated
+synchronously when the second migration executes.
+
+```ruby
+# in db/post_migrate/
+
+  FK_NAME = :fk_be5624bf37
+
+  def up
+    validate_foreign_key :ci_builds, :some_column, name: FK_NAME
+  end
+
+  def down
+    # Can be safely a no-op if we don't roll back the inconsistent data.
+  end
+end
+
+```
+
+### Test database FK changes locally
+
+You must test the database foreign key changes locally before creating a merge request.
+
+#### Verify the foreign keys validated asynchronously
+
+Use the asynchronous helpers on your local environment to test changes for
+validating a foreign key:
+
+1. Enable the feature flag by running `Feature.enable(:database_async_foreign_key_validation)`
+   in the Rails console.
+1. Run `bundle exec rails db:migrate` so that it creates an entry in the async validation table.
+1. Run `bundle exec rails gitlab:db:validate_async_constraints:all` so that the FK is validated
+   asynchronously on all databases.
+1. To verify the foreign key, open the PostgreSQL console using the
+   [GDK](https://gitlab.com/gitlab-org/gitlab-development-kit/-/blob/main/doc/howto/postgresql.md)
+   command `gdk psql` and run the command `\d+ table_name` to check that your
+   foreign key is valid. A successful validation removes `NOT VALID` from
+   the foreign key definition.

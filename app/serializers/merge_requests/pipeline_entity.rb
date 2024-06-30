@@ -5,30 +5,31 @@ class MergeRequests::PipelineEntity < Grape::Entity
 
   expose :id
   expose :active?, as: :active
+  expose :name
 
   expose :path do |pipeline|
     project_pipeline_path(pipeline.project, pipeline)
   end
 
   expose :flags do
-    expose :merged_result_pipeline?, as: :merge_request_pipeline
+    expose :merged_result_pipeline?, as: :merge_request_pipeline # deprecated, use merged_result_pipeline going forward
+    expose :merged_result_pipeline?, as: :merged_result_pipeline
   end
 
   expose :commit, using: CommitEntity
 
   expose :details do
-    expose :name do |pipeline|
-      pipeline.present.name
+    expose :event_type_name do |pipeline|
+      pipeline.present.event_type_name
     end
 
     expose :artifacts do |pipeline, options|
       rel = pipeline.downloadable_artifacts
+      project = pipeline.project
 
-      if Feature.enabled?(:non_public_artifacts, type: :development)
-        rel = rel.select { |artifact| can?(request.current_user, :read_job_artifacts, artifact.job) }
-      end
+      allowed_to_read_artifacts = rel.select { |artifact| can?(request.current_user, :read_job_artifacts, artifact) }
 
-      BuildArtifactEntity.represent(rel, options.merge(project: pipeline.project))
+      BuildArtifactEntity.represent(allowed_to_read_artifacts, options.merge(project: project))
     end
 
     expose :detailed_status, as: :status, with: DetailedStatusEntity do |pipeline|

@@ -8,27 +8,62 @@ module Gitlab
 
         def initialize(pipeline)
           @pipeline = pipeline
+          @pipeline_variables_builder = Builder::Pipeline.new(pipeline)
           @instance_variables_builder = Builder::Instance.new
           @project_variables_builder = Builder::Project.new(project)
-          @group_variables_builder = Builder::Group.new(project.group)
+          @group_variables_builder = Builder::Group.new(project&.group)
+          @release_variables_builder = Builder::Release.new(release)
         end
 
         def scoped_variables(job, environment:, dependencies:)
           Gitlab::Ci::Variables::Collection.new.tap do |variables|
-            variables.concat(predefined_variables(job))
+            variables.concat(predefined_variables(job, environment))
             variables.concat(project.predefined_variables)
-            variables.concat(pipeline.predefined_variables)
+            variables.concat(pipeline_variables_builder.predefined_variables)
             variables.concat(job.runner.predefined_variables) if job.runnable? && job.runner
             variables.concat(kubernetes_variables(environment: environment, job: job))
             variables.concat(job.yaml_variables)
             variables.concat(user_variables(job.user))
             variables.concat(job.dependency_variables) if dependencies
             variables.concat(secret_instance_variables)
-            variables.concat(secret_group_variables(environment: environment, ref: job.git_ref))
-            variables.concat(secret_project_variables(environment: environment, ref: job.git_ref))
-            variables.concat(job.trigger_request.user_variables) if job.trigger_request
+            variables.concat(secret_group_variables(environment: environment))
+            variables.concat(secret_project_variables(environment: environment))
             variables.concat(pipeline.variables)
-            variables.concat(pipeline.pipeline_schedule.job_variables) if pipeline.pipeline_schedule
+            variables.concat(pipeline_schedule_variables)
+            variables.concat(release_variables)
+          end
+        end
+
+        def unprotected_scoped_variables(job, expose_project_variables:, expose_group_variables:, environment:, dependencies:)
+          Gitlab::Ci::Variables::Collection.new.tap do |variables|
+            variables.concat(predefined_variables(job, environment))
+            variables.concat(project.predefined_variables)
+            variables.concat(pipeline_variables_builder.predefined_variables)
+            variables.concat(job.runner.predefined_variables) if job.runnable? && job.runner
+            variables.concat(kubernetes_variables(environment: environment, job: job))
+            variables.concat(job.yaml_variables)
+            variables.concat(user_variables(job.user))
+            variables.concat(job.dependency_variables) if dependencies
+            variables.concat(secret_instance_variables)
+            variables.concat(secret_group_variables(environment: environment, include_protected_vars: expose_group_variables))
+            variables.concat(secret_project_variables(environment: environment, include_protected_vars: expose_project_variables))
+            variables.concat(pipeline.variables)
+            variables.concat(pipeline_schedule_variables)
+            variables.concat(release_variables)
+          end
+        end
+
+        def config_variables
+          Gitlab::Ci::Variables::Collection.new.tap do |variables|
+            break variables unless project
+
+            variables.concat(project.predefined_variables)
+            variables.concat(pipeline_variables_builder.predefined_variables)
+            variables.concat(secret_instance_variables)
+            variables.concat(secret_group_variables(environment: nil))
+            variables.concat(secret_project_variables(environment: nil))
+            variables.concat(pipeline.variables)
+            variables.concat(pipeline_schedule_variables)
           end
         end
 
@@ -38,7 +73,7 @@ module Gitlab
             # https://gitlab.com/groups/gitlab-org/configure/-/epics/8
             # Until then, we need to make both the old and the new KUBECONFIG contexts available
             collection.concat(deployment_variables(environment: environment, job: job))
-            template = ::Ci::GenerateKubeconfigService.new(job).execute
+            template = ::Ci::GenerateKubeconfigService.new(pipeline, token: job.try(:token), environment: environment).execute
             kubeconfig_yaml = collection['KUBECONFIG']&.value
             template.merge_yaml(kubeconfig_yaml) if kubeconfig_yaml.present?
 
@@ -75,67 +110,76 @@ module Gitlab
           end
         end
 
-        def secret_group_variables(environment:, ref:)
-          if memoize_secret_variables?
-            memoized_secret_group_variables(environment: environment)
-          else
-            return [] unless project.group
-
-            project.group.ci_variables_for(ref, project, environment: environment)
+        def secret_group_variables(environment:, include_protected_vars: protected_ref?)
+          strong_memoize_with(:secret_group_variables, environment, include_protected_vars) do
+            group_variables_builder
+              .secret_variables(
+                environment: environment,
+                protected_ref: include_protected_vars)
           end
         end
 
-        def secret_project_variables(environment:, ref:)
-          if memoize_secret_variables?
-            memoized_secret_project_variables(environment: environment)
-          else
-            project.ci_variables_for(ref: ref, environment: environment)
+        def secret_project_variables(environment:, include_protected_vars: protected_ref?)
+          strong_memoize_with(:secret_project_variables, environment, include_protected_vars) do
+            project_variables_builder
+              .secret_variables(
+                environment: environment,
+                protected_ref: include_protected_vars)
+          end
+        end
+
+        def release_variables
+          strong_memoize(:release_variables) do
+            release_variables_builder.variables
           end
         end
 
         private
 
         attr_reader :pipeline
+        attr_reader :pipeline_variables_builder
         attr_reader :instance_variables_builder
         attr_reader :project_variables_builder
         attr_reader :group_variables_builder
+        attr_reader :release_variables_builder
 
         delegate :project, to: :pipeline
 
-        def predefined_variables(job)
+        def predefined_variables(job, environment)
           Gitlab::Ci::Variables::Collection.new.tap do |variables|
             variables.append(key: 'CI_JOB_NAME', value: job.name)
-            variables.append(key: 'CI_JOB_STAGE', value: job.stage)
+            variables.append(key: 'CI_JOB_NAME_SLUG', value: job_name_slug(job))
+            variables.append(key: 'CI_JOB_STAGE', value: job.stage_name)
             variables.append(key: 'CI_JOB_MANUAL', value: 'true') if job.action?
             variables.append(key: 'CI_PIPELINE_TRIGGERED', value: 'true') if job.trigger_request
+            variables.append(key: 'CI_TRIGGER_SHORT_TOKEN', value: job.trigger_short_token) if job.trigger_request
 
             variables.append(key: 'CI_NODE_INDEX', value: job.options[:instance].to_s) if job.options&.include?(:instance)
             variables.append(key: 'CI_NODE_TOTAL', value: ci_node_total_value(job).to_s)
 
-            # legacy variables
-            variables.append(key: 'CI_BUILD_NAME', value: job.name)
-            variables.append(key: 'CI_BUILD_STAGE', value: job.stage)
-            variables.append(key: 'CI_BUILD_TRIGGERED', value: 'true') if job.trigger_request
-            variables.append(key: 'CI_BUILD_MANUAL', value: 'true') if job.action?
+            if environment.present?
+              variables.append(key: 'CI_ENVIRONMENT_NAME', value: environment)
+              variables.append(key: 'CI_ENVIRONMENT_ACTION', value: job.environment_action)
+              variables.append(key: 'CI_ENVIRONMENT_TIER', value: job.environment_tier)
+              variables.append(key: 'CI_ENVIRONMENT_URL', value: job.environment_url) if job.environment_url
+            end
           end
         end
 
-        def memoized_secret_project_variables(environment:)
-          strong_memoize_with(:secret_project_variables, environment) do
-            project_variables_builder
-              .secret_variables(
-                environment: environment,
-                protected_ref: protected_ref?)
+        def pipeline_schedule_variables
+          strong_memoize(:pipeline_schedule_variables) do
+            variables = if pipeline.pipeline_schedule
+                          pipeline.pipeline_schedule.job_variables
+                        else
+                          []
+                        end
+
+            Gitlab::Ci::Variables::Collection.new(variables)
           end
         end
 
-        def memoized_secret_group_variables(environment:)
-          strong_memoize_with(:secret_group_variables, environment) do
-            group_variables_builder
-              .secret_variables(
-                environment: environment,
-                protected_ref: protected_ref?)
-          end
+        def job_name_slug(job)
+          job.name && Gitlab::Utils.slugify(job.name)
         end
 
         def ci_node_total_value(job)
@@ -150,24 +194,14 @@ module Gitlab
           end
         end
 
-        def memoize_secret_variables?
-          strong_memoize(:memoize_secret_variables) do
-            ::Feature.enabled?(:ci_variables_builder_memoize_secret_variables,
-              project,
-              default_enabled: :yaml)
-          end
-        end
+        def release
+          return unless @pipeline.tag?
 
-        def strong_memoize_with(name, *args)
-          container = strong_memoize(name) { {} }
-
-          if container.key?(args)
-            container[args]
-          else
-            container[args] = yield
-          end
+          project.releases.find_by_tag(@pipeline.ref)
         end
       end
     end
   end
 end
+
+Gitlab::Ci::Variables::Builder.prepend_mod_with('Gitlab::Ci::Variables::Builder')

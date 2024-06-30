@@ -1,7 +1,14 @@
 <script>
-import { GlFormInputGroup, GlFormGroup, GlButton, GlTooltipDirective } from '@gitlab/ui';
+import {
+  GlFormInputGroup,
+  GlFormInput,
+  GlFormGroup,
+  GlButton,
+  GlTooltipDirective,
+} from '@gitlab/ui';
 
 import { __ } from '~/locale';
+import { Mousetrap, MOUSETRAP_COPY_KEYBOARD_SHORTCUT } from '~/lib/mousetrap';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 
 export default {
@@ -12,6 +19,7 @@ export default {
   },
   components: {
     GlFormInputGroup,
+    GlFormInput,
     GlFormGroup,
     GlButton,
     ClipboardButton,
@@ -45,6 +53,11 @@ export default {
       required: false,
       default: __('Copy'),
     },
+    readonly: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
     formInputGroupProps: {
       type: Object,
       required: false,
@@ -52,8 +65,19 @@ export default {
         return {};
       },
     },
+    size: {
+      type: String,
+      required: false,
+      default: null,
+    },
   },
   data() {
+    if (!this.readonly && !this.value) {
+      return {
+        valueIsVisible: true,
+      };
+    }
+
     return {
       valueIsVisible: this.initialVisibility,
     };
@@ -70,58 +94,125 @@ export default {
     computedValueIsVisible() {
       return !this.showToggleVisibilityButton || this.valueIsVisible;
     },
-    displayedValue() {
-      return this.computedValueIsVisible ? this.value : '*'.repeat(this.value.length || 20);
+    formInputClass() {
+      return [
+        // eslint-disable-next-line @gitlab/require-i18n-strings
+        '!gl-font-monospace gl-cursor-default!',
+        { 'input-copy-show-disc': !this.computedValueIsVisible },
+        this.formInputGroupProps.class,
+      ];
+    },
+    invalidFeedbackIsVisible() {
+      const hasFeedback = Boolean(this.$attrs['invalid-feedback']);
+      return this.formInputGroupProps?.state === false && hasFeedback;
     },
   },
+  mounted() {
+    this.$options.mousetrap = new Mousetrap(this.$refs.input.$el);
+    this.$options.mousetrap.bind(MOUSETRAP_COPY_KEYBOARD_SHORTCUT, this.handleFormInputCopy);
+  },
+  beforeDestroy() {
+    this.$options.mousetrap?.unbind(MOUSETRAP_COPY_KEYBOARD_SHORTCUT);
+  },
+
   methods: {
     handleToggleVisibilityButtonClick() {
       this.valueIsVisible = !this.valueIsVisible;
 
       this.$emit('visibility-change', this.valueIsVisible);
     },
+    async handleClick() {
+      if (this.readonly) {
+        this.$refs.input.$el.select();
+      } else if (!this.valueIsVisible) {
+        const { selectionStart, selectionEnd } = this.$refs.input.$el;
+        this.handleToggleVisibilityButtonClick();
+
+        setTimeout(() => {
+          // When the input type is changed from 'password'' to 'text', cursor position is reset in some browsers.
+          // This makes clicking to edit difficult due to typing in unexpected location, so we preserve the cursor position / selection
+          this.$refs.input.$el.setSelectionRange(selectionStart, selectionEnd);
+        }, 0);
+      }
+    },
     handleCopyButtonClick() {
       this.$emit('copy');
     },
-    handleFormInputCopy(event) {
+    async handleFormInputCopy() {
+      // Value will be copied by native browser behavior
       if (this.computedValueIsVisible) {
         return;
       }
 
-      event.clipboardData.setData('text/plain', this.value);
-      event.preventDefault();
+      try {
+        // user is trying to copy from the password input, set their clipboard for them
+        await navigator.clipboard?.writeText(this.value);
+        this.handleCopyButtonClick();
+      } catch (e) {
+        // Nothing we can do here, best effort to set clipboard value
+      }
+    },
+    handleInput(newValue) {
+      this.$emit('input', newValue);
     },
   },
+  mousetrap: null,
 };
 </script>
 <template>
-  <gl-form-group v-bind="$attrs">
-    <gl-form-input-group
-      :value="displayedValue"
-      input-class="gl-font-monospace! gl-cursor-default!"
-      select-on-click
-      readonly
-      v-bind="formInputGroupProps"
-      @copy="handleFormInputCopy"
-    >
+  <gl-form-group
+    v-bind="$attrs"
+    :class="{ 'input-copy-toggle-visibility-is-invalid': invalidFeedbackIsVisible }"
+  >
+    <gl-form-input-group>
+      <gl-form-input
+        ref="input"
+        :readonly="readonly"
+        :width="size"
+        :class="formInputClass"
+        v-bind="formInputGroupProps"
+        :value="value"
+        @input="handleInput"
+        @click="handleClick"
+      />
+
+      <!--
+        This v-if is necessary to avoid an issue with border radius.
+        See https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88059#note_969812649
+       -->
       <template v-if="showToggleVisibilityButton || showCopyButton" #append>
         <gl-button
           v-if="showToggleVisibilityButton"
           v-gl-tooltip.hover="toggleVisibilityLabel"
           :aria-label="toggleVisibilityLabel"
           :icon="toggleVisibilityIcon"
-          @click="handleToggleVisibilityButtonClick"
+          data-testid="toggle-visibility-button"
+          @click.stop="handleToggleVisibilityButtonClick"
         />
         <clipboard-button
           v-if="showCopyButton"
           :text="value"
           :title="copyButtonTitle"
+          data-testid="clipboard-button"
           @click="handleCopyButtonClick"
         />
       </template>
     </gl-form-input-group>
+    <!-- eslint-disable-next-line @gitlab/vue-prefer-dollar-scopedslots -->
     <template v-for="slot in Object.keys($slots)" #[slot]>
       <slot :name="slot"></slot>
     </template>
   </gl-form-group>
 </template>
+<style>
+.input-copy-show-disc {
+  -webkit-text-security: disc;
+}
+/*
+  Bootstrap's invalid feedback displays based on a sibling selector which is incompatible with form-input-group.
+  So we must manually force the feedback to display when the input is invalid. See: https://github.com/bootstrap-vue/bootstrap-vue/issues/1251
+ */
+.input-copy-toggle-visibility-is-invalid .invalid-feedback {
+  display: block;
+}
+</style>

@@ -1,10 +1,14 @@
 ---
 stage: Secure
 group: Dynamic Analysis
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Coverage-guided fuzz testing **(ULTIMATE)**
+# Coverage-guided fuzz testing
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Coverage-guided fuzz testing sends random inputs to an instrumented version of your application in
 an effort to cause unexpected behavior. Such behavior indicates a bug that you should address.
@@ -14,6 +18,9 @@ bugs and potential security issues that other QA processes may miss.
 We recommend that you use fuzz testing in addition to the other security scanners in [GitLab Secure](../index.md)
 and your own test processes. If you're using [GitLab CI/CD](../../../ci/index.md),
 you can run your coverage-guided fuzz testing as part your CI/CD workflow.
+
+<i class="fa fa-youtube-play youtube" aria-hidden="true"></i>
+For an overview, see [Coverage Fuzzing](https://www.youtube.com/watch?v=bbIenVVcjW0).
 
 ## Coverage-guided fuzz testing process
 
@@ -40,21 +47,23 @@ You can use the following fuzzing engines to test the specified languages.
 | Language                                    | Fuzzing Engine                                                                                       | Example                                                                                                                         |
 |---------------------------------------------|------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|
 | C/C++                                       | [libFuzzer](https://llvm.org/docs/LibFuzzer.html)                                                    | [c-cpp-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/c-cpp-fuzzing-example)                   |
-| GoLang                                      | [go-fuzz (libFuzzer support)](https://github.com/dvyukov/go-fuzz)                                    | [go-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/go-fuzzing-example)                 |
+| Go                                          | [go-fuzz (libFuzzer support)](https://github.com/dvyukov/go-fuzz)                                    | [go-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/go-fuzzing-example)                 |
 | Swift                                       | [libFuzzer](https://github.com/apple/swift/blob/master/docs/libFuzzerIntegration.md)                 | [swift-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/swift-fuzzing-example)           |
 | Rust                                        | [cargo-fuzz (libFuzzer support)](https://github.com/rust-fuzz/cargo-fuzz)                            | [rust-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/rust-fuzzing-example)             |
-| Java                                        | [Javafuzz](https://gitlab.com/gitlab-org/security-products/analyzers/fuzzers/javafuzz) (recommended) | [javafuzz-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/javafuzz-fuzzing-example)     |
+| Java (Maven only)<sup>1</sup>               | [Javafuzz](https://gitlab.com/gitlab-org/security-products/analyzers/fuzzers/javafuzz) (recommended) | [javafuzz-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/javafuzz-fuzzing-example)     |
 | Java                                        | [JQF](https://github.com/rohanpadhye/JQF) (not preferred)                                            | [jqf-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/java-fuzzing-example)              |
 | JavaScript                                  | [`jsfuzz`](https://gitlab.com/gitlab-org/security-products/analyzers/fuzzers/jsfuzz)                 | [jsfuzz-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/jsfuzz-fuzzing-example)         |
 | Python                                      | [`pythonfuzz`](https://gitlab.com/gitlab-org/security-products/analyzers/fuzzers/pythonfuzz)         | [pythonfuzz-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/pythonfuzz-fuzzing-example) |
 | AFL (any language that works on top of AFL) | [AFL](https://lcamtuf.coredump.cx/afl/)                                                              | [afl-fuzzing-example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/afl-fuzzing-example)               |
 
+1. Support for Gradle is planned in [issue 409764](https://gitlab.com/gitlab-org/gitlab/-/issues/409764).
+
 ## Confirm status of coverage-guided fuzz testing
 
 To confirm the status of coverage-guided fuzz testing:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Security & Compliance > Configuration**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Secure > Security configuration**.
 1. In the **Coverage Fuzzing** section the status is:
    - **Not configured**
    - **Enabled**
@@ -67,15 +76,15 @@ To enable coverage-guided fuzz testing, edit `.gitlab-ci.yml`:
 1. Add the `fuzz` stage to the list of stages.
 
 1. If your application is not written in Go, [provide a Docker image](../../../ci/yaml/index.md#image) using the matching fuzzing
-  engine. For example:
+   engine. For example:
 
    ```yaml
    image: python:latest
    ```
 
 1. [Include](../../../ci/yaml/index.md#includetemplate) the
-  [`Coverage-Fuzzing.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/Coverage-Fuzzing.gitlab-ci.yml)
-  provided as part of your GitLab installation.
+   [`Coverage-Fuzzing.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/Coverage-Fuzzing.gitlab-ci.yml)
+   provided as part of your GitLab installation.
 
 1. Customize the `my_fuzz_target` job to meet your requirements.
 
@@ -102,7 +111,7 @@ targets. Each fuzzing target **must** have a separate job. For example, the
 [go-fuzzing-example project](https://gitlab.com/gitlab-org/security-products/demos/go-fuzzing-example)
 contains one job that extends `.fuzz_base` for its single fuzzing target.
 
-Note that the hidden job `.fuzz_base` uses several YAML keys that you must not override in your own
+The hidden job `.fuzz_base` uses several YAML keys that you must not override in your own
 job. If you include these keys in your own job, you must copy their original content:
 
 - `before_script`
@@ -113,15 +122,20 @@ job. If you include these keys in your own job, you must copy their original con
 
 Use the following variables to configure coverage-guided fuzz testing in your CI/CD pipeline.
 
+WARNING:
+All customization of GitLab security scanning tools should be tested in a merge request before
+merging these changes to the default branch. Failure to do so can give unexpected results, including
+a large number of false positives.
+
 | CI/CD variable            | Description                                                                     |
 |---------------------------|---------------------------------------------------------------------------------|
 | `COVFUZZ_ADDITIONAL_ARGS` | Arguments passed to `gitlab-cov-fuzz`. Used to customize the behavior of the underlying fuzzing engine. Read the fuzzing engine's documentation for a complete list of arguments. |
 | `COVFUZZ_BRANCH`          | The branch on which long-running fuzzing jobs are to be run. On all other branches, only fuzzing regression tests are run. Default: Repository's default branch. |
 | `COVFUZZ_SEED_CORPUS`     | Path to a seed corpus directory. Default: empty. |
 | `COVFUZZ_URL_PREFIX`      | Path to the `gitlab-cov-fuzz` repository cloned for use with an offline environment. You should only change this value when using an offline environment. Default: `https://gitlab.com/gitlab-org/security-products/analyzers/gitlab-cov-fuzz/-/raw`. |
-| `COVFUZZ_USE_REGISTRY`    | Set to `true` to have the corpus stored in the GitLab corpus registry. The variables `COVFUZZ_CORPUS_NAME` and `COVFUZZ_GITLAB_TOKEN` are required if this variable is set to `true`. Default: `false`. [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5017) in GitLab 14.8. |
-| `COVFUZZ_CORPUS_NAME`     | Name of the corpus to be used in the job.  [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5017) in GitLab 14.8. |
-| `COVFUZZ_GITLAB_TOKEN`    | Environment variable configured with [Personal Access Token](../../../user/profile/personal_access_tokens.md#create-a-personal-access-token) or [Project Access Token](../../../user/project/settings/project_access_tokens.md#create-a-project-access-token) with API read/write access. [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5017) in GitLab 14.8. |
+| `COVFUZZ_USE_REGISTRY`    | Set to `true` to have the corpus stored in the GitLab corpus registry. The variables `COVFUZZ_CORPUS_NAME` and `COVFUZZ_GITLAB_TOKEN` are required if this variable is set to `true`. Default: `false`. |
+| `COVFUZZ_CORPUS_NAME`     | Name of the corpus to be used in the job. |
+| `COVFUZZ_GITLAB_TOKEN`    | Environment variable configured with [Personal Access Token](../../../user/profile/personal_access_tokens.md#create-a-personal-access-token) or [Project Access Token](../../../user/project/settings/project_access_tokens.md#create-a-project-access-token) with API read/write access. |
 
 #### Seed corpus
 
@@ -140,12 +154,9 @@ Each fuzzing step outputs these artifacts:
     previous jobs.
 
 You can download the JSON report file from the CI/CD pipelines page. For more information, see
-[Downloading artifacts](../../../ci/pipelines/job_artifacts.md#download-job-artifacts).
+[Downloading artifacts](../../../ci/jobs/job_artifacts.md#download-job-artifacts).
 
 ## Corpus registry
-
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5017) in GitLab 14.8.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/347187) in GitLab 14.9. [Feature flags `corpus_management` and `corpus_management_ui`](https://gitlab.com/gitlab-org/gitlab/-/issues/328418) removed.  
 
 The corpus registry is a library of corpuses. Corpuses in a project's registry are available to
 all jobs in that project. A project-wide registry is a more efficient way to manage corpuses than
@@ -154,23 +165,16 @@ the default option of one corpus per job.
 The corpus registry uses the package registry to store the project's corpuses. Corpuses stored in
 the registry are hidden to ensure data integrity.
 
-In the GitLab UI, with corpus management you can:
-
-- View details of the corpus registry.
-- Download a corpus.
-- Delete a corpus.
-- Create a new corpus.
-
 When you download a corpus, the file is named `artifacts.zip`, regardless of the filename used when
 the corpus was initially uploaded. This file contains only the corpus, which is different to the
-artifacts files you can download from the CI/CD pipeline.
+artifacts files you can download from the CI/CD pipeline. Also, a project member with a Reporter or above privilege can download the corpus using the direct download link.
 
 ### View details of the corpus registry
 
 To view details of the corpus registry:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Security & Compliance > Configuration**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Secure > Security configuration**.
 1. In the **Coverage Fuzzing** section, select **Manage corpus**.
 
 ### Create a corpus in the corpus registry
@@ -197,8 +201,8 @@ provided by the `COVFUZZ_CORPUS_NAME` variable. The corpus is updated on every p
 
 To upload an existing corpus file:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Security & Compliance > Configuration**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Secure > Security configuration**.
 1. In the **Coverage Fuzzing** section, select **Manage corpus**.
 1. Select **New corpus**.
 1. Complete the fields.
@@ -223,8 +227,6 @@ Prerequisites:
    - Set `COVFUZZ_GITLAB_TOKEN` to the value of the personal access token.
 
 ## Coverage-guided fuzz testing report
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/220062) in GitLab 13.3 as an [Alpha feature](../../../policy/alpha-beta-support.md#alpha-features).
 
 For detailed information about the `gl-coverage-fuzzing-report.json` file's format, read the
 [schema](https://gitlab.com/gitlab-org/security-products/security-report-schemas/-/blob/master/dist/coverage-fuzzing-report-format.json).
@@ -272,7 +274,7 @@ For a complete example, read the [Go coverage-guided fuzzing example](https://gi
 
 It's also possible to run the coverage-guided fuzzing jobs longer and without blocking your main
 pipeline. This configuration uses the GitLab
-[parent-child pipelines](../../../ci/pipelines/parent_child_pipelines.md).
+[parent-child pipelines](../../../ci/pipelines/downstream_pipelines.md#parent-child-pipelines).
 
 The suggested workflow in this scenario is to have long-running, asynchronous fuzzing jobs on the
 main or development branch, and short synchronous fuzzing jobs on all other branches and MRs. This
@@ -313,6 +315,10 @@ This creates two jobs:
 
 The `covfuzz-ci.yml` is the same as that in the [original synchronous example](https://gitlab.com/gitlab-org/security-products/demos/coverage-fuzzing/go-fuzzing-example#running-go-fuzz-from-ci).
 
+## FIPS-enabled binary
+
+[Starting in GitLab 15.0](https://gitlab.com/gitlab-org/gitlab/-/issues/352549) the coverage fuzzing binary is compiled with `golang-fips` on Linux x86 and uses OpenSSL as the cryptographic backend. For more details, see [FIPS compliance at GitLab with Go](../../../development/fips_compliance.md#go).
+
 ## Offline environment
 
 To use coverage fuzzing in an offline environment:
@@ -328,14 +334,14 @@ To use coverage fuzzing in an offline environment:
 
 After a vulnerability is found, you can [address it](../vulnerabilities/index.md).
 The merge request widget lists the vulnerability and contains a button for downloading the fuzzing
-artifacts. By clicking one of the detected vulnerabilities, you can see its details.
+artifacts. By selecting one of the detected vulnerabilities, you can see its details.
 
 ![Coverage Fuzzing Security Report](img/coverage_fuzzing_report_v13_6.png)
 
 You can also view the vulnerability from the [Security Dashboard](../security_dashboard/index.md),
 which shows an overview of all the security vulnerabilities in your groups, projects, and pipelines.
 
-Clicking the vulnerability opens a modal that provides additional information about the
+Selecting the vulnerability opens a modal that provides additional information about the
 vulnerability:
 
 <!-- vale gitlab.Acronyms = NO -->
@@ -358,13 +364,13 @@ vulnerability:
 
 ## Troubleshooting
 
-### Error "Unable to extract corpus folder from artifacts zip file"
+### Error `Unable to extract corpus folder from artifacts zip file`
 
 If you see this error message, and `COVFUZZ_USE_REGISTRY` is set to `true`, ensure that the uploaded
 corpus file extracts into a folder named `corpus`.
 
-### Error "400 Bad request - Duplicate package is not allowed"
+### Error `400 Bad request - Duplicate package is not allowed`
 
 If you see this error message when running the fuzzing job with `COVFUZZ_USE_REGISTRY` set to `true`,
 ensure that duplicates are allowed. For more details, see
-[duplicate Generic packages](../../packages/generic_packages/#do-not-allow-duplicate-generic-packages).
+[duplicate Generic packages](../../packages/generic_packages/index.md#do-not-allow-duplicate-generic-packages).

@@ -1,57 +1,43 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package Registry', :orchestrated, :reliable, :packages, :object_storage do
-    describe 'npm project level endpoint' do
+  RSpec.describe 'Package' do
+    describe 'npm Registry project level endpoint', :object_storage, :external_api_calls,
+      product_group: :package_registry do
       using RSpec::Parameterized::TableSyntax
       include Runtime::Fixtures
+      include Support::Helpers::MaskToken
 
       let!(:registry_scope) { Runtime::Namespace.sandbox_name }
       let!(:personal_access_token) do
-        unless Page::Main::Menu.perform(&:signed_in?)
-          Flow::Login.sign_in
-        end
+        Flow::Login.sign_in unless Page::Main::Menu.perform(&:signed_in?)
 
         Resource::PersonalAccessToken.fabricate!.token
       end
 
       let(:project_deploy_token) do
-        Resource::ProjectDeployToken.fabricate_via_api! do |deploy_token|
-          deploy_token.name = 'npm-deploy-token'
-          deploy_token.project = project
-          deploy_token.scopes = %w[
+        create(:project_deploy_token,
+          name: 'npm-deploy-token',
+          project: project,
+          scopes: %w[
             read_repository
             read_package_registry
             write_package_registry
-          ]
-        end
+          ])
       end
 
-      let(:uri) { URI.parse(Runtime::Scenario.gitlab_address) }
-      let(:gitlab_address_with_port) { "#{uri.scheme}://#{uri.host}:#{uri.port}" }
-      let(:gitlab_host_with_port) { "#{uri.host}:#{uri.port}" }
-
-      let!(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'npm-project-level'
-        end
-      end
-
+      let(:gitlab_address_without_port) { Support::GitlabAddress.address_with_port(with_default_port: false) }
+      let(:gitlab_host_without_port) { Support::GitlabAddress.host_with_port(with_default_port: false) }
+      let!(:project) { create(:project, :private, name: 'npm-project-level') }
       let!(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.name = "qa-runner-#{Time.now.to_i}"
-          runner.tags = ["runner-for-#{project.name}"]
-          runner.executor = :docker
-          runner.project = project
-        end
+        create(:project_runner,
+          name: "qa-runner-#{Time.now.to_i}",
+          tags: ["runner-for-#{project.name}"],
+          executor: :docker,
+          project: project)
       end
 
-      let(:package) do
-        Resource::Package.init do |package|
-          package.name = "@#{registry_scope}/mypackage-#{SecureRandom.hex(8)}"
-          package.project = project
-        end
-      end
+      let(:package) { build(:package, name: "@#{registry_scope}/mypackage-#{SecureRandom.hex(8)}", project: project) }
 
       after do
         package.remove_via_api!
@@ -69,32 +55,22 @@ module QA
         let(:auth_token) do
           case authentication_token_type
           when :personal_access_token
-            "\"#{personal_access_token}\""
+            use_ci_variable(name: 'PERSONAL_ACCESS_TOKEN', value: personal_access_token, project: project)
           when :ci_job_token
             '${CI_JOB_TOKEN}'
           when :project_deploy_token
-            "\"#{project_deploy_token.token}\""
+            use_ci_variable(name: 'PROJECT_DEPLOY_TOKEN', value: project_deploy_token.token, project: project)
           end
         end
 
-        it 'push and pull a npm package via CI', testcase: params[:testcase] do
-          Resource::Repository::Commit.fabricate_via_api! do |commit|
-            npm_upload_install_yaml = ERB.new(read_fixture('package_managers/npm', 'npm_upload_install_package_project.yaml.erb')).result(binding)
-            package_json = ERB.new(read_fixture('package_managers/npm', 'package_project.json.erb')).result(binding)
+        it 'push and pull a npm package via CI', :smoke, testcase: params[:testcase] do
+          npm_upload_install_yaml = ERB.new(read_fixture('package_managers/npm', 'npm_upload_install_package_project.yaml.erb')).result(binding)
+          package_json = ERB.new(read_fixture('package_managers/npm', 'package.json.erb')).result(binding)
 
-            commit.project = project
-            commit.commit_message = 'Add .gitlab-ci.yml'
-            commit.add_files([
-                              {
-                                file_path: '.gitlab-ci.yml',
-                                content: npm_upload_install_yaml
-                              },
-                              {
-                                file_path: 'package.json',
-                                content: package_json
-                              }
-                            ])
-          end
+          create(:commit, project: project, commit_message: 'Add .gitlab-ci.yml', actions: [
+            { action: 'create', file_path: '.gitlab-ci.yml', content: npm_upload_install_yaml },
+            { action: 'create', file_path: 'package.json', content: package_json }
+          ])
 
           project.visit!
           Flow::Pipeline.visit_latest_pipeline
@@ -114,7 +90,7 @@ module QA
           end
 
           Page::Project::Job::Show.perform do |job|
-            expect(job).to be_successful(timeout: 800)
+            expect(job).to be_successful(timeout: 180)
             job.click_browse_button
           end
 
@@ -125,7 +101,7 @@ module QA
           end
 
           project.visit!
-          Page::Project::Menu.perform(&:click_packages_link)
+          Page::Project::Menu.perform(&:go_to_package_registry)
 
           Page::Project::Packages::Index.perform do |index|
             expect(index).to have_package(package.name)

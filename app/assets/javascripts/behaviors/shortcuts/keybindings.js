@@ -2,8 +2,11 @@ import { memoize } from 'lodash';
 import AccessorUtilities from '~/lib/utils/accessor';
 import { __ } from '~/locale';
 
-const isCustomizable = (command) =>
-  'customizable' in command ? Boolean(command.customizable) : true;
+/**
+ * @param {object} command
+ * @param {boolean} [command.customizable]
+ */
+const isCustomizable = ({ customizable }) => Boolean(customizable ?? true);
 
 export const LOCAL_STORAGE_KEY = 'gl-keyboard-shortcuts-customizations';
 
@@ -51,6 +54,12 @@ export const GO_TO_YOUR_GROUPS = {
   defaultKeys: ['shift+g'],
 };
 
+export const TOGGLE_DUO_CHAT = {
+  id: 'globalShortcuts.toggleDuoChat',
+  description: __('Toggle DuoChat'),
+  defaultKeys: ['option+d'],
+};
+
 export const GO_TO_ACTIVITY_FEED = {
   id: 'globalShortcuts.goToActivityFeed',
   description: __('Go to the activity feed'),
@@ -93,6 +102,12 @@ export const GO_TO_YOUR_MERGE_REQUESTS = {
   defaultKeys: ['shift+m'],
 };
 
+export const GO_TO_YOUR_REVIEW_REQUESTS = {
+  id: 'globalShortcuts.goToYourReviewRequests',
+  description: __('Go to your review requests'),
+  defaultKeys: ['shift+r'],
+};
+
 export const GO_TO_YOUR_TODO_LIST = {
   id: 'globalShortcuts.goToYourTodoList',
   description: __('Go to your To-Do list'),
@@ -109,6 +124,12 @@ export const HIDE_APPEARING_CONTENT = {
   id: 'globalShortcuts.hideAppearingContent',
   description: __('Hide tooltips or popovers'),
   defaultKeys: ['esc'],
+};
+
+export const TOGGLE_SUPER_SIDEBAR = {
+  id: 'globalShortcuts.toggleSuperSidebar',
+  description: __('Toggle the navigation sidebar'),
+  defaultKeys: ['mod+\\'], // eslint-disable-line @gitlab/require-i18n-strings
 };
 
 export const TOGGLE_CANARY = {
@@ -145,6 +166,20 @@ export const LINK_TEXT = {
   customizable: false,
 };
 
+export const INDENT_LINE = {
+  id: 'editing.indentLine',
+  description: __('Indent line'),
+  defaultKeys: ['mod+]'], // eslint-disable-line @gitlab/require-i18n-strings
+  customizable: false,
+};
+
+export const OUTDENT_LINE = {
+  id: 'editing.outdentLine',
+  description: __('Outdent line'),
+  defaultKeys: ['mod+['], // eslint-disable-line @gitlab/require-i18n-strings
+  customizable: false,
+};
+
 export const TOGGLE_MARKDOWN_PREVIEW = {
   id: 'editing.toggleMarkdownPreview',
   description: __('Toggle Markdown preview'),
@@ -157,10 +192,19 @@ export const TOGGLE_MARKDOWN_PREVIEW = {
   defaultKeys: ['ctrl+shift+p', 'command+shift+p'],
 };
 
-export const EDIT_RECENT_COMMENT = {
+/**
+ * @keydown.up event is handled here: https://gitlab.com/gitlab-org/gitlab/-/blob/f3e807cdff5cf25765894163b4e92f8b2bcf8a68/app/assets/javascripts/notes/components/comment_form.vue#L379
+ */
+const EDIT_RECENT_COMMENT = {
   id: 'editing.editRecentComment',
   description: __('Edit your most recent comment in a thread (from an empty textarea)'),
   defaultKeys: ['up'],
+};
+
+export const SAVE_CHANGES = {
+  id: 'globalShortcuts.saveChanges',
+  description: __('Submit/save changes'),
+  defaultKeys: ['mod+enter'],
 };
 
 export const EDIT_WIKI_PAGE = {
@@ -208,7 +252,7 @@ export const REPO_GRAPH_SCROLL_BOTTOM = {
 export const GO_TO_PROJECT_OVERVIEW = {
   id: 'project.goToOverview',
   description: __("Go to the project's overview page"),
-  defaultKeys: ['g p'], // eslint-disable-line @gitlab/require-i18n-strings
+  defaultKeys: ['g o'], // eslint-disable-line @gitlab/require-i18n-strings
 };
 
 export const GO_TO_PROJECT_ACTIVITY_FEED = {
@@ -229,8 +273,8 @@ export const GO_TO_PROJECT_FILES = {
   defaultKeys: ['g f'], // eslint-disable-line @gitlab/require-i18n-strings
 };
 
-export const GO_TO_PROJECT_FIND_FILE = {
-  id: 'project.goToFindFile',
+export const START_SEARCH_PROJECT_FILE = {
+  id: 'project.startSearchFile',
   description: __('Go to find file'),
   defaultKeys: ['t'],
 };
@@ -277,16 +321,16 @@ export const GO_TO_PROJECT_MERGE_REQUESTS = {
   defaultKeys: ['g m'], // eslint-disable-line @gitlab/require-i18n-strings
 };
 
+export const GO_TO_PROJECT_PIPELINES = {
+  id: 'project.goToPipelines',
+  description: __('Go to pipelines'),
+  defaultKeys: ['g p'], // eslint-disable-line @gitlab/require-i18n-strings
+};
+
 export const GO_TO_PROJECT_JOBS = {
   id: 'project.goToJobs',
   description: __('Go to jobs'),
   defaultKeys: ['g j'], // eslint-disable-line @gitlab/require-i18n-strings
-};
-
-export const GO_TO_PROJECT_METRICS = {
-  id: 'project.goToMetrics',
-  description: __('Go to metrics'),
-  defaultKeys: ['g l'], // eslint-disable-line @gitlab/require-i18n-strings
 };
 
 export const GO_TO_PROJECT_ENVIRONMENTS = {
@@ -349,6 +393,12 @@ export const PROJECT_FILES_GO_TO_PERMALINK = {
   defaultKeys: ['y'],
 };
 
+export const PROJECT_FILES_GO_TO_COMPARE = {
+  id: 'projectFiles.goToCompare',
+  description: __('Compare Branches'),
+  defaultKeys: ['shift+c'],
+};
+
 export const ISSUABLE_COMMENT_OR_REPLY = {
   id: 'issuables.commentReply',
   description: __('Comment/Reply (quoting selected text)'),
@@ -365,6 +415,12 @@ export const ISSUABLE_CHANGE_LABEL = {
   id: 'issuables.changeLabel',
   description: __('Change label'),
   defaultKeys: ['l'],
+};
+
+export const ISSUABLE_COPY_REF = {
+  id: 'issuables.copyIssuableRef',
+  description: __('Copy reference'),
+  defaultKeys: ['c r'], // eslint-disable-line @gitlab/require-i18n-strings
 };
 
 export const ISSUE_MR_CHANGE_ASSIGNEE = {
@@ -398,15 +454,36 @@ export const MR_GO_TO_FILE = {
   customizable: false,
 };
 
+export const MR_TOGGLE_FILE_BROWSER = {
+  id: 'mergeRequests.toggleFileBrowser',
+  description: __('Toggle file browser'),
+  defaultKeys: ['f'],
+  customizable: false,
+};
+
+export const MR_ADD_TO_REVIEW = {
+  id: 'mergeRequests.addToReview',
+  description: __('Add your comment to a review'),
+  defaultKeys: ['mod+enter'],
+  customizable: false,
+};
+
+export const MR_ADD_COMMENT_NOW = {
+  id: 'mergeRequests.addCommentNow',
+  description: __('Publish your comment immediately'),
+  defaultKeys: ['shift+mod+enter'],
+  customizable: false,
+};
+
 export const MR_NEXT_UNRESOLVED_DISCUSSION = {
   id: 'mergeRequests.nextUnresolvedDiscussion',
-  description: __('Next unresolved discussion'),
+  description: __('Next unresolved thread'),
   defaultKeys: ['n'],
 };
 
 export const MR_PREVIOUS_UNRESOLVED_DISCUSSION = {
   id: 'mergeRequests.previousUnresolvedDiscussion',
-  description: __('Previous unresolved discussion'),
+  description: __('Previous unresolved thread'),
   defaultKeys: ['p'],
 };
 
@@ -446,59 +523,40 @@ export const ISSUE_CLOSE_DESIGN = {
   defaultKeys: ['esc'],
 };
 
-export const WEB_IDE_GO_TO_FILE = {
-  id: 'webIDE.goToFile',
-  description: __('Go to file'),
-  defaultKeys: ['mod+p'],
+export const SIDEBAR_CLOSE_WIDGET = {
+  id: 'sidebar.closeWidget',
+  description: __('Close sidebar widget'),
+  defaultKeys: ['esc'],
 };
 
-export const WEB_IDE_COMMIT = {
+/**
+ * Legacy Web IDE uses the same shortcuts as MR_GO_TO_FILE, from this shared component:
+ * https://gitlab.com/gitlab-org/gitlab/-/blob/f3e807cdff5cf25765894163b4e92f8b2bcf8a68/app/assets/javascripts/vue_shared/components/file_finder/index.vue#L6
+ */
+const WEB_IDE_GO_TO_FILE = {
+  id: 'webIDE.goToFile',
+  description: __('Go to file'),
+  defaultKeys: ['mod+p', 't'],
+  customizable: false /* customize MR_GO_TO_FILE instead */,
+};
+
+/**
+ * Legacy Web IDE uses @keydown.ctrl.enter and @keydown.meta.enter events here:
+ * https://gitlab.com/gitlab-org/gitlab/-/blob/f3e807cdff5cf25765894163b4e92f8b2bcf8a68/app/assets/javascripts/ide/components/shared/commit_message_field.vue#L131-132
+ */
+const WEB_IDE_COMMIT = {
   id: 'webIDE.commit',
   description: __('Commit (when editing commit message)'),
   defaultKeys: ['mod+enter'],
   customizable: false,
 };
 
-export const METRICS_EXPAND_PANEL = {
-  id: 'metrics.expandPanel',
-  description: __('Expand panel'),
-  defaultKeys: ['e'],
-  customizable: false,
-};
-
-export const METRICS_VIEW_LOGS = {
-  id: 'metrics.viewLogs',
-  description: __('View logs'),
-  defaultKeys: ['l'],
-  customizable: false,
-};
-
-export const METRICS_DOWNLOAD_CSV = {
-  id: 'metrics.downloadCSV',
-  description: __('Download CSV'),
-  defaultKeys: ['d'],
-  customizable: false,
-};
-
-export const METRICS_COPY_LINK_TO_CHART = {
-  id: 'metrics.copyLinkToChart',
-  description: __('Copy link to chart'),
-  defaultKeys: ['c'],
-  customizable: false,
-};
-
-export const METRICS_SHOW_ALERTS = {
-  id: 'metrics.showAlerts',
-  description: __('Alerts'),
-  defaultKeys: ['a'],
-  customizable: false,
-};
-
 // All keybinding groups
-export const GLOBAL_SHORTCUTS_GROUP = {
+const GLOBAL_SHORTCUTS_GROUP = {
   id: 'globalShortcuts',
   name: __('Global Shortcuts'),
   keybindings: [
+    TOGGLE_DUO_CHAT,
     TOGGLE_KEYBOARD_SHORTCUTS_DIALOG,
     GO_TO_YOUR_PROJECTS,
     GO_TO_YOUR_GROUPS,
@@ -509,9 +567,11 @@ export const GLOBAL_SHORTCUTS_GROUP = {
     FOCUS_FILTER_BAR,
     GO_TO_YOUR_ISSUES,
     GO_TO_YOUR_MERGE_REQUESTS,
+    GO_TO_YOUR_REVIEW_REQUESTS,
     GO_TO_YOUR_TODO_LIST,
     TOGGLE_PERFORMANCE_BAR,
     HIDE_APPEARING_CONTENT,
+    TOGGLE_SUPER_SIDEBAR,
   ],
 };
 
@@ -525,16 +585,17 @@ export const EDITING_SHORTCUTS_GROUP = {
     LINK_TEXT,
     TOGGLE_MARKDOWN_PREVIEW,
     EDIT_RECENT_COMMENT,
+    SAVE_CHANGES,
   ],
 };
 
-export const WIKI_SHORTCUTS_GROUP = {
+const WIKI_SHORTCUTS_GROUP = {
   id: 'wiki',
   name: __('Wiki'),
   keybindings: [EDIT_WIKI_PAGE],
 };
 
-export const REPOSITORY_GRAPH_SHORTCUTS_GROUP = {
+const REPOSITORY_GRAPH_SHORTCUTS_GROUP = {
   id: 'repositoryGraph',
   name: __('Repository Graph'),
   keybindings: [
@@ -547,7 +608,7 @@ export const REPOSITORY_GRAPH_SHORTCUTS_GROUP = {
   ],
 };
 
-export const PROJECT_SHORTCUTS_GROUP = {
+const PROJECT_SHORTCUTS_GROUP = {
   id: 'project',
   name: __('Project'),
   keybindings: [
@@ -555,7 +616,7 @@ export const PROJECT_SHORTCUTS_GROUP = {
     GO_TO_PROJECT_ACTIVITY_FEED,
     GO_TO_PROJECT_RELEASES,
     GO_TO_PROJECT_FILES,
-    GO_TO_PROJECT_FIND_FILE,
+    START_SEARCH_PROJECT_FILE,
     GO_TO_PROJECT_COMMITS,
     GO_TO_PROJECT_REPO_GRAPH,
     GO_TO_PROJECT_REPO_CHARTS,
@@ -563,8 +624,8 @@ export const PROJECT_SHORTCUTS_GROUP = {
     NEW_ISSUE,
     GO_TO_PROJECT_ISSUE_BOARDS,
     GO_TO_PROJECT_MERGE_REQUESTS,
+    GO_TO_PROJECT_PIPELINES,
     GO_TO_PROJECT_JOBS,
-    GO_TO_PROJECT_METRICS,
     GO_TO_PROJECT_ENVIRONMENTS,
     GO_TO_PROJECT_KUBERNETES,
     GO_TO_PROJECT_SNIPPETS,
@@ -573,7 +634,7 @@ export const PROJECT_SHORTCUTS_GROUP = {
   ],
 };
 
-export const PROJECT_FILES_SHORTCUTS_GROUP = {
+const PROJECT_FILES_SHORTCUTS_GROUP = {
   id: 'projectFiles',
   name: __('Project Files'),
   keybindings: [
@@ -582,22 +643,28 @@ export const PROJECT_FILES_SHORTCUTS_GROUP = {
     PROJECT_FILES_OPEN_SELECTION,
     PROJECT_FILES_GO_BACK,
     PROJECT_FILES_GO_TO_PERMALINK,
+    PROJECT_FILES_GO_TO_COMPARE,
   ],
 };
 
-export const ISSUABLE_SHORTCUTS_GROUP = {
+const ISSUABLE_SHORTCUTS_GROUP = {
   id: 'issuables',
   name: __('Epics, issues, and merge requests'),
-  keybindings: [ISSUABLE_COMMENT_OR_REPLY, ISSUABLE_EDIT_DESCRIPTION, ISSUABLE_CHANGE_LABEL],
+  keybindings: [
+    ISSUABLE_COMMENT_OR_REPLY,
+    ISSUABLE_EDIT_DESCRIPTION,
+    ISSUABLE_CHANGE_LABEL,
+    ISSUABLE_COPY_REF,
+  ],
 };
 
-export const ISSUE_MR_SHORTCUTS_GROUP = {
+const ISSUE_MR_SHORTCUTS_GROUP = {
   id: 'issuesMRs',
   name: __('Issues and merge requests'),
   keybindings: [ISSUE_MR_CHANGE_ASSIGNEE, ISSUE_MR_CHANGE_MILESTONE],
 };
 
-export const MR_SHORTCUTS_GROUP = {
+const MR_SHORTCUTS_GROUP = {
   id: 'mergeRequests',
   name: __('Merge requests'),
   keybindings: [
@@ -607,37 +674,28 @@ export const MR_SHORTCUTS_GROUP = {
     MR_NEXT_UNRESOLVED_DISCUSSION,
     MR_PREVIOUS_UNRESOLVED_DISCUSSION,
     MR_COPY_SOURCE_BRANCH_NAME,
+    MR_TOGGLE_FILE_BROWSER,
+    MR_ADD_TO_REVIEW,
+    MR_ADD_COMMENT_NOW,
   ],
 };
 
-export const MR_COMMITS_SHORTCUTS_GROUP = {
+const MR_COMMITS_SHORTCUTS_GROUP = {
   id: 'mergeRequestCommits',
   name: __('Merge request commits'),
   keybindings: [MR_COMMITS_NEXT_COMMIT, MR_COMMITS_PREVIOUS_COMMIT],
 };
 
-export const ISSUES_SHORTCUTS_GROUP = {
+const ISSUES_SHORTCUTS_GROUP = {
   id: 'issues',
   name: __('Issues'),
   keybindings: [ISSUE_NEXT_DESIGN, ISSUE_PREVIOUS_DESIGN, ISSUE_CLOSE_DESIGN],
 };
 
-export const WEB_IDE_SHORTCUTS_GROUP = {
+const WEB_IDE_SHORTCUTS_GROUP = {
   id: 'webIDE',
-  name: __('Web IDE'),
+  name: __('Legacy Web IDE'),
   keybindings: [WEB_IDE_GO_TO_FILE, WEB_IDE_COMMIT],
-};
-
-export const METRICS_SHORTCUTS_GROUP = {
-  id: 'metrics',
-  name: __('Metrics'),
-  keybindings: [
-    METRICS_EXPAND_PANEL,
-    METRICS_VIEW_LOGS,
-    METRICS_DOWNLOAD_CSV,
-    METRICS_COPY_LINK_TO_CHART,
-    METRICS_SHOW_ALERTS,
-  ],
 };
 
 export const MISC_SHORTCUTS_GROUP = {
@@ -660,15 +718,17 @@ export const keybindingGroups = [
   MR_COMMITS_SHORTCUTS_GROUP,
   ISSUES_SHORTCUTS_GROUP,
   WEB_IDE_SHORTCUTS_GROUP,
-  METRICS_SHORTCUTS_GROUP,
   MISC_SHORTCUTS_GROUP,
 ];
 
 /**
  * Gets keyboard shortcuts associated with a command
  *
- * @param {string} command The command object. All command
- * objects are available as imports from this file.
+ * @param {Object} command The command object. All command objects are
+ *     available as imports from this file.
+ * @param {string} command.id
+ * @param {string[]} command.defaultKeys
+ * @param {boolean} [command.customizable]
  *
  * @returns {string[]} An array of keyboard shortcut strings bound to the command
  *

@@ -2,12 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::Reindexing do
+RSpec.describe Gitlab::Database::Reindexing, feature_category: :database, time_travel_to: '2023-01-07T09:44:07Z' do
   include ExclusiveLeaseHelpers
   include Database::DatabaseHelpers
 
+  before do
+    stub_feature_flags(disallow_database_ddl_feature_flags: false)
+  end
+
   describe '.invoke' do
-    let(:databases) { Gitlab::Database.database_base_models }
+    let(:databases) { Gitlab::Database.database_base_models_with_gitlab_shared }
     let(:databases_count) { databases.count }
 
     it 'cleans up any leftover indexes' do
@@ -44,6 +48,21 @@ RSpec.describe Gitlab::Database::Reindexing do
 
         described_class.invoke
       end
+
+      it 'does not execute async index creation when disable ddl flag is enabled' do
+        stub_feature_flags(disallow_database_ddl_feature_flags: true)
+
+        expect(Gitlab::Database::AsyncIndexes).not_to receive(:create_pending_indexes!)
+
+        described_class.invoke
+      end
+    end
+
+    it 'executes async index destruction prior to any reindexing actions' do
+      expect(Gitlab::Database::AsyncIndexes).to receive(:drop_pending_indexes!).ordered.exactly(databases_count).times
+      expect(described_class).to receive(:automatic_reindexing).ordered.exactly(databases_count).times
+
+      described_class.invoke
     end
 
     context 'calls automatic reindexing' do
@@ -61,6 +80,33 @@ RSpec.describe Gitlab::Database::Reindexing do
         end
       end
     end
+
+    context 'when async FK validation is enabled' do
+      it 'executes FK validation for each database prior to any reindexing actions' do
+        expect(Gitlab::Database::AsyncConstraints).to receive(:validate_pending_entries!).ordered.exactly(databases_count).times
+        expect(described_class).to receive(:automatic_reindexing).ordered.exactly(databases_count).times
+
+        described_class.invoke
+      end
+    end
+
+    context 'when async FK validation is disabled' do
+      it 'does not execute FK validation' do
+        stub_feature_flags(database_async_foreign_key_validation: false)
+
+        expect(Gitlab::Database::AsyncConstraints).not_to receive(:validate_pending_entries!)
+
+        described_class.invoke
+      end
+
+      it 'does not execute async index creation when disable ddl flag is enabled' do
+        stub_feature_flags(disallow_database_ddl_feature_flags: true)
+
+        expect(Gitlab::Database::AsyncIndexes).not_to receive(:validate_pending_entries!)
+
+        described_class.invoke
+      end
+    end
   end
 
   describe '.automatic_reindexing' do
@@ -69,18 +115,18 @@ RSpec.describe Gitlab::Database::Reindexing do
     let(:limit) { 5 }
 
     before_all do
-      swapout_view_for_table(:postgres_indexes)
+      swapout_view_for_table(:postgres_indexes, connection: ApplicationRecord.connection)
     end
 
     before do
-      allow(Gitlab::Database::Reindexing).to receive(:cleanup_leftovers!)
-      allow(Gitlab::Database::Reindexing).to receive(:perform_from_queue).and_return(0)
-      allow(Gitlab::Database::Reindexing).to receive(:perform_with_heuristic).and_return(0)
+      allow(described_class).to receive(:cleanup_leftovers!)
+      allow(described_class).to receive(:perform_from_queue).and_return(0)
+      allow(described_class).to receive(:perform_with_heuristic).and_return(0)
     end
 
     it 'cleans up leftovers, before consuming the queue' do
-      expect(Gitlab::Database::Reindexing).to receive(:cleanup_leftovers!).ordered
-      expect(Gitlab::Database::Reindexing).to receive(:perform_from_queue).ordered
+      expect(described_class).to receive(:cleanup_leftovers!).ordered
+      expect(described_class).to receive(:perform_from_queue).ordered
 
       subject
     end
@@ -94,8 +140,8 @@ RSpec.describe Gitlab::Database::Reindexing do
         let(:limit) { 1 }
 
         it 'does not perform reindexing with heuristic' do
-          expect(Gitlab::Database::Reindexing).to receive(:perform_from_queue).and_return(limit)
-          expect(Gitlab::Database::Reindexing).not_to receive(:perform_with_heuristic)
+          expect(described_class).to receive(:perform_from_queue).and_return(limit)
+          expect(described_class).not_to receive(:perform_with_heuristic)
 
           subject
         end
@@ -105,8 +151,8 @@ RSpec.describe Gitlab::Database::Reindexing do
         let(:limit) { 2 }
 
         it 'continues if the queue did not have enough records' do
-          expect(Gitlab::Database::Reindexing).to receive(:perform_from_queue).ordered.and_return(1)
-          expect(Gitlab::Database::Reindexing).to receive(:perform_with_heuristic).with(maximum_records: 1).ordered
+          expect(described_class).to receive(:perform_from_queue).ordered.and_return(1)
+          expect(described_class).to receive(:perform_with_heuristic).with(maximum_records: 1).ordered
 
           subject
         end
@@ -140,7 +186,7 @@ RSpec.describe Gitlab::Database::Reindexing do
     subject { described_class.perform_from_queue(maximum_records: limit) }
 
     before_all do
-      swapout_view_for_table(:postgres_indexes)
+      swapout_view_for_table(:postgres_indexes, connection: ApplicationRecord.connection)
     end
 
     let(:limit) { 2 }
@@ -185,12 +231,25 @@ RSpec.describe Gitlab::Database::Reindexing do
 
       states = queued_actions.map(&:reload).map(&:state)
 
-      expect(states).to eq(%w(failed done queued))
+      expect(states).to eq(%w[failed done queued])
     end
   end
 
   describe '.cleanup_leftovers!' do
     subject(:cleanup_leftovers) { described_class.cleanup_leftovers! }
+
+    let(:expected_queries) do
+      [
+        "SET lock_timeout TO '60000ms'",
+        "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"foobar_ccnew\"",
+        "RESET idle_in_transaction_session_timeout; RESET lock_timeout",
+        "SET lock_timeout TO '60000ms'",
+        "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"foobar_ccnew1\"",
+        "RESET idle_in_transaction_session_timeout; RESET lock_timeout"
+      ]
+    end
+
+    let(:actual_queries) { [] }
 
     let(:model) { Gitlab::Database.database_base_models[Gitlab::Database::PRIMARY_DATABASE_NAME] }
     let(:connection) { model.connection }
@@ -209,20 +268,15 @@ RSpec.describe Gitlab::Database::Reindexing do
     end
 
     it 'drops both leftover indexes' do
-      expect_query("SET lock_timeout TO '60000ms'")
-      expect_query("DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"foobar_ccnew\"")
-      expect_query("RESET idle_in_transaction_session_timeout; RESET lock_timeout")
-      expect_query("SET lock_timeout TO '60000ms'")
-      expect_query("DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"foobar_ccnew1\"")
-      expect_query("RESET idle_in_transaction_session_timeout; RESET lock_timeout")
-
-      cleanup_leftovers
-    end
-
-    def expect_query(sql)
-      expect(connection).to receive(:execute).ordered.with(sql).and_wrap_original do |method, sql|
+      allow(connection).to receive(:execute).and_wrap_original do |method, sql|
+        actual_queries << sql
         method.call(sql.sub(/CONCURRENTLY/, ''))
       end
+
+      cleanup_leftovers
+
+      # Ordering matters here, we're making sure the query order matched what we expect.
+      expect(expected_queries).to eq(actual_queries)
     end
   end
 end

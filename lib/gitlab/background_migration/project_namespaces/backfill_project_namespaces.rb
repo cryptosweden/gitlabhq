@@ -7,6 +7,8 @@ module Gitlab
       #
       # rubocop: disable Metrics/ClassLength
       class BackfillProjectNamespaces
+        attr_accessor :project_ids, :sub_batch_size
+
         SUB_BATCH_SIZE = 25
         PROJECT_NAMESPACE_STI_NAME = 'Project'
 
@@ -18,7 +20,7 @@ module Gitlab
 
           case migration_type
           when 'up'
-            backfill_project_namespaces(namespace_id)
+            backfill_project_namespaces
             mark_job_as_succeeded(start_id, end_id, namespace_id, 'up')
           when 'down'
             cleanup_backfilled_project_namespaces(namespace_id)
@@ -28,11 +30,7 @@ module Gitlab
           end
         end
 
-        private
-
-        attr_accessor :project_ids, :sub_batch_size
-
-        def backfill_project_namespaces(namespace_id)
+        def backfill_project_namespaces
           project_ids.each_slice(sub_batch_size) do |project_ids|
             # cleanup gin indexes on namespaces table
             cleanup_gin_index('namespaces')
@@ -57,12 +55,14 @@ module Gitlab
         end
 
         def cleanup_gin_index(table_name)
-          index_names = ActiveRecord::Base.connection.select_values("select indexname::text from pg_indexes where tablename = '#{table_name}' and indexdef ilike '%gin%'")
+          index_names = ApplicationRecord.connection.select_values("select indexname::text from pg_indexes where tablename = '#{table_name}' and indexdef ilike '%using gin%'")
 
           index_names.each do |index_name|
-            ActiveRecord::Base.connection.execute("select gin_clean_pending_list('#{index_name}')")
+            ApplicationRecord.connection.execute("select gin_clean_pending_list('#{index_name}')")
           end
         end
+
+        private
 
         def cleanup_backfilled_project_namespaces(namespace_id)
           project_ids.each_slice(sub_batch_size) do |project_ids|
@@ -77,7 +77,7 @@ module Gitlab
           projects = IsolatedModels::Project.where(id: project_ids)
             .select("projects.id, projects.name, projects.path, projects.namespace_id, projects.visibility_level, shared_runners_enabled, '#{PROJECT_NAMESPACE_STI_NAME}', now(), now()")
 
-          ActiveRecord::Base.connection.execute <<~SQL
+          ApplicationRecord.connection.execute <<~SQL
             INSERT INTO namespaces (tmp_project_id, name, path, parent_id, visibility_level, shared_runners_enabled, type, created_at, updated_at)
             #{projects.to_sql}
             ON CONFLICT DO NOTHING;
@@ -89,8 +89,8 @@ module Gitlab
                        .joins("INNER JOIN namespaces ON projects.id = namespaces.tmp_project_id")
                        .select("namespaces.id, namespaces.tmp_project_id")
 
-          ActiveRecord::Base.connection.execute <<~SQL
-            WITH cte(project_namespace_id, project_id) AS #{::Gitlab::Database::AsWithMaterialized.materialized_if_supported} (
+          ApplicationRecord.connection.execute <<~SQL
+            WITH cte(project_namespace_id, project_id) AS MATERIALIZED (
               #{projects.to_sql}
             )
             UPDATE projects
@@ -105,9 +105,11 @@ module Gitlab
                          .joins("INNER JOIN namespaces n2 ON namespaces.parent_id = n2.id")
                          .select("namespaces.id as project_namespace_id, n2.traversal_ids")
 
-          ActiveRecord::Base.connection.execute <<~SQL
+          # some customers have namespaces.id column type as bigint, which makes array_append(integer[], bigint) to fail
+          # so we just explicitly cast arguments to compatible types
+          ApplicationRecord.connection.execute <<~SQL
             UPDATE namespaces
-            SET traversal_ids = array_append(project_namespaces.traversal_ids, project_namespaces.project_namespace_id)
+            SET traversal_ids = array_append(project_namespaces.traversal_ids::bigint[], project_namespaces.project_namespace_id::bigint)
             FROM (#{namespaces.to_sql}) as project_namespaces(project_namespace_id, traversal_ids)
             WHERE id = project_namespaces.project_namespace_id
           SQL

@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Config::Loader::Yaml do
+RSpec.describe Gitlab::Config::Loader::Yaml, feature_category: :pipeline_composition do
   let(:loader) { described_class.new(yml) }
 
   let(:yml) do
     <<~YAML
-    image: 'ruby:2.7'
+    image: 'image:1.0'
     texts:
       nested_key: 'value1'
       more_text:
@@ -34,7 +34,7 @@ RSpec.describe Gitlab::Config::Loader::Yaml do
   end
 
   context 'when yaml syntax is correct' do
-    let(:yml) { 'image: ruby:2.7' }
+    let(:yml) { 'image: image:1.0' }
 
     describe '#valid?' do
       it 'returns true' do
@@ -44,7 +44,7 @@ RSpec.describe Gitlab::Config::Loader::Yaml do
 
     describe '#load!' do
       it 'returns a valid hash' do
-        expect(loader.load!).to eq(image: 'ruby:2.7')
+        expect(loader.load!).to eq(image: 'image:1.0')
       end
     end
   end
@@ -75,7 +75,7 @@ RSpec.describe Gitlab::Config::Loader::Yaml do
       it 'raises FormatError' do
         expect { loader }.to raise_error(
           Gitlab::Config::Loader::FormatError,
-          'Unknown alias: bad_alias'
+          %r{unknown .+ bad_alias}i
         )
       end
     end
@@ -120,12 +120,6 @@ RSpec.describe Gitlab::Config::Loader::Yaml do
       it 'returns false' do
         expect(loader).not_to be_valid
       end
-
-      it 'returns true if "ci_yaml_limit_size" feature flag is disabled' do
-        stub_feature_flags(ci_yaml_limit_size: false)
-
-        expect(loader).to be_valid
-      end
     end
 
     describe '#load!' do
@@ -164,7 +158,7 @@ RSpec.describe Gitlab::Config::Loader::Yaml do
   describe '#load_raw!' do
     it 'loads keys as strings' do
       expect(loader.load_raw!).to eq(
-        'image' => 'ruby:2.7',
+        'image' => 'image:1.0',
         'texts' => {
           'nested_key' => 'value1',
           'more_text' => {
@@ -178,7 +172,7 @@ RSpec.describe Gitlab::Config::Loader::Yaml do
   describe '#load!' do
     it 'symbolizes keys' do
       expect(loader.load!).to eq(
-        image: 'ruby:2.7',
+        image: 'image:1.0',
         texts: {
           nested_key: 'value1',
           more_text: {
@@ -186,6 +180,38 @@ RSpec.describe Gitlab::Config::Loader::Yaml do
           }
         }
       )
+    end
+  end
+
+  describe '#blank?' do
+    context 'when the loaded YAML is empty' do
+      let(:yml) do
+        <<~YAML
+        # only comments here
+        YAML
+      end
+
+      it 'returns true' do
+        expect(loader).to be_blank
+      end
+    end
+
+    context 'when the loaded YAML has content' do
+      let(:yml) do
+        <<~YAML
+        test: value
+        YAML
+      end
+
+      it 'returns false' do
+        expect(loader).not_to be_blank
+      end
+    end
+  end
+
+  describe '#raw' do
+    it 'returns the unparsed YAML' do
+      expect(loader.raw).to eq(yml)
     end
   end
 end

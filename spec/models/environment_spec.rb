@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Environment, :use_clean_rails_memory_store_caching do
+RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_category: :continuous_delivery do
   include ReactiveCachingHelpers
   using RSpec::Parameterized::TableSyntax
   include RepoHelpers
@@ -15,15 +15,18 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
   it { is_expected.to be_kind_of(ReactiveCaching) }
   it { is_expected.to nullify_if_blank(:external_url) }
+  it { is_expected.to nullify_if_blank(:kubernetes_namespace) }
+  it { is_expected.to nullify_if_blank(:flux_resource_path) }
 
   it { is_expected.to belong_to(:project).required }
+  it { is_expected.to belong_to(:merge_request).optional }
+  it { is_expected.to belong_to(:cluster_agent).optional }
+
   it { is_expected.to have_many(:deployments) }
-  it { is_expected.to have_many(:metrics_dashboard_annotations) }
   it { is_expected.to have_many(:alert_management_alerts) }
   it { is_expected.to have_one(:upcoming_deployment) }
   it { is_expected.to have_one(:latest_opened_most_severe_alert) }
 
-  it { is_expected.to delegate_method(:stop_action).to(:last_deployment) }
   it { is_expected.to delegate_method(:manual_actions).to(:last_deployment) }
 
   it { is_expected.to validate_presence_of(:name) }
@@ -34,6 +37,96 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
   it { is_expected.to validate_length_of(:slug).is_at_most(24) }
 
   it { is_expected.to validate_length_of(:external_url).is_at_most(255) }
+  it { is_expected.to validate_length_of(:kubernetes_namespace).is_at_most(63) }
+  it { is_expected.to validate_length_of(:flux_resource_path).is_at_most(255) }
+
+  describe 'validation' do
+    it 'does not become invalid record when external_url is empty' do
+      environment = build(:environment, external_url: nil)
+
+      expect(environment).to be_valid
+    end
+
+    context 'does not allow changes to merge_request' do
+      let(:merge_request) { create(:merge_request, source_project: project) }
+
+      it 'for an environment that has no merge request associated' do
+        environment = create(:environment)
+
+        environment.merge_request = merge_request
+
+        expect(environment).not_to be_valid
+      end
+
+      it 'for an environment that has a merge request associated' do
+        environment = create(:environment, merge_request: merge_request)
+
+        environment.merge_request = nil
+
+        expect(environment).not_to be_valid
+      end
+    end
+
+    context 'tier' do
+      let!(:env) { build(:environment, tier: nil) }
+
+      before do
+        # Disable `before_validation: :ensure_environment_tier` since it always set tier and interfere with tests.
+        # See: https://github.com/thoughtbot/shoulda/issues/178#issuecomment-1654014
+
+        allow_any_instance_of(described_class).to receive(:ensure_environment_tier).and_return(env)
+      end
+
+      context 'presence is checked' do
+        it 'during create and update' do
+          expect(env).to validate_presence_of(:tier).on(:create)
+          expect(env).to validate_presence_of(:tier).on(:update)
+        end
+      end
+    end
+  end
+
+  describe 'validate and sanitize external url' do
+    let_it_be_with_refind(:environment) { create(:environment) }
+
+    where(:source_external_url, :expected_error_message) do
+      nil                                              | nil
+      'http://example.com'                             | nil
+      'example.com'                                    | nil
+      'www.example.io'                                 | nil
+      'http://$URL'                                    | nil
+      'http://$(URL)'                                  | nil
+      'custom://example.com'                           | nil
+      '1.1.1.1'                                        | nil
+      '$BASE_URL/${CI_COMMIT_REF_NAME}'                | nil
+      '$ENVIRONMENT_URL'                               | nil
+      'https://$SUB.$MAIN'                             | nil
+      'https://$SUB-$REGION.$MAIN'                     | nil
+      'https://example.com?param={()}'                 | nil
+      'http://XSS?x=<script>alert(1)</script>'         | nil
+      'https://user:${VARIABLE}@example.io'            | nil
+      'https://example.com/test?param={data}'          | nil
+      'http://${URL}'                                  | 'URI is invalid'
+      'https://${URL}.example/test'                    | 'URI is invalid'
+      'http://test${CI_MERGE_REQUEST_IID}.example.com' | 'URI is invalid'
+      'javascript:alert("hello")'                      | 'javascript scheme is not allowed'
+    end
+    with_them do
+      it 'sets an external URL or an error' do
+        environment.external_url = source_external_url
+
+        environment.valid?
+
+        if expected_error_message
+          expect(environment.errors[:external_url].first).to eq(expected_error_message)
+        else
+          expect(environment.errors[:external_url]).to be_empty,
+            "There were unexpected errors: #{environment.errors.full_messages}"
+          expect(environment.external_url).to eq(source_external_url)
+        end
+      end
+    end
+  end
 
   describe '.before_save' do
     it 'ensures environment tier when a new object is created' do
@@ -46,7 +139,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
       environment = create(:environment, name: 'gprd')
       environment.update_column(:tier, nil)
 
-      expect { environment.stop! }.to change { environment.reload.tier }.from(nil).to('production')
+      expect { environment.save! }.to change { environment.reload.tier }.from(nil).to('production')
     end
 
     it 'does not overwrite the existing environment tier' do
@@ -70,6 +163,37 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
     it 'returns the environments in descending order of having been last deployed' do
       expect(project.environments.order_by_last_deployed_at_desc.to_a).to eq([environment1, environment2, environment3])
+    end
+  end
+
+  describe '#long_stopping?' do
+    subject { environment1.long_stopping? }
+
+    let(:long_ago) { (described_class::LONG_STOP + 1.day).ago }
+    let(:not_long_ago) { (described_class::LONG_STOP - 1.day).ago }
+
+    context 'when a stopping environment has not been updated recently' do
+      let!(:environment1) { create(:environment, state: 'stopping', project: project, updated_at: long_ago) }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'when a stopping environment has been updated recently' do
+      let!(:environment1) { create(:environment, state: 'stopping', project: project, updated_at: not_long_ago) }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when a non stopping environment has not been updated recently' do
+      let!(:environment1) { create(:environment, project: project, updated_at: long_ago) }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when a non stopping environment has been updated recently' do
+      let!(:environment1) { create(:environment, project: project, updated_at: not_long_ago) }
+
+      it { is_expected.to eq(false) }
     end
   end
 
@@ -113,7 +237,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
 
     describe ".schedule_to_delete" do
-      subject { described_class.for_id(deletable_environment).schedule_to_delete }
+      subject { described_class.id_in(deletable_environment).schedule_to_delete }
 
       it "schedules the record for deletion" do
         freeze_time do
@@ -187,7 +311,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
 
     context 'when query is nil' do
-      let(:query) { }
+      let(:query) {}
 
       it 'raises an error' do
         expect { subject }.to raise_error(NoMethodError)
@@ -204,6 +328,88 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
     context 'when query contains a wildcard character' do
       let(:query) { 'produc%' }
+
+      it 'prevents wildcard injection' do
+        is_expected.to be_empty
+      end
+    end
+  end
+
+  describe '.for_name_like_within_folder' do
+    subject { project.environments.for_name_like_within_folder(query, limit: limit) }
+
+    let!(:environment) { create(:environment, name: 'review/test-app', project: project) }
+    let!(:environment_a) { create(:environment, name: 'test-app', project: project) }
+    let(:query) { 'test' }
+    let(:limit) { 5 }
+
+    it 'returns a found name' do
+      is_expected.to contain_exactly(environment)
+    end
+
+    it 'does not return environment without folder' do
+      is_expected.not_to include(environment_a)
+    end
+
+    context 'when query string is the full environment name within a folder' do
+      let(:query) { 'test-app' }
+
+      it 'returns a found name' do
+        is_expected.to include(environment)
+      end
+    end
+
+    context 'when query string has characters not in the environment' do
+      let(:query) { 'test-app-a' }
+
+      it 'returns empty array' do
+        is_expected.to be_empty
+      end
+    end
+
+    context 'when the environment folder is the same as the starting characters of the environment name' do
+      let!(:environment) { create(:environment, name: 'test/test-app', project: project) }
+
+      it 'returns a found name' do
+        is_expected.to contain_exactly(environment)
+      end
+    end
+
+    context 'when the environment folder has characters in the starting characters of the environment name' do
+      let!(:environment) { create(:environment, name: 'atr/test-app', project: project) }
+
+      it 'returns a found name' do
+        is_expected.to contain_exactly(environment)
+      end
+    end
+
+    context 'when query is empty string' do
+      let(:query) { '' }
+      let!(:environment_b) { create(:environment, name: 'review/test-app-1', project: project) }
+
+      it 'returns only the foldered environments' do
+        is_expected.to contain_exactly(environment, environment_b)
+      end
+    end
+
+    context 'when query is nil' do
+      let(:query) {}
+
+      it 'raises an error' do
+        expect { subject }.to raise_error(NoMethodError)
+      end
+    end
+
+    context 'when query is partially matched in the middle of environment name' do
+      let(:query) { 'app' }
+
+      it 'returns empty array' do
+        is_expected.to be_empty
+      end
+    end
+
+    context 'when query contains a wildcard character' do
+      let(:query) { 'test%' }
 
       it 'prevents wildcard injection' do
         is_expected.to be_empty
@@ -247,6 +453,47 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
   end
 
+  describe '.long_stopping' do
+    subject { described_class.long_stopping }
+
+    let_it_be(:project) { create(:project) }
+    let(:environment) { create(:environment, project: project) }
+    let(:long) { (described_class::LONG_STOP + 1.day).ago }
+    let(:short) { (described_class::LONG_STOP - 1.day).ago }
+
+    context 'when a stopping environment has not been updated recently' do
+      before do
+        environment.update!(state: :stopping, updated_at: long)
+      end
+
+      it { is_expected.to eq([environment]) }
+    end
+
+    context 'when a stopping environment has been updated recently' do
+      before do
+        environment.update!(state: :stopping, updated_at: short)
+      end
+
+      it { is_expected.to be_empty }
+    end
+
+    context 'when a non stopping environment has not been updated recently' do
+      before do
+        environment.update!(state: :available, updated_at: long)
+      end
+
+      it { is_expected.to be_empty }
+    end
+
+    context 'when a non stopping environment has been updated recently' do
+      before do
+        environment.update!(state: :available, updated_at: short)
+      end
+
+      it { is_expected.to be_empty }
+    end
+  end
+
   describe '.pluck_names' do
     subject { described_class.pluck_names }
 
@@ -266,6 +513,16 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
     it 'returns nothing when searching for staging tier' do
       expect(described_class.for_tier(:staging)).to be_empty
+    end
+  end
+
+  describe '.for_type' do
+    it 'filters by type' do
+      create(:environment)
+      create(:environment, name: 'type1/prod')
+      env = create(:environment, name: 'type2/prod')
+
+      expect(described_class.for_type('type2')).to contain_exactly(env)
     end
   end
 
@@ -309,7 +566,10 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
       'staging'            | described_class.tiers[:staging]
       'pre-prod'           | described_class.tiers[:staging]
       'blue-kit-stage'     | described_class.tiers[:staging]
-      'pre-prod'           | described_class.tiers[:staging]
+      'nonprod'            | described_class.tiers[:staging]
+      'nonlive'            | described_class.tiers[:staging]
+      'non-prod'           | described_class.tiers[:staging]
+      'non-live'           | described_class.tiers[:staging]
       'gprd'               | described_class.tiers[:production]
       'gprd-cny'           | described_class.tiers[:production]
       'production'         | described_class.tiers[:production]
@@ -349,15 +609,28 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
   end
 
   describe '.with_deployment' do
-    subject { described_class.with_deployment(sha) }
+    subject { described_class.with_deployment(sha, status: status) }
 
     let(:environment) { create(:environment, project: project) }
     let(:sha) { 'b83d6e391c22777fca1ed3012fce84f633d7fed0' }
+    let(:status) { nil }
 
     context 'when deployment has the specified sha' do
       let!(:deployment) { create(:deployment, environment: environment, sha: sha) }
 
       it { is_expected.to eq([environment]) }
+
+      context 'with success status filter' do
+        let(:status) { :success }
+
+        it { is_expected.to be_empty }
+      end
+
+      context 'with created status filter' do
+        let(:status) { :created }
+
+        it { is_expected.to contain_exactly(environment) }
+      end
     end
 
     context 'when deployment does not have the specified sha' do
@@ -459,26 +732,28 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
   end
 
-  describe '#stop_action_available?' do
-    subject { environment.stop_action_available? }
+  describe '#stop_actions_available?' do
+    subject { environment.stop_actions_available? }
 
     context 'when no other actions' do
       it { is_expected.to be_falsey }
     end
 
     context 'when matching action is defined' do
-      let(:build) { create(:ci_build) }
+      let(:build) { create(:ci_build, :success) }
 
       let!(:deployment) do
-        create(:deployment, :success,
-                            environment: environment,
-                            deployable: build,
-                            on_stop: 'close_app')
+        create(
+          :deployment,
+          :success,
+          environment: environment,
+          deployable: build,
+          on_stop: 'close_app'
+        )
       end
 
       let!(:close_action) do
-        create(:ci_build, :manual, pipeline: build.pipeline,
-                                   name: 'close_app')
+        create(:ci_build, :manual, pipeline: build.pipeline, name: 'close_app')
       end
 
       context 'when environment is available' do
@@ -499,94 +774,287 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
   end
 
-  describe '#stop_with_action!' do
+  describe '#stop_with_actions!' do
     let(:user) { create(:user) }
 
-    subject { environment.stop_with_action!(user) }
+    subject { environment.stop_with_actions!(user) }
 
-    before do
-      expect(environment).to receive(:available?).and_call_original
-    end
+    shared_examples_for 'stop with playing a teardown job' do
+      before do
+        expect(environment).to receive(:available?).and_call_original
+      end
 
-    context 'when no other actions' do
-      context 'environment is available' do
+      context 'when no other actions' do
+        context 'environment is available' do
+          before do
+            environment.update!(state: :available)
+          end
+
+          it do
+            actions = subject
+
+            expect(environment).to be_stopped
+            expect(actions).to match_array([])
+          end
+        end
+
+        context 'environment is already stopped' do
+          before do
+            environment.update!(state: :stopped)
+          end
+
+          it do
+            subject
+
+            expect(environment).to be_stopped
+          end
+        end
+      end
+
+      context 'when matching action is defined' do
+        let(:pipeline) { create(:ci_pipeline, project: project) }
+        let(:job_a) { create(factory_type, :success, pipeline: pipeline, **factory_options) }
+
         before do
-          environment.update!(state: :available)
+          create(:deployment, :success,
+            environment: environment,
+            deployable: job_a,
+            on_stop: 'close_app_a')
         end
 
-        it do
-          subject
+        context 'when user is not allowed to stop environment' do
+          let!(:close_action) do
+            create(factory_type, :manual, pipeline: pipeline, name: 'close_app_a', **factory_options)
+          end
 
-          expect(environment).to be_stopped
+          it 'raises an exception' do
+            expect { subject }.to raise_error(Gitlab::Access::AccessDeniedError)
+          end
+        end
+
+        context 'when user is allowed to stop environment' do
+          before do
+            project.add_developer(user)
+
+            create(:protected_branch, :developers_can_merge, name: 'master', project: project)
+          end
+
+          context 'when action did not yet finish' do
+            let!(:close_action) do
+              create(factory_type, :manual, pipeline: pipeline, name: 'close_app_a', **factory_options)
+            end
+
+            it 'returns the same action' do
+              action = subject.first
+              expect(action).to eq(close_action)
+              expect(action.user).to eq(user)
+            end
+
+            it 'environment is not stopped' do
+              subject
+
+              expect(environment).not_to be_stopped
+            end
+          end
+
+          context 'if action did finish' do
+            let!(:close_action) do
+              create(factory_type, :manual, :success, pipeline: pipeline, name: 'close_app_a', **factory_options)
+            end
+
+            it 'returns a new action of the same type when build job' do
+              skip unless factory_type == :ci_build
+
+              action = subject.first
+
+              expect(action).to be_persisted
+              expect(action.name).to eq(close_action.name)
+              expect(action.user).to eq(user)
+            end
+
+            it 'does nothing when bridge job' do
+              skip unless factory_type == :ci_bridge
+
+              action = subject.first
+
+              expect(action).to be_nil
+            end
+          end
+
+          context 'close action does not raise ActiveRecord::StaleObjectError' do
+            let!(:close_action) do
+              create(factory_type, :manual, pipeline: pipeline, name: 'close_app_a', **factory_options)
+            end
+
+            before do
+              # preload the job
+              environment.stop_actions
+
+              # Update record as the other process. This makes `environment.stop_action` stale.
+              close_action.drop!
+            end
+
+            it 'successfully plays the job even if the job was a stale object when build job' do
+              skip unless factory_type == :ci_build
+
+              # Since job is droped.
+              expect(close_action.processed).to be_falsey
+
+              # it encounters the StaleObjectError at first, but reloads the object and runs `job.play`
+              expect { subject }.not_to raise_error
+
+              # Now the job should be processed.
+              expect(close_action.reload.processed).to be_truthy
+            end
+
+            it 'does nothing when bridge job' do
+              skip unless factory_type == :ci_bridge
+
+              expect(close_action.processed).to be_falsey
+
+              # it encounters the StaleObjectError at first, but reloads the object and runs `job.play`
+              expect { subject }.not_to raise_error
+
+              # Bridge is not retried currently.
+              expect(close_action.processed).to be_falsey
+            end
+          end
         end
       end
 
-      context 'environment is already stopped' do
-        before do
-          environment.update!(state: :stopped)
+      context 'when there are more then one stop action for the environment' do
+        let(:pipeline) { create(:ci_pipeline, project: project) }
+        let(:job_a) { create(factory_type, :success, pipeline: pipeline, **factory_options) }
+        let(:job_b) { create(factory_type, :success, pipeline: pipeline, **factory_options) }
+
+        let!(:close_actions) do
+          [
+            create(factory_type, :manual, pipeline: pipeline, name: 'close_app_a', **factory_options),
+            create(factory_type, :manual, pipeline: pipeline, name: 'close_app_b', **factory_options)
+          ]
         end
 
-        it do
-          subject
-
-          expect(environment).to be_stopped
-        end
-      end
-    end
-
-    context 'when matching action is defined' do
-      let(:pipeline) { create(:ci_pipeline, project: project) }
-      let(:build) { create(:ci_build, pipeline: pipeline) }
-
-      let!(:deployment) do
-        create(:deployment, :success,
-                            environment: environment,
-                            deployable: build,
-                            on_stop: 'close_app')
-      end
-
-      context 'when user is not allowed to stop environment' do
-        let!(:close_action) do
-          create(:ci_build, :manual, pipeline: pipeline, name: 'close_app')
-        end
-
-        it 'raises an exception' do
-          expect { subject }.to raise_error(Gitlab::Access::AccessDeniedError)
-        end
-      end
-
-      context 'when user is allowed to stop environment' do
         before do
           project.add_developer(user)
 
-          create(:protected_branch, :developers_can_merge,
-                 name: 'master', project: project)
+          create(:deployment, :success,
+            environment: environment,
+            deployable: job_a,
+            finished_at: 5.minutes.ago,
+            on_stop: 'close_app_a')
+
+          create(:deployment, :success,
+            environment: environment,
+            deployable: job_b,
+            finished_at: 1.second.ago,
+            on_stop: 'close_app_b')
         end
 
-        context 'when action did not yet finish' do
-          let!(:close_action) do
-            create(:ci_build, :manual, pipeline: pipeline, name: 'close_app')
-          end
+        it 'returns the same actions' do
+          actions = subject
 
-          it 'returns the same action' do
-            expect(subject).to eq(close_action)
-            expect(subject.user).to eq(user)
-          end
+          expect(actions.count).to eq(close_actions.count)
+          expect(actions.pluck(:id)).to match_array(close_actions.pluck(:id))
+          expect(actions.pluck(:user)).to match_array(close_actions.pluck(:user))
         end
 
-        context 'if action did finish' do
-          let!(:close_action) do
-            create(:ci_build, :manual, :success,
-                   pipeline: pipeline, name: 'close_app')
+        context 'when there are failed builds' do
+          before do
+            create(factory_type, :failed, pipeline: pipeline, name: 'close_app_c', **factory_options)
+
+            create(:deployment, :failed,
+              environment: environment,
+              deployable: create(factory_type, pipeline: pipeline, **factory_options),
+              on_stop: 'close_app_c')
           end
 
-          it 'returns a new action of the same type' do
-            expect(subject).to be_persisted
-            expect(subject.name).to eq(close_action.name)
-            expect(subject.user).to eq(user)
+          it 'returns only stop actions from successful builds' do
+            actions = subject
+
+            expect(actions).to match_array(close_actions)
+            expect(actions.count).to eq(pipeline.latest_successful_jobs.count)
           end
         end
       end
+    end
+
+    it_behaves_like 'stop with playing a teardown job' do
+      let(:factory_type) { :ci_build }
+      let(:factory_options) { {} }
+    end
+
+    it_behaves_like 'stop with playing a teardown job' do
+      let(:factory_type) { :ci_bridge }
+      let(:factory_options) { { downstream: project } }
+    end
+  end
+
+  describe '#stop_actions' do
+    subject do
+      # Environment#stop_actions is strong-memoized,
+      # so we need to reload the `environment` to make sure
+      # that the updated `stop_actions` records are being fetched
+      reloaded_environment = described_class.find(environment.id)
+      reloaded_environment.stop_actions
+    end
+
+    context 'when there are no deployments and builds' do
+      it { is_expected.to match_array([]) }
+    end
+
+    context 'when there are multiple deployments with actions' do
+      def create_deployment_with_stop_action(status, pipeline, stop_action_name)
+        build = create(:ci_build, status, project: project, pipeline: pipeline)
+        stop_action = create(:ci_build, :manual, project: project, pipeline: pipeline, name: stop_action_name)
+        create(:deployment, status, project: project, environment: environment, deployable: build, on_stop: stop_action_name)
+
+        stop_action
+      end
+
+      let_it_be(:project) { create(:project, :repository) }
+      let_it_be(:environment) { create(:environment, project: project) }
+
+      let_it_be(:successful_pipeline) { create(:ci_pipeline, project: project) }
+      let_it_be(:successful_pipeline_stop) { create_deployment_with_stop_action(:success, successful_pipeline, 'successful_pipeline_stop') }
+
+      let_it_be(:finished_pipeline) { create(:ci_pipeline, :failed, project: project) }
+      let_it_be(:finished_pipeline_stop_a) { create_deployment_with_stop_action(:failed, finished_pipeline, 'finished_pipeline_stop_a') }
+      let_it_be(:finished_pipeline_stop_b) { create_deployment_with_stop_action(:canceled, finished_pipeline, 'finished_pipeline_stop_b') }
+
+      before_all do
+        # create the running pipeline and associated records
+        # this is created to show that stop jobs of the latest pipeline are not picked up if the pipeline is still running
+        running_pipeline = create(:ci_pipeline, :running, project: project)
+        create(:ci_build, :manual, project: project, pipeline: running_pipeline, name: 'running_pipeline_stop')
+        create_deployment_with_stop_action(:created, running_pipeline, 'running_pipeline_stop')
+      end
+
+      it 'returns the stop actions of the finished deployments in the last finished pipeline' do
+        expect(subject).to contain_exactly(
+          finished_pipeline_stop_a,
+          finished_pipeline_stop_b
+        )
+      end
+
+      context 'when the last finished pipeline has a successful deployment' do
+        let_it_be(:finished_pipeline_stop_c) { create_deployment_with_stop_action(:success, finished_pipeline, 'finished_pipeline_stop_c') }
+
+        it 'returns the stop actions of the finished deployments in the last finished pipeline' do
+          expect(subject).to contain_exactly(
+            finished_pipeline_stop_a,
+            finished_pipeline_stop_b,
+            finished_pipeline_stop_c
+          )
+        end
+      end
+    end
+  end
+
+  describe '#last_finished_deployment_group' do
+    it 'delegates to Deployment' do
+      expect(Deployment).to receive(:last_finished_deployment_group_for_environment).with(environment)
+
+      environment.last_finished_deployment_group
     end
   end
 
@@ -624,8 +1092,8 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
   describe '#actions_for' do
     let(:deployment) { create(:deployment, :success, environment: environment) }
     let(:pipeline) { deployment.deployable.pipeline }
-    let!(:review_action) { create(:ci_build, :manual, name: 'review-apps', pipeline: pipeline, environment: 'review/$CI_COMMIT_REF_NAME' )}
-    let!(:production_action) { create(:ci_build, :manual, name: 'production', pipeline: pipeline, environment: 'production' )}
+    let!(:review_action) { create(:ci_build, :manual, name: 'review-apps', pipeline: pipeline, environment: 'review/$CI_COMMIT_REF_NAME') }
+    let!(:production_action) { create(:ci_build, :manual, name: 'production', pipeline: pipeline, environment: 'production') }
 
     it 'returns a list of actions with matching environment' do
       expect(environment.actions_for('review/master')).to contain_exactly(review_action)
@@ -698,10 +1166,37 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
       context 'when there is a deployment record with success status' do
         let!(:deployment) { create(:deployment, :success, environment: environment) }
+        let!(:old_deployment) { create(:deployment, :success, environment: environment, finished_at: 2.days.ago) }
 
         it 'returns the latest successful deployment' do
           is_expected.to eq(deployment)
         end
+
+        it 'returns the deployment with the latest finished_at' do
+          expect(old_deployment.finished_at < deployment.finished_at).to be_truthy
+
+          is_expected.to eq(deployment)
+        end
+      end
+    end
+  end
+
+  describe 'Last deployment relations' do
+    Deployment::FINISHED_STATUSES.each do |status|
+      it "returns the last #{status} deployment" do
+        create(:deployment, status.to_sym, environment: environment, finished_at: 1.day.ago)
+        expected = create(:deployment, status.to_sym, environment: environment, finished_at: Time.current)
+
+        expect(environment.public_send(:"last_#{status}_deployment")).to eq(expected)
+      end
+    end
+
+    Deployment::UPCOMING_STATUSES.each do |status|
+      it "returns the last #{status} deployment" do
+        create(:deployment, status.to_sym, environment: environment)
+        expected = create(:deployment, status.to_sym, environment: environment)
+
+        expect(environment.public_send(:"last_#{status}_deployment")).to eq(expected)
       end
     end
   end
@@ -773,178 +1268,114 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
   describe '#last_visible_deployable' do
     subject { environment.last_visible_deployable }
 
-    context 'does not join across databases' do
-      let(:pipeline_a) { create(:ci_pipeline, project: project) }
-      let(:pipeline_b) { create(:ci_pipeline, project: project) }
-      let(:ci_build_a) { create(:ci_build, project: project, pipeline: pipeline_a) }
-      let(:ci_build_b) { create(:ci_build, project: project, pipeline: pipeline_b) }
-
-      before do
-        create(:deployment, :success, project: project, environment: environment, deployable: ci_build_a)
-        create(:deployment, :failed, project: project, environment: environment, deployable: ci_build_b)
-      end
-
-      it 'for direct call' do
-        with_cross_joins_prevented do
-          expect(subject.id).to eq(ci_build_b.id)
-        end
-      end
-
-      it 'for preload' do
-        environment.reload
-
-        with_cross_joins_prevented do
-          ActiveRecord::Associations::Preloader.new.preload(environment, [last_visible_deployable: []])
-          expect(subject.id).to eq(ci_build_b.id)
-        end
-      end
+    let!(:deployment) do
+      create(:deployment, :success, project: project, environment: environment, deployable: deployable)
     end
 
-    context 'call after preload' do
-      it 'fetches from association cache' do
-        pipeline = create(:ci_pipeline, project: project)
-        ci_build = create(:ci_build, project: project, pipeline: pipeline)
-        create(:deployment, :failed, project: project, environment: environment, deployable: ci_build)
+    let!(:deployable) { create(:ci_build, :success, project: project) }
 
-        environment.reload
-        ActiveRecord::Associations::Preloader.new.preload(environment, [last_visible_deployable: []])
-
-        query_count = ActiveRecord::QueryRecorder.new do
-          expect(subject.id).to eq(ci_build.id)
-        end.count
-
-        expect(query_count).to eq(0)
-      end
+    it 'fetches the deployable through the last visible deployment' do
+      is_expected.to eq(deployable)
     end
   end
 
   describe '#last_visible_pipeline' do
-    let(:user) { create(:user) }
-    let_it_be(:project) { create(:project, :repository) }
+    subject { environment.last_visible_pipeline }
 
-    let(:environment) { create(:environment, project: project) }
-    let(:commit) { project.commit }
-
-    let(:success_pipeline) do
-      create(:ci_pipeline, :success, project: project, user: user, sha: commit.sha)
+    let!(:deployment) do
+      create(:deployment, :success, project: project, environment: environment, deployable: deployable)
     end
 
-    let(:failed_pipeline) do
-      create(:ci_pipeline, :failed, project: project, user: user, sha: commit.sha)
+    let!(:deployable) { create(:ci_build, :success, project: project, pipeline: pipeline) }
+    let!(:pipeline) { create(:ci_pipeline, :success, project: project) }
+
+    it 'fetches the pipeline through the last visible deployment' do
+      is_expected.to eq(pipeline)
+    end
+  end
+
+  describe '#last_finished_deployment' do
+    using RSpec::Parameterized::TableSyntax
+
+    subject { environment.last_finished_deployment }
+
+    before do
+      allow_any_instance_of(Deployment).to receive(:create_ref)
     end
 
-    it 'uses the last deployment even if it failed' do
-      pipeline = create(:ci_pipeline, project: project, user: user, sha: commit.sha)
-      ci_build = create(:ci_build, project: project, pipeline: pipeline)
-      create(:deployment, :failed, project: project, environment: environment, deployable: ci_build, sha: commit.sha)
+    where(:finished_status) { [:success, :failed, :canceled] }
 
-      last_pipeline = environment.last_visible_pipeline
-
-      expect(last_pipeline).to eq(pipeline)
-    end
-
-    it 'returns nil if there is no deployment' do
-      create(:ci_build, project: project, pipeline: success_pipeline)
-
-      expect(environment.last_visible_pipeline).to be_nil
-    end
-
-    it 'does not return an invisible pipeline' do
-      failed_pipeline = create(:ci_pipeline, project: project, user: user, sha: commit.sha)
-      ci_build_a = create(:ci_build, project: project, pipeline: failed_pipeline)
-      create(:deployment, :failed, project: project, environment: environment, deployable: ci_build_a, sha: commit.sha)
-      pipeline = create(:ci_pipeline, project: project, user: user, sha: commit.sha)
-      ci_build_b = create(:ci_build, project: project, pipeline: pipeline)
-      create(:deployment, :created, project: project, environment: environment, deployable: ci_build_b, sha: commit.sha)
-
-      last_pipeline = environment.last_visible_pipeline
-
-      expect(last_pipeline).to eq(failed_pipeline)
-    end
-
-    context 'does not join across databases' do
-      let(:pipeline_a) { create(:ci_pipeline, project: project) }
-      let(:pipeline_b) { create(:ci_pipeline, project: project) }
-      let(:ci_build_a) { create(:ci_build, project: project, pipeline: pipeline_a) }
-      let(:ci_build_b) { create(:ci_build, project: project, pipeline: pipeline_b) }
-
-      before do
-        create(:deployment, :success, project: project, environment: environment, deployable: ci_build_a)
-        create(:deployment, :failed, project: project, environment: environment, deployable: ci_build_b)
+    with_them do
+      let!(:finished_deployment) do
+        create(:deployment, finished_status, environment: environment)
       end
 
-      subject { environment.last_visible_pipeline }
+      context 'when latest deployment is not finished' do
+        let!(:latest_deployment) { create(:deployment, :running, environment: environment) }
 
-      it 'for direct call' do
-        with_cross_joins_prevented do
-          expect(subject.id).to eq(pipeline_b.id)
+        it 'returns the previous finished deployment' do
+          is_expected.to eq(finished_deployment)
         end
       end
 
-      it 'for preload' do
-        environment.reload
-
-        with_cross_joins_prevented do
-          ActiveRecord::Associations::Preloader.new.preload(environment, [last_visible_pipeline: []])
-          expect(subject.id).to eq(pipeline_b.id)
+      context 'when latest deployment is finished' do
+        it 'returns the finished deployment' do
+          is_expected.to eq(finished_deployment)
         end
       end
     end
+  end
 
-    context 'for the environment' do
-      it 'returns the last pipeline' do
-        pipeline = create(:ci_pipeline, project: project, user: user, sha: commit.sha)
-        ci_build = create(:ci_build, project: project, pipeline: pipeline)
-        create(:deployment, :success, project: project, environment: environment, deployable: ci_build, sha: commit.sha)
+  describe '#last_finished_deployable' do
+    subject { environment.last_finished_deployable }
 
-        last_pipeline = environment.last_visible_pipeline
-
-        expect(last_pipeline).to eq(pipeline)
-      end
-
-      context 'with multiple deployments' do
-        it 'returns the last pipeline' do
-          pipeline_a = create(:ci_pipeline, project: project, user: user)
-          pipeline_b = create(:ci_pipeline, project: project, user: user)
-          ci_build_a = create(:ci_build, project: project, pipeline: pipeline_a)
-          ci_build_b = create(:ci_build, project: project, pipeline: pipeline_b)
-          create(:deployment, :success, project: project, environment: environment, deployable: ci_build_a)
-          create(:deployment, :success, project: project, environment: environment, deployable: ci_build_b)
-
-          last_pipeline = environment.last_visible_pipeline
-
-          expect(last_pipeline).to eq(pipeline_b)
-        end
-      end
-
-      context 'with multiple pipelines' do
-        it 'returns the last pipeline' do
-          create(:ci_build, project: project, pipeline: success_pipeline)
-          ci_build_b = create(:ci_build, project: project, pipeline: failed_pipeline)
-          create(:deployment, :failed, project: project, environment: environment, deployable: ci_build_b, sha: commit.sha)
-
-          last_pipeline = environment.last_visible_pipeline
-
-          expect(last_pipeline).to eq(failed_pipeline)
-        end
-      end
+    let!(:deployment) do
+      create(:deployment, :canceled, project: project, environment: environment, deployable: deployable)
     end
 
-    context 'call after preload' do
-      it 'fetches from association cache' do
-        pipeline = create(:ci_pipeline, project: project)
-        ci_build = create(:ci_build, project: project, pipeline: pipeline)
-        create(:deployment, :failed, project: project, environment: environment, deployable: ci_build)
+    let!(:deployable) { create(:ci_build, :canceled, project: project) }
 
-        environment.reload
-        ActiveRecord::Associations::Preloader.new.preload(environment, [last_visible_pipeline: []])
+    it 'fetches the deployable through the last finished deployment' do
+      is_expected.to eq(deployable)
+    end
+  end
 
-        query_count = ActiveRecord::QueryRecorder.new do
-          expect(environment.last_visible_pipeline.id).to eq(pipeline.id)
-        end.count
+  describe '#last_finished_pipeline' do
+    subject { environment.last_finished_pipeline }
 
-        expect(query_count).to eq(0)
-      end
+    let!(:deployment) do
+      create(:deployment, :canceled, project: project, environment: environment, deployable: deployable)
+    end
+
+    let!(:deployable) { create(:ci_build, :canceled, project: project, pipeline: pipeline) }
+    let!(:pipeline) { create(:ci_pipeline, :canceled, project: project) }
+
+    it 'fetches the pipeline through the last finished deployment' do
+      is_expected.to eq(pipeline)
+    end
+  end
+
+  describe '#latest_finished_jobs' do
+    subject { environment.latest_finished_jobs }
+
+    let(:pipeline_a) { create(:ci_pipeline, project: project) }
+    let(:pipeline_b) { create(:ci_pipeline, project: project) }
+    let(:ci_build_a_1) { create(:ci_build, :success, project: project, pipeline: pipeline_a) }
+    let(:ci_build_a_2) { create(:ci_build, :failed, project: project, pipeline: pipeline_a) }
+    let(:ci_build_a_3) { create(:ci_build, :canceled, project: project, pipeline: pipeline_a) }
+    let(:ci_build_a_4) { create(:ci_build, :running, project: project, pipeline: pipeline_a) }
+    let(:ci_build_b_1) { create(:ci_build, :running, project: project, pipeline: pipeline_b) }
+
+    before do
+      create(:deployment, :success, project: project, environment: environment, deployable: ci_build_a_1)
+      create(:deployment, :failed, project: project, environment: environment, deployable: ci_build_a_2)
+      create(:deployment, :canceled, project: project, environment: environment, deployable: ci_build_a_3)
+      create(:deployment, :running, project: project, environment: environment, deployable: ci_build_a_4)
+      create(:deployment, :running, project: project, environment: environment, deployable: ci_build_b_1)
+    end
+
+    it 'fetches the latest finished jobs through the last pipeline with a finished deployment' do
+      is_expected.to contain_exactly(ci_build_a_1, ci_build_a_2, ci_build_a_3)
     end
   end
 
@@ -1007,8 +1438,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
   describe '#deployment_platform' do
     context 'when there is a deployment platform for environment' do
       let!(:cluster) do
-        create(:cluster, :provided_by_gcp,
-               environment_scope: '*', projects: [project])
+        create(:cluster, :provided_by_gcp, environment_scope: '*', projects: [project])
       end
 
       it 'finds a deployment platform' do
@@ -1080,7 +1510,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
 
     context 'reactive cache has pod data' do
-      let(:cache_data) { Hash(pods: %w(pod1 pod2)) }
+      let(:cache_data) { Hash(pods: %w[pod1 pod2]) }
 
       before do
         stub_reactive_cache(environment, cache_data)
@@ -1109,9 +1539,9 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
     it 'returns cache data from the deployment platform' do
       expect(environment.deployment_platform).to receive(:calculate_reactive_cache_for)
-        .with(environment).and_return(pods: %w(pod1 pod2))
+        .with(environment).and_return(pods: %w[pod1 pod2])
 
-      is_expected.to eq(pods: %w(pod1 pod2))
+      is_expected.to eq(pods: %w[pod1 pod2])
     end
 
     context 'environment does not have terminals available' do
@@ -1136,7 +1566,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
     context 'when the environment is available' do
       context 'with a deployment service' do
-        let(:project) { create(:prometheus_project, :repository) }
+        let_it_be(:project) { create(:project, :with_prometheus_integration, :repository) }
 
         context 'and a deployment' do
           let!(:deployment) { create(:deployment, environment: environment) }
@@ -1209,7 +1639,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
 
     context 'when the environment is unavailable' do
-      let(:project) { create(:prometheus_project) }
+      let_it_be(:project) { create(:project, :with_prometheus_integration) }
 
       before do
         environment.stop
@@ -1235,44 +1665,8 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
   end
 
-  describe '#metrics' do
-    let(:project) { create(:prometheus_project) }
-
-    subject { environment.metrics }
-
-    context 'when the environment has metrics' do
-      before do
-        allow(environment).to receive(:has_metrics?).and_return(true)
-      end
-
-      it 'returns the metrics from the deployment service' do
-        expect(environment.prometheus_adapter)
-          .to receive(:query).with(:environment, environment)
-          .and_return(:fake_metrics)
-
-        is_expected.to eq(:fake_metrics)
-      end
-
-      context 'and the prometheus client is not present' do
-        before do
-          allow(environment.prometheus_adapter).to receive(:promethus_client).and_return(nil)
-        end
-
-        it { is_expected.to be_nil }
-      end
-    end
-
-    context 'when the environment does not have metrics' do
-      before do
-        allow(environment).to receive(:has_metrics?).and_return(false)
-      end
-
-      it { is_expected.to be_nil }
-    end
-  end
-
   describe '#additional_metrics' do
-    let(:project) { create(:prometheus_project) }
+    let_it_be(:project) { create(:project, :with_prometheus_integration) }
     let(:metric_params) { [] }
 
     subject { environment.additional_metrics(*metric_params) }
@@ -1409,20 +1803,18 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
 
     context 'environment has a deployment' do
-      let!(:deployment) { create(:deployment, :success, environment: environment, cluster: cluster) }
-
       context 'with no cluster associated' do
-        let(:cluster) { nil }
+        let!(:deployment) { create(:deployment, :success, environment: environment) }
 
         it { is_expected.to be_nil }
       end
 
       context 'with a cluster associated' do
-        let(:cluster) { create(:cluster) }
+        let!(:deployment) { create(:deployment, :success, :on_cluster, environment: environment) }
 
         it 'calls the service finder' do
           expect(Clusters::KnativeServicesFinder).to receive(:new)
-            .with(cluster, environment).and_return(:finder)
+            .with(deployment.cluster, environment).and_return(:finder)
 
           is_expected.to eq :finder
         end
@@ -1456,22 +1848,36 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     where(:value, :expected_result) do
       '2 days'   | 2.days.to_i
       '1 week'   | 1.week.to_i
-      '2h20min'  | 2.hours.to_i + 20.minutes.to_i
+      '2h20min'  | (2.hours.to_i + 20.minutes.to_i)
       'abcdef'   | ChronicDuration::DurationParseError
       ''         | nil
       nil        | nil
+      'never'    | nil
     end
-    with_them do
-      it 'sets correct auto_stop_in' do
-        freeze_time do
-          if expected_result.is_a?(Integer) || expected_result.nil?
-            subject
 
-            expect(environment.auto_stop_in).to eq(expected_result)
-          else
-            expect { subject }.to raise_error(expected_result)
+    with_them do
+      shared_examples 'for given values expected result is set' do
+        it do
+          freeze_time do
+            if expected_result.is_a?(Integer) || expected_result.nil?
+              subject
+
+              expect(environment.auto_stop_in).to eq(expected_result)
+            else
+              expect { subject }.to raise_error(expected_result)
+            end
           end
         end
+      end
+
+      context 'new assignment sets correct auto_stop_in' do
+        include_examples 'for given values expected result is set'
+      end
+
+      context 'resets older value' do
+        let(:environment) { create(:environment, auto_stop_at: 1.day.since.round) }
+
+        include_examples 'for given values expected result is set'
       end
     end
   end
@@ -1499,25 +1905,6 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
   end
 
-  describe '#elastic_stack_available?' do
-    let!(:cluster) { create(:cluster, :project, :provided_by_user, projects: [project]) }
-    let!(:deployment) { create(:deployment, :success, environment: environment, project: project, cluster: cluster) }
-
-    context 'when integration does not exist' do
-      it 'returns false' do
-        expect(environment.elastic_stack_available?).to be(false)
-      end
-    end
-
-    context 'when integration is enabled' do
-      let!(:integration) { create(:clusters_integrations_elastic_stack, cluster: cluster) }
-
-      it 'returns true' do
-        expect(environment.elastic_stack_available?).to be(true)
-      end
-    end
-  end
-
   describe '#destroy' do
     it 'remove the deployment refs from gitaly' do
       deployment = create(:deployment, :success, environment: environment, project: project)
@@ -1534,17 +1921,17 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
       let!(:environment3) { create(:environment, project: project, state: 'stopped') }
 
       it 'returns the environments count grouped by state' do
-        expect(project.environments.count_by_state).to eq({ stopped: 2, available: 1 })
+        expect(project.environments.count_by_state).to eq({ stopped: 2, available: 1, stopping: 0 })
       end
 
       it 'returns the environments count grouped by state with zero value' do
         environment2.update!(state: 'stopped')
-        expect(project.environments.count_by_state).to eq({ stopped: 3, available: 0 })
+        expect(project.environments.count_by_state).to eq({ stopped: 3, available: 0, stopping: 0 })
       end
     end
 
     it 'returns zero state counts when environments are empty' do
-      expect(project.environments.count_by_state).to eq({ stopped: 0, available: 0 })
+      expect(project.environments.count_by_state).to eq({ stopped: 0, available: 0, stopping: 0 })
     end
   end
 
@@ -1577,13 +1964,23 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:environment, reload: true) { create(:environment, project: project) }
 
-    let!(:deployment) { create(:deployment, project: project, environment: environment, deployable: build) }
-    let!(:build) { create(:ci_build, :running, project: project, environment: environment) }
+    let!(:deployment) { create(:deployment, project: project, environment: environment, deployable: job) }
+    let!(:job) { create(:ci_build, :running, project: project, environment: environment) }
 
     it 'cancels an active deployment job' do
       subject
 
-      expect(build.reset).to be_canceled
+      expect(job.reset).to be_canceled
+    end
+
+    context 'when deployment job is bridge' do
+      let!(:job) { create(:ci_bridge, :running, project: project, environment: environment) }
+
+      it 'does not cancel an active deployment job' do
+        subject
+
+        expect(job.reset).to be_running
+      end
     end
 
     context 'when deployable does not exist' do
@@ -1594,7 +1991,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
       it 'does not raise an error' do
         expect { subject }.not_to raise_error
 
-        expect(build.reset).to be_running
+        expect(job.reset).to be_running
       end
     end
   end
@@ -1615,8 +2012,8 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
     end
 
     context 'cached rollout status is present' do
-      let(:pods) { %w(pod1 pod2) }
-      let(:deployments) { %w(deployment1 deployment2) }
+      let(:pods) { %w[pod1 pod2] }
+      let(:deployments) { %w[deployment1 deployment2] }
 
       before do
         stub_reactive_cache(environment, pods: pods, deployments: deployments)
@@ -1624,7 +2021,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
       it 'fetches the rollout status from the deployment platform' do
         expect(environment.deployment_platform).to receive(:rollout_status)
-          .with(environment, pods: pods, deployments: deployments)
+          .with(environment, { pods: pods, deployments: deployments })
           .and_return(:mock_rollout_status)
 
         is_expected.to eq(:mock_rollout_status)
@@ -1761,6 +2158,61 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching do
 
         it { is_expected.to eq(true) }
       end
+    end
+  end
+
+  describe '#deploy_freezes' do
+    let(:environment) { create(:environment, project: project, name: 'staging') }
+    let(:freeze_period) { create(:ci_freeze_period, project: project) }
+
+    subject { environment.deploy_freezes }
+
+    it 'returns the freeze periods of the associated project' do
+      expect(subject).to contain_exactly(freeze_period)
+    end
+
+    it 'caches the freeze periods' do
+      expect(Gitlab::SafeRequestStore).to receive(:fetch)
+        .at_least(:once)
+        .and_return([freeze_period])
+
+      subject
+    end
+  end
+
+  describe '#deployed_and_updated_before' do
+    subject do
+      described_class.deployed_and_updated_before(project_id, before)
+    end
+
+    let(:project_id) { project.id }
+    let(:before) { 1.week.ago.to_date.to_s }
+    let(:environment) { create(:environment, project: project, updated_at: 2.weeks.ago) }
+    let!(:stale_deployment) { create(:deployment, environment: environment, updated_at: 2.weeks.ago) }
+
+    it 'excludes environments with recent deployments' do
+      create(:deployment, environment: environment, updated_at: Date.current)
+
+      is_expected.to match_array([])
+    end
+
+    it 'includes environments with no deployments' do
+      environment1 = create(:environment, project: project, updated_at: 2.weeks.ago)
+
+      is_expected.to match_array([environment, environment1])
+    end
+
+    it 'excludes environments that have been recently updated with no deployments' do
+      create(:environment, project: project)
+
+      is_expected.to match_array([environment])
+    end
+
+    it 'excludes environments that have been recently updated with stale deployments' do
+      environment1 = create(:environment, project: project)
+      create(:deployment, environment: environment1, updated_at: 2.weeks.ago)
+
+      is_expected.to match_array([environment])
     end
   end
 end

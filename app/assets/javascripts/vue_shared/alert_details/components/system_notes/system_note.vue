@@ -1,5 +1,6 @@
 <script>
-import { GlIcon, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlIcon } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import NoteHeader from '~/notes/components/note_header.vue';
 
 export default {
@@ -8,7 +9,7 @@ export default {
     GlIcon,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   props: {
     note: {
@@ -32,10 +33,14 @@ export default {
 </script>
 
 <template>
-  <li :id="noteAnchorId" class="timeline-entry note system-note note-wrapper gl-p-0!">
-    <div class="gl-display-inline-flex gl-align-items-center">
+  <li
+    :id="noteAnchorId"
+    class="timeline-entry note system-note note-wrapper gl-p-0!"
+    data-testid="alert-system-note-container"
+  >
+    <div class="gl-inline-flex gl-align-items-center gl-relative">
       <div
-        class="gl-display-inline gl-bg-white gl-text-gray-200 gl-border-gray-100 gl-border-1 gl-border-solid gl-rounded-full gl-box-sizing-content-box gl-p-3 gl-mt-n2 gl-mr-6"
+        class="gl-display-inline gl-bg-white gl-text-gray-200 gl-border-gray-100 gl-border-1 gl-border-solid gl-rounded-full gl-box-sizing-content-box gl-p-3 -gl-mt-2 gl-mr-6"
       >
         <gl-icon :name="note.systemNoteIconName" />
       </div>

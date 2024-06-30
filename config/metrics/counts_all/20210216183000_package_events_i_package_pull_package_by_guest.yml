@@ -1,16 +1,19 @@
 ---
-data_category: optional
+data_category: operational
 key_path: counts.package_events_i_package_pull_package_by_guest
 description: A count of packages that have been downloaded from the package registry
   by a guest
-product_section: ops
-product_stage: package
-product_group: group::package
-product_category: package registry
+product_group: package_registry
 value_type: number
 status: active
 time_frame: all
 data_source: redis
+instrumentation_class: RedisMetric
+options:
+  prefix: package_events
+  event: i_package_pull_package_by_guest
+events:
+  - name: package_pulled_by_guest
 distribution:
 - ee
 - ce
@@ -18,5 +21,6 @@ tier:
 - free
 - premium
 - ultimate
-performance_indicator_type: []
+performance_indicator_type:
+- customer_health_score
 milestone: "<13.9"

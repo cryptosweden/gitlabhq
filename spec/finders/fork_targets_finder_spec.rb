@@ -2,48 +2,87 @@
 
 require 'spec_helper'
 
-RSpec.describe ForkTargetsFinder do
+RSpec.describe ForkTargetsFinder, feature_category: :source_code_management do
   subject(:finder) { described_class.new(project, user) }
 
-  let(:project) { create(:project, namespace: create(:group)) }
-  let(:user) { create(:user) }
-  let!(:maintained_group) do
-    create(:group).tap { |g| g.add_maintainer(user) }
+  let_it_be(:project) { create(:project, namespace: create(:group)) }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:maintained_group) do
+    create(:group, maintainers: user)
   end
 
-  let!(:owned_group) do
-    create(:group).tap { |g| g.add_owner(user) }
+  let_it_be(:owned_group) do
+    create(:group, owners: user)
   end
 
-  let!(:developer_group) do
+  let_it_be(:developer_group) do
     create(:group, project_creation_level: ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS).tap do |g|
       g.add_developer(user)
     end
   end
 
-  let!(:reporter_group) do
-    create(:group).tap { |g| g.add_reporter(user) }
+  let_it_be(:reporter_group) do
+    create(:group, reporters: user)
   end
 
-  let!(:guest_group) do
-    create(:group).tap { |g| g.add_guest(user) }
+  let_it_be(:guest_group) do
+    create(:group, guests: user)
+  end
+
+  let_it_be(:shared_group_to_group_with_owner_access) do
+    create(:group)
   end
 
   before do
     project.namespace.add_owner(user)
+    create(:group_group_link, :maintainer,
+      shared_with_group: owned_group,
+      shared_group: shared_group_to_group_with_owner_access
+    )
   end
 
-  describe '#execute' do
+  shared_examples 'returns namespaces and groups' do
     it 'returns all user manageable namespaces' do
-      expect(finder.execute).to match_array([user.namespace, maintained_group, owned_group, project.namespace, developer_group])
+      expect(finder.execute).to match_array([
+        user.namespace,
+        maintained_group,
+        owned_group,
+        project.namespace,
+        developer_group,
+        shared_group_to_group_with_owner_access
+      ])
     end
 
     it 'returns only groups when only_groups option is passed' do
-      expect(finder.execute(only_groups: true)).to match_array([maintained_group, owned_group, project.namespace, developer_group])
+      expect(finder.execute(only_groups: true)).to match_array([
+        maintained_group,
+        owned_group,
+        project.namespace,
+        developer_group,
+        shared_group_to_group_with_owner_access
+      ])
     end
 
     it 'returns groups relation when only_groups option is passed' do
       expect(finder.execute(only_groups: true)).to include(a_kind_of(Group))
+    end
+  end
+
+  describe '#execute' do
+    it_behaves_like 'returns namespaces and groups'
+
+    context 'when search is provided' do
+      it 'filters the targets by the param' do
+        expect(finder.execute(search: maintained_group.path)).to eq([maintained_group])
+      end
+
+      context 'when searching by a full path' do
+        let_it_be(:subgroup) { create(:group, :nested, parent: maintained_group) }
+
+        it 'returns a group for an exact match' do
+          expect(finder.execute(search: subgroup.full_path)).to eq([subgroup])
+        end
+      end
     end
   end
 end

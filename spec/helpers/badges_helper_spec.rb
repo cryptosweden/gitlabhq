@@ -33,7 +33,7 @@ RSpec.describe BadgesHelper do
     end
 
     it 'adds custom classes' do
-      expect(helper.gl_badge_tag(label, nil, class: "test-class" )).to match(%r{class=".*test-class.*"})
+      expect(helper.gl_badge_tag(label, nil, class: "test-class")).to match(%r{class=".*test-class.*"})
     end
 
     describe 'variants' do
@@ -89,16 +89,16 @@ RSpec.describe BadgesHelper do
     end
 
     describe 'icons' do
-      let(:spacing_class_regex) { %r{<svg .*class=".*gl-mr-2.*".*>.*</svg>} }
+      let(:spacing_class_regex) { %r{<svg .*class=".*my-icon-class gl-mr-2".*>.*</svg>} }
 
       describe 'with text' do
-        subject { helper.gl_badge_tag(label, icon: "question-o") }
+        subject { helper.gl_badge_tag(label, icon: "question-o", icon_classes: 'my-icon-class') }
 
         it 'renders an icon' do
           expect(subject).to match(%r{<svg .*#question-o".*>.*</svg>})
         end
 
-        it 'adds a spacing class to the icon' do
+        it 'adds a spacing class and any custom classes to the icon' do
           expect(subject).to match(spacing_class_regex)
         end
       end

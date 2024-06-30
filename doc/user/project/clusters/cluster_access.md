@@ -1,13 +1,14 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Access controls with cluster certificates (RBAC or ABAC) (DEPRECATED) **(FREE)**
+# Access controls with cluster certificates (RBAC or ABAC) (deprecated)
 
-> - Restricted service account for deployment was [introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/51716) in GitLab 11.5.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
@@ -28,7 +29,7 @@ Helm also creates additional service accounts and other resources for each
 installed application. Consult the documentation of the Helm charts for each application
 for details.
 
-If you are [adding an existing Kubernetes cluster](add_remove_clusters.md#add-existing-cluster),
+If you are [adding an existing Kubernetes cluster](add_existing_cluster.md),
 ensure the token of the account has administrator privileges for the cluster.
 
 The resources created by GitLab differ depending on the type of cluster.
@@ -49,16 +50,12 @@ GitLab creates the following resources for RBAC clusters.
 | Name                  | Type                 | Details                                                                                                    | Created when           |
 |:----------------------|:---------------------|:-----------------------------------------------------------------------------------------------------------|:-----------------------|
 | `gitlab`              | `ServiceAccount`     | `default` namespace                                                                                        | Creating a new cluster |
-| `gitlab-admin`        | `ClusterRoleBinding` | [`cluster-admin`](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles) roleRef | Creating a new cluster |
+| `gitlab-admin`        | `ClusterRoleBinding` | [`cluster-admin`](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles) role    | Creating a new cluster |
 | `gitlab-token`        | `Secret`             | Token for `gitlab` ServiceAccount                                                                          | Creating a new cluster |
 | Environment namespace | `Namespace`          | Contains all environment-specific resources                                                                | Deploying to a cluster |
 | Environment namespace | `ServiceAccount`     | Uses namespace of environment                                                                              | Deploying to a cluster |
 | Environment namespace | `Secret`             | Token for environment ServiceAccount                                                                       | Deploying to a cluster |
-| Environment namespace | `RoleBinding`        | [`admin`](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles) roleRef         | Deploying to a cluster |
-
-The environment namespace `RoleBinding` was
-[updated](https://gitlab.com/gitlab-org/gitlab/-/issues/31113) in GitLab 13.6
-to `admin` roleRef. Previously, the `edit` roleRef was used.
+| Environment namespace | `RoleBinding`        | [`admin`](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles) role            | Deploying to a cluster |
 
 ## ABAC cluster resources
 
@@ -88,5 +85,5 @@ arbitrary images as they effectively have root access.
 
 If you don't want to use a runner in privileged mode, either:
 
-- Use shared runners on GitLab.com. They don't have this security issue.
+- Use instance runners on GitLab.com. They don't have this security issue.
 - Set up your own runners that use [`docker+machine`](https://docs.gitlab.com/runner/executors/docker_machine.html).

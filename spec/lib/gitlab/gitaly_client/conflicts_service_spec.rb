@@ -14,6 +14,17 @@ RSpec.describe Gitlab::GitalyClient::ConflictsService do
     described_class.new(target_repository, our_commit_oid, their_commit_oid)
   end
 
+  describe '#conflicts' do
+    subject(:conflicts) { client.conflicts? }
+
+    it 'calls list_conflict_files with no parameters' do
+      expect_any_instance_of(described_class).to receive(:list_conflict_files)
+          .and_return(["let's pretend i'm a conflicted file"])
+
+      conflicts
+    end
+  end
+
   describe '#list_conflict_files' do
     let(:allow_tree_conflicts) { false }
     let(:request) do

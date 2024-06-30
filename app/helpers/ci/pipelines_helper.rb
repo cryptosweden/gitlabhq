@@ -4,28 +4,6 @@ module Ci
   module PipelinesHelper
     include Gitlab::Ci::Warnings
 
-    def pipeline_warnings(pipeline)
-      return unless pipeline.warning_messages.any?
-
-      total_warnings = pipeline.warning_messages.length
-      message = warning_header(total_warnings)
-
-      content_tag(:div, class: 'bs-callout bs-callout-warning') do
-        content_tag(:details) do
-          concat content_tag(:summary, message, class: 'gl-mb-2')
-          warning_markdown(pipeline) { |markdown| concat markdown }
-        end
-      end
-    end
-
-    def warning_header(count)
-      message = _("%{total_warnings} warning(s) found:") % { total_warnings: count }
-
-      return message unless count > MAX_LIMIT
-
-      _("%{message} showing first %{warnings_displayed}") % { message: message, warnings_displayed: MAX_LIMIT }
-    end
-
     def has_gitlab_ci?(project)
       project.has_ci? && project.builds_enabled?
     end
@@ -40,17 +18,18 @@ module Ci
         { name: 'Crystal', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/crystal.svg') },
         { name: 'Dart', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/dart.svg') },
         { name: 'Django', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/django.svg') },
-        { name: 'Docker', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/docker.svg') },
+        { name: 'Docker', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/docker.png') },
         { name: 'Elixir', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/elixir.svg') },
-        { name: 'iOS-Fastlane', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/fastlane.svg') },
+        { name: 'iOS-Fastlane', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/fastlane.svg'), title: 'iOS with Fastlane' },
         { name: 'Flutter', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/flutter.svg') },
         { name: 'Go', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/go_logo.svg') },
         { name: 'Gradle', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/gradle.svg') },
         { name: 'Grails', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/grails.svg') },
-        { name: 'dotNET', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/dotnet.svg') },
+        { name: 'dotNET', logo: image_path('illustrations/third-party-logos/dotnet.svg') },
         { name: 'Julia', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/julia.svg') },
         { name: 'Laravel', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/laravel.svg') },
         { name: 'LaTeX', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/latex.svg') },
+        { name: 'MATLAB', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/matlab.svg') },
         { name: 'Maven', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/maven.svg') },
         { name: 'Mono', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/mono.svg') },
         { name: 'Nodejs', logo: image_path('illustrations/third-party-logos/ci_cd-template-logos/node_js.svg') },
@@ -67,31 +46,17 @@ module Ci
       ]
     end
 
-    def has_pipeline_badges?(pipeline)
-      pipeline.child? ||
-        pipeline.latest? ||
-        pipeline.merge_train_pipeline? ||
-        pipeline.has_yaml_errors? ||
-        pipeline.failure_reason? ||
-        pipeline.auto_devops_source? ||
-        pipeline.detached_merge_request_pipeline? ||
-        pipeline.stuck?
-    end
-
     def pipelines_list_data(project, list_url)
       artifacts_endpoint_placeholder = ':pipeline_artifacts_id'
 
-      data = {
+      {
         endpoint: list_url,
         project_id: project.id,
         default_branch_name: project.default_branch,
         params: params.to_json,
         artifacts_endpoint: downloadable_artifacts_project_pipeline_path(project, artifacts_endpoint_placeholder, format: :json),
         artifacts_endpoint_placeholder: artifacts_endpoint_placeholder,
-        pipeline_schedule_url: pipeline_schedules_path(project),
-        empty_state_svg_path: image_path('illustrations/pipelines_empty.svg'),
-        error_state_svg_path: image_path('illustrations/pipelines_failed.svg'),
-        no_pipelines_svg_path: image_path('illustrations/pipelines_pending.svg'),
+        pipeline_schedules_path: pipeline_schedules_path(project),
         can_create_pipeline: can?(current_user, :create_pipeline, project).to_s,
         new_pipeline_path: can?(current_user, :create_pipeline, project) && new_project_pipeline_path(project),
         ci_lint_path: can?(current_user, :create_pipeline, project) && project_ci_lint_path(project),
@@ -99,22 +64,42 @@ module Ci
         has_gitlab_ci: has_gitlab_ci?(project).to_s,
         pipeline_editor_path: can?(current_user, :create_pipeline, project) && project_ci_pipeline_editor_path(project),
         suggested_ci_templates: suggested_ci_templates.to_json,
-        ci_runner_settings_path: project_settings_ci_cd_path(project, ci_runner_templates: true, anchor: 'js-runners-settings')
+        full_path: project.full_path,
+        visibility_pipeline_id_type: visibility_pipeline_id_type,
+        show_jenkins_ci_prompt: show_jenkins_ci_prompt(project).to_s
       }
+    end
 
-      experiment(:runners_availability_section, namespace: project.root_ancestor) do |e|
-        e.candidate { data[:any_runners_available] = project.active_runners.exists?.to_s }
-      end
+    def visibility_pipeline_id_type
+      return 'id' unless current_user.present?
 
-      data
+      current_user.user_preference.visibility_pipeline_id_type
+    end
+
+    def new_pipeline_data(project)
+      {
+        project_id: project.id,
+        pipelines_path: project_pipelines_path(project),
+        default_branch: project.default_branch,
+        pipelines_editor_path: project_ci_pipeline_editor_path(project),
+        can_view_pipeline_editor: can_view_pipeline_editor?(project),
+        ref_param: params[:ref] || project.default_branch,
+        var_param: params[:var].to_json,
+        file_param: params[:file_var].to_json,
+        project_path: project.full_path,
+        project_refs_endpoint: refs_project_path(project, sort: 'updated_desc'),
+        settings_link: project_settings_ci_cd_path(project),
+        max_warnings: ::Gitlab::Ci::Warnings::MAX_LIMIT
+      }
     end
 
     private
 
-    def warning_markdown(pipeline)
-      pipeline.warning_messages(limit: MAX_LIMIT).each do |warning|
-        yield markdown(warning.content)
-      end
+    def show_jenkins_ci_prompt(project)
+      return false unless can?(current_user, :create_pipeline, project)
+      return false if project.has_ci_config_file?
+
+      project.repository.jenkinsfile?
     end
   end
 end

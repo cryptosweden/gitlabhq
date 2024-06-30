@@ -1,14 +1,14 @@
 ---
-stage: Monitor
-group: Respond
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Systems
+group: Cloud Connector
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Performance bar **(FREE SELF)**
+# Performance bar
 
-> - The **Stats** field [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/271551) in GitLab 13.9.
-> - The **Memory** field [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/330736) in GitLab 14.0.
-> - The **Flamegraph** field [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/30275) in GitLab 14.4.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 You can display the performance bar to see statistics for the performance of a GitLab UI page.
 For example:
@@ -17,12 +17,14 @@ For example:
 
 ## Available information
 
+> - Rugged calls [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/421591) in GitLab 16.6.
+
 From left to right, the performance bar displays:
 
 - **Current Host**: the current host serving the page.
 - **Database queries**: the time taken (in milliseconds) and the total number
-  of database queries, displayed in the format `00ms / 00 (00 cached) pg`. Click to display
-  a modal window with more details. You can use this to see the following
+  of database queries, displayed in the format `00ms / 00 (00 cached) pg`. Select to display
+  a dialog with more details. You can use this to see the following
   details for each query:
   - **In a transaction**: shows up below the query if it was executed in
     the context of a transaction
@@ -35,26 +37,23 @@ From left to right, the performance bar displays:
     GitLab features. The name shown is the same name used to configure database
     connections in GitLab.
 - **Gitaly calls**: the time taken (in milliseconds) and the total number of
-  [Gitaly](../../gitaly/index.md) calls. Click to display a modal window with more
+  [Gitaly](../../gitaly/index.md) calls. Select to display a modal window with more
   details.
-- **Rugged calls**: the time taken (in milliseconds) and the total number of
-  [Rugged](../../nfs.md#improving-nfs-performance-with-gitlab) calls.
-  Click to display a modal window with more details.
 - **Redis calls**: the time taken (in milliseconds) and the total number of
-  Redis calls. Click to display a modal window with more details.
+  Redis calls. Select to display a modal window with more details.
 - **Elasticsearch calls**: the time taken (in milliseconds) and the total number of
-  Elasticsearch calls. Click to display a modal window with more details.
+  Elasticsearch calls. Select to display a modal window with more details.
 - **External HTTP calls**: the time taken (in milliseconds) and the total
-  number of external calls to other systems. Click to display a modal window
+  number of external calls to other systems. Select to display a modal window
   with more details.
 - **Load timings** of the page: if your browser supports load timings, several
   values in milliseconds, separated by slashes.
-  Click to display a modal window with more details. The values, from left to right:
+  Select to display a modal window with more details. The values, from left to right:
   - **Backend**: time needed for the base page to load.
-  - [**First Contentful Paint**](https://web.dev/first-contentful-paint/):
+  - [**First Contentful Paint**](https://developer.chrome.com/docs/lighthouse/performance/first-contentful-paint/):
     Time until something was visible to the user. Displays `NaN` if your browser does not
     support this feature.
-  - [**DomContentLoaded**](https://developers.google.com/web/fundamentals/performance/critical-rendering-path/measure-crp) Event.
+  - [**DomContentLoaded**](https://web.dev/articles/critical-rendering-path/measure-crp) Event.
   - **Total number of requests** the page loaded.
 - **Memory**: the amount of memory consumed and objects allocated during the selected request.
   Select it to display a window with more details.
@@ -76,12 +75,12 @@ From left to right, the performance bar displays:
   Performance Bar which enables you to view these metrics for any requests made while
   the current page was open. Only the first two requests per unique URL are captured.
 - **Stats** (optional): if the `GITLAB_PERFORMANCE_BAR_STATS_URL` environment variable is set,
-  this URL is displayed in the bar. In GitLab 13.9 and later, used only in GitLab SaaS.
+  this URL is displayed in the bar. Used only on GitLab.com.
 
 NOTE:
 Not all indicators are available in all environments. For instance, the memory view
 requires running Ruby with [specific patches](https://gitlab.com/gitlab-org/gitlab-build-images/-/blob/master/patches/ruby/2.7.4/thread-memory-allocations-2.7.patch)
-applied. When running GitLab locally using [GDK](../../../development/contributing/index.md#gitlab-development-kit),
+applied. When running GitLab locally using the [GDK](https://gitlab.com/gitlab-org/gitlab-development-kit),
 this is typically not the case and the memory view cannot be used.
 
 ## Keyboard shortcut
@@ -93,8 +92,6 @@ For non-administrators to display the performance bar, it must be
 [enabled for them](#enable-the-performance-bar-for-non-administrators).
 
 ## Request warnings
-
-> [Warning icon in the request selector removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/82187) in GitLab 14.9.
 
 Requests that exceed predefined limits display a warning **{warning}** icon and
 explanation next to the metric. In this example, the Gitaly call duration
@@ -108,11 +105,10 @@ The performance bar is disabled by default for non-administrators. To enable it
 for a given group:
 
 1. Sign in as a user with administrator access.
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Settings > Metrics and profiling**
-   (`admin/application_settings/metrics_and_profiling`), and expand
-   **Profiling - Performance bar**.
-1. Click **Allow non-administrators access to the performance bar**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Settings > Metrics and profiling**.
+1. Expand **Profiling - Performance bar**.
+1. Select **Allow non-administrators access to the performance bar**.
 1. In the **Allow access to members of the following group** field, provide the full path of the
    group allowed to access the performance.
-1. Click **Save changes**.
+1. Select **Save changes**.

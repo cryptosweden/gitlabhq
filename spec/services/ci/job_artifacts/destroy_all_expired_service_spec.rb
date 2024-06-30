@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_shared_state do
+RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_shared_state,
+  feature_category: :build_artifacts do
   include ExclusiveLeaseHelpers
 
   let(:service) { described_class.new }
@@ -31,39 +32,19 @@ RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_s
         end
 
         before do
-          stub_const("#{described_class}::LARGE_LOOP_LIMIT", 1)
+          stub_const("#{described_class}::LOOP_LIMIT", 1)
 
           # This artifact-with-file is created before the control execution to ensure
           # that the DeletedObject operations are accounted for in the query count.
           second_artifact
         end
 
-        context 'with ci_destroy_unlocked_job_artifacts feature flag disabled' do
-          before do
-            stub_feature_flags(ci_destroy_unlocked_job_artifacts: false)
-          end
+        it 'performs a consistent number of queries' do
+          control = ActiveRecord::QueryRecorder.new { service.execute }
 
-          it 'performs a consistent number of queries' do
-            control = ActiveRecord::QueryRecorder.new { service.execute }
+          more_artifacts
 
-            more_artifacts
-
-            expect { subject }.not_to exceed_query_limit(control.count)
-          end
-        end
-
-        context 'with ci_destroy_unlocked_job_artifacts feature flag enabled' do
-          before do
-            stub_feature_flags(ci_destroy_unlocked_job_artifacts: true)
-          end
-
-          it 'performs a consistent number of queries' do
-            control = ActiveRecord::QueryRecorder.new { service.execute }
-
-            more_artifacts
-
-            expect { subject }.not_to exceed_query_limit(control.count)
-          end
+          expect { subject }.not_to exceed_query_limit(control)
         end
       end
 
@@ -87,16 +68,23 @@ RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_s
             expect { subject }.to change { Ci::DeletedObject.count }.by(1)
           end
 
-          it 'resets project statistics' do
-            expect(ProjectStatistics).to receive(:increment_statistic).once
-              .with(artifact.project, :build_artifacts_size, -artifact.file.size)
-              .and_call_original
-
-            subject
+          it 'resets project statistics', :sidekiq_inline do
+            expect { subject }
+              .to change { artifact.project.statistics.reload.build_artifacts_size }.by(-artifact.file.size)
           end
 
           it 'does not remove the files' do
             expect { subject }.not_to change { artifact.file.exists? }
+          end
+        end
+
+        context 'when the project in which the artifact belongs to is undergoing stats refresh' do
+          before do
+            create(:project_build_artifacts_size_refresh, :pending, project: artifact.project)
+          end
+
+          it 'does not destroy job artifact' do
+            expect { subject }.not_to change { Ci::JobArtifact.count }
           end
         end
       end
@@ -130,7 +118,7 @@ RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_s
       let!(:artifact) { create(:ci_job_artifact, :expired, job: job, locked: job.pipeline.locked) }
 
       before do
-        stub_const("#{described_class}::LARGE_LOOP_LIMIT", 10)
+        stub_const("#{described_class}::LOOP_LIMIT", 10)
       end
 
       context 'when the import fails' do
@@ -200,8 +188,7 @@ RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_s
 
       context 'when loop reached loop limit' do
         before do
-          stub_feature_flags(ci_artifact_fast_removal_large_loop_limit: false)
-          stub_const("#{described_class}::SMALL_LOOP_LIMIT", 1)
+          stub_const("#{described_class}::LOOP_LIMIT", 1)
         end
 
         it 'destroys one artifact' do
@@ -241,6 +228,16 @@ RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_s
       it 'destroys only unlocked artifacts' do
         expect { subject }.to change { Ci::JobArtifact.count }.by(-1)
         expect(locked_artifact).to be_persisted
+      end
+    end
+
+    context 'when some artifacts are trace' do
+      let!(:artifact) { create(:ci_job_artifact, :expired, job: job, locked: job.pipeline.locked) }
+      let!(:trace_artifact) { create(:ci_job_artifact, :trace, :expired, job: job, locked: job.pipeline.locked) }
+
+      it 'destroys only non trace artifacts' do
+        expect { subject }.to change { Ci::JobArtifact.count }.by(-1)
+        expect(trace_artifact).to be_persisted
       end
     end
 

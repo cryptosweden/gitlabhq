@@ -1,7 +1,9 @@
 <script>
 import { GlDrawer, GlInfiniteScroll, GlResizeObserverDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapActions } from 'vuex';
 import Tracking from '~/tracking';
+import { getContentWrapperHeight } from '~/lib/utils/dom_utils';
 import { getDrawerBodyHeight } from '../utils/get_drawer_body_height';
 import Feature from './feature.vue';
 import SkeletonLoader from './skeleton_loader.vue';
@@ -22,20 +24,28 @@ export default {
   props: {
     versionDigest: {
       type: String,
-      required: true,
+      required: false,
+      default: undefined,
     },
   },
   computed: {
     ...mapState(['open', 'features', 'pageInfo', 'drawerBodyHeight', 'fetching']),
+    getDrawerHeaderHeight() {
+      return getContentWrapperHeight();
+    },
   },
   mounted() {
     this.openDrawer(this.versionDigest);
     this.fetchFreshItems();
 
     const body = document.querySelector('body');
-    const namespaceId = body.getAttribute('data-namespace-id');
+    const { namespaceId } = body.dataset;
 
-    this.track('click_whats_new_drawer', { label: 'namespace_id', value: namespaceId });
+    this.track('click_whats_new_drawer', {
+      label: 'namespace_id',
+      value: namespaceId,
+      property: 'navigation_top',
+    });
   },
   methods: {
     ...mapActions(['openDrawer', 'closeDrawer', 'fetchItems', 'setDrawerBodyHeight']),
@@ -44,6 +54,9 @@ export default {
       if (page) {
         this.fetchFreshItems(page);
       }
+    },
+    focusDrawer() {
+      this.$refs.drawer.$el.focus();
     },
     handleResize() {
       const height = getDrawerBodyHeight(this.$refs.drawer.$el);
@@ -63,15 +76,19 @@ export default {
     <gl-drawer
       ref="drawer"
       v-gl-resize-observer="handleResize"
-      class="whats-new-drawer gl-reset-line-height"
+      aria-labelledby="whats-new-drawer-heading"
+      tabindex="0"
+      class="whats-new-drawer gl-leading-reset gl-focus--focus"
+      :header-height="getDrawerHeaderHeight"
       :z-index="700"
       :open="open"
+      @opened="focusDrawer"
       @close="closeDrawer"
     >
       <template #title>
-        <h4 class="page-title gl-my-2">{{ __("What's new") }}</h4>
+        <h4 id="whats-new-drawer-heading" class="page-title gl-my-2">{{ __("What's new") }}</h4>
       </template>
-      <template v-if="features.length">
+      <template v-if="features.length || !fetching">
         <gl-infinite-scroll
           :fetched-items="features.length"
           :max-list-height="drawerBodyHeight"
@@ -79,7 +96,7 @@ export default {
           @bottomReached="bottomReached"
         >
           <template #items>
-            <feature v-for="feature in features" :key="feature.title" :feature="feature" />
+            <feature v-for="feature in features" :key="feature.name" :feature="feature" />
           </template>
         </gl-infinite-scroll>
       </template>

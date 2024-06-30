@@ -97,18 +97,6 @@ RSpec.describe Gitlab::ErrorTracking::Processor::SidekiqProcessor, :sentry do
   describe '.call' do
     let(:exception) { StandardError.new('Test exception') }
 
-    let(:raven_required_options) do
-      {
-        configuration: Raven.configuration,
-        context: Raven.context,
-        breadcrumbs: Raven.breadcrumbs
-      }
-    end
-
-    let(:raven_event) do
-      Raven::Event.new(raven_required_options.merge(wrapped_value))
-    end
-
     let(:sentry_event) do
       Sentry.get_current_client.event_from_exception(exception)
     end
@@ -158,28 +146,16 @@ RSpec.describe Gitlab::ErrorTracking::Processor::SidekiqProcessor, :sentry do
       end
 
       context 'when processing via the default error handler' do
-        context 'with Raven events' do
-          let(:event) { raven_event}
-
-          include_examples 'Sidekiq arguments', args_in_job_hash: true
-        end
-
         context 'with Sentry events' do
-          let(:event) { sentry_event}
+          let(:event) { sentry_event }
 
           include_examples 'Sidekiq arguments', args_in_job_hash: true
         end
       end
 
       context 'when processing via Gitlab::ErrorTracking' do
-        context 'with Raven events' do
-          let(:event) { raven_event}
-
-          include_examples 'Sidekiq arguments', args_in_job_hash: false
-        end
-
         context 'with Sentry events' do
-          let(:event) { sentry_event}
+          let(:event) { sentry_event }
 
           include_examples 'Sidekiq arguments', args_in_job_hash: false
         end
@@ -208,14 +184,8 @@ RSpec.describe Gitlab::ErrorTracking::Processor::SidekiqProcessor, :sentry do
         end
       end
 
-      context 'with Raven events' do
-        let(:event) { raven_event}
-
-        it_behaves_like 'handles jobstr fields'
-      end
-
       context 'with Sentry events' do
-        let(:event) { sentry_event}
+        let(:event) { sentry_event }
 
         it_behaves_like 'handles jobstr fields'
       end
@@ -232,14 +202,8 @@ RSpec.describe Gitlab::ErrorTracking::Processor::SidekiqProcessor, :sentry do
         end
       end
 
-      context 'with Raven events' do
-        let(:event) { raven_event}
-
-        it_behaves_like 'does nothing'
-      end
-
       context 'with Sentry events' do
-        let(:event) { sentry_event}
+        let(:event) { sentry_event }
 
         it_behaves_like 'does nothing'
       end
@@ -255,14 +219,8 @@ RSpec.describe Gitlab::ErrorTracking::Processor::SidekiqProcessor, :sentry do
         end
       end
 
-      context 'with Raven events' do
-        let(:event) { raven_event}
-
-        it_behaves_like 'does nothing'
-      end
-
       context 'with Sentry events' do
-        let(:event) { sentry_event}
+        let(:event) { sentry_event }
 
         it_behaves_like 'does nothing'
       end

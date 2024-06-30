@@ -5,69 +5,83 @@ module TodosHelper
     @todos_pending_count ||= current_user.todos_pending_count
   end
 
-  def todos_count_format(count)
-    count > 99 ? '99+' : count.to_s
-  end
-
   def todos_done_count
     @todos_done_count ||= current_user.todos_done_count
   end
 
   def todo_action_name(todo)
     case todo.action
-    when Todo::ASSIGNED then todo.self_added? ? 'assigned' : 'assigned you'
-    when Todo::REVIEW_REQUESTED then 'requested a review of'
-    when Todo::MENTIONED then "mentioned #{todo_action_subject(todo)} on"
-    when Todo::BUILD_FAILED then 'The pipeline failed in'
-    when Todo::MARKED then 'added a todo for'
-    when Todo::APPROVAL_REQUIRED then "set #{todo_action_subject(todo)} as an approver for"
-    when Todo::UNMERGEABLE then 'Could not merge'
-    when Todo::DIRECTLY_ADDRESSED then "directly addressed #{todo_action_subject(todo)} on"
-    when Todo::MERGE_TRAIN_REMOVED then "Removed from Merge Train:"
-    when Todo::ATTENTION_REQUESTED then 'requested your attention on'
+    when Todo::ASSIGNED then todo.self_added? ? _('assigned') : _('assigned you')
+    when Todo::REVIEW_REQUESTED then s_('Todos|requested a review')
+    when Todo::MENTIONED, Todo::DIRECTLY_ADDRESSED then format(
+      s_("Todos|mentioned %{who}"), who: todo_action_subject(todo)
+    )
+    when Todo::BUILD_FAILED then s_('Todos|The pipeline failed')
+    when Todo::MARKED then s_('Todos|added a to-do item')
+    when Todo::APPROVAL_REQUIRED then format(
+      s_("Todos|set %{who} as an approver"), who: todo_action_subject(todo)
+    )
+    when Todo::UNMERGEABLE then s_('Todos|Could not merge')
+    when Todo::MERGE_TRAIN_REMOVED then s_("Todos|Removed from Merge Train")
+    when Todo::MEMBER_ACCESS_REQUESTED then format(
+      s_("Todos|has requested access to %{what} %{which}"), what: _(todo.member_access_type), which: _(todo.target.name)
+    )
+    when Todo::REVIEW_SUBMITTED then s_('Todos|reviewed your merge request')
+    when Todo::OKR_CHECKIN_REQUESTED then format(
+      s_("Todos|requested an OKR update for %{what}"), what: todo.target.title
+    )
     end
   end
 
   def todo_self_addressing(todo)
     case todo.action
-    when Todo::ASSIGNED then 'to yourself'
-    when Todo::REVIEW_REQUESTED then 'from yourself'
+    when Todo::ASSIGNED then _('to yourself')
+    when Todo::REVIEW_REQUESTED then _('from yourself')
     end
   end
 
-  def todo_target_link(todo)
-    text = raw(todo_target_type_name(todo) + ' ') +
-      if todo.for_commit?
-        content_tag(:span, todo.target_reference, class: 'commit-sha')
-      else
-        todo.target_reference
-      end
+  def todo_target_name(todo)
+    return todo.target_reference unless todo.for_commit?
 
-    link_to text, todo_target_path(todo)
+    content_tag(:span, todo.target_reference, class: 'commit-sha')
   end
 
   def todo_target_title(todo)
-    # Design To Dos' filenames are displayed in `#todo_target_link` (see `Design#to_reference`),
+    # Design To Dos' filenames are displayed in `#todo_target_name` (see `Design#to_reference`),
     # so to avoid displaying duplicate filenames in the To Do list for designs,
     # we return an empty string here.
-    return "" if todo.target.blank? || todo.for_design?
+    return "" if todo.target.blank? || todo.for_design? || todo.member_access_requested?
 
-    "\"#{todo.target.title}\""
+    todo.target.title.to_s
   end
 
   def todo_parent_path(todo)
     if todo.resource_parent.is_a?(Group)
-      link_to todo.resource_parent.name, group_path(todo.resource_parent)
+      todo.resource_parent.name
     else
-      link_to_project(todo.project)
+      title = content_tag(:span, todo.project.name, class: 'project-name')
+      namespace = content_tag(:span, "#{todo.project.namespace.human_name} / ", class: 'namespace-name')
+
+      title.prepend(namespace) if todo.project.namespace
+
+      title
     end
   end
 
-  def todo_target_type_name(todo)
-    return _('design') if todo.for_design?
-    return _('alert') if todo.for_alert?
+  def todo_target_aria_label(todo)
+    target_type = if todo.for_design?
+                    _('Design')
+                  elsif todo.for_alert?
+                    _('Alert')
+                  elsif todo.member_access_requested?
+                    _('Group')
+                  elsif todo.for_issue_or_work_item?
+                    IntegrationsHelper.integration_issue_type(todo.target.issue_type)
+                  else
+                    IntegrationsHelper.integration_todo_target_type(todo.target_type)
+                  end
 
-    todo.target_type.titleize.downcase
+    "#{target_type} #{todo_target_name(todo)}"
   end
 
   def todo_target_path(todo)
@@ -81,6 +95,11 @@ module TodosHelper
       todos_design_path(todo, path_options)
     elsif todo.for_alert?
       details_project_alert_management_path(todo.project, todo.target)
+    elsif todo.for_issue_or_work_item?
+      path_options[:only_path] = true
+      Gitlab::UrlBuilder.build(todo.target, **path_options)
+    elsif todo.member_access_requested?
+      todo.access_request_url(only_path: true)
     else
       path = [todo.resource_parent, todo.target]
 
@@ -101,33 +120,60 @@ module TodosHelper
   def todo_target_state_pill(todo)
     return unless show_todo_state?(todo)
 
-    type =
-      case todo.target
-      when MergeRequest
-        'mr'
-      when Issue
-        'issue'
-      when AlertManagement::Alert
-        'alert'
-      end
+    state = todo.target.state.to_s
+    raw_state_to_i18n = {
+      "closed" => _('Closed'),
+      "merged" => _('Merged'),
+      "resolved" => _('Resolved')
+    }
 
-    tag.span class: "gl-my-0 gl-px-2 status-box status-box-#{type}-#{todo.target.state.to_s.dasherize}" do
-      todo.target.state.to_s.capitalize
+    case todo.target
+    when MergeRequest
+      case state
+      when 'closed'
+        variant = 'danger'
+      when 'merged'
+        variant = 'info'
+      end
+    when Issue
+      variant = 'info' if state == 'closed'
+    when AlertManagement::Alert
+      variant = 'info' if state == 'resolved'
+    else
+      variant = 'info'
+    end
+
+    content_tag(:span, class: 'todo-target-state') do
+      gl_badge_tag(raw_state_to_i18n[state] || state.capitalize, { variant: variant, size: 'sm' })
     end
   end
 
   def todos_filter_params
     {
-      state:      params[:state],
+      state: params[:state].presence,
       project_id: params[:project_id],
-      author_id:  params[:author_id],
-      type:       params[:type],
-      action_id:  params[:action_id]
-    }
+      author_id: params[:author_id],
+      type: params[:type],
+      action_id: params[:action_id]
+    }.compact
   end
 
   def todos_filter_empty?
     todos_filter_params.values.none?
+  end
+
+  def todos_has_filtered_results?
+    params[:group_id] || params[:project_id] || params[:author_id] || params[:type] || params[:action_id]
+  end
+
+  def no_todos_messages
+    [
+      s_('Todos|Good job! Looks like you don\'t have anything left on your To-Do List'),
+      s_('Todos|Isn\'t an empty To-Do List beautiful?'),
+      s_('Todos|Give yourself a pat on the back!'),
+      s_('Todos|Nothing left to do. High five!'),
+      s_('Todos|Henceforth, you shall be known as "To-Do Destroyer"')
+    ]
   end
 
   def todos_filter_path(options = {})
@@ -146,28 +192,28 @@ module TodosHelper
 
   def todo_actions_options
     [
-      { id: '', text: 'Any Action' },
-      { id: Todo::ASSIGNED, text: 'Assigned' },
-      { id: Todo::REVIEW_REQUESTED, text: 'Review requested' },
-      { id: Todo::MENTIONED, text: 'Mentioned' },
-      { id: Todo::MARKED, text: 'Added' },
-      { id: Todo::BUILD_FAILED, text: 'Pipelines' },
-      { id: Todo::DIRECTLY_ADDRESSED, text: 'Directly addressed' }
+      { id: '', text: s_('Todos|Any Action') },
+      { id: Todo::ASSIGNED, text: s_('Todos|Assigned') },
+      { id: Todo::REVIEW_REQUESTED, text: s_('Todos|Review requested') },
+      { id: Todo::MENTIONED, text: s_('Todos|Mentioned') },
+      { id: Todo::MARKED, text: s_('Todos|Added') },
+      { id: Todo::BUILD_FAILED, text: s_('Todos|Pipelines') },
+      { id: Todo::MEMBER_ACCESS_REQUESTED, text: s_('Todos|Member access requested') }
     ]
   end
 
   def todo_types_options
     [
-      { id: '', text: 'Any Type' },
-      { id: 'Issue', text: 'Issue' },
-      { id: 'MergeRequest', text: 'Merge request' },
-      { id: 'DesignManagement::Design', text: 'Design' },
-      { id: 'AlertManagement::Alert', text: 'Alert' }
+      { id: '', text: s_('Todos|Any Type') },
+      { id: 'Issue', text: s_('Todos|Issue') },
+      { id: 'MergeRequest', text: s_('Todos|Merge request') },
+      { id: 'DesignManagement::Design', text: s_('Todos|Design') },
+      { id: 'AlertManagement::Alert', text: s_('Todos|Alert') }
     ]
   end
 
   def todo_actions_dropdown_label(selected_action_id, default_action)
-    selected_action = todo_actions_options.find { |action| action[:id] == selected_action_id.to_i}
+    selected_action = todo_actions_options.find { |action| action[:id] == selected_action_id.to_i }
     selected_action ? selected_action[:text] : default_action
   end
 
@@ -190,15 +236,26 @@ module TodosHelper
         ''
       end
 
+    due_date =
+      if is_due_today
+        _("today")
+      else
+        l(todo.target.due_date, format: Date::DATE_FORMATS[:medium])
+      end
+
     content = content_tag(:span, class: css_class) do
-      "Due #{is_due_today ? "today" : todo.target.due_date.to_s(:medium)}"
+      format(s_("Todos|Due %{due_date}"), due_date: due_date)
     end
 
-    "&middot; #{content}".html_safe
+    "#{content} &middot;".html_safe
   end
 
   def todo_author_display?(todo)
     !todo.build_failed? && !todo.unmergeable?
+  end
+
+  def todo_groups_requiring_saml_reauth(_todos)
+    []
   end
 
   private
@@ -216,15 +273,15 @@ module TodosHelper
   end
 
   def todo_action_subject(todo)
-    todo.self_added? ? 'yourself' : 'you'
+    todo.self_added? ? s_('Todos|yourself') : _('you')
   end
 
   def show_todo_state?(todo)
     case todo.target
     when MergeRequest, Issue
-      %w(closed merged).include?(todo.target.state)
+      %w[closed merged].include?(todo.target.state)
     when AlertManagement::Alert
-      %i(resolved).include?(todo.target.state)
+      %i[resolved].include?(todo.target.state)
     else
       false
     end

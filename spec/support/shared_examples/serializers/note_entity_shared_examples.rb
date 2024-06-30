@@ -18,7 +18,8 @@ RSpec.shared_examples 'note entity' do
         :noteable_note_url,
         :report_abuse_path,
         :resolvable,
-        :type
+        :type,
+        :external_author
       )
     end
 
@@ -36,6 +37,10 @@ RSpec.shared_examples 'note entity' do
 
     it 'exposes permission fields on current_user' do
       expect(subject[:current_user]).to include(:can_edit, :can_award_emoji, :can_resolve, :can_resolve_discussion)
+    end
+
+    it 'exposes the report_abuse_path' do
+      expect(subject[:report_abuse_path]).to eq(add_category_abuse_reports_path)
     end
 
     describe ':can_resolve_discussion' do

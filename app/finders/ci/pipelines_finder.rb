@@ -2,6 +2,8 @@
 
 module Ci
   class PipelinesFinder
+    include UpdatedAtFilter
+
     attr_reader :project, :pipelines, :params, :current_user
 
     ALLOWED_INDEXED_COLUMNS = %w[id status ref updated_at user_id].freeze
@@ -21,12 +23,9 @@ module Ci
     end
 
     def execute
-      unless Ability.allowed?(current_user, :read_pipeline, project)
-        return Ci::Pipeline.none
-      end
+      return Ci::Pipeline.none unless Ability.allowed?(current_user, :read_pipeline, project)
 
-      items = pipelines
-      items = items.no_child unless params[:iids].present?
+      items = prefiltered_pipelines
       items = by_iids(items)
       items = by_scope(items)
       items = by_status(items)
@@ -36,6 +35,7 @@ module Ci
       items = by_yaml_errors(items)
       items = by_updated_at(items)
       items = by_source(items)
+      items = by_name(items)
 
       sort_items(items)
     end
@@ -43,8 +43,15 @@ module Ci
     private
 
     # rubocop: disable CodeReuse/ActiveRecord
-    def ids_for_ref(refs)
-      pipelines.where(ref: refs).group(:ref).select('max(id)')
+    def ids_for_ref(items, refs)
+      unfiltered_items =
+        if Feature.enabled?(:exclude_child_pipelines_from_tag_branch_query, project)
+          items
+        else
+          pipelines
+        end
+
+      unfiltered_items.where(ref: refs).group(:ref).select('max(id)')
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
@@ -60,6 +67,13 @@ module Ci
 
     def tags
       project.repository.tag_names
+    end
+
+    def prefiltered_pipelines
+      return pipelines if params[:iids].present?
+      return pipelines if params[:source] == 'parent_pipeline'
+
+      pipelines.no_child
     end
 
     def by_iids(items)
@@ -79,9 +93,9 @@ module Ci
       when ALLOWED_SCOPES[:FINISHED]
         items.finished
       when ALLOWED_SCOPES[:BRANCHES]
-        from_ids(ids_for_ref(branches))
+        from_ids(ids_for_ref(items, branches))
       when ALLOWED_SCOPES[:TAGS]
-        from_ids(ids_for_ref(tags))
+        from_ids(ids_for_ref(items, tags))
       else
         items
       end
@@ -145,11 +159,10 @@ module Ci
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
-    def by_updated_at(items)
-      items = items.updated_before(params[:updated_before]) if params[:updated_before].present?
-      items = items.updated_after(params[:updated_after]) if params[:updated_after].present?
+    def by_name(items)
+      return items unless params[:name].present?
 
-      items
+      items.for_name(params[:name])
     end
 
     # rubocop: disable CodeReuse/ActiveRecord
@@ -160,7 +173,7 @@ module Ci
                    :id
                  end
 
-      sort = if params[:sort] =~ /\A(ASC|DESC)\z/i
+      sort = if /\A(ASC|DESC)\z/i.match?(params[:sort])
                params[:sort]
              else
                :desc

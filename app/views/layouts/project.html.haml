@@ -4,9 +4,12 @@
 - nav              "project"
 - page_itemtype    'http://schema.org/SoftwareSourceCode'
 - display_subscription_banner!
-- display_namespace_storage_limit_alert!
-- @left_sidebar = true
 - @content_class = [@content_class, project_classes(@project)].compact.join(" ")
+
+- content_for :flash_message do
+  = dispensable_render_if_exists "projects/storage_enforcement_alert", context: @project
+  = dispensable_render_if_exists "shared/namespace_storage_limit_alert", context: @project
+  = dispensable_render_if_exists "shared/namespace_combined_storage_users_alert", context: @project
 
 - content_for :project_javascripts do
   - project = @target_project || @project
@@ -14,5 +17,16 @@
     = javascript_tag do
       :plain
         window.uploads_path = "#{project_uploads_path(project)}";
+
+- content_for :before_content do
+  = render 'projects/invite_members_modal', project: @project
+  = dispensable_render_if_exists 'shared/hand_raise_lead_modal', root_namespace: @project.root_ancestor
+  = render_if_exists "shared/saml_reload_modal", group_or_project: @project
+
+= dispensable_render_if_exists "projects/importing_alert", project: @project
+= dispensable_render_if_exists "shared/web_hooks/web_hook_disabled_alert"
+= dispensable_render_if_exists "projects/free_user_cap_alert", project: @project
+= dispensable_render_if_exists "shared/seat_overage_alert", resource: @project
+= dispensable_render_if_exists 'shared/unlimited_members_during_trial_alert', resource: @project
 
 = render template: "layouts/application"

@@ -1,53 +1,76 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Reset a user's password **(FREE SELF)**
+# Reset a user's password
 
-You can reset user passwords by using a Rake task, a Rails console, or the
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+You can reset user passwords by using the UI, a Rake task, a Rails console, or the
 [Users API](../api/users.md#user-modification).
 
 ## Prerequisites
 
 To reset a user password, you must be an administrator of a self-managed GitLab instance.
 
+The user's new password must meet all [password requirements](../user/profile/user_passwords.md#password-requirements).
+
+## Use the UI
+
+To reset a user's password in the UI:
+
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Overview > Users**.
+1. For the user whose password you want to update, select **Edit**.
+1. In the **Password** area, type a password and password confirmation.
+1. Select **Save changes**.
+
+A confirmation is displayed.
+
 ## Use a Rake task
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/52347) in GitLab 13.9.
+Use the following Rake task to reset a user's password.
 
-Use the following Rake task to reset a user's password:
+::Tabs
 
-- **For Omnibus installations**
+:::TabTitle Linux package (Omnibus)
 
-  ```shell
-  sudo gitlab-rake "gitlab:password:reset"
-  ```
+```shell
+sudo gitlab-rake "gitlab:password:reset"
+```
 
-- **For installations from source**
+:::TabTitle Self-compiled (source)
 
-  ```shell
-  bundle exec rake "gitlab:password:reset"
-  ```
+```shell
+bundle exec rake "gitlab:password:reset"
+```
+
+::EndTabs
 
 GitLab requests a username, a password, and confirmation of the password. When complete, the user's password is updated.
 
 The Rake task can take a username as an argument. For example, to reset the password for the user with username
 `sidneyjones`:
 
-- **For Omnibus installations**
+::Tabs
+
+:::TabTitle Linux package (Omnibus)
 
   ```shell
   sudo gitlab-rake "gitlab:password:reset[sidneyjones]"
   ```
 
-- **For installations from source**
+:::TabTitle Self-compiled (source)
 
   ```shell
   bundle exec rake "gitlab:password:reset[sidneyjones]"
   ```
+
+::EndTabs
 
 ## Use a Rails console
 
@@ -74,12 +97,24 @@ If you know the username, user ID, or email address, you can use the Rails conso
      user = User.find_by(email: 'user@example.com')
      ```
 
-1. Reset the password:
+1. Reset the password by setting a value for `user.password` and `user.password_confirmation`. For example, to set a new random
+   password:
 
    ```ruby
-   user.password = 'secret_pass'
-   user.password_confirmation = 'secret_pass'
-    ```
+   new_password = ::User.random_password
+   user.password = new_password
+   user.password_confirmation = new_password
+   user.password_automatically_set = false
+   ```
+
+   To set a specific value for the new password:
+
+   ```ruby
+   new_password = 'examplepassword'
+   user.password = new_password
+   user.password_confirmation = new_password
+   user.password_automatically_set = false
+   ```
 
 1. Optional. Notify the user that an administrator changed their password:
 
@@ -89,9 +124,9 @@ If you know the username, user ID, or email address, you can use the Rails conso
 
 1. Save the changes:
 
-    ```ruby
-    user.save!
-    ```
+   ```ruby
+   user.save!
+   ```
 
 1. Exit the console:
 
@@ -110,15 +145,30 @@ To reset the root password, follow the steps listed previously.
 
 ## Troubleshooting
 
-If the new password doesn't work, it might be [an email confirmation issue](../user/upgrade_email_bypass.md). You can
+Use the following information to troubleshoot issues when resetting a
+user's password.
+
+### Email confirmation issues
+
+If the new password doesn't work, it might be an email confirmation issue. You can
 attempt to fix this issue in a Rails console. For example, if a new `root` password isn't working:
 
 1. Start a [Rails console](../administration/operations/rails_console.md).
 1. Find the user and skip reconfirmation:
 
-    ```ruby
-    user = User.find(1)
-    user.skip_reconfirmation!
-    ```
+   ```ruby
+   user = User.find(1)
+   user.skip_reconfirmation!
+   ```
 
 1. Attempt to sign in again.
+
+### Unmet password requirements
+
+The password might be too short, too weak, or not meet complexity
+requirements. Ensure the password you are attempting to set meets all
+[password requirements](../user/profile/user_passwords.md#password-requirements).
+
+### Expired password
+
+You might not be able to reset a user's expired password due to the [Password Expired error on Git Fetch via SSH for LDAP users](../topics/git/troubleshooting_git.md#password-expired-error-on-git-fetch-via-ssh-for-ldap-user).

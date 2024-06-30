@@ -14,24 +14,40 @@ func createLine(id, label, uri string) []byte {
 }
 
 func TestParse(t *testing.T) {
-	d, err := NewDocs(Config{})
+	d, err := NewDocs()
 	require.NoError(t, err)
 	defer d.Close()
 
-	data := []byte(`{"id":"1","label":"metaData","projectRoot":"file:///Users/nested"}` + "\n")
-	data = append(data, createLine("2", "document", "file:///Users/nested/file.rb")...)
-	data = append(data, createLine("3", "document", "file:///Users/nested/folder/file.rb")...)
-	data = append(data, createLine("4", "document", "file:///Users/wrong/file.rb")...)
+	for _, root := range []string{
+		"file:///Users/nested",
+		"file:///Users/nested/.",
+		"file:///Users/nested/",
+	} {
+		t.Run("Document with root: "+root, func(t *testing.T) {
+			data := []byte(`{"id":"1","label":"metaData","projectRoot":"` + root + `"}` + "\n")
+			data = append(data, createLine("2", "document", "file:///Users/nested/file.rb")...)
+			data = append(data, createLine("3", "document", "file:///Users/nested/folder/file.rb")...)
 
-	require.NoError(t, d.Parse(bytes.NewReader(data)))
+			require.NoError(t, d.Parse(bytes.NewReader(data)))
 
-	require.Equal(t, d.Entries[2], "file.rb")
-	require.Equal(t, d.Entries[3], "folder/file.rb")
-	require.Equal(t, d.Entries[4], "file:///Users/wrong/file.rb")
+			require.Equal(t, "file.rb", d.Entries[2])
+			require.Equal(t, "folder/file.rb", d.Entries[3])
+		})
+	}
+
+	t.Run("Relative path cannot be calculated", func(t *testing.T) {
+		originalURI := "file:///Users/nested/folder/file.rb"
+		data := []byte(`{"id":"1","label":"metaData","projectRoot":"/a"}` + "\n")
+		data = append(data, createLine("2", "document", originalURI)...)
+
+		require.NoError(t, d.Parse(bytes.NewReader(data)))
+
+		require.Equal(t, originalURI, d.Entries[2])
+	})
 }
 
 func TestParseContainsLine(t *testing.T) {
-	d, err := NewDocs(Config{})
+	d, err := NewDocs()
 	require.NoError(t, err)
 	defer d.Close()
 
@@ -40,11 +56,11 @@ func TestParseContainsLine(t *testing.T) {
 
 	require.NoError(t, d.Parse(bytes.NewReader(data)))
 
-	require.Equal(t, []Id{2, 3, 4}, d.DocRanges[1])
+	require.Equal(t, []ID{2, 3, 4}, d.DocRanges[1])
 }
 
 func TestParsingVeryLongLine(t *testing.T) {
-	d, err := NewDocs(Config{})
+	d, err := NewDocs()
 	require.NoError(t, err)
 	defer d.Close()
 

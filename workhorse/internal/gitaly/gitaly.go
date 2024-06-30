@@ -5,38 +5,31 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/golang/protobuf/jsonpb" //lint:ignore SA1019 https://gitlab.com/gitlab-org/gitlab/-/issues/324868
-	"github.com/golang/protobuf/proto"  //lint:ignore SA1019 https://gitlab.com/gitlab-org/gitlab/-/issues/324868
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
-	gitalyauth "gitlab.com/gitlab-org/gitaly/v14/auth"
-	gitalyclient "gitlab.com/gitlab-org/gitaly/v14/client"
-	"gitlab.com/gitlab-org/gitaly/v14/proto/go/gitalypb"
+	gitalyauth "gitlab.com/gitlab-org/gitaly/v16/auth"
+	gitalyclient "gitlab.com/gitlab-org/gitaly/v16/client"
+	"gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb"
+
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
 
 	grpccorrelation "gitlab.com/gitlab-org/labkit/correlation/grpc"
 	grpctracing "gitlab.com/gitlab-org/labkit/tracing/grpc"
 )
 
-type Server struct {
-	Address     string            `json:"address"`
-	Token       string            `json:"token"`
-	Features    map[string]string `json:"features"`
-	Sidechannel bool              `json:"sidechannel"`
-}
-
 type cacheKey struct {
 	address, token string
-	sidechannel    bool
 }
 
-func (server Server) cacheKey() cacheKey {
-	return cacheKey{address: server.Address, token: server.Token, sidechannel: server.Sidechannel}
+func getCacheKey(server api.GitalyServer) cacheKey {
+	return cacheKey{address: server.Address, token: server.Token}
 }
 
 type connectionsCache struct {
@@ -45,7 +38,6 @@ type connectionsCache struct {
 }
 
 var (
-	jsonUnMarshaler = jsonpb.Unmarshaler{AllowUnknownFields: true}
 	// This connection cache map contains two types of connections:
 	// - Normal gRPC connections
 	// - Sidechannel connections. When client dials to the Gitaly server, the
@@ -73,19 +65,23 @@ func InitializeSidechannelRegistry(logger *logrus.Logger) {
 	}
 }
 
-func withOutgoingMetadata(ctx context.Context, features map[string]string) context.Context {
-	md := metadata.New(nil)
-	for k, v := range features {
-		if !strings.HasPrefix(k, "gitaly-feature-") {
-			continue
-		}
-		md.Append(k, v)
-	}
+var allowedMetadataKeys = map[string]bool{
+	"user_id":   true,
+	"username":  true,
+	"remote_ip": true,
+}
 
+func withOutgoingMetadata(ctx context.Context, gs api.GitalyServer) context.Context {
+	md := metadata.New(nil)
+	for k, v := range gs.CallMetadata {
+		if strings.HasPrefix(k, "gitaly-feature-") || allowedMetadataKeys[k] {
+			md.Set(k, v)
+		}
+	}
 	return metadata.NewOutgoingContext(ctx, md)
 }
 
-func NewSmartHTTPClient(ctx context.Context, server Server) (context.Context, *SmartHTTPClient, error) {
+func NewSmartHTTPClient(ctx context.Context, server api.GitalyServer) (context.Context, *SmartHTTPClient, error) {
 	conn, err := getOrCreateConnection(server)
 	if err != nil {
 		return nil, nil, err
@@ -94,50 +90,46 @@ func NewSmartHTTPClient(ctx context.Context, server Server) (context.Context, *S
 	smartHTTPClient := &SmartHTTPClient{
 		SmartHTTPServiceClient: grpcClient,
 		sidechannelRegistry:    sidechannelRegistry,
-		useSidechannel:         server.Sidechannel,
 	}
-	return withOutgoingMetadata(ctx, server.Features), smartHTTPClient, nil
+	return withOutgoingMetadata(ctx, server), smartHTTPClient, nil
 }
 
-func NewBlobClient(ctx context.Context, server Server) (context.Context, *BlobClient, error) {
+func NewBlobClient(ctx context.Context, server api.GitalyServer) (context.Context, *BlobClient, error) {
 	conn, err := getOrCreateConnection(server)
 	if err != nil {
 		return nil, nil, err
 	}
 	grpcClient := gitalypb.NewBlobServiceClient(conn)
-	return withOutgoingMetadata(ctx, server.Features), &BlobClient{grpcClient}, nil
+	return withOutgoingMetadata(ctx, server), &BlobClient{grpcClient}, nil
 }
 
-func NewRepositoryClient(ctx context.Context, server Server) (context.Context, *RepositoryClient, error) {
+func NewRepositoryClient(ctx context.Context, server api.GitalyServer) (context.Context, *RepositoryClient, error) {
 	conn, err := getOrCreateConnection(server)
 	if err != nil {
 		return nil, nil, err
 	}
 	grpcClient := gitalypb.NewRepositoryServiceClient(conn)
-	return withOutgoingMetadata(ctx, server.Features), &RepositoryClient{grpcClient}, nil
+	return withOutgoingMetadata(ctx, server), &RepositoryClient{grpcClient}, nil
 }
 
-// NewNamespaceClient is only used by the Gitaly integration tests at present
-func NewNamespaceClient(ctx context.Context, server Server) (context.Context, *NamespaceClient, error) {
-	conn, err := getOrCreateConnection(server)
-	if err != nil {
-		return nil, nil, err
-	}
-	grpcClient := gitalypb.NewNamespaceServiceClient(conn)
-	return withOutgoingMetadata(ctx, server.Features), &NamespaceClient{grpcClient}, nil
-}
-
-func NewDiffClient(ctx context.Context, server Server) (context.Context, *DiffClient, error) {
+func NewDiffClient(ctx context.Context, server api.GitalyServer) (context.Context, *DiffClient, error) {
 	conn, err := getOrCreateConnection(server)
 	if err != nil {
 		return nil, nil, err
 	}
 	grpcClient := gitalypb.NewDiffServiceClient(conn)
-	return withOutgoingMetadata(ctx, server.Features), &DiffClient{grpcClient}, nil
+	return withOutgoingMetadata(ctx, server), &DiffClient{grpcClient}, nil
 }
 
-func getOrCreateConnection(server Server) (*grpc.ClientConn, error) {
-	key := server.cacheKey()
+// NewConnectionWithSidechannel returns a Gitaly connection with a sidechannel
+func NewConnectionWithSidechannel(server api.GitalyServer) (*grpc.ClientConn, *gitalyclient.SidechannelRegistry, error) {
+	conn, err := getOrCreateConnection(server)
+
+	return conn, sidechannelRegistry, err
+}
+
+func getOrCreateConnection(server api.GitalyServer) (*grpc.ClientConn, error) {
+	key := getCacheKey(server)
 
 	cache.RLock()
 	conn := cache.connections[key]
@@ -173,37 +165,37 @@ func CloseConnections() {
 	}
 }
 
-func newConnection(server Server) (*grpc.ClientConn, error) {
+func newConnection(server api.GitalyServer) (*grpc.ClientConn, error) {
 	connOpts := append(gitalyclient.DefaultDialOpts,
 		grpc.WithPerRPCCredentials(gitalyauth.RPCCredentialsV2(server.Token)),
-		grpc.WithStreamInterceptor(
-			grpc_middleware.ChainStreamClient(
-				grpctracing.StreamClientTracingInterceptor(),
-				grpc_prometheus.StreamClientInterceptor,
-				grpccorrelation.StreamClientCorrelationInterceptor(
-					grpccorrelation.WithClientName("gitlab-workhorse"),
-				),
+		grpc.WithChainStreamInterceptor(
+			grpctracing.StreamClientTracingInterceptor(),
+			grpc_prometheus.StreamClientInterceptor,
+			grpccorrelation.StreamClientCorrelationInterceptor(
+				grpccorrelation.WithClientName("gitlab-workhorse"),
 			),
 		),
 
-		grpc.WithUnaryInterceptor(
-			grpc_middleware.ChainUnaryClient(
-				grpctracing.UnaryClientTracingInterceptor(),
-				grpc_prometheus.UnaryClientInterceptor,
-				grpccorrelation.UnaryClientCorrelationInterceptor(
-					grpccorrelation.WithClientName("gitlab-workhorse"),
-				),
+		grpc.WithChainUnaryInterceptor(
+			grpctracing.UnaryClientTracingInterceptor(),
+			grpc_prometheus.UnaryClientInterceptor,
+			grpccorrelation.UnaryClientCorrelationInterceptor(
+				grpccorrelation.WithClientName("gitlab-workhorse"),
 			),
 		),
+
+		// In https://gitlab.com/groups/gitlab-org/-/epics/8971, we added DNS discovery support to Praefect. This was
+		// done by making two changes:
+		// - Configure client-side round-robin load-balancing in client dial options. We added that as a default option
+		// inside gitaly client in gitaly client since v15.9.0
+		// - Configure DNS resolving. Due to some technical limitations, we don't use gRPC's built-in DNS resolver.
+		// Instead, we implement our own DNS resolver. This resolver is exposed via the following configuration.
+		// Afterward, workhorse can detect and handle DNS discovery automatically. The user needs to setup and set
+		// Gitaly address to something like "dns:gitaly.service.dc1.consul"
+		gitalyclient.WithGitalyDNSResolver(gitalyclient.DefaultDNSResolverBuilderConfig()),
 	)
 
-	var conn *grpc.ClientConn
-	var connErr error
-	if server.Sidechannel {
-		conn, connErr = gitalyclient.DialSidechannel(context.Background(), server.Address, sidechannelRegistry, connOpts) // lint:allow context.Background
-	} else {
-		conn, connErr = gitalyclient.Dial(server.Address, connOpts)
-	}
+	conn, connErr := gitalyclient.DialSidechannel(context.Background(), server.Address, sidechannelRegistry, connOpts) // lint:allow context.Background
 
 	label := "ok"
 	if connErr != nil {
@@ -215,5 +207,5 @@ func newConnection(server Server) (*grpc.ClientConn, error) {
 }
 
 func UnmarshalJSON(s string, msg proto.Message) error {
-	return jsonUnMarshaler.Unmarshal(strings.NewReader(s), msg)
+	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal([]byte(s), msg)
 }

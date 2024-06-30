@@ -1,4 +1,5 @@
 <script>
+import { GlLink } from '@gitlab/ui';
 import { approximateDuration, calculateRemainingMilliseconds } from '~/lib/utils/datetime_utility';
 import { n__, sprintf } from '~/locale';
 import MetadataItem from '~/vue_shared/components/registry/metadata_item.vue';
@@ -6,9 +7,9 @@ import TitleArea from '~/vue_shared/components/registry/title_area.vue';
 
 import {
   CONTAINER_REGISTRY_TITLE,
-  LIST_INTRO_TEXT,
   EXPIRATION_POLICY_WILL_RUN_IN,
   EXPIRATION_POLICY_DISABLED_TEXT,
+  SET_UP_CLEANUP,
 } from '../../constants/index';
 
 export default {
@@ -16,7 +17,13 @@ export default {
   components: {
     TitleArea,
     MetadataItem,
+    GlLink,
+    MetadataContainerScanning: () =>
+      import(
+        'ee_component/packages_and_registries/container_registry/explorer/components/list_page/metadata_container_scanning.vue'
+      ),
   },
+  inject: ['config'],
   props: {
     expirationPolicy: {
       type: Object,
@@ -43,6 +50,16 @@ export default {
       required: false,
       default: false,
     },
+    cleanupPoliciesSettingsPath: {
+      type: String,
+      default: '',
+      required: false,
+    },
+    showCleanupPolicyLink: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   loader: {
     repeat: 10,
@@ -51,6 +68,7 @@ export default {
   },
   i18n: {
     CONTAINER_REGISTRY_TITLE,
+    SET_UP_CLEANUP,
   },
   computed: {
     imagesCountText() {
@@ -73,38 +91,37 @@ export default {
         ? sprintf(EXPIRATION_POLICY_WILL_RUN_IN, { time: this.timeTillRun })
         : EXPIRATION_POLICY_DISABLED_TEXT;
     },
-    infoMessages() {
-      return [{ text: LIST_INTRO_TEXT, link: this.helpPagePath }];
-    },
   },
 };
 </script>
 
 <template>
-  <title-area
-    :title="$options.i18n.CONTAINER_REGISTRY_TITLE"
-    :info-messages="infoMessages"
-    :metadata-loading="metadataLoading"
-  >
+  <title-area :title="$options.i18n.CONTAINER_REGISTRY_TITLE" :metadata-loading="metadataLoading">
     <template #right-actions>
       <slot name="commands"></slot>
     </template>
-    <template #metadata-count>
+    <template v-if="imagesCount" #metadata-count>
       <metadata-item
-        v-if="imagesCount"
         data-testid="images-count"
         icon="container-image"
         :text="imagesCountText"
+        size="xl"
       />
     </template>
     <template #metadata-exp-policies>
       <metadata-item
         v-if="!hideExpirationPolicyData"
         data-testid="expiration-policy"
-        icon="expire"
+        icon="clock"
         :text="expirationPolicyText"
         size="xl"
       />
+      <gl-link v-if="showCleanupPolicyLink" class="gl-ml-2" :href="cleanupPoliciesSettingsPath">{{
+        $options.i18n.SET_UP_CLEANUP
+      }}</gl-link>
+    </template>
+    <template v-if="!config.isGroupPage" #metadata-container-scanning>
+      <metadata-container-scanning />
     </template>
   </title-area>
 </template>

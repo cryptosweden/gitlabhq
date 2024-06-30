@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ProjectCiCdSetting do
+RSpec.describe ProjectCiCdSetting, feature_category: :continuous_integration do
   using RSpec::Parameterized::TableSyntax
 
   describe 'validations' do
@@ -15,10 +15,32 @@ RSpec.describe ProjectCiCdSetting do
     end
   end
 
+  describe '#pipeline_variables_minimum_override_role' do
+    it 'is maintainer by default' do
+      expect(described_class.new.pipeline_variables_minimum_override_role).to eq('maintainer')
+    end
+  end
+
   describe '#forward_deployment_enabled' do
     it 'is true by default' do
       expect(described_class.new.forward_deployment_enabled).to be_truthy
     end
+  end
+
+  describe '#push_repository_for_job_token_allowed' do
+    it 'is false by default' do
+      expect(described_class.new.push_repository_for_job_token_allowed).to be_falsey
+    end
+  end
+
+  describe '#separated_caches' do
+    it 'is true by default' do
+      expect(described_class.new.separated_caches).to be_truthy
+    end
+  end
+
+  describe '#default_for_inbound_job_token_scope_enabled' do
+    it { is_expected.to be_inbound_job_token_scope_enabled }
   end
 
   describe '#default_git_depth' do

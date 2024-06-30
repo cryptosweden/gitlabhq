@@ -1,5 +1,6 @@
 <script>
 import { GlIcon, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
 import FileIcon from '~/vue_shared/components/file_icon.vue';
 import getCommitIconMap from '../../commit_icon';
@@ -81,23 +82,19 @@ export default {
       :class="{
         'is-active': isActive,
       }"
-      class="multi-file-commit-list-path w-100 border-0 ml-0 mr-0"
+      class="multi-file-commit-list-path gl-w-full border-0 ml-0 mr-0"
       role="button"
       @click="openFileInEditor"
     >
-      <span
-        class="multi-file-commit-list-file-path d-flex align-items-center"
-        data-qa-selector="file_to_commit_content"
-        :data-qa-file-name="file.name"
-      >
+      <span class="multi-file-commit-list-file-path !gl-flex gl-items-center">
         <file-icon :file-name="file.name" class="gl-mr-3" />
         <template v-if="file.prevName && file.prevName !== file.name">
           {{ file.prevName }} &#x2192;
         </template>
         {{ file.name }}
       </span>
-      <div class="ml-auto d-flex align-items-center">
-        <div class="d-flex align-items-center ide-commit-list-changed-icon">
+      <div class="ml-auto gl-flex gl-items-center">
+        <div class="gl-flex gl-items-center ide-commit-list-changed-icon">
           <gl-icon :name="iconName" :size="16" :class="iconClass" />
         </div>
       </div>

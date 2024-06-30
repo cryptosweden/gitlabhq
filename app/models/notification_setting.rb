@@ -3,9 +3,7 @@
 class NotificationSetting < ApplicationRecord
   include FromUnion
 
-  enum level: { global: 3, watch: 2, participating: 1, mention: 4, disabled: 0, custom: 5 }
-
-  default_value_for :level, NotificationSetting.levels[:global]
+  enum level: { global: 3, watch: 2, participating: 1, mention: 4, disabled: 0, custom: 5 }, _default: :global
 
   belongs_to :user
   belongs_to :source, polymorphic: true # rubocop:disable Cop/PolymorphicAssociations
@@ -62,7 +60,7 @@ class NotificationSetting < ApplicationRecord
   end
 
   def self.allowed_fields(source = nil)
-    NotificationSetting.email_events(source).dup + %i(level notification_email)
+    NotificationSetting.email_events(source).dup + %i[level notification_email]
   end
 
   def email_events
@@ -72,7 +70,8 @@ class NotificationSetting < ApplicationRecord
   EXCLUDED_WATCHER_EVENTS = [
     :push_to_merge_request,
     :issue_due,
-    :success_pipeline
+    :success_pipeline,
+    :approver
   ].freeze
 
   def self.find_or_create_for(source)

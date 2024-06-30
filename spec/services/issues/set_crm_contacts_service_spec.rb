@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Issues::SetCrmContactsService do
+RSpec.describe Issues::SetCrmContactsService, feature_category: :team_planning do
   let_it_be(:user) { create(:user) }
-  let_it_be(:group) { create(:group, :crm_enabled) }
+  let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, group: create(:group, parent: group)) }
   let_it_be(:contacts) { create_list(:contact, 4, group: group) }
   let_it_be(:issue, reload: true) { create(:issue, project: project) }
@@ -58,6 +58,20 @@ RSpec.describe Issues::SetCrmContactsService do
         group.add_reporter(user)
       end
 
+      context 'but the crm setting is disabled' do
+        let(:params) { { replace_ids: [contacts[1].id, contacts[2].id] } }
+        let(:subgroup_with_crm_disabled) { create(:group, :crm_disabled, parent: group) }
+        let(:project_with_crm_disabled) { create(:project, group: subgroup_with_crm_disabled) }
+        let(:issue_with_crm_disabled) { create(:issue, project: project_with_crm_disabled) }
+
+        it 'returns expected error response' do
+          response = described_class.new(project: project_with_crm_disabled, current_user: user, params: params).execute(issue_with_crm_disabled)
+
+          expect(response).to be_error
+          expect(response.message).to eq('You have insufficient permissions to set customer relations contacts for this issue')
+        end
+      end
+
       context 'when the contact does not exist' do
         let(:params) { { replace_ids: [non_existing_record_id] } }
 
@@ -92,6 +106,14 @@ RSpec.describe Issues::SetCrmContactsService do
 
         it_behaves_like 'setting contacts'
         it_behaves_like 'adds system note', 1, 1
+
+        context 'with empty list' do
+          let(:params) { { replace_ids: [] } }
+          let(:expected_contacts) { [] }
+
+          it_behaves_like 'setting contacts'
+          it_behaves_like 'adds system note', 0, 2
+        end
       end
 
       context 'add' do

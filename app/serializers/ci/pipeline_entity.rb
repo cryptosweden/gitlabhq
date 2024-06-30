@@ -4,12 +4,13 @@ class Ci::PipelineEntity < Grape::Entity
   include RequestAwareEntity
   include Gitlab::Utils::StrongMemoize
 
-  delegate :name, :failure_reason, :coverage, to: :presented_pipeline
+  delegate :event_type_name, :failure_reason, :coverage, to: :presented_pipeline
 
   expose :id
   expose :iid
   expose :user, using: UserEntity
   expose :active?, as: :active
+  expose :name
 
   # Coverage isn't always necessary (e.g. when displaying project pipelines in
   # the UI). Instead of creating an entirely different entity we just allow the
@@ -32,7 +33,8 @@ class Ci::PipelineEntity < Grape::Entity
     expose :can_cancel?, as: :cancelable
     expose :failure_reason?, as: :failure_reason
     expose :detached_merge_request_pipeline?, as: :detached_merge_request_pipeline
-    expose :merged_result_pipeline?, as: :merge_request_pipeline
+    expose :merged_result_pipeline?, as: :merge_request_pipeline # deprecated, use merged_result_pipeline going forward
+    expose :merged_result_pipeline?, as: :merged_result_pipeline
   end
 
   expose :details do
@@ -40,10 +42,10 @@ class Ci::PipelineEntity < Grape::Entity
     expose :stages, using: StageEntity
     expose :duration
     expose :finished_at
-    expose :name
+    expose :event_type_name
   end
 
-  expose :merge_request, if: -> (*) { has_presentable_merge_request? }, with: MergeRequestForPipelineEntity do |pipeline|
+  expose :merge_request, if: ->(*) { has_presentable_merge_request? }, with: MergeRequestForPipelineEntity do |pipeline|
     pipeline.merge_request.present(current_user: request.current_user)
   end
 
@@ -64,28 +66,34 @@ class Ci::PipelineEntity < Grape::Entity
   end
 
   expose :commit, using: CommitEntity
-  expose :merge_request_event_type, if: -> (pipeline, _) { pipeline.merge_request? }
-  expose :source_sha, if: -> (pipeline, _) { pipeline.merged_result_pipeline? }
-  expose :target_sha, if: -> (pipeline, _) { pipeline.merged_result_pipeline? }
-  expose :yaml_errors, if: -> (pipeline, _) { pipeline.has_yaml_errors? }
-  expose :failure_reason, if: -> (pipeline, _) { pipeline.failure_reason? }
+  expose :merge_request_event_type, if: ->(pipeline, _) { pipeline.merge_request? }
+  expose :source_sha, if: ->(pipeline, _) { pipeline.merged_result_pipeline? }
+  expose :target_sha, if: ->(pipeline, _) { pipeline.merged_result_pipeline? }
+  expose :yaml_errors, if: ->(pipeline, _) { pipeline.has_yaml_errors? }
+  expose :failure_reason, if: ->(pipeline, _) { pipeline.failure_reason? }
 
-  expose :retry_path, if: -> (*) { can_retry? } do |pipeline|
+  expose :retry_path, if: ->(*) { can_retry? } do |pipeline|
     retry_project_pipeline_path(pipeline.project, pipeline)
   end
 
-  expose :cancel_path, if: -> (*) { can_cancel? } do |pipeline|
+  expose :cancel_path, if: ->(*) { can_cancel? } do |pipeline|
     cancel_project_pipeline_path(pipeline.project, pipeline)
   end
 
-  expose :delete_path, if: -> (*) { can_delete? } do |pipeline|
+  expose :delete_path, if: ->(*) { can_delete? } do |pipeline|
     project_pipeline_path(pipeline.project, pipeline)
   end
 
-  expose :failed_builds, if: -> (*) { can_retry? }, using: Ci::JobEntity do |pipeline|
+  expose :failed_builds,
+    if: ->(_, options) { !options[:disable_failed_builds] && can_retry? },
+    using: Ci::JobEntity do |pipeline|
     pipeline.failed_builds.each do |build|
       build.project = pipeline.project
     end
+  end
+
+  expose :failed_builds_count do |pipeline|
+    pipeline.failed_builds.size
   end
 
   private
@@ -98,7 +106,7 @@ class Ci::PipelineEntity < Grape::Entity
   end
 
   def can_cancel?
-    can?(request.current_user, :update_pipeline, pipeline) &&
+    can?(request.current_user, :cancel_pipeline, pipeline) &&
       pipeline.cancelable?
   end
 

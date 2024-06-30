@@ -106,12 +106,12 @@ RSpec.describe ApplicationRecord do
 
   describe '.where_not_exists' do
     it 'produces a WHERE NOT EXISTS query' do
-      create(:user, :two_factor_via_u2f)
+      create(:user, :two_factor_via_webauthn)
       user_2 = create(:user)
 
       expect(
         User.where_not_exists(
-          U2fRegistration.where(U2fRegistration.arel_table[:user_id].eq(User.arel_table[:id])))
+          WebauthnRegistration.where(WebauthnRegistration.arel_table[:user_id].eq(User.arel_table[:id])))
       ).to match_array([user_2])
     end
   end
@@ -246,6 +246,52 @@ RSpec.describe ApplicationRecord do
     end
   end
 
+  describe '.nullable_column?' do
+    subject { Project.nullable_column?(attribute) }
+
+    context 'when the column is defined as NOT NULL' do
+      let(:attribute) { 'id' }
+
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when the column is not defined as NOT NULL' do
+      let(:attribute) { 'name' }
+
+      before do
+        Project.clear_constraints_cache!
+      end
+
+      context 'when there is no check constraint' do
+        it { is_expected.to be_truthy }
+      end
+
+      context 'when there is an `IS NOT NULL` check constraint' do
+        context 'when the constraint is not valid' do
+          before do
+            Project.connection.execute(<<~SQL)
+              ALTER TABLE projects
+              ADD CONSTRAINT test_constraint CHECK (name is not null) not valid;
+            SQL
+          end
+
+          it { is_expected.to be_truthy }
+        end
+
+        context 'when the constraint is valid' do
+          before do
+            Project.connection.execute(<<~SQL)
+              ALTER TABLE projects
+              ADD CONSTRAINT test_constraint CHECK (name is not null);
+            SQL
+          end
+
+          it { is_expected.to be_falsey }
+        end
+      end
+    end
+  end
+
   describe '.default_select_columns' do
     shared_examples_for 'selects identically to the default' do
       it 'generates the same sql as the default' do
@@ -257,17 +303,18 @@ RSpec.describe ApplicationRecord do
     end
 
     before do
-      ApplicationRecord.connection.execute(<<~SQL)
-        create table tests (
+      described_class.connection.execute(<<~SQL)
+        create table _test_tests (
           id bigserial primary key not null,
           ignore_me text
         )
       SQL
     end
+
     context 'without an ignored column' do
       let(:test_model) do
         Class.new(ApplicationRecord) do
-          self.table_name = 'tests'
+          self.table_name = :_test_tests
         end
       end
 
@@ -278,7 +325,7 @@ RSpec.describe ApplicationRecord do
       let(:test_model) do
         Class.new(ApplicationRecord) do
           include IgnorableColumns
-          self.table_name = 'tests'
+          self.table_name = :_test_tests
 
           ignore_columns :ignore_me, remove_after: '2100-01-01', remove_with: '99.12'
         end

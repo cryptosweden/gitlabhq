@@ -1,19 +1,36 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlLoadingIcon } from '@gitlab/ui';
-import { GlAreaChart } from '@gitlab/ui/dist/charts';
+import { GlButton, GlLoadingIcon } from '@gitlab/ui';
 import { debounce, uniq } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState, mapGetters } from 'vuex';
+import { visitUrl } from '~/lib/utils/url_utility';
 import { getDatesInRange } from '~/lib/utils/datetime_utility';
-import { getSvgIconPathContent } from '~/lib/utils/icon_utils';
 import { __ } from '~/locale';
-import ResizableChartContainer from '~/vue_shared/components/resizable_chart/resizable_chart_container.vue';
+import RefSelector from '~/ref/components/ref_selector.vue';
+import { REF_TYPE_BRANCHES, REF_TYPE_TAGS } from '~/ref/constants';
 import { xAxisLabelFormatter, dateFormatter } from '../utils';
+import { MASTER_CHART_HEIGHT } from '../constants';
+import ContributorAreaChart from './contributor_area_chart.vue';
+import IndividualChart from './individual_chart.vue';
+
+const GRAPHS_PATH_REGEX = /^(.*?)\/-\/graphs/g;
 
 export default {
+  MASTER_CHART_HEIGHT,
+  i18n: {
+    history: __('History'),
+    refSelectorTranslations: {
+      dropdownHeader: __('Switch branch/tag'),
+      searchPlaceholder: __('Search branches and tags'),
+    },
+  },
   components: {
-    GlAreaChart,
+    GlButton,
     GlLoadingIcon,
-    ResizableChartContainer,
+    ContributorAreaChart,
+    IndividualChart,
+    RefSelector,
   },
   props: {
     endpoint: {
@@ -24,14 +41,22 @@ export default {
       type: String,
       required: true,
     },
+    projectId: {
+      type: String,
+      required: true,
+    },
+    commitsPath: {
+      type: String,
+      required: true,
+    },
   },
+  refTypes: [REF_TYPE_BRANCHES, REF_TYPE_TAGS],
   data() {
     return {
       masterChart: null,
       individualCharts: [],
-      svgs: {},
-      masterChartHeight: 264,
-      individualChartHeight: 216,
+      individualChartZoom: {},
+      selectedBranch: this.branch,
     };
   },
   computed: {
@@ -148,47 +173,24 @@ export default {
         },
       };
     },
-    setSvg(name) {
-      return getSvgIconPathContent(name)
-        .then((path) => {
-          if (path) {
-            this.$set(this.svgs, name, `path://${path}`);
-          }
-        })
-        .catch(() => {});
-    },
     onMasterChartCreated(chart) {
       this.masterChart = chart;
-      this.setSvg('scroll-handle')
-        .then(() => {
-          this.masterChart.setOption({
-            dataZoom: [
-              {
-                type: 'slider',
-                handleIcon: this.svgs['scroll-handle'],
-              },
-            ],
-          });
-        })
-        .catch(() => {});
-      this.masterChart.on('datazoom', debounce(this.setIndividualChartsZoom, 200));
-    },
-    onIndividualChartCreated(chart) {
-      this.individualCharts.push(chart);
-    },
-    setIndividualChartsZoom(options) {
-      this.charts.forEach((chart) =>
-        chart.setOption(
-          {
-            dataZoom: {
-              start: options.start,
-              end: options.end,
-              show: false,
-            },
-          },
-          { lazyUpdate: true },
-        ),
+      this.masterChart.setOption({
+        dataZoom: [{ type: 'slider' }],
+      });
+
+      this.masterChart.on(
+        'datazoom',
+        debounce(() => {
+          const [{ startValue, endValue }] = this.masterChart.getOption().dataZoom;
+          this.individualChartZoom = { startValue, endValue };
+        }, 200),
       );
+    },
+    visitBranch(selected) {
+      const graphsPathPrefix = this.endpoint.match(GRAPHS_PATH_REGEX)?.[0];
+
+      visitUrl(`${graphsPathPrefix}/${selected}`);
     },
   },
 };
@@ -196,49 +198,47 @@ export default {
 
 <template>
   <div>
-    <div v-if="loading" class="contributors-loader text-center">
-      <gl-loading-icon :inline="true" size="xl" />
+    <div v-if="loading" class="gl-text-center gl-pt-13">
+      <gl-loading-icon :inline="true" size="xl" data-testid="loading-app-icon" />
     </div>
 
-    <div v-else-if="showChart" class="contributors-charts">
-      <h4 class="gl-mb-2 gl-mt-5">{{ __('Commits to') }} {{ branch }}</h4>
-      <span>{{ __('Excluding merge commits. Limited to 6,000 commits.') }}</span>
-      <resizable-chart-container>
-        <template #default="{ width }">
-          <gl-area-chart
-            class="gl-mb-5"
-            :width="width"
-            :data="masterChartData"
-            :option="masterChartOptions"
-            :height="masterChartHeight"
-            @created="onMasterChartCreated"
-          />
-        </template>
-      </resizable-chart-container>
-
-      <div class="row">
-        <div
-          v-for="(contributor, index) in individualChartsData"
-          :key="index"
-          class="col-lg-6 col-12 gl-my-5"
-        >
-          <h4 class="gl-mb-2 gl-mt-0">{{ contributor.name }}</h4>
-          <p class="gl-mb-3">
-            {{ n__('%d commit', '%d commits', contributor.commits) }} ({{ contributor.email }})
-          </p>
-          <resizable-chart-container>
-            <template #default="{ width }">
-              <gl-area-chart
-                :width="width"
-                :data="contributor.dates"
-                :option="individualChartOptions"
-                :height="individualChartHeight"
-                @created="onIndividualChartCreated"
-              />
-            </template>
-          </resizable-chart-container>
+    <template v-else-if="showChart">
+      <div class="gl-border-b gl-border-gray-100 gl-mb-6 gl-bg-gray-10 gl-py-5">
+        <div class="gl-display-flex">
+          <div class="gl-mr-3">
+            <ref-selector
+              v-model="selectedBranch"
+              :project-id="projectId"
+              :enabled-ref-types="$options.refTypes"
+              :translations="$options.i18n.refSelectorTranslations"
+              @input="visitBranch"
+            />
+          </div>
+          <gl-button :href="commitsPath" data-testid="history-button"
+            >{{ $options.i18n.history }}
+          </gl-button>
         </div>
       </div>
-    </div>
+
+      <h4 class="gl-mb-2 gl-mt-5">{{ __('Commits to') }} {{ branch }}</h4>
+      <span>{{ __('Excluding merge commits. Limited to 6,000 commits.') }}</span>
+      <contributor-area-chart
+        class="gl-mb-5"
+        :data="masterChartData"
+        :option="masterChartOptions"
+        :height="$options.MASTER_CHART_HEIGHT"
+        @created="onMasterChartCreated"
+      />
+
+      <div class="row">
+        <individual-chart
+          v-for="(contributor, index) in individualChartsData"
+          :key="index"
+          :contributor="contributor"
+          :chart-options="individualChartOptions"
+          :zoom="individualChartZoom"
+        />
+      </div>
+    </template>
   </div>
 </template>

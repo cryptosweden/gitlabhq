@@ -1,10 +1,16 @@
 <script>
 import { GlSprintf, GlTooltipDirective, GlModal } from '@gitlab/ui';
 import { __, s__ } from '~/locale';
+import { helpPagePath } from '~/helpers/help_page_helper';
 import eventHub from '../event_hub';
 import stopEnvironmentMutation from '../graphql/mutations/stop_environment.mutation.graphql';
 
 export default {
+  yamlDocsLink: helpPagePath('ci/yaml/index'),
+  stoppingEnvironmentDocsLink: helpPagePath('ci/environments/index', {
+    anchor: 'stopping-an-environment',
+  }),
+
   id: 'stop-environment-modal',
   name: 'StopEnvironmentModal',
 
@@ -33,13 +39,16 @@ export default {
     primaryProps() {
       return {
         text: s__('Environments|Stop environment'),
-        attributes: [{ variant: 'danger' }],
+        attributes: { variant: 'danger' },
       };
     },
     cancelProps() {
       return {
         text: __('Cancel'),
       };
+    },
+    hasStopAction() {
+      return this.graphql ? this.environment.hasStopAction : this.environment.has_stop_action;
     },
   },
 
@@ -81,7 +90,7 @@ export default {
 
     <p>{{ s__('Environments|Are you sure you want to stop this environment?') }}</p>
 
-    <div v-if="!environment.has_stop_action" class="warning_message">
+    <div v-if="!hasStopAction" class="warning_message">
       <p>
         <gl-sprintf
           :message="
@@ -95,18 +104,15 @@ export default {
             <strong>{{ content }}</strong>
           </template>
           <template #ciConfigLink="{ content }">
-            <a href="https://docs.gitlab.com/ee/ci/yaml/" target="_blank" rel="noopener noreferrer">
+            <a :href="$options.yamlDocsLink" target="_blank" rel="noopener noreferrer">
               {{ content }}</a
             >
           </template>
         </gl-sprintf>
       </p>
-      <a
-        href="https://docs.gitlab.com/ee/ci/environments/#stopping-an-environment"
-        target="_blank"
-        rel="noopener noreferrer"
-        >{{ s__('Environments|Learn more about stopping environments') }}</a
-      >
+      <a :href="$options.stoppingEnvironmentDocsLink" target="_blank" rel="noopener noreferrer">{{
+        s__('Environments|Learn more about stopping environments')
+      }}</a>
     </div>
   </gl-modal>
 </template>

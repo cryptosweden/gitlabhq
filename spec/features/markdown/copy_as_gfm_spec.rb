@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Copy as GFM', :js do
+RSpec.describe 'Copy as GFM', :js, feature_category: :team_planning do
   include MarkupHelper
   include RepoHelpers
   include ActionView::Helpers::JavaScriptHelper
@@ -26,10 +26,10 @@ RSpec.describe 'Copy as GFM', :js do
     # by verifying (`html_to_gfm(gfm_to_html(gfm)) == gfm`) for a number of examples of GFM for every filter, using the `verify` helper.
 
     # These are all in a single `it` for performance reasons.
-    it 'works', :aggregate_failures do
+    it 'transforms HTML to GFM', :aggregate_failures do
       verify(
         'nesting',
-        '> 1. [x] **[$`2 + 2`$ {-=-}{+=+} 2^2 ~~:thumbsup:~~](http://google.com)**'
+        '> 1. [x] [**$`2 + 2`$ {-=-}{+=+} 2^2 ~~:thumbsup:~~**](http://google.com)'
       )
 
       verify(
@@ -109,10 +109,24 @@ RSpec.describe 'Copy as GFM', :js do
         <<~GFM,
           * [ ] Unchecked task
           * [x] Checked task
+          * [~] Inapplicable task
+          * [~] Inapplicable task with ~~del~~ and <s>strike</s> embedded
+        GFM
+        <<~GFM,
+          1. [ ] Unchecked ordered task
+          2. [x] Checked ordered task
+          3. [~] Inapplicable ordered task
+          4. [~] Inapplicable ordered task with ~~del~~ and <s>strike</s> embedded
         GFM
         <<~GFM
-          1. [ ] Unchecked ordered task
-          1. [x] Checked ordered task
+          * [ ] Unchecked loose list task
+          * [x] Checked loose list task
+          * [~] Inapplicable loose list task
+
+            With a paragraph
+          * [~] Inapplicable loose list task with ~~del~~ and <s>strike</s> embedded
+
+            With a paragraph
         GFM
       )
 
@@ -133,12 +147,12 @@ RSpec.describe 'Copy as GFM', :js do
       )
 
       verify(
-        'AutolinkFilter',
+        'MarkdownFilter',
         'https://example.com'
       )
 
       verify(
-        'TableOfContentsFilter',
+        'TableOfContentsTagFilter',
         <<~GFM,
           [[_TOC_]]
 
@@ -445,25 +459,25 @@ RSpec.describe 'Copy as GFM', :js do
                 </a>
               </div>
               <!---->
-              <button type="button" class="btn qa-apply-btn js-apply-btn">Apply suggestion</button>
+              <button type="button" class="btn js-apply-btn">Apply suggestion</button>
             </div>
             <table class="mb-3 md-suggestion-diff js-syntax-highlight code white">
               <tbody>
                 <tr class="line_holder old">
-                  <td class="diff-line-num old_line qa-old-diff-line-number old">9</td>
+                  <td class="diff-line-num old_line old">9</td>
                   <td class="diff-line-num new_line old"></td>
                   <td class="line_content old"><span>Old
           </span></td>
                 </tr>
                 <tr class="line_holder new">
                   <td class="diff-line-num old_line new"></td>
-                  <td class="diff-line-num new_line qa-new-diff-line-number new">9</td>
+                  <td class="diff-line-num new_line new">9</td>
                   <td class="line_content new"><span>New
           </span></td>
                 </tr>
                 <tr class="line_holder new">
                   <td class="diff-line-num old_line new"></td>
-                  <td class="diff-line-num new_line qa-new-diff-line-number new">10</td>
+                  <td class="diff-line-num new_line new">10</td>
                   <td class="line_content new"><span>  And newer
           </span></td>
                 </tr>
@@ -482,15 +496,14 @@ RSpec.describe 'Copy as GFM', :js do
         <sub>sub</sub>
 
         <dl>
-          <dt>dt</dt>
-          <dt>dt</dt>
-          <dd>dd</dd>
-          <dd>dd</dd>
-
-          <dt>dt</dt>
-          <dt>dt</dt>
-          <dd>dd</dd>
-          <dd>dd</dd>
+        <dt>dt</dt>
+        <dt>dt</dt>
+        <dd>dd</dd>
+        <dd>dd</dd>
+        <dt>dt</dt>
+        <dt>dt</dt>
+        <dd>dd</dd>
+        <dd>dd</dd>
         </dl>
 
         <kbd>kbd</kbd>
@@ -504,9 +517,8 @@ RSpec.describe 'Copy as GFM', :js do
         <abbr title="HyperText &quot;Markup&quot; Language">HTML</abbr>
 
         <details>
-        <summary>summary></summary>
-
-        details
+        <summary>summary</summary>
+         details
         </details>
         GFM
       )
@@ -528,17 +540,20 @@ RSpec.describe 'Copy as GFM', :js do
         <<~GFM
           Foo
 
-              ```js
-              Code goes here
-              ```
+          ````
+          ```js
+          Code goes here
+          ```
+          ````
         GFM
       )
 
       verify(
         'MarkdownFilter',
-        "Line with two spaces at the end  \nto insert a linebreak",
+        "Line with backslash at the end\\\nto insert a linebreak",
         '`code`',
-        '`` code with ` ticks ``',
+        '``code with ` ticks``',
+        '`` `nested` code ``',
         '> Quote',
         # multiline quote
         <<~GFM,
@@ -575,7 +590,7 @@ RSpec.describe 'Copy as GFM', :js do
         GFM
         <<~GFM,
           1. Ordered list item
-          1. Ordered list item 2
+          2. Ordered list item 2
         GFM
 
         # multiline ordered list item
@@ -604,8 +619,9 @@ RSpec.describe 'Copy as GFM', :js do
         '##### Heading',
         '###### Heading',
         '**Bold**',
-        '*Italics*',
-        '~~Strikethrough~~',
+        '_Italics_',
+        '~~Strikethrough (del)~~',
+        '<s>Strikethrough</s>',
         '---',
         # table
         <<~GFM,
@@ -640,7 +656,7 @@ RSpec.describe 'Copy as GFM', :js do
     end
 
     def project_media_uri(project, media_path)
-      "#{project_path(project)}#{media_path}"
+      "/-/project/#{project.id}#{media_path}"
     end
 
     def verify_media_with_partial_path(gfm, media_uri)

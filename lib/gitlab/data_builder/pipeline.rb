@@ -12,7 +12,7 @@ module Gitlab
       def initialize(pipeline)
         @pipeline = pipeline
 
-        super(
+        attrs = {
           object_kind: 'pipeline',
           object_attributes: hook_attrs(pipeline),
           merge_request: pipeline.merge_request && merge_request_attrs(pipeline.merge_request),
@@ -23,7 +23,13 @@ module Gitlab
             preload_builds(pipeline, :latest_builds)
             pipeline.latest_builds.map(&method(:build_hook_attrs))
           end
-        )
+        }
+
+        if pipeline.source_pipeline.present?
+          attrs[:source_pipeline] = source_pipeline_attrs(pipeline.source_pipeline)
+        end
+
+        super(attrs)
       end
 
       def with_retried_builds
@@ -39,23 +45,27 @@ module Gitlab
 
       # rubocop: disable CodeReuse/ActiveRecord
       def preload_builds(pipeline, association)
-        ActiveRecord::Associations::Preloader.new.preload(pipeline,
-          {
+        ActiveRecord::Associations::Preloader.new(
+          records: [pipeline],
+          associations: {
             association => {
               **::Ci::Pipeline::PROJECT_ROUTE_AND_NAMESPACE_ROUTE,
               runner: :tags,
               job_artifacts_archive: [],
               user: [],
-              metadata: []
+              metadata: [],
+              ci_stage: []
             }
           }
-        )
+        ).call
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
       def hook_attrs(pipeline)
         {
           id: pipeline.id,
+          iid: pipeline.iid,
+          name: pipeline.name,
           ref: pipeline.source_ref,
           tag: pipeline.tag,
           sha: pipeline.sha,
@@ -68,7 +78,22 @@ module Gitlab
           finished_at: pipeline.finished_at,
           duration: pipeline.duration,
           queued_duration: pipeline.queued_duration,
-          variables: pipeline.variables.map(&:hook_attrs)
+          variables: pipeline.variables.map(&:hook_attrs),
+          url: Gitlab::Routing.url_helpers.project_pipeline_url(pipeline.project, pipeline)
+        }
+      end
+
+      def source_pipeline_attrs(source_pipeline)
+        project = source_pipeline.source_project
+
+        {
+          project: {
+            id: project.id,
+            web_url: project.web_url,
+            path_with_namespace: project.full_path
+          },
+          job_id: source_pipeline.source_job_id,
+          pipeline_id: source_pipeline.source_pipeline_id
         }
       end
 
@@ -83,6 +108,7 @@ module Gitlab
           target_project_id: merge_request.target_project_id,
           state: merge_request.state,
           merge_status: merge_request.public_merge_status,
+          detailed_merge_status: detailed_merge_status(merge_request),
           url: Gitlab::UrlBuilder.build(merge_request)
         }
       end
@@ -90,7 +116,7 @@ module Gitlab
       def build_hook_attrs(build)
         {
           id: build.id,
-          stage: build.stage,
+          stage: build.stage_name,
           name: build.name,
           status: build.status,
           created_at: build.created_at,
@@ -98,6 +124,7 @@ module Gitlab
           finished_at: build.finished_at,
           duration: build.duration,
           queued_duration: build.queued_duration,
+          failure_reason: (build.failure_reason if build.failed?),
           when: build.when,
           manual: build.action?,
           allow_failure: build.allow_failure,
@@ -123,13 +150,17 @@ module Gitlab
       end
 
       def environment_hook_attrs(build)
-        return unless build.has_environment?
+        return unless build.has_environment_keyword?
 
         {
           name: build.expanded_environment_name,
           action: build.environment_action,
           deployment_tier: build.persisted_environment.try(:tier)
         }
+      end
+
+      def detailed_merge_status(merge_request)
+        ::MergeRequests::Mergeability::DetailedMergeStatusService.new(merge_request: merge_request).execute.to_s
       end
     end
   end

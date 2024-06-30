@@ -4,11 +4,17 @@ require 'spec_helper'
 
 # We stub Gitaly in `spec/support/gitaly.rb` for other tests. We don't want
 # those stubs while testing the GitalyClient itself.
-RSpec.describe Gitlab::GitalyClient do
+RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
   def stub_repos_storages(address)
     allow(Gitlab.config.repositories).to receive(:storages).and_return({
       'default' => { 'gitaly_address' => address }
     })
+  end
+
+  around do |example|
+    described_class.clear_stubs!
+    example.run
+    described_class.clear_stubs!
   end
 
   describe '.query_time', :request_store do
@@ -31,16 +37,6 @@ RSpec.describe Gitlab::GitalyClient do
       end
 
       it { expect(subject.long_timeout).to eq(55) }
-    end
-  end
-
-  describe '.filesystem_id_from_disk' do
-    it 'catches errors' do
-      [Errno::ENOENT, Errno::EACCES, JSON::ParserError].each do |error|
-        stub_file_read(described_class.storage_metadata_file_path('default'), error: error)
-
-        expect(described_class.filesystem_id_from_disk('default')).to be_nil
-      end
     end
   end
 
@@ -149,65 +145,208 @@ RSpec.describe Gitlab::GitalyClient do
       expect(described_class.stub_creds('default')).to eq(:this_channel_is_insecure)
     end
 
+    it 'returns :this_channel_is_insecure if dns' do
+      address = 'dns:///localhost:9876'
+      stub_repos_storages address
+
+      expect(described_class.stub_creds('default')).to eq(:this_channel_is_insecure)
+    end
+
+    it 'returns :this_channel_is_insecure if dns (short-form)' do
+      address = 'dns:localhost:9876'
+      stub_repos_storages address
+
+      expect(described_class.stub_creds('default')).to eq(:this_channel_is_insecure)
+    end
+
+    it 'returns :this_channel_is_insecure if dns (with authority)' do
+      address = 'dns://1.1.1.1/localhost:9876'
+      stub_repos_storages address
+
+      expect(described_class.stub_creds('default')).to eq(:this_channel_is_insecure)
+    end
+
     it 'returns Credentials object if tls' do
       address = 'tls://localhost:9876'
       stub_repos_storages address
 
       expect(described_class.stub_creds('default')).to be_a(GRPC::Core::ChannelCredentials)
     end
+
+    it 'raise an exception if the scheme is not supported' do
+      address = 'custom://localhost:9876'
+      stub_repos_storages address
+
+      expect do
+        described_class.stub_creds('default')
+      end.to raise_error(/unsupported Gitaly address/i)
+    end
+  end
+
+  describe '.create_channel' do
+    where(:storage, :address, :expected_target) do
+      [
+        ['default', 'unix:tmp/gitaly.sock', 'unix:tmp/gitaly.sock'],
+        ['default', 'tcp://localhost:9876', 'dns:///localhost:9876'],
+        ['default', 'tls://localhost:9876', 'dns:///localhost:9876'],
+        ['default', 'dns:///localhost:9876', 'dns:///localhost:9876'],
+        ['default', 'dns:localhost:9876', 'dns:localhost:9876'],
+        ['default', 'dns://1.1.1.1/localhost:9876', 'dns://1.1.1.1/localhost:9876']
+      ]
+    end
+
+    with_them do
+      before do
+        allow(Gitlab.config.repositories).to receive(:storages).and_return(
+          'default' => { 'gitaly_address' => address },
+          'other' => { 'gitaly_address' => address }
+        )
+      end
+
+      it 'creates channel based on storage' do
+        channel = described_class.create_channel(storage)
+
+        expect(channel).to be_a(GRPC::Core::Channel)
+        expect(channel.target).to eql(expected_target)
+      end
+
+      it 'caches channel based on storage' do
+        channel_1 = described_class.create_channel(storage)
+        channel_2 = described_class.create_channel(storage)
+
+        expect(channel_1).to equal(channel_2)
+      end
+
+      it 'returns different channels for different storages' do
+        channel_1 = described_class.create_channel(storage)
+        channel_2 = described_class.create_channel('other')
+
+        expect(channel_1).not_to equal(channel_2)
+      end
+    end
   end
 
   describe '.stub' do
-    # Notice that this is referring to gRPC "stubs", not rspec stubs
-    before do
-      described_class.clear_stubs!
+    matcher :be_a_grpc_channel do |expected_address|
+      match { |actual| actual.is_a?(::GRPC::Core::Channel) && actual.target == expected_address }
+    end
+
+    matcher :have_same_channel do |expected|
+      match do |actual|
+        # gRPC client stub does not expose the underlying channel. We need a way
+        # to verify two stubs have the same channel. So, no way around.
+        expected_channel = expected.instance_variable_get(:@ch)
+        actual_channel = actual.instance_variable_get(:@ch)
+        expected_channel.is_a?(GRPC::Core::Channel) &&
+          actual_channel.is_a?(GRPC::Core::Channel) &&
+          expected_channel == actual_channel
+      end
     end
 
     context 'when passed a UNIX socket address' do
-      it 'passes the address as-is to GRPC' do
-        address = 'unix:/tmp/gitaly.sock'
+      let(:address) { 'unix:/tmp/gitaly.sock' }
+
+      before do
         stub_repos_storages address
+      end
 
-        expect(Gitaly::CommitService::Stub).to receive(:new).with(address, any_args)
-
+      it 'passes the address as-is to GRPC' do
+        expect(Gitaly::CommitService::Stub).to receive(:new).with(
+          address, nil, channel_override: be_a_grpc_channel(address), interceptors: []
+        )
         described_class.stub(:commit_service, 'default')
+      end
+
+      it 'shares the same channel object with other stub' do
+        stub_commit = described_class.stub(:commit_service, 'default')
+        stub_blob = described_class.stub(:blob_service, 'default')
+
+        expect(stub_commit).to have_same_channel(stub_blob)
       end
     end
 
     context 'when passed a TLS address' do
-      it 'strips tls:// prefix before passing it to GRPC::Core::Channel initializer' do
-        address = 'localhost:9876'
+      let(:address) { 'localhost:9876' }
+
+      before do
         prefixed_address = "tls://#{address}"
         stub_repos_storages prefixed_address
+      end
 
-        expect(Gitaly::CommitService::Stub).to receive(:new).with(address, any_args)
+      it 'strips tls:// prefix before passing it to GRPC::Core::Channel initializer' do
+        expect(Gitaly::CommitService::Stub).to receive(:new).with(
+          "dns:///#{address}", nil, channel_override: be_a(GRPC::Core::Channel), interceptors: []
+        )
 
         described_class.stub(:commit_service, 'default')
+      end
+
+      it 'shares the same channel object with other stub' do
+        stub_commit = described_class.stub(:commit_service, 'default')
+        stub_blob = described_class.stub(:blob_service, 'default')
+
+        expect(stub_commit).to have_same_channel(stub_blob)
       end
     end
 
     context 'when passed a TCP address' do
-      it 'strips tcp:// prefix before passing it to GRPC::Core::Channel initializer' do
-        address = 'localhost:9876'
+      let(:address) { 'localhost:9876' }
+
+      before do
         prefixed_address = "tcp://#{address}"
         stub_repos_storages prefixed_address
+      end
 
-        expect(Gitaly::CommitService::Stub).to receive(:new).with(address, any_args)
+      it 'strips tcp:// prefix before passing it to GRPC::Core::Channel initializer' do
+        expect(Gitaly::CommitService::Stub).to receive(:new).with(
+          "dns:///#{address}", nil, channel_override: be_a(GRPC::Core::Channel), interceptors: []
+        )
 
         described_class.stub(:commit_service, 'default')
       end
+
+      it 'shares the same channel object with other stub' do
+        stub_commit = described_class.stub(:commit_service, 'default')
+        stub_blob = described_class.stub(:blob_service, 'default')
+
+        expect(stub_commit).to have_same_channel(stub_blob)
+      end
     end
-  end
 
-  describe '.can_use_disk?' do
-    it 'properly caches a false result' do
-      # spec_helper stubs this globally
-      allow(described_class).to receive(:can_use_disk?).and_call_original
-      expect(described_class).to receive(:filesystem_id).once
-      expect(described_class).to receive(:filesystem_id_from_disk).once
+    context 'when passed a DNS address' do
+      let(:address) { 'dns:///localhost:9876' }
 
-      2.times do
-        described_class.can_use_disk?('unknown')
+      before do
+        stub_repos_storages address
+      end
+
+      it 'strips dns:/// prefix before passing it to GRPC::Core::Channel initializer' do
+        expect(Gitaly::CommitService::Stub).to receive(:new).with(
+          address, nil, channel_override: be_a(GRPC::Core::Channel), interceptors: []
+        )
+
+        described_class.stub(:commit_service, 'default')
+      end
+
+      it 'shares the same channel object with other stub' do
+        stub_commit = described_class.stub(:commit_service, 'default')
+        stub_blob = described_class.stub(:blob_service, 'default')
+
+        expect(stub_commit).to have_same_channel(stub_blob)
+      end
+    end
+
+    context 'when passed an unsupported scheme' do
+      let(:address) { 'custom://localhost:9876' }
+
+      before do
+        stub_repos_storages address
+      end
+
+      it 'strips dns:/// prefix before passing it to GRPC::Core::Channel initializer' do
+        expect do
+          described_class.stub(:commit_service, 'default')
+        end.to raise_error(/Unsupported Gitaly address/i)
       end
     end
   end
@@ -225,6 +364,20 @@ RSpec.describe Gitlab::GitalyClient do
     context 'when RequestStore is enabled', :request_store do
       it 'returns the result of the allow_n_plus_1_calls block' do
         expect(described_class.allow_n_plus_1_calls { "result" }).to eq("result")
+      end
+
+      context 'when the `gitaly_call_count_exception_block_depth` key is not present' do
+        before do
+          allow(Gitlab::SafeRequestStore).to receive(:[]).with(:gitaly_call_count_exception_block_depth).and_return(0, 1, nil)
+          allow(Gitlab::SafeRequestStore).to receive(:+)
+          allow(Gitlab::SafeRequestStore).to receive(:-)
+        end
+
+        it 'does not decrement call count' do
+          expect(Gitlab::SafeRequestStore).not_to have_received(:-)
+
+          described_class.allow_n_plus_1_calls { "result" }
+        end
       end
     end
 
@@ -255,6 +408,140 @@ RSpec.describe Gitlab::GitalyClient do
 
         3.times do
           expect(described_class.request_kwargs('default', timeout: 1)[:metadata]['gitaly-session-id']).to eq(gitaly_session_id)
+        end
+      end
+    end
+
+    shared_examples 'gitaly feature flags in metadata' do
+      before do
+        allow(Feature::Gitaly).to receive(:server_feature_flags).and_return(
+          'gitaly-feature-a' => 'true',
+          'gitaly-feature-b' => 'false'
+        )
+      end
+
+      it 'evaluates Gitaly server feature flags' do
+        metadata = described_class.request_kwargs('default', timeout: 1)[:metadata]
+
+        expect(Feature::Gitaly).to have_received(:server_feature_flags).with(no_args)
+        expect(metadata['gitaly-feature-a']).to be('true')
+        expect(metadata['gitaly-feature-b']).to be('false')
+      end
+
+      context 'when there are actors' do
+        let(:repository_actor) { double(:actor) }
+        let(:project_actor) { double(:actor) }
+        let(:user_actor) { double(:actor) }
+        let(:group_actor) { double(:actor) }
+
+        it 'evaluates Gitaly server feature flags with actors' do
+          metadata = described_class.with_feature_flag_actors(
+            repository: repository_actor,
+            project: project_actor,
+            user: user_actor,
+            group: group_actor
+          ) do
+            described_class.request_kwargs('default', timeout: 1)[:metadata]
+          end
+
+          expect(Feature::Gitaly).to have_received(:server_feature_flags).with(
+            repository: repository_actor,
+            project: project_actor,
+            user: user_actor,
+            group: group_actor
+          )
+          expect(metadata['gitaly-feature-a']).to be('true')
+          expect(metadata['gitaly-feature-b']).to be('false')
+        end
+      end
+    end
+
+    context 'server_feature_flags when RequestStore is activated', :request_store do
+      it_behaves_like 'gitaly feature flags in metadata'
+    end
+
+    context 'server_feature_flags when RequestStore is not activated' do
+      it_behaves_like 'gitaly feature flags in metadata'
+    end
+
+    context 'logging information in metadata' do
+      let(:user) { create(:user) }
+
+      context 'user is added to application context' do
+        it 'injects username and user_id into gRPC metadata' do
+          metadata = {}
+          ::Gitlab::ApplicationContext.with_context(user: user) do
+            metadata = described_class.request_kwargs('default', timeout: 1)[:metadata]
+          end
+
+          expect(metadata['username']).to eql(user.username)
+          expect(metadata['user_id']).to eql(user.id.to_s)
+        end
+      end
+
+      context 'user is not added to application context' do
+        it 'does not inject username and user_id into gRPC metadata' do
+          metadata = described_class.request_kwargs('default', timeout: 1)[:metadata]
+
+          expect(metadata).not_to have_key('username')
+          expect(metadata).not_to have_key('user_id')
+        end
+      end
+
+      context 'remote_ip is added to application context' do
+        it 'injects remote_ip into gRPC metadata' do
+          metadata = {}
+          ::Gitlab::ApplicationContext.with_context(remote_ip: '1.2.3.4') do
+            metadata = described_class.request_kwargs('default', timeout: 1)[:metadata]
+          end
+
+          expect(metadata['remote_ip']).to eql('1.2.3.4')
+        end
+      end
+
+      context 'remote_ip is not added to application context' do
+        it 'does not inject remote_ip into gRPC metadata' do
+          metadata = described_class.request_kwargs('default', timeout: 1)[:metadata]
+
+          expect(metadata).not_to have_key('remote_ip')
+        end
+      end
+    end
+
+    describe '.fetch_relative_path' do
+      subject { described_class.request_kwargs('default', timeout: 1)[:metadata]['relative-path-bin'] }
+
+      let(:relative_path) { 'relative_path' }
+
+      context 'when RequestStore is disabled' do
+        it 'does not set a relative path' do
+          is_expected.to be_nil
+        end
+      end
+
+      context 'when RequestStore is enabled', :request_store do
+        context 'when RequestStore is empty' do
+          it 'does not set a relative path' do
+            is_expected.to be_nil
+          end
+        end
+
+        context 'when RequestStore contains a relalive_path value' do
+          before do
+            Gitlab::SafeRequestStore[:gitlab_git_relative_path] = relative_path
+          end
+
+          it 'sets a base64 encoded version of relative_path' do
+            is_expected.to eq(relative_path)
+          end
+
+          context 'when relalive_path is empty' do
+            let(:relative_path) { '' }
+
+            it 'does not set a relative path' do
+              is_expected.to be_nil
+            end
+          end
         end
       end
     end
@@ -358,11 +645,7 @@ RSpec.describe Gitlab::GitalyClient do
       end
     end
 
-    context 'when RequestStore is enabled and the maximum number of calls is not enforced by a feature flag', :request_store do
-      before do
-        stub_feature_flags(gitaly_enforce_requests_limits: false)
-      end
-
+    shared_examples 'enforces maximum allowed Gitaly calls' do
       it 'allows up the maximum number of allowed calls' do
         expect { call_gitaly(Gitlab::GitalyClient::MAXIMUM_GITALY_CALLS) }.not_to raise_error
       end
@@ -406,6 +689,18 @@ RSpec.describe Gitlab::GitalyClient do
           expect { call_gitaly(Gitlab::GitalyClient::MAXIMUM_GITALY_CALLS + 1) }.to raise_error(Gitlab::GitalyClient::TooManyInvocationsError)
         end
       end
+    end
+
+    context 'when RequestStore is enabled and the maximum number of calls is enforced by a feature flag', :request_store do
+      include_examples 'enforces maximum allowed Gitaly calls'
+    end
+
+    context 'when RequestStore is enabled and the maximum number of calls is not enforced by a feature flag', :request_store do
+      before do
+        stub_feature_flags(gitaly_enforce_requests_limits: false)
+      end
+
+      include_examples 'enforces maximum allowed Gitaly calls'
     end
 
     context 'in production and when RequestStore is enabled', :request_store do
@@ -535,6 +830,100 @@ RSpec.describe Gitlab::GitalyClient do
 
         expect(described_class.list_call_details).to be_empty
       end
+    end
+  end
+
+  describe '.decode_detailed_error' do
+    let(:detailed_error) do
+      new_detailed_error(GRPC::Core::StatusCodes::INVALID_ARGUMENT,
+        "error message",
+        Gitaly::InvalidRefFormatError.new)
+    end
+
+    let(:error_without_details) do
+      error_code = GRPC::Core::StatusCodes::INVALID_ARGUMENT
+      error_message = "error message"
+
+      status_error = Google::Rpc::Status.new(
+        code: error_code,
+        message: error_message,
+        details: nil
+      )
+
+      GRPC::BadStatus.new(
+        error_code,
+        error_message,
+        { "grpc-status-details-bin" => Google::Rpc::Status.encode(status_error) })
+    end
+
+    context 'decodes a structured error' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:error, :result) do
+        detailed_error | Gitaly::InvalidRefFormatError.new
+        error_without_details | nil
+        StandardError.new | nil
+      end
+
+      with_them do
+        it 'returns correct detailed error' do
+          expect(described_class.decode_detailed_error(error)).to eq(result)
+        end
+      end
+    end
+  end
+
+  describe '.with_feature_flag_actor', :request_store do
+    shared_examples 'with_feature_flag_actor' do
+      let(:repository_actor) { double(:actor) }
+      let(:project_actor) { double(:actor) }
+      let(:user_actor) { double(:actor) }
+      let(:group_actor) { double(:actor) }
+
+      it 'allows access to feature flag actors inside the block' do
+        expect(described_class.feature_flag_actors).to eql({})
+
+        described_class.with_feature_flag_actors(
+          repository: repository_actor,
+          project: project_actor,
+          user: user_actor,
+          group: group_actor
+        ) do
+          expect(
+            described_class.feature_flag_actors
+          ).to eql(
+            repository: repository_actor,
+            project: project_actor,
+            user: user_actor,
+            group: group_actor)
+        end
+
+        expect(described_class.feature_flag_actors).to eql({})
+      end
+    end
+
+    context 'when RequestStore is activated', :request_store do
+      it_behaves_like 'with_feature_flag_actor'
+    end
+
+    context 'when RequestStore is not activated' do
+      it_behaves_like 'with_feature_flag_actor'
+    end
+  end
+
+  describe '.execute' do
+    subject(:execute) do
+      described_class.execute('default', :ref_service, :find_local_branches, Gitaly::FindLocalBranchesRequest.new,
+        remote_storage: nil, timeout: 10.seconds)
+    end
+
+    it 'raises an exception when running within a concurrent Ruby thread' do
+      Thread.current[:restrict_within_concurrent_ruby] = true
+
+      expect { execute }.to raise_error(Gitlab::Utils::ConcurrentRubyThreadIsUsedError,
+        "Cannot run 'gitaly' if running from `Concurrent::Promise`.")
+
+      Thread.current[:restrict_within_concurrent_ruby] = nil
     end
   end
 end

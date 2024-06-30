@@ -1,10 +1,14 @@
 ---
 stage: Verify
 group: Pipeline Authoring
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Format scripts and job logs **(FREE)**
+# Scripts and job logs
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 You can use special syntax in [`script`](index.md#script) sections to:
 
@@ -66,7 +70,7 @@ with [`default`](index.md#default):
 - Use `before_script` with `default` to define a default array of commands that
   should run before the `script` commands in all jobs.
 - Use `after_script` with default to define a default array of commands
-  that should run after the job completes.
+  that should run after any job completes or is canceled.
 
 You can overwrite a default by defining a different one in a job. To ignore the default
 use `before_script: []` or `after_script: []`:
@@ -90,6 +94,38 @@ job2:
     - echo "This script executes after the job's `before_script`,"
     - echo "but the job does not use the default `after_script`."
   after_script: []
+```
+
+## Skip `after_script` commands if a job is cancelled
+
+> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/10158) in GitLab 17.0 [with a flag](../../administration/feature_flags.md) named `ci_canceling_status`. Enabled by default. Requires GitLab Runner version 16.11.1.
+
+FLAG:
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+
+[`after_script`](index.md) commands run if a job is canceled while the `before_script`
+or `script` section of that job are running.
+
+The job's status in the UI is `canceling` while the `after_script` are executing,
+and changes to `canceled` after the `after_script` commands complete. The `$CI_JOB_STATUS`
+predefined variable has a value of `canceled` while the `after_script` commands are running.
+
+To prevent `after_script` commands running after canceling a job, configure the `after_script`
+section to:
+
+1. Check the `$CI_JOB_STATUS` predefined variable at the start of the `after_script` section.
+1. End execution early if the value is `canceled`.
+
+For example:
+
+```yaml
+job1:
+  script:
+    - my-script.sh
+  after_script:
+    - if [ "$CI_JOB_STATUS" == "canceled" ]; then exit 0; fi
+    - my-after-script.sh
 ```
 
 ## Split long commands
@@ -203,7 +239,7 @@ job:
     - echo -e "\e[31mThis text is red,\e[0m but this text isn't\e[31m however this text is red again."
 ```
 
-You can define the color codes in Shell environment variables, or even [custom CI/CD variables](../variables/index.md#custom-cicd-variables),
+You can define the color codes in Shell environment variables, or even [CI/CD variables](../variables/index.md#define-a-cicd-variable-in-the-gitlab-ciyml-file),
 which makes the commands easier to read and reusable.
 
 For example, using the same example as above and environment variables defined in a `before_script`:
@@ -244,6 +280,7 @@ pages-job:
   stage: deploy
   script:
     - curl --header 'PRIVATE-TOKEN: ${PRIVATE_TOKEN}' "https://gitlab.example.com/api/v4/projects"
+  environment: production
 ```
 
 The YAML parser thinks the `:` defines a YAML keyword, and outputs the
@@ -257,4 +294,106 @@ pages-job:
   stage: deploy
   script:
     - 'curl --header "PRIVATE-TOKEN: ${PRIVATE_TOKEN}" "https://gitlab.example.com/api/v4/projects"'
+  environment: production
 ```
+
+### Job does not fail when using `&&` in a script
+
+If you use `&&` to combine two commands together in a single script line, the job
+might return as successful, even if one of the commands failed. For example:
+
+```yaml
+job-does-not-fail:
+  script:
+    - invalid-command xyz && invalid-command abc
+    - echo $?
+    - echo "The job should have failed already, but this is executed unexpectedly."
+```
+
+The `&&` operator returns an exit code of `0` even though the two commands failed,
+and the job continues to run. To force the script to exit when either command fails,
+enclose the entire line in parentheses:
+
+```yaml
+job-fails:
+  script:
+    - (invalid-command xyz && invalid-command abc)
+    - echo "The job failed already, and this is not executed."
+```
+
+### Multiline commands not preserved by folded YAML multiline block scalar
+
+If you use the `- >` folded YAML multiline block scalar to split long commands,
+additional indentation causes the lines to be processed as individual commands.
+
+For example:
+
+```yaml
+script:
+  - >
+    RESULT=$(curl --silent
+      --header
+        "Authorization: Bearer $CI_JOB_TOKEN"
+      "${CI_API_V4_URL}/job"
+    )
+```
+
+This fails as the indentation causes the line breaks to be preserved:
+
+<!-- vale gitlab.CurlStringsQuoted = NO -->
+
+```plaintext
+$ RESULT=$(curl --silent # collapsed multi-line command
+curl: no URL specified!
+curl: try 'curl --help' or 'curl --manual' for more information
+/bin/bash: line 149: --header: command not found
+/bin/bash: line 150: https://gitlab.example.com/api/v4/job: No such file or directory
+```
+
+<!-- vale gitlab.CurlStringsQuoted = YES -->
+
+Resolve this by either:
+
+- Removing the extra indentation:
+
+  ```yaml
+  script:
+    - >
+      RESULT=$(curl --silent
+      --header
+      "Authorization: Bearer $CI_JOB_TOKEN"
+      "${CI_API_V4_URL}/job"
+      )
+  ```
+
+- Modifying the script so the extra line breaks are handled, for example using shell line continuation:
+
+  ```yaml
+  script:
+    - >
+      RESULT=$(curl --silent \
+        --header \
+          "Authorization: Bearer $CI_JOB_TOKEN" \
+        "${CI_API_V4_URL}/job")
+  ```
+
+### Job log output is not formatted as expected or contains unexpected characters
+
+Sometimes the formatting in the job log displays incorrectly with tools that rely
+on the `TERM` environment variable for coloring or formatting. For example, with the `mypy` command:
+
+![Example output](img/incorrect_log_rendering.png)
+
+GitLab Runner runs the container's shell in non-interactive mode, so the shell's `TERM`
+environment variable is set to `dumb`. To fix the formatting for these tools, you can:
+
+- Add an additional script line to set `TERM=ansi` in the shell's environment before running the command.
+- Add a `TERM` [CI/CD variable](../variables/index.md) with a value of `ansi`.
+
+### `after_script` section execution stops early and incorrect `$CI_JOB_STATUS` values
+
+In GitLab Runner 16.9.0 to 16.11.0:
+
+- The `after_script` section execution sometimes stops too early.
+- The status of the `$CI_JOB_STATUS` predefined variable is
+  [incorrectly set as `failed` while the job is canceling](https://gitlab.com/gitlab-org/gitlab-runner/-/issues/37485).

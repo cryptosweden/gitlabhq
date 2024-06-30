@@ -1,16 +1,17 @@
 import {
   GlButton,
-  GlDropdown,
-  GlDropdownItem,
-  GlDropdownSectionHeader,
+  GlCollapsibleListbox,
+  GlListboxItem,
+  GlTruncate,
   GlSearchBoxByType,
 } from '@gitlab/ui';
 import { mount, shallowMount } from '@vue/test-utils';
-import Vue, { nextTick } from 'vue';
+import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
+import { stubComponent } from 'helpers/stub_component';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import eventHub from '~/projects/new/event_hub';
 import NewProjectUrlSelect from '~/projects/new/components/new_project_url_select.vue';
@@ -61,11 +62,13 @@ describe('NewProjectUrlSelect component', () => {
     namespaceId: '28',
     rootUrl: 'https://gitlab.com/',
     trackLabel: 'blank_project',
-    userNamespaceFullPath: 'root',
     userNamespaceId: '1',
+    inputId: 'input_id',
+    inputName: 'input_name',
   };
 
   let mockQueryResponse;
+  let focusInputSpy;
 
   const mountComponent = ({
     search = '',
@@ -76,6 +79,7 @@ describe('NewProjectUrlSelect component', () => {
     mockQueryResponse = jest.fn().mockResolvedValue({ data: queryResponse });
     const requestHandlers = [[searchQuery, mockQueryResponse]];
     const apolloProvider = createMockApollo(requestHandlers);
+    focusInputSpy = jest.fn();
 
     return mountFn(NewProjectUrlSelect, {
       apolloProvider,
@@ -85,17 +89,26 @@ describe('NewProjectUrlSelect component', () => {
           search,
         };
       },
+      stubs: {
+        GlSearchBoxByType: stubComponent(GlSearchBoxByType, {
+          methods: { focusInput: focusInputSpy },
+        }),
+      },
     });
   };
 
   const findButtonLabel = () => wrapper.findComponent(GlButton);
-  const findDropdown = () => wrapper.findComponent(GlDropdown);
-  const findInput = () => wrapper.findComponent(GlSearchBoxByType);
-  const findHiddenInput = () => wrapper.find('[name="project[namespace_id]"]');
+  const findDropdown = () => wrapper.findComponent(GlCollapsibleListbox);
+  const findSelectedPath = () => wrapper.findComponent(GlTruncate);
+  const findHiddenNamespaceInput = () => wrapper.find(`[name="${defaultProvide.inputName}`);
+  const findAllListboxItems = () => wrapper.findAllComponents(GlListboxItem);
+  const findToggleButton = () => findDropdown().findComponent(GlButton);
+
+  const findHiddenSelectedNamespaceInput = () =>
+    wrapper.find('[name="project[selected_namespace_id]"]');
 
   const clickDropdownItem = async () => {
-    wrapper.findComponent(GlDropdownItem).vm.$emit('click');
-    await nextTick();
+    await findAllListboxItems().at(0).trigger('click');
   };
 
   const showDropdown = async () => {
@@ -104,10 +117,6 @@ describe('NewProjectUrlSelect component', () => {
     jest.runOnlyPendingTimers();
     await waitForPromises();
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   it('renders the root url as a label', () => {
     wrapper = mountComponent();
@@ -118,15 +127,25 @@ describe('NewProjectUrlSelect component', () => {
 
   describe('when namespaceId is provided', () => {
     beforeEach(() => {
-      wrapper = mountComponent();
+      wrapper = mountComponent({ mountFn: mount });
     });
 
     it('renders a dropdown with the given namespace full path as the text', () => {
-      expect(findDropdown().props('text')).toBe(defaultProvide.namespaceFullPath);
+      expect(findSelectedPath().props('text')).toBe(defaultProvide.namespaceFullPath);
     });
 
-    it('renders a dropdown with the given namespace id in the hidden input', () => {
-      expect(findHiddenInput().attributes('value')).toBe(defaultProvide.namespaceId);
+    it('renders a dropdown without the class', () => {
+      expect(findToggleButton().classes()).not.toContain('gl-text-gray-500!');
+    });
+
+    it('renders a hidden input with the given namespace id', () => {
+      expect(findHiddenNamespaceInput().attributes('value')).toBe(defaultProvide.namespaceId);
+    });
+
+    it('renders a hidden input with the selected namespace id', () => {
+      expect(findHiddenSelectedNamespaceInput().attributes('value')).toBe(
+        defaultProvide.namespaceId,
+      );
     });
   });
 
@@ -138,26 +157,26 @@ describe('NewProjectUrlSelect component', () => {
     };
 
     beforeEach(() => {
-      wrapper = mountComponent({ provide });
+      wrapper = mountComponent({ provide, mountFn: mount });
     });
 
     it("renders a dropdown with the user's namespace full path as the text", () => {
-      expect(findDropdown().props('text')).toBe(defaultProvide.userNamespaceFullPath);
+      expect(findSelectedPath().props('text')).toBe('Pick a group or namespace');
     });
 
-    it("renders a dropdown with the user's namespace id in the hidden input", () => {
-      expect(findHiddenInput().attributes('value')).toBe(defaultProvide.userNamespaceId);
+    it('renders a dropdown with the class', () => {
+      expect(findToggleButton().classes()).toContain('gl-text-gray-500!');
     });
-  });
 
-  it('focuses on the input when the dropdown is opened', async () => {
-    wrapper = mountComponent({ mountFn: mount });
+    it("renders a hidden input with the user's namespace id", () => {
+      expect(findHiddenNamespaceInput().attributes('value')).toBe(defaultProvide.userNamespaceId);
+      expect(findHiddenNamespaceInput().attributes('name')).toBe(defaultProvide.inputName);
+      expect(findHiddenNamespaceInput().attributes('id')).toBe(defaultProvide.inputId);
+    });
 
-    const spy = jest.spyOn(findInput().vm, 'focusInput');
-
-    await showDropdown();
-
-    expect(spy).toHaveBeenCalledTimes(1);
+    it('renders a hidden input with the selected namespace id', () => {
+      expect(findHiddenSelectedNamespaceInput().attributes('value')).toBe(undefined);
+    });
   });
 
   it('renders expected dropdown items', async () => {
@@ -165,15 +184,33 @@ describe('NewProjectUrlSelect component', () => {
 
     await showDropdown();
 
-    const listItems = wrapper.findAll('li');
+    const { fullPath: text, id: value } = data.currentUser.namespace;
+    const userOptions = [{ text, value }];
+    const groupOptions = data.currentUser.groups.nodes.map((node) => ({
+      text: node.fullPath,
+      value: node.id,
+    }));
 
-    expect(listItems).toHaveLength(6);
-    expect(listItems.at(0).findComponent(GlDropdownSectionHeader).text()).toBe('Groups');
-    expect(listItems.at(1).text()).toBe(data.currentUser.groups.nodes[0].fullPath);
-    expect(listItems.at(2).text()).toBe(data.currentUser.groups.nodes[1].fullPath);
-    expect(listItems.at(3).text()).toBe(data.currentUser.groups.nodes[2].fullPath);
-    expect(listItems.at(4).findComponent(GlDropdownSectionHeader).text()).toBe('Users');
-    expect(listItems.at(5).text()).toBe(data.currentUser.namespace.fullPath);
+    expect(findDropdown().props('items')).toEqual([
+      { text: 'Groups', options: groupOptions },
+      { text: 'Users', options: userOptions },
+    ]);
+  });
+
+  it('does not render users section when user namespace id is not provided', async () => {
+    wrapper = mountComponent({
+      mountFn: mount,
+      provide: { ...defaultProvide, userNamespaceId: null },
+    });
+
+    await showDropdown();
+
+    const groupOptions = data.currentUser.groups.nodes.map((node) => ({
+      text: node.fullPath,
+      value: node.id,
+    }));
+
+    expect(findDropdown().props('items')).toEqual([{ text: 'Groups', options: groupOptions }]);
   });
 
   describe('query fetching', () => {
@@ -208,17 +245,20 @@ describe('NewProjectUrlSelect component', () => {
       eventHub.$emit('select-template', getIdFromGraphQLId(id), fullPath);
     });
 
-    it('filters the dropdown items to the selected group and children', async () => {
-      const listItems = wrapper.findAll('li');
+    it('filters the dropdown items to the selected group and children', () => {
+      const filteredgroupOptions = data.currentUser.groups.nodes.filter((group) =>
+        group.fullPath.startsWith(fullPath),
+      );
+      const groupOptions = filteredgroupOptions.map((node) => ({
+        text: node.fullPath,
+        value: node.id,
+      }));
 
-      expect(listItems).toHaveLength(3);
-      expect(listItems.at(0).findComponent(GlDropdownSectionHeader).text()).toBe('Groups');
-      expect(listItems.at(1).text()).toBe(data.currentUser.groups.nodes[1].fullPath);
-      expect(listItems.at(2).text()).toBe(data.currentUser.groups.nodes[2].fullPath);
+      expect(findDropdown().props('items')).toEqual([{ text: 'Groups', options: groupOptions }]);
     });
 
-    it('sets the selection to the group', async () => {
-      expect(findDropdown().props('text')).toBe(fullPath);
+    it('sets the selection to the group', () => {
+      expect(findSelectedPath().props('text')).toBe(fullPath);
     });
   });
 
@@ -239,7 +279,7 @@ describe('NewProjectUrlSelect component', () => {
     wrapper = mountComponent({ search: 'no matches', queryResponse, mountFn: mount });
     await waitForPromises();
 
-    expect(wrapper.find('li').text()).toBe('No matches found');
+    expect(wrapper.find('[data-testid="listbox-no-results-text"]').text()).toBe('No matches found');
   });
 
   it('emits `update-visibility` event to update the visibility radio options', async () => {
@@ -270,12 +310,12 @@ describe('NewProjectUrlSelect component', () => {
 
     await clickDropdownItem();
 
-    expect(findHiddenInput().attributes('value')).toBe(
+    expect(findHiddenNamespaceInput().attributes('value')).toBe(
       getIdFromGraphQLId(data.currentUser.groups.nodes[0].id).toString(),
     );
   });
 
-  it('tracks clicking on the dropdown', () => {
+  it('tracks clicking on the dropdown when trackLabel is provided', () => {
     wrapper = mountComponent();
 
     const trackingSpy = mockTracking(undefined, wrapper.element, jest.spyOn);
@@ -286,6 +326,18 @@ describe('NewProjectUrlSelect component', () => {
       label: defaultProvide.trackLabel,
       property: 'project_path',
     });
+
+    unmockTracking();
+  });
+
+  it('does not track clicking on the dropdown when trackLabel is not provided', () => {
+    wrapper = mountComponent({ provide: { ...defaultProvide, trackLabel: null } });
+
+    const trackingSpy = mockTracking(undefined, wrapper.element, jest.spyOn);
+
+    findDropdown().vm.$emit('show');
+
+    expect(trackingSpy).not.toHaveBeenCalled();
 
     unmockTracking();
   });

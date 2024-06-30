@@ -1,21 +1,20 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlIcon } from '@gitlab/ui';
+import { GlIcon, GlLoadingIcon } from '@gitlab/ui';
 import fuzzaldrinPlus from 'fuzzaldrin-plus';
-import Mousetrap from 'mousetrap';
 import VirtualList from 'vue-virtual-scroll-list';
+import { Mousetrap, addStopCallback } from '~/lib/mousetrap';
 import { keysFor, MR_GO_TO_FILE } from '~/behaviors/shortcuts/keybindings';
 import { UP_KEY_CODE, DOWN_KEY_CODE, ENTER_KEY_CODE, ESC_KEY_CODE } from '~/lib/utils/keycodes';
 import Item from './item.vue';
 
 export const MAX_FILE_FINDER_RESULTS = 40;
 export const FILE_FINDER_ROW_HEIGHT = 55;
-export const FILE_FINDER_EMPTY_ROW_HEIGHT = 33;
-
-const originalStopCallback = Mousetrap.prototype.stopCallback;
 
 export default {
   components: {
     GlIcon,
+    GlLoadingIcon,
     Item,
     VirtualList,
   },
@@ -71,7 +70,7 @@ export default {
       return this.filteredBlobsLength ? Math.min(this.filteredBlobsLength, 5) : 1;
     },
     listHeight() {
-      return this.filteredBlobsLength ? FILE_FINDER_ROW_HEIGHT : FILE_FINDER_EMPTY_ROW_HEIGHT;
+      return FILE_FINDER_ROW_HEIGHT;
     },
     showClearInputButton() {
       return this.searchText.trim() !== '';
@@ -140,18 +139,19 @@ export default {
       this.toggle(!this.visible);
     });
 
-    Mousetrap.prototype.stopCallback = function customStopCallback(e, el, combo) {
+    addStopCallback(function fileFinderStopCallback(e, el, combo) {
       if (
         (combo === 't' && el.classList.contains('dropdown-input-field')) ||
         el.classList.contains('inputarea')
       ) {
         return true;
-      } else if (combo === 'mod+p') {
+      }
+      if (combo === 'mod+p') {
         return false;
       }
 
-      return originalStopCallback.call(this, e, el, combo);
-    };
+      return undefined;
+    });
   },
   methods: {
     toggle(visible) {
@@ -221,7 +221,12 @@ export default {
 </script>
 
 <template>
-  <div v-if="visible" class="file-finder-overlay" @mousedown.self="toggle(false)">
+  <div
+    v-if="visible"
+    data-testid="overlay"
+    class="file-finder-overlay"
+    @mousedown.self="toggle(false)"
+  >
     <div class="dropdown-menu diff-file-changes file-finder show">
       <div :class="{ 'has-value': showClearInputButton }" class="dropdown-input">
         <input
@@ -231,6 +236,7 @@ export default {
           type="search"
           class="dropdown-input-field"
           autocomplete="off"
+          data-testid="search-input"
           @keydown="onKeydown($event)"
           @keyup="onKeyup($event)"
         />
@@ -241,6 +247,7 @@ export default {
         />
         <gl-icon
           name="close"
+          data-testid="clear-search-input"
           class="dropdown-input-clear"
           role="button"
           :aria-label="__('Clear search input')"
@@ -265,9 +272,9 @@ export default {
             </li>
           </template>
           <li v-else class="dropdown-menu-empty-item">
-            <div class="gl-mr-3 gl-ml-3 gl-mt-3 gl-mb-3">
+            <div class="gl-mr-3 gl-ml-3 gl-mt-5 gl-mb-3">
               <template v-if="loading">
-                {{ __('Loading...') }}
+                <gl-loading-icon />
               </template>
               <template v-else>
                 {{ __('No files found.') }}

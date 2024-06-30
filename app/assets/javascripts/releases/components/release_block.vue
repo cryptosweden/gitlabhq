@@ -1,12 +1,13 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
-import $ from 'jquery';
+import { GlCard } from '@gitlab/ui';
 import { isEmpty } from 'lodash';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { scrollToElement } from '~/lib/utils/common_utils';
 import { slugify } from '~/lib/utils/text_utility';
 import { getLocationHash } from '~/lib/utils/url_utility';
+import { CREATED_ASC } from '~/releases/constants';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import '~/behaviors/markdown/render_gfm';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 import EvidenceBlock from './evidence_block.vue';
 import ReleaseBlockAssets from './release_block_assets.vue';
 import ReleaseBlockFooter from './release_block_footer.vue';
@@ -16,6 +17,7 @@ import ReleaseBlockMilestoneInfo from './release_block_milestone_info.vue';
 export default {
   name: 'ReleaseBlock',
   components: {
+    GlCard,
     EvidenceBlock,
     ReleaseBlockAssets,
     ReleaseBlockFooter,
@@ -31,6 +33,11 @@ export default {
       type: Object,
       required: true,
       default: () => ({}),
+    },
+    sort: {
+      type: String,
+      required: false,
+      default: CREATED_ASC,
     },
   },
   data() {
@@ -80,17 +87,31 @@ export default {
   },
   methods: {
     renderGFM() {
-      $(this.$refs['gfm-content']).renderGFM();
+      renderGFM(this.$refs['gfm-content']);
     },
   },
   safeHtmlConfig: { ADD_TAGS: ['gl-emoji'] },
 };
 </script>
 <template>
-  <div :id="htmlId" :class="{ 'bg-line-target-blue': isHighlighted }" class="card release-block">
-    <release-block-header :release="release" />
-    <div class="card-body">
-      <div v-if="shouldRenderMilestoneInfo">
+  <gl-card
+    :id="htmlId"
+    :class="{ 'bg-line-target-blue': isHighlighted }"
+    class="gl-new-card"
+    header-class="gl-new-card-header"
+    body-class="gl-new-card-body gl-px-5 gl-py-4"
+    footer-class="gl-bg-white"
+    data-testid="release-block"
+  >
+    <template #header>
+      <release-block-header :release="release" />
+    </template>
+
+    <div class="gl-display-flex gl-flex-direction-column gl-gap-5">
+      <div
+        v-if="shouldRenderMilestoneInfo"
+        class="gl-border-b-solid gl-border-b-1 gl-border-gray-100"
+      >
         <!-- TODO: Switch open* links to opened* once fields have been updated in GraphQL -->
         <release-block-milestone-info
           :milestones="milestones"
@@ -100,25 +121,35 @@ export default {
           :merged-merge-requests-path="release._links.mergedMergeRequestsUrl"
           :closed-merge-requests-path="release._links.closedMergeRequestsUrl"
         />
-        <hr class="mb-3 mt-0" />
       </div>
 
-      <release-block-assets v-if="shouldRenderAssets" :assets="assets" />
+      <release-block-assets
+        v-if="shouldRenderAssets"
+        :assets="assets"
+        :class="{
+          'gl-pb-5 gl-border-b-solid gl-border-b-1 gl-border-gray-100':
+            hasEvidence || release.descriptionHtml,
+        }"
+      />
       <evidence-block v-if="hasEvidence" :release="release" />
 
-      <div ref="gfm-content" class="card-text gl-mt-3">
+      <div v-if="release.descriptionHtml" ref="gfm-content">
+        <h3 class="gl-heading-5 gl-mb-2!">{{ __('Release notes') }}</h3>
         <div v-safe-html:[$options.safeHtmlConfig]="release.descriptionHtml" class="md"></div>
       </div>
     </div>
 
-    <release-block-footer
-      class="card-footer"
-      :commit="release.commit"
-      :commit-path="release.commitPath"
-      :tag-name="release.tagName"
-      :tag-path="release.tagPath"
-      :author="release.author"
-      :released-at="release.releasedAt"
-    />
-  </div>
+    <template #footer>
+      <release-block-footer
+        :commit="release.commit"
+        :commit-path="release.commitPath"
+        :tag-name="release.tagName"
+        :tag-path="release.tagPath"
+        :author="release.author"
+        :released-at="release.releasedAt"
+        :created-at="release.createdAt"
+        :sort="sort"
+      />
+    </template>
+  </gl-card>
 </template>

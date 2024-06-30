@@ -25,9 +25,9 @@ module Gitlab
         if matches.one?
           matches.first
         elsif matches.none?
-          raise UnknownProcessError, "Failed to identify runtime for process #{Process.pid} (#{$0})"
+          raise UnknownProcessError, "Failed to identify runtime for process #{Process.pid} (#{$PROGRAM_NAME})"
         else
-          raise AmbiguousProcessError, "Ambiguous runtime #{matches} for process #{Process.pid} (#{$0})"
+          raise AmbiguousProcessError, "Ambiguous runtime #{matches} for process #{Process.pid} (#{$PROGRAM_NAME})"
         end
       end
 
@@ -38,11 +38,11 @@ module Gitlab
       end
 
       def puma?
-        !!defined?(::Puma)
+        !!defined?(::Puma::Server)
       end
 
       def sidekiq?
-        !!(defined?(::Sidekiq) && Sidekiq.server?)
+        !!(defined?(::Sidekiq) && Sidekiq.try(:server?))
       end
 
       def rake?
@@ -78,23 +78,22 @@ module Gitlab
 
       def puma_in_clustered_mode?
         return unless puma?
-        return unless Puma.respond_to?(:cli_config)
+        return unless ::Puma.respond_to?(:cli_config)
 
-        Puma.cli_config.options[:workers].to_i > 0
+        ::Puma.cli_config.options[:workers].to_i > 0
       end
 
       def max_threads
         threads = 1 # main thread
 
-        if puma? && Puma.respond_to?(:cli_config)
-          threads += Puma.cli_config.options[:max_threads]
+        if puma? && ::Puma.respond_to?(:cli_config)
+          threads += ::Puma.cli_config.options[:max_threads]
         elsif sidekiq?
-          # 2 extra threads for the pollers in Sidekiq and Sidekiq Cron:
-          # https://github.com/ondrejbartas/sidekiq-cron#under-the-hood
+          # Sidekiq has a internal connection pool to handle heartbeat, scheduled polls,
+          # cron polls and housekeeping. max_threads can match Sidekqi process's concurrency.
           #
-          # These threads execute Sidekiq client middleware when jobs
-          # are enqueued and those can access DB / Redis.
-          threads += Sidekiq.options[:concurrency] + 2
+          # The Sidekiq main thread does not perform GitLab-related logic, so we can ignore it.
+          threads = Sidekiq.default_configuration[:concurrency]
         end
 
         if puma?

@@ -1,11 +1,15 @@
 # frozen_string_literal: true
 
+require_dependency 'gitlab/auth/devise/strategies/combined_two_factor_authenticatable'
+
 # Use this hook to configure devise mailer, warden hooks and so forth. The first
 # four configuration values can also be set straight in your models.
 Devise.setup do |config|
   config.warden do |manager|
-    manager.default_strategies(scope: :user).unshift :two_factor_authenticatable
-    manager.default_strategies(scope: :user).unshift :two_factor_backupable
+    user_scoped_strategies = manager.default_strategies(scope: :user)
+    user_scoped_strategies.delete :two_factor_backupable
+    user_scoped_strategies.delete :two_factor_authenticatable
+    user_scoped_strategies.unshift :combined_two_factor_authenticatable
   end
 
   # This is the default. This makes it explicit that Devise loads routes
@@ -156,12 +160,22 @@ Devise.setup do |config|
   # :none  = No unlock strategy. You should handle unlocking by yourself.
   config.unlock_strategy = :both
 
-  # Number of authentication tries before locking an account if lock_strategy
-  # is failed attempts.
-  config.maximum_attempts = 10
+  ActiveSupport.on_load(:gitlab_db_load_balancer) do
+    # Number of authentication tries before locking an account if lock_strategy
+    # is failed attempts.
+    config.maximum_attempts = if Gitlab::CurrentSettings.max_login_attempts_column_exists?
+                                (Gitlab::CurrentSettings.max_login_attempts || 10)
+                              else
+                                10
+                              end
 
-  # Time interval to unlock the account if :time is enabled as unlock_strategy.
-  config.unlock_in = 10.minutes
+    # Time interval to unlock the account if :time is enabled as unlock_strategy.
+    config.unlock_in = if Gitlab::CurrentSettings.failed_login_attempts_unlock_period_in_minutes_column_exists?
+                         (Gitlab::CurrentSettings.failed_login_attempts_unlock_period_in_minutes || 10).minutes
+                       else
+                         10.minutes
+                       end
+  end
 
   # ==> Configuration for :recoverable
   #
@@ -177,14 +191,6 @@ Devise.setup do |config|
   # When set to false, does not sign a user in automatically after their password is
   # reset. Defaults to true, so a user is signed in automatically after a reset.
   config.sign_in_after_reset_password = false
-
-  # ==> Configuration for :encryptable
-  # Allow you to use another encryption algorithm besides bcrypt (default). You can use
-  # :sha1, :sha512 or encryptors from others authentication tools as :clearance_sha1,
-  # :authlogic_sha512 (then you should set stretches above to 20 for default behavior)
-  # and :restful_authentication_sha1 (then you should set stretches to 10, and copy
-  # REST_AUTH_SITE_KEY to pepper)
-  # config.encryptor = :sha512
 
   # Authentication through token does not store user in session and needs
   # to be supplied on each request. Useful if you are using the token as API token.

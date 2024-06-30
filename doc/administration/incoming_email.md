@@ -1,22 +1,26 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Incoming email **(FREE SELF)**
+# Incoming email
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 GitLab has several features based on receiving incoming email messages:
 
 - [Reply by Email](reply_by_email.md): allow GitLab users to comment on issues
   and merge requests by replying to notification email.
-- [New issue by email](../user/project/issues/managing_issues.md#by-sending-an-email):
+- [New issue by email](../user/project/issues/create_issues.md#by-sending-an-email):
   allow GitLab users to create a new issue by sending an email to a
   user-specific email address.
 - [New merge request by email](../user/project/merge_requests/creating_merge_requests.md#by-sending-an-email):
   allow GitLab users to create a new merge request by sending an email to a
   user-specific email address.
-- [Service Desk](../user/project/service_desk.md): provide email support to
+- [Service Desk](../user/project/service_desk/index.md): provide email support to
   your customers through GitLab.
 
 ## Requirements
@@ -41,12 +45,12 @@ in the mailbox for `user@example.com` . It is supported by providers such as
 Gmail, Google Apps, Yahoo! Mail, Outlook.com, and iCloud, as well as the
 [Postfix mail server](reply_by_email_postfix_setup.md), which you can run on-premises.
 Microsoft Exchange Server [does not support sub-addressing](#microsoft-exchange-server),
-and Microsoft Office 365 [does not support sub-addressing by default](#microsoft-office-365)
+and Microsoft Office 365 [does not support sub-addressing by default](#microsoft-office-365).
 
 NOTE:
 If your provider or server supports email sub-addressing, we recommend using it.
 A dedicated email address only supports Reply by Email functionality.
-A catch-all mailbox supports the same features as sub-addressing as of GitLab 11.7,
+A catch-all mailbox supports the same features as sub-addressing,
 but sub-addressing is still preferred because only one email address is used,
 leaving a catch-all available for other purposes beyond GitLab.
 
@@ -56,7 +60,7 @@ A [catch-all mailbox](https://en.wikipedia.org/wiki/Catch-all) for a domain
 receives all email messages addressed to the domain that do not match any addresses that
 exist on the mail server.
 
-As of GitLab 11.7, catch-all mailboxes support the same features as
+Catch-all mailboxes support the same features as
 email sub-addressing, but email sub-addressing remains our recommendation so that you
 can reserve your catch-all mailbox for other purposes.
 
@@ -68,25 +72,28 @@ this method only supports replies, and not the other features of [incoming email
 
 ## Accepted headers
 
-> Accepting `Received` headers [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/81489) in GitLab 14.9 [with a flag](feature_flags.md) named `use_received_header_for_incoming_emails`. Enabled by default.
+> - Accepting `Cc` headers [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/348572) in GitLab 16.5.
+> - Accepting `X-Original-To` headers [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/149874) in GitLab 17.0.
 
 Email is processed correctly when a configured email address is present in one of the following headers
 (sorted in the order they are checked):
 
 - `To`
-- `References`
 - `Delivered-To`
 - `Envelope-To` or `X-Envelope-To`
 - `Received`
+- `X-Original-To`
+- `Cc`
 
-In GitLab 14.6 and later, [Service Desk](../user/project/service_desk.md)
+The `References` header is also accepted, however it is used specifically to relate email responses to existing discussion threads. It is not used for creating issues by email.
+
+In GitLab 14.6 and later, [Service Desk](../user/project/service_desk/index.md)
 also checks accepted headers.
 
 Usually, the "To" field contains the email address of the primary receiver.
 However, it might not include the configured GitLab email address if:
 
-- The address is in the "CC" field.
-- The address was included when using "Reply all".
+- The address is in the `BCC` field.
 - The email was forwarded.
 
 The `Received` header can contain multiple email addresses. These are checked in the order that they appear.
@@ -132,7 +139,7 @@ issue by email" or
 "[Create new merge request by email](../user/project/merge_requests/creating_merge_requests.md#by-sending-an-email)"
 features by using a project's unique address as the email when signing up for
 Slack. This would send a confirmation email, which would create a new issue or
-merge request on the project owned by the attacker, allowing them to click the
+merge request on the project owned by the attacker, allowing them to select the
 confirmation link and validate their account on your company's private Slack
 instance.
 
@@ -155,10 +162,13 @@ If the sender's address is spoofed, the reject notice is delivered to the spoofe
 `FROM` address, which can cause the mail server's IP or domain to appear on a block
 list.
 
-### Omnibus package installations
+WARNING:
+Users can use the incoming email features without having to use two-factor authentication (2FA) to authenticate themselves first. This applies even if you have [enforced two-factor authentication](../security/two_factor_authentication.md) for your instance.
+
+### Linux package installations
 
 1. Find the `incoming_email` section in `/etc/gitlab/gitlab.rb`, enable the feature
-    and fill in the details for your specific IMAP server and email account (see [examples](#configuration-examples) below).
+   and fill in the details for your specific IMAP server and email account (see [examples](#configuration-examples) below).
 
 1. Reconfigure GitLab for the changes to take effect:
 
@@ -178,7 +188,7 @@ list.
 
 Reply by email should now be working.
 
-### Installations from source
+### Self-compiled installations
 
 1. Go to the GitLab installation directory:
 
@@ -196,7 +206,7 @@ Reply by email should now be working.
    [this explanation](../development/emails.md#mailroom-gem-updates) for more details.
 
 1. Find the `incoming_email` section in `config/gitlab.yml`, enable the feature
-  and fill in the details for your specific IMAP server and email account (see [examples](#configuration-examples) below).
+   and fill in the details for your specific IMAP server and email account (see [examples](#configuration-examples) below).
 
 If you use systemd units to manage GitLab:
 
@@ -269,7 +279,7 @@ Reply by email should now be working.
 
 Example configuration for Postfix mail server. Assumes mailbox `incoming@gitlab.example.com`.
 
-Example for Omnibus installs:
+Example for Linux package installations:
 
 ```ruby
 gitlab_rails['incoming_email_enabled'] = true
@@ -302,11 +312,16 @@ gitlab_rails['incoming_email_mailbox_name'] = "inbox"
 # The IDLE command timeout.
 gitlab_rails['incoming_email_idle_timeout'] = 60
 
-# Whether to expunge (permanently remove) messages from the mailbox when they are deleted after delivery
+# If you are using Microsoft Graph instead of IMAP, set this to false to retain
+# messages in the inbox because deleted messages are auto-expunged after some time.
+gitlab_rails['incoming_email_delete_after_delivery'] = true
+
+# Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+# Only applies to IMAP. Microsoft Graph will auto-expunge any deleted messages.
 gitlab_rails['incoming_email_expunge_deleted'] = true
 ```
 
-Example for source installs:
+Example for self-compiled installations:
 
 ```yaml
 incoming_email:
@@ -340,7 +355,12 @@ incoming_email:
     # The IDLE command timeout.
     idle_timeout: 60
 
-    # Whether to expunge (permanently remove) messages from the mailbox when they are deleted after delivery
+    # If you are using Microsoft Graph instead of IMAP, set this to false to retain
+    # messages in the inbox because deleted messages are auto-expunged after some time.
+    delete_after_delivery: true
+
+    # Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+    # Only applies to IMAP. Microsoft Graph will auto-expunge any deleted messages.
     expunge_deleted: true
 ```
 
@@ -351,7 +371,7 @@ Example configuration for Gmail/Google Workspace. Assumes mailbox `gitlab-incomi
 NOTE:
 `incoming_email_email` cannot be a Gmail alias account.
 
-Example for Omnibus installs:
+Example for Linux package installations:
 
 ```ruby
 gitlab_rails['incoming_email_enabled'] = true
@@ -384,11 +404,16 @@ gitlab_rails['incoming_email_mailbox_name'] = "inbox"
 # The IDLE command timeout.
 gitlab_rails['incoming_email_idle_timeout'] = 60
 
-# Whether to expunge (permanently remove) messages from the mailbox when they are deleted after delivery
+# If you are using Microsoft Graph instead of IMAP, set this to false if you want to retain
+# messages in the inbox because deleted messages are auto-expunged after some time.
+gitlab_rails['incoming_email_delete_after_delivery'] = true
+
+# Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+# Only applies to IMAP. Microsoft Graph will auto-expunge any deleted messages.
 gitlab_rails['incoming_email_expunge_deleted'] = true
 ```
 
-Example for source installs:
+Example for self-compiled installations:
 
 ```yaml
 incoming_email:
@@ -422,7 +447,12 @@ incoming_email:
     # The IDLE command timeout.
     idle_timeout: 60
 
-    # Whether to expunge (permanently remove) messages from the mailbox when they are deleted after delivery
+    # If you are using Microsoft Graph instead of IMAP, set this to falseto retain
+    # messages in the inbox because deleted messages are auto-expunged after some time.
+    delete_after_delivery: true
+
+    # Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+    # Only applies to IMAP. Microsoft Graph will auto-expunge any deleted messages.
     expunge_deleted: true
 ```
 
@@ -438,7 +468,7 @@ Exchange does not support sub-addressing, only two options exist:
 
 Assumes the catch-all mailbox `incoming@exchange.example.com`.
 
-Example for Omnibus installs:
+Example for Linux package installations:
 
 ```ruby
 gitlab_rails['incoming_email_enabled'] = true
@@ -463,9 +493,13 @@ gitlab_rails['incoming_email_host'] = "exchange.example.com"
 gitlab_rails['incoming_email_port'] = 993
 # Whether the IMAP server uses SSL
 gitlab_rails['incoming_email_ssl'] = true
+
+# Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+# Only applies to IMAP. Microsoft Graph will auto-expunge any deleted messages.
+gitlab_rails['incoming_email_expunge_deleted'] = true
 ```
 
-Example for source installs:
+Example for self-compiled installations:
 
 ```yaml
 incoming_email:
@@ -491,17 +525,24 @@ incoming_email:
     port: 993
     # Whether the IMAP server uses SSL
     ssl: true
+
+    # If you are using Microsoft Graph instead of IMAP, set this to false to retain
+    # messages in the inbox since deleted messages are auto-expunged after some time.
+    delete_after_delivery: true
+
+    # Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+    expunge_deleted: true
 ```
 
 ##### Dedicated email address
 
 NOTE:
 Supports [Reply by Email](reply_by_email.md) only.
-Cannot support [Service Desk](../user/project/service_desk.md).
+Cannot support [Service Desk](../user/project/service_desk/index.md).
 
 Assumes the dedicated email address `incoming@exchange.example.com`.
 
-Example for Omnibus installs:
+Example for Linux package installations:
 
 ```ruby
 gitlab_rails['incoming_email_enabled'] = true
@@ -521,9 +562,12 @@ gitlab_rails['incoming_email_host'] = "exchange.example.com"
 gitlab_rails['incoming_email_port'] = 993
 # Whether the IMAP server uses SSL
 gitlab_rails['incoming_email_ssl'] = true
+
+# Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+gitlab_rails['incoming_email_expunge_deleted'] = true
 ```
 
-Example for source installs:
+Example for self-compiled installations:
 
 ```yaml
 incoming_email:
@@ -545,6 +589,13 @@ incoming_email:
     port: 993
     # Whether the IMAP server uses SSL
     ssl: true
+
+    # If you are using Microsoft Graph instead of IMAP, set this to false to retain
+    # messages in the inbox since deleted messages are auto-expunged after some time.
+    delete_after_delivery: true
+
+    # Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+    expunge_deleted: true
 ```
 
 #### Microsoft Office 365
@@ -575,7 +626,7 @@ To enable sub-addressing:
    Disconnect-ExchangeOnline
    ```
 
-This example for Omnibus GitLab assumes the mailbox `incoming@office365.example.com`:
+This example for Linux package installations assumes the mailbox `incoming@office365.example.com`:
 
 ```ruby
 gitlab_rails['incoming_email_enabled'] = true
@@ -599,9 +650,12 @@ gitlab_rails['incoming_email_host'] = "outlook.office365.com"
 gitlab_rails['incoming_email_port'] = 993
 # Whether the IMAP server uses SSL
 gitlab_rails['incoming_email_ssl'] = true
+
+# Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+gitlab_rails['incoming_email_expunge_deleted'] = true
 ```
 
-This example for source installs assumes the mailbox `incoming@office365.example.com`:
+This example for self-compiled installations assumes the mailbox `incoming@office365.example.com`:
 
 ```yaml
 incoming_email:
@@ -626,11 +680,14 @@ incoming_email:
     port: 993
     # Whether the IMAP server uses SSL
     ssl: true
+
+    # Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+    expunge_deleted: true
 ```
 
 ##### Catch-all mailbox
 
-This example for Omnibus installs assumes the catch-all mailbox `incoming@office365.example.com`:
+This example for Linux package installations assumes the catch-all mailbox `incoming@office365.example.com`:
 
 ```ruby
 gitlab_rails['incoming_email_enabled'] = true
@@ -654,9 +711,12 @@ gitlab_rails['incoming_email_host'] = "outlook.office365.com"
 gitlab_rails['incoming_email_port'] = 993
 # Whether the IMAP server uses SSL
 gitlab_rails['incoming_email_ssl'] = true
+
+# Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+gitlab_rails['incoming_email_expunge_deleted'] = true
 ```
 
-This example for source installs assumes the catch-all mailbox `incoming@office365.example.com`:
+This example for self-compiled installations assumes the catch-all mailbox `incoming@office365.example.com`:
 
 ```yaml
 incoming_email:
@@ -681,15 +741,18 @@ incoming_email:
     port: 993
     # Whether the IMAP server uses SSL
     ssl: true
+
+    # Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+    expunge_deleted: true
 ```
 
 ##### Dedicated email address
 
 NOTE:
 Supports [Reply by Email](reply_by_email.md) only.
-Cannot support [Service Desk](../user/project/service_desk.md).
+Cannot support [Service Desk](../user/project/service_desk/index.md).
 
-This example for Omnibus installs assumes the dedicated email address `incoming@office365.example.com`:
+This example for Linux package installations assumes the dedicated email address `incoming@office365.example.com`:
 
 ```ruby
 gitlab_rails['incoming_email_enabled'] = true
@@ -708,9 +771,12 @@ gitlab_rails['incoming_email_host'] = "outlook.office365.com"
 gitlab_rails['incoming_email_port'] = 993
 # Whether the IMAP server uses SSL
 gitlab_rails['incoming_email_ssl'] = true
+
+# Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+gitlab_rails['incoming_email_expunge_deleted'] = true
 ```
 
-This example for source installs assumes the dedicated email address `incoming@office365.example.com`:
+This example for self-compiled installations assumes the dedicated email address `incoming@office365.example.com`:
 
 ```yaml
 incoming_email:
@@ -730,27 +796,27 @@ incoming_email:
     port: 993
     # Whether the IMAP server uses SSL
     ssl: true
+
+    # Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
+    expunge_deleted: true
 ```
 
 #### Microsoft Graph
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/214900) in GitLab 13.11.
-
 GitLab can read incoming email using the Microsoft Graph API instead of
-IMAP. Because [Microsoft is deprecating IMAP usage with Basic Authentication](https://techcommunity.microsoft.com/t5/exchange-team-blog/announcing-oauth-2-0-support-for-imap-and-smtp-auth-protocols-in/ba-p/1330432), the Microsoft Graph API will soon be required for new Microsoft Exchange Online
-mailboxes.
+IMAP. Because [Microsoft is deprecating IMAP usage with Basic Authentication](https://techcommunity.microsoft.com/t5/exchange-team-blog/announcing-oauth-2-0-support-for-imap-and-smtp-auth-protocols-in/ba-p/1330432), the Microsoft Graph API is be required for new Microsoft Exchange Online mailboxes.
 
-To configure GitLab for Microsoft Graph, you will need to register an
-OAuth2 application in your Azure Active Directory that has the
+To configure GitLab for Microsoft Graph, you need to register an
+OAuth 2.0 application in your Azure Active Directory that has the
 `Mail.ReadWrite` permission for all mailboxes. See the [MailRoom step-by-step guide](https://github.com/tpitale/mail_room/#microsoft-graph-configuration)
-and [Microsoft instructions](https://docs.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app)
+and [Microsoft instructions](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)
 for more details.
 
-Record the following when you configure your OAuth2 application:
+Record the following when you configure your OAuth 2.0 application:
 
 - Tenant ID for your Azure Active Directory
-- Client ID for your OAuth2 application
-- Client secret your OAuth2 application
+- Client ID for your OAuth 2.0 application
+- Client secret your OAuth 2.0 application
 
 ##### Restrict mailbox access
 
@@ -760,13 +826,13 @@ to read/write mail in *all* mailboxes.
 
 To mitigate security concerns, we recommend configuring an application access
 policy which limits the mailbox access for all accounts, as described in
-[Microsoft documentation](https://docs.microsoft.com/en-us/graph/auth-limit-mailbox-access).
+[Microsoft documentation](https://learn.microsoft.com/en-us/graph/auth-limit-mailbox-access).
 
-This example for Omnibus GitLab assumes you're using the following mailbox: `incoming@example.onmicrosoft.com`:
+This example for Linux package installations assumes you're using the following mailbox: `incoming@example.onmicrosoft.com`:
 
 ##### Configure Microsoft Graph
 
-> Alternative Azure deployments [introduced](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/5978) in GitLab 14.9.
+> - Alternative Azure deployments [introduced](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/5978) in GitLab 14.9.
 
 ```ruby
 gitlab_rails['incoming_email_enabled'] = true
@@ -780,6 +846,7 @@ gitlab_rails['incoming_email_address'] = "incoming+%{key}@example.onmicrosoft.co
 
 # Email account username
 gitlab_rails['incoming_email_email'] = "incoming@example.onmicrosoft.com"
+gitlab_rails['incoming_email_delete_after_delivery'] = false
 
 gitlab_rails['incoming_email_inbox_method'] = 'microsoft_graph'
 gitlab_rails['incoming_email_inbox_options'] = {
@@ -790,7 +857,7 @@ gitlab_rails['incoming_email_inbox_options'] = {
 }
 ```
 
-For Microsoft Cloud for US Government or [other Azure deployments](https://docs.microsoft.com/en-us/graph/deployments), configure the `azure_ad_endpoint` and `graph_endpoint` settings.
+For Microsoft Cloud for US Government or [other Azure deployments](https://learn.microsoft.com/en-us/graph/deployments), configure the `azure_ad_endpoint` and `graph_endpoint` settings.
 
 - Example for Microsoft Cloud for US Government:
 
@@ -805,4 +872,164 @@ gitlab_rails['incoming_email_inbox_options'] = {
 }
 ```
 
-The Microsoft Graph API is not yet supported in source installations. See [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/326169) for more details.
+The Microsoft Graph API is not yet supported in self-compiled installations. See [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/326169) for more details.
+
+### Use encrypted credentials
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/108279) in GitLab 15.9.
+
+Instead of having the incoming email credentials stored in plaintext in the configuration files, you can optionally
+use an encrypted file for the incoming email credentials.
+
+Prerequisites:
+
+- To use encrypted credentials, you must first enable the
+  [encrypted configuration](encrypted_configuration.md).
+
+The supported configuration items for the encrypted file are:
+
+- `user`
+- `password`
+
+::Tabs
+
+:::TabTitle Linux package (Omnibus)
+
+1. If initially your incoming email configuration in `/etc/gitlab/gitlab.rb` looked like:
+
+   ```ruby
+   gitlab_rails['incoming_email_email'] = "incoming-email@mail.example.com"
+   gitlab_rails['incoming_email_password'] = "examplepassword"
+   ```
+
+1. Edit the encrypted secret:
+
+   ```shell
+   sudo gitlab-rake gitlab:incoming_email:secret:edit EDITOR=vim
+   ```
+
+1. Enter the unencrypted contents of the incoming email secret:
+
+   ```yaml
+   user: 'incoming-email@mail.example.com'
+   password: 'examplepassword'
+   ```
+
+1. Edit `/etc/gitlab/gitlab.rb` and remove the `incoming_email` settings for `email` and `password`.
+1. Save the file and reconfigure GitLab:
+
+   ```shell
+   sudo gitlab-ctl reconfigure
+   ```
+
+:::TabTitle Helm chart (Kubernetes)
+
+Use a Kubernetes secret to store the incoming email password. For more information,
+read about [Helm IMAP secrets](https://docs.gitlab.com/charts/installation/secrets.html#imap-password-for-incoming-emails).
+
+:::TabTitle Docker
+
+1. If initially your incoming email configuration in `docker-compose.yml` looked like:
+
+   ```yaml
+   version: "3.6"
+   services:
+     gitlab:
+       image: 'gitlab/gitlab-ee:latest'
+       restart: always
+       hostname: 'gitlab.example.com'
+       environment:
+         GITLAB_OMNIBUS_CONFIG: |
+           gitlab_rails['incoming_email_email'] = "incoming-email@mail.example.com"
+           gitlab_rails['incoming_email_password'] = "examplepassword"
+   ```
+
+1. Get inside the container, and edit the encrypted secret:
+
+   ```shell
+   sudo docker exec -t <container_name> bash
+   gitlab-rake gitlab:incoming_email:secret:edit EDITOR=editor
+   ```
+
+1. Enter the unencrypted contents of the incoming email secret:
+
+   ```yaml
+   user: 'incoming-email@mail.example.com'
+   password: 'examplepassword'
+   ```
+
+1. Edit `docker-compose.yml` and remove the `incoming_email` settings for `email` and `password`.
+1. Save the file and restart GitLab:
+
+   ```shell
+   docker compose up -d
+   ```
+
+:::TabTitle Self-compiled (source)
+
+1. If initially your incoming email configuration in `/home/git/gitlab/config/gitlab.yml` looked like:
+
+   ```yaml
+   production:
+     incoming_email:
+       user: 'incoming-email@mail.example.com'
+       password: 'examplepassword'
+   ```
+
+1. Edit the encrypted secret:
+
+   ```shell
+   bundle exec rake gitlab:incoming_email:secret:edit EDITOR=vim RAILS_ENVIRONMENT=production
+   ```
+
+1. Enter the unencrypted contents of the incoming email secret:
+
+   ```yaml
+   user: 'incoming-email@mail.example.com'
+   password: 'examplepassword'
+   ```
+
+1. Edit `/home/git/gitlab/config/gitlab.yml` and remove the `incoming_email:` settings for `user` and `password`.
+1. Save the file and restart GitLab and Mailroom
+
+   ```shell
+   # For systems running systemd
+   sudo systemctl restart gitlab.target
+
+   # For systems running SysV init
+   sudo service gitlab restart
+   ```
+
+::EndTabs
+
+## Troubleshooting
+
+### Email ingestion doesn't work in 16.6.0
+
+GitLab self-managed `16.6.0` introduced a regression that prevents `mail_room` (email ingestion) from starting.
+Service Desk and other reply-by-email features don't work.
+[Issue 432257](https://gitlab.com/gitlab-org/gitlab/-/issues/432257) tracks fixing this problem.
+
+The workaround is to run the following commands in your GitLab installation
+to patch the affected files:
+
+::Tabs
+
+:::TabTitle Linux package (Omnibus)
+
+```shell
+curl --output /tmp/mailroom.patch --url "https://gitlab.com/gitlab-org/gitlab/-/merge_requests/137279.diff"
+patch -p1 -d /opt/gitlab/embedded/service/gitlab-rails < /tmp/mailroom.patch
+gitlab-ctl restart mailroom
+```
+
+:::TabTitle Docker
+
+```shell
+curl --output /tmp/mailroom.patch --url "https://gitlab.com/gitlab-org/gitlab/-/merge_requests/137279.diff"
+cd /opt/gitlab/embedded/service/gitlab-rails
+patch -p1 < /tmp/mailroom.patch
+gitlab-ctl restart mailroom
+```
+
+::EndTabs

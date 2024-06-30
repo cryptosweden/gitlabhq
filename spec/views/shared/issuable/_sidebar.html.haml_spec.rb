@@ -11,7 +11,7 @@ RSpec.describe 'shared/issuable/_sidebar.html.haml' do
   end
 
   context 'project in a group' do
-    let_it_be(:group) { create(:group, :crm_enabled) }
+    let_it_be(:group) { create(:group) }
     let_it_be(:project) { create(:project, group: group) }
     let_it_be(:issue) { create(:issue, project: project) }
     let_it_be(:incident) { create(:incident, project: project) }
@@ -43,7 +43,7 @@ RSpec.describe 'shared/issuable/_sidebar.html.haml' do
         it 'is expected not to be shown' do
           create(:contact, group: group)
 
-          expect(rendered).not_to have_css('#js-issue-crm-contacts')
+          expect(rendered).not_to have_css('.js-sidebar-crm-contacts-root')
         end
       end
 
@@ -51,7 +51,7 @@ RSpec.describe 'shared/issuable/_sidebar.html.haml' do
         it 'is expected not to be shown' do
           group.add_developer(user)
 
-          expect(rendered).not_to have_css('#js-issue-crm-contacts')
+          expect(rendered).not_to have_css('.js-sidebar-crm-contacts-root')
         end
       end
 
@@ -60,7 +60,7 @@ RSpec.describe 'shared/issuable/_sidebar.html.haml' do
           create(:contact, group: group)
           group.add_developer(user)
 
-          expect(rendered).to have_css('#js-issue-crm-contacts')
+          expect(rendered).to have_css('.js-sidebar-crm-contacts-root')
         end
       end
     end

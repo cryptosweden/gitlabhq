@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Deployments::UpdateEnvironmentService do
+RSpec.describe Deployments::UpdateEnvironmentService, feature_category: :continuous_delivery do
   let(:user) { create(:user) }
   let(:project) { create(:project, :repository) }
   let(:options) { { name: environment_name } }
@@ -79,12 +79,33 @@ RSpec.describe Deployments::UpdateEnvironmentService do
       expect(subject.execute).to eq(deployment)
     end
 
+    context 'when deployable is bridge job' do
+      let(:job) do
+        create(:ci_bridge,
+          :with_deployment,
+          pipeline: pipeline,
+          ref: 'master',
+          tag: false,
+          environment: environment_name,
+          options: { environment: options },
+          project: project)
+      end
+
+      it 'creates ref' do
+        expect_any_instance_of(Repository)
+          .to receive(:create_ref)
+          .with(deployment.sha, "refs/environments/production/deployments/#{deployment.iid}")
+
+        service.execute
+      end
+    end
+
     context 'when start action is defined' do
       let(:options) { { name: 'production', action: 'start' } }
 
       context 'and environment is stopped' do
         before do
-          environment.stop
+          environment.stop_complete
         end
 
         it 'makes environment available' do
@@ -112,18 +133,20 @@ RSpec.describe Deployments::UpdateEnvironmentService do
       end
 
       context 'when external URL is invalid' do
-        let(:external_url) { 'google.com' }
+        let(:external_url) { 'javascript:alert("hello")' }
 
         it 'fails to update the tier due to validation error' do
-          expect { subject.execute }.not_to change { environment.tier }
+          expect { subject.execute }.not_to change { environment.reload.tier }
         end
 
         it 'tracks an exception' do
           expect(Gitlab::ErrorTracking).to receive(:track_exception)
-            .with(an_instance_of(described_class::EnvironmentUpdateFailure),
-                  project_id: project.id,
-                  environment_id: environment.id,
-                  reason: %q{External url is blocked: Only allowed schemes are http, https})
+            .with(
+              an_instance_of(described_class::EnvironmentUpdateFailure),
+              project_id: project.id,
+              environment_id: environment.id,
+              reason: %q(External url javascript scheme is not allowed)
+            )
             .once
 
           subject.execute
@@ -159,12 +182,35 @@ RSpec.describe Deployments::UpdateEnvironmentService do
         { name: 'production', auto_stop_in: '1 day' }
       end
 
+      before do
+        environment.update_attribute(:auto_stop_at, nil)
+      end
+
       it 'renews auto stop at' do
         freeze_time do
-          environment.update!(auto_stop_at: nil)
-
           expect { subject.execute }
             .to change { environment.reset.auto_stop_at&.round }.from(nil).to(1.day.since.round)
+        end
+      end
+
+      context 'when value is a variable' do
+        let(:options) { { name: 'production', auto_stop_in: '$TTL' } }
+
+        let(:yaml_variables) do
+          [
+            { key: "TTL", value: '2 days', public: true }
+          ]
+        end
+
+        before do
+          job.update_attribute(:yaml_variables, yaml_variables)
+        end
+
+        it 'renews auto stop at with expanded variable value' do
+          freeze_time do
+            expect { subject.execute }
+              .to change { environment.reset.auto_stop_at&.round }.from(nil).to(2.days.since.round)
+          end
         end
       end
     end
@@ -226,13 +272,15 @@ RSpec.describe Deployments::UpdateEnvironmentService do
 
     context 'when yaml environment uses $CI_COMMIT_REF_NAME' do
       let(:job) do
-        create(:ci_build,
-               :with_deployment,
-               pipeline: pipeline,
-               ref: 'master',
-               environment: 'production',
-               project: project,
-               options: { environment: { name: 'production', url: 'http://review/$CI_COMMIT_REF_NAME' } })
+        create(
+          :ci_build,
+          :with_deployment,
+          pipeline: pipeline,
+          ref: 'master',
+          environment: 'production',
+          project: project,
+          options: { environment: { name: 'production', url: 'http://review/$CI_COMMIT_REF_NAME' } }
+        )
       end
 
       it { is_expected.to eq('http://review/master') }
@@ -240,13 +288,15 @@ RSpec.describe Deployments::UpdateEnvironmentService do
 
     context 'when yaml environment uses $CI_ENVIRONMENT_SLUG' do
       let(:job) do
-        create(:ci_build,
-               :with_deployment,
-               pipeline: pipeline,
-               ref: 'master',
-               environment: 'prod-slug',
-               project: project,
-               options: { environment: { name: 'prod-slug', url: 'http://review/$CI_ENVIRONMENT_SLUG' } })
+        create(
+          :ci_build,
+          :with_deployment,
+          pipeline: pipeline,
+          ref: 'master',
+          environment: 'prod-slug',
+          project: project,
+          options: { environment: { name: 'prod-slug', url: 'http://review/$CI_ENVIRONMENT_SLUG' } }
+        )
       end
 
       it { is_expected.to eq('http://review/prod-slug') }
@@ -254,13 +304,15 @@ RSpec.describe Deployments::UpdateEnvironmentService do
 
     context 'when yaml environment uses yaml_variables containing symbol keys' do
       let(:job) do
-        create(:ci_build,
-               :with_deployment,
-               pipeline: pipeline,
-               yaml_variables: [{ key: :APP_HOST, value: 'host' }],
-               environment: 'production',
-               project: project,
-               options: { environment: { name: 'production', url: 'http://review/$APP_HOST' } })
+        create(
+          :ci_build,
+          :with_deployment,
+          pipeline: pipeline,
+          yaml_variables: [{ key: :APP_HOST, value: 'host' }],
+          environment: 'production',
+          project: project,
+          options: { environment: { name: 'production', url: 'http://review/$APP_HOST' } }
+        )
       end
 
       it { is_expected.to eq('http://review/host') }
@@ -268,13 +320,15 @@ RSpec.describe Deployments::UpdateEnvironmentService do
 
     context 'when job variables are generated during runtime' do
       let(:job) do
-        create(:ci_build,
-               :with_deployment,
-               pipeline: pipeline,
-               environment: 'review/$CI_COMMIT_REF_NAME',
-               project: project,
-               job_variables: [job_variable],
-               options: { environment: { name: 'review/$CI_COMMIT_REF_NAME', url: 'http://$DYNAMIC_ENV_URL' } })
+        create(
+          :ci_build,
+          :with_deployment,
+          pipeline: pipeline,
+          environment: 'review/$CI_COMMIT_REF_NAME',
+          project: project,
+          job_variables: [job_variable],
+          options: { environment: { name: 'review/$CI_COMMIT_REF_NAME', url: 'http://$DYNAMIC_ENV_URL' } }
+        )
       end
 
       let(:job_variable) do
@@ -284,6 +338,31 @@ RSpec.describe Deployments::UpdateEnvironmentService do
       it 'expands the environment URL from the dynamic variable' do
         is_expected.to eq('http://abc.test.com')
       end
+    end
+
+    context 'when environment url uses a nested variable' do
+      let(:yaml_variables) do
+        [
+          { key: 'MAIN_DOMAIN', value: '${STACK_NAME}.example.com' },
+          { key: 'STACK_NAME', value: 'appname-${ENVIRONMENT_NAME}' },
+          { key: 'ENVIRONMENT_NAME', value: '${CI_COMMIT_REF_SLUG}' }
+        ]
+      end
+
+      let(:job) do
+        create(
+          :ci_build,
+          :with_deployment,
+          pipeline: pipeline,
+          ref: 'master',
+          environment: 'production',
+          project: project,
+          yaml_variables: yaml_variables,
+          options: { environment: { name: 'production', url: 'http://$MAIN_DOMAIN' } }
+        )
+      end
+
+      it { is_expected.to eq('http://appname-master.example.com') }
     end
 
     context 'when yaml environment does not have url' do

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PendingBuild do
+RSpec.describe Ci::PendingBuild, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project) }
   let_it_be(:pipeline) { create(:ci_pipeline, project: project) }
 
@@ -118,41 +118,27 @@ RSpec.describe Ci::PendingBuild do
         project.shared_runners_enabled = true
       end
 
-      context 'when ci_pending_builds_maintain_denormalized_data is enabled' do
-        it 'sets instance_runners_enabled to true' do
+      it 'sets instance_runners_enabled to true' do
+        described_class.upsert_from_build!(build)
+
+        expect(described_class.last.instance_runners_enabled).to be_truthy
+      end
+
+      context 'when project is about to be deleted' do
+        before do
+          build.project.update!(pending_delete: true)
+        end
+
+        it 'sets instance_runners_enabled to false' do
           described_class.upsert_from_build!(build)
 
-          expect(described_class.last.instance_runners_enabled).to be_truthy
-        end
-
-        context 'when project is about to be deleted' do
-          before do
-            build.project.update!(pending_delete: true)
-          end
-
-          it 'sets instance_runners_enabled to false' do
-            described_class.upsert_from_build!(build)
-
-            expect(described_class.last.instance_runners_enabled).to be_falsey
-          end
-        end
-
-        context 'when builds are disabled' do
-          before do
-            build.project.project_feature.update!(builds_access_level: false)
-          end
-
-          it 'sets instance_runners_enabled to false' do
-            described_class.upsert_from_build!(build)
-
-            expect(described_class.last.instance_runners_enabled).to be_falsey
-          end
+          expect(described_class.last.instance_runners_enabled).to be_falsey
         end
       end
 
-      context 'when ci_pending_builds_maintain_denormalized_data is disabled' do
+      context 'when builds are disabled' do
         before do
-          stub_feature_flags(ci_pending_builds_maintain_denormalized_data: false)
+          build.project.project_feature.update!(builds_access_level: false)
         end
 
         it 'sets instance_runners_enabled to false' do
@@ -168,24 +154,10 @@ RSpec.describe Ci::PendingBuild do
 
       subject(:ci_pending_build) { described_class.last }
 
-      context 'when ci_pending_builds_maintain_denormalized_data is enabled' do
-        it 'sets tag_ids' do
-          described_class.upsert_from_build!(build)
+      it 'sets tag_ids' do
+        described_class.upsert_from_build!(build)
 
-          expect(ci_pending_build.tag_ids).to eq(build.tags_ids)
-        end
-      end
-
-      context 'when ci_pending_builds_maintain_denormalized_data is disabled' do
-        before do
-          stub_feature_flags(ci_pending_builds_maintain_denormalized_data: false)
-        end
-
-        it 'does not set tag_ids' do
-          described_class.upsert_from_build!(build)
-
-          expect(ci_pending_build.tag_ids).to be_empty
-        end
+        expect(ci_pending_build.tag_ids).to eq(build.tags_ids)
       end
     end
 
@@ -221,6 +193,46 @@ RSpec.describe Ci::PendingBuild do
           expect(subject.namespace_traversal_ids).to be_empty
         end
       end
+    end
+  end
+
+  describe '.namespace_transfer_params' do
+    let(:group) { create(:group) }
+    let(:new_parent_group) { create(:group) }
+    let(:expected_transfer_params) do
+      {
+        namespace_traversal_ids: [new_parent_group.id, group.id],
+        namespace_id: group.id
+      }
+    end
+
+    it 'updates all pending builds with namespace_transfer_params', :aggregate_failures do
+      expect do
+        group.update!(parent: new_parent_group)
+        # reload is called to make sure traversal_ids are reloaded
+      end.to change { Ci::PendingBuild.namespace_transfer_params(group.reload) }.to(expected_transfer_params)
+        .and not_change { Ci::PendingBuild.namespace_transfer_params(new_parent_group.reload) }
+    end
+  end
+
+  describe 'partitioning', :ci_partitionable do
+    include Ci::PartitioningHelpers
+
+    before do
+      stub_current_partition_id(ci_testing_partition_id_for_check_constraints)
+    end
+
+    let(:new_pipeline ) { create(:ci_pipeline, project: pipeline.project) }
+    let(:new_build) { create(:ci_build, pipeline: new_pipeline) }
+
+    it 'assigns the same partition id as the one that build has', :aggregate_failures do
+      expect(new_build.partition_id).to eq ci_testing_partition_id_for_check_constraints
+
+      described_class.upsert_from_build!(build)
+      described_class.upsert_from_build!(new_build)
+
+      expect(build.reload.queuing_entry.partition_id).to eq pipeline.partition_id
+      expect(new_build.reload.queuing_entry.partition_id).to eq ci_testing_partition_id_for_check_constraints
     end
   end
 

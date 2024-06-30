@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe IncidentManagement::IssuableEscalationStatuses::PrepareUpdateService do
+RSpec.describe IncidentManagement::IssuableEscalationStatuses::PrepareUpdateService, factory_default: :keep,
+  feature_category: :incident_management do
+  let_it_be(:project) { create_default(:project) }
   let_it_be(:escalation_status) { create(:incident_management_issuable_escalation_status, :triggered) }
   let_it_be(:user_with_permissions) { create(:user) }
 
@@ -10,7 +12,7 @@ RSpec.describe IncidentManagement::IssuableEscalationStatuses::PrepareUpdateServ
   let(:issue) { escalation_status.issue }
   let(:status) { :acknowledged }
   let(:params) { { status: status } }
-  let(:service) { IncidentManagement::IssuableEscalationStatuses::PrepareUpdateService.new(issue, current_user, params) }
+  let(:service) { described_class.new(issue, current_user, params) }
 
   subject(:result) { service.execute }
 
@@ -42,14 +44,6 @@ RSpec.describe IncidentManagement::IssuableEscalationStatuses::PrepareUpdateServ
 
   it_behaves_like 'successful response', { status_event: :acknowledge }
 
-  context 'when feature flag is disabled' do
-    before do
-      stub_feature_flags(incident_escalations: false)
-    end
-
-    it_behaves_like 'availability error response'
-  end
-
   context 'when user is anonymous' do
     let(:current_user) { nil }
 
@@ -71,11 +65,24 @@ RSpec.describe IncidentManagement::IssuableEscalationStatuses::PrepareUpdateServ
   context 'when an IssuableEscalationStatus record for the issue does not exist' do
     let(:issue) { create(:incident) }
 
-    it_behaves_like 'availability error response'
+    it_behaves_like 'successful response', { status_event: :acknowledge }
+
+    it 'initializes an issuable escalation status record' do
+      expect { result }.not_to change(::IncidentManagement::IssuableEscalationStatus, :count)
+      expect(issue.escalation_status).to be_present
+    end
+  end
+
+  context 'when called nil params' do
+    let(:params) { nil }
+
+    it 'raises an exception' do
+      expect { result }.to raise_error NoMethodError
+    end
   end
 
   context 'when called without params' do
-    let(:params) { nil }
+    let(:params) { {} }
 
     it_behaves_like 'successful response', {}
   end
@@ -104,11 +111,5 @@ RSpec.describe IncidentManagement::IssuableEscalationStatuses::PrepareUpdateServ
 
       it_behaves_like 'successful response', { status_event: :acknowledge }
     end
-  end
-
-  context 'with status_change_reason param' do
-    let(:params) { { status_change_reason: ' by changing the incident status' } }
-
-    it_behaves_like 'successful response', { status_change_reason: ' by changing the incident status' }
   end
 end

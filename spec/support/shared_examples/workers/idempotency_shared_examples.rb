@@ -5,7 +5,7 @@
 #
 # Usage:
 #
-#   include_examples 'an idempotent worker' do
+#   it_behaves_like 'an idempotent worker' do
 #     it 'checks the side-effects for multiple calls' do
 #       # it'll call the job's perform method 3 times
 #       # by default.
@@ -19,8 +19,12 @@ RSpec.shared_examples 'an idempotent worker' do
   let(:worker_exec_times) { IdempotentWorkerHelper::WORKER_EXEC_TIMES }
 
   # Avoid stubbing calls for a more accurate run.
-  subject do
-    defined?(job_args) ? perform_multiple(job_args) : perform_multiple
+  subject(:perform_idempotent_work) do
+    if described_class.include?(::Gitlab::EventStore::Subscriber)
+      event_worker
+    else
+      standard_worker
+    end
   end
 
   it 'is labeled as idempotent' do
@@ -29,5 +33,13 @@ RSpec.shared_examples 'an idempotent worker' do
 
   it 'performs multiple times sequentially without raising an exception' do
     expect { subject }.not_to raise_error
+  end
+
+  def event_worker
+    consume_event(subscriber: described_class, event: event)
+  end
+
+  def standard_worker
+    defined?(job_args) ? perform_multiple(job_args) : perform_multiple
   end
 end

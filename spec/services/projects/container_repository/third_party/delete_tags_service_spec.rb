@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::ContainerRepository::ThirdParty::DeleteTagsService do
+RSpec.describe Projects::ContainerRepository::ThirdParty::DeleteTagsService, feature_category: :container_registry do
   include_context 'container repository delete tags service shared context'
 
   let(:service) { described_class.new(repository, tags) }
@@ -18,7 +18,7 @@ RSpec.describe Projects::ContainerRepository::ThirdParty::DeleteTagsService do
 
         tags.each { |tag| stub_put_manifest_request(tag) }
 
-        expect_delete_tag_by_digest('sha256:dummy')
+        expect_delete_tags(['sha256:dummy'])
 
         is_expected.to eq(status: :success, deleted: tags)
       end
@@ -58,7 +58,19 @@ RSpec.describe Projects::ContainerRepository::ThirdParty::DeleteTagsService do
               stub_put_manifest_request('Ba', 500, {})
             end
 
-            it { is_expected.to eq(status: :error, message: 'could not delete tags') }
+            it { is_expected.to eq(status: :error, message: "could not delete tags: #{tags.join(', ')}") }
+
+            context 'when a large list of tag updates fails' do
+              let(:tags) { Array.new(1000) { |i| "tag_#{i}" } }
+
+              before do
+                expect(service).to receive(:replace_tag_manifests).and_return({})
+              end
+
+              it 'truncates the log message' do
+                expect(subject).to eq(status: :error, message: "could not delete tags: #{tags.join(', ')}".truncate(1000))
+              end
+            end
           end
 
           context 'a single tag update fails' do
@@ -80,7 +92,7 @@ RSpec.describe Projects::ContainerRepository::ThirdParty::DeleteTagsService do
       let_it_be(:tags) { [] }
 
       it 'does not remove anything' do
-        expect_any_instance_of(ContainerRegistry::Client).not_to receive(:delete_repository_tag_by_name)
+        expect_any_instance_of(ContainerRegistry::Client).not_to receive(:delete_repository_tag_by_digest)
 
         is_expected.to eq(status: :success, deleted: [])
       end

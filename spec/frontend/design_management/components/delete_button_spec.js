@@ -6,8 +6,8 @@ import BatchDeleteButton from '~/design_management/components/delete_button.vue'
 describe('Batch delete button component', () => {
   let wrapper;
 
-  const findButton = () => wrapper.find(GlButton);
-  const findModal = () => wrapper.find(GlModal);
+  const findButton = () => wrapper.findComponent(GlButton);
+  const findModal = () => wrapper.findComponent(GlModal);
 
   function createComponent({ isDeleting = false } = {}, { slots = {} } = {}) {
     wrapper = shallowMount(BatchDeleteButton, {
@@ -21,20 +21,16 @@ describe('Batch delete button component', () => {
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('renders non-disabled button by default', () => {
     createComponent();
 
     expect(findButton().exists()).toBe(true);
-    expect(findButton().attributes('disabled')).toBeFalsy();
+    expect(findButton().attributes('disabled')).toBeUndefined();
   });
 
   it('renders disabled button when design is deleting', () => {
     createComponent({ isDeleting: true });
-    expect(findButton().attributes('disabled')).toBeTruthy();
+    expect(findButton().attributes('disabled')).toBeDefined();
   });
 
   it('emits `delete-selected-designs` event on modal ok click', async () => {
@@ -45,7 +41,7 @@ describe('Batch delete button component', () => {
     findModal().vm.$emit('ok');
 
     await nextTick();
-    expect(wrapper.emitted('delete-selected-designs')).toBeTruthy();
+    expect(wrapper.emitted('delete-selected-designs')).toHaveLength(1);
   });
 
   it('renders slot content', () => {

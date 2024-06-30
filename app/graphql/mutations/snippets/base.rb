@@ -4,15 +4,11 @@ module Mutations
   module Snippets
     class Base < BaseMutation
       field :snippet,
-            Types::SnippetType,
-            null: true,
-            description: 'Snippet after mutation.'
+        Types::SnippetType,
+        null: true,
+        description: 'Snippet after mutation.'
 
       private
-
-      def find_object(id:)
-        GitlabSchema.object_from_id(id, expected_type: ::Snippet)
-      end
 
       def authorized_resource?(snippet)
         return false if snippet.nil?

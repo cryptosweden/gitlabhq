@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe RateLimitedService do
+RSpec.describe RateLimitedService, feature_category: :rate_limiting do
   let(:key) { :issues_create }
-  let(:scope) { [:project, :current_user] }
-  let(:opts) { { scope: scope, users_allowlist: -> { [User.support_bot.username] } } }
+  let(:scope) { [:container, :current_user] }
+  let(:opts) { { scope: scope, users_allowlist: -> { [Users::Internal.support_bot.username] } } }
   let(:rate_limiter) { ::Gitlab::ApplicationRateLimiter }
 
   describe 'RateLimitedError' do
@@ -39,7 +39,7 @@ RSpec.describe RateLimitedService do
       let_it_be(:project) { create(:project) }
       let_it_be(:current_user) { create(:user) }
 
-      let(:service) { instance_double(Issues::CreateService, project: project, current_user: current_user) }
+      let(:service) { instance_double(Issues::CreateService, container: project, current_user: current_user) }
       let(:evaluated_scope) { [project, current_user] }
       let(:evaluated_opts) { { scope: evaluated_scope, users_allowlist: %w[support-bot] } }
 

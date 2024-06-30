@@ -2,14 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::JiraImport::IssuesImporter do
-  include JiraServiceHelper
+RSpec.describe Gitlab::JiraImport::IssuesImporter, :clean_gitlab_redis_shared_state do
+  include JiraIntegrationHelpers
 
   let_it_be(:user) { create(:user) }
   let_it_be(:current_user) { create(:user) }
   let_it_be(:project) { create(:project) }
   let_it_be(:jira_import) { create(:jira_import_state, project: project, user: current_user) }
   let_it_be(:jira_integration) { create(:jira_integration, project: project) }
+  let_it_be(:default_issue_type_id) { WorkItems::Type.default_issue_type.id }
 
   subject { described_class.new(project) }
 
@@ -22,7 +23,7 @@ RSpec.describe Gitlab::JiraImport::IssuesImporter do
     it { expect(subject.imported_items_cache_key).to eq("jira-importer/already-imported/#{project.id}/issues") }
   end
 
-  describe '#execute', :clean_gitlab_redis_cache do
+  describe '#execute' do
     context 'when no returned issues' do
       it 'does not schedule any import jobs' do
         expect(subject).to receive(:fetch_issues).with(0).and_return([])
@@ -43,16 +44,25 @@ RSpec.describe Gitlab::JiraImport::IssuesImporter do
 
       def mock_issue_serializer(count, raise_exception_on_even_mocks: false)
         serializer = instance_double(Gitlab::JiraImport::IssueSerializer, execute: { key: 'data' })
-        next_iid = project.issues.maximum(:iid).to_i
+        allow(Issue).to receive(:with_namespace_iid_supply).and_return('issue_iid')
 
         count.times do |i|
           if raise_exception_on_even_mocks && i.even?
-            expect(Gitlab::JiraImport::IssueSerializer).to receive(:new)
-             .with(project, jira_issues[i], current_user.id, { iid: next_iid + 1 }).and_raise('Some error')
+            expect(Gitlab::JiraImport::IssueSerializer).to receive(:new).with(
+              project,
+              jira_issues[i],
+              current_user.id,
+              default_issue_type_id,
+              { iid: 'issue_iid' }
+            ).and_raise('Some error')
           else
-            next_iid += 1
-            expect(Gitlab::JiraImport::IssueSerializer).to receive(:new)
-              .with(project, jira_issues[i], current_user.id, { iid: next_iid }).and_return(serializer)
+            expect(Gitlab::JiraImport::IssueSerializer).to receive(:new).with(
+              project,
+              jira_issues[i],
+              current_user.id,
+              default_issue_type_id,
+              { iid: 'issue_iid' }
+            ).and_return(serializer)
           end
         end
       end

@@ -8,20 +8,23 @@ class Projects::ProjectMembersController < Projects::ApplicationController
   # Authorize
   before_action :authorize_admin_project_member!, except: [:index, :leave, :request_access]
 
-  feature_category :authentication_and_authorization
+  before_action only: [:index] do
+    push_frontend_feature_flag(:webui_members_inherited_users, current_user)
+  end
+
+  feature_category :groups_and_projects
+  urgency :low
 
   def index
-    @sort = params[:sort].presence || sort_value_name
-
-    @group_links = @project.project_group_links
-    @group_links = @group_links.search(params[:search_groups]) if params[:search_groups].present?
+    @sort = pagination_params[:sort].presence || sort_value_name
+    @include_relations ||= requested_relations(:groups_with_inherited_permissions)
 
     if can?(current_user, :admin_project_member, @project)
       @invited_members = present_members(invited_members)
       @requesters = present_members(AccessRequestsFinder.new(@project).execute(current_user))
     end
 
-    @project_members = present_members(non_invited_members.page(params[:page]))
+    @project_members = present_members(non_invited_members.page(pagination_params[:page]))
   end
 
   # MembershipActions concern
@@ -48,7 +51,7 @@ class Projects::ProjectMembersController < Projects::ApplicationController
   end
 
   def membershipable_members
-    project.members
+    project.namespace_members
   end
 
   def plain_source_type
@@ -65,6 +68,14 @@ class Projects::ProjectMembersController < Projects::ApplicationController
 
   def root_params_key
     :project_member
+  end
+
+  def members_and_requesters
+    project.namespace_members_and_requesters
+  end
+
+  def requesters
+    project.namespace_requesters
   end
 end
 

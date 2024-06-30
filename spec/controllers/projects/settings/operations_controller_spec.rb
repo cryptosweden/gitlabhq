@@ -2,13 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::Settings::OperationsController do
+RSpec.describe Projects::Settings::OperationsController, feature_category: :incident_management do
   let_it_be(:user) { create(:user) }
-  let_it_be(:project, reload: true) { create(:project) }
-
-  before_all do
-    project.add_maintainer(user)
-  end
+  let_it_be(:project, reload: true) { create(:project, maintainers: user) }
 
   before do
     sign_in(user)
@@ -124,8 +120,10 @@ RSpec.describe Projects::Settings::OperationsController do
     end
   end
 
-  context 'incident management' do
+  context 'incident management', feature_category: :incident_management do
     describe 'GET #show' do
+      render_views
+
       context 'with existing setting' do
         let!(:incident_management_setting) do
           create(:project_incident_management_setting, project: project)
@@ -134,8 +132,8 @@ RSpec.describe Projects::Settings::OperationsController do
         it 'loads existing setting' do
           get :show, params: project_params(project)
 
-          expect(controller.helpers.project_incident_management_setting)
-            .to eq(incident_management_setting)
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response.body).to include('data-auto-close-incident="true"')
         end
       end
 
@@ -143,7 +141,8 @@ RSpec.describe Projects::Settings::OperationsController do
         it 'builds a new setting' do
           get :show, params: project_params(project)
 
-          expect(controller.helpers.project_incident_management_setting).to be_new_record
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response.body).to include('data-auto-close-incident="true"')
         end
       end
     end
@@ -278,7 +277,7 @@ RSpec.describe Projects::Settings::OperationsController do
     end
   end
 
-  context 'error tracking' do
+  context 'error tracking', feature_category: :error_tracking do
     describe 'GET #show' do
       context 'with existing setting' do
         let!(:error_tracking_setting) do
@@ -323,68 +322,7 @@ RSpec.describe Projects::Settings::OperationsController do
     end
   end
 
-  context 'metrics dashboard setting' do
-    describe 'PATCH #update' do
-      let(:params) do
-        {
-          metrics_setting_attributes: {
-            external_dashboard_url: 'https://gitlab.com'
-          }
-        }
-      end
-
-      it_behaves_like 'PATCHable'
-    end
-  end
-
-  context 'grafana integration' do
-    describe 'PATCH #update' do
-      let(:params) do
-        {
-          grafana_integration_attributes: {
-            grafana_url: 'https://grafana.gitlab.com',
-            token: 'eyJrIjoicDRlRTREdjhhOEZ5WjZPWXUzazJOSW0zZHJUejVOd3IiLCJuIjoiVGVzdCBLZXkiLCJpZCI6MX0=',
-            enabled: 'true'
-          }
-        }
-      end
-
-      it_behaves_like 'PATCHable'
-    end
-  end
-
   context 'prometheus integration' do
-    describe 'PATCH #update' do
-      let(:params) do
-        {
-          prometheus_integration_attributes: {
-            manual_configuration: '0',
-            api_url: 'https://gitlab.prometheus.rocks'
-          }
-        }
-      end
-
-      context 'feature flag :settings_operations_prometheus_service is enabled' do
-        before do
-          stub_feature_flags(settings_operations_prometheus_service: true)
-        end
-
-        it_behaves_like 'PATCHable'
-      end
-
-      context 'feature flag :settings_operations_prometheus_service is disabled' do
-        before do
-          stub_feature_flags(settings_operations_prometheus_service: false)
-        end
-
-        it_behaves_like 'PATCHable' do
-          let(:permitted_params) do
-            ActionController::Parameters.new(params.except(:prometheus_integration_attributes)).permit!
-          end
-        end
-      end
-    end
-
     describe 'POST #reset_alerting_token' do
       context 'with existing alerting setting' do
         let!(:alerting_setting) do
@@ -464,108 +402,6 @@ RSpec.describe Projects::Settings::OperationsController do
         post :reset_alerting_token,
           params: project_params(project),
           format: :json
-      end
-    end
-  end
-
-  context 'tracing integration' do
-    describe 'GET #show' do
-      context 'with existing setting' do
-        let_it_be(:setting) do
-          create(:project_tracing_setting, project: project)
-        end
-
-        it 'loads existing setting' do
-          get :show, params: project_params(project)
-
-          expect(controller.helpers.tracing_setting).to eq(setting)
-        end
-      end
-
-      context 'without an existing setting' do
-        it 'builds a new setting' do
-          get :show, params: project_params(project)
-
-          expect(controller.helpers.tracing_setting).to be_new_record
-        end
-      end
-    end
-
-    describe 'PATCH #update' do
-      let_it_be(:external_url) { 'https://gitlab.com' }
-
-      let(:params) do
-        {
-          tracing_setting_attributes: {
-            external_url: external_url
-          }
-        }
-      end
-
-      it_behaves_like 'PATCHable'
-
-      describe 'gitlab tracking', :snowplow do
-        shared_examples 'event tracking' do
-          it 'tracks an event' do
-            expect_snowplow_event(
-              category: 'project:operations:tracing',
-              action: 'external_url_populated',
-              user: user,
-              project: project,
-              namespace: project.namespace
-            )
-          end
-        end
-
-        shared_examples 'no event tracking' do
-          it 'does not track an event' do
-            expect_no_snowplow_event
-          end
-        end
-
-        before do
-          make_request
-        end
-
-        subject(:make_request) do
-          patch :update, params: project_params(project, params), format: :json
-        end
-
-        context 'without existing setting' do
-          context 'when creating a new setting' do
-            it_behaves_like 'event tracking'
-          end
-
-          context 'with invalid external_url' do
-            let_it_be(:external_url) { nil }
-
-            it_behaves_like 'no event tracking'
-          end
-        end
-
-        context 'with existing setting' do
-          let_it_be(:existing_setting) do
-            create(:project_tracing_setting,
-                   project: project,
-                   external_url: external_url)
-          end
-
-          context 'when changing external_url' do
-            let_it_be(:external_url) { 'https://example.com' }
-
-            it_behaves_like 'no event tracking'
-          end
-
-          context 'with unchanged external_url' do
-            it_behaves_like 'no event tracking'
-          end
-
-          context 'with invalid external_url' do
-            let_it_be(:external_url) { nil }
-
-            it_behaves_like 'no event tracking'
-          end
-        end
       end
     end
   end

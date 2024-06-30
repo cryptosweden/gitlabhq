@@ -18,15 +18,17 @@ export default {
 </script>
 
 <template>
-  <timeline-entry-item class="system-note note-wrapper gl-mb-6!">
-    <div class="timeline-icon">
+  <timeline-entry-item class="system-note note-wrapper">
+    <div
+      class="gl-flex gl-justify-center gl-items-center gl-rounded-full -gl-mt-1 gl-ml-2 gl-w-6 gl-h-6 gl-bg-gray-50 gl-text-gray-600 gl-float-left"
+    >
       <gl-icon :name="icon" />
     </div>
     <div class="timeline-content">
       <div class="note-header">
-        <span>
+        <div class="note-header-info">
           <slot></slot>
-        </span>
+        </div>
       </div>
       <div class="note-body">
         <slot name="body"></slot>

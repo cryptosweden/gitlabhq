@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::LoadBalancing do
+RSpec.describe Gitlab::Database::LoadBalancing, :suppress_gitlab_schemas_validate_connection, feature_category: :cell do
   describe '.base_models' do
     it 'returns the models to apply load balancing to' do
       models = described_class.base_models
@@ -468,9 +468,10 @@ RSpec.describe Gitlab::Database::LoadBalancing do
           payload = event.payload
 
           assert =
-            if payload[:name] == 'SCHEMA'
+            case payload[:name]
+            when 'SCHEMA'
               false
-            elsif payload[:name] == 'SQL' # Custom query
+            when 'SQL' # Custom query
               true
             else
               keywords = %w[_test_load_balancing_test]
@@ -496,14 +497,15 @@ RSpec.describe Gitlab::Database::LoadBalancing do
       where(:queries, :expected_role) do
         [
           # Reload cache. The schema loading queries should be handled by
-          # primary.
+          # replica even when the current session is stuck to the primary.
           [
             -> {
+              ::Gitlab::Database::LoadBalancing::Session.current.use_primary!
               model.connection.clear_cache!
               model.connection.schema_cache.add('users')
               model.connection.pool.release_connection
             },
-            :primary
+            :replica
           ],
 
           # Call model's connection method

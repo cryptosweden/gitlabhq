@@ -2,7 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
+RSpec.describe Ci::PipelineProcessing::AtomicProcessingService, feature_category: :continuous_integration do
+  include RepoHelpers
+  include ExclusiveLeaseHelpers
+
   describe 'Pipeline Processing Service Tests With Yaml' do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:user)    { project.first_owner }
@@ -25,7 +28,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         check_expectation(test_file.dig('init', 'expect'), "init")
 
         test_file['transitions'].each_with_index do |transition, idx|
-          event_on_jobs(transition['event'], transition['jobs'])
+          process_events(transition)
           Sidekiq::Worker.drain_all # ensure that all async jobs are executed
           check_expectation(transition['expect'], "transition:#{idx}")
         end
@@ -48,16 +51,35 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         }
       end
 
-      def event_on_jobs(event, job_names)
-        statuses = pipeline.latest_statuses.by_name(job_names).to_a
-        expect(statuses.count).to eq(job_names.count) # ensure that we have the same counts
+      def process_events(transition)
+        if transition['jobs']
+          event_on_jobs(transition['event'], transition['jobs'])
+        else
+          event_on_pipeline(transition['event'])
+        end
+      end
 
-        statuses.each do |status|
-          if event == 'play'
-            status.play(user)
+      def event_on_jobs(event, job_names)
+        jobs = pipeline.latest_statuses.by_name(job_names).to_a
+        expect(jobs.count).to eq(job_names.count) # ensure that we have the same counts
+
+        jobs.each do |job|
+          case event
+          when 'play'
+            job.play(user)
+          when 'retry'
+            ::Ci::RetryJobService.new(project, user).execute(job)
           else
-            status.public_send("#{event}!")
+            job.public_send("#{event}!")
           end
+        end
+      end
+
+      def event_on_pipeline(event)
+        if event == 'retry'
+          pipeline.retry_failed(user)
+        else
+          pipeline.public_send("#{event}!")
         end
       end
     end
@@ -117,7 +139,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
         fail_running_or_pending
 
-        expect(builds_statuses).to eq %w(failed pending)
+        expect(builds_statuses).to eq %w[failed pending]
 
         fail_running_or_pending
 
@@ -144,22 +166,22 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test)
-          expect(builds_statuses).to eq %w(success pending)
+          expect(builds_names).to eq %w[build test]
+          expect(builds_statuses).to eq %w[success pending]
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test deploy production)
-          expect(builds_statuses).to eq %w(success success pending manual)
+          expect(builds_names).to eq %w[build test deploy production]
+          expect(builds_statuses).to eq %w[success success pending manual]
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test deploy production cleanup clear:cache)
-          expect(builds_statuses).to eq %w(success success success manual pending manual)
+          expect(builds_names).to eq %w[build test deploy production cleanup clear:cache]
+          expect(builds_statuses).to eq %w[success success success manual pending manual]
 
           succeed_running_or_pending
 
-          expect(builds_statuses).to eq %w(success success success manual success manual)
+          expect(builds_statuses).to eq %w[success success success manual success manual]
           expect(pipeline.reload.status).to eq 'success'
         end
       end
@@ -172,22 +194,22 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test)
-          expect(builds_statuses).to eq %w(success pending)
+          expect(builds_names).to eq %w[build test]
+          expect(builds_statuses).to eq %w[success pending]
 
           fail_running_or_pending
 
-          expect(builds_names).to eq %w(build test test_failure)
-          expect(builds_statuses).to eq %w(success failed pending)
+          expect(builds_names).to eq %w[build test test_failure]
+          expect(builds_statuses).to eq %w[success failed pending]
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test test_failure cleanup)
-          expect(builds_statuses).to eq %w(success failed success pending)
+          expect(builds_names).to eq %w[build test test_failure cleanup]
+          expect(builds_statuses).to eq %w[success failed success pending]
 
           succeed_running_or_pending
 
-          expect(builds_statuses).to eq %w(success failed success success)
+          expect(builds_statuses).to eq %w[success failed success success]
           expect(pipeline.reload.status).to eq 'failed'
         end
       end
@@ -200,23 +222,23 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test)
-          expect(builds_statuses).to eq %w(success pending)
+          expect(builds_names).to eq %w[build test]
+          expect(builds_statuses).to eq %w[success pending]
 
           fail_running_or_pending
 
-          expect(builds_names).to eq %w(build test test_failure)
-          expect(builds_statuses).to eq %w(success failed pending)
+          expect(builds_names).to eq %w[build test test_failure]
+          expect(builds_statuses).to eq %w[success failed pending]
 
           fail_running_or_pending
 
-          expect(builds_names).to eq %w(build test test_failure cleanup)
-          expect(builds_statuses).to eq %w(success failed failed pending)
+          expect(builds_names).to eq %w[build test test_failure cleanup]
+          expect(builds_statuses).to eq %w[success failed failed pending]
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test test_failure cleanup)
-          expect(builds_statuses).to eq %w(success failed failed success)
+          expect(builds_names).to eq %w[build test test_failure cleanup]
+          expect(builds_statuses).to eq %w[success failed failed success]
           expect(pipeline.reload.status).to eq('failed')
         end
       end
@@ -229,22 +251,22 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test)
-          expect(builds_statuses).to eq %w(success pending)
+          expect(builds_names).to eq %w[build test]
+          expect(builds_statuses).to eq %w[success pending]
 
           succeed_running_or_pending
 
-          expect(builds_names).to eq %w(build test deploy production)
-          expect(builds_statuses).to eq %w(success success pending manual)
+          expect(builds_names).to eq %w[build test deploy production]
+          expect(builds_statuses).to eq %w[success success pending manual]
 
           fail_running_or_pending
 
-          expect(builds_names).to eq %w(build test deploy production cleanup)
-          expect(builds_statuses).to eq %w(success success failed manual pending)
+          expect(builds_names).to eq %w[build test deploy production cleanup]
+          expect(builds_statuses).to eq %w[success success failed manual pending]
 
           succeed_running_or_pending
 
-          expect(builds_statuses).to eq %w(success success failed manual success)
+          expect(builds_statuses).to eq %w[success success failed manual success]
           expect(pipeline.reload).to be_failed
         end
       end
@@ -258,8 +280,8 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
           succeed_running_or_pending
 
           expect(builds.running_or_pending).not_to be_empty
-          expect(builds_names).to eq %w(build test)
-          expect(builds_statuses).to eq %w(success pending)
+          expect(builds_names).to eq %w[build test]
+          expect(builds_statuses).to eq %w[success pending]
 
           cancel_running_or_pending
 
@@ -308,29 +330,29 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         context 'when builds are successful' do
           it 'properly processes the pipeline' do
             expect(process_pipeline).to be_truthy
-            expect(builds_names_and_statuses).to eq({ 'build': 'pending' })
+            expect(builds_names_and_statuses).to eq({ build: 'pending' })
 
             succeed_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'scheduled' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'scheduled' })
 
             travel_to 2.minutes.from_now do
               enqueue_scheduled('rollout10%')
             end
             succeed_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'success', 'rollout100%': 'scheduled' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'success', 'rollout100%': 'scheduled' })
 
             travel_to 2.minutes.from_now do
               enqueue_scheduled('rollout100%')
             end
             succeed_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'success', 'rollout100%': 'success', 'cleanup': 'pending' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'success', 'rollout100%': 'success', cleanup: 'pending' })
 
             succeed_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'success', 'rollout100%': 'success', 'cleanup': 'success' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'success', 'rollout100%': 'success', cleanup: 'success' })
             expect(pipeline.reload.status).to eq 'success'
           end
         end
@@ -338,11 +360,11 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         context 'when build job fails' do
           it 'properly processes the pipeline' do
             expect(process_pipeline).to be_truthy
-            expect(builds_names_and_statuses).to eq({ 'build': 'pending' })
+            expect(builds_names_and_statuses).to eq({ build: 'pending' })
 
             fail_running_or_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'failed' })
+            expect(builds_names_and_statuses).to eq({ build: 'failed' })
             expect(pipeline.reload.status).to eq 'failed'
           end
         end
@@ -350,15 +372,15 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         context 'when rollout 10% is unscheduled' do
           it 'properly processes the pipeline' do
             expect(process_pipeline).to be_truthy
-            expect(builds_names_and_statuses).to eq({ 'build': 'pending' })
+            expect(builds_names_and_statuses).to eq({ build: 'pending' })
 
             succeed_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'scheduled' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'scheduled' })
 
             unschedule
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'manual' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'manual' })
             expect(pipeline.reload.status).to eq 'manual'
           end
 
@@ -370,7 +392,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
               play_manual_action('rollout10%')
               succeed_pending
 
-              expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'success', 'rollout100%': 'scheduled' })
+              expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'success', 'rollout100%': 'scheduled' })
               expect(pipeline.reload.status).to eq 'scheduled'
             end
           end
@@ -379,18 +401,18 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         context 'when rollout 10% fails' do
           it 'properly processes the pipeline' do
             expect(process_pipeline).to be_truthy
-            expect(builds_names_and_statuses).to eq({ 'build': 'pending' })
+            expect(builds_names_and_statuses).to eq({ build: 'pending' })
 
             succeed_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'scheduled' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'scheduled' })
 
             travel_to 2.minutes.from_now do
               enqueue_scheduled('rollout10%')
             end
             fail_running_or_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'failed' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'failed' })
             expect(pipeline.reload.status).to eq 'failed'
           end
 
@@ -402,7 +424,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
               fail_running_or_pending
               retry_build('rollout10%')
 
-              expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'pending' })
+              expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'pending' })
               expect(pipeline.reload.status).to eq 'running'
             end
           end
@@ -411,15 +433,15 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         context 'when rollout 10% is played immidiately' do
           it 'properly processes the pipeline' do
             expect(process_pipeline).to be_truthy
-            expect(builds_names_and_statuses).to eq({ 'build': 'pending' })
+            expect(builds_names_and_statuses).to eq({ build: 'pending' })
 
             succeed_pending
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'scheduled' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'scheduled' })
 
             play_manual_action('rollout10%')
 
-            expect(builds_names_and_statuses).to eq({ 'build': 'success', 'rollout10%': 'pending' })
+            expect(builds_names_and_statuses).to eq({ build: 'success', 'rollout10%': 'pending' })
             expect(pipeline.reload.status).to eq 'running'
           end
         end
@@ -434,7 +456,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
         it 'properly processes the pipeline' do
           expect(process_pipeline).to be_truthy
-          expect(builds_names_and_statuses).to eq({ 'delayed': 'scheduled' })
+          expect(builds_names_and_statuses).to eq({ delayed: 'scheduled' })
 
           expect(pipeline.reload.status).to eq 'scheduled'
         end
@@ -451,13 +473,13 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
         it 'blocks the stage until all scheduled jobs finished' do
           expect(process_pipeline).to be_truthy
-          expect(builds_names_and_statuses).to eq({ 'delayed1': 'scheduled', 'delayed2': 'scheduled' })
+          expect(builds_names_and_statuses).to eq({ delayed1: 'scheduled', delayed2: 'scheduled' })
 
           travel_to 2.minutes.from_now do
             enqueue_scheduled('delayed1')
           end
 
-          expect(builds_names_and_statuses).to eq({ 'delayed1': 'pending', 'delayed2': 'scheduled' })
+          expect(builds_names_and_statuses).to eq({ delayed1: 'pending', delayed2: 'scheduled' })
           expect(pipeline.reload.status).to eq 'running'
         end
       end
@@ -472,14 +494,14 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
         it 'blocks the stage and continues after it failed' do
           expect(process_pipeline).to be_truthy
-          expect(builds_names_and_statuses).to eq({ 'delayed': 'scheduled' })
+          expect(builds_names_and_statuses).to eq({ delayed: 'scheduled' })
 
           travel_to 2.minutes.from_now do
             enqueue_scheduled('delayed')
           end
           fail_running_or_pending
 
-          expect(builds_names_and_statuses).to eq({ 'delayed': 'failed', 'job': 'pending' })
+          expect(builds_names_and_statuses).to eq({ delayed: 'failed', job: 'pending' })
           expect(pipeline.reload.status).to eq 'pending'
         end
       end
@@ -625,8 +647,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
           # Users need ability to merge into a branch in order to trigger
           # protected manual actions.
           #
-          create(:protected_branch, :developers_can_merge,
-                  name: 'master', project: project)
+          create(:protected_branch, :developers_can_merge, name: 'master', project: project)
         end
 
         it 'properly processes entire pipeline' do
@@ -780,25 +801,25 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
       it 'when linux:* finishes first it runs it out of order' do
         expect(process_pipeline).to be_truthy
 
-        expect(stages).to eq(%w(pending created created))
+        expect(stages).to eq(%w[pending created created])
         expect(builds.pending).to contain_exactly(linux_build, mac_build)
 
         # we follow the single path of linux
         linux_build.reset.success!
 
-        expect(stages).to eq(%w(running pending created))
+        expect(stages).to eq(%w[running pending created])
         expect(builds.success).to contain_exactly(linux_build)
         expect(builds.pending).to contain_exactly(mac_build, linux_rspec, linux_rubocop)
 
         linux_rspec.reset.success!
 
-        expect(stages).to eq(%w(running running created))
+        expect(stages).to eq(%w[running running created])
         expect(builds.success).to contain_exactly(linux_build, linux_rspec)
         expect(builds.pending).to contain_exactly(mac_build, linux_rubocop)
 
         linux_rubocop.reset.success!
 
-        expect(stages).to eq(%w(running running created))
+        expect(stages).to eq(%w[running running created])
         expect(builds.success).to contain_exactly(linux_build, linux_rspec, linux_rubocop)
         expect(builds.pending).to contain_exactly(mac_build)
 
@@ -806,7 +827,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         mac_rspec.reset.success!
         mac_rubocop.reset.success!
 
-        expect(stages).to eq(%w(success success pending))
+        expect(stages).to eq(%w[success success pending])
         expect(builds.success).to contain_exactly(
           linux_build, linux_rspec, linux_rubocop, mac_build, mac_rspec, mac_rubocop)
         expect(builds.pending).to contain_exactly(deploy)
@@ -845,13 +866,13 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         it 'runs deploy_pages without waiting prior stages' do
           expect(process_pipeline).to be_truthy
 
-          expect(stages).to eq(%w(pending created pending))
+          expect(stages).to eq(%w[pending created pending])
           expect(builds.pending).to contain_exactly(linux_build, mac_build, deploy_pages)
 
           linux_build.reset.success!
           deploy_pages.reset.success!
 
-          expect(stages).to eq(%w(running pending running))
+          expect(stages).to eq(%w[running pending running])
           expect(builds.success).to contain_exactly(linux_build, deploy_pages)
           expect(builds.pending).to contain_exactly(mac_build, linux_rspec, linux_rubocop)
 
@@ -861,7 +882,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
           mac_rspec.reset.success!
           mac_rubocop.reset.success!
 
-          expect(stages).to eq(%w(success success running))
+          expect(stages).to eq(%w[success success running])
           expect(builds.pending).to contain_exactly(deploy)
         end
       end
@@ -879,12 +900,12 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
       it 'skips the jobs depending on it' do
         expect(process_pipeline).to be_truthy
 
-        expect(stages).to eq(%w(pending created created))
+        expect(stages).to eq(%w[pending created created])
         expect(all_builds.pending).to contain_exactly(linux_build)
 
         linux_build.reset.drop!
 
-        expect(stages).to eq(%w(failed skipped skipped))
+        expect(stages).to eq(%w[failed skipped skipped])
         expect(all_builds.failed).to contain_exactly(linux_build)
         expect(all_builds.skipped).to contain_exactly(linux_rspec, deploy)
       end
@@ -901,9 +922,227 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
       it 'makes deploy DAG to be skipped' do
         expect(process_pipeline).to be_truthy
 
-        expect(stages).to eq(%w(skipped skipped))
+        expect(stages).to eq(%w[skipped skipped])
         expect(all_builds.manual).to contain_exactly(linux_build)
         expect(all_builds.skipped).to contain_exactly(deploy)
+      end
+    end
+
+    context 'when dependent jobs are listed after job needs in the same stage' do
+      let(:config) do
+        <<-YAML
+        test1:
+          stage: test
+          needs: [manual1]
+          script: exit 0
+
+        test2:
+          stage: test
+          script: exit 0
+
+        manual1:
+          stage: test
+          when: manual
+          script: exit 0
+        YAML
+      end
+
+      let(:pipeline) do
+        Ci::CreatePipelineService.new(project, user, { ref: 'master' }).execute(:push).payload
+      end
+
+      let(:statuses) do
+        { manual1: 'manual', test1: 'skipped', test2: 'pending' }
+      end
+
+      before do
+        stub_ci_pipeline_yaml_file(config)
+        process_pipeline
+      end
+
+      it 'test1 is in skipped state' do
+        expect(all_builds_names_and_statuses).to eq(statuses)
+        expect(stages).to eq(['pending'])
+      end
+
+      context 'with multiple batches' do
+        before do
+          stub_const("#{described_class}::BATCH_SIZE", 2)
+        end
+
+        it 'test1 is in skipped state' do
+          expect(all_builds_names_and_statuses).to eq(statuses)
+          expect(stages).to eq(['pending'])
+        end
+      end
+    end
+
+    context 'when jobs change from stopped to alive status during pipeline processing' do
+      around do |example|
+        Sidekiq::Testing.fake! { example.run }
+      end
+
+      let(:config) do
+        <<-YAML
+        stages: [test, deploy]
+
+        manual1:
+          stage: test
+          when: manual
+          script: exit 0
+
+        manual2:
+          stage: test
+          when: manual
+          script: exit 0
+
+        test1:
+          stage: test
+          needs: [manual1]
+          script: exit 0
+
+        test2:
+          stage: test
+          needs: [manual2]
+          script: exit 0
+
+        deploy1:
+          stage: deploy
+          needs: [manual1, manual2]
+          script: exit 0
+
+        deploy2:
+          stage: deploy
+          needs: [test2]
+          script: exit 0
+        YAML
+      end
+
+      let(:pipeline) do
+        Ci::CreatePipelineService.new(project, user, { ref: 'master' }).execute(:push).payload
+      end
+
+      let(:manual1) { all_builds.find_by(name: 'manual1') }
+      let(:manual2) { all_builds.find_by(name: 'manual2') }
+
+      let(:statuses_0) do
+        { manual1: 'created', manual2: 'created', test1: 'created', test2: 'created', deploy1: 'created', deploy2: 'created' }
+      end
+
+      let(:statuses_1) do
+        { manual1: 'manual', manual2: 'manual', test1: 'skipped', test2: 'skipped', deploy1: 'skipped', deploy2: 'skipped' }
+      end
+
+      let(:statuses_2) do
+        { manual1: 'pending', manual2: 'pending', test1: 'skipped', test2: 'skipped', deploy1: 'skipped', deploy2: 'skipped' }
+      end
+
+      let(:statuses_3) do
+        { manual1: 'pending', manual2: 'pending', test1: 'created', test2: 'created', deploy1: 'created', deploy2: 'created' }
+      end
+
+      let(:log_info) do
+        {
+          class: described_class.name.to_s,
+          message: 'Running ResetSkippedJobsService on new alive jobs',
+          project_id: project.id,
+          pipeline_id: pipeline.id,
+          user_id: user.id,
+          jobs_count: 2
+        }
+      end
+
+      before do
+        stub_ci_pipeline_yaml_file(config)
+        pipeline # Create the pipeline
+      end
+
+      # Since this is a test for a race condition, we are calling internal method `enqueue!`
+      # instead of `play` and stubbing `new_alive_jobs` of the service class.
+      it 'runs ResetSkippedJobsService on the new alive jobs and logs event' do
+        # Initial control without any pipeline processing
+        expect(all_builds_names_and_statuses).to eq(statuses_0)
+
+        process_pipeline
+
+        # Initial control after the first pipeline processing
+        expect(all_builds_names_and_statuses).to eq(statuses_1)
+
+        # Change the manual jobs from stopped to alive status.
+        # We don't use `play` to avoid running `ResetSkippedJobsService`.
+        manual1.enqueue!
+        manual2.enqueue!
+
+        # Statuses after playing the manual jobs
+        expect(all_builds_names_and_statuses).to eq(statuses_2)
+
+        mock_play_jobs_during_processing([manual1, manual2])
+
+        expect(Ci::ResetSkippedJobsService).to receive(:new).once.and_call_original
+
+        process_pipeline
+
+        expect(all_builds_names_and_statuses).to eq(statuses_3)
+      end
+
+      it 'logs event' do
+        expect(Gitlab::AppJsonLogger).to receive(:info).once.with(log_info)
+
+        mock_play_jobs_during_processing([manual1, manual2])
+        process_pipeline
+      end
+
+      context 'when the new alive jobs belong to different users' do
+        let_it_be(:user2) { create(:user) }
+
+        before do
+          process_pipeline # First pipeline processing
+
+          # Change the manual jobs from stopped to alive status
+          manual1.enqueue!
+          manual2.enqueue!
+
+          manual2.update!(user: user2)
+
+          mock_play_jobs_during_processing([manual1, manual2])
+        end
+
+        it 'runs ResetSkippedJobsService on the new alive jobs' do
+          # Statuses after playing the manual jobs
+          expect(all_builds_names_and_statuses).to eq(statuses_2)
+
+          # Since there are two different users, we expect this service to be called twice.
+          expect(Ci::ResetSkippedJobsService).to receive(:new).twice.and_call_original
+
+          process_pipeline
+
+          expect(all_builds_names_and_statuses).to eq(statuses_3)
+        end
+
+        # In this scenario, the new alive jobs (manual1 and manual2) have different users.
+        # We can only know for certain the assigned user of dependent jobs that are exclusive
+        # to either manual1 or manual2. Otherwise, the assigned user will depend on which of
+        # the new alive jobs get processed first by ResetSkippedJobsService.
+        it 'assigns the correct user to the dependent jobs' do
+          test1 = all_builds.find_by(name: 'test1')
+          test2 = all_builds.find_by(name: 'test2')
+
+          expect(test1.user).to eq(user)
+          expect(test2.user).to eq(user)
+
+          process_pipeline
+
+          expect(test1.reset.user).to eq(user)
+          expect(test2.reset.user).to eq(user2)
+        end
+
+        it 'logs event' do
+          expect(Gitlab::AppJsonLogger).to receive(:info).once.with(log_info.merge(jobs_count: 1))
+          expect(Gitlab::AppJsonLogger).to receive(:info).once.with(log_info.merge(user_id: user2.id, jobs_count: 1))
+
+          mock_play_jobs_during_processing([manual1, manual2])
+          process_pipeline
+        end
       end
     end
 
@@ -937,17 +1176,16 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         Ci::CreatePipelineService.new(project, user, { ref: 'master' }).execute(:push).payload
       end
 
-      before do
-        allow_next_instance_of(Repository) do |repository|
-          allow(repository)
-            .to receive(:blob_data_at)
-            .with(an_instance_of(String), '.gitlab-ci.yml')
-            .and_return(parent_config)
+      let(:project_files) do
+        {
+          '.gitlab-ci.yml' => parent_config,
+          '.child.yml' => child_config
+        }
+      end
 
-          allow(repository)
-            .to receive(:blob_data_at)
-            .with(an_instance_of(String), '.child.yml')
-            .and_return(child_config)
+      around do |example|
+        create_and_delete_files(project, project_files) do
+          example.run
         end
       end
 
@@ -963,8 +1201,8 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
         bridge1 = all_builds.find_by(name: 'deploy: [ovh, monitoring]')
         bridge2 = all_builds.find_by(name: 'deploy: [ovh, app]')
 
-        downstream_job1 = bridge1.downstream_pipeline.processables.first
-        downstream_job2 = bridge2.downstream_pipeline.processables.first
+        downstream_job1 = bridge1.downstream_pipeline.all_jobs.first
+        downstream_job2 = bridge2.downstream_pipeline.all_jobs.first
 
         expect(downstream_job1.scoped_variables.to_hash).to include('PROVIDER' => 'ovh', 'STACK' => 'monitoring')
         expect(downstream_job2.scoped_variables.to_hash).to include('PROVIDER' => 'ovh', 'STACK' => 'app')
@@ -1045,10 +1283,141 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
       end
     end
 
+    context 'when the exclusive lease is taken' do
+      let(:lease_key) { "ci/pipeline_processing/atomic_processing_service::pipeline_id:#{pipeline.id}" }
+
+      it 'skips pipeline processing' do
+        create_build('linux', stage_idx: 0)
+
+        stub_exclusive_lease_taken(lease_key)
+
+        expect(Gitlab::AppJsonLogger).to receive(:info).with(a_hash_including(message: /^Cannot obtain an exclusive lease/))
+        expect(process_pipeline).to be_falsy
+      end
+    end
+
+    describe 'deployments creation' do
+      let(:config) do
+        <<-YAML
+        stages: [stage-0, stage-1, stage-2, stage-3, stage-4]
+
+        test:
+          stage: stage-0
+          script: exit 0
+
+        review:
+          stage: stage-1
+          environment:
+            name: review
+            action: start
+          script: exit 0
+
+        staging:
+          stage: stage-2
+          environment:
+            name: staging
+            action: start
+          script: exit 0
+          when: manual
+          allow_failure: false
+
+        canary:
+          stage: stage-3
+          environment:
+            name: canary
+            action: start
+          script: exit 0
+          when: manual
+
+        production-a:
+          stage: stage-4
+          environment:
+            name: production-a
+            action: start
+          script: exit 0
+          when: manual
+
+        production-b:
+          stage: stage-4
+          environment:
+            name: production-b
+            action: start
+          script: exit 0
+          when: manual
+          needs: [canary]
+        YAML
+      end
+
+      let(:pipeline) do
+        Ci::CreatePipelineService.new(project, user, { ref: 'master' }).execute(:push).payload
+      end
+
+      let(:test_job) { all_builds.find_by(name: 'test') }
+      let(:review_deploy_job) { all_builds.find_by(name: 'review') }
+      let(:staging_deploy_job) { all_builds.find_by(name: 'staging') }
+      let(:canary_deploy_job) { all_builds.find_by(name: 'canary') }
+      let(:production_a_deploy_job) { all_builds.find_by(name: 'production-a') }
+      let(:production_b_deploy_job) { all_builds.find_by(name: 'production-b') }
+
+      before do
+        create(:environment, name: 'review', project: project)
+        create(:environment, name: 'staging', project: project)
+        create(:environment, name: 'canary', project: project)
+        create(:environment, name: 'production-a', project: project)
+        create(:environment, name: 'production-b', project: project)
+
+        stub_ci_pipeline_yaml_file(config)
+        pipeline # create the pipeline
+      end
+
+      it 'creates deployment records for the deploy jobs', :aggregate_failures do
+        # processes the 'test' job, not creating a Deployment record
+        expect { process_pipeline }.not_to change { Deployment.count }
+        succeed_pending
+        expect(test_job.status).to eq 'success'
+
+        # processes automatic 'review' deploy job, creating a Deployment record
+        expect { process_pipeline }.to change { Deployment.count }.by(1)
+        succeed_pending
+        expect(review_deploy_job.status).to eq 'success'
+
+        # processes manual 'staging' deploy job, creating a Deployment record
+        # the subsequent manual deploy jobs ('canary', 'production-a', 'production-b')
+        #   are not yet processed because 'staging' is set as `allow_failure: false`
+        expect { process_pipeline }.to change { Deployment.count }.by(1)
+        play_manual_action('staging')
+        succeed_pending
+        expect(staging_deploy_job.reload.status).to eq 'success'
+
+        # processes manual 'canary' deployment job
+        # the subsequent manual deploy jobs ('production-a' and 'production-b')
+        #   are also processed because 'canary' is set by default as `allow_failure: true`
+        #   the 'production-b' is set as `needs: [canary]`, but it is still processed
+        # overall, 3 Deployment records are created
+        expect { process_pipeline }.to change { Deployment.count }.by(3)
+        expect(canary_deploy_job.status).to eq 'manual'
+        expect(production_a_deploy_job.status).to eq 'manual'
+        expect(production_b_deploy_job.status).to eq 'skipped'
+
+        # play and succeed the manual 'canary' and 'production-a' jobs
+        play_manual_action('canary')
+        play_manual_action('production-a')
+        succeed_pending
+        expect(canary_deploy_job.reload.status).to eq 'success'
+        expect(production_a_deploy_job.reload.status).to eq 'success'
+        expect(production_b_deploy_job.reload.status).to eq 'created'
+
+        # process the manual 'production-b' job again, no Deployment record is created
+        #   because it has already been created when 'production-b' was first processed
+        expect { process_pipeline }.not_to change { Deployment.count }
+        expect(production_b_deploy_job.reload.status).to eq 'manual'
+      end
+    end
+
     private
 
     def all_builds
-      pipeline.processables.order(:stage_idx, :id)
+      pipeline.all_jobs.order(:stage_idx, :id)
     end
 
     def builds
@@ -1066,7 +1435,12 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
     def builds_names_and_statuses
       builds.each_with_object({}) do |b, h|
         h[b.name.to_sym] = b.status
-        h
+      end
+    end
+
+    def all_builds_names_and_statuses
+      all_builds.each_with_object({}) do |b, h|
+        h[b.name.to_sym] = b.status
       end
     end
 
@@ -1135,7 +1509,7 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
     end
 
     def delayed_options
-      { when: 'delayed', options: { script: %w(echo), start_in: '1 minute' } }
+      { when: 'delayed', options: { script: %w[echo], start_in: '1 minute' } }
     end
 
     def unschedule
@@ -1147,5 +1521,19 @@ RSpec.describe Ci::PipelineProcessing::AtomicProcessingService do
 
   def process_pipeline
     described_class.new(pipeline).execute
+  end
+
+  # A status collection is initialized at the start of pipeline processing and then again at the
+  # end of processing.  Here we simulate "playing" the given jobs during pipeline processing by
+  # stubbing stopped_job_names so that they appear to have been stopped at the beginning of
+  # processing and then later changed to alive status at the end.
+  def mock_play_jobs_during_processing(jobs)
+    collection = Ci::PipelineProcessing::AtomicProcessingService::StatusCollection.new(pipeline)
+
+    allow(collection).to receive(:stopped_job_names).and_return(jobs.map(&:name), [])
+
+    # Return the same collection object for every instance of StatusCollection
+    allow(Ci::PipelineProcessing::AtomicProcessingService::StatusCollection).to receive(:new)
+      .and_return(collection)
   end
 end

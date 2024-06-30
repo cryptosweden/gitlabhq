@@ -9,7 +9,7 @@ RSpec.describe Integrations::ChatMessage::WikiPageMessage do
   let(:username) { 'test.user' }
   let(:avatar_url) { 'http://someavatar.com' }
   let(:project_name) { 'project_name' }
-  let(:project_url) {'http://somewhere.com' }
+  let(:project_url) { 'http://somewhere.com' }
   let(:url) { 'http://url.com' }
   let(:diff_url) { 'http://url.com/diff?version_id=1234' }
   let(:wiki_page_title) { 'Wiki page title' }
@@ -71,12 +71,13 @@ RSpec.describe Integrations::ChatMessage::WikiPageMessage do
         end
 
         it 'returns the commit message for a new wiki page' do
-          expect(subject.attachments).to eq([
-            {
-              text: commit_message,
-              color: color
-            }
-          ])
+          expect(subject.attachments).to eq(
+            [
+              {
+                text: commit_message,
+                color: color
+              }
+            ])
         end
       end
 
@@ -86,12 +87,13 @@ RSpec.describe Integrations::ChatMessage::WikiPageMessage do
         end
 
         it 'returns the commit message for an updated wiki page' do
-          expect(subject.attachments).to eq([
-            {
-              text: commit_message,
-              color: color
-            }
-          ])
+          expect(subject.attachments).to eq(
+            [
+              {
+                text: commit_message,
+                color: color
+              }
+            ])
         end
       end
     end

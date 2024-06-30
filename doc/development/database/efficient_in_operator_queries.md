@@ -1,7 +1,7 @@
 ---
-stage: Enablement
+stage: Data Stores
 group: Database
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Efficient `IN` operator queries
@@ -26,7 +26,7 @@ Pagination may be used to fetch subsequent records.
 Example tasks requiring querying nested domain objects from the group level:
 
 - Show first 20 issues by creation date or due date from the group `gitlab-org`.
-- Show first 20 merge_requests by merged at date from the group `gitlab-com`.
+- Show first 20 merge requests by merged at date from the group `gitlab-com`.
 
 Unfortunately, ordered group-level queries typically perform badly
 as their executions require heavy I/O, memory, and computations.
@@ -117,7 +117,7 @@ On average, we can say the following:
 
 From the list, it's apparent that the number of `issues` records has
 the largest impact on the performance.
-As per normal usage, we can say that the number of issue records grows
+As per typical usage, we can say that the number of issue records grows
 at a faster rate than the `namespaces` and the `projects` records.
 
 This problem affects most of our group-level features where records are listed
@@ -126,8 +126,7 @@ For very large groups the database queries can easily time out, causing HTTP 500
 
 ## Optimizing ordered `IN` queries
 
-In the talk
-["How to teach an elephant to dance rock'n'roll"](https://www.youtube.com/watch?v=Ha38lcjVyhQ),
+In the talk ["How to teach an elephant to dance rock and roll"](https://www.youtube.com/watch?v=Ha38lcjVyhQ),
 Maxim Boguk demonstrated a technique to optimize a special class of ordered `IN` queries,
 such as our ordered group-level queries.
 
@@ -160,14 +159,12 @@ The technique can only optimize `IN` queries that satisfy the following requirem
   in the following order: `column_for_the_in_query`, `order by column 1`, and
   `order by column 2`.
 - The columns in the `ORDER BY` clause are distinct
-  (the combination of the columns uniquely identifies one particular column in the table).
+  (the combination of the columns uniquely identifies one particular row in the table).
 
 WARNING:
-This technique will not improve the performance of the `COUNT(*)` queries.
+This technique does not improve the performance of the `COUNT(*)` queries.
 
 ## The `InOperatorOptimization` module
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/67352) in GitLab 14.3.
 
 The `Gitlab::Pagination::Keyset::InOperatorOptimization` module implements utilities for applying a generalized version of
 the efficient `IN` query technique described in the previous section.
@@ -183,7 +180,7 @@ in `Gitlab::Pagination::Keyset::InOperatorOptimization`.
 
 ### Basic usage of `QueryBuilder`
 
-To illustrate a basic usage, we will build a query that
+To illustrate a basic usage, we build a query that
 fetches 20 issues with the oldest `created_at` from the group `gitlab-org`.
 
 The following ActiveRecord query would produce a query similar to
@@ -226,10 +223,7 @@ Gitlab::Pagination::Keyset::InOperatorOptimization::QueryBuilder.new(
   the order by column expressions is available for locating the record. In this example, the
   yielded values are `created_at` and `id` SQL expressions. Finding a record is very fast via the
   primary key, so we don't use the `created_at` value. Providing the `finder_query` lambda is optional.
-  If it's not given, the IN operator optimization will only make the ORDER BY columns available to
-  the end-user and not the full database row.
-
-  If it's not given, the IN operator optimization will only make the ORDER BY columns available to
+  If it's not given, the `IN` operator optimization only makes the `ORDER BY` columns available to
   the end-user and not the full database row.
 
 The following database index on the `issues` table must be present
@@ -416,7 +410,7 @@ scope = Issue
   .limit(20)
 ```
 
-To construct the array scope, we'll need to take the Cartesian product of the `project_id IN` and
+To construct the array scope, we need to take the Cartesian product of the `project_id IN` and
 the `issue_type IN` queries. `issue_type` is an ActiveRecord enum, so we need to
 construct the following table:
 
@@ -434,7 +428,7 @@ construct the following table:
 For the `issue_types` query we can construct a value list without querying a table:
 
 ```ruby
-value_list = Arel::Nodes::ValuesList.new([[Issue.issue_types[:incident]],[Issue.issue_types[:test_case]]])
+value_list = Arel::Nodes::ValuesList.new([[WorkItems::Type.base_types[:incident]],[WorkItems::Type.base_types[:test_case]]])
 issue_type_values = Arel::Nodes::Grouping.new(value_list).as('issue_type_values (value)').to_sql
 
 array_scope = Group
@@ -589,7 +583,7 @@ LIMIT 20
 NOTE:
 To make the query efficient, the following columns need to be covered with an index: `project_id`, `issue_type`, `created_at`, and `id`.
 
-#### Using calculated ORDER BY expression
+#### Using calculated `ORDER BY` expression
 
 The following example orders epic records by the duration between the creation time and closed
 time. It is calculated with the following formula:
@@ -626,7 +620,6 @@ order = Gitlab::Pagination::Keyset::Order.build([
   Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
     attribute_name: 'duration_in_seconds',
     order_expression: Arel.sql('EXTRACT(EPOCH FROM epics.closed_at - epics.created_at)').desc,
-    distinct: false,
     sql_type: 'double precision' # important for calculated SQL expressions
   ),
   Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
@@ -668,6 +661,63 @@ complete_records = Epic.where(id: records_by_id.keys).index_by(&:id)
 records_by_id.each do |id, _|
   puts complete_records[id].attributes
 end
+```
+
+#### Ordering by `JOIN` columns
+
+Ordering records by mixed columns where one or more columns are coming from `JOIN` tables
+works with limitations. It requires extra configuration via Common Table Expression (CTE). The trick is to use a
+non-materialized CTE to act as a "fake" table which exposes all required columns.
+
+NOTE:
+The query performance might not improve compared to the standard `IN` query. Always
+check the query plan.
+
+Example: order issues by `projects.name, issues.id` within the group hierarchy
+
+The first step is to create a CTE, where all required columns are collected in the `SELECT`
+clause.
+
+```ruby
+cte_query = Issue
+  .select('issues.id AS id', 'issues.project_id AS project_id', 'projects.name AS projects_name')
+  .joins(:project)
+
+cte = Gitlab::SQL::CTE.new(:issue_with_projects, cte_query, materialized: false)
+```
+
+Custom order object configuration:
+
+```ruby
+order = Gitlab::Pagination::Keyset::Order.build([
+          Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
+            attribute_name: 'projects_name',
+            order_expression: Issue.arel_table[:projects_name].asc,
+            sql_type: 'character varying',
+            nullable: :nulls_last
+          ),
+          Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
+            attribute_name: :id,
+            order_expression: Issue.arel_table[:id].asc
+          )
+        ])
+```
+
+Generate the query:
+
+```ruby
+scope = cte.apply_to(Issue.where({}).reorder(order))
+
+opts = {
+  scope: scope,
+  array_scope: Project.where(namespace_id: top_level_group.self_and_descendants.select(:id)).select(:id),
+  array_mapping_scope: -> (id_expression) { Issue.where(Issue.arel_table[:project_id].eq(id_expression)) }
+}
+
+records = Gitlab::Pagination::Keyset::InOperatorOptimization::QueryBuilder
+  .new(**opts)
+  .execute
+  .limit(20)
 ```
 
 #### Batch iteration
@@ -766,7 +816,7 @@ using the generalized `IN` optimization technique.
 
 ### Array CTE
 
-As the first step, we use a common table expression (CTE) for collecting the `projects.id` values.
+As the first step, we use a Common Table Expression (CTE) for collecting the `projects.id` values.
 This is done by wrapping the incoming `array_scope` ActiveRecord relation parameter with a CTE.
 
 ```sql
@@ -792,7 +842,7 @@ This query produces the following result set with only one column (`projects.id`
 ### Array mapping
 
 For each project (that is, each record storing a project ID in `array_cte`),
-we will fetch the cursor value identifying the first issue respecting the `ORDER BY` clause.
+we fetch the cursor value identifying the first issue respecting the `ORDER BY` clause.
 
 As an example, let's pick the first record `ID=9` from `array_cte`.
 The following query should fetch the cursor value `(created_at, id)` identifying
@@ -805,7 +855,7 @@ ORDER BY "issues"."created_at" ASC, "issues"."id" ASC
 LIMIT 1;
 ```
 
-We will use `LATERAL JOIN` to loop over the records in the `array_cte` and find the
+We use `LATERAL JOIN` to loop over the records in the `array_cte` and find the
 cursor value for each project. The query would be built using the `array_mapping_scope` lambda
 function.
 
@@ -854,30 +904,30 @@ The table shows the cursor values (`created_at, id`) of the first record for eac
 respecting the `ORDER BY` clause.
 
 At this point, we have the initial data. To start collecting the actual records from the database,
-we'll use a recursive CTE query where each recursion locates one row until
+we use a recursive CTE query where each recursion locates one row until
 the `LIMIT` is reached or no more data can be found.
 
-Here's an outline of the steps we will take in the recursive CTE query
-(expressing the steps in SQL is non-trivial but will be explained next):
+Here's an outline of the steps we take in the recursive CTE query
+(expressing the steps in SQL is non-trivial but is explained next):
 
-1. Sort the initial resultset according to the `ORDER BY` clause.
+1. Sort the initial `resultset` according to the `ORDER BY` clause.
 1. Pick the top cursor to fetch the record, this is our first record. In the example,
-this cursor would be (`2020-01-05`, `3`) for `project_id=9`.
+   this cursor would be (`2020-01-05`, `3`) for `project_id=9`.
 1. We can use (`2020-01-05`, `3`) to fetch the next issue respecting the `ORDER BY` clause
-`project_id=9` filter. This produces an updated resultset.
+   `project_id=9` filter. This produces an updated `resultset`.
 
-  | `project_ids` | `created_at_values` | `id_values` |
-  | ------------- | ------------------- | ----------- |
-  | 2             | 2020-01-10          | 5           |
-  | 5             | 2020-01-05          | 4           |
-  | 10            | 2020-01-15          | 7           |
-  | **9**         | **2020-01-06**      | **6**       |
+   | `project_ids` | `created_at_values` | `id_values` |
+   | ------------- | ------------------- | ----------- |
+   | 2             | 2020-01-10          | 5           |
+   | 5             | 2020-01-05          | 4           |
+   | 10            | 2020-01-15          | 7           |
+   | **9**         | **2020-01-06**      | **6**       |
 
-1. Repeat 1 to 3 with the updated resultset until we have fetched `N=20` records.
+1. Repeat 1 to 3 with the updated `resultset` until we have fetched `N=20` records.
 
 ### Initializing the recursive CTE query
 
-For the initial recursive query, we'll need to produce exactly one row, we call this the
+For the initial recursive query, we need to produce exactly one row, we call this the
 initializer query (`initializer_query`).
 
 Use `ARRAY_AGG` function to compact the initial result set into a single row
@@ -890,9 +940,9 @@ Example initializer row:
 | `NULL::issues` | `[9, 2, 5, 10]` | `[...]`             | `[...]`     | `0`     | `NULL`     |
 
 - The `records` column contains our sorted database records, and the initializer query sets the
-first value to `NULL`, which is filtered out later.
+  first value to `NULL`, which is filtered out later.
 - The `count` column tracks the number of records found. We use this column to filter out the
-initializer row from the result set.
+  initializer row from the result set.
 
 ### Recursive portion of the CTE query
 
@@ -962,7 +1012,7 @@ As the final step, we need to produce a new row by manipulating the initializer 
 (`data_collector_query` method). Two things happen here:
 
 - Read the full row from the DB and return it in the `records` columns. (`result_collector_columns`
-method)
+  method)
 - Replace the cursor values at the current position with the results from the keyset query.
 
 Reading the full row from the database is only one index scan by the primary key. We use the
@@ -994,7 +1044,7 @@ After this, the recursion starts again by finding the next lowest cursor value.
 
 ### Finalizing the query
 
-For producing the final `issues` rows, we're going to wrap the query with another `SELECT` statement:
+For producing the final `issues` rows, we wrap the query with another `SELECT` statement:
 
 ```sql
 SELECT "issues".*
@@ -1031,17 +1081,17 @@ Optimized `IN` query:
 | issue lookup query       | 519                     | 20                       | 10 000                |
 
 The group and project queries are not using sorting, the necessary columns are read from database
-indexes. These values are accessed frequently so it's very likely that most of the data will be
+indexes. These values are accessed frequently so it's very likely that most of the data is
 in the PostgreSQL's buffer cache.
 
-The optimized `IN` query will read maximum 519 entries (cursor values) from the index:
+The optimized `IN` query reads maximum 519 entries (cursor values) from the index:
 
 - 500 index-only scans for populating the arrays for each project. The cursor values of the first
-record will be here.
+  record is here.
 - Maximum 19 additional index-only scans for the consecutive records.
 
-The optimized `IN` query will sort the array (cursor values per project array) 20 times, which
-means we'll sort 20 x 500 rows. However, this might be a less memory-intensive task than
+The optimized `IN` query sorts the array (cursor values per project array) 20 times, which
+means we sort 20 x 500 rows. However, this might be a less memory-intensive task than
 sorting 10 000 rows at once.
 
 Performance comparison for the `gitlab-org` group:
@@ -1052,6 +1102,6 @@ Performance comparison for the `gitlab-org` group:
 | Optimized `IN` query | 9783                          | 450ms                   | 22ms                  |
 
 NOTE:
-Before taking measurements, the group lookup query was executed separately in order to make
-the group data available in the buffer cache. Since it's a frequently called query, it's going to
-hit many shared buffers during the query execution in the production environment.
+Before taking measurements, the group lookup query was executed separately to make
+the group data available in the buffer cache. Since it's a frequently called query, it
+hits many shared buffers during the query execution in the production environment.

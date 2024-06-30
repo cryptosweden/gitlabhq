@@ -1,4 +1,6 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters, mapState } from 'vuex';
 import EmptyState from './empty_state.vue';
 
@@ -22,8 +24,8 @@ export default {
 </script>
 
 <template>
-  <div class="h-100">
-    <div v-if="isShowSplash" class="h-100 d-flex flex-column justify-content-center">
+  <div class="gl-h-full">
+    <div v-if="isShowSplash" class="gl-h-full gl-flex flex-column justify-content-center">
       <empty-state
         :is-loading="allCheck.isLoading"
         :is-valid="allCheck.isValid"

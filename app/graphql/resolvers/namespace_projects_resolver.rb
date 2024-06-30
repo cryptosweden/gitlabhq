@@ -3,24 +3,42 @@
 module Resolvers
   class NamespaceProjectsResolver < BaseResolver
     argument :include_subgroups, GraphQL::Types::Boolean,
-             required: false,
-             default_value: false,
-             description: 'Include also subgroup projects.'
+      required: false,
+      default_value: false,
+      description: 'Include also subgroup projects.'
+
+    argument :include_archived, GraphQL::Types::Boolean,
+      required: false,
+      default_value: true,
+      description: 'Include also archived projects.'
+
+    argument :not_aimed_for_deletion, GraphQL::Types::Boolean,
+      required: false,
+      default_value: false,
+      description: 'Include projects that are not aimed for deletion.'
 
     argument :search, GraphQL::Types::String,
-            required: false,
-            default_value: nil,
-            description: 'Search project with most similar names or paths.'
+      required: false,
+      default_value: nil,
+      description: 'Search project with most similar names or paths.'
 
     argument :sort, Types::Projects::NamespaceProjectSortEnum,
-            required: false,
-            default_value: nil,
-            description: 'Sort projects by this criteria.'
+      required: false,
+      default_value: nil,
+      description: 'Sort projects by the criteria.'
 
     argument :ids, [GraphQL::Types::ID],
-             required: false,
-             default_value: nil,
-             description: 'Filter projects by IDs.'
+      required: false,
+      default_value: nil,
+      description: 'Filter projects by IDs.'
+
+    argument :with_issues_enabled, GraphQL::Types::Boolean,
+      required: false,
+      description: "Return only projects with issues enabled."
+
+    argument :with_merge_requests_enabled, GraphQL::Types::Boolean,
+      required: false,
+      description: "Return only projects with merge requests enabled."
 
     type Types::ProjectType, null: true
 
@@ -52,9 +70,13 @@ module Resolvers
     def finder_params(args)
       {
         include_subgroups: args.dig(:include_subgroups),
+        include_archived: args.dig(:include_archived),
+        not_aimed_for_deletion: args.dig(:not_aimed_for_deletion),
         sort: args.dig(:sort),
         search: args.dig(:search),
-        ids: parse_gids(args.dig(:ids))
+        ids: parse_gids(args.dig(:ids)),
+        with_issues_enabled: args[:with_issues_enabled],
+        with_merge_requests_enabled: args[:with_merge_requests_enabled]
       }
     end
 

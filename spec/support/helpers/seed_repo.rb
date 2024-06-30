@@ -47,7 +47,7 @@ module SeedRepo
     FILES_COUNT      = 2
     C_FILE_PATH      = "files/ruby"
     C_FILES          = ["popen.rb", "regex.rb", "version_info.rb"].freeze
-    BLOB_FILE        = %{%h3= @key.title\n%hr\n%pre= @key.key\n.actions\n  = link_to 'Remove', @key, :confirm => 'Are you sure?', :method => :delete, :class => \"btn danger delete-key\"\n\n\n}
+    BLOB_FILE        = %(%h3= @key.title\n%hr\n%pre= @key.key\n.actions\n  = link_to 'Remove', @key, :confirm => 'Are you sure?', :method => :delete, :class => \"btn danger delete-key\"\n\n\n)
     BLOB_FILE_PATH   = "app/views/keys/show.html.haml"
   end
 
@@ -113,7 +113,7 @@ module SeedRepo
   module RubyBlob
     ID = "7e3e39ebb9b2bf433b4ad17313770fbe4051649c"
     NAME = "popen.rb"
-    CONTENT = <<-eos
+    CONTENT = <<-EOS
 require 'fileutils'
 require 'open3'
 
@@ -151,6 +151,6 @@ module Popen
     return @cmd_output, @cmd_status
   end
 end
-    eos
+    EOS
   end
 end

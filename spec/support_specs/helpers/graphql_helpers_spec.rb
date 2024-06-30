@@ -3,11 +3,86 @@
 require 'spec_helper'
 
 RSpec.describe GraphqlHelpers do
-  include GraphqlHelpers
+  include described_class
 
   # Normalize irrelevant whitespace to make comparison easier
   def norm(query)
     query.tr("\n", ' ').gsub(/\s+/, ' ').strip
+  end
+
+  describe 'a_graphql_entity_for' do
+    context 'when no arguments are passed' do
+      it 'raises an error' do
+        expect { a_graphql_entity_for }.to raise_error(ArgumentError)
+      end
+    end
+
+    context 'when the model is nil, with no properties' do
+      it 'raises an error' do
+        expect { a_graphql_entity_for(nil) }.to raise_error(ArgumentError)
+      end
+    end
+
+    context 'when the model is nil, any fields are passed' do
+      it 'raises an error' do
+        expect { a_graphql_entity_for(nil, :username) }.to raise_error(ArgumentError)
+      end
+    end
+
+    context 'with no model' do
+      it 'behaves like hash-inclusion with camel-casing' do
+        response = { 'foo' => 1, 'bar' => 2, 'camelCased' => 3 }
+
+        expect(response).to match a_graphql_entity_for(foo: 1, camel_cased: 3)
+        expect(response).not_to match a_graphql_entity_for(missing: 5)
+      end
+    end
+
+    context 'with just a model' do
+      it 'only considers the ID' do
+        user = build_stubbed(:user)
+        response = { 'username' => 'foo', 'id' => global_id_of(user).to_s }
+
+        expect(response).to match a_graphql_entity_for(user)
+      end
+    end
+
+    context 'with a model and some method names' do
+      it 'also considers the method names' do
+        user = build_stubbed(:user)
+        response = { 'username' => user.username, 'id' => global_id_of(user).to_s }
+
+        expect(response).to match a_graphql_entity_for(user, :username)
+        expect(response).not_to match a_graphql_entity_for(user, :name)
+      end
+    end
+
+    context 'with a model and some other properties' do
+      it 'behaves like the superset' do
+        user = build_stubbed(:user)
+        response = { 'username' => 'foo', 'id' => global_id_of(user).to_s }
+
+        expect(response).to match a_graphql_entity_for(user, username: 'foo')
+        expect(response).not_to match a_graphql_entity_for(user, name: 'foo')
+      end
+    end
+
+    context 'with a model, method names, and some other properties' do
+      it 'behaves like the superset' do
+        user = build_stubbed(:user)
+        response = {
+          'username' => user.username,
+          'name' => user.name,
+          'foo' => 'bar',
+          'baz' => 'fop',
+          'id' => global_id_of(user).to_s
+        }
+
+        expect(response).to match a_graphql_entity_for(user, :username, :name, foo: 'bar')
+        expect(response).to match a_graphql_entity_for(user, :name, foo: 'bar')
+        expect(response).not_to match a_graphql_entity_for(user, :name, bar: 'foo')
+      end
+    end
   end
 
   describe 'graphql_dig_at' do
@@ -57,6 +132,23 @@ RSpec.describe GraphqlHelpers do
       }
 
       expect(graphql_dig_at(data, :foo, :nodes, :bar, :nodes, :id)).to eq([nil, 2, 3, nil])
+    end
+
+    it 'supports fields with leading underscore' do
+      web_path = '/namespace1/project1/-/packages/997'
+      data = {
+        'packages' => {
+          'nodes' => [
+            {
+              '_links' => {
+                'webPath' => web_path
+              }
+            }
+          ]
+        }
+      }
+
+      expect(graphql_dig_at(data, :packages, :nodes, :_links, :web_path)).to match_array([web_path])
     end
   end
 
@@ -230,6 +322,7 @@ RSpec.describe GraphqlHelpers do
       aFloat: 0.1,
       aString: "wibble",
       anEnum: LOW,
+      null: null,
       aBool: false,
       aVar: #{x.to_graphql_value}
       EXP
@@ -338,6 +431,24 @@ RSpec.describe GraphqlHelpers do
           ArgumentError,
           'Please pass either `fields` parameter or a block to `#graphql_mutation`, but not both.'
         )
+      end
+    end
+  end
+
+  describe '.fieldnamerize' do
+    subject { described_class.fieldnamerize(field) }
+
+    let(:field) { 'merge_request' }
+
+    it 'makes an underscored string look like a fieldname' do
+      is_expected.to eq('mergeRequest')
+    end
+
+    context 'when field has a leading underscore' do
+      let(:field) { :_links }
+
+      it 'skips a transformation' do
+        is_expected.to eq('_links')
       end
     end
   end

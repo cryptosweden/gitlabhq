@@ -1,15 +1,19 @@
 ---
-stage: Manage
-group: Compliance
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
-type: reference, concepts
-disqus_identifier: 'https://docs.gitlab.com/ee/user/project/merge_requests/status_checks.html'
+stage: Govern
+group: Security Policies
+info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
 ---
 
-# External Status Checks **(ULTIMATE)**
+# External status checks
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/3869) in GitLab 14.0, disabled behind the `:ff_external_status_checks` feature flag.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/320783) in GitLab 14.1.
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - `pending` status [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/413723) in GitLab 16.5
+> - Timeout interval of two minutes for `pending` status checks [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/388725) in GitLab 16.6.
+
+Status checks are API calls to external systems that request the status of an external requirement.
 
 You can create a status check that sends merge request data to third-party tools.
 When users create, change, or close merge requests, GitLab sends a notification. The users or automated workflows
@@ -21,20 +25,32 @@ respond with an associated status. This status is then displayed as a non-blocki
 widget within the merge request to surface this status to the merge request author or reviewers
 at the merge request level itself.
 
-The lack of a status check response does not block the merging of a merge request.
-
 You can configure merge request status checks for each individual project. These are not shared between projects.
 
-To learn more about use cases, feature discovery, and development timelines,
-see the [external status checks epic](https://gitlab.com/groups/gitlab-org/-/epics/3869).
+Status checks fail if they stay in the pending state for more than two minutes.
+
+For more information about use cases, feature discovery, and development timelines,
+see [epic 3869](https://gitlab.com/groups/gitlab-org/-/epics/3869).
+
+## Block merges of merge requests unless all status checks have passed
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/369859) in GitLab 15.5 [with a flag](../../../administration/feature_flags.md) named `only_allow_merge_if_all_status_checks_passed`. Disabled by default.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/372340) in GitLab 15.8.
+> - Enabled on self-managed and feature flag [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/111492) in GitLab 15.9.
+
+By default, merge requests in projects can be merged even if external status checks fail. To block the merging of merge requests when external checks fail:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Merge requests**.
+1. Select the **Status checks must succeed** checkbox.
+1. Select **Save changes**.
 
 ## Lifecycle
 
 External status checks have an **asynchronous** workflow. Merge requests emit a merge request webhook payload to an external service whenever:
 
-- The merge request is changed. For example, title or description.
+- A merge request is updated, closed, reopened, approved, unapproved, or merged.
 - Code is pushed to the source branch of the merge request.
-- A comment is made in the merge request discussion.
 
 ```mermaid
 sequenceDiagram
@@ -49,27 +65,29 @@ Merge requests return a `409 Conflict` error to any responses that do not refer 
 
 External status checks have the following states:
 
-- `pending` - The default state. No response can been received by the merge request from the external service.
-- `response received` - A response from the external service has been received and approved by it.
+- `pending` - The default state. No response has been received by the merge request from the external service.
+- `passed` - A response from the external service has been received and approved by it.
+- `failed` - A response from the external service has been received and denied by it.
 
-Support for adding a `failed` state is tracked [in this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/338827).
+If something changes outside of GitLab, you can [set the status of an external status check](../../../api/status_checks.md#set-status-of-an-external-status-check)
+using the API. You don't need to wait for a merge request webhook payload to be sent first.
 
 ## View the status checks on a project
 
-Within each project's settings, you can see a list of status checks added to the project:
+Within each project's settings, you can see a list of status check services added to the project:
 
-1. In your project, go to **Settings > General**.
-1. Expand the **Merge requests** section.
-1. Scroll down to the **Status checks** sub-section.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Merge requests**.
+1. Scroll down to **Status checks**.
 
 ![Status checks list](img/status_checks_list_view_v14_0.png)
 
 This list shows the service name, API URL, and targeted branch.
 It also provides actions to allow you to create, edit, or remove status checks.
 
-## Add or update a status check
+## Add or update a status check service
 
-### Add a status check
+### Add a status check service
 
 Within the **Status checks** sub-section, select the **Add status check** button.
 The **Add status check** form is then shown.
@@ -78,9 +96,9 @@ The **Add status check** form is then shown.
 
 Filling in the form and selecting the **Add status check** button creates a new status check.
 
-### Update a status check
+### Update a status check service
 
-Within the **Status checks** sub-section, select the **Edit** button
+Within the **Status checks** sub-section, select **Edit** (**{pencil}**)
 next to the status check you want to edit.
 The **Update status check** form is then shown.
 
@@ -100,8 +118,8 @@ The name **has** to be unique for the project.
 
 #### API to check
 
-This field requires a URL and **must** use either the HTTP or HTTPs protocols.
-We **recommend** using HTTPs to protect your merge request data in transit.
+This field requires a URL and **must** use either the HTTP or HTTPS protocols.
+We **recommend** using HTTPS to protect your merge request data in transit.
 The URL **must** be set and **must** be unique for the project.
 
 #### Target branch
@@ -121,9 +139,9 @@ for doesn't appear immediately. The search box requires
 If you want the status check to be applied to **all** merge requests,
 you can select the **All branches** option.
 
-## Delete a status check
+## Delete a status check service
 
-Within the **Status checks** sub-section, select the **Remove...** button
+Within the **Status checks** sub-section, select **Remove** (**{remove}**)
 next to the status check you want to delete.
 The **Remove status check?** modal is then shown.
 
@@ -131,28 +149,31 @@ The **Remove status check?** modal is then shown.
 
 To complete the deletion of the status check you must select the
 **Remove status check** button. This **permanently** deletes
-the status check and it **will not** be recoverable.
+the status check and it **is not** recoverable.
 
 ## Status checks widget
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/327634) in GitLab 14.1.
+> - UI [updated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/91504) in GitLab 15.2.
+> - Ability to retry failed external status checks [added](https://gitlab.com/gitlab-org/gitlab/-/issues/383200) in GitLab 15.8.
+> - Widget [updated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/111763) to poll for updates when there are pending status checks in GitLab 15.11.
 
-The status checks widget displays in merge requests and shows the status of external
-status checks:
+The status checks widget displays in merge requests and displays the following statuses:
 
-![Status checks widget](img/status_checks_widget_passed_v14_0.png)
+- **pending** (**{status-neutral}**), while GitLab waits for a response from an external status check.
+- **success** (**{status-success}**) or **failed** (**{status-failed}**), when GitLab receives a response from an external status check.
+
+When there are pending status checks, the widget polls for updates every few seconds until it receives a **success** or **failed** response.
+
+To retry a failed status check:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Merge requests** and find your merge request.
+1. Scroll to the merge request reports section, and expand the dropdown list to show the list of external status checks.
+1. Select **Retry** (**{retry}**) on the failed external status check row. The status check is put back into a pending state.
 
 An organization might have a policy that does not allow merging merge requests if
 external status checks do not pass. However, the details in the widget are for informational
-purposes only. GitLab does not prevent merging of merge requests that fail status checks.
-
-While GitLab waits for a response from the external status check, the widget shows
-the status checks as `pending`:
-
-![Status checks widget pending](img/status_checks_widget_pending_v14_0.png)
-
-After GitLab [receives a response](../../../api/status_checks.md#set-status-of-an-external-status-check)
-from the external status check, the widget updates accordingly.
+purposes only.
 
 NOTE:
 GitLab cannot guarantee that the external status checks are properly processed by
@@ -192,7 +213,7 @@ Unable to fetch branches list, please close the form and try again
 
 An unexpected response was received from the branches retrieval API.
 As suggested, you should close the form and reopen again or refresh the page. This error should be temporary, although
-if it persists please check the [GitLab status page](https://status.gitlab.com/) to see if there is a wider outage.
+if it persists, check the [GitLab status page](https://status.gitlab.com/) to see if there is a wider outage.
 
 ### Failed to load status checks
 

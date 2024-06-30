@@ -1,7 +1,7 @@
 ---
-stage: Enablement
+stage: Data Stores
 group: Database
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Keyset pagination
@@ -87,6 +87,55 @@ Because keyset pagination does not support page numbers, we are restricted to go
 - Last page
 - First page
 
+#### Usage in REST API with `paginate_with_strategies`
+
+For the REST API, the `paginate_with_strategies` helper can be used on a relation in order to use either keyset pagination or offset pagination.
+
+```ruby
+  desc 'Get the things related to a project' do
+    detail 'This feature was introduced in GitLab 16.1'
+    success code: 200, model: ::API::Entities::Thing
+    failure [
+      { code: 401, message: 'Unauthorized' },
+      { code: 403, message: 'Forbidden' },
+      { code: 404, message: 'Not Found' }
+    ]
+  end
+  params do
+    use :pagination
+    requires :project_id, type: Integer, desc: 'The ID of the project'
+    optional :cursor, type: String, desc: 'Cursor for obtaining the next set of records'
+    optional :order_by, type: String, values: %w[id name], default: 'id',
+      desc: 'Attribute to sort by'
+    optional :sort, type: String, values: %w[asc desc], default: 'desc', desc: 'Order of sorting'
+  end
+  route_setting :authentication
+  get ':project_id/things' do
+    project = Project.find_by_id(params[:project_id])
+
+    not_found! if project.blank?
+
+    things = project.things
+
+    present paginate_with_strategies(things), with: ::API::Entities::Thing
+  end
+```
+
+In order for keyset pagination to be used, the following conditions must be met:
+
+1. `params[:pagination]` must return `'keyset'`
+1. `params[:order_by]` and `params[:sort]` must both appear in the object returned by the
+   `supported_keyset_orderings` class method on the model. In the following example, `Thing`
+   supports keyset pagination when ordering by ID in either ascending or descending order.
+
+   ```ruby
+   class Thing < ApplicationRecord
+     def self.supported_keyset_orderings
+      { id: [:asc, :desc] }
+     end
+   end
+   ```
+
 #### Usage in Rails with HAML views
 
 Consider the following controller action, where we list the projects ordered by name:
@@ -159,14 +208,14 @@ configuration is necessary:
 - Function-based ordering.
 - Ordering with a custom tie-breaker column, like `iid`.
 
-These order objects can be defined in the model classes as normal ActiveRecord scopes, there is no special behavior that prevents using these scopes elsewhere (kaminari, background jobs).
+These order objects can be defined in the model classes as standard ActiveRecord scopes, there is no special behavior that prevents using these scopes elsewhere (Kaminari, background jobs).
 
 ### `NULLS LAST` ordering
 
 Consider the following scope:
 
 ```ruby
-scope = Issue.where(project_id: 10).order(Gitlab::Database.nulls_last_order('relative_position', 'DESC'))
+scope = Issue.where(project_id: 10).order(Issue.arel_table[:relative_position].desc.nulls_last)
 # SELECT "issues".* FROM "issues" WHERE "issues"."project_id" = 10 ORDER BY relative_position DESC NULLS LAST
 
 scope.keyset_paginate # raises: Gitlab::Pagination::Keyset::UnsupportedScopeOrder: The order on the scope does not support keyset pagination
@@ -178,7 +227,7 @@ To make keyset pagination work, we must configure custom order objects, to do so
 collect information about the order columns:
 
 - `relative_position` can have duplicated values because no unique index is present.
-- `relative_position` can have null values because we don't have a not null constraint on the column. For this, we must determine where we see NULL values, at the beginning of the result set, or the end (`NULLS LAST`).
+- `relative_position` can have null values because we don't have a not null constraint on the column. For this, we must determine where we see `NULL` values, at the beginning of the result set, or the end (`NULLS LAST`).
 - Keyset pagination requires distinct order columns, so we must add the primary key (`id`) to make the order distinct.
 - Jumping to the last page and paginating backwards actually reverses the `ORDER BY` clause. For this, we must provide the reversed `ORDER BY` clause.
 
@@ -190,17 +239,15 @@ order = Gitlab::Pagination::Keyset::Order.build([
   Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
     attribute_name: 'relative_position',
     column_expression: Issue.arel_table[:relative_position],
-    order_expression: Gitlab::Database.nulls_last_order('relative_position', 'DESC'),
-    reversed_order_expression: Gitlab::Database.nulls_first_order('relative_position', 'ASC'),
+    order_expression: Issue.arel_table[:relative_position].desc.nulls_last,
+    reversed_order_expression: Issue.arel_table[:relative_position].asc.nulls_first,
     nullable: :nulls_last,
-    order_direction: :desc,
-    distinct: false
+    order_direction: :desc
   ),
   Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
     attribute_name: 'id',
     order_expression: Issue.arel_table[:id].asc,
-    nullable: :not_nullable,
-    distinct: true
+    nullable: :not_nullable
   )
 ])
 
@@ -221,7 +268,6 @@ order = Gitlab::Pagination::Keyset::Order.build([
     order_expression: Arel.sql('id * 10').asc,
     nullable: :not_nullable,
     order_direction: :asc,
-    distinct: true,
     add_to_projections: true
   )
 ])
@@ -247,8 +293,7 @@ order = Gitlab::Pagination::Keyset::Order.build([
   Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
     attribute_name: 'iid',
     order_expression: Issue.arel_table[:iid].asc,
-    nullable: :not_nullable,
-    distinct: true
+    nullable: :not_nullable
   )
 ])
 

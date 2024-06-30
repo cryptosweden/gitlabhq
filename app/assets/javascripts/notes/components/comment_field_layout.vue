@@ -1,11 +1,13 @@
 <script>
 import NoteableWarning from '~/vue_shared/components/notes/noteable_warning.vue';
 import EmailParticipantsWarning from './email_participants_warning.vue';
+import AttachmentsWarning from './attachments_warning.vue';
 
 const DEFAULT_NOTEABLE_TYPE = 'Issue';
 
 export default {
   components: {
+    AttachmentsWarning,
     EmailParticipantsWarning,
     NoteableWarning,
   },
@@ -14,7 +16,7 @@ export default {
       type: Object,
       required: true,
     },
-    noteIsConfidential: {
+    isInternalNote: {
       type: Boolean,
       required: false,
       default: false,
@@ -25,6 +27,11 @@ export default {
       default: DEFAULT_NOTEABLE_TYPE,
     },
     withAlertContainer: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    containsLink: {
       type: Boolean,
       required: false,
       default: false,
@@ -44,15 +51,16 @@ export default {
       return this.noteableData.issue_email_participants?.map(({ email }) => email) || [];
     },
     showEmailParticipantsWarning() {
-      return this.emailParticipants.length && !this.noteIsConfidential;
+      return this.emailParticipants.length && !this.isInternalNote;
+    },
+    showAttachmentWarning() {
+      return this.showEmailParticipantsWarning && this.containsLink;
     },
   },
 };
 </script>
 <template>
-  <div
-    class="comment-warning-wrapper gl-border-solid gl-border-1 gl-rounded-base gl-border-gray-100"
-  >
+  <div class="comment-warning-wrapper">
     <div
       v-if="withAlertContainer"
       class="error-alert"
@@ -60,7 +68,7 @@ export default {
     ></div>
     <noteable-warning
       v-if="hasWarning"
-      class="gl-border-b-1 gl-border-b-solid gl-border-b-gray-100 gl-rounded-base gl-rounded-bottom-left-none gl-rounded-bottom-right-none"
+      class="gl-pt-4 gl-pb-5 -gl-mb-3 gl-rounded-lg gl-rounded-bottom-left-none gl-rounded-bottom-right-none"
       :is-locked="isLocked"
       :is-confidential="isConfidential"
       :noteable-type="noteableType"
@@ -68,9 +76,20 @@ export default {
       :confidential-noteable-docs-path="noteableData.confidential_issues_docs_path"
     />
     <slot></slot>
+    <attachments-warning
+      v-if="showAttachmentWarning"
+      :class="{
+        'gl-py-3': !showEmailParticipantsWarning,
+        'gl-pt-4 gl-pb-3 -gl-mt-3': showEmailParticipantsWarning,
+      }"
+    />
     <email-participants-warning
       v-if="showEmailParticipantsWarning"
-      class="gl-border-t-1 gl-border-t-solid gl-border-t-gray-100 gl-rounded-base gl-rounded-top-left-none! gl-rounded-top-right-none!"
+      class="gl-border-t-1 gl-rounded-lg gl-rounded-top-left-none! gl-rounded-top-right-none!"
+      :class="{
+        'gl-pt-4 gl-pb-3 -gl-mt-3': !showAttachmentWarning,
+        'gl-py-3 gl-mt-1': showAttachmentWarning,
+      }"
       :emails="emailParticipants"
     />
   </div>

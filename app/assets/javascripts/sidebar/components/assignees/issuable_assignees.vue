@@ -1,7 +1,8 @@
 <script>
 import { GlButton } from '@gitlab/ui';
+import { TYPE_ISSUE } from '~/issues/constants';
 import { n__ } from '~/locale';
-import UncollapsedAssigneeList from '~/sidebar/components/assignees/uncollapsed_assignee_list.vue';
+import UncollapsedAssigneeList from './uncollapsed_assignee_list.vue';
 
 export default {
   components: {
@@ -16,12 +17,16 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: 'issue',
+      default: TYPE_ISSUE,
     },
     signedIn: {
       type: Boolean,
       required: false,
       default: false,
+    },
+    editable: {
+      type: Boolean,
+      required: true,
     },
   },
   computed: {
@@ -30,11 +35,6 @@ export default {
     },
     emptyUsers() {
       return this.users.length === 0;
-    },
-  },
-  methods: {
-    toggleAttentionRequested(data) {
-      this.$emit('toggle-attention-requested', data);
     },
   },
 };
@@ -48,7 +48,7 @@ export default {
       data-testid="none"
     >
       <span> {{ __('None') }}</span>
-      <template v-if="signedIn">
+      <template v-if="signedIn && editable">
         <span class="gl-ml-2">-</span>
         <gl-button
           data-testid="assign-yourself"
@@ -65,8 +65,7 @@ export default {
       v-else
       :users="users"
       :issuable-type="issuableType"
-      class="gl-text-gray-800 hide-collapsed"
-      @toggle-attention-requested="toggleAttentionRequested"
+      class="gl-text-gray-800 hide-collapsed gl-pt-2"
     />
   </div>
 </template>

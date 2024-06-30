@@ -1,17 +1,12 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
 # Connecting a Kubernetes cluster with GitLab
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/223061) in GitLab 13.4.
-> - Support for `grpcs` [introduced](https://gitlab.com/gitlab-org/cluster-integration/gitlab-agent/-/issues/7) in GitLab 13.6.
-> - Agent server [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/300960) on GitLab.com under `wss://kas.gitlab.com` through an Early Adopter Program in GitLab 13.10.
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/3834) in GitLab 13.11, the GitLab agent became available on GitLab.com.
-> - [Moved](https://gitlab.com/groups/gitlab-org/-/epics/6290) from GitLab Premium to GitLab Free in 14.5.
-> - [Renamed](https://gitlab.com/groups/gitlab-org/-/epics/7167) from "GitLab Kubernetes Agent" to "GitLab agent for Kubernetes" in GitLab 14.6.
+> - Flux [recommended](https://gitlab.com/gitlab-org/gitlab/-/issues/357947#note_1253489000) as GitOps solution in GitLab 15.10.
 
 You can connect your Kubernetes cluster with GitLab to deploy, manage,
 and monitor your cloud-native solutions.
@@ -29,44 +24,98 @@ For more details about the agent's purpose and architecture, see the [architectu
 
 ## Workflows
 
-You can choose from two primary workflows.
+You can choose from two primary workflows. The GitOps workflow is recommended.
 
-In a [**GitOps** workflow](gitops.md), you keep your Kubernetes manifests in GitLab. You install a GitLab agent in your cluster, and
-any time you update your manifests, the agent updates the cluster. This workflow is fully driven with Git and is considered pull-based,
-because the cluster is pulling updates from your GitLab repository.
+### GitOps workflow
 
-In a [**CI/CD** workflow](ci_cd_tunnel.md), you use GitLab CI/CD to query and update your cluster by using the Kubernetes API.
-This workflow is considered push-based, because GitLab is pushing requests from GitLab CI/CD to your cluster.
+You should use Flux for GitOps. To get started, see [Tutorial: Set up Flux for GitOps](gitops/flux_tutorial.md)
 
-## Supported cluster versions
+### GitLab CI/CD workflow
 
-GitLab supports the following Kubernetes versions. You can upgrade your
+In a [**CI/CD** workflow](ci_cd_workflow.md):
+
+- You configure GitLab CI/CD to use the Kubernetes API to query and update your cluster.
+
+This workflow is considered **push-based**, because GitLab is pushing requests
+from GitLab CI/CD to your cluster.
+
+Use this workflow:
+
+- When you have a heavily pipeline-oriented processes.
+- When you need to migrate to the agent but the GitOps workflow cannot support the use case you need.
+
+This workflow has a weaker security model and is not recommended for production deployments.
+
+## Supported Kubernetes versions for GitLab features
+
+GitLab supports the following Kubernetes versions. If you want to run
+GitLab in a Kubernetes cluster, you might need a different version of Kubernetes:
+
+- For the [Helm Chart](https://docs.gitlab.com/charts/installation/cloud/index.html).
+- For [GitLab Operator](https://docs.gitlab.com/operator/installation.html#kubernetes).
+
+You can upgrade your
 Kubernetes version to a supported version at any time:
 
-- 1.20 (support ends on July 22, 2022)
-- 1.19 (support ends on February 22, 2022)
+- 1.30 (support ends when GitLab version 18.2 is released or when 1.33 becomes supported)
+- 1.29 (support ends when GitLab version 17.10 is released or when 1.32 becomes supported)
+- 1.28 (support ends when GitLab version 17.5 is released or when 1.31 becomes supported)
 
-GitLab supports at least two production-ready Kubernetes minor
-versions at any given time. GitLab regularly reviews the supported versions and
-provides a three-month deprecation period before removing support for a specific
-version. The list of supported versions is based on:
+GitLab aims to support a new minor Kubernetes version three months after its initial release. GitLab supports at least three production-ready Kubernetes minor
+versions at any given time.
 
-- The versions supported by major managed Kubernetes providers.
-- The versions [supported by the Kubernetes community](https://kubernetes.io/releases/version-skew-policy/#supported-versions).
+When a new version of Kubernetes is released, we will:
 
-[This epic](https://gitlab.com/groups/gitlab-org/-/epics/4827) tracks support for other Kubernetes versions.
+- Update this page with the results of our early smoke tests within approximately
+  four weeks.
+- If we expect a delay in releasing new version support, we will update this page
+  with the expected GitLab support version within approximately eight weeks.
 
-Some GitLab features might work on versions not listed here.
+When installing the agent, use a Helm version compatible with your Kubernetes version. Other versions of Helm might not work. For a list of compatible versions, see the [Helm version support policy](https://helm.sh/docs/topics/version_skew/).
+
+Support for deprecated APIs can be removed from the GitLab codebase when we drop support for the Kubernetes version that only supports the deprecated API.
+
+Some GitLab features might work on versions not listed here. [This epic](https://gitlab.com/groups/gitlab-org/-/epics/4827) tracks support for Kubernetes versions.
 
 ## Migrate to the agent from the legacy certificate-based integration
 
 Read about how to [migrate to the agent for Kubernetes](../../infrastructure/clusters/migrate_to_gitlab_agent.md) from the certificate-based integration.
 
+## Agent connection
+
+The agent opens a bidirectional channel to KAS for communication.
+This channel is used for all communication between the agent and KAS:
+
+- Each agent can maintain up to 500 logical gRPC streams, including active and idle streams.
+- The number of TCP connections used by the gRPC streams is determined by gRPC itself.
+- Each connection has a maximum lifetime of two hours, with a one-hour grace period.
+  - A proxy in front of KAS might influence the maximum lifetime of connections. On GitLab.com, this is [two hours](https://gitlab.com/gitlab-cookbooks/gitlab-haproxy/-/blob/68df3484087f0af368d074215e17056d8ab69f1c/attributes/default.rb#L217). The grace period is 50% of the maximum lifetime.
+
+For detailed information about channel routing, see [Routing KAS requests in the agent](https://gitlab.com/gitlab-org/cluster-integration/gitlab-agent/-/blob/master/doc/kas_request_routing.md).
+
+## Kubernetes integration glossary
+
+This glossary provides definitions for terms related to the GitLab Kubernetes integration.
+
+| Term | Definition | Scope |
+| --- | --- | --- |
+| GitLab agent for Kubernetes | The overall offering, including related features and the underlying components `agentk` and `kas`. | GitLab, Kubernetes, Flux |
+| `agentk` | The cluster-side component that maintains a secure connection to GitLab for Kubernetes management and deployment automation. | GitLab |
+| GitLab agent server for Kubernetes (`kas`) | The GitLab-side component of GitLab that handles operations and logic for the Kubernetes agent integration. Manages the connection and communication between GitLab and Kubernetes clusters. | GitLab |
+| Pull-based deployment | A deployment method where Flux checks for changes in a Git repository and automatically applies these changes to the cluster. | GitLab, Kubernetes |
+| Push-based deployment | A deployment method where updates are sent from GitLab CI/CD pipelines to the Kubernetes cluster. | GitLab |
+| Flux | An open-source GitOps tool that integrates with the agent for pull-based deployments. | GitOps, Kubernetes |
+| GitOps | A set of practices that involve using Git for version control and collaboration in the management and automation of cloud and Kubernetes resources. | DevOps, Kubernetes |
+| Kubernetes namespace | A logical partition in a Kubernetes cluster that divides cluster resources between multiple users or environments. | Kubernetes |
+
 ## Related topics
 
 - [GitOps workflow](gitops.md)
-- [GitLab CI/CD workflow](ci_cd_tunnel.md)
+- [GitOps examples and learning materials](gitops.md#related-topics)
+- [GitLab CI/CD workflow](ci_cd_workflow.md)
 - [Install the agent](install/index.md)
-- [Work with the agent](repository.md)
+- [Work with the agent](work_with_agent.md)
 - [Troubleshooting](troubleshooting.md)
+- [Guided explorations for a production ready GitOps setup](https://gitlab.com/groups/guided-explorations/gl-k8s-agent/gitops/-/wikis/home#gitlab-agent-for-kubernetes-gitops-working-examples)
+- [CI/CD for Kubernetes examples and learning materials](ci_cd_workflow.md#related-topics)
 - [Contribute to the agent's development](https://gitlab.com/gitlab-org/cluster-integration/gitlab-agent/-/tree/master/doc)

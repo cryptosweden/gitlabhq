@@ -10,14 +10,13 @@ import {
 import { LocalStorageCache } from '~/import_entities/import_groups/graphql/services/local_storage_cache';
 import importGroupsMutation from '~/import_entities/import_groups/graphql/mutations/import_groups.mutation.graphql';
 import updateImportStatusMutation from '~/import_entities/import_groups/graphql/mutations/update_import_status.mutation.graphql';
-import availableNamespacesQuery from '~/import_entities/import_groups/graphql/queries/available_namespaces.query.graphql';
 import bulkImportSourceGroupsQuery from '~/import_entities/import_groups/graphql/queries/bulk_import_source_groups.query.graphql';
 
 import axios from '~/lib/utils/axios_utils';
-import httpStatus from '~/lib/utils/http_status';
-import { statusEndpointFixture, availableNamespacesFixture } from './fixtures';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { statusEndpointFixture } from './fixtures';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 jest.mock('~/import_entities/import_groups/graphql/services/local_storage_cache', () => ({
   LocalStorageCache: jest.fn().mockImplementation(function mock() {
     this.get = jest.fn();
@@ -28,7 +27,6 @@ jest.mock('~/import_entities/import_groups/graphql/services/local_storage_cache'
 
 const FAKE_ENDPOINTS = {
   status: '/fake_status_url',
-  availableNamespaces: '/fake_available_namespaces',
   createBulkImport: '/fake_create_bulk_import',
   jobs: '/fake_jobs',
 };
@@ -50,19 +48,11 @@ describe('Bulk import resolvers', () => {
   };
 
   let results;
-  beforeEach(async () => {
+  beforeEach(() => {
     axiosMockAdapter = new MockAdapter(axios);
     client = createClient();
 
-    axiosMockAdapter.onGet(FAKE_ENDPOINTS.status).reply(httpStatus.OK, statusEndpointFixture);
-    axiosMockAdapter.onGet(FAKE_ENDPOINTS.availableNamespaces).reply(
-      httpStatus.OK,
-      availableNamespacesFixture.map((ns) => ({
-        id: ns.id,
-        full_path: ns.fullPath,
-      })),
-    );
-
+    axiosMockAdapter.onGet(FAKE_ENDPOINTS.status).reply(HTTP_STATUS_OK, statusEndpointFixture);
     client.watchQuery({ query: bulkImportSourceGroupsQuery }).subscribe(({ data }) => {
       results = data.bulkImportSourceGroups.nodes;
     });
@@ -75,22 +65,6 @@ describe('Bulk import resolvers', () => {
   });
 
   describe('queries', () => {
-    describe('availableNamespaces', () => {
-      let namespacesResults;
-      beforeEach(async () => {
-        const response = await client.query({ query: availableNamespacesQuery });
-        namespacesResults = response.data.availableNamespaces;
-      });
-
-      it('mirrors REST endpoint response fields', () => {
-        const extractRelevantFields = (obj) => ({ id: obj.id, full_path: obj.full_path });
-
-        expect(namespacesResults.map(extractRelevantFields)).toStrictEqual(
-          availableNamespacesFixture.map(extractRelevantFields),
-        );
-      });
-    });
-
     describe('bulkImportSourceGroups', () => {
       it('respects cached import state when provided by group manager', async () => {
         const [localStorageCache] = LocalStorageCache.mock.instances;
@@ -98,6 +72,7 @@ describe('Bulk import resolvers', () => {
           progress: {
             id: 'DEMO',
             status: 'cached',
+            hasFailures: true,
           },
         };
         localStorageCache.get.mockReturnValueOnce(CACHED_DATA);
@@ -169,7 +144,7 @@ describe('Bulk import resolvers', () => {
       it('sets import status to CREATED for successful groups when request completes', async () => {
         axiosMockAdapter
           .onPost(FAKE_ENDPOINTS.createBulkImport)
-          .reply(httpStatus.OK, [{ success: true, id: 1 }]);
+          .reply(HTTP_STATUS_OK, [{ success: true, id: 1 }]);
 
         await client.mutate({
           mutation: importGroupsMutation,
@@ -189,7 +164,7 @@ describe('Bulk import resolvers', () => {
       });
 
       it('sets import status to CREATED for successful groups when request completes with legacy response', async () => {
-        axiosMockAdapter.onPost(FAKE_ENDPOINTS.createBulkImport).reply(httpStatus.OK, { id: 1 });
+        axiosMockAdapter.onPost(FAKE_ENDPOINTS.createBulkImport).reply(HTTP_STATUS_OK, { id: 1 });
 
         await client.mutate({
           mutation: importGroupsMutation,
@@ -212,7 +187,7 @@ describe('Bulk import resolvers', () => {
         const FAKE_ERROR_MESSAGE = 'foo';
         axiosMockAdapter
           .onPost(FAKE_ENDPOINTS.createBulkImport)
-          .reply(httpStatus.OK, [{ success: false, id: 1, message: FAKE_ERROR_MESSAGE }]);
+          .reply(HTTP_STATUS_OK, [{ success: false, id: 1, message: FAKE_ERROR_MESSAGE }]);
 
         await client.mutate({
           mutation: importGroupsMutation,
@@ -236,7 +211,7 @@ describe('Bulk import resolvers', () => {
     it('updateImportStatus updates status', async () => {
       axiosMockAdapter
         .onPost(FAKE_ENDPOINTS.createBulkImport)
-        .reply(httpStatus.OK, [{ success: true, id: 1 }]);
+        .reply(HTTP_STATUS_OK, [{ success: true, id: 1 }]);
 
       const NEW_STATUS = 'dummy';
       await client.mutate({
@@ -260,7 +235,7 @@ describe('Bulk import resolvers', () => {
         data: { updateImportStatus: statusInResponse },
       } = await client.mutate({
         mutation: updateImportStatusMutation,
-        variables: { id, status: NEW_STATUS },
+        variables: { id, status: NEW_STATUS, hasFailures: true },
       });
 
       expect(statusInResponse).toStrictEqual({
@@ -268,6 +243,7 @@ describe('Bulk import resolvers', () => {
         id,
         message: null,
         status: NEW_STATUS,
+        hasFailures: true,
       });
     });
   });

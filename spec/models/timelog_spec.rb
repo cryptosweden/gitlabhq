@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Timelog do
+RSpec.describe Timelog, feature_category: :team_planning do
   subject { create(:timelog) }
 
   let_it_be(:issue) { create(:issue) }
@@ -11,6 +11,7 @@ RSpec.describe Timelog do
   it { is_expected.to belong_to(:project) }
   it { is_expected.to belong_to(:issue).touch(true) }
   it { is_expected.to belong_to(:merge_request).touch(true) }
+  it { is_expected.to belong_to(:timelog_category).optional(true) }
 
   it { is_expected.to be_valid }
 
@@ -44,6 +45,53 @@ RSpec.describe Timelog do
       subject.attributes = { merge_request: merge_request, issue: nil }
 
       expect(subject).to be_valid
+    end
+
+    describe 'check if total time spent would be within the set range' do
+      let_it_be(:time_already_spent) { 1.minute.to_i }
+
+      before_all do
+        create(:issue_timelog, issue: issue, time_spent: time_already_spent)
+      end
+
+      it 'is valid when a negative time spent offsets the time already spent' do
+        timelog = build(:issue_timelog, issue: issue, time_spent: -time_already_spent)
+
+        expect(timelog).to be_valid
+      end
+
+      context 'when total time spent is within the allowed range' do
+        before_all do
+          # Offset the time already spent
+          create(:issue_timelog, issue: issue, time_spent: -time_already_spent)
+        end
+
+        it 'is valid' do
+          timelog = build(:issue_timelog, issue: issue, time_spent: 1.minute.to_i)
+
+          expect(timelog).to be_valid
+        end
+      end
+
+      context 'when total time spent is outside the allowed range' do
+        it 'adds an error if total time spent would exceed a year' do
+          time_to_spend = described_class::MAX_TOTAL_TIME_SPENT - time_already_spent + 1.second.to_i
+          timelog = build(:issue_timelog, issue: issue, time_spent: time_to_spend)
+
+          expect { timelog.save! }
+            .to raise_error(ActiveRecord::RecordInvalid,
+              _('Validation failed: Total time spent cannot exceed a year.'))
+        end
+
+        it 'adds an error if total time spent would be negative' do
+          time_to_spend = -time_already_spent - 1.second.to_i
+          timelog = build(:issue_timelog, issue: issue, time_spent: time_to_spend)
+
+          expect { timelog.save! }
+            .to raise_error(ActiveRecord::RecordInvalid,
+              _('Validation failed: Total time spent cannot be negative.'))
+        end
+      end
     end
 
     describe 'when importing' do
@@ -146,6 +194,72 @@ RSpec.describe Timelog do
         timelog = create(:issue_timelog, issue: issue)
 
         expect(timelog.project_id).to be(timelog.issue.project_id)
+      end
+    end
+  end
+
+  describe 'sorting' do
+    let_it_be(:user) { create(:user) }
+
+    let_it_be(:timelog_a) do
+      create(
+        :issue_timelog, time_spent: 7200, spent_at: 1.hour.ago,
+        created_at: 1.hour.ago, updated_at: 1.hour.ago, user: user
+      )
+    end
+
+    let_it_be(:timelog_b) do
+      create(
+        :issue_timelog, time_spent: 5400, spent_at: 2.hours.ago,
+        created_at: 2.hours.ago, updated_at: 2.hours.ago, user: user
+      )
+    end
+
+    let_it_be(:timelog_c) do
+      create(
+        :issue_timelog, time_spent: 1800, spent_at: 30.minutes.ago,
+        created_at: 30.minutes.ago, updated_at: 30.minutes.ago, user: user
+      )
+    end
+
+    let_it_be(:timelog_d) do
+      create(
+        :issue_timelog, time_spent: 3600, spent_at: 1.day.ago,
+        created_at: 1.day.ago, updated_at: 1.day.ago, user: user
+      )
+    end
+
+    describe '.sort_by_field' do
+      it 'sorts timelogs by time spent in ascending order' do
+        expect(user.timelogs.sort_by_field(:time_spent_asc)).to eq([timelog_c, timelog_d, timelog_b, timelog_a])
+      end
+
+      it 'sorts timelogs by time spent in descending order' do
+        expect(user.timelogs.sort_by_field(:time_spent_desc)).to eq([timelog_a, timelog_b, timelog_d, timelog_c])
+      end
+
+      it 'sorts timelogs by spent at in ascending order' do
+        expect(user.timelogs.sort_by_field(:spent_at_asc)).to eq([timelog_d, timelog_b, timelog_a, timelog_c])
+      end
+
+      it 'sorts timelogs by spent at in descending order' do
+        expect(user.timelogs.sort_by_field(:spent_at_desc)).to eq([timelog_c, timelog_a, timelog_b, timelog_d])
+      end
+
+      it 'sorts timelogs by created at in ascending order' do
+        expect(user.timelogs.sort_by_field(:created_at_asc)).to eq([timelog_d, timelog_b, timelog_a, timelog_c])
+      end
+
+      it 'sorts timelogs by created at in descending order' do
+        expect(user.timelogs.sort_by_field(:created_at_desc)).to eq([timelog_c, timelog_a, timelog_b, timelog_d])
+      end
+
+      it 'sorts timelogs by updated at in ascending order' do
+        expect(user.timelogs.sort_by_field(:updated_at_asc)).to eq([timelog_d, timelog_b, timelog_a, timelog_c])
+      end
+
+      it 'sorts timelogs by updated at in descending order' do
+        expect(user.timelogs.sort_by_field(:updated_at_desc)).to eq([timelog_c, timelog_a, timelog_b, timelog_d])
       end
     end
   end

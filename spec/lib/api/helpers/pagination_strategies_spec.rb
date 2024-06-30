@@ -43,6 +43,14 @@ RSpec.describe API::Helpers::PaginationStrategies do
 
       expect(result).to eq(return_value)
     end
+
+    context "with paginator_params" do
+      it 'correctly passes multiple parameters' do
+        expect(paginator).to receive(:paginate).with(relation, parameter_one: true, parameter_two: 'two')
+
+        subject.paginate_with_strategies(relation, nil, paginator_params: { parameter_one: true, parameter_two: 'two' })
+      end
+    end
   end
 
   describe '#paginator' do
@@ -55,13 +63,14 @@ RSpec.describe API::Helpers::PaginationStrategies do
         allow(subject).to receive(:keyset_pagination_enabled?).and_return(false)
       end
 
-      context 'when keyset pagination is available for the relation' do
+      context 'when keyset pagination is available and enforced for the relation' do
         before do
           allow(Gitlab::Pagination::Keyset).to receive(:available_for_type?).and_return(true)
+          allow(Gitlab::Pagination::CursorBasedKeyset).to receive(:enforced_for_type?).and_return(true)
         end
 
         context 'when a request scope is given' do
-          let(:params) { { per_page: 100, page: offset_limit / 100 + 1 } }
+          let(:params) { { per_page: 100, page: (offset_limit / 100) + 1 } }
           let(:request_scope) { double("scope", actual_limits: plan_limits) }
 
           context 'when the scope limit is exceeded' do
@@ -69,6 +78,18 @@ RSpec.describe API::Helpers::PaginationStrategies do
               expect(subject).to receive(:error!).with(/maximum allowed offset/, 405)
 
               subject.paginator(relation, request_scope)
+            end
+
+            context 'when keyset pagination is not enforced' do
+              before do
+                allow(Gitlab::Pagination::CursorBasedKeyset).to receive(:enforced_for_type?).and_return(false)
+              end
+
+              it 'returns no errors' do
+                expect(subject).not_to receive(:error!)
+
+                subject.paginator(relation, request_scope)
+              end
             end
           end
 
@@ -85,7 +106,7 @@ RSpec.describe API::Helpers::PaginationStrategies do
 
         context 'when a request scope is not given' do
           context 'when the default limits are exceeded' do
-            let(:params) { { per_page: 100, page: offset_limit / 100 + 1 } }
+            let(:params) { { per_page: 100, page: (offset_limit / 100) + 1 } }
 
             it 'renders a 405 error' do
               expect(subject).to receive(:error!).with(/maximum allowed offset/, 405)
@@ -107,7 +128,7 @@ RSpec.describe API::Helpers::PaginationStrategies do
       end
 
       context 'when keyset pagination is not available for the relation' do
-        let(:params) { { per_page: 100, page: offset_limit / 100 + 1 } }
+        let(:params) { { per_page: 100, page: (offset_limit / 100) + 1 } }
 
         before do
           allow(Gitlab::Pagination::Keyset).to receive(:available_for_type?).and_return(false)

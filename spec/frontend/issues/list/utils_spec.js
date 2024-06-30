@@ -1,106 +1,119 @@
+import setWindowLocation from 'helpers/set_window_location_helper';
+import { TEST_HOST } from 'helpers/test_constants';
 import {
   apiParams,
   apiParamsWithSpecialValues,
   filteredTokens,
   filteredTokensWithSpecialValues,
+  groupedFilteredTokens,
   locationSearch,
   locationSearchWithSpecialValues,
   urlParams,
   urlParamsWithSpecialValues,
 } from 'jest/issues/list/mock_data';
-import {
-  PAGE_SIZE,
-  PAGE_SIZE_MANUAL,
-  RELATIVE_POSITION_ASC,
-  urlSortParams,
-} from '~/issues/list/constants';
+import { STATUS_CLOSED } from '~/issues/constants';
+import { CREATED_DESC, UPDATED_DESC, urlSortParams } from '~/issues/list/constants';
 import {
   convertToApiParams,
   convertToSearchQuery,
   convertToUrlParams,
+  deriveSortKey,
   getFilterTokens,
   getInitialPageParams,
-  getSortKey,
   getSortOptions,
-  isSortKey,
+  groupMultiSelectFilterTokens,
 } from '~/issues/list/utils';
+import { DEFAULT_PAGE_SIZE } from '~/vue_shared/issuable/list/constants';
 
 describe('getInitialPageParams', () => {
-  it.each(Object.keys(urlSortParams))(
-    'returns the correct page params for sort key %s',
-    (sortKey) => {
-      const firstPageSize = sortKey === RELATIVE_POSITION_ASC ? PAGE_SIZE_MANUAL : PAGE_SIZE;
+  it('returns page params with a default page size when no arguments are given', () => {
+    expect(getInitialPageParams()).toEqual({ firstPageSize: DEFAULT_PAGE_SIZE });
+  });
 
-      expect(getInitialPageParams(sortKey)).toEqual({ firstPageSize });
-    },
-  );
+  it('returns page params with the given page size', () => {
+    const pageSize = 100;
+    expect(getInitialPageParams(pageSize)).toEqual({ firstPageSize: pageSize });
+  });
 
-  it.each(Object.keys(urlSortParams))(
-    'returns the correct page params for sort key %s with afterCursor',
-    (sortKey) => {
-      const firstPageSize = sortKey === RELATIVE_POSITION_ASC ? PAGE_SIZE_MANUAL : PAGE_SIZE;
-      const afterCursor = 'randomCursorString';
-      const beforeCursor = undefined;
+  it('does not return firstPageSize when lastPageSize is provided', () => {
+    const firstPageSize = 100;
+    const lastPageSize = 50;
+    const afterCursor = undefined;
+    const beforeCursor = 'randomCursorString';
+    const pageParams = getInitialPageParams(
+      100,
+      firstPageSize,
+      lastPageSize,
+      afterCursor,
+      beforeCursor,
+    );
 
-      expect(getInitialPageParams(sortKey, afterCursor, beforeCursor)).toEqual({
-        firstPageSize,
-        afterCursor,
-      });
-    },
-  );
-
-  it.each(Object.keys(urlSortParams))(
-    'returns the correct page params for sort key %s with beforeCursor',
-    (sortKey) => {
-      const firstPageSize = sortKey === RELATIVE_POSITION_ASC ? PAGE_SIZE_MANUAL : PAGE_SIZE;
-      const afterCursor = undefined;
-      const beforeCursor = 'anotherRandomCursorString';
-
-      expect(getInitialPageParams(sortKey, afterCursor, beforeCursor)).toEqual({
-        firstPageSize,
-        beforeCursor,
-      });
-    },
-  );
-});
-
-describe('getSortKey', () => {
-  it.each(Object.keys(urlSortParams))('returns %s given the correct inputs', (sortKey) => {
-    const sort = urlSortParams[sortKey];
-    expect(getSortKey(sort)).toBe(sortKey);
+    expect(pageParams).toEqual({ lastPageSize, beforeCursor });
   });
 });
 
-describe('isSortKey', () => {
-  it.each(Object.keys(urlSortParams))('returns true given %s', (sort) => {
-    expect(isSortKey(sort)).toBe(true);
+describe('deriveSortKey', () => {
+  describe('when given a legacy sort', () => {
+    it.each(Object.keys(urlSortParams))('returns the equivalent GraphQL sort enum', (sort) => {
+      const legacySort = urlSortParams[sort];
+      expect(deriveSortKey({ sort: legacySort })).toBe(sort);
+    });
   });
 
-  it.each(['', 'asdf', null, undefined])('returns false given %s', (sort) => {
-    expect(isSortKey(sort)).toBe(false);
+  describe('when given a GraphQL sort enum', () => {
+    it.each(Object.keys(urlSortParams))('returns a GraphQL sort enum', (sort) => {
+      expect(deriveSortKey({ sort })).toBe(sort);
+    });
+  });
+
+  describe('when given neither a legacy sort nor a GraphQL sort enum', () => {
+    it.each(['', 'asdf', null, undefined])('returns CREATED_DESC by default', (sort) => {
+      expect(deriveSortKey({ sort })).toBe(CREATED_DESC);
+    });
+
+    it.each(['', 'asdf', null, undefined])(
+      'returns UPDATED_DESC when state=STATUS_CLOSED',
+      (sort) => {
+        expect(deriveSortKey({ sort, state: STATUS_CLOSED })).toBe(UPDATED_DESC);
+      },
+    );
   });
 });
 
 describe('getSortOptions', () => {
   describe.each`
-    hasIssueWeightsFeature | hasBlockedIssuesFeature | length | containsWeight | containsBlocking
-    ${false}               | ${false}                | ${9}   | ${false}       | ${false}
-    ${true}                | ${false}                | ${10}  | ${true}        | ${false}
-    ${false}               | ${true}                 | ${10}  | ${false}       | ${true}
-    ${true}                | ${true}                 | ${11}  | ${true}        | ${true}
+    hasIssuableHealthStatusFeature | hasIssueWeightsFeature | hasBlockedIssuesFeature | length | containsHealthStatus | containsWeight | containsBlocking
+    ${false}                       | ${false}               | ${false}                | ${10}  | ${false}             | ${false}       | ${false}
+    ${false}                       | ${false}               | ${true}                 | ${11}  | ${false}             | ${false}       | ${true}
+    ${false}                       | ${true}                | ${false}                | ${11}  | ${false}             | ${true}        | ${false}
+    ${false}                       | ${true}                | ${true}                 | ${12}  | ${false}             | ${true}        | ${true}
+    ${true}                        | ${false}               | ${false}                | ${11}  | ${true}              | ${false}       | ${false}
+    ${true}                        | ${false}               | ${true}                 | ${12}  | ${true}              | ${false}       | ${true}
+    ${true}                        | ${true}                | ${false}                | ${12}  | ${true}              | ${true}        | ${false}
+    ${true}                        | ${true}                | ${true}                 | ${13}  | ${true}              | ${true}        | ${true}
   `(
-    'when hasIssueWeightsFeature=$hasIssueWeightsFeature and hasBlockedIssuesFeature=$hasBlockedIssuesFeature',
+    'when hasIssuableHealthStatusFeature=$hasIssuableHealthStatusFeature, hasIssueWeightsFeature=$hasIssueWeightsFeature and hasBlockedIssuesFeature=$hasBlockedIssuesFeature',
     ({
+      hasIssuableHealthStatusFeature,
       hasIssueWeightsFeature,
       hasBlockedIssuesFeature,
       length,
+      containsHealthStatus,
       containsWeight,
       containsBlocking,
     }) => {
-      const sortOptions = getSortOptions(hasIssueWeightsFeature, hasBlockedIssuesFeature);
+      const sortOptions = getSortOptions({
+        hasBlockedIssuesFeature,
+        hasIssuableHealthStatusFeature,
+        hasIssueWeightsFeature,
+      });
 
       it('returns the correct length of sort options', () => {
         expect(sortOptions).toHaveLength(length);
+      });
+
+      it(`${containsHealthStatus ? 'contains' : 'does not contain'} health status option`, () => {
+        expect(sortOptions.some((option) => option.title === 'Health')).toBe(containsHealthStatus);
       });
 
       it(`${containsWeight ? 'contains' : 'does not contain'} weight option`, () => {
@@ -127,6 +140,10 @@ describe('getFilterTokens', () => {
 });
 
 describe('convertToApiParams', () => {
+  beforeEach(() => {
+    setWindowLocation(TEST_HOST);
+  });
+
   it('returns api params given filtered tokens', () => {
     expect(convertToApiParams(filteredTokens)).toEqual(apiParams);
   });
@@ -137,11 +154,17 @@ describe('convertToApiParams', () => {
 });
 
 describe('convertToUrlParams', () => {
+  beforeEach(() => {
+    setWindowLocation(TEST_HOST);
+  });
+
   it('returns url params given filtered tokens', () => {
     expect(convertToUrlParams(filteredTokens)).toEqual(urlParams);
   });
 
   it('returns url params given filtered tokens with special values', () => {
+    setWindowLocation('?assignee_id=123');
+
     expect(convertToUrlParams(filteredTokensWithSpecialValues)).toEqual(urlParamsWithSpecialValues);
   });
 });
@@ -149,5 +172,17 @@ describe('convertToUrlParams', () => {
 describe('convertToSearchQuery', () => {
   it('returns search string given filtered tokens', () => {
     expect(convertToSearchQuery(filteredTokens)).toBe('find issues');
+  });
+});
+
+describe('groupMultiSelectFilterTokens', () => {
+  it('groups multiSelect filter tokens with || and != operators', () => {
+    expect(
+      groupMultiSelectFilterTokens(filteredTokens, [
+        { type: 'assignee', multiSelect: true },
+        { type: 'author', multiSelect: true },
+        { type: 'label', multiSelect: true },
+      ]),
+    ).toEqual(groupedFilteredTokens);
   });
 });

@@ -1,5 +1,5 @@
 import { GlIcon, GlLoadingIcon, GlIntersectionObserver } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
+import { shallowMount, RouterLinkStub } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
 import VueRouter from 'vue-router';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
@@ -23,8 +23,8 @@ describe('Design management list item component', () => {
 
   const findDesignEvent = () => wrapper.findByTestId('design-event');
   const findImgFilename = (id = imgId) => wrapper.findByTestId(`design-img-filename-${id}`);
-  const findEventIcon = () => findDesignEvent().find(GlIcon);
-  const findLoadingIcon = () => wrapper.find(GlLoadingIcon);
+  const findEventIcon = () => findDesignEvent().findComponent(GlIcon);
+  const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
 
   function createComponent({
     notesCount = 0,
@@ -49,14 +49,10 @@ describe('Design management list item component', () => {
             imageLoading,
           };
         },
-        stubs: ['router-link'],
+        stubs: { RouterLink: RouterLinkStub },
       }),
     );
   }
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('when item is not in view', () => {
     it('image is not rendered', () => {
@@ -74,7 +70,7 @@ describe('Design management list item component', () => {
     beforeEach(async () => {
       createComponent();
       image = wrapper.find('img');
-      glIntersectionObserver = wrapper.find(GlIntersectionObserver);
+      glIntersectionObserver = wrapper.findComponent(GlIntersectionObserver);
 
       glIntersectionObserver.vm.$emit('appear');
       await nextTick();
@@ -86,7 +82,7 @@ describe('Design management list item component', () => {
 
     describe('before image is loaded', () => {
       it('renders loading spinner', () => {
-        expect(wrapper.find(GlLoadingIcon).exists()).toBe(true);
+        expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
       });
     });
 
@@ -105,7 +101,7 @@ describe('Design management list item component', () => {
         image.trigger('error');
         await nextTick();
         expect(image.isVisible()).toBe(false);
-        expect(wrapper.find(GlIcon).element).toMatchSnapshot();
+        expect(wrapper.findComponent(GlIcon).element).toMatchSnapshot();
       });
 
       describe('when imageV432x230 and image provided', () => {
@@ -160,9 +156,9 @@ describe('Design management list item component', () => {
   describe('with associated event', () => {
     it.each`
       event                                | icon                     | className
-      ${DESIGN_VERSION_EVENT.MODIFICATION} | ${'file-modified-solid'} | ${'text-primary-500'}
-      ${DESIGN_VERSION_EVENT.DELETION}     | ${'file-deletion-solid'} | ${'text-danger-500'}
-      ${DESIGN_VERSION_EVENT.CREATION}     | ${'file-addition-solid'} | ${'text-success-500'}
+      ${DESIGN_VERSION_EVENT.MODIFICATION} | ${'file-modified-solid'} | ${'gl-text-blue-500'}
+      ${DESIGN_VERSION_EVENT.DELETION}     | ${'file-deletion-solid'} | ${'gl-text-red-500'}
+      ${DESIGN_VERSION_EVENT.CREATION}     | ${'file-addition-solid'} | ${'gl-text-green-500'}
     `('renders item with correct status icon for $event event', ({ event, icon, className }) => {
       createComponent({ event });
       const eventIcon = findEventIcon();

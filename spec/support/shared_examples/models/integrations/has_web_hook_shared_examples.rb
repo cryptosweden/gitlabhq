@@ -3,6 +3,10 @@
 RSpec.shared_examples Integrations::HasWebHook do
   include AfterNextHelpers
 
+  describe 'associations' do
+    it { is_expected.to have_one(:service_hook).inverse_of(:integration).with_foreign_key(:integration_id) }
+  end
+
   describe 'callbacks' do
     it 'calls #update_web_hook! when enabled' do
       expect(integration).to receive(:update_web_hook!)
@@ -33,6 +37,12 @@ RSpec.shared_examples Integrations::HasWebHook do
     end
   end
 
+  describe '#url_variables' do
+    it 'returns a hash' do
+      expect(integration.url_variables).to be_a(Hash)
+    end
+  end
+
   describe '#hook_ssl_verification' do
     it 'returns a boolean' do
       expect(integration.hook_ssl_verification).to be_in([true, false])
@@ -55,7 +65,7 @@ RSpec.shared_examples Integrations::HasWebHook do
     end
 
     it 'creates or updates a service hook' do
-      expect { call }.to change(ServiceHook, :count).by(1)
+      expect { call }.to change { ServiceHook.count }.by(1)
       expect(integration.service_hook.url).to eq(hook_url)
 
       integration.service_hook.update!(url: 'http://other.com')
@@ -88,10 +98,10 @@ RSpec.shared_examples Integrations::HasWebHook do
 
     it 'creates the webhook if necessary and executes it' do
       expect_next(ServiceHook).to receive(:execute).with(*args)
-      expect { call }.to change(ServiceHook, :count).by(1)
+      expect { call }.to change { ServiceHook.count }.by(1)
 
       expect(integration.service_hook).to receive(:execute).with(*args)
-      expect { call }.not_to change(ServiceHook, :count)
+      expect { call }.not_to change { ServiceHook.count }
     end
 
     it 'raises an error if the service hook could not be saved' do

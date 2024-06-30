@@ -3,7 +3,7 @@
 module Clusters
   module Kubernetes
     class CreateOrUpdateServiceAccountService
-      def initialize(kubeclient, service_account_name:, service_account_namespace:, service_account_namespace_labels: nil, token_name:, rbac:, namespace_creator: false, role_binding_name: nil)
+      def initialize(kubeclient, service_account_name:, service_account_namespace:, token_name:, rbac:, service_account_namespace_labels: nil, namespace_creator: false, role_binding_name: nil)
         @kubeclient = kubeclient
         @service_account_name = service_account_name
         @service_account_namespace = service_account_namespace
@@ -53,8 +53,6 @@ module Clusters
         create_or_update_knative_serving_role_binding
         create_or_update_crossplane_database_role
         create_or_update_crossplane_database_role_binding
-        create_or_update_cilium_role
-        create_or_update_cilium_role_binding
       end
 
       private
@@ -99,14 +97,6 @@ module Clusters
         kubeclient.update_role_binding(crossplane_database_role_binding_resource)
       end
 
-      def create_or_update_cilium_role
-        kubeclient.update_role(cilium_role_resource)
-      end
-
-      def create_or_update_cilium_role_binding
-        kubeclient.update_role_binding(cilium_role_binding_resource)
-      end
-
       def service_account_resource
         Gitlab::Kubernetes::ServiceAccount.new(
           service_account_name,
@@ -147,9 +137,9 @@ module Clusters
           name: Clusters::Kubernetes::GITLAB_KNATIVE_SERVING_ROLE_NAME,
           namespace: service_account_namespace,
           rules: [{
-            apiGroups: %w(serving.knative.dev),
-            resources: %w(configurations configurationgenerations routes revisions revisionuids autoscalers services),
-            verbs: %w(get list create update delete patch watch)
+            apiGroups: %w[serving.knative.dev],
+            resources: %w[configurations configurationgenerations routes revisions revisionuids autoscalers services],
+            verbs: %w[get list create update delete patch watch]
           }]
         ).generate
       end
@@ -169,9 +159,9 @@ module Clusters
           name: Clusters::Kubernetes::GITLAB_CROSSPLANE_DATABASE_ROLE_NAME,
           namespace: service_account_namespace,
           rules: [{
-            apiGroups: %w(database.crossplane.io),
-            resources: %w(postgresqlinstances),
-            verbs: %w(get list create watch)
+            apiGroups: %w[database.crossplane.io],
+            resources: %w[postgresqlinstances],
+            verbs: %w[get list create watch]
           }]
         ).generate
       end
@@ -180,28 +170,6 @@ module Clusters
         Gitlab::Kubernetes::RoleBinding.new(
           name: Clusters::Kubernetes::GITLAB_CROSSPLANE_DATABASE_ROLE_BINDING_NAME,
           role_name: Clusters::Kubernetes::GITLAB_CROSSPLANE_DATABASE_ROLE_NAME,
-          role_kind: :Role,
-          namespace: service_account_namespace,
-          service_account_name: service_account_name
-        ).generate
-      end
-
-      def cilium_role_resource
-        Gitlab::Kubernetes::Role.new(
-          name: Clusters::Kubernetes::GITLAB_CILIUM_ROLE_NAME,
-          namespace: service_account_namespace,
-          rules: [{
-            apiGroups: %w(cilium.io),
-            resources: %w(ciliumnetworkpolicies),
-            verbs: %w(get list create update patch)
-          }]
-        ).generate
-      end
-
-      def cilium_role_binding_resource
-        Gitlab::Kubernetes::RoleBinding.new(
-          name: Clusters::Kubernetes::GITLAB_CILIUM_ROLE_BINDING_NAME,
-          role_name: Clusters::Kubernetes::GITLAB_CILIUM_ROLE_NAME,
           role_kind: :Role,
           namespace: service_account_namespace,
           service_account_name: service_account_name

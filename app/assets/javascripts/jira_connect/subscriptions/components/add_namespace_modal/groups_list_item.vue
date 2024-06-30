@@ -1,10 +1,9 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
+import { mapActions } from 'vuex';
 import { GlButton } from '@gitlab/ui';
-import { helpPagePath } from '~/helpers/help_page_helper';
-import { addSubscription } from '~/jira_connect/subscriptions/api';
-import { persistAlert, reloadPage } from '~/jira_connect/subscriptions/utils';
-import { s__ } from '~/locale';
 import GroupItemName from '../group_item_name.vue';
+import { I18N_ADD_SUBSCRIPTIONS_ERROR_MESSAGE } from '../../constants';
 
 export default {
   components: {
@@ -33,30 +32,18 @@ export default {
     };
   },
   methods: {
-    onClick() {
+    ...mapActions(['addSubscription']),
+    async onClick() {
       this.isLoading = true;
-
-      addSubscription(this.subscriptionsPath, this.group.full_path)
-        .then(() => {
-          persistAlert({
-            title: s__('Integrations|Namespace successfully linked'),
-            message: s__(
-              'Integrations|You should now see GitLab.com activity inside your Jira Cloud issues. %{linkStart}Learn more%{linkEnd}',
-            ),
-            linkUrl: helpPagePath('integration/jira_development_panel.html', { anchor: 'usage' }),
-            variant: 'success',
-          });
-
-          reloadPage();
-        })
-        .catch((error) => {
-          this.$emit(
-            'error',
-            error?.response?.data?.error ||
-              s__('Integrations|Failed to link namespace. Please try again.'),
-          );
-          this.isLoading = false;
+      try {
+        await this.addSubscription({
+          namespacePath: this.group.full_path,
+          subscriptionsPath: this.subscriptionsPath,
         });
+      } catch (error) {
+        this.$emit('error', error?.response?.data?.error || I18N_ADD_SUBSCRIPTIONS_ERROR_MESSAGE);
+      }
+      this.isLoading = false;
     },
   },
 };

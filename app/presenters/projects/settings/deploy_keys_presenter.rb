@@ -58,7 +58,7 @@ module Projects
       end
 
       def as_json
-        serializer = DeployKeySerializer.new # rubocop: disable CodeReuse/Serializer
+        serializer = DeployKeys::DeployKeySerializer.new # rubocop: disable CodeReuse/Serializer
         opts = { user: current_user, project: project, readable_project_ids: readable_project_ids }
 
         {
@@ -66,10 +66,6 @@ module Projects
           available_project_keys: serializer.represent(available_project_keys, opts),
           public_keys: serializer.represent(available_public_keys, opts)
         }
-      end
-
-      def to_partial_path
-        '../../shared/deploy_keys/index'
       end
 
       def form_partial_path

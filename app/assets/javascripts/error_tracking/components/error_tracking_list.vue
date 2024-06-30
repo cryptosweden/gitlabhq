@@ -7,6 +7,7 @@ import {
   GlLink,
   GlLoadingIcon,
   GlTable,
+  GlForm,
   GlFormInput,
   GlDropdown,
   GlDropdownItem,
@@ -16,18 +17,27 @@ import {
   GlPagination,
 } from '@gitlab/ui';
 import { isEmpty } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import AccessorUtils from '~/lib/utils/accessor';
 import { __ } from '~/locale';
-import Tracking from '~/tracking';
 import TimeAgo from '~/vue_shared/components/time_ago_tooltip.vue';
-import { trackErrorListViewsOptions, trackErrorStatusUpdateOptions } from '../utils';
+import { sanitizeUrl, joinPaths } from '~/lib/utils/url_utility';
+import {
+  trackErrorListViewsOptions,
+  trackErrorStatusUpdateOptions,
+  trackErrorStatusFilterOptions,
+  trackErrorSortedByField,
+} from '../events_tracking';
 import { I18N_ERROR_TRACKING_LIST } from '../constants';
 import ErrorTrackingActions from './error_tracking_actions.vue';
+import TimelineChart from './timeline_chart.vue';
 
-export const tableDataClass = 'table-col d-flex d-md-table-cell align-items-center';
-
+const isValidErrorId = (errorId) => {
+  return /^[0-9]+$/.test(errorId);
+};
+export const tableDataClass = 'gl-flex md:gl-table-cell gl-align-items-center';
 export default {
   FIRST_PAGE: 1,
   PREV_PAGE: 1,
@@ -37,26 +47,32 @@ export default {
     {
       key: 'error',
       label: __('Error'),
-      thClass: 'w-60p',
-      tdClass: `${tableDataClass} px-3 rounded-top`,
+      thClass: 'gl-w-8/20',
+      tdClass: `${tableDataClass}`,
+    },
+    {
+      key: 'timeline',
+      label: __('Timeline'),
+      thClass: 'gl-text-center gl-w-4/20',
+      tdClass: `${tableDataClass} gl-text-center`,
     },
     {
       key: 'events',
       label: __('Events'),
-      thClass: 'text-right',
-      tdClass: `${tableDataClass}`,
+      thClass: 'gl-text-center gl-w-2/20',
+      tdClass: `${tableDataClass} gl-text-center`,
     },
     {
       key: 'users',
       label: __('Users'),
-      thClass: 'text-right',
-      tdClass: `${tableDataClass}`,
+      thClass: 'gl-text-center gl-w-2/20',
+      tdClass: `${tableDataClass} gl-text-center`,
     },
     {
       key: 'lastSeen',
       label: __('Last seen'),
-      thClass: 'w-15p',
-      tdClass: `${tableDataClass}`,
+      thClass: 'gl-text-center gl-w-2/20',
+      tdClass: `${tableDataClass} gl-text-center`,
     },
     {
       key: 'status',
@@ -85,11 +101,13 @@ export default {
     GlLink,
     GlLoadingIcon,
     GlTable,
+    GlForm,
     GlFormInput,
     GlSprintf,
     GlPagination,
     TimeAgo,
     ErrorTrackingActions,
+    TimelineChart,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -104,6 +122,10 @@ export default {
       required: true,
     },
     errorTrackingEnabled: {
+      type: Boolean,
+      required: true,
+    },
+    integratedErrorTrackingEnabled: {
       type: Boolean,
       required: true,
     },
@@ -150,8 +172,14 @@ export default {
     paginationRequired() {
       return !isEmpty(this.pagination);
     },
+    previousPage() {
+      return this.pagination.previous ? this.$options.PREV_PAGE : null;
+    },
+    nextPage() {
+      return this.pagination.next ? this.$options.NEXT_PAGE : null;
+    },
     errorTrackingHelpUrl() {
-      return helpPagePath('operations/error_tracking');
+      return helpPagePath('operations/error_tracking.html#integrated-error-tracking');
     },
     showIntegratedDisabledAlert() {
       return !this.isAlertDismissed && this.showIntegratedTrackingDisabledAlert;
@@ -196,7 +224,10 @@ export default {
       this.searchByQuery(text);
     },
     getDetailsLink(errorId) {
-      return `error_tracking/${errorId}/details`;
+      if (!isValidErrorId(errorId)) {
+        return 'about:blank';
+      }
+      return joinPaths(this.listPath, errorId, 'details');
     },
     goToNextPage() {
       this.pageValue = this.$options.NEXT_PAGE;
@@ -216,11 +247,19 @@ export default {
       return filter === this.statusFilter;
     },
     getIssueUpdatePath(errorId) {
-      return `/${this.projectPath}/-/error_tracking/${errorId}.json`;
+      if (!isValidErrorId(errorId)) {
+        return 'about:blank';
+      }
+      return sanitizeUrl(`/${this.projectPath}/-/error_tracking/${errorId}.json`);
     },
     filterErrors(status, label) {
       this.filterValue = label;
+      trackErrorStatusFilterOptions(status, this.integratedErrorTrackingEnabled);
       return this.filterByStatus(status);
+    },
+    sortErrorsByField(field) {
+      trackErrorSortedByField(field, this.integratedErrorTrackingEnabled);
+      return this.sortByField(field);
     },
     updateErrosStatus({ errorId, status }) {
       // eslint-disable-next-line promise/catch-or-return
@@ -234,12 +273,10 @@ export default {
       this.removeIgnoredResolvedErrors(errorId);
     },
     trackPageViews() {
-      const { category, action } = trackErrorListViewsOptions;
-      Tracking.event(category, action);
+      trackErrorListViewsOptions(this.integratedErrorTrackingEnabled);
     },
     trackStatusUpdate(status) {
-      const { category, action } = trackErrorStatusUpdateOptions(status);
-      Tracking.event(category, action);
+      trackErrorStatusUpdateOptions(status, this.integratedErrorTrackingEnabled);
     },
   },
 };
@@ -248,13 +285,14 @@ export default {
 <template>
   <div class="error-list">
     <div v-if="errorTrackingEnabled">
+      <!-- Enable ET -->
       <gl-alert
         v-if="showIntegratedDisabledAlert"
         variant="danger"
         data-testid="integrated-disabled-alert"
         @dismiss="isAlertDismissed = true"
       >
-        <gl-sprintf :message="this.$options.i18n.integratedErrorTrackingDisabledText">
+        <gl-sprintf :message="$options.i18n.integratedErrorTrackingDisabledText">
           <template #epicLink="{ content }">
             <gl-link :href="$options.epicLink" target="_blank">{{ content }}</gl-link>
           </template>
@@ -276,18 +314,20 @@ export default {
           </gl-button>
         </div>
       </gl-alert>
+
+      <!-- Search / Filter Bar -->
       <div
-        class="row flex-column flex-md-row align-items-md-center m-0 mt-sm-2 p-3 p-sm-3 bg-secondary border"
+        class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row gl-md-align-items-center gl-m-0 gl-p-5 gl-bg-gray-50 gl-border"
       >
-        <div class="search-box flex-fill mb-1 mb-md-0">
-          <div class="filtered-search-box mb-0">
+        <div class="search-box gl-display-flex gl-flex-grow-1 gl-mb-2 gl-md-mb-0">
+          <div class="filtered-search-box gl-mb-0">
             <gl-dropdown
               :text="__('Recent searches')"
               class="filtered-search-history-dropdown-wrapper"
-              toggle-class="filtered-search-history-dropdown-toggle-button gl-shadow-none! gl-border-r-gray-200! gl-border-1! gl-rounded-0!"
+              toggle-class="filtered-search-history-dropdown-toggle-button !gl-shadow-none gl-border-r-gray-200! gl-border-1! gl-rounded-0!"
               :disabled="loading"
             >
-              <div v-if="!$options.hasLocalStorage" class="px-3">
+              <div v-if="!$options.hasLocalStorage" class="gl-px-5">
                 {{ __('This feature requires local storage to be enabled') }}
               </div>
               <template v-else-if="recentSearches.length > 0">
@@ -302,24 +342,25 @@ export default {
                   >{{ __('Clear recent searches') }}
                 </gl-dropdown-item>
               </template>
-              <div v-else class="px-3">{{ __("You don't have any recent searches") }}</div>
+              <div v-else class="gl-px-5">{{ __("You don't have any recent searches") }}</div>
             </gl-dropdown>
             <div class="filtered-search-input-container gl-flex-grow-1">
-              <gl-form-input
-                v-model="errorSearchQuery"
-                class="pl-2 filtered-search"
-                :disabled="loading"
-                :placeholder="__('Search or filter results…')"
-                autofocus
-                @keyup.enter.native="searchByQuery(errorSearchQuery)"
-              />
+              <gl-form @submit.prevent="searchByQuery(errorSearchQuery)">
+                <gl-form-input
+                  v-model="errorSearchQuery"
+                  class="gl-pl-3! filtered-search"
+                  :disabled="loading"
+                  :placeholder="__('Search or filter results…')"
+                  autofocus
+                />
+              </gl-form>
             </div>
             <div class="gl-search-box-by-type-right-icons">
               <gl-button
                 v-if="errorSearchQuery.length > 0"
                 v-gl-tooltip.hover
                 :title="__('Clear')"
-                class="clear-search text-secondary"
+                class="clear-search gl-text-secondary"
                 name="clear"
                 icon="close"
                 @click="errorSearchQuery = ''"
@@ -330,7 +371,7 @@ export default {
 
         <gl-dropdown
           :text="$options.statusFilters[statusFilter]"
-          class="status-dropdown mx-md-1 mb-1 mb-md-0"
+          class="status-dropdown gl-md-ml-2 gl-md-mr-2 gl-mb-2 gl-md-mb-0"
           :disabled="loading"
           right
         >
@@ -339,9 +380,9 @@ export default {
             :key="status"
             @click="filterErrors(status, label)"
           >
-            <span class="d-flex">
+            <span class="gl-display-flex">
               <gl-icon
-                class="gl-new-dropdown-item-check-icon"
+                class="gl-dropdown-item-check-icon"
                 :class="{ invisible: !isCurrentStatusFilter(status) }"
                 name="mobile-issue-close"
               />
@@ -354,11 +395,11 @@ export default {
           <gl-dropdown-item
             v-for="(label, field) in $options.sortFields"
             :key="field"
-            @click="sortByField(field)"
+            @click="sortErrorsByField(field)"
           >
-            <span class="d-flex">
+            <span class="gl-display-flex">
               <gl-icon
-                class="gl-new-dropdown-item-check-icon"
+                class="gl-dropdown-item-check-icon"
                 :class="{ invisible: !isCurrentSortField(field) }"
                 name="mobile-issue-close"
               />
@@ -368,58 +409,73 @@ export default {
         </gl-dropdown>
       </div>
 
-      <div v-if="loading" class="py-3">
-        <gl-loading-icon size="md" />
+      <div v-if="loading" class="gl-py-5">
+        <gl-loading-icon size="lg" />
       </div>
 
+      <!-- Results Table -->
       <template v-else>
-        <h4 class="d-block d-md-none my-3">{{ __('Open errors') }}</h4>
+        <h4 class="gl-block md:!gl-hidden gl-my-5">{{ __('Open errors') }}</h4>
 
         <gl-table
-          class="error-list-table mt-3"
+          class="error-list-table gl-mt-5"
           :items="errors"
           :fields="$options.fields"
           :show-empty="true"
           fixed
           stacked="md"
-          tbody-tr-class="table-row mb-4"
+          tbody-tr-class="table-row"
         >
+          <!-- table head -->
           <template #head(error)>
-            <div class="d-none d-md-block">{{ __('Open errors') }}</div>
+            <div class="gl-hidden md:gl-block">{{ __('Open errors') }}</div>
           </template>
           <template #head(events)="data">
-            <div class="text-md-right">{{ data.label }}</div>
+            {{ data.label }}
           </template>
           <template #head(users)="data">
-            <div class="text-md-right">{{ data.label }}</div>
+            {{ data.label }}
           </template>
 
+          <!-- table row -->
           <template #cell(error)="errors">
-            <div class="d-flex flex-column">
-              <gl-link class="d-flex mw-100 text-dark" :href="getDetailsLink(errors.item.id)">
-                <strong class="text-truncate">{{ errors.item.title.trim() }}</strong>
+            <div class="gl-display-flex gl-flex-direction-column">
+              <gl-link
+                class="gl-display-flex gl-max-w-full gl-text-body"
+                :href="getDetailsLink(errors.item.id)"
+              >
+                <strong class="gl-text-truncate">{{ errors.item.title.trim() }}</strong>
               </gl-link>
-              <span class="text-secondary text-truncate mw-100">
+              <span class="gl-text-secondary gl-text-truncate gl-max-w-full">
                 {{ errors.item.culprit }}
               </span>
             </div>
           </template>
+
+          <template #cell(timeline)="errors">
+            <timeline-chart
+              v-if="errors.item.frequency"
+              :timeline-data="errors.item.frequency"
+              :height="70"
+            />
+          </template>
+
           <template #cell(events)="errors">
-            <div class="text-right">{{ errors.item.count }}</div>
+            {{ errors.item.count }}
           </template>
 
           <template #cell(users)="errors">
-            <div class="text-right">{{ errors.item.userCount }}</div>
+            {{ errors.item.userCount }}
           </template>
 
           <template #cell(lastSeen)="errors">
-            <div class="text-lg-left text-right">
-              <time-ago :time="errors.item.lastSeen" class="text-secondary" />
-            </div>
+            <time-ago :time="errors.item.lastSeen" class="gl-text-secondary" />
           </template>
+
           <template #cell(status)="errors">
             <error-tracking-actions :error="errors.item" @update-issue-status="updateErrosStatus" />
           </template>
+
           <template #empty>
             {{ __('No errors to display.') }}
             <gl-link class="js-try-again" @click="restartPolling">
@@ -430,30 +486,22 @@ export default {
         <gl-pagination
           v-show="!loading"
           v-if="paginationRequired"
-          :prev-page="$options.PREV_PAGE"
-          :next-page="$options.NEXT_PAGE"
+          :prev-page="previousPage"
+          :next-page="nextPage"
           :value="pageValue"
           align="center"
           @input="goToPage"
         />
       </template>
     </div>
-    <div v-else-if="userCanEnableErrorTracking">
-      <gl-empty-state
-        :title="__('Get started with error tracking')"
-        :description="__('Monitor your errors by integrating with Sentry.')"
-        :primary-button-text="__('Enable error tracking')"
-        :primary-button-link="enableErrorTrackingLink"
-        :svg-path="illustrationPath"
-      />
-    </div>
+    <!-- Get Started with ET -->
     <div v-else>
       <gl-empty-state :title="__('Get started with error tracking')" :svg-path="illustrationPath">
         <template #description>
           <div>
-            <span>{{ __('Monitor your errors by integrating with Sentry.') }}</span>
+            <span>{{ __('Monitor your errors directly in GitLab.') }}</span>
             <gl-link target="_blank" :href="errorTrackingHelpUrl">{{
-              __('More information')
+              __('How do I get started?')
             }}</gl-link>
           </div>
         </template>

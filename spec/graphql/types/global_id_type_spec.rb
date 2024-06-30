@@ -105,16 +105,20 @@ RSpec.describe Types::GlobalIDType do
       around do |example|
         # Unset all previously memoized GlobalIDTypes to allow us to define one
         # that will use the constants stubbed in the `before` block.
-        previous_id_types = Types::GlobalIDType.instance_variable_get(:@id_types)
-        Types::GlobalIDType.instance_variable_set(:@id_types, {})
+        previous_id_types = described_class.instance_variable_get(:@id_types)
+        described_class.instance_variable_set(:@id_types, {})
 
         example.run
       ensure
-        Types::GlobalIDType.instance_variable_set(:@id_types, previous_id_types)
+        described_class.instance_variable_set(:@id_types, previous_id_types)
       end
 
       before do
-        deprecation = Gitlab::GlobalId::Deprecations::Deprecation.new(old_model_name: 'OldIssue', new_model_name: 'Issue', milestone: '10.0')
+        deprecation = Gitlab::GlobalId::Deprecations::NameDeprecation.new(
+          old_name: 'OldIssue',
+          new_name: 'Issue',
+          milestone: '10.0'
+        )
 
         stub_global_id_deprecations(deprecation)
       end
@@ -243,131 +247,6 @@ RSpec.describe Types::GlobalIDType do
 
     it 'is has a valid GraphQL identifier for a name' do
       expect(type.graphql_name).to eq('CiBuildID')
-    end
-  end
-
-  describe 'compatibility' do
-    def query(doc, vars)
-      GraphQL::Query.new(schema, document: doc, context: {}, variables: vars)
-    end
-
-    def run_query(gql_query, vars)
-      query(GraphQL.parse(gql_query), vars).result
-    end
-
-    all_types = [::GraphQL::Types::ID, ::Types::GlobalIDType, ::Types::GlobalIDType[::Project]]
-
-    shared_examples 'a working query' do
-      # Simplified schema to test compatibility
-      let!(:schema) do
-        # capture values so they can be closed over
-        arg_type = argument_type
-        res_type = result_type
-
-        project = Class.new(GraphQL::Schema::Object) do
-          graphql_name 'Project'
-          field :name, String, null: false
-          field :id, res_type, null: false, resolver_method: :global_id
-
-          def global_id
-            object.to_global_id
-          end
-        end
-
-        Class.new(GraphQL::Schema) do
-          query(Class.new(GraphQL::Schema::Object) do
-            graphql_name 'Query'
-
-            field :project_by_id, project, null: true do
-              argument :id, arg_type, required: true
-            end
-
-            # This is needed so that all types are always registered as input types
-            field :echo, String, null: true do
-              argument :id, ::GraphQL::Types::ID, required: false
-              argument :gid, ::Types::GlobalIDType, required: false
-              argument :pid, ::Types::GlobalIDType[::Project], required: false
-            end
-
-            def project_by_id(id:)
-              gid = ::Types::GlobalIDType[::Project].coerce_isolated_input(id)
-              gid.model_class.find(gid.model_id)
-            end
-
-            def echo(id: nil, gid: nil, pid: nil)
-              "id: #{id}, gid: #{gid}, pid: #{pid}"
-            end
-          end)
-        end
-      end
-
-      it 'works' do
-        res = run_query(document, 'projectId' => project.to_global_id.to_s)
-
-        expect(res['errors']).to be_blank
-        expect(res.dig('data', 'project', 'name')).to eq(project.name)
-        expect(res.dig('data', 'project', 'id')).to eq(project.to_global_id.to_s)
-      end
-    end
-
-    context 'when the client declares the argument as ID the actual argument can be any type' do
-      let(:document) do
-        <<-GRAPHQL
-        query($projectId: ID!){
-          project: projectById(id: $projectId) {
-            name, id
-          }
-        }
-        GRAPHQL
-      end
-
-      where(:result_type, :argument_type) do
-        all_types.flat_map { |arg_type| all_types.zip([arg_type].cycle) }
-      end
-
-      with_them do
-        it_behaves_like 'a working query'
-      end
-    end
-
-    context 'when the client passes the argument as GlobalID' do
-      let(:document) do
-        <<-GRAPHQL
-        query($projectId: GlobalID!) {
-          project: projectById(id: $projectId) {
-            name, id
-          }
-        }
-        GRAPHQL
-      end
-
-      let(:argument_type) { ::Types::GlobalIDType }
-
-      where(:result_type) { all_types }
-
-      with_them do
-        it_behaves_like 'a working query'
-      end
-    end
-
-    context 'when the client passes the argument as ProjectID' do
-      let(:document) do
-        <<-GRAPHQL
-        query($projectId: ProjectID!) {
-          project: projectById(id: $projectId) {
-            name, id
-          }
-        }
-        GRAPHQL
-      end
-
-      let(:argument_type) { ::Types::GlobalIDType[::Project] }
-
-      where(:result_type) { all_types }
-
-      with_them do
-        it_behaves_like 'a working query'
-      end
     end
   end
 

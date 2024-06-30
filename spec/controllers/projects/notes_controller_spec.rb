@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::NotesController do
+RSpec.describe Projects::NotesController, type: :controller, feature_category: :team_planning do
   include ProjectForksHelper
 
   let(:user)    { create(:user) }
@@ -18,7 +18,7 @@ RSpec.describe Projects::NotesController do
     }
   end
 
-  describe 'GET index' do
+  describe 'GET index', :freeze_time do
     let(:request_params) do
       {
         namespace_id: project.namespace,
@@ -31,17 +31,24 @@ RSpec.describe Projects::NotesController do
 
     let(:parsed_response) { json_response.with_indifferent_access }
     let(:note_json) { parsed_response[:notes].first }
+    let(:last_fetched_at) { Time.zone.at(3.hours.ago.to_i) }
 
     before do
       sign_in(user)
       project.add_developer(user)
+
+      request.headers['X-Last-Fetched-At'] = microseconds(last_fetched_at)
+    end
+
+    specify { expect(get(:index, params: request_params)).to have_request_urgency(:low) }
+
+    it 'sets the correct feature category' do
+      get :index, params: request_params
+
+      expect(::Gitlab::ApplicationContext.current_context_attribute(:feature_category)).to eq('team_planning')
     end
 
     it 'passes last_fetched_at from headers to NotesFinder and MergeIntoNotesService' do
-      last_fetched_at = Time.zone.at(3.hours.ago.to_i) # remove nanoseconds
-
-      request.headers['X-Last-Fetched-At'] = microseconds(last_fetched_at)
-
       expect(NotesFinder).to receive(:new)
         .with(anything, hash_including(last_fetched_at: last_fetched_at))
         .and_call_original
@@ -51,6 +58,14 @@ RSpec.describe Projects::NotesController do
         .and_call_original
 
       get :index, params: request_params
+    end
+
+    it 'returns status 400 when last_fetched_at is not present' do
+      request.headers['X-Last-Fetched-At'] = nil
+
+      get :index, params: request_params
+
+      expect(response).to have_gitlab_http_status(:bad_request)
     end
 
     context 'when user notes_filter is present' do
@@ -81,100 +96,6 @@ RSpec.describe Projects::NotesController do
         expect(ResourceEvents::MergeIntoNotesService).not_to receive(:new)
 
         get :index, params: request_params
-      end
-    end
-
-    context 'for multiple pages of notes', :aggregate_failures do
-      # 3 pages worth: 1 normal page, 1 oversized due to clashing updated_at,
-      # and a final, short page
-      let!(:page_1) { create_list(:note, 2, noteable: issue, project: project, updated_at: 3.days.ago) }
-      let!(:page_2) { create_list(:note, 3, noteable: issue, project: project, updated_at: 2.days.ago) }
-      let!(:page_3) { create_list(:note, 2, noteable: issue, project: project, updated_at: 1.day.ago) }
-
-      # Include a resource event in the middle page as well
-      let!(:resource_event) { create(:resource_state_event, issue: issue, user: user, created_at: 2.days.ago) }
-
-      let(:page_1_boundary) { microseconds(page_1.last.updated_at + NotesFinder::FETCH_OVERLAP) }
-      let(:page_2_boundary) { microseconds(page_2.last.updated_at + NotesFinder::FETCH_OVERLAP) }
-
-      around do |example|
-        freeze_time do
-          example.run
-        end
-      end
-
-      before do
-        stub_const('Gitlab::UpdatedNotesPaginator::LIMIT', 2)
-      end
-
-      context 'feature flag enabled' do
-        before do
-          stub_feature_flags(paginated_notes: true)
-        end
-
-        it 'returns the first page of notes' do
-          expect(Gitlab::EtagCaching::Middleware).to receive(:skip!)
-
-          get :index, params: request_params
-
-          expect(json_response['notes'].count).to eq(page_1.count)
-          expect(json_response['more']).to be_truthy
-          expect(json_response['last_fetched_at']).to eq(page_1_boundary)
-          expect(response.headers['Poll-Interval'].to_i).to eq(1)
-        end
-
-        it 'returns the second page of notes' do
-          expect(Gitlab::EtagCaching::Middleware).to receive(:skip!)
-
-          request.headers['X-Last-Fetched-At'] = page_1_boundary
-
-          get :index, params: request_params
-
-          expect(json_response['notes'].count).to eq(page_2.count + 1) # resource event
-          expect(json_response['more']).to be_truthy
-          expect(json_response['last_fetched_at']).to eq(page_2_boundary)
-          expect(response.headers['Poll-Interval'].to_i).to eq(1)
-        end
-
-        it 'returns the final page of notes' do
-          expect(Gitlab::EtagCaching::Middleware).to receive(:skip!)
-
-          request.headers['X-Last-Fetched-At'] = page_2_boundary
-
-          get :index, params: request_params
-
-          expect(json_response['notes'].count).to eq(page_3.count)
-          expect(json_response['more']).to be_falsy
-          expect(json_response['last_fetched_at']).to eq(microseconds(Time.zone.now))
-          expect(response.headers['Poll-Interval'].to_i).to be > 1
-        end
-
-        it 'returns an empty page of notes' do
-          expect(Gitlab::EtagCaching::Middleware).not_to receive(:skip!)
-
-          request.headers['X-Last-Fetched-At'] = microseconds(Time.zone.now)
-
-          get :index, params: request_params
-
-          expect(json_response['notes']).to be_empty
-          expect(json_response['more']).to be_falsy
-          expect(json_response['last_fetched_at']).to eq(microseconds(Time.zone.now))
-          expect(response.headers['Poll-Interval'].to_i).to be > 1
-        end
-      end
-
-      context 'feature flag disabled' do
-        before do
-          stub_feature_flags(paginated_notes: false)
-        end
-
-        it 'returns all notes' do
-          get :index, params: request_params
-
-          expect(json_response['notes'].count).to eq((page_1 + page_2 + page_3).size + 1)
-          expect(json_response['more']).to be_falsy
-          expect(json_response['last_fetched_at']).to eq(microseconds(Time.zone.now))
-        end
       end
     end
 
@@ -241,10 +162,16 @@ RSpec.describe Projects::NotesController do
           expect(note_json[:discussion_line_code]).to be_nil
         end
 
+        it 'sets the correct feature category' do
+          get :index, params: params
+
+          expect(::Gitlab::ApplicationContext.current_context_attribute(:feature_category)).to eq('source_code_management')
+        end
+
         context 'when user cannot read commit' do
           before do
             allow(Ability).to receive(:allowed?).and_call_original
-            allow(Ability).to receive(:allowed?).with(user, :download_code, project).and_return(false)
+            allow(Ability).to receive(:allowed?).with(user, :read_code, project).and_return(false)
           end
 
           it 'renders 404' do
@@ -256,7 +183,29 @@ RSpec.describe Projects::NotesController do
       end
     end
 
-    context 'for a regular note' do
+    context 'for a snippet note' do
+      let(:project_snippet) { create(:project_snippet, project: project) }
+      let!(:note) { create(:note_on_project_snippet, project: project, noteable: project_snippet) }
+
+      let(:params) { request_params.merge(target_type: 'project_snippet', target_id: project_snippet.id, html: true) }
+
+      it 'responds with the expected attributes' do
+        get :index, params: params
+
+        expect(note_json[:id]).to eq(note.id)
+        expect(note_json[:discussion_html]).to be_nil
+        expect(note_json[:diff_discussion_html]).to be_nil
+        expect(note_json[:discussion_line_code]).to be_nil
+      end
+
+      it 'sets the correct feature category' do
+        get :index, params: params
+
+        expect(::Gitlab::ApplicationContext.current_context_attribute(:feature_category)).to eq('source_code_management')
+      end
+    end
+
+    context 'for a merge request note' do
       let!(:note) { create(:note_on_merge_request, project: project) }
 
       let(:params) { request_params.merge(target_type: 'merge_request', target_id: note.noteable_id, html: true) }
@@ -269,6 +218,12 @@ RSpec.describe Projects::NotesController do
         expect(note_json[:discussion_html]).to be_nil
         expect(note_json[:diff_discussion_html]).to be_nil
         expect(note_json[:discussion_line_code]).to be_nil
+      end
+
+      it 'sets the correct feature category' do
+        get :index, params: params
+
+        expect(::Gitlab::ApplicationContext.current_context_attribute(:feature_category)).to eq('code_review_workflow')
       end
     end
 
@@ -294,15 +249,15 @@ RSpec.describe Projects::NotesController do
 
         RequestStore.clear!
 
-        control_count = ActiveRecord::QueryRecorder.new do
+        control = ActiveRecord::QueryRecorder.new do
           get :index, params: request_params
-        end.count
+        end
 
         RequestStore.clear!
 
         create_list(:discussion_note_on_issue, 2, :system, noteable: issue, project: issue.project, note: cross_reference)
 
-        expect { get :index, params: request_params }.not_to exceed_query_limit(control_count)
+        expect { get :index, params: request_params }.not_to exceed_query_limit(control)
       end
     end
   end
@@ -338,9 +293,73 @@ RSpec.describe Projects::NotesController do
       sign_in(user)
     end
 
+    specify { expect(create!).to have_request_urgency(:low) }
+
     describe 'making the creation request' do
       before do
         create!
+      end
+
+      it 'sets the correct feature category' do
+        create!
+
+        expect(::Gitlab::ApplicationContext.current_context_attribute(:feature_category)).to eq('code_review_workflow')
+      end
+
+      context 'on an issue' do
+        let(:request_params) do
+          {
+            note: { note: note_text, noteable_id: issue.id, noteable_type: 'Issue' },
+            namespace_id: project.namespace,
+            project_id: project,
+            target_type: 'issue',
+            target_id: issue.id
+          }
+        end
+
+        it 'sets the correct feature category' do
+          create!
+
+          expect(::Gitlab::ApplicationContext.current_context_attribute(:feature_category)).to eq('team_planning')
+        end
+      end
+
+      context 'on a commit' do
+        let(:commit_id) { RepoHelpers.sample_commit.id }
+        let(:request_params) do
+          {
+            note: { note: note_text, commit_id: commit_id, noteable_type: 'Commit' },
+            namespace_id: project.namespace,
+            project_id: project,
+            target_type: 'commit',
+            target_id: commit_id
+          }
+        end
+
+        it 'sets the correct feature category' do
+          create!
+
+          expect(::Gitlab::ApplicationContext.current_context_attribute(:feature_category)).to eq('source_code_management')
+        end
+      end
+
+      context 'on a project snippet' do
+        let(:project_snippet) { create(:project_snippet, project: project) }
+        let(:request_params) do
+          {
+            note: { note: note_text, noteable_id: project_snippet.id, noteable_type: 'ProjectSnippet' },
+            namespace_id: project.namespace,
+            project_id: project,
+            target_type: 'project_snippet',
+            target_id: project_snippet.id
+          }
+        end
+
+        it 'sets the correct feature category' do
+          create!
+
+          expect(::Gitlab::ApplicationContext.current_context_attribute(:feature_category)).to eq('source_code_management')
+        end
       end
 
       context 'the project is publically available' do
@@ -366,6 +385,7 @@ RSpec.describe Projects::NotesController do
 
           it "returns status 422 for json" do
             expect(response).to have_gitlab_http_status(:unprocessable_entity)
+            expect(response.body).to eq('{"errors":"Note can\'t be blank"}')
           end
         end
       end
@@ -423,43 +443,100 @@ RSpec.describe Projects::NotesController do
       end
 
       context 'when creating a confidential note' do
-        let(:extra_request_params) { { format: :json } }
+        let(:project) { create(:project) }
+        let(:note_params) do
+          { note: note_text, noteable_id: issue.id, noteable_type: 'Issue' }.merge(extra_note_params)
+        end
 
-        context 'when `confidential` parameter is not provided' do
-          it 'sets `confidential` to `false` in JSON response' do
+        let(:request_params) do
+          {
+            note: note_params,
+            namespace_id: project.namespace,
+            project_id: project,
+            target_type: 'issue',
+            target_id: issue.id,
+            format: :json
+          }
+        end
+
+        context 'when parameter is not provided' do
+          it 'sets `confidential` and `internal` to `false` in JSON response' do
             create!
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(json_response['confidential']).to be false
+            expect(json_response['internal']).to be false
           end
         end
 
-        context 'when `confidential` parameter is `false`' do
-          let(:extra_note_params) { { confidential: false } }
+        context 'when is not a confidential note' do
+          context 'when using the `internal` parameter' do
+            let(:extra_note_params) { { internal: false } }
 
-          it 'sets `confidential` to `false` in JSON response' do
-            create!
+            it 'sets `confidential` and `internal` to `false` in JSON response' do
+              create!
 
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(json_response['confidential']).to be false
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(json_response['confidential']).to be false
+              expect(json_response['internal']).to be false
+            end
+          end
+
+          context 'when using deprecated `confidential` parameter' do
+            let(:extra_note_params) { { confidential: false } }
+
+            it 'sets `confidential` and `internal` to `false` in JSON response' do
+              create!
+
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(json_response['confidential']).to be false
+              expect(json_response['internal']).to be false
+            end
           end
         end
 
-        context 'when `confidential` parameter is `true`' do
-          let(:extra_note_params) { { confidential: true } }
+        context 'when is a confidential note' do
+          context 'when using the `internal` parameter' do
+            let(:extra_note_params) { { internal: true } }
 
-          it 'sets `confidential` to `true` in JSON response' do
-            create!
+            it 'sets `confidential` and `internal` to `true` in JSON response' do
+              create!
 
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(json_response['confidential']).to be true
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(json_response['confidential']).to be true
+              expect(json_response['internal']).to be true
+            end
+          end
+
+          context 'when using deprecated `confidential` parameter' do
+            let(:extra_note_params) { { confidential: true } }
+
+            it 'sets `confidential` and `internal` to `true` in JSON response' do
+              create!
+
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(json_response['confidential']).to be true
+              expect(json_response['internal']).to be true
+            end
+          end
+
+          context 'when `internal` parameter is `true` and `confidential` parameter is `false`' do
+            let(:extra_note_params) { { internal: true, confidential: false } }
+
+            it 'uses the `internal` param as source of truth' do
+              create!
+
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(json_response['confidential']).to be true
+              expect(json_response['internal']).to be true
+            end
           end
         end
       end
 
       context 'when creating a note with quick actions' do
         context 'with commands that return changes' do
-          let(:note_text) { "/award :thumbsup:\n/estimate 1d\n/spend 3h" }
+          let(:note_text) { "/react :thumbsup:\n/estimate 1d\n/spend 3h" }
           let(:extra_request_params) { { format: :json } }
 
           it 'includes changes in commands_changes' do
@@ -468,6 +545,13 @@ RSpec.describe Projects::NotesController do
             expect(response).to have_gitlab_http_status(:ok)
             expect(json_response['commands_changes']).to include('emoji_award', 'time_estimate', 'spend_time')
             expect(json_response['commands_changes']).not_to include('target_project', 'title')
+          end
+
+          it 'includes command_names' do
+            create!
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response['command_names']).to include('react', 'estimate', 'spend')
           end
         end
 
@@ -486,6 +570,37 @@ RSpec.describe Projects::NotesController do
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(json_response['commands_changes']).not_to include('target_project', 'title')
+          end
+
+          it 'includes command_names' do
+            create!
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response['command_names']).to include('move', 'title')
+          end
+        end
+
+        context 'with commands that return an error' do
+          let(:extra_request_params) { { format: :json } }
+
+          before do
+            errors = ActiveModel::Errors.new(note)
+            errors.add(:commands_only, 'Failed to apply commands.')
+            errors.add(:command_names, ['label'])
+            errors.add(:commands, 'Failed to apply commands.')
+
+            allow(note).to receive(:errors).and_return(errors)
+
+            allow_next_instance_of(Notes::CreateService) do |service|
+              allow(service).to receive(:execute).and_return(note)
+            end
+          end
+
+          it 'returns status 422 with error message' do
+            create!
+
+            expect(response).to have_gitlab_http_status(:unprocessable_entity)
+            expect(response.body).to eq('{"errors":{"commands_only":["Failed to apply commands."]}}')
           end
         end
       end
@@ -521,10 +636,7 @@ RSpec.describe Projects::NotesController do
         let(:commit) { create(:commit, project: project) }
 
         let(:existing_comment) do
-          create(:note_on_commit,
-                 note: 'first',
-                 project: project,
-                 commit_id: merge_request.commit_shas.first)
+          create(:note_on_commit, note: 'first', project: project, commit_id: merge_request.commit_shas.first)
         end
 
         let(:discussion) { existing_comment.discussion }
@@ -696,7 +808,7 @@ RSpec.describe Projects::NotesController do
 
     context 'when target_id and noteable_id do not match' do
       let(:locked_issue) { create(:issue, :locked, project: project) }
-      let(:issue) {create(:issue, project: project)}
+      let(:issue) { create(:issue, project: project) }
 
       it 'uses target_id and ignores noteable_id' do
         request_params = {
@@ -772,29 +884,40 @@ RSpec.describe Projects::NotesController do
   end
 
   describe 'PUT update' do
-    context "should update the note with a valid issue" do
-      let(:request_params) do
-        {
-          namespace_id: project.namespace,
-          project_id: project,
-          id: note,
-          format: :json,
-          note: {
-            note: "New comment"
-          }
-        }
-      end
+    let(:note_params) { { note: "New comment" } }
 
-      before do
-        sign_in(note.author)
-        project.add_developer(note.author)
-      end
+    let(:request_params) do
+      {
+        namespace_id: project.namespace,
+        project_id: project,
+        id: note,
+        format: :json,
+        note: note_params
+      }
+    end
 
+    subject(:update_note) { put :update, params: request_params }
+
+    before do
+      sign_in(note.author)
+      project.add_developer(note.author)
+    end
+
+    specify { expect(update_note).to have_request_urgency(:low) }
+
+    context "when the note is valid" do
       it "updates the note" do
-        expect { put :update, params: request_params }.to change { note.reload.note }
+        expect { update_note }.to change { note.reload.note }
+      end
+
+      it "returns status 200" do
+        update_note
+
+        expect(response).to have_gitlab_http_status(:ok)
       end
     end
-    context "doesnt update the note" do
+
+    context "when the issue is confidential and the user has guest permissions" do
       let(:issue)   { create(:issue, :confidential, project: project) }
       let(:note)    { create(:note, noteable: issue, project: project) }
 
@@ -803,18 +926,36 @@ RSpec.describe Projects::NotesController do
         project.add_guest(user)
       end
 
-      it "disallows edits when the issue is confidential and the user has guest permissions" do
-        request_params = {
-          namespace_id: project.namespace,
-          project_id: project,
-          id: note,
-          format: :json,
-          note: {
-            note: "New comment"
-          }
-        }
-        expect { put :update, params: request_params }.not_to change { note.reload.note }
+      it "disallows edits" do
+        expect { update_note }.not_to change { note.reload.note }
+      end
+
+      it "returns status 404" do
+        update_note
+
         expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context "when there are ActiveRecord validation errors" do
+      before do
+        allow(note).to receive_message_chain(:errors, :full_messages)
+          .and_return(['Error 1', 'Error 2'])
+
+        allow_next_instance_of(Notes::UpdateService) do |service|
+          allow(service).to receive(:execute).and_return(note)
+        end
+      end
+
+      it "does not update the note" do
+        expect { update_note }.not_to change { note.reload.note }
+      end
+
+      it "returns status 422", :aggregate_failures do
+        update_note
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+        expect(response.body).to eq('{"errors":"Error 1 and Error 2"}')
       end
     end
   end
@@ -828,6 +969,8 @@ RSpec.describe Projects::NotesController do
           format: :js
       }
     end
+
+    specify { expect(delete(:destroy, params: request_params)).to have_request_urgency(:low) }
 
     context 'user is the author of a note' do
       before do
@@ -870,6 +1013,8 @@ RSpec.describe Projects::NotesController do
 
     let(:emoji_name) { 'thumbsup' }
 
+    it { is_expected.to have_request_urgency(:low) }
+
     it "toggles the award emoji" do
       expect do
         subject
@@ -892,121 +1037,6 @@ RSpec.describe Projects::NotesController do
       subject
 
       expect(todo.reload).to be_done
-    end
-  end
-
-  describe "resolving and unresolving" do
-    let(:project) { create(:project, :repository) }
-    let(:merge_request) { create(:merge_request, source_project: project) }
-    let(:note) { create(:diff_note_on_merge_request, noteable: merge_request, project: project) }
-
-    describe 'POST resolve' do
-      before do
-        sign_in user
-      end
-
-      context "when the user is not authorized to resolve the note" do
-        it "returns status 404" do
-          post :resolve, params: request_params
-
-          expect(response).to have_gitlab_http_status(:not_found)
-        end
-      end
-
-      context "when the user is authorized to resolve the note" do
-        before do
-          project.add_developer(user)
-        end
-
-        context "when the note is not resolvable" do
-          before do
-            note.update!(system: true)
-          end
-
-          it "returns status 404" do
-            post :resolve, params: request_params
-
-            expect(response).to have_gitlab_http_status(:not_found)
-          end
-        end
-
-        context "when the note is resolvable" do
-          it "resolves the note" do
-            post :resolve, params: request_params
-
-            expect(note.reload.resolved?).to be true
-            expect(note.reload.resolved_by).to eq(user)
-          end
-
-          it "sends notifications if all discussions are resolved" do
-            expect_next_instance_of(MergeRequests::ResolvedDiscussionNotificationService) do |instance|
-              expect(instance).to receive(:execute).with(merge_request)
-            end
-
-            post :resolve, params: request_params
-          end
-
-          it "returns the name of the resolving user" do
-            post :resolve, params: request_params.merge(html: true)
-
-            expect(json_response["resolved_by"]).to eq(user.name)
-          end
-
-          it "returns status 200" do
-            post :resolve, params: request_params
-
-            expect(response).to have_gitlab_http_status(:ok)
-          end
-        end
-      end
-    end
-
-    describe 'DELETE unresolve' do
-      before do
-        sign_in user
-
-        note.resolve!(user)
-      end
-
-      context "when the user is not authorized to resolve the note" do
-        it "returns status 404" do
-          delete :unresolve, params: request_params
-
-          expect(response).to have_gitlab_http_status(:not_found)
-        end
-      end
-
-      context "when the user is authorized to resolve the note" do
-        before do
-          project.add_developer(user)
-        end
-
-        context "when the note is not resolvable" do
-          before do
-            note.update!(system: true)
-          end
-
-          it "returns status 404" do
-            delete :unresolve, params: request_params
-
-            expect(response).to have_gitlab_http_status(:not_found)
-          end
-        end
-
-        context "when the note is resolvable" do
-          it "unresolves the note" do
-            delete :unresolve, params: request_params
-
-            expect(note.reload.resolved?).to be false
-          end
-
-          it "returns status 200" do
-            delete :unresolve, params: request_params
-
-            expect(response).to have_gitlab_http_status(:ok)
-          end
-        end
-      end
     end
   end
 
@@ -1037,6 +1067,8 @@ RSpec.describe Projects::NotesController do
       expect(json_response.count).to eq(1)
       expect(json_response.first).to include({ "line_text" => "Test" })
     end
+
+    specify { expect(get(:outdated_line_change, params: request_params)).to have_request_urgency(:low) }
   end
 
   # Convert a time to an integer number of microseconds

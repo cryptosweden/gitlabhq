@@ -10,7 +10,7 @@ module RuboCop
       # Text columns starting with `encrypted_` are very likely used
       # by `attr_encrypted` which controls the text length. Those columns
       # should not add a text limit.
-      class AddLimitToTextColumns < RuboCop::Cop::Cop
+      class AddLimitToTextColumns < RuboCop::Cop::Base
         include MigrationHelpers
 
         TEXT_LIMIT_ATTRIBUTE_ALLOWED_SINCE = 2021_09_10_00_00_00
@@ -33,6 +33,14 @@ module RuboCop
           (send _ :add_text_limit ...)
         PATTERN
 
+        def_node_matcher :text_column?, <<~PATTERN
+          (sym :text)
+        PATTERN
+
+        def_node_matcher :text_operation_with_limit?, <<~PATTERN
+          (send _ :text ... (hash <(pair (sym :limit) _) ...>))
+        PATTERN
+
         def on_def(node)
           return unless in_migration?(node)
 
@@ -43,27 +51,15 @@ module RuboCop
             next unless text_operation?(send_node)
 
             if text_operation_with_limit?(send_node)
-              add_offense(send_node, location: :selector, message: TEXT_LIMIT_ATTRIBUTE_NOT_ALLOWED) if version(node) < TEXT_LIMIT_ATTRIBUTE_ALLOWED_SINCE
-            else
+              add_offense(send_node.loc.selector, message: TEXT_LIMIT_ATTRIBUTE_NOT_ALLOWED) if version(node) < TEXT_LIMIT_ATTRIBUTE_ALLOWED_SINCE
+            elsif text_limit_missing?(node, *table_and_attribute_name(send_node))
               # We require a limit for the same table and attribute name
-              if text_limit_missing?(node, *table_and_attribute_name(send_node))
-                add_offense(send_node, location: :selector)
-              end
+              add_offense(send_node.loc.selector)
             end
           end
         end
 
         private
-
-        def text_operation_with_limit?(node)
-          migration_method = node.children[1]
-
-          return unless migration_method == :text
-
-          if attributes = node.children[3]
-            attributes.pairs.find { |pair| pair.key.value == :limit }.present?
-          end
-        end
 
         def text_operation?(node)
           # Don't complain about text arrays
@@ -77,10 +73,6 @@ module RuboCop
           elsif ADD_COLUMN_METHODS.include?(migration_method)
             modifier.nil? && text_column?(node.children[4])
           end
-        end
-
-        def text_column?(column_type)
-          column_type.type == :sym && column_type.value == :text
         end
 
         # For a given node, find the table and attribute this node is for
@@ -104,22 +96,25 @@ module RuboCop
             block_node = node.each_ancestor(:block).first
             create_table_node = block_node
                                   .children
-                                  .find { |n| TABLE_METHODS.include?(n.children[1])}
+                                  .find { |n| TABLE_METHODS.include?(n.children[1]) }
 
             if create_table_node
-              table_name = create_table_node.children[2].value
+              table_name = table_name_or_const_name(create_table_node.children[2])
             else
               # Guard against errors when a new table create/change migration
               # helper is introduced and warn the author so that it can be
               # added in TABLE_METHODS
               table_name = 'unknown'
-              add_offense(block_node, message: 'Unknown table create/change helper')
+              add_offense(
+                block_node.send_node.loc.selector,
+                message: 'Unknown table method. Please tweak `MigrationHelpers::TABLE_METHODS`.'
+              )
             end
 
             attribute_name = node.children[2].value
           else
             # We are in a node for one of the ADD_COLUMN_METHODS
-            table_name = node.children[2].value
+            table_name = table_name_or_const_name(node.children[2])
             attribute_name = node.children[3].value
           end
 
@@ -153,10 +148,14 @@ module RuboCop
         end
 
         def matching_add_text_limit?(send_node, table_name, attribute_name)
-          limit_table = send_node.children[2].value
+          limit_table = table_name_or_const_name(send_node.children[2])
           limit_attribute = send_node.children[3].value
 
           limit_table == table_name && limit_attribute == attribute_name
+        end
+
+        def table_name_or_const_name(node)
+          node.type == :const ? node.const_name : node.value
         end
 
         def encrypted_attribute_name?(attribute_name)

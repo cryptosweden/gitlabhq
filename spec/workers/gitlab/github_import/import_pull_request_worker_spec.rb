@@ -2,12 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::ImportPullRequestWorker do
+RSpec.describe Gitlab::GithubImport::ImportPullRequestWorker, feature_category: :importers do
   let(:worker) { described_class.new }
 
   describe '#import' do
     it 'imports a pull request' do
-      project = double(:project, full_path: 'foo/bar', id: 1)
+      import_state = create(:import_state, :started)
+      project = double(:project, full_path: 'foo/bar', id: 1, import_state: import_state)
       client = double(:client)
       importer = double(:importer)
       hash = {
@@ -48,6 +49,22 @@ RSpec.describe Gitlab::GithubImport::ImportPullRequestWorker do
         .and_call_original
 
       worker.import(project, client, hash)
+    end
+
+    describe '#importer_class' do
+      it { expect(worker.importer_class).to eq Gitlab::GithubImport::Importer::PullRequestImporter }
+    end
+
+    describe '#representation_class' do
+      it { expect(worker.representation_class).to eq Gitlab::GithubImport::Representation::PullRequest }
+    end
+
+    describe '#object_type' do
+      it { expect(worker.object_type).to eq(:pull_request) }
+    end
+
+    describe '#parallel_import_batch' do
+      it { expect(worker.parallel_import_batch).to eq({ size: 200, delay: 1.minute }) }
     end
   end
 end

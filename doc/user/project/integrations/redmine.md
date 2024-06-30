@@ -1,18 +1,28 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Redmine service **(FREE)**
+# Redmine
 
-Use [Redmine](https://www.redmine.org/) as the issue tracker.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
+Prerequisites:
+
+- You must disable [GitLab internal issue tracking](../issues/index.md) in the project. For more information about the steps and consequences of disabling
+  GitLab issues, see [Change project visibility](../../../user/public_access.md#change-project-visibility), and also
+  [Configure project features and permissions](../settings/index.md#configure-project-features-and-permissions).
+
+You can use [Redmine](https://www.redmine.org/) as an external issue tracker.
 To enable the Redmine integration in a project:
 
-1. Go to the [Integrations page](overview.md#accessing-integrations).
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Integrations**.
 1. Select **Redmine**.
-1. Select the checkbox under **Enable integration**.
+1. Under **Enable integration**, select the **Active** checkbox.
 1. Fill in the required fields:
 
    - **Project URL**: The URL to the Redmine project to link to this GitLab project.
@@ -24,7 +34,8 @@ To enable the Redmine integration in a project:
      **This URL is not used and removal is planned in a future release.**
      For more information, see [issue 327503](https://gitlab.com/gitlab-org/gitlab/-/issues/327503).
 
-1. Select **Save changes** or optionally select **Test settings**.
+1. Optional. Select **Test settings**.
+1. Select **Save changes**.
 
 After you have configured and enabled Redmine, you see the Redmine link on the GitLab project pages,
 which takes you to your Redmine project.
@@ -34,10 +45,6 @@ For example, this is a configuration for a project named `gitlab-ci`:
 - Project URL: `https://redmine.example.com/projects/gitlab-ci`
 - Issue URL: `https://redmine.example.com/issues/:id`
 - New issue URL: `https://redmine.example.com/projects/gitlab-ci/issues/new`
-
-You can also disable [GitLab internal issue tracking](../issues/index.md) in this project.
-Learn more about the steps and consequences of disabling GitLab issues in
-[Sharing and permissions](../settings/index.md#sharing-and-permissions).
 
 ## Reference Redmine issues in GitLab
 

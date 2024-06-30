@@ -43,11 +43,21 @@ RSpec.describe InstanceConfigurationHelper do
     end
 
     it 'accepts the value in bytes' do
-      expect(helper.instance_configuration_human_size_cell(1024)).to eq('1 KB')
+      expect(helper.instance_configuration_human_size_cell(1024)).to eq('1 KiB')
     end
 
     it 'returns the value in human size readable format' do
-      expect(helper.instance_configuration_human_size_cell(1048576)).to eq('1 MB')
+      expect(helper.instance_configuration_human_size_cell(1048576)).to eq('1 MiB')
+    end
+  end
+
+  describe '#instance_configuration_disabled_cell_html' do
+    it 'returns "-" if parameter is 0' do
+      expect(helper.instance_configuration_disabled_cell_html(0)).to eq('-')
+    end
+
+    it 'return parameter if not 0' do
+      expect(helper.instance_configuration_disabled_cell_html(1)).to eq(1)
     end
   end
 end

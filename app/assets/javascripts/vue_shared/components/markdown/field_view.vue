@@ -1,14 +1,26 @@
 <script>
-import $ from 'jquery';
-import '~/behaviors/markdown/render_gfm';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 
 export default {
+  props: {
+    isLoading: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+  },
+  watch: {
+    isLoading() {
+      this.handleGFM();
+    },
+  },
   mounted() {
-    this.renderGFM();
+    this.handleGFM();
   },
   methods: {
-    renderGFM() {
-      $(this.$el).renderGFM();
+    handleGFM() {
+      if (this.isLoading) return;
+      renderGFM(this.$el);
     },
   },
 };

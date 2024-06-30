@@ -5,6 +5,8 @@ module Gitlab
       class CheckResult
         SUCCESS_STATUS = :success
         FAILED_STATUS = :failed
+        INACTIVE_STATUS = :inactive
+        WARNING_STATUS = :warning
 
         attr_reader :status, :payload
 
@@ -13,17 +15,25 @@ module Gitlab
         end
 
         def self.success(payload: {})
-          new(status: SUCCESS_STATUS, payload: default_payload.merge(payload))
+          new(status: SUCCESS_STATUS, payload: default_payload.merge(**payload))
         end
 
         def self.failed(payload: {})
-          new(status: FAILED_STATUS, payload: default_payload.merge(payload))
+          new(status: FAILED_STATUS, payload: default_payload.merge(**payload))
+        end
+
+        def self.inactive(payload: {})
+          new(status: INACTIVE_STATUS, payload: default_payload.merge(**payload))
+        end
+
+        def self.warning(payload: {})
+          new(status: WARNING_STATUS, payload: default_payload.merge(**payload))
         end
 
         def self.from_hash(data)
           new(
-            status: data.fetch('status').to_sym,
-            payload: data.fetch('payload'))
+            status: data.fetch(:status).to_sym,
+            payload: data.fetch(:payload))
         end
 
         def initialize(status:, payload: {})
@@ -33,6 +43,10 @@ module Gitlab
 
         def to_hash
           { status: status, payload: payload }
+        end
+
+        def identifier
+          payload&.fetch(:identifier)&.to_sym
         end
 
         def failed?

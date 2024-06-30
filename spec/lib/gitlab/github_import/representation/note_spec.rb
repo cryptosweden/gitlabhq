@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::GithubImport::Representation::Note do
   let(:created_at) { Time.new(2017, 1, 1, 12, 00) }
@@ -43,20 +43,29 @@ RSpec.describe Gitlab::GithubImport::Representation::Note do
       it 'includes the note ID' do
         expect(note.note_id).to eq(1)
       end
+
+      describe '#github_identifiers' do
+        it 'returns a hash with needed identifiers' do
+          expect(note.github_identifiers).to eq(
+            noteable_iid: 42,
+            noteable_type: 'Issue',
+            note_id: 1
+          )
+        end
+      end
     end
   end
 
   describe '.from_api_response' do
     let(:response) do
-      double(
-        :response,
+      {
         html_url: 'https://github.com/foo/bar/issues/42',
-        user: double(:user, id: 4, login: 'alice'),
+        user: { id: 4, login: 'alice' },
         body: 'Hello world',
         created_at: created_at,
         updated_at: updated_at,
         id: 1
-      )
+      }
     end
 
     it_behaves_like 'a Note' do
@@ -64,9 +73,7 @@ RSpec.describe Gitlab::GithubImport::Representation::Note do
     end
 
     it 'does not set the user if the response did not include a user' do
-      allow(response)
-        .to receive(:user)
-        .and_return(nil)
+      response[:user] = nil
 
       note = described_class.from_api_response(response)
 
@@ -104,20 +111,6 @@ RSpec.describe Gitlab::GithubImport::Representation::Note do
       note = described_class.from_json_hash(hash)
 
       expect(note.author).to be_nil
-    end
-  end
-
-  describe '#github_identifiers' do
-    it 'returns a hash with needed identifiers' do
-      github_identifiers = {
-        noteable_id: 42,
-        noteable_type: 'Issue',
-        note_id: 1
-      }
-      other_attributes = { something_else: '_something_else_' }
-      note = described_class.new(github_identifiers.merge(other_attributes))
-
-      expect(note.github_identifiers).to eq(github_identifiers)
     end
   end
 end

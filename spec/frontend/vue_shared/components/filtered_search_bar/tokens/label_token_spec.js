@@ -2,6 +2,7 @@ import {
   GlFilteredSearchSuggestion,
   GlFilteredSearchTokenSegment,
   GlDropdownDivider,
+  GlLabel,
 } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
@@ -10,17 +11,17 @@ import waitForPromises from 'helpers/wait_for_promises';
 import {
   mockRegularLabel,
   mockLabels,
-} from 'jest/vue_shared/components/sidebar/labels_select_vue/mock_data';
-import createFlash from '~/flash';
+} from 'jest/sidebar/components/labels/labels_select_vue/mock_data';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 
-import { DEFAULT_NONE_ANY } from '~/vue_shared/components/filtered_search_bar/constants';
+import { OPTIONS_NONE_ANY } from '~/vue_shared/components/filtered_search_bar/constants';
 import BaseToken from '~/vue_shared/components/filtered_search_bar/tokens/base_token.vue';
 import LabelToken from '~/vue_shared/components/filtered_search_bar/tokens/label_token.vue';
 
 import { mockLabelToken } from '../mock_data';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 const defaultStubs = {
   Portal: true,
   BaseToken,
@@ -45,11 +46,14 @@ function createComponent(options = {}) {
       config,
       value,
       active,
+      cursorPosition: 'start',
     },
     provide: {
       portalName: 'fake target',
       alignSuggestions: function fakeAlignSuggestions() {},
       suggestionsListClass: () => 'custom-class',
+      termsAsTokens: () => false,
+      hasScopedLabelsFeature: false,
     },
     stubs,
     listeners,
@@ -59,103 +63,125 @@ function createComponent(options = {}) {
 describe('LabelToken', () => {
   let mock;
   let wrapper;
+  const defaultLabels = OPTIONS_NONE_ANY;
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
   });
 
+  const findBaseToken = () => wrapper.findComponent(BaseToken);
+  const findSuggestions = () => wrapper.findAllComponents(GlFilteredSearchSuggestion);
+  const findTokenSegments = () => wrapper.findAllComponents(GlFilteredSearchTokenSegment);
+  const triggerFetchLabels = (searchTerm = null) => {
+    findBaseToken().vm.$emit('fetch-suggestions', searchTerm);
+    return waitForPromises();
+  };
+
   afterEach(() => {
     mock.restore();
-    wrapper.destroy();
   });
 
   describe('methods', () => {
-    beforeEach(() => {
-      wrapper = createComponent();
-    });
-
     describe('getActiveLabel', () => {
       it('returns label object from labels array based on provided `currentValue` param', () => {
-        expect(wrapper.vm.getActiveLabel(mockLabels, 'foo label')).toEqual(mockRegularLabel);
+        wrapper = createComponent();
+
+        expect(findBaseToken().props('getActiveTokenValue')(mockLabels, 'Foo Label')).toEqual(
+          mockRegularLabel,
+        );
       });
     });
 
     describe('getLabelName', () => {
-      it('returns value of `name` or `title` property present in provided label param', () => {
-        let mockLabel = {
-          title: 'foo',
-        };
+      it('returns value of `name` or `title` property present in provided label param', async () => {
+        const customMockLabels = [
+          { title: 'Title with no name label' },
+          { name: 'Name Label', title: 'Title with name label' },
+        ];
 
-        expect(wrapper.vm.getLabelName(mockLabel)).toBe(mockLabel.title);
+        wrapper = createComponent({
+          active: true,
+          config: {
+            ...mockLabelToken,
+            fetchLabels: jest.fn().mockResolvedValue({ data: customMockLabels }),
+          },
+          stubs: { Portal: true },
+        });
 
-        mockLabel = {
-          name: 'foo',
-        };
+        await waitForPromises();
 
-        expect(wrapper.vm.getLabelName(mockLabel)).toBe(mockLabel.name);
+        const suggestions = findSuggestions();
+        const indexWithTitle = defaultLabels.length;
+        const indexWithName = defaultLabels.length + 1;
+
+        expect(suggestions.at(indexWithTitle).text()).toBe(customMockLabels[0].title);
+        expect(suggestions.at(indexWithName).text()).toBe(customMockLabels[1].name);
       });
     });
 
     describe('fetchLabels', () => {
-      it('calls `config.fetchLabels` with provided searchTerm param', () => {
-        jest.spyOn(wrapper.vm.config, 'fetchLabels');
+      describe('when request is successful', () => {
+        const searchTerm = 'foo';
 
-        wrapper.vm.fetchLabels('foo');
+        beforeEach(async () => {
+          wrapper = createComponent({
+            config: {
+              fetchLabels: jest.fn().mockResolvedValue({ data: mockLabels }),
+            },
+          });
+          await triggerFetchLabels(searchTerm);
+        });
 
-        expect(wrapper.vm.config.fetchLabels).toHaveBeenCalledWith('foo');
-      });
+        it('calls `config.fetchLabels` with provided searchTerm param', () => {
+          expect(findBaseToken().props('config').fetchLabels).toHaveBeenCalledWith(searchTerm);
+        });
 
-      it('sets response to `labels` when request is succesful', () => {
-        jest.spyOn(wrapper.vm.config, 'fetchLabels').mockResolvedValue(mockLabels);
+        it('sets response to `labels`', () => {
+          expect(findBaseToken().props('suggestions')).toEqual(mockLabels);
+        });
 
-        wrapper.vm.fetchLabels('foo');
-
-        return waitForPromises().then(() => {
-          expect(wrapper.vm.labels).toEqual(mockLabels);
+        it('sets `loading` to false when request completes', () => {
+          expect(findBaseToken().props('suggestionsLoading')).toBe(false);
         });
       });
 
-      it('calls `createFlash` with flash error message when request fails', () => {
-        jest.spyOn(wrapper.vm.config, 'fetchLabels').mockRejectedValue({});
+      describe('when request fails', () => {
+        beforeEach(async () => {
+          wrapper = createComponent({
+            config: {
+              fetchLabels: jest.fn().mockRejectedValue({}),
+            },
+          });
+          await triggerFetchLabels();
+        });
 
-        wrapper.vm.fetchLabels('foo');
-
-        return waitForPromises().then(() => {
-          expect(createFlash).toHaveBeenCalledWith({
+        it('calls `createAlert`', () => {
+          expect(createAlert).toHaveBeenCalledWith({
             message: 'There was a problem fetching labels.',
           });
         });
-      });
 
-      it('sets `loading` to false when request completes', () => {
-        jest.spyOn(wrapper.vm.config, 'fetchLabels').mockRejectedValue({});
-
-        wrapper.vm.fetchLabels('foo');
-
-        return waitForPromises().then(() => {
-          expect(wrapper.vm.loading).toBe(false);
+        it('sets `loading` to false when request completes', () => {
+          expect(findBaseToken().props('suggestionsLoading')).toBe(false);
         });
       });
     });
   });
 
   describe('template', () => {
-    const defaultLabels = DEFAULT_NONE_ANY;
-
     beforeEach(async () => {
-      wrapper = createComponent({ value: { data: `"${mockRegularLabel.title}"` } });
-
-      // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-      // eslint-disable-next-line no-restricted-syntax
-      wrapper.setData({
-        labels: mockLabels,
+      wrapper = createComponent({
+        value: { data: `"${mockRegularLabel.title}"` },
+        config: {
+          initialLabels: mockLabels,
+        },
       });
 
       await nextTick();
     });
 
     it('renders base-token component', () => {
-      const baseTokenEl = wrapper.find(BaseToken);
+      const baseTokenEl = findBaseToken();
 
       expect(baseTokenEl.exists()).toBe(true);
       expect(baseTokenEl.props()).toMatchObject({
@@ -165,12 +191,12 @@ describe('LabelToken', () => {
     });
 
     it('renders token item when value is selected', () => {
-      const tokenSegments = wrapper.findAll(GlFilteredSearchTokenSegment);
+      const tokenSegments = findTokenSegments();
 
       expect(tokenSegments).toHaveLength(3); // Label, =, "Foo Label"
-      expect(tokenSegments.at(2).text()).toBe(`~${mockRegularLabel.title}`); // "Foo Label"
-      expect(tokenSegments.at(2).find('.gl-token').attributes('style')).toBe(
-        'background-color: rgb(186, 218, 85); color: rgb(255, 255, 255);',
+      expect(tokenSegments.at(2).text()).toBe(`${mockRegularLabel.title}`); // "Foo Label"
+      expect(tokenSegments.at(2).findComponent(GlLabel).props('backgroundColor')).toBe(
+        mockRegularLabel.color,
       );
     });
 
@@ -180,12 +206,12 @@ describe('LabelToken', () => {
         config: { ...mockLabelToken, defaultLabels },
         stubs: { Portal: true },
       });
-      const tokenSegments = wrapper.findAll(GlFilteredSearchTokenSegment);
+      const tokenSegments = findTokenSegments();
       const suggestionsSegment = tokenSegments.at(2);
       suggestionsSegment.vm.$emit('activate');
       await nextTick();
 
-      const suggestions = wrapper.findAll(GlFilteredSearchSuggestion);
+      const suggestions = findSuggestions();
 
       expect(suggestions).toHaveLength(defaultLabels.length);
       defaultLabels.forEach((label, index) => {
@@ -199,29 +225,28 @@ describe('LabelToken', () => {
         config: { ...mockLabelToken, defaultLabels: [] },
         stubs: { Portal: true },
       });
-      const tokenSegments = wrapper.findAll(GlFilteredSearchTokenSegment);
+      const tokenSegments = findTokenSegments();
       const suggestionsSegment = tokenSegments.at(2);
       suggestionsSegment.vm.$emit('activate');
       await nextTick();
 
-      expect(wrapper.find(GlFilteredSearchSuggestion).exists()).toBe(false);
-      expect(wrapper.find(GlDropdownDivider).exists()).toBe(false);
+      expect(wrapper.findComponent(GlFilteredSearchSuggestion).exists()).toBe(false);
+      expect(wrapper.findComponent(GlDropdownDivider).exists()).toBe(false);
     });
 
-    it('renders `DEFAULT_NONE_ANY` as default suggestions', () => {
+    it('renders `OPTIONS_NONE_ANY` as default suggestions', () => {
       wrapper = createComponent({
         active: true,
         config: { ...mockLabelToken },
         stubs: { Portal: true },
       });
-      const tokenSegments = wrapper.findAll(GlFilteredSearchTokenSegment);
+      const tokenSegments = findTokenSegments();
       const suggestionsSegment = tokenSegments.at(2);
       suggestionsSegment.vm.$emit('activate');
+      const suggestions = findSuggestions();
 
-      const suggestions = wrapper.findAll(GlFilteredSearchSuggestion);
-
-      expect(suggestions).toHaveLength(DEFAULT_NONE_ANY.length);
-      DEFAULT_NONE_ANY.forEach((label, index) => {
+      expect(suggestions).toHaveLength(OPTIONS_NONE_ANY.length);
+      OPTIONS_NONE_ANY.forEach((label, index) => {
         expect(suggestions.at(index).text()).toBe(label.text);
       });
     });
@@ -233,7 +258,7 @@ describe('LabelToken', () => {
           input: mockInput,
         },
       });
-      wrapper.findComponent(BaseToken).vm.$emit('input', [{ data: 'mockData', operator: '=' }]);
+      findBaseToken().vm.$emit('input', [{ data: 'mockData', operator: '=' }]);
 
       expect(mockInput).toHaveBeenLastCalledWith([{ data: 'mockData', operator: '=' }]);
     });

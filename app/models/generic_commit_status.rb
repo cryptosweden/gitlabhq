@@ -3,21 +3,13 @@
 class GenericCommitStatus < CommitStatus
   EXTERNAL_STAGE_IDX = 1_000_000
 
-  before_validation :set_default_values
+  self.allow_legacy_sti_class = true
 
-  validates :target_url, addressable_url: true,
-                         length: { maximum: 255 },
-                         allow_nil: true
+  validates :target_url, addressable_url: true, length: { maximum: 255 }, allow_nil: true
   validate :name_uniqueness_across_types, unless: :importing?
 
   # GitHub compatible API
   alias_attribute :context, :name
-
-  def set_default_values
-    self.context ||= 'default'
-    self.stage ||= 'external'
-    self.stage_idx ||= EXTERNAL_STAGE_IDX
-  end
 
   def tags
     [:external]

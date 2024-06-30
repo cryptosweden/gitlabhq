@@ -1,73 +1,62 @@
 <script>
-import { GlLoadingIcon } from '@gitlab/ui';
-import Tracking from '~/tracking';
-import { i18n } from '../constants';
-import updateWorkItemMutation from '../graphql/update_work_item.mutation.graphql';
-import ItemTitle from './item_title.vue';
+import { uniqueId } from 'lodash';
+import { GlFormGroup, GlFormInput } from '@gitlab/ui';
+import { __ } from '~/locale';
 
 export default {
   components: {
-    GlLoadingIcon,
-    ItemTitle,
+    GlFormGroup,
+    GlFormInput,
   },
-  mixins: [Tracking.mixin()],
+  i18n: {
+    titleLabel: __('Title (required)'),
+    requiredFieldFeedback: __('A title is required'),
+  },
   props: {
-    loading: {
+    title: {
+      type: String,
+      required: true,
+    },
+    isEditing: {
       type: Boolean,
       required: false,
       default: false,
     },
-    workItemId: {
-      type: String,
+    isValid: {
+      type: Boolean,
       required: false,
-      default: '',
-    },
-    workItemTitle: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    workItemType: {
-      type: String,
-      required: false,
-      default: '',
+      default: true,
     },
   },
-  computed: {
-    tracking() {
-      return {
-        category: 'workItems:show',
-        label: 'item_title',
-        property: `type_${this.workItemType}`,
-      };
-    },
-  },
-  methods: {
-    async updateTitle(updatedTitle) {
-      if (updatedTitle === this.workItemTitle) {
-        return;
-      }
-
-      try {
-        await this.$apollo.mutate({
-          mutation: updateWorkItemMutation,
-          variables: {
-            input: {
-              id: this.workItemId,
-              title: updatedTitle,
-            },
-          },
-        });
-        this.track('updated_title');
-      } catch {
-        this.$emit('error', i18n.updateError);
-      }
-    },
+  data() {
+    return {
+      inputId: uniqueId('work-item-title-'),
+    };
   },
 };
 </script>
 
 <template>
-  <gl-loading-icon v-if="loading" class="gl-mt-3" size="md" />
-  <item-title v-else :title="workItemTitle" @title-changed="updateTitle" />
+  <gl-form-group
+    v-if="isEditing"
+    :label="$options.i18n.titleLabel"
+    :label-for="inputId"
+    :invalid-feedback="$options.i18n.requiredFieldFeedback"
+    :state="isValid"
+  >
+    <gl-form-input
+      :id="inputId"
+      class="gl-w-full"
+      :value="title"
+      :state="isValid"
+      autofocus
+      data-testid="work-item-title-input"
+      @keydown.meta.enter="$emit('updateWorkItem')"
+      @keydown.ctrl.enter="$emit('updateWorkItem')"
+      @input="$emit('updateDraft', $event)"
+    />
+  </gl-form-group>
+  <h1 v-else data-testid="work-item-title" class="gl-w-full gl-heading-1 !gl-m-0">
+    {{ title }}
+  </h1>
 </template>

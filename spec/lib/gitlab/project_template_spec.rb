@@ -2,20 +2,27 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::ProjectTemplate do
+RSpec.describe Gitlab::ProjectTemplate, feature_category: :source_code_management do
+  include ProjectTemplateTestHelper
+
   describe '.all' do
     it 'returns all templates' do
-      expected = %w[
-        rails spring express iosswift dotnetcore android
-        gomicro gatsby hugo jekyll plainhtml gitbook
-        hexo middleman gitpod_spring_petclinic nfhugo
-        nfjekyll nfplainhtml nfgitbook nfhexo salesforcedx
-        serverless_framework tencent_serverless_framework
-        jsonnet cluster_management kotlin_native_linux
-      ]
-
       expect(described_class.all).to be_an(Array)
-      expect(described_class.all.map(&:name)).to match_array(expected)
+      expect(described_class.all.map(&:name)).to match_array(all_templates)
+    end
+  end
+
+  describe '#project_host' do
+    context "when `preview` is valid" do
+      subject { described_class.new('name', 'title', 'description', 'https://gitlab.com/some/project/path').project_host }
+
+      it { is_expected.to eq 'https://gitlab.com' }
+    end
+
+    context "when `preview` is `nil`" do
+      subject { described_class.new('name', 'title', 'description', nil).project_host }
+
+      it { is_expected.to eq nil }
     end
   end
 

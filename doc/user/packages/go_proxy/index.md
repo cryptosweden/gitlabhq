@@ -1,21 +1,23 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Go proxy for GitLab **(FREE)**
+# Go proxy for GitLab
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/27376) in GitLab 13.1.
-> - It's deployed behind a feature flag, disabled by default.
-> - It's disabled for GitLab.com.
-> - To use it in GitLab self-managed instances, ask a GitLab administrator to [enable it](#enable-the-go-proxy).
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/221259) from GitLab Premium to GitLab Free in 13.3.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+**Status:** Experiment
 
-WARNING:
-The Go package registry for GitLab is under development and isn't ready for production use due to
-limited functionality. This [epic](https://gitlab.com/groups/gitlab-org/-/epics/3043) details the remaining
-work and timelines to make it production ready.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/27376) in GitLab 13.1 [with a flag](../../../administration/feature_flags.md) named `go_proxy`. Disabled by default.
+
+FLAG:
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+This feature is available for testing, but not ready for production use.
+See [epic 3043](https://gitlab.com/groups/gitlab-org/-/epics/3043).
 
 With the Go proxy for GitLab, every project in GitLab can be fetched with the
 [Go proxy protocol](https://proxy.golang.org/).
@@ -53,7 +55,7 @@ Feature.disable(:go_proxy, Project.find(2))
 ```
 
 NOTE:
-Even if it's enabled, GitLab doesn't display Go modules in the **Package Registry**.
+Even if it's enabled, GitLab doesn't display Go modules in the **package registry**.
 Follow [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/213770) for
 details.
 
@@ -74,7 +76,7 @@ go env -w GOPROXY='https://gitlab.example.com/api/v4/projects/1234/packages/go,h
 With this configuration, Go fetches dependencies in this order:
 
 1. Go attempts to fetch from the project-specific Go proxy.
-1. Go attempts to fetch from [proxy.golang.org](https://proxy.golang.org).
+1. Go attempts to fetch from [`proxy.golang.org`](https://proxy.golang.org).
 1. Go fetches directly with version control system operations (like `git clone`,
    `svn checkout`, and so on).
 
@@ -103,8 +105,13 @@ following steps work only if GitLab is configured for HTTPS:
 Create a [personal access token](../../profile/personal_access_tokens.md) with
 the scope set to `api` or `read_api`.
 
-Open your [`~/.netrc`](https://everything.curl.dev/usingcurl/netrc) file
+Open your [`~/.netrc`](https://everything.curl.dev/usingcurl/netrc.html) file
 and add the following text. Replace the variables in `< >` with your values.
+
+WARNING:
+If you use an environment variable called `NETRC`, Go uses its value
+as a filename and ignores `~/.netrc`. If you intend to use `~/.netrc` in
+the GitLab CI **do not use `NETRC` as an environment variable name**.
 
 ```plaintext
 machine <url> login <username> password <token>

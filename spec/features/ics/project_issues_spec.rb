@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Project Issues Calendar Feed' do
+RSpec.describe 'Project Issues Calendar Feed', feature_category: :groups_and_projects do
   describe 'GET /issues' do
     let!(:user) do
       user = create(:user, email: 'private1@example.com')
@@ -70,8 +70,15 @@ RSpec.describe 'Project Issues Calendar Feed' do
 
     context 'issue with due date' do
       let!(:issue) do
-        create(:issue, author: user, assignees: [assignee], project: project, title: 'test title',
-                       description: 'test desc', due_date: Date.tomorrow)
+        create(
+          :issue,
+          author: user,
+          assignees: [assignee],
+          project: project,
+          title: 'test title',
+          description: 'test desc',
+          due_date: Date.tomorrow
+        )
       end
 
       it 'renders issue fields' do
@@ -82,7 +89,7 @@ RSpec.describe 'Project Issues Calendar Feed' do
         expected_description = (+"DESCRIPTION:Find out more at #{issue_url(issue)}").insert(75, ' ')
         expect(body).to have_text(expected_description)
         expect(body).to have_text("DTSTART;VALUE=DATE:#{Date.tomorrow.strftime('%Y%m%d')}")
-        expect(body).to have_text("URL:#{issue_url(issue)}")
+        expect(body).to have_text("URI:#{issue_url(issue)}")
         expect(body).to have_text('TRANSP:TRANSPARENT')
       end
     end

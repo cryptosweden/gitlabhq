@@ -1,12 +1,17 @@
-import { GlSprintf, GlToggle } from '@gitlab/ui';
+import { GlSprintf, GlToggle, GlFormCheckbox } from '@gitlab/ui';
 import { shallowMount, mount } from '@vue/test-utils';
-import projectFeatureSetting from '~/pages/projects/shared/permissions/components/project_feature_setting.vue';
+import ProjectFeatureSetting from '~/pages/projects/shared/permissions/components/project_feature_setting.vue';
+import CiCatalogSettings from '~/pages/projects/shared/permissions/components/ci_catalog_settings.vue';
 import settingsPanel from '~/pages/projects/shared/permissions/components/settings_panel.vue';
 import {
   featureAccessLevel,
   visibilityLevelDescriptions,
-  visibilityOptions,
 } from '~/pages/projects/shared/permissions/constants';
+import {
+  VISIBILITY_LEVEL_PRIVATE_INTEGER,
+  VISIBILITY_LEVEL_INTERNAL_INTEGER,
+  VISIBILITY_LEVEL_PUBLIC_INTEGER,
+} from '~/visibility_level/constants';
 import ConfirmDanger from '~/vue_shared/components/confirm_danger/confirm_danger.vue';
 
 const defaultProps = {
@@ -20,17 +25,17 @@ const defaultProps = {
     buildsAccessLevel: 20,
     wikiAccessLevel: 20,
     snippetsAccessLevel: 20,
-    operationsAccessLevel: 20,
     pagesAccessLevel: 10,
     analyticsAccessLevel: 20,
     containerRegistryAccessLevel: 20,
     lfsEnabled: true,
-    emailsDisabled: false,
+    emailsEnabled: true,
     packagesEnabled: true,
     showDefaultAwardEmojis: true,
     warnAboutPotentiallyUnwantedCharacters: true,
   },
   isGitlabCom: true,
+  canAddCatalogResource: false,
   canDisableEmails: true,
   canChangeVisibilityLevel: true,
   allowedVisibilityOptions: [0, 10, 20],
@@ -50,13 +55,16 @@ const defaultProps = {
   requestCveAvailable: true,
   confirmationPhrase: 'my-fake-project',
   showVisibilityConfirmModal: false,
+  membersPagePath: '/my-fake-project/-/project_members',
 };
+
+const FEATURE_ACCESS_LEVEL_ANONYMOUS = 30;
 
 describe('Settings Panel', () => {
   let wrapper;
 
   const mountComponent = (
-    { currentSettings = {}, ...customProps } = {},
+    { currentSettings = {}, glFeatures = {}, stubs = {}, ...customProps } = {},
     mountFn = shallowMount,
   ) => {
     const propsData = {
@@ -67,18 +75,24 @@ describe('Settings Panel', () => {
 
     return mountFn(settingsPanel, {
       propsData,
+      provide: {
+        glFeatures,
+      },
+      stubs,
     });
   };
 
-  const findLFSSettingsRow = () => wrapper.find({ ref: 'git-lfs-settings' });
+  const findLFSSettingsRow = () => wrapper.findComponent({ ref: 'git-lfs-settings' });
   const findLFSSettingsMessage = () => findLFSSettingsRow().find('p');
-  const findLFSFeatureToggle = () => findLFSSettingsRow().find(GlToggle);
-  const findRepositoryFeatureProjectRow = () => wrapper.find({ ref: 'repository-settings' });
+  const findLFSFeatureToggle = () => findLFSSettingsRow().findComponent(GlToggle);
+  const findRepositoryFeatureProjectRow = () =>
+    wrapper.findComponent({ ref: 'repository-settings' });
   const findRepositoryFeatureSetting = () =>
-    findRepositoryFeatureProjectRow().find(projectFeatureSetting);
-  const findProjectVisibilitySettings = () => wrapper.find({ ref: 'project-visibility-settings' });
-  const findIssuesSettingsRow = () => wrapper.find({ ref: 'issues-settings' });
-  const findAnalyticsRow = () => wrapper.find({ ref: 'analytics-settings' });
+    findRepositoryFeatureProjectRow().findComponent(ProjectFeatureSetting);
+  const findProjectVisibilitySettings = () =>
+    wrapper.findComponent({ ref: 'project-visibility-settings' });
+  const findIssuesSettingsRow = () => wrapper.findComponent({ ref: 'issues-settings' });
+  const findAnalyticsRow = () => wrapper.findComponent({ ref: 'analytics-settings' });
   const findProjectVisibilityLevelInput = () => wrapper.find('[name="project[visibility_level]"]');
   const findRequestAccessEnabledInput = () =>
     wrapper.find('[name="project[request_access_enabled]"]');
@@ -88,31 +102,44 @@ describe('Settings Panel', () => {
     wrapper.find('[name="project[project_feature_attributes][forking_access_level]"]');
   const findBuildsAccessLevelInput = () =>
     wrapper.find('[name="project[project_feature_attributes][builds_access_level]"]');
-  const findContainerRegistrySettings = () => wrapper.find({ ref: 'container-registry-settings' });
+  const findContainerRegistrySettings = () =>
+    wrapper.findComponent({ ref: 'container-registry-settings' });
   const findContainerRegistryPublicNoteGlSprintfComponent = () =>
     findContainerRegistrySettings().findComponent(GlSprintf);
   const findContainerRegistryAccessLevelInput = () =>
     wrapper.find('[name="project[project_feature_attributes][container_registry_access_level]"]');
-  const findPackageSettings = () => wrapper.find({ ref: 'package-settings' });
-  const findPackagesEnabledInput = () => wrapper.find('[name="project[packages_enabled]"]');
-  const findPagesSettings = () => wrapper.find({ ref: 'pages-settings' });
+  const findPackageAccessLevel = () =>
+    wrapper.find('[data-testid="package-registry-access-level"]');
+  const findPackageRegistryEnabledInput = () => wrapper.find('[name="package_registry_enabled"]');
+  const findPackageRegistryAccessLevelHiddenInput = () =>
+    wrapper.find(
+      'input[name="project[project_feature_attributes][package_registry_access_level]"]',
+    );
+  const findPackageRegistryApiForEveryoneEnabledInput = () =>
+    wrapper.find('[name="package_registry_api_for_everyone_enabled"]');
+  const findPagesSettings = () => wrapper.findComponent({ ref: 'pages-settings' });
   const findPagesAccessLevels = () =>
     wrapper.find('[name="project[project_feature_attributes][pages_access_level]"]');
-  const findEmailSettings = () => wrapper.find({ ref: 'email-settings' });
+  const findCiCatalogSettings = () => wrapper.findComponent(CiCatalogSettings);
+  const findEmailSettings = () => wrapper.findComponent({ ref: 'email-settings' });
+  const findShowDiffPreviewSetting = () =>
+    wrapper.findComponent({ ref: 'enable-diff-preview-settings' });
   const findShowDefaultAwardEmojis = () =>
     wrapper.find('input[name="project[project_setting_attributes][show_default_award_emojis]"]');
   const findWarnAboutPuc = () =>
     wrapper.find(
       'input[name="project[project_setting_attributes][warn_about_potentially_unwanted_characters]"]',
     );
-  const findMetricsVisibilitySettings = () => wrapper.find({ ref: 'metrics-visibility-settings' });
-  const findOperationsSettings = () => wrapper.find({ ref: 'operations-settings' });
   const findConfirmDangerButton = () => wrapper.findComponent(ConfirmDanger);
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
+  const findEnvironmentsSettings = () => wrapper.findComponent({ ref: 'environments-settings' });
+  const findFeatureFlagsSettings = () => wrapper.findComponent({ ref: 'feature-flags-settings' });
+  const findInfrastructureSettings = () =>
+    wrapper.findComponent({ ref: 'infrastructure-settings' });
+  const findReleasesSettings = () => wrapper.findComponent({ ref: 'environments-settings' });
+  const findMonitorSettings = () => wrapper.findComponent({ ref: 'monitor-settings' });
+  const findModelExperimentsSettings = () =>
+    wrapper.findComponent({ ref: 'model-experiments-settings' });
+  const findModelRegistrySettings = () => wrapper.findComponent({ ref: 'model-registry-settings' });
 
   describe('Project Visibility', () => {
     it('should set the project visibility help path', () => {
@@ -132,17 +159,17 @@ describe('Settings Panel', () => {
     it('should disable the visibility level dropdown', () => {
       wrapper = mountComponent({ canChangeVisibilityLevel: false });
 
-      expect(findProjectVisibilityLevelInput().attributes('disabled')).toBe('disabled');
+      expect(findProjectVisibilityLevelInput().attributes('disabled')).toBeDefined();
     });
 
     it.each`
-      option                        | allowedOptions                                                                       | disabled
-      ${visibilityOptions.PRIVATE}  | ${[visibilityOptions.PRIVATE, visibilityOptions.INTERNAL, visibilityOptions.PUBLIC]} | ${false}
-      ${visibilityOptions.PRIVATE}  | ${[visibilityOptions.INTERNAL, visibilityOptions.PUBLIC]}                            | ${true}
-      ${visibilityOptions.INTERNAL} | ${[visibilityOptions.PRIVATE, visibilityOptions.INTERNAL, visibilityOptions.PUBLIC]} | ${false}
-      ${visibilityOptions.INTERNAL} | ${[visibilityOptions.PRIVATE, visibilityOptions.PUBLIC]}                             | ${true}
-      ${visibilityOptions.PUBLIC}   | ${[visibilityOptions.PRIVATE, visibilityOptions.INTERNAL, visibilityOptions.PUBLIC]} | ${false}
-      ${visibilityOptions.PUBLIC}   | ${[visibilityOptions.PRIVATE, visibilityOptions.INTERNAL]}                           | ${true}
+      option                               | allowedOptions                                                                                            | disabled
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${[VISIBILITY_LEVEL_PRIVATE_INTEGER, VISIBILITY_LEVEL_INTERNAL_INTEGER, VISIBILITY_LEVEL_PUBLIC_INTEGER]} | ${false}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${[VISIBILITY_LEVEL_INTERNAL_INTEGER, VISIBILITY_LEVEL_PUBLIC_INTEGER]}                                   | ${true}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${[VISIBILITY_LEVEL_PRIVATE_INTEGER, VISIBILITY_LEVEL_INTERNAL_INTEGER, VISIBILITY_LEVEL_PUBLIC_INTEGER]} | ${false}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${[VISIBILITY_LEVEL_PRIVATE_INTEGER, VISIBILITY_LEVEL_PUBLIC_INTEGER]}                                    | ${true}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${[VISIBILITY_LEVEL_PRIVATE_INTEGER, VISIBILITY_LEVEL_INTERNAL_INTEGER, VISIBILITY_LEVEL_PUBLIC_INTEGER]} | ${false}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${[VISIBILITY_LEVEL_PRIVATE_INTEGER, VISIBILITY_LEVEL_INTERNAL_INTEGER]}                                  | ${true}
     `(
       'sets disabled to $disabled for the visibility option $option when given $allowedOptions',
       ({ option, allowedOptions, disabled }) => {
@@ -159,37 +186,39 @@ describe('Settings Panel', () => {
     );
 
     it('should set the visibility level description based upon the selected visibility level', () => {
-      wrapper = mountComponent();
+      wrapper = mountComponent({ stubs: { GlSprintf } });
 
-      findProjectVisibilityLevelInput().setValue(visibilityOptions.INTERNAL);
+      findProjectVisibilityLevelInput().setValue(VISIBILITY_LEVEL_INTERNAL_INTEGER);
 
       expect(findProjectVisibilitySettings().text()).toContain(
-        visibilityLevelDescriptions[visibilityOptions.INTERNAL],
+        visibilityLevelDescriptions[VISIBILITY_LEVEL_INTERNAL_INTEGER],
       );
     });
 
     it('should show the request access checkbox if the visibility level is not private', () => {
       wrapper = mountComponent({
-        currentSettings: { visibilityLevel: visibilityOptions.INTERNAL },
+        currentSettings: { visibilityLevel: VISIBILITY_LEVEL_INTERNAL_INTEGER },
       });
 
       expect(findRequestAccessEnabledInput().exists()).toBe(true);
     });
 
     it('should not show the request access checkbox if the visibility level is private', () => {
-      wrapper = mountComponent({ currentSettings: { visibilityLevel: visibilityOptions.PRIVATE } });
+      wrapper = mountComponent({
+        currentSettings: { visibilityLevel: VISIBILITY_LEVEL_PRIVATE_INTEGER },
+      });
 
       expect(findRequestAccessEnabledInput().exists()).toBe(false);
     });
 
     it('does not require confirmation if the visibility is reduced', async () => {
       wrapper = mountComponent({
-        currentSettings: { visibilityLevel: visibilityOptions.INTERNAL },
+        currentSettings: { visibilityLevel: VISIBILITY_LEVEL_INTERNAL_INTEGER },
       });
 
       expect(findConfirmDangerButton().exists()).toBe(false);
 
-      await findProjectVisibilityLevelInput().setValue(visibilityOptions.PRIVATE);
+      await findProjectVisibilityLevelInput().setValue(VISIBILITY_LEVEL_PRIVATE_INTEGER);
 
       expect(findConfirmDangerButton().exists()).toBe(false);
     });
@@ -197,7 +226,7 @@ describe('Settings Panel', () => {
     describe('showVisibilityConfirmModal=true', () => {
       beforeEach(() => {
         wrapper = mountComponent({
-          currentSettings: { visibilityLevel: visibilityOptions.INTERNAL },
+          currentSettings: { visibilityLevel: VISIBILITY_LEVEL_INTERNAL_INTEGER },
           showVisibilityConfirmModal: true,
         });
       });
@@ -205,7 +234,7 @@ describe('Settings Panel', () => {
       it('will render the confirmation dialog if the visibility is reduced', async () => {
         expect(findConfirmDangerButton().exists()).toBe(false);
 
-        await findProjectVisibilityLevelInput().setValue(visibilityOptions.PRIVATE);
+        await findProjectVisibilityLevelInput().setValue(VISIBILITY_LEVEL_PRIVATE_INTEGER);
 
         expect(findConfirmDangerButton().exists()).toBe(true);
       });
@@ -213,7 +242,7 @@ describe('Settings Panel', () => {
       it('emits the `confirm` event when the reduce visibility warning is confirmed', async () => {
         expect(wrapper.emitted('confirm')).toBeUndefined();
 
-        await findProjectVisibilityLevelInput().setValue(visibilityOptions.PRIVATE);
+        await findProjectVisibilityLevelInput().setValue(VISIBILITY_LEVEL_PRIVATE_INTEGER);
         await findConfirmDangerButton().vm.$emit('confirm');
 
         expect(wrapper.emitted('confirm')).toHaveLength(1);
@@ -233,7 +262,9 @@ describe('Settings Panel', () => {
 
   describe('Repository', () => {
     it('should set the repository help text when the visibility level is set to private', () => {
-      wrapper = mountComponent({ currentSettings: { visibilityLevel: visibilityOptions.PRIVATE } });
+      wrapper = mountComponent({
+        currentSettings: { visibilityLevel: VISIBILITY_LEVEL_PRIVATE_INTEGER },
+      });
 
       expect(findRepositoryFeatureProjectRow().props('helpText')).toBe(
         'View and edit files in this project.',
@@ -241,10 +272,12 @@ describe('Settings Panel', () => {
     });
 
     it('should set the repository help text with a read access warning when the visibility level is set to non-private', () => {
-      wrapper = mountComponent({ currentSettings: { visibilityLevel: visibilityOptions.PUBLIC } });
+      wrapper = mountComponent({
+        currentSettings: { visibilityLevel: VISIBILITY_LEVEL_PUBLIC_INTEGER },
+      });
 
       expect(findRepositoryFeatureProjectRow().props('helpText')).toBe(
-        'View and edit files in this project. Non-project members have only read access.',
+        'View and edit files in this project. When set to **Everyone With Access** non-project members have only read access.',
       );
     });
   });
@@ -325,7 +358,7 @@ describe('Settings Panel', () => {
     it('should show the container registry public note if the visibility level is public and the registry is available', () => {
       wrapper = mountComponent({
         currentSettings: {
-          visibilityLevel: visibilityOptions.PUBLIC,
+          visibilityLevel: VISIBILITY_LEVEL_PUBLIC_INTEGER,
           containerRegistryAccessLevel: featureAccessLevel.EVERYONE,
         },
         registryAvailable: true,
@@ -340,7 +373,7 @@ describe('Settings Panel', () => {
     it('should hide the container registry public note if the visibility level is public but the registry is private', () => {
       wrapper = mountComponent({
         currentSettings: {
-          visibilityLevel: visibilityOptions.PUBLIC,
+          visibilityLevel: VISIBILITY_LEVEL_PUBLIC_INTEGER,
           containerRegistryAccessLevel: featureAccessLevel.PROJECT_MEMBERS,
         },
         registryAvailable: true,
@@ -351,7 +384,7 @@ describe('Settings Panel', () => {
 
     it('should hide the container registry public note if the visibility level is private and the registry is available', () => {
       wrapper = mountComponent({
-        currentSettings: { visibilityLevel: visibilityOptions.PRIVATE },
+        currentSettings: { visibilityLevel: VISIBILITY_LEVEL_PRIVATE_INTEGER },
         registryAvailable: true,
       });
 
@@ -360,7 +393,7 @@ describe('Settings Panel', () => {
 
     it('has label for the toggle', () => {
       wrapper = mountComponent({
-        currentSettings: { visibilityLevel: visibilityOptions.PUBLIC },
+        currentSettings: { visibilityLevel: VISIBILITY_LEVEL_PUBLIC_INTEGER },
         registryAvailable: true,
       });
 
@@ -470,63 +503,128 @@ describe('Settings Panel', () => {
   });
 
   describe('Packages', () => {
-    it('should show the packages settings if packages are available', () => {
+    it('should hide the package access level settings with packagesAvailable = false', () => {
+      wrapper = mountComponent();
+
+      expect(findPackageAccessLevel().exists()).toBe(false);
+    });
+
+    it('renders the package access level settings with packagesAvailable = true', () => {
       wrapper = mountComponent({ packagesAvailable: true });
 
-      expect(findPackageSettings().exists()).toBe(true);
+      expect(findPackageAccessLevel().exists()).toBe(true);
     });
 
-    it('should hide the packages settings if packages are not available', () => {
-      wrapper = mountComponent({ packagesAvailable: false });
-
-      expect(findPackageSettings().exists()).toBe(false);
-    });
-
-    it('should set the package settings help path', () => {
+    it('has hidden input field for package registry access level', () => {
       wrapper = mountComponent({ packagesAvailable: true });
 
-      expect(findPackageSettings().props('helpPath')).toBe(defaultProps.packagesHelpPath);
+      expect(findPackageRegistryAccessLevelHiddenInput().exists()).toBe(true);
     });
 
-    it('should enable the packages input when the repository is enabled', () => {
-      wrapper = mountComponent({
-        currentSettings: { repositoryAccessLevel: featureAccessLevel.EVERYONE },
-        packagesAvailable: true,
-      });
+    it.each`
+      projectVisibilityLevel               | packageRegistryEnabled | packageRegistryAllowAnyoneToPullOption | packageRegistryApiForEveryoneEnabled | expectedAccessLevel
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${false}               | ${true}                                | ${'disabled'}                        | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${true}                | ${true}                                | ${false}                             | ${featureAccessLevel.PROJECT_MEMBERS}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${true}                | ${true}                                | ${true}                              | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${false}               | ${true}                                | ${'disabled'}                        | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${true}                | ${true}                                | ${false}                             | ${featureAccessLevel.EVERYONE}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${true}                | ${true}                                | ${true}                              | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${false}               | ${true}                                | ${'hidden'}                          | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${true}                | ${true}                                | ${'hidden'}                          | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${false}               | ${false}                               | ${'hidden'}                          | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${true}                | ${false}                               | ${'hidden'}                          | ${featureAccessLevel.PROJECT_MEMBERS}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${false}               | ${false}                               | ${'hidden'}                          | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${true}                | ${false}                               | ${'hidden'}                          | ${featureAccessLevel.EVERYONE}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${false}               | ${false}                               | ${'hidden'}                          | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${true}                | ${false}                               | ${'hidden'}                          | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+    `(
+      'sets correct access level',
+      async ({
+        projectVisibilityLevel,
+        packageRegistryEnabled,
+        packageRegistryAllowAnyoneToPullOption,
+        packageRegistryApiForEveryoneEnabled,
+        expectedAccessLevel,
+      }) => {
+        wrapper = mountComponent({
+          packagesAvailable: true,
+          currentSettings: {
+            packageRegistryAllowAnyoneToPullOption,
+            visibilityLevel: projectVisibilityLevel,
+          },
+        });
 
-      expect(findPackagesEnabledInput().props('disabled')).toBe(false);
-    });
+        await findPackageRegistryEnabledInput().vm.$emit('change', packageRegistryEnabled);
 
-    it('should disable the packages input when the repository is disabled', () => {
-      wrapper = mountComponent({
-        currentSettings: { repositoryAccessLevel: featureAccessLevel.NOT_ENABLED },
-        packagesAvailable: true,
-      });
+        const packageRegistryApiForEveryoneEnabledInput =
+          findPackageRegistryApiForEveryoneEnabledInput();
 
-      expect(findPackagesEnabledInput().props('disabled')).toBe(true);
-    });
+        if (packageRegistryApiForEveryoneEnabled === 'hidden') {
+          expect(packageRegistryApiForEveryoneEnabledInput.exists()).toBe(false);
+        } else if (packageRegistryApiForEveryoneEnabled === 'disabled') {
+          expect(packageRegistryApiForEveryoneEnabledInput.props('disabled')).toBe(true);
+        } else {
+          expect(packageRegistryApiForEveryoneEnabledInput.props('disabled')).toBe(false);
+          await packageRegistryApiForEveryoneEnabledInput.vm.$emit(
+            'change',
+            packageRegistryApiForEveryoneEnabled,
+          );
+        }
 
-    it('has label for toggle', () => {
-      wrapper = mountComponent({
-        currentSettings: { repositoryAccessLevel: featureAccessLevel.EVERYONE },
-        packagesAvailable: true,
-      });
+        expect(wrapper.vm.packageRegistryAccessLevel).toBe(expectedAccessLevel);
+      },
+    );
 
-      expect(findPackagesEnabledInput().findComponent(GlToggle).props('label')).toBe(
-        settingsPanel.i18n.packagesLabel,
-      );
-    });
+    it.each`
+      initialProjectVisibilityLevel        | newProjectVisibilityLevel            | initialAccessLevel                    | expectedAccessLevel
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${featureAccessLevel.NOT_ENABLED}     | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${featureAccessLevel.PROJECT_MEMBERS} | ${featureAccessLevel.EVERYONE}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}     | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${featureAccessLevel.NOT_ENABLED}     | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${featureAccessLevel.PROJECT_MEMBERS} | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}     | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${featureAccessLevel.NOT_ENABLED}     | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${featureAccessLevel.EVERYONE}        | ${featureAccessLevel.PROJECT_MEMBERS}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}     | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${featureAccessLevel.NOT_ENABLED}     | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${featureAccessLevel.EVERYONE}        | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}     | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${featureAccessLevel.NOT_ENABLED}     | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}     | ${featureAccessLevel.PROJECT_MEMBERS}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${featureAccessLevel.NOT_ENABLED}     | ${featureAccessLevel.NOT_ENABLED}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${FEATURE_ACCESS_LEVEL_ANONYMOUS}     | ${featureAccessLevel.EVERYONE}
+    `(
+      'changes access level when project visibility level changed',
+      async ({
+        initialProjectVisibilityLevel,
+        newProjectVisibilityLevel,
+        initialAccessLevel,
+        expectedAccessLevel,
+      }) => {
+        wrapper = mountComponent({
+          packagesAvailable: true,
+          currentSettings: {
+            visibilityLevel: initialProjectVisibilityLevel,
+            packageRegistryAccessLevel: initialAccessLevel,
+          },
+        });
+
+        await findProjectVisibilityLevelInput().setValue(newProjectVisibilityLevel);
+
+        expect(wrapper.vm.packageRegistryAccessLevel).toBe(expectedAccessLevel);
+      },
+    );
   });
 
   describe('Pages', () => {
     it.each`
-      visibilityLevel               | pagesAccessControlForced | output
-      ${visibilityOptions.PRIVATE}  | ${true}                  | ${[[visibilityOptions.INTERNAL, 'Only Project Members'], [visibilityOptions.PUBLIC, 'Everyone With Access']]}
-      ${visibilityOptions.PRIVATE}  | ${false}                 | ${[[visibilityOptions.INTERNAL, 'Only Project Members'], [visibilityOptions.PUBLIC, 'Everyone With Access'], [30, 'Everyone']]}
-      ${visibilityOptions.INTERNAL} | ${true}                  | ${[[visibilityOptions.INTERNAL, 'Only Project Members'], [visibilityOptions.PUBLIC, 'Everyone With Access']]}
-      ${visibilityOptions.INTERNAL} | ${false}                 | ${[[visibilityOptions.INTERNAL, 'Only Project Members'], [visibilityOptions.PUBLIC, 'Everyone With Access'], [30, 'Everyone']]}
-      ${visibilityOptions.PUBLIC}   | ${true}                  | ${[[visibilityOptions.INTERNAL, 'Only Project Members'], [visibilityOptions.PUBLIC, 'Everyone With Access']]}
-      ${visibilityOptions.PUBLIC}   | ${false}                 | ${[[visibilityOptions.INTERNAL, 'Only Project Members'], [visibilityOptions.PUBLIC, 'Everyone With Access'], [30, 'Everyone']]}
+      visibilityLevel                      | pagesAccessControlForced | output
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${true}                  | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access']]}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${false}                 | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access'], [30, 'Everyone']]}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${true}                  | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access']]}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${false}                 | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access'], [30, 'Everyone']]}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${true}                  | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access']]}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${false}                 | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access'], [30, 'Everyone']]}
     `(
       'renders correct options when pagesAccessControlForced is $pagesAccessControlForced and visibilityLevel is $visibilityLevel',
       async ({ visibilityLevel, pagesAccessControlForced, output }) => {
@@ -564,6 +662,19 @@ describe('Settings Panel', () => {
     });
   });
 
+  describe('CI Catalog Settings', () => {
+    it('should show the CI Catalog settings if user has permission', () => {
+      wrapper = mountComponent({ canAddCatalogResource: true });
+
+      expect(findCiCatalogSettings().exists()).toBe(true);
+    });
+    it('should not show the CI Catalog settings if user does not have permission', () => {
+      wrapper = mountComponent();
+
+      expect(findCiCatalogSettings().exists()).toBe(false);
+    });
+  });
+
   describe('Email notifications', () => {
     it('should show the disable email notifications input if emails an be disabled', () => {
       wrapper = mountComponent({ canDisableEmails: true });
@@ -578,8 +689,68 @@ describe('Settings Panel', () => {
     });
   });
 
+  describe('Show Diff Preview in Email', () => {
+    it('should show the diff preview toggle if diff previews can be disabled', () => {
+      wrapper = mountComponent({ canDisableEmails: true, canSetDiffPreviewInEmail: true });
+
+      expect(findShowDiffPreviewSetting().exists()).toBe(true);
+    });
+
+    it('should hide the diff preview toggle if diff previews cannot be disabled', () => {
+      wrapper = mountComponent({ canDisableEmails: true, canSetDiffPreviewInEmail: false });
+
+      expect(findShowDiffPreviewSetting().exists()).toBe(false);
+    });
+    it('should hide the diff preview toggle if emails cannot be disabled', () => {
+      wrapper = mountComponent({ canDisableEmails: true, canSetDiffPreviewInEmail: false });
+
+      expect(findShowDiffPreviewSetting().exists()).toBe(false);
+    });
+
+    it('disables the checkbox when emails are disabled', async () => {
+      wrapper = mountComponent(
+        {
+          canDisableEmails: true,
+          canSetDiffPreviewInEmail: true,
+        },
+        mount,
+      );
+
+      // It seems like we need the "interactivity" to ensure that the disabled
+      // attribute appears.
+      await findEmailSettings().findComponent(GlFormCheckbox).find('input').setChecked(false);
+      expect(
+        findShowDiffPreviewSetting()
+          .findComponent(GlFormCheckbox)
+          .find('input')
+          .attributes('disabled'),
+      ).toBe('disabled');
+    });
+
+    it('Updates the hidden value when toggled', async () => {
+      wrapper = mountComponent(
+        {
+          canDisableEmails: true,
+          canSetDiffPreviewInEmail: true,
+          emailsEnabled: true,
+        },
+        mount,
+      );
+      const originalHiddenInputValue = findShowDiffPreviewSetting()
+        .find('input[type="hidden"]')
+        .attributes('value');
+      await findShowDiffPreviewSetting()
+        .findComponent(GlFormCheckbox)
+        .find('input')
+        .setChecked(false);
+      expect(
+        findShowDiffPreviewSetting().find('input[type="hidden"]').attributes('value'),
+      ).not.toEqual(originalHiddenInputValue);
+    });
+  });
+
   describe('Default award emojis', () => {
-    it('should show the "Show default award emojis" input', () => {
+    it('should show the "Show default emoji reactions" input', () => {
       wrapper = mountComponent();
 
       expect(findShowDefaultAwardEmojis().exists()).toBe(true);
@@ -594,41 +765,6 @@ describe('Settings Panel', () => {
     });
   });
 
-  describe('Metrics dashboard', () => {
-    it('should show the metrics dashboard access toggle', () => {
-      wrapper = mountComponent();
-
-      expect(findMetricsVisibilitySettings().exists()).toBe(true);
-    });
-
-    it('should contain help text', () => {
-      wrapper = mountComponent();
-
-      expect(findMetricsVisibilitySettings().props('helpText')).toBe(
-        "Visualize the project's performance metrics.",
-      );
-    });
-
-    it.each`
-      scenario                                                                          | selectedOption                                | selectedOptionLabel
-      ${{ currentSettings: { visibilityLevel: visibilityOptions.PRIVATE } }}            | ${String(featureAccessLevel.PROJECT_MEMBERS)} | ${'Only Project Members'}
-      ${{ currentSettings: { operationsAccessLevel: featureAccessLevel.NOT_ENABLED } }} | ${String(featureAccessLevel.NOT_ENABLED)}     | ${'Enable feature to choose access level'}
-    `(
-      'should disable the metrics visibility dropdown when #scenario',
-      ({ scenario, selectedOption, selectedOptionLabel }) => {
-        wrapper = mountComponent(scenario, mount);
-
-        const select = findMetricsVisibilitySettings().find('select');
-        const option = select.find('option');
-
-        expect(select.attributes('disabled')).toBe('disabled');
-        expect(select.element.value).toBe(selectedOption);
-        expect(option.attributes('value')).toBe(selectedOption);
-        expect(option.text()).toBe(selectedOptionLabel);
-      },
-    );
-  });
-
   describe('Analytics', () => {
     it('should show the analytics toggle', () => {
       wrapper = mountComponent();
@@ -637,11 +773,60 @@ describe('Settings Panel', () => {
     });
   });
 
-  describe('Operations', () => {
-    it('should show the operations toggle', () => {
-      wrapper = mountComponent();
+  describe('Environments', () => {
+    it('should show the environments toggle', () => {
+      wrapper = mountComponent({});
 
-      expect(findOperationsSettings().exists()).toBe(true);
+      expect(findEnvironmentsSettings().exists()).toBe(true);
+    });
+  });
+  describe('Feature flags', () => {
+    it('should show the feature flags toggle', () => {
+      wrapper = mountComponent({});
+
+      expect(findFeatureFlagsSettings().exists()).toBe(true);
+    });
+  });
+  describe('Infrastructure', () => {
+    it('should show the infrastructure toggle', () => {
+      wrapper = mountComponent({});
+
+      expect(findInfrastructureSettings().exists()).toBe(true);
+    });
+  });
+  describe('Releases', () => {
+    it('should show the releases toggle', () => {
+      wrapper = mountComponent({});
+
+      expect(findReleasesSettings().exists()).toBe(true);
+    });
+  });
+  describe('Monitor', () => {
+    const expectedAccessLevel = [
+      [10, 'Only Project Members'],
+      [20, 'Everyone With Access'],
+    ];
+    it('shows Monitor toggle instead of Operations toggle', () => {
+      wrapper = mountComponent({});
+
+      expect(findMonitorSettings().exists()).toBe(true);
+      expect(findMonitorSettings().findComponent(ProjectFeatureSetting).props('options')).toEqual(
+        expectedAccessLevel,
+      );
+    });
+  });
+  describe('Model experiments', () => {
+    it('shows model experiments toggle', () => {
+      wrapper = mountComponent({});
+
+      expect(findModelExperimentsSettings().exists()).toBe(true);
+    });
+  });
+  describe('Model registry', () => {
+    it('shows model registry toggle', () => {
+      wrapper = mountComponent({});
+
+      expect(findModelRegistrySettings().exists()).toBe(true);
     });
   });
 });

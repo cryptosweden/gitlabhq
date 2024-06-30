@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Issues::RelativePositionRebalancingService, :clean_gitlab_redis_shared_state do
+RSpec.describe Issues::RelativePositionRebalancingService, :clean_gitlab_redis_shared_state, feature_category: :team_planning do
   let_it_be(:project, reload: true) { create(:project, :repository_disabled, skip_disk_validation: true) }
   let_it_be(:user) { project.creator }
   let_it_be(:start) { RelativePositioning::START_POSITION }
@@ -32,10 +32,6 @@ RSpec.describe Issues::RelativePositionRebalancingService, :clean_gitlab_redis_s
     (1..100).to_a.map do |i|
       create(:issue, project: project, author: user, relative_position: nil)
     end
-  end
-
-  before do
-    stub_feature_flags(issue_rebalancing_with_retry: false)
   end
 
   def issues_in_position_order
@@ -72,22 +68,8 @@ RSpec.describe Issues::RelativePositionRebalancingService, :clean_gitlab_redis_s
       end.not_to change { issues_in_position_order.map(&:id) }
     end
 
-    it 'does nothing if the feature flag is disabled' do
-      stub_feature_flags(rebalance_issues: false)
-      issue = project.issues.first
-      issue.project
-      issue.project.group
-      old_pos = issue.relative_position
-
-      # fetching root namespace in the initializer triggers 2 queries:
-      # for fetching a random project from collection and fetching the root namespace.
-      expect { service.execute }.not_to exceed_query_limit(2)
-      expect(old_pos).to eq(issue.reload.relative_position)
-    end
-
     it 'acts if the flag is enabled for the root namespace' do
       issue = create(:issue, project: project, author: user, relative_position: max_pos)
-      stub_feature_flags(rebalance_issues: project.root_namespace)
 
       expect { service.execute }.to change { issue.reload.relative_position }
     end
@@ -95,7 +77,6 @@ RSpec.describe Issues::RelativePositionRebalancingService, :clean_gitlab_redis_s
     it 'acts if the flag is enabled for the group' do
       issue = create(:issue, project: project, author: user, relative_position: max_pos)
       project.update!(group: create(:group))
-      stub_feature_flags(rebalance_issues: issue.project.group)
 
       expect { service.execute }.to change { issue.reload.relative_position }
     end
@@ -112,8 +93,12 @@ RSpec.describe Issues::RelativePositionRebalancingService, :clean_gitlab_redis_s
 
     it 'resumes a started rebalance even if there are already too many rebalances running' do
       Gitlab::Redis::SharedState.with do |redis|
-        redis.sadd("gitlab:issues-position-rebalances:running_rebalances", "#{::Gitlab::Issues::Rebalancing::State::PROJECT}/#{project.id}")
-        redis.sadd("gitlab:issues-position-rebalances:running_rebalances", "1/100")
+        redis.sadd("gitlab:issues-position-rebalances:running_rebalances",
+          [
+            "#{::Gitlab::Issues::Rebalancing::State::PROJECT}/#{project.id}",
+            "1/100"
+          ]
+        )
       end
 
       caching = service.send(:caching)
@@ -161,7 +146,7 @@ RSpec.describe Issues::RelativePositionRebalancingService, :clean_gitlab_redis_s
         service.send(:preload_issue_ids)
         expect(service.send(:caching).get_cached_issue_ids(0, 300)).not_to be_empty
         # simulate we already rebalanced half the issues
-        index = clump_size * 3 / 2 + 1
+        index = (clump_size * 3 / 2) + 1
         service.send(:caching).cache_current_index(index)
       end
 
@@ -169,6 +154,99 @@ RSpec.describe Issues::RelativePositionRebalancingService, :clean_gitlab_redis_s
         expect(subject).to receive(:update_positions_with_retry).exactly(5).and_call_original
 
         subject.execute
+      end
+    end
+
+    shared_examples 'no-op on the retried job' do
+      it 'does not update positions in the 2nd .execute' do
+        original_order = issues_in_position_order.map(&:id)
+
+        # preloads issue ids on both runs
+        expect(service).to receive(:preload_issue_ids).twice.and_call_original
+
+        # 1st run performs rebalancing
+        expect(service).to receive(:update_positions_with_retry).exactly(9).times.and_call_original
+        expect { service.execute }.to raise_error(StandardError)
+
+        # 2nd run is a no-op
+        expect(service).not_to receive(:update_positions_with_retry)
+        expect { service.execute }.to raise_error(StandardError)
+
+        # order is preserved
+        expect(original_order).to match_array(issues_in_position_order.map(&:id))
+      end
+    end
+
+    context 'when error is raised in cache cleanup step' do
+      let_it_be(:root_namespace_id) { project.root_namespace.id }
+
+      context 'when srem fails' do
+        before do
+          Gitlab::Redis::SharedState.with do |redis|
+            allow(redis).to receive(:srem?).and_raise(StandardError)
+          end
+        end
+
+        it_behaves_like 'no-op on the retried job'
+      end
+
+      context 'when delete issues ids sorted set fails' do
+        before do
+          Gitlab::Redis::SharedState.with do |redis|
+            allow(redis).to receive(:del).and_call_original
+            allow(redis).to receive(:del)
+              .with("#{Gitlab::Issues::Rebalancing::State::REDIS_KEY_PREFIX}:#{root_namespace_id}")
+              .and_raise(StandardError)
+          end
+        end
+
+        it_behaves_like 'no-op on the retried job'
+      end
+
+      context 'when delete current_index_key fails' do
+        before do
+          Gitlab::Redis::SharedState.with do |redis|
+            allow(redis).to receive(:del).and_call_original
+            allow(redis).to receive(:del)
+              .with("#{Gitlab::Issues::Rebalancing::State::REDIS_KEY_PREFIX}:#{root_namespace_id}:current_index")
+              .and_raise(StandardError)
+          end
+        end
+
+        it_behaves_like 'no-op on the retried job'
+      end
+
+      context 'when setting recently finished key fails' do
+        before do
+          Gitlab::Redis::SharedState.with do |redis|
+            allow(redis).to receive(:set).and_call_original
+            allow(redis).to receive(:set)
+              .with(
+                "#{Gitlab::Issues::Rebalancing::State::RECENTLY_FINISHED_REBALANCE_PREFIX}:2:#{project.id}",
+                anything,
+                anything
+              )
+              .and_raise(StandardError)
+          end
+        end
+
+        it 'reruns the next job in full' do
+          original_order = issues_in_position_order.map(&:id)
+
+          # preloads issue ids on both runs
+          expect(service).to receive(:preload_issue_ids).twice.and_call_original
+
+          # 1st run performs rebalancing
+          expect(service).to receive(:update_positions_with_retry).exactly(9).times.and_call_original
+          expect { service.execute }.to raise_error(StandardError)
+
+          # 2nd run performs rebalancing in full
+          expect(service).to receive(:update_positions_with_retry).exactly(9).times.and_call_original
+          expect { service.execute }.to raise_error(StandardError)
+
+          # order is preserved
+          expect(original_order).to match_array(issues_in_position_order.map(&:id))
+        end
       end
     end
   end

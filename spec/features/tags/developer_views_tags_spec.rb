@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Developer views tags' do
+RSpec.describe 'Developer views tags', feature_category: :source_code_management do
   include RepoHelpers
 
   let(:user) { create(:user) }
@@ -41,11 +41,11 @@ RSpec.describe 'Developer views tags' do
     end
 
     it 'avoids a N+1 query in branches index' do
-      control_count = ActiveRecord::QueryRecorder.new { visit project_tags_path(project) }.count
+      control = ActiveRecord::QueryRecorder.new { visit project_tags_path(project) }
 
-      %w(one two three four five).each { |tag| repository.add_tag(user, tag, 'master', 'foo') }
+      %w[one two three four five].each { |tag| repository.add_tag(user, tag, 'master', 'foo') }
 
-      expect { visit project_tags_path(project) }.not_to exceed_query_limit(control_count)
+      expect { visit project_tags_path(project) }.not_to exceed_query_limit(control)
     end
 
     it 'views the tags list page' do
@@ -53,12 +53,13 @@ RSpec.describe 'Developer views tags' do
     end
 
     it 'views a specific tag page' do
+      create(:release, project: project, tag: 'v1.0.0', name: 'v1.0.0', description: nil)
+
       click_on 'v1.0.0'
 
       expect(page).to have_current_path(
         project_tag_path(project, 'v1.0.0'), ignore_query: true)
       expect(page).to have_content 'v1.0.0'
-      expect(page).to have_content 'This tag has no release notes.'
     end
 
     describe 'links on the tag page' do

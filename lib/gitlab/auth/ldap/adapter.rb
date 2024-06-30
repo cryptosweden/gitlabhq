@@ -11,7 +11,7 @@ module Gitlab
 
         def self.open(provider, &block)
           Net::LDAP.open(config(provider).adapter_options) do |ldap|
-            block.call(self.new(provider, ldap))
+            yield(self.new(provider, ldap))
           end
         end
 
@@ -33,15 +33,15 @@ module Gitlab
           users_search(options)
         end
 
-        def user(*args)
-          users(*args).first
+        def user(...)
+          users(...).first
         end
 
         def dn_matches_filter?(dn, filter)
           ldap_search(base: dn,
-                      filter: filter,
-                      scope: Net::LDAP::SearchScope_BaseObject,
-                      attributes: %w{dn}).any?
+            filter: filter,
+            scope: Net::LDAP::SearchScope_BaseObject,
+            attributes: %w[dn]).any?
         end
 
         def ldap_search(*args)

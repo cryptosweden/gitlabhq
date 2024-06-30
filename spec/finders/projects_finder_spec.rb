@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ProjectsFinder do
+RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
   include AdminModeHelper
 
   describe '#execute' do
@@ -14,15 +14,21 @@ RSpec.describe ProjectsFinder do
     end
 
     let_it_be(:internal_project) do
-      create(:project, :internal, group: group, name: 'B', path: 'B')
+      create(:project, :internal, :merge_requests_disabled, group: group, name: 'B', path: 'B', updated_at: 4.days.ago)
     end
 
     let_it_be(:public_project) do
-      create(:project, :public, group: group, name: 'C', path: 'C')
+      create(:project, :public, :merge_requests_enabled, :issues_disabled, group: group, name: 'C', path: 'C')
     end
 
     let_it_be(:shared_project) do
       create(:project, :private, name: 'D', path: 'D')
+    end
+
+    let_it_be(:banned_user_project) do
+      create(:project, :public, name: 'Project created by a banned user', creator: create(:user, :banned)).tap do |p|
+        create(:project_authorization, :owner, user: p.creator, project: p)
+      end
     end
 
     let(:params) { {} }
@@ -60,9 +66,21 @@ RSpec.describe ProjectsFinder do
         it { is_expected.to eq([internal_project]) }
       end
 
+      describe 'with full_paths' do
+        let_it_be(:second_public_project) do
+          create(:project, :public, :merge_requests_enabled, :issues_disabled, group: group, name: 'second-public', path: 'second-public')
+        end
+
+        context 'only returns projects matching the provided full paths' do
+          let(:params) { { full_paths: [public_project.full_path, second_public_project.full_path] } }
+
+          it { is_expected.to match_array([public_project, second_public_project]) }
+        end
+      end
+
       describe 'with id_after' do
         context 'only returns projects with a project id greater than given' do
-          let(:params) { { id_after: internal_project.id }}
+          let(:params) { { id_after: internal_project.id } }
 
           it { is_expected.to eq([public_project]) }
         end
@@ -70,7 +88,7 @@ RSpec.describe ProjectsFinder do
 
       describe 'with id_before' do
         context 'only returns projects with a project id less than given' do
-          let(:params) { { id_before: public_project.id }}
+          let(:params) { { id_before: public_project.id } }
 
           it { is_expected.to eq([internal_project]) }
         end
@@ -79,7 +97,7 @@ RSpec.describe ProjectsFinder do
       describe 'with both id_before and id_after' do
         context 'only returns projects with a project id less than given' do
           let!(:projects) { create_list(:project, 5, :public) }
-          let(:params) { { id_after: projects.first.id, id_before: projects.last.id }}
+          let(:params) { { id_after: projects.first.id, id_before: projects.last.id } }
 
           it { is_expected.to contain_exactly(*projects[1..-2]) }
         end
@@ -89,7 +107,7 @@ RSpec.describe ProjectsFinder do
         context 'only returns projects with a project id less than given and matching search' do
           subject { finder.execute.joins(:route) }
 
-          let(:params) { { id_before: public_project.id }}
+          let(:params) { { id_before: public_project.id } }
 
           it { is_expected.to eq([internal_project]) }
         end
@@ -97,7 +115,7 @@ RSpec.describe ProjectsFinder do
         context 'only returns projects with a project id greater than given and matching search' do
           subject { finder.execute.joins(:route) }
 
-          let(:params) { { id_after: internal_project.id }}
+          let(:params) { { id_after: internal_project.id } }
 
           it { is_expected.to eq([public_project]) }
         end
@@ -130,6 +148,52 @@ RSpec.describe ProjectsFinder do
           let(:params) { { visibility_level: Gitlab::VisibilityLevel::INTERNAL.to_s } }
 
           it { is_expected.to eq([internal_project]) }
+        end
+      end
+
+      describe 'filter by updated_at' do
+        context 'when updated_before is present' do
+          let(:params) { { updated_before: 2.days.ago } }
+
+          it { is_expected.to contain_exactly(internal_project) }
+        end
+
+        context 'when updated_after is present' do
+          let(:params) { { updated_after: 2.days.ago } }
+
+          it { is_expected.not_to include(internal_project) }
+        end
+
+        context 'when both updated_before and updated_after are present' do
+          let(:params) { { updated_before: 2.days.ago, updated_after: 6.days.ago } }
+
+          it { is_expected.to contain_exactly(internal_project) }
+
+          context 'when updated_after > updated_before' do
+            let(:params) { { updated_after: 2.days.ago, updated_before: 6.days.ago } }
+
+            it { is_expected.to be_empty }
+
+            it 'does not query the DB' do
+              expect { subject.to_a }.to make_queries(0)
+            end
+          end
+
+          context 'when updated_after equals updated_before', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408387' do
+            let(:params) { { updated_after: internal_project.updated_at, updated_before: internal_project.updated_at } }
+
+            it 'allows an exact match' do
+              expect(subject).to contain_exactly(internal_project)
+            end
+          end
+
+          context 'when arguments are invalid datetimes' do
+            let(:params) { { updated_after: 'invalid', updated_before: 'inavlid' } }
+
+            it 'does not filter by updated_at' do
+              expect(subject).to contain_exactly(internal_project, public_project)
+            end
+          end
         end
       end
 
@@ -172,6 +236,35 @@ RSpec.describe ProjectsFinder do
 
         context 'no matching topic' do
           let(:params) { { topic: 'xyz' } }
+
+          it { is_expected.to eq([]) }
+        end
+      end
+
+      describe 'filter by topic_id' do
+        let_it_be(:topic1) { create(:topic) }
+        let_it_be(:topic2) { create(:topic) }
+
+        before do
+          public_project.reload
+          public_project.topics << topic1
+          public_project.save!
+        end
+
+        context 'topic with assigned projects' do
+          let(:params) { { topic_id: topic1.id } }
+
+          it { is_expected.to eq([public_project]) }
+        end
+
+        context 'topic without assigned projects' do
+          let(:params) { { topic_id: topic2.id } }
+
+          it { is_expected.to eq([]) }
+        end
+
+        context 'non-existing topic' do
+          let(:params) { { topic_id: non_existing_record_id } }
 
           it { is_expected.to eq([]) }
         end
@@ -321,43 +414,6 @@ RSpec.describe ProjectsFinder do
         end
       end
 
-      describe 'filter by without_deleted' do
-        let_it_be(:pending_delete_project) { create(:project, :public, pending_delete: true) }
-
-        let(:params) { { without_deleted: without_deleted } }
-
-        shared_examples 'returns all projects' do
-          it { expect(subject).to include(public_project, internal_project, pending_delete_project) }
-        end
-
-        context 'when without_deleted is true' do
-          let(:without_deleted) { true }
-
-          it 'returns projects that are not pending_delete' do
-            expect(subject).not_to include(pending_delete_project)
-            expect(subject).to include(public_project, internal_project)
-          end
-        end
-
-        context 'when without_deleted is false' do
-          let(:without_deleted) { false }
-
-          it_behaves_like 'returns all projects'
-        end
-
-        context 'when without_deleted is nil' do
-          let(:without_deleted) { nil }
-
-          it_behaves_like 'returns all projects'
-        end
-
-        context 'when without_deleted is not present' do
-          let(:params) { {} }
-
-          it_behaves_like 'returns all projects'
-        end
-      end
-
       describe 'filter by last_activity_after' do
         let(:params) { { last_activity_after: 60.minutes.ago } }
 
@@ -367,6 +423,32 @@ RSpec.describe ProjectsFinder do
         end
 
         it { is_expected.to match_array([internal_project]) }
+      end
+
+      describe 'filters by without_deleted by default' do
+        let_it_be(:pending_delete_project) { create(:project, :public, pending_delete: true) }
+
+        it 'returns projects that are not pending_delete' do
+          expect(subject).not_to include(pending_delete_project)
+          expect(subject).to include(public_project, internal_project)
+        end
+
+        context 'when include_pending_delete param is provided' do
+          let(:params) { { include_pending_delete: true } }
+
+          it 'returns projects that are not pending_delete' do
+            expect(subject).not_to include(pending_delete_project)
+            expect(subject).to include(public_project, internal_project)
+          end
+
+          context 'when user is an admin', :enable_admin_mode do
+            let(:current_user) { create(:admin) }
+
+            it 'also return pending_delete projects' do
+              expect(subject).to include(public_project, internal_project, pending_delete_project)
+            end
+          end
+        end
       end
 
       describe 'filter by last_activity_before' do
@@ -389,6 +471,40 @@ RSpec.describe ProjectsFinder do
         end
 
         it { is_expected.to match_array([project]) }
+      end
+
+      describe 'filter by language' do
+        let_it_be(:ruby) { create(:programming_language, name: 'Ruby') }
+        let_it_be(:repository_language) { create(:repository_language, project: internal_project, programming_language: ruby) }
+
+        let(:params) { { language: ruby.id } }
+
+        it { is_expected.to match_array([internal_project]) }
+      end
+
+      describe 'filter by organization' do
+        let_it_be(:organization) { create(:organization) }
+        let_it_be(:organization_project) { create(:project, organization: organization) }
+
+        let(:params) { { organization: organization } }
+
+        before do
+          organization_project.add_maintainer(current_user)
+        end
+
+        it { is_expected.to match_array([organization_project]) }
+      end
+
+      describe 'when with_issues_enabled is true' do
+        let(:params) { { with_issues_enabled: true } }
+
+        it { is_expected.to match_array([internal_project]) }
+      end
+
+      describe 'when with_merge_requests_enabled is true' do
+        let(:params) { { with_merge_requests_enabled: true } }
+
+        it { is_expected.to match_array([public_project]) }
       end
 
       describe 'sorting' do
@@ -420,27 +536,43 @@ RSpec.describe ProjectsFinder do
       describe 'with admin user' do
         let(:user) { create(:admin) }
 
-        context 'admin mode enabled' do
+        context 'with admin mode enabled' do
           before do
             enable_admin_mode!(current_user)
           end
 
-          it { is_expected.to match_array([public_project, internal_project, private_project, shared_project]) }
+          it do
+            is_expected.to match_array([
+              public_project,
+              internal_project,
+              private_project,
+              shared_project,
+              banned_user_project
+            ])
+          end
         end
 
-        context 'admin mode disabled' do
+        context 'with admin mode disabled' do
           it { is_expected.to match_array([public_project, internal_project]) }
+
+          context 'when hide_projects_of_banned_users FF is disabled' do
+            before do
+              stub_feature_flags(hide_projects_of_banned_users: false)
+            end
+
+            it { is_expected.to match_array([public_project, internal_project, banned_user_project]) }
+          end
         end
       end
     end
 
-    describe 'without CTE flag enabled' do
+    describe 'without CTE flag enabled', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408387' do
       let(:use_cte) { false }
 
       it_behaves_like 'ProjectFinder#execute examples'
     end
 
-    describe 'with CTE flag enabled' do
+    describe 'with CTE flag enabled', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408387' do
       let(:use_cte) { true }
 
       it_behaves_like 'ProjectFinder#execute examples'

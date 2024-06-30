@@ -2,16 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe 'DevOps Report page', :js do
+RSpec.describe 'DevOps Report page', :js, feature_category: :devops_reports do
   before do
     admin = create(:admin)
     sign_in(admin)
-    gitlab_enable_admin_mode_sign_in(admin)
+    enable_admin_mode!(admin)
   end
 
-  context 'with devops_adoption feature flag disabled' do
+  context 'without licensed feature devops adoption' do
     before do
-      stub_feature_flags(devops_adoption: false)
+      stub_licensed_features(devops_adoption: false)
     end
 
     it 'has dismissable intro callout' do
@@ -19,8 +19,8 @@ RSpec.describe 'DevOps Report page', :js do
 
       expect(page).to have_content 'Introducing Your DevOps Report'
 
-      page.within(find('[data-testid="devops-score-container"]')) do
-        find('[data-testid="close-icon"]').click
+      within_testid('devops-score-container') do
+        find_by_testid('close-icon').click
       end
 
       expect(page).not_to have_content 'Introducing Your DevOps Report'

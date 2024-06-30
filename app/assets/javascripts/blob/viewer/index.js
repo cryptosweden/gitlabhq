@@ -1,6 +1,6 @@
 import $ from 'jquery';
-import '~/behaviors/markdown/render_gfm';
-import createFlash from '~/flash';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
+import { createAlert } from '~/alert';
 import { __ } from '~/locale';
 import {
   REPO_BLOB_LOAD_VIEWER_START,
@@ -11,9 +11,9 @@ import {
 } from '~/performance/constants';
 import { performanceMarkAndMeasure } from '~/performance/utils';
 import { fixTitle } from '~/tooltips';
-import axios from '../../lib/utils/axios_utils';
-import { handleLocationHash } from '../../lib/utils/common_utils';
-import eventHub from '../../notes/event_hub';
+import axios from '~/lib/utils/axios_utils';
+import { handleLocationHash } from '~/lib/utils/common_utils';
+import eventHub from '~/notes/event_hub';
 
 const loadRichBlobViewer = (type) => {
   switch (type) {
@@ -36,19 +36,20 @@ const loadRichBlobViewer = (type) => {
 
 const loadViewer = (viewerParam) => {
   const viewer = viewerParam;
-  const url = viewer.getAttribute('data-url');
+  const { url } = viewer.dataset;
 
-  if (!url || viewer.getAttribute('data-loaded') || viewer.getAttribute('data-loading')) {
+  if (!url || viewer.dataset.loaded || viewer.dataset.loading) {
     return Promise.resolve(viewer);
   }
 
-  viewer.setAttribute('data-loading', 'true');
+  viewer.dataset.loading = 'true';
 
   return axios.get(url).then(({ data }) => {
+    // eslint-disable-next-line no-unsanitized/property
     viewer.innerHTML = data.html;
 
     window.requestIdleCallback(() => {
-      viewer.removeAttribute('data-loading');
+      delete viewer.dataset.loading;
     });
 
     return viewer;
@@ -68,7 +69,7 @@ export const handleBlobRichViewer = (viewer, type) => {
   loadRichBlobViewer(type)
     .then((module) => module?.default(viewer))
     .catch((error) => {
-      createFlash({
+      createAlert({
         message: __('Error loading file viewer.'),
       });
       throw error;
@@ -108,7 +109,7 @@ export class BlobViewer {
 
   switchToInitialViewer() {
     const initialViewer = this.$fileHolder[0].querySelector('.blob-viewer:not(.hidden)');
-    let initialViewerName = initialViewer.getAttribute('data-type');
+    let initialViewerName = initialViewer.dataset.type;
 
     if (this.switcher && window.location.hash.indexOf('#L') === 0) {
       initialViewerName = 'simple';
@@ -138,12 +139,12 @@ export class BlobViewer {
 
     e.preventDefault();
 
-    this.switchToViewer(target.getAttribute('data-viewer'));
+    this.switchToViewer(target.dataset.viewer);
   }
 
   toggleCopyButtonState() {
     if (!this.copySourceBtn) return;
-    if (this.simpleViewer.getAttribute('data-loaded')) {
+    if (this.simpleViewer.dataset.loaded) {
       this.copySourceBtnTooltip.setAttribute('title', __('Copy file contents'));
       this.copySourceBtn.classList.remove('disabled');
     } else if (this.activeViewer === this.simpleViewer) {
@@ -194,12 +195,13 @@ export class BlobViewer {
     this.toggleCopyButtonState();
     loadViewer(newViewer)
       .then((viewer) => {
-        $(viewer).renderGFM();
+        renderGFM(viewer);
         window.requestIdleCallback(() => {
           this.$fileHolder.trigger('highlight:line');
           handleLocationHash();
 
-          viewer.setAttribute('data-loaded', 'true');
+          // eslint-disable-next-line no-param-reassign
+          viewer.dataset.loaded = 'true';
           this.toggleCopyButtonState();
           eventHub.$emit('showBlobInteractionZones', viewer.dataset.path);
         });
@@ -219,7 +221,7 @@ export class BlobViewer {
         });
       })
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('Error loading viewer'),
         }),
       );

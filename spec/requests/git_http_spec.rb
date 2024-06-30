@@ -2,11 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Git HTTP requests' do
+RSpec.describe 'Git HTTP requests', feature_category: :source_code_management do
   include ProjectForksHelper
   include TermsHelper
   include GitHttpHelpers
   include WorkhorseHelpers
+  include Ci::JobTokenScopeHelpers
 
   shared_examples 'pulls require Basic HTTP Authentication' do
     context "when no credentials are provided" do
@@ -225,10 +226,20 @@ RSpec.describe 'Git HTTP requests' do
       end
 
       context 'when namespace exists' do
-        let(:path) { "#{user.namespace.path}/new-project.git"}
+        let(:path) { "#{user.namespace.path}/new-project.git" }
 
         context 'when authenticated' do
+          before do
+            allow(Gitlab::QueryLimiting::Transaction).to receive(:threshold).and_return(102)
+          end
+
           it 'creates a new project under the existing namespace' do
+            # current scenario does not matter with the user activity case,
+            # so stub/double it to escape more sql running times limit
+            activity_service = instance_double(::Users::ActivityService)
+            allow(::Users::ActivityService).to receive(:new).and_return(activity_service)
+            allow(activity_service).to receive(:execute)
+
             expect do
               upload(path, user: user.username, password: user.password) do |response|
                 expect(response).to have_gitlab_http_status(:ok)
@@ -242,6 +253,16 @@ RSpec.describe 'Git HTTP requests' do
             push_get(path, user: user.username, password: user.password)
 
             expect(response).to have_gitlab_http_status(:unprocessable_entity)
+          end
+        end
+
+        context 'when project name is missing' do
+          let(:path) { "/#{user.namespace.path}/info/refs" }
+
+          it 'does not redirect to the incorrect path' do
+            get path
+
+            expect(response).not_to redirect_to("/#{user.namespace.path}.git/info/refs")
           end
         end
 
@@ -319,7 +340,7 @@ RSpec.describe 'Git HTTP requests' do
             context 'when user is using credentials with special characters' do
               context 'with password with special characters' do
                 before do
-                  user.update!(password: Gitlab::Password.test_default)
+                  user.update!(password: 'RKszEwéC5kFnû∆f243fycGu§Gh9ftDj!U')
                 end
 
                 it 'allows clones' do
@@ -440,11 +461,13 @@ RSpec.describe 'Git HTTP requests' do
 
               before do
                 canonical_project.add_maintainer(user)
-                create(:merge_request,
-                       source_project: project,
-                       target_project:  canonical_project,
-                       source_branch: 'fixes',
-                       allow_collaboration: true)
+                create(
+                  :merge_request,
+                  source_project: project,
+                  target_project: canonical_project,
+                  source_branch: 'fixes',
+                  allow_collaboration: true
+                )
               end
 
               it_behaves_like 'pushes are allowed'
@@ -461,10 +484,11 @@ RSpec.describe 'Git HTTP requests' do
         end
 
         context 'when the request is not from gitlab-workhorse' do
-          it 'raises an exception' do
-            expect do
-              get("/#{project.full_path}.git/info/refs?service=git-upload-pack")
-            end.to raise_error(JWT::DecodeError)
+          it 'responds with 403 Forbidden' do
+            get("/#{project.full_path}.git/info/refs?service=git-upload-pack")
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+            expect(response.body).to eq('Nil JSON web token')
           end
         end
 
@@ -633,17 +657,17 @@ RSpec.describe 'Git HTTP requests' do
                 end
 
                 context 'when username and password are provided' do
-                  it 'rejects pulls with personal access token error message' do
+                  it 'rejects pulls with generic error message' do
                     download(path, user: user.username, password: user.password) do |response|
                       expect(response).to have_gitlab_http_status(:unauthorized)
-                      expect(response.body).to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                      expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                     end
                   end
 
-                  it 'rejects the push attempt with personal access token error message' do
+                  it 'rejects the push attempt with generic error message' do
                     upload(path, user: user.username, password: user.password) do |response|
                       expect(response).to have_gitlab_http_status(:unauthorized)
-                      expect(response.body).to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                      expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                     end
                   end
                 end
@@ -740,17 +764,17 @@ RSpec.describe 'Git HTTP requests' do
                   allow_any_instance_of(ApplicationSetting).to receive(:password_authentication_enabled_for_git?) { false }
                 end
 
-                it 'rejects pulls with personal access token error message' do
+                it 'rejects pulls with generic error message' do
                   download(path, user: 'foo', password: 'bar') do |response|
                     expect(response).to have_gitlab_http_status(:unauthorized)
-                    expect(response.body).to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                    expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                   end
                 end
 
-                it 'rejects pushes with personal access token error message' do
+                it 'rejects pushes with generic error message' do
                   upload(path, user: 'foo', password: 'bar') do |response|
                     expect(response).to have_gitlab_http_status(:unauthorized)
-                    expect(response.body).to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                    expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                   end
                 end
 
@@ -761,10 +785,10 @@ RSpec.describe 'Git HTTP requests' do
                       .to receive(:login).and_return(nil)
                   end
 
-                  it 'does not display the personal access token error message' do
+                  it 'displays the generic error message' do
                     upload(path, user: 'foo', password: 'bar') do |response|
                       expect(response).to have_gitlab_http_status(:unauthorized)
-                      expect(response.body).not_to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                      expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                     end
                   end
                 end
@@ -859,51 +883,38 @@ RSpec.describe 'Git HTTP requests' do
 
         context "when a gitlab ci token is provided" do
           let(:project) { create(:project, :repository) }
-          let(:build) { create(:ci_build, :running) }
-          let(:other_project) { create(:project, :repository) }
-
-          before do
-            build.update!(project: project) # can't associate it on factory create
+          let(:build) { create(:ci_build, :running, project: project, user: user) }
+          let(:other_project) do
+            create(:project, :repository).tap do |o|
+              make_project_fully_accessible(project, o)
+            end
           end
 
           context 'when build created by system is authenticated' do
+            let(:user) { nil }
             let(:path) { "#{project.full_path}.git" }
             let(:env) { { user: 'gitlab-ci-token', password: build.token } }
 
-            it_behaves_like 'pulls are allowed'
-
-            # A non-401 here is not an information leak since the system is
-            # "authenticated" as CI using the correct token. It does not have
-            # push access, so pushes should be rejected as forbidden, and giving
-            # a reason is fine.
-            #
-            # We know for sure it is not an information leak since pulls using
-            # the build token must be allowed.
-            it "rejects pushes with 403 Forbidden" do
-              push_get(path, **env)
-
-              expect(response).to have_gitlab_http_status(:forbidden)
-              expect(response.body).to eq(git_access_error(:auth_upload))
+            it 'rejects pulls' do
+              download(path, **env) do |response|
+                expect(response).to have_gitlab_http_status(:not_found)
+              end
             end
 
-            # We are "authenticated" as CI using a valid token here. But we are
-            # not authorized to see any other project, so return "not found".
-            it "rejects pulls for other project with 404 Not Found" do
-              clone_get("#{other_project.full_path}.git", **env)
+            it 'rejects pushes' do
+              push_get(path, **env)
 
               expect(response).to have_gitlab_http_status(:not_found)
-              expect(response.body).to eq(git_access_error(:project_not_found))
+            end
+
+            def pull
+              download(path, **env)
             end
           end
 
           context 'and build created by' do
             before do
-              build.update!(user: user)
               project.add_reporter(user)
-              create(:ci_job_token_project_scope_link,
-                     source_project: project,
-                     target_project: other_project,
-                     added_by: user)
             end
 
             shared_examples 'can download code only' do
@@ -927,7 +938,7 @@ RSpec.describe 'Git HTTP requests' do
                 push_get(path, **env)
 
                 expect(response).to have_gitlab_http_status(:forbidden)
-                expect(response.body).to eq(git_access_error(:auth_upload))
+                expect(response.body).to eq(git_access_error(:push_code))
               end
             end
 
@@ -1093,11 +1104,13 @@ RSpec.describe 'Git HTTP requests' do
 
               before do
                 canonical_project.add_maintainer(user)
-                create(:merge_request,
-                       source_project: project,
-                       target_project:  canonical_project,
-                       source_branch: 'fixes',
-                       allow_collaboration: true)
+                create(
+                  :merge_request,
+                  source_project: project,
+                  target_project: canonical_project,
+                  source_branch: 'fixes',
+                  allow_collaboration: true
+                )
               end
 
               it_behaves_like 'pushes are allowed'
@@ -1114,10 +1127,11 @@ RSpec.describe 'Git HTTP requests' do
         end
 
         context 'when the request is not from gitlab-workhorse' do
-          it 'raises an exception' do
-            expect do
-              get("/#{project.full_path}.git/info/refs?service=git-upload-pack")
-            end.to raise_error(JWT::DecodeError)
+          it 'responds with 403 Forbidden' do
+            get("/#{project.full_path}.git/info/refs?service=git-upload-pack")
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+            expect(response.body).to eq('Nil JSON web token')
           end
         end
 
@@ -1290,17 +1304,18 @@ RSpec.describe 'Git HTTP requests' do
                 end
 
                 context 'when username and password are provided' do
-                  it 'rejects pulls with personal access token error message' do
+                  it 'rejects pulls with generic error message' do
                     download(path, user: user.username, password: user.password) do |response|
                       expect(response).to have_gitlab_http_status(:unauthorized)
-                      expect(response.body).to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+
+                      expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                     end
                   end
 
-                  it 'rejects the push attempt with personal access token error message' do
+                  it 'rejects the push attempt with generic error message' do
                     upload(path, user: user.username, password: user.password) do |response|
                       expect(response).to have_gitlab_http_status(:unauthorized)
-                      expect(response.body).to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                      expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                     end
                   end
                 end
@@ -1371,17 +1386,17 @@ RSpec.describe 'Git HTTP requests' do
                   allow_any_instance_of(ApplicationSetting).to receive(:password_authentication_enabled_for_git?) { false }
                 end
 
-                it 'rejects pulls with personal access token error message' do
+                it 'rejects pulls with generic error message' do
                   download(path, user: 'foo', password: 'bar') do |response|
                     expect(response).to have_gitlab_http_status(:unauthorized)
-                    expect(response.body).to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                    expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                   end
                 end
 
-                it 'rejects pushes with personal access token error message' do
+                it 'rejects pushes with generic error message' do
                   upload(path, user: 'foo', password: 'bar') do |response|
                     expect(response).to have_gitlab_http_status(:unauthorized)
-                    expect(response.body).to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                    expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                   end
                 end
 
@@ -1392,10 +1407,10 @@ RSpec.describe 'Git HTTP requests' do
                       .to receive(:login).and_return(nil)
                   end
 
-                  it 'does not display the personal access token error message' do
+                  it 'returns a generic error message' do
                     upload(path, user: 'foo', password: 'bar') do |response|
                       expect(response).to have_gitlab_http_status(:unauthorized)
-                      expect(response.body).not_to include('You must use a personal access token with \'read_repository\' or \'write_repository\' scope for Git over HTTP')
+                      expect(response.body).to eq('HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See http://www.example.com/help/topics/git/troubleshooting_git#error-on-git-fetch-http-basic-access-denied')
                     end
                   end
                 end
@@ -1472,50 +1487,34 @@ RSpec.describe 'Git HTTP requests' do
 
         context "when a gitlab ci token is provided" do
           let(:project) { create(:project, :repository) }
-          let(:build) { create(:ci_build, :running) }
-          let(:other_project) { create(:project, :repository) }
-
-          before do
-            build.update!(project: project) # can't associate it on factory create
-            create(:ci_job_token_project_scope_link,
-                    source_project: project,
-                    target_project: other_project,
-                    added_by: user)
+          let(:build) { create(:ci_build, :running, project: project, user: user) }
+          let(:other_project) do
+            create(:project, :repository).tap do |o|
+              make_project_fully_accessible(project, o)
+            end
           end
 
+          # legacy behavior that is blocked/deprecated
           context 'when build created by system is authenticated' do
+            let(:user) { nil }
             let(:path) { "#{project.full_path}.git" }
             let(:env) { { user: 'gitlab-ci-token', password: build.token } }
 
-            it_behaves_like 'pulls are allowed'
-
-            # A non-401 here is not an information leak since the system is
-            # "authenticated" as CI using the correct token. It does not have
-            # push access, so pushes should be rejected as forbidden, and giving
-            # a reason is fine.
-            #
-            # We know for sure it is not an information leak since pulls using
-            # the build token must be allowed.
-            it "rejects pushes with 403 Forbidden" do
-              push_get(path, **env)
-
-              expect(response).to have_gitlab_http_status(:forbidden)
-              expect(response.body).to eq(git_access_error(:auth_upload))
+            it 'rejects pulls' do
+              download(path, **env) do |response|
+                expect(response).to have_gitlab_http_status(:not_found)
+              end
             end
 
-            # We are "authenticated" as CI using a valid token here. But we are
-            # not authorized to see any other project, so return "not found".
-            it "rejects pulls for other project with 404 Not Found" do
-              clone_get("#{other_project.full_path}.git", **env)
+            it 'rejects pushes' do
+              push_get(path, **env)
 
               expect(response).to have_gitlab_http_status(:not_found)
-              expect(response.body).to eq(git_access_error(:project_not_found))
             end
           end
 
           context 'and build created by' do
             before do
-              build.update!(user: user)
               project.add_reporter(user)
             end
 
@@ -1540,7 +1539,7 @@ RSpec.describe 'Git HTTP requests' do
                 push_get(path, **env)
 
                 expect(response).to have_gitlab_http_status(:forbidden)
-                expect(response.body).to eq(git_access_error(:auth_upload))
+                expect(response.body).to eq(git_access_error(:push_code))
               end
             end
 
@@ -1716,7 +1715,7 @@ RSpec.describe 'Git HTTP requests' do
             context 'when user is using credentials with special characters' do
               context 'with password with special characters' do
                 before do
-                  user.update!(password: Gitlab::Password.test_default)
+                  user.update!(password: 'RKszEwéC5kFnû∆f243fycGu§Gh9ftDj!U')
                 end
 
                 it 'allows clones' do
@@ -1769,8 +1768,7 @@ RSpec.describe 'Git HTTP requests' do
   end
 
   describe "User with LDAP identity" do
-    let(:user) { create(:omniauth_user, extern_uid: dn) }
-    let(:dn) { 'uid=john,ou=people,dc=example,dc=com' }
+    let(:user) { create(:omniauth_user, :ldap) }
     let(:path) { 'doesnt/exist.git' }
 
     before do
@@ -1873,12 +1871,8 @@ RSpec.describe 'Git HTTP requests' do
     end
 
     context 'from CI' do
-      let(:build) { create(:ci_build, :running) }
+      let(:build) { create(:ci_build, :running, user: user, project: project) }
       let(:env) { { user: 'gitlab-ci-token', password: build.token } }
-
-      before do
-        build.update!(user: user, project: project)
-      end
 
       it_behaves_like 'pulls are allowed'
     end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::MergeabilityCheckService, :clean_gitlab_redis_shared_state do
+RSpec.describe MergeRequests::MergeabilityCheckService, :clean_gitlab_redis_shared_state, feature_category: :code_review_workflow do
   shared_examples_for 'unmergeable merge request' do
     it 'updates or keeps merge status as cannot_be_merged' do
       subject
@@ -158,9 +158,11 @@ RSpec.describe MergeRequests::MergeabilityCheckService, :clean_gitlab_redis_shar
           threads = execute_within_threads(amount: 3, retry_lease: false)
           results = threads.map { |t| [t.value.status, t.value.message] }
 
-          expect(results).to contain_exactly([:error, 'Failed to obtain a lock'],
-                                             [:error, 'Failed to obtain a lock'],
-                                             [:success, nil])
+          expect(results).to contain_exactly(
+            [:error, 'Failed to obtain a lock'],
+            [:error, 'Failed to obtain a lock'],
+            [:success, nil]
+          )
         end
       end
     end
@@ -183,19 +185,13 @@ RSpec.describe MergeRequests::MergeabilityCheckService, :clean_gitlab_redis_shar
 
     context 'when it cannot be merged on git' do
       let(:merge_request) do
-        create(:merge_request,
-               merge_status: :unchecked,
-               source_branch: 'conflict-resolvable',
-               source_project: project,
-               target_branch: 'conflict-start')
-      end
-
-      it 'does not change the merge ref HEAD' do
-        expect(merge_request.merge_ref_head).to be_nil
-
-        subject
-
-        expect(merge_request.reload.merge_ref_head).not_to be_nil
+        create(
+          :merge_request,
+          merge_status: :unchecked,
+          source_branch: 'conflict-resolvable',
+          source_project: project,
+          target_branch: 'conflict-start'
+        )
       end
 
       it 'returns ServiceResponse.error and keeps merge status as cannot_be_merged' do
@@ -272,10 +268,8 @@ RSpec.describe MergeRequests::MergeabilityCheckService, :clean_gitlab_redis_shar
 
       it_behaves_like 'unmergeable merge request'
 
-      it 'reloads merge head diff' do
-        expect_next_instance_of(MergeRequests::ReloadMergeHeadDiffService) do |service|
-          expect(service).to receive(:execute)
-        end
+      it 'does not reload merge head diff' do
+        expect(MergeRequests::ReloadMergeHeadDiffService).not_to receive(:new)
 
         subject
       end
@@ -346,28 +340,6 @@ RSpec.describe MergeRequests::MergeabilityCheckService, :clean_gitlab_redis_shar
 
         it 'does not reload merge head diff' do
           expect(MergeRequests::ReloadMergeHeadDiffService).not_to receive(:new)
-
-          subject
-        end
-      end
-    end
-
-    context 'merge with conflicts' do
-      it 'calls MergeToRefService with true allow_conflicts param' do
-        expect(MergeRequests::MergeToRefService).to receive(:new)
-          .with(project: project, current_user: merge_request.author, params: { allow_conflicts: true }).and_call_original
-
-        subject
-      end
-
-      context 'when display_merge_conflicts_in_diff is disabled' do
-        before do
-          stub_feature_flags(display_merge_conflicts_in_diff: false)
-        end
-
-        it 'calls MergeToRefService with false allow_conflicts param' do
-          expect(MergeRequests::MergeToRefService).to receive(:new)
-            .with(project: project, current_user: merge_request.author, params: { allow_conflicts: false }).and_call_original
 
           subject
         end

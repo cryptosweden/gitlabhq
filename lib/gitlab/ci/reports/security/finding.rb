@@ -7,7 +7,6 @@ module Gitlab
         class Finding
           include ::VulnerabilityFindingHelpers
 
-          attr_reader :compare_key
           attr_reader :confidence
           attr_reader :identifiers
           attr_reader :flags
@@ -29,13 +28,12 @@ module Gitlab
           attr_reader :signatures
           attr_reader :project_id
           attr_reader :original_data
+          attr_reader :found_by_pipeline
+          attr_reader :cvss
 
           delegate :file_path, :start_line, :end_line, to: :location
 
-          alias_method :cve, :compare_key
-
-          def initialize(compare_key:, identifiers:, flags: [], links: [], remediations: [], location:, evidence:, metadata_version:, name:, original_data:, report_type:, scanner:, scan:, uuid:, confidence: nil, severity: nil, details: {}, signatures: [], project_id: nil, vulnerability_finding_signatures_enabled: false) # rubocop:disable Metrics/ParameterLists
-            @compare_key = compare_key
+          def initialize(identifiers:, location:, evidence:, metadata_version:, name:, original_data:, report_type:, scanner:, scan:, uuid:, flags: [], links: [], remediations: [], confidence: nil, severity: nil, details: {}, signatures: [], project_id: nil, vulnerability_finding_signatures_enabled: false, found_by_pipeline: nil, cvss: []) # rubocop:disable Metrics/ParameterLists -- TODO: Reduce number of parameters in this function
             @confidence = confidence
             @identifiers = identifiers
             @flags = flags
@@ -55,13 +53,14 @@ module Gitlab
             @signatures = signatures
             @project_id = project_id
             @vulnerability_finding_signatures_enabled = vulnerability_finding_signatures_enabled
+            @found_by_pipeline = found_by_pipeline
+            @cvss = cvss
 
             @project_fingerprint = generate_project_fingerprint
           end
 
           def to_hash
             %i[
-              compare_key
               confidence
               identifiers
               flags
@@ -80,11 +79,9 @@ module Gitlab
               details
               signatures
               description
-              message
-              cve
               solution
-            ].each_with_object({}) do |key, hash|
-              hash[key] = public_send(key) # rubocop:disable GitlabSecurity/PublicSend
+            ].index_with do |key|
+              public_send(key) # rubocop:disable GitlabSecurity/PublicSend
             end
           end
 
@@ -98,7 +95,7 @@ module Gitlab
           end
 
           def unsafe?(severity_levels, report_types)
-            severity.to_s.in?(severity_levels) && (report_types.blank? || report_type.to_s.in?(report_types) )
+            severity.to_s.in?(severity_levels) && (report_types.blank? || report_type.to_s.in?(report_types))
           end
 
           def eql?(other)
@@ -138,7 +135,7 @@ module Gitlab
 
           def <=>(other)
             if severity == other.severity
-              compare_key <=> other.compare_key
+              uuid <=> other.uuid
             else
               ::Enums::Vulnerability.severity_levels[other.severity] <=>
                 ::Enums::Vulnerability.severity_levels[severity]
@@ -156,6 +153,14 @@ module Gitlab
             signatures.present?
           end
 
+          def false_positive?
+            flags.any?(&:false_positive?)
+          end
+
+          def remediation_byte_offsets
+            remediations.map(&:byte_offsets).compact
+          end
+
           def raw_metadata
             @raw_metadata ||= original_data.to_json
           end
@@ -164,16 +169,20 @@ module Gitlab
             original_data['description']
           end
 
-          def message
-            original_data['message']
-          end
-
           def solution
             original_data['solution']
           end
 
           def location_data
             original_data['location']
+          end
+
+          def assets
+            original_data['assets'] || []
+          end
+
+          def raw_source_code_extract
+            original_data['raw_source_code_extract']
           end
 
           # Returns either the max priority signature hex
@@ -185,7 +194,7 @@ module Gitlab
           private
 
           def generate_project_fingerprint
-            Digest::SHA1.hexdigest(compare_key)
+            Digest::SHA1.hexdigest(uuid.to_s)
           end
 
           def location_fingerprints

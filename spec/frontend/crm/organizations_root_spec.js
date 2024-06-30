@@ -1,65 +1,100 @@
-import { GlAlert, GlLoadingIcon } from '@gitlab/ui';
+import { GlLoadingIcon } from '@gitlab/ui';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
-import VueRouter from 'vue-router';
-import { mountExtended, shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
-import OrganizationsRoot from '~/crm/components/organizations_root.vue';
-import NewOrganizationForm from '~/crm/components/new_organization_form.vue';
-import { NEW_ROUTE_NAME } from '~/crm/constants';
-import routes from '~/crm/routes';
-import getGroupOrganizationsQuery from '~/crm/components/queries/get_group_organizations.query.graphql';
-import { getGroupOrganizationsQueryResponse } from './mock_data';
+import OrganizationsRoot from '~/crm/organizations/components/organizations_root.vue';
+import getGroupOrganizationsQuery from '~/crm/organizations/components/graphql/get_group_organizations.query.graphql';
+import getGroupOrganizationsCountByStateQuery from '~/crm/organizations/components/graphql/get_group_organizations_count_by_state.query.graphql';
+import PaginatedTableWithSearchAndTabs from '~/vue_shared/components/paginated_table_with_search_and_tabs/paginated_table_with_search_and_tabs.vue';
+import {
+  getGroupOrganizationsQueryResponse,
+  getGroupOrganizationsCountQueryResponse,
+} from './mock_data';
+
+Vue.use(VueApollo);
 
 describe('Customer relations organizations root app', () => {
-  Vue.use(VueApollo);
-  Vue.use(VueRouter);
   let wrapper;
   let fakeApollo;
-  let router;
 
+  const findContactsLink = () => wrapper.findByTestId('contacts-link');
   const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
-  const findRowByName = (rowName) => wrapper.findAllByRole('row', { name: rowName });
-  const findIssuesLinks = () => wrapper.findAllByTestId('issues-link');
   const findNewOrganizationButton = () => wrapper.findByTestId('new-organization-button');
-  const findNewOrganizationForm = () => wrapper.findComponent(NewOrganizationForm);
-  const findError = () => wrapper.findComponent(GlAlert);
+  const findTable = () => wrapper.findComponent(PaginatedTableWithSearchAndTabs);
   const successQueryHandler = jest.fn().mockResolvedValue(getGroupOrganizationsQueryResponse);
-
-  const basePath = '/groups/flightjs/-/crm/organizations';
+  const successCountQueryHandler = jest
+    .fn()
+    .mockResolvedValue(getGroupOrganizationsCountQueryResponse);
 
   const mountComponent = ({
     queryHandler = successQueryHandler,
-    mountFunction = shallowMountExtended,
+    countQueryHandler = successCountQueryHandler,
     canAdminCrmOrganization = true,
+    canReadCrmContact = true,
+    textQuery = null,
   } = {}) => {
-    fakeApollo = createMockApollo([[getGroupOrganizationsQuery, queryHandler]]);
-    wrapper = mountFunction(OrganizationsRoot, {
-      router,
-      provide: { canAdminCrmOrganization, groupFullPath: 'flightjs', groupIssuesPath: '/issues' },
+    fakeApollo = createMockApollo([
+      [getGroupOrganizationsQuery, queryHandler],
+      [getGroupOrganizationsCountByStateQuery, countQueryHandler],
+    ]);
+    wrapper = shallowMountExtended(OrganizationsRoot, {
+      provide: {
+        canAdminCrmOrganization,
+        canReadCrmContact,
+        groupContactsPath: '/contacts',
+        groupFullPath: 'flightjs',
+        groupIssuesPath: '/issues',
+        textQuery,
+      },
       apolloProvider: fakeApollo,
+      stubs: ['router-link', 'router-view'],
     });
   };
 
-  beforeEach(() => {
-    router = new VueRouter({
-      base: basePath,
-      mode: 'history',
-      routes,
-    });
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-    fakeApollo = null;
-    router = null;
-  });
-
-  it('should render loading spinner', () => {
+  it('should render table with default props and loading spinner', () => {
     mountComponent();
 
+    expect(findTable().props()).toMatchObject({
+      items: [],
+      itemsCount: {},
+      pageInfo: {},
+      statusTabs: [
+        { title: 'Active', status: 'ACTIVE', filters: 'active' },
+        { title: 'Inactive', status: 'INACTIVE', filters: 'inactive' },
+        { title: 'All', status: 'ALL', filters: 'all' },
+      ],
+      showItems: true,
+      showErrorMsg: false,
+      trackViewsOptions: { category: 'Customer Relations', action: 'view_organizations_list' },
+      i18n: {
+        emptyText: 'No organizations found',
+        issuesButtonLabel: 'View issues',
+        editButtonLabel: 'Edit',
+        title: 'Customer relations organizations',
+        newOrganization: 'New organization',
+        errorMsg: 'Something went wrong. Please try again.',
+      },
+      serverErrorMessage: '',
+      filterSearchKey: 'organizations',
+      filterSearchTokens: [],
+    });
     expect(findLoadingIcon().exists()).toBe(true);
+  });
+
+  describe('contacts link', () => {
+    it('renders when canReadContact is true', () => {
+      mountComponent();
+
+      expect(findContactsLink().attributes('href')).toBe('/contacts');
+    });
+
+    it('does not render when canReadContact is false', () => {
+      mountComponent({ canReadCrmContact: false });
+
+      expect(findContactsLink().exists()).toBe(false);
+    });
   });
 
   describe('new organization button', () => {
@@ -76,47 +111,25 @@ describe('Customer relations organizations root app', () => {
     });
   });
 
-  describe('new organization form', () => {
-    it('should not exist by default', async () => {
-      mountComponent();
+  describe('error', () => {
+    it('should render on reject', async () => {
+      mountComponent({ queryHandler: jest.fn().mockRejectedValue('ERROR') });
       await waitForPromises();
 
-      expect(findNewOrganizationForm().exists()).toBe(false);
+      expect(findTable().props('showErrorMsg')).toBe(true);
     });
 
-    it('should exist when user clicks new contact button', async () => {
-      mountComponent();
-
-      findNewOrganizationButton().vm.$emit('click');
+    it('should be removed on error-alert-dismissed event', async () => {
+      mountComponent({ queryHandler: jest.fn().mockRejectedValue('ERROR') });
       await waitForPromises();
 
-      expect(findNewOrganizationForm().exists()).toBe(true);
-    });
+      expect(findTable().props('showErrorMsg')).toBe(true);
 
-    it('should exist when user navigates directly to /new', async () => {
-      router.replace({ name: NEW_ROUTE_NAME });
-      mountComponent();
+      findTable().vm.$emit('error-alert-dismissed');
       await waitForPromises();
 
-      expect(findNewOrganizationForm().exists()).toBe(true);
+      expect(findTable().props('showErrorMsg')).toBe(false);
     });
-
-    it('should not exist when form emits close', async () => {
-      router.replace({ name: NEW_ROUTE_NAME });
-      mountComponent();
-
-      findNewOrganizationForm().vm.$emit('close');
-      await waitForPromises();
-
-      expect(findNewOrganizationForm().exists()).toBe(false);
-    });
-  });
-
-  it('should render error message on reject', async () => {
-    mountComponent({ queryHandler: jest.fn().mockRejectedValue('ERROR') });
-    await waitForPromises();
-
-    expect(findError().exists()).toBe(true);
   });
 
   describe('on successful load', () => {
@@ -124,21 +137,15 @@ describe('Customer relations organizations root app', () => {
       mountComponent();
       await waitForPromises();
 
-      expect(findError().exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('Something went wrong. Please try again.');
     });
 
     it('renders correct results', async () => {
-      mountComponent({ mountFunction: mountExtended });
+      mountComponent();
       await waitForPromises();
 
-      expect(findRowByName(/Test Inc/i)).toHaveLength(1);
-      expect(findRowByName(/VIP/i)).toHaveLength(1);
-      expect(findRowByName(/120/i)).toHaveLength(1);
-
-      const issueLink = findIssuesLinks().at(0);
-      expect(issueLink.exists()).toBe(true);
-      expect(issueLink.attributes('href')).toBe(
-        '/issues?scope=all&state=opened&crm_organization_id=2',
+      expect(findTable().props('items')).toEqual(
+        getGroupOrganizationsQueryResponse.data.group.organizations.nodes,
       );
     });
   });

@@ -2,8 +2,8 @@
 
 require "spec_helper"
 
-RSpec.describe "User adds a comment on a commit", :js do
-  include Spec::Support::Helpers::Features::NotesHelpers
+RSpec.describe "User adds a comment on a commit", :js, feature_category: :source_code_management do
+  include Features::NotesHelpers
   include RepoHelpers
 
   let(:comment_text) { "XML attached" }
@@ -36,7 +36,7 @@ RSpec.describe "User adds a comment on a commit", :js do
         expect(page).not_to have_css(".js-note-text")
 
         # Check on the `Write` tab
-        click_button("Write")
+        click_button("Continue editing")
 
         expect(page).to have_field("note[note]", with: "#{comment_text} #{emoji}")
 
@@ -107,12 +107,12 @@ RSpec.describe "User adds a comment on a commit", :js do
           # Test UI elements, then submit.
           page.within("form[data-line-code='#{sample_commit.line_code}']") do
             expect(find(".js-note-text", visible: false).text).to eq("")
-            expect(page).to have_css('.js-md-write-button')
+            expect(page).to have_css('.js-md-preview')
 
             click_button("Comment")
           end
 
-          expect(page).to have_button("Reply...").and have_no_css("form.new_note")
+          expect(page).to have_css(".reply-placeholder-text-field").and have_no_css("form.new_note")
         end
 
         # A comment should be added and visible.

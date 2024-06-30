@@ -2,11 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe API::ProtectedBranches do
-  let(:user) { create(:user) }
-  let!(:project) { create(:project, :repository) }
+RSpec.describe API::ProtectedBranches, feature_category: :source_code_management do
+  let_it_be_with_reload(:project) { create(:project, :repository) }
+  let_it_be(:maintainer) { create(:user, maintainer_of: project) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
+  let_it_be(:guest) { create(:user, guest_of: project) }
+
   let(:protected_name) { 'feature' }
   let(:branch_name) { protected_name }
+
   let!(:protected_branch) do
     create(:protected_branch, project: project, name: protected_name)
   end
@@ -14,6 +18,7 @@ RSpec.describe API::ProtectedBranches do
   describe "GET /projects/:id/protected_branches" do
     let(:params) { {} }
     let(:route) { "/projects/#{project.id}/protected_branches" }
+    let(:expected_branch_names) { project.protected_branches.map { |x| x['name'] } }
 
     shared_examples_for 'protected branches' do
       it 'returns the protected branches' do
@@ -21,22 +26,17 @@ RSpec.describe API::ProtectedBranches do
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
-        expect(json_response).to be_an Array
-
+        expect(response).to match_response_schema('protected_branches')
         protected_branch_names = json_response.map { |x| x['name'] }
         expect(protected_branch_names).to match_array(expected_branch_names)
       end
     end
 
     context 'when authenticated as a maintainer' do
-      before do
-        project.add_maintainer(user)
-      end
+      let(:user) { maintainer }
 
       context 'when search param is not present' do
-        it_behaves_like 'protected branches' do
-          let(:expected_branch_names) { project.protected_branches.map { |x| x['name'] } }
-        end
+        it_behaves_like 'protected branches'
       end
 
       context 'when search param is present' do
@@ -48,10 +48,14 @@ RSpec.describe API::ProtectedBranches do
       end
     end
 
+    context 'when authenticated as a developer' do
+      let(:user) { developer }
+
+      it_behaves_like 'protected branches'
+    end
+
     context 'when authenticated as a guest' do
-      before do
-        project.add_guest(user)
-      end
+      let(:user) { guest }
 
       it_behaves_like '403 response' do
         let(:request) { get api(route, user) }
@@ -67,6 +71,7 @@ RSpec.describe API::ProtectedBranches do
         get api(route, user)
 
         expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(false)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(::Gitlab::Access::MAINTAINER)
@@ -84,9 +89,7 @@ RSpec.describe API::ProtectedBranches do
     end
 
     context 'when authenticated as a maintainer' do
-      before do
-        project.add_maintainer(user)
-      end
+      let(:user) { maintainer }
 
       it_behaves_like 'protected branch'
 
@@ -101,12 +104,42 @@ RSpec.describe API::ProtectedBranches do
 
         it_behaves_like 'protected branch'
       end
+
+      context 'when a deploy key is present' do
+        let(:deploy_key) do
+          create(:deploy_key, deploy_keys_projects: [create(:deploy_keys_project, :write_access, project: project)])
+        end
+
+        it 'returns deploy key information' do
+          create(:protected_branch_push_access_level, protected_branch: protected_branch, deploy_key: deploy_key)
+          get api(route, user)
+
+          expect(json_response['push_access_levels']).to include(
+            a_hash_including('access_level_description' => deploy_key.title, 'deploy_key_id' => deploy_key.id)
+          )
+        end
+      end
+
+      context 'when a deploy key is not present' do
+        it 'returns null deploy key field' do
+          create(:protected_branch_push_access_level, protected_branch: protected_branch)
+          get api(route, user)
+
+          expect(json_response['push_access_levels']).to include(
+            a_hash_including('deploy_key_id' => nil)
+          )
+        end
+      end
+    end
+
+    context 'when authenticated as a developer' do
+      let(:user) { developer }
+
+      it_behaves_like 'protected branch'
     end
 
     context 'when authenticated as a guest' do
-      before do
-        project.add_guest(user)
-      end
+      let(:user) { guest }
 
       it_behaves_like '403 response' do
         let(:request) { get api(route, user) }
@@ -124,14 +157,13 @@ RSpec.describe API::ProtectedBranches do
     end
 
     context 'when authenticated as a maintainer' do
-      before do
-        project.add_maintainer(user)
-      end
+      let(:user) { maintainer }
 
       it 'protects a single branch' do
         post post_endpoint, params: { name: branch_name }
 
         expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(false)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(Gitlab::Access::MAINTAINER)
@@ -142,6 +174,7 @@ RSpec.describe API::ProtectedBranches do
         post post_endpoint, params: { name: branch_name, push_access_level: 30 }
 
         expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(false)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(Gitlab::Access::DEVELOPER)
@@ -152,6 +185,7 @@ RSpec.describe API::ProtectedBranches do
         post post_endpoint, params: { name: branch_name, merge_access_level: 30 }
 
         expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(false)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(Gitlab::Access::MAINTAINER)
@@ -162,6 +196,7 @@ RSpec.describe API::ProtectedBranches do
         post post_endpoint, params: { name: branch_name, push_access_level: 30, merge_access_level: 30 }
 
         expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(false)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(Gitlab::Access::DEVELOPER)
@@ -172,6 +207,7 @@ RSpec.describe API::ProtectedBranches do
         post post_endpoint, params: { name: branch_name, push_access_level: 0 }
 
         expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(false)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(Gitlab::Access::NO_ACCESS)
@@ -182,6 +218,7 @@ RSpec.describe API::ProtectedBranches do
         post post_endpoint, params: { name: branch_name, merge_access_level: 0 }
 
         expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(false)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(Gitlab::Access::MAINTAINER)
@@ -192,6 +229,7 @@ RSpec.describe API::ProtectedBranches do
         post post_endpoint, params: { name: branch_name, push_access_level: 0, merge_access_level: 0 }
 
         expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(false)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(Gitlab::Access::NO_ACCESS)
@@ -202,6 +240,7 @@ RSpec.describe API::ProtectedBranches do
         post post_endpoint, params: { name: branch_name, allow_force_push: true }
 
         expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('protected_branch')
         expect(json_response['name']).to eq(branch_name)
         expect(json_response['allow_force_push']).to eq(true)
         expect(json_response['push_access_levels'][0]['access_level']).to eq(Gitlab::Access::MAINTAINER)
@@ -226,13 +265,10 @@ RSpec.describe API::ProtectedBranches do
         end
       end
 
-      context 'when a policy restricts rule deletion' do
-        before do
-          policy = instance_double(ProtectedBranchPolicy, allowed?: false)
-          expect(ProtectedBranchPolicy).to receive(:new).and_return(policy)
-        end
+      context 'when a policy restricts rule creation' do
+        it "prevents creations of the protected branch rule" do
+          disallow(:create_protected_branch, an_instance_of(ProtectedBranch))
 
-        it "prevents deletion of the protected branch rule" do
           post post_endpoint, params: { name: branch_name }
 
           expect(response).to have_gitlab_http_status(:forbidden)
@@ -240,13 +276,83 @@ RSpec.describe API::ProtectedBranches do
       end
     end
 
+    context 'when authenticated as a developer' do
+      let(:user) { developer }
+
+      it "returns a 403 error" do
+        post post_endpoint, params: { name: branch_name }
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
     context 'when authenticated as a guest' do
-      before do
-        project.add_guest(user)
+      let(:user) { guest }
+
+      it "returns a 403 error" do
+        post post_endpoint, params: { name: branch_name }
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+  end
+
+  describe 'PATCH /projects/:id/protected_branches/:name' do
+    let(:route) { "/projects/#{project.id}/protected_branches/#{branch_name}" }
+
+    context 'when authenticated as a maintainer' do
+      let(:user) { maintainer }
+
+      it "updates a single branch" do
+        expect do
+          patch api(route, user), params: { allow_force_push: true }
+        end.to change { protected_branch.reload.allow_force_push }.from(false).to(true)
+        expect(response).to have_gitlab_http_status(:ok)
       end
 
-      it "returns a 403 error if guest" do
-        post post_endpoint, params: { name: branch_name }
+      context 'when allow_force_push is not set' do
+        it 'responds with a bad request error' do
+          patch api(route, user), params: { allow_force_push: nil }
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+          expect(json_response['error']).to eq 'allow_force_push is empty'
+        end
+      end
+    end
+
+    context 'when returned protected branch is invalid' do
+      let(:user) { maintainer }
+
+      before do
+        allow_next_found_instance_of(ProtectedBranch) do |instance|
+          allow(instance).to receive(:valid?).and_return(false)
+        end
+      end
+
+      it "returns a 422" do
+        expect do
+          patch api(route, user), params: { allow_force_push: true }
+        end.not_to change { protected_branch.reload.allow_force_push }
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+      end
+    end
+
+    context 'when authenticated as a developer' do
+      let(:user) { developer }
+
+      it "returns a 403 error" do
+        patch api(route, user), params: { allow_force_push: true }
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
+    context 'when authenticated as a guest' do
+      let(:user) { guest }
+
+      it "returns a 403 error" do
+        patch api(route, user), params: { allow_force_push: true }
 
         expect(response).to have_gitlab_http_status(:forbidden)
       end
@@ -256,47 +362,69 @@ RSpec.describe API::ProtectedBranches do
   describe "DELETE /projects/:id/protected_branches/unprotect/:branch" do
     let(:delete_endpoint) { api("/projects/#{project.id}/protected_branches/#{branch_name}", user) }
 
-    before do
-      project.add_maintainer(user)
-    end
+    context "when authenticated as a maintainer" do
+      let(:user) { maintainer }
 
-    it "unprotects a single branch" do
-      delete delete_endpoint
+      it "unprotects a single branch" do
+        delete delete_endpoint
 
-      expect(response).to have_gitlab_http_status(:no_content)
-    end
-
-    it_behaves_like '412 response' do
-      let(:request) { delete_endpoint }
-    end
-
-    it "returns 404 if branch does not exist" do
-      delete api("/projects/#{project.id}/protected_branches/barfoo", user)
-
-      expect(response).to have_gitlab_http_status(:not_found)
-    end
-
-    context 'when a policy restricts rule deletion' do
-      before do
-        policy = instance_double(ProtectedBranchPolicy, allowed?: false)
-        expect(ProtectedBranchPolicy).to receive(:new).and_return(policy)
+        expect(response).to have_gitlab_http_status(:no_content)
       end
 
-      it "prevents deletion of the protected branch rule" do
+      it_behaves_like '412 response' do
+        let(:request) { delete_endpoint }
+      end
+
+      it "returns 404 if branch does not exist" do
+        delete api("/projects/#{project.id}/protected_branches/barfoo", user)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+
+      context 'when a policy restricts rule deletion' do
+        it "prevents deletion of the protected branch rule" do
+          disallow(:destroy_protected_branch, protected_branch)
+
+          delete delete_endpoint
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+
+      context 'when branch has a wildcard in its name' do
+        let(:protected_name) { 'feature*' }
+
+        it "unprotects a wildcard branch" do
+          delete delete_endpoint
+
+          expect(response).to have_gitlab_http_status(:no_content)
+        end
+      end
+    end
+
+    context 'when authenticated as a developer' do
+      let(:user) { developer }
+
+      it "returns a 403 error" do
         delete delete_endpoint
 
         expect(response).to have_gitlab_http_status(:forbidden)
       end
     end
 
-    context 'when branch has a wildcard in its name' do
-      let(:protected_name) { 'feature*' }
+    context 'when authenticated as a guest' do
+      let(:user) { guest }
 
-      it "unprotects a wildcard branch" do
+      it "returns a 403 error" do
         delete delete_endpoint
 
-        expect(response).to have_gitlab_http_status(:no_content)
+        expect(response).to have_gitlab_http_status(:forbidden)
       end
     end
+  end
+
+  def disallow(ability, protected_branch)
+    allow(Ability).to receive(:allowed?).and_call_original
+    allow(Ability).to receive(:allowed?).with(user, ability, protected_branch).and_return(false)
   end
 end

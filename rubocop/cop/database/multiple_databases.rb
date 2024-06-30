@@ -10,7 +10,7 @@ module RuboCop
       #   # good
       #   ApplicationRecord.connection
       #
-      class MultipleDatabases < RuboCop::Cop::Cop
+      class MultipleDatabases < RuboCop::Cop::Base
         AR_BASE_MESSAGE = <<~EOF
           Do not use methods from ActiveRecord::Base, use the ApplicationRecord class instead
           For fixing offenses related to the ActiveRecord::Base.transaction method, see our guidelines:
@@ -19,10 +19,13 @@ module RuboCop
 
         ALLOWED_METHODS = %i[
           no_touching
+          configurations
+          connection_handler
+          logger
         ].freeze
 
         def_node_matcher :active_record_base_method_is_used?, <<~PATTERN
-        (send (const (const nil? :ActiveRecord) :Base) $_)
+        (send (const (const _ :ActiveRecord) :Base) $_)
         PATTERN
 
         def on_send(node)
@@ -31,7 +34,7 @@ module RuboCop
           active_record_base_method = node.children[1]
           return if method_is_allowed?(active_record_base_method)
 
-          add_offense(node, location: :expression, message: AR_BASE_MESSAGE)
+          add_offense(node, message: AR_BASE_MESSAGE)
         end
 
         private

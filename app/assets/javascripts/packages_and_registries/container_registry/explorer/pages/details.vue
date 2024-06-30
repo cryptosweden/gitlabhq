@@ -1,50 +1,38 @@
 <script>
-import { GlResizeObserverDirective, GlEmptyState } from '@gitlab/ui';
+import { GlResizeObserverDirective, GlEmptyState, GlSkeletonLoader } from '@gitlab/ui';
 import { GlBreakpointInstance } from '@gitlab/ui/dist/utils';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { joinPaths } from '~/lib/utils/url_utility';
 import Tracking from '~/tracking';
-import TagsLoader from '~/packages_and_registries/shared/components/tags_loader.vue';
 import DeleteImage from '../components/delete_image.vue';
 import DeleteAlert from '../components/details_page/delete_alert.vue';
-import DeleteModal from '../components/details_page/delete_modal.vue';
+import DeleteModal from '../components/delete_modal.vue';
 import DetailsHeader from '../components/details_page/details_header.vue';
 import PartialCleanupAlert from '../components/details_page/partial_cleanup_alert.vue';
 import StatusAlert from '../components/details_page/status_alert.vue';
 import TagsList from '../components/details_page/tags_list.vue';
 
 import {
-  ALERT_SUCCESS_TAG,
-  ALERT_DANGER_TAG,
-  ALERT_SUCCESS_TAGS,
-  ALERT_DANGER_TAGS,
   ALERT_DANGER_IMAGE,
-  ALERT_DANGER_IMPORTING,
   FETCH_IMAGES_LIST_ERROR_MESSAGE,
   UNFINISHED_STATUS,
   MISSING_OR_DELETED_IMAGE_BREADCRUMB,
-  ROOT_IMAGE_TEXT,
-  GRAPHQL_PAGE_SIZE,
   MISSING_OR_DELETED_IMAGE_TITLE,
   MISSING_OR_DELETED_IMAGE_MESSAGE,
 } from '../constants/index';
-import deleteContainerRepositoryTagsMutation from '../graphql/mutations/delete_container_repository_tags.mutation.graphql';
 import getContainerRepositoryDetailsQuery from '../graphql/queries/get_container_repository_details.query.graphql';
-import getContainerRepositoryTagsQuery from '../graphql/queries/get_container_repository_tags.query.graphql';
-
-const REPOSITORY_IMPORTING_ERROR_MESSAGE = 'repository importing';
 
 export default {
   name: 'RegistryDetailsPage',
   components: {
     GlEmptyState,
+    GlSkeletonLoader,
     DeleteAlert,
     PartialCleanupAlert,
     DetailsHeader,
     DeleteModal,
     TagsList,
-    TagsLoader,
     StatusAlert,
     DeleteImage,
   },
@@ -67,7 +55,7 @@ export default {
         this.updateBreadcrumb();
       },
       error() {
-        createFlash({ message: FETCH_IMAGES_LIST_ERROR_MESSAGE });
+        createAlert({ message: FETCH_IMAGES_LIST_ERROR_MESSAGE });
       },
     },
   },
@@ -79,7 +67,6 @@ export default {
       mutationLoading: false,
       deleteAlertType: null,
       hidePartialCleanupWarning: false,
-      deleteImageAlert: false,
     };
   },
   computed: {
@@ -100,8 +87,7 @@ export default {
     },
     tracking() {
       return {
-        label:
-          this.itemsToBeDeleted?.length > 1 ? 'bulk_registry_tag_delete' : 'registry_tag_delete',
+        label: 'registry_image_delete',
       };
     },
     pageActionsAreDisabled() {
@@ -111,59 +97,12 @@ export default {
   methods: {
     updateBreadcrumb() {
       const name = this.containerRepository?.id
-        ? this.containerRepository?.name || ROOT_IMAGE_TEXT
+        ? this.containerRepository?.name || this.containerRepository?.project?.path
         : MISSING_OR_DELETED_IMAGE_BREADCRUMB;
       this.breadCrumbState.updateName(name);
     },
-    deleteTags(toBeDeleted) {
-      this.deleteImageAlert = false;
-      this.itemsToBeDeleted = toBeDeleted;
-      this.track('click_button');
-      this.$refs.deleteModal.show();
-    },
     confirmDelete() {
-      if (this.deleteImageAlert) {
-        this.$refs.deleteImage.doDelete();
-      } else {
-        this.handleDeleteTag();
-      }
-    },
-    async handleDeleteTag() {
-      this.track('confirm_delete');
-      const { itemsToBeDeleted } = this;
-      this.itemsToBeDeleted = [];
-      this.mutationLoading = true;
-      try {
-        const { data } = await this.$apollo.mutate({
-          mutation: deleteContainerRepositoryTagsMutation,
-          variables: {
-            id: this.queryVariables.id,
-            tagNames: itemsToBeDeleted.map((i) => i.name),
-          },
-          awaitRefetchQueries: true,
-          refetchQueries: [
-            {
-              query: getContainerRepositoryTagsQuery,
-              variables: { ...this.queryVariables, first: GRAPHQL_PAGE_SIZE },
-            },
-          ],
-        });
-
-        if (data?.destroyContainerRepositoryTags?.errors[0]) {
-          throw new Error(data.destroyContainerRepositoryTags.errors[0]);
-        }
-        this.deleteAlertType =
-          itemsToBeDeleted.length === 0 ? ALERT_SUCCESS_TAG : ALERT_SUCCESS_TAGS;
-      } catch (e) {
-        if (e.message === REPOSITORY_IMPORTING_ERROR_MESSAGE) {
-          this.deleteAlertType = ALERT_DANGER_IMPORTING;
-        } else {
-          this.deleteAlertType =
-            itemsToBeDeleted.length === 0 ? ALERT_DANGER_TAG : ALERT_DANGER_TAGS;
-        }
-      }
-
-      this.mutationLoading = false;
+      this.$refs.deleteImage.doDelete();
     },
     handleResize() {
       this.isMobile = GlBreakpointInstance.getBreakpointSize() === 'xs';
@@ -175,7 +114,6 @@ export default {
       });
     },
     deleteImage() {
-      this.deleteImageAlert = true;
       this.itemsToBeDeleted = [{ ...this.containerRepository }];
       this.$refs.deleteModal.show();
     },
@@ -185,6 +123,9 @@ export default {
     deleteImageIniit() {
       this.itemsToBeDeleted = [];
       this.mutationLoading = true;
+    },
+    showAlert(alertType) {
+      this.deleteAlertType = alertType;
     },
   },
 };
@@ -196,7 +137,6 @@ export default {
       <delete-alert
         v-model="deleteAlertType"
         :garbage-collection-help-page-path="config.garbageCollectionHelpPagePath"
-        :container-registry-importing-help-page-path="config.containerRegistryImportingHelpPagePath"
         :is-admin="config.isAdmin"
         class="gl-my-2"
       />
@@ -210,21 +150,22 @@ export default {
 
       <status-alert v-if="containerRepository.status" :status="containerRepository.status" />
 
+      <div v-if="isLoading" class="gl-my-6">
+        <gl-skeleton-loader />
+      </div>
       <details-header
-        v-if="!isLoading"
+        v-else
         :image="containerRepository"
         :disabled="pageActionsAreDisabled"
         @delete="deleteImage"
       />
 
-      <tags-loader v-if="isLoading" />
       <tags-list
-        v-else
         :id="$route.params.id"
         :is-image-loading="isLoading"
         :is-mobile="isMobile"
         :disabled="pageActionsAreDisabled"
-        @delete="deleteTags"
+        @delete="showAlert"
       />
 
       <delete-image
@@ -239,7 +180,7 @@ export default {
       <delete-modal
         ref="deleteModal"
         :items-to-be-deleted="itemsToBeDeleted"
-        :delete-image="deleteImageAlert"
+        delete-image
         @confirmDelete="confirmDelete"
         @cancel="track('cancel_delete')"
       />
@@ -249,6 +190,7 @@ export default {
       :title="$options.i18n.MISSING_OR_DELETED_IMAGE_TITLE"
       :description="$options.i18n.MISSING_OR_DELETED_IMAGE_MESSAGE"
       :svg-path="config.noContainersImage"
+      :svg-height="null"
       class="gl-mx-auto gl-my-0"
     />
   </div>

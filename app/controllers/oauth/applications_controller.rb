@@ -4,7 +4,6 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
   include Gitlab::GonHelper
   include PageLayoutHelper
   include OauthApplications
-  include Gitlab::Experimentation::ControllerConcern
   include InitializesCurrentUserMode
 
   # Defined by the `Doorkeeper::ApplicationsController` and is redundant as we call `authenticate_user!` below. Not
@@ -24,9 +23,7 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
     set_index_vars
   end
 
-  def show
-    @created = get_created_session
-  end
+  def show; end
 
   def create
     @application = Applications::CreateService.new(current_user, application_params).execute(request)
@@ -34,12 +31,23 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
     if @application.persisted?
       flash[:notice] = I18n.t(:notice, scope: [:doorkeeper, :flash, :applications, :create])
 
-      set_created_session
-
-      redirect_to oauth_application_url(@application)
+      @created = true
+      render :show
     else
       set_index_vars
       render :index
+    end
+  end
+
+  def renew
+    set_application
+
+    @application.renew_secret
+
+    if @application.save
+      render json: { secret: @application.plaintext_secret }
+    else
+      render json: { errors: @application.errors }, status: :unprocessable_entity
     end
   end
 
@@ -48,19 +56,17 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
   def verify_user_oauth_applications_enabled
     return if Gitlab::CurrentSettings.user_oauth_applications?
 
-    redirect_to profile_path
+    redirect_to user_settings_profile_path
   end
 
   def set_index_vars
-    @applications = current_user.oauth_applications
+    @applications = current_user.oauth_applications.load
     @authorized_tokens = current_user.oauth_authorized_tokens
-    @authorized_anonymous_tokens = @authorized_tokens.reject(&:application)
-    @authorized_apps = @authorized_tokens.map(&:application).uniq.reject(&:nil?)
+                                     .latest_per_application
+                                     .preload_application
 
-    # Default access tokens to expire. This preserves backward compatibility
-    # with existing applications. This will be removed in 15.0.
-    # Removal issue: https://gitlab.com/gitlab-org/gitlab/-/issues/340848
-    @application ||= Doorkeeper::Application.new(expire_access_tokens: true)
+    # Don't overwrite a value possibly set by `create`
+    @application ||= Doorkeeper::Application.new
   end
 
   # Override Doorkeeper to scope to the current user

@@ -5,10 +5,14 @@ module SortingPreference
   include CookiesHelper
 
   def set_sort_order(field = sorting_field, default_order = default_sort_order)
-    set_sort_order_from_user_preference(field) ||
+    sort_order = set_sort_order_from_user_preference(field) ||
       set_sort_order_from_cookie(field) ||
-      params[:sort] ||
-      default_order
+      pagination_params[:sort]
+
+    # some types of sorting might not be available on the dashboard
+    return default_order unless valid_sort_order?(sort_order)
+
+    sort_order
   end
 
   # Implement sorting_field method on controllers
@@ -38,14 +42,12 @@ module SortingPreference
 
     user_preference = current_user.user_preference
 
-    sort_param = params[:sort]
+    sort_param = pagination_params[:sort]
     sort_param ||= user_preference[field]
 
     return sort_param if Gitlab::Database.read_only?
 
-    if user_preference[field] != sort_param
-      user_preference.update(field => sort_param)
-    end
+    user_preference.update(field => sort_param) if user_preference[field] != sort_param
 
     sort_param
   end
@@ -53,7 +55,7 @@ module SortingPreference
   def set_sort_order_from_cookie(field = sorting_field)
     return unless legacy_sort_cookie_name
 
-    sort_param = params[:sort] if params[:sort].present?
+    sort_param = pagination_params[:sort] if pagination_params[:sort].present?
     # fallback to legacy cookie value for backward compatibility
     sort_param ||= cookies[legacy_sort_cookie_name]
     sort_param ||= cookies[remember_sorting_key(field)]
@@ -84,5 +86,16 @@ module SortingPreference
     when 'downvotes_desc'     then sort_value_popularity
     else value
     end
+  end
+
+  def valid_sort_order?(sort_order)
+    return false unless sort_order
+    return can_sort_by_issue_weight?(action_name == 'issues') if sort_order.include?('weight')
+
+    if sort_order.include?('merged_at')
+      return can_sort_by_merged_date?(controller_name == 'merge_requests' || action_name == 'merge_requests')
+    end
+
+    true
   end
 end

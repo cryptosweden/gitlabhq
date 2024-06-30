@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
+RSpec.describe Gitlab::Metrics::Exporter::BaseExporter, feature_category: :cloud_connector do
   let(:settings) { double('settings') }
   let(:log_enabled) { false }
   let(:exporter) { described_class.new(settings, log_enabled: log_enabled, log_file: 'test_exporter.log') }
@@ -10,15 +10,17 @@ RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
   describe 'when exporter is enabled' do
     before do
       allow(::WEBrick::HTTPServer).to receive(:new).with(
-        Port: anything,
-        BindAddress: anything,
-        Logger: anything,
-        AccessLog: anything
-      ).and_call_original
+        {
+          Port: anything,
+          BindAddress: anything,
+          Logger: anything,
+          AccessLog: anything
+        }).and_call_original
 
       allow(settings).to receive(:enabled).and_return(true)
       allow(settings).to receive(:port).and_return(0)
       allow(settings).to receive(:address).and_return('127.0.0.1')
+      allow(settings).to receive(:[]).with('tls_enabled').and_return(false)
     end
 
     after do
@@ -44,11 +46,12 @@ RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
 
           it 'starts server with port and address from settings' do
             expect(::WEBrick::HTTPServer).to receive(:new).with(
-              Port: port,
-              BindAddress: address,
-              Logger: anything,
-              AccessLog: anything
-            ).and_wrap_original do |m, *args|
+              {
+                Port: port,
+                BindAddress: address,
+                Logger: anything,
+                AccessLog: anything
+              }).and_wrap_original do |m, *args|
               m.call(DoNotListen: true, Logger: args.first[:Logger])
             end
 
@@ -88,6 +91,51 @@ RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
               exporter
             end
           end
+
+          context 'with TLS enabled' do
+            let(:test_cert) { Rails.root.join('spec/fixtures/x509_certificate.crt').to_s }
+            let(:test_key) { Rails.root.join('spec/fixtures/x509_certificate_pk.key').to_s }
+
+            before do
+              allow(settings).to receive(:[]).with('tls_enabled').and_return(true)
+              allow(settings).to receive(:[]).with('tls_cert_path').and_return(test_cert)
+              allow(settings).to receive(:[]).with('tls_key_path').and_return(test_key)
+            end
+
+            it 'injects the necessary OpenSSL config for WEBrick' do
+              expect(::WEBrick::HTTPServer).to receive(:new).with(
+                a_hash_including(
+                  SSLEnable: true,
+                  SSLCertificate: an_instance_of(OpenSSL::X509::Certificate),
+                  SSLPrivateKey: an_instance_of(OpenSSL::PKey::RSA),
+                  SSLStartImmediately: true,
+                  SSLExtraChainCert: []
+                ))
+
+              exporter.start
+            end
+
+            context 'with intermediate certificates' do
+              let(:test_cert) { Rails.root.join('spec/fixtures/clusters/chain_certificates.pem').to_s }
+              let(:test_key) { Rails.root.join('spec/fixtures/clusters/sample_key.key').to_s }
+
+              it 'injects them in the extra chain' do
+                expect(::WEBrick::HTTPServer).to receive(:new).with(
+                  a_hash_including(
+                    SSLEnable: true,
+                    SSLCertificate: an_instance_of(OpenSSL::X509::Certificate),
+                    SSLPrivateKey: an_instance_of(OpenSSL::PKey::RSA),
+                    SSLStartImmediately: true,
+                    SSLExtraChainCert: [
+                      an_instance_of(OpenSSL::X509::Certificate),
+                      an_instance_of(OpenSSL::X509::Certificate)
+                    ]
+                  ))
+
+                exporter.start
+              end
+            end
+          end
         end
 
         describe 'when thread is not alive' do
@@ -118,10 +166,10 @@ RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
       end
 
       describe '#start' do
-        it "doesn't start running server" do
-          expect_any_instance_of(::WEBrick::HTTPServer).not_to receive(:start)
+        it "doesn't start running server", quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/438765' do
+          expect(::WEBrick::HTTPServer).not_to receive(:new)
 
-          expect { exporter.start }.not_to change { exporter.thread? }
+          exporter.start
         end
       end
 
@@ -152,8 +200,6 @@ RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
 
     where(:method_class, :path, :http_status) do
       Net::HTTP::Get | '/metrics' | 200
-      Net::HTTP::Get | '/liveness' | 200
-      Net::HTTP::Get | '/readiness' | 200
       Net::HTTP::Get | '/' | 404
     end
 
@@ -161,6 +207,7 @@ RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
       allow(settings).to receive(:enabled).and_return(true)
       allow(settings).to receive(:port).and_return(0)
       allow(settings).to receive(:address).and_return('127.0.0.1')
+      allow(settings).to receive(:[]).with('tls_enabled').and_return(false)
 
       stub_const('Gitlab::Metrics::Exporter::MetricsMiddleware', fake_collector)
 
@@ -169,7 +216,7 @@ RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
       # in separate thread
       allow_any_instance_of(::WEBrick::HTTPServer)
         .to receive(:start).and_wrap_original do |m, *args|
-        Thread.new do
+        @server_thread = Thread.new do # rubocop:disable RSpec/InstanceVariable -- let does not work for this case
           m.call(*args)
         rescue IOError
           # is raised as we close listeners
@@ -177,8 +224,17 @@ RSpec.describe Gitlab::Metrics::Exporter::BaseExporter do
       end
     end
 
+    attr_reader :server_thread
+
     after do
       exporter.stop
+
+      next unless server_thread
+
+      server_thread.join(0.05)
+      raise '`exporter.stop` should terminate `server_thread`' if server_thread.alive?
+    ensure
+      server_thread.kill.join if server_thread
     end
 
     with_them do

@@ -1,11 +1,8 @@
 <script>
-import {
-  GlIcon,
-  GlButton,
-  GlIntersectionObserver,
-  GlTooltipDirective,
-  GlSafeHtmlDirective as SafeHtml,
-} from '@gitlab/ui';
+import { GlIcon, GlBadge, GlButton, GlIntersectionObserver, GlTooltipDirective } from '@gitlab/ui';
+import ConfidentialityBadge from '~/vue_shared/components/confidentiality_badge.vue';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { STATUS_OPEN } from '~/issues/constants';
 import { __ } from '~/locale';
 
 export default {
@@ -14,8 +11,10 @@ export default {
   },
   components: {
     GlIcon,
+    GlBadge,
     GlButton,
     GlIntersectionObserver,
+    ConfidentialityBadge,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -26,10 +25,6 @@ export default {
       type: Object,
       required: true,
     },
-    statusBadgeClass: {
-      type: String,
-      required: true,
-    },
     statusIcon: {
       type: String,
       required: true,
@@ -38,11 +33,25 @@ export default {
       type: Boolean,
       required: true,
     },
+    hideEditButton: {
+      type: Boolean,
+      required: false,
+    },
+    workspaceType: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
   data() {
     return {
       stickyTitleVisible: false,
     };
+  },
+  computed: {
+    badgeVariant() {
+      return this.issuable.state === STATUS_OPEN ? 'success' : 'info';
+    },
   },
   methods: {
     handleTitleAppear() {
@@ -60,17 +69,17 @@ export default {
     <div class="title-container">
       <h1
         v-safe-html="issuable.titleHtml || issuable.title"
-        class="title qa-title"
+        class="title gl-font-size-h-display"
         dir="auto"
-        data-testid="title"
+        data-testid="issuable-title"
       ></h1>
       <gl-button
-        v-if="enableEdit"
+        v-if="enableEdit && !hideEditButton"
         v-gl-tooltip.bottom
         :title="$options.i18n.editTitleAndDescription"
         :aria-label="$options.i18n.editTitleAndDescription"
         icon="pencil"
-        class="btn-edit js-issuable-edit qa-edit-button"
+        class="btn-edit js-issuable-edit"
         @click="$emit('edit-issuable', $event)"
       />
     </div>
@@ -78,22 +87,27 @@ export default {
       <transition name="issuable-header-slide">
         <div
           v-if="stickyTitleVisible"
-          class="issue-sticky-header gl-fixed gl-z-index-3 gl-bg-white gl-border-1 gl-border-b-solid gl-border-b-gray-100 gl-py-3"
+          class="issue-sticky-header gl-fixed gl-z-3 gl-bg-white gl-border-1 gl-border-b-solid gl-border-b-gray-100 gl-py-3"
           data-testid="header"
         >
-          <div
-            class="issue-sticky-header-text gl-display-flex gl-align-items-center gl-mx-auto gl-px-5"
-          >
-            <p
-              data-testid="status"
-              class="issuable-status-box status-box gl-my-0"
-              :class="statusBadgeClass"
+          <div class="issue-sticky-header-text gl-display-flex gl-align-items-baseline gl-mx-auto">
+            <gl-badge
+              class="gl-whitespace-nowrap gl-mr-3 gl-align-self-center"
+              :variant="badgeVariant"
             >
-              <gl-icon :name="statusIcon" class="gl-display-block d-sm-none gl-h-6!" />
-              <span class="gl-display-none d-sm-block"><slot name="status-badge"></slot></span>
-            </p>
+              <gl-icon v-if="statusIcon" class="sm:gl-hidden" :name="statusIcon" />
+              <span class="gl-hidden sm:gl-block">
+                <slot name="status-badge"></slot>
+              </span>
+            </gl-badge>
+            <confidentiality-badge
+              v-if="issuable.confidential"
+              class="gl-whitespace-nowrap gl-mr-3 gl-align-self-center"
+              :issuable-type="issuable.type"
+              :workspace-type="workspaceType"
+            />
             <p
-              class="gl-font-weight-bold gl-overflow-hidden gl-white-space-nowrap gl-text-overflow-ellipsis gl-my-0"
+              class="gl-font-bold gl-overflow-hidden gl-whitespace-nowrap gl-text-overflow-ellipsis gl-my-0"
               :title="issuable.title"
             >
               {{ issuable.title }}

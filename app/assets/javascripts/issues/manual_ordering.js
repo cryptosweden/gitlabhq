@@ -1,11 +1,8 @@
 import Sortable from 'sortablejs';
-import {
-  getBoardSortableDefaultOptions,
-  sortableStart,
-} from '~/boards/mixins/sortable_default_options';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { s__ } from '~/locale';
+import { getSortableDefaultOptions, sortableStart } from '~/sortable/utils';
 
 const updateIssue = (url, { move_before_id, move_after_id }) =>
   axios
@@ -14,7 +11,7 @@ const updateIssue = (url, { move_before_id, move_after_id }) =>
       move_after_id,
     })
     .catch(() => {
-      createFlash({
+      createAlert({
         message: s__("ManualOrdering|Couldn't save the order of the issues"),
       });
     });
@@ -28,7 +25,7 @@ const initManualOrdering = () => {
 
   Sortable.create(
     issueList,
-    getBoardSortableDefaultOptions({
+    getSortableDefaultOptions({
       scroll: true,
       fallbackTolerance: 1,
       dataIdAttr: 'data-id',

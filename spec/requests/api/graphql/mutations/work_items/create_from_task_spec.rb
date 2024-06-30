@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe "Create a work item from a task in a work item's description" do
+RSpec.describe "Create a work item from a task in a work item's description", feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
-  let_it_be(:developer) { create(:user).tap { |user| project.add_developer(user) } }
-  let_it_be(:work_item, refind: true) { create(:work_item, project: project, description: '- [ ] A task in a list', lock_version: 3) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
+  let_it_be(:work_item, refind: true) { create(:work_item, :confidential, project: project, description: '- [ ] A task in a list', lock_version: 3) }
 
   let(:lock_version) { work_item.lock_version }
   let(:input) do
@@ -23,7 +23,7 @@ RSpec.describe "Create a work item from a task in a work item's description" do
     }
   end
 
-  let(:mutation) { graphql_mutation(:workItemCreateFromTask, input) }
+  let(:mutation) { graphql_mutation(:workItemCreateFromTask, input, nil, ['productAnalyticsState']) }
   let(:mutation_response) { graphql_mutation_response(:work_item_create_from_task) }
 
   context 'the user is not allowed to update a work item' do
@@ -45,8 +45,9 @@ RSpec.describe "Create a work item from a task in a work item's description" do
 
       expect(response).to have_gitlab_http_status(:success)
       expect(work_item.description).to eq("- [ ] #{created_work_item.to_reference}+")
-      expect(created_work_item.issue_type).to eq('task')
       expect(created_work_item.work_item_type.base_type).to eq('task')
+      expect(created_work_item.work_item_parent).to eq(work_item)
+      expect(created_work_item).to be_confidential
       expect(mutation_response['workItem']).to include('id' => work_item.to_global_id.to_s)
       expect(mutation_response['newWorkItem']).to include('id' => created_work_item.to_global_id.to_s)
     end
@@ -68,20 +69,6 @@ RSpec.describe "Create a work item from a task in a work item's description" do
 
     it_behaves_like 'has spam protection' do
       let(:mutation_class) { ::Mutations::WorkItems::CreateFromTask }
-    end
-
-    context 'when the work_items feature flag is disabled' do
-      before do
-        stub_feature_flags(work_items: false)
-      end
-
-      it 'does nothing and returns and error' do
-        expect do
-          post_graphql_mutation(mutation, current_user: current_user)
-        end.to not_change(WorkItem, :count)
-
-        expect(mutation_response['errors']).to contain_exactly('`work_items` feature flag disabled for this project')
-      end
     end
   end
 end

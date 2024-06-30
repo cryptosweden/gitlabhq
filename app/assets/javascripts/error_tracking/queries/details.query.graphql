@@ -1,4 +1,4 @@
-query errorDetails($fullPath: ID!, $errorId: ID!) {
+query errorDetails($fullPath: ID!, $errorId: GitlabErrorTrackingDetailedErrorID!) {
   project(fullPath: $fullPath) {
     id
     sentryErrors {
@@ -20,6 +20,10 @@ query errorDetails($fullPath: ID!, $errorId: ID!) {
         externalUrl
         externalBaseUrl
         firstReleaseVersion
+        frequency {
+          count
+          time
+        }
         lastReleaseVersion
         gitlabCommit
         gitlabCommitPath

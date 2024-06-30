@@ -2,12 +2,14 @@ import { GlLoadingIcon } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import AxiosMockAdapter from 'axios-mock-adapter';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import StatisticsPanelApp from '~/admin/statistics_panel/components/app.vue';
 import statisticsLabels from '~/admin/statistics_panel/constants';
 import createStore from '~/admin/statistics_panel/store';
 import axios from '~/lib/utils/axios_utils';
 import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import mockStatistics from '../mock_data';
 
 Vue.use(Vuex);
@@ -25,12 +27,8 @@ describe('Admin statistics app', () => {
 
   beforeEach(() => {
     axiosMock = new AxiosMockAdapter(axios);
-    axiosMock.onGet(/api\/(.*)\/application\/statistics/).reply(200);
+    axiosMock.onGet(/api\/(.*)\/application\/statistics/).reply(HTTP_STATUS_OK);
     store = createStore();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   const findStats = (idx) => wrapper.findAll('.js-stats').at(idx);
@@ -41,7 +39,7 @@ describe('Admin statistics app', () => {
         store.dispatch('requestStatistics');
         createComponent();
 
-        expect(wrapper.find(GlLoadingIcon).exists()).toBe(true);
+        expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
       });
     });
 
@@ -64,7 +62,7 @@ describe('Admin statistics app', () => {
         createComponent();
 
         expect(findStats(index).text()).toContain(label);
-        expect(findStats(index).text()).toContain(count);
+        expect(findStats(index).text()).toContain(count.toString());
       });
     });
   });

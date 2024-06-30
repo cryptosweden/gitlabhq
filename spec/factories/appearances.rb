@@ -6,6 +6,7 @@ FactoryBot.define do
   factory :appearance do
     title { "GitLab Community Edition" }
     description { "Open source software to collaborate on code" }
+    member_guidelines { "Custom member guidelines" }
     new_project_guidelines { "Custom project guidelines" }
     profile_image_guidelines { "Custom profile image guidelines" }
   end
@@ -16,6 +17,10 @@ FactoryBot.define do
 
   trait :with_header_logo do
     header_logo { fixture_file_upload('spec/fixtures/dk.png') }
+  end
+
+  trait :with_pwa_icon do
+    pwa_icon { fixture_file_upload('spec/fixtures/dk.png') }
   end
 
   trait :with_favicon do

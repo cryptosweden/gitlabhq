@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::MoveUsersStarProjectsService do
+RSpec.describe Projects::MoveUsersStarProjectsService, feature_category: :groups_and_projects do
   let!(:user) { create(:user) }
   let!(:project_with_stars) { create(:project, namespace: user.namespace) }
   let!(:target_project) { create(:project, namespace: user.namespace) }
@@ -15,6 +15,9 @@ RSpec.describe Projects::MoveUsersStarProjectsService do
     end
 
     it 'moves the user\'s stars from one project to another' do
+      project_with_stars.reload
+      target_project.reload
+
       expect(project_with_stars.users_star_projects.count).to eq 2
       expect(project_with_stars.star_count).to eq 2
       expect(target_project.users_star_projects.count).to eq 0
@@ -34,6 +37,8 @@ RSpec.describe Projects::MoveUsersStarProjectsService do
       allow(subject).to receive(:success).and_raise(StandardError)
 
       expect { subject.execute(project_with_stars) }.to raise_error(StandardError)
+      project_with_stars.reload
+      target_project.reload
 
       expect(project_with_stars.users_star_projects.count).to eq 2
       expect(project_with_stars.star_count).to eq 2

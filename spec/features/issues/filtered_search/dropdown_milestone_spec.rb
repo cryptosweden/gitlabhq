@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Dropdown milestone', :js do
+RSpec.describe 'Dropdown milestone', :js, feature_category: :team_planning do
   include FilteredSearchHelpers
 
   let_it_be(:project) { create(:project) }
@@ -10,9 +10,6 @@ RSpec.describe 'Dropdown milestone', :js do
   let_it_be(:milestone) { create(:milestone, title: 'v1.0', project: project) }
   let_it_be(:uppercase_milestone) { create(:milestone, title: 'CAP_MILESTONE', project: project) }
   let_it_be(:issue) { create(:issue, project: project) }
-
-  let(:filtered_search) { find('.filtered-search') }
-  let(:filter_dropdown) { find('#js-dropdown-milestone .filter-dropdown') }
 
   before do
     project.add_maintainer(user)
@@ -22,12 +19,11 @@ RSpec.describe 'Dropdown milestone', :js do
   end
 
   describe 'behavior' do
-    before do
-      filtered_search.set('milestone:=')
-    end
-
     it 'loads all the milestones when opened' do
-      expect_filtered_search_dropdown_results(filter_dropdown, 2)
+      select_tokens 'Milestone', '='
+
+      # Expect None, Any, Upcoming, Started, CAP_MILESTONE, v1.0
+      expect_suggestion_count 6
     end
   end
 end

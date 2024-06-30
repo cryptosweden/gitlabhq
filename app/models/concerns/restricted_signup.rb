@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module RestrictedSignup
   extend ActiveSupport::Concern
 
@@ -30,10 +31,10 @@ module RestrictedSignup
   def error_message
     {
       admin: {
-        allowlist: html_escape_once(_("Go to the 'Admin area &gt; Sign-up restrictions', and check 'Allowed domains for sign-ups'.")).html_safe,
-        denylist: html_escape_once(_("Go to the 'Admin area &gt; Sign-up restrictions', and check the 'Domain denylist'.")).html_safe,
-        restricted: html_escape_once(_("Go to the 'Admin area &gt; Sign-up restrictions', and check 'Email restrictions for sign-ups'.")).html_safe,
-        group_setting: html_escape_once(_("Go to the group’s 'Settings &gt; General' page, and check 'Restrict membership by email domain'.")).html_safe
+        allowlist: ERB::Util.html_escape_once(_("Go to the 'Admin area &gt; Sign-up restrictions', and check 'Allowed domains for sign-ups'.")).html_safe,
+        denylist: ERB::Util.html_escape_once(_("Go to the 'Admin area &gt; Sign-up restrictions', and check the 'Domain denylist'.")).html_safe,
+        restricted: ERB::Util.html_escape_once(_("Go to the 'Admin area &gt; Sign-up restrictions', and check 'Email restrictions for sign-ups'.")).html_safe,
+        group_setting: ERB::Util.html_escape_once(_("Go to the group’s 'Settings &gt; General' page, and check 'Restrict membership by email domain'.")).html_safe
       },
       nonadmin: {
         allowlist: error_nonadmin,
@@ -84,3 +85,5 @@ module RestrictedSignup
     end
   end
 end
+
+::RestrictedSignup.prepend_mod

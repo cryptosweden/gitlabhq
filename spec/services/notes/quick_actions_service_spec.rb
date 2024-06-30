@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Notes::QuickActionsService do
+RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
   shared_context 'note on noteable' do
     let_it_be(:project) { create(:project, :repository) }
-    let_it_be(:maintainer) { create(:user).tap { |u| project.add_maintainer(u) } }
+    let_it_be(:maintainer) { create(:user, maintainer_of: project) }
     let_it_be(:assignee) { create(:user) }
 
     before do
@@ -70,6 +70,7 @@ RSpec.describe Notes::QuickActionsService do
           note.noteable.close!
           expect(note.noteable).to be_closed
         end
+
         let(:note_text) { '/reopen' }
 
         it 'opens the noteable, and leave no note' do
@@ -105,6 +106,19 @@ RSpec.describe Notes::QuickActionsService do
           end
         end
 
+        context 'with a timecategory' do
+          let!(:timelog_category) { create(:timelog_category, name: 'bob', namespace: project.root_namespace) }
+          let(:note_text) { "a note \n/spend 1h [timecategory:bob]" }
+
+          it 'sets the category of the new timelog' do
+            new_content, update_params = service.execute(note)
+            note.update!(note: new_content)
+            service.apply_updates(update_params, note)
+
+            expect(Timelog.last.timelog_category_id).to eq(timelog_category.id)
+          end
+        end
+
         context 'adds a system note' do
           context 'when not specifying a date' do
             let(:note_text) { "/spend 1h" }
@@ -132,13 +146,99 @@ RSpec.describe Notes::QuickActionsService do
     end
 
     describe '/estimate' do
-      let(:note_text) { '/estimate 1h' }
+      before do
+        # reset to 10 minutes before each test
+        note.noteable.update!(time_estimate: 600)
+      end
 
-      it 'adds time estimate to noteable' do
-        content = execute(note)
+      shared_examples 'does not update time_estimate and displays the correct error message' do
+        it 'shows validation error message' do
+          content, update_params = service.execute(note)
+          service_response = service.apply_updates(update_params, note)
 
-        expect(content).to be_empty
-        expect(note.noteable.time_estimate).to eq(3600)
+          expect(content).to be_empty
+          expect(service_response.message).to include('Time estimate must have a valid format and be greater than or equal to zero.')
+          expect(note.noteable.reload.time_estimate).to eq(600)
+        end
+      end
+
+      context 'when the time estimate is valid' do
+        let(:note_text) { '/estimate 1h' }
+
+        it 'adds time estimate to noteable' do
+          content = execute(note)
+
+          expect(content).to be_empty
+          expect(note.noteable.reload.time_estimate).to eq(3600)
+        end
+      end
+
+      context 'when the time estimate is 0' do
+        let(:note_text) { '/estimate 0' }
+
+        it 'adds time estimate to noteable' do
+          content = execute(note)
+
+          expect(content).to be_empty
+          expect(note.noteable.reload.time_estimate).to eq(0)
+        end
+      end
+
+      context 'when the time estimate is invalid' do
+        let(:note_text) { '/estimate a' }
+
+        include_examples "does not update time_estimate and displays the correct error message"
+      end
+
+      context 'when the time estimate is partially invalid' do
+        let(:note_text) { '/estimate 1d 3id' }
+
+        include_examples "does not update time_estimate and displays the correct error message"
+      end
+
+      context 'when the time estimate is negative' do
+        let(:note_text) { '/estimate -1h' }
+
+        include_examples "does not update time_estimate and displays the correct error message"
+      end
+    end
+
+    describe '/confidential' do
+      let_it_be_with_reload(:noteable) { create(:work_item, :issue, project: project) }
+      let_it_be(:note_text) { '/confidential' }
+      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+
+      context 'when work item does not have children' do
+        it 'leaves the note empty' do
+          expect(execute(note)).to be_empty
+        end
+
+        it 'marks work item as confidential' do
+          expect { execute(note) }.to change { noteable.reload.confidential }.from(false).to(true)
+        end
+      end
+
+      context 'when work item has children' do
+        before do
+          create(:parent_link, work_item: task, work_item_parent: noteable)
+        end
+
+        context 'when children are not confidential' do
+          let(:task) { create(:work_item, :task, project: project) }
+
+          it 'does not mark parent work item as confidential' do
+            expect { execute(note) }.to not_change { noteable.reload.confidential }.from(false)
+            expect(noteable.errors[:base]).to include('A confidential work item cannot have a parent that already has non-confidential children.')
+          end
+        end
+
+        context 'when children are confidential' do
+          let(:task) { create(:work_item, :confidential, :task, project: project) }
+
+          it 'marks parent work item as confidential' do
+            expect { execute(note) }.to change { noteable.reload.confidential }.from(false).to(true)
+          end
+        end
       end
     end
 
@@ -164,6 +264,7 @@ RSpec.describe Notes::QuickActionsService do
           note.noteable.close
           expect(note.noteable).to be_closed
         end
+
         let(:note_text) { "HELLO\n/reopen\nWORLD" }
 
         it 'opens the noteable' do
@@ -182,7 +283,7 @@ RSpec.describe Notes::QuickActionsService do
 
       context 'on an incident' do
         before do
-          issue.update!(issue_type: :incident)
+          issue.update!(work_item_type: WorkItems::Type.default_by_type(:incident))
         end
 
         it 'leaves the note empty' do
@@ -224,7 +325,7 @@ RSpec.describe Notes::QuickActionsService do
 
       context 'on an incident' do
         before do
-          issue.update!(issue_type: :incident)
+          issue.update!(work_item_type: WorkItems::Type.default_by_type(:incident))
         end
 
         it 'leaves the note empty' do
@@ -248,27 +349,232 @@ RSpec.describe Notes::QuickActionsService do
         end
       end
     end
-  end
 
-  describe '.noteable_update_service_class' do
-    include_context 'note on noteable'
+    describe '/remind_me' do
+      let(:issue) { create(:issue, project: project, milestone: milestone) }
+      let(:note_text) { '/remind_me 1d' }
+      let(:note) { create(:note_on_issue, noteable: issue, project: project, note: note_text) }
 
-    it 'returns Issues::UpdateService for a note on an issue' do
-      note = create(:note_on_issue, project: project)
+      context 'on an issue' do
+        it 'leaves the note empty' do
+          expect(execute(note)).to be_empty
+        end
 
-      expect(described_class.noteable_update_service_class(note)).to eq(Issues::UpdateService)
+        it 'attempts to set a reminder' do
+          expect(Issuable::CreateReminderWorker).to receive(:perform_in)
+
+          execute(note)
+        end
+      end
+
+      context 'on a merge request' do
+        let(:note_mr) { create(:note_on_merge_request, project: project, note: note_text) }
+
+        it 'leaves the note empty' do
+          expect(execute(note_mr)).to be_empty
+        end
+
+        it 'attempts to set a reminder' do
+          expect(Issuable::CreateReminderWorker).to receive(:perform_in)
+
+          execute(note)
+        end
+      end
     end
 
-    it 'returns MergeRequests::UpdateService for a note on a merge request' do
-      note = create(:note_on_merge_request, project: project)
+    describe '/add_child' do
+      let_it_be(:noteable) { create(:work_item, :objective, project: project) }
+      let_it_be(:child) { create(:work_item, :objective, project: project) }
+      let_it_be(:second_child) { create(:work_item, :objective, project: project) }
+      let_it_be(:note_text) { "/add_child #{child.to_reference}, #{second_child.to_reference}" }
+      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+      let_it_be(:children) { [child, second_child] }
 
-      expect(described_class.noteable_update_service_class(note)).to eq(MergeRequests::UpdateService)
+      shared_examples 'adds child work items' do
+        it 'leaves the note empty' do
+          expect(execute(note)).to be_empty
+        end
+
+        it 'adds child work items' do
+          expect { execute(note) }.to change { WorkItems::ParentLink.count }.by(2)
+          expect(noteable.reload.work_item_children).to match_array(children)
+          expect(noteable.valid?).to be_truthy
+        end
+      end
+
+      it_behaves_like 'adds child work items'
+
+      context 'when using work item full reference' do
+        let_it_be(:note_text) { "/add_child #{child.to_reference(full: true)}, #{second_child.to_reference(full: true)}" }
+
+        it_behaves_like 'adds child work items'
+      end
+
+      context 'when using work item URL' do
+        let_it_be(:project_path) { "#{Gitlab.config.gitlab.url}/#{project.full_path}" }
+        let_it_be(:url) { "#{project_path}/work_items/#{child.iid}, #{project_path}/work_items/#{second_child.iid}" }
+        let_it_be(:note_text) { "/add_child #{url}" }
+
+        it_behaves_like 'adds child work items'
+      end
     end
 
-    it 'returns Commits::TagService for a note on a commit' do
-      note = create(:note_on_commit, project: project)
+    describe '/remove_child' do
+      let_it_be_with_reload(:noteable) { create(:work_item, :objective, project: project) }
+      let_it_be_with_reload(:child) { create(:work_item, :objective, project: project) }
+      let_it_be(:note_text) { "/remove_child #{child.to_reference}" }
+      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
 
-      expect(described_class.noteable_update_service_class(note)).to eq(Commits::TagService)
+      before do
+        create(:parent_link, work_item_parent: noteable, work_item: child)
+      end
+
+      shared_examples 'removes child work item' do
+        it 'leaves the note empty' do
+          expect(execute(note)).to be_empty
+        end
+
+        it 'removes child work item' do
+          expect { execute(note) }.to change { WorkItems::ParentLink.count }.by(-1)
+
+          expect(noteable.valid?).to be_truthy
+          expect(noteable.work_item_children).to be_empty
+        end
+      end
+
+      context 'when using work item reference' do
+        let_it_be(:note_text) { "/remove_child #{child.to_reference(full: true)}" }
+
+        it_behaves_like 'removes child work item'
+      end
+
+      context 'when using work item iid' do
+        it_behaves_like 'removes child work item'
+      end
+
+      context 'when using work item URL' do
+        let_it_be(:project_path) { "#{Gitlab.config.gitlab.url}/#{project.full_path}" }
+        let_it_be(:url) { "#{project_path}/work_items/#{child.iid}" }
+        let_it_be(:note_text) { "/remove_child #{url}" }
+
+        it_behaves_like 'removes child work item'
+      end
+    end
+
+    describe '/set_parent' do
+      let_it_be_with_reload(:noteable) { create(:work_item, :objective, project: project) }
+      let_it_be_with_reload(:parent) { create(:work_item, :objective, project: project) }
+      let_it_be(:note_text) { "/set_parent #{parent.to_reference}" }
+      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+
+      shared_examples 'sets work item parent' do
+        it 'leaves the note empty' do
+          expect(execute(note)).to be_empty
+        end
+
+        it 'sets work item parent' do
+          execute(note)
+
+          expect(parent.valid?).to be_truthy
+          expect(noteable.work_item_parent).to eq(parent)
+        end
+      end
+
+      context 'when using work item reference' do
+        let_it_be(:note_text) { "/set_parent #{project.full_path}#{parent.to_reference}" }
+
+        it_behaves_like 'sets work item parent'
+      end
+
+      context 'when using work item iid' do
+        let_it_be(:note_text) { "/set_parent #{parent.to_reference}" }
+
+        it_behaves_like 'sets work item parent'
+      end
+
+      context 'when using work item URL' do
+        let_it_be(:url) { "#{Gitlab.config.gitlab.url}/#{project.full_path}/work_items/#{parent.iid}" }
+        let_it_be(:note_text) { "/set_parent #{url}" }
+
+        it_behaves_like 'sets work item parent'
+      end
+    end
+
+    describe '/remove_parent' do
+      let_it_be_with_reload(:parent) { create(:work_item, :objective, project: project) }
+      let_it_be_with_reload(:noteable) { create(:work_item, :objective, project: project) }
+      let_it_be(:note_text) { "/remove_parent" }
+      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+
+      before do
+        create(:parent_link, work_item_parent: parent, work_item: noteable)
+      end
+
+      it 'leaves the note empty' do
+        expect(execute(note)).to be_empty
+      end
+
+      it 'removes work item parent' do
+        execute(note)
+
+        expect(noteable.valid?).to be_truthy
+        expect(noteable.work_item_parent).to eq(nil)
+      end
+    end
+
+    describe '/promote_to' do
+      shared_examples 'promotes work item' do |from:, to:|
+        it 'leaves the note empty' do
+          expect(execute(note)).to be_empty
+        end
+
+        it 'promotes to provided type' do
+          expect { execute(note) }.to change { noteable.work_item_type.base_type }.from(from).to(to)
+        end
+      end
+
+      context 'when user is not allowed to promote work item' do
+        let_it_be_with_reload(:noteable) { create(:work_item, :task, project: project) }
+        let_it_be(:note_text) { '/promote_to issue' }
+        let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+
+        before do
+          project.team.find_member(maintainer.id).destroy!
+          project.update!(visibility: Gitlab::VisibilityLevel::PUBLIC)
+        end
+
+        it 'does not promote work item' do
+          expect { execute(note) }.not_to change { noteable.work_item_type.base_type }
+        end
+      end
+
+      context 'on a task' do
+        let_it_be_with_reload(:noteable) { create(:work_item, :task, project: project) }
+        let_it_be(:note_text) { '/promote_to Issue' }
+        let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+
+        it_behaves_like 'promotes work item', from: 'task', to: 'issue'
+
+        context 'when type name is lower case' do
+          let_it_be(:note_text) { '/promote_to issue' }
+
+          it_behaves_like 'promotes work item', from: 'task', to: 'issue'
+        end
+      end
+
+      context 'on an issue' do
+        let_it_be_with_reload(:noteable) { create(:work_item, :issue, project: project) }
+        let_it_be(:note_text) { '/promote_to Incident' }
+        let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+
+        it_behaves_like 'promotes work item', from: 'issue', to: 'incident'
+
+        context 'when type name is lower case' do
+          let_it_be(:note_text) { '/promote_to incident' }
+
+          it_behaves_like 'promotes work item', from: 'issue', to: 'incident'
+        end
+      end
     end
   end
 
@@ -321,6 +627,167 @@ RSpec.describe Notes::QuickActionsService do
     it_behaves_like 'note on noteable that supports quick actions' do
       let(:merge_request) { create(:merge_request, source_project: project) }
       let(:note) { build(:note_on_merge_request, project: project, noteable: merge_request) }
+    end
+
+    context 'note on work item that supports quick actions' do
+      include_context 'note on noteable'
+
+      let_it_be(:work_item, reload: true) { create(:work_item, project: project) }
+
+      let(:note) { build(:note_on_work_item, project: project, noteable: work_item) }
+
+      let!(:labels) { create_pair(:label, project: project) }
+
+      before do
+        note.note = note_text
+      end
+
+      describe 'note with only command' do
+        describe '/close, /label & /assign' do
+          let(:note_text) do
+            %(/close\n/label ~#{labels.first.name} ~#{labels.last.name}\n/assign @#{assignee.username}\n)
+          end
+
+          it 'closes noteable, sets labels, assigns and leave no note' do
+            content = execute(note)
+
+            expect(content).to be_empty
+            expect(note.noteable).to be_closed
+            expect(note.noteable.labels).to match_array(labels)
+            expect(note.noteable.assignees).to eq([assignee])
+          end
+        end
+
+        describe '/reopen' do
+          before do
+            note.noteable.close!
+            expect(note.noteable).to be_closed
+          end
+
+          let(:note_text) { '/reopen' }
+
+          it 'opens the noteable, and leave no note' do
+            content = execute(note)
+
+            expect(content).to be_empty
+            expect(note.noteable).to be_open
+          end
+        end
+      end
+
+      describe 'note with command & text' do
+        describe '/close, /label, /assign' do
+          let(:note_text) do
+            %(HELLO\n/close\n/label ~#{labels.first.name} ~#{labels.last.name}\n/assign @#{assignee.username}\nWORLD)
+          end
+
+          it 'closes noteable, sets labels, assigns, and sets milestone to noteable' do
+            content = execute(note)
+
+            expect(content).to eq "HELLO\nWORLD"
+            expect(note.noteable).to be_closed
+            expect(note.noteable.labels).to match_array(labels)
+            expect(note.noteable.assignees).to eq([assignee])
+          end
+        end
+
+        describe '/reopen' do
+          before do
+            note.noteable.close
+            expect(note.noteable).to be_closed
+          end
+
+          let(:note_text) { "HELLO\n/reopen\nWORLD" }
+
+          it 'opens the noteable' do
+            content = execute(note)
+
+            expect(content).to eq "HELLO\nWORLD"
+            expect(note.noteable).to be_open
+          end
+        end
+      end
+    end
+  end
+
+  describe '#apply_updates' do
+    include_context 'note on noteable'
+
+    let_it_be(:issue) { create(:issue, project: project) }
+    let_it_be(:work_item, reload: true) { create(:work_item, :issue, project: project) }
+    let_it_be(:merge_request) { create(:merge_request, source_project: project) }
+    let_it_be(:issue_note) { create(:note_on_issue, project: project, noteable: issue) }
+    let_it_be(:work_item_note) { create(:note, project: project, noteable: work_item) }
+    let_it_be(:mr_note) { create(:note_on_merge_request, project: project, noteable: merge_request) }
+    let_it_be(:commit_note) { create(:note_on_commit, project: project) }
+    let(:update_params) { {} }
+
+    subject(:apply_updates) { described_class.new(project, maintainer).apply_updates(update_params, note) }
+
+    context 'with a note on an issue' do
+      let(:note) { issue_note }
+
+      it 'returns successful service response if update returned no errors' do
+        update_params[:confidential] = true
+        expect(apply_updates.success?).to be true
+      end
+
+      it 'returns service response with errors if update failed' do
+        update_params[:title] = ""
+        expect(apply_updates.success?).to be false
+        expect(apply_updates.message).to include("Title can't be blank")
+      end
+    end
+
+    context 'with a note on a merge request' do
+      let(:note) { mr_note }
+
+      it 'returns successful service response if update returned no errors' do
+        update_params[:title] = 'New title'
+        expect(apply_updates.success?).to be true
+      end
+
+      it 'returns service response with errors if update failed' do
+        update_params[:title] = ""
+        expect(apply_updates.success?).to be false
+        expect(apply_updates.message).to include("Title can't be blank")
+      end
+    end
+
+    context 'with a note on a work item' do
+      let(:note) { work_item_note }
+
+      before do
+        update_params[:confidential] = true
+      end
+
+      it 'returns successful service response if update returned no errors' do
+        expect(apply_updates.success?).to be true
+      end
+
+      it 'returns service response with errors if update failed' do
+        task = create(:work_item, :task, project: project)
+        create(:parent_link, work_item: task, work_item_parent: work_item)
+
+        expect(apply_updates.success?).to be false
+        expect(apply_updates.message)
+          .to include("A confidential work item cannot have a parent that already has non-confidential children.")
+      end
+    end
+
+    context 'with a note on a commit' do
+      let(:note) { commit_note }
+
+      it 'returns successful service response if update returned no errors' do
+        update_params[:tag_name] = 'test'
+        expect(apply_updates.success?).to be true
+      end
+
+      it 'returns service response with errors if update failed' do
+        update_params[:tag_name] = '-test'
+        expect(apply_updates.success?).to be false
+        expect(apply_updates.message).to include('Tag name invalid')
+      end
     end
   end
 

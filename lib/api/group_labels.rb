@@ -8,6 +8,7 @@ module API
     before { authenticate! }
 
     feature_category :team_planning
+    urgency :low
 
     params do
       requires :id, type: String, desc: 'The ID of a group'
@@ -18,16 +19,25 @@ module API
         success Entities::GroupLabel
       end
       params do
-        optional :with_counts, type: Boolean, default: false,
-                 desc: 'Include issue and merge request counts'
-        optional :include_ancestor_groups, type: Boolean, default: true,
-                 desc: 'Include ancestor groups'
-        optional :include_descendant_groups, type: Boolean, default: false,
-                 desc: 'Include descendant groups. This feature was added in GitLab 13.6'
-        optional :only_group_labels, type: Boolean, default: true,
-                 desc: 'Toggle to include only group labels or also project labels. This feature was added in GitLab 13.6'
-        optional :search, type: String,
-                 desc: 'Keyword to filter labels by. This feature was added in GitLab 13.6'
+        optional :with_counts,
+          type: Boolean,
+          default: false,
+          desc: 'Include issue and merge request counts'
+        optional :include_ancestor_groups,
+          type: Boolean,
+          default: true,
+          desc: 'Include ancestor groups'
+        optional :include_descendant_groups,
+          type: Boolean,
+          default: false,
+          desc: 'Include descendant groups. This feature was added in GitLab 13.6'
+        optional :only_group_labels,
+          type: Boolean,
+          default: true,
+          desc: 'Toggle to include only group labels or also project labels. This feature was added in GitLab 13.6'
+        optional :search,
+          type: String,
+          desc: 'Keyword to filter labels by. This feature was added in GitLab 13.6'
         use :pagination
       end
       get ':id/labels' do
@@ -39,12 +49,18 @@ module API
         success Entities::GroupLabel
       end
       params do
-        optional :include_ancestor_groups, type: Boolean, default: true,
-                 desc: 'Include ancestor groups'
-        optional :include_descendant_groups, type: Boolean, default: false,
-                 desc: 'Include descendant groups. This feature was added in GitLab 13.6'
-        optional :only_group_labels, type: Boolean, default: true,
-                 desc: 'Toggle to include only group labels or also project labels. This feature was added in GitLab 13.6'
+        optional :include_ancestor_groups,
+          type: Boolean,
+          default: true,
+          desc: 'Include ancestor groups'
+        optional :include_descendant_groups,
+          type: Boolean,
+          default: false,
+          desc: 'Include descendant groups. This feature was added in GitLab 13.6'
+        optional :only_group_labels,
+          type: Boolean,
+          default: true,
+          desc: 'Toggle to include only group labels or also project labels. This feature was added in GitLab 13.6'
       end
       get ':id/labels/:name' do
         get_label(user_group, Entities::GroupLabel, declared_params)

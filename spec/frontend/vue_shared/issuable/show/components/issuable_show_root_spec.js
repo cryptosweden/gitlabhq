@@ -1,3 +1,4 @@
+import { GlBadge } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 
 import IssuableBody from '~/vue_shared/issuable/show/components/issuable_body.vue';
@@ -41,41 +42,39 @@ describe('IssuableShowRoot', () => {
     wrapper = createComponent();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('template', () => {
     const {
-      statusBadgeClass,
       statusIcon,
+      statusIconClass,
       enableEdit,
       enableAutocomplete,
       editFormVisible,
       descriptionPreviewPath,
       descriptionHelpPath,
       taskCompletionStatus,
+      workspaceType,
     } = mockIssuableShowProps;
-    const { blocked, confidential, createdAt, author } = mockIssuable;
+    const { state, blocked, confidential, createdAt, author } = mockIssuable;
 
     it('renders component container element with class `issuable-show-container`', () => {
       expect(wrapper.classes()).toContain('issuable-show-container');
     });
 
     it('renders issuable-header component', () => {
-      const issuableHeader = wrapper.find(IssuableHeader);
+      const issuableHeader = wrapper.findComponent(IssuableHeader);
 
       expect(issuableHeader.exists()).toBe(true);
       expect(issuableHeader.props()).toMatchObject({
-        statusBadgeClass,
+        issuableState: state,
         statusIcon,
+        statusIconClass,
         blocked,
         confidential,
         createdAt,
         author,
         taskCompletionStatus,
       });
-      expect(issuableHeader.find('.issuable-status-box').text()).toContain('Open');
+      expect(issuableHeader.findComponent(GlBadge).text()).toBe('Open');
       expect(issuableHeader.find('.detail-page-header-actions button.js-close').exists()).toBe(
         true,
       );
@@ -83,54 +82,54 @@ describe('IssuableShowRoot', () => {
     });
 
     it('renders issuable-body component', () => {
-      const issuableBody = wrapper.find(IssuableBody);
+      const issuableBody = wrapper.findComponent(IssuableBody);
 
       expect(issuableBody.exists()).toBe(true);
       expect(issuableBody.props()).toMatchObject({
         issuable: mockIssuable,
-        statusBadgeClass,
         statusIcon,
         enableEdit,
         enableAutocomplete,
         editFormVisible,
         descriptionPreviewPath,
         descriptionHelpPath,
+        workspaceType,
       });
     });
 
     it('renders issuable-sidebar component', () => {
-      const issuableSidebar = wrapper.find(IssuableSidebar);
+      const issuableSidebar = wrapper.findComponent(IssuableSidebar);
 
       expect(issuableSidebar.exists()).toBe(true);
     });
 
     describe('events', () => {
       it('component emits `edit-issuable` event bubbled via issuable-body', () => {
-        const issuableBody = wrapper.find(IssuableBody);
+        const issuableBody = wrapper.findComponent(IssuableBody);
 
         issuableBody.vm.$emit('edit-issuable');
 
-        expect(wrapper.emitted('edit-issuable')).toBeTruthy();
+        expect(wrapper.emitted('edit-issuable')).toHaveLength(1);
       });
 
       it('component emits `task-list-update-success` event bubbled via issuable-body', () => {
-        const issuableBody = wrapper.find(IssuableBody);
+        const issuableBody = wrapper.findComponent(IssuableBody);
         const eventParam = {
           foo: 'bar',
         };
 
         issuableBody.vm.$emit('task-list-update-success', eventParam);
 
-        expect(wrapper.emitted('task-list-update-success')).toBeTruthy();
+        expect(wrapper.emitted('task-list-update-success')).toHaveLength(1);
         expect(wrapper.emitted('task-list-update-success')[0]).toEqual([eventParam]);
       });
 
       it('component emits `task-list-update-failure` event bubbled via issuable-body', () => {
-        const issuableBody = wrapper.find(IssuableBody);
+        const issuableBody = wrapper.findComponent(IssuableBody);
 
         issuableBody.vm.$emit('task-list-update-failure');
 
-        expect(wrapper.emitted('task-list-update-failure')).toBeTruthy();
+        expect(wrapper.emitted('task-list-update-failure')).toHaveLength(1);
       });
 
       it.each(['keydown-title', 'keydown-description'])(
@@ -145,11 +144,11 @@ describe('IssuableShowRoot', () => {
             issuableDescription: 'foobar',
           };
 
-          const issuableBody = wrapper.find(IssuableBody);
+          const issuableBody = wrapper.findComponent(IssuableBody);
 
           issuableBody.vm.$emit(eventName, eventObj, issuableMeta);
 
-          expect(wrapper.emitted(eventName)).toBeTruthy();
+          expect(wrapper.emitted()).toHaveProperty(eventName);
           expect(wrapper.emitted(eventName)[0]).toMatchObject([eventObj, issuableMeta]);
         },
       );

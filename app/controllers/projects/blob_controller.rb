@@ -10,7 +10,7 @@ class Projects::BlobController < Projects::ApplicationController
   include RedirectsForMissingPathOnTree
   include SourcegraphDecorator
   include DiffHelper
-  include RedisTracking
+  include ProductAnalyticsTracking
   extend ::Gitlab::Utils::Override
 
   prepend_before_action :authenticate_user!, only: [:edit]
@@ -18,7 +18,8 @@ class Projects::BlobController < Projects::ApplicationController
   around_action :allow_gitaly_ref_name_caching, only: [:show]
 
   before_action :require_non_empty_project, except: [:new, :create]
-  before_action :authorize_download_code!
+  before_action :authorize_download_code!, except: [:show]
+  before_action :authorize_read_code!, only: [:show]
 
   # We need to assign the blob vars before `authorize_edit_tree!` so we can
   # validate access to a specific ref.
@@ -30,20 +31,21 @@ class Projects::BlobController < Projects::ApplicationController
   before_action :authorize_edit_tree!, only: [:new, :create, :update, :destroy]
 
   before_action :commit, except: [:new, :create]
+  before_action :set_is_ambiguous_ref, only: [:show]
+  before_action :check_for_ambiguous_ref, only: [:show]
   before_action :blob, except: [:new, :create]
   before_action :require_branch_head, only: [:edit, :update]
   before_action :editor_variables, except: [:show, :preview, :diff]
   before_action :validate_diff_params, only: :diff
   before_action :set_last_commit_sha, only: [:edit, :update]
 
-  track_redis_hll_event :create, :update, name: 'g_edit_by_sfe'
+  track_internal_event :create, :update, name: 'g_edit_by_sfe'
 
   feature_category :source_code_management
   urgency :low, [:create, :show, :edit, :update, :diff]
 
   before_action do
-    push_frontend_feature_flag(:refactor_blob_viewer, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:highlight_js, @project, default_enabled: :yaml)
+    push_frontend_feature_flag(:explain_code_chat, current_user)
     push_licensed_feature(:file_locks) if @project.licensed_feature_available?(:file_locks)
   end
 
@@ -52,10 +54,13 @@ class Projects::BlobController < Projects::ApplicationController
   end
 
   def create
-    create_commit(Files::CreateService, success_notice: _("The file has been successfully created."),
-                                        success_path: -> { project_blob_path(@project, File.join(@branch_name, @file_path)) },
-                                        failure_view: :new,
-                                        failure_path: project_new_blob_path(@project, @ref))
+    create_commit(
+      Files::CreateService,
+      success_notice: _("The file has been successfully created."),
+      success_path: -> { project_blob_path(@project, File.join(@branch_name, @file_path)) },
+      failure_view: :new,
+      failure_path: project_new_blob_path(@project, @ref)
+    )
   end
 
   def show
@@ -85,12 +90,16 @@ class Projects::BlobController < Projects::ApplicationController
   def update
     @path = params[:file_path] if params[:file_path].present?
 
-    create_commit(Files::UpdateService, success_path: -> { after_edit_path },
-                                        failure_view: :edit,
-                                        failure_path: project_blob_path(@project, @id))
+    create_commit(
+      Files::UpdateService, success_path: -> { after_edit_path },
+      failure_view: :edit,
+      failure_path: project_blob_path(@project, @id)
+    )
   rescue Files::UpdateService::FileChangedError
     @conflict = true
-    render :edit
+    render "edit", locals: {
+      commit_to_fork: @different_project
+    }
   end
 
   def preview
@@ -105,9 +114,12 @@ class Projects::BlobController < Projects::ApplicationController
   end
 
   def destroy
-    create_commit(Files::DeleteService, success_notice: _("The file has been successfully deleted."),
-                                        success_path: -> { after_delete_path },
-                                        failure_path: project_blob_path(@project, @id))
+    create_commit(
+      Files::DeleteService,
+      success_notice: _("The file has been successfully deleted."),
+      success_path: -> { after_delete_path },
+      failure_path: project_blob_path(@project, @id)
+    )
   end
 
   def diff
@@ -135,19 +147,21 @@ class Projects::BlobController < Projects::ApplicationController
       @blob
     else
       if tree = @repository.tree(@commit.id, @path)
-        if tree.entries.any?
-          return redirect_to project_tree_path(@project, File.join(@ref, @path))
-        end
+        return redirect_to project_tree_path(@project, File.join(@ref, @path)) if tree.entries.any?
       end
 
       redirect_to_tree_root_for_missing_path(@project, @ref, @path)
     end
   end
 
+  def check_for_ambiguous_ref
+    @ref_type = ref_type
+  end
+
   def commit
     @commit ||= @repository.commit(@ref)
 
-    return render_404 unless @commit
+    render_404 unless @commit
   end
 
   def redirect_renamed_default_branch?
@@ -155,8 +169,10 @@ class Projects::BlobController < Projects::ApplicationController
   end
 
   def assign_blob_vars
+    ref_extractor = ExtractsRef::RefExtractor.new(@project, {})
     @id = params[:id]
-    @ref, @path = extract_ref(@id)
+
+    @ref, @path = ref_extractor.extract_ref(@id)
   rescue InvalidPathError
     render_404
   end
@@ -191,22 +207,9 @@ class Projects::BlobController < Projects::ApplicationController
   def editor_variables
     @branch_name = params[:branch_name]
 
-    @file_path =
-      if action_name.to_s == 'create'
-        if params[:file].present?
-          params[:file_name] = params[:file].original_filename
-        end
+    @file_path = fetch_file_path
 
-        File.join(@path, params[:file_name])
-      elsif params[:file_path].present?
-        params[:file_path]
-      else
-        @path
-      end
-
-    if params[:file].present?
-      params[:content] = params[:file]
-    end
+    params[:content] = params[:file] if params[:file].present?
 
     @commit_params = {
       file_path: @file_path,
@@ -218,12 +221,26 @@ class Projects::BlobController < Projects::ApplicationController
     }
   end
 
+  def fetch_file_path
+    file_params = params.permit(:file, :file_name, :file_path)
+
+    if action_name.to_s == 'create'
+      file_name = file_params[:file].present? ? file_params[:file].original_filename : file_params[:file_name]
+
+      return if file_name.nil?
+
+      return File.join(@path, file_name)
+    end
+
+    return file_params[:file_path] if file_params[:file_path].present?
+
+    @path
+  end
+
   def validate_diff_params
     return if params[:full]
 
-    if [:since, :to, :offset].any? { |key| params[key].blank? }
-      head :ok
-    end
+    head :ok if [:since, :to, :offset].any? { |key| params[key].blank? }
   end
 
   def set_last_commit_sha
@@ -280,6 +297,12 @@ class Projects::BlobController < Projects::ApplicationController
   override :visitor_id
   def visitor_id
     current_user&.id
+  end
+
+  alias_method :tracking_project_source, :project
+
+  def tracking_namespace_source
+    project&.namespace
   end
 end
 

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::RackAttack, :aggregate_failures do
+RSpec.describe Gitlab::RackAttack, :aggregate_failures, feature_category: :rate_limiting do
   describe '.configure' do
     let(:fake_rack_attack) { class_double("Rack::Attack") }
     let(:fake_rack_attack_request) { class_double(Rack::Attack::Request) }
@@ -27,7 +27,7 @@ RSpec.describe Gitlab::RackAttack, :aggregate_failures do
     end
 
     before do
-      allow(fake_rack_attack).to receive(:throttled_response=)
+      allow(fake_rack_attack).to receive(:throttled_responder=)
       allow(fake_rack_attack).to receive(:throttle)
       allow(fake_rack_attack).to receive(:track)
       allow(fake_rack_attack).to receive(:safelist)
@@ -35,7 +35,7 @@ RSpec.describe Gitlab::RackAttack, :aggregate_failures do
       allow(fake_rack_attack).to receive(:cache).and_return(fake_cache)
       allow(fake_cache).to receive(:store=)
 
-      fake_rack_attack.const_set('Request', fake_rack_attack_request)
+      fake_rack_attack.const_set(:Request, fake_rack_attack_request)
       stub_const("Rack::Attack", fake_rack_attack)
     end
 
@@ -48,7 +48,7 @@ RSpec.describe Gitlab::RackAttack, :aggregate_failures do
     it 'configures the throttle response' do
       described_class.configure(fake_rack_attack)
 
-      expect(fake_rack_attack).to have_received(:throttled_response=).with(an_instance_of(Proc))
+      expect(fake_rack_attack).to have_received(:throttled_responder=).with(an_instance_of(Proc))
     end
 
     it 'configures the safelist' do

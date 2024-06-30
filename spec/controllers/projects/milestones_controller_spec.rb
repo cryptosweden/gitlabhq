@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::MilestonesController do
+RSpec.describe Projects::MilestonesController, feature_category: :team_planning do
   let(:project) { create(:project, :repository) }
   let(:user)    { create(:user) }
   let(:milestone) { create(:milestone, project: project) }
@@ -41,6 +41,26 @@ RSpec.describe Projects::MilestonesController do
 
       expect(response).to have_gitlab_http_status(:not_found)
       expect(response.media_type).to eq 'application/json'
+    end
+  end
+
+  describe "#create" do
+    it 'does not redirect without redirect_path' do
+      post :create, params: { namespace_id: project.namespace.id, project_id: project.id, milestone: { title: 'test' } }
+
+      expect(response).to redirect_to(project_milestone_path(project, project.milestones.last))
+    end
+
+    it 'redirects when given a redirect_path' do
+      post :create, params: { namespace_id: project.namespace.id, project_id: project.id, redirect_path: 'new_release', milestone: { title: 'test' } }
+
+      expect(response).to redirect_to(new_project_release_path(project))
+    end
+
+    it 'will not redirect when given a redirect_path with an error' do
+      post :create, params: { namespace_id: project.namespace.id, project_id: project.id, redirect_path: 'new_release', milestone: { title: nil } }
+
+      expect(response).to have_gitlab_http_status(:ok)
     end
   end
 
@@ -132,6 +152,112 @@ RSpec.describe Projects::MilestonesController do
           expect(milestones.count).to eq(3)
           expect(milestones).to match_array([milestone, group_milestone, subgroup_milestone])
         end
+      end
+    end
+  end
+
+  describe "#update" do
+    let(:milestone_params) do
+      { title: "title changed" }
+    end
+
+    subject do
+      patch :update,
+        params: {
+          id: milestone.iid,
+          milestone: milestone_params,
+          namespace_id: project.namespace.id,
+          project_id: project.id
+        }
+    end
+
+    # TODO: We should also add more tests for update
+    it "redirects project milestone show path" do
+      subject
+
+      expect(response).to redirect_to project_milestone_path(project, milestone.iid)
+    end
+
+    it "updates project milestone be_successfully" do
+      subject
+
+      milestone.reload
+
+      expect(milestone.title).to eq milestone_params[:title]
+    end
+
+    it "handles validation error" do
+      group = create(:group)
+      group_milestone = create(:milestone, group: group)
+      project.update!(namespace: group)
+
+      milestone_params[:title] = group_milestone.title
+
+      subject
+
+      expect(response).not_to redirect_to(project_milestone_path(project, milestone.iid))
+      expect(response).to render_template(:edit)
+    end
+
+    it "handles ActiveRecord::StaleObjectError" do
+      # Purposely reduce the lock_version to trigger an ActiveRecord::StaleObjectError
+      milestone_params[:lock_version] = milestone.lock_version - 1
+
+      subject
+
+      expect(response).not_to redirect_to(project_milestone_path(project, milestone.iid))
+      expect(response).to render_template(:edit)
+    end
+
+    context 'with format :json' do
+      subject do
+        patch :update,
+          params: {
+            id: milestone.iid,
+            milestone: milestone_params,
+            namespace_id: project.namespace.id,
+            project_id: project.id,
+            format: :json
+          }
+      end
+
+      it "responds :no_content (204) without content body and updates milestone successfully" do
+        subject
+
+        expect(response).to have_gitlab_http_status(:no_content)
+        expect(response.body).to be_blank
+
+        milestone.reload
+
+        expect(milestone).to have_attributes(title: milestone_params[:title])
+      end
+
+      it 'responds unprocessable_entity (422) with error data' do
+        # Note: This assignment ensures and triggers a validation error when updating the milestone.
+        # Same approach used in spec/models/milestone_spec.rb .
+        milestone_params[:title] = '<img src=x onerror=prompt(1)>'
+
+        subject
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+
+        expect(json_response).to include("errors" => be_an(Array))
+      end
+
+      it "handles ActiveRecord::StaleObjectError" do
+        milestone_params[:title] = "title changed"
+        # Purposely reduce the `lock_version` to trigger an ActiveRecord::StaleObjectError
+        milestone_params[:lock_version] = milestone.lock_version - 1
+
+        subject
+
+        expect(response).to have_gitlab_http_status(:conflict)
+        expect(json_response).to include "errors" => [
+          format(
+            _("Someone edited this %{model_name} at the same time you did. Please refresh your browser and make sure your changes will not unintentionally remove theirs."), # rubocop:disable Layout/LineLength
+            model_name: _('milestone')
+          )
+        ]
       end
     end
   end

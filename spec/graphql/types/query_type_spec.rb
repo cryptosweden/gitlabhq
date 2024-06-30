@@ -2,37 +2,25 @@
 
 require 'spec_helper'
 
-RSpec.describe GitlabSchema.types['Query'] do
+RSpec.describe GitlabSchema.types['Query'], feature_category: :shared do
+  include GraphqlHelpers
+
+  include_context 'with FOSS query type fields'
+
   it 'is called Query' do
     expect(described_class.graphql_name).to eq('Query')
   end
 
   it 'has the expected fields' do
-    expected_fields = %i[
-      project
-      namespace
-      group
-      echo
-      metadata
-      current_user
-      snippets
-      design_management
-      milestone
-      user
-      users
-      issue
-      merge_request
-      usage_trends_measurements
-      runner_platforms
-      runner
-      runners
-      timelogs
-      board_list
-      topics
-      gitpod_enabled
-    ]
+    expect(described_class).to have_graphql_fields(*expected_foss_fields).at_least
+  end
 
-    expect(described_class).to have_graphql_fields(*expected_fields).at_least
+  describe 'current_user field' do
+    subject { described_class.fields['currentUser'] }
+
+    it 'returns current user' do
+      is_expected.to have_graphql_type(Types::CurrentUserType)
+    end
   end
 
   describe 'namespace field' do
@@ -42,6 +30,16 @@ RSpec.describe GitlabSchema.types['Query'] do
       is_expected.to have_graphql_arguments(:full_path)
       is_expected.to have_graphql_type(Types::NamespaceType)
       is_expected.to have_graphql_resolver(Resolvers::NamespaceResolver)
+    end
+  end
+
+  describe 'organization field' do
+    subject { described_class.fields['organization'] }
+
+    it 'finds organization by path' do
+      is_expected.to have_graphql_arguments(:id)
+      is_expected.to have_graphql_type(Types::Organizations::OrganizationType)
+      is_expected.to have_graphql_resolver(Resolvers::Organizations::OrganizationResolver)
     end
   end
 
@@ -134,7 +132,7 @@ RSpec.describe GitlabSchema.types['Query'] do
     subject { described_class.fields['timelogs'] }
 
     it 'returns timelogs' do
-      is_expected.to have_graphql_arguments(:startDate, :endDate, :startTime, :endTime, :username, :projectId, :groupId, :after, :before, :first, :last)
+      is_expected.to have_graphql_arguments(:startDate, :endDate, :startTime, :endTime, :username, :projectId, :groupId, :after, :before, :first, :last, :sort)
       is_expected.to have_graphql_type(Types::TimelogType.connection_type)
       is_expected.to have_graphql_resolver(Resolvers::TimelogResolver)
     end
@@ -147,6 +145,36 @@ RSpec.describe GitlabSchema.types['Query'] do
       is_expected.to have_graphql_arguments(:id, :issue_filters)
       is_expected.to have_graphql_type(Types::BoardListType)
       is_expected.to have_graphql_resolver(Resolvers::BoardListResolver)
+    end
+  end
+
+  describe 'mlModel field' do
+    subject { described_class.fields['mlModel'] }
+
+    it 'returns metadata', :aggregate_failures do
+      is_expected.to have_graphql_type(Types::Ml::ModelType)
+      is_expected.to have_graphql_arguments(:id)
+      is_expected.to have_graphql_resolver(Resolvers::Ml::ModelDetailResolver)
+    end
+  end
+
+  describe 'integration_exclusions field' do
+    subject { described_class.fields['integrationExclusions'] }
+
+    it 'returns metadata', :aggregate_failures do
+      is_expected.to have_graphql_arguments(:integrationName)
+      is_expected.to have_graphql_type(Types::Integrations::ExclusionType.connection_type)
+      is_expected.to have_graphql_resolver(Resolvers::Integrations::ExclusionsResolver)
+    end
+  end
+
+  describe 'featureFlagEnabled field' do
+    subject { described_class.fields['featureFlagEnabled'] }
+
+    it 'returns feature flag status', :aggregate_failures do
+      is_expected.to have_graphql_type(GraphQL::Types::Boolean.to_non_null_type)
+      is_expected.to have_graphql_arguments(:name)
+      is_expected.to have_graphql_resolver(Resolvers::FeatureFlagResolver)
     end
   end
 end

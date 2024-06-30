@@ -53,21 +53,21 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Create do
 
     it 'appends validation error' do
       expect(pipeline.errors.to_a)
-        .to include /Failed to persist the pipeline/
+        .to include(/Failed to persist the pipeline/)
     end
   end
 
   context 'tags persistence' do
     let(:stage) do
-      build(:ci_stage_entity, pipeline: pipeline, project: project)
+      build(:ci_stage, pipeline: pipeline, project: project)
     end
 
     let(:job) do
-      build(:ci_build, stage: stage, pipeline: pipeline, project: project)
+      build(:ci_build, ci_stage: stage, pipeline: pipeline, project: project)
     end
 
     let(:bridge) do
-      build(:ci_bridge, stage: stage, pipeline: pipeline, project: project)
+      build(:ci_bridge, ci_stage: stage, pipeline: pipeline, project: project)
     end
 
     before do
@@ -77,7 +77,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Create do
 
     context 'without tags' do
       it 'extracts an empty tag list' do
-        expect(CommitStatus)
+        expect(Gitlab::Ci::Tags::BulkInsert)
           .to receive(:bulk_insert_tags!)
           .with([job])
           .and_call_original
@@ -95,7 +95,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Create do
       end
 
       it 'bulk inserts tags' do
-        expect(CommitStatus)
+        expect(Gitlab::Ci::Tags::BulkInsert)
           .to receive(:bulk_insert_tags!)
           .with([job])
           .and_call_original

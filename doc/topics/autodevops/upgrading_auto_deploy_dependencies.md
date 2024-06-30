@@ -1,11 +1,14 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Upgrading deployments for newer Auto Deploy dependencies **(FREE)**
+# Upgrading deployments for newer Auto Deploy dependencies
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 [Auto Deploy](stages.md#auto-deploy) is a feature that deploys your application to a Kubernetes cluster.
 It consists of several dependencies:
@@ -52,7 +55,7 @@ The following table explains the version compatibility between GitLab and Auto D
 | GitLab version   | `auto-deploy-image` version | Notes |
 |------------------|-----------------------------|-------|
 | v10.0 to v14.0   | v0.1.0 to v2.0.0            | v0 and v1 auto-deploy-image are backwards compatible. |
-| v13.4 and higher | v2.0.0 and higher           | v2 auto-deploy-image contains breaking changes, as explained in the [upgrade guide](#upgrade-deployments-to-the-v2-auto-deploy-image). |
+| v13.4 and later  | v2.0.0 and later            | v2 auto-deploy-image contains breaking changes, as explained in the [upgrade guide](#upgrade-deployments-to-the-v2-auto-deploy-image). |
 
 You can find the current stable version of auto-deploy-image in the [Auto Deploy stable template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Deploy.gitlab-ci.yml).
 
@@ -68,18 +71,15 @@ The v1 chart is backward compatible with the v0 chart, so no configuration chang
 ### Upgrade deployments to the v2 `auto-deploy-image`
 
 The v2 auto-deploy-image contains multiple dependency and architectural changes.
-If your Auto DevOps project has an active environment deployed with the v1 `auto-deploy-image`,
-please proceed with the following upgrade guide. Otherwise, you can skip this process.
+If your Auto DevOps project has an active environment deployed with the v1 `auto-deploy-image`, proceed with the following upgrade guide. Otherwise, you can skip this process.
 
 #### Kubernetes 1.16+
 
-The v2 auto-deploy-image drops support for Kubernetes 1.15 and lower. If you need to upgrade your
+The v2 auto-deploy-image drops support for Kubernetes 1.15 and earlier. If you need to upgrade your
 Kubernetes cluster, follow your cloud provider's instructions. Here's
 [an example on GKE](https://cloud.google.com/kubernetes-engine/docs/how-to/upgrading-a-cluster).
 
 #### Helm v3
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/228609) in GitLab 13.4.
 
 The `auto-deploy-image` uses the Helm binary to manipulate the releases.
 Previously, `auto-deploy-image` used Helm v2, which used Tiller in a cluster.
@@ -117,7 +117,7 @@ If your Auto DevOps project has an active environment that was deployed with the
 1. Deploy your environment as usual. This deployment uses Helm v3.
 1. If the deployment succeeds, you can safely run `<environment-name>:helm-2to3:cleanup`.
    This deletes all Helm v2 release data from the namespace.
-1. Remove the `MIGRATE_HELM_2TO3` CI/CD variable or set it to `false`. You can do this one environment at a time using [environment scopes](../../ci/environments/index.md#scope-environments-with-specs).
+1. Remove the `MIGRATE_HELM_2TO3` CI/CD variable or set it to `false`. You can do this one environment at a time using [environment scopes](../../ci/environments/index.md#limit-the-environment-scope-of-a-cicd-variable).
 
 #### In-Cluster PostgreSQL Channel 2
 
@@ -127,9 +127,7 @@ with the [v1 auto-deploy-image](#use-a-specific-version-of-auto-deploy-dependenc
 
 #### Traffic routing change for canary deployments and incremental rollouts
 
-> [Introduced](https://gitlab.com/gitlab-org/cluster-integration/auto-deploy-image/-/merge_requests/109) in GitLab 13.4.
-
-Auto Deploy supports advanced deployment strategies such as [canary deployments](customize.md#deploy-policy-for-canary-environments)
+Auto Deploy supports advanced deployment strategies such as [canary deployments](cicd_variables.md#deploy-policy-for-canary-environments)
 and [incremental rollouts](../../ci/environments/incremental_rollouts.md).
 
 Previously, `auto-deploy-image` created one service to balance the traffic between
@@ -159,20 +157,18 @@ steps to upgrade to v2:
 To use a specific version of Auto Deploy dependencies, specify the previous Auto Deploy
 stable template that contains the [desired version of `auto-deploy-image` and `auto-deploy-app`](#verify-dependency-versions).
 
-For example, if the template is bundled in GitLab 13.3, change your `.gitlab-ci.yml` to:
+For example, if the template is bundled in GitLab 16.10, change your `.gitlab-ci.yml` to:
 
 ```yaml
 include:
   - template: Auto-DevOps.gitlab-ci.yml
-  - remote: https://gitlab.com/gitlab-org/gitlab/-/raw/v13.3.0-ee/lib/gitlab/ci/templates/Jobs/Deploy.gitlab-ci.yml
+  - remote: https://gitlab.com/gitlab-org/gitlab/-/raw/v16.10.0-ee/lib/gitlab/ci/templates/Jobs/Deploy.gitlab-ci.yml
 ```
-
-Alternatively, you can use the [v13.12 Auto DevOps templates archive](https://gitlab.com/hfyngvason/auto-devops-v13-12).
 
 ### Ignore warnings and continue deploying
 
 If you are certain that the new chart version is safe to be deployed, you can add
-the `AUTO_DEVOPS_FORCE_DEPLOY_V<major-version-number>` [CI/CD variable](customize.md#build-and-deployment)
+the `AUTO_DEVOPS_FORCE_DEPLOY_V<major-version-number>` [CI/CD variable](cicd_variables.md#build-and-deployment-variables)
 to force the deployment to continue.
 
 For example, if you want to deploy the `v2.0.0` chart on a deployment that previously
@@ -180,7 +176,7 @@ used the `v0.17.0` chart, add `AUTO_DEVOPS_FORCE_DEPLOY_V2`.
 
 ## Early adopters
 
-If you want to use the latest [Beta](../../policy/alpha-beta-support.md#beta-features) or unstable version of `auto-deploy-image`, include
+If you want to use the latest [beta](../../policy/experiment-beta-support.md#beta) or unstable version of `auto-deploy-image`, include
 the latest Auto Deploy template into your `.gitlab-ci.yml`:
 
 ```yaml
@@ -190,58 +186,69 @@ include:
 ```
 
 WARNING:
-Using a [Beta](../../policy/alpha-beta-support.md#beta-features) or unstable `auto-deploy-image` could cause unrecoverable damage to
+Using a [beta](../../policy/experiment-beta-support.md#beta) or unstable `auto-deploy-image` could cause unrecoverable damage to
 your environments. Do not test it with important projects or environments.
-
-The next stable template update is [planned for GitLab v14.0](https://gitlab.com/gitlab-org/gitlab/-/issues/232788).
 
 ## Resource Architectures of the `auto-deploy-app` chart
 
 ### v0 and v1 chart resource architecture
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 graph TD;
+accTitle: v0 and v1 chart resource architecture
+accDescr: Shows the relationships between the components of the v0 and v1 charts.
+
 subgraph gl-managed-app
-Z[Nginx Ingress]
+  Z[Nginx Ingress]
+  end
+  Z[Nginx Ingress] --> A(Ingress);
+  Z[Nginx Ingress] --> B(Ingress);
+  subgraph stg namespace
+  B[Ingress] --> H(...);
 end
-Z[Nginx Ingress] --> A(Ingress);
-Z[Nginx Ingress] --> B(Ingress);
-subgraph stg namespace
-B[Ingress] --> H(...);
-end
+
 subgraph prd namespace
-A[Ingress] --> D(Service);
-D[Service] --> E(Deployment:Pods:app:stable);
-D[Service] --> F(Deployment:Pods:app:canary);
-D[Service] --> I(Deployment:Pods:app:rollout);
-E(Deployment:Pods:app:stable)---id1[(Pods:Postgres)]
-F(Deployment:Pods:app:canary)---id1[(Pods:Postgres)]
-I(Deployment:Pods:app:rollout)---id1[(Pods:Postgres)]
+  A[Ingress] --> D(Service);
+  D[Service] --> E(Deployment:Pods:app:stable);
+  D[Service] --> F(Deployment:Pods:app:canary);
+  D[Service] --> I(Deployment:Pods:app:rollout);
+  E(Deployment:Pods:app:stable)---id1[(Pods:Postgres)]
+  F(Deployment:Pods:app:canary)---id1[(Pods:Postgres)]
+  I(Deployment:Pods:app:rollout)---id1[(Pods:Postgres)]
 end
 ```
 
 ### v2 chart resource architecture
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 graph TD;
+accTitle: v2 chart resource architecture
+accDescr: Shows the relationships between the components of the v2 chart.
+
 subgraph gl-managed-app
-Z[Nginx Ingress]
+  Z[Nginx Ingress]
+  end
+  Z[Nginx Ingress] --> A(Ingress);
+  Z[Nginx Ingress] --> B(Ingress);
+  Z[Nginx Ingress] --> |If canary is present or incremental rollout/|J(Canary Ingress);
+  subgraph stg namespace
+  B[Ingress] --> H(...);
 end
-Z[Nginx Ingress] --> A(Ingress);
-Z[Nginx Ingress] --> B(Ingress);
-Z[Nginx Ingress] --> |If canary is present or incremental rollout/|J(Canary Ingress);
-subgraph stg namespace
-B[Ingress] --> H(...);
-end
+
 subgraph prd namespace
-subgraph stable track
-A[Ingress] --> D[Service];
-D[Service] --> E(Deployment:Pods:app:stable);
-end
-subgraph canary track
-J(Canary Ingress) --> K[Service]
-K[Service] --> F(Deployment:Pods:app:canary);
-end
+
+  subgraph stable track
+    A[Ingress] --> D[Service];
+    D[Service] --> E(Deployment:Pods:app:stable);
+  end
+
+  subgraph canary track
+    J(Canary Ingress) --> K[Service]
+    K[Service] --> F(Deployment:Pods:app:canary);
+  end
+
 E(Deployment:Pods:app:stable)---id1[(Pods:Postgres)]
 F(Deployment:Pods:app:canary)---id1[(Pods:Postgres)]
 end
@@ -276,4 +283,4 @@ you might encounter the following error:
 - `Error: rendered manifests contain a resource that already exists. Unable to continue with install: Secret "production-postgresql" in namespace "<project-name>-production" exists and cannot be imported into the current release: invalid ownership metadata; label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"; annotation validation error: missing key "meta.helm.sh/release-name": must be set to "production-postgresql"; annotation validation error: missing key "meta.helm.sh/release-namespace": must be set to "<project-name>-production"`
 
 This is because the previous deployment was deployed with Helm2, which is not compatible with Helm3.
-To resolve the problem, please follow the [upgrade guide](#upgrade-deployments-to-the-v2-auto-deploy-image).
+To resolve the problem, follow the [upgrade guide](#upgrade-deployments-to-the-v2-auto-deploy-image).

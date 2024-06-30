@@ -6,10 +6,7 @@ module Issues
     def execute(issue, commit: nil, notifications: true, system_note: true, skip_authorization: false)
       return issue unless can_close?(issue, skip_authorization: skip_authorization)
 
-      close_issue(issue,
-                  closed_via: commit,
-                  notifications: notifications,
-                  system_note: system_note)
+      close_issue(issue, closed_via: commit, notifications: notifications, system_note: system_note)
     end
 
     # Closes the supplied issue without checking if the user is authorized to
@@ -24,36 +21,46 @@ module Issues
         return issue
       end
 
-      if perform_close(issue)
-        event_service.close_issue(issue, current_user)
-        create_note(issue, closed_via) if system_note
+      return issue unless handle_closing_issue!(issue, current_user)
 
-        closed_via = _("commit %{commit_id}") % { commit_id: closed_via.id } if closed_via.is_a?(Commit)
-
-        notification_service.async.close_issue(issue, current_user, { closed_via: closed_via }) if notifications
-        todo_service.close_issue(issue, current_user)
-        perform_incident_management_actions(issue)
-        execute_hooks(issue, 'close')
-        invalidate_cache_counts(issue, users: issue.assignees)
-        issue.update_project_counter_caches
-        track_incident_action(current_user, issue, :incident_closed)
-
-        if closed_via.is_a?(MergeRequest)
-          store_first_mentioned_in_commit_at(issue, closed_via)
-          OnboardingProgressService.new(project.namespace).execute(action: :issue_auto_closed)
-        end
-
-        delete_milestone_closed_issue_counter_cache(issue.milestone)
-      end
-
-      issue
+      after_close(issue, closed_via: closed_via, notifications: notifications, system_note: system_note)
     end
 
     private
 
-    # Overridden on EE
-    def perform_close(issue)
+    # overriden in EE
+    def handle_closing_issue!(issue, current_user)
       issue.close(current_user)
+    end
+
+    # overriden in EE
+    def after_close(issue, closed_via: nil, notifications: true, system_note: true)
+      event_service.close_issue(issue, current_user)
+      create_note(issue, closed_via) if system_note
+
+      if current_user.project_bot?
+        log_audit_event(issue, current_user, "#{issue.issue_type}_closed_by_project_bot",
+          "Closed #{issue.issue_type.humanize(capitalize: false)} #{issue.title}")
+      end
+
+      closed_via = _("commit %{commit_id}") % { commit_id: closed_via.id } if closed_via.is_a?(Commit)
+
+      notification_service.async.close_issue(issue, current_user, { closed_via: closed_via }) if notifications
+      todo_service.close_issue(issue, current_user)
+      perform_incident_management_actions(issue)
+      execute_hooks(issue, 'close')
+      invalidate_cache_counts(issue, users: issue.assignees)
+      issue.update_project_counter_caches
+      track_incident_action(current_user, issue, :incident_closed)
+
+      if closed_via.is_a?(MergeRequest)
+        store_first_mentioned_in_commit_at(issue, closed_via)
+        Onboarding::ProgressService.new(project.namespace).execute(action: :issue_auto_closed)
+      end
+
+      Milestones::ClosedIssuesCountService.new(issue.milestone).delete_cache if issue.milestone
+
+      issue
     end
 
     def can_close?(issue, skip_authorization: false)
@@ -61,7 +68,7 @@ module Issues
     end
 
     def perform_incident_management_actions(issue)
-      resolve_alert(issue)
+      resolve_alerts(issue)
       resolve_incident(issue)
     end
 
@@ -76,12 +83,17 @@ module Issues
       SystemNoteService.change_status(issue, issue.project, current_user, issue.state, current_commit)
     end
 
-    def resolve_alert(issue)
-      return unless alert = issue.alert_management_alert
+    def resolve_alerts(issue)
+      issue.alert_management_alerts.each { |alert| resolve_alert(alert) }
+    end
+
+    def resolve_alert(alert)
       return if alert.resolved?
 
+      issue = alert.issue
+
       if alert.resolve
-        SystemNoteService.change_alert_status(alert, current_user, " by closing incident #{issue.to_reference(project)}")
+        SystemNoteService.change_alert_status(alert, Users::Internal.alert_bot, " because #{current_user.to_reference} closed incident #{issue.to_reference(project)}")
       else
         Gitlab::AppLogger.warn(
           message: 'Cannot resolve an associated Alert Management alert',
@@ -93,11 +105,14 @@ module Issues
     end
 
     def resolve_incident(issue)
-      return unless issue.incident?
+      return unless issue.work_item_type&.incident?
 
       status = issue.incident_management_issuable_escalation_status || issue.build_incident_management_issuable_escalation_status
 
-      SystemNoteService.change_incident_status(issue, current_user, ' by closing the incident') if status.resolve
+      return unless status.resolve
+
+      SystemNoteService.change_incident_status(issue, current_user, ' by closing the incident')
+      IncidentManagement::TimelineEvents::CreateService.resolve_incident(issue, current_user)
     end
 
     def store_first_mentioned_in_commit_at(issue, merge_request, max_commit_lookup: 100)

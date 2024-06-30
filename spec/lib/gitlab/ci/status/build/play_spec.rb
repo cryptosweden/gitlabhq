@@ -3,9 +3,10 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::Ci::Status::Build::Play do
-  let(:user) { create(:user) }
-  let(:project) { create(:project, :stubbed_repository) }
-  let(:build) { create(:ci_build, :manual, project: project) }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :stubbed_repository) }
+  let_it_be_with_refind(:build) { create(:ci_build, :manual, project: project) }
+
   let(:status) { Gitlab::Ci::Status::Core.new(build, user) }
 
   subject { described_class.new(status) }
@@ -38,8 +39,7 @@ RSpec.describe Gitlab::Ci::Status::Build::Play do
         before do
           project.add_developer(user)
 
-          create(:protected_branch, :developers_can_merge,
-                 name: build.ref, project: project)
+          create(:protected_branch, :developers_can_merge, name: build.ref, project: project)
         end
 
         it { is_expected.to have_action }
@@ -48,8 +48,7 @@ RSpec.describe Gitlab::Ci::Status::Build::Play do
       context 'when user can not push to the branch' do
         before do
           build.project.add_developer(user)
-          create(:protected_branch, :maintainers_can_push,
-                 name: build.ref, project: project)
+          create(:protected_branch, :maintainers_can_push, name: build.ref, project: project)
         end
 
         it { is_expected.not_to have_action }
@@ -70,11 +69,25 @@ RSpec.describe Gitlab::Ci::Status::Build::Play do
   end
 
   describe '#action_title' do
-    it { expect(subject.action_title).to eq 'Play' }
+    it { expect(subject.action_title).to eq 'Run' }
   end
 
   describe '#action_button_title' do
-    it { expect(subject.action_button_title).to eq 'Trigger this manual action' }
+    it { expect(subject.action_button_title).to eq 'Run job' }
+  end
+
+  describe '#confirmation_message' do
+    context 'when build does not have manual_confirmation' do
+      it { expect(subject.confirmation_message).to be_nil }
+    end
+
+    context 'when build is manual and has manual_confirmation' do
+      let(:build) do
+        create(:ci_build, :playable, :with_manual_confirmation)
+      end
+
+      it { expect(subject.confirmation_message).to eq 'Please confirm. Do you want to proceed?' }
+    end
   end
 
   describe '.matches?' do

@@ -1,11 +1,12 @@
 import { GlDatepicker } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import { useFakeDate } from 'helpers/fake_date';
 import waitForPromises from 'helpers/wait_for_promises';
 import ExpirationDatepicker from '~/members/components/table/expiration_datepicker.vue';
-import { MEMBER_TYPES } from '~/members/constants';
+import { MEMBERS_TAB_TYPES } from '~/members/constants';
 import { member } from '../../mock_data';
 
 Vue.use(Vuex);
@@ -33,7 +34,7 @@ describe('ExpirationDatepicker', () => {
 
     return new Vuex.Store({
       modules: {
-        [MEMBER_TYPES.user]: { namespaced: true, actions },
+        [MEMBERS_TAB_TYPES.user]: { namespaced: true, actions },
       },
     });
   };
@@ -46,7 +47,7 @@ describe('ExpirationDatepicker', () => {
         ...propsData,
       },
       provide: {
-        namespace: MEMBER_TYPES.user,
+        namespace: MEMBERS_TAB_TYPES.user,
       },
       store: createStore(),
       mocks: {
@@ -56,11 +57,7 @@ describe('ExpirationDatepicker', () => {
   };
 
   const findInput = () => wrapper.find('input');
-  const findDatepicker = () => wrapper.find(GlDatepicker);
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findDatepicker = () => wrapper.findComponent(GlDatepicker);
 
   describe('datepicker input', () => {
     it('sets `member.expiresAt` as initial date', async () => {
@@ -97,7 +94,7 @@ describe('ExpirationDatepicker', () => {
   });
 
   describe('when datepicker is changed', () => {
-    beforeEach(async () => {
+    beforeEach(() => {
       createComponent();
 
       findDatepicker().vm.$emit('input', new Date('2020-03-17'));

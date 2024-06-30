@@ -9,7 +9,7 @@ module Gitlab
 
           delegate :dig, to: :@seed_attributes
 
-          def initialize(context, attributes, stages_for_needs_lookup = [])
+          def initialize(context, attributes, stages_for_needs_lookup)
             @context = context
             @pipeline = context.pipeline
             @seed_attributes = attributes
@@ -40,26 +40,28 @@ module Gitlab
           end
 
           def included?
-            strong_memoize(:inclusion) do
-              logger.instrument(:pipeline_seed_build_inclusion) do
-                if @using_rules
-                  rules_result.pass?
-                elsif @using_only || @using_except
-                  all_of_only? && none_of_except?
-                else
-                  true
-                end
+            logger.instrument(:pipeline_seed_build_inclusion) do
+              if @using_rules
+                rules_result.pass?
+              elsif @using_only || @using_except
+                all_of_only? && none_of_except?
+              else
+                true
               end
             end
           end
+          strong_memoize_attr :included?
 
           def errors
-            return unless included?
+            logger.instrument(:pipeline_seed_build_errors) do
+              # We check rules errors before checking "included?" because rules affects its inclusion status.
+              next rules_errors if rules_errors
+              next unless included?
 
-            strong_memoize(:errors) do
               [needs_errors, variable_expansion_errors].compact.flatten
             end
           end
+          strong_memoize_attr :errors
 
           def attributes
             @seed_attributes
@@ -78,18 +80,15 @@ module Gitlab
           end
 
           def to_resource
-            strong_memoize(:resource) do
-              initialize_processable
+            logger.instrument(:pipeline_seed_build_to_resource) do
+              if bridge?
+                ::Ci::Bridge.new(attributes)
+              else
+                ::Ci::Build.new(attributes)
+              end
             end
           end
-
-          def initialize_processable
-            if bridge?
-              ::Ci::Bridge.new(attributes)
-            else
-              ::Ci::Build.new(attributes)
-            end
-          end
+          strong_memoize_attr :to_resource
 
           private
 
@@ -114,6 +113,7 @@ module Gitlab
             end
 
             @needs_attributes.flat_map do |need|
+              # We ignore the optional needed job in case it is excluded from the pipeline due to the job's rules.
               next if need[:optional]
 
               result = need_present?(need)
@@ -146,39 +146,42 @@ module Gitlab
               ref: @pipeline.ref,
               tag: @pipeline.tag,
               trigger_request: @pipeline.legacy_trigger,
-              protected: @pipeline.protected_ref?
+              protected: @pipeline.protected_ref?,
+              partition_id: @pipeline.partition_id,
+              metadata_attributes: { partition_id: @pipeline.partition_id }
             }
           end
 
           def rules_attributes
-            strong_memoize(:rules_attributes) do
-              next {} unless @using_rules
+            return {} unless @using_rules
 
-              rules_variables_result = ::Gitlab::Ci::Variables::Helpers.merge_variables(
-                @seed_attributes[:yaml_variables], rules_result.variables
-              )
+            rules_variables_result = ::Gitlab::Ci::Variables::Helpers.merge_variables(
+              @seed_attributes[:yaml_variables], rules_result.variables
+            )
 
-              rules_result.build_attributes.merge(yaml_variables: rules_variables_result)
-            end
+            rules_result.build_attributes.merge(yaml_variables: rules_variables_result)
           end
+          strong_memoize_attr :rules_attributes
 
           def rules_result
-            strong_memoize(:rules_result) do
-              @rules.evaluate(@pipeline, evaluate_context)
-            end
+            @rules.evaluate(@pipeline, evaluate_context)
           end
+          strong_memoize_attr :rules_result
+
+          def rules_errors
+            ["Failed to parse rule for #{name}: #{rules_result.errors.join(', ')}"] if rules_result.errors.present?
+          end
+          strong_memoize_attr :rules_errors
 
           def evaluate_context
-            strong_memoize(:evaluate_context) do
-              Gitlab::Ci::Build::Context::Build.new(@pipeline, @seed_attributes)
-            end
+            Gitlab::Ci::Build::Context::Build.new(@pipeline, @seed_attributes)
           end
+          strong_memoize_attr :evaluate_context
 
           def runner_tags
-            strong_memoize(:runner_tags) do
-              { tag_list: evaluate_runner_tags }.compact
-            end
+            { tag_list: evaluate_runner_tags }.compact
           end
+          strong_memoize_attr :runner_tags
 
           def evaluate_runner_tags
             @seed_attributes.delete(:tag_list)&.map do |tag|

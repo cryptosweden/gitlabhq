@@ -48,15 +48,15 @@ class MergeRequestWidgetEntity < Grape::Entity
   end
 
   expose :conflicts_docs_path do |merge_request|
-    help_page_path('user/project/merge_requests/conflicts.md')
+    help_page_path('user/project/merge_requests/conflicts')
   end
 
   expose :reviewing_and_managing_merge_requests_docs_path do |merge_request|
-    help_page_path('user/project/merge_requests/reviews/index.md', anchor: "checkout-merge-requests-locally-through-the-head-ref")
+    help_page_path('user/project/merge_requests/merge_request_troubleshooting', anchor: "check-out-merge-requests-locally-through-the-head-ref")
   end
 
   expose :merge_request_pipelines_docs_path do |merge_request|
-    help_page_path('ci/pipelines/merge_request_pipelines.md')
+    help_page_path('ci/pipelines/merge_request_pipelines')
   end
 
   expose :ci_environments_status_path do |merge_request|
@@ -102,7 +102,7 @@ class MergeRequestWidgetEntity < Grape::Entity
   # Rendering and redacting Markdown can be expensive. These links are
   # just nice to have in the merge request widget, so only
   # include them if they are explicitly requested on first load.
-  expose :issues_links, if: -> (_, opts) { opts[:issues_links] } do
+  expose :issues_links, if: ->(_, opts) { opts[:issues_links] } do
     expose :assign_to_closing do |merge_request|
       presenter(merge_request).assign_to_closing_issues_path
     end
@@ -128,22 +128,8 @@ class MergeRequestWidgetEntity < Grape::Entity
     end
   end
 
-  expose :codeclimate, if: -> (mr, _) { head_pipeline_downloadable_path_for_report_type(:codequality) } do
-    expose :head_path do |merge_request|
-      head_pipeline_downloadable_path_for_report_type(:codequality)
-    end
-
-    expose :base_path do |merge_request|
-      if use_merge_base_with_merged_results?
-        merge_base_pipeline_downloadable_path_for_report_type(:codequality)
-      else
-        base_pipeline_downloadable_path_for_report_type(:codequality)
-      end
-    end
-  end
-
   expose :security_reports_docs_path do |merge_request|
-    help_page_path('user/application_security/index.md', anchor: 'viewing-security-scan-information-in-merge-requests')
+    help_page_path('user/application_security/index', anchor: 'view-security-scan-information-in-merge-requests')
   end
 
   expose :enabled_reports do |merge_request|
@@ -183,10 +169,6 @@ class MergeRequestWidgetEntity < Grape::Entity
       merge_request.commits_count > 0 &&
       can?(current_user, :read_build, merge_request.source_project) &&
       can?(current_user, :create_pipeline, merge_request.source_project)
-  end
-
-  def use_merge_base_with_merged_results?
-    object.actual_head_pipeline&.merged_result_pipeline?
   end
 
   def head_pipeline_downloadable_path_for_report_type(file_type)

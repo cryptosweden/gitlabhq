@@ -1,13 +1,12 @@
-import { __, s__ } from '../locale';
+import { __, s__ } from '~/locale';
 
 export const MAX_CHILDREN_COUNT = 20;
 
 export const ACTIVE_TAB_SUBGROUPS_AND_PROJECTS = 'subgroups_and_projects';
 export const ACTIVE_TAB_SHARED = 'shared';
-export const ACTIVE_TAB_ARCHIVED = 'archived';
+export const ACTIVE_TAB_INACTIVE = 'inactive';
 
 export const GROUPS_LIST_HOLDER_CLASS = '.js-groups-list-holder';
-export const GROUPS_FILTER_FORM_CLASS = '.js-group-filter-form';
 export const CONTENT_LIST_CLASS = '.groups-list';
 
 export const COMMON_STR = {
@@ -19,8 +18,6 @@ export const COMMON_STR = {
   EDIT_BTN_TITLE: s__('GroupsTree|Edit'),
   REMOVE_BTN_TITLE: s__('GroupsTree|Delete'),
   OPTIONS_DROPDOWN_TITLE: s__('GroupsTree|Options'),
-  GROUP_SEARCH_EMPTY: s__('GroupsTree|No groups matched your search'),
-  GROUP_PROJECT_SEARCH_EMPTY: s__('GroupsTree|No groups or projects matched your search'),
 };
 
 export const ITEM_TYPE = {
@@ -28,28 +25,55 @@ export const ITEM_TYPE = {
   GROUP: 'group',
 };
 
-export const GROUP_VISIBILITY_TYPE = {
-  public: __(
-    'Public - The group and any public projects can be viewed without any authentication.',
-  ),
-  internal: __(
-    'Internal - The group and any internal projects can be viewed by any logged in user except external users.',
-  ),
-  private: __('Private - The group and its projects can only be viewed by members.'),
+export const SORTING_ITEM_NAME = {
+  label: __('Name'),
+  asc: 'name_asc',
+  desc: 'name_desc',
 };
 
-export const PROJECT_VISIBILITY_TYPE = {
-  public: __('Public - The project can be accessed without any authentication.'),
-  internal: __(
-    'Internal - The project can be accessed by any logged in user except external users.',
-  ),
-  private: __(
-    'Private - Project access must be granted explicitly to each user. If this project is part of a group, access will be granted to members of the group.',
-  ),
+export const SORTING_ITEM_CREATED = {
+  label: __('Created date'),
+  asc: 'created_asc',
+  desc: 'created_desc',
 };
 
-export const VISIBILITY_TYPE_ICON = {
-  public: 'earth',
-  internal: 'shield',
-  private: 'lock',
+export const SORTING_ITEM_UPDATED = {
+  label: __('Updated date'),
+  asc: 'latest_activity_asc',
+  desc: 'latest_activity_desc',
 };
+
+export const SORTING_ITEM_STARS = {
+  label: __('Stars'),
+  asc: 'stars_asc',
+  desc: 'stars_desc',
+};
+
+export const EXPLORE_FILTERED_SEARCH_TERM_KEY = 'filter';
+export const EXPLORE_FILTERED_SEARCH_NAMESPACE = 'explore';
+export const EXPLORE_SORTING_ITEMS = [
+  SORTING_ITEM_NAME,
+  SORTING_ITEM_CREATED,
+  SORTING_ITEM_UPDATED,
+];
+
+export const OVERVIEW_TABS_FILTERED_SEARCH_TERM_KEY = 'filter';
+export const OVERVIEW_TABS_FILTERED_SEARCH_NAMESPACE = 'overview';
+
+export const OVERVIEW_TABS_SORTING_ITEMS = [
+  SORTING_ITEM_NAME,
+  SORTING_ITEM_CREATED,
+  SORTING_ITEM_UPDATED,
+  SORTING_ITEM_STARS,
+];
+
+export const OVERVIEW_TABS_ARCHIVED_PROJECTS_SORTING_ITEMS = [
+  SORTING_ITEM_NAME,
+  SORTING_ITEM_CREATED,
+  SORTING_ITEM_UPDATED,
+];
+
+export const FORM_FIELD_NAME = 'name';
+export const FORM_FIELD_PATH = 'path';
+export const FORM_FIELD_ID = 'id';
+export const FORM_FIELD_VISIBILITY_LEVEL = 'visibilityLevel';

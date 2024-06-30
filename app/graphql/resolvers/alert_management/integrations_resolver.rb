@@ -8,8 +8,8 @@ module Resolvers
       alias_method :project, :object
 
       argument :id, ::Types::GlobalIDType,
-               required: false,
-               description: 'ID of the integration.'
+        required: false,
+        description: 'ID of the integration.'
 
       type Types::AlertManagement::IntegrationType.connection_type, null: true
 
@@ -40,7 +40,7 @@ module Resolvers
       def http_integrations
         return [] unless http_integrations_allowed?
 
-        ::AlertManagement::HttpIntegrationsFinder.new(project, {}).execute
+        ::AlertManagement::HttpIntegrationsFinder.new(project, { type_identifier: :http }).execute
       end
 
       def prometheus_integrations_allowed?

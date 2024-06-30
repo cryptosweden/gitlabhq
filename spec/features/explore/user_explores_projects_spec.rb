@@ -2,7 +2,52 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User explores projects' do
+RSpec.describe 'User explores projects', feature_category: :user_profile do
+  shared_examples 'an "Explore > Projects" page with sidebar and breadcrumbs' do |page_path, params|
+    before do
+      visit send(page_path, params)
+    end
+
+    describe "sidebar", :js do
+      it 'shows the "Explore" sidebar' do
+        has_testid?('super-sidebar')
+        within_testid('super-sidebar') do
+          expect(page).to have_css('#super-sidebar-context-header', text: 'Explore')
+        end
+      end
+
+      it 'shows the "Projects" menu item as active' do
+        within_testid('super-sidebar') do
+          expect(page).to have_css("[aria-current='page']", text: "Projects")
+        end
+      end
+    end
+
+    describe 'breadcrumbs', :js do
+      it 'has "Explore" as its root breadcrumb' do
+        within_testid('breadcrumb-links') do
+          expect(find('li:first-of-type')).to have_link('Explore', href: explore_root_path)
+        end
+      end
+    end
+  end
+
+  describe '"All" tab' do
+    it_behaves_like(
+      'an "Explore > Projects" page with sidebar and breadcrumbs',
+      :explore_projects_path,
+      { archived: 'true' }
+    )
+  end
+
+  describe '"Most starred" tab' do
+    it_behaves_like 'an "Explore > Projects" page with sidebar and breadcrumbs', :starred_explore_projects_path
+  end
+
+  describe '"Trending" tab' do
+    it_behaves_like 'an "Explore > Projects" page with sidebar and breadcrumbs', :trending_explore_projects_path
+  end
+
   context 'when some projects exist' do
     let_it_be(:archived_project) { create(:project, :archived) }
     let_it_be(:internal_project) { create(:project, :internal) }
@@ -35,21 +80,19 @@ RSpec.describe 'User explores projects' do
 
       before do
         sign_in(user)
-
-        stub_feature_flags(project_list_filter_bar: false)
       end
 
       shared_examples 'empty search results' do
         it 'shows correct empty state message', :js do
-          fill_in 'name', with: 'zzzzzzzzzzzzzzzzzzz'
+          search('zzzzzzzzzzzzzzzzzzz')
 
-          expect(page).to have_content('Explore public groups to find projects to contribute to.')
+          expect(page).to have_content('Explore public groups to find projects to contribute to')
         end
       end
 
       shared_examples 'minimum search length' do
         it 'shows a prompt to enter a longer search term', :js do
-          fill_in 'name', with: 'z'
+          search('z')
 
           expect(page).to have_content('Enter at least three characters to search')
         end
@@ -94,7 +137,7 @@ RSpec.describe 'User explores projects' do
   context 'when there are no projects' do
     shared_examples 'explore page empty state' do
       it 'shows correct empty state message' do
-        expect(page).to have_content('Explore public groups to find projects to contribute to.')
+        expect(page).to have_content('Explore public groups to find projects to contribute to')
       end
     end
 
@@ -121,5 +164,12 @@ RSpec.describe 'User explores projects' do
 
       it_behaves_like 'explore page empty state'
     end
+  end
+
+  def search(term)
+    filter_input = find_by_testid('filtered-search-term-input')
+    filter_input.click
+    filter_input.set(term)
+    click_button 'Search'
   end
 end

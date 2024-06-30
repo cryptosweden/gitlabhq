@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::HashedStorage::BaseAttachmentService do
+RSpec.describe Projects::HashedStorage::BaseAttachmentService, feature_category: :groups_and_projects do
   let(:project) { create(:project, :repository, storage_version: 0, skip_disk_validation: true) }
 
   subject(:service) { described_class.new(project: project, old_disk_path: project.full_path, logger: nil) }
@@ -45,7 +45,7 @@ RSpec.describe Projects::HashedStorage::BaseAttachmentService do
   describe '#move_folder!' do
     context 'when old_path is not a directory' do
       it 'adds information to the logger and returns true' do
-        Tempfile.create do |old_path| # rubocop:disable Rails/SaveBang
+        Tempfile.create do |old_path|
           new_path = "#{old_path}-new"
 
           expect(subject.send(:move_folder!, old_path, new_path)).to be_truthy

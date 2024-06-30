@@ -1,31 +1,21 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan' do
+  RSpec.describe 'Plan', :blocking, product_group: :project_management do
     describe 'Custom issue templates' do
-      let(:template_name) { 'custom_issue_template'}
+      let(:template_name) { 'custom_issue_template' }
       let(:template_content) { 'This is a custom issue template test' }
 
       let(:template_project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = "custom-issue-template-project"
-          project.initialize_with_readme = true
-        end
+        create(:project, :with_readme, name: 'custom-issue-template-project')
       end
 
       before do
         Flow::Login.sign_in
 
-        Resource::Repository::Commit.fabricate_via_api! do |commit|
-          commit.project = template_project
-          commit.commit_message = 'Add custom issue template'
-          commit.add_files([
-            {
-              file_path: ".gitlab/issue_templates/#{template_name}.md",
-              content: template_content
-            }
-          ])
-        end
+        create(:commit, project: template_project, commit_message: 'Add custom issue template', actions: [
+          { action: 'create', file_path: ".gitlab/issue_templates/#{template_name}.md", content: template_content }
+        ])
       end
 
       it 'creates an issue via custom template', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347945' do

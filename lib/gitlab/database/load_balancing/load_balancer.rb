@@ -8,9 +8,15 @@ module Gitlab
       # Each host in the load balancer uses the same credentials as the primary
       # database.
       class LoadBalancer
+        ANY_CAUGHT_UP  = :any
+        ALL_CAUGHT_UP  = :all
+        NONE_CAUGHT_UP = :none
+
         CACHE_KEY = :gitlab_load_balancer_host
 
         REPLICA_SUFFIX = '_replica'
+
+        attr_accessor :service_discovery
 
         attr_reader :host_list, :configuration
 
@@ -45,6 +51,10 @@ module Gitlab
         # If no secondaries were available this method will use the primary
         # instead.
         def read(&block)
+          raise_if_concurrent_ruby!
+
+          service_discovery&.log_refresh_thread_interruption
+
           conflict_retried = 0
 
           while host
@@ -103,13 +113,43 @@ module Gitlab
 
         # Yields a connection that can be used for both reads and writes.
         def read_write
+          raise_if_concurrent_ruby!
+
+          service_discovery&.log_refresh_thread_interruption
+
           connection = nil
+          transaction_open = nil
+
+          # Retry only once when in a transaction (see https://gitlab.com/gitlab-org/gitlab/-/issues/220242)
+          attempts = pool.connection.transaction_open? ? 1 : 3
+
           # In the event of a failover the primary may be briefly unavailable.
           # Instead of immediately grinding to a halt we'll retry the operation
           # a few times.
-          retry_with_backoff do
+          # It is not possible preserve transaction state during a retry, so we do not retry in that case.
+          retry_with_backoff(attempts: attempts) do |attempt|
             connection = pool.connection
+            transaction_open = connection.transaction_open?
+
+            if attempt && attempt > 1
+              ::Gitlab::Database::LoadBalancing::Logger.warn(
+                event: :read_write_retry,
+                message: 'A read_write block was retried because of connection error'
+              )
+            end
+
             yield connection
+          rescue StandardError => e
+            # No leaking will happen on the final attempt. Leaks are caused by subsequent retries
+            not_final_attempt = attempt && attempt < attempts
+            if transaction_open && connection_error?(e) && not_final_attempt
+              ::Gitlab::Database::LoadBalancing::Logger.warn(
+                event: :transaction_leak,
+                message: 'A write transaction has leaked during database fail-over'
+              )
+            end
+
+            raise e
           end
         end
 
@@ -146,20 +186,36 @@ module Gitlab
           raise 'Failed to determine the write location of the primary database'
         end
 
-        # Returns true if there was at least one host that has caught up with the given transaction.
+        # Finds any up to date replica for the given LSN location and stores an up to date replica in the
+        # SafeRequestStore to be used later for read-only queries. It returns a symbol to indicate if :any, :all or
+        # :none were found to be caught up.
         def select_up_to_date_host(location)
           all_hosts = @host_list.hosts.shuffle
-          host = all_hosts.find { |host| host.caught_up?(location) }
+          first_caught_up_host = nil
 
-          return false unless host
+          # We must loop through all of them so that we know if all are caught up. Some callers only care about finding
+          # one caught up host and storing it in request_cache. But Sticking needs to know if ALL_CAUGHT_UP so that it
+          # can clear the LSN position from Redis and not ask again in future.
+          results = all_hosts.map do |host|
+            caught_up = host.caught_up?(location)
+            first_caught_up_host ||= host if caught_up
+            caught_up
+          end
 
-          request_cache[CACHE_KEY] = host
+          ActiveSupport::Notifications.instrument(
+            'caught_up_replica_pick.load_balancing',
+            { result: first_caught_up_host.present? }
+          )
 
-          true
+          return NONE_CAUGHT_UP unless first_caught_up_host
+
+          request_cache[CACHE_KEY] = first_caught_up_host
+
+          results.all? ? ALL_CAUGHT_UP : ANY_CAUGHT_UP
         end
 
         # Yields a block, retrying it upon error using an exponential backoff.
-        def retry_with_backoff(retries = 3, time = 2)
+        def retry_with_backoff(attempts: 3, time: 2)
           # In CI we only use the primary, but databases may not always be
           # available (or take a few seconds to become available). Retrying in
           # this case can slow down CI jobs. In addition, retrying with _only_
@@ -171,12 +227,12 @@ module Gitlab
           # replicas were configured.
           return yield if primary_only?
 
-          retried = 0
+          attempt = 1
           last_error = nil
 
-          while retried < retries
+          while attempt <= attempts
             begin
-              return yield
+              return yield attempt # Yield the current attempt count
             rescue StandardError => error
               raise error unless connection_error?(error)
 
@@ -186,7 +242,7 @@ module Gitlab
 
               last_error = error
               sleep(time)
-              retried += 1
+              attempt += 1
               time **= 2
             end
           end
@@ -232,14 +288,14 @@ module Gitlab
         # host - An optional host name to use instead of the default one.
         # port - An optional port to connect to.
         def create_replica_connection_pool(pool_size, host = nil, port = nil)
-          db_config = @configuration.replica_db_config
+          db_config = @configuration.db_config
 
           env_config = db_config.configuration_hash.dup
           env_config[:pool] = pool_size
           env_config[:host] = host if host
           env_config[:port] = port if port
 
-          replica_db_config = ActiveRecord::DatabaseConfigurations::HashConfig.new(
+          db_config = ActiveRecord::DatabaseConfigurations::HashConfig.new(
             db_config.env_name,
             db_config.name + REPLICA_SUFFIX,
             env_config
@@ -249,19 +305,21 @@ module Gitlab
           # as it will rewrite ActiveRecord::Base.connection
           ActiveRecord::ConnectionAdapters::ConnectionHandler
             .new
-            .establish_connection(replica_db_config)
+            .establish_connection(db_config)
         end
 
         # ActiveRecord::ConnectionAdapters::ConnectionHandler handles fetching,
         # and caching for connections pools for each "connection", so we
         # leverage that.
+        # rubocop:disable Database/MultipleDatabases
         def pool
           ActiveRecord::Base.connection_handler.retrieve_connection_pool(
-            @configuration.primary_connection_specification_name,
-            role: ActiveRecord::Base.writing_role,
+            @configuration.connection_specification_name,
+            role: ActiveRecord.writing_role,
             shard: ActiveRecord::Base.default_shard
           ) || raise(::ActiveRecord::ConnectionNotEstablished)
         end
+        # rubocop:enable Database/MultipleDatabases
 
         def wal_diff(location1, location2)
           read_write do |connection|
@@ -317,6 +375,12 @@ module Gitlab
 
           row = ar_connection.select_all(sql).first
           row['location'] if row
+        end
+
+        def raise_if_concurrent_ruby!
+          Gitlab::Utils.raise_if_concurrent_ruby!(:db)
+        rescue StandardError => e
+          Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
         end
       end
     end

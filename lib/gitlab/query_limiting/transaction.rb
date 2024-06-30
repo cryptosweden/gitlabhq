@@ -14,8 +14,14 @@ module Gitlab
       # The maximum number of SQL queries that can be executed in a request. For
       # the sake of keeping things simple we hardcode this value here, it's not
       # supposed to be changed very often anyway.
-      THRESHOLD = 100
-      LOG_THRESHOLD = THRESHOLD * 1.5
+      def self.default_threshold
+        100
+      end
+
+      # Deprecated, use default_threshold
+      def self.threshold
+        default_threshold
+      end
 
       # Error that is raised whenever exceeding the maximum number of queries.
       ThresholdExceededError = Class.new(StandardError)
@@ -34,12 +40,14 @@ module Gitlab
       #
       #     retval # => 10
       def self.run
+        previous_transaction = current
+
         transaction = new
         Thread.current[THREAD_KEY] = transaction
 
         [transaction, yield]
       ensure
-        Thread.current[THREAD_KEY] = nil
+        Thread.current[THREAD_KEY] = previous_transaction
       end
 
       def initialize
@@ -57,28 +65,54 @@ module Gitlab
         raise(error) if raise_error?
       end
 
-      def increment
-        @count += 1 if enabled?
+      def increment(sql = nil)
+        @count += 1 if enabled? && !ignorable?(sql)
+      end
+
+      GEO_NODES_LOAD = 'SELECT 1 AS one FROM "geo_nodes" LIMIT 1'
+      LICENSES_LOAD = 'SELECT "licenses".* FROM "licenses" ORDER BY "licenses"."id"'
+      SCHEMA_INTROSPECTION = %r{SELECT.*(FROM|JOIN) (pg_attribute|pg_class)}m
+      SAVEPOINT = %r{(RELEASE )?SAVEPOINT}m
+
+      # queries can be safely ignored if they are amoritized in regular usage
+      # (i.e. only requested occasionally and otherwise cached).
+      def ignorable?(sql)
+        return true if sql&.include?(GEO_NODES_LOAD)
+        return true if sql&.include?(LICENSES_LOAD)
+        return true if SCHEMA_INTROSPECTION.match?(sql)
+        return true if SAVEPOINT.match?(sql)
+
+        false
       end
 
       def executed_sql(sql)
-        @sql_executed << sql if @count <= LOG_THRESHOLD
+        return if @count > log_threshold || ignorable?(sql)
+
+        @sql_executed << sql
       end
 
       def raise_error?
         Rails.env.test?
       end
 
+      def threshold
+        ::Gitlab::QueryLimiting.threshold || self.class.threshold
+      end
+
+      def log_threshold
+        threshold * 1.5
+      end
+
       def threshold_exceeded?
-        count > THRESHOLD
+        count > threshold
       end
 
       def error_message
         header = 'Too many SQL queries were executed'
         header = "#{header} in #{action}" if action
-        msg = "a maximum of #{THRESHOLD} is allowed but #{count} SQL queries were executed"
+        msg = "a maximum of #{threshold} is allowed but #{count} SQL queries were executed"
         log = @sql_executed.each_with_index.map { |sql, i| "#{i}: #{sql}" }.join("\n").presence
-        ellipsis = '...' if @count > LOG_THRESHOLD
+        ellipsis = '...' if @count > log_threshold
 
         ["#{header}: #{msg}", log, ellipsis].compact.join("\n")
       end
@@ -89,3 +123,5 @@ module Gitlab
     end
   end
 end
+
+Gitlab::QueryLimiting::Transaction.prepend_mod

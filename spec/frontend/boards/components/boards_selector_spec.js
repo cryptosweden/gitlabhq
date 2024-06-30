@@ -1,22 +1,21 @@
-import { GlDropdown, GlLoadingIcon, GlDropdownSectionHeader } from '@gitlab/ui';
-import { mount } from '@vue/test-utils';
+import { GlCollapsibleListbox, GlButton } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
-import Vuex from 'vuex';
+import waitForPromises from 'helpers/wait_for_promises';
 import { TEST_HOST } from 'spec/test_constants';
+import { formType } from '~/boards/constants';
 import BoardsSelector from '~/boards/components/boards_selector.vue';
-import { BoardType } from '~/boards/constants';
-import groupBoardQuery from '~/boards/graphql/group_board.query.graphql';
-import projectBoardQuery from '~/boards/graphql/project_board.query.graphql';
+import BoardForm from '~/boards/components/board_form.vue';
 import groupBoardsQuery from '~/boards/graphql/group_boards.query.graphql';
 import projectBoardsQuery from '~/boards/graphql/project_boards.query.graphql';
 import groupRecentBoardsQuery from '~/boards/graphql/group_recent_boards.query.graphql';
 import projectRecentBoardsQuery from '~/boards/graphql/project_recent_boards.query.graphql';
-import defaultStore from '~/boards/stores';
+import * as cacheUpdates from '~/boards/graphql/cache_updates';
+import { WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
 import createMockApollo from 'helpers/mock_apollo_helper';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import {
-  mockGroupBoardResponse,
-  mockProjectBoardResponse,
+  mockBoard,
   mockGroupAllBoardsResponse,
   mockProjectAllBoardsResponse,
   mockGroupRecentBoardsResponse,
@@ -34,39 +33,13 @@ Vue.use(VueApollo);
 describe('BoardsSelector', () => {
   let wrapper;
   let fakeApollo;
-  let store;
 
-  const createStore = ({ isGroupBoard = false, isProjectBoard = false } = {}) => {
-    store = new Vuex.Store({
-      ...defaultStore,
-      actions: {
-        setError: jest.fn(),
-        setBoardConfig: jest.fn(),
-      },
-      getters: {
-        isGroupBoard: () => isGroupBoard,
-        isProjectBoard: () => isProjectBoard,
-      },
-      state: {
-        boardType: isGroupBoard ? 'group' : 'project',
-      },
-    });
+  const findDropdown = () => wrapper.findComponent(GlCollapsibleListbox);
+  const findBoardForm = () => wrapper.findComponent(BoardForm);
+
+  const fillSearchBox = async (filterTerm) => {
+    await findDropdown().vm.$emit('search', filterTerm);
   };
-
-  const fillSearchBox = (filterTerm) => {
-    const searchBox = wrapper.find({ ref: 'searchBox' });
-    const searchBoxInput = searchBox.find('input');
-    searchBoxInput.setValue(filterTerm);
-    searchBoxInput.trigger('input');
-  };
-
-  const getDropdownItems = () => wrapper.findAll('.js-dropdown-item');
-  const getDropdownHeaders = () => wrapper.findAllComponents(GlDropdownSectionHeader);
-  const getLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
-  const findDropdown = () => wrapper.findComponent(GlDropdown);
-
-  const projectBoardQueryHandlerSuccess = jest.fn().mockResolvedValue(mockProjectBoardResponse);
-  const groupBoardQueryHandlerSuccess = jest.fn().mockResolvedValue(mockGroupBoardResponse);
 
   const projectBoardsQueryHandlerSuccess = jest
     .fn()
@@ -87,62 +60,88 @@ describe('BoardsSelector', () => {
     .fn()
     .mockResolvedValue(mockEmptyProjectRecentBoardsResponse);
 
+  const boardsHandlerFailure = jest.fn().mockRejectedValue(new Error('error'));
+
   const createComponent = ({
     projectBoardsQueryHandler = projectBoardsQueryHandlerSuccess,
     projectRecentBoardsQueryHandler = projectRecentBoardsQueryHandlerSuccess,
+    groupBoardsQueryHandler = groupBoardsQueryHandlerSuccess,
+    isGroupBoard = false,
+    isProjectBoard = false,
+    provide = {},
+    props = {},
   } = {}) => {
     fakeApollo = createMockApollo([
-      [projectBoardQuery, projectBoardQueryHandlerSuccess],
-      [groupBoardQuery, groupBoardQueryHandlerSuccess],
       [projectBoardsQuery, projectBoardsQueryHandler],
-      [groupBoardsQuery, groupBoardsQueryHandlerSuccess],
+      [groupBoardsQuery, groupBoardsQueryHandler],
       [projectRecentBoardsQuery, projectRecentBoardsQueryHandler],
       [groupRecentBoardsQuery, groupRecentBoardsQueryHandlerSuccess],
     ]);
 
-    wrapper = mount(BoardsSelector, {
-      store,
+    wrapper = shallowMountExtended(BoardsSelector, {
       apolloProvider: fakeApollo,
       propsData: {
         throttleDuration,
+        board: mockBoard,
+        ...props,
+      },
+      attachTo: document.body,
+      provide: {
+        fullPath: '',
         boardBaseUrl: `${TEST_HOST}/board/base/url`,
         hasMissingBoards: false,
         canAdminBoard: true,
         multipleIssueBoardsAvailable: true,
         scopedIssueBoardFeatureEnabled: true,
         weights: [],
+        boardType: isGroupBoard ? 'group' : 'project',
+        isGroupBoard,
+        isProjectBoard,
+        isIssueBoard: true,
+        ...provide,
       },
-      attachTo: document.body,
-      provide: {
-        fullPath: '',
-      },
+      stubs: { BoardForm },
     });
   };
 
+  beforeEach(() => {
+    cacheUpdates.setError = jest.fn();
+  });
+
   afterEach(() => {
-    wrapper.destroy();
     fakeApollo = null;
   });
 
   describe('template', () => {
     beforeEach(() => {
-      createStore({ isProjectBoard: true });
-      createComponent();
+      createComponent({ isProjectBoard: true });
     });
 
     describe('loading', () => {
       // we are testing loading state, so don't resolve responses until after the tests
       afterEach(async () => {
-        await nextTick();
+        await waitForPromises();
       });
 
-      it('shows loading spinner', () => {
-        // Emits gl-dropdown show event to simulate the dropdown is opened at initialization time
-        findDropdown().vm.$emit('show');
+      it('displays loading state of dropdown while current board is being fetched', () => {
+        createComponent({
+          props: { isCurrentBoardLoading: true },
+        });
+        expect(findDropdown().props('loading')).toBe(true);
+        expect(findDropdown().props('toggleText')).toBe('Select board');
+      });
 
-        expect(getLoadingIcon().exists()).toBe(true);
-        expect(getDropdownHeaders()).toHaveLength(0);
-        expect(getDropdownItems()).toHaveLength(0);
+      it('shows loading spinner', async () => {
+        createComponent({
+          props: {
+            isCurrentBoardLoading: true,
+          },
+        });
+        // Emits gl-dropdown show event to simulate the dropdown is opened at initialization time
+        findDropdown().vm.$emit('shown');
+        await nextTick();
+
+        expect(findDropdown().props('loading')).toBe(true);
       });
     });
 
@@ -152,7 +151,7 @@ describe('BoardsSelector', () => {
         await nextTick();
 
         // Emits gl-dropdown show event to simulate the dropdown is opened at initialization time
-        findDropdown().vm.$emit('show');
+        findDropdown().vm.$emit('shown');
 
         await nextTick();
       });
@@ -161,9 +160,8 @@ describe('BoardsSelector', () => {
         expect(projectBoardsQueryHandlerSuccess).toHaveBeenCalled();
       });
 
-      it('hides loading spinner', async () => {
-        await nextTick();
-        expect(getLoadingIcon().exists()).toBe(false);
+      it('hides loading spinner', () => {
+        expect(findDropdown().props('loading')).toBe(false);
       });
 
       describe('filtering', () => {
@@ -172,26 +170,26 @@ describe('BoardsSelector', () => {
         });
 
         it('shows all boards without filtering', () => {
-          expect(getDropdownItems()).toHaveLength(boards.length + recentIssueBoards.length);
+          expect(findDropdown().props('items')[0].text).toBe('Recent');
+          expect(findDropdown().props('items')[0].options).toHaveLength(recentIssueBoards.length);
+          expect(findDropdown().props('items')[1].text).toBe('All');
+          expect(findDropdown().props('items')[1].options).toHaveLength(
+            boards.length - recentIssueBoards.length,
+          );
         });
 
         it('shows only matching boards when filtering', async () => {
           const filterTerm = 'board1';
-          const expectedCount = boards.filter((board) => board.node.name.includes(filterTerm))
-            .length;
+          const expectedCount = boards.filter((board) => board.name.includes(filterTerm)).length;
 
-          fillSearchBox(filterTerm);
-
-          await nextTick();
-          expect(getDropdownItems()).toHaveLength(expectedCount);
+          await fillSearchBox(filterTerm);
+          expect(findDropdown().props('items')).toHaveLength(expectedCount);
         });
 
         it('shows message if there are no matching boards', async () => {
-          fillSearchBox('does not exist');
+          await fillSearchBox('does not exist');
 
-          await nextTick();
-          expect(getDropdownItems()).toHaveLength(0);
-          expect(wrapper.text().includes('No matching boards found')).toBe(true);
+          expect(findDropdown().props('noResultsText')).toBe('No matching boards found');
         });
       });
 
@@ -199,14 +197,18 @@ describe('BoardsSelector', () => {
         it('shows only when boards are greater than 10', async () => {
           await nextTick();
           expect(projectRecentBoardsQueryHandlerSuccess).toHaveBeenCalled();
-          expect(getDropdownHeaders()).toHaveLength(2);
+
+          expect(findDropdown().props('items')).toHaveLength(2);
+          expect(findDropdown().props('items')[0].text).toBe('Recent');
+          expect(findDropdown().props('items')[1].text).toBe('All');
         });
 
         it('does not show when boards are less than 10', async () => {
           createComponent({ projectBoardsQueryHandler: smallBoardsQueryHandlerSuccess });
 
           await nextTick();
-          expect(getDropdownHeaders()).toHaveLength(0);
+
+          expect(findDropdown().props('items')).toHaveLength(0);
         });
 
         it('does not show when recentIssueBoards api returns empty array', async () => {
@@ -215,14 +217,14 @@ describe('BoardsSelector', () => {
           });
 
           await nextTick();
-          expect(getDropdownHeaders()).toHaveLength(0);
+          expect(findDropdown().props('items')).toHaveLength(0);
         });
 
         it('does not show when search is active', async () => {
           fillSearchBox('Random string');
 
           await nextTick();
-          expect(getDropdownHeaders()).toHaveLength(0);
+          expect(findDropdown().props('items')).toHaveLength(0);
         });
       });
     });
@@ -231,43 +233,125 @@ describe('BoardsSelector', () => {
   describe('fetching all boards', () => {
     it.each`
       boardType            | queryHandler                        | notCalledHandler
-      ${BoardType.group}   | ${groupBoardsQueryHandlerSuccess}   | ${projectBoardsQueryHandlerSuccess}
-      ${BoardType.project} | ${projectBoardsQueryHandlerSuccess} | ${groupBoardsQueryHandlerSuccess}
+      ${WORKSPACE_GROUP}   | ${groupBoardsQueryHandlerSuccess}   | ${projectBoardsQueryHandlerSuccess}
+      ${WORKSPACE_PROJECT} | ${projectBoardsQueryHandlerSuccess} | ${groupBoardsQueryHandlerSuccess}
     `('fetches $boardType boards', async ({ boardType, queryHandler, notCalledHandler }) => {
-      createStore({
-        isProjectBoard: boardType === BoardType.project,
-        isGroupBoard: boardType === BoardType.group,
+      createComponent({
+        isGroupBoard: boardType === WORKSPACE_GROUP,
+        isProjectBoard: boardType === WORKSPACE_PROJECT,
       });
-      createComponent();
 
       await nextTick();
 
       // Emits gl-dropdown show event to simulate the dropdown is opened at initialization time
-      findDropdown().vm.$emit('show');
+      findDropdown().vm.$emit('shown');
 
       await nextTick();
 
       expect(queryHandler).toHaveBeenCalled();
       expect(notCalledHandler).not.toHaveBeenCalled();
     });
-  });
 
-  describe('fetching current board', () => {
     it.each`
-      boardType            | queryHandler                       | notCalledHandler
-      ${BoardType.group}   | ${groupBoardQueryHandlerSuccess}   | ${projectBoardQueryHandlerSuccess}
-      ${BoardType.project} | ${projectBoardQueryHandlerSuccess} | ${groupBoardQueryHandlerSuccess}
-    `('fetches $boardType board', async ({ boardType, queryHandler, notCalledHandler }) => {
-      createStore({
-        isProjectBoard: boardType === BoardType.project,
-        isGroupBoard: boardType === BoardType.group,
+      boardType
+      ${WORKSPACE_GROUP}
+      ${WORKSPACE_PROJECT}
+    `('sets error when fetching $boardType boards fails', async ({ boardType }) => {
+      createComponent({
+        isGroupBoard: boardType === WORKSPACE_GROUP,
+        isProjectBoard: boardType === WORKSPACE_PROJECT,
+        projectBoardsQueryHandler: boardsHandlerFailure,
+        groupBoardsQueryHandler: boardsHandlerFailure,
       });
-      createComponent();
 
       await nextTick();
 
-      expect(queryHandler).toHaveBeenCalled();
-      expect(notCalledHandler).not.toHaveBeenCalled();
+      // Emits gl-dropdown show event to simulate the dropdown is opened at initialization time
+      findDropdown().vm.$emit('shown');
+
+      await waitForPromises();
+
+      expect(cacheUpdates.setError).toHaveBeenCalled();
+    });
+  });
+
+  describe('dropdown visibility', () => {
+    describe('when multipleIssueBoardsAvailable is enabled', () => {
+      it('show dropdown', () => {
+        createComponent({ provide: { multipleIssueBoardsAvailable: true } });
+        expect(findDropdown().exists()).toBe(true);
+        expect(findDropdown().props('toggleText')).toBe('Select board');
+      });
+    });
+
+    describe('when multipleIssueBoardsAvailable is disabled but it hasMissingBoards', () => {
+      it('show dropdown', () => {
+        createComponent({
+          provide: { multipleIssueBoardsAvailable: false, hasMissingBoards: true },
+        });
+        expect(findDropdown().exists()).toBe(true);
+        expect(findDropdown().props('toggleText')).toBe('Select board');
+      });
+    });
+
+    describe("when multipleIssueBoardsAvailable is disabled and it dosn't hasMissingBoards", () => {
+      it('hide dropdown', () => {
+        createComponent({
+          provide: { multipleIssueBoardsAvailable: false, hasMissingBoards: false },
+        });
+        expect(findDropdown().exists()).toBe(false);
+      });
+    });
+  });
+
+  describe('board form', () => {
+    it('does not show board form by default', () => {
+      createComponent();
+      expect(findBoardForm().exists()).toBe(false);
+    });
+
+    it('shows board form when boardModalForm prop is set', () => {
+      createComponent({
+        props: {
+          boardModalForm: formType.new,
+        },
+      });
+      expect(findBoardForm().exists()).toBe(true);
+    });
+
+    it('emits showBoardModal when BoardForm emits cancel', async () => {
+      createComponent({
+        props: {
+          boardModalForm: formType.new,
+        },
+      });
+
+      findBoardForm().vm.$emit('cancel');
+      await nextTick();
+
+      expect(wrapper.emitted('showBoardModal')).toEqual([['']]);
+    });
+
+    it('emits showBoardModal with new when clicking on create board button', async () => {
+      createComponent({ isProjectBoard: true });
+
+      findDropdown().vm.$emit('shown');
+      await waitForPromises();
+
+      wrapper.findComponent(GlButton).vm.$emit('click');
+      expect(wrapper.emitted('showBoardModal')).toEqual([[formType.new]]);
+    });
+
+    it('emits showBoardModal when BoardForm emits showBoardModal', () => {
+      createComponent({
+        isProjectBoard: true,
+        props: {
+          boardModalForm: formType.edit,
+        },
+      });
+
+      findBoardForm().vm.$emit('showBoardModal', formType.delete);
+      expect(wrapper.emitted('showBoardModal')).toEqual([[formType.delete]]);
     });
   });
 });

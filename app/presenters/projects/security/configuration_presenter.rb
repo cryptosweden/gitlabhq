@@ -17,44 +17,42 @@ module Projects
           features: features,
           help_page_path: help_page_path('user/application_security/index'),
           latest_pipeline_path: latest_pipeline_path,
-          # TODO: gitlab_ci_present will incorrectly report `false` if the CI/CD configuration file name
-          # has been customized and a file with the given custom name exists in the repo. This edge case
-          # will be addressed in https://gitlab.com/gitlab-org/gitlab/-/issues/342465
-          gitlab_ci_present: project.repository.gitlab_ci_yml.present?,
+          gitlab_ci_present: project.has_ci_config_file?,
           gitlab_ci_history_path: gitlab_ci_history_path,
-          auto_fix_enabled: autofix_enabled,
-          can_toggle_auto_fix_settings: can_toggle_autofix,
-          auto_fix_user_path: auto_fix_user_path
+          security_training_enabled: project.security_training_available?,
+          continuous_vulnerability_scans_enabled: continuous_vulnerability_scans_enabled,
+          container_scanning_for_registry_enabled: container_scanning_for_registry_enabled,
+          pre_receive_secret_detection_available:
+            Gitlab::CurrentSettings.current_application_settings.pre_receive_secret_detection_enabled,
+          pre_receive_secret_detection_enabled: pre_receive_secret_detection_enabled,
+          user_is_project_admin: user_is_project_admin?
         }
       end
 
       def to_html_data_attribute
         data = to_h
         data[:features] = data[:features].to_json
-        data[:auto_fix_enabled] = data[:auto_fix_enabled].to_json
 
         data
       end
 
       private
 
-      def autofix_enabled; end
-
-      def auto_fix_user_path; end
-
       def can_enable_auto_devops?
         feature_available?(:builds, current_user) &&
-          can?(current_user, :admin_project, self) &&
+          user_is_project_admin? &&
           !archived?
       end
 
-      def can_toggle_autofix; end
+      def user_is_project_admin?
+        can?(current_user, :admin_project, self)
+      end
 
       def gitlab_ci_history_path
         return '' if project.empty_repo?
 
-        gitlab_ci = ::Gitlab::FileDetector::PATTERNS[:gitlab_ci]
-        ::Gitlab::Routing.url_helpers.project_blame_path(project, File.join(project.default_branch_or_main, gitlab_ci))
+        ::Gitlab::Routing.url_helpers.project_blame_path(
+          project, File.join(project.default_branch_or_main, project.ci_config_path_or_default))
       end
 
       def features
@@ -65,10 +63,18 @@ module Projects
         # These scans are "fake" (non job) entries. Add them manually.
         scans << scan(:corpus_management, configured: true)
         scans << scan(:dast_profiles, configured: true)
+
+        # Add pre-receive before secret detection
+        if dedicated_instance? || pre_receive_secret_detection_feature_flag_enabled?
+          secret_detection_index = scans.index { |scan| scan[:type] == :secret_detection } || -1
+          scans.insert(secret_detection_index, scan(:pre_receive_secret_detection, configured: true))
+        end
+
+        scans
       end
 
       def latest_pipeline_path
-        return help_page_path('ci/pipelines') unless latest_default_branch_pipeline
+        return help_page_path('ci/pipelines/index') unless latest_default_branch_pipeline
 
         project_pipeline_path(self, latest_default_branch_pipeline)
       end
@@ -81,7 +87,10 @@ module Projects
           configured: scan.configured?,
           configuration_path: scan.configuration_path,
           available: scan.available?,
-          can_enable_by_merge_request: scan.can_enable_by_merge_request?
+          can_enable_by_merge_request: scan.can_enable_by_merge_request?,
+          meta_info_path: scan.meta_info_path,
+          on_demand_available: scan.on_demand_available?,
+          security_features: scan.security_features
         }
       end
 
@@ -89,9 +98,24 @@ module Projects
         ::Security::SecurityJobsFinder.allowed_job_types + ::Security::LicenseComplianceJobsFinder.allowed_job_types
       end
 
+      def dedicated_instance?
+        ::Gitlab::CurrentSettings.gitlab_dedicated_instance?
+      end
+
+      def pre_receive_secret_detection_feature_flag_enabled?
+        return false unless project.licensed_feature_available?(:pre_receive_secret_detection)
+
+        Feature.enabled?(:pre_receive_secret_detection_beta_release) && Feature.enabled?(
+          :pre_receive_secret_detection_push_check, project)
+      end
+
       def project_settings
         project.security_setting
       end
+
+      def continuous_vulnerability_scans_enabled; end
+      def container_scanning_for_registry_enabled; end
+      def pre_receive_secret_detection_enabled; end
     end
   end
 end

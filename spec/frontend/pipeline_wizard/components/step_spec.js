@@ -3,7 +3,7 @@ import { omit } from 'lodash';
 import { nextTick } from 'vue';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import PipelineWizardStep from '~/pipeline_wizard/components/step.vue';
-import InputWrapper from '~/pipeline_wizard/components/input.vue';
+import InputWrapper from '~/pipeline_wizard/components/input_wrapper.vue';
 import StepNav from '~/pipeline_wizard/components/step_nav.vue';
 import {
   stepInputs,
@@ -55,10 +55,6 @@ describe('Pipeline Wizard - Step Page', () => {
       },
     });
   };
-
-  afterEach(async () => {
-    await wrapper.destroy();
-  });
 
   describe('input children', () => {
     beforeEach(() => {
@@ -139,7 +135,7 @@ describe('Pipeline Wizard - Step Page', () => {
       await mockPrevClick();
       await nextTick();
 
-      expect(wrapper.emitted().back).toBeTruthy();
+      expect(wrapper.emitted().back).toEqual(expect.arrayContaining([]));
     });
 
     it('lets "next" event bubble upwards', async () => {
@@ -148,7 +144,7 @@ describe('Pipeline Wizard - Step Page', () => {
       await mockNextClick();
       await nextTick();
 
-      expect(wrapper.emitted().next).toBeTruthy();
+      expect(wrapper.emitted().next).toEqual(expect.arrayContaining([]));
     });
   });
 
@@ -207,7 +203,7 @@ describe('Pipeline Wizard - Step Page', () => {
       findInputWrappers();
     });
 
-    it('injects the template when an input wrapper emits a beforeUpdate:compiled event', async () => {
+    it('injects the template when an input wrapper emits a beforeUpdate:compiled event', () => {
       input1.vm.$emit('beforeUpdate:compiled');
 
       expect(wrapper.vm.compiled.toString()).toBe(compiledYamlAfterInitialLoad);

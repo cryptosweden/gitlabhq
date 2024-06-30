@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::StuckBuilds::DropScheduledService do
+RSpec.describe Ci::StuckBuilds::DropScheduledService, feature_category: :continuous_integration do
   let_it_be(:runner) { create :ci_runner }
 
   let!(:job) { create :ci_build, :scheduled, scheduled_at: scheduled_at, runner: runner }
@@ -23,7 +23,7 @@ RSpec.describe Ci::StuckBuilds::DropScheduledService do
     end
   end
 
-  %w(success skipped failed canceled running pending).each do |status|
+  %w[success skipped failed canceled running pending].each do |status|
     context "when job is #{status}" do
       before do
         job.update!(status: status)
@@ -44,7 +44,7 @@ RSpec.describe Ci::StuckBuilds::DropScheduledService do
   end
 
   context 'when there are no stale scheduled builds' do
-    let(:job) { }
+    let(:job) {}
 
     it 'does not drop the stale scheduled build yet' do
       expect { service.execute }.not_to raise_error

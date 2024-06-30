@@ -18,7 +18,14 @@ export default {
   directives: {
     GlTooltip: GlTooltipDirective,
   },
-  inject: ['blobHash'],
+  inject: {
+    blobHash: {
+      default: '',
+    },
+    canDownloadCode: {
+      default: true,
+    },
+  },
   props: {
     rawPath: {
       type: String,
@@ -54,6 +61,11 @@ export default {
       required: false,
       default: false,
     },
+    overrideCopy: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   computed: {
     downloadUrl() {
@@ -63,6 +75,10 @@ export default {
       return this.activeViewer === RICH_BLOB_VIEWER;
     },
     getBlobHashTarget() {
+      if (this.overrideCopy) {
+        return null;
+      }
+
       return `[data-blob-hash="${this.blobHash}"]`;
     },
     showCopyButton() {
@@ -74,13 +90,20 @@ export default {
       });
     },
   },
+  methods: {
+    onCopy() {
+      if (this.overrideCopy) {
+        this.$emit('copy');
+      }
+    },
+  },
   BTN_COPY_CONTENTS_TITLE,
   BTN_DOWNLOAD_TITLE,
   BTN_RAW_TITLE,
 };
 </script>
 <template>
-  <gl-button-group data-qa-selector="default_actions_container">
+  <gl-button-group data-testid="default-actions-container">
     <gl-button
       v-if="showCopyButton"
       v-gl-tooltip.hover
@@ -88,12 +111,12 @@ export default {
       :title="$options.BTN_COPY_CONTENTS_TITLE"
       :disabled="copyDisabled"
       :data-clipboard-target="getBlobHashTarget"
-      data-testid="copyContentsButton"
-      data-qa-selector="copy_contents_button"
+      data-testid="copy-contents-button"
       icon="copy-to-clipboard"
       category="primary"
       variant="default"
       class="js-copy-blob-source-btn"
+      @click="onCopy"
     />
     <gl-button
       v-if="!isBinary"
@@ -107,11 +130,12 @@ export default {
       variant="default"
     />
     <gl-button
-      v-if="!isEmpty"
+      v-if="!isEmpty && canDownloadCode"
       v-gl-tooltip.hover
       :aria-label="$options.BTN_DOWNLOAD_TITLE"
       :title="$options.BTN_DOWNLOAD_TITLE"
       :href="downloadUrl"
+      data-testid="download-button"
       target="_blank"
       icon="download"
       category="primary"

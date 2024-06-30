@@ -14,7 +14,8 @@ module QA
         response = get(request.url)
 
         unless response.code == HTTP_STATUS_OK
-          raise TemplateNotFoundError, "Template at #{request.mask_url} could not be found (#{response.code}): `#{response}`."
+          raise TemplateNotFoundError,
+            "Template at #{request.mask_url} could not be found (#{response.code}): `#{response}`."
         end
 
         parse_body(response)[:content]
@@ -34,11 +35,11 @@ module QA
       end
 
       def read_fixture(fixture_path, file_name)
-        file_path = Pathname
-        .new(__dir__)
-        .join("../fixtures/#{fixture_path}/#{file_name}")
+        File.read(Runtime::Path.fixture(fixture_path, file_name))
+      end
 
-        File.read(file_path)
+      def read_ee_fixture(fixture_path, file_name)
+        File.read(File.join(EE::Runtime::Path.fixtures_path, fixture_path, file_name))
       end
 
       private
@@ -49,3 +50,5 @@ module QA
     end
   end
 end
+
+QA::Runtime::Fixtures.prepend_mod_with('Runtime::Fixtures', namespace: QA)

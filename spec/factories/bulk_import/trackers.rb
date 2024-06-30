@@ -7,23 +7,38 @@ FactoryBot.define do
     stage { 0 }
     has_next_page { false }
     sequence(:pipeline_name) { |n| "pipeline_name_#{n}" }
+    sequence(:jid) { |n| "bulk_import_entity_#{n}" }
+
+    source_objects_count { 1 }
+    fetched_objects_count { 1 }
+    imported_objects_count { 1 }
 
     trait :started do
       status { 1 }
-
-      sequence(:jid) { |n| "bulk_import_entity_#{n}" }
     end
 
     trait :finished do
       status { 2 }
-
-      sequence(:jid) { |n| "bulk_import_entity_#{n}" }
     end
 
     trait :failed do
       status { -1 }
+    end
 
-      sequence(:jid) { |n| "bulk_import_entity_#{n}" }
+    trait :skipped do
+      status { -2 }
+    end
+
+    trait :batched do
+      batched { true }
+    end
+
+    trait :canceled do
+      status { -3 }
+    end
+
+    trait :stale do
+      created_at { 1.day.ago }
     end
   end
 end

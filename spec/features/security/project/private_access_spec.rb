@@ -2,10 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe "Private Project Access" do
+RSpec.describe "Private Project Access", feature_category: :system_access do
   include AccessMatchers
 
-  let_it_be(:project, reload: true) { create(:project, :private, :repository, public_builds: false) }
+  let_it_be(:project, reload: true) do
+    create(:project, :private, :repository, :with_namespace_settings, public_builds: false)
+  end
 
   describe "Project should be private" do
     describe '#private?' do
@@ -572,6 +574,7 @@ RSpec.describe "Private Project Access" do
       stub_container_registry_config(enabled: true)
       stub_container_registry_info
       project.container_repositories << container_repository
+      allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
     end
 
     subject { project_container_registry_index_path(project) }

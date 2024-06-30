@@ -7,40 +7,64 @@ module API
 
       content_type :txt, 'text/plain'
 
+      before { check_if_backoff_required! }
+
       resource :runners do
-        desc 'Registers a new Runner' do
+        desc 'Register a new runner' do
+          detail "Register a new runner for the instance"
           success Entities::Ci::RunnerRegistrationDetails
-          http_codes [[201, 'Runner was created'], [403, 'Forbidden']]
+          failure [[400, 'Bad Request'], [403, 'Forbidden'], [410, 'Gone']]
         end
         params do
           requires :token, type: String, desc: 'Registration token'
-          optional :description, type: String, desc: %q(Runner's description)
-          optional :maintainer_note, type: String, desc: %q(Deprecated: Use :maintenance_note instead. Runner's maintenance notes)
-          optional :maintenance_note, type: String, desc: %q(Runner's maintenance notes)
-          optional :info, type: Hash, desc: %q(Runner's metadata)
-          optional :active, type: Boolean, desc: 'Deprecated: Use `:paused` instead. Should runner be active'
-          optional :paused, type: Boolean, desc: 'Whether the runner should ignore new jobs'
-          optional :locked, type: Boolean, desc: 'Whether the runner should be locked for current project'
+          optional :description, type: String, desc: %q(Description of the runner)
+          optional :maintainer_note, type: String, desc: %q(Deprecated: see `maintenance_note`)
+          optional :maintenance_note, type: String,
+            desc: %q(Free-form maintenance notes for the runner (1024 characters))
+          optional :info, type: Hash, desc: %q(Runner's metadata) do
+            optional :name, type: String, desc: %q(Runner's name)
+            optional :version, type: String, desc: %q(Runner's version)
+            optional :revision, type: String, desc: %q(Runner's revision)
+            optional :platform, type: String, desc: %q(Runner's platform)
+            optional :architecture, type: String, desc: %q(Runner's architecture)
+          end
+          optional :active, type: Boolean,
+            desc: 'Deprecated: Use `paused` instead. Specifies if the runner is allowed ' \
+                  'to receive new jobs'
+          optional :paused, type: Boolean, desc: 'Specifies if the runner should ignore new jobs'
+          optional :locked, type: Boolean, desc: 'Specifies if the runner should be locked for the current project'
           optional :access_level, type: String, values: ::Ci::Runner.access_levels.keys,
-                                  desc: 'The access_level of the runner; `not_protected` or `ref_protected`'
-          optional :run_untagged, type: Boolean, desc: 'Whether the runner should handle untagged jobs'
-          optional :tag_list, type: Array[String], coerce_with: ::API::Validations::Types::CommaSeparatedToArray.coerce, desc: %q(List of Runner's tags)
-          optional :maximum_timeout, type: Integer, desc: 'Maximum timeout set when this runner handles the job'
-          mutually_exclusive :maintainer_note, :maintainer_note
+            desc: 'The access level of the runner'
+          optional :run_untagged, type: Boolean, desc: 'Specifies if the runner should handle untagged jobs'
+          optional :tag_list, type: Array[String], coerce_with: ::API::Validations::Types::CommaSeparatedToArray.coerce,
+            desc: %q(A list of runner tags)
+          optional :maximum_timeout, type: Integer,
+            desc: 'Maximum timeout that limits the amount of time (in seconds) ' \
+                  'that runners can run jobs'
+          mutually_exclusive :maintainer_note, :maintenance_note
           mutually_exclusive :active, :paused
         end
-        post '/', feature_category: :runner do
+        post '/', urgency: :low, feature_category: :runner do
           attributes = attributes_for_keys(%i[description maintainer_note maintenance_note active paused locked run_untagged tag_list access_level maximum_timeout])
-            .merge(get_runner_details_from_request)
+            .merge(attributes_for_keys(%w[name], params['info']))
 
           # Pull in deprecated maintainer_note if that's the only note value available
           deprecated_note = attributes.delete(:maintainer_note)
           attributes[:maintenance_note] ||= deprecated_note if deprecated_note
           attributes[:active] = !attributes.delete(:paused) if attributes.include?(:paused)
 
-          @runner = ::Ci::Runners::RegisterRunnerService.new.execute(params[:token], attributes)
-          forbidden! unless @runner
+          result = ::Ci::Runners::RegisterRunnerService.new(params[:token], attributes).execute
 
+          if result.error?
+            case result.reason
+            when :runner_registration_disallowed
+              render_api_error_with_reason!(410, '410 Gone', result.message)
+            else
+              forbidden!(result.message)
+            end
+          end
+
+          @runner = result.payload[:runner]
           if @runner.persisted?
             present @runner, with: Entities::Ci::RunnerRegistrationDetails
           else
@@ -48,37 +72,66 @@ module API
           end
         end
 
-        desc 'Deletes a registered Runner' do
-          http_codes [[204, 'Runner was deleted'], [403, 'Forbidden']]
+        desc 'Delete a registered runner' do
+          summary "Delete a runner by authentication token"
+          failure [[403, 'Forbidden']]
         end
         params do
-          requires :token, type: String, desc: %q(Runner's authentication token)
+          requires :token, type: String, desc: %q(The runner's authentication token)
         end
-        delete '/', feature_category: :runner do
+        delete '/', urgency: :low, feature_category: :runner do
           authenticate_runner!
 
           destroy_conditionally!(current_runner) { ::Ci::Runners::UnregisterRunnerService.new(current_runner, params[:token]).execute }
         end
 
-        desc 'Validates authentication credentials' do
+        desc 'Delete a registered runner manager' do
+          summary 'Internal endpoint that deletes a runner manager by authentication token and system ID.'
+          http_codes [[204, 'Runner manager was deleted'], [400, 'Bad Request'], [403, 'Forbidden'], [404, 'Not Found']]
+        end
+        params do
+          requires :token, type: String, desc: %q(The runner's authentication token)
+          requires :system_id, type: String, desc: %q(The runner's system identifier.)
+        end
+        delete '/managers', urgency: :low, feature_category: :fleet_visibility do
+          authenticate_runner!(ensure_runner_manager: false)
+
+          destroy_conditionally!(current_runner) do
+            ::Ci::Runners::UnregisterRunnerManagerService.new(
+              current_runner,
+              params[:token],
+              system_id: params[:system_id]).execute
+          end
+        end
+
+        desc 'Validate authentication credentials' do
+          summary "Verify authentication for a registered runner"
+          success Entities::Ci::RunnerRegistrationDetails
           http_codes [[200, 'Credentials are valid'], [403, 'Forbidden']]
         end
         params do
-          requires :token, type: String, desc: %q(Runner's authentication token)
+          requires :token, type: String, desc: %q(The runner's authentication token)
+          optional :system_id, type: String, desc: %q(The runner's system identifier)
         end
-        post '/verify', feature_category: :runner do
-          authenticate_runner!
+        post '/verify', urgency: :low, feature_category: :runner do
+          # For runners that were created in the UI, we want to update the contacted_at value
+          # only when it starts polling for jobs
+          registering_created_runner = params[:token].start_with?(::Ci::Runner::CREATED_RUNNER_TOKEN_PREFIX)
+
+          authenticate_runner!(update_contacted_at: !registering_created_runner)
           status 200
-          body "200"
+
+          present current_runner, with: Entities::Ci::RunnerRegistrationDetails
         end
 
         desc 'Reset runner authentication token with current token' do
           success Entities::Ci::ResetTokenResult
+          failure [[403, 'Forbidden']]
         end
         params do
           requires :token, type: String, desc: 'The current authentication token of the runner'
         end
-        post '/reset_authentication_token', feature_category: :runner do
+        post '/reset_authentication_token', urgency: :low, feature_category: :runner do
           authenticate_runner!
 
           current_runner.reset_token!
@@ -93,10 +146,12 @@ module API
           success Entities::Ci::JobRequest::Response
           http_codes [[201, 'Job was scheduled'],
                       [204, 'No job for Runner'],
-                      [403, 'Forbidden']]
+                      [403, 'Forbidden'],
+                      [409, 'Conflict']]
         end
         params do
           requires :token, type: String, desc: %q(Runner's authentication token)
+          optional :system_id, type: String, desc: %q(Runner's system identifier)
           optional :last_update, type: String, desc: %q(Runner's queue last_update token)
           optional :info, type: Hash, desc: %q(Runner's metadata) do
             optional :name, type: String, desc: %q(Runner's name)
@@ -115,7 +170,6 @@ module API
             optional :certificate, type: String, desc: %q(Session's certificate)
             optional :authorization, type: String, desc: %q(Session's authorization)
           end
-          optional :job_age, type: Integer, desc: %q(Job should be older than passed age in seconds to be ran on runner)
         end
 
         # Since we serialize the build output ourselves to ensure Gitaly
@@ -148,7 +202,7 @@ module API
           end
 
           new_update = current_runner.ensure_runner_queue_value
-          result = ::Ci::RegisterJobService.new(current_runner).execute(runner_params)
+          result = ::Ci::RegisterJobService.new(current_runner, current_runner_manager).execute(runner_params)
 
           if result.valid?
             if result.build_json
@@ -167,14 +221,14 @@ module API
           end
         end
 
-        desc 'Updates a job' do
+        desc 'Update a job' do
           http_codes [[200, 'Job was updated'],
                       [202, 'Update accepted'],
                       [400, 'Unknown parameters'],
                       [403, 'Forbidden']]
         end
         params do
-          requires :token, type: String, desc: %q(Runners's authentication token)
+          requires :token, type: String, desc: %q(Job token)
           requires :id, type: Integer, desc: %q(Job's ID)
           optional :state, type: String, desc: %q(Job's status: success, failed)
           optional :checksum, type: String, desc: %q(Job's trace CRC32 checksum)
@@ -196,13 +250,14 @@ module API
           service.execute.then do |result|
             track_ci_minutes_usage!(job, current_runner)
 
+            header 'Job-Status', job.status
             header 'X-GitLab-Trace-Update-Interval', result.backoff
             status result.status
             body result.status.to_s
           end
         end
 
-        desc 'Appends a patch to the job trace' do
+        desc 'Append a patch to the job trace' do
           http_codes [[202, 'Trace was patched'],
                       [400, 'Missing Content-Range header'],
                       [403, 'Forbidden'],
@@ -211,15 +266,17 @@ module API
         params do
           requires :id, type: Integer, desc: %q(Job's ID)
           optional :token, type: String, desc: %q(Job's authentication token)
+          optional :debug_trace, type: Boolean, desc: %q(Enable or Disable the debug trace)
         end
-        patch '/:id/trace', urgency: :default, feature_category: :continuous_integration do
+        patch '/:id/trace', urgency: :low, feature_category: :continuous_integration do
           job = authenticate_job!(heartbeat_runner: true)
 
           error!('400 Missing header Content-Range', 400) unless request.headers.key?('Content-Range')
           content_range = request.headers['Content-Range']
+          debug_trace = Gitlab::Utils.to_boolean(params[:debug_trace])
 
           result = ::Ci::AppendBuildTraceService
-            .new(job, content_range: content_range)
+            .new(job, content_range: content_range, debug_trace: debug_trace)
             .execute(request.body.read)
 
           if result.status == 403
@@ -238,7 +295,7 @@ module API
           header 'X-GitLab-Trace-Update-Interval', job.trace.update_interval.to_s
         end
 
-        desc 'Authorize artifacts uploading for job' do
+        desc 'Authorize uploading job artifact' do
           http_codes [[200, 'Upload allowed'],
                       [403, 'Forbidden'],
                       [405, 'Artifacts support not enabled'],
@@ -252,10 +309,10 @@ module API
           # In current runner, filesize parameter would be empty here. This is because archive is streamed by runner,
           # so the archive size is not known ahead of time. Streaming is done to not use additional I/O on
           # Runner to first save, and then send via Network.
-          optional :filesize, type: Integer, desc: %q(Artifacts filesize)
+          optional :filesize, type: Integer, desc: %q(Size of artifact file)
 
           optional :artifact_type, type: String, desc: %q(The type of artifact),
-                                  default: 'archive', values: ::Ci::JobArtifact.file_types.keys
+            default: 'archive', values: ::Ci::JobArtifact.file_types.keys
         end
         post '/:id/artifacts/authorize', feature_category: :build_artifacts, urgency: :low do
           not_allowed! unless Gitlab.config.artifacts.enabled
@@ -274,7 +331,7 @@ module API
           end
         end
 
-        desc 'Upload artifacts for job' do
+        desc 'Upload a job artifact' do
           success Entities::Ci::JobRequest::Response
           http_codes [[201, 'Artifact uploaded'],
                       [400, 'Bad request'],
@@ -284,14 +341,15 @@ module API
         end
         params do
           requires :id, type: Integer, desc: %q(Job's ID)
-          requires :file, type: ::API::Validations::Types::WorkhorseFile, desc: %(The artifact file to store (generated by Multipart middleware))
+          requires :file, type: ::API::Validations::Types::WorkhorseFile, desc: %(The artifact file to store (generated by Multipart middleware)), documentation: { type: 'file' }
           optional :token, type: String, desc: %q(Job's authentication token)
-          optional :expire_in, type: String, desc: %q(Specify when artifacts should expire)
+          optional :expire_in, type: String, desc: %q(Specify when artifact should expire)
           optional :artifact_type, type: String, desc: %q(The type of artifact),
-                                  default: 'archive', values: ::Ci::JobArtifact.file_types.keys
+            default: 'archive', values: ::Ci::JobArtifact.file_types.keys
           optional :artifact_format, type: String, desc: %q(The format of artifact),
-                                    default: 'zip', values: ::Ci::JobArtifact.file_formats.keys
-          optional :metadata, type: ::API::Validations::Types::WorkhorseFile, desc: %(The artifact metadata to store (generated by Multipart middleware))
+            default: 'zip', values: ::Ci::JobArtifact.file_formats.keys
+          optional :metadata, type: ::API::Validations::Types::WorkhorseFile, desc: %(The artifact metadata to store (generated by Multipart middleware)), documentation: { type: 'file' }
+          optional :accessibility, type: String, desc: %q(Specify accessibility level of artifact private/public)
         end
         post '/:id/artifacts', feature_category: :build_artifacts, urgency: :low do
           not_allowed! unless Gitlab.config.artifacts.enabled
@@ -305,6 +363,8 @@ module API
           result = ::Ci::JobArtifacts::CreateService.new(job).execute(artifacts, params, metadata_file: metadata)
 
           if result[:status] == :success
+            log_artifacts_filesize(result[:artifact])
+
             status :created
             body "201"
           else
@@ -313,7 +373,8 @@ module API
         end
 
         desc 'Download the artifacts file for job' do
-          http_codes [[200, 'Upload allowed'],
+          http_codes [[200, 'Download allowed'],
+                      [401, 'Unauthorized'],
                       [403, 'Forbidden'],
                       [404, 'Artifact not found']]
         end
@@ -322,10 +383,12 @@ module API
           optional :token, type: String, desc: %q(Job's authentication token)
           optional :direct_download, default: false, type: Boolean, desc: %q(Perform direct download from remote storage instead of proxying artifacts)
         end
+        route_setting :authentication, job_token_allowed: true
         get '/:id/artifacts', feature_category: :build_artifacts do
-          job = authenticate_job!(require_running: false)
+          authenticate_job_via_dependent_job!
 
-          present_carrierwave_file!(job.artifacts_file, supports_direct_download: params[:direct_download])
+          audit_download(current_job, current_job.artifacts_file&.filename) if current_job.artifacts_file
+          present_artifacts_file!(current_job.artifacts_file, supports_direct_download: params[:direct_download])
         end
       end
     end

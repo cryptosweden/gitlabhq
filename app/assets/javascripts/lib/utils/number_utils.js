@@ -1,4 +1,4 @@
-import { sprintf, __ } from '~/locale';
+import { formatNumber, sprintf, __ } from '~/locale';
 import { BYTES_IN_KIB, THOUSAND } from './constants';
 
 /**
@@ -64,25 +64,57 @@ export function bytesToGiB(number) {
 }
 
 /**
- * Port of rails number_to_human_size
  * Formats the bytes in number into a more understandable
- * representation (e.g., giving it 1500 yields 1.5 KB).
+ * representation. Returns an array with the first value being the human size
+ * and the second value being the label (e.g., [1.5, 'KiB']).
  *
- * @param {Number} size
- * @param {Number} digits - The number of digits to appear after the decimal point
- * @returns {String}
+ * @param {number} size
+ * @param {number} [digits=2] - The number of digits to appear after the decimal point
+ * @param {string} locale
+ * @returns {string[]}
  */
-export function numberToHumanSize(size, digits = 2) {
+export function numberToHumanSizeSplit({ size, digits = 2, locale } = {}) {
   const abs = Math.abs(size);
+  const digitsOptions = { minimumFractionDigits: digits, maximumFractionDigits: digits };
+  const formatNumberWithLocaleAndDigits = (n) => formatNumber(n, digitsOptions, locale);
 
   if (abs < BYTES_IN_KIB) {
-    return sprintf(__('%{size} bytes'), { size });
-  } else if (abs < BYTES_IN_KIB ** 2) {
-    return sprintf(__('%{size} KiB'), { size: bytesToKiB(size).toFixed(digits) });
-  } else if (abs < BYTES_IN_KIB ** 3) {
-    return sprintf(__('%{size} MiB'), { size: bytesToMiB(size).toFixed(digits) });
+    return [size.toString(), __('B')];
   }
-  return sprintf(__('%{size} GiB'), { size: bytesToGiB(size).toFixed(digits) });
+  if (abs < BYTES_IN_KIB ** 2) {
+    return [formatNumberWithLocaleAndDigits(bytesToKiB(size)), __('KiB')];
+  }
+  if (abs < BYTES_IN_KIB ** 3) {
+    return [formatNumberWithLocaleAndDigits(bytesToMiB(size)), __('MiB')];
+  }
+  return [formatNumberWithLocaleAndDigits(bytesToGiB(size)), __('GiB')];
+}
+
+/**
+ * Port of rails number_to_human_size
+ * Formats the bytes in number into a more understandable
+ * representation (e.g., giving it 1536 yields 1.5 KiB).
+ *
+ * @param {number} size
+ * @param {number} [digits=2] - The number of digits to appear after the decimal point
+ * @param {string} locale
+ * @returns {string}
+ */
+export function numberToHumanSize(size, digits = 2, locale) {
+  const [humanSize, label] = numberToHumanSizeSplit({ size, digits, locale });
+
+  switch (label) {
+    case __('B'):
+      return sprintf(__('%{size} B'), { size: humanSize });
+    case __('KiB'):
+      return sprintf(__('%{size} KiB'), { size: humanSize });
+    case __('MiB'):
+      return sprintf(__('%{size} MiB'), { size: humanSize });
+    case __('GiB'):
+      return sprintf(__('%{size} GiB'), { size: humanSize });
+    default:
+      return '';
+  }
 }
 
 /**
@@ -102,9 +134,9 @@ export function numberToMetricPrefix(number, digits = 1) {
     return number.toString();
   }
   if (number < THOUSAND ** 2) {
-    return `${(number / THOUSAND).toFixed(digits)}k`;
+    return `${Number((number / THOUSAND).toFixed(digits))}k`;
   }
-  return `${(number / THOUSAND ** 2).toFixed(digits)}m`;
+  return `${Number((number / THOUSAND ** 2).toFixed(digits))}m`;
 }
 /**
  * A simple method that returns the value of a + b

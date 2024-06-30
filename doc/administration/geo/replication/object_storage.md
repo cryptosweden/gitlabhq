@@ -1,15 +1,20 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Geo with Object storage **(PREMIUM SELF)**
+# Geo with Object storage
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
+
+> Verification of files stored in object storage was [introduced](https://gitlab.com/groups/gitlab-org/-/epics/8056) in GitLab 16.4 [with a flag](../../feature_flags.md) named `geo_object_storage_verification`. Enabled by default.
 
 Geo can be used in combination with Object Storage (AWS S3, or other compatible object storage).
 
-Currently, **secondary** sites can use either:
+**Secondary** sites can use one of the following:
 
 - The same storage bucket as the **primary** site.
 - A replicated storage bucket.
@@ -28,22 +33,21 @@ To have:
 - GitLab manage replication, follow [Enabling GitLab replication](#enabling-gitlab-managed-object-storage-replication).
 - Third-party services manage replication, follow [Third-party replication services](#third-party-replication-services).
 
+See [Object storage replication tests](geo_validation_tests.md#object-storage-replication-tests) for comparisons between GitLab-managed replication and third-party replication.
+
 [Read more about using object storage with GitLab](../../object_storage.md).
 
 ## Enabling GitLab-managed object storage replication
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/10586) in GitLab 12.4.
-
-WARNING:
-This is a [**Beta** feature](../../../policy/alpha-beta-support.md#beta-features) and is not ready yet for production use at any scale. The main limitations are a lack of testing at scale and no verification of any replicated data.
+> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5551) in GitLab 15.1.
 
 **Secondary** sites can replicate files stored on the **primary** site regardless of
 whether they are stored on the local file system or in object storage.
 
 To enable GitLab replication:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Geo > Nodes**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Geo > Nodes**.
 1. Select **Edit** on the **secondary** site.
 1. In the **Synchronization Settings** section, find the **Allow this secondary node to replicate content on Object Storage**
    checkbox to enable it.
@@ -79,7 +83,7 @@ the bucket used by **secondary** sites.
 
 If you are using Google Cloud Storage, consider using
 [Multi-Regional Storage](https://cloud.google.com/storage/docs/storage-classes#multi-regional).
-Or you can use the [Storage Transfer Service](https://cloud.google.com/storage-transfer/docs/),
+Or you can use the [Storage Transfer Service](https://cloud.google.com/storage-transfer/docs/overview),
 although this only supports daily synchronization.
 
 For manual synchronization, or scheduled by `cron`, see:

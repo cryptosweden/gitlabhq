@@ -10,10 +10,10 @@ const CLIPBOARD_ERROR_EVENT = 'clipboard-error';
 const I18N_ERROR_MESSAGE = __('Copy failed. Please manually copy the value.');
 
 function showTooltip(target, title) {
-  const { title: originalTitle } = target.dataset;
+  const { originalTitle } = target.dataset;
 
   once('hidden', (tooltip) => {
-    if (tooltip.target === target) {
+    if (originalTitle && tooltip.target === target) {
       target.setAttribute('title', originalTitle);
       target.setAttribute('aria-label', originalTitle);
       fixTitle(target);
@@ -43,7 +43,7 @@ function genericSuccess(e) {
 }
 
 /**
- * Safari > 10 doesn't support `execCommand`, so instead we inform the user to copy manually.
+ * Safari < 10 doesn't support `execCommand`, so instead we inform the user to copy manually.
  * See http://clipboardjs.com/#browser-support
  */
 function genericError(e) {
@@ -102,8 +102,12 @@ export default function initCopyToClipboard() {
  * @param {HTMLElement} btnElement
  */
 export function clickCopyToClipboardButton(btnElement) {
-  // Ensure the button has already been tooltip'd.
-  add([btnElement], { show: true });
+  const { clipboardHandleTooltip = true } = btnElement.dataset;
+
+  if (parseBoolean(clipboardHandleTooltip)) {
+    // Ensure the button has already been tooltip'd.
+    add([btnElement], { show: true });
+  }
 
   btnElement.click();
 }

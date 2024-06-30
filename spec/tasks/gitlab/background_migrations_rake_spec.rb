@@ -1,8 +1,9 @@
 # frozen_string_literal: true
 
-require 'rake_helper'
+require 'spec_helper'
 
-RSpec.describe 'gitlab:background_migrations namespace rake tasks' do
+RSpec.describe 'gitlab:background_migrations namespace rake tasks', :suppress_gitlab_schemas_validate_connection,
+  feature_category: :database do
   before do
     Rake.application.rake_require 'tasks/gitlab/background_migrations'
   end
@@ -17,7 +18,7 @@ RSpec.describe 'gitlab:background_migrations namespace rake tasks' do
 
     before do
       allow(Gitlab::Database).to receive(:database_base_models).and_return(base_models)
-      allow(Gitlab::Database).to receive(:db_config_names).and_return(databases)
+      allow(Gitlab::Database).to receive(:db_config_names).with(with_schema: :gitlab_shared).and_return(databases)
     end
 
     context 'without the proper arguments' do
@@ -42,6 +43,17 @@ RSpec.describe 'gitlab:background_migrations namespace rake tasks' do
       end
     end
 
+    context 'with a null parameter' do
+      let(:arguments) { %w[ProjectNamespaces::BackfillProjectNamespaces projects id] + ['[null\, "up"]'] }
+
+      it 'finalizes the matching migration' do
+        expect(Gitlab::Database::BackgroundMigration::BatchedMigrationRunner).to receive(:finalize)
+          .with('ProjectNamespaces::BackfillProjectNamespaces', 'projects', 'id', [nil, "up"], connection: connection)
+
+        expect { finalize_task }.to output(/Done/).to_stdout
+      end
+    end
+
     context 'when multiple database feature is enabled' do
       subject(:finalize_task) { run_rake_task("gitlab:background_migrations:finalize:#{ci_database_name}", *arguments) }
 
@@ -51,7 +63,7 @@ RSpec.describe 'gitlab:background_migrations namespace rake tasks' do
       let(:databases) { [Gitlab::Database::MAIN_DATABASE_NAME, ci_database_name] }
 
       before do
-        skip_if_multiple_databases_not_setup
+        skip_if_shared_database(:ci)
 
         allow(Gitlab::Database).to receive(:database_base_models).and_return(base_models)
       end
@@ -101,13 +113,7 @@ RSpec.describe 'gitlab:background_migrations namespace rake tasks' do
     let(:main_database_name) { Gitlab::Database::MAIN_DATABASE_NAME }
     let(:model) { Gitlab::Database.database_base_models[main_database_name] }
     let(:connection) { double(:connection) }
-    let(:base_models) { { 'main' => model } }
-
-    around do |example|
-      Gitlab::Database::SharedModel.using_connection(model.connection) do
-        example.run
-      end
-    end
+    let(:base_models) { { 'main' => model }.with_indifferent_access }
 
     it 'outputs the status of background migrations' do
       allow(Gitlab::Database).to receive(:database_base_models).and_return(base_models)
@@ -119,15 +125,34 @@ RSpec.describe 'gitlab:background_migrations namespace rake tasks' do
       OUTPUT
     end
 
-    context 'when multiple database feature is enabled' do
+    context 'when running the rake task against one database in multiple databases setup' do
       before do
-        skip_if_multiple_databases_not_setup
+        skip_if_shared_database(:ci)
       end
 
-      context 'with a single database' do
-        subject(:status_task) { run_rake_task("gitlab:background_migrations:status:#{main_database_name}") }
+      subject(:status_task) { run_rake_task("gitlab:background_migrations:status:#{main_database_name}") }
 
-        it 'outputs the status of background migrations' do
+      it 'outputs the status of background migrations' do
+        expect { status_task }.to output(<<~OUTPUT).to_stdout
+            Database: #{main_database_name}
+            finished   | #{migration1.job_class_name},#{migration1.table_name},#{migration1.column_name},[["id1","id2"]]
+            failed     | #{migration2.job_class_name},#{migration2.table_name},#{migration2.column_name},[]
+        OUTPUT
+      end
+    end
+
+    context 'when multiple databases are configured' do
+      before do
+        skip_if_multiple_databases_not_setup(:ci)
+      end
+
+      context 'with two connections sharing the same database' do
+        before do
+          skip_if_database_exists(:ci)
+          skip_if_database_exists(:jh)
+        end
+
+        it 'skips the shared database' do
           expect { status_task }.to output(<<~OUTPUT).to_stdout
             Database: #{main_database_name}
             finished   | #{migration1.job_class_name},#{migration1.table_name},#{migration1.column_name},[["id1","id2"]]
@@ -142,14 +167,20 @@ RSpec.describe 'gitlab:background_migrations namespace rake tasks' do
       end
 
       context 'with multiple databases' do
+        before do
+          skip_if_shared_database(:ci)
+        end
+
         subject(:status_task) { run_rake_task('gitlab:background_migrations:status') }
 
-        let(:base_models) { { 'main' => main_model, 'ci' => ci_model } }
+        let(:base_models) { { main: main_model, ci: ci_model } }
         let(:main_model) { double(:model, connection: connection) }
         let(:ci_model) { double(:model, connection: connection) }
 
         it 'outputs the status for each database' do
           allow(Gitlab::Database).to receive(:database_base_models).and_return(base_models)
+          allow(Gitlab::Database).to receive(:has_database?).with(:main).and_return(true)
+          allow(Gitlab::Database).to receive(:has_database?).with(:ci).and_return(true)
 
           expect(Gitlab::Database::SharedModel).to receive(:using_connection).with(main_model.connection).and_yield
           expect(Gitlab::Database::BackgroundMigration::BatchedMigration).to receive(:find_each).and_yield(migration1)

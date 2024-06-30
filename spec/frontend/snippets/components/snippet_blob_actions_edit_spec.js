@@ -1,13 +1,16 @@
-import { shallowMount } from '@vue/test-utils';
 import { times } from 'lodash';
 import { nextTick } from 'vue';
+import { GlFormGroup } from '@gitlab/ui';
+import { shallowMount } from '@vue/test-utils';
 import SnippetBlobActionsEdit from '~/snippets/components/snippet_blob_actions_edit.vue';
 import SnippetBlobEdit from '~/snippets/components/snippet_blob_edit.vue';
 import {
   SNIPPET_MAX_BLOBS,
   SNIPPET_BLOB_ACTION_CREATE,
   SNIPPET_BLOB_ACTION_MOVE,
+  SNIPPET_LIMITATIONS,
 } from '~/snippets/constants';
+import { s__, sprintf } from '~/locale';
 import { testEntries, createBlobFromTestEntry } from '../test_utils';
 
 const TEST_BLOBS = [
@@ -29,15 +32,16 @@ describe('snippets/components/snippet_blob_actions_edit', () => {
     });
   };
 
-  const findLabel = () => wrapper.find('label');
-  const findBlobEdits = () => wrapper.findAll(SnippetBlobEdit);
+  const findLabel = () => wrapper.findComponent(GlFormGroup);
+  const findBlobEdits = () => wrapper.findAllComponents(SnippetBlobEdit);
   const findBlobsData = () =>
     findBlobEdits().wrappers.map((x) => ({
       blob: x.props('blob'),
       classes: x.classes(),
     }));
   const findFirstBlobEdit = () => findBlobEdits().at(0);
-  const findAddButton = () => wrapper.find('[data-testid="add_button"]');
+  const findAddButton = () => wrapper.find('[data-testid="add-button"]');
+  const findLimitationsText = () => wrapper.find('[data-testid="limitations_text"]');
   const getLastActions = () => {
     const events = wrapper.emitted().actions;
 
@@ -54,18 +58,13 @@ describe('snippets/components/snippet_blob_actions_edit', () => {
   const triggerBlobDelete = (idx) => findBlobEdits().at(idx).vm.$emit('delete');
   const triggerBlobUpdate = (idx, props) => findBlobEdits().at(idx).vm.$emit('blob-updated', props);
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('multi-file snippets rendering', () => {
     beforeEach(() => {
       createComponent();
     });
 
     it('renders label', () => {
-      expect(findLabel().text()).toBe('Files');
+      expect(findLabel().attributes('label')).toBe('Files');
     });
 
     it(`renders delete button (show=true)`, () => {
@@ -98,6 +97,10 @@ describe('snippets/components/snippet_blob_actions_edit', () => {
 
       expect(button.text()).toBe(`Add another file ${TEST_BLOBS.length}/${SNIPPET_MAX_BLOBS}`);
       expect(button.props('disabled')).toBe(false);
+    });
+
+    it('do not show limitations text', () => {
+      expect(findLimitationsText().exists()).toBe(false);
     });
 
     describe('when add is clicked', () => {
@@ -278,6 +281,40 @@ describe('snippets/components/snippet_blob_actions_edit', () => {
 
     it('should disable add button', () => {
       expect(findAddButton().props('disabled')).toBe(true);
+    });
+
+    it('shows limitations text', () => {
+      expect(findLimitationsText().text()).toBe(
+        sprintf(SNIPPET_LIMITATIONS, { total: SNIPPET_MAX_BLOBS }),
+      );
+    });
+  });
+
+  describe('isValid prop', () => {
+    const validationMessage = s__(
+      "Snippets|Snippets can't contain empty files. Ensure all files have content, or delete them.",
+    );
+
+    describe('when not present', () => {
+      it('sets the label validation state to true', () => {
+        createComponent();
+
+        const label = findLabel();
+
+        expect(Boolean(label.attributes('state'))).toEqual(true);
+        expect(label.attributes('invalid-feedback')).toEqual(validationMessage);
+      });
+    });
+
+    describe('when present', () => {
+      it('sets the label validation state to the value', () => {
+        createComponent({ isValid: false });
+
+        const label = findLabel();
+
+        expect(Boolean(label.attributes('state'))).toEqual(false);
+        expect(label.attributes('invalid-feedback')).toEqual(validationMessage);
+      });
     });
   });
 });

@@ -158,25 +158,33 @@ describe('timeIntervalInWords', () => {
 });
 
 describe('humanizeTimeInterval', () => {
-  it.each`
-    intervalInSeconds | expected
-    ${0}              | ${'0 seconds'}
-    ${1}              | ${'1 second'}
-    ${1.48}           | ${'1.5 seconds'}
-    ${2}              | ${'2 seconds'}
-    ${60}             | ${'1 minute'}
-    ${91}             | ${'1.5 minutes'}
-    ${120}            | ${'2 minutes'}
-    ${3600}           | ${'1 hour'}
-    ${5401}           | ${'1.5 hours'}
-    ${7200}           | ${'2 hours'}
-    ${86400}          | ${'1 day'}
-    ${129601}         | ${'1.5 days'}
-    ${172800}         | ${'2 days'}
+  describe.each`
+    intervalInSeconds | expected         | abbreviated
+    ${0}              | ${'0 seconds'}   | ${'0s'}
+    ${1}              | ${'1 second'}    | ${'1s'}
+    ${1.48}           | ${'1.5 seconds'} | ${'1.5s'}
+    ${2}              | ${'2 seconds'}   | ${'2s'}
+    ${60}             | ${'1 minute'}    | ${'1min'}
+    ${91}             | ${'1.5 minutes'} | ${'1.5min'}
+    ${120}            | ${'2 minutes'}   | ${'2min'}
+    ${3600}           | ${'1 hour'}      | ${'1h'}
+    ${5401}           | ${'1.5 hours'}   | ${'1.5h'}
+    ${7200}           | ${'2 hours'}     | ${'2h'}
+    ${86400}          | ${'1 day'}       | ${'1d'}
+    ${129601}         | ${'1.5 days'}    | ${'1.5d'}
+    ${172800}         | ${'2 days'}      | ${'2d'}
   `(
-    'returns "$expected" when the time interval is $intervalInSeconds seconds',
-    ({ intervalInSeconds, expected }) => {
-      expect(datetimeUtility.humanizeTimeInterval(intervalInSeconds)).toBe(expected);
+    'when the time interval is $intervalInSeconds seconds',
+    ({ intervalInSeconds, expected, abbreviated }) => {
+      it(`returns "${expected}" by default`, () => {
+        expect(datetimeUtility.humanizeTimeInterval(intervalInSeconds)).toBe(expected);
+      });
+
+      it(`returns "${abbreviated}" when rendering the abbreviated`, () => {
+        expect(datetimeUtility.humanizeTimeInterval(intervalInSeconds, { abbreviated: true })).toBe(
+          abbreviated,
+        );
+      });
     },
   );
 });
@@ -276,19 +284,35 @@ describe('getTimeframeWindowFrom', () => {
 });
 
 describe('formatTime', () => {
-  const expectedTimestamps = [
-    [0, '00:00:00'],
-    [1000, '00:00:01'],
-    [42000, '00:00:42'],
-    [121000, '00:02:01'],
-    [10921000, '03:02:01'],
-    [108000000, '30:00:00'],
-  ];
+  it.each`
+    milliseconds                            | expected
+    ${0}                                    | ${'00:00:00'}
+    ${1}                                    | ${'00:00:00'}
+    ${499}                                  | ${'00:00:00'}
+    ${500}                                  | ${'00:00:01'}
+    ${1000}                                 | ${'00:00:01'}
+    ${42 * 1000}                            | ${'00:00:42'}
+    ${60 * 1000}                            | ${'00:01:00'}
+    ${(60 + 1) * 1000}                      | ${'00:01:01'}
+    ${(3 * 60 * 60 + 2 * 60 + 1) * 1000}    | ${'03:02:01'}
+    ${(11 * 60 * 60 + 59 * 60 + 59) * 1000} | ${'11:59:59'}
+    ${30 * 60 * 60 * 1000}                  | ${'30:00:00'}
+    ${(35 * 60 * 60 + 3 * 60 + 7) * 1000}   | ${'35:03:07'}
+    ${240 * 60 * 60 * 1000}                 | ${'240:00:00'}
+    ${1000 * 60 * 60 * 1000}                | ${'1000:00:00'}
+  `(`formats $milliseconds ms as $expected`, ({ milliseconds, expected }) => {
+    expect(datetimeUtility.formatTime(milliseconds)).toBe(expected);
+  });
 
-  expectedTimestamps.forEach(([milliseconds, expectedTimestamp]) => {
-    it(`formats ${milliseconds}ms as ${expectedTimestamp}`, () => {
-      expect(datetimeUtility.formatTime(milliseconds)).toBe(expectedTimestamp);
-    });
+  it.each`
+    milliseconds                           | expected
+    ${-1}                                  | ${'00:00:00'}
+    ${-499}                                | ${'00:00:00'}
+    ${-1000}                               | ${'-00:00:01'}
+    ${-60 * 1000}                          | ${'-00:01:00'}
+    ${-(35 * 60 * 60 + 3 * 60 + 7) * 1000} | ${'-35:03:07'}
+  `(`when negative, formats $milliseconds ms as $expected`, ({ milliseconds, expected }) => {
+    expect(datetimeUtility.formatTime(milliseconds)).toBe(expected);
   });
 });
 
@@ -308,7 +332,9 @@ describe('datefix', () => {
   });
 
   describe('parsePikadayDate', () => {
-    // removed because of https://gitlab.com/gitlab-org/gitlab-foss/issues/39834
+    it('should return a UTC date', () => {
+      expect(datetimeUtility.parsePikadayDate('2020-01-29')).toEqual(new Date(2020, 0, 29));
+    });
   });
 
   describe('pikadayToString', () => {
@@ -767,15 +793,39 @@ describe('date addition/subtraction methods', () => {
     );
   });
 
+  // NOTE: 2024-02-29 is a leap day
   describe('nYearsAfter', () => {
     it.each`
       date            | numberOfYears | expected
       ${'2020-07-06'} | ${1}          | ${'2021-07-06'}
       ${'2020-07-06'} | ${15}         | ${'2035-07-06'}
+      ${'2024-03-02'} | ${1}          | ${'2025-03-02'}
+      ${'2024-03-01'} | ${1}          | ${'2025-03-01'}
+      ${'2024-02-29'} | ${1}          | ${'2025-02-28'}
+      ${'2024-02-28'} | ${1}          | ${'2025-02-28'}
     `(
       'returns $expected for "$numberOfYears year(s) after $date"',
       ({ date, numberOfYears, expected }) => {
         expect(datetimeUtility.nYearsAfter(new Date(date), numberOfYears)).toEqual(
+          new Date(expected),
+        );
+      },
+    );
+  });
+
+  describe('nYearsBefore', () => {
+    it.each`
+      date            | numberOfYears | expected
+      ${'2020-07-06'} | ${4}          | ${'2016-07-06'}
+      ${'2020-07-06'} | ${1}          | ${'2019-07-06'}
+      ${'2024-03-02'} | ${1}          | ${'2023-03-02'}
+      ${'2024-03-01'} | ${1}          | ${'2023-03-01'}
+      ${'2024-02-29'} | ${1}          | ${'2023-02-28'}
+      ${'2024-02-28'} | ${1}          | ${'2023-02-28'}
+    `(
+      'returns $expected for "$numberOfYears year(s) before $date"',
+      ({ date, numberOfYears, expected }) => {
+        expect(datetimeUtility.nYearsBefore(new Date(date), numberOfYears)).toEqual(
           new Date(expected),
         );
       },

@@ -34,23 +34,20 @@ describe('IDE branch item', () => {
     router = createRouter(store);
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('if not active', () => {
     beforeEach(() => {
       createComponent();
     });
     it('renders branch name and timeago', () => {
       expect(wrapper.text()).toContain(TEST_BRANCH.name);
-      expect(wrapper.find(Timeago).props('time')).toBe(TEST_BRANCH.committedDate);
-      expect(wrapper.find(GlIcon).exists()).toBe(false);
+      expect(wrapper.findComponent(Timeago).props('time')).toBe(TEST_BRANCH.committedDate);
+      expect(wrapper.findComponent(GlIcon).exists()).toBe(false);
     });
 
     it('renders link to branch', () => {
-      const expectedHref = router.resolve(`/project/${TEST_PROJECT_ID}/edit/${TEST_BRANCH.name}`)
-        .href;
+      const expectedHref = router.resolve(
+        `/project/${TEST_PROJECT_ID}/edit/${TEST_BRANCH.name}`,
+      ).href;
 
       expect(wrapper.text()).toMatch('a');
       expect(wrapper.attributes('href')).toBe(expectedHref);
@@ -60,6 +57,6 @@ describe('IDE branch item', () => {
   it('renders icon if is not active', () => {
     createComponent({ isActive: true });
 
-    expect(wrapper.find(GlIcon).exists()).toBe(true);
+    expect(wrapper.findComponent(GlIcon).exists()).toBe(true);
   });
 });

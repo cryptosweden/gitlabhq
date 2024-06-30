@@ -10,6 +10,15 @@ class MergeRequestNoteableEntity < IssuableEntity
   expose :state
   expose :source_branch
   expose :target_branch
+
+  expose :source_branch_path, if: ->(merge_request) { merge_request.source_project } do |merge_request|
+    project_tree_path(merge_request.source_project, merge_request.source_branch)
+  end
+
+  expose :target_branch_path, if: ->(merge_request) { merge_request.target_project } do |merge_request|
+    project_tree_path(merge_request.target_project, merge_request.target_branch)
+  end
+
   expose :diff_head_sha
 
   expose :create_note_path do |merge_request|
@@ -40,10 +49,14 @@ class MergeRequestNoteableEntity < IssuableEntity
     expose :can_update do |merge_request|
       can?(current_user, :update_merge_request, merge_request)
     end
+
+    expose :can_create_confidential_note do |merge_request|
+      can?(request.current_user, :mark_note_as_internal, merge_request)
+    end
   end
 
-  expose :locked_discussion_docs_path, if: -> (merge_request) { merge_request.discussion_locked? } do |merge_request|
-    help_page_path('user/discussions/index.md', anchor: 'prevent-comments-by-locking-an-issue')
+  expose :locked_discussion_docs_path, if: ->(merge_request) { merge_request.discussion_locked? } do |merge_request|
+    help_page_path('user/discussions/index', anchor: 'prevent-comments-by-locking-an-issue')
   end
 
   expose :is_project_archived do |merge_request|
@@ -52,8 +65,8 @@ class MergeRequestNoteableEntity < IssuableEntity
 
   expose :project_id
 
-  expose :archived_project_docs_path, if: -> (merge_request) { merge_request.project.archived? } do |merge_request|
-    help_page_path('user/project/settings/index.md', anchor: 'archiving-a-project')
+  expose :archived_project_docs_path, if: ->(merge_request) { merge_request.project.archived? } do |merge_request|
+    help_page_path('user/project/settings/index', anchor: 'archive-a-project')
   end
 
   private
@@ -65,3 +78,5 @@ class MergeRequestNoteableEntity < IssuableEntity
     @presenters[merge_request] ||= MergeRequestPresenter.new(merge_request, current_user: current_user) # rubocop: disable CodeReuse/Presenter
   end
 end
+
+MergeRequestNoteableEntity.prepend_mod_with('MergeRequestNoteableEntity')

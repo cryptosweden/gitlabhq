@@ -4,13 +4,42 @@ require_relative '../../migration_helpers'
 module RuboCop
   module Cop
     module Migration
-      # Cop that checks if new indexes are introduced to forbidden tables.
-      class PreventIndexCreation < RuboCop::Cop::Cop
+      # Adding indexes to certain high traffic tables may cause problems,
+      # and caution should be exercised when doing it.
+      # The goal of this rule is raise awareness and start a discussion.
+      # More details can be found in
+      #   - https://gitlab.com/gitlab-org/gitlab/-/issues/332886
+      #   - https://gitlab.com/groups/gitlab-org/-/epics/11543
+      #   - https://gitlab.com/gitlab-org/gitlab/-/issues/460799
+      class PreventIndexCreation < RuboCop::Cop::Base
         include MigrationHelpers
 
-        FORBIDDEN_TABLES = %i[ci_builds].freeze
+        FORBIDDEN_TABLES = %i[
+          ci_builds
+          namespaces
+          projects
+          users
+          merge_requests
+          merge_request_metrics
+          merge_request_diffs
+          merge_request_diff_commits
+          notes
+          web_hook_logs
+          events
+          project_statistics
+          sent_notifications
+          issues
+          issue_search_data
+          packages_packages
+          vulnerability_occurrences
+          sbom_occurrences
+          security_findings
+          deployments
+        ].freeze
 
-        MSG = "Adding new index to #{FORBIDDEN_TABLES.join(", ")} is forbidden, see https://gitlab.com/gitlab-org/gitlab/-/issues/332886"
+        MSG = "Adding new index to certain tables is forbidden. See " \
+              "https://gitlab.com/gitlab-org/gitlab/-/blob/master/rubocop/cop/migration/prevent_index_creation.rb " \
+              "for more details"
 
         def on_new_investigation
           super
@@ -25,12 +54,20 @@ module RuboCop
           (send nil? :add_concurrent_index ({sym|str} #forbidden_tables?) ...)
         PATTERN
 
+        def_node_matcher :prepare_async_index?, <<~PATTERN
+          (send nil? :prepare_async_index ({sym|str} #forbidden_tables?) ...)
+        PATTERN
+
         def_node_matcher :forbidden_constant_defined?, <<~PATTERN
           (casgn nil? _ ({sym|str} #forbidden_tables?))
         PATTERN
 
         def_node_matcher :add_concurrent_index_with_constant?, <<~PATTERN
           (send nil? :add_concurrent_index (const nil? _) ...)
+        PATTERN
+
+        def_node_matcher :prepare_async_index_with_constant?, <<~PATTERN
+          (send nil? :prepare_async_index (const nil? _) ...)
         PATTERN
 
         def on_casgn(node)
@@ -40,8 +77,11 @@ module RuboCop
         def on_def(node)
           return unless in_migration?(node)
 
+          direction = node.children[0]
+          return if direction == :down
+
           node.each_descendant(:send) do |send_node|
-            add_offense(send_node, location: :selector) if offense?(send_node)
+            add_offense(send_node.loc.selector) if offense?(send_node)
           end
         end
 
@@ -52,11 +92,16 @@ module RuboCop
         end
 
         def offense?(node)
-          add_index?(node) || add_concurrent_index?(node) || any_constant_used_with_forbidden_tables?(node)
+          add_index?(node) ||
+            add_concurrent_index?(node) ||
+            prepare_async_index?(node) ||
+            any_constant_used_with_forbidden_tables?(node)
         end
 
         def any_constant_used_with_forbidden_tables?(node)
-          add_concurrent_index_with_constant?(node) && @forbidden_tables_used
+          @forbidden_tables_used && (
+            add_concurrent_index_with_constant?(node) || prepare_async_index_with_constant?(node)
+          )
         end
       end
     end

@@ -4,6 +4,7 @@
 // license that can be found in the LICENSE file or at
 // https://github.com/h2non/go-is-svg/blob/master/LICENSE.
 
+// Package svg provides utilities for working with SVG (Scalable Vector Graphics) files.
 package svg
 
 import (
@@ -13,7 +14,7 @@ import (
 
 var (
 	htmlCommentRegex = regexp.MustCompile(`(?i)<!--([\s\S]*?)-->`)
-	svgRegex         = regexp.MustCompile(`(?i)^\s*(?:<\?xml[^>]*>\s*)?(?:<!doctype svg[^>]*>\s*)?<svg[^>]*>`)
+	svgRegex         = regexp.MustCompile(`(?i)^\s*(?:<\?xml[^>]*>\s*)?(?:<!doctype svg[^>]*>\s*)?<svg[^>]*`)
 )
 
 // isBinary checks if the given buffer is a binary file.
@@ -33,10 +34,4 @@ func isBinary(buf []byte) bool {
 // Is returns true if the given buffer is a valid SVG image.
 func Is(buf []byte) bool {
 	return !isBinary(buf) && svgRegex.Match(htmlCommentRegex.ReplaceAll(buf, []byte{}))
-}
-
-// IsSVG returns true if the given buffer is a valid SVG image.
-// Alias to: Is()
-func IsSVG(buf []byte) bool {
-	return Is(buf)
 }

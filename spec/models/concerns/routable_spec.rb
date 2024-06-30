@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.shared_examples 'routable resource' do
-  describe '.find_by_full_path', :aggregate_failures do
+  shared_examples_for '.find_by_full_path' do
     it 'finds records by their full path' do
       expect(described_class.find_by_full_path(record.full_path)).to eq(record)
       expect(described_class.find_by_full_path(record.full_path.upcase)).to eq(record)
@@ -13,14 +13,10 @@ RSpec.shared_examples 'routable resource' do
       expect(described_class.find_by_full_path('unknown')).to be_nil
     end
 
-    it 'includes route information when loading a record' do
-      control_count = ActiveRecord::QueryRecorder.new do
-        described_class.find_by_full_path(record.full_path)
-      end.count
-
-      expect do
-        described_class.find_by_full_path(record.full_path).route
-      end.not_to exceed_all_query_limit(control_count)
+    context 'when path is a negative number' do
+      it 'returns nil' do
+        expect(described_class.find_by_full_path(-1)).to be_nil
+      end
     end
 
     context 'with redirect routes' do
@@ -49,7 +45,91 @@ RSpec.shared_examples 'routable resource' do
         end
       end
     end
+
+    it 'does not have cross-join' do
+      expect(Gitlab::Database).not_to receive(:allow_cross_joins_across_databases)
+
+      described_class.find_by_full_path(record.full_path)
+    end
   end
+
+  it_behaves_like '.find_by_full_path', :aggregate_failures
+
+  shared_examples_for '.where_full_path_in' do
+    context 'without any paths' do
+      it 'returns an empty relation' do
+        expect(described_class.where_full_path_in([])).to eq([])
+      end
+    end
+
+    context 'without any valid paths' do
+      it 'returns an empty relation' do
+        expect(described_class.where_full_path_in(%w[unknown])).to eq([])
+      end
+    end
+
+    context 'with valid paths' do
+      it 'returns the entities matching the paths' do
+        result = described_class.where_full_path_in([record.full_path, record_2.full_path])
+
+        expect(result).to contain_exactly(record, record_2)
+      end
+
+      it 'returns entities regardless of the casing of paths' do
+        result = described_class.where_full_path_in([record.full_path.upcase, record_2.full_path.upcase])
+
+        expect(result).to contain_exactly(record, record_2)
+      end
+    end
+
+    context 'on the usage of `preload_routes` parameter' do
+      let_it_be(:klass) { record.class.to_s.downcase }
+      let_it_be(:record_3) { create(:"#{klass}") }
+      let_it_be(:record_4) { create(:"#{klass}") }
+
+      context 'when preload_routes: true' do
+        it 'includes route information when loading records' do
+          control = ActiveRecord::QueryRecorder.new do
+            described_class.where_full_path_in([record.full_path, record_2.full_path], preload_routes: true)
+              .map(&:route)
+          end
+
+          expect do
+            described_class.where_full_path_in(
+              [
+                record.full_path,
+                record_2.full_path,
+                record_3.full_path,
+                record_4.full_path
+              ], preload_routes: true)
+              .map(&:route)
+          end.to issue_same_number_of_queries_as(control)
+        end
+      end
+
+      context 'when preload_routes: false' do
+        it 'does not include route information when loading records' do
+          control_count = ActiveRecord::QueryRecorder.new do
+            described_class.where_full_path_in([record.full_path, record_2.full_path], preload_routes: false)
+              .map(&:route)
+          end
+
+          expect do
+            described_class.where_full_path_in(
+              [
+                record.full_path,
+                record_2.full_path,
+                record_3.full_path,
+                record_4.full_path
+              ], preload_routes: false)
+              .map(&:route)
+          end.not_to issue_same_number_of_queries_as(control_count)
+        end
+      end
+    end
+  end
+
+  it_behaves_like '.where_full_path_in', :aggregate_failures
 end
 
 RSpec.shared_examples 'routable resource with parent' do
@@ -68,6 +148,17 @@ RSpec.shared_examples 'routable resource with parent' do
   describe '#full_name' do
     it { expect(record.full_name).to eq "#{record.parent.human_name} / #{record.name}" }
 
+    context 'without route name' do
+      before do
+        stub_feature_flags(cached_route_lookups: true)
+        record.route.update_attribute(:name, nil)
+      end
+
+      it 'builds full name' do
+        expect(record.full_name).to eq("#{record.parent.human_name} / #{record.name}")
+      end
+    end
+
     it 'hits the cache when not preloaded' do
       forcibly_hit_cached_lookup(record, :full_name)
 
@@ -76,16 +167,18 @@ RSpec.shared_examples 'routable resource with parent' do
   end
 end
 
-RSpec.describe Group, 'Routable', :with_clean_rails_cache do
+RSpec.describe Group, 'Routable', :with_clean_rails_cache, feature_category: :groups_and_projects do
   let_it_be_with_reload(:group) { create(:group, name: 'foo') }
   let_it_be(:nested_group) { create(:group, parent: group) }
 
   it_behaves_like 'routable resource' do
     let_it_be(:record) { group }
+    let_it_be(:record_2) { nested_group }
   end
 
   it_behaves_like 'routable resource with parent' do
     let_it_be(:record) { nested_group }
+    let_it_be(:record_2) { group }
   end
 
   describe 'Validations' do
@@ -146,34 +239,6 @@ RSpec.describe Group, 'Routable', :with_clean_rails_cache do
     expect(group.route.namespace).to eq(group)
   end
 
-  describe '.where_full_path_in' do
-    context 'without any paths' do
-      it 'returns an empty relation' do
-        expect(described_class.where_full_path_in([])).to eq([])
-      end
-    end
-
-    context 'without any valid paths' do
-      it 'returns an empty relation' do
-        expect(described_class.where_full_path_in(%w[unknown])).to eq([])
-      end
-    end
-
-    context 'with valid paths' do
-      it 'returns the projects matching the paths' do
-        result = described_class.where_full_path_in([group.to_param, nested_group.to_param])
-
-        expect(result).to contain_exactly(group, nested_group)
-      end
-
-      it 'returns projects regardless of the casing of paths' do
-        result = described_class.where_full_path_in([group.to_param.upcase, nested_group.to_param.upcase])
-
-        expect(result).to contain_exactly(group, nested_group)
-      end
-    end
-  end
-
   describe '#parent_loaded?' do
     before do
       group.parent = create(:group)
@@ -206,21 +271,45 @@ RSpec.describe Group, 'Routable', :with_clean_rails_cache do
   end
 end
 
-RSpec.describe Project, 'Routable', :with_clean_rails_cache do
+RSpec.describe Project, 'Routable', :with_clean_rails_cache, feature_category: :groups_and_projects do
   let_it_be(:namespace) { create(:namespace) }
   let_it_be(:project) { create(:project, namespace: namespace) }
+  let_it_be(:project_2) { create(:project) }
 
   it_behaves_like 'routable resource with parent' do
     let_it_be(:record) { project }
+    let_it_be(:record_2) { project_2 }
   end
 
   it 'creates route with namespace referencing project namespace' do
     expect(project.route).not_to be_nil
     expect(project.route.namespace).to eq(project.project_namespace)
   end
+
+  describe '.find_by_full_path' do
+    it 'does not return a record if the sources are different, but the IDs match', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/451914' do
+      group = create(:group, id: 1992)
+      project = create(:project, id: 1992)
+
+      record = described_class.where(id: project.id).find_by_full_path(group.full_path)
+
+      expect(record).to be_nil
+    end
+  end
+
+  describe '.where_full_path_in' do
+    it 'does not return records if the sources are different, but the IDs match', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/457548' do
+      group = create(:group, id: 1992)
+      project = create(:project, id: 1992)
+
+      records = described_class.where(id: project.id).where_full_path_in([group.full_path])
+
+      expect(records).to be_empty
+    end
+  end
 end
 
-RSpec.describe Namespaces::ProjectNamespace, 'Routable', :with_clean_rails_cache do
+RSpec.describe Namespaces::ProjectNamespace, 'Routable', :with_clean_rails_cache, feature_category: :groups_and_projects do
   let_it_be(:group) { create(:group) }
 
   it 'skips route creation for the resource' do

@@ -1,0 +1,11 @@
+---
+table_name: dependency_list_exports
+classes:
+- Dependencies::DependencyListExport
+feature_categories:
+- dependency_management
+description: Dependency list exported data
+introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/104361
+milestone: '15.7'
+gitlab_schema: gitlab_main
+sharding_key_issue_url: https://gitlab.com/gitlab-org/gitlab/-/issues/454947

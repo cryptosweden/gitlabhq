@@ -1,10 +1,18 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
 ---
 
 # Documentation deployments
+
+## Deployment environments
+
+The [GitLab documentation site](https://docs.gitlab.com/) is a static site hosted by [GitLab Pages](../../../user/project/pages/index.md). The deployment is done by the [Pages deploy job](#pages-deploy-job).
+
+The website hosts documentation only for the [currently supported](../../../policy/maintenance.md) GitLab versions. Documentation for older versions is built and uploaded as Docker images to be downloaded from [GitLab Docs archives](https://docs.gitlab.com/archives/).
+
+## Parts of release process
 
 The documentation [release process](https://gitlab.com/gitlab-org/gitlab-docs/-/blob/main/doc/releases.md)
 involves:
@@ -24,10 +32,8 @@ For general information on using Docker with CI/CD pipelines, see [Docker integr
 
 ## Stable branches
 
-Stable branches for documentation include the relevant stable branches of all the projects required to publish the entire
-documentation suite. For example, the stable version of documentation for version `14.4` includes:
+Pipelines for stable branches in the documentation project pull the relevant stable branches of included projects. For example, the documentation for stable version `14.4` is built from the [`14.4`](https://gitlab.com/gitlab-org/gitlab-docs/-/tree/14.4) branch of the `gitlab-docs` project, which then includes:
 
-- The [`14.4`](https://gitlab.com/gitlab-org/gitlab-docs/-/tree/14.4) branch of the `gitlab-docs` project.
 - The [`14-4-stable-ee`](https://gitlab.com/gitlab-org/gitlab/-/tree/14-4-stable-ee) branch of the `gitlab` project.
 - The [`14-4-stable`](https://gitlab.com/gitlab-org/gitlab-runner/-/tree/14-4-stable) branch of the `gitlab-runner` project.
 - The [`14-4-stable`](https://gitlab.com/gitlab-org/omnibus-gitlab/-/tree/14-4-stable) branch of the `omnibus-gitlab` project.
@@ -60,12 +66,12 @@ graph TD
   C["14.2 MR merged"]
   D["13.12 MR merged"]
   E["12.10 MR merged"]
-  F{{"Container registry on `gitlab-docs` project"}}
-  A--"`image:docs-single`<br>job runs and pushes<br>`gitlab-docs:14.4` image"-->F
-  B--"`image:docs-single`<br>job runs and pushes<br>`gitlab-docs:14.3` image"-->F
-  C--"`image:docs-single`<br>job runs and pushes<br>`gitlab-docs:14.2` image"-->F
-  D--"`image:docs-single`<br>job runs and pushes<br>`gitlab-docs:13.12` image"-->F
-  E--"`image:docs-single`<br>job runs and pushes<br>`gitlab-docs:12.10` image"-->F
+  F{{"Container registry on gitlab-docs project"}}
+  A--"image:docs-single<br>job runs and pushes<br>gitlab-docs:14.4 image"-->F
+  B--"image:docs-single<br>job runs and pushes<br>gitlab-docs:14.3 image"-->F
+  C--"image:docs-single<br>job runs and pushes<br>gitlab-docs:14.2 image"-->F
+  D--"image:docs-single<br>job runs and pushes<br>gitlab-docs:13.12 image"-->F
+  E--"image:docs-single<br>job runs and pushes<br>gitlab-docs:12.10 image"-->F
 ```
 
 ### Rebuild stable documentation images
@@ -98,26 +104,26 @@ For example, [a pipeline](https://gitlab.com/gitlab-org/gitlab-docs/-/pipelines/
 
 ```mermaid
 graph TD
-  A["Latest `gitlab`, `gitlab-runner`<br>`omnibus-gitlab`, and `charts`"]
-  subgraph "Container registry on `gitlab-docs` project"
-    B["14.4 versioned docs<br>`gitlab-docs:14.4`"]
-    C["14.3 versioned docs<br>`gitlab-docs:14.3`"]
-    D["14.2 versioned docs<br>`gitlab-docs:14.2`"]
-    E["13.12 versioned docs<br>`gitlab-docs:13.12`"]
-    F["12.10 versioned docs<br>`gitlab-docs:12.10`"]
+  A["Latest gitlab, gitlab-runner<br>omnibus-gitlab, and charts"]
+  subgraph "Container registry on gitlab-docs project"
+    B["14.4 versioned docs<br>gitlab-docs:14.4"]
+    C["14.3 versioned docs<br>gitlab-docs:14.3"]
+    D["14.2 versioned docs<br>gitlab-docs:14.2"]
+    E["13.12 versioned docs<br>gitlab-docs:13.12"]
+    F["12.10 versioned docs<br>gitlab-docs:12.10"]
   end
-  G[["Scheduled pipeline<br>`image:docs-latest` job<br>combines all these"]]
+  G[["Scheduled pipeline<br>image:docs-latest job<br>combines all these"]]
   A--"Default branches<br>pulled down"-->G
-  B--"`gitlab-docs:14.4` image<br>pulled down"-->G
-  C--"`gitlab-docs:14.3` image<br>pulled down"-->G
-  D--"`gitlab-docs:14.2` image<br>pulled down"-->G
-  E--"`gitlab-docs:13.12` image<br>pulled down"-->G
-  F--"`gitlab-docs:12.10` image<br>pulled down"-->G
+  B--"gitlab-docs:14.4 image<br>pulled down"-->G
+  C--"gitlab-docs:14.3 image<br>pulled down"-->G
+  D--"gitlab-docs:14.2 image<br>pulled down"-->G
+  E--"gitlab-docs:13.12 image<br>pulled down"-->G
+  F--"gitlab-docs:12.10 image<br>pulled down"-->G
   H{{"Container registry on gitlab-docs project"}}
-  G--"Latest `gitlab-docs:latest` image<br>pushed up"-->H
+  G--"Latest gitlab-docs:latest image<br>pushed up"-->H
 ```
 
-## Documentation Pages deployment
+## Pages deploy job
 
 [GitLab Docs](https://docs.gitlab.com) is a [Pages site](../../../user/project/pages/index.md) and documentation updates
 for it must be deployed to become available.
@@ -138,36 +144,45 @@ graph LR
   A{{"Container registry on gitlab-docs project"}}
   B[["Scheduled pipeline<br>`pages` and<br>`pages:deploy` job"]]
   C([docs.gitlab.com])
-  A--"`gitlab-docs:latest`<br>pulled"-->B
+  A--"gitlab-docs:latest<br>pulled"-->B
   B--"Unpacked documentation uploaded"-->C
 ```
 
+### Manually deploy to production
+
+GitLab Docs is deployed to production whenever the `Build docs.gitlab.com every hour` scheduled pipeline runs. By
+default, this pipeline runs every hour.
+
+Maintainers can [manually](../../../ci/pipelines/schedules.md#run-manually) run this pipeline to force a deployment to
+production:
+
+1. Go to the [scheduled pipelines](https://gitlab.com/gitlab-org/gitlab-docs/-/pipeline_schedules) for `gitlab-docs`.
+1. Next to `Build docs.gitlab.com every hour`, select **Play** (**{play}**).
+
+The updated documentation is available in production after the `pages` and `pages:deploy` jobs
+complete in the new pipeline.
+
+If you do not have the Maintainer role to perform this task, ask for help in the
+`#docs` Slack channel.
+
 ## Docker files
 
-The [`dockerfiles` directory](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/dockerfiles/) contains all needed
-Dockerfiles to build and deploy <https://docs.gitlab.com>. It is heavily inspired by Docker's
-[Dockerfile](https://github.com/docker/docker.github.io/blob/06ed03db13895bfe867761b6fc2ad40acf6026dd/Dockerfile).
+The [`dockerfiles` directory](https://gitlab.com/gitlab-org/gitlab-docs/-/tree/main/dockerfiles) contains Dockerfiles needed
+to build, test, and deploy <https://docs.gitlab.com>.
 
-| Dockerfile                                                                                                                 | Docker image                  | Description                                                                                                                                                                                                                                                                           |
-|:---------------------------------------------------------------------------------------------------------------------------|:------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [`Dockerfile.bootstrap`](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/dockerfiles/Dockerfile.bootstrap)             | `gitlab-docs:bootstrap`       | Contains all the dependencies that are needed to build the website. If the gems are updated and `Gemfile{,.lock}` changes, the image must be rebuilt.                                                                                                                                 |
-| [`Dockerfile.builder.onbuild`](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/dockerfiles/Dockerfile.builder.onbuild) | `gitlab-docs:builder-onbuild` | Base image to build the docs website. It uses `ONBUILD` to perform all steps and depends on `gitlab-docs:bootstrap`.                                                                                                                                                                  |
-| [`Dockerfile.nginx.onbuild`](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/dockerfiles/Dockerfile.nginx.onbuild)     | `gitlab-docs:nginx-onbuild`   | Base image to use for building documentation archives. It uses `ONBUILD` to perform all required steps to copy the archive, and relies upon its parent `Dockerfile.builder.onbuild` that is invoked when building single documentation archives (see the `Dockerfile` of each branch) |
-| [`Dockerfile.archives`](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/dockerfiles/Dockerfile.archives)               | `gitlab-docs:archives`        | Contains all the versions of the website in one archive. It copies all generated HTML files from every version in one location.                                                                                                                                                       |
+## Troubleshooting
 
-### How to build the images
+### Not a known icon in `@gitlab-org/gitlab-svg`
 
-Although build images are built automatically via GitLab CI/CD, you can build and tag all tooling images locally:
+If you attempt to use an icon in the UI or documentation and receive this error
+in the `docs-lint links` job, the `html-lint` Docker image needs an update:
 
-1. Make sure you have [Docker installed](https://docs.docker.com/install/).
-1. Make sure you're in the `dockerfiles/` directory of the `gitlab-docs` repository.
-1. Build the images:
+```plaintext
+ArgumentError: example-image is not a known icon in @gitlab-org/gitlab-svg
+926lib/helpers/icons_helper.rb:22:in `icon':
+example-image is not a known icon in @gitlab-org/gitlab-svg (ArgumentError)
+```
 
-   ```shell
-   docker build -t registry.gitlab.com/gitlab-org/gitlab-docs:bootstrap -f Dockerfile.bootstrap ../
-   docker build -t registry.gitlab.com/gitlab-org/gitlab-docs:builder-onbuild -f Dockerfile.builder.onbuild ../
-   docker build -t registry.gitlab.com/gitlab-org/gitlab-docs:nginx-onbuild -f Dockerfile.nginx.onbuild ../
-   ```
-
-For each image, there's a manual job under the `images` stage in
-[`.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/.gitlab-ci.yml) which can be invoked at any time.
+Use the `#docs` channel in Slack to request a member of the Technical Writing team
+update the Docker image. For more information, see the
+[internal Technical Writing team documentation](https://gitlab.com/gitlab-org/gitlab-docs/-/blob/main/doc/troubleshooting.md?ref_type=heads#error-argumenterror-icon-name-is-not-a-known-icon-in-gitlab-orggitlab-svg).

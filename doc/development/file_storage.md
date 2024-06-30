@@ -1,14 +1,14 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # File Storage in GitLab
 
 We use the [CarrierWave](https://github.com/carrierwaveuploader/carrierwave) gem to handle file upload, store and retrieval.
 
-File uploads should be accelerated by workhorse, for details please refer to [uploads development documentation](uploads/index.md).
+File uploads should be accelerated by workhorse, for details refer to [uploads development documentation](uploads/index.md).
 
 There are many places where file uploading is used, according to contexts:
 
@@ -36,7 +36,7 @@ There are many places where file uploading is used, according to contexts:
 GitLab started saving everything on local disk. While directory location changed from previous versions,
 they are still not 100% standardized. You can see them below:
 
-| Description                           | In DB? | Relative path (from CarrierWave.root)                       | Uploader class         | model_type |
+| Description                           | In DB? | Relative path (from CarrierWave.root)                       | Uploader class         | Model type |
 | ------------------------------------- | ------ | ----------------------------------------------------------- | ---------------------- | ---------- |
 | Instance logo                         | yes    | `uploads/-/system/appearance/logo/:id/:filename`              | `AttachmentUploader`   | Appearance |
 | Header logo                           | yes    | `uploads/-/system/appearance/header_logo/:id/:filename`       | `AttachmentUploader`   | Appearance |
@@ -56,7 +56,7 @@ they are still not 100% standardized. You can see them below:
 CI Artifacts and LFS Objects behave differently in CE and EE. In CE they inherit the `GitlabUploader`
 while in EE they inherit the `ObjectStorage` and store files in and S3 API compatible object store.
 
-In the case of Issues/MR/Notes Markdown attachments, there is a different approach using the [Hashed Storage](../administration/repository_storage_types.md) layout,
+In the case of Issues/MR/Notes Markdown attachments, there is a different approach using the [Hashed Storage](../administration/repository_storage_paths.md) layout,
 instead of basing the path into a mutable variable `:project_path_with_namespace`, it's possible to use the
 hash of the project ID instead, if project migrates to the new approach (introduced in 10.2).
 
@@ -85,7 +85,7 @@ All the `GitlabUploader` derived classes should comply with this path segment sc
 | ----------------------- + ------------------------- + --------------------------------- + -------------------------------- |
 | `CarrierWave.root`      | `GitlabUploader.base_dir` | `GitlabUploader#dynamic_segment`  | `CarrierWave::Uploader#filename` |
 |                         | `CarrierWave::Uploader#store_dir`                             |                                  |
-|                         |                           | `FileUploader#upload_path                                            |
+|                         |                           | `FileUploader#upload_path`                                           |
 
 |   ObjectStore::Concern (store = remote)
 | ----------------------- + ------------------------- + ----------------------------------- + -------------------------------- |
@@ -93,7 +93,7 @@ All the `GitlabUploader` derived classes should comply with this path segment sc
 | ----------------------- + ------------------------- + ----------------------------------- + -------------------------------- |
 | `#fog_dir`              | `GitlabUploader.base_dir` | `GitlabUploader#dynamic_segment`    | `CarrierWave::Uploader#filename` |
 |                         |                           | `ObjectStorage::Concern#store_dir`  |                                  |
-|                         |                           | `ObjectStorage::Concern#upload_path                                    |
+|                         |                           | `ObjectStorage::Concern#upload_path`                                   |
 ```
 
 The `RecordsUploads::Concern` concern creates an `Upload` entry for every file stored by a `GitlabUploader` persisting the dynamic parts of the path using

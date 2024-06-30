@@ -4,6 +4,8 @@ module Gitlab
   module ImportExport
     module Group
       class RelationTreeRestorer
+        include Gitlab::Utils::StrongMemoize
+
         def initialize( # rubocop:disable Metrics/ParameterLists
           user:,
           shared:,
@@ -14,7 +16,8 @@ module Gitlab
           reader:,
           importable:,
           importable_attributes:,
-          importable_path:
+          importable_path:,
+          skip_on_duplicate_iid: false
         )
           @user = user
           @shared = shared
@@ -26,16 +29,31 @@ module Gitlab
           @reader = reader
           @importable_attributes = importable_attributes
           @importable_path = importable_path
+          @skip_on_duplicate_iid = skip_on_duplicate_iid
         end
 
         def restore
+          bulk_insert_without_cache_or_touch do
+            create_relations!
+          end
+        end
+
+        def restore_single_relation(relation_key)
+          # NO-OP. This is currently only available for file-based project import.
+        end
+
+        private
+
+        attr_reader :user, :relation_factory
+        alias_method :current_user, :user
+
+        def bulk_insert_without_cache_or_touch
           Gitlab::Database.all_uncached do
             ActiveRecord::Base.no_touching do
               update_params!
 
               BulkInsertableAssociations.with_bulk_insert(enabled: bulk_insert_enabled) do
-                fix_ci_pipelines_not_sorted_on_legacy_project_json!
-                create_relations!
+                yield
               end
             end
           end
@@ -49,10 +67,12 @@ module Gitlab
           false
         end
 
-        private
-
         def bulk_insert_enabled
           false
+        end
+
+        def skip_on_duplicate_iid?
+          @skip_on_duplicate_iid
         end
 
         # Loops through the tree of models defined in import_export.yml and
@@ -74,8 +94,10 @@ module Gitlab
 
         def process_relation_item!(relation_key, relation_definition, relation_index, data_hash)
           relation_object = build_relation(relation_key, relation_definition, relation_index, data_hash)
+
           return unless relation_object
           return if relation_invalid_for_importable?(relation_object)
+          return if skip_on_duplicate_iid? && previously_imported?(relation_object, relation_key)
 
           relation_object.assign_attributes(importable_class_sym => @importable)
 
@@ -85,18 +107,48 @@ module Gitlab
             source: 'process_relation_item!',
             relation_key: relation_key,
             relation_index: relation_index,
-            exception: e)
+            exception: e,
+            external_identifiers: external_identifiers(data_hash))
+        end
+
+        def previously_imported?(relation_object, relation_key)
+          existing_iids(relation_key).key?(relation_object.iid)
+        end
+
+        # Generate the list of existing IIDs as a hash.
+        # { issues: { 1: true, 2: true, ... }}
+        # A hash is used rather than returning the array of IDs because lookup
+        # performance is greatly improved.
+        def existing_iids(relation_key)
+          strong_memoize_with(:existing_iids, relation_key) do
+            case relation_key
+            when 'issues' then @importable.issues.pluck(:iid)
+            when 'milestones' then @importable.milestones.pluck(:iid)
+            when 'ci_pipelines' then @importable.ci_pipelines.pluck(:iid)
+            when 'merge_requests' then @importable.merge_requests.pluck(:iid)
+            end.index_with(true)
+          end
         end
 
         def save_relation_object(relation_object, relation_key, relation_definition, relation_index)
-          if Feature.enabled?(:import_relation_object_persistence, default_enabled: :yaml) && relation_object.new_record?
-            Gitlab::ImportExport::Base::RelationObjectSaver.new(
+          if relation_object.new_record?
+            saver = Gitlab::ImportExport::Base::RelationObjectSaver.new(
               relation_object: relation_object,
               relation_key: relation_key,
               relation_definition: relation_definition,
               importable: @importable
-            ).execute
+            )
+
+            saver.execute
+
+            log_invalid_subrelations(saver.invalid_subrelations, relation_key)
           else
+            if relation_object.invalid?
+              Gitlab::Import::Errors.merge_nested_errors(relation_object)
+
+              raise(ActiveRecord::RecordInvalid, relation_object)
+            end
+
             import_failure_service.with_retry(action: 'relation_object.save!', relation_key: relation_key, relation_index: relation_index) do
               relation_object.save!
             end
@@ -113,7 +165,7 @@ module Gitlab
           @relations ||=
             @reader
               .attributes_finder
-              .find_relations_tree(importable_class_sym)
+              .find_relations_tree(importable_class_sym, include_import_only_tree: true)
               .deep_stringify_keys
         end
 
@@ -126,9 +178,7 @@ module Gitlab
 
           modify_attributes
 
-          Gitlab::Timeless.timeless(@importable) do
-            @importable.save!
-          end
+          @importable.save!(touch: false)
         end
 
         def filter_attributes(params)
@@ -136,9 +186,9 @@ module Gitlab
             attributes_permitter.permit(importable_class_sym, params)
           else
             Gitlab::ImportExport::AttributeCleaner.clean(
-              relation_hash:  params,
+              relation_hash: params,
               relation_class: importable_class,
-              excluded_keys:  excluded_keys_for_relation(importable_class_sym))
+              excluded_keys: excluded_keys_for_relation(importable_class_sym))
           end
         end
 
@@ -186,7 +236,7 @@ module Gitlab
             transform_sub_relations!(data_hash, sub_relation_key, sub_relation_definition, relation_index)
           end
 
-          relation = @relation_factory.create(**relation_factory_params(relation_key, relation_index, data_hash))
+          relation = persist_relation(**relation_factory_params(relation_key, relation_index, data_hash))
 
           if relation && !relation.valid?
             @shared.logger.warn(
@@ -261,17 +311,9 @@ module Gitlab
             members_mapper: @members_mapper,
             object_builder: @object_builder,
             user: @user,
-            excluded_keys: excluded_keys_for_relation(relation_key)
+            excluded_keys: excluded_keys_for_relation(relation_key),
+            import_source: ::Import::SOURCE_GROUP_EXPORT_IMPORT
           }
-        end
-
-        # Temporary fix for https://gitlab.com/gitlab-org/gitlab/-/issues/27883 when import from legacy project.json
-        # This should be removed once legacy JSON format is deprecated.
-        # Ndjson export file will fix the order during project export.
-        def fix_ci_pipelines_not_sorted_on_legacy_project_json!
-          return unless @relation_reader.legacy?
-
-          @relation_reader.sort_ci_pipelines_by_id
         end
 
         # Enable logging of each top-level relation creation when Importing into a Group
@@ -290,7 +332,43 @@ module Gitlab
             message: '[Project/Group Import] Created new object relation'
           )
         end
+
+        def log_invalid_subrelations(invalid_subrelations, relation_key)
+          invalid_subrelations.flatten.each do |record|
+            Gitlab::Import::Errors.merge_nested_errors(record)
+
+            @shared.logger.info(
+              message: '[Project/Group Import] Invalid subrelation',
+              importable_column_name => @importable.id,
+              relation_key: relation_key,
+              error_messages: record.errors.full_messages.to_sentence
+            )
+
+            ::ImportFailure.create(
+              source: 'RelationTreeRestorer#save_relation_object',
+              relation_key: relation_key,
+              exception_class: 'ActiveRecord::RecordInvalid',
+              exception_message: record.errors.full_messages.to_sentence,
+              correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id,
+              importable_column_name => @importable.id
+            )
+          end
+        end
+
+        def importable_column_name
+          @column_name ||= @importable.class.reflect_on_association(:import_failures).foreign_key.to_sym
+        end
+
+        def external_identifiers(data_hash)
+          { iid: data_hash['iid'] }.compact
+        end
+
+        def persist_relation(attributes)
+          @relation_factory.create(**attributes)
+        end
       end
     end
   end
 end
+
+Gitlab::ImportExport::Group::RelationTreeRestorer.prepend_mod

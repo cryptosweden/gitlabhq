@@ -1,41 +1,5 @@
 # frozen_string_literal: true
 
-# Usage:
-#
-# Worker that performs the tasks:
-#
-# class DummyWorker
-#   include ApplicationWorker
-#   include LimitedCapacity::Worker
-#
-#   # For each job that raises any error, a worker instance will be disabled
-#   # until the next schedule-run.
-#   # If you wish to get around this, exceptions must by handled by the implementer.
-#   #
-#   def perform_work(*args)
-#   end
-#
-#   def remaining_work_count(*args)
-#     5
-#   end
-#
-#   def max_running_jobs
-#     25
-#   end
-# end
-#
-# Cron worker to fill the pool of regular workers:
-#
-# class ScheduleDummyCronWorker
-#   include ApplicationWorker
-#   include CronjobQueue
-#
-#   def perform(*args)
-#     DummyWorker.perform_with_capacity(*args)
-#   end
-# end
-#
-
 module LimitedCapacity
   module Worker
     extend ActiveSupport::Concern
@@ -61,8 +25,8 @@ module LimitedCapacity
       end
     end
 
-    def perform(*args)
-      perform_registered(*args) if job_tracker.register(jid, max_running_jobs)
+    def perform(...)
+      perform_registered(...) if job_tracker.register(jid, max_running_jobs)
     end
 
     def perform_work(*args)
@@ -81,9 +45,9 @@ module LimitedCapacity
       job_tracker.clean_up
     end
 
-    def report_prometheus_metrics(*args)
+    def report_prometheus_metrics(...)
       report_running_jobs_metrics
-      set_metric(:remaining_work_gauge, remaining_work_count(*args))
+      set_metric(:remaining_work_gauge, remaining_work_count(...))
       set_metric(:max_running_jobs_gauge, max_running_jobs)
     end
 

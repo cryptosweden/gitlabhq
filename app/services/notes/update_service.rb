@@ -9,6 +9,8 @@ module Notes
 
       note.assign_attributes(params)
 
+      return note unless note.valid?
+
       track_note_edit_usage_for_issues(note) if note.for_issue?
       track_note_edit_usage_for_merge_requests(note) if note.for_merge_request?
 
@@ -23,14 +25,8 @@ module Notes
         note.note = content
       end
 
-      if note.note_changed?
-        note.assign_attributes(last_edited_at: Time.current, updated_by: current_user)
-      end
-
-      note.with_transaction_returning_status do
-        update_confidentiality(note)
-        note.save
-      end
+      update_note(note, only_commands)
+      note.save
 
       unless only_commands || note.for_personal_snippet?
         note.create_new_cross_references!(current_user)
@@ -38,6 +34,8 @@ module Notes
         update_todos(note, old_mentioned_users)
 
         update_suggestions(note)
+
+        execute_note_webhook(note)
       end
 
       if quick_actions_service.commands_executed_count.to_i > 0
@@ -48,7 +46,6 @@ module Notes
 
         if only_commands
           delete_note(note, message)
-          note = nil
         else
           note.save
         end
@@ -58,6 +55,13 @@ module Notes
     end
 
     private
+
+    def update_note(note, only_commands)
+      return unless note.note_changed?
+
+      note.assign_attributes(last_edited_at: Time.current, updated_by: current_user)
+      note.check_for_spam(action: :update, user: current_user) unless only_commands
+    end
 
     def delete_note(note, message)
       # We must add the error after we call #save because errors are reset
@@ -88,17 +92,21 @@ module Notes
       TodoService.new.update_note(note, current_user, old_mentioned_users)
     end
 
-    # This method updates confidentiality of all discussion notes at once
-    def update_confidentiality(note)
-      return unless params.key?(:confidential)
-      return unless note.is_a?(DiscussionNote) # we don't need to do bulk update for single notes
-      return unless note.start_of_discussion? # don't update all notes if a response is being updated
-
-      Note.id_in(note.discussion.notes.map(&:id)).update_all(confidential: params[:confidential])
+    def track_note_edit_usage_for_issues(note)
+      Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_comment_edited_action(
+        author: note.author,
+        project: project
+      )
     end
 
-    def track_note_edit_usage_for_issues(note)
-      Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_comment_edited_action(author: note.author)
+    def execute_note_webhook(note)
+      return unless note.project && note.previous_changes.include?('note')
+
+      note_data = Gitlab::DataBuilder::Note.build(note, note.author, :update)
+      is_confidential = note.confidential?(include_noteable: true)
+      hooks_scope = is_confidential ? :confidential_note_hooks : :note_hooks
+
+      note.project.execute_hooks(note_data, hooks_scope)
     end
 
     def track_note_edit_usage_for_merge_requests(note)

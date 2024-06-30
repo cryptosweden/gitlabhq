@@ -3,7 +3,6 @@
 class ProjectsController < Projects::ApplicationController
   include API::Helpers::RelatedResourcesHelpers
   include IssuableCollections
-  include ExtractsPath
   include PreviewMarkdown
   include SendFileUpload
   include RecordUserLastActivity
@@ -11,6 +10,8 @@ class ProjectsController < Projects::ApplicationController
   include FiltersEvents
   include SourcegraphDecorator
   include PlanningHierarchy
+
+  REFS_LIMIT = 100
 
   prepend_before_action(only: [:show]) { authenticate_sessionless_user!(:rss) }
 
@@ -24,10 +25,11 @@ class ProjectsController < Projects::ApplicationController
   before_action :verify_git_import_enabled, only: [:create]
   before_action :project_export_enabled, only: [:export, :download_export, :remove_export, :generate_new_export]
   before_action :present_project, only: [:edit]
-  before_action :authorize_download_code!, only: [:refs]
+  before_action :authorize_read_code!, only: [:refs]
 
   # Authorize
-  before_action :authorize_admin_project!, only: [:edit, :update, :housekeeping, :download_export, :export, :remove_export, :generate_new_export]
+  before_action :authorize_view_edit_page!, only: :edit
+  before_action :authorize_admin_project!, only: [:update, :housekeeping, :download_export, :export, :remove_export, :generate_new_export]
   before_action :authorize_archive_project!, only: [:archive, :unarchive]
   before_action :event_filter, only: [:show, :activity]
 
@@ -35,29 +37,45 @@ class ProjectsController < Projects::ApplicationController
   before_action :check_export_rate_limit!, only: [:export, :download_export, :generate_new_export]
 
   before_action do
-    push_frontend_feature_flag(:lazy_load_commits, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:refactor_blob_viewer, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:highlight_js, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:increase_page_size_exponentially, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:new_dir_modal, @project, default_enabled: :yaml)
+    push_frontend_feature_flag(:remove_monitor_metrics, @project)
+    push_frontend_feature_flag(:explain_code_chat, current_user)
+    push_frontend_feature_flag(:issue_email_participants, @project)
+    push_frontend_feature_flag(:service_desk_tickets_confidentiality, @project)
+    push_frontend_feature_flag(:edit_branch_rules, @project)
+    # TODO: We need to remove the FF eventually when we rollout page_specific_styles
+    push_frontend_feature_flag(:page_specific_styles, current_user)
     push_licensed_feature(:file_locks) if @project.present? && @project.licensed_feature_available?(:file_locks)
+
+    if @project.present? && @project.licensed_feature_available?(:security_orchestration_policies)
+      push_licensed_feature(:security_orchestration_policies)
+    end
+
     push_force_frontend_feature_flag(:work_items, @project&.work_items_feature_flag_enabled?)
+    push_force_frontend_feature_flag(:work_items_beta, @project&.work_items_beta_feature_flag_enabled?)
+    push_force_frontend_feature_flag(:work_items_alpha, @project&.work_items_alpha_feature_flag_enabled?)
+    push_frontend_feature_flag(:namespace_level_work_items, @project&.group)
   end
 
   layout :determine_layout
 
-  feature_category :projects, [
-                     :index, :show, :new, :create, :edit, :update, :transfer,
-                     :destroy, :archive, :unarchive, :toggle_star, :activity
-                   ]
+  feature_category :groups_and_projects, [
+    :index, :show, :new, :create, :edit, :update, :transfer,
+    :destroy, :archive, :unarchive, :toggle_star, :activity
+  ]
 
   feature_category :source_code_management, [:remove_fork, :housekeeping, :refs]
   feature_category :team_planning, [:preview_markdown, :new_issuable_address]
   feature_category :importers, [:export, :remove_export, :generate_new_export, :download_export]
-  feature_category :code_review, [:unfoldered_environment_names]
+  feature_category :code_review_workflow, [:unfoldered_environment_names]
   feature_category :portfolio_management, [:planning_hierarchy]
 
-  urgency :low, [:refs]
+  urgency :low, [:export, :remove_export, :generate_new_export, :download_export]
+  urgency :low, [:preview_markdown, :new_issuable_address]
+  # TODO: Set high urgency for #show https://gitlab.com/gitlab-org/gitlab/-/issues/334444
+
+  urgency :low, [:refs, :show, :toggle_star, :transfer, :archive, :destroy, :update, :create,
+    :activity, :edit, :new, :export, :remove_export, :generate_new_export, :download_export]
+
   urgency :high, [:unfoldered_environment_names]
 
   def index
@@ -68,6 +86,14 @@ class ProjectsController < Projects::ApplicationController
   def new
     @namespace = Namespace.find_by(id: params[:namespace_id]) if params[:namespace_id]
     return access_denied! if @namespace && !can?(current_user, :create_projects, @namespace)
+
+    @parent_group = Group.find_by(id: params[:namespace_id])
+
+    manageable_groups = ::Groups::AcceptingProjectCreationsFinder.new(current_user).execute.limit(2)
+
+    return access_denied! if manageable_groups.empty? && !can?(current_user, :create_projects, current_user.namespace)
+
+    @current_user_group = manageable_groups.first if manageable_groups.one?
 
     @project = Project.new(namespace_id: @namespace&.id)
   end
@@ -97,14 +123,7 @@ class ProjectsController < Projects::ApplicationController
     # Refresh the repo in case anything changed
     @repository = @project.repository
 
-    if result[:status] == :success
-      flash[:notice] = _("Project '%{project_name}' was successfully updated.") % { project_name: @project.name }
-      redirect_to(edit_project_path(@project, anchor: 'js-general-project-settings'))
-    else
-      flash[:alert] = result[:message]
-      @project.reset
-      render 'edit'
-    end
+    handle_update_result(result)
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
@@ -144,7 +163,8 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def show
-    @id, @ref, @path = extract_ref_path
+    @id = @ref = repository_root
+    @path = ''
 
     if @project.import_in_progress?
       redirect_to project_import_path(@project, custom_import_params)
@@ -155,11 +175,11 @@ class ProjectsController < Projects::ApplicationController
       flash.now[:alert] = _("Project '%{project_name}' queued for deletion.") % { project_name: @project.name }
     end
 
+    @ref_type = 'heads'
+
     respond_to do |format|
       format.html do
-        @notification_setting = current_user.notification_settings_for(@project) if current_user
         @project = @project.present(current_user: current_user)
-
         render_landing_page
       end
 
@@ -175,15 +195,15 @@ class ProjectsController < Projects::ApplicationController
     return access_denied! unless can?(current_user, :remove_project, @project)
 
     ::Projects::DestroyService.new(@project, current_user, {}).async_execute
-    flash[:notice] = _("Project '%{project_name}' is in the process of being deleted.") % { project_name: @project.full_name }
+    flash[:toast] = format(_("Project '%{project_name}' is being deleted."), project_name: @project.full_name)
 
     redirect_to dashboard_projects_path, status: :found
-  rescue Projects::DestroyService::DestroyError => ex
-    redirect_to edit_project_path(@project), status: :found, alert: ex.message
+  rescue Projects::DestroyService::DestroyError => e
+    redirect_to edit_project_path(@project), status: :found, alert: e.message
   end
 
   def new_issuable_address
-    return render_404 unless Gitlab::IncomingEmail.supports_issue_creation?
+    return render_404 unless Gitlab::Email::IncomingEmail.supports_issue_creation?
 
     current_user.reset_incoming_email_token!
     render json: { new_address: @project.new_issuable_address(current_user, params[:issuable_type]) }
@@ -206,16 +226,31 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def housekeeping
-    ::Repositories::HousekeepingService.new(@project, :gc).execute
+    task = if params[:prune].present?
+             :prune
+           else
+             :eager
+           end
+
+    ::Repositories::HousekeepingService.new(@project, task).execute do
+      ::Gitlab::Audit::Auditor.audit(
+        name: 'manually_trigger_housekeeping',
+        author: current_user,
+        scope: @project,
+        target: @project,
+        message: "Housekeeping task: #{task}",
+        created_at: DateTime.current
+      )
+    end
 
     redirect_to(
       project_path(@project),
       notice: _("Housekeeping successfully started")
     )
-  rescue ::Repositories::HousekeepingService::LeaseTaken => ex
+  rescue ::Repositories::HousekeepingService::LeaseTaken => e
     redirect_to(
       edit_project_path(@project, anchor: 'js-project-advanced-settings'),
-      alert: ex.to_s
+      alert: e.to_s
     )
   end
 
@@ -223,8 +258,13 @@ class ProjectsController < Projects::ApplicationController
     @project.add_export_job(current_user: current_user)
 
     redirect_to(
-      edit_project_path(@project, anchor: 'js-export-project'),
+      edit_project_path(@project, anchor: 'js-project-advanced-settings'),
       notice: _("Project export started. A download link will be sent by email and made available on this page.")
+    )
+  rescue Project::ExportLimitExceeded => e
+    redirect_to(
+      edit_project_path(@project, anchor: 'js-project-advanced-settings'),
+      alert: e.to_s
     )
   end
 
@@ -234,13 +274,13 @@ class ProjectsController < Projects::ApplicationController
         send_upload(@project.export_file, attachment: @project.export_file.filename)
       else
         redirect_to(
-          edit_project_path(@project, anchor: 'js-export-project'),
+          edit_project_path(@project, anchor: 'js-project-advanced-settings'),
           alert: _("The file containing the export is not available yet; it may still be transferring. Please try again later.")
         )
       end
     else
       redirect_to(
-        edit_project_path(@project, anchor: 'js-export-project'),
+        edit_project_path(@project, anchor: 'js-project-advanced-settings'),
         alert: _("Project export link has expired. Please generate a new export from your project settings.")
       )
     end
@@ -253,7 +293,7 @@ class ProjectsController < Projects::ApplicationController
       flash[:alert] = _("Project export could not be deleted.")
     end
 
-    redirect_to(edit_project_path(@project, anchor: 'js-export-project'))
+    redirect_to(edit_project_path(@project, anchor: 'js-project-advanced-settings'))
   end
 
   def generate_new_export
@@ -261,7 +301,7 @@ class ProjectsController < Projects::ApplicationController
       export
     else
       redirect_to(
-        edit_project_path(@project, anchor: 'js-export-project'),
+        edit_project_path(@project, anchor: 'js-project-advanced-settings'),
         alert: _("Project export could not be deleted.")
       )
     end
@@ -293,13 +333,21 @@ class ProjectsController < Projects::ApplicationController
     options = {}
 
     if find_branches
-      branches = BranchesFinder.new(@repository, refs_params).execute.take(100).map(&:name)
+      branches = BranchesFinder.new(@repository, refs_params.merge(per_page: REFS_LIMIT))
+                   .execute(gitaly_pagination: true)
+                   .take(REFS_LIMIT)
+                   .map(&:name)
+
       options['Branches'] = branches
     end
 
     if find_tags && @repository.tag_count.nonzero?
-      tags = TagsFinder.new(@repository, refs_params).execute
-      options['Tags'] = tags.take(100).map(&:name)
+      tags = TagsFinder.new(@repository, refs_params.merge(per_page: REFS_LIMIT))
+               .execute(gitaly_pagination: true)
+               .take(REFS_LIMIT)
+               .map(&:name)
+
+      options['Tags'] = tags
     end
 
     # If reference is commit id - we should add it to branch/tag selectbox
@@ -308,7 +356,7 @@ class ProjectsController < Projects::ApplicationController
       options['Commits'] = [ref]
     end
 
-    render json: options.to_json
+    render json: Gitlab::Json.dump(options)
   rescue Gitlab::Git::CommandError
     render json: { error: _('Unable to load refs') }, status: :service_unavailable
   end
@@ -333,8 +381,11 @@ class ProjectsController < Projects::ApplicationController
   #
   # pages list order: repository readme, wiki home, issues list, customize workflow
   def render_landing_page
-    if can?(current_user, :download_code, @project)
+    Gitlab::Tracking.event('project_overview', 'render', user: current_user, project: @project.project)
+
+    if can?(current_user, :read_code, @project)
       return render 'projects/no_repo' unless @project.repository_exists?
+      return render 'projects/missing_default_branch', status: :service_unavailable if @ref == ''
 
       render 'projects/empty' if @project.empty_repo?
     else
@@ -356,7 +407,7 @@ class ProjectsController < Projects::ApplicationController
 
   def determine_layout
     if [:new, :create].include?(action_name.to_sym)
-      'application'
+      'dashboard'
     elsif [:edit, :update].include?(action_name.to_sym)
       'project_settings'
     else
@@ -379,6 +430,7 @@ class ProjectsController < Projects::ApplicationController
     params.require(:project)
       .permit(project_params_attributes + attributes)
       .merge(import_url_params)
+      .merge(object_format_params)
   end
 
   def project_feature_attributes
@@ -390,21 +442,31 @@ class ProjectsController < Projects::ApplicationController
       repository_access_level
       snippets_access_level
       wiki_access_level
+      package_registry_access_level
       pages_access_level
       metrics_dashboard_access_level
       analytics_access_level
-      operations_access_level
       security_and_compliance_access_level
       container_registry_access_level
+      releases_access_level
+      environments_access_level
+      feature_flags_access_level
+      monitor_access_level
+      infrastructure_access_level
+      model_experiments_access_level
+      model_registry_access_level
     ]
   end
 
   def project_setting_attributes
     %i[
       show_default_award_emojis
+      show_diff_preview_in_email
       squash_option
       mr_default_target_self
       warn_about_potentially_unwanted_characters
+      enforce_auth_checks_on_uploads
+      emails_enabled
     ]
   end
 
@@ -413,13 +475,10 @@ class ProjectsController < Projects::ApplicationController
       :allow_merge_on_skipped_pipeline,
       :avatar,
       :build_allow_git_fetch,
-      :build_coverage_regex,
       :build_timeout_human_readable,
       :resolve_outdated_diff_discussions,
       :container_registry_enabled,
-      :default_branch,
       :description,
-      :emails_disabled,
       :external_authorization_classification_label,
       :import_url,
       :issues_tracker,
@@ -429,6 +488,7 @@ class ProjectsController < Projects::ApplicationController
       :name,
       :only_allow_merge_if_all_discussions_are_resolved,
       :only_allow_merge_if_pipeline_succeeds,
+      :allow_merge_without_pipeline,
       :path,
       :printing_merge_request_link_enabled,
       :public_builds,
@@ -443,14 +503,15 @@ class ProjectsController < Projects::ApplicationController
       :merge_method,
       :initialize_with_sast,
       :initialize_with_readme,
-      :autoclose_referenced_issues,
+      :ci_separated_caches,
       :suggestion_commit_message,
       :packages_enabled,
       :service_desk_enabled,
       :merge_commit_template_or_default,
       :squash_commit_template_or_default,
-      project_setting_attributes: project_setting_attributes
-    ] + [project_feature_attributes: project_feature_attributes]
+      { project_setting_attributes: project_setting_attributes,
+        project_feature_attributes: project_feature_attributes }
+    ]
   end
 
   def project_params_create_attributes
@@ -459,6 +520,12 @@ class ProjectsController < Projects::ApplicationController
 
   def custom_import_params
     {}
+  end
+
+  def object_format_params
+    return {} unless Gitlab::Utils.to_boolean(params.dig(:project, :use_sha256_repository))
+
+    { repository_object_format: Repository::FORMAT_SHA256 }
   end
 
   def active_new_project_tab
@@ -474,28 +541,11 @@ class ProjectsController < Projects::ApplicationController
     false
   end
 
-  def project_view_files?
-    if current_user
-      current_user.project_view == 'files'
-    else
-      project_view_files_allowed?
-    end
-  end
-
-  # Override extract_ref from ExtractsPath, which returns the branch and file path
-  # for the blob/tree, which in this case is just the root of the default branch.
-  # This way we avoid to access the repository.ref_names.
-  def extract_ref(_id)
-    [get_id, '']
-  end
-
-  # Override get_id from ExtractsPath in this case is just the root of the default branch.
-  def get_id
+  def repository_root
     project.repository.root_ref
-  end
-
-  def project_view_files_allowed?
-    !project.empty_repo? && can?(current_user, :download_code, project)
+  rescue Gitlab::Git::CommandError
+    # Empty string is intentional and prevent the @ref reload
+    ''
   end
 
   def build_canonical_path(project)
@@ -535,9 +585,9 @@ class ProjectsController < Projects::ApplicationController
   def check_export_rate_limit!
     prefixed_action = "project_#{params[:action]}".to_sym
 
-    project_scope = params[:action] == 'download_export' ? @project : nil
+    group_scope = params[:action] == 'download_export' ? @project.namespace : nil
 
-    check_rate_limit!(prefixed_action, scope: [current_user, project_scope].compact)
+    check_rate_limit!(prefixed_action, scope: [current_user, group_scope].compact)
   end
 
   def render_edit

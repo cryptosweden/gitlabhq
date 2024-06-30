@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe API::ResourceAccessTokens do
+RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
   let_it_be(:user) { create(:user) }
   let_it_be(:user_non_priviledged) { create(:user) }
 
@@ -247,7 +247,9 @@ RSpec.describe API::ResourceAccessTokens do
           delete_token
 
           expect(response).to have_gitlab_http_status(:no_content)
-          expect(User.exists?(project_bot.id)).to be_falsy
+          expect(
+            Users::GhostUserMigration.where(user: project_bot, initiator_user: user)
+          ).to be_exists
         end
 
         context "when using #{source_type} access token to DELETE other #{source_type} access token" do
@@ -263,7 +265,9 @@ RSpec.describe API::ResourceAccessTokens do
             delete_token
 
             expect(response).to have_gitlab_http_status(:no_content)
-            expect(User.exists?(other_project_bot.id)).to be_falsy
+            expect(
+              Users::GhostUserMigration.where(user: other_project_bot, initiator_user: user)
+            ).to be_exists
           end
         end
 
@@ -330,13 +334,16 @@ RSpec.describe API::ResourceAccessTokens do
           context "when 'expires_at' is not set" do
             let(:expires_at) { nil }
 
-            it "creates a #{source_type} access token with the params", :aggregate_failures do
-              create_token
+            it "creates a #{source_type} access token with the default expires_at value", :aggregate_failures do
+              freeze_time do
+                create_token
+                expires_at = PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS.days.from_now
 
-              expect(response).to have_gitlab_http_status(:created)
-              expect(json_response["name"]).to eq("test")
-              expect(json_response["scopes"]).to eq(["api"])
-              expect(json_response["expires_at"]).to eq(nil)
+                expect(response).to have_gitlab_http_status(:created)
+                expect(json_response["name"]).to eq("test")
+                expect(json_response["scopes"]).to eq(["api"])
+                expect(json_response["expires_at"]).to eq(expires_at.to_date.iso8601)
+              end
             end
           end
 
@@ -376,6 +383,41 @@ RSpec.describe API::ResourceAccessTokens do
 
               expect(response).to have_gitlab_http_status(:bad_request)
               expect(response.body).to include("scopes is missing")
+            end
+          end
+
+          context "when using invalid 'scopes'" do
+            let_it_be(:params) do
+              {
+                name: "test",
+                scopes: ["test"],
+                expires_at: 5.days.from_now
+              }
+            end
+
+            it "does not create a #{source_type} access token with invalid 'scopes'", :aggregate_failures do
+              create_token
+
+              expect(response).to have_gitlab_http_status(:bad_request)
+              expect(response.body).to include("scopes does not have a valid value")
+            end
+          end
+
+          context "when using invalid 'access_level'" do
+            let_it_be(:params) do
+              {
+                name: "test",
+                scopes: ["api"],
+                expires_at: 5.days.from_now,
+                access_level: Gitlab::Access::NO_ACCESS
+              }
+            end
+
+            it "does not create a #{source_type} access token with invalid 'access_level'", :aggregate_failures do
+              create_token
+
+              expect(response).to have_gitlab_http_status(:bad_request)
+              expect(response.body).to include("access_level does not have a valid value")
             end
           end
         end
@@ -427,10 +469,171 @@ RSpec.describe API::ResourceAccessTokens do
         end
       end
     end
+
+    context "POST #{source_type}s/:id/access_tokens/:token_id/rotate" do
+      let_it_be(:project_bot) { create(:user, :project_bot) }
+      let_it_be(:token) { create(:personal_access_token, user: project_bot) }
+      let_it_be(:resource_id) { resource.id }
+      let_it_be(:token_id) { token.id }
+      let(:params) { {} }
+
+      let(:path) { "/#{source_type}s/#{resource_id}/access_tokens/#{token_id}/rotate" }
+
+      subject(:rotate_token) { post(api(path, user), params: params) }
+
+      context 'when user is owner' do
+        before do
+          resource.add_maintainer(project_bot)
+          resource.add_owner(user)
+        end
+
+        it "allows owner to rotate token", :freeze_time do
+          rotate_token
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['token']).not_to eq(token.token)
+          expect(json_response['expires_at']).to eq((Date.today + 1.week).to_s)
+        end
+      end
+
+      context 'when user is maintainer' do
+        before do
+          resource.add_maintainer(user)
+        end
+
+        context "when token has owner access level" do
+          let(:error_message) { 'Not eligible to rotate token with access level higher than the user' }
+
+          before do
+            resource.add_owner(project_bot)
+          end
+
+          it "raises error" do
+            rotate_token
+
+            if source_type == 'project'
+              expect(response).to have_gitlab_http_status(:bad_request)
+              expect(json_response['message']).to eq("400 Bad request - #{error_message}")
+            else
+              expect(response).to have_gitlab_http_status(:unauthorized)
+            end
+          end
+        end
+
+        context 'when token has maintainer access level' do
+          before do
+            resource.add_maintainer(project_bot)
+          end
+
+          it "rotates token", :freeze_time do
+            rotate_token
+
+            if source_type == 'project'
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(json_response['token']).not_to eq(token.token)
+              expect(json_response['expires_at']).to eq((Date.today + 1.week).to_s)
+            else
+              expect(response).to have_gitlab_http_status(:unauthorized)
+            end
+          end
+        end
+      end
+
+      context 'when expiry is defined' do
+        let(:expiry_date) { Date.today + 1.month }
+        let(:params) { { expires_at: expiry_date } }
+
+        before do
+          resource.add_maintainer(project_bot)
+          resource.add_owner(user)
+        end
+
+        it "allows owner to rotate token", :freeze_time do
+          rotate_token
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['token']).not_to eq(token.token)
+          expect(json_response['expires_at']).to eq(expiry_date.to_s)
+        end
+      end
+
+      context 'without permission' do
+        before do
+          resource.add_maintainer(project_bot)
+          resource.add_owner(user)
+        end
+
+        it 'returns an error message' do
+          another_user = create(:user)
+          resource.add_developer(another_user)
+
+          post api(path, another_user)
+
+          expect(response).to have_gitlab_http_status(:unauthorized)
+        end
+      end
+
+      context 'when service raises an error' do
+        let(:error_message) { 'boom!' }
+        let(:personal_token_service) { PersonalAccessTokens::RotateService }
+        let(:project_token_service) { ProjectAccessTokens::RotateService }
+        let(:group_token_service) { GroupAccessTokens::RotateService }
+
+        before do
+          resource.add_maintainer(project_bot)
+          resource.add_owner(user)
+
+          if source_type == 'project'
+            allow_next_instance_of(project_token_service) do |service|
+              allow(service).to receive(:execute).and_return(ServiceResponse.error(message: error_message))
+            end
+          elsif source_type == 'group'
+            allow_next_instance_of(group_token_service) do |service|
+              allow(service).to receive(:execute).and_return(ServiceResponse.error(message: error_message))
+            end
+          else
+            allow_next_instance_of(personal_token_service) do |service|
+              allow(service).to receive(:execute).and_return(ServiceResponse.error(message: error_message))
+            end
+          end
+        end
+
+        it 'returns the same error message' do
+          rotate_token
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+          expect(json_response['message']).to eq("400 Bad request - #{error_message}")
+        end
+      end
+
+      context 'when token does not exist' do
+        let(:invalid_path) { "/#{source_type}s/#{resource_id}/access_tokens/#{non_existing_record_id}/rotate" }
+
+        context 'for non-admin user' do
+          it 'returns unauthorized' do
+            user = create(:user)
+            resource.add_developer(user)
+
+            post api(invalid_path, user)
+
+            expect(response).to have_gitlab_http_status(:unauthorized)
+          end
+        end
+
+        context 'for admin user', :enable_admin_mode do
+          it 'returns not found' do
+            admin = create(:admin)
+            post api(invalid_path, admin)
+
+            expect(response).to have_gitlab_http_status(:not_found)
+          end
+        end
+      end
+    end
   end
 
   context 'when the resource is a project' do
-    let_it_be(:resource) { create(:project) }
+    let_it_be(:resource) { create(:project, group: create(:group)) }
     let_it_be(:other_resource) { create(:project) }
     let_it_be(:unknown_resource) { create(:project) }
 

@@ -2,14 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe Network::Graph do
+RSpec.describe Network::Graph, feature_category: :source_code_management do
   let(:project) { create(:project, :repository) }
-  let!(:note_on_commit) { create(:note_on_commit, project: project) }
 
-  it '#initialize' do
-    graph = described_class.new(project, 'refs/heads/master', project.repository.commit, nil)
+  describe '#initialize' do
+    let(:graph) do
+      described_class.new(project, 'refs/heads/master', project.repository.commit, nil)
+    end
 
-    expect(graph.notes).to eq( { note_on_commit.commit_id => 1 } )
+    it 'has initialized' do
+      expect(graph).to be_a(described_class)
+    end
   end
 
   describe '#commits' do
@@ -19,7 +22,13 @@ RSpec.describe Network::Graph do
       commits = graph.commits
 
       expect(commits).not_to be_empty
-      expect(commits).to all( be_kind_of(Network::Commit) )
+      expect(commits).to all(be_kind_of(Network::Commit))
+    end
+
+    it 'only fetches the commits once', :request_store do
+      expect(Gitlab::Git::Commit).to receive(:find_all).once.and_call_original
+
+      graph
     end
 
     it 'sorts commits by commit date (descending)' do
@@ -42,7 +51,7 @@ RSpec.describe Network::Graph do
           parent_indexes = commit.parent_ids.map { |parent_id| commit_ids.find_index(parent_id) }.compact
 
           # All parents of the current commit should appear after it
-          expect(parent_indexes).to all( be > index )
+          expect(parent_indexes).to all(be > index)
         end
       end
     end

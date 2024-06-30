@@ -3,6 +3,9 @@ import produce from 'immer';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createDefaultClient from '~/lib/graphql';
+import { parseBoolean } from '~/lib/utils/common_utils';
+import createStore from '~/vue_shared/components/metric_images/store';
+import service from './service';
 import AlertDetails from './components/alert_details.vue';
 import { PAGE_CONFIG } from './constants';
 import sidebarStatusQuery from './graphql/queries/alert_sidebar_status.query.graphql';
@@ -12,8 +15,17 @@ Vue.use(VueApollo);
 
 export default (selector) => {
   const domEl = document.querySelector(selector);
-  const { alertId, projectPath, projectIssuesPath, projectId, page } = domEl.dataset;
-  const router = createRouter();
+  const {
+    alertId,
+    projectPath,
+    projectIssuesPath,
+    projectAlertManagementDetailsPath,
+    projectId,
+    page,
+    canUpdate,
+  } = domEl.dataset;
+  const iid = alertId;
+  const router = createRouter(projectAlertManagementDetailsPath);
 
   const resolvers = {
     Mutation: {
@@ -54,18 +66,18 @@ export default (selector) => {
     page,
     projectIssuesPath,
     projectId,
+    iid,
     statuses: PAGE_CONFIG[page].STATUSES,
+    canUpdate: parseBoolean(canUpdate),
   };
 
-  if (page === PAGE_CONFIG.OPERATIONS.TITLE) {
-    const { TRACK_ALERTS_DETAILS_VIEWS_OPTIONS, TRACK_ALERT_STATUS_UPDATE_OPTIONS } = PAGE_CONFIG[
-      page
-    ];
-    provide.trackAlertsDetailsViewsOptions = TRACK_ALERTS_DETAILS_VIEWS_OPTIONS;
-    provide.trackAlertStatusUpdateOptions = TRACK_ALERT_STATUS_UPDATE_OPTIONS;
-  } else if (page === PAGE_CONFIG.THREAT_MONITORING.TITLE) {
-    provide.isThreatMonitoringPage = true;
-  }
+  const opsProperties = {};
+
+  const { TRACK_ALERTS_DETAILS_VIEWS_OPTIONS, TRACK_ALERT_STATUS_UPDATE_OPTIONS } =
+    PAGE_CONFIG[page];
+  provide.trackAlertsDetailsViewsOptions = TRACK_ALERTS_DETAILS_VIEWS_OPTIONS;
+  provide.trackAlertStatusUpdateOptions = TRACK_ALERT_STATUS_UPDATE_OPTIONS;
+  opsProperties.store = createStore({}, service);
 
   // eslint-disable-next-line no-new
   new Vue({
@@ -74,6 +86,7 @@ export default (selector) => {
     components: {
       AlertDetails,
     },
+    ...opsProperties,
     provide,
     apolloProvider,
     router,

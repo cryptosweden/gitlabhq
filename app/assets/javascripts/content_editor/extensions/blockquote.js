@@ -4,6 +4,15 @@ import { getParents } from '~/lib/utils/dom_utils';
 import { getMarkdownSource } from '../services/markdown_sourcemap';
 
 export default Blockquote.extend({
+  addOptions() {
+    return {
+      ...this.parent?.(),
+      HTMLAttributes: {
+        dir: 'auto',
+      },
+    };
+  },
+
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -26,7 +35,7 @@ export default Blockquote.extend({
     const multilineInputRegex = /^\s*>>>\s$/gm;
 
     return [
-      ...this.parent?.(),
+      ...this.parent(),
       wrappingInputRule({
         find: multilineInputRegex,
         type: this.type,

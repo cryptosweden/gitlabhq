@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Sidekiq idempotent jobs
@@ -30,7 +30,7 @@ an unstarted job with the same arguments is already in the queue.
 Make sure the worker tests pass using the following shared example:
 
 ```ruby
-include_examples 'an idempotent worker' do
+it_behaves_like 'an idempotent worker' do
   it 'marks the MR as merged' do
     # Using subject inside this block will process the job multiple times
     subject
@@ -78,10 +78,9 @@ GitLab supports two deduplication strategies:
 - `until_executing`, which is the default strategy
 - `until_executed`
 
-More [deduplication strategies have been
-suggested](https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/195). If
-you are implementing a worker that could benefit from a different
-strategy, please comment in the issue.
+More [deduplication strategies have been suggested](https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/195).
+If you are implementing a worker that could benefit from a different
+strategy, comment in the issue.
 
 #### Until Executing
 
@@ -135,7 +134,7 @@ happened. See [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/342123)
 
 GitLab doesn't skip jobs scheduled in the future, as we assume that
 the state has changed by the time the job is scheduled to
-execute. Deduplication of jobs scheduled in the feature is possible
+execute. Deduplication of jobs scheduled in the future is possible
 for both `until_executed` and `until_executing` strategies.
 
 If you do want to deduplicate jobs scheduled in the future,
@@ -157,7 +156,7 @@ end
 
 ## Setting the deduplication time-to-live (TTL)
 
-Deduplication depends on an idempotency key that is stored in Redis. This is normally
+Deduplication depends on an idempotent key that is stored in Redis. This is usually
 cleared by the configured deduplication strategy.
 
 However, the key can remain until its TTL in certain cases like:
@@ -186,11 +185,6 @@ Duplicate jobs can happen when the TTL is reached, so make sure you lower this o
 that can tolerate some duplication.
 
 ### Preserve the latest WAL location for idempotent jobs
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/69372) in GitLab 14.3.
-> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/338350) in GitLab 14.4.
-> - [Enabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/338350) in GitLab 14.6.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/346598) in GitLab 14.9. [Feature flag preserve_latest_wal_locations_for_idempotent_jobs](https://gitlab.com/gitlab-org/gitlab/-/issues/346598) removed.
 
 The deduplication always take into account the latest binary replication pointer, not the first one.
 This happens because we drop the same job scheduled for the second time and the Write-Ahead Log (WAL) is lost.

@@ -12,19 +12,20 @@ module Gitlab
 
         author_url = build_author_url(build.commit, commit)
 
-        {
+        attrs = {
           object_kind: 'build',
 
           ref: build.ref,
           tag: build.tag,
           before_sha: build.before_sha,
           sha: build.sha,
+          retries_count: build.retries_count,
 
           # TODO: should this be not prefixed with build_?
           # Leaving this way to have backward compatibility
           build_id: build.id,
           build_name: build.name,
-          build_stage: build.stage,
+          build_stage: build.stage_name,
           build_status: build.status,
           build_created_at: build.created_at,
           build_started_at: build.started_at,
@@ -45,6 +46,7 @@ module Gitlab
           commit: {
             # note: commit.id is actually the pipeline id
             id: commit.id,
+            name: commit.name,
             sha: commit.sha,
             message: commit.git_commit_message,
             author_name: commit.git_author_name,
@@ -66,8 +68,13 @@ module Gitlab
             visibility_level: project.visibility_level
           },
 
+          project: project.hook_attrs(backward: false),
+
           environment: build_environment(build)
         }
+
+        attrs[:source_pipeline] = source_pipeline_attrs(commit.source_pipeline) if commit.source_pipeline.present?
+        attrs
       end
 
       private
@@ -91,11 +98,25 @@ module Gitlab
       end
 
       def build_environment(build)
-        return unless build.has_environment?
+        return unless build.has_environment_keyword?
 
         {
           name: build.expanded_environment_name,
           action: build.environment_action
+        }
+      end
+
+      def source_pipeline_attrs(source_pipeline)
+        project = source_pipeline.source_project
+
+        {
+          project: {
+            id: project.id,
+            web_url: project.web_url,
+            path_with_namespace: project.full_path
+          },
+          job_id: source_pipeline.source_job_id,
+          pipeline_id: source_pipeline.source_pipeline_id
         }
       end
     end

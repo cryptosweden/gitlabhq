@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 
 require_relative '../../../../rubocop/cop/usage_data/large_table'
 
@@ -18,11 +18,9 @@ RSpec.describe RuboCop::Cop::UsageData::LargeTable do
                         })
   end
 
-  subject(:cop) { described_class.new(config) }
-
-  context 'when in usage_data files' do
+  context 'in an usage data file' do
     before do
-      allow(cop).to receive(:usage_data_files?).and_return(true)
+      allow(cop).to receive(:in_usage_data_file?).and_return(true)
     end
 
     context 'with large tables' do
@@ -76,6 +74,12 @@ RSpec.describe RuboCop::Cop::UsageData::LargeTable do
       it 'does not register an offense' do
         expect_no_offenses('Rails.count')
       end
+    end
+  end
+
+  context 'when outside of an usage data file' do
+    it 'does not register an offense' do
+      expect_no_offenses('Issue.active.count')
     end
   end
 end

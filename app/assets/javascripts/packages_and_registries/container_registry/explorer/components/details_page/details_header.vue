@@ -1,12 +1,19 @@
 <script>
-import { GlIcon, GlTooltipDirective, GlDropdown, GlDropdownItem } from '@gitlab/ui';
+import {
+  GlDisclosureDropdown,
+  GlDisclosureDropdownItem,
+  GlIcon,
+  GlTooltipDirective,
+} from '@gitlab/ui';
 import { sprintf, n__, s__ } from '~/locale';
 import MetadataItem from '~/vue_shared/components/registry/metadata_item.vue';
 import TitleArea from '~/vue_shared/components/registry/title_area.vue';
 import timeagoMixin from '~/vue_shared/mixins/timeago';
+import { formatDate } from '~/lib/utils/datetime_utility';
 import { numberToHumanSize } from '~/lib/utils/number_utils';
 import {
-  UPDATED_AT,
+  CREATED_AT,
+  LAST_PUBLISHED_AT,
   CLEANUP_UNSCHEDULED_TEXT,
   CLEANUP_SCHEDULED_TEXT,
   CLEANUP_ONGOING_TEXT,
@@ -16,23 +23,26 @@ import {
   CLEANUP_ONGOING_TOOLTIP,
   CLEANUP_UNFINISHED_TOOLTIP,
   CLEANUP_DISABLED_TOOLTIP,
+  DELETE_IMAGE_TEXT,
+  MORE_ACTIONS_TEXT,
   UNFINISHED_STATUS,
   UNSCHEDULED_STATUS,
   SCHEDULED_STATUS,
   ONGOING_STATUS,
-  ROOT_IMAGE_TEXT,
   ROOT_IMAGE_TOOLTIP,
 } from '../../constants/index';
 
 import getContainerRepositoryMetadata from '../../graphql/queries/get_container_repository_metadata.query.graphql';
+import { getImageName } from '../../utils';
 
 export default {
   name: 'DetailsHeader',
-  components: { GlIcon, TitleArea, MetadataItem, GlDropdown, GlDropdownItem },
+  components: { GlDisclosureDropdown, GlDisclosureDropdownItem, GlIcon, TitleArea, MetadataItem },
   directives: {
     GlTooltip: GlTooltipDirective,
   },
   mixins: [timeagoMixin],
+  inject: ['config'],
   props: {
     image: {
       type: Object,
@@ -55,6 +65,7 @@ export default {
       variables() {
         return {
           id: this.image.id,
+          metadataDatabaseEnabled: this.config.isMetadataDatabaseEnabled,
         };
       },
     },
@@ -66,11 +77,22 @@ export default {
     visibilityIcon() {
       return this.imageDetails?.project?.visibility === 'public' ? 'eye' : 'eye-slash';
     },
-    timeAgo() {
-      return this.timeFormatted(this.imageDetails.updatedAt);
+    formattedCreatedAtDate() {
+      return this.formatDate(this.imageDetails.createdAt);
     },
-    updatedText() {
-      return sprintf(UPDATED_AT, { time: this.timeAgo });
+    containsLastPublishedAtDate() {
+      return Boolean(this.imageDetails.lastPublishedAt);
+    },
+    formattedLastPublishedAtDate() {
+      return this.containsLastPublishedAtDate
+        ? this.formatDate(this.imageDetails.lastPublishedAt)
+        : '';
+    },
+    createdText() {
+      return sprintf(CREATED_AT, { time: this.formattedCreatedAtDate });
+    },
+    lastPublishedAtText() {
+      return sprintf(LAST_PUBLISHED_AT, { time: this.formattedLastPublishedAtDate });
     },
     tagCountText() {
       if (this.$apollo.queries.containerRepository.loading) {
@@ -94,18 +116,27 @@ export default {
       }[this.imageDetails?.expirationPolicyCleanupStatus];
     },
     deleteButtonDisabled() {
-      return this.disabled || !this.imageDetails.canDelete;
+      return this.disabled || !this.imageDetails.userPermissions.destroyContainerRepository;
     },
     rootImageTooltip() {
       return !this.imageDetails.name ? ROOT_IMAGE_TOOLTIP : '';
     },
     imageName() {
-      return this.imageDetails.name || ROOT_IMAGE_TEXT;
+      return getImageName(this.imageDetails);
     },
     formattedSize() {
       const { size } = this.imageDetails;
       return size ? numberToHumanSize(Number(size)) : null;
     },
+  },
+  methods: {
+    formatDate(date) {
+      return formatDate(date, 'mmm d, yyyy HH:MM', true);
+    },
+  },
+  i18n: {
+    DELETE_IMAGE_TEXT,
+    MORE_ACTIONS_TEXT,
   },
 };
 </script>
@@ -130,7 +161,12 @@ export default {
     </template>
 
     <template v-if="formattedSize" #metadata-size>
-      <metadata-item icon="disk" :text="formattedSize" data-testid="image-size" />
+      <metadata-item
+        icon="disk"
+        :text="formattedSize"
+        :text-tooltip="s__('ContainerRegistry|Includes both tagged and untagged images')"
+        data-testid="image-size"
+      />
     </template>
 
     <template #metadata-cleanup>
@@ -146,25 +182,36 @@ export default {
     <template #metadata-updated>
       <metadata-item
         :icon="visibilityIcon"
-        :text="updatedText"
+        :text="createdText"
         size="xl"
-        data-testid="updated-and-visibility"
+        data-testid="created-and-visibility"
       />
     </template>
-    <template #right-actions>
-      <gl-dropdown
-        v-if="!deleteButtonDisabled"
-        icon="ellipsis_v"
-        text="More actions"
-        :text-sr-only="true"
+    <template v-if="containsLastPublishedAtDate" #metadata-last-published-at>
+      <metadata-item
+        icon="calendar"
+        :text="lastPublishedAtText"
+        size="xl"
+        data-testid="last-published-at"
+      />
+    </template>
+    <template v-if="!deleteButtonDisabled" #right-actions>
+      <gl-disclosure-dropdown
         category="tertiary"
+        icon="ellipsis_v"
+        placement="bottom-end"
+        :toggle-text="$options.i18n.MORE_ACTIONS_TEXT"
+        text-sr-only
         no-caret
-        right
       >
-        <gl-dropdown-item variant="danger" @click="$emit('delete')">
-          {{ __('Delete image repository') }}
-        </gl-dropdown-item>
-      </gl-dropdown>
+        <gl-disclosure-dropdown-item @action="$emit('delete')">
+          <template #list-item>
+            <span class="gl-text-red-500">
+              {{ $options.i18n.DELETE_IMAGE_TEXT }}
+            </span>
+          </template>
+        </gl-disclosure-dropdown-item>
+      </gl-disclosure-dropdown>
     </template>
   </title-area>
 </template>

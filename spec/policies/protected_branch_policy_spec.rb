@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ProtectedBranchPolicy do
+RSpec.describe ProtectedBranchPolicy, feature_category: :source_code_management do
   let(:user) { create(:user) }
   let(:name) { 'feature' }
   let(:protected_branch) { create(:protected_branch, name: name) }
@@ -10,15 +10,27 @@ RSpec.describe ProtectedBranchPolicy do
 
   subject { described_class.new(user, protected_branch) }
 
-  it 'branches can be updated via project maintainers' do
-    project.add_maintainer(user)
+  context 'as a maintainer' do
+    before do
+      project.add_maintainer(user)
+    end
 
-    is_expected.to be_allowed(:update_protected_branch)
+    it_behaves_like 'allows protected branch crud'
   end
 
-  it "branches can't be updated by guests" do
-    project.add_guest(user)
+  context 'as a developer' do
+    before do
+      project.add_developer(user)
+    end
 
-    is_expected.to be_disallowed(:update_protected_branch)
+    it_behaves_like 'disallows protected branch crud'
+  end
+
+  context 'as a guest' do
+    before do
+      project.add_guest(user)
+    end
+
+    it_behaves_like 'disallows protected branch crud'
   end
 end

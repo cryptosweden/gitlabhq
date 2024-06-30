@@ -20,14 +20,18 @@ module ExclusiveLeaseGuard
   def try_obtain_lease
     lease = exclusive_lease.try_obtain
 
+    Gitlab::Instrumentation::ExclusiveLock.increment_requested_count
+
     unless lease
-      log_error("Cannot obtain an exclusive lease for #{lease_key}. There must be another instance already in execution.")
+      log_lease_taken
       return
     end
 
     begin
+      lease_start_time = Time.current
       yield lease
     ensure
+      Gitlab::Instrumentation::ExclusiveLock.add_hold_duration(Time.current - lease_start_time)
       release_lease(lease) if lease_release?
     end
   end
@@ -57,7 +61,23 @@ module ExclusiveLeaseGuard
     exclusive_lease.renew
   end
 
-  def log_error(message, extra_args = {})
-    Gitlab::AppLogger.error(message)
+  def log_lease_taken
+    logger = Gitlab::AppJsonLogger
+    args = { message: lease_taken_message, lease_key: lease_key, class_name: self.class.name, lease_timeout: lease_timeout }
+
+    case lease_taken_log_level
+    when :debug then logger.debug(args)
+    when :info  then logger.info(args)
+    when :warn  then logger.warn(args)
+    else             logger.error(args)
+    end
+  end
+
+  def lease_taken_message
+    "Cannot obtain an exclusive lease. There must be another instance already in execution."
+  end
+
+  def lease_taken_log_level
+    :error
   end
 end

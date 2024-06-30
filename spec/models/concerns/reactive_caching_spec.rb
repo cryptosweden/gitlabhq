@@ -176,7 +176,7 @@ RSpec.describe ReactiveCaching, :use_clean_rails_memory_store_caching do
 
   describe '.reactive_cache_worker_finder' do
     context 'with default reactive_cache_worker_finder' do
-      let(:args) { %w(other args) }
+      let(:args) { %w[other args] }
 
       before do
         allow(instance.class).to receive(:find_by).with(id: instance.id)
@@ -192,7 +192,7 @@ RSpec.describe ReactiveCaching, :use_clean_rails_memory_store_caching do
     end
 
     context 'with custom reactive_cache_worker_finder' do
-      let(:args) { %w(arg1 arg2) }
+      let(:args) { %w[arg1 arg2] }
       let(:instance) { custom_finder_cache_test.new(666, &calculation) }
 
       let(:custom_finder_cache_test) do
@@ -237,7 +237,7 @@ RSpec.describe ReactiveCaching, :use_clean_rails_memory_store_caching do
       end
 
       it 'does not raise the exception' do
-        expect { go! }.not_to raise_exception(ReactiveCaching::ExceededReactiveCacheLimit)
+        expect { go! }.not_to raise_exception
       end
     end
 
@@ -281,7 +281,7 @@ RSpec.describe ReactiveCaching, :use_clean_rails_memory_store_caching do
       end
 
       it 'does not delete the value key' do
-        expect(Rails.cache).to receive(:delete).with(cache_key).never
+        expect(Rails.cache).not_to receive(:delete).with(cache_key)
 
         go!
       end
@@ -320,7 +320,7 @@ RSpec.describe ReactiveCaching, :use_clean_rails_memory_store_caching do
           stub_reactive_cache(instance, "preexisting")
         end
 
-        let(:calculation) { -> { raise "foo"} }
+        let(:calculation) { -> { raise "foo" } }
 
         it 'leaves the cache untouched' do
           expect { go! }.to raise_error("foo")
@@ -338,7 +338,7 @@ RSpec.describe ReactiveCaching, :use_clean_rails_memory_store_caching do
 
     context 'when lifetime is exceeded' do
       it 'skips the calculation' do
-        expect(instance).to receive(:calculate_reactive_cache).never
+        expect(instance).not_to receive(:calculate_reactive_cache)
 
         go!
       end
@@ -354,7 +354,7 @@ RSpec.describe ReactiveCaching, :use_clean_rails_memory_store_caching do
       it 'skips the calculation' do
         stub_exclusive_lease_taken(cache_key)
 
-        expect(instance).to receive(:calculate_reactive_cache).never
+        expect(instance).not_to receive(:calculate_reactive_cache)
 
         go!
       end

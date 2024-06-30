@@ -1,20 +1,15 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe API::FeatureFlags do
+RSpec.describe API::FeatureFlags, feature_category: :feature_flags do
   include FeatureFlagHelpers
 
   let_it_be(:project) { create(:project) }
-  let_it_be(:developer) { create(:user) }
-  let_it_be(:reporter) { create(:user) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
   let_it_be(:non_project_member) { create(:user) }
 
   let(:user) { developer }
-
-  before_all do
-    project.add_developer(developer)
-    project.add_reporter(reporter)
-  end
 
   shared_examples_for 'check user permission' do
     context 'when user is reporter' do
@@ -67,12 +62,12 @@ RSpec.describe API::FeatureFlags do
       end
 
       it 'does not have N+1 problem' do
-        control_count = ActiveRecord::QueryRecorder.new { subject }
+        control = ActiveRecord::QueryRecorder.new { subject }
 
         create_list(:operations_feature_flag, 3, project: project)
 
         expect { get api("/projects/#{project.id}/feature_flags", user) }
-          .not_to exceed_query_limit(control_count)
+          .not_to exceed_query_limit(control)
       end
 
       it_behaves_like 'check user permission'
@@ -111,7 +106,57 @@ RSpec.describe API::FeatureFlags do
             'scopes' => [{
               'id' => scope.id,
               'environment_scope' => 'production'
-            }]
+            }],
+            'user_list' => nil
+          }]
+        }])
+      end
+    end
+
+    context 'with user_list strategy feature flags' do
+      let!(:feature_flag) do
+        create(:operations_feature_flag, :new_version_flag, project: project, name: 'feature1')
+      end
+
+      let!(:user_list) do
+        create(:operations_feature_flag_user_list, project: project)
+      end
+
+      let!(:strategy) do
+        create(:operations_strategy, :gitlab_userlist, user_list: user_list, feature_flag: feature_flag, name: 'gitlabUserList', parameters: {})
+      end
+
+      let!(:scope) do
+        create(:operations_scope, strategy: strategy, environment_scope: 'production')
+      end
+
+      it 'returns the feature flags', :aggregate_failures do
+        subject
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to match_response_schema('public_api/v4/feature_flags')
+        expect(json_response).to eq([{
+          'name' => 'feature1',
+          'description' => nil,
+          'active' => true,
+          'version' => 'new_version_flag',
+          'updated_at' => feature_flag.updated_at.as_json,
+          'created_at' => feature_flag.created_at.as_json,
+          'scopes' => [],
+          'strategies' => [{
+            'id' => strategy.id,
+            'name' => 'gitlabUserList',
+            'parameters' => {},
+            'scopes' => [{
+              'id' => scope.id,
+              'environment_scope' => 'production'
+            }],
+            'user_list' => {
+              'id' => user_list.id,
+              'iid' => user_list.iid,
+              'name' => user_list.name,
+              'user_xids' => user_list.user_xids
+            }
           }]
         }])
       end
@@ -162,7 +207,57 @@ RSpec.describe API::FeatureFlags do
             'scopes' => [{
               'id' => scope.id,
               'environment_scope' => 'production'
-            }]
+            }],
+            'user_list' => nil
+          }]
+        })
+      end
+    end
+
+    context 'with user_list strategy feature flag' do
+      let!(:feature_flag) do
+        create(:operations_feature_flag, :new_version_flag, project: project, name: 'feature1')
+      end
+
+      let(:user_list) do
+        create(:operations_feature_flag_user_list, project: project)
+      end
+
+      let!(:strategy) do
+        create(:operations_strategy, :gitlab_userlist, user_list: user_list, feature_flag: feature_flag, name: 'gitlabUserList', parameters: {})
+      end
+
+      let!(:scope) do
+        create(:operations_scope, strategy: strategy, environment_scope: 'production')
+      end
+
+      it 'returns the feature flag', :aggregate_failures do
+        subject
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to match_response_schema('public_api/v4/feature_flag')
+        expect(json_response).to eq({
+          'name' => 'feature1',
+          'description' => nil,
+          'active' => true,
+          'version' => 'new_version_flag',
+          'updated_at' => feature_flag.updated_at.as_json,
+          'created_at' => feature_flag.created_at.as_json,
+          'scopes' => [],
+          'strategies' => [{
+            'id' => strategy.id,
+            'name' => 'gitlabUserList',
+            'parameters' => {},
+            'scopes' => [{
+              'id' => scope.id,
+              'environment_scope' => 'production'
+            }],
+            'user_list' => {
+              'id' => user_list.id,
+              'iid' => user_list.iid,
+              'name' => user_list.name,
+              'user_xids' => user_list.user_xids
+            }
           }]
         })
       end
@@ -224,6 +319,10 @@ RSpec.describe API::FeatureFlags do
     end
 
     context 'when creating a version 2 feature flag' do
+      let(:user_list) do
+        create(:operations_feature_flag_user_list, project: project)
+      end
+
       it 'creates a new feature flag' do
         params = {
           name: 'new-feature',
@@ -271,7 +370,7 @@ RSpec.describe API::FeatureFlags do
           version: 'new_version_flag',
           strategies: [{
             name: 'userWithId',
-            parameters: { 'userIds': 'user1' }
+            parameters: { userIds: 'user1' }
           }]
         }
 
@@ -348,6 +447,32 @@ RSpec.describe API::FeatureFlags do
           environment_scope: 'staging'
         }])
       end
+
+      it 'creates a new feature flag with user list strategy', :aggregate_failures do
+        params = {
+          name: 'new-feature',
+          version: 'new_version_flag',
+          strategies: [{
+            name: 'gitlabUserList',
+            parameters: {},
+            user_list_id: user_list.id
+          }]
+        }
+
+        post api("/projects/#{project.id}/feature_flags", user), params: params
+
+        expect(response).to have_gitlab_http_status(:created)
+        expect(response).to match_response_schema('public_api/v4/feature_flag')
+
+        feature_flag = project.operations_feature_flags.last
+        expect(feature_flag.name).to eq(params[:name])
+        expect(feature_flag.version).to eq('new_version_flag')
+        expect(feature_flag.strategies.map { |s| s.slice(:name, :parameters).deep_symbolize_keys }).to eq([{
+          name: 'gitlabUserList',
+          parameters: {}
+        }])
+        expect(feature_flag.strategies.first.user_list).to eq(user_list)
+      end
     end
 
     context 'when given invalid parameters' do
@@ -365,8 +490,12 @@ RSpec.describe API::FeatureFlags do
   describe 'PUT /projects/:id/feature_flags/:name' do
     context 'with a version 2 feature flag' do
       let!(:feature_flag) do
-        create(:operations_feature_flag, :new_version_flag, project: project, active: true,
-               name: 'feature1', description: 'old description')
+        create(:operations_feature_flag, :new_version_flag,
+          project: project, active: true, name: 'feature1', description: 'old description')
+      end
+
+      let(:user_list) do
+        create(:operations_feature_flag_user_list, project: project)
       end
 
       it 'returns a 404 if the feature flag does not exist' do
@@ -537,6 +666,30 @@ RSpec.describe API::FeatureFlags do
         }])
       end
 
+      it 'updates an existing feature flag strategy to be gitlab user list strategy', :aggregate_failures do
+        strategy = create(:operations_strategy, feature_flag: feature_flag, name: 'default', parameters: {})
+        params = {
+          strategies: [{
+            id: strategy.id,
+            name: 'gitlabUserList',
+            user_list_id: user_list.id,
+            parameters: {}
+          }]
+        }
+
+        put api("/projects/#{project.id}/feature_flags/feature1", user), params: params
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to match_response_schema('public_api/v4/feature_flag')
+        result = feature_flag.reload.strategies.map { |s| s.slice(:id, :name, :parameters).deep_symbolize_keys }
+        expect(result).to eq([{
+          id: strategy.id,
+          name: 'gitlabUserList',
+          parameters: {}
+        }])
+        expect(feature_flag.strategies.first.user_list).to eq(user_list)
+      end
+
       it 'adds a new gradual rollout strategy to a feature flag' do
         strategy = create(:operations_strategy, feature_flag: feature_flag, name: 'default', parameters: {})
         params = {
@@ -591,8 +744,8 @@ RSpec.describe API::FeatureFlags do
 
       it 'deletes a feature flag strategy' do
         strategy_a = create(:operations_strategy, feature_flag: feature_flag, name: 'default', parameters: {})
-        strategy_b = create(:operations_strategy, feature_flag: feature_flag,
-                          name: 'userWithId', parameters: { userIds: 'userA,userB' })
+        strategy_b = create(:operations_strategy,
+          feature_flag: feature_flag, name: 'userWithId', parameters: { userIds: 'userA,userB' })
         params = {
           strategies: [{
             id: strategy_a.id,
@@ -669,7 +822,7 @@ RSpec.describe API::FeatureFlags do
   describe 'DELETE /projects/:id/feature_flags/:name' do
     subject do
       delete api("/projects/#{project.id}/feature_flags/#{feature_flag.name}", user),
-             params: params
+        params: params
     end
 
     let!(:feature_flag) { create(:operations_feature_flag, project: project) }

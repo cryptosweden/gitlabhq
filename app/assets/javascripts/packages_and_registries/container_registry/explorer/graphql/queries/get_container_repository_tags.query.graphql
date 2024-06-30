@@ -1,18 +1,30 @@
-#import "~/graphql_shared/fragments/pageInfo.fragment.graphql"
+#import "~/graphql_shared/fragments/page_info.fragment.graphql"
 
 query getContainerRepositoryTags(
-  $id: ID!
+  $id: ContainerRepositoryID!
   $first: Int
   $last: Int
   $after: String
   $before: String
   $name: String
   $sort: ContainerRepositoryTagSort
+  $referrers: Boolean = false
 ) {
   containerRepository(id: $id) {
     id
     tagsCount
-    tags(after: $after, before: $before, first: $first, last: $last, name: $name, sort: $sort) {
+    userPermissions {
+      destroyContainerRepository
+    }
+    tags(
+      after: $after
+      before: $before
+      first: $first
+      last: $last
+      name: $name
+      sort: $sort
+      referrers: $referrers
+    ) {
       nodes {
         digest
         location
@@ -21,8 +33,15 @@ query getContainerRepositoryTags(
         revision
         shortRevision
         createdAt
+        publishedAt
         totalSize
-        canDelete
+        userPermissions {
+          destroyContainerRepositoryTag
+        }
+        referrers {
+          artifactType
+          digest
+        }
       }
       pageInfo {
         ...PageInfo

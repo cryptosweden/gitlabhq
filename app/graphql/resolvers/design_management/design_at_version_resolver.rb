@@ -10,17 +10,14 @@ module Resolvers
       authorize :read_design
 
       argument :id, ::Types::GlobalIDType[::DesignManagement::DesignAtVersion],
-               required: true,
-               description: 'Global ID of the design at this version.'
+        required: true,
+        description: 'Global ID of the design at the version.'
 
       def resolve(id:)
         authorized_find!(id: id)
       end
 
       def find_object(id:)
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = ::Types::GlobalIDType[::DesignManagement::DesignAtVersion].coerce_isolated_input(id)
         dav = GitlabSchema.find_by_gid(id)
         return unless consistent?(dav)
 

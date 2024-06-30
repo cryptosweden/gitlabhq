@@ -33,25 +33,24 @@ module WorkerAttributes
     security_scans: 2
   }.stringify_keys.freeze
 
+  DEFAULT_DEFER_DELAY = 5.seconds
+
   class_methods do
     def feature_category(value, *extras)
-      raise "Invalid category. Use `feature_category_not_owned!` to mark a worker as not owned" if value == :not_owned
-
       set_class_attribute(:feature_category, value)
     end
 
-    # Special case: mark this work as not associated with a feature category
-    # this should be used for cross-cutting concerns, such as mailer workers.
-    def feature_category_not_owned!
-      set_class_attribute(:feature_category, :not_owned)
+    def prefer_calling_context_feature_category(preference = false)
+      set_class_attribute(:prefer_calling_context_feature_category, preference)
     end
 
     # Special case: if a worker is not owned, get the feature category
     # (if present) from the calling context.
     def get_feature_category
       feature_category = get_class_attribute(:feature_category)
+      calling_context_feature_category_preferred = !!get_class_attribute(:prefer_calling_context_feature_category)
 
-      return feature_category unless feature_category == :not_owned
+      return feature_category unless feature_category == :not_owned || calling_context_feature_category_preferred
 
       Gitlab::ApplicationContext.current_context_attribute('meta.feature_category') || feature_category
     end
@@ -75,7 +74,7 @@ module WorkerAttributes
     end
 
     def get_urgency
-      class_attributes[:urgency] || :low
+      get_class_attribute(:urgency) || :low
     end
 
     # Allows configuring worker's data_consistency.
@@ -106,13 +105,13 @@ module WorkerAttributes
     end
 
     def get_data_consistency
-      class_attributes[:data_consistency] || DEFAULT_DATA_CONSISTENCY
+      get_class_attribute(:data_consistency) || DEFAULT_DATA_CONSISTENCY
     end
 
     def get_data_consistency_feature_flag_enabled?
-      return true unless class_attributes[:data_consistency_feature_flag]
+      return true unless get_class_attribute(:data_consistency_feature_flag)
 
-      Feature.enabled?(class_attributes[:data_consistency_feature_flag], default_enabled: :yaml)
+      Feature.enabled?(get_class_attribute(:data_consistency_feature_flag), type: :worker)
     end
 
     # Set this attribute on a job when it will call to services outside of the
@@ -123,11 +122,11 @@ module WorkerAttributes
       set_class_attribute(:external_dependencies, true)
     end
 
-    # Returns a truthy value if the worker has external dependencies.
+    # Returns true if the worker has external dependencies.
     # See doc/development/sidekiq_style_guide.md#jobs-with-external-dependencies
     # for details
     def worker_has_external_dependencies?
-      class_attributes[:external_dependencies]
+      !!get_class_attribute(:external_dependencies)
     end
 
     def worker_resource_boundary(boundary)
@@ -137,7 +136,7 @@ module WorkerAttributes
     end
 
     def get_worker_resource_boundary
-      class_attributes[:resource_boundary] || :unknown
+      get_class_attribute(:resource_boundary) || :unknown
     end
 
     def idempotent!
@@ -145,15 +144,30 @@ module WorkerAttributes
     end
 
     def idempotent?
-      class_attributes[:idempotent]
+      !!get_class_attribute(:idempotent)
     end
 
     def weight(value)
       set_class_attribute(:weight, value)
     end
 
+    def pause_control(value)
+      ::Gitlab::SidekiqMiddleware::PauseControl::WorkersMap.set_strategy_for(strategy: value, worker: self)
+    end
+
+    def get_pause_control
+      ::Gitlab::SidekiqMiddleware::PauseControl::WorkersMap.strategy_for(worker: self)
+    end
+
+    def concurrency_limit(max_jobs)
+      ::Gitlab::SidekiqMiddleware::ConcurrencyLimit::WorkersMap.set_limit_for(
+        worker: self,
+        max_jobs: max_jobs
+      )
+    end
+
     def get_weight
-      class_attributes[:weight] ||
+      get_class_attribute(:weight) ||
         NAMESPACE_WEIGHTS[queue_namespace] ||
         1
     end
@@ -163,7 +177,7 @@ module WorkerAttributes
     end
 
     def get_tags
-      Array(class_attributes[:tags])
+      Array(get_class_attribute(:tags))
     end
 
     def deduplicate(strategy, options = {})
@@ -172,18 +186,18 @@ module WorkerAttributes
     end
 
     def get_deduplicate_strategy
-      class_attributes[:deduplication_strategy] ||
+      get_class_attribute(:deduplication_strategy) ||
         Gitlab::SidekiqMiddleware::DuplicateJobs::DuplicateJob::DEFAULT_STRATEGY
     end
 
     def get_deduplication_options
-      class_attributes[:deduplication_options] || {}
+      get_class_attribute(:deduplication_options) || {}
     end
 
     def deduplication_enabled?
       return true unless get_deduplication_options[:feature_flag]
 
-      Feature.enabled?(get_deduplication_options[:feature_flag], default_enabled: :yaml)
+      Feature.enabled?(get_deduplication_options[:feature_flag], type: :worker)
     end
 
     def big_payload!
@@ -191,7 +205,22 @@ module WorkerAttributes
     end
 
     def big_payload?
-      class_attributes[:big_payload]
+      !!get_class_attribute(:big_payload)
+    end
+
+    def defer_on_database_health_signal(gitlab_schema, tables = [], delay_by = DEFAULT_DEFER_DELAY, &block)
+      set_class_attribute(
+        :database_health_check_attrs,
+        { gitlab_schema: gitlab_schema, tables: tables, delay_by: delay_by, block: block }
+      )
+    end
+
+    def defer_on_database_health_signal?
+      database_health_check_attrs.present?
+    end
+
+    def database_health_check_attrs
+      get_class_attribute(:database_health_check_attrs)
     end
   end
 end

@@ -15,18 +15,19 @@ module ClustersHelper
         gcp: { path: image_path('illustrations/logos/google_gke.svg'), text: s_('ClusterIntegration|Google GKE') }
       },
       clusters_empty_state_image: image_path('illustrations/empty-state/empty-state-clusters.svg'),
-      empty_state_image: image_path('illustrations/empty-state/empty-state-agents.svg'),
+      empty_state_image: image_path('illustrations/empty-state/empty-environment-md.svg'),
       empty_state_help_text: clusterable.empty_state_help_text,
-      new_cluster_path: clusterable.new_path,
       add_cluster_path: clusterable.connect_path,
+      new_cluster_docs_path: clusterable.new_cluster_docs_path,
       can_add_cluster: clusterable.can_add_cluster?.to_s,
       can_admin_cluster: clusterable.can_admin_cluster?.to_s,
       display_cluster_agents: display_cluster_agents?(clusterable).to_s,
-      certificate_based_clusters_enabled: Feature.enabled?(:certificate_based_clusters, clusterable, default_enabled: :yaml, type: :ops).to_s,
+      certificate_based_clusters_enabled: clusterable.certificate_based_clusters_enabled?.to_s,
       default_branch_name: default_branch_name(clusterable),
       project_path: clusterable_project_path(clusterable),
       kas_address: Gitlab::Kas.external_url,
-      gitlab_version: Gitlab.version_info
+      kas_install_version: Gitlab::Kas.install_version_info,
+      kas_check_version: Gitlab::Kas.display_version_info
     }
   end
 
@@ -36,15 +37,8 @@ module ClustersHelper
       editable: can_edit.to_s,
       environment_scope: cluster.environment_scope,
       base_domain: cluster.base_domain,
-      application_ingress_external_ip: cluster.application_ingress_external_ip,
       auto_devops_help_path: help_page_path('topics/autodevops/index'),
-      external_endpoint_help_path: help_page_path('user/project/clusters/index.md', anchor: 'base-domain')
-    }
-  end
-
-  def js_cluster_new
-    {
-      cluster_connect_help_path: help_page_path('user/project/clusters/add_remove_clusters', anchor: 'add-existing-cluster')
+      external_endpoint_help_path: help_page_path('user/project/clusters/gitlab_managed_clusters', anchor: 'base-domain')
     }
   end
 
@@ -61,12 +55,8 @@ module ClustersHelper
     case tab
     when 'environments'
       render_if_exists 'clusters/clusters/environments'
-    when 'health'
-      render_if_exists 'clusters/clusters/health'
     when 'apps'
       render 'applications'
-    when 'integrations'
-      render 'integrations'
     when 'settings'
       render 'advanced_settings_container'
     else
@@ -102,7 +92,7 @@ module ClustersHelper
   end
 
   def cluster_created?(cluster)
-    !cluster.status_name.in?(%i/scheduled creating/)
+    !cluster.status_name.in?(%i[scheduled creating])
   end
 
   def can_admin_cluster?(user, cluster)

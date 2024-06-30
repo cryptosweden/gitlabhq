@@ -8,9 +8,9 @@ module Gitlab
   # Use the SearchContext::Builder to create an instance of this class
   class SearchContext
     attr_accessor :project, :project_metadata, :ref,
-                  :group, :group_metadata,
-                  :snippets,
-                  :scope, :search_url
+      :group, :group_metadata,
+      :snippets,
+      :scope, :search_url
 
     def initialize
       @ref = nil
@@ -130,7 +130,7 @@ module Gitlab
         elsif view_context.current_controller?(:commits)
           'commits'
         elsif view_context.current_controller?(:groups)
-          if %w(issues merge_requests).include?(view_context.controller.action_name)
+          if %w[issues merge_requests].include?(view_context.controller.action_name)
             view_context.controller.action_name
           end
         end

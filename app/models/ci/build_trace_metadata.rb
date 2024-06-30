@@ -2,22 +2,33 @@
 
 module Ci
   class BuildTraceMetadata < Ci::ApplicationRecord
+    include Ci::Partitionable
+
     MAX_ATTEMPTS = 5
     self.table_name = 'ci_build_trace_metadata'
     self.primary_key = :build_id
 
-    belongs_to :build, class_name: 'Ci::Build'
-    belongs_to :trace_artifact, class_name: 'Ci::JobArtifact'
+    belongs_to :build,
+      ->(trace_metadata) { in_partition(trace_metadata) },
+      class_name: 'Ci::Build',
+      partition_foreign_key: :partition_id,
+      inverse_of: :trace_metadata
+    belongs_to :trace_artifact, # rubocop:disable Rails/InverseOf -- No clear relation to be used
+      ->(metadata) { in_partition(metadata) },
+      class_name: 'Ci::JobArtifact',
+      partition_foreign_key: :partition_id
+
+    partitionable scope: :build
 
     validates :build, presence: true
     validates :archival_attempts, presence: true
 
-    def self.find_or_upsert_for!(build_id)
-      record = find_by(build_id: build_id)
+    def self.find_or_upsert_for!(build_id, partition_id)
+      record = find_by(build_id: build_id, partition_id: partition_id)
       return record if record
 
-      upsert({ build_id: build_id }, unique_by: :build_id)
-      find_by!(build_id: build_id)
+      upsert({ build_id: build_id, partition_id: partition_id }, unique_by: :build_id)
+      find_by!(build_id: build_id, partition_id: partition_id)
     end
 
     # The job is retried around 5 times during the 7 days retention period for
@@ -26,7 +37,7 @@ module Ci
       return false unless archival_attempts_available?
       return true unless last_archival_attempt_at
 
-      last_archival_attempt_at + backoff < Time.current
+      (last_archival_attempt_at + backoff).past?
     end
 
     def archival_attempts_available?
@@ -38,9 +49,7 @@ module Ci
     end
 
     def track_archival!(trace_artifact_id, checksum)
-      update!(trace_artifact_id: trace_artifact_id,
-        checksum: checksum,
-        archived_at: Time.current)
+      update!(trace_artifact_id: trace_artifact_id, checksum: checksum, archived_at: Time.current)
     end
 
     def archival_attempts_message

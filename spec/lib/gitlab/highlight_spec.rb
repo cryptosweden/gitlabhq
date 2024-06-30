@@ -34,7 +34,7 @@ RSpec.describe Gitlab::Highlight do
     end
 
     it 'highlights' do
-      expected = %Q[<span id="LC1" class="line" lang="common_lisp"><span class="p">(</span><span class="nb">make-pathname</span> <span class="ss">:defaults</span> <span class="nv">name</span></span>
+      expected = %[<span id="LC1" class="line" lang="common_lisp"><span class="p">(</span><span class="nb">make-pathname</span> <span class="ss">:defaults</span> <span class="nv">name</span></span>
 <span id="LC2" class="line" lang="common_lisp"><span class="ss">:type</span> <span class="s">"assem"</span><span class="p">)</span></span>]
 
       expect(described_class.highlight(file_name, content)).to eq(expected)
@@ -43,7 +43,7 @@ RSpec.describe Gitlab::Highlight do
     it 'returns plain version for unknown lexer context' do
       result = described_class.highlight(plain_text_file_name, plain_text_content)
 
-      expect(result).to eq(%[<span id="LC1" class="line" lang="plaintext">plain text contents</span>])
+      expect(result).to eq(%(<span id="LC1" class="line" lang="plaintext">plain text contents</span>))
     end
 
     context 'when content is too long to be highlighted' do
@@ -71,7 +71,7 @@ RSpec.describe Gitlab::Highlight do
 
     context 'diff highlighting' do
       let(:file_name) { 'test.diff' }
-      let(:content) { "+aaa\n+bbb\n- ccc\n ddd\n"}
+      let(:content) { "+aaa\n+bbb\n- ccc\n ddd\n" }
       let(:expected) do
         %q(<span id="LC1" class="line" lang="diff"><span class="gi">+aaa</span></span>
 <span id="LC2" class="line" lang="diff"><span class="gi">+bbb</span></span>
@@ -116,7 +116,7 @@ RSpec.describe Gitlab::Highlight do
 
     it 'links dependencies via DependencyLinker' do
       expect(Gitlab::DependencyLinker).to receive(:link)
-        .with('file.name', 'Contents', anything).and_call_original
+        .with('file.name', 'Contents', anything, used_on: :blob).and_call_original
 
       described_class.highlight('file.name', 'Contents')
     end
@@ -124,26 +124,40 @@ RSpec.describe Gitlab::Highlight do
     context 'timeout' do
       subject(:highlight) { described_class.new('file.rb', 'begin', language: 'ruby').highlight('Content') }
 
-      it 'utilizes timeout for web' do
-        expect(Timeout).to receive(:timeout).with(described_class::TIMEOUT_FOREGROUND).and_call_original
-
-        highlight
-      end
-
       it 'falls back to plaintext on timeout' do
         allow(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception)
-        expect(Timeout).to receive(:timeout).and_raise(Timeout::Error)
+        expect(Gitlab::RenderTimeout).to receive(:timeout).and_raise(Timeout::Error)
 
         expect(Rouge::Lexers::PlainText).to receive(:lex).and_call_original
 
         highlight
       end
+    end
 
-      it 'utilizes longer timeout for sidekiq' do
-        allow(Gitlab::Runtime).to receive(:sidekiq?).and_return(true)
-        expect(Timeout).to receive(:timeout).with(described_class::TIMEOUT_BACKGROUND).and_call_original
+    it 'increments usage counter', :prometheus do
+      described_class.highlight(file_name, content)
 
-        highlight
+      gitlab_highlight_usage_counter = Gitlab::Metrics.registry.get(:gitlab_highlight_usage)
+
+      expect(gitlab_highlight_usage_counter.get(used_on: :blob)).to eq(1)
+      expect(gitlab_highlight_usage_counter.get(used_on: :diff)).to eq(0)
+    end
+
+    context 'when used_on is specified' do
+      it 'increments usage counter', :prometheus do
+        described_class.highlight(file_name, content, used_on: :diff)
+
+        gitlab_highlight_usage_counter = Gitlab::Metrics.registry.get(:gitlab_highlight_usage)
+
+        expect(gitlab_highlight_usage_counter.get(used_on: :diff)).to eq(1)
+        expect(gitlab_highlight_usage_counter.get(used_on: :blob)).to eq(0)
+      end
+
+      it 'links dependencies via DependencyLinker' do
+        expect(Gitlab::DependencyLinker).to receive(:link)
+          .with(file_name, content, anything, used_on: :diff).and_call_original
+
+        described_class.highlight(file_name, content, used_on: :diff)
       end
     end
   end

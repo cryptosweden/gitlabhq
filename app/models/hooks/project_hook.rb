@@ -6,6 +6,8 @@ class ProjectHook < WebHook
   include Limitable
   extend ::Gitlab::Utils::Override
 
+  self.allow_legacy_sti_class = true
+
   self.limit_scope = :project
 
   triggerable_hooks [
@@ -21,19 +23,18 @@ class ProjectHook < WebHook
     :wiki_page_hooks,
     :deployment_hooks,
     :feature_flag_hooks,
-    :release_hooks
+    :release_hooks,
+    :emoji_hooks,
+    :resource_access_token_hooks
   ]
 
   belongs_to :project
   validates :project, presence: true
 
+  scope :for_projects, ->(project) { where(project: project) }
+
   def pluralized_name
     _('Webhooks')
-  end
-
-  override :rate_limit
-  def rate_limit
-    project.actual_limits.limit_for(:web_hook_calls)
   end
 
   override :application_context
@@ -44,13 +45,6 @@ class ProjectHook < WebHook
   override :parent
   def parent
     project
-  end
-
-  private
-
-  override :web_hooks_disable_failed?
-  def web_hooks_disable_failed?
-    Feature.enabled?(:web_hooks_disable_failed, project)
   end
 end
 

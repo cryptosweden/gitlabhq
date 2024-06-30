@@ -17,7 +17,7 @@ RSpec.describe Gitlab::ImportExport::MembersMapper do
            "notification_level" => 3,
            "created_at" => "2016-03-11T10:21:44.822Z",
            "updated_at" => "2016-03-11T10:21:44.822Z",
-           "created_by_id" => nil,
+           "created_by_id" => 1,
            "invite_email" => nil,
            "invite_token" => nil,
            "invite_accepted_at" => nil,
@@ -38,8 +38,22 @@ RSpec.describe Gitlab::ImportExport::MembersMapper do
            "notification_level" => 3,
            "created_at" => "2016-03-11T10:21:44.822Z",
            "updated_at" => "2016-03-11T10:21:44.822Z",
-           "created_by_id" => 1,
+           "created_by_id" => 2,
            "invite_email" => 'invite@test.com',
+           "invite_token" => 'token',
+           "invite_accepted_at" => nil
+         },
+         {
+           "id" => 3,
+           "access_level" => 40,
+           "source_id" => 14,
+           "source_type" => source_type,
+           "user_id" => nil,
+           "notification_level" => 3,
+           "created_at" => "2016-03-11T10:21:44.822Z",
+           "updated_at" => "2016-03-11T10:21:44.822Z",
+           "created_by_id" => nil,
+           "invite_email" => 'invite2@test.com',
            "invite_token" => 'token',
            "invite_accepted_at" => nil
          }]
@@ -68,18 +82,43 @@ RSpec.describe Gitlab::ImportExport::MembersMapper do
         expect(member_class.find_by_invite_email('invite@test.com')).not_to be_nil
       end
 
-      it 'removes old user_id from member_hash to avoid conflict with user key' do
+      it 'maps created_by_id to user on new instance' do
         expect(member_class)
           .to receive(:create)
-                .twice
-                .with(hash_excluding('user_id'))
-                .and_call_original
+            .once
+            .with(hash_including('user_id' => user2.id, 'created_by_id' => nil))
+            .and_call_original
+        expect(member_class)
+          .to receive(:create)
+            .once
+            .with(hash_including('invite_email' => 'invite@test.com', 'created_by_id' => nil))
+            .and_call_original
+        expect(member_class)
+          .to receive(:create)
+            .once
+            .with(hash_including('invite_email' => 'invite2@test.com', 'created_by_id' => nil))
+            .and_call_original
+
+        members_mapper.map
+      end
+
+      it 'replaced user_id with user_id from new instance' do
+        expect(member_class)
+          .to receive(:create)
+            .once
+            .with(hash_including('user_id' => user2.id))
+            .and_call_original
+        expect(member_class)
+          .to receive(:create)
+            .twice
+            .with(hash_excluding('user_id'))
+            .and_call_original
 
         members_mapper.map
       end
 
       context 'logging' do
-        let(:logger) { Gitlab::Import::Logger.build }
+        let(:logger) { ::Import::Framework::Logger.build }
 
         before do
           allow(logger).to receive(:info)
@@ -99,7 +138,7 @@ RSpec.describe Gitlab::ImportExport::MembersMapper do
           end
 
           expect(logger).to receive(:info).with(hash_including(expected_log_params.call(user2.id))).once
-          expect(logger).to receive(:info).with(hash_including(expected_log_params.call(nil))).once
+          expect(logger).to receive(:info).with(hash_including(expected_log_params.call(nil))).twice
 
           members_mapper.map
         end
@@ -219,7 +258,7 @@ RSpec.describe Gitlab::ImportExport::MembersMapper do
           end
 
           before do
-            group.add_users([user, user2], GroupMember::DEVELOPER)
+            group.add_members([user, user2], GroupMember::DEVELOPER)
           end
 
           it 'maps the project member' do
@@ -242,7 +281,7 @@ RSpec.describe Gitlab::ImportExport::MembersMapper do
           end
 
           before do
-            group.add_users([user, user2], GroupMember::DEVELOPER)
+            group.add_members([user, user2], GroupMember::DEVELOPER)
           end
 
           it 'maps the importer' do
@@ -276,7 +315,7 @@ RSpec.describe Gitlab::ImportExport::MembersMapper do
 
       shared_examples_for 'it fetches the access level from parent group' do
         before do
-          group.add_users([user], group_access_level)
+          group.add_members([user], group_access_level)
         end
 
         it "and resolves it correctly" do

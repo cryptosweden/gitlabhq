@@ -113,30 +113,22 @@ RSpec.describe HelpController, "routing" do
 
   it 'to #show' do
     path = '/help/user/markdown.md'
-    expect(get(path)).to route_to('help#show',
-                                  path: 'user/markdown',
-                                  format: 'md')
+    expect(get(path)).to route_to('help#show', path: 'user/markdown', format: 'md')
 
     path = '/help/user/markdown/markdown_logo.png'
-    expect(get(path)).to route_to('help#show',
-                                  path: 'user/markdown/markdown_logo',
-                                  format: 'png')
+    expect(get(path)).to route_to('help#show', path: 'user/markdown/markdown_logo', format: 'png')
   end
 end
 
 #             profile_account GET    /-/profile/account(.:format)             profile#account
 #             profile_history GET    /-/profile/history(.:format)             profile#history
-#            profile_password PUT    /-/profile/password(.:format)            profile#password_update
 #               profile_token GET    /-/profile/token(.:format)               profile#token
-#                     profile GET    /-/profile(.:format)                     profile#show
-#              profile_update PUT    /-/profile/update(.:format)              profile#update
+#       user_settings_profile GET    /-/user_settings/profile(.:format)       user_settings/profile#show
+#       user_settings_profile PUT    /-/user_settings/profile(.:format)       user_settings/profile#update
+#       user_settings_profile PATCH  /-/user_settings/profile(.:format)       user_settings/profile#update
 RSpec.describe ProfilesController, "routing" do
   it "to #account" do
     expect(get("/-/profile/account")).to route_to('profiles/accounts#show')
-  end
-
-  it "to #audit_log" do
-    expect(get("/-/profile/audit_log")).to route_to('profiles#audit_log')
   end
 
   it "to #reset_feed_token" do
@@ -144,7 +136,12 @@ RSpec.describe ProfilesController, "routing" do
   end
 
   it "to #show" do
-    expect(get("/-/profile")).to route_to('profiles#show')
+    expect(get("/-/user_settings/profile")).to route_to('user_settings/profiles#show')
+  end
+
+  it "to #update" do
+    expect(put("/-/user_settings/profile")).to route_to('user_settings/profiles#update')
+    expect(patch("/-/user_settings/profile")).to route_to('user_settings/profiles#update')
   end
 end
 
@@ -162,27 +159,27 @@ RSpec.describe Profiles::PreferencesController, 'routing' do
   end
 end
 
-#     keys GET    /-/profile/keys(.:format)          keys#index
-#          POST   /-/profile/keys(.:format)          keys#create
-# edit_key GET    /-/profile/keys/:id/edit(.:format) keys#edit
-#      key GET    /-/profile/keys/:id(.:format)      keys#show
-#          PUT    /-/profile/keys/:id(.:format)      keys#update
-#          DELETE /-/profile/keys/:id(.:format)      keys#destroy
-RSpec.describe Profiles::KeysController, "routing" do
+#     keys GET    /-/user_settings/ssh_keys(.:format)          keys#index
+#          POST   /-/user_settings/ssh_keys(.:format)          keys#create
+# edit_key GET    /-/user_settings/ssh_keys/:id/edit(.:format) keys#edit
+#      key GET    /-/user_settings/ssh_keys/:id(.:format)      keys#show
+#          PUT    /-/user_settings/ssh_keys/:id(.:format)      keys#update
+#          DELETE /-/user_settings/ssh_keys/:id(.:format)      keys#destroy
+RSpec.describe UserSettings::SshKeysController, "routing", feature_category: :system_access do
   it "to #index" do
-    expect(get("/-/profile/keys")).to route_to('profiles/keys#index')
+    expect(get("/-/user_settings/ssh_keys")).to route_to('user_settings/ssh_keys#index')
   end
 
   it "to #create" do
-    expect(post("/-/profile/keys")).to route_to('profiles/keys#create')
+    expect(post("/-/user_settings/ssh_keys")).to route_to('user_settings/ssh_keys#create')
   end
 
   it "to #show" do
-    expect(get("/-/profile/keys/1")).to route_to('profiles/keys#show', id: '1')
+    expect(get("/-/user_settings/ssh_keys/1")).to route_to('user_settings/ssh_keys#show', id: '1')
   end
 
   it "to #destroy" do
-    expect(delete("/-/profile/keys/1")).to route_to('profiles/keys#destroy', id: '1')
+    expect(delete("/-/user_settings/ssh_keys/1")).to route_to('user_settings/ssh_keys#destroy', id: '1')
   end
 end
 
@@ -190,17 +187,17 @@ end
 #  key POST   /-/profile/gpg_keys      gpg_keys#create
 #      PUT    /-/profile/gpg_keys/:id  gpg_keys#revoke
 #      DELETE /-/profile/gpg_keys/:id  gpg_keys#desroy
-RSpec.describe Profiles::GpgKeysController, "routing" do
+RSpec.describe UserSettings::GpgKeysController, "routing", feature_category: :system_access do
   it "to #index" do
-    expect(get("/-/profile/gpg_keys")).to route_to('profiles/gpg_keys#index')
+    expect(get("/-/user_settings/gpg_keys")).to route_to('user_settings/gpg_keys#index')
   end
 
   it "to #create" do
-    expect(post("/-/profile/gpg_keys")).to route_to('profiles/gpg_keys#create')
+    expect(post("/-/user_settings/gpg_keys")).to route_to('user_settings/gpg_keys#create')
   end
 
   it "to #destroy" do
-    expect(delete("/-/profile/gpg_keys/1")).to route_to('profiles/gpg_keys#destroy', id: '1')
+    expect(delete("/-/user_settings/gpg_keys/1")).to route_to('user_settings/gpg_keys#destroy', id: '1')
   end
 end
 
@@ -310,6 +307,26 @@ RSpec.describe "Authentication", "routing" do
         expect(post("/users/auth/ldapmain/callback")).not_to be_routable
       end
     end
+
+    context 'with multiple LDAP providers configured' do
+      let(:ldap_settings) do
+        {
+          enabled: true,
+          servers: {
+            main: { 'provider_name' => 'ldapmain' },
+            secondary: { 'provider_name' => 'ldapsecondary' }
+          }
+        }
+      end
+
+      it 'POST /users/auth/ldapmain/callback' do
+        expect(post("/users/auth/ldapmain/callback")).to route_to('ldap/omniauth_callbacks#ldapmain')
+      end
+
+      it 'POST /users/auth/ldapsecondary/callback' do
+        expect(post("/users/auth/ldapsecondary/callback")).to route_to('ldap/omniauth_callbacks#ldapsecondary')
+      end
+    end
   end
 end
 
@@ -328,14 +345,6 @@ RSpec.describe InvitesController, 'routing' do
 
   it 'to #show' do
     expect(get("/-/invites/#{member.invite_token}")).to route_to('invites#show', id: member.invite_token)
-  end
-end
-
-RSpec.describe AbuseReportsController, 'routing' do
-  let_it_be(:user) { create(:user) }
-
-  it 'to #new' do
-    expect(get("/-/abuse_reports/new?user_id=#{user.id}")).to route_to('abuse_reports#new', user_id: user.id.to_s)
   end
 end
 
@@ -387,5 +396,21 @@ end
 RSpec.describe JwksController, "routing" do
   it "to #index" do
     expect(get('/-/jwks')).to route_to('jwks#index')
+  end
+end
+
+# user_settings_authentication_log GET  /-/user_settings/authentication_log(.:format) user_settings/user_settings#authentication_log
+
+RSpec.describe UserSettings::UserSettingsController, 'routing', feature_category: :system_access do
+  it 'to #authentication_log' do
+    expect(get('/-/user_settings/authentication_log')).to route_to('user_settings/user_settings#authentication_log')
+  end
+end
+
+# user_settings_active_sessions_log GET /-/user_settings_active_sessions_log(.:format)  user_settings/active_sessions#index#
+
+RSpec.describe UserSettings::ActiveSessionsController, 'routing', feature_category: :system_access do
+  it 'to #index' do
+    expect(get('/-/user_settings/active_sessions')).to route_to('user_settings/active_sessions#index')
   end
 end

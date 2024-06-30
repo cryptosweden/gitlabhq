@@ -2,14 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe PagesDomain do
+RSpec.describe PagesDomain, feature_category: :pages do
   using RSpec::Parameterized::TableSyntax
 
   subject(:pages_domain) { described_class.new }
 
   describe 'associations' do
     it { is_expected.to belong_to(:project) }
-    it { is_expected.to have_many(:serverless_domain_clusters) }
   end
 
   describe '.for_project' do
@@ -18,6 +17,15 @@ RSpec.describe PagesDomain do
       create(:pages_domain) # unrelated domain
 
       expect(described_class.for_project(domain.project)).to eq([domain])
+    end
+  end
+
+  describe '.verified' do
+    let!(:verified) { create(:pages_domain) }
+    let!(:unverified) { create(:pages_domain, :unverified) }
+
+    it 'finds verified' do
+      expect(described_class.verified).to match_array(verified)
     end
   end
 
@@ -32,17 +40,17 @@ RSpec.describe PagesDomain do
 
     describe "hostname" do
       {
-        'my.domain.com'    => true,
-        '123.456.789'      => true,
-        '0x12345.com'      => true,
-        '0123123'          => true,
-        'a-reserved.com'   => true,
+        'my.domain.com' => true,
+        '123.456.789' => true,
+        '0x12345.com' => true,
+        '0123123' => true,
+        'a-reserved.com' => true,
         'a.b-reserved.com' => true,
-        'reserved.com'     => false,
-        '_foo.com'         => false,
-        'a.reserved.com'   => false,
+        'reserved.com' => true,
+        '_foo.com' => false,
+        'a.reserved.com' => false,
         'a.b.reserved.com' => false,
-        nil                => false
+        nil => false
       }.each do |value, validity|
         context "domain #{value.inspect} validity" do
           before do
@@ -62,12 +70,11 @@ RSpec.describe PagesDomain do
       let(:domain) { 'my.domain.com' }
 
       let(:project) do
-        instance_double(Project, pages_https_only?: pages_https_only)
+        instance_double(Project, pages_https_only?: pages_https_only, can_create_custom_domains?: true)
       end
 
       let(:pages_domain) do
-        build(:pages_domain, certificate: certificate, key: key,
-              auto_ssl_enabled: auto_ssl_enabled).tap do |pd|
+        build(:pages_domain, certificate: certificate, key: key, auto_ssl_enabled: auto_ssl_enabled).tap do |pd|
           allow(pd).to receive(:project).and_return(project)
           pd.valid?
         end
@@ -77,20 +84,20 @@ RSpec.describe PagesDomain do
         attributes = attributes_for(:pages_domain)
         cert, key = attributes.fetch_values(:certificate, :key)
 
-        true  | nil  | nil | false | %i(certificate key)
+        true  | nil  | nil | false | %i[certificate key]
         true  | nil  | nil | true  | []
-        true  | cert | nil | false | %i(key)
-        true  | cert | nil | true  | %i(key)
-        true  | nil  | key | false | %i(certificate key)
-        true  | nil  | key | true  | %i(key)
+        true  | cert | nil | false | %i[key]
+        true  | cert | nil | true  | %i[key]
+        true  | nil  | key | false | %i[certificate key]
+        true  | nil  | key | true  | %i[key]
         true  | cert | key | false | []
         true  | cert | key | true  | []
         false | nil  | nil | false | []
         false | nil  | nil | true  | []
-        false | cert | nil | false | %i(key)
-        false | cert | nil | true  | %i(key)
-        false | nil  | key | false | %i(key)
-        false | nil  | key | true  | %i(key)
+        false | cert | nil | false | %i[key]
+        false | cert | nil | true  | %i[key]
+        false | nil  | key | false | %i[key]
+        false | nil  | key | true  | %i[key]
         false | cert | key | false | []
         false | cert | key | true  | []
       end
@@ -158,7 +165,7 @@ RSpec.describe PagesDomain do
         it "adds error to certificate" do
           domain.valid?
 
-          expect(domain.errors.attribute_names).to contain_exactly(:key, :certificate)
+          expect(domain.errors.attribute_names).to contain_exactly(:key)
         end
       end
 
@@ -194,11 +201,41 @@ RSpec.describe PagesDomain do
 
   describe 'validations' do
     it { is_expected.to validate_presence_of(:verification_code) }
+
+    context 'when validating max certificate key length' do
+      it 'validates the certificate key length' do
+        valid_domain = build(:pages_domain, :key_length_8192)
+        expect(valid_domain).to be_valid
+      end
+
+      context 'when the key has more than 8192 bytes' do
+        let(:domain) do
+          build(:pages_domain, :extra_long_key)
+        end
+
+        it 'adds a human readable error' do
+          expect(domain).to be_invalid
+          expect(domain.errors[:key]).to include('Certificate Key is too long. (Max 8192 bytes)')
+        end
+
+        it 'does not run SSL key verification' do
+          allow(domain).to receive(:validate_intermediates)
+
+          domain.valid?
+
+          expect(domain).not_to have_received(:validate_intermediates)
+        end
+      end
+    end
   end
 
   describe 'default values' do
     it 'defaults wildcard to false' do
       expect(subject.wildcard).to eq(false)
+    end
+
+    it 'defaults auto_ssl_enabled to false' do
+      expect(subject.auto_ssl_enabled).to eq(false)
     end
 
     it 'defaults scope to project' do
@@ -266,8 +303,8 @@ RSpec.describe PagesDomain do
     end
   end
 
-  describe '#has_intermediates?' do
-    subject { domain.has_intermediates? }
+  describe '#has_valid_intermediates?' do
+    subject { domain.has_valid_intermediates? }
 
     context 'for self signed' do
       let(:domain) { build(:pages_domain) }
@@ -287,6 +324,14 @@ RSpec.describe PagesDomain do
       # It will be if ca-certificates is installed on Debian/Ubuntu/Alpine
 
       let(:domain) { build(:pages_domain, :with_trusted_chain) }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'for chain with unknown root CA' do
+      # In cases where users use an origin certificate the CA does not necessarily need to be in
+      # the trust store, eg. in the case of Cloudflare Origin Certs.
+      let(:domain) { build(:pages_domain, :with_untrusted_root_ca_in_chain) }
 
       it { is_expected.to be_truthy }
     end
@@ -416,23 +461,27 @@ RSpec.describe PagesDomain do
   end
 
   describe '#user_provided_key=' do
-    include_examples('certificate setter', 'key', 'user_provided_key=',
-                     'gitlab_provided', 'user_provided')
+    include_examples(
+      'certificate setter', 'key', 'user_provided_key=', 'gitlab_provided', 'user_provided'
+    )
   end
 
   describe '#gitlab_provided_key=' do
-    include_examples('certificate setter', 'key', 'gitlab_provided_key=',
-                     'user_provided', 'gitlab_provided')
+    include_examples(
+      'certificate setter', 'key', 'gitlab_provided_key=', 'user_provided', 'gitlab_provided'
+    )
   end
 
   describe '#user_provided_certificate=' do
-    include_examples('certificate setter', 'certificate', 'user_provided_certificate=',
-                     'gitlab_provided', 'user_provided')
+    include_examples(
+      'certificate setter', 'certificate', 'user_provided_certificate=', 'gitlab_provided', 'user_provided'
+    )
   end
 
   describe '#gitlab_provided_certificate=' do
-    include_examples('certificate setter', 'certificate', 'gitlab_provided_certificate=',
-                     'user_provided', 'gitlab_provided')
+    include_examples(
+      'certificate setter', 'certificate', 'gitlab_provided_certificate=', 'user_provided', 'gitlab_provided'
+    )
   end
 
   describe '#save' do
@@ -534,26 +583,29 @@ RSpec.describe PagesDomain do
     end
   end
 
-  describe '#pages_virtual_domain' do
-    let(:project) { create(:project) }
-    let(:pages_domain) { create(:pages_domain, project: project) }
+  describe '#validate_custom_domain_count_per_project' do
+    let_it_be(:project) { create(:project) }
 
-    context 'when there are no pages deployed for the project' do
-      it 'returns nil' do
-        expect(pages_domain.pages_virtual_domain).to be_nil
+    context 'when max custom domain setting is set to 0' do
+      it 'returns without an error' do
+        pages_domain = create(:pages_domain, project: project)
+
+        expect(pages_domain).to be_valid
       end
     end
 
-    it 'returns the virual domain when there are pages deployed for the project' do
-      project.mark_pages_as_deployed
-      project.update_pages_deployment!(create(:pages_deployment, project: project))
+    context 'when max custom domain setting is not set to 0' do
+      it 'returns with an error for extra domains' do
+        Gitlab::CurrentSettings.update!(max_pages_custom_domains_per_project: 1)
 
-      expect(Pages::VirtualDomain).to receive(:new).with([project], domain: pages_domain).and_call_original
+        pages_domain = create(:pages_domain, project: project)
+        expect(pages_domain).to be_valid
 
-      virtual_domain = pages_domain.pages_virtual_domain
-
-      expect(virtual_domain).to be_an_instance_of(Pages::VirtualDomain)
-      expect(virtual_domain.lookup_paths).not_to be_empty
+        pages_domain = build(:pages_domain, project: project)
+        expect(pages_domain).not_to be_valid
+        expect(pages_domain.errors.full_messages)
+          .to contain_exactly('This project reached the limit of custom domains. (Max 1)')
+      end
     end
   end
 
@@ -561,7 +613,7 @@ RSpec.describe PagesDomain do
     it 'lookup is case-insensitive' do
       pages_domain = create(:pages_domain, domain: "Pages.IO")
 
-      expect(PagesDomain.find_by_domain_case_insensitive('pages.io')).to eq(pages_domain)
+      expect(described_class.find_by_domain_case_insensitive('pages.io')).to eq(pages_domain)
     end
   end
 end

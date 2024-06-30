@@ -5,19 +5,17 @@ module Groups
     class ApplicationsController < Groups::ApplicationController
       include OauthApplications
 
-      prepend_before_action :authorize_admin_group!
-      before_action :set_application, only: [:show, :edit, :update, :destroy]
+      before_action :authorize_admin_group!
+      before_action :set_application, only: [:show, :edit, :update, :renew, :destroy]
       before_action :load_scopes, only: [:index, :create, :edit, :update]
 
-      feature_category :authentication_and_authorization
+      feature_category :system_access
 
       def index
         set_index_vars
       end
 
-      def show
-        @created = get_created_session
-      end
+      def show; end
 
       def edit
       end
@@ -28,9 +26,8 @@ module Groups
         if @application.persisted?
           flash[:notice] = I18n.t(:notice, scope: [:doorkeeper, :flash, :applications, :create])
 
-          set_created_session
-
-          redirect_to group_settings_application_url(@group, @application)
+          @created = true
+          render :show
         else
           set_index_vars
           render :index
@@ -42,6 +39,16 @@ module Groups
           redirect_to group_settings_application_path(@group, @application), notice: _('Application was successfully updated.')
         else
           render :edit
+        end
+      end
+
+      def renew
+        @application.renew_secret
+
+        if @application.save
+          render json: { secret: @application.plaintext_secret }
+        else
+          render json: { errors: @application.errors }, status: :unprocessable_entity
         end
       end
 
@@ -57,10 +64,8 @@ module Groups
         # https://gitlab.com/gitlab-org/gitlab/-/issues/324187
         @applications = @group.oauth_applications.limit(100)
 
-        # Default access tokens to expire. This preserves backward compatibility
-        # with existing applications. This will be removed in 15.0.
-        # Removal issue: https://gitlab.com/gitlab-org/gitlab/-/issues/340848
-        @application ||= Doorkeeper::Application.new(expire_access_tokens: true)
+        # Don't overwrite a value possibly set by `create`
+        @application ||= Doorkeeper::Application.new
       end
 
       def set_application

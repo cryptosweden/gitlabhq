@@ -1,12 +1,13 @@
 <script>
 import { GlIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
 import DesignNotePin from '~/vue_shared/components/design_management/design_note_pin.vue';
-import noteableDiscussion from '../../notes/components/noteable_discussion.vue';
+import NoteableDiscussion from '~/notes/components/noteable_discussion.vue';
 
 export default {
   components: {
-    noteableDiscussion,
+    NoteableDiscussion,
     GlIcon,
     DesignNotePin,
   },
@@ -37,15 +38,12 @@ export default {
     },
   },
   methods: {
-    ...mapActions(['toggleDiscussion']),
-    ...mapActions('diffs', ['removeDiscussionsFromDiff']),
-    deleteNoteHandler(discussion) {
-      if (discussion.notes.length <= 1) {
-        this.removeDiscussionsFromDiff(discussion);
-      }
-    },
+    ...mapActions('diffs', ['toggleFileDiscussion']),
     isExpanded(discussion) {
-      return this.shouldCollapseDiscussions ? discussion.expanded : true;
+      return this.shouldCollapseDiscussions ? discussion.expandedOnDiff : true;
+    },
+    toggleVisibility(discussion) {
+      this.toggleFileDiscussion(discussion);
     },
   },
 };
@@ -64,11 +62,11 @@ export default {
       <ul :data-discussion-id="discussion.id" class="notes">
         <template v-if="shouldCollapseDiscussions">
           <button
-            v-if="discussion.expanded"
+            v-if="discussion.expandedOnDiff"
             class="diff-notes-collapse js-diff-notes-toggle"
             type="button"
             :aria-label="__('Show comments')"
-            @click="toggleDiscussion({ discussionId: discussion.id })"
+            @click="toggleVisibility(discussion)"
           >
             <gl-icon name="collapse" class="collapse-icon" />
           </button>
@@ -77,8 +75,8 @@ export default {
             :label="index + 1"
             :is-resolved="discussion.resolved"
             size="sm"
-            class="js-diff-notes-toggle gl-translate-x-n50"
-            @click="toggleDiscussion({ discussionId: discussion.id })"
+            class="js-diff-notes-toggle -gl-translate-x-1/2"
+            @click="toggleVisibility(discussion)"
           />
         </template>
         <noteable-discussion
@@ -88,7 +86,7 @@ export default {
           :discussions-by-diff-order="true"
           :line="line"
           :help-page-path="helpPagePath"
-          @noteDeleted="deleteNoteHandler"
+          :should-scroll-to-note="false"
         >
           <template v-if="renderAvatarBadge" #avatar-badge>
             <design-note-pin

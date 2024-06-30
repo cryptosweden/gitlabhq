@@ -20,10 +20,11 @@ RSpec.shared_examples 'Deploy keys with protected branches' do
       it "shows all dropdown sections in the 'Allowed to push' main dropdown, with only one deploy key" do
         visit project_protected_branches_path(project)
 
+        click_button 'Add protected branch'
         find(".js-allowed-to-push").click
         wait_for_requests
 
-        within('.qa-allowed-to-push-dropdown') do # rubocop:disable QA/SelectorUsage
+        within('[data-testid="allowed-to-push-dropdown"]') do
           dropdown_headers = page.all('.dropdown-header').map(&:text)
 
           expect(dropdown_headers).to contain_exactly(*all_dropdown_sections)
@@ -35,10 +36,11 @@ RSpec.shared_examples 'Deploy keys with protected branches' do
       it "shows all sections but not deploy keys in the 'Allowed to merge' main dropdown" do
         visit project_protected_branches_path(project)
 
+        click_button 'Add protected branch'
         find(".js-allowed-to-merge").click
         wait_for_requests
 
-        within('.qa-allowed-to-merge-dropdown') do # rubocop:disable QA/SelectorUsage
+        within('[data-testid="allowed-to-merge-dropdown"]') do
           dropdown_headers = page.all('.dropdown-header').map(&:text)
 
           expect(dropdown_headers).to contain_exactly(*dropdown_sections_minus_deploy_keys)
@@ -59,16 +61,39 @@ RSpec.shared_examples 'Deploy keys with protected branches' do
           expect(dropdown_headers).to contain_exactly(*all_dropdown_sections)
         end
       end
+
+      context 'when deploy key is already selected for protected branch' do
+        let(:protected_branch) { create(:protected_branch, :no_one_can_push, project: project, name: 'master') }
+
+        before do
+          create(:protected_branch_push_access_level, protected_branch: protected_branch, deploy_key: deploy_key_1)
+        end
+
+        it 'displays a preselected deploy key' do
+          visit project_protected_branches_path(project)
+
+          within(".js-protected-branch-edit-form") do
+            find(".js-allowed-to-push").click
+            wait_for_requests
+
+            within('[data-testid="deploy_key-dropdown-item"]') do
+              deploy_key_checkbox = find('[data-testid="dropdown-item-checkbox"]')
+              expect(deploy_key_checkbox).to have_no_css("gl-visibility-hidden")
+            end
+          end
+        end
+      end
     end
 
     context 'when no deploy key can push' do
       it "just shows all sections but not deploy keys in the 'Allowed to push' dropdown" do
         visit project_protected_branches_path(project)
 
+        click_button 'Add protected branch'
         find(".js-allowed-to-push").click
         wait_for_requests
 
-        within('.qa-allowed-to-push-dropdown') do # rubocop:disable QA/SelectorUsage
+        within('[data-testid="allowed-to-push-dropdown"]') do
           dropdown_headers = page.all('.dropdown-header').map(&:text)
 
           expect(dropdown_headers).to contain_exactly(*dropdown_sections_minus_deploy_keys)

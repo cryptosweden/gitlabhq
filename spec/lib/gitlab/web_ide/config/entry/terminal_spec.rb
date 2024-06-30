@@ -57,7 +57,7 @@ RSpec.describe Gitlab::WebIde::Config::Entry::Terminal do
         it 'is not valid' do
           expect(entry).not_to be_valid
           expect(entry.errors.first)
-            .to match /port config contains unknown keys: invalid_key/
+            .to match(/port config contains unknown keys: invalid_key/)
         end
       end
     end
@@ -132,7 +132,7 @@ RSpec.describe Gitlab::WebIde::Config::Entry::Terminal do
           { before_script: %w[ls pwd],
             script: 'sleep 100',
             tags: ['webide'],
-            image: 'ruby:3.0',
+            image: 'image:1.0',
             services: ['mysql'],
             variables: { KEY: 'value' } }
         end
@@ -143,7 +143,7 @@ RSpec.describe Gitlab::WebIde::Config::Entry::Terminal do
               tag_list: ['webide'],
               job_variables: [{ key: 'KEY', value: 'value', public: true }],
               options: {
-                image: { name: "ruby:3.0" },
+                image: { name: "image:1.0" },
                 services: [{ name: "mysql" }],
                 before_script: %w[ls pwd],
                 script: ['sleep 100']

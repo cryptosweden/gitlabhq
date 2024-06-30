@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::DependencyProxy::ImageTtlGroupPolicies::UpdateService do
+RSpec.describe ::DependencyProxy::ImageTtlGroupPolicies::UpdateService, feature_category: :virtual_registry do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be_with_reload(:group) { create(:group) }
@@ -71,8 +71,9 @@ RSpec.describe ::DependencyProxy::ImageTtlGroupPolicies::UpdateService do
       let_it_be(:params) { { enabled: false, ttl: 2 } }
 
       where(:user_role, :shared_examples_name) do
-        :maintainer | 'updating the dependency proxy image ttl policy'
-        :developer  | 'updating the dependency proxy image ttl policy'
+        :owner      | 'updating the dependency proxy image ttl policy'
+        :maintainer | 'denying access to dependency proxy image ttl policy'
+        :developer  | 'denying access to dependency proxy image ttl policy'
         :reporter   | 'denying access to dependency proxy image ttl policy'
         :guest      | 'denying access to dependency proxy image ttl policy'
         :anonymous  | 'denying access to dependency proxy image ttl policy'
@@ -91,8 +92,9 @@ RSpec.describe ::DependencyProxy::ImageTtlGroupPolicies::UpdateService do
       let_it_be(:ttl_policy) { group.dependency_proxy_image_ttl_policy }
 
       where(:user_role, :shared_examples_name) do
-        :maintainer | 'creating the dependency proxy image ttl policy'
-        :developer  | 'creating the dependency proxy image ttl policy'
+        :owner      | 'creating the dependency proxy image ttl policy'
+        :maintainer | 'denying access to dependency proxy image ttl policy'
+        :developer  | 'denying access to dependency proxy image ttl policy'
         :reporter   | 'denying access to dependency proxy image ttl policy'
         :guest      | 'denying access to dependency proxy image ttl policy'
         :anonymous  | 'denying access to dependency proxy image ttl policy'
@@ -107,8 +109,11 @@ RSpec.describe ::DependencyProxy::ImageTtlGroupPolicies::UpdateService do
       end
 
       context 'when the policy is not found' do
+        before_all do
+          group.add_owner(user)
+        end
+
         before do
-          group.add_developer(user)
           expect(group).to receive(:dependency_proxy_image_ttl_policy).and_return nil
         end
 

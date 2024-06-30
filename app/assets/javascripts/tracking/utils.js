@@ -6,6 +6,8 @@ import {
   LOAD_ACTION_ATTR_SELECTOR,
   URLS_CACHE_STORAGE_KEY,
   REFERRER_TTL,
+  INTERNAL_EVENTS_SELECTOR,
+  ALLOWED_ADDITIONAL_PROPERTIES,
 } from './constants';
 
 export const addExperimentContext = (opts) => {
@@ -69,6 +71,29 @@ export const createEventPayload = (el, { suffix = '' } = {}) => {
   };
 };
 
+export const createInternalEventPayload = (el) => {
+  const { eventTracking, eventLabel, eventProperty, eventValue } = el?.dataset || {};
+
+  return {
+    event: eventTracking,
+    additionalProperties: omitBy(
+      { label: eventLabel, property: eventProperty, value: parseInt(eventValue, 10) || undefined },
+      isUndefined,
+    ),
+  };
+};
+
+export const InternalEventHandler = (e, func) => {
+  const el = e.target.closest(INTERNAL_EVENTS_SELECTOR);
+
+  if (!el) {
+    return;
+  }
+  const { event, additionalProperties = {} } = createInternalEventPayload(el);
+
+  func(event, additionalProperties);
+};
+
 export const eventHandler = (e, func, opts = {}) => {
   const actionSelector = `${ACTION_ATTR_SELECTOR}:not(${LOAD_ACTION_ATTR_SELECTOR})`;
   const el = e.target.closest(actionSelector);
@@ -119,4 +144,20 @@ export const addReferrersCacheEntry = (cache, entry) => {
   const referrers = JSON.stringify([{ ...entry, timestamp: Date.now() }, ...cache]);
 
   window.localStorage.setItem(URLS_CACHE_STORAGE_KEY, referrers);
+};
+
+export const validateAdditionalProperties = (additionalProperties) => {
+  const disallowedProperties = Object.keys(additionalProperties).filter(
+    (key) => !ALLOWED_ADDITIONAL_PROPERTIES.includes(key),
+  );
+
+  if (disallowedProperties.length > 0) {
+    throw new Error(
+      `Allowed additional properties are ${ALLOWED_ADDITIONAL_PROPERTIES.join(
+        ', ',
+      )} for InternalEvents tracking.\nDisallowed additional properties were provided: ${disallowedProperties.join(
+        ', ',
+      )}.`,
+    );
+  }
 };

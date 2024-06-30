@@ -11,6 +11,7 @@ module Gitlab
 
       # The base cache key to use for storing/retrieving issuable IDs.
       CACHE_KEY = 'github-import/issuable-finder/%{project}/%{type}/%{iid}'
+      CACHE_OBJECT_NOT_FOUND = -1
 
       # project - An instance of `Project`.
       # object - The object to look up or set a database ID for.
@@ -23,9 +24,16 @@ module Gitlab
       #
       # This method will return `nil` if no ID could be found.
       def database_id
-        val = Gitlab::Cache::Import::Caching.read(cache_key, timeout: timeout)
+        val = Gitlab::Cache::Import::Caching.read_integer(cache_key, timeout: timeout)
 
-        val.to_i if val.present?
+        return if val == CACHE_OBJECT_NOT_FOUND
+        return val if val.present?
+
+        object_id = cache_key_type.safe_constantize&.find_by(project_id: project.id, iid: cache_key_iid)&.id ||
+          CACHE_OBJECT_NOT_FOUND
+
+        cache_database_id(object_id)
+        object_id == CACHE_OBJECT_NOT_FOUND ? nil : object_id
       end
 
       # Associates the given database ID with the current object.
@@ -69,6 +77,8 @@ module Gitlab
           object.noteable_id
         elsif object.respond_to?(:iid)
           object.iid
+        elsif object.respond_to?(:issuable_id)
+          object.issuable_id
         else
           raise(
             TypeError,
@@ -78,11 +88,15 @@ module Gitlab
       end
 
       def timeout
-        if project.group.present? && ::Feature.enabled?(:github_importer_single_endpoint_notes_import, project.group, type: :ops, default_enabled: :yaml)
+        if import_settings.enabled?(:single_endpoint_notes_import)
           Gitlab::Cache::Import::Caching::LONGER_TIMEOUT
         else
           Gitlab::Cache::Import::Caching::TIMEOUT
         end
+      end
+
+      def import_settings
+        ::Gitlab::GithubImport::Settings.new(project)
       end
     end
   end

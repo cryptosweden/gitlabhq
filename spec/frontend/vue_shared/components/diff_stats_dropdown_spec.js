@@ -1,14 +1,16 @@
 import {
+  GlDisclosureDropdown,
+  GlDisclosureDropdownItem,
   GlSprintf,
-  GlDropdown,
-  GlDropdownItem,
-  GlDropdownText,
   GlSearchBoxByType,
+  GlIcon,
 } from '@gitlab/ui';
 import fuzzaldrinPlus from 'fuzzaldrin-plus';
 import { nextTick } from 'vue';
-import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
+import { stubComponent } from 'helpers/stub_component';
 import DiffStatsDropdown, { i18n } from '~/vue_shared/components/diff_stats_dropdown.vue';
+import { ARROW_DOWN_KEY } from '~/lib/utils/keys';
 
 jest.mock('fuzzaldrin-plus', () => ({
   filter: jest.fn().mockReturnValue([]),
@@ -38,9 +40,10 @@ const mockFiles = [
 
 describe('Diff Stats Dropdown', () => {
   let wrapper;
+  const focusInputMock = jest.fn();
 
   const createComponent = ({ changed = 0, added = 0, deleted = 0, files = [] } = {}) => {
-    wrapper = shallowMountExtended(DiffStatsDropdown, {
+    wrapper = mountExtended(DiffStatsDropdown, {
       propsData: {
         changed,
         added,
@@ -49,16 +52,16 @@ describe('Diff Stats Dropdown', () => {
       },
       stubs: {
         GlSprintf,
-        GlDropdown,
+        GlSearchBoxByType: stubComponent(GlSearchBoxByType, {
+          methods: { focusInput: focusInputMock },
+        }),
       },
     });
   };
 
-  const findChanged = () => wrapper.findComponent(GlDropdown);
-  const findChangedFiles = () => findChanged().findAllComponents(GlDropdownItem);
-  const findNoFilesText = () => findChanged().findComponent(GlDropdownText);
+  const findChanged = () => wrapper.findComponent(GlDisclosureDropdown);
+  const findChangedFiles = () => findChanged().findAllComponents(GlDisclosureDropdownItem);
   const findCollapsed = () => wrapper.findByTestId('diff-stats-additions-deletions-expanded');
-  const findExpanded = () => wrapper.findByTestId('diff-stats-additions-deletions-collapsed');
   const findSearchBox = () => wrapper.findComponent(GlSearchBoxByType);
 
   describe('file item', () => {
@@ -66,7 +69,7 @@ describe('Diff Stats Dropdown', () => {
       createComponent({ files: mockFiles });
     });
 
-    it('when no file name provided ', () => {
+    it('when no file name provided', () => {
       expect(findChangedFiles().at(0).text()).toContain(i18n.noFileNameAvailable);
     });
 
@@ -75,51 +78,35 @@ describe('Diff Stats Dropdown', () => {
       const fileText = findChangedFiles().at(1).text();
       expect(fileText).toContain(mockFiles[1].name);
       expect(fileText).toContain(mockFiles[1].path);
-      expect(fileData.props()).toMatchObject({
-        iconName: mockFiles[1].icon,
-        iconColor: mockFiles[1].iconColor,
-      });
+      expect(fileData.findComponent(GlIcon).props('name')).toEqual(mockFiles[1].icon);
+      expect(fileData.findComponent(GlIcon).classes()).toContain('gl-text-red-500');
+      expect(fileData.find('a').attributes('href')).toEqual(mockFiles[1].href);
     });
 
     it('when no files changed', () => {
       createComponent({ files: [] });
-      expect(findNoFilesText().text()).toContain(i18n.noFilesFound);
+      expect(findChanged().text()).toContain(i18n.noFilesFound);
     });
   });
 
   describe.each`
-    changed | added | deleted | expectedDropdownHeader | expectedAddedDeletedExpanded | expectedAddedDeletedCollapsed
-    ${0}    | ${0}  | ${0}    | ${'0 changed files'}   | ${'+0 -0'}                   | ${'with 0 additions and 0 deletions'}
-    ${2}    | ${0}  | ${2}    | ${'2 changed files'}   | ${'+0 -2'}                   | ${'with 0 additions and 2 deletions'}
-    ${2}    | ${2}  | ${0}    | ${'2 changed files'}   | ${'+2 -0'}                   | ${'with 2 additions and 0 deletions'}
-    ${2}    | ${1}  | ${1}    | ${'2 changed files'}   | ${'+1 -1'}                   | ${'with 1 addition and 1 deletion'}
-    ${1}    | ${0}  | ${1}    | ${'1 changed file'}    | ${'+0 -1'}                   | ${'with 0 additions and 1 deletion'}
-    ${1}    | ${1}  | ${0}    | ${'1 changed file'}    | ${'+1 -0'}                   | ${'with 1 addition and 0 deletions'}
-    ${4}    | ${2}  | ${2}    | ${'4 changed files'}   | ${'+2 -2'}                   | ${'with 2 additions and 2 deletions'}
+    changed | added | deleted | expectedDropdownHeader | expectedAddedDeletedCollapsed
+    ${0}    | ${0}  | ${0}    | ${'0 changed files'}   | ${'with 0 additions and 0 deletions'}
+    ${2}    | ${0}  | ${2}    | ${'2 changed files'}   | ${'with 0 additions and 2 deletions'}
+    ${2}    | ${2}  | ${0}    | ${'2 changed files'}   | ${'with 2 additions and 0 deletions'}
+    ${2}    | ${1}  | ${1}    | ${'2 changed files'}   | ${'with 1 addition and 1 deletion'}
+    ${1}    | ${0}  | ${1}    | ${'1 changed file'}    | ${'with 0 additions and 1 deletion'}
+    ${1}    | ${1}  | ${0}    | ${'1 changed file'}    | ${'with 1 addition and 0 deletions'}
+    ${4}    | ${2}  | ${2}    | ${'4 changed files'}   | ${'with 2 additions and 2 deletions'}
   `(
     'when there are $changed changed file(s), $added added and $deleted deleted file(s)',
-    ({
-      changed,
-      added,
-      deleted,
-      expectedDropdownHeader,
-      expectedAddedDeletedExpanded,
-      expectedAddedDeletedCollapsed,
-    }) => {
-      beforeAll(() => {
+    ({ changed, added, deleted, expectedDropdownHeader, expectedAddedDeletedCollapsed }) => {
+      beforeEach(() => {
         createComponent({ changed, added, deleted });
       });
 
-      afterAll(() => {
-        wrapper.destroy();
-      });
-
       it(`dropdown header should be '${expectedDropdownHeader}'`, () => {
-        expect(findChanged().props('text')).toBe(expectedDropdownHeader);
-      });
-
-      it(`added and deleted count in expanded section should be '${expectedAddedDeletedExpanded}'`, () => {
-        expect(findExpanded().text()).toBe(expectedAddedDeletedExpanded);
+        expect(findChanged().props('toggleText')).toBe(expectedDropdownHeader);
       });
 
       it(`added and deleted count in collapsed section should be '${expectedAddedDeletedCollapsed}'`, () => {
@@ -148,29 +135,28 @@ describe('Diff Stats Dropdown', () => {
     });
   });
 
-  describe('selecting file dropdown item', () => {
-    beforeEach(() => {
-      createComponent({ files: mockFiles });
-    });
-
-    it('updates the URL ', () => {
-      findChangedFiles().at(0).vm.$emit('click');
-      expect(window.location.hash).toBe(mockFiles[0].href);
-      findChangedFiles().at(1).vm.$emit('click');
-      expect(window.location.hash).toBe(mockFiles[1].href);
-    });
-  });
-
   describe('on dropdown open', () => {
     beforeEach(() => {
       createComponent();
     });
 
     it('should set the search input focus', () => {
-      wrapper.vm.$refs.search.focusInput = jest.fn();
       findChanged().vm.$emit('shown');
+      expect(focusInputMock).toHaveBeenCalled();
+    });
+  });
 
-      expect(wrapper.vm.$refs.search.focusInput).toHaveBeenCalled();
+  describe('keyboard nav', () => {
+    beforeEach(() => {
+      createComponent({ files: mockFiles });
+    });
+
+    it('focuses the first item when pressing the down key within the search box', () => {
+      const { element } = wrapper.find('.gl-new-dropdown-item');
+      const spy = jest.spyOn(element, 'focus');
+      findSearchBox().vm.$emit('keydown', new KeyboardEvent({ key: ARROW_DOWN_KEY }));
+
+      expect(spy).toHaveBeenCalled();
     });
   });
 });

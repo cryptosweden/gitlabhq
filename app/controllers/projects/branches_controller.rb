@@ -6,7 +6,7 @@ class Projects::BranchesController < Projects::ApplicationController
 
   # Authorize
   before_action :require_non_empty_project, except: :create
-  before_action :authorize_download_code!
+  before_action :authorize_read_code!
   before_action :authorize_push_code!, only: [:new, :create, :destroy, :destroy_all_merged]
 
   # Support legacy URLs
@@ -19,12 +19,15 @@ class Projects::BranchesController < Projects::ApplicationController
   def index
     respond_to do |format|
       format.html do
-        @mode = params[:state].presence || 'overview'
-        @sort = sort_value_for_mode
+        @mode = fetch_mode
+        next render_404 unless @mode
+
+        @sort = sort_param || default_sort
         @overview_max_branches = 5
 
         # Fetch branches for the specified mode
         fetch_branches_by_mode
+        fetch_merge_requests_for_branches
 
         @refs_pipelines = @project.ci_pipelines.latest_successful_for_refs(@branches.map(&:name))
         @merged_branch_names = repository.merged_branch_names(@branches.map(&:name))
@@ -39,8 +42,8 @@ class Projects::BranchesController < Projects::ApplicationController
         render status: :service_unavailable
       end
       format.json do
-        branches = BranchesFinder.new(@repository, params).execute
-        branches = Kaminari.paginate_array(branches).page(params[:page])
+        branches = BranchesFinder.new(@repository, branches_params).execute
+        branches = Kaminari.paginate_array(branches).page(branches_params[:page])
         render json: branches.map(&:name)
       end
     end
@@ -74,7 +77,10 @@ class Projects::BranchesController < Projects::ApplicationController
     if params[:issue_iid] && success
       target_project = confidential_issue_project || @project
       issue = IssuesFinder.new(current_user, project_id: target_project.id).find_by(iid: params[:issue_iid])
-      SystemNoteService.new_issue_branch(issue, target_project, current_user, branch_name, branch_project: @project) if issue
+
+      if issue
+        SystemNoteService.new_issue_branch(issue, target_project, current_user, branch_name, branch_project: @project)
+      end
     end
 
     respond_to do |format|
@@ -96,7 +102,7 @@ class Projects::BranchesController < Projects::ApplicationController
         if success
           render json: { name: branch_name, url: project_tree_url(@project, branch_name) }
         else
-          render json: result[:messsage], status: :unprocessable_entity
+          render json: result[:message], status: :unprocessable_entity
         end
       end
     end
@@ -111,7 +117,7 @@ class Projects::BranchesController < Projects::ApplicationController
         flash_type = result.error? ? :alert : :notice
         flash[flash_type] = result.message
 
-        redirect_to project_branches_path(@project), status: :see_other
+        redirect_back_or_default(default: project_branches_path(@project), options: { status: :see_other })
       end
 
       format.js { head result.http_status }
@@ -128,12 +134,8 @@ class Projects::BranchesController < Projects::ApplicationController
 
   private
 
-  def sort_value_for_mode
-    custom_sort || default_sort
-  end
-
-  def custom_sort
-    sort = params[:sort].presence
+  def sort_param
+    sort = branches_params[:sort].presence
 
     unless sort.in?(supported_sort_options)
       flash.now[:alert] = _("Unsupported sort value.")
@@ -144,11 +146,11 @@ class Projects::BranchesController < Projects::ApplicationController
   end
 
   def default_sort
-    'stale' == @mode ? sort_value_oldest_updated : sort_value_recently_updated
+    'stale' == @mode ? SORT_UPDATED_OLDEST : SORT_UPDATED_RECENT
   end
 
   def supported_sort_options
-    [nil, sort_value_name, sort_value_oldest_updated, sort_value_recently_updated]
+    [nil, SORT_NAME, SORT_UPDATED_OLDEST, SORT_UPDATED_RECENT]
   end
 
   # It can be expensive to calculate the diverging counts for each
@@ -189,7 +191,7 @@ class Projects::BranchesController < Projects::ApplicationController
 
   def redirect_for_legacy_index_sort_or_search
     # Normalize a legacy URL with redirect
-    if request.format != :json && !params[:state].presence && [:sort, :search, :page].any? { |key| params[key].presence }
+    if request.format != :json && !branches_params[:state].presence && [:sort, :search, :page].any? { |key| branches_params[key].presence }
       redirect_to project_branches_filtered_path(@project, state: 'all'), notice: _('Update your bookmarked URLs as filtered/sorted branches URL has been changed.')
     end
   end
@@ -198,7 +200,16 @@ class Projects::BranchesController < Projects::ApplicationController
     return fetch_branches_for_overview if @mode == 'overview'
 
     @branches, @prev_path, @next_path =
-      Projects::BranchesByModeService.new(@project, params.merge(sort: @sort, mode: @mode)).execute
+      Projects::BranchesByModeService.new(@project, branches_params.merge(sort: @sort, mode: @mode)).execute
+  end
+
+  def fetch_merge_requests_for_branches
+    @related_merge_requests = @project
+                                .source_of_merge_requests
+                                .including_target_project
+                                .by_target_branch(@project.default_branch)
+                                .by_sorted_source_branches(@branches.map(&:name))
+                                .group_by(&:source_branch)
   end
 
   def fetch_branches_for_overview
@@ -206,13 +217,21 @@ class Projects::BranchesController < Projects::ApplicationController
     limit = @overview_max_branches + 1
 
     @active_branches =
-      BranchesFinder.new(@repository, { per_page: limit, sort: sort_value_recently_updated })
+      BranchesFinder.new(@repository, { per_page: limit, sort: SORT_UPDATED_RECENT })
         .execute(gitaly_pagination: true).select(&:active?)
     @stale_branches =
-      BranchesFinder.new(@repository, { per_page: limit, sort: sort_value_oldest_updated })
+      BranchesFinder.new(@repository, { per_page: limit, sort: SORT_UPDATED_OLDEST })
         .execute(gitaly_pagination: true).select(&:stale?)
 
     @branches = @active_branches + @stale_branches
+  end
+
+  def fetch_mode
+    state = branches_params[:state].presence
+
+    return 'overview' unless state
+
+    state.presence_in(%w[active stale all overview])
   end
 
   def confidential_issue_project
@@ -223,5 +242,9 @@ class Projects::BranchesController < Projects::ApplicationController
     return unless can?(current_user, :update_issue, confidential_issue_project)
 
     confidential_issue_project
+  end
+
+  def branches_params
+    params.permit(:page, :state, :sort, :search, :page_token, :offset)
   end
 end

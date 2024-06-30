@@ -1,10 +1,13 @@
 <script>
 import { GlButton, GlButtonGroup, GlTooltipDirective } from '@gitlab/ui';
+import { InternalEvents } from '~/tracking';
 import {
   RICH_BLOB_VIEWER,
   RICH_BLOB_VIEWER_TITLE,
   SIMPLE_BLOB_VIEWER,
   SIMPLE_BLOB_VIEWER_TITLE,
+  BLAME_VIEWER,
+  BLAME_TITLE,
 } from './constants';
 
 export default {
@@ -15,6 +18,7 @@ export default {
   directives: {
     GlTooltip: GlTooltipDirective,
   },
+  mixins: [InternalEvents.mixin()],
   props: {
     value: {
       type: String,
@@ -26,6 +30,16 @@ export default {
       default: 'document',
       required: false,
     },
+    showViewerToggles: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    showBlameToggle: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   computed: {
     isSimpleViewer() {
@@ -34,9 +48,17 @@ export default {
     isRichViewer() {
       return this.value === RICH_BLOB_VIEWER;
     },
+    isBlameViewer() {
+      return this.value === BLAME_VIEWER;
+    },
   },
   methods: {
     switchToViewer(viewer) {
+      if (viewer === BLAME_VIEWER) {
+        this.$emit('blame');
+        this.trackEvent('open_blame_viewer_on_blob_page');
+      }
+
       if (viewer !== this.value) {
         this.$emit('input', viewer);
       }
@@ -46,11 +68,14 @@ export default {
   RICH_BLOB_VIEWER,
   SIMPLE_BLOB_VIEWER_TITLE,
   RICH_BLOB_VIEWER_TITLE,
+  BLAME_TITLE,
+  BLAME_VIEWER,
 };
 </script>
 <template>
   <gl-button-group class="js-blob-viewer-switcher mx-2">
     <gl-button
+      v-if="showViewerToggles"
       v-gl-tooltip.hover
       :aria-label="$options.SIMPLE_BLOB_VIEWER_TITLE"
       :title="$options.SIMPLE_BLOB_VIEWER_TITLE"
@@ -63,6 +88,7 @@ export default {
       @click="switchToViewer($options.SIMPLE_BLOB_VIEWER)"
     />
     <gl-button
+      v-if="showViewerToggles"
       v-gl-tooltip.hover
       :aria-label="$options.RICH_BLOB_VIEWER_TITLE"
       :title="$options.RICH_BLOB_VIEWER_TITLE"
@@ -74,5 +100,16 @@ export default {
       data-viewer="rich"
       @click="switchToViewer($options.RICH_BLOB_VIEWER)"
     />
+    <gl-button
+      v-if="showBlameToggle"
+      v-gl-tooltip.hover
+      :title="$options.BLAME_TITLE"
+      :selected="isBlameViewer"
+      category="primary"
+      variant="default"
+      data-test-id="blame-toggle"
+      @click="switchToViewer($options.BLAME_VIEWER)"
+      >{{ __('Blame') }}</gl-button
+    >
   </gl-button-group>
 </template>

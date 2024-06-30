@@ -1,28 +1,4 @@
-import { isString } from 'lodash';
-import { API_MESSAGES } from '~/invite_members/constants';
-
-function responseKeyedMessageParsed(keyedMessage) {
-  try {
-    const keys = Object.keys(keyedMessage);
-    const msg = keyedMessage[keys[0]];
-
-    if (msg === API_MESSAGES.EMAIL_ALREADY_INVITED) {
-      return '';
-    }
-    return msg;
-  } catch {
-    return '';
-  }
-}
-function responseMessageStringForMultiple(message) {
-  return message.includes(':');
-}
-function responseMessageStringFirstPart(message) {
-  const firstPart = message.split(':')[1];
-  const firstMsg = firstPart.split(/ and [\w-]*$/)[0].trim();
-
-  return firstMsg;
-}
+import { isString, isArray } from 'lodash';
 
 export function responseMessageFromError(response) {
   if (!response?.response?.data) {
@@ -33,36 +9,33 @@ export function responseMessageFromError(response) {
     response: { data },
   } = response;
 
-  return (
-    data.error ||
-    data.message?.user?.[0] ||
-    data.message?.access_level?.[0] ||
-    data.message?.error ||
-    data.message ||
-    ''
-  );
+  return data.error || data.message?.error || data.message || '';
 }
 
-export function responseMessageFromSuccess(response) {
-  if (!response?.[0]?.data) {
-    return '';
+export function responseFromSuccess(response) {
+  if (!response?.data) {
+    return { error: false };
   }
 
-  const { data } = response[0];
+  const { data } = response;
 
-  if (data.message && !data.message.user) {
+  if (data.message) {
     const { message } = data;
 
     if (isString(message)) {
-      if (responseMessageStringForMultiple(message)) {
-        return responseMessageStringFirstPart(message);
-      }
-
-      return message;
+      return { message, error: true };
     }
 
-    return responseKeyedMessageParsed(message);
+    if (isArray(message)) {
+      return { message: message[0], error: true };
+    }
+    // we assume object now with our keyed format
+    return { message: { ...message }, error: true };
   }
 
-  return data.message || data.message?.user || data.error || '';
+  if (data.error) {
+    return { message: data.error, error: true };
+  }
+
+  return { error: false };
 }

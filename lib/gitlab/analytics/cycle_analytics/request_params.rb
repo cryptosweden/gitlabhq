@@ -12,6 +12,24 @@ module Gitlab
         MAX_RANGE_DAYS = 180.days.freeze
         DEFAULT_DATE_RANGE = 29.days # 30 including Date.today
 
+        NEGATABLE_PARAMS = [
+          :assignee_username,
+          :author_username,
+          :epic_id,
+          :iteration_id,
+          :label_name,
+          :milestone_title,
+          :my_reaction_emoji,
+          :weight
+        ].freeze
+
+        LICENSED_PARAMS = [
+          :weight,
+          :epic_id,
+          :my_reaction_emoji,
+          :iteration_id
+        ].freeze
+
         STRONG_PARAMS_DEFINITION = [
           :created_before,
           :created_after,
@@ -22,9 +40,11 @@ module Gitlab
           :page,
           :stage_id,
           :end_event_filter,
-          label_name: [].freeze,
-          assignee_username: [].freeze,
-          project_ids: [].freeze
+          *LICENSED_PARAMS,
+          { label_name: [].freeze,
+            assignee_username: [].freeze,
+            project_ids: [].freeze,
+            not: NEGATABLE_PARAMS }
         ].freeze
 
         FINDER_PARAM_NAMES = [
@@ -38,15 +58,19 @@ module Gitlab
 
         attribute :created_after, :datetime
         attribute :created_before, :datetime
-        attribute :group
+        attribute :namespace
         attribute :current_user
         attribute :value_stream
         attribute :sort
         attribute :direction
         attribute :page
-        attribute :project
         attribute :stage_id
         attribute :end_event_filter
+        attribute :weight
+        attribute :epic_id
+        attribute :my_reaction_emoji
+        attribute :iteration_id
+        attribute :not, default: -> { {} }
 
         FINDER_PARAM_NAMES.each do |param_name|
           attribute param_name
@@ -66,10 +90,6 @@ module Gitlab
           self.end_event_filter ||= Gitlab::Analytics::CycleAnalytics::BaseQueryBuilder::DEFAULT_END_EVENT_FILTER
         end
 
-        def project_ids
-          Array(@project_ids)
-        end
-
         def to_data_collector_params
           {
             current_user: current_user,
@@ -86,12 +106,9 @@ module Gitlab
 
         def to_data_attributes
           {}.tap do |attrs|
-            attrs[:aggregation] = aggregation_attributes if group
-            attrs[:group] = group_data_attributes if group
             attrs[:value_stream] = value_stream_data_attributes.to_json if value_stream
             attrs[:created_after] = created_after.to_date.iso8601
             attrs[:created_before] = created_before.to_date.iso8601
-            attrs[:projects] = group_projects(project_ids) if group && project_ids.present?
             attrs[:labels] = label_name.to_json if label_name.present?
             attrs[:assignees] = assignee_username.to_json if assignee_username.present?
             attrs[:author] = author_username if author_username.present?
@@ -99,36 +116,66 @@ module Gitlab
             attrs[:sort] = sort if sort.present?
             attrs[:direction] = direction if direction.present?
             attrs[:stage] = stage_data_attributes.to_json if stage_id.present?
+            attrs[:namespace] = namespace_attributes
+            attrs[:enable_tasks_by_type_chart] = 'false'
+            attrs[:enable_customizable_stages] = 'false'
+            attrs[:can_edit] = 'false'
+            attrs[:enable_projects_filter] = 'false'
+            attrs[:enable_vsd_link] = 'false'
+            attrs[:default_stages] = Gitlab::Analytics::CycleAnalytics::DefaultStages.all.map do |stage_params|
+              ::Analytics::CycleAnalytics::StagePresenter.new(stage_params)
+            end.to_json
+
+            attrs.merge!(foss_project_level_params, resource_paths)
+          end
+        end
+
+        def project_ids
+          Array(@project_ids)
+        end
+
+        def resource_paths
+          helpers = ActionController::Base.helpers
+
+          {}.tap do |paths|
+            paths[:empty_state_svg_path] = helpers.image_path("illustrations/empty-state/empty-dashboard-md.svg")
+            paths[:no_data_svg_path] = helpers.image_path("illustrations/empty-state/empty-dashboard-md.svg")
+            paths[:no_access_svg_path] = helpers.image_path("illustrations/empty-state/empty-access-md.svg")
+
+            if project
+              paths[:milestones_path] = url_helpers.project_milestones_path(project, format: :json)
+              paths[:labels_path] = url_helpers.project_labels_path(project, format: :json)
+            end
           end
         end
 
         private
 
-        def use_aggregated_backend?
-          group.present? && # for now it's only available on the group-level
-            aggregation.enabled &&
-            Feature.enabled?(:use_vsa_aggregated_tables, group, default_enabled: :yaml)
-        end
+        delegate :url_helpers, to: Gitlab::Routing
 
-        def aggregation_attributes
+        def foss_project_level_params
+          return {} unless project
+
           {
-            enabled: aggregation.enabled.to_s,
-            last_run_at: aggregation.last_incremental_run_at&.iso8601,
-            next_run_at: aggregation.estimated_next_run_at&.iso8601
+            project_id: project.id,
+            group_path: project.group ? "groups/#{project.group&.full_path}" : nil,
+            request_path: url_helpers.project_cycle_analytics_path(project),
+            full_path: project.full_path
           }
         end
 
-        def aggregation
-          @aggregation ||= ::Analytics::CycleAnalytics::Aggregation.safe_create_for_group(group)
+        # FOSS version doesn't use the aggregated VSA backend
+        def use_aggregated_backend?
+          false
         end
 
-        def group_data_attributes
+        def namespace_attributes
+          return {} unless project
+
           {
-            id: group.id,
-            name: group.name,
-            parent_id: group.parent_id,
-            full_path: group.full_path,
-            avatar_url: group.avatar_url
+            name: project.name,
+            full_path: project.full_path,
+            type: namespace.type
           }
         end
 
@@ -137,28 +184,6 @@ module Gitlab
             id: value_stream.id,
             name: value_stream.name,
             is_custom: value_stream.custom?
-          }
-        end
-
-        def group_projects(project_ids)
-          GroupProjectsFinder.new(
-            group: group,
-            current_user: current_user,
-            options: { include_subgroups: true },
-            project_ids_relation: project_ids
-          )
-            .execute
-            .with_route
-            .map { |project| project_data_attributes(project) }
-            .to_json
-        end
-
-        def project_data_attributes(project)
-          {
-            id: project.to_gid.to_s,
-            name: project.name,
-            path_with_namespace: project.path_with_namespace,
-            avatar_url: project.avatar_url
           }
         end
 
@@ -180,7 +205,8 @@ module Gitlab
         def validate_date_range
           return if created_after.nil? || created_before.nil?
 
-          if (created_before - created_after) > MAX_RANGE_DAYS
+          time_period = created_before.at_beginning_of_day - created_after.at_beginning_of_day
+          if time_period > MAX_RANGE_DAYS
             errors.add(:created_after, s_('CycleAnalytics|The given date range is larger than 180 days'))
           end
         end
@@ -197,10 +223,18 @@ module Gitlab
           return unless value_stream
 
           strong_memoize(:stage) do
-            ::Analytics::CycleAnalytics::StageFinder.new(parent: project || group, stage_id: stage_id).execute if stage_id
+            ::Analytics::CycleAnalytics::StageFinder.new(parent: namespace, stage_id: stage_id).execute if stage_id
+          end
+        end
+
+        def project
+          strong_memoize(:project) do
+            namespace.project if namespace.is_a?(Namespaces::ProjectNamespace)
           end
         end
       end
     end
   end
 end
+
+Gitlab::Analytics::CycleAnalytics::RequestParams.prepend_mod_with('Gitlab::Analytics::CycleAnalytics::RequestParams')

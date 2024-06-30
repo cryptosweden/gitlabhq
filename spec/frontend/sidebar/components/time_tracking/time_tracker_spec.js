@@ -32,7 +32,7 @@ describe('Issuable Time Tracker', () => {
   const mountComponent = ({ props = {}, issuableType = 'issue', loading = false } = {}) => {
     return mount(TimeTracker, {
       propsData: { ...defaultProps, ...props },
-      directives: { GlTooltip: createMockDirective() },
+      directives: { GlTooltip: createMockDirective('gl-tooltip') },
       stubs: {
         transition: stubTransition(),
       },
@@ -52,10 +52,6 @@ describe('Issuable Time Tracker', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('Initialization', () => {
     beforeEach(() => {
@@ -124,11 +120,11 @@ describe('Issuable Time Tracker', () => {
 
       describe('Remaining meter', () => {
         it('should display the remaining meter with the correct width', () => {
-          expect(findTimeRemainingProgress().attributes('value')).toBe('5');
+          expect(findTimeRemainingProgress().vm.$attrs.value).toBe(5);
         });
 
         it('should display the remaining meter with the correct background color when within estimate', () => {
-          expect(findTimeRemainingProgress().attributes('variant')).toBe('primary');
+          expect(findTimeRemainingProgress().vm.$attrs.variant).toBe('primary');
         });
 
         it('should display the remaining meter with the correct background color when over estimate', () => {
@@ -142,13 +138,13 @@ describe('Issuable Time Tracker', () => {
             },
           });
 
-          expect(findTimeRemainingProgress().attributes('variant')).toBe('danger');
+          expect(findTimeRemainingProgress().vm.$attrs.variant).toBe('danger');
         });
       });
     });
 
     describe('Comparison pane when limitToHours is true', () => {
-      beforeEach(async () => {
+      beforeEach(() => {
         wrapper = mountComponent({
           props: {
             limitToHours: true,
@@ -268,11 +264,62 @@ describe('Issuable Time Tracker', () => {
       });
     });
 
-    describe('Help pane', () => {
-      const findHelpButton = () => findByTestId('helpButton');
-      const findCloseHelpButton = () => findByTestId('closeHelpButton');
+    describe('Add button', () => {
+      const findAddButton = () => findByTestId('add-time-entry-button');
 
-      beforeEach(async () => {
+      it.each`
+        visibility       | canAddTimeEntries
+        ${'not visible'} | ${false}
+        ${'visible'}     | ${true}
+      `(
+        'is $visibility when canAddTimeEntries is $canAddTimeEntries',
+        async ({ canAddTimeEntries }) => {
+          wrapper = mountComponent({
+            props: {
+              initialTimeTracking: {
+                timeEstimate: 0,
+                totalTimeSpent: 0,
+                humanTimeEstimate: '',
+                humanTotalTimeSpent: '',
+              },
+              canAddTimeEntries,
+            },
+          });
+          await nextTick();
+
+          expect(findAddButton().exists()).toBe(canAddTimeEntries);
+        },
+      );
+    });
+
+    describe('Set time estimate button', () => {
+      const findSetTimeEstimateButton = () => findByTestId('set-time-estimate-button');
+
+      it.each`
+        visibility       | canSetTimeEstimate
+        ${'not visible'} | ${false}
+        ${'visible'}     | ${true}
+      `(
+        'is $visibility when canSetTimeEstimate is $canSetTimeEstimate',
+        async ({ canSetTimeEstimate }) => {
+          wrapper = mountComponent({
+            props: {
+              initialTimeTracking: {
+                timeEstimate: 0,
+                totalTimeSpent: 0,
+                humanTimeEstimate: '',
+                humanTotalTimeSpent: '',
+              },
+              canSetTimeEstimate,
+            },
+          });
+          await nextTick();
+
+          expect(findSetTimeEstimateButton().exists()).toBe(canSetTimeEstimate);
+        },
+      );
+
+      it('shows a tooltip with `Set estimate` when the current estimate is 0', async () => {
         wrapper = mountComponent({
           props: {
             initialTimeTracking: {
@@ -281,33 +328,29 @@ describe('Issuable Time Tracker', () => {
               humanTimeEstimate: '',
               humanTotalTimeSpent: '',
             },
+            canSetTimeEstimate: true,
           },
         });
         await nextTick();
+
+        expect(findSetTimeEstimateButton().attributes('title')).toBe('Set estimate');
       });
 
-      it('should not show the "Help" pane by default', () => {
-        expect(findByTestId('helpPane').exists()).toBe(false);
-      });
-
-      it('should show the "Help" pane when help button is clicked', async () => {
-        findHelpButton().trigger('click');
-
+      it('shows a tooltip with `Edit estimate` when the current estimate is not 0', async () => {
+        wrapper = mountComponent({
+          props: {
+            initialTimeTracking: {
+              timeEstimate: 60,
+              totalTimeSpent: 0,
+              humanTimeEstimate: '1m',
+              humanTotalTimeSpent: '',
+            },
+            canSetTimeEstimate: true,
+          },
+        });
         await nextTick();
 
-        expect(findByTestId('helpPane').exists()).toBe(true);
-      });
-
-      it('should not show the "Help" pane when help button is clicked and then closed', async () => {
-        findHelpButton().trigger('click');
-        await nextTick();
-
-        expect(findByTestId('helpPane').exists()).toBe(true);
-
-        findCloseHelpButton().trigger('click');
-        await nextTick();
-
-        expect(findByTestId('helpPane').exists()).toBe(false);
+        expect(findSetTimeEstimateButton().attributes('title')).toBe('Edit estimate');
       });
     });
   });

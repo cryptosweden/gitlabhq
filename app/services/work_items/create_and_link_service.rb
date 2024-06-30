@@ -6,26 +6,31 @@ module WorkItems
   # This class should always be run inside a transaction as we could end up with
   # new work items that were never associated with other work items as expected.
   class CreateAndLinkService
-    def initialize(project:, current_user: nil, params: {}, spam_params:, link_params: {})
-      @create_service = CreateService.new(
-        project: project,
-        current_user: current_user,
-        params: params,
-        spam_params: spam_params
-      )
+    def initialize(project:, perform_spam_check: true, current_user: nil, params: {}, link_params: {})
       @project = project
       @current_user = current_user
+      @params = params
       @link_params = link_params
+      @perform_spam_check = perform_spam_check
     end
 
     def execute
-      create_result = @create_service.execute
+      create_result = CreateService.new(
+        container: @project,
+        current_user: @current_user,
+        params: @params.merge(title: @params[:title].strip).reverse_merge(confidential: confidential_parent),
+        perform_spam_check: @perform_spam_check
+      ).execute
       return create_result if create_result.error?
 
       work_item = create_result[:work_item]
       return ::ServiceResponse.success(payload: payload(work_item)) if @link_params.blank?
 
-      result = IssueLinks::CreateService.new(work_item, @current_user, @link_params).execute
+      result = WorkItems::ParentLinks::CreateService.new(
+        @link_params[:parent_work_item],
+        @current_user,
+        { target_issuable: work_item }
+      ).execute
 
       if result[:status] == :success
         ::ServiceResponse.success(payload: payload(work_item))
@@ -35,6 +40,10 @@ module WorkItems
     end
 
     private
+
+    def confidential_parent
+      !!@link_params[:parent_work_item]&.confidential
+    end
 
     def payload(work_item)
       { work_item: work_item }

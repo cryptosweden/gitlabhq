@@ -1,10 +1,10 @@
 import testAction from 'helpers/vuex_action_helper';
 import Api from '~/api';
-import { redirectTo } from '~/lib/utils/url_utility';
+import { visitUrl } from '~/lib/utils/url_utility';
 import * as actions from '~/user_lists/store/new/actions';
 import * as types from '~/user_lists/store/new/mutation_types';
 import createState from '~/user_lists/store/new/state';
-import { userList } from '../../../feature_flags/mock_data';
+import { userList } from 'jest/feature_flags/mock_data';
 
 jest.mock('~/api');
 jest.mock('~/lib/utils/url_utility');
@@ -38,11 +38,10 @@ describe('User Lists Edit Actions', () => {
         Api.createFeatureFlagUserList.mockResolvedValue({ data: userList });
       });
 
-      it('should redirect to the user list page', () => {
-        return testAction(actions.createUserList, createdList, state, [], [], () => {
-          expect(Api.createFeatureFlagUserList).toHaveBeenCalledWith('1', createdList);
-          expect(redirectTo).toHaveBeenCalledWith(userList.path);
-        });
+      it('should redirect to the user list page', async () => {
+        await testAction(actions.createUserList, createdList, state, [], []);
+        expect(Api.createFeatureFlagUserList).toHaveBeenCalledWith('1', createdList);
+        expect(visitUrl).toHaveBeenCalledWith(userList.path);
       });
     });
 
@@ -54,15 +53,15 @@ describe('User Lists Edit Actions', () => {
         Api.createFeatureFlagUserList.mockRejectedValue(error);
       });
 
-      it('should commit RECEIVE_USER_LIST_ERROR', () => {
-        return testAction(
+      it('should commit RECEIVE_USER_LIST_ERROR', async () => {
+        await testAction(
           actions.createUserList,
           createdList,
           state,
           [{ type: types.RECEIVE_CREATE_USER_LIST_ERROR, payload: ['error'] }],
           [],
-          () => expect(Api.createFeatureFlagUserList).toHaveBeenCalledWith('1', createdList),
         );
+        expect(Api.createFeatureFlagUserList).toHaveBeenCalledWith('1', createdList);
       });
     });
   });

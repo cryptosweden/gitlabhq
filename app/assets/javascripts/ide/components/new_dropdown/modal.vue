@@ -1,7 +1,9 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlModal, GlButton } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState, mapGetters } from 'vuex';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { __, sprintf } from '~/locale';
 import { modalTypes } from '../../constants';
 import { trimPathComponents, getPathParent } from '../../utils';
@@ -30,7 +32,8 @@ export default {
 
       if (this.modalType === modalTypes.tree) {
         return __('Create new directory');
-      } else if (this.modalType === modalTypes.rename) {
+      }
+      if (this.modalType === modalTypes.rename) {
         return entry.type === modalTypes.tree ? __('Rename folder') : __('Rename file');
       }
 
@@ -41,7 +44,8 @@ export default {
 
       if (this.modalType === modalTypes.tree) {
         return __('Create directory');
-      } else if (this.modalType === modalTypes.rename) {
+      }
+      if (this.modalType === modalTypes.rename) {
         return entry.type === modalTypes.tree ? __('Rename folder') : __('Rename file');
       }
 
@@ -50,13 +54,13 @@ export default {
     actionPrimary() {
       return {
         text: this.buttonLabel,
-        attributes: [{ variant: 'confirm' }],
+        attributes: { variant: 'confirm' },
       };
     },
     actionCancel() {
       return {
         text: i18n.cancelButtonText,
-        attributes: [{ variant: 'default' }],
+        attributes: { variant: 'default' },
       };
     },
     isCreatingNewFile() {
@@ -68,12 +72,16 @@ export default {
   },
   methods: {
     ...mapActions(['createTempEntry', 'renameEntry']),
+    submitAndClose() {
+      this.submitForm();
+      this.close();
+    },
     submitForm() {
       this.entryName = trimPathComponents(this.entryName);
 
       if (this.modalType === modalTypes.rename) {
         if (this.entries[this.entryName] && !this.entries[this.entryName].deleted) {
-          createFlash({
+          createAlert({
             message: sprintf(__('The name "%{name}" is already taken in this directory.'), {
               name: this.entryName,
             }),
@@ -149,7 +157,6 @@ export default {
   <gl-modal
     ref="modal"
     modal-id="ide-new-entry"
-    data-qa-selector="new_file_modal"
     data-testid="ide-new-entry"
     :title="modalTitle"
     size="lg"
@@ -161,16 +168,17 @@ export default {
     <div class="form-group row">
       <label class="label-bold col-form-label col-sm-2"> {{ __('Name') }} </label>
       <div class="col-sm-10">
-        <input
-          ref="fieldName"
-          v-model.trim="entryName"
-          type="text"
-          class="form-control"
-          data-testid="file-name-field"
-          data-qa-selector="file_name_field"
-          :placeholder="placeholder"
-        />
-        <ul v-if="isCreatingNewFile" class="file-templates gl-mt-3 list-inline qa-template-list">
+        <form data-testid="file-name-form" @submit.prevent="submitAndClose">
+          <input
+            ref="fieldName"
+            v-model.trim="entryName"
+            type="text"
+            class="form-control"
+            data-testid="file-name-field"
+            :placeholder="placeholder"
+          />
+        </form>
+        <ul v-if="isCreatingNewFile" class="file-templates gl-mt-3 list-inline">
           <li v-for="(template, index) in templateTypes" :key="index" class="list-inline-item">
             <gl-button
               variant="dashed"

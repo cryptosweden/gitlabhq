@@ -2,15 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Environments do
+RSpec.describe API::Environments, feature_category: :continuous_delivery do
   let_it_be(:user) { create(:user) }
+  let_it_be(:developer) { create(:user) }
   let_it_be(:non_member) { create(:user) }
-  let_it_be(:project) { create(:project, :private, :repository, namespace: user.namespace) }
+  let_it_be(:project) { create(:project, :private, :repository, namespace: user.namespace, maintainers: user, developers: developer) }
   let_it_be_with_reload(:environment) { create(:environment, project: project) }
-
-  before do
-    project.add_maintainer(user)
-  end
 
   describe 'GET /projects/:id/environments', :aggregate_failures do
     context 'as member of the project' do
@@ -23,96 +20,22 @@ RSpec.describe API::Environments do
         expect(json_response).to be_an Array
         expect(json_response.size).to eq(1)
         expect(json_response.first['name']).to eq(environment.name)
+        expect(json_response.first['tier']).to eq(environment.tier)
         expect(json_response.first['external_url']).to eq(environment.external_url)
         expect(json_response.first['project']).to match_schema('public_api/v4/project')
-        expect(json_response.first['enable_advanced_logs_querying']).to eq(false)
         expect(json_response.first).not_to have_key('last_deployment')
-        expect(json_response.first).not_to have_key('gitlab_managed_apps_logs_path')
       end
 
-      context 'when the user can read pod logs' do
-        context 'with successful deployment on cluster' do
-          let_it_be(:deployment) { create(:deployment, :on_cluster, :success, environment: environment, project: project) }
+      it 'returns 200 HTTP status when using JOB-TOKEN auth' do
+        job = create(:ci_build, :running, project: project, user: user)
 
-          it 'returns environment with enable_advanced_logs_querying and logs_api_path' do
-            get api("/projects/#{project.id}/environments", user)
+        get api("/projects/#{project.id}/environments"), params: { job_token: job.token }
 
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(response).to include_pagination_headers
-            expect(json_response).to be_an Array
-            expect(json_response.size).to eq(1)
-            expect(json_response.first['gitlab_managed_apps_logs_path']).to eq(
-              "/#{project.full_path}/-/logs/k8s.json?cluster_id=#{deployment.cluster_id}"
-            )
-          end
-        end
-
-        context 'when elastic stack is available' do
-          before do
-            allow_next_found_instance_of(Environment) do |env|
-              allow(env).to receive(:elastic_stack_available?).and_return(true)
-            end
-          end
-
-          it 'returns environment with enable_advanced_logs_querying and logs_api_path' do
-            get api("/projects/#{project.id}/environments", user)
-
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(response).to include_pagination_headers
-            expect(json_response).to be_an Array
-            expect(json_response.size).to eq(1)
-            expect(json_response.first['enable_advanced_logs_querying']).to eq(true)
-            expect(json_response.first['logs_api_path']).to eq(
-              "/#{project.full_path}/-/logs/elasticsearch.json?environment_name=#{environment.name}"
-            )
-          end
-        end
-
-        context 'when elastic stack is not available' do
-          before do
-            allow_next_found_instance_of(Environment) do |env|
-              allow(env).to receive(:elastic_stack_available?).and_return(false)
-            end
-          end
-
-          it 'returns environment with enable_advanced_logs_querying logs_api_path' do
-            get api("/projects/#{project.id}/environments", user)
-
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(response).to include_pagination_headers
-            expect(json_response).to be_an Array
-            expect(json_response.size).to eq(1)
-            expect(json_response.first['enable_advanced_logs_querying']).to eq(false)
-            expect(json_response.first['logs_api_path']).to eq(
-              "/#{project.full_path}/-/logs/k8s.json?environment_name=#{environment.name}"
-            )
-          end
-        end
-      end
-
-      context 'when the user cannot read pod logs' do
-        before do
-          allow_next_found_instance_of(User) do |user|
-            allow(user).to receive(:can?).and_call_original
-            allow(user).to receive(:can?).with(:read_pod_logs, project).and_return(false)
-          end
-        end
-
-        it 'does not contain enable_advanced_logs_querying' do
-          get api("/projects/#{project.id}/environments", user)
-
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(response).to include_pagination_headers
-          expect(json_response).to be_an Array
-          expect(json_response.size).to eq(1)
-          expect(json_response.first).not_to have_key('enable_advanced_logs_querying')
-          expect(json_response.first).not_to have_key('logs_api_path')
-          expect(json_response.first).not_to have_key('gitlab_managed_apps_logs_path')
-        end
+        expect(response).to have_gitlab_http_status(:ok)
       end
 
       context 'when filtering' do
-        let_it_be(:environment2) { create(:environment, project: project) }
+        let_it_be(:stopped_environment) { create(:environment, :stopped, project: project) }
 
         it 'returns environment by name' do
           get api("/projects/#{project.id}/environments?name=#{environment.name}", user)
@@ -150,6 +73,43 @@ RSpec.describe API::Environments do
           expect(json_response).to be_an Array
           expect(json_response.size).to eq(0)
         end
+
+        context "when params[:search] is less than #{described_class::MIN_SEARCH_LENGTH} characters" do
+          it 'returns with status 400' do
+            get api("/projects/#{project.id}/environments?search=ab", user)
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(json_response['message']).to include("Search query is less than #{described_class::MIN_SEARCH_LENGTH} characters")
+          end
+        end
+
+        it 'returns environment by valid state' do
+          get api("/projects/#{project.id}/environments?states=available", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to include_pagination_headers
+          expect(json_response).to be_an Array
+          expect(json_response.size).to eq(1)
+          expect(json_response.first['name']).to eq(environment.name)
+        end
+
+        it 'returns all environments when state is not specified' do
+          get api("/projects/#{project.id}/environments", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to include_pagination_headers
+          expect(json_response).to be_an Array
+          expect(json_response.size).to eq(2)
+          expect(json_response.first['name']).to eq(environment.name)
+          expect(json_response.last['name']).to eq(stopped_environment.name)
+        end
+
+        it 'returns a 400 when filtering by invalid state' do
+          get api("/projects/#{project.id}/environments?states=test", user)
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+          expect(json_response['error']).to eq('states does not have a valid value')
+        end
       end
     end
 
@@ -165,13 +125,22 @@ RSpec.describe API::Environments do
   describe 'POST /projects/:id/environments' do
     context 'as a member' do
       it 'creates a environment with valid params' do
-        post api("/projects/#{project.id}/environments", user), params: { name: "mepmep" }
+        post api("/projects/#{project.id}/environments", user), params: { name: "mepmep", tier: 'staging' }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(response).to match_response_schema('public_api/v4/environment')
         expect(json_response['name']).to eq('mepmep')
         expect(json_response['slug']).to eq('mepmep')
+        expect(json_response['tier']).to eq('staging')
         expect(json_response['external']).to be nil
+      end
+
+      it 'returns 200 HTTP status when using JOB-TOKEN auth' do
+        job = create(:ci_build, :running, project: project, user: user)
+
+        post api("/projects/#{project.id}/environments"), params: { name: "mepmep", job_token: job.token }
+
+        expect(response).to have_gitlab_http_status(:created)
       end
 
       it 'requires name to be passed' do
@@ -207,16 +176,86 @@ RSpec.describe API::Environments do
     end
   end
 
+  describe 'POST /projects/:id/environments/stop_stale' do
+    context 'as a maintainer' do
+      it 'returns a 200' do
+        post api("/projects/#{project.id}/environments/stop_stale", user), params: { before: 1.week.ago.to_date.to_s }
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+
+      it 'returns 200 HTTP status when using JOB-TOKEN auth' do
+        job = create(:ci_build, :running, project: project, user: user)
+
+        post api("/projects/#{project.id}/environments/stop_stale"),
+          params: { before: 1.week.ago.to_date.to_s, job_token: job.token }
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+
+      it 'returns a 400 for bad input date' do
+        post api("/projects/#{project.id}/environments/stop_stale", user), params: { before: 1.day.ago.to_date.to_s }
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']).to eq('400 Bad request - Invalid Date')
+      end
+
+      it 'returns a 400 for service error' do
+        expect_next_instance_of(::Environments::StopStaleService) do |service|
+          expect(service).to receive(:execute).and_return(ServiceResponse.error(message: 'Test Error'))
+        end
+
+        post api("/projects/#{project.id}/environments/stop_stale", user), params: { before: 1.week.ago.to_date.to_s }
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']).to eq('Test Error')
+      end
+    end
+
+    context 'a non member' do
+      it 'rejects the request' do
+        post api("/projects/#{project.id}/environments/stop_stale", non_member), params: { before: 1.week.ago.to_date.to_s }
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context 'a developer' do
+      it 'rejects the request' do
+        post api("/projects/#{project.id}/environments/stop_stale", developer), params: { before: 1.week.ago.to_date.to_s }
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+  end
+
   describe 'PUT /projects/:id/environments/:environment_id' do
-    it 'returns a 200 if name and external_url are changed' do
+    it 'returns a 200 if external_url is changed' do
       url = 'https://mepmep.whatever.ninja'
       put api("/projects/#{project.id}/environments/#{environment.id}", user),
-          params: { name: 'Mepmep', external_url: url }
+        params: { external_url: url }
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(response).to match_response_schema('public_api/v4/environment')
-      expect(json_response['name']).to eq('Mepmep')
       expect(json_response['external_url']).to eq(url)
+    end
+
+    it 'returns a 200 if tier is changed' do
+      put api("/projects/#{project.id}/environments/#{environment.id}", user),
+        params: { tier: 'production' }
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(response).to match_response_schema('public_api/v4/environment')
+      expect(json_response['tier']).to eq('production')
+    end
+
+    it 'returns 200 HTTP status when using JOB-TOKEN auth' do
+      job = create(:ci_build, :running, project: project, user: user)
+
+      put api("/projects/#{project.id}/environments/#{environment.id}"),
+        params: { tier: 'production', job_token: job.token }
+
+      expect(response).to have_gitlab_http_status(:ok)
     end
 
     it "won't allow slug to be changed" do
@@ -226,16 +265,6 @@ RSpec.describe API::Environments do
 
       expect(response).to have_gitlab_http_status(:bad_request)
       expect(json_response["error"]).to eq("slug is automatically generated and cannot be changed")
-    end
-
-    it "won't update the external_url if only the name is passed" do
-      url = environment.external_url
-      put api("/projects/#{project.id}/environments/#{environment.id}", user),
-          params: { name: 'Mepmep' }
-
-      expect(response).to have_gitlab_http_status(:ok)
-      expect(json_response['name']).to eq('Mepmep')
-      expect(json_response['external_url']).to eq(url)
     end
 
     it 'returns a 404 if the environment does not exist' do
@@ -257,6 +286,17 @@ RSpec.describe API::Environments do
         environment.stop
 
         delete api("/projects/#{project.id}/environments/#{environment.id}", user)
+
+        expect(response).to have_gitlab_http_status(:no_content)
+      end
+
+      it 'returns 204 HTTP status when using JOB-TOKEN auth' do
+        environment.stop
+
+        job = create(:ci_build, :running, project: project, user: user)
+
+        delete api("/projects/#{project.id}/environments/#{environment.id}"),
+          params: { job_token: job.token }
 
         expect(response).to have_gitlab_http_status(:no_content)
       end
@@ -291,17 +331,23 @@ RSpec.describe API::Environments do
       context 'with a stoppable environment' do
         before do
           environment.update!(state: :available)
-
-          post api("/projects/#{project.id}/environments/#{environment.id}/stop", user)
         end
 
         it 'returns a 200' do
+          post api("/projects/#{project.id}/environments/#{environment.id}/stop", user)
+
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to match_response_schema('public_api/v4/environment')
+          expect(environment.reload).to be_stopped
         end
 
-        it 'actually stops the environment' do
-          expect(environment.reload).to be_stopped
+        it 'returns 200 HTTP status when using JOB-TOKEN auth' do
+          job = create(:ci_build, :running, project: project, user: user)
+
+          post api("/projects/#{project.id}/environments/#{environment.id}/stop"),
+            params: { job_token: job.token }
+
+          expect(response).to have_gitlab_http_status(:ok)
         end
       end
 
@@ -323,23 +369,99 @@ RSpec.describe API::Environments do
   end
 
   describe 'GET /projects/:id/environments/:environment_id' do
+    let_it_be(:bridge_job) { create(:ci_bridge, :running, project: project, user: user) }
+    let_it_be(:build_job) { create(:ci_build, :running, project: project, user: user) }
+
     context 'as member of the project' do
-      it 'returns project environments' do
-        create(:deployment, :success, project: project, environment: environment)
+      shared_examples "returns project environments" do
+        it 'returns expected response' do
+          create(
+            :deployment,
+            :success,
+            project: project,
+            environment: environment,
+            deployable: job
+          )
 
-        get api("/projects/#{project.id}/environments/#{environment.id}", user)
+          get api("/projects/#{project.id}/environments/#{environment.id}", user)
 
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(response).to match_response_schema('public_api/v4/environment')
-        expect(json_response['last_deployment']).to be_present
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to match_response_schema('public_api/v4/environment')
+          expect(json_response['last_deployment']).to be_present
+        end
+      end
+
+      context "when the deployable is a bridge" do
+        it_behaves_like "returns project environments" do
+          let(:job) { bridge_job }
+        end
+
+        # No test for Ci::Bridge JOB-TOKEN auth because it doesn't implement the `.token` method.
+      end
+
+      context "when the deployable is a build" do
+        it_behaves_like "returns project environments" do
+          let(:job) { build_job }
+        end
+
+        it 'returns 200 HTTP status when using JOB-TOKEN auth' do
+          get(
+            api("/projects/#{project.id}/environments/#{environment.id}"),
+            params: { job_token: build_job.token }
+          )
+
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+
+      context "when auto_stop_at is present" do
+        before do
+          environment.update!(auto_stop_at: Time.current)
+        end
+
+        it "returns the expected response" do
+          get api("/projects/#{project.id}/environments/#{environment.id}", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to match_response_schema('public_api/v4/environment')
+          expect(json_response['auto_stop_at']).to be_present
+        end
+      end
+
+      context "when auto_stop_at is not present" do
+        before do
+          environment.update!(auto_stop_at: nil)
+        end
+
+        it "returns the expected response" do
+          get api("/projects/#{project.id}/environments/#{environment.id}", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to match_response_schema('public_api/v4/environment')
+          expect(json_response['auto_stop_at']).to be_nil
+        end
       end
     end
 
     context 'as non member' do
-      it 'returns a 404 status code' do
-        get api("/projects/#{project.id}/environments/#{environment.id}", non_member)
+      shared_examples 'environment will not be found' do
+        it 'returns a 404 status code' do
+          get api("/projects/#{project.id}/environments/#{environment.id}", non_member)
 
-        expect(response).to have_gitlab_http_status(:not_found)
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context "when the deployable is a bridge" do
+        it_behaves_like "environment will not be found" do
+          let(:job) { bridge_job }
+        end
+      end
+
+      context "when the deployable is a build" do
+        it_behaves_like "environment will not be found" do
+          let(:job) { build_job }
+        end
       end
     end
   end
@@ -365,8 +487,8 @@ RSpec.describe API::Environments do
         expect(json_response["scheduled_entries"].size).to eq(1)
         expect(json_response["scheduled_entries"].first["id"]).to eq(old_stopped_review_env.id)
         expect(json_response["unprocessable_entries"].size).to eq(0)
-        expect(json_response["scheduled_entries"]).to match_schema('public_api/v4/environments')
-        expect(json_response["unprocessable_entries"]).to match_schema('public_api/v4/environments')
+        expect(json_response["scheduled_entries"]).to match_schema('public_api/v4/basic_environments')
+        expect(json_response["unprocessable_entries"]).to match_schema('public_api/v4/basic_environments')
 
         expect(old_stopped_review_env.reload.auto_delete_at).to eq(1.week.from_now)
         expect(new_stopped_review_env.reload.auto_delete_at).to be_nil

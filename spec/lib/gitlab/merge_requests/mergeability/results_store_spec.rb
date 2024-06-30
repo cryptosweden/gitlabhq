@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::MergeRequests::Mergeability::ResultsStore do
   subject(:results_store) { described_class.new(merge_request: merge_request, interface: interface) }
@@ -10,15 +10,15 @@ RSpec.describe Gitlab::MergeRequests::Mergeability::ResultsStore do
   let(:merge_request) { double }
 
   describe '#read' do
-    let(:result_hash) { { 'status' => 'success', 'payload' => {} } }
+    let(:result_hash) { { status: 'success', payload: {} } }
 
     it 'calls #retrieve_check on the interface' do
       expect(interface).to receive(:retrieve_check).with(merge_check: merge_check).and_return(result_hash)
 
       cached_result = results_store.read(merge_check: merge_check)
 
-      expect(cached_result.status).to eq(result_hash['status'].to_sym)
-      expect(cached_result.payload).to eq(result_hash['payload'])
+      expect(cached_result.status).to eq(result_hash[:status].to_sym)
+      expect(cached_result.payload).to eq(result_hash[:payload])
     end
 
     context 'when #retrieve_check returns nil' do

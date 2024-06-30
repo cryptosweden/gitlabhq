@@ -1,7 +1,7 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Anti-Abuse
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # REST API spam protection and CAPTCHA support
@@ -16,8 +16,8 @@ related to changing a model's confidential/public flag.
 The main steps are:
 
 1. Add `helpers SpammableActions::CaptchaCheck::RestApiActionsSupport` in your `resource`.
-1. Create a `spam_params` instance based on the request.
-1. Pass `spam_params` to the relevant Service class constructor.
+1. Pass `perform_spam_check: true` to the Update Service class constructor.
+   It is set to `true` by default in the Create Service.
 1. After you create or update the `Spammable` model instance, call `#check_spam_action_response!`,
    save the created or updated instance in a variable.
 1. Identify the error handling logic for the `failure` case of the request,
@@ -32,7 +32,7 @@ The main steps are:
       - Raise a Grape `#error!` exception with a descriptive spam-specific error message.
       - Include the relevant information added as error fields to the response.
         For more details on these fields, refer to the section in the REST API documentation on
-        [Resolve requests detected as spam](../../api/index.md#resolve-requests-detected-as-spam).
+        [Resolve requests detected as spam](../../api/rest/index.md#resolve-requests-detected-as-spam).
 
    NOTE:
    If you use the standard ApolloLink or Axios interceptor CAPTCHA support described
@@ -53,8 +53,7 @@ module API
 
       post do
         #...
-        spam_params = ::Spam::SpamParams.new_from_request(request: request)
-        service_response = ::Snippets::CreateService.new(project: nil, current_user: current_user, params: attrs, spam_params: spam_params).execute
+        service_response = ::Snippets::CreateService.new(project: nil, current_user: current_user, params: attrs).execute
         snippet = service_response.payload[:snippet]
 
         if service_response.success?
@@ -71,8 +70,7 @@ module API
 
       put ':id' do
         #...
-        spam_params = ::Spam::SpamParams.new_from_request(request: request)
-        service_response = ::Snippets::UpdateService.new(project: nil, current_user: current_user, params: attrs, spam_params: spam_params).execute(snippet)
+        service_response = ::Snippets::UpdateService.new(project: nil, current_user: current_user, params: attrs, perform_spam_check: true).execute(snippet)
 
         snippet = service_response.payload[:snippet]
 

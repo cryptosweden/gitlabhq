@@ -3,10 +3,10 @@
 require 'spec_helper'
 require 'carrierwave/storage/fog'
 
-RSpec.describe GitlabUploader do
+RSpec.describe GitlabUploader, feature_category: :shared do
   let(:uploader_class) { Class.new(described_class) }
 
-  subject { uploader_class.new(double) }
+  subject(:uploader) { uploader_class.new(double) }
 
   describe '#file_storage?' do
     context 'when file storage is used' do
@@ -53,6 +53,12 @@ RSpec.describe GitlabUploader do
   describe '#move_to_store' do
     it 'is true' do
       expect(subject.move_to_store).to eq(true)
+    end
+  end
+
+  describe '#empty_size?' do
+    it 'is true' do
+      expect(subject.empty_size?).to eq(true)
     end
   end
 
@@ -157,6 +163,40 @@ RSpec.describe GitlabUploader do
         expect(subject).to receive(:path).and_return("/tmp/file")
 
         expect(subject.url_or_file_path(options)).to eq("file:///tmp/file")
+      end
+    end
+  end
+
+  describe '#multi_read' do
+    let(:file) { fixture_file_upload('spec/fixtures/trace/sample_trace', 'text/plain') }
+    let(:byte_offsets) { [[4, 10], [17, 29]] }
+
+    subject { uploader.multi_read(byte_offsets) }
+
+    before do
+      uploader.store!(file)
+    end
+
+    it { is_expected.to eq(%w[Running gitlab-runner]) }
+  end
+
+  describe '.version' do
+    subject { uploader_class.version }
+
+    it { expect { subject }.to raise_error(RuntimeError, /not supported/) }
+  end
+
+  describe '.storage_location' do
+    it 'sets the identifier for the storage location options' do
+      uploader_class.storage_location(:artifacts)
+
+      expect(uploader_class.options).to eq(Gitlab.config.artifacts)
+    end
+
+    context 'when given identifier is not known' do
+      it 'raises an error' do
+        expect { uploader_class.storage_location(:foo) }
+          .to raise_error(KeyError)
       end
     end
   end

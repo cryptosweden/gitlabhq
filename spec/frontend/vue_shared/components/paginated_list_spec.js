@@ -33,10 +33,6 @@ describe('Pagination links component', () => {
     [glPaginatedList] = wrapper.vm.$children;
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('Paginated List Component', () => {
     describe('props', () => {
       // We test attrs and not props because we pass through to child component using v-bind:"$attrs"
@@ -49,7 +45,7 @@ describe('Pagination links component', () => {
     });
 
     describe('rendering', () => {
-      it('it renders the gl-paginated-list', () => {
+      it('renders the gl-paginated-list', () => {
         expect(wrapper.find('ul.list-group').exists()).toBe(true);
         expect(wrapper.findAll('li.list-group-item').length).toBe(2);
       });

@@ -40,10 +40,6 @@ describe('ClustersMainViewComponent', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findTabs = () => wrapper.findComponent(GlTabs);
   const findAllTabs = () => wrapper.findAllComponents(GlTab);
   const findGlTabAtIndex = (index) => findAllTabs().at(index);
@@ -142,7 +138,7 @@ describe('ClustersMainViewComponent', () => {
         createWrapper({ certificateBasedClustersEnabled: false });
       });
 
-      it('it displays only the Agent tab', () => {
+      it('displays only the Agent tab', () => {
         expect(findAllTabs()).toHaveLength(1);
         const agentTab = findGlTabAtIndex(0);
 

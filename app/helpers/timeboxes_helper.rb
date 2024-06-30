@@ -8,11 +8,23 @@ module TimeboxesHelper
     if milestone.closed?
       _('Closed')
     elsif milestone.expired?
-      _('Past due')
+      _('Expired')
     elsif milestone.upcoming?
       _('Upcoming')
     else
       _('Open')
+    end
+  end
+
+  def milestone_badge_variant(milestone)
+    if milestone.closed?
+      :danger
+    elsif milestone.expired?
+      :warning
+    elsif milestone.upcoming?
+      :neutral
+    else
+      :success
     end
   end
 
@@ -36,7 +48,7 @@ module TimeboxesHelper
     end
   end
 
-  def milestones_browse_issuables_path(milestone, state: nil, type:)
+  def milestones_browse_issuables_path(milestone, type:, state: nil)
     opts = { milestone_title: milestone.title, state: state }
 
     if @project
@@ -77,14 +89,10 @@ module TimeboxesHelper
   end
 
   def milestone_progress_bar(milestone)
-    options = {
-      class: 'progress-bar bg-success',
-      style: "width: #{milestone.percent_complete}%;"
-    }
-
-    content_tag :div, class: 'progress' do
-      content_tag :div, nil, options
-    end
+    render Pajamas::ProgressComponent.new(
+      value: milestone.percent_complete,
+      variant: :success
+    )
   end
 
   def milestone_time_for(date, date_type)
@@ -101,7 +109,7 @@ module TimeboxesHelper
       content = [
         title,
         "<br />",
-        date.to_s(:medium),
+        date.to_fs(:medium),
         "(#{time_ago} #{state})"
       ].join(" ")
 
@@ -121,11 +129,11 @@ module TimeboxesHelper
     content = []
 
     if opened > 0
-      content << n_("1 open issue", "%{issues} open issues", opened) % { issues: opened }
+      content << (n_("1 open issue", "%{issues} open issues", opened) % { issues: opened })
     end
 
     if closed > 0
-      content << n_("1 closed issue", "%{issues} closed issues", closed) % { issues: closed }
+      content << (n_("1 closed issue", "%{issues} closed issues", closed) % { issues: closed })
     end
 
     content.join('<br />').html_safe
@@ -138,9 +146,9 @@ module TimeboxesHelper
 
     content = []
 
-    content << n_("1 open merge request", "%{merge_requests} open merge requests", merge_requests.opened.count) % { merge_requests: merge_requests.opened.count } if merge_requests.opened.any?
-    content << n_("1 closed merge request", "%{merge_requests} closed merge requests", merge_requests.closed.count) % { merge_requests: merge_requests.closed.count } if merge_requests.closed.any?
-    content << n_("1 merged merge request", "%{merge_requests} merged merge requests", merge_requests.merged.count) % { merge_requests: merge_requests.merged.count } if merge_requests.merged.any?
+    content << (n_("1 open merge request", "%{merge_requests} open merge requests", merge_requests.opened.count) % { merge_requests: merge_requests.opened.count }) if merge_requests.opened.any?
+    content << (n_("1 closed merge request", "%{merge_requests} closed merge requests", merge_requests.closed.count) % { merge_requests: merge_requests.closed.count }) if merge_requests.closed.any?
+    content << (n_("1 merged merge request", "%{merge_requests} merged merge requests", merge_requests.merged.count) % { merge_requests: merge_requests.merged.count }) if merge_requests.merged.any?
 
     content.join('<br />').html_safe
   end
@@ -153,18 +161,18 @@ module TimeboxesHelper
     n_("%{releases} release", "%{releases} releases", count) % { releases: count }
   end
 
-  def recent_releases_with_counts(milestone)
+  def recent_releases_with_counts(milestone, user)
     total_count = milestone.releases.size
     return [[], 0, 0] if total_count == 0
 
-    recent_releases = milestone.releases.recent.to_a
+    recent_releases = milestone.releases.recent.filter { |release| Ability.allowed?(user, :read_release, release) }
     more_count = total_count - recent_releases.size
     [recent_releases, total_count, more_count]
   end
 
   def milestone_tooltip_due_date(milestone)
     if milestone.due_date
-      "#{milestone.due_date.to_s(:medium)} (#{remaining_days_in_words(milestone.due_date, milestone.start_date)})"
+      "#{milestone.due_date.to_fs(:medium)} (#{remaining_days_in_words(milestone.due_date, milestone.start_date)})"
     else
       _('Milestone')
     end
@@ -172,18 +180,19 @@ module TimeboxesHelper
 
   def timebox_date_range(timebox)
     if timebox.start_date && timebox.due_date
-      "#{timebox.start_date.to_s(:medium)}–#{timebox.due_date.to_s(:medium)}"
+      s_("DateRange|%{start_date}–%{end_date}") % { start_date: l(timebox.start_date, format: Date::DATE_FORMATS[:medium]),
+                                                    end_date: l(timebox.due_date, format: Date::DATE_FORMATS[:medium]) }
     elsif timebox.due_date
       if timebox.due_date.past?
-        _("expired on %{timebox_due_date}") % { timebox_due_date: timebox.due_date.to_s(:medium) }
+        _("expired on %{timebox_due_date}") % { timebox_due_date: l(timebox.due_date, format: Date::DATE_FORMATS[:medium]) }
       else
-        _("expires on %{timebox_due_date}") % { timebox_due_date: timebox.due_date.to_s(:medium) }
+        _("expires on %{timebox_due_date}") % { timebox_due_date: l(timebox.due_date, format: Date::DATE_FORMATS[:medium]) }
       end
     elsif timebox.start_date
       if timebox.start_date.past?
-        _("started on %{timebox_start_date}") % { timebox_start_date: timebox.start_date.to_s(:medium) }
+        _("started on %{timebox_start_date}") % { timebox_start_date: l(timebox.start_date, format: Date::DATE_FORMATS[:medium]) }
       else
-        _("starts on %{timebox_start_date}") % { timebox_start_date: timebox.start_date.to_s(:medium) }
+        _("starts on %{timebox_start_date}") % { timebox_start_date: l(timebox.start_date, format: Date::DATE_FORMATS[:medium]) }
       end
     end
   end

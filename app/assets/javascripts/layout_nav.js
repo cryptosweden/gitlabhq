@@ -1,7 +1,4 @@
 import $ from 'jquery';
-import ContextualSidebar from './contextual_sidebar';
-import initFlyOutNav from './fly_out_nav';
-import { setNotification } from './whats_new/utils/notification';
 
 function hideEndFade($scrollingTabs) {
   $scrollingTabs.each(function scrollTabsLoop() {
@@ -12,65 +9,87 @@ function hideEndFade($scrollingTabs) {
   });
 }
 
-function initDeferred() {
-  $(document).trigger('init.scrolling-tabs');
+export function initScrollingTabs() {
+  const $scrollingTabs = $('.scrolling-tabs').not('.is-initialized');
+  $scrollingTabs.addClass('is-initialized');
 
-  const appEl = document.getElementById('whats-new-app');
-  if (!appEl) return;
+  const el = $scrollingTabs.get(0);
+  const parentElement = el?.parentNode;
+  if (el && parentElement) {
+    parentElement
+      .querySelector('button.fade-left')
+      ?.addEventListener('click', function scrollLeft() {
+        el.scrollBy({ left: -200, behavior: 'smooth' });
+      });
+    parentElement
+      .querySelector('button.fade-right')
+      ?.addEventListener('click', function scrollRight() {
+        el.scrollBy({ left: 200, behavior: 'smooth' });
+      });
+  }
 
-  setNotification(appEl);
-  document.querySelector('.js-whats-new-trigger').addEventListener('click', () => {
-    import(/* webpackChunkName: 'whatsNewApp' */ '~/whats_new')
-      .then(({ default: initWhatsNew }) => {
-        initWhatsNew(appEl);
-      })
-      .catch(() => {});
+  $(window)
+    .on('resize.nav', () => {
+      hideEndFade($scrollingTabs);
+    })
+    .trigger('resize.nav');
+
+  $scrollingTabs.on('scroll', function tabsScrollEvent() {
+    const $this = $(this);
+    const currentPosition = $this.scrollLeft();
+    const maxPosition = $this.prop('scrollWidth') - $this.outerWidth();
+
+    $this.siblings('.fade-left').toggleClass('scrolling', currentPosition > 0);
+    $this.siblings('.fade-right').toggleClass('scrolling', currentPosition < maxPosition - 1);
+  });
+
+  $scrollingTabs.each(function scrollTabsEachLoop() {
+    const $this = $(this);
+    const scrollingTabWidth = $this.width();
+    const $active = $this.find('.active');
+    const activeWidth = $active.width();
+
+    if ($active.length) {
+      const offset = $active.offset().left + activeWidth;
+
+      if (offset > scrollingTabWidth - 30) {
+        const scrollLeft = offset - scrollingTabWidth / 2 - activeWidth / 2;
+
+        $this.scrollLeft(scrollLeft);
+      }
+    }
   });
 }
 
-export default function initLayoutNav() {
-  const contextualSidebar = new ContextualSidebar();
-  contextualSidebar.bindEvents();
-
-  initFlyOutNav();
-
-  // We need to init it on DomContentLoaded as others could also call it
-  $(document).on('init.scrolling-tabs', () => {
-    const $scrollingTabs = $('.scrolling-tabs').not('.is-initialized');
-    $scrollingTabs.addClass('is-initialized');
-
-    $(window)
-      .on('resize.nav', () => {
-        hideEndFade($scrollingTabs);
+function initInviteMembers() {
+  const modalEl = document.querySelector('.js-invite-members-modal');
+  if (modalEl) {
+    import(
+      /* webpackChunkName: 'initInviteMembersModal' */ '~/invite_members/init_invite_members_modal'
+    )
+      .then(({ default: initInviteMembersModal }) => {
+        initInviteMembersModal();
       })
-      .trigger('resize.nav');
+      .catch(() => {});
+  }
 
-    $scrollingTabs.on('scroll', function tabsScrollEvent() {
-      const $this = $(this);
-      const currentPosition = $this.scrollLeft();
-      const maxPosition = $this.prop('scrollWidth') - $this.outerWidth();
+  const inviteTriggers = document.querySelectorAll('.js-invite-members-trigger');
+  if (!inviteTriggers) return;
 
-      $this.siblings('.fade-left').toggleClass('scrolling', currentPosition > 0);
-      $this.siblings('.fade-right').toggleClass('scrolling', currentPosition < maxPosition - 1);
-    });
+  import(
+    /* webpackChunkName: 'initInviteMembersTrigger' */ '~/invite_members/init_invite_members_trigger'
+  )
+    .then(({ default: initInviteMembersTrigger }) => {
+      initInviteMembersTrigger();
+    })
+    .catch(() => {});
+}
 
-    $scrollingTabs.each(function scrollTabsEachLoop() {
-      const $this = $(this);
-      const scrollingTabWidth = $this.width();
-      const $active = $this.find('.active');
-      const activeWidth = $active.width();
+function initDeferred() {
+  initScrollingTabs();
+  initInviteMembers();
+}
 
-      if ($active.length) {
-        const offset = $active.offset().left + activeWidth;
-
-        if (offset > scrollingTabWidth - 30) {
-          const scrollLeft = offset - scrollingTabWidth / 2 - activeWidth / 2;
-
-          $this.scrollLeft(scrollLeft);
-        }
-      }
-    });
-  });
-
+export default function initLayoutNav() {
   requestIdleCallback(initDeferred);
 }

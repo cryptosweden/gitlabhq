@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User resolves conflicts', :js do
-  include Spec::Support::Helpers::Features::SourceEditorSpecHelpers
+RSpec.describe 'Merge request > User resolves conflicts', :js, feature_category: :code_review_workflow do
+  include Features::SourceEditorSpecHelpers
 
   let(:project) { create(:project, :repository) }
   let(:user) { project.creator }
@@ -96,6 +96,8 @@ RSpec.describe 'Merge request > User resolves conflicts', :js do
 
       before do
         visit project_merge_request_path(project, merge_request)
+
+        click_button 'Expand merge checks'
       end
 
       it 'shows a link to the conflict resolution page' do
@@ -127,6 +129,9 @@ RSpec.describe 'Merge request > User resolves conflicts', :js do
 
       before do
         visit project_merge_request_path(project, merge_request)
+
+        click_button 'Expand merge checks'
+
         click_link('conflicts', href: %r{/conflicts\Z})
       end
 
@@ -169,28 +174,14 @@ RSpec.describe 'Merge request > User resolves conflicts', :js do
 
       before do
         visit project_merge_request_path(project, merge_request)
+
+        click_button 'Expand merge checks'
+
         click_link('conflicts', href: %r{/conflicts\Z})
       end
 
       it "renders bad name without xss issues" do
-        expect(find('[data-testid="resolve-info"]')).to have_content(bad_branch_name)
-      end
-    end
-  end
-
-  context 'sidebar' do
-    let(:merge_request) { create_merge_request('conflict-resolvable') }
-
-    before do
-      project.add_developer(user)
-      sign_in(user)
-
-      visit conflicts_project_merge_request_path(project, merge_request)
-    end
-
-    it 'displays reviewers' do
-      page.within '.issuable-sidebar' do
-        expect(page).to have_selector('[data-testid="reviewer"]', count: 1)
+        expect(find_by_testid('resolve-info')).to have_content(bad_branch_name)
       end
     end
   end
@@ -210,6 +201,8 @@ RSpec.describe 'Merge request > User resolves conflicts', :js do
         project.add_developer(user)
         sign_in(user)
         visit project_merge_request_path(project, merge_request)
+
+        click_button 'Expand merge checks'
       end
 
       it 'does not show a link to the conflict resolution page' do

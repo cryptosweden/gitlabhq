@@ -23,9 +23,7 @@ RSpec.configure do |config|
 
   config.around(:each, :use_clean_rails_redis_caching) do |example|
     original_null_store = Rails.cache
-    caching_config_hash = Gitlab::Redis::Cache.params
-    caching_config_hash[:namespace] = Gitlab::Redis::Cache::CACHE_NAMESPACE
-    Rails.cache = ActiveSupport::Cache::RedisCacheStore.new(**caching_config_hash)
+    Rails.cache = ActiveSupport::Cache::RedisCacheStore.new(**Gitlab::Redis::Cache.active_support_config)
 
     redis_cache_cleanup!
 
@@ -36,9 +34,22 @@ RSpec.configure do |config|
     Rails.cache = original_null_store
   end
 
+  config.around(:each, :use_clean_rails_repository_cache_store_caching) do |example|
+    original_null_store = Rails.cache
+    Rails.cache = Gitlab::Redis::RepositoryCache.cache_store
+
+    redis_repository_cache_cleanup!
+
+    example.run
+
+    redis_repository_cache_cleanup!
+
+    Rails.cache = original_null_store
+  end
+
   config.around(:each, :use_sql_query_cache) do |example|
-    ActiveRecord::Base.cache do
-      example.run
-    end
+    base_models = Gitlab::Database.database_base_models_with_gitlab_shared.values
+    inner_proc = proc { example.run }
+    base_models.inject(inner_proc) { |proc, base_model| proc { base_model.cache { proc.call } } }.call
   end
 end

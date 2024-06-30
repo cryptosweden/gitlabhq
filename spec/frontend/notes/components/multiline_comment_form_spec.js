@@ -1,6 +1,7 @@
 import { GlFormSelect } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import MultilineCommentForm from '~/notes/components/multiline_comment_form.vue';
 import notesModule from '~/notes/stores/modules';
@@ -70,7 +71,7 @@ describe('MultilineCommentForm', () => {
     glSelect.vm.$emit('change', { ...testLine });
 
     expect(wrapper.vm.commentLineStart).toEqual(line);
-    expect(wrapper.emitted('input')).toBeTruthy();
+    expect(wrapper.emitted('input')).toHaveLength(1);
     // Once during created, once during updateCommentLineStart
     expect(setSelectedCommentPosition).toHaveBeenCalledTimes(2);
   });

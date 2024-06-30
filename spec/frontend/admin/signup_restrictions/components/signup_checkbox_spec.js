@@ -10,7 +10,7 @@ describe('Signup Form', () => {
     helpText: 'some help text',
     label: 'a label',
     value: true,
-    dataQaSelector: 'qa_selector',
+    dataTestId: 'test-id',
   };
 
   const mountComponent = () => {
@@ -24,13 +24,9 @@ describe('Signup Form', () => {
 
   const findByTestId = (id) => wrapper.find(`[data-testid="${id}"]`);
   const findHiddenInput = () => findByTestId('input');
-  const findCheckbox = () => wrapper.find(GlFormCheckbox);
+  const findCheckbox = () => wrapper.findComponent(GlFormCheckbox);
   const findCheckboxLabel = () => findByTestId('label');
   const findHelpText = () => findByTestId('helpText');
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('Signup Checkbox', () => {
     beforeEach(() => {
@@ -59,7 +55,7 @@ describe('Signup Form', () => {
       });
 
       it('gets passed data qa selector', () => {
-        expect(findCheckbox().attributes('data-qa-selector')).toBe(props.dataQaSelector);
+        expect(findCheckbox().attributes('data-testid')).toBe(props.dataTestId);
       });
     });
   });

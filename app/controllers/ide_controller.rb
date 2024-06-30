@@ -1,27 +1,39 @@
 # frozen_string_literal: true
 
 class IdeController < ApplicationController
-  layout 'fullscreen'
-
-  include ClientsidePreviewCSP
+  include WebIdeCSP
   include StaticObjectExternalStorageCSP
   include Gitlab::Utils::StrongMemoize
+  include ProductAnalyticsTracking
 
-  before_action :authorize_read_project!
+  before_action :authorize_read_project!, only: [:index]
+  before_action :ensure_web_ide_oauth_application!, only: [:index]
 
   before_action do
     push_frontend_feature_flag(:build_service_proxy)
-    push_frontend_feature_flag(:schema_linting)
-    push_frontend_feature_flag(:reject_unsigned_commits_by_gitlab, default_enabled: :yaml)
-    define_index_vars
+    push_frontend_feature_flag(:reject_unsigned_commits_by_gitlab)
   end
 
   feature_category :web_ide
 
   urgency :low
 
+  track_internal_event :index, name: 'web_ide_viewed'
+
   def index
-    Gitlab::UsageDataCounters::WebIdeCounter.increment_views_count
+    @fork_info = fork_info(project, params[:branch])
+
+    render layout: helpers.use_new_web_ide? ? 'fullscreen' : 'application'
+  end
+
+  def oauth_redirect
+    return render_404 unless ::Gitlab::WebIde::DefaultOauthApplication.feature_enabled?(current_user)
+    # TODO - It's **possible** we end up here and no oauth application has been set up.
+    # We need to have better handling of these edge cases. Here's a follow-up issue:
+    # https://gitlab.com/gitlab-org/gitlab/-/issues/433322
+    return render_404 unless ::Gitlab::WebIde::DefaultOauthApplication.oauth_application
+
+    render layout: 'fullscreen', locals: { minimal: true }
   end
 
   private
@@ -30,13 +42,10 @@ class IdeController < ApplicationController
     render_404 unless can?(current_user, :read_project, project)
   end
 
-  def define_index_vars
-    return unless project
+  def ensure_web_ide_oauth_application!
+    return unless ::Gitlab::WebIde::DefaultOauthApplication.feature_enabled?(current_user)
 
-    @branch = params[:branch]
-    @path = params[:path]
-    @merge_request = params[:merge_request_id]
-    @fork_info = fork_info(project, @branch)
+    ::Gitlab::WebIde::DefaultOauthApplication.ensure_oauth_application!
   end
 
   def fork_info(project, branch)
@@ -59,5 +68,13 @@ class IdeController < ApplicationController
 
       Project.find_by_full_path(params[:project_id])
     end
+  end
+
+  def tracking_namespace_source
+    project.namespace
+  end
+
+  def tracking_project_source
+    project
   end
 end

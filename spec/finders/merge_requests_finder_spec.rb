@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequestsFinder do
+RSpec.describe MergeRequestsFinder, feature_category: :code_review_workflow do
   context "multiple projects with merge requests" do
     include_context 'MergeRequestsFinder multiple projects with merge requests context'
 
@@ -54,16 +54,6 @@ RSpec.describe MergeRequestsFinder do
 
           it 'returns merge requests created by any of the given users' do
             expect(merge_requests).to contain_exactly(merge_request1, merge_request2)
-          end
-
-          context 'when feature flag is disabled' do
-            before do
-              stub_feature_flags(or_issuable_queries: false)
-            end
-
-            it 'does not add any filter' do
-              expect(merge_requests).to contain_exactly(merge_request1, merge_request2, merge_request3, merge_request4, merge_request5)
-            end
           end
         end
 
@@ -163,10 +153,49 @@ RSpec.describe MergeRequestsFinder do
           it { is_expected.to eq([merge_request2]) }
 
           it 'queries merge_request_metrics.target_project_id table' do
-            expect(query.to_sql).to include(%{"merge_request_metrics"."target_project_id" = #{merge_request2.target_project_id}})
-
-            expect(query.to_sql).not_to include(%{"merge_requests"."target_project_id"})
+            expect(query.to_sql).to include(%("merge_request_metrics"."target_project_id" = #{merge_request2.target_project_id}))
           end
+        end
+      end
+
+      context 'merge_user filtering' do
+        before do
+          merge_request1.update!(state_id: MergeRequest.available_states[:merged])
+          merge_request1.metrics.update!(merged_by_id: user.id)
+          merge_request2.update!(state_id: MergeRequest.available_states[:merged])
+          merge_request2.metrics.update!(merged_by_id: user.id)
+          merge_request3.update!(state_id: MergeRequest.available_states[:merged])
+          merge_request3.metrics.update!(merged_by_id: user2.id)
+          merge_request4.update!(state_id: MergeRequest.available_states[:merged])
+          merge_request4.metrics.update!(merged_by_id: user2.id)
+        end
+
+        subject { described_class.new(user, params).execute }
+
+        describe 'by merge_user_id' do
+          let(:params) { { merge_user_id: user.id } }
+          let(:expected_mr) { [merge_request1, merge_request2] }
+
+          it { is_expected.to contain_exactly(*expected_mr) }
+        end
+
+        describe 'by merge_user_username' do
+          let(:params) { { merge_user_username: user.username } }
+          let(:expected_mr) { [merge_request1, merge_request2] }
+
+          it { is_expected.to contain_exactly(*expected_mr) }
+        end
+
+        describe 'by merge_user_id with unknown user id' do
+          let(:params) { { merge_user_id: 99999 } }
+
+          it { is_expected.to be_empty }
+        end
+
+        describe 'by merge_user_username with unknown user name' do
+          let(:params) { { merge_user_username: 'does-not-exist' } }
+
+          it { is_expected.to be_empty }
         end
       end
 
@@ -228,9 +257,9 @@ RSpec.describe MergeRequestsFinder do
       end
 
       describe ':label_name parameter' do
-        let(:common_labels) { create_list(:label, 3) }
-        let(:distinct_labels) { create_list(:label, 3) }
-        let(:merge_requests) do
+        let_it_be(:common_labels) { create_list(:label, 3) }
+        let_it_be(:distinct_labels) { create_list(:label, 3) }
+        let_it_be(:merge_requests) do
           common_attrs = {
             source_project: project1, target_project: project1, author: user
           }
@@ -269,6 +298,20 @@ RSpec.describe MergeRequestsFinder do
         expect(merge_requests).to contain_exactly(merge_request1, merge_request2, merge_request3)
       end
 
+      context 'filter by state event source' do
+        let(:params) { { merged_without_event_source: true } }
+
+        before do
+          create(:resource_state_event, merge_request: merge_request1, state: :merged)
+        end
+
+        it 'filters by resource_state_event' do
+          merge_requests = described_class.new(user, params).execute
+
+          expect(merge_requests).to contain_exactly(merge_request1)
+        end
+      end
+
       it 'filters by state' do
         params = { state: 'locked' }
 
@@ -295,7 +338,6 @@ RSpec.describe MergeRequestsFinder do
         end
 
         {
-          wip: ["WIP:", "wip", "[wip]"],
           draft: ["Draft:", "Draft -", "[Draft]", "(Draft)"]
         }.each do |draft_param_key, title_prefixes|
           title_prefixes.each do |title_prefix|
@@ -408,22 +450,6 @@ RSpec.describe MergeRequestsFinder do
         end
       end
 
-      context 'attention' do
-        subject { described_class.new(user, params).execute }
-
-        before do
-          reviewer = merge_request1.find_reviewer(user2)
-          reviewer.update!(state: :reviewed)
-        end
-
-        context 'by username' do
-          let(:params) { { attention: user2.username } }
-          let(:expected_mr) { [merge_request2, merge_request3] }
-
-          it { is_expected.to contain_exactly(*expected_mr) }
-        end
-      end
-
       context 'reviewer filtering' do
         subject { described_class.new(user, params).execute }
 
@@ -432,6 +458,17 @@ RSpec.describe MergeRequestsFinder do
           let(:expected_mr) { [merge_request1, merge_request2] }
 
           it { is_expected.to contain_exactly(*expected_mr) }
+
+          context 'with reviewer state' do
+            let(:params) { { reviewer_id: user2.id, review_state: 'requested_changes' } }
+            let(:expected_mr) { [merge_request1] }
+
+            before do
+              merge_request1.merge_request_reviewers.update_all(state: :requested_changes)
+            end
+
+            it { is_expected.to contain_exactly(*expected_mr) }
+          end
         end
 
         context 'by NOT reviewer_id' do
@@ -446,6 +483,29 @@ RSpec.describe MergeRequestsFinder do
           let(:expected_mr) { [merge_request1, merge_request2] }
 
           it { is_expected.to contain_exactly(*expected_mr) }
+
+          context 'with review state' do
+            let(:params) { { reviewer_username: user2.username, review_state: 'requested_changes' } }
+            let(:expected_mr) { [merge_request1] }
+
+            before do
+              merge_request1.merge_request_reviewers.update_all(state: :requested_changes)
+            end
+
+            it { is_expected.to contain_exactly(*expected_mr) }
+          end
+
+          context 'with multiple review state' do
+            let(:params) { { reviewer_username: user2.username, review_states: %w[requested_changes reviewed] } }
+            let(:expected_mr) { [merge_request1, merge_request2] }
+
+            before do
+              merge_request1.merge_request_reviewers.update_all(state: :requested_changes)
+              merge_request2.merge_request_reviewers.update_all(state: :reviewed)
+            end
+
+            it { is_expected.to contain_exactly(*expected_mr) }
+          end
         end
 
         context 'by NOT reviewer_username' do
@@ -482,6 +542,33 @@ RSpec.describe MergeRequestsFinder do
         end
       end
 
+      context 'review state filtering' do
+        let(:params) { { review_state: 'requested_changes' } }
+        let(:expected_mr) { [merge_request1] }
+
+        subject { described_class.new(user, params).execute }
+
+        before do
+          merge_request1.merge_request_reviewers.update_all(state: :requested_changes)
+        end
+
+        it { is_expected.to contain_exactly(*expected_mr) }
+      end
+
+      context 'multiple review state filtering' do
+        let(:params) { { review_states: %w[requested_changes reviewed] } }
+        let(:expected_mr) { [merge_request1, merge_request2] }
+
+        subject { described_class.new(user, params).execute }
+
+        before do
+          merge_request1.merge_request_reviewers.update_all(state: :requested_changes)
+          merge_request2.merge_request_reviewers.update_all(state: :requested_changes)
+        end
+
+        it { is_expected.to contain_exactly(*expected_mr) }
+      end
+
       context 'filtering by group milestone' do
         let(:group_milestone) { create(:milestone, group: group) }
 
@@ -509,17 +596,64 @@ RSpec.describe MergeRequestsFinder do
         end
       end
 
-      context 'filtering by approved by' do
+      context 'filtering by approved' do
+        before do
+          create(:approval, merge_request: merge_request3, user: user2)
+        end
+
+        context 'when flag `mr_approved_filter` is disabled' do
+          before do
+            stub_feature_flags(mr_approved_filter: false)
+          end
+
+          it 'for approved' do
+            merge_requests = described_class.new(user, { approved: true }).execute
+
+            expect(merge_requests).to contain_exactly(merge_request1, merge_request2, merge_request3, merge_request4, merge_request5)
+          end
+
+          it 'for not approved' do
+            merge_requests = described_class.new(user, { approved: false }).execute
+
+            expect(merge_requests).to contain_exactly(merge_request1, merge_request2, merge_request3, merge_request4, merge_request5)
+          end
+        end
+
+        context 'when flag `mr_approved_filter` is enabled' do
+          before do
+            stub_feature_flags(mr_approved_filter: true)
+          end
+
+          it 'for approved' do
+            merge_requests = described_class.new(user, { approved: true }).execute
+
+            expect(merge_requests).to contain_exactly(merge_request3)
+          end
+
+          it 'for not approved' do
+            merge_requests = described_class.new(user, { approved: false }).execute
+
+            expect(merge_requests).to contain_exactly(merge_request1, merge_request2, merge_request4, merge_request5)
+          end
+        end
+      end
+
+      context 'filtering by approved by username' do
         let(:params) { { approved_by_usernames: user2.username } }
+
+        where(:sort) { [nil] + %w[milestone merged_at merged_at_desc closed_at closed_at_desc] }
 
         before do
           create(:approval, merge_request: merge_request3, user: user2)
         end
 
-        it 'returns merge requests approved by that user' do
-          merge_requests = described_class.new(user, params).execute
+        with_them do
+          it 'returns merge requests approved by that user' do
+            params = { approved_by_usernames: user2.username, sort: sort }
+            merge_requests = described_class.new(user, params).execute
 
-          expect(merge_requests).to contain_exactly(merge_request3)
+            expect(merge_requests).to contain_exactly(merge_request3)
+          end
         end
 
         context 'not filter' do
@@ -547,31 +681,59 @@ RSpec.describe MergeRequestsFinder do
         end
       end
 
+      context 'filtering by approved by user ID' do
+        let(:params) { { approved_by_ids: user2.id } }
+
+        before do
+          create(:approval, merge_request: merge_request3, user: user2)
+        end
+
+        it 'returns merge requests approved by that user' do
+          merge_requests = described_class.new(user, params).execute
+
+          expect(merge_requests).to contain_exactly(merge_request3)
+        end
+
+        context 'with sorting by milestone' do
+          let(:params) { { approved_by_usernames: user2.username, sort: 'milestone' } }
+
+          it 'returns merge requests approved by that user' do
+            merge_requests = described_class.new(user, params).execute
+
+            expect(merge_requests).to contain_exactly(merge_request3)
+          end
+        end
+      end
+
       context 'filtering by created_at/updated_at' do
-        let(:new_project) { create(:project, forked_from_project: project1) }
+        let_it_be(:new_project) { create(:project, forked_from_project: project1) }
 
         let!(:new_merge_request) do
-          create(:merge_request,
-                :simple,
-                author: user,
-                created_at: 1.week.from_now,
-                updated_at: 1.week.from_now,
-                source_project: new_project,
-                target_project: new_project)
+          create(
+            :merge_request,
+            :simple,
+            author: user,
+            created_at: 1.week.from_now,
+            updated_at: 1.week.from_now,
+            source_project: new_project,
+            target_project: new_project
+          )
         end
 
         let!(:old_merge_request) do
-          create(:merge_request,
-                :simple,
-                author: user,
-                source_branch: 'feature_1',
-                created_at: 1.week.ago,
-                updated_at: 1.week.ago,
-                source_project: new_project,
-                target_project: new_project)
+          create(
+            :merge_request,
+            :simple,
+            author: user,
+            source_branch: 'feature_1',
+            created_at: 1.week.ago,
+            updated_at: 1.week.ago,
+            source_project: new_project,
+            target_project: new_project
+          )
         end
 
-        before do
+        before_all do
           new_project.add_maintainer(user)
         end
 
@@ -633,10 +795,10 @@ RSpec.describe MergeRequestsFinder do
       end
 
       context 'filtering by the merge request deployments' do
-        let(:gstg) { create(:environment, project: project4, name: 'gstg') }
-        let(:gprd) { create(:environment, project: project4, name: 'gprd') }
+        let_it_be(:gstg) { create(:environment, project: project4, name: 'gstg') }
+        let_it_be(:gprd) { create(:environment, project: project4, name: 'gprd') }
 
-        let(:mr1) do
+        let_it_be(:mr1) do
           create(
             :merge_request,
             :simple,
@@ -647,7 +809,7 @@ RSpec.describe MergeRequestsFinder do
           )
         end
 
-        let(:mr2) do
+        let_it_be(:mr2) do
           create(
             :merge_request,
             :simple,
@@ -658,7 +820,7 @@ RSpec.describe MergeRequestsFinder do
           )
         end
 
-        let(:deploy1) do
+        let_it_be(:deploy1) do
           create(
             :deployment,
             :success,
@@ -670,7 +832,7 @@ RSpec.describe MergeRequestsFinder do
           )
         end
 
-        let(:deploy2) do
+        let_it_be(:deploy2) do
           create(
             :deployment,
             :success,
@@ -682,7 +844,7 @@ RSpec.describe MergeRequestsFinder do
           )
         end
 
-        before do
+        before_all do
           deploy1.link_merge_requests(MergeRequest.where(id: mr1.id))
           deploy2.link_merge_requests(MergeRequest.where(id: mr2.id))
         end
@@ -748,7 +910,8 @@ RSpec.describe MergeRequestsFinder do
           release_tag: 'none',
           label_names: 'none',
           my_reaction_emoji: 'none',
-          draft: 'no'
+          draft: 'no',
+          sort: 'milestone'
         }
 
         merge_requests = described_class.new(user, params).execute
@@ -760,28 +923,10 @@ RSpec.describe MergeRequestsFinder do
 
         let(:params) { { project_id: project1.id, search: 'tanuki' } }
 
-        context 'with anonymous user' do
-          let(:merge_requests) { described_class.new(nil, params).execute }
+        it 'returns matching merge requests' do
+          merge_requests = described_class.new(user, params).execute
 
-          context 'with disable_anonymous_search feature flag enabled' do
-            before do
-              stub_feature_flags(disable_anonymous_search: true)
-            end
-
-            it 'does not perform search' do
-              expect(merge_requests).to contain_exactly(merge_request1, merge_request2, merge_request6)
-            end
-          end
-
-          context 'with disable_anonymous_search feature flag disabled' do
-            before do
-              stub_feature_flags(disable_anonymous_search: false)
-            end
-
-            it 'returns matching merge requests' do
-              expect(merge_requests).to contain_exactly(merge_request6)
-            end
-          end
+          expect(merge_requests).to contain_exactly(merge_request6)
         end
       end
     end
@@ -819,13 +964,13 @@ RSpec.describe MergeRequestsFinder do
   end
 
   context 'when projects require different access levels for merge requests' do
-    let(:user) { create(:user) }
+    let_it_be(:user) { create(:user) }
 
-    let(:public_project) { create(:project, :public) }
-    let(:internal) { create(:project, :internal) }
-    let(:private_project) { create(:project, :private) }
-    let(:public_with_private_repo) { create(:project, :public, :repository, :repository_private) }
-    let(:internal_with_private_repo) { create(:project, :internal, :repository, :repository_private) }
+    let_it_be(:public_project) { create(:project, :public) }
+    let_it_be(:internal) { create(:project, :internal) }
+    let_it_be(:private_project) { create(:project, :private) }
+    let_it_be(:public_with_private_repo) { create(:project, :public, :repository, :repository_private) }
+    let_it_be(:internal_with_private_repo) { create(:project, :internal, :repository, :repository_private) }
 
     let(:merge_requests) { described_class.new(user, {}).execute }
 
@@ -836,7 +981,7 @@ RSpec.describe MergeRequestsFinder do
     let!(:mr_internal_private_repo_access) { create(:merge_request, source_project: internal_with_private_repo) }
 
     context 'with admin user' do
-      let(:user) { create(:user, :admin) }
+      let_it_be(:user) { create(:user, :admin) }
 
       context 'when admin mode is enabled', :enable_admin_mode do
         it 'returns all merge requests' do
@@ -954,7 +1099,7 @@ RSpec.describe MergeRequestsFinder do
       let_it_be(:labels) { create_list(:label, 2, project: project) }
       let_it_be(:merge_requests) { create_list(:merge_request, 4, :unique_branches, author: user, target_project: project, source_project: project, labels: labels) }
 
-      before do
+      before_all do
         project.add_developer(user)
       end
 
@@ -977,6 +1122,31 @@ RSpec.describe MergeRequestsFinder do
           expect(counts[:all]).to eq(merge_requests.size)
         end
       end
+    end
+  end
+
+  context 'when the author of a merge request is banned', feature_category: :insider_threat do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:banned_user) { create(:user, :banned) }
+    let_it_be(:project) { create(:project, :public) }
+    let_it_be(:banned_merge_request) { create(:merge_request, author: banned_user, source_project: project) }
+
+    subject { described_class.new(user).execute }
+
+    it { is_expected.not_to include(banned_merge_request) }
+
+    context 'when the user is an admin', :enable_admin_mode do
+      let_it_be(:user) { create(:user, :admin) }
+
+      it { is_expected.to include(banned_merge_request) }
+    end
+
+    context 'when the `hide_merge_requests_from_banned_users` feature flag is disabled' do
+      before do
+        stub_feature_flags(hide_merge_requests_from_banned_users: false)
+      end
+
+      it { is_expected.to include(banned_merge_request) }
     end
   end
 end

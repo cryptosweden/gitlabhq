@@ -1,3 +1,4 @@
+import { isEmpty } from 'lodash';
 import { i18n } from './constants';
 
 const textBuilder = (results, boldNumbers = false) => {
@@ -43,13 +44,56 @@ export const reportTextBuilder = ({ name = '', summary = {}, status }) => {
   return i18n.summaryText(name, resultsString);
 };
 
-export const reportSubTextBuilder = ({ suite_errors }) => {
-  const errors = [];
-  if (suite_errors?.head) {
-    errors.push(`${i18n.headReportParsingError} ${suite_errors.head}`);
+export const recentFailuresTextBuilder = (summary = {}) => {
+  const { failed, recentlyFailed } = summary;
+  if (!failed || !recentlyFailed) return '';
+
+  return i18n.recentFailureSummary(recentlyFailed, failed);
+};
+
+export const reportSubTextBuilder = ({ suite_errors: suiteErrors, summary }) => {
+  if (suiteErrors?.head || suiteErrors?.base) {
+    const errors = [];
+    if (suiteErrors?.head) {
+      errors.push(`${i18n.headReportParsingError} ${suiteErrors.head}`);
+    }
+    if (suiteErrors?.base) {
+      errors.push(`${i18n.baseReportParsingError} ${suiteErrors.base}`);
+    }
+    return errors;
   }
-  if (suite_errors?.base) {
-    errors.push(`${i18n.baseReportParsingError} ${suite_errors.base}`);
+  return [recentFailuresTextBuilder(summary)];
+};
+
+export const countRecentlyFailedTests = (subject) => {
+  // return 0 count if subject is [], null, or undefined
+  if (isEmpty(subject)) {
+    return 0;
   }
-  return errors.join('<br />');
+
+  // handle either a single report or an array of reports
+  const reports = !subject.length ? [subject] : subject;
+
+  return reports
+    .map((report) => {
+      return (
+        [report.new_failures, report.existing_failures, report.resolved_failures]
+          // only count tests which have failed more than once
+          .map((failureArray) => {
+            if (!failureArray) return 0;
+            return failureArray.filter((failure) => failure.recent_failures?.count > 1).length;
+          })
+          .reduce((total, count) => total + count, 0)
+      );
+    })
+    .reduce((total, count) => total + count, 0);
+};
+
+/**
+ * Removes `./` from the beginning of a file path so it can be appended onto a blob path
+ * @param {String} file
+ * @returns {String}  - formatted value
+ */
+export const formatFilePath = (file) => {
+  return file.replace(/^\.?\/*/, '');
 };

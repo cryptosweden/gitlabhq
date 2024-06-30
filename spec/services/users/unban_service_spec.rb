@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Users::UnbanService do
+RSpec.describe Users::UnbanService, feature_category: :user_management do
   let(:user) { create(:user) }
 
   let_it_be(:current_user) { create(:admin) }
@@ -38,7 +38,14 @@ RSpec.describe Users::UnbanService do
       end
 
       it 'logs unban in application logs' do
-        expect(Gitlab::AppLogger).to receive(:info).with(message: "User unban", user: "#{user.username}", email: "#{user.email}", unban_by: "#{current_user.username}", ip_address: "#{current_user.current_sign_in_ip}")
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          message: "User unban",
+          username: user.username.to_s,
+          user_id: user.id,
+          email: user.email.to_s,
+          unban_by: current_user.username.to_s,
+          ip_address: current_user.current_sign_in_ip.to_s
+        )
 
         unban_user
       end

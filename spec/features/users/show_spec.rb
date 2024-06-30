@@ -2,18 +2,57 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User page' do
+RSpec.describe 'User page', feature_category: :user_profile do
   include ExternalAuthorizationServiceHelpers
 
   let_it_be(:user) { create(:user, bio: '<b>Lorem</b> <i>ipsum</i> dolor sit <a href="https://example.com">amet</a>') }
 
   subject(:visit_profile) { visit(user_path(user)) }
 
+  it 'shows copy user id action in the dropdown', :js do
+    subject
+
+    page.within('.cover-controls') do
+      find_by_testid('base-dropdown-toggle').click
+    end
+
+    expect(page).to have_content("Copy user ID: #{user.id}")
+  end
+
+  it 'shows name on breadcrumbs', :js do
+    subject
+
+    within_testid('breadcrumb-links') do
+      expect(page).to have_content(user.name)
+    end
+  end
+
   context 'with public profile' do
-    it 'shows all the tabs' do
+    context 'with `profile_tabs_vue` feature flag disabled' do
+      before do
+        stub_feature_flags(profile_tabs_vue: false)
+      end
+
+      it 'shows all the tabs' do
+        subject
+
+        page.within '.nav-links' do
+          expect(page).to have_link('Overview')
+          expect(page).to have_link('Activity')
+          expect(page).to have_link('Groups')
+          expect(page).to have_link('Contributed projects')
+          expect(page).to have_link('Personal projects')
+          expect(page).to have_link('Snippets')
+          expect(page).to have_link('Followers')
+          expect(page).to have_link('Following')
+        end
+      end
+    end
+
+    it 'shows all the tabs', :js do
       subject
 
-      page.within '.nav-links' do
+      page.within '[role="tablist"]' do
         expect(page).to have_link('Overview')
         expect(page).to have_link('Activity')
         expect(page).to have_link('Groups')
@@ -122,38 +161,54 @@ RSpec.describe 'User page' do
       end
     end
 
-    context 'follow/unfollow and followers/following' do
+    context 'follow/unfollow and followers/following', :js do
       let_it_be(:followee) { create(:user) }
       let_it_be(:follower) { create(:user) }
 
-      it 'does not show link to follow' do
+      it 'does not show button to follow' do
         subject
 
-        expect(page).not_to have_link(text: 'Follow', class: 'gl-button')
+        expect(page).not_to have_button(text: 'Follow', class: 'gl-button')
       end
 
-      it 'shows 0 followers and 0 following' do
-        subject
+      shared_examples 'follower links with count badges' do
+        it 'shows no count if no followers / following' do
+          subject
 
-        expect(page).to have_content('0 followers')
-        expect(page).to have_content('0 following')
+          within_testid('super-sidebar') do
+            expect(page).to have_link(text: 'Followers')
+            expect(page).to have_link(text: 'Following')
+          end
+        end
+
+        it 'shows count if followers / following' do
+          follower.follow(user)
+          user.follow(followee)
+
+          subject
+
+          within_testid('super-sidebar') do
+            expect(page).to have_link(text: 'Followers 1')
+            expect(page).to have_link(text: 'Following 1')
+          end
+        end
       end
 
-      it 'shows 1 followers and 1 following' do
-        follower.follow(user)
-        user.follow(followee)
+      it_behaves_like 'follower links with count badges'
 
-        subject
+      context 'with profile_tabs_vue feature flag disabled' do
+        before_all do
+          stub_feature_flags(profile_tabs_vue: false)
+        end
 
-        expect(page).to have_content('1 follower')
-        expect(page).to have_content('1 following')
+        it_behaves_like 'follower links with count badges'
       end
 
-      it 'does show link to follow' do
+      it 'does show button to follow' do
         sign_in(user)
         visit user_path(followee)
 
-        expect(page).to have_link(text: 'Follow', class: 'gl-button')
+        expect(page).to have_button(text: 'Follow', class: 'gl-button')
       end
 
       it 'does show link to unfollow' do
@@ -162,7 +217,7 @@ RSpec.describe 'User page' do
 
         visit user_path(followee)
 
-        expect(page).to have_link(text: 'Unfollow', class: 'gl-button')
+        expect(page).to have_button(text: 'Unfollow', class: 'gl-button')
       end
     end
   end
@@ -183,11 +238,33 @@ RSpec.describe 'User page' do
       expect(page).to have_content("This user has a private profile")
     end
 
-    it 'shows own tabs' do
+    context 'with `profile_tabs_vue` feature flag disabled' do
+      before do
+        stub_feature_flags(profile_tabs_vue: false)
+      end
+
+      it 'shows own tabs' do
+        sign_in(user)
+        subject
+
+        page.within '.nav-links' do
+          expect(page).to have_link('Overview')
+          expect(page).to have_link('Activity')
+          expect(page).to have_link('Groups')
+          expect(page).to have_link('Contributed projects')
+          expect(page).to have_link('Personal projects')
+          expect(page).to have_link('Snippets')
+          expect(page).to have_link('Followers')
+          expect(page).to have_link('Following')
+        end
+      end
+    end
+
+    it 'shows own tabs', :js do
       sign_in(user)
       subject
 
-      page.within '.nav-links' do
+      page.within '[role="tablist"]' do
         expect(page).to have_link('Overview')
         expect(page).to have_link('Activity')
         expect(page).to have_link('Groups')
@@ -219,8 +296,12 @@ RSpec.describe 'User page' do
     end
 
     it 'shows no tab' do
-      expect(page).to have_css("div.profile-header")
+      expect(page).not_to have_css("div.profile-header")
       expect(page).not_to have_css("ul.nav-links")
+    end
+
+    it 'shows no sidebar' do
+      expect(page).not_to have_css(".user-profile-sidebar")
     end
 
     it 'shows blocked message' do
@@ -228,7 +309,7 @@ RSpec.describe 'User page' do
     end
 
     it 'shows user name as blocked' do
-      expect(page).to have_css(".cover-title", text: 'Blocked user')
+      expect(page).to have_css('[data-testid="user-profile-header"]', text: 'Blocked user')
     end
 
     it 'shows no additional fields' do
@@ -266,11 +347,11 @@ RSpec.describe 'User page' do
       end
 
       it 'shows user name as unconfirmed' do
-        expect(page).to have_css(".cover-title", text: 'Unconfirmed user')
+        expect(page).to have_css('[data-testid="user-profile-header"]', text: 'Unconfirmed user')
       end
 
       it 'shows no tab' do
-        expect(page).to have_css("div.profile-header")
+        expect(page).to have_css('[data-testid="user-profile-header"]')
         expect(page).not_to have_css("ul.nav-links")
       end
 
@@ -316,7 +397,7 @@ RSpec.describe 'User page' do
 
     subject
 
-    expect(page).to have_content("(they/them)")
+    expect(page).to have_content("Pronouns: they/them")
   end
 
   it 'shows the pronunctiation of the user if there was one' do
@@ -333,8 +414,9 @@ RSpec.describe 'User page' do
 
       subject
 
-      page.within '.navbar-nav' do
+      within_testid('navbar') do
         expect(page).to have_link('Sign in')
+        expect(page).not_to have_link('Register')
       end
     end
   end
@@ -345,17 +427,16 @@ RSpec.describe 'User page' do
 
       subject
 
-      page.within '.navbar-nav' do
-        expect(page).to have_link('Sign in / Register')
+      within_testid('navbar') do
+        expect(page).to have_link(_('Sign in'), exact: true)
+        expect(page).to have_link(_('Register'), exact: true)
       end
     end
   end
 
   context 'most recent activity' do
-    it 'shows the most recent activity' do
-      subject
-
-      expect(page).to have_content('Most Recent Activity')
+    before do
+      stub_feature_flags(profile_tabs_vue: false)
     end
 
     context 'when external authorization is enabled' do
@@ -382,45 +463,22 @@ RSpec.describe 'User page' do
   context 'with a bot user' do
     let_it_be(:user) { create(:user, user_type: :security_bot) }
 
-    describe 'feature flag enabled' do
-      before do
-        stub_feature_flags(security_auto_fix: true)
-      end
-
-      it 'only shows Overview and Activity tabs' do
-        subject
-
-        page.within '.nav-links' do
-          expect(page).to have_link('Overview')
-          expect(page).to have_link('Activity')
-          expect(page).not_to have_link('Groups')
-          expect(page).not_to have_link('Contributed projects')
-          expect(page).not_to have_link('Personal projects')
-          expect(page).not_to have_link('Snippets')
-          expect(page).not_to have_link('Followers')
-          expect(page).not_to have_link('Following')
-        end
-      end
+    before do
+      stub_feature_flags(profile_tabs_vue: false)
     end
 
-    describe 'feature flag disabled' do
-      before do
-        stub_feature_flags(security_auto_fix: false)
-      end
+    it 'only shows Overview and Activity tabs' do
+      subject
 
-      it 'only shows Overview and Activity tabs' do
-        subject
-
-        page.within '.nav-links' do
-          expect(page).to have_link('Overview')
-          expect(page).to have_link('Activity')
-          expect(page).to have_link('Groups')
-          expect(page).to have_link('Contributed projects')
-          expect(page).to have_link('Personal projects')
-          expect(page).to have_link('Snippets')
-          expect(page).to have_link('Followers')
-          expect(page).to have_link('Following')
-        end
+      page.within '.nav-links' do
+        expect(page).to have_link('Overview')
+        expect(page).to have_link('Activity')
+        expect(page).to have_link('Groups')
+        expect(page).to have_link('Contributed projects')
+        expect(page).to have_link('Personal projects')
+        expect(page).to have_link('Snippets')
+        expect(page).to have_link('Followers')
+        expect(page).to have_link('Following')
       end
     end
   end
@@ -464,6 +522,38 @@ RSpec.describe 'User page' do
 
         expect(page).not_to have_link('View public GPG key', href: user_gpg_keys_path(user))
         expect(page).not_to have_link('View public GPG keys', href: user_gpg_keys_path(user))
+      end
+    end
+  end
+
+  context 'achievements' do
+    it 'renders the user achievements mount point' do
+      subject
+
+      expect(page).to have_selector('#js-user-achievements')
+    end
+
+    context 'when the user has chosen not to display achievements' do
+      let(:user) { create(:user) }
+
+      before do
+        user.update!(achievements_enabled: false)
+      end
+
+      it 'does not render the user achievements mount point' do
+        subject
+
+        expect(page).not_to have_selector('#js-user-achievements')
+      end
+    end
+
+    context 'when the profile is private' do
+      let(:user) { create(:user, private_profile: true) }
+
+      it 'does not render the user achievements mount point' do
+        subject
+
+        expect(page).not_to have_selector('#js-user-achievements')
       end
     end
   end

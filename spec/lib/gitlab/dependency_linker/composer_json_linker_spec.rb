@@ -40,7 +40,8 @@ RSpec.describe Gitlab::DependencyLinker::ComposerJsonLinker do
             "mockery/mockery": "0.9.*",
             "phpunit/phpunit": "~4.0",
             "symfony/css-selector": "2.8.*|3.0.*",
-            "symfony/dom-crawler": "2.8.*|3.0.*"
+            "symfony/dom-crawler": "2.8.*|3.0.*",
+            "drupal/bootstrap": "3.x-dev"
           }
         }
       CONTENT
@@ -49,7 +50,7 @@ RSpec.describe Gitlab::DependencyLinker::ComposerJsonLinker do
     subject { Gitlab::Highlight.highlight(file_name, file_content) }
 
     def link(name, url)
-      %{<a href="#{url}" rel="nofollow noreferrer noopener" target="_blank">#{name}</a>}
+      %(<a href="#{url}" rel="nofollow noreferrer noopener" target="_blank">#{name}</a>)
     end
 
     it 'does not link the module name' do

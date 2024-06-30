@@ -12,12 +12,12 @@ require 'spec_helper'
 # - maintainer
 # because they are 3 edge cases of using wiki pages.
 
-RSpec.describe API::Wikis do
+RSpec.describe API::Wikis, feature_category: :wiki do
   include WorkhorseHelpers
   include AfterNextHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:group) { create(:group).tap { |g| g.add_owner(user) } }
+  let_it_be(:group) { create(:group, owners: user) }
   let_it_be(:group_project) { create(:project, :wiki_repo, namespace: group) }
 
   let_it_be(:developer) { create(:user) }
@@ -31,8 +31,8 @@ RSpec.describe API::Wikis do
 
   let(:project_wiki) { create(:project_wiki, project: project, user: user) }
   let(:payload) { { content: 'content', format: 'rdoc', title: 'title' } }
-  let(:expected_keys_with_content) { %w(content format slug title encoding) }
-  let(:expected_keys_without_content) { %w(format slug title) }
+  let(:expected_keys_with_content) { %w[content format slug title encoding front_matter] }
+  let(:expected_keys_without_content) { %w[format slug title] }
   let(:wiki) { project_wiki }
 
   shared_examples_for 'wiki API 404 Project Not Found' do
@@ -256,6 +256,24 @@ RSpec.describe API::Wikis do
           include_examples 'wiki API 404 Wiki Page Not Found'
         end
       end
+
+      context 'when content contains a reference' do
+        let(:issue) { create(:issue, project: project) }
+        let(:params) { { render_html: true } }
+        let(:page) { create(:wiki_page, wiki: project.wiki, title: 'page_with_ref', content: issue.to_reference) }
+        let(:expected_content) { %r{<a href=".*#{issue.iid}".*>#{issue.to_reference}</a>} }
+
+        before do
+          project.add_developer(user)
+
+          request
+        end
+
+        it 'expands the reference in the content' do
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['content']).to match(expected_content)
+        end
+      end
     end
   end
 
@@ -336,6 +354,18 @@ RSpec.describe API::Wikis do
         end
 
         include_examples 'wikis API creates wiki page'
+
+        context "with front matter title" do
+          let(:payload) { { title: 'title', front_matter: { "title" => "title in front matter" }, content: 'content' } }
+
+          it "save front matter" do
+            post(api(url, user), params: payload)
+
+            expect(response).to have_gitlab_http_status(:created)
+            expect(json_response['front_matter']).to eq(payload[:front_matter])
+            expect(json_response['content']).to include(payload[:front_matter]["title"])
+          end
+        end
       end
 
       context 'when user is maintainer' do
@@ -459,6 +489,20 @@ RSpec.describe API::Wikis do
           end
 
           include_examples 'wiki API 404 Wiki Page Not Found'
+        end
+
+        context "with front matter title" do
+          let(:payload) do
+            { title: 'new title', front_matter: { "title" => "title in front matter" }, content: 'new content' }
+          end
+
+          it "save front matter" do
+            put(api(url, user), params: payload)
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response['front_matter']).to eq(payload[:front_matter])
+            expect(json_response['content']).to include(payload[:front_matter]["title"])
+          end
         end
       end
 

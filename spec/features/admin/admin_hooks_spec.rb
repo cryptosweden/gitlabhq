@@ -2,19 +2,21 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin::Hooks' do
-  let(:user) { create(:admin) }
+RSpec.describe 'Admin::Hooks', feature_category: :webhooks do
+  include Spec::Support::Helpers::ModalHelpers
+
+  let_it_be(:user) { create(:admin) }
 
   before do
     sign_in(user)
-    gitlab_enable_admin_mode_sign_in(user)
+    enable_admin_mode!(user)
   end
 
   describe 'GET /admin/hooks' do
-    it 'is ok' do
+    it 'is ok', :js do
       visit admin_root_path
 
-      page.within '.nav-sidebar' do
+      within_testid('super-sidebar') do
         click_on 'System Hooks', match: :first
       end
 
@@ -44,10 +46,12 @@ RSpec.describe 'Admin::Hooks' do
 
     it 'adds new hook' do
       visit admin_hooks_path
+
+      click_button 'Add new webhook'
       fill_in 'hook_url', with: url
       check 'Enable SSL verification'
 
-      expect { click_button 'Add system hook' }.to change(SystemHook, :count).by(1)
+      expect { click_button 'Add webhook' }.to change(SystemHook, :count).by(1)
       expect(page).to have_content 'SSL Verification: enabled'
       expect(page).to have_current_path(admin_hooks_path, ignore_query: true)
       expect(page).to have_content(url)
@@ -56,10 +60,7 @@ RSpec.describe 'Admin::Hooks' do
 
   describe 'Update existing hook' do
     let(:new_url) { generate(:url) }
-
-    before do
-      create(:system_hook)
-    end
+    let_it_be(:hook) { create(:system_hook) }
 
     it 'updates existing hook' do
       visit admin_hooks_path
@@ -69,9 +70,9 @@ RSpec.describe 'Admin::Hooks' do
       check 'Enable SSL verification'
       click_button 'Save changes'
 
-      expect(page).to have_content 'SSL Verification: enabled'
-      expect(page).to have_current_path(admin_hooks_path, ignore_query: true)
-      expect(page).to have_content(new_url)
+      expect(page).to have_content('Enable SSL verification')
+      expect(page).to have_current_path(edit_admin_hook_path(hook), ignore_query: true)
+      expect(page).to have_content('Recent events')
     end
   end
 
@@ -79,15 +80,14 @@ RSpec.describe 'Admin::Hooks' do
     let(:hook_url) { generate(:url) }
 
     before do
-      stub_feature_flags(bootstrap_confirmation_modals: false)
       create(:system_hook, url: hook_url)
     end
 
     context 'removes existing hook' do
-      it 'from hooks list page' do
+      it 'from hooks list page', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/451295' do
         visit admin_hooks_path
 
-        accept_confirm { click_link 'Delete' }
+        accept_gl_confirm(button_text: 'Delete webhook') { click_link 'Delete' }
         expect(page).not_to have_content(hook_url)
       end
 
@@ -95,7 +95,7 @@ RSpec.describe 'Admin::Hooks' do
         visit admin_hooks_path
         click_link 'Edit'
 
-        accept_confirm { click_link 'Delete' }
+        accept_gl_confirm(button_text: 'Delete webhook') { click_link 'Delete' }
         expect(page).not_to have_content(hook_url)
       end
     end
@@ -107,7 +107,7 @@ RSpec.describe 'Admin::Hooks' do
       WebMock.stub_request(:post, system_hook.url)
       visit admin_hooks_path
 
-      find('.hook-test-button.dropdown').click
+      click_button 'Test'
       click_link 'Push events'
     end
 
@@ -121,11 +121,12 @@ RSpec.describe 'Admin::Hooks' do
       it 'adds new hook' do
         visit admin_hooks_path
 
+        click_button 'Add new webhook'
         fill_in 'hook_url', with: url
         uncheck 'Repository update events'
         check 'Merge request events'
 
-        expect { click_button 'Add system hook' }.to change(SystemHook, :count).by(1)
+        expect { click_button 'Add webhook' }.to change(SystemHook, :count).by(1)
         expect(page).to have_current_path(admin_hooks_path, ignore_query: true)
         expect(page).to have_content(url)
       end
@@ -143,8 +144,8 @@ RSpec.describe 'Admin::Hooks' do
         create(:merge_request, source_project: project)
 
         visit admin_hooks_path
-        find('.hook-test-button.dropdown').click
-        click_link 'Merge requests events'
+        click_button 'Test'
+        click_link 'Merge request events'
 
         expect(page).to have_content 'Hook executed successfully'
       end

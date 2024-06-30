@@ -1,18 +1,28 @@
 <script>
-import { GlButton, GlLoadingIcon, GlIntersectionObserver, GlModal, GlFormInput } from '@gitlab/ui';
+import {
+  GlButton,
+  GlLoadingIcon,
+  GlIntersectionObserver,
+  GlModal,
+  GlSearchBoxByClick,
+} from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState, mapGetters } from 'vuex';
 import { n__, __, sprintf } from '~/locale';
+
 import ProviderRepoTableRow from './provider_repo_table_row.vue';
+import AdvancedSettings from './advanced_settings.vue';
 
 export default {
   name: 'ImportProjectsTable',
   components: {
+    AdvancedSettings,
     ProviderRepoTableRow,
     GlLoadingIcon,
     GlButton,
     GlModal,
     GlIntersectionObserver,
-    GlFormInput,
+    GlSearchBoxByClick,
   },
   props: {
     providerTitle: {
@@ -29,12 +39,34 @@ export default {
       required: false,
       default: false,
     },
+    cancelable: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    optionalStages: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+    isAdvancedSettingsPanelInitiallyExpanded: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
+  },
+
+  data() {
+    return {
+      optionalStagesSelection: Object.fromEntries(
+        this.optionalStages.map(({ name, selected }) => [name, selected]),
+      ),
+    };
   },
 
   computed: {
-    ...mapState(['filter', 'repositories', 'namespaces', 'defaultTargetNamespace', 'pageInfo']),
+    ...mapState(['filter', 'repositories', 'defaultTargetNamespace', 'pageInfo', 'isLoadingRepos']),
     ...mapGetters([
-      'isLoading',
       'isImportingAnyRepo',
       'importingRepoCount',
       'hasImportableRepos',
@@ -72,12 +104,8 @@ export default {
   },
 
   mounted() {
-    this.fetchNamespaces();
     this.fetchJobs();
-
-    if (!this.paginatable) {
-      this.fetchRepos();
-    }
+    this.fetchRepos();
   },
 
   beforeDestroy() {
@@ -89,95 +117,109 @@ export default {
     ...mapActions([
       'fetchRepos',
       'fetchJobs',
-      'fetchNamespaces',
       'stopJobsPolling',
       'clearJobsEtagPoll',
       'setFilter',
       'importAll',
     ]),
+
+    showImportAllModal() {
+      this.$refs.importAllModal.show();
+    },
   },
 };
 </script>
 
 <template>
   <div>
-    <p class="gl-text-gray-900 gl-white-space-nowrap gl-mt-3">
+    <p class="gl-text-gray-900 gl-whitespace-nowrap gl-mt-3">
       {{ s__('ImportProjects|Select the repositories you want to import') }}
     </p>
     <template v-if="hasIncompatibleRepos">
       <slot name="incompatible-repos-warning"></slot>
     </template>
-    <div class="gl-display-flex gl-justify-content-space-between gl-flex-wrap gl-mb-5">
-      <gl-button
-        variant="success"
-        :loading="isImportingAnyRepo"
-        :disabled="!hasImportableRepos"
-        type="button"
-        @click="$refs.importAllModal.show()"
-        >{{ importAllButtonText }}</gl-button
-      >
-      <gl-modal
-        ref="importAllModal"
-        modal-id="import-all-modal"
-        :title="s__('ImportProjects|Import repositories')"
-        :ok-title="__('Import')"
-        @ok="importAll"
-      >
-        {{
-          n__(
-            'Are you sure you want to import %d repository?',
-            'Are you sure you want to import %d repositories?',
-            importAllCount,
-          )
-        }}
-      </gl-modal>
+    <slot name="filter" v-bind="{ showImportAllModal, importAllButtonText }">
+      <div class="gl-display-flex gl-justify-content-space-between gl-flex-wrap gl-mb-5">
+        <gl-button
+          variant="confirm"
+          :loading="isImportingAnyRepo"
+          :disabled="!hasImportableRepos"
+          type="button"
+          @click="showImportAllModal"
+          >{{ importAllButtonText }}</gl-button
+        >
 
-      <slot name="actions"></slot>
-      <form v-if="filterable" class="gl-ml-auto" novalidate @submit.prevent>
-        <gl-form-input
-          data-qa-selector="githubish_import_filter_field"
-          name="filter"
-          :placeholder="__('Filter by name')"
-          autofocus
-          size="lg"
-          @keyup.enter="setFilter($event.target.value)"
-        />
-      </form>
-    </div>
+        <slot name="actions"></slot>
+        <form v-if="filterable" class="gl-ml-auto" novalidate @submit.prevent>
+          <gl-search-box-by-click
+            name="filter"
+            :placeholder="__('Filter by name')"
+            autofocus
+            @submit="setFilter({ filter: $event })"
+            @clear="setFilter({ filter: '' })"
+          />
+        </form>
+      </div>
+    </slot>
+    <advanced-settings
+      v-if="optionalStages && optionalStages.length"
+      v-model="optionalStagesSelection"
+      :stages="optionalStages"
+      :is-initially-expanded="isAdvancedSettingsPanelInitiallyExpanded"
+      class="gl-mb-5"
+    />
+    <gl-modal
+      ref="importAllModal"
+      modal-id="import-all-modal"
+      :title="s__('ImportProjects|Import repositories')"
+      :ok-title="__('Import')"
+      @ok="importAll({ optionalStages: optionalStagesSelection })"
+    >
+      {{
+        n__(
+          'Are you sure you want to import %d repository?',
+          'Are you sure you want to import %d repositories?',
+          importAllCount,
+        )
+      }}
+    </gl-modal>
     <div v-if="repositories.length" class="gl-w-full">
-      <table>
-        <thead class="gl-border-0 gl-border-solid gl-border-t-1 gl-border-gray-100">
-          <th class="import-jobs-from-col gl-p-4 gl-vertical-align-top gl-border-b-1">
-            {{ fromHeaderText }}
-          </th>
-          <th class="import-jobs-to-col gl-p-4 gl-vertical-align-top gl-border-b-1">
-            {{ __('To GitLab') }}
-          </th>
-          <th class="import-jobs-status-col gl-p-4 gl-vertical-align-top gl-border-b-1">
-            {{ __('Status') }}
-          </th>
-          <th class="import-jobs-cta-col gl-p-4 gl-vertical-align-top gl-border-b-1"></th>
+      <table class="table gl-table">
+        <thead>
+          <tr>
+            <th class="gl-w-1/2">
+              {{ fromHeaderText }}
+            </th>
+            <th class="gl-w-1/2">
+              {{ __('To GitLab') }}
+            </th>
+            <th>
+              {{ __('Status') }}
+            </th>
+            <th></th>
+          </tr>
         </thead>
         <tbody>
           <template v-for="repo in repositories">
             <provider-repo-table-row
               :key="repo.importSource.providerLink"
               :repo="repo"
-              :available-namespaces="namespaces"
               :user-namespace="defaultTargetNamespace"
+              :optional-stages="optionalStagesSelection"
+              :cancelable="cancelable"
             />
           </template>
         </tbody>
       </table>
     </div>
     <gl-intersection-observer
-      v-if="paginatable"
+      v-if="!isLoadingRepos && paginatable && pageInfo.hasNextPage"
       :key="pagePaginationStateKey"
       @appear="fetchRepos"
     />
-    <gl-loading-icon v-if="isLoading" class="gl-mt-7" size="md" />
+    <gl-loading-icon v-if="isLoadingRepos" class="gl-mt-7" size="lg" />
 
-    <div v-if="!isLoading && repositories.length === 0" class="gl-text-center">
+    <div v-if="!isLoadingRepos && repositories.length === 0" class="gl-text-center">
       <strong>{{ emptyStateText }}</strong>
     </div>
   </div>

@@ -8,23 +8,25 @@ module QA
       attr_reader :unique_id
       attr_writer :username, :password
       attr_accessor :admin,
-                    :provider,
-                    :extern_uid,
-                    :expect_fabrication_success,
-                    :hard_delete_on_api_removal,
-                    :access_level
+        :provider,
+        :extern_uid,
+        :expect_fabrication_success,
+        :hard_delete_on_api_removal,
+        :access_level,
+        :email_domain
 
       attributes :id,
-                 :name,
-                 :first_name,
-                 :last_name,
-                 :email
+        :name,
+        :first_name,
+        :last_name,
+        :email
 
       def initialize
         @admin = false
         @hard_delete_on_api_removal = false
         @unique_id = SecureRandom.hex(8)
         @expect_fabrication_success = true
+        @email_domain = 'example.com'
       end
 
       def self.default
@@ -44,7 +46,7 @@ module QA
       alias_method :ldap_username, :username
 
       def password
-        @password || 'password'
+        @password ||= "Pa$$w0rd"
       end
       alias_method :ldap_password, :password
 
@@ -63,15 +65,15 @@ module QA
       def email
         @email ||= begin
           api_email = api_resource&.dig(:email)
-          api_email && !api_email.empty? ? api_email : "#{username}@example.com"
+          api_email && !api_email.empty? ? api_email : "#{username}@#{email_domain}"
         end
       end
 
-      def public_email
-        @public_email ||= begin
-          api_public_email = api_resource&.dig(:public_email)
+      def commit_email
+        @commit_email ||= begin
+          api_commit_email = api_resource&.dig(:commit_email)
 
-          api_public_email && !api_public_email.empty? ? api_public_email : Runtime::User.default_email
+          api_commit_email && !api_commit_email.empty? ? api_commit_email : Runtime::User.default_email
         end
       end
 
@@ -79,11 +81,23 @@ module QA
         defined?(@username) && defined?(@password)
       end
 
+      def has_user?(user)
+        Flow::Login.while_signed_in_as_admin do
+          Page::Main::Menu.perform(&:go_to_admin_area)
+          Page::Admin::Menu.perform(&:go_to_users_overview)
+          Page::Admin::Overview::Users::Index.perform do |index|
+            index.choose_search_user(user.username)
+            index.click_search
+            index.has_username?(user.username)
+          end
+        end
+      end
+
       def fabricate!
         # Don't try to log-out if we're not logged-in
         Page::Main::Menu.perform(&:sign_out) if Page::Main::Menu.perform { |p| p.has_personal_area?(wait: 0) }
 
-        if credentials_given?
+        if credentials_given? || has_user?(self)
           Page::Main::Login.perform do |login|
             login.sign_in_using_credentials(user: self)
           end
@@ -102,12 +116,6 @@ module QA
         api_get
       rescue ResourceNotFoundError
         false
-      end
-
-      def api_delete
-        super
-
-        QA::Runtime::Logger.debug("Deleted user '#{username}'")
       end
 
       def api_delete_path
@@ -150,7 +158,7 @@ module QA
       end
 
       def self.fabricate_or_use(username = nil, password = nil)
-        if Runtime::Env.signup_disabled?
+        if Runtime::Env.signup_disabled? && !Runtime::Env.personal_access_tokens_disabled?
           fabricate_via_api! do |user|
             user.username = username
             user.password = password
@@ -161,6 +169,21 @@ module QA
             user.password = password if password
           end
         end
+      end
+
+      # Get users from the API
+      #
+      # @param [Integer] per_page the number of pages to traverse (used for pagination)
+      # @return [Array<Hash>] parsed response body
+      def self.all(per_page: 100)
+        response = nil
+        Resource::User.init do |user|
+          response = user.get(Runtime::API::Request.new(
+            Runtime::API::Client.as_admin, '/users', per_page: per_page.to_s
+          ).url)
+
+          raise ResourceQueryError unless response.code == 200
+        end.parse_body(response)
       end
 
       def approve!
@@ -224,3 +247,5 @@ module QA
     end
   end
 end
+
+QA::Resource::User.prepend_mod_with('Resource::User', namespace: QA)

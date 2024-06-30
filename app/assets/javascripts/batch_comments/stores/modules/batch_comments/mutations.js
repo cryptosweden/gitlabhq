@@ -8,6 +8,9 @@ const processDraft = (draft) => ({
 export default {
   [types.ADD_NEW_DRAFT](state, draft) {
     state.drafts.push(processDraft(draft));
+    if (state.drafts.length === 1) {
+      state.shouldAnimateReviewButton = true;
+    }
   },
 
   [types.DELETE_DRAFT](state, draftId) {
@@ -38,7 +41,6 @@ export default {
   },
   [types.RECEIVE_PUBLISH_REVIEW_SUCCESS](state) {
     state.isPublishing = false;
-    state.drafts = [];
   },
   [types.RECEIVE_PUBLISH_REVIEW_ERROR](state) {
     state.isPublishing = false;
@@ -61,5 +63,11 @@ export default {
 
       return draft;
     });
+  },
+  [types.CLEAR_DRAFTS](state) {
+    state.drafts = [];
+  },
+  [types.SET_REVIEW_BAR_RENDERED](state) {
+    state.reviewBarRendered = true;
   },
 };

@@ -5,6 +5,7 @@ require 'mkmf'
 module QA
   module Service
     class KubernetesCluster
+      include Support::API
       include Service::Shellout
 
       attr_reader :api_url, :ca_certificate, :token, :rbac, :provider
@@ -20,11 +21,14 @@ module QA
         @provider.validate_dependencies
         @provider.setup
 
-        @api_url = fetch_api_url
+        self
+      end
 
-        credentials = @provider.filter_credentials(fetch_credentials)
-        @ca_certificate = Base64.decode64(credentials.dig('data', 'ca.crt'))
-        @token = Base64.decode64(credentials.dig('data', 'token'))
+      def connect!
+        validate_dependencies
+
+        @provider.validate_dependencies
+        @provider.connect
 
         self
       end
@@ -41,12 +45,28 @@ module QA
         cluster_name
       end
 
-      def install_ingress
-        @provider.install_ingress
+      def install_kubernetes_agent(agent_token, agent_name)
+        @provider.install_kubernetes_agent(agent_token: agent_token, kas_address: fetch_kas_address,
+          agent_name: agent_name)
+      end
+
+      def uninstall_kubernetes_agent(agent_name)
+        @provider.uninstall_kubernetes_agent(agent_name: agent_name)
+      end
+
+      def setup_workspaces_in_cluster
+        @provider.install_ngnix_ingress
+        @provider.install_gitlab_workspaces_proxy
+      end
+
+      def update_dns_with_load_balancer_ip
+        load_balancer_ip = shell("kubectl -n ingress-nginx get svc ingress-nginx-controller \
+          -o jsonpath='{.status.loadBalancer.ingress[0].ip}'")
+        @provider.update_dns(load_balancer_ip)
       end
 
       def create_secret(secret, secret_name)
-        shell("kubectl create secret generic #{secret_name} --from-literal=token='#{secret}'")
+        shell("kubectl create secret generic #{secret_name} --from-literal=token='#{secret}'", mask_secrets: [secret])
       end
 
       def apply_manifest(manifest)
@@ -73,20 +93,21 @@ module QA
         shell('kubectl apply -f -', stdin_data: network_policy)
       end
 
-      def fetch_external_ip_for_ingress
-        install_ingress
-
-        # need to wait since the ingress-nginx service has an initial delay set of 10 seconds
-        sleep 12
-        ingress_ip = `kubectl get svc --all-namespaces --no-headers=true -l  app.kubernetes.io/name=ingress-nginx -o custom-columns=:'status.loadBalancer.ingress[0].ip' | grep -v 'none'`
-        QA::Runtime::Logger.debug "Has ingress address set to: #{ingress_ip}"
-        ingress_ip
-      end
-
       private
 
       def fetch_api_url
         `kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'`
+      end
+
+      def fetch_kas_address
+        api_client = Runtime::API::Client.new(:gitlab)
+
+        Support::Retrier.retry_until do
+          response = get(Runtime::API::Request.new(api_client, '/metadata').url)
+          body = parse_body(response)
+
+          body.dig(:kas, :externalUrl) || raise("Failed to fetch KAS address from #{body}")
+        end
       end
 
       def fetch_credentials

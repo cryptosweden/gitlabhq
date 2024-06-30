@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlButton, GlTabs, GlTab, GlLink, GlBadge } from '@gitlab/ui';
 import DocLine from './doc_line.vue';
@@ -89,7 +90,7 @@ export default {
     class="popover code-navigation-popover popover-font-size-normal gl-popover bs-popover-bottom show"
   >
     <div :style="{ left: `${offsetLeft}px` }" class="arrow"></div>
-    <gl-tabs nav-class="gl-hidden" content-class="gl-py-0">
+    <gl-tabs content-class="gl-py-0">
       <gl-tab :title="__('Definition')">
         <div class="overflow-auto code-navigation-popover-container">
           <div
@@ -109,14 +110,14 @@ export default {
           </div>
         </div>
         <div v-if="definitionPath || isCurrentDefinition" class="popover-body border-top">
-          <span v-if="isCurrentDefinition" class="gl-font-weight-bold gl-font-base">
+          <span v-if="isCurrentDefinition" class="gl-font-bold gl-font-base">
             {{ s__('CodeIntelligence|This is the definition') }}
           </span>
           <gl-button
             v-else
             :href="definitionPath"
             :target="isDefinitionCurrentBlob ? null : '_blank'"
-            class="w-100"
+            class="gl-w-full"
             variant="default"
             data-testid="go-to-definition-btn"
           >
@@ -127,7 +128,7 @@ export default {
       <gl-tab data-testid="references-tab" class="py-2">
         <template #title>
           {{ __('References') }}
-          <gl-badge size="sm" class="gl-tab-counter-badge">{{ references.length }}</gl-badge>
+          <gl-badge class="gl-tab-counter-badge">{{ references.length }}</gl-badge>
         </template>
         <template v-if="references.length">
           <div v-for="(reference, index) in references" :key="index" class="gl-dropdown-item">

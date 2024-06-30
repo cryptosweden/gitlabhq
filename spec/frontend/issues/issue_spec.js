@@ -1,8 +1,11 @@
-import { getByText } from '@testing-library/dom';
 import MockAdapter from 'axios-mock-adapter';
+import htmlOpenIssue from 'test_fixtures/issues/open-issue.html';
+import htmlClosedIssue from 'test_fixtures/issues/closed-issue.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { EVENT_ISSUABLE_VUE_APP_CHANGE } from '~/issuable/constants';
 import Issue from '~/issues/issue';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
 describe('Issue', () => {
   let testContext;
@@ -10,7 +13,7 @@ describe('Issue', () => {
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
-    mock.onGet(/(.*)\/related_branches$/).reply(200, {});
+    mock.onGet(/(.*)\/related_branches$/).reply(HTTP_STATUS_OK, {});
 
     testContext = {};
     testContext.issue = new Issue();
@@ -22,14 +25,6 @@ describe('Issue', () => {
   });
 
   const getIssueCounter = () => document.querySelector('.issue_counter');
-  const getOpenStatusBox = () =>
-    getByText(document, (_, el) => el.textContent.match(/Open/), {
-      selector: '.status-box-open',
-    });
-  const getClosedStatusBox = () =>
-    getByText(document, (_, el) => el.textContent.match(/Closed/), {
-      selector: '.status-box-issue-closed',
-    });
 
   describe.each`
     desc                                | isIssueInitiallyOpen | expectedCounterText
@@ -38,26 +33,17 @@ describe('Issue', () => {
   `('$desc', ({ isIssueInitiallyOpen, expectedCounterText }) => {
     beforeEach(() => {
       if (isIssueInitiallyOpen) {
-        loadFixtures('issues/open-issue.html');
+        setHTMLFixture(htmlOpenIssue);
       } else {
-        loadFixtures('issues/closed-issue.html');
+        setHTMLFixture(htmlClosedIssue);
       }
 
       testContext.issueCounter = getIssueCounter();
-      testContext.statusBoxClosed = getClosedStatusBox();
-      testContext.statusBoxOpen = getOpenStatusBox();
-
       testContext.issueCounter.textContent = '1,001';
     });
 
-    it(`has the proper visible status box when ${isIssueInitiallyOpen ? 'open' : 'closed'}`, () => {
-      if (isIssueInitiallyOpen) {
-        expect(testContext.statusBoxClosed).toHaveClass('hidden');
-        expect(testContext.statusBoxOpen).not.toHaveClass('hidden');
-      } else {
-        expect(testContext.statusBoxClosed).not.toHaveClass('hidden');
-        expect(testContext.statusBoxOpen).toHaveClass('hidden');
-      }
+    afterEach(() => {
+      resetHTMLFixture();
     });
 
     describe('when vue app triggers change', () => {
@@ -72,17 +58,17 @@ describe('Issue', () => {
         );
       });
 
-      it('displays correct status box', () => {
-        if (isIssueInitiallyOpen) {
-          expect(testContext.statusBoxClosed).not.toHaveClass('hidden');
-          expect(testContext.statusBoxOpen).toHaveClass('hidden');
-        } else {
-          expect(testContext.statusBoxClosed).toHaveClass('hidden');
-          expect(testContext.statusBoxOpen).not.toHaveClass('hidden');
-        }
-      });
-
-      it('updates issueCounter text', () => {
+      // TODO: Remove this with the removal of the old navigation.
+      // See https://gitlab.com/groups/gitlab-org/-/epics/11875.
+      // See also https://gitlab.com/gitlab-org/gitlab/-/issues/429678 about
+      // reimplementing this in the new navigation.
+      //
+      // Since this entire suite only tests the issue count updating, removing
+      // this test would mean removing the entire suite. But, ~/issues/issue.js
+      // does more than just that. Tests should be written to cover those other
+      // features. So we're just skipping this for now.
+      // eslint-disable-next-line jest/no-disabled-tests
+      it.skip('updates issueCounter text', () => {
         expect(testContext.issueCounter).toBeVisible();
         expect(testContext.issueCounter).toHaveText(expectedCounterText);
       });

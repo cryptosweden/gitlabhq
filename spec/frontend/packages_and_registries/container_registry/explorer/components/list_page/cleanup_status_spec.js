@@ -1,8 +1,8 @@
-import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
+import { GlIcon, GlLink, GlPopover, GlSprintf } from '@gitlab/ui';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { helpPagePath } from '~/helpers/help_page_helper';
 import CleanupStatus from '~/packages_and_registries/container_registry/explorer/components/list_page/cleanup_status.vue';
 import {
-  CLEANUP_TIMED_OUT_ERROR_MESSAGE,
   CLEANUP_STATUS_SCHEDULED,
   CLEANUP_STATUS_ONGOING,
   CLEANUP_STATUS_UNFINISHED,
@@ -16,20 +16,25 @@ describe('cleanup_status', () => {
   let wrapper;
 
   const findMainIcon = () => wrapper.findByTestId('main-icon');
+  const findMainIconName = () => wrapper.findByTestId('main-icon').findComponent(GlIcon);
   const findExtraInfoIcon = () => wrapper.findByTestId('extra-info');
+  const findPopover = () => wrapper.findComponent(GlPopover);
+
+  const cleanupPolicyHelpPage = helpPagePath(
+    'user/packages/container_registry/reduce_container_registry_storage.html',
+    { anchor: 'how-the-cleanup-policy-works' },
+  );
 
   const mountComponent = (propsData = { status: SCHEDULED_STATUS }) => {
     wrapper = shallowMountExtended(CleanupStatus, {
       propsData,
-      directives: {
-        GlTooltip: createMockDirective(),
+      stubs: {
+        GlLink,
+        GlPopover,
+        GlSprintf,
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   it.each`
     status                | visible  | text
@@ -43,7 +48,7 @@ describe('cleanup_status', () => {
       mountComponent({ status });
 
       expect(findMainIcon().exists()).toBe(visible);
-      expect(wrapper.text()).toBe(text);
+      expect(wrapper.text()).toContain(text);
     },
   );
 
@@ -54,10 +59,21 @@ describe('cleanup_status', () => {
       expect(findMainIcon().exists()).toBe(true);
     });
 
-    it(`has the orange class when the status is ${UNFINISHED_STATUS}`, () => {
-      mountComponent({ status: UNFINISHED_STATUS });
+    it.each`
+      status                | visible  | iconName
+      ${UNFINISHED_STATUS}  | ${true}  | ${'expire'}
+      ${SCHEDULED_STATUS}   | ${true}  | ${'clock'}
+      ${ONGOING_STATUS}     | ${true}  | ${'clock'}
+      ${UNSCHEDULED_STATUS} | ${false} | ${''}
+    `('matches "$iconName" when the status is "$status"', ({ status, visible, iconName }) => {
+      mountComponent({ status });
 
-      expect(findMainIcon().classes('gl-text-orange-500')).toBe(true);
+      expect(findMainIcon().exists()).toBe(visible);
+      if (visible) {
+        const actualIcon = findMainIconName();
+        expect(actualIcon.exists()).toBe(true);
+        expect(actualIcon.props('name')).toBe(iconName);
+      }
     });
   });
 
@@ -70,18 +86,44 @@ describe('cleanup_status', () => {
     `(
       'when the status is $status is $visible that the extra icon is visible',
       ({ status, visible }) => {
-        mountComponent({ status });
+        mountComponent({ status, expirationPolicy: { next_run_at: '2063-04-08T01:44:03Z' } });
 
         expect(findExtraInfoIcon().exists()).toBe(visible);
       },
     );
 
-    it(`has a tooltip`, () => {
-      mountComponent({ status: UNFINISHED_STATUS });
+    it(`when the status is ${UNFINISHED_STATUS} & expirationPolicy does not exist the extra icon is not visible`, () => {
+      mountComponent({
+        status: UNFINISHED_STATUS,
+      });
 
-      const tooltip = getBinding(findExtraInfoIcon().element, 'gl-tooltip');
+      expect(findExtraInfoIcon().exists()).toBe(false);
+    });
 
-      expect(tooltip.value.title).toBe(CLEANUP_TIMED_OUT_ERROR_MESSAGE);
+    it(`has a popover with a learn more link and a time frame for the next run`, () => {
+      jest.spyOn(Date, 'now').mockImplementation(() => new Date('2063-04-04T00:42:00Z').getTime());
+
+      mountComponent({
+        status: UNFINISHED_STATUS,
+        expirationPolicy: { next_run_at: '2063-04-08T01:44:03Z' },
+      });
+
+      expect(findPopover().exists()).toBe(true);
+      expect(findPopover().text()).toContain('The cleanup will continue within 4 days. Learn more');
+      expect(findPopover().findComponent(GlLink).exists()).toBe(true);
+      expect(findPopover().findComponent(GlLink).attributes('href')).toBe(cleanupPolicyHelpPage);
+    });
+
+    it('id matches popover target attribute', () => {
+      mountComponent({
+        status: UNFINISHED_STATUS,
+        expirationPolicy: { next_run_at: '2063-04-08T01:44:03Z' },
+      });
+
+      const id = findExtraInfoIcon().attributes('id');
+
+      expect(id).toMatch(/status-info-[0-9]+/);
+      expect(findPopover().props('target')).toEqual(id);
     });
   });
 });

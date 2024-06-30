@@ -1,17 +1,26 @@
 <script>
-import { GlDropdown, GlDropdownItem, GlIcon, GlSprintf } from '@gitlab/ui';
+import {
+  GlButton,
+  GlDisclosureDropdown,
+  GlDisclosureDropdownItem,
+  GlIcon,
+  GlSprintf,
+} from '@gitlab/ui';
 import { __ } from '~/locale';
 import PaginationLinks from '~/vue_shared/components/pagination_links.vue';
+import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 
 const DEFAULT_PAGE_SIZES = [20, 50, 100];
 
 export default {
   components: {
     PaginationLinks,
-    GlDropdown,
-    GlDropdownItem,
+    GlButton,
+    GlDisclosureDropdown,
+    GlDisclosureDropdownItem,
     GlIcon,
     GlSprintf,
+    LocalStorageSync,
   },
   props: {
     pageInfo: {
@@ -22,6 +31,11 @@ export default {
       required: false,
       type: Array,
       default: () => DEFAULT_PAGE_SIZES,
+    },
+    storageKey: {
+      required: false,
+      type: String,
+      default: null,
     },
   },
 
@@ -66,26 +80,38 @@ export default {
 
 <template>
   <div class="gl-display-flex gl-align-items-center">
+    <local-storage-sync
+      v-if="storageKey"
+      :storage-key="storageKey"
+      :value="pageInfo.perPage"
+      @input="setPageSize"
+    />
     <pagination-links :change="setPage" :page-info="pageInfo" class="gl-m-0" />
-    <gl-dropdown category="tertiary" class="gl-ml-auto" data-testid="page-size">
-      <template #button-content>
-        <span class="gl-font-weight-bold">
+    <gl-disclosure-dropdown category="tertiary" class="gl-ml-auto" data-testid="page-size">
+      <template #toggle>
+        <gl-button class="gl-font-bold" category="tertiary">
           <gl-sprintf :message="__('%{count} items per page')">
             <template #count>
               {{ pageInfo.perPage }}
             </template>
           </gl-sprintf>
-        </span>
-        <gl-icon class="gl-button-icon dropdown-chevron" name="chevron-down" />
+          <gl-icon class="gl-button-icon dropdown-chevron" name="chevron-down" />
+        </gl-button>
       </template>
-      <gl-dropdown-item v-for="size in pageSizes" :key="size" @click="setPageSize(size)">
-        <gl-sprintf :message="__('%{count} items per page')">
-          <template #count>
-            {{ size }}
-          </template>
-        </gl-sprintf>
-      </gl-dropdown-item>
-    </gl-dropdown>
+      <gl-disclosure-dropdown-item
+        v-for="size in pageSizes"
+        :key="size"
+        @action="setPageSize(size)"
+      >
+        <template #list-item>
+          <gl-sprintf :message="__('%{count} items per page')">
+            <template #count>
+              {{ size }}
+            </template>
+          </gl-sprintf>
+        </template>
+      </gl-disclosure-dropdown-item>
+    </gl-disclosure-dropdown>
     <div class="gl-ml-2" data-testid="information">
       <gl-sprintf :message="s__('BulkImport|Showing %{start}-%{end} of %{total}')">
         <template #start>

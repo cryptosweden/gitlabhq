@@ -1,12 +1,15 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 description: 'Learn how to spin up a pre-configured GitLab VM on Microsoft Azure.'
-type: howto
 ---
 
-# Install GitLab on Microsoft Azure **(FREE SELF)**
+# Install GitLab on Microsoft Azure
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 For users of the Microsoft Azure business cloud, GitLab has a pre-configured offering in
 the [Azure Marketplace](https://azuremarketplace.microsoft.com/en-us/marketplace/).
@@ -15,7 +18,7 @@ Enterprise Edition in a single Virtual Machine (VM).
 
 ## Prerequisite
 
-You'll need an account on Azure. Use of the following methods to obtain an account:
+You need an account on Azure. Use of the following methods to obtain an account:
 
 - If you or your company already have an account with a subscription, use that account.
   If not, you can [open your own Azure account for free](https://azure.microsoft.com/en-us/free/).
@@ -61,7 +64,7 @@ The first items you need to configure are the basic settings of the underlying v
 1. Enter a name for the VM, for example `GitLab`.
 1. Select a region.
 1. In **Availability options**, select **Availability zone** and set it to `1`.
-   Read more about the [availability zones](https://docs.microsoft.com/en-us/azure/virtual-machines/availability).
+   Read more about the [availability zones](https://learn.microsoft.com/en-us/azure/virtual-machines/availability).
 1. Ensure the selected image is set to **GitLab - Gen1**.
 1. Select the VM size based on the [hardware requirements](../requirements.md#hardware-requirements).
    Because the minimum system requirements to run a GitLab environment for up to 500 users
@@ -71,8 +74,8 @@ The first items you need to configure are the basic settings of the underlying v
    the user Azure uses to connect to the VM through SSH. By default, the user
    has root access.
 1. Determine if you want to provide your own SSH key or let Azure create one for you.
-   Read the [SSH documentation](../../ssh/index.md) to learn more about how to set up SSH
-   public keys.
+   For more information about how to set up SSH
+   public keys, see [SSH](../../user/ssh.md).
 
 Review your entered settings, and then proceed to the Disks tab.
 
@@ -83,7 +86,7 @@ For the disks:
 1. For the OS disk type, select **Premium SSD**.
 1. Select the default encryption.
 
-[Read more about the types of disks](https://docs.microsoft.com/en-us/azure/virtual-machines/managed-disks-overview) that Azure provides.
+[Read more about the types of disks](https://learn.microsoft.com/en-us/azure/virtual-machines/managed-disks-overview) that Azure provides.
 
 Review your settings, and then proceed to the Networking tab.
 
@@ -155,11 +158,11 @@ to assign a descriptive DNS name to the VM:
 1. Enter a descriptive DNS name for your instance in the **DNS name label** field,
    for example `gitlab-prod`. This makes the VM accessible at
    `gitlab-prod.eastus.cloudapp.azure.com`.
-1. Select **Save** for the changes to take effect.
+1. Select **Save**.
 
 Eventually, most users want to use their own domain name. For you to do this, you need to add a DNS `A` record
 with your domain registrar that points to the public IP address of your Azure VM.
-You can use [Azure's DNS](https://docs.microsoft.com/en-us/azure/dns/dns-delegate-domain-azure-dns)
+You can use [Azure's DNS](https://learn.microsoft.com/en-us/azure/dns/dns-delegate-domain-azure-dns)
 or some [other registrar](https://docs.gitlab.com/omnibus/settings/dns.html).
 
 ### Change the GitLab external URL
@@ -185,13 +188,13 @@ To set up the GitLab external URL:
 
    NOTE:
    If you need to reset your credentials, read
-   [how to reset SSH credentials for a user on an Azure VM](https://docs.microsoft.com/en-us/troubleshoot/azure/virtual-machines/troubleshoot-ssh-connection#reset-ssh-credentials-for-a-user).
+   [how to reset SSH credentials for a user on an Azure VM](https://learn.microsoft.com/en-us/troubleshoot/azure/virtual-machines/linux/troubleshoot-ssh-connection#reset-ssh-credentials-for-a-user).
 
 1. Open `/etc/gitlab/gitlab.rb` with your editor.
 1. Find `external_url` and replace it with your own domain name. For the sake
    of this example, use the default domain name Azure sets up.
    Using `https` in the URL
-   [automatically enables](https://docs.gitlab.com/omnibus/settings/ssl.html#lets-encrypt-integration),
+   [automatically enables](https://docs.gitlab.com/omnibus/settings/ssl/index.html#lets-encrypt-integration),
    Let's Encrypt, and sets HTTPS by default:
 
    ```ruby
@@ -233,10 +236,10 @@ The first thing that appears is the sign-in page. GitLab creates an administrato
 The credentials are:
 
 - Username: `root`
-- Password: the password is automatically created, and there are [two ways to
-  find it](https://docs.bitnami.com/azure/faq/get-started/find-credentials/).
+- Password: the password is automatically created, and there are
+  [two ways to find it](https://docs.bitnami.com/azure/faq/get-started/find-credentials/).
 
-After signing in, be sure to immediately [change the password](../../user/profile/index.md#change-your-password).
+After signing in, be sure to immediately [change the password](../../user/profile/user_passwords.md#change-your-password).
 
 ## Maintain your GitLab instance
 
@@ -248,8 +251,8 @@ in this section whenever you need to update GitLab.
 
 To determine the version of GitLab you're currently running:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Overview > Dashboard**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Overview > Dashboard**.
 1. Find the version under the **Components** table.
 
 If there's a newer available version of GitLab that contains one or more
@@ -294,7 +297,7 @@ up-to-date GitLab instance.
 ## Next steps and further configuration
 
 Now that you have a functional GitLab instance, follow the
-[next steps](../index.md#next-steps) to learn what more you can do with your
+[next steps](../next_steps.md) to learn what more you can do with your
 new installation.
 
 ## Troubleshooting

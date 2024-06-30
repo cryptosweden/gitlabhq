@@ -1,20 +1,23 @@
-import JSZip from 'jszip';
 import SketchLoader from '~/blob/sketch';
-
-jest.mock('jszip');
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
+import waitForPromises from 'helpers/wait_for_promises';
+import htmlSketchViewer from 'test_fixtures_static/sketch_viewer.html';
 
 describe('Sketch viewer', () => {
   beforeEach(() => {
-    loadFixtures('static/sketch_viewer.html');
+    setHTMLFixture(htmlSketchViewer);
+  });
+
+  afterEach(() => {
+    resetHTMLFixture();
   });
 
   describe('with error message', () => {
-    beforeEach((done) => {
-      jest.spyOn(SketchLoader.prototype, 'getZipFile').mockImplementation(
+    beforeEach(() => {
+      jest.spyOn(SketchLoader.prototype, 'getZipContents').mockImplementation(
         () =>
           new Promise((resolve, reject) => {
             reject();
-            done();
           }),
       );
 
@@ -35,26 +38,18 @@ describe('Sketch viewer', () => {
   });
 
   describe('success', () => {
-    beforeEach((done) => {
-      const loadAsyncMock = {
+    beforeEach(() => {
+      jest.spyOn(SketchLoader.prototype, 'getZipContents').mockResolvedValue({
         files: {
           'previews/preview.png': {
-            async: jest.fn(),
+            async: jest.fn().mockResolvedValue('foo'),
           },
         },
-      };
+      });
+      // eslint-disable-next-line no-new
+      new SketchLoader(document.getElementById('js-sketch-viewer'));
 
-      loadAsyncMock.files['previews/preview.png'].async.mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            resolve('foo');
-            done();
-          }),
-      );
-
-      jest.spyOn(SketchLoader.prototype, 'getZipFile').mockResolvedValue();
-      jest.spyOn(JSZip, 'loadAsync').mockResolvedValue(loadAsyncMock);
-      return new SketchLoader(document.getElementById('js-sketch-viewer'));
+      return waitForPromises();
     });
 
     it('does not render error message', () => {
@@ -69,7 +64,7 @@ describe('Sketch viewer', () => {
       const img = document.querySelector('#js-sketch-viewer img');
 
       expect(img).not.toBeNull();
-      expect(img.classList.contains('img-fluid')).toBeTruthy();
+      expect(img.classList.contains('img-fluid')).toBe(true);
     });
 
     it('renders link to image', () => {

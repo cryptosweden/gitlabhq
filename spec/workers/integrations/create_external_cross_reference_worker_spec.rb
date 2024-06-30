@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::CreateExternalCrossReferenceWorker do
+RSpec.describe Integrations::CreateExternalCrossReferenceWorker, feature_category: :integrations do
   include AfterNextHelpers
   using RSpec::Parameterized::TableSyntax
 
-  let_it_be(:project) { create(:jira_project, :repository) }
+  let_it_be(:project) { create(:project, :with_jira_integration, :repository) }
   let_it_be(:author) { create(:user) }
   let_it_be(:commit) { project.commit }
   let_it_be(:issue) { create(:issue, project: project) }

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'OpenID Connect requests' do
+RSpec.describe 'OpenID Connect requests', feature_category: :system_access do
   let(:user) do
     create(
       :user,
@@ -23,24 +23,25 @@ RSpec.describe 'OpenID Connect requests' do
 
   let(:id_token_claims) do
     {
-      'sub'        => user.id.to_s,
+      'sub' => user.id.to_s,
       'sub_legacy' => hashed_subject
     }
   end
 
   let(:user_info_claims) do
     {
-      'name'           => 'Alice',
-      'nickname'       => 'alice',
-      'email'          => 'public@example.com',
+      'name' => 'Alice',
+      'nickname' => 'alice',
+      'preferred_username' => 'alice',
+      'email' => 'public@example.com',
       'email_verified' => true,
-      'website'        => 'https://example.com',
-      'profile'        => 'http://localhost/alice',
-      'picture'        => "http://localhost/uploads/-/system/user/avatar/#{user.id}/dk.png",
-      'groups'         => kind_of(Array),
-      'https://gitlab.org/claims/groups/owner'      => kind_of(Array),
+      'website' => 'https://example.com',
+      'profile' => 'http://localhost/alice',
+      'picture' => "http://localhost/uploads/-/system/user/avatar/#{user.id}/dk.png",
+      'groups' => kind_of(Array),
+      'https://gitlab.org/claims/groups/owner' => kind_of(Array),
       'https://gitlab.org/claims/groups/maintainer' => kind_of(Array),
-      'https://gitlab.org/claims/groups/developer'  => kind_of(Array)
+      'https://gitlab.org/claims/groups/developer' => kind_of(Array)
     }
   end
 
@@ -98,7 +99,7 @@ RSpec.describe 'OpenID Connect requests' do
   shared_examples 'cross-origin GET and POST request' do
     it 'allows cross-origin request' do
       expect(response.headers['Access-Control-Allow-Origin']).to eq '*'
-      expect(response.headers['Access-Control-Allow-Methods']).to eq 'GET, HEAD, POST'
+      expect(response.headers['Access-Control-Allow-Methods']).to eq 'GET, HEAD, POST, OPTIONS'
       expect(response.headers['Access-Control-Allow-Headers']).to be_nil
       expect(response.headers['Access-Control-Allow-Credentials']).to be_nil
     end
@@ -120,9 +121,9 @@ RSpec.describe 'OpenID Connect requests' do
       let!(:group4) { create :group, parent: group3 }
 
       before do
-        group1.add_user(user, GroupMember::OWNER)
-        group3.add_user(user, Gitlab::Access::DEVELOPER)
-        group4.add_user(user, Gitlab::Access::MAINTAINER)
+        group1.add_member(user, GroupMember::OWNER)
+        group3.add_member(user, Gitlab::Access::DEVELOPER)
+        group4.add_member(user, Gitlab::Access::MAINTAINER)
 
         request_user_info!
       end
@@ -163,8 +164,8 @@ RSpec.describe 'OpenID Connect requests' do
       let!(:group4) { create :group, parent: group3 }
 
       before do
-        group1.add_user(user, Gitlab::Access::OWNER)
-        group3.add_user(user, Gitlab::Access::DEVELOPER)
+        group1.add_member(user, Gitlab::Access::OWNER)
+        group3.add_member(user, Gitlab::Access::DEVELOPER)
 
         request_access_token!
         @payload = JSON::JWT.decode(json_response['id_token'], :skip_verification)
@@ -191,7 +192,7 @@ RSpec.describe 'OpenID Connect requests' do
       end
 
       it 'does not include any unknown properties' do
-        expect(@payload.keys).to eq %w[iss sub aud exp iat auth_time sub_legacy email email_verified groups_direct]
+        expect(@payload.keys).to eq %w[iss sub aud exp iat auth_time sub_legacy name nickname preferred_username email email_verified website profile picture groups_direct]
       end
 
       it 'does include groups' do
@@ -269,13 +270,20 @@ RSpec.describe 'OpenID Connect requests' do
   end
 
   context 'OpenID configuration information' do
+    let(:expected_scopes) do
+      %w[
+        admin_mode api read_user read_api read_repository write_repository sudo openid profile email
+        read_observability write_observability create_runner manage_runner k8s_proxy ai_features read_service_ping
+      ]
+    end
+
     it 'correctly returns the configuration' do
       get '/.well-known/openid-configuration'
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['issuer']).to eq('http://localhost')
       expect(json_response['jwks_uri']).to eq('http://www.example.com/oauth/discovery/keys')
-      expect(json_response['scopes_supported']).to match_array %w[api read_user read_api read_repository write_repository sudo openid profile email]
+      expect(json_response['scopes_supported']).to match_array expected_scopes
     end
 
     context 'with a cross-origin request' do
@@ -285,7 +293,7 @@ RSpec.describe 'OpenID Connect requests' do
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['issuer']).to eq('http://localhost')
         expect(json_response['jwks_uri']).to eq('http://www.example.com/oauth/discovery/keys')
-        expect(json_response['scopes_supported']).to match_array %w[api read_user read_api read_repository write_repository sudo openid profile email]
+        expect(json_response['scopes_supported']).to match_array expected_scopes
       end
 
       it_behaves_like 'cross-origin GET request'
@@ -358,8 +366,8 @@ RSpec.describe 'OpenID Connect requests' do
       let!(:group4) { create :group, parent: group3 }
 
       before do
-        group1.add_user(user, Gitlab::Access::OWNER)
-        group3.add_user(user, Gitlab::Access::DEVELOPER)
+        group1.add_member(user, Gitlab::Access::OWNER)
+        group3.add_member(user, Gitlab::Access::DEVELOPER)
 
         request_access_token!
         @payload = JSON::JWT.decode(json_response['id_token'], :skip_verification)

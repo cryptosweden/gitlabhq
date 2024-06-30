@@ -1,20 +1,20 @@
 <script>
 import $ from 'jquery';
 import GfmAutoComplete from 'ee_else_ce/gfm_auto_complete';
+import { TYPE_ISSUE } from '~/issues/constants';
 import {
   autoCompleteTextMap,
   inputPlaceholderConfidentialTextMap,
   inputPlaceholderTextMap,
-  issuableTypesMap,
 } from '../constants';
-import issueToken from './issue_token.vue';
+import IssueToken from './issue_token.vue';
 
 const SPACE_FACTOR = 1;
 
 export default {
   name: 'RelatedIssuableInput',
   components: {
-    issueToken,
+    IssueToken,
   },
   props: {
     inputId: {
@@ -54,7 +54,7 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: issuableTypesMap.ISSUE,
+      default: TYPE_ISSUE,
     },
     confidential: {
       type: Boolean,
@@ -182,13 +182,10 @@ export default {
   <div
     ref="issuableFormWrapper"
     :class="{ focus: isInputFocused }"
-    class="add-issuable-form-input-wrapper form-control gl-field-error-outline gl-h-auto gl-p-3 gl-pb-2"
-    role="button"
+    class="add-issuable-form-input-wrapper form-control gl-field-error-outline gl-h-auto gl-px-3 gl-pt-2 gl-pb-0"
     @click="onIssuableFormWrapperClick"
   >
-    <ul
-      class="gl-display-flex gl-flex-wrap gl-align-items-baseline gl-list-style-none gl-m-0 gl-p-0"
-    >
+    <ul class="gl-display-flex gl-flex-wrap gl-align-items-baseline gl-list-none gl-m-0 gl-p-0">
       <li
         v-for="(reference, index) in references"
         :key="reference"
@@ -216,8 +213,8 @@ export default {
           :placeholder="inputPlaceholder"
           :aria-label="inputPlaceholder"
           type="text"
-          class="gl-w-full gl-border-none gl-outline-0"
-          data-qa-selector="add_issue_field"
+          class="gl-w-full gl-border-none gl-outline-none"
+          data-testid="add-issue-field"
           autocomplete="off"
           @input="onInput"
           @focus="onFocus"

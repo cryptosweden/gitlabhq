@@ -1,26 +1,30 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+ignore_in_report: true
 ---
 
 WARNING:
-This runbook is in [**Alpha**](../../../../policy/alpha-beta-support.md#alpha-features). For complete, production-ready documentation, see the
+This runbook is an [experiment](../../../../policy/experiment-beta-support.md#experiment). For complete, production-ready documentation, see the
 [disaster recovery documentation](../index.md).
 
-# Disaster Recovery (Geo) promotion runbooks **(PREMIUM SELF)**
+# Disaster Recovery (Geo) promotion runbooks
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
 ## Geo planned failover for a multi-node configuration
 
-| Component   | Configuration   |
-|-------------|-----------------|
-| PostgreSQL  | Omnibus-managed |
-| Geo site    | Multi-node      |
-| Secondaries | One             |
+| Component   | Configuration                |
+|:------------|:-----------------------------|
+| PostgreSQL  | Managed by the Linux package |
+| Geo site    | Multi-node                   |
+| Secondaries | One                          |
 
 This runbook guides you through a planned failover of a multi-node Geo site
-with one secondary. The following [2000 user reference architecture](../../../../administration/reference_architectures/2k_users.md) is assumed:
+with one secondary. The following [40 RPS / 2,000 user reference architecture](../../../../administration/reference_architectures/2k_users.md) is assumed:
 
 ```mermaid
 graph TD
@@ -63,16 +67,13 @@ Before following any of those steps, make sure you have `root` access to the
 **secondary** to promote it, because there isn't provided an automated way to
 promote a Geo replica and perform a failover.
 
-NOTE:
-GitLab 13.9 through GitLab 14.3 are affected by a bug in which the Geo secondary site statuses appear to stop updating and become unhealthy. For more information, see [Geo Admin Area shows 'Unhealthy' after enabling Maintenance Mode](../../replication/troubleshooting.md#geo-admin-area-shows-unhealthy-after-enabling-maintenance-mode).
-
 On the **secondary** site:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Geo > Nodes** to see its status.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Geo > Sites** to see its status.
    Replicated objects (shown in green) should be close to 100%,
    and there should be no failures (shown in red). If a large proportion of
-   objects aren't yet replicated (shown in gray), consider giving the site more
+   objects aren't replicated (shown in gray), consider giving the site more
    time to complete.
 
    ![Replication status](../../replication/img/geo_dashboard_v14_0.png)
@@ -84,7 +85,7 @@ failed to replicate is **lost**.
 You can use the
 [Geo status API](../../../../api/geo_nodes.md#retrieve-project-sync-or-verification-failures-that-occurred-on-the-current-node)
 to review failed objects and the reasons for failure.
-A common cause of replication failures is the data being missing on the
+A common cause of replication failures is data that is missing on the
 **primary** site - you can resolve these failures by restoring the data from backup,
 or removing references to the missing data.
 
@@ -95,52 +96,8 @@ ensure these processes are close to 100% as possible during active use.
 If the **secondary** site is still replicating data from the **primary** site,
 follow these steps to avoid unnecessary data loss:
 
-1. Until a [read-only mode](https://gitlab.com/gitlab-org/gitlab/-/issues/14609)
-   is implemented, updates must be prevented from happening manually to the
-   **primary**. Your **secondary** site still needs read-only
-   access to the **primary** site during the maintenance window:
-
-   1. At the scheduled time, using your cloud provider or your node's firewall, block
-      all HTTP, HTTPS and SSH traffic to/from the **primary** node, **except** for your IP and
-      the **secondary** node's IP.
-
-      For instance, you can run the following commands on the **primary** node:
-
-      ```shell
-      sudo iptables -A INPUT -p tcp -s <secondary_node_ip> --destination-port 22 -j ACCEPT
-      sudo iptables -A INPUT -p tcp -s <your_ip> --destination-port 22 -j ACCEPT
-      sudo iptables -A INPUT --destination-port 22 -j REJECT
-
-      sudo iptables -A INPUT -p tcp -s <secondary_node_ip> --destination-port 80 -j ACCEPT
-      sudo iptables -A INPUT -p tcp -s <your_ip> --destination-port 80 -j ACCEPT
-      sudo iptables -A INPUT --tcp-dport 80 -j REJECT
-
-      sudo iptables -A INPUT -p tcp -s <secondary_node_ip> --destination-port 443 -j ACCEPT
-      sudo iptables -A INPUT -p tcp -s <your_ip> --destination-port 443 -j ACCEPT
-      sudo iptables -A INPUT --tcp-dport 443 -j REJECT
-      ```
-
-      From this point, users are unable to view their data or make changes on the
-      **primary** site. They are also unable to log in to the **secondary** site.
-      However, existing sessions must work for the remainder of the maintenance period, and
-      so public data is accessible throughout.
-
-   1. Verify the **primary** site is blocked to HTTP traffic by visiting it in browser via
-      another IP. The server should refuse connection.
-
-   1. Verify the **primary** site is blocked to Git over SSH traffic by attempting to pull an
-      existing Git repository with an SSH remote URL. The server should refuse
-      connection.
-
-   1. On the **primary** site:
-      1. On the top bar, select **Menu > Admin**.
-      1. On the left sidebar, select **Monitoring > Background Jobs**.
-      1. On the Sidekiq dashboard, select **Cron**.
-      1. Select `Disable All` to disable any non-Geo periodic background jobs.
-      1. Select `Enable` for the `geo_sidekiq_cron_config_worker` cron job.
-         This job re-enables several other cron jobs that are essential for planned
-         failover to complete successfully.
-
+1. Enable [maintenance mode](../../../maintenance_mode/index.md) on the **primary** site,
+   and make sure to stop any [background jobs](../../../maintenance_mode/index.md#background-jobs).
 1. Finish replicating and verifying all data:
 
    WARNING:
@@ -151,22 +108,22 @@ follow these steps to avoid unnecessary data loss:
       [data not managed by Geo](../../replication/datatypes.md#limitations-on-replicationverification),
       trigger the final replication process now.
    1. On the **primary** site:
-      1. On the top bar, select **Menu > Admin**.
+      1. On the left sidebar, at the bottom, select **Admin Area**.
       1. On the left sidebar, select **Monitoring > Background Jobs**.
       1. On the Sidekiq dashboard, select **Queues**, and wait for all queues except
          those with `geo` in the name to drop to 0.
          These queues contain work that has been submitted by your users; failing over
          before it is completed, causes the work to be lost.
-      1. On the left sidebar, select **Geo > Nodes** and wait for the
-         following conditions to be true of the **secondary** node you are failing over to:
+      1. On the left sidebar, select **Geo > Sites** and wait for the
+         following conditions to be true of the **secondary** site you are failing over to:
 
          - All replication meters reach 100% replicated, 0% failures.
          - All verification meters reach 100% verified, 0% failures.
-         - Database replication lag is 0ms.
+         - Database replication lag is 0 ms.
          - The Geo log cursor is up to date (0 events behind).
 
    1. On the **secondary** site:
-      1. On the top bar, select **Menu > Admin**.
+      1. On the left sidebar, at the bottom, select **Admin Area**.
       1. On the left sidebar, select **Monitoring > Background Jobs**.
       1. On the Sidekiq dashboard, select **Queues**, and wait for all the `geo`
          queues to drop to 0 queued and 0 running jobs.
@@ -205,7 +162,7 @@ follow these steps to avoid unnecessary data loss:
 
      NOTE:
      (**CentOS only**) In CentOS 6 or older, it is challenging to prevent GitLab from being
-     started if the machine reboots isn't available (see [Omnibus GitLab issue #3058](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/3058)).
+     started if the machine reboots isn't available (see [issue 3058](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/3058)).
      It may be safest to uninstall the GitLab package completely with `sudo yum remove gitlab-ee`.
 
      NOTE:
@@ -215,7 +172,7 @@ follow these steps to avoid unnecessary data loss:
      `initctl stop gitlab-runsvvdir && echo 'manual' > /etc/init/gitlab-runsvdir.override && initctl reload-configuration`.
 
    - If you do not have SSH access to the **primary** site, take the machine offline and
-     prevent it from rebooting. Since there are many ways you may prefer to accomplish
+     prevent it from rebooting. As there are many ways you may prefer to accomplish
      this, we avoid a single recommendation. You may have to:
 
      - Reconfigure the load balancers.
@@ -226,17 +183,17 @@ follow these steps to avoid unnecessary data loss:
      - Revoke object storage permissions from the **primary** site.
      - Physically disconnect a machine.
 
-### Promoting the **secondary** site running GitLab 14.5 and later
+### Promoting the **secondary** site
 
-1. SSH to every Sidekiq, PostgresSQL, and Gitaly node in the **secondary** site and run one of the following commands:
+1. SSH to every Sidekiq, PostgreSQL, and Gitaly node in the **secondary** site and run one of the following commands:
 
-   - To promote the secondary node to primary:
+   - To promote the secondary site to primary:
 
      ```shell
      sudo gitlab-ctl geo promote
      ```
 
-   - To promote the secondary node to primary **without any further confirmation**:
+   - To promote the secondary site to primary **without any further confirmation**:
 
      ```shell
      sudo gitlab-ctl geo promote --force
@@ -244,13 +201,13 @@ follow these steps to avoid unnecessary data loss:
 
 1. SSH into each Rails node on your **secondary** site and run one of the following commands:
 
-   - To promote the secondary node to primary:
+   - To promote the secondary site to primary:
 
      ```shell
      sudo gitlab-ctl geo promote
      ```
 
-   - To promote the secondary node to primary **without any further confirmation**:
+   - To promote the secondary site to primary **without any further confirmation**:
 
      ```shell
      sudo gitlab-ctl geo promote --force
@@ -258,74 +215,8 @@ follow these steps to avoid unnecessary data loss:
 
 1. Verify you can connect to the newly promoted **primary** site using the URL used
    previously for the **secondary** site.
+
 1. If successful, the **secondary** site is now promoted to the **primary** site.
-
-### Promoting the **secondary** site running GitLab 14.4 and earlier
-
-WARNING:
-The `gitlab-ctl promote-to-primary-node` and `gitlab-ctl promoted-db` commands are
-deprecated in GitLab 14.5 and later, and are scheduled to [be removed in GitLab 15.0](https://gitlab.com/gitlab-org/gitlab/-/issues/345207).
-Use `gitlab-ctl geo promote` instead.
-
-NOTE:
-A new **secondary** should not be added at this time. If you want to add a new
-**secondary**, do this after you have completed the entire process of promoting
-the **secondary** to the **primary**.
-
-WARNING:
-If you encounter an `ActiveRecord::RecordInvalid: Validation failed: Name has already been taken` error during this process, read
-[the troubleshooting advice](../../replication/troubleshooting.md#fixing-errors-during-a-failover-or-when-promoting-a-secondary-to-a-primary-node).
-
-The `gitlab-ctl promote-to-primary-node` command cannot be used yet in
-conjunction with multiple servers, as it can only
-perform changes on a **secondary** with only a single machine. Instead, you must
-do this manually.
-
-WARNING:
-In GitLab 13.2 and 13.3, promoting a secondary site to a primary while the
-secondary is paused fails. Do not pause replication before promoting a
-secondary. If the site is paused, be sure to resume before promoting. This
-issue has been fixed in GitLab 13.4 and later.
-
-WARNING:
-If the secondary site [has been paused](../../../geo/index.md#pausing-and-resuming-replication), this performs
-a point-in-time recovery to the last known state.
-Data that was created on the primary while the secondary was paused is lost.
-
-1. SSH in to the PostgreSQL node in the **secondary** and promote PostgreSQL separately:
-
-   ```shell
-   sudo gitlab-ctl promote-db
-   ```
-
-   In GitLab 12.8 and earlier, see [Message: `sudo: gitlab-pg-ctl: command not found`](../../replication/troubleshooting.md#message-sudo-gitlab-pg-ctl-command-not-found).
-
-1. Edit `/etc/gitlab/gitlab.rb` on every machine in the **secondary** to
-   reflect its new status as **primary** by removing any lines that enabled the
-   `geo_secondary_role`:
-
-   ```ruby
-   ## In pre-11.5 documentation, the role was enabled as follows. Remove this line.
-   geo_secondary_role['enable'] = true
-
-   ## In 11.5+ documentation, the role was enabled as follows. Remove this line.
-   roles ['geo_secondary_role']
-   ```
-
-   After making these changes [Reconfigure GitLab](../../../restart_gitlab.md#omnibus-gitlab-reconfigure) each
-   machine so the changes take effect.
-
-1. Promote the **secondary** to **primary**. SSH into a single Rails node
-   server and execute:
-
-   ```shell
-   sudo gitlab-rake geo:set_secondary_as_primary
-   ```
-
-1. Verify you can connect to the newly promoted **primary** using the URL used
-   previously for the **secondary**.
-
-1. Success! The **secondary** has now been promoted to **primary**.
 
 ### Next steps
 

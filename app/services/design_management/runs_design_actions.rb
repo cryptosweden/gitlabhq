@@ -15,12 +15,14 @@ module DesignManagement
     def run_actions(actions, skip_system_notes: false)
       raise NoActions if actions.empty?
 
-      sha = repository.multi_action(current_user,
-                                    branch_name: target_branch,
-                                    message: commit_message,
-                                    actions: actions.map(&:gitaly_action))
+      sha = repository.commit_files(
+        current_user,
+        branch_name: target_branch,
+        message: commit_message,
+        actions: actions.map(&:gitaly_action)
+      )
 
-      ::DesignManagement::Version
+      DesignManagement::Version
         .create_for_designs(actions, sha, current_user)
         .tap { |version| post_process(version, skip_system_notes) }
     end
@@ -29,7 +31,7 @@ module DesignManagement
 
     def post_process(version, skip_system_notes)
       version.run_after_commit_or_now do
-        ::DesignManagement::NewVersionWorker.perform_async(id, skip_system_notes)
+        DesignManagement::NewVersionWorker.perform_async(id, skip_system_notes)
       end
     end
   end

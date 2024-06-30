@@ -13,10 +13,17 @@ module Ci
       feature_category :code_testing
 
       idempotent!
+      deduplicate :until_executed
 
       def perform(pipeline_id)
-        Ci::Pipeline.find_by_id(pipeline_id).try do |pipeline|
-          Ci::PipelineArtifacts::CoverageReportService.new.execute(pipeline)
+        pipeline = Ci::Pipeline.find_by_id(pipeline_id)
+
+        return unless pipeline
+
+        pipeline.root_ancestor.try do |root_ancestor_pipeline|
+          next unless root_ancestor_pipeline.self_and_project_descendants_complete?
+
+          Ci::PipelineArtifacts::CoverageReportService.new(root_ancestor_pipeline).execute
         end
       end
     end

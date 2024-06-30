@@ -2,33 +2,34 @@
 
 exports[`History Item renders the correct markup 1`] = `
 <li
-  class="timeline-entry system-note note-wrapper gl-mb-6!"
+  class="note-wrapper system-note timeline-entry"
 >
   <div
     class="timeline-entry-inner"
   >
     <div
-      class="timeline-icon"
+      class="-gl-mt-1 gl-bg-gray-50 gl-flex gl-float-left gl-h-6 gl-items-center gl-justify-center gl-ml-2 gl-rounded-full gl-text-gray-600 gl-w-6"
     >
       <gl-icon-stub
         name="pencil"
         size="16"
+        variant="current"
       />
     </div>
-     
     <div
       class="timeline-content"
     >
       <div
         class="note-header"
       >
-        <span>
+        <div
+          class="note-header-info"
+        >
           <div
             data-testid="default-slot"
           />
-        </span>
+        </div>
       </div>
-       
       <div
         class="note-body"
       >

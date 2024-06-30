@@ -2,14 +2,16 @@ import { throttle } from 'lodash';
 import { Range } from 'monaco-editor';
 import { DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
 import Disposable from '../common/disposable';
-import DirtyDiffWorker from './diff_worker';
+import DirtyDiffWorker from './diff_worker?worker';
 
 export const getDiffChangeType = (change) => {
   if (change.modified) {
     return 'modified';
-  } else if (change.added) {
+  }
+  if (change.added) {
     return 'added';
-  } else if (change.removed) {
+  }
+  if (change.removed) {
     return 'removed';
   }
 

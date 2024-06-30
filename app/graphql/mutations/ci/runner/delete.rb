@@ -11,23 +11,15 @@ module Mutations
         RunnerID = ::Types::GlobalIDType[::Ci::Runner]
 
         argument :id, RunnerID,
-                 required: true,
-                 description: 'ID of the runner to delete.'
+          required: true,
+          description: 'ID of the runner to delete.'
 
         def resolve(id:, **runner_attrs)
-          runner = authorized_find!(id)
+          runner = authorized_find!(id: id)
 
           ::Ci::Runners::UnregisterRunnerService.new(runner, current_user).execute
 
           { errors: runner.errors.full_messages }
-        end
-
-        def find_object(id)
-          # TODO: remove this line when the compatibility layer is removed
-          # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-          id = RunnerID.coerce_isolated_input(id)
-
-          GitlabSchema.find_by_gid(id)
         end
       end
     end

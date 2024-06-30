@@ -1,10 +1,14 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Downgrade **(FREE SELF)**
+# Downgrade
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 This section contains general information on how to revert to an earlier version
 of a package.
@@ -12,11 +16,11 @@ of a package.
 WARNING:
 You must at least have a database backup created under the version you are
 downgrading to. Ideally, you should have a
-[full backup archive](../../raketasks/backup_restore.md)
+[full backup archive](../../administration/backup_restore/index.md)
 on hand.
 
 The example below demonstrates the downgrade procedure when downgrading between minor
-and patch versions (for example, from 13.0.6 to 13.0.5).
+and patch versions (for example, from 15.0.6 to 15.0.5).
 
 When downgrading between major versions, take into account the
 [specific version changes](index.md#version-specific-changes) that occurred when you upgraded
@@ -61,16 +65,16 @@ Steps:
    sudo yum --showduplicates list gitlab-ee
    ```
 
-1. Downgrade GitLab to the desired version (for example, to GitLab 13.0.5):
+1. Downgrade GitLab to the desired version (for example, to GitLab 15.0.5):
 
    ```shell
    # (Replace with gitlab-ce if you have GitLab FOSS installed)
 
    # Ubuntu
-   sudo apt install gitlab-ee=13.0.5-ee.0
+   sudo apt install gitlab-ee=15.0.5-ee.0
 
    # CentOS:
-   sudo yum install gitlab-ee-13.0.5-ee.0.el8
+   sudo yum install gitlab-ee-15.0.5-ee.0.el8
    ```
 
 1. Reconfigure GitLab:
@@ -79,5 +83,5 @@ Steps:
    sudo gitlab-ctl reconfigure
    ```
 
-1. [Restore GitLab](../../raketasks/backup_restore.md#restore-for-omnibus-gitlab-installations)
+1. [Restore GitLab](../../administration/backup_restore/restore_gitlab.md#restore-for-linux-package-installations)
    to complete the downgrade.

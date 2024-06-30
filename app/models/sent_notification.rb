@@ -1,11 +1,12 @@
 # frozen_string_literal: true
 
 class SentNotification < ApplicationRecord
-  serialize :position, Gitlab::Diff::Position # rubocop:disable Cop/ActiveRecordSerialize
+  include IgnorableColumns
 
   belongs_to :project
   belongs_to :noteable, polymorphic: true # rubocop:disable Cop/PolymorphicAssociations
   belongs_to :recipient, class_name: "User"
+  belongs_to :issue_email_participant
 
   validates :recipient, presence: true
   validates :reply_key, presence: true, uniqueness: true
@@ -44,7 +45,11 @@ class SentNotification < ApplicationRecord
         commit_id: commit_id
       )
 
-      create(attrs)
+      # Non-sticky write is used as `.record` is only used in ActionMailer
+      # where there are no queries to SentNotification.
+      ::Gitlab::Database::LoadBalancing::Session.without_sticky_writes do
+        create(attrs)
+      end
     end
 
     def record_note(note, recipient_id, reply_key = self.reply_key, attrs = {})
@@ -68,34 +73,32 @@ class SentNotification < ApplicationRecord
 
   def noteable
     if for_commit?
-      project.commit(commit_id) rescue nil
+      begin
+        project.commit(commit_id)
+      rescue StandardError
+        nil
+      end
     else
       super
     end
-  end
-
-  def position=(new_position)
-    if new_position.is_a?(String)
-      new_position = Gitlab::Json.parse(new_position) rescue nil
-    end
-
-    if new_position.is_a?(Hash)
-      new_position = new_position.with_indifferent_access
-      new_position = Gitlab::Diff::Position.new(new_position)
-    else
-      new_position = nil
-    end
-
-    super(new_position)
   end
 
   def to_param
     self.reply_key
   end
 
-  def create_reply(message, dryrun: false)
+  def create_reply(message, external_author = nil, dryrun: false)
     klass = dryrun ? Notes::BuildService : Notes::CreateService
-    klass.new(self.project, self.recipient, reply_params.merge(note: message)).execute
+    params = reply_params.merge(
+      note: message
+    )
+
+    params[:external_author] = external_author if external_author.present?
+
+    klass.new(self.project,
+      self.recipient,
+      params
+    ).execute
   end
 
   private
@@ -121,6 +124,6 @@ class SentNotification < ApplicationRecord
   end
 
   def keep_around_commit
-    project.repository.keep_around(self.commit_id)
+    project.repository.keep_around(self.commit_id, source: self.class.name)
   end
 end

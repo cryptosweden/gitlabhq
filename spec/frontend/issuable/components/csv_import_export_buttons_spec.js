@@ -1,5 +1,4 @@
-import { GlButton, GlDropdown } from '@gitlab/ui';
-import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
+import { createMockDirective } from 'helpers/vue_mock_directive';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import CsvExportModal from '~/issuable/components/csv_export_modal.vue';
 import CsvImportExportButtons from '~/issuable/components/csv_import_export_buttons.vue';
@@ -12,11 +11,11 @@ describe('CsvImportExportButtons', () => {
   const exportCsvPath = '/gitlab-org/gitlab-test/-/issues/export_csv';
   const issuableCount = 10;
 
-  function createComponent(injectedProperties = {}) {
+  function createComponent(injectedProperties = {}, props = {}) {
     glModalDirective = jest.fn();
     return mountExtended(CsvImportExportButtons, {
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
         glModal: {
           bind(_, { value }) {
             glModalDirective(value);
@@ -29,18 +28,14 @@ describe('CsvImportExportButtons', () => {
       propsData: {
         exportCsvPath,
         issuableCount,
+        ...props,
       },
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  const findExportCsvButton = () => wrapper.findComponent(GlButton);
-  const findImportDropdown = () => wrapper.findComponent(GlDropdown);
-  const findImportCsvButton = () => wrapper.findByRole('menuitem', { name: 'Import CSV' });
-  const findImportFromJiraLink = () => wrapper.findByRole('menuitem', { name: 'Import from Jira' });
+  const findExportCsvButton = () => wrapper.findByTestId('export-as-csv-button');
+  const findImportCsvButton = () => wrapper.findByTestId('import-from-csv-button');
+  const findImportFromJiraLink = () => wrapper.findByTestId('import-from-jira-link');
   const findExportCsvModal = () => wrapper.findComponent(CsvExportModal);
   const findImportCsvModal = () => wrapper.findComponent(CsvImportModal);
 
@@ -54,13 +49,6 @@ describe('CsvImportExportButtons', () => {
         expect(findExportCsvButton().exists()).toBe(true);
       });
 
-      it('export button has a tooltip', () => {
-        const tooltip = getBinding(findExportCsvButton().element, 'gl-tooltip');
-
-        expect(tooltip).toBeDefined();
-        expect(tooltip.value).toBe('Export as CSV');
-      });
-
       it('renders the export modal', () => {
         expect(findExportCsvModal().props()).toMatchObject({ exportCsvPath, issuableCount });
       });
@@ -68,7 +56,7 @@ describe('CsvImportExportButtons', () => {
       it('opens the export modal', () => {
         findExportCsvButton().trigger('click');
 
-        expect(glModalDirective).toHaveBeenCalledWith(wrapper.vm.exportModalId);
+        expect(glModalDirective).toHaveBeenCalled();
       });
     });
 
@@ -87,85 +75,44 @@ describe('CsvImportExportButtons', () => {
     });
 
     describe('when the showImportButton=true', () => {
-      beforeEach(() => {
-        wrapper = createComponent({ showImportButton: true });
-      });
-
-      it('displays the import dropdown', () => {
-        expect(findImportDropdown().exists()).toBe(true);
-      });
-
       it('renders the import csv menu item', () => {
+        wrapper = createComponent({ showImportButton: true });
+
         expect(findImportCsvButton().exists()).toBe(true);
       });
 
-      describe('when showLabel=false', () => {
-        beforeEach(() => {
-          wrapper = createComponent({ showImportButton: true, showLabel: false });
-        });
-
-        it('hides button text', () => {
-          expect(findImportDropdown().props()).toMatchObject({
-            text: 'Import issues',
-            textSrOnly: true,
-          });
-        });
-
-        it('import button has a tooltip', () => {
-          const tooltip = getBinding(findImportDropdown().element, 'gl-tooltip');
-
-          expect(tooltip).toBeDefined();
-          expect(tooltip.value).toBe('Import issues');
-        });
-      });
-
-      describe('when showLabel=true', () => {
-        beforeEach(() => {
-          wrapper = createComponent({ showImportButton: true, showLabel: true });
-        });
-
-        it('displays a button text', () => {
-          expect(findImportDropdown().props()).toMatchObject({
-            text: 'Import issues',
-            textSrOnly: false,
-          });
-        });
-
-        it('import button has no tooltip', () => {
-          const tooltip = getBinding(findImportDropdown().element, 'gl-tooltip');
-
-          expect(tooltip.value).toBe(null);
-        });
-      });
-
       it('renders the import modal', () => {
+        wrapper = createComponent({ showImportButton: true });
+
         expect(findImportCsvModal().exists()).toBe(true);
       });
 
       it('opens the import modal', () => {
+        wrapper = createComponent({ showImportButton: true });
+
         findImportCsvButton().trigger('click');
 
-        expect(glModalDirective).toHaveBeenCalledWith(wrapper.vm.importModalId);
+        expect(glModalDirective).toHaveBeenCalled();
       });
 
       describe('import from jira link', () => {
         const projectImportJiraPath = 'gitlab-org/gitlab-test/-/import/jira';
 
-        beforeEach(() => {
-          wrapper = createComponent({
-            showImportButton: true,
-            canEdit: true,
-            projectImportJiraPath,
-          });
-        });
-
         describe('when canEdit=true', () => {
+          beforeEach(() => {
+            wrapper = createComponent({
+              showImportButton: true,
+              canEdit: true,
+              projectImportJiraPath,
+            });
+          });
+
           it('renders the import dropdown item', () => {
             expect(findImportFromJiraLink().exists()).toBe(true);
           });
 
           it('passes the proper path to the link', () => {
-            expect(findImportFromJiraLink().attributes('href')).toBe(projectImportJiraPath);
+            expect(findImportFromJiraLink().props('item').href).toBe(projectImportJiraPath);
           });
         });
 
@@ -186,12 +133,69 @@ describe('CsvImportExportButtons', () => {
         wrapper = createComponent({ showImportButton: false });
       });
 
-      it('does not display the import dropdown', () => {
-        expect(findImportDropdown().exists()).toBe(false);
+      it('does not render the import csv menu item', () => {
+        expect(findImportCsvButton().exists()).toBe(false);
       });
 
       it('does not render the import modal', () => {
         expect(findImportCsvModal().exists()).toBe(false);
+      });
+    });
+
+    describe('tracking', () => {
+      const experimentTracking = { 'data-track-experiment': 'issues_mrs_empty_state' };
+
+      const importCsvTracking = {
+        'data-track-action': 'click_import_csv_project_issues_empty_list_page',
+        'data-track-label': 'import_csv_project_issues_empty_list',
+      };
+
+      const importJiraTracking = {
+        'data-track-action': 'click_import_jira_project_issues_empty_list_page',
+        'data-track-label': 'import_jira_project_issues_empty_list',
+      };
+
+      describe('when the trackImportClick=true', () => {
+        beforeEach(() => {
+          wrapper = createComponent(
+            { showImportButton: true, canEdit: true },
+            { trackImportClick: true },
+          );
+        });
+
+        it('tracks import CSV button', () => {
+          expect(findImportCsvButton().attributes()).toMatchObject({
+            ...importCsvTracking,
+            ...experimentTracking,
+          });
+        });
+
+        it('tracks import Jira link', () => {
+          expect(findImportFromJiraLink().attributes()).toMatchObject({
+            ...importJiraTracking,
+            ...experimentTracking,
+          });
+        });
+      });
+
+      describe('when the trackImportClick=false', () => {
+        beforeEach(() => {
+          wrapper = createComponent({ showImportButton: true, canEdit: true });
+        });
+
+        it('does not track import CSV button', () => {
+          expect(findImportCsvButton().attributes()).not.toMatchObject({
+            ...importCsvTracking,
+            ...experimentTracking,
+          });
+        });
+
+        it('does not track import Jira link', () => {
+          expect(findImportFromJiraLink().attributes()).not.toMatchObject({
+            ...importJiraTracking,
+            ...experimentTracking,
+          });
+        });
       });
     });
   });

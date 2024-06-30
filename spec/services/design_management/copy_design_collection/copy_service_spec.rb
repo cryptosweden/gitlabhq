@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitlab_redis_shared_state do
+RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitlab_redis_shared_state, feature_category: :portfolio_management do
   include DesignManagementTestHelpers
 
   let_it_be(:user) { create(:user) }
@@ -58,7 +58,7 @@ RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitla
 
         context 'when design collection has designs' do
           let_it_be(:designs) do
-            create_list(:design, 3, :with_lfs_file, :with_relative_position, issue: issue, project: project)
+            create_list(:design, 3, :with_lfs_file, :with_relative_position, issue: issue, project: project, imported_from: :github)
           end
 
           context 'when target issue already has designs' do
@@ -92,6 +92,14 @@ RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitla
 
               expect(design_iids).to match_array(design_iids.uniq)
             end
+
+            it 'sets imported_from for new designs to :none' do
+              subject
+
+              expect(designs.map(&:reload)).to all(have_attributes(imported_from: 'github'))
+
+              expect(new_designs).to all(have_attributes(imported_from: 'none'))
+            end
           end
 
           include_examples 'service success'
@@ -117,6 +125,7 @@ RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitla
             new_designs.zip(old_designs).each do |new_design, old_design|
               expect(new_design).to have_attributes(
                 filename: old_design.filename,
+                description: old_design.description,
                 relative_position: old_design.relative_position,
                 issue: target_issue,
                 project: target_issue.project
@@ -266,7 +275,7 @@ RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitla
     let_it_be(:config_file) { Rails.root.join('lib/gitlab/design_management/copy_design_collection_model_attributes.yml') }
     let_it_be(:config) { YAML.load_file(config_file).symbolize_keys }
 
-    %w(Design Action Version).each do |model|
+    %w[Design Action Version].each do |model|
       specify do
         attributes = config["#{model.downcase}_attributes".to_sym] || []
         ignored_attributes = config["ignore_#{model.downcase}_attributes".to_sym]

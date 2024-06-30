@@ -11,6 +11,8 @@ class Dashboard::ApplicationController < ApplicationController
   private
 
   def projects
-    @projects ||= current_user.authorized_projects.sorted_by_updated_desc.non_archived
+    @projects ||= current_user.authorized_projects.sorted_by_activity.non_archived
   end
 end
+
+Dashboard::ApplicationController.prepend_mod

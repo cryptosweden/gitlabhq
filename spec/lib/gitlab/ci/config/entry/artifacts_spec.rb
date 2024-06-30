@@ -142,6 +142,55 @@ RSpec.describe Gitlab::Ci::Config::Entry::Artifacts do
       end
     end
 
+    context 'when access keyword is used' do
+      context 'when used with public' do
+        let(:config) { { paths: %w[results.txt], public: true, access: 'all' } }
+
+        it 'reports error' do
+          expect(entry.errors)
+            .to include "artifacts config these keys cannot be used together: public, access"
+        end
+      end
+
+      context 'when value is not one from expected list' do
+        let(:config) { { paths: %w[results.txt], access: 'random' } }
+
+        it 'reports error' do
+          expect(entry.errors)
+            .to include 'artifacts access should be one of: none, developer, all'
+        end
+      end
+
+      context 'when value is correct' do
+        let(:config) { { paths: %w[results.txt], access: 'developer' } }
+
+        it 'correctly parses the configuration' do
+          expect(entry).to be_valid
+          expect(entry.value).to eq(config)
+        end
+      end
+    end
+
+    context 'when the `when` keyword is not a string' do
+      context 'when it is an array' do
+        let(:config) { { paths: %w[results.txt], when: ['always'] } }
+
+        it 'returns error' do
+          expect(entry).not_to be_valid
+          expect(entry.errors).to include 'artifacts when should be a string'
+        end
+      end
+
+      context 'when it is a boolean' do
+        let(:config) { { paths: %w[results.txt], when: true } }
+
+        it 'returns error' do
+          expect(entry).not_to be_valid
+          expect(entry.errors).to include 'artifacts when should be a string'
+        end
+      end
+    end
+
     describe 'excluded artifacts' do
       context 'when configuration is valid' do
         let(:config) { { untracked: true, exclude: ['some/directory/'] } }

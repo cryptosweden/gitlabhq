@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Settings > User archives a project' do
+RSpec.describe 'Projects > Settings > User archives a project', feature_category: :groups_and_projects do
   let(:user) { create(:user) }
 
   before do
@@ -21,7 +21,7 @@ RSpec.describe 'Projects > Settings > User archives a project' do
 
       click_link('Unarchive')
 
-      expect(page).not_to have_content('Archived project')
+      expect(page).not_to have_content('This is an archived project.')
     end
   end
 
@@ -33,7 +33,7 @@ RSpec.describe 'Projects > Settings > User archives a project' do
 
       click_link('Archive')
 
-      expect(page).to have_content('Archived')
+      expect(page).to have_content('This is an archived project.')
     end
   end
 end

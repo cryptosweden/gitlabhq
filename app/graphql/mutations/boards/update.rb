@@ -8,14 +8,14 @@ module Mutations
       include Mutations::Boards::CommonMutationArguments
 
       argument :id,
-               ::Types::GlobalIDType[::Board],
-               required: true,
-               description: 'Board global ID.'
+        ::Types::GlobalIDType[::Board],
+        required: true,
+        description: 'Board global ID.'
 
       field :board,
-            Types::BoardType,
-            null: true,
-            description: 'Board after mutation.'
+        Types::BoardType,
+        null: true,
+        description: 'Board after mutation.'
 
       authorize :admin_issue_board
 
@@ -28,15 +28,6 @@ module Mutations
           board: board,
           errors: errors_on_object(board)
         }
-      end
-
-      private
-
-      def find_object(id:)
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = ::Types::GlobalIDType[::Board].coerce_isolated_input(id)
-        GitlabSchema.find_by_gid(id)
       end
     end
   end

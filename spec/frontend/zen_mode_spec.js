@@ -2,16 +2,20 @@ import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import Dropzone from 'dropzone';
 import $ from 'jquery';
-import Mousetrap from 'mousetrap';
+import htmlSnippetsShow from 'test_fixtures/snippets/show.html';
+import { Mousetrap } from '~/lib/mousetrap';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import GLForm from '~/gl_form';
 import * as utils from '~/lib/utils/common_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import ZenMode from '~/zen_mode';
 
 describe('ZenMode', () => {
   let mock;
   let zen;
   let dropzoneForElementSpy;
-  const fixtureName = 'snippets/show.html';
+
+  const getTextarea = () => $('.notes-form textarea');
 
   function enterZen() {
     $('.notes-form .js-zen-enter').click();
@@ -22,7 +26,7 @@ describe('ZenMode', () => {
   }
 
   function escapeKeydown() {
-    $('.notes-form textarea').trigger(
+    getTextarea().trigger(
       $.Event('keydown', {
         keyCode: 27,
       }),
@@ -31,9 +35,9 @@ describe('ZenMode', () => {
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
-    mock.onGet().reply(200);
+    mock.onGet().reply(HTTP_STATUS_OK);
 
-    loadFixtures(fixtureName);
+    setHTMLFixture(htmlSnippetsShow);
 
     const form = $('.js-new-note-form');
     new GLForm(form); // eslint-disable-line no-new
@@ -45,8 +49,16 @@ describe('ZenMode', () => {
 
     // Set this manually because we can't actually scroll the window
     zen.scroll_position = 456;
+  });
 
-    gon.features = { markdownContinueLists: true };
+  afterEach(() => {
+    $(document).off('click', '.js-zen-enter');
+    $(document).off('click', '.js-zen-leave');
+    $(document).off('zen_mode:enter');
+    $(document).off('zen_mode:leave');
+    $(document).off('keydown');
+
+    resetHTMLFixture();
   });
 
   describe('enabling dropzone', () => {
@@ -58,14 +70,14 @@ describe('ZenMode', () => {
       $('.div-dropzone').addClass('js-invalid-dropzone');
       exitZen();
 
-      expect(dropzoneForElementSpy.mock.calls.length).toEqual(0);
+      expect(dropzoneForElementSpy).not.toHaveBeenCalled();
     });
 
     it('should call dropzone if element is dropzone valid', () => {
       $('.div-dropzone').removeClass('js-invalid-dropzone');
       exitZen();
 
-      expect(dropzoneForElementSpy.mock.calls.length).toEqual(2);
+      expect(dropzoneForElementSpy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -78,10 +90,10 @@ describe('ZenMode', () => {
     });
 
     it('removes textarea styling', () => {
-      $('.notes-form textarea').attr('style', 'height: 400px');
+      getTextarea().attr('style', 'height: 400px');
       enterZen();
 
-      expect($('.notes-form textarea')).not.toHaveAttr('style');
+      expect(getTextarea()).not.toHaveAttr('style');
     });
   });
 
@@ -111,5 +123,16 @@ describe('ZenMode', () => {
 
       expect(utils.scrollToElement).toHaveBeenCalled();
     });
+  });
+
+  it('restores textarea style', () => {
+    const style = 'color: red; overflow-y: hidden;';
+    getTextarea().attr('style', style);
+    expect(getTextarea()).toHaveAttr('style', style);
+
+    enterZen();
+    exitZen();
+
+    expect(getTextarea()).toHaveAttr('style', style);
   });
 });

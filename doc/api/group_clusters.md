@@ -1,13 +1,14 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Group clusters API (certificate-based) (DEPRECATED) **(FREE)**
+# Group clusters API (certificate-based) (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/30213) in GitLab 12.1.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
@@ -31,7 +32,7 @@ Parameters:
 
 | Attribute | Type           | Required | Description                                                                   |
 | --------- | -------------- | -------- | ----------------------------------------------------------------------------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) |
 
 Example request:
 
@@ -100,7 +101,7 @@ Parameters:
 
 | Attribute    | Type           | Required | Description                                                                   |
 | ------------ | -------------- | -------- | ----------------------------------------------------------------------------- |
-| `id`         | integer/string | yes      | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) |
+| `id`         | integer/string | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) |
 | `cluster_id` | integer        | yes      | The ID of the cluster                                                         |
 
 Example request:
@@ -169,7 +170,7 @@ Parameters:
 
 | Attribute                                            | Type           | Required | Description                                                                                         |
 | ---------------------------------------------------- | -------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `id`                                                 | integer/string | yes      | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding)                       |
+| `id`                                                 | integer/string | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding)                       |
 | `name`                                               | string         | yes      | The name of the cluster                                                                             |
 | `domain`                                             | string         | no       | The [base domain](../user/group/clusters/index.md#base-domain) of the cluster                       |
 | `management_project_id`                              | integer        | no       | The ID of the [management project](../user/clusters/management_project.md) for the cluster          |
@@ -179,7 +180,7 @@ Parameters:
 | `platform_kubernetes_attributes[token]`              | string         | yes      | The token to authenticate against Kubernetes                                                        |
 | `platform_kubernetes_attributes[ca_cert]`            | string         | no       | TLS certificate. Required if API is using a self-signed TLS certificate.                            |
 | `platform_kubernetes_attributes[authorization_type]` | string         | no       | The cluster authorization type: `rbac`, `abac` or `unknown_authorization`. Defaults to `rbac`.      |
-| `environment_scope`                                  | string         | no       | The associated environment to the cluster. Defaults to `*` **(PREMIUM)**                            |
+| `environment_scope`                                  | string         | no       | The associated environment to the cluster. Defaults to `*`. Premium and Ultimate only.              |
 
 Example request:
 
@@ -240,7 +241,7 @@ Parameters:
 
 | Attribute                                 | Type           | Required | Description                                                                                |
 | ----------------------------------------- | -------------- | -------- | ------------------------------------------------------------------------------------------ |
-| `id`                                      | integer/string | yes      | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding)              |
+| `id`                                      | integer/string | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding)              |
 | `cluster_id`                              | integer        | yes      | The ID of the cluster                                                                      |
 | `name`                                    | string         | no       | The name of the cluster                                                                    |
 | `domain`                                  | string         | no       | The [base domain](../user/group/clusters/index.md#base-domain) of the cluster              |
@@ -250,7 +251,7 @@ Parameters:
 | `platform_kubernetes_attributes[api_url]` | string         | no       | The URL to access the Kubernetes API                                                       |
 | `platform_kubernetes_attributes[token]`   | string         | no       | The token to authenticate against Kubernetes                                               |
 | `platform_kubernetes_attributes[ca_cert]` | string         | no       | TLS certificate. Required if API is using a self-signed TLS certificate.                   |
-| `environment_scope`                       | string         | no       | The associated environment to the cluster **(PREMIUM)**                                    |
+| `environment_scope`                       | string         | no       | The associated environment to the cluster. Premium and Ultimate only.                      |
 
 NOTE:
 `name`, `api_url`, `ca_cert` and `token` can only be updated if the cluster was added
@@ -315,7 +316,7 @@ Example response:
 
 ## Delete group cluster
 
-Deletes an existing group cluster.
+Deletes an existing group cluster. Does not remove existing resources within the connected Kubernetes cluster.
 
 ```plaintext
 DELETE /groups/:id/clusters/:cluster_id
@@ -325,7 +326,7 @@ Parameters:
 
 | Attribute    | Type           | Required | Description                                                                   |
 | ------------ | -------------- | -------- | ----------------------------------------------------------------------------- |
-| `id`         | integer/string | yes      | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) |
+| `id`         | integer/string | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) |
 | `cluster_id` | integer        | yes      | The ID of the cluster                                                         |
 
 Example request:

@@ -1,13 +1,19 @@
 <script>
+import { GlButton } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
-import ReplyPlaceholder from '~/notes/components/discussion_reply_placeholder.vue';
 import NoteSignedOutWidget from '~/notes/components/note_signed_out_widget.vue';
+
+import { START_THREAD } from '../i18n';
 
 export default {
   name: 'DiffDiscussionReply',
+  i18n: {
+    START_THREAD,
+  },
   components: {
+    GlButton,
     NoteSignedOutWidget,
-    ReplyPlaceholder,
   },
   props: {
     hasForm: {
@@ -30,15 +36,13 @@ export default {
 </script>
 
 <template>
-  <div class="discussion-reply-holder d-flex clearfix">
+  <div class="discussion-reply-holder gl-flex clearfix">
     <template v-if="userCanReply">
       <slot v-if="hasForm" name="form"></slot>
       <template v-else-if="renderReplyPlaceholder">
-        <reply-placeholder
-          :placeholder-text="__('Start a new discussion…')"
-          :label-text="__('New discussion')"
-          @focus="$emit('showNewDiscussionForm')"
-        />
+        <gl-button @click="$emit('showNewDiscussionForm')">
+          {{ $options.i18n.START_THREAD }}
+        </gl-button>
       </template>
     </template>
     <note-signed-out-widget v-else />

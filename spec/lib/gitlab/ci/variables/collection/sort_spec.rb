@@ -2,10 +2,11 @@
 
 require 'fast_spec_helper'
 require 'rspec-parameterized'
+require 'tsort'
 
 RSpec.describe Gitlab::Ci::Variables::Collection::Sort do
   describe '#initialize with non-Collection value' do
-    subject { Gitlab::Ci::Variables::Collection::Sort.new([]) }
+    subject { described_class.new([]) }
 
     it 'raises ArgumentError' do
       expect { subject }.to raise_error(ArgumentError, /Collection object was expected/)
@@ -166,7 +167,7 @@ RSpec.describe Gitlab::Ci::Variables::Collection::Sort do
 
       let(:collection) { Gitlab::Ci::Variables::Collection.new(variables) }
 
-      subject { Gitlab::Ci::Variables::Collection::Sort.new(collection).tsort }
+      subject { described_class.new(collection).tsort }
 
       it 'raises TSort::Cyclic' do
         expect { subject }.to raise_error(TSort::Cyclic)
@@ -191,13 +192,14 @@ RSpec.describe Gitlab::Ci::Variables::Collection::Sort do
       end
 
       it 'preserves relative order of overridden variables' do
-        is_expected.to eq([
-          { 'TOP_LEVEL_GROUP_NAME' => 'top-level-group' },
-          { 'SUBGROUP_VAR'         => '$TOP_LEVEL_GROUP_NAME' },
-          { 'SUB_GROUP_NAME'       => 'vars-in-vars-subgroup' },
-          { 'SUBGROUP_VAR'         => '$SUB_GROUP_NAME' },
-          { 'PROJECT_VAR'          => '$SUBGROUP_VAR' }
-        ])
+        is_expected.to eq(
+          [
+            { 'TOP_LEVEL_GROUP_NAME' => 'top-level-group' },
+            { 'SUBGROUP_VAR'         => '$TOP_LEVEL_GROUP_NAME' },
+            { 'SUB_GROUP_NAME'       => 'vars-in-vars-subgroup' },
+            { 'SUBGROUP_VAR'         => '$SUB_GROUP_NAME' },
+            { 'PROJECT_VAR'          => '$SUBGROUP_VAR' }
+          ])
       end
     end
   end

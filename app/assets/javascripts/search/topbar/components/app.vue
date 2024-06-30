@@ -1,35 +1,48 @@
 <script>
-import { GlSearchBoxByClick } from '@gitlab/ui';
+import { GlButton } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapActions } from 'vuex';
+import { InternalEvents } from '~/tracking';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { s__ } from '~/locale';
-import GroupFilter from './group_filter.vue';
-import ProjectFilter from './project_filter.vue';
+import MarkdownDrawer from '~/vue_shared/components/markdown_drawer/markdown_drawer.vue';
+import {
+  ZOEKT_SEARCH_TYPE,
+  ADVANCED_SEARCH_TYPE,
+  REGEX_PARAM,
+  LS_REGEX_HANDLE,
+} from '~/search/store/constants';
+import { loadDataFromLS } from '~/search/store/utils';
+import { SYNTAX_OPTIONS_ADVANCED_DOCUMENT, SYNTAX_OPTIONS_ZOEKT_DOCUMENT } from '../constants';
+
+import SearchTypeIndicator from './search_type_indicator.vue';
+import GlSearchBoxByType from './search_box_by_type.vue';
+
+const trackingMixin = InternalEvents.mixin();
 
 export default {
   name: 'GlobalSearchTopbar',
   i18n: {
     searchPlaceholder: s__(`GlobalSearch|Search for projects, issues, etc.`),
     searchLabel: s__(`GlobalSearch|What are you searching for?`),
+    syntaxOptionsLabel: s__('GlobalSearch|View syntax options.'),
+    groupFieldLabel: s__('GlobalSearch|Group'),
+    projectFieldLabel: s__('GlobalSearch|Project'),
   },
   components: {
-    GlSearchBoxByClick,
-    GroupFilter,
-    ProjectFilter,
+    GlButton,
+    GlSearchBoxByType,
+    MarkdownDrawer,
+    SearchTypeIndicator,
   },
-  props: {
-    groupInitialData: {
-      type: Object,
-      required: false,
-      default: () => ({}),
-    },
-    projectInitialData: {
-      type: Object,
-      required: false,
-      default: () => ({}),
-    },
+  mixins: [glFeatureFlagsMixin(), trackingMixin],
+  data() {
+    return {
+      regexEnabled: false,
+    };
   },
   computed: {
-    ...mapState(['query']),
+    ...mapState(['query', 'searchType', 'defaultBranchName', 'urlQuery']),
     search: {
       get() {
         return this.query ? this.query.search : '';
@@ -38,38 +51,75 @@ export default {
         this.setQuery({ key: 'search', value });
       },
     },
-    showFilters() {
-      return !this.query.snippets || this.query.snippets === 'false';
+    showSyntaxOptions() {
+      return (
+        (this.searchType === ZOEKT_SEARCH_TYPE || this.searchType === ADVANCED_SEARCH_TYPE) &&
+        this.isDefaultBranch
+      );
+    },
+    documentBasedOnSearchType() {
+      return this.searchType === ZOEKT_SEARCH_TYPE
+        ? SYNTAX_OPTIONS_ZOEKT_DOCUMENT
+        : SYNTAX_OPTIONS_ADVANCED_DOCUMENT;
+    },
+    isDefaultBranch() {
+      return !this.query.repository_ref || this.query.repository_ref === this.defaultBranchName;
+    },
+    isRegexButtonVisible() {
+      return (
+        this.searchType === ZOEKT_SEARCH_TYPE &&
+        this.isDefaultBranch &&
+        this.glFeatures.zoektExactSearch
+      );
     },
   },
   created() {
     this.preloadStoredFrequentItems();
+    this.regexEnabled = loadDataFromLS(LS_REGEX_HANDLE);
   },
   methods: {
     ...mapActions(['applyQuery', 'setQuery', 'preloadStoredFrequentItems']),
+    onToggleDrawer() {
+      this.$refs.markdownDrawer.toggleDrawer();
+    },
+    regexButtonHandler() {
+      this.addReguralExpressionToQuery();
+      this.trackEvent('click_regex_button_in_search_page_input');
+    },
+    addReguralExpressionToQuery(value = !this.regexEnabled) {
+      this.setQuery({ key: REGEX_PARAM, value });
+      this.regexEnabled = value;
+      if (this.search) {
+        this.applyQuery();
+      }
+    },
   },
 };
 </script>
 
 <template>
-  <section class="search-page-form gl-lg-display-flex gl-align-items-flex-end">
-    <div class="gl-flex-grow-1 gl-mb-4 gl-lg-mb-0 gl-lg-mr-2">
-      <label>{{ $options.i18n.searchLabel }}</label>
-      <gl-search-box-by-click
+  <section>
+    <div class="search-page-form gl-mt-5">
+      <search-type-indicator />
+      <template v-if="showSyntaxOptions">
+        <div class="gl-display-inline-block">
+          <gl-button category="tertiary" variant="link" @click="onToggleDrawer"
+            >{{ $options.i18n.syntaxOptionsLabel }}
+          </gl-button>
+        </div>
+        <markdown-drawer ref="markdownDrawer" :document-path="documentBasedOnSearchType" />
+      </template>
+      <gl-search-box-by-type
         id="dashboard_search"
         v-model="search"
         name="search"
+        class="gl-mt-2"
+        :regex-button-is-visible="isRegexButtonVisible"
+        :regex-button-state="regexEnabled"
+        :regex-button-handler="regexButtonHandler"
         :placeholder="$options.i18n.searchPlaceholder"
-        @submit="applyQuery"
+        @keydown.enter.stop.prevent="applyQuery"
       />
-    </div>
-    <div v-if="showFilters" class="gl-mb-4 gl-lg-mb-0 gl-lg-mx-2">
-      <label class="gl-display-block">{{ __('Group') }}</label>
-      <group-filter :initial-data="groupInitialData" />
-    </div>
-    <div v-if="showFilters" class="gl-mb-4 gl-lg-mb-0 gl-lg-mx-2">
-      <label class="gl-display-block">{{ __('Project') }}</label>
-      <project-filter :initial-data="projectInitialData" />
     </div>
   </section>
 </template>

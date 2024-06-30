@@ -2,31 +2,30 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequestsHelper do
+RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
+  include Users::CalloutsHelper
+  include ApplicationHelper
+  include PageLayoutHelper
+  include ProjectsHelper
   include ProjectForksHelper
+  include IconsHelper
+  include IssuablesHelper
+  include MarkupHelper
 
-  describe '#state_name_with_icon' do
-    using RSpec::Parameterized::TableSyntax
+  let_it_be(:current_user) { create(:user) }
 
-    let(:merge_request) { MergeRequest.new }
+  describe '#merge_params' do
+    let(:merge_request) { create(:merge_request) }
 
-    where(:state, :expected_name, :expected_icon) do
-      :merged? | 'Merged' | 'git-merge'
-      :closed? | 'Closed' | 'close'
-      :opened? | 'Open' | 'issue-open-m'
-    end
-
-    with_them do
-      before do
-        allow(merge_request).to receive(state).and_return(true)
-      end
-
-      it 'returns name and icon' do
-        name, icon = helper.state_name_with_icon(merge_request)
-
-        expect(name).to eq(expected_name)
-        expect(icon).to eq(expected_icon)
-      end
+    it 'returns the expected params' do
+      expect(merge_params(merge_request)).to eq(
+        {
+          auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS,
+          should_remove_source_branch: true,
+          sha: 'b83d6e391c22777fca1ed3012fce84f633d7fed0',
+          squash: false
+        }
+      )
     end
   end
 
@@ -52,6 +51,62 @@ RSpec.describe MergeRequestsHelper do
     end
   end
 
+  describe '#diffs_tab_pane_data' do
+    subject { diffs_tab_pane_data(project, merge_request, {}) }
+
+    context 'for endpoint_diff_for_path' do
+      context 'when sub-group project namespace' do
+        let_it_be(:group) { create(:group, :public) }
+        let_it_be(:subgroup) { create(:group, :private, parent: group) }
+        let_it_be(:project) { create(:project, :private, group: subgroup) }
+        let_it_be(:merge_request) { create(:merge_request, source_project: project, target_project: project) }
+
+        it 'returns expected values' do
+          expect(
+            subject[:endpoint_diff_for_path]
+          ).to include("#{project.full_path}/-/merge_requests/#{merge_request.iid}/diff_for_path.json")
+        end
+      end
+    end
+  end
+
+  describe '#merge_path_description' do
+    # Using let_it_be(:project) raises the following error, so we use need to use let(:project):
+    #  ActiveRecord::InvalidForeignKey:
+    #    PG::ForeignKeyViolation: ERROR:  insert or update on table "fork_network_members" violates foreign key
+    #      constraint "fk_rails_a40860a1ca"
+    #    DETAIL:  Key (fork_network_id)=(8) is not present in table "fork_networks".
+    let(:project) { create(:project) }
+    let(:forked_project) { fork_project(project) }
+    let(:merge_request_forked) { create(:merge_request, source_project: forked_project, target_project: project) }
+    let(:merge_request) { create(:merge_request, source_project: project, target_project: project) }
+
+    where(:case_name, :mr, :with_arrow, :result) do
+      [
+        ['forked with arrow', ref(:merge_request_forked), true, lazy do
+                                                                  "Project:Branches: #{
+          mr.source_project_path}:#{mr.source_branch} → #{
+          mr.target_project.full_path}:#{mr.target_branch}"
+                                                                end],
+        ['forked default', ref(:merge_request_forked), false, lazy do
+                                                                "Project:Branches: #{
+          mr.source_project_path}:#{mr.source_branch} to #{
+            mr.target_project.full_path}:#{mr.target_branch}"
+                                                              end],
+        ['with arrow', ref(:merge_request), true, lazy { "Branches: #{mr.source_branch} → #{mr.target_branch}" }],
+        ['default', ref(:merge_request), false, lazy { "Branches: #{mr.source_branch} to #{mr.target_branch}" }]
+      ]
+    end
+
+    with_them do
+      subject { merge_path_description(mr, with_arrow: with_arrow) }
+
+      it {
+        is_expected.to eq(result)
+      }
+    end
+  end
+
   describe '#tab_link_for' do
     let(:merge_request) { create(:merge_request, :simple) }
     let(:options) { {} }
@@ -71,8 +126,7 @@ RSpec.describe MergeRequestsHelper do
     let(:user) do
       double(
         assigned_open_merge_requests_count: 1,
-        review_requested_open_merge_requests_count: 2,
-        attention_requested_open_merge_requests_count: 3
+        review_requested_open_merge_requests_count: 2
       )
     end
 
@@ -82,29 +136,12 @@ RSpec.describe MergeRequestsHelper do
       allow(helper).to receive(:current_user).and_return(user)
     end
 
-    describe 'mr_attention_requests disabled' do
-      before do
-        stub_feature_flags(mr_attention_requests: false)
-      end
-
-      it "returns assigned, review requested and total merge request counts" do
-        expect(subject).to eq(
-          assigned: user.assigned_open_merge_requests_count,
-          review_requested: user.review_requested_open_merge_requests_count,
-          total: user.assigned_open_merge_requests_count + user.review_requested_open_merge_requests_count
-        )
-      end
-    end
-
-    describe 'mr_attention_requests enabled' do
-      it "returns assigned, review requested, attention requests and total merge request counts" do
-        expect(subject).to eq(
-          assigned: user.assigned_open_merge_requests_count,
-          review_requested: user.review_requested_open_merge_requests_count,
-          attention_requested_count: user.attention_requested_open_merge_requests_count,
-          total: user.attention_requested_open_merge_requests_count
-        )
-      end
+    it "returns assigned, review requested and total merge request counts" do
+      expect(subject).to eq(
+        assigned: user.assigned_open_merge_requests_count,
+        review_requested: user.review_requested_open_merge_requests_count,
+        total: user.assigned_open_merge_requests_count + user.review_requested_open_merge_requests_count
+      )
     end
   end
 
@@ -155,9 +192,206 @@ RSpec.describe MergeRequestsHelper do
       it 'returns reviewer label with no names' do
         expect(helper.reviewers_label(merge_request)).to eq("Reviewers: ")
       end
+
       it 'returns reviewer label only with include_value: false' do
         expect(helper.reviewers_label(merge_request, include_value: false)).to eq("Reviewers")
       end
+    end
+  end
+
+  describe '#merge_request_source_branch' do
+    let(:malicious_branch_name) { 'name<script>test</script>' }
+    let(:project) { create(:project) }
+    let(:merge_request) { create(:merge_request, source_project: project, target_project: project) }
+    let(:forked_project) { fork_project(project) }
+    let(:merge_request_forked) do
+      create(
+        :merge_request,
+        source_project: forked_project,
+        source_branch: malicious_branch_name,
+        target_project: project
+      )
+    end
+
+    context 'when merge request is a fork' do
+      subject { merge_request_source_branch(merge_request_forked) }
+
+      it 'does show the fork icon' do
+        expect(subject).to match(/fork/)
+      end
+
+      it 'escapes properly' do
+        expect(subject).to include(html_escape(malicious_branch_name))
+      end
+    end
+
+    context 'when merge request is not a fork' do
+      subject { merge_request_source_branch(merge_request) }
+
+      it 'does not show the fork icon' do
+        expect(subject).not_to match(/fork/)
+      end
+    end
+  end
+
+  describe '#sticky_header_data' do
+    let_it_be(:project) { create(:project) }
+    let(:merge_request) do
+      create(:merge_request, source_project: project, target_project: project, imported_from: imported_from)
+    end
+
+    subject { sticky_header_data(project, merge_request) }
+
+    context 'when the merge request is not imported' do
+      let(:imported_from) { :none }
+
+      it 'returns data with imported set as false' do
+        expect(subject[:imported]).to eq('false')
+      end
+    end
+
+    context 'when the merge request is imported' do
+      let(:imported_from) { :gitlab_migration }
+
+      it 'returns data with imported set as true' do
+        expect(subject[:imported]).to eq('true')
+      end
+    end
+  end
+
+  describe '#tab_count_display' do
+    let(:merge_request) { create(:merge_request) }
+
+    context 'when merge request is preparing' do
+      before do
+        allow(merge_request).to receive(:preparing?).and_return(true)
+      end
+
+      it { expect(tab_count_display(merge_request, 0)).to eq('-') }
+      it { expect(tab_count_display(merge_request, '0')).to eq('-') }
+    end
+
+    context 'when merge request is prepared' do
+      it { expect(tab_count_display(merge_request, 10)).to eq(10) }
+      it { expect(tab_count_display(merge_request, '10')).to eq('10') }
+    end
+  end
+
+  describe '#allow_collaboration_unavailable_reason' do
+    subject { allow_collaboration_unavailable_reason(merge_request) }
+
+    let(:merge_request) do
+      create(:merge_request, author: author, source_project: project, source_branch: generate(:branch))
+    end
+
+    let_it_be(:public_project) { create(:project, :small_repo, :public) }
+    let(:project) { public_project }
+    let(:forked_project) { fork_project(project) }
+    let(:author) { project.creator }
+
+    context 'when the merge request allows collaboration for the user' do
+      before do
+        allow(merge_request).to receive(:can_allow_collaboration?).with(current_user).and_return(true)
+      end
+
+      it { is_expected.to be_nil }
+    end
+
+    context 'when the project is private' do
+      let(:project) { create(:project, :empty_repo, :private) }
+
+      it { is_expected.to eq(_('Not available for private projects')) }
+    end
+
+    context 'when the source branch is protected' do
+      let!(:protected_branch) { create(:protected_branch, project: project, name: merge_request.source_branch) }
+
+      it { is_expected.to eq(_('Not available for protected branches')) }
+    end
+
+    context 'when the merge request author cannot push to the source project' do
+      let(:author) { create(:user) }
+
+      it { is_expected.to eq(_('Merge request author cannot push to target project')) }
+    end
+  end
+
+  describe '#project_merge_requests_list_data' do
+    let(:project) { create(:project) }
+
+    subject { helper.project_merge_requests_list_data(project, current_user) }
+
+    before do
+      allow(helper).to receive(:project).and_return(project)
+      allow(helper).to receive(:current_user).and_return(current_user)
+      allow(helper).to receive(:can?).with(current_user, :create_merge_request_in, project).and_return(true)
+      allow(helper).to receive(:can?).with(current_user, :admin_merge_request, project).and_return(true)
+      allow(helper).to receive(:issuables_count_for_state).and_return(5)
+      allow(helper).to receive(:url_for).and_return("/rss-url")
+      allow(helper).to receive(:export_csv_project_merge_requests_path).and_return('/csv-url')
+    end
+
+    it 'returns the correct data' do
+      expected_data = {
+        full_path: project.full_path,
+        is_public_visibility_restricted: 'false',
+        is_signed_in: 'true',
+        has_any_merge_requests: 'false',
+        initial_sort: nil,
+        new_merge_request_path: project_new_merge_request_path(project),
+        show_export_button: 'true',
+        issuable_type: :merge_request,
+        issuable_count: 5,
+        email: current_user.notification_email_or_default,
+        export_csv_path: '/csv-url',
+        rss_url: '/rss-url'
+      }
+
+      expect(subject).to eq(expected_data)
+    end
+  end
+
+  describe '#project_merge_requests_list_more_actions_data' do
+    let(:project) { create(:project) }
+
+    subject { helper.project_merge_requests_list_more_actions_data(project, current_user) }
+
+    before do
+      allow(helper).to receive(:project).and_return(project)
+      allow(helper).to receive(:current_user).and_return(current_user)
+      allow(helper).to receive(:issuables_count_for_state).and_return(5)
+      allow(helper).to receive(:url_for).and_return("/rss-url")
+      allow(helper).to receive(:export_csv_project_merge_requests_path).and_return('/csv-url')
+    end
+
+    it 'returns the correct data' do
+      expected_data = {
+        is_signed_in: 'true',
+        issuable_type: :merge_request,
+        issuable_count: 5,
+        email: current_user.notification_email_or_default,
+        export_csv_path: '/csv-url',
+        rss_url: '/rss-url'
+      }
+
+      expect(subject).to eq(expected_data)
+    end
+  end
+
+  describe '#identity_verification_alert_data' do
+    let_it_be(:current_user) { build_stubbed(:user) }
+    let(:merge_request) { build_stubbed(:merge_request, author: current_user) }
+
+    subject { helper.identity_verification_alert_data(merge_request) }
+
+    before do
+      allow(helper).to receive(:current_user).and_return(current_user)
+    end
+
+    it 'returns the correct data' do
+      expected_data = { identity_verification_required: 'false' }
+
+      expect(subject).to include(expected_data)
     end
   end
 end

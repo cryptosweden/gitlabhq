@@ -1,11 +1,12 @@
 <script>
 import { GlLoadingIcon } from '@gitlab/ui';
 import axios from '~/lib/utils/axios_utils';
-import notebookLab from '~/notebook/index.vue';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import NotebookLab from '~/notebook/index.vue';
 
 export default {
   components: {
-    notebookLab,
+    NotebookLab,
     GlLoadingIcon,
   },
   props: {
@@ -51,7 +52,7 @@ export default {
           this.loading = false;
         })
         .catch((e) => {
-          if (e.status !== 200) {
+          if (e.status !== HTTP_STATUS_OK) {
             this.loadError = true;
           }
           this.error = true;
@@ -66,7 +67,7 @@ export default {
     <div v-if="loading && !error" class="text-center loading">
       <gl-loading-icon class="mt-5" size="lg" />
     </div>
-    <notebook-lab v-if="!loading && !error" :notebook="json" code-css-class="code white" />
+    <notebook-lab v-if="!loading && !error" :notebook="json" />
     <p v-if="error" class="text-center">
       <span v-if="loadError" ref="loadErrorMessage">{{
         __('An error occurred while loading the file. Please try again later.')
@@ -81,5 +82,10 @@ export default {
 <style>
 .output img {
   min-width: 0; /* https://www.w3.org/TR/css-flexbox-1/#min-size-auto */
+}
+
+.output .markdown {
+  display: block;
+  width: 100%;
 }
 </style>

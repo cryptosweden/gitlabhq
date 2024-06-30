@@ -6,6 +6,7 @@ module Gitlab
   module X509
     class Signature
       include Gitlab::Utils::StrongMemoize
+      include SignatureType
 
       attr_reader :signature_text, :signed_text, :created_at
 
@@ -16,14 +17,18 @@ module Gitlab
         @created_at = created_at
       end
 
+      def type
+        :x509
+      end
+
       def x509_certificate
         return if certificate_attributes.nil?
 
         X509Certificate.safe_create!(certificate_attributes) unless verified_signature.nil?
       end
 
-      def user
-        strong_memoize(:user) { User.find_by_any_email(@email) }
+      def signed_by_user
+        strong_memoize(:signed_by_user) { User.find_by_any_email(@email) }
       end
 
       def verified_signature
@@ -33,15 +38,19 @@ module Gitlab
       def verification_status
         return :unverified if
           x509_certificate.nil? ||
-          x509_certificate.revoked? ||
-          !verified_signature ||
-          user.nil?
+            x509_certificate.revoked? ||
+            certificate_subject.nil? ||
+            certificate_crl.nil? ||
+            !verified_signature ||
+            signed_by_user.nil?
 
-        if user.verified_emails.include?(@email) && certificate_email == @email
-          :verified
-        else
-          :unverified
+        if signed_by_user.verified_emails.include?(@email.downcase)
+          return :verified if certificate_emails.find do |ce|
+            ce.casecmp?(@email)
+          end
         end
+
+        :unverified
       end
 
       private
@@ -59,7 +68,7 @@ module Gitlab
 
           if Feature.enabled?(:x509_forced_cert_loading, type: :ops)
             # Forcibly load the default cert file because the OpenSSL library seemingly ignores it
-            store.add_file(OpenSSL::X509::DEFAULT_CERT_FILE) if File.exist?(OpenSSL::X509::DEFAULT_CERT_FILE)
+            store.add_file(Gitlab::X509::Certificate.default_cert_file) if File.exist?(Gitlab::X509::Certificate.default_cert_file) # rubocop:disable Layout/LineLength
           end
 
           # valid_signing_time? checks the time attributes already
@@ -105,8 +114,6 @@ module Gitlab
           else
             false
           end
-        else
-          nil
         end
       rescue StandardError
         nil
@@ -122,6 +129,7 @@ module Gitlab
 
       def certificate_crl
         extension = get_certificate_extension('crlDistributionPoints')
+
         return if extension.nil?
 
         crl_url = nil
@@ -151,7 +159,11 @@ module Gitlab
         key_identifier = get_certificate_extension('authorityKeyIdentifier')
         return if key_identifier.nil?
 
-        key_identifier.gsub("keyid:", "").delete!("\n")
+        # In an effort to reduce allocations, we mutate below.
+        # Context: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/144252#note_1765403453
+        key_identifier.gsub!("keyid:", "")
+        key_identifier.chomp!
+        key_identifier
       end
 
       def certificate_subject_key_identifier
@@ -170,22 +182,20 @@ module Gitlab
       end
 
       def certificate_email
-        email = nil
+        certificate_emails.first
+      end
 
-        get_certificate_extension('subjectAltName').split(',').each do |item|
-          if item.strip.start_with?("email")
-            email = item.split('email:')[1]
-            break
-          end
+      def certificate_emails
+        subject_alt_name = get_certificate_extension('subjectAltName')
+        return if subject_alt_name.nil?
+
+        subject_alt_name.split(',').each.with_object([]) do |item, emails|
+          emails << item.split('email:')[1] if item.strip.start_with?("email")
         end
-
-        return if email.nil?
-
-        email
       end
 
       def x509_issuer
-        return if verified_signature.nil? || issuer_subject_key_identifier.nil? || certificate_crl.nil?
+        return if verified_signature.nil? || issuer_subject_key_identifier.nil? || certificate_issuer.nil?
 
         attributes = {
           subject_key_identifier: issuer_subject_key_identifier,
@@ -197,12 +207,16 @@ module Gitlab
       end
 
       def certificate_attributes
-        return if verified_signature.nil? || certificate_subject_key_identifier.nil? || x509_issuer.nil?
+        return if verified_signature.nil? ||
+          certificate_subject_key_identifier.nil? ||
+          x509_issuer.nil? ||
+          certificate_emails.nil?
 
         {
           subject_key_identifier: certificate_subject_key_identifier,
           subject: certificate_subject,
           email: certificate_email,
+          emails: certificate_emails,
           serial_number: cert.serial.to_i,
           x509_issuer_id: x509_issuer.id
         }

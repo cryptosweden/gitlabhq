@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe PipelineHooksWorker do
+RSpec.describe PipelineHooksWorker, feature_category: :continuous_integration do
   describe '#perform' do
     context 'when pipeline exists' do
       let(:pipeline) { create(:ci_pipeline) }
@@ -25,9 +25,17 @@ RSpec.describe PipelineHooksWorker do
           .not_to raise_error
       end
     end
+
+    context 'when the user is blocked' do
+      let(:pipeline) { create(:ci_pipeline, user: create(:user, :blocked)) }
+
+      it 'returns early without executing' do
+        expect(Ci::Pipelines::HookService).not_to receive(:new)
+
+        described_class.new.perform(pipeline.id)
+      end
+    end
   end
 
-  it_behaves_like 'worker with data consistency',
-                  described_class,
-                  data_consistency: :delayed
+  it_behaves_like 'worker with data consistency', described_class, data_consistency: :delayed
 end

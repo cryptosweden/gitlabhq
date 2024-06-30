@@ -1,7 +1,7 @@
 <script>
 import { GlButton, GlSearchBoxByType } from '@gitlab/ui';
 import { debounce } from 'lodash';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { __ } from '~/locale';
 
@@ -87,7 +87,7 @@ export default {
         .catch(() => {
           this.isLoading = false;
           this.closeSuggestions();
-          createFlash({
+          createAlert({
             message: __('Something went wrong on our end. Please try again.'),
           });
         });
@@ -156,7 +156,7 @@ export default {
       />
       <div
         v-if="showSuggestions"
-        class="dropdown-menu d-block dropdown-menu-selectable dropdown-menu-full-width"
+        class="dropdown-menu !gl-block dropdown-menu-selectable dropdown-menu-full-width"
       >
         <div class="dropdown-content">
           <ul v-if="results.length">

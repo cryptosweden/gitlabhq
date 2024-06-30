@@ -2,12 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::JobArtifact do
+RSpec.describe Ci::JobArtifact, feature_category: :build_artifacts do
   let(:artifact) { create(:ci_job_artifact, :archive) }
 
   describe "Associations" do
     it { is_expected.to belong_to(:project) }
-    it { is_expected.to belong_to(:job) }
+    it { is_expected.to belong_to(:job).class_name('Ci::Build').with_foreign_key(:job_id).inverse_of(:job_artifacts) }
+    it { is_expected.to validate_presence_of(:job) }
+    it { is_expected.to validate_presence_of(:partition_id) }
   end
 
   it { is_expected.to respond_to(:file) }
@@ -22,7 +24,30 @@ RSpec.describe Ci::JobArtifact do
   it_behaves_like 'UpdateProjectStatistics', :with_counter_attribute do
     let_it_be(:job, reload: true) { create(:ci_build) }
 
-    subject { build(:ci_job_artifact, :archive, job: job, size: 107464) }
+    subject { build(:ci_job_artifact, :archive, job: job, size: ci_artifact_fixture_size) }
+  end
+
+  describe 'after_create_commit callback' do
+    it 'logs the job artifact create' do
+      artifact = build(:ci_job_artifact, file_type: 3, size: 8888, file_format: 2, locked: 1)
+
+      expect(Gitlab::Ci::Artifacts::Logger).to receive(:log_created) do |record|
+        expect(record.size).to eq(artifact.size)
+        expect(record.file_type).to eq(artifact.file_type)
+        expect(record.file_format).to eq(artifact.file_format)
+        expect(record.locked).to eq(artifact.locked)
+      end
+
+      artifact.save!
+    end
+  end
+
+  describe 'after_destroy_commit callback' do
+    it 'logs the job artifact destroy' do
+      expect(Gitlab::Ci::Artifacts::Logger).to receive(:log_deleted).with(artifact, :log_destroy)
+
+      artifact.destroy!
+    end
   end
 
   describe '.not_expired' do
@@ -33,10 +58,10 @@ RSpec.describe Ci::JobArtifact do
     end
   end
 
-  describe '.with_reports' do
+  describe '.all_reports' do
     let!(:artifact) { create(:ci_job_artifact, :archive) }
 
-    subject { described_class.with_reports }
+    subject { described_class.all_reports }
 
     it { is_expected.to be_empty }
 
@@ -48,82 +73,136 @@ RSpec.describe Ci::JobArtifact do
     end
   end
 
-  describe '.test_reports' do
-    subject { described_class.test_reports }
+  describe '.of_report_type' do
+    subject { described_class.of_report_type(report_type) }
 
-    context 'when there is a test report' do
-      let!(:artifact) { create(:ci_job_artifact, :junit) }
+    describe 'test_reports' do
+      let(:report_type) { :test }
 
-      it { is_expected.to eq([artifact]) }
-    end
+      context 'when there is a test report' do
+        let!(:artifact) { create(:ci_job_artifact, :junit) }
 
-    context 'when there are no test reports' do
-      let!(:artifact) { create(:ci_job_artifact, :archive) }
+        it { is_expected.to eq([artifact]) }
+      end
 
-      it { is_expected.to be_empty }
-    end
-  end
+      context 'when there are no test reports' do
+        let!(:artifact) { create(:ci_job_artifact, :archive) }
 
-  describe '.accessibility_reports' do
-    subject { described_class.accessibility_reports }
-
-    context 'when there is an accessibility report' do
-      let(:artifact) { create(:ci_job_artifact, :accessibility) }
-
-      it { is_expected.to eq([artifact]) }
-    end
-
-    context 'when there are no accessibility report' do
-      let(:artifact) { create(:ci_job_artifact, :archive) }
-
-      it { is_expected.to be_empty }
-    end
-  end
-
-  describe '.coverage_reports' do
-    subject { described_class.coverage_reports }
-
-    context 'when there is a coverage report' do
-      let!(:artifact) { create(:ci_job_artifact, :cobertura) }
-
-      it { is_expected.to eq([artifact]) }
-    end
-
-    context 'when there are no coverage reports' do
-      let!(:artifact) { create(:ci_job_artifact, :archive) }
-
-      it { is_expected.to be_empty }
-    end
-  end
-
-  describe '.codequality_reports' do
-    subject { described_class.codequality_reports }
-
-    context 'when there is a codequality report' do
-      let!(:artifact) { create(:ci_job_artifact, :codequality) }
-
-      it { is_expected.to eq([artifact]) }
-    end
-
-    context 'when there are no codequality reports' do
-      let!(:artifact) { create(:ci_job_artifact, :archive) }
-
-      it { is_expected.to be_empty }
-    end
-  end
-
-  describe '.terraform_reports' do
-    context 'when there is a terraform report' do
-      it 'return the job artifact' do
-        artifact = create(:ci_job_artifact, :terraform)
-
-        expect(described_class.terraform_reports).to eq([artifact])
+        it { is_expected.to be_empty }
       end
     end
 
-    context 'when there are no terraform reports' do
-      it 'return the an empty array' do
-        expect(described_class.terraform_reports).to eq([])
+    describe 'accessibility_reports' do
+      let(:report_type) { :accessibility }
+
+      context 'when there is an accessibility report' do
+        let(:artifact) { create(:ci_job_artifact, :accessibility) }
+
+        it { is_expected.to eq([artifact]) }
+      end
+
+      context 'when there are no accessibility report' do
+        let(:artifact) { create(:ci_job_artifact, :archive) }
+
+        it { is_expected.to be_empty }
+      end
+    end
+
+    describe 'coverage_reports' do
+      let(:report_type) { :coverage }
+
+      context 'when there is a coverage report' do
+        let!(:artifact) { create(:ci_job_artifact, :cobertura) }
+
+        it { is_expected.to eq([artifact]) }
+      end
+
+      context 'when there are no coverage reports' do
+        let!(:artifact) { create(:ci_job_artifact, :archive) }
+
+        it { is_expected.to be_empty }
+      end
+    end
+
+    describe 'codequality_reports' do
+      let(:report_type) { :codequality }
+
+      context 'when there is a codequality report' do
+        let!(:artifact) { create(:ci_job_artifact, :codequality) }
+
+        it { is_expected.to eq([artifact]) }
+      end
+
+      context 'when there are no codequality reports' do
+        let!(:artifact) { create(:ci_job_artifact, :archive) }
+
+        it { is_expected.to be_empty }
+      end
+    end
+
+    describe 'terraform_reports' do
+      let(:report_type) { :terraform }
+
+      context 'when there is a terraform report' do
+        let!(:artifact) { create(:ci_job_artifact, :terraform) }
+
+        it { is_expected.to eq([artifact]) }
+      end
+
+      context 'when there are no terraform reports' do
+        let!(:artifact) { create(:ci_job_artifact, :archive) }
+
+        it { is_expected.to be_empty }
+      end
+    end
+  end
+
+  describe 'artifacts_public?' do
+    subject { artifact.public_access? }
+
+    context 'when job artifact created by default' do
+      let!(:artifact) { create(:ci_job_artifact) }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when job artifact created as public' do
+      let!(:artifact) { create(:ci_job_artifact, :public) }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when job artifact created as private' do
+      let!(:artifact) { build(:ci_job_artifact, :private) }
+
+      it { is_expected.to be_falsey }
+    end
+  end
+
+  describe 'none_access?' do
+    subject { artifact.none_access? }
+
+    context 'when job artifact created by default' do
+      let!(:artifact) { create(:ci_job_artifact) }
+
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when job artifact created as none access' do
+      let!(:artifact) { create(:ci_job_artifact, :none) }
+
+      it { is_expected.to be_truthy }
+    end
+  end
+
+  describe '.file_types_for_report' do
+    it 'returns the report file types for the report type' do
+      expect(described_class.file_types_for_report(:test)).to match_array(%w[junit])
+    end
+
+    context 'when given an unrecognized report type' do
+      it 'raises error' do
+        expect { described_class.file_types_for_report(:blah) }.to raise_error(ArgumentError, "Unrecognized report type: blah")
       end
     end
   end
@@ -131,11 +210,11 @@ RSpec.describe Ci::JobArtifact do
   describe '.associated_file_types_for' do
     using RSpec::Parameterized::TableSyntax
 
-    subject { Ci::JobArtifact.associated_file_types_for(file_type) }
+    subject { described_class.associated_file_types_for(file_type) }
 
     where(:file_type, :result) do
-      'codequality'         | %w(codequality)
-      'quality'             | nil
+      'codequality' | %w[codequality]
+      'quality' | nil
     end
 
     with_them do
@@ -148,7 +227,7 @@ RSpec.describe Ci::JobArtifact do
 
     it 'returns a list of erasable file types' do
       all_types = described_class.file_types.keys
-      erasable_types = all_types - described_class::NON_ERASABLE_FILE_TYPES
+      erasable_types = all_types - Enums::Ci::JobArtifact.non_erasable_file_types
 
       expect(subject).to contain_exactly(*erasable_types)
     end
@@ -167,6 +246,29 @@ RSpec.describe Ci::JobArtifact do
       let!(:artifact) { create(:ci_job_artifact, :trace) }
 
       it { is_expected.to be_empty }
+    end
+  end
+
+  describe '.non_trace' do
+    subject { described_class.non_trace }
+
+    context 'when there is only a trace job artifact' do
+      let!(:trace) { create(:ci_job_artifact, :trace) }
+
+      it { is_expected.to be_empty }
+    end
+
+    context 'when there is only a non-trace job artifact' do
+      let!(:junit) { create(:ci_job_artifact, :junit) }
+
+      it { is_expected.to eq([junit]) }
+    end
+
+    context 'when there are both trace and non-trace job artifacts' do
+      let!(:trace) { create(:ci_job_artifact, :trace) }
+      let!(:junit) { create(:ci_job_artifact, :junit) }
+
+      it { is_expected.to eq([junit]) }
     end
   end
 
@@ -193,7 +295,7 @@ RSpec.describe Ci::JobArtifact do
       it { is_expected.to be_truthy }
 
       context 'when the job does have archived trace' do
-        let!(:artifact) { }
+        let!(:artifact) {}
 
         it { is_expected.to be_falsy }
       end
@@ -206,8 +308,8 @@ RSpec.describe Ci::JobArtifact do
     end
   end
 
-  describe '#archived_trace_exists?' do
-    subject { artifact.archived_trace_exists? }
+  describe '#stored?' do
+    subject { artifact.stored? }
 
     context 'when the file exists' do
       it { is_expected.to be_truthy }
@@ -270,12 +372,12 @@ RSpec.describe Ci::JobArtifact do
     end
   end
 
-  describe '.order_expired_desc' do
+  describe '.order_expired_asc' do
     let_it_be(:first_artifact) { create(:ci_job_artifact, expire_at: 2.days.ago) }
     let_it_be(:second_artifact) { create(:ci_job_artifact, expire_at: 1.day.ago) }
 
     it 'returns ordered artifacts' do
-      expect(described_class.order_expired_desc).to eq([second_artifact, first_artifact])
+      expect(described_class.order_expired_asc).to eq([first_artifact, second_artifact])
     end
   end
 
@@ -302,47 +404,39 @@ RSpec.describe Ci::JobArtifact do
     end
   end
 
-  describe 'callbacks' do
-    describe '#schedule_background_upload' do
-      subject { create(:ci_job_artifact, :archive) }
+  describe '.created_at_before' do
+    it 'returns artifacts' do
+      artifact1 = create(:ci_job_artifact, created_at: 1.day.ago)
+      _artifact2 = create(:ci_job_artifact, created_at: 1.day.from_now)
 
-      context 'when object storage is disabled' do
-        before do
-          stub_artifacts_object_storage(enabled: false)
-        end
+      expect(described_class.created_at_before(Time.current)).to match_array([artifact1])
+    end
+  end
 
-        it 'does not schedule the migration' do
-          expect(ObjectStorage::BackgroundMoveWorker).not_to receive(:perform_async)
+  describe '.id_before' do
+    it 'returns artifacts' do
+      artifact1 = create(:ci_job_artifact)
+      artifact2 = create(:ci_job_artifact)
 
-          subject
-        end
-      end
+      expect(described_class.id_before(artifact2.id)).to match_array([artifact1, artifact2])
+    end
+  end
 
-      context 'when object storage is enabled' do
-        context 'when background upload is enabled' do
-          before do
-            stub_artifacts_object_storage(background_upload: true)
-          end
+  describe '.id_after' do
+    it 'returns artifacts' do
+      artifact1 = create(:ci_job_artifact)
+      artifact2 = create(:ci_job_artifact)
 
-          it 'schedules the model for migration' do
-            expect(ObjectStorage::BackgroundMoveWorker).to receive(:perform_async).with('JobArtifactUploader', described_class.name, :file, kind_of(Numeric))
+      expect(described_class.id_after(artifact1.id)).to match_array([artifact2])
+    end
+  end
 
-            subject
-          end
-        end
+  describe '.ordered_by_id' do
+    it 'returns artifacts in asc order' do
+      artifact1 = create(:ci_job_artifact)
+      artifact2 = create(:ci_job_artifact)
 
-        context 'when background upload is disabled' do
-          before do
-            stub_artifacts_object_storage(background_upload: false)
-          end
-
-          it 'schedules the model for migration' do
-            expect(ObjectStorage::BackgroundMoveWorker).not_to receive(:perform_async)
-
-            subject
-          end
-        end
-      end
+      expect(described_class.ordered_by_id).to eq([artifact1, artifact2])
     end
   end
 
@@ -351,7 +445,7 @@ RSpec.describe Ci::JobArtifact do
     let(:artifact) { create(:ci_job_artifact, :archive, project: project) }
 
     it 'sets the size from the file size' do
-      expect(artifact.size).to eq(107464)
+      expect(artifact.size).to eq(ci_artifact_fixture_size)
     end
   end
 
@@ -380,7 +474,7 @@ RSpec.describe Ci::JobArtifact do
   describe 'validates file format' do
     subject { artifact }
 
-    described_class::TYPE_AND_FORMAT_PAIRS.except(:trace).each do |file_type, file_format|
+    Enums::Ci::JobArtifact.type_and_format_pairs.except(:trace).each do |file_type, file_format|
       context "when #{file_type} type with #{file_format} format" do
         let(:artifact) { build(:ci_job_artifact, file_type: file_type, file_format: file_format) }
 
@@ -395,30 +489,12 @@ RSpec.describe Ci::JobArtifact do
 
       context "when #{file_type} type with other formats" do
         described_class.file_formats.except(file_format).values.each do |other_format|
-          let(:artifact) { build(:ci_job_artifact, file_type: file_type, file_format: other_format) }
+          context "with #{other_format}" do
+            let(:artifact) { build(:ci_job_artifact, file_type: file_type, file_format: other_format) }
 
-          it { is_expected.not_to be_valid }
+            it { is_expected.not_to be_valid }
+          end
         end
-      end
-    end
-  end
-
-  describe 'validates DEFAULT_FILE_NAMES' do
-    subject { described_class::DEFAULT_FILE_NAMES }
-
-    described_class.file_types.each do |file_type, _|
-      it "expects #{file_type} to be included" do
-        is_expected.to include(file_type.to_sym)
-      end
-    end
-  end
-
-  describe 'validates TYPE_AND_FORMAT_PAIRS' do
-    subject { described_class::TYPE_AND_FORMAT_PAIRS }
-
-    described_class.file_types.each do |file_type, _|
-      it "expects #{file_type} to be included" do
-        expect(described_class.file_formats).to include(subject[file_type.to_sym])
       end
     end
   end
@@ -680,8 +756,8 @@ RSpec.describe Ci::JobArtifact do
       end
 
       it 'updates project statistics' do
-        expect(ProjectStatistics).to receive(:increment_statistic).once
-              .with(project, :build_artifacts_size, -job_artifact.file.size)
+        expect(ProjectStatistics).to receive(:bulk_increment_statistic).once
+          .with(project, :build_artifacts_size, [have_attributes(amount: -job_artifact.file.size)])
 
         pipeline.destroy!
       end
@@ -700,14 +776,116 @@ RSpec.describe Ci::JobArtifact do
     MSG
   end
 
-  it_behaves_like 'it has loose foreign keys' do
-    let(:factory_name) { :ci_job_artifact }
-  end
-
   context 'loose foreign key on ci_job_artifacts.project_id' do
     it_behaves_like 'cleanup by a loose foreign key' do
       let!(:parent) { create(:project) }
       let!(:model) { create(:ci_job_artifact, project: parent) }
+    end
+  end
+
+  describe 'partitioning' do
+    let(:job) { build(:ci_build, partition_id: 123) }
+    let(:artifact) { build(:ci_job_artifact, job: job, partition_id: nil) }
+
+    it 'copies the partition_id from job' do
+      expect { artifact.valid? }.to change(artifact, :partition_id).from(nil).to(123)
+    end
+
+    context 'when the job is missing' do
+      let(:artifact) do
+        build(:ci_job_artifact,
+          project: build_stubbed(:project),
+          job: nil,
+          partition_id: nil)
+      end
+
+      it 'does not change the partition_id value' do
+        expect { artifact.valid? }.not_to change(artifact, :partition_id)
+      end
+    end
+  end
+
+  describe '#filename' do
+    subject { artifact.filename }
+
+    it { is_expected.to eq(artifact.file.filename) }
+  end
+
+  describe '#to_deleted_object_attrs' do
+    let(:pick_up_at) { nil }
+    let(:expire_at) { nil }
+    let(:file_final_path) { nil }
+
+    let(:artifact) do
+      create(
+        :ci_job_artifact,
+        :archive,
+        :remote_store,
+        file_final_path: file_final_path,
+        expire_at: expire_at
+      )
+    end
+
+    subject(:attributes) { artifact.to_deleted_object_attrs(pick_up_at) }
+
+    before do
+      stub_artifacts_object_storage
+    end
+
+    shared_examples_for 'returning attributes for object deletion' do
+      it 'returns the file store' do
+        expect(attributes[:file_store]).to eq(artifact.file_store)
+      end
+
+      context 'when pick_up_at is present' do
+        let(:pick_up_at) { 2.hours.ago }
+
+        it 'returns the pick_up_at value' do
+          expect(attributes[:pick_up_at]).to eq(pick_up_at)
+        end
+      end
+
+      context 'when pick_up_at is not present' do
+        context 'and expire_at is present' do
+          let(:expire_at) { 4.hours.ago }
+
+          it 'sets expire_at as pick_up_at' do
+            expect(attributes[:pick_up_at]).to eq(expire_at)
+          end
+        end
+
+        context 'and expire_at is not present' do
+          it 'sets current time as pick_up_at' do
+            freeze_time do
+              expect(attributes[:pick_up_at]).to eq(Time.current)
+            end
+          end
+        end
+      end
+    end
+
+    context 'when file_final_path is present' do
+      let(:file_final_path) { 'some/hash/path/to/randomfile' }
+
+      it 'returns the store_dir and file based on the file_final_path' do
+        expect(attributes).to include(
+          store_dir: 'some/hash/path/to',
+          file: 'randomfile'
+        )
+      end
+
+      it_behaves_like 'returning attributes for object deletion'
+    end
+
+    context 'when file_final_path is not present' do
+      it 'returns the uploader default store_dir and file_identifier' do
+        expect(attributes).to include(
+          store_dir: artifact.file.store_dir.to_s,
+          file: artifact.file_identifier
+        )
+      end
+
+      it_behaves_like 'returning attributes for object deletion'
     end
   end
 end

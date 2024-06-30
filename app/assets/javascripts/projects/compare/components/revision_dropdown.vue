@@ -1,7 +1,7 @@
 <script>
 import { GlDropdown, GlDropdownItem, GlSearchBoxByType, GlDropdownSectionHeader } from '@gitlab/ui';
 import { debounce } from 'lodash';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { s__ } from '~/locale';
 
@@ -76,7 +76,7 @@ export default {
           this.tags = data.Tags || [];
         })
         .catch(() => {
-          createFlash({
+          createAlert({
             message: s__(
               'CompareRevisions|There was an error while searching the branch/tag list. Please try again.',
             ),
@@ -97,7 +97,7 @@ export default {
           this.tags = data.Tags || [];
         })
         .catch(() => {
-          createFlash({
+          createAlert({
             message: s__(
               'CompareRevisions|There was an error while loading the branch/tag list. Please try again.',
             ),
@@ -146,9 +146,10 @@ export default {
       </gl-dropdown-section-header>
       <gl-dropdown-item
         v-for="branch in branches"
-        :key="branch"
+        :key="`branch-${branch}`"
         is-check-item
         :is-checked="selectedRevision === branch"
+        data-testid="branches-dropdown-item"
         @click="onClick(branch)"
       >
         {{ branch }}
@@ -158,9 +159,10 @@ export default {
       </gl-dropdown-section-header>
       <gl-dropdown-item
         v-for="tag in tags"
-        :key="tag"
+        :key="`tag-${tag}`"
         is-check-item
         :is-checked="selectedRevision === tag"
+        data-testid="tags-dropdown-item"
         @click="onClick(tag)"
       >
         {{ tag }}

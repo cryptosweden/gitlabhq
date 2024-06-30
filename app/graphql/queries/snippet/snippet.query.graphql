@@ -13,6 +13,8 @@ query GetSnippetQuery($ids: [SnippetID!]) {
       webUrl
       httpUrlToRepo
       sshUrlToRepo
+      hidden
+      imported
       blobs {
         __typename
         hasUnretrievableBlobs
@@ -53,6 +55,7 @@ query GetSnippetQuery($ids: [SnippetID!]) {
         id
         fullPath
         webUrl
+        visibility
       }
       author {
         __typename

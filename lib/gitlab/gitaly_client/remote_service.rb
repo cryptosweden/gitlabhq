@@ -4,6 +4,7 @@ module Gitlab
   module GitalyClient
     class RemoteService
       include Gitlab::EncodingHelper
+      include WithFeatureFlagActors
 
       MAX_MSG_SIZE = 128.kilobytes.freeze
 
@@ -13,9 +14,9 @@ module Gitlab
         request = Gitaly::FindRemoteRepositoryRequest.new(remote: remote_url, storage_name: storage)
 
         response = GitalyClient.call(storage,
-                                     :remote_service,
-                                     :find_remote_repository, request,
-                                     timeout: GitalyClient.medium_timeout)
+          :remote_service,
+          :find_remote_repository, request,
+          timeout: GitalyClient.medium_timeout)
 
         response.exists
       end
@@ -24,15 +25,17 @@ module Gitlab
         @repository = repository
         @gitaly_repo = repository.gitaly_repository
         @storage = repository.storage
+
+        self.repository_actor = repository
       end
 
       def find_remote_root_ref(remote_url, authorization)
         request = Gitaly::FindRemoteRootRefRequest.new(repository: @gitaly_repo,
-                                                       remote_url: remote_url,
-                                                       http_authorization_header: authorization)
+          remote_url: remote_url,
+          http_authorization_header: authorization)
 
-        response = GitalyClient.call(@storage, :remote_service,
-                                     :find_remote_root_ref, request, timeout: GitalyClient.medium_timeout)
+        response = gitaly_client_call(@storage, :remote_service,
+          :find_remote_root_ref, request, timeout: GitalyClient.medium_timeout)
 
         encode_utf8(response.ref)
       end

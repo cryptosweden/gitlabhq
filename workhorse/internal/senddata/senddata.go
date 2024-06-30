@@ -5,6 +5,7 @@ import (
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/headers"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/nginx"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/senddata/contentprocessor"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -36,6 +37,7 @@ type sendDataResponseWriter struct {
 	injecters []Injecter
 }
 
+// SendData intercepts HTTP responses and allows injecting content before sending them
 func SendData(h http.Handler, injecters ...Injecter) http.Handler {
 	return contentprocessor.SetContentHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s := sendDataResponseWriter{
@@ -88,7 +90,7 @@ func (s *sendDataResponseWriter) tryInject() bool {
 	for _, injecter := range s.injecters {
 		if injecter.Match(header) {
 			s.hijacked = true
-			helper.DisableResponseBuffering(s.rw)
+			nginx.DisableResponseBuffering(s.rw)
 			crw := helper.NewCountingResponseWriter(s.rw)
 			injecter.Inject(crw, s.req, header)
 			sendDataResponses.WithLabelValues(injecter.Name()).Inc()
@@ -102,4 +104,9 @@ func (s *sendDataResponseWriter) tryInject() bool {
 
 func (s *sendDataResponseWriter) flush() {
 	s.WriteHeader(http.StatusOK)
+}
+
+// Unwrap lets http.ResponseController get the underlying http.ResponseWriter.
+func (s *sendDataResponseWriter) Unwrap() http.ResponseWriter {
+	return s.rw
 }

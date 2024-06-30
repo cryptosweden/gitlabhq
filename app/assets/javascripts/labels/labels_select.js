@@ -4,9 +4,9 @@
 import $ from 'jquery';
 import { difference, isEqual, escape, sortBy, template, union } from 'lodash';
 import initDeprecatedJQueryDropdown from '~/deprecated_jquery_dropdown';
-import IssuableBulkUpdateActions from '~/issuable/bulk_update_sidebar/issuable_bulk_update_actions';
+import IssuableBulkUpdateActions from '~/issuable/issuable_bulk_update_actions';
 import { isScopedLabel } from '~/lib/utils/common_utils';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { sprintf, __ } from '~/locale';
 import CreateLabelDropdown from './create_label_dropdown';
@@ -146,7 +146,7 @@ export default class LabelsSelect {
             });
           })
           .catch(() =>
-            createFlash({
+            createAlert({
               message: __('Error saving label update.'),
             }),
           );
@@ -185,7 +185,7 @@ export default class LabelsSelect {
               }
             })
             .catch(() =>
-              createFlash({
+              createAlert({
                 message: __('Error fetching labels.'),
               }),
             );
@@ -241,12 +241,13 @@ export default class LabelsSelect {
 
           // We need to identify which items are actually labels
           if (label.id) {
-            const selectedLayoutClasses = ['d-flex', 'flex-row', 'text-break-word'];
+            const selectedLayoutClasses = ['gl-flex', 'flex-row', 'text-break-word'];
             selectedClass.push('label-item', ...selectedLayoutClasses);
             linkEl.dataset.labelId = label.id;
           }
 
           linkEl.className = selectedClass.join(' ');
+          // eslint-disable-next-line no-unsanitized/property
           linkEl.innerHTML = `${colorEl} ${escape(label.title)}`;
 
           const listItemEl = document.createElement('li');
@@ -275,7 +276,8 @@ export default class LabelsSelect {
           if (selected && selected.id === 0) {
             this.selected = [];
             return __('No label');
-          } else if (isSelected) {
+          }
+          if (isSelected) {
             this.selected.push(title);
           } else if (!isSelected && title) {
             const index = this.selected.indexOf(title);
@@ -284,7 +286,8 @@ export default class LabelsSelect {
 
           if (selectedLabels.length === 1) {
             return selectedLabels;
-          } else if (selectedLabels.length) {
+          }
+          if (selectedLabels.length) {
             return sprintf(__('%{firstLabel} +%{labelCount} more'), {
               firstLabel: selectedLabels[0],
               labelCount: selectedLabels.length - 1,
@@ -438,7 +441,7 @@ export default class LabelsSelect {
       [
         '<% if (isScopedLabel(label) && enableScopedLabels) { %>',
         "<span class='font-weight-bold scoped-label-tooltip-title'>Scoped label</span>",
-        '<br />',
+        '<br>',
         '<%= escapeStr(label.description) %>',
         '<% } else { %>',
         '<%= escapeStr(label.description) %>',

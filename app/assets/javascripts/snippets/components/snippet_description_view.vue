@@ -1,5 +1,5 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import MarkdownFieldView from '~/vue_shared/components/markdown/field_view.vue';
 
 export default {
@@ -20,7 +20,7 @@ export default {
 };
 </script>
 <template>
-  <markdown-field-view class="snippet-description" data-qa-selector="snippet_description_content">
+  <markdown-field-view data-testid="snippet-description-content">
     <div
       v-safe-html:[$options.safeHtmlConfig]="description"
       class="md js-snippet-description"

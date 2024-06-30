@@ -12,9 +12,11 @@ module Gitlab
         @project = project
       end
 
-      # It is expected that the given finder will respond to `execute` method with `gitaly_pagination: true` option
+      # It is expected that the given finder will respond to `execute` method with `gitaly_pagination:` option
       # and supports pagination via gitaly.
       def paginate(finder)
+        return finder.execute(gitaly_pagination: false) if no_pagination?(finder)
+
         return paginate_via_gitaly(finder) if keyset_pagination_enabled?(finder)
         return paginate_first_page_via_gitaly(finder) if paginate_first_page?(finder)
 
@@ -26,37 +28,39 @@ module Gitlab
 
       private
 
+      def no_pagination?(finder)
+        params[:pagination] == 'none' && finder.is_a?(::Repositories::TreeFinder)
+      end
+
       def keyset_pagination_enabled?(finder)
         return false unless params[:pagination] == "keyset"
 
-        if finder.is_a?(BranchesFinder)
-          Feature.enabled?(:branch_list_keyset_pagination, project, default_enabled: :yaml)
-        elsif finder.is_a?(TagsFinder)
-          Feature.enabled?(:tag_list_keyset_pagination, project, default_enabled: :yaml)
-        elsif finder.is_a?(::Repositories::TreeFinder)
-          Feature.enabled?(:repository_tree_gitaly_pagination, project, default_enabled: :yaml)
-        else
-          false
+        case finder
+        when BranchesFinder
+          Feature.enabled?(:branch_list_keyset_pagination, project)
+        when TagsFinder
+          true
+        when ::Repositories::TreeFinder
+          true
         end
       end
 
       def paginate_first_page?(finder)
         return false unless params[:page].blank? || params[:page].to_i == 1
 
-        if finder.is_a?(BranchesFinder)
-          Feature.enabled?(:branch_list_keyset_pagination, project, default_enabled: :yaml)
-        elsif finder.is_a?(TagsFinder)
-          Feature.enabled?(:tag_list_keyset_pagination, project, default_enabled: :yaml)
-        elsif finder.is_a?(::Repositories::TreeFinder)
-          Feature.enabled?(:repository_tree_gitaly_pagination, project, default_enabled: :yaml)
-        else
-          false
+        case finder
+        when BranchesFinder
+          Feature.enabled?(:branch_list_keyset_pagination, project)
+        when TagsFinder
+          true
+        when ::Repositories::TreeFinder
+          true
         end
       end
 
       def paginate_via_gitaly(finder)
         finder.execute(gitaly_pagination: true).tap do |records|
-          apply_headers(records)
+          apply_headers(records, finder.next_cursor)
         end
       end
 
@@ -69,25 +73,23 @@ module Gitlab
 
           Gitlab::Pagination::OffsetHeaderBuilder.new(
             request_context: request_context, per_page: per_page, page: 1, next_page: 2,
-            total: total, total_pages: total / per_page + 1
+            total: total, total_pages: (total / per_page) + 1
           ).execute
         end
       end
 
-      def apply_headers(records)
+      def apply_headers(records, next_cursor)
         if records.count == params[:per_page]
           Gitlab::Pagination::Keyset::HeaderBuilder
             .new(request_context)
             .add_next_page_header(
-              query_params_for(records.last)
+              query_params_for(next_cursor)
             )
         end
       end
 
-      def query_params_for(record)
-        # NOTE: page_token is name for now, but it could be dynamic if we have other gitaly finders
-        # that is based on something other than name
-        { page_token: record.name }
+      def query_params_for(next_cursor)
+        { page_token: next_cursor }
       end
     end
   end

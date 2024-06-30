@@ -7,20 +7,18 @@ module Wikis
 
     private
 
-    # Used for getting a project/group out of the resource in order to scope a feature flag
-    # Can be removed within https://gitlab.com/gitlab-org/gitlab/-/issues/353607
-    def container(resource)
-      resource.container
-    end
-
     override :find_resource
     def find_resource(id)
       Project.find(id).wiki
     end
 
     override :update_db_repository_statistics
-    def update_db_repository_statistics(resource)
-      Projects::UpdateStatisticsService.new(resource.container, nil, statistics: [:wiki_size]).execute
+    def update_db_repository_statistics(resource, stats)
+      Projects::UpdateStatisticsService.new(resource.container, nil, statistics: stats).execute
+    end
+
+    def stats
+      [:wiki_size]
     end
   end
 end

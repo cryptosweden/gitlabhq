@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User views diffs', :js do
+RSpec.describe 'User views diffs', :js, feature_category: :code_review_workflow do
   let(:merge_request) do
     create(:merge_request_with_diffs, source_project: project, target_project: project, source_branch: 'merge-test')
   end
@@ -30,7 +30,7 @@ RSpec.describe 'User views diffs', :js do
 
     it 'unfolds diffs in the middle' do
       page.within('.file-holder[id="2f6fcd96b88b36ce98c38da085c795a27d92a3dd"]') do
-        all('.js-unfold-all')[1].click
+        first('.js-unfold-all').click
 
         expect(page).to have_selector('[data-interop-type="new"] [data-linenumber="24"]', count: 1)
         expect(page).not_to have_selector('[data-interop-type="new"] [data-linenumber="1"]')
@@ -52,8 +52,8 @@ RSpec.describe 'User views diffs', :js do
     find('.js-show-diff-settings').click
 
     expect(page).to have_css('.tab-content #diffs.active')
-    expect(page).to have_css('#parallel-diff-btn', count: 1)
-    expect(page).to have_css('#inline-diff-btn', count: 1)
+    expect(page).to have_selector('li', text: 'Side-by-side')
+    expect(page).to have_selector('li', text: 'Inline')
   end
 
   it 'hides loading spinner after load' do

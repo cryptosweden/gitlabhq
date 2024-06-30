@@ -3,16 +3,21 @@
 module Groups
   module ImportExport
     class ExportService
-      def initialize(group:, user:, params: {})
+      def initialize(group:, user:, exported_by_admin:, params: {})
         @group = group
         @current_user = user
+        @exported_by_admin = exported_by_admin
         @params = params
         @shared = @params[:shared] || Gitlab::ImportExport::Shared.new(@group)
         @logger = Gitlab::Export::Logger.build
       end
 
       def async_execute
-        GroupExportWorker.perform_async(current_user.id, group.id, params)
+        GroupExportWorker.perform_async(
+          current_user.id,
+          group.id,
+          params.merge(exported_by_admin: @exported_by_admin)
+        )
       end
 
       def execute
@@ -27,7 +32,7 @@ module Groups
 
       private
 
-      attr_reader :group, :current_user, :params
+      attr_reader :group, :current_user, :exported_by_admin, :params
       attr_accessor :shared
 
       def validate_user_permissions
@@ -49,10 +54,21 @@ module Groups
         # We cannot include the file_saver with the other savers because
         # it removes the tmp dir. This means that if we want to add new savers
         # in EE the data won't be available.
-        if savers.all?(&:save) && file_saver.save
+        if save_exporters && file_saver.save
+          audit_export
           notify_success
         else
           notify_error!
+        end
+      end
+
+      def save_exporters
+        log_info('Group export started')
+
+        savers.all? do |exporter|
+          log_info("#{exporter.class.name} saver started")
+
+          exporter.save
         end
       end
 
@@ -61,24 +77,12 @@ module Groups
       end
 
       def tree_exporter
-        tree_exporter_class.new(
+        Gitlab::ImportExport::Group::TreeSaver.new(
           group: group,
           current_user: current_user,
           shared: shared,
           params: params
         )
-      end
-
-      def tree_exporter_class
-        if ndjson?
-          Gitlab::ImportExport::Group::TreeSaver
-        else
-          Gitlab::ImportExport::Group::LegacyTreeSaver
-        end
-      end
-
-      def ndjson?
-        ::Feature.enabled?(:group_export_ndjson, group&.parent, default_enabled: :yaml)
       end
 
       def version_saver
@@ -99,12 +103,30 @@ module Groups
         raise Gitlab::ImportExport::Error, shared.errors.to_sentence
       end
 
-      def notify_success
+      def log_info(message)
         @logger.info(
-          message: 'Group Export succeeded',
+          message: message,
           group_id: group.id,
           group_name: group.name
         )
+      end
+
+      def audit_export
+        return if exported_by_admin && Gitlab::CurrentSettings.silent_admin_exports_enabled?
+
+        audit_context = {
+          name: 'group_export_created',
+          author: current_user,
+          scope: group,
+          target: group,
+          message: 'Group file export was created'
+        }
+
+        Gitlab::Audit::Auditor.audit(audit_context)
+      end
+
+      def notify_success
+        log_info('Group Export succeeded')
 
         notification_service.group_was_exported(group, current_user)
       end

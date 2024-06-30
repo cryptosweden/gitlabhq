@@ -37,11 +37,8 @@ RSpec.describe Gitlab::Import::MergeRequestHelpers, type: :helper do
             attributes.merge(iid: iid, source_branch: iid.to_s))
         end
 
-        # does ensure that we only load object twice
-        # 1. by #insert_and_return_id
-        # 2. by project.merge_requests.find
-        expect_any_instance_of(MergeRequest).to receive(:attributes)
-          .twice.times.and_call_original
+        # ensures that we only load object once by project.merge_requests.find
+        expect(MergeRequest).to receive(:allocate).once.and_call_original
 
         expect(subject.first).not_to be_nil
         expect(subject.second).to eq(false)
@@ -66,6 +63,28 @@ RSpec.describe Gitlab::Import::MergeRequestHelpers, type: :helper do
 
       it 'returns an existing object' do
         expect(subject.first).to be_nil
+      end
+    end
+  end
+
+  describe '.insert_merge_request_reviewers' do
+    let_it_be(:merge_request) { create(:merge_request) }
+
+    subject { helper.insert_merge_request_reviewers(merge_request, reviewers) }
+
+    context 'when reviewers are not present' do
+      let(:reviewers) { nil }
+
+      it 'does not insert reviewers' do
+        expect { subject }.not_to change { MergeRequestReviewer.count }
+      end
+    end
+
+    context 'when reviewers are present' do
+      let(:reviewers) { create_list(:user, 3).pluck(:id) }
+
+      it 'inserts reviewers' do
+        expect { subject }.to change { MergeRequestReviewer.count }.by(3)
       end
     end
   end

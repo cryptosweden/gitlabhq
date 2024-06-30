@@ -2,90 +2,140 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Explore Groups page', :js do
-  let!(:user) { create :user }
-  let!(:group) { create(:group) }
-  let!(:public_group) { create(:group, :public) }
-  let!(:private_group) { create(:group, :private) }
-  let!(:empty_project) { create(:project, group: public_group) }
+RSpec.describe 'Explore Groups page', :js, feature_category: :groups_and_projects do
+  let_it_be(:user) { create(:user) }
 
-  before do
-    group.add_owner(user)
+  context 'when there are groups to show' do
+    let_it_be(:group) { create(:group, created_at: 5.days.ago) }
+    let_it_be(:public_group) { create(:group, :public, created_at: 4.days.ago) }
+    let_it_be(:private_group) { create(:group, :private, created_at: 3.days.ago) }
+    let_it_be(:empty_project) { create(:project, group: public_group) }
 
-    sign_in(user)
+    before do
+      group.add_owner(user)
 
-    visit explore_groups_path
-    wait_for_requests
-  end
-
-  it 'shows groups user is member of' do
-    expect(page).to have_content(group.full_name)
-    expect(page).to have_content(public_group.full_name)
-    expect(page).not_to have_content(private_group.full_name)
-  end
-
-  it 'filters groups' do
-    fill_in 'filter', with: group.name
-    wait_for_requests
-
-    expect(page).to have_content(group.full_name)
-    expect(page).not_to have_content(public_group.full_name)
-    expect(page).not_to have_content(private_group.full_name)
-  end
-
-  it 'resets search when user cleans the input' do
-    fill_in 'filter', with: group.name
-    wait_for_requests
-
-    expect(page).to have_content(group.full_name)
-    expect(page).not_to have_content(public_group.full_name)
-
-    fill_in 'filter', with: ""
-    page.find('[name="filter"]').send_keys(:enter)
-    wait_for_requests
-
-    expect(page).to have_content(group.full_name)
-    expect(page).to have_content(public_group.full_name)
-    expect(page).not_to have_content(private_group.full_name)
-    expect(page.all('.js-groups-list-holder .groups-list li').length).to eq 2
-  end
-
-  it 'shows non-archived projects count' do
-    # Initially project is not archived
-    expect(find('.js-groups-list-holder .groups-list li:first-child .stats .number-projects')).to have_text("1")
-
-    # Archive project
-    ::Projects::UpdateService.new(empty_project, user, archived: true).execute
-    visit explore_groups_path
-
-    # Check project count
-    expect(find('.js-groups-list-holder .groups-list li:first-child .stats .number-projects')).to have_text("0")
-
-    # Unarchive project
-    ::Projects::UpdateService.new(empty_project, user, archived: false).execute
-    visit explore_groups_path
-
-    # Check project count
-    expect(find('.js-groups-list-holder .groups-list li:first-child .stats .number-projects')).to have_text("1")
-  end
-
-  describe 'landing component' do
-    it 'shows a landing component' do
-      expect(page).to have_content('Below you will find all the groups that are public.')
-    end
-
-    it 'is dismissable' do
-      find('.dismiss-button').click
-
-      expect(page).not_to have_content('Below you will find all the groups that are public.')
-    end
-
-    it 'does not show persistently once dismissed' do
-      find('.dismiss-button').click
+      sign_in(user)
 
       visit explore_groups_path
-
-      expect(page).not_to have_content('Below you will find all the groups that are public.')
+      wait_for_requests
     end
+
+    it 'shows groups user is member of' do
+      expect(page).to have_content(group.full_name)
+      expect(page).to have_content(public_group.full_name)
+      expect(page).not_to have_content(private_group.full_name)
+    end
+
+    it 'filters groups' do
+      search(group.name)
+      click_button 'Search'
+      wait_for_requests
+
+      expect(page).to have_content(group.full_name)
+      expect(page).not_to have_content(public_group.full_name)
+      expect(page).not_to have_content(private_group.full_name)
+    end
+
+    it 'resets search when user cleans the input' do
+      search(group.name)
+      click_button 'Search'
+      wait_for_requests
+
+      expect(page).to have_content(group.full_name)
+      expect(page).not_to have_content(public_group.full_name)
+
+      click_button 'Clear'
+      wait_for_requests
+
+      expect(page).to have_content(group.full_name)
+      expect(page).to have_content(public_group.full_name)
+      expect(page).not_to have_content(private_group.full_name)
+      expect(page.all('[data-testid="groups-list-tree-container"] .groups-list li').length).to eq 2
+    end
+
+    it 'shows non-archived projects count' do
+      # Initially project is not archived
+      expect(
+        find('[data-testid="groups-list-tree-container"] .groups-list li:first-child .stats .number-projects')
+      ).to have_text("1")
+
+      # Archive project
+      ::Projects::UpdateService.new(empty_project, user, archived: true).execute
+      visit explore_groups_path
+
+      # Check project count
+      expect(
+        find('[data-testid="groups-list-tree-container"] .groups-list li:first-child .stats .number-projects')
+      ).to have_text("0")
+
+      # Unarchive project
+      ::Projects::UpdateService.new(empty_project, user, archived: false).execute
+      visit explore_groups_path
+
+      # Check project count
+      expect(
+        find('[data-testid="groups-list-tree-container"] .groups-list li:first-child .stats .number-projects')
+      ).to have_text("1")
+    end
+
+    it 'renders page description' do
+      expect(page).to have_content(
+        'Below you will find all the groups that are public or internal. Contribute by requesting to join a group.'
+      )
+    end
+
+    context 'when using pagination' do
+      before do
+        group.add_owner(user)
+        public_group.add_owner(user)
+
+        allow(Kaminari.config).to receive(:default_per_page).and_return(1)
+
+        sign_in(user)
+        visit explore_groups_path
+        wait_for_requests
+      end
+
+      it 'loads results for next page' do
+        expect(page).to have_selector('.gl-pagination .page-item a.page-link', count: 3)
+
+        # Check first page
+        expect(page).to have_content(public_group.full_name)
+        expect(page).to have_selector("#group-#{public_group.id}")
+        expect(page).not_to have_content(group.full_name)
+        expect(page).not_to have_selector("#group-#{group.id}")
+
+        # Go to next page
+        find('.gl-pagination .page-item:last-of-type a.page-link').click
+
+        wait_for_requests
+
+        # Check second page
+        expect(page).to have_content(group.full_name)
+        expect(page).to have_selector("#group-#{group.id}")
+        expect(page).not_to have_content(public_group.full_name)
+        expect(page).not_to have_selector("#group-#{public_group.id}")
+      end
+    end
+  end
+
+  context 'when there are no groups to show' do
+    before do
+      sign_in(user)
+
+      visit explore_groups_path
+      wait_for_requests
+    end
+
+    it 'shows empty state' do
+      expect(page).to have_content(_('No public or internal groups'))
+    end
+  end
+
+  def search(term)
+    filter_input = find_by_testid('filtered-search-term-input')
+    filter_input.click
+    filter_input.set(term)
+    click_button 'Search'
   end
 end

@@ -25,7 +25,7 @@ module Gitlab
         # to general Sidekiq clusters/nodes.
         def with_isolated_sidekiq_job
           Sidekiq::Testing.fake! do
-            with_request_store do
+            ::Gitlab::SafeRequestStore.ensure_request_store do
               # If you are attempting to import a large project into a development environment,
               # you may see Gitaly throw an error about too many calls or invocations.
               # This is due to a n+1 calls limit being set for development setups (not enforced in production)
@@ -64,7 +64,7 @@ module Gitlab
         end
 
         def execute_sidekiq_job
-          Sidekiq::Worker.drain_all
+          Sidekiq::Worker.drain_all # rubocop:disable Cop/SidekiqApiUsage
         end
 
         def full_path
@@ -72,16 +72,16 @@ module Gitlab
         end
 
         def show_import_start_message
-          logger.info "Importing GitLab export: #{file_path} into GitLab" \
-            " #{full_path}" \
-            " as #{current_user.name}"
+          logger.info "Importing GitLab export: #{file_path} into GitLab " \
+            "#{full_path} " \
+            "as #{current_user.name}"
         end
 
         def import_params
           {
             namespace_id: namespace.id,
-            path:         project_path,
-            file:         File.open(file_path)
+            path: project_path,
+            file: File.open(file_path)
           }
         end
 

@@ -2,18 +2,13 @@
 
 module Users
   class SavedReply < ApplicationRecord
+    def self.namespace_foreign_key
+      :user_id
+    end
     self.table_name = 'saved_replies'
 
-    belongs_to :user
+    include SavedReplyConcern
 
-    validates :user_id, :name, :content, presence: true
-    validates :name,
-      length: { maximum: 255 },
-      uniqueness: { scope: [:user_id] },
-      format: {
-        with: Gitlab::Regex.saved_reply_name_regex,
-        message: Gitlab::Regex.saved_reply_name_regex_message
-      }
-    validates :content, length: { maximum: 10000 }
+    belongs_to :user
   end
 end

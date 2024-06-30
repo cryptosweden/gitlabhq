@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::EnableDeployKeyService do
+RSpec.describe Projects::EnableDeployKeyService, feature_category: :continuous_delivery do
   let(:deploy_key)  { create(:deploy_key, public: true) }
   let(:project)     { create(:project) }
-  let(:user)        { project.creator}
+  let(:user)        { project.creator }
   let!(:params)     { { key_id: deploy_key.id } }
 
   it 'enables the key' do

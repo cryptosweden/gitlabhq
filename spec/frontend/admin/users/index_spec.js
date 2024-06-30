@@ -8,19 +8,17 @@ describe('initAdminUsersApp', () => {
   let wrapper;
   let el;
 
-  const findApp = () => wrapper.find(AdminUsersApp);
+  const findApp = () => wrapper.findComponent(AdminUsersApp);
 
   beforeEach(() => {
     el = document.createElement('div');
-    el.setAttribute('data-users', JSON.stringify(users));
-    el.setAttribute('data-paths', JSON.stringify(paths));
+    el.dataset.users = JSON.stringify(users);
+    el.dataset.paths = JSON.stringify(paths);
 
     wrapper = createWrapper(initAdminUsersApp(el));
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
     el = null;
   });
 
@@ -36,19 +34,17 @@ describe('initAdminUserActions', () => {
   let wrapper;
   let el;
 
-  const findUserActions = () => wrapper.find(UserActions);
+  const findUserActions = () => wrapper.findComponent(UserActions);
 
   beforeEach(() => {
     el = document.createElement('div');
-    el.setAttribute('data-user', JSON.stringify(user));
-    el.setAttribute('data-paths', JSON.stringify(paths));
+    el.dataset.user = JSON.stringify(user);
+    el.dataset.paths = JSON.stringify(paths);
 
     wrapper = createWrapper(initAdminUserActions(el));
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
     el = null;
   });
 

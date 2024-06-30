@@ -5,81 +5,76 @@ module Integrations
     include ReactivelyCached
     prepend EnableSslVerification
 
-    prop_accessor :bamboo_url, :build_key, :username, :password
+    field :bamboo_url,
+      title: -> { s_('BambooService|Bamboo URL') },
+      placeholder: -> { s_('https://bamboo.example.com') },
+      help: -> { s_('BambooService|Bamboo root URL.') },
+      description: -> { s_('Bamboo root URL (for example, `https://bamboo.example.com`).') },
+      exposes_secrets: true,
+      required: true
 
-    validates :bamboo_url, presence: true, public_url: true, if: :activated?
-    validates :build_key, presence: true, if: :activated?
-    validates :username,
-      presence: true,
-      if: ->(service) { service.activated? && service.password }
-    validates :password,
-      presence: true,
-      if: ->(service) { service.activated? && service.username }
+    field :build_key,
+      help: -> { s_('BambooService|Bamboo build plan key.') },
+      description: -> { s_('Bamboo build plan key (for example, `KEY`).') },
+      non_empty_password_title: -> { s_('BambooService|Enter new build key') },
+      non_empty_password_help: -> { s_('BambooService|Leave blank to use your current build key.') },
+      placeholder: -> { _('KEY') },
+      required: true,
+      is_secret: true
+
+    field :username,
+      help: -> { s_('BambooService|User with API access to the Bamboo server.') },
+      description: -> { s_('User with API access to the Bamboo server.') },
+      required: true
+
+    field :password,
+      type: :password,
+      non_empty_password_title: -> { s_('ProjectService|Enter new password') },
+      non_empty_password_help: -> { s_('ProjectService|Leave blank to use your current password') },
+      description: -> { s_('Password of the user.') },
+      required: true
+
+    with_options if: :activated? do
+      validates :bamboo_url, presence: true, public_url: true
+      validates :build_key, presence: true
+    end
+
+    validates :username, presence: true, if: ->(integration) { integration.activated? && integration.password }
+    validates :password, presence: true, if: ->(integration) { integration.activated? && integration.username }
 
     attr_accessor :response
 
-    before_validation :reset_password
-
-    def reset_password
-      if bamboo_url_changed? && !password_touched?
-        self.password = nil
-      end
-    end
-
-    def title
+    def self.title
       s_('BambooService|Atlassian Bamboo')
     end
 
-    def description
+    def self.description
       s_('BambooService|Run CI/CD pipelines with Atlassian Bamboo.')
     end
 
-    def help
-      docs_link = ActionController::Base.helpers.link_to _('Learn more.'), Rails.application.routes.url_helpers.help_page_url('user/project/integrations/bamboo'), target: '_blank', rel: 'noopener noreferrer'
-      s_('BambooService|Run CI/CD pipelines with Atlassian Bamboo. You must set up automatic revision labeling and a repository trigger in Bamboo. %{docs_link}').html_safe % { docs_link: docs_link.html_safe }
+    def self.help
+      docs_link = ActionController::Base.helpers.link_to(
+        _('Learn more.'),
+        Rails.application.routes.url_helpers.help_page_url('user/project/integrations/bamboo'),
+        target: '_blank',
+        rel: 'noopener noreferrer'
+      )
+      format(
+        s_('BambooService|Run CI/CD pipelines with Atlassian Bamboo. You must set up automatic revision labeling and ' \
+           'a repository trigger in Bamboo. %{docs_link}').html_safe,
+        docs_link: docs_link.html_safe)
     end
 
     def self.to_param
       'bamboo'
     end
 
-    def fields
-      [
-          {
-            type: 'text',
-            name: 'bamboo_url',
-            title: s_('BambooService|Bamboo URL'),
-            placeholder: s_('https://bamboo.example.com'),
-            help: s_('BambooService|Bamboo service root URL.'),
-            required: true
-          },
-          {
-            type: 'text',
-            name: 'build_key',
-            placeholder: s_('KEY'),
-            help: s_('BambooService|Bamboo build plan key.'),
-            required: true
-          },
-          {
-            type: 'text',
-            name: 'username',
-            help: s_('BambooService|The user with API access to the Bamboo server.')
-          },
-          {
-            type: 'password',
-            name: 'password',
-            non_empty_password_title: s_('ProjectService|Enter new password'),
-            non_empty_password_help: s_('ProjectService|Leave blank to use your current password')
-          }
-      ]
-    end
-
     def build_page(sha, ref)
-      with_reactive_cache(sha, ref) {|cached| cached[:build_page] }
+      with_reactive_cache(sha, ref) { |cached| cached[:build_page] }
     end
 
     def commit_status(sha, ref)
-      with_reactive_cache(sha, ref) {|cached| cached[:commit_status] }
+      with_reactive_cache(sha, ref) { |cached| cached[:commit_status] }
     end
 
     def execute(data)
@@ -88,10 +83,16 @@ module Integrations
       get_path("updateAndBuild.action", { buildKey: build_key })
     end
 
-    def calculate_reactive_cache(sha, ref)
+    def calculate_reactive_cache(sha, _ref)
       response = try_get_path("rest/api/latest/result/byChangeset/#{sha}")
 
       { build_page: read_build_page(response), commit_status: read_commit_status(response) }
+    end
+
+    def avatar_url
+      ActionController::Base.helpers.image_path(
+        'illustrations/third-party-logos/integrations-logos/atlassian-bamboo.svg'
+      )
     end
 
     private
@@ -130,7 +131,7 @@ module Integrations
         if result.blank?
           'Pending'
         else
-          result.dig('buildState')
+          result['buildState']
         end
 
       return :error unless status.present?
@@ -167,7 +168,6 @@ module Integrations
 
       query_params[:os_authType] = 'basic'
       params[:basic_auth] = basic_auth
-      params[:use_read_total_timeout] = true
       params
     end
 

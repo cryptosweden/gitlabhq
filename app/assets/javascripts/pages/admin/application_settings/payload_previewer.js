@@ -1,6 +1,6 @@
-import createFlash from '~/flash';
-import axios from '../../../lib/utils/axios_utils';
-import { __ } from '../../../locale';
+import { createAlert } from '~/alert';
+import axios from '~/lib/utils/axios_utils';
+import { __ } from '~/locale';
 
 export default class PayloadPreviewer {
   constructor(trigger) {
@@ -29,7 +29,7 @@ export default class PayloadPreviewer {
   requestPayload() {
     if (this.isInserted) return this.showPayload();
 
-    this.spinner.classList.add('gl-display-inline-flex');
+    this.spinner.classList.add('gl-display-inline');
 
     const container = this.getContainer();
 
@@ -38,12 +38,12 @@ export default class PayloadPreviewer {
         responseType: 'text',
       })
       .then(({ data }) => {
-        this.spinner.classList.remove('gl-display-inline-flex');
+        this.spinner.classList.remove('gl-display-inline');
         this.insertPayload(data);
       })
       .catch(() => {
-        this.spinner.classList.remove('gl-display-inline-flex');
-        createFlash({
+        this.spinner.classList.remove('gl-display-inline');
+        createAlert({
           message: __('Error fetching payload data.'),
         });
       });
@@ -63,6 +63,8 @@ export default class PayloadPreviewer {
 
   insertPayload(data) {
     this.isInserted = true;
+
+    // eslint-disable-next-line no-unsanitized/property
     this.getContainer().innerHTML = data;
     this.showPayload();
   }

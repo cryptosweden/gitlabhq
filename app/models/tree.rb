@@ -1,20 +1,36 @@
 # frozen_string_literal: true
 
 class Tree
-  include Gitlab::MarkupHelper
   include Gitlab::Utils::StrongMemoize
 
-  attr_accessor :repository, :sha, :path, :entries, :cursor
+  attr_accessor :repository, :sha, :path, :entries, :cursor, :ref_type
 
-  def initialize(repository, sha, path = '/', recursive: false, pagination_params: nil)
+  def initialize(
+    repository, sha, path = '/', recursive: false, skip_flat_paths: true, pagination_params: nil,
+    ref_type: nil, rescue_not_found: true)
     path = '/' if path.blank?
 
     @repository = repository
     @sha = sha
     @path = path
-
+    @ref_type = ExtractsRef::RefExtractor.ref_type(ref_type)
     git_repo = @repository.raw_repository
-    @entries, @cursor = Gitlab::Git::Tree.where(git_repo, @sha, @path, recursive, pagination_params)
+
+    ref = ExtractsRef::RefExtractor.qualify_ref(@sha, ref_type)
+
+    @entries, @cursor = Gitlab::Git::Tree.tree_entries(
+      repository: git_repo,
+      sha: ref,
+      path: @path,
+      recursive: recursive,
+      skip_flat_paths: skip_flat_paths,
+      rescue_not_found: rescue_not_found,
+      pagination_params: pagination_params
+    )
+
+    @entries.each do |entry|
+      entry.ref_type = self.ref_type
+    end
   end
 
   def readme_path
@@ -24,11 +40,11 @@ class Tree
       end
 
       previewable_readmes = available_readmes.select do |blob|
-        previewable?(blob.name)
+        Gitlab::MarkupHelper.previewable?(blob.name)
       end
 
       plain_readmes = available_readmes.select do |blob|
-        plain?(blob.name)
+        Gitlab::MarkupHelper.plain?(blob.name)
       end
 
       # Prioritize previewable over plain readmes

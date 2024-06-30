@@ -29,7 +29,7 @@ module Gitlab
 
       def perform(start_id, end_id)
         scope(start_id, end_id).each_batch(of: SUB_BATCH_SIZE, column: :issue_id) do |sub_batch|
-          first, last = sub_batch.pluck(Arel.sql('min(issue_id), max(issue_id)')).first
+          first, last = sub_batch.pick(Arel.sql('min(issue_id), max(issue_id)'))
 
           # The query need to be reconstructed because .each_batch modifies the default scope
           # See: https://gitlab.com/gitlab-org/gitlab/-/issues/330510
@@ -41,7 +41,7 @@ module Gitlab
             .where('issue_metrics.first_mentioned_in_commit_at > first_authored_date.authored_date')
 
           TmpIssueMetrics.connection.execute <<~UPDATE_METRICS
-            WITH cte AS #{Gitlab::Database::AsWithMaterialized.materialized_if_supported} (
+            WITH cte AS MATERIALIZED (
               #{inner_query.to_sql}
             )
             UPDATE issue_metrics

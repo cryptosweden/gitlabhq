@@ -1,4 +1,5 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters, mapActions } from 'vuex';
 import { modalTypes, viewerTypes } from '../constants';
 import IdeTreeList from './ide_tree_list.vue';
@@ -54,27 +55,25 @@ export default {
   <ide-tree-list @tree-ready="$emit('tree-ready')">
     <template #header>
       {{ __('Edit') }}
-      <div class="ide-tree-actions ml-auto d-flex" data-testid="ide-root-actions">
+      <div class="ide-tree-actions gl-ml-auto gl-display-flex" data-testid="ide-root-actions">
         <new-entry-button
           :label="__('New file')"
           :show-label="false"
-          class="d-flex border-0 p-0 mr-3"
+          class="gl-display-flex gl-border-0 gl-p-0 gl-mr-5"
           icon="doc-new"
-          data-qa-selector="new_file_button"
           @click="createNewFile()"
         />
         <upload
           :show-label="false"
-          class="d-flex mr-3"
-          button-css-classes="border-0 p-0"
+          class="gl-display-flex gl-mr-5"
+          button-css-classes="gl-border-0 gl-p-0"
           @create="createTempEntry"
         />
         <new-entry-button
           :label="__('New directory')"
           :show-label="false"
-          class="d-flex border-0 p-0"
+          class="gl-display-flex gl-border-0 gl-p-0"
           icon="folder-new"
-          data-qa-selector="new_directory_button"
           @click="createNewFolder()"
         />
       </div>

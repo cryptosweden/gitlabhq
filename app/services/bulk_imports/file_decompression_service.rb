@@ -21,7 +21,7 @@ module BulkImports
     def execute
       validate_tmpdir
       validate_filepath
-      validate_decompressed_file_size if Feature.enabled?(:validate_import_decompressed_archive_size, default_enabled: :yaml)
+      validate_decompressed_file_size
       validate_symlink(filepath)
 
       decompress_file
@@ -41,11 +41,11 @@ module BulkImports
     attr_reader :tmpdir, :filename, :filepath, :decompressed_filename, :decompressed_filepath
 
     def validate_filepath
-      Gitlab::Utils.check_path_traversal!(filepath)
+      Gitlab::PathTraversal.check_path_traversal!(filepath)
     end
 
     def validate_tmpdir
-      Gitlab::Utils.check_allowed_absolute_path!(tmpdir, [Dir.tmpdir])
+      Gitlab::PathTraversal.check_allowed_absolute_path!(tmpdir, [Dir.tmpdir])
     end
 
     def validate_decompressed_file_size
@@ -53,7 +53,7 @@ module BulkImports
     end
 
     def validate_symlink(filepath)
-      raise(ServiceError, 'Invalid file') if File.lstat(filepath).symlink?
+      raise(ServiceError, 'Invalid file') if Gitlab::Utils::FileInfo.linked?(filepath)
     end
 
     def decompress_file

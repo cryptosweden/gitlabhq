@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class AcmeChallengesController < ActionController::Base
+class AcmeChallengesController < BaseActionController
   def show
     if acme_order
       render plain: acme_order.challenge_file_content, content_type: 'text/plain'

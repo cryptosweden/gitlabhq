@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::Ci::PipelineArtifacts::CreateCodeQualityMrDiffReportService do
+RSpec.describe ::Ci::PipelineArtifacts::CreateCodeQualityMrDiffReportService, feature_category: :build_artifacts do
   describe '#execute' do
     let(:merge_request) { create(:merge_request) }
     let(:project) { merge_request.project }
@@ -49,6 +49,14 @@ RSpec.describe ::Ci::PipelineArtifacts::CreateCodeQualityMrDiffReportService do
 
                 expect(pipeline_artifact.expire_at).to eq(1.week.from_now)
               end
+            end
+
+            it "artifact has pipeline's locked status" do
+              subject
+
+              artifact = Ci::PipelineArtifact.first
+
+              expect(artifact.locked).to eq(head_pipeline.locked)
             end
 
             it 'does not persist the same artifact twice' do

@@ -1,10 +1,14 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Integrity check Rake task **(FREE SELF)**
+# Integrity check Rake task
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 GitLab provides Rake tasks to check the integrity of various components.
 See also the [check GitLab configuration Rake task](maintenance.md#check-gitlab-configuration).
@@ -42,17 +46,17 @@ This task loops through the project code repositories and runs the integrity che
 described previously. If a project uses a pool repository, that is also checked.
 Other types of Git repositories [are not checked](https://gitlab.com/gitlab-org/gitaly/-/issues/3643).
 
-**Omnibus Installation**
+- Linux package installations:
 
-```shell
-sudo gitlab-rake gitlab:git:fsck
-```
+  ```shell
+  sudo gitlab-rake gitlab:git:fsck
+  ```
 
-**Source Installation**
+- Self-compiled installations:
 
-```shell
-sudo -u git -H bundle exec rake gitlab:git:fsck RAILS_ENV=production
-```
+  ```shell
+  sudo -u git -H bundle exec rake gitlab:git:fsck RAILS_ENV=production
+  ```
 
 ## Checksum of repository refs
 
@@ -73,17 +77,17 @@ checksums in the format `<PROJECT ID>,<CHECKSUM>`.
 - If a repository exists but is empty, the output checksum is `0000000000000000000000000000000000000000`.
 - Projects which don't exist are skipped.
 
-**Omnibus Installation**
+- Linux package installations:
 
-```shell
-sudo gitlab-rake gitlab:git:checksum_projects
-```
+  ```shell
+  sudo gitlab-rake gitlab:git:checksum_projects
+  ```
 
-**Source Installation**
+- Self-compiled installations:
 
-```shell
-sudo -u git -H bundle exec rake gitlab:git:checksum_projects RAILS_ENV=production
-```
+  ```shell
+  sudo -u git -H bundle exec rake gitlab:git:checksum_projects RAILS_ENV=production
+  ```
 
 For example, if:
 
@@ -119,25 +123,28 @@ and these checks verify them against current files.
 
 Integrity checks are supported for the following types of file:
 
-- CI artifacts (introduced in GitLab 10.7.0)
-- LFS objects (introduced in GitLab 10.6.0)
-- User uploads (introduced in GitLab 10.6.0)
+- CI artifacts
+- LFS objects
+- Project-level Secure Files (introduced in GitLab 16.1.0)
+- User uploads
 
-**Omnibus Installation**
+- Linux package installations:
 
-```shell
-sudo gitlab-rake gitlab:artifacts:check
-sudo gitlab-rake gitlab:lfs:check
-sudo gitlab-rake gitlab:uploads:check
-```
+  ```shell
+  sudo gitlab-rake gitlab:artifacts:check
+  sudo gitlab-rake gitlab:ci_secure_files:check
+  sudo gitlab-rake gitlab:lfs:check
+  sudo gitlab-rake gitlab:uploads:check
+  ```
 
-**Source Installation**
+- Self-compiled installations:
 
-```shell
-sudo -u git -H bundle exec rake gitlab:artifacts:check RAILS_ENV=production
-sudo -u git -H bundle exec rake gitlab:lfs:check RAILS_ENV=production
-sudo -u git -H bundle exec rake gitlab:uploads:check RAILS_ENV=production
-```
+  ```shell
+  sudo -u git -H bundle exec rake gitlab:artifacts:check RAILS_ENV=production
+  sudo -u git -H bundle exec rake gitlab:ci_secure_files:check RAILS_ENV=production
+  sudo -u git -H bundle exec rake gitlab:lfs:check RAILS_ENV=production
+  sudo -u git -H bundle exec rake gitlab:uploads:check RAILS_ENV=production
+  ```
 
 These tasks also accept some environment variables which you can use to override
 certain values:
@@ -151,6 +158,7 @@ Variable  | Type    | Description
 
 ```shell
 sudo gitlab-rake gitlab:artifacts:check BATCH=100 ID_FROM=50 ID_TO=250
+sudo gitlab-rake gitlab:ci_secure_files:check BATCH=100 ID_FROM=50 ID_TO=250
 sudo gitlab-rake gitlab:lfs:check BATCH=100 ID_FROM=50 ID_TO=250
 sudo gitlab-rake gitlab:uploads:check BATCH=100 ID_FROM=50 ID_TO=250
 ```
@@ -203,30 +211,28 @@ See [LDAP Rake Tasks - LDAP Check](ldap.md#check) for details.
 
 ## Verify database values can be decrypted using the current secrets
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/20069) in GitLab 13.1.
-
 This task runs through all possible encrypted values in the
 database, verifying that they are decryptable using the current
 secrets file (`gitlab-secrets.json`).
 
 Automatic resolution is not yet implemented. If you have values that
 cannot be decrypted, you can follow steps to reset them, see our
-docs on what to do [when the secrets file is lost](../../raketasks/backup_restore.md#when-the-secrets-file-is-lost).
+documentation on what to do [when the secrets file is lost](../../administration/backup_restore/troubleshooting_backup_gitlab.md#when-the-secrets-file-is-lost).
 
 This can take a very long time, depending on the size of your
 database, as it checks all rows in all tables.
 
-**Omnibus Installation**
+- Linux package installations:
 
-```shell
-sudo gitlab-rake gitlab:doctor:secrets
-```
+  ```shell
+  sudo gitlab-rake gitlab:doctor:secrets
+  ```
 
-**Source Installation**
+- Self-compiled installations:
 
-```shell
-bundle exec rake gitlab:doctor:secrets RAILS_ENV=production
-```
+  ```shell
+  bundle exec rake gitlab:doctor:secrets RAILS_ENV=production
+  ```
 
 **Example output**
 
@@ -247,17 +253,17 @@ I, [2020-06-11T17:18:15.575711 #27148]  INFO -- : Done!
 To get more detailed information about which rows and columns can't be
 decrypted, you can pass a `VERBOSE` environment variable:
 
-**Omnibus Installation**
+- Linux package installations:
 
-```shell
-sudo gitlab-rake gitlab:doctor:secrets VERBOSE=1
-```
+  ```shell
+  sudo gitlab-rake gitlab:doctor:secrets VERBOSE=1
+  ```
 
-**Source Installation**
+- Self-compiled installations:
 
-```shell
-bundle exec rake gitlab:doctor:secrets RAILS_ENV=production VERBOSE=1
-```
+  ```shell
+  bundle exec rake gitlab:doctor:secrets RAILS_ENV=production VERBOSE=1
+  ```
 
 **Example verbose output**
 
@@ -278,6 +284,54 @@ I, [2020-06-11T17:18:15.575711 #27148]  INFO -- : Done!
 ```
 
 <!-- vale gitlab.SentenceSpacing = YES -->
+
+## Reset encrypted tokens when they can't be recovered
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131893) in GitLab 16.6.
+
+WARNING:
+This operation is dangerous and can result in data-loss. Proceed with extreme caution.
+You must have knowledge about GitLab internals before you perform this operation.
+
+In some cases, encrypted tokens can no longer be recovered and cause issues.
+Most often, runner registration tokens for groups and projects might be broken on very large instances.
+
+To reset broken tokens:
+
+1. Identify the database models that have broken encrypted tokens. For example, it can be `Group` and `Project`.
+1. Identify the broken tokens. For example `runners_token`.
+1. To reset broken tokens, run `gitlab:doctor:reset_encrypted_tokens` with `VERBOSE=true MODEL_NAMES=Model1,Model2 TOKEN_NAMES=broken_token1,broken_token2`. For example:
+
+    ```shell
+    VERBOSE=true MODEL_NAMES=Project,Group TOKEN_NAMES=runners_token bundle exec rake gitlab:doctor:reset_encrypted_tokens
+    ```
+
+    You will see every action this task would try to perform:
+
+    ```plain
+    I, [2023-09-26T16:20:23.230942 #88920]  INFO -- : Resetting runners_token on Project, Group if they can not be read
+    I, [2023-09-26T16:20:23.230975 #88920]  INFO -- : Executing in DRY RUN mode, no records will actually be updated
+    D, [2023-09-26T16:20:30.151585 #88920] DEBUG -- : > Fix Project[1].runners_token
+    I, [2023-09-26T16:20:30.151617 #88920]  INFO -- : Checked 1/9 Projects
+    D, [2023-09-26T16:20:30.151873 #88920] DEBUG -- : > Fix Project[3].runners_token
+    D, [2023-09-26T16:20:30.152975 #88920] DEBUG -- : > Fix Project[10].runners_token
+    I, [2023-09-26T16:20:30.152992 #88920]  INFO -- : Checked 11/29 Projects
+    I, [2023-09-26T16:20:30.153230 #88920]  INFO -- : Checked 21/29 Projects
+    I, [2023-09-26T16:20:30.153882 #88920]  INFO -- : Checked 29 Projects
+    D, [2023-09-26T16:20:30.195929 #88920] DEBUG -- : > Fix Group[22].runners_token
+    I, [2023-09-26T16:20:30.196125 #88920]  INFO -- : Checked 1/19 Groups
+    D, [2023-09-26T16:20:30.196192 #88920] DEBUG -- : > Fix Group[25].runners_token
+    D, [2023-09-26T16:20:30.197557 #88920] DEBUG -- : > Fix Group[82].runners_token
+    I, [2023-09-26T16:20:30.197581 #88920]  INFO -- : Checked 11/19 Groups
+    I, [2023-09-26T16:20:30.198455 #88920]  INFO -- : Checked 19 Groups
+    I, [2023-09-26T16:20:30.198462 #88920]  INFO -- : Done!
+    ```
+
+1. If you are confident that this operation resets the correct tokens, disable dry-run mode and run the operation again:
+
+    ```shell
+    DRY_RUN=false VERBOSE=true MODEL_NAMES=Project,Group TOKEN_NAMES=runners_token bundle exec rake gitlab:doctor:reset_encrypted_tokens
+    ```
 
 ## Troubleshooting
 
@@ -352,23 +406,23 @@ When this scenario is detected, the Rake task displays an error message. For exa
 
 ```shell
 Checking integrity of Job artifacts
-- 3..8: Failures: 2
-  - Job artifact: 3: #<Errno::ENOENT: No such file or directory @ rb_sysopen - /var/opt/gitlab/gitlab-rails/shared/artifacts/4e/07/4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce/2021_05_26/5/3/job.log>
-  - Job artifact: 8: #<Errno::ENOENT: No such file or directory @ rb_sysopen - /var/opt/gitlab/gitlab-rails/shared/artifacts/4e/07/4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce/2021_05_26/6/8/job.log>
+- 1..15: Failures: 2
+  - Job artifact: 9: #<Errno::ENOENT: No such file or directory @ rb_sysopen - /var/opt/gitlab/gitlab-rails/shared/artifacts/4b/22/4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a/2022_06_30/8/9/job.log>
+  - Job artifact: 15: Remote object does not exist
 Done!
 
 ```
 
-To delete these references to missing local artifacts (`job.log` files):
+To delete these references to missing local and/or remote artifacts (`job.log` files):
 
 1. Open the [GitLab Rails Console](../operations/rails_console.md#starting-a-rails-console-session).
 1. Run the following Ruby code:
 
    ```ruby
    artifacts_deleted = 0
-   ::Ci::JobArtifact.find_each do |artifact|                       ### Iterate artifacts
+   ::Ci::JobArtifact.find_each do |artifact|                      ### Iterate artifacts
    #  next if artifact.file.filename != "job.log"                 ### Uncomment if only `job.log` files' references are to be processed
-     next if artifact.file.exists?                                ### Skip if the file reference is valid
+     next if artifact.file.file.exists?                           ### Skip if the file reference is valid
      artifacts_deleted += 1
      puts "#{artifact.id}  #{artifact.file.path} is missing."     ### Allow verification before destroy
    #  artifact.destroy!                                           ### Uncomment to actually destroy
@@ -381,3 +435,71 @@ To delete these references to missing local artifacts (`job.log` files):
 If `gitlab-rake gitlab:lfs:check VERBOSE=1` detects LFS objects that exist in the database
 but not on disk, [follow the procedure in the LFS documentation](../lfs/index.md#missing-lfs-objects)
 to remove the database entries.
+
+### Update dangling object storage references
+
+If you have [migrated from object storage to local storage](../job_artifacts.md#migrating-from-object-storage-to-local-storage) and files were missing, then dangling database references remain.
+
+This is visible in the migration logs with errors like the following:
+
+```shell
+W, [2022-11-28T13:14:09.283833 #10025]  WARN -- : Failed to transfer Ci::JobArtifact ID 11 with error: undefined method `body' for nil:NilClass
+W, [2022-11-28T13:14:09.296911 #10025]  WARN -- : Failed to transfer Ci::JobArtifact ID 12 with error: undefined method `body' for nil:NilClass
+```
+
+Attempting to [delete references to missing artifacts](check.md#delete-references-to-missing-artifacts) after you have disabled object storage, results in the following error:
+
+```shell
+RuntimeError (Object Storage is not enabled for JobArtifactUploader)
+```
+
+To update these references to point to local storage:
+
+1. Open the [GitLab Rails Console](../operations/rails_console.md#starting-a-rails-console-session).
+1. Run the following Ruby code:
+
+   ```ruby
+   artifacts_updated = 0
+   ::Ci::JobArtifact.find_each do |artifact|                    ### Iterate artifacts
+     next if artifact.file_store != 2                           ### Skip if file_store already points to local storage
+     artifacts_updated += 1
+     # artifact.update(file_store: 1)                           ### Uncomment to actually update
+   end
+   puts "Updated file_store count: #{artifacts_updated}"
+   ```
+
+The script to [delete references to missing artifacts](check.md#delete-references-to-missing-artifacts) now functions correctly and cleans up the database.
+
+### Delete references to missing secure files
+
+`VERBOSE=1 gitlab-rake gitlab:ci_secure_files:check` detects when secure files:
+
+- Are deleted outside of GitLab.
+- Have references still in the GitLab database.
+
+When this scenario is detected, the Rake task displays an error message. For example:
+
+```shell
+Checking integrity of CI Secure Files
+- 1..15: Failures: 2
+  - Job SecureFile: 9: #<Errno::ENOENT: No such file or directory @ rb_sysopen - /var/opt/gitlab/gitlab-rails/shared/ci_secure_files/4b/22/4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a/2022_06_30/8/9/distribution.cer>
+  - Job SecureFile: 15: Remote object does not exist
+Done!
+
+```
+
+To delete these references to missing local or remote secure files:
+
+1. Open the [GitLab Rails Console](../operations/rails_console.md#starting-a-rails-console-session).
+1. Run the following Ruby code:
+
+   ```ruby
+   secure_files_deleted = 0
+   ::Ci::SecureFile.find_each do |secure_file|                    ### Iterate secure files
+     next if secure_file.file.file.exists?                        ### Skip if the file reference is valid
+     secure_files_deleted += 1
+     puts "#{secure_file.id}  #{secure_file.file.path} is missing."     ### Allow verification before destroy
+   #  secure_file.destroy!                                           ### Uncomment to actually destroy
+   end
+   puts "Count of identified/destroyed invalid references: #{secure_files_deleted}"
+   ```

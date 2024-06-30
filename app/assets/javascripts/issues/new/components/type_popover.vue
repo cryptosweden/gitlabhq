@@ -18,21 +18,22 @@ export default {
 </script>
 
 <template>
-  <span id="popovercontainer">
-    <gl-icon id="issue-type-info" name="question-o" class="gl-ml-5 gl-text-gray-500" />
+  <span id="popovercontainer" class="gl-ml-2">
+    <gl-icon id="issue-type-info" name="question-o" class="gl-text-blue-600" />
+
     <gl-popover
       target="issue-type-info"
       container="popovercontainer"
       :title="$options.i18n.issueTypes"
       triggers="focus hover"
     >
-      <ul class="gl-list-style-none gl-p-0 gl-m-0">
+      <ul class="gl-list-none gl-p-0 gl-m-0">
         <li class="gl-mb-3">
-          <div class="gl-font-weight-bold">{{ $options.i18n.issue }}</div>
+          <div class="gl-font-bold">{{ $options.i18n.issue }}</div>
           <span>{{ $options.i18n.issueHelpText }}</span>
         </li>
         <li>
-          <div class="gl-font-weight-bold">{{ $options.i18n.incident }}</div>
+          <div class="gl-font-bold">{{ $options.i18n.incident }}</div>
           <span>{{ $options.i18n.incidentHelpText }}</span>
         </li>
       </ul>

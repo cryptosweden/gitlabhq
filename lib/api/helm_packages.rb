@@ -9,6 +9,7 @@ module API
     include ::API::Helpers::Authentication
 
     feature_category :package_registry
+    urgency :low
 
     PACKAGE_FILENAME = 'package.tgz'
     HELM_REQUIREMENTS = {
@@ -19,7 +20,7 @@ module API
     content_type :binary, 'application/octet-stream'
     content_type :yaml, 'text/yaml'
 
-    formatter :yaml, -> (object, _) { object.serializable_hash.stringify_keys.to_yaml }
+    formatter :yaml, ->(object, _) { object.serializable_hash.stringify_keys.to_yaml }
 
     authenticate_with do |accept|
       accept.token_types(:personal_access_token, :deploy_token, :job_token)
@@ -31,49 +32,73 @@ module API
     end
 
     params do
-      requires :id, type: String, desc: 'The ID or full path of a project'
+      requires :id, types: [Integer, String], desc: 'The ID or full path of a project'
     end
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
       namespace ':id/packages/helm', requirements: HELM_REQUIREMENTS do
         desc 'Download a chart index' do
           detail 'This feature was introduced in GitLab 14.0'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' }
+          ]
+          tags %w[helm_packages]
         end
         params do
-          requires :channel, type: String, desc: 'Helm channel', regexp: Gitlab::Regex.helm_channel_regex
+          requires :channel, type: String, desc: 'Helm channel', regexp: Gitlab::Regex.helm_channel_regex, documentation: { example: 'stable' }
         end
 
         get ":channel/index.yaml" do
-          authorize_read_package!(authorized_user_project)
+          project = authorized_user_project(action: :read_package)
+          authorize_read_package!(project)
 
-          packages = Packages::Helm::PackagesFinder.new(authorized_user_project, params[:channel]).execute
+          packages = Packages::Helm::PackagesFinder.new(project, params[:channel]).execute
 
           env['api.format'] = :yaml
           present ::Packages::Helm::IndexPresenter.new(params[:id], params[:channel], packages),
-                      with: ::API::Entities::Helm::Index
+            with: ::API::Entities::Helm::Index
         end
 
         desc 'Download a chart' do
           detail 'This feature was introduced in GitLab 14.0'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[helm_packages]
         end
         params do
-          requires :channel, type: String, desc: 'Helm channel', regexp: Gitlab::Regex.helm_channel_regex
-          requires :file_name, type: String, desc: 'Helm package file name'
+          requires :channel, type: String, desc: 'Helm channel', regexp: Gitlab::Regex.helm_channel_regex, documentation: { example: 'stable' }
+          requires :file_name, type: String, desc: 'Helm package file name', documentation: { example: 'mychart' }
         end
         get ":channel/charts/:file_name.tgz" do
-          authorize_read_package!(authorized_user_project)
+          not_found!("Format #{params[:format]}") unless params[:format].nil?
 
-          package_file = Packages::Helm::PackageFilesFinder.new(authorized_user_project, params[:channel], file_name: "#{params[:file_name]}.tgz").most_recent!
+          project = authorized_user_project(action: :read_package)
+          authorize_read_package!(project)
 
-          track_package_event('pull_package', :helm, project: authorized_user_project, namespace: authorized_user_project.namespace)
+          package_file = Packages::Helm::PackageFilesFinder.new(project, params[:channel], file_name: "#{params[:file_name]}.tgz").most_recent!
 
-          present_carrierwave_file!(package_file.file)
+          track_package_event('pull_package', :helm, project: project, namespace: project.namespace, property: 'i_package_helm_user')
+
+          present_package_file!(package_file)
         end
 
         desc 'Authorize a chart upload from workhorse' do
           detail 'This feature was introduced in GitLab 14.0'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[helm_packages]
         end
         params do
-          requires :channel, type: String, desc: 'Helm channel', regexp: Gitlab::Regex.helm_channel_regex
+          requires :channel, type: String, desc: 'Helm channel', regexp: Gitlab::Regex.helm_channel_regex, documentation: { example: 'stable' }
         end
         post "api/:channel/charts/authorize" do
           authorize_workhorse!(
@@ -85,10 +110,17 @@ module API
 
         desc 'Upload a chart' do
           detail 'This feature was introduced in GitLab 14.0'
+          success code: 201
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[helm_packages]
         end
         params do
-          requires :channel, type: String, desc: 'Helm channel', regexp: Gitlab::Regex.helm_channel_regex
-          requires :chart, type: ::API::Validations::Types::WorkhorseFile, desc: 'The chart file to be published (generated by Multipart middleware)'
+          requires :channel, type: String, desc: 'Helm channel', regexp: Gitlab::Regex.helm_channel_regex, documentation: { example: 'stable' }
+          requires :chart, type: ::API::Validations::Types::WorkhorseFile, desc: 'The chart file to be published (generated by Multipart middleware)', documentation: { type: 'file' }
         end
         post "api/:channel/charts" do
           authorize_upload!(authorized_user_project)
@@ -99,7 +131,7 @@ module API
           ).execute(:helm, name: ::Packages::Helm::TEMPORARY_PACKAGE_NAME)
 
           chart_params = {
-            file:      params[:chart],
+            file: params[:chart],
             file_name: PACKAGE_FILENAME
           }
 
@@ -107,7 +139,8 @@ module API
             package, chart_params.merge(build: current_authenticated_job)
           ).execute
 
-          track_package_event('push_package', :helm, project: authorized_user_project, namespace: authorized_user_project.namespace)
+          track_package_event('push_package', :helm, project: authorized_user_project, namespace: authorized_user_project.namespace,
+            property: 'i_package_helm_user')
 
           ::Packages::Helm::ExtractionWorker.perform_async(params[:channel], chart_package_file.id) # rubocop:disable CodeReuse/Worker
 

@@ -1,7 +1,13 @@
 import {
   serializeForm,
   serializeFormObject,
+  safeTrim,
   isEmptyValue,
+  hasMinimumLength,
+  isParseableAsInteger,
+  isIntegerGreaterThan,
+  isServiceDeskSettingEmail,
+  isUserEmail,
   parseRailsFormFields,
 } from '~/lib/utils/forms';
 
@@ -99,6 +105,22 @@ describe('lib/utils/forms', () => {
     });
   });
 
+  describe('safeTrim', () => {
+    it.each`
+      input        | returnValue
+      ${''}        | ${''}
+      ${[]}        | ${[]}
+      ${null}      | ${null}
+      ${undefined} | ${undefined}
+      ${' '}       | ${''}
+      ${'hello  '} | ${'hello'}
+      ${'hello'}   | ${'hello'}
+      ${0}         | ${0}
+    `('returns $returnValue for value $input', ({ input, returnValue }) => {
+      expect(safeTrim(input)).toEqual(returnValue);
+    });
+  });
+
   describe('isEmptyValue', () => {
     it.each`
       input        | returnValue
@@ -106,11 +128,120 @@ describe('lib/utils/forms', () => {
       ${[]}        | ${true}
       ${null}      | ${true}
       ${undefined} | ${true}
+      ${' '}       | ${true}
       ${'hello'}   | ${false}
-      ${' '}       | ${false}
       ${0}         | ${false}
     `('returns $returnValue for value $input', ({ input, returnValue }) => {
       expect(isEmptyValue(input)).toBe(returnValue);
+    });
+  });
+
+  describe('hasMinimumLength', () => {
+    it.each`
+      input         | minLength | returnValue
+      ${['o', 't']} | ${1}      | ${true}
+      ${'hello'}    | ${3}      | ${true}
+      ${'   '}      | ${2}      | ${false}
+      ${''}         | ${0}      | ${false}
+      ${''}         | ${8}      | ${false}
+      ${[]}         | ${0}      | ${false}
+      ${null}       | ${8}      | ${false}
+      ${undefined}  | ${8}      | ${false}
+      ${'hello'}    | ${8}      | ${false}
+      ${0}          | ${8}      | ${false}
+      ${4}          | ${1}      | ${false}
+    `(
+      'returns $returnValue for value $input and minLength $minLength',
+      ({ input, minLength, returnValue }) => {
+        expect(hasMinimumLength(input, minLength)).toBe(returnValue);
+      },
+    );
+  });
+
+  describe('isPareseableInteger', () => {
+    it.each`
+      input        | returnValue
+      ${'0'}       | ${true}
+      ${'12'}      | ${true}
+      ${''}        | ${false}
+      ${[]}        | ${false}
+      ${null}      | ${false}
+      ${undefined} | ${false}
+      ${'hello'}   | ${false}
+      ${' '}       | ${false}
+      ${'12.4'}    | ${false}
+      ${'12ef'}    | ${false}
+    `('returns $returnValue for value $input', ({ input, returnValue }) => {
+      expect(isParseableAsInteger(input)).toBe(returnValue);
+    });
+  });
+
+  describe('isIntegerGreaterThan', () => {
+    it.each`
+      input         | greaterThan | returnValue
+      ${25}         | ${8}        | ${true}
+      ${'25'}       | ${8}        | ${true}
+      ${'4'}        | ${1}        | ${true}
+      ${'4'}        | ${8}        | ${false}
+      ${'9.5'}      | ${8}        | ${false}
+      ${'9.5e'}     | ${8}        | ${false}
+      ${['o', 't']} | ${0}        | ${false}
+      ${'hello'}    | ${0}        | ${false}
+      ${'   '}      | ${0}        | ${false}
+      ${''}         | ${0}        | ${false}
+      ${''}         | ${8}        | ${false}
+      ${[]}         | ${0}        | ${false}
+      ${null}       | ${0}        | ${false}
+      ${undefined}  | ${0}        | ${false}
+      ${'hello'}    | ${0}        | ${false}
+      ${0}          | ${0}        | ${false}
+    `(
+      'returns $returnValue for value $input and greaterThan $greaterThan',
+      ({ input, greaterThan, returnValue }) => {
+        expect(isIntegerGreaterThan(input, greaterThan)).toBe(returnValue);
+      },
+    );
+  });
+
+  describe('isServiceDeskSettingEmail', () => {
+    it.each`
+      input                                    | returnValue
+      ${'user-with_special-chars@example.com'} | ${true}
+      ${'user@subdomain.example.com'}          | ${true}
+      ${'user@example.com'}                    | ${true}
+      ${'user@example.co'}                     | ${true}
+      ${'user@example.c'}                      | ${false}
+      ${'user@example'}                        | ${false}
+      ${''}                                    | ${false}
+      ${[]}                                    | ${false}
+      ${null}                                  | ${false}
+      ${undefined}                             | ${false}
+      ${'hello'}                               | ${false}
+      ${' '}                                   | ${false}
+      ${'12'}                                  | ${false}
+    `('returns $returnValue for value $input', ({ input, returnValue }) => {
+      expect(isServiceDeskSettingEmail(input)).toBe(returnValue);
+    });
+  });
+
+  describe('isUserEmail', () => {
+    it.each`
+      input                                    | returnValue
+      ${'user-with_special-chars@example.com'} | ${true}
+      ${'user@subdomain.example.com'}          | ${true}
+      ${'user@example.com'}                    | ${true}
+      ${'user@example.co'}                     | ${true}
+      ${'user@example.c'}                      | ${true}
+      ${'user@example'}                        | ${true}
+      ${''}                                    | ${false}
+      ${[]}                                    | ${false}
+      ${null}                                  | ${false}
+      ${undefined}                             | ${false}
+      ${'hello'}                               | ${false}
+      ${' '}                                   | ${false}
+      ${'12'}                                  | ${false}
+    `('returns $returnValue for value $input', ({ input, returnValue }) => {
+      expect(isUserEmail(input)).toBe(returnValue);
     });
   });
 
@@ -157,7 +288,7 @@ describe('lib/utils/forms', () => {
       mountEl.innerHTML = `
         <input type="text" placeholder="Name" value="Administrator" name="user[name]" id="user_name" data-js-name="name">
         <input type="text" placeholder="Email" value="foo@bar.com" name="user[contact_info][email]" id="user_contact_info_email" data-js-name="contactInfoEmail">
-        <input type="text" placeholder="Phone" value="(123) 456-7890" name="user[contact_info][phone]" id="user_contact_info_phone" data-js-name="contact_info_phone">
+        <input type="text" placeholder="Phone" value="(123) 456-7890" name="user[contact_info][phone]" id="user_contact_info_phone" maxlength="12" pattern="mockPattern" data-js-name="contact_info_phone">
         <input type="hidden" placeholder="Job title" value="" name="user[job_title]" id="user_job_title" data-js-name="jobTitle">
         <textarea name="user[bio]" id="user_bio" data-js-name="bio">Foo bar</textarea>
         <select name="user[timezone]" id="user_timezone" data-js-name="timezone">
@@ -192,6 +323,8 @@ describe('lib/utils/forms', () => {
           id: 'user_contact_info_phone',
           value: '(123) 456-7890',
           placeholder: 'Phone',
+          maxLength: 12,
+          pattern: 'mockPattern',
         },
         jobTitle: {
           name: 'user[job_title]',

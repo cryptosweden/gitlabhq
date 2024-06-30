@@ -2,21 +2,9 @@
 
 module QA
   RSpec.describe 'Create' do
-    describe 'Cherry picking from a merge request' do
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'project'
-          project.initialize_with_readme = true
-        end
-      end
-
-      let(:feature_mr) do
-        Resource::MergeRequest.fabricate_via_api! do |merge_request|
-          merge_request.project = project
-          merge_request.target_branch = 'development'
-          merge_request.target_new_branch = true
-        end
-      end
+    describe 'Cherry picking from a merge request', :smoke, product_group: :code_review do
+      let(:project) { create(:project, :with_readme) }
+      let(:feature_mr) { create(:merge_request, project: project, target_branch: 'development') }
 
       before do
         Flow::Login.sign_in

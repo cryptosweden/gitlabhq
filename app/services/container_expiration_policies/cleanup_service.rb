@@ -19,12 +19,11 @@ module ContainerExpirationPolicies
         return ServiceResponse.error(message: 'invalid policy')
       end
 
-      repository.start_expiration_policy!
       schedule_next_run_if_needed
 
       begin
         service_result = Projects::ContainerRepository::CleanupTagsService
-                           .new(repository, nil, policy_params.merge('container_expiration_policy' => true))
+                           .new(container_repository: repository, params: policy_params.merge('container_expiration_policy' => true))
                            .execute
       rescue StandardError
         repository.cleanup_unfinished!
@@ -35,7 +34,8 @@ module ContainerExpirationPolicies
       if service_result[:status] == :success
         repository.update!(
           expiration_policy_cleanup_status: :cleanup_unscheduled,
-          expiration_policy_completed_at: Time.zone.now
+          expiration_policy_completed_at: Time.zone.now,
+          last_cleanup_deleted_tags_count: service_result[:deleted_size]
         )
 
         success(:finished, service_result)

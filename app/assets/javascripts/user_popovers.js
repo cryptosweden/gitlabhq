@@ -1,6 +1,8 @@
 import Vue from 'vue';
+import { debounce } from 'lodash';
 import UsersCache from './lib/utils/users_cache';
 import UserPopover from './vue_shared/components/user_popover/user_popover.vue';
+import { USER_POPOVER_DELAY } from './vue_shared/components/user_popover/constants';
 
 const removeTitle = (el) => {
   // Removing titles so its not showing tooltips also
@@ -11,13 +13,14 @@ const removeTitle = (el) => {
 
 const getPreloadedUserInfo = (dataset) => {
   const userId = dataset.user || dataset.userId;
-  const { username, name, avatarUrl } = dataset;
+  const { username, name, avatarUrl, email } = dataset;
 
   return {
     userId,
     username,
     name,
     avatarUrl,
+    email,
   };
 };
 
@@ -32,6 +35,7 @@ const populateUserInfo = (user) => {
     ([userData, status]) => {
       if (userData) {
         Object.assign(user, {
+          id: userId,
           avatarUrl: userData.avatar_url,
           bot: userData.bot,
           username: userData.username,
@@ -42,6 +46,8 @@ const populateUserInfo = (user) => {
           websiteUrl: userData.website_url,
           pronouns: userData.pronouns,
           localTime: userData.local_time,
+          isFollowed: userData.is_followed,
+          state: userData.state,
           loaded: true,
         });
       }
@@ -57,73 +63,81 @@ const populateUserInfo = (user) => {
   );
 };
 
-const initializedPopovers = new Map();
-let domObservedForChanges = false;
+function createPopover(el, user) {
+  removeTitle(el);
+  const preloadedUserInfo = getPreloadedUserInfo(el.dataset);
 
-const addPopoversToModifiedTree = new MutationObserver(() => {
-  const userLinks = document?.querySelectorAll('.js-user-link, .gfm-project_member');
+  Object.assign(user, preloadedUserInfo);
 
-  if (userLinks) {
-    addPopovers(userLinks); /* eslint-disable-line no-use-before-define */
+  if (preloadedUserInfo.userId) {
+    populateUserInfo(user);
   }
-});
-
-function observeBody() {
-  if (!domObservedForChanges) {
-    addPopoversToModifiedTree.observe(document.body, {
-      subtree: true,
-      childList: true,
-    });
-
-    domObservedForChanges = true;
-  }
+  const UserPopoverComponent = Vue.extend(UserPopover);
+  return new UserPopoverComponent({
+    propsData: {
+      target: el,
+      user,
+      show: true,
+      placement: el.dataset.placement || 'top',
+    },
+  });
 }
 
-export default function addPopovers(elements = document.querySelectorAll('.js-user-link')) {
-  const userLinks = Array.from(elements);
-  const UserPopoverComponent = Vue.extend(UserPopover);
+function launchPopover(el, mountPopover) {
+  if (el.user) return;
 
-  observeBody();
+  const emptyUser = {
+    location: null,
+    bio: null,
+    workInformation: null,
+    status: null,
+    isFollowed: false,
+    loaded: false,
+  };
+  el.user = emptyUser;
+  el.addEventListener(
+    'mouseleave',
+    ({ target }) => {
+      target.removeAttribute('aria-describedby');
+    },
+    { once: true },
+  );
+  const popoverInstance = createPopover(el, Vue.observable(emptyUser));
 
-  return userLinks
-    .filter(({ dataset }) => dataset.user || dataset.userId)
-    .map((el) => {
-      if (initializedPopovers.has(el)) {
-        return initializedPopovers.get(el);
-      }
+  const { userId } = el.dataset;
 
-      const user = {
-        location: null,
-        bio: null,
-        workInformation: null,
-        status: null,
-        loaded: false,
-      };
-      const renderedPopover = new UserPopoverComponent({
-        propsData: {
-          target: el,
-          user,
-        },
-      });
+  popoverInstance.$on('follow', () => {
+    UsersCache.updateById(userId, { is_followed: true });
+    el.user.isFollowed = true;
+  });
 
-      initializedPopovers.set(el, renderedPopover);
+  popoverInstance.$on('unfollow', () => {
+    UsersCache.updateById(userId, { is_followed: false });
+    el.user.isFollowed = false;
+  });
 
-      renderedPopover.$mount();
+  mountPopover(popoverInstance);
+}
 
-      el.addEventListener('mouseenter', ({ target }) => {
-        removeTitle(target);
-        const preloadedUserInfo = getPreloadedUserInfo(target.dataset);
+const userPopoverSelector =
+  'a.js-user-link[data-user], a.js-user-link[data-user-id], .js-user-popover';
 
-        Object.assign(user, preloadedUserInfo);
+const getUserPopoverNode = (node) => node.closest(userPopoverSelector);
 
-        if (preloadedUserInfo.userId) {
-          populateUserInfo(user);
-        }
-      });
-      el.addEventListener('mouseleave', ({ target }) => {
-        target.removeAttribute('aria-describedby');
-      });
+const lazyLaunchPopover = debounce((mountPopover, event) => {
+  const userPopover = getUserPopoverNode(event.target);
+  if (userPopover) {
+    launchPopover(userPopover, mountPopover);
+  }
+}, USER_POPOVER_DELAY);
 
-      return renderedPopover;
-    });
+let hasAddedLazyPopovers = false;
+
+export default function addPopovers(mountPopover = (instance) => instance.$mount()) {
+  // The web request fails for anonymous users so we don't want to show the popover when the user is not signed in.
+  // https://gitlab.com/gitlab-org/gitlab/-/issues/351395#note_1039341458
+  if (window.gon?.current_user_id && !hasAddedLazyPopovers) {
+    document.addEventListener('mouseover', (event) => lazyLaunchPopover(mountPopover, event));
+    hasAddedLazyPopovers = true;
+  }
 }

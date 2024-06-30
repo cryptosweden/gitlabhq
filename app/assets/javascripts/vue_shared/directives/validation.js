@@ -1,4 +1,5 @@
 import { __ } from '~/locale';
+import { getInstanceFromDirective } from '~/lib/utils/vue3compat/get_instance_from_directive';
 
 /**
  * Validation messages will take priority based on the property order.
@@ -45,32 +46,34 @@ const getInputElement = (el) => {
 
 const isEveryFieldValid = (form) => Object.values(form.fields).every(({ state }) => state === true);
 
-const createValidator = (context, feedbackMap) => ({ el, reportInvalidInput = false }) => {
-  const { form } = context;
-  const { name } = el;
+const createValidator =
+  (feedbackMap) =>
+  ({ el, form, reportInvalidInput = false }) => {
+    const { name } = el;
 
-  if (!name) {
-    if (process.env.NODE_ENV === 'development') {
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[gitlab] the validation directive requires the given input to have "name" attribute',
-      );
+    if (!name) {
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[gitlab] the validation directive requires the given input to have "name" attribute',
+        );
+      }
+      return;
     }
-    return;
-  }
 
-  const formField = form.fields[name];
-  const isValid = el.checkValidity();
+    const formField = form.fields[name];
+    const isValid = el.checkValidity();
 
-  // This makes sure we always report valid fields - this can be useful for cases where the consuming
-  // component's logic depends on certain fields being in a valid state.
-  // Invalid input, on the other hand, should only be reported once we want to display feedback to the user.
-  // (eg.: After a field has been touched and moved away from, a submit-button has been clicked, ...)
-  formField.state = reportInvalidInput ? isValid : isValid || null;
-  formField.feedback = reportInvalidInput ? getFeedbackForElement(feedbackMap, el) : '';
+    // This makes sure we always report valid fields - this can be useful for cases where the consuming
+    // component's logic depends on certain fields being in a valid state.
+    // Invalid input, on the other hand, should only be reported once we want to display feedback to the user.
+    // (eg.: After a field has been touched and moved away from, a submit-button has been clicked, ...)
+    formField.state = reportInvalidInput ? isValid : isValid || null;
+    formField.feedback = reportInvalidInput ? getFeedbackForElement(feedbackMap, el) : '';
 
-  form.state = isEveryFieldValid(form);
-};
+    // eslint-disable-next-line no-param-reassign
+    form.state = isEveryFieldValid(form);
+  };
 
 /**
  * Takes an object that allows to add or change custom feedback messages.
@@ -102,12 +105,13 @@ export default function initValidation(customFeedbackMap = {}) {
   const elDataMap = new WeakMap();
 
   return {
-    inserted(element, binding, { context }) {
+    inserted(element, binding, vnode) {
       const { arg: showGlobalValidation } = binding;
       const el = getInputElement(element);
       const { form: formEl } = el;
+      const instance = getInstanceFromDirective({ binding, vnode });
 
-      const validate = createValidator(context, feedbackMap);
+      const validate = createValidator(feedbackMap);
       const elData = { validate, isTouched: false, isBlurred: false };
 
       elDataMap.set(el, elData);
@@ -121,7 +125,7 @@ export default function initValidation(customFeedbackMap = {}) {
       el.addEventListener('blur', function markAsBlurred({ target }) {
         if (elData.isTouched) {
           elData.isBlurred = true;
-          validate({ el: target, reportInvalidInput: true });
+          validate({ el: target, form: instance.form, reportInvalidInput: true });
           // this event handler can be removed, since the live-feedback in `update` takes over
           el.removeEventListener('blur', markAsBlurred);
         }
@@ -131,15 +135,16 @@ export default function initValidation(customFeedbackMap = {}) {
         formEl.addEventListener('submit', focusFirstInvalidInput);
       }
 
-      validate({ el, reportInvalidInput: showGlobalValidation });
+      validate({ el, form: instance.form, reportInvalidInput: showGlobalValidation });
     },
-    update(element, binding) {
+    update(element, binding, vnode) {
       const el = getInputElement(element);
       const { arg: showGlobalValidation } = binding;
       const { validate, isTouched, isBlurred } = elDataMap.get(el);
       const showValidationFeedback = showGlobalValidation || (isTouched && isBlurred);
 
-      validate({ el, reportInvalidInput: showValidationFeedback });
+      const instance = getInstanceFromDirective({ binding, vnode });
+      validate({ el, form: instance.form, reportInvalidInput: showValidationFeedback });
     },
   };
 }

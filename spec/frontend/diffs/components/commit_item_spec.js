@@ -1,17 +1,18 @@
 import { mount } from '@vue/test-utils';
+import { GlFormCheckbox } from '@gitlab/ui';
 import getDiffWithCommit from 'test_fixtures/merge_request_diffs/with_commit.json';
 import { TEST_HOST } from 'helpers/test_constants';
 import { trimText } from 'helpers/text_helper';
 import Component from '~/diffs/components/commit_item.vue';
 import { getTimeago } from '~/lib/utils/datetime_utility';
-import CommitPipelineStatus from '~/projects/tree/components/commit_pipeline_status_component.vue';
-
-jest.mock('~/user_popovers');
+import CommitPipelineStatus from '~/projects/tree/components/commit_pipeline_status.vue';
 
 const TEST_AUTHOR_NAME = 'test';
 const TEST_AUTHOR_EMAIL = 'test+test@gitlab.com';
 const TEST_AUTHOR_GRAVATAR = `${TEST_HOST}/avatar/test?s=40`;
-const TEST_SIGNATURE_HTML = '<a>Legit commit</a>';
+const TEST_SIGNATURE_HTML = `<a class="btn signature-badge" data-content="signature-content" data-html="true" data-placement="top" data-title="signature-title" data-toggle="popover" role="button" tabindex="0">
+  <span class="gl-badge badge badge-pill badge-success md">Verified</span>
+</a>`;
 const TEST_PIPELINE_STATUS_PATH = `${TEST_HOST}/pipeline/status`;
 
 describe('diffs/components/commit_item', () => {
@@ -27,7 +28,8 @@ describe('diffs/components/commit_item', () => {
   const getAvatarElement = () => wrapper.find('.user-avatar-link');
   const getCommitterElement = () => wrapper.find('.committer');
   const getCommitActionsElement = () => wrapper.find('.commit-actions');
-  const getCommitPipelineStatus = () => wrapper.find(CommitPipelineStatus);
+  const getCommitPipelineStatus = () => wrapper.findComponent(CommitPipelineStatus);
+  const getCommitCheckbox = () => wrapper.findComponent(GlFormCheckbox);
 
   const mountComponent = (propsData) => {
     wrapper = mount(Component, {
@@ -40,11 +42,6 @@ describe('diffs/components/commit_item', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   describe('default state', () => {
     beforeEach(() => {
@@ -82,7 +79,7 @@ describe('diffs/components/commit_item', () => {
       const imgElement = avatarElement.find('img');
 
       expect(avatarElement.attributes('href')).toBe(commit.author.web_url);
-      expect(imgElement.classes()).toContain('s40');
+      expect(imgElement.classes()).toContain('gl-avatar-s32');
       expect(imgElement.attributes('alt')).toBe(commit.author.name);
       expect(imgElement.attributes('src')).toBe(commit.author.avatar_url);
     });
@@ -111,8 +108,8 @@ describe('diffs/components/commit_item', () => {
       const descElement = getDescElement();
       const descExpandElement = getDescExpandElement();
 
-      expect(descElement.exists()).toBeFalsy();
-      expect(descExpandElement.exists()).toBeFalsy();
+      expect(descElement.exists()).toBe(false);
+      expect(descExpandElement.exists()).toBe(false);
     });
   });
 
@@ -156,8 +153,9 @@ describe('diffs/components/commit_item', () => {
 
     it('renders signature html', () => {
       const actionsElement = getCommitActionsElement();
+      const signatureElement = actionsElement.find('.signature-badge');
 
-      expect(actionsElement.html()).toContain(TEST_SIGNATURE_HTML);
+      expect(signatureElement.html()).toBe(TEST_SIGNATURE_HTML);
     });
   });
 
@@ -170,6 +168,26 @@ describe('diffs/components/commit_item', () => {
 
     it('renders pipeline status', () => {
       expect(getCommitPipelineStatus().exists()).toBe(true);
+    });
+  });
+
+  describe('when commit is selectable', () => {
+    beforeEach(() => {
+      mountComponent({
+        commit: { ...commit },
+        isSelectable: true,
+      });
+    });
+
+    it('renders checkbox', () => {
+      expect(getCommitCheckbox().exists()).toBe(true);
+    });
+
+    it('emits "handleCheckboxChange" event on change', () => {
+      expect(wrapper.emitted('handleCheckboxChange')).toBeUndefined();
+      getCommitCheckbox().vm.$emit('change');
+
+      expect(wrapper.emitted('handleCheckboxChange')[0]).toEqual([true]);
     });
   });
 });

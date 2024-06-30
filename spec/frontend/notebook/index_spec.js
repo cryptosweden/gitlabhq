@@ -1,17 +1,15 @@
 import { mount } from '@vue/test-utils';
-import Vue, { nextTick } from 'vue';
+import { nextTick } from 'vue';
 import json from 'test_fixtures/blob/notebook/basic.json';
 import jsonWithWorksheet from 'test_fixtures/blob/notebook/worksheets.json';
 import Notebook from '~/notebook/index.vue';
-
-const Component = Vue.extend(Notebook);
 
 describe('Notebook component', () => {
   let vm;
 
   function buildComponent(notebook) {
-    return mount(Component, {
-      propsData: { notebook, codeCssClass: 'js-code-class' },
+    return mount(Notebook, {
+      propsData: { notebook },
       provide: { relativeRawPath: '' },
     }).vm;
   }
@@ -46,10 +44,6 @@ describe('Notebook component', () => {
     it('renders code cell', () => {
       expect(vm.$el.querySelector('pre')).not.toBeNull();
     });
-
-    it('add code class to code blocks', () => {
-      expect(vm.$el.querySelector('.js-code-class')).not.toBeNull();
-    });
   });
 
   describe('with worksheets', () => {
@@ -71,10 +65,6 @@ describe('Notebook component', () => {
 
     it('renders code cell', () => {
       expect(vm.$el.querySelector('pre')).not.toBeNull();
-    });
-
-    it('add code class to code blocks', () => {
-      expect(vm.$el.querySelector('.js-code-class')).not.toBeNull();
     });
   });
 });

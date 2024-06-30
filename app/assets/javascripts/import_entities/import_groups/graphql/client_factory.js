@@ -10,7 +10,6 @@ import typeDefs from './typedefs.graphql';
 export const clientTypenames = {
   BulkImportSourceGroupConnection: 'ClientBulkImportSourceGroupConnection',
   BulkImportSourceGroup: 'ClientBulkImportSourceGroup',
-  AvailableNamespace: 'ClientAvailableNamespace',
   BulkImportPageInfo: 'ClientBulkImportPageInfo',
   BulkImportTarget: 'ClientBulkImportTarget',
   BulkImportProgress: 'ClientBulkImportProgress',
@@ -110,18 +109,13 @@ export function createResolvers({ endpoints }) {
         };
         return response;
       },
-
-      availableNamespaces: () =>
-        axios.get(endpoints.availableNamespaces).then(({ data }) =>
-          data.map((namespace) => ({
-            __typename: clientTypenames.AvailableNamespace,
-            id: namespace.id,
-            fullPath: namespace.full_path,
-          })),
-        ),
     },
     Mutation: {
-      async updateImportStatus(_, { id, status: newStatus }, { client, getCacheKey }) {
+      updateImportStatus(
+        _,
+        { id, status: newStatus, hasFailures = false },
+        { client, getCacheKey },
+      ) {
         const progressItem = client.readFragment({
           fragment: bulkImportSourceGroupProgressFragment,
           fragmentName: 'BulkImportSourceGroupProgress',
@@ -133,13 +127,14 @@ export function createResolvers({ endpoints }) {
 
         if (!progressItem) return null;
 
-        localStorageCache.updateStatusByJobId(id, newStatus);
+        localStorageCache.updateStatusByJobId(id, newStatus, hasFailures);
 
         return {
           __typename: clientTypenames.BulkImportProgress,
           ...progressItem,
           id,
           status: newStatus,
+          hasFailures,
         };
       },
 
@@ -163,6 +158,7 @@ export function createResolvers({ endpoints }) {
             source_full_path: op.group.fullPath,
             destination_namespace: op.targetNamespace,
             destination_name: op.newName,
+            migrate_projects: op.migrateProjects,
           })),
         });
 
@@ -181,6 +177,7 @@ export function createResolvers({ endpoints }) {
             id: response.id || `local-${Date.now()}-${idx}`,
             status: response.success ? STATUSES.CREATED : STATUSES.FAILED,
             message: response.message || null,
+            hasFailures: !response.success,
           };
 
           localStorageCache.set(op.group.webUrl, { progress, lastImportTarget });

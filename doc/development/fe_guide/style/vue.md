@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Vue.js style guide
@@ -9,7 +9,7 @@ info: To determine the technical writer assigned to the Stage/Group associated w
 ## Linting
 
 We default to [eslint-vue-plugin](https://github.com/vuejs/eslint-plugin-vue), with the `plugin:vue/recommended`.
-Please check this [rules](https://github.com/vuejs/eslint-plugin-vue#bulb-rules) for more documentation.
+Check the [rules](https://github.com/vuejs/eslint-plugin-vue#bulb-rules) for more documentation.
 
 ## Basic Rules
 
@@ -59,69 +59,72 @@ Please check this [rules](https://github.com/vuejs/eslint-plugin-vue#bulb-rules)
 
 1. Explicitly define data being passed into the Vue app
 
-    ```javascript
-    // bad
-    return new Vue({
-      el: '#element',
-      components: {
-        componentName
-      },
-      provide: {
-        ...someDataset
-      },
-      props: {
-        ...anotherDataset
-      },
-      render: createElement => createElement('component-name'),
-    }));
+   ```javascript
+   // bad
+   return new Vue({
+     el: '#element',
+     name: 'ComponentNameRoot',
+     components: {
+       componentName
+     },
+     provide: {
+       ...someDataset
+     },
+     props: {
+       ...anotherDataset
+     },
+     render: createElement => createElement('component-name'),
+   }));
 
-    // good
-    const { foobar, barfoo } = someDataset;
-    const { foo, bar } = anotherDataset;
+   // good
+   const { foobar, barfoo } = someDataset;
+   const { foo, bar } = anotherDataset;
 
-    return new Vue({
-      el: '#element',
-      components: {
-        componentName
-      },
-      provide: {
-        foobar,
-        barfoo
-      },
-      props: {
-        foo,
-        bar
-      },
-      render: createElement => createElement('component-name'),
-    }));
-    ```
+   return new Vue({
+     el: '#element',
+     name: 'ComponentNameRoot',
+     components: {
+       componentName
+     },
+     provide: {
+       foobar,
+       barfoo
+     },
+     props: {
+       foo,
+       bar
+     },
+     render: createElement => createElement('component-name'),
+   }));
+   ```
 
-    We discourage the use of the spread operator in this specific case in
-    order to keep our codebase explicit, discoverable, and searchable.
-    This applies in any place where we would benefit from the above, such as
-    when [initializing Vuex state](../vuex.md#why-not-just-spread-the-initial-state).
-    The pattern above also enables us to easily parse non scalar values during
-    instantiation.
+   We discourage the use of the spread operator in this specific case in
+   order to keep our codebase explicit, discoverable, and searchable.
+   This applies in any place where we would benefit from the above, such as
+   when [initializing Vuex state](../vuex.md#why-not-just-spread-the-initial-state).
+   The pattern above also enables us to easily parse non scalar values during
+   instantiation.
 
-    ```javascript
-    return new Vue({
-      el: '#element',
-      components: {
-        componentName
-      },
-      props: {
-        foo,
-        bar: parseBoolean(bar)
-      },
-      render: createElement => createElement('component-name'),
-    }));
-    ```
+   ```javascript
+   return new Vue({
+     el: '#element',
+     name: 'ComponentNameRoot',
+     components: {
+       componentName
+     },
+     props: {
+       foo,
+       bar: parseBoolean(bar)
+     },
+     render: createElement => createElement('component-name'),
+   }));
+   ```
 
 ## Naming
 
 1. **Extensions**: Use `.vue` extension for Vue components. Do not use `.js` as file extension
-([#34371](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/34371)).
-1. **Reference Naming**: Use PascalCase for their instances:
+   ([#34371](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/34371)).
+1. **Reference Naming**: Use PascalCase for their default imports:
 
    ```javascript
    // bad
@@ -139,7 +142,7 @@ Please check this [rules](https://github.com/vuejs/eslint-plugin-vue#bulb-rules)
    };
    ```
 
-1. **Props Naming:**  Avoid using DOM component prop names.
+1. **Props Naming:** Avoid using DOM component prop names.
 1. **Props Naming:** Use kebab-case instead of camelCase to provide props in templates.
 
    ```html
@@ -355,6 +358,16 @@ Please check this [rules](https://github.com/vuejs/eslint-plugin-vue#bulb-rules)
    <my-component />
    ```
 
+## `<style>` tags
+
+We don't use `<style>` tags in Vue components for a few reasons:
+
+1. You cannot use SCSS variables and mixins or [Tailwind CSS](scss.md#tailwind-css) `@apply` directive.
+1. These styles get inserted at runtime.
+1. We already have a few other ways to define CSS.
+
+Instead of using a `<style>` tag you should use [Tailwind CSS utility classes](scss.md#tailwind-css) or [page specific CSS](https://gitlab.com/groups/gitlab-org/-/epics/3694).
+
 ## Ordering
 
 1. Tag order in `.vue` file
@@ -368,7 +381,7 @@ Please check this [rules](https://github.com/vuejs/eslint-plugin-vue#bulb-rules)
      // ...
    </template>
 
-   // We don't use scoped styles but there are few instances of this
+   // We don't use `<style>` tags but there are few instances of this
    <style>
      // ...
    </style>
@@ -404,7 +417,7 @@ When using `v-for` you need to provide a *unique* `:key` attribute for each item
    ```
 
 1. When using `v-for` with `template` and there is more than one child element, the `:key` values
-must be unique. It's advised to use `kebab-case` namespaces.
+   must be unique. It's advised to use `kebab-case` namespaces.
 
    ```html
    <template v-for="(item, index) in items">
@@ -431,7 +444,7 @@ must be unique. It's advised to use `kebab-case` namespaces.
 
 Useful links:
 
-1. [`key`](https://vuejs.org/v2/guide/list.html#key)
+1. [Maintaining State](https://v2.vuejs.org/v2/guide/list.html#Maintaining-State)
 1. [Vue Style Guide: Keyed v-for](https://vuejs.org/v2/style-guide/#Keyed-v-for-essential)
 
 ## Vue testing
@@ -448,10 +461,8 @@ Typically, when testing a Vue component, the component should be "re-mounted" in
 To achieve this:
 
 1. Create a mutable `wrapper` variable inside the top-level `describe` block.
-1. Mount the component using [`mount`](https://vue-test-utils.vuejs.org/api/#mount)/
-[`shallowMount`](https://vue-test-utils.vuejs.org/api/#shallowMount).
-1. Reassign the resulting [`Wrapper`](https://vue-test-utils.vuejs.org/api/wrapper/#wrapper)
-instance to our `wrapper` variable.
+1. Mount the component using [`mount`](https://v1.test-utils.vuejs.org/api/#mount) or [`shallowMount`](https://v1.test-utils.vuejs.org/api/#shallowMount).
+1. Reassign the resulting [`Wrapper`](https://v1.test-utils.vuejs.org/api/wrapper/#wrapper) instance to our `wrapper` variable.
 
 Creating a global, mutable wrapper provides a number of advantages, including the ability to:
 
@@ -469,15 +480,20 @@ Creating a global, mutable wrapper provides a number of advantages, including th
   ```
 
 - Use a `beforeEach` block to mount the component (see
-[the `createComponent` factory](#the-createcomponent-factory) for more information).
-- Use an `afterEach` block to destroy the component, for example, `wrapper.destroy()`.
+  [the `createComponent` factory](#the-createcomponent-factory) for more information).
+- Automatically destroy the component after the test is run with [`enableAutoDestroy`](https://v1.test-utils.vuejs.org/api/#enableautodestroy-hook)
+  set in [`shared_test_setup.js`](https://gitlab.com/gitlab-org/gitlab/-/blob/d0bdc8370ef17891fd718a4578e41fef97cf065d/spec/frontend/__helpers__/shared_test_setup.js#L20).
+
+#### Async child components
+
+`shallowMount` will not create component stubs for [async child components](https://v2.vuejs.org/v2/guide/components-dynamic-async#Async-Components). In order to properly stub async child components, use the [`stubs`](https://v1.test-utils.vuejs.org/api/options.html#stubs) option. Make sure the async child component has a [`name`](https://v2.vuejs.org/v2/api/#name) option defined, otherwise your `wrapper`'s `findComponent` method may not work correctly.
 
 #### The `createComponent` factory
 
 To avoid duplicating our mounting logic, it's useful to define a `createComponent` factory function
 that we can reuse in each test block. This is a closure which should reassign our `wrapper` variable
-to the result of [`mount`](https://vue-test-utils.vuejs.org/api/#mount) and
-[`shallowMount`](https://vue-test-utils.vuejs.org/api/#shallowMount):
+to the result of [`mount`](https://v1.test-utils.vuejs.org/api/#mount) and
+[`shallowMount`](https://v1.test-utils.vuejs.org/api/#shallowMount):
 
 ```javascript
 import MyComponent from '~/path/to/my_component.vue';
@@ -540,137 +556,150 @@ describe('MyComponent', () => {
 #### `createComponent` best practices
 
 1. Consider using a single (or a limited number of) object arguments over many arguments.
-  Defining single parameters for common data like `props` is okay,
-  but keep in mind our [JavaScript style guide](javascript.md#limit-number-of-parameters) and
-  stay within the parameter number limit:
+   Defining single parameters for common data like `props` is okay,
+   but keep in mind our [JavaScript style guide](javascript.md#limit-number-of-parameters) and
+   stay within the parameter number limit:
 
-    ```javascript
-    // bad
-    function createComponent(data, props, methods, isLoading, mountFn) { }
+   ```javascript
+   // bad
+   function createComponent(props, stubs, mountFn, foo) { }
 
-    // good
-    function createComponent({ data, props, methods, stubs, isLoading } = {}) { }
+   // good
+   function createComponent({ props, stubs, mountFn, foo } = {}) { }
 
-    // good
-    function createComponent(props = {}, { data, methods, stubs, isLoading } = {}) { }
-    ```
+   // good
+   function createComponent(props = {}, { stubs, mountFn, foo } = {}) { }
+   ```
 
 1. If you require both `mount` _and_ `shallowMount` within the same set of tests, it
-can be useful define a `mountFn` parameter for the `createComponent` factory that accepts
-the mounting function (`mount` or `shallowMount`) to be used to mount the component:
+   can be useful define a `mountFn` parameter for the `createComponent` factory that accepts
+   the mounting function (`mount` or `shallowMount`) to be used to mount the component:
 
-    ```javascript
-    import { shallowMount } from '@vue/test-utils';
+   ```javascript
+   import { shallowMount } from '@vue/test-utils';
 
-    function createComponent({ mountFn = shallowMount } = {}) { }
-    ```
+   function createComponent({ mountFn = shallowMount } = {}) { }
+   ```
 
 1. Use the `mountExtended` and `shallowMountExtended` helpers to expose `wrapper.findByTestId()`:
 
-    ```javascript
-    import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
-    import { SomeComponent } from 'components/some_component.vue';
+   ```javascript
+   import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+   import { SomeComponent } from 'components/some_component.vue';
 
-    let wrapper;
+   let wrapper;
 
-    const createWrapper = () => { wrapper = shallowMountExtended(SomeComponent); };
-    const someButton = () => wrapper.findByTestId('someButtonTestId');
-    ```
+   const createWrapper = () => { wrapper = shallowMountExtended(SomeComponent); };
+   const someButton = () => wrapper.findByTestId('someButtonTestId');
+   ```
+
+1. Avoid using `data`, `methods`, or any other mounting option that extends component internals.
+
+  ```javascript
+  import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+  import { SomeComponent } from 'components/some_component.vue';
+
+  let wrapper;
+
+  // bad :( - This circumvents the actual user interaction and couples the test to component internals.
+  const createWrapper = ({ data }) => {
+    wrapper = shallowMountExtended(SomeComponent, {
+      data
+    });
+  };
+
+  // good :) - Helpers like `clickShowButton` interact with the actual I/O of the component.
+  const createWrapper = () => {
+    wrapper = shallowMountExtended(SomeComponent);
+  };
+  const clickShowButton = () => {
+    wrapper.findByTestId('show').trigger('click');
+  }
+  ```
 
 ### Setting component state
 
-1. Avoid using [`setProps`](https://vue-test-utils.vuejs.org/api/wrapper/#setprops) to set
-component state wherever possible. Instead, set the component's
-[`propsData`](https://vue-test-utils.vuejs.org/api/options.html#propsdata) when mounting the component:
+1. Avoid using [`setProps`](https://v1.test-utils.vuejs.org/api/wrapper/#setprops) to set
+   component state wherever possible. Instead, set the component's
+   [`propsData`](https://v1.test-utils.vuejs.org/api/options.html#propsdata) when mounting the component:
 
-    ```javascript
-    // bad
-    wrapper = shallowMount(MyComponent);
-    wrapper.setProps({
-      myProp: 'my cool prop'
-    });
+   ```javascript
+   // bad
+   wrapper = shallowMount(MyComponent);
+   wrapper.setProps({
+     myProp: 'my cool prop'
+   });
 
-    // good
-    wrapper = shallowMount({ propsData: { myProp: 'my cool prop' } });
-    ```
+   // good
+   wrapper = shallowMount({ propsData: { myProp: 'my cool prop' } });
+   ```
 
-    The exception here is when you wish to test component reactivity in some way.
-    For example, you may want to test the output of a component when after a particular watcher has
-    executed. Using `setProps` to test such behavior is okay.
+   The exception here is when you wish to test component reactivity in some way.
+   For example, you may want to test the output of a component when after a particular watcher has
+   executed. Using `setProps` to test such behavior is okay.
+
+1. Avoid using [`setData`](https://v1.test-utils.vuejs.org/api/wrapper/#setdata) which sets the
+   component's internal state and circumvents testing the actual I/O of the component.
+   Instead, trigger events on the component's children or other side-effects to force state changes.
 
 ### Accessing component state
 
 1. When accessing props or attributes, prefer the `wrapper.props('myProp')` syntax over
-`wrapper.props().myProp` or `wrapper.vm.myProp`:
+   `wrapper.props().myProp` or `wrapper.vm.myProp`:
 
-    ```javascript
-    // good
-    expect(wrapper.props().myProp).toBe(true);
-    expect(wrapper.attributes().myAttr).toBe(true);
+   ```javascript
+   // good
+   expect(wrapper.props().myProp).toBe(true);
+   expect(wrapper.attributes().myAttr).toBe(true);
 
-    // better
-    expect(wrapper.props('myProp').toBe(true);
-    expect(wrapper.attributes('myAttr')).toBe(true);
-    ```
+   // better
+   expect(wrapper.props('myProp').toBe(true);
+   expect(wrapper.attributes('myAttr')).toBe(true);
+   ```
 
 1. When asserting multiple props, check the deep equality of the `props()` object with
-[`toEqual`](https://jestjs.io/docs/expect#toequalvalue):
+   [`toEqual`](https://jestjs.io/docs/expect#toequalvalue):
 
-    ```javascript
-    // good
-    expect(wrapper.props('propA')).toBe('valueA');
-    expect(wrapper.props('propB')).toBe('valueB');
-    expect(wrapper.props('propC')).toBe('valueC');
+   ```javascript
+   // good
+   expect(wrapper.props('propA')).toBe('valueA');
+   expect(wrapper.props('propB')).toBe('valueB');
+   expect(wrapper.props('propC')).toBe('valueC');
 
-    // better
-    expect(wrapper.props()).toEqual({
-      propA: 'valueA',
-      propB: 'valueB',
-      propC: 'valueC',
-    });
-    ```
+   // better
+   expect(wrapper.props()).toEqual({
+     propA: 'valueA',
+     propB: 'valueB',
+     propC: 'valueC',
+   });
+   ```
 
 1. If you are only interested in some of the props, you can use
-[`toMatchObject`](https://jestjs.io/docs/expect#tomatchobjectobject). Prefer `toMatchObject`
-over [`expect.objectContaining`](https://jestjs.io/docs/expect#expectobjectcontainingobject):
+   [`toMatchObject`](https://jestjs.io/docs/expect#tomatchobjectobject). Prefer `toMatchObject`
+   over [`expect.objectContaining`](https://jestjs.io/docs/expect#expectobjectcontainingobject):
 
-    ```javascript
-    // good
-    expect(wrapper.props()).toEqual(expect.objectContaining({
-      propA: 'valueA',
-      propB: 'valueB',
-    }));
+   ```javascript
+   // good
+   expect(wrapper.props()).toEqual(expect.objectContaining({
+     propA: 'valueA',
+     propB: 'valueB',
+   }));
 
-    // better
-    expect(wrapper.props()).toMatchObject({
-      propA: 'valueA',
-      propB: 'valueB',
-    });
-    ```
+   // better
+   expect(wrapper.props()).toMatchObject({
+     propA: 'valueA',
+     propB: 'valueB',
+   });
+   ```
 
-## The JavaScript/Vue Accord
+### Testing props validation
 
-The goal of this accord is to make sure we are all on the same page.
+When checking component props use `assertProps` helper. Props validation failures will be thrown as errors:
 
-1. When writing Vue, you may not use jQuery in your application.
-   1. If you need to grab data from the DOM, you may query the DOM 1 time while bootstrapping your
-   application to grab data attributes using `dataset`. You can do this without jQuery.
-   1. You may use a jQuery dependency in Vue.js following [this example from the docs](https://vuejs.org/v2/examples/select2.html).
-   1. If an outside jQuery Event needs to be listen to inside the Vue application, you may use
-   jQuery event listeners.
-   1. We avoid adding new jQuery events when they are not required. Instead of adding new jQuery
-   events take a look at [different methods to do the same task](https://vuejs.org/v2/api/#vm-emit).
-1. You may query the `window` object one time, while bootstrapping your application for application
-specific data (for example, `scrollTo` is ok to access anytime). Do this access during the
-bootstrapping of your application.
-1. You may have a temporary but immediate need to create technical debt by writing code that does
-not follow our standards, to be refactored later. Maintainers need to be ok with the tech debt in
-the first place. An issue should be created for that tech debt to evaluate it further and discuss.
-In the coming months you should fix that tech debt, with its priority to be determined by maintainers.
-1. When creating tech debt you must write the tests for that code before hand and those tests may
-not be rewritten. For example, jQuery tests rewritten to Vue tests.
-1. You may choose to use VueX as a centralized state management. If you choose not to use VueX, you
-must use the *store pattern* which can be found in the
-[Vue.js documentation](https://vuejs.org/v2/guide/state-management.html#Simple-State-Management-from-Scratch).
-1. Once you have chosen a centralized state-management solution you must use it for your entire
-application. Don't mix and match your state-management solutions.
+```javascript
+import { assertProps } from 'helpers/assert_props'
+
+// ...
+
+expect(() => assertProps(SomeComponent, { invalidPropValue: '1', someOtherProp: 2 })).toThrow()
+```

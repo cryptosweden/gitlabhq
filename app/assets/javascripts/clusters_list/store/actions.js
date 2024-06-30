@@ -1,5 +1,5 @@
-import * as Sentry from '@sentry/browser';
-import createFlash from '~/flash';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { parseIntPagination, normalizeHeaders } from '~/lib/utils/common_utils';
 import Poll from '~/lib/utils/poll';
@@ -17,9 +17,10 @@ const allNodesPresent = (clusters, retryCount) => {
 };
 
 export const reportSentryError = (_store, { error, tag }) => {
-  Sentry.withScope((scope) => {
-    scope.setTag('javascript_clusters_list', tag);
-    Sentry.captureException(error);
+  Sentry.captureException(error, {
+    tags: {
+      javascript_clusters_list: tag,
+    },
   });
 };
 
@@ -70,7 +71,7 @@ export const fetchClusters = ({ state, commit, dispatch }) => {
 
       commit(types.SET_LOADING_CLUSTERS, false);
       commit(types.SET_LOADING_NODES, false);
-      createFlash({
+      createAlert({
         message: s__('Clusters|An error occurred while loading clusters'),
       });
 

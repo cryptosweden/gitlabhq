@@ -60,7 +60,7 @@ module FilterSpecHelper
     context.reverse_merge!(project: project) if defined?(project)
     context.reverse_merge!(current_user: current_user) if defined?(current_user)
 
-    filters = [Banzai::Filter::AutolinkFilter, filter].compact
+    filters = [Banzai::Filter::MarkdownFilter, filter].compact
 
     redact = context.delete(:redact)
     filters.push(Banzai::Filter::ReferenceRedactorFilter) if redact
@@ -90,12 +90,13 @@ module FilterSpecHelper
   #
   # Returns a String
   def invalidate_reference(reference)
-    if reference =~ /\A(.+)?[^\d]\d+\z/
+    case reference
+    when /\A(.+)?[^\d]\d+\z/
       # Integer-based reference with optional project prefix
       reference.gsub(/\d+\z/) { |i| i.to_i + 10_000 }
-    elsif reference =~ /\A(.+@)?(\h{7,40}\z)/
+    when /\A(.+@)?(#{Gitlab::Git::Commit::RAW_SHA_PATTERN}\z)/o
       # SHA-based reference with optional prefix
-      reference.gsub(/\h{7,40}\z/) { |v| v.reverse }
+      reference.gsub(/#{Gitlab::Git::Commit::RAW_SHA_PATTERN}\z/o) { |v| v.reverse }
     else
       reference.gsub(/\w+\z/) { |v| v.reverse }
     end

@@ -5,9 +5,17 @@ gl-emoji {
   font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
   font-size: 1.2em;
   line-height: 1;
+
+  img {
+    width: 1.2em;
+    height: 1.2em;
+    position: relative;
+    top: 0.25em;
+  }
 }
 
 .user-status-emoji {
+  margin-left: $gl-padding-4;
   margin-right: $gl-padding-4;
 
   gl-emoji {
@@ -18,35 +26,56 @@ gl-emoji {
 }
 
 .emoji-picker-category-header {
-  @include gl-sticky;
-  background-color: $white-transparent;
+  position: sticky;
+  background: linear-gradient(to bottom, $white 50%, transparent 100%);
 }
 
 .emoji-picker-emoji {
   height: 30px;
   // Create a width that fits 9 emojis per row
   width: 100 / 9 * 1%;
-  transition: transform 0.15s cubic-bezier(0.3, 0, 0.2, 2) !important;
-  will-change: transform;
+  mix-blend-mode: normal !important;
 
-  &:hover,
-  &:focus {
-    transform: scale(1.3);
+  gl-emoji {
+    font-size: 1.2rem !important;
+  }
+
+  gl-emoji img {
+    top: auto;
+    max-width: unset;
   }
 }
 
-.emoji-picker .gl-new-dropdown .dropdown-menu {
-  width: 350px;
+.emoji-picker .gl-dropdown .dropdown-menu,
+.emoji-picker .gl-new-dropdown .gl-new-dropdown-panel {
+  width: 350px !important;
 }
 
 .emoji-picker-category-tab {
   border-bottom-color: transparent;
+
+  &:hover {
+    color: $gray-900 !important;
+
+    &:not(.emoji-picker-category-active) {
+      border-bottom-color: $gray-300;
+    }
+  }
+
+  &:focus {
+    z-index: 2;
+  }
 }
 
 .emoji-picker-category-active {
-  border-bottom-color: var(--gl-theme-accent, $theme-indigo-500);
+  border-bottom-color: $blue-500 !important;
+
+  svg {
+    color: $gray-900 !important;
+  }
 }
 
-.emoji-picker .gl-new-dropdown-inner > :last-child {
+.emoji-picker .gl-dropdown-contents > :last-child {
   padding-bottom: 0;
+  overflow-y: hidden;
 }

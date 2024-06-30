@@ -56,6 +56,7 @@ RSpec.describe ExceedQueryLimitHelpers do
         TestQueries.where(version: 'x').update_all(version: 'y')
         TestQueries.where(version: 'foobar').count
         TestQueries.where(version: 'z').delete_all
+        Project.where(id: 1).pluck(:title)
       end
     end
 
@@ -71,10 +72,11 @@ RSpec.describe ExceedQueryLimitHelpers do
         TestQueries.count
         TestQueries.where(version: 'y').update_all(version: 'z')
         TestQueries.where(version: 'z').delete_all
+        Project.where(id: 2).pluck(:title)
       end
     end
 
-    it 'merges two query counts' do
+    it 'merges two query counts, showing only diffs' do
       test_matcher = TestMatcher.new
 
       diff = test_matcher.diff_query_counts(
@@ -131,6 +133,10 @@ RSpec.describe ExceedQueryLimitHelpers do
         },
         "RELEASE SAVEPOINT active_record_1" => {
           "" => [0, 1]
+        },
+        "SELECT \"projects\".\"name\" FROM \"projects\"" => {
+          "WHERE \"projects\".\"id\" = 1" => [1, 0],
+          "WHERE \"projects\".\"id\" = 2" => [0, 1]
         }
       })
     end
@@ -141,17 +147,17 @@ RSpec.describe ExceedQueryLimitHelpers do
       test_matcher = TestMatcher.new
 
       recorder = ActiveRecord::QueryRecorder.new do
-        TestQueries.find_by(version: %w(foo bar baz).join("\n"))
-        TestQueries.find_by(version: %w(foo biz baz).join("\n"))
-        TestQueries.find_by(version: %w(foo bar baz).join("\n"))
+        TestQueries.find_by(version: %w[foo bar baz].join("\n"))
+        TestQueries.find_by(version: %w[foo biz baz].join("\n"))
+        TestQueries.find_by(version: %w[foo bar baz].join("\n"))
       end
 
       recorder.count
 
       expect(test_matcher.count_queries(recorder)).to eq({
         'SELECT "schema_migrations".* FROM "schema_migrations"' => {
-          %Q[WHERE "schema_migrations"."version" = 'foo\nbar\nbaz' LIMIT 1] => 2,
-          %Q[WHERE "schema_migrations"."version" = 'foo\nbiz\nbaz' LIMIT 1] => 1
+          %(WHERE "schema_migrations"."version" = 'foo\nbar\nbaz' LIMIT 1) => 2,
+          %(WHERE "schema_migrations"."version" = 'foo\nbiz\nbaz' LIMIT 1) => 1
         }
       })
     end
@@ -177,13 +183,13 @@ RSpec.describe ExceedQueryLimitHelpers do
 
       expect(test_matcher.count_queries(recorder)).to eq({
         'SELECT "schema_migrations".* FROM "schema_migrations"' => {
-          %q[WHERE "schema_migrations"."version" = 'foobar'] => 2,
-          %q[WHERE "schema_migrations"."version" = 'also foobar and baz'] => 1,
-          %q[ORDER BY "schema_migrations"."version" ASC LIMIT 1] => 1
+          %q(WHERE "schema_migrations"."version" = 'foobar') => 2,
+          %q(WHERE "schema_migrations"."version" = 'also foobar and baz') => 1,
+          %q(ORDER BY "schema_migrations"."version" ASC LIMIT 1) => 1
         },
         'SELECT COUNT(*) FROM "schema_migrations"' => {
           "" => 2,
-          %q[WHERE "schema_migrations"."version" = 'foobar'] => 1
+          %q(WHERE "schema_migrations"."version" = 'foobar') => 1
         },
         'SAVEPOINT active_record_1' => { "" => 1 },
         'INSERT INTO "schema_migrations" ("version")' => {
@@ -191,11 +197,11 @@ RSpec.describe ExceedQueryLimitHelpers do
         },
         'RELEASE SAVEPOINT active_record_1' => { "" => 1 },
         'UPDATE "schema_migrations"' => {
-          %q[SET "version" = 'y' WHERE "schema_migrations"."version" = 'x'] => 1,
-          %q[SET "version" = 'z' WHERE "schema_migrations"."version" = 'y'] => 1
+          %q(SET "version" = 'y' WHERE "schema_migrations"."version" = 'x') => 1,
+          %q(SET "version" = 'z' WHERE "schema_migrations"."version" = 'y') => 1
         },
         'DELETE FROM "schema_migrations"' => {
-          %q[WHERE "schema_migrations"."version" = 'z'] => 1
+          %q(WHERE "schema_migrations"."version" = 'z') => 1
         }
       })
     end
@@ -269,7 +275,7 @@ RSpec.describe ExceedQueryLimitHelpers do
       expect(test_matcher.log_message)
         .to match(%r{ORDER BY.*#{TestQueries.table_name}.*LIMIT 1})
       expect(test_matcher.log_message)
-        .not_to match(%r{\/\*.*correlation_id.*\*\/})
+        .not_to match(%r{/\*.*correlation_id.*\*/})
     end
   end
 end

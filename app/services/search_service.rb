@@ -11,7 +11,7 @@ class SearchService
 
   def initialize(current_user, params = {})
     @current_user = current_user
-    @params = Gitlab::Search::Params.new(params, detect_abuse: prevent_abusive_searches?)
+    @params = Gitlab::Search::Params.new(params, detect_abuse: true)
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
@@ -40,24 +40,31 @@ class SearchService
     # overridden in EE
   end
 
+  def search_type_errors
+    # overridden in EE
+  end
+
   def global_search?
     project.blank? && group.blank?
   end
 
-  def show_snippets?
-    return @show_snippets if defined?(@show_snippets)
+  def search_type
+    'basic'
+  end
 
-    @show_snippets = params[:snippets] == 'true'
+  def show_snippets?
+    strong_memoize(:show_snippets) do
+      params[:snippets] == 'true'
+    end
   end
 
   delegate :scope, to: :search_service
   delegate :valid_terms_count?, :valid_query_length?, to: :params
 
   def search_results
-    strong_memoize(:search_results) do
-      abuse_detected? ? Gitlab::EmptySearchResults.new : search_service.execute
-    end
+    abuse_detected? ? ::Search::EmptySearchResults.new : search_service.execute
   end
+  strong_memoize_attr :search_results
 
   def search_objects(preload_method = nil)
     @search_objects ||= redact_unauthorized_results(
@@ -91,11 +98,41 @@ class SearchService
     end
   end
 
-  private
-
-  def prevent_abusive_searches?
-    Feature.enabled?(:prevent_abusive_searches, current_user)
+  def level
+    @level ||=
+      if project
+        'project'
+      elsif group
+        'group'
+      else
+        'global'
+      end
   end
+
+  def global_search_enabled_for_scope?
+    return false if show_snippets? && Feature.disabled?(:global_search_snippet_titles_tab, current_user, type: :ops)
+
+    case params[:scope]
+    when 'blobs'
+      Feature.enabled?(:global_search_code_tab, current_user, type: :ops)
+    when 'commits'
+      Feature.enabled?(:global_search_commits_tab, current_user, type: :ops)
+    when 'issues'
+      Feature.enabled?(:global_search_issues_tab, current_user, type: :ops)
+    when 'merge_requests'
+      Feature.enabled?(:global_search_merge_requests_tab, current_user, type: :ops)
+    when 'snippet_titles'
+      Feature.enabled?(:global_search_snippet_titles_tab, current_user, type: :ops)
+    when 'wiki_blobs'
+      Feature.enabled?(:global_search_wiki_tab, current_user, type: :ops)
+    when 'users'
+      Feature.enabled?(:global_search_users_tab, current_user, type: :ops)
+    else
+      true
+    end
+  end
+
+  private
 
   def page
     [1, params[:page].to_i].max
@@ -151,7 +188,7 @@ class SearchService
   def search_service
     @search_service ||=
       if project
-        Search::ProjectService.new(project, current_user, params)
+        Search::ProjectService.new(current_user, project, params)
       elsif show_snippets?
         Search::SnippetService.new(current_user, params)
       elsif group

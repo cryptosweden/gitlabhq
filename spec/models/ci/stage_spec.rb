@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::Stage, :models do
+RSpec.describe Ci::Stage, :models, feature_category: :continuous_integration do
   let_it_be(:pipeline) { create(:ci_empty_pipeline) }
 
-  let(:stage) { create(:ci_stage_entity, pipeline: pipeline, project: pipeline.project) }
+  let(:stage) { create(:ci_stage, pipeline: pipeline, project: pipeline.project) }
 
   it_behaves_like 'having unique enum values'
 
@@ -30,9 +30,9 @@ RSpec.describe Ci::Stage, :models do
 
   describe '.by_position' do
     it 'finds stages by position' do
-      a = create(:ci_stage_entity, position: 1)
-      b = create(:ci_stage_entity, position: 2)
-      c = create(:ci_stage_entity, position: 3)
+      a = create(:ci_stage, position: 1)
+      b = create(:ci_stage, position: 2)
+      c = create(:ci_stage, position: 3)
 
       expect(described_class.by_position(1)).to contain_exactly(a)
       expect(described_class.by_position(2)).to contain_exactly(b)
@@ -42,9 +42,9 @@ RSpec.describe Ci::Stage, :models do
 
   describe '.by_name' do
     it 'finds stages by name' do
-      a = create(:ci_stage_entity, name: 'a')
-      b = create(:ci_stage_entity, name: 'b')
-      c = create(:ci_stage_entity, name: 'c')
+      a = create(:ci_stage, name: 'a')
+      b = create(:ci_stage, name: 'b')
+      c = create(:ci_stage, name: 'c')
 
       expect(described_class.by_name('a')).to contain_exactly(a)
       expect(described_class.by_name('b')).to contain_exactly(b)
@@ -54,7 +54,7 @@ RSpec.describe Ci::Stage, :models do
 
   describe '#status' do
     context 'when stage is pending' do
-      let(:stage) { create(:ci_stage_entity, status: 'pending') }
+      let(:stage) { create(:ci_stage, status: 'pending') }
 
       it 'has a correct status value' do
         expect(stage.status).to eq 'pending'
@@ -62,7 +62,7 @@ RSpec.describe Ci::Stage, :models do
     end
 
     context 'when stage is success' do
-      let(:stage) { create(:ci_stage_entity, status: 'success') }
+      let(:stage) { create(:ci_stage, status: 'success') }
 
       it 'has a correct status value' do
         expect(stage.status).to eq 'success'
@@ -89,11 +89,17 @@ RSpec.describe Ci::Stage, :models do
       from_status_names.product(to_status_names)
     end
 
+    let(:not_transitionable) do
+      [
+        { from_status: :canceled, to_status: :canceling }
+      ]
+    end
+
     with_them do
       it do
         stage.status = from_status.to_s
 
-        if from_status != to_status
+        if from_status != to_status && transitionable?(from_status, to_status)
           expect(stage.set_status(to_status.to_s))
             .to eq(true)
         else
@@ -101,6 +107,24 @@ RSpec.describe Ci::Stage, :models do
             .to eq(false), "loopback transitions are not allowed"
         end
       end
+    end
+
+    def transitionable?(from, to)
+      not_transitionable.each do |exclusion|
+        return false if from.to_sym == exclusion[:from_status].to_sym && to.to_sym == exclusion[:to_status].to_sym
+      end
+
+      true
+    end
+  end
+
+  describe '#start_cancel' do
+    it 'transitions to canceling' do
+      stage = create(:ci_stage, pipeline: pipeline, project: pipeline.project, status: 'running')
+      create(:ci_build, :success, stage_id: stage.id)
+      create(:ci_build, :running, stage_id: stage.id)
+
+      expect { stage.start_cancel }.to change { stage.status }.from('running').to('canceling')
     end
   end
 
@@ -119,7 +143,7 @@ RSpec.describe Ci::Stage, :models do
     end
 
     context 'when stage has only created builds' do
-      let(:stage) { create(:ci_stage_entity, status: :created) }
+      let(:stage) { create(:ci_stage, status: :created) }
 
       before do
         create(:ci_build, :created, stage_id: stage.id)
@@ -166,6 +190,18 @@ RSpec.describe Ci::Stage, :models do
       end
     end
 
+    context 'when build is waiting for callback' do
+      before do
+        create(:ci_build, :waiting_for_callback, stage_id: stage.id)
+      end
+
+      it 'updates status to waiting for callback' do
+        expect { stage.update_legacy_status }
+          .to change { stage.reload.status }
+          .to 'waiting_for_callback'
+      end
+    end
+
     context 'when stage is skipped because is empty' do
       it 'updates status to skipped' do
         expect { stage.update_legacy_status }
@@ -206,7 +242,7 @@ RSpec.describe Ci::Stage, :models do
     using RSpec::Parameterized::TableSyntax
 
     let(:user) { create(:user) }
-    let(:stage) { create(:ci_stage_entity, status: :created) }
+    let(:stage) { create(:ci_stage, status: :created) }
 
     subject { stage.detailed_status(user) }
 
@@ -223,10 +259,13 @@ RSpec.describe Ci::Stage, :models do
     with_them do
       before do
         statuses.each do |status|
-          create(:commit_status, project: stage.project,
-                                 pipeline: stage.pipeline,
-                                 stage_id: stage.id,
-                                 status: status)
+          create(
+            :commit_status,
+            project: stage.project,
+            pipeline: stage.pipeline,
+            stage_id: stage.id,
+            status: status
+          )
 
           stage.update_legacy_status
         end
@@ -239,11 +278,14 @@ RSpec.describe Ci::Stage, :models do
 
     context 'when stage has warnings' do
       before do
-        create(:ci_build, project: stage.project,
-                          pipeline: stage.pipeline,
-                          stage_id: stage.id,
-                          status: :failed,
-                          allow_failure: true)
+        create(
+          :ci_build,
+          project: stage.project,
+          pipeline: stage.pipeline,
+          stage_id: stage.id,
+          status: :failed,
+          allow_failure: true
+        )
 
         stage.update_legacy_status
       end
@@ -269,7 +311,7 @@ RSpec.describe Ci::Stage, :models do
   describe '#delay' do
     subject { stage.delay }
 
-    let(:stage) { create(:ci_stage_entity, status: :created) }
+    let(:stage) { create(:ci_stage, status: :created) }
 
     it 'updates stage status' do
       subject
@@ -361,12 +403,61 @@ RSpec.describe Ci::Stage, :models do
     end
   end
 
-  it_behaves_like 'manual playable stage', :ci_stage_entity
+  it_behaves_like 'manual playable stage', :ci_stage
 
   context 'loose foreign key on ci_stages.project_id' do
     it_behaves_like 'cleanup by a loose foreign key' do
       let!(:parent) { create(:project) }
-      let!(:model) { create(:ci_stage_entity, project: parent) }
+      let!(:model) { create(:ci_stage, project: parent) }
+    end
+  end
+
+  describe 'partitioning' do
+    context 'with pipeline' do
+      let(:pipeline) { build(:ci_pipeline, partition_id: 123) }
+      let(:stage) { build(:ci_stage, pipeline: pipeline) }
+
+      it 'copies the partition_id from pipeline' do
+        expect { stage.valid? }.to change(stage, :partition_id).to(123)
+      end
+
+      context 'when it is already set' do
+        let(:stage) { build(:ci_stage, pipeline: pipeline, partition_id: 125) }
+
+        it 'does not change the partition_id value' do
+          expect { stage.valid? }.not_to change(stage, :partition_id)
+        end
+      end
+    end
+
+    context 'without pipeline' do
+      subject(:stage) { build(:ci_stage, pipeline: nil, project: build_stubbed(:project)) }
+
+      it { is_expected.to validate_presence_of(:partition_id) }
+
+      it 'does not change the partition_id value' do
+        expect { stage.valid? }.not_to change(stage, :partition_id)
+      end
+    end
+  end
+
+  describe 'confirm_manual_job?' do
+    context 'when a stage has a `manual`-status playable job with manual_confirmation_message' do
+      before do
+        create(:ci_build, :success, pipeline: pipeline, stage_id: stage.id)
+        create(:ci_build, :manual, :with_manual_confirmation, pipeline: pipeline, stage_id: stage.id)
+      end
+
+      it { expect(stage.confirm_manual_job?).to be_truthy }
+    end
+
+    context 'when a stage does not have a `manual`-status playable job' do
+      before do
+        create(:ci_build, :success, pipeline: pipeline, stage_id: stage.id)
+        create(:ci_build, status: :skipped, pipeline: pipeline, stage_id: stage.id)
+      end
+
+      it { expect(stage.confirm_manual_job?).to be_falsy }
     end
   end
 end

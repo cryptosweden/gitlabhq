@@ -1,79 +1,88 @@
 import PortalVue from 'portal-vue';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
-
-import toggleEpicsSwimlanes from 'ee_else_ce/boards/toggle_epics_swimlanes';
-import toggleLabels from 'ee_else_ce/boards/toggle_labels';
-import BoardAddNewColumnTrigger from '~/boards/components/board_add_new_column_trigger.vue';
 import BoardApp from '~/boards/components/board_app.vue';
 import '~/boards/filters/due_date_filters';
-import { issuableTypes } from '~/boards/constants';
-import initBoardsFilteredSearch from '~/boards/mount_filtered_search_issue_boards';
-import store from '~/boards/stores';
-import toggleFocusMode from '~/boards/toggle_focus';
-import { NavigationType, isLoggedIn, parseBoolean } from '~/lib/utils/common_utils';
+import { TYPE_ISSUE, WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
+import {
+  navigationType,
+  isLoggedIn,
+  parseBoolean,
+  convertObjectPropsToCamelCase,
+} from '~/lib/utils/common_utils';
+import { queryToObject } from '~/lib/utils/url_utility';
+import { defaultClient } from '~/graphql_shared/issuable_client';
 import { fullBoardId } from './boards_util';
-import boardConfigToggle from './config_toggle';
-import initNewBoard from './new_board';
-import { gqlClient } from './graphql';
-import mountMultipleBoardsSwitcher from './mount_multiple_boards_switcher';
 
 Vue.use(VueApollo);
 Vue.use(PortalVue);
 
 const apolloProvider = new VueApollo({
-  defaultClient: gqlClient,
+  defaultClient,
 });
 
 function mountBoardApp(el) {
-  const { boardId, groupId, fullPath, rootPath } = el.dataset;
+  const { boardId, groupId, fullPath, rootPath, hasScopedLabelsFeature } = el.dataset;
 
-  store.dispatch('fetchBoard', {
-    fullPath,
-    fullBoardId: fullBoardId(boardId),
-    boardType: el.dataset.parent,
-  });
+  const rawFilterParams = queryToObject(window.location.search, { gatherArrays: true });
 
-  store.dispatch('setInitialBoardData', {
-    boardId,
-    fullBoardId: fullBoardId(boardId),
-    fullPath,
-    boardType: el.dataset.parent,
-    disabled: parseBoolean(el.dataset.disabled) || true,
-    issuableType: issuableTypes.issue,
-  });
+  const initialFilterParams = {
+    ...convertObjectPropsToCamelCase(rawFilterParams, {}),
+  };
+
+  const boardType = el.dataset.parent;
 
   // eslint-disable-next-line no-new
   new Vue({
     el,
     name: 'BoardAppRoot',
-    store,
     apolloProvider,
     provide: {
+      initialBoardId: fullBoardId(boardId),
       disabled: parseBoolean(el.dataset.disabled),
-      boardId,
       groupId: Number(groupId),
       rootPath,
+      fullPath,
+      initialFilterParams,
+      boardBaseUrl: el.dataset.boardBaseUrl,
+      boardType,
+      isGroupBoard: boardType === WORKSPACE_GROUP,
+      isProjectBoard: boardType === WORKSPACE_PROJECT,
       currentUserId: gon.current_user_id || null,
-      canUpdate: parseBoolean(el.dataset.canUpdate),
-      canAdminList: parseBoolean(el.dataset.canAdminList),
+      boardWeight: el.dataset.boardWeight ? parseInt(el.dataset.boardWeight, 10) : null,
       labelsManagePath: el.dataset.labelsManagePath,
       labelsFilterBasePath: el.dataset.labelsFilterBasePath,
+      releasesFetchPath: el.dataset.releasesFetchPath,
       timeTrackingLimitToHours: parseBoolean(el.dataset.timeTrackingLimitToHours),
+      issuableType: TYPE_ISSUE,
+      emailsEnabled: parseBoolean(el.dataset.emailsEnabled),
+      hasMissingBoards: parseBoolean(el.dataset.hasMissingBoards),
+      weights: el.dataset.weights ? JSON.parse(el.dataset.weights) : [],
+      isIssueBoard: true,
+      isEpicBoard: false,
+      // Permissions
+      canUpdate: parseBoolean(el.dataset.canUpdate),
+      canAdminList: parseBoolean(el.dataset.canAdminList),
+      canAdminBoard: parseBoolean(el.dataset.canAdminBoard),
+      allowLabelCreate: parseBoolean(el.dataset.canUpdate),
+      allowLabelEdit: parseBoolean(el.dataset.canUpdate),
+      isSignedIn: isLoggedIn(),
+      // Features
       multipleAssigneesFeatureAvailable: parseBoolean(el.dataset.multipleAssigneesFeatureAvailable),
       epicFeatureAvailable: parseBoolean(el.dataset.epicFeatureAvailable),
       iterationFeatureAvailable: parseBoolean(el.dataset.iterationFeatureAvailable),
       weightFeatureAvailable: parseBoolean(el.dataset.weightFeatureAvailable),
-      boardWeight: el.dataset.boardWeight ? parseInt(el.dataset.boardWeight, 10) : null,
       scopedLabelsAvailable: parseBoolean(el.dataset.scopedLabels),
       milestoneListsAvailable: parseBoolean(el.dataset.milestoneListsAvailable),
       assigneeListsAvailable: parseBoolean(el.dataset.assigneeListsAvailable),
       iterationListsAvailable: parseBoolean(el.dataset.iterationListsAvailable),
-      issuableType: issuableTypes.issue,
-      emailsDisabled: parseBoolean(el.dataset.emailsDisabled),
-      allowLabelCreate: parseBoolean(el.dataset.canUpdate),
-      allowLabelEdit: parseBoolean(el.dataset.canUpdate),
+      healthStatusFeatureAvailable: parseBoolean(el.dataset.healthStatusFeatureAvailable),
       allowScopedLabels: parseBoolean(el.dataset.scopedLabels),
+      swimlanesFeatureAvailable: gon.licensed_features?.swimlanes,
+      multipleIssueBoardsAvailable: parseBoolean(el.dataset.multipleBoardsAvailable),
+      scopedIssueBoardFeatureEnabled: parseBoolean(el.dataset.scopedIssueBoardFeatureEnabled),
+      allowSubEpics: false,
+      hasScopedLabelsFeature: parseBoolean(hasScopedLabelsFeature),
     },
     render: (createComponent) => createComponent(BoardApp),
   });
@@ -85,54 +94,12 @@ export default () => {
   // check for browser back and trigger a hard reload to circumvent browser caching.
   window.addEventListener('pageshow', (event) => {
     const isNavTypeBackForward =
-      window.performance && window.performance.navigation.type === NavigationType.TYPE_BACK_FORWARD;
+      window.performance && window.performance.navigation.type === navigationType.TYPE_BACK_FORWARD;
 
     if (event.persisted || isNavTypeBackForward) {
       window.location.reload();
     }
   });
 
-  const { releasesFetchPath, epicFeatureAvailable, iterationFeatureAvailable } = $boardApp.dataset;
-  initBoardsFilteredSearch(
-    apolloProvider,
-    isLoggedIn(),
-    releasesFetchPath,
-    parseBoolean(epicFeatureAvailable),
-    parseBoolean(iterationFeatureAvailable),
-  );
-
   mountBoardApp($boardApp);
-
-  const createColumnTriggerEl = document.querySelector('.js-create-column-trigger');
-  if (createColumnTriggerEl) {
-    // eslint-disable-next-line no-new
-    new Vue({
-      el: createColumnTriggerEl,
-      name: 'BoardAddNewColumnTriggerRoot',
-      components: {
-        BoardAddNewColumnTrigger,
-      },
-      store,
-      render(createElement) {
-        return createElement('board-add-new-column-trigger');
-      },
-    });
-  }
-
-  boardConfigToggle();
-  initNewBoard();
-
-  toggleFocusMode();
-  toggleLabels();
-
-  if (gon.licensed_features?.swimlanes) {
-    toggleEpicsSwimlanes();
-  }
-
-  mountMultipleBoardsSwitcher({
-    fullPath: $boardApp.dataset.fullPath,
-    rootPath: $boardApp.dataset.boardsEndpoint,
-    allowScopedLabels: $boardApp.dataset.scopedLabels,
-    labelsManagePath: $boardApp.dataset.labelsManagePath,
-  });
 };

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User browse group projects page' do
+RSpec.describe 'User browse group projects page', feature_category: :groups_and_projects do
   let(:user) { create :user }
   let(:group) { create :group }
 
@@ -23,7 +23,7 @@ RSpec.describe 'User browse group projects page' do
           visit projects_group_path(group)
 
           expect(page).to have_link project.name
-          expect(page).to have_css('span.badge.badge-warning', text: 'archived')
+          expect(page).to have_css('span.gl-badge.badge-info', text: 'Archived')
         end
       end
     end

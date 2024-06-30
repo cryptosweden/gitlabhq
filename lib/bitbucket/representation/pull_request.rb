@@ -4,7 +4,11 @@ module Bitbucket
   module Representation
     class PullRequest < Representation::Base
       def author
-        raw.fetch('author', {}).fetch('nickname', nil)
+        raw.dig('author', 'uuid')
+      end
+
+      def author_nickname
+        raw.dig('author', 'nickname')
       end
 
       def description
@@ -39,19 +43,48 @@ module Bitbucket
       end
 
       def source_branch_name
-        source_branch.fetch('branch', {}).fetch('name', nil)
+        source_branch&.dig('branch', 'name')
       end
 
       def source_branch_sha
-        source_branch.fetch('commit', {}).fetch('hash', nil)
+        source_branch&.dig('commit', 'hash')
       end
 
       def target_branch_name
-        target_branch.fetch('branch', {}).fetch('name', nil)
+        target_branch&.dig('branch', 'name')
       end
 
       def target_branch_sha
-        target_branch.fetch('commit', {}).fetch('hash', nil)
+        target_branch&.dig('commit', 'hash')
+      end
+
+      def reviewers
+        raw['reviewers']&.pluck('uuid')
+      end
+
+      def merge_commit_sha
+        raw['merge_commit']&.dig('hash')
+      end
+
+      def to_hash
+        {
+          iid: iid,
+          author: author,
+          author_nickname: author_nickname,
+          description: description,
+          created_at: created_at,
+          updated_at: updated_at,
+          state: state,
+          title: title,
+          source_branch_name: source_branch_name,
+          source_branch_sha: source_branch_sha,
+          merge_commit_sha: merge_commit_sha,
+          target_branch_name: target_branch_name,
+          target_branch_sha: target_branch_sha,
+          source_and_target_project_different: source_and_target_project_different,
+          reviewers: reviewers,
+          closed_by: closed_by
+        }
       end
 
       private
@@ -62,6 +95,22 @@ module Bitbucket
 
       def target_branch
         raw['destination']
+      end
+
+      def source_repo_uuid
+        source_branch&.dig('repository', 'uuid')
+      end
+
+      def target_repo_uuid
+        target_branch&.dig('repository', 'uuid')
+      end
+
+      def source_and_target_project_different
+        source_repo_uuid != target_repo_uuid
+      end
+
+      def closed_by
+        raw['closed_by']&.dig('uuid')
       end
     end
   end

@@ -1,4 +1,11 @@
-import { GlTable, GlAlert, GlLoadingIcon, GlDropdown, GlIcon, GlAvatar } from '@gitlab/ui';
+import {
+  GlTable,
+  GlAlert,
+  GlLoadingIcon,
+  GlDisclosureDropdown,
+  GlAvatar,
+  GlLink,
+} from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
@@ -26,11 +33,12 @@ describe('AlertManagementTable', () => {
   const findAlerts = () => wrapper.findAll('table tbody tr');
   const findAlert = () => wrapper.findComponent(GlAlert);
   const findLoader = () => wrapper.findComponent(GlLoadingIcon);
-  const findStatusDropdown = () => wrapper.findComponent(GlDropdown);
+  const findStatusDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
   const findDateFields = () => wrapper.findAllComponents(TimeAgo);
   const findSearch = () => wrapper.findComponent(FilteredSearchBar);
   const findSeverityColumnHeader = () => wrapper.findByTestId('alert-management-severity-sort');
   const findFirstIDField = () => wrapper.findAllByTestId('idField').at(0);
+  const findFirstIDLink = () => wrapper.findAllByTestId('idField').at(0).findComponent(GlLink);
   const findAssignees = () => wrapper.findAllByTestId('assigneesField');
   const findSeverityFields = () => wrapper.findAllByTestId('severityField');
   const findIssueFields = () => wrapper.findAllByTestId('issueField');
@@ -67,7 +75,7 @@ describe('AlertManagementTable', () => {
         },
         stubs,
         directives: {
-          GlTooltip: createMockDirective(),
+          GlTooltip: createMockDirective('gl-tooltip'),
         },
       }),
     );
@@ -78,9 +86,6 @@ describe('AlertManagementTable', () => {
   });
 
   afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
     mock.restore();
   });
 
@@ -135,10 +140,11 @@ describe('AlertManagementTable', () => {
       expect(findLoader().exists()).toBe(false);
       expect(findAlertsTable().exists()).toBe(true);
       expect(findAlerts()).toHaveLength(mockAlerts.length);
-      expect(findAlerts().at(0).classes()).toContain('gl-hover-bg-blue-50');
+      expect(findAlerts().at(0).classes()).toContain('gl-hover-bg-gray-50');
+      expect(findAlerts().at(0).classes()).not.toContain('gl-hover-border-blue-200');
     });
 
-    it('displays the alert ID and title formatted correctly', () => {
+    it('displays the alert ID and title as a link', () => {
       mountComponent({
         data: { alerts: { list: mockAlerts }, alertsCount, errored: false },
         loading: false,
@@ -146,6 +152,8 @@ describe('AlertManagementTable', () => {
 
       expect(findFirstIDField().exists()).toBe(true);
       expect(findFirstIDField().text()).toBe(`#${mockAlerts[0].iid} ${mockAlerts[0].title}`);
+      expect(findFirstIDLink().text()).toBe(`#${mockAlerts[0].iid} ${mockAlerts[0].title}`);
+      expect(findFirstIDLink().attributes('href')).toBe('/1527542/details');
     });
 
     it('displays status dropdown', () => {
@@ -172,8 +180,8 @@ describe('AlertManagementTable', () => {
 
       await nextTick();
 
-      expect(wrapper.find(GlTable).exists()).toBe(true);
-      expect(findAlertsTable().find(GlIcon).classes('icon-critical')).toBe(true);
+      expect(wrapper.findComponent(GlTable).exists()).toBe(true);
+      expect(findAlertsTable().find('[data-testid="severity-critical-icon"]').exists()).toBe(true);
     });
 
     it('renders severity text', () => {
@@ -185,7 +193,7 @@ describe('AlertManagementTable', () => {
       expect(findSeverityFields().at(0).text()).toBe('Critical');
     });
 
-    it('renders Unassigned when no assignee(s) present', () => {
+    it('renders Unassigned when no assignees present', () => {
       mountComponent({
         data: { alerts: { list: mockAlerts }, alertsCount, errored: false },
         loading: false,
@@ -200,7 +208,7 @@ describe('AlertManagementTable', () => {
         loading: false,
       });
 
-      const avatar = findAssignees().at(1).find(GlAvatar);
+      const avatar = findAssignees().at(1).findComponent(GlAvatar);
       const { src, label } = avatar.attributes();
       const { name, avatarUrl } = mockAlerts[1].assignees.nodes[0];
 
@@ -266,7 +274,8 @@ describe('AlertManagementTable', () => {
             alerts: {
               list: [
                 {
-                  iid: 1,
+                  iid: '1',
+                  title: 'SyntaxError: Invalid or unexpected token',
                   status: 'acknowledged',
                   startedAt: '2020-03-17T23:18:14.996Z',
                   severity: 'high',

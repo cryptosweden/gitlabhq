@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Settings > Repository settings' do
+RSpec.describe 'Projects > Settings > Repository settings', feature_category: :source_code_management do
+  include Features::MirroringHelpers
+
   let(:project) { create(:project_empty_repo) }
   let(:user) { create(:user) }
   let(:role) { :developer }
@@ -25,12 +27,11 @@ RSpec.describe 'Projects > Settings > Repository settings' do
   context 'for maintainer' do
     let(:role) { :maintainer }
 
-    context 'Deploy tokens' do
+    context 'Deploy tokens', :js do
       let!(:deploy_token) { create(:deploy_token, projects: [project]) }
 
       before do
         stub_container_registry_config(enabled: true)
-        stub_feature_flags(ajax_new_deploy_token: project)
       end
 
       it_behaves_like 'a deploy token in settings' do
@@ -39,11 +40,36 @@ RSpec.describe 'Projects > Settings > Repository settings' do
       end
     end
 
+    context 'Repository maintenance', :js do
+      before do
+        visit project_settings_repository_path(project)
+      end
+
+      it 'does not render remove blobs section' do
+        expect(page).not_to have_content('Remove blobs')
+      end
+
+      it 'does not render redact text section' do
+        expect(page).not_to have_content('Redact text')
+      end
+    end
+
+    context 'Branch rules', :js do
+      it 'renders branch rules settings' do
+        visit project_settings_repository_path(project)
+        expect(page).to have_content('Branch rules')
+      end
+    end
+
     context 'Deploy Keys', :js do
       let_it_be(:private_deploy_key) { create(:deploy_key, title: 'private_deploy_key', public: false) }
       let_it_be(:public_deploy_key) { create(:another_deploy_key, title: 'public_deploy_key', public: true) }
 
       let(:new_ssh_key) { attributes_for(:key)[:key] }
+
+      around do |example|
+        travel_to Time.zone.local(2022, 3, 1, 1, 0, 0) { example.run }
+      end
 
       it 'get list of keys' do
         project.deploy_keys << private_deploy_key
@@ -67,11 +93,28 @@ RSpec.describe 'Projects > Settings > Repository settings' do
         expect(page).to have_content('Grant write permissions to this key')
       end
 
+      it 'add a new deploy key with expiration' do
+        one_month = Time.zone.local(2022, 4, 1, 1, 0, 0)
+        visit project_settings_repository_path(project)
+
+        fill_in 'deploy_key_title', with: 'new_deploy_key_with_expiry'
+        fill_in 'deploy_key_key', with: new_ssh_key
+        fill_in 'deploy_key_expires_at', with: one_month.to_s
+        check 'deploy_key_deploy_keys_projects_attributes_0_can_push'
+        click_button 'Add key'
+
+        expect(page).to have_content('new_deploy_key_with_expiry')
+        expect(page).to have_content('in 1 month')
+        expect(page).to have_content('Grant write permissions to this key')
+      end
+
       it 'edit an existing deploy key' do
         project.deploy_keys << private_deploy_key
         visit project_settings_repository_path(project)
 
-        find('.deploy-key', text: private_deploy_key.title).find('[data-testid="pencil-icon"]').click
+        within('.deploy-key', text: private_deploy_key.title) do
+          find_by_testid('pencil-icon').click
+        end
 
         fill_in 'deploy_key_title', with: 'updated_deploy_key'
         check 'deploy_key_deploy_keys_projects_attributes_0_can_push'
@@ -85,7 +128,9 @@ RSpec.describe 'Projects > Settings > Repository settings' do
         project.deploy_keys << public_deploy_key
         visit project_settings_repository_path(project)
 
-        find('.deploy-key', text: public_deploy_key.title).find('[data-testid="pencil-icon"]').click
+        within('.deploy-key', text: public_deploy_key.title) do
+          find_by_testid('pencil-icon').click
+        end
 
         check 'deploy_key_deploy_keys_projects_attributes_0_can_push'
         click_button 'Save changes'
@@ -103,7 +148,9 @@ RSpec.describe 'Projects > Settings > Repository settings' do
 
         find('.js-deployKeys-tab-available_project_keys').click
 
-        find('.deploy-key', text: private_deploy_key.title).find('[data-testid="pencil-icon"]').click
+        within('.deploy-key', text: private_deploy_key.title) do
+          find_by_testid('pencil-icon').click
+        end
 
         fill_in 'deploy_key_title', with: 'updated_deploy_key'
         click_button 'Save changes'
@@ -125,8 +172,11 @@ RSpec.describe 'Projects > Settings > Repository settings' do
     end
 
     context 'remote mirror settings' do
+      let(:ssh_url) { 'ssh://user@localhost/project.git' }
+
       before do
         visit project_settings_repository_path(project)
+        click_button 'Add new'
       end
 
       it 'shows push mirror settings', :js do
@@ -134,11 +184,10 @@ RSpec.describe 'Projects > Settings > Repository settings' do
       end
 
       it 'creates a push mirror that mirrors all branches', :js do
-        expect(find('.js-mirror-protected-hidden', visible: false).value).to eq('0')
+        wait_for_mirror_field_javascript('protected', '0')
+        fill_and_wait_for_mirror_url_javascript('url', ssh_url)
 
-        fill_in 'url', with: 'ssh://user@localhost/project.git'
         select 'SSH public key', from: 'Authentication method'
-
         select_direction
 
         Sidekiq::Testing.fake! do
@@ -146,7 +195,6 @@ RSpec.describe 'Projects > Settings > Repository settings' do
         end
 
         project.reload
-
         expect(page).to have_content('Mirroring settings were successfully updated')
         expect(project.remote_mirrors.first.only_protected_branches).to eq(false)
       end
@@ -154,11 +202,10 @@ RSpec.describe 'Projects > Settings > Repository settings' do
       it 'creates a push mirror that only mirrors protected branches', :js do
         find('#only_protected_branches').click
 
-        expect(find('.js-mirror-protected-hidden', visible: false).value).to eq('1')
+        wait_for_mirror_field_javascript('protected', '1')
+        fill_and_wait_for_mirror_url_javascript('url', ssh_url)
 
-        fill_in 'url', with: 'ssh://user@localhost/project.git'
         select 'SSH public key', from: 'Authentication method'
-
         select_direction
 
         Sidekiq::Testing.fake! do
@@ -166,7 +213,6 @@ RSpec.describe 'Projects > Settings > Repository settings' do
         end
 
         project.reload
-
         expect(page).to have_content('Mirroring settings were successfully updated')
         expect(project.remote_mirrors.first.only_protected_branches).to eq(true)
       end
@@ -174,7 +220,8 @@ RSpec.describe 'Projects > Settings > Repository settings' do
       it 'creates a push mirror that keeps divergent refs', :js do
         select_direction
 
-        fill_in 'url', with: 'ssh://user@localhost/project.git'
+        fill_and_wait_for_mirror_url_javascript('url', ssh_url)
+
         fill_in 'Password', with: 'password'
         check 'Keep divergent refs'
 
@@ -182,12 +229,18 @@ RSpec.describe 'Projects > Settings > Repository settings' do
           click_button 'Mirror repository'
         end
 
-        expect(page).to have_content('Mirroring settings were successfully updated')
+        # TODO: The following line is skipped because a toast with
+        # "An error occurred while loading branch rules. Please try again."
+        # shows up right after which hides the below message. It is causing flakiness.
+        # https://gitlab.com/gitlab-org/gitlab/-/issues/383717#note_1185091998
+
+        # expect(page).to have_content('Mirroring settings were successfully updated')
         expect(project.reload.remote_mirrors.first.keep_divergent_refs).to eq(true)
       end
 
       it 'generates an SSH public key on submission', :js do
-        fill_in 'url', with: 'ssh://user@localhost/project.git'
+        fill_and_wait_for_mirror_url_javascript('url', ssh_url)
+
         select 'SSH public key', from: 'Authentication method'
 
         select_direction
@@ -196,7 +249,12 @@ RSpec.describe 'Projects > Settings > Repository settings' do
           click_button 'Mirror repository'
         end
 
-        expect(page).to have_content('Mirroring settings were successfully updated')
+        # TODO: The following line is skipped because a toast with
+        # "An error occurred while loading branch rules. Please try again."
+        # shows up right after which hides the below message. It is causing flakiness.
+        # https://gitlab.com/gitlab-org/gitlab/-/issues/383717#note_1185091998
+
+        # expect(page).to have_content('Mirroring settings were successfully updated')
         expect(page).to have_selector('[title="Copy SSH public key"]')
       end
 
@@ -239,7 +297,6 @@ RSpec.describe 'Projects > Settings > Repository settings' do
             click_button 'Start cleanup'
           end
         end
-
         expect(page).to have_content('Repository cleanup has started')
         expect(RepositoryCleanupWorker.jobs.count).to eq(1)
       end
@@ -301,6 +358,18 @@ RSpec.describe 'Projects > Settings > Repository settings' do
       let(:mirror_available) { false }
 
       include_examples 'shows mirror settings'
+    end
+
+    context 'Repository maintenance', :enable_admin_mode do
+      let(:mirror_available) { false }
+
+      it 'renders remove blobs section' do
+        expect(page).to have_content('Remove blobs')
+      end
+
+      it 'renders redact text section' do
+        expect(page).to have_content('Redact text')
+      end
     end
   end
 end

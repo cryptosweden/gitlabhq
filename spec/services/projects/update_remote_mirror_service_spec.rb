@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::UpdateRemoteMirrorService do
+RSpec.describe Projects::UpdateRemoteMirrorService, feature_category: :source_code_management do
   let_it_be(:project) { create(:project, :repository, lfs_enabled: true) }
   let_it_be(:remote_project) { create(:forked_project_with_submodules) }
   let_it_be(:remote_mirror) { create(:remote_mirror, project: project, enabled: true) }
@@ -53,7 +53,7 @@ RSpec.describe Projects::UpdateRemoteMirrorService do
 
     context 'when the URL is blocked' do
       before do
-        allow(Gitlab::UrlBlocker).to receive(:blocked_url?).and_return(true)
+        allow(Gitlab::HTTP_V2::UrlBlocker).to receive(:blocked_url?).and_return(true)
       end
 
       it 'hard retries and returns error status' do
@@ -67,6 +67,42 @@ RSpec.describe Projects::UpdateRemoteMirrorService do
         it 'hard fails and returns error status' do
           expect(execute!).to eq(status: :error, message: 'The remote mirror URL is invalid.')
           expect(remote_mirror).to be_failed
+        end
+      end
+    end
+
+    context "when the URL local" do
+      before do
+        allow(remote_mirror).to receive(:url).and_return('https://localhost:3000')
+      end
+
+      context "when local requests are allowed" do
+        before do
+          stub_application_setting(allow_local_requests_from_web_hooks_and_services: true)
+
+          # stub_application_setting does not work with `app/validators/addressable_url_validator.rb`
+          settings = ApplicationSetting.new(allow_local_requests_from_web_hooks_and_services: true)
+          allow(ApplicationSetting).to receive(:current).and_return(settings)
+        end
+
+        it "succeeds" do
+          expect(execute![:status]).to eq(:success)
+          expect(execute![:message]).to be_nil
+        end
+      end
+
+      context "when local requests are not allowed" do
+        before do
+          stub_application_setting(allow_local_requests_from_web_hooks_and_services: false)
+
+          # stub_application_setting does not work with `app/validators/addressable_url_validator.rb`
+          settings = ApplicationSetting.new(allow_local_requests_from_web_hooks_and_services: false)
+          allow(ApplicationSetting).to receive(:current).and_return(settings)
+        end
+
+        it "fails and returns error status" do
+          expect(execute![:status]).to eq(:error)
+          expect(execute![:message]).to eq('The remote mirror URL is invalid.')
         end
       end
     end

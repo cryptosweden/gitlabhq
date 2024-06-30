@@ -2,18 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache do
-  let(:project) { create(:project_empty_repo, :private, service_desk_enabled: false) }
+RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache, feature_category: :service_desk do
+  let_it_be_with_reload(:project) { create(:project_empty_repo, :private, service_desk_enabled: false) }
   let(:presenter) { project.present(current_user: user) }
-  let(:user) { create(:user) }
+  let_it_be_with_reload(:user) { create(:user) }
 
   before do
     project.add_maintainer(user)
     sign_in(user)
 
-    allow_any_instance_of(Project).to receive(:present).with(current_user: user).and_return(presenter)
-    allow(::Gitlab::IncomingEmail).to receive(:enabled?) { true }
-    allow(::Gitlab::IncomingEmail).to receive(:supports_wildcard?) { true }
+    allow_next_instance_of(Project) do |project|
+      allow(project).to receive(:present).with(current_user: user).and_return(presenter)
+    end
+    allow(::Gitlab::Email::IncomingEmail).to receive(:enabled?).and_return(true)
+    allow(::Gitlab::Email::IncomingEmail).to receive(:supports_wildcard?).and_return(true)
   end
 
   it 'shows activation checkbox' do
@@ -24,7 +26,7 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache do
 
   context 'when service_desk_email is disabled' do
     before do
-      allow(::Gitlab::ServiceDeskEmail).to receive(:enabled?).and_return(false)
+      allow(::Gitlab::Email::ServiceDeskEmail).to receive(:enabled?).and_return(false)
 
       visit edit_project_path(project)
     end
@@ -37,14 +39,14 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache do
       project.reload
       expect(project.service_desk_enabled).to be_truthy
       expect(project.service_desk_address).to be_present
-      expect(find('[data-testid="incoming-email"]').value).to eq(project.service_desk_incoming_address)
+      expect(find_by_testid('incoming-email').value).to eq(project.service_desk_incoming_address)
     end
   end
 
   context 'when service_desk_email is enabled' do
     before do
-      allow(::Gitlab::ServiceDeskEmail).to receive(:enabled?) { true }
-      allow(::Gitlab::ServiceDeskEmail).to receive(:address_for_key) { 'address-suffix@example.com' }
+      allow(::Gitlab::Email::ServiceDeskEmail).to receive(:enabled?).and_return(true)
+      allow(::Gitlab::Email::ServiceDeskEmail).to receive(:address_for_key).and_return('address-suffix@example.com')
 
       visit edit_project_path(project)
     end
@@ -54,7 +56,7 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache do
       wait_for_requests
 
       project.reload
-      expect(find('[data-testid="incoming-email"]').value).to eq(project.service_desk_custom_address)
+      expect(find_by_testid('incoming-email').value).to eq(project.service_desk_alias_address)
 
       page.within '#js-service-desk' do
         fill_in('service-desk-project-suffix', with: 'foo')
@@ -63,10 +65,10 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache do
 
       wait_for_requests
 
-      expect(find('[data-testid="incoming-email"]').value).to eq('address-suffix@example.com')
+      expect(find_by_testid('incoming-email').value).to eq('address-suffix@example.com')
     end
 
-    context 'issue description templates' do
+    describe 'issue description templates' do
       let_it_be(:issuable_project_template_files) do
         {
           '.gitlab/issue_templates/project-issue-bar.md' => 'Project Issue Template Bar',
@@ -81,9 +83,14 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache do
         }
       end
 
-      let_it_be_with_reload(:group) { create(:group)}
-      let_it_be_with_reload(:project) { create(:project, :custom_repo, group: group, files: issuable_project_template_files) }
-      let_it_be(:group_template_repo) { create(:project, :custom_repo, group: group, files: issuable_group_template_files) }
+      let_it_be_with_reload(:group) { create(:group) }
+      let_it_be_with_reload(:project) do
+        create(:project, :custom_repo, group: group, files: issuable_project_template_files)
+      end
+
+      let_it_be(:group_template_repo) do
+        create(:project, :custom_repo, group: group, files: issuable_group_template_files)
+      end
 
       before do
         stub_licensed_features(custom_file_templates_for_namespace: false, custom_file_templates: false)
@@ -93,5 +100,12 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache do
 
       it_behaves_like 'issue description templates from current project only'
     end
+  end
+
+  it 'pushes feature flags to frontend' do
+    visit edit_project_path(project)
+
+    expect(page).to have_pushed_frontend_feature_flags(issueEmailParticipants: true)
+    expect(page).to have_pushed_frontend_feature_flags(serviceDeskTicketsConfidentiality: true)
   end
 end

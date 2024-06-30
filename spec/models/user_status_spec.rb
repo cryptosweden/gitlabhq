@@ -18,6 +18,14 @@ RSpec.describe UserStatus do
     expect { status.user.destroy! }.to change { described_class.count }.from(1).to(0)
   end
 
+  describe '#clear_status_after' do
+    it 'is an alias of #clear_status_at', :freeze_time do
+      status = build(:user_status, clear_status_at: 8.hours.from_now)
+
+      expect(status.clear_status_after).to be_like_time(8.hours.from_now)
+    end
+  end
+
   describe '#clear_status_after=' do
     it 'sets clear_status_at' do
       status = build(:user_status)
@@ -45,6 +53,32 @@ RSpec.describe UserStatus do
 
         expect(status.clear_status_at).to be_nil
       end
+    end
+  end
+
+  describe '#customized?' do
+    it 'is customized when message text is present' do
+      subject.message = 'My custom status'
+
+      expect(subject).to be_customized
+    end
+
+    it 'is not customized when message text is absent' do
+      subject.message = nil
+
+      expect(subject).not_to be_customized
+    end
+
+    it 'is customized without message but with custom emoji' do
+      subject.emoji = 'bow'
+
+      expect(subject).to be_customized
+    end
+
+    it 'is not customized without message but with default custom emoji' do
+      subject.emoji = 'speech_balloon'
+
+      expect(subject).not_to be_customized
     end
   end
 end

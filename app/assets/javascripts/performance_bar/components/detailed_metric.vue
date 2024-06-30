@@ -1,5 +1,11 @@
 <script>
-import { GlButton, GlDropdown, GlDropdownItem, GlModal, GlModalDirective } from '@gitlab/ui';
+import {
+  GlButton,
+  GlTooltipDirective,
+  GlModal,
+  GlModalDirective,
+  GlCollapsibleListbox,
+} from '@gitlab/ui';
 
 import { __, s__ } from '~/locale';
 import { sortOrders, sortOrderOptions } from '../constants';
@@ -9,11 +15,11 @@ export default {
   components: {
     RequestWarning,
     GlButton,
-    GlDropdown,
-    GlDropdownItem,
     GlModal,
+    GlCollapsibleListbox,
   },
   directives: {
+    GlTooltip: GlTooltipDirective,
     'gl-modal': GlModalDirective,
   },
   props: {
@@ -68,7 +74,8 @@ export default {
     metricDetailsLabel() {
       if (this.metricDetails.duration && this.metricDetails.calls) {
         return `${this.metricDetails.duration} / ${this.metricDetails.calls}`;
-      } else if (this.metricDetails.calls) {
+      }
+      if (this.metricDetails.calls) {
         return this.metricDetails.calls;
       }
 
@@ -119,9 +126,6 @@ export default {
     itemHasOpenedBacktrace(toggledIndex) {
       return this.openedBacktraces.find((openedIndex) => openedIndex === toggledIndex) >= 0;
     },
-    changeSortOrder(order) {
-      this.sortOrder = order;
-    },
     sortDetailByDuration(a, b) {
       return a.duration < b.duration ? 1 : -1;
     },
@@ -136,40 +140,38 @@ export default {
   <div
     v-if="currentRequest.details && metricDetails"
     :id="`peek-view-${metric}`"
-    class="gl-display-flex gl-align-items-center view"
-    data-qa-selector="detailed_metric_content"
+    class="gl-display-flex gl-align-items-baseline view"
+    data-testid="detailed-metric-content"
   >
-    <gl-button v-gl-modal="modalId" class="gl-mr-2" type="button" variant="link">
-      <span
-        class="gl-text-blue-200 gl-font-weight-bold"
-        data-testid="performance-bar-details-label"
-      >
+    <gl-button
+      v-gl-tooltip.viewport
+      v-gl-modal="modalId"
+      class="gl-mr-2"
+      :title="header"
+      variant="link"
+    >
+      <span class="gl-font-sm gl-font-semibold" data-testid="performance-bar-details-label">
         {{ metricDetailsLabel }}
       </span>
     </gl-button>
-    <gl-modal :modal-id="modalId" :title="header" size="lg" footer-class="d-none" scrollable>
+    <gl-modal :modal-id="modalId" :title="header" size="lg" footer-class="!gl-hidden" scrollable>
       <div class="gl-display-flex gl-align-items-center gl-justify-content-space-between">
         <div class="gl-display-flex gl-align-items-center" data-testid="performance-bar-summary">
           <div v-for="(value, name) in metricDetailsSummary" :key="name" class="gl-pr-8">
             <div v-if="value" data-testid="performance-bar-summary-item">
               <div>{{ name }}</div>
-              <div class="gl-font-size-h1 gl-font-weight-bold">{{ value }}</div>
+              <div class="gl-font-size-h1 gl-font-semibold">{{ value }}</div>
             </div>
           </div>
         </div>
-        <gl-dropdown
+        <gl-collapsible-listbox
           v-if="displaySortOrder"
-          :text="$options.sortOrderOptions[sortOrder]"
-          right
+          v-model="sortOrder"
+          :toggle-text="$options.sortOrderOptions[sortOrder].text"
+          :items="Object.values($options.sortOrderOptions)"
+          placement="bottom-end"
           data-testid="performance-bar-sort-order"
-        >
-          <gl-dropdown-item
-            v-for="option in Object.keys($options.sortOrderOptions)"
-            :key="option"
-            @click="changeSortOrder(option)"
-            >{{ $options.sortOrderOptions[option] }}</gl-dropdown-item
-          >
-        </gl-dropdown>
+        />
       </div>
       <hr />
       <table class="table gl-table">
@@ -180,13 +182,13 @@ export default {
                 sprintf(__('%{duration}ms'), { duration: item.duration })
               }}</span>
             </td>
-            <td data-testid="performance-item-content">
+            <td>
               <div>
                 <div
                   v-for="(key, keyIndex) in keys"
                   :key="key"
                   class="text-break-word"
-                  :class="{ 'mb-3 bold': keyIndex == 0 }"
+                  :class="{ 'mb-3 gl-font-semibold': keyIndex == 0 }"
                 >
                   {{ item[key] }}
                   <gl-button
@@ -222,7 +224,7 @@ export default {
         <div></div>
       </template>
     </gl-modal>
-    {{ actualTitle }}
+    <span class="gl-opacity-7">{{ actualTitle }}</span>
     <request-warning :html-id="htmlId" :warnings="warnings" />
   </div>
 </template>

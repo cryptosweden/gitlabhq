@@ -3,8 +3,10 @@
   "required" : [
     "project",
     "user",
+    "credit_card",
     "pipeline",
-    "builds"
+    "builds",
+    "total_builds_count"
   ],
   "properties" : {
     "project": {
@@ -12,12 +14,16 @@
       "required": [
         "id",
         "path",
-        "created_at"
+        "created_at",
+        "shared_runners_enabled",
+        "group_runners_enabled"
       ],
       "properties": {
         "id": { "type": "integer" },
         "path": { "type": "string" },
-        "created_at": { "type": ["string", "null"], "format": "date-time" }
+        "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "shared_runners_enabled": { "type": "boolean" },
+        "group_runners_enabled": { "type": "boolean" }
       }
     },
     "user": {
@@ -36,6 +42,17 @@
         "current_sign_in_ip": { "type": ["string", "null"] },
         "last_sign_in_ip": { "type": ["string", "null"] },
         "sign_in_count": { "type": "integer" }
+      }
+    },
+    "credit_card": {
+      "type": "object",
+      "required": [
+        "similar_cards_count",
+        "similar_holder_names_count"
+      ],
+      "properties": {
+        "similar_cards_count": { "type": "integer" },
+        "similar_holder_names_count": { "type": "integer" }
       }
     },
     "pipeline": {
@@ -59,6 +76,7 @@
           "name",
           "stage",
           "image",
+          "tag_list",
           "services",
           "script"
         ],
@@ -66,6 +84,10 @@
           "name": { "type": "string" },
           "stage": { "type": "string" },
           "image": { "type": ["string", "null"] },
+          "tag_list": {
+            "type": ["array", "null"] },
+            "items": { "type": "string" }
+          },
           "services": {
             "type": ["array", "null"],
             "items": { "type": "string" }
@@ -76,6 +98,7 @@
           }
         }
       }
-    }
+    },
+    "total_builds_count": { "type": "integer" }
   }
 }

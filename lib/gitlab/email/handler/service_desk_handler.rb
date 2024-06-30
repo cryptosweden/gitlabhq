@@ -10,9 +10,9 @@ module Gitlab
         include ReplyProcessing
         include Gitlab::Utils::StrongMemoize
 
-        HANDLER_REGEX        = /\A#{HANDLER_ACTION_BASE_REGEX}-issue-\z/.freeze
-        HANDLER_REGEX_LEGACY = /\A(?<project_path>[^\+]*)\z/.freeze
-        PROJECT_KEY_PATTERN  = /\A(?<slug>.+)-(?<key>[a-z0-9_]+)\z/.freeze
+        HANDLER_REGEX        = /\A#{HANDLER_ACTION_BASE_REGEX}-issue-\z/
+        HANDLER_REGEX_LEGACY = /\A(?<project_path>[^\+]*)\z/
+        PROJECT_KEY_PATTERN  = /\A(?<slug>.+)-(?<key>[a-z0-9_]+)\z/
 
         def initialize(mail, mail_key, service_desk_key: nil)
           if service_desk_key
@@ -32,10 +32,13 @@ module Gitlab
         def execute
           raise ProjectNotFound if project.nil?
 
+          # Verification emails should never create issues
+          return if handled_custom_email_address_verification?
+
           create_issue_or_note
 
           if from_address
-            add_email_participant
+            add_email_participants
             send_thank_you_email unless reply_email?
           end
         end
@@ -70,6 +73,27 @@ module Gitlab
 
         attr_reader :project_id, :project_path, :service_desk_key
 
+        def contains_custom_email_address_verification_subaddress?
+          return false unless to_address.present?
+
+          # Verification email only has one recipient
+          to_address.include?(ServiceDeskSetting::CUSTOM_EMAIL_VERIFICATION_SUBADDRESS)
+        end
+
+        def handled_custom_email_address_verification?
+          return false unless contains_custom_email_address_verification_subaddress?
+
+          ::ServiceDesk::CustomEmailVerifications::UpdateService.new(
+            project: project,
+            current_user: nil,
+            params: {
+              mail: mail
+            }
+          ).execute
+
+          true
+        end
+
         def project_from_key
           return unless match = service_desk_key.match(PROJECT_KEY_PATTERN)
 
@@ -91,19 +115,24 @@ module Gitlab
         end
 
         def create_issue!
-          @issue = ::Issues::CreateService.new(
-            project: project,
-            current_user: User.support_bot,
+          result = ::Issues::CreateService.new(
+            container: project,
+            current_user: Users::Internal.support_bot,
             params: {
               title: mail.subject,
               description: message_including_template,
-              confidential: true,
-              external_author: from_address
+              confidential: ticket_confidential?,
+              external_author: from_address,
+              extra_params: {
+                cc: mail.cc
+              }
             },
-            spam_params: nil
+            perform_spam_check: false
           ).execute
 
-          raise InvalidIssueError unless @issue.persisted?
+          raise InvalidIssueError if result.error?
+
+          @issue = result[:issue]
 
           begin
             ::Issue::Email.create!(issue: @issue, email_message_id: mail.message_id)
@@ -170,7 +199,7 @@ module Gitlab
         def create_note(note)
           ::Notes::CreateService.new(
             project,
-            User.support_bot,
+            Users::Internal.support_bot,
             noteable: @issue,
             note: note
           ).execute
@@ -180,18 +209,58 @@ module Gitlab
           (mail.reply_to || []).first || mail.from.first || mail.sender
         end
 
+        def to_address
+          mail.to&.first
+        end
+        strong_memoize_attr :to_address
+
+        def cc_addresses
+          mail.cc || []
+        end
+
         def can_handle_legacy_format?
-          project_path && project_path.include?('/') && !mail_key.include?('+')
+          project_path && project_path.include?('/') && mail_key.exclude?('+')
         end
 
         def author
-          User.support_bot
+          Users::Internal.support_bot
         end
 
-        def add_email_participant
+        def add_email_participants
           return if reply_email? && !Feature.enabled?(:issue_email_participants, @issue.project)
 
+          # Migrate this to ::IssueEmailParticipants::CreateService once the
+          # feature flag issue_email_participants has been enabled globally
+          # or removed: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/137147#note_1652104416
           @issue.issue_email_participants.create(email: from_address)
+
+          add_external_participants_from_cc
+        end
+
+        def add_external_participants_from_cc
+          return if project.service_desk_setting.nil?
+          return unless project.service_desk_setting.add_external_participants_from_cc?
+
+          ::IssueEmailParticipants::CreateService.new(
+            target: @issue,
+            current_user: Users::Internal.support_bot,
+            emails: cc_addresses.excluding(service_desk_addresses)
+          ).execute
+        end
+
+        def service_desk_addresses
+          [
+            project.service_desk_incoming_address,
+            project.service_desk_alias_address,
+            project.service_desk_custom_address
+          ].compact
+        end
+        strong_memoize_attr :service_desk_addresses
+
+        def ticket_confidential?
+          return true if service_desk_setting.nil?
+
+          service_desk_setting.tickets_confidential_by_default?
         end
       end
     end

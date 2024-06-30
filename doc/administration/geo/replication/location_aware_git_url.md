@@ -1,14 +1,16 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Location-aware Git remote URL with AWS Route53 **(PREMIUM SELF)**
+# Location-aware Git remote URL with AWS Route53
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
 NOTE:
-Since GitLab 14.6,
 [GitLab Geo supports a location-aware URL including web UI and API traffic.](../secondary_proxy/location_aware_external_url.md)
 This configuration is recommended over the location-aware Git remote URL
 described in this document.
@@ -31,7 +33,7 @@ In this example, we have already set up:
 - `primary.example.com` as a Geo **primary** site.
 - `secondary.example.com` as a Geo **secondary** site.
 
-We will create a `git.example.com` subdomain that will automatically direct
+We create a `git.example.com` subdomain that automatically directs
 requests:
 
 - From Europe to the **secondary** site.
@@ -52,39 +54,39 @@ In a Route53 Hosted Zone, traffic policies can be used to set up a variety of
 routing configurations.
 
 1. Go to the
-[Route53 dashboard](https://console.aws.amazon.com/route53/home) and select
-**Traffic policies**.
+   [Route53 dashboard](https://console.aws.amazon.com/route53/home) and select
+   **Traffic policies**.
 
    ![Traffic policies](img/single_git_traffic_policies.png)
 
-1. Click the **Create traffic policy** button.
+1. Select **Create traffic policy**.
 
    ![Name policy](img/single_git_name_policy.png)
 
-1. Fill in the **Policy Name** field with `Single Git Host` and click **Next**.
+1. Fill in the **Policy Name** field with `Single Git Host` and select **Next**.
 
    ![Policy diagram](img/single_git_policy_diagram.png)
 
 1. Leave **DNS type** as `A: IP Address in IPv4 format`.
-1. Click **Connect to...** and select **Geolocation rule**.
+1. Select **Connect to** and select **Geolocation rule**.
 
    ![Add geolocation rule](img/single_git_add_geolocation_rule.png)
 
 1. For the first **Location**, leave it as `Default`.
-1. Click **Connect to...** and select **New endpoint**.
+1. Select **Connect to** and select **New endpoint**.
 1. Choose **Type** `value` and fill it in with `<your **primary** IP address>`.
 1. For the second **Location**, choose `Europe`.
-1. Click **Connect to...** and select **New endpoint**.
+1. Select **Connect to** and select **New endpoint**.
 1. Choose **Type** `value` and fill it in with `<your **secondary** IP address>`.
 
    ![Add traffic policy endpoints](img/single_git_add_traffic_policy_endpoints.png)
 
-1. Click **Create traffic policy**.
+1. Select **Create traffic policy**.
 
    ![Create policy records with traffic policy](img/single_git_create_policy_records_with_traffic_policy.png)
 
 1. Fill in **Policy record DNS name** with `git`.
-1. Click **Create policy records**.
+1. Select **Create policy records**.
 
    ![Created policy record](img/single_git_created_policy_record.png)
 
@@ -104,10 +106,10 @@ on the external URL of the current host. For example:
 
 You can customize the:
 
-- SSH remote URL to use the location-aware `git.example.com`. To do so, change the SSH remote URL's
+- SSH remote URL to use the location-aware `git.example.com`. To do so, change the SSH remote URL
   host by setting `gitlab_rails['gitlab_ssh_host']` in `gitlab.rb` of web nodes.
 - HTTP remote URL as shown in
-  [Custom Git clone URL for HTTP(S)](../../../user/admin_area/settings/visibility_and_access_controls.md#customize-git-clone-url-for-https).
+  [Custom Git clone URL for HTTP(S)](../../settings/visibility_and_access_controls.md#customize-git-clone-url-for-https).
 
 ## Example Git request handling behavior
 
@@ -123,4 +125,4 @@ For requests:
   - SSH:
     - `git clone git@git.example.com:foo/bar.git` is directed to the **secondary**.
     - `git push` is initially directed to the **secondary**, which automatically
-       proxies the request to `primary.example.com`.
+      proxies the request to `primary.example.com`.

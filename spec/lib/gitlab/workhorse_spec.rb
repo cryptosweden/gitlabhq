@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Workhorse do
+RSpec.describe Gitlab::Workhorse, feature_category: :shared do
   let_it_be(:project) { create(:project, :repository) }
+  let(:features) { { 'gitaly-feature-enforce-requests-limits' => 'true' } }
 
   let(:repository) { project.repository }
 
@@ -42,7 +43,7 @@ RSpec.describe Gitlab::Workhorse do
       expect(command).to eq('git-archive')
       expect(params).to eq({
         'GitalyServer' => {
-          features: { 'gitaly-feature-enforce-requests-limits' => 'true' },
+          'call_metadata' => features,
           address: Gitlab::GitalyClient.address(project.repository_storage),
           token: Gitlab::GitalyClient.token(project.repository_storage)
         },
@@ -78,6 +79,14 @@ RSpec.describe Gitlab::Workhorse do
         expect { subject }.to raise_error(RuntimeError)
       end
     end
+
+    context 'when path contains certain utf-8 characters' do
+      let(:path) { '😬' }
+
+      it 'does not raise an encoding error' do
+        expect { subject }.not_to raise_error
+      end
+    end
   end
 
   describe '.send_git_patch' do
@@ -92,7 +101,7 @@ RSpec.describe Gitlab::Workhorse do
       expect(command).to eq("git-format-patch")
       expect(params).to eq({
         'GitalyServer' => {
-          features: { 'gitaly-feature-enforce-requests-limits' => 'true' },
+          'call_metadata' => features,
           address: Gitlab::GitalyClient.address(project.repository_storage),
           token: Gitlab::GitalyClient.token(project.repository_storage)
         },
@@ -155,7 +164,7 @@ RSpec.describe Gitlab::Workhorse do
       expect(command).to eq("git-diff")
       expect(params).to eq({
         'GitalyServer' => {
-          features: { 'gitaly-feature-enforce-requests-limits' => 'true' },
+          'call_metadata' => features,
           address: Gitlab::GitalyClient.address(project.repository_storage),
           token: Gitlab::GitalyClient.token(project.repository_storage)
         },
@@ -208,6 +217,16 @@ RSpec.describe Gitlab::Workhorse do
 
   describe '.git_http_ok' do
     let(:user) { create(:user) }
+    let(:gitaly_params) do
+      {
+        GitalyServer: {
+          call_metadata: call_metadata,
+          address: Gitlab::GitalyClient.address('default'),
+          token: Gitlab::GitalyClient.token('default')
+        }
+      }
+    end
+
     let(:repo_path) { 'ignored but not allowed to be empty in gitlab-workhorse' }
     let(:action) { 'info_refs' }
     let(:params) do
@@ -215,8 +234,16 @@ RSpec.describe Gitlab::Workhorse do
         GL_ID: "user-#{user.id}",
         GL_USERNAME: user.username,
         GL_REPOSITORY: "project-#{project.id}",
-        ShowAllRefs: false
+        ShowAllRefs: false,
+        NeedAudit: false
       }
+    end
+
+    let(:call_metadata) do
+      features.merge({
+                       'user_id' => params[:GL_ID],
+                       'username' => params[:GL_USERNAME]
+                     })
     end
 
     subject { described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action) }
@@ -238,142 +265,85 @@ RSpec.describe Gitlab::Workhorse do
       it { expect(subject).to include(params) }
     end
 
-    context 'when Gitaly is enabled' do
-      let(:gitaly_params) do
-        {
-          GitalyServer: {
-            features: { 'gitaly-feature-enforce-requests-limits' => 'true' },
-            address: Gitlab::GitalyClient.address('default'),
-            token: Gitlab::GitalyClient.token('default'),
-            sidechannel: false
-          }
-        }
+    it 'includes a Repository param' do
+      repo_param = {
+        storage_name: 'default',
+        relative_path: project.disk_path + '.git',
+        gl_repository: "project-#{project.id}"
+      }
+
+      expect(subject[:Repository]).to include(repo_param)
+    end
+
+    context "when git_upload_pack action is passed" do
+      let(:action) { 'git_upload_pack' }
+
+      it { expect(subject).to include(gitaly_params) }
+
+      context 'show_all_refs enabled' do
+        subject { described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action, show_all_refs: true) }
+
+        it { is_expected.to include(ShowAllRefs: true) }
       end
 
-      before do
-        allow(Gitlab.config.gitaly).to receive(:enabled).and_return(true)
-        stub_feature_flags(workhorse_use_sidechannel: false)
+      context 'need_audit enabled' do
+        subject { described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action, show_all_refs: true, need_audit: true) }
+
+        it { is_expected.to include(NeedAudit: true) }
       end
 
-      it 'includes a Repository param' do
-        repo_param = {
-          storage_name: 'default',
-          relative_path: project.disk_path + '.git',
-          gl_repository: "project-#{project.id}"
-        }
-
-        expect(subject[:Repository]).to include(repo_param)
-      end
-
-      context "when git_upload_pack action is passed" do
-        let(:action) { 'git_upload_pack' }
-        let(:feature_flag) { :post_upload_pack }
-
-        it 'includes Gitaly params in the returned value' do
-          allow(Gitlab::GitalyClient).to receive(:feature_enabled?).with(feature_flag).and_return(true)
-
-          expect(subject).to include(gitaly_params)
+      context 'when a feature flag is set for a single project' do
+        before do
+          stub_feature_flags(gitaly_mep_mep: project)
         end
 
-        context 'show_all_refs enabled' do
-          subject { described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action, show_all_refs: true) }
+        it 'sets the flag to true for that project' do
+          response = described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action)
 
-          it { is_expected.to include(ShowAllRefs: true) }
+          expect(response.dig(:GitalyServer, :call_metadata)).to include('gitaly-feature-enforce-requests-limits' => 'true',
+            'gitaly-feature-mep-mep' => 'true')
         end
 
-        context 'when a feature flag is set for a single project' do
-          before do
-            stub_feature_flags(gitaly_mep_mep: project)
-          end
+        it 'sets the flag to false for other projects' do
+          other_project = create(:project, :public, :repository)
+          response = described_class.git_http_ok(other_project.repository, Gitlab::GlRepository::PROJECT, user, action)
 
-          it 'sets the flag to true for that project' do
-            response = described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action)
-
-            expect(response.dig(:GitalyServer, :features)).to eq('gitaly-feature-enforce-requests-limits' => 'true',
-                                                                 'gitaly-feature-mep-mep' => 'true')
-          end
-
-          it 'sets the flag to false for other projects' do
-            other_project = create(:project, :public, :repository)
-            response = described_class.git_http_ok(other_project.repository, Gitlab::GlRepository::PROJECT, user, action)
-
-            expect(response.dig(:GitalyServer, :features)).to eq('gitaly-feature-enforce-requests-limits' => 'true',
-                                                                 'gitaly-feature-mep-mep' => 'false')
-          end
-
-          it 'sets the flag to false when there is no project' do
-            snippet = create(:personal_snippet, :repository)
-            response = described_class.git_http_ok(snippet.repository, Gitlab::GlRepository::SNIPPET, user, action)
-
-            expect(response.dig(:GitalyServer, :features)).to eq('gitaly-feature-enforce-requests-limits' => 'true',
-                                                                 'gitaly-feature-mep-mep' => 'false')
-          end
-        end
-      end
-
-      context "when git_receive_pack action is passed" do
-        let(:action) { 'git_receive_pack' }
-
-        it { expect(subject).to include(gitaly_params) }
-      end
-
-      context "when info_refs action is passed" do
-        let(:action) { 'info_refs' }
-
-        it { expect(subject).to include(gitaly_params) }
-
-        context 'show_all_refs enabled' do
-          subject { described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action, show_all_refs: true) }
-
-          it { is_expected.to include(ShowAllRefs: true) }
-        end
-      end
-
-      context 'when action passed is not supported by Gitaly' do
-        let(:action) { 'download' }
-
-        it { expect { subject }.to raise_exception('Unsupported action: download') }
-      end
-
-      context 'when workhorse_use_sidechannel flag is set' do
-        context 'when a feature flag is set globally' do
-          before do
-            stub_feature_flags(workhorse_use_sidechannel: true)
-          end
-
-          it 'sets the flag to true' do
-            response = described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action)
-
-            expect(response.dig(:GitalyServer, :sidechannel)).to eq(true)
-          end
+          expect(response.dig(:GitalyServer, :call_metadata)).to include('gitaly-feature-enforce-requests-limits' => 'true',
+            'gitaly-feature-mep-mep' => 'false')
         end
 
-        context 'when a feature flag is set for a single project' do
-          before do
-            stub_feature_flags(workhorse_use_sidechannel: project)
-          end
+        it 'sets the flag to false when there is no project' do
+          snippet = create(:personal_snippet, :repository)
+          response = described_class.git_http_ok(snippet.repository, Gitlab::GlRepository::SNIPPET, user, action)
 
-          it 'sets the flag to true for that project' do
-            response = described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action)
-
-            expect(response.dig(:GitalyServer, :sidechannel)).to eq(true)
-          end
-
-          it 'sets the flag to false for other projects' do
-            other_project = create(:project, :public, :repository)
-            response = described_class.git_http_ok(other_project.repository, Gitlab::GlRepository::PROJECT, user, action)
-
-            expect(response.dig(:GitalyServer, :sidechannel)).to eq(false)
-          end
-
-          it 'sets the flag to false when there is no project' do
-            snippet = create(:personal_snippet, :repository)
-            response = described_class.git_http_ok(snippet.repository, Gitlab::GlRepository::SNIPPET, user, action)
-
-            expect(response.dig(:GitalyServer, :sidechannel)).to eq(false)
-          end
+          expect(response.dig(:GitalyServer, :call_metadata)).to include('gitaly-feature-enforce-requests-limits' => 'true',
+            'gitaly-feature-mep-mep' => 'false')
         end
       end
+    end
+
+    context "when git_receive_pack action is passed" do
+      let(:action) { 'git_receive_pack' }
+
+      it { expect(subject).to include(gitaly_params) }
+    end
+
+    context "when info_refs action is passed" do
+      let(:action) { 'info_refs' }
+
+      it { expect(subject).to include(gitaly_params) }
+
+      context 'show_all_refs enabled' do
+        subject { described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action, show_all_refs: true) }
+
+        it { is_expected.to include(ShowAllRefs: true) }
+      end
+    end
+
+    context 'when action passed is not supported by Gitaly' do
+      let(:action) { 'download' }
+
+      it { expect { subject }.to raise_exception('Unsupported action: download') }
     end
 
     context 'when receive_max_input_size has been updated' do
@@ -391,6 +361,39 @@ RSpec.describe Gitlab::Workhorse do
         expect(subject[:GitConfigOptions]).to be_empty
       end
     end
+
+    context 'when remote_ip is available in the application context' do
+      it 'includes a RemoteIP params' do
+        result = {}
+        Gitlab::ApplicationContext.with_context(remote_ip: "1.2.3.4") do
+          result = described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action)
+        end
+        expect(result[:GitalyServer][:call_metadata]['remote_ip']).to eql("1.2.3.4")
+      end
+    end
+
+    context 'when remote_ip is not available in the application context' do
+      it 'does not include RemoteIP params' do
+        result = described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action)
+        expect(result[:GitalyServer][:call_metadata]).not_to have_key('remote_ip')
+      end
+    end
+  end
+
+  describe '.cleanup_key' do
+    let(:key) { 'test-key' }
+    let(:value) { 'test-value' }
+
+    subject(:cleanup_key) { described_class.cleanup_key(key) }
+
+    before do
+      described_class.set_key_and_notify(key, value)
+    end
+
+    it 'deletes the key' do
+      expect { cleanup_key }
+        .to change { Gitlab::Redis::Workhorse.with { |c| c.exists?(key) } }.from(true).to(false)
+    end
   end
 
   describe '.set_key_and_notify' do
@@ -405,9 +408,9 @@ RSpec.describe Gitlab::Workhorse do
       end
 
       it 'set and notify' do
-        expect(Gitlab::Redis::SharedState).to receive(:with).and_call_original
+        expect(Gitlab::Redis::Workhorse).to receive(:with).and_call_original
         expect_any_instance_of(::Redis).to receive(:publish)
-          .with(described_class::NOTIFICATION_CHANNEL, "test-key=test-value")
+          .with(described_class::NOTIFICATION_PREFIX + 'test-key', "test-value")
 
         subject
       end
@@ -448,6 +451,14 @@ RSpec.describe Gitlab::Workhorse do
     end
   end
 
+  describe '.detect_content_type' do
+    subject { described_class.detect_content_type }
+
+    it 'returns array setting detect content type in workhorse' do
+      expect(subject).to eq(%w[Gitlab-Workhorse-Detect-Content-Type true])
+    end
+  end
+
   describe '.send_git_blob' do
     include FakeBlobHelpers
 
@@ -462,7 +473,7 @@ RSpec.describe Gitlab::Workhorse do
       expect(command).to eq('git-blob')
       expect(params).to eq({
         'GitalyServer' => {
-          features: { 'gitaly-feature-enforce-requests-limits' => 'true' },
+          'call_metadata' => features,
           address: Gitlab::GitalyClient.address(project.repository_storage),
           token: Gitlab::GitalyClient.token(project.repository_storage)
         },
@@ -477,18 +488,74 @@ RSpec.describe Gitlab::Workhorse do
 
   describe '.send_url' do
     let(:url) { 'http://example.com' }
-
-    subject { described_class.send_url(url) }
+    let(:expected_params) do
+      {
+        'URL' => url,
+        'AllowRedirects' => false,
+        'Header' => {},
+        'Body' => '',
+        'Method' => 'GET'
+      }
+    end
 
     it 'sets the header correctly' do
-      key, command, params = decode_workhorse_header(subject)
+      key, command, params = decode_workhorse_header(
+        described_class.send_url(url)
+      )
 
       expect(key).to eq("Gitlab-Workhorse-Send-Data")
       expect(command).to eq("send-url")
-      expect(params).to eq({
-        'URL' => url,
-        'AllowRedirects' => false
-      }.deep_stringify_keys)
+      expect(params).to eq(expected_params)
+    end
+
+    context 'when body, headers and method are specified' do
+      let(:body) { 'body' }
+      let(:headers) { { Authorization: ['Bearer token'] } }
+      let(:method) { 'POST' }
+
+      let(:expected_params) do
+        super().merge(
+          'Body' => body,
+          'Header' => headers,
+          'Method' => method
+        ).deep_stringify_keys
+      end
+
+      it 'sets the header correctly' do
+        key, command, params = decode_workhorse_header(
+          described_class.send_url(url, body: body, headers: headers, method: method)
+        )
+
+        expect(key).to eq("Gitlab-Workhorse-Send-Data")
+        expect(command).to eq("send-url")
+        expect(params).to eq(expected_params)
+      end
+    end
+
+    context 'when timeouts are set' do
+      let(:timeouts) { { open: '5', read: '5' } }
+      let(:expected_params) { super().merge('DialTimeout' => '5s', 'ResponseHeaderTimeout' => '5s') }
+
+      it 'sets the header correctly' do
+        key, command, params = decode_workhorse_header(described_class.send_url(url, timeouts: timeouts))
+
+        expect(key).to eq("Gitlab-Workhorse-Send-Data")
+        expect(command).to eq("send-url")
+        expect(params).to eq(expected_params)
+      end
+    end
+
+    context 'when an response statuses are set' do
+      let(:response_statuses) { { error: :service_unavailable, timeout: :bad_request } }
+      let(:expected_params) { super().merge('ErrorResponseStatus' => 503, 'TimeoutResponseStatus' => 400) }
+
+      it 'sets the header correctly' do
+        key, command, params = decode_workhorse_header(described_class.send_url(url, response_statuses: response_statuses))
+
+        expect(key).to eq("Gitlab-Workhorse-Send-Data")
+        expect(command).to eq("send-url")
+        expect(params).to eq(expected_params)
+      end
     end
   end
 
@@ -515,18 +582,53 @@ RSpec.describe Gitlab::Workhorse do
   describe '.send_dependency' do
     let(:headers) { { Accept: 'foo', Authorization: 'Bearer asdf1234' } }
     let(:url) { 'https://foo.bar.com/baz' }
+    let(:upload_method) { nil }
+    let(:upload_url) { nil }
+    let(:upload_headers) { {} }
+    let(:upload_config) { { method: upload_method, headers: upload_headers, url: upload_url }.compact_blank! }
 
-    subject { described_class.send_dependency(headers, url) }
+    subject { described_class.send_dependency(headers, url, upload_config: upload_config) }
 
-    it 'sets the header correctly', :aggregate_failures do
-      key, command, params = decode_workhorse_header(subject)
+    shared_examples 'setting the header correctly' do |ensure_upload_config_field: nil|
+      it 'sets the header correctly' do
+        key, command, params = decode_workhorse_header(subject)
+        expected_params = {
+          'Headers' => headers.transform_values { |v| Array.wrap(v) },
+          'Url' => url,
+          'UploadConfig' => {
+            'Method' => upload_method,
+            'Url' => upload_url,
+            'Headers' => upload_headers.transform_values { |v| Array.wrap(v) }
+          }.compact_blank!
+        }
+        expected_params.compact_blank!
 
-      expect(key).to eq("Gitlab-Workhorse-Send-Data")
-      expect(command).to eq("send-dependency")
-      expect(params).to eq({
-        'Header' => headers,
-        'Url' => url
-      }.deep_stringify_keys)
+        expect(key).to eq("Gitlab-Workhorse-Send-Data")
+        expect(command).to eq("send-dependency")
+        expect(params).to eq(expected_params.deep_stringify_keys)
+
+        expect(params.dig('UploadConfig', ensure_upload_config_field)).to be_present if ensure_upload_config_field
+      end
+    end
+
+    it_behaves_like 'setting the header correctly'
+
+    context 'overriding the method' do
+      let(:upload_method) { 'PUT' }
+
+      it_behaves_like 'setting the header correctly', ensure_upload_config_field: 'Method'
+    end
+
+    context 'overriding the upload url' do
+      let(:upload_url) { 'https://test.dev' }
+
+      it_behaves_like 'setting the header correctly', ensure_upload_config_field: 'Url'
+    end
+
+    context 'with upload headers set' do
+      let(:upload_headers) { { 'Private-Token' => '1234567890' } }
+
+      it_behaves_like 'setting the header correctly', ensure_upload_config_field: 'Headers'
     end
   end
 
@@ -542,7 +644,7 @@ RSpec.describe Gitlab::Workhorse do
       expect(command).to eq('git-snapshot')
       expect(params).to eq(
         'GitalyServer' => {
-          'features' => { 'gitaly-feature-enforce-requests-limits' => 'true' },
+          'call_metadata' => features,
           'address' => Gitlab::GitalyClient.address(project.repository_storage),
           'token' => Gitlab::GitalyClient.token(project.repository_storage)
         },

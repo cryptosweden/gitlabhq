@@ -12,19 +12,31 @@ module BulkImports
 
         info(message: 'Pipeline started')
 
+        set_source_objects_counter
         extracted_data = extracted_data_from
 
         if extracted_data
-          extracted_data.each do |entry|
+          extracted_data.each_with_index do |entry, index|
+            refresh_entity_and_import if index % 1000 == 0
+
+            raw_entry = entry.dup
+            next if already_processed?(raw_entry, index)
+
+            increment_fetched_objects_counter
+
             transformers.each do |transformer|
               entry = run_pipeline_step(:transformer, transformer.class.name) do
                 transformer.transform(context, entry)
               end
             end
 
-            run_pipeline_step(:loader, loader.class.name) do
+            run_pipeline_step(:loader, loader.class.name, entry) do
               loader.load(context, entry)
+
+              increment_imported_objects_counter
             end
+
+            save_processed_entry(raw_entry, index)
           end
 
           tracker.update!(
@@ -35,6 +47,14 @@ module BulkImports
           run_pipeline_step(:after_run) do
             after_run(extracted_data)
           end
+
+          # For batches, `#on_finish` is called once within `FinishBatchedPipelineWorker`
+          # after all batches have completed.
+          unless tracker.batched?
+            run_pipeline_step(:on_finish) do
+              on_finish
+            end
+          end
         end
 
         info(message: 'Pipeline finished')
@@ -42,9 +62,11 @@ module BulkImports
         skip!('Skipping pipeline due to failed entity')
       end
 
+      def on_finish; end
+
       private # rubocop:disable Lint/UselessAccessModifier
 
-      def run_pipeline_step(step, class_name = nil)
+      def run_pipeline_step(step, class_name = nil, entry = nil)
         raise MarkedAsFailedError if context.entity.failed?
 
         info(pipeline_step: step, step_class: class_name)
@@ -54,14 +76,17 @@ module BulkImports
         skip!(
           'Skipping pipeline due to failed entity',
           pipeline_step: step,
-          step_class: class_name
+          step_class: class_name,
+          importer: 'gitlab_migration'
         )
+      rescue BulkImports::NetworkError => e
+        raise BulkImports::RetryPipelineError.new(e.message, e.retry_delay) if e.retriable?(context.tracker)
+
+        log_and_fail(e, step, entry)
+      rescue BulkImports::RetryPipelineError
+        raise
       rescue StandardError => e
-        log_import_failure(e, step)
-
-        mark_as_failed if abort_on_failure?
-
-        nil
+        log_and_fail(e, step, entry)
       end
 
       def extracted_data_from
@@ -70,15 +95,34 @@ module BulkImports
         end
       end
 
+      def cache_key
+        batch_number = context.extra[:batch_number] || 0
+
+        "#{self.class.name.underscore}/#{tracker.bulk_import_entity_id}/#{batch_number}"
+      end
+
+      # Overridden by child pipelines with different caching strategies
+      def already_processed?(*)
+        false
+      end
+
+      def save_processed_entry(*); end
+
       def after_run(extracted_data)
         run if extracted_data.has_next_page?
       end
 
-      def mark_as_failed
-        warn(message: 'Pipeline failed')
+      def log_and_fail(exception, step, entry = nil)
+        log_import_failure(exception, step, entry)
 
-        context.entity.fail_op!
-        tracker.fail_op!
+        if abort_on_failure?
+          tracker.fail_op!
+
+          warn(message: 'Aborting entity migration due to pipeline failure')
+          context.entity.fail_op!
+        end
+
+        nil
       end
 
       def skip!(message, extra = {})
@@ -87,23 +131,33 @@ module BulkImports
         tracker.skip!
       end
 
-      def log_import_failure(exception, step)
-        attributes = {
+      def log_import_failure(exception, step, entry)
+        failure_attributes = {
           bulk_import_entity_id: context.entity.id,
           pipeline_class: pipeline,
           pipeline_step: step,
           exception_class: exception.class.to_s,
-          exception_message: exception.message.truncate(255),
+          exception_message: exception.message,
           correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id
         }
 
-        error(
-          pipeline_step: step,
-          exception_class: exception.class.to_s,
-          exception_message: exception.message
+        if entry
+          failure_attributes[:source_url] = BulkImports::SourceUrlBuilder.new(context, entry).url
+          failure_attributes[:source_title] = entry.try(:title) || entry.try(:name)
+        end
+
+        log_exception(
+          exception,
+          log_params(
+            {
+              bulk_import_id: context.bulk_import_id,
+              pipeline_step: step,
+              message: 'An object of a pipeline failed to import'
+            }
+          )
         )
 
-        BulkImports::Failure.create(attributes)
+        BulkImports::Failure.create(failure_attributes)
       end
 
       def info(extra = {})
@@ -114,15 +168,9 @@ module BulkImports
         logger.warn(log_params(extra))
       end
 
-      def error(extra = {})
-        logger.error(log_params(extra))
-      end
-
       def log_params(extra)
         defaults = {
-          bulk_import_id: context.bulk_import.id,
-          bulk_import_entity_id: context.entity.id,
-          bulk_import_entity_type: context.entity.source_type,
+          bulk_import_id: context.bulk_import_id,
           pipeline_class: pipeline,
           context_extra: context.extra
         }
@@ -133,7 +181,40 @@ module BulkImports
       end
 
       def logger
-        @logger ||= Gitlab::Import::Logger.build
+        @logger ||= Logger.build.with_entity(context.entity)
+      end
+
+      def log_exception(exception, payload)
+        Gitlab::ExceptionLogFormatter.format!(exception, payload)
+        logger.error(structured_payload(payload))
+      end
+
+      def structured_payload(payload = {})
+        context = Gitlab::ApplicationContext.current.merge(
+          'class' => self.class.name
+        )
+
+        payload.stringify_keys.merge(context)
+      end
+
+      def refresh_entity_and_import
+        context.entity.touch
+        context.bulk_import.touch
+      end
+
+      def set_source_objects_counter
+        # Export status is cached for 24h and read from Redis at this point
+        export_status = ExportStatus.new(tracker, tracker.importing_relation)
+
+        ObjectCounter.set(tracker, ObjectCounter::SOURCE_COUNTER, export_status.total_objects_count)
+      end
+
+      def increment_fetched_objects_counter
+        ObjectCounter.increment(tracker, ObjectCounter::FETCHED_COUNTER)
+      end
+
+      def increment_imported_objects_counter
+        ObjectCounter.increment(tracker, ObjectCounter::IMPORTED_COUNTER)
       end
     end
   end

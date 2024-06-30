@@ -2,10 +2,7 @@
 data_category: optional
 key_path: usage_activity_by_stage.manage.group_imports.group_import
 description: Count of groups imported using Group Import/Export
-product_section: dev
-product_stage: manage
-product_group: group::import
-product_category: importers
+product_group: import_and_integrate
 value_type: number
 status: active
 time_frame: all

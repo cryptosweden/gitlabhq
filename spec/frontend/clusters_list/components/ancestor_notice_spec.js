@@ -18,10 +18,6 @@ describe('ClustersAncestorNotice', () => {
     return createWrapper();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('when cluster does not have ancestors', () => {
     beforeEach(async () => {
       store.state.hasAncestorClusters = false;
@@ -46,7 +42,7 @@ describe('ClustersAncestorNotice', () => {
     });
 
     it('displays link', () => {
-      expect(wrapper.find(GlLink).exists()).toBe(true);
+      expect(wrapper.findComponent(GlLink).exists()).toBe(true);
     });
   });
 });

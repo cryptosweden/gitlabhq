@@ -42,7 +42,7 @@ RSpec.describe Groups::ReleasesController do
         end
 
         it 'does not return any releases' do
-          expect(json_response.map {|r| r['tag'] } ).to be_empty
+          expect(json_response.map { |r| r['tag'] }).to be_empty
         end
 
         it 'returns OK' do
@@ -56,44 +56,18 @@ RSpec.describe Groups::ReleasesController do
 
           index
 
-          expect(json_response.map {|r| r['tag'] } ).to match_array(%w(p2 p1 v2 v1))
-        end
-      end
-
-      context 'group_releases_finder_inoperator feature flag' do
-        before do
-          sign_in(guest)
-        end
-
-        it 'calls old code when disabled' do
-          stub_feature_flags(group_releases_finder_inoperator: false)
-
-          allow(ReleasesFinder).to receive(:new).and_call_original
-
-          index
-
-          expect(ReleasesFinder).to have_received(:new)
-        end
-
-        it 'calls new code when enabled' do
-          stub_feature_flags(group_releases_finder_inoperator: true)
-
-          allow(Releases::GroupReleasesFinder).to receive(:new).and_call_original
-
-          index
-
-          expect(Releases::GroupReleasesFinder).to have_received(:new)
+          expect(json_response.map { |r| r['tag'] }).to match_array(%w[p2 p1 v2 v1])
         end
       end
 
       context 'N+1 queries' do
         it 'avoids N+1 database queries' do
-          control_count = ActiveRecord::QueryRecorder.new { subject }.count
+          control = ActiveRecord::QueryRecorder.new { subject }
 
           create_list(:release, 5, project: project)
           create_list(:release, 5, project: private_project)
 
-          expect { subject }.not_to exceed_query_limit(control_count)
+          expect { subject }.not_to exceed_query_limit(control)
         end
       end
     end

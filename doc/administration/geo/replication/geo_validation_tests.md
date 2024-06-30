@@ -1,15 +1,19 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Geo validation tests **(PREMIUM SELF)**
+# Geo validation tests
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
 The Geo team performs manual testing and validation on common deployment configurations to ensure
 that Geo works when upgrading between minor GitLab versions and major PostgreSQL database versions.
 
-This section contains a journal of recent validation tests and links to the relevant issues.
+This section contains a journal of validation tests and links to the relevant issues.
 
 ## GitLab upgrades
 
@@ -20,7 +24,7 @@ The following are GitLab upgrade validation tests we performed.
 [Upgrade Geo multi-node installation](https://gitlab.com/gitlab-org/gitlab/-/issues/225359):
 
 - Description: Tested upgrading from GitLab 12.10.12 to 13.0.10 package in a multi-node
-  configuration. As part of the issue to [Fix zero-downtime upgrade process/instructions for multi-node Geo deployments](https://gitlab.com/gitlab-org/gitlab/-/issues/22568), we monitored for downtime using the looping pipeline, HAProxy stats dashboards, and a script to log readiness status on both nodes.
+  configuration. As part of the issue to [Fix zero-downtime upgrade process/instructions for multi-node Geo deployments](https://gitlab.com/gitlab-org/gitlab/-/issues/225684), we monitored for downtime using the looping pipeline, HAProxy stats dashboards, and a script to log readiness status on both nodes.
 - Outcome: Partial success because we observed downtime during the upgrade of the primary and secondary sites.
 - Follow up issues/actions:
   - [Investigate why `reconfigure` and `hup` cause downtime on multi-node Geo deployments](https://gitlab.com/gitlab-org/gitlab/-/issues/228898)
@@ -29,7 +33,7 @@ The following are GitLab upgrade validation tests we performed.
 [Switch from repmgr to Patroni on a Geo primary site](https://gitlab.com/gitlab-org/gitlab/-/issues/224652):
 
 - Description: Tested switching from repmgr to Patroni on a multi-node Geo primary site. Used [the orchestrator tool](https://gitlab.com/gitlab-org/gitlab-orchestrator) to deploy a Geo installation with 3 database nodes managed by repmgr. With this approach, we were also able to address a related issue for [verifying a Geo installation with Patroni and PostgreSQL 11](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/5113).
-- Outcome: Partial success. We enabled Patroni on the primary site and set up database replication on the secondary site. However, we found that Patroni would delete the secondary site's replication slot whenever Patroni was restarted. Another issue is that when Patroni elects a new leader in the cluster, the secondary site will fail to automatically follow the new leader. Until these issues are resolved, we cannot officially support and recommend Patroni for Geo installations.
+- Outcome: Partial success. We enabled Patroni on the primary site and set up database replication on the secondary site. However, we found that Patroni would delete the secondary site's replication slot whenever Patroni was restarted. Another issue is that when Patroni elects a new leader in the cluster, the secondary site fails to automatically follow the new leader. Until these issues are resolved, we cannot officially support and recommend Patroni for Geo installations.
 - Follow up issues/actions:
   - [Investigate permanent replication slot for Patroni with Geo single node secondary](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/5528)
 
@@ -127,8 +131,7 @@ The following are PostgreSQL upgrade validation tests we performed.
 - Description: With PostgreSQL 12 available as an opt-in version in GitLab 13.3, we tested upgrading
   existing Geo installations from PostgreSQL 11 to 12. We also re-tested fresh installations of GitLab
   with Geo after fixes were made to support PostgreSQL 12. These tests were done using a
-  [nightly build](https://packages.gitlab.com/gitlab/nightly-builds/packages/ubuntu/bionic/gitlab-ee_13.3.6+rnightly.169516.d5209202-0_amd64.deb)
-  of GitLab 13.4.
+  nightly build of GitLab 13.4.
 - Outcome: Tests were successful for Geo deployments with a single database node on the primary and secondary.
   We encountered known issues with repmgr and Patroni managed PostgreSQL clusters on the Geo primary. Using
   PostgreSQL 12 with a database cluster on the primary is not recommended until the issues are resolved.
@@ -144,7 +147,7 @@ The following are PostgreSQL upgrade validation tests we performed.
   we tested fresh installations of GitLab 13.3 with PostgreSQL 12 enabled and Geo installed.
 - Outcome: Setting up a Geo secondary required manual intervention because the `recovery.conf` file
   is no longer supported in PostgreSQL 12. We do not recommend deploying Geo with PostgreSQL 12 until
-  the appropriate changes have been made to Omnibus and verified.
+  the appropriate changes have been made to the Linux package and verified.
 - Follow up issues:
   - [Update `replicate-geo-database` to support PostgreSQL 12](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/5575)
   - [Remove PostgreSQL 12 check in `replicate-geo-database` for 14.0](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/5576)
@@ -181,9 +184,30 @@ The following are PostgreSQL upgrade validation tests we performed.
   - [Geo multi-node upgrade from 12.0.9 to 12.1.9 does not upgrade PostgreSQL](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/4705).
   - [Refresh foreign tables fails on app server in multi-node setup after upgrade to 12.1.9](https://gitlab.com/gitlab-org/gitlab/-/issues/32119).
 
-## Other tests
+## Object storage replication tests
 
 The following are additional validation tests we performed.
+
+### April 2022
+
+[Validate Object storage replication using AWS based object storage](https://gitlab.com/gitlab-org/gitlab/-/issues/351463):
+
+- Description: Tested the average time it takes for a single image to replicate from the primary object storage location to the secondary when using AWS based object storage replication and [GitLab based object storage replication](object_storage.md#enabling-gitlab-managed-object-storage-replication). This was tested by uploading a 1 MB image to a project on the primary site every second for 60 seconds. The time was then measured until a image was available on the secondary site. This was achieved using a [Ruby Script](https://gitlab.com/gitlab-org/quality/geo-replication-tester).
+- Outcome: When using AWS managed replication the average time for an image to replicate between sites is about 49 seconds, this is true for when sites are located in the same region and when they are further apart (Europe to America). When using Geo managed replication in the same region the average time for replication took just 5 seconds, however when replicating cross region the average time rose to 33 seconds.
+
+[Validate Object storage replication using GCP based object storage](https://gitlab.com/gitlab-org/gitlab/-/issues/351464):
+
+- Description: Tested the average time it takes for a single image to replicate from the primary object storage location to the secondary when using GCP based object storage replication and [GitLab based object storage replication](object_storage.md#enabling-gitlab-managed-object-storage-replication). This was tested by uploading a 1 MB image to a project on the primary site every second for 60 seconds. The time was then measured until a image was available on the secondary site. This was achieved using a [Ruby Script](https://gitlab.com/gitlab-org/quality/geo-replication-tester).
+- Outcome: GCP handles replication differently than other Cloud Providers. In GCP, the process is to a create single bucket that is either multi, dual, or single region based. This means that the bucket automatically stores replicas in a region based on the option chosen. Even when using multi region, this only replicates in a single continent, the options being America, Europe, or Asia. At current there doesn't seem to be any way to replicate objects between continents using GCP based replication. For Geo managed replication the average time when replicating in the same region was 6 seconds, and when replicating cross region this rose to just 9 seconds.
+
+### January 2022
+
+[Validate Object storage replication using Azure based object storage](https://gitlab.com/gitlab-org/gitlab/-/issues/348804#note_821294631):
+
+- Description: Tested the average time it takes for a single image to replicate from the primary object storage location to the secondary when using Azure based object storage replication and [GitLab based object storage replication](object_storage.md#enabling-gitlab-managed-object-storage-replication). This was tested by uploading a 1 MB image to a project on the primary site every second for 60 seconds. The time was then measured until a image was available on the secondary site. This was achieved using a [Ruby Script](https://gitlab.com/gitlab-org/quality/geo-replication-tester).
+- Outcome: When using Azure based replication the average time for an image to replicate from the primary object storage to the secondary was recorded as 40 seconds, the longest replication time was 70 seconds and the quickest was 11 seconds. When using GitLab based replication the average time for replication to complete was 5 seconds, the longest replication time was 10 seconds and the quickest was 3 seconds.
+- Follow up issue:
+  - [Validate Cross Region Object storage replication using Azure based object storage](https://gitlab.com/gitlab-org/gitlab/-/issues/358154)
 
 ### May 2021
 
@@ -194,18 +218,11 @@ The following are additional validation tests we performed.
 - Follow up issues:
   - [Geo: Failing to replicate initial Monitoring project](https://gitlab.com/gitlab-org/gitlab/-/issues/330485)
 
+## Other tests
+
 ### August 2020
 
 [Test Gitaly Cluster on a Geo Deployment](https://gitlab.com/gitlab-org/gitlab/-/issues/223210):
 
 - Description: Tested a Geo deployment with Gitaly clusters configured on both the primary and secondary Geo sites. Triggered automatic Gitaly cluster failover on the primary Geo site, and ran end-to-end Geo tests. Then triggered Gitaly cluster failover on the secondary Geo site, and re-ran the end-to-end Geo tests.
 - Outcome: Successful end-to-end tests before and after Gitaly cluster failover on the primary site, and before and after Gitaly cluster failover on the secondary site.
-
-### January 2022
-
-[Validate Object storage replication using Azure based object storage](https://gitlab.com/gitlab-org/gitlab/-/issues/348804#note_821294631):
-
-- Description: Tested the average time it takes for a single image to replicate from the primary object storage location to the secondary when using Azure based object storage replication and [GitLab based object storage replication](object_storage.md#enabling-gitlab-managed-object-storage-replication). This was tested by uploading a 1mb image to a project on the primary site every second for 60 seconds. The time was then measured until a image was available on the secondary site. This was achieved using a [Ruby Script](https://gitlab.com/gitlab-org/quality/geo-replication-tester).
-- Outcome: When using Azure based replication the average time for an image to replicate from the primary object storage to the secondary was recorded as 40 seconds, the longest replication time was 70 seconds and the quickest was 11 seconds. When using GitLab based replication the average time for replication to complete was 5 seconds, the longest replication time was 10 seconds and the quickest was 3 seconds.
-- Follow up issue:
-  - [Test and validate object storage replication performance on reference architectures](https://gitlab.com/gitlab-org/gitlab/-/issues/347314)

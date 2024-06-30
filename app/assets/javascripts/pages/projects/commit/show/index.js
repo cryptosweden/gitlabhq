@@ -1,9 +1,11 @@
 /* eslint-disable no-new */
 import $ from 'jquery';
+import Vue from 'vue';
 import loadAwardsHandler from '~/awards_handler';
+import { addShortcutsExtension } from '~/behaviors/shortcuts';
 import ShortcutsNavigation from '~/behaviors/shortcuts/shortcuts_navigation';
 import Diff from '~/diff';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import initDeprecatedNotes from '~/init_deprecated_notes';
 import { initDiffStatsDropdown } from '~/init_diff_stats_dropdown';
 import axios from '~/lib/utils/axios_utils';
@@ -14,16 +16,44 @@ import { initCommitBoxInfo } from '~/projects/commit_box/info';
 import syntaxHighlight from '~/syntax_highlight';
 import ZenMode from '~/zen_mode';
 import '~/sourcegraph/load';
+import DiffStats from '~/diffs/components/diff_stats.vue';
+import { initReportAbuse } from '~/projects/report_abuse';
 
-const hasPerfBar = document.querySelector('.with-performance-bar');
-const performanceHeight = hasPerfBar ? 35 : 0;
-initDiffStatsDropdown(document.querySelector('.navbar-gitlab').offsetHeight + performanceHeight);
+initDiffStatsDropdown();
 new ZenMode();
-new ShortcutsNavigation();
+addShortcutsExtension(ShortcutsNavigation);
 
 initCommitBoxInfo();
 
 initDeprecatedNotes();
+initReportAbuse();
+
+const loadDiffStats = () => {
+  const diffStatsElements = document.querySelectorAll('#js-diff-stats');
+
+  if (diffStatsElements.length) {
+    diffStatsElements.forEach((diffStatsEl) => {
+      const { addedLines, removedLines, oldSize, newSize, viewerName } = diffStatsEl.dataset;
+
+      new Vue({
+        el: diffStatsEl,
+        render(createElement) {
+          return createElement(DiffStats, {
+            props: {
+              diffFile: {
+                old_size: oldSize,
+                new_size: newSize,
+                viewer: { name: viewerName },
+              },
+              addedLines: Number(addedLines),
+              removedLines: Number(removedLines),
+            },
+          });
+        },
+      });
+    });
+  }
+};
 
 const filesContainer = $('.js-diffs-batch');
 
@@ -37,12 +67,18 @@ if (filesContainer.length) {
       syntaxHighlight(filesContainer);
       handleLocationHash();
       new Diff();
+      loadDiffStats();
+      initReportAbuse();
     })
     .catch(() => {
-      createFlash({ message: __('An error occurred while retrieving diff files') });
+      createAlert({ message: __('An error occurred while retrieving diff files') });
     });
 } else {
   new Diff();
+  loadDiffStats();
 }
+
 loadAwardsHandler();
 initCommitActions();
+
+syntaxHighlight([document.querySelector('.files')]);

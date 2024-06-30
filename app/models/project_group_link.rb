@@ -3,36 +3,34 @@
 class ProjectGroupLink < ApplicationRecord
   include Expirable
   include EachBatch
+  include AfterCommitQueue
 
   belongs_to :project
   belongs_to :group
 
   validates :project_id, presence: true
   validates :group, presence: true
-  validates :group_id, uniqueness: { scope: [:project_id], message: _("already shared with this group") }
-  validates :group_access, presence: true
-  validates :group_access, inclusion: { in: Gitlab::Access.values }, presence: true
+  validates :group_id, uniqueness: { scope: [:project_id], message: N_("already shared with this group") }
+  validates :group_access, inclusion: { in: Gitlab::Access.all_values }, presence: true
   validate :different_group
 
   scope :non_guests, -> { where('group_access > ?', Gitlab::Access::GUEST) }
-  scope :in_group, -> (group_ids) { where(group_id: group_ids) }
+  scope :in_group, ->(group_ids) { where(group_id: group_ids) }
+  scope :for_projects, ->(project_ids) { where(project_id: project_ids) }
 
   alias_method :shared_with_group, :group
-
-  def self.access_options
-    Gitlab::Access.options
-  end
-
-  def self.default_access
-    Gitlab::Access::DEVELOPER
-  end
+  alias_method :shared_from, :project
 
   def self.search(query)
     joins(:group).merge(Group.search(query))
   end
 
   def human_access
-    self.class.access_options.key(self.group_access)
+    Gitlab::Access.human_access(self.group_access)
+  end
+
+  def owner_access?
+    group_access.to_i == Gitlab::Access::OWNER
   end
 
   private

@@ -1,14 +1,14 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Axios
 
-We use [Axios](https://github.com/axios/axios) to communicate with the server in Vue applications and most new code.
+In older parts of our codebase using the REST API, we used [Axios](https://github.com/axios/axios) to communicate with the server, but you should not use Axios in new applications. Instead rely on `apollo-client` to query the GraphQL API. For more details, see [our GraphQL documentation](graphql.md).
 
-In order to guarantee all defaults are set you *should not use Axios directly*, you should import Axios from `axios_utils`.
+To guarantee all defaults are set you should import Axios from `axios_utils`. Do not use Axios directly.
 
 ## CSRF token
 

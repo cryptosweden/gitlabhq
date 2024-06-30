@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Taskable do
+RSpec.describe Taskable, feature_category: :team_planning do
   using RSpec::Parameterized::TableSyntax
 
   describe '.get_tasks' do
@@ -13,6 +13,23 @@ RSpec.describe Taskable do
         - [x] Second item
         * [x] First item
         * [ ] Second item
+
+        <!-- a comment
+        - [ ] Item in comment, ignore
+         rest of comment -->
+
+        + [ ] No-break space (U+00A0)
+        + [ ] Figure space (U+2007)
+
+        ```
+        - [ ] Item in code, ignore
+        ```
+
+        + [ ] Narrow no-break space (U+202F)
+        + [ ] Thin space (U+2009)
+
+        1. [ ] Numbered 1
+        2) [x] Numbered 2
       MARKDOWN
     end
 
@@ -21,13 +38,31 @@ RSpec.describe Taskable do
         TaskList::Item.new('- [ ]', 'First item'),
         TaskList::Item.new('- [x]', 'Second item'),
         TaskList::Item.new('* [x]', 'First item'),
-        TaskList::Item.new('* [ ]', 'Second item')
+        TaskList::Item.new('* [ ]', 'Second item'),
+        TaskList::Item.new('1. [ ]', 'Numbered 1'),
+        TaskList::Item.new('2) [x]', 'Numbered 2')
       ]
     end
 
     subject { described_class.get_tasks(description) }
 
     it { is_expected.to match(expected_result) }
+
+    describe 'with single line comments' do
+      let(:description) do
+        <<~MARKDOWN
+          <!-- line comment -->
+
+          - [ ] only task item
+
+          <!-- another line comment -->
+        MARKDOWN
+      end
+
+      let(:expected_result) { [TaskList::Item.new('- [ ]', 'only task item')] }
+
+      it { is_expected.to match(expected_result) }
+    end
   end
 
   describe '#task_list_items' do

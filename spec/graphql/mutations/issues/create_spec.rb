@@ -19,8 +19,7 @@ RSpec.describe Mutations::Issues::Create do
       description: 'new description',
       confidential: true,
       due_date: Date.tomorrow,
-      discussion_locked: true,
-      issue_type: 'issue'
+      discussion_locked: true
     }
   end
 
@@ -29,7 +28,8 @@ RSpec.describe Mutations::Issues::Create do
       project_path: project.full_path,
       milestone_id: milestone.to_global_id,
       labels: [project_label1.title, project_label2.title, new_label1, new_label2],
-      assignee_ids: [assignee1.to_global_id, assignee2.to_global_id]
+      assignee_ids: [assignee1.to_global_id, assignee2.to_global_id],
+      issue_type: 'issue'
     }.merge(expected_attributes)
   end
 
@@ -50,7 +50,6 @@ RSpec.describe Mutations::Issues::Create do
       stub_licensed_features(multiple_issue_assignees: false, issue_weights: false)
       project.add_guest(assignee1)
       project.add_guest(assignee2)
-      stub_spam_services
     end
 
     def resolve
@@ -136,17 +135,6 @@ RSpec.describe Mutations::Issues::Create do
   end
 
   describe "#ready?" do
-    context 'when passing in both labels and label_ids' do
-      before do
-        mutation_params.merge!(label_ids: [project_label1.to_global_id, project_label2.to_global_id])
-      end
-
-      it 'raises exception when mutually exclusive params are given' do
-        expect { mutation.ready?(**mutation_params) }
-          .to raise_error(Gitlab::Graphql::Errors::ArgumentError, /one and only one of/)
-      end
-    end
-
     context 'when passing only `discussion_to_resolve` param' do
       before do
         mutation_params.merge!(discussion_to_resolve: 'abc')

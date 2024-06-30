@@ -5,10 +5,15 @@ require 'spec_helper'
 RSpec.describe Oauth::AuthorizationsController do
   let(:user) { create(:user) }
   let(:application_scopes) { 'api read_user' }
+  let(:confidential) { true }
 
   let!(:application) do
-    create(:oauth_application, scopes: application_scopes,
-                               redirect_uri: 'http://example.com')
+    create(
+      :oauth_application,
+      scopes: application_scopes,
+      redirect_uri: 'http://example.com',
+      confidential: confidential
+    )
   end
 
   let(:params) do
@@ -56,26 +61,8 @@ RSpec.describe Oauth::AuthorizationsController do
     end
   end
 
-  shared_examples "Implicit grant can't be used in confidential application" do
-    context 'when application is confidential' do
-      before do
-        application.update!(confidential: true)
-        params[:response_type] = 'token'
-      end
-
-      it 'does not allow the implicit flow' do
-        subject
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(response).to render_template('doorkeeper/authorizations/error')
-      end
-    end
-  end
-
   describe 'GET #new' do
     subject { get :new, params: params }
-
-    include_examples "Implicit grant can't be used in confidential application"
 
     context 'when the user is confirmed' do
       context 'when there is already an access token for the application with a matching scope' do
@@ -87,12 +74,27 @@ RSpec.describe Oauth::AuthorizationsController do
           create(:oauth_access_token, application: application, resource_owner_id: user.id, scopes: scopes)
         end
 
-        it 'authorizes the request and shows the user a page that redirects' do
-          subject
+        context 'when application is confidential' do
+          let(:confidential) { true }
 
-          expect(request.session['user_return_to']).to be_nil
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(response).to render_template('doorkeeper/authorizations/redirect')
+          it 'authorizes the request and shows the user a page that redirects' do
+            subject
+
+            expect(request.session['user_return_to']).to be_nil
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to render_template('doorkeeper/authorizations/redirect')
+          end
+        end
+
+        context 'when application is not confidential' do
+          let(:confidential) { false }
+
+          it 'returns 200 code and renders view' do
+            subject
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to render_template('doorkeeper/authorizations/new')
+          end
         end
       end
 
@@ -143,8 +145,8 @@ RSpec.describe Oauth::AuthorizationsController do
               expect(response).to have_gitlab_http_status(:ok)
               expect(response).to render_template('doorkeeper/authorizations/new')
               # See: config/locales/doorkeeper.en.yml
-              expect(response.body).to include("Read the authenticated user&#39;s personal information")
-              expect(response.body).not_to include("Access the authenticated user&#39;s API")
+              expect(response.body).to include("Read your personal information")
+              expect(response.body).not_to include("Access the API on your behalf")
             end
           end
 
@@ -213,23 +215,101 @@ RSpec.describe Oauth::AuthorizationsController do
         end
       end
     end
+
+    context 'when the user is admin' do
+      context 'when disable_admin_oauth_scopes is set' do
+        before do
+          stub_application_setting(disable_admin_oauth_scopes: true)
+          scopes = Doorkeeper::OAuth::Scopes.from_string('api')
+
+          allow(Doorkeeper.configuration).to receive(:scopes).and_return(scopes)
+        end
+
+        let(:user) { create(:user, :admin) }
+
+        it 'returns 200 and renders forbidden view' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template('doorkeeper/authorizations/forbidden')
+        end
+      end
+
+      context 'when disable_admin_oauth_scopes is set and the application is trusted' do
+        before do
+          stub_application_setting(disable_admin_oauth_scopes: true)
+
+          application.update!(trusted: true)
+        end
+
+        let(:application_scopes) { 'api' }
+        let(:user) { create(:user, :admin) }
+
+        it 'returns 200 and renders redirect view' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template('doorkeeper/authorizations/redirect')
+        end
+      end
+
+      context 'when disable_admin_oauth_scopes is disabled' do
+        before do
+          stub_application_setting(disable_admin_oauth_scopes: false)
+        end
+
+        let(:application_scopes) { 'api' }
+        let(:user) { create(:user, :admin) }
+
+        it 'returns 200 and renders new view' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template('doorkeeper/authorizations/new')
+        end
+      end
+    end
+
+    context 'when the user is not admin' do
+      context 'when disable_admin_oauth_scopes is enabled' do
+        before do
+          stub_application_setting(disable_admin_oauth_scopes: true)
+        end
+
+        it 'returns 200 and renders new view' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template('doorkeeper/authorizations/new')
+        end
+      end
+    end
   end
 
   describe 'POST #create' do
     subject { post :create, params: params }
 
     include_examples 'OAuth Authorizations require confirmed user'
-    include_examples "Implicit grant can't be used in confidential application"
   end
 
   describe 'DELETE #destroy' do
     subject { delete :destroy, params: params }
 
     include_examples 'OAuth Authorizations require confirmed user'
-    include_examples "Implicit grant can't be used in confidential application"
   end
 
   it 'includes Two-factor enforcement concern' do
     expect(described_class.included_modules.include?(EnforcesTwoFactorAuthentication)).to eq(true)
+  end
+
+  describe 'Gon variables' do
+    it 'adds Gon variables' do
+      expect(controller).to receive(:add_gon_variables)
+      get :new, params: params
+    end
+
+    it 'includes GonHelper module' do
+      expect(controller).to be_a(Gitlab::GonHelper)
+    end
   end
 end

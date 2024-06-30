@@ -91,7 +91,7 @@ RSpec.describe Gitlab::Ci::Reports::TestSuite do
     subject { test_suite.with_attachment! }
 
     context 'when test cases do not contain an attachment' do
-      let(:test_case) { build(:report_test_case, :failed)}
+      let(:test_case) { build(:report_test_case, :failed) }
 
       before do
         test_suite.add_test_case(test_case)
@@ -103,7 +103,7 @@ RSpec.describe Gitlab::Ci::Reports::TestSuite do
     end
 
     context 'when test cases contain an attachment' do
-      let(:test_case_with_attachment) { build(:report_test_case, :failed_with_attachment)}
+      let(:test_case_with_attachment) { build(:report_test_case, :failed_with_attachment) }
 
       before do
         test_suite.add_test_case(test_case_with_attachment)
@@ -192,7 +192,7 @@ RSpec.describe Gitlab::Ci::Reports::TestSuite do
     end
 
     context 'when there are multiple test cases' do
-      let(:status_ordered) { %w(error failed success skipped) }
+      let(:status_ordered) { %w[error failed success skipped] }
 
       before do
         test_suite.add_test_case(test_case_success)
@@ -209,7 +209,7 @@ RSpec.describe Gitlab::Ci::Reports::TestSuite do
 
   Gitlab::Ci::Reports::TestCase::STATUS_TYPES.each do |status_type|
     describe "##{status_type}" do
-      subject { test_suite.public_send("#{status_type}") }
+      subject { test_suite.public_send(status_type.to_s) }
 
       context "when #{status_type} test case exists" do
         before do

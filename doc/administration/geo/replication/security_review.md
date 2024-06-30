@@ -1,11 +1,14 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Geo security review (Q&A) **(PREMIUM SELF)**
+# Geo security review (Q&A)
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
 The following security review of the Geo feature set focuses on security aspects of
 the feature as they apply to customers running their own GitLab instances. The review
@@ -25,8 +28,8 @@ from [owasp.org](https://owasp.org/).
 ### What data does the application receive, produce, and process?
 
 - Geo streams almost all data held by a GitLab instance between sites. This
-  includes full database replication, most files (user-uploaded attachments,
-  and so on) and repository + wiki data. In a typical configuration, this will
+  includes full database replication, most files such as user-uploaded attachments,
+  and repository + wiki data. In a typical configuration, this will
   happen across the public Internet, and be TLS-encrypted.
 - PostgreSQL replication is TLS-encrypted.
 - See also: [only TLSv1.2 should be supported](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/2948)
@@ -37,7 +40,7 @@ from [owasp.org](https://owasp.org/).
   private projects. Geo replicates them all indiscriminately. "Selective sync"
   exists for files and repositories (but not database content), which would permit
   only less-sensitive projects to be replicated to a **secondary** site if desired.
-- See also: [GitLab data classification policy](https://about.gitlab.com/handbook/engineering/security/data-classification-standard.html).
+- See also: [GitLab data classification policy](https://handbook.gitlab.com/handbook/security/data-classification-standard/).
 
 ### What data backup and retention requirements have been defined for the application?
 
@@ -59,8 +62,8 @@ from [owasp.org](https://owasp.org/).
   (notably a HTTP/HTTPS web application, and HTTP/HTTPS or SSH Git repository
   access), but is constrained to read-only activities. The principal use case is
   envisioned to be cloning Git repositories from the **secondary** site in favor of the
-  **primary** site, but end-users may use the GitLab web interface to view projects,
-  issues, merge requests, snippets, and so on.
+  **primary** site, but end-users may use the GitLab web interface to view information like projects,
+  issues, merge requests, and snippets.
 
 ### What security expectations do the end‐users have?
 
@@ -114,7 +117,7 @@ from [owasp.org](https://owasp.org/).
 ### What private and public network links support the application?
 
 - Customers choose their own networks. As sites are intended to be
-  geographically separated, it is envisioned that replication traffic will pass
+  geographically separated, it is envisioned that replication traffic passes
   over the public Internet in a typical deployment, but this is not a requirement.
 
 ## Systems
@@ -127,9 +130,9 @@ from [owasp.org](https://owasp.org/).
 
 ### What details regarding required OS components and lock‐down needs have been defined?
 
-- The supported installation method (Omnibus) packages most components itself.
+- The supported Linux package installation method packages most components itself.
 - There are significant dependencies on the system-installed OpenSSH daemon (Geo
-  requires users to set up custom authentication methods) and the omnibus or
+  requires users to set up custom authentication methods) and the Linux package-provided or
   system-provided PostgreSQL daemon (it must be configured to listen on TCP,
   additional users and replication slots must be added, etc).
 - The process for dealing with security updates (for example, if there is a
@@ -168,9 +171,12 @@ from [owasp.org](https://owasp.org/).
 - GitLab is "cloud native" and this applies to Geo as much as to the rest of the
   product. Deployment in clouds is a common and supported scenario.
 
-## If applicable, what approach(es) to cloud computing will be taken (Managed Hosting versus "Pure" Cloud, a "full machine" approach such as AWS-EC2 versus a "hosted database" approach such as AWS-RDS and Azure, etc)?
+## If applicable, what approaches to cloud computing are taken?
 
-- To be decided by our customers, according to their operational needs.
+- Whether to use these is to be decided by our customers, according to their operational needs:
+
+  - Managed hosting versus "pure" cloud
+  - A "full machine" approach, such as AWS-ED2, versus a "hosted database" approach such as AWS-RDS and Azure
 
 ## Environment
 
@@ -186,7 +192,7 @@ from [owasp.org](https://owasp.org/).
 
 - PostgreSQL >= 12, Redis, Sidekiq, Puma.
 
-### How will database connection strings, encryption keys, and other sensitive components be stored, accessed, and protected from unauthorized detection?
+### How to protect database connection strings, encryption keys, and other sensitive components?
 
 - There are some Geo-specific values. Some are shared secrets which must be
   securely transmitted from the **primary** site to the **secondary** site at setup time. Our
@@ -227,7 +233,7 @@ from [owasp.org](https://owasp.org/).
 
 ### What data does the application store and how?
 
-- Git repositories and files, tracking information related to the them, and the GitLab database contents.
+- Git repositories and files, tracking information related to them, and the GitLab database contents.
 
 ### What data is or may need to be encrypted and what key management requirements have been defined?
 
@@ -237,15 +243,16 @@ from [owasp.org](https://owasp.org/).
 - In transit, data should be encrypted, although the application does permit
   communication to proceed unencrypted. The two main transits are the **secondary** site's
   replication process for PostgreSQL, and for Git repositories/files. Both should
-  be protected using TLS, with the keys for that managed via Omnibus per existing
+  be protected using TLS, with the keys for that managed by the Linux package per existing
   configuration for end-user access to GitLab.
 
 ### What capabilities exist to detect the leakage of sensitive data?
 
 - Comprehensive system logs exist, tracking every connection to GitLab and PostgreSQL.
 
-### What encryption requirements have been defined for data in transit - including transmission over WAN, LAN, SecureFTP, or publicly accessible protocols such as http: and https:?
+### What encryption requirements have been defined for data in transit?
 
+- (This includes transmission over WAN, LAN, SecureFTP, or publicly accessible protocols such as `http:` and `https:`.)
 - Data must have the option to be encrypted in transit, and be secure against
   both passive and active attack (for example, MITM attacks should not be possible).
 
@@ -285,7 +292,7 @@ from [owasp.org](https://owasp.org/).
 
 ## Application Monitoring
 
-### What application auditing requirements have been defined? How are audit and debug logs accessed, stored, and secured?
+### How are audit and debug logs accessed, stored, and secured?
 
 - Structured JSON log is written to the file system, and can also be ingested
   into a Kibana installation for further analysis.

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::GithubImport::Representation::PullRequestReview do
   let(:submitted_at) { Time.new(2017, 1, 1, 12, 00).utc }
@@ -21,15 +21,14 @@ RSpec.describe Gitlab::GithubImport::Representation::PullRequestReview do
 
   describe '.from_api_response' do
     let(:response) do
-      double(
-        :response,
+      {
         id: 999,
         merge_request_id: 42,
         body: 'note',
         state: 'APPROVED',
-        user: double(:user, id: 4, login: 'alice'),
+        user: { id: 4, login: 'alice' },
         submitted_at: submitted_at
-      )
+      }
     end
 
     it_behaves_like 'a PullRequest review' do
@@ -37,9 +36,7 @@ RSpec.describe Gitlab::GithubImport::Representation::PullRequestReview do
     end
 
     it 'does not set the user if the response did not include a user' do
-      allow(response)
-        .to receive(:user)
-        .and_return(nil)
+      response[:user] = nil
 
       review = described_class.from_api_response(response)
 
@@ -80,7 +77,7 @@ RSpec.describe Gitlab::GithubImport::Representation::PullRequestReview do
     it 'returns a hash with needed identifiers' do
       github_identifiers = {
         review_id: 999,
-        merge_request_id: 42
+        merge_request_iid: 1
       }
       other_attributes = { something_else: '_something_else_' }
       review = described_class.new(github_identifiers.merge(other_attributes))

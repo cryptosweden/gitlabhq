@@ -1,7 +1,7 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Geo self-service framework
@@ -17,6 +17,14 @@ Geo provides an API to make it possible to easily replicate data types
 across Geo sites. This API is presented as a Ruby Domain-Specific
 Language (DSL) and aims to make it possible to replicate data with
 minimal effort of the engineer who created a data type.
+
+## Geo is a requirement in the definition of done
+
+Geo is the GitLab solution for [disaster recovery](https://about.gitlab.com/direction/geo/disaster_recovery/). A robust disaster recovery solution must replicate **all GitLab data** such that all GitLab services can be successfully restored in their entirety with minimal data loss in the event of a disaster.
+
+For this reason, Geo replication and verification support for GitLab generated data is part of the [definition of done](../contributing/merge_request_workflow.md#definition-of-done). This ensures that new features ship with Geo support and our customers are not exposed to data loss.
+
+Adding Geo support with the Self Service Framework (SSF) is easy and outlined in detail on this page for various types of data. However, for a more general guide that can help you decide if and how you need to add Geo support for a new GitLab feature, [you may start here](../geo.md#ensuring-a-new-feature-has-geo-support).
 
 ## Nomenclature
 
@@ -59,7 +67,7 @@ naming conventions:
   consume) events. It takes care of the communication between the
   primary site (where events are produced) and the secondary site
   (where events are consumed). The engineer who wants to incorporate
-  Geo in their feature will use the API of replicators to make this
+  Geo in their feature uses the API of replicators to make this
   happen.
 
 - **Geo Domain-Specific Language**:
@@ -93,19 +101,13 @@ module Geo
     def self.model
       ::Packages::PackageFile
     end
-
-    # The feature flag follows the format `geo_#{replicable_name}_replication`,
-    # so here it would be `geo_package_file_replication`
-    def self.replication_enabled_by_default?
-      false
-    end
   end
 end
 ```
 
 The class name should be unique. It also is tightly coupled to the
 table name for the registry, so for this example the registry table
-will be `package_file_registry`.
+is `package_file_registry`.
 
 For the different data types Geo supports there are different
 strategies to include. Pick one that fits your needs.

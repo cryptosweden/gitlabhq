@@ -9,7 +9,7 @@ RSpec.shared_examples 'repository_storage_moves API' do |container_type|
     let(:repository_storage_move_id) { storage_move.id }
 
     def get_container_repository_storage_move
-      get api(url, user)
+      get api(url, user, admin_mode: user.admin?)
     end
 
     it 'returns a container repository storage move', :aggregate_failures do
@@ -39,7 +39,7 @@ RSpec.shared_examples 'repository_storage_moves API' do |container_type|
 
   shared_examples 'get container repository storage move list' do
     def get_container_repository_storage_moves
-      get api(url, user)
+      get api(url, user, admin_mode: user.admin?)
     end
 
     it 'returns container repository storage moves', :aggregate_failures do
@@ -70,12 +70,8 @@ RSpec.shared_examples 'repository_storage_moves API' do |container_type|
 
       get_container_repository_storage_moves
 
-      json_ids = json_response.map {|storage_move| storage_move['id'] }
-      expect(json_ids).to eq([
-        storage_move.id,
-        storage_move_middle.id,
-        storage_move_oldest.id
-      ])
+      json_ids = json_response.pluck('id')
+      expect(json_ids).to eq([storage_move.id, storage_move_middle.id, storage_move_oldest.id])
     end
 
     describe 'permissions' do
@@ -84,67 +80,20 @@ RSpec.shared_examples 'repository_storage_moves API' do |container_type|
     end
   end
 
-  describe "GET /#{container_type}/:id/repository_storage_moves" do
-    let(:container_id) { container.id }
+  shared_examples 'post single container repository storage move' do
     let(:url) { "/#{container_type}/#{container_id}/repository_storage_moves" }
-
-    it_behaves_like 'get container repository storage move list'
-
-    context 'non-existent container' do
-      let(:container_id) { non_existing_record_id }
-
-      it 'returns not found' do
-        get api(url, user)
-
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-    end
-  end
-
-  describe "GET /#{container_type}/:id/repository_storage_moves/:repository_storage_move_id" do
     let(:container_id) { container.id }
-    let(:url) { "/#{container_type}/#{container_id}/repository_storage_moves/#{repository_storage_move_id}" }
-
-    it_behaves_like 'get single container repository storage move'
-
-    context 'non-existent container' do
-      let(:container_id) { non_existing_record_id }
-      let(:repository_storage_move_id) { storage_move.id }
-
-      it 'returns not found' do
-        get api(url, user)
-
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-    end
-  end
-
-  describe "GET /#{container_type.singularize}_repository_storage_moves" do
-    it_behaves_like 'get container repository storage move list' do
-      let(:url) { "/#{container_type.singularize}_repository_storage_moves" }
-    end
-  end
-
-  describe "GET /#{container_type.singularize}_repository_storage_moves/:repository_storage_move_id" do
-    it_behaves_like 'get single container repository storage move' do
-      let(:url) { "/#{container_type.singularize}_repository_storage_moves/#{repository_storage_move_id}" }
-    end
-  end
-
-  describe "POST /#{container_type}/:id/repository_storage_moves" do
-    let(:container_id) { container.id }
-    let(:url) { "/#{container_type}/#{container_id}/repository_storage_moves" }
     let(:destination_storage_name) { 'test_second_storage' }
 
     def create_container_repository_storage_move
-      post api(url, user), params: { destination_storage_name: destination_storage_name }
+      post api(url, user, admin_mode: user.admin?), params: { destination_storage_name: destination_storage_name }
     end
 
     before do
-      stub_storage_settings('test_second_storage' => { 'path' => 'tmp/tests/extra_storage' })
+      stub_storage_settings('test_second_storage' => {})
     end
 
-    it 'schedules a container repository storage move', :aggregate_failures do
+    it 'schedules a container repository storage move' do
       create_container_repository_storage_move
 
       storage_move = container.repository_storage_moves.last
@@ -162,7 +111,7 @@ RSpec.shared_examples 'repository_storage_moves API' do |container_type|
       it { expect { create_container_repository_storage_move }.to be_denied_for(:user) }
     end
 
-    context 'destination_storage_name is missing', :aggregate_failures do
+    context 'destination_storage_name is missing' do
       let(:destination_storage_name) { nil }
 
       it 'schedules a container repository storage move' do
@@ -190,20 +139,71 @@ RSpec.shared_examples 'repository_storage_moves API' do |container_type|
     end
   end
 
+  describe "GET /#{container_type}/:id/repository_storage_moves" do
+    let(:container_id) { container.id }
+    let(:url) { "/#{container_type}/#{container_id}/repository_storage_moves" }
+
+    it_behaves_like 'get container repository storage move list'
+
+    context 'non-existent container' do
+      let(:container_id) { non_existing_record_id }
+
+      it 'returns not found' do
+        get api(url, user, admin_mode: user.admin?)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+  end
+
+  describe "GET /#{container_type}/:id/repository_storage_moves/:repository_storage_move_id" do
+    let(:container_id) { container.id }
+    let(:url) { "/#{container_type}/#{container_id}/repository_storage_moves/#{repository_storage_move_id}" }
+
+    it_behaves_like 'get single container repository storage move'
+
+    context 'non-existent container' do
+      let(:container_id) { non_existing_record_id }
+      let(:repository_storage_move_id) { storage_move.id }
+
+      it 'returns not found' do
+        get api(url, user, admin_mode: user.admin?)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+  end
+
+  describe "GET /#{container_type.singularize}_repository_storage_moves" do
+    it_behaves_like 'get container repository storage move list' do
+      let(:url) { "/#{container_type.singularize}_repository_storage_moves" }
+    end
+  end
+
+  describe "GET /#{container_type.singularize}_repository_storage_moves/:repository_storage_move_id" do
+    it_behaves_like 'get single container repository storage move' do
+      let(:url) { "/#{container_type.singularize}_repository_storage_moves/#{repository_storage_move_id}" }
+    end
+  end
+
+  describe "POST /#{container_type}/:id/repository_storage_moves", :aggregate_failures do
+    it_behaves_like 'post single container repository storage move'
+  end
+
   describe "POST /#{container_type.singularize}_repository_storage_moves" do
     let(:url) { "/#{container_type.singularize}_repository_storage_moves" }
     let(:source_storage_name) { 'default' }
     let(:destination_storage_name) { 'test_second_storage' }
 
     def create_container_repository_storage_moves
-      post api(url, user), params: {
+      post api(url, user, admin_mode: user.admin?), params: {
         source_storage_name: source_storage_name,
         destination_storage_name: destination_storage_name
       }
     end
 
     before do
-      stub_storage_settings('test_second_storage' => { 'path' => 'tmp/tests/extra_storage' })
+      stub_storage_settings('test_second_storage' => {})
     end
 
     it 'schedules the worker' do

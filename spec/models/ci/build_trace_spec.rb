@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::BuildTrace do
+RSpec.describe Ci::BuildTrace, feature_category: :continuous_integration do
   let(:build) { build_stubbed(:ci_build) }
   let(:state) { nil }
   let(:data) { StringIO.new('the-stream') }
@@ -13,7 +13,7 @@ RSpec.describe Ci::BuildTrace do
 
   subject { described_class.new(build: build, stream: stream, state: state) }
 
-  shared_examples 'delegates methods' do
+  describe 'delegated methods' do
     it { is_expected.to delegate_method(:state).to(:trace) }
     it { is_expected.to delegate_method(:append).to(:trace) }
     it { is_expected.to delegate_method(:truncated).to(:trace) }
@@ -25,21 +25,20 @@ RSpec.describe Ci::BuildTrace do
     it { is_expected.to delegate_method(:complete?).to(:build).with_prefix }
   end
 
-  it_behaves_like 'delegates methods'
-
   it 'returns formatted trace' do
-    expect(subject.lines).to eq([
-      { offset: 0, content: [{ text: 'the-stream' }] }
-    ])
+    expect(subject.lines).to eq(
+      [
+        { offset: 0, content: [{ text: 'the-stream' }] }
+      ])
   end
 
   context 'with invalid UTF-8 data' do
     let(:data) { StringIO.new("UTF-8 dashes here: ───\n🐤🐤🐤🐤\xF0\x9F\x90\n") }
 
     it 'returns valid UTF-8 data', :aggregate_failures do
-      expect(subject.lines[0]).to eq({ offset: 0, content: [{ text: 'UTF-8 dashes here: ───' }] } )
+      expect(subject.lines[0]).to eq({ offset: 0, content: [{ text: 'UTF-8 dashes here: ───' }] })
       # Each of the dashes is 3 bytes, so we get 19 + 9 + 1 = 29
-      expect(subject.lines[1]).to eq({ offset: 29, content: [{ text: '🐤🐤🐤🐤�' }] } )
+      expect(subject.lines[1]).to eq({ offset: 29, content: [{ text: '🐤🐤🐤🐤�' }] })
     end
   end
 end

@@ -2,13 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'New/edit issue', :js do
+RSpec.describe 'New/edit issue', :js, feature_category: :team_planning do
   include ActionView::Helpers::JavaScriptHelper
+  include ListboxHelpers
 
   let_it_be(:project)   { create(:project, :repository) }
-  let_it_be(:user)      { create(:user) }
-  let_it_be(:user2)     { create(:user) }
-  let_it_be(:guest)     { create(:user) }
+  let_it_be(:user)      { create(:user, maintainer_of: project) }
+  let_it_be(:user2)     { create(:user, maintainer_of: project) }
+  let_it_be(:guest)     { create(:user, guest_of: project) }
   let_it_be(:milestone) { create(:milestone, project: project) }
   let_it_be(:label)     { create(:label, project: project) }
   let_it_be(:label2)    { create(:label, project: project) }
@@ -16,12 +17,6 @@ RSpec.describe 'New/edit issue', :js do
   let_it_be(:confidential_issue) { create(:issue, project: project, assignees: [user], milestone: milestone, confidential: true) }
 
   let(:current_user) { user }
-
-  before_all do
-    project.add_maintainer(user)
-    project.add_maintainer(user2)
-    project.add_guest(guest)
-  end
 
   before do
     stub_licensed_features(multiple_issue_assignees: false, issue_weights: false)
@@ -43,7 +38,7 @@ RSpec.describe 'New/edit issue', :js do
         # To work around this, we have to hold on to and call to the original implementation manually.
         original_issue_dropdown_options = FormHelper.instance_method(:assignees_dropdown_options)
         allow_any_instance_of(FormHelper).to receive(:assignees_dropdown_options).and_wrap_original do |original, *args|
-          options = original_issue_dropdown_options.bind(original.receiver).call(*args)
+          options = original_issue_dropdown_options.bind_call(original.receiver, *args)
           options[:data][:per_page] = 2
 
           options
@@ -64,8 +59,7 @@ RSpec.describe 'New/edit issue', :js do
           click_link user2.name
         end
 
-        find('.js-assignee-search').click
-        find('.js-dropdown-input-clear').click
+        click_button user2.name
 
         page.within '.dropdown-menu-user' do
           expect(page).to have_content user.name
@@ -140,28 +134,23 @@ RSpec.describe 'New/edit issue', :js do
       end
       expect(find('a', text: 'Assign to me', visible: false)).not_to be_visible
 
-      click_button 'Milestone'
-      page.within '.issue-milestone' do
-        click_link milestone.title
-      end
+      click_button 'Select milestone'
+      click_button milestone.title
       expect(find('input[name="issue[milestone_id]"]', visible: false).value).to match(milestone.id.to_s)
-      page.within '.js-milestone-select' do
-        expect(page).to have_content milestone.title
-      end
+      expect(page).to have_button milestone.title
 
-      click_button 'Labels'
-      page.within '.dropdown-menu-labels' do
-        click_link label.title
-        click_link label2.title
+      click_button _('Select label')
+      wait_for_all_requests
+      within_testid('sidebar-labels') do
+        click_button label.title
+        click_button label2.title
+        click_button _('Close')
+        wait_for_requests
+        within_testid('embedded-labels-list') do
+          expect(page).to have_content(label.title)
+          expect(page).to have_content(label2.title)
+        end
       end
-
-      find('.js-issuable-form-dropdown.js-label-select').click
-
-      page.within '.js-label-select' do
-        expect(page).to have_content label.title
-      end
-      expect(page.all('input[name="issue[label_ids][]"]', visible: false)[1].value).to match(label.id.to_s)
-      expect(page.all('input[name="issue[label_ids][]"]', visible: false)[2].value).to match(label2.id.to_s)
 
       click_button 'Create issue'
 
@@ -180,46 +169,70 @@ RSpec.describe 'New/edit issue', :js do
         end
       end
 
-      page.within '.breadcrumbs' do
+      within_testid 'breadcrumb-links' do
         issue = Issue.find_by(title: 'title')
 
         expect(page).to have_text("Issues #{issue.to_reference}")
       end
     end
 
+    it 'correctly updates the dropdown toggle when removing a label' do
+      click_button _('Select label')
+
+      wait_for_all_requests
+
+      within_testid 'sidebar-labels' do
+        click_button label.title
+        click_button _('Close')
+
+        wait_for_requests
+
+        within_testid('embedded-labels-list') do
+          expect(page).to have_content(label.title)
+        end
+
+        expect(page.find('.gl-dropdown-button-text')).to have_content(label.title)
+      end
+
+      click_button label.title, class: 'gl-dropdown-toggle'
+
+      wait_for_all_requests
+
+      within_testid 'sidebar-labels' do
+        click_button label.title, class: 'dropdown-item'
+        click_button _('Close')
+
+        wait_for_requests
+
+        expect(page).not_to have_selector('[data-testid="embedded-labels-list"]')
+        expect(page.find('.gl-dropdown-button-text')).to have_content(_('Select label'))
+      end
+    end
+
+    it 'clears label search input field when a label is selected', :js do
+      click_button _('Select label')
+
+      wait_for_all_requests
+
+      within_testid 'sidebar-labels' do
+        search_field = find('input[type="search"]')
+
+        search_field.native.send_keys(label.title)
+
+        expect(page).to have_css('.gl-search-box-by-type-clear')
+
+        click_button label.title, class: 'dropdown-item'
+
+        expect(page).not_to have_css('.gl-search-box-by-type-clear')
+        expect(search_field.value).to eq ''
+      end
+    end
+
     it 'displays an error message when submitting an invalid form' do
       click_button 'Create issue'
 
-      page.within('[data-testid="issue-title-input-field"]') do
+      within_testid('issue-title-input-field') do
         expect(page).to have_text(_('This field is required.'))
-      end
-    end
-
-    it 'correctly updates the dropdown toggle when removing a label' do
-      click_button 'Labels'
-
-      page.within '.dropdown-menu-labels' do
-        click_link label.title
-      end
-
-      expect(find('.js-label-select')).to have_content(label.title)
-
-      page.within '.dropdown-menu-labels' do
-        click_link label.title
-      end
-
-      expect(find('.js-label-select')).to have_content('Labels')
-    end
-
-    it 'clears label search input field when a label is selected' do
-      click_button 'Labels'
-
-      page.within '.dropdown-menu-labels' do
-        search_field = find('input[type="search"]')
-
-        search_field.set(label2.title)
-        click_link label2.title
-        expect(search_field.value).to eq ''
       end
     end
 
@@ -252,19 +265,15 @@ RSpec.describe 'New/edit issue', :js do
     describe 'displays issue type options in the dropdown' do
       shared_examples 'type option is visible' do |label:, identifier:|
         it "shows #{identifier} option", :aggregate_failures do
-          page.within('[data-testid="issue-type-select-dropdown"]') do
-            expect(page).to have_selector(%([data-testid="issue-type-#{identifier}-icon"]))
-            expect(page).to have_content(label)
-          end
+          wait_for_requests
+          expect_listbox_item(label)
         end
       end
 
       shared_examples 'type option is missing' do |label:, identifier:|
         it "does not show #{identifier} option", :aggregate_failures do
-          page.within('[data-testid="issue-type-select-dropdown"]') do
-            expect(page).not_to have_selector(%([data-testid="issue-type-#{identifier}-icon"]))
-            expect(page).not_to have_content(label)
-          end
+          wait_for_requests
+          expect_no_listbox_item(label)
         end
       end
 
@@ -307,16 +316,20 @@ RSpec.describe 'New/edit issue', :js do
       end
 
       it 'escapes milestone' do
-        click_button 'Milestone'
+        click_button 'Select milestone'
+        click_button milestone.title
 
         page.within '.issue-milestone' do
-          click_link milestone.title
-        end
-
-        page.within '.js-milestone-select' do
-          expect(page).to have_content milestone.title
+          expect(page).to have_button milestone.title
           expect(page).not_to have_selector 'img'
         end
+      end
+    end
+
+    describe 'when repository contains CONTRIBUTING.md' do
+      it 'has contribution guidelines prompt' do
+        text = _('Please review the %{linkStart}contribution guidelines%{linkEnd} for this project.') % { linkStart: nil, linkEnd: nil }
+        expect(find('#new_issue')).to have_text(text)
       end
     end
   end
@@ -353,14 +366,14 @@ RSpec.describe 'New/edit issue', :js do
       expect(find('#issue_description').value).to match('description from query parameter')
     end
 
-    it 'fills the description from the issuable_template query parameter' do
+    it 'fills the description from the issuable_template query parameter', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/388728' do
       visit new_project_issue_path(project, issuable_template: 'test_template')
       wait_for_requests
 
       expect(find('#issue_description').value).to match('description from template')
     end
 
-    it 'fills the description from the issuable_template and issue[description] query parameters' do
+    it 'fills the description from the issuable_template and issue[description] query parameters', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/388728' do
       visit new_project_issue_path(project, issuable_template: 'test_template', issue: { description: 'description from query parameter' })
       wait_for_requests
 
@@ -437,20 +450,28 @@ RSpec.describe 'New/edit issue', :js do
         expect(page).to have_content user.name
       end
 
-      page.within '.js-milestone-select' do
-        expect(page).to have_content milestone.title
+      expect(page).to have_button milestone.title
+
+      click_button _('Select label')
+
+      wait_for_all_requests
+
+      within_testid 'sidebar-labels' do
+        click_button label.title
+        click_button label2.title
+        click_button _('Close')
+
+        wait_for_requests
+
+        within_testid('embedded-labels-list') do
+          expect(page).to have_content(label.title)
+          expect(page).to have_content(label2.title)
+        end
       end
 
-      click_button 'Labels'
-      page.within '.dropdown-menu-labels' do
-        click_link label.title
-        click_link label2.title
-      end
-      page.within '.js-label-select' do
-        expect(page).to have_content label.title
-      end
-      expect(page.all('input[name="issue[label_ids][]"]', visible: false)[1].value).to match(label.id.to_s)
-      expect(page.all('input[name="issue[label_ids][]"]', visible: false)[2].value).to match(label2.id.to_s)
+      expect(page.all('input[name="issue[label_ids][]"]', visible: false)
+        .map(&:value))
+        .to contain_exactly(label.id.to_s, label2.id.to_s)
 
       click_button 'Save changes'
 
@@ -478,15 +499,60 @@ RSpec.describe 'New/edit issue', :js do
     end
   end
 
-  describe 'inline edit' do
+  describe 'editing an issue by hotkey' do
+    let_it_be(:issue2) { create(:issue, project: project) }
+
     before do
-      visit project_issue_path(project, issue)
+      visit project_issue_path(project, issue2)
     end
 
     it 'opens inline edit form with shortcut' do
       find('body').send_keys('e')
 
       expect(page).to have_selector('.detail-page-description form')
+    end
+
+    context 'when user has made no changes' do
+      it 'let user leave the page without warnings' do
+        expected_content = 'Issue created'
+        expect(page).to have_content(expected_content)
+
+        find('body').send_keys('e')
+
+        click_link 'Homepage'
+
+        expect(page).not_to have_content(expected_content)
+      end
+    end
+
+    context 'when user has made changes' do
+      it 'shows a warning and can stay on page' do
+        content = 'new issue content'
+
+        find('body').send_keys('e')
+        fill_in 'issue-description', with: content
+
+        click_link 'Homepage' do
+          page.driver.browser.switch_to.alert.dismiss
+        end
+
+        click_button 'Save changes'
+        wait_for_requests
+
+        expect(page).to have_content(content)
+      end
+
+      it 'shows a warning and can leave page' do
+        content = 'new issue content'
+        find('body').send_keys('e')
+        fill_in 'issue-description', with: content
+
+        click_link 'Homepage' do
+          page.driver.browser.switch_to.alert.dismiss
+        end
+
+        expect(page).not_to have_content(content)
+      end
     end
   end
 
@@ -501,33 +567,23 @@ RSpec.describe 'New/edit issue', :js do
       visit new_project_issue_path(sub_group_project)
     end
 
-    it 'creates project label from dropdown' do
-      click_button 'Labels'
+    context 'labels', :js do
+      it 'creates project label from dropdown', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/416585' do
+        find('[data-testid="labels-select-dropdown-contents"] button').click
 
-      click_link 'Create project label'
+        wait_for_all_requests
 
-      page.within '.dropdown-new-label' do
-        fill_in 'new_label_name', with: 'test label'
-        first('.suggest-colors-dropdown a').click
+        within_testid 'sidebar-labels' do
+          click_button _('Create project label')
+          fill_in _('Label name'), with: 'test label'
+          first('.suggest-colors-dropdown a').click
+          click_button 'Create'
+        end
 
-        click_button 'Create'
-
-        wait_for_requests
-      end
-
-      page.within '.dropdown-menu-labels' do
-        expect(page).to have_link 'test label'
+        page.within '.js-labels-list' do
+          expect(page).to have_button 'test label'
+        end
       end
     end
-  end
-
-  def before_for_selector(selector)
-    js = <<-JS.strip_heredoc
-      (function(selector) {
-        var el = document.querySelector(selector);
-        return window.getComputedStyle(el, '::before').getPropertyValue('content');
-      })("#{escape_javascript(selector)}")
-    JS
-    page.evaluate_script(js)
   end
 end

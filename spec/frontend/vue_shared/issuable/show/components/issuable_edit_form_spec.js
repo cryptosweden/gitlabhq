@@ -1,12 +1,19 @@
 import { GlFormInput } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
-
 import { nextTick } from 'vue';
 import IssuableEditForm from '~/vue_shared/issuable/show/components/issuable_edit_form.vue';
 import IssuableEventHub from '~/vue_shared/issuable/show/event_hub';
 import MarkdownField from '~/vue_shared/components/markdown/field.vue';
+import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
+import MarkdownToolbar from '~/vue_shared/components/markdown/toolbar.vue';
+import EditorModeSwitcher from '~/vue_shared/components/markdown/editor_mode_switcher.vue';
+import markdownEditorEventHub from '~/vue_shared/components/markdown/eventhub';
+import { CLEAR_AUTOSAVE_ENTRY_EVENT } from '~/vue_shared/constants';
+import Autosave from '~/autosave';
 
 import { mockIssuableShowProps, mockIssuable } from '../mock_data';
+
+jest.mock('~/autosave');
 
 const issuableEditFormProps = {
   issuable: mockIssuable,
@@ -17,7 +24,10 @@ const createComponent = ({ propsData = issuableEditFormProps } = {}) =>
   shallowMount(IssuableEditForm, {
     propsData,
     stubs: {
+      MarkdownEditor,
       MarkdownField,
+      MarkdownToolbar,
+      EditorModeSwitcher,
     },
     slots: {
       'edit-form-actions': `
@@ -36,11 +46,15 @@ describe('IssuableEditForm', () => {
 
   beforeEach(() => {
     wrapper = createComponent();
-    gon.features = { markdownContinueLists: true };
+    jest.spyOn(Autosave.prototype, 'reset');
   });
 
   afterEach(() => {
+    // note: the order of wrapper.destroy() and jest.resetAllMocks() matters.
+    // maybe it'll help with investigation on how to remove this wrapper.destroy() call
+    // eslint-disable-next-line @gitlab/vtu-no-explicit-wrapper-destroy
     wrapper.destroy();
+    jest.resetAllMocks();
   });
 
   describe('watch', () => {
@@ -101,21 +115,19 @@ describe('IssuableEditForm', () => {
 
   describe('methods', () => {
     describe('initAutosave', () => {
-      it('initializes `autosaveTitle` and `autosaveDescription` props', () => {
-        expect(wrapper.vm.autosaveTitle).toBeDefined();
-        expect(wrapper.vm.autosaveDescription).toBeDefined();
+      it('initializes autosave', () => {
+        expect(Autosave.mock.calls).toEqual([[expect.any(Element), ['/', '', 'title']]]);
       });
     });
 
     describe('resetAutosave', () => {
-      it('calls `reset` on `autosaveTitle` and `autosaveDescription` props', () => {
-        jest.spyOn(wrapper.vm.autosaveTitle, 'reset').mockImplementation(jest.fn);
-        jest.spyOn(wrapper.vm.autosaveDescription, 'reset').mockImplementation(jest.fn);
+      it('resets title on "update.issuable event"', () => {
+        const clearDescriptionAutosaveSpy = jest.fn();
+        markdownEditorEventHub.$on(CLEAR_AUTOSAVE_ENTRY_EVENT, clearDescriptionAutosaveSpy);
 
-        wrapper.vm.resetAutosave();
-
-        expect(wrapper.vm.autosaveTitle.reset).toHaveBeenCalled();
-        expect(wrapper.vm.autosaveDescription.reset).toHaveBeenCalled();
+        IssuableEventHub.$emit('update.issuable');
+        expect(Autosave.prototype.reset).toHaveBeenCalled();
+        expect(clearDescriptionAutosaveSpy).toHaveBeenCalled();
       });
     });
   });
@@ -125,7 +137,7 @@ describe('IssuableEditForm', () => {
       const titleInputEl = wrapper.find('[data-testid="title"]');
 
       expect(titleInputEl.exists()).toBe(true);
-      expect(titleInputEl.find(GlFormInput).attributes()).toMatchObject({
+      expect(titleInputEl.findComponent(GlFormInput).attributes()).toMatchObject({
         'aria-label': 'Title',
         placeholder: 'Title',
       });
@@ -135,7 +147,7 @@ describe('IssuableEditForm', () => {
       const descriptionEl = wrapper.find('[data-testid="description"]');
 
       expect(descriptionEl.exists()).toBe(true);
-      expect(descriptionEl.find(MarkdownField).props()).toMatchObject({
+      expect(descriptionEl.findComponent(MarkdownField).props()).toMatchObject({
         markdownPreviewPath: issuableEditFormProps.descriptionPreviewPath,
         markdownDocsPath: issuableEditFormProps.descriptionHelpPath,
         enableAutocomplete: issuableEditFormProps.enableAutocomplete,
@@ -146,6 +158,12 @@ describe('IssuableEditForm', () => {
         'aria-label': 'Description',
         placeholder: 'Write a comment or drag your files here…',
       });
+    });
+
+    it('allows switching to rich text editor', () => {
+      const descriptionEl = wrapper.find('[data-testid="description"]');
+
+      expect(descriptionEl.text()).toContain('Switch to rich text editing');
     });
 
     it('renders form actions', () => {
@@ -161,12 +179,11 @@ describe('IssuableEditForm', () => {
         stopPropagation: jest.fn(),
       };
 
-      it('component emits `keydown-title` event with event object and issuableMeta params via gl-form-input', async () => {
-        const titleInputEl = wrapper.find(GlFormInput);
+      it('component emits `keydown-title` event with event object and issuableMeta params via gl-form-input', () => {
+        const titleInputEl = wrapper.findComponent(GlFormInput);
 
         titleInputEl.vm.$emit('keydown', eventObj, 'title');
-
-        expect(wrapper.emitted('keydown-title')).toBeTruthy();
+        expect(wrapper.emitted('keydown-title')).toHaveLength(1);
         expect(wrapper.emitted('keydown-title')[0]).toMatchObject([
           eventObj,
           {
@@ -176,12 +193,11 @@ describe('IssuableEditForm', () => {
         ]);
       });
 
-      it('component emits `keydown-description` event with event object and issuableMeta params via textarea', async () => {
+      it('component emits `keydown-description` event with event object and issuableMeta params via textarea', () => {
         const descriptionInputEl = wrapper.find('[data-testid="description"] textarea');
 
         descriptionInputEl.trigger('keydown', eventObj, 'description');
-
-        expect(wrapper.emitted('keydown-description')).toBeTruthy();
+        expect(wrapper.emitted('keydown-description')).toHaveLength(1);
         expect(wrapper.emitted('keydown-description')[0]).toMatchObject([
           eventObj,
           {

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Importer::RepositoryImporter do
+RSpec.describe Gitlab::GithubImport::Importer::RepositoryImporter, feature_category: :importers do
   let(:repository) { double(:repository) }
   let(:import_state) { double(:import_state) }
   let(:client) { double(:client) }
@@ -23,6 +23,7 @@ RSpec.describe Gitlab::GithubImport::Importer::RepositoryImporter do
   let(:project) do
     double(
       :project,
+      id: 1,
       import_url: 'foo.git',
       import_source: 'foo/bar',
       repository_storage: 'foo',
@@ -48,7 +49,7 @@ RSpec.describe Gitlab::GithubImport::Importer::RepositoryImporter do
 
   describe '#import_wiki?' do
     it 'returns true if the wiki should be imported' do
-      repo = double(:repo, has_wiki: true)
+      repo = { has_wiki: true }
 
       expect(client)
         .to receive(:repository)
@@ -67,7 +68,7 @@ RSpec.describe Gitlab::GithubImport::Importer::RepositoryImporter do
     end
 
     it 'returns false if the GitHub wiki is disabled' do
-      repo = double(:repo, has_wiki: false)
+      repo = { has_wiki: false }
 
       expect(client)
         .to receive(:repository)
@@ -78,7 +79,7 @@ RSpec.describe Gitlab::GithubImport::Importer::RepositoryImporter do
     end
 
     it 'returns false if the wiki has already been imported' do
-      repo = double(:repo, has_wiki: true)
+      repo = { has_wiki: true }
 
       expect(client)
         .to receive(:repository)
@@ -186,7 +187,7 @@ RSpec.describe Gitlab::GithubImport::Importer::RepositoryImporter do
 
   describe '#import_repository' do
     it 'imports the repository' do
-      repo = double(:repo, default_branch: 'develop')
+      repo = { default_branch: 'develop' }
 
       expect(client)
         .to receive(:repository)
@@ -203,6 +204,8 @@ RSpec.describe Gitlab::GithubImport::Importer::RepositoryImporter do
       expect(repository)
         .to receive(:fetch_as_mirror)
         .with(project.import_url, refmap: Gitlab::GithubImport.refmap, forced: true)
+
+      expect(importer).to receive(:validate_repository_size!)
 
       service = double
       expect(Repositories::HousekeepingService)

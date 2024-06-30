@@ -2,11 +2,11 @@
 
 module Snippets
   class CreateService < Snippets::BaseService
-    # NOTE: For Issues::CreateService, we require the spam_params and do not default it to nil, because
-    # spam_checking is likely to be necessary.
-    def initialize(project:, current_user: nil, params: {}, spam_params:)
+    include Gitlab::InternalEventsTracking
+
+    def initialize(project:, current_user: nil, params: {}, perform_spam_check: true)
       super(project: project, current_user: current_user, params: params)
-      @spam_params = spam_params
+      @perform_spam_check = perform_spam_check
     end
 
     def execute
@@ -20,20 +20,17 @@ module Snippets
 
       @snippet.author = current_user
 
-      Spam::SpamActionService.new(
-        spammable: @snippet,
-        spam_params: spam_params,
-        user: current_user,
-        action: :create
-      ).execute
+      if perform_spam_check
+        @snippet.check_for_spam(user: current_user, action: :create, extra_features: { files: file_paths_to_commit })
+      end
 
       if save_and_commit
-        UserAgentDetailService.new(spammable: @snippet, spam_params: spam_params).create
-        Gitlab::UsageDataCounters::SnippetCounter.count(:create)
+        UserAgentDetailService.new(spammable: @snippet, perform_spam_check: perform_spam_check).create
+        track_internal_event('create_snippet', project: project, user: current_user)
 
         move_temporary_files
 
-        ServiceResponse.success(payload: { snippet: @snippet } )
+        ServiceResponse.success(payload: { snippet: @snippet })
       else
         snippet_error_response(@snippet, 400)
       end
@@ -41,7 +38,7 @@ module Snippets
 
     private
 
-    attr_reader :snippet, :spam_params
+    attr_reader :snippet, :perform_spam_check
 
     def build_from_params
       if project

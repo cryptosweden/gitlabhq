@@ -33,14 +33,6 @@
     }
   }
 
-  a {
-    color: $blue-600;
-
-    > code {
-      color: $blue-600;
-    }
-  }
-
   .media-container {
     display: inline-flex;
     flex-direction: column;
@@ -51,6 +43,12 @@
     max-width: 100%;
   }
 
+  img[width][height] {
+    object-fit: contain;
+    object-position: top;
+    height: auto;
+  }
+
   img:not(.emoji) {
     margin: 0 0 8px;
   }
@@ -58,7 +56,7 @@
   img.lazy {
     min-width: 200px;
     min-height: 100px;
-    background-color: $gray-lightest;
+    background-color: $gray-10;
   }
 
   img.js-lazy-loaded,
@@ -76,6 +74,10 @@
     }
   }
 
+  details[open] summary {
+    margin-bottom: $gl-padding;
+  }
+
   summary > * {
     display: inline-block;
     margin-bottom: 0;
@@ -84,6 +86,7 @@
   // Single code lines should wrap
   code {
     font-family: $monospace-font;
+    vertical-align: bottom;
     white-space: pre-wrap;
     // Safari
     word-wrap: break-word;
@@ -96,7 +99,7 @@
     font-weight: $gl-font-weight-bold;
     margin: 24px 0 16px;
     padding-bottom: 0.3em;
-    border-bottom: 1px solid $white-dark;
+    border-bottom: 1px solid $gray-200;
     color: $gl-text-color;
 
     &:first-child {
@@ -109,7 +112,7 @@
     font-weight: $gl-font-weight-bold;
     margin: 24px 0 16px;
     padding-bottom: 0.3em;
-    border-bottom: 1px solid $white-dark;
+    border-bottom: 1px solid $gray-200;
     color: $gl-text-color;
   }
 
@@ -135,24 +138,41 @@
 
   blockquote,
   .blockquote {
-    color: $gl-grayish-blue;
     font-size: inherit;
-    padding: 8px 24px;
-    margin: 16px 0;
-    border-left: 3px solid $white-dark;
+    color: $gray-700;
+    padding-top: $gl-spacing-scale-3;
+    padding-bottom: $gl-spacing-scale-3;
+    padding-left: $gl-spacing-scale-6;
+    margin-top: $gl-spacing-scale-3;
+    margin-bottom: $gl-spacing-scale-3;
+    margin-left: 0;
+    margin-right: 0;
+    @apply gl-shadow-inner-l-4-gray-100;
 
     &:dir(rtl) {
       border-left: 0;
-      border-right: 3px solid $white-dark;
+      border-right: 3px solid $gray-100;
     }
 
     p {
-      color: $gl-grayish-blue !important;
-      font-size: inherit;
       line-height: 1.5;
+     color: inherit;
 
       &:last-child {
         margin: 0;
+      }
+    }
+
+    // ensure quoted lists are styled the same as normal lists
+    > ul {
+      list-style-type: disc;
+
+      ul {
+        list-style-type: circle;
+
+        ul {
+          list-style-type: square;
+        }
       }
     }
   }
@@ -319,7 +339,7 @@
     &.stripes-odd tr:nth-of-type(odd),
     &.stripes-even tr:nth-of-type(even),
     &.stripes-hover tr:hover {
-      background: $gray-light;
+      background: $gray-10;
     }
   }
 
@@ -329,10 +349,9 @@
 
   pre {
     margin-bottom: 16px;
-    font-size: 13px;
     line-height: 1.6em;
     overflow-x: auto;
-    border-radius: 2px;
+    border-radius: $gl-border-radius-base;
 
     // Multi-line code blocks should scroll horizontally
     code {
@@ -426,11 +445,59 @@
       padding-inline-start: 28px;
       margin-inline-start: 0 !important;
 
+      > p > input.task-list-item-checkbox,
       > input.task-list-item-checkbox {
         position: absolute;
-        inset-inline-start: 8px;
-        top: 5px;
+        inset-inline-start: $gl-padding-8;
+        inset-block-start: 5px;
       }
+    }
+  }
+
+  li.inapplicable {
+    // for a single line list item, no paragraph (tight list)
+    > s {
+      color: $gl-text-color-disabled;
+    }
+
+    // additional blocks, other than paragraphs
+    > div {
+      text-decoration: line-through;
+      color: $gl-text-color-disabled;
+    }
+
+    // because of the embedded checkbox, putting line-through on the entire
+    // paragraph causes the space between the checkbox and the text to have the
+    // line-through.  Targeting just the `s` fixes this
+    > p:first-of-type > s {
+      color: $gl-text-color-disabled;
+    }
+
+    > p:not(:first-of-type) {
+      text-decoration: line-through;
+      color: $gl-text-color-disabled;
+    }
+
+    .drag-icon {
+      color: $gl-text-color;
+    }
+
+    // If an inapplicable task list item contains labels or <kbd>s, strike them
+    // out as well.
+    .gl-label, kbd {
+      text-decoration: line-through;
+      text-decoration-color: $gl-text-color-disabled;
+      vertical-align: text-bottom;
+    }
+  }
+
+  a.gfm-gollum-wiki-page {
+    &::before {
+      margin-right: 4px;
+      vertical-align: -2px;
+
+      @include gl-dark-invert-keep-hue;
+      content: url('sprite_icons/document.svg');
     }
   }
 
@@ -439,15 +506,14 @@
   a[href*='storage.googleapis.com/google-code-attachments/'] {
     &::before {
       margin-right: 4px;
+      vertical-align: -2px;
 
-      font-style: normal;
-      font-size: inherit;
-      text-rendering: auto;
-      -webkit-font-smoothing: antialiased;
-      content: '📎';
+      @include gl-dark-invert-keep-hue;
+      content: url('sprite_icons/paperclip.svg');
     }
   }
 
+  a[href*='/wikis/'],
   a[href*='/uploads/'],
   a[href*='storage.googleapis.com/google-code-attachments/'] {
     &.no-attachment-icon {
@@ -471,7 +537,8 @@
       outline: none;
 
       &::after {
-        content: image-url('icon_anchor.svg');
+        @include gl-dark-invert-keep-hue;
+        content: url('icon_anchor.svg');
         visibility: hidden;
       }
     }
@@ -541,6 +608,30 @@
     content: '🔥';
   }
 
+  .admonitionblock, .sidebarblock, .openblock, .exampleblock {
+    margin: $gl-padding 0 $gl-padding;
+  }
+
+  .sidebarblock {
+    background: $gray-50;
+    padding: $gl-padding-12 $gl-padding-24;
+    border-radius: $gl-border-radius-large;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  .exampleblock > div:nth-of-type(1) {
+    border: $gl-border-size-3 solid $border-color;
+    border-radius: $gl-border-radius-base;
+    padding: $gl-padding-12 $gl-padding-24;
+
+    p {
+      margin: 0;
+    }
+  }
+
   .fa-square-o::before {
     content: '\2610';
   }
@@ -553,18 +644,7 @@
     width: 1%;
   }
 
-  .metrics-embed {
-    h3.popover-header {
-      /** Override <h3> .popover-header
-      * as embed metrics do not follow the same
-      * style as default md <h3> (which are deeply nested)
-      */
-      margin: 0;
-      font-size: $gl-font-size-small;
-    }
-  }
-
-  .gl-new-dropdown-item {
+  .gl-dropdown-item {
     margin: 0;
     padding: 0;
     line-height: 1rem;
@@ -589,6 +669,28 @@
   }
 
   @include email-code-block;
+
+  &.gl-text-secondary {
+    color: $gl-text-color-secondary;
+
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    table:not(.code) {
+      color: $gl-text-color-secondary;
+    }
+  }
+}
+
+/**
+ * Links
+ *
+ */
+a:focus-visible {
+  @include gl-focus($outline: true, $outline-offset: $outline-width);
 }
 
 /**
@@ -600,10 +702,8 @@ body {
 }
 
 .page-title {
-  margin: #{2 * $grid-size} 0;
+  margin: $gl-spacing-scale-4 0;
   line-height: 1.3;
-  font-size: 1.25em;
-  font-weight: $gl-font-weight-bold;
 
   &.with-button {
     line-height: 34px;
@@ -624,16 +724,16 @@ body {
 
 /** CODE **/
 pre {
-  @include gl-relative;
+  position: relative;
   font-family: $monospace-font;
   display: block;
   padding: $gl-padding-8 $input-horizontal-padding;
   margin: 0 0 $gl-padding-8;
-  font-size: $gl-font-size-monospace;
+  font-size: $gl-font-size;
   word-break: break-all;
   word-wrap: break-word;
   color: $gl-text-color;
-  background-color: $gray-light;
+  background-color: $gray-10;
   border: 1px solid $gray-100;
   border-radius: $border-radius-small;
 
@@ -651,7 +751,7 @@ code {
 }
 
 .monospace {
-  font-family: $monospace-font;
+  @include gl-font-monospace;
 }
 
 .weight-normal {
@@ -659,8 +759,7 @@ code {
 }
 
 .commit-sha,
-.ref-name,
-.pipeline-number {
+.ref-name {
   font-family: $monospace-font;
   font-size: 95%;
 }
@@ -677,11 +776,7 @@ code {
  */
 textarea.js-gfm-input {
   font-family: $monospace-font;
-  font-size: $gl-font-size-monospace;
-}
-
-.strikethrough {
-  text-decoration: line-through;
+  font-size: $gl-font-size;
 }
 
 h1,
@@ -742,8 +837,11 @@ textarea {
 }
 /* stylelint-enable */
 
-.lh-100 { line-height: 1; }
-
 wbr {
   display: inline-block;
+}
+
+// The font used in Monaco editor - Web IDE, Snippets, single file editor
+:root {
+  --code-editor-font: #{$monospace-font};
 }

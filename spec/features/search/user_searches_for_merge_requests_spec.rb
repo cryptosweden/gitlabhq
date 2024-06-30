@@ -2,20 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User searches for merge requests', :js do
-  let(:user) { create(:user) }
-  let(:project) { create(:project, namespace: user.namespace) }
-  let!(:merge_request1) { create(:merge_request, title: 'Merge Request Foo', source_project: project, target_project: project, created_at: 1.hour.ago) }
-  let!(:merge_request2) { create(:merge_request, :simple, title: 'Merge Request Bar', source_project: project, target_project: project) }
+RSpec.describe 'User searches for merge requests', :js, :clean_gitlab_redis_rate_limiting, feature_category: :global_search do
+  include ListboxHelpers
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, namespace: user.namespace) }
+  let_it_be(:merge_request1) { create(:merge_request, title: 'Merge Request Foo', source_project: project, target_project: project, created_at: 1.hour.ago) }
+  let_it_be(:merge_request2) { create(:merge_request, :simple, title: 'Merge Request Bar', source_project: project, target_project: project) }
 
   def search_for_mr(search)
-    fill_in('dashboard_search', with: search)
-    find('.gl-search-box-by-click-search-button').click
+    submit_dashboard_search(search)
     select_search_scope('Merge requests')
   end
 
   before do
-    project.add_maintainer(user)
     sign_in(user)
 
     visit(search_path)
@@ -23,6 +22,14 @@ RSpec.describe 'User searches for merge requests', :js do
 
   include_examples 'top right search form'
   include_examples 'search timeouts', 'merge_requests'
+
+  it 'shows scopes when there is no search term' do
+    submit_dashboard_search('')
+
+    within_testid('search-filter') do
+      expect(page).to have_selector('[data-testid="nav-item"]', minimum: 5)
+    end
+  end
 
   it 'finds a merge request' do
     search_for_mr(merge_request1.title)
@@ -46,7 +53,7 @@ RSpec.describe 'User searches for merge requests', :js do
       expect(page.all('.search-result-row').last).to have_link(merge_request1.title)
     end
 
-    find('[data-testid="sort-highest-icon"]').click
+    find_by_testid('sort-highest-icon').click
 
     page.within('.results') do
       expect(page.all('.search-result-row').first).to have_link(merge_request1.title)
@@ -56,12 +63,12 @@ RSpec.describe 'User searches for merge requests', :js do
 
   context 'when on a project page' do
     it 'finds a merge request' do
-      find('[data-testid="project-filter"]').click
+      find_by_testid('project-filter').click
 
       wait_for_requests
 
-      page.within('[data-testid="project-filter"]') do
-        click_on(project.name)
+      within_testid('project-filter') do
+        select_listbox_item project.name
       end
 
       search_for_mr(merge_request1.title)

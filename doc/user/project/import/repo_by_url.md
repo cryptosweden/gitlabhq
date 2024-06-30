@@ -1,30 +1,39 @@
 ---
-type: howto
 stage: Manage
-group: Import
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Import project from repository by URL **(FREE)**
+# Import project from repository by URL
 
-You can import your existing repositories by providing the Git URL:
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-<!-- vale gitlab.Spelling = NO -->
-<!-- vale gitlab.SubstitutionWarning = NO -->
+You can import your existing repositories by providing the Git URL. You can't import GitLab issues and merge requests
+this way. Other methods provide more complete import methods.
 
-1. From your GitLab dashboard click **New project**.
-1. Switch to the **Import project** tab.
-1. Click on the **Repo by URL** button.
-1. Fill in the "Git repository URL" and the remaining project fields.
-1. Click **Create project** to begin the import process.
-1. Once complete, you will be redirected to your newly created project.
+If the repository is too large, the import can timeout.
 
-<!-- vale gitlab.Spelling = YES -->
-<!-- vale gitlab.SubstitutionWarning = YES -->
+## Prerequisites
 
-![Import project by repository URL](img/import_projects_from_repo_url.png)
+> - Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
 
-## Automate group and project import **(PREMIUM)**
+- [Repository by URL import source](../../../administration/settings/import_and_export_settings.md#configure-allowed-import-sources)
+  must be enabled. If not enabled, ask your GitLab administrator to enable it. The Repository by URL import source is enabled
+  by default on GitLab.com.
+- At least the Maintainer role on the destination group to import to.
+- If importing a private repository, an access token for authenticated access to the source repository might be required
+  instead of a password.
 
-For information on automating user, group, and project import API calls, see
-[Automate group and project import](index.md#automate-group-and-project-import).
+## Import project by URL
+
+1. On the left sidebar, at the top, select **Create new** (**{plus}**) and **New project/repository**.
+1. Select **Import project**.
+1. Select **Repository by URL**.
+1. Enter a **Git repository URL**.
+1. Complete the remaining fields. A username and password (or access token) is required for imports from private
+   repositories.
+1. Select **Create project**.
+
+Your newly created project is displayed.

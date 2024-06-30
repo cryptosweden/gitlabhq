@@ -46,7 +46,13 @@ class VerifyPagesDomainService < BaseService
       notify(:verification_succeeded)
     end
 
+    after_successful_verification
+
     success
+  end
+
+  def after_successful_verification
+    # method overridden in EE
   end
 
   def unverify_domain!
@@ -73,7 +79,7 @@ class VerifyPagesDomainService < BaseService
 
   # A domain is only expired until `disable!` has been called
   def expired?
-    domain.enabled_until && domain.enabled_until < Time.current
+    domain.enabled_until&.past?
   end
 
   def dns_record_present?
@@ -115,3 +121,5 @@ class VerifyPagesDomainService < BaseService
     notification_service.public_send("pages_domain_#{type}", domain) # rubocop:disable GitlabSecurity/PublicSend
   end
 end
+
+VerifyPagesDomainService.prepend_mod

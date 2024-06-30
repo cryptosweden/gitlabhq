@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe "GitLab Flavored Markdown" do
+RSpec.describe "GitLab Flavored Markdown", feature_category: :team_planning do
   let(:user) { create(:user) }
   let(:project) { create(:project) }
   let(:issue) { create(:issue, project: project) }
@@ -22,7 +22,12 @@ RSpec.describe "GitLab Flavored Markdown" do
     let(:commit) { project.commit }
 
     before do
-      create_commit("fix #{issue.to_reference}\n\nask #{fred.to_reference} for details", project, user, 'master')
+      project.repository.commit_files(
+        user,
+        branch_name: 'master',
+        message: "fix #{issue.to_reference}\n\nask #{fred.to_reference} for details",
+        actions: [{ action: :create, file_path: 'a/new.file', content: 'This is a file' }]
+      )
     end
 
     it "renders title in commits#index" do
@@ -52,16 +57,21 @@ RSpec.describe "GitLab Flavored Markdown" do
 
   describe "for issues", :js do
     before do
-      @other_issue = create(:issue,
-                            author: user,
-                            assignees: [user],
-                            project: project)
-      @issue = create(:issue,
-                      author: user,
-                      assignees: [user],
-                      project: project,
-                      title: "fix #{@other_issue.to_reference}",
-                      description: "ask #{fred.to_reference} for details")
+      @other_issue = create(
+        :issue,
+        author: user,
+        assignees: [user],
+        project: project
+      )
+
+      @issue = create(
+        :issue,
+        author: user,
+        assignees: [user],
+        project: project,
+        title: "fix #{@other_issue.to_reference}",
+        description: "ask #{fred.to_reference} for details"
+      )
 
       @note = create(:note_on_issue, noteable: @issue, project: @issue.project, note: "Hello world")
     end
@@ -107,10 +117,12 @@ RSpec.describe "GitLab Flavored Markdown" do
 
   describe "for milestones" do
     before do
-      @milestone = create(:milestone,
-                          project: project,
-                          title: "fix #{issue.to_reference}",
-                          description: "ask #{fred.to_reference} for details")
+      @milestone = create(
+        :milestone,
+        project: project,
+        title: "fix #{issue.to_reference}",
+        description: "ask #{fred.to_reference} for details"
+      )
     end
 
     it "renders title in milestones#index" do

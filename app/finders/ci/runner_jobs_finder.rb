@@ -6,18 +6,34 @@ module Ci
 
     ALLOWED_INDEXED_COLUMNS = %w[id].freeze
 
-    def initialize(runner, params = {})
+    def initialize(runner, current_user, params = {})
       @runner = runner
+      @user = current_user
       @params = params
     end
 
     def execute
-      items = @runner.builds
+      items = if params[:system_id].blank?
+                runner.builds
+              else
+                runner_manager = Ci::RunnerManager.for_runner(runner).with_system_xid(params[:system_id]).first
+                Ci::Build.belonging_to_runner_manager(runner_manager&.id)
+              end
+
+      items = by_permission(items)
       items = by_status(items)
       sort_items(items)
     end
 
     private
+
+    # rubocop: disable CodeReuse/ActiveRecord
+    def by_permission(items)
+      return items if @user.can_read_all_resources?
+
+      items.for_project(@user.authorized_project_mirrors(Gitlab::Access::REPORTER).select(:project_id))
+    end
+    # rubocop: enable CodeReuse/ActiveRecord
 
     # rubocop: disable CodeReuse/ActiveRecord
     def by_status(items)

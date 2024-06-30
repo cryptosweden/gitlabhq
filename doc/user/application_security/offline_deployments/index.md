@@ -1,11 +1,17 @@
 ---
-type: reference, howto
 stage: Secure
 group: Static Analysis
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Offline environments **(ULTIMATE SELF)**
+# Offline environments
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+NOTE:
+To set up an offline environment, you must receive an [opt-out exemption of cloud licensing](https://about.gitlab.com/pricing/licensing-faq/cloud-licensing/#offline-cloud-licensing) prior to purchase. For more details, contact your GitLab sales representative.
 
 It's possible to run most of the GitLab security scanners when not connected to the internet.
 
@@ -87,11 +93,11 @@ above. You can find more information at each of the pages below:
 
 - [Container scanning offline directions](../container_scanning/index.md#running-container-scanning-in-an-offline-environment)
 - [SAST offline directions](../sast/index.md#running-sast-in-an-offline-environment)
-- [Secret Detection offline directions](../secret_detection/#running-secret-detection-in-an-offline-environment)
+- [Secret Detection offline directions](../secret_detection/pipeline/index.md#offline-configuration)
 - [DAST offline directions](../dast/run_dast_offline.md#run-dast-in-an-offline-environment)
-- [API Fuzzing offline directions](../api_fuzzing/#running-api-fuzzing-in-an-offline-environment)
-- [License Compliance offline directions](../../compliance/license_compliance/index.md#running-license-compliance-in-an-offline-environment)
-- [Dependency Scanning offline directions](../dependency_scanning/index.md#running-dependency-scanning-in-an-offline-environment)
+- [API Fuzzing offline directions](../api_fuzzing/configuration/offline_configuration.md)
+- [License Scanning offline directions](../../compliance/license_scanning_of_cyclonedx_files/index.md#running-in-an-offline-environment)
+- [Dependency Scanning offline directions](../dependency_scanning/index.md#offline-environment)
 
 ## Loading Docker images onto your offline host
 
@@ -117,13 +123,13 @@ This template should be used in a new, empty project, with a `.gitlab-ci.yml` fi
 
 ```yaml
 include:
-  - template: Secure-Binaries.gitlab-ci.yml
+  - template: Security/Secure-Binaries.gitlab-ci.yml
 ```
 
 The pipeline downloads the Docker images needed for the Security Scanners and saves them as
-[job artifacts](../../../ci/pipelines/job_artifacts.md) or pushes them to the [Container Registry](../../packages/container_registry/index.md)
+[job artifacts](../../../ci/jobs/job_artifacts.md) or pushes them to the [container registry](../../packages/container_registry/index.md)
 of the project where the pipeline is executed. These archives can be transferred to another location
-and [loaded](https://docs.docker.com/engine/reference/commandline/load/) in a Docker daemon.
+and [loaded](https://docs.docker.com/reference/cli/docker/image/load/) in a Docker daemon.
 This method requires a runner with access to both `gitlab.com` (including
 `registry.gitlab.com`) and the local offline instance. This runner must run in
 [privileged mode](https://docs.gitlab.com/runner/executors/docker.html#use-docker-in-docker-with-privileged-mode)
@@ -131,7 +137,7 @@ to be able to use the `docker` command inside the jobs. This runner can be insta
 a bastion, and used only for this specific project.
 
 WARNING:
-This template does not include updates for the container scanning analyzer. Please see
+This template does not include updates for the container scanning analyzer. See
 [Container scanning offline directions](../container_scanning/index.md#running-container-scanning-in-an-offline-environment).
 
 #### Scheduling the updates
@@ -151,7 +157,7 @@ GitLab.com. To do so, set the CI/CD variable `SECURE_ANALYZERS_PREFIX` with the 
 project [container registry](../../packages/container_registry/index.md).
 
 You can set this variable in the projects' `.gitlab-ci.yml`, or
-in the GitLab UI at the project or group level. See the [GitLab CI/CD variables page](../../../ci/variables/index.md#custom-cicd-variables)
+in the GitLab UI at the project or group level. See the [GitLab CI/CD variables page](../../../ci/variables/index.md#define-a-cicd-variable-in-the-ui)
 for more information.
 
 #### Variables
@@ -227,13 +233,13 @@ these steps:
    The AutoDevOps templates leverage the `SECURE_ANALYZERS_PREFIX` variable to identify the location
    of analyzer images. This variable is discussed above in [Using the secure bundle created](#using-the-secure-bundle-created).
    Ensure that you set this variable to the correct value for where you loaded the analyzer images.
-   You could consider doing this with a project CI/CD variable or by [modifying](../../../topics/autodevops/customize.md#customizing-gitlab-ciyml)
+   You could consider doing this with a project CI/CD variable or by [modifying](../../../topics/autodevops/customize.md#customize-gitlab-ciyml)
    the `.gitlab-ci.yml` file directly.
 
 Once these steps are complete, GitLab has local copies of the Secure analyzers and is set up to use
 them instead of an Internet-hosted container image. This allows you to run Secure in AutoDevOps in
 an offline environment.
 
-Note that these steps are specific to GitLab Secure with AutoDevOps. Using other stages with
+These steps are specific to GitLab Secure with AutoDevOps. Using other stages with
 AutoDevOps may require other steps covered in the
-[Auto DevOps documentation](../../../topics/autodevops/).
+[Auto DevOps documentation](../../../topics/autodevops/index.md).

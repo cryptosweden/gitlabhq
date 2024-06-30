@@ -152,19 +152,23 @@ export class CopyAsGFM {
     if (lineElements.length > 0) {
       for (let i = 0; i < lineElements.length; i += 1) {
         const lineElement = lineElements[i];
-        codeElement.appendChild(lineElement);
+        const line = document.createElement('span');
+        line.append(...lineElement.childNodes);
+        codeElement.appendChild(line);
         codeElement.appendChild(document.createTextNode('\n'));
       }
     } else {
       codeElement.appendChild(documentFragment);
     }
 
+    [...codeElement.querySelectorAll('.idiff')].forEach((el) => el.classList.remove('idiff'));
+
     return codeElement;
   }
 
   static nodeToGFM(node) {
     return Promise.all([
-      import(/* webpackChunkName: 'gfm_copy_extra' */ 'prosemirror-model'),
+      import(/* webpackChunkName: 'gfm_copy_extra' */ '@tiptap/pm/model'),
       import(/* webpackChunkName: 'gfm_copy_extra' */ './schema'),
       import(/* webpackChunkName: 'gfm_copy_extra' */ './serializer'),
     ])
@@ -174,10 +178,10 @@ export class CopyAsGFM {
         wrapEl.appendChild(node.cloneNode(true));
         const doc = DOMParser.fromSchema(schema.default).parse(wrapEl);
 
-        const res = markdownSerializer.default.serialize(doc, {
-          tightLists: true,
-        });
-        return res;
+        return markdownSerializer.default.serialize(
+          { doc },
+          { useCanonicalSrc: false, skipEmptyNodes: true },
+        );
       })
       .catch(() => {});
   }

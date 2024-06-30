@@ -11,8 +11,8 @@ describe('ExpirationToggle', () => {
   let wrapper;
   const value = 'foo';
 
-  const findInput = () => wrapper.find(GlFormInput);
-  const findFormGroup = () => wrapper.find(GlFormGroup);
+  const findInput = () => wrapper.findComponent(GlFormInput);
+  const findFormGroup = () => wrapper.findComponent(GlFormGroup);
 
   const mountComponent = (propsData) => {
     wrapper = shallowMount(component, {
@@ -22,11 +22,6 @@ describe('ExpirationToggle', () => {
       propsData,
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   describe('structure', () => {
     it('has an input component', () => {

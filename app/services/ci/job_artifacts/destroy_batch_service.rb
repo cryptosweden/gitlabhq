@@ -17,39 +17,59 @@ module Ci
       # +pick_up_at+:: When to pick up for deletion of files
       # Returns:
       # +Hash+:: A hash with status and destroyed_artifacts_count keys
-      def initialize(job_artifacts, pick_up_at: nil, fix_expire_at: fix_expire_at?)
+      def initialize(job_artifacts, pick_up_at: nil, skip_projects_on_refresh: false)
         @job_artifacts = job_artifacts.with_destroy_preloads.to_a
         @pick_up_at = pick_up_at
-        @fix_expire_at = fix_expire_at
+        @skip_projects_on_refresh = skip_projects_on_refresh
+        @destroyed_ids = []
       end
 
       # rubocop: disable CodeReuse/ActiveRecord
       def execute(update_stats: true)
-        # Detect and fix artifacts that had `expire_at` wrongly backfilled by migration
-        # https://gitlab.com/gitlab-org/gitlab/-/merge_requests/47723
-        detect_and_fix_wrongly_expired_artifacts
+        if @skip_projects_on_refresh
+          exclude_artifacts_undergoing_stats_refresh
+        else
+          track_artifacts_undergoing_stats_refresh
+        end
 
-        return success(destroyed_artifacts_count: 0, statistics_updates: {}) if @job_artifacts.empty?
+        if @job_artifacts.empty?
+          return success(destroyed_ids: @destroyed_ids, destroyed_artifacts_count: 0, statistics_updates: {})
+        end
 
         destroy_related_records(@job_artifacts)
 
-        Ci::DeletedObject.transaction do
-          Ci::DeletedObject.bulk_import(@job_artifacts, @pick_up_at)
-          Ci::JobArtifact.id_in(@job_artifacts.map(&:id)).delete_all
+        destroy_around_hook(@job_artifacts) do
+          @destroyed_ids = @job_artifacts.map(&:id)
+          Ci::DeletedObject.transaction do
+            Ci::DeletedObject.bulk_import(@job_artifacts, @pick_up_at)
+            Ci::JobArtifact.id_in(@destroyed_ids).delete_all
+          end
         end
 
         after_batch_destroy_hook(@job_artifacts)
 
-        # This is executed outside of the transaction because it depends on Redis
         update_project_statistics! if update_stats
+
         increment_monitoring_statistics(artifacts_count, artifacts_bytes)
 
-        success(destroyed_artifacts_count: artifacts_count,
-          statistics_updates: affected_project_statistics)
+        Gitlab::Ci::Artifacts::Logger.log_deleted(@job_artifacts, 'Ci::JobArtifacts::DestroyBatchService#execute')
+
+        success(
+          destroyed_ids: @destroyed_ids,
+          destroyed_artifacts_count: artifacts_count,
+          statistics_updates: statistics_updates_per_project
+        )
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
       private
+
+      # Overriden in EE
+      # :nocov:
+      def destroy_around_hook(artifacts)
+        yield
+      end
+      # :nocov:
 
       # Overriden in EE
       def destroy_related_records(artifacts); end
@@ -59,17 +79,18 @@ module Ci
 
       # using ! here since this can't be called inside a transaction
       def update_project_statistics!
-        affected_project_statistics.each do |project, delta|
-          project.increment_statistic_value(Ci::JobArtifact.project_statistics_name, delta)
+        statistics_updates_per_project.each do |project, increments|
+          ProjectStatistics.bulk_increment_statistic(project, Ci::JobArtifact.project_statistics_name, increments)
         end
       end
 
-      def affected_project_statistics
-        strong_memoize(:affected_project_statistics) do
-          artifacts_by_project = @job_artifacts.group_by(&:project)
-          artifacts_by_project.each.with_object({}) do |(project, artifacts), accumulator|
-            delta = -artifacts.sum { |artifact| artifact.size.to_i }
-            accumulator[project] = delta
+      def statistics_updates_per_project
+        strong_memoize(:statistics_updates_per_project) do
+          result = Hash.new { |updates, project| updates[project] = [] }
+
+          @job_artifacts.each_with_object(result) do |job_artifact, result|
+            increment = Gitlab::Counters::Increment.new(amount: -job_artifact.size.to_i, ref: job_artifact.id)
+            result[job_artifact.project] << increment
           end
         end
       end
@@ -95,53 +116,34 @@ module Ci
         end
       end
 
-      # This detects and fixes job artifacts that have `expire_at` wrongly backfilled by the migration
-      # https://gitlab.com/gitlab-org/gitlab/-/merge_requests/47723.
-      # These job artifacts will not be deleted and will have their `expire_at` removed.
-      #
-      # The migration would have backfilled `expire_at`
-      # to midnight on the 22nd of the month of the local timezone,
-      # storing it as UTC time in the database.
-      #
-      # If the timezone setting has changed since the migration,
-      # the `expire_at` stored in the database could have changed to a different local time other than midnight.
-      # For example:
-      # - changing timezone from UTC+02:00 to UTC+02:30 would change the `expire_at` in local time 00:00:00 to 00:30:00.
-      # - changing timezone from UTC+00:00 to UTC-01:00 would change the `expire_at` in local time 00:00:00 to 23:00:00 on the previous day (21st).
-      #
-      # Therefore job artifacts that have `expire_at` exactly on the 00, 30 or 45 minute mark
-      # on the dates 21, 22, 23 of the month will not be deleted.
-      # https://en.wikipedia.org/wiki/List_of_UTC_time_offsets
-      def detect_and_fix_wrongly_expired_artifacts
-        return unless @fix_expire_at
+      def track_artifacts_undergoing_stats_refresh
+        project_ids = @job_artifacts.find_all do |artifact|
+          artifact.project.refreshing_build_artifacts_size?
+        end.map(&:project_id).uniq
 
-        wrongly_expired_artifacts, @job_artifacts = @job_artifacts.partition { |artifact| wrongly_expired?(artifact) }
-
-        remove_expire_at(wrongly_expired_artifacts)
+        project_ids.each do |project_id|
+          Gitlab::ProjectStatsRefreshConflictsLogger.warn_artifact_deletion_during_stats_refresh(
+            method: 'Ci::JobArtifacts::DestroyBatchService#execute',
+            project_id: project_id
+          )
+        end
       end
 
-      def fix_expire_at?
-        Feature.enabled?(:ci_detect_wrongly_expired_artifacts, default_enabled: :yaml)
-      end
+      def exclude_artifacts_undergoing_stats_refresh
+        project_ids = Set.new
 
-      def wrongly_expired?(artifact)
-        return false unless artifact.expire_at.present?
+        @job_artifacts.reject! do |artifact|
+          next unless artifact.project.refreshing_build_artifacts_size?
 
-        match_date?(artifact.expire_at) && match_time?(artifact.expire_at)
-      end
+          project_ids << artifact.project_id
+        end
 
-      def match_date?(expire_at)
-        [21, 22, 23].include?(expire_at.day)
-      end
-
-      def match_time?(expire_at)
-        %w[00:00.000 30:00.000 45:00.000].include?(expire_at.strftime('%M:%S.%L'))
-      end
-
-      def remove_expire_at(artifacts)
-        Ci::JobArtifact.id_in(artifacts).update_all(expire_at: nil)
-
-        Gitlab::AppLogger.info(message: "Fixed expire_at from artifacts.", fixed_artifacts_expire_at_count: artifacts.count)
+        if project_ids.any?
+          Gitlab::ProjectStatsRefreshConflictsLogger.warn_skipped_artifact_deletion_during_stats_refresh(
+            method: 'Ci::JobArtifacts::DestroyBatchService#execute',
+            project_ids: project_ids
+          )
+        end
       end
     end
   end

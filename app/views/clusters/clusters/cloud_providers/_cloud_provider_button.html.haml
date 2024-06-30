@@ -1,12 +1,9 @@
-- provider = local_assigns.fetch(:provider)
-- is_current_provider = provider == params[:provider]
 - logo_path = local_assigns.fetch(:logo_path)
+- help_path = local_assigns.fetch(:help_path)
 - label = local_assigns.fetch(:label)
-- last = local_assigns.fetch(:last, false)
-- classes = ["btn btn-confirm gl-button btn-confirm-secondary gl-flex-direction-column gl-w-half js-create-#{provider}-cluster-button"]
-- conditional_classes = [('gl-mr-5' unless last), ('active' if is_current_provider)]
 
-= link_to clusterable.new_path(provider: provider), class: classes + conditional_classes do
-  .svg-content.gl-p-3= image_tag logo_path, alt: label, class: 'gl-w-64 gl-h-64'
-  %span
+= render Pajamas::ButtonComponent.new(variant: :confirm, category: :secondary, href: help_path, button_options: { class: "gl-flex-direction-column gl-flex-basis-third" }) do
+  %span.gl-display-flex.gl-align-items-center.gl-m-3.gl-h-64
+    = image_tag logo_path, alt: label, class: "gl-w-15 gl-max-h-full gl-max-w-full"
+  %span.gl-whitespace-normal
     = label

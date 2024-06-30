@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Commits::CherryPickService do
+RSpec.describe Commits::CherryPickService, feature_category: :source_code_management do
   let(:project) { create(:project, :repository) }
   # *   ddd0f15ae83993f5cb66a927a28673882e99100b (HEAD -> master, origin/master, origin/HEAD) Merge branch 'po-fix-test-en
   # |\
@@ -40,11 +40,21 @@ RSpec.describe Commits::CherryPickService do
   describe '#execute' do
     shared_examples 'successful cherry-pick' do
       it 'picks the commit into the branch' do
+        source_commit = project.commit(merge_commit_sha)
         result = cherry_pick(merge_commit_sha, branch_name)
         expect(result[:status]).to eq(:success), result[:message]
 
-        head = repository.find_branch(branch_name).target
+        branch = repository.find_branch(branch_name)
+        head = branch.target
         expect(head).not_to eq(merge_base_sha)
+
+        commit = branch.dereferenced_target
+        expect(commit.author_name).to eq(user.name)
+        expect(commit.author_email).to eq(user.email)
+        expect(commit.message).to include("(cherry picked from commit #{merge_commit_sha})")
+        expect(commit.message).to include(
+          "Co-authored-by: #{source_commit.author_name} <#{source_commit.author_email}>"
+        )
       end
 
       it 'supports a custom commit message' do
@@ -53,6 +63,24 @@ RSpec.describe Commits::CherryPickService do
 
         expect(result[:status]).to eq(:success)
         expect(branch.dereferenced_target.message).to eq('foo')
+      end
+
+      context 'when web_ui_commit_author_change feature flag is disabled' do
+        before do
+          stub_feature_flags(web_ui_commit_author_change: false)
+        end
+
+        it 'does not contain co authored by trailer' do
+          source_commit = project.commit(merge_commit_sha)
+
+          result = cherry_pick(merge_commit_sha, branch_name)
+          expect(result[:status]).to eq(:success), result[:message]
+
+          commit = repository.find_branch(branch_name).dereferenced_target
+          expect(commit.message).not_to include('Co-authored-by')
+          expect(commit.author_name).to eq(source_commit.author_name)
+          expect(commit.author_email).to eq(source_commit.author_email)
+        end
       end
     end
 

@@ -1,7 +1,8 @@
 <script>
-import { debounce } from 'lodash';
+import { debounce, isEmpty } from 'lodash';
 import { CONTENT_UPDATE_DEBOUNCE, EDITOR_READY_EVENT } from '~/editor/constants';
 import Editor from '~/editor/source_editor';
+import { markRaw } from '~/lib/utils/vue3compat/mark_raw';
 
 function initSourceEditor({ el, ...args }) {
   const editor = new Editor({
@@ -10,10 +11,12 @@ function initSourceEditor({ el, ...args }) {
     },
   });
 
-  return editor.createInstance({
-    el,
-    ...args,
-  });
+  return markRaw(
+    editor.createInstance({
+      el,
+      ...args,
+    }),
+  );
 }
 
 export default {
@@ -37,9 +40,9 @@ export default {
       default: '',
     },
     extensions: {
-      type: [String, Array],
+      type: [Object, Array],
       required: false,
-      default: () => null,
+      default: () => ({}),
     },
     editorOptions: {
       type: Object,
@@ -74,11 +77,13 @@ export default {
       blobPath: this.fileName,
       blobContent: this.value,
       blobGlobalId: this.fileGlobalId,
-      extensions: this.extensions,
       ...this.editorOptions,
     });
 
     this.editor.onDidChangeModelContent(debounce(this.onFileChange.bind(this), this.debounceValue));
+    if (!isEmpty(this.extensions)) {
+      this.editor.use(this.extensions);
+    }
   },
   beforeDestroy() {
     this.editor.dispose();
@@ -99,7 +104,7 @@ export default {
     :id="`source-editor-${fileGlobalId}`"
     ref="editor"
     data-editor-loading
-    data-qa-selector="source_editor_container"
+    data-testid="source-editor-container"
     @[$options.readyEvent]="$emit($options.readyEvent, $event)"
   >
     <pre class="editor-loading-content">{{ value }}</pre>

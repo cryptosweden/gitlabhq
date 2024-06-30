@@ -15,29 +15,25 @@ module Boards
     def metadata(required_fields = [:issue_count, :total_issue_weight])
       fields = metadata_fields(required_fields)
       keys = fields.keys
-      # TODO: eliminate need for SQL literal fragment
-      columns = Arel.sql(fields.values_at(*keys).join(', '))
-      results = item_model.where(id: collection_ids)
-      results = query_additions(results, required_fields)
-      results = results.select(columns)
+      columns = fields.values_at(*keys)
 
-      Hash[keys.zip(results.pluck(columns).flatten)]
+      results = item_model
+        .where(id: collection_ids)
+        .pluck(*columns)
+        .flatten
+
+      Hash[keys.zip(results)]
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
     private
-
-    # override if needed
-    def query_additions(items, required_fields)
-      items
-    end
 
     def collection_ids
       @collection_ids ||= init_collection.select(item_model.arel_table[:id])
     end
 
     def metadata_fields(required_fields)
-      required_fields&.include?(:issue_count) ? { size: 'COUNT(*)' } : {}
+      required_fields&.include?(:issue_count) ? { size: Arel.sql('COUNT(*)') } : {}
     end
 
     def order(items)
@@ -78,12 +74,15 @@ module Boards
     end
 
     def list
-      return unless params.key?(:id)
+      return unless params.key?(:id) || params.key?(:list)
 
       strong_memoize(:list) do
         id = params[:id]
+        list = params[:list]
 
-        if board.lists.loaded?
+        if list.present?
+          list
+        elsif board.lists.loaded?
           board.lists.find { |l| l.id == id }
         else
           board.lists.find(id)
@@ -133,23 +132,33 @@ module Boards
     def without_board_labels(items)
       return items unless board_label_ids.any?
 
-      items.where.not('EXISTS (?)', label_links(board_label_ids).limit(1))
+      items.where(label_links(items, board_label_ids.compact).arel.exists.not)
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
     # rubocop: disable CodeReuse/ActiveRecord
-    def label_links(label_ids)
-      LabelLink
-        .where(label_links: { target_type: item_model })
-        .where(item_model.arel_table[:id].eq(LabelLink.arel_table[:target_id]).to_sql)
-        .where(label_id: label_ids)
+    def label_links(items, label_ids)
+      labels_filter.label_link_query(items, label_ids: label_ids)
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
     # rubocop: disable CodeReuse/ActiveRecord
     def with_list_label(items)
-      items.where('EXISTS (?)', label_links(list.label_id).limit(1))
+      items.where(label_links(items, [list.label_id]).arel.exists)
     end
     # rubocop: enable CodeReuse/ActiveRecord
+
+    def labels_filter
+      Issuables::LabelFilter.new(params: {}, project: project, group: group)
+    end
+    strong_memoize_attr :labels_filter
+
+    def group
+      parent if parent.is_a?(Group)
+    end
+
+    def project
+      parent if parent.is_a?(Project)
+    end
   end
 end

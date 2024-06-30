@@ -12,18 +12,7 @@ const BitbucketStatusTableStub = {
 describe('BitbucketServerStatusTable', () => {
   let wrapper;
 
-  const findReconfigureButton = () =>
-    wrapper
-      .findAll(GlButton)
-      .filter((w) => w.props().variant === 'info')
-      .at(0);
-
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
-  });
+  const findReconfigureButton = () => wrapper.findComponent(GlButton);
 
   function createComponent(bitbucketStatusTableStub = true) {
     wrapper = shallowMount(BitbucketServerStatusTable, {
@@ -36,10 +25,10 @@ describe('BitbucketServerStatusTable', () => {
 
   it('renders bitbucket status table component', () => {
     createComponent();
-    expect(wrapper.find(BitbucketStatusTable).exists()).toBe(true);
+    expect(wrapper.findComponent(BitbucketStatusTable).exists()).toBe(true);
   });
 
-  it('renders Reconfigure button', async () => {
+  it('renders Reconfigure button', () => {
     createComponent(BitbucketStatusTableStub);
     expect(findReconfigureButton().attributes().href).toBe('/reconfigure');
     expect(findReconfigureButton().text()).toBe('Reconfigure');

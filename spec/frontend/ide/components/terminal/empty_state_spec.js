@@ -16,10 +16,6 @@ describe('IDE TerminalEmptyState', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('does not show illustration, if no path specified', () => {
     factory();
 
@@ -46,7 +42,7 @@ describe('IDE TerminalEmptyState', () => {
       },
     });
 
-    expect(wrapper.find(GlLoadingIcon).exists()).toBe(true);
+    expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
   });
 
   it('when not loading, does not show loading icon', () => {
@@ -56,7 +52,7 @@ describe('IDE TerminalEmptyState', () => {
       },
     });
 
-    expect(wrapper.find(GlLoadingIcon).exists()).toBe(false);
+    expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(false);
   });
 
   describe('when valid', () => {
@@ -71,7 +67,7 @@ describe('IDE TerminalEmptyState', () => {
         },
       });
 
-      button = wrapper.find(GlButton);
+      button = wrapper.findComponent(GlButton);
     });
 
     it('shows button', () => {
@@ -100,7 +96,7 @@ describe('IDE TerminalEmptyState', () => {
       },
     });
 
-    expect(wrapper.find(GlButton).props('disabled')).toBe(true);
-    expect(wrapper.find(GlAlert).html()).toContain(TEST_HTML_MESSAGE);
+    expect(wrapper.findComponent(GlButton).props('disabled')).toBe(true);
+    expect(wrapper.findComponent(GlAlert).html()).toContain(TEST_HTML_MESSAGE);
   });
 });

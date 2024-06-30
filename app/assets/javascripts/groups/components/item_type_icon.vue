@@ -11,23 +11,20 @@ export default {
       type: String,
       required: true,
     },
-    isGroupOpen: {
-      type: Boolean,
-      required: true,
-      default: false,
-    },
   },
   computed: {
     iconClass() {
       if (this.itemType === ITEM_TYPE.GROUP) {
-        return this.isGroupOpen ? 'folder-open' : 'folder-o';
+        return 'subgroup';
       }
-      return 'bookmark';
+      return 'project';
     },
   },
 };
 </script>
 
 <template>
-  <span class="item-type-icon"> <gl-icon :name="iconClass" /> </span>
+  <span class="item-type-icon gl-display-inline-block gl-text-secondary">
+    <gl-icon :name="iconClass" />
+  </span>
 </template>

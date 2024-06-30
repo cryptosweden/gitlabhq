@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import { keepAlive } from 'helpers/keep_alive_component_helper';
 import { trimText } from 'helpers/text_helper';
@@ -14,42 +15,43 @@ Vue.use(Vuex);
 describe('IDE review mode', () => {
   let wrapper;
   let store;
+  let dispatch;
 
   beforeEach(() => {
     store = createStore();
     store.state.currentProjectId = 'abcproject';
     store.state.currentBranchId = 'main';
     store.state.projects.abcproject = { ...projectData };
-    Vue.set(store.state.trees, 'abcproject/main', {
-      tree: [file('fileName')],
-      loading: false,
-    });
+    store.state.trees = {
+      ...store.state.trees,
+      'abcproject/main': {
+        tree: [file('fileName')],
+        loading: false,
+      },
+    };
+
+    dispatch = jest.spyOn(store, 'dispatch');
 
     wrapper = mount(keepAlive(IdeReview), {
       store,
     });
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findEditorModeDropdown = () => wrapper.findComponent(EditorModeDropdown);
 
   it('renders list of files', () => {
     expect(wrapper.text()).toContain('fileName');
   });
 
   describe('activated', () => {
-    let inititializeSpy;
-
     beforeEach(async () => {
-      inititializeSpy = jest.spyOn(wrapper.find(IdeReview).vm, 'initialize');
       store.state.viewer = 'editor';
 
       await wrapper.vm.reactivate();
     });
 
     it('re initializes the component', () => {
-      expect(inititializeSpy).toHaveBeenCalled();
+      expect(dispatch).toHaveBeenCalledWith('updateViewer', 'diff');
     });
 
     it('updates viewer to "diff" by default', () => {
@@ -67,7 +69,7 @@ describe('IDE review mode', () => {
         await wrapper.vm.reactivate();
       });
 
-      it('updates viewer to "mrdiff"', async () => {
+      it('updates viewer to "mrdiff"', () => {
         expect(store.state.viewer).toBe('mrdiff');
       });
     });
@@ -85,7 +87,7 @@ describe('IDE review mode', () => {
     });
 
     it('renders edit dropdown', () => {
-      expect(wrapper.find(EditorModeDropdown).exists()).toBe(true);
+      expect(findEditorModeDropdown().exists()).toBe(true);
     });
 
     it('renders merge request link & IID', async () => {

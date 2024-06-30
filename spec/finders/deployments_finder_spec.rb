@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe DeploymentsFinder do
+RSpec.describe DeploymentsFinder, feature_category: :deployment_management do
   subject { described_class.new(params).execute }
 
   describe "validation" do
@@ -16,23 +16,23 @@ RSpec.describe DeploymentsFinder do
       end
     end
 
-    context 'when updated_at filter and id sorting' do
-      let(:params) { { updated_before: 1.day.ago, order_by: :id } }
-
-      it 'raises an error' do
-        expect { subject }.to raise_error(
-          described_class::InefficientQueryError,
-          '`updated_at` filter and `updated_at` sorting must be paired')
-      end
-    end
-
     context 'when finished_at filter and id sorting' do
       let(:params) { { finished_before: 1.day.ago, order_by: :id } }
 
       it 'raises an error' do
         expect { subject }.to raise_error(
           described_class::InefficientQueryError,
-          '`finished_at` filter and `finished_at` sorting must be paired')
+          '`finished_at` filter requires `finished_at` sort.')
+      end
+    end
+
+    context 'when running status filter and finished_at sorting' do
+      let(:params) { { status: :running, order_by: :finished_at } }
+
+      it 'raises an error' do
+        expect { subject }.to raise_error(
+          described_class::InefficientQueryError,
+          '`finished_at` sort requires `finished_at` filter or a filter with at least one of the finished statuses.')
       end
     end
 
@@ -52,7 +52,17 @@ RSpec.describe DeploymentsFinder do
       it 'raises an error' do
         expect { subject }.to raise_error(
           described_class::InefficientQueryError,
-          '`environment` filter must be combined with `project` scope.')
+          '`environment` name filter must be combined with `project` scope.')
+      end
+    end
+
+    context 'when status filter with mixed finished and upcoming statuses' do
+      let(:params) { { status: [:success, :running] } }
+
+      it 'raises an error' do
+        expect { subject }.to raise_error(
+          described_class::InefficientQueryError,
+          'finished statuses and upcoming statuses must be separately queried.')
       end
     end
   end
@@ -103,6 +113,24 @@ RSpec.describe DeploymentsFinder do
           end
         end
 
+        context 'when the environment ID is specified' do
+          let!(:environment1) { create(:environment, project: project) }
+          let!(:environment2) { create(:environment, project: project) }
+          let!(:deployment1) do
+            create(:deployment, project: project, environment: environment1)
+          end
+
+          let!(:deployment2) do
+            create(:deployment, project: project, environment: environment2)
+          end
+
+          let(:params) { { environment: environment1.id } }
+
+          it 'returns deployments for the given environment' do
+            is_expected.to match_array([deployment1])
+          end
+        end
+
         context 'when the deployment status is specified' do
           let!(:deployment1) { create(:deployment, :success, project: project) }
           let!(:deployment2) { create(:deployment, :failed, project: project) }
@@ -138,10 +166,10 @@ RSpec.describe DeploymentsFinder do
           'id'          | 'desc' | [:deployment_3, :deployment_2, :deployment_1]
           'iid'         | 'asc'  | [:deployment_1, :deployment_2, :deployment_3]
           'iid'         | 'desc' | [:deployment_3, :deployment_2, :deployment_1]
-          'ref'         | 'asc'  | [:deployment_2, :deployment_1, :deployment_3]
-          'ref'         | 'desc' | [:deployment_3, :deployment_1, :deployment_2]
-          'updated_at'  | 'asc'  | described_class::InefficientQueryError
-          'updated_at'  | 'desc' | described_class::InefficientQueryError
+          'ref'         | 'asc'  | [:deployment_1, :deployment_2, :deployment_3] # ref acts like id because of remove_deployments_api_ref_sort feature flag
+          'ref'         | 'desc' | [:deployment_3, :deployment_2, :deployment_1] # ref acts like id because of remove_deployments_api_ref_sort feature flag
+          'updated_at'  | 'asc'  | [:deployment_2, :deployment_3, :deployment_1]
+          'updated_at'  | 'desc' | [:deployment_1, :deployment_3, :deployment_2]
           'finished_at' | 'asc'  | described_class::InefficientQueryError
           'finished_at' | 'desc' | described_class::InefficientQueryError
           'invalid'     | 'asc'  | [:deployment_1, :deployment_2, :deployment_3]
@@ -221,16 +249,11 @@ RSpec.describe DeploymentsFinder do
         end
       end
 
-      describe 'enforce sorting to `updated_at` sorting' do
-        let(:params) { { **base_params, updated_before: 1.day.ago, order_by: 'id', sort: 'asc', raise_for_inefficient_updated_at_query: false } }
+      context 'when `updated_at` is used for filtering without sorting by `updated_at`' do
+        let(:params) { { **base_params, updated_before: 1.day.ago, order_by: 'id', sort: 'asc' } }
 
-        it 'sorts by only one column' do
-          expect(subject.order_values.size).to eq(2)
-        end
-
-        it 'sorts by `updated_at`' do
-          expect(subject.order_values.first.to_sql).to eq(Deployment.arel_table[:updated_at].asc.to_sql)
-          expect(subject.order_values.second.to_sql).to eq(Deployment.arel_table[:id].asc.to_sql)
+        it 'raises an error' do
+          expect { subject }.to raise_error(DeploymentsFinder::InefficientQueryError)
         end
       end
 
@@ -255,6 +278,22 @@ RSpec.describe DeploymentsFinder do
           let(:params) { { **base_params, finished_before: 3.days.ago, status: :success, order_by: :finished_at } }
 
           it { is_expected.to match_array([deployment_2]) }
+        end
+      end
+
+      context 'with mixed deployable types' do
+        let!(:deployment_1) do
+          create(:deployment, :success, project: project, deployable: create(:ci_build))
+        end
+
+        let!(:deployment_2) do
+          create(:deployment, :success, project: project, deployable: create(:ci_bridge))
+        end
+
+        let(:params) { { **base_params, status: 'success' } }
+
+        it 'successfully fetches deployments' do
+          is_expected.to contain_exactly(deployment_1, deployment_2)
         end
       end
     end
@@ -293,23 +332,25 @@ RSpec.describe DeploymentsFinder do
 
         with_them do
           it 'returns the deployments unordered' do
-            expect(subject.to_a).to contain_exactly(group_project_1_deployment,
-                                                    group_project_2_deployment,
-                                                    subgroup_project_1_deployment)
+            expect(subject.to_a).to contain_exactly(
+              group_project_1_deployment,
+              group_project_2_deployment,
+              subgroup_project_1_deployment
+            )
           end
         end
       end
 
       it 'avoids N+1 queries' do
         execute_queries = -> { described_class.new({ group: group }).execute.first }
-        control_count = ActiveRecord::QueryRecorder.new { execute_queries }.count
+        control = ActiveRecord::QueryRecorder.new { execute_queries }
 
         new_project = create(:project, :repository, group: group)
         new_env = create(:environment, project: new_project, name: "production")
         create_list(:deployment, 2, status: :success, project: new_project, environment: new_env)
         group.reload
 
-        expect { execute_queries }.not_to exceed_query_limit(control_count)
+        expect { execute_queries }.not_to exceed_query_limit(control)
       end
     end
   end

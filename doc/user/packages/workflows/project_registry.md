@@ -1,12 +1,16 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Store all of your packages in one GitLab project **(FREE)**
+# Store all of your packages in one GitLab project
 
-You can store all of your packages in one project's Package Registry. Rather than using
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+You can store all of your packages in one project's package registry. Rather than using
 a GitLab repository to store code, you can use the repository to store all your packages.
 Then you can configure your remote repositories to point to the project in GitLab.
 
@@ -32,13 +36,19 @@ of each package management system to publish different package types to the same
 
 ## Store different package types in one GitLab project
 
-Let's take a look at how you might create a public place to hold all of your public packages.
+Let's take a look at how you might create one project to host all of your packages:
 
 1. Create a new project in GitLab. The project doesn't require any code or content.
-1. On the left sidebar, select **Project information**, and note the project ID.
-1. Create an access token. All package types in the Package Registry are accessible by using
-   [GitLab personal access tokens](../../profile/personal_access_tokens.md).
-   If you're using CI/CD, you can use CI job tokens (`CI_JOB_TOKEN`) to authenticate.
+1. On the left sidebar, select **Project overview**, and note the project ID.
+1. Create an access token for authentication. All package types in the package registry can be published by using:
+
+   - A [personal access token](../../profile/personal_access_tokens.md).
+   - A [CI/CD job token](../../../ci/jobs/ci_job_token.md) (`CI_JOB_TOKEN`) in a CI/CD job.
+     Any projects publishing packages to this project's registry should be listed
+     in this project's [job token allowlist](../../../ci/jobs/ci_job_token.md#add-a-group-or-project-to-the-job-token-allowlist).
+
+   If the project is private, downloading packages requires authentication as well.
+
 1. Configure your local project and publish the package.
 
 You can upload all types of packages to the same project, or
@@ -50,15 +60,15 @@ If you're using npm, create an `.npmrc` file. Add the appropriate URL for publis
 packages to your project. Finally, add a section to your `package.json` file.
 
 Follow the instructions in the
-[GitLab Package Registry npm documentation](../npm_registry/index.md#authenticate-to-the-package-registry). After
+[GitLab package registry npm documentation](../npm_registry/index.md#authentication-to-the-package-registry). After
 you do this, you can publish your npm package to your project using `npm publish`, as described in the
-[publishing packages](../npm_registry/index.md#publish-an-npm-package) section.
+[publishing packages](../npm_registry/index.md#publish-to-gitlab-package-registry) section.
 
 ### Maven
 
 If you are using Maven, you update your `pom.xml` file with distribution sections. These updates include the
-appropriate URL for your project, as described in the [GitLab Maven Repository documentation](../maven_repository/index.md#project-level-maven-endpoint).
-Then, you need to add a `settings.xml` file and [include your access token](../maven_repository/index.md#authenticate-with-a-personal-access-token-in-maven).
+appropriate URL for your project, as described in the [GitLab Maven Repository documentation](../maven_repository/index.md#naming-convention).
+Then, you need to add a `settings.xml` file and [include your access token](../maven_repository/index.md#authenticate-to-the-package-registry).
 Now you can [publish Maven packages](../maven_repository/index.md#publish-a-package) to your project.
 
 ### Conan

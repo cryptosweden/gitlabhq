@@ -69,12 +69,6 @@ module FilteredSearchHelpers
     filtered_search.send_keys(:enter)
   end
 
-  def init_label_search
-    filtered_search.set('label:=')
-    # This ensures the dropdown is shown
-    expect(find('#js-dropdown-label')).not_to have_css('.filter-dropdown-loading')
-  end
-
   def expect_filtered_search_input_empty
     expect(find('.filtered-search').value).to eq('')
   end
@@ -147,7 +141,7 @@ module FilteredSearchHelpers
     create_token('Release', release_tag)
   end
 
-  def label_token(label_name = nil, has_symbol = true)
+  def label_token(label_name = nil, has_symbol = false)
     symbol = has_symbol ? '~' : nil
     create_token('Label', label_name, symbol)
   end
@@ -161,7 +155,7 @@ module FilteredSearchHelpers
   end
 
   def default_placeholder
-    'Search or filter results...'
+    'Search or filter results…'
   end
 
   def get_filtered_search_placeholder
@@ -186,5 +180,132 @@ module FilteredSearchHelpers
     find('.dropdown-menu-toggle', visible: :all).tap do |toggle|
       toggle.click if toggle.visible?
     end
+  end
+
+  ##
+  # For use with gl-filtered-search
+  def select_tokens(*args, submit: false, input_text: 'Search')
+    within '[data-testid="filtered-search-input"]' do
+      find_field(input_text).click
+
+      args.each do |token|
+        # Move mouse away to prevent invoking tooltips on usernames, which blocks the search input
+        find_button('Search').hover
+
+        click_on token.to_s, match: :first
+
+        wait_for_requests
+      end
+    end
+
+    if submit
+      send_keys :enter
+    end
+  end
+
+  def get_suggestion_count
+    all('.gl-filtered-search-suggestion').size
+  end
+
+  def submit_search_term(value)
+    click_filtered_search_bar
+    send_keys(value, :enter, :enter)
+  end
+
+  def click_filtered_search_bar
+    find('.gl-filtered-search-last-item').click
+  end
+
+  def click_token_segment(value)
+    find('.gl-filtered-search-token-segment', text: value).click
+  end
+
+  def toggle_sort_direction
+    page.within('.vue-filtered-search-bar-container .sort-dropdown-container') do
+      page.find("button[title^='Sort direction']").click
+      wait_for_requests
+    end
+  end
+
+  def change_sort_by(value)
+    within_element '.sort-dropdown-container' do
+      find_by_testid('base-dropdown-toggle').click
+      find('li', text: value).click
+      wait_for_requests
+    end
+  end
+
+  def expect_visible_suggestions_list
+    expect(page).to have_css('.gl-filtered-search-suggestion-list')
+  end
+
+  def expect_hidden_suggestions_list
+    expect(page).not_to have_css('.gl-filtered-search-suggestion-list')
+  end
+
+  def expect_suggestion(value)
+    expect(page).to have_css('.gl-filtered-search-suggestion', text: value)
+  end
+
+  def expect_no_suggestion(value)
+    expect(page).not_to have_css('.gl-filtered-search-suggestion', text: value)
+  end
+
+  def expect_suggestion_count(count)
+    expect(page).to have_css('.gl-filtered-search-suggestion', count: count)
+  end
+
+  def expect_assignee_token(value)
+    expect(page).to have_css '.gl-filtered-search-token', text: /Assignee (=|is) #{Regexp.escape(value)}/
+  end
+
+  def expect_unioned_assignee_token(value)
+    expect(page).to have_css '.gl-filtered-search-token', text: /Assignee is one of #{Regexp.escape(value)}/
+  end
+
+  def expect_author_token(value)
+    expect(page).to have_css '.gl-filtered-search-token', text: /Author (=|is) #{Regexp.escape(value)}/
+  end
+
+  def expect_label_token(value)
+    expect(page).to have_css '.gl-filtered-search-token', text: /Label (=|is) #{Regexp.escape(value)}/
+  end
+
+  def expect_negated_label_token(value)
+    expect(page).to have_css '.gl-filtered-search-token', text: /Label (!=|is not one of) #{Regexp.escape(value)}/
+  end
+
+  def expect_milestone_token(value)
+    expect(page).to have_css '.gl-filtered-search-token', text: /Milestone (=|is) %#{Regexp.escape(value)}/
+  end
+
+  def expect_negated_milestone_token(value)
+    expect(page).to have_css '.gl-filtered-search-token', text: /Milestone (!=|is not) %#{Regexp.escape(value)}/
+  end
+
+  def expect_epic_token(value)
+    expect(page).to have_css '.gl-filtered-search-token', text: /Epic (=|is) #{value}/
+  end
+
+  def expect_search_term(value)
+    value.split(' ').each do |term|
+      expect(page).to have_css '.gl-filtered-search-term', text: term
+    end
+  end
+
+  def expect_empty_search_term
+    expect(page).to have_css '.gl-filtered-search-term', text: ''
+  end
+
+  def expect_token_segment(value)
+    expect(page).to have_css '.gl-filtered-search-token-segment', text: value
+  end
+
+  def expect_recent_searches_history_item(value)
+    expect(page).to have_css '.gl-search-box-by-click-history-item', text: value
+  end
+
+  def expect_recent_searches_history_item_count(count)
+    expect(page).to have_css '.gl-search-box-by-click-history-item', count: count
   end
 end

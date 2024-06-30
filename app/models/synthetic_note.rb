@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class SyntheticNote < Note
+  self.allow_legacy_sti_class = true
+
   attr_accessor :resource_parent, :event
 
   def self.note_attributes(action, event, resource, resource_parent)
@@ -10,10 +12,11 @@ class SyntheticNote < Note
       system: true,
       author: event.user,
       created_at: event.created_at,
+      updated_at: event.created_at,
       discussion_id: event.discussion_id,
       noteable: resource,
       event: event,
-      system_note_metadata: ::SystemNoteMetadata.new(action: action),
+      system_note_metadata: ::SystemNoteMetadata.new(action: action, id: event.discussion_id),
       resource_parent: resource_parent
     }
 

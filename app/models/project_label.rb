@@ -3,7 +3,10 @@
 class ProjectLabel < Label
   MAX_NUMBER_OF_PRIORITIES = 1
 
+  self.allow_legacy_sti_class = true
+
   belongs_to :project
+  belongs_to :parent_container, foreign_key: :project_id, class_name: 'Project'
 
   validates :project, presence: true
 
@@ -20,6 +23,10 @@ class ProjectLabel < Label
 
   def to_reference(target_project = nil, format: :id, full: false)
     super(project, target_project: target_project, format: format, full: full)
+  end
+
+  def preloaded_parent_container
+    association(:project).loaded? ? project : parent_container
   end
 
   private

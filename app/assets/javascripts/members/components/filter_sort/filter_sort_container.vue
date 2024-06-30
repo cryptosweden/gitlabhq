@@ -1,4 +1,5 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 import MembersFilteredSearchBar from './members_filtered_search_bar.vue';
 import SortDropdown from './sort_dropdown.vue';
@@ -27,7 +28,7 @@ export default {
 </script>
 
 <template>
-  <div v-if="showContainer" class="gl-bg-gray-10 gl-p-3 gl-md-display-flex">
+  <div v-if="showContainer" class="gl-bg-gray-10 gl-p-3 md:gl-flex">
     <members-filtered-search-bar v-if="filteredSearchBar.show" class="gl-p-3 gl-flex-grow-1" />
     <sort-dropdown v-if="showSortDropdown" class="gl-p-3 gl-flex-shrink-0" />
   </div>

@@ -4,7 +4,7 @@ import { noop } from 'lodash';
 import { useFakeDate } from 'helpers/fake_date';
 import testAction from 'helpers/vuex_action_helper';
 import { members, group, modalData } from 'jest/members/mock_data';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import {
   updateMemberRole,
   showRemoveGroupLinkModal,
@@ -15,6 +15,8 @@ import {
 } from '~/members/store/actions';
 import * as types from '~/members/store/mutation_types';
 
+const mockedRequestFormatter = jest.fn().mockImplementation(noop);
+
 describe('Vuex members actions', () => {
   describe('update member actions', () => {
     let mock;
@@ -22,7 +24,7 @@ describe('Vuex members actions', () => {
     const state = {
       members,
       memberPath: '/groups/foo-bar/-/group_members/:id',
-      requestFormatter: noop,
+      requestFormatter: mockedRequestFormatter,
     };
 
     beforeEach(() => {
@@ -35,25 +37,32 @@ describe('Vuex members actions', () => {
 
     describe('updateMemberRole', () => {
       const memberId = members[0].id;
-      const accessLevel = { integerValue: 30, stringValue: 'Developer' };
+      const accessLevel = 30;
+      const memberRoleId = 90;
 
-      const payload = {
-        memberId,
-        accessLevel,
-      };
+      const payload = { memberId, accessLevel, memberRoleId };
 
       describe('successful request', () => {
-        it(`commits ${types.RECEIVE_MEMBER_ROLE_SUCCESS} mutation`, async () => {
-          mock.onPut().replyOnce(httpStatusCodes.OK);
+        describe('updates member role', () => {
+          const MOCK_REQUEST_RESULT = { status: 'ok' };
+          let response;
 
-          await testAction(updateMemberRole, payload, state, [
-            {
-              type: types.RECEIVE_MEMBER_ROLE_SUCCESS,
-              payload,
-            },
-          ]);
+          beforeEach(async () => {
+            mock.onPut().replyOnce(HTTP_STATUS_OK, MOCK_REQUEST_RESULT);
+            response = await testAction(updateMemberRole, payload, state, []);
+          });
 
-          expect(mock.history.put[0].url).toBe('/groups/foo-bar/-/group_members/238');
+          it('will make the PUT request', () => {
+            expect(mock.history.put[0].url).toBe('/groups/foo-bar/-/group_members/238');
+            expect(mockedRequestFormatter).toHaveBeenCalledWith({
+              accessLevel,
+              memberRoleId,
+            });
+          });
+
+          it('will return the request result', () => {
+            expect(response.data).toEqual(MOCK_REQUEST_RESULT);
+          });
         });
       });
 
@@ -69,7 +78,7 @@ describe('Vuex members actions', () => {
                 payload: { error },
               },
             ]),
-          ).rejects.toThrowError(error);
+          ).rejects.toThrow(error);
         });
       });
     });
@@ -83,7 +92,7 @@ describe('Vuex members actions', () => {
       describe('successful request', () => {
         describe('changing expiration date', () => {
           it(`commits ${types.RECEIVE_MEMBER_EXPIRATION_SUCCESS} mutation`, async () => {
-            mock.onPut().replyOnce(httpStatusCodes.OK);
+            mock.onPut().replyOnce(HTTP_STATUS_OK);
 
             await testAction(updateMemberExpiration, { memberId, expiresAt }, state, [
               {
@@ -98,7 +107,7 @@ describe('Vuex members actions', () => {
 
         describe('removing the expiration date', () => {
           it(`commits ${types.RECEIVE_MEMBER_EXPIRATION_SUCCESS} mutation`, async () => {
-            mock.onPut().replyOnce(httpStatusCodes.OK);
+            mock.onPut().replyOnce(HTTP_STATUS_OK);
 
             await testAction(updateMemberExpiration, { memberId, expiresAt: null }, state, [
               {
@@ -122,7 +131,7 @@ describe('Vuex members actions', () => {
                 payload: { error },
               },
             ]),
-          ).rejects.toThrowError(error);
+          ).rejects.toThrow(error);
         });
       });
     });
@@ -136,7 +145,7 @@ describe('Vuex members actions', () => {
 
     describe('showRemoveGroupLinkModal', () => {
       it(`commits ${types.SHOW_REMOVE_GROUP_LINK_MODAL} mutation`, () => {
-        testAction(showRemoveGroupLinkModal, group, state, [
+        return testAction(showRemoveGroupLinkModal, group, state, [
           {
             type: types.SHOW_REMOVE_GROUP_LINK_MODAL,
             payload: group,
@@ -147,7 +156,7 @@ describe('Vuex members actions', () => {
 
     describe('hideRemoveGroupLinkModal', () => {
       it(`commits ${types.HIDE_REMOVE_GROUP_LINK_MODAL} mutation`, () => {
-        testAction(hideRemoveGroupLinkModal, group, state, [
+        return testAction(hideRemoveGroupLinkModal, group, state, [
           {
             type: types.HIDE_REMOVE_GROUP_LINK_MODAL,
           },
@@ -164,7 +173,7 @@ describe('Vuex members actions', () => {
 
     describe('showRemoveMemberModal', () => {
       it(`commits ${types.SHOW_REMOVE_MEMBER_MODAL} mutation`, () => {
-        testAction(showRemoveMemberModal, modalData, state, [
+        return testAction(showRemoveMemberModal, modalData, state, [
           {
             type: types.SHOW_REMOVE_MEMBER_MODAL,
             payload: modalData,
@@ -175,7 +184,7 @@ describe('Vuex members actions', () => {
 
     describe('hideRemoveMemberModal', () => {
       it(`commits ${types.HIDE_REMOVE_MEMBER_MODAL} mutation`, () => {
-        testAction(hideRemoveMemberModal, undefined, state, [
+        return testAction(hideRemoveMemberModal, undefined, state, [
           {
             type: types.HIDE_REMOVE_MEMBER_MODAL,
           },

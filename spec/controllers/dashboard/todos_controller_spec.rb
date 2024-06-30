@@ -3,14 +3,12 @@
 require 'spec_helper'
 
 RSpec.describe Dashboard::TodosController do
-  let(:user) { create(:user) }
-  let(:author)  { create(:user) }
-  let(:project) { create(:project) }
-  let(:todo_service) { TodoService.new }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, developers: user) }
+  let_it_be(:author) { create(:user) }
 
   before do
     sign_in(user)
-    project.add_developer(user)
   end
 
   describe 'GET #index' do
@@ -67,7 +65,7 @@ RSpec.describe Dashboard::TodosController do
         merge_request_2 = create(:merge_request, source_project: project_2)
         create(:todo, project: project_2, author: author, user: user, target: merge_request_2)
 
-        expect { get :index }.not_to exceed_query_limit(control)
+        expect { get :index }.not_to exceed_query_limit(control).with_threshold(1)
         expect(response).to have_gitlab_http_status(:ok)
       end
     end
@@ -83,11 +81,14 @@ RSpec.describe Dashboard::TodosController do
     end
 
     it_behaves_like 'paginated collection' do
-      let!(:issues) { create_list(:issue, 3, project: project, assignees: [user]) }
+      let_it_be(:issues) { create_list(:issue, 3, project: project, assignees: [user]) }
       let(:collection) { user.todos }
 
+      before_all do
+        issues.each { |issue| TodoService.new.new_issue(issue, user) }
+      end
+
       before do
-        issues.each { |issue| todo_service.new_issue(issue, user) }
         allow(Kaminari.config).to receive(:default_per_page).and_return(2)
       end
 
@@ -112,6 +113,39 @@ RSpec.describe Dashboard::TodosController do
           get :index, params: { page: (last_page + 1).to_param, project_id: project.id }
 
           expect(response).to redirect_to(dashboard_todos_path(page: last_page, project_id: project.id))
+        end
+
+        it 'returns directly addressed if filtering by mentioned action_id' do
+          allow(controller).to receive(:current_user).and_return(user)
+
+          mentioned_todos = [
+            create(:todo, :directly_addressed, project: project, user: user, target: issues.first),
+            create(:todo, :mentioned, project: project, user: user, target: issues.first)
+          ]
+
+          get :index, params: { action_id: ::Todo::MENTIONED, project_id: project.id }
+
+          expect(assigns(:todos)).to match_array(mentioned_todos)
+        end
+
+        context 'when filtering by type Issue' do
+          it 'also includes work item todos' do
+            mentioned_issue_todos = [
+              create(:todo, :mentioned, project: project, user: user, target: issues.first),
+              create(
+                :todo,
+                :mentioned,
+                project: project,
+                user: user,
+                target_id: issues.last.id,
+                target_type: 'WorkItem'
+              )
+            ]
+
+            get :index, params: { action_id: ::Todo::MENTIONED, type: 'Issue', project_id: project.id }
+
+            expect(assigns(:todos)).to match_array(mentioned_issue_todos)
+          end
         end
       end
     end

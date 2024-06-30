@@ -1,65 +1,76 @@
-import { shallowMount } from '@vue/test-utils';
+import { GlTab } from '@gitlab/ui';
 import MockAdapter from 'axios-mock-adapter';
 import { editor as monacoEditor, Range } from 'monaco-editor';
-import Vue, { nextTick } from 'vue';
+import { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
-import '~/behaviors/markdown/render_gfm';
+import { shallowMount } from '@vue/test-utils';
 import waitForPromises from 'helpers/wait_for_promises';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import { exampleConfigs, exampleFiles } from 'jest/ide/lib/editorconfig/mock_data';
 import { EDITOR_CODE_INSTANCE_FN, EDITOR_DIFF_INSTANCE_FN } from '~/editor/constants';
 import { EditorMarkdownExtension } from '~/editor/extensions/source_editor_markdown_ext';
 import { EditorMarkdownPreviewExtension } from '~/editor/extensions/source_editor_markdown_livepreview_ext';
+import { CiSchemaExtension } from '~/editor/extensions/source_editor_ci_schema_ext';
 import SourceEditor from '~/editor/source_editor';
 import RepoEditor from '~/ide/components/repo_editor.vue';
-import {
-  leftSidebarViews,
-  FILE_VIEW_MODE_EDITOR,
-  FILE_VIEW_MODE_PREVIEW,
-  viewerTypes,
-} from '~/ide/constants';
+import { leftSidebarViews, FILE_VIEW_MODE_PREVIEW, viewerTypes } from '~/ide/constants';
+import { DEFAULT_CI_CONFIG_PATH } from '~/lib/utils/constants';
 import ModelManager from '~/ide/lib/common/model_manager';
 import service from '~/ide/services';
 import { createStoreOptions } from '~/ide/stores';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import ContentViewer from '~/vue_shared/components/content_viewer/content_viewer.vue';
 import SourceEditorInstance from '~/editor/source_editor_instance';
-import { spyOnApi } from 'jest/editor/helpers';
 import { file } from '../helpers';
+
+jest.mock('~/behaviors/markdown/render_gfm');
+jest.mock('~/editor/extensions/source_editor_ci_schema_ext');
 
 const PREVIEW_MARKDOWN_PATH = '/foo/bar/preview_markdown';
 const CURRENT_PROJECT_ID = 'gitlab-org/gitlab';
 
-const defaultFileProps = {
-  ...file('file.txt'),
-  content: 'hello world',
-  active: true,
-  tempFile: true,
-};
-const createActiveFile = (props) => {
-  return {
-    ...defaultFileProps,
-    ...props,
-  };
+const dummyFile = {
+  text: {
+    ...file('file.txt'),
+    content: 'hello world',
+    active: true,
+    tempFile: true,
+  },
+  markdown: {
+    ...file('sample.md'),
+    projectId: 'namespace/project',
+    path: 'sample.md',
+    content: 'hello world',
+    tempFile: true,
+    active: true,
+  },
+  binary: {
+    ...file('file.dat'),
+    content: '🐱', // non-ascii binary content,
+    tempFile: true,
+    active: true,
+  },
+  ciConfig: {
+    ...file(DEFAULT_CI_CONFIG_PATH),
+    content: '',
+    tempFile: true,
+    active: true,
+  },
+  empty: {
+    ...file('empty'),
+    tempFile: false,
+    content: '',
+    raw: '',
+  },
 };
 
-const dummyFile = {
-  markdown: (() =>
-    createActiveFile({
-      projectId: 'namespace/project',
-      path: 'sample.md',
-      name: 'sample.md',
-    }))(),
-  binary: (() =>
-    createActiveFile({
-      name: 'file.dat',
-      content: '🐱', // non-ascii binary content,
-    }))(),
-  empty: (() =>
-    createActiveFile({
-      tempFile: false,
-      content: '',
-      raw: '',
-    }))(),
+const createActiveFile = (props) => {
+  return {
+    ...dummyFile.text,
+    ...props,
+  };
 };
 
 const prepareStore = (state, activeFile) => {
@@ -102,15 +113,17 @@ describe('RepoEditor', () => {
   let createDiffInstanceSpy;
   let createModelSpy;
   let applyExtensionSpy;
+  let removeExtensionSpy;
   let extensionsStore;
+  let store;
 
   const waitForEditorSetup = () =>
     new Promise((resolve) => {
       vm.$once('editorSetup', resolve);
     });
 
-  const createComponent = async ({ state = {}, activeFile = defaultFileProps } = {}) => {
-    const store = prepareStore(state, activeFile);
+  const createComponent = async ({ state = {}, activeFile = dummyFile.text } = {}) => {
+    store = prepareStore(state, activeFile);
     wrapper = shallowMount(RepoEditor, {
       store,
       propsData: {
@@ -128,26 +141,25 @@ describe('RepoEditor', () => {
   };
 
   const findEditor = () => wrapper.find('[data-testid="editor-container"]');
-  const findTabs = () => wrapper.findAll('.ide-mode-tabs .nav-links li');
+  const findTabs = () => wrapper.findAllComponents(GlTab);
   const findPreviewTab = () => wrapper.find('[data-testid="preview-tab"]');
 
   beforeEach(() => {
+    stubPerformanceWebAPI();
+
     createInstanceSpy = jest.spyOn(SourceEditor.prototype, EDITOR_CODE_INSTANCE_FN);
     createDiffInstanceSpy = jest.spyOn(SourceEditor.prototype, EDITOR_DIFF_INSTANCE_FN);
     createModelSpy = jest.spyOn(monacoEditor, 'createModel');
     applyExtensionSpy = jest.spyOn(SourceEditorInstance.prototype, 'use');
+    removeExtensionSpy = jest.spyOn(SourceEditorInstance.prototype, 'unuse');
     jest.spyOn(service, 'getFileData').mockResolvedValue();
     jest.spyOn(service, 'getRawFileData').mockResolvedValue();
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
     // create a new model each time, otherwise tests conflict with each other
     // because of same model being used in multiple tests
-    // eslint-disable-next-line no-undef
-    monaco.editor.getModels().forEach((model) => model.dispose());
-    wrapper.destroy();
-    wrapper = null;
+    monacoEditor.getModels().forEach((model) => model.dispose());
   });
 
   describe('default', () => {
@@ -177,6 +189,70 @@ describe('RepoEditor', () => {
     });
   });
 
+  describe('schema registration for .gitlab-ci.yml', () => {
+    const setup = async (activeFile) => {
+      await createComponent();
+      vm.editor.registerCiSchema = jest.fn();
+      if (activeFile) {
+        wrapper.setProps({ file: activeFile });
+      }
+      await waitForPromises();
+      await nextTick();
+    };
+    it.each`
+      activeFile            | shouldUseExtension | desc
+      ${dummyFile.markdown} | ${false}           | ${`file is not CI config; should NOT`}
+      ${dummyFile.ciConfig} | ${true}            | ${`file is CI config; should`}
+    `(
+      'when the activeFile is "$activeFile", $desc use extension',
+      async ({ activeFile, shouldUseExtension }) => {
+        await setup(activeFile);
+
+        if (shouldUseExtension) {
+          expect(applyExtensionSpy).toHaveBeenCalledWith({
+            definition: CiSchemaExtension,
+          });
+        } else {
+          expect(applyExtensionSpy).not.toHaveBeenCalledWith({
+            definition: CiSchemaExtension,
+          });
+        }
+      },
+    );
+    it('stores the fetched extension and does not double-fetch the schema', async () => {
+      await setup();
+      expect(CiSchemaExtension).toHaveBeenCalledTimes(0);
+
+      wrapper.setProps({ file: dummyFile.ciConfig });
+      await waitForPromises();
+      await nextTick();
+      expect(CiSchemaExtension).toHaveBeenCalledTimes(1);
+      expect(vm.CiSchemaExtension).toEqual(CiSchemaExtension);
+      expect(vm.editor.registerCiSchema).toHaveBeenCalledTimes(1);
+
+      wrapper.setProps({ file: dummyFile.markdown });
+      await waitForPromises();
+      await nextTick();
+      expect(CiSchemaExtension).toHaveBeenCalledTimes(1);
+      expect(vm.editor.registerCiSchema).toHaveBeenCalledTimes(1);
+
+      wrapper.setProps({ file: dummyFile.ciConfig });
+      await waitForPromises();
+      await nextTick();
+      expect(CiSchemaExtension).toHaveBeenCalledTimes(1);
+      expect(vm.editor.registerCiSchema).toHaveBeenCalledTimes(2);
+    });
+    it('unuses the existing CI extension if the new model is not CI config', async () => {
+      await setup(dummyFile.ciConfig);
+
+      expect(removeExtensionSpy).not.toHaveBeenCalled();
+      wrapper.setProps({ file: dummyFile.markdown });
+      await waitForPromises();
+      await nextTick();
+      expect(removeExtensionSpy).toHaveBeenCalledWith(CiSchemaExtension);
+    });
+  });
+
   describe('when file is markdown', () => {
     let mock;
     let activeFile;
@@ -186,8 +262,8 @@ describe('RepoEditor', () => {
 
       mock = new MockAdapter(axios);
 
-      mock.onPost(/(.*)\/preview_markdown/).reply(200, {
-        body: `<p>${defaultFileProps.content}</p>`,
+      mock.onPost(/(.*)\/preview_markdown/).reply(HTTP_STATUS_OK, {
+        body: `<p>${dummyFile.text.content}</p>`,
       });
     });
 
@@ -196,42 +272,31 @@ describe('RepoEditor', () => {
     });
 
     describe('when files is markdown', () => {
-      let layoutSpy;
-
       beforeEach(async () => {
         await createComponent({ activeFile });
-        layoutSpy = jest.spyOn(wrapper.vm.editor, 'layout');
       });
 
       it('renders an Edit and a Preview Tab', () => {
         const tabs = findTabs();
 
         expect(tabs).toHaveLength(2);
-        expect(tabs.at(0).text()).toBe('Edit');
-        expect(tabs.at(1).text()).toBe('Preview Markdown');
+        expect(tabs.at(0).element.dataset.testid).toBe('edit-tab');
+        expect(tabs.at(1).element.dataset.testid).toBe('preview-tab');
       });
 
       it('renders markdown for tempFile', async () => {
-        findPreviewTab().trigger('click');
+        findPreviewTab().vm.$emit('click');
         await waitForPromises();
-        expect(wrapper.find(ContentViewer).html()).toContain(defaultFileProps.content);
-      });
-
-      it('should not trigger layout', async () => {
-        expect(layoutSpy).not.toHaveBeenCalled();
+        expect(wrapper.findComponent(ContentViewer).html()).toContain(dummyFile.text.content);
       });
 
       describe('when file changes to non-markdown file', () => {
-        beforeEach(async () => {
+        beforeEach(() => {
           wrapper.setProps({ file: dummyFile.empty });
         });
 
         it('should hide tabs', () => {
           expect(findTabs()).toHaveLength(0);
-        });
-
-        it('should trigger refresh dimensions', async () => {
-          expect(layoutSpy).toHaveBeenCalledTimes(1);
         });
       });
     });
@@ -292,16 +357,62 @@ describe('RepoEditor', () => {
         expect(vm.editor.methods[fn]).toBe('EditorWebIde');
       });
     });
+  });
+
+  describe('setupEditor', () => {
+    it('creates new model on load', async () => {
+      await createComponent();
+      // We always create two models per file to be able to build a diff of changes
+      expect(createModelSpy).toHaveBeenCalledTimes(2);
+      // The model with the most recent changes is the last one
+      const [content] = createModelSpy.mock.calls[1];
+      expect(content).toBe(dummyFile.text.content);
+    });
+
+    it('does not create a new model on subsequent calls to setupEditor and re-uses the already-existing model', async () => {
+      await createComponent();
+      const existingModel = vm.model;
+      createModelSpy.mockClear();
+
+      vm.setupEditor();
+
+      expect(createModelSpy).not.toHaveBeenCalled();
+      expect(vm.model).toBe(existingModel);
+    });
+
+    it('updates state with the value of the model', async () => {
+      await createComponent();
+      const newContent = 'As Gregor Samsa\n awoke one morning\n';
+      vm.model.setValue(newContent);
+
+      vm.setupEditor();
+
+      expect(vm.file.content).toBe(newContent);
+    });
+
+    it('sets head model as staged file', async () => {
+      await createComponent();
+      vm.modelManager.dispose();
+      const addModelSpy = jest.spyOn(ModelManager.prototype, 'addModel');
+
+      vm.$store.state.stagedFiles.push({ ...vm.file, key: 'staged' });
+      vm.file.staged = true;
+      vm.file.key = `unstaged-${vm.file.key}`;
+
+      vm.setupEditor();
+
+      expect(addModelSpy).toHaveBeenCalledWith(vm.file, vm.$store.state.stagedFiles[0]);
+    });
 
     it.each`
       prefix          | activeFile            | viewer              | shouldHaveMarkdownExtension
-      ${'Should not'} | ${createActiveFile()} | ${viewerTypes.edit} | ${false}
+      ${'Should not'} | ${dummyFile.text}     | ${viewerTypes.edit} | ${false}
       ${'Should'}     | ${dummyFile.markdown} | ${viewerTypes.edit} | ${true}
       ${'Should not'} | ${dummyFile.empty}    | ${viewerTypes.edit} | ${false}
-      ${'Should not'} | ${createActiveFile()} | ${viewerTypes.diff} | ${false}
+      ${'Should not'} | ${dummyFile.text}     | ${viewerTypes.diff} | ${false}
       ${'Should not'} | ${dummyFile.markdown} | ${viewerTypes.diff} | ${false}
       ${'Should not'} | ${dummyFile.empty}    | ${viewerTypes.diff} | ${false}
-      ${'Should not'} | ${createActiveFile()} | ${viewerTypes.mr}   | ${false}
+      ${'Should not'} | ${dummyFile.text}     | ${viewerTypes.mr}   | ${false}
       ${'Should not'} | ${dummyFile.markdown} | ${viewerTypes.mr}   | ${false}
       ${'Should not'} | ${dummyFile.empty}    | ${viewerTypes.mr}   | ${false}
     `(
@@ -325,98 +436,21 @@ describe('RepoEditor', () => {
         }
       },
     );
-  });
 
-  describe('setupEditor', () => {
-    beforeEach(async () => {
-      await createComponent();
-    });
+    it('fetches the live preview extension even if markdown is not the first opened file', async () => {
+      const textFile = dummyFile.text;
+      const mdFile = dummyFile.markdown;
+      const previewExtConfig = {
+        definition: EditorMarkdownPreviewExtension,
+        setupOptions: { previewMarkdownPath: PREVIEW_MARKDOWN_PATH },
+      };
+      await createComponent({ activeFile: textFile });
+      applyExtensionSpy.mockClear();
 
-    it('creates new model on load', () => {
-      // We always create two models per file to be able to build a diff of changes
-      expect(createModelSpy).toHaveBeenCalledTimes(2);
-      // The model with the most recent changes is the last one
-      const [content] = createModelSpy.mock.calls[1];
-      expect(content).toBe(defaultFileProps.content);
-    });
+      await wrapper.setProps({ file: mdFile });
+      await waitForPromises();
 
-    it('does not create a new model on subsequent calls to setupEditor and re-uses the already-existing model', () => {
-      const existingModel = vm.model;
-      createModelSpy.mockClear();
-
-      vm.setupEditor();
-
-      expect(createModelSpy).not.toHaveBeenCalled();
-      expect(vm.model).toBe(existingModel);
-    });
-
-    it('updates state with the value of the model', () => {
-      const newContent = 'As Gregor Samsa\n awoke one morning\n';
-      vm.model.setValue(newContent);
-
-      vm.setupEditor();
-
-      expect(vm.file.content).toBe(newContent);
-    });
-
-    it('sets head model as staged file', () => {
-      vm.modelManager.dispose();
-      const addModelSpy = jest.spyOn(ModelManager.prototype, 'addModel');
-
-      vm.$store.state.stagedFiles.push({ ...vm.file, key: 'staged' });
-      vm.file.staged = true;
-      vm.file.key = `unstaged-${vm.file.key}`;
-
-      vm.setupEditor();
-
-      expect(addModelSpy).toHaveBeenCalledWith(vm.file, vm.$store.state.stagedFiles[0]);
-    });
-  });
-
-  describe('editor updateDimensions', () => {
-    let updateDimensionsSpy;
-    beforeEach(async () => {
-      await createComponent();
-      const ext = extensionsStore.get('EditorWebIde');
-      updateDimensionsSpy = jest.fn();
-      spyOnApi(ext, {
-        updateDimensions: updateDimensionsSpy,
-      });
-    });
-
-    it('calls updateDimensions only when panelResizing is false', async () => {
-      expect(updateDimensionsSpy).not.toHaveBeenCalled();
-      expect(vm.$store.state.panelResizing).toBe(false); // default value
-
-      vm.$store.state.panelResizing = true;
-      await nextTick();
-
-      expect(updateDimensionsSpy).not.toHaveBeenCalled();
-
-      vm.$store.state.panelResizing = false;
-      await nextTick();
-
-      expect(updateDimensionsSpy).toHaveBeenCalledTimes(1);
-
-      vm.$store.state.panelResizing = true;
-      await nextTick();
-
-      expect(updateDimensionsSpy).toHaveBeenCalledTimes(1);
-    });
-
-    it('calls updateDimensions when rightPane is toggled', async () => {
-      expect(updateDimensionsSpy).not.toHaveBeenCalled();
-      expect(vm.$store.state.rightPane.isOpen).toBe(false); // default value
-
-      vm.$store.state.rightPane.isOpen = true;
-      await nextTick();
-
-      expect(updateDimensionsSpy).toHaveBeenCalledTimes(1);
-
-      vm.$store.state.rightPane.isOpen = false;
-      await nextTick();
-
-      expect(updateDimensionsSpy).toHaveBeenCalledTimes(2);
+      expect(applyExtensionSpy).toHaveBeenCalledWith(previewExtConfig);
     });
   });
 
@@ -439,7 +473,6 @@ describe('RepoEditor', () => {
   });
 
   describe('files in preview mode', () => {
-    let updateDimensionsSpy;
     const changeViewMode = (viewMode) =>
       vm.$store.dispatch('editor/updateFileEditor', {
         path: vm.file.path,
@@ -451,12 +484,6 @@ describe('RepoEditor', () => {
         activeFile: dummyFile.markdown,
       });
 
-      const ext = extensionsStore.get('EditorWebIde');
-      updateDimensionsSpy = jest.fn();
-      spyOnApi(ext, {
-        updateDimensions: updateDimensionsSpy,
-      });
-
       changeViewMode(FILE_VIEW_MODE_PREVIEW);
       await nextTick();
     });
@@ -464,15 +491,6 @@ describe('RepoEditor', () => {
     it('do not show the editor', () => {
       expect(vm.showEditor).toBe(false);
       expect(findEditor().isVisible()).toBe(false);
-    });
-
-    it('updates dimensions when switching view back to edit', async () => {
-      expect(updateDimensionsSpy).not.toHaveBeenCalled();
-
-      changeViewMode(FILE_VIEW_MODE_EDITOR);
-      await nextTick();
-
-      expect(updateDimensionsSpy).toHaveBeenCalled();
     });
   });
 
@@ -487,7 +505,7 @@ describe('RepoEditor', () => {
 
     it('does not fetch file information for temp entries', async () => {
       await createComponent({
-        activeFile: createActiveFile(),
+        activeFile: dummyFile.text,
       });
 
       expect(vm.getFileData).not.toHaveBeenCalled();
@@ -506,7 +524,7 @@ describe('RepoEditor', () => {
 
     it('does not initialize editor for files already with content when shouldHideEditor is `true`', async () => {
       await createComponent({
-        activeFile: createActiveFile(),
+        activeFile: dummyFile.text,
       });
 
       await hideEditorAndRunFn();
@@ -545,7 +563,10 @@ describe('RepoEditor', () => {
     });
 
     it('does not call initEditor if the file did not change', async () => {
-      Vue.set(vm, 'file', vm.file);
+      const newFile = { ...store.state.openFiles[0] };
+      wrapper.setProps({
+        file: newFile,
+      });
       await nextTick();
 
       expect(vm.initEditor).not.toHaveBeenCalled();
@@ -579,9 +600,8 @@ describe('RepoEditor', () => {
 
     it('after switching viewer from edit to diff', async () => {
       const f = createRemoteFile('newFile');
-      Vue.set(vm.$store.state.entries, f.path, f);
-
-      jest.spyOn(service, 'getRawFileData').mockImplementation(async () => {
+      store.state.entries[f.path] = f;
+      jest.spyOn(service, 'getRawFileData').mockImplementation(() => {
         expect(vm.file.loading).toBe(true);
 
         // switching from edit to diff mode usually triggers editor initialization
@@ -589,7 +609,7 @@ describe('RepoEditor', () => {
 
         jest.runOnlyPendingTimers();
 
-        return 'rawFileData123\n';
+        return Promise.resolve('rawFileData123\n');
       });
 
       wrapper.setProps({
@@ -605,23 +625,23 @@ describe('RepoEditor', () => {
       const aContent = 'fileA-rawContent\n';
       const bContent = 'fileB-rawContent\n';
       const fileB = createRemoteFile('fileB');
-      Vue.set(vm.$store.state.entries, fileA.path, fileA);
-      Vue.set(vm.$store.state.entries, fileB.path, fileB);
+      store.state.entries[fileA.path] = fileA;
+      store.state.entries[fileB.path] = fileB;
 
       jest
         .spyOn(service, 'getRawFileData')
-        .mockImplementation(async () => {
+        .mockImplementation(() => {
           // opening fileB while the content of fileA is still being fetched
           wrapper.setProps({
             file: fileB,
           });
-          return aContent;
+          return Promise.resolve(aContent);
         })
-        .mockImplementationOnce(async () => {
+        .mockImplementationOnce(() => {
           // we delay returning fileB content
           // to make sure the editor doesn't initialize prematurely
           jest.advanceTimersByTime(30);
-          return bContent;
+          return Promise.resolve(bContent);
         });
 
       wrapper.setProps({
@@ -677,9 +697,6 @@ describe('RepoEditor', () => {
         activeFile: setFileName('bar.md'),
       });
 
-      vm.setupEditor();
-
-      await waitForPromises();
       // set cursor to line 2, column 1
       vm.editor.setSelection(new Range(2, 1, 2, 1));
       vm.editor.focus();

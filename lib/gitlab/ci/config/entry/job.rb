@@ -11,23 +11,24 @@ module Gitlab
           include ::Gitlab::Ci::Config::Entry::Processable
 
           ALLOWED_WHEN = %w[on_success on_failure always manual delayed].freeze
-          ALLOWED_KEYS = %i[tags script type image services start_in artifacts
-                            cache dependencies before_script after_script
-                            environment coverage retry parallel interruptible timeout
-                            release].freeze
+          ALLOWED_KEYS = %i[tags script image services start_in artifacts
+                            cache dependencies before_script after_script hooks
+                            coverage retry parallel timeout
+                            release id_tokens publish pages manual_confirmation].freeze
 
           validations do
             validates :config, allowed_keys: Gitlab::Ci::Config::Entry::Job.allowed_keys + PROCESSABLE_ALLOWED_KEYS
             validates :script, presence: true
 
             with_options allow_nil: true do
-              validates :when, inclusion: {
+              validates :when, type: String, inclusion: {
                 in: ALLOWED_WHEN,
                 message: "should be one of: #{ALLOWED_WHEN.join(', ')}"
               }
 
               validates :dependencies, array_of_strings: true
               validates :allow_failure, hash_or_boolean: true
+              validates :manual_confirmation, type: String
             end
 
             validates :start_in, duration: { limit: '1 week' }, if: :delayed?
@@ -40,11 +41,19 @@ module Gitlab
               if needs_value[:job].nil? && needs_value[:cross_dependency].present?
                 errors.add(:needs, "corresponding to dependencies must be from the same pipeline")
               else
-                missing_needs = dependencies - needs_value[:job].pluck(:name) # rubocop:disable CodeReuse/ActiveRecord (Array#pluck)
+                missing_needs = dependencies - needs_value[:job].pluck(:name) # rubocop:disable CodeReuse/ActiveRecord -- Array#pluck
 
                 errors.add(:dependencies, "the #{missing_needs.join(", ")} should be part of needs") if missing_needs.any?
               end
             end
+
+            validates :publish,
+              absence: { message: "can only be used within a `pages` job" },
+              unless: -> { pages_job? }
+
+            validates :pages,
+              absence: { message: "can only be used within a `pages` job" },
+              unless: -> { pages_job? }
           end
 
           entry :before_script, Entry::Commands,
@@ -55,13 +64,12 @@ module Gitlab
             description: 'Commands that will be executed in this job.',
             inherit: false
 
-          entry :type, Entry::Stage,
-            description: 'Deprecated: stage this job will be executed into.',
-            inherit: false,
-            deprecation: { deprecated: '9.0', warning: '14.8', removed: '15.0' }
-
           entry :after_script, Entry::Commands,
             description: 'Commands that will be executed when finishing job.',
+            inherit: true
+
+          entry :hooks, Entry::Hooks,
+            description: 'Commands that will be executed on Runner before/after some events; clone, build-script.',
             inherit: true
 
           entry :cache, Entry::Caches,
@@ -74,10 +82,6 @@ module Gitlab
 
           entry :services, Entry::Services,
             description: 'Services that will be used to execute this job.',
-            inherit: true
-
-          entry :interruptible, ::Gitlab::Config::Entry::Boolean,
-            description: 'Set jobs interruptible value.',
             inherit: true
 
           entry :timeout, Entry::Timeout,
@@ -101,10 +105,6 @@ module Gitlab
             metadata: { allowed_needs: %i[job cross_dependency] },
             inherit: false
 
-          entry :environment, Entry::Environment,
-            description: 'Environment configuration for this job.',
-            inherit: false
-
           entry :coverage, Entry::Coverage,
             description: 'Coverage configuration for this job.',
             inherit: false
@@ -121,10 +121,23 @@ module Gitlab
             description: 'Indicates whether this job is allowed to fail or not.',
             inherit: false
 
+          entry :id_tokens, ::Gitlab::Config::Entry::ComposableHash,
+            description: 'Configured JWTs for this job.',
+            inherit: true,
+            metadata: { composable_class: ::Gitlab::Ci::Config::Entry::IdToken }
+
+          entry :publish, Entry::Publish,
+            description: 'Path to be published with Pages',
+            inherit: false
+
+          entry :pages, ::Gitlab::Ci::Config::Entry::Pages,
+            inherit: false,
+            description: 'Pages configuration.'
+
           attributes :script, :tags, :when, :dependencies,
-                     :needs, :retry, :parallel, :start_in,
-                     :interruptible, :timeout,
-                     :release, :allow_failure
+            :needs, :retry, :parallel, :start_in,
+            :timeout, :release,
+            :allow_failure, :publish, :pages, :manual_confirmation
 
           def self.matching?(name, config)
             !name.to_s.start_with?('.') &&
@@ -133,19 +146,6 @@ module Gitlab
 
           def self.visible?
             true
-          end
-
-          def compose!(deps = nil)
-            super do
-              # The type keyword will be removed in 15.0:
-              # https://gitlab.com/gitlab-org/gitlab/-/issues/346823
-              if type_defined? && !stage_defined?
-                @entries[:stage] = @entries[:type]
-                log_and_warn_deprecated_entry(@entries[:type])
-              end
-
-              @entries.delete(:type)
-            end
           end
 
           def delayed?
@@ -163,25 +163,37 @@ module Gitlab
               when: self.when,
               start_in: self.start_in,
               dependencies: dependencies,
-              environment: environment_defined? ? environment_value : nil,
-              environment_name: environment_defined? ? environment_value[:name] : nil,
               coverage: coverage_defined? ? coverage_value : nil,
               retry: retry_defined? ? retry_value : nil,
               parallel: has_parallel? ? parallel_value : nil,
-              interruptible: interruptible_defined? ? interruptible_value : nil,
-              timeout: has_timeout? ? ChronicDuration.parse(timeout.to_s) : nil,
+              timeout: parsed_timeout,
               artifacts: artifacts_value,
               release: release_value,
               after_script: after_script_value,
+              hooks: hooks_value,
               ignore: ignored?,
               allow_failure_criteria: allow_failure_criteria,
               needs: needs_defined? ? needs_value : nil,
-              scheduling_type: needs_defined? ? :dag : :stage
+              scheduling_type: needs_defined? ? :dag : :stage,
+              id_tokens: id_tokens_value,
+              publish: publish,
+              pages: pages,
+              manual_confirmation: self.manual_confirmation
             ).compact
+          end
+
+          def parsed_timeout
+            return unless has_timeout?
+
+            ChronicDuration.parse(timeout.to_s)
           end
 
           def ignored?
             allow_failure_defined? ? static_allow_failure : manual_action?
+          end
+
+          def pages_job?
+            name == :pages
           end
 
           def self.allowed_keys

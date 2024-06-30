@@ -7,7 +7,7 @@ class UpdateHighestRoleWorker
 
   sidekiq_options retry: 3
 
-  feature_category :utilization
+  feature_category :seat_cost_management
   urgency :high
   weight 2
 

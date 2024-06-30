@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::Conflicts::ResolveService do
+RSpec.describe MergeRequests::Conflicts::ResolveService, feature_category: :code_review_workflow do
   include ProjectForksHelper
   let(:user) { create(:user) }
   let(:project) { create(:project, :public, :repository) }
@@ -12,15 +12,22 @@ RSpec.describe MergeRequests::Conflicts::ResolveService do
   end
 
   let(:merge_request) do
-    create(:merge_request,
-           source_branch: 'conflict-resolvable', source_project: project,
-           target_branch: 'conflict-start')
+    create(
+      :merge_request,
+      source_branch: 'conflict-resolvable',
+      source_project: project,
+      target_branch: 'conflict-start'
+    )
   end
 
   let(:merge_request_from_fork) do
-    create(:merge_request,
-           source_branch: 'conflict-resolvable-fork', source_project: forked_project,
-           target_branch: 'conflict-start', target_project: project)
+    create(
+      :merge_request,
+      source_branch: 'conflict-resolvable-fork',
+      source_project: forked_project,
+      target_branch: 'conflict-start',
+      target_project: project
+    )
   end
 
   describe '#execute' do
@@ -65,8 +72,8 @@ RSpec.describe MergeRequests::Conflicts::ResolveService do
 
         it 'creates a commit with the correct parents' do
           expect(merge_request.source_branch_head.parents.map(&:id))
-            .to eq(%w(1450cd639e0bc6721eb02800169e464f212cde06
-                      824be604a34828eb682305f0d963056cfac87b2d))
+            .to eq(%w[1450cd639e0bc6721eb02800169e464f212cde06
+                      824be604a34828eb682305f0d963056cfac87b2d])
         end
       end
 
@@ -162,8 +169,8 @@ RSpec.describe MergeRequests::Conflicts::ResolveService do
 
       it 'creates a commit with the correct parents' do
         expect(merge_request.source_branch_head.parents.map(&:id))
-          .to eq(%w(1450cd639e0bc6721eb02800169e464f212cde06
-                    824be604a34828eb682305f0d963056cfac87b2d))
+          .to eq(%w[1450cd639e0bc6721eb02800169e464f212cde06
+                    824be604a34828eb682305f0d963056cfac87b2d])
       end
 
       it 'sets the content to the content given' do

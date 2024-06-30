@@ -1,5 +1,6 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import ResizablePanel from '~/ide/components/resizable_panel.vue';
 import { SIDE_LEFT, SIDE_RIGHT } from '~/ide/constants';
@@ -19,11 +20,6 @@ describe('~/ide/components/resizable_panel', () => {
     jest.spyOn(store, 'dispatch').mockImplementation();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   const createComponent = (props = {}) => {
     wrapper = shallowMount(ResizablePanel, {
       propsData: {
@@ -35,7 +31,7 @@ describe('~/ide/components/resizable_panel', () => {
       store,
     });
   };
-  const findResizer = () => wrapper.find(PanelResizer);
+  const findResizer = () => wrapper.findComponent(PanelResizer);
   const findInlineStyle = () => wrapper.element.style.cssText;
   const createInlineStyle = (width) => `width: ${width}px;`;
 

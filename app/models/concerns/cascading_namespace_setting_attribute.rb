@@ -30,16 +30,16 @@ module CascadingNamespaceSettingAttribute
     # similar to Rails' `attr_accessor`, defines convenience methods such as
     # a reader, writer, and validators.
     #
-    # Example: `cascading_attr :delayed_project_removal`
+    # Example: `cascading_attr :toggle_security_policy_custom_ci`
     #
     # Public methods defined:
-    # - `delayed_project_removal`
-    # - `delayed_project_removal=`
-    # - `delayed_project_removal_locked?`
-    # - `delayed_project_removal_locked_by_ancestor?`
-    # - `delayed_project_removal_locked_by_application_setting?`
-    # - `delayed_project_removal?` (only defined for boolean attributes)
-    # - `delayed_project_removal_locked_ancestor` - Returns locked namespace settings object (only namespace_id)
+    # - `toggle_security_policy_custom_ci`
+    # - `toggle_security_policy_custom_ci=`
+    # - `toggle_security_policy_custom_ci_locked?`
+    # - `toggle_security_policy_custom_ci_locked_by_ancestor?`
+    # - `toggle_security_policy_custom_ci_locked_by_application_setting?`
+    # - `toggle_security_policy_custom_ci?` (only defined for boolean attributes)
+    # - `toggle_security_policy_custom_ci_locked_ancestor` - Returns locked namespace settings object (only namespace_id)
     #
     # Defined validators ensure attribute value cannot be updated if locked by
     # an ancestor or application settings.
@@ -57,11 +57,13 @@ module CascadingNamespaceSettingAttribute
 
         # private methods
         define_validator_methods(attribute)
+        define_attr_before_save(attribute)
         define_after_update(attribute)
 
         validate :"#{attribute}_changeable?"
         validate :"lock_#{attribute}_changeable?"
 
+        before_save :"before_save_#{attribute}", if: -> { will_save_change_to_attribute?(attribute) }
         after_update :"clear_descendant_#{attribute}_locks", if: -> { saved_change_to_attribute?("lock_#{attribute}", to: true) }
       end
     end
@@ -92,11 +94,24 @@ module CascadingNamespaceSettingAttribute
 
     def define_attr_writer(attribute)
       define_method("#{attribute}=") do |value|
-        return value if value == cascaded_ancestor_value(attribute)
+        return value if read_attribute(attribute).nil? && to_bool(value) == cascaded_ancestor_value(attribute)
 
         clear_memoization(attribute)
         super(value)
       end
+    end
+
+    def define_attr_before_save(attribute)
+      # rubocop:disable GitlabSecurity/PublicSend
+      define_method("before_save_#{attribute}") do
+        new_value = public_send(attribute)
+        if public_send("#{attribute}_was").nil? && new_value == cascaded_ancestor_value(attribute)
+          write_attribute(attribute, nil)
+        end
+      end
+      # rubocop:enable GitlabSecurity/PublicSend
+
+      private :"before_save_#{attribute}"
     end
 
     def define_lock_attr_writer(attribute)
@@ -238,5 +253,9 @@ module CascadingNamespaceSettingAttribute
     strong_memoize(:descendants) do
       namespace.descendants.pluck(:id)
     end
+  end
+
+  def to_bool(value)
+    ActiveModel::Type::Boolean.new.cast(value)
   end
 end

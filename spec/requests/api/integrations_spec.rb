@@ -2,21 +2,26 @@
 
 require "spec_helper"
 
-RSpec.describe API::Integrations do
+RSpec.describe API::Integrations, feature_category: :integrations do
+  include Integrations::TestHelpers
+
   let_it_be(:user) { create(:user) }
   let_it_be(:user2) { create(:user) }
+  let_it_be(:project, reload: true) { create(:project, creator_id: user.id, namespace: user.namespace) }
 
-  let_it_be(:project, reload: true) do
-    create(:project, creator_id: user.id, namespace: user.namespace)
+  let_it_be(:available_integration_names) do
+    excluded_integrations = [Integrations::GitlabSlackApplication.to_param, Integrations::Zentao.to_param]
+
+    Integration.available_integration_names(include_instance_specific: false) - excluded_integrations
   end
 
-  # The API supports all integrations except the GitLab Slack Application
-  # integration; this integration must be installed via the UI.
-  def self.integration_names
-    names = Integration.available_integration_names
-    names.delete(Integrations::GitlabSlackApplication.to_param) if Gitlab.ee?
-    names
+  let_it_be(:project_integrations_map) do
+    available_integration_names.index_with do |name|
+      create(integration_factory(name), :inactive, project: project)
+    end
   end
+
+  let_it_be(:project2) { create(:project, creator_id: user.id, namespace: user.namespace) }
 
   %w[integrations services].each do |endpoint|
     describe "GET /projects/:id/#{endpoint}" do
@@ -34,9 +39,6 @@ RSpec.describe API::Integrations do
       end
 
       context 'with integrations' do
-        let!(:active_integration) { create(:emails_on_push_integration, project: project, active: true) }
-        let!(:integration) { create(:custom_issue_tracker_integration, project: project, active: false) }
-
         it "returns a list of all active integrations" do
           get api("/projects/#{project.id}/#{endpoint}", user)
 
@@ -44,150 +46,38 @@ RSpec.describe API::Integrations do
             expect(response).to have_gitlab_http_status(:ok)
             expect(json_response).to be_an Array
             expect(json_response.count).to eq(1)
-            expect(json_response.first['slug']).to eq('emails-on-push')
+            expect(json_response.first['slug']).to eq('prometheus')
             expect(response).to match_response_schema('public_api/v4/integrations')
           end
         end
       end
     end
 
-    integration_names.each do |integration|
+    where(:integration) do
+      # The integrations API supports all project integrations.
+      # You cannot create a GitLab for Slack app. You must install the app from the GitLab UI.
+      unavailable_integration_names = [
+        Integrations::GitlabSlackApplication.to_param,
+        Integrations::Zentao.to_param
+      ]
+
+      names = Integration.available_integration_names(include_instance_specific: false)
+      names.reject { |name| name.in?(unavailable_integration_names) }
+    end
+
+    with_them do
+      integration = params[:integration]
+
       describe "PUT /projects/:id/#{endpoint}/#{integration.dasherize}" do
-        include_context integration
-
-        it "updates #{integration} settings and returns the correct fields" do
-          put api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}", user), params: integration_attrs
-
-          expect(response).to have_gitlab_http_status(:ok)
-
-          current_integration = project.integrations.first
-          events = current_integration.event_names.empty? ? ["foo"].freeze : current_integration.event_names
-          query_strings = []
-          events.map(&:to_sym).each do |event|
-            event_value = !current_integration[event]
-            query_strings << "#{event}=#{event_value}"
-            integration_attrs[event] = event_value if integration_attrs[event].present?
-          end
-          query_strings = query_strings.join('&')
-
-          put api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}?#{query_strings}", user), params: integration_attrs
-
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(json_response['slug']).to eq(dashed_integration)
-          events.each do |event|
-            next if event == "foo"
-
-            expect(project.integrations.first[event]).not_to eq(current_integration[event]),
-                                                             "expected #{!current_integration[event]} for event #{event} for #{endpoint} #{current_integration.title}, got #{current_integration[event]}"
-          end
-
-          assert_correct_response_fields(json_response['properties'].keys, current_integration)
-        end
-
-        it "returns if required fields missing" do
-          required_attributes = integration_attrs_list.select do |attr|
-            integration_klass.validators_on(attr).any? do |v|
-              v.instance_of?(ActiveRecord::Validations::PresenceValidator) &&
-                # exclude presence validators with conditional since those are not really required
-                ![:if, :unless].any? { |cond| v.options.include?(cond) }
-            end
-          end
-
-          if required_attributes.empty?
-            expected_code = :ok
-          else
-            integration_attrs.delete(required_attributes.sample)
-            expected_code = :bad_request
-          end
-
-          put api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}", user), params: integration_attrs
-
-          expect(response).to have_gitlab_http_status(expected_code)
-        end
+        it_behaves_like 'set up an integration', endpoint: endpoint, integration: integration
       end
 
       describe "DELETE /projects/:id/#{endpoint}/#{integration.dasherize}" do
-        include_context integration
-
-        before do
-          initialize_integration(integration)
-        end
-
-        it "deletes #{integration}" do
-          delete api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}", user)
-
-          expect(response).to have_gitlab_http_status(:no_content)
-          project.send(integration_method).reload
-          expect(project.send(integration_method).activated?).to be_falsey
-        end
+        it_behaves_like 'disable an integration', endpoint: endpoint, integration: integration
       end
 
       describe "GET /projects/:id/#{endpoint}/#{integration.dasherize}" do
-        include_context integration
-
-        let!(:initialized_integration) { initialize_integration(integration, active: true) }
-
-        let_it_be(:project2) do
-          create(:project, creator_id: user.id, namespace: user.namespace)
-        end
-
-        def deactive_integration!
-          return initialized_integration.update!(active: false) unless initialized_integration.is_a?(::Integrations::Prometheus)
-
-          # Integrations::Prometheus sets `#active` itself within a `before_save`:
-          initialized_integration.manual_configuration = false
-          initialized_integration.save!
-        end
-
-        it 'returns authentication error when unauthenticated' do
-          get api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}")
-          expect(response).to have_gitlab_http_status(:unauthorized)
-        end
-
-        it "returns all properties of active integration #{integration}, except password fields" do
-          get api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}", user)
-
-          expect(initialized_integration).to be_active
-          expect(response).to have_gitlab_http_status(:ok)
-
-          assert_correct_response_fields(json_response['properties'].keys, integration_instance)
-        end
-
-        it "returns all properties of inactive integration #{integration}, except password fields" do
-          deactive_integration!
-
-          get api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}", user)
-
-          expect(initialized_integration).not_to be_active
-          expect(response).to have_gitlab_http_status(:ok)
-
-          assert_correct_response_fields(json_response['properties'].keys, integration_instance)
-        end
-
-        it "returns not found if integration does not exist" do
-          get api("/projects/#{project2.id}/#{endpoint}/#{dashed_integration}", user)
-
-          expect(response).to have_gitlab_http_status(:not_found)
-          expect(json_response['message']).to eq('404 Integration Not Found')
-        end
-
-        it "returns not found if integration exists but is in `Project#disabled_integrations`" do
-          expect_next_found_instance_of(Project) do |project|
-            expect(project).to receive(:disabled_integrations).at_least(:once).and_return([integration])
-          end
-
-          get api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}", user)
-
-          expect(response).to have_gitlab_http_status(:not_found)
-          expect(json_response['message']).to eq('404 Integration Not Found')
-        end
-
-        it "returns error when authenticated but not a project owner" do
-          project.add_developer(user2)
-          get api("/projects/#{project.id}/#{endpoint}/#{dashed_integration}", user2)
-
-          expect(response).to have_gitlab_http_status(:forbidden)
-        end
+        it_behaves_like 'get an integration settings', endpoint: endpoint, integration: integration
       end
     end
 
@@ -205,14 +95,11 @@ RSpec.describe API::Integrations do
         end
 
         context 'when the integration exists' do
-          let(:params) { { token: 'token' } }
+          let(:params) { { token: 'secrettoken' } }
 
           context 'when the integration is not active' do
             before do
-              project.create_mattermost_slash_commands_integration(
-                active: false,
-                properties: params
-              )
+              project_integrations_map[integration_name].deactivate!
             end
 
             it 'when the integration is inactive' do
@@ -224,10 +111,7 @@ RSpec.describe API::Integrations do
 
           context 'when the integration is active' do
             before do
-              project.create_mattermost_slash_commands_integration(
-                active: true,
-                properties: params
-              )
+              project_integrations_map[integration_name].activate!
             end
 
             it 'returns status 200' do
@@ -250,19 +134,51 @@ RSpec.describe API::Integrations do
 
       describe 'Slack Integration' do
         let(:integration_name) { 'slack_slash_commands' }
+        let(:params) { { token: 'secrettoken', text: 'help' } }
 
-        before do
-          project.create_slack_slash_commands_integration(
-            active: true,
-            properties: { token: 'token' }
-          )
+        context 'when no integration is available' do
+          it 'returns a not found message' do
+            post api("/projects/#{project.id}/#{endpoint}/idonotexist/trigger")
+
+            expect(response).to have_gitlab_http_status(:not_found)
+            expect(json_response["error"]).to eq("404 Not Found")
+          end
         end
 
-        it 'returns status 200' do
-          post api("/projects/#{project.id}/#{endpoint}/#{integration_name}/trigger"), params: { token: 'token', text: 'help' }
+        context 'when the integration exists' do
+          context 'when the integration is not active' do
+            before do
+              project_integrations_map[integration_name].deactivate!
+            end
 
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(json_response['response_type']).to eq("ephemeral")
+            it 'when the integration is inactive' do
+              post api("/projects/#{project.id}/#{endpoint}/#{integration_name}/trigger"), params: params
+
+              expect(response).to have_gitlab_http_status(:not_found)
+            end
+          end
+
+          context 'when the integration is active' do
+            before do
+              project_integrations_map[integration_name].activate!
+            end
+
+            it 'returns status 200' do
+              post api("/projects/#{project.id}/#{endpoint}/#{integration_name}/trigger"), params: params
+
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(json_response['response_type']).to eq("ephemeral")
+            end
+          end
+
+          context 'when the project can not be found' do
+            it 'returns a generic 404' do
+              post api("/projects/404/#{endpoint}/#{integration_name}/trigger"), params: params
+
+              expect(response).to have_gitlab_http_status(:not_found)
+              expect(json_response["message"]).to eq("404 Integration Not Found")
+            end
+          end
         end
       end
     end
@@ -274,10 +190,7 @@ RSpec.describe API::Integrations do
       end
 
       before do
-        project.create_mattermost_integration(
-          active: true,
-          properties: params
-        )
+        project_integrations_map[integration_name].activate!
       end
 
       it 'accepts a username for update' do
@@ -289,6 +202,7 @@ RSpec.describe API::Integrations do
     end
 
     describe 'Microsoft Teams integration' do
+      let_it_be(:group) { create(:group) }
       let(:integration_name) { 'microsoft-teams' }
       let(:params) do
         {
@@ -299,15 +213,14 @@ RSpec.describe API::Integrations do
       end
 
       before do
-        project.create_microsoft_teams_integration(
-          active: true,
-          properties: params
-        )
+        create(:microsoft_teams_integration, group: group, project: nil)
+        project.update!(namespace: group)
+        project_integrations_map[integration_name.underscore].activate!
       end
 
       it 'accepts branches_to_be_notified for update' do
         put api("/projects/#{project.id}/#{endpoint}/#{integration_name}", user),
-            params: params.merge(branches_to_be_notified: 'all')
+          params: params.merge(branches_to_be_notified: 'all')
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['properties']['branches_to_be_notified']).to eq('all')
@@ -315,10 +228,35 @@ RSpec.describe API::Integrations do
 
       it 'accepts notify_only_broken_pipelines for update' do
         put api("/projects/#{project.id}/#{endpoint}/#{integration_name}", user),
-            params: params.merge(notify_only_broken_pipelines: true)
+          params: params.merge(notify_only_broken_pipelines: true)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['properties']['notify_only_broken_pipelines']).to eq(true)
+      end
+
+      it 'accepts `use_inherited_settings` for inheritance' do
+        expect do
+          put api("/projects/#{project.id}/#{endpoint}/#{integration_name}", user),
+            params: params.merge(use_inherited_settings: true)
+        end.to change { project_integrations_map[integration_name.underscore].reload.inherit_from_id }.from(nil)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['inherited']).to eq(true)
+      end
+
+      context 'when `integration_api_inheritance` feature is disabled' do
+        before do
+          stub_feature_flags(integration_api_inheritance: false)
+        end
+
+        it 'accepts `branches_to_be_notified` and `notify_only_broken_pipelines` for update' do
+          put api("/projects/#{project.id}/#{endpoint}/#{integration_name}", user),
+            params: params.merge(notify_only_broken_pipelines: true, branches_to_be_notified: 'all')
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['properties']['branches_to_be_notified']).to eq('all')
+          expect(json_response['properties']['notify_only_broken_pipelines']).to eq(true)
+        end
       end
     end
 
@@ -332,10 +270,7 @@ RSpec.describe API::Integrations do
       end
 
       before do
-        project.create_hangouts_chat_integration(
-          active: true,
-          properties: params
-        )
+        project_integrations_map[integration_name.underscore].activate!
       end
 
       it 'accepts branches_to_be_notified for update', :aggregate_failures do
@@ -352,18 +287,38 @@ RSpec.describe API::Integrations do
       end
     end
 
+    describe 'Jira integration' do
+      let(:integration_name) { 'jira' }
+      let(:params) do
+        { url: 'https://jira.example.com', username: 'username', password: 'password', jira_auth_type: 0 }
+      end
+
+      before do
+        project_integrations_map[integration_name].properties = params
+        project_integrations_map[integration_name].activate!
+      end
+
+      it 'returns the jira_issue_transition_id for get request' do
+        get api("/projects/#{project.id}/#{endpoint}/#{integration_name}", user)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['properties']).to include('jira_issue_transition_id' => '56-1')
+      end
+
+      it 'returns the jira_issue_transition_id for put request' do
+        put api("/projects/#{project.id}/#{endpoint}/#{integration_name}", user), params: params.merge(jira_issue_transition_id: '1')
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['properties']['jira_issue_transition_id']).to eq('1')
+      end
+    end
+
     describe 'Pipelines Email Integration' do
       let(:integration_name) { 'pipelines-email' }
 
       context 'notify_only_broken_pipelines property was saved as a string' do
         before do
-          project.create_pipelines_email_integration(
-            active: false,
-            properties: {
-              "notify_only_broken_pipelines": "true",
-              "branches_to_be_notified": "default"
-            }
-          )
+          project_integrations_map[integration_name.underscore].activate!
         end
 
         it 'returns boolean values for notify_only_broken_pipelines' do
@@ -374,19 +329,95 @@ RSpec.describe API::Integrations do
       end
     end
 
+    describe 'GitLab for Slack app integration' do
+      before do
+        stub_application_setting(slack_app_enabled: true)
+        create(:gitlab_slack_application_integration, project: project)
+      end
+
+      describe "PUT /projects/:id/#{endpoint}/gitlab-slack-application" do
+        context 'for integration creation' do
+          before do
+            project.gitlab_slack_application_integration.destroy!
+          end
+
+          it 'returns 422' do
+            put api("/projects/#{project.id}/#{endpoint}/gitlab-slack-application", user)
+
+            expect(response).to have_gitlab_http_status(:unprocessable_entity)
+          end
+        end
+
+        context 'for integration update' do
+          before do
+            project.gitlab_slack_application_integration.update!(active: false)
+          end
+
+          it "does not enable the integration" do
+            put api("/projects/#{project.id}/#{endpoint}/gitlab-slack-application", user)
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(project.gitlab_slack_application_integration.reload).to have_attributes(active: false)
+          end
+        end
+      end
+
+      describe "GET /projects/:id/#{endpoint}/gitlab-slack-application" do
+        it "fetches the integration and returns the correct fields" do
+          get api("/projects/#{project.id}/#{endpoint}/gitlab-slack-application", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          assert_correct_response_fields(json_response['properties'].keys, project.gitlab_slack_application_integration)
+        end
+      end
+
+      describe "DELETE /projects/:id/#{endpoint}/gitlab-slack-application" do
+        it "disables the integration" do
+          expect { delete api("/projects/#{project.id}/#{endpoint}/gitlab-slack-application", user) }
+            .to change { project.gitlab_slack_application_integration.reload.activated? }.from(true).to(false)
+
+          expect(response).to have_gitlab_http_status(:no_content)
+        end
+      end
+    end
+
     private
 
     def assert_correct_response_fields(response_keys, integration)
       assert_fields_match_integration(response_keys, integration)
-      assert_password_fields_filtered(response_keys, integration)
+      assert_secret_fields_filtered(response_keys, integration)
     end
 
     def assert_fields_match_integration(response_keys, integration)
       expect(response_keys).to match_array(integration.api_field_names)
     end
 
-    def assert_password_fields_filtered(response_keys, integration)
-      expect(response_keys).not_to include(*integration.password_fields)
+    def assert_secret_fields_filtered(response_keys, integration)
+      expect(response_keys).not_to include(*integration.secret_fields)
+    end
+  end
+
+  describe 'POST /slack/trigger' do
+    before_all do
+      create(:gitlab_slack_application_integration, project: project)
+    end
+
+    before do
+      stub_application_setting(slack_app_verification_token: 'token')
+    end
+
+    it 'returns status 200' do
+      post api('/slack/trigger'), params: { token: 'token', text: 'help' }
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(json_response['response_type']).to eq("ephemeral")
+    end
+
+    it 'returns status 404 when token is invalid' do
+      post api('/slack/trigger'), params: { token: 'invalid', text: 'foo' }
+
+      expect(response).to have_gitlab_http_status(:not_found)
+      expect(json_response['response_type']).to be_blank
     end
   end
 end

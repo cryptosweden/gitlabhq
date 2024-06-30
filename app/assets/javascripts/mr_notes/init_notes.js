@@ -1,23 +1,52 @@
-import $ from 'jquery';
 import Vue from 'vue';
+import VueApollo from 'vue-apollo';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState, mapGetters } from 'vuex';
+import { apolloProvider } from '~/graphql_shared/issuable_client';
+
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 import { parseBoolean } from '~/lib/utils/common_utils';
 import store from '~/mr_notes/stores';
+import notesEventHub from '~/notes/event_hub';
 import discussionNavigator from '../notes/components/discussion_navigator.vue';
-import notesApp from '../notes/components/notes_app.vue';
+import NotesApp from '../notes/components/notes_app.vue';
+import { getNotesFilterData } from '../notes/utils/get_notes_filter_data';
 import initWidget from '../vue_merge_request_widget';
 
 export default () => {
+  requestIdleCallback(
+    () => {
+      renderGFM(document.getElementById('diff-notes-app'));
+    },
+    { timeout: 500 },
+  );
+
+  const el = document.getElementById('js-vue-mr-discussions');
+  if (!el) {
+    return;
+  }
+
+  Vue.use(VueApollo);
+
+  const notesFilterProps = getNotesFilterData(el);
+  const notesDataset = el.dataset;
+
   // eslint-disable-next-line no-new
   new Vue({
-    el: '#js-vue-mr-discussions',
+    el,
     name: 'MergeRequestDiscussions',
     components: {
-      notesApp,
+      NotesApp,
     },
     store,
+    apolloProvider,
+    provide: {
+      reportAbusePath: notesDataset.reportAbusePath,
+      newCommentTemplatePaths: JSON.parse(notesDataset.newCommentTemplatePaths),
+      mrFilter: true,
+      newCustomEmojiPath: notesDataset.newCustomEmojiPath,
+    },
     data() {
-      const notesDataset = document.getElementById('js-vue-mr-discussions').dataset;
       const noteableData = JSON.parse(notesDataset.noteableData);
       noteableData.noteableType = notesDataset.noteableType;
       noteableData.targetType = notesDataset.targetType;
@@ -28,13 +57,12 @@ export default () => {
         endpoints: {
           metadata: notesDataset.endpointMetadata,
         },
-        currentUserData: JSON.parse(notesDataset.currentUserData),
         notesData: JSON.parse(notesDataset.notesData),
         helpPagePath: notesDataset.helpPagePath,
       };
     },
     computed: {
-      ...mapGetters(['discussionTabCounter']),
+      ...mapGetters(['isNotesFetched']),
       ...mapState({
         activeTab: (state) => state.page.activeTab,
       }),
@@ -43,9 +71,6 @@ export default () => {
       },
     },
     watch: {
-      discussionTabCounter() {
-        this.updateDiscussionTabCounter();
-      },
       isShowTabActive: {
         handler(newVal) {
           if (newVal) {
@@ -56,25 +81,16 @@ export default () => {
       },
     },
     created() {
-      this.setActiveTab(window.mrTabs.getCurrentAction());
       this.setEndpoints(this.endpoints);
+
+      if (!this.isNotesFetched) {
+        notesEventHub.$emit('fetchNotesData');
+      }
 
       this.fetchMrMetadata();
     },
-    mounted() {
-      this.notesCountBadge = $('.issuable-details').find('.notes-tab .badge');
-      $(document).on('visibilitychange', this.updateDiscussionTabCounter);
-      window.mrTabs.eventHub.$on('MergeRequestTabChange', this.setActiveTab);
-    },
-    beforeDestroy() {
-      $(document).off('visibilitychange', this.updateDiscussionTabCounter);
-      window.mrTabs.eventHub.$off('MergeRequestTabChange', this.setActiveTab);
-    },
     methods: {
-      ...mapActions(['setActiveTab', 'setEndpoints', 'fetchMrMetadata']),
-      updateDiscussionTabCounter() {
-        this.notesCountBadge.text(this.discussionTabCounter);
-      },
+      ...mapActions(['setEndpoints', 'fetchMrMetadata']),
     },
     render(createElement) {
       // NOTE: Even though `discussionNavigator` is added to the `notes-app`,
@@ -89,6 +105,7 @@ export default () => {
             userData: this.currentUserData,
             shouldShow: this.isShowTabActive,
             helpPagePath: this.helpPagePath,
+            ...notesFilterProps,
           },
         }),
       ]);

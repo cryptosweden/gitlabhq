@@ -2,12 +2,9 @@
 
 module Gitlab
   class Highlight
-    TIMEOUT_BACKGROUND = 30.seconds
-    TIMEOUT_FOREGROUND = 1.5.seconds
-
-    def self.highlight(blob_name, blob_content, language: nil, plain: false)
+    def self.highlight(blob_name, blob_content, language: nil, plain: false, context: {}, used_on: :blob)
       new(blob_name, blob_content, language: language)
-        .highlight(blob_content, continue: false, plain: plain)
+        .highlight(blob_content, continue: false, plain: plain, context: context, used_on: used_on)
     end
 
     def self.too_large?(size)
@@ -21,15 +18,19 @@ module Gitlab
       @language = language
       @blob_name = blob_name
       @blob_content = blob_content
+      @gitlab_highlight_usage_counter = Gitlab::Metrics.counter(
+        :gitlab_highlight_usage,
+        'The number of times Gitlab::Highlight is used'
+      )
     end
 
-    def highlight(text, continue: false, plain: false, context: {})
+    def highlight(text, continue: false, plain: false, context: {}, used_on: :blob)
       @context = context
 
       plain ||= self.class.too_large?(text.length)
 
-      highlighted_text = highlight_text(text, continue: continue, plain: plain)
-      highlighted_text = link_dependencies(text, highlighted_text) if blob_name
+      highlighted_text = highlight_text(text, continue: continue, plain: plain, used_on: used_on)
+      highlighted_text = link_dependencies(text, highlighted_text, used_on: used_on) if blob_name
       highlighted_text
     end
 
@@ -41,15 +42,13 @@ module Gitlab
       end
     end
 
-    private
-
-    attr_reader :context
-
     def self.file_size_limit
       Gitlab.config.extra['maximum_text_highlight_size_kilobytes']
     end
 
-    private_class_method :file_size_limit
+    private
+
+    attr_reader :context
 
     def custom_language
       return unless @language
@@ -57,7 +56,9 @@ module Gitlab
       Rouge::Lexer.find_fancy(@language)
     end
 
-    def highlight_text(text, continue: true, plain: false)
+    def highlight_text(text, continue: true, plain: false, used_on: :blob)
+      @gitlab_highlight_usage_counter.increment(used_on: used_on)
+
       if plain
         highlight_plain(text)
       else
@@ -72,7 +73,7 @@ module Gitlab
     def highlight_rich(text, continue: true)
       tag = lexer.tag
       tokens = lexer.lex(text, continue: continue)
-      Timeout.timeout(timeout_time) { @formatter.format(tokens, **context, tag: tag).html_safe }
+      Gitlab::RenderTimeout.timeout { @formatter.format(tokens, **context, tag: tag).html_safe }
     rescue Timeout::Error => e
       Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
       highlight_plain(text)
@@ -80,12 +81,8 @@ module Gitlab
       highlight_plain(text)
     end
 
-    def timeout_time
-      Gitlab::Runtime.sidekiq? ? TIMEOUT_BACKGROUND : TIMEOUT_FOREGROUND
-    end
-
-    def link_dependencies(text, highlighted_text)
-      Gitlab::DependencyLinker.link(blob_name, text, highlighted_text)
+    def link_dependencies(text, highlighted_text, used_on: :blob)
+      Gitlab::DependencyLinker.link(blob_name, text, highlighted_text, used_on: used_on)
     end
   end
 end

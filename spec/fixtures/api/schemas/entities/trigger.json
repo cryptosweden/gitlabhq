@@ -9,15 +9,27 @@
     "can_access_project"
   ],
   "properties": {
+    "id": {
+      "type": [
+        "integer"
+      ]
+    },
     "description": {
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "owner": {
       "type": "object",
       "$ref": "user.json"
     },
     "last_used": {
-      "type": ["datetime", "null"]
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
     },
     "token": {
       "type": "string"
@@ -27,9 +39,6 @@
     },
     "can_access_project": {
       "type": "boolean"
-    },
-    "edit_project_trigger_path": {
-      "type": "string"
     },
     "project_trigger_path": {
       "type": "string"

@@ -22,9 +22,10 @@ class SystemNoteMetadata < ApplicationRecord
     designs_added designs_modified designs_removed designs_discussion_added
     title time_tracking branch milestone discussion task moved cloned
     opened closed merged duplicate locked unlocked outdated reviewer
-    tag due_date pinned_embed cherry_pick health_status approved unapproved
-    status alert_issue_added relate unrelate new_alert_added severity
-    attention_requested attention_request_removed contact
+    tag due_date start_date_or_due_date pinned_embed cherry_pick health_status approved unapproved
+    status alert_issue_added relate unrelate new_alert_added severity contact timeline_event
+    issue_type relate_to_child unrelate_from_child relate_to_parent unrelate_from_parent override
+    issue_email_participants requested_changes
   ].freeze
 
   validates :note, presence: true, unless: :importing?
@@ -32,6 +33,12 @@ class SystemNoteMetadata < ApplicationRecord
 
   belongs_to :note
   belongs_to :description_version
+
+  delegate_missing_to :note
+
+  def declarative_policy_delegate
+    note
+  end
 
   def icon_types
     ICON_TYPES

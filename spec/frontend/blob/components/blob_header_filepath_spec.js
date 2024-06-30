@@ -21,11 +21,7 @@ describe('Blob Header Filepath', () => {
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  const findBadge = () => wrapper.find(GlBadge);
+  const findBadge = () => wrapper.findComponent(GlBadge);
 
   describe('rendering', () => {
     it('matches the snapshot', () => {
@@ -46,7 +42,7 @@ describe('Blob Header Filepath', () => {
 
     it('renders copy-to-clipboard icon that copies path of the Blob', () => {
       createComponent();
-      const btn = wrapper.find(ClipboardButton);
+      const btn = wrapper.findComponent(ClipboardButton);
       expect(btn.exists()).toBe(true);
       expect(btn.vm.text).toBe(MockBlob.path);
     });

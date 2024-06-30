@@ -70,37 +70,26 @@ RSpec.shared_examples 'handle uploads' do
 
   describe "GET #show" do
     let(:filename) { "rails_sample.jpg" }
-
-    let(:upload_service) do
-      UploadService.new(model, jpg, uploader_class).execute
+    let(:secret) { upload.secret }
+    let!(:upload) do
+      create(
+        :upload, :issuable_upload, :with_file,
+        uploader: uploader_class.to_s, model: model, filename: filename, version: legacy_version
+      )
     end
 
     let(:show_upload) do
       get :show, params: params.merge(secret: secret, filename: filename)
     end
 
-    before do
-      allow(FileUploader).to receive(:generate_secret).and_return(secret)
-      upload_service
-    end
-
     context 'when the secret is invalid' do
       let(:secret) { "../../../../../../../../" }
       let(:filename) { "Gemfile.lock" }
-      let(:upload_service) { nil }
 
       it 'responds with status 404' do
         show_upload
 
         expect(response).to have_gitlab_http_status(:not_found)
-      end
-
-      it 'is a working exploit without the validation' do
-        allow_any_instance_of(FileUploader).to receive(:secret) { secret }
-
-        show_upload
-
-        expect(response).to have_gitlab_http_status(:ok)
       end
     end
 
@@ -115,11 +104,9 @@ RSpec.shared_examples 'handle uploads' do
     end
 
     context 'when the upload does not have a MIME type that Rails knows' do
-      let(:po) { fixture_file_upload('spec/fixtures/missing_metadata.po', 'text/plain') }
+      let(:filename) { 'missing_metadata.po' }
 
       it 'falls back to the null type' do
-        UploadService.new(model, po, uploader_class).execute
-
         get :show, params: params.merge(secret: secret, filename: 'missing_metadata.po')
 
         expect(response.headers['Content-Type']).to eq('application/octet-stream')
@@ -205,41 +192,13 @@ RSpec.shared_examples 'handle uploads' do
               allow_any_instance_of(FileUploader).to receive(:image?).and_return(true)
             end
 
-            context "enforce_auth_checks_on_uploads feature flag" do
-              context "with flag enabled" do
-                before do
-                  stub_feature_flags(enforce_auth_checks_on_uploads: true)
-                end
+            it "responds with the appropriate status code" do
+              show_upload
 
-                it "responds with appropriate status" do
-                  show_upload
-
-                  # We're switching here based on the class due to the feature
-                  #   flag :enforce_auth_checks_on_uploads switching on project.
-                  #   When it is enabled fully, we will apply the code it guards
-                  #   to both Projects::UploadsController as well as
-                  #   Groups::UploadsController.
-                  #
-                  # https://gitlab.com/gitlab-org/gitlab/-/issues/352291
-                  #
-                  if model.instance_of?(Group)
-                    expect(response).to have_gitlab_http_status(:ok)
-                  else
-                    expect(response).to have_gitlab_http_status(:redirect)
-                  end
-                end
-              end
-
-              context "with flag disabled" do
-                before do
-                  stub_feature_flags(enforce_auth_checks_on_uploads: false)
-                end
-
-                it "responds with status 200" do
-                  show_upload
-
-                  expect(response).to have_gitlab_http_status(:ok)
-                end
+              if model.instance_of?(Group)
+                expect(response).to have_gitlab_http_status(:ok)
+              else
+                expect(response).to have_gitlab_http_status(:redirect)
               end
             end
           end
@@ -308,41 +267,13 @@ RSpec.shared_examples 'handle uploads' do
                 allow_any_instance_of(FileUploader).to receive(:image?).and_return(true)
               end
 
-              context "enforce_auth_checks_on_uploads feature flag" do
-                context "with flag enabled" do
-                  before do
-                    stub_feature_flags(enforce_auth_checks_on_uploads: true)
-                  end
+              it "responds with the appropriate status code" do
+                show_upload
 
-                  it "responds with status 404" do
-                    show_upload
-
-                    # We're switching here based on the class due to the feature
-                    #   flag :enforce_auth_checks_on_uploads switching on
-                    #   project. When it is enabled fully, we will apply the
-                    #   code it guards to both Projects::UploadsController as
-                    #   well as Groups::UploadsController.
-                    #
-                    # https://gitlab.com/gitlab-org/gitlab/-/issues/352291
-                    #
-                    if model.instance_of?(Group)
-                      expect(response).to have_gitlab_http_status(:ok)
-                    else
-                      expect(response).to have_gitlab_http_status(:not_found)
-                    end
-                  end
-                end
-
-                context "with flag disabled" do
-                  before do
-                    stub_feature_flags(enforce_auth_checks_on_uploads: false)
-                  end
-
-                  it "responds with status 200" do
-                    show_upload
-
-                    expect(response).to have_gitlab_http_status(:ok)
-                  end
+                if model.instance_of?(Group)
+                  expect(response).to have_gitlab_http_status(:ok)
+                else
+                  expect(response).to have_gitlab_http_status(:not_found)
                 end
               end
             end

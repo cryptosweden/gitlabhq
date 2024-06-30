@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::WithLockRetries do
+RSpec.describe Gitlab::Database::WithLockRetries, feature_category: :database do
   let(:env) { {} }
   let(:logger) { Gitlab::Database::WithLockRetries::NULL_LOGGER }
   let(:subject) { described_class.new(connection: connection, env: env, logger: logger, allow_savepoints: allow_savepoints, timing_configuration: timing_configuration) }
@@ -61,12 +61,12 @@ RSpec.describe Gitlab::Database::WithLockRetries do
 
       context 'lock_fiber' do
         it 'acquires lock successfully' do
-          check_exclusive_lock_query = """
+          check_exclusive_lock_query = <<~QUERY
             SELECT 1
             FROM pg_locks l
             JOIN pg_class t ON l.relation = t.oid
             WHERE t.relkind = 'r' AND l.mode = 'ExclusiveLock' AND t.relname = '#{Project.table_name}'
-          """
+          QUERY
 
           expect(connection.execute(check_exclusive_lock_query).to_a).to be_present
         end
@@ -244,18 +244,18 @@ RSpec.describe Gitlab::Database::WithLockRetries do
 
     it 'executes `SET LOCAL lock_timeout` using the configured timeout value in milliseconds' do
       expect(connection).to receive(:execute).with("RESET idle_in_transaction_session_timeout; RESET lock_timeout").and_call_original
-      expect(connection).to receive(:execute).with("SAVEPOINT active_record_1", "TRANSACTION").and_call_original
+      expect(connection).to receive(:create_savepoint).with('active_record_1')
       expect(connection).to receive(:execute).with("SET LOCAL lock_timeout TO '15ms'").and_call_original
-      expect(connection).to receive(:execute).with("RELEASE SAVEPOINT active_record_1", "TRANSACTION").and_call_original
+      expect(connection).to receive(:release_savepoint).with('active_record_1')
 
-      subject.run { }
+      subject.run {}
     end
 
     it 'calls `sleep` after the first iteration fails, using the configured sleep time' do
       expect(subject).to receive(:run_block_with_lock_timeout).and_raise(ActiveRecord::LockWaitTimeout).twice
       expect(subject).to receive(:sleep).with(0.025)
 
-      subject.run { }
+      subject.run {}
     end
   end
 
@@ -265,13 +265,13 @@ RSpec.describe Gitlab::Database::WithLockRetries do
     it 'prevents running inside already open transaction' do
       allow(connection).to receive(:transaction_open?).and_return(true)
 
-      expect { subject.run { } }.to raise_error(/should not run inside already open transaction/)
+      expect { subject.run {} }.to raise_error(/should not run inside already open transaction/)
     end
 
     it 'does not raise the error if not inside open transaction' do
       allow(connection).to receive(:transaction_open?).and_return(false)
 
-      expect { subject.run { } }.not_to raise_error
+      expect { subject.run {} }.not_to raise_error
     end
   end
 end

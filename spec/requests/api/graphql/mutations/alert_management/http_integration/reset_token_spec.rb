@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Resetting a token on an existing HTTP Integration' do
+RSpec.describe 'Resetting a token on an existing HTTP Integration', feature_category: :incident_management do
   include GraphqlHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project) }
+  let_it_be(:project) { create(:project, maintainers: user) }
   let_it_be(:integration) { create(:alert_management_http_integration, project: project) }
 
   let(:mutation) do
@@ -26,10 +26,6 @@ RSpec.describe 'Resetting a token on an existing HTTP Integration' do
   end
 
   let(:mutation_response) { graphql_mutation_response(:http_integration_reset_token) }
-
-  before do
-    project.add_maintainer(user)
-  end
 
   it 'updates the integration' do
     previous_token = integration.token

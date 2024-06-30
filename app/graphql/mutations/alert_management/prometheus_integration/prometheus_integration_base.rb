@@ -5,17 +5,13 @@ module Mutations
     module PrometheusIntegration
       class PrometheusIntegrationBase < BaseMutation
         field :integration,
-              Types::AlertManagement::PrometheusIntegrationType,
-              null: true,
-              description: "Newly created integration."
+          Types::AlertManagement::PrometheusIntegrationType,
+          null: true,
+          description: "Newly created integration."
 
         authorize :admin_project
 
         private
-
-        def find_object(id:)
-          GitlabSchema.object_from_id(id, expected_class: ::Integrations::Prometheus)
-        end
 
         def response(integration, result)
           {

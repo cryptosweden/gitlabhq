@@ -2,12 +2,23 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Lint do
+RSpec.describe Gitlab::Ci::Lint, feature_category: :pipeline_composition do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) { create(:user) }
 
-  let(:lint) { described_class.new(project: project, current_user: user) }
-  let(:ref) { project.default_branch }
+  let(:sha) { nil }
+  let(:verify_project_sha) { nil }
+  let(:ref) { project&.default_branch }
+  let(:kwargs) do
+    {
+      project: project,
+      current_user: user,
+      sha: sha,
+      verify_project_sha: verify_project_sha
+    }.compact
+  end
+
+  let(:lint) { described_class.new(project: project, **kwargs) }
 
   describe '#validate' do
     subject { lint.validate(content, dry_run: dry_run, ref: ref) }
@@ -62,7 +73,7 @@ RSpec.describe Gitlab::Ci::Lint do
       end
     end
 
-    shared_examples 'sets merged yaml' do
+    shared_examples 'sets config metadata' do
       let(:content) do
         <<~YAML
         :include:
@@ -100,11 +111,25 @@ RSpec.describe Gitlab::Ci::Lint do
       end
 
       it 'sets merged_config' do
-        root_config = YAML.safe_load(content, [Symbol])
-        included_config = YAML.safe_load(included_content, [Symbol])
+        root_config = YAML.safe_load(content, permitted_classes: [Symbol])
+        included_config = YAML.safe_load(included_content, permitted_classes: [Symbol])
         expected_config = included_config.merge(root_config).except(:include).deep_stringify_keys
 
         expect(subject.merged_yaml).to eq(expected_config.to_yaml)
+      end
+
+      it 'sets includes' do
+        expect(subject.includes).to contain_exactly(
+          {
+            type: :local,
+            location: 'another-gitlab-ci.yml',
+            blob: "http://localhost/#{project.full_path}/-/blob/#{project.commit.sha}/another-gitlab-ci.yml",
+            raw: "http://localhost/#{project.full_path}/-/raw/#{project.commit.sha}/another-gitlab-ci.yml",
+            extra: {},
+            context_project: project.full_path,
+            context_sha: project.commit.sha
+          }
+        )
       end
     end
 
@@ -201,6 +226,101 @@ RSpec.describe Gitlab::Ci::Lint do
       end
     end
 
+    context 'when a pipeline ref variable is used in an `include`' do
+      let(:dry_run) { false }
+
+      let(:content) do
+        <<~YAML
+          include:
+            - project: "#{project.full_path}"
+              ref: ${CI_COMMIT_REF_NAME}
+              file: '.gitlab-ci-include.yml'
+
+          show-parent-variable:
+            stage : .pre
+            script:
+              - echo I am running a variable ${CI_COMMIT_REF_NAME}
+        YAML
+      end
+
+      let(:included_content) do
+        <<~YAML
+          another_job:
+            script: echo
+        YAML
+      end
+
+      before do
+        project.add_developer(user)
+
+        project.repository.create_file(
+          project.creator,
+          '.gitlab-ci-include.yml',
+          included_content,
+          message: 'Add .gitlab-ci-include.yml',
+          branch_name: 'master'
+        )
+      end
+
+      after do
+        project.repository.delete_file(
+          project.creator,
+          '.gitlab-ci-include.yml',
+          message: 'Remove .gitlab-ci-include.yml',
+          branch_name: 'master'
+        )
+      end
+
+      it 'passes the ref name to YamlProcessor' do
+        expect(Gitlab::Ci::YamlProcessor)
+          .to receive(:new)
+          .with(content, a_hash_including(ref: project.default_branch))
+          .and_call_original
+
+        expect(subject.includes).to contain_exactly(
+          {
+            type: :file,
+            location: '.gitlab-ci-include.yml',
+            blob: "http://localhost/#{project.full_path}/-/blob/#{project.commit.sha}/.gitlab-ci-include.yml",
+            raw: "http://localhost/#{project.full_path}/-/raw/#{project.commit.sha}/.gitlab-ci-include.yml",
+            extra: { project: project.full_path, ref: project.default_branch },
+            context_project: project.full_path,
+            context_sha: project.commit.sha
+          }
+        )
+      end
+
+      context 'when the ref is a tag' do
+        before do
+          project.repository.add_tag(project.creator, 'test', project.commit.id)
+          allow(project.repository).to receive(:branch_names_contains).and_return([])
+        end
+
+        after do
+          project.repository.rm_tag(project.creator, 'test')
+        end
+
+        it 'passes the ref name to YamlProcessor' do
+          expect(Gitlab::Ci::YamlProcessor)
+            .to receive(:new)
+            .with(content, a_hash_including(ref: 'test'))
+            .and_call_original
+
+          expect(subject.includes).to contain_exactly(
+            {
+              type: :file,
+              location: '.gitlab-ci-include.yml',
+              blob: "http://localhost/#{project.full_path}/-/blob/#{project.commit.sha}/.gitlab-ci-include.yml",
+              raw: "http://localhost/#{project.full_path}/-/raw/#{project.commit.sha}/.gitlab-ci-include.yml",
+              extra: { project: project.full_path, ref: 'test' },
+              context_project: project.full_path,
+              context_sha: project.commit.sha
+            }
+          )
+        end
+      end
+    end
+
     context 'when user has permissions to write the ref' do
       before do
         project.add_developer(user)
@@ -220,7 +340,7 @@ RSpec.describe Gitlab::Ci::Lint do
           end
         end
 
-        it_behaves_like 'sets merged yaml'
+        it_behaves_like 'sets config metadata'
 
         include_context 'advanced validations' do
           it 'does not catch advanced logical errors' do
@@ -235,6 +355,68 @@ RSpec.describe Gitlab::Ci::Lint do
             .and_call_original
 
           subject
+        end
+
+        shared_examples 'when sha is not provided' do
+          it 'runs YamlProcessor with verify_project_sha: false' do
+            expect(Gitlab::Ci::YamlProcessor)
+              .to receive(:new)
+              .with(content, a_hash_including(verify_project_sha: false))
+              .and_call_original
+
+            subject
+          end
+        end
+
+        it_behaves_like 'when sha is not provided'
+
+        context 'when sha is provided' do
+          let(:sha) { project.commit.sha }
+
+          it 'runs YamlProcessor with verify_project_sha: true' do
+            expect(Gitlab::Ci::YamlProcessor)
+              .to receive(:new)
+              .with(content, a_hash_including(verify_project_sha: true))
+              .and_call_original
+
+            subject
+          end
+
+          it_behaves_like 'content is valid'
+
+          context 'when the sha is invalid' do
+            let(:sha) { 'invalid-sha' }
+
+            it_behaves_like 'content is valid'
+          end
+
+          context 'when the sha is from a fork' do
+            include_context 'when a project repository contains a forked commit'
+
+            let(:sha) { forked_commit_sha }
+
+            context 'when a project ref contains the sha' do
+              before do
+                mock_branch_contains_forked_commit_sha
+              end
+
+              it_behaves_like 'content is valid'
+            end
+
+            context 'when a project ref does not contain the sha' do
+              it 'returns an error' do
+                expect(subject).not_to be_valid
+                expect(subject.errors).to include(
+                  /configuration originates from an external project or a commit not associated with a Git reference/)
+              end
+            end
+          end
+
+          context 'when verify_project_sha is false' do
+            let(:verify_project_sha) { false }
+
+            it_behaves_like 'when sha is not provided'
+          end
         end
       end
 
@@ -275,7 +457,7 @@ RSpec.describe Gitlab::Ci::Lint do
           end
         end
 
-        it_behaves_like 'sets merged yaml'
+        it_behaves_like 'sets config metadata'
 
         include_context 'advanced validations' do
           it 'runs advanced logical validations' do
@@ -323,34 +505,28 @@ RSpec.describe Gitlab::Ci::Lint do
     end
   end
 
-  context 'pipeline logger' do
-    let(:counters) do
-      {
-        'count' => a_kind_of(Numeric),
-        'avg'   => a_kind_of(Numeric),
-        'max'   => a_kind_of(Numeric),
-        'min'   => a_kind_of(Numeric)
-      }
-    end
-
-    let(:loggable_data) do
+  describe 'pipeline logger' do
+    let(:expected_data) do
       {
         'class' => 'Gitlab::Ci::Pipeline::Logger',
-        'config_build_context_duration_s' => counters,
-        'config_build_variables_duration_s' => counters,
-        'config_compose_duration_s' => counters,
-        'config_expand_duration_s' => counters,
-        'config_external_process_duration_s' => counters,
-        'config_stages_inject_duration_s' => counters,
-        'config_tags_resolve_duration_s' => counters,
-        'config_yaml_extend_duration_s' => counters,
-        'config_yaml_load_duration_s' => counters,
+        'config_build_context_duration_s' => a_kind_of(Numeric),
+        'config_build_variables_duration_s' => a_kind_of(Numeric),
+        'config_root_duration_s' => a_kind_of(Numeric),
+        'config_root_compose_duration_s' => a_kind_of(Numeric),
+        'config_root_compose_jobs_factory_duration_s' => a_kind_of(Numeric),
+        'config_root_compose_jobs_create_duration_s' => a_kind_of(Numeric),
+        'config_expand_duration_s' => a_kind_of(Numeric),
+        'config_external_process_duration_s' => a_kind_of(Numeric),
+        'config_stages_inject_duration_s' => a_kind_of(Numeric),
+        'config_tags_resolve_duration_s' => a_kind_of(Numeric),
+        'config_yaml_extend_duration_s' => a_kind_of(Numeric),
+        'config_yaml_load_duration_s' => a_kind_of(Numeric),
         'pipeline_creation_caller' => 'Gitlab::Ci::Lint',
         'pipeline_creation_service_duration_s' => a_kind_of(Numeric),
         'pipeline_persisted' => false,
         'pipeline_source' => 'unknown',
         'project_id' => project&.id,
-        'yaml_process_duration_s' => counters
+        'yaml_process_duration_s' => a_kind_of(Numeric)
       }
     end
 
@@ -388,7 +564,7 @@ RSpec.describe Gitlab::Ci::Lint do
       end
 
       it 'creates a log entry' do
-        expect(Gitlab::AppJsonLogger).to receive(:info).with(loggable_data)
+        expect(Gitlab::AppJsonLogger).to receive(:info).with(a_hash_including(expected_data))
 
         validate
       end
@@ -406,14 +582,14 @@ RSpec.describe Gitlab::Ci::Lint do
       end
 
       context 'when project is not provided' do
-        let(:project) { nil }
+        let(:lint) { described_class.new(project: nil, **kwargs) }
 
         let(:project_nil_loggable_data) do
-          loggable_data.except('project_id')
+          expected_data.except('project_id')
         end
 
         it 'creates a log entry without project_id' do
-          expect(Gitlab::AppJsonLogger).to receive(:info).with(project_nil_loggable_data)
+          expect(Gitlab::AppJsonLogger).to receive(:info).with(a_hash_including(project_nil_loggable_data))
 
           validate
         end

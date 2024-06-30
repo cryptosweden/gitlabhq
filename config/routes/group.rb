@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 constraints(::Constraints::GroupUrlConstrainer.new) do
-  scope(path: 'groups/*id',
-        controller: :groups,
-        constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(html|json|atom|ics)/ }) do
+  scope(
+    path: 'groups/*id',
+    controller: :groups,
+    constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(html|json|atom|ics)/ }
+  ) do
     scope(path: '-') do
       # These routes are legit and the cop rule will be improved in
       # https://gitlab.com/gitlab-org/gitlab/-/issues/230703
@@ -19,18 +21,20 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
       get :download_export, as: :download_export_group # rubocop:disable Cop/PutGroupRoutesUnderScope
       get :unfoldered_environment_names, as: :unfoldered_environment_names_group # rubocop:disable Cop/PutGroupRoutesUnderScope
 
-      # TODO: Remove as part of refactor in https://gitlab.com/gitlab-org/gitlab-foss/issues/49693
       get 'shared', action: :show, as: :group_shared # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get 'archived', action: :show, as: :group_archived # rubocop:disable Cop/PutGroupRoutesUnderScope
+      get 'inactive', action: :show, as: :group_inactive # rubocop:disable Cop/PutGroupRoutesUnderScope
+      get 'archived', to: redirect('groups/%{id}/-/inactive') # rubocop:disable Cop/PutGroupRoutesUnderScope
     end
 
     get '/', action: :show, as: :group_canonical
   end
 
-  scope(path: 'groups/*group_id/-',
-        module: :groups,
-        as: :group,
-        constraints: { group_id: Gitlab::PathRegex.full_namespace_route_regex }) do
+  scope(
+    path: 'groups/*group_id/-',
+    module: :groups,
+    as: :group,
+    constraints: { group_id: Gitlab::PathRegex.full_namespace_route_regex }
+  ) do
     namespace :settings do
       resource :ci_cd, only: [:show, :update], controller: 'ci_cd' do
         put :reset_registration_token
@@ -56,10 +60,18 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
         end
       end
 
-      resources :applications
+      resource :slack, only: [:destroy] do
+        get :slack_auth
+      end
+
+      resources :applications do
+        put 'renew', on: :member
+      end
 
       resource :packages_and_registries, only: [:show]
     end
+
+    resources :usage_quotas, only: [:index]
 
     resource :variables, only: [:show, :update]
 
@@ -70,7 +82,12 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
       post :toggle_subscription, on: :member
     end
 
+    resources :custom_emoji, only: [:index, :new], action: :index
+
     resources :packages, only: [:index, :show]
+
+    resources :terraform_module_registry, only: [:index], as: :infrastructure_registry, controller: 'infrastructure_registry'
+    get :infrastructure_registry, to: redirect('groups/%{group_id}/-/terraform_module_registry')
 
     resources :milestones, constraints: { id: %r{[^/]+} } do
       member do
@@ -110,17 +127,24 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
 
     resources :boards, only: [:index, :show], constraints: { id: /\d+/ }
 
-    resources :runners, only: [:index, :edit, :update, :destroy, :show] do
+    resources :runners, only: [:index, :new, :edit, :update, :destroy, :show] do
       member do
+        get :register
         post :resume
         post :pause
       end
     end
 
     resources :container_registries, only: [:index, :show], controller: 'registry/repositories'
-    resources :harbor_registries, only: [:index, :show], controller: 'harbor/repositories'
     resource :dependency_proxy, only: [:show, :update]
-    resources :email_campaigns, only: :index
+
+    namespace :harbor do
+      resources :repositories, only: [:index, :show], constraints: { id: %r{[a-zA-Z./:0-9_\-]+} } do
+        resources :artifacts, only: [:index] do
+          resources :tags, only: [:index]
+        end
+      end
+    end
 
     resources :autocomplete_sources, only: [] do
       collection do
@@ -135,14 +159,22 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
 
     namespace :crm do
       resources :contacts, only: [:index, :new, :edit]
-      resources :organizations, only: [:index, :new]
+      resources :organizations, only: [:index, :new, :edit]
     end
+
+    resources :achievements, only: [:index, :new, :edit]
+
+    resources :work_items, only: [:index, :show], param: :iid
+
+    post :preview_markdown
   end
 
-  scope(path: '*id',
-        as: :group,
-        constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(html|json|atom)/ },
-        controller: :groups) do
+  scope(
+    path: '*id',
+    as: :group,
+    constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(html|json|atom)/ },
+    controller: :groups
+  ) do
     get '/', action: :show
     patch '/', action: :update
     put '/', action: :update

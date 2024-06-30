@@ -5,6 +5,7 @@ class Import::BaseController < ApplicationController
 
   before_action -> { check_rate_limit!(:project_import, scope: [current_user, :project_import], redirect_back: true) }, only: [:create]
   feature_category :importers
+  urgency :low
 
   def status
     respond_to do |format|
@@ -13,7 +14,13 @@ class Import::BaseController < ApplicationController
                        provider_repos: serialized_provider_repos,
                        incompatible_repos: serialized_incompatible_repos }
       end
-      format.html
+      format.html do
+        if params[:namespace_id].present?
+          @namespace = Namespace.find_by_id(params[:namespace_id])
+
+          render_404 unless current_user.can?(:import_projects, @namespace)
+        end
+      end
     end
   end
 
@@ -70,12 +77,12 @@ class Import::BaseController < ApplicationController
   end
 
   def already_added_projects
-    @already_added_projects ||= filtered(find_already_added_projects(provider_name))
+    @already_added_projects ||= find_already_added_projects(provider_name)
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
   def find_already_added_projects(import_type)
-    current_user.created_projects.where(import_type: import_type).with_import_state
+    current_user.created_projects.inc_routes.where(import_type: import_type).with_import_state
   end
   # rubocop: enable CodeReuse/ActiveRecord
 

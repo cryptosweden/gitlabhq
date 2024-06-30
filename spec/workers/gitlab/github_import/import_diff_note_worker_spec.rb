@@ -2,17 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::ImportDiffNoteWorker do
+RSpec.describe Gitlab::GithubImport::ImportDiffNoteWorker, feature_category: :importers do
   let(:worker) { described_class.new }
 
   describe '#import' do
     it 'imports a diff note' do
-      project = double(:project, full_path: 'foo/bar', id: 1)
+      import_state = create(:import_state, :started)
+      project = double(:project, full_path: 'foo/bar', id: 1, import_state: import_state)
       client = double(:client)
       importer = double(:importer)
       hash = {
         'noteable_id' => 42,
         'github_id' => 42,
+        'html_url' => 'https://github.com/foo/bar/pull/42',
         'path' => 'README.md',
         'commit_id' => '123abc',
         'diff_hunk' => "@@ -1 +1 @@\n-Hello\n+Hello world",

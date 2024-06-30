@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe NotificationRecipient do
+RSpec.describe NotificationRecipient, feature_category: :team_planning do
   let(:user) { create(:user) }
   let(:project) { create(:project, namespace: user.namespace) }
   let(:target) { create(:issue, project: project) }
@@ -14,7 +14,7 @@ RSpec.describe NotificationRecipient do
 
     context 'when emails are disabled' do
       it 'returns false if group disabled' do
-        expect(project.namespace).to receive(:emails_disabled?).and_return(true)
+        expect(project.namespace).to receive(:emails_enabled?).and_return(false)
         expect(recipient).to receive(:emails_disabled?).and_call_original
         expect(recipient.notifiable?).to eq false
       end
@@ -28,7 +28,7 @@ RSpec.describe NotificationRecipient do
 
     context 'when emails are enabled' do
       it 'returns true if group enabled' do
-        expect(project.namespace).to receive(:emails_disabled?).and_return(false)
+        expect(project.namespace).to receive(:emails_enabled?).and_return(true)
         expect(recipient).to receive(:emails_disabled?).and_call_original
         expect(recipient.notifiable?).to eq true
       end
@@ -37,6 +37,34 @@ RSpec.describe NotificationRecipient do
         expect(project).to receive(:emails_disabled?).and_return(false)
         expect(recipient).to receive(:emails_disabled?).and_call_original
         expect(recipient.notifiable?).to eq true
+      end
+    end
+
+    context 'when recipient email is blocked', :freeze_time, :clean_gitlab_redis_rate_limiting do
+      before do
+        allow(Gitlab::ApplicationRateLimiter).to receive(:rate_limits)
+          .and_return(
+            temporary_email_failure: { threshold: 1, interval: 1.minute },
+            permanent_email_failure: { threshold: 1, interval: 1.minute }
+          )
+      end
+
+      context 'with permanent failures' do
+        before do
+          2.times { Gitlab::ApplicationRateLimiter.throttled?(:permanent_email_failure, scope: user.email) }
+        end
+
+        it 'returns false' do
+          expect(recipient.notifiable?).to eq(false)
+        end
+      end
+
+      context 'with temporary failures' do
+        it 'returns false' do
+          2.times { Gitlab::ApplicationRateLimiter.throttled?(:temporary_email_failure, scope: user.email) }
+
+          expect(recipient.notifiable?).to eq(false)
+        end
       end
     end
   end
@@ -410,8 +438,8 @@ RSpec.describe NotificationRecipient do
             described_class.new(user, :participating, custom_action: :issue_due, target: target, project: project)
           end
 
-          it 'returns true' do
-            expect(recipient.suitable_notification_level?).to eq true
+          it 'returns false' do
+            expect(recipient.suitable_notification_level?).to eq false
           end
         end
       end

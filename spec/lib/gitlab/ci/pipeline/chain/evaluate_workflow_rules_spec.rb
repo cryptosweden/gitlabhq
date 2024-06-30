@@ -39,13 +39,18 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::EvaluateWorkflowRules do
       it 'saves workflow_rules_result' do
         expect(command.workflow_rules_result.variables).to eq({})
       end
+
+      it 'sets the failure reason', :aggregate_failures do
+        expect(pipeline).to be_failed
+        expect(pipeline).to be_filtered_by_workflow_rules
+      end
     end
 
     context 'when pipeline has not been skipped by workflow configuration' do
       before do
         allow(step).to receive(:workflow_rules_result)
           .and_return(
-            double(pass?: true, variables: { 'VAR1' => 'val2' })
+            double(pass?: true, variables: { 'VAR1' => 'val2', 'VAR2' => 3 })
           )
 
         step.perform!
@@ -65,7 +70,11 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::EvaluateWorkflowRules do
       end
 
       it 'saves workflow_rules_result' do
-        expect(command.workflow_rules_result.variables).to eq({ 'VAR1' => 'val2' })
+        expect(command.workflow_rules_result.variables).to eq({ 'VAR1' => 'val2', 'VAR2' => 3 })
+      end
+
+      it 'does not set a failure reason' do
+        expect(pipeline).not_to be_filtered_by_workflow_rules
       end
     end
   end

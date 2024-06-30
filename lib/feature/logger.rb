@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
-class Feature
+module Feature
   class Logger < ::Gitlab::JsonLogger
+    exclude_context!
+
     def self.file_name_noext
       'features_json'
     end

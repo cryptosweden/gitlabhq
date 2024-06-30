@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe Mutations::Clusters::AgentTokens::Create do
+  include GraphqlHelpers
+
   subject(:mutation) { described_class.new(object: nil, context: context, field: nil) }
 
   let_it_be(:cluster_agent) { create(:cluster_agent) }
@@ -10,9 +12,8 @@ RSpec.describe Mutations::Clusters::AgentTokens::Create do
 
   let(:context) do
     GraphQL::Query::Context.new(
-      query: OpenStruct.new(schema: nil),
-      values: { current_user: user },
-      object: nil
+      query: query_double(schema: nil), # rubocop:disable RSpec/VerifiedDoubles
+      values: { current_user: user }
     )
   end
 
@@ -49,11 +50,15 @@ RSpec.describe Mutations::Clusters::AgentTokens::Create do
         expect(token.name).to eq(name)
       end
 
-      context 'invalid params' do
-        subject { mutation.resolve(cluster_agent_id: cluster_agent.id) }
+      context 'when the active agent tokens limit is reached' do
+        before do
+          create(:cluster_agent_token, agent: cluster_agent)
+          create(:cluster_agent_token, agent: cluster_agent)
+        end
 
-        it 'generates an error message when id invalid', :aggregate_failures do
-          expect { subject }.to raise_error(::GraphQL::CoercionError)
+        it 'raises an error' do
+          expect { subject }.not_to change { ::Clusters::AgentToken.count }
+          expect(subject[:errors]).to eq(["An agent can have only two active tokens at a time"])
         end
       end
     end

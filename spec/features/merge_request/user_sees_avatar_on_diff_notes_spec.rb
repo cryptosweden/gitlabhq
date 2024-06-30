@@ -3,15 +3,16 @@
 require 'spec_helper'
 include Spec::Support::Helpers::ModalHelpers # rubocop:disable  Style/MixinUsage
 
-RSpec.describe 'Merge request > User sees avatars on diff notes', :js do
+RSpec.describe 'Merge request > User sees avatars on diff notes', :js, feature_category: :code_review_workflow do
   include NoteInteractionHelpers
   include Spec::Support::Helpers::ModalHelpers
   include MergeRequestDiffHelpers
 
-  let(:project)       { create(:project, :public, :repository) }
-  let(:user)          { project.creator }
-  let(:merge_request) { create(:merge_request_with_diffs, source_project: project, author: user, title: 'Bug NS-04') }
-  let(:path)          { 'files/ruby/popen.rb' }
+  let_it_be(:project) { create(:project, :public, :repository) }
+  let_it_be(:user)    { project.creator }
+  let_it_be(:merge_request) { create(:merge_request_with_diffs, source_project: project, author: user, title: 'Bug NS-04') }
+
+  let(:path) { 'files/ruby/popen.rb' }
   let(:position) do
     build(:text_diff_position, :added,
       file: path,
@@ -22,12 +23,12 @@ RSpec.describe 'Merge request > User sees avatars on diff notes', :js do
 
   let!(:note) { create(:diff_note_on_merge_request, project: project, noteable: merge_request, position: position) }
 
-  before do
+  before_all do
     project.add_maintainer(user)
-    sign_in user
-    stub_feature_flags(gl_avatar_for_all_user_avatars: false)
+  end
 
-    set_cookie('sidebar_collapsed', 'true')
+  before do
+    sign_in user
   end
 
   context 'discussion tab' do
@@ -80,10 +81,9 @@ RSpec.describe 'Merge request > User sees avatars on diff notes', :js do
     end
   end
 
-  %w(parallel).each do |view|
+  %w[parallel].each do |view|
     context "#{view} view" do
       before do
-        stub_feature_flags(bootstrap_confirmation_modals: false)
         visit diffs_project_merge_request_path(project, merge_request, view: view)
 
         wait_for_requests
@@ -95,14 +95,14 @@ RSpec.describe 'Merge request > User sees avatars on diff notes', :js do
         page.within find_line(position.line_code(project.repository)) do
           find('.diff-notes-collapse').send_keys(:return)
 
-          expect(page).to have_selector('.js-diff-comment-avatar img', count: 1)
+          expect(page).to have_selector('.js-diff-comment-avatar [data-testid="user-avatar-image"]', count: 1)
         end
       end
 
       it 'shows comment on note avatar' do
         page.within find_line(position.line_code(project.repository)) do
           find('.diff-notes-collapse').send_keys(:return)
-          first('.js-diff-comment-avatar img').hover
+          first('.js-diff-comment-avatar [data-testid="user-avatar-image"]').hover
         end
 
         expect(page).to have_content "#{note.author.name}: #{note.note.truncate(17)}"
@@ -116,7 +116,7 @@ RSpec.describe 'Merge request > User sees avatars on diff notes', :js do
         expect(page).not_to have_selector('.notes_holder')
 
         page.within find_line(position.line_code(project.repository)) do
-          first('.js-diff-comment-avatar img').click
+          first('.js-diff-comment-avatar [data-testid="user-avatar-image"]').click
         end
 
         expect(page).to have_selector('.notes_holder')
@@ -125,14 +125,14 @@ RSpec.describe 'Merge request > User sees avatars on diff notes', :js do
       it 'removes avatar when note is deleted' do
         open_more_actions_dropdown(note)
 
-        accept_gl_confirm(button_text: 'Delete Comment') do
+        accept_gl_confirm(button_text: 'Delete comment') do
           find(".note-row-#{note.id} .js-note-delete").click
         end
 
         wait_for_requests
 
         page.within find_line(position.line_code(project.repository)) do
-          expect(page).not_to have_selector('.js-diff-comment-avatar img')
+          expect(page).not_to have_selector('.js-diff-comment-avatar [data-testid="user-avatar-image"]')
         end
       end
 
@@ -151,7 +151,7 @@ RSpec.describe 'Merge request > User sees avatars on diff notes', :js do
         page.within find_line(position.line_code(project.repository)) do
           find('.diff-notes-collapse').send_keys(:return)
 
-          expect(page).to have_selector('.js-diff-comment-avatar img', count: 2)
+          expect(page).to have_selector('.js-diff-comment-avatar [data-testid="user-avatar-image"]', count: 2)
         end
       end
 
@@ -171,7 +171,7 @@ RSpec.describe 'Merge request > User sees avatars on diff notes', :js do
         page.within find_line(position.line_code(project.repository)) do
           find('.diff-notes-collapse').send_keys(:return)
 
-          expect(page).to have_selector('.js-diff-comment-avatar img', count: 3)
+          expect(page).to have_selector('.js-diff-comment-avatar [data-testid="user-avatar-image"]', count: 3)
           expect(find('.diff-comments-more-count')).to have_content '+1'
         end
       end

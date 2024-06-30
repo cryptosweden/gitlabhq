@@ -1,6 +1,6 @@
 import { shallowMount } from '@vue/test-utils';
-
 import { nextTick } from 'vue';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import IssuableBulkEditSidebar from '~/vue_shared/issuable/list/components/issuable_bulk_edit_sidebar.vue';
 
 const createComponent = ({ expanded = true } = {}) =>
@@ -21,21 +21,31 @@ const createComponent = ({ expanded = true } = {}) =>
 describe('IssuableBulkEditSidebar', () => {
   let wrapper;
 
+  const getLayoutPageClasses = () => document.querySelector('.layout-page').classList.toString();
+
   beforeEach(() => {
-    setFixtures('<div class="layout-page right-sidebar-collapsed"></div>');
+    setHTMLFixture('<div class="layout-page right-sidebar-collapsed"></div>');
     wrapper = createComponent();
   });
 
   afterEach(() => {
-    wrapper.destroy();
+    resetHTMLFixture();
+  });
+
+  it('sets layoutPage class', async () => {
+    await nextTick();
+
+    expect(getLayoutPageClasses()).toBe(
+      'layout-page right-sidebar-collapsed issuable-bulk-update-sidebar',
+    );
   });
 
   describe('watch', () => {
     describe('expanded', () => {
       it.each`
         expanded | layoutPageClass
-        ${true}  | ${'right-sidebar-expanded'}
-        ${false} | ${'right-sidebar-collapsed'}
+        ${true}  | ${'layout-page issuable-bulk-update-sidebar right-sidebar-expanded'}
+        ${false} | ${'layout-page right-sidebar-collapsed issuable-bulk-update-sidebar'}
       `(
         'sets class "$layoutPageClass" on element `.layout-page` when expanded prop is $expanded',
         async ({ expanded, layoutPageClass }) => {
@@ -51,9 +61,7 @@ describe('IssuableBulkEditSidebar', () => {
 
           await nextTick();
 
-          expect(document.querySelector('.layout-page').classList.contains(layoutPageClass)).toBe(
-            true,
-          );
+          expect(getLayoutPageClasses()).toBe(layoutPageClass);
 
           wrappeCustom.destroy();
         },

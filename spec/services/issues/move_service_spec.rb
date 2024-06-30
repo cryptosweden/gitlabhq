@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Issues::MoveService do
+RSpec.describe Issues::MoveService, feature_category: :team_planning do
   include DesignManagementTestHelpers
 
   let_it_be(:user) { create(:user) }
@@ -15,12 +15,21 @@ RSpec.describe Issues::MoveService do
   let_it_be(:old_project) { create(:project, namespace: sub_group_1) }
   let_it_be(:new_project) { create(:project, namespace: sub_group_2) }
 
-  let(:old_issue) do
-    create(:issue, title: title, description: description, project: old_project, author: author)
+  let_it_be_with_reload(:old_issue) do
+    create(
+      :issue,
+      title: title,
+      description: description,
+      project: old_project,
+      author: author,
+      imported_from: :gitlab_migration,
+      created_at: 1.day.ago,
+      updated_at: 1.day.ago
+    )
   end
 
   subject(:move_service) do
-    described_class.new(project: old_project, current_user: user)
+    described_class.new(container: old_project, current_user: user)
   end
 
   shared_context 'user can move issue' do
@@ -35,6 +44,23 @@ RSpec.describe Issues::MoveService do
       let!(:new_issue) { move_service.execute(old_issue, new_project) }
     end
 
+    context 'when issue creation fails' do
+      include_context 'user can move issue'
+
+      before do
+        allow_next_instance_of(Issues::CreateService) do |create_service|
+          allow(create_service).to receive(:execute).and_return(ServiceResponse.error(message: 'some error'))
+        end
+      end
+
+      it 'raises a move error' do
+        expect { move_service.execute(old_issue, new_project) }.to raise_error(
+          Issues::MoveService::MoveError,
+          'some error'
+        )
+      end
+    end
+
     context 'issue movable' do
       include_context 'user can move issue'
 
@@ -47,6 +73,7 @@ RSpec.describe Issues::MoveService do
 
         it 'creates a new issue in a new project' do
           expect(new_issue.project).to eq new_project
+          expect(new_issue.namespace_id).to eq new_project.project_namespace_id
         end
 
         it 'copies issue title' do
@@ -57,12 +84,20 @@ RSpec.describe Issues::MoveService do
           expect(new_issue.description).to eq description
         end
 
+        it 'restores imported_from to none' do
+          expect(new_issue.imported_from).to eq 'none'
+          expect(old_issue.reload.imported_from).to eq 'gitlab_migration'
+        end
+
         it 'adds system note to old issue at the end' do
           expect(old_issue.notes.last.note).to start_with 'moved to'
         end
 
-        it 'adds system note to new issue at the end' do
-          expect(new_issue.notes.last.note).to start_with 'moved from'
+        it 'adds system note to new issue at the end', :freeze_time do
+          system_note = new_issue.notes.last
+
+          expect(system_note.note).to start_with 'moved from'
+          expect(system_note.created_at).to be_like_time(Time.current)
         end
 
         it 'closes old issue' do
@@ -97,6 +132,36 @@ RSpec.describe Issues::MoveService do
 
         it 'preserves create time' do
           expect(old_issue.created_at).to eq new_issue.created_at
+        end
+      end
+
+      context 'issue with children' do
+        let_it_be(:task1) { create(:issue, :task, project: old_issue.project) }
+        let_it_be(:task2) { create(:issue, :task, project: old_issue.project) }
+
+        before_all do
+          create(:parent_link, work_item_parent_id: old_issue.id, work_item_id: task1.id)
+          create(:parent_link, work_item_parent_id: old_issue.id, work_item_id: task2.id)
+        end
+
+        it "moves the issue and each of it's children", :aggregate_failures do
+          expect { move_service.execute(old_issue, new_project) }.to change { Issue.count }.by(3)
+          expect(new_project.issues.count).to eq(3)
+          expect(new_project.issues.pluck(:title)).to match_array(
+            [old_issue, task1, task2].map(&:title)
+          )
+        end
+
+        context 'when move_issue_children feature flag is disabled' do
+          before do
+            stub_feature_flags(move_issue_children: false)
+          end
+
+          it "does not move the issue's children", :aggregate_failures do
+            expect { move_service.execute(old_issue, new_project) }.to change { Issue.count }.by(1)
+            expect(new_project.issues.count).to eq(1)
+            expect(new_project.issues.pluck(:title)).to contain_exactly(old_issue.title)
+          end
         end
       end
 
@@ -136,7 +201,8 @@ RSpec.describe Issues::MoveService do
         end
 
         before do
-          SystemNoteService.change_due_date(old_issue, old_project, author, old_issue.due_date)
+          old_issue.update!(due_date: Date.today)
+          SystemNoteService.change_start_date_or_due_date(old_issue, old_project, author, old_issue.previous_changes.slice('due_date'))
         end
 
         it 'does not create extra system notes' do
@@ -194,20 +260,6 @@ RSpec.describe Issues::MoveService do
             expect(new_issue.customer_relations_contacts).to be_empty
           end
         end
-
-        context 'when customer_relations feature is disabled' do
-          let(:another_project) { create(:project, namespace: create(:group)) }
-
-          before do
-            stub_feature_flags(customer_relations: false)
-          end
-
-          it 'does not preserve contacts' do
-            new_issue = move_service.execute(old_issue, new_project)
-
-            expect(new_issue.customer_relations_contacts).to be_empty
-          end
-        end
       end
 
       context 'moving to same project' do
@@ -220,18 +272,48 @@ RSpec.describe Issues::MoveService do
       end
 
       context 'project issue hooks' do
-        let!(:hook) { create(:project_hook, project: old_project, issues_events: true) }
+        let_it_be(:old_project_hook) { create(:project_hook, project: old_project, issues_events: true) }
+        let_it_be(:new_project_hook) { create(:project_hook, project: new_project, issues_events: true) }
 
-        it 'executes project issue hooks' do
-          allow_next_instance_of(WebHookService) do |instance|
-            allow(instance).to receive(:execute)
+        let(:expected_new_project_hook_payload) do
+          hash_including(
+            event_type: 'issue',
+            object_kind: 'issue',
+            object_attributes: include(
+              project_id: new_project.id,
+              state: 'opened',
+              action: 'open'
+            )
+          )
+        end
+
+        let(:expected_old_project_hook_payload) do
+          hash_including(
+            event_type: 'issue',
+            object_kind: 'issue',
+            changes: {
+              state_id: { current: 2, previous: 1 },
+              closed_at: { current: kind_of(Time), previous: nil },
+              updated_at: { current: kind_of(Time), previous: kind_of(Time) }
+            },
+            object_attributes: include(
+              id: old_issue.id,
+              closed_at: kind_of(Time),
+              state: 'closed',
+              action: 'close'
+            )
+          )
+        end
+
+        it 'executes project issue hooks for both projects' do
+          expect_next_instance_of(WebHookService, new_project_hook, expected_new_project_hook_payload, 'issue_hooks') do |service|
+            expect(service).to receive(:async_execute).once
+          end
+          expect_next_instance_of(WebHookService, old_project_hook, expected_old_project_hook_payload, 'issue_hooks') do |service|
+            expect(service).to receive(:async_execute).once
           end
 
-          # Ideally, we'd test that `WebHookWorker.jobs.size` increased by 1,
-          # but since the entire spec run takes place in a transaction, we never
-          # actually get to the `after_commit` hook that queues these jobs.
-          expect { move_service.execute(old_issue, new_project) }
-            .not_to raise_error # Sidekiq::Worker::EnqueueFromTransactionError
+          move_service.execute(old_issue, new_project)
         end
       end
 
@@ -240,8 +322,8 @@ RSpec.describe Issues::MoveService do
       context 'issue with notes' do
         let!(:notes) do
           [
-            create(:note, noteable: old_issue, project: old_project, created_at: 2.weeks.ago, updated_at: 1.week.ago),
-            create(:note, noteable: old_issue, project: old_project)
+            create(:note, noteable: old_issue, project: old_project, created_at: 2.weeks.ago, updated_at: 1.week.ago, imported_from: :gitlab_migration),
+            create(:note, noteable: old_issue, project: old_project, imported_from: :gitlab_migration)
           ]
         end
 
@@ -251,6 +333,12 @@ RSpec.describe Issues::MoveService do
 
         it 'copies existing notes in order' do
           expect(copied_notes.order('id ASC').pluck(:note)).to eq(notes.map(&:note))
+        end
+
+        it 'resets the imported_from value to none' do
+          expect(notes.map(&:reload)).to all(have_attributes(imported_from: 'gitlab_migration'))
+
+          expect(copied_notes.pluck(:imported_from)).to all(eq('none'))
         end
       end
 
@@ -352,8 +440,7 @@ RSpec.describe Issues::MoveService do
         let(:moved_to_issue) { create(:issue) }
 
         let(:old_issue) do
-          create(:issue, project: old_project, author: author,
-                         moved_to: moved_to_issue)
+          create(:issue, project: old_project, author: author, moved_to: moved_to_issue)
         end
 
         it { expect { move }.to raise_error(StandardError, /permissions/) }
@@ -433,7 +520,7 @@ RSpec.describe Issues::MoveService do
 
     include_context 'user can move issue'
 
-    context 'when issue is from service desk' do
+    context 'when issue is from service desk', :aggregate_failures do
       before do
         allow(old_issue).to receive(:from_service_desk?).and_return(true)
       end
@@ -455,6 +542,30 @@ RSpec.describe Issues::MoveService do
           other_issue_notification.reload
         end.not_to change { other_issue_notification.noteable_id }
       end
+
+      context 'when the issue has children' do
+        let(:task) { create(:issue, :task, project: old_issue.project, author: Users::Internal.support_bot) }
+        let!(:task_notification) { create(:sent_notification, project: old_issue.project, noteable: task) }
+
+        before do
+          create(:parent_link, work_item_parent_id: old_issue.id, work_item_id: task.id)
+        end
+
+        it 'updates moved issue sent notifications' do
+          new_issue = move_service.execute(old_issue, new_project)
+          new_task = Issue.where(work_item_type: WorkItems::Type.default_by_type(:task)).last
+
+          old_issue_notification_1.reload
+          old_issue_notification_2.reload
+          task_notification.reload
+          expect(old_issue_notification_1.project_id).to eq(new_issue.project_id)
+          expect(old_issue_notification_1.noteable_id).to eq(new_issue.id)
+          expect(old_issue_notification_2.project_id).to eq(new_issue.project_id)
+          expect(old_issue_notification_2.noteable_id).to eq(new_issue.id)
+          expect(task_notification.project_id).to eq(new_issue.project_id)
+          expect(task_notification.noteable_id).to eq(new_task.id)
+        end
+      end
     end
 
     context 'when issue is not from service desk' do
@@ -468,6 +579,27 @@ RSpec.describe Issues::MoveService do
         expect(old_issue_notification_2.project_id).to eq(old_issue.project_id)
         expect(old_issue_notification_2.noteable_id).to eq(old_issue.id)
       end
+    end
+  end
+
+  context 'copying email participants' do
+    let!(:participant1) { create(:issue_email_participant, email: 'user1@example.com', issue: old_issue) }
+    let!(:participant2) { create(:issue_email_participant, email: 'user2@example.com', issue: old_issue) }
+    let!(:participant3) { create(:issue_email_participant, email: 'other_project_customer@example.com') }
+
+    include_context 'user can move issue'
+
+    subject(:new_issue) do
+      move_service.execute(old_issue, new_project)
+    end
+
+    it 'copies moved issue email participants' do
+      new_issue
+
+      expect(participant1.reload.issue).to eq(old_issue)
+      expect(participant2.reload.issue).to eq(old_issue)
+      expect(new_issue.issue_email_participants.pluck(:email))
+       .to match_array([participant1.email, participant2.email])
     end
   end
 end

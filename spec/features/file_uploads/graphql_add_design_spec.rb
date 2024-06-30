@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Upload a design through graphQL', :js do
+RSpec.describe 'Upload a design through graphQL', :js, feature_category: :design_management do
   include_context 'file upload requests helpers'
 
   let_it_be(:query) do
@@ -53,7 +53,7 @@ RSpec.describe 'Upload a design through graphQL', :js do
   RSpec.shared_examples 'for a design upload through graphQL' do
     it 'creates proper objects' do
       expect { subject }
-        .to change { ::DesignManagement::Design.count }.by(1)
+        .to change { DesignManagement::Design.count }.by(1)
         .and change { ::LfsObject.count }.by(1)
     end
 

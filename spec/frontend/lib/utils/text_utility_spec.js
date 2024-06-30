@@ -42,32 +42,29 @@ describe('text_utility', () => {
     it('returns string with first letter capitalized', () => {
       expect(textUtils.capitalizeFirstCharacter('gitlab')).toEqual('Gitlab');
     });
+
+    it('returns empty string when given string is empty', () => {
+      expect(textUtils.capitalizeFirstCharacter('')).toEqual('');
+    });
+
+    it('returns empty string when given string is invalid', () => {
+      expect(textUtils.capitalizeFirstCharacter(undefined)).toEqual('');
+    });
   });
 
   describe('slugify', () => {
-    it('should remove accents and convert to lower case', () => {
-      expect(textUtils.slugify('João')).toEqual('jo-o');
-    });
-    it('should replaces whitespaces with hyphens and convert to lower case', () => {
-      expect(textUtils.slugify('My Input String')).toEqual('my-input-string');
-    });
-    it('should remove trailing whitespace and replace whitespaces within string with a hyphen', () => {
-      expect(textUtils.slugify(' a new project ')).toEqual('a-new-project');
-    });
-    it('should only remove non-allowed special characters', () => {
-      expect(textUtils.slugify('test!_pro-ject~')).toEqual('test-_pro-ject');
-    });
-    it('should squash multiple hypens', () => {
-      expect(textUtils.slugify('test!!!!_pro-ject~')).toEqual('test-_pro-ject');
-    });
-    it('should return empty string if only non-allowed characters', () => {
-      expect(textUtils.slugify('здрасти')).toEqual('');
-    });
-    it('should squash multiple separators', () => {
-      expect(textUtils.slugify('Test:-)')).toEqual('test');
-    });
-    it('should trim any separators from the beginning and end of the slug', () => {
-      expect(textUtils.slugify('-Test:-)-')).toEqual('test');
+    it.each`
+      title                                                                                      | input                   | output
+      ${'should remove accents and convert to lower case'}                                       | ${'João'}               | ${'jo-o'}
+      ${'should replaces whitespaces with hyphens and convert to lower case'}                    | ${'My Input String'}    | ${'my-input-string'}
+      ${'should remove trailing whitespace and replace whitespaces within string with a hyphen'} | ${' a new project '}    | ${'a-new-project'}
+      ${'should only remove non-allowed special characters'}                                     | ${'test!_pro-ject~'}    | ${'test-_pro-ject'}
+      ${'should squash to multiple non-allowed special characters'}                              | ${'test!!!!_pro-ject~'} | ${'test-_pro-ject'}
+      ${'should return empty string if only non-allowed characters'}                             | ${'дружба'}             | ${''}
+      ${'should squash multiple separators'}                                                     | ${'Test:-)'}            | ${'test'}
+      ${'should trim any separators from the beginning and end of the slug'}                     | ${'-Test:-)-'}          | ${'test'}
+    `('$title', ({ input, output }) => {
+      expect(textUtils.slugify(input)).toBe(output);
     });
   });
 
@@ -232,53 +229,6 @@ describe('text_utility', () => {
     });
   });
 
-  describe('getFirstCharacterCapitalized', () => {
-    it('returns the first character capitalized, if first character is alphabetic', () => {
-      expect(textUtils.getFirstCharacterCapitalized('loremIpsumDolar')).toEqual('L');
-      expect(textUtils.getFirstCharacterCapitalized('Sit amit !')).toEqual('S');
-    });
-
-    it('returns the first character, if first character is non-alphabetic', () => {
-      expect(textUtils.getFirstCharacterCapitalized(' lorem')).toEqual(' ');
-      expect(textUtils.getFirstCharacterCapitalized('%#!')).toEqual('%');
-    });
-
-    it('returns an empty string, if string is falsey', () => {
-      expect(textUtils.getFirstCharacterCapitalized('')).toEqual('');
-      expect(textUtils.getFirstCharacterCapitalized(null)).toEqual('');
-    });
-  });
-
-  describe('truncatePathMiddleToLength', () => {
-    it('does not truncate text', () => {
-      expect(textUtils.truncatePathMiddleToLength('app/test', 50)).toEqual('app/test');
-    });
-
-    it('truncates middle of the path', () => {
-      expect(textUtils.truncatePathMiddleToLength('app/test/diff', 13)).toEqual('app/…/diff');
-    });
-
-    it('truncates multiple times in the middle of the path', () => {
-      expect(textUtils.truncatePathMiddleToLength('app/test/merge_request/diff', 13)).toEqual(
-        'app/…/…/diff',
-      );
-    });
-
-    describe('given a path too long for the maxWidth', () => {
-      it.each`
-        path          | maxWidth | result
-        ${'aa/bb/cc'} | ${1}     | ${'…'}
-        ${'aa/bb/cc'} | ${2}     | ${'…'}
-        ${'aa/bb/cc'} | ${3}     | ${'…/…'}
-        ${'aa/bb/cc'} | ${4}     | ${'…/…'}
-        ${'aa/bb/cc'} | ${5}     | ${'…/…/…'}
-      `('truncates ($path, $maxWidth) to $result', ({ path, maxWidth, result }) => {
-        expect(result.length).toBeLessThanOrEqual(maxWidth);
-        expect(textUtils.truncatePathMiddleToLength(path, maxWidth)).toEqual(result);
-      });
-    });
-  });
-
   describe('slugifyWithUnderscore', () => {
     it('should replaces whitespaces with underscore and convert to lower case', () => {
       expect(textUtils.slugifyWithUnderscore('My Input String')).toEqual('my_input_string');
@@ -383,5 +333,96 @@ describe('text_utility', () => {
         "'fix-'\\''bug-behavior'\\'''",
       );
     });
+  });
+
+  describe('limitedCounterWithDelimiter', () => {
+    it('returns 1,000+ for count greater than 1000', () => {
+      const expectedOutput = '1,000+';
+
+      expect(textUtils.limitedCounterWithDelimiter(1001)).toBe(expectedOutput);
+      expect(textUtils.limitedCounterWithDelimiter(2300)).toBe(expectedOutput);
+    });
+
+    it('returns exact number for count less than 1000', () => {
+      expect(textUtils.limitedCounterWithDelimiter(120)).toBe(120);
+    });
+  });
+
+  describe('base64EncodeUnicode', () => {
+    it('encodes unicode characters', () => {
+      expect(textUtils.base64EncodeUnicode('😀')).toBe('8J+YgA==');
+    });
+  });
+
+  describe('base64DecodeUnicode', () => {
+    it('decodes unicode characters', () => {
+      expect(textUtils.base64DecodeUnicode('8J+YgA==')).toBe('😀');
+    });
+  });
+
+  describe('findInvalidBranchNameCharacters', () => {
+    const invalidChars = [' ', '~', '^', ':', '?', '*', '[', '..', '@{', '\\', '//'];
+    const badBranchName = 'branch-with all these ~ ^ : ? * [ ] \\ // .. @{ } //';
+    const goodBranch = 'branch-with-no-errrors';
+
+    it('returns an array of invalid characters in a branch name', () => {
+      const chars = textUtils.findInvalidBranchNameCharacters(badBranchName);
+      chars.forEach((char) => {
+        expect(invalidChars).toContain(char);
+      });
+    });
+
+    it('returns an empty array with no invalid characters', () => {
+      expect(textUtils.findInvalidBranchNameCharacters(goodBranch)).toEqual([]);
+    });
+  });
+
+  describe('humanizeBranchValidationErrors', () => {
+    it.each`
+      errors               | message
+      ${[' ']}             | ${"Can't contain spaces"}
+      ${['?', '//', ' ']}  | ${"Can't contain spaces, ?, //"}
+      ${['\\', '[', '..']} | ${"Can't contain \\, [, .."}
+    `('returns an $message with $errors', ({ errors, message }) => {
+      expect(textUtils.humanizeBranchValidationErrors(errors)).toEqual(message);
+    });
+
+    it('returns an empty string with no invalid characters', () => {
+      expect(textUtils.humanizeBranchValidationErrors([])).toEqual('');
+    });
+  });
+
+  describe('stripQuotes', () => {
+    it.each`
+      inputValue     | outputValue
+      ${'"Foo Bar"'} | ${'Foo Bar'}
+      ${"'Foo Bar'"} | ${'Foo Bar'}
+      ${'FooBar'}    | ${'FooBar'}
+      ${"Foo'Bar"}   | ${"Foo'Bar"}
+      ${'Foo"Bar'}   | ${'Foo"Bar'}
+      ${'Foo Bar'}   | ${'Foo Bar'}
+    `(
+      'returns string $outputValue when called with string $inputValue',
+      ({ inputValue, outputValue }) => {
+        expect(textUtils.stripQuotes(inputValue)).toBe(outputValue);
+      },
+    );
+  });
+
+  describe('convertEachWordToTitleCase', () => {
+    it.each`
+      inputValue   | outputValue
+      ${'Foo Bar'} | ${'Foo Bar'}
+      ${'Foo bar'} | ${'Foo Bar'}
+      ${'foo bar'} | ${'Foo Bar'}
+      ${'FOO BAr'} | ${'Foo Bar'}
+      ${'FOO BAR'} | ${'Foo Bar'}
+      ${'fOO bar'} | ${'Foo Bar'}
+    `(
+      'returns string $outputValue when called with string $inputValue',
+      ({ inputValue, outputValue }) => {
+        expect(textUtils.convertEachWordToTitleCase(inputValue)).toBe(outputValue);
+      },
+    );
   });
 });

@@ -27,6 +27,8 @@ module FinderWithGroupHierarchy
       # we can preset root group for all of them to optimize permission checks
       Group.preset_root_ancestor_for(groups)
 
+      preload_associations(groups) if !skip_authorization && current_user
+
       groups_user_can_read_items(groups).map(&:id)
     end
   end
@@ -71,4 +73,15 @@ module FinderWithGroupHierarchy
       groups.select { |group| authorized_to_read_item?(group) }
     end
   end
+
+  def preload_associations(groups)
+    ActiveRecord::Associations::Preloader.new(
+      records: groups,
+      associations: [:organization]
+    ).call
+
+    Preloaders::UserMaxAccessLevelInGroupsPreloader.new(groups, current_user).execute
+  end
 end
+
+FinderWithGroupHierarchy.prepend_mod_with('FinderWithGroupHierarchy')

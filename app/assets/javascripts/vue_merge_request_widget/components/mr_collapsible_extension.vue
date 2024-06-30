@@ -1,12 +1,10 @@
 <script>
-import { GlButton, GlLoadingIcon, GlIcon } from '@gitlab/ui';
+import { GlButton } from '@gitlab/ui';
 import { __ } from '~/locale';
 
 export default {
   components: {
     GlButton,
-    GlLoadingIcon,
-    GlIcon,
   },
   props: {
     title: {
@@ -32,7 +30,7 @@ export default {
 
   computed: {
     arrowIconName() {
-      return this.isCollapsed ? 'angle-right' : 'angle-down';
+      return this.isCollapsed ? 'chevron-right' : 'chevron-down';
     },
     ariaLabel() {
       return this.isCollapsed ? __('Expand') : __('Collapse');
@@ -46,27 +44,26 @@ export default {
 };
 </script>
 <template>
-  <div>
-    <div class="mr-widget-extension d-flex align-items-center pl-3">
+  <div class="mr-widget-extension">
+    <div class="gl-flex gl-items-center pl-3 gl-py-3">
       <div v-if="hasError" class="ci-widget media">
         <div class="media-body">
-          <span class="gl-font-sm mr-widget-margin-left gl-line-height-24 js-error-state">
+          <span class="gl-font-sm gl-ml-7 gl-leading-24 js-error-state">
             {{ title }}
           </span>
         </div>
       </div>
 
       <template v-else>
-        <button
-          class="btn-blank btn s32 square"
-          type="button"
+        <gl-button
+          class="gl-mr-3"
+          size="small"
           :aria-label="ariaLabel"
-          :disabled="isLoading"
+          :loading="isLoading"
+          :icon="arrowIconName"
+          category="tertiary"
           @click="toggleCollapsed"
-        >
-          <gl-loading-icon v-if="isLoading" size="sm" />
-          <gl-icon v-else :name="arrowIconName" class="js-icon" />
-        </button>
+        />
         <template v-if="isCollapsed">
           <slot name="header"></slot>
           <gl-button

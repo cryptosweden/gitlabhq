@@ -49,8 +49,8 @@ module RateLimitedService
     end
 
     def evaluated_scope_for(service)
-      opts[:scope].each_with_object({}) do |var, all|
-        all[var] = service.public_send(var) # rubocop: disable GitlabSecurity/PublicSend
+      opts[:scope].index_with do |var|
+        service.public_send(var) # rubocop: disable GitlabSecurity/PublicSend
       end
     end
   end
@@ -61,9 +61,11 @@ module RateLimitedService
     cattr_accessor :rate_limiter_scoped_and_keyed
 
     def self.rate_limit(key:, opts:, rate_limiter: ::Gitlab::ApplicationRateLimiter)
-      self.rate_limiter_scoped_and_keyed = RateLimiterScopedAndKeyed.new(key: key,
-                                                                         opts: opts,
-                                                                         rate_limiter: rate_limiter)
+      self.rate_limiter_scoped_and_keyed = RateLimiterScopedAndKeyed.new(
+        key: key,
+        opts: opts,
+        rate_limiter: rate_limiter
+      )
     end
   end
 

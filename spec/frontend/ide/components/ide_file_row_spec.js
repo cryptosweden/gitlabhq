@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import FileRowExtra from '~/ide/components/file_row_extra.vue';
 import IdeFileRow from '~/ide/components/ide_file_row.vue';
@@ -34,13 +35,8 @@ describe('Ide File Row component', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
-  const findFileRowExtra = () => wrapper.find(FileRowExtra);
-  const findFileRow = () => wrapper.find(FileRow);
+  const findFileRowExtra = () => wrapper.findComponent(FileRowExtra);
+  const findFileRow = () => wrapper.findComponent(FileRow);
   const hasDropdownOpen = () => findFileRowExtra().props('dropdownOpen');
 
   it('fileRow component has listeners', async () => {

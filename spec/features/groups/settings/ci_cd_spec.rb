@@ -2,56 +2,35 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group CI/CD settings' do
+RSpec.describe 'Group CI/CD settings', feature_category: :continuous_integration do
   include WaitForRequests
 
-  let(:user) { create(:user) }
-  let(:group) { create(:group) }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:group, reload: true) { create(:group, owners: user) }
 
   before do
-    group.add_owner(user)
     sign_in(user)
   end
 
-  describe 'new group runners view banner' do
-    it 'displays banner' do
-      visit group_settings_ci_cd_path(group)
-
-      expect(page).to have_content(s_('Runners|New group runners view'))
-      expect(page).to have_link(href: group_runners_path(group))
-    end
-
-    it 'does not display banner' do
-      stub_feature_flags(runner_list_group_view_vue_ui: false)
-
-      visit group_settings_ci_cd_path(group)
-
-      expect(page).not_to have_content(s_('Runners|New group runners view'))
-      expect(page).not_to have_link(href: group_runners_path(group))
-    end
-  end
-
-  describe 'runners registration token' do
-    let!(:token) { group.runners_token }
+  describe 'Runners section' do
+    let(:shared_runners_toggle) { find_by_testid('shared-runners-toggle') }
 
     before do
       visit group_settings_ci_cd_path(group)
     end
 
-    it 'has a registration token' do
-      expect(page.find('#registration_token')).to have_content(token)
+    it 'has "Enable instance runners for this group" toggle', :js do
+      expect(shared_runners_toggle).to have_content(_('Enable instance runners for this group'))
     end
 
-    describe 'reload registration token' do
-      let(:page_token) { find('#registration_token').text }
+    it 'clicks on toggle to enable setting', :js do
+      expect(group.shared_runners_setting).to be(Namespace::SR_ENABLED)
 
-      before do
-        click_button 'Reset registration token'
-      end
+      shared_runners_toggle.find('button').click
+      wait_for_requests
 
-      it 'changes registration token' do
-        expect(page_token).not_to eq token
-      end
+      group.reload
+      expect(group.shared_runners_setting).to be(Namespace::SR_DISABLED_AND_UNOVERRIDABLE)
     end
   end
 

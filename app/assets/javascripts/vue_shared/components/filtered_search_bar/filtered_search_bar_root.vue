@@ -1,30 +1,20 @@
 <script>
-import {
-  GlFilteredSearch,
-  GlButtonGroup,
-  GlButton,
-  GlDropdown,
-  GlDropdownItem,
-  GlFormCheckbox,
-  GlTooltipDirective,
-} from '@gitlab/ui';
+import { GlFilteredSearch, GlSorting, GlFormCheckbox, GlTooltipDirective } from '@gitlab/ui';
 
 import RecentSearchesStorageKeys from 'ee_else_ce/filtered_search/recent_searches_storage_keys';
 import RecentSearchesService from '~/filtered_search/services/recent_searches_service';
 import RecentSearchesStore from '~/filtered_search/stores/recent_searches_store';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import { stripQuotes } from '~/lib/utils/text_utility';
 import { __ } from '~/locale';
 
-import { SortDirection } from './constants';
-import { filterEmptySearchTerm, stripQuotes, uniqueTokens } from './filtered_search_utils';
+import { SORT_DIRECTION } from './constants';
+import { filterEmptySearchTerm, uniqueTokens } from './filtered_search_utils';
 
 export default {
   components: {
     GlFilteredSearch,
-    GlButtonGroup,
-    GlButton,
-    GlDropdown,
-    GlDropdownItem,
+    GlSorting,
     GlFormCheckbox,
   },
   directives: {
@@ -72,39 +62,57 @@ export default {
     },
     searchInputPlaceholder: {
       type: String,
-      required: true,
+      required: false,
+      default: __('Search or filter results…'),
     },
     suggestionsListClass: {
       type: String,
       required: false,
       default: '',
     },
+    searchButtonAttributes: {
+      type: Object,
+      required: false,
+      default: () => ({}),
+    },
+    searchInputAttributes: {
+      type: Object,
+      required: false,
+      default: () => ({}),
+    },
+    showFriendlyText: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    syncFilterAndSort: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    termsAsTokens: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    searchTextOptionLabel: {
+      type: String,
+      required: false,
+      default: __('Search for this text'),
+    },
+    showSearchButton: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
   },
   data() {
-    let selectedSortOption = this.sortOptions[0]?.sortDirection?.descending;
-    let selectedSortDirection = SortDirection.descending;
-
-    // Extract correct sortBy value based on initialSortBy
-    if (this.initialSortBy) {
-      selectedSortOption = this.sortOptions
-        .filter(
-          (sortBy) =>
-            sortBy.sortDirection.ascending === this.initialSortBy ||
-            sortBy.sortDirection.descending === this.initialSortBy,
-        )
-        .pop();
-      selectedSortDirection = Object.keys(selectedSortOption.sortDirection).find(
-        (key) => selectedSortOption.sortDirection[key] === this.initialSortBy,
-      );
-    }
-
     return {
       initialRender: true,
       recentSearchesPromise: null,
       recentSearches: [],
       filterValue: this.initialFilterValue,
-      selectedSortOption,
-      selectedSortDirection,
+      ...this.getInitialSort(),
     };
   },
   computed: {
@@ -126,15 +134,14 @@ export default {
         {},
       );
     },
-    sortDirectionIcon() {
-      return this.selectedSortDirection === SortDirection.ascending
-        ? 'sort-lowest'
-        : 'sort-highest';
+    transformedSortOptions() {
+      return this.sortOptions.map(({ id: value, title: text }) => ({ value, text }));
     },
-    sortDirectionTooltip() {
-      return this.selectedSortDirection === SortDirection.ascending
-        ? __('Sort direction: Ascending')
-        : __('Sort direction: Descending');
+    selectedSortDirection() {
+      return this.sortDirectionAscending ? SORT_DIRECTION.ascending : SORT_DIRECTION.descending;
+    },
+    selectedSortOption() {
+      return this.sortOptions.find((sortOption) => sortOption.id === this.sortById);
     },
     /**
      * This prop fixes a behaviour affecting GlFilteredSearch
@@ -164,34 +171,20 @@ export default {
     },
   },
   watch: {
-    /**
-     * GlFilteredSearch currently doesn't emit any event when
-     * tokens are manually removed from search field so we'd
-     * never know when user actually clears all the tokens.
-     * This watcher listens for updates to `filterValue` on
-     * such instances. :(
-     */
-    filterValue(newValue, oldValue) {
-      const [firstVal] = newValue;
-      if (
-        !this.initialRender &&
-        newValue.length === 1 &&
-        firstVal.type === 'filtered-search-term' &&
-        !firstVal.value.data
-      ) {
-        const filtersCleared =
-          oldValue[0].type !== 'filtered-search-term' || oldValue[0].value.data !== '';
-        this.$emit('onFilter', [], filtersCleared);
+    initialFilterValue(newValue) {
+      if (this.syncFilterAndSort) {
+        this.filterValue = newValue;
       }
-
-      // Set initial render flag to false
-      // as we don't want to emit event
-      // on initial load when value is empty already.
-      this.initialRender = false;
     },
-  },
-  created() {
-    if (this.recentSearchesStorageKey) this.setupRecentSearch();
+    initialSortBy(newInitialSortBy) {
+      if (this.syncFilterAndSort && newInitialSortBy) {
+        this.updateSelectedSortValues();
+      }
+    },
+    recentSearchesStorageKey: {
+      handler: 'setupRecentSearch',
+      immediate: true,
+    },
   },
   methods: {
     /**
@@ -213,7 +206,7 @@ export default {
         .catch((error) => {
           if (error.name === 'RecentSearchesServiceError') return undefined;
 
-          createFlash({
+          createAlert({
             message: __('An error occurred while parsing recent searches'),
           });
 
@@ -272,15 +265,12 @@ export default {
         return filter;
       });
     },
-    handleSortOptionClick(sortBy) {
-      this.selectedSortOption = sortBy;
-      this.$emit('onSort', sortBy.sortDirection[this.selectedSortDirection]);
+    handleSortByChange(sortById) {
+      this.sortById = sortById;
+      this.$emit('onSort', this.selectedSortOption.sortDirection[this.selectedSortDirection]);
     },
-    handleSortDirectionClick() {
-      this.selectedSortDirection =
-        this.selectedSortDirection === SortDirection.ascending
-          ? SortDirection.descending
-          : SortDirection.ascending;
+    handleSortDirectionChange(isAscending) {
+      this.sortDirectionAscending = isAscending;
       this.$emit('onSort', this.selectedSortOption.sortDirection[this.selectedSortDirection]);
     },
     handleHistoryItemSelected(filters) {
@@ -291,7 +281,9 @@ export default {
       this.recentSearchesService.save(resultantSearches);
       this.recentSearches = [];
     },
-    handleFilterSubmit() {
+    async handleFilterSubmit() {
+      this.blurSearchInput();
+      await this.$nextTick();
       const filterTokens = uniqueTokens(this.filterValue);
       this.filterValue = filterTokens;
 
@@ -308,7 +300,6 @@ export default {
             // https://gitlab.com/gitlab-org/gitlab-foss/issues/30821
           });
       }
-      this.blurSearchInput();
       this.$emit('onFilter', this.removeQuotesEnclosure(filterTokens));
     },
     historyTokenOptionTitle(historyToken) {
@@ -322,12 +313,44 @@ export default {
 
       return tokenOption.title;
     },
+    onClear() {
+      const cleared = true;
+      this.$emit('onFilter', [], cleared);
+    },
+    updateSelectedSortValues() {
+      Object.assign(this, this.getInitialSort());
+    },
+    getInitialSort() {
+      for (const sortOption of this.sortOptions) {
+        if (sortOption.sortDirection.ascending === this.initialSortBy) {
+          return {
+            sortById: sortOption.id,
+            sortDirectionAscending: true,
+          };
+        }
+
+        if (sortOption.sortDirection.descending === this.initialSortBy) {
+          return {
+            sortById: sortOption.id,
+            sortDirectionAscending: false,
+          };
+        }
+      }
+
+      return {
+        sortById: this.sortOptions[0]?.id,
+        sortDirectionAscending: false,
+      };
+    },
+    onInput(tokens) {
+      this.$emit('onInput', this.removeQuotesEnclosure(uniqueTokens(tokens)));
+    },
   },
 };
 </script>
 
 <template>
-  <div class="vue-filtered-search-bar-container d-md-flex">
+  <div class="vue-filtered-search-bar-container max-sm:gl-flex-col gl-flex gl-min-w-0 sm:gl-gap-3">
     <gl-form-checkbox
       v-if="showCheckbox"
       class="gl-align-self-center"
@@ -343,10 +366,23 @@ export default {
       :available-tokens="tokens"
       :history-items="filteredRecentSearches"
       :suggestions-list-class="suggestionsListClass"
+      :search-button-attributes="searchButtonAttributes"
+      :search-input-attributes="searchInputAttributes"
+      :recent-searches-header="__('Recent searches')"
+      :clear-button-title="__('Clear')"
+      :close-button-title="__('Close')"
+      :clear-recent-searches-text="__('Clear recent searches')"
+      :no-recent-searches-text="__(`You don't have any recent searches`)"
+      :search-text-option-label="searchTextOptionLabel"
+      :show-friendly-text="showFriendlyText"
+      :show-search-button="showSearchButton"
+      :terms-as-tokens="termsAsTokens"
       class="flex-grow-1"
       @history-item-selected="handleHistoryItemSelected"
+      @clear="onClear"
       @clear-history="handleClearHistory"
       @submit="handleFilterSubmit"
+      @input="onInput"
     >
       <template #history-item="{ historyItem }">
         <template v-for="(token, index) in historyItem">
@@ -360,25 +396,17 @@ export default {
         </template>
       </template>
     </gl-filtered-search>
-    <gl-button-group v-if="selectedSortOption" class="sort-dropdown-container d-flex">
-      <gl-dropdown :text="selectedSortOption.title" :right="true" class="w-100">
-        <gl-dropdown-item
-          v-for="sortBy in sortOptions"
-          :key="sortBy.id"
-          :is-check-item="true"
-          :is-checked="sortBy.id === selectedSortOption.id"
-          @click="handleSortOptionClick(sortBy)"
-          >{{ sortBy.title }}</gl-dropdown-item
-        >
-      </gl-dropdown>
-      <gl-button
-        v-gl-tooltip
-        :title="sortDirectionTooltip"
-        :aria-label="sortDirectionTooltip"
-        :icon="sortDirectionIcon"
-        class="flex-shrink-1"
-        @click="handleSortDirectionClick"
-      />
-    </gl-button-group>
+    <gl-sorting
+      v-if="selectedSortOption"
+      :sort-options="transformedSortOptions"
+      :sort-by="sortById"
+      :is-ascending="sortDirectionAscending"
+      class="sort-dropdown-container sm:!gl-m-0 max-sm:gl-w-full"
+      dropdown-class="gl-grow"
+      dropdown-toggle-class="gl-grow"
+      sort-direction-toggle-class="!gl-shrink !gl-grow-0"
+      @sortByChange="handleSortByChange"
+      @sortDirectionChange="handleSortDirectionChange"
+    />
   </div>
 </template>

@@ -2,10 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Multiple issue updating from issues#index', :js do
+RSpec.describe 'Multiple issue updating from issues#index', :js, feature_category: :team_planning do
+  include ListboxHelpers
+
   let!(:project)   { create(:project) }
   let!(:issue)     { create(:issue, project: project) }
-  let!(:user)      { create(:user)}
+  let!(:user)      { create(:user) }
 
   before do
     project.add_maintainer(user)
@@ -16,10 +18,9 @@ RSpec.describe 'Multiple issue updating from issues#index', :js do
     it 'sets to closed', :js do
       visit project_issues_path(project)
 
-      click_button 'Edit issues'
+      click_button 'Bulk edit'
       check 'Select all'
-      click_button 'Select status'
-      click_button 'Closed'
+      select_from_listbox('Closed', from: 'Select status')
 
       click_update_issues_button
       expect(page).to have_selector('.issue', count: 0)
@@ -29,10 +30,9 @@ RSpec.describe 'Multiple issue updating from issues#index', :js do
       create_closed
       visit project_issues_path(project, state: 'closed')
 
-      click_button 'Edit issues'
+      click_button 'Bulk edit'
       check 'Select all'
-      click_button 'Select status'
-      click_button 'Open'
+      select_from_listbox('Open', from: 'Select status')
 
       click_update_issues_button
       expect(page).to have_selector('.issue', count: 0)
@@ -43,10 +43,10 @@ RSpec.describe 'Multiple issue updating from issues#index', :js do
     it 'updates to current user' do
       visit project_issues_path(project)
 
-      click_button 'Edit issues'
+      click_button 'Bulk edit'
       check 'Select all'
       click_update_assignee_button
-      click_link user.username
+      click_button user.username
 
       click_update_issues_button
 
@@ -61,10 +61,10 @@ RSpec.describe 'Multiple issue updating from issues#index', :js do
 
       expect(find('.issue:first-of-type')).to have_link "Assigned to #{user.name}"
 
-      click_button 'Edit issues'
+      click_button 'Bulk edit'
       check 'Select all'
       click_update_assignee_button
-      click_link 'Unassigned'
+      click_button 'Unassigned'
       click_update_issues_button
 
       expect(find('.issue:first-of-type')).not_to have_link "Assigned to #{user.name}"
@@ -77,10 +77,10 @@ RSpec.describe 'Multiple issue updating from issues#index', :js do
     it 'updates milestone' do
       visit project_issues_path(project)
 
-      click_button 'Edit issues'
+      click_button 'Bulk edit'
       check 'Select all'
       click_button 'Select milestone'
-      click_link milestone.title
+      click_button milestone.title
       click_update_issues_button
 
       expect(page.find('.issue')).to have_content milestone.title
@@ -94,10 +94,10 @@ RSpec.describe 'Multiple issue updating from issues#index', :js do
 
       expect(find('.issue:first-of-type')).to have_text milestone.title
 
-      click_button 'Edit issues'
+      click_button 'Bulk edit'
       check 'Select all'
       click_button 'Select milestone'
-      click_link 'No milestone'
+      click_button 'No milestone'
       click_update_issues_button
 
       expect(find('.issue:first-of-type')).not_to have_text milestone.title
@@ -107,14 +107,10 @@ RSpec.describe 'Multiple issue updating from issues#index', :js do
   describe 'select all issues' do
     let!(:issue_2) { create(:issue, project: project) }
 
-    before do
-      stub_feature_flags(vue_issues_list: true)
-    end
-
     it 'after selecting all issues, unchecking one issue only unselects that one issue' do
       visit project_issues_path(project)
 
-      click_button 'Edit issues'
+      click_button 'Bulk edit'
       check 'Select all'
       uncheck issue.title
 
@@ -142,7 +138,7 @@ RSpec.describe 'Multiple issue updating from issues#index', :js do
   end
 
   def click_update_issues_button
-    click_button 'Update all'
+    click_button 'Update selected'
     wait_for_requests
   end
 end

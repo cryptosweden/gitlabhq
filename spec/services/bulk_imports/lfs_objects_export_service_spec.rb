@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::LfsObjectsExportService do
+RSpec.describe BulkImports::LfsObjectsExportService, feature_category: :importers do
   let_it_be(:project) { create(:project) }
   let_it_be(:lfs_json_filename) { "#{BulkImports::FileTransfer::ProjectConfig::LFS_OBJECTS_RELATION}.json" }
   let_it_be(:remote_url) { 'http://my-object-storage.local' }
@@ -15,7 +15,7 @@ RSpec.describe BulkImports::LfsObjectsExportService do
   before do
     stub_lfs_object_storage
 
-    %w(wiki design).each do |repository_type|
+    %w[wiki design].each do |repository_type|
       create(
         :lfs_objects_project,
         project: project,
@@ -53,6 +53,31 @@ RSpec.describe BulkImports::LfsObjectsExportService do
       )
     end
 
+    context 'when export is batched' do
+      it 'exports only specified lfs objects' do
+        new_lfs_object = create(:lfs_object, :with_file)
+
+        project.lfs_objects << new_lfs_object
+
+        service.execute(batch_ids: [new_lfs_object.id])
+
+        expect(File).to exist(File.join(export_path, new_lfs_object.oid))
+        expect(File).not_to exist(File.join(export_path, lfs_object.oid))
+      end
+    end
+
+    context 'when lfs object has file on disk missing' do
+      it 'does not attempt to copy non-existent file' do
+        FileUtils.rm(lfs_object.file.path)
+
+        expect(service).not_to receive(:copy_files)
+
+        service.execute
+
+        expect(File).not_to exist(File.join(export_path, lfs_object.oid))
+      end
+    end
+
     context 'when lfs object is remotely stored' do
       let(:lfs_object) { create(:lfs_object, :object_storage) }
 
@@ -65,6 +90,16 @@ RSpec.describe BulkImports::LfsObjectsExportService do
 
         service.execute
       end
+    end
+  end
+
+  describe '#exported_objects_count' do
+    it 'return the number of exported lfs objects' do
+      project.lfs_objects << create(:lfs_object, :with_file)
+
+      service.execute
+
+      expect(service.exported_objects_count).to eq(2)
     end
   end
 end

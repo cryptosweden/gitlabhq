@@ -1,102 +1,41 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package', :orchestrated, :packages, :object_storage do
-    describe 'Maven project level endpoint' do
+  RSpec.describe 'Package', :object_storage, :external_api_calls do
+    describe 'Maven project level endpoint', product_group: :package_registry do
+      include Runtime::Fixtures
+      include Support::Helpers::MaskToken
+
       let(:group_id) { 'com.gitlab.qa' }
       let(:artifact_id) { "maven-#{SecureRandom.hex(8)}" }
       let(:package_name) { "#{group_id}/#{artifact_id}".tr('.', '/') }
       let(:package_version) { '1.3.7' }
       let(:package_type) { 'maven' }
       let(:personal_access_token) { Runtime::Env.personal_access_token }
-
-      let(:package_project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = "#{package_type}_package_project"
-          project.initialize_with_readme = true
-          project.visibility = :private
-        end
-      end
-
-      let(:package) do
-        Resource::Package.init do |package|
-          package.name = package_name
-          package.project = package_project
-        end
-      end
+      let(:package_project) { create(:project, :with_readme, :private, name: "#{package_type}_package_project") }
+      let(:package) { build(:package, name: package_name, project: package_project) }
 
       let(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.name = "qa-runner-#{Time.now.to_i}"
-          runner.tags = ["runner-for-#{package_project.name}"]
-          runner.executor = :docker
-          runner.project = package_project
-        end
+        create(:project_runner,
+          name: "qa-runner-#{Time.now.to_i}",
+          tags: ["runner-for-#{package_project.name}"],
+          executor: :docker,
+          project: package_project)
       end
 
       let(:gitlab_address_with_port) do
-        uri = URI.parse(Runtime::Scenario.gitlab_address)
-        "#{uri.scheme}://#{uri.host}:#{uri.port}"
+        Support::GitlabAddress.address_with_port
       end
 
       let(:project_deploy_token) do
-        Resource::ProjectDeployToken.fabricate_via_api! do |deploy_token|
-          deploy_token.name = 'package-deploy-token'
-          deploy_token.project = package_project
-          deploy_token.scopes = %w[
+        create(:project_deploy_token,
+          name: 'package-deploy-token',
+          project: package_project,
+          scopes: %w[
             read_repository
             read_package_registry
             write_package_registry
-          ]
-        end
-      end
-
-      let(:gitlab_ci_file) do
-        {
-          file_path: '.gitlab-ci.yml',
-          content:
-              <<~YAML
-                deploy-and-install:
-                  image: maven:3.6-jdk-11
-                  script:
-                    - 'mvn deploy -s settings.xml'
-                    - 'mvn install -s settings.xml'
-                  only:
-                    - "#{package_project.default_branch}"
-                  tags:
-                    - "runner-for-#{package_project.name}"
-              YAML
-        }
-      end
-
-      let(:pom_file) do
-        {
-          file_path: 'pom.xml',
-          content: <<~XML
-            <project>
-              <groupId>#{group_id}</groupId>
-              <artifactId>#{artifact_id}</artifactId>
-              <version>#{package_version}</version>
-              <modelVersion>4.0.0</modelVersion>
-              <repositories>
-                <repository>
-                  <id>#{package_project.name}</id>
-                  <url>#{gitlab_address_with_port}/api/v4/projects/#{package_project.id}/-/packages/maven</url>
-                </repository>
-              </repositories>
-              <distributionManagement>
-                <repository>
-                  <id>#{package_project.name}</id>
-                  <url>#{gitlab_address_with_port}/api/v4/projects/#{package_project.id}/packages/maven</url>
-                </repository>
-                <snapshotRepository>
-                  <id>#{package_project.name}</id>
-                  <url>#{gitlab_address_with_port}/api/v4/projects/#{package_project.id}/packages/maven</url>
-                </snapshotRepository>
-              </distributionManagement>
-            </project>
-          XML
-        }
+          ])
       end
 
       before do
@@ -134,49 +73,28 @@ module QA
         let(:token) do
           case authentication_token_type
           when :personal_access_token
-            personal_access_token
+            use_ci_variable(name: 'PERSONAL_ACCESS_TOKEN', value: personal_access_token, project: package_project)
           when :ci_job_token
-            '${env.CI_JOB_TOKEN}'
+            '${CI_JOB_TOKEN}'
           when :project_deploy_token
-            project_deploy_token.token
+            use_ci_variable(name: 'PROJECT_DEPLOY_TOKEN', value: project_deploy_token.token, project: package_project)
           end
         end
 
-        let(:settings_xml) do
-          {
-            file_path: 'settings.xml',
-            content: <<~XML
-              <settings xmlns="http://maven.apache.org/SETTINGS/1.1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-              xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.1.0 http://maven.apache.org/xsd/settings-1.1.0.xsd">
-                <servers>
-                  <server>
-                    <id>#{package_project.name}</id>
-                    <configuration>
-                      <httpHeaders>
-                        <property>
-                          <name>#{maven_header_name}</name>
-                          <value>#{token}</value>
-                        </property>
-                      </httpHeaders>
-                    </configuration>
-                  </server>
-                </servers>
-              </settings>
-            XML
-          }
-        end
+        it 'pushes and pulls a maven package via maven', :smoke, testcase: params[:testcase] do
+          gitlab_ci_yaml = ERB.new(read_fixture('package_managers/maven/project', 'gitlab_ci.yaml.erb'))
+                                    .result(binding)
+          pom_xml = ERB.new(read_fixture('package_managers/maven/project', 'pom.xml.erb'))
+                                    .result(binding)
+          settings_xml = ERB.new(read_fixture('package_managers/maven/project', 'settings.xml.erb'))
+                                    .result(binding)
 
-        it 'pushes and pulls a maven package via maven', testcase: params[:testcase] do
           Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-            Resource::Repository::Commit.fabricate_via_api! do |commit|
-              commit.project = package_project
-              commit.commit_message = 'Add .gitlab-ci.yml'
-              commit.add_files([
-                gitlab_ci_file,
-                pom_file,
-                settings_xml
-              ])
-            end
+            create(:commit, project: package_project, actions: [
+              { action: 'create', file_path: '.gitlab-ci.yml', content: gitlab_ci_yaml },
+              { action: 'create', file_path: 'pom.xml', content: pom_xml },
+              { action: 'create', file_path: 'settings.xml', content: settings_xml }
+            ])
           end
 
           package_project.visit!
@@ -184,24 +102,14 @@ module QA
           Flow::Pipeline.visit_latest_pipeline
 
           Page::Project::Pipeline::Show.perform do |pipeline|
-            pipeline.click_job('deploy')
-          end
-
-          Page::Project::Job::Show.perform do |job|
-            expect(job).to be_successful(timeout: 800)
-
-            job.click_element(:pipeline_path)
-          end
-
-          Page::Project::Pipeline::Show.perform do |pipeline|
-            pipeline.click_job('install')
+            pipeline.click_job('deploy-and-install')
           end
 
           Page::Project::Job::Show.perform do |job|
             expect(job).to be_successful(timeout: 800)
           end
 
-          Page::Project::Menu.perform(&:click_packages_link)
+          Page::Project::Menu.perform(&:go_to_package_registry)
 
           Page::Project::Packages::Index.perform do |index|
             expect(index).to have_package(package_name)

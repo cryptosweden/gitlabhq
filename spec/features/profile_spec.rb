@@ -2,11 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Profile account page', :js do
+RSpec.describe 'Profile account page', :js, feature_category: :user_profile do
+  include Spec::Support::Helpers::ModalHelpers
+
   let(:user) { create(:user) }
 
   before do
-    stub_feature_flags(bootstrap_confirmation_modals: false)
     sign_in(user)
   end
 
@@ -26,17 +27,19 @@ RSpec.describe 'Profile account page', :js do
       expect(User.exists?(user.id)).to be_truthy
     end
 
-    it 'deletes user', :js, :sidekiq_might_not_need_inline do
+    it 'deletes user', :js, :sidekiq_inline do
       click_button 'Delete account'
 
-      fill_in 'password', with: Gitlab::Password.test_default
+      fill_in 'password', with: user.password
 
       page.within '.modal' do
         click_button 'Delete account'
       end
 
       expect(page).to have_content('Account scheduled for removal')
-      expect(User.exists?(user.id)).to be_falsy
+      expect(
+        Users::GhostUserMigration.where(user: user, initiator_user: user)
+      ).to be_exists
     end
 
     it 'shows invalid password flash message', :js do
@@ -63,13 +66,19 @@ RSpec.describe 'Profile account page', :js do
   end
 
   it 'allows resetting of feed token' do
-    visit profile_personal_access_tokens_path
+    visit user_settings_personal_access_tokens_path
 
-    within('[data-testid="feed-token-container"]') do
+    previous_token = ''
+
+    within_testid('feed-token-container') do
       previous_token = find_field('Feed token').value
 
-      accept_confirm { click_link('reset this token') }
+      click_link('reset this token')
+    end
 
+    accept_gl_confirm
+
+    within_testid('feed-token-container') do
       click_button('Click to reveal')
 
       expect(find_field('Feed token').value).not_to eq(previous_token)
@@ -79,13 +88,19 @@ RSpec.describe 'Profile account page', :js do
   it 'allows resetting of incoming email token' do
     allow(Gitlab.config.incoming_email).to receive(:enabled).and_return(true)
 
-    visit profile_personal_access_tokens_path
+    visit user_settings_personal_access_tokens_path
 
-    within('[data-testid="incoming-email-token-container"]') do
+    previous_token = ''
+
+    within_testid('incoming-email-token-container') do
       previous_token = find_field('Incoming email token').value
 
-      accept_confirm { click_link('reset this token') }
+      click_link('reset this token')
+    end
 
+    accept_gl_confirm
+
+    within_testid('incoming-email-token-container') do
       click_button('Click to reveal')
 
       expect(find_field('Incoming email token').value).not_to eq(previous_token)
@@ -100,7 +115,7 @@ RSpec.describe 'Profile account page', :js do
     it 'changes my username' do
       fill_in 'username-change-input', with: 'new-username'
 
-      page.find('[data-testid="username-change-confirmation-modal"]').click
+      find_by_testid('username-change-confirmation-modal').click
 
       page.within('.modal') do
         find('.js-modal-action-primary').click

@@ -1,17 +1,18 @@
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
-import Cookies from 'js-cookie';
+import Cookies from '~/lib/utils/cookies';
+import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { useMockLocationHelper } from 'helpers/mock_window_location_helper';
 import testAction from 'helpers/vuex_action_helper';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { INTERACTIVE_RESOLVE_MODE, EDIT_RESOLVE_MODE } from '~/merge_conflicts/constants';
 import * as actions from '~/merge_conflicts/store/actions';
 import * as types from '~/merge_conflicts/store/mutation_types';
 import { restoreFileLinesState, markLine, decorateFiles } from '~/merge_conflicts/utils';
 
-jest.mock('~/flash.js');
+jest.mock('~/alert');
 jest.mock('~/merge_conflicts/utils');
-jest.mock('js-cookie');
+jest.mock('~/lib/utils/cookies');
 
 describe('merge conflicts actions', () => {
   let mock;
@@ -34,9 +35,9 @@ describe('merge conflicts actions', () => {
   describe('fetchConflictsData', () => {
     const conflictsPath = 'conflicts/path/mock';
 
-    it('on success dispatches setConflictsData', (done) => {
-      mock.onGet(conflictsPath).reply(200, {});
-      testAction(
+    it('on success dispatches setConflictsData', () => {
+      mock.onGet(conflictsPath).reply(HTTP_STATUS_OK, {});
+      return testAction(
         actions.fetchConflictsData,
         conflictsPath,
         {},
@@ -45,13 +46,12 @@ describe('merge conflicts actions', () => {
           { type: types.SET_LOADING_STATE, payload: false },
         ],
         [{ type: 'setConflictsData', payload: {} }],
-        done,
       );
     });
 
-    it('when data has type equal to error ', (done) => {
-      mock.onGet(conflictsPath).reply(200, { type: 'error', message: 'error message' });
-      testAction(
+    it('when data has type equal to error', () => {
+      mock.onGet(conflictsPath).reply(HTTP_STATUS_OK, { type: 'error', message: 'error message' });
+      return testAction(
         actions.fetchConflictsData,
         conflictsPath,
         {},
@@ -61,13 +61,12 @@ describe('merge conflicts actions', () => {
           { type: types.SET_LOADING_STATE, payload: false },
         ],
         [],
-        done,
       );
     });
 
-    it('when request fails ', (done) => {
-      mock.onGet(conflictsPath).reply(400);
-      testAction(
+    it('when request fails', () => {
+      mock.onGet(conflictsPath).reply(HTTP_STATUS_BAD_REQUEST);
+      return testAction(
         actions.fetchConflictsData,
         conflictsPath,
         {},
@@ -77,15 +76,14 @@ describe('merge conflicts actions', () => {
           { type: types.SET_LOADING_STATE, payload: false },
         ],
         [],
-        done,
       );
     });
   });
 
   describe('setConflictsData', () => {
-    it('INTERACTIVE_RESOLVE_MODE updates the correct file ', (done) => {
+    it('INTERACTIVE_RESOLVE_MODE updates the correct file', () => {
       decorateFiles.mockReturnValue([{ bar: 'baz' }]);
-      testAction(
+      return testAction(
         actions.setConflictsData,
         { files, foo: 'bar' },
         {},
@@ -96,7 +94,6 @@ describe('merge conflicts actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
@@ -105,24 +102,21 @@ describe('merge conflicts actions', () => {
     useMockLocationHelper();
     const resolveConflictsPath = 'resolve/conflicts/path/mock';
 
-    it('on success reloads the page', (done) => {
-      mock.onPost(resolveConflictsPath).reply(200, { redirect_to: 'hrefPath' });
-      testAction(
+    it('on success reloads the page', async () => {
+      mock.onPost(resolveConflictsPath).reply(HTTP_STATUS_OK, { redirect_to: 'hrefPath' });
+      await testAction(
         actions.submitResolvedConflicts,
         resolveConflictsPath,
         {},
         [{ type: types.SET_SUBMIT_STATE, payload: true }],
         [],
-        () => {
-          expect(window.location.assign).toHaveBeenCalledWith('hrefPath');
-          done();
-        },
       );
+      expect(window.location.assign).toHaveBeenCalledWith('hrefPath');
     });
 
-    it('on errors shows flash', (done) => {
-      mock.onPost(resolveConflictsPath).reply(400);
-      testAction(
+    it('on errors shows an alert', async () => {
+      mock.onPost(resolveConflictsPath).reply(HTTP_STATUS_BAD_REQUEST);
+      await testAction(
         actions.submitResolvedConflicts,
         resolveConflictsPath,
         {},
@@ -131,19 +125,16 @@ describe('merge conflicts actions', () => {
           { type: types.SET_SUBMIT_STATE, payload: false },
         ],
         [],
-        () => {
-          expect(createFlash).toHaveBeenCalledWith({
-            message: 'Failed to save merge conflicts resolutions. Please try again!',
-          });
-          done();
-        },
       );
+      expect(createAlert).toHaveBeenCalledWith({
+        message: 'Failed to save merge conflicts resolutions. Please try again!',
+      });
     });
   });
 
   describe('setLoadingState', () => {
     it('commits the right mutation', () => {
-      testAction(
+      return testAction(
         actions.setLoadingState,
         true,
         {},
@@ -160,7 +151,7 @@ describe('merge conflicts actions', () => {
 
   describe('setErrorState', () => {
     it('commits the right mutation', () => {
-      testAction(
+      return testAction(
         actions.setErrorState,
         true,
         {},
@@ -177,7 +168,7 @@ describe('merge conflicts actions', () => {
 
   describe('setFailedRequest', () => {
     it('commits the right mutation', () => {
-      testAction(
+      return testAction(
         actions.setFailedRequest,
         'errors in the request',
         {},
@@ -193,9 +184,9 @@ describe('merge conflicts actions', () => {
   });
 
   describe('setViewType', () => {
-    it('commits the right mutation', (done) => {
+    it('commits the right mutation', async () => {
       const payload = 'viewType';
-      testAction(
+      await testAction(
         actions.setViewType,
         payload,
         {},
@@ -206,20 +197,17 @@ describe('merge conflicts actions', () => {
           },
         ],
         [],
-        () => {
-          expect(Cookies.set).toHaveBeenCalledWith('diff_view', payload, {
-            expires: 365,
-            secure: false,
-          });
-          done();
-        },
       );
+      expect(Cookies.set).toHaveBeenCalledWith('diff_view', payload, {
+        expires: 365,
+        secure: false,
+      });
     });
   });
 
   describe('setSubmitState', () => {
     it('commits the right mutation', () => {
-      testAction(
+      return testAction(
         actions.setSubmitState,
         true,
         {},
@@ -236,7 +224,7 @@ describe('merge conflicts actions', () => {
 
   describe('updateCommitMessage', () => {
     it('commits the right mutation', () => {
-      testAction(
+      return testAction(
         actions.updateCommitMessage,
         'some message',
         {},
@@ -252,8 +240,8 @@ describe('merge conflicts actions', () => {
   });
 
   describe('setFileResolveMode', () => {
-    it('INTERACTIVE_RESOLVE_MODE updates the correct file ', (done) => {
-      testAction(
+    it('INTERACTIVE_RESOLVE_MODE updates the correct file', () => {
+      return testAction(
         actions.setFileResolveMode,
         { file: files[0], mode: INTERACTIVE_RESOLVE_MODE },
         { conflictsData: { files }, getFileIndex: () => 0 },
@@ -267,11 +255,10 @@ describe('merge conflicts actions', () => {
           },
         ],
         [],
-        done,
       );
     });
 
-    it('EDIT_RESOLVE_MODE updates the correct file ', (done) => {
+    it('EDIT_RESOLVE_MODE updates the correct file', async () => {
       restoreFileLinesState.mockReturnValue([]);
       const file = {
         ...files[0],
@@ -280,7 +267,7 @@ describe('merge conflicts actions', () => {
         resolutionData: {},
         resolveMode: EDIT_RESOLVE_MODE,
       };
-      testAction(
+      await testAction(
         actions.setFileResolveMode,
         { file: files[0], mode: EDIT_RESOLVE_MODE },
         { conflictsData: { files }, getFileIndex: () => 0 },
@@ -294,17 +281,14 @@ describe('merge conflicts actions', () => {
           },
         ],
         [],
-        () => {
-          expect(restoreFileLinesState).toHaveBeenCalledWith(file);
-          done();
-        },
       );
+      expect(restoreFileLinesState).toHaveBeenCalledWith(file);
     });
   });
 
   describe('setPromptConfirmationState', () => {
-    it('updates the correct file ', (done) => {
-      testAction(
+    it('updates the correct file', () => {
+      return testAction(
         actions.setPromptConfirmationState,
         { file: files[0], promptDiscardConfirmation: true },
         { conflictsData: { files }, getFileIndex: () => 0 },
@@ -318,7 +302,6 @@ describe('merge conflicts actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
@@ -333,11 +316,11 @@ describe('merge conflicts actions', () => {
       ],
     };
 
-    it('updates the correct file ', (done) => {
+    it('updates the correct file', async () => {
       const marLikeMockReturn = { foo: 'bar' };
       markLine.mockReturnValue(marLikeMockReturn);
 
-      testAction(
+      await testAction(
         actions.handleSelected,
         { file, line: { id: 1, section: 'baz' } },
         { conflictsData: { files }, getFileIndex: () => 0 },
@@ -359,11 +342,8 @@ describe('merge conflicts actions', () => {
           },
         ],
         [],
-        () => {
-          expect(markLine).toHaveBeenCalledTimes(3);
-          done();
-        },
       );
+      expect(markLine).toHaveBeenCalledTimes(3);
     });
   });
 });

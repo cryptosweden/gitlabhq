@@ -5,6 +5,7 @@ import actions, { transformBackendBadge } from '~/badges/store/actions';
 import mutationTypes from '~/badges/store/mutation_types';
 import createState from '~/badges/store/state';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { createDummyBadge, createDummyBadgeResponse } from '../dummy_badge';
 
 describe('Badges store actions', () => {
@@ -33,41 +34,38 @@ describe('Badges store actions', () => {
   });
 
   describe('requestNewBadge', () => {
-    it('commits REQUEST_NEW_BADGE', (done) => {
-      testAction(
+    it('commits REQUEST_NEW_BADGE', () => {
+      return testAction(
         actions.requestNewBadge,
         null,
         state,
         [{ type: mutationTypes.REQUEST_NEW_BADGE }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveNewBadge', () => {
-    it('commits RECEIVE_NEW_BADGE', (done) => {
+    it('commits RECEIVE_NEW_BADGE', () => {
       const newBadge = createDummyBadge();
-      testAction(
+      return testAction(
         actions.receiveNewBadge,
         newBadge,
         state,
         [{ type: mutationTypes.RECEIVE_NEW_BADGE, payload: newBadge }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveNewBadgeError', () => {
-    it('commits RECEIVE_NEW_BADGE_ERROR', (done) => {
-      testAction(
+    it('commits RECEIVE_NEW_BADGE_ERROR', () => {
+      return testAction(
         actions.receiveNewBadgeError,
         null,
         state,
         [{ type: mutationTypes.RECEIVE_NEW_BADGE_ERROR }],
         [],
-        done,
       );
     });
   });
@@ -87,7 +85,7 @@ describe('Badges store actions', () => {
       };
     });
 
-    it('dispatches requestNewBadge and receiveNewBadge for successful response', (done) => {
+    it('dispatches requestNewBadge and receiveNewBadge for successful response', async () => {
       const dummyResponse = createDummyBadgeResponse();
 
       endpointMock.replyOnce((req) => {
@@ -101,20 +99,16 @@ describe('Badges store actions', () => {
 
         expect(dispatch.mock.calls).toEqual([['requestNewBadge']]);
         dispatch.mockClear();
-        return [200, dummyResponse];
+        return [HTTP_STATUS_OK, dummyResponse];
       });
 
       const dummyBadge = transformBackendBadge(dummyResponse);
-      actions
-        .addBadge({ state, dispatch })
-        .then(() => {
-          expect(dispatch.mock.calls).toEqual([['receiveNewBadge', dummyBadge]]);
-        })
-        .then(done)
-        .catch(done.fail);
+
+      await actions.addBadge({ state, dispatch });
+      expect(dispatch.mock.calls).toEqual([['receiveNewBadge', dummyBadge]]);
     });
 
-    it('dispatches requestNewBadge and receiveNewBadgeError for error response', (done) => {
+    it('dispatches requestNewBadge and receiveNewBadgeError for error response', async () => {
       endpointMock.replyOnce((req) => {
         expect(req.data).toBe(
           JSON.stringify({
@@ -126,55 +120,46 @@ describe('Badges store actions', () => {
 
         expect(dispatch.mock.calls).toEqual([['requestNewBadge']]);
         dispatch.mockClear();
-        return [500, ''];
+        return [HTTP_STATUS_INTERNAL_SERVER_ERROR, ''];
       });
 
-      actions
-        .addBadge({ state, dispatch })
-        .then(() => done.fail('Expected Ajax call to fail!'))
-        .catch(() => {
-          expect(dispatch.mock.calls).toEqual([['receiveNewBadgeError']]);
-        })
-        .then(done)
-        .catch(done.fail);
+      await expect(actions.addBadge({ state, dispatch })).rejects.toThrow();
+      expect(dispatch.mock.calls).toEqual([['receiveNewBadgeError']]);
     });
   });
 
   describe('requestDeleteBadge', () => {
-    it('commits REQUEST_DELETE_BADGE', (done) => {
-      testAction(
+    it('commits REQUEST_DELETE_BADGE', () => {
+      return testAction(
         actions.requestDeleteBadge,
         badgeId,
         state,
         [{ type: mutationTypes.REQUEST_DELETE_BADGE, payload: badgeId }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveDeleteBadge', () => {
-    it('commits RECEIVE_DELETE_BADGE', (done) => {
-      testAction(
+    it('commits RECEIVE_DELETE_BADGE', () => {
+      return testAction(
         actions.receiveDeleteBadge,
         badgeId,
         state,
         [{ type: mutationTypes.RECEIVE_DELETE_BADGE, payload: badgeId }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveDeleteBadgeError', () => {
-    it('commits RECEIVE_DELETE_BADGE_ERROR', (done) => {
-      testAction(
+    it('commits RECEIVE_DELETE_BADGE_ERROR', () => {
+      return testAction(
         actions.receiveDeleteBadgeError,
         badgeId,
         state,
         [{ type: mutationTypes.RECEIVE_DELETE_BADGE_ERROR, payload: badgeId }],
         [],
-        done,
       );
     });
   });
@@ -188,91 +173,76 @@ describe('Badges store actions', () => {
       dispatch = jest.fn();
     });
 
-    it('dispatches requestDeleteBadge and receiveDeleteBadge for successful response', (done) => {
+    it('dispatches requestDeleteBadge and receiveDeleteBadge for successful response', async () => {
       endpointMock.replyOnce(() => {
         expect(dispatch.mock.calls).toEqual([['requestDeleteBadge', badgeId]]);
         dispatch.mockClear();
-        return [200, ''];
+        return [HTTP_STATUS_OK, ''];
       });
 
-      actions
-        .deleteBadge({ state, dispatch }, { id: badgeId })
-        .then(() => {
-          expect(dispatch.mock.calls).toEqual([['receiveDeleteBadge', badgeId]]);
-        })
-        .then(done)
-        .catch(done.fail);
+      await actions.deleteBadge({ state, dispatch }, { id: badgeId });
+      expect(dispatch.mock.calls).toEqual([['receiveDeleteBadge', badgeId]]);
     });
 
-    it('dispatches requestDeleteBadge and receiveDeleteBadgeError for error response', (done) => {
+    it('dispatches requestDeleteBadge and receiveDeleteBadgeError for error response', async () => {
       endpointMock.replyOnce(() => {
         expect(dispatch.mock.calls).toEqual([['requestDeleteBadge', badgeId]]);
         dispatch.mockClear();
-        return [500, ''];
+        return [HTTP_STATUS_INTERNAL_SERVER_ERROR, ''];
       });
 
-      actions
-        .deleteBadge({ state, dispatch }, { id: badgeId })
-        .then(() => done.fail('Expected Ajax call to fail!'))
-        .catch(() => {
-          expect(dispatch.mock.calls).toEqual([['receiveDeleteBadgeError', badgeId]]);
-        })
-        .then(done)
-        .catch(done.fail);
+      await expect(actions.deleteBadge({ state, dispatch }, { id: badgeId })).rejects.toThrow();
+      expect(dispatch.mock.calls).toEqual([['receiveDeleteBadgeError', badgeId]]);
     });
   });
 
   describe('editBadge', () => {
-    it('commits START_EDITING', (done) => {
+    it('commits START_EDITING', () => {
       const dummyBadge = createDummyBadge();
-      testAction(
+      return testAction(
         actions.editBadge,
         dummyBadge,
         state,
         [{ type: mutationTypes.START_EDITING, payload: dummyBadge }],
         [],
-        done,
       );
     });
   });
 
   describe('requestLoadBadges', () => {
-    it('commits REQUEST_LOAD_BADGES', (done) => {
+    it('commits REQUEST_LOAD_BADGES', () => {
       const dummyData = 'this is not real data';
-      testAction(
+      return testAction(
         actions.requestLoadBadges,
         dummyData,
         state,
         [{ type: mutationTypes.REQUEST_LOAD_BADGES, payload: dummyData }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveLoadBadges', () => {
-    it('commits RECEIVE_LOAD_BADGES', (done) => {
+    it('commits RECEIVE_LOAD_BADGES', () => {
       const badges = dummyBadges;
-      testAction(
+      return testAction(
         actions.receiveLoadBadges,
         badges,
         state,
         [{ type: mutationTypes.RECEIVE_LOAD_BADGES, payload: badges }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveLoadBadgesError', () => {
-    it('commits RECEIVE_LOAD_BADGES_ERROR', (done) => {
-      testAction(
+    it('commits RECEIVE_LOAD_BADGES_ERROR', () => {
+      return testAction(
         actions.receiveLoadBadgesError,
         null,
         state,
         [{ type: mutationTypes.RECEIVE_LOAD_BADGES_ERROR }],
         [],
-        done,
       );
     });
   });
@@ -286,9 +256,9 @@ describe('Badges store actions', () => {
       dispatch = jest.fn();
     });
 
-    it('dispatches requestLoadBadges and receiveLoadBadges for successful response', (done) => {
+    it('dispatches requestLoadBadges and receiveLoadBadges for successful response', async () => {
       const dummyData = 'this is just some data';
-      const dummyReponse = [
+      const dummyResponse = [
         createDummyBadgeResponse(),
         createDummyBadgeResponse(),
         createDummyBadgeResponse(),
@@ -296,75 +266,61 @@ describe('Badges store actions', () => {
       endpointMock.replyOnce(() => {
         expect(dispatch.mock.calls).toEqual([['requestLoadBadges', dummyData]]);
         dispatch.mockClear();
-        return [200, dummyReponse];
+        return [HTTP_STATUS_OK, dummyResponse];
       });
 
-      actions
-        .loadBadges({ state, dispatch }, dummyData)
-        .then(() => {
-          const badges = dummyReponse.map(transformBackendBadge);
+      await actions.loadBadges({ state, dispatch }, dummyData);
+      const badges = dummyResponse.map(transformBackendBadge);
 
-          expect(dispatch.mock.calls).toEqual([['receiveLoadBadges', badges]]);
-        })
-        .then(done)
-        .catch(done.fail);
+      expect(dispatch.mock.calls).toEqual([['receiveLoadBadges', badges]]);
     });
 
-    it('dispatches requestLoadBadges and receiveLoadBadgesError for error response', (done) => {
+    it('dispatches requestLoadBadges and receiveLoadBadgesError for error response', async () => {
       const dummyData = 'this is just some data';
       endpointMock.replyOnce(() => {
         expect(dispatch.mock.calls).toEqual([['requestLoadBadges', dummyData]]);
         dispatch.mockClear();
-        return [500, ''];
+        return [HTTP_STATUS_INTERNAL_SERVER_ERROR, ''];
       });
 
-      actions
-        .loadBadges({ state, dispatch }, dummyData)
-        .then(() => done.fail('Expected Ajax call to fail!'))
-        .catch(() => {
-          expect(dispatch.mock.calls).toEqual([['receiveLoadBadgesError']]);
-        })
-        .then(done)
-        .catch(done.fail);
+      await expect(actions.loadBadges({ state, dispatch }, dummyData)).rejects.toThrow();
+      expect(dispatch.mock.calls).toEqual([['receiveLoadBadgesError']]);
     });
   });
 
   describe('requestRenderedBadge', () => {
-    it('commits REQUEST_RENDERED_BADGE', (done) => {
-      testAction(
+    it('commits REQUEST_RENDERED_BADGE', () => {
+      return testAction(
         actions.requestRenderedBadge,
         null,
         state,
         [{ type: mutationTypes.REQUEST_RENDERED_BADGE }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveRenderedBadge', () => {
-    it('commits RECEIVE_RENDERED_BADGE', (done) => {
+    it('commits RECEIVE_RENDERED_BADGE', () => {
       const dummyBadge = createDummyBadge();
-      testAction(
+      return testAction(
         actions.receiveRenderedBadge,
         dummyBadge,
         state,
         [{ type: mutationTypes.RECEIVE_RENDERED_BADGE, payload: dummyBadge }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveRenderedBadgeError', () => {
-    it('commits RECEIVE_RENDERED_BADGE_ERROR', (done) => {
-      testAction(
+    it('commits RECEIVE_RENDERED_BADGE_ERROR', () => {
+      return testAction(
         actions.receiveRenderedBadgeError,
         null,
         state,
         [{ type: mutationTypes.RECEIVE_RENDERED_BADGE_ERROR }],
         [],
-        done,
       );
     });
   });
@@ -388,128 +344,97 @@ describe('Badges store actions', () => {
       dispatch = jest.fn();
     });
 
-    it('returns immediately if imageUrl is empty', (done) => {
+    it('returns immediately if imageUrl is empty', async () => {
       jest.spyOn(axios, 'get').mockImplementation(() => {});
       badgeInForm.imageUrl = '';
 
-      actions
-        .renderBadge({ state, dispatch })
-        .then(() => {
-          expect(axios.get).not.toHaveBeenCalled();
-        })
-        .then(done)
-        .catch(done.fail);
+      await actions.renderBadge({ state, dispatch });
+      expect(axios.get).not.toHaveBeenCalled();
     });
 
-    it('returns immediately if linkUrl is empty', (done) => {
+    it('returns immediately if linkUrl is empty', async () => {
       jest.spyOn(axios, 'get').mockImplementation(() => {});
       badgeInForm.linkUrl = '';
 
-      actions
-        .renderBadge({ state, dispatch })
-        .then(() => {
-          expect(axios.get).not.toHaveBeenCalled();
-        })
-        .then(done)
-        .catch(done.fail);
+      await actions.renderBadge({ state, dispatch });
+      expect(axios.get).not.toHaveBeenCalled();
     });
 
-    it('escapes user input', (done) => {
+    it('escapes user input', async () => {
       jest
         .spyOn(axios, 'get')
         .mockImplementation(() => Promise.resolve({ data: createDummyBadgeResponse() }));
       badgeInForm.imageUrl = '&make-sandwich=true';
       badgeInForm.linkUrl = '<script>I am dangerous!</script>';
 
-      actions
-        .renderBadge({ state, dispatch })
-        .then(() => {
-          expect(axios.get.mock.calls.length).toBe(1);
-          const url = axios.get.mock.calls[0][0];
+      await actions.renderBadge({ state, dispatch });
+      expect(axios.get.mock.calls.length).toBe(1);
+      const url = axios.get.mock.calls[0][0];
 
-          expect(url).toMatch(new RegExp(`^${dummyEndpointUrl}/render?`));
-          expect(url).toMatch(
-            new RegExp('\\?link_url=%3Cscript%3EI%20am%20dangerous!%3C%2Fscript%3E&'),
-          );
-          expect(url).toMatch(new RegExp('&image_url=%26make-sandwich%3Dtrue$'));
-        })
-        .then(done)
-        .catch(done.fail);
+      expect(url).toMatch(new RegExp(`^${dummyEndpointUrl}/render?`));
+      expect(url).toMatch(/\\?link_url=%3Cscript%3EI%20am%20dangerous!%3C%2Fscript%3E&/);
+      expect(url).toMatch(/&image_url=%26make-sandwich%3Dtrue$/);
     });
 
-    it('dispatches requestRenderedBadge and receiveRenderedBadge for successful response', (done) => {
-      const dummyReponse = createDummyBadgeResponse();
+    it('dispatches requestRenderedBadge and receiveRenderedBadge for successful response', async () => {
+      const dummyResponse = createDummyBadgeResponse();
       endpointMock.replyOnce(() => {
         expect(dispatch.mock.calls).toEqual([['requestRenderedBadge']]);
         dispatch.mockClear();
-        return [200, dummyReponse];
+        return [HTTP_STATUS_OK, dummyResponse];
       });
 
-      actions
-        .renderBadge({ state, dispatch })
-        .then(() => {
-          const renderedBadge = transformBackendBadge(dummyReponse);
+      await actions.renderBadge({ state, dispatch });
+      const renderedBadge = transformBackendBadge(dummyResponse);
 
-          expect(dispatch.mock.calls).toEqual([['receiveRenderedBadge', renderedBadge]]);
-        })
-        .then(done)
-        .catch(done.fail);
+      expect(dispatch.mock.calls).toEqual([['receiveRenderedBadge', renderedBadge]]);
     });
 
-    it('dispatches requestRenderedBadge and receiveRenderedBadgeError for error response', (done) => {
+    it('dispatches requestRenderedBadge and receiveRenderedBadgeError for error response', async () => {
       endpointMock.replyOnce(() => {
         expect(dispatch.mock.calls).toEqual([['requestRenderedBadge']]);
         dispatch.mockClear();
-        return [500, ''];
+        return [HTTP_STATUS_INTERNAL_SERVER_ERROR, ''];
       });
 
-      actions
-        .renderBadge({ state, dispatch })
-        .then(() => done.fail('Expected Ajax call to fail!'))
-        .catch(() => {
-          expect(dispatch.mock.calls).toEqual([['receiveRenderedBadgeError']]);
-        })
-        .then(done)
-        .catch(done.fail);
+      await expect(actions.renderBadge({ state, dispatch })).rejects.toThrow();
+      expect(dispatch.mock.calls).toEqual([['receiveRenderedBadgeError']]);
     });
   });
 
   describe('requestUpdatedBadge', () => {
-    it('commits REQUEST_UPDATED_BADGE', (done) => {
-      testAction(
+    it('commits REQUEST_UPDATED_BADGE', () => {
+      return testAction(
         actions.requestUpdatedBadge,
         null,
         state,
         [{ type: mutationTypes.REQUEST_UPDATED_BADGE }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveUpdatedBadge', () => {
-    it('commits RECEIVE_UPDATED_BADGE', (done) => {
+    it('commits RECEIVE_UPDATED_BADGE', () => {
       const updatedBadge = createDummyBadge();
-      testAction(
+      return testAction(
         actions.receiveUpdatedBadge,
         updatedBadge,
         state,
         [{ type: mutationTypes.RECEIVE_UPDATED_BADGE, payload: updatedBadge }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveUpdatedBadgeError', () => {
-    it('commits RECEIVE_UPDATED_BADGE_ERROR', (done) => {
-      testAction(
+    it('commits RECEIVE_UPDATED_BADGE_ERROR', () => {
+      return testAction(
         actions.receiveUpdatedBadgeError,
         null,
         state,
         [{ type: mutationTypes.RECEIVE_UPDATED_BADGE_ERROR }],
         [],
-        done,
       );
     });
   });
@@ -529,7 +454,7 @@ describe('Badges store actions', () => {
       dispatch = jest.fn();
     });
 
-    it('dispatches requestUpdatedBadge and receiveUpdatedBadge for successful response', (done) => {
+    it('dispatches requestUpdatedBadge and receiveUpdatedBadge for successful response', async () => {
       const dummyResponse = createDummyBadgeResponse();
 
       endpointMock.replyOnce((req) => {
@@ -543,20 +468,15 @@ describe('Badges store actions', () => {
 
         expect(dispatch.mock.calls).toEqual([['requestUpdatedBadge']]);
         dispatch.mockClear();
-        return [200, dummyResponse];
+        return [HTTP_STATUS_OK, dummyResponse];
       });
 
       const updatedBadge = transformBackendBadge(dummyResponse);
-      actions
-        .saveBadge({ state, dispatch })
-        .then(() => {
-          expect(dispatch.mock.calls).toEqual([['receiveUpdatedBadge', updatedBadge]]);
-        })
-        .then(done)
-        .catch(done.fail);
+      await actions.saveBadge({ state, dispatch });
+      expect(dispatch.mock.calls).toEqual([['receiveUpdatedBadge', updatedBadge]]);
     });
 
-    it('dispatches requestUpdatedBadge and receiveUpdatedBadgeError for error response', (done) => {
+    it('dispatches requestUpdatedBadge and receiveUpdatedBadgeError for error response', async () => {
       endpointMock.replyOnce((req) => {
         expect(req.data).toBe(
           JSON.stringify({
@@ -568,56 +488,47 @@ describe('Badges store actions', () => {
 
         expect(dispatch.mock.calls).toEqual([['requestUpdatedBadge']]);
         dispatch.mockClear();
-        return [500, ''];
+        return [HTTP_STATUS_INTERNAL_SERVER_ERROR, ''];
       });
 
-      actions
-        .saveBadge({ state, dispatch })
-        .then(() => done.fail('Expected Ajax call to fail!'))
-        .catch(() => {
-          expect(dispatch.mock.calls).toEqual([['receiveUpdatedBadgeError']]);
-        })
-        .then(done)
-        .catch(done.fail);
+      await expect(actions.saveBadge({ state, dispatch })).rejects.toThrow();
+      expect(dispatch.mock.calls).toEqual([['receiveUpdatedBadgeError']]);
     });
   });
 
   describe('stopEditing', () => {
-    it('commits STOP_EDITING', (done) => {
-      testAction(
+    it('commits STOP_EDITING', () => {
+      return testAction(
         actions.stopEditing,
         null,
         state,
         [{ type: mutationTypes.STOP_EDITING }],
         [],
-        done,
       );
     });
   });
 
   describe('updateBadgeInForm', () => {
-    it('commits UPDATE_BADGE_IN_FORM', (done) => {
+    it('commits UPDATE_BADGE_IN_FORM', () => {
       const dummyBadge = createDummyBadge();
-      testAction(
+      return testAction(
         actions.updateBadgeInForm,
         dummyBadge,
         state,
         [{ type: mutationTypes.UPDATE_BADGE_IN_FORM, payload: dummyBadge }],
         [],
-        done,
       );
     });
 
     describe('updateBadgeInModal', () => {
-      it('commits UPDATE_BADGE_IN_MODAL', (done) => {
+      it('commits UPDATE_BADGE_IN_MODAL', () => {
         const dummyBadge = createDummyBadge();
-        testAction(
+        return testAction(
           actions.updateBadgeInModal,
           dummyBadge,
           state,
           [{ type: mutationTypes.UPDATE_BADGE_IN_MODAL, payload: dummyBadge }],
           [],
-          done,
         );
       });
     });

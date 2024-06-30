@@ -2,10 +2,7 @@
 data_category: optional
 key_path: counts.templates_redmine_active
 description: Count of active service templates for Redmine
-product_section: dev
-product_stage: ecosystem
-product_group: group::integrations
-product_category: integrations
+product_group: import_and_integrate
 value_type: number
 status: removed
 milestone_removed: '14.4'
@@ -20,3 +17,4 @@ tier:
 - ultimate
 performance_indicator_type: []
 milestone: "<13.9"
+removed_by_url:

@@ -1,11 +1,14 @@
 ---
 stage: Verify
 group: Runner
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Use GitLab as a microservice **(FREE)**
+# Use GitLab as a microservice
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Many applications need to access JSON APIs, so application tests might need access
 to APIs too. The following example shows how to use GitLab as a microservice to give
@@ -26,7 +29,7 @@ tests access to the GitLab API.
 
 NOTE:
 Variables set in the GitLab UI are not passed down to the service containers.
-[Learn more](../variables/index.md#).
+For more information, see [GitLab CI/CD variables](../variables/index.md).
 
 Then, commands in `script` sections in your `.gitlab-ci.yml` file can access the API at `http://gitlab/api/v4`.
 

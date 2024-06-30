@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Groups > Members > Filter members', :js do
-  include Spec::Support::Helpers::Features::MembersHelpers
+RSpec.describe 'Groups > Members > Filter members', :js, feature_category: :groups_and_projects do
+  include Features::MembersHelpers
 
   let(:user)              { create(:user) }
   let(:nested_group_user) { create(:user) }
@@ -69,14 +69,31 @@ RSpec.describe 'Groups > Members > Filter members', :js do
     end
   end
 
-  it 'shows only inherited members' do
+  it 'shows only indirect members' do
     visit_members_list(nested_group, with_inherited_permissions: 'only')
     expect(member(0)).to include(user.name)
     expect(member(1)).to include(user_with_2fa.name)
     expect(all_rows.size).to eq(2)
 
     within filtered_search_bar_selector do
-      expect(page).to have_content 'Membership = Inherited'
+      expect(page).to have_content 'Membership = Indirect'
+    end
+  end
+
+  context 'when the `webui_members_inherited_users` feature flag is disabled' do
+    before do
+      stub_feature_flags(webui_members_inherited_users: false)
+    end
+
+    it 'shows only inherited members' do
+      visit_members_list(nested_group, with_inherited_permissions: 'only')
+      expect(member(0)).to include(user.name)
+      expect(member(1)).to include(user_with_2fa.name)
+      expect(all_rows.size).to eq(2)
+
+      within filtered_search_bar_selector do
+        expect(page).to have_content 'Membership = Inherited'
+      end
     end
   end
 

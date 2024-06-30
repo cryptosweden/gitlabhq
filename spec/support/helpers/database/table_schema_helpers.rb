@@ -3,7 +3,9 @@
 module Database
   module TableSchemaHelpers
     def connection
-      ActiveRecord::Base.connection
+      # We use ActiveRecord::Base.connection here because this is mainly used for database migrations
+      # where we override the connection on ActiveRecord::Base.connection
+      ActiveRecord::Base.connection # rubocop:disable Database/MultipleDatabases
     end
 
     def expect_table_to_be_replaced(original_table:, replacement_table:, archived_table:)
@@ -151,6 +153,27 @@ module Database
           AND pg_constraint.contype = 'f'
           AND pg_constraint.conname = '#{foreign_key_name}'
       SQL
+    end
+
+    def foreign_key_by_name(source, name)
+      connection.foreign_keys(source).find do |key|
+        key.name == name.to_s
+      end
+    end
+
+    def index_by_name(table, name, partitioned_table: nil)
+      if partitioned_table
+        partitioned_index = index_by_name(partitioned_table, name)
+        return unless partitioned_index
+
+        connection.indexes(table).find do |key|
+          key.columns == partitioned_index.columns
+        end
+      else
+        connection.indexes(table).find do |key|
+          key.name == name.to_s
+        end
+      end
     end
 
     def check_constraint_definition(table_name, constraint_name, schema: nil)

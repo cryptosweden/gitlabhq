@@ -21,14 +21,14 @@ module Ci
         accumulator << record if record[:store_dir] && record[:file]
       end
 
-      self.insert_all(attributes) if attributes.any?
+      insert_all(attributes) if attributes.any?
     end
 
     def delete_file_from_storage
       file.remove!
       true
-    rescue StandardError => exception
-      Gitlab::ErrorTracking.track_exception(exception)
+    rescue StandardError => e
+      Gitlab::ErrorTracking.track_exception(e)
       false
     end
   end

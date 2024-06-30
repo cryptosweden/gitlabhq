@@ -7,8 +7,7 @@ module Mutations
 
       include Mutations::SpamProtection
 
-      description "Creates a work item from a task in another work item's description." \
-                  " Available only when feature flag `work_items` is enabled. This feature is experimental and is subject to change without notice."
+      description "Creates a work item from a task in another work item's description."
 
       authorize :update_work_item
 
@@ -31,17 +30,10 @@ module Mutations
       def resolve(id:, work_item_data:)
         work_item = authorized_find!(id: id)
 
-        unless work_item.project.work_items_feature_flag_enabled?
-          return { errors: ['`work_items` feature flag disabled for this project'] }
-        end
-
-        spam_params = ::Spam::SpamParams.new_from_request(request: context[:request])
-
         result = ::WorkItems::CreateFromTaskService.new(
           work_item: work_item,
           current_user: current_user,
-          work_item_params: work_item_data,
-          spam_params: spam_params
+          work_item_params: work_item_data
         ).execute
 
         check_spam_action_response!(result[:work_item]) if result[:work_item]
@@ -50,14 +42,6 @@ module Mutations
         response.merge!(work_item: work_item, new_work_item: result[:work_item]) if result.success?
 
         response
-      end
-
-      private
-
-      def find_object(id:)
-        # TODO: Remove coercion when working on https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = ::Types::GlobalIDType[::WorkItem].coerce_isolated_input(id)
-        GitlabSchema.find_by_gid(id)
       end
     end
   end

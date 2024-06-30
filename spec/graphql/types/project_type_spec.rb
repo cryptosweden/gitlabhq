@@ -2,9 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe GitlabSchema.types['Project'] do
+RSpec.describe GitlabSchema.types['Project'], feature_category: :groups_and_projects do
   include GraphqlHelpers
-  include Ci::TemplateHelpers
+  include ProjectForksHelper
+  using RSpec::Parameterized::TableSyntax
 
   specify { expect(described_class).to expose_permissions_using(Types::PermissionTypes::Project) }
 
@@ -17,28 +18,63 @@ RSpec.describe GitlabSchema.types['Project'] do
       user_permissions id full_path path name_with_namespace
       name description description_html tag_list topics ssh_url_to_repo
       http_url_to_repo web_url star_count forks_count
-      created_at last_activity_at archived visibility
+      created_at updated_at last_activity_at archived visibility
       container_registry_enabled shared_runners_enabled
       lfs_enabled merge_requests_ff_only_enabled avatar_url
       issues_enabled merge_requests_enabled wiki_enabled
-      snippets_enabled jobs_enabled public_jobs open_issues_count import_status
+      forking_access_level issues_access_level merge_requests_access_level
+      snippets_enabled jobs_enabled public_jobs open_issues_count open_merge_requests_count import_status
       only_allow_merge_if_pipeline_succeeds request_access_enabled
       only_allow_merge_if_all_discussions_are_resolved printing_merge_request_link_enabled
-      namespace group statistics repository merge_requests merge_request issues
+      namespace group statistics statistics_details_paths repository merge_requests merge_request issues
       issue milestones pipelines removeSourceBranchAfterMerge pipeline_counts sentryDetailedError snippets
       grafanaIntegration autocloseReferencedIssues suggestion_commit_message environments
       environment boards jira_import_status jira_imports services releases release
       alert_management_alerts alert_management_alert alert_management_alert_status_counts
+      incident_management_timeline_event incident_management_timeline_events
       container_expiration_policy service_desk_enabled service_desk_address
       issue_status_counts terraform_states alert_management_integrations
-      container_repositories container_repositories_count
+      container_repositories container_repositories_count max_access_level
       pipeline_analytics squash_read_only sast_ci_configuration
-      cluster_agent cluster_agents agent_configurations
+      cluster_agent cluster_agents agent_configurations ci_access_authorized_agents user_access_authorized_agents
       ci_template timelogs merge_commit_template squash_commit_template work_item_types
-      recent_issue_boards ci_config_path_or_default
+      recent_issue_boards ci_config_path_or_default packages_cleanup_policy ci_variables
+      timelog_categories fork_targets branch_rules ci_config_variables pipeline_schedules languages
+      incident_management_timeline_event_tags visible_forks inherited_ci_variables autocomplete_users
+      ci_cd_settings detailed_import_status value_streams ml_models
+      allows_multiple_merge_request_assignees allows_multiple_merge_request_reviewers is_forked
+      protectable_branches available_deploy_keys
     ]
 
     expect(described_class).to include_graphql_fields(*expected_fields)
+  end
+
+  describe 'count' do
+    let_it_be(:user) { create(:user) }
+
+    let(:query) do
+      %(
+        query {
+          projects {
+              count
+              edges {
+                node {
+                  id
+              }
+            }
+          }
+        }
+      )
+    end
+
+    subject { GitlabSchema.execute(query, context: { current_user: user }).as_json }
+
+    it 'returns valid projects count' do
+      create(:project, namespace: user.namespace)
+      create(:project, namespace: user.namespace)
+
+      expect(subject.dig('data', 'projects', 'count')).to eq(2)
+    end
   end
 
   describe 'container_registry_enabled' do
@@ -165,8 +201,8 @@ RSpec.describe GitlabSchema.types['Project'] do
       expect(secure_analyzers['type']).to eq('string')
       expect(secure_analyzers['field']).to eq('SECURE_ANALYZERS_PREFIX')
       expect(secure_analyzers['label']).to eq('Image prefix')
-      expect(secure_analyzers['defaultValue']).to eq(secure_analyzers_prefix)
-      expect(secure_analyzers['value']).to eq(secure_analyzers_prefix)
+      expect(secure_analyzers['defaultValue']).to eq('$CI_TEMPLATE_REGISTRY_HOST/security-products')
+      expect(secure_analyzers['value']).to eq('$CI_TEMPLATE_REGISTRY_HOST/security-products')
       expect(secure_analyzers['size']).to eq('LARGE')
       expect(secure_analyzers['options']).to be_nil
     end
@@ -183,8 +219,8 @@ RSpec.describe GitlabSchema.types['Project'] do
 
     it "returns the project's sast configuration for analyzer variables" do
       analyzer = subject.dig('data', 'project', 'sastCiConfiguration', 'analyzers', 'nodes').first
-      expect(analyzer['name']).to eq('bandit')
-      expect(analyzer['label']).to eq('Bandit')
+      expect(analyzer['name']).to eq('brakeman')
+      expect(analyzer['label']).to eq('Brakeman')
       expect(analyzer['enabled']).to eq(true)
     end
 
@@ -255,20 +291,31 @@ RSpec.describe GitlabSchema.types['Project'] do
         end
       end
     end
+
+    context 'with empty repository' do
+      let_it_be(:project) { create(:project_empty_repo) }
+
+      it 'raises an error' do
+        expect(subject['errors'][0]['message']).to eq('You must <a target="_blank" rel="noopener noreferrer" ' \
+                                                      'href="http://localhost/help/user/project/repository/index.md#' \
+                                                      'add-files-to-a-repository">add at least one file to the ' \
+                                                      'repository</a> before using Security features.')
+      end
+    end
   end
 
   describe 'issue field' do
     subject { described_class.fields['issue'] }
 
     it { is_expected.to have_graphql_type(Types::IssueType) }
-    it { is_expected.to have_graphql_resolver(Resolvers::IssuesResolver.single) }
+    it { is_expected.to have_graphql_resolver(Resolvers::ProjectIssuesResolver.single) }
   end
 
   describe 'issues field' do
     subject { described_class.fields['issues'] }
 
     it { is_expected.to have_graphql_type(Types::IssueType.connection_type) }
-    it { is_expected.to have_graphql_resolver(Resolvers::IssuesResolver) }
+    it { is_expected.to have_graphql_resolver(Resolvers::ProjectIssuesResolver) }
   end
 
   describe 'merge_request field' do
@@ -286,29 +333,40 @@ RSpec.describe GitlabSchema.types['Project'] do
     it { is_expected.to have_graphql_resolver(Resolvers::ProjectMergeRequestsResolver) }
 
     it do
-      is_expected.to have_graphql_arguments(:iids,
-                                            :source_branches,
-                                            :target_branches,
-                                            :state,
-                                            :draft,
-                                            :labels,
-                                            :before,
-                                            :after,
-                                            :first,
-                                            :last,
-                                            :merged_after,
-                                            :merged_before,
-                                            :created_after,
-                                            :created_before,
-                                            :updated_after,
-                                            :updated_before,
-                                            :author_username,
-                                            :assignee_username,
-                                            :reviewer_username,
-                                            :milestone_title,
-                                            :not,
-                                            :sort
-                                           )
+      is_expected.to have_graphql_arguments(
+        :iids,
+        :source_branches,
+        :target_branches,
+        :state,
+        :draft,
+        :approved,
+        :labels,
+        :label_name,
+        :before,
+        :after,
+        :first,
+        :last,
+        :merged_after,
+        :merged_before,
+        :created_after,
+        :created_before,
+        :deployed_after,
+        :deployed_before,
+        :deployment_id,
+        :updated_after,
+        :updated_before,
+        :author_username,
+        :assignee_username,
+        :assignee_wildcard_id,
+        :reviewer_username,
+        :reviewer_wildcard_id,
+        :review_state,
+        :review_states,
+        :milestone_title,
+        :milestone_wildcard_id,
+        :not,
+        :sort
+      )
     end
   end
 
@@ -392,6 +450,12 @@ RSpec.describe GitlabSchema.types['Project'] do
     it { is_expected.to have_graphql_type(Types::ContainerExpirationPolicyType) }
   end
 
+  describe 'packages cleanup policy field' do
+    subject { described_class.fields['packagesCleanupPolicy'] }
+
+    it { is_expected.to have_graphql_type(Types::Packages::Cleanup::PolicyType) }
+  end
+
   describe 'terraform state field' do
     subject { described_class.fields['terraformState'] }
 
@@ -416,7 +480,7 @@ RSpec.describe GitlabSchema.types['Project'] do
   end
 
   it_behaves_like 'a GraphQL type with labels' do
-    let(:labels_resolver_arguments) { [:search_term, :includeAncestorGroups] }
+    let(:labels_resolver_arguments) { [:search_term, :includeAncestorGroups, :searchIn] }
   end
 
   describe 'jira_imports' do
@@ -449,14 +513,14 @@ RSpec.describe GitlabSchema.types['Project'] do
     subject { described_class.fields['pipelineAnalytics'] }
 
     it { is_expected.to have_graphql_type(Types::Ci::AnalyticsType) }
-    it { is_expected.to have_graphql_resolver(Resolvers::ProjectPipelineStatisticsResolver) }
+    it { is_expected.to have_graphql_resolver(Resolvers::Ci::ProjectPipelineAnalyticsResolver) }
   end
 
   describe 'jobs field' do
     subject { described_class.fields['jobs'] }
 
     it { is_expected.to have_graphql_type(Types::Ci::JobType.connection_type) }
-    it { is_expected.to have_graphql_arguments(:statuses) }
+    it { is_expected.to have_graphql_arguments(:statuses, :with_artifacts, :name, :after, :before, :first, :last) }
   end
 
   describe 'ci_template field' do
@@ -471,6 +535,19 @@ RSpec.describe GitlabSchema.types['Project'] do
 
     it { is_expected.to have_graphql_type(Types::Ci::JobTokenScopeType) }
     it { is_expected.to have_graphql_resolver(Resolvers::Ci::JobTokenScopeResolver) }
+  end
+
+  describe 'incident_management_timeline_event_tags field' do
+    subject { described_class.fields['incidentManagementTimelineEventTags'] }
+
+    it { is_expected.to have_graphql_type(Types::IncidentManagement::TimelineEventTagType) }
+  end
+
+  describe 'mlModels field' do
+    subject { described_class.fields['mlModels'] }
+
+    it { is_expected.to have_graphql_type(Types::Ml::ModelType.connection_type) }
+    it { is_expected.to have_graphql_resolver(Resolvers::Ml::FindModelsResolver) }
   end
 
   describe 'agent_configurations' do
@@ -622,8 +699,8 @@ RSpec.describe GitlabSchema.types['Project'] do
     subject { GitlabSchema.execute(query, context: { current_user: user }).as_json }
 
     before do
-      allow(::Gitlab::ServiceDeskEmail).to receive(:enabled?) { true }
-      allow(::Gitlab::ServiceDeskEmail).to receive(:address_for_key) { 'address-suffix@example.com' }
+      allow(::Gitlab::Email::ServiceDeskEmail).to receive(:enabled?) { true }
+      allow(::Gitlab::Email::ServiceDeskEmail).to receive(:address_for_key) { 'address-suffix@example.com' }
     end
 
     context 'when a user can admin issues' do
@@ -643,6 +720,602 @@ RSpec.describe GitlabSchema.types['Project'] do
 
       it 'is empty' do
         expect(subject.dig('data', 'project', 'serviceDeskAddress')).to be_blank
+      end
+    end
+  end
+
+  describe 'project features access level' do
+    let_it_be(:project) { create(:project, :public) }
+
+    where(project_feature: %w[forkingAccessLevel issuesAccessLevel mergeRequestsAccessLevel])
+
+    with_them do
+      let(:query) do
+        %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            #{project_feature} {
+              integerValue
+              stringValue
+            }
+          }
+        }
+      )
+      end
+
+      subject { GitlabSchema.execute(query).as_json.dig('data', 'project', project_feature) }
+
+      it { is_expected.to eq({ "integerValue" => ProjectFeature::ENABLED, "stringValue" => "ENABLED" }) }
+    end
+  end
+
+  describe 'open_merge_requests_count' do
+    let_it_be(:project, reload: true) { create(:project, :public) }
+    let_it_be(:open_merge_request) { create(:merge_request, source_project: project) }
+    let_it_be(:closed_merge_request) { create(:merge_request, :closed, source_project: project) }
+
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            openMergeRequestsCount
+          }
+        }
+      )
+    end
+
+    subject(:open_merge_requests_count) do
+      GitlabSchema.execute(query).as_json.dig('data', 'project', 'openMergeRequestsCount')
+    end
+
+    context 'when the user can access merge requests' do
+      it { is_expected.to eq(1) }
+    end
+
+    context 'when the user cannot access merge requests' do
+      before do
+        project.project_feature.update!(merge_requests_access_level: ProjectFeature::PRIVATE)
+      end
+
+      it { is_expected.to be_nil }
+    end
+  end
+
+  describe 'is_forked' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:unforked_project) { create(:project, :public) }
+    let!(:forked_project) { fork_project(unforked_project) }
+    let(:project) { nil }
+
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            isForked
+          }
+        }
+      )
+    end
+
+    let(:response) { GitlabSchema.execute(query).as_json }
+
+    subject(:is_forked) { response.dig('data', 'project', 'isForked') }
+
+    context 'when project has a fork network' do
+      context 'when fork is itself' do
+        let(:project) { unforked_project }
+
+        it { is_expected.to be false }
+      end
+
+      context 'when fork is not itself' do
+        let(:project) { forked_project }
+
+        it { is_expected.to be true }
+
+        it 'avoids N+1 queries' do
+          query_count = ActiveRecord::QueryRecorder.new { response }
+
+          expect(query_count).not_to exceed_query_limit(8)
+        end
+      end
+    end
+
+    context 'when project does not have a fork network' do
+      let(:project) { unforked_project }
+
+      before do
+        allow(project).to receive(:fork_network).and_return(nil)
+      end
+
+      it { is_expected.to be false }
+    end
+  end
+
+  describe 'branch_rules' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:project, reload: true) { create(:project, :public) }
+    let_it_be(:name) { 'feat/*' }
+    let_it_be(:protected_branch) do
+      create(:protected_branch, project: project, name: name)
+    end
+
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            branchRules {
+              nodes {
+                name
+              }
+            }
+          }
+        }
+      )
+    end
+
+    let(:branch_rules_data) do
+      subject.dig('data', 'project', 'branchRules', 'nodes')
+    end
+
+    subject { GitlabSchema.execute(query, context: { current_user: user }).as_json }
+
+    context 'when a user can read protected branches' do
+      before do
+        project.add_maintainer(user)
+      end
+
+      it 'is present and correct' do
+        expect(branch_rules_data.count).to eq(1)
+        expect(branch_rules_data.first['name']).to eq(name)
+      end
+    end
+
+    context 'when a user cannot read protected branches' do
+      before do
+        project.add_guest(user)
+      end
+
+      it 'is empty' do
+        expect(branch_rules_data.count).to eq(0)
+      end
+    end
+  end
+
+  describe 'timeline_event_tags' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:project) do
+      create(
+        :project,
+        :private,
+        :repository,
+        creator_id: user.id,
+        namespace: user.namespace
+      )
+    end
+
+    let_it_be(:tag1) do
+      create(
+        :incident_management_timeline_event_tag,
+        project: project,
+        name: 'Tag 1'
+      )
+    end
+
+    let_it_be(:tag2) do
+      create(
+        :incident_management_timeline_event_tag,
+        project: project,
+        name: 'Tag 2'
+      )
+    end
+
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            incidentManagementTimelineEventTags {
+              name
+              id
+            }
+          }
+        }
+      )
+    end
+
+    let(:tags) do
+      subject.dig('data', 'project', 'incidentManagementTimelineEventTags')
+    end
+
+    subject { GitlabSchema.execute(query, context: { current_user: user }).as_json }
+
+    context 'when user has permissions to read project' do
+      before do
+        project.add_developer(user)
+      end
+
+      it 'contains timeline event tags' do
+        expect(tags.count).to eq(2)
+        expect(tags.first['name']).to eq(tag1.name)
+        expect(tags.last['name']).to eq(tag2.name)
+      end
+    end
+  end
+
+  describe 'languages' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:project) do
+      create(
+        :project,
+        :private,
+        :repository,
+        creator_id: user.id,
+        namespace: user.namespace
+      )
+    end
+
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            languages {
+              name
+              share
+              color
+            }
+          }
+        }
+      )
+    end
+
+    let(:mock_languages) { [] }
+
+    before do
+      allow_next_instance_of(::Projects::RepositoryLanguagesService) do |service|
+        allow(service).to receive(:execute).and_return(mock_languages)
+      end
+    end
+
+    subject { GitlabSchema.execute(query, context: { current_user: user }).as_json }
+
+    let(:languages) { subject.dig('data', 'project', 'languages') }
+
+    context "when the languages haven't been detected yet" do
+      it 'returns an empty array' do
+        expect(languages).to eq([])
+      end
+    end
+
+    context 'when the languages were detected before' do
+      let(:mock_languages) do
+        [{ share: 66.69, name: "Ruby", color: "#701516" },
+         { share: 22.98, name: "JavaScript", color: "#f1e05a" },
+         { share: 7.91, name: "HTML", color: "#e34c26" },
+         { share: 2.42, name: "CoffeeScript", color: "#244776" }]
+      end
+
+      it 'returns the repository languages' do
+        expect(languages).to eq(mock_languages.map(&:stringify_keys))
+      end
+    end
+  end
+
+  describe 'visible_forks' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:project) { create(:project, :public) }
+    let_it_be(:fork_reporter) { fork_project(project, nil, { repository: true }) }
+    let_it_be(:fork_developer) { fork_project(project, nil, { repository: true }) }
+    let_it_be(:fork_group_developer) { fork_project(project, nil, { repository: true }) }
+    let_it_be(:fork_public) { fork_project(project, nil, { repository: true }) }
+    let_it_be(:fork_private) { fork_project(project, nil, { repository: true }) }
+
+    let(:minimum_access_level) { '' }
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            visibleForks#{minimum_access_level} {
+              nodes {
+                fullPath
+              }
+            }
+          }
+        }
+      )
+    end
+
+    let(:forks) do
+      subject.dig('data', 'project', 'visibleForks', 'nodes')
+    end
+
+    subject { GitlabSchema.execute(query, context: { current_user: user }).as_json }
+
+    before_all do
+      fork_reporter.add_reporter(user)
+      fork_developer.add_developer(user)
+      fork_group_developer.group.add_developer(user)
+      fork_private.update!(visibility_level: Gitlab::VisibilityLevel::PRIVATE)
+    end
+
+    it 'contains all forks' do
+      expect(forks.count).to eq(4)
+    end
+
+    context 'with minimum_access_level DEVELOPER' do
+      let(:minimum_access_level) { '(minimumAccessLevel: DEVELOPER)' }
+
+      it 'contains forks with developer access' do
+        expect(forks).to contain_exactly(
+          a_hash_including('fullPath' => fork_developer.full_path),
+          a_hash_including('fullPath' => fork_group_developer.full_path)
+        )
+      end
+
+      context 'when current user is not set' do
+        let(:user) { nil }
+
+        it 'does not return any forks' do
+          expect(forks.count).to eq(0)
+        end
+      end
+    end
+  end
+
+  describe 'detailed_import_status' do
+    let_it_be_with_reload(:project) { create(:project, :with_import_url) }
+
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            detailedImportStatus {
+              status
+              url
+              lastError
+            }
+          }
+        }
+      )
+    end
+
+    subject { GitlabSchema.execute(query, context: { current_user: current_user }).as_json }
+
+    let(:detailed_import_status) do
+      subject.dig('data', 'project', 'detailedImportStatus')
+    end
+
+    context 'when project is not imported' do
+      let(:current_user) { create(:user) }
+
+      before do
+        project.add_developer(current_user)
+        project.import_state.destroy!
+      end
+
+      it 'returns nil' do
+        expect(detailed_import_status).to be_nil
+      end
+    end
+
+    context 'when current_user is not set' do
+      let(:current_user) { nil }
+
+      it 'returns nil' do
+        expect(detailed_import_status).to be_nil
+      end
+    end
+
+    context 'when current_user has no permission' do
+      let(:current_user) { create(:user) }
+
+      it 'returns nil' do
+        expect(detailed_import_status).to be_nil
+      end
+    end
+
+    context 'when current_user has limited permission' do
+      let(:current_user) { create(:user) }
+
+      before do
+        project.add_developer(current_user)
+        project.import_state.last_error = 'Some error'
+        project.import_state.save!
+      end
+
+      it 'returns detailed information' do
+        expect(detailed_import_status).to include(
+          'status' => project.import_state.status,
+          'url' => project.safe_import_url,
+          'lastError' => nil
+        )
+      end
+    end
+
+    context 'when current_user has permission' do
+      let(:current_user) { create(:user) }
+
+      before do
+        project.add_maintainer(current_user)
+        project.import_state.last_error = 'Some error'
+        project.import_state.save!
+      end
+
+      it 'returns detailed information' do
+        expect(detailed_import_status).to include(
+          'status' => project.import_state.status,
+          'url' => project.safe_import_url,
+          'lastError' => 'Some error'
+        )
+      end
+    end
+  end
+
+  describe 'protectable_branches' do
+    subject { GitlabSchema.execute(query, context: { current_user: current_user }).as_json }
+
+    let_it_be(:current_user) { create(:user) }
+
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            id
+            protectableBranches
+          }
+        }
+      )
+    end
+
+    let(:protectable_branches) do
+      subject.dig('data', 'project', 'protectableBranches')
+    end
+
+    let_it_be(:project) { create(:project, :empty_repo) }
+
+    before_all do
+      project.add_maintainer(current_user)
+    end
+
+    describe 'an empty repository' do
+      before_all do
+        project.repository.branch_names.each do |branch_name|
+          project.repository.delete_branch(branch_name)
+        end
+      end
+
+      it 'returns an empty array' do
+        expect(protectable_branches).to be_empty
+      end
+    end
+
+    describe 'a repository with branches' do
+      let(:branch_names) { %w[master feat/dropdown] }
+
+      before_all do
+        project.add_maintainer(current_user)
+        project.repository.create_file(
+          current_user, 'test.txt', 'content', message: 'init', branch_name: 'master'
+        )
+        project.repository.create_branch('feat/dropdown', 'master')
+      end
+
+      context 'and no protections' do
+        it 'returns all the branch names' do
+          expect(protectable_branches).to match_array(branch_names)
+        end
+      end
+
+      context 'and all branches are protected with specific rules' do
+        before do
+          branch_names.each do |name|
+            create(:protected_branch, project: project, name: name)
+          end
+        end
+
+        it 'returns an empty array' do
+          expect(protectable_branches).to be_empty
+        end
+      end
+
+      context 'and all branches are protected with a wildcard rule' do
+        before do
+          create(:protected_branch, name: '*')
+        end
+
+        it 'returns all the branch names' do
+          expect(protectable_branches).to match_array(branch_names)
+        end
+      end
+    end
+  end
+
+  describe 'available_deploy_keys' do
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            availableDeployKeys{
+              nodes{
+                id
+                title
+                user {
+                  username
+                }
+              }
+            }
+          }
+        }
+      )
+    end
+
+    subject { GitlabSchema.execute(query, context: { current_user: current_user }).as_json }
+
+    let_it_be(:project) { create :project }
+    let_it_be(:deploy_key) { create(:deploy_keys_project, :write_access, project: project).deploy_key }
+    let_it_be(:maintainer) { create(:user) }
+    let(:available_deploy_keys) { subject.dig('data', 'project', 'availableDeployKeys', 'nodes') }
+
+    context 'when there are deploy keys' do
+      before_all do
+        project.add_maintainer(maintainer)
+      end
+
+      context 'and the current user has access' do
+        let(:current_user) { maintainer }
+
+        it 'returns the deploy keys' do
+          expect(available_deploy_keys[0]).to include({
+            'id' => deploy_key.to_global_id.to_s,
+            'title' => deploy_key.title,
+            'user' => {
+              'username' => deploy_key.user.username
+            }
+          })
+        end
+      end
+
+      context 'and the current user does not have access' do
+        let(:current_user) { create(:user) }
+
+        it 'does not return any deploy keys' do
+          expect(available_deploy_keys).to be_nil
+        end
+      end
+    end
+  end
+
+  describe 'organization_edit_path' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:organization) { create(:organization) }
+    let(:query) do
+      %(
+        query {
+          project(fullPath: "#{project.full_path}") {
+            organizationEditPath
+          }
+        }
+      )
+    end
+
+    let(:response) { GitlabSchema.execute(query, context: { current_user: user }).as_json }
+
+    subject(:organization_edit_path) { response.dig('data', 'project', 'organizationEditPath') }
+
+    context 'when project has an organization associated with it' do
+      let_it_be(:project) { create(:project, :public, organization: organization) }
+
+      it 'returns edit path scoped to organization' do
+        expect(organization_edit_path).to eq(
+          "/-/organizations/#{organization.path}/projects/#{project.path_with_namespace}/edit"
+        )
+      end
+    end
+
+    context 'when project does not have an organization associated with it' do
+      let_it_be(:project) { create(:project, :public, organization: nil) }
+
+      it 'returns nil' do
+        expect(organization_edit_path).to be_nil
       end
     end
   end

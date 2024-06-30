@@ -2,10 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User searches for wiki pages', :js do
-  let(:user) { create(:user) }
-  let(:project) { create(:project, :repository, :wiki_repo, namespace: user.namespace) }
-  let!(:wiki_page) { create(:wiki_page, wiki: project.wiki, title: 'directory/title', content: 'Some Wiki content') }
+RSpec.describe 'User searches for wiki pages', :js, :clean_gitlab_redis_rate_limiting,
+  feature_category: :global_search do
+  include ListboxHelpers
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :repository, :wiki_repo, namespace: user.namespace) }
+  let_it_be(:wiki_page) do
+    create(:wiki_page, wiki: project.wiki, title: 'directory/title', content: 'Some Wiki content')
+  end
 
   before do
     project.add_maintainer(user)
@@ -15,20 +19,29 @@ RSpec.describe 'User searches for wiki pages', :js do
   end
 
   include_examples 'top right search form'
-  include_examples 'search timeouts', 'wiki_blobs'
+  include_examples 'search timeouts', 'wiki_blobs' do
+    let(:additional_params) { { project_id: project.id } }
+  end
+
+  it 'shows scopes when there is no search term' do
+    submit_dashboard_search('')
+
+    within_testid('search-filter') do
+      expect(page).to have_selector('[data-testid="nav-item"]', minimum: 5)
+    end
+  end
 
   shared_examples 'search wiki blobs' do
     it 'finds a page' do
-      find('[data-testid="project-filter"]').click
+      find_by_testid('project-filter').click
 
       wait_for_requests
 
-      page.within('[data-testid="project-filter"]') do
-        click_on(project.name)
+      within_testid('project-filter') do
+        select_listbox_item project.name
       end
 
-      fill_in('dashboard_search', with: search_term)
-      find('.gl-search-box-by-click-search-button').click
+      submit_dashboard_search(search_term)
       select_search_scope('Wiki')
 
       page.within('.results') do

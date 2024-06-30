@@ -2,8 +2,6 @@
 import { GlForm, GlFormInput, GlButton } from '@gitlab/ui';
 import { __ } from '~/locale';
 
-import eventHub from '../eventhub';
-
 export default {
   i18n: {
     cancel: __('Cancel'),
@@ -16,10 +14,6 @@ export default {
   props: {
     list: {
       type: Object,
-      required: true,
-    },
-    formEventPrefix: {
-      type: String,
       required: true,
     },
     disableSubmit: {
@@ -58,7 +52,6 @@ export default {
     handleFormSubmit() {
       const { title, list } = this;
 
-      eventHub.$emit(`scroll-board-list-${this.list.id}`);
       this.$emit('form-submit', {
         title: title.trim(),
         list,
@@ -69,10 +62,10 @@ export default {
 </script>
 
 <template>
-  <div class="board-new-issue-form">
+  <div class="board-new-issue-form gl-z-3 gl-m-3">
     <div class="board-card position-relative gl-p-5 rounded">
       <gl-form @submit.prevent="handleFormSubmit" @reset="handleFormCancel">
-        <label :for="inputFieldId" class="gl-font-weight-bold">{{ __('Title') }}</label>
+        <label :for="inputFieldId" class="gl-font-bold">{{ __('Title') }}</label>
         <gl-form-input
           :id="inputFieldId"
           v-model="title"

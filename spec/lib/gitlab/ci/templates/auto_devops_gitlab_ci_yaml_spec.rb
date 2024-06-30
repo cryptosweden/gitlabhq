@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Auto-DevOps.gitlab-ci.yml' do
+RSpec.describe 'Auto-DevOps.gitlab-ci.yml', feature_category: :auto_devops do
   using RSpec::Parameterized::TableSyntax
 
   subject(:template) { Gitlab::Template::GitlabCiYmlTemplate.find('Auto-DevOps') }
@@ -17,7 +17,7 @@ RSpec.describe 'Auto-DevOps.gitlab-ci.yml' do
       let(:project) { create(:project, :auto_devops, :custom_repo, files: { 'README.md' => '' }) }
       let(:user) { project.first_owner }
       let(:service) { Ci::CreatePipelineService.new(project, user, ref: pipeline_branch ) }
-      let(:pipeline) { service.execute!(:push).payload }
+      let(:pipeline) { service.execute(:push).payload }
       let(:build_names) { pipeline.builds.pluck(:name) }
 
       before do
@@ -44,7 +44,7 @@ RSpec.describe 'Auto-DevOps.gitlab-ci.yml' do
 
       context 'when the project is set for deployment to AWS' do
         let(:platform_value) { 'ECS' }
-        let(:review_prod_build_names) { build_names.select {|n| n.include?('review') || n.include?('production')} }
+        let(:review_prod_build_names) { build_names.select { |n| n.include?('review') || n.include?('production') } }
 
         before do
           create(:ci_variable, project: project, key: 'AUTO_DEVOPS_PLATFORM_TARGET', value: platform_value)
@@ -94,7 +94,7 @@ RSpec.describe 'Auto-DevOps.gitlab-ci.yml' do
             project.repository.create_branch(pipeline_branch, default_branch)
           end
 
-          %w(review_ecs review_fargate).each do |job|
+          %w[review_ecs review_fargate].each do |job|
             it_behaves_like 'no ECS job when AUTO_DEVOPS_PLATFORM_TARGET is not present' do
               let(:job_name) { job }
             end
@@ -142,7 +142,7 @@ RSpec.describe 'Auto-DevOps.gitlab-ci.yml' do
 
       context 'when the project has no active cluster' do
         it 'only creates a build and a test stage' do
-          expect(pipeline.stages_names).to eq(%w(build test))
+          expect(pipeline.stages_names).to eq(%w[build test])
         end
 
         it_behaves_like 'no Kubernetes deployment job'
@@ -273,25 +273,25 @@ RSpec.describe 'Auto-DevOps.gitlab-ci.yml' do
       using RSpec::Parameterized::TableSyntax
 
       where(:case_name, :files, :variables, :include_build_names, :not_include_build_names) do
-        'No match'        | { 'README.md' => '' }                   | {}                                          | %w()           | %w(build test)
-        'Buildpack'       | { 'README.md' => '' }                   | { 'BUILDPACK_URL' => 'http://example.com' } | %w(build test) | %w()
-        'Explicit set'    | { 'README.md' => '' }                   | { 'AUTO_DEVOPS_EXPLICITLY_ENABLED' => '1' } | %w(build test) | %w()
-        'Explicit unset'  | { 'README.md' => '' }                   | { 'AUTO_DEVOPS_EXPLICITLY_ENABLED' => '0' } | %w()           | %w(build test)
-        'DOCKERFILE_PATH' | { 'README.md' => '' }                   | { 'DOCKERFILE_PATH' => 'Docker.file' }      | %w(build test) | %w()
-        'Dockerfile'      | { 'Dockerfile' => '' }                  | {}                                          | %w(build test) | %w()
-        'Clojure'         | { 'project.clj' => '' }                 | {}                                          | %w(build test) | %w()
-        'Go modules'      | { 'go.mod' => '' }                      | {}                                          | %w(build test) | %w()
-        'Go gb'           | { 'src/gitlab.com/gopackage.go' => '' } | {}                                          | %w(build test) | %w()
-        'Gradle'          | { 'gradlew' => '' }                     | {}                                          | %w(build test) | %w()
-        'Java'            | { 'pom.xml' => '' }                     | {}                                          | %w(build test) | %w()
-        'Multi-buildpack' | { '.buildpacks' => '' }                 | {}                                          | %w(build test) | %w()
-        'NodeJS'          | { 'package.json' => '' }                | {}                                          | %w(build test) | %w()
-        'PHP'             | { 'composer.json' => '' }               | {}                                          | %w(build test) | %w()
-        'Play'            | { 'conf/application.conf' => '' }       | {}                                          | %w(build test) | %w()
-        'Python'          | { 'Pipfile' => '' }                     | {}                                          | %w(build test) | %w()
-        'Ruby'            | { 'Gemfile' => '' }                     | {}                                          | %w(build test) | %w()
-        'Scala'           | { 'build.sbt' => '' }                   | {}                                          | %w(build test) | %w()
-        'Static'          | { '.static' => '' }                     | {}                                          | %w(build test) | %w()
+        'No match'        | { 'README.md' => '' }                   | {}                                          | %w[]           | %w[build test]
+        'Buildpack'       | { 'README.md' => '' }                   | { 'BUILDPACK_URL' => 'http://example.com' } | %w[build test] | %w[]
+        'Explicit set'    | { 'README.md' => '' }                   | { 'AUTO_DEVOPS_EXPLICITLY_ENABLED' => '1' } | %w[build test] | %w[]
+        'Explicit unset'  | { 'README.md' => '' }                   | { 'AUTO_DEVOPS_EXPLICITLY_ENABLED' => '0' } | %w[]           | %w[build test]
+        'DOCKERFILE_PATH' | { 'README.md' => '' }                   | { 'DOCKERFILE_PATH' => 'Docker.file' }      | %w[build test] | %w[]
+        'Dockerfile'      | { 'Dockerfile' => '' }                  | {}                                          | %w[build test] | %w[]
+        'Clojure'         | { 'project.clj' => '' }                 | {}                                          | %w[build test] | %w[]
+        'Go modules'      | { 'go.mod' => '' }                      | {}                                          | %w[build test] | %w[]
+        'Go gb'           | { 'src/gitlab.com/gopackage.go' => '' } | {}                                          | %w[build test] | %w[]
+        'Gradle'          | { 'gradlew' => '' }                     | {}                                          | %w[build test] | %w[]
+        'Java'            | { 'pom.xml' => '' }                     | {}                                          | %w[build test] | %w[]
+        'Multi-buildpack' | { '.buildpacks' => '' }                 | {}                                          | %w[build test] | %w[]
+        'NodeJS'          | { 'package.json' => '' }                | {}                                          | %w[build test] | %w[]
+        'PHP'             | { 'composer.json' => '' }               | {}                                          | %w[build test] | %w[]
+        'Play'            | { 'conf/application.conf' => '' }       | {}                                          | %w[build test] | %w[]
+        'Python'          | { 'Pipfile' => '' }                     | {}                                          | %w[build test] | %w[]
+        'Ruby'            | { 'Gemfile' => '' }                     | {}                                          | %w[build test] | %w[]
+        'Scala'           | { 'build.sbt' => '' }                   | {}                                          | %w[build test] | %w[]
+        'Static'          | { '.static' => '' }                     | {}                                          | %w[build test] | %w[]
       end
 
       with_them do

@@ -9,11 +9,11 @@ describe('Commit component', () => {
   let wrapper;
 
   const findIcon = (name) => {
-    const icons = wrapper.findAll(GlIcon).filter((c) => c.attributes('name') === name);
+    const icons = wrapper.findAllComponents(GlIcon).filter((c) => c.attributes('name') === name);
     return icons.length ? icons.at(0) : icons;
   };
 
-  const findUserAvatar = () => wrapper.find(UserAvatarLink);
+  const findUserAvatar = () => wrapper.findComponent(UserAvatarLink);
   const findRefName = () => wrapper.findByTestId('ref-name');
 
   const createComponent = (propsData) => {
@@ -23,10 +23,6 @@ describe('Commit component', () => {
       }),
     );
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   it('should render a fork icon if it does not represent a tag', () => {
     createComponent({
@@ -47,7 +43,7 @@ describe('Commit component', () => {
       },
     });
 
-    expect(wrapper.find('.icon-container').find(GlIcon).exists()).toBe(true);
+    expect(wrapper.find('.icon-container').findComponent(GlIcon).exists()).toBe(true);
   });
 
   describe('Given all the props', () => {

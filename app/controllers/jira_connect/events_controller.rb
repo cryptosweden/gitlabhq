@@ -7,10 +7,6 @@ class JiraConnect::EventsController < JiraConnect::ApplicationController
   before_action :verify_asymmetric_atlassian_jwt!
 
   def installed
-    unless Feature.enabled?(:jira_connect_installation_update, default_enabled: :yaml)
-      return head :ok if current_jira_installation
-    end
-
     success = current_jira_installation ? update_installation : create_installation
 
     if success
@@ -35,7 +31,10 @@ class JiraConnect::EventsController < JiraConnect::ApplicationController
   end
 
   def update_installation
-    current_jira_installation.update(update_params)
+    JiraConnectInstallations::UpdateService.execute(
+      current_jira_installation,
+      update_params
+    ).success?
   end
 
   def create_params
@@ -51,7 +50,7 @@ class JiraConnect::EventsController < JiraConnect::ApplicationController
   end
 
   def verify_asymmetric_atlassian_jwt!
-    asymmetric_jwt = Atlassian::JiraConnect::AsymmetricJwt.new(auth_token, jwt_verification_claims)
+    asymmetric_jwt = Atlassian::JiraConnect::Jwt::Asymmetric.new(auth_token, jwt_verification_claims)
 
     return head :unauthorized unless asymmetric_jwt.valid?
 
@@ -60,7 +59,7 @@ class JiraConnect::EventsController < JiraConnect::ApplicationController
 
   def jwt_verification_claims
     {
-      aud: jira_connect_base_url(protocol: 'https'),
+      aud: Gitlab.config.jira_connect.enforce_jira_base_url_https ? jira_connect_base_url(protocol: 'https') : jira_connect_base_url,
       iss: transformed_params[:client_key],
       qsh: Atlassian::Jwt.create_query_string_hash(request.url, request.method, jira_connect_base_url)
     }

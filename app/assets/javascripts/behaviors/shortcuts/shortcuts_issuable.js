@@ -1,38 +1,51 @@
 import $ from 'jquery';
-import Mousetrap from 'mousetrap';
-import { clickCopyToClipboardButton } from '~/behaviors/copy_to_clipboard';
+import ClipboardJS from 'clipboard';
 import { getSelectedFragment } from '~/lib/utils/common_utils';
 import { isElementVisible } from '~/lib/utils/dom_utils';
-import { DEBOUNCE_DROPDOWN_DELAY } from '~/vue_shared/components/sidebar/labels_select_widget/constants';
-import Sidebar from '../../right_sidebar';
+import { DEBOUNCE_DROPDOWN_DELAY } from '~/sidebar/components/labels/labels_select_widget/constants';
+import toast from '~/vue_shared/plugins/global_toast';
+import { s__ } from '~/locale';
+import Sidebar from '~/right_sidebar';
 import { CopyAsGFM } from '../markdown/copy_as_gfm';
 import {
-  keysFor,
   ISSUE_MR_CHANGE_ASSIGNEE,
   ISSUE_MR_CHANGE_MILESTONE,
   ISSUABLE_CHANGE_LABEL,
   ISSUABLE_COMMENT_OR_REPLY,
   ISSUABLE_EDIT_DESCRIPTION,
   MR_COPY_SOURCE_BRANCH_NAME,
+  ISSUABLE_COPY_REF,
 } from './keybindings';
-import Shortcuts from './shortcuts';
 
-export default class ShortcutsIssuable extends Shortcuts {
-  constructor() {
-    super();
+export default class ShortcutsIssuable {
+  constructor(shortcuts) {
+    this.branchInMemoryButton = document.createElement('button');
+    this.branchClipboardInstance = new ClipboardJS(this.branchInMemoryButton);
+    this.branchClipboardInstance.on('success', () => {
+      toast(s__('GlobalShortcuts|Copied source branch name to clipboard.'));
+    });
+    this.branchClipboardInstance.on('error', () => {
+      toast(s__('GlobalShortcuts|Unable to copy the source branch name at this time.'));
+    });
 
-    Mousetrap.bind(keysFor(ISSUE_MR_CHANGE_ASSIGNEE), () =>
-      ShortcutsIssuable.openSidebarDropdown('assignee'),
-    );
-    Mousetrap.bind(keysFor(ISSUE_MR_CHANGE_MILESTONE), () =>
-      ShortcutsIssuable.openSidebarDropdown('milestone'),
-    );
-    Mousetrap.bind(keysFor(ISSUABLE_CHANGE_LABEL), () =>
-      ShortcutsIssuable.openSidebarDropdown('labels'),
-    );
-    Mousetrap.bind(keysFor(ISSUABLE_COMMENT_OR_REPLY), ShortcutsIssuable.replyWithSelectedText);
-    Mousetrap.bind(keysFor(ISSUABLE_EDIT_DESCRIPTION), ShortcutsIssuable.editIssue);
-    Mousetrap.bind(keysFor(MR_COPY_SOURCE_BRANCH_NAME), ShortcutsIssuable.copyBranchName);
+    this.refInMemoryButton = document.createElement('button');
+    this.refClipboardInstance = new ClipboardJS(this.refInMemoryButton);
+    this.refClipboardInstance.on('success', () => {
+      toast(s__('GlobalShortcuts|Copied reference to clipboard.'));
+    });
+    this.refClipboardInstance.on('error', () => {
+      toast(s__('GlobalShortcuts|Unable to copy the reference at this time.'));
+    });
+
+    shortcuts.addAll([
+      [ISSUE_MR_CHANGE_ASSIGNEE, () => ShortcutsIssuable.openSidebarDropdown('assignee')],
+      [ISSUE_MR_CHANGE_MILESTONE, () => ShortcutsIssuable.openSidebarDropdown('milestone')],
+      [ISSUABLE_CHANGE_LABEL, () => ShortcutsIssuable.openSidebarDropdown('labels')],
+      [ISSUABLE_COMMENT_OR_REPLY, ShortcutsIssuable.replyWithSelectedText],
+      [ISSUABLE_EDIT_DESCRIPTION, ShortcutsIssuable.editIssue],
+      [MR_COPY_SOURCE_BRANCH_NAME, () => this.copyBranchName()],
+      [ISSUABLE_COPY_REF, () => this.copyIssuableRef()],
+    ]);
 
     /**
      * We're attaching a global focus event listener on document for
@@ -54,7 +67,7 @@ export default class ShortcutsIssuable extends Shortcuts {
   }
 
   static replyWithSelectedText() {
-    let $replyField = $('.js-main-target-form .js-vue-comment-form');
+    let $replyField = $('.js-main-target-form .js-gfm-input');
 
     // Ensure that markdown input is still present in the DOM
     // otherwise fall back to main comment input field.
@@ -153,17 +166,25 @@ export default class ShortcutsIssuable extends Shortcuts {
     return false;
   }
 
-  static copyBranchName() {
-    // There are two buttons - one that is shown when the sidebar
-    // is expanded, and one that is shown when it's collapsed.
-    const allCopyBtns = Array.from(document.querySelectorAll('.js-sidebar-source-branch button'));
+  async copyBranchName() {
+    const button = document.querySelector('.js-source-branch-copy');
+    const branchName = button?.dataset.clipboardText;
 
-    // Select whichever button is currently visible so that
-    // the "Copied" tooltip is shown when a click is simulated.
-    const visibleBtn = allCopyBtns.find(isElementVisible);
+    if (branchName) {
+      this.branchInMemoryButton.dataset.clipboardText = branchName;
 
-    if (visibleBtn) {
-      clickCopyToClipboardButton(visibleBtn);
+      this.branchInMemoryButton.dispatchEvent(new CustomEvent('click'));
+    }
+  }
+
+  async copyIssuableRef() {
+    const refButton = document.querySelector('.js-copy-reference');
+    const copiedRef = refButton?.dataset.clipboardText;
+
+    if (copiedRef) {
+      this.refInMemoryButton.dataset.clipboardText = copiedRef;
+
+      this.refInMemoryButton.dispatchEvent(new CustomEvent('click'));
     }
   }
 }

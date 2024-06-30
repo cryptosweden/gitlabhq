@@ -1,21 +1,62 @@
+import { mergeUrlParams } from '~/lib/utils/url_utility';
+import { sprintf, s__ } from '~/locale';
+
 export default class PerformanceBarStore {
   constructor() {
     this.requests = [];
   }
 
-  addRequest(requestId, requestUrl) {
-    if (!this.findRequest(requestId)) {
-      const shortUrl = PerformanceBarStore.truncateUrl(requestUrl);
+  addRequest(requestId, requestUrl, operationName, requestParams, methodVerb) {
+    if (this.findRequest(requestId)) {
+      this.updateRequestBatchedQueriesCount(requestId);
+    } else {
+      let displayName = '';
+
+      if (methodVerb) {
+        displayName += `${methodVerb.toUpperCase()} `;
+      }
+
+      displayName += PerformanceBarStore.truncateUrl(requestUrl);
+
+      if (operationName) {
+        displayName += ` (${operationName})`;
+      }
 
       this.requests.push({
         id: requestId,
         url: requestUrl,
-        truncatedUrl: shortUrl,
+        fullUrl: mergeUrlParams(requestParams, requestUrl),
+        method: methodVerb,
         details: {},
+        queriesInBatch: 1, // only for GraphQL
+        displayName,
       });
     }
 
     return this.requests;
+  }
+  updateRequestBatchedQueriesCount(requestId) {
+    const existingRequest = this.findRequest(requestId);
+    existingRequest.queriesInBatch += 1;
+
+    const originalDisplayName = existingRequest.displayName;
+    const regex = /\d+ queries batched/;
+    if (regex.test(originalDisplayName)) {
+      existingRequest.displayName = originalDisplayName.replace(
+        regex,
+        sprintf(s__('PerformanceBar|%{queryCount} queries batched'), {
+          queryCount: existingRequest.queriesInBatch,
+        }),
+      );
+    } else {
+      existingRequest.displayName = sprintf(
+        s__('PerformanceBar|%{originalDisplayName} [%{queryCount} queries batched]'),
+        {
+          originalDisplayName,
+          queryCount: existingRequest.queriesInBatch,
+        },
+      );
+    }
   }
 
   findRequest(requestId) {

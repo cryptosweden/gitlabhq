@@ -1,14 +1,16 @@
 # frozen_string_literal: true
 
 class Groups::AutocompleteSourcesController < Groups::ApplicationController
-  feature_category :subgroups, [:members]
-  feature_category :team_planning, [:issues, :labels, :milestones, :commands]
-  feature_category :code_review, [:merge_requests]
+  include AutocompleteSources::ExpiresIn
 
-  urgency :low, [:merge_requests]
+  feature_category :groups_and_projects, [:members]
+  feature_category :team_planning, [:issues, :labels, :milestones, :commands]
+  feature_category :code_review_workflow, [:merge_requests]
+
+  urgency :low, [:issues, :labels, :milestones, :commands, :merge_requests, :members]
 
   def members
-    render json: ::Groups::ParticipantsService.new(@group, current_user).execute(target)
+    render json: ::Groups::ParticipantsService.new(@group, current_user, params).execute(target)
   end
 
   def issues
@@ -46,8 +48,10 @@ class Groups::AutocompleteSourcesController < Groups::ApplicationController
 
   # rubocop: disable CodeReuse/ActiveRecord
   def target
+    # TODO https://gitlab.com/gitlab-org/gitlab/-/issues/388541
+    # type_id is a misnomer. QuickActions::TargetService actually requires an iid.
     QuickActions::TargetService
-      .new(nil, current_user, group: @group)
+      .new(container: @group, current_user: current_user)
       .execute(params[:type], params[:type_id])
   end
   # rubocop: enable CodeReuse/ActiveRecord

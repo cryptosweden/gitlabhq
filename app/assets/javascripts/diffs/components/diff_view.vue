@@ -1,12 +1,13 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters, mapState, mapActions } from 'vuex';
+import { throttle } from 'lodash';
 import { IdState } from 'vendor/vue-virtual-scroller';
 import DraftNote from '~/batch_comments/components/draft_note.vue';
 import draftCommentsMixin from '~/diffs/mixins/draft_comments';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { getCommentedLines } from '~/notes/components/multiline_comment_utils';
 import { hide } from '~/tooltips';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { pickDirection } from '../utils/diff_line';
 import DiffCommentCell from './diff_comment_cell.vue';
 import DiffExpansionCell from './diff_expansion_cell.vue';
@@ -20,13 +21,10 @@ export default {
     DiffCommentCell,
     DraftNote,
   },
-  directives: {
-    SafeHtml,
-  },
   mixins: [
     draftCommentsMixin,
-    glFeatureFlagsMixin(),
     IdState({ idProp: (vm) => vm.diffFile.file_hash }),
+    glFeatureFlagsMixin(),
   ],
   props: {
     diffFile: {
@@ -47,6 +45,16 @@ export default {
       required: false,
       default: false,
     },
+    codequalityData: {
+      type: Object,
+      required: false,
+      default: null,
+    },
+    sastData: {
+      type: Object,
+      required: false,
+      default: null,
+    },
   },
   idState() {
     return {
@@ -56,7 +64,7 @@ export default {
   },
   computed: {
     ...mapGetters('diffs', ['commitId', 'fileLineCoverage']),
-    ...mapState('diffs', ['codequalityDiff', 'highlightedRow', 'coverageLoaded']),
+    ...mapState('diffs', ['highlightedRow', 'coverageLoaded', 'selectedCommentPosition']),
     ...mapState({
       selectedCommentPosition: ({ notes }) => notes.selectedCommentPosition,
       selectedCommentPositionHover: ({ notes }) => notes.selectedCommentPositionHover,
@@ -70,9 +78,15 @@ export default {
         this.diffLines,
       );
     },
-    hasCodequalityChanges() {
-      return this.codequalityDiff?.files?.[this.diffFile.file_path]?.length > 0;
+    hasInlineFindingsChanges() {
+      return (
+        this.codequalityData?.files?.[this.diffFile.file_path]?.length > 0 ||
+        this.sastData?.added?.length > 0
+      );
     },
+  },
+  created() {
+    this.onDragOverThrottled = throttle((line) => this.onDragOver(line), 100, { leading: true });
   },
   methods: {
     ...mapActions(['setSelectedCommentPosition']),
@@ -128,18 +142,52 @@ export default {
         false,
       );
     },
+    isFirstHighlightedLine(line) {
+      const lineCode = line.left?.line_code || line.right?.line_code;
+      return lineCode && lineCode === this.selectedCommentPosition?.start.line_code;
+    },
+    isLastHighlightedLine(line) {
+      const lineCode = line.left?.line_code || line.right?.line_code;
+      return lineCode && lineCode === this.selectedCommentPosition?.end.line_code;
+    },
     handleParallelLineMouseDown(e) {
       const line = e.target.closest('.diff-td');
-      const table = line.closest('.diff-table');
+      if (line) {
+        const table = line.closest('.diff-table');
+        table.classList.remove('left-side-selected', 'right-side-selected');
+        const [lineClass] = ['left-side', 'right-side'].filter((name) =>
+          line.classList.contains(name),
+        );
 
-      table.classList.remove('left-side-selected', 'right-side-selected');
-      const [lineClass] = ['left-side', 'right-side'].filter((name) =>
-        line.classList.contains(name),
-      );
-
-      if (lineClass) {
-        table.classList.add(`${lineClass}-selected`);
+        if (lineClass) {
+          table.classList.add(`${lineClass}-selected`);
+        }
       }
+    },
+    getCountBetweenIndex(index) {
+      if (index === 0) {
+        return -1;
+      }
+      if (!this.diffLines[index + 1]) {
+        return -1;
+      }
+
+      return (
+        Number(this.diffLines[index + 1].left.new_line) -
+        Number(this.diffLines[index - 1].left.new_line)
+      );
+    },
+    getCodeQualityLine(line) {
+      return (
+        (line.left ?? line.right)?.codequality?.[0]?.line ||
+        (line.left ?? line.right)?.sast?.[0]?.line
+      );
+    },
+    lineDrafts(line, side) {
+      return (line[side]?.lineDrafts || []).filter((entry) => entry.isDraft);
+    },
+    lineHasDrafts(line, side) {
+      return this.lineDrafts(line, side).length > 0;
     },
   },
   userColorScheme: window.gon.user_color_scheme,
@@ -150,47 +198,40 @@ export default {
   <div
     :class="[
       $options.userColorScheme,
-      { 'inline-diff-view': inline, 'with-codequality': hasCodequalityChanges },
+      { 'inline-diff-view': inline, 'with-inline-findings': hasInlineFindingsChanges },
     ]"
     :data-commit-id="commitId"
     class="diff-grid diff-table code diff-wrap-lines js-syntax-highlight text-file"
     @mousedown="handleParallelLineMouseDown"
   >
     <template v-for="(line, index) in diffLines">
-      <template v-if="line.isMatchLineLeft || line.isMatchLineRight">
-        <div :key="`expand-${index}`" class="diff-tr line_expansion match">
-          <div class="diff-td text-center gl-font-regular">
-            <diff-expansion-cell
-              :file-hash="diffFile.file_hash"
-              :context-lines-path="diffFile.context_lines_path"
-              :line="line.left"
-              :is-top="index === 0"
-              :is-bottom="index + 1 === diffLinesLength"
-            />
-          </div>
-        </div>
-        <div
-          v-if="line.left.rich_text"
-          :key="`expand-definition-${index}`"
-          class="diff-grid-row diff-tr line_holder match"
-        >
-          <div class="diff-grid-left diff-grid-3-col left-side">
-            <div class="diff-td diff-line-num"></div>
-            <div v-if="inline" class="diff-td diff-line-num"></div>
-            <div
-              v-safe-html="line.left.rich_text"
-              class="diff-td line_content left-side gl-white-space-normal!"
-            ></div>
-          </div>
-          <div v-if="!inline" class="diff-grid-right diff-grid-3-col right-side">
-            <div class="diff-td diff-line-num"></div>
-            <div
-              v-safe-html="line.left.rich_text"
-              class="diff-td line_content right-side gl-white-space-normal!"
-            ></div>
-          </div>
-        </div>
-      </template>
+      <div
+        v-if="line.isMatchLineLeft || line.isMatchLineRight"
+        :key="`expand-${index}`"
+        class="diff-grid-row diff-tr line_holder match expansion"
+      >
+        <diff-expansion-cell
+          :file="diffFile"
+          :line="line.left"
+          :is-top="index === 0"
+          :is-bottom="index + 1 === diffLinesLength"
+          :inline="inline"
+          :line-count-between="getCountBetweenIndex(index)"
+          :class="{ parallel: !inline }"
+          class="diff-grid-left diff-grid-2-col left-side"
+        />
+        <diff-expansion-cell
+          v-if="!inline"
+          :file="diffFile"
+          :line="line.left"
+          :is-top="index === 0"
+          :is-bottom="index + 1 === diffLinesLength"
+          :inline="inline"
+          :line-count-between="getCountBetweenIndex(index)"
+          :class="{ parallel: !inline }"
+          class="diff-grid-right diff-grid-2-col right-side"
+        />
+      </div>
       <diff-row
         v-if="!line.isMatchLineLeft && !line.isMatchLineRight"
         :key="line.line_code"
@@ -199,9 +240,13 @@ export default {
         :line="line"
         :is-bottom="index + 1 === diffLinesLength"
         :is-commented="index >= commentedLines.startLine && index <= commentedLines.endLine"
+        :is-highlighted="isHighlighted(line)"
+        :is-first-highlighted-line="
+          isFirstHighlightedLine(line) || index === commentedLines.startLine
+        "
+        :is-last-highlighted-line="isLastHighlightedLine(line) || index === commentedLines.endLine"
         :inline="inline"
         :index="index"
-        :is-highlighted="isHighlighted(line)"
         :file-line-coverage="fileLineCoverage"
         :coverage-loaded="coverageLoaded"
         @showCommentForm="(code) => singleLineComment(code, line)"
@@ -210,7 +255,7 @@ export default {
           ({ lineCode, expanded }) =>
             toggleLineDiscussions({ lineCode, fileHash: diffFile.file_hash, expanded })
         "
-        @enterdragging="onDragOver"
+        @enterdragging="onDragOverThrottled"
         @startdragging="onStartDragging"
         @stopdragging="onStopDragging"
       />
@@ -257,19 +302,27 @@ export default {
         class="diff-grid-drafts diff-tr notes_holder"
       >
         <div
-          v-if="!inline || (line.left && line.left.lineDraft.isDraft)"
+          v-if="!inline || lineHasDrafts(line, 'left')"
           class="diff-td notes-content parallel old"
         >
-          <div v-if="line.left && line.left.lineDraft.isDraft" class="content">
-            <draft-note :draft="line.left.lineDraft" :line="line.left" />
+          <div v-for="draft in lineDrafts(line, 'left')" :key="draft.id" class="content">
+            <article class="note-wrapper">
+              <ul class="notes draft-notes">
+                <draft-note :draft="draft" :line="line.left" />
+              </ul>
+            </article>
           </div>
         </div>
         <div
-          v-if="!inline || (line.right && line.right.lineDraft.isDraft)"
+          v-if="!inline || lineHasDrafts(line, 'right')"
           class="diff-td notes-content parallel new"
         >
-          <div v-if="line.right && line.right.lineDraft.isDraft" class="content">
-            <draft-note :draft="line.right.lineDraft" :line="line.right" />
+          <div v-for="draft in lineDrafts(line, 'right')" :key="draft.id" class="content">
+            <article class="note-wrapper">
+              <ul class="notes draft-notes">
+                <draft-note :draft="draft" :line="line.right" />
+              </ul>
+            </article>
           </div>
         </div>
       </div>

@@ -88,6 +88,28 @@ describe('common_utils', () => {
       expectGetElementIdToHaveBeenCalledWith('user-content-definição');
     });
 
+    it(`does not scroll when ${commonUtils.NO_SCROLL_TO_HASH_CLASS} is set on target`, () => {
+      jest.spyOn(window, 'scrollBy');
+
+      document.body.innerHTML += `
+        <div id="parent">
+          <a href="#test">Link</a>
+          <div style="height: 2000px;"></div>
+          <div id="test" style="height: 2000px;" class="${commonUtils.NO_SCROLL_TO_HASH_CLASS}"></div>
+        </div>
+      `;
+
+      window.history.pushState({}, null, '#test');
+      commonUtils.handleLocationHash();
+      jest.runOnlyPendingTimers();
+
+      try {
+        expect(window.scrollBy).not.toHaveBeenCalled();
+      } finally {
+        document.getElementById('parent').remove();
+      }
+    });
+
     it('scrolls element into view', () => {
       document.body.innerHTML += `
         <div id="parent">
@@ -129,7 +151,7 @@ describe('common_utils', () => {
       jest.spyOn(window, 'scrollBy');
       document.body.innerHTML += `
         <div id="parent">
-          <div class="navbar-gitlab" style="position: fixed; top: 0; height: 50px;"></div>
+          <div class="header-logged-out" style="position: fixed; top: 0; height: 50px;"></div>
           <div style="height: 2000px; margin-top: 50px;"></div>
           <div id="user-content-test" style="height: 2000px;"></div>
         </div>
@@ -144,6 +166,65 @@ describe('common_utils', () => {
 
       expect(window.scrollY).toBe(document.getElementById('user-content-test').offsetTop - 50);
       expect(window.scrollBy).toHaveBeenCalledWith(0, -50);
+
+      document.getElementById('parent').remove();
+    });
+
+    it('Scrolls element to correct height on issue page', () => {
+      jest.spyOn(window, 'scrollBy');
+      const stickyHeaderHeight = 50;
+      const topPadding = 8;
+
+      const expectedOffset = stickyHeaderHeight + topPadding;
+
+      document.body.dataset.page = 'projects:issues:show';
+      document.body.innerHTML += `
+      <div id="parent">
+        <div class="issue-sticky-header" style="position: fixed; top: 0px; height: ${stickyHeaderHeight}px;"></div>
+        <div style="height: 2000px; margin-top: ${stickyHeaderHeight}px;"></div>
+        <div id="user-content-test" style="height: 2000px;"></div>
+      </div>
+      `;
+      window.history.pushState({}, null, '#test');
+      commonUtils.handleLocationHash();
+      jest.advanceTimersByTime(1);
+
+      expectGetElementIdToHaveBeenCalledWith('test');
+      expectGetElementIdToHaveBeenCalledWith('user-content-test');
+
+      expect(window.scrollBy).toHaveBeenCalledWith(0, -1 * expectedOffset);
+
+      document.getElementById('parent').remove();
+    });
+
+    it('Scrolls element to correct height on MR page', () => {
+      jest.spyOn(window, 'scrollBy');
+      const stickyHeaderHeight = 100;
+      const fixedTabsHeight = 50;
+      const topPadding = 8;
+
+      const expectedOffset = stickyHeaderHeight + topPadding;
+
+      document.body.dataset.page = 'projects:merge_requests:show';
+
+      document.body.innerHTML += `
+      <div id="parent">
+        <div class="js-tabs-affix outer" style="height: ${fixedTabsHeight}px;"></div>
+        <div class="merge-request-sticky-header" style="position: fixed; top: 0px; height: ${stickyHeaderHeight}px;">
+          <div class="js-tabs-affix inner" style="height: ${fixedTabsHeight}px;"></div>
+        </div>
+        <div style="height: 2000px; margin-top: ${stickyHeaderHeight * 2}px;"></div>
+        <div id="user-content-test" style="height: 2000px;"></div>
+      </div>
+      `;
+      window.history.pushState({}, null, '#test');
+      commonUtils.handleLocationHash();
+      jest.advanceTimersByTime(1);
+
+      expectGetElementIdToHaveBeenCalledWith('test');
+      expectGetElementIdToHaveBeenCalledWith('user-content-test');
+
+      expect(window.scrollBy).toHaveBeenCalledWith(0, -1 * expectedOffset);
 
       document.getElementById('parent').remove();
     });
@@ -266,16 +347,87 @@ describe('common_utils', () => {
   });
 
   describe('debounceByAnimationFrame', () => {
-    it('debounces a function to allow a maximum of one call per animation frame', (done) => {
+    it('debounces a function to allow a maximum of one call per animation frame', () => {
       const spy = jest.fn();
       const debouncedSpy = commonUtils.debounceByAnimationFrame(spy);
-      window.requestAnimationFrame(() => {
-        debouncedSpy();
-        debouncedSpy();
-        window.requestAnimationFrame(() => {
-          expect(spy).toHaveBeenCalledTimes(1);
-          done();
-        });
+
+      debouncedSpy();
+      debouncedSpy();
+      jest.runOnlyPendingTimers();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('insertText', () => {
+    let textArea;
+
+    beforeEach(() => {
+      textArea = document.createElement('textarea');
+      document.querySelector('body').appendChild(textArea);
+      textArea.value = 'two';
+      textArea.setSelectionRange(0, 0);
+      textArea.focus();
+    });
+
+    describe('using execCommand', () => {
+      beforeAll(() => {
+        document.execCommand = jest.fn(() => true);
+      });
+
+      it('inserts the text', () => {
+        commonUtils.insertText(textArea, 'one');
+
+        expect(document.execCommand).toHaveBeenCalledWith('insertText', false, 'one');
+      });
+
+      it('removes selected text', () => {
+        textArea.setSelectionRange(0, textArea.value.length);
+
+        commonUtils.insertText(textArea, '');
+
+        expect(document.execCommand).toHaveBeenCalledWith('delete');
+      });
+
+      // It's not clear when this actually happens but it has been observed
+      // in the wild. Probably related to the very large `insertMarkdownText` function.
+      it('does nothing if no selection', () => {
+        commonUtils.insertText(textArea, '');
+
+        expect(document.execCommand).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('using fallback', () => {
+      beforeEach(() => {
+        document.execCommand = jest.fn(() => false);
+        jest.spyOn(textArea, 'dispatchEvent');
+        textArea.value = 'two';
+        textArea.setSelectionRange(0, 0);
+      });
+
+      it('inserts the text', () => {
+        commonUtils.insertText(textArea, 'one');
+
+        expect(textArea.value).toBe('onetwo');
+        expect(textArea.dispatchEvent).toHaveBeenCalled();
+      });
+
+      it('replaces the selection', () => {
+        textArea.setSelectionRange(0, textArea.value.length);
+
+        commonUtils.insertText(textArea, 'one');
+
+        expect(textArea.value).toBe('one');
+        expect(textArea.selectionStart).toBe(textArea.value.length);
+      });
+
+      it('removes selected text', () => {
+        textArea.setSelectionRange(0, textArea.value.length);
+
+        commonUtils.insertText(textArea, '');
+
+        expect(textArea.value).toBe('');
       });
     });
   });
@@ -372,28 +524,24 @@ describe('common_utils', () => {
       jest.spyOn(window, 'setTimeout');
     });
 
-    it('solves the promise from the callback', (done) => {
+    it('solves the promise from the callback', () => {
       const expectedResponseValue = 'Success!';
-      commonUtils
+      return commonUtils
         .backOff((next, stop) =>
           new Promise((resolve) => {
             resolve(expectedResponseValue);
-          })
-            .then((resp) => {
-              stop(resp);
-            })
-            .catch(done.fail),
+          }).then((resp) => {
+            stop(resp);
+          }),
         )
         .then((respBackoff) => {
           expect(respBackoff).toBe(expectedResponseValue);
-          done();
-        })
-        .catch(done.fail);
+        });
     });
 
-    it('catches the rejected promise from the callback ', (done) => {
+    it('catches the rejected promise from the callback', () => {
       const errorMessage = 'Mistakes were made!';
-      commonUtils
+      return commonUtils
         .backOff((next, stop) => {
           new Promise((resolve, reject) => {
             reject(new Error(errorMessage));
@@ -406,39 +554,34 @@ describe('common_utils', () => {
         .catch((errBackoffResp) => {
           expect(errBackoffResp instanceof Error).toBe(true);
           expect(errBackoffResp.message).toBe(errorMessage);
-          done();
         });
     });
 
-    it('solves the promise correctly after retrying a third time', (done) => {
+    it('solves the promise correctly after retrying a third time', () => {
       let numberOfCalls = 1;
       const expectedResponseValue = 'Success!';
-      commonUtils
+      return commonUtils
         .backOff((next, stop) =>
-          Promise.resolve(expectedResponseValue)
-            .then((resp) => {
-              if (numberOfCalls < 3) {
-                numberOfCalls += 1;
-                next();
-                jest.runOnlyPendingTimers();
-              } else {
-                stop(resp);
-              }
-            })
-            .catch(done.fail),
+          Promise.resolve(expectedResponseValue).then((resp) => {
+            if (numberOfCalls < 3) {
+              numberOfCalls += 1;
+              next();
+              jest.runOnlyPendingTimers();
+            } else {
+              stop(resp);
+            }
+          }),
         )
         .then((respBackoff) => {
           const timeouts = window.setTimeout.mock.calls.map(([, timeout]) => timeout);
 
           expect(timeouts).toEqual([2000, 4000]);
           expect(respBackoff).toBe(expectedResponseValue);
-          done();
-        })
-        .catch(done.fail);
+        });
     });
 
-    it('rejects the backOff promise after timing out', (done) => {
-      commonUtils
+    it('rejects the backOff promise after timing out', () => {
+      return commonUtils
         .backOff((next) => {
           next();
           jest.runOnlyPendingTimers();
@@ -449,22 +592,13 @@ describe('common_utils', () => {
           expect(timeouts).toEqual([2000, 4000, 8000, 16000, 32000, 32000]);
           expect(errBackoffResp instanceof Error).toBe(true);
           expect(errBackoffResp.message).toBe('BACKOFF_TIMEOUT');
-          done();
         });
     });
   });
 
   describe('spriteIcon', () => {
-    let beforeGon;
-
     beforeEach(() => {
-      window.gon = window.gon || {};
-      beforeGon = { ...window.gon };
       window.gon.sprite_icons = 'icons.svg';
-    });
-
-    afterEach(() => {
-      window.gon = beforeGon;
     });
 
     it('should return the svg for a linked icon', () => {
@@ -543,13 +677,30 @@ describe('common_utils', () => {
           milestones: ['12.3', '12.4'],
         },
       },
+      convertObjectPropsToLowerCase: {
+        obj: {
+          'Project-Name': 'GitLab CE',
+          'Group-Name': 'GitLab.org',
+          'License-Type': 'MIT',
+          'Mile-Stones': ['12.3', '12.4'],
+        },
+        objNested: {
+          'Project-Name': 'GitLab CE',
+          'Group-Name': 'GitLab.org',
+          'License-Type': 'MIT',
+          'Tech-Stack': {
+            'Frontend-Framework': 'Vue',
+          },
+          'Mile-Stones': ['12.3', '12.4'],
+        },
+      },
     };
 
     describe('convertObjectProps', () => {
       it('returns an empty object if `conversionFunction` parameter is not a function', () => {
         const result = commonUtils.convertObjectProps(null, mockObjects.convertObjectProps.obj);
 
-        expect(isEmptyObject(result)).toBeTruthy();
+        expect(isEmptyObject(result)).toBe(true);
       });
     });
 
@@ -558,6 +709,7 @@ describe('common_utils', () => {
       ${'convertObjectProps'}            | ${mockObjects.convertObjectProps.obj}            | ${mockObjects.convertObjectProps.objNested}
       ${'convertObjectPropsToCamelCase'} | ${mockObjects.convertObjectPropsToCamelCase.obj} | ${mockObjects.convertObjectPropsToCamelCase.objNested}
       ${'convertObjectPropsToSnakeCase'} | ${mockObjects.convertObjectPropsToSnakeCase.obj} | ${mockObjects.convertObjectPropsToSnakeCase.objNested}
+      ${'convertObjectPropsToLowerCase'} | ${mockObjects.convertObjectPropsToLowerCase.obj} | ${mockObjects.convertObjectPropsToLowerCase.objNested}
     `('$functionName', ({ functionName, mockObj, mockObjNested }) => {
       const testFunction =
         functionName === 'convertObjectProps'
@@ -566,9 +718,9 @@ describe('common_utils', () => {
           : commonUtils[functionName];
 
       it('returns an empty object if `obj` parameter is null, undefined or an empty object', () => {
-        expect(isEmptyObject(testFunction(null))).toBeTruthy();
-        expect(isEmptyObject(testFunction())).toBeTruthy();
-        expect(isEmptyObject(testFunction({}))).toBeTruthy();
+        expect(isEmptyObject(testFunction(null))).toBe(true);
+        expect(isEmptyObject(testFunction())).toBe(true);
+        expect(isEmptyObject(testFunction({}))).toBe(true);
       });
 
       it('converts object properties', () => {
@@ -590,6 +742,12 @@ describe('common_utils', () => {
             group_name: 'GitLab.org',
             absolute_web_url: 'https://gitlab.com/gitlab-org/',
             milestones: ['12.3', '12.4'],
+          },
+          convertObjectPropsToLowerCase: {
+            'project-name': 'GitLab CE',
+            'group-name': 'GitLab.org',
+            'license-type': 'MIT',
+            'mile-stones': ['12.3', '12.4'],
           },
         };
 
@@ -631,6 +789,15 @@ describe('common_utils', () => {
             },
             milestones: ['12.3', '12.4'],
           },
+          convertObjectPropsToLowerCase: {
+            'project-name': 'GitLab CE',
+            'group-name': 'GitLab.org',
+            'license-type': 'MIT',
+            'tech-stack': {
+              'Frontend-Framework': 'Vue',
+            },
+            'mile-stones': ['12.3', '12.4'],
+          },
         };
 
         expect(testFunction(mockObjNested)).toEqual(expected[functionName]);
@@ -671,6 +838,15 @@ describe('common_utils', () => {
                 database: 'PostgreSQL',
               },
               milestones: ['12.3', '12.4'],
+            },
+            convertObjectPropsToLowerCase: {
+              'project-name': 'GitLab CE',
+              'group-name': 'GitLab.org',
+              'license-type': 'MIT',
+              'tech-stack': {
+                'frontend-framework': 'Vue',
+              },
+              'mile-stones': ['12.3', '12.4'],
             },
           };
 
@@ -722,6 +898,15 @@ describe('common_utils', () => {
                 },
                 milestones: ['12.3', '12.4'],
               },
+              convertObjectPropsToLowerCase: {
+                'project-name': 'GitLab CE',
+                'group-name': 'GitLab.org',
+                'license-type': 'MIT',
+                'tech-stack': {
+                  'Frontend-Framework': 'Vue',
+                },
+                'mile-stones': ['12.3', '12.4'],
+              },
             };
 
             const dropKeys = {
@@ -766,12 +951,20 @@ describe('common_utils', () => {
                 },
                 milestones: ['12.3', '12.4'],
               },
+              convertObjectPropsToLowerCase: {
+                'project-name': 'GitLab CE',
+                'tech-stack': {
+                  'frontend-framework': 'Vue',
+                },
+                'mile-stones': ['12.3', '12.4'],
+              },
             };
 
             const dropKeys = {
               convertObjectProps: ['group_name', 'database'],
               convertObjectPropsToCamelCase: ['group_name', 'database'],
               convertObjectPropsToSnakeCase: ['groupName', 'database'],
+              convertObjectPropsToLowerCase: ['Group-Name', 'License-Type'],
             };
 
             expect(
@@ -819,12 +1012,22 @@ describe('common_utils', () => {
                 },
                 milestones: ['12.3', '12.4'],
               },
+              convertObjectPropsToLowerCase: {
+                'project-name': 'GitLab CE',
+                'Group-Name': 'GitLab.org',
+                'license-type': 'MIT',
+                'tech-stack': {
+                  'Frontend-Framework': 'Vue',
+                },
+                'mile-stones': ['12.3', '12.4'],
+              },
             };
 
             const ignoreKeyNames = {
               convertObjectProps: ['group_name'],
               convertObjectPropsToCamelCase: ['group_name'],
               convertObjectPropsToSnakeCase: ['groupName'],
+              convertObjectPropsToLowerCase: ['Group-Name'],
             };
 
             expect(
@@ -869,12 +1072,22 @@ describe('common_utils', () => {
                 },
                 milestones: ['12.3', '12.4'],
               },
+              convertObjectPropsToLowerCase: {
+                'project-name': 'GitLab CE',
+                'group-name': 'GitLab.org',
+                'license-type': 'MIT',
+                'tech-stack': {
+                  'Frontend-Framework': 'Vue',
+                },
+                'mile-stones': ['12.3', '12.4'],
+              },
             };
 
             const ignoreKeyNames = {
               convertObjectProps: ['group_name', 'frontend_framework'],
               convertObjectPropsToCamelCase: ['group_name', 'frontend_framework'],
               convertObjectPropsToSnakeCase: ['groupName', 'frontendFramework'],
+              convertObjectPropsToLowerCase: ['Frontend-Framework'],
             };
 
             expect(
@@ -937,45 +1150,6 @@ describe('common_utils', () => {
     });
   });
 
-  describe('searchBy', () => {
-    const searchSpace = {
-      iid: 1,
-      reference: '&1',
-      title: 'Error omnis quos consequatur ullam a vitae sed omnis libero cupiditate.',
-      url: '/groups/gitlab-org/-/epics/1',
-    };
-
-    it('returns null when `query` or `searchSpace` params are empty/undefined', () => {
-      expect(commonUtils.searchBy('omnis', null)).toBeNull();
-      expect(commonUtils.searchBy('', searchSpace)).toBeNull();
-      expect(commonUtils.searchBy()).toBeNull();
-    });
-
-    it('returns object with matching props based on `query` & `searchSpace` params', () => {
-      // String `omnis` is found only in `title` prop so return just that
-      expect(commonUtils.searchBy('omnis', searchSpace)).toEqual(
-        expect.objectContaining({
-          title: searchSpace.title,
-        }),
-      );
-
-      // String `1` is found in both `iid` and `reference` props so return both
-      expect(commonUtils.searchBy('1', searchSpace)).toEqual(
-        expect.objectContaining({
-          iid: searchSpace.iid,
-          reference: searchSpace.reference,
-        }),
-      );
-
-      // String `/epics/1` is found in `url` prop so return just that
-      expect(commonUtils.searchBy('/epics/1', searchSpace)).toEqual(
-        expect.objectContaining({
-          url: searchSpace.url,
-        }),
-      );
-    });
-  });
-
   describe('isScopedLabel', () => {
     it('returns true when `::` is present in title', () => {
       expect(commonUtils.isScopedLabel({ title: 'foo::bar' })).toBe(true);
@@ -1027,6 +1201,103 @@ describe('common_utils', () => {
       ]);
 
       expect(result).toEqual([{ hello: '' }, { helloWorld: '' }]);
+    });
+  });
+
+  describe('isCurrentUser', () => {
+    describe('when user is not signed in', () => {
+      it('returns `false`', () => {
+        window.gon.current_user_id = null;
+
+        expect(commonUtils.isCurrentUser(1)).toBe(false);
+      });
+    });
+
+    describe('when current user id does not match the provided user id', () => {
+      it('returns `false`', () => {
+        window.gon.current_user_id = 2;
+
+        expect(commonUtils.isCurrentUser(1)).toBe(false);
+      });
+    });
+
+    describe('when current user id matches the provided user id', () => {
+      it('returns `true`', () => {
+        window.gon.current_user_id = 1;
+
+        expect(commonUtils.isCurrentUser(1)).toBe(true);
+      });
+    });
+
+    describe('when provided user id is a string and it matches current user id', () => {
+      it('returns `true`', () => {
+        window.gon.current_user_id = 1;
+
+        expect(commonUtils.isCurrentUser('1')).toBe(true);
+      });
+    });
+  });
+
+  describe('cloneWithoutReferences', () => {
+    it('clones the provided object', () => {
+      const obj = {
+        foo: 'bar',
+        cool: 1337,
+        nested: {
+          peanut: 'butter',
+        },
+        arrays: [0, 1, 2],
+      };
+
+      const cloned = commonUtils.cloneWithoutReferences(obj);
+
+      expect(cloned).toMatchObject({
+        foo: 'bar',
+        cool: 1337,
+        nested: {
+          peanut: 'butter',
+        },
+        arrays: [0, 1, 2],
+      });
+    });
+
+    it('does not persist object references after cloning', () => {
+      const ref = {
+        foo: 'bar',
+      };
+
+      const obj = {
+        ref,
+      };
+
+      const cloned = commonUtils.cloneWithoutReferences(obj);
+
+      expect(cloned.ref).toMatchObject({ foo: 'bar' });
+      expect(cloned.ref === ref).toBe(false);
+    });
+  });
+
+  describe('isDefaultCiConfig', () => {
+    it('returns true when the path is the default CI config path', () => {
+      expect(commonUtils.isDefaultCiConfig('.gitlab-ci.yml')).toBe(true);
+    });
+
+    it('returns false when the path is not the default CI config path', () => {
+      expect(commonUtils.isDefaultCiConfig('some/other/path.yml')).toBe(false);
+    });
+  });
+
+  describe('hasCiConfigExtension', () => {
+    it('returns true when the path is the default CI config path', () => {
+      expect(commonUtils.hasCiConfigExtension('.gitlab-ci.yml')).toBe(true);
+    });
+
+    it('returns true when the path has a CI config extension', () => {
+      expect(commonUtils.hasCiConfigExtension('some/path.gitlab-ci.yml')).toBe(true);
+    });
+
+    it('returns false when the path does not have a CI config extension', () => {
+      expect(commonUtils.hasCiConfigExtension('some/other/path.yml')).toBe(false);
     });
   });
 });

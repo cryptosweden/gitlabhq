@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ResourceAccessTokens::RevokeService do
+RSpec.describe ResourceAccessTokens::RevokeService, feature_category: :system_access do
   subject { described_class.new(user, resource, access_token).execute }
 
   let_it_be(:user) { create(:user) }
@@ -26,21 +26,15 @@ RSpec.describe ResourceAccessTokens::RevokeService do
       it 'removes membership of bot user' do
         subject
 
-        expect(resource.reload.users).not_to include(resource_bot)
+        expect(resource.reload).not_to have_user(resource_bot)
       end
 
-      it 'transfer issuables of bot user to ghost user' do
-        issue = create(:issue, author: resource_bot)
-
+      it 'initiates user removal' do
         subject
 
-        expect(issue.reload.author.ghost?).to be true
-      end
-
-      it 'deletes project bot user' do
-        subject
-
-        expect(User.exists?(resource_bot.id)).to be_falsy
+        expect(
+          Users::GhostUserMigration.where(user: resource_bot, initiator_user: user)
+        ).to be_exists
       end
 
       it 'logs the event' do
@@ -62,7 +56,7 @@ RSpec.describe ResourceAccessTokens::RevokeService do
       it 'does not remove bot from member list' do
         subject
 
-        expect(resource.reload.users).to include(resource_bot)
+        expect(resource.reload).to have_user(resource_bot)
       end
 
       it 'does not transfer issuables of bot user to ghost user' do

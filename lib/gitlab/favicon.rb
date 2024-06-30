@@ -24,7 +24,7 @@ module Gitlab
         'favicon-blue.png'
       end
 
-      def status_overlay(status_name)
+      def ci_status_overlay(status_name)
         path = File.join(
           'ci_favicons',
           "#{status_name}.png"
@@ -33,12 +33,19 @@ module Gitlab
         ActionController::Base.helpers.image_path(path, host: host)
       end
 
+      def mr_status_overlay(status_name)
+        path = File.join(
+          'mr_favicons',
+          "#{status_name}.png"
+        )
+
+        ActionController::Base.helpers.image_path(path, host: host)
+      end
+
       def available_status_names
-        @available_status_names ||= begin
-          Dir.glob(Rails.root.join('app', 'assets', 'images', 'ci_favicons', '*.png'))
+        @available_status_names ||= Dir.glob(Rails.root.join('app', 'assets', 'images', 'ci_favicons', '*.png'))
             .map { |file| File.basename(file, '.png') }
             .sort
-        end
       end
 
       private

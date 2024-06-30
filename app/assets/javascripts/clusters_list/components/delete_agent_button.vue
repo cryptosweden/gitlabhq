@@ -39,11 +39,6 @@ export default {
       required: false,
       type: String,
     },
-    maxAgents: {
-      default: null,
-      required: false,
-      type: Number,
-    },
   },
   data() {
     return {
@@ -64,8 +59,6 @@ export default {
     getAgentsQueryVariables() {
       return {
         defaultBranchName: this.defaultBranchName,
-        first: this.maxAgents,
-        last: null,
         projectPath: this.projectPath,
       };
     },
@@ -77,20 +70,24 @@ export default {
     primaryModalProps() {
       return {
         text: this.$options.i18n.modalAction,
-        attributes: [
-          { disabled: this.loading || this.disableModalSubmit, loading: this.loading },
-          { variant: 'danger' },
-        ],
+        attributes: {
+          disabled: this.loading || this.disableModalSubmit,
+          loading: this.loading,
+          variant: 'danger',
+        },
       };
     },
     cancelModalProps() {
       return {
         text: this.$options.i18n.modalCancel,
-        attributes: [],
+        attributes: {},
       };
     },
     disableModalSubmit() {
       return this.deleteConfirmText !== this.agent.name;
+    },
+    containerTabIndex() {
+      return this.canAdminCluster ? -1 : 0;
     },
   },
   methods: {
@@ -156,8 +153,8 @@ export default {
   <div>
     <div
       v-gl-tooltip="deleteButtonTooltip"
-      class="gl-display-inline-block"
-      tabindex="-1"
+      :tabindex="containerTabIndex"
+      class="cluster-button-container gl-rounded-base gl-display-inline-block"
       data-testid="delete-agent-button-tooltip"
     >
       <gl-button

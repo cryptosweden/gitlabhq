@@ -1,3 +1,5 @@
+import { joinPaths } from '~/lib/utils/url_utility';
+
 export function normalizeData(data, path, extra = () => {}) {
   return data.map((d) => ({
     sha: d.commit.id,
@@ -6,8 +8,7 @@ export function normalizeData(data, path, extra = () => {}) {
     committedDate: d.commit.committed_date,
     commitPath: d.commit_path,
     fileName: d.file_name,
-    filePath: `${path}/${d.file_name}`,
-    type: d.type,
+    filePath: joinPaths(path, d.file_name),
     __typename: 'LogTreeCommit',
     ...extra(d),
   }));

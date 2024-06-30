@@ -56,7 +56,7 @@ module Gitlab
       # rubocop: enable CodeReuse/ActiveRecord
 
       def move_to_lost_and_found(path, dry_run)
-        new_path = path.sub(/\A#{ProjectUploadFileFinder::ABSOLUTE_UPLOAD_DIR}/, LOST_AND_FOUND)
+        new_path = path.sub(/\A#{ProjectUploadFileFinder::ABSOLUTE_UPLOAD_DIR}/o, LOST_AND_FOUND)
 
         move(path, new_path, 'move to lost and found', dry_run)
       end
@@ -93,7 +93,7 @@ module Gitlab
       end
 
       class ProjectUploadPath
-        PROJECT_FULL_PATH_REGEX = %r{\A#{FileUploader.root}/(.+)/(\h+/[^/]+)\z}.freeze
+        PROJECT_FULL_PATH_REGEX = %r{\A#{FileUploader.root}/(.+)/(\h+/[^/]+)\z}
 
         attr_reader :full_path, :upload_path
 
@@ -122,7 +122,7 @@ module Gitlab
 
         # rubocop: disable CodeReuse/ActiveRecord
         def project_id
-          @project_id ||= Project.where_full_path_in([full_path]).pluck(:id)
+          @project_id ||= Project.where_full_path_in([full_path], preload_routes: false).pluck(:id)
         end
         # rubocop: enable CodeReuse/ActiveRecord
       end

@@ -26,7 +26,7 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
       args[:commits] = [
         { message: 'message1', title: 'message1', url: 'http://url1.com', id: 'abcdefghijkl', author: { name: 'author1' } },
         {
-          message: 'message2' + ' w' * 100 + "\nsecondline",
+          message: 'message2' + (' w' * 100) + "\nsecondline",
           title: 'message2 w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w ...',
           url: 'http://url2.com',
           id: '123456789012',
@@ -38,8 +38,8 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
     context 'without markdown' do
       it 'returns a message regarding pushes' do
         expect(subject.pretext).to eq(
-          'test.user pushed to branch <http://url.com/commits/master|master> of '\
-            '<http://url.com|project_name> (<http://url.com/compare/before...after|Compare changes>)')
+          'test.user pushed to branch <http://url.com/-/commits/master|master> of '\
+            '<http://url.com|project_name> (<http://url.com/-/compare/before...after|Compare changes>)')
         expect(subject.attachments).to eq([{
           text: "<http://url1.com|abcdefgh>: message1 - author1\n\n"\
             "<http://url2.com|12345678>: message2 w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w ... - author2",
@@ -55,13 +55,13 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
 
       it 'returns a message regarding pushes' do
         expect(subject.pretext).to eq(
-          'test.user pushed to branch [master](http://url.com/commits/master) of [project_name](http://url.com) ([Compare changes](http://url.com/compare/before...after))')
+          'test.user pushed to branch [master](http://url.com/-/commits/master) of [project_name](http://url.com) ([Compare changes](http://url.com/-/compare/before...after))')
         expect(subject.attachments).to eq(
           "[abcdefgh](http://url1.com): message1 - author1\n\n[12345678](http://url2.com): message2 w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w w ... - author2")
         expect(subject.activity).to eq(
-          title: 'test.user pushed to branch [master](http://url.com/commits/master)',
+          title: 'test.user pushed to branch [master](http://url.com/-/commits/master)',
           subtitle: 'in [project_name](http://url.com)',
-          text: '[Compare changes](http://url.com/compare/before...after)',
+          text: '[Compare changes](http://url.com/-/compare/before...after)',
           image: 'http://someavatar.com'
         )
       end
@@ -72,7 +72,7 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
     let(:args) do
       {
         after: 'after',
-        before: Gitlab::Git::BLANK_SHA,
+        before: Gitlab::Git::SHA1_BLANK_SHA,
         project_name: 'project_name',
         ref: 'refs/tags/new_tag',
         user_name: 'test.user',
@@ -102,7 +102,7 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
         expect(subject.activity).to eq(
           title: 'test.user pushed new tag [new_tag](http://url.com/-/tags/new_tag)',
           subtitle: 'in [project_name](http://url.com)',
-          text: '[Compare changes](http://url.com/compare/0000000000000000000000000000000000000000...after)',
+          text: '[Compare changes](http://url.com/-/compare/0000000000000000000000000000000000000000...after)',
           image: 'http://someavatar.com'
         )
       end
@@ -112,7 +112,7 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
   context 'removed tag' do
     let(:args) do
       {
-        after: Gitlab::Git::BLANK_SHA,
+        after: Gitlab::Git::SHA1_BLANK_SHA,
         before: 'before',
         project_name: 'project_name',
         ref: 'refs/tags/new_tag',
@@ -143,7 +143,7 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
         expect(subject.activity).to eq(
           title: 'test.user removed tag new_tag',
           subtitle: 'in [project_name](http://url.com)',
-          text: '[Compare changes](http://url.com/compare/before...0000000000000000000000000000000000000000)',
+          text: '[Compare changes](http://url.com/-/compare/before...0000000000000000000000000000000000000000)',
           image: 'http://someavatar.com'
         )
       end
@@ -152,13 +152,13 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
 
   context 'new branch' do
     before do
-      args[:before] = Gitlab::Git::BLANK_SHA
+      args[:before] = Gitlab::Git::SHA1_BLANK_SHA
     end
 
     context 'without markdown' do
       it 'returns a message regarding a new branch' do
         expect(subject.pretext).to eq(
-          'test.user pushed new branch <http://url.com/commits/master|master> to '\
+          'test.user pushed new branch <http://url.com/-/commits/master|master> to '\
             '<http://url.com|project_name>')
         expect(subject.attachments).to be_empty
       end
@@ -171,12 +171,12 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
 
       it 'returns a message regarding a new branch' do
         expect(subject.pretext).to eq(
-          'test.user pushed new branch [master](http://url.com/commits/master) to [project_name](http://url.com)')
+          'test.user pushed new branch [master](http://url.com/-/commits/master) to [project_name](http://url.com)')
         expect(subject.attachments).to be_empty
         expect(subject.activity).to eq(
-          title: 'test.user pushed new branch [master](http://url.com/commits/master)',
+          title: 'test.user pushed new branch [master](http://url.com/-/commits/master)',
           subtitle: 'in [project_name](http://url.com)',
-          text: '[Compare changes](http://url.com/compare/0000000000000000000000000000000000000000...after)',
+          text: '[Compare changes](http://url.com/-/compare/0000000000000000000000000000000000000000...after)',
           image: 'http://someavatar.com'
         )
       end
@@ -185,7 +185,7 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
 
   context 'removed branch' do
     before do
-      args[:after] = Gitlab::Git::BLANK_SHA
+      args[:after] = Gitlab::Git::SHA1_BLANK_SHA
     end
 
     context 'without markdown' do
@@ -208,10 +208,16 @@ RSpec.describe Integrations::ChatMessage::PushMessage do
         expect(subject.activity).to eq(
           title: 'test.user removed branch master',
           subtitle: 'in [project_name](http://url.com)',
-          text: '[Compare changes](http://url.com/compare/before...0000000000000000000000000000000000000000)',
+          text: '[Compare changes](http://url.com/-/compare/before...0000000000000000000000000000000000000000)',
           image: 'http://someavatar.com'
         )
       end
+    end
+  end
+
+  describe '#attachment_color' do
+    it 'returns the correct color' do
+      expect(subject.attachment_color).to eq('#345')
     end
   end
 end

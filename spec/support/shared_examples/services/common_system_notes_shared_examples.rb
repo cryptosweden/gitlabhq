@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
-RSpec.shared_examples 'system note creation' do |update_params, note_text|
-  subject { described_class.new(project: project, current_user: user).execute(issuable, old_labels: []) }
+RSpec.shared_examples 'system note creation' do |update_params, note_text, is_update = true|
+  subject do
+    described_class.new(project: project, current_user: user).execute(issuable, old_labels: [], is_update: is_update)
+  end
 
   before do
     issuable.assign_attributes(update_params)
@@ -42,6 +44,7 @@ RSpec.shared_examples 'a system note' do |params|
 
   it 'has the correct attributes', :aggregate_failures do
     exclude_project = !params.nil? && params[:exclude_project]
+    skip_persistence_check = !params.nil? && params[:skip_persistence_check]
 
     expect(subject).to be_valid
     expect(subject).to be_system
@@ -50,6 +53,7 @@ RSpec.shared_examples 'a system note' do |params|
     expect(subject.project).to eq project unless exclude_project
     expect(subject.author).to eq author
 
+    expect(subject.system_note_metadata).to be_persisted unless skip_persistence_check
     expect(subject.system_note_metadata.action).to eq(action)
     expect(subject.system_note_metadata.commit_count).to eq(commit_count)
   end

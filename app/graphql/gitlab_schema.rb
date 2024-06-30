@@ -10,21 +10,15 @@ class GitlabSchema < GraphQL::Schema
   DEFAULT_MAX_DEPTH = 15
   AUTHENTICATED_MAX_DEPTH = 20
 
-  # Tracers (order is important)
-  use Gitlab::Graphql::Tracers::ApplicationContextTracer
-  use Gitlab::Graphql::Tracers::MetricsTracer
-  use Gitlab::Graphql::Tracers::LoggerTracer
-  use Gitlab::Graphql::GenericTracing # Old tracer which will be removed eventually
-  use Gitlab::Graphql::Tracers::TimerTracer
+  trace_with Gitlab::Graphql::Tracers::InstrumentationTracer
 
-  use GraphQL::Subscriptions::ActionCableSubscriptions
-  use GraphQL::Pagination::Connections
+  use Gitlab::Graphql::Subscriptions::ActionCableWithLoadBalancing
   use BatchLoader::GraphQL
   use Gitlab::Graphql::Pagination::Connections
   use Gitlab::Graphql::Timeout, max_seconds: Gitlab.config.gitlab.graphql_timeout
 
-  query_analyzer Gitlab::Graphql::QueryAnalyzers::LoggerAnalyzer.new
-  query_analyzer Gitlab::Graphql::QueryAnalyzers::RecursionAnalyzer.new
+  query_analyzer Gitlab::Graphql::QueryAnalyzers::AST::LoggerAnalyzer
+  query_analyzer Gitlab::Graphql::QueryAnalyzers::AST::RecursionAnalyzer
 
   query Types::QueryType
   mutation Types::MutationType
@@ -49,18 +43,19 @@ class GitlabSchema < GraphQL::Schema
       super(queries, **kwargs)
     end
 
-    def get_type(type_name)
+    def get_type(type_name, context = GraphQL::Query::NullContext)
       type_name = Gitlab::GlobalId::Deprecations.apply_to_graphql_name(type_name)
+      type_name = Gitlab::Graphql::TypeNameDeprecations.apply_to_graphql_name(type_name)
 
-      super(type_name)
+      super(type_name, context)
     end
 
     def id_from_object(object, _type = nil, _ctx = nil)
       unless object.respond_to?(:to_global_id)
         # This is an error in our schema and needs to be solved. So raise a
         # more meaningful error message
-        raise "#{object} does not implement `to_global_id`. "\
-              "Include `GlobalID::Identification` into `#{object.class}"
+        raise "#{object} does not implement `to_global_id`. " \
+          "Include `GlobalID::Identification` into `#{object.class}"
       end
 
       object.to_global_id
@@ -77,10 +72,13 @@ class GitlabSchema < GraphQL::Schema
     end
 
     def resolve_type(type, object, ctx = :__undefined__)
-      tc = type.metadata[:type_class]
-      return if tc.respond_to?(:assignable?) && !tc.assignable?(object)
+      return if type.respond_to?(:assignable?) && !type.assignable?(object)
 
-      super
+      if type.kind.object?
+        type
+      else
+        super
+      end
     end
 
     # Find an object by looking it up from its 'GlobalID'.
@@ -135,6 +133,25 @@ class GitlabSchema < GraphQL::Schema
       gid
     end
 
+    # Parse an array of strings to an array of GlobalIDs, raising ArgumentError if there are problems
+    # with it.
+    # See #parse_gid
+    #
+    # ```
+    #   gids = GitlabSchema.parse_gids(my_array_of_strings, expected_type: ::Project)
+    #   project_ids = gids.map(&:model_id)
+    #   gids.all? { |gid| gid.model_class == ::Project }
+    # ```
+    def parse_gids(global_ids, ctx = {})
+      global_ids.map { |gid| parse_gid(gid, ctx) }
+    end
+
+    def unauthorized_field(error)
+      return error.field.if_unauthorized if error.field.respond_to?(:if_unauthorized) && error.field.if_unauthorized
+
+      super
+    end
+
     private
 
     def max_query_complexity(ctx)
@@ -162,20 +179,10 @@ class GitlabSchema < GraphQL::Schema
 
   def get_type(type_name)
     type_name = Gitlab::GlobalId::Deprecations.apply_to_graphql_name(type_name)
+    type_name = Gitlab::Graphql::TypeNameDeprecations.apply_to_graphql_name(type_name)
 
     super(type_name)
   end
 end
 
 GitlabSchema.prepend_mod_with('GitlabSchema') # rubocop: disable Cop/InjectEnterpriseEditionModule
-
-# Force the schema to load as a workaround for intermittent errors we
-# see due to a lack of thread safety.
-#
-# TODO: We can remove this workaround when we convert the schema to use
-# the new query interpreter runtime.
-#
-# See:
-# - https://gitlab.com/gitlab-org/gitlab/-/issues/211478
-# - https://gitlab.com/gitlab-org/gitlab/-/issues/210556
-GitlabSchema.graphql_definition

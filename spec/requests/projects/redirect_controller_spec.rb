@@ -2,16 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe "Projects::RedirectController requests" do
+RSpec.describe "Projects::RedirectController requests", feature_category: :groups_and_projects do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be(:private_project) { create(:project, :private) }
   let_it_be(:public_project) { create(:project, :public) }
-  let_it_be(:user) { create(:user) }
-
-  before_all do
-    private_project.add_developer(user)
-  end
+  let_it_be(:user) { create(:user, developer_of: private_project) }
 
   describe 'GET redirect_from_id' do
     where(:authenticated, :project, :is_found) do

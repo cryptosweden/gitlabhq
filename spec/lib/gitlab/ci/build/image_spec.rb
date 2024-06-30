@@ -9,8 +9,8 @@ RSpec.describe Gitlab::Ci::Build::Image do
     subject { described_class.from_image(job) }
 
     context 'when image is defined in job' do
-      let(:image_name) { 'ruby:2.7' }
-      let(:job) { create(:ci_build, options: { image: image_name } ) }
+      let(:image_name) { 'image:1.0' }
+      let(:job) { create(:ci_build, options: { image: image_name }) }
 
       context 'when image is defined as string' do
         it 'fabricates an object of the proper class' do
@@ -28,8 +28,16 @@ RSpec.describe Gitlab::Ci::Build::Image do
 
       context 'when image is defined as hash' do
         let(:entrypoint) { '/bin/sh' }
+        let(:pull_policy) { %w[always if-not-present] }
+        let(:executor_opts) { { docker: { platform: 'arm64', user: 'dave' } } }
 
-        let(:job) { create(:ci_build, options: { image: { name: image_name, entrypoint: entrypoint, ports: [80] } } ) }
+        let(:job) do
+          create(:ci_build, options: { image: { name: image_name,
+                                                entrypoint: entrypoint,
+                                                ports: [80],
+                                                executor_opts: executor_opts,
+                                                pull_policy: pull_policy } })
+        end
 
         it 'fabricates an object of the proper class' do
           is_expected.to be_kind_of(described_class)
@@ -38,6 +46,8 @@ RSpec.describe Gitlab::Ci::Build::Image do
         it 'populates fabricated object with the proper attributes' do
           expect(subject.name).to eq(image_name)
           expect(subject.entrypoint).to eq(entrypoint)
+          expect(subject.executor_opts).to eq(executor_opts)
+          expect(subject.pull_policy).to eq(pull_policy)
         end
 
         it 'populates the ports' do
@@ -91,9 +101,12 @@ RSpec.describe Gitlab::Ci::Build::Image do
         let(:service_entrypoint) { '/bin/sh' }
         let(:service_alias) { 'db' }
         let(:service_command) { 'sleep 30' }
+        let(:executor_opts) { { docker: { platform: 'amd64', user: 'dave' } } }
+        let(:pull_policy) { %w[always if-not-present] }
         let(:job) do
           create(:ci_build, options: { services: [{ name: service_image_name, entrypoint: service_entrypoint,
-                                                    alias: service_alias, command: service_command, ports: [80] }] })
+                                                    alias: service_alias, command: service_command, ports: [80],
+                                                    executor_opts: executor_opts, pull_policy: pull_policy }] })
         end
 
         it 'fabricates an non-empty array of objects' do
@@ -107,6 +120,8 @@ RSpec.describe Gitlab::Ci::Build::Image do
           expect(subject.first.entrypoint).to eq(service_entrypoint)
           expect(subject.first.alias).to eq(service_alias)
           expect(subject.first.command).to eq(service_command)
+          expect(subject.first.executor_opts).to eq(executor_opts)
+          expect(subject.first.pull_policy).to eq(pull_policy)
 
           port = subject.first.ports.first
           expect(port.number).to eq 80

@@ -1,7 +1,20 @@
+<script>
+import { GlForm, GlFormInput, GlButton, GlTooltipDirective } from '@gitlab/ui';
 import { __ } from '~/locale';
 
-<script>
 export default {
+  i18n: {
+    buttonLabel: __('Add request manually'),
+    inputLabel: __('URL or request ID'),
+  },
+  components: {
+    GlForm,
+    GlButton,
+    GlFormInput,
+  },
+  directives: {
+    GlTooltip: GlTooltipDirective,
+  },
   data() {
     return {
       inputEnabled: false,
@@ -24,25 +37,29 @@ export default {
 };
 </script>
 <template>
-  <div id="peek-view-add-request" class="view">
-    <form class="form-inline" @submit.prevent>
-      <button
-        class="btn-blank btn-link bold gl-text-blue-300"
-        type="button"
-        :title="__(`Add request manually`)"
+  <div id="peek-view-add-request" class="view gl-display-flex">
+    <gl-form class="gl-display-flex gl-align-items-center" @submit.prevent>
+      <gl-button
+        v-gl-tooltip.viewport
+        class="gl-mr-2"
+        category="tertiary"
+        variant="link"
+        icon="plus"
+        size="small"
+        :title="$options.i18n.buttonLabel"
+        :aria-label="$options.i18n.buttonLabel"
         @click="toggleInput"
-      >
-        +
-      </button>
-      <input
+      />
+      <gl-form-input
         v-if="inputEnabled"
         v-model="urlOrRequestId"
         type="text"
-        :placeholder="__(`URL or request ID`)"
-        class="form-control form-control-sm d-inline-block ml-1"
+        :placeholder="$options.i18n.inputLabel"
+        :aria-label="$options.i18n.inputLabel"
+        class="gl-ml-2 gl-px-3! gl-py-2!"
         @keyup.enter="addRequest"
         @keyup.esc="clearForm"
       />
-    </form>
+    </gl-form>
   </div>
 </template>

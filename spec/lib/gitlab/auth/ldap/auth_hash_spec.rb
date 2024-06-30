@@ -20,19 +20,19 @@ RSpec.describe Gitlab::Auth::Ldap::AuthHash do
 
   let(:info) do
     {
-      name:     'Smith, J.',
-      email:    'johnsmith@example.com',
+      name: 'Smith, J.',
+      email: 'johnsmith@example.com',
       nickname: '123456'
     }
   end
 
   let(:raw_info) do
-    {
-      uid:      ['123456'],
-      email:    ['johnsmith@example.com'],
-      cn:       ['Smith, J.'],
-      fullName: ['John Smith']
-    }
+    Net::LDAP::Entry.new.tap do |entry|
+      entry['uid'] = ['123456']
+      entry['email'] = ['johnsmith@example.com']
+      entry['cn'] = ['Smith, J.']
+      entry['fullName'] = ['John Smith']
+    end
   end
 
   context "without overridden attributes" do
@@ -52,8 +52,8 @@ RSpec.describe Gitlab::Auth::Ldap::AuthHash do
 
     let(:attributes) do
       {
-        'username'  => %w(mail email),
-        'name'      => 'fullName'
+        'username' => %w[mail email],
+        'name' => 'fullName'
       }
     end
 

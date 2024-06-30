@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Show > User uploads files' do
+RSpec.describe 'Projects > Show > User uploads files', feature_category: :groups_and_projects do
   include DropzoneHelper
 
   let(:user) { create(:user) }
@@ -46,18 +46,6 @@ RSpec.describe 'Projects > Show > User uploads files' do
 
   context 'with an empty repo' do
     let(:project) { create(:project, :empty_repo, creator: user) }
-
-    before do
-      visit(project_path(project))
-    end
-
-    [true, false].each do |value|
-      include_examples 'uploads and commits a new text file via "upload file" button', drop: value
-    end
-  end
-
-  context 'with a nonempty repo' do
-    let(:project) { create(:project, :repository, creator: user) }
 
     before do
       visit(project_path(project))

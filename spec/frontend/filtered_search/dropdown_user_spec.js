@@ -1,3 +1,5 @@
+import htmlMergeRequestList from 'test_fixtures/merge_requests/merge_request_list.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import DropdownUser from '~/filtered_search/dropdown_user';
 import DropdownUtils from '~/filtered_search/dropdown_utils';
 import FilteredSearchTokenizer from '~/filtered_search/filtered_search_tokenizer';
@@ -67,26 +69,24 @@ describe('Dropdown User', () => {
         '/gitlab_directory/-/autocomplete/users.json',
       );
     });
-
-    afterEach(() => {
-      window.gon = {};
-    });
   });
 
   describe('hideCurrentUser', () => {
-    const fixtureTemplate = 'merge_requests/merge_request_list.html';
-
     let dropdown;
     let authorFilterDropdownElement;
 
     beforeEach(() => {
-      loadFixtures(fixtureTemplate);
+      setHTMLFixture(htmlMergeRequestList);
       authorFilterDropdownElement = document.querySelector('#js-dropdown-author');
       const dummyInput = document.createElement('div');
       dropdown = new DropdownUser({
         dropdown: authorFilterDropdownElement,
         input: dummyInput,
       });
+    });
+
+    afterEach(() => {
+      resetHTMLFixture();
     });
 
     const findCurrentUserElement = () =>

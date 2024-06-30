@@ -1,10 +1,28 @@
 import Api from '~/api';
-import createFlash from '~/flash';
-import { visitUrl, setUrlParams } from '~/lib/utils/url_utility';
+import { createAlert } from '~/alert';
+import axios from '~/lib/utils/axios_utils';
+import { visitUrl, setUrlParams, getNormalizedURL } from '~/lib/utils/url_utility';
+import { logError } from '~/lib/logger';
 import { __ } from '~/locale';
-import { GROUPS_LOCAL_STORAGE_KEY, PROJECTS_LOCAL_STORAGE_KEY, SIDEBAR_PARAMS } from './constants';
+import { labelFilterData } from '~/search/sidebar/components/label_filter/data';
+import { SCOPE_BLOB } from '~/search/sidebar/constants';
+import {
+  GROUPS_LOCAL_STORAGE_KEY,
+  PROJECTS_LOCAL_STORAGE_KEY,
+  SIDEBAR_PARAMS,
+  REGEX_PARAM,
+  LS_REGEX_HANDLE,
+} from '~/search/store/constants';
 import * as types from './mutation_types';
-import { loadDataFromLS, setFrequentItemToLS, mergeById, isSidebarDirty } from './utils';
+import {
+  loadDataFromLS,
+  setFrequentItemToLS,
+  mergeById,
+  isSidebarDirty,
+  getAggregationsUrl,
+  prepareSearchAggregations,
+  setDataToLS,
+} from './utils';
 
 export const fetchGroups = ({ commit }, search) => {
   commit(types.REQUEST_GROUPS);
@@ -13,7 +31,7 @@ export const fetchGroups = ({ commit }, search) => {
       commit(types.RECEIVE_GROUPS_SUCCESS, data);
     })
     .catch(() => {
-      createFlash({ message: __('There was a problem fetching groups.') });
+      createAlert({ message: __('There was a problem fetching groups.') });
       commit(types.RECEIVE_GROUPS_ERROR);
     });
 };
@@ -21,36 +39,34 @@ export const fetchGroups = ({ commit }, search) => {
 export const fetchProjects = ({ commit, state }, search) => {
   commit(types.REQUEST_PROJECTS);
   const groupId = state.query?.group_id;
-  const callback = (data) => {
-    if (data) {
-      commit(types.RECEIVE_PROJECTS_SUCCESS, data);
-    } else {
-      createFlash({ message: __('There was an error fetching projects') });
-      commit(types.RECEIVE_PROJECTS_ERROR);
-    }
+
+  const handleCatch = () => {
+    createAlert({ message: __('There was an error fetching projects') });
+    commit(types.RECEIVE_PROJECTS_ERROR);
+  };
+  const handleSuccess = ({ data }) => {
+    commit(types.RECEIVE_PROJECTS_SUCCESS, data);
   };
 
   if (groupId) {
-    // TODO (https://gitlab.com/gitlab-org/gitlab/-/issues/323331): For errors `createFlash` is called twice; in `callback` and in `Api.groupProjects`
-    Api.groupProjects(
-      groupId,
-      search,
-      { order_by: 'similarity', with_shared: false, include_subgroups: true },
-      callback,
-    );
+    Api.groupProjects(groupId, search, {
+      order_by: 'similarity',
+      with_shared: false,
+      include_subgroups: true,
+    })
+      .then(handleSuccess)
+      .catch(handleCatch);
   } else {
     // The .catch() is due to the API method not handling a rejection properly
-    Api.projects(search, { order_by: 'similarity' }, callback).catch(() => {
-      callback();
-    });
+    Api.projects(search, { order_by: 'similarity' }).then(handleSuccess).catch(handleCatch);
   }
 };
 
 export const preloadStoredFrequentItems = ({ commit }) => {
-  const storedGroups = loadDataFromLS(GROUPS_LOCAL_STORAGE_KEY);
+  const storedGroups = loadDataFromLS(GROUPS_LOCAL_STORAGE_KEY) || [];
   commit(types.LOAD_FREQUENT_ITEMS, { key: GROUPS_LOCAL_STORAGE_KEY, data: storedGroups });
 
-  const storedProjects = loadDataFromLS(PROJECTS_LOCAL_STORAGE_KEY);
+  const storedProjects = loadDataFromLS(PROJECTS_LOCAL_STORAGE_KEY) || [];
   commit(types.LOAD_FREQUENT_ITEMS, { key: PROJECTS_LOCAL_STORAGE_KEY, data: storedProjects });
 };
 
@@ -61,7 +77,7 @@ export const loadFrequentGroups = async ({ commit, state }) => {
     const inflatedData = mergeById(await Promise.all(promises), storedData);
     commit(types.LOAD_FREQUENT_ITEMS, { key: GROUPS_LOCAL_STORAGE_KEY, data: inflatedData });
   } catch {
-    createFlash({ message: __('There was a problem fetching recent groups.') });
+    createAlert({ message: __('There was a problem fetching recent groups.') });
   }
 };
 
@@ -72,7 +88,7 @@ export const loadFrequentProjects = async ({ commit, state }) => {
     const inflatedData = mergeById(await Promise.all(promises), storedData);
     commit(types.LOAD_FREQUENT_ITEMS, { key: PROJECTS_LOCAL_STORAGE_KEY, data: inflatedData });
   } catch {
-    createFlash({ message: __('There was a problem fetching recent projects.') });
+    createAlert({ message: __('There was a problem fetching recent projects.') });
   }
 };
 
@@ -92,12 +108,87 @@ export const setQuery = ({ state, commit }, { key, value }) => {
   if (SIDEBAR_PARAMS.includes(key)) {
     commit(types.SET_SIDEBAR_DIRTY, isSidebarDirty(state.query, state.urlQuery));
   }
+
+  if (key === REGEX_PARAM) {
+    setDataToLS(LS_REGEX_HANDLE, value);
+  }
 };
 
 export const applyQuery = ({ state }) => {
-  visitUrl(setUrlParams({ ...state.query, page: null }));
+  visitUrl(setUrlParams({ ...state.query, page: null }, window.location.href, false, true));
 };
 
 export const resetQuery = ({ state }) => {
-  visitUrl(setUrlParams({ ...state.query, page: null, state: null, confidential: null }));
+  const resetParams = SIDEBAR_PARAMS.reduce((acc, param) => {
+    acc[param] = null;
+    return acc;
+  }, {});
+
+  visitUrl(
+    setUrlParams(
+      {
+        ...state.query,
+        page: null,
+        ...resetParams,
+      },
+      undefined,
+      true,
+    ),
+  );
+};
+
+export const closeLabel = ({ state, commit }, { key }) => {
+  const labels = state?.query?.labels.filter((labelKey) => labelKey !== key);
+
+  setQuery({ state, commit }, { key: labelFilterData.filterParam, value: labels });
+};
+
+export const setLabelFilterSearch = ({ commit }, { value }) => {
+  commit(types.SET_LABEL_SEARCH_STRING, value);
+};
+
+export const fetchSidebarCount = ({ commit, state }) => {
+  const items = Object.values(state.navigation)
+    .filter((navigationItem) => !navigationItem.active && navigationItem.count_link)
+    .map((navItem) => {
+      const navigationItem = { ...navItem };
+      const modifications = {
+        search: state.query?.search || '*',
+      };
+
+      if (navigationItem.scope === SCOPE_BLOB && loadDataFromLS(LS_REGEX_HANDLE)) {
+        modifications[REGEX_PARAM] = true;
+      }
+
+      navigationItem.count_link = setUrlParams(
+        modifications,
+        getNormalizedURL(navigationItem.count_link),
+      );
+
+      return navigationItem;
+    });
+
+  const promises = items.map((navigationItem) =>
+    axios
+      .get(navigationItem.count_link)
+      .then(({ data: { count } }) => {
+        commit(types.RECEIVE_NAVIGATION_COUNT, { key: navigationItem.scope, count });
+      })
+      .catch((e) => logError(e)),
+  );
+
+  return Promise.all(promises);
+};
+
+export const fetchAllAggregation = ({ commit, state }) => {
+  commit(types.REQUEST_AGGREGATIONS);
+  return axios
+    .get(getAggregationsUrl())
+    .then(({ data }) => {
+      commit(types.RECEIVE_AGGREGATIONS_SUCCESS, prepareSearchAggregations(state, data));
+    })
+    .catch((e) => {
+      logError(e);
+      commit(types.RECEIVE_AGGREGATIONS_ERROR);
+    });
 };

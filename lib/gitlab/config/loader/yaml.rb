@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+# NOTE: DO NOT use this class for loading GitLab CI configuration files.
+# Instead, use `Gitlab::Ci::Config::Yaml.load!`, which will properly handle
+# CI configuration headers.
+
 module Gitlab
   module Config
     module Loader
@@ -9,7 +13,10 @@ module Gitlab
 
         include Gitlab::Utils::StrongMemoize
 
+        attr_reader :raw
+
         def initialize(config, additional_permitted_classes: [])
+          @raw = config
           @config = YAML.safe_load(config,
             permitted_classes: [Symbol, *additional_permitted_classes],
             permitted_symbols: [],
@@ -34,6 +41,10 @@ module Gitlab
           @symbolized_config ||= load_raw!.deep_symbolize_keys
         end
 
+        def blank?
+          @config.blank?
+        end
+
         private
 
         def hash?
@@ -41,8 +52,6 @@ module Gitlab
         end
 
         def too_big?
-          return false unless Feature.enabled?(:ci_yaml_limit_size, default_enabled: true)
-
           !deep_size.valid?
         end
 

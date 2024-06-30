@@ -1,11 +1,14 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Generated passwords for users created through integrated authentication **(FREE)**
+# Generated passwords for users created through integrated authentication
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 GitLab allows users to set up accounts through integration with external [authentication and authorization providers](../administration/auth/index.md).
 
@@ -14,4 +17,4 @@ However, to maintain data consistency, GitLab requires passwords for all user ac
 
 For such accounts, we use the [`friendly_token`](https://github.com/heartcombo/devise/blob/f26e05c20079c9acded3c0ee16da0df435a28997/lib/devise.rb#L492) method provided by the Devise gem to generate a random, unique and secure password and sets it as the account password during sign up.
 
-The length of the generated password is the set based on the value of [maximum password length](password_length_limits.md#modify-maximum-password-length-using-configuration-file) as set in the Device configuration. The default value is 128 characters.
+The length of the generated password is [128 characters](password_length_limits.md).

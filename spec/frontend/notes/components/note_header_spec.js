@@ -1,10 +1,9 @@
-import { GlSprintf } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import NoteHeader from '~/notes/components/note_header.vue';
-import { AVAILABILITY_STATUS } from '~/set_status_modal/utils';
-import UserNameWithStatus from '~/sidebar/components/assignees/user_name_with_status.vue';
+import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
 
 Vue.use(Vuex);
 
@@ -15,15 +14,18 @@ const actions = {
 describe('NoteHeader component', () => {
   let wrapper;
 
-  const findActionsWrapper = () => wrapper.find({ ref: 'discussionActions' });
+  const findActionsWrapper = () => wrapper.findComponent({ ref: 'discussionActions' });
   const findToggleThreadButton = () => wrapper.findByTestId('thread-toggle');
-  const findChevronIcon = () => wrapper.find({ ref: 'chevronIcon' });
-  const findActionText = () => wrapper.find({ ref: 'actionText' });
-  const findTimestampLink = () => wrapper.find({ ref: 'noteTimestampLink' });
-  const findTimestamp = () => wrapper.find({ ref: 'noteTimestamp' });
-  const findConfidentialIndicator = () => wrapper.findByTestId('confidentialIndicator');
-  const findSpinner = () => wrapper.find({ ref: 'spinner' });
-  const findAuthorStatus = () => wrapper.find({ ref: 'authorStatus' });
+  const findChevronIcon = () => wrapper.findComponent({ ref: 'chevronIcon' });
+  const findActionText = () => wrapper.findComponent({ ref: 'actionText' });
+  const findTimestampLink = () => wrapper.findComponent({ ref: 'noteTimestampLink' });
+  const findTimestamp = () => wrapper.findComponent({ ref: 'noteTimestamp' });
+  const findInternalNoteIndicator = () => wrapper.findByTestId('internal-note-indicator');
+  const findAuthorName = () => wrapper.findByTestId('author-name');
+  const findSpinner = () => wrapper.findComponent({ ref: 'spinner' });
+  const authorUsernameLink = () => wrapper.findComponent({ ref: 'authorUsernameLink' });
+  const findAuthorNameLink = () => wrapper.findComponent({ ref: 'authorNameLink' });
+  const findImportedBadge = () => wrapper.findComponent(ImportedBadge);
 
   const statusHtml =
     '"<span class="user-status-emoji has-tooltip" title="foo bar" data-html="true" data-placement="top"><gl-emoji title="basketball and hoop" data-name="basketball" data-unicode-version="6.0">🏀</gl-emoji></span>"';
@@ -37,7 +39,17 @@ describe('NoteHeader component', () => {
     username: 'root',
     show_status: true,
     status_tooltip_html: statusHtml,
-    availability: '',
+  };
+
+  const supportBotAuthor = {
+    avatar_url: null,
+    id: 1,
+    name: 'Gitlab Support Bot',
+    path: '/support-bot',
+    state: 'active',
+    username: 'support-bot',
+    show_status: true,
+    status_tooltip_html: statusHtml,
   };
 
   const createComponent = (props) => {
@@ -46,14 +58,8 @@ describe('NoteHeader component', () => {
         actions,
       }),
       propsData: { ...props },
-      stubs: { GlSprintf, UserNameWithStatus },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   it('does not render discussion actions when includeToggle is false', () => {
     createComponent({
@@ -119,43 +125,20 @@ describe('NoteHeader component', () => {
 
     expect(wrapper.find('.js-user-link').exists()).toBe(true);
   });
-
-  it('renders busy status if author availability is set', () => {
-    createComponent({ author: { ...author, availability: AVAILABILITY_STATUS.BUSY } });
-
-    expect(wrapper.find('.js-user-link').text()).toContain('(Busy)');
-  });
-
-  it('renders author status', () => {
-    createComponent({ author });
-
-    expect(findAuthorStatus().exists()).toBe(true);
-  });
-
-  it('does not render author status if show_status=false', () => {
-    createComponent({
-      author: { ...author, status: { availability: AVAILABILITY_STATUS.BUSY }, show_status: false },
-    });
-
-    expect(findAuthorStatus().exists()).toBe(false);
-  });
-
-  it('does not render author status if status_tooltip_html=null', () => {
-    createComponent({
-      author: {
-        ...author,
-        status: { availability: AVAILABILITY_STATUS.BUSY },
-        status_tooltip_html: null,
-      },
-    });
-
-    expect(findAuthorStatus().exists()).toBe(false);
-  });
-
   it('renders deleted user text if author is not passed as a prop', () => {
     createComponent();
 
     expect(wrapper.text()).toContain('A deleted user');
+  });
+
+  it('renders participant email when author is a support-bot', () => {
+    createComponent({
+      author: supportBotAuthor,
+      emailParticipant: 'email@example.com',
+    });
+
+    expect(findAuthorName().text()).toBe('email@example.com');
+    expect(authorUsernameLink().exists()).toBe(false);
   });
 
   it('does not render created at information if createdAt is not passed as a prop', () => {
@@ -215,6 +198,21 @@ describe('NoteHeader component', () => {
       expect(findTimestamp().exists()).toBe(false);
     });
 
+    it('generates correct link for alphanumeric noteId', () => {
+      createComponent({
+        createdAt: new Date().toISOString(),
+        noteId: 'afccb75d1ce204bd6f96c3a58dfb4be906b14a6e',
+      });
+      expect(findTimestampLink().attributes('href')).toBe(
+        '#note_afccb75d1ce204bd6f96c3a58dfb4be906b14a6e',
+      );
+    });
+
+    it('generates correct link for GraphQL GID', () => {
+      createComponent({ createdAt: new Date().toISOString(), noteId: 'gid://gitlab/Note/123' });
+      expect(findTimestampLink().attributes('href')).toBe('#note_123');
+    });
+
     it('shows timestamp as plain text if a noteId was not provided', () => {
       createComponent({ createdAt: new Date().toISOString() });
       expect(findTimestampLink().exists()).toBe(false);
@@ -226,9 +224,9 @@ describe('NoteHeader component', () => {
     it('proxies `mouseenter` event to author name link', () => {
       createComponent({ author });
 
-      const dispatchEvent = jest.spyOn(wrapper.vm.$refs.authorNameLink, 'dispatchEvent');
+      const dispatchEvent = jest.spyOn(findAuthorNameLink().element, 'dispatchEvent');
 
-      wrapper.find({ ref: 'authorUsernameLink' }).trigger('mouseenter');
+      wrapper.findComponent({ ref: 'authorUsernameLink' }).trigger('mouseenter');
 
       expect(dispatchEvent).toHaveBeenCalledWith(new Event('mouseenter'));
     });
@@ -236,65 +234,84 @@ describe('NoteHeader component', () => {
     it('proxies `mouseleave` event to author name link', () => {
       createComponent({ author });
 
-      const dispatchEvent = jest.spyOn(wrapper.vm.$refs.authorNameLink, 'dispatchEvent');
+      const dispatchEvent = jest.spyOn(findAuthorNameLink().element, 'dispatchEvent');
 
-      wrapper.find({ ref: 'authorUsernameLink' }).trigger('mouseleave');
+      wrapper.findComponent({ ref: 'authorUsernameLink' }).trigger('mouseleave');
 
       expect(dispatchEvent).toHaveBeenCalledWith(new Event('mouseleave'));
     });
   });
 
-  describe('when author status tooltip is opened', () => {
-    it('removes `title` attribute from emoji to prevent duplicate tooltips', () => {
-      createComponent({
-        author: {
-          ...author,
-          status_tooltip_html: statusHtml,
-        },
-      });
-
-      return nextTick().then(() => {
-        const authorStatus = findAuthorStatus();
-        authorStatus.trigger('mouseenter');
-
-        expect(authorStatus.find('gl-emoji').attributes('title')).toBeUndefined();
-      });
-    });
-  });
-
   describe('when author username link is hovered', () => {
-    it('toggles hover specific CSS classes on author name link', (done) => {
+    it('toggles hover specific CSS classes on author name link', async () => {
       createComponent({ author });
 
-      const authorUsernameLink = wrapper.find({ ref: 'authorUsernameLink' });
-      const authorNameLink = wrapper.find({ ref: 'authorNameLink' });
+      const authorNameLink = wrapper.findComponent({ ref: 'authorNameLink' });
 
-      authorUsernameLink.trigger('mouseenter');
+      authorUsernameLink().trigger('mouseenter');
 
-      nextTick(() => {
-        expect(authorNameLink.classes()).toContain('hover');
-        expect(authorNameLink.classes()).toContain('text-underline');
+      await nextTick();
+      expect(authorNameLink.classes()).toContain('hover');
+      expect(authorNameLink.classes()).toContain('text-underline');
 
-        authorUsernameLink.trigger('mouseleave');
+      authorUsernameLink().trigger('mouseleave');
 
-        nextTick(() => {
-          expect(authorNameLink.classes()).not.toContain('hover');
-          expect(authorNameLink.classes()).not.toContain('text-underline');
-
-          done();
-        });
-      });
+      await nextTick();
+      expect(authorNameLink.classes()).not.toContain('hover');
+      expect(authorNameLink.classes()).not.toContain('text-underline');
     });
   });
 
-  describe('with confidentiality indicator', () => {
+  describe('imported badge', () => {
+    it('renders with "comment" when note is imported', () => {
+      createComponent({ isImported: true });
+
+      expect(findImportedBadge().props('importableType')).toBe('comment');
+    });
+
+    it('renders with "activity" when note is imported and is system note', () => {
+      createComponent({ isImported: true, isSystemNote: true });
+
+      expect(findImportedBadge().props('importableType')).toBe('activity');
+    });
+
+    it('does not render when note is not imported', () => {
+      createComponent({ isImported: false });
+
+      expect(findImportedBadge().exists()).toBe(false);
+    });
+  });
+
+  describe('with internal note badge', () => {
     it.each`
       status   | condition
       ${true}  | ${'shows'}
       ${false} | ${'hides'}
-    `('$condition icon indicator when isConfidential is $status', ({ status }) => {
-      createComponent({ isConfidential: status });
-      expect(findConfidentialIndicator().exists()).toBe(status);
+    `('$condition badge when isInternalNote is $status', ({ status }) => {
+      createComponent({ isInternalNote: status });
+      expect(findInternalNoteIndicator().exists()).toBe(status);
+    });
+
+    it('shows internal note badge tooltip for project context', () => {
+      createComponent({ isInternalNote: true, noteableType: 'issue' });
+
+      expect(findInternalNoteIndicator().attributes('title')).toBe(
+        'This internal note will always remain confidential',
+      );
+    });
+  });
+
+  it('does render username', () => {
+    createComponent({ author }, true);
+
+    expect(wrapper.find('.note-header-info').text()).toContain('@');
+  });
+
+  describe('with system note', () => {
+    it('does not render username', () => {
+      createComponent({ author, isSystemNote: true }, true);
+
+      expect(wrapper.find('.note-header-info').text()).not.toContain('@');
     });
   });
 });

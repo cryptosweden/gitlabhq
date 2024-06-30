@@ -14,28 +14,23 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
   # `:project_id`, or `*id`.
   #
   # See https://github.com/rails/rails/blob/v4.2.8/actionpack/lib/action_dispatch/routing/mapper.rb#L155
-  scope(path: '*namespace_id',
-        as: :namespace,
-        namespace_id: Gitlab::PathRegex.full_namespace_route_regex) do
-    scope(path: ':project_id',
-          constraints: { project_id: Gitlab::PathRegex.project_route_regex },
-          module: :projects,
-          as: :project) do
+  scope(
+    path: '*namespace_id',
+    as: :namespace,
+    namespace_id: Gitlab::PathRegex.full_namespace_route_regex
+  ) do
+    scope(
+      path: ':project_id',
+      constraints: { project_id: Gitlab::PathRegex.project_route_regex },
+      module: :projects,
+      as: :project
+    ) do
       # Begin of the /-/ scope.
       # Use this scope for all new project routes.
       scope '-' do
-        get 'archive/*id', constraints: { format: Gitlab::PathRegex.archive_formats_regex, id: /.+?/ }, to: 'repositories#archive', as: 'archive'
-        # Since the page parameter can contain slashes (panel/new), use Rails'
-        # "Route Globbing" syntax (/*page) so that the route helpers do not encode
-        # the slash character.
-        get 'metrics(/:dashboard_path)(/*page)', constraints: { dashboard_path: /.+\.yml/, page: 'panel/new' },
-          to: 'metrics_dashboard#show', as: :metrics_dashboard, format: false
+        post :preview_markdown
 
-        namespace :metrics, module: :metrics do
-          namespace :dashboards do
-            post :builder, to: 'builder#panel_preview'
-          end
-        end
+        get 'archive/*id', format: true, constraints: { format: Gitlab::PathRegex.archive_formats_regex, id: /.+?/ }, to: 'repositories#archive', as: 'archive'
 
         namespace :security do
           resource :configuration, only: [:show], controller: :configuration do
@@ -52,7 +47,8 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
           end
         end
 
-        resources :infrastructure_registry, only: [:index, :show], module: :packages
+        resources :terraform_module_registry, only: [:index, :show], module: :packages, as: :infrastructure_registry, controller: 'infrastructure_registry'
+        get :infrastructure_registry, to: redirect('%{namespace_id}/%{project_id}/-/terraform_module_registry')
 
         resources :jobs, only: [:index, :show], constraints: { id: /\d+/ } do
           collection do
@@ -74,8 +70,10 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             post :erase
             get :trace, defaults: { format: 'json' }
             get :raw
+            get :viewer
             get :terminal
             get :proxy
+            get :test_report_summary
 
             # These routes are also defined in gitlab-workhorse. Make sure to update accordingly.
             get '/terminal.ws/authorize', to: 'jobs#terminal_websocket_authorize', format: false
@@ -86,25 +84,24 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             get :download
             get :browse, path: 'browse(/*path)', format: false
             get :file, path: 'file/*path', format: false
+            get :external_file, path: 'external_file/*path', format: false
             get :raw, path: 'raw/*path', format: false
             post :keep
           end
         end
 
-        get :learn_gitlab, action: :index, controller: 'learn_gitlab'
-
         namespace :ci do
           resource :lint, only: [:show, :create]
           resource :pipeline_editor, only: [:show], controller: :pipeline_editor, path: 'editor'
-          resource :secure_files, only: [:show], controller: :secure_files, path: 'secure_files'
           resources :daily_build_group_report_results, only: [:index], constraints: { format: /(csv|json)/ }
           namespace :prometheus_metrics do
             resources :histograms, only: [:create], constraints: { format: 'json' }
           end
         end
 
-        resources :runners, only: [:index, :edit, :update, :destroy, :show] do
+        resources :runners, only: [:index, :new, :edit, :update, :destroy, :show] do
           member do
+            get :register
             post :resume
             post :pause
           end
@@ -130,13 +127,29 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             end
           end
 
-          resource :integrations, only: [:show]
+          resources :integrations, constraints: { id: %r{[^/]+} }, only: [:index, :edit, :update] do
+            member do
+              put :test
+            end
 
-          resource :repository, only: [:show], controller: :repository do
+            resources :hook_logs, only: [:show], controller: :integration_hook_logs do
+              member do
+                post :retry
+              end
+            end
+          end
+
+          resource :slack, only: [:destroy, :edit, :update] do
+            get :slack_auth
+          end
+
+          resource :repository, only: [:show, :update], controller: :repository do
             # TODO: Removed this "create_deploy_token" route after change was made in app/helpers/ci_variables_helper.rb:14
             # See MR comment for more detail: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/27059#note_311585356
             post :create_deploy_token, path: 'deploy_token/create'
             post :cleanup
+
+            resources :branch_rules, only: [:index]
           end
 
           resources :access_tokens, only: [:index, :create] do
@@ -145,7 +158,10 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             end
           end
 
-          resource :packages_and_registries, only: [:show]
+          resource :packages_and_registries, only: [:show] do
+            get '/cleanup_image_tags', to: 'packages_and_registries#cleanup_tags'
+          end
+          resource :merge_requests, only: [:show, :update]
         end
 
         resources :usage_quotas, only: [:index]
@@ -160,6 +176,7 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             get 'commands'
             get 'snippets'
             get 'contacts'
+            get 'wikis'
           end
         end
 
@@ -174,6 +191,12 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         end
 
         resources :deploy_keys, constraints: { id: /\d+/ }, only: [:index, :new, :create, :edit, :update] do
+          collection do
+            get :enabled_keys
+            get :available_project_keys
+            get :available_public_keys
+          end
+
           member do
             put :enable
             put :disable
@@ -209,39 +232,16 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
           end
         end
 
-        resources :integrations, controller: :services, constraints: { id: %r{[^/]+} }, only: [:edit, :update] do
-          member do
-            put :test
-          end
+        resources :boards, only: [:index, :show], constraints: { id: /\d+/ }
 
-          resources :hook_logs, only: [:show], controller: :service_hook_logs do
-            member do
-              post :retry
-            end
-          end
-        end
+        get 'releases/permalink/latest(/)(*suffix_path)', to: 'releases#latest_permalink', as: :latest_release_permalink, format: false
 
-        resources :boards, only: [:index, :show, :create, :update, :destroy], constraints: { id: /\d+/ } do
-          collection do
-            get :recent
-          end
-        end
-
-        resources :releases, only: [:index, :new, :show, :edit], param: :tag, constraints: { tag: %r{[^/]+} } do
+        resources :releases, only: [:index, :new, :show, :edit], param: :tag, constraints: { tag: %r{[^\\]+} } do
           member do
             get :downloads, path: 'downloads/*filepath', format: false
             scope module: :releases do
               resources :evidences, only: [:show]
             end
-          end
-        end
-
-        get 'releases/permalink/latest(/)(*suffix_path)', to: 'releases#latest_permalink', as: :latest_release_permalink, format: false
-
-        resources :logs, only: [:index] do
-          collection do
-            get :k8s
-            get :elasticsearch
           end
         end
 
@@ -252,14 +252,9 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         resource :import, only: [:new, :create, :show]
         resource :avatar, only: [:show, :destroy]
 
-        scope :grafana, as: :grafana_api do
-          get 'proxy/:datasource_id/*proxy_path', to: 'grafana_api#proxy'
-          get :metrics_dashboard, to: 'grafana_api#metrics_dashboard'
-        end
-
         resource :mattermost, only: [:new, :create]
         resource :variables, only: [:show, :update]
-        resources :triggers, only: [:index, :create, :edit, :update, :destroy]
+        resources :triggers, only: [:index, :create, :update, :destroy]
 
         resource :mirror, only: [:show, :update] do
           member do
@@ -303,26 +298,28 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
 
         concerns :clusterable
 
-        namespace :serverless do
-          scope :functions do
-            get '/:environment_id/:id', to: 'functions#show'
-            get '/:environment_id/:id/metrics', to: 'functions#metrics', as: :metrics
-          end
-
-          resources :functions, only: [:index]
-        end
-
         resources :terraform, only: [:index]
 
-        resources :google_cloud, only: [:index]
-
         namespace :google_cloud do
+          get '/', to: redirect('%{namespace_id}/%{project_id}/-/google_cloud/configuration')
+
+          get '/configuration', to: 'configuration#index'
+
           resources :revoke_oauth, only: [:create]
           resources :service_accounts, only: [:index, :create]
           resources :gcp_regions, only: [:index, :create]
 
+          get '/deployments', to: 'deployments#index'
           get '/deployments/cloud_run', to: 'deployments#cloud_run'
           get '/deployments/cloud_storage', to: 'deployments#cloud_storage'
+
+          resources :databases, only: [:index, :create, :new], path_names: { new: 'new/:product' }
+        end
+
+        namespace :aws do
+          get '/', to: redirect('%{namespace_id}/%{project_id}/-/aws/configuration')
+
+          get '/configuration', to: 'configuration#index'
         end
 
         resources :environments, except: [:destroy] do
@@ -330,25 +327,20 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             post :stop
             post :cancel_auto_stop
             get :terminal
-            get :metrics
-            get :additional_metrics
-            get :metrics_dashboard
+            get '/k8s(/*vueroute)', to: 'environments#k8s', as: :k8s_subroute
 
             # This route is also defined in gitlab-workhorse. Make sure to update accordingly.
             get '/terminal.ws/authorize', to: 'environments#terminal_websocket_authorize', format: false
 
             get '/prometheus/api/v1/*proxy_path', to: 'environments/prometheus_api#prometheus_proxy', as: :prometheus_api
-
-            get '/sample_metrics', to: 'environments/sample_metrics#query'
           end
 
           collection do
-            get :metrics, action: :metrics_redirect
             get :folder, path: 'folders/*id', constraints: { format: /(html|json)/ }
             get :search
           end
 
-          resources :deployments, only: [:index] do
+          resources :deployments, only: [:index, :show] do
             member do
               get :metrics
               get :additional_metrics
@@ -356,40 +348,39 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
           end
         end
 
-        namespace :performance_monitoring do
-          resources :dashboards, only: [:create] do
-            collection do
-              put '/:file_name', to: 'dashboards#update', constraints: { file_name: /.+\.yml/ }
-            end
-          end
-        end
-
         resources :alert_management, only: [:index] do
-          get 'details', on: :member
+          member do
+            get 'details(/*page)', to: 'alert_management#details', as: 'details'
+          end
         end
 
         get 'alert_management/:id', to: 'alert_management#details', as: 'alert_management_alert'
 
-        get 'work_items/*work_items_path' => 'work_items#index', as: :work_items
+        resources :work_items, only: [:show], param: :iid do
+          collection do
+            post :import_csv
+            post 'import_csv/authorize', to: 'work_items#authorize'
+          end
 
-        resource :tracing, only: [:show]
+          member do
+            get '/designs(/*vueroute)', to: 'work_items#show', as: :designs, format: false
+          end
+        end
 
         post 'incidents/integrations/pagerduty', to: 'incident_management/pager_duty_incidents#create'
 
         resources :incidents, only: [:index]
 
-        get 'issues/incident/:id' => 'incidents#show', as: :issues_incident
+        namespace :incident_management do
+          resources :timeline_events, only: [] do
+            collection do
+              post :preview_markdown
+            end
+          end
+        end
 
         namespace :error_tracking do
           resources :projects, only: :index
-        end
-
-        resources :product_analytics, only: [:index] do
-          collection do
-            get :setup
-            get :test
-            get :graphs
-          end
         end
 
         resources :error_tracking, only: [:index], controller: :error_tracking do
@@ -407,9 +398,9 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         end
 
         namespace :design_management do
-          namespace :designs, path: 'designs/:design_id(/:sha)', constraints: -> (params) { params[:sha].nil? || Gitlab::Git.commit_id?(params[:sha]) } do
+          namespace :designs, path: 'designs/:design_id(/:sha)', constraints: ->(params) { params[:sha].nil? || Gitlab::Git.commit_id?(params[:sha]) } do
             resource :raw_image, only: :show
-            resources :resized_image, only: :show, constraints: -> (params) { ::DesignManagement::DESIGN_IMAGE_SIZES.include?(params[:id]) }
+            resources :resized_image, only: :show, constraints: ->(params) { ::DesignManagement::DESIGN_IMAGE_SIZES.include?(params[:id]) }
           end
         end
 
@@ -463,7 +454,9 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         end
 
         namespace :integrations do
-          resource :shimo, only: [:show]
+          resource :slash_commands, only: [:show] do
+            post :confirm
+          end
         end
 
         get :planning_hierarchy
@@ -472,6 +465,35 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
           collection do
             constraints format: /svg/ do
               get :release
+            end
+          end
+        end
+
+        namespace :harbor do
+          resources :repositories, only: [:index, :show], constraints: { id: %r{[a-zA-Z./:0-9_\-]+} } do
+            resources :artifacts, only: [:index] do
+              resources :tags, only: [:index]
+            end
+          end
+        end
+
+        namespace :ml do
+          resources :experiments, only: [:index, :show, :destroy], controller: 'experiments', param: :iid
+          resources :candidates, only: [:show, :destroy], controller: 'candidates', param: :iid
+          resources :models, only: [:index, :show, :destroy, :new], controller: 'models', param: :model_id do
+            resources :versions, only: [:show], controller: 'model_versions', param: :model_version_id
+          end
+        end
+
+        namespace :service_desk do
+          resource :custom_email, only: [:show, :create, :update, :destroy], controller: 'custom_email'
+        end
+
+        scope path: ':noteable_type/:noteable_id' do
+          resources :discussions, only: [:show], constraints: { id: /\h{40}/ } do
+            member do
+              post :resolve
+              delete :resolve, action: :unresolve
             end
           end
         end
@@ -484,29 +506,29 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
       #
       # Service Desk
       #
-      get '/service_desk' => 'service_desk#show', as: :service_desk # rubocop:todo Cop/PutProjectRoutesUnderScope
-      put '/service_desk' => 'service_desk#update', as: :service_desk_refresh # rubocop:todo Cop/PutProjectRoutesUnderScope
+      get '/service_desk' => 'service_desk#show' # rubocop:todo Cop/PutProjectRoutesUnderScope
+      put '/service_desk' => 'service_desk#update' # rubocop:todo Cop/PutProjectRoutesUnderScope
 
       #
       # Templates
       #
       get '/templates/:template_type' => 'templates#index', # rubocop:todo Cop/PutProjectRoutesUnderScope
-          as: :templates,
-          defaults: { format: 'json' },
-          constraints: { template_type: %r{issue|merge_request}, format: 'json' }
+        as: :templates,
+        defaults: { format: 'json' },
+        constraints: { template_type: %r{issue|merge_request}, format: 'json' }
 
       get '/templates/:template_type/:key' => 'templates#show', # rubocop:todo Cop/PutProjectRoutesUnderScope
-          as: :template,
-          defaults: { format: 'json' },
-          constraints: { key: %r{[^/]+}, template_type: %r{issue|merge_request}, format: 'json' }
+        as: :template,
+        defaults: { format: 'json' },
+        constraints: { key: %r{[^/]+}, template_type: %r{issue|merge_request}, format: 'json' }
 
       get '/description_templates/names/:template_type', # rubocop:todo Cop/PutProjectRoutesUnderScope
-          to: 'templates#names',
-          as: :template_names,
-          defaults: { format: 'json' },
-          constraints: { template_type: %r{issue|merge_request}, format: 'json' }
+        to: 'templates#names',
+        as: :template_names,
+        defaults: { format: 'json' },
+        constraints: { template_type: %r{issue|merge_request}, format: 'json' }
 
-      resource :pages, only: [:show, :update, :destroy] do # rubocop: disable Cop/PutProjectRoutesUnderScope
+      resource :pages, only: [:new, :show, :update, :destroy] do # rubocop: disable Cop/PutProjectRoutesUnderScope
         resources :domains, except: :index, controller: 'pages_domains', constraints: { id: %r{[^/]+} } do # rubocop: disable Cop/PutProjectRoutesUnderScope
           member do
             post :verify # rubocop:todo Cop/PutProjectRoutesUnderScope
@@ -517,32 +539,29 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
       end
 
       namespace :prometheus do
-        resources :alerts, constraints: { id: /\d+/ }, only: [:index, :create, :show, :update, :destroy] do # rubocop: disable Cop/PutProjectRoutesUnderScope
-          post :notify, on: :collection # rubocop:todo Cop/PutProjectRoutesUnderScope
-          member do
-            get :metrics_dashboard # rubocop:todo Cop/PutProjectRoutesUnderScope
-          end
-        end
-
         resources :metrics, constraints: { id: %r{[^\/]+} }, only: [:index, :new, :create, :edit, :update, :destroy] do # rubocop: disable Cop/PutProjectRoutesUnderScope
           get :active_common, on: :collection # rubocop:todo Cop/PutProjectRoutesUnderScope
           post :validate_query, on: :collection # rubocop:todo Cop/PutProjectRoutesUnderScope
         end
       end
 
-      post 'alerts/notify', to: 'alerting/notifications#create' # rubocop:todo Cop/PutProjectRoutesUnderScope
+      scope :prometheus, as: :prometheus do
+        resources :alerts, constraints: { id: /\d+/ }, only: [] do # rubocop: disable Cop/PutProjectRoutesUnderScope
+          post :notify, on: :collection, to: 'alerting/notifications#create', defaults: { endpoint_identifier: 'legacy-prometheus' } # rubocop: disable Cop/PutProjectRoutesUnderScope
+          get :metrics_dashboard, on: :member # rubocop:todo Cop/PutProjectRoutesUnderScope
+        end
+      end
+
+      post 'alerts/notify', to: 'alerting/notifications#create', defaults: { endpoint_identifier: 'legacy' } # rubocop:todo Cop/PutProjectRoutesUnderScope
       post 'alerts/notify/:name/:endpoint_identifier', # rubocop:todo Cop/PutProjectRoutesUnderScope
-            to: 'alerting/notifications#create',
-            as: :alert_http_integration,
-            constraints: { endpoint_identifier: /[A-Za-z0-9]+/ }
+        to: 'alerting/notifications#create',
+        as: :alert_http_integration,
+        constraints: { endpoint_identifier: /[A-Za-z0-9]+/ }
 
       draw :legacy_builds
 
       resources :container_registry, only: [:index, :destroy, :show], # rubocop: disable Cop/PutProjectRoutesUnderScope
-                                     controller: 'registry/repositories'
-
-      resources :harbor_registry, only: [:index, :show], # rubocop: disable Cop/PutProjectRoutesUnderScope
-                                  controller: 'harbor/repositories'
+        controller: 'registry/repositories'
 
       namespace :registry do
         resources :repository, only: [] do # rubocop: disable Cop/PutProjectRoutesUnderScope
@@ -551,7 +570,7 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
           # in JSON format, or a request for tag named `latest.json`.
           scope format: false do
             resources :tags, only: [:index, :destroy], # rubocop: disable Cop/PutProjectRoutesUnderScope
-                             constraints: { id: Gitlab::Regex.container_registry_tag_regex } do
+              constraints: { id: Gitlab::Regex.container_registry_tag_regex } do
               collection do
                 delete :bulk_destroy # rubocop:todo Cop/PutProjectRoutesUnderScope
               end
@@ -593,8 +612,6 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
       end
 
       scope :service_ping, controller: :service_ping do
-        post :web_ide_clientside_preview # rubocop:todo Cop/PutProjectRoutesUnderScope
-        post :web_ide_clientside_preview_success # rubocop:todo Cop/PutProjectRoutesUnderScope
         post :web_ide_pipelines_count # rubocop:todo Cop/PutProjectRoutesUnderScope
       end
 
@@ -629,20 +646,23 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
       # Legacy routes.
       # Introduced in 12.0.
       # Should be removed with https://gitlab.com/gitlab-org/gitlab/issues/28848.
-      Gitlab::Routing.redirect_legacy_paths(self, :mirror, :tags, :hooks,
-                                            :commits, :commit, :find_file, :files, :compare,
-                                            :cycle_analytics, :mattermost, :variables, :triggers,
-                                            :environments, :protected_environments, :error_tracking, :alert_management,
-                                            :tracing,
-                                            :serverless, :clusters, :audit_events, :wikis, :merge_requests,
-                                            :vulnerability_feedback, :security, :dependencies, :issues,
-                                            :pipelines, :pipeline_schedules, :runners, :snippets)
+      Gitlab::Routing.redirect_legacy_paths(
+        self, :mirror, :tags, :hooks,
+        :commits, :commit, :find_file, :files, :compare,
+        :cycle_analytics, :mattermost, :variables, :triggers,
+        :environments, :protected_environments, :error_tracking, :alert_management,
+        :serverless, :clusters, :audit_events, :wikis, :merge_requests,
+        :vulnerability_feedback, :security, :dependencies, :issues,
+        :pipelines, :pipeline_schedules, :runners, :snippets
+      )
     end
     # rubocop: disable Cop/PutProjectRoutesUnderScope
-    resources(:projects,
-              path: '/',
-              constraints: { id: Gitlab::PathRegex.project_route_regex },
-              only: [:edit, :show, :update, :destroy]) do
+    resources(
+      :projects,
+      path: '/',
+      constraints: { id: Gitlab::PathRegex.project_route_regex },
+      only: [:edit, :show, :update, :destroy]
+    ) do
       member do
         put :transfer
         delete :remove_fork
@@ -650,7 +670,7 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         post :unarchive
         post :housekeeping
         post :toggle_star
-        post :preview_markdown
+        post :preview_markdown, as: :preview_markdown_deprecated
         post :export
         post :remove_export
         post :generate_new_export
@@ -669,8 +689,8 @@ end
 # rubocop: disable Cop/PutProjectRoutesUnderScope
 scope path: '(/-/jira)', constraints: ::Constraints::JiraEncodedUrlConstrainer.new, as: :jira do
   scope path: '*namespace_id/:project_id',
-        namespace_id: Gitlab::Jira::Dvcs::ENCODED_ROUTE_REGEX,
-        project_id: Gitlab::Jira::Dvcs::ENCODED_ROUTE_REGEX do
+    namespace_id: Gitlab::Jira::Dvcs::ENCODED_ROUTE_REGEX,
+    project_id: Gitlab::Jira::Dvcs::ENCODED_ROUTE_REGEX do
     get '/', to: redirect { |params, req|
       ::Gitlab::Jira::Dvcs.restore_full_path(
         namespace: params[:namespace_id],
@@ -678,7 +698,7 @@ scope path: '(/-/jira)', constraints: ::Constraints::JiraEncodedUrlConstrainer.n
       )
     }
 
-    get 'commit/:id', constraints: { id: /\h{7,40}/ }, to: redirect { |params, req|
+    get 'commit/:id', constraints: { id: Gitlab::Git::Commit::SHA_PATTERN }, to: redirect { |params, req|
       project_full_path = ::Gitlab::Jira::Dvcs.restore_full_path(
         namespace: params[:namespace_id],
         project: params[:project_id]

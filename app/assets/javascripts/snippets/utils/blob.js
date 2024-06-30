@@ -1,12 +1,12 @@
 import { uniqueId } from 'lodash';
 import { SNIPPET_MARK_BLOBS_CONTENT, SNIPPET_MEASURE_BLOBS_CONTENT } from '~/performance/constants';
 import { performanceMarkAndMeasure } from '~/performance/utils';
+import { VISIBILITY_LEVELS_INTEGER_TO_STRING } from '~/visibility_level/constants';
 import {
   SNIPPET_BLOB_ACTION_CREATE,
   SNIPPET_BLOB_ACTION_UPDATE,
   SNIPPET_BLOB_ACTION_MOVE,
   SNIPPET_BLOB_ACTION_DELETE,
-  SNIPPET_LEVELS_MAP,
   SNIPPET_VISIBILITY,
 } from '../constants';
 
@@ -34,7 +34,8 @@ const diff = ({ content, path }, origBlob) => {
       content,
       filePath: path,
     };
-  } else if (origBlob.path !== path || origBlob.content !== content) {
+  }
+  if (origBlob.path !== path || origBlob.content !== content) {
     return {
       action: origBlob.path === path ? SNIPPET_BLOB_ACTION_UPDATE : SNIPPET_BLOB_ACTION_MOVE,
       previousPath: origBlob.path,
@@ -72,7 +73,7 @@ export const diffAll = (blobs, origBlobs) => {
 export const defaultSnippetVisibilityLevels = (arr) => {
   if (Array.isArray(arr)) {
     return arr.map((l) => {
-      const translatedLevel = SNIPPET_LEVELS_MAP[l];
+      const translatedLevel = VISIBILITY_LEVELS_INTEGER_TO_STRING[l];
       return {
         value: translatedLevel,
         ...SNIPPET_VISIBILITY[translatedLevel],

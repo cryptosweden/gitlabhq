@@ -4,20 +4,10 @@ module Gitlab
   module UsageDataCounters
     COUNTERS = [
       PackageEventCounter,
-      WikiPageCounter,
-      WebIdeCounter,
-      NoteCounter,
-      SnippetCounter,
-      SearchCounter,
-      CycleAnalyticsCounter,
-      ProductivityAnalyticsCounter,
-      SourceCodeCounter,
-      MergeRequestCounter,
-      DesignsCounter,
-      KubernetesAgentCounter,
-      StaticSiteEditorCounter,
       DiffsCounter,
-      ServiceUsageDataCounter
+      KubernetesAgentCounter,
+      WebIdeCounter,
+      MergeRequestWidgetExtensionCounter
     ].freeze
 
     UsageDataCounterError = Class.new(StandardError)
@@ -25,7 +15,7 @@ module Gitlab
 
     class << self
       def counters
-        self::COUNTERS
+        COUNTERS
       end
 
       def count(event_name)

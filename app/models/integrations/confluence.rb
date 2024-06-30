@@ -1,31 +1,33 @@
 # frozen_string_literal: true
 
 module Integrations
-  class Confluence < Integration
-    VALID_SCHEME_MATCH = %r{\Ahttps?\Z}.freeze
-    VALID_HOST_MATCH = %r{\A.+\.atlassian\.net\Z}.freeze
-    VALID_PATH_MATCH = %r{\A/wiki(/|\Z)}.freeze
-
-    prop_accessor :confluence_url
+  class Confluence < BaseThirdPartyWiki
+    VALID_SCHEME_MATCH = %r{\Ahttps?\Z}
+    VALID_HOST_MATCH = %r{\A.+\.atlassian\.net\Z}
+    VALID_PATH_MATCH = %r{\A/wiki(/|\Z)}
 
     validates :confluence_url, presence: true, if: :activated?
     validate :validate_confluence_url_is_cloud, if: :activated?
 
-    after_commit :cache_project_has_confluence
+    field :confluence_url,
+      title: -> { _('Confluence Workspace URL') },
+      description: -> { _("URL of the Confluence Workspace hosted on `atlassian.net`.") },
+      placeholder: 'https://example.atlassian.net/wiki',
+      required: true
+
+    def avatar_url
+      ActionController::Base.helpers.image_path('confluence.svg')
+    end
 
     def self.to_param
       'confluence'
     end
 
-    def self.supported_events
-      %w()
-    end
-
-    def title
+    def self.title
       s_('ConfluenceService|Confluence Workspace')
     end
 
-    def description
+    def self.description
       s_('ConfluenceService|Link to a Confluence Workspace from the sidebar.')
     end
 
@@ -42,18 +44,6 @@ module Integrations
       else
         s_('ConfluenceService|Link to a Confluence Workspace from the sidebar. Enabling this integration replaces the "Wiki" sidebar link with a link to the Confluence Workspace. The GitLab wiki is still available at the original URL.').html_safe
       end
-    end
-
-    def fields
-      [
-        {
-          type: 'text',
-          name: 'confluence_url',
-          title: s_('Confluence Cloud Workspace URL'),
-          placeholder: 'https://example.atlassian.net/wiki',
-          required: true
-        }
-      ]
     end
 
     def testable?
@@ -79,13 +69,6 @@ module Integrations
 
     rescue URI::InvalidURIError
       false
-    end
-
-    def cache_project_has_confluence
-      return unless project && !project.destroyed?
-
-      project.project_setting.save! unless project.project_setting.persisted?
-      project.project_setting.update_column(:has_confluence, active?)
     end
   end
 end

@@ -120,14 +120,14 @@ module Gitlab
       end
 
       def create_missing(from_id, to_id)
-        result = ActiveRecord::Base.connection.select_one(create_sql(from_id, to_id))
+        result = ApplicationRecord.connection.select_one(create_sql(from_id, to_id))
         return unless result
 
         logger.info(message: "#{self.class}: created missing services for #{result['number_of_created_records']} projects in id=#{from_id}...#{to_id}")
       end
 
       def update_inconsistent(from_id, to_id)
-        result = ActiveRecord::Base.connection.select_one(update_sql(from_id, to_id))
+        result = ApplicationRecord.connection.select_one(update_sql(from_id, to_id))
         return unless result
 
         logger.info(message: "#{self.class}: updated inconsistent services for #{result['number_of_updated_records']} projects in id=#{from_id}...#{to_id}")
@@ -136,8 +136,8 @@ module Gitlab
       # there is no uniq constraint on project_id and type pair, which prevents us from using ON CONFLICT
       def create_sql(from_id, to_id)
         <<~SQL
-          WITH created_records AS #{Gitlab::Database::AsWithMaterialized.materialized_if_supported} (
-            INSERT INTO services (project_id, #{DEFAULTS.keys.map { |key| %("#{key}")}.join(',')}, created_at, updated_at)
+          WITH created_records AS MATERIALIZED (
+            INSERT INTO services (project_id, #{DEFAULTS.keys.map { |key| %("#{key}") }.join(',')}, created_at, updated_at)
             #{select_insert_values_sql(from_id, to_id)}
             RETURNING *
           )
@@ -149,7 +149,7 @@ module Gitlab
       # there is no uniq constraint on project_id and type pair, which prevents us from using ON CONFLICT
       def update_sql(from_id, to_id)
         <<~SQL
-          WITH updated_records AS #{Gitlab::Database::AsWithMaterialized.materialized_if_supported} (
+          WITH updated_records AS MATERIALIZED (
             UPDATE services SET active = TRUE
             WHERE services.project_id BETWEEN #{Integer(from_id)} AND #{Integer(to_id)} AND services.properties = '{}' AND services.type = '#{Migratable::PrometheusService.type}'
             AND #{group_cluster_condition(from_id, to_id)} AND services.active = FALSE
@@ -186,7 +186,7 @@ module Gitlab
       end
 
       def migrate_instance_cluster?
-        if instance_variable_defined?('@migrate_instance_cluster')
+        if instance_variable_defined?(:@migrate_instance_cluster)
           @migrate_instance_cluster
         else
           @migrate_instance_cluster = Migratable::Cluster.instance_type.has_prometheus_application?

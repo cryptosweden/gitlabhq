@@ -1,0 +1,18 @@
+---
+description: random event string
+internal_events: true
+action: random_name
+identifiers:
+- project
+- namespace
+- user
+product_group: import_and_integrate
+milestone: '16.6'
+introduced_by_url: TODO
+distributions:
+- ce
+- ee
+tiers:
+- free
+- premium
+- ultimate

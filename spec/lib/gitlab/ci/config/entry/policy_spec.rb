@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Config::Entry::Policy do
+RSpec.describe Gitlab::Ci::Config::Entry::Policy, feature_category: :continuous_integration do
   let(:entry) { described_class.new(config) }
 
   context 'when using simplified policy' do
@@ -69,7 +69,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
         describe '#errors' do
           it 'saves errors' do
             expect(entry.errors)
-              .to include /policy config should be an array of strings or regular expressions/
+              .to include(/policy config should be an array of strings or regular expressions/)
           end
         end
       end
@@ -107,7 +107,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { { kubernetes: 'something' } }
 
       it 'reports an error about invalid policy' do
-        expect(entry.errors).to include /unknown value: something/
+        expect(entry.errors).to include(/unknown value: something/)
       end
     end
 
@@ -124,7 +124,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { { variables: '$MY_VAR' } }
 
       it 'reports an error about invalid format' do
-        expect(entry.errors).to include /should be an array of strings/
+        expect(entry.errors).to include(/should be an array of strings/)
       end
     end
 
@@ -132,7 +132,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { { variables: ['$MY_VAR =='] } }
 
       it 'reports an error about invalid statement' do
-        expect(entry.errors).to include /invalid expression syntax/
+        expect(entry.errors).to include(/invalid expression syntax/)
       end
     end
 
@@ -140,7 +140,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { { variables: ['$MY_VAR == 123'] } }
 
       it 'reports an error about invalid expression' do
-        expect(entry.errors).to include /invalid expression syntax/
+        expect(entry.errors).to include(/invalid expression syntax/)
       end
     end
 
@@ -148,7 +148,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { { variables: ['$MY_VAR =~ /some ( thing/'] } }
 
       it 'reports an error about invalid expression' do
-        expect(entry.errors).to include /invalid expression syntax/
+        expect(entry.errors).to include(/invalid expression syntax/)
       end
     end
 
@@ -165,7 +165,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { { changes: 'some/*' } }
 
       it 'returns errors' do
-        expect(entry.errors).to include /changes should be an array of strings/
+        expect(entry.errors).to include(/changes should be an array of strings/)
       end
     end
 
@@ -173,7 +173,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { { changes: [1, 2] } }
 
       it 'returns errors' do
-        expect(entry.errors).to include /changes should be an array of strings/
+        expect(entry.errors).to include(/changes should be an array of strings/)
       end
     end
 
@@ -181,7 +181,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { { refs: ['master'], invalid: :something } }
 
       it 'returns error about invalid key' do
-        expect(entry.errors).to include /unknown keys: invalid/
+        expect(entry.errors).to include(/unknown keys: invalid/)
       end
     end
 
@@ -189,7 +189,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
       let(:config) { {} }
 
       it 'is not a valid configuration' do
-        expect(entry.errors).to include /can't be blank/
+        expect(entry.errors).to include(/can't be blank/)
       end
     end
   end
@@ -199,7 +199,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
 
     it 'returns information about errors' do
       expect(entry.errors)
-        .to include /has to be either an array of conditions or a hash/
+        .to include(/has to be either an array of conditions or a hash/)
     end
   end
 
@@ -221,8 +221,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Policy do
         let(:config) { { variables: %w[$VARIABLE] } }
 
         it 'includes default values' do
-          expect(entry.value).to eq(refs: %w[branches tags],
-                                    variables: %w[$VARIABLE])
+          expect(entry.value).to eq(refs: %w[branches tags], variables: %w[$VARIABLE])
         end
       end
     end

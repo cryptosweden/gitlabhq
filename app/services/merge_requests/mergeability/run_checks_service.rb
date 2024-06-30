@@ -4,54 +4,74 @@ module MergeRequests
     class RunChecksService
       include Gitlab::Utils::StrongMemoize
 
-      # We want to have the cheapest checks first in the list,
-      # that way we can fail fast before running the more expensive ones
-      CHECKS = [
-        CheckOpenStatusService,
-        CheckDraftStatusService,
-        CheckBrokenStatusService,
-        CheckDiscussionsStatusService,
-        CheckCiStatusService
-      ].freeze
-
       def initialize(merge_request:, params:)
         @merge_request = merge_request
         @params = params
       end
 
-      def execute
-        CHECKS.each_with_object([]) do |check_class, results|
+      def execute(checks, execute_all: false)
+        @results = checks.each_with_object([]) do |check_class, result_hash|
           check = check_class.new(merge_request: merge_request, params: params)
 
           next if check.skip?
 
-          check_result = run_check(check)
-          results << check_result
+          check_result = logger.instrument(mergeability_name: check_class.to_s.demodulize.underscore) do
+            run_check(check)
+          end
 
-          break results if check_result.failed?
+          result_hash << check_result
+
+          break result_hash if check_result.failed? && !execute_all
         end
+
+        logger.commit
+
+        return ServiceResponse.success(payload: { results: results }) if all_results_success?
+
+        ServiceResponse.error(
+          message: 'Checks failed.',
+          payload: {
+            results: results,
+            failed_check: failed_check
+          }
+        )
       end
 
       private
 
-      attr_reader :merge_request, :params
+      attr_reader :merge_request, :params, :results
 
       def run_check(check)
-        return check.execute unless Feature.enabled?(:mergeability_caching, merge_request.project, default_enabled: :yaml)
         return check.execute unless check.cacheable?
 
-        cached_result = results.read(merge_check: check)
+        cached_result = cached_results.read(merge_check: check)
         return cached_result if cached_result.respond_to?(:status)
 
         check.execute.tap do |result|
-          results.write(merge_check: check, result_hash: result.to_hash)
+          cached_results.write(merge_check: check, result_hash: result.to_hash)
         end
       end
 
-      def results
-        strong_memoize(:results) do
+      def cached_results
+        strong_memoize(:cached_results) do
           Gitlab::MergeRequests::Mergeability::ResultsStore.new(merge_request: merge_request)
         end
+      end
+
+      def logger
+        strong_memoize(:logger) do
+          MergeRequests::Mergeability::Logger.new(merge_request: merge_request)
+        end
+      end
+
+      def all_results_success?
+        results.none?(&:failed?)
+      end
+
+      def failed_check
+        # NOTE: the identifier could be string when we retrieve it from the cache
+        # so let's make sure we always return symbols here.
+        results.find(&:failed?)&.payload&.fetch(:identifier)&.to_sym
       end
     end
   end

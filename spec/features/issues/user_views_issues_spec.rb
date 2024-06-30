@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe "User views issues" do
+RSpec.describe "User views issues", feature_category: :team_planning do
   let!(:closed_issue) { create(:closed_issue, project: project) }
   let!(:open_issue1) { create(:issue, project: project) }
   let!(:open_issue2) { create(:issue, project: project) }
@@ -34,7 +34,7 @@ RSpec.describe "User views issues" do
           .and have_content(open_issue2.title)
           .and have_no_content(closed_issue.title)
           .and have_content(moved_open_issue.title)
-          .and have_no_content('Create list')
+          .and have_no_content('New list')
       end
 
       it "opens issues by label" do
@@ -65,7 +65,7 @@ RSpec.describe "User views issues" do
           .and have_no_content(open_issue1.title)
           .and have_no_content(open_issue2.title)
           .and have_no_content(moved_open_issue.title)
-          .and have_no_content('Create list')
+          .and have_no_content('New list')
       end
 
       include_examples "opens issue from list" do
@@ -87,7 +87,7 @@ RSpec.describe "User views issues" do
           .and have_content(open_issue2.title)
           .and have_content(moved_open_issue.title)
           .and have_no_content('CLOSED (MOVED)')
-          .and have_no_content('Create list')
+          .and have_no_content('New list')
       end
 
       include_examples "opens issue from list" do

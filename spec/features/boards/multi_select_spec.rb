@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Multi Select Issue', :js do
+RSpec.describe 'Multi Select Issue', :js, feature_category: :team_planning do
   include DragTo
 
   let(:group) { create(:group, :nested) }
@@ -11,13 +11,15 @@ RSpec.describe 'Multi Select Issue', :js do
   let(:user)    { create(:user) }
 
   def drag(selector: '.board-list', list_from_index: 1, from_index: 0, to_index: 0, list_to_index: 1, duration: 1000)
-    drag_to(selector: selector,
-            scrollable: '#board-app',
-            list_from_index: list_from_index,
-            from_index: from_index,
-            to_index: to_index,
-            list_to_index: list_to_index,
-            duration: duration)
+    drag_to(
+      selector: selector,
+      scrollable: '#board-app',
+      list_from_index: list_from_index,
+      from_index: from_index,
+      to_index: to_index,
+      list_to_index: list_to_index,
+      duration: duration
+    )
   end
 
   def wait_for_board_cards(board_number, expected_cards)
@@ -72,7 +74,7 @@ RSpec.describe 'Multi Select Issue', :js do
 
       wait_for_requests
 
-      page.within(all('.js-board-list')[2]) do
+      page.within(all('.board-list')[2]) do
         expect(find('.board-card:nth-child(1)')).to have_content(issue1.title)
         expect(find('.board-card:nth-child(2)')).to have_content(issue2.title)
       end
@@ -87,7 +89,7 @@ RSpec.describe 'Multi Select Issue', :js do
 
       wait_for_requests
 
-      page.within(all('.js-board-list')[2]) do
+      page.within(all('.board-list')[2]) do
         expect(find('.board-card:nth-child(1)')).to have_content(issue1.title)
         expect(find('.board-card:nth-child(2)')).to have_content(issue2.title)
         expect(find('.board-card:nth-child(3)')).to have_content(issue3.title)
@@ -102,7 +104,7 @@ RSpec.describe 'Multi Select Issue', :js do
 
       wait_for_requests
 
-      page.within(all('.js-board-list')[1]) do
+      page.within(all('.board-list')[1]) do
         expect(find('.board-card:nth-child(1)')).to have_content(issue1.title)
         expect(find('.board-card:nth-child(2)')).to have_content(issue2.title)
         expect(find('.board-card:nth-child(3)')).to have_content(issue5.title)

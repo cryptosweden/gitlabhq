@@ -4,27 +4,16 @@
 }
 
 table {
-  /*
-  * TODO
-  * This is a temporary workaround until we fix the neutral
-  * color palette in https://gitlab.com/gitlab-org/gitlab/-/issues/213570
-  *
-  * The overwrites here affected the following areas:
-  * - The security dashboard tables. When removing
-  *   this code, table-th-transparent and original-text-color classes should
-  *   be removed there.
-  * - The subscription seats table. When removing this code, the .seats-table
-  *   <th> and margin overrides should be removed there.
-  *
-  * Remove this code as soon as this happens
-  *
-  */
-  &.gl-table {
-    @include gl-text-gray-500;
+  &.table {
+    .thead-white {
+      th {
+        background-color: $white;
+      }
+    }
   }
 
   .md &:not(.code),
-  &.table {
+  &.table:not(.gl-table) {
     margin-bottom: $gl-padding;
 
     .dropdown-menu a {
@@ -48,25 +37,15 @@ table {
       th {
         padding: 10px $gl-padding;
         line-height: 20px;
-        vertical-align: middle;
+        vertical-align: top;
       }
 
       th {
-        @include gl-bg-gray-50;
+        background-color: $gray-10;
         border-bottom: 0;
 
         &.wide {
           width: 55%;
-        }
-
-        &.table-th-transparent {
-          background: none;
-          color: $gl-text-color-secondary;
-        }
-
-        &.original-gl-th {
-          @include gl-text-gray-500;
-          border-bottom: 1px solid $cycle-analytics-light-gray;
         }
       }
 
@@ -74,7 +53,6 @@ table {
 
     .thead-white {
       th {
-        background-color: $white;
         color: $gl-text-color-secondary;
         border-top: 0;
       }
@@ -121,12 +99,12 @@ table {
       tr.responsive-table-border-start,
       tr.responsive-table-border-end {
         display: block;
-        border: solid $gl-text-color-quaternary;
+        border: solid $gray-100;
         padding-left: 0;
         padding-right: 0;
 
         > td {
-          border-color: $gl-text-color-quaternary;
+          border-color: $gray-100;
 
           &,
           &:last-child {
@@ -138,7 +116,7 @@ table {
 
       tr.responsive-table-border-start {
         border-width: 1px 1px 0;
-        border-radius: $border-radius-default $border-radius-default 0 0;
+        border-radius: $gl-border-radius-base $gl-border-radius-base 0 0;
         padding-top: 0;
         padding-bottom: 0;
 
@@ -147,13 +125,13 @@ table {
         }
 
         > td:last-child {
-          border-bottom: 1px solid $gl-text-color-quaternary;
+          border-bottom: 1px solid $gray-100;
         }
       }
 
       tr.responsive-table-border-end {
         border-width: 0 1px 1px;
-        border-radius: 0 0 $border-radius-default $border-radius-default;
+        border-radius: 0 0 $gl-border-radius-base $gl-border-radius-base;
         margin-bottom: 2 * $gl-padding;
 
         > :last-child {
@@ -181,4 +159,8 @@ table {
   th {
     border-top: 0;
   }
+}
+
+.gl-table-no-top-border th {
+  border-top: 0;
 }

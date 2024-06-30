@@ -6,10 +6,7 @@ property_description:
 value_description:
 extra_properties:
 identifiers:
-product_section: dev
-product_stage: ecosystem
-product_group: group::integrations
-product_category:
+product_group: import_and_integrate
 milestone: "14.0"
 introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/62645
 distributions:

@@ -2,7 +2,11 @@
 
 module QA
   RSpec.describe 'Configure' do
-    describe 'AutoDevOps Templates', only: { subdomain: :staging } do
+    describe 'AutoDevOps Templates', only: { subdomain: %i[staging staging-canary] }, product_group: :environments,
+      quarantine: {
+        issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/432409',
+        type: :test_environment
+      } do
       using RSpec::Parameterized::TableSyntax
 
       # specify jobs to be disabled in the pipeline.
@@ -11,7 +15,6 @@ module QA
       # during the production run
       let(:optional_jobs) do
         %w[
-          LICENSE_MANAGEMENT_DISABLED
           SAST_DISABLED DAST_DISABLED
           DEPENDENCY_SCANNING_DISABLED
           CONTAINER_SCANNING_DISABLED
@@ -25,22 +28,19 @@ module QA
 
       with_them do
         let!(:project) do
-          Resource::Project.fabricate_via_api! do |project|
-            project.name = "#{template}-autodevops-project-template"
-            project.template_name = template
-            project.description = "Let's see if the #{template} project works..."
-            project.auto_devops_enabled = true
-          end
+          create(:project,
+            :auto_devops,
+            name: "#{template}-autodevops-project-template",
+            template_name: template,
+            description: "Let's see if the #{template} project works")
         end
 
         let(:pipeline) do
-          Resource::Pipeline.fabricate_via_api! do |pipeline|
-            pipeline.project = project
-            pipeline.variables =
-              optional_jobs.map do |job|
-                { key: job, value: '1', variable_type: 'env_var' }
-              end
-          end
+          create(:pipeline,
+            project: project,
+            variables: optional_jobs.map do |job|
+              { key: job, value: '1', variable_type: 'env_var' }
+            end)
         end
 
         before do

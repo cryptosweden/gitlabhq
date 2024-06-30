@@ -18,7 +18,6 @@ module Gitlab
         def execute
           return if merge_request_id.blank?
 
-          note.project = project
           note.merge_request = merge_request
 
           build_author_attributes
@@ -37,13 +36,6 @@ module Gitlab
           Logger.warn(message: e.message, 'error.class': e.class.name)
 
           import_with_legacy_diff_note
-        rescue ActiveRecord::InvalidForeignKey => e
-          # It's possible the project and the issue have been deleted since
-          # scheduling this job. In this case we'll just skip creating the note
-          Logger.info(
-            message: e.message,
-            github_identifiers: note.github_identifiers
-          )
         end
 
         private
@@ -65,13 +57,14 @@ module Gitlab
           # To work around this we're using bulk_insert with a single row. This
           # allows us to efficiently insert data (even if it's just 1 row)
           # without having to use all sorts of hacks to disable callbacks.
-          ApplicationRecord.legacy_bulk_insert(LegacyDiffNote.table_name, [{
+          attributes = {
             noteable_type: note.noteable_type,
             system: false,
             type: 'LegacyDiffNote',
             discussion_id: note.discussion_id,
             noteable_id: merge_request_id,
             project_id: project.id,
+            namespace_id: project.project_namespace_id,
             author_id: author_id,
             note: note_body,
             commit_id: note.original_commit_id,
@@ -79,7 +72,12 @@ module Gitlab
             created_at: note.created_at,
             updated_at: note.updated_at,
             st_diff: note.diff_hash.to_yaml
-          }])
+          }
+
+          diff_note = LegacyDiffNote.new(attributes.merge(importing: true))
+          diff_note.validate!
+
+          ApplicationRecord.legacy_bulk_insert(LegacyDiffNote.table_name, [attributes])
         end
         # rubocop:enabled Gitlab/BulkInsert
 
@@ -128,7 +126,7 @@ module Gitlab
           Logger.info(
             project_id: project.id,
             importer: self.class.name,
-            github_identifiers: note.github_identifiers,
+            external_identifiers: note.github_identifiers,
             model: model
           )
         end

@@ -1,7 +1,7 @@
 <script>
 import { GlLoadingIcon } from '@gitlab/ui';
 import BlobHeaderEdit from '~/blob/components/blob_edit_header.vue';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { getBaseURL, joinPaths } from '~/lib/utils/url_utility';
 import { sprintf } from '~/locale';
@@ -56,24 +56,25 @@ export default {
         .get(url, {
           // This prevents axios from automatically JSON.parse response
           transformResponse: [(f) => f],
+          headers: { 'Cache-Control': 'no-cache' },
         })
         .then((res) => {
           this.notifyAboutUpdates({ content: res.data });
         })
-        .catch((e) => this.flashAPIFailure(e));
+        .catch((e) => this.alertAPIFailure(e));
     },
-    flashAPIFailure(err) {
-      createFlash({ message: sprintf(SNIPPET_BLOB_CONTENT_FETCH_ERROR, { err }) });
+    alertAPIFailure(err) {
+      createAlert({ message: sprintf(SNIPPET_BLOB_CONTENT_FETCH_ERROR, { err }) });
     },
   },
 };
 </script>
 <template>
-  <div class="file-holder snippet" data-qa-selector="file_holder_container">
+  <div class="file-holder snippet" data-testid="file-holder-container">
     <blob-header-edit
       :id="inputId"
       :value="blob.path"
-      data-qa-selector="file_name_field"
+      data-testid="file-name-field"
       :can-delete="canDelete"
       :show-delete="showDelete"
       @input="notifyAboutUpdates({ path: $event })"

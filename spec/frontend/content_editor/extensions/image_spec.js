@@ -20,6 +20,10 @@ describe('content_editor/extensions/image', () => {
     }));
   });
 
+  it('sets the draggable option to true', () => {
+    expect(Image.config.draggable).toBe(true);
+  });
+
   it('adds data-canonical-src attribute when rendering to HTML', () => {
     const initialDoc = doc(
       p(
@@ -35,7 +39,7 @@ describe('content_editor/extensions/image', () => {
     tiptapEditor.commands.setContent(initialDoc.toJSON());
 
     expect(tiptapEditor.getHTML()).toEqual(
-      '<p><img src="/-/wikis/uploads/image.jpg" alt="image" title="this is an image" data-canonical-src="uploads/image.jpg"></p>',
+      '<p dir="auto"><img src="/-/wikis/uploads/image.jpg" alt="image" title="this is an image"></p>',
     );
   });
 });

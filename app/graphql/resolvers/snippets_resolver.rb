@@ -1,5 +1,6 @@
 # frozen_string_literal: true
-# rubocop:disable Graphql/ResolverType (inherited from ResolvesSnippets)
+
+# rubocop:disable Graphql/ResolverType -- inherited from ResolvesSnippets
 
 module Resolvers
   class SnippetsResolver < BaseResolver
@@ -11,21 +12,21 @@ module Resolvers
     alias_method :user, :object
 
     argument :author_id, ::Types::GlobalIDType[::User],
-              required: false,
-              description: 'ID of an author.'
+      required: false,
+      description: 'ID of an author.'
 
     argument :project_id, ::Types::GlobalIDType[::Project],
-              required: false,
-              description: 'ID of a project.'
+      required: false,
+      description: 'ID of a project.'
 
     argument :type, Types::Snippets::TypeEnum,
-              required: false,
-              description: 'Type of snippet.'
+      required: false,
+      description: 'Type of snippet.'
 
     argument :explore,
-              GraphQL::Types::Boolean,
-              required: false,
-              description: 'Explore personal snippets.'
+      GraphQL::Types::Boolean,
+      required: false,
+      description: 'Explore personal snippets.'
 
     def resolve(**args)
       if args[:author_id].present? && args[:project_id].present?
@@ -38,12 +39,11 @@ module Resolvers
     private
 
     def snippet_finder_params(args)
-      # TODO: remove the type arguments when the compatibility layer is removed
-      # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
       super
-        .merge(author: resolve_ids(args[:author_id], ::Types::GlobalIDType[::User]),
-               project: resolve_ids(args[:project_id], ::Types::GlobalIDType[::Project]),
-               explore: args[:explore])
+        .merge(author: resolve_ids(args[:author_id]),
+          project: resolve_ids(args[:project_id]),
+          explore: args[:explore])
     end
   end
 end
+# rubocop:enable Graphql/ResolverType

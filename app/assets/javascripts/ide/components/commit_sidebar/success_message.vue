@@ -1,6 +1,7 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 
 export default {
   directives: {

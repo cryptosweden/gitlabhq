@@ -13,9 +13,11 @@ RSpec.describe 'projects/edit' do
     assign(:project, project)
 
     allow(controller).to receive(:current_user).and_return(user)
-    allow(view).to receive_messages(current_user: user,
-                                    can?: true,
-                                    current_application_settings: Gitlab::CurrentSettings.current_application_settings)
+    allow(view).to receive_messages(
+      current_user: user,
+      can?: true,
+      current_application_settings: Gitlab::CurrentSettings.current_application_settings
+    )
   end
 
   context 'project export disabled' do
@@ -25,62 +27,6 @@ RSpec.describe 'projects/edit' do
       render
 
       expect(rendered).not_to have_content('Export project')
-    end
-  end
-
-  context 'merge suggestions settings' do
-    it 'displays a placeholder if none is set' do
-      render
-
-      expect(rendered).to have_field('project[suggestion_commit_message]', placeholder: "Apply %{suggestions_count} suggestion(s) to %{files_count} file(s)")
-    end
-
-    it 'displays the user entered value' do
-      project.update!(suggestion_commit_message: 'refactor: changed %{file_paths}')
-
-      render
-
-      expect(rendered).to have_field('project[suggestion_commit_message]', with: 'refactor: changed %{file_paths}')
-    end
-  end
-
-  context 'merge commit template' do
-    it 'displays default template if none is set' do
-      render
-
-      expect(rendered).to have_field('project[merge_commit_template_or_default]', with: <<~MSG.rstrip)
-        Merge branch '%{source_branch}' into '%{target_branch}'
-
-        %{title}
-
-        %{issues}
-
-        See merge request %{reference}
-      MSG
-    end
-
-    it 'displays the user entered value' do
-      project.update!(merge_commit_template: '%{title}')
-
-      render
-
-      expect(rendered).to have_field('project[merge_commit_template_or_default]', with: '%{title}')
-    end
-  end
-
-  context 'squash template' do
-    it 'displays default template if none is set' do
-      render
-
-      expect(rendered).to have_field('project[squash_commit_template_or_default]', with: '%{title}')
-    end
-
-    it 'displays the user entered value' do
-      project.update!(squash_commit_template: '%{first_multiline_commit}')
-
-      render
-
-      expect(rendered).to have_field('project[squash_commit_template_or_default]', with: '%{first_multiline_commit}')
     end
   end
 
@@ -149,16 +95,38 @@ RSpec.describe 'projects/edit' do
       it_behaves_like 'does not render registration features prompt', :project_disabled_repository_size_limit
     end
 
-    context 'with no license and service ping disabled' do
+    context 'with no license and service ping disabled', :without_license do
       before do
         stub_application_setting(usage_ping_enabled: false)
-
-        if Gitlab.ee?
-          allow(License).to receive(:current).and_return(nil)
-        end
       end
 
       it_behaves_like 'renders registration features prompt', :project_disabled_repository_size_limit
+    end
+  end
+
+  describe 'notifications on renaming the project path' do
+    context 'when the GitlabAPI is supported' do
+      before do
+        allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
+      end
+
+      it 'displays the warning regarding the container registry' do
+        render
+
+        expect(rendered).to have_content('new uploads to the container registry are blocked')
+      end
+    end
+
+    context 'when the GitlabAPI is not supported' do
+      before do
+        allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(false)
+      end
+
+      it 'does not display the warning regarding the container registry' do
+        render
+
+        expect(rendered).not_to have_content('new uploads to the container registry are blocked')
+      end
     end
   end
 end

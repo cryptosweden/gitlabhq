@@ -2,26 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe API::ProjectClusters do
+RSpec.describe API::ProjectClusters, feature_category: :deployment_management do
   include KubernetesHelpers
 
   let_it_be(:maintainer_user) { create(:user) }
   let_it_be(:developer_user) { create(:user) }
   let_it_be(:reporter_user) { create(:user) }
-  let_it_be(:project) { create(:project) }
-
-  before do
-    project.add_maintainer(maintainer_user)
-    project.add_developer(developer_user)
-    project.add_reporter(reporter_user)
-  end
+  let_it_be(:project) { create(:project, maintainers: maintainer_user, developers: developer_user, reporters: reporter_user) }
 
   describe 'GET /projects/:id/clusters' do
     let_it_be(:extra_cluster) { create(:cluster, :provided_by_gcp, :project) }
 
     let_it_be(:clusters) do
-      create_list(:cluster, 2, :provided_by_gcp, :project, :production_environment,
-                  projects: [project])
+      create_list(:cluster, 2, :provided_by_gcp, :project, :production_environment, projects: [project])
     end
 
     include_examples ':certificate_based_clusters feature flag API responses' do
@@ -60,15 +53,19 @@ RSpec.describe API::ProjectClusters do
     let(:cluster_id) { cluster.id }
 
     let(:platform_kubernetes) do
-      create(:cluster_platform_kubernetes, :configured,
-             namespace: 'project-namespace')
+      create(:cluster_platform_kubernetes, :configured, namespace: 'project-namespace')
     end
 
     let(:cluster) do
-      create(:cluster, :project, :provided_by_gcp, :with_domain,
-             platform_kubernetes: platform_kubernetes,
-             user: maintainer_user,
-             projects: [project])
+      create(
+        :cluster,
+        :project,
+        :provided_by_gcp,
+        :with_domain,
+        platform_kubernetes: platform_kubernetes,
+        user: maintainer_user,
+        projects: [project]
+      )
     end
 
     include_examples ':certificate_based_clusters feature flag API responses' do
@@ -139,8 +136,7 @@ RSpec.describe API::ProjectClusters do
 
       context 'when cluster has no provider' do
         let(:cluster) do
-          create(:cluster, :project, :provided_by_user,
-                 projects: [project])
+          create(:cluster, :project, :provided_by_user, projects: [project])
         end
 
         it 'does not include GCP provider info' do
@@ -328,8 +324,7 @@ RSpec.describe API::ProjectClusters do
 
     context 'when another cluster exists' do
       before do
-        create(:cluster, :provided_by_gcp, :project,
-               projects: [project])
+        create(:cluster, :provided_by_gcp, :project, projects: [project])
 
         post api("/projects/#{project.id}/clusters/user", maintainer_user), params: cluster_params
       end
@@ -363,14 +358,11 @@ RSpec.describe API::ProjectClusters do
     end
 
     let!(:kubernetes_namespace) do
-      create(:cluster_kubernetes_namespace,
-             cluster: cluster,
-             project: project)
+      create(:cluster_kubernetes_namespace, cluster: cluster, project: project)
     end
 
     let(:cluster) do
-      create(:cluster, :project, :provided_by_gcp,
-             projects: [project])
+      create(:cluster, :project, :provided_by_gcp, projects: [project])
     end
 
     include_examples ':certificate_based_clusters feature flag API responses' do
@@ -461,8 +453,7 @@ RSpec.describe API::ProjectClusters do
         let(:api_url) { 'https://new-api-url.com' }
 
         let(:cluster) do
-          create(:cluster, :project, :provided_by_user,
-                 projects: [project])
+          create(:cluster, :project, :provided_by_user, projects: [project])
         end
 
         let(:platform_kubernetes_attributes) do
@@ -505,8 +496,7 @@ RSpec.describe API::ProjectClusters do
     let(:cluster_params) { { cluster_id: cluster.id } }
 
     let_it_be(:cluster) do
-      create(:cluster, :project, :provided_by_gcp,
-             projects: [project])
+      create(:cluster, :project, :provided_by_gcp, projects: [project])
     end
 
     include_examples ':certificate_based_clusters feature flag API responses' do

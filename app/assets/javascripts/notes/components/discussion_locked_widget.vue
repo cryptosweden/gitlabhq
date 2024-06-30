@@ -24,7 +24,9 @@ export default {
     },
     lockedIssueWarning() {
       return sprintf(
-        __('This %{issuableDisplayName} is locked. Only project members can comment.'),
+        __(
+          'The discussion in this %{issuableDisplayName} is locked. Only project members can comment.',
+        ),
         { issuableDisplayName: this.issuableDisplayName },
       );
     },
@@ -33,8 +35,10 @@ export default {
 </script>
 
 <template>
-  <div class="disabled-comment text-center">
-    <span class="issuable-note-warning inline">
+  <div class="gl-mt-3" data-testid="disabled-comments">
+    <span
+      class="issuable-note-warning gl-display-inline-block gl-w-full gl-px-5 gl-py-4 gl-rounded-base"
+    >
       <gl-icon :size="16" name="lock" class="icon" />
       <span v-if="isProjectArchived">
         {{ projectArchivedWarning }}

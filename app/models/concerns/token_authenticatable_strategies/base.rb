@@ -2,7 +2,7 @@
 
 module TokenAuthenticatableStrategies
   class Base
-    attr_reader :klass, :token_field, :options
+    attr_reader :klass, :token_field, :expires_at_field, :options
 
     def initialize(klass, token_field, options)
       @klass = klass
@@ -31,9 +31,18 @@ module TokenAuthenticatableStrategies
       result
     end
 
-    # Default implementation returns the token as-is
+    # The expires_at field is not considered sensitive
+    def sensitive_fields
+      token_fields - [@expires_at_field]
+    end
+
+    # If a `format_with_prefix` option is provided, it applies and returns the formatted token.
+    # Otherwise, default implementation returns the token as-is
     def format_token(instance, token)
-      instance.send("format_#{@token_field}", token) # rubocop:disable GitlabSecurity/PublicSend
+      prefix = prefix_for(instance)
+      prefixed_token = prefix ? "#{prefix}#{token}" : token
+
+      instance.send("format_#{@token_field}", prefixed_token) # rubocop:disable GitlabSecurity/PublicSend
     end
 
     def ensure_token(instance)
@@ -61,7 +70,7 @@ module TokenAuthenticatableStrategies
       return false unless expirable? && token_expiration_enforced?
 
       exp = expires_at(instance)
-      !!exp && Time.current > exp
+      !!exp && exp.past?
     end
 
     def expirable?
@@ -87,6 +96,17 @@ module TokenAuthenticatableStrategies
     end
 
     protected
+
+    def prefix_for(instance)
+      case prefix_option = options[:format_with_prefix]
+      when nil
+        nil
+      when Symbol
+        instance.send(prefix_option) # rubocop:disable GitlabSecurity/PublicSend
+      else
+        raise NotImplementedError
+      end
+    end
 
     def write_new_token(instance)
       new_token = generate_available_token

@@ -2,7 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe PolicyActor do
+RSpec.describe PolicyActor, feature_category: :shared do
+  let(:policy_actor_test_class) do
+    Class.new do
+      include PolicyActor
+    end
+  end
+
+  before do
+    stub_const('PolicyActorTestClass', policy_actor_test_class)
+  end
+
   it 'implements all the methods from user' do
     methods = subject.instance_methods
 

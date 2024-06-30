@@ -16,7 +16,7 @@ FactoryBot.define do
       # Note: we need to get refreshed `traversal_ids` it is updated via SQL query
       #       in `Namespaces::Traversal::Linear#sync_traversal_ids` (see the NOTE in that method).
       #       We cannot use `.reload` because it cleans other on-the-fly attributes.
-      namespace.create_ci_namespace_mirror!(traversal_ids: Namespace.find(namespace.id).traversal_ids) unless namespace.ci_namespace_mirror
+      namespace.create_ci_namespace_mirror(traversal_ids: Namespace.find(namespace.id).traversal_ids) unless namespace.ci_namespace_mirror
     end
 
     trait :with_aggregation_schedule do
@@ -37,12 +37,15 @@ FactoryBot.define do
       end
     end
 
-    trait :shared_runners_disabled do
-      shared_runners_enabled { false }
+    trait :allow_runner_registration_token do
+      after(:create) do |namespace|
+        create(:namespace_settings, namespace: namespace) unless namespace.namespace_settings
+        namespace.namespace_settings.update!(allow_runner_registration_token: true)
+      end
     end
 
-    trait :allow_descendants_override_disabled_shared_runners do
-      allow_descendants_override_disabled_shared_runners { true }
+    trait :shared_runners_disabled do
+      shared_runners_enabled { false }
     end
   end
 end

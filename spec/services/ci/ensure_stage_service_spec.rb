@@ -2,14 +2,18 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::EnsureStageService, '#execute' do
+RSpec.describe Ci::EnsureStageService, '#execute', feature_category: :continuous_integration do
   let_it_be(:project) { create(:project) }
   let_it_be(:user) { create(:user) }
 
-  let(:stage) { create(:ci_stage_entity) }
+  let(:stage) { create(:ci_stage) }
   let(:job) { build(:ci_build) }
 
   let(:service) { described_class.new(project, user) }
+
+  before do
+    stub_feature_flags(ci_remove_ensure_stage_service: false)
+  end
 
   context 'when build has a stage assigned' do
     it 'does not create a new stage' do

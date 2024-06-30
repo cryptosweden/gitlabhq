@@ -3,8 +3,8 @@
 require 'spec_helper'
 
 # Test an operation that triggers background jobs requiring administrative rights
-RSpec.describe 'Admin mode for workers', :request_store do
-  include Spec::Support::Helpers::Features::AdminUsersHelpers
+RSpec.describe 'Admin mode for workers', :request_store, feature_category: :system_access do
+  include Features::AdminUsersHelpers
 
   let(:user) { create(:user) }
   let(:user_to_delete) { create(:user) }
@@ -34,7 +34,7 @@ RSpec.describe 'Admin mode for workers', :request_store do
 
     context 'when admin mode enabled', :delete do
       before do
-        gitlab_enable_admin_mode_sign_in(user)
+        enable_admin_mode!(user)
       end
 
       it 'can delete user', :js do
@@ -56,7 +56,7 @@ RSpec.describe 'Admin mode for workers', :request_store do
 
         visit admin_user_path(user_to_delete)
 
-        expect(page).to have_title('Not Found')
+        expect(page).to have_content("#{user_to_delete.name} Blocked")
       end
     end
   end
@@ -67,6 +67,6 @@ RSpec.describe 'Admin mode for workers', :request_store do
     Sidekiq::Worker.drain_all
 
     sign_in(user)
-    gitlab_enable_admin_mode_sign_in(user)
+    enable_admin_mode!(user)
   end
 end

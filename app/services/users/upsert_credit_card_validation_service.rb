@@ -2,40 +2,88 @@
 
 module Users
   class UpsertCreditCardValidationService < BaseService
-    def initialize(params, user)
+    attr_reader :params
+
+    def initialize(params)
       @params = params.to_h.with_indifferent_access
-      @current_user = user
     end
 
     def execute
-      @params = {
-        user_id: params.fetch(:user_id),
-        credit_card_validated_at: params.fetch(:credit_card_validated_at),
-        expiration_date: get_expiration_date(params),
-        last_digits: Integer(params.fetch(:credit_card_mask_number), 10),
-        network: params.fetch(:credit_card_type),
-        holder_name: params.fetch(:credit_card_holder_name)
+      credit_card = Users::CreditCardValidation.find_or_initialize_by_user(user_id)
+
+      credit_card_params = {
+        credit_card_validated_at: credit_card_validated_at,
+        last_digits: last_digits,
+        holder_name: holder_name,
+        network: network,
+        expiration_date: expiration_date,
+        zuora_payment_method_xid: zuora_payment_method_xid,
+        stripe_setup_intent_xid: stripe_setup_intent_xid,
+        stripe_payment_method_xid: stripe_payment_method_xid,
+        stripe_card_fingerprint: stripe_card_fingerprint
       }
 
-      ::Users::CreditCardValidation.upsert(@params)
+      credit_card.update!(credit_card_params)
 
-      ::Users::UpdateService.new(current_user, user: current_user, requires_credit_card_verification: false).execute!
-
-      ServiceResponse.success(message: 'CreditCardValidation was set')
-    rescue ActiveRecord::InvalidForeignKey, ActiveRecord::NotNullViolation => e
-      ServiceResponse.error(message: "Could not set CreditCardValidation: #{e.message}")
+      success
+    rescue ActiveRecord::InvalidForeignKey, ActiveRecord::NotNullViolation, ActiveRecord::RecordInvalid
+      error
     rescue StandardError => e
-      Gitlab::ErrorTracking.track_exception(e, params: @params, class: self.class.to_s)
-      ServiceResponse.error(message: "Could not set CreditCardValidation: #{e.message}")
+      Gitlab::ErrorTracking.track_exception(e)
+      error
     end
 
     private
 
-    def get_expiration_date(params)
+    def user_id
+      params.fetch(:user_id)
+    end
+
+    def credit_card_validated_at
+      params.fetch(:credit_card_validated_at)
+    end
+
+    def last_digits
+      Integer(params.fetch(:credit_card_mask_number), 10)
+    end
+
+    def holder_name
+      params.fetch(:credit_card_holder_name)
+    end
+
+    def network
+      params.fetch(:credit_card_type)
+    end
+
+    def zuora_payment_method_xid
+      params[:zuora_payment_method_xid]
+    end
+
+    def stripe_setup_intent_xid
+      params[:stripe_setup_intent_xid]
+    end
+
+    def stripe_payment_method_xid
+      params[:stripe_payment_method_xid]
+    end
+
+    def stripe_card_fingerprint
+      params[:stripe_card_fingerprint]
+    end
+
+    def expiration_date
       year = params.fetch(:credit_card_expiration_year)
       month = params.fetch(:credit_card_expiration_month)
 
       Date.new(year, month, -1) # last day of the month
+    end
+
+    def success
+      ServiceResponse.success(message: _('Credit card validation record saved'))
+    end
+
+    def error
+      ServiceResponse.error(message: _('Error saving credit card validation record'))
     end
   end
 end

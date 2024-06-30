@@ -4,20 +4,17 @@ module Gitlab
   module GithubImport
     module Representation
       class User
-        include ToHash
-        include ExposeAttribute
-
-        attr_reader :attributes
+        include Representable
 
         expose_attribute :id, :login
 
         # Builds a user from a GitHub API response.
         #
-        # user - An instance of `Sawyer::Resource` containing the user details.
-        def self.from_api_response(user)
+        # user - An instance of `Hash` containing the user details.
+        def self.from_api_response(user, additional_data = {})
           new(
-            id: user.id,
-            login: user.login
+            id: user[:id],
+            login: user[:login]
           )
         end
 

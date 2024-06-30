@@ -1,5 +1,5 @@
 import discussionWithTwoUnresolvedNotes from 'test_fixtures/merge_requests/resolved_diff_discussion.json';
-import { DESC, ASC } from '~/notes/constants';
+import { DESC, ASC, NOTEABLE_TYPE_MAPPING } from '~/notes/constants';
 import * as getters from '~/notes/stores/getters';
 import {
   notesDataMock,
@@ -12,6 +12,7 @@ import {
   discussion2,
   discussion3,
   resolvedDiscussion1,
+  authoritativeDiscussionFile,
   unresolvableDiscussion,
   draftComments,
   draftReply,
@@ -26,6 +27,23 @@ const createDiscussionNeighborParams = (discussionId, diffOrder, step) => ({
 });
 
 const asDraftDiscussion = (x) => ({ ...x, individual_note: true });
+const createRootState = () => {
+  return {
+    diffs: {
+      diffFiles: [
+        { ...authoritativeDiscussionFile },
+        {
+          ...authoritativeDiscussionFile,
+          ...{ id: 'abc2', file_identifier_hash: 'discfile2', order: 1 },
+        },
+        {
+          ...authoritativeDiscussionFile,
+          ...{ id: 'abc3', file_identifier_hash: 'discfile3', order: 2 },
+        },
+      ],
+    },
+  };
+};
 
 describe('Getters Notes Store', () => {
   let state;
@@ -68,6 +86,28 @@ describe('Getters Notes Store', () => {
     let batchComments = null;
 
     const getDiscussions = () => getters.discussions(state, {}, { batchComments });
+
+    describe('merge request filters', () => {
+      it('returns only bot comments', () => {
+        const normalDiscussion = JSON.parse(JSON.stringify(discussionMock));
+        const discussion = JSON.parse(JSON.stringify(discussionMock));
+        discussion.notes[0].author.bot = true;
+
+        const individualBotNote = JSON.parse(JSON.stringify(discussionMock));
+        individualBotNote.notes[0].author.bot = true;
+        individualBotNote.individual_note = true;
+
+        state.noteableData = { targetType: 'merge_request' };
+        state.discussions = [discussion, normalDiscussion, individualBotNote];
+        state.mergeRequestFilters = ['bot_comments'];
+
+        const discussions = getDiscussions();
+
+        expect(discussions).toContain(discussion);
+        expect(discussions).not.toContain(normalDiscussion);
+        expect(discussions).toContain(individualBotNote);
+      });
+    });
 
     describe('without batchComments module', () => {
       it('should return all discussions in the store', () => {
@@ -193,7 +233,7 @@ describe('Getters Notes Store', () => {
 
   describe('isNotesFetched', () => {
     it('should return the state for the fetching notes', () => {
-      expect(getters.isNotesFetched(state)).toBeFalsy();
+      expect(getters.isNotesFetched(state)).toBe(false);
     });
   });
 
@@ -226,11 +266,74 @@ describe('Getters Notes Store', () => {
       const localGetters = {
         allResolvableDiscussions: [discussion3, discussion1, discussion2],
       };
+      const rootState = createRootState();
 
-      expect(getters.unresolvedDiscussionsIdsByDiff(state, localGetters)).toEqual([
+      expect(getters.unresolvedDiscussionsIdsByDiff(state, localGetters, rootState)).toEqual([
         'abc1',
         'abc2',
         'abc3',
+      ]);
+    });
+
+    // This is the same test as above, but it exercises the sorting algorithm
+    // for a "strange" Diff File ordering. The intent is to ensure that even if lots
+    // of shuffling has to occur, everything still works
+
+    it('should return all discussions IDs in unusual diff order', () => {
+      const localGetters = {
+        allResolvableDiscussions: [discussion3, discussion1, discussion2],
+      };
+      const rootState = {
+        diffs: {
+          diffFiles: [
+            // 2 is first, but should sort 2nd
+            {
+              ...authoritativeDiscussionFile,
+              ...{ id: 'abc2', file_identifier_hash: 'discfile2', order: 1 },
+            },
+            // 1 is second, but should sort 3rd
+            { ...authoritativeDiscussionFile, ...{ order: 2 } },
+            // 3 is third, but should sort 1st
+            {
+              ...authoritativeDiscussionFile,
+              ...{ id: 'abc3', file_identifier_hash: 'discfile3', order: 0 },
+            },
+          ],
+        },
+      };
+
+      expect(getters.unresolvedDiscussionsIdsByDiff(state, localGetters, rootState)).toEqual([
+        'abc3',
+        'abc2',
+        'abc1',
+      ]);
+    });
+
+    it("should use the discussions array order if the files don't have explicit order values", () => {
+      const localGetters = {
+        allResolvableDiscussions: [discussion3, discussion1, discussion2], // This order is used!
+      };
+      const auth1 = { ...authoritativeDiscussionFile };
+      const auth2 = {
+        ...authoritativeDiscussionFile,
+        ...{ id: 'abc2', file_identifier_hash: 'discfile2' },
+      };
+      const auth3 = {
+        ...authoritativeDiscussionFile,
+        ...{ id: 'abc3', file_identifier_hash: 'discfile3' },
+      };
+      const rootState = {
+        diffs: { diffFiles: [auth2, auth1, auth3] }, // This order is not used!
+      };
+
+      delete auth1.order;
+      delete auth2.order;
+      delete auth3.order;
+
+      expect(getters.unresolvedDiscussionsIdsByDiff(state, localGetters, rootState)).toEqual([
+        'abc3',
+        'abc1',
+        'abc2',
       ]);
     });
 
@@ -238,8 +341,9 @@ describe('Getters Notes Store', () => {
       const localGetters = {
         allResolvableDiscussions: [resolvedDiscussion1],
       };
+      const rootState = createRootState();
 
-      expect(getters.unresolvedDiscussionsIdsByDiff(state, localGetters)).toEqual([]);
+      expect(getters.unresolvedDiscussionsIdsByDiff(state, localGetters, rootState)).toEqual([]);
     });
   });
 
@@ -430,8 +534,8 @@ describe('Getters Notes Store', () => {
         unresolvedDiscussionsIdsByDate: [],
       };
 
-      expect(getters.firstUnresolvedDiscussionId(state, localGettersFalsy)(true)).toBeFalsy();
-      expect(getters.firstUnresolvedDiscussionId(state, localGettersFalsy)(false)).toBeFalsy();
+      expect(getters.firstUnresolvedDiscussionId(state, localGettersFalsy)(true)).toBeUndefined();
+      expect(getters.firstUnresolvedDiscussionId(state, localGettersFalsy)(false)).toBeUndefined();
     });
   });
 
@@ -452,6 +556,42 @@ describe('Getters Notes Store', () => {
   describe('sortDirection', () => {
     it('should return `discussionSortOrder`', () => {
       expect(getters.sortDirection(state)).toBe(DESC);
+    });
+  });
+
+  describe('canUserAddIncidentTimelineEvents', () => {
+    it.each`
+      userData                              | noteableData                                | expected
+      ${{ can_add_timeline_events: true }}  | ${{ type: NOTEABLE_TYPE_MAPPING.Incident }} | ${true}
+      ${{ can_add_timeline_events: true }}  | ${{ type: NOTEABLE_TYPE_MAPPING.Issue }}    | ${false}
+      ${null}                               | ${{ type: NOTEABLE_TYPE_MAPPING.Incident }} | ${false}
+      ${{ can_add_timeline_events: false }} | ${{ type: NOTEABLE_TYPE_MAPPING.Incident }} | ${false}
+    `(
+      'with userData=$userData and noteableData=$noteableData, expected=$expected',
+      ({ userData, noteableData, expected }) => {
+        Object.assign(state, {
+          userData,
+          noteableData,
+        });
+
+        expect(getters.canUserAddIncidentTimelineEvents(state)).toBe(expected);
+      },
+    );
+  });
+
+  describe('allDiscussionsExpanded', () => {
+    it('returns true when every discussion is expanded', () => {
+      state = {
+        discussions: [{ expanded: true }, { expanded: true }],
+      };
+      expect(getters.allDiscussionsExpanded(state)).toBe(true);
+    });
+
+    it('returns false when at least one discussion is collapsed', () => {
+      state = {
+        discussions: [{ expanded: true }, { expanded: false }],
+      };
+      expect(getters.allDiscussionsExpanded(state)).toBe(false);
     });
   });
 });

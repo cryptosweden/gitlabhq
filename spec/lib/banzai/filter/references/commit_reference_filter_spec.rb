@@ -2,20 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
+RSpec.describe Banzai::Filter::References::CommitReferenceFilter, feature_category: :source_code_management do
   include FilterSpecHelper
 
-  let(:project) { create(:project, :public, :repository) }
-  let(:commit)  { project.commit }
+  let_it_be(:project) { create(:project, :public, :repository) }
+  let_it_be(:commit)  { project.commit }
 
   it 'requires project context' do
     expect { described_class.call('') }.to raise_error(ArgumentError, /:project/)
   end
 
-  %w(pre code a style).each do |elem|
+  %w[pre code a style].each do |elem|
     it "ignores valid references contained inside '#{elem}' element" do
-      exp = act = "<#{elem}>Commit #{commit.id}</#{elem}>"
-      expect(reference_filter(act).to_html).to eq exp
+      act = "<#{elem}>Commit #{commit.id}</#{elem}>"
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -31,6 +31,20 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
         expect(doc.css('a').first.attr('href'))
           .to eq urls.project_commit_url(project, reference)
       end
+    end
+
+    # This solves https://gitlab.com/gitlab-org/gitlab/-/issues/450246
+    it "does not render link when reference is ending a word" do
+      doc = reference_filter("Hello Wo#{reference[0...7]}")
+
+      expect(doc.css('a')).to be_empty
+    end
+
+    # This solves https://gitlab.com/gitlab-org/gitlab/-/issues/450246
+    it "does not render link when reference is starting a word" do
+      doc = reference_filter("Hello #{reference[0...7]}ld")
+
+      expect(doc.css('a')).to be_empty
     end
 
     it 'always uses the short ID as the link text' do
@@ -49,9 +63,9 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
 
     it 'ignores invalid commit IDs' do
       invalid = invalidate_reference(reference)
-      exp = act = "See #{invalid}"
+      act = "See #{invalid}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
 
     it 'includes a title attribute' do
@@ -61,7 +75,7 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
 
     it 'escapes the title attribute' do
       allow_next_instance_of(Commit) do |instance|
-        allow(instance).to receive(:title).and_return(%{"></a>whatever<a title="})
+        allow(instance).to receive(:title).and_return(%("></a>whatever<a title="))
       end
 
       doc = reference_filter("See #{reference}")
@@ -93,7 +107,7 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
       doc = reference_filter("See #{reference}", only_path: true)
       link = doc.css('a').first.attr('href')
 
-      expect(link).not_to match %r(https?://)
+      expect(link).not_to match %r{https?://}
       expect(link).to eq urls.project_commit_url(project, reference, only_path: true)
     end
 
@@ -140,9 +154,9 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
     end
 
     it 'ignores invalid commit IDs on the referenced project' do
-      exp = act = "Committed #{invalidate_reference(reference)}"
+      act = "Committed #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -166,9 +180,9 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
     end
 
     it 'ignores invalid commit IDs on the referenced project' do
-      exp = act = "Committed #{invalidate_reference(reference)}"
+      act = "Committed #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -192,9 +206,9 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
     end
 
     it 'ignores invalid commit IDs on the referenced project' do
-      exp = act = "Committed #{invalidate_reference(reference)}"
+      act = "Committed #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -258,15 +272,27 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
     let(:context) { { project: nil, group: create(:group) } }
 
     it 'ignores internal references' do
-      exp = act = "See #{commit.id}"
+      act = "See #{commit.id}"
 
-      expect(reference_filter(act, context).to_html).to eq exp
+      expect(reference_filter(act, context).to_html).to include act
     end
 
     it 'links to a valid reference' do
       act = "See #{project.full_path}@#{commit.id}"
 
       expect(reference_filter(act, context).css('a').first.text).to eql("#{project.full_path}@#{commit.short_id}")
+    end
+  end
+
+  context 'when Commit.reference_pattern causes a long scanning period' do
+    it 'timesout and rescues in filter' do
+      stub_const("Banzai::Filter::References::AbstractReferenceFilter::RENDER_TIMEOUT", 0.1)
+      markdown = 'a-' * 55000
+
+      expect(Gitlab::RenderTimeout).to receive(:timeout).and_call_original
+      expect(Gitlab::ErrorTracking).to receive(:track_exception)
+
+      reference_filter(markdown)
     end
   end
 
@@ -282,21 +308,25 @@ RSpec.describe Banzai::Filter::References::CommitReferenceFilter do
     let(:commit3_reference) { commit3.to_reference(full: true) }
 
     it 'does not have N+1 per multiple references per project', :use_sql_query_cache do
-      markdown = "#{commit_reference}"
-      max_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+      markdown = commit_reference.to_s
+      control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         reference_filter(markdown)
-      end.count
+      end
 
-      markdown = "#{commit_reference} 8b95f2f1 8b95f2f2 8b95f2f3 #{commit2_reference}  #{commit3_reference}"
+      expect(control.count).to eq 0
+
+      markdown = "#{commit_reference} 8b95f2f1 8b95f2f2 8b95f2f3 #{commit2_reference} #{commit3_reference}"
 
       # Commits are not DB entries, they are on the project itself.
-      # So adding commits from two more projects to the markdown should
-      # only increase by 1 query
-      max_count += 1
-
+      # 1 for for routes to find routes.source_id of projects matching paths
+      # 1 for projects belonging to the above routes
+      # 1 for preloading routes of the projects
+      # 1 for loading the namespaces associated to the project
+      # 1 for loading the routes associated with the namespace
+      # Total = 5
       expect do
         reference_filter(markdown)
-      end.not_to exceed_all_query_limit(max_count)
+      end.not_to exceed_all_query_limit(control).with_threshold(5)
     end
   end
 end

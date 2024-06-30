@@ -1,4 +1,4 @@
-import { GlAlert, GlDropdown, GlDropdownItem } from '@gitlab/ui';
+import { GlAlert, GlCollapsibleListbox, GlListboxItem } from '@gitlab/ui';
 import { GlAreaChart } from '@gitlab/ui/dist/charts';
 import { shallowMount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
@@ -6,7 +6,7 @@ import MockAdapter from 'axios-mock-adapter';
 import { nextTick } from 'vue';
 import waitForPromises from 'helpers/wait_for_promises';
 import axios from '~/lib/utils/axios_utils';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import CodeCoverage from '~/pages/projects/graphs/components/code_coverage.vue';
 import { codeCoverageMockData, sortedDataByDates } from './mock_data';
 
@@ -15,30 +15,36 @@ describe('Code Coverage', () => {
   let mockAxios;
 
   const graphEndpoint = '/graph';
+  const graphStartDate = '13 February';
+  const graphEndDate = '12 May';
+  const graphRef = 'master';
+  const graphCsvPath = 'url/';
 
-  const findAlert = () => wrapper.find(GlAlert);
-  const findAreaChart = () => wrapper.find(GlAreaChart);
-  const findAllDropdownItems = () => wrapper.findAll(GlDropdownItem);
-  const findFirstDropdownItem = () => findAllDropdownItems().at(0);
-  const findSecondDropdownItem = () => findAllDropdownItems().at(1);
+  const findAlert = () => wrapper.findComponent(GlAlert);
+  const findAreaChart = () => wrapper.findComponent(GlAreaChart);
+  const findListBox = () => wrapper.findComponent(GlCollapsibleListbox);
+  const findListBoxItems = () => wrapper.findAllComponents(GlListboxItem);
+  const findFirstListBoxItem = () => findListBoxItems().at(0);
+  const findSecondListBoxItem = () => findListBoxItems().at(1);
+  const findDownloadButton = () => wrapper.find('[data-testid="download-button"]');
 
   const createComponent = () => {
     wrapper = shallowMount(CodeCoverage, {
       propsData: {
         graphEndpoint,
+        graphStartDate,
+        graphEndDate,
+        graphRef,
+        graphCsvPath,
       },
+      stubs: { GlCollapsibleListbox },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   describe('when fetching data is successful', () => {
     beforeEach(() => {
       mockAxios = new MockAdapter(axios);
-      mockAxios.onGet().replyOnce(httpStatusCodes.OK, codeCoverageMockData);
+      mockAxios.onGet().replyOnce(HTTP_STATUS_OK, codeCoverageMockData);
 
       createComponent();
 
@@ -57,19 +63,19 @@ describe('Code Coverage', () => {
       expect(wrapper.vm.sortedData).toEqual(sortedDataByDates);
     });
 
-    it('matches the snapshot', () => {
-      expect(wrapper.element).toMatchSnapshot();
-    });
-
     it('shows no error messages', () => {
       expect(findAlert().exists()).toBe(false);
+    });
+
+    it('does not render download button', () => {
+      expect(findDownloadButton().exists()).toBe(true);
     });
   });
 
   describe('when fetching data fails', () => {
     beforeEach(() => {
       mockAxios = new MockAdapter(axios);
-      mockAxios.onGet().replyOnce(httpStatusCodes.BAD_REQUEST);
+      mockAxios.onGet().replyOnce(HTTP_STATUS_BAD_REQUEST);
 
       createComponent();
 
@@ -93,7 +99,7 @@ describe('Code Coverage', () => {
   describe('when fetching data succeed but returns an empty state', () => {
     beforeEach(() => {
       mockAxios = new MockAdapter(axios);
-      mockAxios.onGet().replyOnce(httpStatusCodes.OK, []);
+      mockAxios.onGet().replyOnce(HTTP_STATUS_OK, []);
 
       createComponent();
 
@@ -112,12 +118,16 @@ describe('Code Coverage', () => {
     it('still renders an empty graph', () => {
       expect(findAreaChart().exists()).toBe(true);
     });
+
+    it('does not render download button', () => {
+      expect(findDownloadButton().exists()).toBe(false);
+    });
   });
 
   describe('dropdown options', () => {
     beforeEach(() => {
       mockAxios = new MockAdapter(axios);
-      mockAxios.onGet().replyOnce(httpStatusCodes.OK, codeCoverageMockData);
+      mockAxios.onGet().replyOnce(HTTP_STATUS_OK, codeCoverageMockData);
 
       createComponent();
 
@@ -125,16 +135,16 @@ describe('Code Coverage', () => {
     });
 
     it('renders the dropdown with all custom names as options', () => {
-      expect(wrapper.find(GlDropdown).exists()).toBeDefined();
-      expect(findAllDropdownItems()).toHaveLength(codeCoverageMockData.length);
-      expect(findFirstDropdownItem().text()).toBe(codeCoverageMockData[0].group_name);
+      expect(findListBox().exists()).toBe(true);
+      expect(findListBoxItems()).toHaveLength(codeCoverageMockData.length);
+      expect(findFirstListBoxItem().text()).toBe(codeCoverageMockData[0].group_name);
     });
   });
 
   describe('interactions', () => {
     beforeEach(() => {
       mockAxios = new MockAdapter(axios);
-      mockAxios.onGet().replyOnce(httpStatusCodes.OK, codeCoverageMockData);
+      mockAxios.onGet().replyOnce(HTTP_STATUS_OK, codeCoverageMockData);
 
       createComponent();
 
@@ -142,19 +152,19 @@ describe('Code Coverage', () => {
     });
 
     it('updates the selected dropdown option with an icon', async () => {
-      findSecondDropdownItem().vm.$emit('click');
+      findListBox().vm.$emit('select', '1');
 
       await nextTick();
 
-      expect(findFirstDropdownItem().attributes('ischecked')).toBeFalsy();
-      expect(findSecondDropdownItem().attributes('ischecked')).toBeTruthy();
+      expect(findFirstListBoxItem().attributes('isselected')).toBeUndefined();
+      expect(findSecondListBoxItem().attributes('isselected')).toBe('true');
     });
 
     it('updates the graph data when selecting a different option in dropdown', async () => {
       const originalSelectedData = wrapper.vm.selectedDailyCoverage;
       const expectedData = codeCoverageMockData[1];
 
-      findSecondDropdownItem().vm.$emit('click');
+      findListBox().vm.$emit('select', '1');
 
       await nextTick();
 

@@ -2,127 +2,112 @@
 
 exports[`packages_list_row renders 1`] = `
 <div
-  class="gl-display-flex gl-flex-direction-column gl-border-b-solid gl-border-t-solid gl-border-t-1 gl-border-b-1 gl-border-t-transparent gl-border-b-gray-100"
-  data-qa-selector="package_row"
+  class="gl-border-b-1 gl-border-b-gray-100 gl-border-b-solid gl-border-t-1 gl-border-t-solid gl-border-t-transparent gl-display-flex gl-flex-direction-column"
+  data-testid="package-row"
 >
   <div
-    class="gl-display-flex gl-align-items-center gl-py-3"
+    class="gl-align-items-center gl-display-flex gl-py-3"
   >
-    <!---->
-     
     <div
-      class="gl-display-flex gl-xs-flex-direction-column gl-justify-content-space-between gl-align-items-stretch gl-flex-grow-1"
+      class="gl-display-flex gl-justify-content-start gl-pl-2 gl-w-7"
+    >
+      <gl-form-checkbox-stub
+        class="gl-m-0"
+        id="reference-0"
+      />
+    </div>
+    <div
+      class="gl-align-items-stretch gl-display-flex gl-flex-direction-column gl-flex-grow-1 gl-justify-content-space-between gl-sm-flex-direction-row"
     >
       <div
-        class="gl-display-flex gl-flex-direction-column gl-xs-mb-3 gl-min-w-0 gl-flex-grow-1"
+        class="gl-display-flex gl-flex-direction-column gl-flex-grow-1 gl-mb-3 gl-min-w-0 gl-sm-mb-0"
       >
         <div
-          class="gl-display-flex gl-align-items-center gl-text-body gl-font-weight-bold gl-min-h-6 gl-min-w-0"
+          class="gl-align-items-center gl-display-flex gl-font-semibold gl-min-h-6 gl-min-w-0 gl-text-body"
         >
           <div
-            class="gl-display-flex gl-align-items-center gl-mr-3 gl-min-w-0"
+            class="gl-align-items-center gl-display-flex gl-gap-3 gl-min-w-0 gl-mr-5"
+            data-testid="package-name"
           >
-            <router-link-stub
-              ariacurrentvalue="page"
-              class="gl-text-body gl-min-w-0"
-              data-qa-selector="package_link"
+            <a
+              class="gl-break-all gl-min-w-0 gl-text-body"
               data-testid="details-link"
-              event="click"
-              tag="a"
-              to="[object Object]"
             >
-              <gl-truncate-stub
-                position="end"
-                text="@gitlab-org/package-15"
-              />
-            </router-link-stub>
-             
-            <!---->
-             
-            <!---->
+              @gitlab-org/package-15
+            </a>
           </div>
-           
-          <!---->
         </div>
-         
         <div
-          class="gl-display-flex gl-align-items-center gl-text-gray-500 gl-min-h-6 gl-min-w-0 gl-flex-grow-1"
+          class="gl-align-items-center gl-display-flex gl-flex-grow-1 gl-font-sm gl-min-h-6 gl-min-w-0 gl-text-secondary"
         >
           <div
-            class="gl-display-flex"
+            class="gl-align-items-center gl-display-flex"
             data-testid="left-secondary-infos"
           >
-            <span>
-              1.0.0
+            <gl-truncate-stub
+              class="gl-max-w-15 gl-md-max-w-26"
+              position="end"
+              text="1.0.0"
+              withtooltip="true"
+            />
+            <span
+              class="gl-ml-2"
+              data-testid="package-type"
+            >
+              · npm
             </span>
-             
-            <!---->
-             
-            <package-icon-and-name-stub>
-              
-        npm
-      
-            </package-icon-and-name-stub>
-             
-            <!---->
           </div>
         </div>
       </div>
-       
       <div
-        class="gl-display-flex gl-flex-direction-column gl-sm-align-items-flex-end gl-justify-content-space-between gl-text-gray-500 gl-flex-shrink-0"
+        class="gl-display-flex gl-flex-direction-column gl-flex-shrink-0 gl-justify-content-space-between gl-sm-align-items-flex-end gl-text-secondary"
       >
         <div
-          class="gl-display-flex gl-align-items-center gl-sm-text-body gl-sm-font-weight-bold gl-min-h-6"
+          class="gl-align-items-center gl-display-flex gl-min-h-6 gl-sm-text-body"
         >
           <publish-method-stub />
         </div>
-         
         <div
-          class="gl-display-flex gl-align-items-center gl-min-h-6"
+          class="gl-align-items-center gl-display-flex gl-font-sm gl-min-h-6"
         >
-          <span
-            data-testid="created-date"
-          >
-            Created 
-            <timeago-tooltip-stub
-              cssclass=""
-              time="2020-08-17T14:23:32Z"
-              tooltipplacement="top"
-            />
-          </span>
+          <publish-message-stub
+            author=""
+            projectname=""
+            projecturl=""
+            publishdate="2020-05-17T14:23:32Z"
+          />
         </div>
       </div>
     </div>
-     
     <div
-      class="gl-w-9 gl-display-flex gl-justify-content-end gl-pr-1"
+      class="gl-display-flex gl-justify-content-end gl-pr-1 gl-w-9"
     >
-      <gl-button-stub
-        aria-label="Remove package"
-        buttontextclasses=""
-        category="secondary"
-        data-testid="action-delete"
-        icon="remove"
+      <gl-disclosure-dropdown-stub
+        autoclose="true"
+        category="tertiary"
+        data-testid="delete-dropdown"
+        icon="ellipsis_v"
+        items=""
+        nocaret="true"
+        placement="bottom-start"
+        positioningstrategy="absolute"
         size="medium"
-        title="Remove package"
-        variant="danger"
-      />
+        textsronly="true"
+        toggleid="dropdown-toggle-btn-3"
+        toggletext="More actions"
+        variant="default"
+      >
+        <gl-disclosure-dropdown-item-stub
+          data-testid="action-delete"
+        >
+          <span
+            class="gl-text-red-500"
+          >
+            Delete package
+          </span>
+        </gl-disclosure-dropdown-item-stub>
+      </gl-disclosure-dropdown-stub>
     </div>
-  </div>
-   
-  <div
-    class="gl-display-flex"
-  >
-    <div
-      class="gl-w-7"
-    />
-     
-    <!---->
-     
-    <div
-      class="gl-w-9"
-    />
   </div>
 </div>
 `;

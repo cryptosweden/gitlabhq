@@ -1,7 +1,12 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import { throttle } from 'lodash';
 import DiffView from '~/diffs/components/diff_view.vue';
+
+jest.mock('lodash/throttle', () => jest.fn((fn) => fn));
+const lodash = jest.requireActual('lodash');
 
 describe('DiffView', () => {
   const DiffExpansionCell = { template: `<div/>` };
@@ -12,14 +17,14 @@ describe('DiffView', () => {
   const setSelectedCommentPosition = jest.fn();
   const getDiffRow = (wrapper) => wrapper.findComponent(DiffRow).vm;
 
-  const createWrapper = (props) => {
+  const createWrapper = ({ props } = {}) => {
     Vue.use(Vuex);
 
     const batchComments = {
       getters: {
         shouldRenderDraftRow: () => false,
         shouldRenderParallelDraftRow: () => () => true,
-        draftForLine: () => false,
+        draftsForLine: () => false,
         draftsForFile: () => false,
         hasParallelDraftLeft: () => false,
         hasParallelDraftRight: () => false,
@@ -45,62 +50,56 @@ describe('DiffView', () => {
       diffLines: [],
       ...props,
     };
+
     const stubs = { DiffExpansionCell, DiffRow, DiffCommentCell, DraftNote };
     return shallowMount(DiffView, { propsData, store, stubs });
   };
 
-  it('renders a match line', () => {
-    const wrapper = createWrapper({
-      diffLines: [
-        {
-          isMatchLineLeft: true,
-          left: {
-            rich_text: '@@ -4,12 +4,12 @@ import createFlash from &#39;~/flash&#39;;',
-            lineDraft: {},
-          },
-        },
-      ],
-    });
-    expect(wrapper.find(DiffExpansionCell).exists()).toBe(true);
-    expect(wrapper.text()).toContain("@@ -4,12 +4,12 @@ import createFlash from '~/flash';");
+  beforeEach(() => {
+    throttle.mockImplementation(lodash.throttle);
+  });
+
+  afterEach(() => {
+    throttle.mockReset();
   });
 
   it.each`
-    type          | side       | container | sides                                                                                                    | total
-    ${'parallel'} | ${'left'}  | ${'.old'} | ${{ left: { lineDraft: {}, renderDiscussion: true }, right: { lineDraft: {}, renderDiscussion: true } }} | ${2}
-    ${'parallel'} | ${'right'} | ${'.new'} | ${{ left: { lineDraft: {}, renderDiscussion: true }, right: { lineDraft: {}, renderDiscussion: true } }} | ${2}
-    ${'inline'}   | ${'left'}  | ${'.old'} | ${{ left: { lineDraft: {}, renderDiscussion: true } }}                                                   | ${1}
-    ${'inline'}   | ${'left'}  | ${'.old'} | ${{ left: { lineDraft: {}, renderDiscussion: true } }}                                                   | ${1}
-    ${'inline'}   | ${'left'}  | ${'.old'} | ${{ left: { lineDraft: {}, renderDiscussion: true } }}                                                   | ${1}
+    type          | side       | container | sides                                                                                                      | total
+    ${'parallel'} | ${'left'}  | ${'.old'} | ${{ left: { lineDrafts: [], renderDiscussion: true }, right: { lineDrafts: [], renderDiscussion: true } }} | ${2}
+    ${'parallel'} | ${'right'} | ${'.new'} | ${{ left: { lineDrafts: [], renderDiscussion: true }, right: { lineDrafts: [], renderDiscussion: true } }} | ${2}
+    ${'inline'}   | ${'left'}  | ${'.old'} | ${{ left: { lineDrafts: [], renderDiscussion: true } }}                                                    | ${1}
+    ${'inline'}   | ${'left'}  | ${'.old'} | ${{ left: { lineDrafts: [], renderDiscussion: true } }}                                                    | ${1}
+    ${'inline'}   | ${'left'}  | ${'.old'} | ${{ left: { lineDrafts: [], renderDiscussion: true } }}                                                    | ${1}
   `(
     'renders a $type comment row with comment cell on $side',
     ({ type, container, sides, total }) => {
       const wrapper = createWrapper({
-        diffLines: [{ renderCommentRow: true, ...sides }],
-        inline: type === 'inline',
+        props: {
+          diffLines: [{ renderCommentRow: true, ...sides }],
+          inline: type === 'inline',
+        },
       });
-      expect(wrapper.findAll(DiffCommentCell).length).toBe(total);
-      expect(wrapper.find(container).find(DiffCommentCell).exists()).toBe(true);
+      expect(wrapper.findAllComponents(DiffCommentCell).length).toBe(total);
+      expect(wrapper.find(container).findComponent(DiffCommentCell).exists()).toBe(true);
     },
   );
 
   it('renders a draft row', () => {
     const wrapper = createWrapper({
-      diffLines: [{ renderCommentRow: true, left: { lineDraft: { isDraft: true } } }],
+      props: { diffLines: [{ renderCommentRow: true, left: { lineDrafts: [{ isDraft: true }] } }] },
     });
-    expect(wrapper.find(DraftNote).exists()).toBe(true);
+    expect(wrapper.findComponent(DraftNote).exists()).toBe(true);
   });
 
   describe('drag operations', () => {
     it('sets `dragStart` onStartDragging', () => {
-      const wrapper = createWrapper({ diffLines: [{}] });
-
+      const wrapper = createWrapper({ props: { diffLines: [{}] } });
       wrapper.findComponent(DiffRow).vm.$emit('startdragging', { line: { test: true } });
       expect(wrapper.vm.idState.dragStart).toEqual({ test: true });
     });
 
     it('does not call `setSelectedCommentPosition` on different chunks onDragOver', () => {
-      const wrapper = createWrapper({ diffLines: [{}] });
+      const wrapper = createWrapper({ props: { diffLines: [{}] } });
       const diffRow = getDiffRow(wrapper);
 
       diffRow.$emit('startdragging', { line: { chunk: 0 } });
@@ -117,7 +116,7 @@ describe('DiffView', () => {
     `(
       'calls `setSelectedCommentPosition` with correct `updatedLineRange`',
       ({ start, end, expectation }) => {
-        const wrapper = createWrapper({ diffLines: [{}] });
+        const wrapper = createWrapper({ props: { diffLines: [{}] } });
         const diffRow = getDiffRow(wrapper);
 
         diffRow.$emit('startdragging', { line: { chunk: 1, index: start } });
@@ -130,7 +129,7 @@ describe('DiffView', () => {
     );
 
     it('sets `dragStart` to null onStopDragging', () => {
-      const wrapper = createWrapper({ diffLines: [{}] });
+      const wrapper = createWrapper({ props: { diffLines: [{}] } });
       const diffRow = getDiffRow(wrapper);
 
       diffRow.$emit('startdragging', { line: { test: true } });
@@ -139,6 +138,20 @@ describe('DiffView', () => {
       diffRow.$emit('stopdragging');
       expect(wrapper.vm.idState.dragStart).toBeNull();
       expect(showCommentForm).toHaveBeenCalled();
+    });
+
+    it('throttles multiple calls to enterdragging', () => {
+      const wrapper = createWrapper({ props: { diffLines: [{}] } });
+
+      const diffRow = getDiffRow(wrapper);
+
+      diffRow.$emit('startdragging', { line: { chunk: 1, index: 1 } });
+      diffRow.$emit('enterdragging', { chunk: 1, index: 2 });
+      diffRow.$emit('enterdragging', { chunk: 1, index: 2 });
+
+      jest.runOnlyPendingTimers();
+
+      expect(setSelectedCommentPosition).toHaveBeenCalledTimes(1);
     });
   });
 });

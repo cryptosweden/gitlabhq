@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group empty states' do
+RSpec.describe 'Group empty states', feature_category: :groups_and_projects do
   let(:group) { create(:group) }
-  let(:user) { create(:group_member, :developer, user: create(:user), group: group ).user }
+  let(:user) { create(:group_member, :developer, user: create(:user), group: group).user }
 
   before do
     sign_in(user)
@@ -29,7 +29,7 @@ RSpec.describe 'Group empty states' do
             create(issuable, project_relation => project)
 
             visit path
-            expect(page).not_to have_selector('.empty-state')
+            expect(page).not_to have_selector('[data-testid="issuable-empty-state"]')
           end
 
           it "displays link to create new #{issuable} when no open #{issuable} is found", :js do
@@ -40,7 +40,7 @@ RSpec.describe 'Group empty states' do
 
             wait_for_all_requests
 
-            page.within(find('.empty-state')) do
+            within_testid('issuable-empty-state') do
               expect(page).to have_content(/There are no open #{issuable.to_s.humanize.downcase}/)
               new_issuable_path = issuable == :issue ? 'new_project_issue_path' : 'project_new_merge_request_path'
 
@@ -59,7 +59,7 @@ RSpec.describe 'Group empty states' do
 
             wait_for_all_requests
 
-            page.within(find('.empty-state')) do
+            within_testid('issuable-empty-state') do
               expect(page).to have_content(/Sorry, your filter produced no results/)
               new_issuable_path = issuable == :issue ? 'new_project_issue_path' : 'project_new_merge_request_path'
 
@@ -78,7 +78,7 @@ RSpec.describe 'Group empty states' do
 
             wait_for_all_requests
 
-            page.within(find('.empty-state')) do
+            within_testid('issuable-empty-state') do
               expect(page).to have_content(/There are no closed #{issuable.to_s.humanize.downcase}/)
             end
           end
@@ -90,32 +90,28 @@ RSpec.describe 'Group empty states' do
           end
 
           it 'displays an empty state' do
-            expect(page).to have_selector('.empty-state')
+            expect(page).to have_selector('[data-testid="issuable-empty-state"]')
           end
 
           it "shows a new #{issuable_name} button" do
-            within '.empty-state' do
-              expect(page).to have_content("create #{issuable_name}")
-            end
+            expect(page).to have_content("create #{issuable_name}")
           end
 
           it "the new #{issuable_name} button opens a project dropdown" do
-            within '.empty-state' do
-              click_button 'Toggle project select'
-            end
+            click_button "Select project to create #{issuable_name}"
 
-            expect(page).to have_selector('.ajax-project-dropdown')
+            expect(page).to have_button project.name
           end
         end
       end
 
       shared_examples "no projects" do
-        it 'displays an empty state' do
-          expect(page).to have_selector('.empty-state')
+        it 'displays an empty state', :js do
+          expect(page).to have_selector('[data-testid="issuable-empty-state"]')
         end
 
-        it "does not show a new #{issuable_name} button" do
-          within '.empty-state' do
+        it "does not show a new #{issuable_name} button", :js do
+          within_testid('issuable-empty-state') do
             expect(page).not_to have_link("create #{issuable_name}")
           end
         end
@@ -134,7 +130,7 @@ RSpec.describe 'Group empty states' do
             end
 
             it 'does not display an empty state' do
-              expect(page).not_to have_selector('.empty-state')
+              expect(page).not_to have_selector('[data-testid="issuable-empty-state"]')
             end
           end
 
@@ -143,8 +139,8 @@ RSpec.describe 'Group empty states' do
               visit path
             end
 
-            it 'displays an empty state' do
-              expect(page).to have_selector('.empty-state')
+            it 'displays an empty state', :js do
+              expect(page).to have_selector('[data-testid="issuable-empty-state"]')
             end
           end
         end

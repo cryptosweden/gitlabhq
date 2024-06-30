@@ -2,8 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::Pushover do
+RSpec.describe Integrations::Pushover, feature_category: :integrations do
   include StubRequests
+
+  it_behaves_like Integrations::HasAvatar
 
   describe 'Validations' do
     context 'when integration is active' do
@@ -29,8 +31,8 @@ RSpec.describe Integrations::Pushover do
 
   describe 'Execute' do
     let(:pushover) { described_class.new }
-    let(:user) { create(:user) }
-    let(:project) { create(:project, :repository) }
+    let(:user) { build_stubbed(:user) }
+    let(:project) { build_stubbed(:project, :repository) }
     let(:sample_data) do
       Gitlab::DataBuilder::Push.build_sample(project, user)
     end

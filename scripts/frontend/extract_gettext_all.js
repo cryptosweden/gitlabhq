@@ -6,7 +6,7 @@ const {
   decorateExtractorWithHelpers,
 } = require('gettext-extractor-vue');
 const vue2TemplateCompiler = require('vue-template-compiler');
-const ensureSingleLine = require('../../app/assets/javascripts/locale/ensure_single_line');
+const ensureSingleLine = require('../../app/assets/javascripts/locale/ensure_single_line.cjs');
 
 const args = argumentsParser
   .option('-f, --file <file>', 'Extract message from one single file')
@@ -19,7 +19,7 @@ extractor.addMessageTransformFunction(ensureSingleLine);
 
 const jsParser = extractor.createJsParser([
   // Place all the possible expressions to extract here:
-  JsExtractors.callExpression('__', {
+  JsExtractors.callExpression(['__', 's__'], {
     arguments: {
       text: 0,
     },
@@ -30,15 +30,13 @@ const jsParser = extractor.createJsParser([
       textPlural: 1,
     },
   }),
-  JsExtractors.callExpression('s__', {
-    arguments: {
-      text: 0,
-    },
-  }),
 ]);
 
 const vueParser = decorateJSParserWithVueSupport(jsParser, {
   vue2TemplateCompiler,
+  // All of our expressions contain `__`.
+  // So we can safely ignore parsing files _not_ containing it.
+  guard: '__',
 });
 
 function printJson() {

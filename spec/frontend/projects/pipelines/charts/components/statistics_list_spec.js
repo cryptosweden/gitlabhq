@@ -21,15 +21,25 @@ describe('StatisticsList', () => {
     });
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('displays the counts data with labels', () => {
     expect(wrapper.element).toMatchSnapshot();
   });
 
   it('displays failed pipelines link', () => {
     expect(findFailedPipelinesLink().attributes('href')).toBe(failedPipelinesLink);
+  });
+
+  describe('with no failed piplines link', () => {
+    beforeEach(() => {
+      wrapper = shallowMount(Component, {
+        propsData: {
+          counts,
+        },
+      });
+    });
+
+    it('hides the failed pipelines link', () => {
+      expect(findFailedPipelinesLink().exists()).toBe(false);
+    });
   });
 });

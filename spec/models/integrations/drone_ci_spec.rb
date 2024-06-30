@@ -2,10 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
+RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching, feature_category: :integrations do
   include ReactiveCachingHelpers
 
   subject(:integration) { described_class.new }
+
+  let_it_be(:project) { create(:project, :repository, name: 'project') }
+
+  it_behaves_like Integrations::BaseCi
+
+  it_behaves_like Integrations::ResetSecretFields do
+    let(:integration) { subject }
+  end
+
+  it_behaves_like Integrations::HasAvatar
 
   describe 'validations' do
     context 'active' do
@@ -15,6 +25,7 @@ RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
 
       it { is_expected.to validate_presence_of(:token) }
       it { is_expected.to validate_presence_of(:drone_url) }
+
       it_behaves_like 'issue tracker integration URL attribute', :drone_url
     end
 
@@ -28,7 +39,7 @@ RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
     end
   end
 
-  shared_context :drone_ci_integration do
+  shared_context 'drone ci integration' do
     subject(:drone) do
       described_class.new(
         project: project,
@@ -38,7 +49,6 @@ RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
       )
     end
 
-    let(:project)    { create(:project, :repository, name: 'project') }
     let(:path)       { project.full_path }
     let(:drone_url)  { 'http://drone.example.com' }
     let(:sha)        { '2ab7834c' }
@@ -107,11 +117,18 @@ RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
     end
   end
 
+  describe '#attribution_notice' do
+    it do
+      expect(subject.attribution_notice)
+      .to eq('Drone CI icon and logo by Harness Inc. are licensed under CC NC-ND 4.0.')
+    end
+  end
+
   it_behaves_like Integrations::HasWebHook do
-    include_context :drone_ci_integration
+    include_context 'drone ci integration'
 
     let(:integration) { drone }
-    let(:hook_url) { "#{drone_url}/hook?owner=#{project.namespace.full_path}&name=#{project.path}&access_token=#{token}" }
+    let(:hook_url) { "#{drone_url}/hook?owner=#{project.namespace.full_path}&name=#{project.path}&access_token={token}" }
 
     it 'does not create a hook if project is not present' do
       integration.project = nil
@@ -122,14 +139,14 @@ RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
   end
 
   describe "integration page/path methods" do
-    include_context :drone_ci_integration
+    include_context 'drone ci integration'
 
     it { expect(drone.build_page(sha, branch)).to eq(build_page) }
     it { expect(drone.commit_status_path(sha, branch)).to eq(commit_status_path) }
   end
 
   describe '#commit_status' do
-    include_context :drone_ci_integration
+    include_context 'drone ci integration'
 
     it 'returns the contents of the reactive cache' do
       stub_reactive_cache(drone, { commit_status: 'foo' }, 'sha', 'ref')
@@ -139,7 +156,7 @@ RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
   end
 
   describe '#calculate_reactive_cache' do
-    include_context :drone_ci_integration
+    include_context 'drone ci integration'
 
     describe '#commit_status' do
       subject { drone.calculate_reactive_cache(sha, branch)[:commit_status] }
@@ -163,20 +180,20 @@ RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
 
           expect(Gitlab::ErrorTracking)
             .to receive(:log_exception)
-            .with(instance_of(http_error), project_id: project.id)
+            .with(instance_of(http_error), { project_id: project.id })
 
           is_expected.to eq(:error)
         end
       end
 
       {
-        "killed"  => :canceled,
+        "killed" => :canceled,
         "failure" => :failed,
-        "error"   => :failed,
+        "error" => :failed,
         "success" => "success"
       }.each do |drone_status, our_status|
         it "sets commit status to #{our_status.inspect} when returned status is #{drone_status.inspect}" do
-          stub_request(body: %Q({"status":"#{drone_status}"}))
+          stub_request(body: %({"status":"#{drone_status}"}))
 
           is_expected.to eq(our_status)
         end
@@ -185,9 +202,9 @@ RSpec.describe Integrations::DroneCi, :use_clean_rails_memory_store_caching do
   end
 
   describe "execute" do
-    include_context :drone_ci_integration
+    include_context 'drone ci integration'
 
-    let(:user) { create(:user, username: 'username') }
+    let(:user) { build(:user, username: 'username') }
     let(:push_sample_data) do
       Gitlab::DataBuilder::Push.build_sample(project, user)
     end

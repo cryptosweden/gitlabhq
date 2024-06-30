@@ -7,17 +7,24 @@ module Analytics
         def execute
           return forbidden unless allowed?
 
-          success(build_default_stages)
+          stages = build_default_stages
+          # In FOSS, stages are not persisted, we match them by name
+          stages = stages.select { |stage| params[:stage_ids].include?(stage.name) } if filter_by_stage_ids?
+          success(stages)
         end
 
         private
 
         def allowed?
-          can?(current_user, :read_cycle_analytics, parent)
+          can?(current_user, :read_cycle_analytics, parent.project)
         end
 
         def success(stages)
           ServiceResponse.success(payload: { stages: stages })
+        end
+
+        def filter_by_stage_ids?
+          params[:stage_ids].present?
         end
       end
     end

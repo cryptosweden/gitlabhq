@@ -36,10 +36,10 @@ module DesignManagement
     belongs_to :author, class_name: 'User'
     has_many :actions
     has_many :designs,
-             through: :actions,
-             class_name: "DesignManagement::Design",
-             source: :design,
-             inverse_of: :versions
+      through: :actions,
+      class_name: "DesignManagement::Design",
+      source: :design,
+      inverse_of: :versions
 
     validates :designs, presence: true, unless: :importing?
     validates :sha, presence: true
@@ -51,13 +51,13 @@ module DesignManagement
 
     delegate :project, to: :issue
 
-    scope :for_designs, -> (designs) do
-      where(id: ::DesignManagement::Action.where(design_id: designs).select(:version_id)).distinct
+    scope :for_designs, ->(designs) do
+      where(id: DesignManagement::Action.where(design_id: designs).select(:version_id)).distinct
     end
-    scope :earlier_or_equal_to, -> (version) { where("(#{table_name}.id) <= ?", version) } # rubocop:disable GitlabSecurity/SqlInjection
+    scope :earlier_or_equal_to, ->(version) { where("(#{table_name}.id) <= ?", version) } # rubocop:disable GitlabSecurity/SqlInjection
     scope :ordered, -> { order(id: :desc) }
-    scope :for_issue, -> (issue) { where(issue: issue) }
-    scope :by_sha, -> (sha) { where(sha: sha) }
+    scope :for_issue, ->(issue) { where(issue: issue) }
+    scope :by_sha, ->(sha) { where(sha: sha) }
     scope :with_author, -> { includes(:author) }
 
     # This is the one true way to create a Version.
@@ -88,7 +88,7 @@ module DesignManagement
 
         rows = design_actions.map { |action| action.row_attrs(version) }
 
-        ApplicationRecord.legacy_bulk_insert(::DesignManagement::Action.table_name, rows) # rubocop:disable Gitlab/BulkInsert
+        ApplicationRecord.legacy_bulk_insert(DesignManagement::Action.table_name, rows) # rubocop:disable Gitlab/BulkInsert
         version.designs.reset
         version.validate!
         design_actions.each(&:performed)
@@ -100,12 +100,13 @@ module DesignManagement
     end
 
     CREATION_TTL = 5.seconds
-    RETRY_DELAY = ->(num) { 0.2.seconds * num**2 }
+    RETRY_DELAY = ->(num) { 0.2.seconds * (num**2) }
+    LOCK_RETRY_COUNT = 5
 
     def self.with_lock(project_id, repository, &block)
       key = "with_lock:#{name}:{#{project_id}}"
 
-      in_lock(key, ttl: CREATION_TTL, retries: 5, sleep_sec: RETRY_DELAY) do |_retried|
+      in_lock(key, ttl: CREATION_TTL, retries: LOCK_RETRY_COUNT, sleep_sec: RETRY_DELAY) do |_retried|
         repository.create_if_not_exists
         yield
       end

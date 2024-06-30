@@ -3,62 +3,12 @@
 require 'spec_helper'
 
 RSpec.describe TreeHelper do
-  let(:project) { create(:project, :repository) }
+  include Devise::Test::ControllerHelpers
+  let_it_be(:project) { create(:project, :repository) }
   let(:repository) { project.repository }
   let(:sha) { 'c1c67abbaf91f624347bb3ae96eabe3a1b742478' }
 
   let_it_be(:user) { create(:user) }
-
-  def create_file(filename)
-    project.repository.create_file(
-      project.creator,
-      filename,
-      'test this',
-      message: "Automatically created file #{filename}",
-      branch_name: 'master'
-    )
-  end
-
-  describe 'flatten_tree' do
-    let(:tree) { repository.tree(sha, 'files') }
-    let(:root_path) { 'files' }
-    let(:tree_item) { tree.entries.find { |entry| entry.path == path } }
-
-    subject { flatten_tree(root_path, tree_item) }
-
-    context "on a directory containing more than one file/directory" do
-      let(:path) { 'files/html' }
-
-      it "returns the directory name" do
-        expect(subject).to match('html')
-      end
-    end
-
-    context "on a directory containing only one directory" do
-      let(:path) { 'files/flat' }
-
-      it "returns the flattened path" do
-        expect(subject).to match('flat/path/correct')
-      end
-
-      context "with a nested root path" do
-        let(:root_path) { 'files/flat' }
-
-        it "returns the flattened path with the root path suffix removed" do
-          expect(subject).to match('path/correct')
-        end
-      end
-    end
-
-    context 'when the root path contains a plus character' do
-      let(:root_path) { 'gtk/C++' }
-      let(:tree_item) { double(flat_path: 'gtk/C++/glade') }
-
-      it 'returns the flattened path' do
-        expect(subject).to eq('glade')
-      end
-    end
-  end
 
   describe '#commit_in_single_accessible_branch' do
     it 'escapes HTML from the branch name' do
@@ -71,12 +21,14 @@ RSpec.describe TreeHelper do
 
   describe '#vue_file_list_data' do
     it 'returns a list of attributes related to the project' do
+      helper.instance_variable_set(:@ref_type, 'heads')
       expect(helper.vue_file_list_data(project, sha)).to include(
         project_path: project.full_path,
         project_short_path: project.path,
         ref: sha,
         escaped_ref: sha,
-        full_name: project.name_with_namespace
+        full_name: project.name_with_namespace,
+        ref_type: 'heads'
       )
     end
   end
@@ -85,7 +37,7 @@ RSpec.describe TreeHelper do
     let(:blob) { project.repository.blob_at('refs/heads/master', @path) }
 
     let_it_be(:user_preferences_gitpod_path) { '/-/profile/preferences#user_gitpod_enabled' }
-    let_it_be(:user_profile_enable_gitpod_path) { '/-/profile?user%5Bgitpod_enabled%5D=true' }
+    let_it_be(:user_profile_enable_gitpod_path) { '/-/user_settings/profile?user%5Bgitpod_enabled%5D=true' }
 
     before do
       @path = ''
@@ -163,6 +115,7 @@ RSpec.describe TreeHelper do
     context 'user does not have write access but a personal fork exists' do
       include ProjectForksHelper
 
+      let(:project) { create(:project, :repository) }
       let(:forked_project) { create(:project, :repository, namespace: user.namespace) }
 
       before do
@@ -317,6 +270,45 @@ RSpec.describe TreeHelper do
 
       it 'returns nil' do
         expect(subject).to be nil
+      end
+    end
+  end
+
+  describe '.fork_modal_options' do
+    let_it_be(:blob) { project.repository.blob_at('refs/heads/master', @path) }
+    let(:fork_path)  { "/#{project.path_with_namespace}/-/forks/new" }
+
+    before do
+      allow(helper).to receive(:current_user).and_return(user)
+    end
+
+    subject { helper.fork_modal_options(project, blob) }
+
+    it 'returns correct fork path' do
+      expect(subject).to match a_hash_including(fork_path: fork_path, fork_modal_id: nil)
+    end
+
+    context 'when show_edit_button true' do
+      before do
+        allow(helper).to receive(:show_edit_button?).and_return(true)
+      end
+
+      it 'returns correct fork path and modal id' do
+        expect(subject).to match a_hash_including(
+          fork_path: fork_path,
+          fork_modal_id: 'modal-confirm-fork-edit')
+      end
+    end
+
+    context 'when show_web_ide_button true' do
+      before do
+        allow(helper).to receive(:show_web_ide_button?).and_return(true)
+      end
+
+      it 'returns correct fork path and modal id' do
+        expect(subject).to match a_hash_including(
+          fork_path: fork_path,
+          fork_modal_id: 'modal-confirm-fork-webide')
       end
     end
   end

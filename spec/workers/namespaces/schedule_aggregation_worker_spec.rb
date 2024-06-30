@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Namespaces::ScheduleAggregationWorker, '#perform', :clean_gitlab_redis_shared_state do
-  let(:group) { create(:group) }
+RSpec.describe Namespaces::ScheduleAggregationWorker, '#perform', :clean_gitlab_redis_shared_state, feature_category: :source_code_management do
+  let_it_be(:group) { create(:group) }
 
   subject(:worker) { described_class.new }
 
@@ -16,7 +16,7 @@ RSpec.describe Namespaces::ScheduleAggregationWorker, '#perform', :clean_gitlab_
 
         expect do
           worker.perform(group.id)
-        end.not_to change(Namespace::AggregationSchedule, :count)
+        end.not_to change { Namespace::AggregationSchedule.count }
       end
     end
 
@@ -26,7 +26,7 @@ RSpec.describe Namespaces::ScheduleAggregationWorker, '#perform', :clean_gitlab_
 
         expect do
           worker.perform(group.id)
-        end.to change(Namespace::AggregationSchedule, :count).by(1)
+        end.to change { Namespace::AggregationSchedule.count }.by(1)
 
         expect(group.aggregation_schedule).to be_present
       end

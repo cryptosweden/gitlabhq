@@ -10,9 +10,9 @@ RSpec.describe AvatarUploader do
   subject { uploader }
 
   it_behaves_like 'builds correct paths',
-                  store_dir: %r[uploads/-/system/user/avatar/],
-                  upload_path: %r[uploads/-/system/user/avatar/],
-                  absolute_path: %r[#{CarrierWave.root}/uploads/-/system/user/avatar/]
+    store_dir: %r{uploads/-/system/user/avatar/},
+    upload_path: %r{uploads/-/system/user/avatar/},
+    absolute_path: %r{#{CarrierWave.root}/uploads/-/system/user/avatar/}
 
   context "object_store is REMOTE" do
     before do
@@ -22,8 +22,8 @@ RSpec.describe AvatarUploader do
     include_context 'with storage', described_class::Store::REMOTE
 
     it_behaves_like 'builds correct paths',
-                    store_dir: %r[user/avatar/],
-                    upload_path: %r[user/avatar/]
+      store_dir: %r{user/avatar/},
+      upload_path: %r{user/avatar/}
   end
 
   context "with a file" do
@@ -45,14 +45,40 @@ RSpec.describe AvatarUploader do
       expect(uploader.absolute_path.scan(storage_path).size).to eq(1)
       expect(uploader.absolute_path).to eq(absolute_path)
     end
+
+    describe "avatar cache" do
+      subject(:user) { create(:user) }
+
+      let(:file_path) do
+        File.join("spec", "fixtures", "rails_sample.png")
+      end
+
+      let(:file) { fixture_file_upload(file_path) }
+
+      it "clears the cache on upload" do
+        expect(Gitlab::AvatarCache).to receive(:delete_by_email).with(*user.verified_emails).once
+
+        user.avatar = file
+        user.save!
+      end
+
+      it "clears the cache on removal" do
+        user.avatar = file
+        user.save!
+
+        expect(Gitlab::AvatarCache).to receive(:delete_by_email).with(*user.verified_emails).once
+
+        user.avatar.remove!
+      end
+    end
   end
 
-  context 'accept whitelist file content type' do
+  context 'accept allowlist file content type' do
     # We need to feed through a valid path, but we force the parsed mime type
     # in a stub below so we can set any path.
     let_it_be(:path) { File.join('spec', 'fixtures', 'video_sample.mp4') }
 
-    where(:mime_type) { described_class::MIME_WHITELIST }
+    where(:mime_type) { described_class::MIME_ALLOWLIST }
 
     with_them do
       include_context 'force content type detection to mime_type'
@@ -61,13 +87,13 @@ RSpec.describe AvatarUploader do
     end
   end
 
-  context 'upload non-whitelisted file content type' do
+  context 'upload denylisted file content type' do
     let_it_be(:path) { File.join('spec', 'fixtures', 'sanitized.svg') }
 
     it_behaves_like 'denied carrierwave upload'
   end
 
-  context 'upload misnamed non-whitelisted file content type' do
+  context 'upload misnamed denylisted file content type' do
     let_it_be(:path) { File.join('spec', 'fixtures', 'not_a_png.png') }
 
     it_behaves_like 'denied carrierwave upload'

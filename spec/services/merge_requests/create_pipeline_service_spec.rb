@@ -2,20 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::CreatePipelineService do
+RSpec.describe MergeRequests::CreatePipelineService, :clean_gitlab_redis_cache, feature_category: :code_review_workflow do
   include ProjectForksHelper
 
-  let_it_be(:project, reload: true) { create(:project, :repository) }
-  let_it_be(:user) { create(:user) }
+  let_it_be(:project, refind: true) { create(:project, :repository) }
+  let_it_be(:user) { create(:user, developer_of: project) }
 
   let(:service) { described_class.new(project: project, current_user: actor, params: params) }
   let(:actor) { user }
   let(:params) { {} }
-
-  before do
-    stub_feature_flags(ci_disallow_to_create_merge_request_pipelines_in_target_project: false)
-    project.add_developer(user)
-  end
 
   describe '#execute' do
     subject(:response) { service.execute(merge_request) }
@@ -50,6 +45,19 @@ RSpec.describe MergeRequests::CreatePipelineService do
       expect(response.payload.source).to eq('merge_request_event')
     end
 
+    context 'when push options contain ci.skip' do
+      let(:params) { { push_options: { ci: { skip: true } } } }
+
+      it 'creates a skipped pipeline' do
+        expect { response }.to change { Ci::Pipeline.count }.by(1)
+
+        expect(response).to be_success
+        expect(response.payload).to be_persisted
+        expect(response.payload.builds).to be_empty
+        expect(response.payload).to be_skipped
+      end
+    end
+
     context 'with fork merge request' do
       let_it_be(:forked_project) { fork_project(project, nil, repository: true, target_project: create(:project, :private, :repository)) }
 
@@ -60,6 +68,16 @@ RSpec.describe MergeRequests::CreatePipelineService do
 
         it 'creates a pipeline in the target project' do
           expect(response.payload.project).to eq(project)
+        end
+
+        context 'when the feature is disabled in CI/CD settings' do
+          before do
+            project.update!(ci_allow_fork_pipelines_to_run_in_parent_project: false)
+          end
+
+          it 'creates a pipeline in the source project' do
+            expect(response.payload.project).to eq(source_project)
+          end
         end
 
         context 'when source branch is protected' do
@@ -77,16 +95,6 @@ RSpec.describe MergeRequests::CreatePipelineService do
             it 'creates a pipeline in the target project' do
               expect(response.payload.project).to eq(project)
             end
-          end
-        end
-
-        context 'when ci_disallow_to_create_merge_request_pipelines_in_target_project feature flag is enabled' do
-          before do
-            stub_feature_flags(ci_disallow_to_create_merge_request_pipelines_in_target_project: true)
-          end
-
-          it 'creates a pipeline in the source project' do
-            expect(response.payload.project).to eq(source_project)
           end
         end
       end
@@ -209,6 +217,27 @@ RSpec.describe MergeRequests::CreatePipelineService do
         expect(response).to be_error
         expect(response.message).to eq('Cannot create a pipeline for this merge request.')
         expect(response.payload).to be_nil
+      end
+    end
+
+    context 'when merge request pipeline creates a dynamic environment' do
+      let(:config) do
+        {
+          review_app: {
+            script: 'echo',
+            only: ['merge_requests'],
+            environment: { name: "review/$CI_COMMIT_REF_NAME" }
+          }
+        }
+      end
+
+      it 'associates merge request with the environment' do
+        expect { response }.to change { Ci::Pipeline.count }.by(1)
+
+        environment = Environment.find_by_name('review/feature')
+        expect(response).to be_success
+        expect(environment).to be_present
+        expect(environment.merge_request).to eq(merge_request)
       end
     end
   end

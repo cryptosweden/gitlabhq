@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::MergeRequests::DiffsController do
+RSpec.describe Projects::MergeRequests::DiffsController, feature_category: :code_review_workflow do
   include ProjectForksHelper
   include TrackingHelpers
 
@@ -25,6 +25,59 @@ RSpec.describe Projects::MergeRequests::DiffsController do
 
           expect(response).to have_gitlab_http_status(:not_found)
         end
+      end
+    end
+  end
+
+  shared_examples 'diff tracking' do
+    it 'tracks mr_diffs event' do
+      expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+        .to receive(:track_mr_diffs_action)
+        .with(merge_request: merge_request)
+
+      method_call
+    end
+
+    context 'when DNT is enabled' do
+      before do
+        stub_do_not_track('1')
+      end
+
+      it 'does not track any mr_diffs event' do
+        expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+          .not_to receive(:track_mr_diffs_action)
+
+        expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+          .not_to receive(:track_mr_diffs_single_file_action)
+
+        method_call
+      end
+    end
+
+    context 'when user has view_diffs_file_by_file set to false' do
+      before do
+        user.update!(view_diffs_file_by_file: false)
+      end
+
+      it 'does not track single_file_diffs events' do
+        expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+          .not_to receive(:track_mr_diffs_single_file_action)
+
+        method_call
+      end
+    end
+
+    context 'when user has view_diffs_file_by_file set to true' do
+      before do
+        user.update!(view_diffs_file_by_file: true)
+      end
+
+      it 'tracks single_file_diffs events' do
+        expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+          .to receive(:track_mr_diffs_single_file_action)
+          .with(merge_request: merge_request, user: user)
+
+        method_call
       end
     end
   end
@@ -85,9 +138,11 @@ RSpec.describe Projects::MergeRequests::DiffsController do
   end
 
   let(:project) { create(:project, :repository) }
-  let(:user) { create(:user) }
   let(:maintainer) { true }
   let(:merge_request) { create(:merge_request_with_diffs, target_project: project, source_project: project) }
+
+  let_it_be_with_reload(:user) { create(:user) }
+  let_it_be(:other_project) { create(:project, maintainers: user) }
 
   before do
     project.add_maintainer(user) if maintainer
@@ -213,7 +268,6 @@ RSpec.describe Projects::MergeRequests::DiffsController do
             commit: nil,
             latest_diff: true,
             only_context_commits: false,
-            allow_tree_conflicts: true,
             merge_ref_head_diff: false
           }
         end
@@ -248,9 +302,11 @@ RSpec.describe Projects::MergeRequests::DiffsController do
                 straight: true)
             end
 
-            go(diff_head: true,
-               diff_id: merge_request.merge_request_diff.id,
-               start_sha: merge_request.merge_request_diff.start_commit_sha)
+            go(
+              diff_head: true,
+              diff_id: merge_request.merge_request_diff.id,
+              start_sha: merge_request.merge_request_diff.start_commit_sha
+            )
           end
         end
       end
@@ -281,7 +337,6 @@ RSpec.describe Projects::MergeRequests::DiffsController do
             commit: nil,
             latest_diff: true,
             only_context_commits: false,
-            allow_tree_conflicts: true,
             merge_ref_head_diff: nil
           }
         end
@@ -303,33 +358,6 @@ RSpec.describe Projects::MergeRequests::DiffsController do
             commit: merge_request.diff_head_commit,
             latest_diff: nil,
             only_context_commits: false,
-            allow_tree_conflicts: true,
-            merge_ref_head_diff: nil
-          }
-        end
-      end
-    end
-
-    context 'when display_merge_conflicts_in_diff is disabled' do
-      subject { go }
-
-      before do
-        stub_feature_flags(display_merge_conflicts_in_diff: false)
-      end
-
-      it_behaves_like 'serializes diffs metadata with expected arguments' do
-        let(:collection) { Gitlab::Diff::FileCollection::MergeRequestDiff }
-        let(:expected_options) do
-          {
-            merge_request: merge_request,
-            merge_request_diff: merge_request.merge_request_diff,
-            merge_request_diffs: merge_request.merge_request_diffs,
-            start_version: nil,
-            start_sha: nil,
-            commit: nil,
-            latest_diff: true,
-            only_context_commits: false,
-            allow_tree_conflicts: false,
             merge_ref_head_diff: nil
           }
         end
@@ -354,19 +382,25 @@ RSpec.describe Projects::MergeRequests::DiffsController do
     context 'when the merge request exists' do
       context 'when the user can view the merge request' do
         context 'when the path exists in the diff' do
+          include_examples 'diff tracking' do
+            let(:method_call) { diff_for_path(old_path: existing_path, new_path: existing_path) }
+          end
+
           it 'enables diff notes' do
             diff_for_path(old_path: existing_path, new_path: existing_path)
 
             expect(assigns(:diff_notes_disabled)).to be_falsey
-            expect(assigns(:new_diff_note_attrs)).to eq(noteable_type: 'MergeRequest',
-                                                        noteable_id: merge_request.id,
-                                                        commit_id: nil)
+            expect(assigns(:new_diff_note_attrs)).to eq(
+              noteable_type: 'MergeRequest',
+              noteable_id: merge_request.id,
+              commit_id: nil
+            )
           end
 
           it 'only renders the diffs for the path given' do
             diff_for_path(old_path: existing_path, new_path: existing_path)
 
-            paths = json_response['diff_files'].map { |file| file['new_path'] }
+            paths = json_response['diff_files'].pluck('new_path')
 
             expect(paths).to include(existing_path)
           end
@@ -397,11 +431,86 @@ RSpec.describe Projects::MergeRequests::DiffsController do
     end
 
     context 'when the merge request belongs to a different project' do
-      let(:other_project) { create(:project) }
-
       before do
-        other_project.add_maintainer(user)
         diff_for_path(old_path: existing_path, new_path: existing_path, project_id: other_project)
+      end
+
+      it 'returns a 404' do
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+  end
+
+  describe 'GET diff_by_file_hash' do
+    def diff_by_file_hash(extra_params = {})
+      params = {
+        namespace_id: project.namespace.to_param,
+        project_id: project,
+        id: merge_request.iid,
+        format: 'json'
+      }
+
+      get :diff_by_file_hash, params: params.merge(extra_params)
+    end
+
+    let(:file) { merge_request.merge_request_diff.diffs.diff_files.first }
+    let(:file_hash) { file.file_hash }
+
+    context 'when the merge request exists' do
+      context 'when the user can view the merge request' do
+        context 'when the path exists in the diff' do
+          include_examples 'diff tracking' do
+            let(:method_call) { diff_by_file_hash(file_hash: file_hash) }
+          end
+
+          it 'enables diff notes' do
+            diff_by_file_hash(file_hash: file_hash)
+
+            expect(assigns(:diff_notes_disabled)).to be_falsey
+            expect(assigns(:new_diff_note_attrs)).to eq(
+              noteable_type: 'MergeRequest',
+              noteable_id: merge_request.id,
+              commit_id: nil
+            )
+          end
+
+          it 'only renders diff for the hash given' do
+            diff_by_file_hash(file_hash: file_hash)
+
+            diffs = json_response['diff_files']
+
+            expect(diffs.count).to eq(1)
+            expect(diffs.first['file_hash']).to eq(file_hash)
+          end
+        end
+      end
+
+      context 'when the user cannot view the merge request' do
+        let(:maintainer) { false }
+
+        before do
+          diff_by_file_hash(file_hash: file_hash)
+        end
+
+        it 'returns a 404' do
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+    end
+
+    context 'when the merge request does not exist' do
+      before do
+        diff_by_file_hash(id: merge_request.iid.succ, file_hash: file_hash)
+      end
+
+      it 'returns a 404' do
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context 'when the merge request belongs to a different project' do
+      before do
+        diff_by_file_hash(project_id: other_project, file_hash: file_hash)
       end
 
       it 'returns a 404' do
@@ -424,61 +533,24 @@ RSpec.describe Projects::MergeRequests::DiffsController do
     end
 
     shared_examples_for 'successful request' do
+      include_examples 'diff tracking' do
+        let(:method_call) { subject }
+      end
+
       it 'returns success' do
         subject
 
         expect(response).to have_gitlab_http_status(:ok)
       end
 
-      it 'tracks mr_diffs event' do
-        expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
-          .to receive(:track_mr_diffs_action)
-          .with(merge_request: merge_request)
+      it 'measures certain parts of the request' do
+        allow(Gitlab::Metrics).to receive(:measure).and_call_original
+        expect(Gitlab::Metrics).to receive(:measure).with(:diffs_unfoldable_positions).and_call_original
+        expect(Gitlab::Metrics).to receive(:measure).with(:diffs_unfold).and_call_original
+        expect(Gitlab::Metrics).to receive(:measure).with(:diffs_write_cache).and_call_original
+        expect(Gitlab::Metrics).to receive(:measure).with(:diffs_render).and_call_original
 
         subject
-      end
-
-      context 'when DNT is enabled' do
-        before do
-          stub_do_not_track('1')
-        end
-
-        it 'does not track any mr_diffs event' do
-          expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
-            .not_to receive(:track_mr_diffs_action)
-
-          expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
-            .not_to receive(:track_mr_diffs_single_file_action)
-
-          subject
-        end
-      end
-
-      context 'when user has view_diffs_file_by_file set to false' do
-        before do
-          user.update!(view_diffs_file_by_file: false)
-        end
-
-        it 'does not track single_file_diffs events' do
-          expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
-            .not_to receive(:track_mr_diffs_single_file_action)
-
-          subject
-        end
-      end
-
-      context 'when user has view_diffs_file_by_file set to true' do
-        before do
-          user.update!(view_diffs_file_by_file: true)
-        end
-
-        it 'tracks single_file_diffs events' do
-          expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
-            .to receive(:track_mr_diffs_single_file_action)
-            .with(merge_request: merge_request, user: user)
-
-          subject
-        end
       end
     end
 
@@ -488,7 +560,6 @@ RSpec.describe Projects::MergeRequests::DiffsController do
         commit: nil,
         diff_view: :inline,
         merge_ref_head_diff: nil,
-        allow_tree_conflicts: true,
         pagination_data: {
           total_pages: nil
         }.merge(pagination_data)
@@ -548,8 +619,7 @@ RSpec.describe Projects::MergeRequests::DiffsController do
 
     context 'with diff_id and start_sha params' do
       subject do
-        go(diff_id: merge_request.merge_request_diff.id,
-           start_sha: merge_request.merge_request_diff.start_commit_sha)
+        go(diff_id: merge_request.merge_request_diff.id, start_sha: merge_request.merge_request_diff.start_commit_sha)
       end
 
       it_behaves_like 'serializes diffs with expected arguments' do
@@ -607,21 +677,6 @@ RSpec.describe Projects::MergeRequests::DiffsController do
       it_behaves_like 'successful request'
     end
 
-    context 'when display_merge_conflicts_in_diff is disabled' do
-      before do
-        stub_feature_flags(display_merge_conflicts_in_diff: false)
-      end
-
-      subject { go }
-
-      it_behaves_like 'serializes diffs with expected arguments' do
-        let(:collection) { Gitlab::Diff::FileCollection::MergeRequestDiffBatch }
-        let(:expected_options) { collection_arguments(total_pages: 20).merge(allow_tree_conflicts: false) }
-      end
-
-      it_behaves_like 'successful request'
-    end
-
     it_behaves_like 'forked project with submodules'
     it_behaves_like 'cached diff collection'
 
@@ -644,6 +699,45 @@ RSpec.describe Projects::MergeRequests::DiffsController do
 
         go
       end
+    end
+
+    context 'when ck param is present' do
+      let(:cache_key) { 'abc123' }
+
+      before do
+        create(:merge_request_diff, :merge_head, merge_request: merge_request)
+      end
+
+      it 'sets Cache-Control with max-age' do
+        go(ck: cache_key, diff_head: true)
+
+        expect(response.headers['Cache-Control']).to eq('max-age=86400, private')
+      end
+
+      context 'when diffs_batch_cache_with_max_age feature flag is disabled' do
+        before do
+          stub_feature_flags(diffs_batch_cache_with_max_age: false)
+        end
+
+        it 'does not set Cache-Control with max-age' do
+          go(ck: cache_key, diff_head: true)
+
+          expect(response.headers['Cache-Control']).not_to eq('max-age=86400, private')
+        end
+      end
+
+      context 'when not rendering merge head diff' do
+        it 'does not set Cache-Control with max-age' do
+          go(ck: cache_key, diff_head: false)
+
+          expect(response.headers['Cache-Control']).not_to eq('max-age=86400, private')
+        end
+      end
+    end
+
+    it 'sets generated' do
+      go
+      expect(json_response["diff_files"][0]["viewer"]["generated"]).to eq(false)
     end
   end
 end

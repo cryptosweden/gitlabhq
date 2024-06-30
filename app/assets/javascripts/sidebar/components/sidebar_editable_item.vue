@@ -1,5 +1,5 @@
 <script>
-import { GlButton, GlLoadingIcon } from '@gitlab/ui';
+import { GlButton, GlLoadingIcon, GlTooltipDirective } from '@gitlab/ui';
 import { __ } from '~/locale';
 
 export default {
@@ -7,6 +7,9 @@ export default {
     unassigned: __('Unassigned'),
   },
   components: { GlButton, GlLoadingIcon },
+  directives: {
+    GlTooltip: GlTooltipDirective,
+  },
   inject: {
     canUpdate: {},
     isClassicSidebar: {
@@ -14,6 +17,11 @@ export default {
     },
   },
   props: {
+    buttonId: {
+      type: String,
+      required: false,
+      default: '',
+    },
     title: {
       type: String,
       required: false,
@@ -48,6 +56,26 @@ export default {
       required: false,
       default: true,
     },
+    shouldShowConfirmationPopover: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    editTooltip: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    editAriaLabel: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    editKeyshortcuts: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
   data() {
     return {
@@ -57,6 +85,15 @@ export default {
   computed: {
     editButtonText() {
       return this.isDirty ? __('Apply') : __('Edit');
+    },
+    editTooltipText() {
+      return this.isDirty ? '' : this.editTooltip;
+    },
+    editAriaLabelText() {
+      return this.isDirty ? this.editButtonText : this.editAriaLabel;
+    },
+    editKeyshortcutsText() {
+      return this.isDirty ? __('Escape') : this.editKeyshortcuts;
     },
   },
   destroyed() {
@@ -79,7 +116,9 @@ export default {
         return;
       }
 
-      this.edit = true;
+      if (this.canEdit && this.canUpdate) {
+        this.edit = true;
+      }
       this.$emit('open');
       window.addEventListener('click', this.collapseWhenOffClick);
       window.addEventListener('keyup', this.collapseOnEscape);
@@ -97,6 +136,11 @@ export default {
       window.removeEventListener('keyup', this.collapseOnEscape);
     },
     toggle({ emitEvent = true } = {}) {
+      if (this.shouldShowConfirmationPopover) {
+        this.$emit('edit-confirm');
+        return;
+      }
+
       if (this.edit) {
         this.collapse({ emitEvent });
       } else {
@@ -110,7 +154,7 @@ export default {
 <template>
   <div>
     <div
-      class="gl-display-flex gl-align-items-center gl-line-height-20 gl-mb-2 gl-text-gray-900"
+      class="gl-display-flex gl-align-items-center gl-leading-20 gl-text-gray-900 gl-font-bold"
       @click.self="collapse"
     >
       <span class="hide-collapsed" data-testid="title" @click="collapse">
@@ -132,14 +176,18 @@ export default {
       <slot name="collapsed-right"></slot>
       <gl-button
         v-if="canUpdate && !initialLoading && canEdit"
+        :id="buttonId"
+        v-gl-tooltip.viewport.html
         category="tertiary"
         size="small"
-        class="gl-text-gray-900! gl-ml-auto hide-collapsed gl-mr-n2 shortcut-sidebar-dropdown-toggle"
+        class="gl-text-gray-900! gl-ml-auto hide-collapsed -gl-mr-2 shortcut-sidebar-dropdown-toggle"
+        :title="editTooltipText"
+        :aria-label="editAriaLabelText"
+        :aria-keyshortcuts="editKeyshortcutsText"
         data-testid="edit-button"
         :data-track-action="tracking.event"
         :data-track-label="tracking.label"
         :data-track-property="tracking.property"
-        data-qa-selector="edit_link"
         @keyup.esc="toggle"
         @click="toggle"
       >
@@ -147,11 +195,11 @@ export default {
       </gl-button>
     </div>
     <template v-if="!initialLoading">
-      <div v-show="!edit" data-testid="collapsed-content" class="gl-line-height-14">
+      <div v-show="!edit" data-testid="collapsed-content">
         <slot name="collapsed">{{ __('None') }}</slot>
       </div>
       <div v-show="edit" data-testid="expanded-content" :class="{ 'gl-mt-3': !isClassicSidebar }">
-        <slot :edit="edit"></slot>
+        <slot :edit="edit" :toggle="toggle"></slot>
       </div>
     </template>
   </div>

@@ -1,12 +1,11 @@
 - event = last_push_event
 - if event && show_last_push_widget?(event)
-  = render 'shared/global_alert',
-    variant: :success,
-    alert_class: 'gl-mt-3',
-    close_button_class: 'js-close-banner' do
-    .gl-alert-body
+  = render Pajamas::AlertComponent.new(variant: :success,
+    alert_options: { class: 'gl-mt-3' },
+    close_button_options: { class: 'js-close-banner' }) do |c|
+    - c.with_body do
       %span= s_("LastPushEvent|You pushed to")
-      %strong.gl-display-inline-flex.gl-max-w-50p{ data: { toggle: 'tooltip' }, title: event.ref_name }
+      %strong.gl-inline-flex{ class: 'gl-max-w-1/2', data: { toggle: 'tooltip' }, title: event.ref_name }
         = link_to event.ref_name, project_commits_path(event.project, event.ref_name), class: 'ref-name gl-text-truncate'
 
       - if event.project != @project
@@ -15,7 +14,7 @@
 
       #{time_ago_with_tooltip(event.created_at)}
 
-    - if can?(current_user, :create_merge_request_in, event.project.default_merge_request_target)
-      .gl-alert-actions
-        = link_to new_mr_path_from_push_event(event), title: _("New merge request"), class: "btn gl-button btn-confirm qa-create-merge-request" do
-          #{ _('Create merge request') }
+    - if create_mr_button_from_event?(event)
+      - c.with_actions do
+        = render Pajamas::ButtonComponent.new(variant: :confirm, href: create_mr_path_from_push_event(event), button_options: { data: { testid: 'create-merge-request-button' }}) do
+          = _('Create merge request')

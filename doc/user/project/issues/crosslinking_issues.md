@@ -1,10 +1,14 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Crosslinking issues **(FREE)**
+# Crosslinking issues
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 There are several ways to mention an issue or make [issues](index.md) appear in each other's
 [Linked issues](related_issues.md) section.
@@ -24,6 +28,13 @@ add `#xxx` to the commit message, where `xxx` is the issue number.
 git commit -m "this is my commit message. Ref #xxx"
 ```
 
+Since commit messages cannot usually begin with a `#` character, you may use
+the alternative `GL-xxx` notation as well:
+
+```shell
+git commit -m "GL-xxx: this is my commit message"
+```
+
 If they are in different projects, but in the same group,
 add `projectname#xxx` to the commit message.
 
@@ -32,16 +43,16 @@ git commit -m "this is my commit message. Ref projectname#xxx"
 ```
 
 If they are not in the same group, you can add the full URL to the issue
-(`https://gitlab.com/<username>/<projectname>/issues/<xxx>`).
+(`https://gitlab.com/<username>/<projectname>/-/issues/<xxx>`).
 
 ```shell
-git commit -m "this is my commit message. Related to https://gitlab.com/<username>/<projectname>/issues/<xxx>"
+git commit -m "this is my commit message. Related to https://gitlab.com/<username>/<projectname>/-/issues/<xxx>"
 ```
 
 Of course, you can replace `gitlab.com` with the URL of your own GitLab instance.
 
 Linking your first commit to your issue is relevant
-for tracking your process with [GitLab Value Stream Analytics](https://about.gitlab.com/stages-devops-lifecycle/value-stream-analytics/).
+for tracking your process with [GitLab Value Stream Analytics](https://about.gitlab.com/solutions/value-stream-management/).
 It measures the time taken for planning the implementation of that issue,
 which is the time between creating an issue and making the first commit.
 
@@ -69,3 +80,10 @@ you can also [set an issue to close automatically](managing_issues.md#closing-is
 as soon as the merge request is merged.
 
 ![issue mentioned in MR](img/mention_in_merge_request.png)
+
+## From branch names
+
+When you create a branch in the same project as an issue and start the branch name with the issue
+number, followed by a hyphen, the issue and MR you create are linked.
+For more information, see
+[Prefix branch names with issue numbers](../repository/branches/index.md#prefix-branch-names-with-issue-numbers).

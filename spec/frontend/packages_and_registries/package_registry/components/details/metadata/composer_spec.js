@@ -1,33 +1,22 @@
 import { GlSprintf } from '@gitlab/ui';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
-import {
-  packageData,
-  composerMetadata,
-} from 'jest/packages_and_registries/package_registry/mock_data';
+import { composerMetadata } from 'jest/packages_and_registries/package_registry/mock_data';
 import component from '~/packages_and_registries/package_registry/components/details/metadata/composer.vue';
-import { PACKAGE_TYPE_COMPOSER } from '~/packages_and_registries/package_registry/constants';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import DetailsRow from '~/vue_shared/components/registry/details_row.vue';
-
-const composerPackage = { packageType: PACKAGE_TYPE_COMPOSER, metadata: composerMetadata() };
 
 describe('Composer Metadata', () => {
   let wrapper;
 
   const mountComponent = () => {
     wrapper = shallowMountExtended(component, {
-      propsData: { packageEntity: packageData(composerPackage) },
+      propsData: { packageMetadata: composerMetadata() },
       stubs: {
         DetailsRow,
         GlSprintf,
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   const findComposerTargetSha = () => wrapper.findByTestId('composer-target-sha');
   const findComposerTargetShaCopyButton = () => wrapper.findComponent(ClipboardButton);

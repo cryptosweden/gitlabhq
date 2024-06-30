@@ -1,12 +1,17 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# User management **(FREE SELF)**
+# User management Rake tasks
 
-GitLab provides Rake tasks for user management.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+GitLab provides Rake tasks for managing users. Administrators can also use the Admin Area to
+[manage users](../administration/admin_area.md#administering-users).
 
 ## Add user as a developer to all projects
 
@@ -32,7 +37,7 @@ sudo gitlab-rake gitlab:import:all_users_to_all_projects
 bundle exec rake gitlab:import:all_users_to_all_projects RAILS_ENV=production
 ```
 
-Administrators are added as maintainers.
+Administrators are added as maintainers and all other users are added as developers.
 
 ## Add user as a developer to all groups
 
@@ -87,7 +92,7 @@ block_auto_created_users: false
 
 This task disables two-factor authentication (2FA) for all users that have it enabled. This can be
 useful if the GitLab `config/secrets.yml` file has been lost and users are unable
-to log in, for example.
+to sign in, for example.
 
 To disable two-factor authentication for all users, run:
 
@@ -111,7 +116,7 @@ the leaked key without forcing all users to change their 2FA details.
 
 To rotate the two-factor authentication encryption key:
 
-1. Look up the old key. This is in the `config/secrets.yml` file, but **make sure you're working
+1. Look up the old key in the `config/secrets.yml` file, but **make sure you're working
    with the production section**. The line you're interested in looks like this:
 
    ```yaml
@@ -177,6 +182,49 @@ sudo /etc/init.d/gitlab start
 
 ```
 
+## Bulk assign users to GitLab Duo Pro
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/142189) in GitLab 16.9.
+
+The Rake task for bulk user assignment is available in GitLab 16.9 and later. For GitLab 16.8, use the script [`bulk_user_assignment.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/duo_pro/bulk_user_assignment.rb) instead.
+
+To perform bulk user assignment for GitLab Duo Pro, you can use the following Rake task:
+
+```shell
+bundle exec rake duo_pro:bulk_user_assignment DUO_PRO_BULK_USER_FILE_PATH=path/to/your/file.csv
+```
+
+If you prefer to use square brackets in the file path, you can escape them or use double quotes:
+
+```shell
+bundle exec rake duo_pro:bulk_user_assignment\['path/to/your/file.csv'\]
+# or
+bundle exec rake "duo_pro:bulk_user_assignment['path/to/your/file.csv']"
+```
+
+The CSV file should have the following format:
+
+```csv
+username
+user1
+user2
+user3
+user4
+etc..
+```
+
+Ensure that the file contains a header named `username`, and each subsequent row represents a username for user assignment.
+
+The task might raise the following error messages:
+
+- `User is not found`: The specified user was not found.
+- `ERROR_NO_SEATS_AVAILABLE`: No more seats are available for user assignment.
+- `ERROR_INVALID_USER_MEMBERSHIP`: The user is not eligible for assignment due to being inactive, a bot, or a ghost.
+
 ## Related topics
 
-- [Reset a user's password](../security/reset_user_password.md#use-a-rake-task).
+- [Reset a user's password](../security/reset_user_password.md#use-a-rake-task)

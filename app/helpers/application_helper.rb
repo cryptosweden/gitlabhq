@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
-require 'digest/md5'
 require 'uri'
 
 module ApplicationHelper
+  include ViteHelper
+
   # See https://docs.gitlab.com/ee/development/ee_features.html#code-in-appviews
   # rubocop: disable CodeReuse/ActiveRecord
   # We allow partial to be nil so that collection views can be passed in
@@ -20,24 +21,16 @@ module ApplicationHelper
 
   def dispensable_render(...)
     render(...)
-  rescue StandardError => error
-    if Feature.enabled?(:dispensable_render, default_enabled: :yaml)
-      Gitlab::ErrorTracking.track_and_raise_for_dev_exception(error)
-      nil
-    else
-      raise error
-    end
+  rescue StandardError => e
+    Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
+    nil
   end
 
   def dispensable_render_if_exists(...)
     render_if_exists(...)
-  rescue StandardError => error
-    if Feature.enabled?(:dispensable_render, default_enabled: :yaml)
-      Gitlab::ErrorTracking.track_and_raise_for_dev_exception(error)
-      nil
-    else
-      raise error
-    end
+  rescue StandardError => e
+    Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
+    nil
   end
 
   def partial_exists?(partial)
@@ -48,6 +41,16 @@ module ApplicationHelper
     lookup_context.exists?(template, [], false)
   end
   # rubocop: enable CodeReuse/ActiveRecord
+
+  def error_css
+    Rails.application
+      .assets_manifest
+      .find_sources('errors.css')
+      .first
+      .to_s
+      .force_encoding('UTF-8') # See https://gitlab.com/gitlab-org/gitlab/-/merge_requests/145363
+      .html_safe # rubocop:disable Rails/OutputSafety -- No escaping needed
+  end
 
   # Check if a particular controller is the current one
   #
@@ -125,15 +128,16 @@ module ApplicationHelper
   end
 
   def simple_sanitize(str)
-    sanitize(str, tags: %w(a span))
+    sanitize(str, tags: %w[a span])
   end
 
   def body_data
     {
       page: body_data_page,
       page_type_id: controller.params[:id],
-      find_file: find_file_path,
-      group: @group&.path
+      find_file: find_file_path(ref_type: @ref_type),
+      group: @group&.path,
+      group_full_path: @group&.full_path
     }.merge(project_data)
   end
 
@@ -143,7 +147,9 @@ module ApplicationHelper
     {
       project_id: @project.id,
       project: @project.path,
+      project_full_path: @project.full_path,
       group: @project.group&.path,
+      group_full_path: @project.group&.full_path,
       namespace_id: @project.namespace&.id
     }
   end
@@ -184,6 +190,8 @@ module ApplicationHelper
   #
   # Returns an HTML-safe String
   def time_ago_with_tooltip(time, placement: 'top', html_class: '', short_format: false)
+    return "" if time.nil?
+
     css_classes = [short_format ? 'js-short-timeago' : 'js-timeago']
     css_classes << html_class unless html_class.blank?
 
@@ -198,16 +206,17 @@ module ApplicationHelper
       }
   end
 
-  def edited_time_ago_with_tooltip(object, placement: 'top', html_class: 'time_ago', exclude_author: false)
-    return unless object.edited?
+  def edited_time_ago_with_tooltip(editable_object, placement: 'top', html_class: 'time_ago', exclude_author: false)
+    return unless editable_object.edited?
 
-    content_tag :small, class: 'edited-text' do
-      output = content_tag(:span, 'Edited ')
-      output << time_ago_with_tooltip(object.last_edited_at, placement: placement, html_class: html_class)
+    content_tag :div, class: 'edited-text gl-mt-4 gl-text-gray-500 gl-font-sm' do
+      timeago = time_ago_with_tooltip(editable_object.last_edited_at, placement: placement, html_class: html_class)
 
-      if !exclude_author && object.last_edited_by
-        output << content_tag(:span, ' by ')
-        output << link_to_member(object.project, object.last_edited_by, avatar: false, author_class: nil)
+      if !exclude_author && editable_object.last_edited_by
+        author_link = link_to_member(editable_object.project, editable_object.last_edited_by, avatar: false, extra_class: 'gl-hover-text-decoration-underline gl-text-gray-700', author_class: nil)
+        output = safe_format(_("Edited %{timeago} by %{author}"), timeago: timeago, author: author_link)
+      else
+        output = safe_format(_("Edited %{timeago}"), timeago: timeago)
       end
 
       output
@@ -224,16 +233,30 @@ module ApplicationHelper
     ApplicationHelper.promo_host
   end
 
+  # This needs to be used outside of Rails
+  def self.community_forum
+    'https://forum.gitlab.com'
+  end
+
+  # Convenient method for Rails helper
+  def community_forum
+    ApplicationHelper.community_forum
+  end
+
+  def self.promo_url
+    "https://#{promo_host}"
+  end
+
   def promo_url
-    'https://' + promo_host
+    ApplicationHelper.promo_url
   end
 
   def support_url
-    Gitlab::CurrentSettings.current_application_settings.help_page_support_url.presence || promo_url + '/getting-help/'
+    Gitlab::CurrentSettings.current_application_settings.help_page_support_url.presence || "#{promo_url}/get-help/"
   end
 
   def instance_review_permitted?
-    ::Gitlab::CurrentSettings.instance_review_permitted? && current_user&.admin?
+    ::Gitlab::CurrentSettings.instance_review_permitted? && current_user&.can_read_all_resources?
   end
 
   def static_objects_external_storage_enabled?
@@ -270,7 +293,11 @@ module ApplicationHelper
   end
 
   def stylesheet_link_tag_defer(path)
-    stylesheet_link_tag(path, media: "print", crossorigin: ActionController::Base.asset_host ? 'anonymous' : nil)
+    universal_stylesheet_link_tag(path, media: "all", crossorigin: ActionController::Base.asset_host ? 'anonymous' : nil)
+  end
+
+  def sign_in_with_redirect?
+    current_page?(new_user_session_path) && session[:user_return_to].present?
   end
 
   def outdated_browser?
@@ -281,12 +308,8 @@ module ApplicationHelper
     if admin
       admin_user_key_path(@user, key)
     else
-      profile_key_path(key)
+      user_settings_ssh_key_path(key)
     end
-  end
-
-  def truncate_first_line(message, length = 50)
-    truncate(message.each_line.first.chomp, length: length) if message
   end
 
   # While similarly named to Rails's `link_to_if`, this method behaves quite differently.
@@ -304,10 +327,11 @@ module ApplicationHelper
     class_names = []
     class_names << 'issue-boards-page gl-overflow-auto' if current_controller?(:boards)
     class_names << 'epic-boards-page gl-overflow-auto' if current_controller?(:epic_boards)
-    class_names << 'environment-logs-page' if current_controller?(:logs)
     class_names << 'with-performance-bar' if performance_bar_enabled?
+    class_names << 'with-header' if @with_header || !current_user
+    class_names << 'with-top-bar' unless @hide_top_bar_padding
     class_names << system_message_class
-    class_names << marketing_header_experiment_class
+
     class_names
   end
 
@@ -319,7 +343,7 @@ module ApplicationHelper
     class_names << 'with-system-header' if appearance.show_header?
     class_names << 'with-system-footer' if appearance.show_footer?
 
-    class_names
+    class_names.join(' ')
   end
 
   # Returns active css class when condition returns true
@@ -335,26 +359,42 @@ module ApplicationHelper
     cookies[name] != 'true'
   end
 
+  def linkedin_name(user)
+    user.linkedin.chomp('/').gsub(%r{.*/}, '')
+  end
+
   def linkedin_url(user)
-    name = user.linkedin
-    if name =~ %r{\Ahttps?://(www\.)?linkedin\.com/in/}
-      name
-    else
-      "https://www.linkedin.com/in/#{name}"
-    end
+    name = linkedin_name(user)
+    "https://www.linkedin.com/in/#{name}"
   end
 
   def twitter_url(user)
     name = user.twitter
-    if name =~ %r{\Ahttps?://(www\.)?twitter\.com/}
+    if %r{\Ahttps?://(www\.)?twitter\.com/}.match?(name)
       name
     else
       "https://twitter.com/#{name}"
     end
   end
 
-  def collapsed_sidebar?
-    cookies["sidebar_collapsed"] == "true"
+  def discord_url(user)
+    return '' if user.discord.blank?
+
+    "https://discord.com/users/#{user.discord}"
+  end
+
+  def mastodon_url(user)
+    return '' if user.mastodon.blank?
+
+    url = user.mastodon.match UserDetail::MASTODON_VALIDATION_REGEX
+
+    external_redirect_path(url: "https://#{url[2]}/@#{url[1]}")
+  end
+
+  def collapsed_super_sidebar?
+    return false if @force_desktop_expanded_sidebar
+
+    cookies["super_sidebar_collapsed"] == "true"
   end
 
   def locale_path
@@ -369,22 +409,26 @@ module ApplicationHelper
   end
 
   def client_class_list
-    "gl-browser-#{browser.id} gl-platform-#{browser.platform.id}"
+    "gl-browser-#{browser_id} gl-platform-#{platform_id}"
   end
 
   def client_js_flags
     {
-      "is#{browser.id.to_s.titlecase}": true,
-      "is#{browser.platform.id.to_s.titlecase}": true
+      "is#{browser_id.titlecase}": true,
+      "is#{platform_id.titlecase}": true
     }
   end
 
   def add_page_specific_style(path, defer: true)
+    @already_added_styles ||= Set.new
+    return if @already_added_styles.include?(path)
+
+    @already_added_styles.add(path)
     content_for :page_specific_styles do
       if defer
         stylesheet_link_tag_defer path
       else
-        stylesheet_link_tag path
+        universal_stylesheet_link_tag path
       end
     end
   end
@@ -419,7 +463,8 @@ module ApplicationHelper
         milestones: milestones_project_autocomplete_sources_path(object),
         commands: commands_project_autocomplete_sources_path(object, type: noteable_type, type_id: params[:id]),
         snippets: snippets_project_autocomplete_sources_path(object),
-        contacts: contacts_project_autocomplete_sources_path(object)
+        contacts: contacts_project_autocomplete_sources_path(object, type: noteable_type, type_id: params[:id]),
+        wikis: object.feature_available?(:wiki, current_user) ? wikis_project_autocomplete_sources_path(object) : nil
       }
     end
   end
@@ -439,22 +484,41 @@ module ApplicationHelper
     form_for(record, *(args << options.merge({ builder: ::Gitlab::FormBuilders::GitlabUiFormBuilder })), &block)
   end
 
+  def gitlab_ui_form_with(**args, &block)
+    form_with(**args.merge({ builder: ::Gitlab::FormBuilders::GitlabUiFormBuilder }), &block)
+  end
+
+  def hidden_resource_icon(resource, css_class: nil)
+    issuable_title = _('This %{issuable} is hidden because its author has been banned.')
+
+    case resource
+    when Issue
+      title = format(issuable_title, issuable: _('issue'))
+    when MergeRequest
+      title = format(issuable_title, issuable: _('merge request'))
+    when Project
+      title = _('This project is hidden because its creator has been banned')
+    end
+
+    return unless title
+
+    content_tag(:span, class: 'has-tooltip', title: title) do
+      sprite_icon('spam', css_class: ['gl-vertical-align-text-bottom', css_class].compact_blank.join(' '))
+    end
+  end
+
   private
+
+  def browser_id
+    browser.unknown? ? 'generic' : browser.id.to_s
+  end
+
+  def platform_id
+    browser.platform.unknown? ? 'other' : browser.platform.id.to_s
+  end
 
   def appearance
     ::Appearance.current
-  end
-
-  def marketing_header_experiment_class
-    return if current_user
-
-    experiment(:logged_out_marketing_header, actor: nil) do |e|
-      html_class = 'logged-out-marketing-header-candidate'
-      e.candidate { html_class }
-      e.variant(:trial_focused) { html_class }
-      e.control {}
-      e.run
-    end
   end
 end
 

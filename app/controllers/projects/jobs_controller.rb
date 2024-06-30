@@ -1,46 +1,40 @@
 # frozen_string_literal: true
 
 class Projects::JobsController < Projects::ApplicationController
+  include Ci::AuthBuildTrace
   include SendFileUpload
   include ContinueParams
+  include ProjectStatsRefreshConflictsGuard
 
-  urgency :low, [:index, :show, :trace, :retry, :play, :cancel, :unschedule, :status, :erase, :raw]
+  urgency :low, [:index, :show, :trace, :retry, :play, :cancel, :unschedule, :erase, :viewer, :raw, :test_report_summary]
 
-  before_action :find_job_as_build, except: [:index, :play, :show]
-  before_action :find_job_as_processable, only: [:play, :show]
-  before_action :authorize_read_build_trace!, only: [:trace, :raw]
-  before_action :authorize_read_build!
+  before_action :find_job_as_build, except: [:index, :play, :retry, :show]
+  before_action :find_job_as_processable, only: [:play, :retry, :show]
+  before_action :authorize_read_build_trace!, only: [:trace, :viewer, :raw]
+  before_action :authorize_read_build!, except: [:test_report_summary]
+  before_action :authorize_read_build_report_results!, only: [:test_report_summary]
   before_action :authorize_update_build!,
-    except: [:index, :show, :status, :raw, :trace, :erase, :cancel, :unschedule]
+    except: [:index, :show, :viewer, :raw, :trace, :erase, :cancel, :unschedule, :test_report_summary]
+  before_action :authorize_cancel_build!, only: [:cancel]
   before_action :authorize_erase_build!, only: [:erase]
   before_action :authorize_use_build_terminal!, only: [:terminal, :terminal_websocket_authorize]
   before_action :verify_api_request!, only: :terminal_websocket_authorize
   before_action :authorize_create_proxy_build!, only: :proxy_websocket_authorize
   before_action :verify_proxy_request!, only: :proxy_websocket_authorize
-  before_action :push_jobs_table_vue, only: [:index]
-  before_action :push_jobs_table_vue_search, only: [:index]
-
-  before_action do
-    push_frontend_feature_flag(:infinitely_collapsible_sections, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:trigger_job_retry_action, @project, default_enabled: :yaml)
-  end
-
+  before_action :reject_if_build_artifacts_size_refreshing!, only: [:erase]
+  before_action :push_ai_build_failure_cause, only: [:show]
   layout 'project'
 
   feature_category :continuous_integration
+  urgency :low
 
-  def index
-    # We need all builds for tabs counters
-    @all_builds = Ci::JobsFinder.new(current_user: current_user, project: @project).execute
+  def index; end
 
-    @scope = params[:scope]
-    @builds = Ci::JobsFinder.new(current_user: current_user, project: @project, params: params).execute
-    @builds = @builds.eager_load_everything
-    @builds = @builds.page(params[:page]).per(30).without_count
-  end
-
-  # rubocop: disable CodeReuse/ActiveRecord
   def show
+    if @build.instance_of?(::Ci::Bridge)
+      redirect_to project_pipeline_path(@build.downstream_pipeline.project, @build.downstream_pipeline.id)
+    end
+
     respond_to do |format|
       format.html
       format.json do
@@ -52,7 +46,6 @@ class Projects::JobsController < Projects::ApplicationController
       end
     end
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def trace
     @build.trace.being_watched! if @build.running?
@@ -78,10 +71,16 @@ class Projects::JobsController < Projects::ApplicationController
   end
 
   def retry
+    Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/424184')
+
     response = Ci::RetryJobService.new(project, current_user).execute(@build)
 
     if response.success?
-      redirect_to build_path(response[:job])
+      if @build.is_a?(::Ci::Build)
+        redirect_to build_path(response[:job])
+      else
+        head :ok
+      end
     else
       respond_422
     end
@@ -124,27 +123,20 @@ class Projects::JobsController < Projects::ApplicationController
     end
   end
 
-  def status
-    render json: Ci::JobSerializer
-      .new(project: @project, current_user: @current_user)
-      .represent_status(@build.present(current_user: current_user))
-  end
-
   def erase
-    if @build.erase(erased_by: current_user)
-      redirect_to project_job_path(project, @build),
-                notice: _("Job has been successfully erased!")
+    service_response = Ci::BuildEraseService.new(@build, current_user).execute
+
+    if service_response.success?
+      redirect_to project_job_path(project, @build), notice: _("Job has been successfully erased!")
     else
-      respond_422
+      head service_response.http_status
     end
   end
 
   def raw
-    if @build.trace.archived_trace_exist?
+    if @build.trace.archived?
       workhorse_set_content_type!
-      send_upload(@build.job_artifacts_trace.file,
-                  send_params: raw_send_params,
-                  redirect_params: raw_redirect_params)
+      send_upload(@build.job_artifacts_trace.file, send_params: raw_send_params, redirect_params: raw_redirect_params, proxy: params[:proxy])
     else
       @build.trace.read do |stream|
         if stream.file?
@@ -158,6 +150,22 @@ class Projects::JobsController < Projects::ApplicationController
           raw_data = stream.raw
           send_data raw_data, type: 'text/plain; charset=utf-8', disposition: raw_trace_content_disposition(raw_data), filename: 'job.log'
         end
+      end
+    end
+  end
+
+  def viewer; end
+
+  def test_report_summary
+    return not_found unless @build.report_results.present?
+
+    summary = Gitlab::Ci::Reports::TestReportSummary.new(@build.report_results)
+
+    respond_to do |format|
+      format.json do
+        render json: TestReportSummarySerializer
+                       .new(project: project, current_user: @current_user)
+                       .represent(summary)
       end
     end
   end
@@ -177,32 +185,30 @@ class Projects::JobsController < Projects::ApplicationController
 
   private
 
-  def authorize_read_build_trace!
-    return if can?(current_user, :read_build_trace, @build)
+  attr_reader :build
 
-    msg = _(
-      "You must have developer or higher permissions in the associated project to view job logs when debug trace is enabled. To disable debug trace, set the 'CI_DEBUG_TRACE' variable to 'false' in your pipeline configuration or CI/CD settings. " \
-      "If you need to view this job log, a project maintainer must add you to the project with developer permissions or higher."
-    )
-    return access_denied!(msg) if @build.debug_mode?
-
-    access_denied!(_('The current user is not authorized to access the job log.'))
+  def authorize_read_build_report_results!
+    access_denied! unless can?(current_user, :read_build_report_results, build)
   end
 
   def authorize_update_build!
-    return access_denied! unless can?(current_user, :update_build, @build)
+    access_denied! unless can?(current_user, :update_build, @build)
+  end
+
+  def authorize_cancel_build!
+    access_denied! unless can?(current_user, :cancel_build, @build)
   end
 
   def authorize_erase_build!
-    return access_denied! unless can?(current_user, :erase_build, @build)
+    access_denied! unless can?(current_user, :erase_build, @build)
   end
 
   def authorize_use_build_terminal!
-    return access_denied! unless can?(current_user, :create_build_terminal, @build)
+    access_denied! unless can?(current_user, :create_build_terminal, @build)
   end
 
   def authorize_create_proxy_build!
-    return access_denied! unless can?(current_user, :create_build_service_proxy, @build)
+    access_denied! unless can?(current_user, :create_build_service_proxy, @build)
   end
 
   def verify_api_request!
@@ -248,10 +254,12 @@ class Projects::JobsController < Projects::ApplicationController
   end
 
   def build_service_specification
-    @build.service_specification(service: params['service'],
-                                 port: params['port'],
-                                 path: params['path'],
-                                 subprotocols: proxy_subprotocol)
+    @build.service_specification(
+      service: params['service'],
+      port: params['port'],
+      path: params['path'],
+      subprotocols: proxy_subprotocol
+    )
   end
 
   def proxy_subprotocol
@@ -270,11 +278,7 @@ class Projects::JobsController < Projects::ApplicationController
     ::Gitlab::Workhorse.channel_websocket(service)
   end
 
-  def push_jobs_table_vue
-    push_frontend_feature_flag(:jobs_table_vue, @project, default_enabled: :yaml)
-  end
-
-  def push_jobs_table_vue_search
-    push_frontend_feature_flag(:jobs_table_vue_search, @project, default_enabled: :yaml)
+  def push_ai_build_failure_cause
+    push_frontend_feature_flag(:ai_build_failure_cause, @project)
   end
 end

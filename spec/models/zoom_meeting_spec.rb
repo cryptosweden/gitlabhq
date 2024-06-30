@@ -29,6 +29,7 @@ RSpec.describe ZoomMeeting do
         expect(meetings_added).not_to include(removed_meeting.id)
       end
     end
+
     describe '.removed_from_issue' do
       it 'gets only removed meetings' do
         meetings_removed = described_class.removed_from_issue.pluck(:id)
@@ -64,7 +65,7 @@ RSpec.describe ZoomMeeting do
 
       context 'with non-Zoom URL' do
         before do
-          subject.url = %{https://non-zoom.url}
+          subject.url = %(https://non-zoom.url)
         end
 
         include_examples 'invalid Zoom URL'
@@ -72,7 +73,7 @@ RSpec.describe ZoomMeeting do
 
       context 'with multiple Zoom-URLs' do
         before do
-          subject.url = %{https://zoom.us/j/123 https://zoom.us/j/456}
+          subject.url = %(https://zoom.us/j/123 https://zoom.us/j/456)
         end
 
         include_examples 'invalid Zoom URL'

@@ -1,3 +1,3 @@
-import { initAdminRunnerEdit } from '~/runner/admin_runner_edit';
+import { initRunnerEdit } from '~/ci/runner/runner_edit';
 
-initAdminRunnerEdit();
+initRunnerEdit('#js-admin-runner-edit');

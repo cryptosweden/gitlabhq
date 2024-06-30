@@ -1,6 +1,6 @@
 <script>
 import { GlSprintf, GlButton, GlAlert, GlCard } from '@gitlab/ui';
-import Mousetrap from 'mousetrap';
+import { Mousetrap, MOUSETRAP_COPY_KEYBOARD_SHORTCUT } from '~/lib/mousetrap';
 import { __ } from '~/locale';
 import Tracking from '~/tracking';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
@@ -10,7 +10,6 @@ import {
   PRINT_BUTTON_ACTION,
   TRACKING_LABEL_PREFIX,
   RECOVERY_CODE_DOWNLOAD_FILENAME,
-  COPY_KEYBOARD_SHORTCUT,
 } from '../constants';
 
 export const i18n = {
@@ -62,14 +61,14 @@ export default {
   created() {
     this.$options.mousetrap = new Mousetrap();
 
-    this.$options.mousetrap.bind(COPY_KEYBOARD_SHORTCUT, this.handleKeyboardCopy);
+    this.$options.mousetrap.bind(MOUSETRAP_COPY_KEYBOARD_SHORTCUT, this.handleKeyboardCopy);
   },
   beforeDestroy() {
     if (!this.$options.mousetrap) {
       return;
     }
 
-    this.$options.mousetrap.unbind(COPY_KEYBOARD_SHORTCUT);
+    this.$options.mousetrap.unbind(MOUSETRAP_COPY_KEYBOARD_SHORTCUT);
   },
   methods: {
     handleButtonClick(action) {
@@ -101,9 +100,9 @@ export default {
 
 <template>
   <div>
-    <h3 class="page-title">
+    <h1 class="page-title gl-font-size-h-display">
       {{ $options.i18n.pageTitle }}
-    </h3>
+    </h1>
     <hr />
     <gl-alert variant="info" :dismissible="false">
       {{ $options.i18n.alertTitle }}
@@ -116,23 +115,19 @@ export default {
       </gl-sprintf>
     </p>
 
-    <gl-card
-      class="codes-to-print gl-my-5"
-      data-testid="recovery-codes"
-      data-qa-selector="codes_content"
-    >
+    <gl-card class="codes-to-print gl-my-5" data-testid="recovery-codes">
       <ul class="gl-m-0 gl-pl-5">
         <li v-for="(code, index) in codes" :key="index">
-          <span class="gl-font-monospace" data-qa-selector="code_content">{{ code }}</span>
+          <span class="gl-font-monospace" data-testid="code-content">{{ code }}</span>
         </li>
       </ul>
     </gl-card>
-    <div class="gl-my-n2 gl-mx-n2 gl-display-flex gl-flex-wrap">
+    <div class="-gl-my-2 -gl-mx-2 gl-display-flex gl-flex-wrap">
       <div class="gl-p-2">
         <clipboard-button
           :title="$options.i18n.copyButton"
           :text="codesAsString"
-          data-qa-selector="copy_button"
+          data-testid="copy-button"
           @click="handleButtonClick($options.copyButtonAction)"
         >
           {{ $options.i18n.copyButton }}
@@ -164,7 +159,7 @@ export default {
           :disabled="proceedButtonDisabled"
           :title="$options.i18n.proceedButton"
           variant="confirm"
-          data-qa-selector="proceed_button"
+          data-testid="proceed-button"
           data-track-action="click_button"
           :data-track-label="`${$options.trackingLabelPrefix}proceed_button`"
           >{{ $options.i18n.proceedButton }}</gl-button

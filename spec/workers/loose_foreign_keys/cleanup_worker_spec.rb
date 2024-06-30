@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe LooseForeignKeys::CleanupWorker do
+RSpec.describe LooseForeignKeys::CleanupWorker, feature_category: :cell do
   include MigrationsHelpers
   using RSpec::Parameterized::TableSyntax
 
@@ -70,7 +70,7 @@ RSpec.describe LooseForeignKeys::CleanupWorker do
   let(:loose_fk_child_table_1_2) { table(:_test_loose_fk_child_table_1_2) }
   let(:loose_fk_child_table_2_1) { table(:_test_loose_fk_child_table_2_1) }
 
-  before(:all) do
+  before_all do
     create_table_structure
   end
 
@@ -105,9 +105,10 @@ RSpec.describe LooseForeignKeys::CleanupWorker do
   def perform_for(db:)
     time = Time.current.midnight
 
-    if db == :main
+    case db
+    when :main
       time += 2.minutes
-    elsif db == :ci
+    when :ci
       time += 3.minutes
     end
 
@@ -124,43 +125,12 @@ RSpec.describe LooseForeignKeys::CleanupWorker do
     expect(loose_fk_child_table_2_1.count).to eq(0)
   end
 
-  context 'when deleting in batches' do
-    before do
-      stub_const('LooseForeignKeys::CleanupWorker::BATCH_SIZE', 2)
-    end
-
-    it 'cleans up all rows' do
-      expect(LooseForeignKeys::BatchCleanerService).to receive(:new).exactly(:twice).and_call_original
-
-      perform_for(db: :main)
-
-      expect(loose_fk_child_table_1_1.count).to eq(0)
-      expect(loose_fk_child_table_1_2.where(parent_id_with_different_column: nil).count).to eq(4)
-      expect(loose_fk_child_table_2_1.count).to eq(0)
-    end
-  end
-
-  context 'when the deleted rows count limit have been reached' do
-    def count_deletable_rows
-      loose_fk_child_table_1_1.count + loose_fk_child_table_2_1.count
-    end
-
-    before do
-      stub_const('LooseForeignKeys::ModificationTracker::MAX_DELETES', 2)
-      stub_const('LooseForeignKeys::CleanerService::DELETE_LIMIT', 1)
-    end
-
-    it 'cleans up 2 rows' do
-      expect { perform_for(db: :main) }.to change { count_deletable_rows }.by(-2)
-    end
-  end
-
   describe 'multi-database support' do
     where(:current_minute, :configured_base_models, :expected_connection_model) do
-      2 | { main: 'ApplicationRecord', ci: 'Ci::ApplicationRecord' } | 'ApplicationRecord'
-      3 | { main: 'ApplicationRecord', ci: 'Ci::ApplicationRecord' } | 'Ci::ApplicationRecord'
-      2 | { main: 'ApplicationRecord' } | 'ApplicationRecord'
-      3 | { main: 'ApplicationRecord' } | 'ApplicationRecord'
+      2 | { main: 'ActiveRecord::Base', ci: 'Ci::ApplicationRecord' } | 'ActiveRecord::Base'
+      3 | { main: 'ActiveRecord::Base', ci: 'Ci::ApplicationRecord' } | 'Ci::ApplicationRecord'
+      2 | { main: 'ActiveRecord::Base' } | 'ActiveRecord::Base'
+      3 | { main: 'ActiveRecord::Base' } | 'ActiveRecord::Base'
     end
 
     with_them do
@@ -169,12 +139,11 @@ RSpec.describe LooseForeignKeys::CleanupWorker do
       let(:expected_connection) { expected_connection_model.constantize.connection }
 
       before do
-        allow(Gitlab::Database).to receive(:database_base_models).and_return(database_base_models)
+        allow(Gitlab::Database).to receive(:database_base_models_with_gitlab_shared).and_return(database_base_models)
 
         if database_base_models.has_key?(:ci)
           Gitlab::Database::SharedModel.using_connection(database_base_models[:ci].connection) do
-            LooseForeignKeys::DeletedRecord.create!(fully_qualified_table_name: 'public._test_loose_fk_parent_table_1', primary_key_value: 999)
-            LooseForeignKeys::DeletedRecord.create!(fully_qualified_table_name: 'public._test_loose_fk_parent_table_1', primary_key_value: 9991)
+            LooseForeignKeys::DeletedRecord.create!(fully_qualified_table_name: 'public._test_loose_fk_parent_table_1', primary_key_value: 1)
           end
         end
       end
@@ -192,6 +161,72 @@ RSpec.describe LooseForeignKeys::CleanupWorker do
 
         travel_to DateTime.new(2019, 1, 1, 10, current_minute) do
           described_class.new.perform
+        end
+
+        Gitlab::Database::SharedModel.using_connection(expected_connection) do
+          expect(LooseForeignKeys::DeletedRecord.load_batch_for_table('public._test_loose_fk_parent_table_1', 10)).to be_empty
+        end
+      end
+    end
+  end
+
+  describe 'turbo mode' do
+    context 'when turbo mode is off' do
+      where(:database_name, :feature_flag) do
+        :main | :loose_foreign_keys_turbo_mode_main
+        :ci   | :loose_foreign_keys_turbo_mode_ci
+      end
+
+      with_them do
+        before do
+          skip unless Gitlab::Database.has_config?(database_name)
+          stub_feature_flags(feature_flag => false)
+        end
+
+        it 'does not use TurboModificationTracker' do
+          allow_next_instance_of(LooseForeignKeys::TurboModificationTracker) do |instance|
+            expect(instance).not_to receive(:over_limit?)
+          end
+
+          perform_for(db: database_name)
+        end
+
+        it 'logs not using turbo mode' do
+          expect_next_instance_of(LooseForeignKeys::CleanupWorker) do |instance|
+            expect(instance).to receive(:log_extra_metadata_on_done).with(:stats, a_hash_including(turbo_mode: false))
+          end
+
+          perform_for(db: database_name)
+        end
+      end
+    end
+
+    context 'when turbo mode is on' do
+      where(:database_name, :feature_flag) do
+        :main | :loose_foreign_keys_turbo_mode_main
+        :ci   | :loose_foreign_keys_turbo_mode_ci
+      end
+
+      with_them do
+        before do
+          skip unless Gitlab::Database.has_config?(database_name)
+          stub_feature_flags(feature_flag => true)
+        end
+
+        it 'does not use TurboModificationTracker' do
+          expect_next_instance_of(LooseForeignKeys::TurboModificationTracker) do |instance|
+            expect(instance).to receive(:over_limit?).at_least(:once)
+          end
+
+          perform_for(db: database_name)
+        end
+
+        it 'logs using turbo mode' do
+          expect_next_instance_of(LooseForeignKeys::CleanupWorker) do |instance|
+            expect(instance).to receive(:log_extra_metadata_on_done).with(:stats, a_hash_including(turbo_mode: true))
+          end
+
+          perform_for(db: database_name)
         end
       end
     end

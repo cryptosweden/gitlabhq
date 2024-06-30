@@ -24,8 +24,11 @@ CodeReuse/ActiveRecord:
     - danger/**/*.rb
     - lib/backup/**/*.rb
     - lib/banzai/**/*.rb
+    - lib/click_house/migration_support/**/*.rb
     - lib/gitlab/background_migration/**/*.rb
+    - lib/gitlab/circuit_breaker/store.rb
     - lib/gitlab/cycle_analytics/**/*.rb
+    - lib/gitlab/counters/**/*.rb
     - lib/gitlab/database/**/*.rb
     - lib/gitlab/database_importers/common_metrics/importer.rb
     - lib/gitlab/import_export/**/*.rb
@@ -40,3 +43,4 @@ CodeReuse/ActiveRecord:
     - ee/db/fixtures/**/*.rb
     - ee/lib/tasks/**/*.rake
     - ee/lib/ee/gitlab/background_migration/**/*.rb
+    - ee/lib/gitlab/usage/metrics/instrumentations/**/*.rb

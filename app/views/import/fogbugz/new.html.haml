@@ -2,13 +2,13 @@
 - header_title _("New project"), new_project_path
 - add_to_breadcrumbs s_('ProjectsNew|Import project'), new_project_path(anchor: 'import_project')
 
-%h3.page-title.d-flex
-  .gl-display-flex.gl-align-items-center.gl-justify-content-center
-    = sprite_icon('bug', css_class: 'gl-mr-2')
+%h1.page-title.gl-font-size-h-display.gl-flex.gl-items-center
+  .gl-flex.gl-items-center.gl-justify-content-center
+    = sprite_icon('bug', css_class: 'gl-mr-3', size: 48)
   = _('Import projects from FogBugz')
 %hr
 
-= form_tag callback_import_fogbugz_path do
+= form_tag callback_import_fogbugz_path(namespace_id: params[:namespace_id]) do
   %p
     = _("To get started you enter your FogBugz URL and login information below. In the next steps, you'll be able to map users and select the projects you want to import.")
   .form-group.row
@@ -24,4 +24,5 @@
     .col-md-4
       = password_field_tag :password, nil, class: 'form-control gl-form-input'
   .form-actions
-    = submit_tag _('Continue to the next step'), class: 'gl-button btn btn-confirm'
+    = render Pajamas::ButtonComponent.new(type: :submit, variant: :confirm) do
+      = _('Continue to the next step')

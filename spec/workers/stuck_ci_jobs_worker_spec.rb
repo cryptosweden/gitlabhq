@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe StuckCiJobsWorker do
+RSpec.describe StuckCiJobsWorker, feature_category: :continuous_integration do
   include ExclusiveLeaseHelpers
 
   let(:worker)     { described_class.new }
@@ -12,13 +12,19 @@ RSpec.describe StuckCiJobsWorker do
     subject { worker.perform }
 
     it 'enqueues a Ci::StuckBuilds::DropRunningWorker job' do
-      expect(Ci::StuckBuilds::DropRunningWorker).to receive(:perform_in).with(20.minutes).exactly(:once)
+      expect(Ci::StuckBuilds::DropRunningWorker).to receive(:perform_in).with(15.minutes).exactly(:once)
 
       subject
     end
 
     it 'enqueues a Ci::StuckBuilds::DropScheduledWorker job' do
-      expect(Ci::StuckBuilds::DropScheduledWorker).to receive(:perform_in).with(40.minutes).exactly(:once)
+      expect(Ci::StuckBuilds::DropScheduledWorker).to receive(:perform_in).with(30.minutes).exactly(:once)
+
+      subject
+    end
+
+    it 'enqueues a Ci::StuckBuilds::DropCancelingWorker job' do
+      expect(Ci::StuckBuilds::DropCancelingWorker).to receive(:perform_in).with(45.minutes).exactly(:once)
 
       subject
     end

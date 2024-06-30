@@ -1,20 +1,47 @@
 # frozen_string_literal: true
 module API
   class NpmProjectPackages < ::API::Base
+    ERROR_REASON_TO_HTTP_STATUS_MAPPTING = {
+      ::Packages::Npm::CreatePackageService::ERROR_REASON_INVALID_PARAMETER => 400,
+      ::Packages::Npm::CreatePackageService::ERROR_REASON_PACKAGE_LEASE_TAKEN => 400,
+      ::Packages::Npm::CreatePackageService::ERROR_REASON_PACKAGE_EXISTS => 403,
+      ::Packages::Npm::CreatePackageService::ERROR_REASON_PACKAGE_PROTECTED => 403
+    }.freeze
+
     helpers ::API::Helpers::Packages::Npm
+    helpers ::API::Helpers::Packages::DependencyProxyHelpers
 
     feature_category :package_registry
+    urgency :low
 
     rescue_from ActiveRecord::RecordInvalid do |e|
-      render_api_error!(e.message, 400)
+      render_structured_api_error!({ message: e.message, error: e.message }, 400)
+    end
+
+    helpers do
+      def endpoint_scope
+        :project
+      end
+
+      def error_reason_to_http_status(reason)
+        ERROR_REASON_TO_HTTP_STATUS_MAPPTING.fetch(reason, 400)
+      end
     end
 
     params do
-      requires :id, type: String, desc: 'The ID of a project'
+      requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
     end
     namespace 'projects/:id/packages/npm' do
+      include ::API::Concerns::Packages::NpmEndpoints
+
       desc 'Download the NPM tarball' do
         detail 'This feature was introduced in GitLab 11.8'
+        success code: 200
+        failure [
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not Found' }
+        ]
+        tags %w[npm_packages]
       end
       params do
         requires :package_name, type: String, desc: 'Package name'
@@ -32,13 +59,21 @@ module API
         package_file = ::Packages::PackageFileFinder
           .new(package, params[:file_name]).execute!
 
-        track_package_event('pull_package', package, category: 'API::NpmPackages', project: project, namespace: project.namespace)
+        track_package_event('pull_package', :npm, category: 'API::NpmPackages', project: project, namespace: project.namespace)
 
-        present_carrierwave_file!(package_file.file)
+        present_package_file!(package_file)
       end
 
-      desc 'Create NPM package' do
-        detail 'This feature was introduced in GitLab 11.8'
+      desc 'Create or deprecate NPM package' do
+        detail 'Create was introduced in GitLab 11.8 & deprecate suppport was added in 16.0'
+        success code: 200
+        failure [
+          { code: 400, message: 'Bad Request' },
+          { code: 401, message: 'Unauthorized' },
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not Found' }
+        ]
+        tags %w[npm_packages]
       end
       params do
         requires :package_name, type: String, desc: 'Package name'
@@ -46,20 +81,76 @@ module API
       end
       route_setting :authentication, job_token_allowed: true, deploy_token_allowed: true
       put ':package_name', requirements: ::API::Helpers::Packages::Npm::NPM_ENDPOINT_REQUIREMENTS do
-        authorize_create_package!(project)
+        if headers['Npm-Command'] == 'deprecate'
+          authorize_destroy_package!(project)
 
-        created_package = ::Packages::Npm::CreatePackageService
-          .new(project, current_user, params.merge(build: current_authenticated_job)).execute
-
-        if created_package[:status] == :error
-          render_api_error!(created_package[:message], created_package[:http_status])
+          ::Packages::Npm::DeprecatePackageService.new(project, declared(params)).execute(async: true)
         else
-          track_package_event('push_package', :npm, category: 'API::NpmPackages', project: project, user: current_user, namespace: project.namespace)
-          created_package
+          authorize_create_package!(project)
+
+          service_response = ::Packages::Npm::CreatePackageService
+            .new(project, current_user, params.merge(build: current_authenticated_job)).execute
+
+          if service_response.error?
+            render_structured_api_error!({ message: service_response.message, error: service_response.message }, error_reason_to_http_status(service_response.reason))
+          end
+
+          track_package_event('push_package', :npm, category: 'API::NpmPackages', project: project, namespace: project.namespace)
+          service_response[:package]
         end
       end
 
-      include ::API::Concerns::Packages::NpmEndpoints
+      # Caution: This is a globbing wildcard for GET requests
+      # Do not put other GET routes below this one
+      desc 'NPM registry metadata endpoint' do
+        detail 'This feature was introduced in GitLab 11.8'
+        success [
+          { code: 200, model: ::API::Entities::NpmPackage, message: 'Ok' },
+          { code: 302, message: 'Found (redirect)' }
+        ]
+        failure [
+          { code: 400, message: 'Bad Request' },
+          { code: 401, message: 'Unauthorized' },
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not Found' }
+        ]
+        tags %w[npm_packages]
+      end
+      params do
+        use :package_name
+      end
+      route_setting :authentication, job_token_allowed: true, deploy_token_allowed: true,
+        authenticate_non_public: true
+      get '*package_name', format: false, requirements: ::API::Helpers::Packages::Npm::NPM_ENDPOINT_REQUIREMENTS do
+        package_name = declared_params[:package_name]
+        packages = ::Packages::Npm::PackageFinder.new(package_name, project: project_or_nil).execute
+
+        # In order to redirect a request, packages should not exist (without taking the user into account).
+        redirect_request = project_or_nil.blank? || packages.empty?
+
+        redirect_registry_request(
+          forward_to_registry: redirect_request,
+          package_type: :npm,
+          target: project_or_nil,
+          package_name: package_name
+        ) do
+          authorize_read_package!(project)
+
+          not_found!('Packages') if packages.empty?
+
+          if metadata_cache&.file&.exists?
+            metadata_cache.touch_last_downloaded_at
+            present_carrierwave_file!(metadata_cache.file)
+
+            break
+          end
+
+          enqueue_sync_metadata_cache_worker(project, package_name)
+
+          metadata = generate_metadata_service(packages).execute.payload
+          present metadata, with: ::API::Entities::NpmPackage
+        end
+      end
     end
   end
 end

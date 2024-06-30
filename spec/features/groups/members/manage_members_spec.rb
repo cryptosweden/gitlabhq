@@ -2,9 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Groups > Members > Manage members' do
-  include Spec::Support::Helpers::Features::MembersHelpers
-  include Spec::Support::Helpers::Features::InviteMembersModalHelper
+RSpec.describe 'Groups > Members > Manage members', feature_category: :groups_and_projects do
+  include ListboxHelpers
+  include Features::MembersHelpers
+  include Features::InviteMembersModalHelpers
   include Spec::Support::Helpers::ModalHelpers
 
   let_it_be(:user1) { create(:user, name: 'John Doe') }
@@ -12,6 +13,7 @@ RSpec.describe 'Groups > Members > Manage members' do
   let_it_be(:group) { create(:group) }
 
   before do
+    stub_feature_flags(show_role_details_in_drawer: false)
     sign_in(user1)
   end
 
@@ -35,51 +37,10 @@ RSpec.describe 'Groups > Members > Manage members' do
     visit group_group_members_path(group)
 
     page.within(second_row) do
-      click_button('Developer')
-      click_button('Owner')
+      select_from_listbox('Owner', from: 'Developer')
 
       expect(page).to have_button('Owner')
     end
-  end
-
-  it 'add user to group', :js, :snowplow, :aggregate_failures do
-    group.add_owner(user1)
-
-    visit group_group_members_path(group)
-
-    invite_member(user2.name, role: 'Reporter')
-
-    page.within(second_row) do
-      expect(page).to have_content(user2.name)
-      expect(page).to have_button('Reporter')
-    end
-
-    expect_snowplow_event(
-      category: 'Members::CreateService',
-      action: 'create_member',
-      label: 'group-members-page',
-      property: 'existing_user',
-      user: user1
-    )
-  end
-
-  it 'do not disclose email addresses', :js do
-    group.add_owner(user1)
-    create(:user, email: 'undisclosed_email@gitlab.com', name: "Jane 'invisible' Doe")
-
-    visit group_group_members_path(group)
-
-    click_on 'Invite members'
-    find('[data-testid="members-token-select-input"]').set('@gitlab.com')
-
-    wait_for_requests
-
-    expect(page).to have_content('No matches found')
-
-    find('[data-testid="members-token-select-input"]').set('undisclosed_email@gitlab.com')
-    wait_for_requests
-
-    expect(page).to have_content('Invite "undisclosed_email@gitlab.com" by email')
   end
 
   it 'remove user from group', :js do
@@ -90,59 +51,46 @@ RSpec.describe 'Groups > Members > Manage members' do
 
     # Open modal
     page.within(second_row) do
-      click_button 'Remove member'
+      show_actions
+      click_button _('Remove member')
     end
 
     within_modal do
       expect(page).to have_unchecked_field 'Also unassign this user from related issues and merge requests'
-      click_button('Remove member')
+      click_button _('Remove member')
     end
 
     wait_for_requests
 
     aggregate_failures do
       expect(page).not_to have_content(user2.name)
-      expect(group.users).not_to include(user2)
+      expect(group).not_to have_user(user2)
     end
   end
 
-  it 'add yourself to group when already an owner', :js, :aggregate_failures do
-    group.add_owner(user1)
+  context 'when inviting' do
+    it 'add yourself to group when already an owner', :js do
+      group.add_owner(user1)
 
-    visit group_group_members_path(group)
+      visit group_group_members_path(group)
 
-    invite_member(user1.name, role: 'Reporter')
+      invite_member(user1.name, role: 'Reporter')
 
-    page.within(first_row) do
-      expect(page).to have_content(user1.name)
-      expect(page).to have_content('Owner')
-    end
-  end
+      invite_modal = page.find(invite_modal_selector)
+      expect(invite_modal).to have_content("not authorized to update member")
 
-  it 'invite user to group', :js, :snowplow do
-    group.add_owner(user1)
+      page.refresh
 
-    visit group_group_members_path(group)
-
-    invite_member('test@example.com', role: 'Reporter')
-
-    expect(page).to have_link 'Invited'
-    click_link 'Invited'
-
-    aggregate_failures do
-      page.within(members_table) do
-        expect(page).to have_content('test@example.com')
-        expect(page).to have_content('Invited')
-        expect(page).to have_button('Reporter')
+      page.within find_member_row(user1) do
+        expect(page).to have_content('Owner')
       end
+    end
 
-      expect_snowplow_event(
-        category: 'Members::InviteService',
-        action: 'create_member',
-        label: 'group-members-page',
-        property: 'net_new_user',
-        user: user1
-      )
+    it_behaves_like 'inviting members', 'group_members_page' do
+      let_it_be(:entity) { group }
+      let_it_be(:members_page_path) { group_group_members_path(entity) }
+      let_it_be(:subentity) { create(:group, parent: group) }
+      let_it_be(:subentity_members_page_path) { group_group_members_path(subentity) }
     end
   end
 
@@ -166,6 +114,59 @@ RSpec.describe 'Groups > Members > Manage members' do
 
         # Can not remove user2
         expect(page).not_to have_selector 'button[title="Remove member"]'
+      end
+    end
+  end
+
+  describe 'member search results', :js do
+    before do
+      group.add_owner(user1)
+    end
+
+    it 'does not disclose email addresses' do
+      create(:user, email: 'undisclosed_email@gitlab.com', name: "Jane 'invisible' Doe")
+
+      visit group_group_members_path(group)
+
+      click_on 'Invite members'
+      find(member_dropdown_selector).set('@gitlab.com')
+
+      wait_for_requests
+
+      expect(page).to have_content('No matches found')
+
+      find(member_dropdown_selector).set('undisclosed_email@gitlab.com')
+      wait_for_requests
+
+      expect(page).to have_content('Invite "undisclosed_email@gitlab.com" by email')
+    end
+
+    it 'does not show project_bots', :aggregate_failures do
+      internal_project_bot = create(:user, :project_bot, name: '_internal_project_bot_')
+      project = create(:project, group: group)
+      project.add_maintainer(internal_project_bot)
+
+      external_group = create(:group)
+      external_project_bot = create(:user, :project_bot, name: '_external_project_bot_')
+      external_project = create(:project, group: external_group)
+      external_project.add_maintainer(external_project_bot)
+      external_project.add_maintainer(user1)
+
+      visit group_group_members_path(group)
+
+      click_on 'Invite members'
+
+      page.within invite_modal_selector do
+        field = find(member_dropdown_selector)
+        field.native.send_keys :tab
+        field.click
+
+        wait_for_requests
+
+        expect(page).to have_content(user1.name)
+        expect(page).to have_content(user2.name)
+        expect(page).not_to have_content(internal_project_bot.name)
+        expect(page).not_to have_content(external_project_bot.name)
       end
     end
   end

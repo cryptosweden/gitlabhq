@@ -1,6 +1,4 @@
-- @hide_top_links = true
-- breadcrumb_title _("Projects")
-- header_title _("Projects"), dashboard_projects_path
+- page_title _("Projects")
 
 = render_dashboard_ultimate_trial(current_user)
 
@@ -8,6 +6,9 @@
 = render 'dashboard/projects_head', project_tab_filter: :starred
 
 - if params[:filter_projects] || any_projects?(@projects)
-  = render 'projects'
+  - if Feature.enabled?(:your_work_projects_vue, current_user)
+    #js-your-work-projects-app
+  - else
+    = render 'projects'
 - else
   = render empty_page

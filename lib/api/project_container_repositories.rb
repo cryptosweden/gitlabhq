@@ -9,19 +9,27 @@ module API
 
     REPOSITORY_ENDPOINT_REQUIREMENTS = API::NAMESPACE_OR_PROJECT_REQUIREMENTS.merge(
       tag_name: API::NO_SLASH_URL_PART_REGEX)
+    DEFAULT_PAGE_COUNT = 20
 
     before { authorize_read_container_images! }
 
-    feature_category :package_registry
+    feature_category :container_registry
+    urgency :low
 
     params do
-      requires :id, type: String, desc: 'The ID of a project'
+      requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
     end
     route_setting :authentication, job_token_allowed: true, job_token_scope: :project
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
-      desc 'Get a project container repositories' do
+      desc 'List container repositories within a project' do
         detail 'This feature was introduced in GitLab 11.8.'
         success Entities::ContainerRegistry::Repository
+        failure [
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not Found' }
+        ]
+        is_array true
+        tags %w[container_registry]
       end
       params do
         use :pagination
@@ -33,45 +41,81 @@ module API
           user: current_user, subject: user_project
         ).execute
 
-        track_package_event('list_repositories', :container, user: current_user, project: user_project, namespace: user_project.namespace)
+        track_package_event('list_repositories', :container, project: user_project, namespace: user_project.namespace)
 
         present paginate(repositories), with: Entities::ContainerRegistry::Repository, tags: params[:tags], tags_count: params[:tags_count]
       end
 
       desc 'Delete repository' do
         detail 'This feature was introduced in GitLab 11.8.'
+        success status: :accepted, message: 'Success'
+        failure [
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not Found' }
+        ]
+        is_array true
+        tags %w[container_registry]
       end
       params do
         requires :repository_id, type: Integer, desc: 'The ID of the repository'
       end
       delete ':id/registry/repositories/:repository_id', requirements: REPOSITORY_ENDPOINT_REQUIREMENTS do
         authorize_admin_container_image!
+        repository.delete_scheduled!
 
-        DeleteContainerRepositoryWorker.perform_async(current_user.id, repository.id) # rubocop:disable CodeReuse/Worker
-        track_package_event('delete_repository', :container, user: current_user, project: user_project, namespace: user_project.namespace)
+        track_package_event('delete_repository', :container, project: user_project, namespace: user_project.namespace)
 
         status :accepted
       end
 
-      desc 'Get a list of repositories tags' do
+      desc 'List tags of a repository' do
         detail 'This feature was introduced in GitLab 11.8.'
         success Entities::ContainerRegistry::Tag
+        failure [
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not Found' },
+          { code: 405, message: 'Method Not Allowed' }
+        ]
+        is_array true
+        tags %w[container_registry]
       end
       params do
         requires :repository_id, type: Integer, desc: 'The ID of the repository'
         use :pagination
       end
+
       get ':id/registry/repositories/:repository_id/tags', requirements: REPOSITORY_ENDPOINT_REQUIREMENTS do
         authorize_read_container_image!
 
-        tags = Kaminari.paginate_array(repository.tags)
-        track_package_event('list_tags', :container, user: current_user, project: user_project, namespace: user_project.namespace)
+        paginated_tags =
+          if params[:pagination] == 'keyset'
+            not_allowed! unless repository.migrated?
 
-        present paginate(tags), with: Entities::ContainerRegistry::Tag
+            per_page_param = params[:per_page] || DEFAULT_PAGE_COUNT
+            sort_param = params[:sort] == 'desc' ? '-name' : 'name'
+
+            response = repository.tags_page(page_size: per_page_param, sort: sort_param, last: params[:last])
+            add_next_link_if_next_page_exists(response)
+
+            response[:tags]
+          else
+            tags = Kaminari.paginate_array(repository.tags)
+            paginate(tags)
+          end
+
+        track_package_event('list_tags', :container, project: user_project, namespace: user_project.namespace)
+        present paginated_tags, with: Entities::ContainerRegistry::Tag
       end
 
       desc 'Delete repository tags (in bulk)' do
         detail 'This feature was introduced in GitLab 11.8.'
+        success status: :accepted, message: 'Success'
+        failure [
+          { code: 400, message: 'Bad Request' },
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not Found' }
+        ]
+        tags %w[container_registry]
       end
       params do
         requires :repository_id, type: Integer, desc: 'The ID of the repository'
@@ -91,17 +135,23 @@ module API
 
         # rubocop:disable CodeReuse/Worker
         CleanupContainerRepositoryWorker.perform_async(current_user.id, repository.id,
-          declared_params.except(:repository_id).merge(container_expiration_policy: false))
+          declared_params.except(:repository_id))
         # rubocop:enable CodeReuse/Worker
 
-        track_package_event('delete_tag_bulk', :container, user: current_user, project: user_project, namespace: user_project.namespace)
+        track_package_event('delete_tag_bulk', :container, project: user_project, namespace: user_project.namespace)
 
         status :accepted
       end
 
-      desc 'Get a details about repository tag' do
+      desc 'Get details about a repository tag' do
         detail 'This feature was introduced in GitLab 11.8.'
         success Entities::ContainerRegistry::TagDetails
+        failure [
+          { code: 400, message: 'Bad Request' },
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not Found' }
+        ]
+        tags %w[container_registry]
       end
       params do
         requires :repository_id, type: Integer, desc: 'The ID of the repository'
@@ -116,6 +166,13 @@ module API
 
       desc 'Delete repository tag' do
         detail 'This feature was introduced in GitLab 11.8.'
+        success status: :ok, message: 'Success'
+        failure [
+          { code: 400, message: 'Bad Request' },
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not Found' }
+        ]
+        tags %w[container_registry]
       end
       params do
         requires :repository_id, type: Integer, desc: 'The ID of the repository'
@@ -129,7 +186,7 @@ module API
           .execute(repository)
 
         if result[:status] == :success
-          track_package_event('delete_tag', :container, user: current_user, project: user_project, namespace: user_project.namespace)
+          track_package_event('delete_tag', :container, project: user_project, namespace: user_project.namespace)
 
           status :ok
         else
@@ -158,8 +215,24 @@ module API
       def obtain_new_cleanup_container_lease
         Gitlab::ExclusiveLease
           .new("container_repository:cleanup_tags:#{repository.id}",
-               timeout: 1.hour)
+            timeout: 1.hour)
           .try_obtain
+      end
+
+      def add_next_link_if_next_page_exists(response)
+        next_link_uri = response.dig(:pagination, :next, :uri)
+        return unless next_link_uri.present?
+
+        parsed_params = Rack::Utils.parse_query(next_link_uri.query)
+        next_params = {
+          per_page: parsed_params['n'],
+          last: parsed_params['last'],
+          sort: parsed_params['sort'] == '-name' ? 'desc' : 'asc'
+        }.compact
+
+        Gitlab::Pagination::Keyset::HeaderBuilder
+        .new(self)
+        .add_next_page_header(next_params)
       end
 
       def repository
@@ -171,7 +244,7 @@ module API
       end
 
       def validate_tag!
-        not_found!('Tag') unless tag.valid?
+        not_found!('Tag') unless tag&.valid?
       end
     end
   end

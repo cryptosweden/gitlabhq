@@ -19,11 +19,13 @@ function parseDatasetToProps(data) {
   const {
     id,
     type,
+    projectId,
+    groupId,
     commentDetail,
     projectKey,
-    upgradePlanPath,
-    editProjectPath,
+    projectKeys,
     learnMorePath,
+    aboutPricingUrl,
     triggerEvents,
     sections,
     fields,
@@ -36,12 +38,20 @@ function parseDatasetToProps(data) {
     vulnerabilitiesIssuetype,
     jiraIssueTransitionAutomatic,
     jiraIssueTransitionId,
+    artifactRegistryPath,
+    workloadIdentityFederationPath,
+    workloadIdentityFederationProjectNumber,
+    workloadIdentityPoolId,
+    wlifIssuer,
+    jwtClaims,
     redirectTo,
+    upgradeSlackUrl,
     ...booleanAttributes
   } = data;
   const {
     showActive,
     activated,
+    operating,
     activateDisabled,
     editable,
     canTest,
@@ -52,11 +62,12 @@ function parseDatasetToProps(data) {
     showJiraVulnerabilitiesIntegration,
     enableJiraIssues,
     enableJiraVulnerabilities,
-    gitlabIssuesEnabled,
+    shouldUpgradeSlack,
   } = parseBooleanInData(booleanAttributes);
 
   return {
     initialActivated: activated,
+    operating,
     showActive,
     activateDisabled,
     type,
@@ -81,18 +92,29 @@ function parseDatasetToProps(data) {
       initialEnableJiraVulnerabilities: enableJiraVulnerabilities,
       initialVulnerabilitiesIssuetype: vulnerabilitiesIssuetype,
       initialProjectKey: projectKey,
-      gitlabIssuesEnabled,
-      upgradePlanPath,
-      editProjectPath,
+      initialProjectKeys: projectKeys,
+    },
+    googleArtifactManagementProps: {
+      artifactRegistryPath,
+      workloadIdentityFederationPath,
+      workloadIdentityFederationProjectNumber,
+      workloadIdentityPoolId,
     },
     learnMorePath,
+    aboutPricingUrl,
     triggerEvents: JSON.parse(triggerEvents),
-    sections: JSON.parse(sections, { deep: true }),
+    sections: JSON.parse(sections),
     fields: convertObjectPropsToCamelCase(JSON.parse(fields), { deep: true }),
     inheritFromId: parseInt(inheritFromId, 10),
     integrationLevel,
     id: parseInt(id, 10),
+    groupId: parseInt(groupId, 10),
+    projectId: parseInt(projectId, 10),
+    wlifIssuer,
+    jwtClaims,
     redirectTo,
+    shouldUpgradeSlack,
+    upgradeSlackUrl,
   };
 }
 
@@ -108,6 +130,7 @@ export default function initIntegrationSettingsForm() {
   const initialState = {
     defaultState: null,
     customState: customSettingsProps,
+    editable: customSettingsProps.editable && !customSettingsProps.shouldUpgradeSlack,
   };
   if (defaultSettingsEl) {
     initialState.defaultState = Object.freeze(parseDatasetToProps(defaultSettingsEl.dataset));

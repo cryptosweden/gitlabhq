@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Projects::Pipelines::CiPipelinesPipeline do
+RSpec.describe BulkImports::Projects::Pipelines::CiPipelinesPipeline, feature_category: :importers do
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, group: group) }
@@ -14,7 +14,7 @@ RSpec.describe BulkImports::Projects::Pipelines::CiPipelinesPipeline do
       project: project,
       bulk_import: bulk_import,
       source_full_path: 'source/full/path',
-      destination_name: 'My Destination Project',
+      destination_slug: 'My-Destination-Project',
       destination_namespace: group.full_path
     )
   end
@@ -43,7 +43,11 @@ RSpec.describe BulkImports::Projects::Pipelines::CiPipelinesPipeline do
 
   subject(:pipeline) { described_class.new(context) }
 
-  describe '#run' do
+  before do
+    allow(pipeline).to receive(:set_source_objects_counter)
+  end
+
+  describe '#run', :clean_gitlab_redis_shared_state do
     before do
       group.add_owner(user)
 
@@ -109,6 +113,13 @@ RSpec.describe BulkImports::Projects::Pipelines::CiPipelinesPipeline do
                   'name' => 'first status',
                   'status' => 'created'
                 }
+              ],
+              'builds' => [
+                {
+                  'name' => 'second status',
+                  'status' => 'created',
+                  'ref' => 'abcd'
+                }
               ]
             }
           ]
@@ -119,6 +130,7 @@ RSpec.describe BulkImports::Projects::Pipelines::CiPipelinesPipeline do
         stage = project.all_pipelines.first.stages.first
         expect(stage.name).to eq('test stage')
         expect(stage.statuses.first.name).to eq('first status')
+        expect(stage.builds.first.name).to eq('second status')
       end
     end
 

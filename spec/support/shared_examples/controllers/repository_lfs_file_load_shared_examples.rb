@@ -44,8 +44,10 @@ RSpec.shared_examples 'a controller that can serve LFS files' do |options = {}|
         expect(controller).to receive(:send_file)
                           .with(
                             File.join(lfs_uploader.root, lfs_uploader.store_dir, lfs_uploader.filename),
-                            filename: filename,
-                            disposition: 'attachment')
+                            {
+                              filename: filename,
+                              disposition: 'attachment'
+                            })
 
         subject
 
@@ -73,7 +75,7 @@ RSpec.shared_examples 'a controller that can serve LFS files' do |options = {}|
           file_uri = URI.parse(response.location)
           params = CGI.parse(file_uri.query)
 
-          expect(params["response-content-disposition"].first).to eq(%Q(attachment; filename="#{filename}"; filename*=UTF-8''#{filename}))
+          expect(params["response-content-disposition"].first).to eq(%(attachment; filename="#{filename}"; filename*=UTF-8''#{filename}))
         end
       end
     end

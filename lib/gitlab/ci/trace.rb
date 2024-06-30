@@ -23,7 +23,6 @@ module Gitlab
 
       attr_reader :job
 
-      delegate :old_trace, to: :job
       delegate :can_attempt_archival_now?, :increment_archival_attempts!,
         :archival_attempts_message, :archival_attempts_available?, to: :trace_metadata
 
@@ -31,9 +30,9 @@ module Gitlab
         @job = job
       end
 
-      def html(last_lines: nil)
+      def html(last_lines: nil, max_size: nil)
         read do |stream|
-          stream.html(last_lines: last_lines)
+          stream.html(last_lines: last_lines, max_size: max_size)
         end
       end
 
@@ -74,15 +73,15 @@ module Gitlab
       end
 
       def exist?
-        archived_trace_exist? || live_trace_exist?
+        archived? || live?
       end
 
-      def archived_trace_exist?
-        archived?
+      def archived?
+        trace_artifact&.stored?
       end
 
-      def live_trace_exist?
-        job.trace_chunks.any? || current_path.present? || old_trace.present?
+      def live?
+        job.trace_chunks.any? || current_path.present?
       end
 
       def read(&block)
@@ -111,7 +110,6 @@ module Gitlab
         # Erase the live trace
         erase_trace_chunks!
         FileUtils.rm_f(current_path) if current_path # Remove a trace file of a live trace
-        job.erase_old_trace! if job.has_old_trace? # Remove a trace in database of a live trace
       ensure
         @current_path = nil
       end
@@ -142,7 +140,7 @@ module Gitlab
 
       def being_watched?
         Gitlab::Redis::SharedState.with do |redis|
-          redis.exists(being_watched_cache_key)
+          redis.exists?(being_watched_cache_key) # rubocop:disable CodeReuse/ActiveRecord
         end
       end
 
@@ -162,8 +160,6 @@ module Gitlab
             Gitlab::Ci::Trace::ChunkedIO.new(job)
           elsif current_path
             File.open(current_path, "rb")
-          elsif old_trace
-            StringIO.new(old_trace)
           end
         end
 
@@ -210,18 +206,7 @@ module Gitlab
             archive_stream!(stream)
             FileUtils.rm(current_path)
           end
-        elsif old_trace
-          StringIO.new(old_trace, 'rb').tap do |stream|
-            archive_stream!(stream)
-            job.erase_old_trace!
-          end
         end
-      end
-
-      def archived?
-        # TODO check checksum to ensure archive completed successfully
-        # See https://gitlab.com/gitlab-org/gitlab/-/issues/259619
-        trace_artifact&.archived_trace_exists?
       end
 
       def destroy_any_orphan_trace_data!
@@ -305,14 +290,14 @@ module Gitlab
         if consistent_archived_trace?(build)
           ::Ci::Build
             .sticking
-            .unstick_or_continue_sticking(LOAD_BALANCING_STICKING_NAMESPACE, build.id)
+            .find_caught_up_replica(LOAD_BALANCING_STICKING_NAMESPACE, build.id)
         end
 
         yield
       end
 
       def consistent_archived_trace?(build)
-        ::Feature.enabled?(:gitlab_ci_archived_trace_consistent_reads, build.project, default_enabled: false)
+        ::Feature.enabled?(:gitlab_ci_archived_trace_consistent_reads, build.project)
       end
 
       def being_watched_cache_key

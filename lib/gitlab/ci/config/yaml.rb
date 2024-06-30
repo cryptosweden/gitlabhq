@@ -4,22 +4,15 @@ module Gitlab
   module Ci
     class Config
       module Yaml
-        AVAILABLE_TAGS = [Config::Yaml::Tags::Reference].freeze
+        LoadError = Class.new(StandardError)
 
         class << self
           def load!(content)
-            ensure_custom_tags
+            Loader.new(content).load.then do |result|
+              raise result.error_class, result.error if !result.valid? && result.error_class.present?
+              raise LoadError, result.error unless result.valid?
 
-            Gitlab::Config::Loader::Yaml.new(content, additional_permitted_classes: AVAILABLE_TAGS).load!
-          end
-
-          private
-
-          def ensure_custom_tags
-            @ensure_custom_tags ||= begin
-              AVAILABLE_TAGS.each { |klass| Psych.add_tag(klass.tag, klass) }
-
-              true
+              result.content
             end
           end
         end

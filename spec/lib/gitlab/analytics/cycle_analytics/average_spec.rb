@@ -2,9 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Analytics::CycleAnalytics::Average do
+RSpec.describe Gitlab::Analytics::CycleAnalytics::Average, feature_category: :value_stream_management do
   let_it_be(:project) { create(:project) }
-
   let_it_be(:issue_1) do
     # Duration: 10 days
     create(:issue, project: project, created_at: 20.days.ago).tap do |issue|
@@ -21,7 +20,7 @@ RSpec.describe Gitlab::Analytics::CycleAnalytics::Average do
 
   let(:stage) do
     build(
-      :cycle_analytics_project_stage,
+      :cycle_analytics_stage,
       start_event_identifier: Gitlab::Analytics::CycleAnalytics::StageEvents::IssueCreated.identifier,
       end_event_identifier: Gitlab::Analytics::CycleAnalytics::StageEvents::IssueFirstMentionedInCommit.identifier,
       project: project
@@ -30,8 +29,12 @@ RSpec.describe Gitlab::Analytics::CycleAnalytics::Average do
 
   let(:query) { Issue.joins(:metrics).in_projects(project.id) }
 
-  around do |example|
-    freeze_time { example.run }
+  before_all do
+    freeze_time
+  end
+
+  after :all do
+    unfreeze_time
   end
 
   subject(:average) { described_class.new(stage: stage, query: query) }
@@ -40,7 +43,7 @@ RSpec.describe Gitlab::Analytics::CycleAnalytics::Average do
     subject(:average_duration_in_seconds) { average.seconds }
 
     context 'when no results' do
-      let(:query) { Issue.none }
+      let(:query) { Issue.joins(:metrics).none }
 
       it { is_expected.to eq(nil) }
     end
@@ -54,7 +57,7 @@ RSpec.describe Gitlab::Analytics::CycleAnalytics::Average do
     subject(:average_duration_in_days) { average.days }
 
     context 'when no results' do
-      let(:query) { Issue.none }
+      let(:query) { Issue.joins(:metrics).none }
 
       it { is_expected.to eq(nil) }
     end

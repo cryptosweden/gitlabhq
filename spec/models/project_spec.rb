@@ -2,35 +2,49 @@
 
 require 'spec_helper'
 
-RSpec.describe Project, factory_default: :keep do
+RSpec.describe Project, factory_default: :keep, feature_category: :groups_and_projects do
+  include ContainerRegistryHelpers
   include ProjectForksHelper
-  include GitHelpers
   include ExternalAuthorizationServiceHelpers
   include ReloadHelpers
   include StubGitlabCalls
+  include ProjectHelpers
   using RSpec::Parameterized::TableSyntax
 
   let_it_be(:namespace) { create_default(:namespace).freeze }
 
   it_behaves_like 'having unique enum values'
 
+  context 'when runner registration is allowed' do
+    let_it_be(:project) { create(:project, :allow_runner_registration_token) }
+
+    it_behaves_like 'ensures runners_token is prefixed' do
+      subject(:record) { project }
+    end
+  end
+
   describe 'associations' do
+    it { is_expected.to belong_to(:organization) }
     it { is_expected.to belong_to(:group) }
     it { is_expected.to belong_to(:namespace) }
-    it { is_expected.to belong_to(:project_namespace).class_name('Namespaces::ProjectNamespace').with_foreign_key('project_namespace_id') }
+    it { is_expected.to belong_to(:project_namespace).class_name('Namespaces::ProjectNamespace').with_foreign_key('project_namespace_id').inverse_of(:project) }
     it { is_expected.to belong_to(:creator).class_name('User') }
     it { is_expected.to belong_to(:pool_repository) }
     it { is_expected.to have_many(:users) }
-    it { is_expected.to have_many(:integrations) }
+    it { is_expected.to have_many(:maintainers).through(:project_members).source(:user).conditions(members: { access_level: Gitlab::Access::MAINTAINER }) }
+    it { is_expected.to have_many(:owners_and_maintainers).through(:project_members).source(:user).conditions(members: { access_level: Gitlab::Access::MAINTAINER }) }
     it { is_expected.to have_many(:events) }
     it { is_expected.to have_many(:merge_requests) }
     it { is_expected.to have_many(:merge_request_metrics).class_name('MergeRequest::Metrics') }
     it { is_expected.to have_many(:issues) }
+    it { is_expected.to have_many(:work_items) }
+    it { is_expected.to have_many(:incident_management_issuable_escalation_statuses).through(:issues).inverse_of(:project).class_name('IncidentManagement::IssuableEscalationStatus') }
     it { is_expected.to have_many(:milestones) }
-    it { is_expected.to have_many(:iterations) }
     it { is_expected.to have_many(:project_members).dependent(:delete_all) }
+    it { is_expected.to have_many(:namespace_members) }
     it { is_expected.to have_many(:users).through(:project_members) }
     it { is_expected.to have_many(:requesters).dependent(:delete_all) }
+    it { is_expected.to have_many(:namespace_requesters) }
     it { is_expected.to have_many(:notes).dependent(:destroy) }
     it { is_expected.to have_many(:snippets).class_name('ProjectSnippet') }
     it { is_expected.to have_many(:deploy_keys_projects) }
@@ -38,14 +52,26 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to have_many(:hooks) }
     it { is_expected.to have_many(:protected_branches) }
     it { is_expected.to have_many(:exported_protected_branches) }
+    it { is_expected.to have_one(:wiki_repository).class_name('Projects::WikiRepository').inverse_of(:project) }
+    it { is_expected.to have_one(:design_management_repository).class_name('DesignManagement::Repository').inverse_of(:project) }
     it { is_expected.to have_one(:slack_integration) }
+    it { is_expected.to have_one(:catalog_resource) }
+    it { is_expected.to have_many(:ci_components).class_name('Ci::Catalog::Resources::Component') }
+    it { is_expected.to have_many(:ci_component_usages).class_name('Ci::Catalog::Resources::Components::Usage') }
+    it { is_expected.to have_many(:catalog_resource_versions).class_name('Ci::Catalog::Resources::Version') }
+    it { is_expected.to have_many(:catalog_resource_sync_events).class_name('Ci::Catalog::Resources::SyncEvent') }
     it { is_expected.to have_one(:microsoft_teams_integration) }
     it { is_expected.to have_one(:mattermost_integration) }
     it { is_expected.to have_one(:hangouts_chat_integration) }
+    it { is_expected.to have_one(:telegram_integration) }
     it { is_expected.to have_one(:unify_circuit_integration) }
+    it { is_expected.to have_one(:pumble_integration) }
     it { is_expected.to have_one(:webex_teams_integration) }
     it { is_expected.to have_one(:packagist_integration) }
+    it { is_expected.to have_one(:phorge_integration) }
     it { is_expected.to have_one(:pushover_integration) }
+    it { is_expected.to have_one(:apple_app_store_integration) }
+    it { is_expected.to have_one(:google_play_integration) }
     it { is_expected.to have_one(:asana_integration) }
     it { is_expected.to have_many(:boards) }
     it { is_expected.to have_one(:campfire_integration) }
@@ -56,7 +82,6 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to have_one(:pipelines_email_integration) }
     it { is_expected.to have_one(:irker_integration) }
     it { is_expected.to have_one(:pivotaltracker_integration) }
-    it { is_expected.to have_one(:flowdock_integration) }
     it { is_expected.to have_one(:assembla_integration) }
     it { is_expected.to have_one(:slack_slash_commands_integration) }
     it { is_expected.to have_one(:mattermost_slash_commands_integration) }
@@ -67,11 +92,14 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to have_one(:harbor_integration) }
     it { is_expected.to have_one(:redmine_integration) }
     it { is_expected.to have_one(:youtrack_integration) }
+    it { is_expected.to have_one(:clickup_integration) }
     it { is_expected.to have_one(:custom_issue_tracker_integration) }
     it { is_expected.to have_one(:bugzilla_integration) }
     it { is_expected.to have_one(:ewm_integration) }
     it { is_expected.to have_one(:external_wiki_integration) }
     it { is_expected.to have_one(:confluence_integration) }
+    it { is_expected.to have_one(:gitlab_slack_application_integration) }
+    it { is_expected.to have_one(:beyond_identity_integration) }
     it { is_expected.to have_one(:project_feature) }
     it { is_expected.to have_one(:project_repository) }
     it { is_expected.to have_one(:container_expiration_policy) }
@@ -80,12 +108,14 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to have_one(:last_event).class_name('Event') }
     it { is_expected.to have_one(:forked_from_project).through(:fork_network_member) }
     it { is_expected.to have_one(:auto_devops).class_name('ProjectAutoDevops') }
-    it { is_expected.to have_one(:tracing_setting).class_name('ProjectTracingSetting') }
     it { is_expected.to have_one(:error_tracking_setting).class_name('ErrorTracking::ProjectErrorTrackingSetting') }
     it { is_expected.to have_one(:project_setting) }
     it { is_expected.to have_one(:alerting_setting).class_name('Alerting::ProjectAlertingSetting') }
     it { is_expected.to have_one(:mock_ci_integration) }
     it { is_expected.to have_one(:mock_monitoring_integration) }
+    it { is_expected.to have_one(:service_desk_custom_email_verification).class_name('ServiceDesk::CustomEmailVerification') }
+    it { is_expected.to have_one(:container_registry_data_repair_detail).class_name('ContainerRegistry::DataRepairDetail') }
+    it { is_expected.to have_many(:container_registry_protection_rules).class_name('ContainerRegistry::Protection::Rule') }
     it { is_expected.to have_many(:commit_statuses) }
     it { is_expected.to have_many(:ci_pipelines) }
     it { is_expected.to have_many(:ci_refs) }
@@ -110,6 +140,7 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to have_many(:uploads) }
     it { is_expected.to have_many(:pipeline_schedules) }
     it { is_expected.to have_many(:members_and_requesters) }
+    it { is_expected.to have_many(:namespace_members_and_requesters) }
     it { is_expected.to have_many(:clusters) }
     it { is_expected.to have_many(:management_clusters).class_name('Clusters::Cluster') }
     it { is_expected.to have_many(:kubernetes_namespaces) }
@@ -119,26 +150,25 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to have_many(:lfs_file_locks) }
     it { is_expected.to have_many(:project_deploy_tokens) }
     it { is_expected.to have_many(:deploy_tokens).through(:project_deploy_tokens) }
-    it { is_expected.to have_many(:cycle_analytics_stages).inverse_of(:project) }
-    it { is_expected.to have_many(:value_streams).inverse_of(:project) }
     it { is_expected.to have_many(:external_pull_requests) }
     it { is_expected.to have_many(:sourced_pipelines) }
     it { is_expected.to have_many(:source_pipelines) }
     it { is_expected.to have_many(:prometheus_alert_events) }
-    it { is_expected.to have_many(:self_managed_prometheus_alert_events) }
     it { is_expected.to have_many(:alert_management_alerts) }
     it { is_expected.to have_many(:alert_management_http_integrations) }
     it { is_expected.to have_many(:jira_imports) }
-    it { is_expected.to have_many(:metrics_users_starred_dashboards).inverse_of(:project) }
     it { is_expected.to have_many(:repository_storage_moves) }
     it { is_expected.to have_many(:reviews).inverse_of(:project) }
     it { is_expected.to have_many(:packages).class_name('Packages::Package') }
     it { is_expected.to have_many(:package_files).class_name('Packages::PackageFile') }
+    it { is_expected.to have_many(:rpm_repository_files).class_name('Packages::Rpm::RepositoryFile').inverse_of(:project).dependent(:destroy) }
     it { is_expected.to have_many(:debian_distributions).class_name('Packages::Debian::ProjectDistribution').dependent(:destroy) }
+    it { is_expected.to have_many(:npm_metadata_caches).class_name('Packages::Npm::MetadataCache') }
+    it { is_expected.to have_one(:packages_cleanup_policy).class_name('Packages::Cleanup::Policy').inverse_of(:project) }
+    it { is_expected.to have_many(:package_protection_rules).class_name('Packages::Protection::Rule').inverse_of(:project) }
     it { is_expected.to have_many(:pipeline_artifacts).dependent(:restrict_with_error) }
     it { is_expected.to have_many(:terraform_states).class_name('Terraform::State').inverse_of(:project) }
     it { is_expected.to have_many(:timelogs) }
-    it { is_expected.to have_many(:error_tracking_errors).class_name('ErrorTracking::Error') }
     it { is_expected.to have_many(:error_tracking_client_keys).class_name('ErrorTracking::ClientKey') }
     it { is_expected.to have_many(:pending_builds).class_name('Ci::PendingBuild') }
     it { is_expected.to have_many(:ci_feature_usages).class_name('Projects::CiFeatureUsage') }
@@ -146,6 +176,26 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to have_many(:job_artifacts).dependent(:restrict_with_error) }
     it { is_expected.to have_many(:build_trace_chunks).through(:builds).dependent(:restrict_with_error) }
     it { is_expected.to have_many(:secure_files).class_name('Ci::SecureFile').dependent(:restrict_with_error) }
+    it { is_expected.to have_one(:build_artifacts_size_refresh).class_name('Projects::BuildArtifactsSizeRefresh') }
+    it { is_expected.to have_many(:project_callouts).class_name('Users::ProjectCallout').with_foreign_key(:project_id) }
+    it { is_expected.to have_many(:pipeline_metadata).class_name('Ci::PipelineMetadata') }
+    it { is_expected.to have_many(:incident_management_timeline_event_tags).class_name('IncidentManagement::TimelineEventTag') }
+    it { is_expected.to have_many(:integrations) }
+    it { is_expected.to have_many(:push_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:tag_push_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:issue_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:confidential_issue_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:merge_request_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:note_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:confidential_note_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:job_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:archive_trace_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:pipeline_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:wiki_page_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:deployment_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:alert_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:incident_hooks_integrations).class_name('Integration') }
+    it { is_expected.to have_many(:relation_import_trackers).class_name('Projects::ImportExport::RelationImportTracker') }
 
     # GitLab Pages
     it { is_expected.to have_many(:pages_domains) }
@@ -176,9 +226,12 @@ RSpec.describe Project, factory_default: :keep do
       project = create(:project)
       lfs_object = create(:lfs_object)
       [:project, :design].each do |repository_type|
-        create(:lfs_objects_project, project: project,
-                                     lfs_object: lfs_object,
-                                     repository_type: repository_type)
+        create(
+          :lfs_objects_project,
+          project: project,
+          lfs_object: lfs_object,
+          repository_type: repository_type
+        )
       end
 
       expect(project.lfs_objects_projects.size).to eq(2)
@@ -186,9 +239,43 @@ RSpec.describe Project, factory_default: :keep do
       expect(project.lfs_objects.to_a).to eql([lfs_object])
     end
 
+    describe 'maintainers association' do
+      let_it_be(:project) { create(:project) }
+      let_it_be(:maintainer1) { create(:user) }
+      let_it_be(:maintainer2) { create(:user) }
+      let_it_be(:reporter) { create(:user) }
+
+      before do
+        project.add_maintainer(maintainer1)
+        project.add_maintainer(maintainer2)
+        project.add_reporter(reporter)
+      end
+
+      it 'returns only maintainers' do
+        expect(project.maintainers).to match_array([maintainer1, maintainer2])
+      end
+    end
+
     context 'after initialized' do
       it "has a project_feature" do
         expect(described_class.new.project_feature).to be_present
+      end
+    end
+
+    describe 'owners_and_maintainers association' do
+      let_it_be(:project) { create(:project) }
+      let_it_be(:maintainer) { create(:user) }
+      let_it_be(:reporter) { create(:user) }
+      let_it_be(:developer) { create(:user) }
+
+      before do
+        project.add_maintainer(maintainer)
+        project.add_developer(developer)
+        project.add_reporter(reporter)
+      end
+
+      it 'returns only maintainers and owners' do
+        expect(project.owners_and_maintainers).to match_array([maintainer, project.owner])
       end
     end
 
@@ -286,41 +373,35 @@ RSpec.describe Project, factory_default: :keep do
     end
 
     context 'updating a project' do
-      shared_examples 'project update' do
-        let_it_be(:project_namespace) { create(:project_namespace) }
-        let_it_be(:project) { project_namespace.project }
+      let_it_be(:project_namespace) { create(:project_namespace) }
+      let_it_be(:project) { project_namespace.project }
 
-        context 'when project namespace is not set' do
-          before do
-            project.update_column(:project_namespace_id, nil)
-            project.reload
-          end
+      context 'when project has an associated project namespace' do
+        # when FF is disabled creating a project does not create a project_namespace, so we create one
+        it 'project is INVALID when trying to remove project namespace' do
+          project.reload
+          # check that project actually has an associated project namespace
+          expect(project.project_namespace_id).to eq(project_namespace.id)
 
-          it 'updates the project successfully' do
-            # pre-check that project does not have a project namespace
-            expect(project.project_namespace).to be_nil
-
-            project.update!(path: 'hopefully-valid-path2')
-
-            expect(project).to be_persisted
-            expect(project).to be_valid
-            expect(project.path).to eq('hopefully-valid-path2')
-            expect(project.project_namespace).to be_nil
-          end
+          expect do
+            project.update!(project_namespace_id: nil, path: 'hopefully-valid-path1')
+          end.to raise_error(ActiveRecord::RecordInvalid)
+          expect(project).to be_invalid
+          expect(project.errors.full_messages).to include("Project namespace can't be blank")
+          expect(project.reload.project_namespace).to be_in_sync_with_project(project)
         end
 
-        context 'when project has an associated project namespace' do
-          # when FF is disabled creating a project does not create a project_namespace, so we create one
-          it 'project is INVALID when trying to remove project namespace' do
-            project.reload
-            # check that project actually has an associated project namespace
-            expect(project.project_namespace_id).to eq(project_namespace.id)
+        context 'when same project is being updated in 2 instances' do
+          it 'syncs only changed attributes' do
+            project1 = described_class.last
+            project2 = described_class.last
 
-            expect do
-              project.update!(project_namespace_id: nil, path: 'hopefully-valid-path1')
-            end.to raise_error(ActiveRecord::RecordInvalid)
-            expect(project).to be_invalid
-            expect(project.errors.full_messages).to include("Project namespace can't be blank")
+            project_name = project1.name
+            project_path = project1.path
+
+            project1.update!(name: project_name + "-1")
+            project2.update!(path: project_path + "-1")
+
             expect(project.reload.project_namespace).to be_in_sync_with_project(project)
           end
         end
@@ -333,6 +414,149 @@ RSpec.describe Project, factory_default: :keep do
 
         expect { project.update!(ci_cd_settings: nil) }.not_to raise_exception
       end
+    end
+
+    describe '#namespace_members' do
+      let_it_be(:project) { create(:project, :public) }
+      let_it_be(:requester) { create(:user) }
+      let_it_be(:developer) { create(:user) }
+
+      before_all do
+        project.request_access(requester)
+        project.add_developer(developer)
+      end
+
+      it 'includes the correct users' do
+        expect(project.namespace_members).to include Member.find_by(user: developer)
+        expect(project.namespace_members).not_to include Member.find_by(user: requester)
+      end
+
+      it 'is equivalent to #project_members' do
+        expect(project.namespace_members).to match_array(project.project_members)
+      end
+
+      it_behaves_like 'query without source filters' do
+        subject { project.namespace_members }
+      end
+    end
+
+    describe '#namespace_requesters' do
+      let_it_be(:project) { create(:project, :public) }
+      let_it_be(:requester) { create(:user) }
+      let_it_be(:developer) { create(:user) }
+
+      before_all do
+        project.request_access(requester)
+        project.add_developer(developer)
+      end
+
+      it 'includes the correct users' do
+        expect(project.namespace_requesters).to include Member.find_by(user: requester)
+        expect(project.namespace_requesters).not_to include Member.find_by(user: developer)
+      end
+
+      it 'is equivalent to #project_members' do
+        expect(project.namespace_requesters).to eq project.requesters
+      end
+
+      it_behaves_like 'query without source filters' do
+        subject { project.namespace_requesters }
+      end
+    end
+
+    describe '#namespace_members_and_requesters' do
+      let_it_be(:project) { create(:project, :public) }
+      let_it_be(:requester) { create(:user) }
+      let_it_be(:developer) { create(:user) }
+      let_it_be(:invited_member) { create(:project_member, :invited, :owner, project: project) }
+
+      before_all do
+        project.request_access(requester)
+        project.add_developer(developer)
+      end
+
+      it 'includes the correct users' do
+        expect(project.namespace_members_and_requesters).to include(
+          Member.find_by(user: requester),
+          Member.find_by(user: developer),
+          Member.find(invited_member.id)
+        )
+      end
+
+      it 'is equivalent to #project_members' do
+        expect(project.namespace_members_and_requesters).to match_array(project.members_and_requesters)
+      end
+
+      it_behaves_like 'query without source filters' do
+        subject { project.namespace_members_and_requesters }
+      end
+    end
+
+    shared_examples 'polymorphic membership relationship' do
+      it do
+        expect(membership.attributes).to include(
+          'source_type' => 'Project',
+          'source_id' => project.id
+        )
+      end
+    end
+
+    shared_examples 'member_namespace membership relationship' do
+      it do
+        expect(membership.attributes).to include(
+          'member_namespace_id' => project.project_namespace_id
+        )
+      end
+    end
+
+    describe '#namespace_members setters' do
+      let_it_be(:project) { create(:project) }
+      let_it_be(:user) { create(:user) }
+      let_it_be(:membership) { project.namespace_members.create!(user: user, access_level: Gitlab::Access::DEVELOPER) }
+
+      it { expect(membership).to be_instance_of(ProjectMember) }
+      it { expect(membership.user).to eq user }
+      it { expect(membership.project).to eq project }
+      it { expect(membership.requested_at).to be_nil }
+
+      it_behaves_like 'polymorphic membership relationship'
+      it_behaves_like 'member_namespace membership relationship'
+    end
+
+    describe '#namespace_requesters setters' do
+      let_it_be(:requested_at) { Time.current }
+      let_it_be(:project) { create(:project) }
+      let_it_be(:user) { create(:user) }
+      let_it_be(:membership) do
+        project.namespace_requesters.create!(user: user, requested_at: requested_at, access_level: Gitlab::Access::DEVELOPER)
+      end
+
+      it { expect(membership).to be_instance_of(ProjectMember) }
+      it { expect(membership.user).to eq user }
+      it { expect(membership.project).to eq project }
+      it { expect(membership.requested_at).to eq requested_at }
+
+      it_behaves_like 'polymorphic membership relationship'
+      it_behaves_like 'member_namespace membership relationship'
+    end
+
+    describe '#namespace_members_and_requesters setters' do
+      let_it_be(:requested_at) { Time.current }
+      let_it_be(:project) { create(:project) }
+      let_it_be(:user) { create(:user) }
+      let_it_be(:membership) do
+        project.namespace_members_and_requesters.create!(
+          user: user, requested_at: requested_at, access_level: Gitlab::Access::DEVELOPER
+        )
+      end
+
+      it { expect(membership).to be_instance_of(ProjectMember) }
+      it { expect(membership.user).to eq user }
+      it { expect(membership.project).to eq project }
+      it { expect(membership.requested_at).to eq requested_at }
+
+      it_behaves_like 'polymorphic membership relationship'
+      it_behaves_like 'member_namespace membership relationship'
     end
 
     describe '#members & #requesters' do
@@ -357,6 +581,33 @@ RSpec.describe Project, factory_default: :keep do
         subject.ci_pipelines
       end
     end
+
+    context 'order of the `has_many :notes` association' do
+      let(:associations_having_dependent_destroy) do
+        described_class.reflect_on_all_associations(:has_many).select do |assoc|
+          assoc.options[:dependent] == :destroy
+        end
+      end
+
+      let(:associations_having_dependent_destroy_with_issuable_included) do
+        associations_having_dependent_destroy.select do |association|
+          association.klass.include?(Issuable)
+        end
+      end
+
+      it 'has `has_many :notes` as the first association among all the other associations that'\
+         'includes the `Issuable` module' do
+        names_of_associations_having_dependent_destroy = associations_having_dependent_destroy.map(&:name)
+        index_of_has_many_notes_association = names_of_associations_having_dependent_destroy.find_index(:notes)
+
+        associations_having_dependent_destroy_with_issuable_included.each do |issuable_included_association|
+          index_of_issuable_included_association =
+            names_of_associations_having_dependent_destroy.find_index(issuable_included_association.name)
+
+          expect(index_of_has_many_notes_association).to be < index_of_issuable_included_association
+        end
+      end
+    end
   end
 
   describe 'modules' do
@@ -369,12 +620,79 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to include_module(Sortable) }
   end
 
-  describe 'validation' do
-    let!(:project) { create(:project) }
+  describe 'before_validation' do
+    context 'with removal of leading spaces' do
+      subject(:project) { build(:project, name: ' space first', path: 'some_path') }
 
+      it 'removes the leading space' do
+        expect(project.name).to eq ' space first'
+
+        expect(project).to be_valid # triggers before_validation and assures we automatically handle the bad format
+
+        expect(project.name).to eq 'space first'
+      end
+
+      context 'when name is nil' do
+        it 'falls through to the presence validation' do
+          project.name = nil
+
+          expect(project).not_to be_valid
+        end
+      end
+    end
+
+    context 'when last_activity_at is being set' do
+      let(:last_activity_at) { 1.day.ago }
+      let(:project) { build(:project, last_activity_at: last_activity_at) }
+
+      it 'will use supplied timestamp' do
+        expect { project.valid? }.not_to change(project, :last_activity_at)
+      end
+    end
+
+    context 'when last_activity_at is not being set' do
+      context 'and one of PROJECT_ACTIVITY_ATTRIBUTES is updated' do
+        let(:project) { build(:project) }
+
+        before do
+          project.name = "Name Changed"
+        end
+
+        it 'sets last_activity_at to the current time' do
+          freeze_time do
+            expect { project.valid? }.to change(project, :last_activity_at).to(Time.current)
+          end
+        end
+      end
+
+      context 'and the record is new' do
+        let(:project) { build(:project) }
+
+        it 'sets last_activity_at to the current time' do
+          freeze_time do
+            expect { project.valid? }.to change(project, :last_activity_at).from(nil).to(Time.current)
+          end
+        end
+      end
+
+      context 'and the last_activity_at is nil' do
+        let_it_be(:project) { create(:project) }
+
+        before do
+          project.update_column(:last_activity_at, nil)
+        end
+
+        it 'sets last_activity_at to created_at' do
+          expect { project.valid? }.to change(project, :last_activity_at).from(nil).to(project.created_at)
+        end
+      end
+    end
+  end
+
+  describe 'validation' do
     it { is_expected.to validate_presence_of(:name) }
-    it { is_expected.to validate_uniqueness_of(:name).scoped_to(:namespace_id) }
     it { is_expected.to validate_length_of(:name).is_at_most(255) }
+    it { is_expected.to allow_value('space last ').for(:name) }
     it { is_expected.not_to allow_value('colon:in:path').for(:path) } # This is to validate that a specially crafted name cannot bypass a pattern match. See !72555
     it { is_expected.to validate_presence_of(:path) }
     it { is_expected.to validate_length_of(:path).is_at_most(255) }
@@ -388,6 +706,12 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.to validate_presence_of(:repository_storage) }
     it { is_expected.to validate_numericality_of(:max_artifacts_size).only_integer.is_greater_than(0) }
     it { is_expected.to validate_length_of(:suggestion_commit_message).is_at_most(255) }
+
+    it 'validates name is case-sensitively unique within the scope of namespace_id' do
+      project = create(:project)
+
+      expect(project).to validate_uniqueness_of(:name).scoped_to(:namespace_id)
+    end
 
     it 'validates build timeout constraints' do
       is_expected.to validate_numericality_of(:build_timeout)
@@ -410,8 +734,8 @@ RSpec.describe Project, factory_default: :keep do
     end
 
     it 'validates the visibility' do
-      expect_any_instance_of(described_class).to receive(:visibility_level_allowed_as_fork).and_call_original
-      expect_any_instance_of(described_class).to receive(:visibility_level_allowed_by_group).and_call_original
+      expect_any_instance_of(described_class).to receive(:visibility_level_allowed_as_fork).twice.and_call_original
+      expect_any_instance_of(described_class).to receive(:visibility_level_allowed_by_group).twice.and_call_original
 
       create(:project)
     end
@@ -536,7 +860,7 @@ RSpec.describe Project, factory_default: :keep do
         project = build(:project)
 
         aggregate_failures do
-          urls_with_CRLF.each do |url|
+          urls_with_crlf.each do |url|
             project.import_url = url
 
             expect(project).not_to be_valid
@@ -549,7 +873,7 @@ RSpec.describe Project, factory_default: :keep do
         project = build(:project)
 
         aggregate_failures do
-          valid_urls_with_CRLF.each do |url|
+          valid_urls_with_crlf.each do |url|
             project.import_url = url
 
             expect(project).to be_valid
@@ -561,14 +885,11 @@ RSpec.describe Project, factory_default: :keep do
 
     describe 'project pending deletion' do
       let!(:project_pending_deletion) do
-        create(:project,
-               pending_delete: true)
+        create(:project, pending_delete: true)
       end
 
       let(:new_project) do
-        build(:project,
-              name: project_pending_deletion.name,
-              namespace: project_pending_deletion.namespace)
+        build(:project, path: project_pending_deletion.path, namespace: project_pending_deletion.namespace)
       end
 
       before do
@@ -576,7 +897,29 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       it 'contains errors related to the project being deleted' do
-        expect(new_project.errors.full_messages.first).to eq(_('The project is still being deleted. Please try again later.'))
+        expect(new_project.errors.full_messages).to include(_('The project is still being deleted. Please try again later.'))
+      end
+    end
+
+    describe 'name format validation' do
+      context 'name is unchanged' do
+        let_it_be(:invalid_path_project) do
+          project = create(:project)
+          project.update_attribute(:name, '.invalid_name')
+          project
+        end
+
+        it 'does not raise validation error for name for existing project' do
+          expect { invalid_path_project.update!(description: 'Foo') }.not_to raise_error
+        end
+      end
+
+      %w[. - $].each do |special_character|
+        it "rejects a name starting with '#{special_character}'" do
+          project = build(:project, name: "#{special_character}foo")
+
+          expect(project).not_to be_valid
+        end
       end
     end
 
@@ -605,6 +948,37 @@ RSpec.describe Project, factory_default: :keep do
         project = build(:project, path: 'avatar', namespace: parent)
 
         expect(project).to be_valid
+      end
+
+      context 'when validating if path already exist as pages unique domain' do
+        before do
+          stub_pages_setting(host: 'example.com')
+        end
+
+        it 'rejects paths that match pages unique domain' do
+          create(:project_setting, pages_unique_domain: 'some-unique-domain')
+
+          project = build(:project, path: 'some-unique-domain.example.com')
+
+          expect(project).not_to be_valid
+          expect(project.errors.full_messages_for(:path)).to match(['Path already in use'])
+        end
+
+        it 'accepts path when the host does not match' do
+          create(:project_setting, pages_unique_domain: 'some-unique-domain')
+
+          project = build(:project, path: 'some-unique-domain.another-example.com')
+
+          expect(project).to be_valid
+        end
+
+        it 'accepts path when the domain does not match' do
+          create(:project_setting, pages_unique_domain: 'another-unique-domain')
+
+          project = build(:project, path: 'some-unique-domain.example.com')
+
+          expect(project).to be_valid
+        end
       end
 
       context 'path is unchanged' do
@@ -661,46 +1035,6 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#has_packages?' do
-    let_it_be(:project) { create(:project, :public) }
-
-    subject { project.has_packages?(package_type) }
-
-    shared_examples 'returning true examples' do
-      let!(:package) { create("#{package_type}_package", project: project) }
-
-      it { is_expected.to be true }
-    end
-
-    shared_examples 'returning false examples' do
-      it { is_expected.to be false }
-    end
-
-    context 'with maven packages' do
-      it_behaves_like 'returning true examples' do
-        let(:package_type) { :maven }
-      end
-    end
-
-    context 'with npm packages' do
-      it_behaves_like 'returning true examples' do
-        let(:package_type) { :npm }
-      end
-    end
-
-    context 'with conan packages' do
-      it_behaves_like 'returning true examples' do
-        let(:package_type) { :conan }
-      end
-    end
-
-    context 'with no package type' do
-      it_behaves_like 'returning false examples' do
-        let(:package_type) { nil }
-      end
-    end
-  end
-
   describe '#ci_pipelines' do
     let_it_be(:project) { create(:project) }
 
@@ -722,6 +1056,67 @@ RSpec.describe Project, factory_default: :keep do
       it 'returns .external pipelines' do
         expect(project.ci_pipelines).to all(have_attributes(source: 'external'))
         expect(project.ci_pipelines.size).to eq(1)
+      end
+    end
+  end
+
+  describe '#commit_notes' do
+    let_it_be(:project) { create(:project) }
+
+    it "returns project's commit notes" do
+      note_1 = create(:note_on_commit, project: project, commit_id: 'commit_id_1')
+      note_2 = create(:note_on_commit, project: project, commit_id: 'commit_id_2')
+
+      expect(project.commit_notes).to match_array([note_1, note_2])
+    end
+  end
+
+  describe '#personal_namespace_holder?' do
+    let_it_be(:group) { create(:group) }
+    let_it_be(:namespace_user) { create(:user) }
+    let_it_be(:admin_user) { create(:user, :admin) }
+    let_it_be(:personal_project) { create(:project, namespace: namespace_user.namespace) }
+    let_it_be(:group_project) { create(:project, group: group) }
+    let_it_be(:another_user) { create(:user) }
+    let_it_be(:group_owner_user) { create(:user, owner_of: group) }
+
+    where(:project, :user, :result) do
+      ref(:personal_project)      | ref(:namespace_user)   | true
+      ref(:personal_project)      | ref(:admin_user)       | false
+      ref(:personal_project)      | ref(:another_user)     | false
+      ref(:personal_project)      | nil                    | false
+      ref(:group_project)         | ref(:namespace_user)   | false
+      ref(:group_project)         | ref(:group_owner_user) | false
+      ref(:group_project)         | ref(:another_user)     | false
+      ref(:group_project)         | nil                    | false
+      ref(:group_project)         | nil                    | false
+      ref(:group_project)         | ref(:admin_user)       | false
+    end
+
+    with_them do
+      it { expect(project.personal_namespace_holder?(user)).to eq(result) }
+    end
+  end
+
+  describe '#invalidate_personal_projects_count_of_owner' do
+    context 'for personal projects' do
+      let_it_be(:namespace_user) { create(:user) }
+      let_it_be(:project) { create(:project, namespace: namespace_user.namespace) }
+
+      it 'invalidates personal_project_count cache of the the owner of the personal namespace' do
+        expect(Rails.cache).to receive(:delete).with(['users', namespace_user.id, 'personal_projects_count'])
+
+        project.invalidate_personal_projects_count_of_owner
+      end
+    end
+
+    context 'for projects in groups' do
+      let_it_be(:project) { create(:project, namespace: create(:group)) }
+
+      it 'does not invalidates any cache' do
+        expect(Rails.cache).not_to receive(:delete)
+
+        project.invalidate_personal_projects_count_of_owner
       end
     end
   end
@@ -777,15 +1172,24 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe 'project token' do
-    it 'sets an random token if none provided' do
-      project = FactoryBot.create(:project, runners_token: '')
-      expect(project.runners_token).not_to eq('')
+  describe 'runner registration token' do
+    let(:project) { create(:project, :allow_runner_registration_token, runners_token: initial_token) }
+
+    context 'when no token provided' do
+      let(:initial_token) { '' }
+
+      it 'sets a random token as the project runners_token' do
+        expect(project.runners_token).to be_present
+        expect(project.runners_token).not_to eq(initial_token)
+      end
     end
 
-    it 'does not set an random token if one provided' do
-      project = FactoryBot.create(:project, runners_token: "#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}my-token")
-      expect(project.runners_token).to eq("#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}my-token")
+    context 'when initial token exists' do
+      let(:initial_token) { "#{RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX}my-token" }
+
+      it 'assigns the provided token value as the project runners_token' do
+        expect(project.runners_token).to eq(initial_token)
+      end
     end
   end
 
@@ -798,38 +1202,82 @@ RSpec.describe Project, factory_default: :keep do
   end
 
   describe 'delegation' do
-    [:add_guest, :add_reporter, :add_developer, :add_maintainer, :add_user, :add_users].each do |method|
+    let_it_be(:project) { create(:project) }
+
+    [:add_guest, :add_reporter, :add_developer, :add_maintainer, :add_member, :add_members].each do |method|
       it { is_expected.to delegate_method(method).to(:team) }
     end
 
     it { is_expected.to delegate_method(:members).to(:team).with_prefix(true) }
-    it { is_expected.to delegate_method(:name).to(:owner).with_prefix(true).with_arguments(allow_nil: true) }
-    it { is_expected.to delegate_method(:root_ancestor).to(:namespace).with_arguments(allow_nil: true) }
-    it { is_expected.to delegate_method(:last_pipeline).to(:commit).with_arguments(allow_nil: true) }
+    it { is_expected.to delegate_method(:has_user?).to(:team) }
+    it { is_expected.to delegate_method(:member?).to(:team) }
+    it { is_expected.to delegate_method(:name).to(:owner).with_prefix(true).allow_nil }
+    it { is_expected.to delegate_method(:root_ancestor).to(:namespace).allow_nil }
+    it { is_expected.to delegate_method(:certificate_based_clusters_enabled?).to(:namespace).allow_nil }
+    it { is_expected.to delegate_method(:last_pipeline).to(:commit).allow_nil }
     it { is_expected.to delegate_method(:container_registry_enabled?).to(:project_feature) }
     it { is_expected.to delegate_method(:container_registry_access_level).to(:project_feature) }
+    it { is_expected.to delegate_method(:environments_access_level).to(:project_feature) }
+    it { is_expected.to delegate_method(:model_experiments_access_level).to(:project_feature) }
+    it { is_expected.to delegate_method(:model_registry_access_level).to(:project_feature) }
+    it { is_expected.to delegate_method(:feature_flags_access_level).to(:project_feature) }
+    it { is_expected.to delegate_method(:releases_access_level).to(:project_feature) }
+    it { is_expected.to delegate_method(:infrastructure_access_level).to(:project_feature) }
+    it { is_expected.to delegate_method(:maven_package_requests_forwarding).to(:namespace) }
+    it { is_expected.to delegate_method(:pypi_package_requests_forwarding).to(:namespace) }
+    it { is_expected.to delegate_method(:npm_package_requests_forwarding).to(:namespace) }
 
-    describe 'project settings' do
-      %i(
+    describe 'read project settings' do
+      %i[
         show_default_award_emojis
-        show_default_award_emojis=
         show_default_award_emojis?
         warn_about_potentially_unwanted_characters
-        warn_about_potentially_unwanted_characters=
         warn_about_potentially_unwanted_characters?
-      ).each do |method|
-        it { is_expected.to delegate_method(method).to(:project_setting).with_arguments(allow_nil: true) }
+        enforce_auth_checks_on_uploads
+        enforce_auth_checks_on_uploads?
+      ].each do |method|
+        it { is_expected.to delegate_method(method).to(:project_setting).allow_nil }
+      end
+    end
+
+    describe 'write project settings' do
+      %i[
+        show_default_award_emojis=
+        warn_about_potentially_unwanted_characters=
+        enforce_auth_checks_on_uploads=
+      ].each do |method|
+        it { is_expected.to delegate_method(method).to(:project_setting).with_arguments(:args).allow_nil }
       end
     end
 
     include_examples 'ci_cd_settings delegation' do
-      # Skip attributes defined in EE code
+      let(:attributes_with_prefix) do
+        {
+          'group_runners_enabled' => '',
+          'default_git_depth' => 'ci_',
+          'forward_deployment_enabled' => 'ci_',
+          'forward_deployment_rollback_allowed' => 'ci_',
+          'keep_latest_artifact' => '',
+          'restrict_user_defined_variables' => '',
+          'pipeline_variables_minimum_override_role' => 'ci_',
+          'runner_token_expiration_interval' => '',
+          'separated_caches' => 'ci_',
+          'allow_fork_pipelines_to_run_in_parent_project' => 'ci_',
+          'inbound_job_token_scope_enabled' => 'ci_',
+          'push_repository_for_job_token_allowed' => 'ci_',
+          'job_token_scope_enabled' => 'ci_outbound_'
+        }
+      end
+
       let(:exclude_attributes) do
-        %w(
+        # Skip attributes defined in EE code
+        %w[
           merge_pipelines_enabled
           merge_trains_enabled
           auto_rollback_enabled
-        )
+          merge_trains_skip_train_allowed
+          restrict_pipeline_cancellation_role
+        ]
       end
     end
 
@@ -839,15 +1287,39 @@ RSpec.describe Project, factory_default: :keep do
       end
     end
 
-    describe '#ci_job_token_scope_enabled?' do
+    describe '#ci_forward_deployment_rollback_allowed?' do
       it_behaves_like 'a ci_cd_settings predicate method', prefix: 'ci_' do
+        let(:delegated_method) { :forward_deployment_rollback_allowed? }
+      end
+    end
+
+    describe '#ci_allow_fork_pipelines_to_run_in_parent_project?' do
+      it_behaves_like 'a ci_cd_settings predicate method', prefix: 'ci_' do
+        let(:delegated_method) { :allow_fork_pipelines_to_run_in_parent_project? }
+      end
+    end
+
+    describe '#ci_outbound_job_token_scope_enabled?' do
+      it_behaves_like 'a ci_cd_settings predicate method', prefix: 'ci_outbound_' do
         let(:delegated_method) { :job_token_scope_enabled? }
+      end
+    end
+
+    describe '#ci_inbound_job_token_scope_enabled?' do
+      it_behaves_like 'a ci_cd_settings predicate method', prefix: 'ci_', default: true do
+        let(:delegated_method) { :inbound_job_token_scope_enabled? }
       end
     end
 
     describe '#restrict_user_defined_variables?' do
       it_behaves_like 'a ci_cd_settings predicate method' do
         let(:delegated_method) { :restrict_user_defined_variables? }
+      end
+    end
+
+    describe '#ci_push_repository_for_job_token_allowed?' do
+      it_behaves_like 'a ci_cd_settings predicate method', prefix: 'ci_' do
+        let(:delegated_method) { :push_repository_for_job_token_allowed? }
       end
     end
 
@@ -867,23 +1339,6 @@ RSpec.describe Project, factory_default: :keep do
       it_behaves_like 'a ci_cd_settings predicate method' do
         let(:delegated_method) { :group_runners_enabled? }
       end
-    end
-  end
-
-  describe '#remove_project_authorizations' do
-    let_it_be(:project) { create(:project) }
-    let_it_be(:user_1) { create(:user) }
-    let_it_be(:user_2) { create(:user) }
-    let_it_be(:user_3) { create(:user) }
-
-    it 'removes the project authorizations of the specified users in the current project' do
-      create(:project_authorization, user: user_1, project: project)
-      create(:project_authorization, user: user_2, project: project)
-      create(:project_authorization, user: user_3, project: project)
-
-      project.remove_project_authorizations([user_1.id, user_2.id])
-
-      expect(project.project_authorizations.pluck(:user_id)).not_to include(user_1.id, user_2.id)
     end
   end
 
@@ -1011,6 +1466,14 @@ RSpec.describe Project, factory_default: :keep do
         end
       end
 
+      context 'when absolute_path is true' do
+        it 'returns complete path to the project with leading slash', :aggregate_failures do
+          be_full_path = eq('/sample-namespace/sample-project')
+
+          expect(project.to_reference_base(full: true, absolute_path: true)).to be_full_path
+        end
+      end
+
       context 'when same project argument' do
         it 'returns nil' do
           expect(project.to_reference_base(project)).to be_nil
@@ -1082,6 +1545,80 @@ RSpec.describe Project, factory_default: :keep do
         it 'returns name of the project' do
           expect(project.to_human_reference(another_project)).to eq 'Sample project'
         end
+      end
+    end
+
+    describe '#reference_pattern' do
+      it 'matches a normal reference' do
+        reference = project.to_reference
+        match = reference.match(described_class.reference_pattern)
+
+        expect(match[:namespace]).to eq project.namespace.full_path
+        expect(match[:project]).to eq project.path
+        expect(match[:absolute_path]).to eq nil
+      end
+
+      it 'matches an absolute reference' do
+        reference = "/#{project.to_reference}"
+        match = reference.match(described_class.reference_pattern)
+
+        expect(match[:namespace]).to eq project.namespace.full_path
+        expect(match[:project]).to eq project.path
+        expect(match[:absolute_path]).to eq '/'
+      end
+    end
+  end
+
+  describe '#to_reference_base' do
+    using RSpec::Parameterized::TableSyntax
+
+    let_it_be(:user) { create(:user) }
+    let_it_be(:user_namespace) { user.namespace }
+
+    let_it_be(:parent) { create(:group) }
+    let_it_be(:group) { create(:group, parent: parent) }
+    let_it_be(:another_group) { create(:group) }
+
+    let_it_be(:project1) { create(:project, namespace: group) }
+    let_it_be(:project_namespace) { project1.project_namespace }
+
+    # different project same group
+    let_it_be(:project2) { create(:project, namespace: group) }
+    let_it_be(:project_namespace2) { project2.project_namespace }
+
+    # different project from different group
+    let_it_be(:project3) { create(:project) }
+    let_it_be(:project_namespace3) { project3.project_namespace }
+
+    # testing references with namespace being: group, project namespace and user namespace
+    where(:project, :full, :from, :result) do
+      ref(:project1) | false | nil                       | nil
+      ref(:project1) | true  | nil                       | lazy { project.full_path }
+      ref(:project1) | false | ref(:group)               | lazy { project.path }
+      ref(:project1) | true  | ref(:group)               | lazy { project.full_path }
+      ref(:project1) | false | ref(:parent)              | lazy { project.full_path }
+      ref(:project1) | true  | ref(:parent)              | lazy { project.full_path }
+      ref(:project1) | false | ref(:project1)            | nil
+      ref(:project1) | true  | ref(:project1)            | lazy { project.full_path }
+      ref(:project1) | false | ref(:project_namespace)   | nil
+      ref(:project1) | true  | ref(:project_namespace)   | lazy { project.full_path }
+      ref(:project1) | false | ref(:project2)            | lazy { project.path }
+      ref(:project1) | true  | ref(:project2)            | lazy { project.full_path }
+      ref(:project1) | false | ref(:project_namespace2)  | lazy { project.path }
+      ref(:project1) | true  | ref(:project_namespace2)  | lazy { project.full_path }
+      ref(:project1) | false | ref(:another_group)       | lazy { project.full_path }
+      ref(:project1) | true  | ref(:another_group)       | lazy { project.full_path }
+      ref(:project1) | false | ref(:project3)            | lazy { project.full_path }
+      ref(:project1) | true  | ref(:project3)            | lazy { project.full_path }
+      ref(:project1) | false | ref(:project_namespace3)  | lazy { project.full_path }
+      ref(:project1) | true  | ref(:project_namespace3)  | lazy { project.full_path }
+      ref(:project1) | false | ref(:user_namespace)      | lazy { project.full_path }
+      ref(:project1) | true  | ref(:user_namespace)      | lazy { project.full_path }
+    end
+
+    with_them do
+      it 'returns correct path' do
+        expect(project.to_reference_base(from, full: full)).to eq(result)
       end
     end
   end
@@ -1189,12 +1726,6 @@ RSpec.describe Project, factory_default: :keep do
         expect(project.last_activity).to eq(last_event)
       end
     end
-
-    describe 'last_activity_date' do
-      it 'returns the project\'s last update date' do
-        expect(project.last_activity_date).to be_like_time(project.updated_at)
-      end
-    end
   end
 
   describe '#get_issue' do
@@ -1274,7 +1805,7 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#open_issues_count', :aggregate_failures do
+  describe '#open_issues_count' do
     let(:project) { build(:project) }
 
     it 'provides the issue count' do
@@ -1325,7 +1856,7 @@ RSpec.describe Project, factory_default: :keep do
     context 'with namespace' do
       before do
         @group = create(:group, name: 'gitlab')
-        @project = create(:project, name: 'gitlabhq', namespace: @group)
+        @project = create(:project, path: 'gitlabhq', namespace: @group)
       end
 
       it { expect(@project.to_param).to eq('gitlabhq') }
@@ -1359,7 +1890,7 @@ RSpec.describe Project, factory_default: :keep do
 
     it "is false if used other tracker" do
       # NOTE: The current nature of this factory requires persistence
-      project = create(:redmine_project)
+      project = create(:project, :with_redmine_integration)
 
       expect(project.default_issues_tracker?).to be_falsey
     end
@@ -1404,7 +1935,7 @@ RSpec.describe Project, factory_default: :keep do
   describe '#external_issue_tracker' do
     it 'sets Project#has_external_issue_tracker when it is nil' do
       project_with_no_tracker = create(:project, has_external_issue_tracker: nil)
-      project_with_tracker = create(:redmine_project, has_external_issue_tracker: nil)
+      project_with_tracker = create(:project, :with_redmine_integration, has_external_issue_tracker: nil)
 
       expect do
         project_with_no_tracker.external_issue_tracker
@@ -1423,7 +1954,7 @@ RSpec.describe Project, factory_default: :keep do
     end
 
     it 'retrieves external_issue_tracker querying services and cache it when there is external issue tracker' do
-      project = create(:redmine_project)
+      project = create(:project, :with_redmine_integration)
 
       expect(project).to receive(:integrations).once.and_call_original
       2.times { expect(project.external_issue_tracker).to be_a_kind_of(Integrations::Redmine) }
@@ -1579,6 +2110,33 @@ RSpec.describe Project, factory_default: :keep do
       expect(project.reload.star_count).to eq(0)
     end
 
+    it 'does not count stars from blocked users' do
+      user1 = create(:user)
+      user2 = create(:user)
+      project = create(:project, :public)
+
+      expect(project.star_count).to eq(0)
+
+      user1.toggle_star(project)
+      expect(project.reload.star_count).to eq(1)
+
+      user2.toggle_star(project)
+      project.reload
+      expect(project.reload.star_count).to eq(2)
+
+      user1.block
+      project.reload
+      expect(project.reload.star_count).to eq(1)
+
+      user2.block
+      project.reload
+      expect(project.reload.star_count).to eq(0)
+
+      user1.activate
+      project.reload
+      expect(project.reload.star_count).to eq(1)
+    end
+
     it 'counts stars on the right project' do
       user = create(:user)
       project1 = create(:project, :public)
@@ -1613,50 +2171,31 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#avatar_type' do
-    let(:project) { create(:project) }
-
-    it 'is true if avatar is image' do
-      project.update_attribute(:avatar, 'uploads/avatar.png')
-      expect(project.avatar_type).to be_truthy
+  context 'with avatar' do
+    it_behaves_like Avatarable do
+      let(:model) { create(:project, :with_avatar) }
     end
 
-    it 'is false if avatar is html page' do
-      project.update_attribute(:avatar, 'uploads/avatar.html')
-      project.avatar_type
+    describe '#avatar_url' do
+      subject { project.avatar_url }
 
-      expect(project.errors.added?(:avatar, "file format is not supported. Please try one of the following supported formats: png, jpg, jpeg, gif, bmp, tiff, ico, webp")).to be true
-    end
-  end
-
-  describe '#avatar_url' do
-    subject { project.avatar_url }
-
-    let(:project) { create(:project) }
-
-    context 'when avatar file is uploaded' do
-      let(:project) { create(:project, :public, :with_avatar) }
-
-      it 'shows correct url' do
-        expect(project.avatar_url).to eq(project.avatar.url)
-        expect(project.avatar_url(only_path: false)).to eq([Gitlab.config.gitlab.url, project.avatar.url].join)
-      end
-    end
-
-    context 'when avatar file in git' do
-      before do
-        allow(project).to receive(:avatar_in_git) { true }
-      end
-
-      let(:avatar_path) { "/#{project.full_path}/-/avatar" }
-
-      it { is_expected.to eq "http://#{Gitlab.config.gitlab.host}#{avatar_path}" }
-    end
-
-    context 'when git repo is empty' do
       let(:project) { create(:project) }
 
-      it { is_expected.to eq nil }
+      context 'when avatar file in git' do
+        before do
+          allow(project).to receive(:avatar_in_git) { true }
+        end
+
+        let(:avatar_path) { "/#{project.full_path}/-/avatar" }
+
+        it { is_expected.to eq "http://#{Gitlab.config.gitlab.host}#{avatar_path}" }
+      end
+
+      context 'when git repo is empty' do
+        let(:project) { create(:project) }
+
+        it { is_expected.to eq nil }
+      end
     end
   end
 
@@ -1669,9 +2208,15 @@ RSpec.describe Project, factory_default: :keep do
   end
 
   describe '.sort_by_attribute' do
-    let_it_be(:project1) { create(:project, star_count: 2, updated_at: 1.minute.ago) }
+    let_it_be(:project1) { create(:project, star_count: 2, last_activity_at: 1.minute.ago) }
     let_it_be(:project2) { create(:project, star_count: 1) }
-    let_it_be(:project3) { create(:project, updated_at: 2.minutes.ago) }
+    let_it_be(:project3) { create(:project, last_activity_at: 2.minutes.ago) }
+
+    before_all do
+      create(:project_statistics, project: project1, repository_size: 1)
+      create(:project_statistics, project: project2, repository_size: 3)
+      create(:project_statistics, project: project3, repository_size: 2)
+    end
 
     it 'reorders the input relation by start count desc' do
       projects = described_class.sort_by_attribute(:stars_desc)
@@ -1690,10 +2235,74 @@ RSpec.describe Project, factory_default: :keep do
 
       expect(projects).to eq([project3, project1, project2])
     end
+
+    it 'reorders the input relation by path asc' do
+      projects = described_class.sort_by_attribute(:path_asc)
+
+      expect(projects).to eq([project1, project2, project3].sort_by(&:path))
+    end
+
+    it 'reorders the input relation by path desc' do
+      projects = described_class.sort_by_attribute(:path_desc)
+
+      expect(projects).to eq([project1, project2, project3].sort_by(&:path).reverse)
+    end
+
+    it 'reorders the input relation by storage size asc' do
+      projects = described_class.sort_by_attribute(:storage_size_asc)
+
+      expect(projects).to eq([project1, project3, project2])
+    end
+
+    it 'reorders the input relation by storage size desc' do
+      projects = described_class.sort_by_attribute(:storage_size_desc)
+
+      expect(projects).to eq([project2, project3, project1])
+    end
   end
 
-  describe '.with_shared_runners' do
-    subject { described_class.with_shared_runners }
+  describe '.order_by_storage_size' do
+    let_it_be(:project_1) { create(:project_statistics, repository_size: 1).project }
+    let_it_be(:project_2) { create(:project_statistics, repository_size: 3).project }
+    let_it_be(:project_3) { create(:project_statistics, repository_size: 2).project }
+
+    context 'ascending' do
+      it { expect(described_class.sorted_by_storage_size_asc).to eq([project_1, project_3, project_2]) }
+    end
+
+    context 'descending' do
+      it { expect(described_class.sorted_by_storage_size_desc).to eq([project_2, project_3, project_1]) }
+    end
+  end
+
+  describe '.sorted_by_similarity_desc' do
+    let_it_be(:project_a) { create(:project, path: 'similar-1', name: 'similar-1', description: 'A similar project') }
+    let_it_be_with_reload(:project_b) { create(:project, path: 'similar-2', name: 'similar-2', description: 'A related project') }
+    let_it_be(:project_c) { create(:project, path: 'different-path', name: 'different-name', description: 'A different project') }
+
+    let(:search_term) { 'similar' }
+
+    subject(:relation) { described_class.sorted_by_similarity_desc(search_term) }
+
+    context 'when sorting with full similarity' do
+      it 'sorts projects based on path, name, and description similarity' do
+        expect(relation).to eq([project_a, project_b, project_c])
+      end
+    end
+
+    context 'when sorting with path-only similarity' do
+      let(:search_term) { 'diff' }
+
+      subject(:relation) { described_class.sorted_by_similarity_desc(search_term, full_path_only: true) }
+
+      it 'sorts projects based on path similarity only' do
+        expect(relation).to eq([project_c, project_b, project_a])
+      end
+    end
+  end
+
+  describe '.with_shared_runners_enabled' do
+    subject { described_class.with_shared_runners_enabled }
 
     context 'when shared runners are enabled for project' do
       let!(:project) { create(:project, shared_runners_enabled: true) }
@@ -1740,21 +2349,84 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '.with_jira_dvcs_cloud' do
-    it 'returns the correct project' do
-      jira_dvcs_cloud_project = create(:project, :jira_dvcs_cloud)
-      create(:project, :jira_dvcs_server)
-
-      expect(described_class.with_jira_dvcs_cloud).to contain_exactly(jira_dvcs_cloud_project)
-    end
-  end
-
   describe '.with_jira_dvcs_server' do
     it 'returns the correct project' do
       jira_dvcs_server_project = create(:project, :jira_dvcs_server)
-      create(:project, :jira_dvcs_cloud)
 
       expect(described_class.with_jira_dvcs_server).to contain_exactly(jira_dvcs_server_project)
+    end
+  end
+
+  describe '.by_name' do
+    let_it_be(:project1) { create(:project, :small_repo, name: 'Project 1') }
+    let_it_be(:project2) { create(:project, :small_repo, name: 'Project 2') }
+
+    it 'includes correct projects' do
+      expect(described_class.by_name(project1.name)).to eq([project1])
+      expect(described_class.by_name(project2.name.chop)).to match_array([project1, project2])
+    end
+  end
+
+  describe '.with_slack_application_disabled' do
+    let_it_be(:project1) { create(:project) }
+    let_it_be(:project2) { create(:project) }
+    let_it_be(:project3) { create(:project) }
+
+    before_all do
+      create(:gitlab_slack_application_integration, project: project2)
+      create(:gitlab_slack_application_integration, project: project3).update!(active: false)
+    end
+
+    context 'when the Slack app setting is enabled' do
+      before do
+        stub_application_setting(slack_app_enabled: true)
+      end
+
+      it 'includes only projects where Slack app is disabled or absent' do
+        projects = described_class.with_slack_application_disabled
+
+        expect(projects).to include(project1, project3)
+        expect(projects).not_to include(project2)
+      end
+    end
+
+    context 'when the Slack app setting is not enabled' do
+      before do
+        stub_application_setting(slack_app_enabled: false)
+        allow(Rails.env).to receive(:test?).and_return(false)
+      end
+
+      it 'includes all projects' do
+        projects = described_class.with_slack_application_disabled
+
+        expect(projects).to include(project1, project2, project3)
+      end
+    end
+  end
+
+  describe '.with_slack_integration' do
+    it 'returns projects with both active and inactive slack integrations' do
+      create(:project)
+      with_active_slack = create(:integrations_slack).project
+      with_disabled_slack = create(:integrations_slack, active: false).project
+
+      expect(described_class.with_slack_integration).to contain_exactly(
+        with_active_slack,
+        with_disabled_slack
+      )
+    end
+  end
+
+  describe '.with_slack_slash_commands_integration' do
+    it 'returns projects with both active and inactive slack slash commands integrations' do
+      create(:project)
+      with_active_slash_commands = create(:slack_slash_commands_integration).project
+      with_disabled_slash_commands = create(:slack_slash_commands_integration, active: false).project
+
+      expect(described_class.with_slack_slash_commands_integration).to contain_exactly(
+        with_active_slash_commands,
+        with_disabled_slash_commands
+      )
     end
   end
 
@@ -1828,7 +2500,7 @@ RSpec.describe Project, factory_default: :keep do
 
     describe 'when a user has access to a project' do
       before do
-        project.add_user(user, Gitlab::Access::MAINTAINER)
+        project.add_member(user, Gitlab::Access::MAINTAINER)
       end
 
       it { is_expected.to eq([project]) }
@@ -1868,11 +2540,11 @@ RSpec.describe Project, factory_default: :keep do
     it 'avoids n + 1', :aggregate_failures do
       create(:prometheus_integration)
       run_test = -> { described_class.include_integration(:prometheus_integration).map(&:prometheus_integration) }
-      control_count = ActiveRecord::QueryRecorder.new { run_test.call }
+      control = ActiveRecord::QueryRecorder.new { run_test.call }
       create(:prometheus_integration)
 
       expect(run_test.call.count).to eq(2)
-      expect { run_test.call }.not_to exceed_query_limit(control_count)
+      expect { run_test.call }.not_to exceed_query_limit(control)
     end
   end
 
@@ -1892,8 +2564,8 @@ RSpec.describe Project, factory_default: :keep do
     subject(:project) { build(:project, :private, namespace: namespace, service_desk_enabled: true) }
 
     before do
-      allow(Gitlab::IncomingEmail).to receive(:enabled?).and_return(true)
-      allow(Gitlab::IncomingEmail).to receive(:supports_wildcard?).and_return(true)
+      allow(Gitlab::Email::IncomingEmail).to receive(:enabled?).and_return(true)
+      allow(Gitlab::Email::IncomingEmail).to receive(:supports_wildcard?).and_return(true)
     end
 
     it 'is enabled' do
@@ -1902,7 +2574,7 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#service_desk_address' do
+  describe '#service_desk_address', feature_category: :service_desk do
     let_it_be(:project, reload: true) { create(:project, service_desk_enabled: true) }
 
     subject { project.service_desk_address }
@@ -1933,7 +2605,7 @@ RSpec.describe Project, factory_default: :keep do
 
     context 'when service_desk_email is disabled' do
       before do
-        allow(::Gitlab::ServiceDeskEmail).to receive(:enabled?).and_return(false)
+        allow(::Gitlab::Email::ServiceDeskEmail).to receive(:enabled?).and_return(false)
       end
 
       it_behaves_like 'with incoming email address'
@@ -1942,11 +2614,11 @@ RSpec.describe Project, factory_default: :keep do
     context 'when service_desk_email is enabled' do
       before do
         config = double(enabled: true, address: 'foo+%{key}@bar.com')
-        allow(::Gitlab::ServiceDeskEmail).to receive(:config).and_return(config)
+        allow(::Gitlab::Email::ServiceDeskEmail).to receive(:config).and_return(config)
       end
 
       context 'when project_key is set' do
-        it 'returns custom address including the project_key' do
+        it 'returns Service Desk alias address including the project_key' do
           create(:service_desk_setting, project: project, project_key: 'key1')
 
           expect(subject).to eq("foo+#{project.full_path_slug}-key1@bar.com")
@@ -1954,9 +2626,22 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       context 'when project_key is not set' do
-        it 'returns custom address including the project full path' do
+        it 'returns Service Desk alias address including the project full path' do
           expect(subject).to eq("foo+#{project.full_path_slug}-#{project.project_id}-issue-@bar.com")
         end
+      end
+    end
+
+    context 'when custom email is enabled' do
+      let(:custom_email) { 'support@example.com' }
+
+      before do
+        setting = ServiceDeskSetting.new(project: project, custom_email: custom_email, custom_email_enabled: true)
+        allow(project).to receive(:service_desk_setting).and_return(setting)
+      end
+
+      it 'returns custom email address' do
+        expect(subject).to eq(custom_email)
       end
     end
   end
@@ -1970,11 +2655,11 @@ RSpec.describe Project, factory_default: :keep do
       create(:service_desk_setting, project_key: 'key2')
       create(:service_desk_setting)
 
-      expect(Project.with_service_desk_key('key1')).to contain_exactly(project1, project2)
+      expect(described_class.with_service_desk_key('key1')).to contain_exactly(project1, project2)
     end
 
     it 'returns empty if there is no project with the key' do
-      expect(Project.with_service_desk_key('key1')).to be_empty
+      expect(described_class.with_service_desk_key('key1')).to be_empty
     end
   end
 
@@ -1998,7 +2683,7 @@ RSpec.describe Project, factory_default: :keep do
         it 'returns nil if the path detection throws an error' do
           expect(Rails.application.routes).to receive(:recognize_path).with(url) { raise ActionController::RoutingError, 'test' }
 
-          expect { subject }.not_to raise_error(ActionController::RoutingError)
+          expect { subject }.not_to raise_error
           expect(subject).to be_nil
         end
       end
@@ -2027,7 +2712,7 @@ RSpec.describe Project, factory_default: :keep do
       create(:jira_integration, project: project_3, inherit_from_id: nil)
       create(:integrations_slack, project: project_4, inherit_from_id: nil)
 
-      expect(Project.without_integration(instance_integration)).to contain_exactly(project_4)
+      expect(described_class.without_integration(instance_integration)).to contain_exactly(project_4)
     end
   end
 
@@ -2068,7 +2753,7 @@ RSpec.describe Project, factory_default: :keep do
 
     context 'shared runners' do
       let(:project) { create(:project, shared_runners_enabled: shared_runners_enabled) }
-      let(:specific_runner) { create(:ci_runner, :project, :online, projects: [project]) }
+      let(:project_runner) { create(:ci_runner, :project, :online, projects: [project]) }
       let(:shared_runner) { create(:ci_runner, :instance, :online) }
       let(:offline_runner) { create(:ci_runner, :instance) }
 
@@ -2079,8 +2764,8 @@ RSpec.describe Project, factory_default: :keep do
           is_expected.to be_falsey
         end
 
-        it 'has a specific runner' do
-          specific_runner
+        it 'has a project runner' do
+          project_runner
 
           is_expected.to be_truthy
         end
@@ -2091,14 +2776,14 @@ RSpec.describe Project, factory_default: :keep do
           is_expected.to be_falsey
         end
 
-        it 'checks the presence of specific runner' do
-          specific_runner
+        it 'checks the presence of project runner' do
+          project_runner
 
-          expect(project.any_online_runners? { |runner| runner == specific_runner }).to be_truthy
+          expect(project.any_online_runners? { |runner| runner == project_runner }).to be_truthy
         end
 
         it 'returns false if match cannot be found' do
-          specific_runner
+          project_runner
 
           expect(project.any_online_runners? { false }).to be_falsey
         end
@@ -2266,6 +2951,44 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
+  describe '#pages_show_onboarding?' do
+    let(:project) { create(:project) }
+
+    subject { project.pages_show_onboarding? }
+
+    context "if there is no metadata" do
+      it { is_expected.to be_truthy }
+    end
+
+    context 'if onboarding is complete' do
+      before do
+        project.pages_metadatum.update_column(:onboarding_complete, true)
+      end
+
+      it { is_expected.to be_falsey }
+    end
+
+    context 'if there is metadata, but onboarding is not complete' do
+      before do
+        project.pages_metadatum.update_column(:onboarding_complete, false)
+      end
+
+      it { is_expected.to be_truthy }
+    end
+
+    # During migration, the onboarding_complete property can still be false,
+    # but will be updated later. To account for that case, pages_show_onboarding?
+    # should return false if `deployed` is true.
+    context "will return false if pages is deployed even if onboarding_complete is false" do
+      before do
+        project.pages_metadatum.update_column(:onboarding_complete, false)
+        create(:pages_deployment, project: project)
+      end
+
+      it { is_expected.to be_falsey }
+    end
+  end
+
   describe '#pages_deployed?' do
     let(:project) { create(:project) }
 
@@ -2273,7 +2996,7 @@ RSpec.describe Project, factory_default: :keep do
 
     context 'if pages are deployed' do
       before do
-        project.pages_metadatum.update_column(:deployed, true)
+        create(:pages_deployment, project: project)
       end
 
       it { is_expected.to be_truthy }
@@ -2291,89 +3014,46 @@ RSpec.describe Project, factory_default: :keep do
     subject { project.default_branch_protected? }
 
     where(:default_branch_protection_level, :result) do
-      Gitlab::Access::PROTECTION_NONE           | false
-      Gitlab::Access::PROTECTION_DEV_CAN_PUSH   | false
-      Gitlab::Access::PROTECTION_DEV_CAN_MERGE  | true
-      Gitlab::Access::PROTECTION_FULL           | true
+      Gitlab::Access::BranchProtection.protection_none                    | false
+      Gitlab::Access::BranchProtection.protection_partial                 | false
+      Gitlab::Access::BranchProtection.protected_against_developer_pushes | true
+      Gitlab::Access::BranchProtection.protected_fully                    | true
+      Gitlab::Access::BranchProtection.protected_after_initial_push       | true
     end
 
     with_them do
       before do
-        expect(project.namespace).to receive(:default_branch_protection).and_return(default_branch_protection_level)
+        expect(project.namespace)
+          .to receive(:default_branch_protection_settings)
+                .and_return(default_branch_protection_level)
       end
 
       it { is_expected.to eq(result) }
     end
   end
 
-  describe '#pages_url' do
-    let(:group) { create(:group, name: group_name) }
-    let(:project) { create(:project, namespace: group, name: project_name) }
-    let(:domain) { 'Example.com' }
+  describe 'initial_push_to_default_branch_allowed_for_developer?' do
+    let_it_be(:namespace) { create(:namespace) }
+    let_it_be(:project) { create(:project, namespace: namespace) }
 
-    subject { project.pages_url }
+    subject { project.initial_push_to_default_branch_allowed_for_developer? }
 
-    before do
-      allow(Settings.pages).to receive(:host).and_return(domain)
-      allow(Gitlab.config.pages).to receive(:url).and_return('http://example.com')
+    where(:default_branch_protection_level, :result) do
+      Gitlab::Access::BranchProtection.protection_none                    | true
+      Gitlab::Access::BranchProtection.protection_partial                 | true
+      Gitlab::Access::BranchProtection.protected_against_developer_pushes | false
+      Gitlab::Access::BranchProtection.protected_fully                    | false
+      Gitlab::Access::BranchProtection.protected_after_initial_push       | true
     end
 
-    context 'group page' do
-      let(:group_name) { 'Group' }
-      let(:project_name) { 'group.example.com' }
-
-      it { is_expected.to eq("http://group.example.com") }
-
-      context 'mixed case path' do
-        before do
-          project.update!(path: 'Group.example.com')
-        end
-
-        it { is_expected.to eq("http://group.example.com") }
+    with_them do
+      before do
+        expect(project.namespace)
+          .to receive(:default_branch_protection_settings)
+                .and_return(default_branch_protection_level)
       end
-    end
 
-    context 'project page' do
-      let(:group_name) { 'Group' }
-      let(:project_name) { 'Project' }
-
-      it { is_expected.to eq("http://group.example.com/project") }
-
-      context 'mixed case path' do
-        before do
-          project.update!(path: 'Project')
-        end
-
-        it { is_expected.to eq("http://group.example.com/Project") }
-      end
-    end
-  end
-
-  describe '#pages_group_url' do
-    let(:group) { create(:group, name: group_name) }
-    let(:project) { create(:project, namespace: group, name: project_name) }
-    let(:domain) { 'Example.com' }
-    let(:port) { 1234 }
-
-    subject { project.pages_group_url }
-
-    before do
-      allow(Settings.pages).to receive(:host).and_return(domain)
-      allow(Gitlab.config.pages).to receive(:url).and_return("http://example.com:#{port}")
-    end
-
-    context 'group page' do
-      let(:group_name) { 'Group' }
-      let(:project_name) { 'group.example.com' }
-
-      it { is_expected.to eq("http://group.example.com:#{port}") }
-    end
-
-    context 'project page' do
-      let(:group_name) { 'Group' }
-      let(:project_name) { 'Project' }
-
-      it { is_expected.to eq("http://group.example.com:#{port}") }
+      it { is_expected.to eq(result) }
     end
   end
 
@@ -2414,6 +3094,18 @@ RSpec.describe Project, factory_default: :keep do
 
     it 'returns projects with a matching path regardless of the casing' do
       expect(described_class.search(project.path.upcase)).to eq([project])
+    end
+
+    it 'defaults use_minimum_char_limit to true' do
+      expect(described_class).to receive(:fuzzy_search).with(anything, anything, use_minimum_char_limit: true).once
+
+      described_class.search('kitten')
+    end
+
+    it 'passes use_minimum_char_limit if it is set' do
+      expect(described_class).to receive(:fuzzy_search).with(anything, anything, use_minimum_char_limit: false).once
+
+      described_class.search('kitten', use_minimum_char_limit: false)
     end
 
     context 'when include_namespace is true' do
@@ -2541,8 +3233,37 @@ RSpec.describe Project, factory_default: :keep do
 
           expect(project.project_repository).to have_attributes(
             disk_path: project.disk_path,
-            shard_name: project.repository_storage
+            shard_name: project.repository_storage,
+            object_format: 'sha1'
           )
+        end
+
+        context 'when repository is missing' do
+          let(:project) { create(:project) }
+
+          it 'sets a default sha1 object format' do
+            project.track_project_repository
+
+            expect(project.project_repository).to have_attributes(
+              disk_path: project.disk_path,
+              shard_name: project.repository_storage,
+              object_format: 'sha1'
+            )
+          end
+        end
+
+        context 'when repository has sha256 object format' do
+          let(:project) { create(:project, :empty_repo, object_format: 'sha256') }
+
+          it 'tracks a correct object format' do
+            project.track_project_repository
+
+            expect(project.project_repository).to have_attributes(
+              disk_path: project.disk_path,
+              shard_name: project.repository_storage,
+              object_format: 'sha256'
+            )
+          end
         end
       end
 
@@ -2557,25 +3278,39 @@ RSpec.describe Project, factory_default: :keep do
         it 'updates the project storage location' do
           allow(project).to receive(:disk_path).and_return('fancy/new/path')
           allow(project).to receive(:repository_storage).and_return('foo')
+          allow(project.repository).to receive(:object_format).and_return('sha1')
 
           project.track_project_repository
 
           expect(project.project_repository).to have_attributes(
             disk_path: 'fancy/new/path',
-            shard_name: 'foo'
+            shard_name: 'foo',
+            object_format: 'sha1'
           )
+        end
+
+        it 'refreshes a memoized repository value' do
+          previous_repository = project.repository
+
+          allow(project).to receive(:disk_path).and_return('fancy/new/path')
+          allow(project).to receive(:repository_storage).and_return('foo')
+          allow(project.repository).to receive(:object_format).and_return('sha1')
+
+          project.track_project_repository
+
+          expect(project.repository).not_to eq(previous_repository)
         end
       end
     end
 
     context 'with projects on legacy storage' do
-      let(:project) { create(:project, :legacy_storage) }
+      let_it_be_with_reload(:project) { create(:project, :empty_repo, :legacy_storage) }
 
       it_behaves_like 'tracks storage location'
     end
 
     context 'with projects on hashed storage' do
-      let(:project) { create(:project) }
+      let_it_be_with_reload(:project) { create(:project, :empty_repo) }
 
       it_behaves_like 'tracks storage location'
     end
@@ -2595,6 +3330,12 @@ RSpec.describe Project, factory_default: :keep do
         expect(project.create_repository).to eq(false)
         expect(project.errors).not_to be_empty
       end
+
+      it 'passes through default branch' do
+        expect(project.repository).to receive(:create_repository).with('pineapple', object_format: nil)
+
+        expect(project.create_repository(default_branch: 'pineapple')).to eq(true)
+      end
     end
 
     context 'using a forked repository' do
@@ -2603,6 +3344,13 @@ RSpec.describe Project, factory_default: :keep do
         expect(project.repository).not_to receive(:create_repository)
 
         project.create_repository
+      end
+    end
+
+    context 'using a SHA256 repository' do
+      it 'creates the repository' do
+        expect(project.repository).to receive(:create_repository).with(nil, object_format: Repository::FORMAT_SHA256)
+        expect(project.create_repository(object_format: Repository::FORMAT_SHA256)).to eq(true)
       end
     end
   end
@@ -2688,6 +3436,58 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
+  describe '#container_repositories_size' do
+    let(:project) { build(:project) }
+
+    subject { project.container_repositories_size }
+
+    context 'when there are no container repositories' do
+      before do
+        allow(project.container_repositories).to receive(:empty?).and_return(true)
+      end
+
+      it { is_expected.to eq(0) }
+    end
+
+    context 'when there are container repositories' do
+      include_context 'container registry client stubs'
+
+      before do
+        allow(project.container_repositories).to receive(:empty?).and_return(false)
+      end
+
+      context 'when the GitLab API is supported' do
+        before do
+          stub_gitlab_api_client_to_support_gitlab_api(supported: true)
+        end
+
+        context 'when the Gitlab API client returns a value for deduplicated_size' do
+          before do
+            allow(ContainerRegistry::GitlabApiClient).to receive(:deduplicated_size).with(project.full_path).and_return(123)
+          end
+
+          it { is_expected.to eq(123) }
+        end
+
+        context 'when the Gitlab API client returns nil for deduplicated_size' do
+          before do
+            allow(ContainerRegistry::GitlabApiClient).to receive(:deduplicated_size).with(project.full_path).and_return(nil)
+          end
+
+          it { is_expected.to be_nil }
+        end
+      end
+
+      context 'when the GitLab API is not supported' do
+        before do
+          stub_gitlab_api_client_to_support_gitlab_api(supported: false)
+        end
+
+        it { is_expected.to be_nil }
+      end
+    end
+  end
+
   describe '#container_registry_enabled=' do
     let_it_be_with_reload(:project) { create(:project) }
 
@@ -2725,8 +3525,7 @@ RSpec.describe Project, factory_default: :keep do
         before do
           create(:container_repository, project: project, name: 'image')
 
-          stub_container_registry_tags(repository: /image/,
-                                       tags: %w[latest rc1])
+          stub_container_registry_tags(repository: /image/, tags: %w[latest rc1])
         end
 
         it 'has image tags' do
@@ -2736,8 +3535,7 @@ RSpec.describe Project, factory_default: :keep do
 
       context 'when tags are present for root repository' do
         before do
-          stub_container_registry_tags(repository: project.full_path,
-                                       tags: %w[latest rc1 pre1])
+          stub_container_registry_tags(repository: project.full_path, tags: %w[latest rc1 pre1])
         end
 
         it 'has image tags' do
@@ -2810,66 +3608,6 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#uses_default_ci_config?' do
-    let(:project) { build(:project) }
-
-    it 'has a custom ci config path' do
-      project.ci_config_path = 'something_custom'
-
-      expect(project.uses_default_ci_config?).to be_falsey
-    end
-
-    it 'has a blank ci config path' do
-      project.ci_config_path = ''
-
-      expect(project.uses_default_ci_config?).to be_truthy
-    end
-
-    it 'does not have a custom ci config path' do
-      project.ci_config_path = nil
-
-      expect(project.uses_default_ci_config?).to be_truthy
-    end
-  end
-
-  describe '#uses_external_project_ci_config?' do
-    subject(:uses_external_project_ci_config) { project.uses_external_project_ci_config? }
-
-    let(:project) { build(:project) }
-
-    context 'when ci_config_path is configured with external project' do
-      before do
-        project.ci_config_path = '.gitlab-ci.yml@hello/world'
-      end
-
-      it { is_expected.to eq(true) }
-    end
-
-    context 'when ci_config_path is nil' do
-      before do
-        project.ci_config_path = nil
-      end
-
-      it { is_expected.to eq(false) }
-    end
-
-    context 'when ci_config_path is configured with a file in the project' do
-      before do
-        project.ci_config_path = 'hello/world/gitlab-ci.yml'
-      end
-
-      it { is_expected.to eq(false) }
-    end
-
-    context 'when ci_config_path is configured with remote file' do
-      before do
-        project.ci_config_path = 'https://example.org/file.yml'
-      end
-
-      it { is_expected.to eq(false) }
-    end
-  end
-
   describe '#latest_successful_build_for_ref' do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:pipeline) { create_pipeline(project) }
@@ -2893,18 +3631,15 @@ RSpec.describe Project, factory_default: :keep do
     let(:second_branch) { project.repository.branches[2] }
 
     let!(:pipeline_for_default_branch) do
-      create(:ci_pipeline, project: project, sha: project.commit.id,
-                           ref: project.default_branch)
+      create(:ci_pipeline, project: project, sha: project.commit.id, ref: project.default_branch)
     end
 
     let!(:pipeline_for_second_branch) do
-      create(:ci_pipeline, project: project, sha: second_branch.target,
-                           ref: second_branch.name)
+      create(:ci_pipeline, project: project, sha: second_branch.target, ref: second_branch.name)
     end
 
     let!(:other_pipeline_for_default_branch) do
-      create(:ci_pipeline, project: project, sha: project.commit.parent.id,
-                           ref: project.default_branch)
+      create(:ci_pipeline, project: project, sha: project.commit.parent.id, ref: project.default_branch)
     end
 
     context 'default repository branch' do
@@ -2934,8 +3669,12 @@ RSpec.describe Project, factory_default: :keep do
 
       context 'with provided sha' do
         let!(:latest_pipeline_for_ref) do
-          create(:ci_pipeline, project: project, sha: pipeline_for_second_branch.sha,
-                               ref: pipeline_for_second_branch.ref)
+          create(
+            :ci_pipeline,
+            project: project,
+            sha: pipeline_for_second_branch.sha,
+            ref: pipeline_for_second_branch.ref
+          )
         end
 
         subject { project.latest_pipeline(second_branch.name, second_branch.target) }
@@ -3057,6 +3796,31 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
+  describe '#import_checksums' do
+    context 'with import_checksums' do
+      it 'returns the right checksums' do
+        project = create(:project)
+        create(:import_state, project: project, checksums: {
+          'fetched' => {},
+          'imported' => {}
+        })
+
+        expect(project.import_checksums).to eq(
+          'fetched' => {},
+          'imported' => {}
+        )
+      end
+    end
+
+    context 'without import_state' do
+      it 'returns empty hash' do
+        project = create(:project)
+
+        expect(project.import_checksums).to eq({})
+      end
+    end
+  end
+
   describe '#jira_import_status' do
     let_it_be(:project) { create(:project, import_type: 'jira') }
 
@@ -3106,6 +3870,44 @@ RSpec.describe Project, factory_default: :keep do
         project = create(:project)
 
         expect(project.human_import_status_name).to eq('none')
+      end
+    end
+  end
+
+  describe '#beautified_import_status_name' do
+    context 'when import not finished' do
+      it 'returns the right beautified import status' do
+        project = create(:project, :import_started)
+
+        expect(project.beautified_import_status_name).to eq('started')
+      end
+    end
+
+    context 'when import is finished' do
+      context 'when import is partially completed' do
+        it 'returns partially completed' do
+          project = create(:project)
+
+          create(:import_state, project: project, status: 'finished', checksums: {
+            'fetched' => { 'labels' => 10 },
+            'imported' => { 'labels' => 9 }
+          })
+
+          expect(project.beautified_import_status_name).to eq('partially completed')
+        end
+      end
+
+      context 'when import is fully completed' do
+        it 'returns completed' do
+          project = create(:project)
+
+          create(:import_state, project: project, status: 'finished', checksums: {
+            'fetched' => { 'labels' => 10 },
+            'imported' => { 'labels' => 10 }
+          })
+
+          expect(project.beautified_import_status_name).to eq('completed')
+        end
       end
     end
   end
@@ -3239,6 +4041,40 @@ RSpec.describe Project, factory_default: :keep do
     it { expect(project.gitea_import?).to be true }
   end
 
+  describe '#any_import_in_progress?' do
+    let_it_be_with_reload(:project) { create(:project) }
+
+    subject { project.any_import_in_progress? }
+
+    context 'when a file import is in progress' do
+      before do
+        create(:import_state, :started, project: project)
+      end
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when a relation import is in progress' do
+      before do
+        create(:relation_import_tracker, :started, project: project)
+      end
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when direct transfer is in progress' do
+      before do
+        create(:bulk_import_entity, :project_entity, :started, project: project)
+      end
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when no imports are in progress' do
+      it { is_expected.to be_falsy }
+    end
+  end
+
   describe '#has_remote_mirror?' do
     let(:project) { create(:project, :remote_mirror, :import_started) }
 
@@ -3310,16 +4146,6 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#mark_primary_write_location' do
-    let(:project) { create(:project) }
-
-    it 'marks the location with project ID' do
-      expect(ApplicationRecord.sticking).to receive(:mark_primary_write_location).with(:project, project.id)
-
-      project.mark_primary_write_location
-    end
-  end
-
   describe '#mark_stuck_remote_mirrors_as_failed!' do
     it 'fails stuck remote mirrors' do
       project = create(:project, :repository, :remote_mirror)
@@ -3388,21 +4214,7 @@ RSpec.describe Project, factory_default: :keep do
   end
 
   describe '#ancestors' do
-    context 'with linear_project_ancestors feature flag enabled' do
-      before do
-        stub_feature_flags(linear_project_ancestors: true)
-      end
-
-      include_examples '#ancestors'
-    end
-
-    context 'with linear_project_ancestors feature flag disabled' do
-      before do
-        stub_feature_flags(linear_project_ancestors: false)
-      end
-
-      include_examples '#ancestors'
-    end
+    include_examples '#ancestors'
   end
 
   describe '#ancestors_upto' do
@@ -3461,32 +4273,10 @@ RSpec.describe Project, factory_default: :keep do
   end
 
   describe '#emails_disabled?' do
-    let_it_be(:namespace) { create(:namespace) }
+    let(:project) { build(:project, emails_enabled: true) }
 
-    let(:project) { build(:project, namespace: namespace, emails_disabled: false) }
-
-    context 'emails disabled in group' do
-      it 'returns true' do
-        allow(project.namespace).to receive(:emails_disabled?) { true }
-
-        expect(project.emails_disabled?).to be_truthy
-      end
-    end
-
-    context 'emails enabled in group' do
-      before do
-        allow(project.namespace).to receive(:emails_disabled?) { false }
-      end
-
-      it 'returns false' do
-        expect(project.emails_disabled?).to be_falsey
-      end
-
-      it 'returns true' do
-        project.update_attribute(:emails_disabled, true)
-
-        expect(project.emails_disabled?).to be_truthy
-      end
+    it "is the opposite of emails_disabled" do
+      expect(project.emails_disabled?).to be_falsey
     end
   end
 
@@ -3717,7 +4507,7 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       context 'when project has a deployment platform' do
-        let(:platform_variables) { %w(platform variables) }
+        let(:platform_variables) { %w[platform variables] }
         let(:deployment_platform) { double }
 
         before do
@@ -3740,21 +4530,25 @@ RSpec.describe Project, factory_default: :keep do
       let(:project) { create(:project) }
 
       let!(:default_cluster) do
-        create(:cluster,
-                :not_managed,
-                platform_type: :kubernetes,
-                projects: [project],
-                environment_scope: '*',
-                platform_kubernetes: default_cluster_kubernetes)
+        create(
+          :cluster,
+          :not_managed,
+          platform_type: :kubernetes,
+          projects: [project],
+          environment_scope: '*',
+          platform_kubernetes: default_cluster_kubernetes
+        )
       end
 
       let!(:review_env_cluster) do
-        create(:cluster,
-                :not_managed,
-                platform_type: :kubernetes,
-                projects: [project],
-                environment_scope: 'review/*',
-                platform_kubernetes: review_env_cluster_kubernetes)
+        create(
+          :cluster,
+          :not_managed,
+          platform_type: :kubernetes,
+          projects: [project],
+          environment_scope: 'review/*',
+          platform_kubernetes: review_env_cluster_kubernetes
+        )
       end
 
       let(:default_cluster_kubernetes) { create(:cluster_platform_kubernetes, token: 'default-AAA') }
@@ -3799,162 +4593,6 @@ RSpec.describe Project, factory_default: :keep do
 
     it 'returns nil when no available environment exists' do
       expect(project.default_environment).to be_nil
-    end
-  end
-
-  describe '#ci_variables_for' do
-    let_it_be(:project) { create(:project) }
-
-    let(:environment_scope) { '*' }
-
-    let!(:ci_variable) do
-      create(:ci_variable, value: 'secret', project: project, environment_scope: environment_scope)
-    end
-
-    let!(:protected_variable) do
-      create(:ci_variable, :protected, value: 'protected', project: project)
-    end
-
-    subject { project.reload.ci_variables_for(ref: 'ref') }
-
-    before do
-      stub_application_setting(
-        default_branch_protection: Gitlab::Access::PROTECTION_NONE)
-    end
-
-    shared_examples 'ref is protected' do
-      it 'contains all the variables' do
-        is_expected.to contain_exactly(ci_variable, protected_variable)
-      end
-    end
-
-    it 'memoizes the result by ref and environment', :request_store do
-      scoped_variable = create(:ci_variable, value: 'secret', project: project, environment_scope: 'scoped')
-
-      expect(project).to receive(:protected_for?).with('ref').once.and_return(true)
-      expect(project).to receive(:protected_for?).with('other').twice.and_return(false)
-
-      2.times do
-        expect(project.reload.ci_variables_for(ref: 'ref', environment: 'production')).to contain_exactly(ci_variable, protected_variable)
-        expect(project.reload.ci_variables_for(ref: 'other')).to contain_exactly(ci_variable)
-        expect(project.reload.ci_variables_for(ref: 'other', environment: 'scoped')).to contain_exactly(ci_variable, scoped_variable)
-      end
-    end
-
-    context 'when the ref is not protected' do
-      before do
-        allow(project).to receive(:protected_for?).with('ref').and_return(false)
-      end
-
-      it 'contains only the CI variables' do
-        is_expected.to contain_exactly(ci_variable)
-      end
-    end
-
-    context 'when the ref is a protected branch' do
-      before do
-        allow(project).to receive(:protected_for?).with('ref').and_return(true)
-      end
-
-      it_behaves_like 'ref is protected'
-    end
-
-    context 'when the ref is a protected tag' do
-      before do
-        allow(project).to receive(:protected_for?).with('ref').and_return(true)
-      end
-
-      it_behaves_like 'ref is protected'
-    end
-
-    context 'when environment name is specified' do
-      let(:environment) { 'review/name' }
-
-      subject do
-        project.ci_variables_for(ref: 'ref', environment: environment)
-      end
-
-      context 'when environment scope is exactly matched' do
-        let(:environment_scope) { 'review/name' }
-
-        it { is_expected.to contain_exactly(ci_variable) }
-      end
-
-      context 'when environment scope is matched by wildcard' do
-        let(:environment_scope) { 'review/*' }
-
-        it { is_expected.to contain_exactly(ci_variable) }
-      end
-
-      context 'when environment scope does not match' do
-        let(:environment_scope) { 'review/*/special' }
-
-        it { is_expected.not_to contain_exactly(ci_variable) }
-      end
-
-      context 'when environment scope has _' do
-        let(:environment_scope) { '*_*' }
-
-        it 'does not treat it as wildcard' do
-          is_expected.not_to contain_exactly(ci_variable)
-        end
-
-        context 'when environment name contains underscore' do
-          let(:environment) { 'foo_bar/test' }
-          let(:environment_scope) { 'foo_bar/*' }
-
-          it 'matches literally for _' do
-            is_expected.to contain_exactly(ci_variable)
-          end
-        end
-      end
-
-      # The environment name and scope cannot have % at the moment,
-      # but we're considering relaxing it and we should also make sure
-      # it doesn't break in case some data sneaked in somehow as we're
-      # not checking this integrity in database level.
-      context 'when environment scope has %' do
-        it 'does not treat it as wildcard' do
-          ci_variable.update_attribute(:environment_scope, '*%*')
-
-          is_expected.not_to contain_exactly(ci_variable)
-        end
-
-        context 'when environment name contains a percent' do
-          let(:environment) { 'foo%bar/test' }
-
-          it 'matches literally for _' do
-            ci_variable.environment_scope = 'foo%bar/*'
-
-            is_expected.to contain_exactly(ci_variable)
-          end
-        end
-      end
-
-      context 'when variables with the same name have different environment scopes' do
-        let!(:partially_matched_variable) do
-          create(:ci_variable,
-                 key: ci_variable.key,
-                 value: 'partial',
-                 environment_scope: 'review/*',
-                 project: project)
-        end
-
-        let!(:perfectly_matched_variable) do
-          create(:ci_variable,
-                 key: ci_variable.key,
-                 value: 'prefect',
-                 environment_scope: 'review/name',
-                 project: project)
-        end
-
-        it 'puts variables matching environment scope more in the end' do
-          is_expected.to eq(
-            [ci_variable,
-             partially_matched_variable,
-             perfectly_matched_variable])
-        end
-      end
     end
   end
 
@@ -4325,52 +4963,6 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#pages_url' do
-    let(:group) { create(:group, name: 'Group') }
-    let(:nested_group) { create(:group, parent: group) }
-    let(:domain) { 'Example.com' }
-
-    subject { project.pages_url }
-
-    before do
-      allow(Settings.pages).to receive(:host).and_return(domain)
-      allow(Gitlab.config.pages).to receive(:url).and_return('http://example.com')
-    end
-
-    context 'top-level group' do
-      let(:project) { create(:project, namespace: group, name: project_name) }
-
-      context 'group page' do
-        let(:project_name) { 'group.example.com' }
-
-        it { is_expected.to eq("http://group.example.com") }
-      end
-
-      context 'project page' do
-        let(:project_name) { 'Project' }
-
-        it { is_expected.to eq("http://group.example.com/project") }
-      end
-    end
-
-    context 'nested group' do
-      let(:project) { create(:project, namespace: nested_group, name: project_name) }
-      let(:expected_url) { "http://group.example.com/#{nested_group.path}/#{project.path}" }
-
-      context 'group page' do
-        let(:project_name) { 'group.example.com' }
-
-        it { is_expected.to eq(expected_url) }
-      end
-
-      context 'project page' do
-        let(:project_name) { 'Project' }
-
-        it { is_expected.to eq(expected_url) }
-      end
-    end
-  end
-
   describe '#lfs_http_url_to_repo' do
     let(:project) { create(:project) }
 
@@ -4416,6 +5008,33 @@ RSpec.describe Project, factory_default: :keep do
       expect(project).to receive(:visibility_level_allowed_by_group).and_call_original
 
       project.update!(visibility_level: Gitlab::VisibilityLevel::INTERNAL)
+    end
+
+    context 'when validating if path already exist as pages unique domain' do
+      before do
+        stub_pages_setting(host: 'example.com')
+      end
+
+      it 'rejects paths that match pages unique domain' do
+        stub_pages_setting(host: 'example.com')
+        create(:project_setting, pages_unique_domain: 'some-unique-domain')
+
+        expect(project.update(path: 'some-unique-domain.example.com')).to eq(false)
+        expect(project.errors.full_messages_for(:path)).to match(['Path already in use'])
+      end
+
+      it 'accepts path when the host does not match' do
+        create(:project_setting, pages_unique_domain: 'some-unique-domain')
+
+        expect(project.update(path: 'some-unique-domain.another-example.com')).to eq(true)
+      end
+
+      it 'accepts path when the domain does not match' do
+        stub_pages_setting(host: 'example.com')
+        create(:project_setting, pages_unique_domain: 'another-unique-domain')
+
+        expect(project.update(path: 'some-unique-domain.example.com')).to eq(true)
+      end
     end
 
     it 'does not validate the visibility' do
@@ -4480,7 +5099,9 @@ RSpec.describe Project, factory_default: :keep do
     end
 
     context 'with deploy token users' do
-      let_it_be(:private_project) { create(:project, :private) }
+      let_it_be(:private_project) { create(:project, :private, description: 'Match') }
+      let_it_be(:private_project2) { create(:project, :private, description: 'Match') }
+      let_it_be(:private_project3) { create(:project, :private, description: 'Mismatch') }
 
       subject { described_class.all.public_or_visible_to_user(user) }
 
@@ -4490,10 +5111,16 @@ RSpec.describe Project, factory_default: :keep do
         it { is_expected.to eq [] }
       end
 
-      context 'deploy token user with project' do
-        let_it_be(:user) { create(:deploy_token, projects: [private_project]) }
+      context 'deploy token user with projects' do
+        let_it_be(:user) { create(:deploy_token, projects: [private_project, private_project2, private_project3]) }
 
-        it { is_expected.to include(private_project) }
+        it { is_expected.to contain_exactly(private_project, private_project2, private_project3) }
+
+        context 'with chained filter' do
+          subject { described_class.where(description: 'Match').public_or_visible_to_user(user) }
+
+          it { is_expected.to contain_exactly(private_project, private_project2) }
+        end
       end
     end
   end
@@ -4506,7 +5133,7 @@ RSpec.describe Project, factory_default: :keep do
       project_2 = create(:project, :public, :merge_requests_disabled)
       project_3 = create(:project, :public, :issues_disabled)
       project_4 = create(:project, :public)
-      project_4.project_feature.update!(issues_access_level: ProjectFeature::PRIVATE, merge_requests_access_level: ProjectFeature::PRIVATE )
+      project_4.project_feature.update!(issues_access_level: ProjectFeature::PRIVATE, merge_requests_access_level: ProjectFeature::PRIVATE)
 
       project_ids = described_class.ids_with_issuables_available_for(user).pluck(:id)
 
@@ -4630,6 +5257,7 @@ RSpec.describe Project, factory_default: :keep do
   describe '.filter_by_feature_visibility' do
     include_context 'ProjectPolicyTable context'
     include ProjectHelpers
+    include UserHelpers
 
     let_it_be(:group) { create(:group) }
     let_it_be_with_reload(:project) { create(:project, namespace: group) }
@@ -4641,8 +5269,7 @@ RSpec.describe Project, factory_default: :keep do
     shared_examples 'filter respects visibility' do
       it 'respects visibility' do
         enable_admin_mode!(user) if admin_mode
-        project.update!(visibility_level: Gitlab::VisibilityLevel.level_value(project_level.to_s))
-        update_feature_access_level(project, feature_access_level)
+        update_feature_access_level(project, feature_access_level, visibility_level: Gitlab::VisibilityLevel.level_value(project_level.to_s))
 
         expected_objects = expected_count == 1 ? [project] : []
 
@@ -4713,30 +5340,8 @@ RSpec.describe Project, factory_default: :keep do
     subject { described_class.wrap_with_cte(projects) }
 
     it 'wrapped query matches original' do
-      expect(subject.to_sql).to match(/^WITH "projects_cte" AS #{Gitlab::Database::AsWithMaterialized.materialized_if_supported}/)
+      expect(subject.to_sql).to match(/^WITH "projects_cte" AS MATERIALIZED/)
       expect(subject).to match_array(projects)
-    end
-  end
-
-  describe '#pages_available?' do
-    let(:project) { create(:project, group: group) }
-
-    subject { project.pages_available? }
-
-    before do
-      allow(Gitlab.config.pages).to receive(:enabled).and_return(true)
-    end
-
-    context 'when the project is in a top level namespace' do
-      let(:group) { create(:group) }
-
-      it { is_expected.to be(true) }
-    end
-
-    context 'when the project is in a subgroup' do
-      let(:group) { create(:group, :nested) }
-
-      it { is_expected.to be(true) }
     end
   end
 
@@ -4890,62 +5495,6 @@ RSpec.describe Project, factory_default: :keep do
         expect(project.hashed_storage?(:repository)).to be_falsey
       end
     end
-
-    describe '#pages_path' do
-      it 'returns a path where pages are stored' do
-        expect(project.pages_path).to eq(File.join(Settings.pages.path, project.namespace.full_path, project.path))
-      end
-    end
-
-    describe '#migrate_to_hashed_storage!' do
-      let(:project) { create(:project, :empty_repo, :legacy_storage) }
-
-      it 'returns true' do
-        expect(project.migrate_to_hashed_storage!).to be_truthy
-      end
-
-      it 'does not run validation' do
-        expect(project).not_to receive(:valid?)
-
-        project.migrate_to_hashed_storage!
-      end
-
-      it 'schedules HashedStorage::ProjectMigrateWorker with delayed start when the project repo is in use' do
-        Gitlab::ReferenceCounter.new(Gitlab::GlRepository::PROJECT.identifier_for_container(project)).increase
-
-        expect(HashedStorage::ProjectMigrateWorker).to receive(:perform_in)
-
-        project.migrate_to_hashed_storage!
-      end
-
-      it 'schedules HashedStorage::ProjectMigrateWorker with delayed start when the wiki repo is in use' do
-        Gitlab::ReferenceCounter.new(Gitlab::GlRepository::WIKI.identifier_for_container(project.wiki)).increase
-
-        expect(HashedStorage::ProjectMigrateWorker).to receive(:perform_in)
-
-        project.migrate_to_hashed_storage!
-      end
-
-      it 'schedules HashedStorage::ProjectMigrateWorker' do
-        expect(HashedStorage::ProjectMigrateWorker).to receive(:perform_async).with(project.id)
-
-        project.migrate_to_hashed_storage!
-      end
-    end
-
-    describe '#rollback_to_legacy_storage!' do
-      let(:project) { create(:project, :empty_repo, :legacy_storage) }
-
-      it 'returns nil' do
-        expect(project.rollback_to_legacy_storage!).to be_nil
-      end
-
-      it 'does not run validations' do
-        expect(project).not_to receive(:valid?)
-
-        project.rollback_to_legacy_storage!
-      end
-    end
   end
 
   context 'hashed storage' do
@@ -4985,72 +5534,14 @@ RSpec.describe Project, factory_default: :keep do
         expect(project.disk_path).to eq(hashed_path)
       end
     end
-
-    describe '#pages_path' do
-      it 'returns a path where pages are stored' do
-        expect(project.pages_path).to eq(File.join(Settings.pages.path, project.namespace.full_path, project.path))
-      end
-    end
-
-    describe '#migrate_to_hashed_storage!' do
-      let(:project) { create(:project, :repository, skip_disk_validation: true) }
-
-      it 'returns nil' do
-        expect(project.migrate_to_hashed_storage!).to be_nil
-      end
-
-      it 'does not flag as read-only' do
-        expect { project.migrate_to_hashed_storage! }.not_to change { project.repository_read_only }
-      end
-
-      context 'when partially migrated' do
-        it 'enqueues a job' do
-          project = create(:project, storage_version: 1, skip_disk_validation: true)
-
-          Sidekiq::Testing.fake! do
-            expect { project.migrate_to_hashed_storage! }.to change(HashedStorage::ProjectMigrateWorker.jobs, :size).by(1)
-          end
-        end
-      end
-    end
-
-    describe '#rollback_to_legacy_storage!' do
-      let(:project) { create(:project, :repository, skip_disk_validation: true) }
-
-      it 'returns true' do
-        expect(project.rollback_to_legacy_storage!).to be_truthy
-      end
-
-      it 'does not run validations' do
-        expect(project).not_to receive(:valid?)
-
-        project.rollback_to_legacy_storage!
-      end
-
-      it 'does not flag as read-only' do
-        expect { project.rollback_to_legacy_storage! }.not_to change { project.repository_read_only }
-      end
-
-      it 'enqueues a job' do
-        Sidekiq::Testing.fake! do
-          expect { project.rollback_to_legacy_storage! }.to change(HashedStorage::ProjectRollbackWorker.jobs, :size).by(1)
-        end
-      end
-    end
   end
 
   describe '#has_ci?' do
     let_it_be(:project, reload: true) { create(:project) }
 
-    let(:repository) { double }
-
-    before do
-      expect(project).to receive(:repository) { repository }
-    end
-
     context 'when has .gitlab-ci.yml' do
       before do
-        expect(repository).to receive(:gitlab_ci_yml) { 'content' }
+        expect(project).to receive(:has_ci_config_file?) { true }
       end
 
       it "CI is available" do
@@ -5060,7 +5551,7 @@ RSpec.describe Project, factory_default: :keep do
 
     context 'when there is no .gitlab-ci.yml' do
       before do
-        expect(repository).to receive(:gitlab_ci_yml) { nil }
+        expect(project).to receive(:has_ci_config_file?) { false }
       end
 
       it "CI is available" do
@@ -5076,6 +5567,38 @@ RSpec.describe Project, factory_default: :keep do
           expect(project).not_to have_ci
         end
       end
+    end
+  end
+
+  describe '#has_ci_config_file?' do
+    subject(:has_ci_config_file) { project.has_ci_config_file? }
+
+    context 'when the repository does not exist' do
+      let_it_be(:project) { create(:project) }
+
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when the repository has a .gitlab-ci.yml file' do
+      let_it_be(:project) { create(:project, :small_repo, files: { '.gitlab-ci.yml' => 'test' }) }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when the repository does not have a .gitlab-ci.yml file' do
+      let_it_be(:project) { create(:project, :small_repo, files: { 'README.md' => 'hello' }) }
+
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when the repository has a custom CI config file' do
+      let_it_be(:project) { create(:project, :small_repo, files: { 'my_ci_file.yml' => 'test' }) }
+
+      before do
+        project.ci_config_path = 'my_ci_file.yml'
+      end
+
+      it { is_expected.to be_truthy }
     end
   end
 
@@ -5414,8 +5937,19 @@ RSpec.describe Project, factory_default: :keep do
     let_it_be(:project) { create(:project) }
 
     it 'exposes API v4 URL' do
-      expect(project.api_variables.first[:key]).to eq 'CI_API_V4_URL'
-      expect(project.api_variables.first[:value]).to include '/api/v4'
+      v4_variable = project.api_variables.find { |variable| variable[:key] == "CI_API_V4_URL" }
+
+      expect(v4_variable).not_to be_nil
+      expect(v4_variable[:key]).to eq 'CI_API_V4_URL'
+      expect(v4_variable[:value]).to end_with '/api/v4'
+    end
+
+    it 'exposes API GraphQL URL' do
+      graphql_variable = project.api_variables.find { |variable| variable[:key] == "CI_API_GRAPHQL_URL" }
+
+      expect(graphql_variable).not_to be_nil
+      expect(graphql_variable[:key]).to eq 'CI_API_GRAPHQL_URL'
+      expect(graphql_variable[:value]).to end_with '/api/graphql'
     end
 
     it 'contains a URL variable for every supported API version' do
@@ -5430,7 +5964,7 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       expect(project.api_variables.map { |variable| variable[:key] })
-        .to contain_exactly(*required_variables)
+        .to include(*required_variables)
     end
   end
 
@@ -5520,17 +6054,16 @@ RSpec.describe Project, factory_default: :keep do
     let(:import_state) { create(:import_state, project: project) }
 
     it 'runs the correct hooks' do
-      expect(project.repository).to receive(:expire_content_cache)
+      expect(project.repository).to receive(:expire_content_cache).ordered
+      expect(project.repository).to receive(:remove_prohibited_branches).ordered
       expect(project.wiki.repository).to receive(:expire_content_cache)
       expect(import_state).to receive(:finish)
-      expect(project).to receive(:update_project_counter_caches)
+      expect(project).to receive(:reset_counters_and_iids)
       expect(project).to receive(:after_create_default_branch)
       expect(project).to receive(:refresh_markdown_cache!)
-      expect(InternalId).to receive(:flush_records!).with(project: project)
-      expect(ProjectCacheWorker).to receive(:perform_async).with(project.id, [], [:repository_size])
+      expect(ProjectCacheWorker).to receive(:perform_async).with(project.id, [], [:repository_size, :wiki_size])
       expect(DetectRepositoryLanguagesWorker).to receive(:perform_async).with(project.id)
       expect(AuthorizedProjectUpdate::ProjectRecalculateWorker).to receive(:perform_async).with(project.id)
-      expect(project).to receive(:set_full_path)
 
       project.after_import
     end
@@ -5552,14 +6085,14 @@ RSpec.describe Project, factory_default: :keep do
     context 'branch protection' do
       let_it_be(:namespace) { create(:namespace) }
 
-      let(:project) { create(:project, :repository, namespace: namespace) }
+      let_it_be(:project) { create(:project, :repository, namespace: namespace) }
 
       before do
         create(:import_state, :started, project: project)
       end
 
       it 'does not protect when branch protection is disabled' do
-        expect(project.namespace).to receive(:default_branch_protection).and_return(Gitlab::Access::PROTECTION_NONE)
+        expect(project.namespace).to receive(:default_branch_protection_settings).and_return(Gitlab::Access::BranchProtection.protection_none)
 
         project.after_import
 
@@ -5567,7 +6100,7 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       it "gives developer access to push when branch protection is set to 'developers can push'" do
-        expect(project.namespace).to receive(:default_branch_protection).and_return(Gitlab::Access::PROTECTION_DEV_CAN_PUSH)
+        expect(project.namespace).to receive(:default_branch_protection_settings).and_return(Gitlab::Access::BranchProtection.protection_partial)
 
         project.after_import
 
@@ -5577,7 +6110,7 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       it "gives developer access to merge when branch protection is set to 'developers can merge'" do
-        expect(project.namespace).to receive(:default_branch_protection).and_return(Gitlab::Access::PROTECTION_DEV_CAN_MERGE)
+        expect(project.namespace).to receive(:default_branch_protection_settings).and_return(Gitlab::Access::BranchProtection.protected_against_developer_pushes)
 
         project.after_import
 
@@ -5595,6 +6128,29 @@ RSpec.describe Project, factory_default: :keep do
         expect(project.protected_branches.first.merge_access_levels.map(&:access_level)).to eq([Gitlab::Access::MAINTAINER])
       end
     end
+
+    describe 'project target platforms detection' do
+      before do
+        create(:import_state, :started, project: project)
+      end
+
+      it 'calls enqueue_record_project_target_platforms' do
+        expect(project).to receive(:enqueue_record_project_target_platforms)
+
+        project.after_import
+      end
+    end
+  end
+
+  describe '#reset_counters_and_iids' do
+    let(:project) { build(:project) }
+
+    it 'runs the correct hooks' do
+      expect(project).to receive(:update_project_counter_caches)
+      expect(InternalId).to receive(:flush_records!).with(project: project)
+
+      project.reset_counters_and_iids
+    end
   end
 
   describe '#update_project_counter_caches' do
@@ -5610,28 +6166,6 @@ RSpec.describe Project, factory_default: :keep do
         .and_call_original
 
       project.update_project_counter_caches
-    end
-  end
-
-  describe '#set_full_path' do
-    let_it_be(:project) { create(:project, :repository) }
-
-    it 'writes full path in .git/config when key is missing' do
-      project.set_full_path
-
-      expect(rugged_config['gitlab.fullpath']).to eq project.full_path
-    end
-
-    it 'updates full path in .git/config when key is present' do
-      project.set_full_path(gl_full_path: 'old/path')
-
-      expect { project.set_full_path }.to change { rugged_config['gitlab.fullpath'] }.from('old/path').to(project.full_path)
-    end
-
-    it 'does not raise an error with an empty repository' do
-      project = create(:project_empty_repo)
-
-      expect { project.set_full_path }.not_to raise_error
     end
   end
 
@@ -5705,6 +6239,18 @@ RSpec.describe Project, factory_default: :keep do
       project.execute_hooks(data, :push_hooks)
     end
 
+    it 'executes hooks which were backed off and are no longer backed off' do
+      project = create(:project)
+      hook = create(:project_hook, project: project, push_events: true)
+      WebHooks::AutoDisabling::FAILURE_THRESHOLD.succ.times { hook.backoff! }
+
+      expect_any_instance_of(ProjectHook).to receive(:async_execute).once
+
+      travel_to(hook.disabled_until + 1.second) do
+        project.execute_hooks(data, :push_hooks)
+      end
+    end
+
     it 'executes the system hooks with the specified scope' do
       expect_any_instance_of(SystemHooksService).to receive(:execute_hooks).with(data, :merge_request_hooks)
 
@@ -5752,45 +6298,148 @@ RSpec.describe Project, factory_default: :keep do
 
       integration.project.execute_integrations(anything, :merge_request_hooks)
     end
+
+    it 'does not trigger extra queries when called multiple times' do
+      integration.project.execute_integrations({}, :push_hooks)
+
+      recorder = ActiveRecord::QueryRecorder.new do
+        integration.project.execute_integrations({}, :push_hooks)
+      end
+
+      expect(recorder.count).to be_zero
+    end
+
+    context 'with a CI integration' do
+      let!(:ci_integration) do
+        create(:jenkins_integration, push_events: true, active: true, project: integration.project)
+      end
+
+      it 'executes the integrations' do
+        [Integrations::Jenkins, Integrations::Slack].each do |integration_type|
+          expect_next_found_instance_of(integration_type) do |instance|
+            expect(instance).to receive(:async_execute).with('data').once
+          end
+        end
+
+        integration.project.execute_integrations('data', :push_hooks)
+      end
+
+      context 'and skipping ci' do
+        it 'does not execute ci integrations' do
+          expect_next_found_instance_of(Integrations::Jenkins) do |instance|
+            expect(instance).not_to receive(:async_execute)
+          end
+
+          expect_next_found_instance_of(Integrations::Slack) do |instance|
+            expect(instance).to receive(:async_execute).with('data').once
+          end
+
+          integration.project.execute_integrations('data', :push_hooks, skip_ci: true)
+        end
+      end
+    end
+  end
+
+  describe '#jenkins_integration_active?' do
+    let_it_be_with_reload(:project) { create(:project) }
+    let_it_be_with_reload(:integration) { create(:jenkins_integration, push_events: true, project: project) }
+
+    subject { project.jenkins_integration_active? }
+
+    before do
+      integration.update!(active: active)
+    end
+
+    context 'when a project has an activated Jenkins integration' do
+      let(:active) { true }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when a project has an inactive Jenkins integration' do
+      let(:active) { false }
+
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when a project does not have a Jenkins integration at all' do
+      let(:active) { true }
+
+      before do
+        integration.destroy!
+      end
+
+      it { is_expected.to be_falsey }
+    end
   end
 
   describe '#has_active_hooks?' do
-    let_it_be(:project) { create(:project) }
+    let_it_be_with_refind(:project) { create(:project) }
 
-    it { expect(project.has_active_hooks?).to be_falsey }
+    it { expect(project.has_active_hooks?).to eq(false) }
 
     it 'returns true when a matching push hook exists' do
       create(:project_hook, push_events: true, project: project)
 
-      expect(project.has_active_hooks?(:merge_request_events)).to be_falsey
-      expect(project.has_active_hooks?).to be_truthy
+      expect(project.has_active_hooks?(:merge_request_hooks)).to eq(false)
+      expect(project.has_active_hooks?).to eq(true)
     end
 
     it 'returns true when a matching system hook exists' do
       create(:system_hook, push_events: true)
 
-      expect(project.has_active_hooks?(:merge_request_events)).to be_falsey
-      expect(project.has_active_hooks?).to be_truthy
+      expect(project.has_active_hooks?(:merge_request_hooks)).to eq(false)
+      expect(project.has_active_hooks?).to eq(true)
     end
 
     it 'returns true when a plugin exists' do
       expect(Gitlab::FileHook).to receive(:any?).twice.and_return(true)
 
-      expect(project.has_active_hooks?(:merge_request_events)).to be_truthy
-      expect(project.has_active_hooks?).to be_truthy
+      expect(project.has_active_hooks?(:merge_request_hooks)).to eq(true)
+      expect(project.has_active_hooks?).to eq(true)
+    end
+
+    context 'with :emoji_hooks scope' do
+      it 'returns true when a matching emoji hook exists' do
+        create(:project_hook, emoji_events: true, project: project)
+
+        expect(project.has_active_hooks?(:emoji_hooks)).to eq(true)
+      end
+    end
+
+    context 'with :access_token_hooks scope' do
+      it 'returns true when a matching access token hook exists' do
+        create(:project_hook, resource_access_token_events: true, project: project)
+
+        expect(project.has_active_hooks?(:resource_access_token_hooks)).to eq(true)
+      end
     end
   end
 
   describe '#has_active_integrations?' do
-    let_it_be(:project) { create(:project) }
+    let_it_be_with_refind(:project) { create(:project) }
 
-    it { expect(project.has_active_integrations?).to be_falsey }
+    it { expect(project.has_active_integrations?).to eq(false) }
 
     it 'returns true when a matching service exists' do
       create(:custom_issue_tracker_integration, push_events: true, merge_requests_events: false, project: project)
 
-      expect(project.has_active_integrations?(:merge_request_hooks)).to be_falsey
-      expect(project.has_active_integrations?).to be_truthy
+      expect(project.has_active_integrations?(:merge_request_hooks)).to eq(false)
+      expect(project.has_active_integrations?).to eq(true)
+    end
+
+    it 'caches matching integrations' do
+      create(:custom_issue_tracker_integration, push_events: true, merge_requests_events: false, project: project)
+
+      expect(project.has_active_integrations?(:merge_request_hooks)).to eq(false)
+      expect(project.has_active_integrations?).to eq(true)
+
+      count = ActiveRecord::QueryRecorder.new do
+        expect(project.has_active_integrations?(:merge_request_hooks)).to eq(false)
+        expect(project.has_active_integrations?).to eq(true)
+      end.count
+
+      expect(count).to eq(0)
     end
   end
 
@@ -5932,6 +6581,8 @@ RSpec.describe Project, factory_default: :keep do
     let!(:merge_request) do
       create(
         :merge_request,
+        author: author,
+        state_id: state_id,
         target_project: target_project,
         target_branch: 'target-branch',
         source_project: project,
@@ -5939,6 +6590,9 @@ RSpec.describe Project, factory_default: :keep do
         allow_collaboration: true
       )
     end
+
+    let(:author) { project.creator }
+    let(:state_id) { MergeRequest.available_states[:opened] }
 
     before do
       target_project.add_developer(user)
@@ -5949,10 +6603,12 @@ RSpec.describe Project, factory_default: :keep do
         expect(project.merge_requests_allowing_push_to_user(user)).to include(merge_request)
       end
 
-      it 'does not include closed merge requests' do
-        merge_request.close
+      context 'when the merge requests are closed' do
+        let(:state_id) { MergeRequest.available_states[:closed] }
 
-        expect(project.merge_requests_allowing_push_to_user(user)).to be_empty
+        it 'does not include closed merge requests' do
+          expect(project.merge_requests_allowing_push_to_user(user)).to be_empty
+        end
       end
 
       it 'does not include merge requests for guest users' do
@@ -5974,16 +6630,38 @@ RSpec.describe Project, factory_default: :keep do
     end
 
     describe '#any_branch_allows_collaboration?' do
-      it 'allows access when there are merge requests open allowing collaboration', :sidekiq_might_not_need_inline do
-        expect(project.any_branch_allows_collaboration?(user))
-          .to be_truthy
-      end
+      context 'when there is an open merge request allowing collaboration' do
+        it 'allows access', :sidekiq_might_not_need_inline do
+          expect(project.any_branch_allows_collaboration?(user))
+            .to be_truthy
+        end
 
-      it 'does not allow access when there are no merge requests open allowing collaboration' do
-        merge_request.close!
+        context 'when the merge request author is not allowed to push_code' do
+          let(:author) { create(:user) }
 
-        expect(project.any_branch_allows_collaboration?(user))
-          .to be_falsey
+          it 'returns false' do
+            expect(project.any_branch_allows_collaboration?(user))
+              .to be_falsey
+          end
+        end
+
+        context 'when the merge request is closed' do
+          let(:state_id) { MergeRequest.available_states[:closed] }
+
+          it 'returns false' do
+            expect(project.any_branch_allows_collaboration?(user))
+              .to be_falsey
+          end
+        end
+
+        context 'when the merge request is merged' do
+          let(:state_id) { MergeRequest.available_states[:merged] }
+
+          it 'returns false' do
+            expect(project.any_branch_allows_collaboration?(user))
+              .to be_falsey
+          end
+        end
       end
     end
 
@@ -6002,12 +6680,15 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       it 'does not allow access to branches for which the merge request was closed' do
-        create(:merge_request, :closed,
-               target_project: target_project,
-               target_branch: 'target-branch',
-               source_project: project,
-               source_branch: 'rejected-feature-1',
-               allow_collaboration: true)
+        create(
+          :merge_request,
+          :closed,
+          target_project: target_project,
+          target_branch: 'target-branch',
+          source_project: project,
+          source_branch: 'rejected-feature-1',
+          allow_collaboration: true
+        )
 
         expect(project.branch_allows_collaboration?(user, 'rejected-feature-1'))
           .to be_falsy
@@ -6028,6 +6709,15 @@ RSpec.describe Project, factory_default: :keep do
             .not_to exceed_query_limit(control).with_threshold(2)
         end
       end
+
+      context 'when the merge request author is not allowed to push_code' do
+        let(:author) { create(:user) }
+
+        it 'returns false' do
+          expect(project.branch_allows_collaboration?(user, 'awesome-feature-1'))
+            .to be_falsey
+        end
+      end
     end
   end
 
@@ -6042,8 +6732,7 @@ RSpec.describe Project, factory_default: :keep do
     it 'returns the classification label if it was configured on the project' do
       enable_external_authorization_service_check
 
-      project = build(:project,
-                      external_authorization_classification_label: 'hello')
+      project = build(:project, external_authorization_classification_label: 'hello')
 
       expect(project.external_authorization_classification_label)
         .to eq('hello')
@@ -6110,7 +6799,7 @@ RSpec.describe Project, factory_default: :keep do
   describe '#gitlab_deploy_token' do
     let(:project) { create(:project) }
 
-    subject { project.gitlab_deploy_token }
+    subject(:gitlab_deploy_token) { project.gitlab_deploy_token }
 
     context 'when there is a gitlab deploy token associated' do
       let!(:deploy_token) { create(:deploy_token, :gitlab_deploy_token, projects: [project]) }
@@ -6142,9 +6831,26 @@ RSpec.describe Project, factory_default: :keep do
 
     context 'when there is a deploy token associated to a different project' do
       let(:project_2) { create(:project) }
-      let!(:deploy_token) { create(:deploy_token, projects: [project_2]) }
+      let!(:deploy_token) { create(:deploy_token, :gitlab_deploy_token, projects: [project_2]) }
 
       it { is_expected.to be_nil }
+    end
+
+    context 'when the project group has a gitlab deploy token associated' do
+      let(:group) { create(:group) }
+      let(:project) { create(:project, group: group) }
+      let!(:deploy_token) { create(:deploy_token, :gitlab_deploy_token, :group, groups: [group]) }
+
+      it { is_expected.to eq(deploy_token) }
+    end
+
+    context 'when the project and its group has a gitlab deploy token associated' do
+      let(:group) { create(:group) }
+      let(:project) { create(:project, group: group) }
+      let!(:project_deploy_token) { create(:deploy_token, :gitlab_deploy_token, projects: [project]) }
+      let!(:group_deploy_token) { create(:deploy_token, :gitlab_deploy_token, :group, groups: [group]) }
+
+      it { is_expected.to eq(project_deploy_token) }
     end
   end
 
@@ -6204,17 +6910,17 @@ RSpec.describe Project, factory_default: :keep do
     let_it_be(:subject) { create(:project) }
 
     it 'avoids N+1 database queries' do
-      control_count = ActiveRecord::QueryRecorder.new { subject.find_or_initialize_integrations }.count
+      control = ActiveRecord::QueryRecorder.new { subject.find_or_initialize_integrations }
 
-      expect(control_count).to be <= 4
+      expect(control.count).to be <= 4
     end
 
     it 'avoids N+1 database queries with more available integrations' do
       allow(Integration).to receive(:available_integration_names).and_return(%w[pushover])
-      control_count = ActiveRecord::QueryRecorder.new { subject.find_or_initialize_integrations }
+      control = ActiveRecord::QueryRecorder.new { subject.find_or_initialize_integrations }
 
       allow(Integration).to receive(:available_integration_names).and_call_original
-      expect { subject.find_or_initialize_integrations }.not_to exceed_query_limit(control_count)
+      expect { subject.find_or_initialize_integrations }.not_to exceed_query_limit(control)
     end
 
     context 'with disabled integrations' do
@@ -6230,23 +6936,41 @@ RSpec.describe Project, factory_default: :keep do
         ]
       end
     end
+
+    context 'with instance specific integration' do
+      it 'does not contain instance specific integrations' do
+        expect(subject.find_or_initialize_integrations).not_to include(
+          have_attributes(title: 'Beyond Identity')
+        )
+      end
+    end
+  end
+
+  describe '#disabled_integrations' do
+    subject { build(:project).disabled_integrations }
+
+    it { is_expected.to include('zentao') }
   end
 
   describe '#find_or_initialize_integration' do
     it 'avoids N+1 database queries' do
       allow(Integration).to receive(:available_integration_names).and_return(%w[prometheus pushover])
 
-      control_count = ActiveRecord::QueryRecorder.new { subject.find_or_initialize_integration('prometheus') }.count
+      control = ActiveRecord::QueryRecorder.new { subject.find_or_initialize_integration('prometheus') }
 
       allow(Integration).to receive(:available_integration_names).and_call_original
 
-      expect { subject.find_or_initialize_integration('prometheus') }.not_to exceed_query_limit(control_count)
+      expect { subject.find_or_initialize_integration('prometheus') }.not_to exceed_query_limit(control)
     end
 
     it 'returns nil if integration is disabled' do
       allow(subject).to receive(:disabled_integrations).and_return(%w[prometheus])
 
       expect(subject.find_or_initialize_integration('prometheus')).to be_nil
+    end
+
+    it 'returns nil if integration does not exist' do
+      expect(subject.find_or_initialize_integration('non-existing')).to be_nil
     end
 
     context 'with an existing integration' do
@@ -6277,6 +7001,12 @@ RSpec.describe Project, factory_default: :keep do
         expect(subject.find_or_initialize_integration('prometheus').api_url).to be_nil
       end
     end
+
+    context 'with instance specific integrations' do
+      it 'does not create an instance specific integration' do
+        expect(subject.find_or_initialize_integration('beyond_identity')).to be_nil
+      end
+    end
   end
 
   describe '.for_group' do
@@ -6300,6 +7030,51 @@ RSpec.describe Project, factory_default: :keep do
       create(:project, namespace: group_4)
 
       expect(described_class.for_group_and_its_ancestor_groups(group_3)).to match_array([project_1, project_2, project_3])
+    end
+  end
+
+  describe '.pending_data_repair_analysis' do
+    it 'returns projects that are not in ContainerRegistry::DataRepairDetail' do
+      project_1 = create(:project)
+      project_2 = create(:project)
+
+      expect(described_class.pending_data_repair_analysis).to match_array([project_1, project_2])
+
+      create(:container_registry_data_repair_detail, project: project_1)
+
+      expect(described_class.pending_data_repair_analysis).to match_array([project_2])
+    end
+  end
+
+  describe '.with_package_registry_enabled' do
+    subject { described_class.with_package_registry_enabled }
+
+    it 'returns projects with the package registry enabled' do
+      project_1 = create(:project)
+      create(:project, package_registry_access_level: ProjectFeature::DISABLED, packages_enabled: false)
+
+      expect(subject).to contain_exactly(project_1)
+    end
+  end
+
+  describe '.with_public_package_registry' do
+    let_it_be(:project) { create(:project, package_registry_access_level: ::ProjectFeature::PUBLIC) }
+    let_it_be(:other_project) { create(:project, package_registry_access_level: ::ProjectFeature::ENABLED) }
+
+    subject { described_class.with_public_package_registry }
+
+    it { is_expected.to contain_exactly(project) }
+  end
+
+  describe '.not_a_fork' do
+    let_it_be(:project) { create(:project, :public) }
+
+    subject(:not_a_fork) { described_class.not_a_fork }
+
+    it 'returns projects which are not forks' do
+      fork_project(project)
+
+      expect(not_a_fork).to contain_exactly(project)
     end
   end
 
@@ -6446,14 +7221,130 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
+  describe '#swap_pool_repository!' do
+    subject(:swap_pool_repository!) { project.swap_pool_repository! }
+
+    let_it_be_with_reload(:project) { create(:project, :empty_repo) }
+    let_it_be(:shard_to) { create(:shard, name: 'test_second_storage') }
+
+    let(:disk_path1) { '@pool/aa/bb' }
+    let(:disk_path2) { disk_path1 }
+
+    let!(:pool1) { create(:pool_repository, disk_path: disk_path1, source_project: project) }
+    let!(:pool2) { create(:pool_repository, disk_path: disk_path2, shard: shard_to, source_project: project) }
+    let(:project_pool) { pool1 }
+    let(:repository_storage) { shard_to.name }
+
+    before do
+      stub_storage_settings('test_second_storage' => {})
+
+      project.update!(pool_repository: project_pool, repository_storage: repository_storage)
+    end
+
+    shared_examples 'no pool repository swap' do
+      it 'does not change pool repository for the project' do
+        expect { swap_pool_repository! }.not_to change { project.reload.pool_repository }
+      end
+    end
+
+    it 'moves project to the new pool repository' do
+      expect { swap_pool_repository! }.to change { project.reload.pool_repository }.from(pool1).to(pool2)
+    end
+
+    context 'when repository does not exist' do
+      let(:project) { build(:project) }
+
+      it_behaves_like 'no pool repository swap'
+    end
+
+    context 'when project does not have a pool repository' do
+      let(:project_pool) { nil }
+
+      it_behaves_like 'no pool repository swap'
+    end
+
+    context 'when project pool is on the same shard as repository' do
+      let(:project_pool) { pool2 }
+
+      it_behaves_like 'no pool repository swap'
+    end
+
+    context 'when pool repository for shard is missing' do
+      let(:pool2) { nil }
+
+      it 'raises record not found error' do
+        expect { swap_pool_repository! }.to raise_error(ActiveRecord::RecordNotFound)
+      end
+    end
+
+    context 'when pool repository has a different disk path' do
+      let(:disk_path2) { '@pool/different' }
+
+      it 'raises record not found error' do
+        expect { swap_pool_repository! }.to raise_error(ActiveRecord::RecordNotFound)
+      end
+    end
+  end
+
   describe '#leave_pool_repository' do
     let(:pool) { create(:pool_repository) }
     let(:project) { create(:project, :repository, pool_repository: pool) }
 
-    it 'removes the membership' do
-      project.leave_pool_repository
+    subject { project.leave_pool_repository }
+
+    it 'removes the membership and disconnects alternates' do
+      expect(pool).to receive(:unlink_repository).with(project.repository, disconnect: true).and_call_original
+
+      subject
 
       expect(pool.member_projects.reload).not_to include(project)
+    end
+
+    context 'when the project is pending delete' do
+      it 'removes the membership and does not disconnect alternates' do
+        project.pending_delete = true
+
+        expect(pool).to receive(:unlink_repository).with(project.repository, disconnect: false).and_call_original
+
+        subject
+
+        expect(pool.member_projects.reload).not_to include(project)
+      end
+    end
+  end
+
+  describe '#link_pool_repository' do
+    let(:pool) { create(:pool_repository) }
+    let(:project) { build(:project, :empty_repo, pool_repository: pool) }
+
+    subject { project.link_pool_repository }
+
+    it 'links pool repository to project repository' do
+      expect(pool).to receive(:link_repository).with(project.repository)
+
+      subject
+    end
+
+    context 'when pool repository is missing' do
+      let(:pool) { nil }
+
+      it 'does not link anything' do
+        allow_next_instance_of(PoolRepository) do |pool_repository|
+          expect(pool_repository).not_to receive(:link_repository)
+        end
+
+        subject
+      end
+    end
+
+    context 'when pool repository is on the different shard as project repository' do
+      let(:pool) { create(:pool_repository, shard: create(:shard, name: 'new')) }
+
+      it 'does not link anything' do
+        expect(pool).not_to receive(:link_repository)
+
+        subject
+      end
     end
   end
 
@@ -6492,7 +7383,7 @@ RSpec.describe Project, factory_default: :keep do
           project.check_personal_projects_limit
 
           expect(project.errors[:limit_reached].first)
-            .to match(/Personal project creation is not allowed/)
+            .to eq('You cannot create projects in your personal namespace. Contact your GitLab administrator.')
         end
       end
 
@@ -6505,7 +7396,7 @@ RSpec.describe Project, factory_default: :keep do
           project.check_personal_projects_limit
 
           expect(project.errors[:limit_reached].first)
-            .to match(/Your project limit is 5 projects/)
+            .to eq("You've reached your limit of 5 projects created. Contact your GitLab administrator.")
         end
       end
     end
@@ -6530,10 +7421,10 @@ RSpec.describe Project, factory_default: :keep do
     where(:shared_runners_setting, :project_shared_runners_enabled, :valid_record) do
       :shared_runners_enabled     | true  | true
       :shared_runners_enabled     | false | true
-      :disabled_with_override     | true  | true
-      :disabled_with_override     | false | true
-      :disabled_and_unoverridable | true  | false
-      :disabled_and_unoverridable | false | true
+      :shared_runners_disabled_and_overridable   | true  | true
+      :shared_runners_disabled_and_overridable   | false | true
+      :shared_runners_disabled_and_unoverridable | true  | false
+      :shared_runners_disabled_and_unoverridable | false | true
     end
 
     with_them do
@@ -6550,127 +7441,26 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#mark_pages_as_deployed' do
+  describe '#mark_pages_onboarding_complete' do
     let(:project) { create(:project) }
 
-    it "works when artifacts_archive is missing" do
-      project.mark_pages_as_deployed
+    it "creates new record and sets onboarding_complete to true if none exists yet" do
+      project.mark_pages_onboarding_complete
 
-      expect(project.pages_metadatum.reload.deployed).to eq(true)
+      expect(project.pages_metadatum.reload.onboarding_complete).to eq(true)
     end
 
-    it "creates new record and sets deployed to true if none exists yet" do
-      project.pages_metadatum.destroy!
-      project.reload
-
-      project.mark_pages_as_deployed
-
-      expect(project.pages_metadatum.reload.deployed).to eq(true)
-    end
-
-    it "updates the existing record and sets deployed to true and records artifact archive" do
+    it "overrides an existing setting" do
       pages_metadatum = project.pages_metadatum
-      pages_metadatum.update!(deployed: false)
+      pages_metadatum.update!(onboarding_complete: false)
 
       expect do
-        project.mark_pages_as_deployed
-      end.to change { pages_metadatum.reload.deployed }.from(false).to(true)
+        project.mark_pages_onboarding_complete
+      end.to change { pages_metadatum.reload.onboarding_complete }.from(false).to(true)
     end
   end
 
-  describe '#mark_pages_as_not_deployed' do
-    let(:project) { create(:project) }
-
-    it "creates new record and sets deployed to false if none exists yet" do
-      project.pages_metadatum.destroy!
-      project.reload
-
-      project.mark_pages_as_not_deployed
-
-      expect(project.pages_metadatum.reload.deployed).to eq(false)
-    end
-
-    it "updates the existing record and sets deployed to false and clears artifacts_archive" do
-      pages_metadatum = project.pages_metadatum
-      pages_metadatum.update!(deployed: true)
-
-      expect do
-        project.mark_pages_as_not_deployed
-      end.to change { pages_metadatum.reload.deployed }.from(true).to(false)
-    end
-  end
-
-  describe '#update_pages_deployment!' do
-    let(:project) { create(:project) }
-    let(:deployment) { create(:pages_deployment, project: project) }
-
-    it "creates new metadata record if none exists yet and sets deployment" do
-      project.pages_metadatum.destroy!
-      project.reload
-
-      project.update_pages_deployment!(deployment)
-
-      expect(project.pages_metadatum.pages_deployment).to eq(deployment)
-    end
-
-    it "updates the existing metadara record with deployment" do
-      expect do
-        project.update_pages_deployment!(deployment)
-      end.to change { project.pages_metadatum.reload.pages_deployment }.from(nil).to(deployment)
-    end
-  end
-
-  describe '#set_first_pages_deployment!' do
-    let(:project) { create(:project) }
-    let(:deployment) { create(:pages_deployment, project: project) }
-
-    it "creates new metadata record if none exists yet and sets deployment" do
-      project.pages_metadatum.destroy!
-      project.reload
-
-      project.set_first_pages_deployment!(deployment)
-
-      expect(project.pages_metadatum.reload.pages_deployment).to eq(deployment)
-      expect(project.pages_metadatum.reload.deployed).to eq(true)
-    end
-
-    it "updates the existing metadara record with deployment" do
-      expect do
-        project.set_first_pages_deployment!(deployment)
-      end.to change { project.pages_metadatum.reload.pages_deployment }.from(nil).to(deployment)
-
-      expect(project.pages_metadatum.reload.deployed).to eq(true)
-    end
-
-    it 'only updates metadata for this project' do
-      other_project = create(:project)
-
-      expect do
-        project.set_first_pages_deployment!(deployment)
-      end.not_to change { other_project.pages_metadatum.reload.pages_deployment }.from(nil)
-
-      expect(other_project.pages_metadatum.reload.deployed).to eq(false)
-    end
-
-    it 'does nothing if metadata already references some deployment' do
-      existing_deployment = create(:pages_deployment, project: project)
-      project.set_first_pages_deployment!(existing_deployment)
-
-      expect do
-        project.set_first_pages_deployment!(deployment)
-      end.not_to change { project.pages_metadatum.reload.pages_deployment }.from(existing_deployment)
-    end
-
-    it 'marks project as not deployed if deployment is nil' do
-      project.mark_pages_as_deployed
-
-      expect do
-        project.set_first_pages_deployment!(nil)
-      end.to change { project.pages_metadatum.reload.deployed }.from(true).to(false)
-    end
-  end
-
-  describe '#has_pool_repsitory?' do
+  describe '#has_pool_repository?' do
     it 'returns false when it does not have a pool repository' do
       subject = create(:project, :repository)
 
@@ -6686,61 +7476,46 @@ RSpec.describe Project, factory_default: :keep do
   end
 
   describe '#access_request_approvers_to_be_notified' do
+    shared_examples 'returns active, non_invited, non_requested owners/maintainers of the project' do
+      specify do
+        maintainer = create(:project_member, :maintainer, source: project)
+
+        create(:project_member, :developer, project: project)
+        create(:project_member, :maintainer, :invited, project: project)
+        create(:project_member, :maintainer, :access_request, project: project)
+        create(:project_member, :maintainer, :blocked, project: project)
+        create(:project_member, :owner, :blocked, project: project)
+
+        expect(project.access_request_approvers_to_be_notified.to_a).to match_array([maintainer, owner])
+      end
+    end
+
     context 'for a personal project' do
       let_it_be(:project) { create(:project) }
-      let_it_be(:maintainer) { create(:user) }
+      let_it_be(:owner) { project.members.find_by(user_id: project.first_owner.id) }
 
-      let(:owner_membership) { project.members.owners.find_by(user_id: project.namespace.owner_id) }
-
-      it 'includes only the owner of the personal project' do
-        expect(project.access_request_approvers_to_be_notified.to_a).to eq([owner_membership])
-      end
-
-      it 'includes the maintainers of the personal project, if any' do
-        project.add_maintainer(maintainer)
-        maintainer_membership = project.members.maintainers.find_by(user_id: maintainer.id)
-
-        expect(project.access_request_approvers_to_be_notified.to_a).to match_array([owner_membership, maintainer_membership])
-      end
+      it_behaves_like 'returns active, non_invited, non_requested owners/maintainers of the project'
     end
 
-    let_it_be(:project) { create(:project, group: create(:group, :public)) }
+    context 'for a project in a group' do
+      let_it_be(:project) { create(:project, group: create(:group, :public)) }
+      let_it_be(:owner) { create(:project_member, :owner, source: project) }
 
-    it 'returns a maximum of ten maintainers of the project in recent_sign_in descending order' do
-      limit = 2
-      stub_const("Member::ACCESS_REQUEST_APPROVERS_TO_BE_NOTIFIED_LIMIT", limit)
-      users = create_list(:user, limit + 1, :with_sign_ins)
-      active_maintainers = users.map do |user|
-        create(:project_member, :maintainer, user: user, project: project)
+      it 'returns a maximum of ten maintainers/owners of the project in recent_sign_in descending order' do
+        users = create_list(:user, 11, :with_sign_ins)
+
+        active_maintainers_and_owners = users.map do |user|
+          create(:project_member, [:maintainer, :owner].sample, user: user, project: project)
+        end
+
+        active_maintainers_and_owners_in_recent_sign_in_desc_order = project.members
+                                                                            .id_in(active_maintainers_and_owners)
+                                                                            .order_recent_sign_in.limit(10)
+
+        expect(project.access_request_approvers_to_be_notified).to eq(active_maintainers_and_owners_in_recent_sign_in_desc_order)
       end
 
-      active_maintainers_in_recent_sign_in_desc_order = project.members_and_requesters
-                                                               .id_in(active_maintainers)
-                                                               .order_recent_sign_in.limit(limit)
-
-      expect(project.access_request_approvers_to_be_notified).to eq(active_maintainers_in_recent_sign_in_desc_order)
-    end
-
-    it 'returns active, non_invited, non_requested maintainers of the project' do
-      maintainer = create(:project_member, :maintainer, source: project)
-
-      create(:project_member, :developer, project: project)
-      create(:project_member, :maintainer, :invited, project: project)
-      create(:project_member, :maintainer, :access_request, project: project)
-      create(:project_member, :maintainer, :blocked, project: project)
-
-      expect(project.access_request_approvers_to_be_notified.to_a).to eq([maintainer])
-    end
-  end
-
-  describe '#pages_lookup_path' do
-    let(:pages_domain) { build(:pages_domain) }
-    let(:project) { build(:project) }
-
-    it 'returns instance of Pages::LookupPath' do
-      expect(Pages::LookupPath).to receive(:new).with(project, domain: pages_domain, trim_prefix: 'mygroup').and_call_original
-
-      expect(project.pages_lookup_path(domain: pages_domain, trim_prefix: 'mygroup')).to be_a(Pages::LookupPath)
+      it_behaves_like 'returns active, non_invited, non_requested owners/maintainers of the project'
     end
   end
 
@@ -6748,7 +7523,7 @@ RSpec.describe Project, factory_default: :keep do
     it 'returns only projects that have pages deployed' do
       _project_without_pages = create(:project)
       project_with_pages = create(:project)
-      project_with_pages.mark_pages_as_deployed
+      create(:pages_deployment, project: project_with_pages)
 
       expect(described_class.with_pages_deployed).to contain_exactly(project_with_pages)
     end
@@ -6764,18 +7539,29 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#pages_group_root?' do
-    it 'returns returns true if pages_url is same as pages_group_url' do
-      project = build(:project)
-      expect(project).to receive(:pages_url).and_return(project.pages_group_url)
+  describe '#pages_variables' do
+    let(:group) { build(:group, path: 'group') }
+    let(:project) { build(:project, path: 'project', namespace: group) }
 
-      expect(project.pages_group_root?).to eq(true)
+    it 'returns the pages variables' do
+      expect(project.pages_variables.to_hash).to eq({
+        'CI_PAGES_DOMAIN' => 'example.com',
+        'CI_PAGES_URL' => 'http://group.example.com/project'
+      })
     end
 
-    it 'returns returns false if pages_url is different than pages_group_url' do
-      project = build(:project)
+    it 'returns the pages variables' do
+      build(
+        :project_setting,
+        project: project,
+        pages_unique_domain_enabled: true,
+        pages_unique_domain: 'unique-domain'
+      )
 
-      expect(project.pages_group_root?).to eq(false)
+      expect(project.pages_variables.to_hash).to eq({
+        'CI_PAGES_DOMAIN' => 'example.com',
+        'CI_PAGES_URL' => 'http://unique-domain.example.com'
+      })
     end
   end
 
@@ -6891,23 +7677,9 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe 'with integrations and chat names' do
-    subject { create(:project) }
-
-    let(:integration) { create(:integration, project: subject) }
-
-    before do
-      create_list(:chat_name, 5, integration: integration)
-    end
-
-    it 'removes chat names on removal' do
-      expect { subject.destroy! }.to change { ChatName.count }.by(-5)
-    end
-  end
-
   describe 'with_issues_or_mrs_available_for_user' do
     before do
-      Project.delete_all
+      described_class.delete_all
     end
 
     it 'returns correct projects' do
@@ -6933,6 +7705,56 @@ RSpec.describe Project, factory_default: :keep do
 
     it 'returns limited number of protected branches based on specified limit' do
       expect(subject.count).to eq(1)
+    end
+  end
+
+  describe '#group_protected_branches' do
+    subject { project.group_protected_branches }
+
+    let(:project) { create(:project, group: group) }
+    let(:group) { create(:group) }
+    let(:protected_branch) { create(:protected_branch, group: group, project: nil) }
+
+    it 'returns protected branches of the group' do
+      is_expected.to match_array([protected_branch])
+    end
+
+    context 'when project belongs to namespace' do
+      let(:project) { create(:project) }
+
+      it 'returns empty relation' do
+        is_expected.to be_empty
+      end
+    end
+  end
+
+  describe '#all_protected_branches' do
+    let(:group) { create(:group) }
+    let!(:group_protected_branch) { create(:protected_branch, group: group, project: nil) }
+    let!(:project_protected_branch) { create(:protected_branch, project: subject) }
+
+    subject { create(:project, group: group) }
+
+    context 'when feature flag `group_protected_branches` enabled' do
+      before do
+        stub_feature_flags(group_protected_branches: true)
+        stub_feature_flags(allow_protected_branches_for_group: true)
+      end
+
+      it 'return all protected branches' do
+        expect(subject.all_protected_branches).to match_array([group_protected_branch, project_protected_branch])
+      end
+    end
+
+    context 'when feature flag `group_protected_branches` disabled' do
+      before do
+        stub_feature_flags(group_protected_branches: false)
+        stub_feature_flags(allow_protected_branches_for_group: false)
+      end
+
+      it 'return only project-level protected branches' do
+        expect(subject.all_protected_branches).to match_array([project_protected_branch])
+      end
     end
   end
 
@@ -7001,40 +7823,88 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
-  describe '#self_monitoring?' do
-    let_it_be(:project) { create(:project) }
-
-    subject { project.self_monitoring? }
-
-    context 'when the project is instance self monitoring' do
-      before do
-        stub_application_setting(self_monitoring_project_id: project.id)
-      end
-
-      it { is_expected.to be true }
-    end
-
-    context 'when the project is not self monitoring' do
-      it { is_expected.to be false }
-    end
-  end
-
   describe '#add_export_job' do
-    context 'if not already present' do
-      it 'starts project export job' do
-        user = create(:user)
-        project = build(:project)
+    let_it_be(:user) { create(:user) }
+    let_it_be_with_reload(:project) { create(:project) }
 
-        expect(ProjectExportWorker).to receive(:perform_async).with(user.id, project.id, nil, {})
+    context 'when parallel_project_export feature flag is enabled' do
+      it 'enqueues CreateionProjectExportWorker' do
+        expect(Projects::ImportExport::CreateRelationExportsWorker)
+          .to receive(:perform_async)
+          .with(user.id, project.id, nil, { exported_by_admin: false })
 
         project.add_export_job(current_user: user)
+      end
+
+      context 'when user is admin', :enable_admin_mode do
+        let_it_be(:user) { create(:admin) }
+
+        it 'passes `exported_by_admin` correctly in the `params` hash' do
+          expect(Projects::ImportExport::CreateRelationExportsWorker)
+          .to receive(:perform_async)
+          .with(user.id, project.id, nil, { exported_by_admin: true })
+
+          project.add_export_job(current_user: user)
+        end
+      end
+    end
+
+    context 'when parallel_project_export feature flag is disabled' do
+      before do
+        stub_feature_flags(parallel_project_export: false)
+      end
+
+      it 'enqueues ProjectExportWorker' do
+        expect(ProjectExportWorker).to receive(:perform_async).with(user.id, project.id, nil, { exported_by_admin: false })
+
+        project.add_export_job(current_user: user)
+      end
+
+      context 'when user is admin', :enable_admin_mode do
+        let_it_be(:user) { create(:admin) }
+
+        it 'passes `exported_by_admin` correctly in the `params` hash' do
+          expect(ProjectExportWorker).to receive(:perform_async).with(user.id, project.id, nil, { exported_by_admin: true })
+
+          project.add_export_job(current_user: user)
+        end
+      end
+
+      context 'when project storage_size does not exceed the application setting max_export_size' do
+        it 'starts project export worker' do
+          stub_application_setting(max_export_size: 1)
+          allow(project.statistics).to receive(:storage_size).and_return(0.megabytes)
+
+          expect(ProjectExportWorker).to receive(:perform_async).with(user.id, project.id, nil, { exported_by_admin: false })
+
+          project.add_export_job(current_user: user)
+        end
+      end
+
+      context 'when project storage_size exceeds the application setting max_export_size' do
+        it 'raises Project::ExportLimitExceeded' do
+          stub_application_setting(max_export_size: 1)
+          allow(project.statistics).to receive(:storage_size).and_return(2.megabytes)
+
+          expect(ProjectExportWorker).not_to receive(:perform_async)
+          expect { project.add_export_job(current_user: user) }.to raise_error(Project::ExportLimitExceeded)
+        end
+      end
+
+      context 'when application setting max_export_size is not set' do
+        it 'starts project export worker' do
+          allow(project.statistics).to receive(:storage_size).and_return(2.megabytes)
+          expect(ProjectExportWorker).to receive(:perform_async).with(user.id, project.id, nil, { exported_by_admin: false })
+
+          project.add_export_job(current_user: user)
+        end
       end
     end
   end
 
   describe '#export_in_progress?' do
     let(:project) { build(:project) }
-    let!(:project_export_job ) { create(:project_export_job, project: project) }
+    let!(:project_export_job) { create(:project_export_job, project: project) }
 
     context 'when project export is enqueued' do
       it { expect(project.export_in_progress?).to be false }
@@ -7059,10 +7929,18 @@ RSpec.describe Project, factory_default: :keep do
 
   describe '#export_status' do
     let(:project) { build(:project) }
-    let!(:project_export_job ) { create(:project_export_job, project: project) }
+    let!(:project_export_job) { create(:project_export_job, project: project) }
 
     context 'when project export is enqueued' do
       it { expect(project.export_status).to eq :queued }
+    end
+
+    context 'when project export is failed' do
+      before do
+        project_export_job.fail_op!
+      end
+
+      it { expect(project.export_status).to eq :failed }
     end
 
     context 'when project export is in progress' do
@@ -7083,7 +7961,7 @@ RSpec.describe Project, factory_default: :keep do
     end
 
     context 'when project export is being regenerated' do
-      let!(:new_project_export_job ) { create(:project_export_job, project: project) }
+      let!(:new_project_export_job) { create(:project_export_job, project: project) }
 
       before do
         finish_job(project_export_job)
@@ -7091,48 +7969,6 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       it { expect(project.export_status).to eq :regeneration_in_progress }
-    end
-  end
-
-  describe '#has_packages?' do
-    let(:project) { create(:project, :public) }
-
-    subject { project.has_packages?(package_type) }
-
-    shared_examples 'has_package' do
-      context 'package of package_type exists' do
-        let!(:package) { create("#{package_type}_package", project: project) }
-
-        it { is_expected.to be true }
-      end
-
-      context 'package of package_type does not exist' do
-        it { is_expected.to be false }
-      end
-    end
-
-    context 'with maven packages' do
-      it_behaves_like 'has_package' do
-        let(:package_type) { :maven }
-      end
-    end
-
-    context 'with npm packages' do
-      it_behaves_like 'has_package' do
-        let(:package_type) { :npm }
-      end
-    end
-
-    context 'with conan packages' do
-      it_behaves_like 'has_package' do
-        let(:package_type) { :conan }
-      end
-    end
-
-    context 'calling has_package? with nil' do
-      let(:package_type) { nil }
-
-      it { is_expected.to be false }
     end
   end
 
@@ -7193,6 +8029,44 @@ RSpec.describe Project, factory_default: :keep do
     subject { create(:project).packages_enabled }
 
     it { is_expected.to be true }
+
+    context 'when packages_enabled is enabled' do
+      where(:project_visibility, :expected_result) do
+        Gitlab::VisibilityLevel::PRIVATE  | ProjectFeature::PRIVATE
+        Gitlab::VisibilityLevel::INTERNAL | ProjectFeature::ENABLED
+        Gitlab::VisibilityLevel::PUBLIC   | ProjectFeature::PUBLIC
+      end
+
+      with_them do
+        it 'set package_registry_access_level to correct value' do
+          project = create(:project,
+            visibility_level: project_visibility,
+            packages_enabled: false,
+            package_registry_access_level: ProjectFeature::DISABLED
+          )
+
+          project.update!(packages_enabled: true)
+
+          expect(project.package_registry_access_level).to eq(expected_result)
+        end
+      end
+    end
+
+    context 'when packages_enabled is disabled' do
+      Gitlab::VisibilityLevel.options.values.each do |project_visibility|
+        it 'set package_registry_access_level to DISABLED' do
+          project = create(:project,
+            visibility_level: project_visibility,
+            packages_enabled: true,
+            package_registry_access_level: ProjectFeature::PUBLIC
+          )
+
+          project.update!(packages_enabled: false)
+
+          expect(project.package_registry_access_level).to eq(ProjectFeature::DISABLED)
+        end
+      end
+    end
   end
 
   describe '#related_group_ids' do
@@ -7218,6 +8092,29 @@ RSpec.describe Project, factory_default: :keep do
     end
   end
 
+  describe '#has_namespaced_npm_packages?' do
+    let_it_be(:namespace) { create(:namespace, path: 'test') }
+    let_it_be(:project) { create(:project, :public, namespace: namespace) }
+
+    subject { project.has_namespaced_npm_packages? }
+
+    context 'with scope of the namespace path' do
+      let_it_be(:package) { create(:npm_package, project: project, name: "@#{namespace.path}/foo") }
+
+      it { is_expected.to be true }
+    end
+
+    context 'without scope of the namespace path' do
+      let_it_be(:package) { create(:npm_package, project: project, name: "@someotherscope/foo") }
+
+      it { is_expected.to be false }
+    end
+
+    context 'without packages' do
+      it { is_expected.to be false }
+    end
+  end
+
   describe '#package_already_taken?' do
     let_it_be(:namespace) { create(:namespace, path: 'test') }
     let_it_be(:project) { create(:project, :public, namespace: namespace) }
@@ -7234,7 +8131,7 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       with_them do
-        it { is_expected.to eq expected_result}
+        it { is_expected.to eq expected_result }
       end
     end
 
@@ -7251,7 +8148,7 @@ RSpec.describe Project, factory_default: :keep do
       end
 
       with_them do
-        it { is_expected.to eq expected_result}
+        it { is_expected.to eq expected_result }
       end
 
       context 'for a different package type' do
@@ -7274,7 +8171,7 @@ RSpec.describe Project, factory_default: :keep do
         end
 
         with_them do
-          it { is_expected.to eq expected_result}
+          it { is_expected.to eq expected_result }
         end
       end
     end
@@ -7339,23 +8236,6 @@ RSpec.describe Project, factory_default: :keep do
     it { is_expected.not_to include(user) }
   end
 
-  describe "#metrics_setting" do
-    let(:project) { build(:project) }
-
-    it 'creates setting if it does not exist' do
-      expect(project.metrics_setting).to be_an_instance_of(ProjectMetricsSetting)
-    end
-  end
-
-  describe '#ci_config_external_project' do
-    subject(:ci_config_external_project) { project.ci_config_external_project }
-
-    let(:other_project) { create(:project) }
-    let(:project) { build(:project, ci_config_path: ".gitlab-ci.yml@#{other_project.full_path}") }
-
-    it { is_expected.to eq(other_project) }
-  end
-
   describe '#enabled_group_deploy_keys' do
     let_it_be(:project) { create(:project) }
 
@@ -7397,14 +8277,6 @@ RSpec.describe Project, factory_default: :keep do
         end
       end
     end
-
-    describe '#activity_path' do
-      it 'returns the project activity_path' do
-        expected_path = "/#{project.namespace.path}/#{project.name}/activity"
-
-        expect(project.activity_path).to eq(expected_path)
-      end
-    end
   end
 
   describe '#default_branch_or_main' do
@@ -7419,32 +8291,6 @@ RSpec.describe Project, factory_default: :keep do
 
       it 'returns Gitlab::DefaultBranch.value' do
         expect(project.default_branch_or_main).to eq(Gitlab::DefaultBranch.value)
-      end
-    end
-  end
-
-  describe '#increment_statistic_value' do
-    let(:project) { build_stubbed(:project) }
-
-    subject(:increment) do
-      project.increment_statistic_value(:build_artifacts_size, -10)
-    end
-
-    it 'increments the value' do
-      expect(ProjectStatistics)
-        .to receive(:increment_statistic)
-        .with(project, :build_artifacts_size, -10)
-
-      increment
-    end
-
-    context 'when the project is scheduled for removal' do
-      let(:project) { build_stubbed(:project, pending_delete: true) }
-
-      it 'does not increment the value' do
-        expect(ProjectStatistics).not_to receive(:increment_statistic)
-
-        increment
       end
     end
   end
@@ -7465,8 +8311,8 @@ RSpec.describe Project, factory_default: :keep do
       using RSpec::Parameterized::TableSyntax
 
       where(:topic_list, :expected_result) do
-        ['topicA', 'topicB']              | %w[topicA topicB] # rubocop:disable Style/WordArray, Lint/BinaryOperatorWithIdenticalOperands
-        ['topicB', 'topicA']              | %w[topicB topicA] # rubocop:disable Style/WordArray, Lint/BinaryOperatorWithIdenticalOperands
+        ['topicA', 'topicB']              | %w[topicA topicB] # rubocop:disable Style/WordArray
+        ['topicB', 'topicA']              | %w[topicB topicA] # rubocop:disable Style/WordArray
         ['   topicC  ', ' topicD    ']    | %w[topicC topicD]
         ['topicE', 'topicF', 'topicE']    | %w[topicE topicF] # rubocop:disable Style/WordArray
         ['topicE  ', 'topicF', ' topicE'] | %w[topicE topicF]
@@ -7519,6 +8365,24 @@ RSpec.describe Project, factory_default: :keep do
 
         expect(project.reload.topics.map(&:name)).to eq(%w[topic1 topic2 topic3])
       end
+
+      it 'assigns slug value for new topics' do
+        topic = create(:topic, name: 'old topic', title: 'old topic', slug: nil)
+        project.topic_list = topic.name
+        project.save!
+
+        project.topic_list = 'old topic, new topic'
+        expect { expect(project.save).to be true }.to change { Projects::Topic.count }.by(1)
+
+        topics = project.reset.topics
+        expect(topics.map(&:name)).to match_array(['old topic', 'new topic'])
+
+        old_topic = topics.first
+        new_topic = topics.last
+
+        expect(old_topic.slug).to be_nil
+        expect(new_topic.slug).to eq('newtopic')
+      end
     end
 
     context 'public topics counter' do
@@ -7541,7 +8405,6 @@ RSpec.describe Project, factory_default: :keep do
 
       using RSpec::Parameterized::TableSyntax
 
-      # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands
       where(:initial_visibility, :new_visibility, :new_topic_list, :expected_count_changes) do
         ref(:private)  | nil            | 't2, t3' | [0, 0, 0]
         ref(:internal) | nil            | 't2, t3' | [-1, 0, 1]
@@ -7565,7 +8428,6 @@ RSpec.describe Project, factory_default: :keep do
         ref(:public)   | ref(:internal) | 't2, t3' | [-1, 0, 1]
         ref(:public)   | ref(:private)  | 't2, t3' | [-1, -1, 0]
       end
-      # rubocop:enable Lint/BinaryOperatorWithIdenticalOperands
 
       with_them do
         it 'increments or decrements counters of topics' do
@@ -8003,58 +8865,52 @@ RSpec.describe Project, factory_default: :keep do
   end
 
   describe '#work_items_feature_flag_enabled?' do
-    shared_examples 'project checking work_items feature flag' do
-      context 'when work_items FF is disabled globally' do
-        before do
-          stub_feature_flags(work_items: false)
-        end
+    let_it_be(:group_project) { create(:project, :in_subgroup) }
 
-        it { is_expected.to be_falsey }
+    it_behaves_like 'checks parent group feature flag' do
+      let(:feature_flag_method) { :work_items_feature_flag_enabled? }
+      let(:feature_flag) { :work_items }
+      let(:subject_project) { group_project }
+    end
+
+    context 'when feature flag is enabled for the project' do
+      subject { subject_project.work_items_feature_flag_enabled? }
+
+      before do
+        stub_feature_flags(work_items: subject_project)
       end
 
-      context 'when work_items FF is enabled for the project' do
-        before do
-          stub_feature_flags(work_items: project)
-        end
+      context 'when project belongs to a group' do
+        let(:subject_project) { group_project }
 
         it { is_expected.to be_truthy }
       end
 
-      context 'when work_items FF is enabled globally' do
+      context 'when project does not belong to a group' do
+        let(:subject_project) { create(:project, namespace: create(:namespace)) }
+
         it { is_expected.to be_truthy }
       end
     end
+  end
 
-    subject { project.work_items_feature_flag_enabled? }
+  describe '#work_items_beta_feature_flag_enabled?' do
+    let_it_be(:group_project) { create(:project, :in_subgroup) }
 
-    context 'when a project does not belong to a group' do
-      let_it_be(:project) { create(:project, namespace: namespace) }
-
-      it_behaves_like 'project checking work_items feature flag'
+    it_behaves_like 'checks parent group feature flag' do
+      let(:feature_flag_method) { :work_items_beta_feature_flag_enabled? }
+      let(:feature_flag) { :work_items_beta }
+      let(:subject_project) { group_project }
     end
+  end
 
-    context 'when project belongs to a group' do
-      let_it_be(:root_group) { create(:group) }
-      let_it_be(:group) { create(:group, parent: root_group) }
-      let_it_be(:project) { create(:project, group: group) }
+  describe '#work_items_alpha_feature_flag_enabled?' do
+    let_it_be(:group_project) { create(:project, :in_subgroup) }
 
-      it_behaves_like 'project checking work_items feature flag'
-
-      context 'when work_items FF is enabled for the root group' do
-        before do
-          stub_feature_flags(work_items: root_group)
-        end
-
-        it { is_expected.to be_truthy }
-      end
-
-      context 'when work_items FF is enabled for the group' do
-        before do
-          stub_feature_flags(work_items: group)
-        end
-
-        it { is_expected.to be_truthy }
-      end
+    it_behaves_like 'checks parent group feature flag' do
+      let(:feature_flag_method) { :work_items_alpha_feature_flag_enabled? }
+      let(:feature_flag) { :work_items_alpha }
+      let(:subject_project) { group_project }
     end
   end
 
@@ -8064,6 +8920,508 @@ RSpec.describe Project, factory_default: :keep do
     it_behaves_like 'blocks unsafe serialization'
   end
 
+  describe '#enqueue_record_project_target_platforms' do
+    let_it_be(:project) { create(:project) }
+
+    let(:com) { true }
+
+    before do
+      allow(Gitlab).to receive(:com?).and_return(com)
+    end
+
+    it 'enqueues a Projects::RecordTargetPlatformsWorker' do
+      expect(Projects::RecordTargetPlatformsWorker).to receive(:perform_async).with(project.id)
+
+      project.enqueue_record_project_target_platforms
+    end
+
+    shared_examples 'does not enqueue a Projects::RecordTargetPlatformsWorker' do
+      it 'does not enqueue a Projects::RecordTargetPlatformsWorker' do
+        expect(Projects::RecordTargetPlatformsWorker).not_to receive(:perform_async)
+
+        project.enqueue_record_project_target_platforms
+      end
+    end
+
+    context 'when not in gitlab.com' do
+      let(:com) { false }
+
+      it_behaves_like 'does not enqueue a Projects::RecordTargetPlatformsWorker'
+    end
+  end
+
+  describe '#inactive?' do
+    let_it_be_with_reload(:project) { create(:project, name: 'test-project') }
+
+    it_behaves_like 'returns true if project is inactive'
+  end
+
+  describe '.inactive' do
+    before do
+      stub_application_setting(inactive_projects_min_size_mb: 5)
+      stub_application_setting(inactive_projects_send_warning_email_after_months: 12)
+    end
+
+    it 'returns projects that are inactive' do
+      create_project_with_statistics.tap do |project|
+        project.update!(last_activity_at: Time.current)
+      end
+      create_project_with_statistics.tap do |project|
+        project.update!(last_activity_at: 13.months.ago)
+      end
+      inactive_large_project = create_project_with_statistics(with_data: true, size_multiplier: 2.gigabytes)
+                                 .tap { |project| project.update!(last_activity_at: 2.years.ago) }
+      create_project_with_statistics(with_data: true, size_multiplier: 2.gigabytes)
+                               .tap { |project| project.update!(last_activity_at: 1.month.ago) }
+
+      expect(described_class.inactive).to contain_exactly(inactive_large_project)
+    end
+  end
+
+  describe "#refreshing_build_artifacts_size?" do
+    let_it_be(:project) { create(:project) }
+
+    subject { project.refreshing_build_artifacts_size? }
+
+    context 'when project has no existing refresh record' do
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when project has existing refresh record' do
+      context 'and refresh has not yet started' do
+        before do
+          allow(project)
+            .to receive_message_chain(:build_artifacts_size_refresh, :started?)
+            .and_return(false)
+        end
+
+        it { is_expected.to eq(false) }
+      end
+
+      context 'and refresh has started' do
+        before do
+          allow(project)
+            .to receive_message_chain(:build_artifacts_size_refresh, :started?)
+            .and_return(true)
+        end
+
+        it { is_expected.to eq(true) }
+      end
+    end
+  end
+
+  describe '#group_group_links' do
+    context 'with group project' do
+      let_it_be(:group) { create(:group) }
+      let_it_be(:project) { create(:project, group: group) }
+
+      it 'returns group links of group' do
+        expect(group).to receive_message_chain(:shared_with_group_links, :of_ancestors_and_self)
+
+        project.group_group_links
+      end
+    end
+
+    context 'with personal project' do
+      let_it_be(:project) { create(:project) }
+
+      it 'returns none' do
+        expect(project.group_group_links).to eq(GroupGroupLink.none)
+      end
+    end
+  end
+
+  describe '#security_training_available?' do
+    subject { build(:project) }
+
+    it 'returns false' do
+      expect(subject.security_training_available?).to eq false
+    end
+  end
+
+  describe '#packages_policy_subject' do
+    let_it_be(:project) { create(:project) }
+
+    it 'returns wrapper' do
+      expect(project.packages_policy_subject).to be_a(Packages::Policies::Project)
+      expect(project.packages_policy_subject.project).to eq(project)
+    end
+  end
+
+  describe '#destroy_deployment_by_id' do
+    let(:project) { create(:project, :repository) }
+
+    let!(:deployment) { create(:deployment, :created, project: project) }
+    let!(:old_deployment) { create(:deployment, :created, project: project, finished_at: 1.year.ago) }
+
+    it 'will call fast_destroy_all on a specific deployment by id' do
+      expect(Deployment).to receive(:fast_destroy_all).and_call_original
+
+      expect do
+        project.destroy_deployment_by_id(project.deployments.first.id)
+      end.to change { project.deployments.count }.by(-1)
+
+      expect(project.deployments).to match_array([old_deployment])
+    end
+  end
+
+  describe '#can_create_custom_domains?' do
+    let_it_be(:project) { create(:project) }
+    let_it_be(:pages_domain) { create(:pages_domain, project: project) }
+
+    subject { project.can_create_custom_domains? }
+
+    context 'when max custom domain setting is set to 0' do
+      it { is_expected.to be true }
+    end
+
+    context 'when max custom domain setting is not set to 0' do
+      before do
+        Gitlab::CurrentSettings.update!(max_pages_custom_domains_per_project: 1)
+      end
+
+      it { is_expected.to be false }
+    end
+  end
+
+  describe '#can_suggest_reviewers?' do
+    let_it_be(:project) { create(:project) }
+
+    subject(:can_suggest_reviewers) { project.can_suggest_reviewers? }
+
+    it { is_expected.to be(false) }
+  end
+
+  describe '#suggested_reviewers_available?' do
+    let_it_be(:project) { create(:project) }
+
+    subject(:suggested_reviewers_available) { project.suggested_reviewers_available? }
+
+    it { is_expected.to be(false) }
+  end
+
+  describe '.cascading_with_parent_namespace' do
+    let_it_be_with_reload(:group) { create(:group, :with_root_storage_statistics) }
+    let_it_be_with_reload(:subgroup) { create(:group, parent: group) }
+    let_it_be_with_reload(:project) { create(:project, group: subgroup) }
+    let_it_be_with_reload(:project_without_group) { create(:project) }
+
+    shared_examples 'cascading settings' do |attribute|
+      it 'return self value when no parent' do
+        expect(project_without_group.group).to be_nil
+
+        project_without_group.update!(attribute => true)
+        expect(project_without_group.public_send("#{attribute}?", inherit_group_setting: true)).to be_truthy
+        expect(project_without_group.public_send("#{attribute}_locked?")).to be_falsey
+
+        project_without_group.update!(attribute => false)
+        expect(project_without_group.public_send("#{attribute}?", inherit_group_setting: true)).to be_falsey
+        expect(project_without_group.public_send("#{attribute}_locked?")).to be_falsey
+      end
+
+      it 'return self value when unlocked' do
+        subgroup.namespace_settings.update!(attribute => false)
+        group.namespace_settings.update!(attribute => false)
+
+        project.update!(attribute => true)
+        expect(project.public_send("#{attribute}?", inherit_group_setting: true)).to be_truthy
+        expect(project.public_send("#{attribute}_locked?")).to be_falsey
+
+        project.update!(attribute => false)
+        expect(project.public_send("#{attribute}?", inherit_group_setting: true)).to be_falsey
+        expect(project.public_send("#{attribute}_locked?")).to be_falsey
+      end
+
+      it 'still return self value when locked subgroup' do
+        subgroup.namespace_settings.update!(attribute => true)
+        group.namespace_settings.update!(attribute => false)
+
+        project.update!(attribute => true)
+        expect(project.public_send("#{attribute}?", inherit_group_setting: true)).to be_truthy
+        expect(project.public_send("#{attribute}_locked?")).to be_falsey
+
+        project.update!(attribute => false)
+        expect(project.public_send("#{attribute}?", inherit_group_setting: true)).to be_falsey
+        expect(project.public_send("#{attribute}_locked?")).to be_falsey
+      end
+
+      it 'still return unlocked value when locked group' do
+        subgroup.namespace_settings.update!(attribute => false)
+        group.namespace_settings.update!(attribute => true)
+
+        project.update!(attribute => true)
+        expect(project.public_send("#{attribute}?", inherit_group_setting: true)).to be_truthy
+        expect(project.public_send("#{attribute}_locked?")).to be_falsey
+
+        project.update!(attribute => false)
+        expect(project.public_send("#{attribute}?", inherit_group_setting: true)).to be_falsey
+        expect(project.public_send("#{attribute}_locked?")).to be_falsey
+      end
+    end
+
+    it_behaves_like 'cascading settings', :only_allow_merge_if_pipeline_succeeds
+    it_behaves_like 'cascading settings', :allow_merge_on_skipped_pipeline
+    it_behaves_like 'cascading settings', :only_allow_merge_if_all_discussions_are_resolved
+  end
+
+  describe '#archived' do
+    it { expect(subject.archived).to be_falsey }
+    it { expect(described_class.new(archived: true).archived).to be_truthy }
+  end
+
+  describe '#resolve_outdated_diff_discussions' do
+    it { expect(subject.resolve_outdated_diff_discussions).to be_falsey }
+
+    context 'when set explicitly' do
+      subject { described_class.new(resolve_outdated_diff_discussions: true) }
+
+      it { expect(subject.resolve_outdated_diff_discussions).to be_truthy }
+    end
+  end
+
+  describe '#only_allow_merge_if_all_discussions_are_resolved' do
+    it { expect(subject.only_allow_merge_if_all_discussions_are_resolved).to be_falsey }
+
+    context 'when set explicitly' do
+      subject { described_class.new(only_allow_merge_if_all_discussions_are_resolved: true) }
+
+      it { expect(subject.only_allow_merge_if_all_discussions_are_resolved).to be_truthy }
+    end
+  end
+
+  describe '#remove_source_branch_after_merge' do
+    it { expect(subject.remove_source_branch_after_merge).to be_truthy }
+
+    context 'when set explicitly' do
+      subject { described_class.new(remove_source_branch_after_merge: false) }
+
+      it { expect(subject.remove_source_branch_after_merge).to be_falsey }
+    end
+  end
+
+  describe '.is_importing' do
+    it 'returns projects that have import in progress' do
+      project_1 = create(:project, :import_scheduled, import_type: 'github')
+      project_2 = create(:project, :import_started, import_type: 'github')
+      create(:project, :import_finished, import_type: 'github')
+
+      expect(described_class.is_importing).to match_array([project_1, project_2])
+    end
+  end
+
+  describe '.without_created_and_owned_by_banned_user' do
+    let_it_be(:other_project) { create(:project) }
+
+    subject(:results) { described_class.without_created_and_owned_by_banned_user }
+
+    context 'when project creator is not banned' do
+      let_it_be(:project_of_active_user) { create(:project, creator: create(:user)) }
+
+      it 'includes the project' do
+        expect(results).to match_array([other_project, project_of_active_user])
+      end
+    end
+
+    context 'when project creator is banned' do
+      let_it_be(:banned_user) { create(:user, :banned) }
+      let_it_be(:project_of_banned_user) { create(:project, creator: banned_user) }
+
+      context 'when project creator is also an owner' do
+        let_it_be(:project_auth) do
+          project = project_of_banned_user
+          create(:project_authorization, :owner, user: project.creator, project: project)
+        end
+
+        it 'excludes the project' do
+          expect(results).to match_array([other_project])
+        end
+      end
+
+      context 'when project creator is not an owner' do
+        it 'includes the project' do
+          expect(results).to match_array([other_project, project_of_banned_user])
+        end
+      end
+    end
+  end
+
+  describe '#created_and_owned_by_banned_user?' do
+    subject { project.created_and_owned_by_banned_user? }
+
+    context 'when creator is banned' do
+      let_it_be(:creator) { create(:user, :banned) }
+      let_it_be(:project) { create(:project, creator: creator) }
+
+      it { is_expected.to eq false }
+
+      context 'when creator is an owner' do
+        let_it_be(:project_auth) do
+          create(:project_authorization, :owner, user: project.creator, project: project)
+        end
+
+        it { is_expected.to eq true }
+      end
+    end
+
+    context 'when creator is not banned' do
+      let_it_be(:project) { create(:project) }
+
+      it { is_expected.to eq false }
+    end
+
+    context 'when there is no creator' do
+      let_it_be(:project) { build_stubbed(:project, creator: nil) }
+
+      it { is_expected.to eq false }
+    end
+  end
+
+  it_behaves_like 'something that has web-hooks' do
+    let_it_be_with_reload(:object) { create(:project) }
+
+    def create_hook
+      create(:project_hook, project: object)
+    end
+  end
+
+  describe 'deprecated project attributes' do
+    where(:project_attr, :project_method, :project_feature_attr) do
+      :wiki_enabled | :wiki_enabled? | :wiki_access_level
+      :builds_enabled | :builds_enabled? | :builds_access_level
+      :merge_requests_enabled | :merge_requests_enabled? | :merge_requests_access_level
+      :issues_enabled | :issues_enabled? | :issues_access_level
+      :snippets_enabled | :snippets_enabled? | :snippets_access_level
+    end
+
+    with_them do
+      it 'delegates the attributes to project feature' do
+        project = Project.new(project_attr => false)
+
+        expect(project.public_send(project_method)).to eq(false)
+        expect(project.project_feature.public_send(project_feature_attr)).to eq(ProjectFeature::DISABLED)
+      end
+
+      it 'sets the default value' do
+        project = Project.new
+
+        expect(project.public_send(project_method)).to eq(true)
+        expect(project.project_feature.public_send(project_feature_attr)).to eq(ProjectFeature::ENABLED)
+      end
+    end
+  end
+
+  describe '#repository_object_format' do
+    subject { project.repository_object_format }
+
+    let_it_be(:project) { create(:project) }
+
+    context 'when project without a repository' do
+      it { is_expected.to be_nil }
+    end
+
+    context 'when project with sha1 repository' do
+      let_it_be(:project_repository) { create(:project_repository, project: project, object_format: 'sha1') }
+
+      it { is_expected.to eq 'sha1' }
+    end
+
+    context 'when project with sha256 repository' do
+      let_it_be(:project_repository) { create(:project_repository, project: project, object_format: 'sha256') }
+
+      it { is_expected.to eq 'sha256' }
+    end
+  end
+
+  describe '#supports_lock_on_merge?' do
+    it_behaves_like 'checks self (project) and root ancestor feature flag' do
+      let(:feature_flag) { :enforce_locked_labels_on_merge }
+      let(:feature_flag_method) { :supports_lock_on_merge? }
+    end
+  end
+
+  context 'with loose foreign key on organization_id' do
+    it_behaves_like 'cleanup by a loose foreign key' do
+      let_it_be(:parent) { create(:organization) }
+      let_it_be(:group) { create(:group, organization: parent) }
+      let_it_be(:model) { create(:project, group: group, organization: parent) }
+    end
+  end
+
+  describe 'catalog resource process sync events worker' do
+    let_it_be_with_reload(:project) { create(:project, name: 'Test project', description: 'Test description') }
+
+    context 'when the project has a catalog resource' do
+      let_it_be(:resource) { create(:ci_catalog_resource, project: project) }
+
+      context 'when project name is updated' do
+        it 'enqueues Ci::Catalog::Resources::ProcessSyncEventsWorker' do
+          expect(Ci::Catalog::Resources::ProcessSyncEventsWorker).to receive(:perform_async).once
+
+          project.update!(name: 'New name')
+        end
+      end
+
+      context 'when project description is updated' do
+        it 'enqueues Ci::Catalog::Resources::ProcessSyncEventsWorker' do
+          expect(Ci::Catalog::Resources::ProcessSyncEventsWorker).to receive(:perform_async).once
+
+          project.update!(description: 'New description')
+        end
+      end
+
+      context 'when project visibility_level is updated' do
+        it 'enqueues Ci::Catalog::Resources::ProcessSyncEventsWorker' do
+          expect(Ci::Catalog::Resources::ProcessSyncEventsWorker).to receive(:perform_async).once
+
+          project.update!(visibility_level: Gitlab::VisibilityLevel::INTERNAL)
+        end
+      end
+
+      context 'when neither the project name, description, nor visibility_level are updated' do
+        it 'does not enqueue Ci::Catalog::Resources::ProcessSyncEventsWorker' do
+          expect(Ci::Catalog::Resources::ProcessSyncEventsWorker).not_to receive(:perform_async)
+
+          project.update!(path: 'path')
+        end
+      end
+    end
+
+    context 'when the project does not have a catalog resource' do
+      it 'does not enqueue Ci::Catalog::Resources::ProcessSyncEventsWorker' do
+        expect(Ci::Catalog::Resources::ProcessSyncEventsWorker).not_to receive(:perform_async)
+
+        project.update!(
+          name: 'New name',
+          description: 'New description',
+          visibility_level: Gitlab::VisibilityLevel::INTERNAL)
+      end
+    end
+  end
+
+  describe '#allows_multiple_merge_request_assignees?' do
+    let(:project) { build_stubbed(:project) }
+
+    subject(:allows_multiple_merge_request_assignees?) { project.allows_multiple_merge_request_assignees? }
+
+    it { is_expected.to eq(false) }
+  end
+
+  describe '#allows_multiple_merge_request_reviewers?' do
+    let(:project) { build_stubbed(:project) }
+
+    subject(:allows_multiple_merge_request_reviewers?) { project.allows_multiple_merge_request_reviewers? }
+
+    it { is_expected.to eq(false) }
+  end
+
+  describe '#on_demand_dast_available?' do
+    let_it_be(:project) { create(:project) }
+
+    subject(:on_demand_dast_available?) { project.on_demand_dast_available? }
+
+    it { is_expected.to be_falsy }
+  end
+
   private
 
   def finish_job(export_job)
@@ -8071,21 +9429,86 @@ RSpec.describe Project, factory_default: :keep do
     export_job.finish
   end
 
-  def rugged_config
-    rugged_repo(project.repository).config
-  end
-
   def create_pipeline(project, status = 'success')
-    create(:ci_pipeline, project: project,
-                         sha: project.commit.sha,
-                         ref: project.default_branch,
-                         status: status)
+    create(
+      :ci_pipeline,
+      project: project,
+      sha: project.commit.sha,
+      ref: project.default_branch,
+      status: status
+    )
   end
 
   def create_build(new_pipeline = pipeline, name = 'test')
-    create(:ci_build, :success, :artifacts,
-           pipeline: new_pipeline,
-           status: new_pipeline.status,
-           name: name)
+    create(
+      :ci_build,
+      :success,
+      :artifacts,
+      pipeline: new_pipeline,
+      status: new_pipeline.status,
+      name: name
+    )
+  end
+
+  context 'with loose foreign key on projects.creator_id' do
+    it_behaves_like 'cleanup by a loose foreign key' do
+      let_it_be(:parent) { create(:user) }
+      let_it_be(:model) { create(:project, creator: parent) }
+    end
+  end
+
+  describe '#parent_groups' do
+    context 'when project has parent groups' do
+      let_it_be(:nested_group) { create(:group, parent: group) }
+      let_it_be_with_reload(:group) { create(:group, name: 'foo', parent: nested_group) }
+      let_it_be(:project) { create(:project, group: group) }
+
+      it 'builds an groups path' do
+        groups_path = project.parent_groups
+        expect(groups_path).to match_array([group, nested_group])
+      end
+    end
+
+    context 'when project does not have a parent group' do
+      let_it_be(:project) { create(:project) }
+
+      it 'builds an empty path' do
+        groups_path = project.parent_groups
+        expect(groups_path).to eq([])
+      end
+    end
+  end
+
+  describe '.by_project_namespace' do
+    let_it_be(:project) { create(:project) }
+    let(:project_namespace) { project.project_namespace }
+
+    it 'returns project' do
+      expect(described_class.by_project_namespace(project_namespace)).to match_array([project])
+    end
+
+    context 'when using ID' do
+      it 'returns project' do
+        expect(described_class.by_project_namespace(project_namespace.id)).to match_array([project])
+      end
+    end
+
+    context 'when using non-existent-id' do
+      it 'returns nothing' do
+        expect(described_class.by_project_namespace(non_existing_record_id)).to be_empty
+      end
+    end
+  end
+
+  describe '#supports_saved_replies?' do
+    let_it_be(:project) { create(:project) }
+
+    it { expect(project.supports_saved_replies?).to eq(false) }
+  end
+
+  describe '#merge_trains_enabled?' do
+    let_it_be(:project) { create(:project) }
+
+    it { expect(project.merge_trains_enabled?).to eq(false) }
   end
 end

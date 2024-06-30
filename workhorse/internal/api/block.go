@@ -5,9 +5,10 @@ import (
 	"net/http"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 )
 
-// Prevent internal API responses intended for gitlab-workhorse from
+// Block method blocks internal API responses intended for gitlab-workhorse from
 // leaking to the end user
 func Block(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +49,7 @@ func (b *blocker) WriteHeader(status int) {
 		b.status = 500
 		b.Header().Del("Content-Length")
 		b.hijacked = true
-		helper.Fail500(b.rw, b.r, fmt.Errorf("api.blocker: forbidden content-type: %q", ResponseContentType))
+		fail.Request(b.rw, b.r, fmt.Errorf("api.blocker: forbidden content-type: %q", ResponseContentType))
 		return
 	}
 
@@ -58,4 +59,9 @@ func (b *blocker) WriteHeader(status int) {
 
 func (b *blocker) flush() {
 	b.WriteHeader(http.StatusOK)
+}
+
+// Unwrap lets http.ResponseController get the underlying http.ResponseWriter.
+func (b *blocker) Unwrap() http.ResponseWriter {
+	return b.rw
 }

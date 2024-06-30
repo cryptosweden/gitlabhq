@@ -2,7 +2,10 @@
 
 module Terraform
   class RemoteStateHandler < BaseService
+    include Gitlab::OptimisticLocking
+
     StateLockedError = Class.new(StandardError)
+    StateDeletedError = Class.new(StandardError)
     UnauthorizedError = Class.new(StandardError)
 
     def find_with_lock
@@ -58,7 +61,9 @@ module Terraform
     private
 
     def retrieve_with_lock(find_only: false)
-      create_or_find!(find_only: find_only).tap { |state| state.with_lock { yield state } }
+      create_or_find!(find_only: find_only).tap do |state|
+        retry_lock(state, name: "Terraform state: #{state.id}") { yield state }
+      end
     end
 
     def create_or_find!(find_only:)
@@ -66,14 +71,15 @@ module Terraform
 
       find_params = { project: project, name: params[:name] }
 
-      return find_state!(find_params) if find_only
+      state = if find_only
+                find_state!(find_params)
+              else
+                Terraform::State.safe_find_or_create_by(find_params)
+              end
 
-      state = Terraform::State.create_or_find_by(find_params)
+      raise StateDeletedError if state.deleted_at?
 
-      # https://github.com/rails/rails/issues/36027
-      return state unless state.errors.of_kind? :name, :taken
-
-      find_state(find_params)
+      state
     end
 
     def lock_matches?(state)

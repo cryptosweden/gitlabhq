@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Sidebars::Groups::Menus::SettingsMenu do
+RSpec.describe Sidebars::Groups::Menus::SettingsMenu, :with_license, feature_category: :navigation do
   let_it_be(:owner) { create(:user) }
 
   let_it_be_with_refind(:group) do
@@ -22,6 +22,12 @@ RSpec.describe Sidebars::Groups::Menus::SettingsMenu do
       it 'returns false' do
         expect(menu.render?).to be false
       end
+    end
+  end
+
+  describe '#separated?' do
+    it 'returns true' do
+      expect(menu.separated?).to be true
     end
   end
 
@@ -72,18 +78,6 @@ RSpec.describe Sidebars::Groups::Menus::SettingsMenu do
       let(:item_id) { :ci_cd }
 
       it_behaves_like 'access rights checks'
-
-      describe 'when runner list group view is disabled' do
-        before do
-          stub_feature_flags(runner_list_group_view_vue_ui: false)
-        end
-
-        it_behaves_like 'access rights checks'
-
-        it 'has group runners as active_routes' do
-          expect(subject.active_routes[:path]).to match_array %w[ci_cd#show groups/runners#show groups/runners#edit]
-        end
-      end
     end
 
     describe 'Applications menu' do
@@ -92,7 +86,7 @@ RSpec.describe Sidebars::Groups::Menus::SettingsMenu do
       it_behaves_like 'access rights checks'
     end
 
-    describe 'Packages & Registries' do
+    describe 'Packages and registries' do
       let(:item_id) { :packages_and_registries }
 
       before do

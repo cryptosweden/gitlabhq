@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Destroying a container repository tags' do
+RSpec.describe 'Destroying a container repository tags', feature_category: :container_registry do
   include_context 'container repository delete tags service shared context'
   using RSpec::Parameterized::TableSyntax
 
@@ -27,7 +27,7 @@ RSpec.describe 'Destroying a container repository tags' do
   shared_examples 'destroying the container repository tags' do
     before do
       stub_delete_reference_requests(tags)
-      expect_delete_tag_by_names(tags)
+      expect_delete_tags(tags)
       allow_next_instance_of(ContainerRegistry::Client) do |client|
         allow(client).to receive(:supports_tag_delete?).and_return(true)
       end
@@ -36,7 +36,7 @@ RSpec.describe 'Destroying a container repository tags' do
     it 'destroys the container repository tags' do
       expect(Projects::ContainerRepository::DeleteTagsService)
         .to receive(:new).and_call_original
-      expect { subject }.to change { ::Packages::Event.count }.by(1)
+      subject
 
       expect(tag_names_response).to eq(tags)
       expect(errors_response).to eq([])
@@ -50,7 +50,7 @@ RSpec.describe 'Destroying a container repository tags' do
       expect(Projects::ContainerRepository::DeleteTagsService)
         .not_to receive(:new)
 
-      expect { subject }.not_to change { ::Packages::Event.count }
+      subject
 
       expect(mutation_response).to be_nil
     end
@@ -89,9 +89,9 @@ RSpec.describe 'Destroying a container repository tags' do
       let(:tags) { Array.new(Mutations::ContainerRepositories::DestroyTags::LIMIT + 1, 'x') }
 
       it 'returns too many tags error' do
-        expect { subject }.not_to change { ::Packages::Event.count }
+        subject
 
-        explanation = graphql_errors.dig(0, 'extensions', 'problems', 0, 'explanation')
+        explanation = graphql_errors.dig(0, 'message')
         expect(explanation).to eq(Mutations::ContainerRepositories::DestroyTags::TOO_MANY_TAGS_ERROR_MESSAGE)
       end
     end
@@ -113,7 +113,7 @@ RSpec.describe 'Destroying a container repository tags' do
 
       it 'does not create a package event' do
         expect(::Packages::CreateEventService).not_to receive(:new)
-        expect { subject }.not_to change { ::Packages::Event.count }
+        subject
       end
     end
   end

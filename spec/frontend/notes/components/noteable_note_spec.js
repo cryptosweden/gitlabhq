@@ -1,22 +1,24 @@
-import { mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
-
+import { GlAvatarLink, GlAvatar } from '@gitlab/ui';
+import { clone } from 'lodash';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
-
 import DiffsModule from '~/diffs/store/modules';
-
 import NoteActions from '~/notes/components/note_actions.vue';
 import NoteBody from '~/notes/components/note_body.vue';
 import NoteHeader from '~/notes/components/note_header.vue';
 import issueNote from '~/notes/components/noteable_note.vue';
 import NotesModule from '~/notes/stores/modules';
-
-import UserAvatarLink from '~/vue_shared/components/user_avatar/user_avatar_link.vue';
-
+import { NOTEABLE_TYPE_MAPPING } from '~/notes/constants';
+import { createAlert } from '~/alert';
+import { UPDATE_COMMENT_FORM } from '~/notes/i18n';
+import { sprintf } from '~/locale';
 import { noteableDataMock, notesDataMock, note } from '../mock_data';
 
 Vue.use(Vuex);
+jest.mock('~/alert');
 
 const singleLineNotePosition = {
   line_range: {
@@ -38,7 +40,12 @@ const singleLineNotePosition = {
 describe('issue_note', () => {
   let store;
   let wrapper;
-  const findMultilineComment = () => wrapper.find('[data-testid="multiline-comment"]');
+
+  const REPORT_ABUSE_PATH = '/abuse_reports/add_category';
+
+  const findNoteBody = () => wrapper.findComponent(NoteBody);
+
+  const findMultilineComment = () => wrapper.findByTestId('multiline-comment');
 
   const createWrapper = (props = {}, storeUpdater = (s) => s) => {
     store = new Vuex.Store(
@@ -53,10 +60,13 @@ describe('issue_note', () => {
     store.dispatch('setNoteableData', noteableDataMock);
     store.dispatch('setNotesData', notesDataMock);
 
-    wrapper = mount(issueNote, {
+    // the component overwrites the `note` prop with every action, hence create a copy
+    const noteCopy = clone(props.note || note);
+
+    wrapper = mountExtended(issueNote, {
       store,
       propsData: {
-        note,
+        note: noteCopy,
         ...props,
       },
       stubs: [
@@ -66,12 +76,11 @@ describe('issue_note', () => {
         'note-body',
         'multiline-comment-form',
       ],
+      provide: {
+        reportAbusePath: REPORT_ABUSE_PATH,
+      },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('mutiline comments', () => {
     beforeEach(() => {
@@ -204,19 +213,33 @@ describe('issue_note', () => {
 
         await nextTick();
 
-        expect(wrapper.findComponent(UserAvatarLink).props('imgSize')).toBe(24);
+        const avatar = wrapper.findComponent(GlAvatar);
+        const avatarProps = avatar.props();
+        expect(avatarProps.size).toBe(24);
       });
     });
 
-    it('should render user information', () => {
+    it('should render user avatar link with popover support', () => {
       const { author } = note;
-      const avatar = wrapper.findComponent(UserAvatarLink);
+      const avatarLink = wrapper.findComponent(GlAvatarLink);
+
+      expect(avatarLink.classes()).toContain('js-user-link');
+      expect(avatarLink.attributes()).toMatchObject({
+        href: author.path,
+        'data-user-id': `${author.id}`,
+        'data-username': `${author.username}`,
+      });
+    });
+
+    it('should render user avatar', () => {
+      const { author } = note;
+      const avatar = wrapper.findComponent(GlAvatar);
       const avatarProps = avatar.props();
 
-      expect(avatarProps.linkHref).toBe(author.path);
-      expect(avatarProps.imgSrc).toBe(author.avatar_url);
-      expect(avatarProps.imgAlt).toBe(author.name);
-      expect(avatarProps.imgSize).toBe(40);
+      expect(avatarProps.src).toBe(author.avatar_url);
+      expect(avatarProps.entityName).toBe(author.username);
+      expect(avatarProps.alt).toBe(author.name);
+      expect(avatarProps.size).toEqual(32);
     });
 
     it('should render note header content', () => {
@@ -226,6 +249,8 @@ describe('issue_note', () => {
       expect(noteHeaderProps.author).toBe(note.author);
       expect(noteHeaderProps.createdAt).toBe(note.created_at);
       expect(noteHeaderProps.noteId).toBe(note.id);
+      expect(noteHeaderProps.noteableType).toBe(NOTEABLE_TYPE_MAPPING[note.noteable_type]);
+      expect(noteHeaderProps.isImported).toBe(note.imported);
     });
 
     it('should render note actions', () => {
@@ -242,7 +267,6 @@ describe('issue_note', () => {
       expect(noteActionsProps.canDelete).toBe(note.current_user.can_edit);
       expect(noteActionsProps.canReportAsAbuse).toBe(true);
       expect(noteActionsProps.canResolve).toBe(false);
-      expect(noteActionsProps.reportAbusePath).toBe(note.report_abuse_path);
       expect(noteActionsProps.resolvable).toBe(false);
       expect(noteActionsProps.isResolved).toBe(false);
       expect(noteActionsProps.isResolving).toBe(false);
@@ -250,21 +274,17 @@ describe('issue_note', () => {
     });
 
     it('should render issue body', () => {
-      const noteBody = wrapper.findComponent(NoteBody);
-      const noteBodyProps = noteBody.props();
-
-      expect(noteBodyProps.note).toBe(note);
-      expect(noteBodyProps.line).toBe(null);
-      expect(noteBodyProps.canEdit).toBe(note.current_user.can_edit);
-      expect(noteBodyProps.isEditing).toBe(false);
-      expect(noteBodyProps.helpPagePath).toBe('');
+      expect(findNoteBody().props().note).toMatchObject(note);
+      expect(findNoteBody().props().line).toBe(null);
+      expect(findNoteBody().props().canEdit).toBe(note.current_user.can_edit);
+      expect(findNoteBody().props().isEditing).toBe(false);
+      expect(findNoteBody().props().helpPagePath).toBe('');
     });
 
     it('prevents note preview xss', async () => {
       const noteBody =
         '<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="alert(1)" />';
       const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {});
-      const noteBodyComponent = wrapper.findComponent(NoteBody);
 
       store.hotUpdate({
         modules: {
@@ -277,7 +297,7 @@ describe('issue_note', () => {
         },
       });
 
-      noteBodyComponent.vm.$emit('handleFormUpdate', {
+      findNoteBody().vm.$emit('handleFormUpdate', {
         noteText: noteBody,
         parentElement: null,
         callback: () => {},
@@ -285,9 +305,23 @@ describe('issue_note', () => {
 
       await waitForPromises();
       expect(alertSpy).not.toHaveBeenCalled();
-      expect(wrapper.vm.note.note_html).toBe(
-        '<p><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></p>\n',
+      expect(findNoteBody().props().note.note_html).toBe(
+        '<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">',
       );
+    });
+  });
+
+  describe('internal note', () => {
+    it('has internal note class for internal notes', () => {
+      createWrapper({ note: { ...note, internal: true } });
+
+      expect(wrapper.classes()).toContain('internal-note');
+    });
+
+    it('does not have internal note class for external notes', () => {
+      createWrapper();
+
+      expect(wrapper.classes()).not.toContain('internal-note');
     });
   });
 
@@ -307,33 +341,27 @@ describe('issue_note', () => {
           },
         },
       });
-      const noteBody = wrapper.findComponent(NoteBody);
-      noteBody.vm.resetAutoSave = () => {};
 
-      noteBody.vm.$emit('handleFormUpdate', {
+      findNoteBody().vm.$emit('handleFormUpdate', {
         noteText: updatedText,
         parentElement: null,
         callback: () => {},
       });
 
       await nextTick();
-      let noteBodyProps = noteBody.props();
+      expect(findNoteBody().props().note.note_html).toBe(`<p dir="auto">${updatedText}</p>\n`);
 
-      expect(noteBodyProps.note.note_html).toBe(`<p>${updatedText}</p>\n`);
-
-      noteBody.vm.$emit('cancelForm', {});
+      findNoteBody().vm.$emit('cancelForm', {});
       await nextTick();
 
-      noteBodyProps = noteBody.props();
-
-      expect(noteBodyProps.note.note_html).toBe(note.note_html);
+      expect(findNoteBody().props().note.note_html).toBe(note.note_html);
     });
   });
 
   describe('formUpdateHandler', () => {
     const updateNote = jest.fn();
     const params = {
-      noteText: '',
+      noteText: 'updated note text',
       parentElement: null,
       callback: jest.fn(),
       resolveDiscussion: false,
@@ -352,29 +380,69 @@ describe('issue_note', () => {
       });
     };
 
+    beforeEach(() => {
+      createWrapper();
+      updateActions();
+    });
+
     afterEach(() => updateNote.mockReset());
 
-    it('responds to handleFormUpdate', () => {
-      createWrapper();
-      updateActions();
-      wrapper.findComponent(NoteBody).vm.$emit('handleFormUpdate', params);
-      expect(wrapper.emitted('handleUpdateNote')).toBeTruthy();
+    it('emits handleUpdateNote', () => {
+      const updatedNote = { ...note, note_html: `<p dir="auto">${params.noteText}</p>\n` };
+
+      findNoteBody().vm.$emit('handleFormUpdate', params);
+
+      expect(wrapper.emitted('handleUpdateNote')).toHaveLength(1);
+
+      expect(wrapper.emitted('handleUpdateNote')[0]).toEqual([
+        {
+          note: updatedNote,
+          noteText: params.noteText,
+          resolveDiscussion: params.resolveDiscussion,
+          flashContainer: wrapper.vm.$el,
+          callback: expect.any(Function),
+          errorCallback: expect.any(Function),
+        },
+      ]);
     });
 
-    it('does not stringify empty position', () => {
-      createWrapper();
-      updateActions();
-      wrapper.findComponent(NoteBody).vm.$emit('handleFormUpdate', params);
-      expect(updateNote.mock.calls[0][1].note.note.position).toBeUndefined();
+    it('updates note content', async () => {
+      findNoteBody().vm.$emit('handleFormUpdate', params);
+
+      await nextTick();
+
+      expect(findNoteBody().props().note.note_html).toBe(`<p dir="auto">${params.noteText}</p>\n`);
+      expect(findNoteBody().props('isEditing')).toBe(false);
     });
 
-    it('stringifies populated position', () => {
-      const position = { test: true };
-      const expectation = JSON.stringify(position);
-      createWrapper({ note: { ...note, position } });
-      updateActions();
-      wrapper.findComponent(NoteBody).vm.$emit('handleFormUpdate', params);
-      expect(updateNote.mock.calls[0][1].note.note.position).toBe(expectation);
+    it('should not update note with sensitive token', () => {
+      const sensitiveMessage = 'token: glpat-1234567890abcdefghij';
+      findNoteBody().vm.$emit('handleFormUpdate', { ...params, noteText: sensitiveMessage });
+
+      expect(updateNote).not.toHaveBeenCalled();
+    });
+
+    describe('when updateNote returns errors', () => {
+      beforeEach(() => {
+        updateNote.mockRejectedValue({
+          response: { status: 422, data: { errors: 'error 1 and error 2' } },
+        });
+      });
+
+      beforeEach(() => {
+        findNoteBody().vm.$emit('handleFormUpdate', { ...params, noteText: 'invalid note' });
+      });
+
+      it('renders error message and restores content of updated note', async () => {
+        await waitForPromises();
+        expect(createAlert).toHaveBeenCalledWith({
+          message: sprintf(UPDATE_COMMENT_FORM.error, { reason: 'error 1 and error 2' }, false),
+          parent: wrapper.vm.$el,
+        });
+
+        expect(findNoteBody().props('isEditing')).toBe(true);
+        expect(findNoteBody().props().note.note_html).toBe(note.note_html);
+      });
     });
   });
 
@@ -398,7 +466,7 @@ describe('issue_note', () => {
 
         createWrapper({ note: noteDef, discussionFile: null }, storeUpdater);
 
-        expect(wrapper.vm.diffFile).toBe(null);
+        expect(findNoteBody().props().file).toBe(null);
       },
     );
 
@@ -416,7 +484,7 @@ describe('issue_note', () => {
         },
       );
 
-      expect(wrapper.vm.diffFile.testId).toBe('diffFileTest');
+      expect(findNoteBody().props().file.testId).toBe('diffFileTest');
     });
 
     it('returns the provided diff file if the more robust getters fail', () => {
@@ -432,7 +500,7 @@ describe('issue_note', () => {
         },
       );
 
-      expect(wrapper.vm.diffFile.testId).toBe('diffFileTest');
+      expect(findNoteBody().props().file.testId).toBe('diffFileTest');
     });
   });
 });

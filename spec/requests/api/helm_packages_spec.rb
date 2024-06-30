@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe API::HelmPackages do
+RSpec.describe API::HelmPackages, feature_category: :package_registry do
   include_context 'helm api setup'
 
   using RSpec::Parameterized::TableSyntax
@@ -16,6 +16,16 @@ RSpec.describe API::HelmPackages do
   let_it_be(:package_file2_1) { create(:helm_package_file, package: package2, file_sha256: 'file2', file_name: 'filename2.tgz', description: 'hello from stable channel') }
   let_it_be(:package_file2_2) { create(:helm_package_file, package: package2, file_sha256: 'file2', file_name: 'filename2.tgz', channel: 'test', description: 'hello from test channel') }
   let_it_be(:other_package) { create(:npm_package, project: project) }
+
+  let(:snowplow_gitlab_standard_context) { snowplow_context }
+
+  def snowplow_context(user_role: :developer)
+    if user_role == :anonymous
+      { project: project, namespace: project.namespace, property: 'i_package_helm_user' }
+    else
+      { project: project, namespace: project.namespace, property: 'i_package_helm_user', user: user }
+    end
+  end
 
   describe 'GET /api/v4/projects/:id/packages/helm/:channel/index.yaml' do
     let(:project_id) { project.id }
@@ -63,7 +73,7 @@ RSpec.describe API::HelmPackages do
 
       with_them do
         let(:headers) { user_role == :anonymous ? {} : basic_auth_header(user.username, personal_access_token.token) }
-        let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace } }
+        let(:snowplow_gitlab_standard_context) { snowplow_context(user_role: user_role) }
 
         before do
           project.update!(visibility: visibility.to_s)
@@ -73,6 +83,17 @@ RSpec.describe API::HelmPackages do
       end
     end
 
+    context 'with access to package registry for everyone' do
+      let(:snowplow_gitlab_standard_context) { snowplow_context(user_role: :anonymous) }
+
+      before do
+        project.update!(visibility: Gitlab::VisibilityLevel::PRIVATE)
+        project.project_feature.update!(package_registry_access_level: ProjectFeature::PUBLIC)
+      end
+
+      it_behaves_like 'process helm download content request', :anonymous, :success
+    end
+
     context 'when an invalid token is passed' do
       let(:headers) { basic_auth_header(user.username, 'wrong') }
 
@@ -80,6 +101,12 @@ RSpec.describe API::HelmPackages do
     end
 
     it_behaves_like 'deploy token for package GET requests'
+
+    context 'when format param is not nil' do
+      let(:url) { "/projects/#{project.id}/packages/helm/stable/charts/#{package.name}-#{package.version}.tgz.prov" }
+
+      it_behaves_like 'rejects helm packages access', :maintainer, :not_found, '{"message":"404 Format prov Not Found"}'
+    end
   end
 
   describe 'POST /api/v4/projects/:id/packages/helm/api/:channel/charts/authorize' do
@@ -106,6 +133,7 @@ RSpec.describe API::HelmPackages do
       with_them do
         let(:user_headers) { user_role == :anonymous ? {} : basic_auth_header(user.username, personal_access_token.token) }
         let(:headers) { user_headers.merge(workhorse_headers) }
+        let(:snowplow_gitlab_standard_context) { snowplow_context(user_role: user_role) }
 
         before do
           project.update_column(:visibility_level, Gitlab::VisibilityLevel.level_value(visibility_level.to_s))
@@ -141,7 +169,6 @@ RSpec.describe API::HelmPackages do
     let(:params) { { chart: temp_file(file_name) } }
     let(:file_key) { :chart }
     let(:send_rewritten_field) { true }
-    let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace } }
 
     subject do
       workhorse_finalize(
@@ -169,6 +196,7 @@ RSpec.describe API::HelmPackages do
       with_them do
         let(:user_headers) { user_role == :anonymous ? {} : basic_auth_header(user.username, personal_access_token.token) }
         let(:headers) { user_headers.merge(workhorse_headers) }
+        let(:snowplow_gitlab_standard_context) { snowplow_context(user_role: user_role) }
 
         before do
           project.update_column(:visibility_level, Gitlab::VisibilityLevel.level_value(visibility_level.to_s))

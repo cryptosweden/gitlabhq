@@ -142,14 +142,18 @@ RSpec.describe DesignManagement::Version do
 
     it 'does not leave invalid versions around if creation fails' do
       expect do
-        described_class.create_for_designs([], 'abcdef', author) rescue nil
+        described_class.create_for_designs([], 'abcdef', author)
+      rescue StandardError
+        nil
       end.not_to change { described_class.count }
     end
 
     it 'does not leave orphaned design-versions around if creation fails' do
       actions = as_actions(designs)
       expect do
-        described_class.create_for_designs(actions, '', author) rescue nil
+        described_class.create_for_designs(actions, '', author)
+      rescue StandardError
+        nil
       end.not_to change { DesignManagement::Action.count }
     end
 
@@ -228,7 +232,7 @@ RSpec.describe DesignManagement::Version do
     context 'there is a single design' do
       let_it_be(:design) { create(:design) }
 
-      shared_examples :a_correctly_categorised_design do |kind, category|
+      shared_examples 'a correctly categorised design' do |kind, category|
         let_it_be(:version) { create(:design_version, kind => [design]) }
 
         it 'returns a hash with a single key and the single design in that bucket' do
@@ -236,23 +240,25 @@ RSpec.describe DesignManagement::Version do
         end
       end
 
-      it_behaves_like :a_correctly_categorised_design, :created_designs, 'creation'
-      it_behaves_like :a_correctly_categorised_design, :modified_designs, 'modification'
-      it_behaves_like :a_correctly_categorised_design, :deleted_designs, 'deletion'
+      it_behaves_like 'a correctly categorised design', :created_designs, 'creation'
+      it_behaves_like 'a correctly categorised design', :modified_designs, 'modification'
+      it_behaves_like 'a correctly categorised design', :deleted_designs, 'deletion'
     end
 
     context 'there are a bunch of different designs in a variety of states' do
       let_it_be(:version) do
-        create(:design_version,
-               created_designs: create_list(:design, 3),
-               modified_designs: create_list(:design, 4),
-               deleted_designs: create_list(:design, 5))
+        create(
+          :design_version,
+          created_designs: create_list(:design, 3),
+          modified_designs: create_list(:design, 4),
+          deleted_designs: create_list(:design, 5)
+        )
       end
 
       it 'puts them in the right buckets' do
         expect(version.designs_by_event).to match(
           a_hash_including(
-            'creation' =>  have_attributes(size: 3),
+            'creation' => have_attributes(size: 3),
             'modification' => have_attributes(size: 4),
             'deletion' => have_attributes(size: 5)
           )

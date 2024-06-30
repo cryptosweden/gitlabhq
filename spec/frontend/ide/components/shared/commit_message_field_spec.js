@@ -23,10 +23,6 @@ describe('CommitMessageField', () => {
     );
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findTextArea = () => wrapper.find('textarea');
   const findHighlights = () => wrapper.findByTestId('highlights');
   const findHighlightsText = () => wrapper.findByTestId('highlights-text');
@@ -54,9 +50,9 @@ describe('CommitMessageField', () => {
       await nextTick();
     });
 
-    it('is added on textarea focus', async () => {
+    it('is added on textarea focus', () => {
       expect(wrapper.attributes('class')).toEqual(
-        expect.stringContaining('gl-outline-none! gl-focus-ring-border-1-gray-900!'),
+        expect.stringContaining('gl-outline-none gl-focus-ring-border-1-gray-900!'),
       );
     });
 
@@ -65,7 +61,7 @@ describe('CommitMessageField', () => {
       await nextTick();
 
       expect(wrapper.attributes('class')).toEqual(
-        expect.not.stringContaining('gl-outline-none! gl-focus-ring-border-1-gray-900!'),
+        expect.not.stringContaining('gl-outline-none gl-focus-ring-border-1-gray-900!'),
       );
     });
   });
@@ -79,7 +75,7 @@ describe('CommitMessageField', () => {
         await fillText(text);
 
         expect(findHighlightsText().text()).toEqual(text);
-        expect(findHighlightsMark().text()).toBeFalsy();
+        expect(findHighlightsMark().text()).toBe('');
       });
 
       it('highlights characters over 50 length', async () => {

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Sidebars::Groups::Menus::GroupInformationMenu do
+RSpec.describe Sidebars::Groups::Menus::GroupInformationMenu, feature_category: :navigation do
   let_it_be(:owner) { create(:user) }
   let_it_be(:root_group) do
     build(:group, :private).tap do |g|
@@ -14,17 +14,35 @@ RSpec.describe Sidebars::Groups::Menus::GroupInformationMenu do
   let(:user) { owner }
   let(:context) { Sidebars::Groups::Context.new(current_user: user, container: group) }
 
+  it_behaves_like 'not serializable as super_sidebar_menu_args' do
+    let(:menu) { described_class.new(context) }
+  end
+
   describe '#title' do
     subject { described_class.new(context).title }
 
     context 'when group is a root group' do
-      specify { is_expected.to eq 'Group information'}
+      specify { is_expected.to eq 'Group information' }
     end
 
     context 'when group is a child group' do
       let(:group) { build(:group, parent: root_group) }
 
-      specify { is_expected.to eq 'Subgroup information'}
+      specify { is_expected.to eq 'Subgroup information' }
+    end
+  end
+
+  describe '#sprite_icon' do
+    subject { described_class.new(context).sprite_icon }
+
+    context 'when group is a root group' do
+      specify { is_expected.to eq 'group' }
+    end
+
+    context 'when group is a child group' do
+      let(:group) { build(:group, parent: root_group) }
+
+      specify { is_expected.to eq 'subgroup' }
     end
   end
 

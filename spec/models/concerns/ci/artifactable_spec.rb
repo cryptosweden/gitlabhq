@@ -36,6 +36,21 @@ RSpec.describe Ci::Artifactable do
           expect { |b| artifact.each_blob(&b) }.to yield_control.exactly(3).times
         end
       end
+
+      context 'when decompressed artifact size validator fails' do
+        let(:artifact) { build(:ci_job_artifact, :junit) }
+
+        before do
+          allow_next_instance_of(Gitlab::Ci::DecompressedGzipSizeValidator) do |instance|
+            allow(instance).to receive(:valid?).and_return(false)
+          end
+        end
+
+        it 'fails on blob' do
+          expect { |b| artifact.each_blob(&b) }
+            .to raise_error(::Gitlab::Ci::Artifacts::DecompressedArtifactSizeValidator::FileDecompressionError)
+        end
+      end
     end
 
     context 'when file format is raw' do
@@ -53,6 +68,15 @@ RSpec.describe Ci::Artifactable do
         expect { |b| artifact.each_blob(&b) }.to raise_error(described_class::NotSupportedAdapterError)
       end
     end
+
+    context 'pushes artifact_size to application context' do
+      let(:artifact) { create(:ci_job_artifact, :junit) }
+
+      it 'logs artifact size', :aggregate_failures do
+        expect { |b| artifact.each_blob(&b) }.to yield_control.once
+        expect(Gitlab::ApplicationContext.current).to include("meta.artifact_size" => artifact.size)
+      end
+    end
   end
 
   context 'ActiveRecord scopes' do
@@ -68,8 +92,8 @@ RSpec.describe Ci::Artifactable do
     end
 
     describe '.expired' do
-      it 'returns a limited number of expired artifacts' do
-        expect(Ci::JobArtifact.expired(1).order_id_asc).to eq([recently_expired_artifact])
+      it 'returns all expired artifacts' do
+        expect(Ci::JobArtifact.expired).to contain_exactly(recently_expired_artifact, later_expired_artifact)
       end
     end
 

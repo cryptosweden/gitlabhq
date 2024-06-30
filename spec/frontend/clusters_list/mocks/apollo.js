@@ -1,7 +1,9 @@
 const agent = {
+  __typename: 'ClusterAgent',
   id: 'agent-id',
   name: 'agent-name',
   webPath: 'agent-webPath',
+  createdAt: new Date(),
 };
 const token = {
   id: 'token-id',
@@ -13,13 +15,6 @@ const tokens = {
 const connections = {
   nodes: [],
 };
-const pageInfo = {
-  endCursor: '',
-  hasNextPage: false,
-  hasPreviousPage: false,
-  startCursor: '',
-};
-const count = 1;
 
 export const createAgentResponse = {
   data: {
@@ -72,10 +67,12 @@ export const getAgentResponse = {
     project: {
       __typename: 'Project',
       id: 'project-1',
-      clusterAgents: { nodes: [{ ...agent, connections, tokens }], pageInfo, count },
+      clusterAgents: { nodes: [{ ...agent, connections, tokens }] },
+      ciAccessAuthorizedAgents: { nodes: [] },
+      userAccessAuthorizedAgents: { nodes: [] },
       repository: {
         tree: {
-          trees: { nodes: [{ ...agent, path: null }], pageInfo },
+          trees: { nodes: [{ ...agent, path: null }] },
         },
       },
     },

@@ -3,9 +3,8 @@
 module Projects
   module Prometheus
     module Alerts
-      class NotifyService
+      class NotifyService < ::BaseProjectService
         include Gitlab::Utils::StrongMemoize
-        include ::IncidentManagement::Settings
         include ::AlertManagement::Responses
 
         # This set of keys identifies a payload as a valid Prometheus
@@ -26,21 +25,20 @@ module Projects
         # https://gitlab.com/gitlab-com/gl-infra/production/-/issues/6086
         PROCESS_MAX_ALERTS = 100
 
-        def initialize(project, payload)
-          @project = project
-          @payload = payload
+        def initialize(project, params)
+          super(project: project, params: params.to_h)
         end
 
         def execute(token, integration = nil)
           return bad_request unless valid_payload_size?
-          return unprocessable_entity unless self.class.processable?(payload)
+          return unprocessable_entity unless self.class.processable?(params)
           return unauthorized unless valid_alert_manager_token?(token, integration)
 
           truncate_alerts! if max_alerts_exceeded?
 
-          alert_responses = process_prometheus_alerts
+          process_prometheus_alerts(integration)
 
-          alert_response(alert_responses)
+          created
         end
 
         def self.processable?(payload)
@@ -53,10 +51,8 @@ module Projects
 
         private
 
-        attr_reader :project, :payload
-
         def valid_payload_size?
-          Gitlab::Utils::DeepSize.new(payload).valid?
+          Gitlab::Utils::DeepSize.new(params).valid?
         end
 
         def max_alerts_exceeded?
@@ -75,20 +71,27 @@ module Projects
             }
           )
 
-          payload['alerts'] = alerts.first(PROCESS_MAX_ALERTS)
+          params['alerts'] = alerts.first(PROCESS_MAX_ALERTS)
         end
 
         def alerts
-          payload['alerts']
+          params['alerts']
         end
 
         def valid_alert_manager_token?(token, integration)
-          valid_for_manual?(token) ||
-            valid_for_alerts_endpoint?(token, integration) ||
-            valid_for_cluster?(token)
+          valid_for_alerts_endpoint?(token, integration) ||
+            valid_for_manual?(token)
         end
 
         def valid_for_manual?(token)
+          # If migration from Integrations::Prometheus to
+          # AlertManagement::HttpIntegrations is complete,
+          # we should use use the HttpIntegration as SSOT.
+          # Remove with https://gitlab.com/gitlab-org/gitlab/-/issues/409734
+          return false if project.alert_management_http_integrations
+                            .for_endpoint_identifier('legacy-prometheus')
+                            .any?
+
           prometheus = project.find_or_initialize_integration('prometheus')
           return false unless prometheus.manual_configuration?
 
@@ -105,62 +108,18 @@ module Projects
           compare_token(token, integration.token)
         end
 
-        def valid_for_cluster?(token)
-          cluster_integration = find_cluster_integration(project)
-          return false unless cluster_integration
-
-          cluster_integration_token = cluster_integration.alert_manager_token
-
-          if token
-            compare_token(token, cluster_integration_token)
-          else
-            cluster_integration_token.nil?
-          end
-        end
-
-        def find_cluster_integration(project)
-          alert_id = gitlab_alert_id
-          return unless alert_id
-
-          alert = find_alert(project, alert_id)
-          return unless alert
-
-          cluster = alert.environment.deployment_platform&.cluster
-          return unless cluster&.enabled?
-          return unless cluster.integration_prometheus_available?
-
-          cluster.integration_prometheus
-        end
-
-        def find_alert(project, metric)
-          Projects::Prometheus::AlertsFinder
-            .new(project: project, metric: metric)
-            .execute
-            .first
-        end
-
-        def gitlab_alert_id
-          alerts&.first&.dig('labels', 'gitlab_alert_id')
-        end
-
         def compare_token(expected, actual)
           return unless expected && actual
 
           ActiveSupport::SecurityUtils.secure_compare(expected, actual)
         end
 
-        def process_prometheus_alerts
+        def process_prometheus_alerts(integration)
           alerts.map do |alert|
             AlertManagement::ProcessPrometheusAlertService
-              .new(project, alert.to_h)
+              .new(project, alert, integration: integration)
               .execute
           end
-        end
-
-        def alert_response(alert_responses)
-          alerts = alert_responses.flat_map { |resp| resp.payload[:alerts] }.compact
-
-          success(alerts)
         end
       end
     end

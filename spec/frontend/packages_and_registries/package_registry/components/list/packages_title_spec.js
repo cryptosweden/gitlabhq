@@ -7,8 +7,8 @@ describe('PackageTitle', () => {
   let wrapper;
   let store;
 
-  const findTitleArea = () => wrapper.find(TitleArea);
-  const findMetadataItem = () => wrapper.find(MetadataItem);
+  const findTitleArea = () => wrapper.findComponent(TitleArea);
+  const findMetadataItem = () => wrapper.findComponent(MetadataItem);
 
   const mountComponent = (propsData = { helpUrl: 'foo' }) => {
     wrapper = shallowMount(PackageTitle, {
@@ -19,11 +19,6 @@ describe('PackageTitle', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   describe('title area', () => {
     it('exists', () => {
@@ -37,7 +32,7 @@ describe('PackageTitle', () => {
 
       expect(findTitleArea().props()).toMatchObject({
         title: PackageTitle.i18n.LIST_TITLE_TEXT,
-        infoMessages: [{ text: PackageTitle.i18n.LIST_INTRO_TEXT, link: 'foo' }],
+        infoMessages: [],
       });
     });
   });

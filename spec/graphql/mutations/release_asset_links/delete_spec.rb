@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::ReleaseAssetLinks::Delete do
+RSpec.describe Mutations::ReleaseAssetLinks::Delete, feature_category: :release_orchestration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :private, :repository) }
   let_it_be_with_reload(:release) { create(:release, project: project) }
-  let_it_be(:reporter) { create(:user).tap { |u| project.add_reporter(u) } }
-  let_it_be(:developer) { create(:user).tap { |u| project.add_developer(u) } }
-  let_it_be(:maintainer) { create(:user).tap { |u| project.add_maintainer(u) } }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
+  let_it_be(:maintainer) { create(:user, maintainer_of: project) }
   let_it_be_with_reload(:release_link) { create(:release_link, release: release) }
 
   let(:mutation) { described_class.new(object: nil, context: { current_user: current_user }, field: nil) }
@@ -52,18 +52,24 @@ RSpec.describe Mutations::ReleaseAssetLinks::Delete do
       end
 
       context "when the link doesn't exist" do
-        let(:mutation_arguments) { super().merge(id: "gid://gitlab/Releases::Link/#{non_existing_record_id}") }
+        let(:mutation_arguments) do
+          super().merge(id: global_id_of(id: non_existing_record_id, model_name: release_link.class.name))
+        end
 
         it 'raises an error' do
           expect { subject }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
         end
       end
 
-      context "when the provided ID is invalid" do
-        let(:mutation_arguments) { super().merge(id: 'not-a-valid-gid') }
+      context 'when destroy process fails' do
+        before do
+          allow_next_instance_of(::Releases::Links::DestroyService) do |service|
+            allow(service).to receive(:execute).and_return(ServiceResponse.error(message: 'error'))
+          end
+        end
 
-        it 'raises an error' do
-          expect { subject }.to raise_error(::GraphQL::CoercionError)
+        it 'returns errors' do
+          expect(resolve).to include(errors: 'error')
         end
       end
     end

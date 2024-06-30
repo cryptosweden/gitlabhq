@@ -1,9 +1,10 @@
 <script>
 import { GlButton } from '@gitlab/ui';
 import $ from 'jquery';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
-import createFlash from '~/flash';
-import { __, sprintf } from '../../../locale';
+import { createAlert } from '~/alert';
+import { __, sprintf } from '~/locale';
 import eventHub from '../../event_hub';
 
 export default {
@@ -49,11 +50,11 @@ export default {
         fullPath: this.fullPath,
       })
         .catch(() => {
-          const flashMessage = __(
+          const alertMessage = __(
             'Something went wrong trying to change the locked state of this %{issuableDisplayName}',
           );
-          createFlash({
-            message: sprintf(flashMessage, { issuableDisplayName: this.issuableDisplayName }),
+          createAlert({
+            message: sprintf(alertMessage, { issuableDisplayName: this.issuableDisplayName }),
           });
         })
         .finally(() => {
@@ -74,7 +75,7 @@ export default {
     <gl-button
       data-testid="lock-toggle"
       category="secondary"
-      variant="warning"
+      variant="confirm"
       :disabled="isLoading"
       :loading="isLoading"
       @click.prevent="submitForm"

@@ -7,7 +7,7 @@ module Resolvers
         class MeasurementsResolver < BaseResolver
           include Gitlab::Graphql::Authorize::AuthorizeResource
 
-          type Types::Admin::Analytics::UsageTrends::MeasurementType, null: true
+          type Types::Admin::Analytics::UsageTrends::MeasurementType.connection_type, null: true
 
           argument :identifier, Types::Admin::Analytics::UsageTrends::MeasurementIdentifierEnum,
                     required: true,
@@ -15,11 +15,11 @@ module Resolvers
 
           argument :recorded_after, Types::TimeType,
                     required: false,
-                    description: 'Measurement recorded after this date.'
+                    description: 'Measurement recorded after the date.'
 
           argument :recorded_before, Types::TimeType,
                     required: false,
-                    description: 'Measurement recorded before this date.'
+                    description: 'Measurement recorded before the date.'
 
           def resolve(identifier:, recorded_before: nil, recorded_after: nil)
             authorize!

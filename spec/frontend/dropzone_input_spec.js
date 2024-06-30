@@ -1,12 +1,15 @@
+import fs from 'fs';
 import MockAdapter from 'axios-mock-adapter';
 import $ from 'jquery';
 import mock from 'xhr-mock';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import waitForPromises from 'helpers/wait_for_promises';
 import { TEST_HOST } from 'spec/test_constants';
 import PasteMarkdownTable from '~/behaviors/markdown/paste_markdown_table';
 import dropzoneInput from '~/dropzone_input';
 import axios from '~/lib/utils/axios_utils';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import htmlNewMilestone from 'test_fixtures_static/textarea.html';
 
 const TEST_FILE = new File([], 'somefile.jpg');
 TEST_FILE.upload = {};
@@ -18,7 +21,13 @@ const TEMPLATE = `<form class="gfm-form" data-uploads-path="${TEST_UPLOAD_PATH}"
   <div class="uploading-error-message"></div>
 </form>`;
 
+const RETINA_IMAGE = fs.readFileSync('spec/fixtures/retina_image.png');
+
 describe('dropzone_input', () => {
+  afterEach(() => {
+    resetHTMLFixture();
+  });
+
   it('returns null when failed to initialize', () => {
     const dropzone = dropzoneInput($('<form class="gfm-form"></form>'));
 
@@ -28,7 +37,9 @@ describe('dropzone_input', () => {
   it('returns valid dropzone when successfully initialize', () => {
     const dropzone = dropzoneInput($(TEMPLATE));
 
-    expect(dropzone.version).toBeTruthy();
+    expect(dropzone).toMatchObject({
+      version: expect.any(String),
+    });
   });
 
   describe('handlePaste', () => {
@@ -45,9 +56,9 @@ describe('dropzone_input', () => {
     };
 
     beforeEach(() => {
-      loadFixtures('issues/new-issue.html');
+      setHTMLFixture(htmlNewMilestone);
 
-      form = $('#new_issue');
+      form = $('#new_milestone');
       form.data('uploads-path', TEST_UPLOAD_PATH);
       dropzoneInput(form);
     });
@@ -87,7 +98,7 @@ describe('dropzone_input', () => {
         ],
       });
 
-      axiosMock.onPost().reply(httpStatusCodes.OK, { link: { markdown: 'foo' } });
+      axiosMock.onPost().reply(HTTP_STATUS_OK, { link: { markdown: 'foo' } });
       await waitForPromises();
       expect(axiosMock.history.post[0].data.get('file').name).toHaveLength(246);
     });
@@ -114,21 +125,55 @@ describe('dropzone_input', () => {
     });
 
     it('display original file name in comment box', async () => {
-      const axiosMock = new MockAdapter(axios);
-      triggerPasteEvent({
-        types: ['Files'],
-        files: [new File([new Blob()], 'test.png', { type: 'image/png' })],
-        items: [
-          {
-            kind: 'file',
-            type: 'image/png',
-            getAsFile: () => new Blob(),
-          },
-        ],
+      await new Promise((resolve) => {
+        const axiosMock = new MockAdapter(axios);
+        triggerPasteEvent({
+          types: ['Files'],
+          files: [new File([new Blob()], 'test.png', { type: 'image/png' })],
+          items: [
+            {
+              kind: 'file',
+              type: 'image/png',
+              getAsFile: () => new Blob(),
+            },
+          ],
+        });
+
+        $('textarea').on('change', () => {
+          expect(axiosMock.history.post[0].data.get('file').name).toEqual('test.png');
+          expect($('textarea').val()).toEqual('![test.png]');
+
+          resolve();
+        });
+
+        axiosMock.onPost().reply(HTTP_STATUS_OK, { link: { markdown: '![test.png]' } });
       });
-      axiosMock.onPost().reply(httpStatusCodes.OK, { link: { markdown: 'foo' } });
-      await waitForPromises();
-      expect(axiosMock.history.post[0].data.get('file').name).toEqual('test.png');
+    });
+
+    it('display width and height for retina images', async () => {
+      await new Promise((resolve) => {
+        const axiosMock = new MockAdapter(axios);
+        triggerPasteEvent({
+          types: ['Files'],
+          files: [new File([RETINA_IMAGE], 'test.png', { type: 'image/png' })],
+          items: [
+            {
+              kind: 'file',
+              type: 'image/png',
+              getAsFile: () => new Blob(),
+            },
+          ],
+        });
+
+        $('textarea').on('change', () => {
+          expect(axiosMock.history.post[0].data.get('file').name).toEqual('test.png');
+          expect($('textarea').val()).toEqual('![test.png]{width=663 height=325}');
+
+          resolve();
+        });
+
+        axiosMock.onPost().reply(HTTP_STATUS_OK, { link: { markdown: '![test.png]' } });
+      });
     });
   });
 
@@ -148,15 +193,13 @@ describe('dropzone_input', () => {
       mock.teardown();
     });
 
-    beforeEach(() => {});
-
     it.each`
       responseType          | responseBody
       ${'application/json'} | ${JSON.stringify({ message: TEST_ERROR_MESSAGE })}
       ${'text/plain'}       | ${TEST_ERROR_MESSAGE}
     `('when AJAX fails with json', ({ responseType, responseBody }) => {
       mock.post(TEST_UPLOAD_PATH, {
-        status: 400,
+        status: HTTP_STATUS_BAD_REQUEST,
         body: responseBody,
         headers: { 'Content-Type': responseType },
       });
@@ -165,6 +208,38 @@ describe('dropzone_input', () => {
 
       return waitForPromises().then(() => {
         expect(form.find('.uploading-error-message').text()).toEqual(TEST_ERROR_MESSAGE);
+      });
+    });
+  });
+
+  describe('clickable element', () => {
+    let form;
+
+    beforeEach(() => {
+      jest.spyOn($.fn, 'dropzone');
+      setHTMLFixture(TEMPLATE);
+      form = $('form');
+    });
+
+    describe('if attach file button exists', () => {
+      let attachFileButton;
+
+      beforeEach(() => {
+        attachFileButton = document.createElement('button');
+        attachFileButton.dataset.buttonType = 'attach-file';
+        document.body.querySelector('form').appendChild(attachFileButton);
+      });
+
+      it('passes attach file button as `clickable` to dropzone', () => {
+        dropzoneInput(form);
+        expect($.fn.dropzone.mock.calls[0][0]).toMatchObject({ clickable: attachFileButton });
+      });
+    });
+
+    describe('if attach file button does not exist', () => {
+      it('passes attach file button as `clickable`, if it exists', () => {
+        dropzoneInput(form);
+        expect($.fn.dropzone.mock.calls[0][0]).toMatchObject({ clickable: true });
       });
     });
   });

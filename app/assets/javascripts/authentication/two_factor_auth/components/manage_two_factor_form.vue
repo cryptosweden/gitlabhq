@@ -6,10 +6,7 @@ import { __ } from '~/locale';
 export const i18n = {
   currentPassword: __('Current password'),
   confirmTitle: __('Are you sure?'),
-  confirmWebAuthn: __(
-    'This will invalidate your registered applications and U2F / WebAuthn devices.',
-  ),
-  confirm: __('This will invalidate your registered applications and U2F devices.'),
+  confirmWebAuthn: __('This will invalidate your registered applications and WebAuthn devices.'),
   disableTwoFactor: __('Disable two-factor authentication'),
   disable: __('Disable'),
   cancel: __('Cancel'),
@@ -43,7 +40,6 @@ export default {
     GlModal,
   },
   inject: [
-    'webauthnEnabled',
     'isCurrentPasswordRequired',
     'profileTwoFactorAuthPath',
     'profileTwoFactorAuthMethod',
@@ -61,11 +57,7 @@ export default {
   },
   computed: {
     confirmText() {
-      if (this.webauthnEnabled) {
-        return i18n.confirmWebAuthn;
-      }
-
-      return i18n.confirm;
+      return i18n.confirmWebAuthn;
     },
   },
   methods: {
@@ -104,13 +96,7 @@ export default {
 </script>
 
 <template>
-  <gl-form
-    ref="form"
-    class="gl-sm-display-inline-block"
-    method="post"
-    :action="action"
-    @submit.prevent
-  >
+  <gl-form ref="form" class="sm:gl-inline-block" method="post" :action="action" @submit.prevent>
     <input type="hidden" name="_method" data-testid="test-2fa-method-field" :value="method" />
     <input :value="$options.csrf.token" type="hidden" name="authenticity_token" />
 
@@ -127,7 +113,6 @@ export default {
         type="password"
         name="current_password"
         :state="currentPasswordState"
-        data-qa-selector="current_password_field"
       />
     </gl-form-group>
 

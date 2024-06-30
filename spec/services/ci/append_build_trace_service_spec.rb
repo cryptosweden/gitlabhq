@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::AppendBuildTraceService do
+RSpec.describe Ci::AppendBuildTraceService, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project) }
   let_it_be(:pipeline) { create(:ci_pipeline, project: project) }
   let_it_be_with_reload(:build) { create(:ci_build, :running, pipeline: pipeline) }
@@ -74,6 +74,38 @@ RSpec.describe Ci::AppendBuildTraceService do
       expect(build.trace_chunks.count).to eq 0
       expect(build.reload).to be_failed
       expect(build.failure_reason).to eq 'trace_size_exceeded'
+    end
+  end
+
+  context 'when debug_trace param is provided' do
+    let(:metadata) { Ci::BuildMetadata.find_by(build_id: build) }
+    let(:stream_size) { 192.kilobytes }
+    let(:body_data) { 'x' * stream_size }
+    let(:content_range) { "#{body_start}-#{stream_size}" }
+
+    context 'when sending the first trace' do
+      let(:body_start) { 0 }
+
+      it 'updates build metadata debug_trace_enabled' do
+        described_class
+          .new(build, content_range: content_range, debug_trace: true)
+          .execute(body_data)
+
+        expect(metadata.debug_trace_enabled).to be(true)
+      end
+    end
+
+    context 'when sending the second trace' do
+      let(:body_start) { 1 }
+
+      it 'does not update build metadata debug_trace_enabled', :aggregate_failures do
+        query_recorder = ActiveRecord::QueryRecorder.new do
+          described_class.new(build, content_range: content_range, debug_trace: true).execute(body_data)
+        end
+
+        expect(metadata.debug_trace_enabled).to be(false)
+        expect(query_recorder.log).not_to include(/p_ci_builds_metadata/)
+      end
     end
   end
 end

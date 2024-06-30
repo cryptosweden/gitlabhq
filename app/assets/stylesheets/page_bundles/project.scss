@@ -7,34 +7,12 @@
 
   .home-panel-title {
     .icon {
-      vertical-align: -1px;
+      vertical-align: 1px;
     }
 
     .home-panel-topic-list {
       .icon {
         top: 3px;
-      }
-    }
-  }
-
-  .home-panel-title-row {
-    @include media-breakpoint-down(sm) {
-      .home-panel-avatar {
-        width: $home-panel-avatar-mobile-size;
-        height: $home-panel-avatar-mobile-size;
-        flex-basis: $home-panel-avatar-mobile-size;
-
-        .avatar {
-          font-size: 20px;
-          line-height: 46px;
-        }
-      }
-
-      .home-panel-title {
-        margin-top: 4px;
-        margin-bottom: 2px;
-        font-size: $gl-font-size;
-        line-height: $gl-font-size-large;
       }
     }
   }
@@ -47,19 +25,13 @@
 }
 
 .project-repo-buttons {
-  .btn {
-    svg {
-      fill: var(--gray-500, $gray-500);
-    }
-  }
-
   .download-button {
     @include media-breakpoint-down(md) {
       margin-left: 0;
     }
   }
 
-  .project-clone-holder {
+  .project-code-holder {
     display: inline-block;
     margin: $gl-padding 0 0;
 
@@ -128,10 +100,6 @@
     > li {
       display: inline-block;
 
-      &:not(:last-child) {
-        margin-right: $gl-padding;
-      }
-
       &.right {
         vertical-align: top;
         margin-top: 0;
@@ -144,7 +112,7 @@
 
     .stat-text,
     .stat-link {
-      padding: $gl-btn-vert-padding 0;
+      padding: $gl-btn-vert-padding;
       background-color: transparent;
       font-size: $gl-font-size;
       line-height: $gl-btn-line-height;
@@ -159,7 +127,6 @@
       &:hover,
       &:focus {
         text-decoration: underline;
-        border-bottom: 0;
       }
 
       .project-stat-value {
@@ -169,17 +136,9 @@
       .icon {
         color: var(--gray-500, $gl-text-color-secondary);
       }
-
-      .add-license-link {
-        &,
-        .icon {
-          color: var(--blue-600, $blue-600);
-        }
-      }
     }
 
     .btn {
-      margin-bottom: $gl-padding-8;
       padding: $gl-btn-vert-padding $gl-btn-padding;
       line-height: $gl-btn-line-height;
 
@@ -190,24 +149,61 @@
   }
 }
 
-.project-buttons {
-  .nav > li:not(:last-child) {
-    margin-right: $gl-padding-8;
-  }
-}
-
 .git-empty {
   margin-bottom: 7px;
 
   h5 {
     color: var(--gl-text-color, $gl-text-color);
   }
+}
 
-  .light-well {
-    border-radius: 2px;
+.project-page-indicator:not(.hidden) + .project-page-layout {
+  @include media-breakpoint-up(lg) {
+    display: grid;
+    grid-template-columns: auto $right-sidebar-width;
+    gap: 2rem;
 
-    color: var(--gray-600, $well-light-text-color);
-    font-size: 13px;
-    line-height: 1.6em;
+    .project-page-layout-content,
+    .project-page-layout-sidebar {
+      min-width: 1px;
+    }
+
+    .project-page-layout-sidebar {
+      order: 2;
+      overflow-x: clip;
+      margin-right: -$gl-padding-8;
+    }
+
+    .project-page-sidebar {
+      position: sticky;
+      top: calc(#{$calc-application-header-height} + #{$gl-spacing-scale-4});
+      width: calc(100% + 100px);
+      height: calc(
+        #{$calc-application-viewport-height} - #{$gl-spacing-scale-4}
+      );
+      padding-inline: $gl-padding-4;
+      padding-block-end: $gl-spacing-scale-11;
+      overflow-y: scroll;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+
+      .project-page-sidebar-block {
+        width: $right-sidebar-width - 1px;
+      }
+
+      .nav {
+        > li {
+          width: 100%;
+        }
+
+        .btn {
+          justify-content: flex-start;
+
+          &:not(.btn-dashed) {
+            box-shadow: none;
+          }
+        }
+      }
+    }
   }
 }

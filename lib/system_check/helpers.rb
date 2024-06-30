@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module SystemCheck
+  # Helpers used inside a SystemCheck instance to standardize output responses
   module Helpers
     include ::Gitlab::TaskHelpers
 
@@ -17,6 +18,16 @@ module SystemCheck
       sources.each do |source|
         $stdout.puts "  #{source}"
       end
+    end
+
+    # Construct a help page based on the instance's external_url
+    #
+    # @param <String> path of the documentation page
+    # @param <String> anchor to the specific docs heading
+    #
+    # @return <String> URL of the help page
+    def construct_help_page_url(path, anchor = nil)
+      Rails.application.routes.url_helpers.help_page_url(path, anchor)
     end
 
     def see_installation_guide_section(section)

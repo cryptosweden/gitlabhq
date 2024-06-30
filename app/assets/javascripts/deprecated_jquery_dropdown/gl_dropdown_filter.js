@@ -1,5 +1,3 @@
-/* eslint-disable consistent-return */
-
 import fuzzaldrinPlus from 'fuzzaldrin-plus';
 import $ from 'jquery';
 import { debounce } from 'lodash';
@@ -19,20 +17,17 @@ export class GitLabDropdownFilter {
     const $inputContainer = this.input.parent();
     const $clearButton = $inputContainer.find('.js-dropdown-input-clear');
     const filterRemoteDebounced = debounce(() => {
+      options.instance.dropdown.trigger('filtering.gl.dropdown');
       $inputContainer.parent().addClass('is-loading');
 
       return this.options.query(this.input.val(), (data) => {
+        options.instance.dropdown.trigger('done.filtering.gl.dropdown');
         $inputContainer.parent().removeClass('is-loading');
         return this.options.callback(data);
       });
     }, 500);
 
-    $clearButton.on('click', (e) => {
-      // Clear click
-      e.preventDefault();
-      e.stopPropagation();
-      return this.input.val('').trigger('input').focus();
-    });
+    $clearButton.on('click', this.clear);
     // Key events
     this.input
       .on('keydown', (e) => {
@@ -59,6 +54,7 @@ export class GitLabDropdownFilter {
     return BLUR_KEYCODES.indexOf(keyCode) !== -1;
   }
 
+  // eslint-disable-next-line consistent-return
   filter(searchText) {
     let group;
     let results;
@@ -114,9 +110,10 @@ export class GitLabDropdownFilter {
         const matches = fuzzaldrinPlus.match($el.text().trim(), searchText);
         if (!$el.is('.dropdown-header')) {
           if (matches.length) {
-            return $el.show().removeClass('option-hidden');
+            $el.show().removeClass('option-hidden');
+          } else {
+            $el.hide().addClass('option-hidden');
           }
-          return $el.hide().addClass('option-hidden');
         }
       });
     } else {
@@ -127,5 +124,15 @@ export class GitLabDropdownFilter {
       .parent()
       .find('.dropdown-menu-empty-item')
       .toggleClass('hidden', elements.is(':visible'));
+  }
+
+  clear(e) {
+    if (this.input.val() === '') return;
+    if (e) {
+      // Clear click
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    this.input.val('').trigger('input').focus();
   }
 }

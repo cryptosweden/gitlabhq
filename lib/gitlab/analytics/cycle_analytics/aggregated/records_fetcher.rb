@@ -14,12 +14,14 @@ module Gitlab
             Issue => {
               serializer_class: AnalyticsIssueSerializer,
               includes_for_query: { project: { namespace: [:route] }, author: [] },
-              columns_for_select: %I[title iid id created_at author_id project_id]
+              columns_for_select: %I[title iid id created_at author_id project_id],
+              finder_class: IssuesFinder
             },
             MergeRequest => {
               serializer_class: AnalyticsMergeRequestSerializer,
               includes_for_query: { target_project: [:namespace], author: [] },
-              columns_for_select: %I[title iid id created_at author_id state_id target_project_id]
+              columns_for_select: %I[title iid id created_at author_id state_id target_project_id],
+              finder_class: MergeRequestsFinder
             }
           }.freeze
 
@@ -38,9 +40,8 @@ module Gitlab
             strong_memoize(:serialized_records) do
               # When RecordsFetcher is used with query sourced from
               # InOperatorOptimization::QueryBuilder only columns
-              # used in ORDER BY statement would be selected by Arel.start operation
+              # used in ORDER BY statement would be selected by Arel.star operation
               selections = [stage_event_model.arel_table[Arel.star]]
-              selections << duration_in_seconds.as('total_time') if params[:sort] != :duration # duration sorting already exposes this data
 
               records = limited_query.select(*selections)
 
@@ -55,7 +56,9 @@ module Gitlab
                   project_path: project.path,
                   namespace_path: project.namespace.route.path,
                   author: issuable.author,
-                  total_time: record.total_time
+                  total_time: record.total_time,
+                  start_event_timestamp: record.start_event_timestamp,
+                  end_event_timestamp: record.end_event_timestamp
                 })
                 serializer.represent(attributes)
               end
@@ -78,12 +81,15 @@ module Gitlab
           def load_issuables(stage_event_records)
             stage_event_records_by_issuable_id = stage_event_records.index_by(&:issuable_id)
 
-            issuable_model = stage_event_model.issuable_model
-            issuables_by_id = issuable_model.id_in(stage_event_records_by_issuable_id.keys).index_by(&:id)
+            issuables_by_id = finder.execute.id_in(stage_event_records_by_issuable_id.keys).index_by(&:id)
 
             stage_event_records_by_issuable_id.map do |issuable_id, record|
               [issuables_by_id[issuable_id], record] if issuables_by_id[issuable_id]
             end.compact
+          end
+
+          def finder
+            MAPPINGS.fetch(subject_class).fetch(:finder_class).new(params[:current_user])
           end
 
           def serializer
@@ -92,10 +98,10 @@ module Gitlab
 
           # rubocop: disable CodeReuse/ActiveRecord
           def preload_associations(records)
-            ActiveRecord::Associations::Preloader.new.preload(
-              records,
-              MAPPINGS.fetch(subject_class).fetch(:includes_for_query)
-            )
+            ActiveRecord::Associations::Preloader.new(
+              records: records,
+              associations: MAPPINGS.fetch(subject_class).fetch(:includes_for_query)
+            ).call
 
             records
           end

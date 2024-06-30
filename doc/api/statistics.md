@@ -1,18 +1,23 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Application statistics API **(FREE SELF)**
+# Application statistics API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
 ## Get current application statistics
 
 List the current statistics of the GitLab instance. You have to be an
-administrator in order to perform this action.
+administrator to perform this action.
 
 NOTE:
-These statistics are approximate.
+These statistics show exact counts for values less than 10,000. For values of 10,000 and higher, these statistics show approximate data
+when [TablesampleCountStrategy](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/count/tablesample_count_strategy.rb?ref_type=heads#L16) and [ReltuplesCountStrategy](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/count/reltuples_count_strategy.rb?ref_type=heads) strategies are used for calculations.
 
 ```plaintext
 GET /application/statistics

@@ -3,7 +3,7 @@
 module Gitlab
   module Diff
     class Highlight
-      PREFIX_REGEXP = /\A(.)/.freeze
+      PREFIX_REGEXP = /\A(.)/
 
       attr_reader :diff_file, :diff_lines, :repository, :project
 
@@ -24,15 +24,15 @@ module Gitlab
       end
 
       def highlight
-        populate_marker_ranges if Feature.enabled?(:use_marker_ranges, project, default_enabled: :yaml)
+        populate_marker_ranges
 
-        @diff_lines.map.with_index do |diff_line, index|
+        @diff_lines.map do |diff_line|
           diff_line = diff_line.dup
           # ignore highlighting for "match" lines
           next diff_line if diff_line.meta?
 
           rich_line = apply_syntax_highlight(diff_line)
-          rich_line = apply_marker_ranges_highlight(diff_line, rich_line, index)
+          rich_line = apply_marker_ranges_highlight(diff_line, rich_line)
 
           diff_line.rich_text = rich_line
 
@@ -60,12 +60,8 @@ module Gitlab
         highlight_line(diff_line) || ERB::Util.html_escape(diff_line.text)
       end
 
-      def apply_marker_ranges_highlight(diff_line, rich_line, index)
-        marker_ranges = if Feature.enabled?(:use_marker_ranges, project, default_enabled: :yaml)
-                          diff_line.marker_ranges
-                        else
-                          inline_diffs[index]
-                        end
+      def apply_marker_ranges_highlight(diff_line, rich_line)
+        marker_ranges = diff_line.marker_ranges
 
         return rich_line if marker_ranges.blank?
 
@@ -83,7 +79,7 @@ module Gitlab
         return unless diff_file && diff_file.diff_refs
         return diff_line_highlighting(diff_line, plain: true) if blobs_too_large?
 
-        if Feature.enabled?(:diff_line_syntax_highlighting, project, default_enabled: :yaml)
+        if Feature.enabled?(:diff_line_syntax_highlighting, project)
           diff_line_highlighting(diff_line)
         else
           blob_highlighting(diff_line)
@@ -94,7 +90,8 @@ module Gitlab
         rich_line = syntax_highlighter(diff_line).highlight(
           diff_line.text(prefix: false),
           plain: plain,
-          context: { line_number: diff_line.line }
+          context: { line_number: diff_line.line },
+          used_on: :diff
         )
 
         # Only update text if line is found. This will prevent
@@ -134,12 +131,6 @@ module Gitlab
         end
       end
 
-      # Deprecated: https://gitlab.com/gitlab-org/gitlab/-/issues/324638
-      # ------------------------------------------------------------------------
-      def inline_diffs
-        @inline_diffs ||= InlineDiff.for_lines(@raw_lines)
-      end
-
       def old_lines
         @old_lines ||= highlighted_blob_lines(diff_file.old_blob)
       end
@@ -153,7 +144,7 @@ module Gitlab
 
         blob.load_all_data!
 
-        blob.present.highlight.lines
+        blob.present.highlight(used_on: :diff).lines
       end
 
       def blobs_too_large?

@@ -8,7 +8,7 @@ module QA
     module Env
       extend self
 
-      attr_writer :personal_access_token, :admin_personal_access_token
+      attr_writer :personal_access_token, :admin_personal_access_token, :gitlab_url
       attr_accessor :dry_run
 
       ENV_VARIABLES = Gitlab::QA::Runtime::Env::ENV_VARIABLES
@@ -25,8 +25,21 @@ module QA
         SUPPORTED_FEATURES
       end
 
+      def gitlab_url
+        @gitlab_url ||= ENV["QA_GITLAB_URL"] || "http://127.0.0.1:3000" # default to GDK
+      end
+
+      # Retrieves the value of the gitlab_canary cookie if set or returns an empty hash.
+      #
+      # @return [Hash]
+      def canary_cookie
+        canary = ENV['QA_COOKIES']&.scan(/gitlab_canary=(true|false)/)&.dig(0, 0)
+
+        canary ? { gitlab_canary: canary } : {}
+      end
+
       def additional_repository_storage
-        ENV['QA_ADDITIONAL_REPOSITORY_STORAGE']
+        ENV['QA_ADDITIONAL_REPOSITORY_STORAGE'] || 'secondary'
       end
 
       def non_cluster_repository_storage
@@ -34,15 +47,31 @@ module QA
       end
 
       def praefect_repository_storage
-        ENV['QA_PRAEFECT_REPOSITORY_STORAGE']
+        ENV['QA_PRAEFECT_REPOSITORY_STORAGE'] || 'default'
       end
 
       def interception_enabled?
-        enabled?(ENV['INTERCEPT_REQUESTS'], default: true)
+        enabled?(ENV['QA_INTERCEPT_REQUESTS'], default: false)
       end
 
       def can_intercept?
         browser == :chrome && interception_enabled?
+      end
+
+      def release
+        ENV['RELEASE']
+      end
+
+      def release_registry_url
+        ENV['RELEASE_REGISTRY_URL']
+      end
+
+      def release_registry_username
+        ENV['RELEASE_REGISTRY_USERNAME']
+      end
+
+      def release_registry_password
+        ENV['RELEASE_REGISTRY_PASSWORD']
       end
 
       def ci_job_url
@@ -57,8 +86,16 @@ module QA
         ENV['CI_PROJECT_NAME']
       end
 
-      def debug?
-        enabled?(ENV['QA_DEBUG'], default: false)
+      def ci_project_path
+        ENV['CI_PROJECT_PATH']
+      end
+
+      def coverband_enabled?
+        enabled?(ENV['COVERBAND_ENABLED'], default: false)
+      end
+
+      def schedule_type
+        ENV['SCHEDULE_TYPE']
       end
 
       def generate_allure_report?
@@ -67,10 +104,6 @@ module QA
 
       def default_branch
         ENV['QA_DEFAULT_BRANCH'] || 'main'
-      end
-
-      def log_destination
-        ENV['QA_LOG_PATH'] || $stdout
       end
 
       def colorized_logs?
@@ -128,6 +161,11 @@ module QA
         enabled?(ENV['SIGNUP_DISABLED'], default: false)
       end
 
+      # PATs are disabled for FedRamp
+      def personal_access_tokens_disabled?
+        enabled?(ENV['PERSONAL_ACCESS_TOKENS_DISABLED'], default: false)
+      end
+
       def admin_password
         ENV['GITLAB_ADMIN_PASSWORD']
       end
@@ -177,14 +215,63 @@ module QA
         ENV['QA_BROWSER'].nil? ? :chrome : ENV['QA_BROWSER'].to_sym
       end
 
+      def selenoid_browser_version
+        ENV['QA_SELENOID_BROWSER_VERSION']
+      end
+
+      def selenoid_browser_image
+        ENV['QA_SELENOID_BROWSER_IMAGE']
+      end
+
+      def video_recorder_image
+        ENV['QA_VIDEO_RECORDER_IMAGE']
+      end
+
       def remote_mobile_device_name
-        ENV['QA_REMOTE_MOBILE_DEVICE_NAME']
+        ENV['QA_REMOTE_MOBILE_DEVICE_NAME']&.downcase
+      end
+
+      def layout
+        ENV['QA_LAYOUT']&.downcase || ''
+      end
+
+      def tablet_layout?
+        return true if remote_mobile_device_name && !phone_layout?
+
+        layout.include?('tablet')
+      end
+
+      def phone_layout?
+        return true if layout.include?('phone')
+
+        return false unless remote_mobile_device_name
+
+        !(remote_mobile_device_name.include?('ipad') || remote_mobile_device_name.include?('tablet'))
       end
 
       def mobile_layout?
-        return false if ENV['QA_REMOTE_MOBILE_DEVICE_NAME'].blank?
+        phone_layout? || tablet_layout? || remote_mobile_device_name
+      end
 
-        !(ENV['QA_REMOTE_MOBILE_DEVICE_NAME'].downcase.include?('ipad') || ENV['QA_REMOTE_MOBILE_DEVICE_NAME'].downcase.include?('tablet'))
+      def record_video?
+        enabled?(ENV['QA_RECORD_VIDEO'], default: false)
+      end
+
+      def use_selenoid?
+        enabled?(ENV['USE_SELENOID'], default: false)
+      end
+
+      def save_all_videos?
+        enabled?(ENV['QA_SAVE_ALL_VIDEOS'], default: false)
+      end
+
+      def require_video_variables!
+        docs_link = 'https://gitlab.com/gitlab-org/gitlab-qa/-/blob/master/docs/running_against_remote_grid.md#testing-with-selenoid'
+        use_selenoid? || (raise ArgumentError, "USE_SELENOID is required! See docs: #{docs_link}")
+        remote_grid || (raise ArgumentError, "QA_REMOTE_GRID is required! See docs: #{docs_link}")
+        video_recorder_image || (raise ArgumentError, "QA_VIDEO_RECORDER_IMAGE is required! See docs: #{docs_link}")
+        selenoid_browser_image || (raise ArgumentError, "QA_SELENOID_BROWSER_IMAGE is required! See docs: #{docs_link}")
+        selenoid_browser_version || (raise ArgumentError, "QA_SELENOID_BROWSER_VERSION is required! See docs: #{docs_link}")
       end
 
       def user_username
@@ -200,11 +287,11 @@ module QA
       end
 
       def github_username
-        ENV['GITHUB_USERNAME']
+        ENV['QA_GITHUB_USERNAME']
       end
 
       def github_password
-        ENV['GITHUB_PASSWORD']
+        ENV['QA_GITHUB_PASSWORD']
       end
 
       def forker?
@@ -225,6 +312,10 @@ module QA
 
       def gitlab_qa_password_1
         ENV['GITLAB_QA_PASSWORD_1']
+      end
+
+      def gitlab_qa_access_token_1
+        ENV['GITLAB_QA_ACCESS_TOKEN_1']
       end
 
       def gitlab_qa_username_2
@@ -267,40 +358,36 @@ module QA
         ENV['GITLAB_QA_PASSWORD_6']
       end
 
-      def gitlab_qa_2fa_owner_username_1
-        ENV['GITLAB_QA_2FA_OWNER_USERNAME_1'] || 'gitlab-qa-2fa-owner-user1'
-      end
-
-      def gitlab_qa_2fa_owner_password_1
-        ENV['GITLAB_QA_2FA_OWNER_PASSWORD_1']
-      end
-
-      def gitlab_qa_1p_email
-        ENV['GITLAB_QA_1P_EMAIL']
-      end
-
-      def gitlab_qa_1p_password
-        ENV['GITLAB_QA_1P_PASSWORD']
-      end
-
-      def gitlab_qa_1p_secret
-        ENV['GITLAB_QA_1P_SECRET']
-      end
-
-      def gitlab_qa_1p_github_uuid
-        ENV['GITLAB_QA_1P_GITHUB_UUID']
-      end
-
       def jira_admin_username
-        ENV['JIRA_ADMIN_USERNAME']
+        ENV['QA_JIRA_ADMIN_USERNAME']
       end
 
       def jira_admin_password
-        ENV['JIRA_ADMIN_PASSWORD']
+        ENV['QA_JIRA_ADMIN_PASSWORD']
       end
 
       def jira_hostname
         ENV['JIRA_HOSTNAME']
+      end
+
+      def slack_workspace
+        ENV['QA_SLACK_WORKSPACE']
+      end
+
+      def slack_email
+        ENV['QA_SLACK_EMAIL']
+      end
+
+      def slack_password
+        ENV['QA_SLACK_PASSWORD']
+      end
+
+      def jenkins_admin_username
+        ENV.fetch('QA_JENKINS_USER', 'administrator')
+      end
+
+      def jenkins_admin_password
+        ENV.fetch('QA_JENKINS_PASS', 'password')
       end
 
       # this is set by the integrations job
@@ -364,15 +451,61 @@ module QA
         %w[GCLOUD_ACCOUNT_KEY GCLOUD_ACCOUNT_EMAIL].none? { |var| ENV[var].to_s.empty? }
       end
 
+      # ENV variables for workspaces to run against existing cluster or creating new cluster
+      def workspaces_cluster_available?
+        enabled?(ENV['WORKSPACES_CLUSTER_AVAILABLE'], default: false)
+      end
+
+      def workspaces_cluster_name
+        ENV.fetch("WORKSPACES_CLUSTER_NAME")
+      end
+
+      def workspaces_cluster_region
+        ENV.fetch("WORKSPACES_CLUSTER_REGION")
+      end
+
+      # ENV variables for workspaces OAuth App and the domain
+      def workspaces_oauth_app_id
+        ENV.fetch("WORKSPACES_OAUTH_APP_ID")
+      end
+
+      def workspaces_oauth_app_secret
+        ENV.fetch("WORKSPACES_OAUTH_APP_SECRET")
+      end
+
+      def workspaces_oauth_signing_key
+        ENV.fetch("WORKSPACES_OAUTH_SIGNING_KEY")
+      end
+
+      def workspaces_proxy_domain
+        ENV.fetch("WORKSPACES_PROXY_DOMAIN")
+      end
+
+      def workspaces_domain_cert
+        ENV.fetch("WORKSPACES_DOMAIN_CERT")
+      end
+
+      def workspaces_domain_key
+        ENV.fetch("WORKSPACES_DOMAIN_KEY")
+      end
+
+      def workspaces_wildcard_cert
+        ENV.fetch("WORKSPACES_WILDCARD_CERT")
+      end
+
+      def workspaces_wildcard_key
+        ENV.fetch("WORKSPACES_WILDCARD_KEY")
+      end
+
       # Specifies the token that can be used for the GitHub API
       def github_access_token
-        ENV['GITHUB_ACCESS_TOKEN'].to_s.strip
+        ENV['QA_GITHUB_ACCESS_TOKEN'].to_s.strip
       end
 
       def require_github_access_token!
         return unless github_access_token.empty?
 
-        raise ArgumentError, "Please provide GITHUB_ACCESS_TOKEN"
+        raise ArgumentError, "Please provide QA_GITHUB_ACCESS_TOKEN"
       end
 
       def require_admin_access_token!
@@ -392,10 +525,6 @@ module QA
         ENV['QA_RUNTIME_SCENARIO_ATTRIBUTES']
       end
 
-      def disable_rspec_retry?
-        enabled?(ENV['QA_DISABLE_RSPEC_RETRY'], default: false)
-      end
-
       def simulate_slow_connection?
         enabled?(ENV['QA_SIMULATE_SLOW_CONNECTION'], default: false)
       end
@@ -410,14 +539,6 @@ module QA
 
       def gitlab_qa_loop_runner_minutes
         ENV.fetch('GITLAB_QA_LOOP_RUNNER_MINUTES', 1).to_i
-      end
-
-      def reusable_project_path
-        ENV.fetch('QA_REUSABLE_PROJECT_PATH', 'reusable_project')
-      end
-
-      def reusable_group_path
-        ENV.fetch('QA_REUSABLE_GROUP_PATH', 'reusable_group')
       end
 
       def mailhog_hostname
@@ -442,7 +563,7 @@ module QA
       end
 
       def gitlab_agentk_version
-        ENV.fetch('GITLAB_AGENTK_VERSION', 'v14.5.0')
+        ENV.fetch('GITLAB_AGENTK_VERSION', 'v16.10.0')
       end
 
       def transient_trials
@@ -454,7 +575,21 @@ module QA
       end
 
       def export_metrics?
-        running_in_ci? && enabled?(ENV['QA_EXPORT_TEST_METRICS'], default: true)
+        enabled?(ENV['QA_EXPORT_TEST_METRICS'], default: false)
+      end
+
+      def save_metrics_json?
+        enabled?(ENV['QA_SAVE_TEST_METRICS'], default: false)
+      end
+
+      def ee_license
+        return ENV["QA_EE_LICENSE"] if ENV["QA_EE_LICENSE"]
+
+        ENV["EE_LICENSE"].tap do |license|
+          next unless license
+
+          Runtime::Logger.warn("EE_LICENSE environment variable is deprecated, please use QA_EE_LICENSE instead!")
+        end
       end
 
       def ee_activation_code
@@ -469,8 +604,126 @@ module QA
         enabled?(ENV['QA_VALIDATE_RESOURCE_REUSE'], default: false)
       end
 
-      def skip_smoke_reliable?
-        enabled?(ENV['QA_SKIP_SMOKE_RELIABLE'], default: false)
+      def fips?
+        enabled?(ENV['FIPS'], default: false)
+      end
+
+      def container_registry_host
+        ENV.fetch('QA_CONTAINER_REGISTRY_HOST', 'registry.gitlab.com')
+      end
+
+      def runner_container_image
+        ENV.fetch('QA_RUNNER_CONTAINER_IMAGE', 'gitlab-runner:alpine')
+      end
+
+      def runner_container_namespace
+        ENV['QA_RUNNER_CONTAINER_NAMESPACE'] || 'gitlab-org'
+      end
+
+      def gitlab_qa_build_image
+        ENV['QA_GITLAB_QA_BUILD_IMAGE'] || 'gitlab-build-images:gitlab-qa-alpine-ruby-2.7'
+      end
+
+      # ENV variables for authenticating against a private container registry
+      # These need to be set if using the
+      # Service::DockerRun::Mixins::ThirdPartyDocker module
+      def third_party_docker_registry
+        ENV['QA_THIRD_PARTY_DOCKER_REGISTRY']
+      end
+
+      def third_party_docker_repository
+        ENV['QA_THIRD_PARTY_DOCKER_REPOSITORY']
+      end
+
+      def third_party_docker_user
+        ENV['QA_THIRD_PARTY_DOCKER_USER']
+      end
+
+      def third_party_docker_password
+        ENV['QA_THIRD_PARTY_DOCKER_PASSWORD']
+      end
+
+      def max_capybara_wait_time
+        ENV.fetch('MAX_CAPYBARA_WAIT_TIME', 10).to_i
+      end
+
+      def use_public_ip_api?
+        enabled?(ENV['QA_USE_PUBLIC_IP_API'], default: false)
+      end
+
+      def allow_local_requests?
+        enabled?(ENV['QA_ALLOW_LOCAL_REQUESTS'], default: false)
+      end
+
+      def chrome_default_download_path
+        ENV['DEFAULT_CHROME_DOWNLOAD_PATH'] || Dir.tmpdir
+      end
+
+      def require_slack_env!
+        missing_env = %i[slack_workspace slack_email slack_password].select do |method|
+          ::QA::Runtime::Env.public_send(method).nil?
+        end
+        return unless missing_env.any?
+
+        raise "Missing Slack env: #{missing_env.map(&:upcase).join(', ')}"
+      end
+
+      def one_p_email
+        ENV['QA_1P_EMAIL']
+      end
+
+      def one_p_password
+        ENV['QA_1P_PASSWORD']
+      end
+
+      def one_p_secret
+        ENV['QA_1P_SECRET']
+      end
+
+      def one_p_github_uuid
+        ENV['QA_1P_GITHUB_UUID']
+      end
+
+      # Docker network to use when starting sidecar containers
+      #
+      # @return [String]
+      def docker_network
+        ENV["QA_DOCKER_NETWORK"]
+      end
+
+      # Product analytics configurator string (e.g. https://usr:pass@gl-configurator.gitlab.com)
+      #
+      # @return [String]
+      def pa_configurator_url
+        ENV['PA_CONFIGURATOR_URL']
+      end
+
+      # Product analytics collector url (e.g. https://collector.gitlab.com)
+      #
+      # @return [String]
+      def pa_collector_host
+        ENV['PA_COLLECTOR_HOST']
+      end
+
+      # Product analytics cube api url (e.g. https://cube.gitlab.com)
+      #
+      # @return [String]
+      def pa_cube_api_url
+        ENV['PA_CUBE_API_URL']
+      end
+
+      # Product analytics cube api key
+      #
+      # @return [String]
+      def pa_cube_api_key
+        ENV['PA_CUBE_API_KEY']
+      end
+
+      # Test run is in rspec retried process
+      #
+      # @return [Boolean]
+      def rspec_retried?
+        enabled?(ENV['QA_RSPEC_RETRIED'], default: false)
       end
 
       private
@@ -490,7 +743,7 @@ module QA
       def enabled?(value, default: true)
         return default if value.nil?
 
-        (value =~ /^(false|no|0)$/i) != 0
+        value.to_s.match?(/^(true|yes|1)$/i)
       end
     end
   end

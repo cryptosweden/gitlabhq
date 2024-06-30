@@ -4,15 +4,19 @@ ReloadPropagatedFrom=gitlab.target
 PartOf=gitlab.target
 After=network.target
 JoinsNamespaceOf=gitlab-puma.service
+StartLimitIntervalSec=11min
 
 [Service]
-Type=simple
+Type=notify
 User=git
 WorkingDirectory=/home/git/gitlab
 Environment=RAILS_ENV=production
-ExecStart=/usr/local/bin/bundle exec sidekiq --config /home/git/gitlab/config/sidekiq_queues.yml --environment production
-ExecStop=/usr/local/bin/bundle exec sidekiqctl stop /run/gitlab/sidekiq.pid
+Environment=SIDEKIQ_QUEUES=*
+ExecStart=/home/git/gitlab/bin/sidekiq-cluster $SIDEKIQ_QUEUES -P /home/git/gitlab/tmp/pids/sidekiq.pid
+NotifyAccess=all
 PIDFile=/home/git/gitlab/tmp/pids/sidekiq.pid
+# sidekiq can be slow to start
+TimeoutStartSec=2min
 Restart=on-failure
 RestartSec=1
 SyslogIdentifier=gitlab-sidekiq

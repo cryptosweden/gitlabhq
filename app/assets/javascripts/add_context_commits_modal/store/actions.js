@@ -1,8 +1,11 @@
-import _ from 'lodash';
+import { uniqBy, orderBy } from 'lodash';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import Api from '~/api';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { s__ } from '~/locale';
+import { joinPaths } from '~/lib/utils/url_utility';
+import { ACTIVE_AND_BLOCKED_USER_STATES } from '~/users_select/constants';
 import * as types from './mutation_types';
 
 export const setBaseConfig = ({ commit }, options) => {
@@ -11,14 +14,14 @@ export const setBaseConfig = ({ commit }, options) => {
 
 export const setTabIndex = ({ commit }, tabIndex) => commit(types.SET_TABINDEX, tabIndex);
 
-export const searchCommits = ({ dispatch, commit, state }, searchText) => {
+export const searchCommits = ({ dispatch, commit, state }, search = {}) => {
   commit(types.FETCH_COMMITS);
 
   let params = {};
-  if (searchText) {
+  if (search) {
     params = {
       params: {
-        search: searchText,
+        ...search,
         per_page: 40,
       },
     };
@@ -37,7 +40,7 @@ export const searchCommits = ({ dispatch, commit, state }, searchText) => {
         }
         return c;
       });
-      if (!searchText) {
+      if (!search) {
         dispatch('setCommits', { commits: [...commits, ...state.contextCommits] });
       } else {
         dispatch('setCommits', { commits });
@@ -49,8 +52,8 @@ export const searchCommits = ({ dispatch, commit, state }, searchText) => {
 };
 
 export const setCommits = ({ commit }, { commits: data, silentAddition = false }) => {
-  let commits = _.uniqBy(data, 'short_id');
-  commits = _.orderBy(data, (c) => new Date(c.committed_date), ['desc']);
+  let commits = uniqBy(data, 'short_id');
+  commits = orderBy(data, (c) => new Date(c.committed_date), ['desc']);
   if (silentAddition) {
     commit(types.SET_COMMITS_SILENT, commits);
   } else {
@@ -71,7 +74,7 @@ export const createContextCommits = ({ state }, { commits, forceReload = false }
     })
     .catch(() => {
       if (forceReload) {
-        createFlash({
+        createAlert({
           message: s__('ContextCommits|Failed to create context commits. Please try again.'),
         });
       }
@@ -113,7 +116,7 @@ export const removeContextCommits = ({ state }, forceReload = false) =>
     })
     .catch(() => {
       if (forceReload) {
-        createFlash({
+        createAlert({
           message: s__('ContextCommits|Failed to delete context commits. Please try again.'),
         });
       }
@@ -122,13 +125,30 @@ export const removeContextCommits = ({ state }, forceReload = false) =>
     });
 
 export const setSelectedCommits = ({ commit }, selected) => {
-  let selectedCommits = _.uniqBy(selected, 'short_id');
-  selectedCommits = _.orderBy(
+  let selectedCommits = uniqBy(selected, 'short_id');
+  selectedCommits = orderBy(
     selectedCommits,
     (selectedCommit) => new Date(selectedCommit.committed_date),
     ['desc'],
   );
   commit(types.SET_SELECTED_COMMITS, selectedCommits);
+};
+
+export const fetchAuthors = ({ dispatch, state }, author = null) => {
+  const { projectId } = state;
+  return axios
+    .get(joinPaths(gon.relative_url_root || '', '/-/autocomplete/users.json'), {
+      params: {
+        project_id: projectId,
+        states: ACTIVE_AND_BLOCKED_USER_STATES,
+        search: author,
+      },
+    })
+    .then(({ data }) => data)
+    .catch((error) => {
+      Sentry.captureException(error);
+      dispatch('receiveAuthorsError');
+    });
 };
 
 export const setSearchText = ({ commit }, searchText) => commit(types.SET_SEARCH_TEXT, searchText);

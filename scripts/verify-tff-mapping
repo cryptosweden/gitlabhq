@@ -1,7 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'set'
+require 'set' # rubocop:disable Lint/RedundantRequireStatement -- Ruby 3.1 and earlier needs this. Drop this line after Ruby 3.2+ is only supported.
+require 'test_file_finder'
 
 # These tests run a sanity check on the mapping file `tests.yml`
 # used with the `test_file_finder` gem (`tff`) to identify matching test files.
@@ -12,124 +13,409 @@ require 'set'
 tests = [
   {
     explanation: 'EE code should map to respective spec',
-    source: 'ee/app/controllers/admin/licenses_controller.rb',
+    changed_file: 'ee/app/controllers/admin/licenses_controller.rb',
     expected: ['ee/spec/controllers/admin/licenses_controller_spec.rb']
   },
 
   {
     explanation: 'FOSS code should map to respective spec',
-    source: 'app/finders/admin/projects_finder.rb',
+    changed_file: 'app/finders/admin/projects_finder.rb',
     expected: ['spec/finders/admin/projects_finder_spec.rb']
   },
 
   {
     explanation: 'EE extension should map to its EE extension spec and its FOSS class spec',
-    source: 'ee/app/finders/ee/projects_finder.rb',
-    expected: ['ee/spec/finders/ee/projects_finder_spec.rb', 'spec/finders/projects_finder_spec.rb']
+    changed_file: 'ee/app/finders/ee/projects_finder.rb',
+    expected: %w[
+      ee/spec/finders/ee/projects_finder_spec.rb
+      spec/finders/projects_finder_spec.rb
+    ]
   },
 
   {
-    explanation: 'Some EE extensions have specs placement that do not follow the recommendation: https://docs.gitlab.com/ee/development/ee_features.html#testing-ee-features-based-on-ce-features. `tff` should still find these misplaced specs.',
-    source: 'ee/app/models/ee/project.rb',
-    expected: ['ee/spec/models/project_spec.rb', 'spec/models/project_spec.rb']
+    explanation: 'EE lib should map to respective spec.',
+    changed_file: 'ee/lib/world.rb',
+    expected: ['ee/spec/lib/world_spec.rb']
   },
 
   {
     explanation: 'FOSS lib should map to respective spec',
-    source: 'lib/gitaly/server.rb',
+    changed_file: 'lib/gitaly/server.rb',
     expected: ['spec/lib/gitaly/server_spec.rb']
   },
 
   {
+    explanation: 'https://gitlab.com/gitlab-org/gitlab/-/issues/368628',
+    changed_file: 'lib/gitlab/usage_data_counters/web_ide_counter.rb',
+    expected: %w[
+      spec/lib/gitlab/usage_data_spec.rb
+      spec/lib/gitlab/usage_data_counters/web_ide_counter_spec.rb
+    ]
+  },
+
+  {
+    explanation: 'https://gitlab.com/gitlab-org/quality/engineering-productivity/master-broken-incidents/-/issues/54#note_1160811638',
+    changed_file: 'lib/gitlab/ci/config/yaml/tags/base.rb',
+    expected: ['spec/lib/gitlab/ci/yaml_processor_spec.rb']
+  },
+
+  {
+    explanation: 'https://gitlab.com/gitlab-org/quality/engineering-productivity/master-broken-incidents/-/issues/54#note_1160811638',
+    changed_file: 'ee/lib/gitlab/ci/config/entry/pages_path_prefix.rb',
+    expected: %w[
+      spec/lib/gitlab/ci/yaml_processor_spec.rb
+      ee/spec/lib/gitlab/ci/yaml_processor_spec.rb
+    ]
+  },
+
+  {
     explanation: 'Tooling should map to respective spec',
-    source: 'tooling/lib/tooling/helm3_client.rb',
-    expected: ['spec/tooling/lib/tooling/helm3_client_spec.rb']
+    changed_file: 'tooling/danger/specs/project_factory_suggestion.rb',
+    expected: ['spec/tooling/danger/specs/project_factory_suggestion_spec.rb']
   },
 
   {
-    explanation: 'FOSS spec code should map to itself',
-    source: 'spec/models/issue_spec.rb',
-    expected: ['spec/models/issue_spec.rb']
+    explanation: 'Map RuboCop related files to respective specs',
+    changed_file: 'rubocop/cop/gettext/static_identifier.rb',
+    expected: ['spec/rubocop/cop/gettext/static_identifier_spec.rb']
   },
 
   {
-    explanation: 'EE spec code should map to itself',
-    source: 'ee/spec/models/ee/user_spec.rb',
-    expected: ['ee/spec/models/ee/user_spec.rb', 'spec/models/user_spec.rb']
+    explanation: 'Map Ruby config to respective specs',
+    changed_file: 'config/application.rb',
+    expected: ['spec/config/application_spec.rb']
   },
-
   {
-    explanation: 'EE extension spec should map to itself and the FOSS class spec',
-    source: 'ee/spec/services/ee/notification_service_spec.rb',
-    expected: ['ee/spec/services/ee/notification_service_spec.rb', 'spec/services/notification_service_spec.rb']
-  },
-
-  {
-    explanation: 'FOSS factory should map to factories spec',
-    source: 'spec/factories/users.rb',
-    expected: ['spec/factories_spec.rb']
-  },
-
-  {
-    explanation: 'EE factory should map to factories spec',
-    source: 'ee/spec/factories/users.rb',
-    expected: ['spec/factories_spec.rb']
+    explanation: 'Map YAML config to respective specs',
+    changed_file: 'config/mail_room.yml',
+    expected: ['spec/config/mail_room_spec.rb']
   },
 
   {
     explanation: 'Initializers should map to respective spec',
-    source: 'config/initializers/action_mailer_hooks.rb',
+    changed_file: 'config/initializers/action_mailer_hooks.rb',
     expected: ['spec/initializers/action_mailer_hooks_spec.rb']
   },
 
   {
-    explanation: 'FOSS views should map to respective spec',
-    source: 'app/views/admin/dashboard/index.html.haml',
-    expected: ['spec/views/admin/dashboard/index.html.haml_spec.rb']
+    explanation: 'FOSS Snowplow definitions map to event validation spec',
+    changed_file: 'config/events/status_page_incident_unpublished.yml',
+    expected: ['spec/lib/gitlab/tracking/event_definition_validate_all_spec.rb']
   },
-
   {
-    explanation: 'EE views should map to respective spec',
-    source: 'ee/app/views/subscriptions/new.html.haml',
-    expected: ['ee/spec/views/subscriptions/new.html.haml_spec.rb']
+    explanation: 'EE Snowplow definitions map to event validation spec',
+    changed_file: 'ee/config/events/licenses_list_viewed.yml',
+    expected: ['spec/lib/gitlab/tracking/event_definition_validate_all_spec.rb']
+  },
+  {
+    explanation: 'Snowplow schema maps to event validation spec',
+    changed_file: 'config/events/schema.json',
+    expected: ['spec/lib/gitlab/tracking/event_definition_validate_all_spec.rb']
   },
 
   {
     explanation: 'DB structure should map to schema spec',
-    source: 'db/structure.sql',
+    changed_file: 'db/structure.sql',
     expected: ['spec/db/schema_spec.rb']
   },
 
   {
     explanation: 'Migration should map to its non-timestamped spec',
-    source: 'db/migrate/20210818220234_add_default_project_approval_rules_vuln_allowed.rb',
-    expected: ['spec/migrations/add_default_project_approval_rules_vuln_allowed_spec.rb']
+    changed_file: 'db/migrate/20230707003301_add_expiry_notified_at_to_member.rb',
+    expected: ['spec/migrations/add_expiry_notified_at_to_member_spec.rb']
+  },
+  {
+    explanation: 'Migration should map to its timestamped spec',
+    changed_file: 'db/post_migrate/20231207194620_backfill_catalog_resources_visibility_level.rb',
+    expected: ['spec/migrations/20231207194620_backfill_catalog_resources_visibility_level_spec.rb']
+  },
+  {
+    explanation: 'FOSS views should map to respective spec',
+    changed_file: 'app/views/admin/dashboard/index.html.haml',
+    expected: ['spec/views/admin/dashboard/index.html.haml_spec.rb']
   },
 
   {
-    explanation: 'Migration should map to its timestamped spec',
-    source: 'db/post_migrate/20210915022415_cleanup_bigint_conversion_for_ci_builds.rb',
-    expected: ['spec/migrations/20210915022415_cleanup_bigint_conversion_for_ci_builds_spec.rb']
+    explanation: 'EE views should map to respective spec',
+    changed_file: 'ee/app/views/subscriptions/new.html.haml',
+    expected: ['ee/spec/views/subscriptions/new.html.haml_spec.rb']
+  },
+
+  {
+    explanation: 'FOSS spec code should map to itself',
+    changed_file: 'spec/models/issue_spec.rb',
+    expected: ['spec/models/issue_spec.rb']
+  },
+
+  {
+    explanation: 'EE spec code should map to itself',
+    changed_file: 'ee/spec/models/ee/user_spec.rb',
+    expected: %w[
+      ee/spec/models/ee/user_spec.rb
+      spec/models/user_spec.rb
+    ]
+  },
+
+  {
+    explanation: 'EE extension spec should map to itself and the FOSS class spec',
+    changed_file: 'ee/spec/services/ee/notification_service_spec.rb',
+    expected: %w[
+      ee/spec/services/ee/notification_service_spec.rb
+      spec/services/notification_service_spec.rb
+    ]
+  },
+
+  {
+    explanation: 'FOSS factories map to FOSS/EE model specs plural',
+    changed_file: 'spec/factories/users.rb',
+    expected: %w[
+      spec/models/user_spec.rb
+      ee/spec/models/ee/user_spec.rb
+    ]
+  },
+  {
+    explanation: 'FOSS factories map to FOSS/EE model specs singular',
+    changed_file: 'spec/factories/ci/build_name.rb',
+    expected: %w[
+      spec/models/ci/build_name_spec.rb
+    ]
+  },
+  {
+    explanation: 'EE factories for extensions map to FOSS/EE model specs',
+    changed_file: 'ee/spec/factories/users.rb',
+    expected: %w[
+      spec/models/user_spec.rb
+      ee/spec/models/ee/user_spec.rb
+    ]
+  },
+  {
+    explanation: 'EE factories map to FOSS/EE model specs',
+    changed_file: 'ee/spec/factories/licenses.rb',
+    expected: %w[
+      ee/spec/models/license_spec.rb
+    ]
   },
 
   {
     explanation: 'Whats New should map to its respective spec',
-    source: 'data/whats_new/202101140001_13_08.yml',
+    changed_file: 'data/whats_new/202101140001_13_08.yml',
     expected: ['spec/lib/release_highlights/validator_spec.rb']
+  },
+
+  {
+    explanation: 'The documentation index page is used in this haml_lint spec',
+    changed_file: 'doc/index.md',
+    expected: ['spec/haml_lint/linter/documentation_links_spec.rb']
+  },
+
+  {
+    explanation: 'Spec for FOSS model',
+    changed_file: 'app/models/uploads/base.rb',
+    expected: ['spec/models/every_model_spec.rb']
+  },
+
+  {
+    explanation: 'Spec for EE model',
+    changed_file: 'ee/app/models/geo/base_registry.rb',
+    expected: ['spec/models/every_model_spec.rb']
+  },
+
+  {
+    explanation: 'Spec for FOSS sidekiq worker',
+    changed_file: 'app/workers/background_migration/single_database_worker.rb',
+    expected: ['spec/workers/every_sidekiq_worker_spec.rb']
+  },
+
+  {
+    explanation: 'Spec for EE sidekiq worker',
+    changed_file: 'ee/app/workers/concerns/geo/base_registry_sync_worker.rb',
+    expected: ['spec/workers/every_sidekiq_worker_spec.rb']
+  },
+
+  {
+    explanation: 'FOSS mailer previews',
+    changed_file: 'app/mailers/previews/notify_preview.rb',
+    expected: ['spec/mailers/previews_spec.rb']
+  },
+
+  {
+    explanation: 'EE mailer previews',
+    changed_file: 'ee/app/mailers/previews/license_mailer_preview.rb',
+    expected: ['spec/mailers/previews_spec.rb']
+  },
+
+  {
+    explanation: 'EE mailer extension previews',
+    changed_file: 'ee/app/mailers/previews/license_mailer_preview.rb',
+    expected: ['spec/mailers/previews_spec.rb']
+  },
+
+  {
+    explanation: 'GLFM spec and config files for CE and EE should map to respective markdown snapshot specs',
+    changed_file: 'glfm_specification/input/gitlab_flavored_markdown/glfm_official_specification.md',
+    expected: %w[
+      spec/requests/api/markdown_snapshot_spec.rb
+      ee/spec/requests/api/markdown_snapshot_spec.rb
+    ]
+  },
+
+  {
+    explanation: 'https://gitlab.com/gitlab-org/quality/engineering-productivity/master-broken-incidents/-/issues/287#note_1192008962',
+    # Note: The metrics seem to be changed every year or so, so this test will fail once a year or so.
+    #       You will need to change the metric below for another metric present in the project.
+    changed_file: 'ee/config/metrics/counts_all/20221114065035_delete_merge_request.yml',
+    expected: ['ee/spec/config/metrics/every_metric_definition_spec.rb']
+  },
+
+  {
+    explanation: 'https://gitlab.com/gitlab-org/quality/engineering-productivity/team/-/issues/146',
+    changed_file: 'config/feature_categories.yml',
+    expected: %w[
+      spec/db/docs_spec.rb
+      ee/spec/lib/ee/gitlab/database/docs/docs_spec.rb
+    ]
+  },
+
+  {
+    explanation: 'https://gitlab.com/gitlab-org/quality/engineering-productivity/master-broken-incidents/-/issues/1360',
+    changed_file: 'vendor/project_templates/android.tar.gz',
+    expected: ['spec/lib/gitlab/project_template_spec.rb']
+  },
+
+  {
+    explanation: 'https://gitlab.com/gitlab-org/quality/engineering-productivity/master-broken-incidents/-/issues/1683#note_1385966977',
+    changed_file: 'app/finders/members_finder.rb',
+    expected: %w[
+      spec/finders/members_finder_spec.rb
+      spec/graphql/types/project_member_relation_enum_spec.rb
+    ]
+  },
+
+  {
+    explanation: 'New CI templates should run CI template tests: https://gitlab.com/gitlab-org/quality/engineering-productivity/master-broken-incidents/-/issues/4440#note_1675547256',
+    changed_file: 'lib/gitlab/ci/templates/Diffblue-Cover.gitlab-ci.yml',
+    expected: %w[
+      spec/lib/gitlab/ci/templates/templates_spec.rb
+      ee/spec/lib/ee/gitlab/ci/templates/templates_spec.rb
+    ]
+  },
+
+  {
+    explanation: 'Map EE rake tasks',
+    changed_file: 'ee/lib/tasks/geo.rake',
+    expected: ['ee/spec/tasks/geo_rake_spec.rb']
+  },
+
+  {
+    explanation: 'Map controllers to request specs',
+    changed_file: 'app/controllers/admin/abuse_reports_controller.rb',
+    expected: ['spec/requests/admin/abuse_reports_controller_spec.rb']
+  },
+
+  {
+    explanation: 'Map EE controllers to controller and request specs',
+    changed_file: 'ee/app/controllers/subscriptions_controller.rb',
+    expected: %w[
+      ee/spec/controllers/subscriptions_controller_spec.rb
+      ee/spec/requests/subscriptions_controller_spec.rb
+    ]
+  },
+  {
+    explanation: 'Map FOSS GraphQL resolvers to request specs',
+    changed_file: 'app/graphql/resolvers/abuse_report_labels_resolver.rb',
+    expected: ['spec/requests/api/graphql/abuse_report_labels_spec.rb']
+  },
+  {
+    explanation: 'Map FOSS GraphQL resolvers to request query specs',
+    changed_file: 'app/graphql/resolvers/achievements/user_achievements_resolver.rb',
+    expected: ['spec/requests/api/graphql/achievements/user_achievements_query_spec.rb']
+  },
+  {
+    explanation: 'Map EE GraphQL resolvers to request specs',
+    changed_file: 'ee/app/graphql/resolvers/geo/registries_resolver.rb',
+    expected: ['ee/spec/requests/api/graphql/geo/registries_spec.rb']
+  },
+  {
+    explanation: 'Map FOSS GraphQL mutations to request specs',
+    changed_file: 'app/graphql/mutations/admin/abuse_report_labels/create.rb',
+    expected: ['spec/requests/api/graphql/mutations/admin/abuse_report_labels/create_spec.rb']
+  },
+  {
+    explanation: 'Map EE GraphQL mutations to request specs',
+    changed_file: 'ee/app/graphql/mutations/boards/epic_lists/destroy.rb',
+    expected: ['ee/spec/requests/api/graphql/mutations/boards/epic_lists/destroy_spec.rb']
+  },
+  {
+    explanation: 'Map Remote Development GraphQL mutations to request specs',
+    changed_file: 'ee/app/graphql/mutations/remote_development/workspaces/create.rb',
+    expected: %w[
+      ee/spec/requests/api/graphql/mutations/remote_development/workspaces/create_spec.rb
+    ]
+  },
+  {
+    explanation: 'Map Remote Development GraphQL cluster_agent workspaces resolvers to request specs',
+    changed_file: 'ee/app/graphql/resolvers/remote_development/workspaces_for_agent_resolver.rb',
+    expected: %w[
+      ee/spec/requests/api/graphql/remote_development/cluster_agent/workspaces/with_actual_states_arg_spec.rb
+      ee/spec/requests/api/graphql/remote_development/cluster_agent/workspaces/with_ids_arg_spec.rb
+      ee/spec/requests/api/graphql/remote_development/cluster_agent/workspaces/with_no_args_spec.rb
+      ee/spec/requests/api/graphql/remote_development/cluster_agent/workspaces/with_project_ids_arg_spec.rb
+    ]
+  },
+  {
+    explanation: 'Map Remote Development GraphQL current_user workspaces resolvers to request specs',
+    changed_file: 'ee/app/graphql/resolvers/remote_development/workspaces_for_current_user_resolver.rb',
+    expected: %w[
+      ee/spec/requests/api/graphql/remote_development/current_user/workspaces/with_actual_states_arg_spec.rb
+      ee/spec/requests/api/graphql/remote_development/current_user/workspaces/with_agent_ids_arg_spec.rb
+      ee/spec/requests/api/graphql/remote_development/current_user/workspaces/with_ids_arg_spec.rb
+      ee/spec/requests/api/graphql/remote_development/current_user/workspaces/with_no_args_spec.rb
+      ee/spec/requests/api/graphql/remote_development/current_user/workspaces/with_project_ids_arg_spec.rb
+    ]
+  },
+  {
+    explanation: 'Map Remote Development GraphQL query root workspaces resolvers to request specs',
+    changed_file: 'ee/app/graphql/resolvers/remote_development/workspaces_for_query_root_resolver.rb',
+    expected: %w[
+      ee/spec/requests/api/graphql/remote_development/workspaces/with_actual_states_arg_spec.rb
+      ee/spec/requests/api/graphql/remote_development/workspaces/with_agent_ids_arg_spec.rb
+      ee/spec/requests/api/graphql/remote_development/workspaces/with_ids_arg_spec.rb
+      ee/spec/requests/api/graphql/remote_development/workspaces/with_no_args_spec.rb
+      ee/spec/requests/api/graphql/remote_development/workspaces/with_project_ids_arg_spec.rb
+    ]
+  },
+  {
+    explanation: 'Map Remote Development GraphQL query root workspace type resolver to request specs',
+    changed_file: 'ee/app/graphql/types/remote_development/workspace_type.rb',
+    expected: %w[
+      ee/spec/graphql/types/remote_development/workspace_type_spec.rb
+      ee/spec/requests/api/graphql/remote_development/workspace/with_id_arg_spec.rb
+    ]
+  },
+  {
+    explanation: 'Run database dictionary related specs on db/docs changes.',
+    changed_file: 'db/docs/design_management_repositories.yml',
+    expected: %w[
+      ee/spec/lib/gitlab/database/desired_sharding_key_spec.rb
+      spec/db/docs_spec.rb
+      spec/lib/gitlab/database/dictionary_spec.rb
+      spec/lib/gitlab/database/no_new_tables_with_gitlab_main_schema_spec.rb
+      spec/lib/gitlab/database/sharding_key_spec.rb
+    ]
   }
 ]
 
 class MappingTest
-  def initialize(explanation:, source:, expected:, mapping: 'tests.yml')
+  def initialize(explanation:, changed_file:, expected:, strategy:)
     @explanation = explanation
-    @source = source
-    @mapping = mapping
+    @changed_file = changed_file
+    @strategy = strategy
     @expected_set = Set.new(expected)
     @actual_set = Set.new(actual)
   end
 
   def passed?
-    expected_set.eql?(actual_set)
+    expected_set == actual_set
   end
 
   def failed?
@@ -137,26 +423,52 @@ class MappingTest
   end
 
   def failure_message
-    "#{explanation}: #{source}: Expected #{expected_set.to_a}, got #{actual_set.to_a}."
+    <<~MESSAGE
+      #{explanation}:
+      Changed file #{changed_file}
+          Expected #{expected_set.to_a}
+            Actual #{actual_set.to_a}
+    MESSAGE
   end
 
   private
 
-  attr_reader :explanation, :source, :expected_set, :actual_set, :mapping
+  attr_reader :explanation, :changed_file, :expected_set, :actual_set, :mapping
 
   def actual
-    `tff -f #{mapping} #{source}`.split(' ')
+    raise "changed_file must exist: #{changed_file}" unless File.exist?(changed_file)
+
+    tff = TestFileFinder::FileFinder.new(paths: [changed_file])
+    tff.use @strategy
+    tff.test_files
   end
 end
 
-results = tests.map { |test| MappingTest.new(test) }
+mapping_file = 'tests.yml'
+strategy = TestFileFinder::MappingStrategies::PatternMatching.load(mapping_file)
+results = tests.map { |test| MappingTest.new(strategy: strategy, **test) }
 
 failed_tests = results.select(&:failed?)
 if failed_tests.any?
   puts <<~MESSAGE
     tff mapping verification failed:
+
     #{failed_tests.map(&:failure_message).join("\n")}
   MESSAGE
+
+  exit 1
+end
+
+bad_sources = YAML.load_file(mapping_file)['mapping'].flat_map do |map|
+  Array(map['source']).filter_map { |source| source.match(/(?<!\\)\.\w+\z/)&.string }
+end
+
+if bad_sources.any?
+  puts "Suspicious metacharacter detected. Are these correct?"
+
+  bad_sources.each do |bad|
+    puts "  #{bad} => Did you mean: #{bad.sub(/(\.\w+)\z/, '\\\\\1')}"
+  end
 
   exit 1
 end

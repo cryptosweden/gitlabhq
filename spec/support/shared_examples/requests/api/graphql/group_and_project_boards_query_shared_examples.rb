@@ -54,22 +54,29 @@ RSpec.shared_examples 'group and project boards query' do
       end
 
       context 'when using default sorting' do
+        # rubocop:disable RSpec/VariableName
         let!(:board_B) { create(:board, resource_parent: board_parent, name: 'B') }
         let!(:board_C) { create(:board, resource_parent: board_parent, name: 'C') }
         let!(:board_a) { create(:board, resource_parent: board_parent, name: 'a') }
         let!(:board_A) { create(:board, resource_parent: board_parent, name: 'A') }
         let(:boards)   { [board_a, board_A, board_B, board_C] }
+        # rubocop:enable RSpec/VariableName
 
         context 'when ascending' do
           it_behaves_like 'sorted paginated query' do
-            let(:sort_param) { }
+            include_context 'no sort argument'
+
             let(:first_param) { 2 }
+
+            def pagination_results_data(nodes)
+              nodes
+            end
 
             let(:all_records) do
               if board_parent.multiple_issue_boards_available?
-                boards.map { |board| global_id_of(board) }
+                boards.map { |board| a_graphql_entity_for(board) }
               else
-                [global_id_of(boards.first)]
+                [a_graphql_entity_for(boards.first)]
               end
             end
           end

@@ -1,10 +1,11 @@
 <script>
-import { GlAlert, GlButton, GlForm, GlFormGroup, GlFormInput } from '@gitlab/ui';
-import { mapGetters, mapActions } from 'vuex';
+import { GlAlert, GlButton, GlForm, GlFormGroup, GlFormInput, GlLink } from '@gitlab/ui';
 import BoardEditableItem from '~/boards/components/sidebar/board_editable_item.vue';
 import { joinPaths } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
 import autofocusonshow from '~/vue_shared/directives/autofocusonshow';
+import { titleQueries } from 'ee_else_ce/boards/constants';
+import { setError } from '../../graphql/cache_updates';
 
 export default {
   components: {
@@ -13,10 +14,18 @@ export default {
     GlButton,
     GlFormGroup,
     GlFormInput,
+    GlLink,
     BoardEditableItem,
   },
   directives: {
     autofocusonshow,
+  },
+  inject: ['fullPath', 'issuableType', 'isEpicBoard'],
+  props: {
+    activeItem: {
+      type: Object,
+      required: true,
+    },
   },
   data() {
     return {
@@ -26,12 +35,11 @@ export default {
     };
   },
   computed: {
-    ...mapGetters({ item: 'activeBoardItem' }),
     pendingChangesStorageKey() {
-      return this.getPendingChangesKey(this.item);
+      return this.getPendingChangesKey(this.activeItem);
     },
     projectPath() {
-      const referencePath = this.item.referencePath || '';
+      const referencePath = this.activeItem.referencePath || '';
       return referencePath.slice(0, referencePath.indexOf('#'));
     },
     validationState() {
@@ -39,7 +47,7 @@ export default {
     },
   },
   watch: {
-    item: {
+    activeItem: {
       handler(updatedItem, formerItem) {
         if (formerItem?.title !== this.title) {
           localStorage.setItem(this.getPendingChangesKey(formerItem), this.title);
@@ -52,7 +60,6 @@ export default {
     },
   },
   methods: {
-    ...mapActions(['setActiveItemTitle', 'setError']),
     getPendingChangesKey(item) {
       if (!item) {
         return '';
@@ -66,8 +73,9 @@ export default {
     },
     async setPendingState() {
       const pendingChanges = localStorage.getItem(this.pendingChangesStorageKey);
+      const shouldOpen = pendingChanges !== this.title;
 
-      if (pendingChanges) {
+      if (pendingChanges && shouldOpen) {
         this.title = pendingChanges;
         this.showChangesAlert = true;
         await this.$nextTick();
@@ -77,32 +85,48 @@ export default {
       }
     },
     cancel() {
-      this.title = this.item.title;
+      this.title = this.activeItem.title;
       this.$refs.sidebarItem.collapse();
       this.showChangesAlert = false;
       localStorage.removeItem(this.pendingChangesStorageKey);
     },
+    async setActiveBoardItemTitle() {
+      const { fullPath, issuableType, isEpicBoard, title } = this;
+      const workspacePath = isEpicBoard
+        ? { groupPath: fullPath }
+        : { projectPath: this.projectPath };
+      await this.$apollo.mutate({
+        mutation: titleQueries[issuableType].mutation,
+        variables: {
+          input: {
+            ...workspacePath,
+            iid: String(this.activeItem.iid),
+            title,
+          },
+        },
+      });
+    },
     async setTitle() {
       this.$refs.sidebarItem.collapse();
 
-      if (!this.title || this.title === this.item.title) {
+      if (!this.title || this.title === this.activeItem.title) {
         return;
       }
 
       try {
         this.loading = true;
-        await this.setActiveItemTitle({ title: this.title, projectPath: this.projectPath });
+        await this.setActiveBoardItemTitle();
         localStorage.removeItem(this.pendingChangesStorageKey);
         this.showChangesAlert = false;
       } catch (e) {
-        this.title = this.item.title;
-        this.setError({ error: e, message: this.$options.i18n.updateTitleError });
+        this.title = this.activeItem.title;
+        setError({ error: e, message: this.$options.i18n.updateTitleError });
       } finally {
         this.loading = false;
       }
     },
     handleOffClick() {
-      if (this.title !== this.item.title) {
+      if (this.title !== this.activeItem.title) {
         this.showChangesAlert = true;
         localStorage.setItem(this.pendingChangesStorageKey, this.title);
       } else {
@@ -130,10 +154,14 @@ export default {
     @off-click="handleOffClick"
   >
     <template #title>
-      <span class="gl-font-weight-bold" data-testid="item-title">{{ item.title }}</span>
+      <span data-testid="item-title">
+        <gl-link class="gl-text-inherit gl-hover-text-blue-800" :href="activeItem.webUrl">
+          {{ activeItem.title }}
+        </gl-link>
+      </span>
     </template>
     <template #collapsed>
-      <span class="gl-text-gray-800">{{ item.referencePath }}</span>
+      <span class="gl-text-gray-800">{{ activeItem.referencePath }}</span>
     </template>
     <gl-alert v-if="showChangesAlert" variant="warning" class="gl-mb-5" :dismissible="false">
       {{ $options.i18n.reviewYourChanges }}

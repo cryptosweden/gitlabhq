@@ -1,34 +1,56 @@
 // eslint-disable-next-line import/order
 const crypto = require('./helpers/patched_crypto');
 
+const { VUE_VERSION: EXPLICIT_VUE_VERSION } = process.env;
+if (![undefined, '2', '3'].includes(EXPLICIT_VUE_VERSION)) {
+  throw new Error(
+    `Invalid VUE_VERSION value: ${EXPLICIT_VUE_VERSION}. Only '2' and '3' are supported`,
+  );
+}
+const USE_VUE3 = EXPLICIT_VUE_VERSION === '3';
+
+if (USE_VUE3) {
+  console.log('[V] Using Vue.js 3');
+}
+const VUE_LOADER_MODULE = USE_VUE3 ? 'vue-loader-vue3' : 'vue-loader';
+
 const fs = require('fs');
 const path = require('path');
 
 const BABEL_VERSION = require('@babel/core/package.json').version;
-const SOURCEGRAPH_VERSION = require('@sourcegraph/code-host-integration/package.json').version;
 
 const BABEL_LOADER_VERSION = require('babel-loader/package.json').version;
 const CompressionPlugin = require('compression-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
-const glob = require('glob');
-const VueLoaderPlugin = require('vue-loader/lib/plugin');
-const VUE_LOADER_VERSION = require('vue-loader/package.json').version;
+// eslint-disable-next-line import/no-dynamic-require
+const { VueLoaderPlugin } = require(VUE_LOADER_MODULE);
+// eslint-disable-next-line import/no-dynamic-require
+const VUE_LOADER_VERSION = require(`${VUE_LOADER_MODULE}/package.json`).version;
 const VUE_VERSION = require('vue/package.json').version;
 
 const webpack = require('webpack');
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 const { StatsWriterPlugin } = require('webpack-stats-plugin');
 const WEBPACK_VERSION = require('webpack/package.json').version;
+const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin');
+
+const {
+  IS_EE,
+  IS_JH,
+  ROOT_PATH,
+  WEBPACK_OUTPUT_PATH,
+  WEBPACK_PUBLIC_PATH,
+  SOURCEGRAPH_PUBLIC_PATH,
+  GITLAB_WEB_IDE_PUBLIC_PATH,
+  copyFilesPatterns,
+} = require('./webpack.constants');
+const { generateEntries } = require('./webpack.helpers');
 
 const createIncrementalWebpackCompiler = require('./helpers/incremental_webpack_compiler');
-const IS_EE = require('./helpers/is_ee_env');
-const IS_JH = require('./helpers/is_jh_env');
 const vendorDllHash = require('./helpers/vendor_dll_hash');
 
-const MonacoWebpackPlugin = require('./plugins/monaco_webpack');
 const GraphqlKnownOperationsPlugin = require('./plugins/graphql_known_operations_plugin');
 
-const ROOT_PATH = path.resolve(__dirname, '..');
 const SUPPORTED_BROWSERS = fs.readFileSync(path.join(ROOT_PATH, '.browserslistrc'), 'utf-8');
 const SUPPORTED_BROWSERS_HASH = crypto
   .createHash('sha256')
@@ -54,22 +76,19 @@ const INCREMENTAL_COMPILER_RECORD_HISTORY = IS_DEV_SERVER && !process.env.CI;
 const WEBPACK_REPORT = process.env.WEBPACK_REPORT && process.env.WEBPACK_REPORT !== 'false';
 const WEBPACK_MEMORY_TEST =
   process.env.WEBPACK_MEMORY_TEST && process.env.WEBPACK_MEMORY_TEST !== 'false';
-const NO_COMPRESSION = process.env.NO_COMPRESSION && process.env.NO_COMPRESSION !== 'false';
-const NO_SOURCEMAPS = process.env.NO_SOURCEMAPS && process.env.NO_SOURCEMAPS !== 'false';
+let NO_COMPRESSION = process.env.NO_COMPRESSION && process.env.NO_COMPRESSION !== 'false';
+let NO_SOURCEMAPS = process.env.NO_SOURCEMAPS && process.env.NO_SOURCEMAPS !== 'false';
+let NO_HASHED_CHUNKS = process.env.NO_HASHED_CHUNKS && process.env.NO_HASHED_CHUNKS !== 'false';
 
-const WEBPACK_OUTPUT_PATH = path.join(ROOT_PATH, 'public/assets/webpack');
-const WEBPACK_PUBLIC_PATH = '/assets/webpack/';
-const SOURCEGRAPH_PACKAGE = '@sourcegraph/code-host-integration';
-
-const SOURCEGRAPH_PATH = path.join('sourcegraph', SOURCEGRAPH_VERSION, '/');
-const SOURCEGRAPH_OUTPUT_PATH = path.join(WEBPACK_OUTPUT_PATH, SOURCEGRAPH_PATH);
-const SOURCEGRAPH_PUBLIC_PATH = path.join(WEBPACK_PUBLIC_PATH, SOURCEGRAPH_PATH);
+if (WEBPACK_REPORT) {
+  console.log('Webpack report enabled. Running a "slim" production build.');
+  // For our webpack report we need no source maps, compression _or_ hashed file names.
+  NO_SOURCEMAPS = true;
+  NO_COMPRESSION = true;
+  NO_HASHED_CHUNKS = true;
+}
 
 const devtool = IS_PRODUCTION ? 'source-map' : 'cheap-module-eval-source-map';
-
-let autoEntriesCount = 0;
-let watchAutoEntries = [];
-const defaultEntries = ['./main'];
 
 const incrementalCompiler = createIncrementalWebpackCompiler(
   INCREMENTAL_COMPILER_RECORD_HISTORY,
@@ -78,87 +97,14 @@ const incrementalCompiler = createIncrementalWebpackCompiler(
   INCREMENTAL_COMPILER_TTL,
 );
 
-function generateEntries() {
-  // generate automatic entry points
-  const autoEntries = {};
-  const autoEntriesMap = {};
-  const pageEntries = glob.sync('pages/**/index.js', {
-    cwd: path.join(ROOT_PATH, 'app/assets/javascripts'),
-  });
-  watchAutoEntries = [path.join(ROOT_PATH, 'app/assets/javascripts/pages/')];
-
-  function generateAutoEntries(entryPath, prefix = '.') {
-    const chunkPath = entryPath.replace(/\/index\.js$/, '');
-    const chunkName = chunkPath.replace(/\//g, '.');
-    autoEntriesMap[chunkName] = `${prefix}/${entryPath}`;
-  }
-
-  pageEntries.forEach((entryPath) => generateAutoEntries(entryPath));
-
-  if (IS_EE) {
-    const eePageEntries = glob.sync('pages/**/index.js', {
-      cwd: path.join(ROOT_PATH, 'ee/app/assets/javascripts'),
-    });
-    eePageEntries.forEach((entryPath) => generateAutoEntries(entryPath, 'ee'));
-    watchAutoEntries.push(path.join(ROOT_PATH, 'ee/app/assets/javascripts/pages/'));
-  }
-
-  if (IS_JH) {
-    const eePageEntries = glob.sync('pages/**/index.js', {
-      cwd: path.join(ROOT_PATH, 'jh/app/assets/javascripts'),
-    });
-    eePageEntries.forEach((entryPath) => generateAutoEntries(entryPath, 'jh'));
-    watchAutoEntries.push(path.join(ROOT_PATH, 'jh/app/assets/javascripts/pages/'));
-  }
-
-  const autoEntryKeys = Object.keys(autoEntriesMap);
-  autoEntriesCount = autoEntryKeys.length;
-
-  // import ancestor entrypoints within their children
-  autoEntryKeys.forEach((entry) => {
-    const entryPaths = [autoEntriesMap[entry]];
-    const segments = entry.split('.');
-    while (segments.pop()) {
-      const ancestor = segments.join('.');
-      if (autoEntryKeys.includes(ancestor)) {
-        entryPaths.unshift(autoEntriesMap[ancestor]);
-      }
-    }
-    autoEntries[entry] = defaultEntries.concat(entryPaths);
-  });
-
-  /*
-  If you create manual entries, ensure that these import `app/assets/javascripts/webpack.js` right at
-  the top of the entry in order to ensure that the public path is correctly determined for loading
-  assets async. See: https://webpack.js.org/configuration/output/#outputpublicpath
-
-  Note: WebPack 5 has an 'auto' option for the public path which could allow us to remove this option
-  Note 2: If you are using web-workers, you might need to reset the public path, see:
-  https://gitlab.com/gitlab-org/gitlab/-/issues/321656
-   */
-  const manualEntries = {
-    default: defaultEntries,
-    sentry: './sentry/index.js',
-    performance_bar: './performance_bar/index.js',
-    jira_connect_app: './jira_connect/subscriptions/index.js',
-    sandboxed_mermaid: './lib/mermaid.js',
-    redirect_listbox: './entrypoints/behaviors/redirect_listbox.js',
-  };
-
-  return Object.assign(manualEntries, incrementalCompiler.filterEntryPoints(autoEntries));
-}
-
 const alias = {
   // Map Apollo client to apollo/client/core to prevent react related imports from being loaded
   '@apollo/client$': '@apollo/client/core',
   '~': path.join(ROOT_PATH, 'app/assets/javascripts'),
   emojis: path.join(ROOT_PATH, 'fixtures/emojis'),
-  empty_states: path.join(ROOT_PATH, 'app/views/shared/empty_states'),
-  icons: path.join(ROOT_PATH, 'app/views/shared/icons'),
   images: path.join(ROOT_PATH, 'app/assets/images'),
   vendor: path.join(ROOT_PATH, 'vendor/assets/javascripts'),
   jquery$: 'jquery/dist/jquery.slim.js',
-  jest: path.join(ROOT_PATH, 'spec/frontend'),
   shared_queries: path.join(ROOT_PATH, 'app/graphql/queries'),
 
   // the following resolves files which are different between CE and EE
@@ -175,19 +121,32 @@ const alias = {
     ROOT_PATH,
     'app/assets/javascripts/lib/utils/icons_path.js',
   ),
+
+  // test-environment-only aliases duplicated from Jest config
+  'spec/test_constants$': path.join(ROOT_PATH, 'spec/frontend/__helpers__/test_constants'),
+  ee_else_ce_jest: path.join(ROOT_PATH, 'spec/frontend'),
+  helpers: path.join(ROOT_PATH, 'spec/frontend/__helpers__'),
+  jest: path.join(ROOT_PATH, 'spec/frontend'),
+  test_fixtures: path.join(ROOT_PATH, 'tmp/tests/frontend/fixtures'),
+  test_fixtures_static: path.join(ROOT_PATH, 'spec/frontend/fixtures/static'),
+  test_helpers: path.join(ROOT_PATH, 'spec/frontend_integration/test_helpers'),
+  public: path.join(ROOT_PATH, 'public'),
+  storybook_addons: path.resolve(ROOT_PATH, 'storybook/config/addons'),
 };
 
 if (IS_EE) {
   Object.assign(alias, {
     ee: path.join(ROOT_PATH, 'ee/app/assets/javascripts'),
     ee_component: path.join(ROOT_PATH, 'ee/app/assets/javascripts'),
-    ee_empty_states: path.join(ROOT_PATH, 'ee/app/views/shared/empty_states'),
-    ee_icons: path.join(ROOT_PATH, 'ee/app/views/shared/icons'),
     ee_images: path.join(ROOT_PATH, 'ee/app/assets/images'),
-    ee_jest: path.join(ROOT_PATH, 'ee/spec/frontend'),
     ee_else_ce: path.join(ROOT_PATH, 'ee/app/assets/javascripts'),
     jh_else_ee: path.join(ROOT_PATH, 'ee/app/assets/javascripts'),
     any_else_ce: path.join(ROOT_PATH, 'ee/app/assets/javascripts'),
+
+    // test-environment-only aliases duplicated from Jest config
+    ee_else_ce_jest: path.join(ROOT_PATH, 'ee/spec/frontend'),
+    ee_jest: path.join(ROOT_PATH, 'ee/spec/frontend'),
+    test_fixtures: path.join(ROOT_PATH, 'tmp/tests/frontend/fixtures-ee'),
   });
 }
 
@@ -195,24 +154,14 @@ if (IS_JH) {
   Object.assign(alias, {
     jh: path.join(ROOT_PATH, 'jh/app/assets/javascripts'),
     jh_component: path.join(ROOT_PATH, 'jh/app/assets/javascripts'),
-    jh_empty_states: path.join(ROOT_PATH, 'jh/app/views/shared/empty_states'),
-    jh_icons: path.join(ROOT_PATH, 'jh/app/views/shared/icons'),
     jh_images: path.join(ROOT_PATH, 'jh/app/assets/images'),
-    jh_jest: path.join(ROOT_PATH, 'jh/spec/frontend'),
     // jh path alias https://gitlab.com/gitlab-org/gitlab/-/merge_requests/74305#note_732793956
     jh_else_ce: path.join(ROOT_PATH, 'jh/app/assets/javascripts'),
     jh_else_ee: path.join(ROOT_PATH, 'jh/app/assets/javascripts'),
     any_else_ce: path.join(ROOT_PATH, 'jh/app/assets/javascripts'),
-  });
-}
 
-if (!IS_PRODUCTION) {
-  const fixtureDir = IS_EE ? 'fixtures-ee' : 'fixtures';
-
-  Object.assign(alias, {
-    test_fixtures: path.join(ROOT_PATH, `tmp/tests/frontend/${fixtureDir}`),
-    test_fixtures_static: path.join(ROOT_PATH, 'spec/frontend/fixtures/static'),
-    test_helpers: path.join(ROOT_PATH, 'spec/frontend_integration/test_helpers'),
+    // test-environment-only aliases duplicated from Jest config
+    jh_jest: path.join(ROOT_PATH, 'jh/spec/frontend'),
   });
 }
 
@@ -230,18 +179,116 @@ if (VENDOR_DLL && !IS_PRODUCTION) {
   };
 }
 
+const defaultJsOptions = {
+  cacheDirectory: path.join(CACHE_PATH, 'babel-loader'),
+  cacheIdentifier: [
+    process.env.BABEL_ENV || process.env.NODE_ENV || 'development',
+    webpack.version,
+    BABEL_VERSION,
+    BABEL_LOADER_VERSION,
+    // Ensure that changing supported browsers will refresh the cache
+    // in order to not pull in outdated files that import core-js
+    SUPPORTED_BROWSERS_HASH,
+  ].join('|'),
+  cacheCompression: false,
+};
+
+const vueLoaderOptions = {
+  ident: 'vue-loader-options',
+
+  cacheDirectory: path.join(CACHE_PATH, 'vue-loader'),
+  cacheIdentifier: [
+    process.env.NODE_ENV || 'development',
+    webpack.version,
+    VUE_VERSION,
+    VUE_LOADER_VERSION,
+    EXPLICIT_VUE_VERSION,
+  ].join('|'),
+};
+
+let shouldExcludeFromCompliling = (modulePath) =>
+  /node_modules|vendor[\\/]assets/.test(modulePath) && !/\.vue\.js/.test(modulePath);
+// We explicitly set VUE_VERSION
+// Use @gitlab-ui from source to allow us to dig differences
+// between Vue.js 2 and Vue.js 3 while using built gitlab-ui by default
+if (EXPLICIT_VUE_VERSION) {
+  Object.assign(alias, {
+    '@gitlab/ui/src/tokens/build/js': path.join(
+      ROOT_PATH,
+      'node_modules/@gitlab/ui/src/tokens/build/js',
+    ),
+    '@gitlab/ui/dist': '@gitlab/ui/src',
+    '@gitlab/ui': '@gitlab/ui/src',
+  });
+
+  const originalShouldExcludeFromCompliling = shouldExcludeFromCompliling;
+
+  shouldExcludeFromCompliling = (modulePath) =>
+    originalShouldExcludeFromCompliling(modulePath) &&
+    !/node_modules[\\/]@gitlab[\\/]ui/.test(modulePath) &&
+    !/node_modules[\\/]bootstrap-vue[\\/]src[\\/]vue\.js/.test(modulePath);
+}
+
+if (USE_VUE3) {
+  Object.assign(alias, {
+    // ensure we always use the same type of module for Vue
+    vue: '@vue/compat/dist/vue.runtime.esm-bundler.js',
+    vuex: path.join(ROOT_PATH, 'app/assets/javascripts/lib/utils/vue3compat/vuex.js'),
+    'vue-apollo': path.join(ROOT_PATH, 'app/assets/javascripts/lib/utils/vue3compat/vue_apollo.js'),
+    'vue-router': path.join(ROOT_PATH, 'app/assets/javascripts/lib/utils/vue3compat/vue_router.js'),
+  });
+
+  vueLoaderOptions.compiler = require.resolve('./vue3migration/compiler');
+}
+
+const entriesState = {
+  autoEntriesCount: 0,
+  watchAutoEntries: [],
+};
+const defaultEntries = ['./main'];
+
 module.exports = {
+  /*
+    If there is a compilation error in production, we want to exit immediately
+    https://v4.webpack.js.org/configuration/other-options/#bail
+   */
+  bail: !IS_DEV_SERVER,
   mode: IS_PRODUCTION ? 'production' : 'development',
 
   context: path.join(ROOT_PATH, 'app/assets/javascripts'),
 
-  entry: generateEntries,
+  entry: () => {
+    /*
+    If you create manual entries, ensure that these import `app/assets/javascripts/webpack.js` right at
+    the top of the entry in order to ensure that the public path is correctly determined for loading
+    assets async. See: https://webpack.js.org/configuration/output/#outputpublicpath
+
+    Note: WebPack 5 has an 'auto' option for the public path which could allow us to remove this option
+    Note 2: If you are using web-workers, you might need to reset the public path, see:
+    https://gitlab.com/gitlab-org/gitlab/-/issues/321656
+     */
+    return {
+      default: defaultEntries,
+      sentry: './sentry/index.js',
+      performance_bar: './entrypoints/performance_bar.js',
+      jira_connect_app: './jira_connect/subscriptions/index.js',
+      sandboxed_mermaid: './lib/mermaid.js',
+      redirect_listbox: './entrypoints/behaviors/redirect_listbox.js',
+      sandboxed_swagger: './lib/swagger.js',
+      super_sidebar: './entrypoints/super_sidebar.js',
+      tracker: './entrypoints/tracker.js',
+      analytics: './entrypoints/analytics.js',
+      ...incrementalCompiler.filterEntryPoints(generateEntries({ defaultEntries, entriesState })),
+    };
+  },
 
   output: {
     path: WEBPACK_OUTPUT_PATH,
     publicPath: WEBPACK_PUBLIC_PATH,
-    filename: IS_PRODUCTION ? '[name].[contenthash:8].bundle.js' : '[name].bundle.js',
-    chunkFilename: IS_PRODUCTION ? '[name].[contenthash:8].chunk.js' : '[name].chunk.js',
+    filename:
+      IS_PRODUCTION && !NO_HASHED_CHUNKS ? '[name].[contenthash:8].bundle.js' : '[name].bundle.js',
+    chunkFilename:
+      IS_PRODUCTION && !NO_HASHED_CHUNKS ? '[name].[contenthash:8].chunk.js' : '[name].chunk.js',
     globalObject: 'this', // allow HMR and web workers to play nice
   },
 
@@ -259,36 +306,105 @@ module.exports = {
         use: [],
       },
       {
-        test: /\.js$/,
-        exclude: (modulePath) =>
-          /node_modules|vendor[\\/]assets/.test(modulePath) && !/\.vue\.js/.test(modulePath),
+        test: /(@gitlab\/web-ide).*\.js?$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+      },
+      {
+        test: /(@cubejs-client\/(vue|core)).*\.(js)?$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+      },
+      {
+        test: /gridstack\/.*\.js$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+      },
+      {
+        test: /jsonc-parser\/.*\.js$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+      },
+      {
+        test: /_worker\.js$/,
+        resourceQuery: /worker/,
+        use: [
+          {
+            loader: 'worker-loader',
+            options: {
+              publicPath: './',
+              filename: '[name].[contenthash:8].worker.js',
+            },
+          },
+          'babel-loader',
+        ],
+      },
+      {
+        test: /mermaid\/.*\.js?$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+      },
+      {
+        test: /marked\/.*\.js?$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+      },
+      {
+        test: /swagger-ui-dist\/.*\.js?$/,
+        include: /node_modules/,
         loader: 'babel-loader',
         options: {
-          cacheDirectory: path.join(CACHE_PATH, 'babel-loader'),
-          cacheIdentifier: [
-            process.env.BABEL_ENV || process.env.NODE_ENV || 'development',
-            webpack.version,
-            BABEL_VERSION,
-            BABEL_LOADER_VERSION,
-            // Ensure that changing supported browsers will refresh the cache
-            // in order to not pull in outdated files that import core-js
-            SUPPORTED_BROWSERS_HASH,
-          ].join('|'),
-          cacheCompression: false,
+          plugins: ['@babel/plugin-transform-logical-assignment-operators'],
+          ...defaultJsOptions,
+        },
+      },
+      {
+        test: /@swagger-api\/apidom-.*\.[mc]?js$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+        options: {
+          plugins: [
+            '@babel/plugin-transform-class-properties',
+            '@babel/plugin-transform-logical-assignment-operators',
+          ],
+          ...defaultJsOptions,
+        },
+      },
+      {
+        test: /\.(js|cjs)$/,
+        exclude: shouldExcludeFromCompliling,
+        use: [
+          {
+            loader: 'thread-loader',
+            options: {
+              workerParallelJobs: 20,
+              poolRespawn: false,
+              poolParallelJobs: 200,
+              poolTimeout: DEV_SERVER_LIVERELOAD ? Infinity : 5000,
+            },
+          },
+          {
+            loader: 'babel-loader',
+            options: defaultJsOptions,
+          },
+        ],
+      },
+      {
+        test: /\.(js|cjs)$/,
+        include: (modulePath) =>
+          /node_modules\/(monaco-worker-manager|monaco-marker-data-provider)\/index\.js/.test(
+            modulePath,
+          ) || /node_modules\/yaml/.test(modulePath),
+        loader: 'babel-loader',
+        options: {
+          plugins: ['@babel/plugin-transform-numeric-separator'],
+          ...defaultJsOptions,
         },
       },
       {
         test: /\.vue$/,
-        loader: 'vue-loader',
-        options: {
-          cacheDirectory: path.join(CACHE_PATH, 'vue-loader'),
-          cacheIdentifier: [
-            process.env.NODE_ENV || 'development',
-            webpack.version,
-            VUE_VERSION,
-            VUE_LOADER_VERSION,
-          ].join('|'),
-        },
+        loader: VUE_LOADER_MODULE,
+        options: vueLoaderOptions,
       },
       {
         test: /\.(graphql|gql)$/,
@@ -296,34 +412,34 @@ module.exports = {
         loader: 'graphql-tag/loader',
       },
       {
-        test: /icons\.svg$/,
-        loader: 'file-loader',
-        options: {
-          name: '[name].[contenthash:8].[ext]',
-        },
-      },
-      {
         test: /\.svg$/,
-        exclude: /icons\.svg$/,
-        loader: 'raw-loader',
+        oneOf: [
+          {
+            resourceQuery: /raw/,
+            loader: 'raw-loader',
+          },
+          {
+            exclude: /@gitlab\/svgs\/.+\.svg$/,
+            resourceQuery: /url/,
+            loader: 'file-loader',
+            options: {
+              name: '[name].[contenthash:8].[ext]',
+              esModule: false,
+            },
+          },
+          {
+            test: /@gitlab\/svgs\/.+\.svg$/,
+            loader: 'file-loader',
+            options: {
+              name: '[name].[contenthash:8].[ext]',
+            },
+          },
+        ],
       },
       {
         test: /\.(gif|png|mp4)$/,
         loader: 'url-loader',
         options: { limit: 2048 },
-      },
-      {
-        test: /_worker\.js$/,
-        use: [
-          {
-            loader: 'worker-loader',
-            options: {
-              name: '[name].[contenthash:8].worker.js',
-              inline: IS_DEV_SERVER,
-            },
-          },
-          'babel-loader',
-        ],
       },
       {
         test: /\.(worker(\.min)?\.js|pdf)$/,
@@ -336,7 +452,7 @@ module.exports = {
       {
         test: /.css$/,
         use: [
-          'vue-style-loader',
+          'style-loader',
           {
             loader: 'css-loader',
             options: {
@@ -364,10 +480,11 @@ module.exports = {
         },
       },
       {
-        test: /\.(yml|yaml)$/,
+        exclude: /\.svg$/,
+        resourceQuery: /raw/,
         loader: 'raw-loader',
       },
-    ],
+    ].filter(Boolean),
   },
 
   optimization: {
@@ -384,7 +501,7 @@ module.exports = {
           priority: 20,
           name: 'main',
           chunks: 'initial',
-          minChunks: autoEntriesCount * 0.9,
+          minChunks: entriesState.autoEntriesCount * 0.9,
         }),
         prosemirror: {
           priority: 17,
@@ -415,14 +532,6 @@ module.exports = {
           name: 'echarts',
           chunks: 'all',
           test: /[\\/]node_modules[\\/](echarts|zrender)[\\/]/,
-          minChunks: 2,
-          reuseExistingChunk: true,
-        },
-        security_reports: {
-          priority: 13,
-          name: 'security_reports',
-          chunks: 'initial',
-          test: /[\\/](vue_shared[\\/](security_reports|license_compliance)|security_dashboard)[\\/]/,
           minChunks: 2,
           reuseExistingChunk: true,
         },
@@ -469,7 +578,17 @@ module.exports = {
 
     // automatically configure monaco editor web workers
     new MonacoWebpackPlugin({
-      globalAPI: true,
+      filename: '[name].[contenthash:8].worker.js',
+      customLanguages: [
+        {
+          label: 'yaml',
+          entry: 'monaco-yaml',
+          worker: {
+            id: 'monaco-yaml/yamlWorker',
+            entry: 'monaco-yaml/yaml.worker',
+          },
+        },
+      ],
     }),
 
     new GraphqlKnownOperationsPlugin({ filename: 'graphql_known_operations.yml' }),
@@ -552,6 +671,47 @@ module.exports = {
         );
       }),
 
+    new webpack.NormalModuleReplacementPlugin(/markdown-it/, (resource) => {
+      // eslint-disable-next-line no-param-reassign
+      resource.request = path.join(ROOT_PATH, 'app/assets/javascripts/lib/markdown_it.js');
+    }),
+
+    /*
+     The following `NormalModuleReplacementPlugin` adds support for exports field in `package.json`.
+     It might not necessarily be needed for all packages which expose it, but some packages
+     need it because they use the exports internally.
+
+     Webpack 4 doesn't have support for it, while vite does.
+     See also: https://github.com/webpack/webpack/issues/9509
+     */
+    ...['@swagger-api/apidom-reference'].map((packageName) => {
+      const packageJSON = fs.readFileSync(
+        path.join(ROOT_PATH, 'node_modules', packageName, 'package.json'),
+        'utf-8',
+      );
+      const { exports } = JSON.parse(packageJSON);
+      const regex = new RegExp(`^${packageName}`);
+      return new webpack.NormalModuleReplacementPlugin(regex, (resource) => {
+        const { request } = resource;
+        if (!request.endsWith('.js') && !request.endsWith('.mjs') && !request.endsWith('.cjs')) {
+          const relative = `./${path.relative(packageName, request)}`;
+          if (exports[relative]?.browser?.import || exports[relative]?.import) {
+            const newRequest = path.join(
+              packageName,
+              exports[relative]?.browser?.import || exports[relative]?.import,
+            );
+            console.log(`[exports-replacer]: ${request} => ${newRequest}`);
+            // eslint-disable-next-line no-param-reassign
+            resource.request = newRequest;
+          } else {
+            console.warn(
+              `[exports-replacer]: Could not find import field for ${relative} in exports of [${packageName}]`,
+            );
+          }
+        }
+      });
+    }),
+
     !IS_JH &&
       new webpack.NormalModuleReplacementPlugin(/^jh_component\/(.*)\.vue/, (resource) => {
         // eslint-disable-next-line no-param-reassign
@@ -562,26 +722,7 @@ module.exports = {
       }),
 
     new CopyWebpackPlugin({
-      patterns: [
-        {
-          from: path.join(ROOT_PATH, 'node_modules/pdfjs-dist/cmaps/'),
-          to: path.join(WEBPACK_OUTPUT_PATH, 'cmaps/'),
-        },
-        {
-          from: path.join(ROOT_PATH, 'node_modules', SOURCEGRAPH_PACKAGE, '/'),
-          to: SOURCEGRAPH_OUTPUT_PATH,
-          globOptions: {
-            ignore: ['package.json'],
-          },
-        },
-        {
-          from: path.join(
-            ROOT_PATH,
-            'node_modules/@gitlab/visual-review-tools/dist/visual_review_toolbar.js',
-          ),
-          to: WEBPACK_OUTPUT_PATH,
-        },
-      ],
+      patterns: copyFilesPatterns,
     }),
 
     // compression can require a lot of compute time and is disabled in CI
@@ -602,14 +743,16 @@ module.exports = {
           if (hasMissingNodeModules) compilation.contextDependencies.add(nodeModulesPath);
 
           // watch for changes to automatic entrypoints
-          watchAutoEntries.forEach((watchPath) => compilation.contextDependencies.add(watchPath));
+          entriesState.watchAutoEntries.forEach((watchPath) =>
+            compilation.contextDependencies.add(watchPath),
+          );
 
           // report our auto-generated bundle count
           if (incrementalCompiler.enabled) {
-            incrementalCompiler.logStatus(autoEntriesCount);
+            incrementalCompiler.logStatus(entriesState.autoEntriesCount);
           } else {
             console.log(
-              `${autoEntriesCount} entries from '/pages' automatically added to webpack output.`,
+              `${entriesState.autoEntriesCount} entries from '/pages' automatically added to webpack output.`,
             );
           }
 
@@ -669,6 +812,8 @@ module.exports = {
         statsFilename: path.join(ROOT_PATH, 'webpack-report/stats.json'),
         statsOptions: {
           source: false,
+          errors: false,
+          warnings: false,
         },
       }),
 
@@ -681,6 +826,7 @@ module.exports = {
       IS_JH: IS_JH ? 'window.gon && window.gon.jh' : JSON.stringify(false),
       // This is used by Sourcegraph because these assets are loaded dnamically
       'process.env.SOURCEGRAPH_PUBLIC_PATH': JSON.stringify(SOURCEGRAPH_PUBLIC_PATH),
+      'process.env.GITLAB_WEB_IDE_PUBLIC_PATH': JSON.stringify(GITLAB_WEB_IDE_PUBLIC_PATH),
       ...(IS_PRODUCTION ? {} : { LIVE_RELOAD: DEV_SERVER_LIVERELOAD }),
     }),
 
@@ -732,6 +878,15 @@ module.exports = {
     ...(DEV_SERVER_ALLOWED_HOSTS ? { allowedHosts: DEV_SERVER_ALLOWED_HOSTS } : {}),
     client: {
       ...(DEV_SERVER_PUBLIC_ADDR ? { webSocketURL: DEV_SERVER_PUBLIC_ADDR } : {}),
+      overlay: {
+        runtimeErrors: (error) => {
+          if (error instanceof DOMException && error.message === 'The user aborted a request.') {
+            return false;
+          }
+
+          return true;
+        },
+      },
     },
   },
 

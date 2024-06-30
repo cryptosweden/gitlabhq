@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::SearchContext::Builder, type: :controller do
-  controller(ApplicationController) { }
+  controller(ApplicationController) {}
 
   subject(:builder) { described_class.new(controller.view_context) }
 
@@ -15,19 +15,19 @@ RSpec.describe Gitlab::SearchContext::Builder, type: :controller do
     return {} if project.nil?
 
     a_hash_including(project_path: project.path,
-                     name: project.name,
-                     issues_path: a_string_including("/issues"),
-                     mr_path: a_string_including("/merge_requests"),
-                     issues_disabled: !project.issues_enabled?)
+      name: project.name,
+      issues_path: a_string_including("/issues"),
+      mr_path: a_string_including("/merge_requests"),
+      issues_disabled: !project.issues_enabled?)
   end
 
   def expected_group_metadata(group)
     return {} if group.nil?
 
     a_hash_including(group_path: group.path,
-                     name: group.name,
-                     issues_path: a_string_including("/issues"),
-                     mr_path: a_string_including("/merge_requests"))
+      name: group.name,
+      issues_path: a_string_including("/issues"),
+      mr_path: a_string_including("/merge_requests"))
   end
 
   def expected_search_url(project, group)
@@ -75,7 +75,7 @@ RSpec.describe Gitlab::SearchContext::Builder, type: :controller do
 
         it 'delegates to `#with_group`' do
           expect(builder).to receive(:with_group).with(project.group)
-          expect(context).to be
+          expect(context).to be_present
         end
 
         it { is_expected.to be_search_context(project: project, group: project.group) }
@@ -159,7 +159,7 @@ RSpec.describe Gitlab::SearchContext::Builder, type: :controller do
   end
 
   describe '#with_ref' do
-    let(:ref) { Gitlab::Git::EMPTY_TREE_ID }
+    let(:ref) { Gitlab::Git::SHA1_EMPTY_TREE_ID }
 
     subject { builder.with_ref(ref) }
 

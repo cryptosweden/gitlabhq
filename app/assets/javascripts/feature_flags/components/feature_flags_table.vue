@@ -1,8 +1,10 @@
 <script>
-import { GlBadge, GlButton, GlTooltipDirective, GlModal, GlToggle } from '@gitlab/ui';
+import { GlBadge, GlButton, GlTooltipDirective, GlIcon, GlModal, GlToggle } from '@gitlab/ui';
 import { __, s__, sprintf } from '~/locale';
 import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { labelForStrategy } from '../utils';
+
+import StrategyLabel from './strategy_label.vue';
 
 export default {
   i18n: {
@@ -13,8 +15,10 @@ export default {
   components: {
     GlBadge,
     GlButton,
+    GlIcon,
     GlModal,
     GlToggle,
+    StrategyLabel,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -63,7 +67,7 @@ export default {
       return featureFlag.iid ? `^${featureFlag.iid}` : '';
     },
     canDeleteFlag(flag) {
-      return !this.permissions || (flag.scopes || []).every((scope) => scope.can_update);
+      return (flag.scopes || []).every((scope) => scope.can_update);
     },
     setDeleteModalData(featureFlag) {
       this.deleteFeatureFlagUrl = featureFlag.destroy_path;
@@ -81,6 +85,20 @@ export default {
       });
     },
   },
+  modal: {
+    actionPrimary: {
+      text: s__('FeatureFlags|Delete feature flag'),
+      attributes: {
+        variant: 'danger',
+      },
+    },
+    actionSecondary: {
+      text: __('Cancel'),
+      attributes: {
+        variant: 'default',
+      },
+    },
+  },
 };
 </script>
 <template>
@@ -91,7 +109,7 @@ export default {
         {{ s__('FeatureFlags|Status') }}
       </div>
       <div class="table-section section-20" role="columnheader">
-        {{ s__('FeatureFlags|Feature Flag') }}
+        {{ s__('FeatureFlags|Feature flag') }}
       </div>
       <div class="table-section section-40" role="columnheader">
         {{ s__('FeatureFlags|Environment Specs') }}
@@ -99,16 +117,21 @@ export default {
     </div>
 
     <template v-for="featureFlag in featureFlags">
-      <div :key="featureFlag.id" class="gl-responsive-table-row" role="row">
+      <div
+        :key="featureFlag.id"
+        :data-testid="featureFlag.id"
+        class="gl-responsive-table-row"
+        role="row"
+      >
         <div class="table-section section-10" role="gridcell">
           <div class="table-mobile-header" role="rowheader">{{ s__('FeatureFlags|ID') }}</div>
-          <div class="table-mobile-content js-feature-flag-id">
+          <div class="table-mobile-content gl-text-left js-feature-flag-id">
             {{ featureFlagIidText(featureFlag) }}
           </div>
         </div>
         <div class="table-section section-10" role="gridcell">
           <div class="table-mobile-header" role="rowheader">{{ s__('FeatureFlags|Status') }}</div>
-          <div class="table-mobile-content">
+          <div class="table-mobile-content gl-text-left">
             <gl-toggle
               v-if="featureFlag.update_path"
               :value="featureFlag.active"
@@ -131,16 +154,23 @@ export default {
 
         <div class="table-section section-20" role="gridcell">
           <div class="table-mobile-header" role="rowheader">
-            {{ s__('FeatureFlags|Feature Flag') }}
+            {{ s__('FeatureFlags|Feature flag') }}
           </div>
-          <div class="table-mobile-content d-flex flex-column js-feature-flag-title">
-            <div class="gl-display-flex gl-align-items-center">
-              <div class="feature-flag-name text-monospace text-truncate">
+          <div
+            class="table-mobile-content gl-text-left gl-flex flex-column js-feature-flag-title gl-mr-5"
+          >
+            <div class="gl-flex gl-align-items-center">
+              <div class="feature-flag-name text-monospace text-wrap gl-break-anywhere">
                 {{ featureFlag.name }}
               </div>
-            </div>
-            <div class="feature-flag-description text-secondary text-truncate">
-              {{ featureFlag.description }}
+              <div class="feature-flag-description">
+                <gl-icon
+                  v-if="featureFlag.description"
+                  v-gl-tooltip.hover="featureFlag.description"
+                  class="gl-ml-3 gl-mr-3"
+                  name="information-o"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -150,16 +180,15 @@ export default {
             {{ s__('FeatureFlags|Environment Specs') }}
           </div>
           <div
-            class="table-mobile-content d-flex flex-wrap justify-content-end justify-content-md-start js-feature-flag-environments"
+            class="table-mobile-content gl-text-left gl-flex gl-flex-wrap justify-content-end justify-content-md-start js-feature-flag-environments"
           >
-            <gl-badge
+            <strategy-label
               v-for="strategy in featureFlag.strategies"
               :key="strategy.id"
-              data-testid="strategy-badge"
-              variant="info"
-              class="gl-mr-3 gl-mt-2 gl-white-space-normal gl-text-left gl-px-5"
-              >{{ strategyBadgeText(strategy) }}</gl-badge
-            >
+              data-testid="strategy-label"
+              class="gl-w-full gl-mr-3 gl-mt-2 gl-whitespace-normal gl-text-left"
+              v-bind="strategyBadgeText(strategy)"
+            />
           </div>
         </div>
 
@@ -193,11 +222,11 @@ export default {
     <gl-modal
       :ref="modalId"
       :title="modalTitle"
-      :ok-title="s__('FeatureFlags|Delete feature flag')"
       :modal-id="modalId"
       title-tag="h4"
-      ok-variant="danger"
-      category="primary"
+      size="sm"
+      :action-primary="$options.modal.actionPrimary"
+      :action-secondary="$options.modal.actionSecondary"
       @ok="onSubmit"
     >
       {{ deleteModalMessage }}

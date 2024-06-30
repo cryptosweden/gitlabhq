@@ -2,43 +2,42 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Related issues', :js do
-  let(:user) { create(:user) }
-  let(:project) { create(:project_empty_repo, :public) }
-  let(:project_b) { create(:project_empty_repo, :public) }
-  let(:project_unauthorized) { create(:project_empty_repo, :public) }
-  let(:issue_a) { create(:issue, project: project) }
-  let(:issue_b) { create(:issue, project: project) }
-  let(:issue_c) { create(:issue, project: project) }
-  let(:issue_d) { create(:issue, project: project) }
-  let(:issue_project_b_a) { create(:issue, project: project_b) }
-  let(:issue_project_unauthorized_a) { create(:issue, project: project_unauthorized) }
+RSpec.describe 'Related issues', :js, feature_category: :team_planning do
+  let_it_be(:user) { create(:user) }
+
+  let_it_be(:project) { create(:project_empty_repo, :public) }
+  let_it_be(:project_b) { create(:project_empty_repo, :public) }
+  let_it_be(:project_unauthorized) { create(:project_empty_repo) }
+  let_it_be(:internal_project) { create(:project_empty_repo, :internal) }
+  let_it_be(:private_project) { create(:project_empty_repo, :private) }
+  let_it_be(:public_project) { create(:project_empty_repo, :public) }
+
+  let_it_be(:issue_a) { create(:issue, project: project) }
+  let_it_be(:issue_b) { create(:issue, project: project) }
+  let_it_be(:issue_c) { create(:issue, project: project) }
+  let_it_be(:issue_d) { create(:issue, project: project) }
+  let_it_be(:issue_project_b_a) { create(:issue, project: project_b) }
+  let_it_be(:issue_project_unauthorized_a) { create(:issue, project: project_unauthorized) }
+  let_it_be(:internal_issue) { create(:issue, project: internal_project) }
+  let_it_be(:private_issue) { create(:issue, project: private_project) }
+  let_it_be(:public_issue) { create(:issue, project: public_project) }
 
   context 'widget visibility' do
     context 'when not logged in' do
       it 'does not show widget when internal project' do
-        project = create :project_empty_repo, :internal
-        issue = create :issue, project: project
-
-        visit project_issue_path(project, issue)
+        visit project_issue_path(internal_project, internal_issue)
 
         expect(page).not_to have_css('.related-issues-block')
       end
 
       it 'does not show widget when private project' do
-        project = create :project_empty_repo, :private
-        issue = create :issue, project: project
-
-        visit project_issue_path(project, issue)
+        visit project_issue_path(private_project, private_issue)
 
         expect(page).not_to have_css('.related-issues-block')
       end
 
       it 'shows widget when public project' do
-        project = create :project_empty_repo, :public
-        issue = create :issue, project: project
-
-        visit project_issue_path(project, issue)
+        visit project_issue_path(public_project, public_issue)
 
         expect(page).to have_css('.related-issues-block')
         expect(page).not_to have_button 'Add a related issue'
@@ -51,39 +50,29 @@ RSpec.describe 'Related issues', :js do
       end
 
       it 'shows widget when internal project' do
-        project = create :project_empty_repo, :internal
-        issue = create :issue, project: project
-
-        visit project_issue_path(project, issue)
+        visit project_issue_path(internal_project, internal_issue)
 
         expect(page).to have_css('.related-issues-block')
         expect(page).not_to have_button 'Add a related issue'
       end
 
       it 'does not show widget when private project' do
-        project = create :project_empty_repo, :private
-        issue = create :issue, project: project
-
-        visit project_issue_path(project, issue)
+        visit project_issue_path(private_project, private_issue)
 
         expect(page).not_to have_css('.related-issues-block')
       end
 
       it 'shows widget when public project' do
-        project = create :project_empty_repo, :public
-        issue = create :issue, project: project
-
-        visit project_issue_path(project, issue)
+        visit project_issue_path(public_project, public_issue)
 
         expect(page).to have_css('.related-issues-block')
         expect(page).not_to have_button 'Add a related issue'
       end
 
       it 'shows widget on their own public issue' do
-        project = create :project_empty_repo, :public
-        issue = create :issue, project: project, author: user
+        issue = create :issue, project: public_project, author: user
 
-        visit project_issue_path(project, issue)
+        visit project_issue_path(public_project, issue)
 
         expect(page).to have_css('.related-issues-block')
         expect(page).not_to have_button 'Add a related issue'
@@ -96,83 +85,37 @@ RSpec.describe 'Related issues', :js do
       end
 
       it 'shows widget when internal project' do
-        project = create :project_empty_repo, :internal
-        issue = create :issue, project: project
-        project.add_guest(user)
+        internal_project.add_guest(user)
 
-        visit project_issue_path(project, issue)
-
-        expect(page).to have_css('.related-issues-block')
-        expect(page).not_to have_button 'Add a related issue'
-      end
-
-      it 'shows widget when private project' do
-        project = create :project_empty_repo, :private
-        issue = create :issue, project: project
-        project.add_guest(user)
-
-        visit project_issue_path(project, issue)
-
-        expect(page).to have_css('.related-issues-block')
-        expect(page).not_to have_button 'Add a related issue'
-      end
-
-      it 'shows widget when public project' do
-        project = create :project_empty_repo, :public
-        issue = create :issue, project: project
-        project.add_guest(user)
-
-        visit project_issue_path(project, issue)
-
-        expect(page).to have_css('.related-issues-block')
-        expect(page).not_to have_button 'Add a related issue'
-      end
-    end
-
-    context 'when logged in and a reporter' do
-      before do
-        sign_in(user)
-      end
-
-      it 'shows widget when internal project' do
-        project = create :project_empty_repo, :internal
-        issue = create :issue, project: project
-        project.add_reporter(user)
-
-        visit project_issue_path(project, issue)
+        visit project_issue_path(internal_project, internal_issue)
 
         expect(page).to have_css('.related-issues-block')
         expect(page).to have_button 'Add a related issue'
       end
 
       it 'shows widget when private project' do
-        project = create :project_empty_repo, :private
-        issue = create :issue, project: project
-        project.add_reporter(user)
+        private_project.add_guest(user)
 
-        visit project_issue_path(project, issue)
+        visit project_issue_path(private_project, private_issue)
 
         expect(page).to have_css('.related-issues-block')
         expect(page).to have_button 'Add a related issue'
       end
 
       it 'shows widget when public project' do
-        project = create :project_empty_repo, :public
-        issue = create :issue, project: project
-        project.add_reporter(user)
+        public_project.add_guest(user)
 
-        visit project_issue_path(project, issue)
+        visit project_issue_path(public_project, public_issue)
 
         expect(page).to have_css('.related-issues-block')
         expect(page).to have_button 'Add a related issue'
       end
 
       it 'shows widget on their own public issue' do
-        project = create :project_empty_repo, :public
-        issue = create :issue, project: project, author: user
-        project.add_reporter(user)
+        issue = create :issue, project: public_project, author: user
+        public_project.add_guest(user)
 
-        visit project_issue_path(project, issue)
+        visit project_issue_path(public_project, issue)
 
         expect(page).to have_css('.related-issues-block')
         expect(page).to have_button 'Add a related issue'
@@ -184,8 +127,11 @@ RSpec.describe 'Related issues', :js do
     let!(:issue_link_b) { create :issue_link, source: issue_a, target: issue_b }
     let!(:issue_link_c) { create :issue_link, source: issue_a, target: issue_c }
 
-    before do
+    before_all do
       project.add_guest(user)
+    end
+
+    before do
       sign_in(user)
     end
 
@@ -213,9 +159,12 @@ RSpec.describe 'Related issues', :js do
   end
 
   context 'when user has permission to manage related issues' do
-    before do
+    before_all do
       project.add_maintainer(user)
       project_b.add_maintainer(user)
+    end
+
+    before do
       sign_in(user)
     end
 
@@ -231,8 +180,10 @@ RSpec.describe 'Related issues', :js do
 
       it 'add related issue' do
         click_button 'Add a related issue'
-        fill_in 'Paste issue link', with: "#{issue_b.to_reference(project)} "
-        click_button 'Add'
+        fill_in 'Enter issue URL', with: "#{issue_b.to_reference(project)} "
+        page.within('.linked-issues-card-body') do
+          click_button 'Add'
+        end
 
         wait_for_requests
 
@@ -248,8 +199,10 @@ RSpec.describe 'Related issues', :js do
 
       it 'add cross-project related issue' do
         click_button 'Add a related issue'
-        fill_in 'Paste issue link', with: "#{issue_project_b_a.to_reference(project)} "
-        click_button 'Add'
+        fill_in 'Enter issue URL', with: "#{issue_project_b_a.to_reference(project)} "
+        page.within('.linked-issues-card-body') do
+          click_button 'Add'
+        end
 
         wait_for_requests
 
@@ -262,8 +215,8 @@ RSpec.describe 'Related issues', :js do
 
       it 'pressing enter should submit the form' do
         click_button 'Add a related issue'
-        fill_in 'Paste issue link', with: "#{issue_project_b_a.to_reference(project)} "
-        find_field('Paste issue link').native.send_key(:enter)
+        fill_in 'Enter issue URL', with: "#{issue_project_b_a.to_reference(project)} "
+        find_field('Enter issue URL').native.send_key(:enter)
 
         wait_for_requests
 
@@ -276,7 +229,7 @@ RSpec.describe 'Related issues', :js do
 
       it 'disallows duplicate entries' do
         click_button 'Add a related issue'
-        fill_in 'Paste issue link', with: 'duplicate duplicate duplicate'
+        fill_in 'Enter issue URL', with: 'duplicate duplicate duplicate'
 
         items = all('.issue-token')
         expect(items.count).to eq(1)
@@ -289,7 +242,7 @@ RSpec.describe 'Related issues', :js do
       it 'allows us to remove pending issues' do
         # Tests against https://gitlab.com/gitlab-org/gitlab/issues/11625
         click_button 'Add a related issue'
-        fill_in 'Paste issue link', with: 'issue1 issue2 issue3 '
+        fill_in 'Enter issue URL', with: 'issue1 issue2 issue3 '
 
         items = all('.issue-token')
         expect(items.count).to eq(3)
@@ -358,8 +311,10 @@ RSpec.describe 'Related issues', :js do
 
       it 'add related issue' do
         click_button 'Add a related issue'
-        fill_in 'Paste issue link', with: "##{issue_d.iid} "
-        click_button 'Add'
+        fill_in 'Enter issue URL', with: "##{issue_d.iid} "
+        page.within('.linked-issues-card-body') do
+          click_button 'Add'
+        end
 
         wait_for_requests
 
@@ -374,8 +329,10 @@ RSpec.describe 'Related issues', :js do
 
       it 'add invalid related issue' do
         click_button 'Add a related issue'
-        fill_in 'Paste issue link', with: '#9999999 '
-        click_button 'Add'
+        fill_in 'Enter issue URL', with: '#9999999 '
+        page.within('.linked-issues-card-body') do
+          click_button 'Add'
+        end
 
         wait_for_requests
 
@@ -389,8 +346,10 @@ RSpec.describe 'Related issues', :js do
 
       it 'add unauthorized related issue' do
         click_button 'Add a related issue'
-        fill_in 'Paste issue link', with: "#{issue_project_unauthorized_a.to_reference(project)} "
-        click_button 'Add'
+        fill_in 'Enter issue URL', with: "#{issue_project_unauthorized_a.to_reference(project)} "
+        page.within('.linked-issues-card-body') do
+          click_button 'Add'
+        end
 
         wait_for_requests
 

@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_failures do
+RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_failures, feature_category: :importers do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) { create(:user) }
 
-  let(:client) { double(:client) }
+  let(:client) { instance_double(Gitlab::GithubImport::Client) }
   let(:discussion_id) { 'b0fa404393eeebb4e82becb8104f238812bb1fe6' }
   let(:created_at) { Time.new(2017, 1, 1, 12, 00).utc }
   let(:updated_at) { Time.new(2017, 1, 1, 12, 15).utc }
@@ -35,7 +35,8 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_fail
       end_line: end_line,
       github_id: 1,
       diff_hunk: diff_hunk,
-      side: 'RIGHT'
+      side: 'RIGHT',
+      discussion_id: discussion_id
     )
   end
 
@@ -79,17 +80,6 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_fail
       expect(note.author_id).to eq(project.creator_id)
       expect(note.note).to eq("*Created by: #{user.username}*\n\nHello")
     end
-
-    it 'does not import the note when a foreign key error is raised' do
-      stub_user_finder(project.creator_id, false)
-
-      expect(ApplicationRecord)
-        .to receive(:legacy_bulk_insert)
-        .and_raise(ActiveRecord::InvalidForeignKey, 'invalid foreign key')
-
-      expect { subject.execute }
-        .not_to change(LegacyDiffNote, :count)
-    end
   end
 
   describe '#execute' do
@@ -114,10 +104,6 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_fail
             .to receive(:database_id)
             .and_return(merge_request.id)
         end
-
-        expect(Discussion)
-          .to receive(:discussion_id)
-          .and_return(discussion_id)
       end
 
       it_behaves_like 'diff notes without suggestion'
@@ -146,6 +132,7 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_fail
           expect(note.noteable_type).to eq('MergeRequest')
           expect(note.noteable_id).to eq(merge_request.id)
           expect(note.project_id).to eq(project.id)
+          expect(note.namespace_id).to eq(project.project_namespace_id)
           expect(note.author_id).to eq(user.id)
           expect(note.system).to eq(false)
           expect(note.discussion_id).to eq(discussion_id)
@@ -163,7 +150,8 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_fail
             new_path: file_path,
             old_path: file_path,
             position_type: 'text',
-            line_range: nil
+            line_range: nil,
+            ignore_whitespace_change: false
           })
           expect(note.note)
             .to eq <<~NOTE
@@ -181,8 +169,10 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_fail
             expect(Gitlab::GithubImport::Logger)
               .to receive(:warn)
                     .with(
-                      message: "Validation failed: Line code can't be blank, Line code must be a valid line code, Position is incomplete",
-                      'error.class': 'Gitlab::GithubImport::Importer::DiffNoteImporter::DiffNoteCreationError'
+                      {
+                        message: "Validation failed: Line code can't be blank, Line code must be a valid line code, Position is incomplete",
+                        'error.class': 'Gitlab::GithubImport::Importer::DiffNoteImporter::DiffNoteCreationError'
+                      }
                     )
 
             expect { subject.execute }
@@ -204,14 +194,26 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNoteImporter, :aggregate_fail
             expect(Gitlab::GithubImport::Logger)
               .to receive(:warn)
               .with(
-                message: 'Failed to create diff note file',
-                'error.class': 'DiffNote::NoteDiffFileCreationError'
+                {
+                  message: 'Failed to create diff note file',
+                  'error.class': 'DiffNote::NoteDiffFileCreationError'
+                }
               )
 
             expect { subject.execute }
               .to change(LegacyDiffNote, :count)
               .and not_change(DiffNote, :count)
           end
+        end
+      end
+
+      context 'when diff note is invalid' do
+        it 'fails validation' do
+          stub_user_finder(user.id, true)
+
+          expect(note_representation).to receive(:line_code).and_return(nil)
+
+          expect { subject.execute }.to raise_error(ActiveRecord::RecordInvalid)
         end
       end
     end

@@ -92,7 +92,13 @@ module Participable
   end
 
   def raw_participants(current_user = nil, verify_access: false)
-    ext = Gitlab::ReferenceExtractor.new(project, current_user)
+    extractor = Gitlab::ReferenceExtractor.new(project, current_user)
+
+    # Used to extract references from confidential notes.
+    # Referenced users that cannot read confidential notes are
+    # later removed from participants array.
+    internal_notes_extractor = Gitlab::ReferenceExtractor.new(project, current_user)
+
     participants = Set.new
     process = [self]
 
@@ -103,10 +109,13 @@ module Participable
       when User
         participants << source
       when Participable
+        next if skippable_system_notes?(source, participants)
         next unless !verify_access || source_visible_to_user?(source, current_user)
 
         source.class.participant_attrs.each do |attr|
           if attr.respond_to?(:call)
+            ext = use_internal_notes_extractor_for?(source) ? internal_notes_extractor : extractor
+
             source.instance_exec(current_user, ext, &attr)
           else
             process << source.__send__(attr) # rubocop:disable GitlabSecurity/PublicSend
@@ -121,11 +130,31 @@ module Participable
       end
     end
 
-    participants.merge(ext.users)
+    participants.merge(users_that_can_read_internal_notes(internal_notes_extractor))
+    participants.merge(extractor.users)
+  end
+
+  def skippable_system_notes?(source, participants)
+    source.is_a?(Note) &&
+      source.system? &&
+      source.author.in?(participants) &&
+      !source.note.match?(User.reference_pattern)
+  end
+
+  def use_internal_notes_extractor_for?(source)
+    source.is_a?(Note) && source.confidential?
+  end
+
+  def users_that_can_read_internal_notes(extractor)
+    return [] unless self.is_a?(Noteable) && self.try(:resource_parent)
+
+    Ability.users_that_can_read_internal_notes(extractor.users, self.resource_parent)
   end
 
   def source_visible_to_user?(source, user)
-    Ability.allowed?(user, "read_#{source.model_name.element}".to_sym, source)
+    ability = read_ability_for(source)
+
+    Ability.allowed?(user, ability[:name], ability[:subject])
   end
 
   def filter_by_ability(participants)
@@ -133,7 +162,15 @@ module Participable
     when PersonalSnippet
       Ability.users_that_can_read_personal_snippet(participants.to_a, self)
     else
-      Ability.users_that_can_read_project(participants.to_a, project)
+      return Ability.users_that_can_read_project(participants.to_a, project) if project
+
+      # handling group level work items(issues) that would have a namespace,
+      # We need to make sure that scenarios where some models that do not have a project set and also do not have
+      # a namespace are also handled and exceptions are avoided.
+      namespace_level_participable = respond_to?(:namespace) && namespace.present?
+      return Ability.users_that_can_read_group(participants.to_a, namespace) if namespace_level_participable
+
+      []
     end
   end
 
@@ -142,8 +179,24 @@ module Participable
     when PersonalSnippet
       participant.can?(:read_snippet, self)
     else
-      participant.can?(:read_project, project)
+      return participant.can?(:read_project, project) if project
+
+      # handling group level work items(issues) that would have a namespace,
+      # We need to make sure that scenarios where some models that do not have a project set and also do not have
+      # a namespace are also handled and exceptions are avoided.
+      namespace_level_participable = respond_to?(:namespace) && namespace.present?
+      return participant.can?(:read_group, namespace) if namespace_level_participable
+
+      false
     end
+  end
+
+  # Returns Hash containing ability name and subject needed to read a specific participable.
+  # Should be overridden if a different ability is required.
+  def read_ability_for(participable_source)
+    name =  participable_source.try(:to_ability_name) || participable_source.model_name.element
+
+    { name: "read_#{name}".to_sym, subject: participable_source }
   end
 end
 

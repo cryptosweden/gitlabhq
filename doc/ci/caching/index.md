@@ -1,13 +1,16 @@
 ---
 stage: Verify
 group: Pipeline Authoring
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: index, concepts, howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Caching in GitLab CI/CD **(FREE)**
+# Caching in GitLab CI/CD
 
-A cache is one or more files that a job downloads and saves. Subsequent jobs that use
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+A cache is one or more files a job downloads and saves. Subsequent jobs that use
 the same cache don't have to download the files again, so they execute more quickly.
 
 To learn how to define the cache in your `.gitlab-ci.yml` file,
@@ -31,6 +34,7 @@ can't link to files outside it.
 - Subsequent pipelines can use the cache.
 - Subsequent jobs in the same pipeline can use the cache, if the dependencies are identical.
 - Different projects cannot share the cache.
+- By default, protected and non-protected branches [do not share the cache](#cache-key-names). However, you can [change this behavior](#use-the-same-cache-for-all-branches).
 
 ### Artifacts
 
@@ -38,16 +42,16 @@ can't link to files outside it.
 - Subsequent jobs in later stages of the same pipeline can use artifacts.
 - Different projects cannot share artifacts.
 - Artifacts expire after 30 days by default. You can define a custom [expiration time](../yaml/index.md#artifactsexpire_in).
-- The latest artifacts do not expire if [keep latest artifacts](../pipelines/job_artifacts.md#keep-artifacts-from-most-recent-successful-jobs) is enabled.
+- The latest artifacts do not expire if [keep latest artifacts](../jobs/job_artifacts.md#keep-artifacts-from-most-recent-successful-jobs) is enabled.
 - Use [dependencies](../yaml/index.md#dependencies) to control which jobs fetch the artifacts.
 
 ## Good caching practices
 
 To ensure maximum availability of the cache, do one or more of the following:
 
-- [Tag your runners](../runners/configure_runners.md#use-tags-to-control-which-jobs-a-runner-can-run) and use the tag on jobs
+- [Tag your runners](../runners/configure_runners.md#control-jobs-that-a-runner-can-run) and use the tag on jobs
   that share the cache.
-- [Use runners that are only available to a particular project](../runners/runners_scope.md#prevent-a-specific-runner-from-being-enabled-for-other-projects).
+- [Use runners that are only available to a particular project](../runners/runners_scope.md#prevent-a-project-runner-from-being-enabled-for-other-projects).
 - [Use a `key`](../yaml/index.md#cachekey) that fits your workflow. For example,
   you can configure a different cache for each branch.
 
@@ -56,16 +60,15 @@ For runners to work with caches efficiently, you must do one of the following:
 - Use a single runner for all your jobs.
 - Use multiple runners that have
   [distributed caching](https://docs.gitlab.com/runner/configuration/autoscale.html#distributed-runners-caching),
-  where the cache is stored in S3 buckets. Shared runners on GitLab.com behave this way. These runners can be in autoscale mode,
-  but they don't have to be.
+  where the cache is stored in S3 buckets. Instance runners on GitLab.com behave this way. These runners can be in autoscale mode,
+  but they don't have to be. To manage cache objects,
+  apply lifecycle rules to delete the cache objects after a period of time.
+  Lifecycle rules are available on the object storage server.
 - Use multiple runners with the same architecture and have these runners
   share a common network-mounted directory to store the cache. This directory should use NFS or something similar.
   These runners must be in autoscale mode.
 
 ## Use multiple caches
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/32814) in GitLab 13.10.
-> - [Feature Flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/321877), in GitLab 13.12.
 
 You can have a maximum of four caches:
 
@@ -84,17 +87,62 @@ test-job:
       paths:
         - .yarn-cache/
   script:
-    - bundle install --path=vendor
+    - bundle config set --local path 'vendor/ruby'
+    - bundle install
     - yarn install --cache-folder .yarn-cache
     - echo Run tests...
 ```
 
 If multiple caches are combined with a fallback cache key,
-the fallback cache is fetched every time a cache is not found.
+the global fallback cache is fetched every time a cache is not found.
 
 ## Use a fallback cache key
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/1534) in GitLab Runner 13.4.
+### Per-cache fallback keys
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/110467) in GitLab 16.0
+
+Each cache entry supports up to five fallback keys with the [`fallback_keys` keyword](../yaml/index.md#cachefallback_keys).
+When a job does not find a cache key, the job attempts to retrieve a fallback cache instead.
+Fallback keys are searched in order until a cache is found. If no cache is found,
+the job runs without using a cache. For example:
+
+```yaml
+test-job:
+  stage: build
+  cache:
+    - key: cache-$CI_COMMIT_REF_SLUG
+      fallback_keys:
+        - cache-$CI_DEFAULT_BRANCH
+        - cache-default
+      paths:
+        - vendor/ruby
+  script:
+    - bundle config set --local path 'vendor/ruby'
+    - bundle install
+    - echo Run tests...
+```
+
+In this example:
+
+1. The job looks for the `cache-$CI_COMMIT_REF_SLUG` cache.
+1. If `cache-$CI_COMMIT_REF_SLUG` is not found, the job looks for `cache-$CI_DEFAULT_BRANCH`
+   as a fallback option.
+1. If `cache-$CI_DEFAULT_BRANCH` is also not found, the job looks for `cache-default`
+   as a second fallback option.
+1. If none are found, the job downloads all the Ruby dependencies without using a cache,
+   but creates a new cache for `cache-$CI_COMMIT_REF_SLUG` when the job completes.
+
+Fallback keys follow the same processing logic as `cache:key`:
+
+- If you [clear caches manually](#clear-the-cache-manually), per-cache fallback keys are appended
+  with an index like other cache keys.
+- If the [**Use separate caches for protected branches** setting](#cache-key-names) is enabled,
+  per-cache fallback keys are appended with `-protected` or `-non_protected`.
+
+### Global fallback key
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/1534) in GitLab Runner 13.4.
 
 You can use the `$CI_COMMIT_REF_SLUG` [predefined variable](../variables/predefined_variables.md)
 to specify your [`cache:key`](../yaml/index.md#cachekey). For example, if your
@@ -119,12 +167,20 @@ job1:
       - binaries/
 ```
 
+The order of caches extraction is:
+
+1. Retrieval attempt for `cache:key`
+1. Retrieval attempts for each entry in order in `fallback_keys`
+1. Retrieval attempt for the global fallback key in `CACHE_FALLBACK_KEY`
+
+The cache extraction process stops after the first successful cache is retrieved.
+
 ## Disable cache for specific jobs
 
 If you define the cache globally, each job uses the
 same definition. You can override this behavior for each job.
 
-To disable it completely for a job, use an empty hash:
+To disable it completely for a job, use an empty list:
 
 ```yaml
 job:
@@ -138,13 +194,14 @@ You can override cache settings without overwriting the global cache by using
 `policy` for one job:
 
 ```yaml
-cache: &global_cache
-  key: $CI_COMMIT_REF_SLUG
-  paths:
-    - node_modules/
-    - public/
-    - vendor/
-  policy: pull-push
+default:
+  cache: &global_cache
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+      - public/
+      - vendor/
+    policy: pull-push
 
 job:
   cache:
@@ -207,28 +264,56 @@ cache:
   key: $CI_JOB_NAME
 ```
 
+### Use a variable to control a job's cache policy
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/371480) in GitLab 16.1.
+
+To reduce duplication of jobs where the only difference is the pull policy, you can use a [CI/CD variable](../variables/index.md).
+
+For example:
+
+```yaml
+conditional-policy:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        POLICY: pull-push
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      variables:
+        POLICY: pull
+  stage: build
+  cache:
+    key: gems
+    policy: $POLICY
+    paths:
+      - vendor/bundle
+  script:
+    - echo "This job pulls and pushes the cache depending on the branch"
+    - echo "Downloading dependencies..."
+```
+
+In this example, the job's cache policy is:
+
+- `pull-push` for changes to the default branch.
+- `pull` for changes to other branches.
+
 ### Cache Node.js dependencies
 
 If your project uses [npm](https://www.npmjs.com/) to install Node.js
-dependencies, the following example defines `cache` globally so that all jobs inherit it.
+dependencies, the following example defines a default `cache` so that all jobs inherit it.
 By default, npm stores cache data in the home folder (`~/.npm`). However, you
 [can't cache things outside of the project directory](../yaml/index.md#cachepaths).
 Instead, tell npm to use `./.npm`, and cache it per-branch:
 
 ```yaml
-#
-# https://gitlab.com/gitlab-org/gitlab/-/tree/master/lib/gitlab/ci/templates/Nodejs.gitlab-ci.yml
-#
-image: node:latest
-
-# Cache modules in between jobs
-cache:
-  key: $CI_COMMIT_REF_SLUG
-  paths:
-    - .npm/
-
-before_script:
-  - npm ci --cache .npm --prefer-offline
+default:
+  image: node:latest
+  cache:  # Cache modules in between jobs
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - .npm/
+  before_script:
+    - npm ci --cache .npm --prefer-offline
 
 test_async:
   script:
@@ -241,13 +326,13 @@ You can use [`cache:key:files`](../yaml/index.md#cachekeyfiles) to compute the c
 key from a lock file like `package-lock.json` or `yarn.lock`, and reuse it in many jobs.
 
 ```yaml
-# Cache modules using lock file
-cache:
-  key:
-    files:
-      - package-lock.json
-  paths:
-    - .npm/
+default:
+  cache:  # Cache modules using lock file
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
 ```
 
 If you're using [Yarn](https://yarnpkg.com/), you can use [`yarn-offline-mirror`](https://classic.yarnpkg.com/blog/2016/11/24/offline-mirror/)
@@ -271,26 +356,21 @@ job:
 ### Cache PHP dependencies
 
 If your project uses [Composer](https://getcomposer.org/) to install
-PHP dependencies, the following example defines `cache` globally so that
+PHP dependencies, the following example defines a default `cache` so that
 all jobs inherit it. PHP libraries modules are installed in `vendor/` and
 are cached per-branch:
 
 ```yaml
-#
-# https://gitlab.com/gitlab-org/gitlab/-/tree/master/lib/gitlab/ci/templates/PHP.gitlab-ci.yml
-#
-image: php:7.2
-
-# Cache libraries in between jobs
-cache:
-  key: $CI_COMMIT_REF_SLUG
-  paths:
-    - vendor/
-
-before_script:
-  # Install and run Composer
-  - curl --show-error --silent "https://getcomposer.org/installer" | php
-  - php composer.phar install
+default:
+  image: php:7.2
+  cache:  # Cache libraries in between jobs
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - vendor/
+  before_script:
+    # Install and run Composer
+    - curl --show-error --silent "https://getcomposer.org/installer" | php
+    - php composer.phar install
 
 test:
   script:
@@ -300,65 +380,48 @@ test:
 ### Cache Python dependencies
 
 If your project uses [pip](https://pip.pypa.io/en/stable/) to install
-Python dependencies, the following example defines `cache` globally so that
-all jobs inherit it. Python libraries are installed in a virtual environment under `venv/`.
-pip's cache is defined under `.cache/pip/` and both are cached per-branch:
+Python dependencies, the following example defines a default `cache` so that
+all jobs inherit it. pip's cache is defined under `.cache/pip/` and is cached per-branch:
 
 ```yaml
-#
-# https://gitlab.com/gitlab-org/gitlab/-/tree/master/lib/gitlab/ci/templates/Python.gitlab-ci.yml
-#
-image: python:latest
+default:
+  image: python:latest
+  cache:                      # Pip's cache doesn't store the python packages
+    paths:                    # https://pip.pypa.io/en/stable/topics/caching/
+      - .cache/pip
+  before_script:
+    - python -V               # Print out python version for debugging
+    - pip install virtualenv
+    - virtualenv venv
+    - source venv/bin/activate
 
-# Change pip's cache directory to be inside the project directory since we can
-# only cache local items.
-variables:
+variables:  # Change pip's cache directory to be inside the project directory since we can only cache local items.
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-
-# Pip's cache doesn't store the python packages
-# https://pip.pypa.io/en/stable/reference/pip_install/#caching
-#
-# If you want to also cache the installed packages, you have to install
-# them in a virtualenv and cache it as well.
-cache:
-  paths:
-    - .cache/pip
-    - venv/
-
-before_script:
-  - python -V               # Print out python version for debugging
-  - pip install virtualenv
-  - virtualenv venv
-  - source venv/bin/activate
 
 test:
   script:
     - python setup.py test
-    - pip install flake8
-    - flake8 .
+    - pip install ruff
+    - ruff --format=gitlab .
 ```
 
 ### Cache Ruby dependencies
 
 If your project uses [Bundler](https://bundler.io) to install
-gem dependencies, the following example defines `cache` globally so that all
+gem dependencies, the following example defines a default `cache` so that all
 jobs inherit it. Gems are installed in `vendor/ruby/` and are cached per-branch:
 
 ```yaml
-#
-# https://gitlab.com/gitlab-org/gitlab/-/tree/master/lib/gitlab/ci/templates/Ruby.gitlab-ci.yml
-#
-image: ruby:2.6
-
-# Cache gems in between builds
-cache:
-  key: $CI_COMMIT_REF_SLUG
-  paths:
-    - vendor/ruby
-
-before_script:
-  - ruby -v                                        # Print out ruby version for debugging
-  - bundle install -j $(nproc) --path vendor/ruby  # Install dependencies into ./vendor/ruby
+default:
+  image: ruby:2.6
+  cache:                                            # Cache gems in between builds
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - vendor/ruby
+  before_script:
+    - ruby -v                                       # Print out ruby version for debugging
+    - bundle config set --local path 'vendor/ruby'  # The location to install the specified gems to
+    - bundle install -j $(nproc)                    # Install dependencies into ./vendor/ruby
 
 rspec:
   script:
@@ -373,25 +436,28 @@ For example, a testing job might not need the same gems as a job that deploys to
 production:
 
 ```yaml
-cache:
-  key:
-    files:
-      - Gemfile.lock
-    prefix: $CI_JOB_NAME
-  paths:
-    - vendor/ruby
+default:
+  cache:
+    key:
+      files:
+        - Gemfile.lock
+      prefix: $CI_JOB_NAME
+    paths:
+      - vendor/ruby
 
 test_job:
   stage: test
   before_script:
-    - bundle install --without production --path vendor/ruby
+    - bundle config set --local path 'vendor/ruby'
+    - bundle install --without production
   script:
     - bundle exec rspec
 
 deploy_job:
   stage: production
   before_script:
-    - bundle install --without test --path vendor/ruby
+    - bundle config set --local path 'vendor/ruby'   # The location to install the specified gems to
+    - bundle install --without test
   script:
     - bundle exec deploy
 ```
@@ -440,11 +506,43 @@ is stored on the machine where GitLab Runner is installed. The location also dep
 | Runner executor        | Default path of the cache |
 | ---------------------- | ------------------------- |
 | [Shell](https://docs.gitlab.com/runner/executors/shell.html) | Locally, under the `gitlab-runner` user's home directory: `/home/gitlab-runner/cache/<user>/<project>/<cache-key>/cache.zip`. |
-| [Docker](https://docs.gitlab.com/runner/executors/docker.html) | Locally, under [Docker volumes](https://docs.gitlab.com/runner/executors/docker.html#the-builds-and-cache-storage): `/var/lib/docker/volumes/<volume-id>/_data/<user>/<project>/<cache-key>/cache.zip`. |
+| [Docker](https://docs.gitlab.com/runner/executors/docker.html) | Locally, under [Docker volumes](https://docs.gitlab.com/runner/executors/docker.html#configure-directories-for-the-container-build-and-cache): `/var/lib/docker/volumes/<volume-id>/_data/<user>/<project>/<cache-key>/cache.zip`. |
 | [Docker Machine](https://docs.gitlab.com/runner/executors/docker_machine.html) (autoscale runners) | The same as the Docker executor. |
 
 If you use cache and artifacts to store the same path in your jobs, the cache might
 be overwritten because caches are restored before artifacts.
+
+#### Cache key names
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/330047) in GitLab 15.0.
+
+A suffix is added to the cache key, with the exception of the [global fallback cache key](#global-fallback-key).
+
+As an example, assuming that `cache.key` is set to `$CI_COMMIT_REF_SLUG`, and that we have two branches `main`
+and `feature`, then the following table represents the resulting cache keys:
+
+| Branch name | Cache key |
+|-------------|-----------|
+| `main`      | `main-protected` |
+| `feature`   | `feature-non_protected` |
+
+##### Use the same cache for all branches
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/361643) in GitLab 15.0.
+
+If you do not want to use [cache key names](#cache-key-names),
+you can have all branches (protected and unprotected) use the same cache.
+
+The cache separation with [cache key names](#cache-key-names) is a security feature
+and should only be disabled in an environment where all users with Developer role are highly trusted.
+
+To use the same cache for all branches:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > CI/CD**.
+1. Expand **General pipelines**.
+1. Clear the **Use separate caches for protected branches** checkbox.
+1. Select **Save changes**.
 
 ### How archiving and extracting works
 
@@ -455,18 +553,19 @@ stages:
   - build
   - test
 
-before_script:
-  - echo "Hello"
+default:
+  cache:
+    key: build-cache
+    paths:
+      - vendor/
+  before_script:
+    - echo "Hello"
 
 job A:
   stage: build
   script:
     - mkdir vendor/
     - echo "build" > vendor/hello.txt
-  cache:
-    key: build-cache
-    paths:
-      - vendor/
   after_script:
     - echo "World"
 
@@ -474,10 +573,6 @@ job B:
   stage: test
   script:
     - cat vendor/hello.txt
-  cache:
-    key: build-cache
-    paths:
-      - vendor/
 ```
 
 If one machine has one runner installed, then all jobs for your project
@@ -485,6 +580,7 @@ run on the same host:
 
 1. Pipeline starts.
 1. `job A` runs.
+1. The cache is extracted (if found).
 1. `before_script` is executed.
 1. `script` is executed.
 1. `after_script` is executed.
@@ -535,13 +631,11 @@ The next time the pipeline runs, the cache is stored in a different location.
 
 ### Clear the cache manually
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/41249) in GitLab 10.4.
-
 You can clear the cache in the GitLab UI:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **CI/CD > Pipelines** page.
-1. In the top right, select **Clear runner caches**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Build > Pipelines**.
+1. In the upper-right corner, select **Clear runner caches**.
 
 On the next commit, your CI/CD jobs use a new cache.
 
@@ -559,7 +653,8 @@ If you have a cache mismatch, follow these steps to troubleshoot.
 | You use multiple standalone runners (not in autoscale mode) attached to one project without a shared cache. | Use only one runner for your project or use multiple runners with distributed cache enabled. |
 | You use runners in autoscale mode without a distributed cache enabled. | Configure the autoscale runner to use a distributed cache. |
 | The machine the runner is installed on is low on disk space or, if you've set up distributed cache, the S3 bucket where the cache is stored doesn't have enough space. | Make sure you clear some space to allow new caches to be stored. There's no automatic way to do this. |
-| You use the same `key` for jobs where they cache different paths. | Use different cache keys to that the cache archive is stored to a different location and doesn't overwrite wrong caches. |
+| You use the same `key` for jobs where they cache different paths. | Use different cache keys so that the cache archive is stored to a different location and doesn't overwrite wrong caches. |
+| You have not enabled the [distributed runner caching on your runners](https://docs.gitlab.com/runner/configuration/autoscale.html#distributed-runners-caching). | Set `Shared = false` and re-provision your runners. |
 
 #### Cache mismatch example 1
 
@@ -592,10 +687,10 @@ job B:
 ```
 
 1. `job A` runs.
-1. `public/` is cached as cache.zip.
+1. `public/` is cached as `cache.zip`.
 1. `job B` runs.
 1. The previous cache, if any, is unzipped.
-1. `vendor/` is cached as cache.zip and overwrites the previous one.
+1. `vendor/` is cached as `cache.zip` and overwrites the previous one.
 1. The next time `job A` runs it uses the cache of `job B` which is different
    and thus isn't effective.
 
@@ -633,3 +728,16 @@ job B:
 
 Even if the `key` is different, the cached files might get "cleaned" before each
 stage if the jobs run on different runners in subsequent pipelines.
+
+### Concurrent runners missing local cache
+
+If you have configured multiple concurrent runners with the Docker executor, locally cached files might
+not be present for concurrently-running jobs as you expect. The names of cache volumes are constructed
+uniquely for each runner instance, so files cached by one runner instance are not found in the cache by another runner
+instance.
+
+To share the cache between concurrent runners, you can either:
+
+- Use the `[runners.docker]` section of the runners' `config.toml` to configure a single mount point on the host that
+  is mapped to `/cache` in each container, preventing the runner from creating unique volume names.
+- Use a distributed cache.

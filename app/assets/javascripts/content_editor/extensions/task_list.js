@@ -4,6 +4,13 @@ import { PARSE_HTML_PRIORITY_HIGHEST } from '../constants';
 import { getMarkdownSource } from '../services/markdown_sourcemap';
 
 export default TaskList.extend({
+  addOptions() {
+    return {
+      ...this.parent?.(),
+      HTMLAttributes: { dir: 'auto' },
+    };
+  },
+
   addAttributes() {
     return {
       numeric: {
@@ -20,6 +27,13 @@ export default TaskList.extend({
         default: false,
         parseHTML: (element) => /^[0-9]+\)/.test(getMarkdownSource(element)),
       },
+      bullet: {
+        default: '*',
+        parseHTML(element) {
+          const bullet = getMarkdownSource(element)?.charAt(0);
+          return '*+-'.includes(bullet) ? bullet : '*';
+        },
+      },
     };
   },
 
@@ -29,10 +43,18 @@ export default TaskList.extend({
         tag: '.task-list',
         priority: PARSE_HTML_PRIORITY_HIGHEST,
       },
+      {
+        tag: '.gl-new-dropdown',
+        ignore: true,
+      },
     ];
   },
 
   renderHTML({ HTMLAttributes: { numeric, ...HTMLAttributes } }) {
-    return [numeric ? 'ol' : 'ul', mergeAttributes(HTMLAttributes, { 'data-type': 'taskList' }), 0];
+    return [
+      numeric ? 'ol' : 'ul',
+      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { 'data-type': 'taskList' }),
+      0,
+    ];
   },
 });

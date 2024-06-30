@@ -1,10 +1,12 @@
 import { GlButton, GlFormInput, GlSprintf } from '@gitlab/ui';
+import { nextTick } from 'vue';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import eventHub, {
   EVENT_OPEN_DELETE_USER_MODAL,
 } from '~/admin/users/components/modals/delete_user_modal_event_hub';
 import DeleteUserModal from '~/admin/users/components/modals/delete_user_modal.vue';
 import UserDeletionObstaclesList from '~/vue_shared/components/user_deletion_obstacles/user_deletion_obstacles_list.vue';
+import AssociationsList from '~/admin/users/components/associations/associations_list.vue';
 import ModalStub from './stubs/modal_stub';
 
 const TEST_DELETE_USER_URL = 'delete-url';
@@ -17,7 +19,7 @@ describe('Delete user modal', () => {
 
   const findButton = (variant, category) =>
     wrapper
-      .findAll(GlButton)
+      .findAllComponents(GlButton)
       .filter((w) => w.attributes('variant') === variant && w.attributes('category') === category)
       .at(0);
   const findForm = () => wrapper.find('form');
@@ -71,11 +73,6 @@ describe('Delete user modal', () => {
     formSubmitSpy = jest.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   it('renders modal with form included', () => {
     createComponent();
     expect(findForm().element).toMatchSnapshot();
@@ -87,8 +84,8 @@ describe('Delete user modal', () => {
     });
 
     it('has disabled buttons', () => {
-      expect(findPrimaryButton().attributes('disabled')).toBeTruthy();
-      expect(findSecondaryButton().attributes('disabled')).toBeTruthy();
+      expect(findPrimaryButton().attributes('disabled')).toBeDefined();
+      expect(findSecondaryButton().attributes('disabled')).toBeDefined();
     });
   });
 
@@ -105,8 +102,8 @@ describe('Delete user modal', () => {
     });
 
     it('has disabled buttons', () => {
-      expect(findPrimaryButton().attributes('disabled')).toBeTruthy();
-      expect(findSecondaryButton().attributes('disabled')).toBeTruthy();
+      expect(findPrimaryButton().attributes('disabled')).toBeDefined();
+      expect(findSecondaryButton().attributes('disabled')).toBeDefined();
     });
   });
 
@@ -123,8 +120,8 @@ describe('Delete user modal', () => {
     });
 
     it('has enabled buttons', () => {
-      expect(findPrimaryButton().attributes('disabled')).toBeFalsy();
-      expect(findSecondaryButton().attributes('disabled')).toBeFalsy();
+      expect(findPrimaryButton().attributes('disabled')).toBeUndefined();
+      expect(findSecondaryButton().attributes('disabled')).toBeUndefined();
     });
 
     describe('when primary action is clicked', () => {
@@ -199,5 +196,25 @@ describe('Delete user modal', () => {
       expect(obstacles.exists()).toBe(true);
       expect(obstacles.props('obstacles')).toEqual(userDeletionObstacles);
     });
+  });
+
+  it('renders `AssociationsList` component and passes `associationsCount` prop', async () => {
+    const associationsCount = {
+      groups_count: 5,
+      projects_count: 0,
+      issues_count: 5,
+      merge_requests_count: 5,
+    };
+
+    createComponent();
+    emitOpenModalEvent({
+      ...mockModalData,
+      associationsCount,
+    });
+    await nextTick();
+
+    expect(wrapper.findComponent(AssociationsList).props('associationsCount')).toEqual(
+      associationsCount,
+    );
   });
 });

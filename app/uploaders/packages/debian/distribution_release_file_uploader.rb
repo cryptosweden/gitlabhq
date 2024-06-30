@@ -2,10 +2,9 @@
 class Packages::Debian::DistributionReleaseFileUploader < GitlabUploader
   extend Workhorse::UploadPath
   include ObjectStorage::Concern
+  include Packages::GcsSignedUrlMetadata
 
-  storage_options Gitlab.config.packages
-
-  after :store, :schedule_background_upload
+  storage_location :packages
 
   alias_method :upload, :model
 

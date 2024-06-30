@@ -2,15 +2,14 @@
 
 module QA
   RSpec.describe 'Create' do
-    describe 'File templates' do
+    describe 'File templates', :blocking, product_group: :source_code do
       include Runtime::Fixtures
 
       let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'file-template-project'
-          project.description = 'Add file templates via the Files view'
-          project.initialize_with_readme = true
-        end
+        create(:project,
+          :with_readme,
+          name: 'file-template-project',
+          description: 'Add file templates via the Files view')
       end
 
       templates = [
@@ -54,11 +53,10 @@ module QA
 
           Page::Project::Show.perform(&:create_new_file!)
           Page::File::Form.perform do |form|
+            form.add_custom_name(template[:file_name])
             form.select_template template[:file_name], template[:name]
 
             expect(form).to have_normalized_ws_text(content[0..100])
-
-            form.add_name("#{SecureRandom.hex(8)}/#{template[:file_name]}")
             form.commit_changes
 
             aggregate_failures "indications of file created" do

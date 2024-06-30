@@ -1,10 +1,9 @@
 # frozen_string_literal: true
 class Packages::Composer::CacheUploader < GitlabUploader
   include ObjectStorage::Concern
+  include Packages::GcsSignedUrlMetadata
 
-  storage_options Gitlab.config.packages
-
-  after :store, :schedule_background_upload
+  storage_location :packages
 
   alias_method :upload, :model
 

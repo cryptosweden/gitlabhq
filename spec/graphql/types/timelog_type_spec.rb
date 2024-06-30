@@ -2,12 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe GitlabSchema.types['Timelog'] do
-  let(:fields) { %i[spent_at time_spent user issue merge_request note summary] }
+RSpec.describe GitlabSchema.types['Timelog'], feature_category: :team_planning do
+  let_it_be(:fields) { %i[id spent_at time_spent user issue merge_request note summary userPermissions project] }
 
   it { expect(described_class.graphql_name).to eq('Timelog') }
   it { expect(described_class).to have_graphql_fields(fields) }
-  it { expect(described_class).to require_graphql_authorizations(:read_issue) }
+  it { expect(described_class).to require_graphql_authorizations(:read_issuable) }
+  it { expect(described_class).to expose_permissions_using(Types::PermissionTypes::Timelog) }
 
   describe 'user field' do
     subject { described_class.fields['user'] }

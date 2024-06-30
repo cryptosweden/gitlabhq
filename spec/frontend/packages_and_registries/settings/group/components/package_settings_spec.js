@@ -1,22 +1,20 @@
-import { GlSprintf, GlLink } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
+import { GlToggle } from '@gitlab/ui';
 import VueApollo from 'vue-apollo';
-import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { mountExtended, shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
-import DuplicatesSettings from '~/packages_and_registries/settings/group/components/duplicates_settings.vue';
-import GenericSettings from '~/packages_and_registries/settings/group/components/generic_settings.vue';
+import ExceptionsInput from '~/packages_and_registries/settings/group/components/exceptions_input.vue';
 import component from '~/packages_and_registries/settings/group/components/packages_settings.vue';
-import MavenSettings from '~/packages_and_registries/settings/group/components/maven_settings.vue';
 import {
+  DUPLICATES_TOGGLE_LABEL,
   PACKAGE_SETTINGS_HEADER,
   PACKAGE_SETTINGS_DESCRIPTION,
-  PACKAGES_DOCS_PATH,
 } from '~/packages_and_registries/settings/group/constants';
 
 import updateNamespacePackageSettings from '~/packages_and_registries/settings/group/graphql/mutations/update_group_packages_settings.mutation.graphql';
 import getGroupPackagesSettingsQuery from '~/packages_and_registries/settings/group/graphql/queries/get_group_packages_settings.query.graphql';
-import SettingsBlock from '~/vue_shared/components/settings/settings_block.vue';
+import SettingsBlock from '~/packages_and_registries/shared/components/settings_block.vue';
 import { updateGroupPackagesSettingsOptimisticResponse } from '~/packages_and_registries/settings/group/graphql/utils/optimistic_responses';
 import {
   packageSettings,
@@ -25,7 +23,7 @@ import {
   groupPackageSettingsMutationErrorMock,
 } from '../mock_data';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 jest.mock('~/packages_and_registries/settings/group/graphql/utils/optimistic_responses');
 
 describe('Packages Settings', () => {
@@ -33,11 +31,11 @@ describe('Packages Settings', () => {
   let apolloProvider;
 
   const defaultProvide = {
-    defaultExpanded: false,
     groupPath: 'foo_group_path',
   };
 
   const mountComponent = ({
+    mountFn = shallowMountExtended,
     mutationResolver = jest.fn().mockResolvedValue(groupPackageSettingsMutationMock()),
   } = {}) => {
     Vue.use(VueApollo);
@@ -46,33 +44,38 @@ describe('Packages Settings', () => {
 
     apolloProvider = createMockApollo(requestHandlers);
 
-    wrapper = shallowMountExtended(component, {
+    wrapper = mountFn(component, {
       apolloProvider,
       provide: defaultProvide,
       propsData: {
-        packageSettings: packageSettings(),
+        packageSettings,
       },
       stubs: {
-        GlSprintf,
         SettingsBlock,
-        MavenSettings,
-        GenericSettings,
       },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findSettingsBlock = () => wrapper.findComponent(SettingsBlock);
   const findDescription = () => wrapper.findByTestId('description');
-  const findLink = () => wrapper.findComponent(GlLink);
-  const findMavenSettings = () => wrapper.findComponent(MavenSettings);
-  const findMavenDuplicatedSettings = () => findMavenSettings().findComponent(DuplicatesSettings);
-  const findGenericSettings = () => wrapper.findComponent(GenericSettings);
-  const findGenericDuplicatedSettings = () =>
-    findGenericSettings().findComponent(DuplicatesSettings);
+  const findMavenSettings = () => wrapper.findByTestId('maven-settings');
+  const findGenericSettings = () => wrapper.findByTestId('generic-settings');
+  const findNugetSettings = () => wrapper.findByTestId('nuget-settings');
+  const findTerraformModuleSettings = () => wrapper.findByTestId('terraform-module-settings');
+
+  const findMavenDuplicatedSettingsToggle = () => findMavenSettings().findComponent(GlToggle);
+  const findGenericDuplicatedSettingsToggle = () => findGenericSettings().findComponent(GlToggle);
+  const findNugetDuplicatedSettingsToggle = () => findNugetSettings().findComponent(GlToggle);
+  const findTerraformModuleDuplicatedSettingsToggle = () =>
+    findTerraformModuleSettings().findComponent(GlToggle);
+  const findMavenDuplicatedSettingsExceptionsInput = () =>
+    findMavenSettings().findComponent(ExceptionsInput);
+  const findGenericDuplicatedSettingsExceptionsInput = () =>
+    findGenericSettings().findComponent(ExceptionsInput);
+  const findNugetDuplicatedSettingsExceptionsInput = () =>
+    findNugetSettings().findComponent(ExceptionsInput);
+  const findTerraformModuleDuplicatedSettingsExceptionsInput = () =>
+    findTerraformModuleSettings().findComponent(ExceptionsInput);
 
   const fillApolloCache = () => {
     apolloProvider.defaultClient.cache.writeQuery({
@@ -85,7 +88,7 @@ describe('Packages Settings', () => {
   };
 
   const emitMavenSettingsUpdate = (override) => {
-    findMavenDuplicatedSettings().vm.$emit('update', {
+    findMavenDuplicatedSettingsExceptionsInput().vm.$emit('update', {
       mavenDuplicateExceptionRegex: ')',
       ...override,
     });
@@ -95,12 +98,6 @@ describe('Packages Settings', () => {
     mountComponent();
 
     expect(findSettingsBlock().exists()).toBe(true);
-  });
-
-  it('passes the correct props to settings block', () => {
-    mountComponent();
-
-    expect(findSettingsBlock().props('defaultExpanded')).toBe(false);
   });
 
   it('has the correct header text', () => {
@@ -115,39 +112,48 @@ describe('Packages Settings', () => {
     expect(findDescription().text()).toMatchInterpolatedText(PACKAGE_SETTINGS_DESCRIPTION);
   });
 
-  it('has the correct link', () => {
-    mountComponent();
-
-    expect(findLink().attributes()).toMatchObject({
-      href: PACKAGES_DOCS_PATH,
-      target: '_blank',
-    });
-    expect(findLink().text()).toBe('Learn more.');
-  });
-
   describe('maven settings', () => {
     it('exists', () => {
-      mountComponent();
+      mountComponent({ mountFn: mountExtended });
 
-      expect(findMavenSettings().exists()).toBe(true);
+      expect(findMavenSettings().find('td').text()).toBe('Maven');
     });
 
-    it('assigns duplication allowness and exception props', async () => {
-      mountComponent();
+    it('renders toggle', () => {
+      mountComponent({ mountFn: mountExtended });
 
-      const { mavenDuplicatesAllowed, mavenDuplicateExceptionRegex } = packageSettings();
+      const { mavenDuplicatesAllowed } = packageSettings;
 
-      expect(findMavenDuplicatedSettings().props()).toMatchObject({
+      expect(findMavenDuplicatedSettingsToggle().exists()).toBe(true);
+
+      expect(findMavenDuplicatedSettingsToggle().props()).toMatchObject({
+        label: DUPLICATES_TOGGLE_LABEL,
+        value: mavenDuplicatesAllowed,
+        disabled: false,
+        labelPosition: 'hidden',
+      });
+    });
+
+    it('renders ExceptionsInput and assigns duplication allowness and exception props', () => {
+      mountComponent({ mountFn: mountExtended });
+
+      const { mavenDuplicatesAllowed, mavenDuplicateExceptionRegex } = packageSettings;
+
+      expect(findMavenDuplicatedSettingsExceptionsInput().exists()).toBe(true);
+
+      expect(findMavenDuplicatedSettingsExceptionsInput().props()).toMatchObject({
         duplicatesAllowed: mavenDuplicatesAllowed,
         duplicateExceptionRegex: mavenDuplicateExceptionRegex,
         duplicateExceptionRegexError: '',
         loading: false,
+        name: 'mavenDuplicateExceptionRegex',
+        id: 'maven-duplicated-settings-regex-input',
       });
     });
 
     it('on update event calls the mutation', () => {
       const mutationResolver = jest.fn().mockResolvedValue(groupPackageSettingsMutationMock());
-      mountComponent({ mutationResolver });
+      mountComponent({ mountFn: mountExtended, mutationResolver });
 
       fillApolloCache();
 
@@ -161,31 +167,47 @@ describe('Packages Settings', () => {
 
   describe('generic settings', () => {
     it('exists', () => {
-      mountComponent();
+      mountComponent({ mountFn: mountExtended });
 
-      expect(findGenericSettings().exists()).toBe(true);
+      expect(findGenericSettings().find('td').text()).toBe('Generic');
     });
 
-    it('assigns duplication allowness and exception props', async () => {
-      mountComponent();
+    it('renders toggle', () => {
+      mountComponent({ mountFn: mountExtended });
 
-      const { genericDuplicatesAllowed, genericDuplicateExceptionRegex } = packageSettings();
+      const { genericDuplicatesAllowed } = packageSettings;
 
-      expect(findGenericDuplicatedSettings().props()).toMatchObject({
+      expect(findGenericDuplicatedSettingsToggle().exists()).toBe(true);
+      expect(findGenericDuplicatedSettingsToggle().props()).toMatchObject({
+        label: DUPLICATES_TOGGLE_LABEL,
+        value: genericDuplicatesAllowed,
+        disabled: false,
+        labelPosition: 'hidden',
+      });
+    });
+
+    it('renders ExceptionsInput and assigns duplication allowness and exception props', () => {
+      mountComponent({ mountFn: mountExtended });
+
+      const { genericDuplicatesAllowed, genericDuplicateExceptionRegex } = packageSettings;
+
+      expect(findGenericDuplicatedSettingsExceptionsInput().props()).toMatchObject({
         duplicatesAllowed: genericDuplicatesAllowed,
         duplicateExceptionRegex: genericDuplicateExceptionRegex,
         duplicateExceptionRegexError: '',
         loading: false,
+        name: 'genericDuplicateExceptionRegex',
+        id: 'generic-duplicated-settings-regex-input',
       });
     });
 
-    it('on update event calls the mutation', async () => {
+    it('on update event calls the mutation', () => {
       const mutationResolver = jest.fn().mockResolvedValue(groupPackageSettingsMutationMock());
-      mountComponent({ mutationResolver });
+      mountComponent({ mountFn: mountExtended, mutationResolver });
 
       fillApolloCache();
 
-      findMavenDuplicatedSettings().vm.$emit('update', {
+      findGenericDuplicatedSettingsExceptionsInput().vm.$emit('update', {
         genericDuplicateExceptionRegex: ')',
       });
 
@@ -195,11 +217,120 @@ describe('Packages Settings', () => {
     });
   });
 
+  describe('nuget settings', () => {
+    it('exists', () => {
+      mountComponent({ mountFn: mountExtended });
+
+      expect(findNugetSettings().find('td').text()).toBe('NuGet');
+    });
+
+    it('renders toggle', () => {
+      mountComponent({ mountFn: mountExtended });
+
+      const { nugetDuplicatesAllowed } = packageSettings;
+
+      expect(findNugetDuplicatedSettingsToggle().exists()).toBe(true);
+      expect(findNugetDuplicatedSettingsToggle().props()).toMatchObject({
+        label: DUPLICATES_TOGGLE_LABEL,
+        value: nugetDuplicatesAllowed,
+        disabled: false,
+        labelPosition: 'hidden',
+      });
+    });
+
+    it('renders ExceptionsInput and assigns duplication allowness and exception props', () => {
+      mountComponent({ mountFn: mountExtended });
+
+      const { nugetDuplicatesAllowed, nugetDuplicateExceptionRegex } = packageSettings;
+
+      expect(findNugetDuplicatedSettingsExceptionsInput().props()).toMatchObject({
+        duplicatesAllowed: nugetDuplicatesAllowed,
+        duplicateExceptionRegex: nugetDuplicateExceptionRegex,
+        duplicateExceptionRegexError: '',
+        loading: false,
+        name: 'nugetDuplicateExceptionRegex',
+        id: 'nuget-duplicated-settings-regex-input',
+      });
+    });
+
+    it('on update event calls the mutation', () => {
+      const mutationResolver = jest.fn().mockResolvedValue(groupPackageSettingsMutationMock());
+      mountComponent({ mountFn: mountExtended, mutationResolver });
+
+      fillApolloCache();
+
+      findNugetDuplicatedSettingsExceptionsInput().vm.$emit('update', {
+        nugetDuplicateExceptionRegex: ')',
+      });
+
+      expect(mutationResolver).toHaveBeenCalledWith({
+        input: { nugetDuplicateExceptionRegex: ')', namespacePath: 'foo_group_path' },
+      });
+    });
+  });
+
+  describe('terraform module settings', () => {
+    it('exists', () => {
+      mountComponent({ mountFn: mountExtended });
+      expect(findTerraformModuleSettings().find('td').text()).toBe('Terraform module');
+    });
+
+    it('renders toggle', () => {
+      mountComponent({ mountFn: mountExtended });
+
+      const { terraformModuleDuplicatesAllowed } = packageSettings;
+
+      expect(findTerraformModuleDuplicatedSettingsToggle().exists()).toBe(true);
+      expect(findTerraformModuleDuplicatedSettingsToggle().props()).toMatchObject({
+        label: DUPLICATES_TOGGLE_LABEL,
+        value: terraformModuleDuplicatesAllowed,
+        disabled: false,
+        labelPosition: 'hidden',
+      });
+    });
+
+    it('renders ExceptionsInput and assigns duplication allowness and exception props', () => {
+      mountComponent({ mountFn: mountExtended });
+
+      const { terraformModuleDuplicatesAllowed, terraformModuleDuplicateExceptionRegex } =
+        packageSettings;
+
+      expect(findTerraformModuleDuplicatedSettingsExceptionsInput().props()).toMatchObject({
+        duplicatesAllowed: terraformModuleDuplicatesAllowed,
+        duplicateExceptionRegex: terraformModuleDuplicateExceptionRegex,
+        duplicateExceptionRegexError: '',
+        loading: false,
+        name: 'terraformModuleDuplicateExceptionRegex',
+        id: 'terraform-module-duplicated-settings-regex-input',
+      });
+    });
+
+    it('on update event calls the mutation', () => {
+      const mutationResolver = jest.fn().mockResolvedValue(groupPackageSettingsMutationMock());
+      mountComponent({ mountFn: mountExtended, mutationResolver });
+
+      fillApolloCache();
+
+      findTerraformModuleDuplicatedSettingsExceptionsInput().vm.$emit('update', {
+        terraformModuleDuplicateExceptionRegex: ')',
+      });
+
+      expect(mutationResolver).toHaveBeenCalledWith({
+        input: {
+          terraformModuleDuplicateExceptionRegex: ')',
+          namespacePath: 'foo_group_path',
+        },
+      });
+    });
+  });
+
   describe('settings update', () => {
     describe('success state', () => {
-      it('emits a success event', async () => {
-        mountComponent();
+      beforeEach(() => {
+        mountComponent({ mountFn: mountExtended });
+      });
 
+      it('emits a success event', async () => {
         fillApolloCache();
         emitMavenSettingsUpdate();
 
@@ -210,16 +341,17 @@ describe('Packages Settings', () => {
 
       it('has an optimistic response', () => {
         const mavenDuplicateExceptionRegex = 'latest[main]something';
-        mountComponent();
 
         fillApolloCache();
 
-        expect(findMavenDuplicatedSettings().props('duplicateExceptionRegex')).toBe('');
+        expect(
+          findGenericDuplicatedSettingsExceptionsInput().props('duplicateExceptionRegex'),
+        ).toBe('');
 
         emitMavenSettingsUpdate({ mavenDuplicateExceptionRegex });
 
         expect(updateGroupPackagesSettingsOptimisticResponse).toHaveBeenCalledWith({
-          ...packageSettings(),
+          ...packageSettings,
           mavenDuplicateExceptionRegex,
         });
       });
@@ -230,7 +362,7 @@ describe('Packages Settings', () => {
         // note this is a complex test that covers all the path around errors that are shown in the form
         // it's one single it case, due to the expensive preparation and execution
         const mutationResolver = jest.fn().mockResolvedValue(groupPackageSettingsMutationErrorMock);
-        mountComponent({ mutationResolver });
+        mountComponent({ mountFn: mountExtended, mutationResolver });
 
         fillApolloCache();
 
@@ -239,9 +371,9 @@ describe('Packages Settings', () => {
         await waitForPromises();
 
         // errors are bound to the component
-        expect(findMavenDuplicatedSettings().props('duplicateExceptionRegexError')).toBe(
-          groupPackageSettingsMutationErrorMock.errors[0].extensions.problems[0].message,
-        );
+        expect(
+          findMavenDuplicatedSettingsExceptionsInput().props('duplicateExceptionRegexError'),
+        ).toBe(groupPackageSettingsMutationErrorMock.errors[0].extensions.problems[0].message);
 
         // general error message is shown
 
@@ -252,7 +384,9 @@ describe('Packages Settings', () => {
         await nextTick();
 
         // errors are reset on mutation call
-        expect(findMavenDuplicatedSettings().props('duplicateExceptionRegexError')).toBe('');
+        expect(
+          findMavenDuplicatedSettingsExceptionsInput().props('duplicateExceptionRegexError'),
+        ).toBe('');
       });
 
       it.each`
@@ -260,7 +394,7 @@ describe('Packages Settings', () => {
         ${'local'}   | ${jest.fn().mockResolvedValue(groupPackageSettingsMutationMock({ errors: ['foo'] }))}
         ${'network'} | ${jest.fn().mockRejectedValue()}
       `('mutation payload with $type error', async ({ mutationResolver }) => {
-        mountComponent({ mutationResolver });
+        mountComponent({ mountFn: mountExtended, mutationResolver });
 
         fillApolloCache();
         emitMavenSettingsUpdate();

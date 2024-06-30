@@ -1,15 +1,18 @@
 ---
 stage: Verify
 group: Pipeline Authoring
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Instance-level CI/CD variables API **(FREE SELF)**
+# Instance-level CI/CD variables API
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/14108) in GitLab 13.0
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/218249) in GitLab 13.2.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
 ## List all instance variables
+
+> - `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
 
 Get the list of all instance-level variables.
 
@@ -25,22 +28,28 @@ curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/a
 [
     {
         "key": "TEST_VARIABLE_1",
+        "description": null,
         "variable_type": "env_var",
         "value": "TEST_1",
         "protected": false,
-        "masked": false
+        "masked": false,
+        "raw": false
     },
     {
         "key": "TEST_VARIABLE_2",
+        "description": null,
         "variable_type": "env_var",
         "value": "TEST_2",
         "protected": false,
-        "masked": false
+        "masked": false,
+        "raw": false
     }
 ]
 ```
 
 ## Show instance variable details
+
+> - `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
 
 Get the details of a specific instance-level variable.
 
@@ -48,9 +57,9 @@ Get the details of a specific instance-level variable.
 GET /admin/ci/variables/:key
 ```
 
-| Attribute | Type    | required | Description           |
-|-----------|---------|----------|-----------------------|
-| `key`     | string  | yes      | The `key` of a variable |
+| Attribute | Type    | Required | Description |
+|-----------|---------|----------|-------------|
+| `key`     | string  | Yes      | The `key` of a variable |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/admin/ci/variables/TEST_VARIABLE_1"
@@ -59,30 +68,36 @@ curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/a
 ```json
 {
     "key": "TEST_VARIABLE_1",
+    "description": null,
     "variable_type": "env_var",
     "value": "TEST_1",
     "protected": false,
-    "masked": false
+    "masked": false,
+    "raw": false
 }
 ```
 
 ## Create instance variable
 
+> - `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+
 Create a new instance-level variable.
 
-[In GitLab 13.1 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/216097), the maximum number of allowed instance-level variables can be changed.
+The [maximum number of instance-level variables](../administration/instance_limits.md#cicd-variable-limits) can be changed.
 
 ```plaintext
 POST /admin/ci/variables
 ```
 
-| Attribute       | Type    | required | Description           |
-|-----------------|---------|----------|-----------------------|
-| `key`           | string  | yes      | The `key` of a variable. Max 255 characters, only `A-Z`, `a-z`, `0-9`, and `_` are allowed. |
-| `value`         | string  | yes      | The `value` of a variable. 10,000 characters allowed ([GitLab 13.3 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/220028)). |
-| `variable_type` | string  | no       | The type of a variable. Available types are: `env_var` (default) and `file`. |
-| `protected`     | boolean | no       | Whether the variable is protected. |
-| `masked`        | boolean | no       | Whether the variable is masked. |
+| Attribute       | Type    | Required | Description |
+|-----------------|---------|----------|-------------|
+| `key`           | string  | Yes      | The `key` of the variable. Maximum of 255 characters, only `A-Z`, `a-z`, `0-9`, and `_` are allowed. |
+| `value`         | string  | Yes      | The `value` of the variable. Maximum of 10,000 characters. |
+| `description`   | string  | No       | The description of the variable. Maximum of 255 characters. |
+| `masked`        | boolean | No       | Whether the variable is masked. |
+| `protected`     | boolean | No       | Whether the variable is protected. |
+| `raw`           | boolean | No       | Whether the variable is expandable. |
+| `variable_type` | string  | No       | The type of the variable. Available types are: `env_var` (default) and `file`. |
 
 ```shell
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
@@ -92,14 +107,18 @@ curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
 ```json
 {
     "key": "NEW_VARIABLE",
+    "description": null,
     "value": "new value",
     "variable_type": "env_var",
     "protected": false,
-    "masked": false
+    "masked": false,
+    "raw": false
 }
 ```
 
 ## Update instance variable
+
+> - `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
 
 Update an instance-level variable.
 
@@ -107,13 +126,15 @@ Update an instance-level variable.
 PUT /admin/ci/variables/:key
 ```
 
-| Attribute       | Type    | required | Description             |
-|-----------------|---------|----------|-------------------------|
-| `key`           | string  | yes      | The `key` of a variable.   |
-| `value`         | string  | yes      | The `value` of a variable. 10,000 characters allowed ([GitLab 13.3 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/220028)). |
-| `variable_type` | string  | no       | The type of a variable. Available types are: `env_var` (default) and `file`. |
-| `protected`     | boolean | no       | Whether the variable is protected. |
-| `masked`        | boolean | no       | Whether the variable is masked. |
+| Attribute       | Type    | Required | Description |
+|-----------------|---------|----------|-------------|
+| `description`   | string  | No       | The description of the variable. Maximum of 255 characters. |
+| `key`           | string  | Yes      | The `key` of the variable. Maximum of 255 characters, only `A-Z`, `a-z`, `0-9`, and `_` are allowed. |
+| `masked`        | boolean | No       | Whether the variable is masked. |
+| `protected`     | boolean | No       | Whether the variable is protected. |
+| `raw`           | boolean | No       | Whether the variable is expandable. |
+| `value`         | string  | Yes      | The `value` of the variable. Maximum of 10,000 characters. |
+| `variable_type` | string  | No       | The type of the variable. Available types are: `env_var` (default) and `file`. |
 
 ```shell
 curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" \
@@ -123,10 +144,12 @@ curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" \
 ```json
 {
     "key": "NEW_VARIABLE",
+    "description": null,
     "value": "updated value",
     "variable_type": "env_var",
     "protected": true,
-    "masked": true
+    "masked": true,
+    "raw": true
 }
 ```
 
@@ -138,9 +161,9 @@ Remove an instance-level variable.
 DELETE /admin/ci/variables/:key
 ```
 
-| Attribute | Type    | required | Description             |
-|-----------|---------|----------|-------------------------|
-| `key`     | string  | yes      | The `key` of a variable |
+| Attribute | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `key`     | string | Yes      | The `key` of a variable |
 
 ```shell
 curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/admin/ci/variables/VARIABLE_1"

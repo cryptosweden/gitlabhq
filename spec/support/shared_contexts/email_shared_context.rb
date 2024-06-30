@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.shared_context :email_shared_context do
+RSpec.shared_context 'email shared context' do
   let(:mail_key) { '59d8df8370b7e95c5a49fbf86aeb2c93' }
   let(:receiver) { Gitlab::Email::Receiver.new(email_raw) }
   let(:markdown) { '![image](uploads/image.png)' }
@@ -24,10 +24,13 @@ end
 
 def service_desk_fixture(path, slug: nil, key: 'mykey')
   slug ||= project.full_path_slug.to_s
-  fixture_file(path).gsub('project_slug', slug).gsub('project_key', key)
+  fixture_file(path)
+    .gsub('project_slug', slug)
+    .gsub('project_key', key)
+    .gsub('project_id', project.project_id.to_s)
 end
 
-RSpec.shared_examples :reply_processing_shared_examples do
+RSpec.shared_examples 'reply processing shared examples' do
   context 'when the user could not be found' do
     before do
       user.destroy!
@@ -49,7 +52,7 @@ RSpec.shared_examples :reply_processing_shared_examples do
   end
 end
 
-RSpec.shared_examples :checks_permissions_on_noteable_examples do
+RSpec.shared_examples 'checks permissions on noteable examples' do
   context 'when user has access' do
     before do
       project.add_reporter(user)
@@ -67,7 +70,7 @@ RSpec.shared_examples :checks_permissions_on_noteable_examples do
   end
 end
 
-RSpec.shared_examples :note_handler_shared_examples do |forwardable|
+RSpec.shared_examples 'note handler shared examples' do |forwardable|
   context 'when the noteable could not be found' do
     before do
       noteable.destroy!
@@ -148,7 +151,7 @@ RSpec.shared_examples :note_handler_shared_examples do |forwardable|
     end
 
     it 'allows email to only have quoted text', if: forwardable do
-      expect { receiver.execute }.not_to raise_error(Gitlab::Email::EmptyEmailError)
+      expect { receiver.execute }.not_to raise_error
     end
   end
 
@@ -157,7 +160,7 @@ RSpec.shared_examples :note_handler_shared_examples do |forwardable|
       noteable.update_attribute(:discussion_locked, true)
     end
 
-    it_behaves_like :checks_permissions_on_noteable_examples
+    it_behaves_like 'checks permissions on noteable examples'
   end
 
   context 'when everything is fine' do
@@ -188,7 +191,7 @@ RSpec.shared_examples :note_handler_shared_examples do |forwardable|
 
   context 'when the service desk' do
     let(:project) { create(:project, :public, service_desk_enabled: true) }
-    let(:support_bot) { User.support_bot }
+    let(:support_bot) { Users::Internal.support_bot }
     let(:noteable) { create(:issue, project: project, author: support_bot, title: 'service desk issue') }
     let!(:note) { create(:note, project: project, noteable: noteable) }
     let(:email_raw) { with_quick_actions }

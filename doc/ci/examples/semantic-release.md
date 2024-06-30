@@ -1,19 +1,23 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Publish npm packages to the GitLab Package Registry using semantic-release **(FREE)**
+# Publish npm packages to the GitLab package registry using semantic-release
 
-This guide demonstrates how to automatically publish npm packages to the [GitLab Package Registry](../../user/packages/npm_registry/index.md) by using [semantic-release](https://github.com/semantic-release/semantic-release).
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+This guide demonstrates how to automatically publish npm packages to the [GitLab package registry](../../user/packages/npm_registry/index.md) by using [semantic-release](https://github.com/semantic-release/semantic-release).
 
 You can also view or fork the complete [example source](https://gitlab.com/gitlab-examples/semantic-release-npm).
 
 ## Initialize the module
 
-1. Open a terminal and navigate to the project's repository.
-1. Run `npm init`. Name the module according to [the Package Registry's naming conventions](../../user/packages/npm_registry/index.md#package-naming-convention). For example, if the project's path is `gitlab-examples/semantic-release-npm`, name the module `@gitlab-examples/semantic-release-npm`.
+1. Open a terminal and go to the project's repository.
+1. Run `npm init`. Name the module according to [the package registry's naming conventions](../../user/packages/npm_registry/index.md#naming-convention). For example, if the project's path is `gitlab-examples/semantic-release-npm`, name the module `@gitlab-examples/semantic-release-npm`.
 
 1. Install the following npm packages:
 
@@ -35,7 +39,7 @@ You can also view or fork the complete [example source](https://gitlab.com/gitla
    }
    ```
 
-1. Update the `files` key with glob pattern(s) that selects all files that should be included in the published module. More information about `files` can be found [in npm's documentation](https://docs.npmjs.com/cli/v6/configuring-npm/package-json/#files).
+1. Update the `files` key with glob patterns that selects all files that should be included in the published module. More information about `files` can be found [in the npm documentation](https://docs.npmjs.com/cli/v6/configuring-npm/package-json/#files).
 
 1. Add a `.gitignore` file to the project to avoid committing `node_modules`:
 
@@ -82,21 +86,22 @@ publish:
 
 This example configures the pipeline with a single job, `publish`, which runs `semantic-release`. The semantic-release library publishes new versions of the npm package and creates new GitLab releases (if necessary).
 
-The default `before_script` generates a temporary `.npmrc` that is used to authenticate to the Package Registry during the `publish` job.
+The default `before_script` generates a temporary `.npmrc` that is used to authenticate to the package registry during the `publish` job.
 
 ## Set up CI/CD variables
 
 As part of publishing a package, semantic-release increases the version number in `package.json`. For semantic-release to commit this change and push it back to GitLab, the pipeline requires a custom CI/CD variable named `GITLAB_TOKEN`. To create this variable:
 
 <!-- markdownlint-disable MD044 -->
-1. On the top bar, on the top right, select your avatar.
-1. On the left sidebar, select **Access Tokens**.
+
+1. On the left sidebar, select your avatar.
+1. Select **Preferences > Access Tokens**.
 1. In the **Token name** box, enter a token name.
 1. Under **select scopes**, select the **api** checkbox.
 1. Select **Create project access token**.
 1. Copy the value.
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > CI/CD**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > CI/CD**.
 1. Expand **Variables**.
 1. Select **Add variable**.
 1. In the **Key** box, enter `GITLAB_TOKEN`.
@@ -167,3 +172,18 @@ Then, install the module:
 ```shell
 npm install --save @gitlab-examples/semantic-release-npm
 ```
+
+## Troubleshooting
+
+### Deleted Git tags reappear
+
+A [Git tag](../../user/project/repository/tags/index.md) deleted from the repository
+can sometimes be recreated by `semantic-release` when GitLab runners use a cached
+version of the repository. If the job runs on a runner with a cached repository that
+still has the tag, `semantic-release` recreates the tag in the main repository.
+
+To avoid this behavior, you can either:
+
+- Configure the runner with [`GIT_STRATEGY: clone`](../runners/configure_runners.md#git-strategy).
+- Include the [`git fetch --prune-tags` command](https://git-scm.com/docs/git-fetch#Documentation/git-fetch.txt---prune-tags)
+  in your CI/CD script.

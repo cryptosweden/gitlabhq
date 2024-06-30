@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Checks::ChangesAccess do
+RSpec.describe Gitlab::Checks::ChangesAccess, feature_category: :source_code_management do
   include_context 'changes access checks context'
 
   subject { changes_access }
@@ -24,6 +24,22 @@ RSpec.describe Gitlab::Checks::ChangesAccess do
 
         subject.validate!
       end
+
+      it 'calls file size check' do
+        expect_next_instance_of(Gitlab::Checks::GlobalFileSizeCheck) do |instance|
+          expect(instance).to receive(:validate!)
+        end
+
+        subject.validate!
+      end
+
+      it 'calls integrations check' do
+        expect_next_instance_of(Gitlab::Checks::IntegrationsCheck) do |instance|
+          expect(instance).to receive(:validate!)
+        end
+
+        subject.validate!
+      end
     end
 
     context 'when time limit was reached' do
@@ -33,7 +49,8 @@ RSpec.describe Gitlab::Checks::ChangesAccess do
                                      project: project,
                                      user_access: user_access,
                                      protocol: protocol,
-                                     logger: logger)
+                                     logger: logger,
+                                     push_options: push_options)
 
         expect { access.validate! }.to raise_error(Gitlab::Checks::TimedLogger::TimeoutError)
       end
@@ -47,27 +64,38 @@ RSpec.describe Gitlab::Checks::ChangesAccess do
       expect(subject.commits).to match_array([])
     end
 
+    context 'when change is for notes ref' do
+      let(:changes) do
+        [{ oldrev: oldrev, newrev: newrev, ref: 'refs/notes/commit' }]
+      end
+
+      it 'does not return any commits' do
+        expect(subject.commits).to match_array([])
+      end
+    end
+
     context 'when changes contain empty revisions' do
       let(:expected_commit) { instance_double(Commit) }
 
       shared_examples 'returns only commits with non empty revisions' do
         specify do
-          expect(project.repository).to receive(:new_commits).with([newrev], { allow_quarantine: allow_quarantine }) { [expected_commit] }
+          expect(project.repository)
+            .to receive(:new_commits)
+            .with([newrev]) { [expected_commit] }
           expect(subject.commits).to match_array([expected_commit])
         end
       end
 
-      it_behaves_like 'returns only commits with non empty revisions' do
-        let(:changes) { [{ oldrev: oldrev, newrev: newrev }, { newrev: '' }, { newrev: Gitlab::Git::BLANK_SHA }] }
-        let(:allow_quarantine) { true }
+      context 'with oldrev' do
+        let(:changes) { [{ oldrev: oldrev, newrev: newrev }, { newrev: '' }, { newrev: Gitlab::Git::SHA1_BLANK_SHA }] }
+
+        it_behaves_like 'returns only commits with non empty revisions'
       end
 
       context 'without oldrev' do
-        it_behaves_like 'returns only commits with non empty revisions' do
-          let(:changes) { [{ newrev: newrev }, { newrev: '' }, { newrev: Gitlab::Git::BLANK_SHA }] }
-          # The quarantine directory should not be used because we're lacking oldrev.
-          let(:allow_quarantine) { false }
-        end
+        let(:changes) { [{ newrev: newrev }, { newrev: '' }, { newrev: Gitlab::Git::SHA1_BLANK_SHA }] }
+
+        it_behaves_like 'returns only commits with non empty revisions'
       end
     end
   end
@@ -75,7 +103,7 @@ RSpec.describe Gitlab::Checks::ChangesAccess do
   describe '#commits_for' do
     let(:new_commits) { [] }
     let(:expected_commits) { [] }
-    let(:oldrev) { Gitlab::Git::BLANK_SHA }
+    let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
 
     shared_examples 'a listing of new commits' do
       it 'returns expected commits' do

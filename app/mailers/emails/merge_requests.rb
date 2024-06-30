@@ -2,6 +2,16 @@
 
 module Emails
   module MergeRequests
+    extend ActiveSupport::Concern
+
+    included do
+      override_layout_lookup_table.merge!({
+        merge_when_pipeline_succeeds_email: 'mailer',
+        approved_merge_request_email: 'mailer',
+        unapproved_merge_request_email: 'mailer'
+      })
+    end
+
     def new_merge_request_email(recipient_id, merge_request_id, reason = nil)
       setup_merge_request_mail(merge_request_id, recipient_id, present: true)
 
@@ -15,15 +25,15 @@ module Emails
     end
 
     # existing_commits - an array containing the first and last commits
-    def push_to_merge_request_email(recipient_id, merge_request_id, updated_by_user_id, reason = nil, new_commits: [], total_new_commits_count: nil, existing_commits: [], total_existing_commits_count: nil)
+    def push_to_merge_request_email(recipient_id, merge_request_id, updated_by_user_id, reason = nil, new_commits:, total_new_commits_count:, existing_commits:, total_existing_commits_count:)
       setup_merge_request_mail(merge_request_id, recipient_id)
 
       @new_commits = new_commits
-      @total_new_commits_count = total_new_commits_count || @new_commits.length
+      @total_new_commits_count = total_new_commits_count
       @total_stripped_new_commits_count = @total_new_commits_count - @new_commits.length
 
       @existing_commits = existing_commits
-      @total_existing_commits_count = total_existing_commits_count || @existing_commits.length
+      @total_existing_commits_count = total_existing_commits_count
 
       @updated_by_user = User.find(updated_by_user_id)
 
@@ -42,8 +52,10 @@ module Emails
     def reassigned_merge_request_email(recipient_id, merge_request_id, previous_assignee_ids, updated_by_user_id, reason = nil)
       setup_merge_request_mail(merge_request_id, recipient_id)
 
-      @previous_assignees = []
-      @previous_assignees = User.where(id: previous_assignee_ids) if previous_assignee_ids.any?
+      previous_assignees = []
+      previous_assignees = User.where(id: previous_assignee_ids) if previous_assignee_ids.any?
+      @added_assignees = @merge_request.assignees.map(&:name) - previous_assignees.map(&:name)
+      @removed_assignees = previous_assignees.map(&:name) - @merge_request.assignees.map(&:name)
 
       mail_answer_thread(@merge_request, merge_request_thread_options(updated_by_user_id, reason))
     end
@@ -55,6 +67,7 @@ module Emails
 
       @previous_reviewers = []
       @previous_reviewers = User.where(id: previous_reviewer_ids) if previous_reviewer_ids.any?
+      @updated_by_user = User.find(updated_by_user_id)
 
       mail_answer_thread(@merge_request, merge_request_thread_options(updated_by_user_id, reason))
     end
@@ -64,7 +77,7 @@ module Emails
       setup_merge_request_mail(merge_request_id, recipient_id)
 
       @label_names = label_names
-      @labels_url = project_labels_url(@project)
+      @labels_url = project_labels_url(@project, subscribed: true)
       mail_answer_thread(@merge_request, merge_request_thread_options(updated_by_user_id, reason))
     end
 
@@ -98,13 +111,6 @@ module Emails
     end
 
     def request_review_merge_request_email(recipient_id, merge_request_id, updated_by_user_id, reason = nil)
-      setup_merge_request_mail(merge_request_id, recipient_id)
-
-      @updated_by = User.find(updated_by_user_id)
-      mail_answer_thread(@merge_request, merge_request_thread_options(updated_by_user_id, reason))
-    end
-
-    def attention_requested_merge_request_email(recipient_id, merge_request_id, updated_by_user_id, reason = nil)
       setup_merge_request_mail(merge_request_id, recipient_id)
 
       @updated_by = User.find(updated_by_user_id)
@@ -145,14 +151,27 @@ module Emails
       @written_count = export_status.fetch(:rows_written)
       @truncated = export_status.fetch(:truncated)
       @size_limit = ActiveSupport::NumberHelper
-        .number_to_human_size(Issuable::ExportCsv::BaseService::TARGET_FILESIZE)
+        .number_to_human_size(ExportCsv::BaseService::TARGET_FILESIZE)
 
       filename = "#{project.full_path.parameterize}_merge_requests_#{Date.current.iso8601}.csv"
       attachments[filename] = { content: csv_data, mime_type: 'text/csv' }
-      mail(to: user.notification_email_for(@project.group), subject: subject("Exported merge requests")) do |format|
-        format.html { render layout: 'mailer' }
-        format.text { render layout: 'mailer' }
-      end
+      email_with_layout(
+        to: user.notification_email_for(@project.group),
+        subject: subject("Exported merge requests"))
+    end
+
+    def approved_merge_request_email(recipient_id, merge_request_id, approved_by_user_id, reason = nil)
+      setup_merge_request_mail(merge_request_id, recipient_id)
+
+      @approved_by = User.find(approved_by_user_id)
+      mail_answer_thread(@merge_request, merge_request_thread_options(approved_by_user_id, reason))
+    end
+
+    def unapproved_merge_request_email(recipient_id, merge_request_id, unapproved_by_user_id, reason = nil)
+      setup_merge_request_mail(merge_request_id, recipient_id)
+
+      @unapproved_by = User.find(unapproved_by_user_id)
+      mail_answer_thread(@merge_request, merge_request_thread_options(unapproved_by_user_id, reason))
     end
 
     private
@@ -160,7 +179,7 @@ module Emails
     def setup_merge_request_mail(merge_request_id, recipient_id, present: false)
       @merge_request = MergeRequest.find(merge_request_id)
       @project = @merge_request.project
-      @target_url = project_merge_request_url(@project, @merge_request)
+      @target_url = Gitlab::Routing.url_helpers.project_merge_request_url(@project, @merge_request)
       @recipient = User.find(recipient_id)
 
       if present

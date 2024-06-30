@@ -2,10 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::NdjsonPipeline do
+RSpec.describe BulkImports::NdjsonPipeline, feature_category: :importers do
   let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project) }
   let_it_be(:user) { create(:user) }
+  let(:tracker) { instance_double(BulkImports::Tracker, bulk_import_entity_id: 1) }
+  let(:context) { instance_double(BulkImports::Pipeline::Context, tracker: tracker, extra: { batch_number: 1 }) }
 
   let(:klass) do
     Class.new do
@@ -13,11 +15,12 @@ RSpec.describe BulkImports::NdjsonPipeline do
 
       relation_name 'test'
 
-      attr_reader :portable, :current_user
+      attr_reader :portable, :current_user, :context
 
-      def initialize(portable, user)
+      def initialize(portable, user, context)
         @portable = portable
         @current_user = user
+        @context = context
       end
     end
   end
@@ -26,10 +29,27 @@ RSpec.describe BulkImports::NdjsonPipeline do
     stub_const('NdjsonPipelineClass', klass)
   end
 
-  subject { NdjsonPipelineClass.new(group, user) }
+  subject { NdjsonPipelineClass.new(group, user, context) }
 
   it 'marks pipeline as ndjson' do
-    expect(NdjsonPipelineClass.ndjson_pipeline?).to eq(true)
+    expect(NdjsonPipelineClass.file_extraction_pipeline?).to eq(true)
+  end
+
+  describe 'caching' do
+    it 'saves completed entry in cache' do
+      subject.save_processed_entry("entry", 10)
+
+      expected_cache_key = "ndjson_pipeline_class/1/1"
+      expect(Gitlab::Cache::Import::Caching.read(expected_cache_key)).to eq("10")
+    end
+
+    it 'identifies completed entries' do
+      subject.save_processed_entry("entry", 10)
+
+      expect(subject.already_processed?("entry", 11)).to be_falsy
+      expect(subject.already_processed?("entry", 10)).to be_truthy
+      expect(subject.already_processed?("entry", 9)).to be_truthy
+    end
   end
 
   describe '#deep_transform_relation!' do
@@ -123,7 +143,8 @@ RSpec.describe BulkImports::NdjsonPipeline do
           members_mapper: instance_of(BulkImports::UsersMapper),
           object_builder: Gitlab::ImportExport::Group::ObjectBuilder,
           user: user,
-          excluded_keys: nil
+          excluded_keys: nil,
+          import_source: Import::SOURCE_DIRECT_TRANSFER
         )
         .and_return(relation_object)
       expect(relation_object).to receive(:assign_attributes).with(group: group)
@@ -150,12 +171,63 @@ RSpec.describe BulkImports::NdjsonPipeline do
 
   describe '#load' do
     context 'when object is not persisted' do
+      it 'saves the object using RelationObjectSaver' do
+        object = double(persisted?: false, new_record?: true)
+
+        allow(subject).to receive(:relation_definition)
+
+        expect_next_instance_of(Gitlab::ImportExport::Base::RelationObjectSaver) do |saver|
+          expect(saver).to receive(:execute)
+        end
+
+        subject.load(nil, object)
+      end
+
+      context 'when object is invalid' do
+        it 'captures invalid subrelations' do
+          entity = create(:bulk_import_entity, group: group)
+          tracker = create(:bulk_import_tracker, entity: entity)
+          context = BulkImports::Pipeline::Context.new(tracker)
+
+          allow(subject).to receive(:context).and_return(context)
+
+          object = group.labels.new(priorities: [LabelPriority.new])
+          object.validate
+
+          allow_next_instance_of(Gitlab::ImportExport::Base::RelationObjectSaver) do |saver|
+            allow(saver).to receive(:execute)
+            allow(saver).to receive(:invalid_subrelations).and_return(object.priorities)
+          end
+
+          subject.load(context, object)
+
+          failure = entity.failures.first
+
+          expect(failure.pipeline_class).to eq(tracker.pipeline_name)
+          expect(failure.subrelation).to eq('LabelPriority')
+          expect(failure.exception_class).to eq('RecordInvalid')
+          expect(failure.exception_message).to eq("Project can't be blank, Priority can't be blank, and Priority is not a number")
+        end
+      end
+    end
+
+    context 'when object is persisted' do
       it 'saves the object' do
-        object = double(persisted?: false)
+        object = double(new_record?: false, invalid?: false)
 
         expect(object).to receive(:save!)
 
         subject.load(nil, object)
+      end
+
+      context 'when object is invalid' do
+        it 'raises ActiveRecord::RecordInvalid exception' do
+          object = build_stubbed(:issue)
+
+          expect(Gitlab::Import::Errors).to receive(:merge_nested_errors).with(object)
+
+          expect { subject.load(nil, object) }.to raise_error(ActiveRecord::RecordInvalid)
+        end
       end
     end
 
@@ -188,7 +260,7 @@ RSpec.describe BulkImports::NdjsonPipeline do
     end
 
     context 'when portable is project' do
-      subject { NdjsonPipelineClass.new(project, user) }
+      subject { NdjsonPipelineClass.new(project, user, context) }
 
       it 'returns group relation name override' do
         expect(subject.relation_key_override('labels')).to eq('project_labels')
@@ -204,7 +276,7 @@ RSpec.describe BulkImports::NdjsonPipeline do
     end
 
     context 'when portable is project' do
-      subject { NdjsonPipelineClass.new(project, user) }
+      subject { NdjsonPipelineClass.new(project, user, context) }
 
       it 'returns project relation factory' do
         expect(subject.relation_factory).to eq(Gitlab::ImportExport::Project::RelationFactory)

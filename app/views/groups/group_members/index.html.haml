@@ -3,27 +3,35 @@
 
 .row.gl-mt-3
   .col-lg-12
-    .gl-display-flex.gl-flex-wrap
+    .gl-display-flex.gl-flex-wrap.gl-justify-content-space-between
       - if can_admin_group_member?(@group)
-        .gl-w-half.gl-xs-w-full
-          %h4
-            = _('Group members')
-          %p
-            = html_escape(_('You can invite a new member to %{strong_start}%{group_name}%{strong_end}.')) % { group_name: @group.name, strong_start: '<strong>'.html_safe, strong_end: '</strong>'.html_safe }
-        .gl-w-half.gl-xs-w-full
-          .gl-display-flex.gl-flex-wrap.gl-justify-content-end.gl-mb-3
-            .js-invite-group-trigger{ data: { classes: 'gl-mt-3 gl-sm-w-auto gl-w-full', display_text: _('Invite a group') } }
-            .js-invite-members-trigger{ data: { variant: 'confirm',
-              classes: 'gl-mt-3 gl-sm-w-auto gl-w-full gl-sm-ml-3',
-              trigger_source: 'group-members-page',
-              display_text: _('Invite members') } }
-        = render 'groups/invite_groups_modal', group: @group
-        = render 'groups/invite_members_modal', group: @group
+        %h4
+          = _('Group members')
+        %p.gl-w-full.order-md-1
+          = group_member_header_subtext(@group)
+        = render_if_exists 'groups/group_members/link_to_pending_members'
+        - if current_appearance&.member_guidelines?
+          .gl-w-full.order-md-1
+            = brand_member_guidelines
+        .gl-display-flex.gl-flex-wrap.gl-align-items-center.gl-gap-3.gl-md-w-auto.gl-w-full
+          .js-invite-group-trigger{ data: { classes: 'gl-md-w-auto gl-w-full', display_text: _('Invite a group') } }
+          - if can_admin_service_accounts?(@group)
+            = render_if_exists 'groups/group_members/create_service_account'
+          .js-invite-members-trigger{ data: { variant: 'confirm',
+            classes: 'gl-md-w-auto gl-w-full',
+            trigger_source: 'group_members_page',
+            display_text: _('Invite members') } }
+        = render 'groups/invite_groups_modal', group: @group, reload_page_on_submit: true
 
     = render_if_exists 'groups/group_members/ldap_sync'
 
     .js-group-members-list-app{ data: { members_data: group_members_app_data(@group,
                                                                              members: @members,
                                                                              invited: @invited_members,
-                                                                             access_requests: @requesters).to_json } }
+                                                                             access_requests: @requesters,
+                                                                             banned: @banned || [],
+                                                                             include_relations: @include_relations,
+                                                                             search: params[:search_groups],
+                                                                             pending_members: @pending_promotion_members
+                                                                            ).to_json } }
       = gl_loading_icon(css_class: 'gl-my-5', size: 'md')

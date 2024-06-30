@@ -57,11 +57,6 @@ RSpec.shared_examples 'namespace traversal' do
   end
 
   describe '#ancestors' do
-    before do
-      # #reload is called to make sure traversal_ids are reloaded
-      reload_models(group, nested_group, deep_nested_group, very_deep_nested_group)
-    end
-
     it 'returns the correct ancestors' do
       expect(very_deep_nested_group.ancestors).to contain_exactly(group, nested_group, deep_nested_group)
       expect(deep_nested_group.ancestors).to contain_exactly(group, nested_group)
@@ -244,17 +239,7 @@ RSpec.shared_examples 'namespace traversal' do
   end
 
   describe '#ancestors_upto' do
-    context 'with use_traversal_ids_for_ancestors_upto enabled' do
-      include_examples '#ancestors_upto'
-    end
-
-    context 'with use_traversal_ids_for_ancestors_upto disabled' do
-      before do
-        stub_feature_flags(use_traversal_ids_for_ancestors_upto: false)
-      end
-
-      include_examples '#ancestors_upto'
-    end
+    include_examples '#ancestors_upto'
   end
 
   describe '#descendants' do
@@ -297,6 +282,14 @@ RSpec.shared_examples 'namespace traversal' do
     it 'does not include project namespaces' do
       expect(group.self_and_descendants.to_a).not_to include(project_namespace)
     end
+  end
+
+  describe 'all_project_ids' do
+    it 'is a AR relation' do
+      expect(group.all_project_ids).to be_kind_of(ActiveRecord::Relation)
+    end
+
+    it_behaves_like 'recursive version', :all_project_ids
   end
 
   describe '#self_and_descendant_ids' do

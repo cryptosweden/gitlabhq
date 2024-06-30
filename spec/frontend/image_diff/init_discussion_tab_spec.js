@@ -1,9 +1,10 @@
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import initImageDiffHelper from '~/image_diff/helpers/init_image_diff';
 import initDiscussionTab from '~/image_diff/init_discussion_tab';
 
 describe('initDiscussionTab', () => {
   beforeEach(() => {
-    setFixtures(`
+    setHTMLFixture(`
       <div class="timeline-content">
         <div class="diff-file js-image-file"></div>
         <div class="diff-file js-image-file"></div>
@@ -11,23 +12,25 @@ describe('initDiscussionTab', () => {
     `);
   });
 
-  it('should pass canCreateNote as false to initImageDiff', (done) => {
+  afterEach(() => {
+    resetHTMLFixture();
+  });
+
+  it('should pass canCreateNote as false to initImageDiff', () => {
     jest
       .spyOn(initImageDiffHelper, 'initImageDiff')
       .mockImplementation((diffFileEl, canCreateNote) => {
         expect(canCreateNote).toEqual(false);
-        done();
       });
 
     initDiscussionTab();
   });
 
-  it('should pass renderCommentBadge as true to initImageDiff', (done) => {
+  it('should pass renderCommentBadge as true to initImageDiff', () => {
     jest
       .spyOn(initImageDiffHelper, 'initImageDiff')
       .mockImplementation((diffFileEl, canCreateNote, renderCommentBadge) => {
         expect(renderCommentBadge).toEqual(true);
-        done();
       });
 
     initDiscussionTab();

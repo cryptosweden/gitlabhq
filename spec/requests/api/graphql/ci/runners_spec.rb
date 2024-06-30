@@ -1,75 +1,300 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'Query.runners' do
+RSpec.describe 'Query.runners', feature_category: :fleet_visibility do
   include GraphqlHelpers
 
   let_it_be(:current_user) { create_default(:user, :admin) }
 
+  def create_ci_runner(version:, revision: nil, ip_address: nil, **args)
+    runner_manager_args = { version: version, revision: revision, ip_address: ip_address }.compact
+
+    create(:ci_runner, :project, **args).tap do |runner|
+      create(:ci_runner_machine, runner: runner, **runner_manager_args)
+    end
+  end
+
   describe 'Query.runners' do
     let_it_be(:project) { create(:project, :repository, :public) }
-    let_it_be(:instance_runner) { create(:ci_runner, :instance, version: 'abc', revision: '123', description: 'Instance runner', ip_address: '127.0.0.1') }
-    let_it_be(:project_runner) { create(:ci_runner, :project, active: false, version: 'def', revision: '456', description: 'Project runner', projects: [project], ip_address: '127.0.0.1') }
+    let_it_be(:instance_runner) { create(:ci_runner, :instance, description: 'Instance runner') }
+    let_it_be(:instance_runner_manager) do
+      create(:ci_runner_machine, runner: instance_runner, version: 'abc', revision: '123', ip_address: '127.0.0.1')
+    end
 
-    let(:runners_graphql_data) { graphql_data['runners'] }
+    let_it_be(:project_runner) { create(:ci_runner, :project, active: false, description: 'Project runner', projects: [project]) }
+    let_it_be(:project_runner_manager) do
+      create(:ci_runner_machine, runner: project_runner, version: 'def', revision: '456', ip_address: '127.0.0.1')
+    end
+
+    let(:runners_graphql_data) { graphql_data_at(:runners) }
 
     let(:params) { {} }
 
     let(:fields) do
       <<~QUERY
         nodes {
-          #{all_graphql_fields_for('CiRunner')}
+          #{all_graphql_fields_for('CiRunner', excluded: excluded_fields)}
         }
       QUERY
     end
 
     let(:query) do
       %(
-        query {
-          runners(type:#{runner_type},status:#{status}) {
-            #{fields}
-          }
-        }
+         query {
+           runners {
+             #{fields}
+           }
+         }
+       )
+    end
+
+    # Exclude fields from deeper objects which are problematic:
+    # - ownerProject.pipeline: Needs arguments (iid or sha)
+    # - project.productAnalyticsState: Can be requested only for 1 Project(s) at a time.
+    # - mergeTrains Licensed feature
+    let(:excluded_fields) { %w[pipeline productAnalyticsState mergeTrains] }
+
+    it 'returns expected runners' do
+      post_graphql(query, current_user: current_user)
+
+      expect(runners_graphql_data['nodes']).to contain_exactly(
+        *Ci::Runner.all.map { |expected_runner| a_graphql_entity_for(expected_runner) }
       )
     end
 
-    before do
-      post_graphql(query, current_user: current_user)
-    end
+    context 'with filters' do
+      shared_examples 'a working graphql query returning expected runners' do
+        it_behaves_like 'a working graphql query' do
+          before do
+            post_graphql(query, current_user: current_user)
+          end
+        end
 
-    shared_examples 'a working graphql query returning expected runner' do
-      it_behaves_like 'a working graphql query'
+        it 'returns expected runners' do
+          post_graphql(query, current_user: current_user)
 
-      it 'returns expected runner' do
-        expect(runners_graphql_data['nodes'].map { |n| n['id'] }).to contain_exactly(expected_runner.to_global_id.to_s)
+          expect(runners_graphql_data['nodes']).to contain_exactly(
+            *Array(expected_runners).map { |expected_runner| a_graphql_entity_for(expected_runner) }
+          )
+        end
+      end
+
+      context 'when filtered on type and status' do
+        let(:query) do
+          %(
+            query {
+              runners(type: #{runner_type}, status: #{status}) {
+                #{fields}
+              }
+            }
+          )
+        end
+
+        before do
+          allow_next_instance_of(::Gitlab::Ci::RunnerUpgradeCheck) do |instance|
+            allow(instance).to receive(:check_runner_upgrade_suggestion)
+          end
+        end
+
+        context 'runner_type is INSTANCE_TYPE and status is ACTIVE' do
+          let(:runner_type) { 'INSTANCE_TYPE' }
+          let(:status) { 'ACTIVE' }
+
+          let(:expected_runners) { instance_runner }
+
+          it_behaves_like 'a working graphql query returning expected runners'
+        end
+
+        context 'runner_type is PROJECT_TYPE and status is NEVER_CONTACTED' do
+          let(:runner_type) { 'PROJECT_TYPE' }
+          let(:status) { 'NEVER_CONTACTED' }
+
+          let(:expected_runners) { project_runner }
+
+          it_behaves_like 'a working graphql query returning expected runners'
+        end
+      end
+
+      context 'when filtered on version prefix' do
+        let_it_be(:runner_15_10_1) { create_ci_runner(version: '15.10.1') }
+
+        let_it_be(:runner_15_11_0) { create_ci_runner(version: '15.11.0') }
+        let_it_be(:runner_15_11_1) { create_ci_runner(version: '15.11.1') }
+
+        let_it_be(:runner_16_1_0) { create_ci_runner(version: '16.1.0') }
+
+        let(:fields) do
+          <<~QUERY
+            nodes {
+              id
+            }
+          QUERY
+        end
+
+        let(:query) do
+          %(
+            query {
+              runners(versionPrefix: "#{version_prefix}") {
+                #{fields}
+              }
+            }
+          )
+        end
+
+        context 'when version_prefix is "15."' do
+          let(:version_prefix) { '15.' }
+
+          it_behaves_like 'a working graphql query returning expected runners' do
+            let(:expected_runners) { [runner_15_10_1, runner_15_11_0, runner_15_11_1] }
+          end
+        end
+
+        context 'when version_prefix is "15.11."' do
+          let(:version_prefix) { '15.11.' }
+
+          it_behaves_like 'a working graphql query returning expected runners' do
+            let(:expected_runners) { [runner_15_11_0, runner_15_11_1] }
+          end
+        end
+
+        context 'when version_prefix is "15.11.0"' do
+          let(:version_prefix) { '15.11.0' }
+
+          it_behaves_like 'a working graphql query returning expected runners' do
+            let(:expected_runners) { runner_15_11_0 }
+          end
+        end
+
+        context 'when version_prefix is not digits' do
+          let(:version_prefix) { 'a.b' }
+
+          it_behaves_like 'a working graphql query returning expected runners' do
+            let(:expected_runners) do
+              [instance_runner, project_runner, runner_15_10_1, runner_15_11_0, runner_15_11_1, runner_16_1_0]
+            end
+          end
+        end
+      end
+
+      context 'when filtered by creator' do
+        let_it_be(:user) { create(:user) }
+        let_it_be(:runner_created_by_user) { create(:ci_runner, :project, creator: user) }
+
+        let(:query) do
+          %(
+            query {
+              runners(creatorId: "#{creator.to_global_id}") {
+                #{fields}
+              }
+            }
+          )
+        end
+
+        context 'when existing user id given' do
+          let(:creator) { user }
+
+          before do
+            create(:ci_runner, :project, creator: create(:user)) # Should not be returned
+          end
+
+          it_behaves_like 'a working graphql query returning expected runners' do
+            let(:expected_runners) { runner_created_by_user }
+          end
+        end
+
+        context 'when non existent user id given' do
+          let(:creator) { User.new(id: non_existing_record_id) }
+
+          it 'does not return any runners' do
+            post_graphql(query, current_user: current_user)
+
+            expect(graphql_data_at(:runners, :nodes)).to be_empty
+          end
+        end
       end
     end
+  end
 
-    context 'runner_type is INSTANCE_TYPE and status is ACTIVE' do
-      let(:runner_type) { 'INSTANCE_TYPE' }
-      let(:status) { 'ACTIVE' }
-
-      let!(:expected_runner) { instance_runner }
-
-      it_behaves_like 'a working graphql query returning expected runner'
+  describe 'Runner query limits' do
+    let_it_be(:user) { create(:user, :admin) }
+    let_it_be(:user2) { create(:user) }
+    let_it_be(:user3) { create(:user) }
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project) }
+    let_it_be(:tag_list) { %w[n_plus_1_test some_tag] }
+    let_it_be(:args) do
+      { current_user: user, token: { personal_access_token: create(:personal_access_token, user: user) } }
     end
 
-    context 'runner_type is PROJECT_TYPE and status is NOT_CONNECTED' do
-      let(:runner_type) { 'PROJECT_TYPE' }
-      let(:status) { 'NOT_CONNECTED' }
-
-      let!(:expected_runner) { project_runner }
-
-      it_behaves_like 'a working graphql query returning expected runner'
+    let_it_be(:runner1) { create(:ci_runner, tag_list: tag_list, creator: user) }
+    let_it_be(:runner2) do
+      create(:ci_runner, :group, groups: [group], tag_list: tag_list, creator: user)
     end
 
-    context 'runner_type is PROJECT_TYPE and status is NEVER_CONTACTED' do
-      let(:runner_type) { 'PROJECT_TYPE' }
-      let(:status) { 'NEVER_CONTACTED' }
+    let_it_be(:runner3) do
+      create(:ci_runner, :project, projects: [project], tag_list: tag_list, creator: user)
+    end
 
-      let!(:expected_runner) { project_runner }
+    let(:runner_fragment) do
+      <<~QUERY
+        #{all_graphql_fields_for('CiRunner', excluded: excluded_fields)}
+        createdBy {
+          id
+          username
+          webPath
+          webUrl
+        }
+      QUERY
+    end
 
-      it_behaves_like 'a working graphql query returning expected runner'
+    # Exclude fields that are already hardcoded above (or tested separately),
+    #   and also some fields from deeper objects which are problematic:
+    # - createdBy: Known N+1 issues, but only on exotic fields which we don't normally use
+    # - ownerProject.pipeline: Needs arguments (iid or sha)
+    # - project.productAnalyticsState: Can be requested only for 1 Project(s) at a time.
+    let(:excluded_fields) { %w[createdBy jobs pipeline productAnalyticsState] }
+
+    let(:runners_query) do
+      <<~QUERY
+        {
+          runners {
+            nodes { #{runner_fragment} }
+          }
+        }
+      QUERY
+    end
+
+    it 'avoids N+1 queries', :use_sql_query_cache do
+      personal_access_token = create(:personal_access_token, user: user)
+      args = { current_user: user, token: { personal_access_token: personal_access_token } }
+
+      runners_control = ActiveRecord::QueryRecorder.new(skip_cached: false) { post_graphql(runners_query, **args) }
+
+      setup_additional_records
+
+      expect { post_graphql(runners_query, **args) }.not_to exceed_query_limit(runners_control)
+    end
+
+    def setup_additional_records
+      # Add more runners (including owned by other users)
+      runner4 = create(:ci_runner, tag_list: tag_list + %w[tag1 tag2], creator: user2)
+      runner5 = create(:ci_runner, :group, groups: [create(:group)], tag_list: tag_list + %w[tag2 tag3], creator: user3)
+      # Add one more project to runner
+      runner3.assign_to(create(:project))
+
+      # Add more runner managers (including to existing runners)
+      runner_manager1 = create(:ci_runner_machine, runner: runner1)
+      create(:ci_runner_machine, runner: runner1)
+      create(:ci_runner_machine, runner: runner2, system_xid: runner_manager1.system_xid)
+      create(:ci_runner_machine, runner: runner3)
+      create(:ci_runner_machine, runner: runner4, version: '16.4.1')
+      create(:ci_runner_machine, runner: runner5, version: '16.4.0', system_xid: runner_manager1.system_xid)
+      create(:ci_runner_machine, runner: runner3)
+
+      create(:ci_build, :failed, runner: runner4)
+      create(:ci_build, :failed, runner: runner5)
+
+      [runner4, runner5]
     end
   end
 
@@ -92,11 +317,11 @@ RSpec.describe 'Query.runners' do
       }
 
       [
-        create(:ci_runner, :instance, created_at: 4.days.ago, contacted_at: 3.days.ago, **common_args),
-        create(:ci_runner, :instance, created_at: 30.hours.ago, contacted_at: 1.day.ago, **common_args),
-        create(:ci_runner, :instance, created_at: 1.day.ago, contacted_at: 1.hour.ago, **common_args),
-        create(:ci_runner, :instance, created_at: 2.days.ago, contacted_at: 2.days.ago, **common_args),
-        create(:ci_runner, :instance, created_at: 3.days.ago, contacted_at: 1.second.ago, **common_args)
+        create_ci_runner(created_at: 4.days.ago, contacted_at: 3.days.ago, **common_args),
+        create_ci_runner(created_at: 30.hours.ago, contacted_at: 1.day.ago, **common_args),
+        create_ci_runner(created_at: 1.day.ago, contacted_at: 1.hour.ago, **common_args),
+        create_ci_runner(created_at: 2.days.ago, contacted_at: 2.days.ago, **common_args),
+        create_ci_runner(created_at: 3.days.ago, contacted_at: 1.second.ago, **common_args)
       ]
     end
 
@@ -118,6 +343,41 @@ RSpec.describe 'Query.runners' do
         let(:first_param) { 2 }
         let(:all_records) { ordered_runners.map(&:id) }
       end
+    end
+  end
+end
+
+RSpec.describe 'Group.runners' do
+  include GraphqlHelpers
+
+  let_it_be(:group) { create(:group) }
+  let_it_be(:group_owner) { create_default(:user, owner_of: group) }
+
+  describe 'edges' do
+    let_it_be(:runner) { create(:ci_runner, :group, active: false, description: 'Project runner', groups: [group]) }
+
+    let(:query) do
+      %(
+        query($path: ID!) {
+          group(fullPath: $path) {
+            runners {
+              edges {
+                webUrl
+                editUrl
+                node { #{all_graphql_fields_for('CiRunner')} }
+              }
+            }
+          }
+        }
+      )
+    end
+
+    it 'contains custom edge information' do
+      r = GitlabSchema.execute(query, context: { current_user: group_owner }, variables: { path: group.full_path })
+
+      edges = graphql_dig_at(r.to_h, :data, :group, :runners, :edges)
+
+      expect(edges).to contain_exactly(a_graphql_entity_for(web_url: be_present, edit_url: be_present))
     end
   end
 end

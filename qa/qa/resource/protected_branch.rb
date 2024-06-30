@@ -4,10 +4,10 @@ module QA
   module Resource
     class ProtectedBranch < Base
       attr_accessor :branch_name,
-                    :allowed_to_push,
-                    :allowed_to_merge,
-                    :new_branch,
-                    :require_code_owner_approval
+        :allowed_to_push,
+        :allowed_to_merge,
+        :new_branch,
+        :require_code_owner_approval
 
       attribute :project do
         Project.fabricate_via_api! do |resource|
@@ -22,9 +22,7 @@ module QA
           commit.branch = branch_name
           commit.start_branch = project.default_branch
           commit.commit_message = 'Add new file'
-          commit.add_files([
-            { file_path: "new_file-#{SecureRandom.hex(8)}.md", content: 'new file' }
-          ])
+          commit.add_files([{ file_path: "new_file-#{SecureRandom.hex(8)}.md", content: 'new file' }])
         end
       end
 
@@ -53,8 +51,8 @@ module QA
               page.select_allowed_to_merge(allowed_to_merge)
               page.select_allowed_to_push(allowed_to_push)
               page.protect_branch
-            else
-              page.require_code_owner_approval(branch_name) if require_code_owner_approval
+            elsif require_code_owner_approval
+              page.require_code_owner_approval(branch_name)
             end
           end
         end

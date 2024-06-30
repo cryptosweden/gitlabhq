@@ -1,15 +1,24 @@
 <script>
-import { GlAlert, GlBadge, GlLink, GlLoadingIcon, GlSprintf, GlTable, GlTooltip } from '@gitlab/ui';
+import {
+  GlAlert,
+  GlBadge,
+  GlLink,
+  GlLoadingIcon,
+  GlSprintf,
+  GlTable,
+  GlTooltip,
+  GlTooltipDirective,
+} from '@gitlab/ui';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
-import { s__ } from '~/locale';
-import CiBadge from '~/vue_shared/components/ci_badge_link.vue';
+import { s__, sprintf } from '~/locale';
+import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import timeagoMixin from '~/vue_shared/mixins/timeago';
 import StateActions from './states_table_actions.vue';
 
 export default {
   components: {
-    CiBadge,
+    CiIcon,
     GlAlert,
     GlBadge,
     GlLink,
@@ -19,6 +28,9 @@ export default {
     GlTooltip,
     StateActions,
     TimeAgoTooltip,
+  },
+  directives: {
+    GlTooltip: GlTooltipDirective,
   },
   mixins: [timeagoMixin],
   props: {
@@ -68,6 +80,8 @@ export default {
     locked: s__('Terraform|Locked'),
     lockedByUser: s__('Terraform|Locked by %{user} %{timeAgo}'),
     lockingState: s__('Terraform|Locking state'),
+    deleting: s__('Terraform|Removed'),
+    deletionInProgress: s__('Terraform|Deletion in progress'),
     name: s__('Terraform|Name'),
     pipeline: s__('Terraform|Pipeline'),
     removing: s__('Terraform|Removing'),
@@ -84,6 +98,12 @@ export default {
     },
     lockedByUserName(item) {
       return item.lockedByUser?.name || this.$options.i18n.unknownUser;
+    },
+    lockedByUserText(item) {
+      return sprintf(this.$options.i18n.lockedByUser, {
+        user: this.lockedByUserName(item),
+        timeAgo: this.timeFormatted(item.lockedAt),
+      });
     },
     pipelineDetailedStatus(item) {
       return item.latestVersion?.job?.detailedStatus;
@@ -118,10 +138,10 @@ export default {
   >
     <template #cell(name)="{ item }">
       <div
-        class="gl-display-flex align-items-center gl-justify-content-end gl-md-justify-content-start"
+        class="gl-display-flex gl-align-items-center gl-justify-content-end gl-md-justify-content-start"
         data-testid="terraform-states-table-name"
       >
-        <p class="gl-font-weight-bold gl-m-0 gl-text-gray-900">
+        <p class="gl-m-0 gl-text-gray-900">
           {{ item.name }}
         </p>
 
@@ -142,48 +162,45 @@ export default {
         </div>
 
         <div
-          v-else-if="item.lockedAt"
-          :id="`terraformLockedBadgeContainer${item.name}`"
+          v-else-if="item.deletedAt"
+          v-gl-tooltip.right
           class="gl-mx-3"
+          :title="$options.i18n.deletionInProgress"
+          :data-testid="`state-badge-${item.name}`"
         >
-          <gl-badge :id="`terraformLockedBadge${item.name}`" icon="lock">
+          <gl-badge icon="remove">
+            {{ $options.i18n.deleting }}
+          </gl-badge>
+        </div>
+
+        <div
+          v-else-if="item.lockedAt"
+          v-gl-tooltip.right
+          class="gl-mx-3"
+          :title="lockedByUserText(item)"
+          :data-testid="`state-badge-${item.name}`"
+        >
+          <gl-badge icon="lock">
             {{ $options.i18n.locked }}
           </gl-badge>
-
-          <gl-tooltip
-            :container="`terraformLockedBadgeContainer${item.name}`"
-            :target="`terraformLockedBadge${item.name}`"
-            placement="right"
-          >
-            <gl-sprintf :message="$options.i18n.lockedByUser">
-              <template #user>
-                {{ lockedByUserName(item) }}
-              </template>
-
-              <template #timeAgo>
-                {{ timeFormatted(item.lockedAt) }}
-              </template>
-            </gl-sprintf>
-          </gl-tooltip>
         </div>
       </div>
     </template>
 
     <template #cell(pipeline)="{ item }">
-      <div data-testid="terraform-states-table-pipeline" class="gl-min-h-7">
+      <div
+        data-testid="terraform-states-table-pipeline"
+        class="md:gl-flex gl-align-items-center gl-gap-3"
+      >
         <gl-link v-if="pipelineID(item)" :href="pipelinePath(item)">
           #{{ pipelineID(item) }}
         </gl-link>
 
-        <div
-          v-if="pipelineDetailedStatus(item)"
-          :id="`terraformJobStatusContainer${item.name}`"
-          class="gl-my-2"
-        >
-          <ci-badge
+        <div v-if="pipelineDetailedStatus(item)" :id="`terraformJobStatusContainer${item.name}`">
+          <ci-icon
             :id="`terraformJobStatus${item.name}`"
             :status="pipelineDetailedStatus(item)"
-            class="gl-py-1"
+            show-status-text
           />
 
           <gl-tooltip

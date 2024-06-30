@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Status::Composite do
+RSpec.describe Gitlab::Ci::Status::Composite, feature_category: :continuous_integration do
   let_it_be(:pipeline) { create(:ci_pipeline) }
 
   before_all do
@@ -12,6 +12,18 @@ RSpec.describe Gitlab::Ci::Status::Composite do
 
     @statuses_with_allow_failure = Ci::HasStatus::STATUSES_ENUM.to_h do |status, idx|
       [status, create(:ci_build, pipeline: pipeline, status: status, allow_failure: true, importing: true)]
+    end
+  end
+
+  describe '.initialize' do
+    subject(:composite_status) { described_class.new(all_statuses) }
+
+    context 'when passing a single status' do
+      let(:all_statuses) { @statuses[:success] }
+
+      it 'raises ArgumentError' do
+        expect { composite_status }.to raise_error(ArgumentError, 'all_jobs needs to respond to `.pluck`')
+      end
     end
   end
 
@@ -31,28 +43,29 @@ RSpec.describe Gitlab::Ci::Status::Composite do
 
     context 'allow_failure: false' do
       where(:build_statuses, :dag, :result, :has_warnings) do
-        %i(skipped)                         | false | 'skipped'              | false
-        %i(skipped success)                 | false | 'success'              | false
-        %i(skipped success)                 | true  | 'skipped'              | false
-        %i(created)                         | false | 'created'              | false
-        %i(preparing)                       | false | 'preparing'            | false
-        %i(canceled success skipped)        | false | 'canceled'             | false
-        %i(canceled success skipped)        | true  | 'skipped'              | false
-        %i(pending created skipped)         | false | 'pending'              | false
-        %i(pending created skipped success) | false | 'running'              | false
-        %i(running created skipped success) | false | 'running'              | false
-        %i(pending created skipped)         | true  | 'skipped'              | false
-        %i(pending created skipped success) | true  | 'skipped'              | false
-        %i(running created skipped success) | true  | 'skipped'              | false
-        %i(success waiting_for_resource)    | false | 'waiting_for_resource' | false
-        %i(success manual)                  | false | 'manual'               | false
-        %i(success scheduled)               | false | 'scheduled'            | false
-        %i(created preparing)               | false | 'preparing'            | false
-        %i(created success pending)         | false | 'running'              | false
-        %i(skipped success failed)          | false | 'failed'               | false
-        %i(skipped success failed)          | true  | 'skipped'              | false
-        %i(success manual)                  | true  | 'pending'              | false
-        %i(success failed created)          | true  | 'pending'              | false
+        %i[skipped]                         | false | 'skipped'              | false
+        %i[skipped success]                 | false | 'success'              | false
+        %i[skipped success]                 | true  | 'skipped'              | false
+        %i[created]                         | false | 'created'              | false
+        %i[preparing]                       | false | 'preparing'            | false
+        %i[canceled success skipped]        | false | 'canceled'             | false
+        %i[canceled success skipped]        | true  | 'skipped'              | false
+        %i[pending created skipped]         | false | 'pending'              | false
+        %i[pending created skipped success] | false | 'running'              | false
+        %i[running created skipped success] | false | 'running'              | false
+        %i[pending created skipped]         | true  | 'skipped'              | false
+        %i[pending created skipped success] | true  | 'skipped'              | false
+        %i[running created skipped success] | true  | 'skipped'              | false
+        %i[success waiting_for_resource]    | false | 'waiting_for_resource' | false
+        %i[success waiting_for_callback]    | false | 'waiting_for_callback' | false
+        %i[success manual]                  | false | 'manual'               | false
+        %i[success scheduled]               | false | 'scheduled'            | false
+        %i[created preparing]               | false | 'preparing'            | false
+        %i[created success pending]         | false | 'running'              | false
+        %i[skipped success failed]          | false | 'failed'               | false
+        %i[skipped success failed]          | true  | 'skipped'              | false
+        %i[success manual]                  | true  | 'manual'               | false
+        %i[success failed created]          | true  | 'running'              | false
       end
 
       with_them do
@@ -66,13 +79,13 @@ RSpec.describe Gitlab::Ci::Status::Composite do
 
     context 'allow_failure: true' do
       where(:build_statuses, :dag, :result, :has_warnings) do
-        %i(manual)           | false | 'skipped'   | false
-        %i(skipped failed)   | false | 'success'   | true
-        %i(skipped failed)   | true  | 'skipped'   | true
-        %i(success manual)   | true  | 'skipped'   | false
-        %i(success manual)   | false | 'success'   | false
-        %i(created failed)   | false | 'created'   | true
-        %i(preparing manual) | false | 'preparing' | false
+        %i[manual]           | false | 'skipped'   | false
+        %i[skipped failed]   | false | 'success'   | true
+        %i[skipped failed]   | true  | 'skipped'   | true
+        %i[success manual]   | true  | 'skipped'   | false
+        %i[success manual]   | false | 'success'   | false
+        %i[created failed]   | false | 'created'   | true
+        %i[preparing manual] | false | 'preparing' | false
       end
 
       with_them do

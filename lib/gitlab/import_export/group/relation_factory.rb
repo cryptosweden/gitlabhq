@@ -5,10 +5,11 @@ module Gitlab
     module Group
       class RelationFactory < Base::RelationFactory
         OVERRIDES = {
-          labels:     :group_labels,
-          priorities: :label_priorities,
-          label:      :group_label,
-          parent:     :epic
+          labels: :group_labels,
+          label: :group_label,
+          parent: :epic,
+          iterations_cadences: 'Iterations::Cadence',
+          user_contributions: :user
         }.freeze
 
         EXISTING_OBJECT_RELATIONS = %i[
@@ -25,9 +26,16 @@ module Gitlab
         private
 
         def setup_models
-          setup_note if @relation_name == :notes
+          case @relation_name
+          when :notes then setup_note
+          when :'Iterations::Cadence' then setup_iterations_cadence
+          end
 
           update_group_references
+        end
+
+        def invalid_relation?
+          @relation_name == :namespace_settings
         end
 
         def update_group_references
@@ -39,6 +47,10 @@ module Gitlab
 
         def use_attributes_permitter?
           false
+        end
+
+        def setup_iterations_cadence
+          @relation_hash['automatic'] = false
         end
       end
     end

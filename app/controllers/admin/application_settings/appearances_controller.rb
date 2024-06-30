@@ -4,6 +4,7 @@ class Admin::ApplicationSettings::AppearancesController < Admin::ApplicationCont
   before_action :set_appearance, except: :create
 
   feature_category :navigation
+  urgency :low
 
   def show
   end
@@ -45,6 +46,15 @@ class Admin::ApplicationSettings::AppearancesController < Admin::ApplicationCont
     redirect_to admin_application_settings_appearances_path, notice: _('Header logo was successfully removed.')
   end
 
+  def pwa_icon
+    @appearance.remove_pwa_icon!
+
+    @appearance.save
+
+    redirect_to admin_application_settings_appearances_path,
+      notice: _('Progressive Web App (PWA) icon was successfully removed.')
+  end
+
   def favicon
     @appearance.remove_favicon!
     @appearance.save
@@ -59,7 +69,7 @@ class Admin::ApplicationSettings::AppearancesController < Admin::ApplicationCont
     @appearance = Appearance.current || Appearance.new
   end
 
-  # Only allow a trusted parameter "white list" through.
+  # Only allow a trusted parameter "allow list" through.
   def appearance_params
     params.require(:appearance).permit(allowed_appearance_params)
   end
@@ -68,12 +78,18 @@ class Admin::ApplicationSettings::AppearancesController < Admin::ApplicationCont
     %i[
       title
       description
+      pwa_name
+      pwa_short_name
+      pwa_description
       logo
       logo_cache
       header_logo
       header_logo_cache
+      pwa_icon
+      pwa_icon_cache
       favicon
       favicon_cache
+      member_guidelines
       new_project_guidelines
       profile_image_guidelines
       updated_by

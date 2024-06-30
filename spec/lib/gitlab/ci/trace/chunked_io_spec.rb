@@ -326,9 +326,9 @@ RSpec.describe Gitlab::Ci::Trace::ChunkedIO, :clean_gitlab_redis_cache do
       end
 
       it 'has known length' do
-        expect(sample_trace_raw_utf8.bytesize).to eq(4 * 4 + 3 * 1)
-        expect(sample_trace_raw.bytesize).to eq(4 * 4 + 3 * 1)
-        expect(chunked_io.size).to eq(4 * 4 + 3 * 1)
+        expect(sample_trace_raw_utf8.bytesize).to eq((4 * 4) + (3 * 1))
+        expect(sample_trace_raw.bytesize).to eq((4 * 4) + (3 * 1))
+        expect(chunked_io.size).to eq((4 * 4) + (3 * 1))
       end
 
       it_behaves_like 'all line matching'
@@ -445,16 +445,6 @@ RSpec.describe Gitlab::Ci::Trace::ChunkedIO, :clean_gitlab_redis_cache do
         .from(sample_trace_raw.bytesize).to(0)
 
       expect(Ci::BuildTraceChunk.where(build: build).count).to eq(0)
-    end
-
-    context 'when the job does not have archived trace' do
-      it 'leaves a message in sidekiq log' do
-        expect(Sidekiq.logger).to receive(:warn).with(
-          message: 'The job does not have archived trace but going to be destroyed.',
-          job_id: build.id).and_call_original
-
-        subject
-      end
     end
   end
 end

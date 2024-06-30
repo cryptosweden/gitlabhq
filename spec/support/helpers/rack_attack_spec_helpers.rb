@@ -2,7 +2,7 @@
 
 module RackAttackSpecHelpers
   def api_get_args_with_token_headers(partial_url, token_headers)
-    ["/api/#{API::API.version}#{partial_url}", params: nil, headers: token_headers]
+    ["/api/#{API::API.version}#{partial_url}", { params: nil, headers: token_headers }]
   end
 
   def rss_url(user)
@@ -10,20 +10,28 @@ module RackAttackSpecHelpers
   end
 
   def private_token_headers(user)
-    { 'HTTP_PRIVATE_TOKEN' => user.private_token }
+    { Gitlab::Auth::AuthFinders::PRIVATE_TOKEN_HEADER => user.private_token }
   end
 
   def personal_access_token_headers(personal_access_token)
-    { 'HTTP_PRIVATE_TOKEN' => personal_access_token.token }
+    { Gitlab::Auth::AuthFinders::PRIVATE_TOKEN_HEADER => personal_access_token.token }
+  end
+
+  def bearer_headers(token)
+    { 'AUTHORIZATION' => "Bearer #{token.token}" }
   end
 
   def oauth_token_headers(oauth_access_token)
-    { 'AUTHORIZATION' => "Bearer #{oauth_access_token.token}" }
+    { 'AUTHORIZATION' => "Bearer #{oauth_access_token.plaintext_token}" }
   end
 
   def basic_auth_headers(user, personal_access_token)
     encoded_login = ["#{user.username}:#{personal_access_token.token}"].pack('m0')
     { 'AUTHORIZATION' => "Basic #{encoded_login}" }
+  end
+
+  def deploy_token_headers(deploy_token)
+    basic_auth_headers(deploy_token, deploy_token)
   end
 
   def expect_rejection(name = nil, &block)

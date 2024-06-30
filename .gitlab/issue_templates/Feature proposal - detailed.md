@@ -1,4 +1,4 @@
-<!-- The first section "Release notes" is required if you want to have your release post blog MR auto generated. Currently in BETA, details on the **release post item generator** can be found in the handbook:  https://about.gitlab.com/handbook/marketing/blog/release-posts/#release-post-item-generator and this video: https://www.youtube.com/watch?v=rfn9ebgTwKg. The next four sections: "Problem to solve", "Intended users", "User experience goal", and "Proposal", are strongly recommended in your first draft, while the rest of the sections can be filled out during the problem validation or breakdown phase. However, keep in mind that providing complete and relevant information early helps our product team validate the problem and start working on a solution. -->
+<!-- This issue template can be used as a great starting point for feature requests. Learn more about the process: https://handbook.gitlab.com/handbook/product/how-to-engage/#customer-feature-requests. The first section "Release notes" is required if you want to have your release post blog MR auto generated. Currently in BETA, details on the **release post item generator** can be found in the handbook:  https://about.gitlab.com/handbook/marketing/blog/release-posts/#release-post-item-generator and this video: https://www.youtube.com/watch?v=rfn9ebgTwKg. The next four sections: "Problem to solve", "Intended users", "User experience goal", and "Proposal", are strongly recommended in your first draft, while the rest of the sections can be filled out during the problem validation or breakdown phase. However, keep in mind that providing complete and relevant information early helps our product team validate the problem and start working on a solution. -->
 
 ### Release notes
 
@@ -12,24 +12,25 @@
 
 <!-- Who will use this feature? If known, include any of the following: types of users (e.g. Developer), personas, or specific company roles (e.g. Release Manager). It's okay to write "Unknown" and fill this field in later.
 
-Personas are described at https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/
+Personas are described at https://handbook.gitlab.com/handbook/product/personas/
 
-* [Cameron (Compliance Manager)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#cameron-compliance-manager)
-* [Parker (Product Manager)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#parker-product-manager)
-* [Delaney (Development Team Lead)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#delaney-development-team-lead)
-* [Presley (Product Designer)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#presley-product-designer)
-* [Sasha (Software Developer)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#sasha-software-developer)
-* [Priyanka (Platform Engineer)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#priyanka-platform-engineer)
-* [Sidney (Systems Administrator)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#sidney-systems-administrator)
-* [Sam (Security Analyst)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#sam-security-analyst)
-* [Rachel (Release Manager)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#rachel-release-manager)
-* [Alex (Security Operations Engineer)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#alex-security-operations-engineer)
-* [Simone (Software Engineer in Test)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#simone-software-engineer-in-test)
-* [Allison (Application Ops)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#allison-application-ops)
-* [Ingrid (Infrastructure Operator)](https://about.gitlab.com/handbook/product/personas/#ingrid-infrastructure-operator)
-* [Dakota (Application Development Director)](https://about.gitlab.com/handbook/product/personas/#dakota-application-development-director)
-* [Dana (Data Analyst)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#dana-data-analyst)
-* [Eddie (Content Editor)](https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/#eddie-content-editor)
+* [Parker (Product Manager)](https://handbook.gitlab.com/handbook/product/personas/#parker-product-manager)
+* [Delaney (Development Team Lead)](https://handbook.gitlab.com/handbook/product/personas/#delaney-development-team-lead)
+* [Presley (Product Designer)](https://handbook.gitlab.com/handbook/product/personas/#presley-product-designer)
+* [Sasha (Software Developer)](https://handbook.gitlab.com/handbook/product/personas/#sasha-software-developer)
+* [Priyanka (Platform Engineer)](https://handbook.gitlab.com/handbook/product/personas/#priyanka-platform-engineer)
+* [Sidney (Systems Administrator)](https://handbook.gitlab.com/handbook/product/personas/#sidney-systems-administrator)
+* [Rachel (Release Manager)](https://handbook.gitlab.com/handbook/product/personas/#rachel-release-manager)
+* [Simone (Software Engineer in Test)](https://handbook.gitlab.com/handbook/product/personas/#simone-software-engineer-in-test)
+* [Allison (Application Ops)](https://handbook.gitlab.com/handbook/product/personas/#allison-application-ops)
+* [Ingrid (Infrastructure Operator)](https://handbook.gitlab.com/handbook/product/personas/#ingrid-infrastructure-operator)
+* [Dakota (Application Development Director)](https://handbook.gitlab.com/handbook/product/personas/#dakota-application-development-director)
+* [Dana (Data Analyst)](https://handbook.gitlab.com/handbook/product/personas/#dana-data-analyst)
+* [Eddie (Content Editor)](https://handbook.gitlab.com/handbook/product/personas/#eddie-content-editor)
+* [Amy (Application Security Engineer)](https://handbook.gitlab.com/handbook/product/personas/#amy-application-security-engineer)
+* [Isaac (Infrastructure Engineer)](https://handbook.gitlab.com/handbook/product/personas/#isaac-infrastructure-security-engineer)
+* [Alex (Security Operations Engineer)](https://handbook.gitlab.com/handbook/product/personas/#alex-security-operations-engineer)
+* [Cameron (Compliance Manager)](https://handbook.gitlab.com/handbook/product/personas/#cameron-compliance-manager)
 
 -->
 
@@ -37,7 +38,7 @@ Personas are described at https://about.gitlab.com/handbook/marketing/product-ma
 
 <!-- What is the single user experience workflow this problem addresses?
 For example, "The user should be able to use the UI/API/.gitlab-ci.yml with GitLab to <perform a specific task>"
-https://about.gitlab.com/handbook/engineering/ux/ux-research-training/user-story-mapping/ -->
+https://about.gitlab.com/handbook/product/ux/ux-research-training/user-story-mapping/ -->
 
 ### Proposal
 
@@ -81,7 +82,9 @@ Please list the test areas (unit, integration and end-to-end) that needs to be a
 * Integration test changes
 * End-to-end test change
 
-See the test engineering planning process and reach out to your counterpart Software Engineer in Test for assistance: https://about.gitlab.com/handbook/engineering/quality/test-engineering/#test-planning -->
+See the Quality Engineering quad planning and test planning processes and reach out to your counterpart Software Engineer in Test for assistance. 
+Quad Planning: https://handbook.gitlab.com/handbook/engineering/infrastructure/test-platform/quad-planning/ 
+Test Planning: https://handbook.gitlab.com/handbook/engineering/infrastructure/test-platform/test-engineering/#test-planning -->
 
 ### Available Tier
 
@@ -95,9 +98,6 @@ See the test engineering planning process and reach out to your counterpart Soft
 ### Feature Usage Metrics
 
 <!-- How are you going to track usage of this feature? Think about user behavior and their interaction with the product. What indicates someone is getting value from it?
-
-Create tracking issue using the Snowplow event tracking template. See https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/issue_templates/Snowplow%20event%20tracking.md
-
 -->
 
 ### What does success look like, and how can we measure that?
@@ -105,25 +105,33 @@ Create tracking issue using the Snowplow event tracking template. See https://gi
 <!--
 Define both the success metrics and acceptance criteria. Note that success metrics indicate the desired business outcomes, while acceptance criteria indicate when the solution is working correctly. If there is no way to measure success, link to an issue that will implement a way to measure this.
 
-Create tracking issue using the Snowplow event tracking template. See https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/issue_templates/Snowplow%20event%20tracking.md
+Explore (../../doc/development/internal_analytics/internal_event_instrumentation/quick_start.md) for a guide.
 -->
 
 ### What is the type of buyer?
 
-<!-- What is the buyer persona for this feature? See https://about.gitlab.com/handbook/marketing/product-marketing/roles-personas/buyer-persona/
-In which enterprise tier should this feature go? See https://about.gitlab.com/handbook/product/pricing/#three-tiers -->
+<!-- What is the buyer persona for this feature? See https://handbook.gitlab.com/handbook/marketing/brand-and-product-marketing/product-and-solution-marketing/roles-personas/buyer-persona/
+In which enterprise tier should this feature go? See https://handbook.gitlab.com/handbook/company/pricing/#three-tiers -->
 
 ### Is this a cross-stage feature?
 
 <!-- Communicate if this change will affect multiple Stage Groups or product areas. We recommend always start with the assumption that a feature request will have an impact into another Group. Loop in the most relevant PM and Product Designer from that Group to provide strategic support to help align the Group's broader plan and vision, as well as to avoid UX and technical debt. https://about.gitlab.com/handbook/product/#cross-stage-features -->
 
+### What is the competitive advantage or differentiation for this feature?
+
 ### Links / references
 
-<!-- Label reminders - you should have one of each of the following labels.
+<!-- Label reminders
+Make sure to add the appropriate labels for the product stage and/or group (e.g ~"devops::plan") if known and add a comment tagging the appropriate Product Manager.
+
 Use the following resources to find the appropriate labels:
+- Use only one tier label choosing the lowest tier this is intended for
 - https://gitlab.com/gitlab-org/gitlab/-/labels
 - https://about.gitlab.com/handbook/product/categories/features/
--->
+
+Examples: 
 /label ~group:: ~section:: ~Category:
 /label ~"GitLab Free" ~"GitLab Premium" ~"GitLab Ultimate"
-/label ~"type::feature" ~documentation ~direction
+
+-->
+/label ~"type::feature"

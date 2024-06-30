@@ -1,17 +1,27 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Troubleshooting Auto DevOps **(FREE)**
+# Troubleshooting Auto DevOps
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 The information in this documentation page describes common errors when using
 Auto DevOps, and any available workarounds.
 
+## Trace Helm commands
+
+Set the CI/CD variable `TRACE` to any value to make Helm commands produce verbose output. You can use this output to diagnose Auto DevOps deployment problems.
+
+You can resolve some problems with Auto DevOps deployment by changing advanced Auto DevOps configuration variables. Read more about [customizing Auto DevOps CI/CD variables](cicd_variables.md).
+
 ## Unable to select a buildpack
 
-Auto Build and Auto Test may fail to detect your language or framework with the
+Auto Test may fail to detect your language or framework with the
 following error:
 
 ```plaintext
@@ -29,12 +39,36 @@ The following are possible reasons:
 - No buildpack may exist for your application. Try specifying a
   [custom buildpack](customize.md#custom-buildpacks).
 
+## Builder sunset error
+
+Because of this [Heroku update](https://github.com/heroku/cnb-builder-images/pull/478), legacy shimmed `heroku/buildpacks:20` and `heroku/builder-classic:22` images now generate errors instead of warnings.
+
+To resolve this issue, you should to migrate to the `heroku/builder:*` builder images. As a temporary workaround, you can also set an environment variable to skip errors.
+
+### Migrating to `heroku/builder:*`
+
+Before you migrate, you should read the release notes for the each [spec release](https://github.com/buildpacks/spec/releases) to determine potential breaking changes.
+In this case, the relevant buildpack API versions are 0.6 and 0.7.
+These breaking changes are especially relevant to buildpack maintainers.
+
+For more information about the changes, you can also diff the [spec itself](https://github.com/buildpacks/spec/compare/buildpack/v0.5...buildpack/v0.7#files_bucket).
+
+### Skipping errors
+
+As a temporary workaround, you can skip the errors by setting and forwarding the `ALLOW_EOL_SHIMMED_BUILDER` environment variable:
+
+```yaml
+  variables:
+    ALLOW_EOL_SHIMMED_BUILDER: "1"
+    AUTO_DEVOPS_BUILD_IMAGE_FORWARDED_CI_VARIABLES: ALLOW_EOL_SHIMMED_BUILDER
+```
+
 ## Pipeline that extends Auto DevOps with only / except fails
 
 If your pipeline fails with the following message:
 
 ```plaintext
-Found errors in your .gitlab-ci.yml:
+Unable to create pipeline
 
   jobs:test config key may not be used with `rules`: only
 ```
@@ -59,7 +93,7 @@ with Auto DevOps:
 ```plaintext
 Detected an existing PostgreSQL database installed on the
 deprecated channel 1, but the current channel is set to 2. The default
-channel changed to 2 in of GitLab 13.0.
+channel changed to 2 in GitLab 13.0.
 [...]
 ```
 
@@ -100,7 +134,7 @@ WARNING:
 Setting `POSTGRES_ENABLED` to `false` permanently deletes any existing
 channel 1 database for your environment.
 
-## Error: unable to recognize "": no matches for kind "Deployment" in version "extensions/v1beta1"
+## `Error: unable to recognize "": no matches for kind "Deployment" in version "extensions/v1beta1"`
 
 After upgrading your Kubernetes cluster to [v1.16+](stages.md#kubernetes-116),
 you may encounter this message when deploying with Auto DevOps:
@@ -148,11 +182,16 @@ that works for this problem. Follow these steps to use the tool in Auto DevOps:
 
 1. Continue the deployments as usual.
 
-## Error: error initializing: Looks like "https://kubernetes-charts.storage.googleapis.com" is not a valid chart repository or cannot be reached
+## `Error: not a valid chart repository or cannot be reached`
 
 As [announced in the official CNCF blog post](https://www.cncf.io/blog/2020/10/07/important-reminder-for-all-helm-users-stable-incubator-repos-are-deprecated-and-all-images-are-changing-location/),
 the stable Helm chart repository was deprecated and removed on November 13th, 2020.
-You may encounter this error after that date.
+You may encounter this error after that date:
+
+```plaintext
+Error: error initializing: Looks like "https://kubernetes-charts.storage.googleapis.com"
+is not a valid chart repository or cannot be reached
+```
 
 Some GitLab features had dependencies on the stable chart. To mitigate the impact, we changed them
 to use new official repositories or the [Helm Stable Archive repository maintained by GitLab](https://gitlab.com/gitlab-org/cluster-integration/helm-stable-archive).
@@ -197,7 +236,7 @@ To fix your custom chart:
 You can find more information in
 [issue #263778, "Migrate PostgreSQL from stable Helm repository"](https://gitlab.com/gitlab-org/gitlab/-/issues/263778).
 
-## Error: release .... failed: timed out waiting for the condition
+## `Error: release .... failed: timed out waiting for the condition`
 
 When getting started with Auto DevOps, you may encounter this error when first
 deploying your application:
@@ -224,7 +263,7 @@ LAST SEEN   TYPE      REASON                   OBJECT                           
 ```
 
 To change the port used for the liveness checks, pass
-[custom values to the Helm chart](customize.md#customize-values-for-helm-chart)
+[custom values to the Helm chart](customize.md#customize-helm-chart-values)
 used by Auto DevOps:
 
 1. Create a directory and file at the root of your repository named `.gitlab/auto-deploy-values.yaml`.

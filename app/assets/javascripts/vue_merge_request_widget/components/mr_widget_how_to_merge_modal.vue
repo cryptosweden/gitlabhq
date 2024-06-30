@@ -1,5 +1,4 @@
 <script>
-/* eslint-disable @gitlab/require-i18n-strings */
 import { GlModal, GlLink, GlSprintf } from '@gitlab/ui';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import { escapeShellString } from '~/lib/utils/text_utility';
@@ -19,20 +18,18 @@ export default {
       },
       step3: {
         label: __('Step 3.'),
-        help: __(
-          'Merge the feature branch into the target branch and fix any conflicts. %{linkStart}How do I fix them?%{linkEnd}',
-        ),
+        help: __('Resolve any conflicts. %{linkStart}How do I fix them?%{linkEnd}'),
       },
       step4: {
         label: __('Step 4.'),
-        help: __('Push the target branch up to GitLab.'),
+        help: __('Push the source branch up to GitLab.'),
       },
     },
     copyCommands: __('Copy commands'),
     tip: __(
-      '%{strongStart}Tip:%{strongEnd} You can also check out merge requests locally. %{linkStart}Learn more.%{linkEnd}',
+      '%{strongStart}Tip:%{strongEnd} You can also %{linkStart}check out with merge request ID%{linkEnd}.',
     ),
-    title: __('Check out, review, and merge locally'),
+    title: __('Check out, review, and resolve locally'),
   },
   components: {
     GlModal,
@@ -79,7 +76,7 @@ export default {
   },
   data() {
     return {
-      resolveConflictsFromCli: helpPagePath('ee/user/project/merge_requests/conflicts.html', {
+      resolveConflictsFromCli: helpPagePath('user/project/merge_requests/conflicts', {
         anchor: 'resolve-conflicts-from-the-command-line',
       }),
     };
@@ -89,34 +86,39 @@ export default {
       const escapedOriginBranch = escapeShellString(`origin/${this.sourceBranch}`);
 
       return this.isFork
-        ? `git fetch "${this.sourceProjectDefaultUrl}" ${this.escapedSourceBranch}\ngit checkout -b ${this.escapedForkBranch} FETCH_HEAD`
-        : `git fetch origin\ngit checkout -b ${this.escapedSourceBranch} ${escapedOriginBranch}`;
+        ? `git fetch "${this.sourceProjectDefaultUrl}" ${this.escapedSourceBranch}\ngit checkout -b ${this.escapedForkBranch} FETCH_HEAD` // eslint-disable-line @gitlab/require-i18n-strings
+        : `git fetch origin\ngit checkout -b ${this.escapedSourceBranch} ${escapedOriginBranch}`; // eslint-disable-line @gitlab/require-i18n-strings
     },
     mergeInfo2() {
       return this.isFork
-        ? `git fetch origin\ngit checkout ${this.escapedTargetBranch}\ngit merge --no-ff ${this.escapedForkBranch}`
-        : `git fetch origin\ngit checkout ${this.escapedTargetBranch}\ngit merge --no-ff ${this.escapedSourceBranch}`;
-    },
-    mergeInfo3() {
-      return this.canMerge
-        ? `git push origin ${this.escapedTargetBranch}`
-        : __('Note that pushing to GitLab requires write access to this repository.');
+        ? `git push "${this.sourceProjectDefaultUrl}" ${this.escapedForkPushBranch}` // eslint-disable-line @gitlab/require-i18n-strings
+        : `git push origin ${this.escapedSourceBranch}`; // eslint-disable-line @gitlab/require-i18n-strings
     },
     escapedForkBranch() {
       return escapeShellString(`${this.sourceProjectPath}-${this.sourceBranch}`);
     },
-    escapedTargetBranch() {
-      return escapeShellString(this.targetBranch);
+    escapedForkPushBranch() {
+      return escapeShellString(
+        `${this.sourceProjectPath}-${this.sourceBranch}:${this.sourceBranch}`,
+      );
     },
     escapedSourceBranch() {
       return escapeShellString(this.sourceBranch);
     },
+  },
+  mounted() {
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.js-check-out-modal-trigger')) {
+        this.$refs.modal.show();
+      }
+    });
   },
 };
 </script>
 
 <template>
   <gl-modal
+    ref="modal"
     modal-id="modal-merge-info"
     :no-enforce-focus="true"
     :title="$options.i18n.title"
@@ -134,9 +136,21 @@ export default {
       <clipboard-button
         :text="mergeInfo1"
         :title="$options.i18n.copyCommands"
-        class="gl-shadow-none! gl-bg-transparent! gl-flex-shrink-0"
+        class="!gl-shadow-none gl-bg-transparent! gl-flex-shrink-0"
       />
     </div>
+    <p v-if="reviewingDocsPath">
+      <gl-sprintf data-testid="docs-tip" :message="$options.i18n.tip">
+        <template #strong="{ content }">
+          <strong>{{ content }}</strong>
+        </template>
+        <template #link="{ content }">
+          <gl-link class="gl-display-inline-block" :href="reviewingDocsPath" target="_blank">{{
+            content
+          }}</gl-link>
+        </template>
+      </gl-sprintf>
+    </p>
 
     <p>
       <strong>
@@ -156,14 +170,6 @@ export default {
         </template>
       </gl-sprintf>
     </p>
-    <div class="gl-display-flex">
-      <pre class="gl-w-full" data-testid="how-to-merge-instructions">{{ mergeInfo2 }}</pre>
-      <clipboard-button
-        :text="mergeInfo2"
-        :title="$options.i18n.copyCommands"
-        class="gl-shadow-none! gl-bg-transparent! gl-flex-shrink-0"
-      />
-    </div>
     <p>
       <strong>
         {{ $options.i18n.steps.step4.label }}
@@ -171,24 +177,12 @@ export default {
       {{ $options.i18n.steps.step4.help }}
     </p>
     <div class="gl-display-flex">
-      <pre class="gl-w-full" data-testid="how-to-merge-instructions">{{ mergeInfo3 }}</pre>
+      <pre class="gl-w-full" data-testid="how-to-merge-instructions">{{ mergeInfo2 }}</pre>
       <clipboard-button
-        :text="mergeInfo3"
+        :text="mergeInfo2"
         :title="$options.i18n.copyCommands"
-        class="gl-shadow-none! gl-bg-transparent! gl-flex-shrink-0"
+        class="!gl-shadow-none gl-bg-transparent! gl-flex-shrink-0"
       />
     </div>
-    <p v-if="reviewingDocsPath">
-      <gl-sprintf data-testid="docs-tip" :message="$options.i18n.tip">
-        <template #strong="{ content }">
-          <strong>{{ content }}</strong>
-        </template>
-        <template #link="{ content }">
-          <gl-link class="gl-display-inline-block" :href="reviewingDocsPath" target="_blank">{{
-            content
-          }}</gl-link>
-        </template>
-      </gl-sprintf>
-    </p>
   </gl-modal>
 </template>

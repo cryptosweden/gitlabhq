@@ -29,7 +29,7 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Server do
         "NotOwnedWorker"
       end
 
-      feature_category_not_owned!
+      feature_category :not_owned
     end
   end
 
@@ -41,8 +41,7 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Server do
 
       include Sidekiq::Worker
 
-      def perform
-      end
+      def perform; end
     end
   end
 
@@ -70,7 +69,7 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Server do
 
     context 'feature category' do
       it 'takes the feature category from the worker' do
-        Gitlab::ApplicationContext.with_context(feature_category: 'authentication_and_authorization') do
+        Gitlab::ApplicationContext.with_context(feature_category: 'system_access') do
           TestWorker.perform_async('identifier', 1)
         end
 
@@ -79,11 +78,11 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Server do
 
       context 'when the worker is not owned' do
         it 'takes the feature category from the surrounding context' do
-          Gitlab::ApplicationContext.with_context(feature_category: 'authentication_and_authorization') do
+          Gitlab::ApplicationContext.with_context(feature_category: 'system_access') do
             NotOwnedWorker.perform_async('identifier', 1)
           end
 
-          expect(NotOwnedWorker.contexts['identifier']).to include('meta.feature_category' => 'authentication_and_authorization')
+          expect(NotOwnedWorker.contexts['identifier']).to include('meta.feature_category' => 'system_access')
         end
       end
     end

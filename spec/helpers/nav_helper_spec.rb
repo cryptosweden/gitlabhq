@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe NavHelper do
+RSpec.describe NavHelper, feature_category: :navigation do
   describe '#header_links' do
     include_context 'custom session'
 
@@ -115,13 +115,13 @@ RSpec.describe NavHelper do
   describe '#page_has_markdown?' do
     using RSpec::Parameterized::TableSyntax
 
-    where path: %w(
-      merge_requests#show
+    where path: %w[
+      projects/merge_requests#show
       projects/merge_requests/conflicts#show
       issues#show
       milestones#show
       issues#designs
-    )
+    ]
 
     with_them do
       before do

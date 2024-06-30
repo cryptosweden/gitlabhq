@@ -2,40 +2,82 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Ci::SecureFiles do
+RSpec.describe API::Ci::SecureFiles, feature_category: :mobile_devops do
   before do
     stub_ci_secure_file_object_storage
-    stub_feature_flags(ci_secure_files: true)
+    stub_feature_flags(ci_secure_files_read_only: false)
   end
 
   let_it_be(:maintainer) { create(:user) }
   let_it_be(:developer) { create(:user) }
   let_it_be(:guest) { create(:user) }
   let_it_be(:anonymous) { create(:user) }
-  let_it_be(:project) { create(:project, creator_id: maintainer.id) }
+  let_it_be(:unconfirmed) { create(:user, :unconfirmed) }
+  let_it_be(:project) { create(:project, creator_id: maintainer.id, maintainers: maintainer, developers: developer, guests: guest) }
   let_it_be(:secure_file) { create(:ci_secure_file, project: project) }
 
-  before_all do
-    project.add_maintainer(maintainer)
-    project.add_developer(developer)
-    project.add_guest(guest)
+  let(:file_params) do
+    {
+      file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
+      name: 'upload-keystore.jks'
+    }
   end
 
   describe 'GET /projects/:id/secure_files' do
-    context 'feature flag' do
-      it 'returns a 503 when the feature flag is disabled' do
-        stub_feature_flags(ci_secure_files: false)
+    context 'ci_secure_files_read_only feature flag' do
+      context 'when the flag is enabled' do
+        before do
+          stub_feature_flags(ci_secure_files_read_only: true)
+        end
 
-        get api("/projects/#{project.id}/secure_files", maintainer)
+        it 'returns a 503 when attempting to upload a file' do
+          stub_feature_flags(ci_secure_files_read_only: true)
 
-        expect(response).to have_gitlab_http_status(:service_unavailable)
+          expect do
+            post api("/projects/#{project.id}/secure_files", maintainer), params: file_params
+          end.not_to change { project.secure_files.count }
+
+          expect(response).to have_gitlab_http_status(:service_unavailable)
+        end
+
+        it 'returns a 200 when downloading a file' do
+          stub_feature_flags(ci_secure_files_read_only: true)
+
+          get api("/projects/#{project.id}/secure_files", developer)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response).to be_a(Array)
+        end
       end
 
-      it 'returns a 200 when the feature flag is enabled' do
-        get api("/projects/#{project.id}/secure_files", maintainer)
+      context 'when the feature is disabled at the instance level' do
+        before do
+          stub_config(ci_secure_files: { enabled: false })
+        end
 
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response).to be_a(Array)
+        it 'returns a 403 when attempting to upload a file' do
+          expect do
+            post api("/projects/#{project.id}/secure_files", maintainer), params: file_params
+          end.not_to change { project.secure_files.count }
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+
+        it 'returns a 403 when downloading a file' do
+          get api("/projects/#{project.id}/secure_files", developer)
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+
+      context 'when the flag is disabled' do
+        it 'returns a 201 when uploading a file when the ci_secure_files_read_only feature flag is disabled' do
+          expect do
+            post api("/projects/#{project.id}/secure_files", maintainer), params: file_params
+          end.to change { project.secure_files.count }.by(1)
+
+          expect(response).to have_gitlab_http_status(:created)
+        end
       end
     end
 
@@ -73,6 +115,14 @@ RSpec.describe API::Ci::SecureFiles do
       end
     end
 
+    context 'unconfirmed user' do
+      it 'does not return project secure files' do
+        get api("/projects/#{project.id}/secure_files", unconfirmed)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
     context 'unauthenticated user' do
       it 'does not return project secure files' do
         get api("/projects/#{project.id}/secure_files")
@@ -89,7 +139,20 @@ RSpec.describe API::Ci::SecureFiles do
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['name']).to eq(secure_file.name)
-        expect(json_response['permissions']).to eq(secure_file.permissions)
+        expect(json_response['expires_at']).to be nil
+        expect(json_response['metadata']).to be nil
+        expect(json_response['file_extension']).to be nil
+      end
+
+      it 'returns project secure file details with metadata when supported' do
+        secure_file_with_metadata = create(:ci_secure_file_with_metadata, project: project)
+        get api("/projects/#{project.id}/secure_files/#{secure_file_with_metadata.id}", maintainer)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['name']).to eq(secure_file_with_metadata.name)
+        expect(json_response['expires_at']).to eq('2023-04-26T19:20:39.000Z')
+        expect(json_response['metadata'].keys).to match_array(%w[id issuer subject expires_at])
+        expect(json_response['file_extension']).to eq('cer')
       end
 
       it 'responds with 404 Not Found if requesting non-existing secure file' do
@@ -105,13 +168,20 @@ RSpec.describe API::Ci::SecureFiles do
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['name']).to eq(secure_file.name)
-        expect(json_response['permissions']).to eq(secure_file.permissions)
       end
     end
 
     context 'authenticated user with no permissions' do
       it 'does not return project secure file details' do
         get api("/projects/#{project.id}/secure_files/#{secure_file.id}", anonymous)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context 'unconfirmed user' do
+      it 'does not return project secure file details' do
+        get api("/projects/#{project.id}/secure_files/#{secure_file.id}", unconfirmed)
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
@@ -167,6 +237,14 @@ RSpec.describe API::Ci::SecureFiles do
       end
     end
 
+    context 'unconfirmed user' do
+      it 'does not return project secure file details' do
+        get api("/projects/#{project.id}/secure_files/#{secure_file.id}/download", unconfirmed)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
     context 'unauthenticated user' do
       it 'does not return project secure file details' do
         get api("/projects/#{project.id}/secure_files/#{secure_file.id}/download")
@@ -179,21 +257,15 @@ RSpec.describe API::Ci::SecureFiles do
   describe 'POST /projects/:id/secure_files' do
     context 'authenticated user with admin permissions' do
       it 'creates a secure file' do
-        params = {
-          file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
-          name: 'upload-keystore.jks',
-          permissions: 'execute'
-        }
-
         expect do
-          post api("/projects/#{project.id}/secure_files", maintainer), params: params
-        end.to change {project.secure_files.count}.by(1)
+          post api("/projects/#{project.id}/secure_files", maintainer), params: file_params
+        end.to change { project.secure_files.count }.by(1)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['name']).to eq('upload-keystore.jks')
-        expect(json_response['permissions']).to eq('execute')
         expect(json_response['checksum']).to eq(secure_file.checksum)
         expect(json_response['checksum_algorithm']).to eq('sha256')
+        expect(json_response['file_extension']).to eq('jks')
 
         secure_file = Ci::SecureFile.find(json_response['id'])
         expect(secure_file.checksum).to eq(
@@ -203,49 +275,14 @@ RSpec.describe API::Ci::SecureFiles do
         expect(Time.parse(json_response['created_at'])).to be_like_time(secure_file.created_at)
       end
 
-      it 'creates a secure file with read_only permissions by default' do
-        params = {
-          file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
-          name: 'upload-keystore.jks'
-        }
-
-        expect do
-          post api("/projects/#{project.id}/secure_files", maintainer), params: params
-        end.to change {project.secure_files.count}.by(1)
-
-        expect(json_response['permissions']).to eq('read_only')
-      end
-
       it 'uploads and downloads a secure file' do
-        post_params = {
-          file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
-          name: 'upload-keystore.jks',
-          permissions: 'read_write'
-        }
-
-        post api("/projects/#{project.id}/secure_files", maintainer), params: post_params
+        post api("/projects/#{project.id}/secure_files", maintainer), params: file_params
 
         secure_file_id = json_response['id']
 
         get api("/projects/#{project.id}/secure_files/#{secure_file_id}/download", maintainer)
 
         expect(Base64.encode64(response.body)).to eq(Base64.encode64(fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks').read))
-      end
-
-      it 'uploads and validates a secure file with a provided checksum' do
-        params = {
-          file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
-          name: 'upload-keystore.jks',
-          permissions: 'execute',
-          file_checksum: Digest::SHA256.hexdigest(File.read(fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks')))
-        }
-
-        expect do
-          post api("/projects/#{project.id}/secure_files", maintainer), params: params
-        end.to change {project.secure_files.count}.by(1)
-
-        expect(response).to have_gitlab_http_status(:created)
-        expect(json_response['name']).to eq('upload-keystore.jks')
       end
 
       it 'returns an error when the file checksum fails to validate' do
@@ -258,29 +295,9 @@ RSpec.describe API::Ci::SecureFiles do
         expect(response.code).to eq("500")
       end
 
-      it 'returns an error when the user provided file checksum fails to validate' do
-        post_params = {
-          file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
-          name: 'upload-keystore.jks',
-          permissions: 'read_write',
-          file_checksum: 'foo'
-        }
-
-        expect do
-          post api("/projects/#{project.id}/secure_files", maintainer), params: post_params
-        end.not_to change { project.secure_files.count }
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['message']['file_checksum']).to include(_("Secure Files|File did not match the provided checksum"))
-      end
-
       it 'returns an error when no file is uploaded' do
-        post_params = {
-          name: 'upload-keystore.jks'
-        }
-
         expect do
-          post api("/projects/#{project.id}/secure_files", maintainer), params: post_params
+          post api("/projects/#{project.id}/secure_files", maintainer), params: { name: 'upload-keystore.jks' }
         end.not_to change { project.secure_files.count }
 
         expect(response).to have_gitlab_http_status(:bad_request)
@@ -288,7 +305,17 @@ RSpec.describe API::Ci::SecureFiles do
       end
 
       it 'returns an error when the file name is missing' do
+        expect do
+          post api("/projects/#{project.id}/secure_files", maintainer), params: { file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks') }
+        end.not_to change { project.secure_files.count }
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['error']).to eq('name is missing')
+      end
+
+      it 'returns an error when the file name has already been used' do
         post_params = {
+          name: secure_file.name,
           file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks')
         }
 
@@ -297,22 +324,7 @@ RSpec.describe API::Ci::SecureFiles do
         end.not_to change { project.secure_files.count }
 
         expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['error']).to eq('name is missing')
-      end
-
-      it 'returns an error when an unexpected permission is supplied' do
-        post_params = {
-          file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
-          name: 'upload-keystore.jks',
-          permissions: 'foo'
-        }
-
-        expect do
-          post api("/projects/#{project.id}/secure_files", maintainer), params: post_params
-        end.not_to change { project.secure_files.count }
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['error']).to eq('permissions does not have a valid value')
+        expect(json_response['message']['name']).to include('has already been taken')
       end
 
       it 'returns an error when an unexpected validation failure happens' do
@@ -322,13 +334,8 @@ RSpec.describe API::Ci::SecureFiles do
           allow(instance).to receive_message_chain(:errors, :messages).and_return(['Error 1', 'Error 2'])
         end
 
-        post_params = {
-          file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
-          name: 'upload-keystore.jks'
-        }
-
         expect do
-          post api("/projects/#{project.id}/secure_files", maintainer), params: post_params
+          post api("/projects/#{project.id}/secure_files", maintainer), params: file_params
         end.not_to change { project.secure_files.count }
 
         expect(response).to have_gitlab_http_status(:bad_request)
@@ -339,16 +346,20 @@ RSpec.describe API::Ci::SecureFiles do
           allow(instance).to receive_message_chain(:file, :size).and_return(6.megabytes.to_i)
         end
 
-        post_params = {
-          file: fixture_file_upload('spec/fixtures/ci_secure_files/upload-keystore.jks'),
-          name: 'upload-keystore.jks'
-        }
-
         expect do
-          post api("/projects/#{project.id}/secure_files", maintainer), params: post_params
+          post api("/projects/#{project.id}/secure_files", maintainer), params: file_params
         end.not_to change { project.secure_files.count }
 
         expect(response).to have_gitlab_http_status(:payload_too_large)
+      end
+
+      it 'returns an error when and invalid file name is supplied' do
+        params = file_params.merge(name: '../../upload-keystore.jks')
+        expect do
+          post api("/projects/#{project.id}/secure_files", maintainer), params: params
+        end.not_to change { project.secure_files.count }
+
+        expect(response).to have_gitlab_http_status(:internal_server_error)
       end
     end
 
@@ -366,6 +377,16 @@ RSpec.describe API::Ci::SecureFiles do
       it 'does not create a secure file' do
         expect do
           post api("/projects/#{project.id}/secure_files", anonymous)
+        end.not_to change { project.secure_files.count }
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context 'unconfirmed user' do
+      it 'does not create a secure file' do
+        expect do
+          post api("/projects/#{project.id}/secure_files", unconfirmed)
         end.not_to change { project.secure_files.count }
 
         expect(response).to have_gitlab_http_status(:not_found)
@@ -416,6 +437,16 @@ RSpec.describe API::Ci::SecureFiles do
       it 'does not delete the secure_file' do
         expect do
           delete api("/projects/#{project.id}/secure_files/#{secure_file.id}", anonymous)
+        end.not_to change { project.secure_files.count }
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context 'unconfirmed user' do
+      it 'does not delete the secure_file' do
+        expect do
+          delete api("/projects/#{project.id}/secure_files#{secure_file.id}", unconfirmed)
         end.not_to change { project.secure_files.count }
 
         expect(response).to have_gitlab_http_status(:not_found)

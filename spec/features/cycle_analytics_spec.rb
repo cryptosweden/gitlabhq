@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Value Stream Analytics', :js do
+RSpec.describe 'Value Stream Analytics', :js, feature_category: :value_stream_management do
+  include CycleAnalyticsHelpers
+
   let_it_be(:user) { create(:user) }
   let_it_be(:guest) { create(:user) }
   let_it_be(:stage_table_selector) { '[data-testid="vsa-stage-table"]' }
@@ -13,6 +15,7 @@ RSpec.describe 'Value Stream Analytics', :js do
   let_it_be(:stage_table_duration_column_header_selector) { '[data-testid="vsa-stage-header-duration"]' }
   let_it_be(:metrics_selector) { "[data-testid='vsa-metrics']" }
   let_it_be(:metric_value_selector) { "[data-testid='displayValue']" }
+  let_it_be(:predefined_date_ranges_dropdown_selector) { '[data-testid="vsa-predefined-date-ranges-dropdown"]' }
 
   let(:stage_table) { find(stage_table_selector) }
   let(:project) { create(:project, :repository) }
@@ -34,10 +37,6 @@ RSpec.describe 'Value Stream Analytics', :js do
     wait_for_all_requests
   end
 
-  before do
-    stub_feature_flags(use_vsa_aggregated_tables: false)
-  end
-
   context 'as an allowed user' do
     context 'when project is new' do
       before do
@@ -49,21 +48,21 @@ RSpec.describe 'Value Stream Analytics', :js do
       end
 
       it 'displays metrics with relevant values' do
-        expect(metrics_values).to eq(['-'] * 4)
+        expect(metrics_values).to eq(['-'] * 3)
       end
 
       it 'shows active stage with empty message' do
         expect(page).to have_selector('.gl-path-active-item-indigo', text: 'Issue')
-        expect(page).to have_content("We don't have enough data to show this stage.")
+        expect(page).to have_content("There are 0 items to show in this stage, for these filters, within this time range.")
       end
     end
 
-    context "when there's value stream analytics data" do
+    context "when there's value stream analytics data", :sidekiq_inline do
       # NOTE: in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/68595 travel back
       # 5 days in time before we create data for these specs, to mitigate some flakiness
       # So setting the date range to be the last 2 days should skip past the existing data
-      from = 2.days.ago.strftime("%Y-%m-%d")
-      to = 1.day.ago.strftime("%Y-%m-%d")
+      from = 2.days.ago.to_date.iso8601
+      to = 1.day.ago.to_date.iso8601
       max_items_per_page = 20
 
       around do |example|
@@ -100,12 +99,11 @@ RSpec.describe 'Value Stream Analytics', :js do
         aggregate_failures 'with relevant values' do
           expect(metrics_tiles).to have_content('Commit')
           expect(metrics_tiles).to have_content('Deploy')
-          expect(metrics_tiles).to have_content('Deployment Frequency')
-          expect(metrics_tiles).to have_content('New Issue')
+          expect(metrics_tiles).to have_content('New issue')
         end
       end
 
-      it 'shows data on each stage', :sidekiq_might_not_need_inline, quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/338332' do
+      it 'shows data on each stage', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/338332' do
         expect_issue_to_be_present
 
         click_stage('Plan')
@@ -122,23 +120,6 @@ RSpec.describe 'Value Stream Analytics', :js do
 
         click_stage('Staging')
         expect_merge_request_to_be_present
-      end
-
-      it 'can filter the issues by date' do
-        expect(page).to have_selector(stage_table_event_selector)
-
-        set_daterange(from, to)
-
-        expect(page).not_to have_selector(stage_table_event_selector)
-        expect(page).not_to have_selector(stage_table_pagination_selector)
-      end
-
-      it 'can filter the metrics by date' do
-        expect(metrics_values).to match_array(%w[21 2 1 0])
-
-        set_daterange(from, to)
-
-        expect(metrics_values).to eq(['-'] * 4)
       end
 
       it 'can sort records', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/338332' do
@@ -164,6 +145,29 @@ RSpec.describe 'Value Stream Analytics', :js do
         go_to_next_page
 
         expect(page).not_to have_text(original_first_title, exact: true)
+      end
+
+      it 'shows predefined date ranges dropdown with `Custom` option selected' do
+        page.within(predefined_date_ranges_dropdown_selector) do
+          expect(page).to have_button('Custom')
+        end
+      end
+
+      it 'can filter the issues by date' do
+        expect(page).to have_selector(stage_table_event_selector)
+
+        set_daterange(from, to)
+
+        expect(page).not_to have_selector(stage_table_event_selector)
+        expect(page).not_to have_selector(stage_table_pagination_selector)
+      end
+
+      it 'can filter the metrics by date' do
+        expect(metrics_values).to match_array(%w[21 2 1])
+
+        set_daterange(from, to)
+
+        expect(metrics_values).to eq(['-'] * 3)
       end
 
       it 'can navigate directly to a value stream stream stage with filters applied' do
@@ -209,18 +213,24 @@ RSpec.describe 'Value Stream Analytics', :js do
       wait_for_requests
     end
 
-    it 'does not show the commit stats' do
+    it 'does not show the commit stats', :sidekiq_inline do
       expect(page.find(metrics_selector)).not_to have_selector("#commits")
     end
 
-    it 'needs permissions to see restricted stages' do
+    it 'does not show restricted stages', :aggregate_failures, :sidekiq_inline do
       expect(find(stage_table_selector)).to have_content(issue.title)
 
-      click_stage('Code')
-      expect(find(stage_table_selector)).to have_content('You need permission.')
+      expect(page).to have_selector('.gl-path-nav-list-item', text: 'Issue')
 
-      click_stage('Review')
-      expect(find(stage_table_selector)).to have_content('You need permission.')
+      expect(page).to have_selector('.gl-path-nav-list-item', text: 'Plan')
+
+      expect(page).to have_selector('.gl-path-nav-list-item', text: 'Test')
+
+      expect(page).to have_selector('.gl-path-nav-list-item', text: 'Staging')
+
+      expect(page).not_to have_selector('.gl-path-nav-list-item', text: 'Code')
+
+      expect(page).not_to have_selector('.gl-path-nav-list-item', text: 'Review')
     end
   end
 

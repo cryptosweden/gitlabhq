@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::ContainerRepository::DeleteTagsService do
+RSpec.describe Projects::ContainerRepository::DeleteTagsService, feature_category: :container_registry do
+  using RSpec::Parameterized::TableSyntax
   include_context 'container repository delete tags service shared context'
 
   let(:service) { described_class.new(project, user, params) }
@@ -17,11 +18,13 @@ RSpec.describe Projects::ContainerRepository::DeleteTagsService do
   shared_examples 'logging a success response' do
     it 'logs an info message' do
       expect(service).to receive(:log_info).with(
-        service_class: 'Projects::ContainerRepository::DeleteTagsService',
-        message: 'deleted tags',
-        container_repository_id: repository.id,
-        project_id: repository.project_id,
-        deleted_tags_count: tags.size
+        {
+          service_class: 'Projects::ContainerRepository::DeleteTagsService',
+          message: 'deleted tags',
+          container_repository_id: repository.id,
+          project_id: repository.project_id,
+          deleted_tags_count: tags.size
+        }
       )
 
       subject
@@ -74,7 +77,7 @@ RSpec.describe Projects::ContainerRepository::DeleteTagsService do
       before do
         expect(::Projects::ContainerRepository::Gitlab::DeleteTagsService).not_to receive(:new)
         expect(::Projects::ContainerRepository::ThirdParty::DeleteTagsService).not_to receive(:new)
-        expect_any_instance_of(ContainerRegistry::Client).not_to receive(:delete_repository_tag_by_name)
+        expect_any_instance_of(ContainerRegistry::Client).not_to receive(:delete_repository_tag_by_digest)
       end
 
       context 'when no params are specified' do
@@ -104,7 +107,7 @@ RSpec.describe Projects::ContainerRepository::DeleteTagsService do
       context 'with the real service' do
         before do
           stub_delete_reference_requests(tags)
-          expect_delete_tag_by_names(tags)
+          expect_delete_tags(tags)
         end
 
         it { is_expected.to include(status: :success) }
@@ -131,10 +134,6 @@ RSpec.describe Projects::ContainerRepository::DeleteTagsService do
 
     subject { service.execute(repository) }
 
-    before do
-      stub_feature_flags(container_registry_expiration_policies_throttling: false)
-    end
-
     context 'without permissions' do
       it { is_expected.to include(status: :error) }
     end
@@ -154,14 +153,6 @@ RSpec.describe Projects::ContainerRepository::DeleteTagsService do
         it_behaves_like 'calling the correct delete tags service', ::Projects::ContainerRepository::ThirdParty::DeleteTagsService
 
         it_behaves_like 'handling invalid params'
-      end
-
-      context 'when the repository is importing' do
-        before do
-          repository.update_columns(migration_state: 'importing', migration_import_started_at: Time.zone.now)
-        end
-
-        it { is_expected.to include(status: :error, message: 'repository importing') }
       end
     end
 

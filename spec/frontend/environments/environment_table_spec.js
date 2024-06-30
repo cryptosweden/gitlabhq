@@ -16,10 +16,6 @@ describe('Environment table', () => {
   let wrapper;
 
   const factory = (options = {}) => {
-    // This destroys any wrappers created before a nested call to factory reassigns it
-    if (wrapper && wrapper.destroy) {
-      wrapper.destroy();
-    }
     wrapper = mount(EnvironmentTable, {
       ...options,
     });
@@ -32,10 +28,6 @@ describe('Environment table', () => {
         ...eeOnlyProps,
       },
     });
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   it('Should render a table', async () => {
@@ -64,7 +56,6 @@ describe('Environment table', () => {
       name: 'review',
       size: 1,
       environment_path: 'url',
-      logs_path: 'url',
       id: 1,
       hasDeployBoard: true,
       deployBoardData: deployBoardMockData,
@@ -92,7 +83,6 @@ describe('Environment table', () => {
       name: 'review',
       size: 1,
       environment_path: 'url',
-      logs_path: 'url',
       id: 1,
       isFolder: true,
       isOpen: true,
@@ -122,7 +112,7 @@ describe('Environment table', () => {
     expect(wrapper.find('.deploy-board-icon').exists()).toBe(true);
   });
 
-  it('should toggle deploy board visibility when arrow is clicked', (done) => {
+  it('should toggle deploy board visibility when arrow is clicked', async () => {
     const mockItem = {
       name: 'review',
       size: 1,
@@ -142,7 +132,6 @@ describe('Environment table', () => {
 
     eventHub.$on('toggleDeployBoard', (env) => {
       expect(env.id).toEqual(mockItem.id);
-      done();
     });
 
     factory({
@@ -154,7 +143,7 @@ describe('Environment table', () => {
       },
     });
 
-    wrapper.find('.deploy-board-icon').trigger('click');
+    await wrapper.find('.deploy-board-icon').trigger('click');
   });
 
   it('should set the environment to change and weight when a change canary weight event is recevied', async () => {
@@ -162,7 +151,6 @@ describe('Environment table', () => {
       name: 'review',
       size: 1,
       environment_path: 'url',
-      logs_path: 'url',
       id: 1,
       hasDeployBoard: true,
       deployBoardData: deployBoardMockData,
@@ -181,10 +169,10 @@ describe('Environment table', () => {
       },
     });
 
-    wrapper.find(DeployBoard).vm.$emit('changeCanaryWeight', 40);
+    wrapper.findComponent(DeployBoard).vm.$emit('changeCanaryWeight', 40);
     await nextTick();
 
-    expect(wrapper.find(CanaryUpdateModal).props()).toMatchObject({
+    expect(wrapper.findComponent(CanaryUpdateModal).props()).toMatchObject({
       weight: 40,
       environment: mockItem,
     });
@@ -367,7 +355,7 @@ describe('Environment table', () => {
   });
 
   describe('sortedEnvironments', () => {
-    it('it should sort children as well', () => {
+    it('should sort children as well', () => {
       const mockItems = [
         {
           name: 'production',

@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Types::Repository::BlobType do
+RSpec.describe Types::Repository::BlobType, feature_category: :source_code_management do
+  include GraphqlHelpers
+
   specify { expect(described_class.graphql_name).to eq('RepositoryBlob') }
 
   specify do
@@ -17,6 +19,7 @@ RSpec.describe Types::Repository::BlobType do
       :size,
       :raw_size,
       :raw_blob,
+      :base64_encoded_blob,
       :raw_text_blob,
       :file_type,
       :edit_blob_path,
@@ -28,13 +31,13 @@ RSpec.describe Types::Repository::BlobType do
       :gitpod_blob_url,
       :find_file_path,
       :blame_path,
+      :blame,
       :history_path,
       :permalink_path,
       :environment_formatted_external_url,
       :environment_external_url_for_route_map,
       :code_navigation_path,
       :project_blob_path_root,
-      :code_owners,
       :simple_viewer,
       :rich_viewer,
       :plain_data,
@@ -47,6 +50,15 @@ RSpec.describe Types::Repository::BlobType do
       :ide_fork_and_edit_path,
       :fork_and_view_path,
       :language
-    )
+    ).at_least
+  end
+
+  it 'handles blobs of huge size', :aggregate_failures do
+    huge_blob = Blob.new(double)
+    size = 10**10
+    allow(huge_blob).to receive_messages({ size: size, raw_size: size })
+
+    expect(resolve_field(:raw_size, huge_blob)).to eq(size)
+    expect(resolve_field(:size, huge_blob)).to eq(size)
   end
 end

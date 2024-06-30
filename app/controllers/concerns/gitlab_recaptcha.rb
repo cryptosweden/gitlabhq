@@ -2,7 +2,7 @@
 
 module GitlabRecaptcha
   extend ActiveSupport::Concern
-  include Recaptcha::Verify
+  include Recaptcha::Adapters::ControllerMethods
   include RecaptchaHelper
 
   def load_recaptcha
@@ -17,6 +17,9 @@ module GitlabRecaptcha
     flash.delete :recaptcha_error
 
     self.resource = resource_class.new
+
+    add_gon_variables
+
     render action: 'new'
   end
 end

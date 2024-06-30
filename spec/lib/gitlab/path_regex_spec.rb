@@ -103,21 +103,27 @@ RSpec.describe Gitlab::PathRegex do
       .concat(Array(API::API.prefix.to_s))
       .concat(sitemap_words)
       .concat(deprecated_routes)
+      .concat(reserved_routes)
       .compact
       .uniq
   end
 
   let(:sitemap_words) do
-    %w(sitemap sitemap.xml sitemap.xml.gz)
+    %w[sitemap sitemap.xml sitemap.xml.gz]
   end
 
   let(:deprecated_routes) do
     # profile was deprecated in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/51646
-    %w(profile s)
+    %w[profile s]
+  end
+
+  let(:reserved_routes) do
+    # login was reserved in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/134791
+    ['login']
   end
 
   let(:ee_top_level_words) do
-    %w(unsubscribes v2)
+    %w[unsubscribes v2]
   end
 
   let(:files_in_public) do
@@ -126,7 +132,7 @@ RSpec.describe Gitlab::PathRegex do
       .split("\n")
       .map { |entry| entry.start_with?('public/-/') ? '-' : entry.gsub('public/', '') }
       .uniq
-    tracked + %w(assets uploads)
+    tracked + %w[assets uploads]
   end
 
   # All routes that start with a namespaced path, that have 1 or more
@@ -174,16 +180,21 @@ RSpec.describe Gitlab::PathRegex do
         missing_words = top_level_words - described_class::TOP_LEVEL_ROUTES
         additional_words = described_class::TOP_LEVEL_ROUTES - top_level_words
         failure_message('TOP_LEVEL_ROUTES', 'rename_root_paths',
-                        missing_words: missing_words, additional_words: additional_words)
+          missing_words: missing_words, additional_words: additional_words)
       end
 
-      expect(described_class::TOP_LEVEL_ROUTES)
+      # We have to account for routes that are added by gems into the RAILS_ENV=test only.
+      test_only_top_level_routes = [
+        '_system_test_entrypoint' # added by the view_component gem
+      ]
+
+      expect(described_class::TOP_LEVEL_ROUTES + test_only_top_level_routes)
         .to contain_exactly(*top_level_words), failure_block
     end
 
     # We ban new items in this list, see https://gitlab.com/gitlab-org/gitlab/-/issues/215362
     it 'does not allow expansion' do
-      expect(described_class::TOP_LEVEL_ROUTES.size).to eq(40)
+      expect(described_class::TOP_LEVEL_ROUTES.size).to eq(39)
     end
   end
 
@@ -193,7 +204,7 @@ RSpec.describe Gitlab::PathRegex do
         missing_words = paths_after_group_id - described_class::GROUP_ROUTES
         additional_words = described_class::GROUP_ROUTES - paths_after_group_id
         failure_message('GROUP_ROUTES', 'rename_child_paths',
-                        missing_words: missing_words, additional_words: additional_words)
+          missing_words: missing_words, additional_words: additional_words)
       end
 
       expect(described_class::GROUP_ROUTES)
@@ -250,6 +261,23 @@ RSpec.describe Gitlab::PathRegex do
     it 'does not allow extra slashes' do
       expect(subject).not_to match('/blob/')
       expect(subject).not_to match('blob//')
+    end
+  end
+
+  describe '.organization_path_regex' do
+    subject { described_class.organization_path_regex }
+
+    it 'rejects reserved words' do
+      expect(subject).not_to match('admin/')
+      expect(subject).not_to match('api/')
+      expect(subject).not_to match('create/')
+      expect(subject).not_to match('new/')
+    end
+
+    it 'accepts other words' do
+      expect(subject).to match('simple/')
+      expect(subject).to match('org/')
+      expect(subject).to match('my_org/')
     end
   end
 
@@ -557,7 +585,7 @@ RSpec.describe Gitlab::PathRegex do
     end
 
     it 'does not match other non-word characters' do
-      expect(subject.match('ruby:2.7.0')[0]).to eq('ruby')
+      expect(subject.match('image:1.0.0')[0]).to eq('image')
     end
   end
 

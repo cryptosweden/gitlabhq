@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Config::Entry::Job do
+RSpec.describe Gitlab::Ci::Config::Entry::Job, feature_category: :pipeline_composition do
+  using RSpec::Parameterized::TableSyntax
+
   let(:entry) { described_class.new(config, name: :rspec) }
 
   it_behaves_like 'with inheritable CI config' do
@@ -27,9 +29,9 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
       subject { described_class.nodes.keys }
 
       let(:result) do
-        %i[before_script script stage type after_script cache
+        %i[before_script script after_script hooks stage cache
            image services only except rules needs variables artifacts
-           environment coverage retry interruptible timeout release tags
+           coverage retry interruptible timeout release tags
            inherit parallel]
       end
 
@@ -111,7 +113,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
       end
 
       context 'when job name is empty' do
-        let(:entry) { described_class.new(config, name: ''.to_sym) }
+        let(:entry) { described_class.new(config, name: :"") }
 
         it 'reports error' do
           expect(entry.errors).to include "job name can't be blank"
@@ -261,13 +263,13 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
           end
         end
 
-        context 'when it is lower than two' do
-          let(:config) { { script: 'echo', parallel: 1 } }
+        context 'when it is lower than one' do
+          let(:config) { { script: 'echo', parallel: 0 } }
 
           it 'returns error about value too low' do
             expect(entry).not_to be_valid
             expect(entry.errors)
-              .to include 'parallel config must be greater than or equal to 2'
+              .to include 'parallel config must be greater than or equal to 1'
           end
         end
 
@@ -317,96 +319,22 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
         end
       end
 
-      context 'when only: is used with rules:' do
-        let(:config) { { only: ['merge_requests'], rules: [{ if: '$THIS' }] } }
+      context 'when the `when` keyword is not a string' do
+        context 'when it is an array' do
+          let(:config) { { script: 'exit 0', when: ['always'] } }
 
-        it 'returns error about mixing only: with rules:' do
-          expect(entry).not_to be_valid
-          expect(entry.errors).to include /may not be used with `rules`/
-        end
-
-        context 'and only: is blank' do
-          let(:config) { { only: nil, rules: [{ if: '$THIS' }] } }
-
-          it 'returns error about mixing only: with rules:' do
+          it 'returns error' do
             expect(entry).not_to be_valid
-            expect(entry.errors).to include /may not be used with `rules`/
+            expect(entry.errors).to include 'job when should be a string'
           end
         end
 
-        context 'and rules: is blank' do
-          let(:config) { { only: ['merge_requests'], rules: nil } }
+        context 'when it is a boolean' do
+          let(:config) { { script: 'exit 0', when: true } }
 
-          it 'returns error about mixing only: with rules:' do
+          it 'returns error' do
             expect(entry).not_to be_valid
-            expect(entry.errors).to include /may not be used with `rules`/
-          end
-        end
-      end
-
-      context 'when except: is used with rules:' do
-        let(:config) { { except: { refs: %w[master] }, rules: [{ if: '$THIS' }] } }
-
-        it 'returns error about mixing except: with rules:' do
-          expect(entry).not_to be_valid
-          expect(entry.errors).to include /may not be used with `rules`/
-        end
-
-        context 'and except: is blank' do
-          let(:config) { { except: nil, rules: [{ if: '$THIS' }] } }
-
-          it 'returns error about mixing except: with rules:' do
-            expect(entry).not_to be_valid
-            expect(entry.errors).to include /may not be used with `rules`/
-          end
-        end
-
-        context 'and rules: is blank' do
-          let(:config) { { except: { refs: %w[master] }, rules: nil } }
-
-          it 'returns error about mixing except: with rules:' do
-            expect(entry).not_to be_valid
-            expect(entry.errors).to include /may not be used with `rules`/
-          end
-        end
-      end
-
-      context 'when only: and except: are both used with rules:' do
-        let(:config) do
-          {
-            only: %w[merge_requests],
-            except: { refs: %w[master] },
-            rules: [{ if: '$THIS' }]
-          }
-        end
-
-        it 'returns errors about mixing both only: and except: with rules:' do
-          expect(entry).not_to be_valid
-          expect(entry.errors).to include /may not be used with `rules`/
-          expect(entry.errors).to include /may not be used with `rules`/
-        end
-
-        context 'when only: and except: as both blank' do
-          let(:config) do
-            { only: nil, except: nil, rules: [{ if: '$THIS' }] }
-          end
-
-          it 'returns errors about mixing both only: and except: with rules:' do
-            expect(entry).not_to be_valid
-            expect(entry.errors).to include /may not be used with `rules`/
-            expect(entry.errors).to include /may not be used with `rules`/
-          end
-        end
-
-        context 'when rules: is blank' do
-          let(:config) do
-            { only: %w[merge_requests], except: { refs: %w[master] }, rules: nil }
-          end
-
-          it 'returns errors about mixing both only: and except: with rules:' do
-            expect(entry).not_to be_valid
-            expect(entry.errors).to include /may not be used with `rules`/
-            expect(entry.errors).to include /may not be used with `rules`/
+            expect(entry.errors).to include 'job when should be a string'
           end
         end
       end
@@ -583,6 +511,156 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
         end
       end
     end
+
+    context 'when only: is used with rules:' do
+      let(:config) { { only: ['merge_requests'], rules: [{ if: '$THIS' }], script: 'echo' } }
+
+      it 'returns error about mixing only: with rules:' do
+        expect(entry).not_to be_valid
+        expect(entry.errors).to include(/may not be used with `rules`: only/)
+      end
+
+      context 'and only: is blank' do
+        let(:config) { { only: nil, rules: [{ if: '$THIS' }], script: 'echo' } }
+
+        it 'is valid:' do
+          expect(entry).to be_valid
+        end
+      end
+
+      context 'and rules: is blank' do
+        let(:config) { { only: ['merge_requests'], rules: nil, script: 'echo' } }
+
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
+      end
+    end
+
+    context 'when except: is used with rules:' do
+      let(:config) { { except: { refs: %w[master] }, rules: [{ if: '$THIS' }], script: 'echo' } }
+
+      it 'returns error about mixing except: with rules:' do
+        expect(entry).not_to be_valid
+        expect(entry.errors).to include(/may not be used with `rules`: except/)
+      end
+
+      context 'and except: is blank' do
+        let(:config) { { except: nil, rules: [{ if: '$THIS' }], script: 'echo' } }
+
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
+      end
+
+      context 'and rules: is blank' do
+        let(:config) { { except: { refs: %w[master] }, rules: nil, script: 'echo' } }
+
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
+      end
+    end
+
+    context 'when only: and except: are both used with rules:' do
+      let(:config) do
+        {
+          only: %w[merge_requests],
+          except: { refs: %w[master] },
+          rules: [{ if: '$THIS' }],
+          script: 'echo'
+        }
+      end
+
+      it 'returns errors about mixing both only: and except: with rules:' do
+        expect(entry).not_to be_valid
+        expect(entry.errors).to include(/may not be used with `rules`: only, except/)
+      end
+
+      context 'when only: and except: as both blank' do
+        let(:config) do
+          { only: nil, except: nil, rules: [{ if: '$THIS' }], script: 'echo' }
+        end
+
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
+      end
+
+      context 'when rules: is blank' do
+        let(:config) do
+          { only: %w[merge_requests], except: { refs: %w[master] }, rules: nil, script: 'echo' }
+        end
+
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
+      end
+    end
+
+    context 'when job is not a pages job', feature_category: :pages do
+      let(:name) { :rspec }
+
+      context 'if the config contains a publish entry' do
+        let(:entry) { described_class.new({ script: 'echo', publish: 'foo' }, name: name) }
+
+        it 'is invalid' do
+          expect(entry).not_to be_valid
+          expect(entry.errors).to include(/job publish can only be used within a `pages` job/)
+        end
+      end
+
+      context 'if the config contains a pages entry' do
+        let(:entry) { described_class.new({ script: 'echo', pages: { path_prefix: 'foo' } }, name: name) }
+
+        it 'is invalid' do
+          expect(entry).not_to be_valid
+          expect(entry.errors).to include(/job pages can only be used within a `pages` job/)
+        end
+      end
+    end
+
+    context 'when job is a pages job', feature_category: :pages do
+      let(:name) { :pages }
+
+      context 'when it does not have a publish entry' do
+        let(:entry) { described_class.new({ script: 'echo' }, name: name) }
+
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
+      end
+
+      context 'when it has a publish entry' do
+        let(:entry) { described_class.new({ script: 'echo', publish: 'foo' }, name: name) }
+
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
+      end
+
+      context 'when it has a pages entry' do
+        let(:entry) { described_class.new({ script: 'echo', pages: { path_prefix: 'foo' } }, name: name) }
+
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
+      end
+    end
+  end
+
+  describe '#pages_job?', :aggregate_failures, feature_category: :pages do
+    where(:name, :result) do
+      :pages | true
+      :'pages:staging' | false
+      :'something:pages:else' | false
+    end
+
+    with_them do
+      subject { described_class.new({}, name: name).pages_job? }
+
+      it { is_expected.to eq(result) }
+    end
   end
 
   describe '#relevant?' do
@@ -605,8 +683,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
     let(:deps) do
       double('deps',
         'default_entry' => default,
-        'workflow_entry' => workflow,
-        'variables_value' => nil)
+        'workflow_entry' => workflow)
     end
 
     context 'when job config overrides default config' do
@@ -620,7 +697,13 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
 
       it 'overrides default config' do
         expect(entry[:image].value).to eq(name: 'some_image')
-        expect(entry[:cache].value).to eq([key: 'test', policy: 'pull-push', when: 'on_success'])
+        expect(entry[:cache].value).to match_array([
+          key: 'test',
+          policy: 'pull-push',
+          when: 'on_success',
+          unprotect: false,
+          fallback_keys: []
+        ])
       end
     end
 
@@ -635,13 +718,17 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
 
       it 'uses config from default entry' do
         expect(entry[:image].value).to eq 'specified'
-        expect(entry[:cache].value).to eq([key: 'test', policy: 'pull-push', when: 'on_success'])
+        expect(entry[:cache].value).to match_array([
+          key: 'test',
+          policy: 'pull-push',
+          when: 'on_success',
+          unprotect: false,
+          fallback_keys: []
+        ])
       end
     end
 
     context 'with workflow rules' do
-      using RSpec::Parameterized::TableSyntax
-
       where(:name, :has_workflow_rules?, :only, :rules, :result) do
         "uses default only"    | false | nil          | nil    | { refs: %w[branches tags] }
         "uses user only"       | false | %w[branches] | nil    | { refs: %w[branches] }
@@ -654,7 +741,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
       with_them do
         let(:config) { { script: 'ls', rules: rules, only: only }.compact }
 
-        it "#{name}" do
+        it name.to_s do
           expect(workflow).to receive(:has_rules?) { has_workflow_rules? }
 
           entry.compose!(deps)
@@ -697,21 +784,113 @@ RSpec.describe Gitlab::Ci::Config::Entry::Job do
         let(:config) do
           { before_script: %w[ls pwd],
             script: 'rspec',
-            after_script: %w[cleanup] }
+            after_script: %w[cleanup],
+            id_tokens: { TEST_ID_TOKEN: { aud: 'https://gitlab.com' } },
+            hooks: { pre_get_sources_script: 'echo hello' } }
         end
 
-        it 'returns correct value' do
+        it 'returns correct values' do
+          expect(entry.value).to eq(
+            name: :rspec,
+            before_script: %w[ls pwd],
+            script: %w[rspec],
+            stage: 'test',
+            ignore: false,
+            after_script: %w[cleanup],
+            hooks: { pre_get_sources_script: ['echo hello'] },
+            only: { refs: %w[branches tags] },
+            job_variables: {},
+            root_variables_inheritance: true,
+            scheduling_type: :stage,
+            id_tokens: { TEST_ID_TOKEN: { aud: 'https://gitlab.com' } }
+          )
+        end
+      end
+
+      context 'with retry present in the config' do
+        let(:config) do
+          {
+            script: 'rspec',
+            retry: { max: 1, when: "always" }
+          }
+        end
+
+        it 'returns correct values' do
           expect(entry.value)
             .to eq(name: :rspec,
-                   before_script: %w[ls pwd],
-                   script: %w[rspec],
-                   stage: 'test',
-                   ignore: false,
-                   after_script: %w[cleanup],
-                   only: { refs: %w[branches tags] },
-                   job_variables: {},
-                   root_variables_inheritance: true,
-                   scheduling_type: :stage)
+              script: %w[rspec],
+              stage: 'test',
+              ignore: false,
+              retry: { max: 1, when: %w[always] },
+              only: { refs: %w[branches tags] },
+              job_variables: {},
+              root_variables_inheritance: true,
+              scheduling_type: :stage
+            )
+        end
+
+        context 'when ci_retry_on_exit_codes feature flag is disabled' do
+          before do
+            stub_feature_flags(ci_retry_on_exit_codes: false)
+          end
+
+          it 'returns correct values' do
+            expect(entry.value)
+              .to eq(name: :rspec,
+                script: %w[rspec],
+                stage: 'test',
+                ignore: false,
+                retry: { max: 1, when: %w[always] },
+                only: { refs: %w[branches tags] },
+                job_variables: {},
+                root_variables_inheritance: true,
+                scheduling_type: :stage
+              )
+          end
+        end
+
+        context 'with exit_codes present' do
+          let(:config) do
+            {
+              script: 'rspec',
+              retry: { max: 1, when: "always", exit_codes: 255 }
+            }
+          end
+
+          it 'returns correct values' do
+            expect(entry.value)
+              .to eq(name: :rspec,
+                script: %w[rspec],
+                stage: 'test',
+                ignore: false,
+                retry: { max: 1, when: %w[always], exit_codes: [255] },
+                only: { refs: %w[branches tags] },
+                job_variables: {},
+                root_variables_inheritance: true,
+                scheduling_type: :stage
+              )
+          end
+
+          context 'when ci_retry_on_exit_codes feature flag is disabled' do
+            before do
+              stub_feature_flags(ci_retry_on_exit_codes: false)
+            end
+
+            it 'returns correct values' do
+              expect(entry.value)
+                .to eq(name: :rspec,
+                  script: %w[rspec],
+                  stage: 'test',
+                  ignore: false,
+                  # Shouldn't include exit_codes
+                  retry: { max: 1, when: %w[always] },
+                  only: { refs: %w[branches tags] },
+                  job_variables: {},
+                  root_variables_inheritance: true,
+                  scheduling_type: :stage
+                )
+            end
+          end
         end
       end
     end

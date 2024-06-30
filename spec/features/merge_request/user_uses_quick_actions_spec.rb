@@ -7,14 +7,9 @@ require 'spec_helper'
 # for example, adding quick actions when creating the issue and checking DateTime formats on UI.
 # Because this kind of spec takes more time to run there is no need to add new ones
 # for each existing quick action unless they test something not tested by existing tests.
-RSpec.describe 'Merge request > User uses quick actions', :js do
-  include Spec::Support::Helpers::Features::NotesHelpers
-
-  let(:project) { create(:project, :public, :repository) }
-  let(:user) { project.creator }
-  let(:guest) { create(:user) }
-  let(:merge_request) { create(:merge_request, source_project: project) }
-  let!(:milestone) { create(:milestone, project: project, title: 'ASAP') }
+RSpec.describe 'Merge request > User uses quick actions', :js, :use_clean_rails_redis_caching,
+  feature_category: :code_review_workflow do
+  include Features::NotesHelpers
 
   context "issuable common quick actions" do
     let!(:new_url_opts) { { merge_request: { source_branch: 'feature', target_branch: 'master' } } }
@@ -24,7 +19,7 @@ RSpec.describe 'Merge request > User uses quick actions', :js do
     let!(:label_feature) { create(:label, project: project, title: 'feature') }
     let!(:milestone) { create(:milestone, project: project, title: 'ASAP') }
     let(:issuable) { create(:merge_request, source_project: project) }
-    let(:source_issuable) { create(:issue, project: project, milestone: milestone, labels: [label_bug, label_feature])}
+    let(:source_issuable) { create(:issue, project: project, milestone: milestone, labels: [label_bug, label_feature]) }
 
     it_behaves_like 'close quick action', :merge_request
     it_behaves_like 'issuable time tracker', :merge_request
@@ -32,6 +27,7 @@ RSpec.describe 'Merge request > User uses quick actions', :js do
 
   describe 'merge-request-only commands' do
     let(:user) { create(:user) }
+    let(:guest) { create(:user) }
     let(:project) { create(:project, :public, :repository) }
     let(:merge_request) { create(:merge_request, source_project: project) }
     let!(:milestone) { create(:milestone, project: project, title: 'ASAP') }

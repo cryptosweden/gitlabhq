@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter do
+RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   let_it_be_with_refind(:project) { create(:project) }
@@ -14,7 +14,7 @@ RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter do
       expect { described_class.call('') }.to raise_error(ArgumentError, /:project/)
     end
 
-    %w(pre code a style).each do |elem|
+    %w[pre code a style].each do |elem|
       it "ignores valid references contained inside '#{elem}' element" do
         exp = act = "<#{elem}>Issue #{reference}</#{elem}>"
 
@@ -59,7 +59,7 @@ RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter do
 
     it 'escapes the title attribute' do
       allow(project.external_issue_tracker).to receive(:title)
-        .and_return(%{"></a>whatever<a title="})
+        .and_return(%("></a>whatever<a title="))
 
       doc = filter("Issue #{reference}")
       expect(doc.text).to eq "Issue #{reference}"
@@ -184,8 +184,46 @@ RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter do
     end
   end
 
+  context "clickup project" do
+    before_all do
+      create(:clickup_integration, project: project)
+    end
+
+    before do
+      project.update!(issues_enabled: false)
+    end
+
+    context "with right markdown" do
+      let(:issue) { ExternalIssue.new("PRJ-123", project) }
+      let(:reference) { issue.to_reference }
+
+      it_behaves_like "external issue tracker"
+    end
+
+    context "with underscores in the prefix" do
+      let(:issue) { ExternalIssue.new("PRJ_1-123", project) }
+      let(:reference) { issue.to_reference }
+
+      it_behaves_like "external issue tracker"
+    end
+
+    context "with a hash prefix and alphanumeric" do
+      let(:issue) { ExternalIssue.new("#abcd123", project) }
+      let(:reference) { issue.to_reference }
+
+      it_behaves_like "external issue tracker"
+    end
+
+    context "with prefix and alphanumeric" do
+      let(:issue) { ExternalIssue.new("CU-abcd123", project) }
+      let(:reference) { issue.to_reference }
+
+      it_behaves_like "external issue tracker"
+    end
+  end
+
   context "jira project" do
-    let_it_be(:service) { create(:jira_integration, project: project) }
+    let_it_be_with_reload(:service) { create(:jira_integration, project: project) }
 
     let(:reference) { issue.to_reference }
 
@@ -210,6 +248,36 @@ RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter do
       it "ignores reference" do
         exp = act = "Issue #{reference}"
         expect(filter(act).to_html).to eq exp
+      end
+    end
+
+    context 'with a custom regex' do
+      before do
+        service.jira_tracker_data.update!(jira_issue_regex: '[JIRA]{2,}-\\d+')
+      end
+
+      context "with right markdown" do
+        let(:issue) { ExternalIssue.new("JIRA-123", project) }
+
+        it_behaves_like "external issue tracker"
+      end
+
+      context "with a single-letter prefix" do
+        let(:issue) { ExternalIssue.new("J-123", project) }
+
+        it "ignores reference" do
+          exp = act = "Issue #{reference}"
+          expect(filter(act).to_html).to eq exp
+        end
+      end
+
+      context "with wrong markdown" do
+        let(:issue) { ExternalIssue.new("#123", project) }
+
+        it "ignores reference" do
+          exp = act = "Issue #{reference}"
+          expect(filter(act).to_html).to eq exp
+        end
       end
     end
   end
@@ -257,6 +325,23 @@ RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter do
     end
   end
 
+  context "phorge project" do
+    before_all do
+      create(:phorge_integration, project: project)
+    end
+
+    before do
+      project.update!(issues_enabled: false)
+    end
+
+    context "with right markdown" do
+      let(:issue) { ExternalIssue.new("T123", project) }
+      let(:reference) { issue.to_reference }
+
+      it_behaves_like "external issue tracker"
+    end
+  end
+
   context 'checking N+1' do
     let_it_be(:integration) { create(:redmine_integration, project: project) }
     let_it_be(:issue1) { ExternalIssue.new("#123", project) }
@@ -270,9 +355,9 @@ RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter do
       single_reference = "External Issue #{issue1.to_reference}"
       multiple_references = "External Issues #{issue1.to_reference} and #{issue2.to_reference}"
 
-      control_count = ActiveRecord::QueryRecorder.new { reference_filter(single_reference).to_html }.count
+      control = ActiveRecord::QueryRecorder.new { reference_filter(single_reference).to_html }
 
-      expect { reference_filter(multiple_references).to_html }.not_to exceed_query_limit(control_count)
+      expect { reference_filter(multiple_references).to_html }.not_to exceed_query_limit(control)
     end
   end
 end

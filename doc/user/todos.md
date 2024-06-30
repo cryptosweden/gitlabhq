@@ -1,11 +1,14 @@
 ---
-disqus_identifier: 'https://docs.gitlab.com/ee/workflow/todos.html'
-stage: Plan
-group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Personal Productivity
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# To-Do List **(FREE)**
+# To-Do List
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Your *To-Do List* is a chronological list of items waiting for your input.
 The items are known as *to-do items*.
@@ -21,27 +24,35 @@ You can use the To-Do List to track [actions](#actions-that-create-to-do-items) 
 
 To access your To-Do List:
 
-On the top bar, in the top right, select To-Do List (**{task-done}**).
+On the left sidebar, at the top, select **To-Do list** (**{task-done}**).
+
+### Search the To-Do List
+
+You can search your To-Do List by `to do` and `done`.
+
+You can filter to-do items per project, author, type, and action.
+Also, you can sort them by [**Label priority**](project/labels.md#set-label-priority),
+**Last created**, and **Oldest created**.
 
 ## Actions that create to-do items
 
 Many to-do items are created automatically.
-A to-do item is added to your To-Do List when:
+Some of the actions that add a to-do item to your To-Do List:
 
 - An issue or merge request is assigned to you.
+- A [merge request review](project/merge_requests/reviews/index.md) is requested.
 - You're [mentioned](discussions/index.md#mentions) in the description or
   comment of an issue, merge request, or epic.
-- You are mentioned in a comment on a commit or design.
+- You're mentioned in a comment on a commit or design.
 - The CI/CD pipeline for your merge request fails.
 - An open merge request cannot be merged due to conflict, and one of the
   following is true:
   - You're the author.
   - You're the user that set the merge request to automatically merge after a
     pipeline succeeds.
-- [In GitLab 13.2](https://gitlab.com/gitlab-org/gitlab/-/issues/12136) and later, a
-  merge request is removed from a
-  [merge train](../ci/pipelines/merge_trains.md),
-  and you're the user that added it.
+- A merge request is removed from a [merge train](../ci/pipelines/merge_trains.md), and you're the user that added it.
+- [In GitLab 15.8](https://gitlab.com/gitlab-org/gitlab/-/issues/374725) and later,
+  a member access request is raised for a group or project you're an owner of.
 
 When several actions occur for the same user on the same object,
 GitLab displays the first action as a single to-do item.
@@ -49,19 +60,26 @@ To change this behavior, enable
 [multiple to-do items per object](#multiple-to-do-items-per-object).
 
 To-do items aren't affected by [GitLab notification email settings](profile/notifications.md).
+The only exception: If your notification setting is set to **Custom** and **Added as approver** is
+selected, you get a to-do item when you are eligible to approve a merge request.
 
-### Multiple to-do items per object **(FREE SELF)**
+### Multiple to-do items per object
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed
 
 <!-- When the feature flag is removed, integrate this topic into the one above. -->
 
 > - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/28355) in GitLab 13.8 [with a flag](../administration/feature_flags.md) named `multiple_todos`. Disabled by default.
 > - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/82470) in GitLab 14.9: only mentions create multiple to-do items.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/28355) in GitLab 16.2.
 
 FLAG:
 On self-managed GitLab, by default this feature is not available. To make it available per user,
-ask an administrator to [enable the feature flag](../administration/feature_flags.md) named `multiple_todos`.
-On GitLab.com, this feature is not available.
-The feature is not ready for production use.
+an administrator can [enable the feature flag](../administration/feature_flags.md) named `multiple_todos`.
+On GitLab.com, this feature is available. On GitLab Dedicated, this feature is not available.
+This feature is not ready for production use.
 
 When you enable this feature:
 
@@ -71,6 +89,8 @@ When you enable this feature:
 
 ## Create a to-do item
 
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390549) in objectives, key results, and tasks in GitLab 16.0.
+
 You can manually add an item to your To-Do List.
 
 1. Go to your:
@@ -79,47 +99,67 @@ You can manually add an item to your To-Do List.
    - [Merge request](project/merge_requests/index.md)
    - [Epic](group/epics/index.md)
    - [Design](project/issues/design_management.md)
+   - [Incident](../operations/incident_management/incidents.md)
+   - [Objective or key result](../user/okrs.md)
+   - [Task](tasks.md)
 
-1. On the right sidebar, at the top, select **Add a to do**.
+1. In the upper-right corner, select  **Add a to do** (**{todo-add}**).
 
-   ![Adding a to-do item from the issuable sidebar](img/todos_add_todo_sidebar_v14_1.png)
+### Create a to-do item by mentioning someone
 
-## Create a to-do item by directly addressing someone
+You can create a to-do item by mentioning someone anywhere except for a code block. Mentioning a user many times in one message only creates one to-do item.
 
-You can create a to-do item by directly addressing someone at the start of a line.
-For example, in the following comment:
+For example, from the following comment, everyone except `frank` gets a to-do item created for them:
 
-```markdown
+````markdown
 @alice What do you think? cc: @bob
 
 - @carol can you please have a look?
 
 > @dan what do you think?
 
-@erin @frank thank you!
+Hey @erin, this is what they said:
+
 ```
+Hi, please message @frank :incoming_envelope:
+```
+````
 
-The people who receive to-do items are `@alice`, `@erin`, and
-`@frank`.
+### Re-add a done to-do item
 
-To view to-do items where a user was directly addressed, go to the To-Do List and
-from the **Action** filter, select **Directly addressed**.
+If you marked a to-do item as done by mistake, you can re-add it from the **Done** tab:
 
-Mentioning a user many times only creates one to-do item.
+1. On the left sidebar, at the top, select To-Do list (**{task-done}**).
+1. At the top, select **Done**.
+1. [Find the to-do item](#search-the-to-do-list) you want to re-add.
+1. Next to this to-do item, select **Re-add this to-do item** **{redo}**.
+
+The to-do item is now visible in the **To Do** tab of the To-Do list.
 
 ## Actions that mark a to-do item as done
 
-Any action to an issue, merge request, or epic marks its
+Various actions on the to-do item object (like issue, merge request, or epic) mark its
 corresponding to-do item as done.
 
-Actions that dismiss to-do items include:
+To-do items are marked as done if you:
 
-- Changing the assignee
-- Changing the milestone
-- Closing the issue or merge request
-- Adding or removing a label
-- Commenting on the issue
-- Resolving a [design discussion thread](project/issues/design_management.md#resolve-design-threads)
+- Add an emoji reaction to the description or comment.
+- Add or remove a label.
+- Change the assignee.
+- Change the milestone.
+- Close the to-do item's object.
+- Create a comment.
+- Edit the description.
+- Resolve a [design discussion thread](project/issues/design_management.md#resolve-a-discussion-thread-on-a-design).
+- Accept or deny a project or group membership request.
+
+To-do items are **not** marked as done if you:
+
+- Add a linked item (like a [linked issue](project/issues/related_issues.md)).
+- Add a child item (like [child epic](group/epics/manage_epics.md#multi-level-child-epics) or [task](tasks.md)).
+- Add a [time entry](project/time_tracking.md).
+- Assign yourself.
+- Change the [health status](project/issues/managing_issues.md#health-status).
 
 If someone else closes, merges, or takes action on an issue, merge request, or
 epic, your to-do item remains pending.
@@ -130,16 +170,14 @@ You can manually mark a to-do item as done.
 
 There are two ways to do this:
 
-- In the To-Do List, to the right of the to-do item, select **Done**.
-- In the sidebar of an issue, merge request, or epic, select **Mark as done**.
+- In the To-Do List, to the right of the to-do item, select **Mark as done** (**{check}**).
+- In the upper-right corner of the resource (for example, issue or merge request), select **Mark as done** (**{todo-done}**).
 
-  ![Mark as done from the sidebar](img/todos_mark_done_sidebar_v14_1.png)
-
-## Mark all to-do items as done
+### Mark all to-do items as done
 
 You can mark all your to-do items as done at the same time.
 
-In the To-Do List, in the top right, select **Mark all as done**.
+In the To-Do List, in the upper-right corner, select **Mark all as done**.
 
 ## How a user's To-Do List is affected when their access changes
 

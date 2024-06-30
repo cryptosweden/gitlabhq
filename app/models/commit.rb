@@ -29,16 +29,20 @@ class Commit
   delegate :project, to: :repository, allow_nil: true
 
   MIN_SHA_LENGTH = Gitlab::Git::Commit::MIN_SHA_LENGTH
-  COMMIT_SHA_PATTERN = /\h{#{MIN_SHA_LENGTH},40}/.freeze
-  EXACT_COMMIT_SHA_PATTERN = /\A#{COMMIT_SHA_PATTERN}\z/.freeze
+  MAX_SHA_LENGTH = Gitlab::Git::Commit::MAX_SHA_LENGTH
+  COMMIT_SHA_PATTERN = Gitlab::Git::Commit::SHA_PATTERN
+  WHOLE_WORD_COMMIT_SHA_PATTERN = /\b#{COMMIT_SHA_PATTERN}\b/
+  EXACT_COMMIT_SHA_PATTERN = /\A#{COMMIT_SHA_PATTERN}\z/
   # Used by GFM to match and present link extensions on node texts and hrefs.
-  LINK_EXTENSION_PATTERN = /(patch)/.freeze
+  LINK_EXTENSION_PATTERN = /(patch)/
 
   DEFAULT_MAX_DIFF_LINES_SETTING = 50_000
   DEFAULT_MAX_DIFF_FILES_SETTING = 1_000
   MAX_DIFF_LINES_SETTING_UPPER_BOUND = 100_000
   MAX_DIFF_FILES_SETTING_UPPER_BOUND = 3_000
   DIFF_SAFE_LIMIT_FACTOR = 10
+
+  CO_AUTHORED_TRAILER = "Co-authored-by"
 
   cache_markdown_field :title, pipeline: :single_line
   cache_markdown_field :full_title, pipeline: :single_line, limit: 1.kilobyte
@@ -133,6 +137,26 @@ class Commit
     def parent_class
       ::Project
     end
+
+    def build_from_sidekiq_hash(project, hash)
+      hash = hash.dup
+      date_suffix = '_date'
+
+      # When processing Sidekiq payloads various timestamps are stored as Strings.
+      # Commit in turn expects Time-like instances upon input, so we have to
+      # manually parse these values.
+      hash.each do |key, value|
+        if key.to_s.end_with?(date_suffix) && value.is_a?(String)
+          hash[key] = Time.zone.parse(value)
+        end
+      end
+
+      from_hash(hash, project)
+    end
+
+    def underscore
+      'commit'
+    end
   end
 
   attr_accessor :raw
@@ -184,13 +208,14 @@ class Commit
   def self.reference_pattern
     @reference_pattern ||= %r{
       (?:#{Project.reference_pattern}#{reference_prefix})?
-      (?<commit>#{COMMIT_SHA_PATTERN})
+      (?<commit>#{WHOLE_WORD_COMMIT_SHA_PATTERN})
     }x
   end
 
   def self.link_reference_pattern
     @link_reference_pattern ||=
-      super("commit", /(?<commit>#{COMMIT_SHA_PATTERN})?(\.(?<extension>#{LINK_EXTENSION_PATTERN}))?/)
+      compose_link_reference_pattern('commit',
+        /(?<commit>#{COMMIT_SHA_PATTERN})?(\.(?<extension>#{LINK_EXTENSION_PATTERN}))?/o)
   end
 
   def to_reference(from = nil, full: false)
@@ -337,7 +362,7 @@ class Commit
 
   def diff_refs
     Gitlab::Diff::DiffRefs.new(
-      base_sha: self.parent_id || Gitlab::Git::BLANK_SHA,
+      base_sha: self.parent_id || container.repository.blank_ref,
       head_sha: self.sha
     )
   end
@@ -350,9 +375,7 @@ class Commit
     strong_memoize(:raw_signature_type) do
       next unless @raw.instance_of?(Gitlab::Git::Commit)
 
-      if raw_commit_from_rugged? && gpg_commit.signature_text.present?
-        :PGP
-      elsif defined? @raw.raw_commit.signature_type
+      if defined? @raw.raw_commit.signature_type
         @raw.raw_commit.signature_type
       end
     end
@@ -369,14 +392,10 @@ class Commit
         gpg_commit.signature
       when :X509
         Gitlab::X509::Commit.new(self).signature
-      else
-        nil
+      when :SSH
+        Gitlab::Ssh::Commit.new(self).signature
       end
     end
-  end
-
-  def raw_commit_from_rugged?
-    @raw.raw_commit.is_a?(Rugged::Commit)
   end
 
   def gpg_commit
@@ -410,7 +429,7 @@ class Commit
   end
 
   def cherry_pick_message(user)
-    %Q{#{message}\n\n#{cherry_pick_description(user)}}
+    %(#{message}\n\n#{cherry_pick_description(user)})
   end
 
   def revert_description(user)
@@ -422,7 +441,7 @@ class Commit
   end
 
   def revert_message(user)
-    %Q{Revert "#{title.strip}"\n\n#{revert_description(user)}}
+    %(Revert "#{title.strip}"\n\n#{revert_description(user)})
   end
 
   def reverts_commit?(commit, user)
@@ -483,8 +502,8 @@ class Commit
     end
   end
 
-  def raw_diffs(*args)
-    raw.diffs(*args)
+  def raw_diffs(...)
+    raw.diffs(...)
   end
 
   def raw_deltas
@@ -513,11 +532,16 @@ class Commit
     # We don't want to do anything for `Commit` model, so this is empty.
   end
 
-  DRAFT_REGEX = /\A\s*#{Gitlab::Regex.merge_request_draft}|(fixup!|squash!)\s/.freeze
+  # We are continuing to support `(fixup!|squash!)` here as it is the prefix
+  #   added by `git commit --fixup` which is used by some community members.
+  #   https://gitlab.com/gitlab-org/gitlab/-/issues/342937#note_892065311
+  #
+  DRAFT_REGEX = /\A\s*#{Gitlab::Regex.merge_request_draft}|(fixup!|squash!)\s/
 
-  def work_in_progress?
+  def draft?
     !!(title =~ DRAFT_REGEX)
   end
+  alias_method :work_in_progress?, :draft?
 
   def merged_merge_request?(user)
     !!merged_merge_request(user)
@@ -527,10 +551,10 @@ class Commit
     "commit:#{sha}"
   end
 
-  def expire_note_etag_cache
+  def broadcast_notes_changed
     super
 
-    expire_note_etag_cache_for_related_mrs
+    broadcast_notes_changed_for_related_mrs
   end
 
   def readable_by?(user)
@@ -550,12 +574,37 @@ class Commit
     }
   end
 
+  def tipping_branches(limit: 0)
+    tipping_refs(Gitlab::Git::BRANCH_REF_PREFIX, limit: limit)
+  end
+
+  def tipping_tags(limit: 0)
+    tipping_refs(Gitlab::Git::TAG_REF_PREFIX, limit: limit)
+  end
+
+  def branches_containing(limit: 0, exclude_tipped: false)
+    excluded = exclude_tipped ? tipping_branches : []
+
+    repository.branch_names_contains(id, limit: limit, exclude_refs: excluded) || []
+  end
+
+  def tags_containing(limit: 0, exclude_tipped: false)
+    excluded = exclude_tipped ? tipping_tags : []
+
+    repository.tag_names_contains(id, limit: limit, exclude_refs: excluded) || []
+  end
+
   private
 
-  def expire_note_etag_cache_for_related_mrs
-    MergeRequest.includes(target_project: :namespace).by_commit_sha(id).find_each do |mr|
-      mr.expire_note_etag_cache
+  def tipping_refs(ref_prefix, limit: 0)
+    strong_memoize_with(:tipping_tags, ref_prefix, limit) do
+      refs = repository.refs_by_oid(oid: id, ref_patterns: [ref_prefix], limit: limit)
+      refs.map { |n| n.delete_prefix(ref_prefix) }
     end
+  end
+
+  def broadcast_notes_changed_for_related_mrs
+    MergeRequest.includes(target_project: :namespace).by_commit_sha(id).find_each(&:broadcast_notes_changed)
   end
 
   def commit_reference(from, referable_commit_id, full: false)
@@ -585,6 +634,8 @@ class Commit
   end
 
   def merged_merge_request_no_cache(user)
-    MergeRequestsFinder.new(user, project_id: project_id).find_by(merge_commit_sha: id) if merge_commit?
+    return MergeRequestsFinder.new(user, project_id: project_id).find_by(merge_commit_sha: id) if merge_commit?
+
+    MergeRequestsFinder.new(user, project_id: project_id).find_by(squash_commit_sha: id)
   end
 end

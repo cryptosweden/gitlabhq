@@ -1,5 +1,7 @@
 import { screen } from '@testing-library/dom';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { useOverclockTimers } from 'test_helpers/utils/overclock_timers';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import * as ideHelper from './helpers/ide_helper';
 import startWebIDE from './helpers/start';
 
@@ -10,16 +12,18 @@ describe('IDE: User opens IDE', () => {
   let container;
 
   beforeEach(() => {
-    setFixtures('<div class="webide-container"></div>');
+    stubPerformanceWebAPI();
+
+    setHTMLFixture('<div class="webide-container"></div>');
     container = document.querySelector('.webide-container');
   });
 
   afterEach(() => {
     vm.$destroy();
-    vm = null;
+    resetHTMLFixture();
   });
 
-  it('shows loading indicator while the IDE is loading', async () => {
+  it('shows loading indicator while the IDE is loading', () => {
     vm = startWebIDE(container);
 
     expect(container.querySelectorAll('.multi-file-loading-container')).toHaveLength(3);
@@ -48,7 +52,7 @@ describe('IDE: User opens IDE', () => {
       await screen.findByText('README'); // wait for file tree to load
     });
 
-    it('shows a list of files in the left sidebar', async () => {
+    it('shows a list of files in the left sidebar', () => {
       expect(ideHelper.getFilesList()).toEqual(
         expect.arrayContaining(['README', 'LICENSE', 'CONTRIBUTING.md']),
       );

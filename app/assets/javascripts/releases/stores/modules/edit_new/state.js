@@ -1,4 +1,7 @@
+import { SEARCH, EXISTING_TAG } from './constants';
+
 export default ({
+  isExistingRelease,
   projectId,
   groupId,
   groupMilestonesAvailable = false,
@@ -9,10 +12,14 @@ export default ({
   manageMilestonesPath,
   newMilestonePath,
   releasesPagePath,
+  editReleaseDocsPath,
+  upcomingReleaseDocsPath,
 
+  deleteReleaseDocsPath = '',
   tagName = null,
   defaultBranch = null,
 }) => ({
+  isExistingRelease,
   projectId,
   groupId,
   groupMilestonesAvailable: Boolean(groupMilestonesAvailable),
@@ -23,12 +30,16 @@ export default ({
   manageMilestonesPath,
   newMilestonePath,
   releasesPagePath,
+  editReleaseDocsPath,
+  upcomingReleaseDocsPath,
+  deleteReleaseDocsPath,
 
   /**
    * The name of the tag associated with the release, provided by the backend.
-   * When creating a new release, this value is null.
+   * When creating a new release, this is the default from the URL
    */
   tagName,
+  showCreateFrom: false,
 
   defaultBranch,
   createFrom: defaultBranch,
@@ -48,4 +59,12 @@ export default ({
 
   isUpdatingRelease: false,
   updateError: null,
+
+  tagNotes: '',
+  isFetchingTagNotes: false,
+  includeTagNotes: false,
+  existingRelease: null,
+  originalReleasedAt: new Date(),
+  step: SEARCH,
+  tagStep: EXISTING_TAG,
 });

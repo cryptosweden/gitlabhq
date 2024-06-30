@@ -1,20 +1,20 @@
 <script>
-import { GlIcon, GlSprintf, GlBadge, GlResizeObserverDirective } from '@gitlab/ui';
+import { GlSprintf, GlBadge, GlResizeObserverDirective, GlTooltipDirective } from '@gitlab/ui';
 import { GlBreakpointInstance } from '@gitlab/ui/dist/utils';
-import { numberToHumanSize } from '~/lib/utils/number_utils';
-import { __ } from '~/locale';
+import { __, s__, sprintf } from '~/locale';
+import { formatDate } from '~/lib/utils/datetime_utility';
 import PackageTags from '~/packages_and_registries/shared/components/package_tags.vue';
 import { PACKAGE_TYPE_NUGET } from '~/packages_and_registries/package_registry/constants';
 import { getPackageTypeLabel } from '~/packages_and_registries/package_registry/utils';
 import MetadataItem from '~/vue_shared/components/registry/metadata_item.vue';
 import TitleArea from '~/vue_shared/components/registry/title_area.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 
 export default {
   name: 'PackageTitle',
   components: {
     TitleArea,
-    GlIcon,
     GlSprintf,
     PackageTags,
     MetadataItem,
@@ -23,9 +23,14 @@ export default {
   },
   directives: {
     GlResizeObserver: GlResizeObserverDirective,
+    GlTooltip: GlTooltipDirective,
   },
+  mixins: [glFeatureFlagsMixin()],
+  inject: ['isGroupPage'],
   i18n: {
+    lastDownloadedAt: s__('PackageRegistry|Last downloaded %{dateTime}'),
     packageInfo: __('v%{version} published %{timeAgo}'),
+    badgeProtectedTooltipText: s__('PackageRegistry|A protection rule exists for this package.'),
   },
   props: {
     packageEntity: {
@@ -39,6 +44,11 @@ export default {
     };
   },
   computed: {
+    packageLastDownloadedAtDisplay() {
+      return sprintf(this.$options.i18n.lastDownloadedAt, {
+        dateTime: formatDate(this.packageEntity.lastDownloadedAt, 'mmm d, yyyy'),
+      });
+    },
     packageTypeDisplay() {
       return getPackageTypeLabel(this.packageEntity.packageType);
     },
@@ -54,21 +64,17 @@ export default {
     hasTagsToDisplay() {
       return Boolean(this.packageEntity.tags?.nodes && this.packageEntity.tags?.nodes.length);
     },
-    totalSize() {
-      return this.packageEntity.packageFiles
-        ? numberToHumanSize(
-            this.packageEntity.packageFiles.nodes.reduce((acc, p) => acc + Number(p.size), 0),
-          )
-        : '0';
+    showBadgeProtected() {
+      return (
+        Boolean(this.glFeatures.packagesProtectedPackages) &&
+        Boolean(this.packageEntity?.protectionRuleExists)
+      );
     },
   },
   mounted() {
     this.checkBreakpoints();
   },
   methods: {
-    dynamicSlotName(index) {
-      return `metadata-tag${index}`;
-    },
     checkBreakpoints() {
       this.isDesktop = GlBreakpointInstance.isDesktop();
     },
@@ -81,36 +87,56 @@ export default {
     v-gl-resize-observer="checkBreakpoints"
     :title="packageEntity.name"
     :avatar="packageIcon"
-    data-qa-selector="package_title"
   >
     <template #sub-header>
-      <gl-icon name="eye" class="gl-mr-3" />
-      <span data-testid="sub-header">
+      <div
+        data-testid="sub-header"
+        class="gl-display-flex gl-flex-wrap gl-gap-2 gl-align-items-baseline"
+      >
         <gl-sprintf :message="$options.i18n.packageInfo">
-          <template #version>
-            {{ packageEntity.version }}
-          </template>
+          <template #version>{{ packageEntity.version }}</template>
 
           <template #timeAgo>
-            <time-ago-tooltip
-              v-if="packageEntity.createdAt"
-              class="gl-ml-2"
-              :time="packageEntity.createdAt"
-            />
+            <time-ago-tooltip v-if="packageEntity.createdAt" :time="packageEntity.createdAt" />
           </template>
         </gl-sprintf>
-      </span>
+
+        <package-tags
+          v-if="isDesktop && hasTagsToDisplay"
+          :tag-display-limit="2"
+          :tags="packageEntity.tags.nodes"
+          hide-label
+        />
+
+        <!-- we need to duplicate the package tags on mobile to ensure proper styling inside the flex wrap -->
+        <template v-else-if="hasTagsToDisplay">
+          <gl-badge
+            v-for="(tag, index) in packageEntity.tags.nodes"
+            :key="index"
+            class="gl-my-1"
+            data-testid="tag-badge"
+            variant="info"
+          >
+            {{ tag.name }}
+          </gl-badge>
+        </template>
+
+        <gl-badge
+          v-if="showBadgeProtected"
+          v-gl-tooltip="{ title: $options.i18n.badgeProtectedTooltipText }"
+          icon-size="sm"
+          variant="neutral"
+        >
+          {{ __('protected') }}
+        </gl-badge>
+      </div>
     </template>
 
     <template v-if="packageTypeDisplay" #metadata-type>
       <metadata-item data-testid="package-type" icon="package" :text="packageTypeDisplay" />
     </template>
 
-    <template #metadata-size>
-      <metadata-item data-testid="package-size" icon="disk" :text="totalSize" />
-    </template>
-
-    <template v-if="packagePipeline" #metadata-pipeline>
+    <template v-if="isGroupPage && packagePipeline" #metadata-pipeline>
       <metadata-item
         data-testid="pipeline-project"
         icon="review-list"
@@ -123,19 +149,13 @@ export default {
       <metadata-item data-testid="package-ref" icon="branch" :text="packagePipeline.ref" />
     </template>
 
-    <template v-if="isDesktop && hasTagsToDisplay" #metadata-tags>
-      <package-tags :tag-display-limit="2" :tags="packageEntity.tags.nodes" hide-label />
-    </template>
-
-    <!-- we need to duplicate the package tags on mobile to ensure proper styling inside the flex wrap -->
-    <template
-      v-for="(tag, index) in packageEntity.tags.nodes"
-      v-else-if="hasTagsToDisplay"
-      #[dynamicSlotName(index)]
-    >
-      <gl-badge :key="index" class="gl-my-1" data-testid="tag-badge" variant="info" size="sm">
-        {{ tag.name }}
-      </gl-badge>
+    <template v-if="packageEntity.lastDownloadedAt" #metadata-last-downloaded-at>
+      <metadata-item
+        data-testid="package-last-downloaded-at"
+        icon="download"
+        :text="packageLastDownloadedAtDisplay"
+        size="m"
+      />
     </template>
 
     <template #right-actions>

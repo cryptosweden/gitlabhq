@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin Mode Login' do
+RSpec.describe 'Admin Mode Login', feature_category: :system_access do
   include TermsHelper
   include UserLoginHelper
   include LdapHelpers
@@ -20,13 +20,13 @@ RSpec.describe 'Admin Mode Login' do
         it 'blocks login if we reuse the same code immediately' do
           gitlab_sign_in(user, remember: true)
 
-          expect(page).to have_content('Two-Factor Authentication')
+          expect(page).to have_content(_('Enter verification code'))
 
           repeated_otp = user.current_otp
           enter_code(repeated_otp)
-          gitlab_enable_admin_mode_sign_in(user)
+          enable_admin_mode!(user, use_ui: true)
 
-          expect(page).to have_content('Two-Factor Authentication')
+          expect(page).to have_content(_('Enter verification code'))
 
           enter_code(repeated_otp)
 
@@ -38,12 +38,12 @@ RSpec.describe 'Admin Mode Login' do
           before do
             gitlab_sign_in(user, remember: true)
 
-            expect(page).to have_content('Two-Factor Authentication')
+            expect(page).to have_content('Enter verification code')
 
             enter_code(user.current_otp)
-            gitlab_enable_admin_mode_sign_in(user)
+            enable_admin_mode!(user, use_ui: true)
 
-            expect(page).to have_content('Two-Factor Authentication')
+            expect(page).to have_content(_('Enter verification code'))
           end
 
           it 'allows login with valid code' do
@@ -121,31 +121,32 @@ RSpec.describe 'Admin Mode Login' do
       end
 
       context 'when logging in via omniauth' do
-        let(:user) { create(:omniauth_user, :admin, :two_factor, extern_uid: 'my-uid', provider: 'saml', password_automatically_set: false)}
+        let(:user) { create(:omniauth_user, :admin, :two_factor, extern_uid: 'my-uid', provider: 'saml', password_automatically_set: false) }
         let(:mock_saml_response) do
           File.read('spec/fixtures/authentication/saml_response.xml')
         end
 
         before do
-          stub_omniauth_saml_config(enabled: true, auto_link_saml_user: true, allow_single_sign_on: ['saml'],
-                                    providers: [mock_saml_config_with_upstream_two_factor_authn_contexts])
+          stub_omniauth_saml_config(enabled: true, auto_link_saml_user: true, allow_single_sign_on: ['saml'], providers: [mock_saml_config_with_upstream_two_factor_authn_contexts])
         end
 
         context 'when authn_context is worth two factors' do
           let(:mock_saml_response) do
             File.read('spec/fixtures/authentication/saml_response.xml')
-                .gsub('urn:oasis:names:tc:SAML:2.0:ac:classes:Password',
-                      'urn:oasis:names:tc:SAML:2.0:ac:classes:SecondFactorOTPSMS')
+              .gsub(
+                'urn:oasis:names:tc:SAML:2.0:ac:classes:Password',
+                'urn:oasis:names:tc:SAML:2.0:ac:classes:SecondFactorOTPSMS'
+              )
           end
 
           it 'signs user in without prompting for second factor' do
             sign_in_using_saml!
 
-            expect(page).not_to have_content('Two-Factor Authentication')
+            expect(page).not_to have_content(_('Enter verification code'))
 
             enable_admin_mode_using_saml!
 
-            expect(page).not_to have_content('Two-Factor Authentication')
+            expect(page).not_to have_content(_('Enter verification code'))
             expect(page).to have_current_path admin_root_path, ignore_query: true
             expect(page).to have_content('Admin mode enabled')
           end
@@ -155,12 +156,12 @@ RSpec.describe 'Admin Mode Login' do
           it 'shows 2FA prompt after omniauth login' do
             sign_in_using_saml!
 
-            expect(page).to have_content('Two-Factor Authentication')
+            expect(page).to have_content(_('Enter verification code'))
             enter_code(user.current_otp)
 
             enable_admin_mode_using_saml!
 
-            expect(page).to have_content('Two-Factor Authentication')
+            expect(page).to have_content(_('Enter verification code'))
 
             # Cannot reuse the TOTP
             travel_to(30.seconds.from_now) do
@@ -206,13 +207,12 @@ RSpec.describe 'Admin Mode Login' do
         context 'when two factor authentication is required' do
           it 'shows 2FA prompt after ldap login' do
             sign_in_using_ldap!(user, provider_label)
-
-            expect(page).to have_content('Two-Factor Authentication')
+            expect(page).to have_content(_('Enter verification code'))
 
             enter_code(user.current_otp)
             enable_admin_mode_using_ldap!(user)
 
-            expect(page).to have_content('Two-Factor Authentication')
+            expect(page).to have_content(_('Enter verification code'))
 
             # Cannot reuse the TOTP
             travel_to(30.seconds.from_now) do
@@ -254,7 +254,7 @@ RSpec.describe 'Admin Mode Login' do
           click_link provider_label
           fill_in 'username', with: user.username
           fill_in 'password', with: user.password
-          click_button 'Enter Admin Mode'
+          click_button 'Enter admin mode'
         end
       end
     end

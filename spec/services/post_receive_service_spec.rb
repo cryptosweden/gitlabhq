@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe PostReceiveService do
+RSpec.describe PostReceiveService, feature_category: :team_planning do
+  include GitlabShellHelpers
   include Gitlab::Routing
 
   let_it_be(:user) { create(:user) }
@@ -13,19 +14,17 @@ RSpec.describe PostReceiveService do
   let(:identifier) { 'key-123' }
   let(:gl_repository) { "project-#{project.id}" }
   let(:branch_name) { 'feature' }
-  let(:secret_token) { Gitlab::Shell.secret_token }
   let(:reference_counter) { double('ReferenceCounter') }
   let(:push_options) { ['ci.skip', 'another push option'] }
   let(:repository) { project.repository }
 
   let(:changes) do
-    "#{Gitlab::Git::BLANK_SHA} 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/#{branch_name}"
+    "#{Gitlab::Git::SHA1_BLANK_SHA} 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/#{branch_name}"
   end
 
   let(:params) do
     {
       gl_repository: gl_repository,
-      secret_token: secret_token,
       identifier: identifier,
       changes: changes,
       push_options: push_options
@@ -215,10 +214,16 @@ RSpec.describe PostReceiveService do
   end
 
   context 'broadcast message banner exists' do
-    it 'outputs a broadcast message' do
-      broadcast_message = create(:broadcast_message)
+    it 'outputs a broadcast message when show_in_cli is true' do
+      broadcast_message = create(:broadcast_message, show_in_cli: true)
 
       expect(subject).to include(build_alert_message(broadcast_message.message))
+    end
+
+    it 'does not output a broadcast message when show_in_cli is false' do
+      create(:broadcast_message, show_in_cli: false)
+
+      expect(has_alert_messages?(subject)).to be_falsey
     end
   end
 
@@ -238,7 +243,7 @@ RSpec.describe PostReceiveService do
 
   context 'nil broadcast message' do
     it 'does not output a broadcast message' do
-      allow(BroadcastMessage).to receive(:current).and_return(nil)
+      allow(System::BroadcastMessage).to receive(:current).and_return(nil)
 
       expect(has_alert_messages?(subject)).to be_falsey
     end

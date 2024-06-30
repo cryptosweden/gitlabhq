@@ -5,20 +5,21 @@ module Projects
     include ApplicationWorker
     include LimitedCapacity::Worker
 
-    MAX_RUNNING_LOW = 2
-    MAX_RUNNING_MEDIUM = 20
-    MAX_RUNNING_HIGH = 50
-
     data_consistency :always
 
     feature_category :build_artifacts
 
     idempotent!
 
+    MAX_RUNNING_LOW = 1
+    MAX_RUNNING_MEDIUM = 3
+    MAX_RUNNING_HIGH = 5
+
     def perform_work(*args)
       refresh = Projects::RefreshBuildArtifactsSizeStatisticsService.new.execute
       return unless refresh
 
+      log_extra_metadata_on_done(:refresh_id, refresh.id)
       log_extra_metadata_on_done(:project_id, refresh.project_id)
       log_extra_metadata_on_done(:last_job_artifact_id, refresh.last_job_artifact_id)
       log_extra_metadata_on_done(:last_batch, refresh.destroyed?)
@@ -37,11 +38,11 @@ module Projects
     end
 
     def max_running_jobs
-      if ::Feature.enabled?(:projects_build_artifacts_size_refresh_high)
+      if ::Feature.enabled?(:projects_build_artifacts_size_refresh_high, type: :ops)
         MAX_RUNNING_HIGH
-      elsif ::Feature.enabled?(:projects_build_artifacts_size_refresh_medium)
+      elsif ::Feature.enabled?(:projects_build_artifacts_size_refresh_medium, type: :ops)
         MAX_RUNNING_MEDIUM
-      elsif ::Feature.enabled?(:projects_build_artifacts_size_refresh_low)
+      elsif ::Feature.enabled?(:projects_build_artifacts_size_refresh, type: :ops)
         MAX_RUNNING_LOW
       else
         0

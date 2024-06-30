@@ -1,9 +1,10 @@
 <script>
-import { GlLink, GlSprintf } from '@gitlab/ui';
+import { GlFormGroup, GlLink, GlSprintf } from '@gitlab/ui';
 
 import { s__ } from '~/locale';
 import InstallationTitle from '~/packages_and_registries/package_registry/components/details/installation_title.vue';
 import {
+  PERSONAL_ACCESS_TOKEN_HELP_URL,
   TRACKING_ACTION_COPY_PIP_INSTALL_COMMAND,
   TRACKING_ACTION_COPY_PYPI_SETUP_COMMAND,
   TRACKING_LABEL_CODE_INSTRUCTION,
@@ -16,6 +17,7 @@ export default {
   components: {
     InstallationTitle,
     CodeInstruction,
+    GlFormGroup,
     GlLink,
     GlSprintf,
   },
@@ -26,9 +28,12 @@ export default {
     },
   },
   computed: {
+    isPrivatePackage() {
+      return !this.packageEntity.publicPackage;
+    },
     pypiPipCommand() {
       // eslint-disable-next-line @gitlab/require-i18n-strings
-      return `pip install ${this.packageEntity.name} --extra-index-url ${this.packageEntity.pypiUrl}`;
+      return `pip install ${this.packageEntity.name} --index-url ${this.packageEntity.pypiUrl}`;
     },
     pypiSetupCommand() {
       return `[gitlab]
@@ -43,6 +48,7 @@ password = <your personal access token>`;
     TRACKING_LABEL_CODE_INSTRUCTION,
   },
   i18n: {
+    tokenText: s__(`PackageRegistry|You will need a %{linkStart}personal access token%{linkEnd}.`),
     setupText: s__(
       `PackageRegistry|If you haven't already done so, you will need to add the below to your %{codeStart}.pypirc%{codeEnd} file.`,
     ),
@@ -50,7 +56,10 @@ password = <your personal access token>`;
       'PackageRegistry|For more information on the PyPi registry, %{linkStart}see the documentation%{linkEnd}.',
     ),
   },
-  links: { PYPI_HELP_PATH },
+  links: {
+    PERSONAL_ACCESS_TOKEN_HELP_URL,
+    PYPI_HELP_PATH,
+  },
   installOptions: [{ value: 'pypi', label: s__('PackageRegistry|Show PyPi commands') }],
 };
 </script>
@@ -59,14 +68,28 @@ password = <your personal access token>`;
   <div>
     <installation-title package-type="pypi" :options="$options.installOptions" />
 
-    <code-instruction
-      :label="s__('PackageRegistry|Pip Command')"
-      :instruction="pypiPipCommand"
-      :copy-text="s__('PackageRegistry|Copy Pip command')"
-      data-testid="pip-command"
-      :tracking-action="$options.tracking.TRACKING_ACTION_COPY_PIP_INSTALL_COMMAND"
-      :tracking-label="$options.tracking.TRACKING_LABEL_CODE_INSTRUCTION"
-    />
+    <gl-form-group id="installation-pip-command-group">
+      <code-instruction
+        id="installation-pip-command"
+        :label="s__('PackageRegistry|Pip Command')"
+        :instruction="pypiPipCommand"
+        :copy-text="s__('PackageRegistry|Copy Pip command')"
+        data-testid="pip-command"
+        :tracking-action="$options.tracking.TRACKING_ACTION_COPY_PIP_INSTALL_COMMAND"
+        :tracking-label="$options.tracking.TRACKING_LABEL_CODE_INSTRUCTION"
+      />
+      <template v-if="isPrivatePackage" #description>
+        <gl-sprintf :message="$options.i18n.tokenText">
+          <template #link="{ content }">
+            <gl-link
+              :href="$options.links.PERSONAL_ACCESS_TOKEN_HELP_URL"
+              data-testid="access-token-link"
+              >{{ content }}</gl-link
+            >
+          </template>
+        </gl-sprintf>
+      </template>
+    </gl-form-group>
 
     <h3 class="gl-font-lg">{{ __('Registry setup') }}</h3>
     <p>
@@ -87,7 +110,12 @@ password = <your personal access token>`;
     />
     <gl-sprintf :message="$options.i18n.helpText">
       <template #link="{ content }">
-        <gl-link :href="$options.links.PYPI_HELP_PATH" target="_blank">{{ content }}</gl-link>
+        <gl-link
+          :href="$options.links.PYPI_HELP_PATH"
+          target="_blank"
+          data-testid="pypi-docs-link"
+          >{{ content }}</gl-link
+        >
       </template>
     </gl-sprintf>
   </div>

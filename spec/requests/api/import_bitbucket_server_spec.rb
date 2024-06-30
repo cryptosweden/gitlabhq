@@ -2,14 +2,23 @@
 
 require 'spec_helper'
 
-RSpec.describe API::ImportBitbucketServer do
+RSpec.describe API::ImportBitbucketServer, feature_category: :importers do
   let(:base_uri) { "https://test:7990" }
   let(:user) { create(:user) }
   let(:token) { "asdasd12345" }
   let(:secret) { "sekrettt" }
   let(:project_key) { 'TES' }
   let(:repo_slug) { 'vim' }
-  let(:repo) { { name: 'vim' } }
+  let(:timeout_strategy) { 'pessimistic' }
+  let(:repo) do
+    double('repo',
+      name: repo_slug,
+      browse_url: "#{base_uri}/projects/#{project_key}/repos/#{repo_slug}/browse",
+      clone_url: "#{base_uri}/scm/#{project_key}/#{repo_slug}.git",
+      description: 'provider',
+      visibility_level: Gitlab::VisibilityLevel::PUBLIC
+    )
+  end
 
   describe "POST /import/bitbucket_server" do
     context 'with no optional parameters' do
@@ -20,7 +29,7 @@ RSpec.describe API::ImportBitbucketServer do
       before do
         Grape::Endpoint.before_each do |endpoint|
           allow(endpoint).to receive(:client).and_return(client.as_null_object)
-          allow(client).to receive(:repo).with(project_key, repo_slug).and_return(double(name: repo_slug))
+          allow(client).to receive(:repo).with(project_key, repo_slug).and_return(repo)
         end
       end
 
@@ -28,23 +37,64 @@ RSpec.describe API::ImportBitbucketServer do
         Grape::Endpoint.before_each nil
       end
 
-      it 'rejects requests when Bitbucket Server Importer is disabled' do
-        stub_application_setting(import_sources: nil)
+      context 'when Bitbucket Server Importer is disabled' do
+        before do
+          stub_application_setting(import_sources: nil)
+          stub_feature_flags(override_bitbucket_server_disabled: false)
+        end
 
-        post api("/import/bitbucket_server", user), params: {
-          bitbucket_server_url: base_uri,
-          bitbucket_server_username: user,
-          personal_access_token: token,
-          bitbucket_server_project: project_key,
-          bitbucket_server_repo: repo_slug
-        }
+        it 'rejects requests' do
+          post api("/import/bitbucket_server", user), params: {
+            bitbucket_server_url: base_uri,
+            bitbucket_server_username: user.username,
+            personal_access_token: token,
+            bitbucket_server_project: project_key,
+            bitbucket_server_repo: repo_slug
+          }
 
-        expect(response).to have_gitlab_http_status(:forbidden)
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+
+        context 'when override_bitbucket_server_disabled ops flag is enabled for the user' do
+          before do
+            stub_feature_flags(override_bitbucket_server_disabled: user)
+          end
+
+          it 'accepts requests' do
+            post api("/import/bitbucket_server", user), params: {
+              bitbucket_server_url: base_uri,
+              bitbucket_server_username: user.username,
+              personal_access_token: token,
+              bitbucket_server_project: project_key,
+              bitbucket_server_repo: repo_slug
+            }
+
+            expect(response).to have_gitlab_http_status(:created)
+          end
+        end
+
+        context 'when override_bitbucket_server_disabled ops flag is enabled for another user' do
+          before do
+            stub_feature_flags(override_bitbucket_server_disabled: create(:user))
+          end
+
+          it 'rejects requests' do
+            post api("/import/bitbucket_server", user), params: {
+              bitbucket_server_url: base_uri,
+              bitbucket_server_username: user.username,
+              personal_access_token: token,
+              bitbucket_server_project: project_key,
+              bitbucket_server_repo: repo_slug
+            }
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+          end
+        end
       end
 
       it 'returns 201 response when the project is imported successfully' do
         allow(Gitlab::BitbucketServerImport::ProjectCreator)
-          .to receive(:new).with(project_key, repo_slug, anything, repo_slug, user.namespace, user, anything)
+          .to receive(:new).with(project_key, repo_slug, anything, repo_slug, user.namespace, user, anything, timeout_strategy)
             .and_return(double(execute: project))
 
         post api("/import/bitbucket_server", user), params: {
@@ -79,7 +129,7 @@ RSpec.describe API::ImportBitbucketServer do
 
       it 'returns 201 response when the project is imported successfully with a new project name' do
         allow(Gitlab::BitbucketServerImport::ProjectCreator)
-        .to receive(:new).with(project_key, repo_slug, anything, project.name, user.namespace, user, anything)
+        .to receive(:new).with(project_key, repo_slug, anything, project.name, user.namespace, user, anything, 'pessimistic')
         .and_return(double(execute: project))
 
         post api("/import/bitbucket_server", user), params: {
@@ -88,7 +138,8 @@ RSpec.describe API::ImportBitbucketServer do
           personal_access_token: token,
           bitbucket_server_project: project_key,
           bitbucket_server_repo: repo_slug,
-          new_name: 'new-name'
+          new_name: 'new-name',
+          timeout_strategy: 'pessimistic'
         }
 
         expect(response).to have_gitlab_http_status(:created)
@@ -115,10 +166,10 @@ RSpec.describe API::ImportBitbucketServer do
 
       it 'returns 400 response due to a blocked URL' do
         allow(Gitlab::BitbucketServerImport::ProjectCreator)
-        .to receive(:new).with(project_key, repo_slug, anything, project.name, user.namespace, user, anything)
+        .to receive(:new).with(project_key, repo_slug, anything, project.name, user.namespace, user, anything, timeout_strategy)
         .and_return(double(execute: project))
 
-        allow(Gitlab::UrlBlocker)
+        allow(Gitlab::HTTP_V2::UrlBlocker)
         .to receive(:blocked_url?)
         .and_return(true)
         post api("/import/bitbucket_server", user), params: {
@@ -131,6 +182,24 @@ RSpec.describe API::ImportBitbucketServer do
         }
 
         expect(response).to have_gitlab_http_status(:bad_request)
+      end
+    end
+
+    context 'with an invalid timeout strategy' do
+      let_it_be(:project) { create(:project, name: 'new-name') }
+
+      it 'returns 400 response due to a blocked URL' do
+        post api("/import/bitbucket_server", user), params: {
+          bitbucket_server_url: base_uri,
+          bitbucket_server_username: user,
+          personal_access_token: token,
+          bitbucket_server_project: project_key,
+          bitbucket_server_repo: repo_slug,
+          timeout_strategy: 'no-strategy'
+        }
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response["error"]).to eq("timeout_strategy does not have a valid value")
       end
     end
 
@@ -151,7 +220,7 @@ RSpec.describe API::ImportBitbucketServer do
 
       it 'returns 201 response when the project is imported successfully to a new namespace' do
         allow(Gitlab::BitbucketServerImport::ProjectCreator)
-        .to receive(:new).with(project_key, repo_slug, anything, repo_slug, an_instance_of(Group), user, anything)
+        .to receive(:new).with(project_key, repo_slug, anything, repo_slug, an_instance_of(Group), user, anything, timeout_strategy)
         .and_return(double(execute: create(:project, name: repo_slug)))
 
         post api("/import/bitbucket_server", user), params: {
@@ -187,7 +256,7 @@ RSpec.describe API::ImportBitbucketServer do
 
       it 'returns 401 response when user can not create projects in the chosen namespace' do
         allow(Gitlab::BitbucketServerImport::ProjectCreator)
-        .to receive(:new).with(project_key, repo_slug, anything, repo_slug, an_instance_of(Group), user, anything)
+        .to receive(:new).with(project_key, repo_slug, anything, repo_slug, an_instance_of(Group), user, anything, timeout_strategy)
         .and_return(double(execute: build(:project)))
 
         other_namespace = create(:group, :private, name: 'private-group')

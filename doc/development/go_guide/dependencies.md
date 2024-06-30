@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Dependency Management in Go
@@ -44,9 +44,9 @@ end with a timestamp and the first 12 characters of the commit identifier:
 
 If a VCS tag matches one of these patterns, it is ignored.
 
-For a complete understanding of Go modules and versioning, see [this series of
-blog posts](https://go.dev/blog/using-go-modules) on the official Go
-website.
+For a complete understanding of Go modules and versioning, see
+[this series of blog posts](https://go.dev/blog/using-go-modules)
+on the official Go website.
 
 ## 'Module' vs 'Package'
 
@@ -77,10 +77,9 @@ Prior to Go 1.12, the process for fetching a package was as follows:
 1. Scan the response for the `go-import` meta tag.
 1. Fetch the repository indicated by the meta tag using the indicated VCS.
 
-The meta tag should have the form `<meta name="go-import" content="{prefix}
-{vcs} {url}">`. For example, `gitlab.com/my/project git
-https://gitlab.com/my/project.git` indicates that packages beginning with
-`gitlab.com/my/project` should be fetched from
+The meta tag should have the form `<meta name="go-import" content="{prefix} {vcs} {url}">`.
+For example, `gitlab.com/my/project git https://gitlab.com/my/project.git` indicates
+that packages beginning with `gitlab.com/my/project` should be fetched from
 `https://gitlab.com/my/project.git` using Git.
 
 ## Fetching Modules
@@ -102,7 +101,7 @@ malicious party without causing build failures.
 
 Go 1.12+ can be configured to use a checksum database. If configured to do so,
 when Go fetches a dependency and there is no corresponding entry in `go.sum`, Go
-queries the configured checksum database(s) for the checksum of the
+queries the configured checksum databases for the checksum of the
 dependency instead of calculating it from the downloaded dependency. If the
 dependency cannot be found in the checksum database, the build fails. If the
 downloaded dependency's checksum does not match the result from the checksum

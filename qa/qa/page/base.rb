@@ -4,13 +4,28 @@ require 'capybara/dsl'
 
 module QA
   module Page
+    # Page base class
+    #
+    # @!method self.perform
+    #   Perform action on the page
+    #   @yieldparam [self] instance of page object
     class Base
-      prepend Support::Page::Logging if Runtime::Env.debug?
+      # Generic matcher for common css selectors like:
+      # - class name '.someclass'
+      # - id '#someid'
+      # - selection by attributes 'input[attribute=name][value=value]'
+      #
+      # @return [Regex]
+      CSS_SELECTOR_PATTERN = /^(\.[a-z-]+|\#[a-z-]+)+|([a-z]+\[.*\])$/i
+
+      prepend Support::Page::Logging
+      prepend Mobile::Page::Base if QA::Runtime::Env.mobile_layout?
+
       include Capybara::DSL
       include Scenario::Actable
       include Support::WaitForRequests
+
       extend Validatable
-      extend SingleForwardable
 
       ElementNotFound = Class.new(RuntimeError)
 
@@ -28,8 +43,6 @@ module QA
         end
       end
 
-      def_delegators :evaluator, :view, :views
-
       def initialize
         @retry_later_backoff = QA::Support::Repeater::DEFAULT_MAX_WAIT_TIME
       end
@@ -37,7 +50,8 @@ module QA
       def inspect
         # For prettier failure messages
         # Eg.: "expected QA::Page::File::Show not to have file "QA Test - File name"
-        # Instead of "expected #<QA::Page::File::Show:0x000055c6511e07b8 @retry_later_backoff=60> not to have file "QA Test - File name"
+        # Instead of "expected #<QA::Page::File::Show:0x000055c6511e07b8 @retry_later_backoff=60>
+        # not to have file "QA Test - File name"
         self.class.to_s
       end
 
@@ -51,8 +65,20 @@ module QA
         wait_for_requests(skip_finished_loading_check: skip_finished_loading_check)
       end
 
-      def wait_until(max_duration: 60, sleep_interval: 0.1, reload: true, raise_on_failure: true, skip_finished_loading_check_on_refresh: false)
-        Support::Waiter.wait_until(max_duration: max_duration, sleep_interval: sleep_interval, raise_on_failure: raise_on_failure) do
+      def wait_until(
+        max_duration: 60,
+        sleep_interval: 0.1,
+        reload: true,
+        raise_on_failure: true,
+        skip_finished_loading_check_on_refresh: false,
+        message: nil
+      )
+        Support::Waiter.wait_until(
+          max_duration: max_duration,
+          sleep_interval: sleep_interval,
+          raise_on_failure: raise_on_failure,
+          message: message
+        ) do
           yield || (reload && refresh(skip_finished_loading_check: skip_finished_loading_check_on_refresh) && false)
         end
       end
@@ -78,7 +104,7 @@ module QA
         )
       end
 
-      def scroll_to(selector, text: nil)
+      def scroll_to(selector, text: nil, &block)
         wait_for_requests
 
         page.execute_script <<~JS
@@ -92,7 +118,7 @@ module QA
           }
         JS
 
-        page.within(selector) { yield } if block_given?
+        page.within(selector, &block) if block
       end
 
       # Returns true if successfully GETs the given URL
@@ -133,25 +159,28 @@ module QA
       end
 
       def all_elements(name, **kwargs)
-        if kwargs.keys.none? { |key| [:minimum, :maximum, :count, :between].include?(key) }
+        all_args = [:minimum, :maximum, :count, :between]
+
+        if kwargs.keys.none? { |key| all_args.include?(key) }
           raise ArgumentError, "Please use :minimum, :maximum, :count, or :between so that all is more reliable"
         end
 
-        wait_for_requests
+        wait_for_requests(skip_finished_loading_check: !!kwargs.delete(:skip_finished_loading_check))
 
         all(element_selector_css(name), **kwargs)
       end
 
-      def check_element(name, click_by_js = false, visibility = false)
-        if find_element(name, visible: visibility).checked?
+      def check_element(name, click_by_js = false, **kwargs)
+        kwargs[:visible] = false unless kwargs.key?(:visible)
+        if find_element(name, **kwargs).checked?
           QA::Runtime::Logger.debug("#{name} is already checked")
 
           return
         end
 
         retry_until(sleep_interval: 1) do
-          click_checkbox_or_radio(name, click_by_js, visibility)
-          checked = find_element(name, visible: visibility).checked?
+          click_checkbox_or_radio(name, click_by_js, **kwargs)
+          checked = find_element(name, **kwargs).checked?
 
           QA::Runtime::Logger.debug(checked ? "#{name} was checked" : "#{name} was not checked")
 
@@ -159,16 +188,17 @@ module QA
         end
       end
 
-      def uncheck_element(name, click_by_js = false, visibility = false)
-        unless find_element(name, visible: visibility).checked?
+      def uncheck_element(name, click_by_js = false, **kwargs)
+        kwargs[:visible] = false unless kwargs.key?(:visible)
+        unless find_element(name, **kwargs).checked?
           QA::Runtime::Logger.debug("#{name} is already unchecked")
 
           return
         end
 
         retry_until(sleep_interval: 1) do
-          click_checkbox_or_radio(name, click_by_js, visibility)
-          unchecked = !find_element(name, visible: visibility).checked?
+          click_checkbox_or_radio(name, click_by_js, **kwargs)
+          unchecked = !find_element(name, **kwargs).checked?
 
           QA::Runtime::Logger.debug(unchecked ? "#{name} was unchecked" : "#{name} was not unchecked")
 
@@ -177,16 +207,17 @@ module QA
       end
 
       # Method for selecting radios
-      def choose_element(name, click_by_js = false, visibility = false)
-        if find_element(name, visible: visibility).checked?
+      def choose_element(name, click_by_js = false, **kwargs)
+        kwargs[:visible] = false unless kwargs.key?(:visible)
+        if find_element(name, **kwargs).checked?
           QA::Runtime::Logger.debug("#{name} is already selected")
 
           return
         end
 
         retry_until(sleep_interval: 1) do
-          click_checkbox_or_radio(name, click_by_js, visibility)
-          selected = find_element(name, visible: visibility).checked?
+          click_checkbox_or_radio(name, click_by_js, **kwargs)
+          selected = find_element(name, **kwargs).checked?
 
           QA::Runtime::Logger.debug(selected ? "#{name} was selected" : "#{name} was not selected")
 
@@ -202,6 +233,8 @@ module QA
       # Selenium::WebDriver::Error::ElementClickInterceptedError
       def click_element_coordinates(name, **kwargs)
         page.driver.browser.action.move_to(find_element(name, **kwargs).native).click.perform
+      rescue Selenium::WebDriver::Error::StaleElementReferenceError => e
+        QA::Runtime::Logger.error("Element #{name} has become stale: #{e}")
       end
 
       # replace with (..., page = self.class)
@@ -212,8 +245,31 @@ module QA
         wait = kwargs.delete(:wait) || Capybara.default_max_wait_time
         text = kwargs.delete(:text)
 
-        find(element_selector_css(name, kwargs), text: text, wait: wait).click
+        begin
+          find(element_selector_css(name, kwargs), text: text, wait: wait).click
+        rescue Net::ReadTimeout => error
+          # In some situations due to perhaps a slow environment we can encounter errors
+          # where clicks are registered, but the calls to selenium-webdriver result in
+          # timeout errors. In these cases rescue from the error and attempt to continue in
+          # the test to avoid a flaky test failure. This should be safe as assertions in the
+          # tests will catch any case where the click wasn't actually registered.
+          QA::Runtime::Logger.warn "click_element -- #{error} -- #{error.backtrace.inspect}"
+          # There may be a 5xx error -- lets refresh the page like the warning page suggests
+          # and it if resolves itself we can avoid a flaky failure
+          refresh
+        end
+
         page.validate_elements_present! if page
+      end
+
+      # Uses capybara to locate and interact with an element instead of using `*_element`.
+      # This can be used when it's not possible to add a QA selector but we still want to log the action
+      #
+      # @param [String] method the capybara method to use
+      # @param [String] locator the selector used to find the element
+      # @param [Hash] **kwargs optional arguments
+      def act_via_capybara(method, locator, **kwargs)
+        page.public_send(method, locator, **kwargs)
       end
 
       def fill_element(name, content)
@@ -241,25 +297,23 @@ module QA
         visible = kwargs.delete(:visible)
         visible = visible.nil? && true
 
-        try_find_element = lambda do |wait|
+        try_find_element = ->(wait) do
           if disabled.nil?
             has_css?(element_selector_css(name, kwargs), text: text, wait: wait, class: klass, visible: visible)
           else
             find_element(name, **original_kwargs).disabled? == disabled
           end
+        rescue Capybara::ElementNotFound
+          false
         end
 
-        # Check for the element before waiting for requests, just in case unrelated requests are in progress.
-        # This is to avoid waiting unnecessarily after the element we're interested in has already appeared.
-        return true if try_find_element.call(wait)
+        # Check to see if we can return early, without the need to wait for all network requests to complete
+        # We don't want to add overhead to cases where wait=0 as the caller in these cases is indicating that they
+        # don't want any overhead
+        return true if wait > 1 && try_find_element.call(1)
 
-        # If the element didn't appear, wait for requests and then check again
         wait_for_requests(skip_finished_loading_check: !!kwargs.delete(:skip_finished_loading_check))
-
-        # We only wait one second now because we previously waited the full expected duration,
-        # plus however long it took for requests to complete. One second should be enough
-        # for the UI to update after requests complete.
-        try_find_element.call(1)
+        try_find_element.call(wait)
       end
 
       def has_no_element?(name, **kwargs)
@@ -336,19 +390,15 @@ module QA
         sleep 1
       end
 
-      def within_element(name, **kwargs)
-        wait_for_requests(skip_finished_loading_check: kwargs.delete(:skip_finished_loading_check))
+      def within_element(name, **kwargs, &block)
+        wait_for_requests(skip_finished_loading_check: !!kwargs.delete(:skip_finished_loading_check))
         text = kwargs.delete(:text)
 
-        page.within(element_selector_css(name, kwargs), text: text) do
-          yield
-        end
+        page.within(element_selector_css(name, kwargs), text: text, &block)
       end
 
-      def within_element_by_index(name, index)
-        page.within all_elements(name, minimum: index + 1)[index] do
-          yield
-        end
+      def within_element_by_index(name, index, &block)
+        page.within(all_elements(name, minimum: index + 1)[index], &block)
       end
 
       def scroll_to_element(name, *kwargs)
@@ -359,6 +409,7 @@ module QA
 
       def element_selector_css(name, *attributes)
         return name.selector_css if name.is_a? Page::Element
+        return name if name.is_a?(String) && name.match?(CSS_SELECTOR_PATTERN)
 
         Page::Element.new(name, *attributes).selector_css
       end
@@ -375,41 +426,44 @@ module QA
 
       def wait_if_retry_later
         return if @retry_later_backoff > QA::Support::Repeater::DEFAULT_MAX_WAIT_TIME * 5
+        return unless has_css?('body', text: 'Retry later', wait: 0)
 
-        if has_css?('body', text: 'Retry later', wait: 0)
-          QA::Runtime::Logger.warn("`Retry later` error occurred. Sleeping for #{@retry_later_backoff} seconds...")
-          sleep @retry_later_backoff
-          refresh
-          @retry_later_backoff += QA::Support::Repeater::DEFAULT_MAX_WAIT_TIME
+        QA::Runtime::Logger.warn("`Retry later` error occurred. Sleeping for #{@retry_later_backoff} seconds...")
+        sleep @retry_later_backoff
+        refresh
+        @retry_later_backoff += QA::Support::Repeater::DEFAULT_MAX_WAIT_TIME
 
-          wait_if_retry_later
-        end
+        wait_if_retry_later
       end
 
       def current_host
         URI(page.current_url).host
       end
 
-      def self.path
-        raise NotImplementedError
-      end
+      class << self
+        def path
+          raise NotImplementedError
+        end
 
-      def self.evaluator
-        @evaluator ||= Page::Base::DSL.new
-      end
+        def evaluator
+          @evaluator ||= Page::Base::DSL.new
+        end
 
-      def self.errors
-        return ["Page class does not have views / elements defined!"] if views.empty?
+        def errors
+          return ["Page class does not have views / elements defined!"] if views.empty?
 
-        views.flat_map(&:errors)
-      end
+          views.flat_map(&:errors)
+        end
 
-      def self.elements
-        views.flat_map(&:elements)
-      end
+        def elements
+          views.flat_map(&:elements)
+        end
 
-      def self.required_elements
-        elements.select(&:required?)
+        def required_elements
+          elements.select(&:required?)
+        end
+
+        delegate :view, :views, to: :evaluator
       end
 
       def send_keys_to_element(name, keys)
@@ -424,6 +478,10 @@ module QA
         end
 
         true
+      end
+
+      def click_by_javascript(element)
+        page.execute_script("arguments[0].click();", element)
       end
 
       class DSL
@@ -442,13 +500,18 @@ module QA
 
       private
 
-      def click_checkbox_or_radio(name, click_by_js, visibility)
-        box = find_element(name, visible: visibility)
+      def click_checkbox_or_radio(name, click_by_js, **kwargs)
+        box = find_element(name, **kwargs)
         # Some checkboxes and radio buttons are hidden by their labels and cannot be clicked directly
         click_by_js ? page.execute_script("arguments[0].click();", box) : box.click
       end
 
-      def feature_flag_controlled_element(feature_flag, element_when_flag_enabled, element_when_flag_disabled)
+      def feature_flag_controlled_element(
+        feature_flag,
+        element_when_flag_enabled,
+        element_when_flag_disabled,
+        visibility = true
+      )
         # Feature flags can change the UI elements shown, but we need admin access to get feature flag values, which
         # prevents us running the tests on production. Instead we detect the UI element that should be shown when the
         # feature flag is enabled and otherwise use the element that should be displayed when the feature flag is
@@ -459,17 +522,25 @@ module QA
         # load and render the UI
         wait_for_requests
 
-        return element_when_flag_enabled if has_element?(element_when_flag_enabled, wait: 1)
-        return element_when_flag_disabled if has_element?(element_when_flag_disabled, wait: 1)
+        return element_when_flag_enabled if has_element?(element_when_flag_enabled, wait: 1, visible: visibility)
+        return element_when_flag_disabled if has_element?(element_when_flag_disabled, wait: 1, visibile: visibility)
 
         # Check both options again, this time waiting for the default duration
-        return element_when_flag_enabled if has_element?(element_when_flag_enabled)
-        return element_when_flag_disabled if has_element?(element_when_flag_disabled)
+        return element_when_flag_enabled if has_element?(element_when_flag_enabled, visible: visibility)
+        return element_when_flag_disabled if has_element?(element_when_flag_disabled, visible: visibility)
 
         raise ElementNotFound,
           "Could not find the expected element as #{element_when_flag_enabled} or #{element_when_flag_disabled}." \
           "The relevant feature flag is #{feature_flag}"
       end
+
+      def wait_for_gitlab_to_respond
+        wait_until(sleep_interval: 5, message: '502 - GitLab is taking too much time to respond') do
+          Capybara.page.has_no_text?('GitLab is taking too much time to respond')
+        end
+      end
     end
   end
 end
+
+QA::Page::Base.prepend_mod_with('Page::Base', namespace: QA)

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Snippets::DestroyService do
+RSpec.describe Snippets::DestroyService, feature_category: :source_code_management do
   let_it_be(:project) { create(:project) }
   let_it_be(:user) { create(:user) }
   let_it_be(:other_user) { create(:user) }
@@ -41,7 +41,6 @@ RSpec.describe Snippets::DestroyService do
     shared_examples 'deletes the snippet repository' do
       it 'removes the snippet repository' do
         expect(snippet.repository.exists?).to be_truthy
-        expect(GitlabShellWorker).to receive(:perform_in)
         expect_next_instance_of(Repositories::DestroyService) do |instance|
           expect(instance).to receive(:execute).and_call_original
         end
@@ -57,12 +56,6 @@ RSpec.describe Snippets::DestroyService do
         end
 
         it_behaves_like 'an unsuccessful destroy'
-
-        it 'does not try to rollback repository' do
-          expect(Repositories::DestroyRollbackService).not_to receive(:new)
-
-          subject
-        end
       end
 
       context 'when a destroy error is raised' do
@@ -71,19 +64,12 @@ RSpec.describe Snippets::DestroyService do
         end
 
         it_behaves_like 'an unsuccessful destroy'
-
-        it 'attempts to rollback the repository' do
-          expect(Repositories::DestroyRollbackService).to receive(:new).and_call_original
-
-          subject
-        end
       end
 
       context 'when repository is nil' do
         it 'does not schedule anything and return success' do
           allow(snippet).to receive(:repository).and_return(nil)
 
-          expect(GitlabShellWorker).not_to receive(:perform_in)
           expect_next_instance_of(Repositories::DestroyService) do |instance|
             expect(instance).to receive(:execute).and_call_original
           end
@@ -157,14 +143,13 @@ RSpec.describe Snippets::DestroyService do
       end
     end
 
-    context 'when the repository does not exists' do
+    context 'when the repository does not exist' do
       let(:snippet) { create(:personal_snippet, author: user) }
 
       it 'does not schedule anything and return success' do
         expect(snippet.repository).not_to be_nil
         expect(snippet.repository.exists?).to be_falsey
 
-        expect(GitlabShellWorker).not_to receive(:perform_in)
         expect_next_instance_of(Repositories::DestroyService) do |instance|
           expect(instance).to receive(:execute).and_call_original
         end

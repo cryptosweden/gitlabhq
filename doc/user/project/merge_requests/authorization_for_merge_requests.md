@@ -1,11 +1,15 @@
 ---
 stage: Create
 group: Code Review
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: concepts
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "The most common merge request flows in GitLab use forks, protected branches, or both."
 ---
 
-# Authorization for Merge requests **(FREE)**
+# Merge request workflows
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 There are two main ways to have a merge request flow with GitLab:
 
@@ -37,6 +41,31 @@ protected branch.
 
 - Manual setup of protected branch required for each new project
 
+To set up a protected branch flow:
+
+1. Start with ensuring that your default branch is protected with [default branch protections](../repository/branches/default.md).
+1. If your team has multiple branches, and you would like to manage who can merge changes and who
+   explicitly has the option to push or force push, consider making those branches protected:
+
+   - [Manage and Protect Branches](../repository/branches/index.md#manage-and-protect-branches)
+   - [Protected Branches](../protected_branches.md)
+
+1. Each change to the code comes through as a commit.
+   You can specify the format and security measures such as requiring SSH key signing for changes
+   coming into your code base with push rules:
+
+   - [Push Rules](../repository/push_rules.md)
+
+1. To ensure that the code is reviewed and checked by the right people in your team, use:
+
+   - [Code Owners](../codeowners/index.md)
+   - [Merge Request approval rules](approvals/rules.md)
+
+Also available in the Ultimate tier:
+
+- [Status checks](status_checks.md)
+- [Security Approvals](approvals/rules.md#security-approvals)
+
 ## Forking workflow
 
 With the forking workflow, maintainers get the Maintainer role and regular
@@ -64,10 +93,10 @@ forks.
 
 Include any troubleshooting steps that you can foresee. If you know beforehand what issues
 one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
+important to describe those, too. Think of things that might go wrong and include them here.
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

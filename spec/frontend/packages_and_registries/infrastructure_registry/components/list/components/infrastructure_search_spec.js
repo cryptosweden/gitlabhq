@@ -1,5 +1,6 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import component from '~/packages_and_registries/infrastructure_registry/list/components/infrastructure_search.vue';
 import RegistrySearch from '~/vue_shared/components/registry/registry_search.vue';
@@ -27,11 +28,8 @@ describe('Infrastructure Search', () => {
   const findRegistrySearch = () => wrapper.findComponent(RegistrySearch);
   const findUrlSync = () => wrapper.findComponent(UrlSync);
 
-  const createStore = (isGroupPage) => {
+  const createStore = () => {
     const state = {
-      config: {
-        isGroupPage,
-      },
       sorting: {
         orderBy: 'version',
         sort: 'desc',
@@ -45,27 +43,25 @@ describe('Infrastructure Search', () => {
   };
 
   const mountComponent = (isGroupPage = false) => {
-    createStore(isGroupPage);
+    createStore();
 
     wrapper = shallowMount(component, {
       store,
+      provide: {
+        isGroupPage,
+      },
       stubs: {
         UrlSync,
       },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   it('has a registry search component', () => {
     mountComponent();
 
     expect(findRegistrySearch().exists()).toBe(true);
     expect(findRegistrySearch().props()).toMatchObject({
-      filter: store.state.filter,
+      filters: store.state.filter,
       sorting: store.state.sorting,
       tokens: [],
       sortableFields: sortableFields(),
@@ -80,7 +76,7 @@ describe('Infrastructure Search', () => {
     mountComponent(isGroupPage);
 
     expect(findRegistrySearch().props()).toMatchObject({
-      filter: store.state.filter,
+      filters: store.state.filter,
       sorting: store.state.sorting,
       tokens: [],
       sortableFields: fields,

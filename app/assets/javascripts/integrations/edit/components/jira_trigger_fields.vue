@@ -7,6 +7,7 @@ import {
   GlLink,
   GlSprintf,
 } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import { s__ } from '~/locale';
@@ -200,7 +201,7 @@ export default {
       <gl-form-checkbox
         v-model="issueTransitionEnabled"
         :disabled="isInheriting"
-        data-qa-selector="service_jira_issue_transition_enabled_checkbox"
+        data-testid="jira-issue-transition-enabled-checkbox"
       >
         {{ s__('JiraService|Enable Jira transitions') }}
       </gl-form-checkbox>
@@ -218,7 +219,7 @@ export default {
         name="service[jira_issue_transition_automatic]"
         :value="issueTransitionOption.value"
         :disabled="isInheriting"
-        :data-qa-selector="`service_jira_issue_transition_automatic_${issueTransitionOption.value}_radio`"
+        :data-testid="`jira-issue-transition-automatic-${issueTransitionOption.value}-radio`"
       >
         {{ issueTransitionOption.label }}
 
@@ -228,7 +229,7 @@ export default {
             name="service[jira_issue_transition_id]"
             type="text"
             class="gl-my-3"
-            data-qa-selector="service_jira_issue_transition_id_field"
+            data-testid="jira-issue-transition-id-field"
             :placeholder="s__('JiraService|For example, 12, 24')"
             :disabled="isInheriting"
             :required="true"

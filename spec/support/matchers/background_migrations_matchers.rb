@@ -65,24 +65,22 @@ RSpec::Matchers.define :be_scheduled_migration_with_multiple_args do |*expected|
   end
 end
 
-RSpec::Matchers.define :have_scheduled_batched_migration do |table_name: nil, column_name: nil, job_arguments: [], **attributes|
+RSpec::Matchers.define :have_scheduled_batched_migration do |gitlab_schema: :gitlab_main, table_name: nil, column_name: nil, job_arguments: [], **attributes|
   define_method :matches? do |migration|
-    # Default arguments passed by BatchedMigrationWrapper (values don't matter here)
-    expect(migration).to be_background_migration_with_arguments([
-      _start_id = 1,
-      _stop_id = 2,
-      table_name,
-      column_name,
-      _sub_batch_size = 10,
-      _pause_ms = 100,
-      *job_arguments
-    ])
+    reset_column_information(Gitlab::Database::BackgroundMigration::BatchedMigration)
 
     batched_migrations =
       Gitlab::Database::BackgroundMigration::BatchedMigration
-        .for_configuration(migration, table_name, column_name, job_arguments)
+        .for_configuration(gitlab_schema, migration, table_name, column_name, job_arguments)
 
     expect(batched_migrations.count).to be(1)
+
+    # the :batch_min_value & :batch_max_value attribute argument values get applied to the
+    # :min_value & :max_value columns on the database. Here we change the attribute names
+    # for the rspec have_attributes matcher used below to pass
+    attributes[:min_value] = attributes.delete :batch_min_value if attributes.include?(:batch_min_value)
+    attributes[:max_value] = attributes.delete :batch_max_value if attributes.include?(:batch_max_value)
+
     expect(batched_migrations).to all(have_attributes(attributes)) if attributes.present?
   end
 
@@ -92,5 +90,27 @@ RSpec::Matchers.define :have_scheduled_batched_migration do |table_name: nil, co
         .where(job_class_name: migration)
 
     expect(batched_migrations.count).to be(0)
+  end
+end
+
+RSpec::Matchers.define :be_finalize_background_migration_of do |migration|
+  define_method :matches? do |klass|
+    expect_next_instance_of(klass) do |instance|
+      expect(instance).to receive(:finalize_background_migration).with(migration)
+    end
+  end
+end
+
+RSpec::Matchers.define :ensure_batched_background_migration_is_finished_for do |migration_arguments|
+  define_method :matches? do |klass|
+    expect_next_instance_of(klass) do |instance|
+      expect(instance).to receive(:ensure_batched_background_migration_is_finished).with(migration_arguments)
+    end
+  end
+
+  define_method :does_not_match? do |klass|
+    expect_next_instance_of(klass) do |instance|
+      expect(instance).not_to receive(:ensure_batched_background_migration_is_finished).with(migration_arguments)
+    end
   end
 end

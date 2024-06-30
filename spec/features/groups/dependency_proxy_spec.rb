@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group Dependency Proxy' do
+RSpec.describe 'Group Dependency Proxy', feature_category: :virtual_registry do
   let(:owner) { create(:user) }
   let(:reporter) { create(:user) }
   let(:group) { create(:group) }
@@ -36,8 +36,8 @@ RSpec.describe 'Group Dependency Proxy' do
         it 'sidebar menu is open' do
           visit path
 
-          sidebar = find('.nav-sidebar')
-          expect(sidebar).to have_link _('Dependency Proxy')
+          expect(page).to have_active_navigation('Operate')
+          expect(page).to have_active_sub_navigation('Dependency Proxy')
         end
 
         it 'toggles defaults to enabled' do
@@ -52,11 +52,17 @@ RSpec.describe 'Group Dependency Proxy' do
           expect(find('input[data-testid="proxy-url"]').value).to have_content('/dependency_proxy/containers')
         end
 
+        it 'has link to settings' do
+          visit path
+
+          expect(page).to have_link s_('DependencyProxy|Configure in settings')
+        end
+
         it 'hides the proxy URL when feature is disabled' do
           visit settings_path
           wait_for_requests
 
-          proxy_toggle = find('[data-testid="dependency-proxy-setting-toggle"]')
+          proxy_toggle = find_by_testid('dependency-proxy-setting-toggle')
           proxy_toggle_button = proxy_toggle.find('button')
 
           expect(proxy_toggle).to have_css("button.is-checked")
@@ -80,28 +86,16 @@ RSpec.describe 'Group Dependency Proxy' do
         it 'does not show the feature toggle but shows the proxy URL' do
           expect(find('input[data-testid="proxy-url"]').value).to have_content('/dependency_proxy/containers')
         end
+
+        it 'does not have link to settings' do
+          expect(page).not_to have_link s_('DependencyProxy|Configure in settings')
+        end
       end
     end
 
     context 'feature is not avaible' do
       before do
         sign_in(owner)
-      end
-
-      context 'feature flag is disabled', :js do
-        before do
-          stub_feature_flags(dependency_proxy_for_private_groups: false)
-        end
-
-        context 'group is private' do
-          let(:group) { create(:group, :private) }
-
-          it 'informs user that feature is only available for public groups' do
-            visit path
-
-            expect(page).to have_content('Dependency Proxy feature is limited to public groups for now.')
-          end
-        end
       end
 
       context 'feature is disabled globally' do

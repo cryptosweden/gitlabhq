@@ -15,6 +15,8 @@ class GlobalPolicy < BasePolicy
     @user&.required_terms_not_accepted?
   end
 
+  condition(:can_create_group_and_projects, scope: :user) { @user&.allow_user_to_create_group_and_project? }
+
   condition(:password_expired, scope: :user) do
     @user&.password_expired_if_applicable?
   end
@@ -22,11 +24,14 @@ class GlobalPolicy < BasePolicy
   condition(:project_bot, scope: :user) { @user&.project_bot? }
   condition(:migration_bot, scope: :user) { @user&.migration_bot? }
 
+  condition(:service_account, scope: :user) { @user&.service_account? }
+
   rule { anonymous }.policy do
     prevent :log_in
     prevent :receive_notifications
     prevent :use_quick_actions
     prevent :create_group
+    prevent :create_organization
     prevent :execute_graphql_mutation
   end
 
@@ -56,11 +61,11 @@ class GlobalPolicy < BasePolicy
 
   rule { ~can?(:access_api) }.prevent :execute_graphql_mutation
 
-  rule { blocked | (internal & ~migration_bot & ~security_bot) }.policy do
+  rule { blocked | (internal & ~migration_bot & ~security_bot & ~security_policy_bot) }.policy do
     prevent :access_git
   end
 
-  rule { project_bot }.policy do
+  rule { project_bot | service_account }.policy do
     prevent :log_in
     prevent :receive_notifications
   end
@@ -85,6 +90,12 @@ class GlobalPolicy < BasePolicy
 
   rule { can_create_group }.policy do
     enable :create_group
+  end
+
+  rule { ~can_create_group_and_projects }.prevent :create_group
+
+  rule { can_create_organization }.policy do
+    enable :create_organization
   end
 
   rule { can?(:create_group) }.policy do
@@ -115,6 +126,9 @@ class GlobalPolicy < BasePolicy
     enable :approve_user
     enable :reject_user
     enable :read_usage_trends_measurement
+    enable :create_instance_runner
+    enable :read_web_hook
+    enable :admin_web_hook
   end
 
   # We can't use `read_statistics` because the user may have different permissions for different projects

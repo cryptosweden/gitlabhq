@@ -2,12 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe API::RubygemPackages do
+RSpec.describe API::RubygemPackages, feature_category: :package_registry do
   include PackagesManagerApiSpecHelpers
   include WorkhorseHelpers
   using RSpec::Parameterized::TableSyntax
 
   let_it_be_with_reload(:project) { create(:project) }
+  let(:tokens) do
+    {
+      personal_access_token: personal_access_token.token,
+      deploy_token: deploy_token.token,
+      job_token: job.token
+    }
+  end
+
   let_it_be(:personal_access_token) { create(:personal_access_token) }
   let_it_be(:user) { personal_access_token.user }
   let_it_be(:job) { create(:ci_build, :running, user: user, project: project) }
@@ -15,14 +23,14 @@ RSpec.describe API::RubygemPackages do
   let_it_be(:project_deploy_token) { create(:project_deploy_token, deploy_token: deploy_token, project: project) }
   let_it_be(:headers) { {} }
 
-  let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, user: user } }
+  let(:snowplow_gitlab_standard_context) { snowplow_context }
 
-  let(:tokens) do
-    {
-      personal_access_token: personal_access_token.token,
-      deploy_token: deploy_token.token,
-      job_token: job.token
-    }
+  def snowplow_context(user_role: :developer)
+    if user_role == :anonymous
+      { project: project, namespace: project.namespace, property: 'i_package_rubygems_user' }
+    else
+      { project: project, namespace: project.namespace, property: 'i_package_rubygems_user', user: user }
+    end
   end
 
   shared_examples 'when feature flag is disabled' do
@@ -55,11 +63,11 @@ RSpec.describe API::RubygemPackages do
     end
 
     where(:user_role, :token_type, :valid_token, :status) do
-      :guest     | :personal_access_token   | true  | :not_found
+      :guest     | :personal_access_token   | true  | :forbidden
       :guest     | :personal_access_token   | false | :unauthorized
       :guest     | :deploy_token            | true  | :not_found
       :guest     | :deploy_token            | false | :unauthorized
-      :guest     | :job_token               | true  | :not_found
+      :guest     | :job_token               | true  | :forbidden
       :guest     | :job_token               | false | :unauthorized
       :reporter  | :personal_access_token   | true  | :not_found
       :reporter  | :personal_access_token   | false | :unauthorized
@@ -164,7 +172,13 @@ RSpec.describe API::RubygemPackages do
       with_them do
         let(:token) { valid_token ? tokens[token_type] : 'invalid-token123' }
         let(:headers) { user_role == :anonymous ? {} : { 'HTTP_AUTHORIZATION' => token } }
-        let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace } }
+        let(:snowplow_gitlab_standard_context) do
+          if token_type == :deploy_token
+            snowplow_context.merge(user: deploy_token)
+          else
+            snowplow_context(user_role: user_role)
+          end
+        end
 
         before do
           project.update_column(:visibility_level, Gitlab::VisibilityLevel.level_value(visibility.to_s))
@@ -172,6 +186,17 @@ RSpec.describe API::RubygemPackages do
 
         it_behaves_like params[:shared_examples_name], params[:user_role], params[:expected_status], params[:member]
       end
+    end
+
+    context 'with access to package registry for everyone' do
+      let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, property: 'i_package_rubygems_user' } }
+
+      before do
+        project.update!(visibility_level: Gitlab::VisibilityLevel::PRIVATE)
+        project.project_feature.update!(package_registry_access_level: ProjectFeature::PUBLIC)
+      end
+
+      it_behaves_like 'Rubygems gem download', :anonymous, :success
     end
 
     context 'with package files pending destruction' do
@@ -323,11 +348,12 @@ RSpec.describe API::RubygemPackages do
         let(:token) { valid_token ? tokens[token_type] : 'invalid-token123' }
         let(:user_headers) { user_role == :anonymous ? {} : { 'HTTP_AUTHORIZATION' => token } }
         let(:headers) { user_headers.merge(workhorse_headers) }
-        let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, user: snowplow_user } }
+        let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, user: snowplow_user, property: 'i_package_rubygems_user' } }
         let(:snowplow_user) do
-          if token_type == :deploy_token
+          case token_type
+          when :deploy_token
             deploy_token
-          elsif token_type == :job_token
+          when :job_token
             job.user
           else
             user
@@ -421,6 +447,17 @@ RSpec.describe API::RubygemPackages do
 
         it_behaves_like params[:shared_examples_name], params[:user_role], params[:expected_status], params[:member]
       end
+    end
+
+    context 'with access to package registry for everyone' do
+      let(:params) { {} }
+
+      before do
+        project.update!(visibility_level: Gitlab::VisibilityLevel::PRIVATE)
+        project.project_feature.update!(package_registry_access_level: ProjectFeature::PUBLIC)
+      end
+
+      it_behaves_like 'dependency endpoint success', :anonymous, :success
     end
   end
 end

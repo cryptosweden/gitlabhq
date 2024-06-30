@@ -16,8 +16,9 @@ module Discussions
     end
 
     def execute
-      discussions.each(&method(:resolve_discussion))
-      process_auto_merge
+      discussions.each { |discussion| resolve_discussion(discussion) }
+
+      after_resolve_cleanup
     end
 
     private
@@ -67,12 +68,30 @@ module Discussions
       end
     end
 
-    def process_auto_merge
+    def after_resolve_cleanup
       return unless merge_request
       return unless @resolved_count > 0
+
+      send_graphql_triggers
+      process_auto_merge
+    end
+
+    def send_graphql_triggers
+      GraphqlTriggers.merge_request_merge_status_updated(merge_request)
+    end
+
+    def process_auto_merge
       return unless discussions_ready_to_merge?
 
-      AutoMergeProcessWorker.perform_async(merge_request.id)
+      if Feature.enabled?(:merge_when_checks_pass, merge_request.project)
+        Gitlab::EventStore.publish(
+          MergeRequests::DiscussionsResolvedEvent.new(
+            data: { current_user_id: current_user.id, merge_request_id: merge_request.id }
+          )
+        )
+      else
+        AutoMergeProcessWorker.perform_async(merge_request.id)
+      end
     end
 
     def discussions_ready_to_merge?

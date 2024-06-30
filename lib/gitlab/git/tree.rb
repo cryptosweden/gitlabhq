@@ -6,25 +6,35 @@ module Gitlab
       include Gitlab::EncodingHelper
       extend Gitlab::Git::WrapsGitalyErrors
 
-      attr_accessor :id, :root_id, :type, :mode, :commit_id, :submodule_url
+      attr_accessor :id, :type, :mode, :commit_id, :submodule_url, :ref_type
       attr_writer :name, :path, :flat_path
 
       class << self
         # Get list of tree objects
         # for repository based on commit sha and path
-        # Uses rugged for raw objects
-        #
-        # Gitaly migration: https://gitlab.com/gitlab-org/gitaly/issues/320
-        def where(repository, sha, path = nil, recursive = false, pagination_params = nil)
+        def tree_entries(
+          repository:,
+          sha:,
+          path: nil,
+          recursive: false,
+          skip_flat_paths: true,
+          rescue_not_found:  true,
+          pagination_params: nil
+        )
           path = nil if path == '' || path == '/'
 
-          tree_entries(repository, sha, path, recursive, pagination_params)
-        end
-
-        def tree_entries(repository, sha, path, recursive, pagination_params = nil)
           wrapped_gitaly_errors do
-            repository.gitaly_commit_client.tree_entries(repository, sha, path, recursive, pagination_params)
+            repository.gitaly_commit_client.tree_entries(
+              repository, sha, path, recursive, skip_flat_paths, pagination_params)
           end
+
+        # Incorrect revision or path could lead to index error.
+        # We silently handle such errors by returning an empty set of entries and cursor
+        # unless the parameter rescue_not_found is set to false.
+        rescue Gitlab::Git::Index::IndexError => e
+          return [[], nil] if rescue_not_found
+
+          raise e
         end
 
         private
@@ -60,7 +70,7 @@ module Gitlab
       end
 
       def initialize(options)
-        %w(id root_id name path flat_path type mode commit_id).each do |key|
+        %w[id name path flat_path type mode commit_id].each do |key|
           self.send("#{key}=", options[key.to_sym]) # rubocop:disable GitlabSecurity/PublicSend
         end
       end
@@ -99,5 +109,3 @@ module Gitlab
     end
   end
 end
-
-Gitlab::Git::Tree.singleton_class.prepend Gitlab::Git::RuggedImpl::Tree::ClassMethods

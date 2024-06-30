@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'yaml'
-require 'set'
+require 'set' # rubocop:disable Lint/RedundantRequireStatement -- Ruby 3.1 and earlier needs this. Drop this line after Ruby 3.2+ is only supported.
 
 # These methods are called by `sidekiq-cluster`, which runs outside of
 # the bundler/Rails context, so we cannot use any gem or Rails methods.
@@ -57,8 +57,8 @@ module Gitlab
       end
 
       def clear_memoization!
-        if instance_variable_defined?('@worker_metadatas')
-          remove_instance_variable('@worker_metadatas')
+        if instance_variable_defined?(:@worker_metadatas)
+          remove_instance_variable(:@worker_metadatas)
         end
       end
 

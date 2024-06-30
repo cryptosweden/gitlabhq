@@ -1,29 +1,45 @@
-import { GlButton, GlLink } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import {
+  SEARCH_TYPE_ZOEKT,
+  SEARCH_TYPE_ADVANCED,
+  SEARCH_TYPE_BASIC,
+} from '~/search/sidebar/constants';
 import { MOCK_QUERY } from 'jest/search/mock_data';
+import { toggleSuperSidebarCollapsed } from '~/super_sidebar/super_sidebar_collapsed_state_manager';
 import GlobalSearchSidebar from '~/search/sidebar/components/app.vue';
-import ConfidentialityFilter from '~/search/sidebar/components/confidentiality_filter.vue';
-import StatusFilter from '~/search/sidebar/components/status_filter.vue';
+import IssuesFilters from '~/search/sidebar/components/issues_filters.vue';
+import MergeRequestsFilters from '~/search/sidebar/components/merge_requests_filters.vue';
+import BlobsFilters from '~/search/sidebar/components/blobs_filters.vue';
+import ProjectsFilters from '~/search/sidebar/components/projects_filters.vue';
+import NotesFilters from '~/search/sidebar/components/notes_filters.vue';
+import CommitsFilters from '~/search/sidebar/components/commits_filters.vue';
+import MilestonesFilters from '~/search/sidebar/components/milestones_filters.vue';
+import WikiBlobsFilters from '~/search/sidebar/components/wiki_blobs_filters.vue';
+import ScopeSidebarNavigation from '~/search/sidebar/components/scope_sidebar_navigation.vue';
+import DomElementListener from '~/vue_shared/components/dom_element_listener.vue';
+import AllScopesStartFilters from '~/search/sidebar/components/all_scopes_start_filters.vue';
+
+jest.mock('~/super_sidebar/super_sidebar_collapsed_state_manager');
 
 Vue.use(Vuex);
 
 describe('GlobalSearchSidebar', () => {
   let wrapper;
 
-  const actionSpies = {
-    applyQuery: jest.fn(),
-    resetQuery: jest.fn(),
+  const getterSpies = {
+    currentScope: jest.fn(() => 'issues'),
   };
 
-  const createComponent = (initialState) => {
+  const createComponent = (initialState = {}) => {
     const store = new Vuex.Store({
       state: {
         urlQuery: MOCK_QUERY,
         ...initialState,
       },
-      actions: actionSpies,
+      getters: getterSpies,
     });
 
     wrapper = shallowMount(GlobalSearchSidebar, {
@@ -31,103 +47,116 @@ describe('GlobalSearchSidebar', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
+  const findSidebarSection = () => wrapper.find('section');
+  const findIssuesFilters = () => wrapper.findComponent(IssuesFilters);
+  const findMergeRequestsFilters = () => wrapper.findComponent(MergeRequestsFilters);
+  const findBlobsFilters = () => wrapper.findComponent(BlobsFilters);
+  const findProjectsFilters = () => wrapper.findComponent(ProjectsFilters);
+  const findNotesFilters = () => wrapper.findComponent(NotesFilters);
+  const findCommitsFilters = () => wrapper.findComponent(CommitsFilters);
+  const findMilestonesFilters = () => wrapper.findComponent(MilestonesFilters);
+  const findWikiBlobsFilters = () => wrapper.findComponent(WikiBlobsFilters);
+  const findScopeSidebarNavigation = () => wrapper.findComponent(ScopeSidebarNavigation);
+  const findDomElementListener = () => wrapper.findComponent(DomElementListener);
+  const findAllScopesStartFilters = () => wrapper.findComponent(AllScopesStartFilters);
+
+  describe('renders properly', () => {
+    describe('always', () => {
+      beforeEach(() => {
+        createComponent();
+      });
+
+      it(`shows section`, () => {
+        expect(findSidebarSection().exists()).toBe(true);
+      });
+    });
+
+    describe.each`
+      scope               | filter
+      ${'issues'}         | ${findIssuesFilters}
+      ${'issues'}         | ${findAllScopesStartFilters}
+      ${'merge_requests'} | ${findMergeRequestsFilters}
+      ${'merge_requests'} | ${findAllScopesStartFilters}
+      ${'projects'}       | ${findProjectsFilters}
+      ${'projects'}       | ${findAllScopesStartFilters}
+      ${'blobs'}          | ${findAllScopesStartFilters}
+      ${'notes'}          | ${findNotesFilters}
+      ${'notes'}          | ${findAllScopesStartFilters}
+      ${'commits'}        | ${findCommitsFilters}
+      ${'commits'}        | ${findAllScopesStartFilters}
+      ${'milestones'}     | ${findMilestonesFilters}
+      ${'milestones'}     | ${findAllScopesStartFilters}
+      ${'wiki_blobs'}     | ${findWikiBlobsFilters}
+      ${'wiki_blobs'}     | ${findAllScopesStartFilters}
+    `('with sidebar scope: $scope', ({ scope, filter }) => {
+      describe.each([SEARCH_TYPE_BASIC, SEARCH_TYPE_ADVANCED])(
+        'with search_type %s',
+        (searchType) => {
+          beforeEach(() => {
+            getterSpies.currentScope = jest.fn(() => scope);
+            createComponent({ urlQuery: { scope }, searchType });
+          });
+
+          it(`renders correctly ${filter.name.replace('find', '')}`, () => {
+            expect(filter().exists()).toBe(true);
+          });
+        },
+      );
+    });
+
+    describe.each`
+      scope      | searchType              | isShown
+      ${'blobs'} | ${SEARCH_TYPE_BASIC}    | ${false}
+      ${'blobs'} | ${SEARCH_TYPE_ADVANCED} | ${true}
+      ${'blobs'} | ${SEARCH_TYPE_ZOEKT}    | ${true}
+    `('sidebar blobs scope:', ({ scope, searchType, isShown }) => {
+      beforeEach(() => {
+        getterSpies.currentScope = jest.fn(() => scope);
+        createComponent({
+          urlQuery: { scope },
+          searchType,
+        });
+      });
+
+      it(`does ${
+        isShown ? '' : 'not '
+      }render filter BlobsFilters when search_type ${searchType}`, () => {
+        expect(findBlobsFilters().exists()).toBe(isShown);
+      });
+    });
+
+    describe('with sidebar scope: projects', () => {
+      beforeEach(() => {
+        getterSpies.currentScope = jest.fn(() => 'projects');
+        createComponent({ urlQuery: { scope: 'projects' } });
+      });
+
+      it(`shows filter ProjectsFilters`, () => {
+        expect(findProjectsFilters().exists()).toBe(true);
+      });
+    });
+
+    describe.each(['issues', 'test'])('for scope %p', (currentScope) => {
+      beforeEach(() => {
+        getterSpies.currentScope = jest.fn(() => currentScope);
+        createComponent();
+      });
+
+      it(`renders navigation correctly`, () => {
+        expect(findScopeSidebarNavigation().exists()).toBe(true);
+      });
+    });
   });
 
-  const findSidebarForm = () => wrapper.find('form');
-  const findStatusFilter = () => wrapper.findComponent(StatusFilter);
-  const findConfidentialityFilter = () => wrapper.findComponent(ConfidentialityFilter);
-  const findApplyButton = () => wrapper.findComponent(GlButton);
-  const findResetLinkButton = () => wrapper.findComponent(GlLink);
+  it('toggles super sidebar when button is clicked', () => {
+    createComponent();
+    const elListener = findDomElementListener();
 
-  describe('template', () => {
-    beforeEach(() => {
-      createComponent();
-    });
+    expect(toggleSuperSidebarCollapsed).not.toHaveBeenCalled();
 
-    it('renders StatusFilter always', () => {
-      expect(findStatusFilter().exists()).toBe(true);
-    });
+    elListener.vm.$emit('click');
 
-    it('renders ConfidentialityFilter always', () => {
-      expect(findConfidentialityFilter().exists()).toBe(true);
-    });
-
-    it('renders ApplyButton always', () => {
-      expect(findApplyButton().exists()).toBe(true);
-    });
-  });
-
-  describe('ApplyButton', () => {
-    describe('when sidebarDirty is false', () => {
-      beforeEach(() => {
-        createComponent({ sidebarDirty: false });
-      });
-
-      it('disables the button', () => {
-        expect(findApplyButton().attributes('disabled')).toBe('true');
-      });
-    });
-
-    describe('when sidebarDirty is true', () => {
-      beforeEach(() => {
-        createComponent({ sidebarDirty: true });
-      });
-
-      it('enables the button', () => {
-        expect(findApplyButton().attributes('disabled')).toBe(undefined);
-      });
-    });
-  });
-
-  describe('ResetLinkButton', () => {
-    describe('with no filter selected', () => {
-      beforeEach(() => {
-        createComponent({ urlQuery: {} });
-      });
-
-      it('does not render', () => {
-        expect(findResetLinkButton().exists()).toBe(false);
-      });
-    });
-
-    describe('with filter selected', () => {
-      beforeEach(() => {
-        createComponent({ urlQuery: MOCK_QUERY });
-      });
-
-      it('does render', () => {
-        expect(findResetLinkButton().exists()).toBe(true);
-      });
-    });
-
-    describe('with filter selected and user updated query back to default', () => {
-      beforeEach(() => {
-        createComponent({ urlQuery: MOCK_QUERY, query: {} });
-      });
-
-      it('does render', () => {
-        expect(findResetLinkButton().exists()).toBe(true);
-      });
-    });
-  });
-
-  describe('actions', () => {
-    beforeEach(() => {
-      createComponent();
-    });
-
-    it('clicking ApplyButton calls applyQuery', () => {
-      findSidebarForm().trigger('submit');
-
-      expect(actionSpies.applyQuery).toHaveBeenCalled();
-    });
-
-    it('clicking ResetLinkButton calls resetQuery', () => {
-      findResetLinkButton().vm.$emit('click');
-
-      expect(actionSpies.resetQuery).toHaveBeenCalled();
-    });
+    expect(toggleSuperSidebarCollapsed).toHaveBeenCalledTimes(1);
+    expect(elListener.props('selector')).toBe('#js-open-mobile-filters');
   });
 });

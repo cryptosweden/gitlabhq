@@ -1,15 +1,19 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlIcon } from '@gitlab/ui';
+import { GlIcon, GlTooltipDirective } from '@gitlab/ui';
 import $ from 'jquery';
-import '~/behaviors/markdown/render_gfm';
 import { debounce, unescape } from 'lodash';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import GLForm from '~/gl_form';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import axios from '~/lib/utils/axios_utils';
 import { stripHtml } from '~/lib/utils/text_utility';
 import { __, sprintf } from '~/locale';
 import Suggestions from '~/vue_shared/components/markdown/suggestions.vue';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
+import { MARKDOWN_EDITOR_READY_EVENT } from '~/vue_shared/constants';
+import markdownEditorEventHub from '~/vue_shared/components/markdown/eventhub';
 import MarkdownHeader from './header.vue';
 import MarkdownToolbar from './toolbar.vue';
 
@@ -23,6 +27,10 @@ export default {
     MarkdownToolbar,
     GlIcon,
     Suggestions,
+  },
+  directives: {
+    SafeHtml,
+    GlTooltip: GlTooltipDirective,
   },
   mixins: [glFeatureFlagsMixin()],
   props: {
@@ -58,10 +66,15 @@ export default {
       required: false,
       default: true,
     },
-    quickActionsDocsPath: {
-      type: String,
+    removeBorder: {
+      type: Boolean,
       required: false,
-      default: '',
+      default: false,
+    },
+    supportsQuickActions: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
     canAttachFile: {
       type: Boolean,
@@ -77,6 +90,11 @@ export default {
       type: Boolean,
       required: false,
       default: true,
+    },
+    autocompleteDataSources: {
+      type: Object,
+      required: false,
+      default: () => ({}),
     },
     line: {
       type: Object,
@@ -104,6 +122,26 @@ export default {
       default: '',
     },
     showSuggestPopover: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    showCommentToolBar: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
+    restrictedToolBarItems: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+    showContentEditorSwitcher: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    drawioEnabled: {
       type: Boolean,
       required: false,
       default: false,
@@ -216,14 +254,15 @@ export default {
       immediate: true,
       handler(newVal) {
         if (!newVal) {
-          this.showWriteTab();
+          this.hidePreview();
         }
       },
     },
   },
   mounted() {
     // GLForm class handles all the toolbar buttons
-    return new GLForm(
+    // eslint-disable-next-line no-new
+    new GLForm(
       $(this.$refs['gl-form']),
       {
         emojis: this.enableAutocomplete,
@@ -235,10 +274,13 @@ export default {
         labels: this.enableAutocomplete,
         snippets: this.enableAutocomplete,
         vulnerabilities: this.enableAutocomplete,
-        contacts: this.enableAutocomplete && this.glFeatures.contactsAutocomplete,
+        contacts: this.enableAutocomplete,
       },
       true,
+      this.autocompleteDataSources,
     );
+
+    markdownEditorEventHub.$emit(MARKDOWN_EDITOR_READY_EVENT);
   },
   beforeDestroy() {
     const glForm = $(this.$refs['gl-form']).data('glForm');
@@ -247,7 +289,7 @@ export default {
     }
   },
   methods: {
-    showPreviewTab() {
+    showPreview() {
       if (this.previewMarkdown) return;
 
       this.previewMarkdown = true;
@@ -259,7 +301,7 @@ export default {
         this.fetchMarkdown()
           .then((data) => this.renderMarkdown(data))
           .catch(() =>
-            createFlash({
+            createAlert({
               message: __('Error loading markdown preview'),
             }),
           );
@@ -267,7 +309,7 @@ export default {
         this.renderMarkdown();
       }
     },
-    showWriteTab() {
+    hidePreview() {
       this.markdownPreview = '';
       this.previewMarkdown = false;
     },
@@ -296,17 +338,27 @@ export default {
     }, 400),
 
     renderMarkdown(data = {}) {
+      const { references } = data;
+      if (!references) {
+        this.referencedCommands = '';
+      }
+
       this.markdownPreviewLoading = false;
       this.markdownPreview = data.body || __('Nothing to preview.');
 
       this.$nextTick()
-        .then(() => $(this.$refs['markdown-preview']).renderGFM())
+        .then(() => {
+          renderGFM(this.$refs['markdown-preview']);
+        })
         .catch(() =>
-          createFlash({
+          createAlert({
             message: __('Error rendering Markdown preview'),
           }),
         );
     },
+  },
+  safeHtmlConfig: {
+    ADD_TAGS: ['gl-emoji'],
   },
 };
 </script>
@@ -314,7 +366,6 @@ export default {
 <template>
   <div
     ref="gl-form"
-    :class="{ 'gl-mt-3 gl-mb-3': addSpacingClasses }"
     class="js-vue-markdown-field md-area position-relative gfm-form"
     :data-uploads-path="uploadsPath"
   >
@@ -325,9 +376,14 @@ export default {
       :enable-preview="enablePreview"
       :show-suggest-popover="showSuggestPopover"
       :suggestion-start-index="suggestionsStartIndex"
+      :uploads-path="uploadsPath"
+      :markdown-preview-path="markdownPreviewPath"
+      :drawio-enabled="drawioEnabled"
+      :supports-quick-actions="supportsQuickActions"
       data-testid="markdownHeader"
-      @preview-markdown="showPreviewTab"
-      @write-markdown="showWriteTab"
+      :restricted-tool-bar-items="restrictedToolBarItems"
+      @showPreview="showPreview"
+      @hidePreview="hidePreview"
       @handleSuggestDismissed="() => $emit('handleSuggestDismissed')"
     />
     <div v-show="!previewMarkdown" class="md-write-holder">
@@ -342,45 +398,39 @@ export default {
         </a>
         <markdown-toolbar
           :markdown-docs-path="markdownDocsPath"
-          :quick-actions-docs-path="quickActionsDocsPath"
           :can-attach-file="canAttachFile"
+          :show-comment-tool-bar="showCommentToolBar"
+          :show-content-editor-switcher="showContentEditorSwitcher"
+          @enableContentEditor="$emit('enableContentEditor')"
         />
       </div>
     </div>
-    <template v-if="hasSuggestion">
-      <div
-        v-show="previewMarkdown"
-        ref="markdown-preview"
-        class="js-vue-md-preview md-preview-holder"
-      >
-        <suggestions
-          v-if="hasSuggestion"
-          :note-html="markdownPreview"
-          :from-line="lineNumber"
-          :from-content="lineContent"
-          :line-type="lineType"
-          :disabled="true"
-          :suggestions="suggestions"
-          :help-page-path="helpPagePath"
-        />
-      </div>
-    </template>
-    <template v-else>
-      <div
-        v-show="previewMarkdown"
-        ref="markdown-preview"
-        class="js-vue-md-preview md md-preview-holder"
-        v-html="markdownPreview /* eslint-disable-line vue/no-v-html */"
-      ></div>
-    </template>
+    <div
+      v-show="previewMarkdown"
+      ref="markdown-preview"
+      class="js-vue-md-preview md-preview-holder gl-px-5"
+    >
+      <suggestions
+        v-if="hasSuggestion"
+        :note-html="markdownPreview"
+        :line-type="lineType"
+        :disabled="true"
+        :suggestions="suggestions"
+        :help-page-path="helpPagePath"
+      />
+      <template v-else>
+        <div v-safe-html:[$options.safeHtmlConfig]="markdownPreview" class="md"></div>
+      </template>
+    </div>
     <div
       v-if="referencedCommands && previewMarkdown && !markdownPreviewLoading"
-      class="referenced-commands"
-      v-html="referencedCommands /* eslint-disable-line vue/no-v-html */"
+      v-safe-html:[$options.safeHtmlConfig]="referencedCommands"
+      class="referenced-commands gl-mx-2 gl-mb-2 gl-px-4 gl-rounded-bottom-left-base gl-rounded-bottom-right-base"
+      data-testid="referenced-commands"
     ></div>
     <div v-if="shouldShowReferencedUsers" class="referenced-users">
       <gl-icon name="warning-solid" />
-      <span v-html="addMultipleToDiscussionWarning /* eslint-disable-line vue/no-v-html */"></span>
+      <span v-safe-html:[$options.safeHtmlConfig]="addMultipleToDiscussionWarning"></span>
     </div>
   </div>
 </template>

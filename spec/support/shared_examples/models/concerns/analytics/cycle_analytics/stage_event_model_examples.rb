@@ -2,7 +2,7 @@
 
 RSpec.shared_examples 'StageEventModel' do
   describe '.upsert_data' do
-    let(:time) { Time.parse(Time.current.to_s(:db)) } # truncating the timestamp so we can compare it with the timestamp loaded from the DB
+    let(:time) { Time.parse(Time.current.to_fs(:db)) } # truncating the timestamp so we can compare it with the timestamp loaded from the DB
     let(:input_data) do
       [
         {
@@ -14,7 +14,8 @@ RSpec.shared_examples 'StageEventModel' do
           milestone_id: 6,
           state_id: 1,
           start_event_timestamp: time,
-          end_event_timestamp: time
+          end_event_timestamp: time,
+          duration_in_milliseconds: 3
         },
         {
           stage_event_hash_id: 7,
@@ -25,7 +26,8 @@ RSpec.shared_examples 'StageEventModel' do
           milestone_id: 13,
           state_id: 1,
           start_event_timestamp: time,
-          end_event_timestamp: time
+          end_event_timestamp: time,
+          duration_in_milliseconds: 5
         }
       ]
     end
@@ -40,7 +42,8 @@ RSpec.shared_examples 'StageEventModel' do
         :milestone_id,
         :state_id,
         :start_event_timestamp,
-        :end_event_timestamp
+        :end_event_timestamp,
+        :duration_in_milliseconds
       ]
     end
 
@@ -89,7 +92,7 @@ RSpec.shared_examples 'StageEventModel' do
     let_it_be(:user) { create(:user) }
     let_it_be(:project) { create(:user) }
     let_it_be(:milestone) { create(:milestone) }
-    let_it_be(:issuable_with_assignee) { create(issuable_factory, assignees: [user])}
+    let_it_be(:issuable_with_assignee) { create(issuable_factory, assignees: [user]) }
 
     let_it_be(:record) { create(stage_event_factory, start_event_timestamp: 3.years.ago.to_date, end_event_timestamp: 2.years.ago.to_date) }
     let_it_be(:record_with_author) { create(stage_event_factory, author_id: user.id) }
@@ -181,19 +184,9 @@ RSpec.shared_examples 'StageEventModel' do
 
   describe '#total_time' do
     it 'calcualtes total time from the start_event_timestamp and end_event_timestamp columns' do
-      model = described_class.new(start_event_timestamp: Time.new(2022, 1, 1, 12, 5, 0), end_event_timestamp: Time.new(2022, 1, 1, 12, 6, 30))
+      model = build(stage_event_factory, start_event_timestamp: Time.new(2022, 1, 1, 12, 5, 0), end_event_timestamp: Time.new(2022, 1, 1, 12, 6, 30))
 
       expect(model.total_time).to eq(90)
-    end
-
-    context 'when total time is calculated in SQL as an extra column' do
-      it 'returns the SQL calculated time' do
-        create(stage_event_factory) # rubocop:disable Rails/SaveBang
-
-        model = described_class.select('*, 5 AS total_time').first
-
-        expect(model.total_time).to eq(5)
-      end
     end
   end
 end

@@ -2,22 +2,33 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Issues do
+RSpec.describe API::Issues, feature_category: :team_planning do
   let_it_be(:user) { create(:user) }
-  let_it_be(:project, reload: true) { create(:project, :public, :repository, creator_id: user.id, namespace: user.namespace) }
+  let_it_be(:project, reload: true) { create(:project, :public, :repository, creator_id: user.id, namespace: user.namespace, reporters: user) }
   let_it_be(:private_mrs_project) do
-    create(:project, :public, :repository, creator_id: user.id, namespace: user.namespace, merge_requests_access_level: ProjectFeature::PRIVATE)
+    create(:project, :public, :repository, creator_id: user.id, namespace: user.namespace, merge_requests_access_level: ProjectFeature::PRIVATE, reporters: user)
   end
 
-  let(:user2)             { create(:user) }
-  let(:non_member)        { create(:user) }
-  let_it_be(:guest)       { create(:user) }
+  let_it_be(:group) { create(:group, :public, reporters: user) }
+
+  let_it_be(:user2)       { create(:user) }
+  let_it_be(:non_member)  { create(:user) }
+  let_it_be(:guest)       { create(:user, guest_of: [group, project, private_mrs_project]) }
   let_it_be(:author)      { create(:author) }
   let_it_be(:assignee)    { create(:assignee) }
-  let(:admin)             { create(:user, :admin) }
-  let(:issue_title)       { 'foo' }
-  let(:issue_description) { 'closed' }
-  let!(:closed_issue) do
+  let_it_be(:admin)       { create(:user, :admin) }
+
+  let_it_be(:milestone) { create(:milestone, title: '1.0.0', project: project) }
+  let_it_be(:empty_milestone) do
+    create(:milestone, title: '2.0.0', project: project)
+  end
+
+  let(:no_milestone_title) { 'None' }
+  let(:any_milestone_title) { 'Any' }
+
+  let_it_be(:issue_title) { 'foo' }
+  let_it_be(:issue_description) { 'closed' }
+  let_it_be(:closed_issue) do
     create :closed_issue,
       author: user,
       assignees: [user],
@@ -29,7 +40,7 @@ RSpec.describe API::Issues do
       closed_at: 1.hour.ago
   end
 
-  let!(:confidential_issue) do
+  let_it_be(:confidential_issue) do
     create :issue,
       :confidential,
       project: project,
@@ -39,7 +50,7 @@ RSpec.describe API::Issues do
       updated_at: 2.hours.ago
   end
 
-  let!(:issue) do
+  let_it_be(:issue) do
     create :issue,
       author: user,
       assignees: [user],
@@ -51,44 +62,31 @@ RSpec.describe API::Issues do
       description: issue_description
   end
 
-  let_it_be(:label) do
-    create(:label, title: 'label', color: '#FFAABB', project: project)
+  let_it_be(:label) { create(:label, title: 'label', color: '#FFAABB', project: project) }
+  let_it_be(:label_link) { create(:label_link, label: label, target: issue) }
+
+  let_it_be(:note) { create(:note_on_issue, author: user, project: project, noteable: issue) }
+
+  let_it_be(:merge_request1) do
+    create(
+      :merge_request,
+      :simple,
+      author: user,
+      source_project: project,
+      target_project: project,
+      description: "closes #{issue.to_reference}"
+    )
   end
 
-  let!(:label_link) { create(:label_link, label: label, target: issue) }
-  let(:milestone) { create(:milestone, title: '1.0.0', project: project) }
-  let_it_be(:empty_milestone) do
-    create(:milestone, title: '2.0.0', project: project)
-  end
-
-  let!(:note) { create(:note_on_issue, author: user, project: project, noteable: issue) }
-
-  let(:no_milestone_title) { 'None' }
-  let(:any_milestone_title) { 'Any' }
-
-  let!(:merge_request1) do
-    create(:merge_request,
-           :simple,
-           author: user,
-           source_project: project,
-           target_project: project,
-           description: "closes #{issue.to_reference}")
-  end
-
-  let!(:merge_request2) do
-    create(:merge_request,
-           :simple,
-           author: user,
-           source_project: private_mrs_project,
-           target_project: private_mrs_project,
-           description: "closes #{issue.to_reference(private_mrs_project)}")
-  end
-
-  before_all do
-    project.add_reporter(user)
-    project.add_guest(guest)
-    private_mrs_project.add_reporter(user)
-    private_mrs_project.add_guest(guest)
+  let_it_be(:merge_request2) do
+    create(
+      :merge_request,
+      :simple,
+      author: user,
+      source_project: private_mrs_project,
+      target_project: private_mrs_project,
+      description: "closes #{issue.to_reference(private_mrs_project)}"
+    )
   end
 
   before do
@@ -96,14 +94,30 @@ RSpec.describe API::Issues do
   end
 
   shared_examples 'project issues statistics' do
-    it 'returns project issues statistics' do
-      get api("/issues_statistics", user), params: params
+    it 'returns project issues statistics', :aggregate_failures do
+      get api("/projects/#{project.id}/issues_statistics", current_user), params: params
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['statistics']).not_to be_nil
       expect(json_response['statistics']['counts']['all']).to eq counts[:all]
       expect(json_response['statistics']['counts']['closed']).to eq counts[:closed]
       expect(json_response['statistics']['counts']['opened']).to eq counts[:opened]
+    end
+  end
+
+  shared_examples 'returns project issues without confidential issues for guests' do
+    specify do
+      get api(api_url, guest)
+
+      expect_paginated_array_response_contain_exactly(open_issue.id, closed_issue.id)
+    end
+  end
+
+  shared_examples 'returns all project issues for reporters' do
+    specify do
+      get api(api_url, user)
+
+      expect_paginated_array_response_contain_exactly(open_issue.id, confidential_issue.id, closed_issue.id)
     end
   end
 
@@ -118,6 +132,8 @@ RSpec.describe API::Issues do
       end
 
       context 'issues_statistics' do
+        let(:current_user) { nil }
+
         context 'no state is treated as all state' do
           let(:params) { {} }
           let(:counts) { { all: 2, closed: 1, opened: 1 } }
@@ -183,14 +199,38 @@ RSpec.describe API::Issues do
       end
     end
 
+    context 'when user is an inherited member from the group' do
+      let!(:open_issue) { create(:issue, project: group_project) }
+      let!(:confidential_issue) { create(:issue, :confidential, project: group_project) }
+      let!(:closed_issue) { create(:issue, state: :closed, project: group_project) }
+
+      let!(:api_url) { "/projects/#{group_project.id}/issues" }
+
+      context 'and group project is public and issues are private' do
+        let_it_be(:group_project) do
+          create(:project, :public, issues_access_level: ProjectFeature::PRIVATE, group: group)
+        end
+
+        it_behaves_like 'returns project issues without confidential issues for guests'
+        it_behaves_like 'returns all project issues for reporters'
+      end
+
+      context 'and group project is private' do
+        let_it_be(:group_project) { create(:project, :private, group: group) }
+
+        it_behaves_like 'returns project issues without confidential issues for guests'
+        it_behaves_like 'returns all project issues for reporters'
+      end
+    end
+
     it 'avoids N+1 queries' do
       get api("/projects/#{project.id}/issues", user)
 
       issues = create_list(:issue, 3, project: project, closed_by: user)
 
-      control_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+      control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         get api("/projects/#{project.id}/issues", user)
-      end.count
+      end
 
       milestone = create(:milestone, project: project)
       create(:issue, project: project, milestone: milestone, closed_by: create(:user))
@@ -200,7 +240,7 @@ RSpec.describe API::Issues do
 
       expect do
         get api("/projects/#{project.id}/issues", user)
-      end.not_to exceed_all_query_limit(control_count)
+      end.not_to exceed_all_query_limit(control)
     end
 
     it 'returns 404 when project does not exist' do
@@ -272,7 +312,7 @@ RSpec.describe API::Issues do
     end
 
     it 'returns project confidential issues for admin' do
-      get api("#{base_url}/issues", admin)
+      get api("#{base_url}/issues", admin, admin_mode: true)
 
       expect_paginated_array_response([issue.id, confidential_issue.id, closed_issue.id])
     end
@@ -316,9 +356,9 @@ RSpec.describe API::Issues do
       let(:label_c) { create(:label, title: 'bar', project: project) }
 
       it 'avoids N+1 queries' do
-        control_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+        control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
           get api("/projects/#{project.id}/issues?with_labels_details=true", user)
-        end.count
+        end
 
         new_issue = create(:issue, project: project)
         create(:label_link, label: label, target: new_issue)
@@ -327,7 +367,7 @@ RSpec.describe API::Issues do
 
         expect do
           get api("/projects/#{project.id}/issues?with_labels_details=true", user)
-        end.not_to exceed_all_query_limit(control_count)
+        end.not_to exceed_all_query_limit(control)
       end
     end
 
@@ -481,39 +521,41 @@ RSpec.describe API::Issues do
       expect_paginated_array_response([closed_issue.id, confidential_issue.id, issue.id])
     end
 
-    it 'exposes known attributes' do
+    it 'exposes known attributes', :aggregate_failures do
       get api("#{base_url}/issues", user)
 
       expect(response).to have_gitlab_http_status(:ok)
-      expect(json_response.last.keys).to include(*%w(id iid project_id title description))
+      expect(json_response.last.keys).to include(*%w[id iid project_id title description])
       expect(json_response.last).not_to have_key('subscribed')
     end
 
     context 'issues_statistics' do
+      let(:current_user) { user }
+
       context 'no state is treated as all state' do
         let(:params) { {} }
-        let(:counts) { { all: 2, closed: 1, opened: 1 } }
+        let(:counts) { { all: 3, closed: 1, opened: 2 } }
 
         it_behaves_like 'project issues statistics'
       end
 
       context 'statistics when all state is passed' do
         let(:params) { { state: :all } }
-        let(:counts) { { all: 2, closed: 1, opened: 1 } }
+        let(:counts) { { all: 3, closed: 1, opened: 2 } }
 
         it_behaves_like 'project issues statistics'
       end
 
       context 'closed state is treated as all state' do
         let(:params) { { state: :closed } }
-        let(:counts) { { all: 2, closed: 1, opened: 1 } }
+        let(:counts) { { all: 3, closed: 1, opened: 2 } }
 
         it_behaves_like 'project issues statistics'
       end
 
       context 'opened state is treated as all state' do
         let(:params) { { state: :opened } }
-        let(:counts) { { all: 2, closed: 1, opened: 1 } }
+        let(:counts) { { all: 3, closed: 1, opened: 2 } }
 
         it_behaves_like 'project issues statistics'
       end
@@ -548,7 +590,7 @@ RSpec.describe API::Issues do
 
       context 'sort does not affect statistics ' do
         let(:params) { { state: :opened, order_by: 'updated_at' } }
-        let(:counts) { { all: 2, closed: 1, opened: 1 } }
+        let(:counts) { { all: 3, closed: 1, opened: 2 } }
 
         it_behaves_like 'project issues statistics'
       end
@@ -560,28 +602,28 @@ RSpec.describe API::Issues do
       let!(:issue2) { create(:issue, author: user2, project: project, created_at: 2.days.ago) }
       let!(:issue3) { create(:issue, author: user2, assignees: [assignee, another_assignee], project: project, created_at: 1.day.ago) }
 
-      it 'returns issues by assignee_username' do
+      it 'returns issues by assignee_username', :aggregate_failures do
         get api("/issues", user), params: { assignee_username: [assignee.username], scope: 'all' }
 
         expect(issue3.reload.assignees.pluck(:id)).to match_array([assignee.id, another_assignee.id])
         expect_paginated_array_response([confidential_issue.id, issue3.id])
       end
 
-      it 'returns issues by assignee_username as string' do
+      it 'returns issues by assignee_username as string', :aggregate_failures do
         get api("/issues", user), params: { assignee_username: assignee.username, scope: 'all' }
 
         expect(issue3.reload.assignees.pluck(:id)).to match_array([assignee.id, another_assignee.id])
         expect_paginated_array_response([confidential_issue.id, issue3.id])
       end
 
-      it 'returns error when multiple assignees are passed' do
+      it 'returns error when multiple assignees are passed', :aggregate_failures do
         get api("/issues", user), params: { assignee_username: [assignee.username, another_assignee.username], scope: 'all' }
 
         expect(response).to have_gitlab_http_status(:bad_request)
         expect(json_response["error"]).to include("allows one value, but found 2")
       end
 
-      it 'returns error when assignee_username and assignee_id are passed together' do
+      it 'returns error when assignee_username and assignee_id are passed together', :aggregate_failures do
         get api("/issues", user), params: { assignee_username: [assignee.username], assignee_id: another_assignee.id, scope: 'all' }
 
         expect(response).to have_gitlab_http_status(:bad_request)
@@ -591,6 +633,12 @@ RSpec.describe API::Issues do
   end
 
   describe 'GET /projects/:id/issues/:issue_iid' do
+    let(:path) { "/projects/#{project.id}/issues/#{confidential_issue.iid}" }
+
+    it_behaves_like 'GET request permissions for admin mode' do
+      let(:failed_status_code) { :not_found }
+    end
+
     context 'when unauthenticated' do
       it 'returns public issues' do
         get api("/projects/#{project.id}/issues/#{issue.iid}")
@@ -599,7 +647,7 @@ RSpec.describe API::Issues do
       end
     end
 
-    it 'exposes known attributes' do
+    it 'exposes known attributes', :aggregate_failures do
       get api("/projects/#{project.id}/issues/#{issue.iid}", user)
 
       expect(response).to have_gitlab_http_status(:ok)
@@ -639,7 +687,7 @@ RSpec.describe API::Issues do
       end
     end
 
-    it 'exposes the closed_at attribute' do
+    it 'exposes the closed_at attribute', :aggregate_failures do
       get api("/projects/#{project.id}/issues/#{closed_issue.iid}", user)
 
       expect(response).to have_gitlab_http_status(:ok)
@@ -647,7 +695,7 @@ RSpec.describe API::Issues do
     end
 
     context 'links exposure' do
-      it 'exposes related resources full URIs' do
+      it 'exposes related resources full URIs', :aggregate_failures do
         get api("/projects/#{project.id}/issues/#{issue.iid}", user)
 
         links = json_response['_links']
@@ -659,7 +707,7 @@ RSpec.describe API::Issues do
       end
     end
 
-    it 'returns a project issue by internal id' do
+    it 'returns a project issue by internal id', :aggregate_failures do
       get api("/projects/#{project.id}/issues/#{issue.iid}", user)
 
       expect(response).to have_gitlab_http_status(:ok)
@@ -668,55 +716,62 @@ RSpec.describe API::Issues do
     end
 
     it 'returns 404 if issue id not found' do
-      get api("/projects/#{project.id}/issues/54321", user)
+      get api("/projects/#{project.id}/issues/#{non_existing_record_id}", user)
       expect(response).to have_gitlab_http_status(:not_found)
     end
 
     it 'returns 404 if the issue ID is used' do
-      get api("/projects/#{project.id}/issues/#{issue.id}", user)
+      # Make sure other issues don't exist with a matching id or iid to avoid flakyness
+      max_id = [Issue.maximum(:iid), Issue.maximum(:id)].max + 10
+      new_issue = create(:issue, project: project, id: max_id)
 
+      # make sure it does work with iid
+      get api("/projects/#{project.id}/issues/#{new_issue.iid}", user)
+      expect(response).to have_gitlab_http_status(:ok)
+
+      get api("/projects/#{project.id}/issues/#{new_issue.id}", user)
       expect(response).to have_gitlab_http_status(:not_found)
     end
 
     context 'confidential issues' do
       it 'returns 404 for non project members' do
-        get api("/projects/#{project.id}/issues/#{confidential_issue.iid}", non_member)
+        get api(path, non_member)
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
       it 'returns 404 for project members with guest role' do
-        get api("/projects/#{project.id}/issues/#{confidential_issue.iid}", guest)
+        get api(path, guest)
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
-      it 'returns confidential issue for project members' do
-        get api("/projects/#{project.id}/issues/#{confidential_issue.iid}", user)
+      it 'returns confidential issue for project members', :aggregate_failures do
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['title']).to eq(confidential_issue.title)
         expect(json_response['iid']).to eq(confidential_issue.iid)
       end
 
-      it 'returns confidential issue for author' do
-        get api("/projects/#{project.id}/issues/#{confidential_issue.iid}", author)
+      it 'returns confidential issue for author', :aggregate_failures do
+        get api(path, author)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['title']).to eq(confidential_issue.title)
         expect(json_response['iid']).to eq(confidential_issue.iid)
       end
 
-      it 'returns confidential issue for assignee' do
-        get api("/projects/#{project.id}/issues/#{confidential_issue.iid}", assignee)
+      it 'returns confidential issue for assignee', :aggregate_failures do
+        get api(path, assignee)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['title']).to eq(confidential_issue.title)
         expect(json_response['iid']).to eq(confidential_issue.iid)
       end
 
-      it 'returns confidential issue for admin' do
-        get api("/projects/#{project.id}/issues/#{confidential_issue.iid}", admin)
+      it 'returns confidential issue for admin', :aggregate_failures do
+        get api(path, admin, admin_mode: true)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['title']).to eq(confidential_issue.title)
@@ -782,7 +837,7 @@ RSpec.describe API::Issues do
     let!(:related_mr) { create_referencing_mr(user, project, issue) }
 
     context 'when unauthenticated' do
-      it 'return list of referenced merge requests from issue' do
+      it 'return list of referenced merge requests from issue', :aggregate_failures do
         get_related_merge_requests(project.id, issue.iid)
 
         expect_paginated_array_response(related_mr.id)
@@ -843,6 +898,10 @@ RSpec.describe API::Issues do
   describe 'GET /projects/:id/issues/:issue_iid/user_agent_detail' do
     let!(:user_agent_detail) { create(:user_agent_detail, subject: issue) }
 
+    it_behaves_like 'GET request permissions for admin mode' do
+      let(:path) { "/projects/#{project.id}/issues/#{issue.iid}/user_agent_detail" }
+    end
+
     context 'when unauthenticated' do
       it 'returns unauthorized' do
         get api("/projects/#{project.id}/issues/#{issue.iid}/user_agent_detail")
@@ -851,8 +910,8 @@ RSpec.describe API::Issues do
       end
     end
 
-    it 'exposes known attributes' do
-      get api("/projects/#{project.id}/issues/#{issue.iid}/user_agent_detail", admin)
+    it 'exposes known attributes', :aggregate_failures do
+      get api("/projects/#{project.id}/issues/#{issue.iid}/user_agent_detail", admin, admin_mode: true)
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['user_agent']).to eq(user_agent_detail.user_agent)
@@ -876,6 +935,36 @@ RSpec.describe API::Issues do
       get api("/projects/#{project.id}/issues/#{confidential_issue.iid}/participants", non_member)
 
       expect(response).to have_gitlab_http_status(:not_found)
+    end
+
+    context 'with a confidential note' do
+      let!(:note) do
+        create(
+          :note,
+          :confidential,
+          project: project,
+          noteable: issue,
+          author: create(:user)
+        )
+      end
+
+      it 'returns a full list of participants', :aggregate_failures do
+        get api("/projects/#{project.id}/issues/#{issue.iid}/participants", user)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        participant_ids = json_response.map { |el| el['id'] }
+        expect(participant_ids).to match_array([issue.author_id, note.author_id])
+      end
+
+      context 'when user cannot see a confidential note' do
+        it 'returns a limited list of participants', :aggregate_failures do
+          get api("/projects/#{project.id}/issues/#{issue.iid}/participants", create(:user))
+
+          expect(response).to have_gitlab_http_status(:ok)
+          participant_ids = json_response.map { |el| el['id'] }
+          expect(participant_ids).to match_array([issue.author_id])
+        end
+      end
     end
   end
 end

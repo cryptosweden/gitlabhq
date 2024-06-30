@@ -1,16 +1,16 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Analytics::CycleAnalytics::Aggregation, type: :model do
+RSpec.describe Analytics::CycleAnalytics::Aggregation, type: :model, feature_category: :value_stream_management do
   describe 'associations' do
-    it { is_expected.to belong_to(:group).required }
+    it { is_expected.to belong_to(:namespace).required }
   end
 
   describe 'validations' do
-    it { is_expected.not_to validate_presence_of(:group) }
+    it { is_expected.not_to validate_presence_of(:namespace) }
     it { is_expected.not_to validate_presence_of(:enabled) }
 
-    %i[incremental_runtimes_in_seconds incremental_processed_records last_full_run_runtimes_in_seconds last_full_run_processed_records].each do |column|
+    %i[incremental_runtimes_in_seconds incremental_processed_records full_runtimes_in_seconds full_processed_records].each do |column|
       it "validates the array length of #{column}" do
         record = described_class.new(column => [1] * 11)
 
@@ -18,34 +18,163 @@ RSpec.describe Analytics::CycleAnalytics::Aggregation, type: :model do
         expect(record.errors).to have_key(column)
       end
     end
+
+    it_behaves_like 'value stream analytics namespace models' do
+      let(:factory_name) { :cycle_analytics_aggregation }
+    end
   end
 
-  describe '#safe_create_for_group' do
-    let_it_be(:group) { create(:group) }
-    let_it_be(:subgroup) { create(:group, parent: group) }
+  describe 'attribute updater methods' do
+    subject(:aggregation) { build(:cycle_analytics_aggregation) }
 
-    it 'creates the aggregation record' do
-      record = described_class.safe_create_for_group(group)
+    describe '#cursor_for' do
+      it 'returns empty cursors' do
+        aggregation.last_full_issues_id = nil
+        aggregation.last_full_issues_updated_at = nil
 
-      expect(record).to be_persisted
-    end
+        expect(aggregation.cursor_for(:full, Issue)).to eq({})
+      end
 
-    context 'when non top-level group is given' do
-      it 'creates the aggregation record for the top-level group' do
-        record = described_class.safe_create_for_group(subgroup)
+      context 'when cursor is not empty' do
+        it 'returns the cursor values' do
+          current_time = Time.current
 
-        expect(record).to be_persisted
+          aggregation.last_full_issues_id = 1111
+          aggregation.last_full_issues_updated_at = current_time
+
+          expect(aggregation.cursor_for(:full, Issue)).to eq({ id: 1111, updated_at: current_time })
+        end
       end
     end
 
-    context 'when the record is already present' do
-      it 'does nothing' do
-        described_class.safe_create_for_group(group)
+    describe '#consistency_check_cursor_for' do
+      it 'returns empty cursor' do
+        expect(aggregation.consistency_check_cursor_for(Analytics::CycleAnalytics::IssueStageEvent)).to eq({})
+        expect(aggregation.consistency_check_cursor_for(Analytics::CycleAnalytics::MergeRequestStageEvent)).to eq({})
+      end
 
-        expect do
-          described_class.safe_create_for_group(group)
-          described_class.safe_create_for_group(subgroup)
-        end.not_to change { described_class.count }
+      it 'returns the cursor value for IssueStageEvent' do
+        aggregation.last_consistency_check_issues_end_event_timestamp = 1.week.ago
+        aggregation.last_consistency_check_issues_issuable_id = 42
+
+        expect(aggregation.consistency_check_cursor_for(Analytics::CycleAnalytics::IssueStageEvent)).to eq({
+          end_event_timestamp: aggregation.last_consistency_check_issues_end_event_timestamp,
+          issue_id: aggregation.last_consistency_check_issues_issuable_id
+        })
+      end
+
+      it 'returns the cursor value for MergeRequestStageEvent' do
+        aggregation.last_consistency_check_merge_requests_end_event_timestamp = 1.week.ago
+        aggregation.last_consistency_check_merge_requests_issuable_id = 42
+
+        expect(aggregation.consistency_check_cursor_for(Analytics::CycleAnalytics::MergeRequestStageEvent)).to eq({
+          end_event_timestamp: aggregation.last_consistency_check_merge_requests_end_event_timestamp,
+          merge_request_id: aggregation.last_consistency_check_merge_requests_issuable_id
+        })
+      end
+    end
+
+    describe '#refresh_last_run' do
+      it 'updates the run_at column' do
+        freeze_time do
+          aggregation.refresh_last_run(:incremental)
+
+          expect(aggregation.last_incremental_run_at).to eq(Time.current)
+        end
+      end
+    end
+
+    describe '#reset_full_run_cursors' do
+      it 'resets all full run cursors to nil' do
+        aggregation.last_full_issues_id = 111
+        aggregation.last_full_issues_updated_at = Time.current
+        aggregation.last_full_merge_requests_id = 111
+        aggregation.last_full_merge_requests_updated_at = Time.current
+
+        aggregation.reset_full_run_cursors
+
+        expect(aggregation).to have_attributes(
+          last_full_issues_id: nil,
+          last_full_issues_updated_at: nil,
+          last_full_merge_requests_id: nil,
+          last_full_merge_requests_updated_at: nil
+        )
+      end
+    end
+
+    describe '#set_cursor' do
+      it 'sets the cursor values for the given mode' do
+        aggregation.set_cursor(:full, Issue, { id: 2222, updated_at: nil })
+
+        expect(aggregation).to have_attributes(
+          last_full_issues_id: 2222,
+          last_full_issues_updated_at: nil
+        )
+      end
+    end
+
+    describe '#set_stats' do
+      it 'appends stats to the runtime and processed_records attributes' do
+        aggregation.set_stats(:full, 10, 20)
+        aggregation.set_stats(:full, 20, 30)
+
+        expect(aggregation).to have_attributes(
+          full_runtimes_in_seconds: [10, 20],
+          full_processed_records: [20, 30]
+        )
+      end
+    end
+  end
+
+  describe '#safe_create_for_namespace' do
+    context 'when group namespace is provided' do
+      let_it_be(:group) { create(:group) }
+      let_it_be(:subgroup) { create(:group, parent: group) }
+
+      it 'creates the aggregation record' do
+        record = described_class.safe_create_for_namespace(group)
+
+        expect(record).to be_persisted
+      end
+
+      context 'when non top-level group is given' do
+        it 'creates the aggregation record for the top-level group' do
+          record = described_class.safe_create_for_namespace(subgroup)
+
+          expect(record).to be_persisted
+        end
+      end
+
+      context 'when the record is already present' do
+        it 'does nothing' do
+          described_class.safe_create_for_namespace(group)
+
+          expect do
+            described_class.safe_create_for_namespace(group)
+            described_class.safe_create_for_namespace(subgroup)
+          end.not_to change { described_class.count }
+        end
+      end
+
+      context 'when the aggregation was disabled for some reason' do
+        it 're-enables the aggregation' do
+          create(:cycle_analytics_aggregation, enabled: false, namespace: group)
+
+          aggregation = described_class.safe_create_for_namespace(group)
+
+          expect(aggregation).to be_enabled
+        end
+      end
+    end
+
+    context 'when personal namespace is provided' do
+      let_it_be(:user2) { create(:user) }
+      let_it_be(:project) { create(:project, :public, namespace: user2.namespace) }
+
+      it 'is successful' do
+        aggregation = described_class.safe_create_for_namespace(user2.namespace)
+
+        expect(aggregation).to be_enabled
       end
     end
   end

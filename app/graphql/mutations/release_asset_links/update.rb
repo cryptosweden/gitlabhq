@@ -10,55 +10,51 @@ module Mutations
       ReleaseAssetLinkID = ::Types::GlobalIDType[::Releases::Link]
 
       argument :id, ReleaseAssetLinkID,
-               required: true,
-               description: 'ID of the release asset link to update.'
+        required: true,
+        description: 'ID of the release asset link to update.'
 
       argument :name, GraphQL::Types::String,
-               required: false,
-               description: 'Name of the asset link.'
+        required: false,
+        description: 'Name of the asset link.'
 
       argument :url, GraphQL::Types::String,
-               required: false,
-               description: 'URL of the asset link.'
+        required: false,
+        description: 'URL of the asset link.'
 
       argument :direct_asset_path, GraphQL::Types::String,
-               required: false, as: :filepath,
-               description: 'Relative path for a direct asset link.'
+        required: false, as: :filepath,
+        description: 'Relative path for a direct asset link.'
 
       argument :link_type, Types::ReleaseAssetLinkTypeEnum,
-               required: false,
-               description: 'Type of the asset link.'
+        required: false,
+        description: 'Type of the asset link.'
 
       field :link,
-            Types::ReleaseAssetLinkType,
-            null: true,
-            description: 'Asset link after mutation.'
+        Types::ReleaseAssetLinkType,
+        null: true,
+        description: 'Asset link after mutation.'
 
       def ready?(**args)
         if args.key?(:link_type) && args[:link_type].nil?
           raise Gitlab::Graphql::Errors::ArgumentError,
-                'if the linkType argument is provided, it cannot be null'
+            'if the linkType argument is provided, it cannot be null'
         end
 
         super
       end
 
       def resolve(id:, **link_attrs)
-        link = authorized_find!(id)
+        link = authorized_find!(id: id)
 
-        unless link.update(link_attrs)
-          return { link: nil, errors: link.errors.full_messages }
+        result = ::Releases::Links::UpdateService
+          .new(link.release, current_user, link_attrs)
+          .execute(link)
+
+        if result.success?
+          { link: result.payload[:link], errors: [] }
+        else
+          { link: nil, errors: result.message }
         end
-
-        { link: link, errors: [] }
-      end
-
-      def find_object(id)
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = ReleaseAssetLinkID.coerce_isolated_input(id)
-
-        GitlabSchema.find_by_gid(id)
       end
     end
   end

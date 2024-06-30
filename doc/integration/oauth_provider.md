@@ -1,129 +1,159 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
 # Configure GitLab as an OAuth 2.0 authentication identity provider
 
-This document describes how you can use GitLab as an OAuth 2.0 authentication identity provider.
-
-- OAuth 2 applications can be created and managed using the GitLab UI (described below)
-  or managed using the [Applications API](../api/applications.md).
-- After an application is created, external services can manage access tokens using the
-  [OAuth 2 API](../api/oauth2.md).
-- To allow users to sign in to GitLab using third-party OAuth 2 providers, see
-  [OmniAuth documentation](omniauth.md).
-
-## Introduction to OAuth
-
-[OAuth 2](https://oauth.net/2/) provides to client applications a 'secure delegated
-access' to server resources on behalf of a resource owner. OAuth 2 allows
+[OAuth 2.0](https://oauth.net/2/) provides secure delegated server resource
+access to client applications on behalf of a resource owner. OAuth 2 allows
 authorization servers to issue access tokens to third-party clients with the approval
 of the resource owner or the end-user.
 
-OAuth 2 can be used:
+You can use GitLab as an OAuth 2 authentication identity provider by adding the
+following types of OAuth 2 application to an instance:
 
-- To allow users to sign in to your application with their GitLab.com account.
-- To set up GitLab.com for authentication to your GitLab instance. See
-  [GitLab OmniAuth](gitlab.md).
+- [User owned applications](#create-a-user-owned-application).
+- [Group owned applications](#create-a-group-owned-application).
+- [Instance-wide applications](#create-an-instance-wide-application).
 
-The 'GitLab Importer' feature also uses OAuth 2 to give access
-to repositories without sharing user credentials to your GitLab.com account.
+These methods only differ by [permission level](../user/permissions.md). The
+default callback URL is the SSL URL `https://your-gitlab.example.com/users/auth/gitlab/callback`.
+You can use a non-SSL URL instead, but you should use an SSL URL.
 
-GitLab supports several ways of adding a new OAuth 2 application to an instance:
+After adding an OAuth 2 application to an instance, you can use OAuth 2 to:
 
-- [User owned applications](#user-owned-applications)
-- [Group owned applications](#group-owned-applications)
-- [Instance-wide applications](#instance-wide-applications)
+- Enable users to sign in to your application with their GitLab.com account.
+- Set up GitLab.com for authentication to your GitLab instance. For more information,
+  see [integrating your server with GitLab.com](gitlab.md).
 
-The only difference between these methods is the [permission](../user/permissions.md)
-levels. The default callback URL is `http://your-gitlab.example.com/users/auth/gitlab/callback`.
+- After an application is created, external services can manage access tokens using the
+  [OAuth 2 API](../api/oauth2.md).
 
-## User owned applications
+## Create a user-owned application
 
-To add a new application for your user:
+To create a new application for your user:
 
-1. In the top-right corner, select your avatar.
+1. On the left sidebar, select your avatar.
 1. Select **Edit profile**.
 1. On the left sidebar, select **Applications**.
-1. Enter a **Name**, **Redirect URI** and OAuth 2 scopes as defined in [Authorized Applications](#authorized-applications).
-   The **Redirect URI** is the URL where users are sent after they authorize with GitLab.
+1. Select **Add new application**.
+1. Enter a **Name** and **Redirect URI**.
+1. Select OAuth 2 **Scopes** as defined in [Authorized Applications](#view-all-authorized-applications).
+1. In the **Redirect URI**, enter the URL where users are sent after they authorize with GitLab.
 1. Select **Save application**. GitLab provides:
 
    - The OAuth 2 Client ID in the **Application ID** field.
-   - The OAuth 2 Client Secret, accessible:
-     - In the **Secret** field in GitLab 14.1 and earlier.
-     - Using the **Copy** button on the **Secret** field
-       [in GitLab 14.2 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/332844).
+   - The OAuth 2 Client Secret, accessible by selecting **Copy** in the **Secret** field.
+   - The **Renew secret** function in [GitLab 15.9 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/338243). Use this function to generate and copy a new secret for this application. Renewing a secret prevents the existing application from functioning until the credentials are updated.
 
-## Group owned applications
+## Create a group-owned application
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/16227) in GitLab 13.11.
+To create a new application for a group:
 
-To add a new application for a group:
-
-1. Navigate to the desired group.
+1. Go to the desired group.
 1. On the left sidebar, select **Settings > Applications**.
-1. Enter a **Name**, **Redirect URI** and OAuth 2 scopes as defined in [Authorized Applications](#authorized-applications).
-   The **Redirect URI** is the URL where users are sent after they authorize with GitLab.
+1. Enter a **Name** and **Redirect URI**.
+1. Select OAuth 2 scopes as defined in [Authorized Applications](#view-all-authorized-applications).
+1. In the **Redirect URI**, enter the URL where users are sent after they authorize with GitLab.
 1. Select **Save application**. GitLab provides:
 
    - The OAuth 2 Client ID in the **Application ID** field.
-   - The OAuth 2 Client Secret, accessible:
-     - In the **Secret** field in GitLab 14.1 and earlier.
-     - Using the **Copy** button on the **Secret** field
-       [in GitLab 14.2 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/332844).
+   - The OAuth 2 Client Secret, accessible by selecting **Copy** in the **Secret** field.
+   - The **Renew secret** function in [GitLab 15.9 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/338243). Use this function to generate and copy a new secret for this application. Renewing a secret prevents the existing application from functioning until the credentials are updated.
 
-## Instance-wide applications
+## Create an instance-wide application
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 To create an application for your GitLab instance:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Applications**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Applications**.
 1. Select **New application**.
 
-When creating application in the **Admin Area** , you can mark it as _trusted_.
+When creating application in the **Admin Area** , mark it as **trusted**.
 The user authorization step is automatically skipped for this application.
 
-## Expiring access tokens
+## View all authorized applications
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21745) in GitLab 14.3.
+> - `k8s_proxy` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/422408) in GitLab 16.4 [with a flag](../administration/feature_flags.md) named `k8s_proxy_pat`. Enabled by default.
+> - Feature flag `k8s_proxy_pat` [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131518) in GitLab 16.5.
 
-WARNING:
-The ability to opt-out of expiring access tokens [is deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/340848).
-All existing integrations should be updated to support access token refresh.
+To see all the application you've authorized with your GitLab credentials:
 
-Access tokens expire in two hours which means that integrations that use them must support generating new access
-tokens at least every two hours. Existing:
+1. On the left sidebar, select your avatar.
+1. Select **Edit profile** and then select **Applications**.
+1. See the **Authorized applications** section.
 
-- Applications can have expiring access tokens:
-  1. Edit the application.
-  1. Select **Expire access tokens**.
-- Tokens must be [revoked](../api/oauth2.md#revoke-a-token) or they don't expire.
-
-When applications are deleted, all grants and tokens associated with the application are also deleted.
-
-## Authorized applications
-
-Every application you authorize with your GitLab credentials is shown
-in the **Authorized applications** section under **Settings > Applications**.
-
-The GitLab OAuth 2 applications support scopes, which allow various actions that any given
-application can perform. Available scopes are depicted in the following table.
+The GitLab OAuth 2 applications support scopes, which allow application to perform
+different actions. See the following table for all available scopes.
 
 | Scope              | Description |
-| ------------------ | ----------- |
-| `api`              | Grants complete read/write access to the API, including all groups and projects, the container registry, and the package registry. |
+|--------------------| ----------- |
+| `api`              | Grants complete read/write access to the API, including all groups and projects, the container registry, the dependency proxy, and the package registry. |
 | `read_user`        | Grants read-only access to the authenticated user's profile through the /user API endpoint, which includes username, public email, and full name. Also grants access to read-only API endpoints under /users. |
-| `read_api`         |  Grants read access to the API, including all groups and projects, the container registry, and the package registry. |
-| `read_repository`  |  Grants read-only access to repositories on private projects using Git-over-HTTP or the Repository Files API. |
+| `read_api`         | Grants read access to the API, including all groups and projects, the container registry, and the package registry. |
+| `read_repository`  | Grants read-only access to repositories on private projects using Git-over-HTTP or the Repository Files API. |
 | `write_repository` | Grants read-write access to repositories on private projects using Git-over-HTTP (not using the API). |
-| `read_registry`    |  Grants read-only access to container registry images on private projects. |
+| `read_registry`    | Grants read-only access to container registry images on private projects. |
 | `write_registry`   | Grants read-only access to container registry images on private projects. |
 | `sudo`             | Grants permission to perform API actions as any user in the system, when authenticated as an administrator user. |
 | `openid`           | Grants permission to authenticate with GitLab using [OpenID Connect](openid_connect_provider.md). Also gives read-only access to the user's profile and group memberships. |
-| `profile`          |  Grants read-only access to the user's profile data using [OpenID Connect](openid_connect_provider.md). |
-| `email`            |  Grants read-only access to the user's primary email address using [OpenID Connect](openid_connect_provider.md). |
+| `profile`          | Grants read-only access to the user's profile data using [OpenID Connect](openid_connect_provider.md). |
+| `email`            | Grants read-only access to the user's primary email address using [OpenID Connect](openid_connect_provider.md). |
+| `create_runner`    | Grants permission to create runners. |
+| `manage_runner`    | Grants permission to manage runners. |
+| `k8s_proxy`        | Grants permission to perform Kubernetes API calls using the agent for Kubernetes. |
 
-At any time you can revoke any access by clicking **Revoke**.
+At any time you can revoke any access by selecting **Revoke**.
+
+## Access token expiration
+
+> - Database validation on `expires_in` [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/112765) in GitLab 15.10. If your GitLab instance has any remaining OAuth Access Tokens without `expires_in` set when you are upgrading to 15.10 or later, the database migration will raise an error. For workaround instructions, see the [GitLab 15.10.0 upgrade documentation](../update/versions/gitlab_15_changes.md#15100).
+
+WARNING:
+The ability to opt out of expiring access tokens was
+[removed](https://gitlab.com/gitlab-org/gitlab/-/issues/340848) in GitLab 15.0. All
+existing integrations must be updated to support access token refresh.
+
+Access tokens expire after two hours. Integrations that use access tokens must
+generate new ones using the `refresh_token` attribute. Refresh tokens may be
+used even after the `access_token` itself expires.
+See [OAuth 2.0 token documentation](../api/oauth2.md) for more detailed
+information on how to refresh expired access tokens.
+
+This expiration setting is set in the GitLab codebase using the
+`access_token_expires_in` configuration from
+[Doorkeeper](https://github.com/doorkeeper-gem/doorkeeper), the library that
+provides GitLab as an OAuth provider functionality. The expiration setting is
+not configurable.
+
+When applications are deleted, all grants and tokens associated with the
+application are also deleted.
+
+## Hashed OAuth application secrets
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.4 [with a flag](../administration/feature_flags.md) named `hash_oauth_secrets`. Disabled by default.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.8.
+> - [Enabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.9.
+
+FLAG:
+On self-managed GitLab, by default this feature is available. To hide the feature, an administrator can [disable the feature flag](../administration/feature_flags.md) named `hash_oauth_secrets`.
+On GitLab.com, this feature is available.
+
+By default, GitLab stores OAuth application secrets in the database in hashed format. These secrets are only available to users immediately after creating OAuth applications. In
+earlier versions of GitLab, application secrets are stored as plain text in the database.
+
+## Other ways to use OAuth 2 in GitLab
+
+You can:
+
+- Create and manage OAuth 2 applications using the [Applications API](../api/applications.md).
+- Enable users to sign in to GitLab using third-party OAuth 2 providers. For more
+  information, see the [OmniAuth documentation](omniauth.md).
+- Use the GitLab Importer with OAuth 2 to give access to repositories without
+  sharing user credentials to your GitLab.com account.

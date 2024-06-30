@@ -1,3 +1,5 @@
+import { TEST_HOST } from 'helpers/test_constants';
+
 /**
  * Manage the instance of a custom `window.location`
  *
@@ -12,6 +14,7 @@ const useMockLocation = (fn) => {
 
   Object.defineProperty(window, 'location', {
     get: () => currentWindowLocation,
+    assign: jest.fn(),
   });
 
   beforeEach(() => {
@@ -21,18 +24,33 @@ const useMockLocation = (fn) => {
   afterEach(() => {
     currentWindowLocation = origWindowLocation;
   });
+
+  return () => {
+    beforeEach(() => {
+      currentWindowLocation = origWindowLocation;
+    });
+  };
 };
 
 /**
  * Create an object with the location interface but `jest.fn()` implementations.
  */
 export const createWindowLocationSpy = () => {
-  return {
+  const { origin, href } = window.location;
+
+  const mockLocation = {
     assign: jest.fn(),
     reload: jest.fn(),
     replace: jest.fn(),
     toString: jest.fn(),
+    origin,
+    protocol: 'http:',
+    host: TEST_HOST,
+    // TODO: Do we need to update `origin` if `href` is changed?
+    href,
   };
+
+  return mockLocation;
 };
 
 /**

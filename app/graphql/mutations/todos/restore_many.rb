@@ -2,7 +2,7 @@
 
 module Mutations
   module Todos
-    class RestoreMany < ::Mutations::Todos::Base
+    class RestoreMany < ::Mutations::BaseMutation
       graphql_name 'TodoRestoreMany'
 
       MAX_UPDATE_AMOUNT = 50
@@ -23,21 +23,16 @@ module Mutations
         updated_ids = restore(todos)
 
         {
-            updated_ids: updated_ids,
-            todos: Todo.id_in(updated_ids),
-            errors: errors_on_objects(todos)
+          updated_ids: updated_ids,
+          todos: Todo.id_in(updated_ids),
+          errors: errors_on_objects(todos)
         }
       end
 
       private
 
       def model_ids_of(ids)
-        ids.map do |gid|
-          # TODO: remove this line when the compatibility layer is removed
-          # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-          gid = ::Types::GlobalIDType[::Todo].coerce_isolated_input(gid)
-          gid.model_id.to_i
-        end.compact
+        ids.filter_map { |gid| gid.model_id.to_i }
       end
 
       def raise_too_many_todos_requested_error

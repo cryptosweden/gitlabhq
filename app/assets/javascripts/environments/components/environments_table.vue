@@ -146,13 +146,8 @@ export default {
         {{ tableData.autoStop.title }}
       </div>
     </div>
-    <template v-for="(model, i) in sortedEnvironments" :model="model">
-      <environment-item
-        :key="`environment-item-${i}`"
-        :model="model"
-        :table-data="tableData"
-        data-qa-selector="environment_item"
-      />
+    <template v-for="(model, i) in sortedEnvironments">
+      <environment-item :key="`environment-item-${i}`" :model="model" :table-data="tableData" />
 
       <div
         v-if="shouldRenderDeployBoard(model)"
@@ -164,7 +159,6 @@ export default {
             :deploy-board-data="model.deployBoardData"
             :is-loading="model.isLoadingDeployBoard"
             :is-empty="model.isEmptyDeployBoard"
-            :logs-path="model.logs_path"
             @changeCanaryWeight="changeCanaryWeight(model, $event)"
           />
         </div>
@@ -177,7 +171,7 @@ export default {
 
       <template v-if="shouldRenderFolderContent(model)">
         <div v-if="model.isLoadingFolderContent" :key="`loading-item-${i}`">
-          <gl-loading-icon size="md" class="gl-mt-5" />
+          <gl-loading-icon size="lg" class="gl-mt-5" />
         </div>
 
         <template v-else>
@@ -186,7 +180,6 @@ export default {
               :key="`environment-row-${i}-${index}`"
               :model="child"
               :table-data="tableData"
-              data-qa-selector="environment_item"
             />
 
             <div
@@ -199,7 +192,6 @@ export default {
                   :deploy-board-data="child.deployBoardData"
                   :is-loading="child.isLoadingDeployBoard"
                   :is-empty="child.isEmptyDeployBoard"
-                  :logs-path="child.logs_path"
                   @changeCanaryWeight="changeCanaryWeight(child, $event)"
                 />
               </div>

@@ -3,23 +3,28 @@
 require 'resolv'
 
 class InstanceConfiguration
-  SSH_ALGORITHMS = %w(DSA ECDSA ED25519 RSA).freeze
+  SSH_ALGORITHMS = %w[DSA ECDSA ED25519 RSA].freeze
   SSH_ALGORITHMS_PATH = '/etc/ssh/'
   CACHE_KEY = 'instance_configuration'
   EXPIRATION_TIME = 24.hours
 
   def settings
     @configuration ||= Rails.cache.fetch(CACHE_KEY, expires_in: EXPIRATION_TIME) do
-      { ssh_algorithms_hashes: ssh_algorithms_hashes,
-        host: host,
-        gitlab_pages: gitlab_pages,
-        size_limits: size_limits,
-        package_file_size_limits: package_file_size_limits,
-        rate_limits: rate_limits }.deep_symbolize_keys
+      configuration
     end
   end
 
   private
+
+  def configuration
+    { ssh_algorithms_hashes: ssh_algorithms_hashes,
+      host: host,
+      gitlab_pages: gitlab_pages,
+      ci_cd_limits: ci_cd_limits,
+      size_limits: size_limits,
+      package_file_size_limits: package_file_size_limits,
+      rate_limits: rate_limits }.deep_symbolize_keys
+  end
 
   def ssh_algorithms_hashes
     SSH_ALGORITHMS.select { |algo| ssh_algorithm_enabled?(algo) }.map { |algo| ssh_algorithm_hashes(algo) }.compact
@@ -47,11 +52,14 @@ class InstanceConfiguration
     {
       max_attachment_size: application_settings[:max_attachment_size].megabytes,
       receive_max_input_size: application_settings[:receive_max_input_size]&.megabytes,
+      max_export_size: application_settings[:max_export_size] > 0 ? application_settings[:max_export_size].megabytes : nil,
       max_import_size: application_settings[:max_import_size] > 0 ? application_settings[:max_import_size].megabytes : nil,
       diff_max_patch_bytes: application_settings[:diff_max_patch_bytes].bytes,
       max_artifacts_size: application_settings[:max_artifacts_size].megabytes,
       max_pages_size: application_settings[:max_pages_size] > 0 ? application_settings[:max_pages_size].megabytes : nil,
-      snippet_size_limit: application_settings[:snippet_size_limit]&.bytes
+      snippet_size_limit: application_settings[:snippet_size_limit]&.bytes,
+      max_import_remote_file_size: application_settings[:max_import_remote_file_size] > 0 ? application_settings[:max_import_remote_file_size].megabytes : 0,
+      bulk_import_max_download_file_size: application_settings[:bulk_import_max_download_file_size] > 0 ? application_settings[:bulk_import_max_download_file_size].megabytes : 0
     }
   end
 
@@ -128,6 +136,22 @@ class InstanceConfiguration
     }
   end
 
+  def ci_cd_limits
+    Plan.all.to_h { |plan| [plan.name.capitalize, plan_ci_cd_limits(plan)] }
+  end
+
+  def plan_ci_cd_limits(plan)
+    plan.actual_limits.slice(
+      :ci_pipeline_size,
+      :ci_active_jobs,
+      :ci_project_subscriptions,
+      :ci_pipeline_schedules,
+      :ci_needs_size_limit,
+      :ci_registered_group_runners,
+      :ci_registered_project_runners
+    )
+  end
+
   def ssh_algorithm_file(algorithm)
     File.join(SSH_ALGORITHMS_PATH, "ssh_host_#{algorithm.downcase}_key.pub")
   end
@@ -168,3 +192,5 @@ class InstanceConfiguration
     }
   end
 end
+
+InstanceConfiguration.prepend_mod_with('InstanceConfiguration')

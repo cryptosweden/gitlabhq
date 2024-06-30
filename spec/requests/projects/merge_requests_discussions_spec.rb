@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'merge requests discussions' do
+RSpec.describe 'merge requests discussions', feature_category: :source_code_management do
   # Further tests can be found at merge_requests_controller_spec.rb
   describe 'GET /:namespace/:project/-/merge_requests/:iid/discussions' do
     let(:project) { create(:project, :repository, :public) }
@@ -16,8 +16,26 @@ RSpec.describe 'merge requests discussions' do
       login_as(user)
     end
 
+    # rubocop:disable RSpec/InstanceVariable
     def send_request
-      get discussions_namespace_project_merge_request_path(namespace_id: project.namespace, project_id: project, id: merge_request.iid)
+      get(
+        discussions_namespace_project_merge_request_path(namespace_id: project.namespace, project_id: project, id: merge_request.iid),
+        headers: { 'If-None-Match' => @etag }
+      )
+
+      @etag = response.etag
+    end
+    # rubocop:enable RSpec/InstanceVariable
+
+    it 'avoids N+1 DB queries', :request_store do
+      send_request # warm up
+
+      create(:diff_note_on_merge_request, noteable: merge_request, project: merge_request.project)
+      control = ActiveRecord::QueryRecorder.new { send_request }
+
+      create(:diff_note_on_merge_request, noteable: merge_request, project: merge_request.project)
+
+      expect { send_request }.not_to exceed_query_limit(control)
     end
 
     it 'returns 200' do
@@ -26,26 +44,9 @@ RSpec.describe 'merge requests discussions' do
       expect(response).to have_gitlab_http_status(:ok)
     end
 
-    # https://docs.gitlab.com/ee/development/query_recorder.html#use-request-specs-instead-of-controller-specs
-    it 'avoids N+1 DB queries', :request_store do
-      send_request # warm up
-
-      create(:diff_note_on_merge_request, noteable: merge_request,
-             project: merge_request.project)
-      control = ActiveRecord::QueryRecorder.new { send_request }
-
-      create(:diff_note_on_merge_request, noteable: merge_request,
-             project: merge_request.project)
-
-      expect do
-        send_request
-      end.not_to exceed_query_limit(control)
-    end
-
     it 'limits Gitaly queries', :request_store do
       Gitlab::GitalyClient.allow_n_plus_1_calls do
-        create_list(:diff_note_on_merge_request, 7, noteable: merge_request,
-                    project: merge_request.project)
+        create_list(:diff_note_on_merge_request, 7, noteable: merge_request, project: merge_request.project)
       end
 
       # The creations above write into the Gitaly counts
@@ -55,18 +56,13 @@ RSpec.describe 'merge requests discussions' do
         .to change { Gitlab::GitalyClient.get_request_count }.by_at_most(4)
     end
 
-    context 'caching', :use_clean_rails_memory_store_caching do
+    context 'caching' do
       let(:reference) { create(:issue, project: project) }
       let(:author) { create(:user) }
       let!(:first_note) { create(:diff_note_on_merge_request, author: author, noteable: merge_request, project: project, note: "reference: #{reference.to_reference}") }
       let!(:second_note) { create(:diff_note_on_merge_request, in_reply_to: first_note, noteable: merge_request, project: project) }
       let!(:award_emoji) { create(:award_emoji, awardable: first_note) }
       let!(:author_membership) { project.add_maintainer(author) }
-
-      before do
-        # Make a request to cache the discussions
-        send_request
-      end
 
       shared_examples 'cache miss' do
         it 'does not hit a warm cache' do
@@ -80,13 +76,19 @@ RSpec.describe 'merge requests discussions' do
         end
       end
 
-      it 'gets cached on subsequent requests' do
-        expect_next_instance_of(DiscussionSerializer) do |serializer|
-          expect(serializer).not_to receive(:represent)
-        end
+      shared_examples 'cache hit' do
+        it 'gets cached on subsequent requests' do
+          expect(DiscussionSerializer).not_to receive(:new)
 
+          send_request
+        end
+      end
+
+      before do
         send_request
       end
+
+      it_behaves_like 'cache hit'
 
       context 'when a note in a discussion got updated' do
         before do
@@ -165,10 +167,10 @@ RSpec.describe 'merge requests discussions' do
       context 'when the diff note position changes' do
         before do
           # This replicates a position change wherein timestamps aren't updated
-          # which is why `Gitlab::Timeless.timeless` is utilized. This is the
-          # same approach being used in Discussions::UpdateDiffPositionService
-          # which is responsible for updating the positions of diff discussions
-          # when MR updates.
+          # which is why `save(touch: false)` is utilized. This is the same
+          # approach being used in Discussions::UpdateDiffPositionService which
+          # is responsible for updating the positions of diff discussions when
+          # MR updates.
           first_note.position = Gitlab::Diff::Position.new(
             old_path: first_note.position.old_path,
             new_path: first_note.position.new_path,
@@ -177,7 +179,7 @@ RSpec.describe 'merge requests discussions' do
             diff_refs: first_note.position.diff_refs
           )
 
-          Gitlab::Timeless.timeless(first_note, &:save)
+          first_note.save!(touch: false)
         end
 
         it_behaves_like 'cache miss' do

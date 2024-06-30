@@ -1,8 +1,8 @@
 import { select } from 'd3-selection';
-import dateFormat from 'dateformat';
 import $ from 'jquery';
 import { last } from 'lodash';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import dateFormat from '~/lib/dateformat';
 import axios from '~/lib/utils/axios_utils';
 import { getDayName, getDayDifference } from '~/lib/utils/datetime_utility';
 import { formatDate } from '~/lib/utils/datetime/date_format_utility';
@@ -58,7 +58,7 @@ export const getLevelFromContributions = (count) => {
 };
 
 export default class ActivityCalendar {
-  constructor(
+  constructor({
     container,
     activitiesContainer,
     timestamps,
@@ -66,12 +66,13 @@ export default class ActivityCalendar {
     utcOffset = 0,
     firstDayOfWeek = firstDayOfWeekChoices.sunday,
     monthsAgo = 12,
-  ) {
+    onClickDay,
+  }) {
     this.calendarActivitiesPath = calendarActivitiesPath;
     this.clickDay = this.clickDay.bind(this);
     this.currentSelectedDate = '';
     this.daySpace = 1;
-    this.daySize = 15;
+    this.daySize = 14;
     this.daySizeWithSpace = this.daySize + this.daySpace * 2;
     this.monthNames = [
       __('Jan'),
@@ -91,6 +92,7 @@ export default class ActivityCalendar {
     this.firstDayOfWeek = firstDayOfWeek;
     this.activitiesContainer = activitiesContainer;
     this.container = container;
+    this.onClickDay = onClickDay;
 
     // Loop through the timestamps to create a group of objects
     // The group of objects will be grouped based on the day of the week they are
@@ -129,7 +131,6 @@ export default class ActivityCalendar {
     this.renderDays();
     this.renderMonths();
     this.renderDayTitles();
-    this.renderKey();
   }
 
   // Add extra padding for the last month label if it is also the last column
@@ -151,8 +152,9 @@ export default class ActivityCalendar {
       .select(container)
       .append('svg')
       .attr('width', width)
-      .attr('height', 167)
-      .attr('class', 'contrib-calendar');
+      .attr('height', 140)
+      .attr('class', 'contrib-calendar')
+      .attr('data-testid', 'contrib-calendar');
   }
 
   dayYPos(day) {
@@ -181,6 +183,7 @@ export default class ActivityCalendar {
         });
         return `translate(${this.daySizeWithSpace * i + 1 + this.daySizeWithSpace}, 18)`;
       })
+      .attr('data-testid', 'user-contrib-cell-group')
       .selectAll('rect')
       .data((stamp) => stamp)
       .enter()
@@ -192,6 +195,7 @@ export default class ActivityCalendar {
       .attr('data-level', (stamp) => getLevelFromContributions(stamp.count))
       .attr('title', (stamp) => formatTooltipText(stamp))
       .attr('class', 'user-contrib-cell has-tooltip')
+      .attr('data-testid', 'user-contrib-cell')
       .attr('data-html', true)
       .attr('data-container', 'body')
       .on('click', this.clickDay);
@@ -252,25 +256,6 @@ export default class ActivityCalendar {
       .text((date) => this.monthNames[date.month]);
   }
 
-  renderKey() {
-    this.svg
-      .append('g')
-      .attr('transform', `translate(18, ${this.daySizeWithSpace * 8 + 16})`)
-      .selectAll('rect')
-      .data(CONTRIB_LEGENDS)
-      .enter()
-      .append('rect')
-      .attr('width', this.daySize)
-      .attr('height', this.daySize)
-      .attr('x', (_, i) => this.daySizeWithSpace * i)
-      .attr('y', 0)
-      .attr('data-level', (_, i) => i)
-      .attr('class', 'user-contrib-cell has-tooltip contrib-legend')
-      .attr('title', (x) => x.title)
-      .attr('data-container', 'body')
-      .attr('data-html', true);
-  }
-
   clickDay(stamp) {
     if (this.currentSelectedDate !== stamp.date) {
       this.currentSelectedDate = stamp.date;
@@ -280,6 +265,12 @@ export default class ActivityCalendar {
         this.currentSelectedDate.getMonth() + 1,
         this.currentSelectedDate.getDate(),
       ].join('-');
+
+      if (this.onClickDay) {
+        this.onClickDay(date);
+
+        return;
+      }
 
       $(this.activitiesContainer)
         .empty()
@@ -298,11 +289,11 @@ export default class ActivityCalendar {
             .querySelector(this.activitiesContainer)
             .querySelectorAll('.js-localtime')
             .forEach((el) => {
-              el.setAttribute('title', formatDate(el.getAttribute('data-datetime')));
+              el.setAttribute('title', formatDate(el.dataset.datetime));
             });
         })
         .catch(() =>
-          createFlash({
+          createAlert({
             message: __('An error occurred while retrieving calendar activity'),
           }),
         );

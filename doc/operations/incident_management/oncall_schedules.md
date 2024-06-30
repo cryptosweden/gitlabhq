@@ -1,12 +1,14 @@
 ---
 stage: Monitor
 group: Respond
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# On-call Schedule Management **(PREMIUM)**
+# On-call Schedule Management
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/4544) in GitLab 13.11.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Use on-call schedule management to create schedules for responders to rotate on-call
 responsibilities. Maintain the availability of your software services by putting your teams on-call.
@@ -22,14 +24,14 @@ To use on-call schedules:
 
 Set up an on-call schedule for your team to add rotations to.
 
-Prerequisite:
+Prerequisites:
 
 - You must have at least the Maintainer role.
 
 To create an on-call schedule:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Monitor > On-call Schedules**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Monitor > On-call Schedules**.
 1. Select **Add a schedule**.
 1. Enter the schedule's name and description and select a time zone.
 1. Select **Add schedule**.
@@ -43,8 +45,8 @@ create [rotations](#rotations) for your schedule.
 
 To update a schedule:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Monitor > On-call Schedules**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Monitor > On-call Schedules**.
 1. Select **Edit schedule** (**{pencil}**).
 1. Edit the information.
 1. Select **Save changes**.
@@ -56,8 +58,8 @@ interval (if one is set) to the corresponding times in the new time zone.
 
 To delete a schedule:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Monitor > On-call Schedules**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Monitor > On-call Schedules**.
 1. Select **Delete escalation policy** (**{remove}**).
 1. On the confirmation dialog, select **Delete schedule**.
 
@@ -67,8 +69,8 @@ Add rotations to an existing schedule to put your team members on-call.
 
 To create a rotation:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Monitor > On-call Schedules**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Monitor > On-call Schedules**.
 1. Select the **Add a rotation** link.
 1. Enter the following information:
 
@@ -85,8 +87,8 @@ To create a rotation:
 
 To edit a rotation:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Monitor > On-call Schedules**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Monitor > On-call Schedules**.
 1. In the **Rotations** section, select **Edit rotation** (**{pencil}**).
 1. Edit the information.
 1. Select **Save changes**.
@@ -95,8 +97,8 @@ To edit a rotation:
 
 To delete a rotation:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Monitor > On-call Schedules**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Monitor > On-call Schedules**.
 1. In the **Rotations** section, select **Delete rotation** (**{remove}**).
 1. On the confirmation dialog, select **Delete rotation**.
 

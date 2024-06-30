@@ -3,31 +3,31 @@ package staticpages
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
 )
 
-var (
-	staticErrorResponses = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "gitlab_workhorse_static_error_responses",
-			Help: "How many HTTP responses have been changed to a static error page, by HTTP status code.",
-		},
-		[]string{"code"},
-	)
+var staticErrorResponses = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "gitlab_workhorse_static_error_responses",
+		Help: "How many HTTP responses have been changed to a static error page, by HTTP status code.",
+	},
+	[]string{"code"},
 )
 
+// ErrorFormat represents the format for error handling or reporting.
 type ErrorFormat int
 
 const (
+	// ErrorFormatHTML represents the HTML format for error handling.
 	ErrorFormatHTML ErrorFormat = iota
+	// ErrorFormatJSON represents the JSON format for error handling.
 	ErrorFormatJSON
+	// ErrorFormatText represents the text format for error handling.
 	ErrorFormatText
 )
 
@@ -84,12 +84,15 @@ func (s *errorPageResponseWriter) WriteHeader(status int) {
 	s.hijacked = true
 	staticErrorResponses.WithLabelValues(fmt.Sprintf("%d", s.status)).Inc()
 
-	helper.SetNoCacheHeaders(s.rw.Header())
+	setNoCacheHeaders(s.rw.Header())
 	s.rw.Header().Set("Content-Type", contentType)
 	s.rw.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	s.rw.Header().Del("Transfer-Encoding")
 	s.rw.WriteHeader(s.status)
-	s.rw.Write(data)
+	_, err := s.rw.Write(data)
+	if err != nil {
+		fmt.Printf("Error reading deploy page file: %v\n", err)
+	}
 }
 
 func (s *errorPageResponseWriter) writeHTML() (string, []byte) {
@@ -97,7 +100,8 @@ func (s *errorPageResponseWriter) writeHTML() (string, []byte) {
 		errorPageFile := filepath.Join(s.path, fmt.Sprintf("%d.html", s.status))
 
 		// check if custom error page exists, serve this page instead
-		if data, err := ioutil.ReadFile(errorPageFile); err == nil {
+		cleanPath := filepath.Clean(errorPageFile)
+		if data, err := os.ReadFile(cleanPath); err == nil {
 			return "text/html; charset=utf-8", data
 		}
 	}
@@ -122,14 +126,20 @@ func (s *errorPageResponseWriter) flush() {
 	s.WriteHeader(http.StatusOK)
 }
 
-func (st *Static) ErrorPagesUnless(disabled bool, format ErrorFormat, handler http.Handler) http.Handler {
+// Unwrap lets http.ResponseController get the underlying http.ResponseWriter.
+func (s *errorPageResponseWriter) Unwrap() http.ResponseWriter {
+	return s.rw
+}
+
+// ErrorPagesUnless sets up error pages for specific formats unless explicitly disabled.
+func (s *Static) ErrorPagesUnless(disabled bool, format ErrorFormat, handler http.Handler) http.Handler {
 	if disabled {
 		return handler
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rw := errorPageResponseWriter{
 			rw:     w,
-			path:   st.DocumentRoot,
+			path:   s.DocumentRoot,
 			format: format,
 		}
 		defer rw.flush()

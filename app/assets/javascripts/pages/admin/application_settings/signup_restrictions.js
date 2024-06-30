@@ -14,15 +14,19 @@ export default function initSignupRestrictions(elementSelector = '#js-signup-for
     booleanAttributes: [
       'signupEnabled',
       'requireAdminApprovalAfterUserSignup',
-      'sendUserConfirmationEmail',
       'domainDenylistEnabled',
       'denylistTypeRawSelected',
       'emailRestrictionsEnabled',
+      'passwordNumberRequired',
+      'passwordLowercaseRequired',
+      'passwordUppercaseRequired',
+      'passwordSymbolRequired',
     ],
   });
 
   return new Vue({
     el,
+    name: 'SignupRestrictions',
     provide: {
       ...parsedDataset,
     },

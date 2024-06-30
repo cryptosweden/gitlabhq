@@ -8,11 +8,12 @@ module ContainerRegistry
   class BaseClient
     DOCKER_DISTRIBUTION_MANIFEST_V2_TYPE = 'application/vnd.docker.distribution.manifest.v2+json'
     DOCKER_DISTRIBUTION_MANIFEST_LIST_V2_TYPE = 'application/vnd.docker.distribution.manifest.list.v2+json'
+    OCI_DISTRIBUTION_INDEX_TYPE = 'application/vnd.oci.image.index.v1+json'
     OCI_MANIFEST_V1_TYPE = 'application/vnd.oci.image.manifest.v1+json'
     CONTAINER_IMAGE_V1_TYPE = 'application/vnd.docker.container.image.v1+json'
 
     ACCEPTED_TYPES = [DOCKER_DISTRIBUTION_MANIFEST_V2_TYPE, OCI_MANIFEST_V1_TYPE].freeze
-    ACCEPTED_TYPES_RAW = [DOCKER_DISTRIBUTION_MANIFEST_V2_TYPE, OCI_MANIFEST_V1_TYPE, DOCKER_DISTRIBUTION_MANIFEST_LIST_V2_TYPE].freeze
+    ACCEPTED_TYPES_RAW = [DOCKER_DISTRIBUTION_MANIFEST_V2_TYPE, OCI_MANIFEST_V1_TYPE, DOCKER_DISTRIBUTION_MANIFEST_LIST_V2_TYPE, OCI_DISTRIBUTION_INDEX_TYPE].freeze
 
     RETRY_EXCEPTIONS = [Faraday::Request::Retry::DEFAULT_EXCEPTIONS, Faraday::ConnectionFailed].flatten.freeze
     RETRY_OPTIONS = {
@@ -22,7 +23,7 @@ module ContainerRegistry
     }.freeze
 
     ERROR_CALLBACK_OPTIONS = {
-      callback: -> (env, exception) do
+      callback: ->(env, exception) do
         Gitlab::ErrorTracking.log_exception(
           exception,
           class: name,
@@ -31,20 +32,31 @@ module ContainerRegistry
       end
     }.freeze
 
-    # Taken from: FaradayMiddleware::FollowRedirects
-    REDIRECT_CODES = Set.new [301, 302, 303, 307]
-
     class << self
       private
 
-      def with_dummy_client(return_value_if_disabled: nil)
+      def with_dummy_client(return_value_if_disabled: nil, token_config: { type: :full_access_token, path: nil })
         registry_config = Gitlab.config.registry
         unless registry_config.enabled && registry_config.api_url.present?
           return return_value_if_disabled
         end
 
-        token = Auth::ContainerRegistryAuthenticationService.access_token([], [])
-        yield new(registry_config.api_url, token: token)
+        yield new(registry_config.api_url, token: token_from(token_config))
+      end
+
+      def token_from(config)
+        case config[:type]
+        when :full_access_token
+          Auth::ContainerRegistryAuthenticationService.access_token({})
+        when :nested_repositories_token
+          return unless config[:path]
+
+          Auth::ContainerRegistryAuthenticationService.pull_nested_repositories_access_token(config[:path])
+        when :push_pull_nested_repositories_token
+          return unless config[:path]
+
+          Auth::ContainerRegistryAuthenticationService.push_pull_nested_repositories_access_token(config[:path])
+        end
       end
     end
 
@@ -88,21 +100,8 @@ module ContainerRegistry
       conn.adapter :net_http
     end
 
-    def response_body(response, allow_redirect: false)
-      if allow_redirect && REDIRECT_CODES.include?(response.status)
-        response = redirect_response(response.headers['location'])
-      end
-
+    def response_body(response)
       response.body if response && response.success?
-    end
-
-    def redirect_response(location)
-      return unless location
-
-      uri = URI(@base_uri).merge(location)
-      raise ArgumentError, "Invalid scheme for #{location}" unless %w[http https].include?(uri.scheme)
-
-      faraday_redirect.get(uri)
     end
 
     def configure_connection(conn)
@@ -113,18 +112,7 @@ module ContainerRegistry
       conn.response :json, content_type: 'application/vnd.docker.distribution.manifest.v1+json'
       conn.response :json, content_type: DOCKER_DISTRIBUTION_MANIFEST_V2_TYPE
       conn.response :json, content_type: OCI_MANIFEST_V1_TYPE
-    end
-
-    # Create a new request to make sure the Authorization header is not inserted
-    # via the Faraday middleware
-    def faraday_redirect
-      @faraday_redirect ||= faraday_base do |conn|
-        conn.request :json
-
-        conn.request(:retry, RETRY_OPTIONS)
-        conn.request(:gitlab_error_callback, ERROR_CALLBACK_OPTIONS)
-        conn.adapter :net_http
-      end
+      conn.response :json, content_type: OCI_DISTRIBUTION_INDEX_TYPE
     end
 
     def delete_if_exists(path)

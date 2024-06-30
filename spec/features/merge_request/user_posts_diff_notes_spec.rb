@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User posts diff notes', :js do
+RSpec.describe 'Merge request > User posts diff notes', :js, feature_category: :code_review_workflow do
   include MergeRequestDiffHelpers
   include Spec::Support::Helpers::ModalHelpers
 
-  let(:merge_request) { create(:merge_request) }
+  let_it_be(:merge_request) { create(:merge_request) }
   let(:project) { merge_request.source_project }
   let(:user) { project.creator }
   let(:comment_button_class) { '.add-diff-note' }
@@ -15,11 +15,8 @@ RSpec.describe 'Merge request > User posts diff notes', :js do
   let(:test_note_comment) { 'this is a test note!' }
 
   before do
-    set_cookie('sidebar_collapsed', 'true')
-
     project.add_developer(user)
     sign_in(user)
-    stub_feature_flags(bootstrap_confirmation_modals: false)
   end
 
   context 'when hovering over a parallel view diff file' do
@@ -103,8 +100,8 @@ RSpec.describe 'Merge request > User posts diff notes', :js do
       it 'allows commenting' do
         should_allow_commenting(find_by_scrolling('[id="2f6fcd96b88b36ce98c38da085c795a27d92a3dd_10_9"]'))
 
-        accept_gl_confirm(button_text: 'Delete Comment') do
-          first('button.more-actions-toggle').click
+        accept_gl_confirm(button_text: 'Delete comment') do
+          first('.more-actions-toggle button').click
           first('.js-note-delete').click
         end
 
@@ -220,7 +217,7 @@ RSpec.describe 'Merge request > User posts diff notes', :js do
     end
 
     context 'with a match line' do
-      it 'does not allow commenting' do
+      it 'does not allow commenting', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/375024' do
         match_should_not_allow_commenting(find_by_scrolling('.match', match: :first))
       end
     end
@@ -239,7 +236,7 @@ RSpec.describe 'Merge request > User posts diff notes', :js do
   def should_allow_dismissing_a_comment(line_holder, diff_side = nil)
     write_comment_on_line(line_holder, diff_side)
 
-    accept_gl_confirm(s_('Notes|Are you sure you want to cancel creating this comment?')) do
+    accept_gl_confirm(s_('Notes|Are you sure you want to cancel creating this comment?'), button_text: _('Discard changes')) do
       find('.js-close-discussion-note-form').click
     end
 

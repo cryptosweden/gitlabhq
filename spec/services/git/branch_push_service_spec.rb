@@ -2,28 +2,28 @@
 
 require 'spec_helper'
 
-RSpec.describe Git::BranchPushService, services: true do
+RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services: true, feature_category: :source_code_management do
   include RepoHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:project, reload: true) { create(:project, :repository) }
+  let_it_be_with_refind(:project) { create(:project, :repository, maintainers: user) }
 
-  let(:blankrev) { Gitlab::Git::BLANK_SHA }
+  let(:blankrev) { Gitlab::Git::SHA1_BLANK_SHA }
   let(:oldrev)   { sample_commit.parent_id }
   let(:newrev)   { sample_commit.id }
   let(:branch)   { 'master' }
   let(:ref)      { "refs/heads/#{branch}" }
   let(:push_options) { nil }
+  let(:service) do
+    described_class
+      .new(project, user, change: { oldrev: oldrev, newrev: newrev, ref: ref }, push_options: push_options)
+  end
 
-  before do
-    project.add_maintainer(user)
+  subject(:execute_service) do
+    service.execute
   end
 
   describe 'Push branches' do
-    subject do
-      execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref, push_options: push_options)
-    end
-
     context 'new branch' do
       let(:oldrev) { blankrev }
 
@@ -72,25 +72,23 @@ RSpec.describe Git::BranchPushService, services: true do
   end
 
   describe "Pipelines" do
-    subject { execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref) }
-
     before do
       stub_ci_pipeline_to_return_yaml_file
     end
 
     it 'creates a pipeline with the right parameters' do
-      expect(Ci::CreatePipelineService)
-        .to receive(:new)
-        .with(project,
-              user,
-              {
-                before: oldrev,
-                after: newrev,
-                ref: ref,
-                checkout_sha: SeedRepo::Commit::ID,
-                variables_attributes: [],
-                push_options: {}
-              }).and_call_original
+      expect(Ci::CreatePipelineService).to receive(:new).with(
+        project,
+        user,
+        {
+          before: oldrev,
+          after: newrev,
+          ref: ref,
+          checkout_sha: SeedRepo::Commit::ID,
+          variables_attributes: [],
+          push_options: {}
+        }
+      ).and_call_original
 
       subject
     end
@@ -117,13 +115,13 @@ RSpec.describe Git::BranchPushService, services: true do
       end
 
       context 'with push options' do
-        let(:push_options) { ['mr.create'] }
+        let(:push_options) { { 'mr' => { 'create' => true } } }
 
         it 'sanitizes push options' do
           allow(Gitlab::Runtime).to receive(:sidekiq?).and_return(true)
           expect(Sidekiq.logger).to receive(:warn) do |args|
             pipeline_params = args[:pipeline_params]
-            expect(pipeline_params.keys).to match_array(%i(before after ref variables_attributes checkout_sha))
+            expect(pipeline_params.keys).to match_array(%i[before after ref variables_attributes checkout_sha])
           end
 
           expect { subject }.not_to change { Ci::Pipeline.count }
@@ -148,110 +146,90 @@ RSpec.describe Git::BranchPushService, services: true do
   end
 
   describe "Updates merge requests" do
+    let(:oldrev) { blankrev }
+
     it "when pushing a new branch for the first time" do
       expect(UpdateMergeRequestsWorker)
         .to receive(:perform_async)
-        .with(project.id, user.id, blankrev, newrev, ref)
+        .with(project.id, user.id, blankrev, newrev, ref, { 'push_options' => nil })
+        .ordered
 
-      execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: ref)
-    end
-  end
-
-  describe "Updates git attributes" do
-    context "for default branch" do
-      it "calls the copy attributes method for the first push to the default branch" do
-        expect(project.repository).to receive(:copy_gitattributes).with('master')
-
-        execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: ref)
-      end
-
-      it "calls the copy attributes method for changes to the default branch" do
-        expect(project.repository).to receive(:copy_gitattributes).with(ref)
-
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
-      end
-    end
-
-    context "for non-default branch" do
-      before do
-        # Make sure the "default" branch is different
-        allow(project).to receive(:default_branch).and_return('not-master')
-      end
-
-      it "does not call copy attributes method" do
-        expect(project.repository).not_to receive(:copy_gitattributes)
-
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
-      end
+      subject
     end
   end
 
   describe "Webhooks" do
-    context "execute webhooks" do
-      before do
-        create(:project_hook, push_events: true, project: project)
-      end
+    before do
+      create(:project_hook, push_events: true, project: project)
+    end
 
-      it "when pushing a branch for the first time" do
+    context "when pushing a branch for the first time" do
+      let(:oldrev) { blankrev }
+
+      it "executes webhooks" do
         expect(project).to receive(:execute_hooks)
         expect(project.default_branch).to eq("master")
-        execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: ref)
+
+        subject
+
         expect(project.protected_branches).not_to be_empty
         expect(project.protected_branches.first.push_access_levels.map(&:access_level)).to eq([Gitlab::Access::MAINTAINER])
         expect(project.protected_branches.first.merge_access_levels.map(&:access_level)).to eq([Gitlab::Access::MAINTAINER])
       end
 
-      it "when pushing a branch for the first time with default branch protection disabled" do
-        expect(project.namespace).to receive(:default_branch_protection).and_return(Gitlab::Access::PROTECTION_NONE)
+      it "with default branch protection disabled" do
+        expect(project.namespace).to receive(:default_branch_protection_settings).and_return(Gitlab::Access::BranchProtection.protection_none)
 
         expect(project).to receive(:execute_hooks)
         expect(project.default_branch).to eq("master")
-        execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: ref)
+        subject
         expect(project.protected_branches).to be_empty
       end
 
-      it "when pushing a branch for the first time with default branch protection set to 'developers can push'" do
-        expect(project.namespace).to receive(:default_branch_protection).and_return(Gitlab::Access::PROTECTION_DEV_CAN_PUSH)
+      it "with default branch protection set to 'developers can push'" do
+        expect(project.namespace).to receive(:default_branch_protection_settings).and_return(Gitlab::Access::BranchProtection.protection_partial)
 
         expect(project).to receive(:execute_hooks)
         expect(project.default_branch).to eq("master")
 
-        execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: ref)
+        subject
 
         expect(project.protected_branches).not_to be_empty
         expect(project.protected_branches.last.push_access_levels.map(&:access_level)).to eq([Gitlab::Access::DEVELOPER])
         expect(project.protected_branches.last.merge_access_levels.map(&:access_level)).to eq([Gitlab::Access::MAINTAINER])
       end
 
-      it "when pushing a branch for the first time with an existing branch permission configured" do
-        expect(project.namespace).to receive(:default_branch_protection).and_return(Gitlab::Access::PROTECTION_DEV_CAN_PUSH)
+      it "with an existing branch permission configured" do
+        expect(project.namespace).to receive(:default_branch_protection_settings).and_return(Gitlab::Access::BranchProtection.protection_partial)
 
         create(:protected_branch, :no_one_can_push, :developers_can_merge, project: project, name: 'master')
         expect(project).to receive(:execute_hooks)
         expect(project.default_branch).to eq("master")
         expect(ProtectedBranches::CreateService).not_to receive(:new)
 
-        execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: ref)
+        subject
 
         expect(project.protected_branches).not_to be_empty
         expect(project.protected_branches.last.push_access_levels.map(&:access_level)).to eq([Gitlab::Access::NO_ACCESS])
         expect(project.protected_branches.last.merge_access_levels.map(&:access_level)).to eq([Gitlab::Access::DEVELOPER])
       end
 
-      it "when pushing a branch for the first time with default branch protection set to 'developers can merge'" do
-        expect(project.namespace).to receive(:default_branch_protection).and_return(Gitlab::Access::PROTECTION_DEV_CAN_MERGE)
+      it "with default branch protection set to 'developers can merge'" do
+        expect(project.namespace).to receive(:default_branch_protection_settings).and_return(Gitlab::Access::BranchProtection.protected_against_developer_pushes)
 
         expect(project).to receive(:execute_hooks)
         expect(project.default_branch).to eq("master")
-        execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: ref)
+        subject
         expect(project.protected_branches).not_to be_empty
         expect(project.protected_branches.first.push_access_levels.map(&:access_level)).to eq([Gitlab::Access::MAINTAINER])
         expect(project.protected_branches.first.merge_access_levels.map(&:access_level)).to eq([Gitlab::Access::DEVELOPER])
       end
+    end
 
-      it "when pushing new commits to existing branch" do
+    context "when pushing new commits to existing branch" do
+      it "executes webhooks" do
         expect(project).to receive(:execute_hooks)
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
   end
@@ -272,7 +250,7 @@ RSpec.describe Git::BranchPushService, services: true do
         author_email: commit_author.email
       )
 
-      allow_any_instance_of(ProcessCommitWorker).to receive(:build_commit)
+      allow(Commit).to receive(:build_from_sidekiq_hash)
         .and_return(commit)
 
       allow(project.repository).to receive(:commits_between).and_return([commit])
@@ -281,7 +259,7 @@ RSpec.describe Git::BranchPushService, services: true do
     it "creates a note if a pushed commit mentions an issue", :sidekiq_might_not_need_inline do
       expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, commit_author)
 
-      execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+      subject
     end
 
     it "only creates a cross-reference note if one doesn't already exist" do
@@ -289,7 +267,7 @@ RSpec.describe Git::BranchPushService, services: true do
 
       expect(SystemNoteService).not_to receive(:cross_reference).with(issue, commit, commit_author)
 
-      execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+      subject
     end
 
     it "defaults to the pushing user if the commit's author is not known", :sidekiq_inline, :use_clean_rails_redis_caching do
@@ -299,16 +277,21 @@ RSpec.describe Git::BranchPushService, services: true do
       )
       expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, user)
 
-      execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+      subject
     end
 
-    it "finds references in the first push to a non-default branch", :sidekiq_might_not_need_inline do
-      allow(project.repository).to receive(:commits_between).with(blankrev, newrev).and_return([])
-      allow(project.repository).to receive(:commits_between).with("master", newrev).and_return([commit])
+    context "when first push on a non-default branch" do
+      let(:oldrev) { blankrev }
+      let(:ref) { 'refs/heads/other' }
 
-      expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, commit_author)
+      it "finds references", :sidekiq_might_not_need_inline do
+        allow(project.repository).to receive(:commits_between).with(blankrev, newrev).and_return([])
+        allow(project.repository).to receive(:commits_between).with("master", newrev).and_return([commit])
 
-      execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: 'refs/heads/other')
+        expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, commit_author)
+
+        subject
+      end
     end
   end
 
@@ -330,7 +313,7 @@ RSpec.describe Git::BranchPushService, services: true do
         committed_date: commit_time
       )
 
-      allow_any_instance_of(ProcessCommitWorker).to receive(:build_commit)
+      allow(Commit).to receive(:build_from_sidekiq_hash)
         .and_return(commit)
 
       allow(project.repository).to receive(:commits_between).and_return([commit])
@@ -338,14 +321,14 @@ RSpec.describe Git::BranchPushService, services: true do
 
     context "while saving the 'first_mentioned_in_commit_at' metric for an issue" do
       it 'sets the metric for referenced issues', :sidekiq_inline, :use_clean_rails_redis_caching do
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
 
         expect(issue.reload.metrics.first_mentioned_in_commit_at).to be_like_time(commit_time)
       end
 
       it 'does not set the metric for non-referenced issues' do
         non_referenced_issue = create(:issue, project: project)
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
 
         expect(non_referenced_issue.reload.metrics.first_mentioned_in_commit_at).to be_nil
       end
@@ -369,26 +352,28 @@ RSpec.describe Git::BranchPushService, services: true do
       allow(project.repository).to receive(:commits_between)
         .and_return([closing_commit])
 
-      allow_any_instance_of(ProcessCommitWorker).to receive(:build_commit)
+      allow(Commit).to receive(:build_from_sidekiq_hash)
         .and_return(closing_commit)
 
       project.add_maintainer(commit_author)
     end
 
     context "to default branches" do
+      let(:user) { commit_author }
+
       it "closes issues", :sidekiq_might_not_need_inline do
-        execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
         expect(Issue.find(issue.id)).to be_closed
       end
 
       it "adds a note indicating that the issue is now closed", :sidekiq_might_not_need_inline do
         expect(SystemNoteService).to receive(:change_status).with(issue, project, commit_author, "closed", closing_commit)
-        execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
 
       it "doesn't create additional cross-reference notes" do
         expect(SystemNoteService).not_to receive(:cross_reference)
-        execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
 
@@ -400,17 +385,17 @@ RSpec.describe Git::BranchPushService, services: true do
 
       it "creates cross-reference notes", :sidekiq_inline, :use_clean_rails_redis_caching do
         expect(SystemNoteService).to receive(:cross_reference).with(issue, closing_commit, commit_author)
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
 
       it "doesn't close issues" do
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
         expect(Issue.find(issue.id)).to be_opened
       end
     end
 
     context "for jira issue tracker" do
-      include JiraServiceHelper
+      include JiraIntegrationHelpers
 
       let(:jira_tracker) { project.create_jira_integration if project.jira_integration.nil? }
 
@@ -441,7 +426,7 @@ RSpec.describe Git::BranchPushService, services: true do
         let(:message) { "this is some work.\n\nrelated to JIRA-1" }
 
         it "initiates one api call to jira server to mention the issue", :sidekiq_inline, :use_clean_rails_redis_caching do
-          execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+          subject
 
           expect(WebMock).to have_requested(:post, jira_api_comment_url('JIRA-1')).with(
             body: /mentioned this issue in/
@@ -468,37 +453,43 @@ RSpec.describe Git::BranchPushService, services: true do
         end
 
         context "using right markdown", :sidekiq_might_not_need_inline do
+          let(:user) { commit_author }
+
           it "initiates one api call to jira server to close the issue" do
-            execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+            subject
 
             expect(WebMock).to have_requested(:post, jira_api_transition_url('JIRA-1')).once
           end
 
           it "initiates one api call to jira server to comment on the issue" do
-            execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+            subject
 
-            expect(WebMock).to have_requested(:post, jira_api_comment_url('JIRA-1')).with(
-              body: comment_body
-            ).once
+            expect(WebMock)
+              .to have_requested(:post, jira_api_comment_url('JIRA-1'))
+              .with(body: comment_body)
+              .once
           end
         end
 
         context "using internal issue reference" do
+          let(:user) { commit_author }
+
           context 'when internal issues are disabled' do
             before do
               project.issues_enabled = false
               project.save!
             end
+
             let(:message) { "this is some work.\n\ncloses #1" }
 
             it "does not initiates one api call to jira server to close the issue" do
-              execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+              subject
 
               expect(WebMock).not_to have_requested(:post, jira_api_transition_url('JIRA-1'))
             end
 
             it "does not initiates one api call to jira server to comment on the issue" do
-              execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+              subject
 
               expect(WebMock).not_to have_requested(:post, jira_api_comment_url('JIRA-1')).with(
                 body: comment_body
@@ -511,13 +502,13 @@ RSpec.describe Git::BranchPushService, services: true do
             let(:message) { "this is some work.\n\ncloses JIRA-1 \n\n closes #{issue.to_reference}" }
 
             it "initiates one api call to jira server to close the jira issue" do
-              execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+              subject
 
               expect(WebMock).to have_requested(:post, jira_api_transition_url('JIRA-1')).once
             end
 
             it "initiates one api call to jira server to comment on the jira issue" do
-              execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+              subject
 
               expect(WebMock).to have_requested(:post, jira_api_comment_url('JIRA-1')).with(
                 body: comment_body
@@ -525,14 +516,14 @@ RSpec.describe Git::BranchPushService, services: true do
             end
 
             it "closes the internal issue" do
-              execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+              subject
               expect(issue.reload).to be_closed
             end
 
             it "adds a note indicating that the issue is now closed" do
               expect(SystemNoteService).to receive(:change_status)
                 .with(issue, project, commit_author, "closed", closing_commit)
-              execute_service(project, commit_author, oldrev: oldrev, newrev: newrev, ref: ref)
+              subject
             end
           end
         end
@@ -542,15 +533,16 @@ RSpec.describe Git::BranchPushService, services: true do
 
   describe "empty project" do
     let(:project) { create(:project_empty_repo) }
-    let(:new_ref) { 'refs/heads/feature' }
+    let(:ref) { 'refs/heads/feature' }
+    let(:oldrev) { blankrev }
 
     before do
       allow(project).to receive(:default_branch).and_return('feature')
-      expect(project).to receive(:change_head) { 'feature'}
+      expect(project).to receive(:change_head) { 'feature' }
     end
 
     it 'push to first branch updates HEAD' do
-      execute_service(project, user, oldrev: blankrev, newrev: newrev, ref: new_ref)
+      subject
     end
   end
 
@@ -561,7 +553,7 @@ RSpec.describe Git::BranchPushService, services: true do
       it 'does nothing' do
         expect(::Environments::StopService).not_to receive(:new)
 
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
 
@@ -569,7 +561,7 @@ RSpec.describe Git::BranchPushService, services: true do
       it 'does nothing' do
         expect(::Environments::StopService).not_to receive(:new)
 
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
 
@@ -583,7 +575,7 @@ RSpec.describe Git::BranchPushService, services: true do
           expect(stop_service).to receive(:execute_for_branch).with(branch)
         end
 
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
   end
@@ -595,7 +587,7 @@ RSpec.describe Git::BranchPushService, services: true do
       it 'does nothing' do
         expect(::Ci::RefDeleteUnlockArtifactsWorker).not_to receive(:perform_async)
 
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
 
@@ -603,7 +595,7 @@ RSpec.describe Git::BranchPushService, services: true do
       it 'does nothing' do
         expect(::Ci::RefDeleteUnlockArtifactsWorker).not_to receive(:perform_async)
 
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
 
@@ -614,7 +606,7 @@ RSpec.describe Git::BranchPushService, services: true do
         expect(::Ci::RefDeleteUnlockArtifactsWorker)
           .to receive(:perform_async).with(project.id, user.id, "refs/heads/#{branch}")
 
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
   end
@@ -636,7 +628,7 @@ RSpec.describe Git::BranchPushService, services: true do
           expect(hooks_service).to receive(:execute)
         end
 
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
 
@@ -646,38 +638,31 @@ RSpec.describe Git::BranchPushService, services: true do
       it 'does nothing' do
         expect(::Git::BranchHooksService).not_to receive(:new)
 
-        execute_service(project, user, oldrev: oldrev, newrev: newrev, ref: ref)
+        subject
       end
     end
   end
 
-  def execute_service(project, user, change, push_options = {})
-    service = described_class.new(project, user, change: change, push_options: push_options)
-    service.execute
-    service
-  end
-
   context 'Jira Connect hooks' do
-    let_it_be(:project) { create(:project, :repository) }
-
     let(:branch_to_sync) { nil }
     let(:commits_to_sync) { [] }
-    let(:params) do
-      { change: { oldrev: oldrev, newrev: newrev, ref: ref } }
-    end
-
-    subject do
-      described_class.new(project, user, params)
-    end
 
     shared_examples 'enqueues Jira sync worker' do
       specify :aggregate_failures do
         Sidekiq::Testing.fake! do
-          expect(JiraConnect::SyncBranchWorker).to receive(:perform_async)
-                                                     .with(project.id, branch_to_sync, commits_to_sync, kind_of(Numeric))
-                                                     .and_call_original
+          if commits_to_sync.any?
+            expect(JiraConnect::SyncBranchWorker)
+              .to receive(:perform_in)
+              .with(kind_of(Numeric), project.id, branch_to_sync, commits_to_sync, kind_of(Numeric))
+              .and_call_original
+          else
+            expect(JiraConnect::SyncBranchWorker)
+              .to receive(:perform_async)
+              .with(project.id, branch_to_sync, commits_to_sync, kind_of(Numeric))
+              .and_call_original
+          end
 
-          expect { subject.execute }.to change(JiraConnect::SyncBranchWorker.jobs, :size).by(1)
+          expect { subject }.to change(JiraConnect::SyncBranchWorker.jobs, :size).by(1)
         end
       end
     end
@@ -685,7 +670,7 @@ RSpec.describe Git::BranchPushService, services: true do
     shared_examples 'does not enqueue Jira sync worker' do
       specify do
         Sidekiq::Testing.fake! do
-          expect { subject.execute }.not_to change(JiraConnect::SyncBranchWorker.jobs, :size)
+          expect { subject }.not_to change(JiraConnect::SyncBranchWorker.jobs, :size)
         end
       end
     end
@@ -710,6 +695,29 @@ RSpec.describe Git::BranchPushService, services: true do
         end
 
         it_behaves_like 'enqueues Jira sync worker'
+
+        describe 'batch requests' do
+          let(:commits_to_sync) { [sample_commit.id, another_sample_commit.id] }
+
+          it 'enqueues multiple jobs' do
+            # We have to stub this as we only have two valid commits to use
+            stub_const('Git::BranchHooksService::JIRA_SYNC_BATCH_SIZE', 1)
+
+            expect_any_instance_of(Git::BranchHooksService).to receive(:filtered_commit_shas).and_return(commits_to_sync)
+
+            expect(JiraConnect::SyncBranchWorker)
+              .to receive(:perform_in)
+              .with(0.seconds, project.id, branch_to_sync, [commits_to_sync.first], kind_of(Numeric))
+              .and_call_original
+
+            expect(JiraConnect::SyncBranchWorker)
+              .to receive(:perform_in)
+              .with(10.seconds, project.id, branch_to_sync, [commits_to_sync.last], kind_of(Numeric))
+              .and_call_original
+
+            subject
+          end
+        end
       end
 
       context 'branch name and commit message does not contain Jira issue key' do
@@ -719,6 +727,16 @@ RSpec.describe Git::BranchPushService, services: true do
 
     context 'without a Jira subscription' do
       it_behaves_like 'does not enqueue Jira sync worker'
+    end
+  end
+
+  describe 'project target platforms detection' do
+    let(:oldrev) { blankrev }
+
+    it 'calls enqueue_record_project_target_platforms on the project' do
+      expect(project).to receive(:enqueue_record_project_target_platforms)
+
+      subject
     end
   end
 end

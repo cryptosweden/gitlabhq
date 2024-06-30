@@ -6,10 +6,11 @@ module Issues
     def execute(issue)
       referenced = referenced_merge_requests(issue)
       closed_by = closed_by_merge_requests(issue)
-      preloader = ActiveRecord::Associations::Preloader.new
 
-      preloader.preload(referenced + closed_by,
-                        head_pipeline: { project: [:route, { namespace: :route }] })
+      ActiveRecord::Associations::Preloader.new(
+        records: referenced + closed_by,
+        associations: { head_pipeline: { project: [:route, { namespace: :route }] } }
+      ).call
 
       [sort_by_iid(referenced), sort_by_iid(closed_by)]
     end
@@ -18,7 +19,7 @@ module Issues
     def referenced_merge_requests(issue)
       merge_requests = extract_merge_requests(issue)
 
-      cross_project_filter = -> (merge_requests) do
+      cross_project_filter = ->(merge_requests) do
         merge_requests.select { |mr| mr.target_project == project }
       end
 
@@ -39,7 +40,10 @@ module Issues
 
       return [] if merge_requests.empty?
 
-      ids = MergeRequestsClosingIssues.where(merge_request_id: merge_requests.map(&:id), issue_id: issue.id).pluck(:merge_request_id)
+      ids = MergeRequestsClosingIssues.where(
+        merge_request_id: merge_requests.map(&:id),
+        issue_id: issue.id
+      ).pluck(:merge_request_id)
       merge_requests.select { |mr| mr.id.in?(ids) }
     end
     # rubocop: enable CodeReuse/ActiveRecord

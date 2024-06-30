@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe AlertManagement::ProcessPrometheusAlertService do
+RSpec.describe AlertManagement::ProcessPrometheusAlertService, feature_category: :incident_management do
   let_it_be(:project, reload: true) { create(:project, :repository) }
 
   let(:service) { described_class.new(project, payload) }
@@ -44,6 +44,7 @@ RSpec.describe AlertManagement::ProcessPrometheusAlertService do
       end
 
       it_behaves_like 'processes new firing alert'
+      include_examples 'handles race condition in alert creation'
 
       context 'with resolving payload' do
         let(:prometheus_status) { 'resolved' }
@@ -63,22 +64,6 @@ RSpec.describe AlertManagement::ProcessPrometheusAlertService do
           execute
 
           expect(alert.environment).to eq(environment)
-        end
-      end
-
-      context 'prometheus alert given' do
-        let(:prometheus_alert) { create(:prometheus_alert, project: project) }
-        let(:alert) { project.alert_management_alerts.last }
-
-        before do
-          payload['labels']['gitlab_alert_id'] = prometheus_alert.prometheus_metric_id
-        end
-
-        it 'sets the prometheus alert and environment' do
-          execute
-
-          expect(alert.prometheus_alert).to eq(prometheus_alert)
-          expect(alert.environment).to eq(prometheus_alert.environment)
         end
       end
     end

@@ -1,9 +1,11 @@
 <script>
-import { GlSkeletonLoader, GlSafeHtmlDirective, GlAlert } from '@gitlab/ui';
-import createFlash from '~/flash';
-import { __ } from '~/locale';
+import { GlSkeletonLoader, GlAlert } from '@gitlab/ui';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-import { renderGFM } from '../render_gfm_facade';
+import { handleLocationHash } from '~/lib/utils/common_utils';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { __ } from '~/locale';
 
 export default {
   components: {
@@ -11,19 +13,15 @@ export default {
     GlAlert,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
-  props: {
-    getWikiContentUrl: {
-      type: String,
-      required: true,
-    },
-  },
+
+  inject: ['contentApi'],
   data() {
     return {
+      content: '',
       isLoadingContent: false,
       loadingContentFailed: false,
-      content: null,
     };
   },
   mounted() {
@@ -37,15 +35,16 @@ export default {
       try {
         const {
           data: { content },
-        } = await axios.get(this.getWikiContentUrl, { params: { render_html: true } });
+        } = await axios.get(this.contentApi, { params: { render_html: true } });
         this.content = content;
 
         this.$nextTick()
           .then(() => {
             renderGFM(this.$refs.content);
+            handleLocationHash();
           })
           .catch(() =>
-            createFlash({
+            createAlert({
               message: this.$options.i18n.renderingContentFailed,
             }),
           );
@@ -84,9 +83,8 @@ export default {
   <div
     v-else-if="!loadingContentFailed && !isLoadingContent"
     ref="content"
-    data-qa-selector="wiki_page_content"
-    data-testid="wiki_page_content"
+    v-safe-html="content"
+    data-testid="wiki-page-content"
     class="js-wiki-page-content md"
-    v-html="content /* eslint-disable-line vue/no-v-html */"
   ></div>
 </template>

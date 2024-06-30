@@ -28,14 +28,6 @@ describe('~/feature_flags/components/strategy_parameters.vue', () => {
       },
     });
 
-  afterEach(() => {
-    if (wrapper?.destroy) {
-      wrapper.destroy();
-    }
-
-    wrapper = null;
-  });
-
   describe.each`
     name                                 | component
     ${ROLLOUT_STRATEGY_ALL_USERS}        | ${Default}
@@ -51,11 +43,11 @@ describe('~/feature_flags/components/strategy_parameters.vue', () => {
     });
 
     it('should show the correct component', () => {
-      expect(wrapper.find(component).exists()).toBe(true);
+      expect(wrapper.findComponent(component).exists()).toBe(true);
     });
 
     it('should emit changes from the lower component', () => {
-      const strategyParameterWrapper = wrapper.find(component);
+      const strategyParameterWrapper = wrapper.findComponent(component);
 
       strategyParameterWrapper.vm.$emit('change', { parameters: { foo: 'bar' } });
 
@@ -77,7 +69,7 @@ describe('~/feature_flags/components/strategy_parameters.vue', () => {
         strategy,
       });
 
-      expect(wrapper.find(UsersWithId).props('strategy')).toEqual(strategy);
+      expect(wrapper.findComponent(UsersWithId).props('strategy')).toEqual(strategy);
     });
   });
 });

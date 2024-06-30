@@ -2,10 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::PagesDomainsController do
+RSpec.describe Projects::PagesDomainsController, feature_category: :pages do
   let(:user) { create(:user) }
   let(:project) { create(:project) }
   let!(:pages_domain) { create(:pages_domain, project: project) }
+  let(:domain_presenter) { pages_domain.present(current_user: user) }
 
   let(:request_params) do
     {
@@ -28,15 +29,42 @@ RSpec.describe Projects::PagesDomainsController do
   end
 
   describe 'GET show' do
+    before do
+      controller.instance_variable_set(:@domain, pages_domain)
+      allow(pages_domain).to receive(:present).with(current_user: user).and_return(domain_presenter)
+    end
+
     def make_request
       get(:show, params: request_params.merge(id: pages_domain.domain))
     end
 
-    it "displays to the 'show' page" do
-      make_request
+    context 'when domain is verified' do
+      before do
+        allow(domain_presenter).to receive(:needs_verification?).and_return(false)
+      end
 
-      expect(response).to have_gitlab_http_status(:ok)
-      expect(response).to render_template('show')
+      it "displays to the 'show' page without warning" do
+        make_request
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to render_template('show')
+        expect(flash.now[:warning]).to be_nil
+      end
+    end
+
+    context 'when domain is unverified' do
+      before do
+        allow(domain_presenter).to receive(:needs_verification?).and_return(true)
+      end
+
+      it "displays to the 'show' page with warning" do
+        make_request
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to render_template('show')
+        expect(flash.now[:warning])
+          .to eq('This domain is not verified. You will need to verify ownership before access is enabled.')
+      end
     end
 
     context 'when user is developer' do
@@ -63,23 +91,21 @@ RSpec.describe Projects::PagesDomainsController do
 
   describe 'POST create' do
     it "creates a new pages domain" do
-      expect do
-        post(:create, params: request_params.merge(pages_domain: pages_domain_params))
-      end.to change { PagesDomain.count }.by(1)
+      expect { post(:create, params: request_params.merge(pages_domain: pages_domain_params)) }
+        .to change { PagesDomain.count }.by(1)
+        .and publish_event(PagesDomains::PagesDomainCreatedEvent)
+          .with(
+            project_id: project.id,
+            namespace_id: project.namespace.id,
+            root_namespace_id: project.root_namespace.id,
+            domain_id: kind_of(Numeric),
+            domain: pages_domain_params[:domain]
+          )
 
       created_domain = PagesDomain.reorder(:id).last
 
       expect(created_domain).to be_present
       expect(response).to redirect_to(project_pages_domain_path(project, created_domain))
-    end
-  end
-
-  describe 'GET show' do
-    it "displays the 'show' page" do
-      get(:show, params: request_params.merge(id: pages_domain.domain))
-
-      expect(response).to have_gitlab_http_status(:ok)
-      expect(response).to render_template('show')
     end
   end
 
@@ -104,6 +130,18 @@ RSpec.describe Projects::PagesDomainsController do
         expect do
           patch(:update, params: params)
         end.to change { pages_domain.reload.certificate }.to(pages_domain_params[:user_provided_certificate])
+      end
+
+      it 'publishes PagesDomainUpdatedEvent event' do
+        expect { patch(:update, params: params) }
+          .to publish_event(PagesDomains::PagesDomainUpdatedEvent)
+          .with(
+            project_id: project.id,
+            namespace_id: project.namespace.id,
+            root_namespace_id: project.root_namespace.id,
+            domain_id: pages_domain.id,
+            domain: pages_domain.domain
+          )
       end
 
       it 'redirects to the project page' do
@@ -133,6 +171,11 @@ RSpec.describe Projects::PagesDomainsController do
         patch(:update, params: params)
 
         expect(response).to render_template('show')
+      end
+
+      it 'does not publish PagesDomainUpdatedEvent event' do
+        expect { patch(:update, params: params) }
+          .to not_publish_event(PagesDomains::PagesDomainUpdatedEvent)
       end
     end
 
@@ -197,9 +240,16 @@ RSpec.describe Projects::PagesDomainsController do
 
   describe 'DELETE destroy' do
     it "deletes the pages domain" do
-      expect do
-        delete(:destroy, params: request_params.merge(id: pages_domain.domain))
-      end.to change { PagesDomain.count }.by(-1)
+      expect { delete(:destroy, params: request_params.merge(id: pages_domain.domain)) }
+        .to change(PagesDomain, :count).by(-1)
+        .and publish_event(PagesDomains::PagesDomainDeletedEvent)
+        .with(
+          project_id: project.id,
+          namespace_id: project.namespace.id,
+          root_namespace_id: project.root_namespace.id,
+          domain_id: pages_domain.id,
+          domain: pages_domain.domain
+        )
 
       expect(response).to redirect_to(project_pages_path(project))
     end
@@ -214,6 +264,18 @@ RSpec.describe Projects::PagesDomainsController do
       subject
 
       expect(response).to redirect_to(project_pages_domain_path(project, pages_domain))
+    end
+
+    it 'publishes PagesDomainUpdatedEvent event' do
+      expect { subject }
+        .to publish_event(PagesDomains::PagesDomainUpdatedEvent)
+        .with(
+          project_id: project.id,
+          namespace_id: project.namespace.id,
+          root_namespace_id: project.root_namespace.id,
+          domain_id: pages_domain.id,
+          domain: pages_domain.domain
+        )
     end
 
     it 'removes certificate' do
@@ -243,6 +305,11 @@ RSpec.describe Projects::PagesDomainsController do
         pages_domain.reload
         expect(pages_domain.certificate).to be_present
         expect(pages_domain.key).to be_present
+      end
+
+      it 'does not publish PagesDomainUpdatedEvent event' do
+        expect { subject }
+          .to not_publish_event(PagesDomains::PagesDomainUpdatedEvent)
       end
 
       it 'redirects to show page with a flash message' do

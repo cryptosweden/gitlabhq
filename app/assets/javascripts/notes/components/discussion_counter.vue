@@ -1,7 +1,17 @@
 <script>
-import { GlTooltipDirective, GlIcon, GlButton, GlButtonGroup } from '@gitlab/ui';
-import { mapGetters, mapActions } from 'vuex';
+import { GlButton, GlButtonGroup, GlDisclosureDropdown, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
+import { mapActions, mapGetters } from 'vuex';
+import { throttle } from 'lodash';
 import { __ } from '~/locale';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import {
+  keysFor,
+  MR_NEXT_UNRESOLVED_DISCUSSION,
+  MR_PREVIOUS_UNRESOLVED_DISCUSSION,
+} from '~/behaviors/shortcuts/keybindings';
+import { shouldDisableShortcuts } from '~/behaviors/shortcuts/shortcuts_toggle';
+import { sanitize } from '~/lib/dompurify';
 import discussionNavigation from '../mixins/discussion_navigation';
 
 export default {
@@ -9,49 +19,97 @@ export default {
     GlTooltip: GlTooltipDirective,
   },
   components: {
-    GlIcon,
+    GlDisclosureDropdown,
     GlButton,
     GlButtonGroup,
   },
-  mixins: [discussionNavigation],
+  mixins: [glFeatureFlagsMixin(), discussionNavigation],
+  props: {
+    blocksMerge: {
+      type: Boolean,
+      required: true,
+    },
+  },
+  data() {
+    return {
+      jumpNext: throttle(this.jumpToNextDiscussion, 500),
+      jumpPrevious: throttle(this.jumpToPreviousDiscussion, 500),
+    };
+  },
   computed: {
     ...mapGetters([
-      'getUserData',
       'getNoteableData',
       'resolvableDiscussionsCount',
       'unresolvedDiscussionsCount',
-      'discussions',
+      'allResolvableDiscussions',
+      'allVisibleDiscussionsExpanded',
     ]),
-    isLoggedIn() {
-      return this.getUserData.id;
-    },
     allResolved() {
       return this.unresolvedDiscussionsCount === 0;
+    },
+    toggleThreadsLabel() {
+      return !this.allVisibleDiscussionsExpanded
+        ? __('Show all comments')
+        : __('Hide all comments');
+    },
+    nextUnresolvedDiscussionShortcutKey() {
+      return shouldDisableShortcuts() ? null : keysFor(MR_NEXT_UNRESOLVED_DISCUSSION)[0];
+    },
+    nextUnresolvedDiscussionTitle() {
+      return MR_NEXT_UNRESOLVED_DISCUSSION.description;
+    },
+    nextUnresolvedDiscussionTooltip() {
+      const description = this.nextUnresolvedDiscussionTitle;
+      const key = this.nextUnresolvedDiscussionShortcutKey;
+      return shouldDisableShortcuts()
+        ? description
+        : sanitize(`${description} <kbd class="flat gl-ml-1" aria-hidden=true>${key}</kbd>`);
+    },
+    previousUnresolvedDiscussionShortcutKey() {
+      return shouldDisableShortcuts() ? null : keysFor(MR_PREVIOUS_UNRESOLVED_DISCUSSION)[0];
+    },
+    previousUnresolvedDiscussionTitle() {
+      return MR_PREVIOUS_UNRESOLVED_DISCUSSION.description;
+    },
+    previousUnresolvedDiscussionTooltip() {
+      const description = this.previousUnresolvedDiscussionTitle;
+      const key = this.previousUnresolvedDiscussionShortcutKey;
+      return shouldDisableShortcuts()
+        ? description
+        : sanitize(`${description} <kbd class="flat gl-ml-1" aria-hidden=true>${key}</kbd>`);
     },
     resolveAllDiscussionsIssuePath() {
       return this.getNoteableData.create_issue_to_resolve_discussions_path;
     },
-    toggeableDiscussions() {
-      return this.discussions.filter((discussion) => !discussion.individual_note);
+    threadOptions() {
+      const options = [
+        {
+          text: this.toggleThreadsLabel,
+          action: this.toggleAllVisibleDiscussions,
+          extraAttrs: {
+            'data-testid': 'toggle-all-discussions-btn',
+          },
+        },
+      ];
+
+      if (this.resolveAllDiscussionsIssuePath && !this.allResolved) {
+        options.push({
+          text: __('Resolve all with new issue'),
+          href: this.resolveAllDiscussionsIssuePath,
+          extraAttrs: {
+            'data-testid': 'resolve-all-with-issue-link',
+          },
+        });
+      }
+
+      return options;
     },
-    allExpanded() {
-      return this.toggeableDiscussions.every((discussion) => discussion.expanded);
-    },
-    lineResolveClass() {
-      return this.allResolved ? 'line-resolve-btn is-active' : 'line-resolve-text';
-    },
-    toggleThreadsLabel() {
-      return this.allExpanded ? __('Collapse all threads') : __('Expand all threads');
+    isNotificationsTodosButtons() {
+      return this.glFeatures.notificationsTodosButtons;
     },
   },
   methods: {
-    ...mapActions(['setExpandDiscussions']),
-    handleExpandDiscussions() {
-      this.setExpandDiscussions({
-        discussionIds: this.toggeableDiscussions.map((discussion) => discussion.id),
-        expanded: !this.allExpanded,
-      });
-    },
+    ...mapActions(['toggleAllVisibleDiscussions']),
   },
 };
 </script>
@@ -59,50 +117,78 @@ export default {
 <template>
   <div
     v-if="resolvableDiscussionsCount > 0"
+    id="discussionCounter"
     ref="discussionCounter"
-    class="line-resolve-all-container full-width-mobile gl-display-flex d-sm-flex"
+    class="gl-display-flex discussions-counter"
   >
-    <div class="line-resolve-all">
-      <span :class="lineResolveClass">
-        <template v-if="allResolved">
-          <gl-icon name="check-circle-filled" />
-          {{ __('All threads resolved') }}
-        </template>
-        <template v-else>
-          {{ n__('%d unresolved thread', '%d unresolved threads', unresolvedDiscussionsCount) }}
-        </template>
-      </span>
+    <div
+      class="gl-display-flex gl-align-items-center gl-pl-4 gl-rounded-base gl-min-h-7"
+      :class="{
+        'gl-bg-orange-50': blocksMerge && !allResolved,
+        'gl-bg-gray-50': !blocksMerge || allResolved,
+        'gl-mr-3': !isNotificationsTodosButtons,
+        'gl-mr-5': isNotificationsTodosButtons,
+      }"
+      data-testid="discussions-counter-text"
+    >
+      <template v-if="allResolved">
+        {{ __('All threads resolved!') }}
+        <gl-disclosure-dropdown
+          v-gl-tooltip
+          icon="ellipsis_v"
+          size="small"
+          category="tertiary"
+          placement="bottom-end"
+          no-caret
+          :title="__('Thread options')"
+          :aria-label="__('Thread options')"
+          toggle-class="btn-icon"
+          class="gl-rounded-base! gl-pt-0! gl-h-full gl-ml-3"
+          :items="threadOptions"
+        />
+      </template>
+      <template v-else>
+        {{ n__('%d unresolved thread', '%d unresolved threads', unresolvedDiscussionsCount) }}
+        <gl-button-group class="gl-ml-3">
+          <gl-button
+            v-gl-tooltip.html="previousUnresolvedDiscussionTooltip"
+            :aria-label="previousUnresolvedDiscussionTitle"
+            :aria-keyshortcuts="previousUnresolvedDiscussionShortcutKey"
+            class="discussion-previous-btn gl-rounded-base! gl-px-2!"
+            data-track-action="click_button"
+            data-track-label="mr_previous_unresolved_thread"
+            data-track-property="click_previous_unresolved_thread_top"
+            icon="chevron-lg-up"
+            category="tertiary"
+            @click="jumpPrevious"
+          />
+          <gl-button
+            v-gl-tooltip.html="nextUnresolvedDiscussionTooltip"
+            :aria-label="nextUnresolvedDiscussionTitle"
+            :aria-keyshortcuts="nextUnresolvedDiscussionShortcutKey"
+            class="discussion-next-btn gl-rounded-base! gl-px-2!"
+            data-track-action="click_button"
+            data-track-label="mr_next_unresolved_thread"
+            data-track-property="click_next_unresolved_thread_top"
+            icon="chevron-lg-down"
+            category="tertiary"
+            @click="jumpNext"
+          />
+          <gl-disclosure-dropdown
+            v-gl-tooltip
+            icon="ellipsis_v"
+            size="small"
+            category="tertiary"
+            placement="bottom-end"
+            no-caret
+            :title="__('Thread options')"
+            :aria-label="__('Thread options')"
+            toggle-class="btn-icon"
+            class="gl-rounded-base! gl-pt-0!"
+            :items="threadOptions"
+          />
+        </gl-button-group>
+      </template>
     </div>
-    <gl-button-group>
-      <gl-button
-        v-if="resolveAllDiscussionsIssuePath && !allResolved"
-        v-gl-tooltip
-        :href="resolveAllDiscussionsIssuePath"
-        :title="__('Create issue to resolve all threads')"
-        :aria-label="__('Create issue to resolve all threads')"
-        class="new-issue-for-discussion discussion-create-issue-btn"
-        icon="issue-new"
-      />
-      <gl-button
-        v-if="isLoggedIn && !allResolved"
-        v-gl-tooltip
-        :title="__('Jump to next unresolved thread')"
-        :aria-label="__('Jump to next unresolved thread')"
-        class="discussion-next-btn"
-        data-track-action="click_button"
-        data-track-label="mr_next_unresolved_thread"
-        data-track-property="click_next_unresolved_thread_top"
-        icon="comment-next"
-        @click="jumpToNextDiscussion"
-      />
-      <gl-button
-        v-gl-tooltip
-        :title="toggleThreadsLabel"
-        :aria-label="toggleThreadsLabel"
-        class="toggle-all-discussions-btn"
-        :icon="allExpanded ? 'angle-up' : 'angle-down'"
-        @click="handleExpandDiscussions"
-      />
-    </gl-button-group>
   </div>
 </template>

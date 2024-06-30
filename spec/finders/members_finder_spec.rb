@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MembersFinder, '#execute' do
+RSpec.describe MembersFinder, feature_category: :groups_and_projects do
   let_it_be(:group) { create(:group) }
   let_it_be(:nested_group) { create(:group, parent: group) }
   let_it_be(:project, reload: true) { create(:project, namespace: nested_group) }
@@ -160,47 +160,123 @@ RSpec.describe MembersFinder, '#execute' do
     expect(result).to eq([member3, member2, member1])
   end
 
+  it 'avoids N+1 database queries on accessing user records' do
+    project.add_maintainer(user2)
+
+    # warm up
+    # We need this warm up because there is 1 query being fired in one of the policies,
+    # and policy results are cached. Without a warm up, the control.count will be X queries
+    # but the test phase will only fire X-1 queries, due the fact that the
+    # result of the policy is already available in the cache.
+    described_class.new(project, user2).execute.map(&:user)
+
+    control = ActiveRecord::QueryRecorder.new do
+      described_class.new(project, user2).execute.map(&:user)
+    end
+
+    create_list(:project_member, 3, project: project)
+
+    expect do
+      described_class.new(project, user2).execute.map(&:user)
+    end.to issue_same_number_of_queries_as(control)
+  end
+
+  context 'with :shared_into_ancestors' do
+    let_it_be(:invited_group) do
+      create(:group).tap do |invited_group|
+        create(:group_group_link, shared_group: nested_group, shared_with_group: invited_group)
+      end
+    end
+
+    let_it_be(:invited_group_member) { create(:group_member, :developer, group: invited_group, user: user1) }
+    let_it_be(:namespace_parent_member) { create(:group_member, :owner, group: group, user: user2) }
+    let_it_be(:namespace_member) { create(:group_member, :developer, group: nested_group, user: user3) }
+    let_it_be(:project_member) { create(:project_member, :developer, project: project, user: user4) }
+
+    subject(:result) { described_class.new(project, user4).execute(include_relations: include_relations) }
+
+    context 'when :shared_into_ancestors is included in the relations' do
+      let(:include_relations) { [:inherited, :direct, :invited_groups, :shared_into_ancestors] }
+
+      it "includes members of groups invited into ancestors of project's group" do
+        expect(result).to match_array([namespace_parent_member, namespace_member, invited_group_member, project_member])
+      end
+    end
+
+    context 'when :shared_into_ancestors is not included in the relations' do
+      let(:include_relations) { [:inherited, :direct, :invited_groups] }
+
+      it "does not include members of groups invited into ancestors of project's group" do
+        expect(result).to match_array([namespace_parent_member, namespace_member, project_member])
+      end
+    end
+  end
+
   context 'when :invited_groups is passed' do
-    shared_examples 'with invited_groups param' do
-      subject { described_class.new(project, user2).execute(include_relations: [:inherited, :direct, :invited_groups]) }
+    subject(:members) do
+      described_class.new(project, user2).execute(include_relations: [:inherited, :direct, :invited_groups])
+    end
 
-      let_it_be(:linked_group) { create(:group, :public) }
-      let_it_be(:nested_linked_group) { create(:group, parent: linked_group) }
-      let_it_be(:linked_group_member) { linked_group.add_guest(user1) }
-      let_it_be(:nested_linked_group_member) { nested_linked_group.add_guest(user2) }
+    let_it_be(:linked_group) { create(:group, :public) }
+    let_it_be(:nested_linked_group) { create(:group, parent: linked_group) }
+    let_it_be(:linked_group_member) { linked_group.add_guest(user1) }
+    let_it_be(:nested_linked_group_member) { nested_linked_group.add_guest(user2) }
 
-      it 'includes all the invited_groups members including members inherited from ancestor groups' do
-        create(:project_group_link, project: project, group: nested_linked_group)
+    it 'includes all the invited_groups members including members inherited from ancestor groups' do
+      create(:project_group_link, project: project, group: nested_linked_group)
 
-        expect(subject).to contain_exactly(linked_group_member, nested_linked_group_member)
-      end
+      expect(members).to contain_exactly(linked_group_member, nested_linked_group_member)
+    end
 
-      it 'includes all the invited_groups members' do
-        create(:project_group_link, project: project, group: linked_group)
+    it 'includes all the invited_groups members' do
+      create(:project_group_link, project: project, group: linked_group)
 
-        expect(subject).to contain_exactly(linked_group_member)
-      end
+      expect(members).to contain_exactly(linked_group_member)
+    end
 
-      it 'excludes group_members not visible to the user' do
-        create(:project_group_link, project: project, group: linked_group)
-        private_linked_group = create(:group, :private)
-        private_linked_group.add_developer(user3)
+    it 'excludes group_members not visible to the user' do
+      create(:project_group_link, project: project, group: linked_group)
+      private_linked_group = create(:group, :private)
+      private_linked_group.add_developer(user3)
+      create(:project_group_link, project: project, group: private_linked_group)
+
+      expect(members).to contain_exactly(linked_group_member)
+    end
+
+    context 'when current user is a member of the shared project but not of invited group' do
+      let_it_be(:project_member) { project.add_maintainer(user2) }
+      let_it_be(:private_linked_group) { create(:group, :private) }
+      let_it_be(:private_linked_group_member) { private_linked_group.add_developer(user3) }
+
+      before_all do
         create(:project_group_link, project: project, group: private_linked_group)
-
-        expect(subject).to contain_exactly(linked_group_member)
+        create(:project_group_link, project: project, group: linked_group)
       end
 
-      context 'when the user is a member of invited group and ancestor groups' do
-        it 'returns the highest access_level for the user limited by project_group_link.group_access', :nested_groups do
-          create(:project_group_link, project: project, group: nested_linked_group, group_access: Gitlab::Access::REPORTER)
-          nested_linked_group.add_developer(user1)
+      it 'includes members from invited groups not visible to the user' do
+        expect(members).to contain_exactly(linked_group_member, private_linked_group_member, project_member)
+      end
 
-          expect(subject.map(&:user)).to contain_exactly(user1, user2)
-          expect(subject.max_by(&:access_level).access_level).to eq(Gitlab::Access::REPORTER)
+      context 'when webui_members_inherited_users feature flag is disabled' do
+        before do
+          stub_feature_flags(webui_members_inherited_users: false)
+        end
+
+        it 'excludes members from invited groups not visible to the user' do
+          expect(members).to contain_exactly(linked_group_member, project_member)
         end
       end
     end
 
-    it_behaves_like 'with invited_groups param'
+    context 'when the user is a member of invited group and ancestor groups' do
+      it 'returns the highest access_level for the user limited by project_group_link.group_access', :nested_groups do
+        create(:project_group_link, project: project, group: nested_linked_group,
+          group_access: Gitlab::Access::REPORTER)
+        nested_linked_group.add_developer(user1)
+
+        expect(members.map(&:user)).to contain_exactly(user1, user2)
+        expect(members.max_by(&:access_level).access_level).to eq(Gitlab::Access::REPORTER)
+      end
+    end
   end
 end

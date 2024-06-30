@@ -1,5 +1,6 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlPopover, GlButton, GlTooltipDirective, GlTabs, GlTab } from '@gitlab/ui';
+import { GlPopover, GlButton, GlTooltipDirective } from '@gitlab/ui';
 import $ from 'jquery';
 import {
   keysFor,
@@ -7,22 +8,41 @@ import {
   ITALIC_TEXT,
   STRIKETHROUGH_TEXT,
   LINK_TEXT,
+  INDENT_LINE,
+  OUTDENT_LINE,
 } from '~/behaviors/shortcuts/keybindings';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { getModifierKey } from '~/constants';
 import { getSelectedFragment } from '~/lib/utils/common_utils';
-import { s__, __ } from '~/locale';
-import { CopyAsGFM } from '../../../behaviors/markdown/copy_as_gfm';
+import { truncateSha } from '~/lib/utils/text_utility';
+import { s__, __, sprintf } from '~/locale';
+import { CopyAsGFM } from '~/behaviors/markdown/copy_as_gfm';
+import { updateText } from '~/lib/utils/text_markdown';
 import ToolbarButton from './toolbar_button.vue';
+import DrawioToolbarButton from './drawio_toolbar_button.vue';
+import CommentTemplatesModal from './comment_templates_modal.vue';
+import HeaderDivider from './header_divider.vue';
 
 export default {
   components: {
     ToolbarButton,
     GlPopover,
     GlButton,
-    GlTabs,
-    GlTab,
+    DrawioToolbarButton,
+    CommentTemplatesModal,
+    AiActionsDropdown: () => import('ee_component/ai/components/ai_actions_dropdown.vue'),
+    HeaderDivider,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
+  },
+  mixins: [glFeatureFlagsMixin()],
+  inject: {
+    newCommentTemplatePaths: {
+      default: () => [],
+    },
+    editorAiActions: { default: () => [] },
+    mrGeneratedContent: { default: null },
   },
   props: {
     previewMarkdown: {
@@ -54,21 +74,52 @@ export default {
       required: false,
       default: true,
     },
+    restrictedToolBarItems: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+    uploadsPath: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    markdownPreviewPath: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    drawioEnabled: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    supportsQuickActions: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
+    const modifierKey = getModifierKey();
     return {
       tag: '> ',
       suggestPopoverVisible: false,
+      modifierKey,
+      shiftKey: modifierKey === '⌘' ? '⇧' : 'Shift+',
     };
   },
   computed: {
     mdTable() {
+      const header = s__('MarkdownEditor|header');
+      const divider = '-'.repeat(header.length);
+      const cell = ' '.repeat(header.length);
+
       return [
-        // False positive i18n lint: https://gitlab.com/gitlab-org/frontend/eslint-plugin-i18n/issues/26
-        '| header | header |', // eslint-disable-line @gitlab/require-i18n-strings
-        '| ------ | ------ |',
-        '| cell | cell |', // eslint-disable-line @gitlab/require-i18n-strings
-        '| cell | cell |', // eslint-disable-line @gitlab/require-i18n-strings
+        `| ${header} | ${header} |`,
+        `| ${divider} | ${divider} |`,
+        `| ${cell} | ${cell} |`,
+        `| ${cell} | ${cell} |`,
       ].join('\n');
     },
     mdSuggestion() {
@@ -77,16 +128,18 @@ export default {
       );
     },
     mdCollapsibleSection() {
-      return ['<details><summary>Click to expand</summary>', `{text}`, '</details>'].join('\n');
+      const expandText = s__('MarkdownEditor|Click to expand');
+      return [`<details><summary>${expandText}</summary>`, `{text}`, '</details>'].join('\n');
     },
-    isMac() {
-      // Accessing properties using ?. to allow tests to use
-      // this component without setting up window.gl.client.
-      // In production, window.gl.client should always be present.
-      return Boolean(window.gl?.client?.isMac);
-    },
-    modifierKey() {
-      return this.isMac ? '⌘' : s__('KeyboardKey|Ctrl+');
+    hideDividerBeforeTable() {
+      return (
+        this.previewMarkdown ||
+        (this.restrictedToolBarItems.includes('table') &&
+          this.restrictedToolBarItems.includes('attach-file') &&
+          !this.drawioEnabled &&
+          !this.supportsQuickActions &&
+          !this.newCommentTemplatePath)
+      );
     },
   },
   watch: {
@@ -95,14 +148,14 @@ export default {
     },
   },
   mounted() {
-    $(document).on('markdown-preview:show.vue', this.previewMarkdownTab);
-    $(document).on('markdown-preview:hide.vue', this.writeMarkdownTab);
+    $(document).on('markdown-preview:show.vue', this.showMarkdownPreview);
+    $(document).on('markdown-preview:hide.vue', this.hideMarkdownPreview);
 
     this.updateSuggestPopoverVisibility();
   },
   beforeDestroy() {
-    $(document).off('markdown-preview:show.vue', this.previewMarkdownTab);
-    $(document).off('markdown-preview:hide.vue', this.writeMarkdownTab);
+    $(document).off('markdown-preview:show.vue', this.showMarkdownPreview);
+    $(document).off('markdown-preview:hide.vue', this.hideMarkdownPreview);
   },
   methods: {
     async updateSuggestPopoverVisibility() {
@@ -116,19 +169,15 @@ export default {
         (form.find('.js-vue-markdown-field').length && $(this.$el).closest('form')[0] === form[0])
       );
     },
-
-    previewMarkdownTab(event, form) {
-      if (event.target.blur) event.target.blur();
+    showMarkdownPreview(_, form) {
       if (!this.isValid(form)) return;
 
-      this.$emit('preview-markdown');
+      this.$emit('showPreview');
     },
-
-    writeMarkdownTab(event, form) {
-      if (event.target.blur) event.target.blur();
+    hideMarkdownPreview(_, form) {
       if (!this.isValid(form)) return;
 
-      this.$emit('write-markdown');
+      this.$emit('hidePreview');
     },
     handleSuggestDismissed() {
       this.$emit('handleSuggestDismissed');
@@ -151,165 +200,351 @@ export default {
         })
         .catch(() => {});
     },
+    insertIntoTextarea(text) {
+      const textArea = this.$el.closest('.md-area')?.querySelector('textarea');
+      if (textArea) {
+        updateText({
+          textArea,
+          tag: text,
+          cursorOffset: 0,
+          wrap: false,
+        });
+      }
+    },
+    replaceTextarea(text) {
+      const { description, descriptionForSha } = this.$options.i18n;
+      const headSha = document.getElementById('merge_request_diff_head_sha').value;
+      const addendum = headSha
+        ? sprintf(descriptionForSha, { revision: truncateSha(headSha) })
+        : description;
+
+      if (this.mrGeneratedContent) {
+        this.mrGeneratedContent.setGeneratedContent(`${text}\n\n---\n\n_${addendum}_`);
+        this.mrGeneratedContent.showWarning();
+      }
+    },
+    switchPreview() {
+      if (this.previewMarkdown) {
+        this.hideMarkdownPreview();
+      } else {
+        this.showMarkdownPreview();
+      }
+    },
+    insertAIAction(text) {
+      this.insertIntoTextarea(`${text}\n\n---\n\n_${__('This comment was generated by AI')}_`);
+    },
+    insertSavedReply(savedReply) {
+      this.insertIntoTextarea(savedReply);
+
+      setTimeout(() => {
+        this.$el.closest('.md-area')?.querySelector('textarea')?.focus();
+      }, 500);
+    },
   },
   shortcuts: {
     bold: keysFor(BOLD_TEXT),
     italic: keysFor(ITALIC_TEXT),
     strikethrough: keysFor(STRIKETHROUGH_TEXT),
     link: keysFor(LINK_TEXT),
+    indent: keysFor(INDENT_LINE),
+    outdent: keysFor(OUTDENT_LINE),
   },
   i18n: {
-    writeTabTitle: __('Write'),
-    previewTabTitle: __('Preview'),
+    comment: __('This comment was generated by AI'),
+    description: s__('MergeRequest|This description was generated using AI'),
+    descriptionForSha: s__(
+      'MergeRequest|This description was generated for revision %{revision} using AI',
+    ),
+    hidePreview: __('Continue editing'),
+    preview: __('Preview'),
   },
 };
 </script>
 
 <template>
-  <div class="md-header">
-    <gl-tabs content-class="gl-display-none">
-      <gl-tab
-        title-link-class="gl-pt-3 gl-px-3 js-md-write-button"
-        :title="$options.i18n.writeTabTitle"
-        :active="!previewMarkdown"
-        data-testid="write-tab"
-        @click="writeMarkdownTab($event)"
-      />
-      <gl-tab
-        v-if="enablePreview"
-        title-link-class="gl-pt-3 gl-px-3 js-md-preview-button"
-        :title="$options.i18n.previewTabTitle"
-        :active="previewMarkdown"
-        data-testid="preview-tab"
-        @click="previewMarkdownTab($event)"
-      />
-
-      <template #tabs-end>
-        <div
-          data-testid="md-header-toolbar"
-          :class="{ 'gl-display-none!': previewMarkdown }"
-          class="md-header-toolbar gl-ml-auto gl-pb-3 gl-justify-content-center"
-        >
+  <div
+    class="md-header gl-bg-white gl-border-b gl-border-gray-100 gl-rounded-lg gl-rounded-bottom-left-none gl-rounded-bottom-right-none gl-px-3"
+    :class="{ 'md-header-preview': previewMarkdown }"
+  >
+    <div class="gl-display-flex gl-align-items-center gl-flex-wrap">
+      <div
+        data-testid="md-header-toolbar"
+        class="md-header-toolbar gl-display-flex gl-py-3 gl-gap-y-2 gl-flex-grow-1 gl-align-items-flex-start"
+      >
+        <div class="gl-display-flex gl-flex-wrap gl-gap-y-2">
+          <gl-button
+            v-if="enablePreview"
+            data-testid="preview-toggle"
+            :value="previewMarkdown ? 'preview' : 'edit'"
+            :label="$options.i18n.previewTabTitle"
+            class="js-md-preview-button gl-flex-direction-row-reverse gl-align-items-center !gl-font-normal"
+            size="small"
+            category="tertiary"
+            @click="switchPreview"
+            >{{ previewMarkdown ? $options.i18n.hidePreview : $options.i18n.preview }}</gl-button
+          >
+          <template v-if="!previewMarkdown && canSuggest">
+            <div class="gl-display-flex gl-gap-y-2">
+              <header-divider v-if="!previewMarkdown" />
+              <toolbar-button
+                ref="suggestButton"
+                :tag="mdSuggestion"
+                :prepend="true"
+                :button-title="__('Insert suggestion')"
+                :cursor-offset="4"
+                :tag-content="lineContent"
+                tracking-property="codeSuggestion"
+                icon="doc-code"
+                data-testid="suggestion-button"
+                class="js-suggestion-btn"
+                @click="handleSuggestDismissed"
+              />
+              <gl-popover
+                v-if="suggestPopoverVisible"
+                :target="$refs.suggestButton.$el"
+                :css-classes="['diff-suggest-popover']"
+                placement="bottom"
+                :show="suggestPopoverVisible"
+                triggers=""
+              >
+                <strong>{{ __('New! Suggest changes directly') }}</strong>
+                <p class="mb-2">
+                  {{
+                    __(
+                      'Suggest code changes which can be immediately applied in one click. Try it out!',
+                    )
+                  }}
+                </p>
+                <gl-button
+                  variant="confirm"
+                  category="primary"
+                  size="small"
+                  data-testid="dismiss-suggestion-popover-button"
+                  @click="handleSuggestDismissed"
+                >
+                  {{ __('Got it') }}
+                </gl-button>
+              </gl-popover>
+            </div>
+          </template>
+          <div class="gl-display-flex gl-gap-y-2">
+            <div
+              v-if="!previewMarkdown && editorAiActions.length"
+              class="gl-display-flex gl-gap-y-2"
+            >
+              <header-divider v-if="!previewMarkdown" />
+              <ai-actions-dropdown
+                :actions="editorAiActions"
+                @input="insertAIAction"
+                @replace="replaceTextarea"
+              />
+            </div>
+            <header-divider v-if="enablePreview && !previewMarkdown" />
+          </div>
           <toolbar-button
+            v-show="!previewMarkdown"
             tag="**"
             :button-title="
-              sprintf(s__('MarkdownEditor|Add bold text (%{modifierKey}B)'), { modifierKey })
+              /* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */
+              sprintf(s__('MarkdownEditor|Add bold text (%{modifierKey}B)'), {
+                modifierKey,
+              }) /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */
             "
             :shortcuts="$options.shortcuts.bold"
             icon="bold"
+            tracking-property="bold"
           />
           <toolbar-button
+            v-show="!previewMarkdown"
             tag="_"
             :button-title="
-              sprintf(s__('MarkdownEditor|Add italic text (%{modifierKey}I)'), { modifierKey })
+              /* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */
+              sprintf(s__('MarkdownEditor|Add italic text (%{modifierKey}I)'), {
+                modifierKey,
+              }) /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */
             "
             :shortcuts="$options.shortcuts.italic"
             icon="italic"
+            tracking-property="italic"
           />
+          <div class="gl-display-flex gl-gap-y-2">
+            <toolbar-button
+              v-if="!restrictedToolBarItems.includes('strikethrough')"
+              v-show="!previewMarkdown"
+              tag="~~"
+              :button-title="
+                /* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */
+                sprintf(s__('MarkdownEditor|Add strikethrough text (%{modifierKey}%{shiftKey}X)'), {
+                  modifierKey,
+                  shiftKey /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */,
+                })
+              "
+              :shortcuts="$options.shortcuts.strikethrough"
+              icon="strikethrough"
+              tracking-property="strike"
+            />
+            <header-divider v-if="!previewMarkdown" />
+          </div>
           <toolbar-button
-            tag="~~"
-            :button-title="
-              sprintf(s__('MarkdownEditor|Add strikethrough text (%{modifierKey}⇧X)'), {
-                modifierKey,
-              })
-            "
-            :shortcuts="$options.shortcuts.strikethrough"
-            icon="strikethrough"
-          />
-          <toolbar-button
+            v-if="!restrictedToolBarItems.includes('quote')"
+            v-show="!previewMarkdown"
             :prepend="true"
             :tag="tag"
             :button-title="__('Insert a quote')"
             icon="quote"
+            tracking-property="blockquote"
             @click="handleQuote"
           />
-          <template v-if="canSuggest">
-            <toolbar-button
-              ref="suggestButton"
-              :tag="mdSuggestion"
-              :prepend="true"
-              :button-title="__('Insert suggestion')"
-              :cursor-offset="4"
-              :tag-content="lineContent"
-              icon="doc-code"
-              data-qa-selector="suggestion_button"
-              class="js-suggestion-btn"
-              @click="handleSuggestDismissed"
-            />
-            <gl-popover
-              v-if="suggestPopoverVisible"
-              :target="$refs.suggestButton.$el"
-              :css-classes="['diff-suggest-popover']"
-              placement="bottom"
-              :show="suggestPopoverVisible"
-            >
-              <strong>{{ __('New! Suggest changes directly') }}</strong>
-              <p class="mb-2">
-                {{
-                  __(
-                    'Suggest code changes which can be immediately applied in one click. Try it out!',
-                  )
-                }}
-              </p>
-              <gl-button
-                variant="info"
-                category="primary"
-                size="small"
-                @click="handleSuggestDismissed"
-              >
-                {{ __('Got it') }}
-              </gl-button>
-            </gl-popover>
-          </template>
-          <toolbar-button tag="`" tag-block="```" :button-title="__('Insert code')" icon="code" />
           <toolbar-button
+            v-if="!restrictedToolBarItems.includes('code')"
+            v-show="!previewMarkdown"
+            tag="`"
+            tag-block="```"
+            :button-title="__('Insert code')"
+            icon="code"
+            tracking-property="code"
+          />
+          <toolbar-button
+            v-show="!previewMarkdown"
             tag="[{text}](url)"
             tag-select="url"
             :button-title="
-              sprintf(s__('MarkdownEditor|Add a link (%{modifierKey}K)'), { modifierKey })
+              /* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */
+              sprintf(s__('MarkdownEditor|Add a link (%{modifierKey}K)'), {
+                modifierKey,
+              }) /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */
             "
             :shortcuts="$options.shortcuts.link"
             icon="link"
+            tracking-property="link"
           />
           <toolbar-button
+            v-if="!restrictedToolBarItems.includes('bullet-list')"
+            v-show="!previewMarkdown"
             :prepend="true"
             tag="- "
             :button-title="__('Add a bullet list')"
             icon="list-bulleted"
+            tracking-property="bulletList"
           />
           <toolbar-button
+            v-if="!restrictedToolBarItems.includes('numbered-list')"
+            v-show="!previewMarkdown"
             :prepend="true"
             tag="1. "
             :button-title="__('Add a numbered list')"
             icon="list-numbered"
+            tracking-property="orderedList"
           />
           <toolbar-button
+            v-if="!restrictedToolBarItems.includes('task-list')"
+            v-show="!previewMarkdown"
             :prepend="true"
             tag="- [ ] "
-            :button-title="__('Add a task list')"
+            :button-title="__('Add a checklist')"
             icon="list-task"
+            tracking-property="taskList"
           />
           <toolbar-button
-            :tag="mdCollapsibleSection"
-            :prepend="true"
-            tag-select="Click to expand"
-            :button-title="__('Add a collapsible section')"
-            icon="details-block"
+            v-if="!restrictedToolBarItems.includes('indent')"
+            v-show="!previewMarkdown"
+            class="gl-display-none"
+            :button-title="
+              /* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */
+              sprintf(s__('MarkdownEditor|Indent line (%{modifierKey}])'), {
+                modifierKey /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */,
+              })
+            "
+            :shortcuts="$options.shortcuts.indent"
+            command="indentLines"
+            icon="list-indent"
+            tracking-property="indent"
           />
           <toolbar-button
+            v-if="!restrictedToolBarItems.includes('outdent')"
+            v-show="!previewMarkdown"
+            class="gl-display-none"
+            :button-title="
+              /* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */
+              sprintf(s__('MarkdownEditor|Outdent line (%{modifierKey}[)'), {
+                modifierKey /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */,
+              })
+            "
+            :shortcuts="$options.shortcuts.outdent"
+            command="outdentLines"
+            icon="list-outdent"
+            tracking-property="outdent"
+          />
+          <div class="gl-display-flex gl-gap-y-2">
+            <toolbar-button
+              v-if="!restrictedToolBarItems.includes('collapsible-section')"
+              v-show="!previewMarkdown"
+              :tag="mdCollapsibleSection"
+              :prepend="true"
+              tag-select="Click to expand"
+              :button-title="__('Add a collapsible section')"
+              icon="details-block"
+              tracking-property="details"
+            />
+            <header-divider v-if="!hideDividerBeforeTable" />
+          </div>
+          <toolbar-button
+            v-if="!restrictedToolBarItems.includes('table')"
+            v-show="!previewMarkdown"
             :tag="mdTable"
             :prepend="true"
             :button-title="__('Add a table')"
             icon="table"
+            tracking-property="table"
           />
+          <!--
+            The attach file button's click behavior is added by
+            dropzone_input.js.
+          -->
           <toolbar-button
-            class="js-zen-enter"
+            v-if="!previewMarkdown && !restrictedToolBarItems.includes('attach-file')"
+            data-testid="button-attach-file"
+            data-button-type="attach-file"
+            :button-title="__('Attach a file or image')"
+            icon="paperclip"
+            class="gl-mr-2"
+            tracking-property="upload"
+          />
+          <drawio-toolbar-button
+            v-if="!previewMarkdown && drawioEnabled"
+            :uploads-path="uploadsPath"
+            :markdown-preview-path="markdownPreviewPath"
+          />
+          <!-- TODO Add icon and trigger functionality from here -->
+          <toolbar-button
+            v-if="supportsQuickActions"
+            v-show="!previewMarkdown"
             :prepend="true"
-            :button-title="__('Go full screen')"
-            icon="maximize"
+            tag="/"
+            :button-title="__('Add a quick action')"
+            icon="quick-actions"
+            tracking-property="quickAction"
+          />
+          <comment-templates-modal
+            v-if="!previewMarkdown && newCommentTemplatePaths.length"
+            :new-comment-template-paths="newCommentTemplatePaths"
+            @select="insertSavedReply"
           />
         </div>
-      </template>
-    </gl-tabs>
+        <div
+          v-if="!previewMarkdown"
+          class="full-screen gl-flex-grow-1 gl-justify-content-end gl-display-flex"
+        >
+          <toolbar-button
+            v-if="!restrictedToolBarItems.includes('full-screen')"
+            class="js-zen-enter gl-mr-0!"
+            icon="maximize"
+            :button-title="__('Go full screen')"
+            :prepend="true"
+            tracking-property="fullScreen"
+          />
+        </div>
+      </div>
+    </div>
   </div>
 </template>

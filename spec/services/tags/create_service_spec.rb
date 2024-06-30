@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Tags::CreateService do
+RSpec.describe Tags::CreateService, feature_category: :source_code_management do
   let(:project) { create(:project, :repository) }
   let(:repository) { project.repository }
   let(:user) { create(:user) }
@@ -24,6 +24,26 @@ RSpec.describe Tags::CreateService do
         expect(response[:status]).to eq(:error)
         expect(response[:http_status]).to eq(400)
         expect(response[:message]).to eq('Target foo is invalid')
+      end
+    end
+
+    context 'when tag_name is empty' do
+      it 'returns an error' do
+        response = service.execute('', 'foo', 'Foo')
+
+        expect(response[:status]).to eq(:error)
+        expect(response[:http_status]).to eq(400)
+        expect(response[:message]).to eq('Tag name invalid')
+      end
+    end
+
+    context 'when target is empty' do
+      it 'returns an error' do
+        response = service.execute('v1.1.0', '', 'Foo')
+
+        expect(response[:status]).to eq(:error)
+        expect(response[:http_status]).to eq(400)
+        expect(response[:message]).to eq('Target is empty')
       end
     end
 

@@ -1,12 +1,16 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Deprecation policy **(FREE SELF)**
+# Linux package deprecation policy
 
-The Omnibus GitLab packages come with number of different libraries and services which offers users plethora of configuration options.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+The Linux packages come with number of different libraries and services which offers users plethora of configuration options.
 
 As libraries and services get updated, their configuration options change
 and become obsolete. To increase maintainability and preserve a working
@@ -16,7 +20,7 @@ setup, various configuration requires removal.
 
 ### Policy
 
-The Omnibus GitLab package retains configuration for at least **one major**
+The Linux package retains configuration for at least **one major**
 version. We can't guarantee that deprecated configuration
 is available in the next major release. See [example](#example) for more details.
 
@@ -25,7 +29,7 @@ is available in the next major release. See [example](#example) for more details
 If the configuration becomes obsolete, we announce the deprecation:
 
 - via release blog post on `https://about.gitlab.com/blog/`. The blog post item
-   contains the deprecation notice together with the target removal date.
+  contains the deprecation notice together with the target removal date.
 - via installation/reconfigure output (if applicable).
 - via official documentation on `https://docs.gitlab.com/`. The documentation update contains the corrected syntax (if applicable) or a date of configuration removal.
 
@@ -41,7 +45,7 @@ We can differentiate two different types of configuration:
   installation usable (like a change in default project/group settings, or
   miscommunication with other components)
 
-We also need to differentiate deprecation and removal procedure.
+We must also differentiate deprecation and removal procedure.
 
 #### Deprecating configuration
 
@@ -49,7 +53,8 @@ Deprecation procedure is similar for both `sensitive` and `regular` configuratio
 
 Common steps:
 
-1. Create an issue at the [Omnibus GitLab issue tracker](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues) with details on deprecation type and other necessary information. Apply the label `deprecation`.
+1. Create an issue at the [`omnibus-gitlab` issue tracker](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues) with
+   details on deprecation type and other necessary information. Apply the label `deprecation`.
 1. Decide on the removal target for the deprecated configuration
 1. Formulate deprecation notice for each item as noted in [Notice section](#notice)
 
@@ -78,7 +83,7 @@ The final comment in the issue **has to have**:
 
 1. Text snippet for the release blog post section
 1. Documentation MR ( or snippet ) for introducing the change
-1. Draft MR removing the configuration OR details on what needs to be done. See [Adding deprecation messages](https://docs.gitlab.com/omnibus/development/adding-deprecation-messages.html) for more on this
+1. Draft MR removing the configuration or details on what must be done. See [Adding deprecation messages](https://docs.gitlab.com/omnibus/development/adding-deprecation-messages.html) for more on this
 
 ## Example
 
@@ -92,6 +97,6 @@ the feature continues working the same way as if you had `gitlab_rails['better_c
 However, setting the old version of the configuration prints out a deprecation
 notice at the end of installation/upgrade/reconfigure run.
 
-In GitLab 11, `gitlab_rails['configuration'] = true`  no longer works and you must manually change the configuration in `/etc/gitlab/gitlab.rb` to the new valid configuration.
+In GitLab 11, `gitlab_rails['configuration'] = true` no longer works and you must manually change the configuration in `/etc/gitlab/gitlab.rb` to the new valid configuration.
 **Note** If this configuration option is sensitive and can put integrity of the installation or
 data in danger,the installation or upgrade is aborted.

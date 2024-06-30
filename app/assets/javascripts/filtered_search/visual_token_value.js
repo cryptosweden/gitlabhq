@@ -4,10 +4,11 @@ import * as Emoji from '~/emoji';
 import FilteredSearchContainer from '~/filtered_search/container';
 import DropdownUtils from '~/filtered_search/dropdown_utils';
 import FilteredSearchVisualTokens from '~/filtered_search/filtered_search_visual_tokens';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import AjaxCache from '~/lib/utils/ajax_cache';
 import UsersCache from '~/lib/utils/users_cache';
 import { __ } from '~/locale';
+import { TOKEN_TYPE_LABEL } from '~/vue_shared/components/filtered_search_bar/constants';
 
 export default class VisualTokenValue {
   constructor(tokenValue, tokenType, tokenOperator) {
@@ -23,7 +24,7 @@ export default class VisualTokenValue {
       return;
     }
 
-    if (tokenType === 'label') {
+    if (tokenType === TOKEN_TYPE_LABEL) {
       this.updateLabelTokenColor(tokenValueContainer);
     } else if (USER_TOKEN_TYPES.includes(tokenType)) {
       this.updateUserTokenAppearance(tokenValueContainer, tokenValueElement);
@@ -47,6 +48,7 @@ export default class VisualTokenValue {
 
           /* eslint-disable no-param-reassign */
           tokenValueContainer.dataset.originalValue = tokenValue;
+          // eslint-disable-next-line no-unsanitized/property
           tokenValueElement.innerHTML = `
           <img class="avatar s20" src="${user.avatar_url}" alt="">
           ${escape(user.name)}
@@ -84,7 +86,7 @@ export default class VisualTokenValue {
         );
       })
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('An error occurred while fetching label colors.'),
         }),
       );
@@ -110,7 +112,7 @@ export default class VisualTokenValue {
         VisualTokenValue.replaceEpicTitle(tokenValueContainer, matchingEpic.title, matchingEpic.id);
       })
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('An error occurred while adding formatted title for epic'),
         }),
       );
@@ -132,11 +134,8 @@ export default class VisualTokenValue {
 
     token.style.backgroundColor = backgroundColor;
     token.style.color = textColor;
-
-    if (textColor === '#FFFFFF') {
-      const removeToken = token.querySelector('.remove-token');
-      removeToken.classList.add('inverted');
-    }
+    const removeToken = token.querySelector('.close-icon');
+    removeToken.style.color = textColor;
 
     return token;
   }
@@ -152,6 +151,7 @@ export default class VisualTokenValue {
       }
 
       container.dataset.originalValue = value;
+      // eslint-disable-next-line no-unsanitized/property
       element.innerHTML = Emoji.glEmojiTag(value);
     });
   }

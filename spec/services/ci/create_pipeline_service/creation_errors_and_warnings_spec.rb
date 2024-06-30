@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService do
+RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, feature_category: :continuous_integration do
   describe 'creation errors and warnings' do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:user)    { project.first_owner }
@@ -53,6 +53,24 @@ RSpec.describe Ci::CreatePipelineService do
     end
 
     context 'when failed to create the pipeline' do
+      context 'when errors are raised and masked variables are involved' do
+        let_it_be(:variable) { create(:ci_variable, project: project, key: 'GL_TOKEN', value: 'test_value', masked: true) }
+
+        let(:config) do
+          <<~YAML
+          include:
+            - local: $GL_TOKEN/gitlab-ci.txt
+          YAML
+        end
+
+        it 'contains errors and masks variables' do
+          error_message = "Included file `xxxxxxxxxx/gitlab-ci.txt` does not have YAML extension!"
+          expect(pipeline.yaml_errors).to eq(error_message)
+          expect(pipeline.error_messages.map(&:content)).to contain_exactly(error_message)
+          expect(pipeline.errors.full_messages).to contain_exactly(error_message)
+        end
+      end
+
       context 'when warnings are raised' do
         let(:config) do
           <<~YAML

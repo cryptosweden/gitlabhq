@@ -2,16 +2,16 @@
 
 require "spec_helper"
 
-RSpec.describe "User browses files", :js do
+RSpec.describe "User browses files", :js, feature_category: :source_code_management do
   include RepoHelpers
+  include ListboxHelpers
 
   let(:fork_message) do
     "You're not allowed to make changes to this project directly. "\
     "A fork of this project has been created that you can make changes in, so you can submit a merge request."
   end
 
-  let(:project) { create(:project, :repository, name: "Shop") }
-  let(:project2) { create(:project, :repository, name: "Another Project", path: "another-project") }
+  let_it_be(:project) { create(:project, :repository) }
   let(:tree_path_root_ref) { project_tree_path(project, project.repository.root_ref) }
   let(:user) { project.first_owner }
 
@@ -86,6 +86,15 @@ RSpec.describe "User browses files", :js do
         visit(project_tree_path(project, "markdown"))
       end
 
+      it "redirects to the permalink URL" do
+        click_link(".gitignore")
+        click_link("Permalink")
+
+        permalink_path = project_blob_path(project, "#{project.repository.commit('markdown').sha}/.gitignore")
+
+        expect(page).to have_current_path(permalink_path, ignore_query: true)
+      end
+
       it "shows correct files and links" do
         expect(page).to have_current_path(project_tree_path(project, "markdown"), ignore_query: true)
         expect(page).to have_content("README.md")
@@ -125,14 +134,16 @@ RSpec.describe "User browses files", :js do
         click_link("Rake tasks")
 
         expect(page).to have_current_path(project_tree_path(project, "markdown/doc/raketasks"), ignore_query: true)
-        expect(page).to have_content("backup_restore.md").and have_content("maintenance.md")
+        expect(page).to have_content("maintenance.md")
 
         click_link("maintenance.md")
 
         expect(page).to have_current_path(project_blob_path(project, "markdown/doc/raketasks/maintenance.md"), ignore_query: true)
         expect(page).to have_content("bundle exec rake gitlab:env:info RAILS_ENV=production")
 
-        click_link("shop")
+        page.within(".tree-ref-container") do
+          click_link(project.path)
+        end
 
         page.within(".tree-table") do
           click_link("README.md")
@@ -144,7 +155,7 @@ RSpec.describe "User browses files", :js do
           click_link("d")
         end
 
-        expect(page).to have_link("..", href: project_tree_path(project, "markdown/"))
+        expect(page).to have_link("..", href: project_tree_path(project, "markdown"))
 
         page.within(".tree-table") do
           click_link("README.md")
@@ -262,6 +273,8 @@ RSpec.describe "User browses files", :js do
   context "when browsing a specific ref", :js do
     let(:ref) { project_tree_path(project, "6d39438") }
 
+    ref_selector = '.ref-selector'
+
     before do
       visit(ref)
     end
@@ -271,36 +284,32 @@ RSpec.describe "User browses files", :js do
       expect(page).to have_content(".gitignore").and have_content("LICENSE")
     end
 
-    it "shows files from a repository with apostroph in its name" do
-      first(".js-project-refs-dropdown").click
+    it "shows files from a repository with apostrophe in its name" do
+      ref_name = 'fix'
 
-      page.within(".project-refs-form") do
-        click_link("'test'")
-      end
+      find(ref_selector).click
+      wait_for_requests
 
-      expect(page).to have_selector(".dropdown-toggle-text", text: "'test'")
+      filter_by(ref_name)
 
-      visit(project_tree_path(project, "'test'"))
+      expect(find(ref_selector)).to have_text(ref_name)
+
+      visit(project_tree_path(project, ref_name))
 
       expect(page).not_to have_selector(".tree-commit .animation-container")
     end
 
     it "shows the code with a leading dot in the directory" do
-      first(".js-project-refs-dropdown").click
+      ref_name = 'fix'
 
-      page.within(".project-refs-form") do
-        click_link("fix")
-      end
+      find(ref_selector).click
+      wait_for_requests
+
+      filter_by(ref_name)
 
       visit(project_tree_path(project, "fix/.testdir"))
 
       expect(page).not_to have_selector(".tree-commit .animation-container")
-    end
-
-    it "does not show the permalink link" do
-      click_link(".gitignore")
-
-      expect(page).not_to have_link("permalink")
     end
   end
 
@@ -324,8 +333,8 @@ RSpec.describe "User browses files", :js do
                  .and have_content("Initial commit")
                  .and have_content("Ignore DS files")
 
-      previous_commit_anchor = "//a[@title='Ignore DS files']/parent::span/following-sibling::span/a"
-      find(:xpath, previous_commit_anchor).click
+      previous_commit_link = find('.tr', text: "Ignore DS files").find("[aria-label='View blame prior to this change']")
+      previous_commit_link.click
 
       expect(page).to have_content("*.rb")
                  .and have_content("Dmitriy Zaporozhets")
@@ -348,7 +357,7 @@ RSpec.describe "User browses files", :js do
     end
 
     it "shows raw file content in a new tab" do
-      new_tab = window_opened_by {click_link 'Open raw'}
+      new_tab = window_opened_by { click_link 'Open raw' }
 
       within_window new_tab do
         expect(page).to have_content("Test file")
@@ -366,11 +375,19 @@ RSpec.describe "User browses files", :js do
     end
 
     it "shows raw file content in a new tab" do
-      new_tab = window_opened_by {click_link 'Open raw'}
+      new_tab = window_opened_by { click_link 'Open raw' }
 
       within_window new_tab do
         expect(page).to have_content("*.rbc")
       end
     end
+  end
+
+  def filter_by(filter_text)
+    send_keys filter_text
+
+    wait_for_requests
+
+    select_listbox_item filter_text
   end
 end

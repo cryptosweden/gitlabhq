@@ -2,7 +2,7 @@
 
 class Namespace::RootStorageStatistics < ApplicationRecord
   SNIPPETS_SIZE_STAT_NAME = 'snippets_size'
-  STATISTICS_ATTRIBUTES = %W(
+  STATISTICS_ATTRIBUTES = %W[
     storage_size
     repository_size
     wiki_size
@@ -12,7 +12,7 @@ class Namespace::RootStorageStatistics < ApplicationRecord
     #{SNIPPETS_SIZE_STAT_NAME}
     pipeline_artifacts_size
     uploads_size
-  ).freeze
+  ].freeze
 
   self.primary_key = :namespace_id
 
@@ -21,14 +21,22 @@ class Namespace::RootStorageStatistics < ApplicationRecord
 
   scope :for_namespace_ids, ->(namespace_ids) { where(namespace_id: namespace_ids) }
 
-  delegate :all_projects, to: :namespace
+  delegate :all_projects_except_soft_deleted, to: :namespace
+
+  enum notification_level: {
+    storage_remaining: 100,
+    caution: 30,
+    warning: 15,
+    danger: 5,
+    exceeded: 0
+  }, _prefix: true
 
   def recalculate!
     update!(merged_attributes)
   end
 
   def self.namespace_statistics_attributes
-    %w(storage_size dependency_proxy_size)
+    %w[storage_size dependency_proxy_size]
   end
 
   private
@@ -36,19 +44,55 @@ class Namespace::RootStorageStatistics < ApplicationRecord
   def merged_attributes
     attributes_from_project_statistics.merge!(
       attributes_from_personal_snippets,
-      attributes_from_namespace_statistics
-    ) { |key, v1, v2| v1 + v2 }
+      attributes_from_namespace_statistics,
+      attributes_for_container_registry_size,
+      attributes_for_forks_statistics
+    ) { |_, v1, v2| v1 + v2 }
+  end
+
+  def attributes_for_container_registry_size
+    container_registry_size = namespace.container_repositories_size || 0
+
+    {
+      storage_size: container_registry_size,
+      container_registry_size: container_registry_size
+    }.with_indifferent_access
+  end
+
+  def attributes_for_forks_statistics
+    visibility_levels_to_storage_size_columns = {
+      Gitlab::VisibilityLevel::PRIVATE => :private_forks_storage_size,
+      Gitlab::VisibilityLevel::INTERNAL => :internal_forks_storage_size,
+      Gitlab::VisibilityLevel::PUBLIC => :public_forks_storage_size
+    }
+
+    defaults = {
+      private_forks_storage_size: 0,
+      internal_forks_storage_size: 0,
+      public_forks_storage_size: 0
+    }
+
+    defaults.merge(for_forks_statistics.transform_keys { |k| visibility_levels_to_storage_size_columns[k] })
+  end
+
+  def for_forks_statistics
+    all_projects_except_soft_deleted
+      .joins([:statistics, :fork_network])
+      .where('fork_networks.root_project_id != projects.id')
+      .group('projects.visibility_level')
+      .sum('project_statistics.storage_size')
   end
 
   def attributes_from_project_statistics
     from_project_statistics
-      .take
-      .attributes
-      .slice(*STATISTICS_ATTRIBUTES)
+    .take
+    .attributes
+    .slice(*STATISTICS_ATTRIBUTES)
+    .with_indifferent_access
   end
 
   def from_project_statistics
-    all_projects
+    all_projects_except_soft_deleted
       .joins('INNER JOIN project_statistics ps ON ps.project_id  = projects.id')
       .select(
         'COALESCE(SUM(ps.storage_size), 0) AS storage_size',
@@ -66,7 +110,10 @@ class Namespace::RootStorageStatistics < ApplicationRecord
   def attributes_from_personal_snippets
     return {} unless namespace.user_namespace?
 
-    from_personal_snippets.take.slice(SNIPPETS_SIZE_STAT_NAME)
+    from_personal_snippets
+    .take
+    .slice(SNIPPETS_SIZE_STAT_NAME)
+    .with_indifferent_access
   end
 
   def from_personal_snippets
@@ -94,7 +141,12 @@ class Namespace::RootStorageStatistics < ApplicationRecord
     # guard clause.
     return {} unless namespace.group_namespace?
 
-    from_namespace_statistics.take.slice(*self.class.namespace_statistics_attributes)
+    from_namespace_statistics
+    .take
+    .slice(
+      *self.class.namespace_statistics_attributes
+    )
+    .with_indifferent_access
   end
 end
 

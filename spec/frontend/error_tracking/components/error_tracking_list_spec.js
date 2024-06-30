@@ -1,14 +1,25 @@
-import { GlEmptyState, GlLoadingIcon, GlFormInput, GlPagination, GlDropdown } from '@gitlab/ui';
+import {
+  GlEmptyState,
+  GlLoadingIcon,
+  GlForm,
+  GlFormInput,
+  GlPagination,
+  GlDropdown,
+  GlDropdownItem,
+} from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import stubChildren from 'helpers/stub_children';
 import ErrorTrackingActions from '~/error_tracking/components/error_tracking_actions.vue';
 import ErrorTrackingList from '~/error_tracking/components/error_tracking_list.vue';
-import { trackErrorListViewsOptions, trackErrorStatusUpdateOptions } from '~/error_tracking/utils';
+import TimelineChart from '~/error_tracking/components/timeline_chart.vue';
 import Tracking from '~/tracking';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import errorsList from './list_mock.json';
+
+jest.mock('~/tracking');
 
 Vue.use(Vuex);
 
@@ -19,19 +30,22 @@ describe('ErrorTrackingList', () => {
 
   const findErrorListTable = () => wrapper.find('table');
   const findErrorListRows = () => wrapper.findAll('tbody tr');
-  const dropdownsArray = () => wrapper.findAll(GlDropdown);
-  const findRecentSearchesDropdown = () => dropdownsArray().at(0).find(GlDropdown);
-  const findStatusFilterDropdown = () => dropdownsArray().at(1).find(GlDropdown);
-  const findSortDropdown = () => dropdownsArray().at(2).find(GlDropdown);
-  const findLoadingIcon = () => wrapper.find(GlLoadingIcon);
-  const findPagination = () => wrapper.find(GlPagination);
-  const findErrorActions = () => wrapper.find(ErrorTrackingActions);
+  const dropdownsArray = () => wrapper.findAllComponents(GlDropdown);
+  const findRecentSearchesDropdown = () => dropdownsArray().at(0).findComponent(GlDropdown);
+  const findStatusFilterDropdown = () => dropdownsArray().at(1).findComponent(GlDropdown);
+  const findSortDropdown = () => dropdownsArray().at(2).findComponent(GlDropdown);
+  const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
+  const findPagination = () => wrapper.findComponent(GlPagination);
+  const findErrorActions = () => wrapper.findComponent(ErrorTrackingActions);
   const findIntegratedDisabledAlert = () => wrapper.findByTestId('integrated-disabled-alert');
 
   function mountComponent({
     errorTrackingEnabled = true,
     userCanEnableErrorTracking = true,
     showIntegratedTrackingDisabledAlert = false,
+    integratedErrorTrackingEnabled = false,
+    listPath = '/error_tracking',
+
     stubs = {},
   } = {}) {
     wrapper = extendedWrapper(
@@ -39,11 +53,12 @@ describe('ErrorTrackingList', () => {
         store,
         propsData: {
           indexPath: '/path',
-          listPath: '/error_tracking',
+          listPath,
           projectPath: 'project/test',
           enableErrorTrackingLink: '/link',
           userCanEnableErrorTracking,
           errorTrackingEnabled,
+          integratedErrorTrackingEnabled,
           showIntegratedTrackingDisabledAlert,
           illustrationPath: 'illustration/path',
         },
@@ -98,12 +113,6 @@ describe('ErrorTrackingList', () => {
     });
   });
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
-  });
-
   describe('loading', () => {
     beforeEach(() => {
       store.state.list.loading = true;
@@ -123,8 +132,6 @@ describe('ErrorTrackingList', () => {
       mountComponent({
         stubs: {
           GlTable: false,
-          GlDropdown: false,
-          GlDropdownItem: false,
           GlLink: false,
         },
       });
@@ -140,45 +147,88 @@ describe('ErrorTrackingList', () => {
       expect(findErrorListRows().length).toEqual(store.state.list.errors.length);
     });
 
-    it('each error in a list should have a link to the error page', () => {
-      const errorTitle = wrapper.findAll('tbody tr a');
+    it('shows user count', () => {
+      expect(findErrorListTable().find('thead').text()).toContain('Users');
+    });
 
-      errorTitle.wrappers.forEach((_, index) => {
-        expect(errorTitle.at(index).attributes('href')).toEqual(
-          expect.stringMatching(/error_tracking\/\d+\/details$/),
-        );
+    describe.each([
+      ['/test-project/-/error_tracking'],
+      ['/test-project/-/error_tracking/'], // handles leading '/' https://gitlab.com/gitlab-org/gitlab/-/issues/430211
+    ])('details link', (url) => {
+      beforeEach(() => {
+        mountComponent({
+          listPath: url,
+          stubs: {
+            GlTable: false,
+            GlLink: false,
+          },
+        });
+      });
+      it('each error in a list should have a link to the error page', () => {
+        const errorTitle = wrapper.findAll('tbody tr a');
+
+        errorTitle.wrappers.forEach((_, index) => {
+          expect(errorTitle.at(index).attributes('href')).toEqual(
+            `/test-project/-/error_tracking/${errorsList[index].id}/details`,
+          );
+        });
       });
     });
 
     it('each error in the list should have an action button set', () => {
       findErrorListRows().wrappers.forEach((row) => {
-        expect(row.find(ErrorTrackingActions).exists()).toBe(true);
+        expect(row.findComponent(ErrorTrackingActions).exists()).toBe(true);
+      });
+    });
+
+    describe('timeline graph', () => {
+      it('should show the timeline chart', () => {
+        findErrorListRows().wrappers.forEach((row, index) => {
+          expect(row.findComponent(TimelineChart).exists()).toBe(true);
+          const mockFrequency = errorsList[index].frequency;
+          expect(row.findComponent(TimelineChart).props('timelineData')).toEqual(mockFrequency);
+        });
+      });
+
+      it('should not show the timeline chart if frequency data does not exist', () => {
+        store.state.list.errors = errorsList.map((e) => ({ ...e, frequency: undefined }));
+        mountComponent({
+          stubs: {
+            GlTable: false,
+            GlLink: false,
+          },
+        });
+
+        findErrorListRows().wrappers.forEach((row) => {
+          expect(row.findComponent(TimelineChart).exists()).toBe(false);
+        });
       });
     });
 
     describe('filtering', () => {
-      const findSearchBox = () => wrapper.find(GlFormInput);
+      const findSearchBox = () => wrapper.findComponent(GlFormInput);
+      const findGlForm = () => wrapper.findComponent(GlForm);
 
       it('shows search box & sort dropdown', () => {
         expect(findSearchBox().exists()).toBe(true);
         expect(findSortDropdown().exists()).toBe(true);
       });
 
-      it('it searches by query', () => {
+      it('searches by query', () => {
         findSearchBox().vm.$emit('input', 'search');
-        findSearchBox().trigger('keyup.enter');
+        findGlForm().vm.$emit('submit', { preventDefault: () => {} });
         expect(actions.searchByQuery.mock.calls[0][1]).toBe('search');
       });
 
-      it('it sorts by fields', () => {
-        const findSortItem = () => findSortDropdown().find('.dropdown-item');
-        findSortItem().trigger('click');
+      it('sorts by fields', () => {
+        const findSortItem = () => findSortDropdown().findComponent(GlDropdownItem);
+        findSortItem().vm.$emit('click');
         expect(actions.sortByField).toHaveBeenCalled();
       });
 
-      it('it filters by status', () => {
-        const findStatusFilter = () => findStatusFilterDropdown().find('.dropdown-item');
-        findStatusFilter().trigger('click');
+      it('filters by status', () => {
+        const findStatusFilter = () => findStatusFilterDropdown().findComponent(GlDropdownItem);
+        findStatusFilter().vm.$emit('click');
         expect(actions.filterByStatus).toHaveBeenCalled();
       });
     });
@@ -222,7 +272,7 @@ describe('ErrorTrackingList', () => {
     });
 
     it('shows empty state', () => {
-      expect(wrapper.find(GlEmptyState).exists()).toBe(true);
+      expect(wrapper.findComponent(GlEmptyState).exists()).toBe(true);
       expect(findLoadingIcon().exists()).toBe(false);
       expect(findErrorListTable().exists()).toBe(false);
       expect(dropdownsArray().length).toBe(0);
@@ -245,9 +295,7 @@ describe('ErrorTrackingList', () => {
 
     describe('when alert is dismissed', () => {
       it('hides the alert box', async () => {
-        findIntegratedDisabledAlert().vm.$emit('dismiss');
-
-        await nextTick();
+        await findIntegratedDisabledAlert().vm.$emit('dismiss');
 
         expect(findIntegratedDisabledAlert().exists()).toBe(false);
       });
@@ -314,6 +362,43 @@ describe('ErrorTrackingList', () => {
     });
   });
 
+  describe('when the resolve button is clicked with non numberic error id', () => {
+    beforeEach(() => {
+      store.state.list.loading = false;
+      store.state.list.errors = [
+        {
+          id: 'abc',
+          title: 'PG::ConnectionBad: FATAL',
+          type: 'error',
+          userCount: 0,
+          count: '53',
+          firstSeen: '2019-05-30T07:21:46Z',
+          lastSeen: '2019-11-06T03:21:39Z',
+          status: 'unresolved',
+        },
+      ];
+
+      mountComponent({
+        stubs: {
+          GlTable: false,
+          GlLink: false,
+        },
+      });
+    });
+
+    it('should show about:blank link', () => {
+      findErrorActions().vm.$emit('update-issue-status', {
+        errorId: 'abc',
+        status: 'resolved',
+      });
+
+      expect(actions.updateStatus).toHaveBeenCalledWith(expect.anything(), {
+        endpoint: 'about:blank',
+        status: 'resolved',
+      });
+    });
+  });
+
   describe('When error tracking is disabled and user is not allowed to enable it', () => {
     beforeEach(() => {
       mountComponent({
@@ -327,7 +412,16 @@ describe('ErrorTrackingList', () => {
     });
 
     it('shows empty state', () => {
-      expect(wrapper.find(GlEmptyState).isVisible()).toBe(true);
+      const emptyStateComponent = wrapper.findComponent(GlEmptyState);
+      const emptyStatePrimaryDescription = emptyStateComponent.find('span', {
+        exactText: 'Monitor your errors directly in GitLab.',
+      });
+      const emptyStateLinks = emptyStateComponent.findAll('a');
+      expect(emptyStateComponent.isVisible()).toBe(true);
+      expect(emptyStatePrimaryDescription.exists()).toBe(true);
+      expect(emptyStateLinks.at(0).attributes('href')).toBe(
+        '/help/operations/error_tracking.html#integrated-error-tracking',
+      );
     });
   });
 
@@ -358,7 +452,7 @@ describe('ErrorTrackingList', () => {
     });
 
     describe('clear', () => {
-      const clearRecentButton = () => wrapper.find({ ref: 'clearRecentSearches' });
+      const clearRecentButton = () => wrapper.findComponent({ ref: 'clearRecentSearches' });
 
       it('is hidden when list empty', () => {
         store.state.list.recentSearches = [];
@@ -398,9 +492,35 @@ describe('ErrorTrackingList', () => {
   });
 
   describe('When pagination is required', () => {
+    describe('and previous cursor is not available', () => {
+      beforeEach(() => {
+        store.state.list.loading = false;
+        delete store.state.list.pagination.previous;
+        mountComponent();
+      });
+
+      it('disables Prev button in the pagination', () => {
+        expect(findPagination().props('prevPage')).toBe(null);
+        expect(findPagination().props('nextPage')).not.toBe(null);
+      });
+    });
+    describe('and next cursor is not available', () => {
+      beforeEach(() => {
+        store.state.list.loading = false;
+        delete store.state.list.pagination.next;
+        mountComponent();
+      });
+
+      it('disables Next button in the pagination', () => {
+        expect(findPagination().props('prevPage')).not.toBe(null);
+        expect(findPagination().props('nextPage')).toBe(null);
+      });
+    });
     describe('and the user is not on the first page', () => {
       describe('and the previous button is clicked', () => {
-        beforeEach(async () => {
+        const currentPage = 2;
+
+        beforeEach(() => {
           store.state.list.loading = false;
           mountComponent({
             stubs: {
@@ -408,15 +528,12 @@ describe('ErrorTrackingList', () => {
               GlPagination: false,
             },
           });
-          // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-          // eslint-disable-next-line no-restricted-syntax
-          wrapper.setData({ pageValue: 2 });
-          await nextTick();
+          findPagination().vm.$emit('input', currentPage);
         });
 
         it('fetches the previous page of results', () => {
           expect(wrapper.find('.prev-page-item').attributes('aria-disabled')).toBe(undefined);
-          wrapper.vm.goToPrevPage();
+          findPagination().vm.$emit('input', currentPage - 1);
           expect(actions.fetchPaginatedResults).toHaveBeenCalled();
           expect(actions.fetchPaginatedResults).toHaveBeenLastCalledWith(
             expect.anything(),
@@ -447,34 +564,67 @@ describe('ErrorTrackingList', () => {
 
   describe('Snowplow tracking', () => {
     beforeEach(() => {
-      jest.spyOn(Tracking, 'event');
       store.state.list.loading = false;
       store.state.list.errors = errorsList;
-      mountComponent({
-        stubs: {
-          GlTable: false,
-          GlLink: false,
-        },
-      });
     });
 
-    it('should track list views', () => {
-      const { category, action } = trackErrorListViewsOptions;
-      expect(Tracking.event).toHaveBeenCalledWith(category, action);
-    });
+    describe.each([true, false])(`when integratedErrorTracking is %s`, (integrated) => {
+      const category = 'Error Tracking';
 
-    it('should track status updates', async () => {
-      Tracking.event.mockClear();
-      const status = 'ignored';
-      findErrorActions().vm.$emit('update-issue-status', {
-        errorId: 1,
-        status,
+      beforeEach(() => {
+        mountComponent({
+          stubs: {
+            GlTable: false,
+            GlLink: false,
+          },
+          integratedErrorTrackingEnabled: integrated,
+        });
       });
 
-      await nextTick();
+      it('should track list views', () => {
+        expect(Tracking.event).toHaveBeenCalledWith(category, 'view_errors_list', {
+          extra: {
+            variant: integrated ? 'integrated' : 'external',
+          },
+        });
+      });
 
-      const { category, action } = trackErrorStatusUpdateOptions(status);
-      expect(Tracking.event).toHaveBeenCalledWith(category, action);
+      it('should track status updates', async () => {
+        const status = 'ignored';
+        findErrorActions().vm.$emit('update-issue-status', {
+          errorId: 1,
+          status,
+        });
+        await nextTick();
+
+        expect(Tracking.event).toHaveBeenCalledWith(category, 'update_ignored_status', {
+          extra: {
+            variant: integrated ? 'integrated' : 'external',
+          },
+        });
+      });
+
+      it('should track error filter', () => {
+        const findStatusFilter = () => findStatusFilterDropdown().findComponent(GlDropdownItem);
+        findStatusFilter().vm.$emit('click');
+
+        expect(Tracking.event).toHaveBeenCalledWith(category, 'filter_unresolved_status', {
+          extra: {
+            variant: integrated ? 'integrated' : 'external',
+          },
+        });
+      });
+
+      it('should track error sorting', () => {
+        const findSortItem = () => findSortDropdown().findComponent(GlDropdownItem);
+        findSortItem().vm.$emit('click');
+
+        expect(Tracking.event).toHaveBeenCalledWith(category, 'sort_by_last_seen', {
+          extra: {
+            variant: integrated ? 'integrated' : 'external',
+          },
+        });
+      });
     });
   });
 });

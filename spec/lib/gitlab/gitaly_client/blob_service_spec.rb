@@ -174,20 +174,22 @@ RSpec.describe Gitlab::GitalyClient::BlobService do
           expect(service)
             .to receive(:list_blobs)
             .with(gitaly_request_with_params(expected_params), kind_of(Hash))
-            .and_return([
-              Gitaly::ListBlobsResponse.new(blobs: [
-                Gitaly::ListBlobsResponse::Blob.new(oid: "012345", size: 8, data: "0x01"),
-                Gitaly::ListBlobsResponse::Blob.new(data: "23")
-              ]),
-              Gitaly::ListBlobsResponse.new(blobs: [
-                Gitaly::ListBlobsResponse::Blob.new(data: "45"),
-                Gitaly::ListBlobsResponse::Blob.new(oid: "56", size: 4, data: "0x5"),
-                Gitaly::ListBlobsResponse::Blob.new(data: "6")
-              ]),
-              Gitaly::ListBlobsResponse.new(blobs: [
-                Gitaly::ListBlobsResponse::Blob.new(oid: "78", size: 4, data: "0x78")
+            .and_return(
+              [
+                Gitaly::ListBlobsResponse.new(
+                  blobs: [
+                    Gitaly::ListBlobsResponse::Blob.new(oid: "012345", size: 8, data: "0x01"),
+                    Gitaly::ListBlobsResponse::Blob.new(data: "23")
+                  ]),
+                Gitaly::ListBlobsResponse.new(
+                  blobs: [
+                    Gitaly::ListBlobsResponse::Blob.new(data: "45"),
+                    Gitaly::ListBlobsResponse::Blob.new(oid: "56", size: 4, data: "0x5"),
+                    Gitaly::ListBlobsResponse::Blob.new(data: "6")
+                  ]),
+                Gitaly::ListBlobsResponse.new(
+                  blobs: [Gitaly::ListBlobsResponse::Blob.new(oid: "78", size: 4, data: "0x78")])
               ])
-            ])
         end
 
         blobs = subject.to_a
@@ -205,6 +207,25 @@ RSpec.describe Gitlab::GitalyClient::BlobService do
         expect(blobs[2].size).to eq(4)
         expect(blobs[2].data).to eq('0x78')
       end
+    end
+  end
+
+  describe '#list_all_blobs' do
+    subject { client.list_all_blobs(**expected_params) }
+
+    let(:expected_params) { { limit: 0, bytes_limit: 0 } }
+
+    before do
+      ::Gitlab::GitalyClient.clear_stubs!
+    end
+
+    it 'sends a list all blobs message' do
+      expect_next_instance_of(Gitaly::BlobService::Stub) do |service|
+        expect(service).to receive(:list_all_blobs)
+        .with(gitaly_request_with_params(expected_params), kind_of(Hash))
+      end
+
+      subject
     end
   end
 end

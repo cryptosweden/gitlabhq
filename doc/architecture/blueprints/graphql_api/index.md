@@ -1,9 +1,14 @@
 ---
-stage: none
-group: unassigned
-comments: false
-description: 'GraphQL API architecture foundation'
+status: accepted
+creation-date: "2021-01-07"
+authors: [ "@grzesiek" ]
+coach: [ "@ayufan", "@grzesiek" ]
+approvers: [ "@dsatcher", "@deuley" ]
+owning-stage: "~devops::manage"
+participating-stages: []
 ---
+
+<!-- vale gitlab.FutureTense = NO -->
 
 # GraphQL API
 
@@ -20,8 +25,7 @@ GraphQL development and helped to surface the need of improving tooling we use
 to extend the new API.
 
 This document describes the work that is needed to build a stable foundation that
-will support our development efforts and a large-scale usage of the [GraphQL
-API](https://docs.gitlab.com/ee/api/graphql/index.html).
+will support our development efforts and a large-scale usage of the [GraphQL API](../../../api/graphql/index.md).
 
 ## Summary
 
@@ -45,12 +49,12 @@ It is an opportunity to learn from our experience in evolving the REST API, for
 the scale, and to apply this knowledge onto the GraphQL development efforts. We
 can do that by building query-to-feature correlation mechanisms, adding
 scalable state synchronization support and aligning GraphQL with other
-architectural initiatives being executed in parallel, like [the support for
-direct uploads](https://gitlab.com/gitlab-org/gitlab/-/issues/280819).
+architectural initiatives being executed in parallel, like
+[the support for direct uploads](https://gitlab.com/gitlab-org/gitlab/-/issues/280819).
 
 GraphQL should be secure by default. We can avoid common security mistakes by
-building mechanisms that will help us to enforce [OWASP GraphQL
-recommendations](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html)
+building mechanisms that will help us to enforce
+[OWASP GraphQL recommendations](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html)
 that are relevant to us.
 
 Understanding what are the needs of the wider community will also allow us to
@@ -146,53 +150,13 @@ state synchronization mechanisms and hooking into existing ones.
 ### In the scope of the blueprint
 
 1. [GraphQL API architecture](https://gitlab.com/groups/gitlab-org/-/epics/5842)
-    1. [Build comprehensive Grafana dashboard for GraphQL](https://gitlab.com/groups/gitlab-org/-/epics/5841)
-    1. [Improve logging of GraphQL requests in Elastic](https://gitlab.com/groups/gitlab-org/-/epics/4646)
-    1. [Build GraphQL query correlation mechanisms](https://gitlab.com/groups/gitlab-org/-/epics/5320)
-    1. [Design a better data-informed deprecation policy](https://gitlab.com/groups/gitlab-org/-/epics/5321)
+   1. [Build comprehensive Grafana dashboard for GraphQL](https://gitlab.com/groups/gitlab-org/-/epics/5841)
+   1. [Improve logging of GraphQL requests in Elastic](https://gitlab.com/groups/gitlab-org/-/epics/4646)
+   1. [Build GraphQL query correlation mechanisms](https://gitlab.com/groups/gitlab-org/-/epics/5320)
+   1. [Design a better data-informed deprecation policy](https://gitlab.com/groups/gitlab-org/-/epics/5321)
 
 ### Future iterations
 
 1. [Build a scalable state synchronization for GraphQL](https://gitlab.com/groups/gitlab-org/-/epics/5319)
 1. [Add support for direct uploads for GraphQL](https://gitlab.com/gitlab-org/gitlab/-/issues/280819)
 1. [Review GraphQL design choices related to security](https://gitlab.com/gitlab-org/security/gitlab/-/issues/339)
-
-## Status
-
-Current status: in progress.
-
-## Who
-
-Proposal:
-
-<!-- vale gitlab.Spelling = NO -->
-
-| Role                         | Who
-|------------------------------|-------------------------|
-| Author                       | Grzegorz Bizon          |
-| Architecture Evolution Coach | Kamil Trzciński         |
-| Engineering Leader           | Darva Satcher           |
-| Product Manager              | Patrick Deuley          |
-| Domain Expert / GraphQL      | Charlie Ablett          |
-| Domain Expert / GraphQL      | Alex Kalderimis         |
-| Domain Expert / GraphQL      | Natalia Tepluhina       |
-| Domain Expert / Scalability  | Bob Van Landuyt         |
-
-DRIs:
-
-| Role                         | Who
-|------------------------------|------------------------|
-| Leadership                   | Darva Satcher          |
-| Product                      | Patrick Deuley         |
-| Engineering                  | Paul Slaughter         |
-
-Domain Experts:
-
-| Area                         | Who
-|------------------------------|------------------------|
-| Domain Expert / GraphQL      | Charlie Ablett         |
-| Domain Expert / GraphQL      | Alex Kalderimis        |
-| Domain Expert / GraphQL      | Natalia Tepluhina      |
-| Domain Expert / Scalability  | Bob Van Landuyt        |
-
-<!-- vale gitlab.Spelling = YES -->

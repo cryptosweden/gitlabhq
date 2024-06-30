@@ -1,12 +1,12 @@
 ---
 stage: Monitor
 group: Respond
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# GitLab Developers Guide to Logging **(FREE)**
+# Logging development guidelines
 
-[GitLab Logs](../administration/logs.md) play a critical role for both
+[GitLab Logs](../administration/logs/index.md) play a critical role for both
 administrators and GitLab team members to diagnose problems in the field.
 
 ## Don't use `Rails.logger`
@@ -44,8 +44,7 @@ These logs suffer from a number of problems:
 Note that currently on GitLab.com, any messages in `production.log` aren't
 indexed by Elasticsearch due to the sheer volume and noise. They
 do end up in Google Stackdriver, but it is still harder to search for
-logs there. See the [GitLab.com logging
-documentation](https://gitlab.com/gitlab-com/runbooks/-/tree/master/docs/logging)
+logs there. See the [GitLab.com logging documentation](https://gitlab.com/gitlab-com/runbooks/-/tree/master/docs/logging)
 for more details.
 
 ## Use structured (JSON) logging
@@ -66,7 +65,7 @@ Suppose you want to log the events that happen in a project
 importer. You want to log issues created, merge requests, and so on, as the
 importer progresses. Here's what to do:
 
-1. Look at [the list of GitLab Logs](../administration/logs.md) to see
+1. Look at [the list of GitLab Logs](../administration/logs/index.md) to see
    if your log message might belong with one of the existing log files.
 1. If there isn't a good place, consider creating a new filename, but
    check with a maintainer if it makes sense to do so. A log file should
@@ -88,13 +87,35 @@ importer progresses. Here's what to do:
       end
       ```
 
+      Note that by default, `Gitlab::JsonLogger` will include application context metadata in the log entry. If your
+      logger is expected to be called outside of an application request (for example, in a `rake` task) or by low-level
+      code that may be involved in building the application context (for example, database connection code), you should
+      call the class method `exclude_context!` for your logger class, like so:
+
+      ```ruby
+      module Gitlab
+        module Database
+          module LoadBalancing
+            class Logger < ::Gitlab::JsonLogger
+              exclude_context!
+
+              def self.file_name_noext
+                'database_load_balancing'
+              end
+            end
+          end
+        end
+      end
+
+      ```
+
    1. In your class where you want to log, you might initialize the logger as an instance variable:
 
       ```ruby
       attr_accessor :logger
 
       def initialize
-        @logger = Gitlab::Import::Logger.build
+        @logger = ::Import::Framework::Logger.build
       end
       ```
 
@@ -168,7 +189,29 @@ logger.info(a_list: ["foo", 1, true])
 Resources:
 
 - [Elasticsearch mapping - avoiding type gotchas](https://www.elastic.co/guide/en/elasticsearch/guide/current/mapping.html#_avoiding_type_gotchas)
-- [Elasticsearch mapping types]( https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html)
+- [Elasticsearch mapping types](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html)
+
+#### Include a class attribute
+
+Structured logs should always include a `class` attribute to make all entries logged from a particular place in the code findable.
+To automatically add the `class` attribute, you can include the
+[`Gitlab::Loggable` module](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/loggable.rb) and use the `build_structured_payload` method.
+
+```ruby
+class MyClass
+  include ::Gitlab::Loggable
+
+  def my_method
+    logger.info(build_structured_payload(message: 'log message', project_id: project_id))
+  end
+
+  private
+
+  def logger
+    @logger ||= Gitlab::AppJsonLogger.build
+  end
+end
+```
 
 #### Logging durations
 
@@ -181,7 +224,7 @@ suffix and `duration` within its name (for example, `view_duration_s`).
 
 ## Multi-destination Logging
 
-GitLab is transitioning from unstructured/plaintext logs to structured/JSON logs. During this transition period some logs are recorded in multiple formats through multi-destination logging.
+GitLab transitioned from structured to JSON logs. However, through multi-destination logging, the logs can be recorded in multiple formats.
 
 ### How to use multi-destination logging
 
@@ -287,7 +330,7 @@ Entry points can be seen at:
 When adding new attributes, make sure they're exposed within the context of the entry points above and:
 
 - Pass them within the hash to the `with_context` (or `push`) method (make sure to pass a Proc if the
-method or variable shouldn't be evaluated right away)
+  method or variable shouldn't be evaluated right away)
 - Change `Gitlab::ApplicationContext` to accept these new values
 - Make sure the new attributes are accepted at [`Labkit::Context`](https://gitlab.com/gitlab-org/labkit-ruby/blob/master/lib/labkit/context.rb)
 
@@ -318,7 +361,7 @@ class MyExampleWorker
 end
 ```
 
-Please see [this example](https://gitlab.com/gitlab-org/gitlab/-/blob/16ecc33341a3f6b6bebdf78d863c5bce76b040d3/app/workers/ci/pipeline_artifacts/expire_artifacts_worker.rb#L20-21)
+See [this example](https://gitlab.com/gitlab-org/gitlab/-/blob/16ecc33341a3f6b6bebdf78d863c5bce76b040d3/app/workers/ci/pipeline_artifacts/expire_artifacts_worker.rb#L20-21)
 which logs a count of how many artifacts are destroyed per run of the `ExpireArtifactsWorker`.
 
 ## Exception Handling
@@ -344,7 +387,7 @@ provides helper methods to track exceptions:
 1. `Gitlab::ErrorTracking.track_exception`: this method only logs
    and sends exception to Sentry (if configured),
 1. `Gitlab::ErrorTracking.log_exception`: this method only logs the exception,
-   and DOES NOT send the exception to Sentry,
+   and does not send the exception to Sentry,
 1. `Gitlab::ErrorTracking.track_and_raise_for_dev_exception`: this method logs,
    sends exception to Sentry (if configured) and re-raises the exception
   for development and test environments.
@@ -386,18 +429,36 @@ end
 ## Additional steps with new log files
 
 1. Consider log retention settings. By default, Omnibus rotates any
-   logs in `/var/log/gitlab/gitlab-rails/*.log` every hour and [keep at
-   most 30 compressed files](https://docs.gitlab.com/omnibus/settings/logs.html#logrotate).
+   logs in `/var/log/gitlab/gitlab-rails/*.log` every hour and
+   [keep at most 30 compressed files](https://docs.gitlab.com/omnibus/settings/logs.html#logrotate).
    On GitLab.com, that setting is only 6 compressed files. These settings should suffice
    for most users, but you may need to tweak them in [Omnibus GitLab](https://gitlab.com/gitlab-org/omnibus-gitlab).
 
-1. If you add a new file, submit an issue to the [production
-   tracker](https://gitlab.com/gitlab-com/gl-infra/production/-/issues) or
-   a merge request to the [`gitlab_fluentd`](https://gitlab.com/gitlab-cookbooks/gitlab_fluentd)
-   project. See [this example](https://gitlab.com/gitlab-cookbooks/gitlab_fluentd/-/merge_requests/51/diffs).
+1. On GitLab.com all new JSON log files generated by GitLab Rails are
+   automatically shipped to Elasticsearch (and available in Kibana) on GitLab
+   Rails Kubernetes pods. If you need the file forwarded from Gitaly nodes then
+   submit an issue to the
+   [production tracker](https://gitlab.com/gitlab-com/gl-infra/production/-/issues)
+   or a merge request to the
+   [`gitlab_fluentd`](https://gitlab.com/gitlab-cookbooks/gitlab_fluentd)
+   project. See
+   [this example](https://gitlab.com/gitlab-cookbooks/gitlab_fluentd/-/merge_requests/51/diffs).
 
-1. Be sure to update the [GitLab CE/EE documentation](../administration/logs.md) and the [GitLab.com
-   runbooks](https://gitlab.com/gitlab-com/runbooks/blob/master/docs/logging/README.md).
+1. Be sure to update the [GitLab CE/EE documentation](../administration/logs/index.md) and the
+   [GitLab.com runbooks](https://gitlab.com/gitlab-com/runbooks/blob/master/docs/logging/README.md).
+
+## Finding new log files in Kibana (GitLab.com only)
+
+On GitLab.com all new JSON log files generated by GitLab Rails are
+automatically shipped to Elasticsearch (and available in Kibana) on GitLab
+Rails Kubernetes pods. The `json.subcomponent` field in Kibana will allow you
+to filter by the different kinds of log files. For example the
+`json.subcomponent` will be `production_json` for entries forwarded from
+`production_json.log`.
+
+It's also worth noting that log files from Web/API pods go to a different
+index than log files from Sidekiq pods. Depending on where you log from you
+will find the logs in a different index pattern.
 
 ## Control logging visibility
 

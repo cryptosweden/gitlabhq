@@ -68,28 +68,86 @@ RSpec.describe Blob do
       end
     end
 
-    context 'with project' do
-      let(:container) { create(:project, :repository) }
-      let(:same_container) { Project.find(container.id) }
-      let(:other_container) { create(:project, :repository) }
+    context 'when increase_diff_file_performance is turned off' do
+      before do
+        stub_feature_flags(increase_diff_file_performance: false)
+      end
 
-      it_behaves_like '.lazy checks'
+      context 'with project' do
+        let_it_be(:container) { create(:project, :repository) }
+        let_it_be(:same_container) { Project.find(container.id) }
+        let_it_be(:other_container) { create(:project, :repository) }
+
+        it_behaves_like '.lazy checks'
+      end
+
+      context 'with personal snippet' do
+        let_it_be(:container) { create(:personal_snippet, :repository) }
+        let_it_be(:same_container) { PersonalSnippet.find(container.id) }
+        let_it_be(:other_container) { create(:personal_snippet, :repository) }
+
+        it_behaves_like '.lazy checks'
+      end
+
+      context 'with project snippet' do
+        let_it_be(:container) { create(:project_snippet, :repository) }
+        let_it_be(:same_container) { ProjectSnippet.find(container.id) }
+        let_it_be(:other_container) { create(:project_snippet, :repository) }
+
+        it_behaves_like '.lazy checks'
+      end
     end
 
-    context 'with personal snippet' do
-      let(:container) { create(:personal_snippet, :repository) }
-      let(:same_container) { PersonalSnippet.find(container.id) }
-      let(:other_container) { create(:personal_snippet, :repository) }
+    context 'when increase_diff_file_performance is turned on' do
+      context 'with project' do
+        let_it_be(:container) { create(:project, :repository) }
+        let_it_be(:same_container) { Project.find(container.id) }
+        let_it_be(:other_container) { create(:project, :repository) }
 
-      it_behaves_like '.lazy checks'
-    end
+        it_behaves_like '.lazy checks'
 
-    context 'with project snippet' do
-      let(:container) { create(:project_snippet, :repository) }
-      let(:same_container) { ProjectSnippet.find(container.id) }
-      let(:other_container) { create(:project_snippet, :repository) }
+        context 'when the blob size limit is different' do
+          it 'fetches all blobs for the same repository and same blob size limit when one is accessed' do
+            expect(container.repository).to receive(:blobs_at)
+              .with([[commit_id, 'CHANGELOG']], blob_size_limit: 10)
+              .once.and_call_original
 
-      it_behaves_like '.lazy checks'
+            expect(same_container.repository).to receive(:blobs_at)
+              .with([[commit_id, 'CONTRIBUTING.md'], [commit_id, 'README.md']], blob_size_limit: 20)
+              .once.and_call_original
+
+            expect(other_container.repository).not_to receive(:blobs_at)
+
+            changelog = described_class.lazy(container.repository, commit_id, 'CHANGELOG', blob_size_limit: 10)
+            contributing = described_class.lazy(same_container.repository, commit_id, 'CONTRIBUTING.md',
+              blob_size_limit: 20)
+            described_class.lazy(same_container.repository, commit_id, 'README.md',
+              blob_size_limit: 20)
+
+            described_class.lazy(other_container.repository, commit_id, 'CHANGELOG', blob_size_limit: 30)
+
+            # Access property so the values are loaded
+            changelog.id
+            contributing.id
+          end
+        end
+      end
+
+      context 'with personal snippet' do
+        let_it_be(:container) { create(:personal_snippet, :repository) }
+        let_it_be(:same_container) { PersonalSnippet.find(container.id) }
+        let_it_be(:other_container) { create(:personal_snippet, :repository) }
+
+        it_behaves_like '.lazy checks'
+      end
+
+      context 'with project snippet' do
+        let_it_be(:container) { create(:project_snippet, :repository) }
+        let_it_be(:same_container) { ProjectSnippet.find(container.id) }
+        let_it_be(:other_container) { create(:project_snippet, :repository) }
+
+        it_behaves_like '.lazy checks'
+      end
     end
   end
 
@@ -226,6 +284,20 @@ RSpec.describe Blob do
       non_symlink_blob = fake_blob(path: 'file', mode: '100755')
 
       expect(non_symlink_blob.symlink?).to eq false
+    end
+  end
+
+  describe '#executable?' do
+    it 'is true for executables' do
+      executable_blob = fake_blob(path: 'file', mode: '100755')
+
+      expect(executable_blob.executable?).to eq true
+    end
+
+    it 'is false for non-executables' do
+      non_executable_blob = fake_blob(path: 'file', mode: '100655')
+
+      expect(non_executable_blob.executable?).to eq false
     end
   end
 
@@ -371,6 +443,36 @@ RSpec.describe Blob do
         blob = fake_blob(path: 'LICENSE')
 
         expect(blob.auxiliary_viewer).to be_a(BlobViewer::License)
+      end
+    end
+
+    context 'when the blob is GitlabCiYml' do
+      it 'returns a matching viewer for .gitlab-ci.yml' do
+        blob = fake_blob(path: '.gitlab-ci.yml')
+
+        expect(blob.auxiliary_viewer).to be_a(BlobViewer::GitlabCiYml)
+      end
+
+      it 'returns nil for non .gitlab-ci.yml' do
+        blob = fake_blob(path: 'custom-ci.yml')
+
+        expect(blob.auxiliary_viewer).to be_nil
+      end
+
+      context 'when the project has a custom CI config path' do
+        let(:project) { build(:project, ci_config_path: 'custom-ci.yml') }
+
+        it 'returns a matching viewer for the custom CI file' do
+          blob = fake_blob(path: 'custom-ci.yml')
+
+          expect(blob.auxiliary_viewer).to be_a(BlobViewer::GitlabCiYml)
+        end
+
+        it 'returns nil for the incorrect CI file' do
+          blob = fake_blob(path: '.gitlab-ci.yml')
+
+          expect(blob.auxiliary_viewer).to be_nil
+        end
       end
     end
   end

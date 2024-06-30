@@ -1,6 +1,6 @@
 import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
 import Tracking from '~/tracking';
-import showToast from '~/vue_shared/plugins/global_toast';
+import { addShortcutsExtension } from '~/behaviors/shortcuts';
 import ShortcutsWiki from '~/behaviors/shortcuts/shortcuts_wiki';
 
 const TRACKING_EVENT_NAME = 'view_wiki_page';
@@ -16,11 +16,42 @@ export default class Wikis {
       sidebarToggles[i].addEventListener('click', (e) => this.handleToggleSidebar(e));
     }
 
+    // Store pages visbility in localStorage
+    const pagesToggle = document.querySelector('.js-wiki-expand-pages-list');
+    if (pagesToggle) {
+      if (localStorage.getItem('wiki-sidebar-expanded') === 'expanded') {
+        pagesToggle.classList.remove('collapsed');
+      }
+      pagesToggle.addEventListener('click', (e) => {
+        pagesToggle.classList.toggle('collapsed');
+
+        if (!pagesToggle.classList.contains('collapsed')) {
+          localStorage.setItem('wiki-sidebar-expanded', 'expanded');
+        } else {
+          localStorage.removeItem('wiki-sidebar-expanded');
+        }
+
+        e.stopImmediatePropagation();
+      });
+    }
+
+    const listToggles = document.querySelectorAll('.js-wiki-list-toggle');
+    listToggles.forEach((listToggle) => {
+      listToggle.querySelectorAll('a').forEach((link) => {
+        link.addEventListener('click', (e) => e.stopPropagation());
+      });
+
+      listToggle.addEventListener('click', (e) => {
+        listToggle.classList.toggle('collapsed');
+
+        e.stopImmediatePropagation();
+      });
+    });
+
     window.addEventListener('resize', () => this.renderSidebar());
     this.renderSidebar();
 
     Wikis.trackPageView();
-    Wikis.showToasts();
     Wikis.initShortcuts();
   }
 
@@ -62,12 +93,7 @@ export default class Wikis {
     });
   }
 
-  static showToasts() {
-    const toasts = document.querySelectorAll('.js-toast-message');
-    toasts.forEach((toast) => showToast(toast.dataset.message));
-  }
-
   static initShortcuts() {
-    new ShortcutsWiki(); // eslint-disable-line no-new
+    addShortcutsExtension(ShortcutsWiki);
   }
 }

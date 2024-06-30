@@ -8,49 +8,12 @@ def visit_jobs_page
   wait_for_requests
 end
 
-RSpec.describe 'User browses jobs' do
-  describe 'with jobs_table_vue feature flag turned off' do
-    let!(:build) { create(:ci_build, :coverage, pipeline: pipeline) }
-    let(:pipeline) { create(:ci_empty_pipeline, project: project, sha: project.commit.sha, ref: 'master') }
-    let(:project) { create(:project, :repository, namespace: user.namespace) }
-    let(:user) { create(:user) }
-
-    before do
-      stub_feature_flags(jobs_table_vue: false)
-      project.add_maintainer(user)
-      project.enable_ci
-      project.update_attribute(:build_coverage_regex, /Coverage (\d+)%/)
-
-      sign_in(user)
-
-      visit(project_jobs_path(project))
-    end
-
-    it 'shows the coverage' do
-      page.within('td.coverage') do
-        expect(page).to have_content('99.9%')
-      end
-    end
-
-    context 'with a failed job' do
-      let!(:build) { create(:ci_build, :coverage, :failed, pipeline: pipeline) }
-
-      it 'displays a tooltip with the failure reason' do
-        page.within('.ci-table') do
-          failed_job_link = page.find('.ci-failed')
-          expect(failed_job_link[:title]).to eq('Failed - (unknown failure)')
-        end
-      end
-    end
-  end
-
-  describe 'with jobs_table_vue feature flag turned on', :js do
+RSpec.describe 'User browses jobs', feature_category: :continuous_integration do
+  describe 'Jobs', :js do
     let(:project) { create(:project, :repository) }
     let(:user) { create(:user) }
 
     before do
-      stub_feature_flags(jobs_table_vue: true)
-
       project.add_maintainer(user)
       project.enable_ci
 
@@ -63,27 +26,18 @@ RSpec.describe 'User browses jobs' do
       end
 
       it 'shows a tab for All jobs and count' do
-        expect(page.find('[data-testid="jobs-all-tab"]').text).to include('All')
-        expect(page.find('[data-testid="jobs-all-tab"] .badge').text).to include('0')
-      end
-
-      it 'shows a tab for Pending jobs and count' do
-        expect(page.find('[data-testid="jobs-pending-tab"]').text).to include('Pending')
-        expect(page.find('[data-testid="jobs-pending-tab"] .badge').text).to include('0')
-      end
-
-      it 'shows a tab for Running jobs and count' do
-        expect(page.find('[data-testid="jobs-running-tab"]').text).to include('Running')
-        expect(page.find('[data-testid="jobs-running-tab"] .badge').text).to include('0')
+        expect(find_by_testid('jobs-all-tab').text).to include('All')
+        within_testid('jobs-all-tab') do
+          expect(page.find('.badge').text).to include('0')
+        end
       end
 
       it 'shows a tab for Finished jobs and count' do
-        expect(page.find('[data-testid="jobs-finished-tab"]').text).to include('Finished')
-        expect(page.find('[data-testid="jobs-finished-tab"] .badge').text).to include('0')
+        expect(find_by_testid('jobs-finished-tab').text).to include('Finished')
       end
 
       it 'updates the content when tab is clicked' do
-        page.find('[data-testid="jobs-finished-tab"]').click
+        find_by_testid('jobs-finished-tab').click
         wait_for_requests
 
         expect(page).to have_content('No jobs to show')
@@ -106,8 +60,7 @@ RSpec.describe 'User browses jobs' do
 
       context 'when a job can be canceled' do
         let!(:job) do
-          create(:ci_build, pipeline: pipeline,
-                 stage: 'test')
+          create(:ci_build, pipeline: pipeline, stage: 'test')
         end
 
         before do
@@ -116,19 +69,38 @@ RSpec.describe 'User browses jobs' do
           visit_jobs_page
         end
 
-        it 'cancels a job successfully' do
-          page.find('[data-testid="cancel-button"]').click
+        context 'when supports canceling is true' do
+          include_context 'when canceling support'
 
-          wait_for_requests
+          it 'cancels a job successfully' do
+            find_by_testid('cancel-button').click
 
-          expect(page).to have_selector('.ci-canceled')
+            wait_for_requests
+
+            expect(page).to have_selector('[data-testid="ci-icon"]', text: 'Canceling')
+            expect(page).not_to have_selector('[data-testid="jobs-table-error-alert"]')
+          end
+        end
+
+        context 'when supports canceling is false' do
+          before do
+            stub_feature_flags(ci_canceling_status: false)
+          end
+
+          it 'cancels a job successfully' do
+            find_by_testid('cancel-button').click
+
+            wait_for_requests
+
+            expect(page).to have_selector('[data-testid="ci-icon"]', text: 'Canceled')
+            expect(page).not_to have_selector('[data-testid="jobs-table-error-alert"]')
+          end
         end
       end
 
       context 'when a job can be retried' do
         let!(:job) do
-          create(:ci_build, pipeline: pipeline,
-                 stage: 'test')
+          create(:ci_build, pipeline: pipeline, stage: 'test')
         end
 
         before do
@@ -138,11 +110,31 @@ RSpec.describe 'User browses jobs' do
         end
 
         it 'retries a job successfully' do
-          page.find('[data-testid="retry"]').click
+          find_by_testid('retry').click
 
           wait_for_requests
 
-          expect(page).to have_selector('.ci-pending')
+          expect(page).to have_selector('[data-testid="ci-icon"]', text: 'Pending')
+        end
+      end
+
+      context 'with a coverage job' do
+        let!(:job) do
+          create(:ci_build, :coverage, pipeline: pipeline)
+        end
+
+        before do
+          job.update!(coverage_regex: '/Coverage (\d+)%/')
+
+          visit_jobs_page
+
+          wait_for_requests
+        end
+
+        it 'shows the coverage' do
+          within_testid('job-coverage') do
+            expect(page).to have_content('99.9%')
+          end
         end
       end
 
@@ -154,7 +146,7 @@ RSpec.describe 'User browses jobs' do
         end
 
         it 'plays a job successfully' do
-          page.find('[data-testid="play-scheduled"]').click
+          find_by_testid('play-scheduled').click
 
           page.within '#play-job-modal' do
             page.find_button('OK').click
@@ -162,24 +154,21 @@ RSpec.describe 'User browses jobs' do
 
           wait_for_requests
 
-          expect(page).to have_selector('.ci-pending')
+          expect(page).to have_selector('[data-testid="ci-icon"]', text: 'Pending')
         end
 
         it 'unschedules a job successfully' do
-          page.find('[data-testid="unschedule"]').click
+          find_by_testid('unschedule').click
 
           wait_for_requests
 
-          expect(page).to have_selector('.ci-manual')
+          expect(page).to have_selector('[data-testid="ci-icon"]', text: 'Manual')
         end
       end
 
       context 'with downloadable artifacts' do
         let!(:with_artifacts) do
-          build = create(:ci_build, :success,
-                         pipeline: pipeline,
-                         name: 'rspec tests',
-                         stage: 'test')
+          build = create(:ci_build, :success, pipeline: pipeline, name: 'rspec tests', stage: 'test')
 
           create(:ci_job_artifact, :archive, job: build)
         end
@@ -195,10 +184,7 @@ RSpec.describe 'User browses jobs' do
 
       context 'with artifacts expired' do
         let!(:with_artifacts_expired) do
-          create(:ci_build, :expired, :success,
-                 pipeline: pipeline,
-                 name: 'rspec',
-                 stage: 'test')
+          create(:ci_build, :expired, :success, pipeline: pipeline, name: 'rspec', stage: 'test')
         end
 
         before do
@@ -216,8 +202,7 @@ RSpec.describe 'User browses jobs' do
 
       context 'column links' do
         let!(:job) do
-          create(:ci_build, pipeline: pipeline,
-                 stage: 'test')
+          create(:ci_build, pipeline: pipeline, stage: 'test')
         end
 
         before do
@@ -227,19 +212,19 @@ RSpec.describe 'User browses jobs' do
         end
 
         it 'contains a link to the pipeline' do
-          expect(page.find('[data-testid="pipeline-id"]')).to have_content "##{pipeline.id}"
+          expect(find_by_testid('pipeline-id')).to have_content "##{pipeline.id}"
         end
 
         it 'contains a link to the job sha' do
-          expect(page.find('[data-testid="job-sha"]')).to have_content "#{job.sha[0..7]}"
+          expect(find_by_testid('job-sha')).to have_content job.sha[0..7].to_s
         end
 
         it 'contains a link to the job id' do
-          expect(page.find('[data-testid="job-id-link"]')).to have_content "#{job.id}"
+          expect(find_by_testid('job-id-link')).to have_content job.id.to_s
         end
 
         it 'contains a link to the job ref' do
-          expect(page.find('[data-testid="job-ref"]')).to have_content "#{job.ref}"
+          expect(find_by_testid('job-ref')).to have_content job.ref.to_s
         end
       end
     end

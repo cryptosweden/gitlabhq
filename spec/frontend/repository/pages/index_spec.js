@@ -9,12 +9,12 @@ describe('Repository index page component', () => {
   let wrapper;
 
   function factory() {
-    wrapper = shallowMount(IndexPage);
+    wrapper = shallowMount(IndexPage, {
+      propsData: { refType: 'heads' },
+    });
   }
 
   afterEach(() => {
-    wrapper.destroy();
-
     updateElementsVisibility.mockClear();
   });
 
@@ -34,9 +34,9 @@ describe('Repository index page component', () => {
   it('renders TreePage', () => {
     factory();
 
-    const child = wrapper.find(TreePage);
+    const child = wrapper.findComponent(TreePage);
 
     expect(child.exists()).toBe(true);
-    expect(child.props()).toEqual({ path: '/' });
+    expect(child.props()).toEqual({ path: '/', refType: 'heads' });
   });
 });

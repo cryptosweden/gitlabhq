@@ -34,7 +34,7 @@ describe('DevopsScore', () => {
       createComponent({ devopsScoreMetrics: {} });
     });
 
-    it('includes the DevopsScoreCallout component ', () => {
+    it('includes the DevopsScoreCallout component', () => {
       expect(bannerExists()).toBe(true);
     });
 
@@ -52,7 +52,7 @@ describe('DevopsScore', () => {
       it('contains a link to the feature documentation', () => {
         expect(findDocsLink().exists()).toBe(true);
         expect(findDocsLink().attributes('href')).toBe(
-          '/help/user/admin_area/analytics/dev_ops_report',
+          '/help/administration/analytics/dev_ops_reports',
         );
       });
     });
@@ -67,7 +67,7 @@ describe('DevopsScore', () => {
       createComponent();
     });
 
-    it('includes the DevopsScoreCallout component ', () => {
+    it('includes the DevopsScoreCallout component', () => {
       expect(bannerExists()).toBe(true);
     });
 
@@ -129,7 +129,7 @@ describe('DevopsScore', () => {
             });
 
             it('displays the correct badge', () => {
-              const badge = findUsageCol().find(GlBadge);
+              const badge = findUsageCol().findComponent(GlBadge);
 
               expect(badge.exists()).toBe(true);
               expect(badge.props('variant')).toBe('muted');

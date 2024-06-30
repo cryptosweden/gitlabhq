@@ -3,7 +3,6 @@ package parser
 import (
 	"encoding/binary"
 	"io"
-	"io/ioutil"
 	"os"
 )
 
@@ -15,8 +14,8 @@ type cache struct {
 	chunkSize int64
 }
 
-func newCache(tempDir, filename string, data interface{}) (*cache, error) {
-	f, err := ioutil.TempFile(tempDir, filename)
+func newCache(filename string, data interface{}) (*cache, error) {
+	f, err := os.CreateTemp("", filename)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +27,7 @@ func newCache(tempDir, filename string, data interface{}) (*cache, error) {
 	return &cache{file: f, chunkSize: int64(binary.Size(data))}, nil
 }
 
-func (c *cache) SetEntry(id Id, data interface{}) error {
+func (c *cache) SetEntry(id ID, data interface{}) error {
 	if err := c.setOffset(id); err != nil {
 		return err
 	}
@@ -36,7 +35,7 @@ func (c *cache) SetEntry(id Id, data interface{}) error {
 	return binary.Write(c.file, binary.LittleEndian, data)
 }
 
-func (c *cache) Entry(id Id, data interface{}) error {
+func (c *cache) Entry(id ID, data interface{}) error {
 	if err := c.setOffset(id); err != nil {
 		return err
 	}
@@ -48,7 +47,7 @@ func (c *cache) Close() error {
 	return c.file.Close()
 }
 
-func (c *cache) setOffset(id Id) error {
+func (c *cache) setOffset(id ID) error {
 	offset := int64(id) * c.chunkSize
 	_, err := c.file.Seek(offset, io.SeekStart)
 

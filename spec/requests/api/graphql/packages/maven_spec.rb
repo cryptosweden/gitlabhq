@@ -1,22 +1,18 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'maven package details' do
+RSpec.describe 'maven package details', feature_category: :package_registry do
   include GraphqlHelpers
   include_context 'package details setup'
 
-  let_it_be(:package) { create(:maven_package, project: project) }
+  let_it_be(:package) { create(:maven_package, :last_downloaded_at, project: project) }
 
   let(:metadata) { query_graphql_fragment('MavenMetadata') }
 
   shared_examples 'correct maven metadata' do
     it 'has the correct metadata' do
-      expect(metadata_response).to include(
-        'id' => global_id_of(package.maven_metadatum),
-        'path' => package.maven_metadatum.path,
-        'appGroup' => package.maven_metadatum.app_group,
-        'appVersion' => package.maven_metadatum.app_version,
-        'appName' => package.maven_metadatum.app_name
+      expect(metadata_response).to match a_graphql_entity_for(
+        package.maven_metadatum, :path, :app_group, :app_version, :app_name
       )
     end
   end
@@ -35,7 +31,9 @@ RSpec.describe 'maven package details' do
 
   context 'a versionless maven package' do
     let_it_be(:maven_metadatum) { create(:maven_metadatum, app_version: nil) }
-    let_it_be(:package) { create(:maven_package, project: project, version: nil, maven_metadatum: maven_metadatum) }
+    let_it_be(:package) do
+      create(:maven_package, :last_downloaded_at, project: project, version: nil, maven_metadatum: maven_metadatum)
+    end
 
     subject { post_graphql(query, current_user: user) }
 

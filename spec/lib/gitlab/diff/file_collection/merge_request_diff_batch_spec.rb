@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Diff::FileCollection::MergeRequestDiffBatch do
+RSpec.describe Gitlab::Diff::FileCollection::MergeRequestDiffBatch, feature_category: :code_review_workflow do
   let(:merge_request) { create(:merge_request) }
   let(:batch_page) { 0 }
   let(:batch_size) { 10 }
@@ -10,10 +10,7 @@ RSpec.describe Gitlab::Diff::FileCollection::MergeRequestDiffBatch do
   let(:diff_files_relation) { diffable.merge_request_diff_files }
 
   subject do
-    described_class.new(diffable,
-                        batch_page,
-                        batch_size,
-                        diff_options: nil)
+    described_class.new(diffable, batch_page, batch_size, diff_options: nil)
   end
 
   let(:diff_files) { subject.diff_files }
@@ -87,10 +84,7 @@ RSpec.describe Gitlab::Diff::FileCollection::MergeRequestDiffBatch do
     context 'last page' do
       it 'returns correct diff files' do
         last_page = diff_files_relation.count - batch_size
-        collection = described_class.new(diffable,
-                                         last_page,
-                                         batch_size,
-                                         diff_options: nil)
+        collection = described_class.new(diffable, last_page, batch_size, diff_options: nil)
 
         expected_batch_files = diff_files_relation.offset(last_page).limit(batch_size).map(&:new_path)
 
@@ -101,10 +95,7 @@ RSpec.describe Gitlab::Diff::FileCollection::MergeRequestDiffBatch do
 
   it_behaves_like 'unfoldable diff' do
     subject do
-      described_class.new(merge_request.merge_request_diff,
-                          batch_page,
-                          batch_size,
-                          diff_options: nil)
+      described_class.new(merge_request.merge_request_diff, batch_page, batch_size, diff_options: nil)
     end
   end
 
@@ -118,10 +109,7 @@ RSpec.describe Gitlab::Diff::FileCollection::MergeRequestDiffBatch do
     let(:stub_path) { '.gitignore' }
 
     subject do
-      described_class.new(merge_request.merge_request_diff,
-                          batch_page,
-                          batch_size,
-                          **collection_default_args)
+      described_class.new(merge_request.merge_request_diff, batch_page, batch_size, **collection_default_args)
     end
   end
 
@@ -136,10 +124,7 @@ RSpec.describe Gitlab::Diff::FileCollection::MergeRequestDiffBatch do
     end
 
     subject do
-      described_class.new(merge_request.merge_request_diff,
-                          batch_page,
-                          batch_size,
-                          **collection_default_args)
+      described_class.new(merge_request.merge_request_diff, batch_page, batch_size, **collection_default_args)
     end
   end
 end

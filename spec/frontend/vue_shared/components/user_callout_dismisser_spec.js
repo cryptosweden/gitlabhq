@@ -28,23 +28,23 @@ const initialSlotProps = (changes = {}) => ({
 });
 
 describe('UserCalloutDismisser', () => {
-  let wrapper;
-
   const MOCK_FEATURE_NAME = 'mock_feature_name';
 
   // Query handlers
-  const successHandlerFactory = (dismissedCallouts = []) => async () =>
-    userCalloutsResponse(dismissedCallouts);
-  const anonUserHandler = async () => anonUserCalloutsResponse();
+  const successHandlerFactory =
+    (dismissedCallouts = []) =>
+    () =>
+      Promise.resolve(userCalloutsResponse(dismissedCallouts));
+  const anonUserHandler = () => Promise.resolve(anonUserCalloutsResponse());
   const errorHandler = () => Promise.reject(new Error('query error'));
   const pendingHandler = () => new Promise(() => {});
 
   // Mutation handlers
-  const mutationSuccessHandlerSpy = jest.fn(async (variables) =>
-    userCalloutMutationResponse(variables),
+  const mutationSuccessHandlerSpy = jest.fn((variables) =>
+    Promise.resolve(userCalloutMutationResponse(variables)),
   );
-  const mutationErrorHandlerSpy = jest.fn(async (variables) =>
-    userCalloutMutationResponse(variables, ['mutation error']),
+  const mutationErrorHandlerSpy = jest.fn((variables) =>
+    Promise.resolve(userCalloutMutationResponse(variables, ['mutation error'])),
   );
 
   const defaultScopedSlotSpy = jest.fn();
@@ -52,7 +52,7 @@ describe('UserCalloutDismisser', () => {
   const callDismissSlotProp = () => defaultScopedSlotSpy.mock.calls[0][0].dismiss();
 
   const createComponent = ({ queryHandler, mutationHandler, ...options }) => {
-    wrapper = mount(
+    mount(
       UserCalloutDismisser,
       merge(
         {
@@ -72,10 +72,6 @@ describe('UserCalloutDismisser', () => {
     );
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('when loading', () => {
     beforeEach(() => {
       createComponent({
@@ -84,7 +80,7 @@ describe('UserCalloutDismisser', () => {
     });
 
     it('passes expected slot props to child', () => {
-      expect(defaultScopedSlotSpy).lastCalledWith(initialSlotProps());
+      expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(initialSlotProps());
     });
   });
 
@@ -98,7 +94,7 @@ describe('UserCalloutDismisser', () => {
     });
 
     it('passes expected slot props to child', () => {
-      expect(defaultScopedSlotSpy).lastCalledWith(
+      expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
         initialSlotProps({
           isDismissed: true,
           isLoadingQuery: false,
@@ -117,7 +113,7 @@ describe('UserCalloutDismisser', () => {
     });
 
     it('passes expected slot props to child', () => {
-      expect(defaultScopedSlotSpy).lastCalledWith(
+      expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
         initialSlotProps({
           isLoadingQuery: false,
           shouldShowCallout: true,
@@ -136,7 +132,7 @@ describe('UserCalloutDismisser', () => {
     });
 
     it('passes expected slot props to child', () => {
-      expect(defaultScopedSlotSpy).lastCalledWith(
+      expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
         initialSlotProps({
           isLoadingQuery: false,
           queryError: expect.any(Error),
@@ -155,7 +151,7 @@ describe('UserCalloutDismisser', () => {
     });
 
     it('passes expected slot props to child', () => {
-      expect(defaultScopedSlotSpy).lastCalledWith(
+      expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
         initialSlotProps({
           isAnonUser: true,
           isLoadingQuery: false,
@@ -186,7 +182,7 @@ describe('UserCalloutDismisser', () => {
     });
 
     it('passes expected slot props to child', () => {
-      expect(defaultScopedSlotSpy).lastCalledWith(
+      expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
         initialSlotProps({
           isLoadingQuery: false,
           shouldShowCallout: true,
@@ -217,7 +213,7 @@ describe('UserCalloutDismisser', () => {
       });
 
       it('passes expected slot props to child', async () => {
-        expect(defaultScopedSlotSpy).lastCalledWith(
+        expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
           initialSlotProps({
             isLoadingQuery: false,
             shouldShowCallout: true,
@@ -229,7 +225,7 @@ describe('UserCalloutDismisser', () => {
         // Wait for Vue re-render due to prop change
         await nextTick();
 
-        expect(defaultScopedSlotSpy).lastCalledWith(
+        expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
           initialSlotProps({
             isDismissed: true,
             isLoadingMutation: true,
@@ -240,7 +236,7 @@ describe('UserCalloutDismisser', () => {
         // Wait for mutation to resolve
         await waitForPromises();
 
-        expect(defaultScopedSlotSpy).lastCalledWith(
+        expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
           initialSlotProps({
             isDismissed: true,
             isLoadingQuery: false,
@@ -270,7 +266,7 @@ describe('UserCalloutDismisser', () => {
       });
 
       it('passes expected slot props to child', async () => {
-        expect(defaultScopedSlotSpy).lastCalledWith(
+        expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
           initialSlotProps({
             isLoadingQuery: false,
             shouldShowCallout: true,
@@ -282,7 +278,7 @@ describe('UserCalloutDismisser', () => {
         // Wait for Vue re-render due to prop change
         await nextTick();
 
-        expect(defaultScopedSlotSpy).lastCalledWith(
+        expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
           initialSlotProps({
             isDismissed: true,
             isLoadingMutation: true,
@@ -293,7 +289,7 @@ describe('UserCalloutDismisser', () => {
         // Wait for mutation to resolve
         await waitForPromises();
 
-        expect(defaultScopedSlotSpy).lastCalledWith(
+        expect(defaultScopedSlotSpy).toHaveBeenLastCalledWith(
           initialSlotProps({
             isDismissed: true,
             isLoadingQuery: false,

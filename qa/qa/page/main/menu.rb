@@ -4,105 +4,91 @@ module QA
   module Page
     module Main
       class Menu < Page::Base
-        prepend Mobile::Page::Main::Menu if Runtime::Env.mobile_layout?
+        # We need to check phone_layout? instead of mobile_layout? here
+        # since tablets have the regular top navigation bar
+        include SubMenus::CreateNewMenu
+        include SubMenus::SuperSidebar::GlobalSearchModal
+        include SubMenus::Explore
+        include SubMenus::Help
 
-        view 'app/views/layouts/header/_current_user_dropdown.html.haml' do
-          element :sign_out_link
-          element :edit_profile_link
+        view 'app/assets/javascripts/super_sidebar/components/super_sidebar.vue' do
+          element 'super-sidebar', required: true
         end
 
-        view 'app/views/layouts/header/_default.html.haml' do
-          element :navbar, required: true
-          element :canary_badge_link
-          element :user_avatar, required: !QA::Runtime::Env.mobile_layout?
-          element :user_menu, required: !QA::Runtime::Env.mobile_layout?
-          element :stop_impersonation_link
-          element :issues_shortcut_button, required: !QA::Runtime::Env.mobile_layout?
-          element :merge_requests_shortcut_button, required: !QA::Runtime::Env.mobile_layout?
-          element :todos_shortcut_button, required: !QA::Runtime::Env.mobile_layout?
+        view 'app/assets/javascripts/super_sidebar/components/user_bar.vue' do
+          element 'canary-badge-link'
         end
 
-        view 'app/assets/javascripts/nav/components/top_nav_app.vue' do
-          element :navbar_dropdown
+        view 'app/assets/javascripts/super_sidebar/components/user_menu.vue' do
+          element 'user-dropdown', required: !Runtime::Env.phone_layout?
+          element 'user-avatar-content', required: !Runtime::Env.phone_layout?
+          element 'sign-out-link'
+          element 'edit-profile-link'
         end
 
-        view 'app/assets/javascripts/nav/components/top_nav_dropdown_menu.vue' do
-          element :menu_subview_container
+        view 'app/assets/javascripts/super_sidebar/components/user_menu_profile_item.vue' do
+          element 'user-profile-link'
+        end
+
+        view 'app/assets/javascripts/super_sidebar/components/user_bar.vue' do
+          element 'stop-impersonation-btn'
+          element 'issues-shortcut-button', required: !Runtime::Env.phone_layout?
+          element 'merge-requests-shortcut-button', required: !Runtime::Env.phone_layout?
+          element 'todos-shortcut-button', required: !Runtime::Env.phone_layout?
         end
 
         view 'lib/gitlab/nav/top_nav_menu_item.rb' do
-          element :menu_item_link
+          element 'menu-item-link'
         end
 
-        view 'app/helpers/nav/top_nav_helper.rb' do
-          element :admin_area_link
-          element :projects_dropdown
-          element :groups_dropdown
-          element :snippets_link
-        end
-
-        view 'app/views/layouts/_search.html.haml' do
-          element :search_term_field
-        end
-
-        def go_to_groups
-          within_groups_menu do
-            click_element(:menu_item_link, title: 'Your groups')
-          end
-        end
-
-        def go_to_create_group
-          within_groups_menu do
-            click_element(:menu_item_link, title: 'Create group')
-          end
+        view 'app/helpers/nav/new_dropdown_helper.rb' do
+          element 'global-new-group-link'
+          element 'global-new-project-link'
+          element 'global-new-snippet-link'
         end
 
         def go_to_projects
-          within_projects_menu do
-            click_element(:menu_item_link, title: 'Your projects')
-          end
+          click_element('nav-item-link', submenu_item: 'Projects')
         end
 
-        def go_to_create_project
-          within_projects_menu do
-            click_element(:menu_item_link, title: 'Create new project')
-          end
+        def go_to_groups
+          # This needs to be fixed in the tests themselves. Fullfillment tests try to go to groups view from the
+          # group. Instead of having a global hack, explicit test should navigate to correct view first.
+          # see: https://gitlab.com/gitlab-org/gitlab/-/issues/403589#note_1383040061
+          go_to_your_work unless has_element?('nav-item-link', submenu_item: 'Groups', wait: 0)
+          click_element('nav-item-link', submenu_item: 'Groups')
+        end
+
+        def go_to_snippets
+          click_element('nav-item-link', submenu_item: 'Snippets')
+        end
+
+        def go_to_workspaces
+          click_element('nav-item-link', submenu_item: 'Workspaces')
         end
 
         def go_to_menu_dropdown_option(option_name)
-          within_top_menu do
-            click_element(:navbar_dropdown, title: 'Menu')
-            click_element(option_name)
-          end
+          click_element(option_name)
         end
 
-        # To go to one of the popular pages using the provided shortcut buttons within top menu
-        # @param [Symbol] the name of the element (e.g: `:issues_shortcut button`)
-        # @example:
-        #   Menu.perform do |menu|
-        #     menu.go_to_page_by_shortcut(:issues_shortcut_button) #=> Go to Issues page using shortcut button
-        #   end
-        def go_to_page_by_shortcut(button)
-          within_top_menu do
-            click_element(button)
-          end
-        end
-
-        def go_to_admin_area
-          click_admin_area
-
-          return unless has_text?('Enter Admin Mode', wait: 1.0)
-
-          Admin::NewSession.perform do |new_session|
-            new_session.set_password(Runtime::User.admin_password)
-            new_session.click_enter_admin_mode
-          end
+        def go_to_todos
+          click_element('todos-shortcut-button')
         end
 
         def signed_in?
           return false if Page::Main::Login.perform(&:on_login_page?)
 
           has_personal_area?(wait: 0)
+        end
+
+        def signed_in_as_user?(user)
+          return false unless signed_in?
+
+          within_user_menu do
+            has_element?('user-profile-link', text: /#{user.username}/)
+          end
+          # we need to close user menu because plain user link check will leave it open
+          click_element 'user-avatar-content' if has_element?('user-profile-link', wait: 0)
         end
 
         def not_signed_in?
@@ -112,13 +98,15 @@ module QA
         end
 
         def sign_out
+          close_global_search_modal_if_shown
+
           retry_until do
             wait_if_retry_later
 
             break true unless signed_in?
 
             within_user_menu do
-              click_element :sign_out_link
+              click_element 'sign-out-link'
             end
 
             not_signed_in?
@@ -132,7 +120,7 @@ module QA
         def click_edit_profile_link
           retry_until(reload: false) do
             within_user_menu do
-              click_element(:edit_profile_link)
+              click_element('edit-profile-link')
             end
 
             has_text?('User Settings')
@@ -141,78 +129,40 @@ module QA
 
         def click_user_profile_link
           within_user_menu do
-            click_element(:user_profile_link)
+            click_element('user-profile-link')
           end
-        end
-
-        def search_for(term)
-          fill_element :search_term_field, "#{term}\n"
         end
 
         def has_personal_area?(wait: Capybara.default_max_wait_time)
-          has_element?(:user_avatar, wait: wait)
+          has_element?('user-avatar-content', wait: wait)
         end
 
         def has_no_personal_area?(wait: Capybara.default_max_wait_time)
-          has_no_element?(:user_avatar, wait: wait)
-        end
-
-        def has_admin_area_link?(wait: Capybara.default_max_wait_time)
-          within_top_menu do
-            click_element(:navbar_dropdown, title: 'Menu')
-            has_element?(:admin_area_link, wait: wait)
-          end
-        end
-
-        def has_no_admin_area_link?(wait: Capybara.default_max_wait_time)
-          within_top_menu do
-            click_element(:navbar_dropdown, title: 'Menu')
-            has_no_element?(:admin_area_link, wait: wait)
-          end
+          has_no_element?('user-avatar-content', wait: wait)
         end
 
         def click_stop_impersonation_link
-          click_element(:stop_impersonation_link)
+          click_element('stop-impersonation-btn')
         end
 
         # To verify whether the user has been directed to a canary web node
-        # @return [Boolean] result of checking existence of :canary_badge_link element
+        # @return [Boolean] result of checking existence of 'canary-badge-link' element
         # @example:
         #   Menu.perform do |menu|
         #     expect(menu.canary?).to be(true)
         #   end
         def canary?
-          has_element?(:canary_badge_link)
+          has_element?('canary-badge-link')
         end
 
         private
 
-        def within_top_menu(&block)
-          within_element(:navbar, &block)
-        end
-
         def within_user_menu(&block)
-          within_top_menu do
-            click_element :user_avatar
+          within_element('super-sidebar') do
+            click_element 'user-avatar-content' unless has_element?('user-profile-link', wait: 1)
 
-            within_element(:user_menu, &block)
+            within_element('user-dropdown', &block)
           end
-        end
-
-        def within_groups_menu(&block)
-          go_to_menu_dropdown_option(:groups_dropdown)
-
-          within_element(:menu_subview_container, &block)
-        end
-
-        def within_projects_menu(&block)
-          go_to_menu_dropdown_option(:projects_dropdown)
-
-          within_element(:menu_subview_container, &block)
-        end
-
-        def click_admin_area
-          go_to_menu_dropdown_option(:admin_area_link)
         end
       end
     end

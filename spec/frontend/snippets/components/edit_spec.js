@@ -1,31 +1,31 @@
-import { GlLoadingIcon } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
+import { GlFormGroup, GlLoadingIcon } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
 import { merge } from 'lodash';
 
 import VueApollo, { ApolloMutation } from 'vue-apollo';
 import { useFakeDate } from 'helpers/fake_date';
 import createMockApollo from 'helpers/mock_apollo_helper';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import waitForPromises from 'helpers/wait_for_promises';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import GetSnippetQuery from 'shared_queries/snippet/snippet.query.graphql';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import * as urlUtils from '~/lib/utils/url_utility';
 import SnippetEditApp from '~/snippets/components/edit.vue';
 import SnippetBlobActionsEdit from '~/snippets/components/snippet_blob_actions_edit.vue';
 import SnippetDescriptionEdit from '~/snippets/components/snippet_description_edit.vue';
 import SnippetVisibilityEdit from '~/snippets/components/snippet_visibility_edit.vue';
 import {
-  SNIPPET_VISIBILITY_PRIVATE,
-  SNIPPET_VISIBILITY_INTERNAL,
-  SNIPPET_VISIBILITY_PUBLIC,
-} from '~/snippets/constants';
-import CreateSnippetMutation from '~/snippets/mutations/createSnippet.mutation.graphql';
-import UpdateSnippetMutation from '~/snippets/mutations/updateSnippet.mutation.graphql';
+  VISIBILITY_LEVEL_PRIVATE_STRING,
+  VISIBILITY_LEVEL_INTERNAL_STRING,
+  VISIBILITY_LEVEL_PUBLIC_STRING,
+} from '~/visibility_level/constants';
+import CreateSnippetMutation from '~/snippets/mutations/create_snippet.mutation.graphql';
+import UpdateSnippetMutation from '~/snippets/mutations/update_snippet.mutation.graphql';
 import FormFooterActions from '~/vue_shared/components/form/form_footer_actions.vue';
-import TitleField from '~/vue_shared/components/form/title.vue';
 import { testEntries, createGQLSnippetsQueryResponse, createGQLSnippet } from '../test_utils';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 const TEST_UPLOADED_FILES = ['foo/bar.txt', 'alpha/beta.js'];
 const TEST_API_ERROR = new Error('TEST_API_ERROR');
@@ -41,7 +41,7 @@ const TEST_SNIPPET_GID = 'gid://gitlab/PersonalSnippet/42';
 const createSnippet = () =>
   merge(createGQLSnippet(), {
     webUrl: TEST_WEB_URL,
-    visibilityLevel: SNIPPET_VISIBILITY_PRIVATE,
+    visibilityLevel: VISIBILITY_LEVEL_PRIVATE_STRING,
   });
 
 const createQueryResponse = (obj = {}) =>
@@ -70,7 +70,7 @@ const getApiData = ({
   id,
   title = '',
   description = '',
-  visibilityLevel = SNIPPET_VISIBILITY_PRIVATE,
+  visibilityLevel = VISIBILITY_LEVEL_PRIVATE_STRING,
 } = {}) => ({
   id,
   title,
@@ -94,43 +94,38 @@ describe('Snippet Edit app', () => {
   let mutateSpy;
 
   const relativeUrlRoot = '/foo/';
-  const originalRelativeUrlRoot = gon.relative_url_root;
 
   beforeEach(() => {
+    stubPerformanceWebAPI();
+
     getSpy = jest.fn().mockResolvedValue(createQueryResponse());
 
     // See `mutateSpy` declaration comment for why we send a key
     mutateSpy = jest.fn().mockImplementation((key) => Promise.resolve(createMutationResponse(key)));
 
     gon.relative_url_root = relativeUrlRoot;
-    jest.spyOn(urlUtils, 'redirectTo').mockImplementation();
+    jest.spyOn(urlUtils, 'visitUrl').mockImplementation();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-    gon.relative_url_root = originalRelativeUrlRoot;
-  });
+  const findBlobActions = () => wrapper.findComponent(SnippetBlobActionsEdit);
+  const findCancelButton = () => wrapper.findByTestId('snippet-cancel-btn');
+  const clickSubmitBtn = () => wrapper.findByTestId('snippet-edit-form').trigger('submit');
 
-  const findBlobActions = () => wrapper.find(SnippetBlobActionsEdit);
-  const findSubmitButton = () => wrapper.find('[data-testid="snippet-submit-btn"]');
-  const findCancelButton = () => wrapper.find('[data-testid="snippet-cancel-btn"]');
-  const hasDisabledSubmit = () => Boolean(findSubmitButton().attributes('disabled'));
-  const clickSubmitBtn = () => wrapper.find('[data-testid="snippet-edit-form"]').trigger('submit');
   const triggerBlobActions = (actions) => findBlobActions().vm.$emit('actions', actions);
   const setUploadFilesHtml = (paths) => {
-    wrapper.vm.$el.innerHTML = paths
+    wrapper.element.innerHTML = paths
       .map((path) => `<input name="files[]" value="${path}">`)
       .join('');
   };
-  const setTitle = (val) => wrapper.find(TitleField).vm.$emit('input', val);
-  const setDescription = (val) => wrapper.find(SnippetDescriptionEdit).vm.$emit('input', val);
+  const setTitle = (val) =>
+    wrapper.findByTestId('snippet-title-input-field').vm.$emit('input', val);
+  const setDescription = (val) =>
+    wrapper.findComponent(SnippetDescriptionEdit).vm.$emit('input', val);
 
-  const createComponent = ({ props = {}, selectedLevel = SNIPPET_VISIBILITY_PRIVATE } = {}) => {
-    if (wrapper) {
-      throw new Error('wrapper already created');
-    }
-
+  const createComponent = ({
+    props = {},
+    selectedLevel = VISIBILITY_LEVEL_PRIVATE_STRING,
+  } = {}) => {
     const requestHandlers = [
       [GetSnippetQuery, getSpy],
       // See `mutateSpy` declaration comment for why we send a key
@@ -139,7 +134,7 @@ describe('Snippet Edit app', () => {
     ];
     const apolloProvider = createMockApollo(requestHandlers);
 
-    wrapper = shallowMount(SnippetEditApp, {
+    wrapper = shallowMountExtended(SnippetEditApp, {
       apolloProvider,
       stubs: {
         ApolloMutation,
@@ -177,7 +172,7 @@ describe('Snippet Edit app', () => {
     it('renders loader', () => {
       createComponent();
 
-      expect(wrapper.find(GlLoadingIcon).exists()).toBe(true);
+      expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
     });
   });
 
@@ -193,39 +188,48 @@ describe('Snippet Edit app', () => {
     });
 
     it('should render components', () => {
-      expect(wrapper.find(TitleField).exists()).toBe(true);
-      expect(wrapper.find(SnippetDescriptionEdit).exists()).toBe(true);
-      expect(wrapper.find(SnippetVisibilityEdit).exists()).toBe(true);
-      expect(wrapper.find(FormFooterActions).exists()).toBe(true);
+      expect(wrapper.findComponent(GlFormGroup).attributes('label')).toEqual('Title');
+      expect(wrapper.findComponent(SnippetDescriptionEdit).exists()).toBe(true);
+      expect(wrapper.findComponent(SnippetVisibilityEdit).exists()).toBe(true);
+      expect(wrapper.findComponent(FormFooterActions).exists()).toBe(true);
       expect(findBlobActions().exists()).toBe(true);
     });
 
     it('should hide loader', () => {
-      expect(wrapper.find(GlLoadingIcon).exists()).toBe(false);
+      expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(false);
     });
   });
 
   describe('default', () => {
     it.each`
-      title    | actions                                          | shouldDisable
-      ${''}    | ${[]}                                            | ${true}
-      ${''}    | ${[TEST_ACTIONS.VALID]}                          | ${true}
-      ${'foo'} | ${[]}                                            | ${false}
-      ${'foo'} | ${[TEST_ACTIONS.VALID]}                          | ${false}
-      ${'foo'} | ${[TEST_ACTIONS.VALID, TEST_ACTIONS.NO_CONTENT]} | ${true}
-      ${'foo'} | ${[TEST_ACTIONS.VALID, TEST_ACTIONS.NO_PATH]}    | ${false}
+      title    | actions                                          | titleHasErrors | blobActionsHasErrors
+      ${''}    | ${[]}                                            | ${true}        | ${false}
+      ${''}    | ${[TEST_ACTIONS.VALID]}                          | ${true}        | ${false}
+      ${'foo'} | ${[]}                                            | ${false}       | ${false}
+      ${'foo'} | ${[TEST_ACTIONS.VALID]}                          | ${false}       | ${false}
+      ${'foo'} | ${[TEST_ACTIONS.VALID, TEST_ACTIONS.NO_CONTENT]} | ${false}       | ${true}
+      ${'foo'} | ${[TEST_ACTIONS.VALID, TEST_ACTIONS.NO_PATH]}    | ${false}       | ${false}
     `(
-      'should handle submit disable (title="$title", actions="$actions", shouldDisable="$shouldDisable")',
-      async ({ title, actions, shouldDisable }) => {
+      'validates correctly (title="$title", actions="$actions", titleHasErrors="$titleHasErrors", blobActionsHasErrors="$blobActionsHasErrors")',
+      async ({ title, actions, titleHasErrors, blobActionsHasErrors }) => {
         getSpy.mockResolvedValue(createQueryResponse({ title }));
 
         await createComponentAndLoad();
 
         triggerBlobActions(actions);
 
+        clickSubmitBtn();
+
         await nextTick();
 
-        expect(hasDisabledSubmit()).toBe(shouldDisable);
+        expect(wrapper.findComponent(GlFormGroup).exists()).toBe(true);
+        expect(Boolean(wrapper.findComponent(GlFormGroup).attributes('state'))).toEqual(
+          !titleHasErrors,
+        );
+
+        expect(wrapper.findComponent(SnippetBlobActionsEdit).props('isValid')).toEqual(
+          !blobActionsHasErrors,
+        );
       },
     );
 
@@ -249,79 +253,134 @@ describe('Snippet Edit app', () => {
       },
     );
 
-    it.each([SNIPPET_VISIBILITY_PRIVATE, SNIPPET_VISIBILITY_INTERNAL, SNIPPET_VISIBILITY_PUBLIC])(
-      'marks %s visibility by default',
-      async (visibility) => {
-        createComponent({
-          props: { snippetGid: '' },
-          selectedLevel: visibility,
-        });
+    it.each([
+      VISIBILITY_LEVEL_PRIVATE_STRING,
+      VISIBILITY_LEVEL_INTERNAL_STRING,
+      VISIBILITY_LEVEL_PUBLIC_STRING,
+    ])('marks %s visibility by default', (visibility) => {
+      createComponent({
+        props: { snippetGid: '' },
+        selectedLevel: visibility,
+      });
 
-        expect(wrapper.find(SnippetVisibilityEdit).props('value')).toBe(visibility);
-      },
-    );
+      expect(wrapper.findComponent(SnippetVisibilityEdit).props('value')).toBe(visibility);
+    });
 
     describe('form submission handling', () => {
-      it.each`
-        snippetGid          | projectPath       | uploadedFiles          | input                                                                       | mutationType
-        ${''}               | ${'project/path'} | ${[]}                  | ${{ ...getApiData(), projectPath: 'project/path', uploadedFiles: [] }}      | ${'createSnippet'}
-        ${''}               | ${''}             | ${[]}                  | ${{ ...getApiData(), projectPath: '', uploadedFiles: [] }}                  | ${'createSnippet'}
-        ${''}               | ${''}             | ${TEST_UPLOADED_FILES} | ${{ ...getApiData(), projectPath: '', uploadedFiles: TEST_UPLOADED_FILES }} | ${'createSnippet'}
-        ${TEST_SNIPPET_GID} | ${'project/path'} | ${[]}                  | ${getApiData(createSnippet())}                                              | ${'updateSnippet'}
-        ${TEST_SNIPPET_GID} | ${''}             | ${[]}                  | ${getApiData(createSnippet())}                                              | ${'updateSnippet'}
-      `(
-        'should submit mutation $mutationType (snippetGid=$snippetGid, projectPath=$projectPath, uploadedFiles=$uploadedFiles)',
-        async ({ snippetGid, projectPath, uploadedFiles, mutationType, input }) => {
-          await createComponentAndLoad({
-            props: {
-              snippetGid,
-              projectPath,
-            },
-          });
+      describe('when creating a new snippet', () => {
+        it.each`
+          projectPath       | uploadedFiles          | input
+          ${''}             | ${TEST_UPLOADED_FILES} | ${{ ...getApiData({ title: 'Title' }), projectPath: '', uploadedFiles: TEST_UPLOADED_FILES }}
+          ${'project/path'} | ${TEST_UPLOADED_FILES} | ${{ ...getApiData({ title: 'Title' }), projectPath: 'project/path', uploadedFiles: TEST_UPLOADED_FILES }}
+        `(
+          'should submit a createSnippet mutation (projectPath=$projectPath, uploadedFiles=$uploadedFiles)',
+          async ({ projectPath, uploadedFiles, input }) => {
+            await createComponentAndLoad({
+              props: {
+                snippetGid: '',
+                projectPath,
+              },
+            });
 
-          setUploadFilesHtml(uploadedFiles);
+            setTitle(input.title);
+            setUploadFilesHtml(uploadedFiles);
 
-          await nextTick();
+            await nextTick();
 
-          clickSubmitBtn();
+            clickSubmitBtn();
 
-          expect(mutateSpy).toHaveBeenCalledTimes(1);
-          expect(mutateSpy).toHaveBeenCalledWith(mutationType, {
-            input,
-          });
-        },
-      );
+            expect(mutateSpy).toHaveBeenCalledTimes(1);
+            expect(mutateSpy).toHaveBeenCalledWith('createSnippet', {
+              input,
+            });
+          },
+        );
+      });
+
+      describe('when updating a snippet', () => {
+        it.each`
+          projectPath       | uploadedFiles | input
+          ${''}             | ${[]}         | ${getApiData(createSnippet())}
+          ${'project/path'} | ${[]}         | ${getApiData(createSnippet())}
+        `(
+          'should submit an updateSnippet mutation (projectPath=$projectPath, uploadedFiles=$uploadedFiles)',
+          async ({ projectPath, uploadedFiles, input }) => {
+            await createComponentAndLoad({
+              props: {
+                snippetGid: TEST_SNIPPET_GID,
+                projectPath,
+              },
+            });
+
+            setUploadFilesHtml(uploadedFiles);
+
+            await nextTick();
+
+            clickSubmitBtn();
+
+            expect(mutateSpy).toHaveBeenCalledTimes(1);
+            expect(mutateSpy).toHaveBeenCalledWith('updateSnippet', {
+              input,
+            });
+          },
+        );
+      });
 
       it('should redirect to snippet view on successful mutation', async () => {
         await createComponentAndSubmit();
 
-        expect(urlUtils.redirectTo).toHaveBeenCalledWith(TEST_WEB_URL);
+        expect(urlUtils.visitUrl).toHaveBeenCalledWith(TEST_WEB_URL);
       });
 
-      it.each`
-        snippetGid          | projectPath       | mutationRes                                          | expectMessage
-        ${''}               | ${'project/path'} | ${createMutationResponseWithErrors('createSnippet')} | ${`Can't create snippet: ${TEST_MUTATION_ERROR}`}
-        ${''}               | ${''}             | ${createMutationResponseWithErrors('createSnippet')} | ${`Can't create snippet: ${TEST_MUTATION_ERROR}`}
-        ${TEST_SNIPPET_GID} | ${'project/path'} | ${createMutationResponseWithErrors('updateSnippet')} | ${`Can't update snippet: ${TEST_MUTATION_ERROR}`}
-        ${TEST_SNIPPET_GID} | ${''}             | ${createMutationResponseWithErrors('updateSnippet')} | ${`Can't update snippet: ${TEST_MUTATION_ERROR}`}
-      `(
-        'should flash error with (snippet=$snippetGid, projectPath=$projectPath)',
-        async ({ snippetGid, projectPath, mutationRes, expectMessage }) => {
-          mutateSpy.mockResolvedValue(mutationRes);
+      describe('when there are errors after creating a new snippet', () => {
+        it.each`
+          projectPath
+          ${'project/path'}
+          ${''}
+        `('should alert error (projectPath=$projectPath)', async ({ projectPath }) => {
+          mutateSpy.mockResolvedValue(createMutationResponseWithErrors('createSnippet'));
 
-          await createComponentAndSubmit({
-            props: {
-              projectPath,
-              snippetGid,
-            },
+          await createComponentAndLoad({
+            props: { projectPath, snippetGid: '' },
           });
 
-          expect(urlUtils.redirectTo).not.toHaveBeenCalled();
-          expect(createFlash).toHaveBeenCalledWith({
-            message: expectMessage,
+          setTitle('Title');
+
+          clickSubmitBtn();
+
+          await waitForPromises();
+
+          expect(urlUtils.visitUrl).not.toHaveBeenCalled();
+          expect(createAlert).toHaveBeenCalledWith({
+            message: `Can't create snippet: ${TEST_MUTATION_ERROR}`,
           });
-        },
-      );
+        });
+      });
+
+      describe('when there are errors after updating a snippet', () => {
+        it.each`
+          projectPath
+          ${'project/path'}
+          ${''}
+        `(
+          'should alert error with (snippet=$snippetGid, projectPath=$projectPath)',
+          async ({ projectPath }) => {
+            mutateSpy.mockResolvedValue(createMutationResponseWithErrors('updateSnippet'));
+
+            await createComponentAndSubmit({
+              props: {
+                projectPath,
+                snippetGid: TEST_SNIPPET_GID,
+              },
+            });
+
+            expect(urlUtils.visitUrl).not.toHaveBeenCalled();
+            expect(createAlert).toHaveBeenCalledWith({
+              message: `Can't update snippet: ${TEST_MUTATION_ERROR}`,
+            });
+          },
+        );
+      });
 
       describe('with apollo network error', () => {
         beforeEach(async () => {
@@ -333,12 +392,12 @@ describe('Snippet Edit app', () => {
         });
 
         it('should not redirect', () => {
-          expect(urlUtils.redirectTo).not.toHaveBeenCalled();
+          expect(urlUtils.visitUrl).not.toHaveBeenCalled();
         });
 
-        it('should flash', () => {
+        it('should alert', () => {
           // Apollo automatically wraps the resolver's error in a NetworkError
-          expect(createFlash).toHaveBeenCalledWith({
+          expect(createAlert).toHaveBeenCalledWith({
             message: `Can't update snippet: ${TEST_API_ERROR.message}`,
           });
         });
@@ -382,6 +441,7 @@ describe('Snippet Edit app', () => {
         false,
         () => {
           triggerBlobActions([testEntries.updated.diff]);
+          setTitle('test');
           clickSubmitBtn();
         },
       ],

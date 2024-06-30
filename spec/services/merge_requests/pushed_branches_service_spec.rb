@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::PushedBranchesService do
+RSpec.describe MergeRequests::PushedBranchesService, feature_category: :source_code_management do
   let(:project) { create(:project) }
   let!(:service) { described_class.new(project: project, current_user: nil, params: { changes: pushed_branches }) }
 
   context 'when branches pushed' do
     let(:pushed_branches) do
-      %w(branch1 branch2 closed-branch1 closed-branch2 extra1 extra2).map do |branch|
+      %w[branch1 branch2 closed-branch1 closed-branch2 extra1 extra2].map do |branch|
         { ref: "refs/heads/#{branch}" }
       end
     end
@@ -31,17 +31,17 @@ RSpec.describe MergeRequests::PushedBranchesService do
 
   context 'when tags pushed' do
     let(:pushed_branches) do
-      %w(v10.0.0 v11.0.2 v12.1.0).map do |branch|
+      %w[v10.0.0 v11.0.2 v12.1.0].map do |branch|
         { ref: "refs/tags/#{branch}" }
       end
     end
 
     it 'returns empty result without any SQL query performed' do
-      control_count = ActiveRecord::QueryRecorder.new do
+      control = ActiveRecord::QueryRecorder.new do
         expect(service.execute).to be_empty
-      end.count
+      end
 
-      expect(control_count).to be_zero
+      expect(control.count).to be_zero
     end
   end
 end

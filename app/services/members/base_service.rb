@@ -53,6 +53,10 @@ module Members
       end
     end
 
+    def resolve_access_request_todos(member)
+      todo_service.resolve_access_request_todos(member)
+    end
+
     def enqueue_delete_todos(member)
       type = member.is_a?(GroupMember) ? 'Group' : 'Project'
       # don't enqueue immediately to prevent todos removal in case of a mistake
@@ -60,5 +64,18 @@ module Members
         TodosDestroyer::EntityLeaveWorker.perform_in(Todo::WAIT_FOR_DELETE, member.user_id, member.source_id, type)
       end
     end
+
+    def cannot_assign_owner_responsibilities_to_member_in_project?(member)
+      # The purpose of this check is -
+      # We can have direct members who are "Owners" in a project going forward and
+      # we do not want Maintainers of the project updating/adding/removing other "Owners"
+      # within the project.
+      # Only OWNERs in a project should be able to manage any action around OWNERship in that project.
+      member.is_a?(ProjectMember) &&
+        !can?(current_user, :manage_owners, member.source)
+    end
+
+    alias_method :cannot_revoke_owner_responsibilities_from_member_in_project?,
+      :cannot_assign_owner_responsibilities_to_member_in_project?
   end
 end

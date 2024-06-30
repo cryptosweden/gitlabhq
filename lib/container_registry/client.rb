@@ -5,17 +5,21 @@ module ContainerRegistry
     include Gitlab::Utils::StrongMemoize
 
     attr_accessor :uri
+    attr_reader :options, :base_uri
 
     REGISTRY_VERSION_HEADER = 'gitlab-container-registry-version'
     REGISTRY_FEATURES_HEADER = 'gitlab-container-registry-features'
     REGISTRY_TAG_DELETE_FEATURE = 'tag_delete'
+    REGISTRY_DB_ENABLED_HEADER = 'gitlab-container-registry-database-enabled'
+
+    DEFAULT_TAGS_PAGE_SIZE = 10000
 
     ALLOWED_REDIRECT_SCHEMES = %w[http https].freeze
     REDIRECT_OPTIONS = {
       clear_authorization_header: true,
       limit: 3,
       cookies: [],
-      callback: -> (response_env, request_env) do
+      callback: ->(response_env, request_env) do
         request_env.request_headers.delete(::FaradayMiddleware::FollowRedirects::AUTH_HEADER)
 
         redirect_to = request_env.url
@@ -44,16 +48,25 @@ module ContainerRegistry
 
       version = response.headers[REGISTRY_VERSION_HEADER]
       features = response.headers.fetch(REGISTRY_FEATURES_HEADER, '')
+      db_enabled = response.headers.fetch(REGISTRY_DB_ENABLED_HEADER, '')
 
       {
         version: version,
         features: features.split(',').map(&:strip),
-        vendor: version ? 'gitlab' : 'other'
+        vendor: version ? 'gitlab' : 'other',
+        db_enabled: ::Gitlab::Utils.to_boolean(db_enabled, default: false)
       }
     end
 
-    def repository_tags(name)
-      response_body faraday.get("/v2/#{name}/tags/list")
+    def connected?
+      !registry_info.empty?
+    end
+
+    def repository_tags(name, page_size: DEFAULT_TAGS_PAGE_SIZE)
+      response = faraday.get("/v2/#{name}/tags/list") do |req|
+        req.params['n'] = page_size
+      end
+      response_body(response)
     end
 
     def repository_manifest(name, reference)
@@ -69,22 +82,18 @@ module ContainerRegistry
       delete_if_exists("/v2/#{name}/manifests/#{reference}")
     end
 
-    def delete_repository_tag_by_name(name, reference)
-      delete_if_exists("/v2/#{name}/tags/reference/#{reference}")
-    end
-
     # Check if the registry supports tag deletion. This is only supported by the
     # GitLab registry fork. The fastest and safest way to check this is to send
-    # an OPTIONS request to /v2/<name>/tags/reference/<tag>, using a random
+    # an OPTIONS request to /v2/<name>/manifests/<tag>, using a random
     # repository name and tag (the registry won't check if they exist).
     # Registries that support tag deletion will reply with a 200 OK and include
     # the DELETE method in the Allow header. Others reply with an 404 Not Found.
     def supports_tag_delete?
       strong_memoize(:supports_tag_delete) do
         registry_features = Gitlab::CurrentSettings.container_registry_features || []
-        next true if ::Gitlab.com? && registry_features.include?(REGISTRY_TAG_DELETE_FEATURE)
+        next true if ::Gitlab.com_except_jh? && registry_features.include?(REGISTRY_TAG_DELETE_FEATURE)
 
-        response = faraday.run_request(:options, '/v2/name/tags/reference/tag', '', {})
+        response = faraday.run_request(:options, '/v2/name/manifests/tag', '', {})
         response.success? && response.headers['allow']&.include?('DELETE')
       end
     end
@@ -130,7 +139,7 @@ module ContainerRegistry
 
     def blob(name, digest, type = nil)
       type ||= 'application/octet-stream'
-      response_body faraday_blob.get("/v2/#{name}/blobs/#{digest}", nil, 'Accept' => type), allow_redirect: true
+      response_body faraday_blob.get("/v2/#{name}/blobs/#{digest}", nil, 'Accept' => type)
     end
 
     def delete_blob(name, digest)
@@ -152,9 +161,7 @@ module ContainerRegistry
       @faraday_blob ||= faraday_base do |conn|
         initialize_connection(conn, @options)
 
-        if Feature.enabled?(:container_registry_follow_redirects_middleware, default_enabled: :yaml)
-          conn.use ::FaradayMiddleware::FollowRedirects, REDIRECT_OPTIONS
-        end
+        conn.use ::FaradayMiddleware::FollowRedirects, REDIRECT_OPTIONS
       end
     end
   end

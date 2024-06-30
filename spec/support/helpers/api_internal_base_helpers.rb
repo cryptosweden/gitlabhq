@@ -1,6 +1,10 @@
 # frozen_string_literal: true
 
+require_relative 'gitlab_shell_helpers'
+
 module APIInternalBaseHelpers
+  include GitlabShellHelpers
+
   def gl_repository_for(container)
     case container
     when ProjectWiki
@@ -9,8 +13,6 @@ module APIInternalBaseHelpers
       Gitlab::GlRepository::PROJECT.identifier_for_container(container)
     when Snippet
       Gitlab::GlRepository::SNIPPET.identifier_for_container(container)
-    else
-      nil
     end
   end
 
@@ -33,22 +35,25 @@ module APIInternalBaseHelpers
         project: full_path_for(container),
         gl_repository: gl_repository_for(container),
         action: 'git-upload-pack',
-        secret_token: secret_token,
         protocol: protocol
-      }
+      },
+      headers: gitlab_shell_internal_api_request_header
     )
   end
 
   def push(key, container, protocol = 'ssh', env: nil, changes: nil)
-    push_with_path(key,
-                   full_path: full_path_for(container),
-                   gl_repository: gl_repository_for(container),
-                   protocol: protocol,
-                   env: env,
-                   changes: changes)
+    push_with_path(
+      key,
+      full_path: full_path_for(container),
+      gl_repository: gl_repository_for(container),
+      protocol: protocol,
+      env: env,
+      changes: changes,
+      relative_path: container.repository.relative_path
+    )
   end
 
-  def push_with_path(key, full_path:, gl_repository: nil, protocol: 'ssh', env: nil, changes: nil)
+  def push_with_path(key, full_path:, gl_repository: nil, protocol: 'ssh', env: nil, changes: nil, relative_path: nil)
     changes ||= 'd14d6c0abdd253381df51a723d58691b2ee1ab08 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/master'
 
     params = {
@@ -56,15 +61,16 @@ module APIInternalBaseHelpers
       key_id: key.id,
       project: full_path,
       action: 'git-receive-pack',
-      secret_token: secret_token,
       protocol: protocol,
-      env: env
+      env: env,
+      relative_path: relative_path
     }
     params[:gl_repository] = gl_repository if gl_repository
 
     post(
       api("/internal/allowed"),
-      params: params
+      params: params,
+      headers: gitlab_shell_internal_api_request_header
     )
   end
 
@@ -77,9 +83,9 @@ module APIInternalBaseHelpers
         project: full_path_for(container),
         gl_repository: gl_repository_for(container),
         action: 'git-upload-archive',
-        secret_token: secret_token,
         protocol: 'ssh'
-      }
+      },
+      headers: gitlab_shell_internal_api_request_header
     )
   end
 end

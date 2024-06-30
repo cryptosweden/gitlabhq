@@ -47,7 +47,7 @@ RSpec.describe 'admin/application_settings/_package_registry' do
     it 'does not display the plan name when there is only one plan' do
       subject
 
-      expect(page).not_to have_content('Default')
+      expect(page).not_to have_selector('a[data-action="plan0"]')
     end
   end
 
@@ -64,6 +64,25 @@ RSpec.describe 'admin/application_settings/_package_registry' do
 
       expect(page).to have_content('Default')
       expect(page).to have_content('Ultimate')
+    end
+  end
+
+  context 'skip nuget package metadata url validation' do
+    before do
+      assign(:plans, [default_plan_limits.plan])
+    end
+
+    it 'renders nothing when saas', :saas do
+      subject
+
+      expect(rendered).not_to have_field(s_('PackageRegistry|Skip metadata URL validation for the NuGet package'), type: 'checkbox')
+    end
+
+    it 'renders the setting checkbox when self-managed' do
+      subject
+
+      expect(rendered).to have_field(s_('PackageRegistry|Skip metadata URL validation for the NuGet package'), type: 'checkbox')
+      expect(page.find_field(s_('PackageRegistry|Skip metadata URL validation for the NuGet package'))).not_to be_checked
     end
   end
 end

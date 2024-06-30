@@ -18,17 +18,14 @@ export default {
   <div class="context-header ide-context-header">
     <a :href="project.web_url" :title="s__('IDE|Go to project')" data-testid="go-to-project-link">
       <project-avatar
+        :project-id="project.id"
         :project-name="project.name"
         :project-avatar-url="project.avatar_url"
         :size="48"
       />
       <span class="ide-sidebar-project-title">
         <span class="sidebar-context-title"> {{ project.name }} </span>
-        <span
-          class="sidebar-context-title text-secondary"
-          data-qa-selector="project_path_content"
-          :data-qa-project-path="project.path_with_namespace"
-        >
+        <span class="sidebar-context-title text-secondary">
           {{ project.path_with_namespace }}
         </span>
       </span>

@@ -13,7 +13,10 @@ module Banzai
       #   :only_path          - Generate path-only links.
       class ReferenceFilter < HTML::Pipeline::Filter
         include RequestStoreReferenceCache
-        include OutputSafety
+        include Concerns::OutputSafety
+        prepend Concerns::PipelineTimingCheck
+
+        REFERENCE_TYPE_DATA_ATTRIBUTE = 'data-reference-type='
 
         class << self
           # Implement in child class
@@ -52,7 +55,7 @@ module Banzai
               yield_valid_link(node) do |link, inner_html|
                 if link =~ ref_pattern_start
                   replace_link_node_with_href(node, index, link) do
-                    object_link_filter(link, object_reference_pattern, link_content: inner_html)
+                    object_link_filter(link, ref_pattern_start, link_content: inner_html)
                   end
                 end
               end
@@ -132,19 +135,26 @@ module Banzai
         def data_attribute(attributes = {})
           attributes = attributes.reject { |_, v| v.nil? }
 
-          attributes[:reference_type] ||= self.class.reference_type
+          # "data-reference-type=" attribute got moved into a constant because we need
+          # to use it on ReferenceRewriter class to detect if the markdown contains any reference
+          reference_type_attribute = "#{REFERENCE_TYPE_DATA_ATTRIBUTE}#{escape_once(self.class.reference_type)} "
+
           attributes[:container] ||= 'body'
           attributes[:placement] ||= 'top'
           attributes.delete(:original) if context[:no_original_data]
+
           attributes.map do |key, value|
-            %Q(data-#{key.to_s.dasherize}="#{escape_once(value)}")
-          end.join(' ')
+            %(data-#{key.to_s.dasherize}="#{escape_once(value)}")
+          end
+            .join(' ')
+            .prepend(reference_type_attribute)
         end
 
         def ignore_ancestor_query
           @ignore_ancestor_query ||= begin
-            parents = %w(pre code a style)
+            parents = %w[pre code a style]
             parents << 'blockquote' if context[:ignore_blockquotes]
+            parents << 'span[contains(concat(" ", @class, " "), " idiff ")]'
 
             parents.map { |n| "ancestor::#{n}" }.join(' or ')
           end
@@ -198,7 +208,8 @@ module Banzai
         end
 
         def replace_text_when_pattern_matches(node, index, pattern)
-          return unless node.text =~ pattern
+          return if pattern.is_a?(Gitlab::UntrustedRegexp) && !pattern.match?(node.text)
+          return if pattern.is_a?(Regexp) && !(pattern =~ node.text)
 
           content = node.to_html
           html = yield content
@@ -243,7 +254,7 @@ module Banzai
         end
 
         def query
-          @query ||= %Q{descendant-or-self::text()[not(#{ignore_ancestor_query})]
+          @query ||= %{descendant-or-self::text()[not(#{ignore_ancestor_query})]
           | descendant-or-self::a[
             not(contains(concat(" ", @class, " "), " gfm ")) and not(@href = "")
           ]}

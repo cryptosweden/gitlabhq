@@ -19,29 +19,13 @@ RSpec.shared_examples 'reviewer_ids filter' do
       let(:reviewer2) { create(:user) }
 
       context 'when the current user can admin the merge_request' do
-        context 'when merge_request_reviewer feature is enabled' do
+        context 'with a reviewer who can read the merge_request' do
           before do
-            stub_feature_flags(merge_request_reviewer: true)
+            project.add_developer(reviewer1)
           end
 
-          context 'with a reviewer who can read the merge_request' do
-            before do
-              project.add_developer(reviewer1)
-            end
-
-            it 'contains reviewers who can read the merge_request' do
-              expect(execute.reviewers).to contain_exactly(reviewer1)
-            end
-          end
-        end
-
-        context 'when merge_request_reviewer feature is disabled' do
-          before do
-            stub_feature_flags(merge_request_reviewer: false)
-          end
-
-          it 'contains no reviewers' do
-            expect(execute.reviewers).to eq []
+          it 'contains reviewers who can read the merge_request' do
+            expect(execute.reviewers).to contain_exactly(reviewer1)
           end
         end
       end
@@ -123,7 +107,7 @@ end
 
 RSpec.shared_examples 'with an existing branch that has a merge request open' do |count|
   let(:changes) { existing_branch_changes }
-  let!(:merge_request) { create(:merge_request, source_project: project, source_branch: source_branch)}
+  let!(:merge_request) { create(:merge_request, source_project: project, source_branch: source_branch) }
 
   it_behaves_like 'a service that does not create a merge request'
   it_behaves_like 'a service that can change assignees of a merge request', count

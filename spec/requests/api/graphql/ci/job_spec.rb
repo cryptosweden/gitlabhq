@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query.project(fullPath).pipelines.job(id)' do
+RSpec.describe 'Query.project(fullPath).pipelines.job(id)', feature_category: :continuous_integration do
   include GraphqlHelpers
 
   around do |example|
@@ -13,8 +13,8 @@ RSpec.describe 'Query.project(fullPath).pipelines.job(id)' do
   let_it_be(:project) { create(:project, :repository, :public) }
   let_it_be(:pipeline) { create(:ci_pipeline, project: project) }
 
-  let_it_be(:prepare_stage) { create(:ci_stage_entity, pipeline: pipeline, project: project, name: 'prepare') }
-  let_it_be(:test_stage) { create(:ci_stage_entity, pipeline: pipeline, project: project, name: 'test') }
+  let_it_be(:prepare_stage) { create(:ci_stage, pipeline: pipeline, project: project, name: 'prepare') }
+  let_it_be(:test_stage) { create(:ci_stage, pipeline: pipeline, project: project, name: 'test') }
 
   let_it_be(:job_1) { create(:ci_build, pipeline: pipeline, stage: 'prepare', name: 'Job 1') }
   let_it_be(:job_2) { create(:ci_build, pipeline: pipeline, stage: 'test', name: 'Job 2') }
@@ -47,13 +47,13 @@ RSpec.describe 'Query.project(fullPath).pipelines.job(id)' do
       )
       post_graphql(query, current_user: user)
 
-      expect(graphql_data_at(*path)).to match a_hash_including(
-        'id' => global_id_of(job_2),
-        'name' => job_2.name,
-        'allowFailure' => job_2.allow_failure,
+      expect(graphql_data_at(*path)).to match a_graphql_entity_for(
+        job_2, :name, :allow_failure,
         'duration' => 25,
+        'kind' => 'BUILD',
         'queuedDuration' => 2.0,
-        'status' => job_2.status.upcase
+        'status' => job_2.status.upcase,
+        'failureMessage' => job_2.present.failure_message
       )
     end
 
@@ -65,10 +65,7 @@ RSpec.describe 'Query.project(fullPath).pipelines.job(id)' do
       it 'retrieves scalar fields' do
         post_graphql(query, current_user: user)
 
-        expect(graphql_data_at(*path)).to match a_hash_including(
-          'id' => global_id_of(job_2),
-          'name' => job_2.name
-        )
+        expect(graphql_data_at(*path)).to match a_graphql_entity_for(job_2, :name)
       end
     end
   end
@@ -82,7 +79,7 @@ RSpec.describe 'Query.project(fullPath).pipelines.job(id)' do
       post_graphql(query, current_user: user)
 
       expect(graphql_data_at(*path)).to match a_hash_including(
-        'text' => 'pending',
+        'text' => 'Pending',
         'label' => 'pending',
         'action' => a_hash_including('buttonTitle' => 'Cancel this job', 'icon' => 'cancel')
       )
@@ -101,8 +98,8 @@ RSpec.describe 'Query.project(fullPath).pipelines.job(id)' do
         'name' => test_stage.name,
         'jobs' => a_hash_including(
           'nodes' => contain_exactly(
-            a_hash_including('id' => global_id_of(job_2)),
-            a_hash_including('id' => global_id_of(job_3))
+            a_graphql_entity_for(job_2),
+            a_graphql_entity_for(job_3)
           )
         )
       )

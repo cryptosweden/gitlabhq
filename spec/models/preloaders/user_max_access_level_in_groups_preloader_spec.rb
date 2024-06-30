@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Preloaders::UserMaxAccessLevelInGroupsPreloader do
+RSpec.describe Preloaders::UserMaxAccessLevelInGroupsPreloader, feature_category: :system_access do
   let_it_be(:user) { create(:user) }
-  let_it_be(:group1) { create(:group, :private).tap { |g| g.add_developer(user) } }
-  let_it_be(:group2) { create(:group, :private).tap { |g| g.add_developer(user) } }
+  let_it_be(:group1) { create(:group, :private, developers: user) }
+  let_it_be(:group2) { create(:group, :private, developers: user) }
   let_it_be(:group3) { create(:group, :private) }
 
   let(:max_query_regex) { /SELECT MAX\("members"\."access_level"\).+/ }
@@ -29,31 +29,37 @@ RSpec.describe Preloaders::UserMaxAccessLevelInGroupsPreloader do
 
   context 'when the preloader is used', :request_store do
     context 'when user has indirect access to groups' do
-      let_it_be(:child_maintainer) { create(:group, :private, parent: group1).tap {|g| g.add_maintainer(user)} }
+      let_it_be(:child_maintainer) { create(:group, :private, parent: group1, maintainers: user) }
       let_it_be(:child_indirect_access) { create(:group, :private, parent: group1) }
 
       let(:groups) { [group1, group2, group3, child_maintainer, child_indirect_access] }
 
-      context 'when traversal_ids feature flag is disabled' do
-        it_behaves_like 'executes N max member permission queries to the DB' do
-          before do
-            stub_feature_flags(use_traversal_ids: false)
-            described_class.new(groups, user).execute
-          end
-
-          # One query for group with no access and another one per group where the user is not a direct member
-          let(:expected_query_count) { 2 }
+      it_behaves_like 'executes N max member permission queries to the DB' do
+        before do
+          described_class.new(groups, user).execute
         end
+
+        let(:expected_query_count) { 0 }
       end
 
-      context 'when traversal_ids feature flag is enabled' do
-        it_behaves_like 'executes N max member permission queries to the DB' do
-          before do
-            stub_feature_flags(use_traversal_ids: true)
-            described_class.new(groups, user).execute
-          end
+      context 'for groups arising from group shares' do
+        let_it_be(:group4) { create(:group, :private) }
+        let_it_be(:group4_subgroup) { create(:group, :private, parent: group4) }
 
-          let(:expected_query_count) { 0 }
+        let(:groups) { [group4, group4_subgroup] }
+
+        before do
+          create(:group_group_link, :guest, shared_with_group: group1, shared_group: group4)
+        end
+
+        it 'sets the right access level in cache for groups arising from group shares' do
+          described_class.new(groups, user).execute
+
+          groups.each do |group|
+            cached_access_level = group.max_member_access_for_user(user)
+
+            expect(cached_access_level).to eq(Gitlab::Access::GUEST)
+          end
         end
       end
     end

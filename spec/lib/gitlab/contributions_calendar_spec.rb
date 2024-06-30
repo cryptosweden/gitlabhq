@@ -2,26 +2,26 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::ContributionsCalendar do
-  let(:contributor) { create(:user) }
-  let(:user) { create(:user) }
+RSpec.describe Gitlab::ContributionsCalendar, feature_category: :user_profile do
+  let_it_be_with_reload(:contributor) { create(:user) }
+  let_it_be_with_reload(:user) { create(:user) }
   let(:travel_time) { nil }
 
-  let(:private_project) do
+  let_it_be_with_reload(:private_project) do
     create(:project, :private) do |project|
       create(:project_member, user: contributor, project: project)
     end
   end
 
-  let(:public_project) do
+  let_it_be(:public_project) do
     create(:project, :public, :repository) do |project|
       create(:project_member, user: contributor, project: project)
     end
   end
 
-  let(:feature_project) do
+  let_it_be(:public_project_with_private_issues) do
     create(:project, :public, :issues_private) do |project|
-      create(:project_member, user: contributor, project: project).project
+      create(:project_member, user: contributor, project: project)
     end
   end
 
@@ -30,6 +30,7 @@ RSpec.describe Gitlab::ContributionsCalendar do
   let(:tomorrow)  { today + 1.day }
   let(:last_week) { today - 7.days }
   let(:last_year) { today - 1.year }
+  let(:targets) { {} }
 
   before do
     travel_to travel_time || Time.now.utc.end_of_day
@@ -44,26 +45,33 @@ RSpec.describe Gitlab::ContributionsCalendar do
   end
 
   def create_event(project, day, hour = 0, action = :created, target_symbol = :issue)
-    @targets ||= {}
-    @targets[project] ||= create(target_symbol, project: project, author: contributor)
+    targets[project] ||=
+      if target_symbol == :merge_request
+        create(:merge_request, source_project: project, author: contributor)
+      else
+        create(target_symbol, project: project, author: contributor)
+      end
 
     Event.create!(
       project: project,
       action: action,
-      target_type: @targets[project].class.name,
-      target_id: @targets[project].id,
+      target_type: targets[project].class.name,
+      target_id: targets[project].id,
       author: contributor,
       created_at: DateTime.new(day.year, day.month, day.day, hour)
     )
   end
 
-  describe '#activity_dates' do
-    it "returns a hash of date => count" do
+  describe '#activity_dates', :aggregate_failures do
+    it 'returns a hash of date => count' do
       create_event(public_project, last_week)
       create_event(public_project, last_week)
       create_event(public_project, today)
+      work_item_event = create_event(private_project, today, 0, :created, :work_item)
 
-      expect(calendar.activity_dates).to eq(last_week => 2, today => 1)
+      # make sure the target is a work item as we want to include those in the count
+      expect(work_item_event.target_type).to eq('WorkItem')
+      expect(calendar(contributor).activity_dates).to eq(last_week => 2, today => 2)
     end
 
     context "when the user has opted-in for private contributions" do
@@ -109,6 +117,15 @@ RSpec.describe Gitlab::ContributionsCalendar do
       create_event(public_project, today, 2, :commented, :discussion_note_on_issue)
 
       expect(calendar(contributor).activity_dates[today]).to eq(2)
+    end
+
+    it "counts merge request events" do
+      create_event(public_project, today, 0, :created, :merge_request)
+      create_event(public_project, today, 1, :closed, :merge_request)
+      create_event(public_project, today, 2, :approved, :merge_request)
+      create_event(public_project, today, 3, :merged, :merge_request)
+
+      expect(calendar(contributor).activity_dates[today]).to eq(4)
     end
 
     context "when events fall under different dates depending on the system time zone" do
@@ -176,18 +193,20 @@ RSpec.describe Gitlab::ContributionsCalendar do
     it "returns all events for a given date" do
       e1 = create_event(public_project, today)
       e2 = create_event(public_project, today)
+      e3 = create_event(private_project, today, 0, :created, :work_item)
       create_event(public_project, last_week)
 
-      expect(calendar.events_by_date(today)).to contain_exactly(e1, e2)
+      expect([e1, e2, e3].map(&:target_type)).to contain_exactly('WorkItem', 'Issue', 'Issue')
+      expect(calendar(contributor).events_by_date(today)).to contain_exactly(e1, e2, e3)
     end
 
     it "only shows private events to authorized users" do
       e1 = create_event(public_project, today)
       e2 = create_event(private_project, today)
-      e3 = create_event(feature_project, today)
+      e3 = create_event(public_project_with_private_issues, today, 0, :created, :issue)
       create_event(public_project, last_week)
 
-      expect(calendar.events_by_date(today)).to contain_exactly(e1, e3)
+      expect(calendar.events_by_date(today)).to contain_exactly(e1)
       expect(calendar(contributor).events_by_date(today)).to contain_exactly(e1, e2, e3)
     end
 
@@ -195,6 +214,17 @@ RSpec.describe Gitlab::ContributionsCalendar do
       e1 = create_event(public_project, today, 0, :commented, :diff_note_on_merge_request)
 
       expect(calendar.events_by_date(today)).to contain_exactly(e1)
+    end
+
+    it 'includes merge request events' do
+      mr_created_event = create_event(public_project, today, 0, :created, :merge_request)
+      mr_closed_event = create_event(public_project, today, 1, :closed, :merge_request)
+      mr_approved_event = create_event(public_project, today, 2, :approved, :merge_request)
+      mr_merged_event = create_event(public_project, today, 3, :merged, :merge_request)
+
+      expect(calendar.events_by_date(today)).to contain_exactly(
+        mr_created_event, mr_closed_event, mr_approved_event, mr_merged_event
+      )
     end
 
     context 'when the user cannot read cross project' do
@@ -207,42 +237,6 @@ RSpec.describe Gitlab::ContributionsCalendar do
         create_event(public_project, today)
 
         expect(calendar(user).events_by_date(today)).to be_empty
-      end
-    end
-  end
-
-  describe '#starting_year' do
-    let(:travel_time) { Time.find_zone('UTC').local(2020, 12, 31, 19, 0, 0) }
-
-    context "when the contributor's timezone is not set" do
-      it "is the start of last year in the system timezone" do
-        expect(calendar.starting_year).to eq(2019)
-      end
-    end
-
-    context "when the contributor's timezone is set to Sydney" do
-      let(:contributor) { create(:user, { timezone: 'Sydney' }) }
-
-      it "is the start of last year in Sydney" do
-        expect(calendar.starting_year).to eq(2020)
-      end
-    end
-  end
-
-  describe '#starting_month' do
-    let(:travel_time) { Time.find_zone('UTC').local(2020, 12, 31, 19, 0, 0) }
-
-    context "when the contributor's timezone is not set" do
-      it "is the start of this month in the system timezone" do
-        expect(calendar.starting_month).to eq(12)
-      end
-    end
-
-    context "when the contributor's timezone is set to Sydney" do
-      let(:contributor) { create(:user, { timezone: 'Sydney' }) }
-
-      it "is the start of this month in Sydney" do
-        expect(calendar.starting_month).to eq(1)
       end
     end
   end

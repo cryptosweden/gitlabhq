@@ -8,32 +8,31 @@ module Projects
       NUMBER_OF_RUNNERS_PER_PAGE = 20
 
       layout 'project_settings'
-      before_action :authorize_admin_pipeline!
+      before_action :authorize_admin_pipeline!, except: :show
+      before_action :authorize_show_cicd_settings!, only: :show
       before_action :check_builds_available!
       before_action :define_variables
+
       before_action do
-        push_frontend_feature_flag(:ajax_new_deploy_token, @project)
+        push_frontend_feature_flag(:ci_variables_pages, current_user)
       end
 
       helper_method :highlight_badge
 
       feature_category :continuous_integration
+      urgency :low
 
       def show
-        if Feature.enabled?(:ci_pipeline_triggers_settings_vue_ui, @project)
-          @triggers_json = ::Ci::TriggerSerializer.new.represent(
-            @project.triggers, current_user: current_user, project: @project
-          ).to_json
-        end
+        @entity = :project
+        @variable_limit = ::Plan.default.actual_limits.project_ci_variables
 
-        if current_user.ci_owned_runners_cross_joins_fix_enabled?
-          render
-        else
-          # @assignable_runners is using ci_owned_runners
-          ::Gitlab::Database.allow_cross_joins_across_databases(url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/336436') do
-            render
-          end
-        end
+        triggers = ::Ci::TriggerSerializer.new.represent(
+          @project.triggers, current_user: current_user, project: @project
+        )
+
+        @triggers_json = Gitlab::Json.dump(triggers)
+
+        render
       end
 
       def update
@@ -76,6 +75,15 @@ module Projects
 
       private
 
+      def authorize_show_cicd_settings!
+        return if can_any?(current_user, [
+          :admin_cicd_variables,
+          :admin_runner
+        ], project)
+
+        access_denied!
+      end
+
       def highlight_badge(name, content, language = nil)
         Gitlab::Highlight.highlight(name, content, language: language)
       end
@@ -87,10 +95,10 @@ module Projects
       def permitted_project_params
         [
           :runners_token, :builds_enabled, :build_allow_git_fetch,
-          :build_timeout_human_readable, :build_coverage_regex, :public_builds,
+          :build_timeout_human_readable, :public_builds, :ci_separated_caches,
           :auto_cancel_pending_pipelines, :ci_config_path, :auto_rollback_enabled,
-          auto_devops_attributes: [:id, :domain, :enabled, :deploy_strategy],
-          ci_cd_settings_attributes: [:default_git_depth, :forward_deployment_enabled]
+          { auto_devops_attributes: [:id, :domain, :enabled, :deploy_strategy],
+            ci_cd_settings_attributes: [:default_git_depth, :forward_deployment_enabled, :forward_deployment_rollback_allowed] }
         ].tap do |list|
           list << :max_artifacts_size if can?(current_user, :update_max_artifacts_size, project)
         end
@@ -129,11 +137,13 @@ module Projects
           .page(params[:specific_page]).per(NUMBER_OF_RUNNERS_PER_PAGE)
           .with_tags
 
-        @shared_runners = ::Ci::Runner.instance_type.active.with_tags
+        active_shared_runners = ::Ci::Runner.instance_type.active
+        @shared_runners_count = active_shared_runners.count
+        @shared_runners = active_shared_runners.page(params[:shared_runners_page]).per(NUMBER_OF_RUNNERS_PER_PAGE).with_tags
 
-        @shared_runners_count = @shared_runners.count(:all)
-
-        @group_runners = ::Ci::Runner.belonging_to_parent_group_of_project(@project.id).with_tags
+        parent_group_runners = ::Ci::Runner.belonging_to_parent_groups_of_project(@project.id)
+        @group_runners_count = parent_group_runners.count
+        @group_runners = parent_group_runners.page(params[:group_runners_page]).per(NUMBER_OF_RUNNERS_PER_PAGE).with_tags
       end
 
       def define_ci_variables
@@ -155,7 +165,7 @@ module Projects
         @ref = params[:ref] || @project.default_branch_or_main
 
         @badges = [Gitlab::Ci::Badge::Pipeline::Status,
-                   Gitlab::Ci::Badge::Coverage::Report]
+          Gitlab::Ci::Badge::Coverage::Report]
 
         @badges.map! do |badge|
           badge.new(@project, @ref).metadata

@@ -2,10 +2,9 @@
 
 RSpec.shared_examples "position formatter" do
   let(:formatter) { described_class.new(attrs) }
+  let(:key) { [123, 456, 789, Digest::SHA1.hexdigest(formatter.old_path), Digest::SHA1.hexdigest(formatter.new_path), 1, 2] }
 
   describe '#key' do
-    let(:key) { [123, 456, 789, Digest::SHA1.hexdigest(formatter.old_path), Digest::SHA1.hexdigest(formatter.new_path), 1, 2] }
-
     subject { formatter.key }
 
     it { is_expected.to eq(key) }
@@ -32,21 +31,7 @@ RSpec.shared_examples "position formatter" do
 
     subject { formatter.to_h }
 
-    context 'when file_identifier_hash is disabled' do
-      before do
-        stub_feature_flags(file_identifier_hash: false)
-      end
-
-      it { is_expected.to eq(formatter_hash.except(:file_identifier_hash)) }
-    end
-
-    context 'when file_identifier_hash is enabled' do
-      before do
-        stub_feature_flags(file_identifier_hash: true)
-      end
-
-      it { is_expected.to eq(formatter_hash) }
-    end
+    it { is_expected.to eq(formatter_hash) }
   end
 
   describe '#==' do

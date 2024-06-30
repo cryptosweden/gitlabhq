@@ -11,18 +11,14 @@ settings:
   import/resolver:
     jest:
       jestConfigFile: 'jest.config.js'
-globals:
-  loadFixtures: false
-  setFixtures: false
 rules:
+  '@gitlab/vtu-no-explicit-wrapper-destroy': error
   jest/expect-expect:
     - off
     - assertFunctionNames:
         - 'expect*'
         - 'assert*'
         - 'testAction'
-  jest/no-test-callback:
-    - off
   "@gitlab/no-global-event-off":
     - off
   import/no-unresolved:

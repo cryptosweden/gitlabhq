@@ -7,25 +7,27 @@ module Gitlab
         class Common
           SecurityReportParserError = Class.new(Gitlab::Ci::Parsers::ParserError)
 
-          def self.parse!(json_data, report, vulnerability_finding_signatures_enabled = false, validate: false)
-            new(json_data, report, vulnerability_finding_signatures_enabled, validate: validate).parse!
+          def self.parse!(json_data, report, signatures_enabled: false, validate: false)
+            new(json_data, report, signatures_enabled: signatures_enabled, validate: validate).parse!
           end
 
-          def initialize(json_data, report, vulnerability_finding_signatures_enabled = false, validate: false)
+          def initialize(json_data, report, signatures_enabled: false, validate: false)
             @json_data = json_data
             @report = report
+            @project = report.project
             @validate = validate
-            @vulnerability_finding_signatures_enabled = vulnerability_finding_signatures_enabled
+            @signatures_enabled = signatures_enabled
           end
 
           def parse!
+            sanitize_json_data
             set_report_version
 
             return report_data unless valid?
 
             raise SecurityReportParserError, "Invalid report format" unless report_data.is_a?(Hash)
 
-            create_scanner
+            create_scanner(top_level_scanner_data)
             create_scan
             create_analyzer
 
@@ -40,45 +42,54 @@ module Gitlab
 
           private
 
-          attr_reader :json_data, :report, :validate
+          attr_reader :json_data, :report, :validate, :project
+
+          # PostgreSQL can not save texts with unicode null character
+          # that's why we are escaping that character.
+          def sanitize_json_data
+            return unless json_data.gsub!(/(?<!\\)(?:\\\\)*\\u0000/, '\\\\\u0000')
+
+            report.add_warning('Parsing', 'Report artifact contained unicode null characters which are escaped during the ingestion.')
+          end
 
           def valid?
-            # We want validation to happen regardless of VALIDATE_SCHEMA
-            # CI variable.
-            #
-            # Previously it controlled BOTH validation and enforcement of
-            # schema validation result.
-            #
-            # After 15.0 we will enforce schema validation by default
-            # See: https://gitlab.com/groups/gitlab-org/-/epics/6968
+            return true unless validate
+
             schema_validation_passed = schema_validator.valid?
 
-            if validate
-              schema_validator.errors.each { |error| report.add_error('Schema', error) } unless schema_validation_passed
+            schema_validator.errors.each { |error| report.add_error('Schema', error) }
+            schema_validator.deprecation_warnings.each { |deprecation_warning| report.add_warning('Schema', deprecation_warning) }
+            schema_validator.warnings.each { |warning| report.add_warning('Schema', warning) }
 
-              schema_validation_passed
-            else
-              # We treat all schema validation errors as warnings
-              schema_validator.errors.each { |error| report.add_warning('Schema', error) }
-
-              true
-            end
+            schema_validation_passed
           end
 
           def schema_validator
-            @schema_validator ||= ::Gitlab::Ci::Parsers::Security::Validators::SchemaValidator.new(report.type, report_data, report.version)
+            @schema_validator ||= ::Gitlab::Ci::Parsers::Security::Validators::SchemaValidator.new(
+              report.type,
+              report_data,
+              report.version,
+              project: @project,
+              scanner: top_level_scanner_data
+            )
+          end
+
+          # New Oj parsers are not thread safe, therefore,
+          # we need to initialize them for each thread.
+          def introspect_parser
+            Thread.current[:introspect_parser] ||= Oj::Introspect.new(filter: "remediations")
           end
 
           def report_data
-            @report_data ||= Gitlab::Json.parse!(json_data)
+            @report_data ||= introspect_parser.parse(json_data)
           end
 
           def report_version
             @report_version ||= report_data['version']
           end
 
-          def top_level_scanner
-            @top_level_scanner ||= report_data.dig('scan', 'scanner')
+          def top_level_scanner_data
+            @top_level_scanner_data ||= report_data.dig('scan', 'scanner')
           end
 
           def scan_data
@@ -107,7 +118,7 @@ module Gitlab
             evidence = create_evidence(data['evidence'])
             signatures = create_signatures(tracking_data(data))
 
-            if @vulnerability_finding_signatures_enabled && !signatures.empty?
+            if @signatures_enabled && !signatures.empty?
               # NOT the signature_sha - the compare key is hashed
               # to create the project_fingerprint
               highest_priority_signature = signatures.max_by(&:priority)
@@ -121,12 +132,11 @@ module Gitlab
                 uuid: uuid,
                 report_type: report.type,
                 name: finding_name(data, identifiers, location),
-                compare_key: data['cve'] || '',
                 location: location,
                 evidence: evidence,
-                severity: parse_severity_level(data['severity']),
-                confidence: parse_confidence_level(data['confidence']),
-                scanner: create_scanner(data['scanner']),
+                severity: ::Enums::Vulnerability.parse_severity_level(data['severity']),
+                confidence: ::Enums::Vulnerability.parse_confidence_level(data['confidence']),
+                scanner: create_scanner(top_level_scanner_data || data['scanner']),
                 scan: report&.scan,
                 identifiers: identifiers,
                 flags: flags,
@@ -136,8 +146,12 @@ module Gitlab
                 metadata_version: report_version,
                 details: data['details'] || {},
                 signatures: signatures,
-                project_id: report.project_id,
-                vulnerability_finding_signatures_enabled: @vulnerability_finding_signatures_enabled))
+                project_id: @project.id,
+                found_by_pipeline: report.pipeline,
+                vulnerability_finding_signatures_enabled: @signatures_enabled,
+                cvss: data['cvss_vectors'] || []
+              )
+            )
           end
 
           def create_signatures(tracking)
@@ -161,13 +175,7 @@ module Gitlab
                 signature_value: value
               )
 
-              if signature.valid?
-                signature
-              else
-                e = SecurityReportParserError.new("Vulnerability tracking signature is not valid: #{signature}")
-                Gitlab::ErrorTracking.track_exception(e)
-                nil
-              end
+              signature if signature.valid?
             end.compact
           end
 
@@ -196,7 +204,7 @@ module Gitlab
             report.analyzer = ::Gitlab::Ci::Reports::Security::Analyzer.new(**params)
           end
 
-          def create_scanner(scanner_data = top_level_scanner)
+          def create_scanner(scanner_data)
             return unless scanner_data.is_a?(Hash)
 
             report.add_scanner(
@@ -204,7 +212,22 @@ module Gitlab
                 external_id: scanner_data['id'],
                 name: scanner_data['name'],
                 vendor: scanner_data.dig('vendor', 'name'),
-                version: scanner_data.dig('version')))
+                version: scanner_data.dig('version'),
+                primary_identifiers: create_scan_primary_identifiers))
+          end
+
+          # TODO: primary_identifiers should be initialized on the
+          # scan itself but we do not currently parse scans through `MergeReportsService`
+          def create_scan_primary_identifiers
+            return unless scan_data.is_a?(Hash) && scan_data.dig('primary_identifiers')
+
+            scan_data.dig('primary_identifiers').map do |identifier|
+              ::Gitlab::Ci::Reports::Security::Identifier.new(
+                external_type: identifier['type'],
+                external_id: identifier['value'],
+                name: identifier['name'],
+                url: identifier['url'])
+            end
           end
 
           def create_identifiers(identifiers)
@@ -248,14 +271,6 @@ module Gitlab
             ::Gitlab::Ci::Reports::Security::Link.new(name: link['name'], url: link['url'])
           end
 
-          def parse_severity_level(input)
-            input&.downcase.then { |value| ::Enums::Vulnerability.severity_levels.key?(value) ? value : 'unknown' }
-          end
-
-          def parse_confidence_level(input)
-            input&.downcase.then { |value| ::Enums::Vulnerability.confidence_levels.key?(value) ? value : 'unknown' }
-          end
-
           def create_location(location_data)
             raise NotImplementedError
           end
@@ -267,11 +282,15 @@ module Gitlab
           end
 
           def finding_name(data, identifiers, location)
-            return data['message'] if data['message'].present?
             return data['name'] if data['name'].present?
 
             identifier = identifiers.find(&:cve?) || identifiers.find(&:cwe?) || identifiers.first
-            "#{identifier.name} in #{location&.fingerprint_path}"
+
+            if location&.fingerprint_path
+              "#{identifier.name} in #{location.fingerprint_path}"
+            else
+              identifier.name.to_s
+            end
           end
 
           def calculate_uuid_v5(primary_identifier, location_fingerprint)
@@ -279,7 +298,7 @@ module Gitlab
               report_type: report.type,
               primary_identifier_fingerprint: primary_identifier&.fingerprint,
               location_fingerprint: location_fingerprint,
-              project_id: report.project_id
+              project_id: @project.id
             }
 
             if uuid_v5_name_components.values.any?(&:nil?)

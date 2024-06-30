@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::StuckBuilds::DropRunningService do
+RSpec.describe Ci::StuckBuilds::DropRunningService, feature_category: :continuous_integration do
   let!(:runner) { create :ci_runner }
   let!(:job) { create(:ci_build, runner: runner, created_at: created_at, updated_at: updated_at, status: status) }
 
@@ -51,7 +51,7 @@ RSpec.describe Ci::StuckBuilds::DropRunningService do
     include_examples 'running builds'
   end
 
-  %w(success skipped failed canceled scheduled pending).each do |status|
+  %w[success skipped failed canceled scheduled pending].each do |status|
     context "when job is #{status}" do
       let(:status) { status }
       let(:updated_at) { 2.days.ago }

@@ -12,13 +12,23 @@ class DashboardController < Dashboard::ApplicationController
   before_action :set_show_full_reference, only: [:issues, :merge_requests]
   before_action :check_filters_presence!, only: [:issues, :merge_requests]
 
+  before_action only: :issues do
+    push_frontend_feature_flag(:frontend_caching)
+    push_frontend_feature_flag(:group_multi_select_tokens)
+  end
+
+  before_action only: :merge_requests do
+    push_frontend_feature_flag(:mr_approved_filter, type: :ops)
+  end
+
   respond_to :html
 
-  feature_category :users, [:activity]
+  feature_category :user_profile, [:activity]
   feature_category :team_planning, [:issues, :issues_calendar]
-  feature_category :code_review, [:merge_requests]
+  feature_category :code_review_workflow, [:merge_requests]
 
-  urgency :low, [:merge_requests]
+  urgency :low, [:merge_requests, :activity]
+  urgency :low, [:issues, :issues_calendar]
 
   def activity
     respond_to do |format|
@@ -35,17 +45,20 @@ class DashboardController < Dashboard::ApplicationController
 
   def load_events
     @events =
-      if params[:filter] == "followed"
-        load_user_events
-      else
+      case params[:filter]
+      when "projects", "starred"
         load_project_events
+      when "followed"
+        load_user_events(current_user.followees)
+      else
+        load_user_events(current_user)
       end
 
     Events::RenderService.new(current_user).execute(@events)
   end
 
-  def load_user_events
-    UserRecentEventsFinder.new(current_user, current_user.followees, event_filter, params).execute
+  def load_user_events(user)
+    UserRecentEventsFinder.new(current_user, user, event_filter, params).execute
   end
 
   def load_project_events

@@ -1,10 +1,14 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Signing outgoing email with S/MIME **(FREE SELF)**
+# Signing outgoing email with S/MIME
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 Notification emails sent by GitLab can be signed with S/MIME for improved
 security.
@@ -24,13 +28,13 @@ files must be provided:
 - Only RSA keys are supported.
 
 Optionally, you can also provide a bundle of CA certs (PEM-encoded) to be
-included on each signature. This will typically be an intermediate CA.
+included on each signature. This is typically an intermediate CA.
 
 WARNING:
 Be mindful of the access levels for your private keys and visibility to
 third parties.
 
-**For Omnibus installations:**
+For Linux package installations:
 
 1. Edit `/etc/gitlab/gitlab.rb` and adapt the file paths:
 
@@ -42,11 +46,11 @@ third parties.
    gitlab_rails['gitlab_email_smime_ca_certs_file'] = '/etc/gitlab/ssl/gitlab_smime_cas.crt'
    ```
 
-1. Save the file and [reconfigure GitLab](restart_gitlab.md#omnibus-gitlab-reconfigure) for the changes to take effect.
+1. Save the file and [reconfigure GitLab](restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes to take effect.
 
-The key needs to be readable by the GitLab system user (`git` by default).
+The key must be readable by the GitLab system user (`git` by default).
 
-**For installations from source:**
+For self-compiled installations:
 
 1. Edit `config/gitlab.yml`:
 
@@ -65,9 +69,9 @@ The key needs to be readable by the GitLab system user (`git` by default).
      ca_certs_file: /etc/pki/smime/certs/gitlab_cas.crt
    ```
 
-1. Save the file and [restart GitLab](restart_gitlab.md#installations-from-source) for the changes to take effect.
+1. Save the file and [restart GitLab](restart_gitlab.md#self-compiled-installations) for the changes to take effect.
 
-The key needs to be readable by the GitLab system user (`git` by default).
+The key must be readable by the GitLab system user (`git` by default).
 
 ### How to convert S/MIME PKCS #12 format to PEM encoding
 

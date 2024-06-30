@@ -1,10 +1,14 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Feature flags API **(FREE SELF)**
+# Feature flags API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 This API is for managing Flipper-based [feature flags used in development of GitLab](../development/feature_flags/index.md).
 
@@ -89,22 +93,14 @@ Example response:
 ```json
 [
   {
-    "name": "api_kaminari_count_with_limit",
-    "introduced_by_url": "https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/23931",
-    "rollout_issue_url": null,
-    "milestone": "11.8",
-    "type": "ops",
-    "group": "group::ecosystem",
+    "name": "geo_pages_deployment_replication",
+    "introduced_by_url": "https://gitlab.com/gitlab-org/gitlab/-/merge_requests/68662",
+    "rollout_issue_url": "https://gitlab.com/gitlab-org/gitlab/-/issues/337676",
+    "milestone": "14.3",
+    "log_state_changes": null,
+    "type": "development",
+    "group": "group::geo",
     "default_enabled": true
-  },
-  {
-    "name": "marginalia",
-    "introduced_by_url": null,
-    "rollout_issue_url": null,
-    "milestone": null,
-    "type": "ops",
-    "group": null,
-    "default_enabled": false
   }
 ]
 ```
@@ -115,23 +111,28 @@ Set a feature's gate value. If a feature with the given name doesn't exist yet,
 it's created. The value can be a boolean, or an integer to indicate
 percentage of time.
 
+WARNING:
+Before you enable a feature still in development, you should understand the [security and stability risks](../administration/feature_flags.md#risks-when-enabling-features-still-in-development).
+
 ```plaintext
 POST /features/:name
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `name` | string | yes | Name of the feature to create or update |
-| `value` | integer/string | yes | `true` or `false` to enable/disable, or an integer for percentage of time |
-| `key` | string | no | `percentage_of_actors` or `percentage_of_time` (default) |
-| `feature_group` | string | no | A Feature group name |
-| `user` | string | no | A GitLab username |
-| `group` | string | no | A GitLab group's path, for example `gitlab-org` |
-| `project` | string | no | A projects path, for example `gitlab-org/gitlab-foss` |
-| `force` | boolean | no | Skip feature flag validation checks, such as a YAML definition |
+| Attribute       | Type           | Required | Description                                                                                                                                                                                      |
+|-----------------|----------------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`          | string         | yes      | Name of the feature to create or update                                                                                                                                                          |
+| `value`         | integer/string | yes      | `true` or `false` to enable/disable, or an integer for percentage of time                                                                                                                        |
+| `key`           | string         | no       | `percentage_of_actors` or `percentage_of_time` (default)                                                                                                                                         |
+| `feature_group` | string         | no       | A [Feature group](../development/feature_flags/index.md#feature-groups) name                                                                                                                                                                             |
+| `user`          | string         | no       | A GitLab username or comma-separated multiple usernames                                                                                                                                          |
+| `group`         | string         | no       | A GitLab group's path, for example `gitlab-org`, or comma-separated multiple group paths                                                                                                         |
+| `namespace`     | string         | no       | A GitLab group or user namespace's path, for example `john-doe`, or comma-separated multiple namespace paths. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/353117) in GitLab 15.0. |
+| `project`       | string         | no       | A projects path, for example `gitlab-org/gitlab-foss`, or comma-separated multiple project paths                                                                                                 |
+| `repository`    | string         | no       | A repository path, for example `gitlab-org/gitlab-test.git`, `gitlab-org/gitlab-test.wiki.git`, , `snippets/21.git`, to name a few. Use comma to separate multiple repository paths              |
+| `force`         | boolean        | no       | Skip feature flag validation checks, such as a YAML definition                                                                                                                                   |
 
 You can enable or disable a feature for a `feature_group`, a `user`,
-a `group`, and a `project` in a single API call.
+a `group`, a `namespace`, a `project`, and a `repository` in a single API call.
 
 ```shell
 curl --data "value=30" --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/features/new_library"

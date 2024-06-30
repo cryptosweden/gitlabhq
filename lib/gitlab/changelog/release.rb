@@ -7,7 +7,7 @@ module Gitlab
       attr_reader :version
 
       def initialize(version:, date:, config:)
-        @version = version
+        @version = version.to_s.delete_prefix('v')
         @date = date
         @config = config
         @entries = Hash.new { |h, k| h[k] = [] }
@@ -33,6 +33,7 @@ module Gitlab
           'title' => title,
           'commit' => {
             'reference' => commit.to_reference(full: true),
+            'web_url' => Gitlab::UrlBuilder.build(commit),
             'trailers' => commit.trailers
           }
         }
@@ -47,7 +48,8 @@ module Gitlab
 
         if merge_request
           entry['merge_request'] = {
-            'reference' => merge_request.to_reference(full: true)
+            'reference' => merge_request.to_reference(full: true),
+            'web_url' => Gitlab::UrlBuilder.build(merge_request)
           }
         end
 
@@ -74,11 +76,11 @@ module Gitlab
         # The release header can't be changed using the Liquid template, as we
         # need this to be in a known format. Without this restriction, we won't
         # know where to insert a new release section in an existing changelog.
-        "## #{@version} (#{release_date})\n\n#{markdown}\n\n"
+        "## #{version} (#{release_date})\n\n#{markdown}\n\n"
       end
 
       def header_start_pattern
-        /^##\s*#{Regexp.escape(@version)}/
+        /^##\s*#{Regexp.escape(version)}/
       end
 
       private

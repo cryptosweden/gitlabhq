@@ -7,20 +7,20 @@ module Mutations
         graphql_name 'AlertSetAssignees'
 
         argument :assignee_usernames,
-                 [GraphQL::Types::String],
-                 required: true,
-                 description: 'Usernames to assign to the alert. Replaces existing assignees by default.'
+          [GraphQL::Types::String],
+          required: true,
+          description: 'Usernames to assign to the alert. Replaces existing assignees by default.'
 
         argument :operation_mode,
-                 Types::MutationOperationModeEnum,
-                 required: false,
-                 description: 'Operation to perform. Defaults to REPLACE.'
+          Types::MutationOperationModeEnum,
+          required: false,
+          description: 'Operation to perform. Defaults to REPLACE.'
 
         def resolve(args)
           alert = authorized_find!(project_path: args[:project_path], iid: args[:iid])
           result = set_assignees(alert, args[:assignee_usernames], args[:operation_mode])
 
-          track_usage_event(:incident_management_alert_assigned, current_user.id)
+          track_alert_events('incident_management_alert_assigned', alert)
 
           prepare_response(result)
         end

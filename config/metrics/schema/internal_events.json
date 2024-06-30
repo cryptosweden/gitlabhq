@@ -1,0 +1,55 @@
+{
+  "if": {
+    "properties": {
+      "data_source": {
+        "const": "internal_events"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "instrumentation_class": false,
+      "events": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "unique": {
+              "type": "string",
+              "enum": [
+                "user.id",
+                "project.id",
+                "namespace.id"
+              ]
+            },
+            "filter": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "property": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "events"
+    ]
+  }
+}

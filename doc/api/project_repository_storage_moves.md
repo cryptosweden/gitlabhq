@@ -1,17 +1,17 @@
 ---
-stage: Create
+stage: Systems
 group: Gitaly
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Project repository storage moves API **(FREE SELF)**
+# Project repository storage moves API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/31285) in GitLab 13.0.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
-Project repositories including wiki and design repositories can be moved between storages. This can be useful when
-[migrating to Gitaly Cluster](../administration/gitaly/index.md#migrating-to-gitaly-cluster),
-for example.
+Project repositories including wiki and design repositories can be moved between storages. This API can help you when
+[migrating to Gitaly Cluster](../administration/gitaly/index.md#migrate-to-gitaly-cluster), for example.
 
 As project repository storage moves are processed, they transition through different states. Values
 of `state` are:
@@ -25,10 +25,10 @@ of `state` are:
 - `cleanup failed`: The project has been moved but the repositories on the source storage could not be deleted.
 
 To ensure data integrity, projects are put in a temporary read-only state for the
-duration of the move. During this time, users receive a `The repository is temporarily
-read-only. Please try again later.` message if they try to push new commits.
+duration of the move. During this time, users receive a `The repository is temporarily read-only. Please try again later.`
+message if they try to push new commits.
 
-This API requires you to [authenticate yourself](index.md#authentication) as an administrator.
+This API requires you to [authenticate yourself](rest/index.md#authentication) as an administrator.
 
 For other repository types see:
 
@@ -42,7 +42,7 @@ GET /project_repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time because the API results
-are [paginated](index.md#pagination).
+are [paginated](rest/index.md#pagination).
 
 Example request:
 
@@ -80,7 +80,7 @@ GET /projects/:project_id/repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time because the API results
-are [paginated](index.md#pagination).
+are [paginated](rest/index.md#pagination).
 
 Parameters:
 
@@ -198,24 +198,16 @@ Example response:
 
 ## Schedule a repository storage move for a project
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/34119) in GitLab 13.1.
-> - [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/2618) in GitLab 13.3, original repository is automatically removed after successful move and integrity check.
-
-WARNING:
-Before GitLab 13.3, a repository move worked more like a repository copy as the
-original repository was not deleted from the original storage disk location and
-had to be manually cleaned up.
-
 ```plaintext
 POST /projects/:project_id/repository_storage_moves
 ```
 
 Parameters:
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `project_id` | integer | yes | ID of the project |
-| `destination_storage_name` | string | no | Name of the destination storage shard. In [GitLab 13.5 and later](https://gitlab.com/gitlab-org/gitaly/-/issues/3209), the storage is selected [automatically based on storage weights](../administration/repository_storage_paths.md#configure-where-new-repositories-are-stored) if not provided |
+| Attribute | Type | Required | Description                                                                                                                                                                                                        |
+| --------- | ---- | -------- |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `project_id` | integer | yes | ID of the project                                                                                                                                                                                                  |
+| `destination_storage_name` | string | no | Name of the destination storage shard. The storage is selected [automatically based on storage weights](../administration/repository_storage_paths.md#configure-where-new-repositories-are-stored) if not provided |
 
 Example request:
 
@@ -248,9 +240,9 @@ Example response:
 
 ## Schedule repository storage moves for all projects on a storage shard
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/47142) in GitLab 13.7.
-
 Schedules repository storage moves for each project repository stored on the source storage shard.
+This endpoint migrates all projects at once. For more information, see
+[Move all projects](../administration/operations/moving_repositories.md#move-all-projects).
 
 ```plaintext
 POST /project_repository_storage_moves

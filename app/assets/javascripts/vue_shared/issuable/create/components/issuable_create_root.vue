@@ -22,6 +22,10 @@ export default {
       type: String,
       required: true,
     },
+    issuableType: {
+      type: String,
+      required: true,
+    },
   },
 };
 </script>
@@ -29,12 +33,12 @@ export default {
 <template>
   <div class="issuable-create-container">
     <slot name="title"></slot>
-    <hr class="gl-mt-0" />
     <issuable-form
       :description-preview-path="descriptionPreviewPath"
       :description-help-path="descriptionHelpPath"
       :labels-fetch-path="labelsFetchPath"
       :labels-manage-path="labelsManagePath"
+      :issuable-type="issuableType"
     >
       <template #actions="issuableMeta">
         <slot name="actions" v-bind="issuableMeta"></slot>

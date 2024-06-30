@@ -1,12 +1,10 @@
 ---
-stage: Enablement
+stage: Data Stores
 group: Database
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Update multiple database objects
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/32921) in GitLab 13.5.
 
 You can update multiple database objects with new values for one or more columns.
 One method is to use `Relation#update_all`:
@@ -32,7 +30,7 @@ update issues
   where id = obj_id
 ```
 
-You can't express this in ActiveRecord, or by dropping down to [Arel](https://api.rubyonrails.org/v6.1.0/classes/Arel.html),
+You can't express this in ActiveRecord, or by dropping down to [Arel](https://api.rubyonrails.org/classes/Arel.html),
 because the `UpdateManager` does not support `update from`. However, we supply
 an abstraction to help you generate these kinds of updates: `Gitlab::Database::BulkUpdate`.
 This abstraction constructs queries like the previous example, and uses

@@ -2,9 +2,12 @@
 
 class ServiceHook < WebHook
   include Presentable
+
   extend ::Gitlab::Utils::Override
 
-  belongs_to :integration, foreign_key: :service_id
+  self.allow_legacy_sti_class = true
+
+  belongs_to :integration
   validates :integration, presence: true
 
   def execute(data, hook_name = 'service_hook')

@@ -4,8 +4,8 @@ import NoteAttachment from '~/notes/components/note_attachment.vue';
 describe('Issue note attachment', () => {
   let wrapper;
 
-  const findImage = () => wrapper.find({ ref: 'attachmentImage' });
-  const findUrl = () => wrapper.find({ ref: 'attachmentUrl' });
+  const findImage = () => wrapper.findComponent({ ref: 'attachmentImage' });
+  const findUrl = () => wrapper.findComponent({ ref: 'attachmentUrl' });
 
   const createComponent = (attachment) => {
     wrapper = shallowMount(NoteAttachment, {
@@ -14,11 +14,6 @@ describe('Issue note attachment', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   it('renders attachment image if it is passed in attachment prop', () => {
     createComponent({

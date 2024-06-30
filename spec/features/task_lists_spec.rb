@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Task Lists', :js do
+RSpec.describe 'Task Lists', :js, feature_category: :team_planning do
   include Warden::Test::Helpers
 
   let_it_be(:project) { create(:project, :public, :repository) }
-  let_it_be(:user)    { create(:user) }
-  let_it_be(:user2)   { create(:user) }
+  let_it_be(:user)    { create(:user, maintainer_of: project) }
+  let_it_be(:user2)   { create(:user, guest_of: project) }
 
   let(:markdown) do
     <<-MARKDOWN.strip_heredoc
@@ -22,7 +22,7 @@ RSpec.describe 'Task Lists', :js do
     MARKDOWN
   end
 
-  let(:singleIncompleteMarkdown) do
+  let(:single_incomplete_markdown) do
     <<-MARKDOWN.strip_heredoc
     This is a task list:
 
@@ -30,7 +30,7 @@ RSpec.describe 'Task Lists', :js do
     MARKDOWN
   end
 
-  let(:singleCompleteMarkdown) do
+  let(:single_complete_markdown) do
     <<-MARKDOWN.strip_heredoc
     This is a task list:
 
@@ -38,13 +38,8 @@ RSpec.describe 'Task Lists', :js do
     MARKDOWN
   end
 
-  before_all do
-    project.add_maintainer(user)
-    project.add_guest(user2)
-  end
-
   before do
-    login_as(user)
+    sign_in(user)
   end
 
   def visit_issue(project, issue)
@@ -89,12 +84,12 @@ RSpec.describe 'Task Lists', :js do
       it 'provides a summary on Issues#index' do
         visit project_issues_path(project)
 
-        expect(page).to have_content("2 of 6 tasks completed")
+        expect(page).to have_content("2 of 6 checklist items completed")
       end
     end
 
     describe 'single incomplete task' do
-      let!(:issue) { create(:issue, description: singleIncompleteMarkdown, author: user, project: project) }
+      let!(:issue) { create(:issue, description: single_incomplete_markdown, author: user, project: project) }
 
       it 'renders' do
         visit_issue(project, issue)
@@ -108,12 +103,12 @@ RSpec.describe 'Task Lists', :js do
       it 'provides a summary on Issues#index' do
         visit project_issues_path(project)
 
-        expect(page).to have_content("0 of 1 task completed")
+        expect(page).to have_content("0 of 1 checklist item completed")
       end
     end
 
     describe 'single complete task' do
-      let!(:issue) { create(:issue, description: singleCompleteMarkdown, author: user, project: project) }
+      let!(:issue) { create(:issue, description: single_complete_markdown, author: user, project: project) }
 
       it 'renders' do
         visit_issue(project, issue)
@@ -127,7 +122,7 @@ RSpec.describe 'Task Lists', :js do
       it 'provides a summary on Issues#index' do
         visit project_issues_path(project)
 
-        expect(page).to have_content("1 of 1 task completed")
+        expect(page).to have_content("1 of 1 checklist item completed")
       end
     end
   end
@@ -137,8 +132,7 @@ RSpec.describe 'Task Lists', :js do
 
     describe 'multiple tasks' do
       let!(:note) do
-        create(:note, note: markdown, noteable: issue,
-                      project: project, author: user)
+        create(:note, note: markdown, noteable: issue, project: project, author: user)
       end
 
       it 'renders for note body' do
@@ -171,8 +165,7 @@ RSpec.describe 'Task Lists', :js do
 
     describe 'single incomplete task' do
       let!(:note) do
-        create(:note, note: singleIncompleteMarkdown, noteable: issue,
-                      project: project, author: user)
+        create(:note, note: single_incomplete_markdown, noteable: issue, project: project, author: user)
       end
 
       it 'renders for note body' do
@@ -186,8 +179,7 @@ RSpec.describe 'Task Lists', :js do
 
     describe 'single complete task' do
       let!(:note) do
-        create(:note, note: singleCompleteMarkdown, noteable: issue,
-                      project: project, author: user)
+        create(:note, note: single_complete_markdown, noteable: issue, project: project, author: user)
       end
 
       it 'renders for note body' do
@@ -253,7 +245,7 @@ RSpec.describe 'Task Lists', :js do
       it 'provides a summary on MergeRequests#index' do
         visit project_merge_requests_path(project)
 
-        expect(page).to have_content("2 of 6 tasks completed")
+        expect(page).to have_content("2 of 6 checklist items completed")
       end
     end
 
@@ -264,7 +256,7 @@ RSpec.describe 'Task Lists', :js do
     end
 
     describe 'single incomplete task' do
-      let!(:merge) { create(:merge_request, :simple, description: singleIncompleteMarkdown, author: user, source_project: project) }
+      let!(:merge) { create(:merge_request, :simple, description: single_incomplete_markdown, author: user, source_project: project) }
 
       it 'renders for description' do
         visit_merge_request(project, merge)
@@ -278,12 +270,12 @@ RSpec.describe 'Task Lists', :js do
       it 'provides a summary on MergeRequests#index' do
         visit project_merge_requests_path(project)
 
-        expect(page).to have_content("0 of 1 task completed")
+        expect(page).to have_content("0 of 1 checklist item completed")
       end
     end
 
     describe 'single complete task' do
-      let!(:merge) { create(:merge_request, :simple, description: singleCompleteMarkdown, author: user, source_project: project) }
+      let!(:merge) { create(:merge_request, :simple, description: single_complete_markdown, author: user, source_project: project) }
 
       it 'renders for description' do
         visit_merge_request(project, merge)
@@ -297,7 +289,7 @@ RSpec.describe 'Task Lists', :js do
       it 'provides a summary on MergeRequests#index' do
         visit project_merge_requests_path(project)
 
-        expect(page).to have_content("1 of 1 task completed")
+        expect(page).to have_content("1 of 1 checklist item completed")
       end
     end
   end
@@ -306,6 +298,12 @@ RSpec.describe 'Task Lists', :js do
     describe 'commented tasks' do
       let(:commented_tasks_markdown) do
         <<-EOT.strip_heredoc
+        <!-- comment text -->
+
+        text
+
+        <!-- - [ ] commented out task -->
+
         <!--
         - [ ] a
         -->
@@ -333,6 +331,41 @@ RSpec.describe 'Task Lists', :js do
         expect(page).to have_selector('ul.task-list',      count: 1)
         expect(page).to have_selector('li.task-list-item', count: 1)
         expect(page).to have_selector('ul input[checked]', count: 1)
+        expect(page).to have_content('1 of 1 checklist item completed')
+      end
+    end
+
+    describe 'tasks in code blocks' do
+      let(:code_tasks_markdown) do
+        <<-EOT.strip_heredoc
+        ```
+        - [ ] a
+        ```
+
+        - [ ] b
+        EOT
+      end
+
+      let!(:issue) { create(:issue, description: code_tasks_markdown, author: user, project: project) }
+
+      it 'renders' do
+        visit_issue(project, issue)
+        wait_for_requests
+
+        expect(page).to have_selector('ul.task-list',      count: 1)
+        expect(page).to have_selector('li.task-list-item', count: 1)
+        expect(page).to have_selector('ul input[checked]', count: 0)
+
+        find('.task-list-item-checkbox').click
+        wait_for_requests
+
+        visit_issue(project, issue)
+        wait_for_requests
+
+        expect(page).to have_selector('ul.task-list',      count: 1)
+        expect(page).to have_selector('li.task-list-item', count: 1)
+        expect(page).to have_selector('ul input[checked]', count: 1)
+        expect(page).to have_content('1 of 1 checklist item completed')
       end
     end
 
@@ -367,6 +400,43 @@ RSpec.describe 'Task Lists', :js do
         expect(page).to have_selector('ul.task-list',      count: 1)
         expect(page).to have_selector('li.task-list-item', count: 1)
         expect(page).to have_selector('ul input[checked]', count: 1)
+      end
+    end
+
+    describe 'summary properly formatted' do
+      let(:summary_markdown) do
+        <<-EOT.strip_heredoc
+        <details open>
+        <summary>Valid detail/summary with tasklist</summary>
+
+        - [ ] People Ops: do such and such
+
+        </details>
+
+        * [x] Task 1
+        EOT
+      end
+
+      let!(:issue) { create(:issue, description: summary_markdown, author: user, project: project) }
+
+      it 'renders' do
+        visit_issue(project, issue)
+        wait_for_requests
+
+        expect(page).to have_selector('ul.task-list',      count: 2)
+        expect(page).to have_selector('li.task-list-item', count: 2)
+        expect(page).to have_selector('ul input[checked]', count: 1)
+
+        first('.task-list-item-checkbox').click
+        wait_for_requests
+
+        visit_issue(project, issue)
+        wait_for_requests
+
+        expect(page).to have_selector('ul.task-list',      count: 2)
+        expect(page).to have_selector('li.task-list-item', count: 2)
+        expect(page).to have_selector('ul input[checked]', count: 2)
+        expect(page).to have_content('2 of 2 checklist items completed')
       end
     end
 

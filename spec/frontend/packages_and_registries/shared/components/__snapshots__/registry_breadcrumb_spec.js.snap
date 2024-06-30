@@ -4,63 +4,35 @@ exports[`Registry Breadcrumb when is not rootRoute renders 1`] = `
 <nav
   aria-label="Breadcrumb"
   class="gl-breadcrumbs"
+  style=""
 >
-   
   <ol
     class="breadcrumb gl-breadcrumb-list"
   >
     <li
-      class="breadcrumb-item gl-breadcrumb-item"
+      class="gl-breadcrumb-item"
     >
       <a
-        class=""
-        href="/"
         target="_self"
       >
         <span>
-          
-        </span>
-         
-        <span
-          class="gl-breadcrumb-separator"
-          data-testid="separator"
-        >
-          <span
-            class="gl-mx-n5"
-          >
-            <svg
-              aria-hidden="true"
-              class="gl-icon s8"
-              data-testid="angle-right-icon"
-              role="img"
-            >
-              <use
-                href="#angle-right"
-              />
-            </svg>
-          </span>
+          mock name
         </span>
       </a>
     </li>
-     
-    <!---->
     <li
-      class="breadcrumb-item gl-breadcrumb-item"
+      class="gl-breadcrumb-item"
     >
       <a
-        class=""
+        aria-current="page"
         href="#"
         target="_self"
       >
         <span>
-          
+          mock name
         </span>
-         
-        <!---->
       </a>
     </li>
-     
-    <!---->
   </ol>
 </nav>
 `;
@@ -69,28 +41,24 @@ exports[`Registry Breadcrumb when is rootRoute renders 1`] = `
 <nav
   aria-label="Breadcrumb"
   class="gl-breadcrumbs"
+  style=""
 >
-   
   <ol
     class="breadcrumb gl-breadcrumb-list"
   >
     <li
-      class="breadcrumb-item gl-breadcrumb-item"
+      class="gl-breadcrumb-item"
+      style="flex-shrink: 1; text-overflow: ellipsis; overflow-x: hidden; text-wrap: nowrap;"
     >
       <a
-        class=""
-        href="/"
+        aria-current="page"
         target="_self"
       >
         <span>
-          
+          mock name
         </span>
-         
-        <!---->
       </a>
     </li>
-     
-    <!---->
   </ol>
 </nav>
 `;

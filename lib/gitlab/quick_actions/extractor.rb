@@ -9,19 +9,6 @@ module Gitlab
     # extractor = Gitlab::QuickActions::Extractor.new([:open, :assign, :labels])
     # ```
     class Extractor
-      CODE_REGEX = %r{
-        (?<code>
-          # Code blocks:
-          # ```
-          # Anything, including `/cmd arg` which are ignored by this filter
-          # ```
-
-          ^```
-          .+?
-          \n```$
-        )
-      }mix.freeze
-
       INLINE_CODE_REGEX = %r{
         (?<inline_code>
           # Inline code on separate rows:
@@ -31,7 +18,7 @@ module Gitlab
 
           `.+?`
         )
-      }mix.freeze
+      }mix
 
       HTML_BLOCK_REGEX = %r{
         (?<html>
@@ -44,30 +31,16 @@ module Gitlab
           .+?
           \n<\/[^>]+?>$
         )
-      }mix.freeze
+      }mix
 
-      QUOTE_BLOCK_REGEX = %r{
-        (?<html>
-          # Quote block:
-          # >>>
-          # Anything, including `/cmd arg` which are ignored by this filter
-          # >>>
+      EXCLUSION_REGEX = %r{#{INLINE_CODE_REGEX} | #{HTML_BLOCK_REGEX}}mix
 
-          ^>>>
-          .+?
-          \n>>>$
-        )
-      }mix.freeze
+      attr_reader :command_definitions, :keep_actions
 
-      EXCLUSION_REGEX = %r{
-        #{CODE_REGEX} | #{INLINE_CODE_REGEX} | #{HTML_BLOCK_REGEX} | #{QUOTE_BLOCK_REGEX}
-      }mix.freeze
-
-      attr_reader :command_definitions
-
-      def initialize(command_definitions)
+      def initialize(command_definitions, keep_actions: false)
         @command_definitions = command_definitions
         @commands_regex = {}
+        @keep_actions = keep_actions
       end
 
       # Extracts commands from content and return an array of commands.
@@ -76,8 +49,8 @@ module Gitlab
       #   ['command1'],
       #   ['command3', 'arg1 arg2'],
       # ]
-      # The command and the arguments are stripped.
-      # The original command text is removed from the given `content`.
+      # The original command text and arguments are removed from the given `content`,
+      # unless `keep_actions` is true.
       #
       # Usage:
       # ```
@@ -85,6 +58,11 @@ module Gitlab
       # msg = %(hello\n/labels ~foo ~"bar baz"\nworld)
       # commands = extractor.extract_commands(msg) #=> [['labels', '~foo ~"bar baz"']]
       # msg #=> "hello\nworld"
+      #
+      # extractor = Gitlab::QuickActions::Extractor.new([:open, :assign, :labels], keep_actions: true)
+      # msg = %(hello\n/labels ~foo ~"bar baz"\nworld)
+      # commands = extractor.extract_commands(msg) #=> [['labels', '~foo ~"bar baz"']]
+      # msg #=> "hello\n/labels ~foo ~"bar baz"\n\nworld"
       # ```
       def extract_commands(content, only: nil)
         return [content, []] unless content
@@ -113,15 +91,40 @@ module Gitlab
         content   = content.dup
         content.delete!("\r")
 
-        content.gsub!(commands_regex(names: names, sub_names: sub_names)) do
-          command, output = if $~[:substitution]
-                              process_substitutions($~)
-                            else
-                              process_commands($~, redact)
-                            end
+        # use a markdown based pipeline to grab possible paragraphs that might
+        # contain quick actions. This ensures they are not in HTML blocks, quote blocks,
+        # or code blocks.
+        pipeline = Banzai::Pipeline::QuickActionPipeline.html_pipeline
+        possible_paragraphs = pipeline.call(content, {}, {})[:quick_action_paragraphs]
 
-          commands << command
-          output
+        if possible_paragraphs.present?
+          content_lines = content.lines
+
+          # Each paragraph that possibly contains quick actions must be searched. In order
+          # to use the `sourcepos` information, we need to convert into individual lines,
+          # and then replace the specific lines.
+          possible_paragraphs.each do |possible|
+            endpos = possible[:end_line]
+            endpos += 1 if content_lines[endpos + 1] == "\n"
+
+            paragraph = content_lines[possible[:start_line]..endpos].join
+
+            paragraph.gsub!(commands_regex(names: names, sub_names: sub_names)) do
+              command, output = if $~[:substitution]
+                                  process_substitutions($~)
+                                else
+                                  process_commands($~, redact)
+                                end
+
+              commands << command
+              output
+            end
+
+            content_lines.fill('', possible[:start_line]..endpos)
+            content_lines[possible[:start_line]] = paragraph
+          end
+
+          content = content_lines.join
         end
 
         [content.rstrip, commands.reject(&:empty?)]
@@ -138,6 +141,12 @@ module Gitlab
           if redact
             output = "`/#{matched_text[:cmd]}#{" " + matched_text[:arg] if matched_text[:arg]}`"
             output += "\n" if matched_text[0].include?("\n")
+          elsif keep_actions
+            # put the command in a new paragraph, but without introducing newlines
+            # so that each command is in its own line, while also preserving sourcemaps
+            # of the content that follows.
+            output = ActionController::Base.helpers.simple_format(matched_text[0].chomp)
+            output += "\n" if matched_text[0].ends_with?("\n")
           end
         end
 
@@ -171,7 +180,7 @@ module Gitlab
             #{EXCLUSION_REGEX}
           |
             (?:
-              # Command not in a blockquote, blockcode, or HTML tag:
+              # Command such as:
               # /close
 
               ^\/
@@ -184,7 +193,8 @@ module Gitlab
             )
           |
             (?:
-              # Substitution not in a blockquote, blockcode, or HTML tag:
+              # Substitution such as:
+              # /shrug
 
               ^\/
               (?<substitution>#{Regexp.new(Regexp.union(sub_names).source, Regexp::IGNORECASE)})

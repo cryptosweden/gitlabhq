@@ -1,5 +1,6 @@
-import createFlash from '~/flash';
-import { __ } from '~/locale';
+import { createAlert } from '~/alert';
+import { STATUS_OPEN } from '~/issues/constants';
+import { sprintf, __ } from '~/locale';
 import { leftSidebarViews, PERMISSION_READ_MR, MAX_MR_FILES_AUTO_OPEN } from '../../constants';
 import service from '../../services';
 import * as types from '../mutation_types';
@@ -16,7 +17,7 @@ export const getMergeRequestsForBranch = (
     .getProjectMergeRequests(`${projectId}`, {
       source_branch: branchId,
       source_project_id: state.projects[projectId].id,
-      state: 'opened',
+      state: STATUS_OPEN,
       order_by: 'created_at',
       per_page: 1,
     })
@@ -34,8 +35,8 @@ export const getMergeRequestsForBranch = (
       }
     })
     .catch((e) => {
-      createFlash({
-        message: __(`Error fetching merge requests for ${branchId}`),
+      createAlert({
+        message: sprintf(__('Error fetching merge requests for %{branchId}'), { branchId }),
         fadeTransition: false,
         addBodyClass: true,
       });
@@ -233,7 +234,7 @@ export const openMergeRequest = async (
 
     await dispatch('openMergeRequestChanges', changes);
   } catch (e) {
-    createFlash({ message: __('Error while loading the merge request. Please try again.') });
+    createAlert({ message: __('Error while loading the merge request. Please try again.') });
     throw e;
   }
 };

@@ -1,5 +1,6 @@
 <script>
 import { GlAlert } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapMutations } from 'vuex';
 import { scrollToElement } from '~/lib/utils/common_utils';
 import { HIDE_ERROR } from '../store/mutation_types';
@@ -11,10 +12,7 @@ export default {
   components: { MembersTable, FilterSortContainer, GlAlert },
   provide() {
     return {
-      // We can't use this.namespace due to bug in vue-apollo when
-      // provide is called in beforeCreate
-      // See https://github.com/vuejs/vue-apollo/pull/1153 for details
-      namespace: this.$options.propsData.namespace,
+      namespace: this.namespace,
     };
   },
   props: {

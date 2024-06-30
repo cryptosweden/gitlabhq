@@ -7,6 +7,7 @@ module BulkImports
 
       UPLOADS_RELATION = 'uploads'
       SELF_RELATION = 'self'
+      USER_CONTRIBUTIONS_RELATION = 'user_contributions'
 
       def initialize(portable)
         @portable = portable
@@ -32,6 +33,15 @@ module BulkImports
         tree_relations + file_relations + self_relation - skipped_relations
       end
 
+      def batchable_relations
+        portable_relations.select { |relation| portable_class.reflect_on_association(relation)&.collection? }
+      end
+      strong_memoize_attr :batchable_relations
+
+      def batchable_relation?(relation)
+        batchable_relations.include?(relation)
+      end
+
       def self_relation?(relation)
         relation == SELF_RELATION
       end
@@ -44,6 +54,10 @@ module BulkImports
         file_relations.include?(relation)
       end
 
+      def user_contributions_relation?(relation)
+        relation == USER_CONTRIBUTIONS_RELATION
+      end
+
       def tree_relation_definition_for(relation)
         return unless tree_relation?(relation)
 
@@ -51,7 +65,21 @@ module BulkImports
       end
 
       def portable_relations_tree
-        @portable_relations_tree ||= attributes_finder.find_relations_tree(portable_class_sym).deep_stringify_keys
+        @portable_relations_tree ||= attributes_finder
+          .find_relations_tree(portable_class_sym, include_import_only_tree: true).deep_stringify_keys
+      end
+
+      # Returns an export service class for the given relation.
+      # @return TreeExportService if a relation is serializable and is listed in import_export.yml
+      # @return FileExportService if a relation is a file (uploads, lfs objects, git repository, etc.)
+      def export_service_for(relation)
+        if tree_relation?(relation)
+          ::BulkImports::TreeExportService
+        elsif file_relation?(relation)
+          ::BulkImports::FileExportService
+        else
+          raise ::BulkImports::Error, 'Unsupported export relation'
+        end
       end
 
       private

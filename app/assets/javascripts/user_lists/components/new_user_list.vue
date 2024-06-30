@@ -1,5 +1,6 @@
 <script>
 import { GlAlert } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 import { s__ } from '~/locale';
 import UserListForm from './user_list_form.vue';
@@ -35,7 +36,7 @@ export default {
       </ul>
     </gl-alert>
 
-    <h3 class="gl-font-weight-bold gl-pb-5 gl-border-b-solid gl-border-gray-100 gl-border-1">
+    <h3 class="gl-font-bold gl-pb-5 gl-border-b-solid gl-border-gray-100 gl-border-1">
       {{ $options.translations.pageTitle }}
     </h3>
 

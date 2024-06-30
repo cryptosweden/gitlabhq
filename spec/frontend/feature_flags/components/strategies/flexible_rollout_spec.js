@@ -20,26 +20,18 @@ describe('feature_flags/components/strategies/flexible_rollout.vue', () => {
   const factory = (props = {}) =>
     mount(FlexibleRollout, { propsData: { ...DEFAULT_PROPS, ...props } });
 
-  afterEach(() => {
-    if (wrapper?.destroy) {
-      wrapper.destroy();
-    }
-
-    wrapper = null;
-  });
-
   describe('with valid percentage', () => {
     beforeEach(() => {
       wrapper = factory();
 
       percentageFormGroup = wrapper
         .find('[data-testid="strategy-flexible-rollout-percentage"]')
-        .find(ParameterFormGroup);
-      percentageInput = percentageFormGroup.find(GlFormInput);
+        .findComponent(ParameterFormGroup);
+      percentageInput = percentageFormGroup.findComponent(GlFormInput);
       stickinessFormGroup = wrapper
         .find('[data-testid="strategy-flexible-rollout-stickiness"]')
-        .find(ParameterFormGroup);
-      stickinessSelect = stickinessFormGroup.find(GlFormSelect);
+        .findComponent(ParameterFormGroup);
+      stickinessSelect = stickinessFormGroup.findComponent(GlFormSelect);
     });
 
     it('displays the current percentage value', () => {
@@ -94,7 +86,7 @@ describe('feature_flags/components/strategies/flexible_rollout.vue', () => {
     it('shows errors', () => {
       const formGroup = wrapper
         .find('[data-testid="strategy-flexible-rollout-percentage"]')
-        .find(ParameterFormGroup);
+        .findComponent(ParameterFormGroup);
 
       expect(formGroup.attributes('state')).toBeUndefined();
     });
@@ -108,7 +100,7 @@ describe('feature_flags/components/strategies/flexible_rollout.vue', () => {
     it('shows errors', () => {
       const formGroup = wrapper
         .find('[data-testid="strategy-flexible-rollout-percentage"]')
-        .find(ParameterFormGroup);
+        .findComponent(ParameterFormGroup);
 
       expect(formGroup.attributes('state')).toBeUndefined();
     });

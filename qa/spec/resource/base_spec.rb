@@ -4,6 +4,7 @@ RSpec.describe QA::Resource::Base do
   include QA::Support::Helpers::StubEnv
 
   let(:resource) { spy('resource') }
+  let(:api_client) { instance_double('Runtime::API::Client') }
   let(:location) { 'http://location' }
   let(:log_regex) { %r{==> Built a MyResource with username 'qa' via #{method} in [\d.\-e]+ seconds+} }
 
@@ -21,6 +22,10 @@ RSpec.describe QA::Resource::Base do
 
         attribute :test do
           'block'
+        end
+
+        attribute :token do
+          'token_value'
         end
 
         attribute :username do
@@ -82,10 +87,44 @@ RSpec.describe QA::Resource::Base do
     end
 
     context 'when resource supports fabrication via the API' do
-      it 'calls .fabricate_via_browser_ui!' do
+      it 'calls .fabricate_via_api!!' do
         expect(described_class).to receive(:fabricate_via_api!)
 
         described_class.fabricate!
+      end
+    end
+
+    context 'when personal_access_tokens_disabled returns true' do
+      before do
+        stub_env('PERSONAL_ACCESS_TOKENS_DISABLED', true)
+      end
+
+      it 'calls .fabricate_via_browser_ui!' do
+        expect(described_class).to receive(:fabricate_via_browser_ui!)
+
+        described_class.fabricate!
+      end
+    end
+  end
+
+  describe '.fabricate_via_api_unless_fips!' do
+    context 'when personal_access_tokens_disabled returns false' do
+      it 'calls .fabricate_via_api!!' do
+        expect(described_class).to receive(:fabricate_via_api!)
+
+        described_class.fabricate_via_api_unless_fips!
+      end
+    end
+
+    context 'when personal_access_tokens_disabled returns true' do
+      before do
+        stub_env('PERSONAL_ACCESS_TOKENS_DISABLED', true)
+      end
+
+      it 'calls .fabricate_via_browser_ui!' do
+        expect(described_class).to receive(:fabricate_via_browser_ui!)
+
+        described_class.fabricate_via_api_unless_fips!
       end
     end
   end
@@ -111,17 +150,16 @@ RSpec.describe QA::Resource::Base do
       let(:method) { 'api' }
 
       before do
-        allow(QA::Runtime::Logger).to receive(:debug)
+        allow(QA::Runtime::Logger).to receive(:info)
         allow(resource).to receive(:api_support?).and_return(true)
         allow(resource).to receive(:fabricate_via_api!)
+        allow(resource).to receive(:api_client) { api_client }
       end
 
       it 'logs the resource and build method' do
-        stub_env('QA_DEBUG', 'true')
-
         subject.fabricate_via_api!('something', resource: resource, parents: [])
 
-        expect(QA::Runtime::Logger).to have_received(:debug) do |&msg|
+        expect(QA::Runtime::Logger).to have_received(:info) do |&msg|
           expect(msg.call).to match_regex(log_regex)
         end
       end
@@ -153,16 +191,13 @@ RSpec.describe QA::Resource::Base do
       let(:method) { 'browser_ui' }
 
       before do
-        allow(QA::Runtime::Logger).to receive(:debug)
-        # allow(resource).to receive(:fabricate!)
+        allow(QA::Runtime::Logger).to receive(:info)
       end
 
       it 'logs the resource and build method' do
-        stub_env('QA_DEBUG', 'true')
-
         subject.fabricate_via_browser_ui!('something', resource: resource, parents: [])
 
-        expect(QA::Runtime::Logger).to have_received(:debug) do |&msg|
+        expect(QA::Runtime::Logger).to have_received(:info) do |&msg|
           expect(msg.call).to match_regex(log_regex)
         end
       end
@@ -209,6 +244,24 @@ RSpec.describe QA::Resource::Base do
           expect(result.test).to eq('api_with_block')
           expect(QA::Runtime::Logger)
             .to have_received(:debug).with(/api_with_block/)
+        end
+      end
+
+      context 'when the attribute is token and has a block' do
+        let(:api_resource) { { token: 'another_token_value' } }
+
+        before do
+          allow(QA::Runtime::Logger).to receive(:debug)
+        end
+
+        it 'emits a masked debug log entry' do
+          result = subject.fabricate!(resource: resource)
+
+          expect(result).to be_a(described_class)
+          expect(result.token).to eq('another_token_value')
+
+          expect(QA::Runtime::Logger)
+            .to have_received(:debug).with(/MASKED/)
         end
       end
     end
@@ -309,7 +362,8 @@ RSpec.describe QA::Resource::Base do
 
     it 'calls #visit with the underlying #web_url' do
       allow(resource).to receive(:current_url).and_return(subject.current_url)
-      expect(wait_for_requests_class).to receive(:wait_for_requests).with({ skip_resp_code_check: false }).twice
+      expect(wait_for_requests_class).to receive(:wait_for_requests).with({ skip_finished_loading_check: false,
+                                                                            skip_resp_code_check: false }).twice
 
       resource.web_url = subject.current_url
       resource.visit!
@@ -319,10 +373,22 @@ RSpec.describe QA::Resource::Base do
 
     it 'calls #visit with the underlying #web_url with skip_resp_code_check specified as true' do
       allow(resource).to receive(:current_url).and_return(subject.current_url)
-      expect(wait_for_requests_class).to receive(:wait_for_requests).with({ skip_resp_code_check: true }).twice
+      expect(wait_for_requests_class).to receive(:wait_for_requests).with({ skip_finished_loading_check: false,
+                                                                            skip_resp_code_check: true }).twice
 
       resource.web_url = subject.current_url
       resource.visit!(skip_resp_code_check: true)
+
+      expect(resource).to have_received(:visit).with(subject.current_url)
+    end
+
+    it 'calls #visit with the underlying #web_url with skip_finished_loading_check specified as true' do
+      allow(resource).to receive(:current_url).and_return(subject.current_url)
+      expect(wait_for_requests_class).to receive(:wait_for_requests).with({ skip_finished_loading_check: true,
+                                                                            skip_resp_code_check: false }).twice
+
+      resource.web_url = subject.current_url
+      resource.visit!(skip_finished_loading_check: true)
 
       expect(resource).to have_received(:visit).with(subject.current_url)
     end

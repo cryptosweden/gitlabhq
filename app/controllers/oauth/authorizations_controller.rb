@@ -1,24 +1,28 @@
 # frozen_string_literal: true
 
 class Oauth::AuthorizationsController < Doorkeeper::AuthorizationsController
-  include Gitlab::Experimentation::ControllerConcern
+  include Gitlab::GonHelper
   include InitializesCurrentUserMode
   include Gitlab::Utils::StrongMemoize
 
-  before_action :verify_confirmed_email!, :verify_confidential_application!
+  before_action :add_gon_variables
+  before_action :verify_confirmed_email!, :verify_admin_allowed!
 
-  layout 'profile'
+  layout 'minimal'
 
   # Overridden from Doorkeeper::AuthorizationsController to
   # include the call to session.delete
   def new
     if pre_auth.authorizable?
-      if skip_authorization? || matching_token?
+      if skip_authorization? || (matching_token? && pre_auth.client.application.confidential?)
         auth = authorization.authorize
         parsed_redirect_uri = URI.parse(auth.redirect_uri)
         session.delete(:user_return_to)
         render "doorkeeper/authorizations/redirect", locals: { redirect_uri: parsed_redirect_uri }, layout: false
       else
+        redirect_uri = URI(authorization.authorize.redirect_uri)
+        allow_redirect_uri_form_action(redirect_uri.scheme)
+
         render "doorkeeper/authorizations/new"
       end
     else
@@ -27,6 +31,20 @@ class Oauth::AuthorizationsController < Doorkeeper::AuthorizationsController
   end
 
   private
+
+  # Chrome blocks redirections if the form-action CSP directive is present
+  # and the redirect location's scheme isn't allow-listed
+  # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/form-action
+  # https://github.com/w3c/webappsec-csp/issues/8
+  def allow_redirect_uri_form_action(redirect_uri_scheme)
+    return unless content_security_policy?
+
+    form_action = request.content_security_policy.form_action
+    return unless form_action
+
+    form_action.push("#{redirect_uri_scheme}:")
+    request.content_security_policy.form_action(*form_action)
+  end
 
   def pre_auth_params
     # Cannot be achieved with a before_action hook, due to the execution order.
@@ -37,9 +55,6 @@ class Oauth::AuthorizationsController < Doorkeeper::AuthorizationsController
 
   # limit scopes when signing in with GitLab
   def downgrade_scopes!
-    return unless Feature.enabled?(:omniauth_login_minimal_scopes, current_user,
-                                   default_enabled: :yaml)
-
     auth_type = params.delete('gl_auth_type')
     return unless auth_type == 'login'
 
@@ -67,7 +82,7 @@ class Oauth::AuthorizationsController < Doorkeeper::AuthorizationsController
   end
 
   def doorkeeper_application
-    strong_memoize(:doorkeeper_application) { ::Doorkeeper::OAuth::Client.find(params['client_id'])&.application }
+    strong_memoize(:doorkeeper_application) { ::Doorkeeper::OAuth::Client.find(params['client_id'].to_s)&.application }
   end
 
   def application_has_read_user_scope?
@@ -78,22 +93,27 @@ class Oauth::AuthorizationsController < Doorkeeper::AuthorizationsController
     doorkeeper_application&.includes_scope?(*::Gitlab::Auth::API_SCOPES)
   end
 
-  # Confidential apps require the client_secret to be sent with the request.
-  # Doorkeeper allows implicit grant flow requests (response_type=token) to
-  # work without client_secret regardless of the confidential setting.
-  # This leads to security vulnerabilities and we want to block it.
-  def verify_confidential_application!
-    render 'doorkeeper/authorizations/error' if authorizable_confidential?
-  end
-
-  def authorizable_confidential?
-    pre_auth.authorizable? && pre_auth.response_type == 'token' && pre_auth.client.application.confidential
-  end
-
   def verify_confirmed_email!
     return if current_user&.confirmed?
 
     pre_auth.error = :unconfirmed_email
     render "doorkeeper/authorizations/error"
+  end
+
+  def verify_admin_allowed!
+    render "doorkeeper/authorizations/forbidden" if disallow_connect?
+  end
+
+  def disallow_connect?
+    # we're disabling Cop/UserAdmin as OAuth tokens don't seem to respect admin mode
+    current_user&.admin? && Gitlab::CurrentSettings.disable_admin_oauth_scopes && dangerous_scopes? # rubocop:disable Cop/UserAdmin
+  end
+
+  def dangerous_scopes?
+    doorkeeper_application&.includes_scope?(
+      *::Gitlab::Auth::API_SCOPE, *::Gitlab::Auth::READ_API_SCOPE,
+      *::Gitlab::Auth::ADMIN_SCOPES, *::Gitlab::Auth::REPOSITORY_SCOPES,
+      *::Gitlab::Auth::REGISTRY_SCOPES
+    ) && !doorkeeper_application&.trusted?
   end
 end

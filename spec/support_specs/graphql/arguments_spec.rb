@@ -6,14 +6,14 @@ RSpec.describe Graphql::Arguments do
   it 'returns a blank string if the arguments are blank' do
     args = described_class.new({})
 
-    expect("#{args}").to be_blank
+    expect(args.to_s).to be_blank
   end
 
   it 'returns a serialized arguments if the arguments are not blank' do
     units = described_class.new({ temp: :CELSIUS, time: :MINUTES })
     args = described_class.new({ temp: 180, time: 45, units: units })
 
-    expect("#{args}").to eq('temp: 180, time: 45, units: {temp: CELSIUS, time: MINUTES}')
+    expect(args.to_s).to eq('temp: 180, time: 45, units: {temp: CELSIUS, time: MINUTES}')
   end
 
   it 'supports merge with +' do
@@ -50,9 +50,9 @@ RSpec.describe Graphql::Arguments do
       hash: { a: 1, b: 2, c: 3 },
       int: 42,
       float: 2.7,
-      string: %q[he said "no"],
+      string: %q(he said "no"),
       enum: :OFF,
-      null: nil, # we expect this to be omitted - absence is the same as explicit nullness
+      null: nil,
       bool_true: true,
       bool_false: false,
       var: ::Graphql::Var.new('x', 'Int')
@@ -64,6 +64,7 @@ RSpec.describe Graphql::Arguments do
       'int: 42, float: 2.7',
       %q(string: "he said \\"no\\""),
       'enum: OFF',
+      'null: null',
       'boolTrue: true, boolFalse: false',
       'var: $x'
     ].join(', '))

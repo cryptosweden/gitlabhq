@@ -3,30 +3,38 @@
 module Resolvers
   module WorkItems
     class TypesResolver < BaseResolver
+      include LooksAhead
+
       type Types::WorkItems::TypeType.connection_type, null: true
 
-      argument :taskable, ::GraphQL::Types::Boolean,
-               required: false,
-               description: 'If `true`, only taskable work item types will be returned.' \
-                            ' Argument is experimental and can be removed in the future without notice.'
+      argument :name, Types::IssueTypeEnum,
+        description: 'Filter work item types by the given name.',
+        required: false
 
-      def resolve(taskable: nil)
-        return unless feature_flag_enabled_for_parent?(object)
+      def resolve_with_lookahead(name: nil)
+        context.scoped_set!(:resource_parent, object)
 
         # This will require a finder in the future when groups/projects get their work item types
         # All groups/projects use the default types for now
         base_scope = ::WorkItems::Type.default
-        base_scope = base_scope.by_type(:task) if taskable
+        base_scope = base_scope.by_type(name) if name
 
-        base_scope.order_by_name_asc
+        apply_lookahead(base_scope.order_by_name_asc)
       end
 
       private
 
-      def feature_flag_enabled_for_parent?(parent)
-        return false unless parent.is_a?(::Project) || parent.is_a?(::Group)
+      def preloads
+        {
+          widget_definitions: :enabled_widget_definitions
+        }
+      end
 
-        parent.work_items_feature_flag_enabled?
+      def nested_preloads
+        {
+          widget_definitions: { allowed_child_types: :allowed_child_types_by_name,
+                                allowed_parent_types: :allowed_parent_types_by_name }
+        }
       end
     end
   end

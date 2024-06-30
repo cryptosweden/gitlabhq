@@ -4,6 +4,7 @@ class Admin::LabelsController < Admin::ApplicationController
   before_action :set_label, only: [:show, :edit, :update, :destroy]
 
   feature_category :team_planning
+  urgency :low
 
   def index
     @labels = Label.templates.page(params[:page])
@@ -40,14 +41,20 @@ class Admin::LabelsController < Admin::ApplicationController
   end
 
   def destroy
-    @label.destroy
-    @labels = Label.templates
-
     respond_to do |format|
-      format.html do
-        redirect_to admin_labels_path, status: :found, notice: _('Label was removed')
+      if @label.destroy
+        format.html do
+          redirect_to admin_labels_path, status: :found,
+            notice: format(_('%{label_name} was removed'), label_name: @label.name)
+        end
+        format.js { head :ok }
+      else
+        format.html do
+          redirect_to admin_labels_path, status: :found,
+            alert: @label.errors.full_messages.to_sentence
+        end
+        format.js { head :unprocessable_entity }
       end
-      format.js { head :ok }
     end
   end
 

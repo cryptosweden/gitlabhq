@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::ArchiveTraceService, '#execute' do
+RSpec.describe Ci::ArchiveTraceService, '#execute', feature_category: :continuous_integration do
   subject { described_class.new.execute(job, worker_name: Ci::ArchiveTraceWorker.name) }
 
   context 'when job is finished' do
@@ -17,19 +17,10 @@ RSpec.describe Ci::ArchiveTraceService, '#execute' do
 
     context 'integration hooks' do
       it do
-        stub_feature_flags(datadog_integration_logs_collection: [job.project])
-
         expect(job.project).to receive(:execute_integrations) do |data, hook_type|
           expect(data).to eq Gitlab::DataBuilder::ArchiveTrace.build(job)
           expect(hook_type).to eq :archive_trace_hooks
         end
-        expect { subject }.not_to raise_error
-      end
-
-      it 'with feature flag disabled' do
-        stub_feature_flags(datadog_integration_logs_collection: false)
-
-        expect(job.project).not_to receive(:execute_integrations)
         expect { subject }.not_to raise_error
       end
     end
@@ -69,19 +60,6 @@ RSpec.describe Ci::ArchiveTraceService, '#execute' do
             expect(job.reload.job_artifacts_trace.file.file).to be_present
           end
         end
-      end
-    end
-
-    context 'when job does not have trace' do
-      let(:job) { create(:ci_build, :success) }
-
-      it 'leaves a warning message in sidekiq log' do
-        expect(Sidekiq.logger).to receive(:warn).with(
-          class: Ci::ArchiveTraceWorker.name,
-          message: 'The job does not have live trace but going to be archived.',
-          job_id: job.id)
-
-        subject
       end
     end
 
@@ -158,23 +136,6 @@ RSpec.describe Ci::ArchiveTraceService, '#execute' do
         subject
       end
     end
-
-    context 'when job failed to archive trace but did not raise an exception' do
-      before do
-        allow_next_instance_of(Gitlab::Ci::Trace) do |instance|
-          allow(instance).to receive(:archive!) {}
-        end
-      end
-
-      it 'leaves a warning message in sidekiq log' do
-        expect(Sidekiq.logger).to receive(:warn).with(
-          class: Ci::ArchiveTraceWorker.name,
-          message: 'The job does not have archived trace after archiving.',
-          job_id: job.id)
-
-        subject
-      end
-    end
   end
 
   context 'when job is running' do
@@ -184,8 +145,8 @@ RSpec.describe Ci::ArchiveTraceService, '#execute' do
       expect(Gitlab::ErrorTracking)
         .to receive(:track_and_raise_for_dev_exception)
         .with(::Gitlab::Ci::Trace::ArchiveError,
-              issue_url: 'https://gitlab.com/gitlab-org/gitlab-foss/issues/51502',
-              job_id: job.id).once
+          issue_url: 'https://gitlab.com/gitlab-org/gitlab-foss/issues/51502',
+          job_id: job.id).once
 
       expect(Sidekiq.logger).to receive(:warn).with(
         class: Ci::ArchiveTraceWorker.name,
@@ -199,6 +160,71 @@ RSpec.describe Ci::ArchiveTraceService, '#execute' do
 
       expect { subject }.not_to raise_error
       expect(job.trace_metadata.archival_attempts).to eq(1)
+    end
+  end
+
+  describe '#batch_execute' do
+    subject { described_class.new.batch_execute(worker_name: Ci::ArchiveTraceWorker.name) }
+
+    let_it_be_with_reload(:job) { create(:ci_build, :success, :trace_live, finished_at: 1.day.ago) }
+    let_it_be_with_reload(:job2) { create(:ci_build, :success, :trace_live, finished_at: 1.day.ago) }
+
+    it 'archives multiple traces' do
+      expect { subject }.not_to raise_error
+
+      expect(job.reload.job_artifacts_trace).to be_exist
+      expect(job2.reload.job_artifacts_trace).to be_exist
+    end
+
+    it 'processes traces independently' do
+      allow_next_instance_of(Gitlab::Ci::Trace) do |instance|
+        orig_method = instance.method(:archive!)
+        allow(instance).to receive(:archive!) do
+          raise('Unexpected error') if instance.job.id == job.id
+
+          orig_method.call
+        end
+      end
+
+      expect { subject }.not_to raise_error
+
+      expect(job.reload.job_artifacts_trace).to be_nil
+      expect(job2.reload.job_artifacts_trace).to be_exist
+    end
+
+    context 'when timeout is reached' do
+      before do
+        stub_const("#{described_class}::LOOP_TIMEOUT", 0.seconds)
+      end
+
+      it 'stops executing traces' do
+        expect { subject }.not_to raise_error
+
+        expect(job.reload.job_artifacts_trace).to be_nil
+      end
+    end
+
+    context 'when loop limit is reached' do
+      before do
+        stub_const("#{described_class}::LOOP_LIMIT", -1)
+      end
+
+      it 'skips archiving' do
+        expect(job.trace).not_to receive(:archive!)
+
+        subject
+      end
+
+      it 'stops executing traces' do
+        expect(Sidekiq.logger).to receive(:warn).with(
+          class: Ci::ArchiveTraceWorker.name,
+          message: "Loop limit reached.",
+          job_id: job.id)
+
+        expect { subject }.not_to raise_error
+
+        expect(job.reload.job_artifacts_trace).to be_nil
+      end
     end
   end
 end

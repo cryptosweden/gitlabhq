@@ -1,17 +1,19 @@
 ---
-stage: Plan
-group: Product Planning
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Monitor
+group: Respond
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Customer relations management (CRM) **(FREE)**
+# Customer relations management (CRM)
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available, ask an administrator to [enable the feature flag](../../administration/feature_flags.md) named `customer_relations`.
-On GitLab.com, this feature is not available.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 > - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/2256) in GitLab 14.6 [with a flag](../../administration/feature_flags.md) named `customer_relations`. Disabled by default.
 > - In GitLab 14.8 and later, you can [create contacts and organizations only in root groups](https://gitlab.com/gitlab-org/gitlab/-/issues/350634).
+> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/346082) in GitLab 15.0.
+> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/346082) in GitLab 15.1.
 
 With customer relations management (CRM) you can create a record of contacts
 (individuals) and organizations (companies) and relate them to issues.
@@ -19,44 +21,58 @@ With customer relations management (CRM) you can create a record of contacts
 Contacts and organizations can only be created for root groups.
 
 You can use contacts and organizations to tie work to customers for billing and reporting purposes.
-To read more about what is planned for the future, see [issue 2256](https://gitlab.com/gitlab-org/gitlab/-/issues/2256).
+For more information about what is planned for the future, see [issue 2256](https://gitlab.com/gitlab-org/gitlab/-/issues/2256).
 
 ## Permissions
 
-| Permission | Guest            | Reporter | Developer, Maintainer, and Owner |
-| ---------- | ---------------- | -------- | -------------------------------- |
-| View contacts/organizations | | ✓        | ✓ |
-| View issue contacts |         | ✓        | ✓ |
-| Add/remove issue contacts |   | ✓        | ✓ |
-| Create/edit contacts/organizations | |   | ✓ |
+| Permission | Guest            | Group Reporter | Group Developer, Maintainer, and Owner |
+| ---------- | ---------------- | -------------- | -------------------------------------- |
+| View contacts/organizations | | ✓              | ✓ |
+| View issue contacts |         | ✓              | ✓ |
+| Add/remove issue contacts |   | ✓              | ✓ |
+| Create/edit contacts/organizations | |         | ✓ |
 
 ## Enable customer relations management (CRM)
 
-To enable customer relations management in a group:
+> - [Enabled by default](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/108378) in GitLab 16.9.
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Settings > General**.
+Customer relations management features are enabled at the group level. If your
+group also contains subgroups, and you want to use CRM features in the subgroup,
+CRM features must also be enabled for the subgroup.
+
+To enable customer relations management in a group or subgroup:
+
+1. On the left sidebar, select **Search or go to** and find your group or subgroup.
+1. Select **Settings > General**.
 1. Expand the **Permissions and group features** section.
-1. Select **Enable customer relations**.
+1. Select **Customer relations is enabled**.
 1. Select **Save changes**.
 
 ## Contacts
 
 ### View contacts linked to a group
 
+Prerequisites:
+
+- You must have at least the Reporter role for the group.
+
 To view a group's contacts:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Customer relations > Contacts**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
 
-![Contacts list](crm_contacts_v14_6.png)
+![Contacts list](crm_contacts_v14_10.png)
 
 ### Create a contact
 
+Prerequisites:
+
+- You must have at least the Developer role for the group.
+
 To create a contact:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Customer relations > Contacts**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
 1. Select **New contact**.
 1. Complete all required fields.
 1. Select **Create new contact**.
@@ -66,10 +82,14 @@ contacts using the GraphQL API.
 
 ### Edit a contact
 
+Prerequisites:
+
+- You must have at least the Developer role for the group.
+
 To edit an existing contact:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Customer relations > Contacts**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
 1. Next to the contact you wish to edit, select **Edit** (**{pencil}**).
 1. Edit the required fields.
 1. Select **Save changes**.
@@ -77,23 +97,48 @@ To edit an existing contact:
 You can also [edit](../../api/graphql/reference/index.md#mutationcustomerrelationscontactupdate)
 contacts using the GraphQL API.
 
+#### Change the state of a contact
+
+Each contact can be in one of two states:
+
+- **Active**: contacts in this state can be added to an issue.
+- **Inactive**: contacts in this state cannot be added to an issue.
+
+To change the state of a contact:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
+1. Next to the contact you wish to edit, select **Edit** (**{pencil}**).
+1. Select or clear the **Active** checkbox.
+1. Select **Save changes**.
+
 ## Organizations
 
 ### View organizations
 
+Prerequisites:
+
+- You must have at least the Reporter role for the group.
+
 To view a group's organizations:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Customer relations > Organizations**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
+1. In the upper right, select **Organizations**.
 
-![Organizations list](crm_organizations_v14_6.png)
+![Organizations list](crm_organizations_v14_10.png)
 
 ### Create an organization
 
+Prerequisites:
+
+- You must have at least the Developer role for the group.
+
 To create an organization:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Customer relations > Organizations**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
+1. In the upper right, select **Organizations**.
 1. Select **New organization**.
 1. Complete all required fields.
 1. Select **Create new organization**.
@@ -103,10 +148,15 @@ organizations using the GraphQL API.
 
 ### Edit an organization
 
+Prerequisites:
+
+- You must have at least the Developer role for the group.
+
 To edit an existing organization:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Customer relations > Organizations**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
+1. In the upper right, select **Organizations**.
 1. Next to the organization you wish to edit, select **Edit** (**{pencil}**).
 1. Edit the required fields.
 1. Select **Save changes**.
@@ -116,23 +166,39 @@ organizations using the GraphQL API.
 
 ## Issues
 
+If you use [Service Desk](../project/service_desk/index.md) and create issues from emails,
+issues are linked to contacts matching the email addresses in the sender and CC of the email.
+
 ### View issues linked to a contact
 
-To view a contact's issues:
+Prerequisites:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Customer relations > Contacts**.
+- You must have at least the Reporter role for the group.
+
+To view a contact's issues, select a contact from the issue sidebar, or:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
 1. Next to the contact whose issues you wish to view, select **View issues** (**{issues}**).
 
 ### View issues linked to an organization
 
+Prerequisites:
+
+- You must have at least the Reporter role for the group.
+
 To view an organization's issues:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Customer relations > Organizations**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Customer relations**.
+1. In the upper right, select **Organizations**.
 1. Next to the organization whose issues you wish to view, select **View issues** (**{issues}**).
 
 ### View contacts linked to an issue
+
+Prerequisites:
+
+- You must have at least the Reporter role for the group.
 
 You can view contacts associated with an issue in the right sidebar.
 
@@ -144,11 +210,13 @@ You can also view issue contacts using the
 [GraphQL](../../api/graphql/reference/index.md#mutationcustomerrelationsorganizationcreate)
 API.
 
-### Add or remove issue contacts
-
 ### Add contacts to an issue
 
-To add contacts to an issue use the `/add_contacts [contact:address@example.com]`
+Prerequisites:
+
+- You must have at least the Reporter role for the group.
+
+To add [active](#change-the-state-of-a-contact) contacts to an issue use the `/add_contacts [contact:address@example.com]`
 [quick action](../project/quick_actions.md).
 
 You can also add, remove, or replace issue contacts using the
@@ -157,6 +225,10 @@ API.
 
 ### Remove contacts from an issue
 
+Prerequisites:
+
+- You must have at least the Reporter role for the group.
+
 To remove contacts from an issue use the `/remove_contacts [contact:address@example.com]`
 [quick action](../project/quick_actions.md).
 
@@ -164,19 +236,21 @@ You can also add, remove, or replace issue contacts using the
 [GraphQL](../../api/graphql/reference/index.md#mutationissuesetcrmcontacts)
 API.
 
-## Autocomplete contacts **(FREE SELF)**
+## Autocomplete contacts
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/2256) in GitLab 14.8 [with a flag](../../administration/feature_flags.md) named `contacts_autocomplete`. Disabled by default.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/2256) in GitLab 14.8 [with a flag](../../administration/feature_flags.md) named `contacts_autocomplete`. Disabled by default.
+> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/352123) in GitLab 15.0.
+> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/352123) in GitLab 15.2. [Feature flag `contacts_autocomplete`](https://gitlab.com/gitlab-org/gitlab/-/issues/352123) removed.
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available, ask an administrator to [enable the feature flag](../../administration/feature_flags.md) named `contacts_autocomplete`.
-On GitLab.com, this feature is not available.
-This feature is not ready for production use.
-
-When you use the `/add_contacts` or `/remove_contacts` quick actions, follow them with `[contact:` and an autocomplete list appears:
+When you use the `/add_contacts` quick action, follow it with `[contact:` and an autocomplete list with the [active](#change-the-state-of-a-contact) contacts appears:
 
 ```plaintext
 /add_contacts [contact:
+```
+
+When you use the `/remove_contacts` quick action, follow it with `[contact:` and an autocomplete list with the contacts added to the issue appears:
+
+```plaintext
 /remove_contacts [contact:
 ```
 
@@ -184,7 +258,7 @@ When you use the `/add_contacts` or `/remove_contacts` quick actions, follow the
 
 The root group is the topmost group in the group hierarchy.
 
-When you move an issue, project, or group **within the same group hierarchy**,
+When you move an issue, project, or group **in the same group hierarchy**,
 issues retain their contacts.
 
 When you move an issue or project and the **root group changes**,

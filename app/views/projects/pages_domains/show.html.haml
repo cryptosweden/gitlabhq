@@ -2,20 +2,12 @@
 - breadcrumb_title domain_presenter.domain
 - page_title domain_presenter.domain
 
-- verification_enabled = Gitlab::CurrentSettings.pages_domain_verification_enabled?
-
-- if verification_enabled && domain_presenter.unverified?
-  = content_for :flash_message do
-    .gl-alert.gl-alert-warning
-      .container-fluid.container-limited
-        = _("This domain is not verified. You will need to verify ownership before access is enabled.")
-
-%h3.page-title
+%h1.page-title.gl-font-size-h-display
   = _('Pages Domain')
 = render 'projects/pages_domains/helper_text'
 %div
-  = form_for [@project, domain_presenter], html: { class: 'fieldset-form' } do |f|
+  = gitlab_ui_form_for [@project, domain_presenter], html: { class: 'fieldset-form' } do |f|
     = render 'form', { f: f }
-    .form-actions.d-flex.justify-content-between
-      = f.submit _('Save Changes'), class: "gl-button btn btn-confirm"
-      = link_to _('Cancel'), project_pages_path(@project), class: 'gl-button btn btn-default btn-inverse'
+    .gl-flex.gl-gap-3.gl-mt-6
+      = f.submit _('Save changes'), pajamas_button: true
+      = link_button_to _('Cancel'), project_pages_path(@project)

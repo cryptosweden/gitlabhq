@@ -53,7 +53,9 @@ export default {
     return {
       blobContent: '',
       activeViewerType:
-        this.blob?.richViewer && !window.location.hash ? RICH_BLOB_VIEWER : SIMPLE_BLOB_VIEWER,
+        this.blob?.richViewer && !window.location.hash?.startsWith('#LC')
+          ? RICH_BLOB_VIEWER
+          : SIMPLE_BLOB_VIEWER,
     };
   },
   computed: {
@@ -98,6 +100,7 @@ export default {
       @viewer-changed="switchViewer"
     />
     <blob-content
+      is-blame-link-hidden
       :loading="isContentLoading"
       :content="blobContent"
       :active-viewer="viewer"

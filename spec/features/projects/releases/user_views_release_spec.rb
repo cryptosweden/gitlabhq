@@ -2,15 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User views Release', :js do
+RSpec.describe 'User views Release', :js, feature_category: :continuous_delivery do
   let(:project) { create(:project, :repository) }
   let(:user) { create(:user) }
 
   let(:release) do
-    create(:release,
-           project: project,
-           name: 'The first release',
-           description: '**Lorem** _ipsum_ dolor sit [amet](https://example.com)')
+    create(
+      :release,
+      project: project,
+      name: 'The first release',
+      description: '**Lorem** _ipsum_ dolor sit [amet](https://example.com)'
+    )
   end
 
   before do
@@ -24,7 +26,7 @@ RSpec.describe 'User views Release', :js do
   it_behaves_like 'page meta description', 'Lorem ipsum dolor sit amet'
 
   it 'renders the breadcrumbs' do
-    within('.breadcrumbs') do
+    within_testid('breadcrumb-links') do
       expect(page).to have_content("#{project.creator.name} #{project.name} Releases #{release.name}")
 
       expect(page).to have_link(project.creator.name, href: user_path(project.creator))
@@ -35,7 +37,7 @@ RSpec.describe 'User views Release', :js do
   end
 
   it 'renders the release details' do
-    within('.release-block') do
+    within_testid('release-block') do
       expect(page).to have_content(release.name)
       expect(page).to have_content(release.tag)
       expect(page).to have_content(release.commit.short_id)

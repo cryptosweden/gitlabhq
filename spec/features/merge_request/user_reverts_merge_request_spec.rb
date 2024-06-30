@@ -2,21 +2,29 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User reverts a merge request', :js do
-  let(:merge_request) { create(:merge_request, :simple, source_project: project) }
+RSpec.describe 'User reverts a merge request', :js, feature_category: :code_review_workflow do
+  include Spec::Support::Helpers::ModalHelpers
+
   let(:project) { create(:project, :public, :repository) }
   let(:user) { create(:user) }
+  let(:merge_request) { create(:merge_request, :simple, source_project: project) }
 
   before do
     project.add_developer(user)
     sign_in(user)
 
+    set_cookie('new-actions-popover-viewed', 'true')
     visit(merge_request_path(merge_request))
 
-    click_button('Merge')
+    page.within('.mr-state-widget') do
+      click_button 'Merge'
+    end
+
+    wait_for_all_requests
+
+    page.refresh
 
     wait_for_requests
-
     # do not reload the page by visiting, let javascript update the page as it will validate we have loaded the modal
     # code correctly on page update that adds the `revert` button
   end
@@ -34,7 +42,7 @@ RSpec.describe 'User reverts a merge request', :js do
 
     revert_commit
 
-    expect(page).to have_content('Sorry, we cannot revert this merge request automatically.')
+    expect(page).to have_content('Merge request revert failed:')
   end
 
   it 'reverts a merge request in a new merge request', :sidekiq_might_not_need_inline do
@@ -51,12 +59,28 @@ RSpec.describe 'User reverts a merge request', :js do
     expect(page).not_to have_link('Revert')
   end
 
-  def revert_commit(create_merge_request: false)
-    click_button('Revert')
+  context 'when project merge method is fast-forward merge and squash is enabled' do
+    let(:merge_request) { create(:merge_request, target_branch: 'master', source_branch: 'compare-with-merge-head-target', source_project: project, squash: true) }
 
-    page.within('[data-testid="modal-commit"]') do
+    before do
+      project.update!(merge_requests_ff_only_enabled: true)
+    end
+
+    it 'reverts a merge request', :sidekiq_might_not_need_inline do
+      revert_commit
+
+      wait_for_requests
+
+      expect(page).to have_content('The merge request has been successfully reverted.')
+    end
+  end
+
+  def revert_commit(create_merge_request: false)
+    click_button 'Revert'
+
+    within_modal do
       uncheck('create_merge_request') unless create_merge_request
-      click_button('Revert')
+      click_button 'Revert'
     end
   end
 end

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe API::PypiPackages do
+RSpec.describe API::PypiPackages, feature_category: :package_registry do
   include WorkhorseHelpers
   include PackagesManagerApiSpecHelpers
   include HttpBasicAuthHelpers
@@ -15,9 +15,92 @@ RSpec.describe API::PypiPackages do
   let_it_be(:project_deploy_token) { create(:project_deploy_token, deploy_token: deploy_token, project: project) }
   let_it_be(:job) { create(:ci_build, :running, user: user, project: project) }
 
+  let(:snowplow_gitlab_standard_context) { snowplow_context }
   let(:headers) { {} }
 
-  context 'simple API endpoint' do
+  def snowplow_context(user_role: :developer)
+    if user_role == :anonymous
+      { project: project, namespace: project.namespace, property: 'i_package_pypi_user' }
+    else
+      { project: project, namespace: project.namespace, property: 'i_package_pypi_user', user: user }
+    end
+  end
+
+  shared_context 'setup auth headers' do
+    let(:token) { personal_access_token.token }
+    let(:user_headers) { basic_auth_header(user.username, token) }
+    let(:headers) { user_headers.merge(workhorse_headers) }
+  end
+
+  shared_context 'add to project and group' do |user_type|
+    before do
+      project.send("add_#{user_type}", user)
+      group.send("add_#{user_type}", user)
+    end
+  end
+
+  context 'simple index API endpoint' do
+    let_it_be(:package) { create(:pypi_package, project: project) }
+    let_it_be(:package2) { create(:pypi_package, project: project) }
+
+    subject { get api(url), headers: headers }
+
+    describe 'GET /api/v4/groups/:id/-/packages/pypi/simple' do
+      let(:url) { "/groups/#{group.id}/-/packages/pypi/simple" }
+
+      it_behaves_like 'pypi simple index API endpoint'
+      it_behaves_like 'rejects PyPI access with unknown group id'
+
+      context 'deploy tokens' do
+        let_it_be(:group_deploy_token) { create(:group_deploy_token, deploy_token: deploy_token, group: group) }
+
+        before do
+          project.update_column(:visibility_level, Gitlab::VisibilityLevel::PRIVATE)
+          group.update_column(:visibility_level, Gitlab::VisibilityLevel::PRIVATE)
+        end
+
+        it_behaves_like 'deploy token for package GET requests'
+
+        context 'with group path as id' do
+          let(:url) { "/groups/#{CGI.escape(group.full_path)}/-/packages/pypi/simple" }
+
+          it_behaves_like 'deploy token for package GET requests'
+        end
+      end
+
+      context 'job token' do
+        before do
+          project.update_column(:visibility_level, Gitlab::VisibilityLevel::PRIVATE)
+          group.update_column(:visibility_level, Gitlab::VisibilityLevel::PRIVATE)
+          group.add_developer(user)
+        end
+
+        it_behaves_like 'job token for package GET requests'
+      end
+
+      it_behaves_like 'a pypi user namespace endpoint'
+    end
+
+    describe 'GET /api/v4/projects/:id/packages/pypi/simple' do
+      let(:package_name) { package.name }
+      let(:url) { "/projects/#{project.id}/packages/pypi/simple" }
+      let(:snowplow_gitlab_standard_context) { { project: nil, namespace: group, property: 'i_package_pypi_user' } }
+
+      it_behaves_like 'pypi simple index API endpoint'
+      it_behaves_like 'rejects PyPI access with unknown project id'
+      it_behaves_like 'deploy token for package GET requests'
+      it_behaves_like 'job token for package GET requests'
+      it_behaves_like 'allow access for everyone with public package_registry_access_level'
+
+      context 'with project path as id' do
+        let(:url) { "/projects/#{CGI.escape(project.full_path)}/packages/pypi/simple" }
+
+        it_behaves_like 'deploy token for package GET requests'
+      end
+    end
+  end
+
+  context 'simple package API endpoint' do
     let_it_be(:package) { create(:pypi_package, project: project) }
 
     subject { get api(url), headers: headers }
@@ -25,7 +108,7 @@ RSpec.describe API::PypiPackages do
     describe 'GET /api/v4/groups/:id/-/packages/pypi/simple/:package_name' do
       let(:package_name) { package.name }
       let(:url) { "/groups/#{group.id}/-/packages/pypi/simple/#{package_name}" }
-      let(:snowplow_gitlab_standard_context) { {} }
+      let(:snowplow_context) { { project: nil, namespace: project.namespace, property: 'i_package_pypi_user' } }
 
       it_behaves_like 'pypi simple API endpoint'
       it_behaves_like 'rejects PyPI access with unknown group id'
@@ -41,7 +124,7 @@ RSpec.describe API::PypiPackages do
         it_behaves_like 'deploy token for package GET requests'
 
         context 'with group path as id' do
-          let(:url) { "/groups/#{CGI.escape(group.full_path)}/-/packages/pypi/simple/#{package_name}"}
+          let(:url) { "/groups/#{CGI.escape(group.full_path)}/-/packages/pypi/simple/#{package_name}" }
 
           it_behaves_like 'deploy token for package GET requests'
         end
@@ -63,12 +146,13 @@ RSpec.describe API::PypiPackages do
     describe 'GET /api/v4/projects/:id/packages/pypi/simple/:package_name' do
       let(:package_name) { package.name }
       let(:url) { "/projects/#{project.id}/packages/pypi/simple/#{package_name}" }
-      let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace } }
+      let(:snowplow_context) { { project: project, namespace: project.namespace, property: 'i_package_pypi_user' } }
 
       it_behaves_like 'pypi simple API endpoint'
       it_behaves_like 'rejects PyPI access with unknown project id'
       it_behaves_like 'deploy token for package GET requests'
       it_behaves_like 'job token for package GET requests'
+      it_behaves_like 'allow access for everyone with public package_registry_access_level'
 
       context 'with project path as id' do
         let(:url) { "/projects/#{CGI.escape(project.full_path)}/packages/pypi/simple/#{package.name}" }
@@ -136,10 +220,31 @@ RSpec.describe API::PypiPackages do
     let(:url) { "/projects/#{project.id}/packages/pypi" }
     let(:headers) { {} }
     let(:requires_python) { '>=3.7' }
-    let(:base_params) { { requires_python: requires_python, version: '1.0.0', name: 'sample-project', sha256_digest: '123' } }
+    let(:keywords) { 'dog,puppy,voting,election' }
+    let(:description) { 'Example description' }
+    let(:metadata_version) { '2.3' }
+    let(:author_email) { 'cschultz@example.com, snoopy@peanuts.com' }
+    let(:description_content_type) { 'text/plain' }
+    let(:summary) { 'A module for collecting votes from beagles.' }
+    let(:base_params) do
+      {
+        requires_python: requires_python,
+        version: '1.0.0',
+        name: 'sample-project',
+        sha256_digest: '1' * 64,
+        md5_digest: '1' * 32,
+        metadata_version: metadata_version,
+        author_email: author_email,
+        description: description,
+        description_content_type: description_content_type,
+        summary: summary,
+        keywords: keywords
+      }
+    end
+
     let(:params) { base_params.merge(content: temp_file(file_name)) }
     let(:send_rewritten_field) { true }
-    let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, user: user } }
+    let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, user: user, property: 'i_package_pypi_user' } }
 
     subject do
       workhorse_finalize(
@@ -178,6 +283,13 @@ RSpec.describe API::PypiPackages do
         let(:token) { user_token ? personal_access_token.token : 'wrong' }
         let(:user_headers) { user_role == :anonymous ? {} : basic_auth_header(user.username, token) }
         let(:headers) { user_headers.merge(workhorse_headers) }
+        let(:snowplow_gitlab_standard_context) do
+          if user_role == :anonymous || (visibility_level == :public && !user_token)
+            { project: project, namespace: project.namespace, property: 'i_package_pypi_user' }
+          else
+            { project: project, namespace: project.namespace, property: 'i_package_pypi_user', user: user }
+          end
+        end
 
         before do
           project.update_column(:visibility_level, Gitlab::VisibilityLevel.level_value(visibility_level.to_s))
@@ -192,29 +304,91 @@ RSpec.describe API::PypiPackages do
         let(:headers) { user_headers.merge(workhorse_headers) }
 
         it_behaves_like 'PyPI package creation', :developer, :created, true
+
+        context 'with FIPS mode', :fips_mode do
+          it_behaves_like 'PyPI package creation', :developer, :created, true, false
+        end
+      end
+
+      context 'without sha256_digest' do
+        let(:token) { personal_access_token.token }
+        let(:user_headers) { basic_auth_header(user.username, token) }
+        let(:headers) { user_headers.merge(workhorse_headers) }
+        let(:params) { base_params.merge(content: temp_file(file_name)) }
+
+        before do
+          params.delete(:sha256_digest)
+        end
+
+        it_behaves_like 'PyPI package creation', :developer, :created, true, true
+
+        context 'with FIPS mode', :fips_mode do
+          before do
+            project.add_developer(user)
+          end
+
+          it 'returns 422 and does not create a package' do
+            expect { subject }.not_to change { project.packages.pypi.count }
+
+            expect(response).to have_gitlab_http_status(:unprocessable_entity)
+          end
+        end
       end
     end
 
-    context 'with required_python too big' do
-      let(:requires_python) { 'x' * 256 }
-      let(:token) { personal_access_token.token }
-      let(:user_headers) { basic_auth_header(user.username, token) }
-      let(:headers) { user_headers.merge(workhorse_headers) }
-
-      before do
-        project.update_column(:visibility_level, Gitlab::VisibilityLevel::PRIVATE)
+    context 'with a very long metadata field' do
+      where(:field_name, :param_name, :max_length) do
+        :required_python          | :requires_python | ::Packages::Pypi::Metadatum::MAX_REQUIRED_PYTHON_LENGTH
+        :keywords                 | nil              | ::Packages::Pypi::Metadatum::MAX_KEYWORDS_LENGTH
+        :metadata_version         | nil              | ::Packages::Pypi::Metadatum::MAX_METADATA_VERSION_LENGTH
+        :description              | nil              | ::Packages::Pypi::Metadatum::MAX_DESCRIPTION_LENGTH
+        :summary                  | nil              | ::Packages::Pypi::Metadatum::MAX_SUMMARY_LENGTH
+        :description_content_type | nil              | ::Packages::Pypi::Metadatum::MAX_DESCRIPTION_CONTENT_TYPE_LENGTH
+        :author_email             | nil              | ::Packages::Pypi::Metadatum::MAX_AUTHOR_EMAIL_LENGTH
       end
 
-      it_behaves_like 'process PyPI api request', :developer, :bad_request, true
+      with_them do
+        include_context 'setup auth headers'
+        include_context 'add to project and group', 'developer'
+
+        let(:truncated_field) { ('x' * (max_length + 1)).truncate(max_length) }
+
+        before do
+          key = param_name || field_name
+
+          params.merge!(
+            { key.to_sym => 'x' * (max_length + 1) }
+          )
+        end
+
+        it_behaves_like 'returning response status', :created
+
+        it 'truncates the field' do
+          subject
+
+          created_package = ::Packages::Package.pypi.last
+
+          expect(created_package.pypi_metadatum.public_send(field_name)).to eq(truncated_field)
+        end
+      end
     end
 
     context 'with an invalid package' do
-      let(:token) { personal_access_token.token }
-      let(:user_headers) { basic_auth_header(user.username, token) }
-      let(:headers) { user_headers.merge(workhorse_headers) }
+      include_context 'setup auth headers'
 
       before do
         params[:name] = '.$/@!^*'
+        project.add_developer(user)
+      end
+
+      it_behaves_like 'returning response status', :bad_request
+    end
+
+    context 'with an invalid sha256' do
+      include_context 'setup auth headers'
+
+      before do
+        params[:sha256_digest] = ('a' * 63) + '%'
         project.add_developer(user)
       end
 
@@ -273,11 +447,18 @@ RSpec.describe API::PypiPackages do
     let_it_be(:package_name) { 'Dummy-Package' }
     let_it_be(:package) { create(:pypi_package, project: project, name: package_name, version: '1.0.0') }
 
+    let(:snowplow_gitlab_standard_context) do
+      if user_role == :anonymous || (visibility_level == :public && !user_token)
+        { project: project, namespace: project.namespace, property: 'i_package_pypi_user' }
+      else
+        { project: project, namespace: project.namespace, property: 'i_package_pypi_user', user: user }
+      end
+    end
+
     subject { get api(url), headers: headers }
 
     describe 'GET /api/v4/groups/:id/-/packages/pypi/files/:sha256/*file_identifier' do
       let(:url) { "/groups/#{group.id}/-/packages/pypi/files/#{package.package_files.first.file_sha256}/#{package_name}-1.0.0.tar.gz" }
-      let(:snowplow_gitlab_standard_context) { {} }
 
       it_behaves_like 'pypi file download endpoint'
       it_behaves_like 'rejects PyPI access with unknown group id'
@@ -286,10 +467,10 @@ RSpec.describe API::PypiPackages do
 
     describe 'GET /api/v4/projects/:id/packages/pypi/files/:sha256/*file_identifier' do
       let(:url) { "/projects/#{project.id}/packages/pypi/files/#{package.package_files.first.file_sha256}/#{package_name}-1.0.0.tar.gz" }
-      let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace } }
 
       it_behaves_like 'pypi file download endpoint'
       it_behaves_like 'rejects PyPI access with unknown project id'
+      it_behaves_like 'allow access for everyone with public package_registry_access_level'
     end
   end
 end

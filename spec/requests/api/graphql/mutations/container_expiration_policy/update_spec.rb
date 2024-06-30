@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Updating the container expiration policy' do
+RSpec.describe 'Updating the container expiration policy', feature_category: :container_registry do
   include GraphqlHelpers
   using RSpec::Parameterized::TableSyntax
 
@@ -20,17 +20,19 @@ RSpec.describe 'Updating the container expiration policy' do
   end
 
   let(:mutation) do
-    graphql_mutation(:update_container_expiration_policy, params,
-                     <<~QL
-                       containerExpirationPolicy {
-                         cadence
-                         keepN
-                         nameRegexKeep
-                         nameRegex
-                         olderThan
-                       }
-                       errors
-                     QL
+    graphql_mutation(
+      :update_container_expiration_policy,
+      params,
+      <<~QL
+        containerExpirationPolicy {
+          cadence
+          keepN
+          nameRegexKeep
+          nameRegex
+          olderThan
+        }
+        errors
+      QL
     )
   end
 
@@ -135,7 +137,7 @@ RSpec.describe 'Updating the container expiration policy' do
     context 'with existing container expiration policy' do
       where(:user_role, :shared_examples_name) do
         :maintainer | 'accepting the mutation request updating the container expiration policy'
-        :developer  | 'accepting the mutation request updating the container expiration policy'
+        :developer  | 'denying the mutation request'
         :reporter   | 'denying the mutation request'
         :guest      | 'denying the mutation request'
         :anonymous  | 'denying the mutation request'
@@ -155,7 +157,7 @@ RSpec.describe 'Updating the container expiration policy' do
 
       where(:user_role, :shared_examples_name) do
         :maintainer | 'accepting the mutation request creating the container expiration policy'
-        :developer  | 'accepting the mutation request creating the container expiration policy'
+        :developer  | 'denying the mutation request'
         :reporter   | 'denying the mutation request'
         :guest      | 'denying the mutation request'
         :anonymous  | 'denying the mutation request'

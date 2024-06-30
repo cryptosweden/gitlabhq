@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query.merge_request(id)' do
+RSpec.describe 'Query.merge_request(id)', feature_category: :code_review_workflow do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :empty_repo) }
   let_it_be(:merge_request) { create(:merge_request, source_project: project) }
   let_it_be(:current_user) { create(:user) }
-  let_it_be(:merge_request_params) { { 'id' => merge_request.to_global_id.to_s } }
 
+  let(:merge_request_params) { { 'id' => global_id_of(merge_request) } }
   let(:merge_request_data) { graphql_data['mergeRequest'] }
   let(:merge_request_fields) { all_graphql_fields_for('MergeRequest'.classify) }
 
@@ -17,37 +17,27 @@ RSpec.describe 'Query.merge_request(id)' do
     graphql_query_for('mergeRequest', merge_request_params, merge_request_fields)
   end
 
-  it_behaves_like 'a working graphql query' do
-    before do
-      post_graphql(query, current_user: current_user)
-    end
-  end
-
-  it_behaves_like 'a noteable graphql type we can query' do
-    let(:noteable) { merge_request }
-    let(:project) { merge_request.project }
-    let(:path_to_noteable) { [:merge_request] }
-
-    before do
-      project.add_reporter(current_user)
-    end
-
-    def query(fields)
-      graphql_query_for('mergeRequest', merge_request_params, fields)
-    end
-  end
-
   context 'when the user does not have access to the merge request' do
-    it 'returns nil' do
-      post_graphql(query)
-
-      expect(merge_request_data).to be nil
+    it_behaves_like 'a working graphql query that returns no data' do
+      before do
+        post_graphql(query, current_user: current_user)
+      end
     end
   end
 
   context 'when the user does have access' do
     before do
       project.add_reporter(current_user)
+    end
+
+    it_behaves_like 'a noteable graphql type we can query' do
+      let(:noteable) { merge_request }
+      let(:project) { merge_request.project }
+      let(:path_to_noteable) { [:merge_request] }
+
+      def query(fields)
+        graphql_query_for('mergeRequest', merge_request_params, fields)
+      end
     end
 
     it 'returns the merge request' do
@@ -65,7 +55,7 @@ RSpec.describe 'Query.merge_request(id)' do
       end
 
       with_them do
-        it_behaves_like 'a working graphql query' do
+        it_behaves_like 'a working graphql query that returns data' do
           let(:merge_request_fields) do
             field
           end

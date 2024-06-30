@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Projects::LfsPointers::LfsDownloadService do
+RSpec.describe Projects::LfsPointers::LfsDownloadService, feature_category: :source_code_management do
   include StubRequests
 
   let_it_be(:project) { create(:project) }
@@ -94,7 +94,7 @@ RSpec.describe Projects::LfsPointers::LfsDownloadService do
       it 'streams the download' do
         expected_options = { headers: anything, stream_body: true }
 
-        expect(Gitlab::HTTP).to receive(:perform_request).with(Net::HTTP::Get, anything, expected_options)
+        expect(Gitlab::HTTP).to receive(:get).with(anything, expected_options)
 
         subject.execute
       end
@@ -108,7 +108,7 @@ RSpec.describe Projects::LfsPointers::LfsDownloadService do
       end
     end
 
-    context 'when file download fails' do
+    context 'when file downloading response code is not success' do
       before do
         allow(Gitlab::HTTP).to receive(:get).and_return(code: 500, 'success?' => false)
       end
@@ -122,11 +122,25 @@ RSpec.describe Projects::LfsPointers::LfsDownloadService do
       end
     end
 
+    context 'when file downloading request timeout few times' do
+      before do
+        allow(Gitlab::HTTP).to receive(:get).and_raise(Net::OpenTimeout)
+      end
+
+      it_behaves_like 'no lfs object is created'
+
+      it 'retries to get LFS object 3 times before raising exception' do
+        subject.execute
+
+        expect(Gitlab::HTTP).to have_received(:get).exactly(3).times
+      end
+    end
+
     context 'when file download returns a redirect' do
       let(:redirect_link) { 'http://external-link' }
 
       before do
-        stub_full_request(download_link).to_return(status: 301, body: 'You are being redirected', headers: { 'Location' => redirect_link } )
+        stub_full_request(download_link).to_return(status: 301, body: 'You are being redirected', headers: { 'Location' => redirect_link })
         stub_full_request(redirect_link).to_return(body: lfs_content)
       end
 
@@ -250,7 +264,7 @@ RSpec.describe Projects::LfsPointers::LfsDownloadService do
       end
 
       context 'that is not blocked' do
-        let(:redirect_link) { "http://example.com/"}
+        let(:redirect_link) { "http://example.com/" }
 
         before do
           stub_full_request(download_link).to_return(status: 301, headers: { 'Location' => redirect_link })

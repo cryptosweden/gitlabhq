@@ -1,11 +1,15 @@
 ---
 description: 'Learn how to use GitLab Pages to deploy a static website at no additional cost.'
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Knowledge
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab Pages **(FREE)**
+# GitLab Pages
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 With GitLab Pages, you can publish static websites directly from a repository
 in GitLab.
@@ -31,19 +35,20 @@ like Gatsby, Jekyll, Hugo, Middleman, Harp, Hexo, or Brunch. You can also
 publish any website written directly in plain HTML, CSS, and JavaScript.
 
 Pages does not support dynamic server-side processing, for instance, as `.php` and `.asp` requires.
-Learn more about
-[static websites compared to dynamic websites](https://about.gitlab.com/blog/2016/06/03/ssg-overview-gitlab-pages-part-1-dynamic-x-static/).
+For more information, see
+[Static vs dynamic websites](https://about.gitlab.com/blog/2016/06/03/ssg-overview-gitlab-pages-part-1-dynamic-x-static/).
 
 ## Getting started
 
 To create a GitLab Pages website:
 
-| Document | Description |
-|----------|-------------|
+| Document                                                                             | Description                                                                                  |
+|--------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| [Use the GitLab UI to create a simple `.gitlab-ci.yml`](getting_started/pages_ui.md) | Add a Pages site to an existing project. Use the UI to set up a simple `.gitlab-ci.yml`.     |
 | [Create a `.gitlab-ci.yml` file from scratch](getting_started/pages_from_scratch.md) | Add a Pages site to an existing project. Learn how to create and configure your own CI file. |
-| [Use a `.gitlab-ci.yml` template](getting_started/pages_ci_cd_template.md) | Add a Pages site to an existing project. Use a pre-populated CI template file. |
-| [Fork a sample project](getting_started/pages_forked_sample_project.md) | Create a new project with Pages already configured by forking a sample project. |
-| [Use a project template](getting_started/pages_new_project_template.md) | Create a new project with Pages already configured by using a template. |
+| [Use a `.gitlab-ci.yml` template](getting_started/pages_ci_cd_template.md)           | Add a Pages site to an existing project. Use a pre-populated CI template file.               |
+| [Fork a sample project](getting_started/pages_forked_sample_project.md)              | Create a new project with Pages already configured by forking a sample project.              |
+| [Use a project template](getting_started/pages_new_project_template.md)              | Create a new project with Pages already configured by using a template.                      |
 
 To update a GitLab Pages website:
 
@@ -55,7 +60,7 @@ To update a GitLab Pages website:
 | [Let's Encrypt integration](custom_domains_ssl_tls_certification/lets_encrypt_integration.md) | Secure your Pages sites with Let's Encrypt certificates, which are automatically obtained and renewed by GitLab. |
 | [Redirects](redirects.md) | Set up HTTP redirects to forward one page to another. |
 
-Learn more and see examples:
+For more information, see:
 
 | Document | Description |
 |----------|-------------|
@@ -106,7 +111,7 @@ These GitLab Pages website examples can teach you advanced techniques to use
 and adapt for your own needs:
 
 - [Posting to your GitLab Pages blog from iOS](https://about.gitlab.com/blog/2016/08/19/posting-to-your-gitlab-pages-blog-from-ios/).
-- [GitLab CI: Run jobs sequentially, in parallel, or build a custom pipeline](https://about.gitlab.com/blog/2016/07/29/the-basics-of-gitlab-ci/).
+- [GitLab CI: Run jobs sequentially, in parallel, or build a custom pipeline](https://about.gitlab.com/blog/2020/12/10/basics-of-gitlab-ci-updated/).
 - [GitLab CI: Deployment & environments](https://about.gitlab.com/blog/2021/02/05/ci-deployment-and-environments/).
 - [Building a new GitLab docs site with Nanoc, GitLab CI, and GitLab Pages](https://about.gitlab.com/blog/2016/12/07/building-a-new-gitlab-docs-site-with-nanoc-gitlab-ci-and-gitlab-pages/).
 - [Publish code coverage reports with GitLab Pages](https://about.gitlab.com/blog/2016/11/03/publish-code-coverage-report-with-gitlab-pages/).
@@ -118,7 +123,16 @@ If you are running a self-managed instance of GitLab,
 
 <i class="fa fa-youtube-play youtube" aria-hidden="true"></i> Watch a [video tutorial](https://www.youtube.com/watch?v=dD8c7WNcc6s) about how to get started with GitLab Pages administration.
 
+### Configure GitLab Pages in a Helm Chart (Kubernetes) instance
+
+To configure GitLab Pages on instances deployed via Helm chart (Kubernetes), use either:
+
+- [The `gitlab-pages` subchart](https://docs.gitlab.com/charts/charts/gitlab/gitlab-pages/).
+- [An external GitLab Pages instance](https://docs.gitlab.com/charts/advanced/external-gitlab-pages/).
+
 ## Security for GitLab Pages
+
+### Namespaces that contain `.`
 
 If your username is `example`, your GitLab Pages website is located at `example.gitlab.io`.
 GitLab allows usernames to contain a `.`, so a user named `bar.example` could create
@@ -138,3 +152,170 @@ document.cookie = "key=value;domain=example.gitlab.io";
 
 This issue doesn't affect users with a custom domain, or users who don't set any
 cookies manually with JavaScript.
+
+### Shared cookies
+
+By default, every project in a group shares the same domain, for example, `group.gitlab.io`. This means that cookies are also shared for all projects in a group.
+
+To ensure each project uses different cookies, enable the Pages [unique domains](#unique-domains) feature for your project.
+
+## Unique domains
+
+> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/9347) in GitLab 15.9 [with a flag](../../../administration/feature_flags.md) named `pages_unique_domain`. Disabled by default.
+> - [Enabled by default](https://gitlab.com/gitlab-org/gitlab/-/issues/388151) in GitLab 15.11.
+> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/122229) in GitLab 16.3.
+
+By default, every new project uses pages unique domain. This is to avoid projects on the same group
+to share cookies.
+
+The project maintainer can disable this feature on:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Deploy > Pages**.
+1. Deselect the **Use unique domain** checkbox.
+1. Select **Save changes**.
+
+## Create multiple deployments
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+**Status:** Experiment
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/129534) in GitLab 16.7 as an [experiment](../../../policy/experiment-beta-support.md) [with a flag](../../feature_flags.md) named `pages_multiple_versions_setting`, disabled by default.
+
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available,
+an administrator can [enable the feature flag](../../../administration/feature_flags.md) named
+`pages_multiple_versions_setting`. On GitLab.com and GitLab Dedicated, this feature is not available. This feature is not ready for production use.
+
+Use the [`pages.path_prefix`](../../../ci/yaml/index.md#pagespagespath_prefix) CI/CD option to configure a prefix for the GitLab Pages URL.
+A prefix allows you to differentiate between multiple GitLab Pages deployments:
+
+- Main Pages deployment: a Pages deployment created with a blank `path_prefix`.
+- Extra Pages deployment: a Pages deployment created with a non-blank `path_prefix`
+
+The value of `pages.path_prefix` is:
+
+- Converted to lowercase.
+- Shortened to 63 bytes.
+- Any character except numbers (`0-9`) and letter (`a-z`) is replaced with a hyphen (`-`).
+- Leading and trailing hyphens (`-`) are removed.
+
+### Example configuration
+
+Consider a project such as `https://gitlab.example.com/namespace/project`. By default, its main Pages deployment can be accessed through:
+
+- When using a [unique domain](#unique-domains): `https://project-namespace-uniqueid.gitlab.io/`.
+- When not using a unique domain: `https://namespace.gitlab.io/project`.
+
+If a `pages.path_prefix` is configured to the project branch names,
+like `path_prefix = $CI_COMMIT_BRANCH`, and there's a
+branch named `username/testing_feature`, this extra Pages deployment would be accessible through:
+
+- When using a [unique domain](#unique-domains): `https://project-namespace-uniqueid.gitlab.io/username-testing-feature`.
+- When not using a unique domain: `https://namespace.gitlab.io/project/username-testing-feature`.
+
+### Enable multiple deployments
+
+To enable multiple GitLab Pages deployments:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Deploy > Pages**.
+1. Select **Use multiple deployments**.
+
+### Limits
+
+The number of extra deployments is limited by the root-level namespace. For specific limits for:
+
+- GitLab.com, see [Other limits](../../gitlab_com/index.md#other-limits).
+- Self-managed GitLab instances, see
+  [Number of extra Pages deployments when using multiple deployments](../../../administration/instance_limits.md#number-of-extra-pages-deployments-when-using-multiple-deployments).
+
+### Path clash
+
+`pages.path_prefix` can take dynamic values from [CI/CD variables](../../../ci/variables/index.md)
+that can create pages deployments which could clash with existing paths in your site.
+For example, given an existing GitLab Pages site with the following paths:
+
+```plaintext
+/index.html
+/documents/index.html
+```
+
+If a `pages.path_prefix` is `documents`, that version will override the existing path.
+In other words, `https://namespace.gitlab.io/project/documents/index.html` will point to the
+`/index.html` on the `documents` deployment of the site, instead of `documents/index.html` of the
+`main` deployment of the site.
+
+Mixing [CI/CD variables](../../../ci/variables/index.md) with other strings can reduce the path clash
+possibility. For example:
+
+```yaml
+pages:
+  stage: deploy
+  script:
+    - echo "Pages accessible through ${CI_PAGES_URL}/${PAGES_PREFIX}"
+  variables:
+    PAGES_PREFIX: "" # No prefix by default (master)
+  pages:
+    path_prefix: "$PAGES_PREFIX"
+  artifacts:
+    paths:
+    - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH # Run on default branch (with default PAGES_PREFIX)
+    - if: $CI_COMMIT_BRANCH == "staging" # Run on master (with default PAGES_PREFIX)
+      variables:
+        PAGES_PREFIX: '_stg' # Prefix with _stg for the staging branch
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" # Conditionally change the prefix for Merge Requests
+      when: manual # Run pages manually on Merge Requests
+      variables:
+        PAGES_PREFIX: 'mr-$CI_MERGE_REQUEST_IID' # Prefix with the mr-<iid>, like `mr-123`
+```
+
+Some other examples of mixing [variables](../../../ci/variables/index.md) with strings for dynamic prefixes:
+
+- `pages.path_prefix: 'mr-$CI_COMMIT_REF_SLUG'`: Branch or tag name prefixed with `mr-`, like `mr-branch-name`.
+- `pages.path_prefix: '-${CI_MERGE_REQUEST_IID}-'`: Merge request number prefixed and suffixed with `-`, like `-123-`.
+
+### Use multiple deployments to create pages environments
+
+You can use multiple GitLab Pages deployments to create a new [environment](../../../ci/environments/index.md).
+For example:
+
+```yaml
+pages:
+  stage: deploy
+  script:
+    - echo "Pages accessible through ${CI_PAGES_URL}/${PAGES_PREFIX}"
+  variables:
+    PAGES_PREFIX: "" # no prefix by default (master)
+  pages:
+    path_prefix: "$PAGES_PREFIX"
+  environment:
+    name: "Pages ${PAGES_PREFIX}"
+    url: "${CI_PAGES_URL}/${PAGES_PREFIX}"
+  artifacts:
+    paths:
+    - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "staging" # ensure to run on master (with default PAGES_PREFIX)
+      variables:
+        PAGES_PREFIX: '-stg' # prefix with _stg for the staging branch
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" # conditionally change the prefix on Merge Requests
+      when: manual # run pages manually on Merge Requests
+      variables:
+        PAGES_PREFIX: 'mr-$CI_MERGE_REQUEST_IID' # prefix with the mr-<iid>, like `mr-123`
+```
+
+With this configuration, users will have the access to each GitLab Pages deployment through the UI.
+When using [environments](../../../ci/environments/index.md) for pages, all pages environments are
+listed on the project environment list.
+
+### Deployments deletion
+
+#### Auto-clean
+
+Extra Pages deployments, created by a merge request with a `path_prefix`, are automatically deleted when the
+merge request is closed or merged.

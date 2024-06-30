@@ -8,20 +8,14 @@ require 'google/apis/cloudbilling_v1'
 require 'google/apis/cloudresourcemanager_v1'
 require 'google/apis/iam_v1'
 require 'google/apis/serviceusage_v1'
+require 'google/apis/sqladmin_v1beta4'
 
 module GoogleApi
   module CloudPlatform
     class Client < GoogleApi::Auth
       SCOPE = 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/service.management'
       LEAST_TOKEN_LIFE_TIME = 10.minutes
-      CLUSTER_MASTER_AUTH_USERNAME = 'admin'
-      CLUSTER_IPV4_CIDR_BLOCK = '/16'
-      CLUSTER_OAUTH_SCOPES = [
-        "https://www.googleapis.com/auth/devstorage.read_only",
-        "https://www.googleapis.com/auth/logging.write",
-        "https://www.googleapis.com/auth/monitoring"
-      ].freeze
-      ROLES_LIST = %w[roles/iam.serviceAccountUser roles/artifactregistry.admin roles/cloudbuild.builds.builder roles/run.admin roles/storage.admin roles/cloudsql.admin roles/browser].freeze
+      ROLES_LIST = %w[roles/iam.serviceAccountUser roles/artifactregistry.admin roles/cloudbuild.builds.builder roles/run.admin roles/storage.admin roles/cloudsql.client roles/browser].freeze
       REVOKE_URL = 'https://oauth2.googleapis.com/revoke'
 
       class << self
@@ -58,36 +52,6 @@ module GoogleApi
         true
       end
 
-      def projects_zones_clusters_get(project_id, zone, cluster_id)
-        service = Google::Apis::ContainerV1::ContainerService.new
-        service.authorization = access_token
-
-        service.get_zone_cluster(project_id, zone, cluster_id, options: user_agent_header)
-      end
-
-      def projects_zones_clusters_create(project_id, zone, cluster_name, cluster_size, machine_type:, legacy_abac:, enable_addons: [])
-        service = Google::Apis::ContainerV1beta1::ContainerService.new
-        service.authorization = access_token
-
-        cluster_options = make_cluster_options(cluster_name, cluster_size, machine_type, legacy_abac, enable_addons)
-
-        request_body = Google::Apis::ContainerV1beta1::CreateClusterRequest.new(**cluster_options)
-
-        service.create_cluster(project_id, zone, request_body, options: user_agent_header)
-      end
-
-      def projects_zones_operations(project_id, zone, operation_id)
-        service = Google::Apis::ContainerV1::ContainerService.new
-        service.authorization = access_token
-
-        service.get_zone_operation(project_id, zone, operation_id, options: user_agent_header)
-      end
-
-      def parse_operation_id(self_link)
-        m = self_link.match(%r{projects/.*/zones/.*/operations/(.*)})
-        m[1] if m
-      end
-
       def list_projects
         result = []
 
@@ -100,7 +64,7 @@ module GoogleApi
           result.append(project)
         end
 
-        result
+        result.sort_by(&:project_id)
       end
 
       def create_service_account(gcp_project_id, display_name, description)
@@ -147,9 +111,61 @@ module GoogleApi
         enable_service(gcp_project_id, 'cloudbuild.googleapis.com')
       end
 
+      def enable_cloud_sql_admin(gcp_project_id)
+        enable_service(gcp_project_id, 'sqladmin.googleapis.com')
+      end
+
+      def enable_compute(gcp_project_id)
+        enable_service(gcp_project_id, 'compute.googleapis.com')
+      end
+
+      def enable_service_networking(gcp_project_id)
+        enable_service(gcp_project_id, 'servicenetworking.googleapis.com')
+      end
+
+      def enable_vision_api(gcp_project_id)
+        enable_service(gcp_project_id, 'vision.googleapis.com')
+      end
+
       def revoke_authorizations
         uri = URI(REVOKE_URL)
         Gitlab::HTTP.post(uri, body: { 'token' => access_token })
+      end
+
+      def list_cloudsql_databases(gcp_project_id, instance_name)
+        sql_admin_service.list_databases(gcp_project_id, instance_name, options: user_agent_header)
+      end
+
+      def create_cloudsql_database(gcp_project_id, instance_name, database_name)
+        database = Google::Apis::SqladminV1beta4::Database.new(name: database_name)
+        sql_admin_service.insert_database(gcp_project_id, instance_name, database)
+      end
+
+      def list_cloudsql_users(gcp_project_id, instance_name)
+        sql_admin_service.list_users(gcp_project_id, instance_name, options: user_agent_header)
+      end
+
+      def create_cloudsql_user(gcp_project_id, instance_name, username, password)
+        user = Google::Apis::SqladminV1beta4::User.new
+        user.name = username
+        user.password = password
+        sql_admin_service.insert_user(gcp_project_id, instance_name, user)
+      end
+
+      def get_cloudsql_instance(gcp_project_id, instance_name)
+        sql_admin_service.get_instance(gcp_project_id, instance_name)
+      end
+
+      def create_cloudsql_instance(gcp_project_id, instance_name, root_password, database_version, region, tier)
+        database_instance = Google::Apis::SqladminV1beta4::DatabaseInstance.new(
+          name: instance_name,
+          root_password: root_password,
+          database_version: database_version,
+          region: region,
+          settings: Google::Apis::SqladminV1beta4::Settings.new(tier: tier)
+        )
+
+        sql_admin_service.insert_instance(gcp_project_id, database_instance)
       end
 
       private
@@ -159,38 +175,6 @@ module GoogleApi
         service = Google::Apis::ServiceusageV1::ServiceUsageService.new
         service.authorization = access_token
         service.enable_service(name)
-      end
-
-      def make_cluster_options(cluster_name, cluster_size, machine_type, legacy_abac, enable_addons)
-        {
-          cluster: {
-            name: cluster_name,
-            initial_node_count: cluster_size,
-            node_config: {
-              machine_type: machine_type,
-              oauth_scopes: CLUSTER_OAUTH_SCOPES
-            },
-            master_auth: {
-              client_certificate_config: {
-                issue_client_certificate: true
-              }
-            },
-            legacy_abac: {
-              enabled: legacy_abac
-            },
-            ip_allocation_policy: {
-              use_ip_aliases: true,
-              cluster_ipv4_cidr_block: CLUSTER_IPV4_CIDR_BLOCK
-            },
-            addons_config: make_addons_config(enable_addons)
-          }
-        }
-      end
-
-      def make_addons_config(enable_addons)
-        enable_addons.each_with_object({}) do |addon, hash|
-          hash[addon] = { disabled: false }
-        end
       end
 
       def token_life_time(expires_at)
@@ -218,6 +202,10 @@ module GoogleApi
 
       def cloud_resource_manager_service
         @gpc_service ||= Google::Apis::CloudresourcemanagerV1::CloudResourceManagerService.new.tap { |s| s.authorization = access_token }
+      end
+
+      def sql_admin_service
+        @sql_admin_service ||= Google::Apis::SqladminV1beta4::SQLAdminService.new.tap { |s| s.authorization = access_token }
       end
     end
   end

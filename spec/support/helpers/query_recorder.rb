@@ -14,14 +14,12 @@ module ActiveRecord
       @skip_schema_queries = skip_schema_queries
       @query_recorder_debug = ENV['QUERY_RECORDER_DEBUG'] || query_recorder_debug
       @log_file = log_file
-      record(&block) if block_given?
+      record(&block) if block
     end
 
     def record(&block)
       # force replacement of bind parameters to give tests the ability to check for ids
-      ActiveRecord::Base.connection.unprepared_statement do
-        ActiveSupport::Notifications.subscribed(method(:callback), 'sql.active_record', &block)
-      end
+      ActiveSupport::Notifications.subscribed(method(:callback), 'sql.active_record', &block)
     end
 
     def show_backtrace(values, duration)
@@ -80,7 +78,8 @@ module ActiveRecord
 
       if values[:cached] && skip_cached
         @cached << values[:sql]
-      elsif !skip_schema_queries || !values[:name]&.include?("SCHEMA")
+      elsif !ignorable?(values)
+
         backtrace = @query_recorder_debug ? show_backtrace(values, duration) : nil
         @log << values[:sql]
         store_sql_by_source(values: values, duration: duration, backtrace: backtrace)
@@ -101,6 +100,17 @@ module ActiveRecord
 
     def occurrences
       @occurrences ||= @log.group_by(&:to_s).transform_values(&:count)
+    end
+
+    def occurrences_starting_with(str)
+      occurrences.select { |query, _count| query.starts_with?(str) }
+    end
+
+    def ignorable?(values)
+      return true if skip_schema_queries && values[:name]&.include?("SCHEMA")
+      return true if values[:name]&.include?('License Load')
+
+      false
     end
   end
 end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Search::GroupService do
+RSpec.describe Search::GroupService, feature_category: :global_search do
   shared_examples_for 'group search' do
     context 'finding projects by name' do
       let(:user) { create(:user) }
@@ -11,7 +11,7 @@ RSpec.describe Search::GroupService do
 
       # These projects shouldn't be found
       let!(:outside_project) { create(:project, :public, name: "Outside #{term}") }
-      let!(:private_project) { create(:project, :private, namespace: nested_group, name: "Private #{term}" )}
+      let!(:private_project) { create(:project, :private, namespace: nested_group, name: "Private #{term}") }
       let!(:other_project)   { create(:project, :public, namespace: nested_group, name: term.reverse) }
 
       # These projects should be found

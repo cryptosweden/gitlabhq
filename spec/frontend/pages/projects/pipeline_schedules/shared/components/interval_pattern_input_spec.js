@@ -1,6 +1,5 @@
-import { GlIcon } from '@gitlab/ui';
-import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { trimText } from 'helpers/text_helper';
 import IntervalPatternInput from '~/pages/projects/pipeline_schedules/shared/components/interval_pattern_input.vue';
 
@@ -8,43 +7,41 @@ describe('Interval Pattern Input Component', () => {
   let oldWindowGl;
   let wrapper;
 
+  const mockMinute = 3;
   const mockHour = 4;
   const mockWeekDayIndex = 1;
   const mockDay = 1;
 
   const cronIntervalPresets = {
-    everyDay: `0 ${mockHour} * * *`,
-    everyWeek: `0 ${mockHour} * * ${mockWeekDayIndex}`,
-    everyMonth: `0 ${mockHour} ${mockDay} * *`,
+    everyDay: `${mockMinute} ${mockHour} * * *`,
+    everyWeek: `${mockMinute} ${mockHour} * * ${mockWeekDayIndex}`,
+    everyMonth: `${mockMinute} ${mockHour} ${mockDay} * *`,
   };
   const customKey = 'custom';
   const everyDayKey = 'everyDay';
   const cronIntervalNotInPreset = `0 12 * * *`;
 
-  const findEveryDayRadio = () => wrapper.find(`[data-testid=${everyDayKey}]`);
-  const findEveryWeekRadio = () => wrapper.find('[data-testid="everyWeek"]');
-  const findEveryMonthRadio = () => wrapper.find('[data-testid="everyMonth"]');
-  const findCustomRadio = () => wrapper.find(`[data-testid="${customKey}"]`);
+  const findEveryDayRadio = () => wrapper.findByTestId(everyDayKey);
+  const findEveryWeekRadio = () => wrapper.findByTestId('everyWeek');
+  const findEveryMonthRadio = () => wrapper.findByTestId('everyMonth');
+  const findCustomRadio = () => wrapper.findByTestId(customKey);
   const findCustomInput = () => wrapper.find('#schedule_cron');
   const findAllLabels = () => wrapper.findAll('label');
   const findSelectedRadio = () =>
     wrapper.findAll('input[type="radio"]').wrappers.find((x) => x.element.checked);
-  const findIcon = () => wrapper.findComponent(GlIcon);
+  const findIcon = () => wrapper.findByTestId('daily-limit');
   const findSelectedRadioKey = () => findSelectedRadio()?.attributes('data-testid');
-  const selectEveryDayRadio = () => findEveryDayRadio().trigger('click');
-  const selectEveryWeekRadio = () => findEveryWeekRadio().trigger('click');
-  const selectEveryMonthRadio = () => findEveryMonthRadio().trigger('click');
-  const selectCustomRadio = () => findCustomRadio().trigger('click');
+  const selectEveryDayRadio = () => findEveryDayRadio().setChecked(true);
+  const selectEveryWeekRadio = () => findEveryWeekRadio().setChecked(true);
+  const selectEveryMonthRadio = () => findEveryMonthRadio().setChecked(true);
+  const selectCustomRadio = () => findCustomRadio().setChecked(true);
 
   const createWrapper = (props = {}, data = {}) => {
-    if (wrapper) {
-      throw new Error('A wrapper already exists');
-    }
-
-    wrapper = mount(IntervalPatternInput, {
+    wrapper = mountExtended(IntervalPatternInput, {
       propsData: { ...props },
       data() {
         return {
+          randomMinute: data?.minute || mockMinute,
           randomHour: data?.hour || mockHour,
           randomWeekDayIndex: mockWeekDayIndex,
           randomDay: mockDay,
@@ -56,7 +53,7 @@ describe('Interval Pattern Input Component', () => {
   beforeEach(() => {
     oldWindowGl = window.gl;
     window.gl = {
-      ...(window.gl || {}),
+      ...window.gl,
       pipelineScheduleFieldErrors: {
         updateFormValidityState: jest.fn(),
       },
@@ -64,8 +61,6 @@ describe('Interval Pattern Input Component', () => {
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
     window.gl = oldWindowGl;
   });
 
@@ -115,12 +110,12 @@ describe('Interval Pattern Input Component', () => {
 
   describe('formattedTime computed property', () => {
     it.each`
-      desc                                                                                 | hour  | expectedValue
-      ${'returns a time in the afternoon if the value of `random time` is higher than 12'} | ${13} | ${'1:00pm'}
-      ${'returns a time in the morning if the value of `random time` is lower than 12'}    | ${11} | ${'11:00am'}
-      ${'returns "12:00pm" if the value of `random time` is exactly 12'}                   | ${12} | ${'12:00pm'}
-    `('$desc', ({ hour, expectedValue }) => {
-      createWrapper({}, { hour });
+      desc                                                                                                    | hour  | minute | expectedValue
+      ${'returns a time in the afternoon if the value of `random time` is higher than 12'}                    | ${13} | ${7}   | ${'1:07pm'}
+      ${'returns a time in the morning if the value of `random time` is lower than 12'}                       | ${11} | ${30}  | ${'11:30am'}
+      ${'returns "12:05pm" if the value of `random time` is exactly 12 and the value of random minutes is 5'} | ${12} | ${5}   | ${'12:05pm'}
+    `('$desc', ({ hour, minute, expectedValue }) => {
+      createWrapper({}, { hour, minute });
 
       expect(wrapper.vm.formattedTime).toBe(expectedValue);
     });
@@ -135,10 +130,10 @@ describe('Interval Pattern Input Component', () => {
       const labels = findAllLabels().wrappers.map((el) => trimText(el.text()));
 
       expect(labels).toEqual([
-        'Every day (at 4:00am)',
-        'Every week (Monday at 4:00am)',
-        'Every month (Day 1 at 4:00am)',
-        'Custom ( Cron syntax )',
+        'Every day (at 4:03am)',
+        'Every week (Monday at 4:03am)',
+        'Every month (Day 1 at 4:03am)',
+        'Custom',
       ]);
     });
   });
@@ -190,7 +185,7 @@ describe('Interval Pattern Input Component', () => {
 
       findCustomInput().setValue(newValue);
 
-      await nextTick;
+      await nextTick();
 
       expect(findSelectedRadioKey()).toBe(customKey);
     });
@@ -223,6 +218,19 @@ describe('Interval Pattern Input Component', () => {
       createWrapper();
 
       expect(findIcon().exists()).toBe(false);
+    });
+  });
+
+  describe('cronValue event', () => {
+    it('emits cronValue event with cron value', async () => {
+      createWrapper();
+
+      findCustomInput().element.value = '0 16 * * *';
+      findCustomInput().trigger('input');
+
+      await nextTick();
+
+      expect(wrapper.emitted()).toEqual({ cronValue: [['0 16 * * *']] });
     });
   });
 });

@@ -16,6 +16,8 @@
  * </div>
  * <button class="js-read-more-trigger">Read more</button>
  *
+ * If data-read-more-height is present it will use it to determine if the button should be shown or not.
+ *
  */
 export default function initReadMore(triggerSelector = '.js-read-more-trigger') {
   const triggerEls = document.querySelectorAll(triggerSelector);
@@ -29,11 +31,46 @@ export default function initReadMore(triggerSelector = '.js-read-more-trigger') 
       return;
     }
 
+    if (Object.hasOwn(triggerEl.parentNode.dataset, 'readMoreHeight')) {
+      const parentEl = triggerEl.parentNode;
+      const readMoreHeight = Number(parentEl.dataset.readMoreHeight);
+      const readMoreContent = parentEl.querySelector('.read-more-content');
+
+      // If element exists in readMoreContent expand content automatically
+      // and scroll to element
+      if (window.location.hash) {
+        const targetId = window.location.href.split('#')[1];
+        const hashTargetEl = readMoreContent.querySelector(`#user-content-${targetId}`);
+
+        if (hashTargetEl) {
+          targetEl.classList.add('is-expanded');
+          triggerEl.remove();
+          window.addEventListener('load', () => {
+            // Trigger scrollTo event
+            hashTargetEl.click();
+          });
+          return;
+        }
+      }
+
+      if (readMoreContent) {
+        parentEl.style.setProperty('--read-more-height', `${readMoreHeight}px`);
+      }
+
+      if (readMoreHeight > readMoreContent.clientHeight) {
+        readMoreContent.classList.remove('read-more-content--has-scrim');
+        triggerEl.remove();
+        return;
+      }
+
+      triggerEl.classList.remove('gl-display-none');
+    }
+
     triggerEl.addEventListener(
       'click',
-      (e) => {
+      () => {
         targetEl.classList.add('is-expanded');
-        e.target.remove();
+        triggerEl.remove();
       },
       { once: true },
     );

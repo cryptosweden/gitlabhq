@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::RefreshBuildArtifactsSizeStatisticsWorker do
+RSpec.describe Projects::RefreshBuildArtifactsSizeStatisticsWorker, feature_category: :build_artifacts do
   let(:worker) { described_class.new }
 
   describe '#perform_work' do
@@ -17,12 +17,14 @@ RSpec.describe Projects::RefreshBuildArtifactsSizeStatisticsWorker do
         build(
           :project_build_artifacts_size_refresh,
           :running,
+          id: 99,
           project_id: 77,
           last_job_artifact_id: 123
         )
       end
 
       it 'logs refresh information' do
+        expect(worker).to receive(:log_extra_metadata_on_done).with(:refresh_id, refresh.id)
         expect(worker).to receive(:log_extra_metadata_on_done).with(:project_id, refresh.project_id)
         expect(worker).to receive(:log_extra_metadata_on_done).with(:last_job_artifact_id, refresh.last_job_artifact_id)
         expect(worker).to receive(:log_extra_metadata_on_done).with(:last_batch, refresh.destroyed?)
@@ -62,35 +64,38 @@ RSpec.describe Projects::RefreshBuildArtifactsSizeStatisticsWorker do
   describe '#max_running_jobs' do
     subject { worker.max_running_jobs }
 
-    context 'when all projects_build_artifacts_size_refresh flags are enabled' do
-      it { is_expected.to eq(described_class::MAX_RUNNING_HIGH) }
+    before do
+      stub_feature_flags(
+        projects_build_artifacts_size_refresh: false,
+        projects_build_artifacts_size_refresh_medium: false,
+        projects_build_artifacts_size_refresh_high: false
+      )
     end
 
-    context 'when projects_build_artifacts_size_refresh_high flags is disabled' do
-      before do
-        stub_feature_flags(projects_build_artifacts_size_refresh_high: false)
-      end
+    it { is_expected.to eq(0) }
 
-      it { is_expected.to eq(described_class::MAX_RUNNING_MEDIUM) }
-    end
-
-    context 'when projects_build_artifacts_size_refresh_high and projects_build_artifacts_size_refresh_medium flags are disabled' do
+    context 'when projects_build_artifacts_size_refresh flag is enabled' do
       before do
-        stub_feature_flags(projects_build_artifacts_size_refresh_high: false)
-        stub_feature_flags(projects_build_artifacts_size_refresh_medium: false)
+        stub_feature_flags(projects_build_artifacts_size_refresh: true)
       end
 
       it { is_expected.to eq(described_class::MAX_RUNNING_LOW) }
     end
 
-    context 'when all projects_build_artifacts_size_refresh flags are disabled' do
+    context 'when projects_build_artifacts_size_refresh_medium flag is enabled' do
       before do
-        stub_feature_flags(projects_build_artifacts_size_refresh_low: false)
-        stub_feature_flags(projects_build_artifacts_size_refresh_medium: false)
-        stub_feature_flags(projects_build_artifacts_size_refresh_high: false)
+        stub_feature_flags(projects_build_artifacts_size_refresh_medium: true)
       end
 
-      it { is_expected.to eq(0) }
+      it { is_expected.to eq(described_class::MAX_RUNNING_MEDIUM) }
+    end
+
+    context 'when projects_build_artifacts_size_refresh_high flag is enabled' do
+      before do
+        stub_feature_flags(projects_build_artifacts_size_refresh_high: true)
+      end
+
+      it { is_expected.to eq(described_class::MAX_RUNNING_HIGH) }
     end
   end
 end

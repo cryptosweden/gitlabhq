@@ -1,12 +1,16 @@
 # frozen_string_literal: true
 
+Rails.application.reloader.to_run(:before) do
+  # Make sure connects_to for Ci::ApplicationRecord gets called outside of config/routes.rb first
+  # See InitializerConnections.raise_if_new_database_connection
+  Ci::ApplicationRecord
+end
+
 Gitlab.ee do
-  # We need to initialize the Geo database before
-  # setting the Geo DB connection pool size.
-  if File.exist?(Rails.root.join('config/database_geo.yml'))
-    Rails.application.configure do
-      config.geo_database = config_for(:database_geo)
-    end
+  if Gitlab::Geo.geo_database_configured?
+    # Make sure connects_to for geo gets called outside of config/routes.rb first
+    # See InitializerConnections.raise_if_new_database_connection
+    Geo::TrackingBase
   end
 
   if Gitlab::Runtime.sidekiq? && Gitlab::Geo.geo_database_configured?

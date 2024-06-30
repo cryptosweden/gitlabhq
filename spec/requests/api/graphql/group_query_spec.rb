@@ -4,7 +4,7 @@ require 'spec_helper'
 
 # Based on spec/requests/api/groups_spec.rb
 # Should follow closely in order to ensure all situations are covered
-RSpec.describe 'getting group information' do
+RSpec.describe 'getting group information', :with_license, feature_category: :groups_and_projects do
   include GraphqlHelpers
   include UploadHelpers
 
@@ -17,7 +17,7 @@ RSpec.describe 'getting group information' do
   # similar to the API "GET /groups/:id"
   describe "Query group(fullPath)" do
     def group_query(group)
-      fields = all_graphql_fields_for('Group')
+      fields = all_graphql_fields_for('Group', excluded: %w[runners ciQueueingHistory])
       # TODO: Set required timelogs args elsewhere https://gitlab.com/gitlab-org/gitlab/-/issues/325499
       fields.selection['timelogs(startDate: "2021-03-01" endDate: "2021-03-30")'] = fields.selection.delete('timelogs')
 
@@ -122,6 +122,87 @@ RSpec.describe 'getting group information' do
       end
     end
 
+    context 'with timelog categories' do
+      let_it_be(:group) { create(:group) }
+      let_it_be(:timelog_category) { create(:timelog_category, namespace: group, name: 'TimelogCategoryTest') }
+
+      context 'when user is guest' do
+        it 'includes empty timelog categories array' do
+          post_graphql(group_query(group), current_user: user2)
+
+          expect(graphql_data_at(:group, :timelogCategories, :nodes)).to match([])
+        end
+      end
+
+      context 'when user has reporter role' do
+        before do
+          group.add_reporter(user2)
+        end
+
+        it 'returns the timelog category with all its fields' do
+          post_graphql(group_query(group), current_user: user2)
+
+          expect(graphql_data_at(:group, :timelogCategories, :nodes))
+            .to contain_exactly(a_graphql_entity_for(timelog_category))
+        end
+
+        context 'when timelog_categories flag is disabled' do
+          before do
+            stub_feature_flags(timelog_categories: false)
+          end
+
+          it 'returns no timelog categories' do
+            post_graphql(group_query(group), current_user: user2)
+
+            expect(graphql_data_at(:group, :timelogCategories)).to be_nil
+          end
+        end
+      end
+
+      context 'for N+1 queries' do
+        let!(:group1) { create(:group) }
+        let!(:group2) { create(:group) }
+
+        before do
+          group1.add_reporter(user2)
+          group2.add_reporter(user2)
+        end
+
+        it 'avoids N+1 database queries' do
+          pending('See: https://gitlab.com/gitlab-org/gitlab/-/issues/369396')
+
+          ctx = { current_user: user2 }
+
+          baseline_query = <<~GQL
+            query {
+              a: group(fullPath: "#{group1.full_path}") { ... g }
+            }
+
+            fragment g on Group {
+              timelogCategories { nodes { name } }
+            }
+          GQL
+
+          query = <<~GQL
+            query {
+              a: group(fullPath: "#{group1.full_path}") { ... g }
+              b: group(fullPath: "#{group2.full_path}") { ... g }
+            }
+
+            fragment g on Group {
+              timelogCategories { nodes { name } }
+            }
+          GQL
+
+          control = ActiveRecord::QueryRecorder.new do
+            run_with_clean_state(baseline_query, context: ctx)
+          end
+
+          expect { run_with_clean_state(query, context: ctx) }.not_to exceed_query_limit(control)
+        end
+      end
+    end
+
     context "when authenticated as admin" do
       it "returns any existing group" do
         post_graphql(group_query(private_group), current_user: admin)
@@ -134,6 +215,34 @@ RSpec.describe 'getting group information' do
         post_graphql(query, current_user: admin)
 
         expect(graphql_data['group']).to be_nil
+      end
+    end
+
+    describe 'maxAccessLevel' do
+      let(:current_user) { user1 }
+
+      it 'returns access level of the current user in the group' do
+        private_group.add_owner(user1)
+
+        post_graphql(group_query(private_group), current_user: current_user)
+
+        expect(graphql_data_at(:group, :maxAccessLevel, :integerValue)).to eq(Gitlab::Access::OWNER)
+      end
+
+      shared_examples 'public group in which the user has no membership' do
+        it 'returns no access' do
+          post_graphql(group_query(public_group), current_user: current_user)
+
+          expect(graphql_data_at(:group, :maxAccessLevel, :integerValue)).to eq(Gitlab::Access::NO_ACCESS)
+        end
+      end
+
+      it_behaves_like 'public group in which the user has no membership'
+
+      context 'when the user is not authenticated' do
+        let(:current_user) { nil }
+
+        it_behaves_like 'public group in which the user has no membership'
       end
     end
   end

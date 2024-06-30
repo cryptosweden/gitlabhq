@@ -1,3 +1,4 @@
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import getStandardContext from './get_standard_context';
 
 export function dispatchSnowplowEvent(
@@ -14,15 +15,32 @@ export function dispatchSnowplowEvent(
   let { value } = data;
 
   const standardContext = getStandardContext({ extra });
-  const contexts = [standardContext];
+  let contexts = [standardContext];
 
   if (data.context) {
-    contexts.push(data.context);
+    if (Array.isArray(data.context)) {
+      contexts = [...contexts, ...data.context];
+    } else {
+      contexts.push(data.context);
+    }
   }
 
   if (value !== undefined) {
     value = Number(value);
   }
 
-  return window.snowplow('trackStructEvent', category, action, label, property, value, contexts);
+  try {
+    window.snowplow('trackStructEvent', {
+      category,
+      action,
+      label,
+      property,
+      value,
+      context: contexts,
+    });
+    return true;
+  } catch (error) {
+    Sentry.captureException(error);
+    return false;
+  }
 }

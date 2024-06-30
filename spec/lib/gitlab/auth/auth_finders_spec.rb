@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Auth::AuthFinders do
+RSpec.describe Gitlab::Auth::AuthFinders, feature_category: :system_access do
   include described_class
   include HttpBasicAuthHelpers
 
@@ -10,12 +10,12 @@ RSpec.describe Gitlab::Auth::AuthFinders do
   let_it_be(:user, freeze: true) { create(:user).tap(&:feed_token).tap(&:static_object_token) }
   let_it_be(:personal_access_token, freeze: true) { create(:personal_access_token, user: user) }
 
-  let_it_be(:project, freeze: true) { create(:project, :private) }
+  let_it_be(:project, freeze: true) { create(:project, :private, developers: user) }
   let_it_be(:pipeline, freeze: true) { create(:ci_pipeline, project: project) }
   let_it_be(:job, freeze: true) { create(:ci_build, :running, pipeline: pipeline, user: user) }
   let_it_be(:failed_job, freeze: true) { create(:ci_build, :failed, pipeline: pipeline, user: user) }
 
-  let_it_be(:project2, freeze: true) { create(:project, :private) }
+  let_it_be(:project2, freeze: true) { create(:project, :private, developers: user) }
   let_it_be(:pipeline2, freeze: true) { create(:ci_pipeline, project: project2) }
   let_it_be(:job2, freeze: true) { create(:ci_build, :running, pipeline: pipeline2, user: user) }
 
@@ -27,11 +27,6 @@ RSpec.describe Gitlab::Auth::AuthFinders do
 
   let(:request) { ActionDispatch::Request.new(env) }
   let(:params) { {} }
-
-  before_all do
-    project.add_developer(user)
-    project2.add_developer(user)
-  end
 
   def set_param(key, value)
     request.update_param(key, value)
@@ -69,7 +64,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
           expect(subject).to eq(user)
           expect(@current_authenticated_job).to eq job
           expect(subject).to be_from_ci_job_token
-          expect(subject.ci_job_token_scope.source_project).to eq(job.project)
+          expect(subject.ci_job_token_scope.current_project).to eq(job.project)
         end
       end
 
@@ -77,6 +72,15 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         let(:token) { failed_job.token }
 
         it 'returns an Unauthorized exception' do
+          expect { subject }.to raise_error(Gitlab::Auth::UnauthorizedError)
+          expect(@current_authenticated_job).to be_nil
+        end
+      end
+
+      context 'for an array of tokens' do
+        let(:token) { [job.token, 'invalid token'] }
+
+        it "returns an Unauthorized exception" do
           expect { subject }.to raise_error(Gitlab::Auth::UnauthorizedError)
           expect(@current_authenticated_job).to be_nil
         end
@@ -89,17 +93,18 @@ RSpec.describe Gitlab::Auth::AuthFinders do
       context 'with a running job' do
         let(:token) { job.token }
 
-        if without_job_token_allowed == :error
+        case without_job_token_allowed
+        when :error
           it 'returns an Unauthorized exception' do
             expect { subject }.to raise_error(Gitlab::Auth::UnauthorizedError)
             expect(@current_authenticated_job).to be_nil
           end
-        elsif without_job_token_allowed == :user
+        when :user
           it 'returns the user' do
             expect(subject).to eq(user)
             expect(@current_authenticated_job).to eq job
             expect(subject).to be_from_ci_job_token
-            expect(subject.ci_job_token_scope.source_project).to eq(job.project)
+            expect(subject.ci_job_token_scope.current_project).to eq(job.project)
           end
         else
           it 'returns nil' do
@@ -127,7 +132,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
       let(:doorkeeper_access_token) { Doorkeeper::AccessToken.create!(application_id: application.id, resource_owner_id: user.id, scopes: 'api') }
 
       before do
-        set_bearer_token(doorkeeper_access_token.token)
+        set_bearer_token(doorkeeper_access_token.plaintext_token)
       end
 
       it { is_expected.to eq user }
@@ -180,7 +185,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         set_header('HTTP_ACCEPT', 'application/atom+xml')
       end
 
-      context 'when feed_token param is provided' do
+      context 'when old format feed_token param is provided' do
         it 'returns user if valid feed_token' do
           set_param(:feed_token, user.feed_token)
 
@@ -188,7 +193,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         end
 
         it 'returns nil if valid feed_token and disabled' do
-          stub_application_setting(disable_feed_token: true)
+          allow(Gitlab::CurrentSettings).to receive_messages(disable_feed_token: true)
           set_param(:feed_token, user.feed_token)
 
           expect(find_user_from_feed_token(:rss)).to be_nil
@@ -205,7 +210,50 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         end
       end
 
-      context 'when rss_token param is provided' do
+      context 'when path-dependent format feed_token param is provided' do
+        let_it_be(:feed_user, freeze: true) { create(:user, feed_token: 'KNOWN VALUE').tap(&:feed_token) }
+        # The middle part is the output of OpenSSL::HMAC.hexdigest("SHA256", 'KNOWN VALUE', 'url.atom')
+        let(:feed_token) { "glft-a8cc74ccb0de004d09a968705ba49099229b288b3de43f26c473a9d8d7fb7693-#{feed_user.id}" }
+
+        it 'returns user if valid feed_token' do
+          set_param(:feed_token, feed_token)
+
+          expect(find_user_from_feed_token(:rss)).to eq feed_user
+        end
+
+        it 'returns nil if valid feed_token and disabled' do
+          allow(Gitlab::CurrentSettings).to receive_messages(disable_feed_token: true)
+          set_param(:feed_token, feed_token)
+
+          expect(find_user_from_feed_token(:rss)).to be_nil
+        end
+
+        it 'returns exception if token has same HMAC but different user ID' do
+          set_param(:feed_token, "glft-a8cc74ccb0de004d09a968705ba49099229b288b3de43f26c473a9d8d7fb7693-#{user.id}")
+
+          expect { find_user_from_feed_token(:rss) }.to raise_error(Gitlab::Auth::UnauthorizedError)
+        end
+
+        it 'returns exception if token has wrong HMAC but same user ID' do
+          set_param(:feed_token, "glft-aaaaaaaaaade004d09a968705ba49099229b288b3de43f26c473a9d8d7fb7693-#{feed_user.id}")
+
+          expect { find_user_from_feed_token(:rss) }.to raise_error(Gitlab::Auth::UnauthorizedError)
+        end
+
+        it 'returns exception if user does not exist' do
+          set_param(:feed_token, "glft-a8cc74ccb0de004d09a968705ba49099229b288b3de43f26c473a9d8d7fb7693-#{non_existing_record_id}")
+
+          expect { find_user_from_feed_token(:rss) }.to raise_error(Gitlab::Auth::UnauthorizedError)
+        end
+
+        it 'returns exception if an array is passed' do
+          set_param(:feed_token, [feed_token, 'fake'])
+
+          expect { find_user_from_feed_token(:rss) }.to raise_error(Gitlab::Auth::UnauthorizedError)
+        end
+      end
+
+      context 'when old format rss_token param is provided' do
         it 'returns user if valid rss_token' do
           set_param(:rss_token, user.feed_token)
 
@@ -263,8 +311,16 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         end
 
         context 'when token is incorrect' do
-          it 'returns the user' do
+          it 'returns an error' do
             request.headers['X-Gitlab-Static-Object-Token'] = 'foobar'
+
+            expect { find_user_from_static_object_token(format) }.to raise_error(Gitlab::Auth::UnauthorizedError)
+          end
+        end
+
+        context 'when token is an array' do
+          it 'returns an error' do
+            request.headers['X-Gitlab-Static-Object-Token'] = [user.static_object_token, 'foobar']
 
             expect { find_user_from_static_object_token(format) }.to raise_error(Gitlab::Auth::UnauthorizedError)
           end
@@ -281,8 +337,16 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         end
 
         context 'when token is incorrect' do
-          it 'returns the user' do
+          it 'raises an error' do
             set_param(:token, 'foobar')
+
+            expect { find_user_from_static_object_token(format) }.to raise_error(Gitlab::Auth::UnauthorizedError)
+          end
+        end
+
+        context 'when token is an array' do
+          it 'raises an error' do
+            set_param(:token, [user.static_object_token, 'foobar'])
 
             expect { find_user_from_static_object_token(format) }.to raise_error(Gitlab::Auth::UnauthorizedError)
           end
@@ -388,6 +452,15 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         it { is_expected.to be_nil }
       end
     end
+
+    context 'when the the deploy token is restricted with external_authorization' do
+      before do
+        allow(Gitlab::ExternalAuthorization).to receive(:allow_deploy_tokens_and_deploy_keys?).and_return(false)
+        set_header(described_class::DEPLOY_TOKEN_HEADER, deploy_token.token)
+      end
+
+      it { is_expected.to be_nil }
+    end
   end
 
   describe '#find_user_from_access_token' do
@@ -397,6 +470,17 @@ RSpec.describe Gitlab::Auth::AuthFinders do
 
     it 'returns nil if no access_token present' do
       expect(find_user_from_access_token).to be_nil
+    end
+
+    context 'when run for kubernetes internal API endpoint' do
+      before do
+        set_bearer_token('AgentToken')
+        set_header('SCRIPT_NAME', '/api/v4/internal/kubernetes/modules/starboard_vulnerability/policies_configuration')
+      end
+
+      it 'returns nil' do
+        expect(find_user_from_access_token).to be_nil
+      end
     end
 
     context 'when validate_access_token! returns valid' do
@@ -447,6 +531,46 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         end
       end
     end
+
+    context 'automatic reuse detection' do
+      let(:token_3) { create(:personal_access_token, :revoked) }
+      let(:token_2) { create(:personal_access_token, :revoked, previous_personal_access_token_id: token_3.id) }
+      let(:token_1) { create(:personal_access_token, previous_personal_access_token_id: token_2.id) }
+
+      context 'when a revoked token is used' do
+        before do
+          set_bearer_token(token_3.token)
+        end
+
+        context 'with url related to access tokens' do
+          before do
+            set_header('SCRIPT_NAME', "/personal_access_tokens/#{token_3.id}/rotate")
+          end
+
+          it 'revokes the latest rotated token' do
+            expect(token_1).not_to be_revoked
+
+            expect { find_user_from_access_token }.to raise_error(Gitlab::Auth::RevokedError)
+
+            expect(token_1.reload).to be_revoked
+          end
+        end
+
+        context 'with url not related to access tokens' do
+          before do
+            set_header('SCRIPT_NAME', '/epics/1')
+          end
+
+          it 'does not revoke the latest rotated token' do
+            expect(token_1).not_to be_revoked
+
+            expect { find_user_from_access_token }.to raise_error(Gitlab::Auth::RevokedError)
+
+            expect(token_1.reload).not_to be_revoked
+          end
+        end
+      end
+    end
   end
 
   describe '#find_user_from_web_access_token' do
@@ -460,7 +584,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
       expect { find_user_from_access_token }.to raise_error(Gitlab::Auth::UnauthorizedError)
     end
 
-    context 'no feed, API or archive requests' do
+    context 'no feed, API, archive or download requests' do
       it 'returns nil if the request is not RSS' do
         expect(find_user_from_web_access_token(:rss)).to be_nil
       end
@@ -475,6 +599,10 @@ RSpec.describe Gitlab::Auth::AuthFinders do
 
       it 'returns nil if the request is not ARCHIVE' do
         expect(find_user_from_web_access_token(:archive)).to be_nil
+      end
+
+      it 'returns nil if the request is not DOWNLOAD' do
+        expect(find_user_from_web_access_token(:download)).to be_nil
       end
     end
 
@@ -494,6 +622,12 @@ RSpec.describe Gitlab::Auth::AuthFinders do
       set_header('SCRIPT_NAME', '/-/archive/main.zip')
 
       expect(find_user_from_web_access_token(:archive)).to eq(user)
+    end
+
+    it 'returns the user for DOWNLOAD requests' do
+      set_header('SCRIPT_NAME', '/-/1.0.0/downloads/main.zip')
+
+      expect(find_user_from_web_access_token(:download)).to eq(user)
     end
 
     context 'for API requests' do
@@ -577,7 +711,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
 
     context 'passed as header' do
       before do
-        set_bearer_token(doorkeeper_access_token.token)
+        set_bearer_token(doorkeeper_access_token.plaintext_token)
       end
 
       it 'returns token if valid oauth_access_token' do
@@ -587,7 +721,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
 
     context 'passed as param' do
       it 'returns user if valid oauth_access_token' do
-        set_param(:access_token, doorkeeper_access_token.token)
+        set_param(:access_token, doorkeeper_access_token.plaintext_token)
 
         expect(find_oauth_access_token.token).to eq doorkeeper_access_token.token
       end
@@ -652,8 +786,8 @@ RSpec.describe Gitlab::Auth::AuthFinders do
     end
   end
 
-  describe '#find_user_from_basic_auth_job' do
-    subject { find_user_from_basic_auth_job }
+  describe '#find_user_from_job_token_basic_auth' do
+    subject { find_user_from_job_token_basic_auth }
 
     context 'when the request does not have AUTHORIZATION header' do
       it { is_expected.to be_nil }
@@ -813,7 +947,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
   end
 
   describe '#validate_access_token!' do
-    subject { validate_access_token! }
+    subject { validate_and_save_access_token! }
 
     context 'with a job token' do
       let(:route_authentication_setting) { { job_token_allowed: true } }
@@ -829,30 +963,41 @@ RSpec.describe Gitlab::Auth::AuthFinders do
     end
 
     it 'returns nil if no access_token present' do
-      expect(validate_access_token!).to be_nil
+      expect(validate_and_save_access_token!).to be_nil
     end
 
-    context 'token is not valid' do
+    context 'with a personal access token' do
       let_it_be_with_reload(:personal_access_token) { create(:personal_access_token, user: user) }
 
       before do
         allow_any_instance_of(described_class).to receive(:access_token).and_return(personal_access_token)
       end
 
-      it 'returns Gitlab::Auth::ExpiredError if token expired' do
-        personal_access_token.update!(expires_at: 1.day.ago)
+      it 'saves the token info in the environment' do
+        subject
 
-        expect { validate_access_token! }.to raise_error(Gitlab::Auth::ExpiredError)
+        expect(request.env).to have_key(described_class::API_TOKEN_ENV)
       end
 
-      it 'returns Gitlab::Auth::RevokedError if token revoked' do
-        personal_access_token.revoke!
+      context 'when the token is not valid' do
+        it 'returns Gitlab::Auth::ExpiredError if token expired', :aggregate_failures do
+          personal_access_token.update!(expires_at: 1.day.ago)
 
-        expect { validate_access_token! }.to raise_error(Gitlab::Auth::RevokedError)
-      end
+          expect { validate_and_save_access_token! }.to raise_error(Gitlab::Auth::ExpiredError)
+          expect(request.env).not_to have_key(described_class::API_TOKEN_ENV)
+        end
 
-      it 'returns Gitlab::Auth::InsufficientScopeError if invalid token scope' do
-        expect { validate_access_token!(scopes: [:sudo]) }.to raise_error(Gitlab::Auth::InsufficientScopeError)
+        it 'returns Gitlab::Auth::RevokedError if token revoked', :aggregate_failures do
+          personal_access_token.revoke!
+
+          expect { validate_and_save_access_token! }.to raise_error(Gitlab::Auth::RevokedError)
+          expect(request.env).not_to have_key(described_class::API_TOKEN_ENV)
+        end
+
+        it 'returns Gitlab::Auth::InsufficientScopeError if invalid token scope', :aggregate_failures do
+          expect { validate_and_save_access_token!(scopes: [:sudo]) }.to raise_error(Gitlab::Auth::InsufficientScopeError)
+          expect(request.env).not_to have_key(described_class::API_TOKEN_ENV)
+        end
       end
     end
 
@@ -866,7 +1011,7 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         end
 
         it 'returns Gitlab::Auth::ImpersonationDisabled' do
-          expect { validate_access_token! }.to raise_error(Gitlab::Auth::ImpersonationDisabled)
+          expect { validate_and_save_access_token! }.to raise_error(Gitlab::Auth::ImpersonationDisabled)
         end
       end
     end
@@ -900,6 +1045,60 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         end
 
         it_behaves_like 'find user from job token'
+      end
+    end
+
+    context 'for route_authentication_setting[job_token_allowed]' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:route_setting, :expect_user_via_request, :expect_user_via_basic_auth) do
+        true                    | true  | false
+        :request                | true  | false
+        [:request]              | true  | false
+        :basic_auth             | false | true
+        [:basic_auth]           | false | true
+        [:request, :basic_auth] | true  | true
+
+        # unexpected values
+        :foo                    | false | false
+        [:foo]                  | false | false
+        [:foo, :bar]            | false | false
+      end
+
+      with_them do
+        let(:route_authentication_setting) { { job_token_allowed: route_setting } }
+
+        context 'when the token is in the headers' do
+          before do
+            set_header(described_class::JOB_TOKEN_HEADER, token)
+          end
+
+          it { is_expected.to eq(expect_user_via_request ? user : nil) }
+        end
+
+        context 'when the token is in the job_token param' do
+          before do
+            set_param(described_class::JOB_TOKEN_PARAM, token)
+          end
+
+          it { is_expected.to eq(expect_user_via_request ? user : nil) }
+        end
+
+        context 'when the token is in the token param' do
+          before do
+            set_param(described_class::RUNNER_JOB_TOKEN_PARAM, token)
+          end
+
+          it { is_expected.to eq(expect_user_via_request ? user : nil) }
+        end
+
+        context 'when the token is in basic auth header' do
+          before do
+            set_basic_auth_header(::Gitlab::Auth::CI_JOB_USER, token)
+          end
+
+          it { is_expected.to eq(expect_user_via_basic_auth ? user : nil) }
+        end
       end
     end
 
@@ -1038,6 +1237,77 @@ RSpec.describe Gitlab::Auth::AuthFinders do
         set_param(:token, 'invalid_token')
 
         expect(find_runner_from_token).to be_nil
+      end
+    end
+  end
+
+  describe '#authentication_token_present?' do
+    subject { authentication_token_present? }
+
+    context 'no auth header/param/oauth' do
+      before do
+        request.headers['Random'] = 'Something'
+        set_param(:random, 'something')
+      end
+
+      it { is_expected.to be(false) }
+    end
+
+    context 'with auth header' do
+      before do
+        request.headers[header] = 'invalid'
+      end
+
+      context 'with private-token' do
+        let(:header) { 'Private-Token' }
+
+        it { is_expected.to be(true) }
+      end
+
+      context 'with job-token' do
+        let(:header) { 'Job-Token' }
+
+        it { is_expected.to be(true) }
+      end
+
+      context 'with deploy-token' do
+        let(:header) { 'Deploy-Token' }
+
+        it { is_expected.to be(true) }
+      end
+    end
+
+    context 'with authorization bearer (oauth token)' do
+      before do
+        request.headers['Authorization'] = 'Bearer invalid'
+      end
+
+      it { is_expected.to be(true) }
+    end
+
+    context 'with auth param' do
+      context 'with private_token' do
+        it 'returns true' do
+          set_param(:private_token, 'invalid')
+
+          expect(subject).to be(true)
+        end
+      end
+
+      context 'with job_token' do
+        it 'returns true' do
+          set_param(:job_token, 'invalid')
+
+          expect(subject).to be(true)
+        end
+      end
+
+      context 'with token' do
+        it 'returns true' do
+          set_param(:token, 'invalid')
+
+          expect(subject).to be(true)
+        end
       end
     end
   end

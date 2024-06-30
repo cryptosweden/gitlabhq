@@ -1,42 +1,74 @@
 <script>
-import { GlButton, GlFormInput, GlFormGroup, GlSprintf } from '@gitlab/ui';
+import {
+  GlButton,
+  GlDatepicker,
+  GlFormCheckbox,
+  GlFormInput,
+  GlFormGroup,
+  GlLink,
+  GlSprintf,
+} from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapActions, mapGetters } from 'vuex';
 import { isSameOriginUrl, getParameterByName } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
 import MilestoneCombobox from '~/milestones/components/milestone_combobox.vue';
 import { BACK_URL_PARAM } from '~/releases/constants';
-import MarkdownField from '~/vue_shared/components/markdown/field.vue';
+import { putCreateReleaseNotification } from '~/releases/release_notification_service';
+import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
 import AssetLinksForm from './asset_links_form.vue';
+import ConfirmDeleteModal from './confirm_delete_modal.vue';
 import TagField from './tag_field.vue';
 
 export default {
   name: 'ReleaseEditNewApp',
   components: {
+    GlFormCheckbox,
     GlFormInput,
     GlFormGroup,
     GlButton,
+    GlDatepicker,
+    GlLink,
     GlSprintf,
-    MarkdownField,
+    ConfirmDeleteModal,
+    MarkdownEditor,
     AssetLinksForm,
     MilestoneCombobox,
     TagField,
   },
+  data() {
+    return {
+      formFieldProps: {
+        id: 'release-notes',
+        name: 'release-notes',
+        class: 'note-textarea js-gfm-input js-autosize markdown-area',
+        'aria-label': __('Release notes'),
+        placeholder: __('Write your release notes or drag your files here…'),
+      },
+    };
+  },
   computed: {
     ...mapState('editNew', [
+      'isExistingRelease',
       'isFetchingRelease',
       'isUpdatingRelease',
       'fetchError',
       'markdownDocsPath',
       'markdownPreviewPath',
+      'editReleaseDocsPath',
+      'upcomingReleaseDocsPath',
       'releasesPagePath',
       'release',
       'newMilestonePath',
       'manageMilestonesPath',
       'projectId',
+      'projectPath',
       'groupId',
       'groupMilestonesAvailable',
+      'tagNotes',
+      'isFetchingTagNotes',
     ]),
-    ...mapGetters('editNew', ['isValid', 'isExistingRelease']),
+    ...mapGetters('editNew', ['isValid', 'formattedReleaseNotes']),
     showForm() {
       return Boolean(!this.isFetchingRelease && !this.fetchError && this.release);
     },
@@ -50,7 +82,7 @@ export default {
     },
     releaseNotes: {
       get() {
-        return this.$store.state.editNew.release.description;
+        return this.$store.state.editNew.release.description || this.formattedReleaseNotes;
       },
       set(notes) {
         this.updateReleaseNotes(notes);
@@ -62,6 +94,22 @@ export default {
       },
       set(milestones) {
         this.updateReleaseMilestones(milestones);
+      },
+    },
+    includeTagNotes: {
+      get() {
+        return this.$store.state.editNew.includeTagNotes;
+      },
+      set(includeTagNotes) {
+        this.updateIncludeTagNotes(includeTagNotes);
+      },
+    },
+    releasedAt: {
+      get() {
+        return this.release.releasedAt;
+      },
+      set(date) {
+        this.updateReleasedAt(date);
       },
     },
     cancelPath() {
@@ -77,7 +125,7 @@ export default {
       return this.isExistingRelease ? __('Save changes') : __('Create release');
     },
     isFormSubmissionDisabled() {
-      return this.isUpdatingRelease || !this.isValid;
+      return this.isUpdatingRelease || !this.isValid || this.isFetchingTagNotes;
     },
     milestoneComboboxExtraLinks() {
       return [
@@ -95,32 +143,41 @@ export default {
   async mounted() {
     await this.initializeRelease();
 
-    // Focus the first non-disabled input or button element
-    this.$el.querySelector('input:enabled, button:enabled').focus();
+    if (this.release?.tagName) {
+      // Focus the release title input if a tag was preselected
+      this.$refs.releaseTitleInput.$el.focus();
+    } else {
+      // Focus the first non-disabled input or button element otherwise
+      this.$el.querySelector('input:enabled, button:enabled').focus();
+    }
   },
   methods: {
     ...mapActions('editNew', [
       'initializeRelease',
       'saveRelease',
+      'deleteRelease',
       'updateReleaseTitle',
       'updateReleaseNotes',
       'updateReleaseMilestones',
+      'updateIncludeTagNotes',
+      'updateReleasedAt',
     ]),
     submitForm() {
       if (!this.isFormSubmissionDisabled) {
         this.saveRelease();
+        putCreateReleaseNotification(this.projectPath, this.release.name);
       }
     },
   },
 };
 </script>
 <template>
-  <div class="d-flex flex-column">
+  <div class="gl-flex flex-column">
     <p class="pt-3 js-subtitle-text">
       <gl-sprintf
         :message="
           __(
-            'Releases are based on Git tags. We recommend tags that use semantic versioning, for example %{codeStart}v1.0.0%{codeEnd}, %{codeStart}v2.1.0-pre%{codeEnd}.',
+            'Releases are based on Git tags. We recommend tags that use semantic versioning, for example %{codeStart}1.0.0%{codeEnd}, %{codeStart}2.1.0-pre%{codeEnd}.',
           )
         "
       >
@@ -131,8 +188,10 @@ export default {
     </p>
     <form v-if="showForm" class="js-quick-submit" @submit.prevent="submitForm">
       <tag-field />
-      <gl-form-group>
-        <label for="release-title">{{ __('Release title') }}</label>
+      <gl-form-group
+        :label="__('Release title')"
+        :description="s__('Release|Leave blank to use the tag name as the release title.')"
+      >
         <gl-form-input
           id="release-title"
           ref="releaseTitleInput"
@@ -141,57 +200,80 @@ export default {
           class="form-control"
         />
       </gl-form-group>
-      <gl-form-group class="w-50" data-testid="milestones-field">
-        <label>{{ __('Milestones') }}</label>
-        <div class="d-flex flex-column col-md-6 col-sm-10 pl-0">
-          <milestone-combobox
-            v-model="releaseMilestones"
-            :project-id="projectId"
-            :group-id="groupId"
-            :group-milestones-available="groupMilestonesAvailable"
-            :extra-links="milestoneComboboxExtraLinks"
+      <gl-form-group :label="__('Milestones')" class="gl-w-30" data-testid="milestones-field">
+        <milestone-combobox
+          v-model="releaseMilestones"
+          :project-id="projectId"
+          :group-id="groupId"
+          :group-milestones-available="groupMilestonesAvailable"
+          :extra-links="milestoneComboboxExtraLinks"
+        />
+      </gl-form-group>
+      <gl-form-group
+        :label="__('Release date')"
+        :label-description="__('The date when the release is ready.')"
+        label-for="release-released-at"
+      >
+        <template #description>
+          <gl-sprintf
+            :message="
+              __(
+                'A release with a date in the future is labeled as an %{linkStart}Upcoming Release%{linkEnd}.',
+              )
+            "
+          >
+            <template #link="{ content }">
+              <gl-link :href="upcomingReleaseDocsPath">{{ content }}</gl-link>
+            </template>
+          </gl-sprintf>
+        </template>
+        <gl-datepicker id="release-released-at" v-model="releasedAt" :default-date="releasedAt" />
+      </gl-form-group>
+      <gl-form-group :label="__('Release notes')" data-testid="release-notes">
+        <div class="common-note-form">
+          <markdown-editor
+            v-model="releaseNotes"
+            :render-markdown-path="markdownPreviewPath"
+            :markdown-docs-path="markdownDocsPath"
+            :supports-quick-actions="false"
+            :form-field-props="formFieldProps"
           />
         </div>
       </gl-form-group>
-      <gl-form-group data-testid="release-notes">
-        <label for="release-notes">{{ __('Release notes') }}</label>
-        <div class="bordered-box pr-3 pl-3">
-          <markdown-field
-            :can-attach-file="true"
-            :markdown-preview-path="markdownPreviewPath"
-            :markdown-docs-path="markdownDocsPath"
-            :add-spacing-classes="false"
-            :textarea-value="releaseNotes"
-            class="gl-mt-3 gl-mb-3"
-          >
-            <template #textarea>
-              <textarea
-                id="release-notes"
-                v-model="releaseNotes"
-                class="note-textarea js-gfm-input js-autosize markdown-area"
-                dir="auto"
-                data-supports-quick-actions="false"
-                :aria-label="__('Release notes')"
-                :placeholder="__('Write your release notes or drag your files here…')"
-              ></textarea>
-            </template>
-          </markdown-field>
-        </div>
+      <gl-form-group v-if="!isExistingRelease">
+        <gl-form-checkbox v-model="includeTagNotes">
+          {{ s__('Release|Include message from the annotated tag.') }}
+
+          <template #help>
+            <gl-sprintf
+              :message="
+                s__(
+                  'Release|You can edit the content later by editing the release. %{linkStart}How do I edit a release?%{linkEnd}',
+                )
+              "
+            >
+              <template #link="{ content }">
+                <gl-link :href="editReleaseDocsPath">{{ content }}</gl-link>
+              </template>
+            </gl-sprintf>
+          </template>
+        </gl-form-checkbox>
       </gl-form-group>
 
       <asset-links-form />
 
-      <div class="d-flex pt-3">
+      <div class="gl-flex gl-gap-x-3 pt-3">
         <gl-button
-          class="mr-auto js-no-auto-disable"
+          class="js-no-auto-disable"
           category="primary"
-          variant="success"
+          variant="confirm"
           type="submit"
           :disabled="isFormSubmissionDisabled"
           data-testid="submit-button"
         >
           {{ saveButtonLabel }}
         </gl-button>
+        <confirm-delete-modal v-if="isExistingRelease" @delete="deleteRelease" />
         <gl-button :href="cancelPath" class="js-cancel-button">{{ __('Cancel') }}</gl-button>
       </div>
     </form>

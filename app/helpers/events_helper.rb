@@ -13,15 +13,67 @@ module EventsHelper
     'deleted' => 'remove',
     'destroyed' => 'remove',
     'imported' => 'import',
-    'joined' => 'users'
+    'joined' => 'users',
+    'approved' => 'check',
+    'added' => 'upload',
+    'removed' => 'remove'
   }.freeze
+
+  def localized_action_name_map
+    {
+      accepted: s_('Event|accepted'),
+      approved: s_('Event|approved'),
+      closed: s_('Event|closed'),
+      'commented on': s_('Event|commented on'),
+      created: s_('Event|created'),
+      destroyed: s_('Event|destroyed'),
+      joined: s_('Event|joined'),
+      left: s_('Event|left'),
+      opened: s_('Event|opened'),
+      updated: s_('Event|updated'),
+      'removed due to membership expiration from': s_('Event|removed due to membership expiration from')
+    }.merge(
+      localized_push_action_name_map,
+      localized_created_project_action_name_map,
+      localized_design_action_names
+    ).freeze
+  end
+
+  def localized_push_action_name_map
+    {
+      'pushed new': s_('Event|pushed new'),
+      deleted: s_('Event|deleted'),
+      'pushed to': s_('Event|pushed to')
+    }.freeze
+  end
+
+  def localized_created_project_action_name_map
+    {
+      created: s_('Event|created'),
+      imported: s_('Event|imported')
+    }.freeze
+  end
+
+  def localized_design_action_names
+    {
+      added: s_('Event|added'),
+      updated: s_('Event|updated'),
+      removed: s_('Event|removed')
+    }.freeze
+  end
+
+  def localized_action_name(event)
+    action_name = event.action_name
+    # The action fallback is used to cover the types were not included in the maps.
+    localized_action_name_map[action_name.to_sym] || action_name
+  end
 
   def link_to_author(event, self_added: false)
     author = event.author
 
     if author
-      name = self_added ? 'You' : author.name
-      link_to name, user_path(author.username), title: name
+      name = self_added ? _('You') : author.name
+      link_to name, user_path(author.username), title: name, data: { user_id: author.id, username: author.username }, class: 'js-user-link'
     else
       escape_once(event.author_name)
     end
@@ -38,13 +90,13 @@ module EventsHelper
     active = 'active' if @event_filter.active?(key)
     link_opts = {
       class: "event-filter-link",
-      id:    "#{key}_event_filter",
+      id: "#{key}_event_filter",
       title: tooltip
     }
 
     content_tag :li, class: active do
       link_to request.path, link_opts do
-        content_tag(:span, ' ' + text)
+        content_tag(:span, " #{text}")
       end
     end
   end
@@ -88,6 +140,12 @@ module EventsHelper
     end
   end
 
+  def event_target_path(event)
+    return Gitlab::UrlBuilder.build(event.target, only_path: true) if event.work_item?
+
+    event.target_link_options
+  end
+
   def event_feed_title(event)
     words = []
     words << event.author_name
@@ -129,13 +187,11 @@ module EventsHelper
 
   def event_feed_url(event)
     if event.issue?
-      project_issue_url(event.project,
-                                  event.issue)
+      project_issue_url(event.project, event.issue)
     elsif event.merge_request?
       project_merge_request_url(event.project, event.merge_request)
     elsif event.commit_note?
-      project_commit_url(event.project,
-                                   event.note_target)
+      project_commit_url(event.project, event.note_target)
     elsif event.note?
       if event.note_target
         event_note_target_url(event)
@@ -150,16 +206,12 @@ module EventsHelper
   def push_event_feed_url(event)
     if event.push_with_commits? && event.md_ref?
       if event.commits_count > 1
-        project_compare_url(event.project,
-                                      from: event.commit_from, to:
-                                      event.commit_to)
+        project_compare_url(event.project, from: event.commit_from, to: event.commit_to)
       else
-        project_commit_url(event.project,
-                                     id: event.commit_to)
+        project_commit_url(event.project, id: event.commit_to)
       end
     elsif event.ref_name
-      project_commits_url(event.project,
-                                    event.ref_name)
+      project_commits_url(event.project, event.ref_name)
     end
   end
 
@@ -187,26 +239,31 @@ module EventsHelper
     elsif event.design_note?
       design_url(event.note_target, anchor: dom_id(event.note))
     else
-      polymorphic_url([event.project, event.note_target],
-                        anchor: dom_id(event.target))
+      polymorphic_url([event.project, event.note_target], anchor: dom_id(event.target))
     end
   end
 
   def event_wiki_title_html(event)
     capture do
-      concat content_tag(:span, _('wiki page'), class: "event-target-type gl-mr-2")
-      concat link_to(event.target_title, event_wiki_page_target_url(event),
-                     title: event.target_title,
-                     class: 'has-tooltip event-target-link gl-mr-2')
+      concat content_tag(:span, "#{_('wiki page')} ", class: "event-target-type #{user_profile_activity_classes}")
+      concat link_to(
+        event.target_title,
+        event_wiki_page_target_url(event),
+        title: event.target_title,
+        class: 'has-tooltip event-target-link'
+      )
     end
   end
 
   def event_design_title_html(event)
     capture do
-      concat content_tag(:span, _('design'), class: "event-target-type gl-mr-2")
-      concat link_to(event.design.reference_link_text, design_url(event.design),
-                     title: event.target_title,
-                     class: 'has-tooltip event-design event-target-link gl-mr-2')
+      concat content_tag(:span, "#{_('design')} ", class: "event-target-type #{user_profile_activity_classes}")
+      concat link_to(
+        event.design.reference_link_text,
+        design_url(event.design),
+        title: event.target_title,
+        class: 'has-tooltip event-design event-target-link'
+      )
     end
   end
 
@@ -217,8 +274,8 @@ module EventsHelper
   def event_note_title_html(event)
     if event.note_target
       capture do
-        concat content_tag(:span, event.note_target_type_name, class: "event-target-type gl-mr-2")
-        concat link_to(event.note_target_reference, event_note_target_url(event), title: event.target_title, class: 'has-tooltip event-target-link gl-mr-2')
+        concat content_tag(:span, "#{event.note_target_type_name} ", class: "event-target-type #{user_profile_activity_classes}")
+        concat link_to(event.note_target_reference, event_note_target_url(event), title: event.target_title, class: 'has-tooltip event-target-link')
       end
     else
       content_tag(:strong, '(deleted)')
@@ -249,20 +306,17 @@ module EventsHelper
   end
 
   def icon_for_profile_event(event)
-    if current_path?('users#show')
-      content_tag :div, class: "system-note-image #{event.action_name.parameterize}-icon" do
-        icon_for_event(event.action_name)
-      end
-    else
-      content_tag :div, class: 'system-note-image user-avatar' do
-        author_avatar(event, size: 32)
-      end
-    end
+    base_class = 'system-note-image'
+
+    classes = current_path?('users#activity') ? "#{event.action_name.parameterize}-icon gl-rounded-full gl-bg-gray-50 gl-leading-0" : "user-avatar"
+    content = current_path?('users#activity') ? icon_for_event(event.action_name, size: 14) : author_avatar(event, size: 32, css_class: 'gl-display-inline-block', project: event.project)
+
+    tag.div(class: "#{base_class} #{classes}") { content }
   end
 
   def inline_event_icon(event)
-    unless current_path?('users#show')
-      content_tag :span, class: "system-note-image-inline d-none d-sm-flex gl-mr-2 #{event.action_name.parameterize}-icon align-self-center" do
+    unless current_path?('users#activity')
+      content_tag :span, class: "system-note-image-inline gl-display-flex gl-mr-2 #{event.action_name.parameterize}-icon align-self-center" do
         next design_event_icon(event.action, size: 14) if event.design?
 
         icon_for_event(event.action_name, size: 14)
@@ -271,11 +325,17 @@ module EventsHelper
   end
 
   def event_user_info(event)
-    content_tag(:div, class: "event-user-info") do
-      concat content_tag(:span, link_to_author(event), class: "author-name")
-      concat "&nbsp;".html_safe
-      concat content_tag(:span, event.author.to_reference, class: "username")
+    return if current_path?('users#activity')
+
+    tag.div(class: 'event-user-info') do
+      concat tag.span(link_to_author(event), class: 'author-name')
+      concat '&nbsp;'.html_safe
+      concat tag.span(event.author.to_reference, class: 'username')
     end
+  end
+
+  def user_profile_activity_classes
+    current_path?('users#activity') ? ' gl-font-semibold gl-text-black-normal' : ''
   end
 
   private

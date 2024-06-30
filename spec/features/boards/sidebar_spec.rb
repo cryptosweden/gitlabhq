@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Project issue boards sidebar', :js do
+RSpec.describe 'Project issue boards sidebar', :js, feature_category: :portfolio_management do
   include BoardHelpers
 
   let_it_be(:user)    { create(:user) }
   let_it_be(:group)   { create(:group, :public) }
   let_it_be(:project) { create(:project, :public, namespace: group) }
   let_it_be(:board)   { create(:board, project: project) }
-  let_it_be(:label) { create(:label, project: project, name: 'Label') }
+  let_it_be(:label)   { create(:label, project: project, name: 'Label') }
   let_it_be(:list)    { create(:list, board: board, label: label, position: 0) }
 
   let_it_be(:issue, reload: true) { create(:issue, project: project, relative_position: 1) }
@@ -27,7 +27,7 @@ RSpec.describe 'Project issue boards sidebar', :js do
   it_behaves_like 'issue boards sidebar'
 
   def first_card
-    find('.board:nth-child(1)').first("[data-testid='board_card']")
+    find('.board:nth-child(1)').first("[data-testid='board-card']")
   end
 
   def click_first_issue_card

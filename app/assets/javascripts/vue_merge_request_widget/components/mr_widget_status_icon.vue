@@ -1,56 +1,43 @@
 <script>
-import { GlButton, GlLoadingIcon } from '@gitlab/ui';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import ciIcon from '../../vue_shared/components/ci_icon.vue';
+import { GlIcon } from '@gitlab/ui';
+import { STATUS_CLOSED, STATUS_MERGED, STATUS_EMPTY } from '~/issues/constants';
+import StatusIcon from './widget/status_icon.vue';
 
 export default {
   components: {
-    ciIcon,
-    GlButton,
-    GlLoadingIcon,
+    StatusIcon,
+    GlIcon,
   },
-  mixins: [glFeatureFlagMixin()],
   props: {
     status: {
       type: String,
       required: true,
     },
-    showDisabledButton: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
   },
   computed: {
+    isClosed() {
+      return this.status === STATUS_CLOSED;
+    },
     isLoading() {
       return this.status === 'loading';
     },
-    statusObj() {
-      return {
-        group: this.status,
-        icon: `status_${this.status}`,
-      };
+    isMerged() {
+      return this.status === STATUS_MERGED;
+    },
+    isEmpty() {
+      return this.status === STATUS_EMPTY;
     },
   },
 };
 </script>
 <template>
-  <div class="gl-display-flex gl-align-self-start">
-    <div class="square s24 h-auto d-flex-center gl-mr-3">
-      <div v-if="isLoading" class="mr-widget-icon gl-display-inline-flex">
-        <gl-loading-icon size="md" class="mr-loading-icon gl-display-inline-flex" />
-      </div>
-      <ci-icon v-else :status="statusObj" :size="24" />
+  <div class="gl-w-6 gl-h-6 gl-display-flex gl-align-self-start gl-mr-3">
+    <div class="gl-display-flex gl-m-auto">
+      <gl-icon v-if="isMerged" name="merge" :size="16" class="gl-text-blue-500" />
+      <gl-icon v-else-if="isClosed" name="merge-request-close" :size="16" class="gl-text-red-500" />
+      <gl-icon v-else-if="status === 'approval'" name="approval" :size="16" />
+      <status-icon v-else-if="isEmpty" icon-name="neutral" :level="1" class="gl-m-0!" />
+      <status-icon v-else :is-loading="isLoading" :icon-name="status" :level="1" class="gl-m-0!" />
     </div>
-
-    <gl-button
-      v-if="!glFeatures.restructuredMrWidget && showDisabledButton"
-      category="primary"
-      variant="success"
-      data-testid="disabled-merge-button"
-      :disabled="true"
-    >
-      {{ s__('mrWidget|Merge') }}
-    </gl-button>
   </div>
 </template>

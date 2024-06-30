@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Every API endpoint' do
+RSpec.describe 'Every API endpoint', feature_category: :scalability do
   context 'feature categories' do
     let_it_be(:feature_categories) do
       Gitlab::FeatureCategories.default.categories.map(&:to_sym).to_set
@@ -32,10 +32,21 @@ RSpec.describe 'Every API endpoint' do
         next unless used_category
         next if used_category == :not_owned
 
-        [path, used_category] unless feature_categories.include?(used_category)
+        [klass, path, used_category] unless feature_categories.include?(used_category)
       end.compact
 
-      expect(routes_unknown_category).to be_empty, "#{routes_unknown_category.first(10)} had an unknown category"
+      message = -> do
+        list = routes_unknown_category.map do |klass, path, category|
+          "- #{klass} (#{path}): #{category}"
+        end
+
+        <<~MESSAGE
+          Unknown categories found for:
+          #{list.join("\n")}
+        MESSAGE
+      end
+
+      expect(routes_unknown_category).to be_empty, message
     end
 
     # This is required for API::Base.path_for_app to work, as it picks
@@ -54,7 +65,7 @@ RSpec.describe 'Every API endpoint' do
         non_existing_used_paths = used_paths - existing_paths
 
         expect(non_existing_used_paths).to be_empty,
-                                           "#{klass} used #{non_existing_used_paths} to define feature category, but the route does not exist"
+          "#{klass} used #{non_existing_used_paths} to define feature category, but the route does not exist"
       end
     end
   end

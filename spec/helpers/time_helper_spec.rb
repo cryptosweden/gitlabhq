@@ -11,7 +11,7 @@ RSpec.describe TimeHelper do
         100.32 => "1 minute and 40 seconds",
         120 => "2 minutes",
         121 => "2 minutes and 1 second",
-        3721 => "62 minutes and 1 second",
+        3721 => "1 hour, 2 minutes, and 1 second",
         0 => "0 seconds"
       }
 
@@ -28,9 +28,9 @@ RSpec.describe TimeHelper do
       0                              | "00:00"
       1.second                       | "00:01"
       42.seconds                     | "00:42"
-      2.minutes + 1.second           | "02:01"
-      3.hours + 2.minutes + 1.second | "03:02:01"
-      30.hours                       | "30:00:00"
+      (2.minutes + 1.second)           | "02:01"
+      (3.hours + 2.minutes + 1.second) | "03:02:01"
+      30.hours | "30:00:00"
     end
 
     with_them do

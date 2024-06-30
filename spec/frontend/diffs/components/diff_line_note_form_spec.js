@@ -1,72 +1,148 @@
 import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import waitForPromises from 'helpers/wait_for_promises';
+import { sprintf } from '~/locale';
+import { createAlert } from '~/alert';
 import DiffLineNoteForm from '~/diffs/components/diff_line_note_form.vue';
-import { createStore } from '~/mr_notes/stores';
+import store from '~/mr_notes/stores';
 import NoteForm from '~/notes/components/note_form.vue';
+import MultilineCommentForm from '~/notes/components/multiline_comment_form.vue';
+import { clearDraft } from '~/lib/utils/autosave';
 import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
-import { noteableDataMock } from '../../notes/mock_data';
-import diffFileMockData from '../mock_data/diff_file';
+import { noteableDataMock } from 'jest/notes/mock_data';
+import { SOMETHING_WENT_WRONG, SAVING_THE_COMMENT_FAILED } from '~/diffs/i18n';
+import { getDiffFileMock } from '../mock_data/diff_file';
 
-jest.mock('~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal', () => {
-  return {
-    confirmAction: jest.fn(),
-  };
-});
+jest.mock('~/lib/utils/autosave');
+jest.mock('~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal');
+jest.mock('~/mr_notes/stores', () => jest.requireActual('helpers/mocks/mr_notes/stores'));
+jest.mock('~/alert');
 
 describe('DiffLineNoteForm', () => {
   let wrapper;
   let diffFile;
   let diffLines;
-  const getDiffFileMock = () => ({ ...diffFileMockData });
 
-  const createComponent = (args = {}) => {
+  beforeEach(() => {
+    store.reset();
+
     diffFile = getDiffFileMock();
     diffLines = diffFile.highlighted_diff_lines;
-    const store = createStore();
-    store.state.notes.userData.id = 1;
+
     store.state.notes.noteableData = noteableDataMock;
-    store.state.diffs.diffFiles = [diffFile];
 
-    store.replaceState({ ...store.state, ...args.state });
+    store.getters.isLoggedIn = jest.fn().mockReturnValue(true);
+    store.getters['diffs/getDiffFileByHash'] = jest.fn().mockReturnValue(diffFile);
+  });
 
-    return shallowMount(DiffLineNoteForm, {
-      store,
-      propsData: {
-        ...{
-          diffFileHash: diffFile.file_hash,
-          diffLines,
-          line: diffLines[1],
-          range: { start: diffLines[0], end: diffLines[1] },
-          noteTargetLine: diffLines[1],
-        },
-        ...(args.props || {}),
+  const createComponent = ({ props } = {}) => {
+    wrapper?.destroy();
+
+    const propsData = {
+      diffFileHash: diffFile.file_hash,
+      diffLines,
+      line: diffLines[1],
+      range: { start: diffLines[0], end: diffLines[1] },
+      noteTargetLine: diffLines[1],
+      ...props,
+    };
+
+    wrapper = shallowMount(DiffLineNoteForm, {
+      mocks: {
+        $store: store,
       },
+      propsData,
     });
   };
 
   const findNoteForm = () => wrapper.findComponent(NoteForm);
+  const findCommentForm = () => wrapper.findComponent(MultilineCommentForm);
 
-  describe('methods', () => {
-    beforeEach(() => {
-      wrapper = createComponent();
+  beforeEach(() => {
+    createComponent();
+  });
+
+  it('shows note form', () => {
+    expect(wrapper.findComponent(NoteForm).exists()).toBe(true);
+  });
+
+  it('passes the provided range of lines to comment form', () => {
+    expect(findCommentForm().props('lineRange')).toMatchObject({
+      start: diffLines[0],
+      end: diffLines[1],
+    });
+  });
+
+  it('respects empty range when passing a range of lines', () => {
+    createComponent({ props: { range: null } });
+    expect(findCommentForm().props('lineRange')).toMatchObject({
+      start: diffLines[1],
+      end: diffLines[1],
+    });
+  });
+
+  describe('when cancelling form', () => {
+    afterEach(() => {
+      confirmAction.mockReset();
     });
 
-    describe('handleCancelCommentForm', () => {
-      afterEach(() => {
-        confirmAction.mockReset();
+    it('should only ask for confirmation once', () => {
+      let finalizePromise;
+      confirmAction.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finalizePromise = resolve;
+          }),
+      );
+
+      findNoteForm().vm.$emit('cancelForm', true, true);
+      findNoteForm().vm.$emit('cancelForm', true, true);
+
+      expect(confirmAction).toHaveBeenCalledTimes(1);
+      finalizePromise();
+    });
+
+    describe('with confirmation', () => {
+      beforeEach(() => {
+        confirmAction.mockResolvedValueOnce(true);
+      });
+
+      it('should ask form confirmation and hide form for a line', async () => {
+        findNoteForm().vm.$emit('cancelForm', true, true);
+        await nextTick();
+        expect(confirmAction).toHaveBeenCalled();
+        await nextTick();
+
+        expect(store.dispatch).toHaveBeenCalledWith('diffs/cancelCommentForm', {
+          lineCode: diffLines[1].line_code,
+          fileHash: diffFile.file_hash,
+        });
+      });
+
+      it('should clear the autosaved draft', async () => {
+        findNoteForm().vm.$emit('cancelForm', true, true);
+        await nextTick();
+        expect(confirmAction).toHaveBeenCalled();
+        await nextTick();
+
+        expect(clearDraft).toHaveBeenCalledWith(
+          `Note/Issue/${noteableDataMock.id}//DiffNote//${diffLines[1].line_code}`,
+        );
+      });
+    });
+
+    describe('without confirmation', () => {
+      beforeEach(() => {
+        confirmAction.mockResolvedValueOnce(false);
       });
 
       it('should ask for confirmation when shouldConfirm and isDirty passed as truthy', () => {
-        confirmAction.mockResolvedValueOnce(false);
-
         findNoteForm().vm.$emit('cancelForm', true, true);
 
         expect(confirmAction).toHaveBeenCalled();
       });
 
       it('should not ask for confirmation when one of the params false', () => {
-        confirmAction.mockResolvedValueOnce(false);
-
         findNoteForm().vm.$emit('cancelForm', true, false);
 
         expect(confirmAction).not.toHaveBeenCalled();
@@ -75,121 +151,121 @@ describe('DiffLineNoteForm', () => {
 
         expect(confirmAction).not.toHaveBeenCalled();
       });
+    });
+  });
 
-      it('should call cancelCommentForm with lineCode', async () => {
-        confirmAction.mockResolvedValueOnce(true);
-        jest.spyOn(wrapper.vm, 'cancelCommentForm').mockImplementation(() => {});
-        jest.spyOn(wrapper.vm, 'resetAutoSave').mockImplementation(() => {});
-
-        findNoteForm().vm.$emit('cancelForm', true, true);
-
-        await nextTick();
-
-        expect(confirmAction).toHaveBeenCalled();
-
-        await nextTick();
-
-        expect(wrapper.vm.cancelCommentForm).toHaveBeenCalledWith({
-          lineCode: diffLines[1].line_code,
-          fileHash: wrapper.vm.diffFileHash,
-        });
-        expect(wrapper.vm.resetAutoSave).toHaveBeenCalled();
-      });
+  describe('saving note', () => {
+    beforeEach(() => {
+      store.getters.noteableType = 'merge-request';
     });
 
-    describe('saveNoteForm', () => {
-      it('should call saveNote action with proper params', (done) => {
-        const saveDiffDiscussionSpy = jest
-          .spyOn(wrapper.vm, 'saveDiffDiscussion')
-          .mockReturnValue(Promise.resolve());
+    it('should save original line', async () => {
+      const lineRange = {
+        start: {
+          line_code: diffLines[1].line_code,
+          type: diffLines[1].type,
+          new_line: 2,
+          old_line: null,
+        },
+        end: {
+          line_code: diffLines[1].line_code,
+          type: diffLines[1].type,
+          new_line: 2,
+          old_line: null,
+        },
+      };
 
-        const lineRange = {
-          start: {
-            line_code: wrapper.vm.commentLineStart.line_code,
-            type: wrapper.vm.commentLineStart.type,
-            new_line: 2,
-            old_line: null,
-          },
-          end: {
-            line_code: wrapper.vm.line.line_code,
-            type: wrapper.vm.line.type,
-            new_line: 2,
-            old_line: null,
-          },
-        };
+      const noteBody = 'note body';
+      await findNoteForm().vm.$emit('handleFormUpdate', noteBody);
 
-        const formData = {
-          ...wrapper.vm.formData,
+      expect(store.dispatch).toHaveBeenCalledWith('diffs/saveDiffDiscussion', {
+        note: noteBody,
+        formData: {
+          noteableData: noteableDataMock,
+          noteableType: store.getters.noteableType,
+          noteTargetLine: diffLines[1],
+          diffViewType: store.state.diffs.diffViewType,
+          diffFile,
+          linePosition: '',
           lineRange,
-        };
-
-        wrapper.vm
-          .handleSaveNote('note body')
-          .then(() => {
-            expect(saveDiffDiscussionSpy).toHaveBeenCalledWith({
-              note: 'note body',
-              formData,
-            });
-          })
-          .then(done)
-          .catch(done.fail);
+        },
+      });
+      expect(store.dispatch).toHaveBeenCalledWith('diffs/cancelCommentForm', {
+        lineCode: diffLines[1].line_code,
+        fileHash: diffFile.file_hash,
       });
     });
-  });
 
-  describe('created', () => {
-    it('should use the provided `range` of lines', () => {
-      wrapper = createComponent();
+    it('should save selected line from the store', async () => {
+      const lineCode = 'test';
+      store.state.notes.selectedCommentPosition = { start: { line_code: lineCode } };
+      createComponent();
+      const noteBody = 'note body';
 
-      expect(wrapper.vm.lines.start).toBe(diffLines[0]);
-      expect(wrapper.vm.lines.end).toBe(diffLines[1]);
-    });
+      await findNoteForm().vm.$emit('handleFormUpdate', noteBody);
 
-    it("should fill the internal `lines` data with the provided `line` if there's no provided `range", () => {
-      wrapper = createComponent({ props: { range: null } });
-
-      expect(wrapper.vm.lines.start).toBe(diffLines[1]);
-      expect(wrapper.vm.lines.end).toBe(diffLines[1]);
-    });
-  });
-
-  describe('mounted', () => {
-    it('should init autosave', () => {
-      const key = 'autosave/Note/Issue/98//DiffNote//1c497fbb3a46b78edf04cc2a2fa33f67e3ffbe2a_1_2';
-      wrapper = createComponent();
-
-      expect(wrapper.vm.autosave).toBeDefined();
-      expect(wrapper.vm.autosave.key).toEqual(key);
-    });
-
-    it('should set selectedCommentPosition', () => {
-      wrapper = createComponent();
-      let startLineCode = wrapper.vm.commentLineStart.line_code;
-      let lineCode = wrapper.vm.line.line_code;
-
-      expect(startLineCode).toEqual(lineCode);
-      wrapper.destroy();
-
-      const state = {
-        notes: {
-          selectedCommentPosition: {
+      expect(store.dispatch).toHaveBeenCalledWith('diffs/saveDiffDiscussion', {
+        note: noteBody,
+        formData: {
+          noteableData: noteableDataMock,
+          noteableType: store.getters.noteableType,
+          noteTargetLine: diffLines[1],
+          diffViewType: store.state.diffs.diffViewType,
+          diffFile,
+          linePosition: '',
+          lineRange: {
             start: {
-              line_code: 'test',
+              line_code: lineCode,
+              new_line: undefined,
+              old_line: undefined,
+              type: undefined,
+            },
+            end: {
+              line_code: diffLines[1].line_code,
+              new_line: diffLines[1].new_line,
+              old_line: diffLines[1].old_line,
+              type: diffLines[1].type,
             },
           },
         },
-      };
-      wrapper = createComponent({ state });
-      startLineCode = wrapper.vm.commentLineStart.line_code;
-      lineCode = state.notes.selectedCommentPosition.start.line_code;
-      expect(startLineCode).toEqual(lineCode);
+      });
+      expect(store.dispatch).toHaveBeenCalledWith('diffs/cancelCommentForm', {
+        lineCode: diffLines[1].line_code,
+        fileHash: diffFile.file_hash,
+      });
     });
-  });
 
-  describe('template', () => {
-    it('should have note form', () => {
-      wrapper = createComponent();
-      expect(wrapper.find(NoteForm).exists()).toBe(true);
+    describe('when note-form emits `handleFormUpdate`', () => {
+      const noteStub = 'invalid note';
+      const parentElement = null;
+      const errorCallback = jest.fn();
+
+      describe.each`
+        scenario                  | serverError                      | message
+        ${'with server error'}    | ${{ data: { errors: 'error' } }} | ${SAVING_THE_COMMENT_FAILED}
+        ${'without server error'} | ${null}                          | ${SOMETHING_WENT_WRONG}
+      `('$scenario', ({ serverError, message }) => {
+        beforeEach(async () => {
+          store.dispatch.mockRejectedValue({ response: serverError });
+
+          createComponent();
+
+          await findNoteForm().vm.$emit('handleFormUpdate', noteStub, parentElement, errorCallback);
+
+          await waitForPromises();
+        });
+
+        it(`renders ${serverError ? 'server' : 'generic'} error message`, () => {
+          expect(createAlert).toHaveBeenCalledWith({
+            message: sprintf(message, { reason: serverError?.data?.errors }),
+            parent: parentElement,
+          });
+        });
+
+        it('calls errorCallback', () => {
+          expect(errorCallback).toHaveBeenCalled();
+        });
+      });
     });
   });
 });

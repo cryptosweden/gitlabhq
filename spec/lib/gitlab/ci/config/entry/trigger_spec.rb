@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Config::Entry::Trigger do
+RSpec.describe Gitlab::Ci::Config::Entry::Trigger, feature_category: :pipeline_composition do
   subject { described_class.new(config) }
 
   context 'when trigger config is a non-empty string' do
@@ -29,12 +29,54 @@ RSpec.describe Gitlab::Ci::Config::Entry::Trigger do
     describe '#errors' do
       it 'returns an error about an empty config' do
         expect(subject.errors.first)
-          .to match /config can't be blank/
+          .to match(/config can't be blank/)
       end
     end
   end
 
   context 'when trigger is a hash - cross-project' do
+    context 'when project is a string' do
+      context 'when project is a non-empty string' do
+        let(:config) { { project: 'some/project' } }
+
+        it 'is valid' do
+          expect(subject).to be_valid
+        end
+      end
+
+      context 'when project is an empty string' do
+        let(:config) { { project: '' } }
+
+        it 'returns error' do
+          expect(subject).not_to be_valid
+          expect(subject.errors.first)
+            .to match(/project can't be blank/)
+        end
+      end
+    end
+
+    context 'when project is not a string' do
+      context 'when project is an array' do
+        let(:config) { { project: ['some/project'] } }
+
+        it 'returns error' do
+          expect(subject).not_to be_valid
+          expect(subject.errors.first)
+            .to match(/should be a string/)
+        end
+      end
+
+      context 'when project is a boolean' do
+        let(:config) { { project: true } }
+
+        it 'returns error' do
+          expect(subject).not_to be_valid
+          expect(subject.errors.first)
+            .to match(/should be a string/)
+        end
+      end
+    end
+
     context 'when branch is provided' do
       let(:config) { { project: 'some/project', branch: 'feature' } }
 
@@ -76,7 +118,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Trigger do
         describe '#errors' do
           it 'returns an error about unknown config key' do
             expect(subject.errors.first)
-              .to match /trigger strategy should be depend/
+              .to match(/trigger strategy should be depend/)
           end
         end
       end
@@ -92,7 +134,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Trigger do
       describe '#errors' do
         it 'returns an error about unknown config key' do
           expect(subject.errors.first)
-            .to match /config contains unknown keys: unknown/
+            .to match(/config contains unknown keys: unknown/)
         end
       end
     end
@@ -132,7 +174,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Trigger do
 
       it 'returns an error' do
         expect(subject.errors.first)
-          .to match /config contains unknown keys: project/
+          .to match(/config contains unknown keys: project/)
       end
     end
 
@@ -143,7 +185,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Trigger do
 
       it 'returns an error' do
         expect(subject.errors.first)
-          .to match /config contains unknown keys: branch/
+          .to match(/config contains unknown keys: branch/)
       end
     end
 
@@ -175,7 +217,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Trigger do
       describe '#errors' do
         it 'returns an error message' do
           expect(subject.errors.first)
-            .to match /has to be either a string or a hash/
+            .to match(/has to be either a string or a hash/)
         end
       end
     end

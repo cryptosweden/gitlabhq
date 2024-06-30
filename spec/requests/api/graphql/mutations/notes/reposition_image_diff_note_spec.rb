@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Repositioning an ImageDiffNote' do
+RSpec.describe 'Repositioning an ImageDiffNote', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:noteable) { create(:merge_request) }
@@ -39,7 +39,7 @@ RSpec.describe 'Repositioning an ImageDiffNote' do
       post_graphql_mutation(mutation, current_user: current_user)
     end.to change { note.reset.position.x }.to(10)
 
-    expect(mutation_response['note']).to eq('id' => global_id_of(note))
+    expect(mutation_response['note']).to match a_graphql_entity_for(note)
     expect(mutation_response['errors']).to be_empty
   end
 
@@ -59,7 +59,7 @@ RSpec.describe 'Repositioning an ImageDiffNote' do
         post_graphql_mutation(mutation, current_user: current_user)
       end.not_to change { note.reset.position.x }
 
-      expect(mutation_response['note']).to eq('id' => global_id_of(note))
+      expect(mutation_response['note']).to match a_graphql_entity_for(note)
       expect(mutation_response['errors']).to be_empty
     end
   end
@@ -68,15 +68,7 @@ RSpec.describe 'Repositioning an ImageDiffNote' do
     let(:new_position) { { x: nil } }
 
     it_behaves_like 'a mutation that returns top-level errors' do
-      let(:match_errors) { include(/RepositionImageDiffNoteInput! was provided invalid value/) }
-    end
-
-    it 'contains an explanation for the error' do
-      post_graphql_mutation(mutation, current_user: current_user)
-
-      explanation = graphql_errors.first['extensions']['problems'].first['explanation']
-
-      expect(explanation).to eq('At least one property of `UpdateDiffImagePositionInput` must be set')
+      let(:match_errors) { include(/At least one property of `UpdateDiffImagePositionInput` must be set/) }
     end
   end
 end

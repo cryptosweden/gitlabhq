@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan', :transient do
+  RSpec.describe 'Plan', :transient, product_group: :project_management do
     describe 'Discussion comments transient bugs' do
       let(:user1) do
         Resource::User.fabricate_or_use(Runtime::Env.gitlab_qa_username_1, Runtime::Env.gitlab_qa_password_1)
@@ -20,7 +20,7 @@ module QA
         Runtime::Env.transient_trials.times do |i|
           QA::Runtime::Logger.info("Transient bug test action - Trial #{i}")
 
-          Resource::Issue.fabricate_via_api!.visit!
+          create(:issue).visit!
 
           Page::Project::Issue::Show.perform do |issue_page|
             issue_page.select_all_activities_filter

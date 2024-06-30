@@ -2,8 +2,8 @@
 
 module QA
   RSpec.describe 'Create' do
-    context 'File management' do
-      let(:file) { Resource::File.fabricate_via_api! }
+    describe 'File management', product_group: :source_code do
+      let(:file) { create(:file) }
 
       commit_message_for_delete = 'QA Test - Delete file'
 
@@ -12,7 +12,7 @@ module QA
         file.visit!
       end
 
-      it 'user deletes a file via the Web', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347731' do
+      it 'user deletes a file via the Web', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347731' do
         Page::File::Show.perform do |file|
           file.click_delete
           file.add_commit_message(commit_message_for_delete)

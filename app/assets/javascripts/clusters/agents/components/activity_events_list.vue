@@ -9,7 +9,7 @@ import {
 } from '@gitlab/ui';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import { n__, s__, __ } from '~/locale';
-import { formatDate, getDayDifference, isToday } from '~/lib/utils/datetime_utility';
+import { getDayDifference, isToday, localeDateFormat } from '~/lib/utils/datetime_utility';
 import { EVENTS_STORED_DAYS } from '../constants';
 import getAgentActivityEventsQuery from '../graphql/queries/get_agent_activity_events.query.graphql';
 import ActivityHistoryItem from './activity_history_item.vue';
@@ -28,17 +28,17 @@ export default {
   },
   i18n: {
     emptyText: s__(
-      'ClusterAgents|See Agent activity updates such as tokens created or revoked and clusters connected or not connected.',
+      'ClusterAgents|See agent activity updates, like tokens created or revoked and clusters connected or not connected.',
     ),
-    emptyTooltip: s__('ClusterAgents|What is GitLab Agent activity?'),
+    emptyTooltip: s__('ClusterAgents|What is agent activity?'),
     error: s__(
-      'ClusterAgents|An error occurred while retrieving GitLab Agent activity. Reload the page to try again.',
+      'ClusterAgents|An error occurred while retrieving agent activity. Reload the page to try again.',
     ),
     today: __('Today'),
     yesterday: __('Yesterday'),
   },
-  emptyHelpLink: helpPagePath('user/clusters/agent/install/index', {
-    anchor: 'view-agent-activity',
+  emptyHelpLink: helpPagePath('user/clusters/agent/work_with_agent', {
+    anchor: 'view-an-agents-activity-information',
   }),
   borderClasses: 'gl-border-b-1 gl-border-b-solid gl-border-b-gray-100',
   apollo: {
@@ -68,8 +68,8 @@ export default {
     },
     emptyStateTitle() {
       return n__(
-        "ClusterAgents|There's no activity from the past day",
-        "ClusterAgents|There's no activity from the past %d days",
+        'ClusterAgents|No activity occurred in the past day',
+        'ClusterAgents|No activity occurred in the past %d days',
         EVENTS_STORED_DAYS,
       );
     },
@@ -108,7 +108,7 @@ export default {
       } else if (this.isYesterday(date)) {
         dateName = this.$options.i18n.yesterday;
       } else {
-        dateName = formatDate(date, 'yyyy-mm-dd');
+        dateName = localeDateFormat.asDate.format(date);
       }
       return dateName;
     },
@@ -124,7 +124,7 @@ export default {
 
 <template>
   <div>
-    <gl-loading-icon v-if="isLoading" size="md" />
+    <gl-loading-icon v-if="isLoading" size="lg" />
 
     <div v-else-if="hasEvents">
       <div
@@ -132,11 +132,7 @@ export default {
         :key="key"
         class="agent-activity-list issuable-discussion"
       >
-        <h4
-          class="gl-pb-4 gl-ml-5"
-          :class="$options.borderClasses"
-          data-testid="activity-section-title"
-        >
+        <h4 class="gl-pb-4" :class="$options.borderClasses" data-testid="activity-section-title">
           {{ key }}
         </h4>
 
@@ -168,7 +164,7 @@ export default {
           :href="$options.emptyHelpLink"
           :title="$options.i18n.emptyTooltip"
           :aria-label="$options.i18n.emptyTooltip"
-          ><gl-icon name="question" :size="14"
+          ><gl-icon name="question-o" :size="14"
         /></gl-link>
       </template>
     </gl-empty-state>

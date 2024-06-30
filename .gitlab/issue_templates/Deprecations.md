@@ -1,4 +1,4 @@
-For guidance on the overall deprecations, removals and breaking changes workflow, please visit https://about.gitlab.com/handbook/product/gitlab-the-product/#breaking-changes-deprecations-and-removing-features
+For guidance on the overall deprecations, removals and breaking changes workflow, please visit [Breaking changes, deprecations, and removing features](https://about.gitlab.com/handbook/product/gitlab-the-product/#deprecations-removals-and-breaking-changes)
 
 <!-- Use this template as a starting point for deprecations. -->
 
@@ -10,6 +10,9 @@ This should contain a brief description of the feature or functionality that is 
 It is recommended that you link to the documentation.
 
 The description of the deprecation should state what actions the user should take to rectify the behavior. If the deprecation is scheduled for an upcoming release, the content should remain in the deprecations documentation page until it has been completed. For example, if a deprecation is announced in 14.9 and scheduled to be completed in 15.0, the same content would be included in the documentation for 14.9, 14.10, and 15.0.
+
+**If this issue proposes a breaking change outside a major release XX.0, you need to get approval from your manager and request collaboration from Product Operations on communication. Be sure to follow the guidance [here](https://about.gitlab.com/handbook/product/gitlab-the-product/#deprecations-removals-and-breaking-changes.)** 
+
 -->
 
 ### Breaking Change
@@ -46,9 +49,9 @@ Which tier is this feature available in?
 Please add links to the relevant merge requests.
 
 - As soon as possible, but no later than the third milestone preceding the major release (for example, given the following release schedule: `14.8, 14.9, 14.10, 15.0` – `14.8` is the third milestone preceding the major release):
-    - [ ] A [deprecation entry](https://about.gitlab.com/handbook/marketing/blog/release-posts/#creating-a-deprecation-entry) has been created so the deprecation will appear in release posts and on the [general deprecation page](https://docs.gitlab.com/ee/update/deprecations).
-    - [ ] Documentation has been updated to add a note about the [end-of-life](https://docs.gitlab.com/ee/development/documentation/styleguide/#end-of-life-for-features-or-products) and to mark the feature as [deprecated](https://docs.gitlab.com/ee/development/documentation/styleguide/#deprecated-features).
-- [ ] On or before the major milestone: A [removal entry](https://about.gitlab.com/handbook/marketing/blog/release-posts/#removals) has been created so the removal will appear on the [removals by milestones](https://docs.gitlab.com/ee/update/removals) page and be announced in the release post.
+    - [ ] A [deprecation announcement entry](https://about.gitlab.com/handbook/marketing/blog/release-posts/#creating-the-announcement) has been created so the deprecation will appear in release posts and on the [general deprecation page](https://docs.gitlab.com/ee/update/deprecations).
+    - [ ] Documentation has been updated to mark the feature as [deprecated](https://docs.gitlab.com/ee/development/documentation/versions.html#deprecations-and-removals).
+- [ ] On or before the major milestone: A [removal entry](https://about.gitlab.com/handbook/marketing/blog/release-posts/#creating-the-announcement-1) has been created so the removal will appear on the [removals by milestones](https://docs.gitlab.com/ee/update/removals) page and be announced in the release post.
 - On the major milestone:
     - [ ] The deprecated item has been removed.
     - [ ] If the removal of the deprecated item is a [breaking change](https://about.gitlab.com/handbook/product/gitlab-the-product/#examples-of-breaking-changes), the merge request is labeled ~"breaking change".

@@ -23,15 +23,15 @@ module Analytics
       validates :recorded_at, uniqueness: { scope: :identifier }
 
       scope :order_by_latest, -> { order(recorded_at: :desc) }
-      scope :with_identifier, -> (identifier) { where(identifier: identifier) }
-      scope :recorded_after, -> (date) { where(self.model.arel_table[:recorded_at].gteq(date)) if date.present? }
-      scope :recorded_before, -> (date) { where(self.model.arel_table[:recorded_at].lteq(date)) if date.present? }
+      scope :with_identifier, ->(identifier) { where(identifier: identifier) }
+      scope :recorded_after, ->(date) { where(model.arel_table[:recorded_at].gteq(date)) if date.present? }
+      scope :recorded_before, ->(date) { where(model.arel_table[:recorded_at].lteq(date)) if date.present? }
 
       def self.identifier_query_mapping
         {
           identifiers[:projects] => -> { Project },
           identifiers[:users] => -> { User },
-          identifiers[:issues] => -> { Issue },
+          identifiers[:issues] => -> { Issue.where.not(project_id: nil) }, # Excludes group-level issues
           identifiers[:merge_requests] => -> { MergeRequest },
           identifiers[:groups] => -> { Group },
           identifiers[:pipelines] => -> { Ci::Pipeline },
@@ -44,7 +44,13 @@ module Analytics
 
       # Customized min and max calculation, in some cases using the original scope is too slow.
       def self.identifier_min_max_queries
-        {}
+        {
+          # Increase query performance by not using filters when fetching min/max ids
+          identifiers[:issues] => {
+            minimum_query: -> { ::Issue.minimum(:id) },
+            maximum_query: -> { ::Issue.maximum(:id) }
+          }
+        }
       end
 
       def self.measurement_identifier_values

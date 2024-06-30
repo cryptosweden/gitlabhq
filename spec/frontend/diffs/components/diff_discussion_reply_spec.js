@@ -1,9 +1,12 @@
 import { shallowMount } from '@vue/test-utils';
+import { GlButton } from '@gitlab/ui';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import DiffDiscussionReply from '~/diffs/components/diff_discussion_reply.vue';
-import ReplyPlaceholder from '~/notes/components/discussion_reply_placeholder.vue';
 import NoteSignedOutWidget from '~/notes/components/note_signed_out_widget.vue';
+
+import { START_THREAD } from '~/diffs/i18n';
 
 Vue.use(Vuex);
 
@@ -23,10 +26,6 @@ describe('DiffDiscussionReply', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('if user can reply', () => {
     beforeEach(() => {
@@ -58,14 +57,42 @@ describe('DiffDiscussionReply', () => {
       expect(wrapper.find('#test-form').exists()).toBe(true);
     });
 
-    it('should render a reply placeholder if there is no form', () => {
+    it('should render a reply placeholder button if there is no form', () => {
       createComponent({
         renderReplyPlaceholder: true,
         hasForm: false,
       });
 
-      expect(wrapper.find(ReplyPlaceholder).exists()).toBe(true);
+      expect(wrapper.findComponent(GlButton).text()).toBe(START_THREAD);
     });
+
+    it.each`
+      userCanReply | hasForm  | renderReplyPlaceholder | showButton
+      ${false}     | ${false} | ${false}               | ${false}
+      ${true}      | ${false} | ${false}               | ${false}
+      ${true}      | ${true}  | ${false}               | ${false}
+      ${true}      | ${true}  | ${true}                | ${false}
+      ${true}      | ${false} | ${true}                | ${true}
+      ${false}     | ${false} | ${true}                | ${false}
+    `(
+      'reply button existence is `$showButton` when userCanReply is `$userCanReply`, hasForm is `$hasForm` and renderReplyPlaceholder is `$renderReplyPlaceholder`',
+      ({ userCanReply, hasForm, renderReplyPlaceholder, showButton }) => {
+        getters = {
+          userCanReply: () => userCanReply,
+        };
+
+        store = new Vuex.Store({
+          getters,
+        });
+
+        createComponent({
+          renderReplyPlaceholder,
+          hasForm,
+        });
+
+        expect(wrapper.findComponent(GlButton).exists()).toBe(showButton);
+      },
+    );
   });
 
   it('renders a signed out widget when user is not logged in', () => {
@@ -83,6 +110,6 @@ describe('DiffDiscussionReply', () => {
       hasForm: false,
     });
 
-    expect(wrapper.find(NoteSignedOutWidget).exists()).toBe(true);
+    expect(wrapper.findComponent(NoteSignedOutWidget).exists()).toBe(true);
   });
 });

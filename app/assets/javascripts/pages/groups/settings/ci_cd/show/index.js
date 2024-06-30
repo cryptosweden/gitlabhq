@@ -1,24 +1,15 @@
-import initVariableList from '~/ci_variable_list';
-import GroupRunnersFilteredSearchTokenKeys from '~/filtered_search/group_runners_filtered_search_token_keys';
+import initStaleRunnerCleanupSetting from 'ee_else_ce/group_settings/stale_runner_cleanup';
+import { initAllowRunnerRegistrationTokenToggle } from '~/group_settings/allow_runner_registration_token_toggle';
+
+import initVariableList from '~/ci/ci_variable_list';
 import initSharedRunnersForm from '~/group_settings/mount_shared_runners';
-import { FILTERED_SEARCH } from '~/filtered_search/constants';
-import initFilteredSearch from '~/pages/search/init_filtered_search';
-import { initRunnerAwsDeployments } from '~/pages/shared/mount_runner_aws_deployments';
-import { initInstallRunner } from '~/pages/shared/mount_runner_instructions';
 import initSettingsPanels from '~/settings_panels';
+import initDeployTokens from '~/deploy_tokens';
 
 // Initialize expandable settings panels
 initSettingsPanels();
-
-initFilteredSearch({
-  page: FILTERED_SEARCH.ADMIN_RUNNERS,
-  filteredSearchTokenKeys: GroupRunnersFilteredSearchTokenKeys,
-  anchor: FILTERED_SEARCH.GROUP_RUNNERS_ANCHOR,
-  useDefaultState: false,
-});
-
+initDeployTokens();
+initAllowRunnerRegistrationTokenToggle();
 initSharedRunnersForm();
+initStaleRunnerCleanupSetting();
 initVariableList();
-
-initInstallRunner();
-initRunnerAwsDeployments();

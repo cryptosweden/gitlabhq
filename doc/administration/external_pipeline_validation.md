@@ -1,16 +1,16 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference, howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# External pipeline validation **(FREE SELF)**
+# External pipeline validation
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 You can use an external service to validate a pipeline before it's created.
-
-WARNING:
-This is an experimental feature and subject to change without notice.
 
 GitLab sends a POST request to the external service URL with the pipeline
 data as payload. The response code from the external service determines if GitLab
@@ -38,14 +38,18 @@ required number of seconds.
 
 ## Payload schema
 
+> - `tag_list` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/335904) in GitLab 16.11.
+
 ```json
 {
   "type": "object",
   "required" : [
     "project",
     "user",
+    "credit_card",
     "pipeline",
     "builds",
+    "total_builds_count",
     "namespace"
   ],
   "properties" : {
@@ -54,12 +58,16 @@ required number of seconds.
       "required": [
         "id",
         "path",
-        "created_at"
+        "created_at",
+        "shared_runners_enabled",
+        "group_runners_enabled"
       ],
       "properties": {
         "id": { "type": "integer" },
         "path": { "type": "string" },
-        "created_at": { "type": ["string", "null"], "format": "date-time" }
+        "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "shared_runners_enabled": { "type": "boolean" },
+        "group_runners_enabled": { "type": "boolean" }
       }
     },
     "user": {
@@ -78,6 +86,17 @@ required number of seconds.
         "current_sign_in_ip": { "type": ["string", "null"] },
         "last_sign_in_ip": { "type": ["string", "null"] },
         "sign_in_count": { "type": "integer" }
+      }
+    },
+    "credit_card": {
+      "type": "object",
+      "required": [
+        "similar_cards_count",
+        "similar_holder_names_count"
+      ],
+      "properties": {
+        "similar_cards_count": { "type": "integer" },
+        "similar_holder_names_count": { "type": "integer" }
       }
     },
     "pipeline": {
@@ -101,6 +120,7 @@ required number of seconds.
           "name",
           "stage",
           "image",
+          "tag_list",
           "services",
           "script"
         ],
@@ -108,6 +128,7 @@ required number of seconds.
           "name": { "type": "string" },
           "stage": { "type": "string" },
           "image": { "type": ["string", "null"] },
+          "tag_list": { "type": ["array", "null"] },
           "services": {
             "type": ["array", "null"],
             "items": { "type": "string" }
@@ -119,6 +140,7 @@ required number of seconds.
         }
       }
     },
+    "total_builds_count": { "type": "integer" },
     "namespace": {
       "type": "object",
       "required": [
@@ -145,5 +167,4 @@ required number of seconds.
 }
 ```
 
-The `namespace` field is only available in [GitLab Premium](https://about.gitlab.com/pricing/)
-and higher.
+The `namespace` field is only available in [GitLab Premium and Ultimate](https://about.gitlab.com/pricing/).

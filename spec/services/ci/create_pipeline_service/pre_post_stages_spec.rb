@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService do
+RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
+  feature_category: :continuous_integration do
   describe '.pre/.post stages' do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:user)    { project.first_owner }
@@ -38,9 +39,9 @@ RSpec.describe Ci::CreatePipelineService do
       it 'creates a pipeline' do
         expect(pipeline).to be_persisted
         expect(pipeline.stages.map(&:name)).to contain_exactly(
-          *%w(.pre build .post))
+          *%w[.pre build .post])
         expect(pipeline.builds.map(&:name)).to contain_exactly(
-          *%w(validate build notify))
+          *%w[validate build notify])
       end
     end
 
@@ -53,7 +54,7 @@ RSpec.describe Ci::CreatePipelineService do
         # we can validate a list of stages, as they are assigned
         # but not persisted
         expect(pipeline.stages.map(&:name)).to contain_exactly(
-          *%w(.pre .post))
+          *%w[.pre .post])
       end
     end
   end

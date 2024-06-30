@@ -16,20 +16,33 @@ module API
 
       def self.from_params(params)
         if params[:key_id]
-          new(key: Key.find_by_id(params[:key_id]))
+          new(key: Key.auth.find_by_id(params[:key_id]))
         elsif params[:user_id]
           new(user: UserFinder.new(params[:user_id]).find_by_id)
         elsif params[:username]
           new(user: UserFinder.new(params[:username]).find_by_username)
         elsif params[:identifier]
-          new(user: identify(params[:identifier]))
+          from_identifier(params[:identifier])
         else
           new
         end
       end
 
+      def self.from_identifier(identifier)
+        user = identify(identifier)
+        if user
+          new(user: user)
+        else
+          new(key: identify_using_deploy_key(identifier))
+        end
+      end
+
       def key_or_user
         key || user
+      end
+
+      def deploy_key_or_user
+        key.instance_of?(DeployKey) ? key : user
       end
 
       def username
@@ -53,3 +66,5 @@ module API
     end
   end
 end
+
+API::Support::GitAccessActor.prepend_mod_with('API::Support::GitAccessActor')

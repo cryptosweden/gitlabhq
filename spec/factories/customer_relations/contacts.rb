@@ -8,8 +8,8 @@ FactoryBot.define do
     last_name { generate(:name) }
     email { generate(:email) }
 
-    trait :with_organization do
-      organization
+    trait :inactive do
+      state { :inactive }
     end
   end
 end

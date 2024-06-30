@@ -1,16 +1,14 @@
 <script>
-import { GlButton } from '@gitlab/ui';
 import { stripHtml } from '~/lib/utils/text_utility';
 import { sprintf, s__, n__ } from '~/locale';
 import eventHub from '../../event_hub';
-import statusIcon from '../mr_widget_status_icon.vue';
+import StateContainer from '../state_container.vue';
 
 export default {
   name: 'MRWidgetFailedToMerge',
 
   components: {
-    GlButton,
-    statusIcon,
+    StateContainer,
   },
 
   props: {
@@ -30,7 +28,7 @@ export default {
 
   computed: {
     mergeError() {
-      const mergeError = this.mr.mergeError ? stripHtml(this.mr.mergeError, ' ').trim() : '';
+      const mergeError = this.prepareMergeError(this.mr.mergeError);
 
       return sprintf(
         s__('mrWidget|%{mergeError}.'),
@@ -46,6 +44,14 @@ export default {
         'Refreshing in %d seconds to show the updated status...',
         this.timer,
       );
+    },
+    actions() {
+      return [
+        {
+          text: s__('mrWidget|Refresh now'),
+          onClick: () => this.refresh(),
+        },
+      ];
     },
   },
 
@@ -76,32 +82,40 @@ export default {
         this.refresh();
       }
     },
+    prepareMergeError(mergeError) {
+      return mergeError
+        ? stripHtml(mergeError, ' ')
+            .replace(/(\.$|\s+)/g, ' ')
+            .trim()
+        : '';
+    },
   },
 };
 </script>
 <template>
-  <div class="mr-widget-body media">
-    <template v-if="isRefreshing">
-      <status-icon status="loading" />
-      <span class="media-body bold js-refresh-label"> {{ s__('mrWidget|Refreshing now') }} </span>
-    </template>
-    <template v-else>
-      <status-icon :show-disabled-button="true" status="warning" />
-      <div class="media-body space-children">
-        <span class="bold">
-          <span v-if="mr.mergeError" class="has-error-message"> {{ mergeError }} </span>
-          <span v-else> {{ s__('mrWidget|Merge failed.') }} </span>
-          <span :class="{ 'has-custom-error': mr.mergeError }"> {{ timerText }} </span>
-        </span>
-        <gl-button
-          size="small"
-          data-testid="merge-request-failed-refresh-button"
-          data-qa-selector="merge_request_error_content"
-          @click="refresh"
-        >
-          {{ s__('mrWidget|Refresh now') }}
-        </gl-button>
-      </div>
-    </template>
-  </div>
+  <state-container
+    v-if="isRefreshing"
+    status="loading"
+    is-collapsible
+    :collapsed="mr.mergeDetailsCollapsed"
+    @toggle="() => mr.toggleMergeDetails()"
+  >
+    <span class="gl-font-bold">
+      {{ s__('mrWidget|Refreshing now') }}
+    </span>
+  </state-container>
+  <state-container
+    v-else
+    status="failed"
+    :actions="actions"
+    is-collapsible
+    :collapsed="mr.mergeDetailsCollapsed"
+    @toggle="() => mr.toggleMergeDetails()"
+  >
+    <span v-if="mr.mergeError" class="has-error-message gl-font-bold" data-testid="merge-error">
+      {{ mergeError }}
+    </span>
+    <span v-else class="gl-font-bold"> {{ s__('mrWidget|Merge failed.') }} </span>
+    <span :class="{ 'has-custom-error': mr.mergeError }"> {{ timerText }} </span>
+  </state-container>
 </template>

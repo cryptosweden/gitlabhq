@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'getting project members information' do
+RSpec.describe 'getting project members information', feature_category: :groups_and_projects do
   include GraphqlHelpers
 
   let_it_be(:parent_group) { create(:group, :public) }
   let_it_be(:parent_project) { create(:project, :public, group: parent_group) }
   let_it_be(:user) { create(:user) }
-  let_it_be(:user_1) { create(:user, username: 'user') }
-  let_it_be(:user_2) { create(:user, username: 'test') }
+  let_it_be(:user_1) { create(:user, username: 'user', name: 'Same Name') }
+  let_it_be(:user_2) { create(:user, username: 'test', name: 'Same Name') }
 
   before_all do
     [user_1, user_2].each { |user| parent_group.add_guest(user) }
@@ -29,11 +29,26 @@ RSpec.describe 'getting project members information' do
       expect_array_response(user_1, user_2)
     end
 
-    it 'returns members that match the search query' do
-      fetch_members(project: parent_project, args: { search: 'test' })
+    describe 'search argument' do
+      it 'returns members that match the search query' do
+        fetch_members(project: parent_project, args: { search: 'test' })
 
-      expect(graphql_errors).to be_nil
-      expect_array_response(user_2)
+        expect(graphql_errors).to be_nil
+        expect_array_response(user_2)
+      end
+
+      context 'when paginating' do
+        it 'returns correct results' do
+          fetch_members(project: parent_project, args: { search: 'Same Name', first: 1 })
+
+          expect_array_response(user_1)
+
+          next_cursor = graphql_data_at(:project, :projectMembers, :pageInfo, :endCursor)
+          fetch_members(project: parent_project, args: { search: 'Same Name', first: 1, after: next_cursor })
+
+          expect_array_response(user_2)
+        end
+      end
     end
   end
 
@@ -60,7 +75,10 @@ RSpec.describe 'getting project members information' do
         fetch_members(project: parent_project, args: { relations: [:DIRECT] })
 
         expect(graphql_errors).to be_nil
-        expect(graphql_data_at(:project, :project_members, :edges, :node)).to contain_exactly({ 'user' => { 'id' => global_id_of(user) } }, 'user' => nil)
+        expect(graphql_data_at(:project, :project_members, :edges, :node)).to contain_exactly(
+          a_graphql_entity_for(user: a_graphql_entity_for(user)),
+          { 'user' => nil }
+        )
       end
     end
 
@@ -88,9 +106,10 @@ RSpec.describe 'getting project members information' do
     it 'returns an error for an invalid member relation' do
       fetch_members(project: child_project, args: { relations: [:OBLIQUE] })
 
-      expect(graphql_errors.first)
-        .to include('path' => %w[query project projectMembers relations],
-                    'message' => a_string_including('invalid value ([OBLIQUE])'))
+      expect(graphql_errors.first).to include(
+        'path' => %w[query project projectMembers relations],
+        'message' => a_string_including('invalid value ([OBLIQUE])')
+      )
     end
 
     context 'when project is owned by a member' do
@@ -152,13 +171,19 @@ RSpec.describe 'getting project members information' do
     it 'avoids N+1 queries, when requesting multiple MRs' do
       control_query = with_signature(
         [project_path, mr_a],
-        graphql_query_for(:project, { full_path: project_path },
-                          query_graphql_field(:project_members, nil, interaction_query))
+        graphql_query_for(
+          :project,
+          { full_path: project_path },
+          query_graphql_field(:project_members, nil, interaction_query)
+        )
       )
       query_two = with_signature(
         [project_path, mr_a, mr_b],
-        graphql_query_for(:project, { full_path: project_path },
-                          query_graphql_field(:project_members, nil, interaction_b_query))
+        graphql_query_for(
+          :project,
+          { full_path: project_path },
+          query_graphql_field(:project_members, nil, interaction_b_query)
+        )
       )
 
       control_count = ActiveRecord::QueryRecorder.new do
@@ -181,8 +206,11 @@ RSpec.describe 'getting project members information' do
 
       query = with_signature(
         [project_path, mr_a],
-        graphql_query_for(:project, { full_path: project_path },
-                          query_graphql_field(:project_members, nil, interaction_query))
+        graphql_query_for(
+          :project,
+          { full_path: project_path },
+          query_graphql_field(:project_members, nil, interaction_query)
+        )
       )
 
       control_count = ActiveRecord::QueryRecorder.new do
@@ -228,6 +256,9 @@ RSpec.describe 'getting project members information' do
         }
       }
     }
+    pageInfo {
+      endCursor
+    }
     NODE
 
     graphql_query_for('project',
@@ -238,7 +269,7 @@ RSpec.describe 'getting project members information' do
 
   def expect_array_response(*items)
     expect(response).to have_gitlab_http_status(:success)
-    member_gids = graphql_data_at(:project, :project_members, :edges, :node, :user, :id)
-    expect(member_gids).to match_array(items.map { |u| global_id_of(u) })
+    members = graphql_data_at(:project, :project_members, :edges, :node, :user)
+    expect(members).to match_array(items.map { |u| a_graphql_entity_for(u) })
   end
 end

@@ -25,8 +25,8 @@ Rails.autoloaders.each do |autoloader|
     'cidr' => 'CIDR',
     'cli' => 'CLI',
     'dn' => 'DN',
+    'gitlab_cli_activity_unique_counter' => 'GitLabCliActivityUniqueCounter',
     'global_id_type' => 'GlobalIDType',
-    'global_id_compatibility' => 'GlobalIDCompatibility',
     'hll' => 'HLL',
     'hll_redis_counter' => 'HLLRedisCounter',
     'redis_hll_metric' => 'RedisHLLMetric',
@@ -35,12 +35,12 @@ Rails.autoloaders.each do |autoloader|
     'html_parser' => 'HTMLParser',
     'html_gitlab' => 'HTMLGitlab',
     'http' => 'HTTP',
-    'http_connection_adapter' => 'HTTPConnectionAdapter',
     'http_clone_enabled_check' => 'HTTPCloneEnabledCheck',
     'hangouts_chat_http_override' => 'HangoutsChatHTTPOverride',
     'chunked_io' => 'ChunkedIO',
     'http_io' => 'HttpIO',
     'jetbrains_plugin_activity_unique_counter' => 'JetBrainsPluginActivityUniqueCounter',
+    'jetbrains_bundled_plugin_activity_unique_counter' => 'JetBrainsBundledPluginActivityUniqueCounter',
     'json_formatter' => 'JSONFormatter',
     'json_web_token' => 'JSONWebToken',
     'as_json' => 'AsJSON',
@@ -54,7 +54,6 @@ Rails.autoloaders.each do |autoloader|
     'sca' => 'SCA',
     'spdx' => 'SPDX',
     'sql' => 'SQL',
-    'sse_helpers' => 'SSEHelpers',
     'ssh_key' => 'SSHKey',
     'ssh_key_with_user' => 'SSHKeyWithUser',
     'ssh_public_key' => 'SSHPublicKey',
@@ -65,7 +64,7 @@ Rails.autoloaders.each do |autoloader|
     'svg' => 'SVG',
     'function_uri' => 'FunctionURI',
     'uuid' => 'UUID',
-    'vulnerability_uuid' => 'VulnerabilityUUID',
-    'vs_code_extension_activity_unique_counter' => 'VSCodeExtensionActivityUniqueCounter'
+    'occurrence_uuid' => 'OccurrenceUUID',
+    'vulnerability_uuid' => 'VulnerabilityUUID'
   )
 end

@@ -7,41 +7,12 @@ module API
     # The data structures inside this model are returned using class methods,
     # allowing EE to extend them where necessary.
     module IntegrationsHelpers
-      def self.chat_notification_settings
-        [
-          {
-            required: true,
-            name: :webhook,
-            type: String,
-            desc: 'The chat webhook'
-          },
-          {
-            required: false,
-            name: :username,
-            type: String,
-            desc: 'The chat username'
-          },
-          {
-            required: false,
-            name: :channel,
-            type: String,
-            desc: 'The default chat channel'
-          },
-          {
-            required: false,
-            name: :branches_to_be_notified,
-            type: String,
-            desc: 'Branches for which notifications are to be sent'
-          }
-        ].freeze
-      end
-
       def self.chat_notification_flags
         [
           {
             required: false,
             name: :notify_only_broken_pipelines,
-            type: Boolean,
+            type: ::Grape::API::Boolean,
             desc: 'Send notifications for broken pipelines'
           }
         ].freeze
@@ -63,6 +34,18 @@ module API
           },
           {
             required: false,
+            name: :incident_channel,
+            type: String,
+            desc: 'The name of the channel to receive incident_events notifications'
+          },
+          {
+            required: false,
+            name: :alert_channel,
+            type: String,
+            desc: 'The name of the channel to receive alert_events notifications'
+          },
+          {
+            required: false,
             name: :confidential_issue_channel,
             type: String,
             desc: 'The name of the channel to receive confidential_issues_events notifications'
@@ -81,9 +64,21 @@ module API
           },
           {
             required: false,
+            name: :confidential_note_channel,
+            type: String,
+            desc: 'The name of the channel to receive confidential_note_events notifications'
+          },
+          {
+            required: false,
             name: :tag_push_channel,
             type: String,
             desc: 'The name of the channel to receive tag_push_events notifications'
+          },
+          {
+            required: false,
+            name: :deployment_channel,
+            type: String,
+            desc: 'The name of the channel to receive deployment_events notifications'
           },
           {
             required: false,
@@ -100,147 +95,13 @@ module API
         ].freeze
       end
 
-      def self.chat_notification_events
-        [
-          {
-            required: false,
-            name: :push_events,
-            type: Boolean,
-            desc: 'Enable notifications for push_events'
-          },
-          {
-            required: false,
-            name: :issues_events,
-            type: Boolean,
-            desc: 'Enable notifications for issues_events'
-          },
-          {
-            required: false,
-            name: :confidential_issues_events,
-            type: Boolean,
-            desc: 'Enable notifications for confidential_issues_events'
-          },
-          {
-            required: false,
-            name: :merge_requests_events,
-            type: Boolean,
-            desc: 'Enable notifications for merge_requests_events'
-          },
-          {
-            required: false,
-            name: :note_events,
-            type: Boolean,
-            desc: 'Enable notifications for note_events'
-          },
-          {
-            required: false,
-            name: :confidential_note_events,
-            type: Boolean,
-            desc: 'Enable notifications for confidential_note_events'
-          },
-          {
-            required: false,
-            name: :tag_push_events,
-            type: Boolean,
-            desc: 'Enable notifications for tag_push_events'
-          },
-          {
-            required: false,
-            name: :pipeline_events,
-            type: Boolean,
-            desc: 'Enable notifications for pipeline_events'
-          },
-          {
-            required: false,
-            name: :wiki_page_events,
-            type: Boolean,
-            desc: 'Enable notifications for wiki_page_events'
-          }
-        ].freeze
-      end
-
       def self.integrations
         {
-          'asana' => [
-            {
-              required: true,
-              name: :api_key,
-              type: String,
-              desc: 'User API token'
-            },
-            {
-              required: false,
-              name: :restrict_to_branch,
-              type: String,
-              desc: 'Comma-separated list of branches which will be automatically inspected. Leave blank to include all branches'
-            }
-          ],
-          'assembla' => [
-            {
-              required: true,
-              name: :token,
-              type: String,
-              desc: 'The authentication token'
-            },
-            {
-              required: false,
-              name: :subdomain,
-              type: String,
-              desc: 'Subdomain setting'
-            }
-          ],
-          'bamboo' => [
-            {
-              required: true,
-              name: :bamboo_url,
-              type: String,
-              desc: 'Bamboo root URL like https://bamboo.example.com'
-            },
-            {
-              required: false,
-              name: :enable_ssl_verification,
-              type: Boolean,
-              desc: 'Enable SSL verification'
-            },
-            {
-              required: true,
-              name: :build_key,
-              type: String,
-              desc: 'Bamboo build plan key like'
-            },
-            {
-              required: true,
-              name: :username,
-              type: String,
-              desc: 'A user with API access, if applicable'
-            },
-            {
-              required: true,
-              name: :password,
-              type: String,
-              desc: 'Password of the user'
-            }
-          ],
-          'bugzilla' => [
-            {
-              required: true,
-              name: :new_issue_url,
-              type: String,
-              desc: 'New issue URL'
-            },
-            {
-              required: true,
-              name: :issues_url,
-              type: String,
-              desc: 'Issues URL'
-            },
-            {
-              required: true,
-              name: :project_url,
-              type: String,
-              desc: 'Project URL'
-            }
-          ],
+          'apple-app-store' => ::Integrations::AppleAppStore.api_arguments,
+          'asana' => ::Integrations::Asana.api_arguments,
+          'assembla' => ::Integrations::Assembla.api_arguments,
+          'bamboo' => ::Integrations::Bamboo.api_arguments,
+          'bugzilla' => ::Integrations::Bugzilla.api_arguments,
           'buildkite' => [
             {
               required: true,
@@ -257,58 +118,13 @@ module API
             {
               required: false,
               name: :enable_ssl_verification,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'DEPRECATED: This parameter has no effect since SSL verification will always be enabled'
             }
           ],
-          'campfire' => [
-            {
-              required: true,
-              name: :token,
-              type: String,
-              desc: 'Campfire token'
-            },
-            {
-              required: false,
-              name: :subdomain,
-              type: String,
-              desc: 'Campfire subdomain'
-            },
-            {
-              required: false,
-              name: :room,
-              type: String,
-              desc: 'Campfire room'
-            }
-          ],
-          'confluence' => [
-            {
-              required: true,
-              name: :confluence_url,
-              type: String,
-              desc: 'The URL of the Confluence Cloud Workspace hosted on atlassian.net'
-            }
-          ],
-          'custom-issue-tracker' => [
-            {
-              required: true,
-              name: :new_issue_url,
-              type: String,
-              desc: 'New issue URL'
-            },
-            {
-              required: true,
-              name: :issues_url,
-              type: String,
-              desc: 'Issues URL'
-            },
-            {
-              required: true,
-              name: :project_url,
-              type: String,
-              desc: 'Project URL'
-            }
-          ],
+          'campfire' => ::Integrations::Campfire.api_arguments,
+          'confluence' => ::Integrations::Confluence.api_arguments,
+          'custom-issue-tracker' => ::Integrations::CustomIssueTracker.api_arguments,
           'datadog' => [
             {
               required: true,
@@ -328,14 +144,12 @@ module API
               type: String,
               desc: '(Advanced) The full URL for your Datadog site'
             },
-            # TODO: uncomment this field once :datadog_integration_logs_collection is rolled out
-            # https://gitlab.com/gitlab-org/gitlab/-/issues/346339
-            # {
-            #   required: false,
-            #   name: :archive_trace_events,
-            #   type: Boolean,
-            #   desc: 'When enabled, job logs will be collected by Datadog and shown along pipeline execution traces'
-            # },
+            {
+              required: false,
+              name: :archive_trace_events,
+              type: ::Grape::API::Boolean,
+              desc: 'When enabled, job logs will be collected by Datadog and shown along pipeline execution traces'
+            },
             {
               required: false,
               name: :datadog_service,
@@ -355,14 +169,12 @@ module API
               desc: 'Custom tags in Datadog. Specify one tag per line in the format: "key:value\nkey2:value2"'
             }
           ],
+          'diffblue-cover' => ::Integrations::DiffblueCover.api_arguments,
           'discord' => [
-            {
-              required: true,
-              name: :webhook,
-              type: String,
-              desc: 'Discord webhook. For example, https://discord.com/api/webhooks/…'
-            }
-          ],
+            ::Integrations::Discord.api_arguments,
+            chat_notification_flags,
+            chat_notification_channels
+          ].flatten,
           'drone-ci' => [
             {
               required: true,
@@ -379,7 +191,7 @@ module API
             {
               required: false,
               name: :enable_ssl_verification,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Enable SSL verification'
             }
           ],
@@ -393,13 +205,13 @@ module API
             {
               required: false,
               name: :disable_diffs,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Disable code diffs'
             },
             {
               required: false,
               name: :send_from_committer_email,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Send from committer'
             },
             {
@@ -409,22 +221,12 @@ module API
               desc: 'Branches for which notifications are to be sent'
             }
           ],
-          'external-wiki' => [
-            {
-              required: true,
-              name: :external_wiki_url,
-              type: String,
-              desc: 'The URL of the external wiki'
-            }
-          ],
-          'flowdock' => [
-            {
-              required: true,
-              name: :token,
-              type: String,
-              desc: 'Flowdock token'
-            }
-          ],
+          'external-wiki' => ::Integrations::ExternalWiki.api_arguments,
+          'gitlab-slack-application' => [
+            ::Integrations::GitlabSlackApplication.api_arguments,
+            chat_notification_channels
+          ].flatten,
+          'google-play' => ::Integrations::GooglePlay.api_arguments,
           'hangouts-chat' => [
             {
               required: true,
@@ -437,35 +239,9 @@ module API
               name: :branches_to_be_notified,
               type: String,
               desc: 'Branches for which notifications are to be sent'
-            },
-            chat_notification_events
-          ].flatten,
-          'harbor' => [
-            {
-              required: true,
-              name: :url,
-              type: String,
-              desc: 'The base URL to the Harbor instance which is being linked to this GitLab project. For example, https://demo.goharbor.io.'
-            },
-            {
-              required: true,
-              name: :project_name,
-              type: String,
-              desc: 'The Project name to the Harbor instance. For example, testproject.'
-            },
-            {
-              required: true,
-              name: :username,
-              type: String,
-              desc: 'The username created from Harbor interface.'
-            },
-            {
-              required: true,
-              name: :password,
-              type: String,
-              desc: 'The password of the user.'
             }
-          ],
+          ].flatten,
+          'harbor' => ::Integrations::Harbor.api_arguments,
           'irker' => [
             {
               required: true,
@@ -494,7 +270,7 @@ module API
             {
               required: false,
               name: :colorize_messages,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Colorize messages'
             }
           ],
@@ -508,7 +284,7 @@ module API
             {
               required: false,
               name: :enable_ssl_verification,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Enable SSL verification'
             },
             {
@@ -544,21 +320,27 @@ module API
               desc: 'The base URL to the Jira instance API. Web URL value will be used if not set. E.g., https://jira-api.example.com'
             },
             {
-              required: true,
+              required: false,
+              name: :jira_auth_type,
+              type: Integer,
+              desc: 'The authentication method to be used with Jira. `0` means Basic Authentication. `1` means Jira personal access token. Defaults to `0`'
+            },
+            {
+              required: false,
               name: :username,
               type: String,
-              desc: 'The username of the user created to be used with GitLab/Jira'
+              desc: 'The email or username to be used with Jira. For Jira Cloud use an email, for Jira Data Center and Jira Server use a username. Required when using Basic authentication (`jira_auth_type` is `0`)'
             },
             {
               required: true,
               name: :password,
               type: String,
-              desc: 'The password of the user created to be used with GitLab/Jira'
+              desc: 'The Jira API token, password, or personal access token to be used with Jira. When your authentication method is Basic (`jira_auth_type` is `0`) use an API token for Jira Cloud, or a password for Jira Data Center or Jira Server. When your authentication method is Jira personal access token (`jira_auth_type` is `1`) use a personal access token'
             },
             {
               required: false,
               name: :jira_issue_transition_automatic,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Enable automatic issue transitions'
             },
             {
@@ -569,27 +351,36 @@ module API
             },
             {
               required: false,
+              name: :jira_issue_prefix,
+              type: String,
+              desc: 'Prefix to match Jira issue keys'
+            },
+            {
+              required: false,
+              name: :jira_issue_regex,
+              type: String,
+              desc: 'Regular expression to match Jira issue keys'
+            },
+            {
+              required: false,
+              name: :issues_enabled,
+              type: ::Grape::API::Boolean,
+              desc: 'Enable viewing Jira issues in GitLab'
+            },
+            {
+              required: false,
+              name: :project_keys,
+              type: Array[String],
+              desc: 'Keys of Jira projects to view issues from in GitLab'
+            },
+            {
+              required: false,
               name: :comment_on_event_enabled,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Enable comments inside Jira issues on each GitLab event (commit / merge request)'
             }
           ],
-          'mattermost-slash-commands' => [
-            {
-              required: true,
-              name: :token,
-              type: String,
-              desc: 'The Mattermost token'
-            }
-          ],
-          'shimo' => [
-            {
-              required: true,
-              name: :external_wiki_url,
-              type: String,
-              desc: 'Shimo workspace URL'
-            }
-          ],
+          'mattermost-slash-commands' => ::Integrations::MattermostSlashCommands.api_arguments,
           'slack-slash-commands' => [
             {
               required: true,
@@ -618,6 +409,7 @@ module API
               desc: 'The server'
             }
           ],
+          'phorge' => ::Integrations::Phorge.api_arguments,
           'pipelines-email' => [
             {
               required: true,
@@ -628,8 +420,14 @@ module API
             {
               required: false,
               name: :notify_only_broken_pipelines,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Notify only broken pipelines'
+            },
+            {
+              required: false,
+              name: :notify_only_default_branch,
+              type: ::Grape::API::Boolean,
+              desc: 'Send notifications only for the default branch'
             },
             {
               required: false,
@@ -654,6 +452,12 @@ module API
           ],
           'prometheus' => [
             {
+              required: false,
+              name: :manual_configuration,
+              type: ::Grape::API::Boolean,
+              desc: 'When enabled, the default settings will be overridden with your custom configuration'
+            },
+            {
               required: true,
               name: :api_url,
               type: String,
@@ -672,6 +476,14 @@ module API
               desc: 'Contents of the credentials.json file of your service account, like: { "type": "service_account", "project_id": ... }'
             }
           ],
+          'pumble' => [
+            {
+              required: true,
+              name: :webhook,
+              type: String,
+              desc: 'The Pumble chat webhook. For example, https://api.pumble.com/workspaces/x/...'
+            }
+          ].flatten,
           'pushover' => [
             {
               required: true,
@@ -704,65 +516,13 @@ module API
               desc: 'The sound of the notification'
             }
           ],
-          'redmine' => [
-            {
-              required: true,
-              name: :new_issue_url,
-              type: String,
-              desc: 'The new issue URL'
-            },
-            {
-              required: true,
-              name: :project_url,
-              type: String,
-              desc: 'The project URL'
-            },
-            {
-              required: true,
-              name: :issues_url,
-              type: String,
-              desc: 'The issues URL'
-            }
-          ],
-          'ewm' => [
-            {
-              required: true,
-              name: :new_issue_url,
-              type: String,
-              desc: 'New Issue URL'
-            },
-            {
-              required: true,
-              name: :project_url,
-              type: String,
-              desc: 'Project URL'
-            },
-            {
-              required: true,
-              name: :issues_url,
-              type: String,
-              desc: 'Issues URL'
-            }
-          ],
-          'youtrack' => [
-            {
-              required: true,
-              name: :project_url,
-              type: String,
-              desc: 'The project URL'
-            },
-            {
-              required: true,
-              name: :issues_url,
-              type: String,
-              desc: 'The issues URL'
-            }
-          ],
+          'redmine' => ::Integrations::Redmine.api_arguments,
+          'ewm' => ::Integrations::Ewm.api_arguments,
+          'youtrack' => ::Integrations::Youtrack.api_arguments,
+          'clickup' => ::Integrations::Clickup.api_arguments,
           'slack' => [
-            chat_notification_settings,
-            chat_notification_flags,
-            chat_notification_channels,
-            chat_notification_events
+            ::Integrations::Slack.api_arguments,
+            chat_notification_channels
           ].flatten,
           'microsoft-teams' => [
             {
@@ -777,13 +537,17 @@ module API
               type: String,
               desc: 'Branches for which notifications are to be sent'
             },
+            {
+              required: false,
+              name: :use_inherited_settings,
+              type: ::Grape::API::Boolean,
+              desc: 'Indicates whether to inherit defaults or not.'
+            },
             chat_notification_flags
           ].flatten,
           'mattermost' => [
-            chat_notification_settings,
-            chat_notification_flags,
-            chat_notification_channels,
-            chat_notification_events
+            ::Integrations::Mattermost.api_arguments,
+            chat_notification_channels
           ].flatten,
           'teamcity' => [
             {
@@ -795,7 +559,7 @@ module API
             {
               required: false,
               name: :enable_ssl_verification,
-              type: Boolean,
+              type: ::Grape::API::Boolean,
               desc: 'Enable SSL verification'
             },
             {
@@ -817,24 +581,16 @@ module API
               desc: 'The password of the user'
             }
           ],
+          'telegram' => ::Integrations::Telegram.api_arguments,
           'unify-circuit' => [
             {
               required: true,
               name: :webhook,
               type: String,
               desc: 'The Unify Circuit webhook. e.g. https://circuit.com/rest/v2/webhooks/incoming/…'
-            },
-            chat_notification_events
+            }
           ].flatten,
-          'webex-teams' => [
-            {
-              required: true,
-              name: :webhook,
-              type: String,
-              desc: 'The Webex Teams webhook. For example, https://api.ciscospark.com/v1/webhooks/incoming/...'
-            },
-            chat_notification_events
-          ].flatten,
+          'webex-teams' => ::Integrations::WebexTeams.api_arguments,
           'zentao' => [
             {
               required: true,
@@ -860,27 +616,32 @@ module API
               type: String,
               desc: 'The product ID of ZenTao project'
             }
-          ]
+          ],
+          'squash-tm' => ::Integrations::SquashTm.api_arguments
         }
       end
 
       def self.integration_classes
         [
+          ::Integrations::AppleAppStore,
           ::Integrations::Asana,
           ::Integrations::Assembla,
           ::Integrations::Bamboo,
           ::Integrations::Bugzilla,
           ::Integrations::Buildkite,
           ::Integrations::Campfire,
+          ::Integrations::Clickup,
           ::Integrations::Confluence,
           ::Integrations::CustomIssueTracker,
           ::Integrations::Datadog,
+          ::Integrations::DiffblueCover,
           ::Integrations::Discord,
           ::Integrations::DroneCi,
           ::Integrations::EmailsOnPush,
           ::Integrations::Ewm,
           ::Integrations::ExternalWiki,
-          ::Integrations::Flowdock,
+          ::Integrations::GitlabSlackApplication,
+          ::Integrations::GooglePlay,
           ::Integrations::HangoutsChat,
           ::Integrations::Harbor,
           ::Integrations::Irker,
@@ -890,14 +651,20 @@ module API
           ::Integrations::MattermostSlashCommands,
           ::Integrations::MicrosoftTeams,
           ::Integrations::Packagist,
+          ::Integrations::Phorge,
           ::Integrations::PipelinesEmail,
           ::Integrations::Pivotaltracker,
           ::Integrations::Prometheus,
+          ::Integrations::Pumble,
           ::Integrations::Pushover,
           ::Integrations::Redmine,
           ::Integrations::Slack,
           ::Integrations::SlackSlashCommands,
+          ::Integrations::SquashTm,
           ::Integrations::Teamcity,
+          ::Integrations::Telegram,
+          ::Integrations::UnifyCircuit,
+          ::Integrations::WebexTeams,
           ::Integrations::Youtrack,
           ::Integrations::Zentao
         ]

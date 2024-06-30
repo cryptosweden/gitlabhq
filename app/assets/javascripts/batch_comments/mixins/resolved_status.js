@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
 import { sprintf, s__, __ } from '~/locale';
 
@@ -24,11 +25,10 @@ export default {
     resolvedStatusMessage() {
       let message;
       const discussionResolved = this.isDiscussionResolved(
-        this.draft ? this.draft.discussion_id : this.discussionId,
+        'draft' in this ? this.draft.discussion_id : this.discussionId,
       );
-      const discussionToBeResolved = this.draft
-        ? this.draft.resolve_discussion
-        : this.resolveDiscussion;
+      const discussionToBeResolved =
+        'draft' in this ? this.draft.resolve_discussion : this.resolveDiscussion;
 
       if (discussionToBeResolved && discussionResolved && !this.$options.showStaysResolved) {
         return undefined;

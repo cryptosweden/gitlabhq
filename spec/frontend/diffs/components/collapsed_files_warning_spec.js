@@ -1,12 +1,13 @@
 import { shallowMount, mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import CollapsedFilesWarning from '~/diffs/components/collapsed_files_warning.vue';
 import { EVT_EXPAND_ALL_FILES } from '~/diffs/constants';
 import eventHub from '~/diffs/event_hub';
 import createStore from '~/diffs/store/modules';
 
-import file from '../mock_data/diff_file';
+import { getDiffFileMock } from '../mock_data/diff_file';
 
 const propsData = {
   limited: true,
@@ -15,7 +16,7 @@ const propsData = {
 };
 
 async function files(store, count) {
-  const copies = Array(count).fill(file);
+  const copies = Array(count).fill(getDiffFileMock());
   store.state.diffs.diffFiles.push(...copies);
 
   await nextTick();
@@ -28,8 +29,8 @@ describe('CollapsedFilesWarning', () => {
   Vue.use(Vuex);
 
   const getAlertActionButton = () =>
-    wrapper.find(CollapsedFilesWarning).find('button.gl-alert-action:first-child');
-  const getAlertCloseButton = () => wrapper.find(CollapsedFilesWarning).find('button');
+    wrapper.findComponent(CollapsedFilesWarning).find('button.gl-alert-action:first-child');
+  const getAlertCloseButton = () => wrapper.findComponent(CollapsedFilesWarning).find('button');
 
   const createComponent = (props = {}, { full } = { full: false }) => {
     const mounter = full ? mount : shallowMount;
@@ -44,10 +45,6 @@ describe('CollapsedFilesWarning', () => {
       store,
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('when there is more than one file', () => {
     it.each`

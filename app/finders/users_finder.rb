@@ -47,6 +47,7 @@ class UsersFinder
     users = by_without_projects(users)
     users = by_custom_attributes(users)
     users = by_non_internal(users)
+    users = by_without_project_bots(users)
 
     order(users)
   end
@@ -54,7 +55,17 @@ class UsersFinder
   private
 
   def base_scope
-    User.all.order_id_desc
+    group = params[:group]
+
+    if group
+      raise Gitlab::Access::AccessDeniedError unless user_can_read_group?(group)
+
+      scope = ::Autocomplete::GroupUsersFinder.new(group: group).execute # rubocop: disable CodeReuse/Finder -- For SQL optimization sake we need to scope out group members first see: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/137647#note_1664081899
+    else
+      scope = current_user&.can_admin_all_resources? ? User.all : User.without_forbidden_states
+    end
+
+    scope.order_id_desc
   end
 
   def by_username(users)
@@ -78,7 +89,11 @@ class UsersFinder
   def by_search(users)
     return users unless params[:search].present?
 
-    users.search(params[:search], with_private_emails: current_user&.admin?)
+    users.search(
+      params[:search],
+      with_private_emails: current_user&.can_admin_all_resources?,
+      use_minimum_char_limit: params[:use_minimum_char_limit]
+    )
   end
 
   def by_blocked(users)
@@ -93,13 +108,11 @@ class UsersFinder
     users.active
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def by_external_identity(users)
-    return users unless current_user&.admin? && params[:extern_uid] && params[:provider]
+    return users unless params[:extern_uid] && params[:provider]
 
-    users.joins(:identities).merge(Identity.with_extern_uid(params[:provider], params[:extern_uid]))
+    users.by_provider_and_extern_uid(params[:provider], params[:extern_uid])
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   # rubocop: disable CodeReuse/ActiveRecord
   def by_external(users)
@@ -138,6 +151,12 @@ class UsersFinder
     users.non_internal
   end
 
+  def by_without_project_bots(users)
+    return users unless params[:without_project_bots]
+
+    users.without_project_bot
+  end
+
   # rubocop: disable CodeReuse/ActiveRecord
   def order(users)
     return users unless params[:sort]
@@ -145,6 +164,10 @@ class UsersFinder
     users.order_by(params[:sort])
   end
   # rubocop: enable CodeReuse/ActiveRecord
+
+  def user_can_read_group?(group)
+    Ability.allowed?(current_user, :read_group, group)
+  end
 end
 
 UsersFinder.prepend_mod_with('UsersFinder')

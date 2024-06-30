@@ -1,5 +1,6 @@
 <script>
 import { GlButton, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters } from 'vuex';
 import { s__ } from '~/locale';
 import TrackEventDirective from '~/vue_shared/directives/track_event';
@@ -7,8 +8,8 @@ import { COMMENTS_ONLY_FILTER_VALUE, DESC } from '../constants';
 import notesEventHub from '../event_hub';
 import { trackToggleTimelineView } from '../utils';
 
-export const timelineEnabledTooltip = s__('Timeline|Turn timeline view off');
-export const timelineDisabledTooltip = s__('Timeline|Turn timeline view on');
+export const timelineEnabledTooltip = s__('Timeline|Turn recent updates view off');
+export const timelineDisabledTooltip = s__('Timeline|Turn recent updates view on');
 
 export default {
   components: {
@@ -49,11 +50,11 @@ export default {
   <gl-button
     v-gl-tooltip
     v-track-event="trackToggleTimelineView(timelineEnabled)"
-    icon="comments"
+    icon="history"
     :selected="timelineEnabled"
     :title="tooltip"
     :aria-label="tooltip"
-    class="gl-mr-3"
+    data-testid="timeline-toggle-button"
     @click="toggleTimeline"
   />
 </template>

@@ -30,21 +30,11 @@ module Ci
       state :fixed, value: 3
       state :broken, value: 4
       state :still_failing, value: 5
-
-      after_transition any => [:fixed, :success] do |ci_ref|
-        # Do not try to unlock if no artifacts are locked
-        next unless ci_ref.artifacts_locked?
-
-        ci_ref.run_after_commit do
-          Ci::PipelineSuccessUnlockArtifactsWorker.perform_async(ci_ref.last_finished_pipeline_id)
-        end
-      end
     end
 
     class << self
       def ensure_for(pipeline)
-        safe_find_or_create_by(project_id: pipeline.project_id,
-                               ref_path: pipeline.source_ref_path)
+        safe_find_or_create_by(project_id: pipeline.project_id, ref_path: pipeline.source_ref_path)
       end
 
       def failing_state?(status_name)
@@ -53,7 +43,11 @@ module Ci
     end
 
     def last_finished_pipeline_id
-      Ci::Pipeline.last_finished_for_ref_id(self.id)&.id
+      last_finished_pipeline&.id
+    end
+
+    def last_finished_pipeline
+      Ci::Pipeline.last_finished_for_ref_id(self.id)
     end
 
     def artifacts_locked?
@@ -71,6 +65,14 @@ module Ci
 
         self.status_name
       end
+    end
+
+    def last_successful_ci_source_pipeline
+      pipelines.ci_sources.success.order(id: :desc).first
+    end
+
+    def last_unlockable_ci_source_pipeline
+      pipelines.ci_sources.with_unlockable_status.order(id: :desc).first
     end
   end
 end

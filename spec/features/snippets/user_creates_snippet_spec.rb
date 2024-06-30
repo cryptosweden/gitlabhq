@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User creates snippet', :js do
+RSpec.describe 'User creates snippet', :js, feature_category: :source_code_management do
   include DropzoneHelper
-  include Spec::Support::Helpers::Features::SnippetSpecHelpers
+  include Features::SnippetSpecHelpers
 
   let_it_be(:user) { create(:user) }
 
@@ -16,11 +16,12 @@ RSpec.describe 'User creates snippet', :js do
   let(:snippet_title_field) { 'snippet-title' }
 
   before do
-    stub_feature_flags(bootstrap_confirmation_modals: false)
     sign_in(user)
 
     visit new_snippet_path
   end
+
+  it_behaves_like 'a "Your work" page with sidebar and breadcrumbs', :new_snippet_path, :snippets
 
   def fill_form
     snippet_fill_in_form(title: title, content: file_content, description: md_description)
@@ -80,8 +81,10 @@ RSpec.describe 'User creates snippet', :js do
 
   context 'when snippets default visibility level is restricted' do
     before do
-      stub_application_setting(restricted_visibility_levels: [Gitlab::VisibilityLevel::PRIVATE],
-                                default_snippet_visibility: Gitlab::VisibilityLevel::PRIVATE)
+      stub_application_setting(
+        restricted_visibility_levels: [Gitlab::VisibilityLevel::PRIVATE],
+        default_snippet_visibility: Gitlab::VisibilityLevel::PRIVATE
+      )
     end
 
     it 'creates a snippet using the lowest available visibility level as default' do
@@ -109,13 +112,22 @@ RSpec.describe 'User creates snippet', :js do
     end
   end
 
-  it 'validation fails for the first time' do
-    fill_in snippet_title_field, with: title
+  it 'shows validation errors' do
+    title_validation_message = _("This field is required.")
+    files_validation_message = _("Snippets can't contain empty files. Ensure all files have content, or delete them.")
 
-    expect(page).not_to have_button('Create snippet')
+    click_button('Create snippet')
+
+    expect(page).to have_content(title_validation_message)
+    expect(page).to have_content(files_validation_message)
+
+    snippet_fill_in_title(title)
+
+    expect(page).not_to have_content(title_validation_message)
 
     snippet_fill_in_form(title: title, content: file_content)
-    expect(page).to have_button('Create snippet')
+
+    expect(page).not_to have_content(files_validation_message)
   end
 
   it 'previews a snippet with file' do
@@ -133,7 +145,11 @@ RSpec.describe 'User creates snippet', :js do
       # Adds a cache buster for checking if the image exists as Selenium is now handling the cached requests
       # not anymore as requests when they come straight from memory cache.
       # accept_confirm is needed because of https://gitlab.com/gitlab-org/gitlab/-/issues/262102
-      reqs = inspect_requests { accept_confirm { visit("#{link}?ran=#{SecureRandom.base64(20)}") } }
+      reqs = inspect_requests do
+        visit("#{link}?ran=#{SecureRandom.base64(20)}") do
+          page.driver.browser.switch_to.alert.accept
+        end
+      end
       expect(reqs.first.status_code).to eq(200)
     end
   end

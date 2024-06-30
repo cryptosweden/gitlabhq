@@ -5,70 +5,64 @@ module QA
     module Project
       module Pipeline
         class Index < QA::Page::Base
-          view 'app/assets/javascripts/pipelines/components/pipelines_list/pipeline_url.vue' do
-            element :pipeline_url_link
+          include Component::CiIcon
+
+          view 'app/assets/javascripts/ci/pipelines_page/components/pipeline_url.vue' do
+            element 'pipeline-url-link'
           end
 
-          view 'app/assets/javascripts/pipelines/components/pipelines_list/pipelines_status_badge.vue' do
-            element :pipeline_commit_status
+          view 'app/assets/javascripts/ci/pipelines_page/components/nav_controls.vue' do
+            element 'run-pipeline-button'
           end
 
-          view 'app/assets/javascripts/pipelines/components/pipelines_list/pipeline_operations.vue' do
-            element :pipeline_retry_button
+          view 'app/assets/javascripts/ci/common/pipelines_table.vue' do
+            element 'pipeline-table-row'
           end
 
-          view 'app/assets/javascripts/pipelines/components/pipelines_list/nav_controls.vue' do
-            element :run_pipeline_button
+          def latest_pipeline
+            all_elements('pipeline-table-row', minimum: 1).first
           end
 
-          def click_on_latest_pipeline
-            all_elements(:pipeline_url_link, minimum: 1, wait: QA::Support::Repeater::DEFAULT_MAX_WAIT_TIME).first.click
+          def latest_pipeline_status
+            within(latest_pipeline) do
+              find_element('ci-icon-text')
+            end.text
           end
 
-          def wait_for_latest_pipeline_succeeded
-            wait_for_latest_pipeline_status { has_selector?(".ci-status-icon-success") }
-          end
+          # If no status provided, wait for pipeline to complete
+          def wait_for_latest_pipeline(status: nil, wait: nil, reload: false)
+            wait ||= Support::Repeater::DEFAULT_MAX_WAIT_TIME
+            finished_status = %w[passed failed canceled skipped manual]
 
-          def wait_for_latest_pipeline_completed
-            wait_for_latest_pipeline_status { has_selector?(".ci-status-icon-success") || has_selector?(".ci-status-icon-failed") }
-          end
-
-          def wait_for_latest_pipeline_skipped
-            wait_for_latest_pipeline_status { has_text?('skipped') }
-          end
-
-          def wait_for_latest_pipeline_status
-            wait_until(max_duration: 90, reload: true, sleep_interval: 5) { has_pipeline? }
-
-            wait_until(reload: false, max_duration: 360) do
-              within_element_by_index(:pipeline_commit_status, 0) { yield }
+            wait_until(max_duration: wait, reload: reload, sleep_interval: 1, message: "Wait for latest pipeline") do
+              if status
+                latest_pipeline_status.casecmp(status) == 0
+              else
+                finished_status.include?(latest_pipeline_status.downcase)
+              end
             end
           end
 
-          def wait_for_latest_pipeline_success_or_retry
-            wait_for_latest_pipeline_completion
-
-            if has_text?('failed')
-              click_element :pipeline_retry_button
-              wait_for_latest_pipeline_success
+          def has_any_pipeline?(wait: nil)
+            wait ||= Support::Repeater::DEFAULT_MAX_WAIT_TIME
+            wait_until(max_duration: wait, message: "Wait for any pipeline") do
+              has_element?('pipeline-table-row')
             end
-          end
-
-          def has_pipeline?
-            has_element? :pipeline_url_link
           end
 
           def has_no_pipeline?
-            has_no_element? :pipeline_url_link
+            has_no_element?('pipeline-table-row')
           end
 
           def click_run_pipeline_button
-            click_element :run_pipeline_button, Page::Project::Pipeline::New
+            click_element('run-pipeline-button', Page::Project::Pipeline::New)
+          end
+
+          def click_on_latest_pipeline
+            latest_pipeline.find(element_selector_css('pipeline-url-link')).click
           end
         end
       end
     end
   end
 end
-
-QA::Page::Project::Pipeline::Index.prepend_mod_with('Page::Project::Pipeline::Index', namespace: QA)

@@ -26,9 +26,10 @@ RSpec.shared_examples "migrates" do |to_store:, from_store: nil|
     expect(subject).to be_an(CarrierWave::Uploader::Base)
     expect(subject).to be_a(ObjectStorage::Concern)
 
-    if from == described_class::Store::REMOTE
+    case from
+    when described_class::Store::REMOTE
       expect(subject.file).to be_a(CarrierWave::Storage::Fog::File)
-    elsif from == described_class::Store::LOCAL
+    when described_class::Store::LOCAL
       expect(subject.file).to be_a(CarrierWave::SanitizedFile)
     else
       raise 'Unexpected file type'
@@ -56,8 +57,8 @@ RSpec.shared_examples "migrates" do |to_store:, from_store: nil|
   it 'can access to the original file during migration' do
     file = subject.file
 
-    allow(subject).to receive(:delete_migrated_file) { } # Remove as a callback of :migrate
-    allow(subject).to receive(:record_upload) { } # Remove as a callback of :store (:record_upload)
+    allow(subject).to receive(:delete_migrated_file) {} # Remove as a callback of :migrate
+    allow(subject).to receive(:record_upload) {} # Remove as a callback of :store (:record_upload)
 
     expect(file.exists?).to be_truthy
     expect { migrate(to) }.not_to change { file.exists? }

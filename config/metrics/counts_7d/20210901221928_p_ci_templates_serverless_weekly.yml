@@ -1,14 +1,13 @@
 ---
 key_path: redis_hll_counters.ci_templates.p_ci_templates_serverless_weekly
 description: ''
-product_section: ''
-product_stage: ''
-product_group: ''
-product_category: ''
+product_group: pipeline_authoring
 value_type: number
-status: active
+status: removed
 milestone: '14.3'
 introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/69204
+removed_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/86267
+milestone_removed: '15.0'
 time_frame: 7d
 data_source: redis_hll
 data_category: optional

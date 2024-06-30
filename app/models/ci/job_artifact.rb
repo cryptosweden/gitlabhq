@@ -2,227 +2,94 @@
 
 module Ci
   class JobArtifact < Ci::ApplicationRecord
+    include Ci::Partitionable
     include IgnorableColumns
     include AfterCommitQueue
-    include ObjectStorage::BackgroundMove
     include UpdateProjectStatistics
     include UsageStatistics
     include Sortable
     include Artifactable
+    include Lockable
     include FileStoreMounter
     include EachBatch
     include Gitlab::Utils::StrongMemoize
 
-    TEST_REPORT_FILE_TYPES = %w[junit].freeze
-    COVERAGE_REPORT_FILE_TYPES = %w[cobertura].freeze
-    CODEQUALITY_REPORT_FILE_TYPES = %w[codequality].freeze
-    ACCESSIBILITY_REPORT_FILE_TYPES = %w[accessibility].freeze
-    NON_ERASABLE_FILE_TYPES = %w[trace].freeze
-    TERRAFORM_REPORT_FILE_TYPES = %w[terraform].freeze
-    SAST_REPORT_TYPES = %w[sast].freeze
-    SECRET_DETECTION_REPORT_TYPES = %w[secret_detection].freeze
-    DEFAULT_FILE_NAMES = {
-      archive: nil,
-      metadata: nil,
-      trace: nil,
-      metrics_referee: nil,
-      network_referee: nil,
-      junit: 'junit.xml',
-      accessibility: 'gl-accessibility.json',
-      codequality: 'gl-code-quality-report.json',
-      sast: 'gl-sast-report.json',
-      secret_detection: 'gl-secret-detection-report.json',
-      dependency_scanning: 'gl-dependency-scanning-report.json',
-      container_scanning: 'gl-container-scanning-report.json',
-      cluster_image_scanning: 'gl-cluster-image-scanning-report.json',
-      dast: 'gl-dast-report.json',
-      license_scanning: 'gl-license-scanning-report.json',
-      performance: 'performance.json',
-      browser_performance: 'browser-performance.json',
-      load_performance: 'load-performance.json',
-      metrics: 'metrics.txt',
-      lsif: 'lsif.json',
-      dotenv: '.env',
-      cobertura: 'cobertura-coverage.xml',
-      terraform: 'tfplan.json',
-      cluster_applications: 'gl-cluster-applications.json', # DEPRECATED: https://gitlab.com/gitlab-org/gitlab/-/issues/333441
-      requirements: 'requirements.json',
-      coverage_fuzzing: 'gl-coverage-fuzzing.json',
-      api_fuzzing: 'gl-api-fuzzing-report.json'
-    }.freeze
-
-    INTERNAL_TYPES = {
-      archive: :zip,
-      metadata: :gzip,
-      trace: :raw
-    }.freeze
-
-    REPORT_TYPES = {
-      junit: :gzip,
-      metrics: :gzip,
-      metrics_referee: :gzip,
-      network_referee: :gzip,
-      dotenv: :gzip,
-      cobertura: :gzip,
-      cluster_applications: :gzip,
-      lsif: :zip,
-
-      # Security reports and license scanning reports are raw artifacts
-      # because they used to be fetched by the frontend, but this is not the case anymore.
-      sast: :raw,
-      secret_detection: :raw,
-      dependency_scanning: :raw,
-      container_scanning: :raw,
-      cluster_image_scanning: :raw,
-      dast: :raw,
-      license_scanning: :raw,
-
-      # All these file formats use `raw` as we need to store them uncompressed
-      # for Frontend to fetch the files and do analysis
-      # When they will be only used by backend, they can be `gzipped`.
-      accessibility: :raw,
-      codequality: :raw,
-      performance: :raw,
-      browser_performance: :raw,
-      load_performance: :raw,
-      terraform: :raw,
-      requirements: :raw,
-      coverage_fuzzing: :raw,
-      api_fuzzing: :raw
-    }.freeze
-
-    DOWNLOADABLE_TYPES = %w[
-      accessibility
-      api_fuzzing
-      archive
-      cobertura
-      codequality
-      container_scanning
-      dast
-      dependency_scanning
-      dotenv
-      junit
-      license_scanning
-      lsif
-      metrics
-      performance
-      browser_performance
-      load_performance
-      sast
-      secret_detection
-      requirements
-      cluster_image_scanning
-    ].freeze
-
-    TYPE_AND_FORMAT_PAIRS = INTERNAL_TYPES.merge(REPORT_TYPES).freeze
-
     PLAN_LIMIT_PREFIX = 'ci_max_artifact_size_'
 
+    self.table_name = :p_ci_job_artifacts
+    self.primary_key = :id
+    self.sequence_name = :ci_job_artifacts_id_seq
+
+    partitionable scope: :job, partitioned: true
+    query_constraints :id, :partition_id
+
+    enum accessibility: { public: 0, private: 1, none: 2 }, _suffix: true
+
     belongs_to :project
-    belongs_to :job, class_name: "Ci::Build", foreign_key: :job_id
+    belongs_to :job,
+      ->(artifact) { in_partition(artifact) },
+      class_name: "Ci::Build",
+      foreign_key: :job_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :job_artifacts
 
-    # We will start using this column once we complete https://gitlab.com/gitlab-org/gitlab/-/issues/285597
-    ignore_column :original_filename, remove_with: '14.7', remove_after: '2022-11-22'
+    mount_file_store_uploader JobArtifactUploader, skip_store_file: true
+    update_project_statistics project_statistics_name: :build_artifacts_size
 
-    mount_file_store_uploader JobArtifactUploader
+    before_save :set_size, if: :file_changed?
+    after_save :store_file_in_transaction!, unless: :store_after_commit?
 
-    skip_callback :save, :after, :store_file!, if: :store_after_commit?
-    after_commit :store_file_after_commit!, on: [:create, :update], if: :store_after_commit?
+    after_create_commit :log_create
 
+    after_commit :store_file_after_transaction!, on: [:create, :update], if: :store_after_commit?
+
+    after_destroy_commit :log_destroy
+
+    validates :job, presence: true
     validates :file_format, presence: true, unless: :trace?, on: :create
     validate :validate_file_format!, unless: :trace?, on: :create
-    before_save :set_size, if: :file_changed?
-
-    update_project_statistics project_statistics_name: :build_artifacts_size
 
     scope :not_expired, -> { where('expire_at IS NULL OR expire_at > ?', Time.current) }
     scope :for_sha, ->(sha, project_id) { joins(job: :pipeline).where(ci_pipelines: { sha: sha, project_id: project_id }) }
     scope :for_job_ids, ->(job_ids) { where(job_id: job_ids) }
-    scope :for_job_name, ->(name) { joins(:job).where(ci_builds: { name: name }) }
+    scope :for_job_name, ->(name) { joins(:job).merge(Ci::Build.by_name(name)) }
+    scope :created_at_before, ->(time) { where(arel_table[:created_at].lteq(time)) }
+    scope :id_before, ->(id) { where(arel_table[:id].lteq(id)) }
+    scope :id_after, ->(id) { where(arel_table[:id].gt(id)) }
+    scope :ordered_by_id, -> { order(:id) }
+    scope :scoped_build, -> {
+      where(arel_table[:job_id].eq(Ci::Build.arel_table[:id]))
+      .where(arel_table[:partition_id].eq(Ci::Build.arel_table[:partition_id]))
+    }
 
     scope :with_job, -> { joins(:job).includes(:job) }
 
-    scope :with_file_types, -> (file_types) do
+    scope :with_file_types, ->(file_types) do
       types = self.file_types.select { |file_type| file_types.include?(file_type) }.values
 
       where(file_type: types)
     end
 
-    scope :with_reports, -> do
-      with_file_types(REPORT_TYPES.keys.map(&:to_s))
-    end
-
-    scope :sast_reports, -> do
-      with_file_types(SAST_REPORT_TYPES)
-    end
-
-    scope :secret_detection_reports, -> do
-      with_file_types(SECRET_DETECTION_REPORT_TYPES)
-    end
-
-    scope :test_reports, -> do
-      with_file_types(TEST_REPORT_FILE_TYPES)
-    end
-
-    scope :accessibility_reports, -> do
-      with_file_types(ACCESSIBILITY_REPORT_FILE_TYPES)
-    end
-
-    scope :coverage_reports, -> do
-      with_file_types(COVERAGE_REPORT_FILE_TYPES)
-    end
-
-    scope :codequality_reports, -> do
-      with_file_types(CODEQUALITY_REPORT_FILE_TYPES)
-    end
-
-    scope :terraform_reports, -> do
-      with_file_types(TERRAFORM_REPORT_FILE_TYPES)
+    scope :all_reports, -> do
+      with_file_types(Enums::Ci::JobArtifact.report_types.keys.map(&:to_s))
     end
 
     scope :erasable, -> do
       where(file_type: self.erasable_file_types)
     end
 
-    scope :downloadable, -> { where(file_type: DOWNLOADABLE_TYPES) }
+    scope :non_trace, -> { where.not(file_type: [:trace]) }
+
+    scope :downloadable, -> { where(file_type: Enums::Ci::JobArtifact.downloadable_types) }
     scope :unlocked, -> { joins(job: :pipeline).merge(::Ci::Pipeline.unlocked) }
-    scope :order_expired_desc, -> { order(expire_at: :desc) }
-    scope :with_destroy_preloads, -> { includes(project: [:route, :statistics]) }
+    scope :order_expired_asc, -> { order(expire_at: :asc) }
+    scope :with_destroy_preloads, -> { includes(project: [:route, :statistics, :build_artifacts_size_refresh]) }
 
     scope :for_project, ->(project) { where(project_id: project) }
     scope :created_in_time_range, ->(from: nil, to: nil) { where(created_at: from..to) }
 
     delegate :filename, :exists?, :open, to: :file
-
-    enum file_type: {
-      archive: 1,
-      metadata: 2,
-      trace: 3,
-      junit: 4,
-      sast: 5, ## EE-specific
-      dependency_scanning: 6, ## EE-specific
-      container_scanning: 7, ## EE-specific
-      dast: 8, ## EE-specific
-      codequality: 9, ## EE-specific
-      license_scanning: 101, ## EE-specific
-      performance: 11, ## EE-specific till 13.2
-      metrics: 12, ## EE-specific
-      metrics_referee: 13, ## runner referees
-      network_referee: 14, ## runner referees
-      lsif: 15, # LSIF data for code navigation
-      dotenv: 16,
-      cobertura: 17,
-      terraform: 18, # Transformed json
-      accessibility: 19,
-      cluster_applications: 20,
-      secret_detection: 21, ## EE-specific
-      requirements: 22, ## EE-specific
-      coverage_fuzzing: 23, ## EE-specific
-      browser_performance: 24, ## EE-specific
-      load_performance: 25, ## EE-specific
-      api_fuzzing: 26, ## EE-specific
-      cluster_image_scanning: 27 ## EE-specific
-    }
+    enum file_type: Enums::Ci::JobArtifact.file_type
 
     # `file_location` indicates where actual files are stored.
     # Ideally, actual files should be stored in the same directory, and use the same
@@ -233,26 +100,22 @@ module Ci
     #                 `ci_builds.artifacts_file` and `ci_builds.artifacts_metadata`
     # hashed_path ... The actual file is stored at a path consists of a SHA2 based on the project ID.
     #                 This is the default value.
-    enum file_location: {
-      legacy_path: 1,
-      hashed_path: 2
-    }
-
-    # `locked` will be populated from the source of truth on Ci::Pipeline
-    # in order to clean up expired job artifacts in a performant way.
-    # The values should be the same as `Ci::Pipeline.lockeds` with the
-    # additional value of `unknown` to indicate rows that have not
-    # yet been populated from the parent Ci::Pipeline
-    enum locked: {
-      unlocked: 0,
-      artifacts_locked: 1,
-      unknown: 2
-    }, _prefix: :artifact
+    enum file_location: Enums::Ci::JobArtifact.file_location
 
     def validate_file_format!
-      unless TYPE_AND_FORMAT_PAIRS[self.file_type&.to_sym] == self.file_format&.to_sym
+      unless Enums::Ci::JobArtifact.type_and_format_pairs[self.file_type&.to_sym] == self.file_format&.to_sym
         errors.add(:base, _('Invalid file format with specified file type'))
       end
+    end
+
+    def self.of_report_type(report_type)
+      file_types = file_types_for_report(report_type)
+
+      with_file_types(file_types)
+    end
+
+    def self.file_types_for_report(report_type)
+      Enums::Ci::JobArtifact.report_file_types.fetch(report_type) { raise ArgumentError, "Unrecognized report type: #{report_type}" }
     end
 
     def self.associated_file_types_for(file_type)
@@ -262,7 +125,7 @@ module Ci
     end
 
     def self.erasable_file_types
-      self.file_types.keys - NON_ERASABLE_FILE_TYPES
+      self.file_types.keys - Enums::Ci::JobArtifact.non_erasable_file_types
     end
 
     def self.total_size
@@ -271,6 +134,10 @@ module Ci
 
     def self.artifacts_size_for(project)
       self.where(project: project).sum(:size)
+    end
+
+    def self.pluck_job_id
+      pluck(:job_id)
     end
 
     ##
@@ -300,11 +167,11 @@ module Ci
     end
 
     def expired?
-      expire_at.present? && expire_at < Time.current
+      expire_at.present? && expire_at.past?
     end
 
     def expiring?
-      expire_at.present? && expire_at > Time.current
+      expire_at.present? && expire_at.future?
     end
 
     def expire_in
@@ -314,16 +181,16 @@ module Ci
     def expire_in=(value)
       self.expire_at =
         if value
-          ::Gitlab::Ci::Build::Artifacts::ExpireInParser.new(value).seconds_from_now
+          ::Gitlab::Ci::Build::DurationParser.new(value).seconds_from_now
         end
     end
 
-    def archived_trace_exists?
+    def stored?
       file&.file&.exists?
     end
 
     def self.archived_trace_exists_for?(job_id)
-      where(job_id: job_id).trace.take&.archived_trace_exists?
+      where(job_id: job_id).trace.take&.stored?
     end
 
     def self.max_artifact_size(type:, project:)
@@ -338,10 +205,16 @@ module Ci
     end
 
     def to_deleted_object_attrs(pick_up_at = nil)
+      final_path_store_dir, final_path_filename = nil
+      if file_final_path.present?
+        final_path_store_dir = File.dirname(file_final_path)
+        final_path_filename = File.basename(file_final_path)
+      end
+
       {
         file_store: file_store,
-        store_dir: file.store_dir.to_s,
-        file: file_identifier,
+        store_dir: final_path_store_dir || file.store_dir.to_s,
+        file: final_path_filename || file_identifier,
         pick_up_at: pick_up_at || expire_at || Time.current
       }
     end
@@ -352,13 +225,34 @@ module Ci
       end
     end
 
+    def public_access?
+      public_accessibility?
+    end
+
+    def none_access?
+      none_accessibility?
+    end
+
     private
 
-    def store_file_after_commit!
-      return unless previous_changes.key?(:file)
+    def store_file_in_transaction!
+      store_file_now! if saved_change_to_file?
 
-      store_file!
-      update_file_store
+      file_stored_in_transaction_hooks
+    end
+
+    def store_file_after_transaction!
+      store_file_now! if previous_changes.key?(:file)
+
+      file_stored_after_transaction_hooks
+    end
+
+    # method overridden in EE
+    def file_stored_after_transaction_hooks
+    end
+
+    # method overridden in EE
+    def file_stored_in_transaction_hooks
     end
 
     def set_size
@@ -368,6 +262,14 @@ module Ci
     def project_destroyed?
       # Use job.project to avoid extra DB query for project
       job.project.pending_delete?
+    end
+
+    def log_create
+      Gitlab::Ci::Artifacts::Logger.log_created(self)
+    end
+
+    def log_destroy
+      Gitlab::Ci::Artifacts::Logger.log_deleted(self, __method__)
     end
   end
 end

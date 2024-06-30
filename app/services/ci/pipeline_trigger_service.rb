@@ -4,6 +4,7 @@ module Ci
   class PipelineTriggerService < BaseService
     include Gitlab::Utils::StrongMemoize
     include Services::ReturnServiceResponses
+    include Ci::DownstreamPipelineHelpers
 
     def execute
       if trigger_from_token
@@ -26,6 +27,7 @@ module Ci
     def create_pipeline_from_trigger(trigger)
       # this check is to not leak the presence of the project if user cannot read it
       return unless trigger.project == project
+      return unless can?(trigger.owner, :read_project, project)
 
       response = Ci::CreatePipelineService
         .new(project, trigger.owner, ref: params[:ref], variables_attributes: variables)
@@ -69,6 +71,7 @@ module Ci
           pipeline.source_pipeline = source
         end
 
+      log_downstream_pipeline_creation(response.payload)
       pipeline_service_response(response.payload)
     end
 
@@ -90,8 +93,9 @@ module Ci
 
     def payload_variable
       { key: PAYLOAD_VARIABLE_KEY,
-        value: params.except(*PAYLOAD_VARIABLE_HIDDEN_PARAMS).to_json,
-        variable_type: :file }
+        value: Gitlab::Json.dump(params.except(*PAYLOAD_VARIABLE_HIDDEN_PARAMS)),
+        variable_type: :file,
+        raw: true }
     end
 
     def set_application_context_from_trigger(trigger)

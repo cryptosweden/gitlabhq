@@ -25,7 +25,7 @@ module Gitlab
             redis.multi do |multi|
               # we trigger re-balance for namespaces(groups) or specific user project
               value = "#{rebalanced_container_type}/#{rebalanced_container_id}"
-              multi.sadd(CONCURRENT_RUNNING_REBALANCES_KEY, value)
+              multi.sadd?(CONCURRENT_RUNNING_REBALANCES_KEY, value)
               multi.expire(CONCURRENT_RUNNING_REBALANCES_KEY, REDIS_EXPIRY_TIME)
             end
           end
@@ -38,10 +38,10 @@ module Gitlab
         def rebalance_in_progress?
           is_running = case rebalanced_container_type
                        when NAMESPACE
-                         namespace_ids = self.class.current_rebalancing_containers.map {|string| string.split("#{NAMESPACE}/").second.to_i }.compact
+                         namespace_ids = self.class.current_rebalancing_containers.filter_map { |string| string.split("#{NAMESPACE}/").second.to_i }
                          namespace_ids.include?(root_namespace.id)
                        when PROJECT
-                         project_ids = self.class.current_rebalancing_containers.map {|string| string.split("#{PROJECT}/").second.to_i }.compact
+                         project_ids = self.class.current_rebalancing_containers.filter_map { |string| string.split("#{PROJECT}/").second.to_i }
                          project_ids.include?(projects.take.id) # rubocop:disable CodeReuse/ActiveRecord
                        else
                          false
@@ -53,7 +53,7 @@ module Gitlab
         end
 
         def can_start_rebalance?
-          rebalance_in_progress? || too_many_rebalances_running?
+          rebalance_in_progress? || concurrent_rebalance_within_limit?
         end
 
         def cache_issue_ids(issue_ids)
@@ -90,20 +90,22 @@ module Gitlab
         end
 
         def issue_count
-          @issue_count ||= with_redis { |redis| redis.zcard(issue_ids_key)}
+          @issue_count ||= with_redis { |redis| redis.zcard(issue_ids_key) }
         end
 
         def remove_current_project_id_cache
-          with_redis { |redis| redis.del(current_project_key)}
+          with_redis { |redis| redis.del(current_project_key) }
         end
 
         def refresh_keys_expiration
           with_redis do |redis|
-            redis.multi do |multi|
-              multi.expire(issue_ids_key, REDIS_EXPIRY_TIME)
-              multi.expire(current_index_key, REDIS_EXPIRY_TIME)
-              multi.expire(current_project_key, REDIS_EXPIRY_TIME)
-              multi.expire(CONCURRENT_RUNNING_REBALANCES_KEY, REDIS_EXPIRY_TIME)
+            Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
+              redis.pipelined do |pipeline|
+                pipeline.expire(issue_ids_key, REDIS_EXPIRY_TIME)
+                pipeline.expire(current_index_key, REDIS_EXPIRY_TIME)
+                pipeline.expire(current_project_key, REDIS_EXPIRY_TIME)
+                pipeline.expire(CONCURRENT_RUNNING_REBALANCES_KEY, REDIS_EXPIRY_TIME)
+              end
             end
           end
         end
@@ -111,14 +113,20 @@ module Gitlab
         def cleanup_cache
           value = "#{rebalanced_container_type}/#{rebalanced_container_id}"
 
+          # The clean up is done sequentially to be compatible with Redis Cluster
+          # Do not use a pipeline as it fans-out in a Redis-Cluster setting and forego ordering guarantees
           with_redis do |redis|
-            redis.multi do |multi|
-              multi.del(issue_ids_key)
-              multi.del(current_index_key)
-              multi.del(current_project_key)
-              multi.srem(CONCURRENT_RUNNING_REBALANCES_KEY, value)
-              multi.set(self.class.recently_finished_key(rebalanced_container_type, rebalanced_container_id), true, ex: 1.hour)
-            end
+            # srem followed by .del(issue_ids_key) to ensure that any subsequent redis errors would
+            # result in a no-op job retry since current_index_key still exists
+            redis.srem?(CONCURRENT_RUNNING_REBALANCES_KEY, value)
+            redis.del(issue_ids_key)
+
+            # delete current_index_key to ensure that subsequent redis errors would
+            # result in a fresh job retry
+            redis.del(current_index_key)
+
+            # setting recently_finished_key last after job details is cleaned up
+            redis.set(self.class.recently_finished_key(rebalanced_container_type, rebalanced_container_id), true, ex: 1.hour)
           end
         end
 
@@ -136,9 +144,10 @@ module Gitlab
           current_rebalancing_containers.each do |string|
             container_type, container_id = string.split('/', 2).map(&:to_i)
 
-            if container_type == NAMESPACE
+            case container_type
+            when NAMESPACE
               namespace_ids << container_id
-            elsif container_type == PROJECT
+            when PROJECT
               project_ids << container_id
             end
           end
@@ -154,7 +163,7 @@ module Gitlab
 
         attr_accessor :root_namespace, :projects, :rebalanced_container_type, :rebalanced_container_id
 
-        def too_many_rebalances_running?
+        def concurrent_rebalance_within_limit?
           concurrent_running_rebalances_count <= MAX_NUMBER_OF_CONCURRENT_REBALANCES
         end
 

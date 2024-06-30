@@ -1,7 +1,5 @@
-- if @group.admin_note.present?
+- if @group.admin_note&.note?
   - text = @group.admin_note.note
-  .card.border-info
-    .card-header.bg-info.gl-text-white
-      = s_('Admin|Admin notes')
-    .card-body
+  = render ::Layouts::CrudComponent.new(s_('Admin|Admin notes')) do |c|
+    - c.with_body do
       %p= text

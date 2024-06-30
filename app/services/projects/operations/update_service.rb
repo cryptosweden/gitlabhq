@@ -14,11 +14,8 @@ module Projects
       def project_update_params
         error_tracking_params
           .merge(alerting_setting_params)
-          .merge(metrics_setting_params)
-          .merge(grafana_integration_params)
           .merge(prometheus_integration_params)
           .merge(incident_management_setting_params)
-          .merge(tracing_setting_params)
       end
 
       def alerting_setting_params
@@ -36,15 +33,6 @@ module Projects
         end
 
         { alerting_setting_attributes: attr }
-      end
-
-      def metrics_setting_params
-        attribs = params[:metrics_setting_attributes]
-        return {} unless attribs
-
-        attribs[:external_dashboard_url] = attribs[:external_dashboard_url].presence
-
-        { metrics_setting_attributes: attribs }
       end
 
       def error_tracking_params
@@ -90,21 +78,14 @@ module Projects
             api_url: api_url,
             enabled: settings[:enabled],
             project_name: settings.dig(:project, :name),
-            organization_name: settings.dig(:project, :organization_name)
+            organization_name: settings.dig(:project, :organization_name),
+            sentry_project_id: settings.dig(:project, :sentry_project_id)
           }
         }
-        params[:error_tracking_setting_attributes][:token] = settings[:token] unless /\A\*+\z/.match?(settings[:token]) # Don't update token if we receive masked value
+        params[:error_tracking_setting_attributes][:token] = settings[:token] unless ::ErrorTracking::SentryClient::Token.masked_token?(settings[:token]) # Don't update token if we receive masked value
         params[:error_tracking_setting_attributes][:integrated] = settings[:integrated] unless settings[:integrated].nil?
 
         params
-      end
-
-      def grafana_integration_params
-        return {} unless attrs = params[:grafana_integration_attributes]
-
-        destroy = attrs[:grafana_url].blank? && attrs[:token].blank?
-
-        { grafana_integration_attributes: attrs.merge(_destroy: destroy) }
       end
 
       def prometheus_integration_params
@@ -112,8 +93,9 @@ module Projects
 
         integration = project.find_or_initialize_integration(::Integrations::Prometheus.to_param)
         integration.assign_attributes(attrs)
+        attrs = integration.to_database_hash
 
-        { prometheus_integration_attributes: integration.attributes.except(*%w[id project_id created_at updated_at]) }
+        { prometheus_integration_attributes: attrs }
       end
 
       def incident_management_setting_params
@@ -129,15 +111,6 @@ module Projects
         end
 
         { incident_management_setting_attributes: attrs }
-      end
-
-      def tracing_setting_params
-        attr = params[:tracing_setting_attributes]
-        return {} unless attr
-
-        destroy = attr[:external_url].blank?
-
-        { tracing_setting_attributes: attr.merge(_destroy: destroy) }
       end
     end
   end

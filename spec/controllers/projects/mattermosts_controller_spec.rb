@@ -19,11 +19,10 @@ RSpec.describe Projects::MattermostsController do
     end
 
     it 'accepts the request' do
-      get(:new,
-          params: {
-            namespace_id: project.namespace.to_param,
-            project_id: project
-          })
+      get :new, params: {
+        namespace_id: project.namespace.to_param,
+        project_id: project
+      }
 
       expect(response).to have_gitlab_http_status(:ok)
     end
@@ -33,12 +32,11 @@ RSpec.describe Projects::MattermostsController do
     let(:mattermost_params) { { trigger: 'http://localhost:3000/trigger', team_id: 'abc' } }
 
     subject do
-      post(:create,
-           params: {
-             namespace_id: project.namespace.to_param,
-             project_id: project,
-             mattermost: mattermost_params
-           })
+      post :create, params: {
+        namespace_id: project.namespace.to_param,
+        project_id: project,
+        mattermost: mattermost_params
+      }
     end
 
     context 'no request can be made to mattermost' do
@@ -62,7 +60,7 @@ RSpec.describe Projects::MattermostsController do
         subject
         integration = project.integrations.last
 
-        expect(subject).to redirect_to(edit_project_integration_path(project, integration))
+        expect(subject).to redirect_to(edit_project_settings_integration_path(project, integration))
       end
     end
   end

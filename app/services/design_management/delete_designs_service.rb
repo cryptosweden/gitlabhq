@@ -4,6 +4,7 @@ module DesignManagement
   class DeleteDesignsService < DesignService
     include RunsDesignActions
     include OnSuccessCallbacks
+    include Gitlab::InternalEventsTracking
 
     def initialize(project, user, params = {})
       super
@@ -16,7 +17,10 @@ module DesignManagement
 
       version = delete_designs!
       EventCreateService.new.destroy_designs(designs, current_user)
-      Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_designs_removed_action(author: current_user)
+      Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_designs_removed_action(
+        author: current_user,
+        project: project
+      )
       TodosDestroyer::DestroyedDesignsWorker.perform_async(designs.map(&:id))
 
       success(version: version)
@@ -52,14 +56,10 @@ module DesignManagement
 
     def design_action(design)
       on_success do
-        counter.count(:delete)
+        track_internal_event('delete_design_management_design', user: current_user, project: project)
       end
 
       DesignManagement::DesignAction.new(design, :delete)
-    end
-
-    def counter
-      ::Gitlab::UsageDataCounters::DesignsCounter
     end
 
     def formatted_file_list

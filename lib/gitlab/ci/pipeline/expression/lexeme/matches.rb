@@ -6,12 +6,17 @@ module Gitlab
       module Expression
         module Lexeme
           class Matches < Lexeme::LogicalOperator
-            PATTERN = /=~/.freeze
+            PATTERN = /=~/
 
             def evaluate(variables = {})
               text = @left.evaluate(variables)
               regexp = @right.evaluate(variables)
+
               return false unless regexp
+
+              # All variables are evaluated as strings, even if they are regexp strings.
+              # So, we need to convert them to regexp objects.
+              regexp = Lexeme::Pattern.build_and_evaluate(regexp, variables)
 
               regexp.scan(text.to_s).present?
             end

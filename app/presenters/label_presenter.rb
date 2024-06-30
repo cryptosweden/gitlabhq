@@ -4,8 +4,6 @@ class LabelPresenter < Gitlab::View::Presenter::Delegated
   presents ::Label, as: :label
   delegate :name, :full_name, to: :label_subject, prefix: :subject, allow_nil: true
 
-  delegator_override :subject # TODO: Fix `Gitlab::View::Presenter::Delegated#subject` not to override `Label#subject`.
-
   def edit_path
     case label
     when GroupLabel then edit_group_label_path(label.group, label)
@@ -29,14 +27,18 @@ class LabelPresenter < Gitlab::View::Presenter::Delegated
   def filter_path(type: :issue)
     case context_subject
     when Group
-      send("#{type.to_s.pluralize}_group_path", # rubocop:disable GitlabSecurity/PublicSend
-                  context_subject,
-                  label_name: [label.name])
+      send( # rubocop:disable GitlabSecurity/PublicSend
+        "#{type.to_s.pluralize}_group_path",
+        context_subject,
+        label_name: [label.name]
+      )
     when Project
-      send("namespace_project_#{type.to_s.pluralize}_path", # rubocop:disable GitlabSecurity/PublicSend
-                  context_subject.namespace,
-                  context_subject,
-                  label_name: [label.name])
+      send( # rubocop:disable GitlabSecurity/PublicSend
+        "namespace_project_#{type.to_s.pluralize}_path",
+        context_subject.namespace,
+        context_subject,
+        label_name: [label.name]
+      )
     end
   end
 

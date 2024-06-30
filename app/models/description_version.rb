@@ -1,13 +1,17 @@
 # frozen_string_literal: true
 
 class DescriptionVersion < ApplicationRecord
+  include FromUnion
+
   belongs_to :issue
   belongs_to :merge_request
 
   validate :exactly_one_issuable
 
+  delegate :resource_parent, to: :issuable
+
   def self.issuable_attrs
-    %i(issue merge_request).freeze
+    %i[issue merge_request].freeze
   end
 
   def issuable
@@ -29,4 +33,4 @@ class DescriptionVersion < ApplicationRecord
   end
 end
 
-DescriptionVersion.prepend_mod_with('DescriptionVersion')
+DescriptionVersion.prepend_mod

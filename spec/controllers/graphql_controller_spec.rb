@@ -2,22 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe GraphqlController do
+RSpec.describe GraphqlController, feature_category: :integrations do
   include GraphqlHelpers
 
-  before do
-    stub_feature_flags(graphql: true)
-  end
+  # two days is enough to make timezones irrelevant
+  let_it_be(:last_activity_on) { 2.days.ago.to_date }
 
-  describe 'ArgumentError' do
-    let(:user) { create(:user) }
-    let(:message) { 'green ideas sleep furiously' }
+  describe 'rescue_from' do
+    let_it_be(:message) { 'green ideas sleep furiously' }
 
-    before do
-      sign_in(user)
-    end
-
-    it 'handles argument errors' do
+    it 'handles ArgumentError' do
       allow(subject).to receive(:execute) do
         raise Gitlab::Graphql::Errors::ArgumentError, message
       end
@@ -28,11 +22,70 @@ RSpec.describe GraphqlController do
         'errors' => include(a_hash_including('message' => message))
       )
     end
+
+    it 'handles a timeout nicely' do
+      allow(subject).to receive(:execute) do
+        raise ActiveRecord::QueryCanceled, '**taps wristwatch**'
+      end
+
+      post :execute
+
+      expect(json_response).to include(
+        'errors' => include(a_hash_including('message' => /Request timed out/))
+      )
+    end
+
+    it 'handles StandardError' do
+      allow(subject).to receive(:execute) do
+        raise StandardError, message
+      end
+
+      post :execute
+
+      expect(json_response).to include(
+        'errors' => include(
+          a_hash_including('message' => /Internal server error/, 'raisedAt' => /graphql_controller_spec.rb/)
+        )
+      )
+    end
+
+    it 'handles Gitlab::Auth::TooManyIps', :aggregate_failures do
+      allow(controller).to receive(:execute) do
+        raise Gitlab::Auth::TooManyIps.new(150, '123.123.123.123', 10)
+      end
+
+      expect(controller).to receive(:log_exception).and_call_original
+
+      post :execute
+
+      expect(json_response).to include(
+        'errors' => include(
+          a_hash_including('message' => 'User 150 from IP: 123.123.123.123 tried logging from too many ips: 10')
+        )
+      )
+      expect(response).to have_gitlab_http_status(:forbidden)
+    end
+
+    it 'handles Gitlab::Git::ResourceExhaustedError', :aggregate_failures do
+      allow(controller).to receive(:execute) do
+        raise Gitlab::Git::ResourceExhaustedError.new("Upstream Gitaly has been exhausted. Try again later", 50)
+      end
+
+      post :execute
+
+      expect(json_response).to include(
+        'errors' => include(
+          a_hash_including('message' => 'Upstream Gitaly has been exhausted. Try again later')
+        )
+      )
+      expect(response).to have_gitlab_http_status(:service_unavailable)
+      expect(response.headers['Retry-After']).to be(50)
+    end
   end
 
   describe 'POST #execute' do
     context 'when user is logged in' do
-      let(:user) { create(:user, last_activity_on: Date.yesterday) }
+      let(:user) { create(:user, last_activity_on: last_activity_on) }
 
       before do
         sign_in(user)
@@ -65,10 +118,46 @@ RSpec.describe GraphqlController do
         post :execute, params: { _json: multiplex }
 
         expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response).to eq([
-          { 'data' => { '__typename' => 'Query' } },
-          { 'data' => { '__typename' => 'Query' } }
-        ])
+        expect(json_response).to eq(
+          [
+            { 'data' => { '__typename' => 'Query' } },
+            { 'data' => { '__typename' => 'Query' } }
+          ])
+      end
+
+      it 'executes a multiplexed queries with variables with no errors' do
+        query = <<~GQL
+          mutation($a: String!, $b: String!) {
+            echoCreate(input: { messages: [$a, $b] }) { echoes }
+          }
+        GQL
+        multiplex = [
+          { query: query, variables: { a: 'A', b: 'B' } },
+          { query: query, variables: { a: 'a', b: 'b' } }
+        ]
+
+        post :execute, params: { _json: multiplex }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response).to eq(
+          [
+            { 'data' => { 'echoCreate' => { 'echoes' => %w[A B] } } },
+            { 'data' => { 'echoCreate' => { 'echoes' => %w[a b] } } }
+          ])
+      end
+
+      it 'does not allow string as _json parameter (a malformed multiplex query)' do
+        post :execute, params: { _json: 'bad' }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response).to eq({
+          "errors" => [
+            {
+              "message" => "Unexpected end of document",
+              "locations" => []
+            }
+          ]
+        })
       end
 
       it 'sets a limit on the total query size' do
@@ -135,6 +224,60 @@ RSpec.describe GraphqlController do
         post :execute
       end
 
+      it 'calls the track jetbrains bundled third party api when trackable method' do
+        agent = 'IntelliJ-GitLab-Plugin PhpStorm/PS-232.6734.11 (JRE 17.0.7+7-b966.2; Linux 6.2.0-20-generic; amd64)'
+        request.env['HTTP_USER_AGENT'] = agent
+
+        expect(Gitlab::UsageDataCounters::JetBrainsBundledPluginActivityUniqueCounter)
+          .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+        post :execute
+      end
+
+      it 'calls the track visual studio extension api when trackable method' do
+        agent = 'code-completions-language-server-experiment (gl-visual-studio-extension:1.0.0.0; arch:X64;)'
+        request.env['HTTP_USER_AGENT'] = agent
+
+        expect(Gitlab::UsageDataCounters::VisualStudioExtensionActivityUniqueCounter)
+          .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+        post :execute
+      end
+
+      it 'calls the track neovim plugin api when trackable method' do
+        agent = 'code-completions-language-server-experiment (Neovim:0.9.0; gitlab.vim (v0.1.0); arch:amd64; os:darwin)'
+        request.env['HTTP_USER_AGENT'] = agent
+
+        expect(Gitlab::UsageDataCounters::NeovimPluginActivityUniqueCounter)
+          .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+        post :execute
+      end
+
+      context 'if using the GitLab CLI' do
+        it 'call trackable for the old UserAgent' do
+          agent = 'GLab - GitLab CLI'
+
+          request.env['HTTP_USER_AGENT'] = agent
+
+          expect(Gitlab::UsageDataCounters::GitLabCliActivityUniqueCounter)
+            .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+          post :execute
+        end
+
+        it 'call trackable for the current UserAgent' do
+          agent = 'glab/v1.25.3-27-g7ec258fb (built 2023-02-16), darwin'
+
+          request.env['HTTP_USER_AGENT'] = agent
+
+          expect(Gitlab::UsageDataCounters::GitLabCliActivityUniqueCounter)
+            .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+          post :execute
+        end
+      end
+
       it "assigns username in ApplicationContext" do
         post :execute
 
@@ -142,15 +285,107 @@ RSpec.describe GraphqlController do
       end
     end
 
+    context 'when 2FA is required for the user' do
+      let(:user) { create(:user, last_activity_on: last_activity_on) }
+
+      before do
+        group = create(:group, require_two_factor_authentication: true)
+        group.add_developer(user)
+
+        sign_in(user)
+      end
+
+      it 'does not redirect if 2FA is enabled' do
+        expect(controller).not_to receive(:redirect_to)
+
+        post :execute
+
+        expect(response).to have_gitlab_http_status(:unauthorized)
+
+        expected_message = "Authentication error: " \
+        "enable 2FA in your profile settings to continue using GitLab: %{mfa_help_page}" %
+          { mfa_help_page: controller.mfa_help_page_url }
+
+        expect(json_response).to eq({ 'errors' => [{ 'message' => expected_message }] })
+      end
+    end
+
     context 'when user uses an API token' do
-      let(:user) { create(:user, last_activity_on: Date.yesterday) }
+      let(:user) { create(:user, last_activity_on: last_activity_on) }
       let(:token) { create(:personal_access_token, user: user, scopes: [:api]) }
       let(:query) { '{ __typename }' }
 
       subject { post :execute, params: { query: query, access_token: token.token } }
 
+      shared_examples 'invalid token' do
+        it 'returns 401 with invalid token message' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:unauthorized)
+          expect_graphql_errors_to_include('Invalid token')
+        end
+      end
+
+      context 'with an invalid token' do
+        context 'with auth header' do
+          subject do
+            request.headers[header] = 'invalid'
+            post :execute, params: { query: query, user: nil }
+          end
+
+          context 'with private-token' do
+            let(:header) { 'Private-Token' }
+
+            it_behaves_like 'invalid token'
+          end
+
+          context 'with job-token' do
+            let(:header) { 'Job-Token' }
+
+            it_behaves_like 'invalid token'
+          end
+
+          context 'with deploy-token' do
+            let(:header) { 'Deploy-Token' }
+
+            it_behaves_like 'invalid token'
+          end
+        end
+
+        context 'with authorization bearer (oauth token)' do
+          subject do
+            request.headers['Authorization'] = 'Bearer invalid'
+            post :execute, params: { query: query, user: nil }
+          end
+
+          it_behaves_like 'invalid token'
+        end
+
+        context 'with auth param' do
+          subject { post :execute, params: { query: query, user: nil }.merge(header) }
+
+          context 'with private_token' do
+            let(:header) { { private_token: 'invalid' } }
+
+            it_behaves_like 'invalid token'
+          end
+
+          context 'with job_token' do
+            let(:header) { { job_token: 'invalid' } }
+
+            it_behaves_like 'invalid token'
+          end
+
+          context 'with token' do
+            let(:header) { { token: 'invalid' } }
+
+            it_behaves_like 'invalid token'
+          end
+        end
+      end
+
       context 'when the user is a project bot' do
-        let(:user) { create(:user, :project_bot, last_activity_on: Date.yesterday) }
+        let(:user) { create(:user, :project_bot, last_activity_on: last_activity_on) }
 
         it 'updates the users last_activity_on field' do
           expect { subject }.to change { user.reload.last_activity_on }
@@ -220,6 +455,46 @@ RSpec.describe GraphqlController do
 
         subject
       end
+
+      it 'calls the track jetbrains bundled third party api when trackable method' do
+        agent = 'IntelliJ-GitLab-Plugin PhpStorm/PS-232.6734.11 (JRE 17.0.7+7-b966.2; Linux 6.2.0-20-generic; amd64)'
+        request.env['HTTP_USER_AGENT'] = agent
+
+        expect(Gitlab::UsageDataCounters::JetBrainsBundledPluginActivityUniqueCounter)
+          .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+        subject
+      end
+
+      it 'calls the track visual studio extension api when trackable method' do
+        agent = 'code-completions-language-server-experiment (gl-visual-studio-extension:1.0.0.0; arch:X64;)'
+        request.env['HTTP_USER_AGENT'] = agent
+
+        expect(Gitlab::UsageDataCounters::VisualStudioExtensionActivityUniqueCounter)
+          .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+        subject
+      end
+
+      it 'calls the track neovim plugin api when trackable method' do
+        agent = 'code-completions-language-server-experiment (Neovim:0.9.0; gitlab.vim (v0.1.0); arch:amd64; os:darwin)'
+        request.env['HTTP_USER_AGENT'] = agent
+
+        expect(Gitlab::UsageDataCounters::NeovimPluginActivityUniqueCounter)
+          .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+        subject
+      end
+
+      it 'calls the track gitlab cli when trackable method' do
+        agent = 'GLab - GitLab CLI'
+        request.env['HTTP_USER_AGENT'] = agent
+
+        expect(Gitlab::UsageDataCounters::GitLabCliActivityUniqueCounter)
+          .to receive(:track_api_request_when_trackable).with(user_agent: agent, user: user)
+
+        subject
+      end
     end
 
     context 'when user is not logged in' do
@@ -247,12 +522,143 @@ RSpec.describe GraphqlController do
 
       expect(assigns(:context)[:request]).to eq request
     end
+
+    it 'sets `context[:remove_deprecated]` to false by default' do
+      post :execute
+
+      expect(assigns(:context)[:remove_deprecated]).to be false
+    end
+
+    it 'sets `context[:remove_deprecated]` to true when `remove_deprecated` param is truthy' do
+      post :execute, params: { remove_deprecated: '1' }
+
+      expect(assigns(:context)[:remove_deprecated]).to be true
+    end
+
+    context 'when querying an IntrospectionQuery', :use_clean_rails_memory_store_caching do
+      let_it_be(:query) { File.read(Rails.root.join('spec/fixtures/api/graphql/introspection.graphql')) }
+
+      context 'in dev or test env' do
+        before do
+          allow(Gitlab).to receive(:dev_or_test_env?).and_return(true)
+        end
+
+        it 'does not cache IntrospectionQuery' do
+          expect(GitlabSchema).to receive(:execute).exactly(:twice)
+
+          post :execute, params: { query: query }
+          post :execute, params: { query: query }
+        end
+      end
+
+      context 'in env different from dev or test' do
+        before do
+          allow(Gitlab).to receive(:dev_or_test_env?).and_return(false)
+        end
+
+        it 'caches IntrospectionQuery even when operationName is not given' do
+          expect(GitlabSchema).to receive(:execute).exactly(:once)
+
+          post :execute, params: { query: query }
+          post :execute, params: { query: query }
+        end
+
+        it 'caches the IntrospectionQuery' do
+          expect(GitlabSchema).to receive(:execute).exactly(:once)
+
+          post :execute, params: { query: query, operationName: 'IntrospectionQuery' }
+          post :execute, params: { query: query, operationName: 'IntrospectionQuery' }
+        end
+
+        it 'caches separately for both remove_deprecated set to true and false' do
+          expect(GitlabSchema).to receive(:execute).exactly(:twice)
+
+          post :execute, params: { query: query, operationName: 'IntrospectionQuery', remove_deprecated: true }
+          post :execute, params: { query: query, operationName: 'IntrospectionQuery', remove_deprecated: true }
+
+          # We clear this instance variable to reset remove_deprecated
+          subject.remove_instance_variable(:@context) if subject.instance_variable_defined?(:@context)
+
+          post :execute, params: { query: query, operationName: 'IntrospectionQuery', remove_deprecated: false }
+          post :execute, params: { query: query, operationName: 'IntrospectionQuery', remove_deprecated: false }
+        end
+
+        it 'has a different cache for each Gitlab.revision' do
+          expect(GitlabSchema).to receive(:execute).exactly(:twice)
+
+          post :execute, params: { query: query, operationName: 'IntrospectionQuery' }
+
+          allow(Gitlab).to receive(:revision).and_return('new random value')
+
+          post :execute, params: { query: query, operationName: 'IntrospectionQuery' }
+        end
+
+        context 'when there is an unknown introspection query' do
+          let(:query) { File.read(Rails.root.join('spec/fixtures/api/graphql/fake_introspection.graphql')) }
+
+          it 'does not cache an unknown introspection query' do
+            expect(GitlabSchema).to receive(:execute).exactly(:twice)
+
+            post :execute, params: { query: query, operationName: 'IntrospectionQuery' }
+            post :execute, params: { query: query, operationName: 'IntrospectionQuery' }
+          end
+        end
+
+        it 'hits the cache even if the whitespace in the query differs' do
+          query_1 = File.read(Rails.root.join('spec/fixtures/api/graphql/introspection.graphql'))
+          query_2 = "#{query_1}  " # add a couple of spaces to change the fingerprint
+
+          expect(GitlabSchema).to receive(:execute).exactly(:once)
+
+          post :execute, params: { query: query_1, operationName: 'IntrospectionQuery' }
+          post :execute, params: { query: query_2, operationName: 'IntrospectionQuery' }
+        end
+      end
+
+      context 'when performing a multiplex query as an IntrospectionQuery' do
+        let(:user) { create(:user) }
+        let_it_be(:query) do
+          <<~GQL
+            mutation IntrospectionQuery{createSnippet(input:{title:"test" description:"test" visibilityLevel:public blobActions:[{action:create previousPath:"test" filePath:"test" content:"test new file"}]}){errors clientMutationId snippet{webUrl}}}
+          GQL
+        end
+
+        before do
+          sign_in(user)
+        end
+
+        it 'does not perform a mutation' do
+          expect do
+            get :execute,
+              params: { query: query, operationName: 'IntrospectionQuery', _json: ["[query]=query {__typename}"] }
+          end.not_to change {
+            Snippet.count
+          }
+        end
+
+        it 'does not call GitlabSchema.execute' do
+          expect(GitlabSchema).not_to receive(:execute)
+          expect(GitlabSchema).to receive(:multiplex)
+
+          get :execute,
+            params: { query: query, operationName: 'IntrospectionQuery', _json: ["[query]=query {__typename}"] }
+        end
+      end
+
+      it 'fails if the GraphiQL gem version is not 1.10.0' do
+        # We cache the IntrospectionQuery based on the default IntrospectionQuery by GraphiQL. If this spec fails,
+        # GraphiQL has been updated, so we should check whether the IntropsectionQuery we cache is still valid.
+        # It is stored in `app/graphql/cached_introspection_query.rb#query_string`
+        expect(GraphiQL::Rails::VERSION).to eq("1.10.0")
+      end
+    end
   end
 
   describe 'Admin Mode' do
-    let(:admin) { create(:admin) }
-    let(:project) { create(:project) }
-    let(:graphql_query) { graphql_query_for('project', { 'fullPath' => project.full_path }, %w(id name)) }
+    let_it_be(:admin) { create(:admin) }
+    let_it_be(:project) { create(:project) }
+
+    let(:graphql_query) { graphql_query_for('project', { 'fullPath' => project.full_path }, %w[id name]) }
 
     before do
       sign_in(admin)
@@ -298,8 +704,8 @@ RSpec.describe GraphqlController do
   end
 
   describe '#append_info_to_payload' do
-    let(:query_1) { { query: graphql_query_for('project', { 'fullPath' => 'foo' }, %w(id name), 'getProject_1') } }
-    let(:query_2) { { query: graphql_query_for('project', { 'fullPath' => 'bar' }, %w(id), 'getProject_2') } }
+    let(:query_1) { { query: graphql_query_for('project', { 'fullPath' => 'foo' }, %w[id name], 'getProject_1') } }
+    let(:query_2) { { query: graphql_query_for('project', { 'fullPath' => 'bar' }, %w[id], 'getProject_2') } }
     let(:graphql_queries) { [query_1, query_2] }
     let(:log_payload) { {} }
     let(:expected_logs) do
@@ -308,6 +714,7 @@ RSpec.describe GraphqlController do
           operation_name: 'getProject_1',
           complexity: 3,
           depth: 2,
+          used_deprecated_arguments: [],
           used_deprecated_fields: [],
           used_fields: ['Project.id', 'Project.name', 'Query.project'],
           variables: '{}'
@@ -316,6 +723,7 @@ RSpec.describe GraphqlController do
           operation_name: 'getProject_2',
           complexity: 2,
           depth: 2,
+          used_deprecated_arguments: [],
           used_deprecated_fields: [],
           used_fields: ['Project.id', 'Query.project'],
           variables: '{}'

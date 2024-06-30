@@ -1,9 +1,10 @@
-import { GlIcon, GlButton, GlIntersectionObserver } from '@gitlab/ui';
+import { GlIcon, GlBadge, GlButton, GlIntersectionObserver } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 
 import IssuableTitle from '~/vue_shared/issuable/show/components/issuable_title.vue';
+import ConfidentialityBadge from '~/vue_shared/components/confidentiality_badge.vue';
 
 import { mockIssuableShowProps, mockIssuable } from '../mock_data';
 
@@ -22,35 +23,35 @@ const createComponent = (propsData = issuableTitleProps) =>
       'status-badge': 'Open',
     },
     directives: {
-      GlTooltip: createMockDirective(),
+      GlTooltip: createMockDirective('gl-tooltip'),
     },
   });
 
 describe('IssuableTitle', () => {
   let wrapper;
 
+  const findStickyHeader = () => wrapper.findComponent('[data-testid="header"]');
+
   beforeEach(() => {
     wrapper = createComponent();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('methods', () => {
     describe('handleTitleAppear', () => {
-      it('sets value of `stickyTitleVisible` prop to false', () => {
-        wrapper.find(GlIntersectionObserver).vm.$emit('appear');
+      it('sets value of `stickyTitleVisible` prop to false', async () => {
+        wrapper.findComponent(GlIntersectionObserver).vm.$emit('appear');
+        await nextTick();
 
-        expect(wrapper.vm.stickyTitleVisible).toBe(false);
+        expect(findStickyHeader().exists()).toBe(false);
       });
     });
 
     describe('handleTitleDisappear', () => {
-      it('sets value of `stickyTitleVisible` prop to true', () => {
-        wrapper.find(GlIntersectionObserver).vm.$emit('disappear');
+      it('sets value of `stickyTitleVisible` prop to true', async () => {
+        wrapper.findComponent(GlIntersectionObserver).vm.$emit('disappear');
+        await nextTick();
 
-        expect(wrapper.vm.stickyTitleVisible).toBe(true);
+        expect(findStickyHeader().exists()).toBe(true);
       });
     });
   });
@@ -66,18 +67,18 @@ describe('IssuableTitle', () => {
       });
 
       await nextTick();
-      const titleEl = wrapperWithTitle.find('[data-testid="title"]');
+      const titleEl = wrapperWithTitle.find('[data-testid="issuable-title"]');
 
       expect(titleEl.exists()).toBe(true);
       expect(titleEl.html()).toBe(
-        '<h1 dir="auto" data-testid="title" class="title qa-title"><b>Sample</b> title</h1>',
+        '<h1 dir="auto" data-testid="issuable-title" class="title gl-font-size-h-display"><b>Sample</b> title</h1>',
       );
 
       wrapperWithTitle.destroy();
     });
 
     it('renders edit button', () => {
-      const editButtonEl = wrapper.find(GlButton);
+      const editButtonEl = wrapper.findComponent(GlButton);
       const tooltip = getBinding(editButtonEl.element, 'gl-tooltip');
 
       expect(editButtonEl.exists()).toBe(true);
@@ -86,20 +87,39 @@ describe('IssuableTitle', () => {
       expect(tooltip).toBeDefined();
     });
 
-    it('renders sticky header when `stickyTitleVisible` prop is true', async () => {
-      // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-      // eslint-disable-next-line no-restricted-syntax
-      wrapper.setData({
-        stickyTitleVisible: true,
+    describe('sticky header', () => {
+      it('renders when `stickyTitleVisible` prop is true', async () => {
+        wrapper.findComponent(GlIntersectionObserver).vm.$emit('disappear');
+        await nextTick();
+
+        const stickyHeaderEl = findStickyHeader();
+
+        expect(stickyHeaderEl.exists()).toBe(true);
+        expect(stickyHeaderEl.findComponent(GlBadge).props('variant')).toBe('success');
+        expect(stickyHeaderEl.findComponent(GlIcon).props('name')).toBe(
+          issuableTitleProps.statusIcon,
+        );
+        expect(stickyHeaderEl.text()).toContain('Open');
+        expect(stickyHeaderEl.findComponent(ConfidentialityBadge).exists()).toBe(false);
+        expect(stickyHeaderEl.text()).toContain(issuableTitleProps.issuable.title);
       });
 
-      await nextTick();
-      const stickyHeaderEl = wrapper.find('[data-testid="header"]');
+      it('renders ConfidentialityBadge when issuable is confidential', async () => {
+        wrapper = createComponent({
+          ...mockIssuableShowProps,
+          issuable: {
+            ...mockIssuable,
+            confidential: true,
+          },
+        });
 
-      expect(stickyHeaderEl.exists()).toBe(true);
-      expect(stickyHeaderEl.find(GlIcon).props('name')).toBe(issuableTitleProps.statusIcon);
-      expect(stickyHeaderEl.text()).toContain('Open');
-      expect(stickyHeaderEl.text()).toContain(issuableTitleProps.issuable.title);
+        wrapper.findComponent(GlIntersectionObserver).vm.$emit('disappear');
+        await nextTick();
+
+        const stickyHeaderEl = findStickyHeader();
+
+        expect(stickyHeaderEl.findComponent(ConfidentialityBadge).exists()).toBe(true);
+      });
     });
   });
 });

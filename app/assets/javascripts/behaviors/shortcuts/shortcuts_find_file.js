@@ -1,4 +1,3 @@
-import Mousetrap from 'mousetrap';
 import {
   keysFor,
   PROJECT_FILES_MOVE_SELECTION_UP,
@@ -6,15 +5,12 @@ import {
   PROJECT_FILES_OPEN_SELECTION,
   PROJECT_FILES_GO_BACK,
 } from '~/behaviors/shortcuts/keybindings';
+import { addStopCallback } from '~/lib/mousetrap';
 import ShortcutsNavigation from './shortcuts_navigation';
 
-export default class ShortcutsFindFile extends ShortcutsNavigation {
-  constructor(projectFindFile) {
-    super();
-
-    const oldStopCallback = Mousetrap.prototype.stopCallback;
-
-    Mousetrap.prototype.stopCallback = function customStopCallback(e, element, combo) {
+export default class ShortcutsFindFile {
+  constructor(shortcuts, projectFindFile) {
+    addStopCallback((e, element, combo) => {
       if (
         element === projectFindFile.inputElement[0] &&
         (keysFor(PROJECT_FILES_MOVE_SELECTION_UP).includes(combo) ||
@@ -27,12 +23,16 @@ export default class ShortcutsFindFile extends ShortcutsNavigation {
         return false;
       }
 
-      return oldStopCallback.call(this, e, element, combo);
-    };
+      return undefined;
+    });
 
-    Mousetrap.bind(keysFor(PROJECT_FILES_MOVE_SELECTION_UP), projectFindFile.selectRowUp);
-    Mousetrap.bind(keysFor(PROJECT_FILES_MOVE_SELECTION_DOWN), projectFindFile.selectRowDown);
-    Mousetrap.bind(keysFor(PROJECT_FILES_GO_BACK), projectFindFile.goToTree);
-    Mousetrap.bind(keysFor(PROJECT_FILES_OPEN_SELECTION), projectFindFile.goToBlob);
+    shortcuts.addAll([
+      [PROJECT_FILES_MOVE_SELECTION_UP, projectFindFile.selectRowUp],
+      [PROJECT_FILES_MOVE_SELECTION_DOWN, projectFindFile.selectRowDown],
+      [PROJECT_FILES_GO_BACK, projectFindFile.goToTree],
+      [PROJECT_FILES_OPEN_SELECTION, projectFindFile.goToBlob],
+    ]);
   }
+
+  static dependencies = [ShortcutsNavigation];
 }

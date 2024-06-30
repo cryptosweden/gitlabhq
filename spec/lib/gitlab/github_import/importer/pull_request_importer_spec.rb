@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Importer::PullRequestImporter, :clean_gitlab_redis_cache do
+RSpec.describe Gitlab::GithubImport::Importer::PullRequestImporter, :clean_gitlab_redis_shared_state, feature_category: :importers do
   let(:project) { create(:project, :repository) }
   let(:client) { double(:client) }
   let(:user) { create(:user) }
@@ -42,9 +42,9 @@ RSpec.describe Gitlab::GithubImport::Importer::PullRequestImporter, :clean_gitla
   let(:importer) { described_class.new(pull_request, project, client) }
 
   describe '#execute' do
-    it 'imports the pull request' do
-      mr = double(:merge_request, id: 10, merged?: false)
+    let(:mr) { double(:merge_request, id: 10, merged?: false) }
 
+    it 'imports the pull request' do
       expect(importer)
         .to receive(:create_merge_request)
         .and_return([mr, false])
@@ -62,6 +62,27 @@ RSpec.describe Gitlab::GithubImport::Importer::PullRequestImporter, :clean_gitla
         .with(mr.id)
 
       importer.execute
+    end
+
+    it 'caches the created MR ID even if importer later fails' do
+      error = StandardError.new('mocked error')
+
+      allow_next_instance_of(described_class) do |importer|
+        allow(importer)
+          .to receive(:create_merge_request)
+          .and_return([mr, false])
+        allow(importer)
+          .to receive(:set_merge_request_assignees)
+          .and_raise(error)
+      end
+
+      expect_next_instance_of(Gitlab::GithubImport::IssuableFinder) do |finder|
+        expect(finder)
+          .to receive(:cache_database_id)
+          .with(mr.id)
+      end
+
+      expect { importer.execute }.to raise_error(error)
     end
   end
 
@@ -202,6 +223,20 @@ RSpec.describe Gitlab::GithubImport::Importer::PullRequestImporter, :clean_gitla
         importer.create_merge_request
       end
     end
+
+    context 'when merge request is invalid' do
+      before do
+        allow(pull_request).to receive(:formatted_source_branch).and_return(nil)
+        allow(importer.user_finder)
+          .to receive(:author_id_for)
+          .with(pull_request)
+          .and_return([project.creator_id, false])
+      end
+
+      it 'fails validation' do
+        expect { importer.create_merge_request }.to raise_error(ActiveRecord::RecordInvalid)
+      end
+    end
   end
 
   describe '#set_merge_request_assignees' do
@@ -285,6 +320,16 @@ RSpec.describe Gitlab::GithubImport::Importer::PullRequestImporter, :clean_gitla
 
       it 'ignores Git command errors when creating a branch' do
         expect(project.repository).to receive(:add_branch).and_raise(Gitlab::Git::CommandError)
+        expect(Gitlab::ErrorTracking).to receive(:track_exception).and_call_original
+
+        mr = insert_git_data
+
+        expect(project.repository.branch_exists?(mr.source_branch)).to be_falsey
+        expect(project.repository.branch_exists?(mr.target_branch)).to be_truthy
+      end
+
+      it 'ignores Git PreReceive errors when creating a branch' do
+        expect(project.repository).to receive(:add_branch).and_raise(Gitlab::Git::PreReceiveError)
         expect(Gitlab::ErrorTracking).to receive(:track_exception).and_call_original
 
         mr = insert_git_data

@@ -14,6 +14,7 @@ import (
 // DefaultObjectStoreTimeout is the timeout for ObjectStore upload operation
 const DefaultObjectStoreTimeout = 4 * time.Hour
 
+// ObjectStorageConfig holds configuration details for object storage destinations.
 type ObjectStorageConfig struct {
 	Provider string
 
@@ -29,8 +30,6 @@ type ObjectStorageConfig struct {
 
 // UploadOpts represents all the options available for saving a file to object store
 type UploadOpts struct {
-	// TempFilePrefix is the prefix used to create temporary local file
-	TempFilePrefix string
 	// LocalTempPath is the directory where to write a local copy of the file
 	LocalTempPath string
 	// RemoteID is the remote ObjectID provided by GitLab
@@ -41,6 +40,8 @@ type UploadOpts struct {
 	PresignedPut string
 	// PresignedDelete is a presigned S3 DeleteObject compatible URL.
 	PresignedDelete string
+	// Whether Workhorse needs to delete the temporary object or not.
+	SkipDelete bool
 	// HTTP headers to be sent along with PUT request
 	PutHeaders map[string]string
 	// Whether to ignore Rails pre-signed URLs and have Workhorse directly access object storage provider
@@ -54,7 +55,7 @@ type UploadOpts struct {
 	// The maximum accepted size in bytes of the upload
 	MaximumSize int64
 
-	//MultipartUpload parameters
+	// MultipartUpload parameters
 	// PartSize is the exact size of each uploaded part. Only the last one can be smaller
 	PartSize int64
 	// PresignedParts contains the presigned URLs for each part
@@ -63,6 +64,8 @@ type UploadOpts struct {
 	PresignedCompleteMultipart string
 	// PresignedAbortMultipart is a presigned URL for AbortMultipartUpload
 	PresignedAbortMultipart string
+	// UploadHashFunctions contains a list of allowed hash functions (md5, sha1, etc.)
+	UploadHashFunctions []string
 }
 
 // UseWorkhorseClientEnabled checks if the options require direct access to object storage
@@ -82,22 +85,28 @@ func (s *UploadOpts) IsMultipart() bool {
 
 // GetOpts converts GitLab api.Response to a proper UploadOpts
 func GetOpts(apiResponse *api.Response) (*UploadOpts, error) {
-	timeout := time.Duration(apiResponse.RemoteObject.Timeout) * time.Second
+	timeout := time.Duration(
+		// By converting time.Second to a float32 value we can correctly handle
+		// small Timeout values like 0.1.
+		apiResponse.RemoteObject.Timeout * float32(time.Second),
+	)
 	if timeout == 0 {
 		timeout = DefaultObjectStoreTimeout
 	}
 
 	opts := UploadOpts{
-		LocalTempPath:      apiResponse.TempPath,
-		RemoteID:           apiResponse.RemoteObject.ID,
-		RemoteURL:          apiResponse.RemoteObject.GetURL,
-		PresignedPut:       apiResponse.RemoteObject.StoreURL,
-		PresignedDelete:    apiResponse.RemoteObject.DeleteURL,
-		PutHeaders:         apiResponse.RemoteObject.PutHeaders,
-		UseWorkhorseClient: apiResponse.RemoteObject.UseWorkhorseClient,
-		RemoteTempObjectID: apiResponse.RemoteObject.RemoteTempObjectID,
-		Deadline:           time.Now().Add(timeout),
-		MaximumSize:        apiResponse.MaximumSize,
+		LocalTempPath:       apiResponse.TempPath,
+		RemoteID:            apiResponse.RemoteObject.ID,
+		RemoteURL:           apiResponse.RemoteObject.GetURL,
+		PresignedPut:        apiResponse.RemoteObject.StoreURL,
+		PresignedDelete:     apiResponse.RemoteObject.DeleteURL,
+		SkipDelete:          apiResponse.RemoteObject.SkipDelete,
+		PutHeaders:          apiResponse.RemoteObject.PutHeaders,
+		UseWorkhorseClient:  apiResponse.RemoteObject.UseWorkhorseClient,
+		RemoteTempObjectID:  apiResponse.RemoteObject.RemoteTempObjectID,
+		Deadline:            time.Now().Add(timeout),
+		MaximumSize:         apiResponse.MaximumSize,
+		UploadHashFunctions: apiResponse.UploadHashFunctions,
 	}
 
 	if opts.LocalTempPath != "" && opts.RemoteID != "" {
@@ -132,18 +141,22 @@ func GetOpts(apiResponse *api.Response) (*UploadOpts, error) {
 	return &opts, nil
 }
 
+// IsAWS checks if the object storage provider is AWS S3.
 func (c *ObjectStorageConfig) IsAWS() bool {
 	return strings.EqualFold(c.Provider, "AWS") || strings.EqualFold(c.Provider, "S3")
 }
 
+// IsAzure checks if the object storage provider is Azure Blob Storage.
 func (c *ObjectStorageConfig) IsAzure() bool {
 	return strings.EqualFold(c.Provider, "AzureRM")
 }
 
+// IsGoCloud checks if the object storage provider is configured to use GoCloud.
 func (c *ObjectStorageConfig) IsGoCloud() bool {
 	return c.GoCloudConfig.URL != ""
 }
 
+// IsValid checks if the object storage configuration is valid.
 func (c *ObjectStorageConfig) IsValid() bool {
 	if c.IsAWS() {
 		return c.S3Config.Bucket != "" && c.s3CredentialsValid()

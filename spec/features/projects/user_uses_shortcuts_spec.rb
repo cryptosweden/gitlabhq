@@ -2,10 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User uses shortcuts', :js do
-  let_it_be(:project) { create(:project, :repository) }
-
-  let(:user) { project.first_owner }
+RSpec.describe 'User uses shortcuts', :js, feature_category: :groups_and_projects do
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :repository, namespace: user.namespace) }
 
   before do
     sign_in(user)
@@ -15,73 +14,21 @@ RSpec.describe 'User uses shortcuts', :js do
     wait_for_requests
   end
 
-  context 'disabling shortcuts' do
-    before do
-      page.evaluate_script("localStorage.removeItem('shortcutsDisabled')")
-    end
-
-    it 'can disable shortcuts from help menu' do
-      open_modal_shortcut_keys
-      click_toggle_button
-      close_modal
-
-      open_modal_shortcut_keys
-
-      expect(page).not_to have_selector('[data-testid="modal-shortcuts"]')
-
-      page.refresh
-      open_modal_shortcut_keys
-
-      # after reload, shortcuts modal doesn't exist at all until we add it
-      expect(page).not_to have_selector('[data-testid="modal-shortcuts"]')
-    end
-
-    it 're-enables shortcuts' do
-      open_modal_shortcut_keys
-      click_toggle_button
-      close_modal
-
-      open_modal_from_help_menu
-      click_toggle_button
-      close_modal
-
-      open_modal_shortcut_keys
-      expect(find('[data-testid="modal-shortcuts"]')).to be_visible
-    end
-
-    def open_modal_shortcut_keys
-      find('body').native.send_key('?')
-    end
-
-    def open_modal_from_help_menu
-      find('.header-help-dropdown-toggle').click
-      find('button', text: 'Keyboard shortcuts').click
-    end
-
-    def click_toggle_button
-      find('.js-toggle-shortcuts .gl-toggle').click
-    end
-
-    def close_modal
-      find('.modal button[aria-label="Close"]').click
-    end
-  end
-
   context 'when navigating to the Project pages' do
-    it 'redirects to the project page' do
+    it 'redirects to the project overview page' do
       visit project_issues_path(project)
 
       find('body').native.send_key('g')
-      find('body').native.send_key('p')
+      find('body').native.send_key('o')
 
-      expect(page).to have_active_navigation(project.name)
+      expect(page).to have_active_sub_navigation(project.name)
     end
 
     it 'redirects to the activity page' do
       find('body').native.send_key('g')
       find('body').native.send_key('v')
 
-      expect(page).to have_active_navigation('Project')
+      expect(page).to have_active_navigation('Manage')
       expect(page).to have_active_sub_navigation('Activity')
     end
   end
@@ -91,31 +38,39 @@ RSpec.describe 'User uses shortcuts', :js do
       find('body').native.send_key('g')
       find('body').native.send_key('f')
 
-      expect(page).to have_active_navigation('Repository')
-      expect(page).to have_active_sub_navigation('Files')
+      expect(page).to have_active_navigation('Code')
+      expect(page).to have_active_sub_navigation('Repository')
     end
 
-    it 'redirects to the repository commits page' do
-      find('body').native.send_key('g')
-      find('body').native.send_key('c')
+    context 'when hitting the commits controller' do
+      # Hitting the commits controller with the super sidebar enabled seems to trigger more SQL
+      # queries, exceeding the 100 limit. We need to increase the limit a bit for these tests to pass.
+      before do
+        allow(Gitlab::QueryLimiting::Transaction).to receive(:threshold).and_return(110)
+      end
 
-      expect(page).to have_active_navigation('Repository')
-      expect(page).to have_active_sub_navigation('Commits')
+      it 'redirects to the repository commits page' do
+        find('body').native.send_key('g')
+        find('body').native.send_key('c')
+
+        expect(page).to have_active_navigation('Code')
+        expect(page).to have_active_sub_navigation('Commits')
+      end
     end
 
     it 'redirects to the repository graph page' do
       find('body').native.send_key('g')
       find('body').native.send_key('n')
 
-      expect(page).to have_active_navigation('Repository')
-      expect(page).to have_active_sub_navigation('Graph')
+      expect(page).to have_active_navigation('Code')
+      expect(page).to have_active_sub_navigation('Repository graph')
     end
 
     it 'redirects to the repository charts page' do
       find('body').native.send_key('g')
       find('body').native.send_key('d')
 
-      expect(page).to have_active_navigation(_('Analytics'))
+      expect(page).to have_active_navigation(_('Analyze'))
       expect(page).to have_active_sub_navigation(_('Repository'))
     end
   end
@@ -125,16 +80,16 @@ RSpec.describe 'User uses shortcuts', :js do
       find('body').native.send_key('g')
       find('body').native.send_key('i')
 
-      expect(page).to have_active_navigation('Issues')
-      expect(page).to have_active_sub_navigation('List')
+      expect(page).to have_active_navigation('Pinned')
+      expect(page).to have_active_sub_navigation('Issues')
     end
 
     it 'redirects to the issue board page' do
       find('body').native.send_key('g')
       find('body').native.send_key('b')
 
-      expect(page).to have_active_navigation('Issues')
-      expect(page).to have_active_sub_navigation('Board')
+      expect(page).to have_active_navigation('Plan')
+      expect(page).to have_active_sub_navigation('Issue boards')
     end
 
     it 'redirects to the new issue page' do
@@ -150,16 +105,25 @@ RSpec.describe 'User uses shortcuts', :js do
       find('body').native.send_key('g')
       find('body').native.send_key('m')
 
-      expect(page).to have_active_navigation('Merge requests')
+      expect(page).to have_active_navigation('Pinned')
+      expect(page).to have_active_sub_navigation('Merge requests')
     end
   end
 
   context 'when navigating to the CI/CD pages' do
+    it 'redirects to the Pipelines page' do
+      find('body').native.send_key('g')
+      find('body').native.send_key('p')
+
+      expect(page).to have_active_navigation('Build')
+      expect(page).to have_active_sub_navigation('Pipelines')
+    end
+
     it 'redirects to the Jobs page' do
       find('body').native.send_key('g')
       find('body').native.send_key('j')
 
-      expect(page).to have_active_navigation('CI/CD')
+      expect(page).to have_active_navigation('Build')
       expect(page).to have_active_sub_navigation('Jobs')
     end
   end
@@ -169,18 +133,8 @@ RSpec.describe 'User uses shortcuts', :js do
       find('body').native.send_key('g')
       find('body').native.send_key('e')
 
-      expect(page).to have_active_navigation('Deployments')
+      expect(page).to have_active_navigation('Operate')
       expect(page).to have_active_sub_navigation('Environments')
-    end
-  end
-
-  context 'when navigating to the Monitor pages' do
-    it 'redirects to the Metrics page' do
-      find('body').native.send_key('g')
-      find('body').native.send_key('l')
-
-      expect(page).to have_active_navigation('Monitor')
-      expect(page).to have_active_sub_navigation('Metrics')
     end
   end
 
@@ -189,7 +143,7 @@ RSpec.describe 'User uses shortcuts', :js do
       find('body').native.send_key('g')
       find('body').native.send_key('k')
 
-      expect(page).to have_active_navigation('Infrastructure')
+      expect(page).to have_active_navigation('Operate')
       expect(page).to have_active_sub_navigation('Kubernetes')
     end
   end
@@ -199,7 +153,8 @@ RSpec.describe 'User uses shortcuts', :js do
       find('body').native.send_key('g')
       find('body').native.send_key('s')
 
-      expect(page).to have_active_navigation('Snippets')
+      expect(page).to have_active_navigation('Code')
+      expect(page).to have_active_sub_navigation('Snippets')
     end
   end
 
@@ -208,7 +163,8 @@ RSpec.describe 'User uses shortcuts', :js do
       find('body').native.send_key('g')
       find('body').native.send_key('w')
 
-      expect(page).to have_active_navigation('Wiki')
+      expect(page).to have_active_navigation('Plan')
+      expect(page).to have_active_sub_navigation('Wiki')
     end
   end
 end

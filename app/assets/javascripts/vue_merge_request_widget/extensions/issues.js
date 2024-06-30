@@ -1,4 +1,5 @@
 /* eslint-disable */
+import { STATUS_CLOSED } from '~/issues/constants';
 import { EXTENSION_ICONS } from '../constants';
 import issuesCollapsedQuery from './issues_collapsed.query.graphql';
 import issuesQuery from './issues.query.graphql';
@@ -12,7 +13,6 @@ export default {
     label: 'Issues',
     loading: 'Loading issues...',
   },
-  expandEvent: 'i_testing_load_performance_widget_total',
   // Add an array of props
   // These then get mapped to values stored in the MR Widget store
   props: ['targetProjectFullPath', 'conflictsDocsPath'],
@@ -33,7 +33,7 @@ export default {
     // Status icon to be used next to the summary text
     // Receives the collapsed data as an argument
     statusIcon(count) {
-      return EXTENSION_ICONS.warning;
+      return EXTENSION_ICONS.failed;
     },
     // Tertiary action buttons that will take the user elsewhere
     // in the GitLab app
@@ -45,7 +45,12 @@ export default {
             console.log('Hello world');
           },
         },
-        { text: 'Full report', href: this.conflictsDocsPath, target: '_blank' },
+        {
+          text: 'Full report',
+          href: this.conflictsDocsPath,
+          target: '_blank',
+          trackFullReportClicked: true,
+        },
       ];
     },
     shouldCollapse() {
@@ -71,14 +76,13 @@ export default {
           return data.project.issues.nodes.map((issue, i) => ({
             id: issue.id, // Required: The ID of the object
             header: ['New', 'This is an %{strong_start}issue%{strong_end} row'],
-            text:
-              '%{critical_start}1 Critical%{critical_end}, %{danger_start}1 High%{danger_end}, and %{strong_start}1 Other%{strong_end}. %{small_start}Some smaller text%{small_end}', // Required: The text to get used on each row
+            text: '%{critical_start}1 Critical%{critical_end}, %{danger_start}1 High%{danger_end}, and %{strong_start}1 Other%{strong_end}. %{small_start}Some smaller text%{small_end}', // Required: The text to get used on each row
             subtext:
               'Reported resource changes: %{strong_start}2%{strong_end} to add, 0 to change, 0 to delete', // Optional: The sub-text to get displayed below each rows main content
             // Icon to get rendered on the side of each row
             icon: {
               // Required: Name maps to an icon in GitLabs SVG
-              name: issue.state === 'closed' ? EXTENSION_ICONS.error : EXTENSION_ICONS.success,
+              name: issue.state === STATUS_CLOSED ? EXTENSION_ICONS.error : EXTENSION_ICONS.success,
             },
             // Badges get rendered next to the text on each row
             // badge: issue.state === 'closed' && {

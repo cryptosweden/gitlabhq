@@ -1,6 +1,5 @@
 - page_title _("Container Registry")
-- @content_class = "limit-container-width" unless fluid_layout
-- add_page_startup_graphql_call('container_registry/get_container_repositories', { fullPath: @group.full_path, first: 10, name: nil, isGroupPage: true, sort: nil} )
+- add_page_startup_graphql_call('container_registry/get_container_repositories', { fullPath: @group.full_path, first: 10, name: nil, isGroupPage: true, sort: nil})
 
 %section
   #js-container-registry{ data: { endpoint: group_container_registries_path(@group),
@@ -12,7 +11,6 @@
     "registry_host_url_with_port" => escape_once(registry_config.host_port),
     "garbage_collection_help_page_path" => help_page_path('administration/packages/container_registry', anchor: 'container-registry-garbage-collection'),
     "run_cleanup_policies_help_page_path" => help_page_path('administration/packages/container_registry', anchor: 'run-the-cleanup-policy-now'),
-    "container_registry_importing_help_page_path" => help_page_path('user/packages/container_registry/index', anchor: 'tags-temporarily-cannot-be-marked-for-deletion'),
     "is_admin": current_user&.admin.to_s,
     is_group_page: "true",
     "group_path": @group.full_path,
@@ -21,4 +19,5 @@
     invalid_path_error: (!!@invalid_path_error).to_s,
     user_callouts_path: callouts_path,
     user_callout_id: Users::CalloutsHelper::UNFINISHED_TAG_CLEANUP_CALLOUT,
+    is_metadata_database_enabled: ContainerRegistry::GitlabApiClient.supports_gitlab_api?.to_s,
     show_unfinished_tag_cleanup_callout: show_unfinished_tag_cleanup_callout?.to_s } }

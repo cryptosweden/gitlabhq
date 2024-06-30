@@ -1,8 +1,7 @@
 ---
-stage: Create
+stage: Systems
 group: Gitaly
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # How Git object deduplication works in GitLab
@@ -19,20 +18,22 @@ GitLab implements Git object deduplication.
 
 ### Understanding Git alternates
 
-At the Git level, we achieve deduplication by using [Git
-alternates](https://git-scm.com/docs/gitrepository-layout#gitrepository-layout-objects).
+At the Git level, we achieve deduplication by using
+[Git alternates](https://git-scm.com/docs/gitrepository-layout#gitrepository-layout-objects).
 Git alternates is a mechanism that lets a repository borrow objects from
 another repository on the same machine.
 
-If we want repository A to borrow from repository B, we first write a
-path that resolves to `B.git/objects` in the special file
-`A.git/objects/info/alternates`. This establishes the alternates link.
-Next, we must perform a Git repack in A. After the repack, any objects
-that are duplicated between A and B are deleted from A. Repository
-A is now no longer self-contained, but it still has its own refs and
-configuration. Objects in A that are not in B remain in A. For this
-to work, it is of course critical that **no objects ever get deleted from
-B** because A might need them.
+To make repository A borrow from repository B:
+
+1. Establish the alternates link in the special file `A.git/objects/info/alternates`
+   by writing a path that resolves to `B.git/objects`.
+1. In repository A, run `git repack` to remove all objects in repository A that
+   also exist in repository B.
+
+After the repack, repository A is no longer self-contained, but still contains its
+own refs and configuration. Objects in A that are not in B remain in A. For this
+configuration to work, **objects must not be deleted from repository B** because
+repository A might need them.
 
 WARNING:
 Do not run `git prune` or `git gc` in object pool repositories, which are
@@ -41,21 +42,21 @@ repositories that depend on the object pool.
 
 The danger lies in `git prune`, and `git gc` calls `git prune`. The
 problem is that `git prune`, when running in a pool repository, cannot
-reliable decide if an object is no longer needed.
+reliably decide if an object is no longer needed.
 
 ### Git alternates in GitLab: pool repositories
 
-GitLab organizes this object borrowing by [creating special **pool
-repositories**](../administration/repository_storage_types.md) which are hidden from the user. We then use Git
+GitLab organizes this object borrowing by [creating special **pool repositories**](../administration/repository_storage_paths.md)
+which are hidden from the user. We then use Git
 alternates to let a collection of project repositories borrow from a
 single pool repository. We call such a collection of project
 repositories a pool. Pools form star-shaped networks of repositories
-that borrow from a single pool, which resemble (but not be
+that borrow from a single pool, which resemble (but are not
 identical to) the fork networks that get formed when users fork
 projects.
 
 At the Git level, pool repositories are created and managed using Gitaly
-RPC calls. Just like with normal repositories, the authority on which
+RPC calls. Just like with typical repositories, the authority on which
 pool repositories exist, and which repositories borrow from them, lies
 at the Rails application level in SQL.
 
@@ -79,7 +80,7 @@ projects benefit from the new objects that got added to the pool.
 
 ## SQL model
 
-As of GitLab 11.8, project repositories in GitLab do not have their own
+Project repositories in GitLab do not have their own
 SQL table. They are indirectly identified by columns on the `projects`
 table. In other words, the only way to look up a project repository is to
 first look up its project, and then call `project.repository`.
@@ -95,14 +96,10 @@ are as follows:
 - a `PoolRepository` has exactly one "source `Project`"
   (`pool.source_project`)
 
-> TODO Fix invalid SQL data for pools created prior to GitLab 11.11
-> <https://gitlab.com/gitlab-org/gitaly/-/issues/1653>.
-
 ### Assumptions
 
-- All repositories in a pool must use [hashed
-  storage](../administration/repository_storage_types.md). This is so
-  that we don't have to ever worry about updating paths in
+- All repositories in a pool must use [hashed storage](../administration/repository_storage_paths.md).
+  This is so that we don't have to ever worry about updating paths in
   `object/info/alternates` files.
 - All repositories in a pool must be on the same Gitaly storage shard.
   The Git alternates mechanism relies on direct disk access across
@@ -139,19 +136,16 @@ are as follows:
   Now C gets created as a fork of B. C is not part of a pool
   repository.
 
-> TODO should forks of forks be deduplicated?
-> <https://gitlab.com/gitlab-org/gitaly/-/issues/1532>
-
 ### Consequences
 
-- If a normal Project participating in a pool gets moved to another
+- If a typical Project participating in a pool gets moved to another
   Gitaly storage shard, its "belongs to PoolRepository" relation will
   be broken. Because of the way moving repositories between shard is
   implemented, we get a fresh self-contained copy
   of the project's repository on the new storage shard.
 - If the source project of a pool gets moved to another Gitaly storage
   shard or is deleted the "source project" relation is not broken.
-  However, as of GitLab 12.0 a pool does not fetch from a source
+  However, a pool does not fetch from a source
   unless the source is on the same Gitaly shard.
 
 ## Consistency between the SQL pool relation and Gitaly
@@ -173,7 +167,7 @@ There are three different things that can go wrong here.
 
 #### 1. SQL says repository A belongs to pool P but Gitaly says A has no alternate objects
 
-In this case, we miss out on disk space savings but all RPC's on A
+In this case, we miss out on disk space savings but all RPCs on A
 itself function fine. The next time garbage collection runs on A,
 the alternates connection gets established in Gitaly. This is done by
 `Projects::GitDeduplicationService` in GitLab Rails.
@@ -195,7 +189,3 @@ then creates the pool repository in Gitaly. This leads to an
 "eventually consistent" situation because as each pool participant gets
 synchronized, Geo eventually triggers garbage collection in Gitaly on
 the secondary, at which stage Git objects are deduplicated.
-
-> TODO How do we handle the edge case where at the time the Geo
-> secondary tries to create the pool repository, the source project does
-> not exist? <https://gitlab.com/gitlab-org/gitaly/-/issues/1533>

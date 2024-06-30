@@ -2,33 +2,38 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::UsageDataCounters::CiTemplateUniqueCounter do
+RSpec.describe Gitlab::UsageDataCounters::CiTemplateUniqueCounter, feature_category: :pipeline_composition do
   describe '.track_unique_project_event' do
-    using RSpec::Parameterized::TableSyntax
-
-    let(:project_id) { 1 }
+    let_it_be(:project) { create(:project) }
+    let_it_be(:user) { create(:user) }
 
     shared_examples 'tracks template' do
-      it "has an event defined for template" do
+      let(:subject) { described_class.track_unique_project_event(project: project, template: template_path, config_source: config_source, user: user) }
+      let(:template_name) do
+        expanded_template_name = described_class.expand_template_name(template_path)
+        described_class.ci_template_event_name(expanded_template_name, config_source)
+      end
+
+      it 'has an event defined for template' do
         expect do
-          described_class.track_unique_project_event(
-            project_id: project_id,
-            template: template_path,
-            config_source: config_source
-          )
+          subject
         end.not_to raise_error
       end
 
-      it "tracks template" do
-        expanded_template_name = described_class.expand_template_name(template_path)
-        expected_template_event_name = described_class.ci_template_event_name(expanded_template_name, config_source)
-        expect(Gitlab::UsageDataCounters::HLLRedisCounter).to(receive(:track_event)).with(expected_template_event_name, values: project_id)
-
-        described_class.track_unique_project_event(project_id: project_id, template: template_path, config_source: config_source)
+      it 'tracks internal events and increments usage metrics', :clean_gitlab_redis_shared_state do
+        expect { subject }
+          .to trigger_internal_events('ci_template_included')
+            .with(project: project, user: user, category: 'InternalEventTracking')
+          .and increment_usage_metrics(
+            'redis_hll_counters.ci_templates.count_distinct_project_id_from_ci_template_included_7d',
+            'redis_hll_counters.ci_templates.count_distinct_project_id_from_ci_template_included_28d',
+            "redis_hll_counters.ci_templates.#{template_name}_weekly",
+            "redis_hll_counters.ci_templates.#{template_name}_monthly"
+          )
       end
     end
 
-    context 'with explicit includes' do
+    context 'with explicit includes', :snowplow do
       let(:config_source) { :repository_source }
 
       (described_class.ci_templates - ['Verify/Browser-Performance.latest.gitlab-ci.yml', 'Verify/Browser-Performance.gitlab-ci.yml']).each do |template|
@@ -40,27 +45,9 @@ RSpec.describe Gitlab::UsageDataCounters::CiTemplateUniqueCounter do
       end
     end
 
-    context 'with implicit includes' do
-      let(:config_source) { :auto_devops_source }
-
-      [
-        ['', ['Auto-DevOps.gitlab-ci.yml']],
-        ['Jobs', described_class.ci_templates('lib/gitlab/ci/templates/Jobs')],
-        ['Security', described_class.ci_templates('lib/gitlab/ci/templates/Security')]
-      ].each do |directory, templates|
-        templates.each do |template|
-          context "for #{template}" do
-            let(:template_path) { File.join(directory, template) }
-
-            include_examples 'tracks template'
-          end
-        end
-      end
-    end
-
     it 'expands short template names' do
       expect do
-        described_class.track_unique_project_event(project_id: 1, template: 'Dependency-Scanning.gitlab-ci.yml', config_source: :repository_source)
+        described_class.track_unique_project_event(project: project, template: 'Dependency-Scanning.gitlab-ci.yml', config_source: :repository_source, user: user)
       end.not_to raise_error
     end
   end

@@ -2,18 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe TodoService do
+RSpec.describe TodoService, feature_category: :team_planning do
   include AfterNextHelpers
 
+  let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, :repository) }
-  let_it_be(:author) { create(:user) }
-  let_it_be(:assignee) { create(:user) }
+  let_it_be(:author) { create(:user, developer_of: project) }
+  let_it_be(:assignee) { create(:user, developer_of: project) }
   let_it_be(:non_member) { create(:user) }
-  let_it_be(:member) { create(:user) }
-  let_it_be(:guest) { create(:user) }
+  let_it_be(:member) { create(:user, developer_of: project) }
+  let_it_be(:guest) { create(:user, guest_of: project) }
   let_it_be(:admin) { create(:admin) }
-  let_it_be(:john_doe) { create(:user) }
-  let_it_be(:skipped) { create(:user) }
+  let_it_be(:john_doe) { create(:user, developer_of: project) }
+  let_it_be(:skipped) { create(:user, developer_of: project) }
 
   let(:skip_users) { [skipped] }
   let(:mentions) { 'FYI: ' + [author, assignee, john_doe, member, guest, non_member, admin, skipped].map(&:to_reference).join(' ') }
@@ -21,21 +22,19 @@ RSpec.describe TodoService do
   let(:directly_addressed_and_mentioned) { member.to_reference + ", what do you think? cc: " + [guest, admin, skipped].map(&:to_reference).join(' ') }
   let(:service) { described_class.new }
 
-  before_all do
-    project.add_guest(guest)
-    project.add_developer(author)
-    project.add_developer(assignee)
-    project.add_developer(member)
-    project.add_developer(john_doe)
-    project.add_developer(skipped)
-  end
-
   shared_examples 'reassigned target' do
+    let(:additional_todo_attributes) { {} }
+
     it 'creates a pending todo for new assignee' do
       target_unassigned.assignees = [john_doe]
       service.send(described_method, target_unassigned, author)
 
-      should_create_todo(user: john_doe, target: target_unassigned, action: Todo::ASSIGNED)
+      should_create_todo(
+        user: john_doe,
+        target: target_unassigned,
+        action: Todo::ASSIGNED,
+        **additional_todo_attributes
+      )
     end
 
     it 'does not create a todo if unassigned' do
@@ -48,7 +47,13 @@ RSpec.describe TodoService do
       target_assigned.assignees = [john_doe]
       service.send(described_method, target_assigned, john_doe)
 
-      should_create_todo(user: john_doe, target: target_assigned, author: john_doe, action: Todo::ASSIGNED)
+      should_create_todo(
+        user: john_doe,
+        target: target_assigned,
+        author: john_doe,
+        action: Todo::ASSIGNED,
+        **additional_todo_attributes
+      )
     end
 
     it 'does not create a todo for guests' do
@@ -186,8 +191,8 @@ RSpec.describe TodoService do
 
         before do
           group.add_owner(author)
-          group.add_user(member, Gitlab::Access::DEVELOPER)
-          group.add_user(john_doe, Gitlab::Access::DEVELOPER)
+          group.add_member(member, Gitlab::Access::DEVELOPER)
+          group.add_member(john_doe, Gitlab::Access::DEVELOPER)
 
           service.new_issue(issue, author)
         end
@@ -207,7 +212,15 @@ RSpec.describe TodoService do
         end
 
         it_behaves_like 'an incident management tracked event', :incident_management_incident_todo do
-          let(:current_user) { john_doe}
+          let(:current_user) { john_doe }
+        end
+
+        it_behaves_like 'Snowplow event tracking with RedisHLL context' do
+          let(:namespace) { project.namespace }
+          let(:category) { described_class.to_s }
+          let(:action) { 'incident_management_incident_todo' }
+          let(:label) { 'redis_hll_counters.incident_management.incident_management_total_unique_counts_monthly' }
+          let(:user) { john_doe }
         end
       end
     end
@@ -386,11 +399,45 @@ RSpec.describe TodoService do
       end
     end
 
+    describe '#resolve_todos_with_attributes_for_target' do
+      it 'marks related pending todos to the target for all the users as done' do
+        first_todo = create(:todo, :assigned, user: member, project: project, target: issue, author: author)
+        second_todo = create(:todo, :review_requested, user: john_doe, project: project, target: issue, author: author)
+        another_todo = create(:todo, :assigned, user: john_doe, project: project, target: project, author: author)
+
+        service.resolve_todos_with_attributes_for_target(issue, {})
+
+        expect(first_todo.reload).to be_done
+        expect(second_todo.reload).to be_done
+        expect(another_todo.reload).to be_pending
+      end
+
+      it 'marks related only filtered pending todos to the target for all the users as done' do
+        first_todo = create(:todo, :assigned, user: member, project: project, target: issue, author: author)
+        second_todo = create(:todo, :review_requested, user: john_doe, project: project, target: issue, author: author)
+        another_todo = create(:todo, :assigned, user: john_doe, project: project, target: project, author: author)
+
+        service.resolve_todos_with_attributes_for_target(issue, { action: Todo::ASSIGNED })
+
+        expect(first_todo.reload).to be_done
+        expect(second_todo.reload).to be_pending
+        expect(another_todo.reload).to be_pending
+      end
+
+      it 'fetches the pending todos with users preloaded' do
+        expect(PendingTodosFinder).to receive(:new)
+          .with(a_hash_including(preload_user_association: true)).and_call_original
+
+        service.resolve_todos_with_attributes_for_target(issue, { action: Todo::ASSIGNED })
+      end
+    end
+
     describe '#new_note' do
       let!(:first_todo) { create(:todo, :assigned, user: john_doe, project: project, target: issue, author: author) }
       let!(:second_todo) { create(:todo, :assigned, user: john_doe, project: project, target: issue, author: author) }
       let(:confidential_issue) { create(:issue, :confidential, project: project, author: author, assignees: [assignee]) }
       let(:note) { create(:note, project: project, noteable: issue, author: john_doe, note: mentions) }
+      let(:confidential_note) { create(:note, :confidential, project: project, noteable: issue, author: john_doe, note: mentions) }
       let(:addressed_note) { create(:note, project: project, noteable: issue, author: john_doe, note: directly_addressed) }
       let(:note_on_commit) { create(:note_on_commit, project: project, author: john_doe, note: mentions) }
       let(:addressed_note_on_commit) { create(:note_on_commit, project: project, author: john_doe, note: directly_addressed) }
@@ -407,6 +454,22 @@ RSpec.describe TodoService do
 
         expect(first_todo.reload).to be_done
         expect(second_todo.reload).to be_done
+      end
+
+      it 'mark related pending todos to the discussion for the note author as done' do
+        first_discussion_note = create(:discussion_note_on_issue, noteable: issue, project: issue.project, author: john_doe, note: "Discussion thread 1")
+        first_discussion_reply = create(:discussion_note_on_issue, noteable: issue, project: issue.project, discussion_id: first_discussion_note.discussion_id)
+        first_discussion_todo = create(:todo, :assigned, user: john_doe, project: project, target: issue, author: author, note: first_discussion_reply)
+
+        # Create a second discussion on the same issue
+        second_discussion_note = create(:discussion_note_on_issue, noteable: issue, project: issue.project, author: john_doe, note: "Discussion thread 2")
+        second_discussion_todo = create(:todo, :assigned, user: john_doe, project: project, target: issue, author: author, note: second_discussion_note)
+
+        first_discussion_reply_2 = create(:discussion_note_on_issue, project: project, noteable: issue, author: john_doe, note: mentions, discussion_id: first_discussion_note.discussion_id)
+        service.new_note(first_discussion_reply_2, john_doe)
+
+        expect(first_discussion_todo.reload).to be_done
+        expect(second_discussion_todo.reload).not_to be_done
       end
 
       it 'does not mark related pending todos it is a system note' do
@@ -466,6 +529,17 @@ RSpec.describe TodoService do
         should_not_create_todo(user: admin, target: confidential_issue, author: john_doe, action: Todo::DIRECTLY_ADDRESSED, note: addressed_note_on_confidential_issue)
         should_not_create_todo(user: guest, target: confidential_issue, author: john_doe, action: Todo::DIRECTLY_ADDRESSED, note: addressed_note_on_confidential_issue)
         should_create_todo(user: john_doe, target: confidential_issue, author: john_doe, action: Todo::DIRECTLY_ADDRESSED, note: addressed_note_on_confidential_issue)
+      end
+
+      it 'does not create todo if user can not read confidential note' do
+        service.new_note(confidential_note, john_doe)
+
+        should_not_create_todo(user: non_member, target: issue, author: john_doe, action: Todo::MENTIONED, note: confidential_note)
+        should_not_create_todo(user: guest, target: issue, author: john_doe, action: Todo::MENTIONED, note: confidential_note)
+        should_create_todo(user: member, target: issue, author: john_doe, action: Todo::MENTIONED, note: confidential_note)
+        should_create_todo(user: author, target: issue, author: john_doe, action: Todo::MENTIONED, note: confidential_note)
+        should_create_todo(user: assignee, target: issue, author: john_doe, action: Todo::MENTIONED, note: confidential_note)
+        should_create_todo(user: john_doe, target: issue, author: john_doe, action: Todo::MENTIONED, note: confidential_note)
       end
 
       context 'commits' do
@@ -604,10 +678,30 @@ RSpec.describe TodoService do
     end
 
     describe '#mark_todo' do
-      it 'creates a todo from a issue' do
+      it 'creates a todo from an issue' do
         service.mark_todo(unassigned_issue, author)
 
         should_create_todo(user: author, target: unassigned_issue, action: Todo::MARKED)
+        expect(Gitlab::UsageDataCounters::WorkItemActivityUniqueCounter)
+        .not_to receive(:track_work_item_todo_marked_action)
+      end
+
+      context 'when issue belongs to a group' do
+        it 'creates a todo from an issue' do
+          group_issue = create(:issue, :group_level, namespace: group)
+          service.mark_todo(group_issue, group_issue.author)
+
+          should_create_todo(
+            user: group_issue.author,
+            author: group_issue.author,
+            target: group_issue,
+            action: Todo::MARKED,
+            project: nil,
+            group: group
+          )
+          expect(Gitlab::UsageDataCounters::WorkItemActivityUniqueCounter)
+          .not_to receive(:track_work_item_todo_marked_action)
+        end
       end
     end
 
@@ -664,6 +758,79 @@ RSpec.describe TodoService do
     end
   end
 
+  describe 'Work Items' do
+    let(:work_item) { create(:work_item, :objective, project: project, author: author) }
+    let(:activity_counter_class) { Gitlab::UsageDataCounters::WorkItemActivityUniqueCounter }
+
+    describe '#mark_todo' do
+      it 'creates a todo from a work item' do
+        expect(activity_counter_class).to receive(:track_work_item_mark_todo_action).with(author: author)
+
+        service.mark_todo(work_item, author)
+
+        should_create_todo(user: author, target: work_item, action: Todo::MARKED)
+      end
+
+      context 'when work item belongs to a group' do
+        it 'creates a todo from a work item' do
+          group_work_item = create(:work_item, :group_level, namespace: group)
+
+          expect(activity_counter_class).to receive(:track_work_item_mark_todo_action).with(author: group_work_item.author)
+
+          service.mark_todo(group_work_item, group_work_item.author)
+
+          should_create_todo(
+            user: group_work_item.author,
+            author: group_work_item.author,
+            target: group_work_item,
+            action: Todo::MARKED,
+            project: nil,
+            group: group
+          )
+        end
+      end
+    end
+
+    describe '#todo_exists?' do
+      it 'returns false when no todo exist for the given work_item' do
+        expect(service.todo_exist?(work_item, author)).to be_falsy
+      end
+
+      it 'returns true when a todo exist for the given work_item' do
+        service.mark_todo(work_item, author)
+
+        expect(service.todo_exist?(work_item, author)).to be_truthy
+      end
+    end
+
+    describe '#resolve_todos_for_target' do
+      it 'marks related pending todos to the target for the user as done' do
+        first_todo = create(:todo, :assigned, user: john_doe, project: project, target: work_item, author: author)
+        second_todo = create(:todo, :assigned, user: john_doe, project: project, target: work_item, author: author)
+
+        service.resolve_todos_for_target(work_item, john_doe)
+
+        expect(first_todo.reload).to be_done
+        expect(second_todo.reload).to be_done
+      end
+
+      describe 'cached counts' do
+        it 'updates when todos change' do
+          create(:todo, :assigned, user: john_doe, project: project, target: work_item, author: author)
+
+          expect(john_doe.todos_done_count).to eq(0)
+          expect(john_doe.todos_pending_count).to eq(1)
+          expect(john_doe).to receive(:update_todos_count_cache).and_call_original
+
+          service.resolve_todos_for_target(work_item, john_doe)
+
+          expect(john_doe.todos_done_count).to eq(1)
+          expect(john_doe.todos_pending_count).to eq(0)
+        end
+      end
+    end
+  end
+
   describe '#reassigned_assignable' do
     let(:described_method) { :reassigned_assignable }
 
@@ -675,11 +842,37 @@ RSpec.describe TodoService do
       end
     end
 
-    context 'assignable is an issue' do
+    context 'assignable is a project level issue' do
       it_behaves_like 'reassigned target' do
         let(:target_assigned) { create(:issue, project: project, author: author, assignees: [john_doe], description: "- [ ] Task 1\n- [ ] Task 2 #{mentions}") }
         let(:addressed_target_assigned) { create(:issue, project: project, author: author, assignees: [john_doe], description: "#{directly_addressed}\n- [ ] Task 1\n- [ ] Task 2") }
         let(:target_unassigned) { create(:issue, project: project, author: author, assignees: []) }
+      end
+    end
+
+    context 'assignable is a project level work_item' do
+      it_behaves_like 'reassigned target' do
+        let(:target_assigned) { create(:work_item, project: project, author: author, assignees: [john_doe], description: "- [ ] Task 1\n- [ ] Task 2 #{mentions}") }
+        let(:addressed_target_assigned) { create(:work_item, project: project, author: author, assignees: [john_doe], description: "#{directly_addressed}\n- [ ] Task 1\n- [ ] Task 2") }
+        let(:target_unassigned) { create(:work_item, project: project, author: author, assignees: []) }
+      end
+    end
+
+    context 'assignable is a group level issue' do
+      it_behaves_like 'reassigned target' do
+        let(:additional_todo_attributes) { { project: nil, group: group } }
+        let(:target_assigned) { create(:issue, :group_level, namespace: group, author: author, assignees: [john_doe], description: "- [ ] Task 1\n- [ ] Task 2 #{mentions}") }
+        let(:addressed_target_assigned) { create(:issue, :group_level, namespace: group, author: author, assignees: [john_doe], description: "#{directly_addressed}\n- [ ] Task 1\n- [ ] Task 2") }
+        let(:target_unassigned) { create(:issue, :group_level, namespace: group, author: author, assignees: []) }
+      end
+    end
+
+    context 'assignable is a group level work item' do
+      it_behaves_like 'reassigned target' do
+        let(:additional_todo_attributes) { { project: nil, group: group } }
+        let(:target_assigned) { create(:work_item, :group_level, namespace: group, author: author, assignees: [john_doe], description: "- [ ] Task 1\n- [ ] Task 2 #{mentions}") }
+        let(:addressed_target_assigned) { create(:work_item, :group_level, namespace: group, author: author, assignees: [john_doe], description: "#{directly_addressed}\n- [ ] Task 1\n- [ ] Task 2") }
+        let(:target_unassigned) { create(:work_item, :group_level, namespace: group, author: author, assignees: []) }
       end
     end
 
@@ -893,6 +1086,33 @@ RSpec.describe TodoService do
 
         expect(todo.reload).to be_done
       end
+
+      it 'mark related pending todos to the discussion for the note author as done' do
+        issue = create(:issue)
+
+        # Issue #1
+        # John Doe: "Discussion thread 1"
+        #   Author: "@john_doe Reply to thread 1"
+        #   _Todo generated for John Doe_
+        #
+        first_discussion_note = create(:discussion_note_on_issue, noteable: issue, project: issue.project, author: john_doe, note: "Discussion thread 1")
+        first_discussion_reply = create(:discussion_note_on_issue, noteable: issue, project: issue.project, author: author, discussion_id: first_discussion_note.discussion_id, note: mentions)
+        first_discussion_todo = create(:todo, user: john_doe, project: issue.project, target: issue, author: author, note: first_discussion_reply)
+
+        # Issue #1
+        # John Doe: "Discussion thread 2"
+        #   Author: "@john_doe Reply to thread 2"
+        #   _Todo generated for John Doe_
+        #
+        second_discussion_note = create(:discussion_note_on_issue, noteable: issue, project: issue.project, author: john_doe, note: "Discussion thread 2")
+        second_discussion_reply = create(:discussion_note_on_issue, noteable: issue, project: issue.project, author: author, discussion_id: second_discussion_note.discussion_id, note: mentions)
+        second_discussion_todo = create(:todo, user: john_doe, project: issue.project, target: issue, author: author, note: second_discussion_reply)
+
+        service.new_award_emoji(first_discussion_reply, john_doe)
+
+        expect(first_discussion_todo.reload).to be_done
+        expect(second_discussion_todo.reload).not_to be_done
+      end
     end
 
     describe '#merge_request_build_failed' do
@@ -944,6 +1164,8 @@ RSpec.describe TodoService do
         service.mark_todo(unassigned_mr, author)
 
         should_create_todo(user: author, target: unassigned_mr, action: Todo::MARKED)
+        expect(Gitlab::UsageDataCounters::WorkItemActivityUniqueCounter)
+        .not_to receive(:track_work_item_todo_marked_action)
       end
     end
 
@@ -1005,19 +1227,23 @@ RSpec.describe TodoService do
     end
 
     let(:note) do
-      build(:diff_note_on_design,
-             noteable: design,
-             author: author,
-             note: "Hey #{john_doe.to_reference}")
+      build(
+        :diff_note_on_design,
+        noteable: design,
+        author: author,
+        note: "Hey #{john_doe.to_reference}"
+      )
     end
 
     it 'creates a todo for mentioned user on new diff note' do
       service.new_note(note, author)
 
-      should_create_todo(user: john_doe,
-                         target: design,
-                         action: Todo::MENTIONED,
-                         note: note)
+      should_create_todo(
+        user: john_doe,
+        target: design,
+        action: Todo::MENTIONED,
+        note: note
+      )
     end
   end
 
@@ -1025,7 +1251,7 @@ RSpec.describe TodoService do
     let_it_be(:noteable) { create(:issue, project: project) }
 
     let(:note) { create(:note, project: project, note: mentions, noteable: noteable) }
-    let(:addressed_note) { create(:note, project: project, note: "#{directly_addressed}", noteable: noteable) }
+    let(:addressed_note) { create(:note, project: project, note: directly_addressed.to_s, noteable: noteable) }
 
     it 'creates a todo for each valid mentioned user not included in skip_users' do
       service.update_note(note, author, skip_users)
@@ -1084,9 +1310,9 @@ RSpec.describe TodoService do
         # Excluding queries for user permissions because those do execute N+1 queries
         allow_any_instance_of(User).to receive(:can?).and_return(true)
 
-        control_count = ActiveRecord::QueryRecorder.new { service.update_note(note_mentioning_1_user, author, skip_users) }.count
+        control = ActiveRecord::QueryRecorder.new { service.update_note(note_mentioning_1_user, author, skip_users) }
 
-        expect { service.update_note(note_mentioning_3_users, author, skip_users) }.not_to exceed_query_limit(control_count)
+        expect { service.update_note(note_mentioning_3_users, author, skip_users) }.not_to exceed_query_limit(control)
       end
     end
 
@@ -1127,7 +1353,7 @@ RSpec.describe TodoService do
     it 'updates related todos for the user with the new_state' do
       method_call
 
-      expect(collection.all? { |todo| todo.reload.state?(new_state)}).to be_truthy
+      expect(collection.all? { |todo| todo.reload.state?(new_state) }).to be_truthy
     end
 
     if new_resolved_by
@@ -1203,6 +1429,68 @@ RSpec.describe TodoService do
     end
   end
 
+  describe '#resolve_access_request_todos' do
+    let_it_be(:group) { create(:group, :public) }
+    let_it_be(:group_requester) { create(:group_member, :access_request, group: group, user: assignee) }
+    let_it_be(:project_requester) { create(:project_member, :access_request, project: project, user: non_member) }
+    let_it_be(:another_pending_todo) { create(:todo, state: :pending, user: john_doe) }
+    # access request by another user
+    let_it_be(:another_group_todo) do
+      create(:todo, state: :pending, target: group, action: Todo::MEMBER_ACCESS_REQUESTED)
+    end
+
+    let_it_be(:another_project_todo) do
+      create(:todo, state: :pending, target: project, action: Todo::MEMBER_ACCESS_REQUESTED)
+    end
+
+    it 'marks the todos for group access request handlers as done' do
+      access_request_todos = [member, john_doe].map do |group_user|
+        create(:todo,
+          user: group_user,
+          state: :pending,
+          action: Todo::MEMBER_ACCESS_REQUESTED,
+          author: group_requester.user,
+          target: group
+        )
+      end
+
+      expect do
+        service.resolve_access_request_todos(group_requester)
+      end.to change {
+        Todo.pending.where(target: group).for_author(group_requester.user)
+          .for_action(Todo::MEMBER_ACCESS_REQUESTED).count
+      }.from(2).to(0)
+
+      expect(access_request_todos.each(&:reload)).to all be_done
+      expect(another_pending_todo.reload).not_to be_done
+      expect(another_group_todo.reload).not_to be_done
+    end
+
+    it 'marks the todos for project access request handlers as done' do
+      # The project has 1 owner already. Adding another owner here
+      project.add_member(john_doe, Gitlab::Access::OWNER)
+
+      access_request_todo = create(:todo,
+        user: john_doe,
+        state: :pending,
+        action: Todo::MEMBER_ACCESS_REQUESTED,
+        author: project_requester.user,
+        target: project
+      )
+
+      expect do
+        service.resolve_access_request_todos(project_requester)
+      end.to change {
+        Todo.pending.where(target: project).for_author(project_requester.user)
+          .for_action(Todo::MEMBER_ACCESS_REQUESTED).count
+      }.from(2).to(0) # The original owner todo was created with the pending access request
+
+      expect(access_request_todo.reload).to be_done
+      expect(another_pending_todo.reload).to be_pending
+      expect(another_project_todo.reload).to be_pending
+    end
+  end
+
   describe '#restore_todo' do
     let!(:todo) { create(:todo, :done, user: john_doe) }
 
@@ -1238,14 +1526,86 @@ RSpec.describe TodoService do
     end
   end
 
-  describe '#create_attention_requested_todo' do
-    let(:target) { create(:merge_request, author: author, source_project: project) }
-    let(:user) { create(:user) }
+  describe '#create_member_access_request_todos' do
+    let_it_be(:group) { create(:group, :public) }
+    let_it_be(:project) { create(:project, :public, group: group) }
 
-    it 'creates a todo for user' do
-      service.create_attention_requested_todo(target, author, user)
+    shared_examples 'member access request is raised' do
+      context 'when the source has more than 10 owners' do
+        it 'creates todos for 10 recently active source owners' do
+          users = create_list(:user, 12, :with_sign_ins)
+          users.each do |user|
+            source.add_owner(user)
+          end
+          ten_most_recently_active_source_owners = users.sort_by(&:last_sign_in_at).last(10)
+          excluded_source_owners = users - ten_most_recently_active_source_owners
 
-      should_create_todo(user: user, target: target, action: Todo::ATTENTION_REQUESTED)
+          service.create_member_access_request_todos(requester1)
+
+          ten_most_recently_active_source_owners.each do |owner|
+            expect(Todo.where(user: owner, target: source, action: Todo::MEMBER_ACCESS_REQUESTED, author: requester1.user).count).to eq 1
+          end
+
+          excluded_source_owners.each do |owner|
+            expect(Todo.where(user: owner, target: source, action: Todo::MEMBER_ACCESS_REQUESTED, author: requester1.user).count).to eq 0
+          end
+        end
+      end
+
+      context 'when total owners are less than 10' do
+        it 'creates todos for all source owners' do
+          users = create_list(:user, 4, :with_sign_ins)
+          users.map do |user|
+            source.add_owner(user)
+          end
+
+          service.create_member_access_request_todos(requester1)
+
+          users.each do |owner|
+            expect(Todo.where(user: owner, target: source, action: Todo::MEMBER_ACCESS_REQUESTED, author: requester1.user).count).to eq 1
+          end
+        end
+      end
+
+      context 'when multiple access requests are raised' do
+        it 'creates todos for 10 recently active source owners for multiple requests' do
+          users = create_list(:user, 12, :with_sign_ins)
+          users.each do |user|
+            source.add_owner(user)
+          end
+          ten_most_recently_active_source_owners = users.sort_by(&:last_sign_in_at).last(10)
+          excluded_source_owners = users - ten_most_recently_active_source_owners
+
+          service.create_member_access_request_todos(requester1)
+          service.create_member_access_request_todos(requester2)
+
+          ten_most_recently_active_source_owners.each do |owner|
+            expect(Todo.where(user: owner, target: source, action: Todo::MEMBER_ACCESS_REQUESTED, author: requester1.user).count).to eq 1
+            expect(Todo.where(user: owner, target: source, action: Todo::MEMBER_ACCESS_REQUESTED, author: requester2.user).count).to eq 1
+          end
+
+          excluded_source_owners.each do |owner|
+            expect(Todo.where(user: owner, target: source, action: Todo::MEMBER_ACCESS_REQUESTED, author: requester1.user).count).to eq 0
+            expect(Todo.where(user: owner, target: source, action: Todo::MEMBER_ACCESS_REQUESTED, author: requester2.user).count).to eq 0
+          end
+        end
+      end
+    end
+
+    context 'when request is raised for group' do
+      it_behaves_like 'member access request is raised' do
+        let_it_be(:source) { create(:group, :public) }
+        let_it_be(:requester1) { create(:group_member, :access_request, group: source, user: assignee) }
+        let_it_be(:requester2) { create(:group_member, :access_request, group: source, user: non_member) }
+      end
+    end
+
+    context 'when request is raised for project' do
+      it_behaves_like 'member access request is raised' do
+        let_it_be(:source) { create(:project, :public) }
+        let_it_be(:requester1) { create(:project_member, :access_request, project: source, user: assignee) }
+        let_it_be(:requester2) { create(:project_member, :access_request, project: source, user: non_member) }
+      end
     end
   end
 

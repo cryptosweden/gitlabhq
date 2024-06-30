@@ -1,39 +1,57 @@
-import { mount } from '@vue/test-utils';
+import { shallowMount } from '@vue/test-utils';
 
 import { nextTick } from 'vue';
+import { GlAvatar, GlAvatarLink } from '@gitlab/ui';
 import diffDiscussionHeader from '~/notes/components/diff_discussion_header.vue';
 import createStore from '~/notes/stores';
 
-import mockDiffFile from '../../diffs/mock_data/diff_discussions';
+import mockDiffFile from 'jest/diffs/mock_data/diff_discussions';
 import { discussionMock } from '../mock_data';
 
 describe('diff_discussion_header component', () => {
   let store;
   let wrapper;
 
+  const createComponent = ({ propsData = {} } = {}) => {
+    wrapper = shallowMount(diffDiscussionHeader, {
+      store,
+      propsData: {
+        discussion: discussionMock,
+        ...propsData,
+      },
+    });
+  };
+
   beforeEach(() => {
     window.mrTabs = {};
     store = createStore();
 
-    wrapper = mount(diffDiscussionHeader, {
-      store,
-      propsData: { discussion: discussionMock },
+    createComponent({ propsData: { discussion: discussionMock } });
+  });
+
+  describe('Avatar', () => {
+    const firstNoteAuthor = discussionMock.notes[0].author;
+    const findAvatarLink = () => wrapper.findComponent(GlAvatarLink);
+    const findAvatar = () => wrapper.findComponent(GlAvatar);
+
+    it('should render user avatar and user avatar link with popover support', () => {
+      expect(findAvatar().exists()).toBe(true);
+
+      const avatarLink = findAvatarLink();
+      expect(avatarLink.exists()).toBe(true);
+      expect(avatarLink.classes()).toContain('js-user-link');
+      expect(avatarLink.attributes()).toMatchObject({
+        href: firstNoteAuthor.path,
+        'data-user-id': `${firstNoteAuthor.id}`,
+        'data-username': `${firstNoteAuthor.username}`,
+      });
     });
-  });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  it('should render user avatar', async () => {
-    const discussion = { ...discussionMock };
-    discussion.diff_file = mockDiffFile;
-    discussion.diff_discussion = true;
-
-    wrapper.setProps({ discussion });
-
-    await nextTick();
-    expect(wrapper.find('.user-avatar-link').exists()).toBe(true);
+    it('renders avatar of the first note author', () => {
+      expect(findAvatar().props('src')).toBe(firstNoteAuthor.avatar_url);
+      expect(findAvatar().props('alt')).toBe(firstNoteAuthor.name);
+      expect(findAvatar().props('size')).toBe(32);
+    });
   });
 
   describe('action text', () => {
@@ -46,14 +64,16 @@ describe('diff_discussion_header component', () => {
         projectPath: 'something',
       };
 
-      wrapper.setProps({
-        discussion: {
-          ...discussionMock,
-          for_commit: true,
-          commit_id: commitId,
-          diff_discussion: true,
-          diff_file: {
-            ...mockDiffFile,
+      createComponent({
+        propsData: {
+          discussion: {
+            ...discussionMock,
+            for_commit: true,
+            commit_id: commitId,
+            diff_discussion: true,
+            diff_file: {
+              ...mockDiffFile,
+            },
           },
         },
       });
@@ -64,9 +84,15 @@ describe('diff_discussion_header component', () => {
 
     describe('for diff threads without a commit id', () => {
       it('should show started a thread on the diff text', async () => {
-        Object.assign(wrapper.vm.discussion, {
-          for_commit: false,
-          commit_id: null,
+        createComponent({
+          propsData: {
+            discussion: {
+              ...discussionMock,
+              diff_discussion: true,
+              for_commit: false,
+              commit_id: null,
+            },
+          },
         });
 
         await nextTick();
@@ -74,10 +100,16 @@ describe('diff_discussion_header component', () => {
       });
 
       it('should show thread on older version text', async () => {
-        Object.assign(wrapper.vm.discussion, {
-          for_commit: false,
-          commit_id: null,
-          active: false,
+        createComponent({
+          propsData: {
+            discussion: {
+              ...discussionMock,
+              diff_discussion: true,
+              for_commit: false,
+              commit_id: null,
+              active: false,
+            },
+          },
         });
 
         await nextTick();
@@ -95,7 +127,16 @@ describe('diff_discussion_header component', () => {
 
     describe('for diff thread with a commit id', () => {
       it('should display started thread on commit header', async () => {
-        wrapper.vm.discussion.for_commit = false;
+        createComponent({
+          propsData: {
+            discussion: {
+              ...discussionMock,
+              diff_discussion: true,
+              for_commit: false,
+              commit_id: commitId,
+            },
+          },
+        });
 
         await nextTick();
         expect(wrapper.text()).toContain(`started a thread on commit ${truncatedCommitId}`);
@@ -104,8 +145,17 @@ describe('diff_discussion_header component', () => {
       });
 
       it('should display outdated change on commit header', async () => {
-        wrapper.vm.discussion.for_commit = false;
-        wrapper.vm.discussion.active = false;
+        createComponent({
+          propsData: {
+            discussion: {
+              ...discussionMock,
+              diff_discussion: true,
+              for_commit: false,
+              commit_id: commitId,
+              active: false,
+            },
+          },
+        });
 
         await nextTick();
         expect(wrapper.text()).toContain(

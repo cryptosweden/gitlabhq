@@ -1,23 +1,35 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Project Management
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Kroki diagrams **(FREE SELF)**
+# Kroki
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/241744) in GitLab 13.7.
-> - Support for reStructuredText and Textile documents [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/324766) in GitLab 13.12.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
-When [Kroki](https://kroki.io) integration is enabled and configured in
-GitLab, you can use it to create diagrams in AsciiDoc, Markdown, reStructuredText, and Textile documents.
+With the [Kroki](https://kroki.io) integration,
+you can create diagrams-as-code within AsciiDoc, Markdown, reStructuredText, and Textile.
 
-## Kroki Server
+## Enable Kroki in GitLab
 
-When Kroki is enabled, GitLab sends diagrams to an instance of Kroki to display them as images.
+You need to enable Kroki integration from Settings under Admin Area.
+To do that, sign in with an administrator account and follow these steps:
+
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Go to **Settings > General**.
+1. Expand the **Kroki** section.
+1. Select **Enable Kroki** checkbox.
+1. Enter the **Kroki URL**, for example, `https://kroki.io`.
+
+## Kroki server
+
+When you enable Kroki, GitLab sends diagrams to an instance of Kroki to display them as images.
 You can use the free public cloud instance `https://kroki.io` or you can [install Kroki](https://docs.kroki.io/kroki/setup/install/)
 on your own infrastructure.
-After you've installed Kroki, make sure to update the server URL to point to your instance.
+After you've installed Kroki, make sure to update the **Kroki URL** in the settings to point to your instance.
 
 ### Docker
 
@@ -29,17 +41,23 @@ docker run -d --name kroki -p 8080:8000 yuzutech/kroki
 
 The **Kroki URL** is the hostname of the server running the container.
 
-The [`yuzutech/kroki`](https://hub.docker.com/r/yuzutech/kroki) image contains the following diagrams libraries out-of-the-box:
+The [`yuzutech/kroki`](https://hub.docker.com/r/yuzutech/kroki) Docker image supports most diagram
+types out of the box. For a complete list, see the [Kroki installation docs](https://docs.kroki.io/kroki/setup/install/#_the_kroki_container).
+
+Supported diagram types include:
 
 <!-- vale gitlab.Spelling = NO -->
 
-- [Bytefield](https://bytefield-svg.deepsymmetry.org/)
-- [Ditaa](http://ditaa.sourceforge.net)
+- [Bytefield](https://bytefield-svg.deepsymmetry.org/bytefield-svg/intro.html)
+- [D2](https://d2lang.com/tour/intro/)
+- [DBML](https://dbml.dbdiagram.io/home/)
+- [Ditaa](https://ditaa.sourceforge.net)
 - [Erd](https://github.com/BurntSushi/erd)
 - [GraphViz](https://www.graphviz.org/)
 - [Nomnoml](https://github.com/skanaar/nomnoml)
 - [PlantUML](https://github.com/plantuml/plantuml)
   - [C4 model](https://github.com/RicardoNiepel/C4-PlantUML) (with PlantUML)
+- [Structurizr](https://structurizr.com/) (great for C4 Model diagrams)
 - [Svgbob](https://github.com/ivanceras/svgbob)
 - [UMlet](https://github.com/umlet/umlet)
 - [Vega](https://github.com/vega/vega)
@@ -50,17 +68,6 @@ The [`yuzutech/kroki`](https://hub.docker.com/r/yuzutech/kroki) image contains t
 
 If you want to use additional diagram libraries,
 read the [Kroki installation](https://docs.kroki.io/kroki/setup/install/#_images) to learn how to start Kroki companion containers.
-
-## Enable Kroki in GitLab
-
-You need to enable Kroki integration from Settings under Admin Area.
-To do that, log in with an administrator account and follow these steps:
-
-1. On the top bar, select **Menu > Admin**.
-1. Go to **Settings > General**.
-1. Expand the **Kroki** section.
-1. Select **Enable Kroki** checkbox.
-1. Enter the **Kroki URL**.
 
 ## Create diagrams
 

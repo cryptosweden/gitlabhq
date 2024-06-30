@@ -6,7 +6,7 @@ RSpec.describe Gitlab::GrapeLogging::Formatters::LogrageWithTimestamp do
   let(:log_entry) do
     {
       status: 200,
-      time:  {
+      time: {
         total: 758.58,
         db: 77.06,
         view: 681.52
@@ -14,9 +14,9 @@ RSpec.describe Gitlab::GrapeLogging::Formatters::LogrageWithTimestamp do
       method: 'PUT',
       path: '/api/v4/projects/1',
       params: {
-        'description': '[FILTERED]',
-        'name': 'gitlab test',
-        'int': 42
+        description: '[FILTERED]',
+        name: 'gitlab test',
+        int: 42
       },
       host: 'localhost',
       remote_ip: '127.0.0.1',
@@ -43,10 +43,11 @@ RSpec.describe Gitlab::GrapeLogging::Formatters::LogrageWithTimestamp do
   it 're-formats the params hash' do
     params = result['params']
 
-    expect(params).to eq([
-      { 'key' => 'description', 'value' => '[FILTERED]' },
-      { 'key' => 'name', 'value' => 'gitlab test' },
-      { 'key' => 'int', 'value' => 42 }
-    ])
+    expect(params).to eq(
+      [
+        { 'key' => 'description', 'value' => '[FILTERED]' },
+        { 'key' => 'name', 'value' => 'gitlab test' },
+        { 'key' => 'int', 'value' => 42 }
+      ])
   end
 end

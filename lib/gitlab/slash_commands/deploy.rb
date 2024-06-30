@@ -3,7 +3,7 @@
 module Gitlab
   module SlashCommands
     class Deploy < BaseCommand
-      DEPLOY_REGEX = /\Adeploy\s/.freeze
+      DEPLOY_REGEX = /\Adeploy\s/
 
       def self.match(text)
         return unless text&.match?(DEPLOY_REGEX)
@@ -54,7 +54,7 @@ module Gitlab
         return unless environment
 
         actions = environment.actions_for(to).select do |action|
-          action.starts_environment?
+          action.deployment_job?
         end
 
         if actions.many?

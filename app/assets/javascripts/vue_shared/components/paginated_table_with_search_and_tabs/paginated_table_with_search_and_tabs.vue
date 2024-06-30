@@ -1,24 +1,23 @@
 <script>
-import {
-  GlAlert,
-  GlBadge,
-  GlPagination,
-  GlTab,
-  GlTabs,
-  GlSafeHtmlDirective as SafeHtml,
-} from '@gitlab/ui';
+import { GlAlert, GlBadge, GlPagination, GlTab, GlTabs } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import Api from '~/api';
 import { updateHistory, setUrlParams } from '~/lib/utils/url_utility';
-import { __ } from '~/locale';
 import Tracking from '~/tracking';
-import { OPERATOR_IS_ONLY } from '~/vue_shared/components/filtered_search_bar/constants';
+import {
+  FILTERED_SEARCH_TERM,
+  OPERATORS_IS,
+  TOKEN_TITLE_ASSIGNEE,
+  TOKEN_TITLE_AUTHOR,
+  TOKEN_TYPE_ASSIGNEE,
+  TOKEN_TYPE_AUTHOR,
+} from '~/vue_shared/components/filtered_search_bar/constants';
 import FilteredSearchBar from '~/vue_shared/components/filtered_search_bar/filtered_search_bar_root.vue';
-import AuthorToken from '~/vue_shared/components/filtered_search_bar/tokens/author_token.vue';
-import { initialPaginationState, defaultI18n, defaultPageSize } from './constants';
+import UserToken from '~/vue_shared/components/filtered_search_bar/tokens/user_token.vue';
+import { initialPaginationState, defaultPageSize } from './constants';
 import { isAny } from './utils';
 
 export default {
-  defaultI18n,
   components: {
     GlAlert,
     GlBadge,
@@ -92,7 +91,7 @@ export default {
     filterSearchTokens: {
       type: Array,
       required: false,
-      default: () => ['author_username', 'assignee_username'],
+      default: () => [TOKEN_TYPE_AUTHOR, TOKEN_TYPE_ASSIGNEE],
     },
   },
   data() {
@@ -110,26 +109,28 @@ export default {
     defaultTokens() {
       return [
         {
-          type: 'author_username',
+          type: TOKEN_TYPE_AUTHOR,
           icon: 'user',
-          title: __('Author'),
+          title: TOKEN_TITLE_AUTHOR,
           unique: true,
           symbol: '@',
-          token: AuthorToken,
-          operators: OPERATOR_IS_ONLY,
+          token: UserToken,
+          dataType: 'user',
+          operators: OPERATORS_IS,
           fetchPath: this.projectPath,
-          fetchAuthors: Api.projectUsers.bind(Api),
+          fetchUsers: Api.projectUsers.bind(Api),
         },
         {
-          type: 'assignee_username',
+          type: TOKEN_TYPE_ASSIGNEE,
           icon: 'user',
-          title: __('Assignee'),
+          title: TOKEN_TITLE_ASSIGNEE,
           unique: true,
           symbol: '@',
-          token: AuthorToken,
-          operators: OPERATOR_IS_ONLY,
+          token: UserToken,
+          dataType: 'user',
+          operators: OPERATORS_IS,
           fetchPath: this.projectPath,
-          fetchAuthors: Api.projectUsers.bind(Api),
+          fetchUsers: Api.projectUsers.bind(Api),
         },
       ];
     },
@@ -141,14 +142,14 @@ export default {
 
       if (this.authorUsername) {
         value.push({
-          type: 'author_username',
+          type: TOKEN_TYPE_AUTHOR,
           value: { data: this.authorUsername },
         });
       }
 
       if (this.assigneeUsername) {
         value.push({
-          type: 'assignee_username',
+          type: TOKEN_TYPE_ASSIGNEE,
           value: { data: this.assigneeUsername },
         });
       }
@@ -223,13 +224,13 @@ export default {
       filters.forEach((filter) => {
         if (typeof filter === 'object') {
           switch (filter.type) {
-            case 'author_username':
+            case TOKEN_TYPE_AUTHOR:
               filterParams.authorUsername = isAny(filter.value.data);
               break;
-            case 'assignee_username':
+            case TOKEN_TYPE_ASSIGNEE:
               filterParams.assigneeUsername = isAny(filter.value.data);
               break;
-            case 'filtered-search-term':
+            case FILTERED_SEARCH_TERM:
               if (filter.value.data !== '') filterParams.search = filter.value.data;
               break;
             default:
@@ -273,19 +274,17 @@ export default {
 };
 </script>
 <template>
-  <div class="incident-management-list">
+  <div class="paginated-table-wrapper">
     <gl-alert v-if="showErrorMsg" variant="danger" @dismiss="$emit('error-alert-dismissed')">
-      <p v-safe-html="serverErrorMessage || i18n.errorMsg"></p>
+      <span v-safe-html="serverErrorMessage || i18n.errorMsg"></span>
     </gl-alert>
 
-    <div
-      class="list-header gl-display-flex gl-justify-content-space-between gl-border-b-solid gl-border-b-1 gl-border-gray-100"
-    >
+    <div class="list-header gl-display-flex gl-justify-content-space-between">
       <gl-tabs content-class="gl-p-0" @input="filterItemsByStatus">
         <gl-tab v-for="tab in statusTabs" :key="tab.status" :data-testid="tab.status">
           <template #title>
             <span>{{ tab.title }}</span>
-            <gl-badge v-if="itemsCount" pill size="sm" class="gl-tab-counter-badge">
+            <gl-badge v-if="itemsCount" pill class="gl-tab-counter-badge">
               {{ itemsCount[tab.status.toLowerCase()] }}
             </gl-badge>
           </template>
@@ -298,17 +297,17 @@ export default {
     <div class="filtered-search-wrapper">
       <filtered-search-bar
         :namespace="projectPath"
-        :search-input-placeholder="$options.defaultI18n.searchPlaceholder"
         :tokens="filteredSearchTokens"
         :initial-filter-value="filteredSearchValue"
         initial-sortby="created_desc"
         :recent-searches-storage-key="filterSearchKey"
+        :class="{ 'gl-border-bottom-0': showItems }"
         class="row-content-block"
         @onFilter="handleFilterItems"
       />
     </div>
 
-    <h4 class="gl-display-block d-md-none my-3">
+    <h4 class="gl-block md:gl-hidden my-3">
       <slot name="title"></slot>
     </h4>
 

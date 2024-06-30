@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Dashboard > User filters todos', :js do
+RSpec.describe 'Dashboard > User filters todos', :js, feature_category: :team_planning do
   let(:user_1)    { create(:user, username: 'user_1', name: 'user_1') }
   let(:user_2)    { create(:user, username: 'user_2', name: 'user_2') }
 
@@ -58,9 +58,9 @@ RSpec.describe 'Dashboard > User filters todos', :js do
 
     wait_for_requests
 
-    expect(page).to     have_content "issue #{issue1.to_reference} \"issue\" at #{group1.name} / project_1"
-    expect(page).to     have_content "merge request #{merge_request.to_reference}"
-    expect(page).not_to have_content "issue #{issue2.to_reference} \"issue\" at #{group2.name} / project_3"
+    expect(page).to     have_content "issue · #{group1.name} / project_1 #{issue1.to_reference}"
+    expect(page).to     have_content merge_request.to_reference.to_s
+    expect(page).not_to have_content "issue · #{group2.name} / project_3 #{issue2.to_reference}"
   end
 
   context 'Author filter' do
@@ -74,8 +74,8 @@ RSpec.describe 'Dashboard > User filters todos', :js do
 
       wait_for_requests
 
-      expect(find('.todos-list')).to     have_content 'merge request'
-      expect(find('.todos-list')).not_to have_content 'issue'
+      expect(find('.todos-list')).to     have_content '!'
+      expect(find('.todos-list')).not_to have_content '#'
     end
 
     it 'shows only authors of existing todos' do
@@ -128,9 +128,9 @@ RSpec.describe 'Dashboard > User filters todos', :js do
 
   describe 'filter by action' do
     before do
-      create(:todo, :build_failed, user: user_1, author: user_2, project: project_1, target: merge_request)
+      create(:todo, :build_failed, user: user_1, author: user_2, project: project_2, target: merge_request)
       create(:todo, :marked, user: user_1, author: user_2, project: project_1, target: issue1)
-      create(:todo, :review_requested, user: user_1, author: user_2, project: project_1, target: issue1)
+      create(:todo, :review_requested, user: user_1, author: user_2, project: project_2, target: merge_request)
     end
 
     it 'filters by Assigned' do
@@ -174,17 +174,60 @@ RSpec.describe 'Dashboard > User filters todos', :js do
 
     def expect_to_see_action(action_name)
       action_names = {
-        assigned: ' assigned you ',
-        review_requested: ' requested a review of ',
-        mentioned: ' mentioned ',
-        marked: ' added a todo for ',
-        build_failed: ' pipeline failed in '
+        assigned: ' assigned you',
+        review_requested: ' requested a review',
+        mentioned: ' mentioned',
+        marked: ' added a to-do item',
+        build_failed: ' pipeline failed'
       }
 
       action_name_text = action_names.delete(action_name)
       expect(find('.todos-list')).to have_content action_name_text
       action_names.each_value do |other_action_text|
         expect(find('.todos-list')).not_to have_content other_action_text
+      end
+    end
+  end
+
+  describe 'todos tab count' do
+    context 'when filtering by open todos' do
+      it 'includes all open todos' do
+        expect(find('.js-todos-pending .gl-badge')).to have_content('3')
+      end
+
+      it 'only counts open todos that match when filtered by project' do
+        click_button 'Project'
+
+        within '.dropdown-menu-project' do
+          fill_in 'Search projects', with: project_1.full_name
+          click_link project_1.full_name
+        end
+
+        expect(find('.js-todos-pending .gl-badge')).to have_content('1')
+      end
+    end
+
+    context 'when filtering by done todos' do
+      before do
+        create(:todo, user: user_1, author: user_2, project: project_1, target: issue1, action: 1, state: :done)
+        create(:todo, user: user_1, author: user_1, project: project_2, target: merge_request, action: 2, state: :done)
+
+        visit dashboard_todos_path(state: 'done')
+      end
+
+      it 'includes all done todos' do
+        expect(find('.js-todos-done .gl-badge')).to have_content('2')
+      end
+
+      it 'only counts done todos that match when filtered by project' do
+        click_button 'Project'
+
+        within '.dropdown-menu-project' do
+          fill_in 'Search projects', with: project_1.full_name
+          click_link project_1.full_name
+        end
+
+        expect(find('.js-todos-done .gl-badge')).to have_content('1')
       end
     end
   end

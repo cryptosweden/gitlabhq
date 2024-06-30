@@ -2,15 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe Atlassian::JiraConnect::Serializers::PullRequestEntity do
+RSpec.describe Atlassian::JiraConnect::Serializers::PullRequestEntity, feature_category: :integrations do
   let_it_be(:project) { create_default(:project, :repository) }
   let_it_be(:merge_requests) { create_list(:merge_request, 2, :unique_branches) }
   let_it_be(:notes) { create_list(:note, 2, system: false, noteable: merge_requests.first) }
+  let_it_be(:merge_request_reviewers) { create_pair(:merge_request_reviewer, merge_request: merge_requests[0]) }
 
   subject { described_class.represent(merge_requests).as_json }
 
   it 'exposes commentCount' do
     expect(subject.first[:commentCount]).to eq(2)
+  end
+
+  it 'exposes reviewers' do
+    expect(subject.first[:reviewers].count).to eq(2)
   end
 
   context 'with user_notes_count option' do
@@ -19,13 +24,18 @@ RSpec.describe Atlassian::JiraConnect::Serializers::PullRequestEntity do
     subject { described_class.represent(merge_requests, user_notes_count: user_notes_count).as_json }
 
     it 'avoids N+1 database queries' do
-      control_count = ActiveRecord::QueryRecorder.new do
+      control = ActiveRecord::QueryRecorder.new do
         described_class.represent(merge_requests, user_notes_count: user_notes_count)
-      end.count
+      end
 
       merge_requests << create(:merge_request, :unique_branches)
 
-      expect { subject }.not_to exceed_query_limit(control_count)
+      # In normal use of this entity, reviewer data is preloaded in JiraConnect::SyncService
+      ActiveRecord::Associations::Preloader.new(
+        records: merge_requests, associations: { merge_request_reviewers: :reviewer }
+      ).call
+
+      expect { subject }.not_to exceed_query_limit(control)
     end
 
     it 'uses counts from user_notes_count' do

@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Frontend testing standards and style guidelines
@@ -11,7 +11,7 @@ at GitLab. We use Jest for JavaScript unit and integration testing,
 and RSpec feature tests with Capybara for e2e (end-to-end) integration testing.
 
 Unit and feature tests need to be written for all new features.
-Most of the time, you should use [RSpec](https://github.com/rspec/rspec-rails#feature-specs) for your feature tests.
+Most of the time, you should use [RSpec](https://github.com/rspec/rspec-rails#feature-specs) for your feature tests. For more information on how to get started with feature tests, see [get started with feature tests](#get-started-with-feature-tests)
 
 Regression tests should be written for bug fixes to prevent them from recurring
 in the future.
@@ -46,23 +46,31 @@ Running `yarn jest-debug` runs Jest in debug mode, allowing you to debug/inspect
 ### Timeout error
 
 The default timeout for Jest is set in
-[`/spec/frontend/test_setup.js`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/frontend/test_setup.js).
+[`/jest.config.base.js`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/jest.config.base.js).
 
 If your test exceeds that time, it fails.
 
 If you cannot improve the performance of the tests, you can increase the timeout
-for a specific test using
-[`setTestTimeout`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/frontend/__helpers__/timeout.js).
+for the whole suite using [`jest.setTimeout`](https://jestjs.io/docs/next/jest-object#jestsettimeouttimeout)
 
 ```javascript
-import { setTestTimeout } from 'helpers/timeout';
+jest.setTimeout(500);
 
 describe('Component', () => {
   it('does something amazing', () => {
-    setTestTimeout(500);
     // ...
   });
 });
+```
+
+or for a specific test by providing a third argument to [`it`](https://jestjs.io/docs/next/api#testname-fn-timeout)
+
+```javascript
+describe('Component', () => {
+  it('does something amazing', () => {
+    // ...
+  }, 500)
+})
 ```
 
 Remember that the performance of each test depends on the environment.
@@ -93,7 +101,7 @@ function getFahrenheit(celsius) {
 }
 ```
 
-It does not make sense to test our `getFahrenheit` function because underneath it does nothing else but invoking the library function, and we can expect that one is working as intended. (Simplified, I know)
+It does not make sense to test our `getFahrenheit` function because underneath it does nothing else but invoking the library function, and we can expect that one is working as intended.
 
 Let's take a short look into Vue land. Vue is a critical part of the GitLab JavaScript codebase. When writing specs for Vue components, a common gotcha is to actually end up testing Vue provided functionality, because it appears to be the easiest thing to test. Here's an example taken from our codebase.
 
@@ -196,14 +204,12 @@ possible selectors include:
 - A semantic attribute like `name` (also verifies that `name` was setup properly)
 - A `data-testid` attribute ([recommended by maintainers of `@vue/test-utils`](https://github.com/vuejs/vue-test-utils/issues/1498#issuecomment-610133465))
   optionally combined with [`shallowMountExtended` or `mountExtended`](#shallowmountextended-and-mountextended)
-- a Vue `ref` (if using `@vue/test-utils`)
 
 ```javascript
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper'
 
 const wrapper = shallowMountExtended(ExampleComponent);
 
-// In this example, `wrapper` is a `@vue/test-utils` wrapper returned from `mount` or `shallowMount`.
 it('exists', () => {
   // Best (especially for integration tests)
   wrapper.findByRole('link', { name: /Click Me/i })
@@ -216,21 +222,18 @@ it('exists', () => {
   wrapper.find('input[name=foo]');
   wrapper.find('[data-testid="my-foo-id"]');
   wrapper.findByTestId('my-foo-id'); // with shallowMountExtended or mountExtended – check below
-  wrapper.find({ ref: 'foo'});
 
   // Bad
+  wrapper.find({ ref: 'foo'});
   wrapper.find('.js-foo');
   wrapper.find('.btn-primary');
-  wrapper.find('.qa-foo-component');
-  wrapper.find('[data-qa-selector="foo"]');
 });
 ```
 
-It is recommended to use `kebab-case` for `data-testid` attribute.
+You should use `kebab-case` for `data-testid` attribute.
 
 It is not recommended that you add `.js-*` classes just for testing purposes. Only do this if there are no other feasible options available.
-
-Do not use a `.qa-*` class or `data-qa-selector` attribute for any tests other than QA end-to-end testing.
+Avoid using Vue template refs to query DOM elements in tests because they're an implementation detail of the component, not a public API.
 
 ### Querying for child components
 
@@ -294,10 +297,10 @@ it('tests a promise rejection', async () => {
 });
 ```
 
-You can also simply return a promise from the test function.
+You can also return a promise from the test function.
 
 Using the `done` and `done.fail` callbacks is discouraged when working with
-promises. They should only be used when testing callback-based code.
+promises. They should not be used.
 
 **Bad**:
 
@@ -381,7 +384,7 @@ If your tests require `window.location.href` to take a particular value, use
 the `setWindowLocation` helper:
 
 ```javascript
-import setWindowLocation from 'helpers/set_window_location';
+import setWindowLocation from 'helpers/set_window_location_helper';
 
 it('passes', () => {
   setWindowLocation('https://gitlab.test/foo?bar=true');
@@ -423,7 +426,11 @@ it('passes', () => {
 ### Waiting in tests
 
 Sometimes a test needs to wait for something to happen in the application before it continues.
-Avoid using [`setTimeout`](https://developer.mozilla.org/en-US/docs/Web/API/setTimeout) because it makes the reason for waiting unclear. Instead use one of the following approaches.
+
+You should try to avoid:
+
+- [`setTimeout`](https://developer.mozilla.org/en-US/docs/Web/API/setTimeout) because it makes the reason for waiting unclear. Additionally, it is faked in our tests so its usage is tricky.
+- [`setImmediate`](https://developer.mozilla.org/en-US/docs/Web/API/Window/setImmediate) because it is no longer supported in Jest 27 and later. See [this epic](https://gitlab.com/groups/gitlab-org/-/epics/7002) for details.
 
 #### Promises and Ajax calls
 
@@ -451,14 +458,15 @@ it('waits for an Ajax call', async () => {
 });
 ```
 
-If you are not able to register handlers to the `Promise`, for example because it is executed in a synchronous Vue life cycle hook, take a look at the [waitFor](#wait-until-axios-requests-finish) helpers or you can flush all pending `Promise`s:
+If you cannot register handlers to the `Promise`, for example because it is executed in a synchronous Vue lifecycle hook, take a look at the [`waitFor`](#wait-until-axios-requests-finish) helpers or flush all pending `Promise`s with:
 
 **in Jest:**
 
 ```javascript
-it('waits for an Ajax call', () => {
+it('waits for an Ajax call', async () => {
   synchronousFunction();
-  jest.runAllTicks();
+
+  await waitForPromises();
 
   expect(something).toBe('done');
 });
@@ -466,18 +474,22 @@ it('waits for an Ajax call', () => {
 
 #### Vue rendering
 
-To wait until a Vue component is re-rendered, use either of the equivalent
-[`Vue.nextTick()`](https://vuejs.org/v2/api/#Vue-nextTick) or `vm.$nextTick()`.
+Use [`nextTick()`](https://v2.vuejs.org/v2/api/#Vue-nextTick) to wait until a Vue component is
+re-rendered.
 
 **in Jest:**
 
 ```javascript
-it('renders something', () => {
+import { nextTick } from 'vue';
+
+// ...
+
+it('renders something', async () => {
   wrapper.setProps({ value: 'new value' });
 
-  return wrapper.vm.$nextTick().then(() => {
-    expect(wrapper.text()).toBe('new value');
-  });
+  await nextTick();
+
+  expect(wrapper.text()).toBe('new value');
 });
 ```
 
@@ -487,15 +499,17 @@ If the application triggers an event that you need to wait for in your test, reg
 the assertions:
 
 ```javascript
-it('waits for an event', done => {
+it('waits for an event', () => {
   eventHub.$once('someEvent', eventHandler);
 
   someFunction();
 
-  function eventHandler() {
-    expect(something).toBe('done');
-    done();
-  }
+  return new Promise((resolve) => {
+    function expectEventHandler() {
+      expect(something).toBe('done');
+      resolve();
+    }
+  });
 });
 ```
 
@@ -513,9 +527,28 @@ it('waits for an event', () => {
 });
 ```
 
+### Manipulate `gon` object
+
+`gon` (or `window.gon`) is a global object used to pass data from the backend. If your test depends
+on its value you can directly modify it:
+
+```javascript
+describe('when logged in', () => {
+  beforeEach(() => {
+    gon.current_user_id = 1;
+  });
+
+  it('shows message', () => {
+    expect(wrapper.text()).toBe('Logged in!');
+  });
+})
+```
+
+`gon` is reset in every test to ensure tests are isolated.
+
 ### Ensuring that tests are isolated
 
-Tests are normally architected in a pattern which requires a recurring setup and breakdown of the component under test. This is done by making use of the `beforeEach` and `afterEach` hooks.
+Tests are typically architected in a pattern which requires a recurring setup of the component under test. This is often achieved by making use of the `beforeEach` hook.
 
 Example
 
@@ -525,19 +558,70 @@ Example
   beforeEach(() => {
     wrapper = mount(Component);
   });
+```
+
+With [enableAutoDestroy](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/100389), it is no longer necessary to manually call `wrapper.destroy()`.
+However, some mocks, spies, and fixtures do need to be torn down, and we can leverage the `afterEach` hook.
+
+Example
+
+```javascript
+  let wrapper;
 
   afterEach(() => {
-    wrapper.destroy();
+    fakeApollo = null;
+    store = null;
   });
 ```
 
-When looking at this initially you'd suspect that the component is setup before each test and then broken down afterwards, providing isolation between tests.
+### Testing local-only Apollo queries and mutations
 
-This is however not entirely true as the `destroy` method does not remove everything which has been mutated on the `wrapper` object. For functional components, destroy only removes the rendered DOM elements from the document.
+To add a new query or mutation before it is added to the backend, we can use the `@client` directive. For example:
+
+```graphql
+mutation setActiveBoardItemEE($boardItem: LocalBoardItem, $isIssue: Boolean = true) {
+  setActiveBoardItem(boardItem: $boardItem) @client {
+    ...Issue @include(if: $isIssue)
+    ...EpicDetailed @skip(if: $isIssue)
+  }
+}
+```
+
+When writing test cases for such calls, we can use resolvers to make sure they are called with the correct parameters.
+
+For example, when creating the wrapper, we should make sure the resolver is mapped to the query or mutation.
+The mutation we are mocking here is `setActiveBoardItem`:
+
+```javascript
+const mockSetActiveBoardItemResolver = jest.fn();
+const mockApollo = createMockApollo([], {
+    Mutation: {
+      setActiveBoardItem: mockSetActiveBoardItemResolver,
+    },
+});
+```
+
+In the following code, we must pass four arguments. The second one must be the collection of input variables of the query or mutation mocked.
+To test that the mutation is called with the correct parameters:
+
+```javascript
+it('calls setActiveBoardItemMutation on close', async () => {
+    wrapper.findComponent(GlDrawer).vm.$emit('close');
+
+    await waitForPromises();
+
+    expect(mockSetActiveBoardItemResolver).toHaveBeenCalledWith(
+        {},
+        {
+            boardItem: null,
+        },
+        expect.anything(),
+        expect.anything(),
+    );
+});
+```
 
 ### Jest best practices
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/34209) in GitLab 13.2.
 
 #### Prefer `toBe` over `toEqual` when comparing primitive values
 
@@ -706,7 +790,7 @@ unit testing by mocking out modules that cannot be easily consumed in our test e
 > Instead, consider using [`jest.mock(..)`](https://jestjs.io/docs/jest-object#jestmockmodulename-factory-options)
 > (or a similar mocking function) in the relevant spec file.
 
-#### Where should I put manual mocks?
+#### Where should you put manual mocks?
 
 Jest supports [manual module mocks](https://jestjs.io/docs/manual-mocks) by placing a mock in a `__mocks__/` directory next to the source module
 (for example, `app/assets/javascripts/ide/__mocks__`). **Don't do this.** We want to keep all of our test-related code in one place (the `spec/` folder).
@@ -787,29 +871,15 @@ often using fixtures to validate correct integration with the backend code.
 
 ### Use fixtures
 
-To import a JSON fixture, `import` it using the `test_fixtures` alias.
+To import a JSON or HTML fixture, `import` it using the `test_fixtures` alias.
 
 ```javascript
-import responseBody from 'test_fixtures/some/fixture.json' // loads spec/frontend/fixtures/some/fixture.json
+import responseBody from 'test_fixtures/some/fixture.json' // loads tmp/tests/frontend/fixtures-ee/some/fixture.json
 
 it('makes a request', () => {
   axiosMock.onGet(endpoint).reply(200, responseBody);
 
   myButton.click();
-
-  // ...
-});
-```
-
-For other fixtures, Jest uses `spec/frontend/__helpers__/fixtures.js` to import them in tests.
-
-The following are examples of tests that work for Jest:
-
-```javascript
-it('uses some HTML element', () => {
-  loadFixtures('some/page.html'); // loads spec/frontend/fixtures/some/page.html and adds it to the DOM
-
-  const element = document.getElementById('#my-id');
 
   // ...
 });
@@ -828,6 +898,26 @@ You can generate fixtures by running:
 - `bin/rspec spec/frontend/fixtures/merge_requests.rb` to generate specific fixtures (in this case for `merge_request.rb`)
 
 You can find generated fixtures are in `tmp/tests/frontend/fixtures-ee`.
+
+### Download fixtures
+
+We generate fixtures in GitLab CI, and store them in the package registry.
+
+The `scripts/frontend/download_fixtures.sh` script is meant to download and extract those fixtures for local use:
+
+```shell
+# Checks if a frontend fixture package exists in the gitlab-org/gitlab
+# package registry by looking at the commits on a local branch.
+#
+# The package is downloaded and extracted if it exists
+$ scripts/frontend/download_fixtures.sh
+
+# Same as above, but only looks at the last 10 commits of the currently checked-out branch
+$ scripts/frontend/download_fixtures.sh --max-commits=10
+
+# Looks at the commits on the local master branch instead of the currently checked-out branch
+$ scripts/frontend/download_fixtures.sh --branch master
+```
 
 #### Creating new fixtures
 
@@ -866,7 +956,7 @@ This will create a new fixture located at
 `tmp/tests/frontend/fixtures-ee/graphql/releases/graphql/queries/all_releases.query.graphql.json`.
 
 You can import the JSON fixture in a Jest test using the `test_fixtures` alias
-[as described below](#use-fixtures).
+[as described previously](#use-fixtures).
 
 ## Data-driven tests
 
@@ -952,7 +1042,7 @@ If an integration test depends on JavaScript to run correctly, you need to make
 sure the spec is configured to enable JavaScript when the tests are run. If you
 don't do this, the spec runner displays vague error messages.
 
-To enable a JavaScript driver in an `rspec` test, add `:js` to the
+To enable a JavaScript driver in an `RSpec` test, add `:js` to the
 individual spec or the context block containing multiple specs that need
 JavaScript enabled:
 
@@ -1067,7 +1157,7 @@ testAction(
 
 <!-- vale gitlab.Spelling = NO -->
 
-The Axios Utils mock module located in `spec/frontend/mocks/ce/lib/utils/axios_utils.js` contains two helper methods for Jest tests that spawn HTTP requests.
+The Axios Utils mock module located in `spec/frontend/__helpers__/mocks/axios_utils.js` contains two helper methods for Jest tests that spawn HTTP requests.
 These are very useful if you don't have a handle to the request's Promise, for example when a Vue component does a request as part of its life cycle.
 
 <!-- vale gitlab.Spelling = YES -->
@@ -1124,9 +1214,9 @@ Some regressions only affect a specific browser version. We can install and test
 ### BrowserStack
 
 [BrowserStack](https://www.browserstack.com/) allows you to test more than 1200 mobile devices and browsers.
-You can use it directly through the [live app](https://www.browserstack.com/live) or you can install the [chrome extension](https://chrome.google.com/webstore/detail/browserstack/nkihdmlheodkdfojglpcjjmioefjahjb) for easy access.
+You can use it directly through the [live app](https://www.browserstack.com/live) or you can install the [chrome extension](https://chromewebstore.google.com/detail/browserstack/nkihdmlheodkdfojglpcjjmioefjahjb) for easy access.
 Sign in to BrowserStack with the credentials saved in the **Engineering** vault of the GitLab
-[shared 1Password account](https://about.gitlab.com/handbook/security/#1password-guide).
+[shared 1Password account](https://handbook.gitlab.com/handbook/security/password-guidelines/#1password-for-teams).
 
 ### Firefox
 
@@ -1141,29 +1231,183 @@ You can download any older version of Firefox from the releases FTP server, <htt
 1. Rename the application to something like `Firefox_Old`.
 1. Move the application to the `Applications` folder.
 1. Open up a terminal and run `/Applications/Firefox_Old.app/Contents/MacOS/firefox-bin -profilemanager` to create a new profile specific to that Firefox version.
-1. Once the profile has been created, quit the app, and run it again like normal. You now have a working older Firefox version.
+1. Once the profile has been created, quit the app, and run it again like usual. You now have a working older Firefox version.
 
 ## Snapshots
 
-By now you've probably heard of [Jest snapshot tests](https://jestjs.io/docs/snapshot-testing) and why they are useful for various reasons.
-To use them within GitLab, there are a few guidelines that should be highlighted:
+[Jest snapshot tests](https://jestjs.io/docs/snapshot-testing) are a useful way to prevent unexpected changes to the HTML output of a given component. They should **only** be used when other testing methods (such as asserting elements with `vue-tests-utils`) do not cover the required use case. To use them within GitLab, there are a few guidelines that should be highlighted:
 
 - Treat snapshots as code
-- Don't think of a snapshot file as a Blackbox
+- Don't think of a snapshot file as a black box
 - Care for the output of the snapshot, otherwise, it's not providing any real value. This will usually involve reading the generated snapshot file as you would read any other piece of code
 
 Think of a snapshot test as a simple way to store a raw `String` representation of what you've put into the item being tested. This can be used to evaluate changes in a component, a store, a complex piece of generated output, etc. You can see more in the list below for some recommended `Do's and Don'ts`.
-While snapshot tests can be a very powerful tool. They are meant to supplement, not to replace unit tests.
+While snapshot tests can be a very powerful tool, they are meant to supplement, not to replace unit tests.
 
 Jest provides a great set of docs on [best practices](https://jestjs.io/docs/snapshot-testing#best-practices) that we should keep in mind when creating snapshots.
 
 ### How does a snapshot work?
 
-A snapshot is purely a stringified version of what you ask to be tested on the lefthand side of the function call. This means any kind of changes you make to the formatting of the string has an impact on the outcome. This process is done by leveraging serializers for an automatic transform step. For Vue this is already taken care of by leveraging the `vue-jest` package, which offers the proper serializer.
+A snapshot is purely a stringified version of what you ask to be tested on the left-hand side of the function call. This means any kind of changes you make to the formatting of the string has an impact on the outcome. This process is done by leveraging serializers for an automatic transform step. For Vue this is already taken care of by leveraging the `vue-jest` package, which offers the proper serializer.
 
 Should the outcome of your spec be different from what is in the generated snapshot file, you'll be notified about it by a failing test in your test suite.
 
 Find all the details in Jests official documentation [https://jestjs.io/docs/snapshot-testing](https://jestjs.io/docs/snapshot-testing)
+
+### Pros and Cons
+
+**Pros**
+
+- Provides a good warning against accidental changes of important HTML structures
+- Ease of setup
+
+**Cons**
+
+- Lacks the clarity or guard rails that `vue-tests-utils` provides by finding elements and asserting their presence directly
+- Creates unnecessary noise when updating components purposefully
+- High risk of taking a snapshot of bugs, which then turns the tests against us since the test will now fail when fixing the issue
+- No meaningful assertions or expectations within snapshots makes them harder to reason about or replace
+- When used with dependencies like [GitLab UI](https://gitlab.com/gitlab-org/gitlab-ui), it creates fragility in tests when the underlying library changes the HTML of a component we are testing
+
+### When to use
+
+**Use snapshots when**
+
+- Protecting critical HTML structures so it doesn't change by accident
+- Asserting JS object or JSON outputs of complex utility functions
+
+### When not to use
+
+**Don't use snapshots when**
+
+- Tests could be written using `vue-tests-utils` instead
+- Asserting the logic of a component
+- Predicting data structure(s) outputs
+- There are UI elements outside of the repository (think of GitLab UI version updates)
+
+### Examples
+
+As you can see, the cons of snapshot tests far outweigh the pros in general. To illustrate this better, this section will show a few examples of when you might be tempted to
+use snapshot testing and why they are not good patterns.
+
+#### Example #1 - Element visibility
+
+When testing elements visibility, favour using `vue-tests-utils (VTU)` to find a given component and then a basic `.exists()` method call on the VTU wrapper. This provides better readability and more resilient testing. If you look at the examples below, notice how the assertions on the snapshots do not tell you what you are expecting to see. We are relying entirely on `it` description to give us context and on the assumption that the snapshot has captured the desired behavior.
+
+```vue
+<template>
+  <my-component v-if="isVisible" />
+</template>
+```
+
+Bad:
+
+```javascript
+it('hides the component', () => {
+  createComponent({ props: { isVisible: false }})
+
+  expect(wrapper.element).toMatchSnapshot()
+})
+
+it('shows the component', () => {
+  createComponent({ props: { isVisible: true }})
+
+  expect(wrapper.element).toMatchSnapshot()
+})
+```
+
+Good:
+
+```javascript
+it('hides the component', () => {
+  createComponent({ props: { isVisible: false }})
+
+  expect(findMyComponent().exists()).toBe(false)
+})
+
+it('shows the component', () => {
+  createComponent({ props: { isVisible: true }})
+
+  expect(findMyComponent().exists()).toBe(true)
+})
+```
+
+Not only that, but imagine having passed the wrong prop to your component and having the wrong visibility: the snapshot test would still pass because you would have captured the HTML **with the issue** and so unless you double-checked the output of the snapshot, you would never know that your test is broken.
+
+#### Example #2 - Presence of text
+
+Finding text within a component is very easy by using the `vue-test-utils` method `wrapper.text()`. However, there are some cases where it might be tempting to use snapshots when the value returned has a lot of inconsistent spacing due to formatting or HTML nesting.
+
+In these instances, it is better to assert each string individually and make multiple assertions than to use a snapshot to ignore the spaces. This is because any change to the DOM layout will fail the snapshot test even if the text is still perfectly formatted.
+
+```vue
+<template>
+  <gl-sprintf :message="my-message">
+    <template #code="{ content }">
+      <code>{{ content }}</code>
+    </template>
+  </gl-sprintf>
+  <p> My second message </p>
+</template>
+```
+
+Bad:
+
+```javascript
+it('renders the text as I expect', () => {
+  expect(wrapper.text()).toMatchSnapshot()
+})
+```
+
+Good:
+
+```javascript
+it('renders the code snippet', () => {
+  expect(findCodeTag().text()).toContain("myFunction()")
+})
+
+it('renders the paragraph text', () => {
+  expect(findOtherText().text()).toBe("My second message")
+})
+```
+
+#### Example #3 - Complex HTML
+
+When we have very complex HTML, we should focus on asserting specific sensitive and meaningful points rather than capturing it as a whole. The value in a snapshot test is to **warn developers** that they might have accidentally change an HTML structure that they did not intend to change. If the output of the change is hard to read, which is often the case with complex HTML output, then **is the signal itself that something changed** sufficient? And if it is, can it be accomplished without snapshots?
+
+A good example of a complex HTML output is `GlTable`. Snapshot testing might feel like a good option since you can capture rows and columns structure, but we should instead try to assert text we expect or count the number of rows and columns manually.
+
+```vue
+<template>
+  <gl-table ...all-them-props />
+</template>
+```
+
+Bad:
+
+```javascript
+it('renders GlTable as I expect', () => {
+  expect(findGlTable().element).toMatchSnapshot()
+})
+```
+
+Good:
+
+```javascript
+it('renders the right number of rows', () => {
+  expect(findGlTable().findAllRows()).toHaveLength(expectedLength)
+})
+
+it('renders the special icon that only appears on a full moon', () => {
+  expect(findGlTable().findMoonIcon().exists()).toBe(true)
+})
+
+it('renders the correct email format', () => {
+  expect(findGlTable().text()).toContain('my_strange_email@shaddyprovide.com')
+})
+```
+
+Although more verbose, this now means that our tests are not going to break if `GlTable` changes its internal implementation, we communicate to other developers (or ourselves in 6 months) what is important to preserve when refactoring or adding to our table.
 
 ### How to take a snapshot
 
@@ -1195,42 +1439,333 @@ it('renders the component correctly', () => {
 
 The above test will create two snapshots. It's important to decide which of the snapshots provide more value for codebase safety. That is, if one of these snapshots changes, does that highlight a possible break in the codebase? This can help catch unexpected changes if something in an underlying dependency changes without our knowledge.
 
-### Pros and Cons
+## Get started with feature tests
 
-**Pros**
+### What is a feature test
 
-- Speed up the creation of unit tests
-- Easy to maintain
-- Provides a good safety net to protect against accidental breakage of important HTML structures
+A [feature test](testing_levels.md#white-box-tests-at-the-system-level-formerly-known-as-system--feature-tests), also known as `white-box testing`, is a test that spawns a browser and has Capybara helpers. This means the test can:
 
-**Cons**
+- Locate an element in the browser.
+- Click that element.
+- Call the API.
 
-- Is not a catch-all solution that replaces the work of integration or unit tests
-- No meaningful assertions or expectations within snapshots
-- When carelessly used with [GitLab UI](https://gitlab.com/gitlab-org/gitlab-ui) it can create fragility in tests when the underlying library changes the HTML of a component we are testing
+Feature tests are expensive to run. You should make sure that you **really want** this type of test before running one.
 
-A good guideline to follow: the more complex the component you may want to steer away from just snapshot testing. But that's not to say you can't still snapshot test and test your component as normal.
+All of our feature tests are written in `Ruby` but often end up being written by `JavaScript` engineers, as they implement the user-facing feature. So, the following section assumes no prior knowledge of `Ruby` or `Capybara`, and provide a clear guideline on when and how to use these tests.
 
-### When to use
+### When to use feature tests
 
-**Use snapshots when**
+You should use a feature test when the test:
 
-- to capture a components rendered output
-- to fully or partially match templates
-- to match readable data structures
-- to verify correctly composed native HTML elements
-- as a safety net for critical structures so others don't break it by accident
-- Template heavy component
-- Not a lot of logic in the component
-- Composed of native HTML elements
+- Is across multiple components.
+- Requires that a user navigate across pages.
+- Is submitting a form and observing results elsewhere.
+- Would result in a huge number of mocking and stubbing with fake data and components if done as a unit test.
 
-### When not to use
+Feature tests are especially useful when you want to test:
 
-**Don't use snapshots when**
+- That multiple components are working together successfully.
+- Complex API interactions. Feature tests interact with the API, so they are slower but do not need any level of mocking or fixtures.
 
-- To capture large data structures just to have something
-- To just have some kind of test written
-- To capture highly volatile UI elements without stubbing them (Think of GitLab UI version updates)
+### When not to use feature tests
+
+You should use `jest` and `vue-test-utils` unit tests instead of a feature test if you can get the same test results from these methods. Feature tests are quite expensive to run.
+
+You should use a unit test if:
+
+- The behavior you are implementing is all in one component.
+- You can simulate other components' behavior to trigger the desired effect.
+- You can already select UI elements in the virtual DOM to trigger the desired effects.
+
+Also, if a behavior in your new code needs multiple components to work together, you should consider testing your behavior higher in the component tree. For example, let's say that we have a component called `ParentComponent` with the code:
+
+```vue
+  <script>
+  export default{
+    name: ParentComponent,
+    data(){
+      return {
+        internalData: 'oldValue'
+      }
+    },
+     methods:{
+      changeSomeInternalData(newVal){
+        this.internalData = newVal
+      }
+     }
+  }
+  </script>
+  <template>
+   <div>
+    <child-component-1 @child-event="changeSomeInternalData" />
+    <child-component-2 :parent-data="internalData" />
+   </div>
+  </template>
+```
+
+In this example:
+
+- `ChildComponent1` emits an event.
+- `ParentComponent` changes its `internalData` value.
+- `ParentComponent` passes the props down to `ChildComponent2`.
+
+You can use a unit test instead by:
+
+- From inside the `ParentComponent` unit test file, emitting the expected event from `childComponent1`
+- Making sure the prop is passed down to `childComponent2`.
+
+Then each child component unit tests what happens when the event is emitted and when the prop changes.
+
+This example also applies at larger scale and with deeper component trees. It is definitely worth using unit tests and avoiding the extra cost of feature tests if you can:
+
+- Confidently mount child components.
+- Emit events or select elements in the virtual DOM.
+- Get the test behavior that you want.
+
+### Where to create your test
+
+Feature tests live in `spec/features` folder. You should look for existing files that can test the page you are adding a feature to. Within that folder, you can locate your section. For example, if you wanted to add a new feature test for the pipeline page, you would look in `spec/features/projects/pipelines` and see if the test you want to write exists here.
+
+### How to run a feature test
+
+1. Make sure that you have a working GDK environment.
+1. Start your `gdk` environment with `gdk start` command.
+1. In your terminal, run:
+
+  ```shell
+   bundle exec rspec path/to/file:line_of_my_test
+  ```
+
+You can also prefix this command with `WEBDRIVER_HEADLESS=0` which will run the test by opening an actual browser on your computer that you can see, which is very useful for debugging.
+
+To use Firefox, instead of Chrome, prefix the command with `WEBDRIVER=firefox`.
+
+### How to write a test
+
+#### Basic file structure
+
+1. Make all string literals unchangeable
+
+  In all feature tests, the very first line should be:
+
+  ```ruby
+  # frozen_string_literal: true
+  ```
+
+  This is in every `Ruby` file and makes all string literals unchangeable. There are also some performance benefits, but this is beyond the scope of this section.
+
+1. Import dependencies.
+
+  You should import the modules you need. You will most likely always need to require `spec_helper`:
+
+  ```ruby
+  require 'spec_helper'
+  ```
+
+  Import any other relevant module.
+
+1. Create a global scope for RSpec to define our tests, just like what we do in jest with the initial describe block.
+
+Then, you need to create the very first `RSpec` scope.
+
+```ruby
+RSpec.describe 'Pipeline', :js do
+  ...
+end
+```
+
+What is different though, is that just like everything in Ruby, this is actually a `class`. Which means that right at the top, you can `include` modules that you'd need for your test. For example, you could include the `RoutesHelpers` to navigate more easily.
+
+```ruby
+RSpec.describe 'Pipeline', :js do
+  include RoutesHelpers
+  ...
+end
+```
+
+After all of this implementation, we have a file that looks something like this:
+
+```ruby
+# frozen_string_literal: true
+
+require 'spec_helper'
+
+RSpec.describe 'Pipeline', :js do
+  include RoutesHelpers
+end
+```
+
+#### Seeding data
+
+Each test is in its own environment and so you must use a factory to seed the required data. To continue on with the pipeline example, let's say that you want a test that takes you to the main pipeline page, which is at the route `/namespace/project/-/pipelines/:id/`.
+
+Most feature tests at least require you to create a user, because you want to be signed in. You can skip this step if you don't have to be signed in, but as a general rule, you should **always create a user unless you are specifically testing a feature looked at by an anonymous user**. This makes sure that you explicitly set a level of permission that you can edit in the test as needed to change or test a new level of permission as the section changes. To create a user:
+
+```ruby
+  let(:user) { create(:user) }
+```
+
+This creates a variable that holds the newly created user and we can use `create` because we imported the `spec_helper`.
+
+However, we have not done anything with this user yet because it's just a variable. So, in the `before do` block of the spec, we could sign in with the user so that every spec starts with an authenticated user.
+
+```ruby
+  let(:user) { create(:user) }
+
+  before do
+    sign_in(user)
+  end
+```
+
+Now that we have a user, we should look at what else we'd need before asserting anything on a pipeline page. If you look at the route `/namespace/project/-/pipelines/:id/` we can determine we need a project and a pipeline.
+
+So we'd create a project and pipeline, and link them together. Usually in factories, the child element requires its parent as an argument. In this case, a pipeline is a child of a project. So we can create the project first, and then when we create the pipeline, we are pass the project as an argument which "binds" the pipeline to the project. A pipeline is also owned by a user, so we need the user as well. For example, this creates a project and a pipeline:
+
+```ruby
+  let(:user) { create(:user) }
+  let(:project) { create(:project, :repository) }
+  let(:pipeline) { create(:ci_pipeline, project: project, ref: 'master', sha: project.commit.id, user: user) }
+```
+
+In the same spirit, you could then create a job (build) by using the build factory and passing the parent pipeline:
+
+```ruby
+  create(:ci_build, pipeline: pipeline, stage_idx: 10, stage: 'publish', name: 'CentOS')
+```
+
+There are many factories that already exists, so make sure to look at other existing files to see if what you need is available.
+
+#### Navigation
+
+You can go to a page by using the `visit` method and passing the path as an argument. Rails automatically generates helper paths, so make sure to use these instead of a hardcoded string. They are generated using the route model, so if we want to go to a pipeline, we'd use:
+
+```ruby
+  visit project_pipeline_path(project, pipeline)
+```
+
+Before executing any page interaction when navigating or making asynchronous call through the UI, make sure to use `wait_for_requests` before proceeding with further instructions.
+
+#### Elements interaction
+
+There are a lot of different ways to find and interact with elements.
+For best practises, refer to the [UI testing](best_practices.md#ui-testing) section.
+
+To click a button, use `click_button` with the string of text found in the button:
+
+```ruby
+  click_button 'Text inside the button element'
+```
+
+If you want to follow a link, then there is `click_link`:
+
+```ruby
+  click_link 'Text inside the link tag'
+```
+
+You can use `fill_in` to fill input / form elements. The first argument is the selector, the second is `with:` which is the value to pass in.
+
+```ruby
+  fill_in 'current_password', with: '123devops'
+```
+
+Alternatively, you can use the `find` selector paired with `send_keys` to add keys in a field without removing previous text, or `set` which completely replaces the value of the input element.
+
+You can find a more comprehensive list of actions in the [feature tests actions](best_practices.md#actions) documentation.
+
+#### Assertions
+
+To assert anything in a page, you can always access `page` variable, which is automatically defines and actually means the page document. This means you can expect the `page` to have certain components like selectors or content. Here are a few examples:
+
+```ruby
+  # Finding a button
+  expect(page).to have_button('Submit review')
+```
+
+```ruby
+  # Finding by text
+  expect(page).to have_text('build')
+```
+
+```ruby
+  # Finding by `href` value
+  expect(page).to have_link(pipeline.ref)
+```
+
+```ruby
+  # Find by data-testid
+  # Like CSS selector, this is acceptable when there isn't a specific matcher available.
+  expect(page).to have_css('[data-testid="pipeline-multi-actions-dropdown"]')
+```
+
+```ruby
+  # Finding by CSS selector. This is a last resort.
+  # For example, when you cannot add attributes on the desired element.
+  expect(page).to have_css('.js-icon-retry')
+```
+
+```ruby
+  # You can combine any of these selectors with `not_to` instead
+  expect(page).not_to have_button('Submit review')
+```
+
+```ruby
+  # When a test case has back to back expectations,
+  # it is recommended to group them using `:aggregate_failures`
+  it 'shows the issue description and design references', :aggregate_failures do
+    expect(page).to have_text('The designs I mentioned')
+    expect(page).to have_link(design_tab_ref)
+    expect(page).to have_link(design_ref_a)
+    expect(page).to have_link(design_ref_b)
+  end
+```
+
+You can also create a sub-block to look into, to:
+
+- Scope down where you are making your assertions and reduce the risk of finding another element that was not intended.
+- Make sure an element is found within the right boundaries.
+
+```ruby
+  page.within('[data-testid="pipeline-multi-actions-dropdown"]') do
+    ...
+  end
+```
+
+You can find a more comprehensive list of matchers in the [feature tests matchers](best_practices.md#matchers) documentation.
+
+#### Feature flags
+
+By default, every feature flag is enabled **regardless of the YAML definition or the flags you've set manually in your GDK**. To test when a feature flag is disabled, you must manually stub the flag, ideally in a `before do` block.
+
+```ruby
+  stub_feature_flags(my_feature_flag: false)
+```
+
+If you are stubbing an `ee` feature flag, then use:
+
+```ruby
+  stub_licensed_features(my_feature_flag: false)
+```
+
+### Debugging
+
+You can run your spec with the prefix `WEBDRIVER_HEADLESS=0` to open an actual browser. However, the specs goes though the commands quickly and leaves you no time to look around.
+
+To avoid this problem, you can write `binding.pry` on the line where you want Capybara to stop execution. You are then inside the browser with standard usage. To understand why you cannot find certain elements, you can:
+
+- Select elements.
+- Use the console and network tab.
+- Execute selectors inside the browser console.
+
+Inside the terminal, where capybara is running, you can also execute `next` which goes line by line through the test. This way you can check every single interaction one by one to see what might be causing an issue.
+
+### Improving execution time on the GDK
+
+Running the Jest test suite, the number of workers is set to use 60% of the available cores of your machine; this results in faster execution times but higher memory consumption. For more benchmarks on how this works please refer to this [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/456885).
+
+### Updating ChromeDriver
+
+Starting from `Selenium` 4.6, ChromeDriver can be automatically managed by `Selenium Manager` which comes with the `selenium-webdriver` gem.
+You are no longer required to manually keeping chromedriver in sync.
 
 ---
 

@@ -1,12 +1,9 @@
 import { GlSprintf } from '@gitlab/ui';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
-import { packageData, pypiMetadata } from 'jest/packages_and_registries/package_registry/mock_data';
+import { pypiMetadata } from 'jest/packages_and_registries/package_registry/mock_data';
 import component from '~/packages_and_registries/package_registry/components/details/metadata/pypi.vue';
-import { PACKAGE_TYPE_PYPI } from '~/packages_and_registries/package_registry/constants';
 
 import DetailsRow from '~/vue_shared/components/registry/details_row.vue';
-
-const pypiPackage = { packageType: PACKAGE_TYPE_PYPI, metadata: pypiMetadata() };
 
 describe('Package Additional Metadata', () => {
   let wrapper;
@@ -14,9 +11,7 @@ describe('Package Additional Metadata', () => {
   const mountComponent = () => {
     wrapper = shallowMountExtended(component, {
       propsData: {
-        packageEntity: {
-          ...packageData(pypiPackage),
-        },
+        packageMetadata: pypiMetadata(),
       },
       stubs: {
         DetailsRow,
@@ -25,20 +20,21 @@ describe('Package Additional Metadata', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   const findPypiRequiredPython = () => wrapper.findByTestId('pypi-required-python');
+  const findPypiAuthorEmail = () => wrapper.findByTestId('pypi-author-email');
+  const findPypiSummary = () => wrapper.findByTestId('pypi-summary');
+  const findPypiKeywords = () => wrapper.findByTestId('pypi-keywords');
 
   beforeEach(() => {
     mountComponent();
   });
 
   it.each`
-    name                      | finderFunction            | text                        | icon
-    ${'pypi-required-python'} | ${findPypiRequiredPython} | ${'Required Python: 1.0.0'} | ${'information-o'}
+    name                      | finderFunction            | text                                                      | icon
+    ${'pypi-required-python'} | ${findPypiRequiredPython} | ${'Required Python: 1.0.0'}                               | ${'information-o'}
+    ${'pypi-author-email'}    | ${findPypiAuthorEmail}    | ${'Author email: "C. Schultz" <cschultz@example.com>'}    | ${'mail'}
+    ${'pypi-summary'}         | ${findPypiSummary}        | ${'Summary: A module for collecting votes from beagles.'} | ${'doc-text'}
+    ${'pypi-keywords'}        | ${findPypiKeywords}       | ${'Keywords: dog,puppy,voting,election'}                  | ${'doc-text'}
   `('$name element', ({ finderFunction, text, icon }) => {
     const element = finderFunction();
     expect(element.exists()).toBe(true);

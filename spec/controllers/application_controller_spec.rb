@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe ApplicationController do
+RSpec.describe ApplicationController, feature_category: :shared do
   include TermsHelper
 
   let(:user) { create(:user) }
@@ -19,7 +19,7 @@ RSpec.describe ApplicationController do
       expect(user.ldap_user?).to be_falsey
       allow(controller).to receive(:current_user).and_return(user)
       expect(controller).to receive(:redirect_to)
-      expect(controller).to receive(:new_profile_password_path)
+      expect(controller).to receive(:new_user_settings_password_path)
 
       controller.send(:check_password_expiration)
     end
@@ -88,6 +88,13 @@ RSpec.describe ApplicationController do
       let(:format) { :html }
 
       it_behaves_like 'setting gon variables'
+
+      it 'provides the organization_http_header_name' do
+        get :index, format: format
+
+        expect(json_response.to_h)
+          .to include('organization_http_header_name' => ::Organizations::ORGANIZATION_HTTP_HEADER)
+      end
     end
 
     context 'with json format' do
@@ -100,36 +107,6 @@ RSpec.describe ApplicationController do
       let(:format) { :atom }
 
       it_behaves_like 'not setting gon variables'
-    end
-  end
-
-  describe 'session expiration' do
-    controller(described_class) do
-      # The anonymous controller will report 401 and fail to run any actions.
-      # Normally, GitLab will just redirect you to sign in.
-      skip_before_action :authenticate_user!, only: :index
-
-      def index
-        render html: 'authenticated'
-      end
-    end
-
-    context 'authenticated user' do
-      it 'does not set the expire_after option' do
-        sign_in(create(:user))
-
-        get :index
-
-        expect(request.env['rack.session.options'][:expire_after]).to be_nil
-      end
-    end
-
-    context 'unauthenticated user' do
-      it 'sets the expire_after option' do
-        get :index
-
-        expect(request.env['rack.session.options'][:expire_after]).to eq(Settings.gitlab['unauthenticated_session_expire_delay'])
-      end
     end
   end
 
@@ -474,7 +451,7 @@ RSpec.describe ApplicationController do
 
       enforce_terms
 
-      expect { get :index }.not_to exceed_query_limit(control)
+      expect { get :index }.not_to exceed_query_limit(control).with_threshold(1)
     end
 
     context 'when terms are enforced' do
@@ -561,6 +538,28 @@ RSpec.describe ApplicationController do
 
         expect(controller.last_payload[:request_urgency]).to eq(:high)
         expect(controller.last_payload[:target_duration_s]).to eq(0.25)
+      end
+    end
+
+    it 'logs response length' do
+      sign_in user
+
+      get :index
+
+      expect(controller.last_payload[:response_bytes]).to eq('authenticated'.bytesize)
+    end
+
+    context 'with log_response_length disabled' do
+      before do
+        stub_feature_flags(log_response_length: false)
+      end
+
+      it 'logs response length' do
+        sign_in user
+
+        get :index
+
+        expect(controller.last_payload).not_to include(:response_bytes)
       end
     end
   end
@@ -718,23 +717,11 @@ RSpec.describe ApplicationController do
       end
     end
 
-    context 'user not logged in' do
-      it 'sets the default headers' do
-        get :index
+    it 'sets the default headers' do
+      get :index
 
-        expect(response.headers['Cache-Control']).to be_nil
-        expect(response.headers['Pragma']).to be_nil
-      end
-    end
-
-    context 'user logged in' do
-      it 'sets the default headers' do
-        sign_in(user)
-
-        get :index
-
-        expect(response.headers['Pragma']).to eq 'no-cache'
-      end
+      expect(response.headers['Cache-Control']).to be_nil
+      expect(response.headers['Pragma']).to be_nil
     end
   end
 
@@ -761,7 +748,6 @@ RSpec.describe ApplicationController do
       subject
 
       expect(response.headers['Cache-Control']).to eq 'private, no-store'
-      expect(response.headers['Pragma']).to eq 'no-cache'
       expect(response.headers['Expires']).to eq 'Fri, 01 Jan 1990 00:00:00 GMT'
     end
 
@@ -860,39 +846,12 @@ RSpec.describe ApplicationController do
     end
   end
 
-  describe '#required_signup_info' do
-    controller(described_class) do
-      def index; end
-    end
-
-    let(:user) { create(:user) }
-
-    context 'user with required role' do
-      before do
-        user.set_role_required!
-        sign_in(user)
-        get :index
-      end
-
-      it { is_expected.to redirect_to users_sign_up_welcome_path }
-    end
-
-    context 'user without a required role' do
-      before do
-        sign_in(user)
-        get :index
-      end
-
-      it { is_expected.not_to redirect_to users_sign_up_welcome_path }
-    end
-  end
-
-  describe 'rescue_from Gitlab::Auth::IpBlacklisted' do
+  describe 'rescue_from Gitlab::Auth::IpBlocked' do
     controller(described_class) do
       skip_before_action :authenticate_user!
 
       def index
-        raise Gitlab::Auth::IpBlacklisted
+        raise Gitlab::Auth::IpBlocked
       end
     end
 
@@ -910,6 +869,7 @@ RSpec.describe ApplicationController do
       get :index
 
       expect(response).to have_gitlab_http_status(:forbidden)
+      expect(response.body).to eq(Gitlab::Auth::IpBlocked.new.message)
     end
   end
 
@@ -988,7 +948,7 @@ RSpec.describe ApplicationController do
   end
 
   describe '.endpoint_id_for_action' do
-    controller(described_class) { }
+    controller(described_class) {}
 
     it 'returns an expected endpoint id' do
       expect(controller.class.endpoint_id_for_action('hello')).to eq('AnonymousController#hello')
@@ -1110,6 +1070,30 @@ RSpec.describe ApplicationController do
         expect(response).to have_gitlab_http_status(:redirect)
         expect(response.headers['Permissions-Policy']).to eq('interest-cohort=()')
       end
+    end
+  end
+
+  context 'when Gitlab::Git::ResourceExhaustedError exception is raised' do
+    before do
+      sign_in user
+    end
+
+    controller(described_class) do
+      def index
+        raise Gitlab::Git::ResourceExhaustedError.new(
+          "Upstream Gitaly has been exhausted: maximum time in concurrency queue reached. Try again later", 50
+        )
+      end
+    end
+
+    it 'returns a plaintext error response with 503 status' do
+      get :index
+
+      expect(response).to have_gitlab_http_status(:service_unavailable)
+      expect(response.body).to include(
+        "Upstream Gitaly has been exhausted: maximum time in concurrency queue reached. Try again later"
+      )
+      expect(response.headers['Retry-After']).to eq(50)
     end
   end
 end

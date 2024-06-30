@@ -1,4 +1,3 @@
-import { GlCard } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import RepoDropdown from '~/projects/compare/components/repo_dropdown.vue';
 import RevisionCard from '~/projects/compare/components/revision_card.vue';
@@ -14,30 +13,24 @@ describe('RepoDropdown component', () => {
         ...defaultProps,
         ...props,
       },
-      stubs: {
-        GlCard,
-      },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   beforeEach(() => {
     createComponent();
   });
 
+  const RevisionCardWrapper = () => wrapper.find('.revision-card');
+
   it('displays revision text', () => {
-    expect(wrapper.find(GlCard).text()).toContain(defaultProps.revisionText);
+    expect(RevisionCardWrapper().text()).toContain(defaultProps.revisionText);
   });
 
   it('renders RepoDropdown component', () => {
-    expect(wrapper.findAll(RepoDropdown).exists()).toBe(true);
+    expect(wrapper.findAllComponents(RepoDropdown).exists()).toBe(true);
   });
 
   it('renders RevisionDropdown component', () => {
-    expect(wrapper.findAll(RevisionDropdown).exists()).toBe(true);
+    expect(wrapper.findAllComponents(RevisionDropdown).exists()).toBe(true);
   });
 });

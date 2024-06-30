@@ -1,4 +1,7 @@
 import $ from 'jquery';
+import htmlWebauthnRegister from 'test_fixtures/webauthn/register.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
+import { trimText } from 'helpers/text_helper';
 import setWindowLocation from 'helpers/set_window_location_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import WebAuthnRegister from '~/authentication/webauthn/register';
@@ -23,7 +26,7 @@ describe('WebAuthnRegister', () => {
   let component;
 
   beforeEach(() => {
-    loadFixtures('webauthn/register.html');
+    setHTMLFixture(htmlWebauthnRegister);
     webAuthnDevice = new MockWebAuthnDevice();
     container = $('#js-register-token-2fa');
     component = new WebAuthnRegister(container, {
@@ -41,13 +44,17 @@ describe('WebAuthnRegister', () => {
     component.start();
   });
 
+  afterEach(() => {
+    resetHTMLFixture();
+  });
+
   const findSetupButton = () => container.find('#js-setup-token-2fa-device');
   const findMessage = () => container.find('p');
   const findDeviceResponse = () => container.find('#js-device-response');
   const findRetryButton = () => container.find('#js-token-2fa-try-again');
 
   it('shows setup button', () => {
-    expect(findSetupButton().text()).toBe('Set up new device');
+    expect(trimText(findSetupButton().text())).toBe('Set up new device');
   });
 
   describe('when unsupported', () => {

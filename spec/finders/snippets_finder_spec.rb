@@ -106,8 +106,26 @@ RSpec.describe SnippetsFinder do
         expect(snippets).to contain_exactly(public_personal_snippet)
       end
 
-      it 'returns all snippets for an admin in admin mode', :enable_admin_mode do
+      it 'returns all personal snippets for an admin in admin mode', :enable_admin_mode do
         snippets = described_class.new(admin, author: user).execute
+
+        expect(snippets).to contain_exactly(private_personal_snippet, internal_personal_snippet, public_personal_snippet)
+      end
+
+      it 'returns all snippets (everything) for an admin when all_available="true" passed in', :enable_admin_mode do
+        snippets = described_class.new(admin, author: user, all_available: true).execute
+
+        expect(snippets).to contain_exactly(
+          private_project_snippet,
+          internal_project_snippet,
+          public_project_snippet,
+          private_personal_snippet,
+          internal_personal_snippet,
+          public_personal_snippet)
+      end
+
+      it 'returns all snippets for non-admin user, even when all_available="true" passed in' do
+        snippets = described_class.new(user, author: user, all_available: true).execute
 
         expect(snippets).to contain_exactly(private_personal_snippet, internal_personal_snippet, public_personal_snippet)
       end
@@ -231,22 +249,34 @@ RSpec.describe SnippetsFinder do
 
     context 'filter by snippet type' do
       context 'when filtering by only_personal snippet', :enable_admin_mode do
-        it 'returns only personal snippet' do
+        let!(:admin_private_personal_snippet) { create(:personal_snippet, :private, author: admin) }
+        let(:user_without_snippets) { create :user }
+
+        it 'returns all personal snippets for the admin' do
           snippets = described_class.new(admin, only_personal: true).execute
 
-          expect(snippets).to contain_exactly(private_personal_snippet,
-                                              internal_personal_snippet,
-                                              public_personal_snippet)
+          expect(snippets).to contain_exactly(
+            admin_private_personal_snippet,
+            private_personal_snippet,
+            internal_personal_snippet,
+            public_personal_snippet
+          )
         end
-      end
 
-      context 'when filtering by only_project snippet', :enable_admin_mode do
-        it 'returns only project snippet' do
-          snippets = described_class.new(admin, only_project: true).execute
+        it 'returns only personal snippets visible by user' do
+          snippets = described_class.new(user, only_personal: true).execute
 
-          expect(snippets).to contain_exactly(private_project_snippet,
-                                              internal_project_snippet,
-                                              public_project_snippet)
+          expect(snippets).to contain_exactly(
+            private_personal_snippet,
+            internal_personal_snippet,
+            public_personal_snippet
+          )
+        end
+
+        it 'returns only internal or public personal snippets for user without snippets' do
+          snippets = described_class.new(user_without_snippets, only_personal: true).execute
+
+          expect(snippets).to contain_exactly(internal_personal_snippet, public_personal_snippet)
         end
       end
     end
@@ -291,6 +321,50 @@ RSpec.describe SnippetsFinder do
         expect(snippets).to contain_exactly(
           internal_personal_snippet, public_personal_snippet
         )
+      end
+    end
+
+    context 'filtering for snippets authored by banned users', feature_category: :insider_threat do
+      let_it_be(:banned_user) { create(:user, :banned) }
+
+      let_it_be(:banned_public_personal_snippet) { create(:personal_snippet, :public, author: banned_user) }
+      let_it_be(:banned_public_project_snippet) { create(:project_snippet, :public, project: project, author: banned_user) }
+
+      it 'returns banned snippets for admins when in admin mode', :enable_admin_mode do
+        snippets = described_class.new(
+          admin,
+          ids: [banned_public_personal_snippet.id, banned_public_project_snippet.id]
+        ).execute
+
+        expect(snippets).to contain_exactly(
+          banned_public_personal_snippet, banned_public_project_snippet
+        )
+      end
+
+      it 'does not return banned snippets for non-admin users' do
+        snippets = described_class.new(
+          user,
+          ids: [banned_public_personal_snippet.id, banned_public_project_snippet.id]
+        ).execute
+
+        expect(snippets).to be_empty
+      end
+
+      context 'when hide_snippets_of_banned_users feature flag is off' do
+        before do
+          stub_feature_flags(hide_snippets_of_banned_users: false)
+        end
+
+        it 'returns banned snippets for non-admin users' do
+          snippets = described_class.new(
+            user,
+            ids: [banned_public_personal_snippet.id, banned_public_project_snippet.id]
+          ).execute
+
+          expect(snippets).to contain_exactly(
+            banned_public_personal_snippet, banned_public_project_snippet
+          )
+        end
       end
     end
 

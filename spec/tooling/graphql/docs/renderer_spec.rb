@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'spec_helper'
 require_relative '../../../../tooling/graphql/docs/renderer'
 
 RSpec.describe Tooling::Graphql::Docs::Renderer do
@@ -162,22 +163,22 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
           description 'Testing doc refs'
 
           field :foo,
-                type: GraphQL::Types::String,
-                null: false,
-                description: 'The foo.',
-                see: { 'A list of foos' => 'https://example.com/foos' }
+            type: GraphQL::Types::String,
+            null: false,
+            description: 'The foo.',
+            see: { 'A list of foos' => 'https://example.com/foos' }
           field :bar,
-                type: GraphQL::Types::String,
-                null: false,
-                description: 'The bar.',
-                see: { 'A list of bars' => 'https://example.com/bars' } do
-                  argument :barity, ::GraphQL::Types::Int, required: false, description: '?'
-                end
+            type: GraphQL::Types::String,
+            null: false,
+            description: 'The bar.',
+            see: { 'A list of bars' => 'https://example.com/bars' } do
+            argument :barity, ::GraphQL::Types::Int, required: false, description: '?'
+          end
           field :wibbles,
-                type: wibble.connection_type,
-                null: true,
-                description: 'The wibbles',
-                see: { 'wibblance' => 'https://example.com/wibbles' }
+            type: wibble.connection_type,
+            null: true,
+            description: 'The wibbles',
+            see: { 'wibblance' => 'https://example.com/wibbles' }
         end
       end
 
@@ -220,14 +221,14 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
           description 'A thing we used to use, but no longer support'
 
           field :foo,
-                type: GraphQL::Types::String,
-                null: false,
-                description: 'A description.' do
-                  argument :foo_arg, GraphQL::Types::String,
-                           required: false,
-                           description: 'The argument.',
-                           deprecated: { reason: 'Bad argument', milestone: '101.2' }
-                end
+            type: GraphQL::Types::String,
+            null: false,
+            description: 'A description.' do
+            argument :foo_arg, GraphQL::Types::String,
+              required: false,
+              description: 'The argument.',
+              deprecated: { reason: 'Bad argument', milestone: '101.2' }
+          end
         end
       end
 
@@ -243,7 +244,7 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
 
          | Name | Type | Description |
          | ---- | ---- | ----------- |
-         | <a id="deprecatedtestfoofooarg"></a>`fooArg` **{warning-solid}** | [`String`](#string) | **Deprecated** in 101.2. Bad argument. |
+         | <a id="deprecatedtestfoofooarg"></a>`fooArg` **{warning-solid}** | [`String`](#string) | **Deprecated** in GitLab 101.2. Bad argument. |
         DOC
       end
 
@@ -257,26 +258,26 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
           description 'A thing we used to use, but no longer support'
 
           field :foo,
-                type: GraphQL::Types::String,
-                null: false,
-                deprecated: { reason: 'This is deprecated', milestone: '1.10' },
-                description: 'A description.'
+            type: GraphQL::Types::String,
+            null: false,
+            deprecated: { reason: 'This is deprecated', milestone: '1.10' },
+            description: 'A description.'
           field :foo_with_args,
-                type: GraphQL::Types::String,
-                null: false,
-                deprecated: { reason: 'Do not use', milestone: '1.10', replacement: 'X.y' },
-                description: 'A description.' do
-                  argument :arg, GraphQL::Types::Int, required: false, description: 'Argity'
-                end
+            type: GraphQL::Types::String,
+            null: false,
+            deprecated: { reason: 'Do not use', milestone: '1.10', replacement: 'X.y' },
+            description: 'A description.' do
+            argument :arg, GraphQL::Types::Int, required: false, description: 'Argity'
+          end
           field :bar,
-                type: GraphQL::Types::String,
-                null: false,
-                description: 'A description.',
-                deprecated: {
-                  reason: :renamed,
-                  milestone: '1.10',
-                  replacement: 'Query.boom'
-                }
+            type: GraphQL::Types::String,
+            null: false,
+            description: 'A description.',
+            deprecated: {
+              reason: :renamed,
+              milestone: '1.10',
+              replacement: 'Query.boom'
+            }
         end
       end
 
@@ -290,8 +291,8 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
 
           | Name | Type | Description |
           | ---- | ---- | ----------- |
-          | <a id="deprecatedtestbar"></a>`bar` **{warning-solid}** | [`String!`](#string) | **Deprecated** in 1.10. This was renamed. Use: [`Query.boom`](#queryboom). |
-          | <a id="deprecatedtestfoo"></a>`foo` **{warning-solid}** | [`String!`](#string) | **Deprecated** in 1.10. This is deprecated. |
+          | <a id="deprecatedtestbar"></a>`bar` **{warning-solid}** | [`String!`](#string) | **Deprecated** in GitLab 1.10. This was renamed. Use: [`Query.boom`](#queryboom). |
+          | <a id="deprecatedtestfoo"></a>`foo` **{warning-solid}** | [`String!`](#string) | **Deprecated** in GitLab 1.10. This is deprecated. |
 
           #### Fields with arguments
 
@@ -299,8 +300,8 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
 
           A description.
 
-          WARNING:
-          **Deprecated** in 1.10.
+          DETAILS:
+          **Deprecated** in GitLab 1.10.
           Do not use.
           Use: [`X.y`](#xy).
 
@@ -335,10 +336,132 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
 
           A bar.
 
-          WARNING:
-          **Deprecated** in 10.11.
+          DETAILS:
+          **Deprecated** in GitLab 10.11.
           This was renamed.
           Use: [`Query.foo`](#queryfoo).
+
+          Returns [`Int`](#int).
+        DOC
+      end
+
+      it_behaves_like 'renders correctly as GraphQL documentation'
+    end
+
+    context 'when an argument is in alpha' do
+      let(:type) do
+        Class.new(Types::BaseObject) do
+          graphql_name 'AlphaTest'
+          description 'A thing with arguments in alpha'
+
+          field :foo,
+            type: GraphQL::Types::String,
+            null: false,
+            description: 'A description.' do
+            argument :foo_arg, GraphQL::Types::String,
+              required: false,
+              description: 'Argument description.',
+              alpha: { milestone: '101.2' }
+          end
+        end
+      end
+
+      let(:section) do
+        <<~DOC
+         ##### `AlphaTest.foo`
+
+         A description.
+
+         Returns [`String!`](#string).
+
+         ###### Arguments
+
+         | Name | Type | Description |
+         | ---- | ---- | ----------- |
+         | <a id="alphatestfoofooarg"></a>`fooArg` **{warning-solid}** | [`String`](#string) | **Introduced** in GitLab 101.2. **Status**: Experiment. Argument description. |
+        DOC
+      end
+
+      it_behaves_like 'renders correctly as GraphQL documentation'
+    end
+
+    context 'when a field is in alpha' do
+      let(:type) do
+        Class.new(Types::BaseObject) do
+          graphql_name 'AlphaTest'
+          description 'A thing with fields in alpha'
+
+          field :foo,
+            type: GraphQL::Types::String,
+            null: false,
+            alpha: { milestone: '1.10' },
+            description: 'A description.'
+          field :foo_with_args,
+            type: GraphQL::Types::String,
+            null: false,
+            alpha: { milestone: '1.10' },
+            description: 'A description.' do
+            argument :arg, GraphQL::Types::Int, required: false, description: 'Argity'
+          end
+        end
+      end
+
+      let(:section) do
+        <<~DOC
+          ### `AlphaTest`
+
+          A thing with fields in alpha.
+
+          #### Fields
+
+          | Name | Type | Description |
+          | ---- | ---- | ----------- |
+          | <a id="alphatestfoo"></a>`foo` **{warning-solid}** | [`String!`](#string) | **Introduced** in GitLab 1.10. **Status**: Experiment. A description. |
+
+          #### Fields with arguments
+
+          ##### `AlphaTest.fooWithArgs`
+
+          A description.
+
+          DETAILS:
+          **Introduced** in GitLab 1.10.
+          **Status**: Experiment.
+
+          Returns [`String!`](#string).
+
+          ###### Arguments
+
+          | Name | Type | Description |
+          | ---- | ---- | ----------- |
+          | <a id="alphatestfoowithargsarg"></a>`arg` | [`Int`](#int) | Argity. |
+        DOC
+      end
+
+      it_behaves_like 'renders correctly as GraphQL documentation'
+    end
+
+    context 'when a Query.field is in alpha' do
+      before do
+        query_type.field(
+          name: :bar,
+          type: type,
+          null: true,
+          description: 'A bar',
+          alpha: { milestone: '10.11' }
+        )
+      end
+
+      let(:type) { ::GraphQL::Types::Int }
+      let(:section) do
+        <<~DOC
+          ### `Query.bar`
+
+          A bar.
+
+          DETAILS:
+          **Introduced** in GitLab 10.11.
+          **Status**: Experiment.
 
           Returns [`Int`](#int).
         DOC
@@ -354,13 +477,13 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
           description 'A test of an enum.'
 
           value 'BAZ',
-                description: 'A description of BAZ.'
+            description: 'A description of BAZ.'
           value 'BAR',
-                description: 'A description of BAR.',
-                deprecated: { reason: 'This is deprecated', milestone: '1.10' }
+            description: 'A description of BAR.',
+            deprecated: { reason: 'This is deprecated', milestone: '1.10' }
           value 'BOOP',
-                description: 'A description of BOOP.',
-                deprecated: { reason: :renamed, replacement: 'MyEnum.BAR', milestone: '1.10' }
+            description: 'A description of BOOP.',
+            deprecated: { reason: :renamed, replacement: 'MyEnum.BAR', milestone: '1.10' }
         end
 
         Class.new(Types::BaseObject) do
@@ -378,9 +501,9 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
 
           | Value | Description |
           | ----- | ----------- |
-          | <a id="myenumbar"></a>`BAR` **{warning-solid}** | **Deprecated** in 1.10. This is deprecated. |
+          | <a id="myenumbar"></a>`BAR` **{warning-solid}** | **Deprecated** in GitLab 1.10. This is deprecated. |
           | <a id="myenumbaz"></a>`BAZ` | A description of BAZ. |
-          | <a id="myenumboop"></a>`BOOP` **{warning-solid}** | **Deprecated** in 1.10. This was renamed. Use: [`MyEnum.BAR`](#myenumbar). |
+          | <a id="myenumboop"></a>`BOOP` **{warning-solid}** | **Deprecated** in GitLab 1.10. This was renamed. Use: [`MyEnum.BAR`](#myenumbar). |
         DOC
       end
 
@@ -438,34 +561,34 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
         mutation.description 'Make everything very pretty.'
 
         mutation.argument :prettiness_factor,
-                          type: GraphQL::Types::Float,
-                          required: true,
-                          description: 'How much prettier?'
+          type: GraphQL::Types::Float,
+          required: true,
+          description: 'How much prettier?'
 
         mutation.argument :pulchritude,
-                          type: GraphQL::Types::Float,
-                          required: false,
-                          description: 'How much prettier?',
-                          deprecated: {
-                            reason: :renamed,
-                            replacement: 'prettinessFactor',
-                            milestone: '72.34'
-                          }
+          type: GraphQL::Types::Float,
+          required: false,
+          description: 'How much prettier?',
+          deprecated: {
+            reason: :renamed,
+            replacement: 'prettinessFactor',
+            milestone: '72.34'
+          }
 
         mutation.field :everything,
-                       type: GraphQL::Types::String,
-                       null: true,
-                       description: 'What we made prettier.'
+          type: GraphQL::Types::String,
+          null: true,
+          description: 'What we made prettier.'
 
         mutation.field :omnis,
-                       type: GraphQL::Types::String,
-                       null: true,
-                       description: 'What we made prettier.',
-                       deprecated: {
-                         reason: :renamed,
-                         replacement: 'everything',
-                         milestone: '72.34'
-                       }
+          type: GraphQL::Types::String,
+          null: true,
+          description: 'What we made prettier.',
+          deprecated: {
+            reason: :renamed,
+            replacement: 'everything',
+            milestone: '72.34'
+          }
 
         mutation
       end
@@ -489,7 +612,7 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
             | ---- | ---- | ----------- |
             | <a id="mutationmakeitprettyclientmutationid"></a>`clientMutationId` | [`String`](#string) | A unique identifier for the client performing the mutation. |
             | <a id="mutationmakeitprettyprettinessfactor"></a>`prettinessFactor` | [`Float!`](#float) | How much prettier?. |
-            | <a id="mutationmakeitprettypulchritude"></a>`pulchritude` **{warning-solid}** | [`Float`](#float) | **Deprecated:** This was renamed. Please use `prettinessFactor`. Deprecated in 72.34. |
+            | <a id="mutationmakeitprettypulchritude"></a>`pulchritude` **{warning-solid}** | [`Float`](#float) | **Deprecated:** This was renamed. Please use `prettinessFactor`. Deprecated in GitLab 72.34. |
 
             #### Fields
 
@@ -498,7 +621,7 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
             | <a id="mutationmakeitprettyclientmutationid"></a>`clientMutationId` | [`String`](#string) | A unique identifier for the client performing the mutation. |
             | <a id="mutationmakeitprettyerrors"></a>`errors` | [`[String!]!`](#string) | Errors encountered during execution of the mutation. |
             | <a id="mutationmakeitprettyeverything"></a>`everything` | [`String`](#string) | What we made prettier. |
-            | <a id="mutationmakeitprettyomnis"></a>`omnis` **{warning-solid}** | [`String`](#string) | **Deprecated:** This was renamed. Please use `everything`. Deprecated in 72.34. |
+            | <a id="mutationmakeitprettyomnis"></a>`omnis` **{warning-solid}** | [`String`](#string) | **Deprecated:** This was renamed. Please use `everything`. Deprecated in GitLab 72.34. |
           DOC
         end
       end
@@ -518,9 +641,9 @@ RSpec.describe Tooling::Graphql::Docs::Renderer do
           graphql_name 'Foo'
           field :wibble, type: ::GraphQL::Types::Int, null: true do
             argument :date_range,
-                     type: ::Types::TimeframeInputType,
-                     required: true,
-                     description: 'When the foo happened.'
+              type: ::Types::TimeframeInputType,
+              required: true,
+              description: 'When the foo happened.'
           end
         end
       end

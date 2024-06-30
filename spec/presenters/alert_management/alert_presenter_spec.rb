@@ -91,31 +91,13 @@ RSpec.describe AlertManagement::AlertPresenter do
         )
       end
     end
-
-    context 'with metrics_dashboard_url' do
-      before do
-        allow(alert.parsed_payload).to receive(:metrics_dashboard_url).and_return('https://gitlab.com/metrics')
-      end
-
-      it do
-        is_expected.to eq(
-          <<~MARKDOWN.chomp
-            **Start time:** #{presenter.start_time}#{markdown_line_break}
-            **Severity:** #{presenter.severity}#{markdown_line_break}
-            **GitLab alert:** #{alert_url}
-
-            [](https://gitlab.com/metrics)
-          MARKDOWN
-        )
-      end
-    end
   end
 
   describe '#start_time' do
     it 'formats the start time of the alert' do
       alert.started_at = Time.utc(2019, 5, 5)
 
-      expect(presenter.start_time). to eq('05 May 2019, 12:00AM (UTC)')
+      expect(presenter.start_time).to eq('05 May 2019, 12:00AM (UTC)')
     end
   end
 

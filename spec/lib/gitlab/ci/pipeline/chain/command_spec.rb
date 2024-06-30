@@ -15,6 +15,28 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
     end
   end
 
+  describe '#dry_run?' do
+    subject { command.dry_run? }
+
+    let(:command) { described_class.new(dry_run: dry_run, execution_policy_dry_run: execution_policy_dry_run) }
+    let(:dry_run) { false }
+    let(:execution_policy_dry_run) { false }
+
+    it { is_expected.to eq(false) }
+
+    context 'when dry_run is true' do
+      let(:dry_run) { true }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'when execution_policy_dry_run is true' do
+      let(:execution_policy_dry_run) { true }
+
+      it { is_expected.to eq(true) }
+    end
+  end
+
   context 'handling of origin_ref' do
     let(:command) { described_class.new(project: project, origin_ref: origin_ref) }
 
@@ -200,7 +222,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
       let(:command) { described_class.new(project: project) }
 
       it 'uses BLANK_SHA' do
-        is_expected.to eq(Gitlab::Git::BLANK_SHA)
+        is_expected.to eq(Gitlab::Git::SHA1_BLANK_SHA)
       end
     end
   end
@@ -209,9 +231,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
     subject { command.source_sha }
 
     let(:command) do
-      described_class.new(project: project,
-                          source_sha: source_sha,
-                          merge_request: merge_request)
+      described_class.new(project: project, source_sha: source_sha, merge_request: merge_request)
     end
 
     let(:merge_request) do
@@ -233,9 +253,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
     subject { command.target_sha }
 
     let(:command) do
-      described_class.new(project: project,
-                          target_sha: target_sha,
-                          merge_request: merge_request)
+      described_class.new(project: project, target_sha: target_sha, merge_request: merge_request)
     end
 
     let(:merge_request) do
@@ -282,7 +300,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
     subject { command.ambiguous_ref? }
 
     context 'when ref is not ambiguous' do
-      it { is_expected. to eq(false) }
+      it { is_expected.to eq(false) }
     end
 
     context 'when ref is ambiguous' do
@@ -291,7 +309,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
         project.repository.add_branch(project.creator, 'ref', 'master')
       end
 
-      it { is_expected. to eq(true) }
+      it { is_expected.to eq(true) }
     end
   end
 
@@ -302,13 +320,13 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
 
     context 'when bridge is present' do
       context 'when bridge triggers a child pipeline' do
-        let(:bridge) { double(:bridge, triggers_child_pipeline?: true) }
+        let(:bridge) { instance_double(Ci::Bridge, triggers_child_pipeline?: true) }
 
         it { is_expected.to be_truthy }
       end
 
       context 'when bridge triggers a multi-project pipeline' do
-        let(:bridge) { double(:bridge, triggers_child_pipeline?: false) }
+        let(:bridge) { instance_double(Ci::Bridge, triggers_child_pipeline?: false) }
 
         it { is_expected.to be_falsey }
       end
@@ -318,6 +336,38 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
       let(:bridge) { nil }
 
       it { is_expected.to be_falsey }
+    end
+  end
+
+  describe '#parent_pipeline_partition_id' do
+    let(:command) { described_class.new(bridge: bridge) }
+
+    subject { command.parent_pipeline_partition_id }
+
+    context 'when bridge is present' do
+      context 'when bridge triggers a child pipeline' do
+        let(:pipeline) { instance_double(Ci::Pipeline, partition_id: 123) }
+
+        let(:bridge) do
+          instance_double(Ci::Bridge,
+            triggers_child_pipeline?: true,
+            parent_pipeline: pipeline)
+        end
+
+        it { is_expected.to eq(123) }
+      end
+
+      context 'when bridge triggers a multi-project pipeline' do
+        let(:bridge) { instance_double(Ci::Bridge, triggers_child_pipeline?: false) }
+
+        it { is_expected.to be_nil }
+      end
+    end
+
+    context 'when bridge is not present' do
+      let(:bridge) { nil }
+
+      it { is_expected.to be_nil }
     end
   end
 
@@ -342,21 +392,57 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
     end
   end
 
+  describe '#observe_creation_duration' do
+    let(:histogram) { instance_double(Prometheus::Client::Histogram) }
+    let(:duration) { 1.hour }
+    let(:command) { described_class.new(project: project) }
+
+    subject(:observe_creation_duration) do
+      command.observe_creation_duration(duration)
+    end
+
+    it 'records the duration as histogram' do
+      expect(::Gitlab::Ci::Pipeline::Metrics).to receive(:pipeline_creation_duration_histogram)
+        .and_return(histogram)
+      expect(histogram).to receive(:observe)
+        .with({ gitlab: 'false' }, duration.seconds)
+
+      observe_creation_duration
+    end
+
+    context 'when project is gitlab-org/gitlab' do
+      before do
+        allow(project).to receive(:full_path).and_return('gitlab-org/gitlab')
+      end
+
+      it 'tracks the duration with the expected label' do
+        expect(::Gitlab::Ci::Pipeline::Metrics).to receive(:pipeline_creation_duration_histogram)
+          .and_return(histogram)
+        expect(histogram).to receive(:observe)
+          .with({ gitlab: 'true' }, duration.seconds)
+
+        observe_creation_duration
+      end
+    end
+  end
+
   describe '#observe_step_duration' do
+    let(:histogram) { instance_double(Prometheus::Client::Histogram) }
+    let(:duration) { 1.hour }
+    let(:command) { described_class.new }
+
+    subject(:observe_step_duration) do
+      command.observe_step_duration(Gitlab::Ci::Pipeline::Chain::Build, duration)
+    end
+
     context 'when ci_pipeline_creation_step_duration_tracking is enabled' do
       it 'adds the duration to the step duration histogram' do
-        histogram = double(:histogram)
-        duration = 1.hour
-
         expect(::Gitlab::Ci::Pipeline::Metrics).to receive(:pipeline_creation_step_duration_histogram)
           .and_return(histogram)
         expect(histogram).to receive(:observe)
           .with({ step: 'Gitlab::Ci::Pipeline::Chain::Build' }, duration.seconds)
 
-        described_class.new.observe_step_duration(
-          Gitlab::Ci::Pipeline::Chain::Build,
-          duration
-        )
+        observe_step_duration
       end
     end
 
@@ -366,15 +452,27 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
       end
 
       it 'does nothing' do
-        duration = 1.hour
-
         expect(::Gitlab::Ci::Pipeline::Metrics).not_to receive(:pipeline_creation_step_duration_histogram)
 
-        described_class.new.observe_step_duration(
-          Gitlab::Ci::Pipeline::Chain::Build,
-          duration
-        )
+        observe_step_duration
       end
+    end
+  end
+
+  describe '#observe_pipeline_size' do
+    let(:command) { described_class.new(project: project) }
+
+    let(:pipeline) { instance_double(Ci::Pipeline, total_size: 5, project: project, source: "schedule") }
+
+    it 'logs the pipeline total size to histogram' do
+      histogram = instance_double(Prometheus::Client::Histogram)
+
+      expect(::Gitlab::Ci::Pipeline::Metrics).to receive(:pipeline_size_histogram)
+        .and_return(histogram)
+      expect(histogram).to receive(:observe)
+        .with({ source: pipeline.source, plan: project.actual_plan_name }, pipeline.total_size)
+
+      command.observe_pipeline_size(pipeline)
     end
   end
 end

@@ -2,34 +2,74 @@
 
 require 'spec_helper'
 
-RSpec.describe API::UsageData do
+RSpec.describe API::UsageData, feature_category: :service_ping do
   let_it_be(:user) { create(:user) }
 
-  describe 'POST /usage_data/increment_counter' do
-    let(:endpoint) { '/usage_data/increment_counter' }
-    let(:known_event) { "#{known_event_prefix}_#{known_event_postfix}" }
-    let(:known_event_prefix) { "static_site_editor" }
-    let(:known_event_postfix) { 'commits' }
-    let(:unknown_event) { 'unknown' }
+  describe 'GET /usage_data/service_ping' do
+    let(:endpoint) { '/usage_data/service_ping' }
 
-    context 'without CSRF token' do
-      it 'returns forbidden' do
-        stub_feature_flags(usage_data_api: true)
-        allow(Gitlab::RequestForgeryProtection).to receive(:verified?).and_return(false)
+    context 'without authentication' do
+      it 'returns 401 response' do
+        get api(endpoint)
 
-        post api(endpoint, user), params: { event: known_event }
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+    end
+
+    context 'when authenticated as non-admin' do
+      let(:user) { create(:user) }
+
+      it 'returns 403' do
+        get api(endpoint, user)
 
         expect(response).to have_gitlab_http_status(:forbidden)
       end
     end
 
-    context 'usage_data_api feature not enabled' do
-      it 'returns not_found' do
-        stub_feature_flags(usage_data_api: false)
+    context 'when authenticated as an admin using read_service_ping access token' do
+      let(:scopes) { [Gitlab::Auth::READ_SERVICE_PING_SCOPE] }
+      let(:personal_access_token) { create(:personal_access_token, user: user, scopes: scopes) }
+
+      before do
+        allow(Ability).to receive(:allowed?).and_return(true)
+      end
+
+      it 'returns 200' do
+        get api(endpoint, personal_access_token: personal_access_token)
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+
+      it 'returns service ping payload' do
+        usage_data = { 'key' => 'value' }
+        allow(Rails.cache).to receive(:fetch).and_return(usage_data)
+
+        get api(endpoint, personal_access_token: personal_access_token)
+
+        expect(response.body).to eq(usage_data.to_json)
+      end
+
+      it 'tracks an internal event' do
+        expect(Gitlab::InternalEvents).to receive(:track_event)
+          .with('request_service_ping_via_rest', user: user)
+
+        get api(endpoint, personal_access_token: personal_access_token)
+      end
+    end
+  end
+
+  describe 'POST /usage_data/increment_counter' do
+    let(:endpoint) { '/usage_data/increment_counter' }
+    let(:known_event) { "diff_searches" }
+    let(:unknown_event) { 'unknown' }
+
+    context 'without CSRF token' do
+      it 'returns forbidden' do
+        allow(Gitlab::RequestForgeryProtection).to receive(:verified?).and_return(false)
 
         post api(endpoint, user), params: { event: known_event }
 
-        expect(response).to have_gitlab_http_status(:not_found)
+        expect(response).to have_gitlab_http_status(:forbidden)
       end
     end
 
@@ -43,8 +83,6 @@ RSpec.describe API::UsageData do
 
     context 'with authentication' do
       before do
-        stub_feature_flags(usage_data_api: true)
-        stub_feature_flags("usage_data_#{known_event}" => true)
         stub_application_setting(usage_ping_enabled: true)
         allow(Gitlab::RequestForgeryProtection).to receive(:verified?).and_return(true)
       end
@@ -58,34 +96,23 @@ RSpec.describe API::UsageData do
       end
 
       context 'with correct params' do
-        using RSpec::Parameterized::TableSyntax
-
-        where(:prefix, :event) do
-          'static_site_editor' | 'merge_requests'
-          'static_site_editor' | 'commits'
-        end
-
         before do
           stub_application_setting(usage_ping_enabled: true)
-          stub_feature_flags(usage_data_api: true)
+
           allow(Gitlab::RequestForgeryProtection).to receive(:verified?).and_return(true)
-          stub_feature_flags("usage_data_#{prefix}_#{event}" => true)
         end
 
-        with_them do
-          it 'returns status :ok' do
-            expect(Gitlab::UsageDataCounters::BaseCounter).to receive(:count).with(event)
+        it 'returns status :ok' do
+          expect(Gitlab::UsageDataCounters::BaseCounter).to receive(:count).with("searches")
 
-            post api(endpoint, user), params: { event: "#{prefix}_#{event}" }
+          post api(endpoint, user), params: { event: known_event }
 
-            expect(response).to have_gitlab_http_status(:ok)
-          end
+          expect(response).to have_gitlab_http_status(:ok)
         end
       end
 
       context 'with unknown event' do
         before do
-          skip_feature_flags_yaml_validation
           skip_default_enabled_yaml_check
         end
 
@@ -107,22 +134,11 @@ RSpec.describe API::UsageData do
 
     context 'without CSRF token' do
       it 'returns forbidden' do
-        stub_feature_flags(usage_data_api: true)
         allow(Gitlab::RequestForgeryProtection).to receive(:verified?).and_return(false)
 
         post api(endpoint, user), params: { event: known_event }
 
         expect(response).to have_gitlab_http_status(:forbidden)
-      end
-    end
-
-    context 'usage_data_api feature not enabled' do
-      it 'returns not_found' do
-        stub_feature_flags(usage_data_api: false)
-
-        post api(endpoint, user), params: { event: known_event }
-
-        expect(response).to have_gitlab_http_status(:not_found)
       end
     end
 
@@ -136,8 +152,6 @@ RSpec.describe API::UsageData do
 
     context 'with authentication' do
       before do
-        stub_feature_flags(usage_data_api: true)
-        stub_feature_flags("usage_data_#{known_event}" => true)
         stub_application_setting(usage_ping_enabled: true)
         allow(Gitlab::RequestForgeryProtection).to receive(:verified?).and_return(true)
       end
@@ -152,7 +166,9 @@ RSpec.describe API::UsageData do
 
       context 'with correct params' do
         it 'returns status ok' do
-          expect(Gitlab::Redis::HLL).to receive(:add)
+          expect(Gitlab::UsageDataCounters::HLLRedisCounter).to receive(:track).with(anything, known_event, anything)
+          # allow other events to also get triggered
+          allow(Gitlab::UsageDataCounters::HLLRedisCounter).to receive(:track)
 
           post api(endpoint, user), params: { event: known_event }
 
@@ -161,16 +177,95 @@ RSpec.describe API::UsageData do
       end
 
       context 'with unknown event' do
-        before do
-          skip_feature_flags_yaml_validation
-        end
-
         it 'returns status ok' do
           expect(Gitlab::Redis::HLL).not_to receive(:add)
 
           post api(endpoint, user), params: { event: unknown_event }
 
           expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+    end
+  end
+
+  describe 'POST /usage_data/track_event' do
+    let(:endpoint) { '/usage_data/track_event' }
+    let(:known_event) { 'i_compliance_dashboard' }
+    let(:unknown_event) { 'unknown' }
+    let(:namespace_id) { 123 }
+    let(:project_id) { 123 }
+
+    context 'without CSRF token' do
+      it 'returns forbidden' do
+        allow(Gitlab::RequestForgeryProtection).to receive(:verified?).and_return(false)
+
+        post api(endpoint, user), params: { event: known_event, namespace_id: namespace_id, project_id: project_id }
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
+    context 'without authentication' do
+      it 'returns 401 response' do
+        post api(endpoint), params: { event: known_event, namespace_id: namespace_id, project_id: project_id }
+
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+    end
+
+    context 'with usage ping enabled' do
+      let_it_be(:namespace) { create(:namespace) }
+      let_it_be(:project) { create(:project) }
+      let_it_be(:additional_properties) do
+        {
+          label: 'label3',
+          property: 'admin'
+        }
+      end
+
+      before do
+        stub_application_setting(usage_ping_enabled: true)
+      end
+
+      context 'with correct params' do
+        it 'returns status ok' do
+          expect(Gitlab::InternalEvents).to receive(:track_event)
+            .with(
+              known_event,
+              send_snowplow_event: false,
+              user: user,
+              namespace: namespace,
+              project: project,
+              additional_properties: additional_properties
+            )
+
+          params = {
+            event: known_event,
+            namespace_id: namespace.id,
+            project_id: project.id,
+            additional_properties: additional_properties
+          }
+          post api(endpoint, user), params: params
+
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+
+        context 'with no additional_properties' do
+          it 'returns status ok' do
+            expect(Gitlab::InternalEvents).to receive(:track_event)
+              .with(
+                known_event,
+                send_snowplow_event: false,
+                user: user,
+                namespace: namespace,
+                project: project,
+                additional_properties: {}
+              )
+
+            post api(endpoint, user), params: { event: known_event, namespace_id: namespace.id, project_id: project.id }
+
+            expect(response).to have_gitlab_http_status(:ok)
+          end
         end
       end
     end

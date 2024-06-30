@@ -18,7 +18,7 @@ RSpec.shared_context 'MergeRequestsFinder multiple projects with merge requests 
   let_it_be(:group) { create(:group) }
   let_it_be(:subgroup) { create(:group, parent: group) }
   let_it_be(:project1, reload: true) do
-    allow_gitaly_n_plus_1 { create(:project, :public, group: group) }
+    allow_gitaly_n_plus_1 { create(:project, :public, group: group, maintainers: user) }
   end
   # We cannot use `let_it_be` here otherwise we get:
   #   Failure/Error: allow(RepositoryForkWorker).to receive(:perform_async).and_return(true)
@@ -39,61 +39,67 @@ RSpec.shared_context 'MergeRequestsFinder multiple projects with merge requests 
   end
 
   let_it_be(:project4, reload: true) do
-    allow_gitaly_n_plus_1 { create(:project, :repository, group: subgroup) }
+    allow_gitaly_n_plus_1 { create(:project, :repository, group: subgroup, developers: user) }
   end
 
   let_it_be(:project5, reload: true) do
-    allow_gitaly_n_plus_1 { create(:project, group: subgroup) }
+    allow_gitaly_n_plus_1 { create(:project, group: subgroup, developers: user) }
   end
 
   let_it_be(:project6, reload: true) do
-    allow_gitaly_n_plus_1 { create(:project, group: subgroup) }
+    allow_gitaly_n_plus_1 { create(:project, group: subgroup, developers: user) }
   end
 
-  let!(:label) { create(:label, project: project1) }
-  let!(:label2) { create(:label, project: project1) }
+  let_it_be(:label) { create(:label, project: project1) }
+  let_it_be(:label2) { create(:label, project: project1) }
 
   let!(:merge_request1) do
-    create(:merge_request, assignees: [user], author: user, reviewers: [user2],
-           source_project: project2, target_project: project1,
-           target_branch: 'merged-target')
+    create(
+      :merge_request, assignees: [user], author: user, reviewers: [user2],
+      source_project: project2, target_project: project1,
+      target_branch: 'merged-target'
+    )
   end
 
   let!(:merge_request2) do
-    create(:merge_request, :conflict, assignees: [user], author: user, reviewers: [user2],
-           source_project: project2, target_project: project1,
-           state: 'closed')
+    create(
+      :merge_request, :conflict, assignees: [user], author: user, reviewers: [user2],
+      source_project: project2, target_project: project1,
+      state: 'closed'
+    )
   end
 
   let!(:merge_request3) do
-    create(:merge_request, :simple, author: user, assignees: [user2], reviewers: [user],
-           source_project: project2, target_project: project2,
-           state: 'locked',
-           title: 'thing WIP thing')
+    create(
+      :merge_request, :simple, author: user, assignees: [user2], reviewers: [user],
+      source_project: project2, target_project: project2,
+      state: 'locked',
+      title: 'thing Draft thing'
+    )
   end
 
   let!(:merge_request4) do
-    create(:merge_request, :simple, author: user,
-           source_project: project3, target_project: project3,
-           title: 'WIP thing')
+    create(
+      :merge_request, :simple, author: user,
+      source_project: project3, target_project: project3,
+      title: 'Draft - thing'
+    )
   end
 
   let_it_be(:merge_request5) do
-    create(:merge_request, :simple, author: user,
-           source_project: project4, target_project: project4,
-           title: '[WIP]')
+    create(
+      :merge_request, :simple, author: user,
+      source_project: project4, target_project: project4,
+      title: '[Draft]'
+    )
   end
 
   let!(:label_link) { create(:label_link, label: label, target: merge_request2) }
   let!(:label_link2) { create(:label_link, label: label2, target: merge_request3) }
 
   before do
-    project1.add_maintainer(user)
     project2.add_developer(user)
     project3.add_developer(user)
-    project4.add_developer(user)
-    project5.add_developer(user)
-    project6.add_developer(user)
 
     project2.add_developer(user2)
   end

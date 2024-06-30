@@ -4,58 +4,51 @@ module Mutations
   module WorkItems
     class Update < BaseMutation
       graphql_name 'WorkItemUpdate'
-      description "Updates a work item by Global ID." \
-                  " Available only when feature flag `work_items` is enabled. The feature is experimental and is subject to change without notice."
+      description "Updates a work item by Global ID."
 
       include Mutations::SpamProtection
+      include Mutations::WorkItems::UpdateArguments
+      include Mutations::WorkItems::Widgetable
 
-      authorize :update_work_item
-
-      argument :id, ::Types::GlobalIDType[::WorkItem],
-               required: true,
-               description: 'Global ID of the work item.'
-      argument :state_event, Types::WorkItems::StateEventEnum,
-               description: 'Close or reopen a work item.',
-               required: false
-      argument :title, GraphQL::Types::String,
-               required: false,
-               description: copy_field_description(Types::WorkItemType, :title)
+      authorize :read_work_item
 
       field :work_item, Types::WorkItemType,
             null: true,
             description: 'Updated work item.'
 
       def resolve(id:, **attributes)
+        Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/408575')
+
         work_item = authorized_find!(id: id)
 
-        unless work_item.project.work_items_feature_flag_enabled?
-          return { errors: ['`work_items` feature flag disabled for this project'] }
-        end
+        widget_params = extract_widget_params!(work_item.work_item_type, attributes, work_item.resource_parent)
 
-        spam_params = ::Spam::SpamParams.new_from_request(request: context[:request])
+        # Only checks permissions for base attributes because widgets define their own permissions independently
+        raise_resource_not_available_error! unless attributes.empty? || can_update?(work_item)
 
-        ::WorkItems::UpdateService.new(
-          project: work_item.project,
+        update_result = ::WorkItems::UpdateService.new(
+          container: work_item.resource_parent,
           current_user: current_user,
           params: attributes,
-          spam_params: spam_params
+          widget_params: widget_params,
+          perform_spam_check: true
         ).execute(work_item)
 
         check_spam_action_response!(work_item)
 
         {
-          work_item: work_item.valid? ? work_item : nil,
-          errors: errors_on_object(work_item)
+          work_item: (update_result[:work_item] if update_result[:status] == :success),
+          errors: Array.wrap(update_result[:message])
         }
       end
 
       private
 
-      def find_object(id:)
-        # TODO: Remove coercion when working on https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = ::Types::GlobalIDType[::WorkItem].coerce_isolated_input(id)
-        GitlabSchema.find_by_gid(id)
+      def can_update?(work_item)
+        current_user.can?(:update_work_item, work_item)
       end
     end
   end
 end
+
+Mutations::WorkItems::Update.prepend_mod

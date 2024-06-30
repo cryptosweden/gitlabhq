@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Oauth::ApplicationsController do
+RSpec.describe Oauth::ApplicationsController, feature_category: :system_access do
   let(:user) { create(:user) }
   let(:application) { create(:oauth_application, owner: user) }
 
@@ -71,6 +71,39 @@ RSpec.describe Oauth::ApplicationsController do
       it_behaves_like 'redirects to 2fa setup page when the user requires it'
     end
 
+    describe 'PUT #renew' do
+      let(:oauth_params) do
+        {
+          id: application.id
+        }
+      end
+
+      subject { put :renew, params: oauth_params }
+
+      it { is_expected.to have_gitlab_http_status(:ok) }
+      it { expect { subject }.to change { application.reload.secret } }
+
+      it_behaves_like 'redirects to login page when the user is not signed in'
+      it_behaves_like 'redirects to 2fa setup page when the user requires it'
+
+      it 'returns the prefixed secret in json format' do
+        subject
+
+        expect(json_response['secret']).to match(/gloas-\h{64}/)
+      end
+
+      context 'when renew fails' do
+        before do
+          allow_next_found_instance_of(Doorkeeper::Application) do |application|
+            allow(application).to receive(:save).and_return(false)
+          end
+        end
+
+        it { expect { subject }.not_to change { application.reload.secret } }
+        it { is_expected.to have_gitlab_http_status(:unprocessable_entity) }
+      end
+    end
+
     describe 'GET #show' do
       subject { get :show, params: { id: application.id } }
 
@@ -116,8 +149,17 @@ RSpec.describe Oauth::ApplicationsController do
       it 'creates an application' do
         subject
 
-        expect(response).to have_gitlab_http_status(:found)
-        expect(response).to redirect_to(oauth_application_path(Doorkeeper::Application.last))
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to render_template :show
+      end
+
+      context 'the secret' do
+        render_views
+
+        it 'is in the response' do
+          subject
+          expect(response.body).to match(/gloas-\h{64}/)
+        end
       end
 
       it 'redirects back to profile page if OAuth applications are disabled' do
@@ -126,7 +168,7 @@ RSpec.describe Oauth::ApplicationsController do
         subject
 
         expect(response).to have_gitlab_http_status(:found)
-        expect(response).to redirect_to(profile_path)
+        expect(response).to redirect_to(user_settings_profile_path)
       end
 
       context 'when redirect_uri is invalid' do
@@ -156,7 +198,7 @@ RSpec.describe Oauth::ApplicationsController do
       end
 
       context 'when scopes are invalid' do
-        let(:scopes) { %w(api foo) }
+        let(:scopes) { %w[api foo] }
 
         render_views
 

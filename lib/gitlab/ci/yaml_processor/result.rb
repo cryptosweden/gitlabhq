@@ -6,12 +6,19 @@ module Gitlab
   module Ci
     class YamlProcessor
       class Result
-        attr_reader :errors, :warnings
+        include Gitlab::Utils::StrongMemoize
+
+        attr_reader :errors, :warnings,
+          :root_variables, :root_variables_with_prefill_data,
+          :stages, :jobs,
+          :workflow_rules, :workflow_name, :workflow_auto_cancel
 
         def initialize(ci_config: nil, errors: [], warnings: [])
           @ci_config = ci_config
           @errors = errors || []
           @warnings = warnings || []
+
+          assign_valid_attributes if valid?
         end
 
         def valid?
@@ -32,30 +39,57 @@ module Gitlab
           end
         end
 
+        def included_templates
+          @included_templates ||= @ci_config.included_templates
+        end
+
+        def included_components
+          @ci_config.included_components
+        end
+        strong_memoize_attr :included_components
+
+        def yaml_variables_for(job_name)
+          job = jobs[job_name]
+
+          return [] unless job
+
+          Gitlab::Ci::Variables::Helpers.inherit_yaml_variables(
+            from: root_variables,
+            to: job[:job_variables],
+            inheritance: job.fetch(:root_variables_inheritance, true)
+          )
+        end
+
+        def stage_for(job_name)
+          jobs.dig(job_name, :stage)
+        end
+
+        def config_metadata
+          @ci_config&.metadata || {}
+        end
+
+        def clear_jobs!
+          @jobs = {}
+        end
+
+        private
+
+        def assign_valid_attributes
+          @root_variables = transform_to_array(@ci_config.variables_with_data)
+          @root_variables_with_prefill_data = @ci_config.variables_with_prefill_data
+
+          @stages = @ci_config.stages
+          @jobs = @ci_config.normalized_jobs
+
+          @workflow_rules = @ci_config.workflow_rules
+          @workflow_name = @ci_config.workflow_name&.strip
+          @workflow_auto_cancel = @ci_config.workflow_auto_cancel
+        end
+
         def stage_builds_attributes(stage)
           jobs.values
             .select { |job| job[:stage] == stage }
             .map { |job| build_attributes(job[:name]) }
-        end
-
-        def workflow_rules
-          @workflow_rules ||= hash_config.dig(:workflow, :rules)
-        end
-
-        def root_variables
-          @root_variables ||= transform_to_yaml_variables(variables)
-        end
-
-        def jobs
-          @jobs ||= @ci_config.normalized_jobs
-        end
-
-        def stages
-          @stages ||= @ci_config.stages
-        end
-
-        def included_templates
-          @included_templates ||= @ci_config.included_templates
         end
 
         def build_attributes(name)
@@ -70,7 +104,7 @@ module Gitlab
             environment: job[:environment_name],
             coverage_regex: job[:coverage],
             # yaml_variables is calculated with using job_variables in Seed::Build
-            job_variables: transform_to_yaml_variables(job[:job_variables]),
+            job_variables: transform_to_array(job[:job_variables]),
             root_variables_inheritance: job[:root_variables_inheritance],
             needs_attributes: job.dig(:needs, :job),
             interruptible: job[:interruptible],
@@ -80,6 +114,7 @@ module Gitlab
             cache: job[:cache],
             resource_group_key: job[:resource_group],
             scheduling_type: job[:scheduling_type],
+            id_tokens: job[:id_tokens],
             options: {
               image: job[:image],
               services: job[:services],
@@ -90,7 +125,9 @@ module Gitlab
               job_timeout: job[:timeout],
               before_script: job[:before_script],
               script: job[:script],
+              manual_confirmation: job[:manual_confirmation],
               after_script: job[:after_script],
+              hooks: job[:hooks],
               environment: job[:environment],
               resource_group_key: job[:resource_group],
               retry: job[:retry],
@@ -99,50 +136,14 @@ module Gitlab
               start_in: job[:start_in],
               trigger: job[:trigger],
               bridge_needs: job.dig(:needs, :bridge)&.first,
-              release: release(job)
+              release: job[:release],
+              publish: job[:publish],
+              pages: job[:pages]
             }.compact }.compact
         end
 
-        def merged_yaml
-          @ci_config&.to_hash&.deep_stringify_keys&.to_yaml
-        end
-
-        def variables_with_data
-          @ci_config.variables_with_data
-        end
-
-        def yaml_variables_for(job_name)
-          job = jobs[job_name]
-
-          return [] unless job
-
-          Gitlab::Ci::Variables::Helpers.inherit_yaml_variables(
-            from: root_variables,
-            to: transform_to_yaml_variables(job[:job_variables]),
-            inheritance: job.fetch(:root_variables_inheritance, true)
-          )
-        end
-
-        def stage_for(job_name)
-          jobs.dig(job_name, :stage)
-        end
-
-        private
-
-        def variables
-          @variables ||= @ci_config.variables
-        end
-
-        def hash_config
-          @hash_config ||= @ci_config.to_hash
-        end
-
-        def release(job)
-          job[:release]
-        end
-
-        def transform_to_yaml_variables(variables)
-          ::Gitlab::Ci::Variables::Helpers.transform_to_yaml_variables(variables)
+        def transform_to_array(variables)
+          ::Gitlab::Ci::Variables::Helpers.transform_to_array(variables)
         end
       end
     end

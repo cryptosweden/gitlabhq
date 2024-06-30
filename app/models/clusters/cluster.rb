@@ -11,21 +11,8 @@ module Clusters
 
     self.table_name = 'clusters'
 
-    APPLICATIONS = {
-      Clusters::Applications::Helm.application_name => Clusters::Applications::Helm,
-      Clusters::Applications::Ingress.application_name => Clusters::Applications::Ingress,
-      Clusters::Applications::CertManager.application_name => Clusters::Applications::CertManager,
-      Clusters::Applications::Crossplane.application_name => Clusters::Applications::Crossplane,
-      Clusters::Applications::Prometheus.application_name => Clusters::Applications::Prometheus,
-      Clusters::Applications::Runner.application_name => Clusters::Applications::Runner,
-      Clusters::Applications::Jupyter.application_name => Clusters::Applications::Jupyter,
-      Clusters::Applications::Knative.application_name => Clusters::Applications::Knative,
-      Clusters::Applications::ElasticStack.application_name => Clusters::Applications::ElasticStack,
-      Clusters::Applications::Cilium.application_name => Clusters::Applications::Cilium
-    }.freeze
     DEFAULT_ENVIRONMENT = '*'
     KUBE_INGRESS_BASE_DOMAIN = 'KUBE_INGRESS_BASE_DOMAIN'
-    APPLICATIONS_ASSOCIATIONS = APPLICATIONS.values.map(&:association_name).freeze
 
     self.reactive_cache_work_type = :external_dependency
 
@@ -36,8 +23,7 @@ module Clusters
     has_many :projects, through: :cluster_projects, class_name: '::Project'
     has_one :cluster_project, -> { order(id: :desc) }, class_name: 'Clusters::Project'
     has_many :deployment_clusters
-    has_many :deployments, inverse_of: :cluster
-    has_many :successful_deployments, -> { success }, class_name: 'Deployment'
+    has_many :deployments, inverse_of: :cluster, through: :deployment_clusters
     has_many :environments, -> { distinct }, through: :deployments
 
     has_many :cluster_groups, class_name: 'Clusters::Group'
@@ -51,26 +37,13 @@ module Clusters
     has_one :platform_kubernetes, class_name: 'Clusters::Platforms::Kubernetes', inverse_of: :cluster, autosave: true
 
     has_one :integration_prometheus, class_name: 'Clusters::Integrations::Prometheus', inverse_of: :cluster
-    has_one :integration_elastic_stack, class_name: 'Clusters::Integrations::ElasticStack', inverse_of: :cluster
 
     def self.has_one_cluster_application(name) # rubocop:disable Naming/PredicateName
       application = APPLICATIONS[name.to_s]
       has_one application.association_name, class_name: application.to_s, inverse_of: :cluster # rubocop:disable Rails/ReflectionClassName
     end
 
-    has_one_cluster_application :helm
-    has_one_cluster_application :ingress
-    has_one_cluster_application :cert_manager
-    has_one_cluster_application :crossplane
-    has_one_cluster_application :prometheus
-    has_one_cluster_application :runner
-    has_one_cluster_application :jupyter
-    has_one_cluster_application :knative
-    has_one_cluster_application :elastic_stack
-    has_one_cluster_application :cilium
-
     has_many :kubernetes_namespaces
-    has_many :metrics_dashboard_annotations, class_name: 'Metrics::Dashboard::Annotation', inverse_of: :cluster
 
     accepts_nested_attributes_for :provider_gcp, update_only: true
     accepts_nested_attributes_for :provider_aws, update_only: true
@@ -82,7 +55,7 @@ module Clusters
     validates :namespace_per_environment, inclusion: { in: [true, false] }
     validates :helm_major_version, inclusion: { in: [2, 3] }
 
-    default_value_for :helm_major_version, 3
+    attribute :helm_major_version, default: 3
 
     validate :restrict_modification, on: :update
     validate :no_groups, unless: :group_type?
@@ -94,18 +67,6 @@ module Clusters
 
     delegate :status, to: :provider, allow_nil: true
     delegate :status_reason, to: :provider, allow_nil: true
-    delegate :on_creation?, to: :provider, allow_nil: true
-    delegate :knative_pre_installed?, to: :provider, allow_nil: true
-
-    delegate :active?, to: :platform_kubernetes, prefix: true, allow_nil: true
-    delegate :rbac?, to: :platform_kubernetes, prefix: true, allow_nil: true
-    delegate :available?, to: :application_helm, prefix: true, allow_nil: true
-    delegate :available?, to: :application_ingress, prefix: true, allow_nil: true
-    delegate :available?, to: :application_knative, prefix: true, allow_nil: true
-    delegate :available?, to: :integration_elastic_stack, prefix: true, allow_nil: true
-    delegate :available?, to: :integration_prometheus, prefix: true, allow_nil: true
-    delegate :external_ip, to: :application_ingress, prefix: true, allow_nil: true
-    delegate :external_hostname, to: :application_ingress, prefix: true, allow_nil: true
 
     alias_attribute :base_domain, :domain
     alias_attribute :provided_by_user?, :user?
@@ -136,20 +97,17 @@ module Clusters
     scope :gcp_installed, -> { gcp_provided.joins(:provider_gcp).merge(Clusters::Providers::Gcp.with_status(:created)) }
     scope :aws_installed, -> { aws_provided.joins(:provider_aws).merge(Clusters::Providers::Aws.with_status(:created)) }
 
-    scope :with_available_elasticstack, -> { joins(:application_elastic_stack).merge(::Clusters::Applications::ElasticStack.available) }
-    scope :with_available_cilium, -> { joins(:application_cilium).merge(::Clusters::Applications::Cilium.available) }
     scope :distinct_with_deployed_environments, -> { joins(:environments).merge(::Deployment.success).distinct }
 
     scope :managed, -> { where(managed: true) }
-    scope :with_persisted_applications, -> { eager_load(*APPLICATIONS_ASSOCIATIONS) }
     scope :default_environment, -> { where(environment_scope: DEFAULT_ENVIRONMENT) }
     scope :with_management_project, -> { where.not(management_project: nil) }
 
-    scope :for_project_namespace, -> (namespace_id) { joins(:projects).where(projects: { namespace_id: namespace_id }) }
-    scope :with_name, -> (name) { where(name: name) }
+    scope :for_project_namespace, ->(namespace_id) { joins(:projects).where(projects: { namespace_id: namespace_id }) }
+    scope :with_name, ->(name) { where(name: name) }
 
     scope :with_integration_prometheus, -> { includes(:integration_prometheus).joins(:integration_prometheus) }
-    scope :with_project_http_integrations, -> (project_ids) do
+    scope :with_project_http_integrations, ->(project_ids) do
       conditions = { projects: :alert_management_http_integrations }
       includes(conditions).joins(conditions).where(projects: { id: project_ids })
     end
@@ -250,30 +208,28 @@ module Clusters
       connection_data.merge(Gitlab::Kubernetes::Node.new(self).all)
     end
 
-    def persisted_applications
-      APPLICATIONS_ASSOCIATIONS.map(&method(:public_send)).compact
-    end
-
-    def applications
-      APPLICATIONS.each_value.map do |application_class|
-        find_or_build_application(application_class)
-      end
-    end
-
-    def find_or_build_application(application_class)
-      raise ArgumentError, "#{application_class} is not in APPLICATIONS" unless APPLICATIONS.value?(application_class)
-
-      association_name = application_class.association_name
-
-      public_send(association_name) || public_send("build_#{association_name}") # rubocop:disable GitlabSecurity/PublicSend
-    end
-
     def find_or_build_integration_prometheus
       integration_prometheus || build_integration_prometheus
     end
 
-    def find_or_build_integration_elastic_stack
-      integration_elastic_stack || build_integration_elastic_stack
+    def on_creation?
+      !!provider&.on_creation?
+    end
+
+    def knative_pre_installed?
+      !!provider&.knative_pre_installed?
+    end
+
+    def platform_kubernetes_active?
+      !!platform_kubernetes&.active?
+    end
+
+    def platform_kubernetes_rbac?
+      !!platform_kubernetes&.rbac?
+    end
+
+    def integration_prometheus_available?
+      !!integration_prometheus&.available?
     end
 
     def provider
@@ -308,18 +264,6 @@ module Clusters
 
     def kubeclient
       platform_kubernetes&.kubeclient if kubernetes?
-    end
-
-    def elastic_stack_adapter
-      integration_elastic_stack
-    end
-
-    def elasticsearch_client
-      elastic_stack_adapter&.elasticsearch_client
-    end
-
-    def elastic_stack_available?
-      !!integration_elastic_stack_available?
     end
 
     def kubernetes_namespace_for(environment, deployable: environment.last_deployable)
@@ -364,12 +308,6 @@ module Clusters
         instance
       else
         raise NotImplementedError
-      end
-    end
-
-    def serverless_domain
-      strong_memoize(:serverless_domain) do
-        self.application_knative&.serverless_domain_cluster
       end
     end
 

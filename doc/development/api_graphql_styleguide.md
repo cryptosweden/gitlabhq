@@ -1,12 +1,26 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # GraphQL API style guide
 
 This document outlines the style guide for the GitLab [GraphQL API](../api/graphql/index.md).
+
+## Vision
+
+We want the GraphQL API to be the **primary** means of interacting
+programmatically with GitLab. To achieve this, it needs full coverage - anything
+possible in the REST API should also be possible in the GraphQL API.
+
+To help us meet this vision, the frontend should use GraphQL in preference to
+the REST API for new features.
+The GraphQL API is [versionless](https://graphql.org/learn/best-practices/#versioning).
+
+There are no plans to deprecate the REST API. To reduce the technical burden of
+supporting two APIs in parallel, they should share implementations as much as
+possible.
 
 ## How GitLab implements GraphQL
 
@@ -31,14 +45,25 @@ with anyone who may work in this part of the codebase in the future. You can fin
 [recording on YouTube](https://www.youtube.com/watch?v=-9L_1MWrjkg), and the slides on
 [Google Slides](https://docs.google.com/presentation/d/1qOTxpkTdHIp1CRjuTvO-aXg0_rUtzE3ETfLUdnBB5uQ/edit)
 and in [PDF](https://gitlab.com/gitlab-org/create-stage/uploads/8e78ea7f326b2ef649e7d7d569c26d56/GraphQL_Deep_Dive__Create_.pdf).
-Everything covered in this deep dive was accurate as of GitLab 11.9, and while specific
-details may have changed since then, it should still serve as a good introduction.
+Specific details may have changed since then, but it should still serve as a good introduction.
 
 ## GraphiQL
 
 GraphiQL is an interactive GraphQL API explorer where you can play around with existing queries.
 You can access it in any GitLab environment on `https://<your-gitlab-site.com>/-/graphql-explorer`.
 For example, the one for [GitLab.com](https://gitlab.com/-/graphql-explorer).
+
+## Reviewing merge requests with GraphQL changes
+
+The GraphQL framework has some specific gotchas to be aware of, and domain expertise is required to ensure they are satisfied.
+
+If you are asked to review a merge request that modifies any GraphQL files or adds an endpoint, have a look at
+[our GraphQL review guide](graphql_guide/reviewing.md).
+
+## Reading GraphQL logs
+
+See the [Reading GraphQL logs](graphql_guide/monitoring.md) guide for tips on how to inspect logs
+of GraphQL requests and monitor the performance of your GraphQL queries.
 
 ## Authentication
 
@@ -66,7 +91,7 @@ a connection.
 
 ### Max complexity
 
-Complexity is explained [on our client-facing API page](../api/graphql/index.md#max-query-complexity).
+Complexity is explained [on our client-facing API page](../api/graphql/index.md#maximum-query-complexity).
 
 Fields default to adding `1` to a query's complexity score, but developers can
 [specify a custom complexity](#field-complexity) when defining a field.
@@ -77,6 +102,63 @@ The complexity score of a query [can itself be queried for](../api/graphql/getti
 
 Requests time out at 30 seconds.
 
+### Limit maximum field call count
+
+In some cases, you want to prevent the evaluation of a specific field on multiple parent nodes
+because it results in an N+1 query problem and there is no optimal solution. This should be
+considered an option of last resort, to be used only when methods such as
+[lookahead to preload associations](#look-ahead), or [using batching](graphql_guide/batchloader.md)
+have been considered.
+
+For example:
+
+```graphql
+# This usage is expected.
+query {
+  project {
+    environments
+  }
+}
+
+# This usage is NOT expected.
+# It results in N+1 query problem. EnvironmentsResolver can't use GraphQL batch loader in favor of GraphQL pagination.
+query {
+  projects {
+    nodes {
+      environments
+    }
+  }
+}
+```
+
+To prevent this, you can use the `Gitlab::Graphql::Limit::FieldCallCount` extension on the field:
+
+```ruby
+# This allows maximum 1 call to the `environments` field. If the field is evaluated on more than one node,
+# it raises an error.
+field :environments do
+        extension(::Gitlab::Graphql::Limit::FieldCallCount, limit: 1)
+      end
+```
+
+or you can apply the extension in a resolver class:
+
+```ruby
+module Resolvers
+  class EnvironmentsResolver < BaseResolver
+    extension(::Gitlab::Graphql::Limit::FieldCallCount, limit: 1)
+    # ...
+  end
+end
+```
+
+When you add this limit, make sure that the affected field's `description` is also updated accordingly. For example,
+
+```ruby
+field :environments,
+      description: 'Environments of the project. This field can only be resolved for one project in any single request.'
+```
+
 ## Breaking changes
 
 The GitLab GraphQL API is [versionless](https://graphql.org/learn/best-practices/#versioning) which means
@@ -85,19 +167,28 @@ developers must familiarize themselves with our [Deprecation and Removal process
 Breaking changes are:
 
 - Removing or renaming a field, argument, enum value, or mutation.
-- Changing the type of a field, argument or enum value.
+- Changing the type or type name of an argument. The type of an argument
+  is declared by the client when [using variables](https://graphql.org/learn/queries/#variables),
+  and a change would cause a query using the old type name to be rejected by the API.
+- Changing the [_scalar type_](https://graphql.org/learn/schema/#scalar-types) of a field or enum
+  value where it results in a change to how the value serializes to JSON.
+  For example, a change from a JSON String to a JSON Number, or a change to how a String is formatted.
+  A change to another [_object type_](https://graphql.org/learn/schema/#object-types-and-fields) can be
+  allowed so long as all scalar type fields of the object continue to serialize in the same way.
 - Raising the [complexity](#max-complexity) of a field or complexity multipliers in a resolver.
 - Changing a field from being _not_ nullable (`null: false`) to nullable (`null: true`), as
-discussed in [Nullable fields](#nullable-fields).
+  discussed in [Nullable fields](#nullable-fields).
 - Changing an argument from being optional (`required: false`) to being required (`required: true`).
 - Changing the [max page size](#page-size-limit) of a connection.
 - Lowering the global limits for query complexity and depth.
 - Anything else that can result in queries hitting a limit that previously was allowed.
 
-Fields that use the [`feature_flag` property](#feature_flag-property) and the flag is disabled by default are exempt
-from the deprecation process, and can be removed at any time without notice.
+See the [deprecating schema items](#deprecating-schema-items) section for how to deprecate items.
 
-See the [deprecating fields, arguments, and enum values](#deprecating-fields-arguments-and-enum-values) section for how to deprecate items.
+### Breaking change exemptions
+
+See the
+[GraphQL API breaking change exemptions documentation](../api/graphql/index.md#breaking-change-exemptions).
 
 ## Global IDs
 
@@ -112,6 +203,7 @@ See also:
 - [Exposing Global IDs](#exposing-global-ids).
 - [Mutation arguments](#object-identifier-arguments).
 - [Deprecating Global IDs](#deprecate-global-ids).
+- [Customer-facing Global ID documentation](../api/graphql/index.md#global-ids).
 
 We have a custom scalar type (`Types::GlobalIDType`) which should be used as the
 type of input and output arguments when the value is a `GlobalID`. The benefits
@@ -127,41 +219,65 @@ it is perfectly possible to parameterize this type with a concern or a
 supertype, if you want to accept a wider range of objects (such as
 `GlobalIDType[Issuable]` vs `GlobalIDType[Issue]`).
 
-## Types
+## Optimizations
+
+By default, GraphQL tends to introduce N+1 problems unless you actively try to minimize them.
+
+For stability and scalability, you must ensure that our queries do not suffer from N+1
+performance issues.
+
+The following are a list of tools to help you to optimize your GraphQL code:
+
+- [Look ahead](#look-ahead) allows you to preload data based on which fields are selected in the query.
+- [Batch loading](graphql_guide/batchloader.md) allows you batch database queries together to be executed in one statement.
+- [`BatchModelLoader`](graphql_guide/batchloader.md#the-batchmodelloader) is the recommended way to lookup
+  records by ID to leverage batch loading.
+- [`before_connection_authorization`](#before_connection_authorization) allows you to address N+1 problems
+  specific to [type authorization](#authorization) permission checks.
+- [Limit maximum field call count](#limit-maximum-field-call-count) allows you to restrict how many times
+  a field can return data where optimizations cannot be improved.
+
+## How to see N+1 problems in development
+
+N+1 problems can be discovered during development of a feature by:
+
+- Tailing `development.log` while you execute GraphQL queries that return collections of data.
+  [Bullet](../development/profiling.md#bullet) may help.
+- Observing the [performance bar](../administration/monitoring/performance/performance_bar.md) if
+  executing queries in the GitLab UI.
+- Adding a [request spec](#testing-tips-and-tricks) that asserts there are no (or limited) N+1
+  problems with the feature.
+
+## Fields
+
+### Types
 
 We use a code-first schema, and we declare what type everything is in Ruby.
 
-For example, `app/graphql/types/issue_type.rb`:
+For example, `app/graphql/types/project_type.rb`:
 
 ```ruby
-graphql_name 'Issue'
+graphql_name 'Project'
 
-field :iid, GraphQL::Types::ID, null: true
-field :title, GraphQL::Types::String, null: true
-
-# we also have a method here that we've defined, that extends `field`
-markdown_field :title_html, null: true
-field :description, GraphQL::Types::String, null: true
-markdown_field :description_html, null: true
+field :full_path, GraphQL::Types::ID, null: true
+field :name, GraphQL::Types::String, null: true
 ```
 
-We give each type a name (in this case `Issue`).
+We give each type a name (in this case `Project`).
 
-The `iid`, `title` and `description` are _scalar_ GraphQL types.
-`iid` is a `GraphQL::Types::ID`, a special string type that signifies a unique ID.
-`title` and `description` are regular `GraphQL::Types::String` types.
-
-Note that the old scalar types `GraphQL:ID`, `GraphQL::INT_TYPE`, `GraphQL::STRING_TYPE`,
-`GraphQL:BOOLEAN_TYPE`, and `GraphQL::FLOAT_TYPE` are no longer allowed. Please use `GraphQL::Types::ID`,
-`GraphQL::Types::Int`, `GraphQL::Types::String`, `GraphQL::Types::Boolean`, and `GraphQL::Types::Float`.
+The `full_path` and `name` are of _scalar_ GraphQL types.
+`full_path` is a `GraphQL::Types::ID`
+(see [when to use `GraphQL::Types::ID`](#when-to-use-graphqltypesid)).
+`name` is a regular `GraphQL::Types::String` type.
+You can also declare [custom GraphQL data types](#gitlab-custom-scalars)
+for scalar data types (for example `TimeType`).
 
 When exposing a model through the GraphQL API, we do so by creating a
-new type in `app/graphql/types`. You can also declare custom GraphQL data types
-for scalar data types (for example `TimeType`).
+new type in `app/graphql/types`.
 
 When exposing properties in a type, make sure to keep the logic inside
 the definition as minimal as possible. Instead, consider moving any
-logic into a presenter:
+logic into a [presenter](reusing_abstractions.md#presenters):
 
 ```ruby
 class Types::MergeRequestType < BaseObject
@@ -191,7 +307,7 @@ the following reasons:
 - Changing from a non-nullable field to a nullable field is difficult with a versionless schema
 
 Non-nullable fields should only be used when a field is required, very unlikely
-to become optional in the future, and very easy to calculate. An example would
+to become optional in the future, and straightforward to calculate. An example would
 be `id` fields.
 
 A non-nullable GraphQL schema field is an object type followed by the exclamation point (bang) `!`. Here's an example from the `gitlab_schema.graphql` file:
@@ -211,8 +327,7 @@ Further reading:
 
 - [GraphQL Best Practices Guide](https://graphql.org/learn/best-practices/#nullability).
 - GraphQL documentation on [Object types and fields](https://graphql.org/learn/schema/#object-types-and-fields).
-- [GraphQL Best Practices Guide](https://graphql.org/learn/best-practices/#nullability)
-- [Using nullability in GraphQL](https://www.apollographql.com/blog/graphql/basics/using-nullability-in-graphql/)
+- [Using nullability in GraphQL](https://www.apollographql.com/blog/using-nullability-in-graphql)
 
 ### Exposing Global IDs
 
@@ -229,23 +344,83 @@ or by calling `#to_global_id` on an object that has mixed in the
 `GlobalID::Identification` module.
 
 Using an example from
-[`Types::Notes::DiscussionType`](https://gitlab.com/gitlab-org/gitlab/-/blob/3c95bd9/app/graphql/types/notes/discussion_type.rb#L24-26):
+[`Types::Notes::DiscussionType`](https://gitlab.com/gitlab-org/gitlab/-/blob/af48df44/app/graphql/types/notes/discussion_type.rb#L22-30):
 
 ```ruby
-field :reply_id, GraphQL::Types::ID
+field :reply_id, Types::GlobalIDType[Discussion]
 
 def reply_id
-  ::Gitlab::GlobalId.build(object, id: object.reply_id)
+  Gitlab::GlobalId.build(object, id: object.reply_id)
 end
 ```
+
+### When to use `GraphQL::Types::ID`
+
+When we use `GraphQL::Types::ID` the field becomes a GraphQL `ID` type, which is serialized as a JSON string.
+However, `ID` has a special significance for clients. The [GraphQL spec](https://spec.graphql.org/October2021/#sec-ID) says:
+
+> The ID scalar type represents a unique identifier, often used to refetch an object or as the key for a cache.
+
+The GraphQL spec does not clarify what the scope should be for an `ID`'s uniqueness. At GitLab we have
+decided that an `ID` must be at least unique by type name. Type name is the `graphql_name` of one our of `Types::` classes, for example `Project`, or `Issue`.
+
+Following this:
+
+- `Project.fullPath` should be an `ID` because there will be no other `Project` with that `fullPath` across the API, and the field is also an identifier.
+- `Issue.iid` _should not_ be an `ID` because there can be many `Issue` types that have the same `iid` across the API.
+  Treating it as an `ID` would be problematic if the client has a cache of `Issue`s from different projects.
+- `Project.id` normally would qualify to be an `ID` because there can only be one `Project` with that ID value -
+  except we use [Global ID types](#global-ids) instead of `ID` types for database ID values so we would type it as a Global ID instead.
+
+This is summarized in the following table:
+
+| Field purpose | Use `GraphQL::Types::ID`? |
+|---------------|---------------------------|
+| Full path | **{check-circle}** Yes |
+| Database ID | **{dotted-circle}** No |
+| IID | **{dotted-circle}** No |
+
+### `markdown_field`
+
+`markdown_field` is a helper method that wraps `field` and should always be used for
+fields that return rendered Markdown.
+
+This helper renders a model's Markdown field using the
+existing `MarkupHelper` with the context of the GraphQL query
+available to the helper.
+
+Having the context available to the helper is needed for redacting
+links to resources that the current user is not allowed to see.
+
+Because rendering the HTML can cause queries, the complexity of a
+these fields is raised by 5 above the default.
+
+The Markdown field helper can be used as follows:
+
+```ruby
+markdown_field :note_html, null: false
+```
+
+This would generate a field that renders the Markdown field `note`
+of the model. This could be overridden by adding the `method:`
+argument.
+
+```ruby
+markdown_field :body_html, null: false, method: :note
+```
+
+The field is given this description by default:
+
+> The GitLab Flavored Markdown rendering of `note`
+
+This can be overridden by passing a `description:` argument.
 
 ### Connection types
 
 NOTE:
 For specifics on implementation, see [Pagination implementation](#pagination-implementation).
 
-GraphQL uses [cursor based
-pagination](https://graphql.org/learn/pagination/#pagination-and-edges)
+GraphQL uses [cursor based pagination](https://graphql.org/learn/pagination/#pagination-and-edges)
 to expose collections of items. This provides the clients with a lot
 of flexibility while also allowing the backend to use different
 pagination models.
@@ -331,12 +506,12 @@ query($project_path: ID!) {
 ```
 
 To ensure that we get consistent ordering, we append an ordering on the primary
-key, in descending order. This is usually `id`, so we add `order(id: :desc)`
+key, in descending order. The primary key is usually `id`, so we add `order(id: :desc)`
 to the end of the relation. A primary key _must_ be available on the underlying table.
 
 #### Shortcut fields
 
-Sometimes it can seem easy to implement a "shortcut field", having the resolver return the first of a collection if no parameters are passed.
+Sometimes it can seem straightforward to implement a "shortcut field", having the resolver return the first of a collection if no parameters are passed.
 These "shortcut fields" are discouraged because they create maintenance overhead.
 They need to be kept in sync with their canonical field, and deprecated or modified if their canonical field changes.
 Use the functionality the framework provides unless there is a compelling reason to do otherwise.
@@ -371,7 +546,7 @@ field :tags,
 ### Field complexity
 
 The GitLab GraphQL API uses a _complexity_ score to limit performing overly complex queries.
-Complexity is described in [our client documentation](../api/graphql/index.md#max-query-complexity) on the topic.
+Complexity is described in [our client documentation](../api/graphql/index.md#maximum-query-complexity) on the topic.
 
 Complexity limits are defined in [`app/graphql/gitlab_schema.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/graphql/gitlab_schema.rb).
 
@@ -379,7 +554,7 @@ By default, fields add `1` to a query's complexity score. This can be overridden
 [providing a custom `complexity`](https://graphql-ruby.org/queries/complexity_and_depth.html) value for a field.
 
 Developers should specify higher complexity for fields that cause more _work_ to be performed
-by the server in order to return data. Fields that represent data that can be returned
+by the server to return data. Fields that represent data that can be returned
 with little-to-no _work_, for example in most cases; `id` or `title`, can be given a complexity of `0`.
 
 ### `calls_gitaly`
@@ -467,71 +642,42 @@ end
 
 ## Feature flags
 
-Developers can add [feature flags](../development/feature_flags/index.md) to GraphQL
-fields in the following ways:
+You can implement [feature flags](../development/feature_flags/index.md) in GraphQL to toggle:
 
-- Add the `feature_flag` property to a field. This allows the field to be _hidden_
-  from the GraphQL schema when the flag is disabled.
-- Toggle the return value when resolving the field.
+- The return value of a field.
+- The behavior of an argument or mutation.
 
-You can refer to these guidelines to decide which approach to use:
-
-- If your field is experimental, and its name or type is subject to
-  change, use the `feature_flag` property.
-- If your field is stable and its definition doesn't change, even after the flag is
-  removed, toggle the return value of the field instead. Note that
-  [all fields should be nullable](#nullable-fields) anyway.
-
-### `feature_flag` property
-
-The `feature_flag` property allows you to toggle the field's
-[visibility](https://graphql-ruby.org/authorization/visibility.html)
-in the GraphQL schema. This removes the field from the schema
-when the flag is disabled.
-
-A description is [appended](https://gitlab.com/gitlab-org/gitlab/-/blob/497b556/app/graphql/types/base_field.rb#L44-53)
-to the field indicating that it is behind a feature flag.
-
-WARNING:
-If a client queries for the field when the feature flag is disabled, the query
-fails. Consider this when toggling the visibility of the feature on or off on
-production.
-
-The `feature_flag` property does not allow the use of
-[feature gates based on actors](../development/feature_flags/index.md).
-This means that the feature flag cannot be toggled only for particular
-projects, groups, or users, but instead can only be toggled globally for
-everyone.
-
-Example:
-
-```ruby
-field :test_field, type: GraphQL::Types::String,
-      null: true,
-      description: 'Some test field.',
-      feature_flag: :my_feature_flag
-```
-
-### Toggle the value of a field
-
-This method of using feature flags for fields is to toggle the
-return value of the field. This can be done in the resolver, in the
+This can be done in a resolver, in the
 type, or even in a model method, depending on your preference and
 situation.
 
-When applying a feature flag to toggle the value of a field, the
-`description` of the field must:
+NOTE:
+It's recommended that you also [mark the item as Alpha](#mark-schema-items-as-alpha) while it is behind a feature flag.
+This signals to consumers of the public GraphQL API that the field is not
+meant to be used yet.
+You can also
+[change or remove Alpha items at any time](#breaking-change-exemptions) without needing to deprecate them. When the flag is removed, "release"
+the schema item by removing its Alpha property to make it public.
 
-- State that the value of the field can be toggled by a feature flag.
+### Descriptions for feature-flagged items
+
+When using a feature flag to toggle the value or behavior of a schema item, the
+`description` of the item must:
+
+- State that the value or behavior can be toggled by a feature flag.
 - Name the feature flag.
-- State what the field returns when the feature flag is disabled (or
+- State what the field returns, or behavior is, when the feature flag is disabled (or
   enabled, if more appropriate).
 
-Example:
+### Examples of using feature flags
+
+#### Feature-flagged field
+
+A field value is toggled based on the feature flag state. A common use is to return `null` if the feature flag is disabled:
 
 ```ruby
-field :foo, GraphQL::Types::String,
-      null: true,
+field :foo, GraphQL::Types::String, null: true,
+      alpha: { milestone: '10.0' },
       description: 'Some test field. Returns `null`' \
                    'if `my_feature_flag` feature flag is disabled.'
 
@@ -540,19 +686,75 @@ def foo
 end
 ```
 
-## Deprecating fields, arguments, and enum values
+#### Feature-flagged argument
+
+An argument can be ignored, or have its value changed, based on the feature flag state.
+A common use is to ignore the argument when a feature flag is disabled:
+
+```ruby
+argument :foo, type: GraphQL::Types::String, required: false,
+         alpha: { milestone: '10.0' },
+         description: 'Some test argument. Is ignored if ' \
+                      '`my_feature_flag` feature flag is disabled.'
+
+def resolve(args)
+  args.delete(:foo) unless Feature.enabled?(:my_feature_flag, object)
+  # ...
+end
+```
+
+#### Feature-flagged mutation
+
+A mutation that cannot be performed due to a feature flag state is handled as a
+[non-recoverable mutation error](#failure-irrelevant-to-the-user). The error is returned at the top level:
+
+```ruby
+description 'Mutates an object. Does not mutate the object if ' \
+            '`my_feature_flag` feature flag is disabled.'
+
+def resolve(id: )
+  object = authorized_find!(id: id)
+
+  raise_resource_not_available_error! '`my_feature_flag` feature flag is disabled.' \
+    if Feature.disabled?(:my_feature_flag, object)
+  # ...
+end
+```
+
+## Deprecating schema items
 
 The GitLab GraphQL API is versionless, which means we maintain backwards
 compatibility with older versions of the API with every change.
 
-Rather than removing fields, arguments, or [enum values](#enums), they
-must be _deprecated_ instead.
+Rather than removing fields, arguments, [enum values](#enums), or [mutations](#mutations),
+they must be _deprecated_ instead.
 
 The deprecated parts of the schema can then be removed in a future release
 in accordance with the [GitLab deprecation process](../api/graphql/index.md#deprecation-and-removal-process).
 
-Fields, arguments, and enum values are deprecated using the `deprecated` property.
-The value of the property is a `Hash` of:
+To deprecate a schema item in GraphQL:
+
+1. [Create a deprecation issue](#create-a-deprecation-issue) for the item.
+1. [Mark the item as deprecated](#mark-the-item-as-deprecated) in the schema.
+
+See also:
+
+- [Aliasing and deprecating mutations](#aliasing-and-deprecating-mutations).
+- [Marking schema items as Alpha](#mark-schema-items-as-alpha).
+- [How to filter Kibana for queries that used deprecated fields](graphql_guide/monitoring.md#queries-that-used-a-deprecated-field).
+
+### Create a deprecation issue
+
+Every GraphQL deprecation should have a deprecation issue created [using the `Deprecations` issue template](https://gitlab.com/gitlab-org/gitlab/-/issues/new?issuable_template=Deprecations) to track its deprecation and removal.
+
+Apply these two labels to the deprecation issue:
+
+- `~GraphQL`
+- `~deprecation`
+
+### Mark the item as deprecated
+
+Fields, arguments, enum values, and mutations are deprecated using the `deprecated` property. The value of the property is a `Hash` of:
 
 - `reason` - Reason for the deprecation.
 - `milestone` - Milestone that the field was deprecated.
@@ -569,7 +771,7 @@ The original `description` of the things being deprecated should be maintained,
 and should _not_ be updated to mention the deprecation. Instead, the `reason`
 is appended to the `description`.
 
-### Deprecation reason style guide
+#### Deprecation reason style guide
 
 Where the reason for deprecation is due to the field, argument, or enum value being
 replaced, the `reason` must indicate the replacement. For example, the
@@ -601,14 +803,14 @@ end
 If the field, argument, or enum value being deprecated is not being replaced,
 a descriptive deprecation `reason` should be given.
 
-### Deprecate Global IDs
+#### Deprecate Global IDs
 
 We use the [`rails/globalid`](https://github.com/rails/globalid) gem to generate and parse
 Global IDs, so as such they are coupled to model names. When we rename a
 model, its Global ID changes.
 
 If the Global ID is used as an _argument_ type anywhere in the schema, then the Global ID
-change would normally constitute a breaking change.
+change would typically constitute a breaking change.
 
 To continue to support clients using the old Global ID argument, we add a deprecation
 to `Gitlab::GlobalId::Deprecations`.
@@ -668,7 +870,7 @@ To allow clients to continue to interact with the mutation unchanged, edit the `
 
 ```ruby
 DEPRECATIONS = [
-  Deprecation.new(old_model_name: 'PrometheusService', new_model_name: 'Integrations::Prometheus', milestone: '14.0')
+  Gitlab::Graphql::DeprecationsBase::NameDeprecation.new(old_name: 'PrometheusService', new_name: 'Integrations::Prometheus', milestone: '14.0')
 ].freeze
 ```
 
@@ -679,29 +881,62 @@ support for the former argument style, remove the `Deprecation`:
 DEPRECATIONS = [].freeze
 ```
 
-During the deprecation period the API will accept either of these formats for the argument value:
+During the deprecation period, the API accepts either of these formats for the argument value:
 
 - `"gid://gitlab/PrometheusService/1"`
 - `"gid://gitlab/Integrations::Prometheus/1"`
 
-The API will also accept these types in the query signature for the argument:
+The API also accepts these types in the query signature for the argument:
 
 - `PrometheusServiceID`
 - `IntegrationsPrometheusID`
 
 NOTE:
-Although queries that use the old type (`PrometheusServiceID` in this example) will be
-considered valid and executable by the API, validator tools will consider them to be invalid.
-This is because we are deprecating using a bespoke method outside of the
+Although queries that use the old type (`PrometheusServiceID` in this example) are
+considered valid and executable by the API, validator tools consider them to be invalid.
+They are considered invalid because we are deprecating using a bespoke method outside of the
 [`@deprecated` directive](https://spec.graphql.org/June2018/#sec--deprecated), so validators are not
 aware of the support.
 
-The documentation will mention that the old Global ID style is now deprecated.
+The documentation mentions that the old Global ID style is now deprecated.
 
-See also:
+## Mark schema items as Alpha
 
-- [Aliasing and deprecating mutations](#aliasing-and-deprecating-mutations).
-- [How to filter Kibana for queries that used deprecated fields](graphql_guide/monitoring.md#queries-that-used-a-deprecated-field).
+You can mark GraphQL schema items (fields, arguments, enum values, and mutations) as
+[Alpha](../policy/experiment-beta-support.md#experiment).
+
+An item marked as Alpha is
+[exempt from the deprecation process](../api/graphql/index.md#breaking-change-exemptions) and can be
+removed at any time without notice. Mark an item as Alpha when it is subject to
+change and not ready for public use.
+
+NOTE:
+Only mark new items as Alpha. Never mark existing items
+as Alpha because they're already public.
+
+To mark a schema item as Alpha, use the `alpha:` keyword.
+You must provide the `milestone:` that introduced the Alpha item.
+
+For example:
+
+```ruby
+field :token, GraphQL::Types::String, null: true,
+      alpha: { milestone: '10.0' },
+      description: 'Token for login.'
+```
+
+Similarly, you can also mark an entire mutation as Alpha by updating where the mutation is mounted in `app/graphql/types/mutation_type.rb`:
+
+```ruby
+mount_mutation Mutations::Ci::JobArtifact::BulkDestroy, alpha: { milestone: '15.10' }
+```
+
+Alpha GraphQL items is a custom GitLab feature that leverages GraphQL deprecations. An Alpha item
+appears as deprecated in the GraphQL schema. Like all deprecated schema items, you can test an
+Alpha field in the [interactive GraphQL explorer](../api/graphql/index.md#interactive-graphql-explorer) (GraphiQL).
+However, be aware that the GraphiQL autocomplete editor doesn't suggest deprecated fields.
+
+The item shows as Alpha in our generated GraphQL documentation and its GraphQL schema description.
 
 ## Enums
 
@@ -748,11 +983,11 @@ end
 ```
 
 Enum values can be deprecated using the
-[`deprecated` keyword](#deprecating-fields-arguments-and-enum-values).
+[`deprecated` keyword](#deprecating-schema-items).
 
 ### Defining GraphQL enums dynamically from Rails enums
 
-If your GraphQL enum is backed by a [Rails enum](creating_enums.md), then consider
+If your GraphQL enum is backed by a [Rails enum](database/creating_enums.md), then consider
 using the Rails enum to dynamically define the GraphQL enum values. Doing so
 binds the GraphQL enum values to the Rails enum definition, so if values are
 ever added to the Rails enum then the GraphQL enum automatically reflects the change.
@@ -765,7 +1000,7 @@ module Types
     graphql_name 'IssuableSeverity'
     description 'Incident severity'
 
-    ::IssuableSeverity.severities.keys.each do |severity|
+    ::IssuableSeverity.severities.each_key do |severity|
       value severity.upcase, value: severity, description: "#{severity.titleize} severity."
     end
   end
@@ -787,7 +1022,7 @@ An example of the use of a union for this purpose is
 
 Field names can be mapped to hash data keys using the `hash_key:` keyword if needed.
 
-For example, given the following simple JSON data:
+For example, given the following JSON data:
 
 ```json
 {
@@ -827,35 +1062,74 @@ A description of a field or argument is given using the `description:`
 keyword. For example:
 
 ```ruby
-field :id, GraphQL::Types::ID, description: 'ID of the resource.'
+field :id, GraphQL::Types::ID, description: 'ID of the issue.'
+field :confidential, GraphQL::Types::Boolean, description: 'Indicates the issue is confidential.'
+field :closed_at, Types::TimeType, description: 'Timestamp of when the issue was closed.'
 ```
 
-Descriptions of fields and arguments are viewable to users through:
+You can view descriptions of fields and arguments in:
 
 - The [GraphiQL explorer](#graphiql).
 - The [static GraphQL API reference](../api/graphql/reference/index.md).
 
 ### Description style guide
 
-To ensure consistency, the following should be followed whenever adding or updating
-descriptions:
+#### Language and punctuation
 
-- Mention the name of the resource in the description. Example:
-  `'Labels of the issue'` (issue being the resource).
-- Use `"{x} of the {y}"` where possible. Example: `'Title of the issue'`.
-  Do not start descriptions with `The` or `A`, for consistency and conciseness.
-- Descriptions of `GraphQL::Types::Boolean` fields should answer the question: "What does
-  this field do?". Example: `'Indicates project has a Git repository'`.
-- Always include the word `"timestamp"` when describing an argument or
-  field of type `Types::TimeType`. This lets the reader know that the
-  format of the property is `Time`, rather than just `Date`.
-- Must end with a period (`.`).
+To describe fields and arguments, use `{x} of the {y}` where possible,
+where `{x}` is the item you're describing, and `{y}` is the resource it applies to. For example:
 
-Example:
+```plaintext
+ID of the issue.
+```
+
+```plaintext
+Author of the epics.
+```
+
+For arguments that sort or search, start with the appropriate verb.
+To indicate the specified values, for conciseness, you can use `this` instead of
+`the given` or `the specified`. For example:
+
+```plaintext
+Sort issues by this criteria.
+```
+
+Do not start descriptions with `The` or `A`, for consistency and conciseness.
+
+End all descriptions with a period (`.`).
+
+#### Booleans
+
+For a boolean field (`GraphQL::Types::Boolean`), start with a verb that describes
+what it does. For example:
+
+```plaintext
+Indicates the issue is confidential.
+```
+
+If necessary, provide the default. For example:
+
+```plaintext
+Sets the issue to confidential. Default is false.
+```
+
+#### Sort enums
+
+[Enums for sorting](#sort-arguments) should have the description `'Values for sorting {x}.'`. For example:
+
+```plaintext
+Values for sorting container repositories.
+```
+
+#### `Types::TimeType` field description
+
+For `Types::TimeType` GraphQL fields, include the word `timestamp`. This lets
+the reader know that the format of the property is `Time`, rather than just `Date`.
+
+For example:
 
 ```ruby
-field :id, GraphQL::Types::ID, description: 'ID of the issue.'
-field :confidential, GraphQL::Types::Boolean, description: 'Indicates the issue is confidential.'
 field :closed_at, Types::TimeType, description: 'Timestamp of when the issue was closed.'
 ```
 
@@ -899,6 +1173,17 @@ A taxonomic genus. See: [Wikipedia page on genera](https://wikipedia.org/wiki/Ge
 Multiple documentation references can be provided. The syntax for this property
 is a `HashMap` where the keys are textual descriptions, and the values are URLs.
 
+### Subscription tier badges
+
+If a field or argument is available to higher subscription tiers than the other fields,
+add the [availability details inline](documentation/styleguide/availability_details.md#inline-availability-details).
+
+For example:
+
+```ruby
+description: 'Full path of a custom template. Premium and Ultimate only.'
+```
+
 ## Authorization
 
 See: [GraphQL Authorization](graphql_guide/authorization.md)
@@ -913,8 +1198,8 @@ the objects in question.
 To find objects to display in a field, we can add resolvers to
 `app/graphql/resolvers`.
 
-Arguments can be defined within the resolver in the same way as in a mutation.
-See the [Mutation arguments](#object-identifier-arguments) section.
+Arguments can be defined in the resolver in the same way as in a mutation.
+See the [Arguments](#arguments) section.
 
 To limit the amount of queries performed, we can use [BatchLoader](graphql_guide/batchloader.md).
 
@@ -957,7 +1242,7 @@ application:
 - Services in mutations to apply operations.
 - Loaders (batch-aware finders) specific to queries.
 
-Note that there is never any reason to use batching in a mutation. Mutations are
+There is never any reason to use batching in a mutation. Mutations are
 executed in series, so there are no batching opportunities. All values are
 evaluated eagerly as soon as they are requested, so batching is unnecessary
 overhead. If you are writing:
@@ -991,9 +1276,11 @@ you need to do something more custom however, remember, if you encounter an
 object the `current_user` does not have access to when resolving a field, then
 the entire field should resolve to `null`.
 
-### Deriving resolvers (`BaseResolver.single` and `BaseResolver.last`)
+### Deriving resolvers
 
-For some simple use cases, we can derive resolvers from others.
+(including `BaseResolver.single` and `BaseResolver.last`)
+
+For some use cases, we can derive resolvers from others.
 The main use case for this is one resolver to find all items, and another to
 find one specific one. For this, we supply convenience methods:
 
@@ -1038,7 +1325,7 @@ class JobsResolver < BaseResolver
   end
 ```
 
-Here we have a simple resolver for getting pipeline jobs. The `name` argument is
+Here we have a resolver for getting pipeline jobs. The `name` argument is
 optional when getting a list, but required when getting a single job.
 
 If there are multiple arguments, and neither can be made required, we can use
@@ -1081,32 +1368,9 @@ field :jobs, resolver: JobsResolver, description: 'All jobs.'
 field :job, resolver: JobsResolver.single, description: 'A single job.'
 ```
 
-### Correct use of `Resolver#ready?`
+### Optimizing Resolvers
 
-Resolvers have two public API methods as part of the framework: `#ready?(**args)` and `#resolve(**args)`.
-We can use `#ready?` to perform set-up, validation or early-return without invoking `#resolve`.
-
-Good reasons to use `#ready?` include:
-
-- validating mutually exclusive arguments (see [validating arguments](#validating-arguments))
-- Returning `Relation.none` if we know before-hand that no results are possible
-- Performing setup such as initializing instance variables (although consider lazily initialized methods for this)
-
-Implementations of [`Resolver#ready?(**args)`](https://graphql-ruby.org/api-doc/1.10.9/GraphQL/Schema/Resolver#ready%3F-instance_method) should
-return `(Boolean, early_return_data)` as follows:
-
-```ruby
-def ready?(**args)
-  [false, 'have this instead']
-end
-```
-
-For this reason, whenever you call a resolver (mainly in tests - as framework
-abstractions Resolvers should not be considered re-usable, finders are to be
-preferred), remember to call the `ready?` method and check the boolean flag
-before calling `resolve`! An example can be seen in our [`GraphqlHelpers`](https://gitlab.com/gitlab-org/gitlab/-/blob/2d395f32d2efbb713f7bc861f96147a2a67e92f2/spec/support/helpers/graphql_helpers.rb#L20-27).
-
-### Look-Ahead
+#### Look-Ahead
 
 The full query is known in advance during execution, which means we can make use
 of [lookahead](https://graphql-ruby.org/queries/lookahead.html) to optimize our
@@ -1165,19 +1429,78 @@ class MyThingResolver < BaseResolver
 end
 ```
 
-The final thing that is needed is that every field that uses this resolver needs
-to advertise the need for lookahead:
+The `LooksAhead` concern also provides basic support for preloading associations based on nested GraphQL field
+definitions. The [WorkItemsResolver](https://gitlab.com/gitlab-org/gitlab/-/blob/e824a7e39e08a83fb162db6851de147cf0bfe14a/app/graphql/resolvers/work_items_resolver.rb#L46)
+is a good example for this. `nested_preloads` is another method you can define to return a hash, but unlike the
+`preloads` method, the value for each hash key is another hash and not the list of associations to preload. So in
+the previous example, you could override `nested_preloads` like this:
 
 ```ruby
-  # in ParentType
-  field :my_things, MyThingType.connection_type, null: true,
-        extras: [:lookahead], # Necessary
-        resolver: MyThingResolver,
-        description: 'My things.'
+class MyThingResolver < BaseResolver
+  # ...
+
+  def nested_preloads
+    {
+      root_field: {
+        nested_field1: :association_to_preload,
+        nested_field2: [:association1, :association2]
+      }
+    }
+  end
+end
 ```
 
-For an example of real world use, please
+For an example of real world use,
 see [`ResolvesMergeRequests`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/graphql/resolvers/concerns/resolves_merge_requests.rb).
+
+#### `before_connection_authorization`
+
+A `before_connection_authorization` hook can help resolvers eliminate N+1 problems that originate from
+[type authorization](graphql_guide/authorization.md#type-authorization) permission checks.
+
+The `before_connection_authorization` method receives the resolved nodes and the current user. In
+the block, use `ActiveRecord::Associations::Preloader` or a `Preloaders::` class to preload data
+for the type authorization check.
+
+Example:
+
+```ruby
+class LabelsResolver < BaseResolver
+  before_connection_authorization do |labels, current_user|
+    Preloaders::LabelsPreloader.new(labels, current_user).preload_all
+  end
+end
+```
+
+#### BatchLoading
+
+See [GraphQL BatchLoader](graphql_guide/batchloader.md).
+
+### Correct use of `Resolver#ready?`
+
+Resolvers have two public API methods as part of the framework: `#ready?(**args)` and `#resolve(**args)`.
+We can use `#ready?` to perform set-up or early-return without invoking `#resolve`.
+
+Good reasons to use `#ready?` include:
+
+- Returning `Relation.none` if we know before-hand that no results are possible.
+- Performing setup such as initializing instance variables (although consider lazily initialized methods for this).
+
+Implementations of [`Resolver#ready?(**args)`](https://graphql-ruby.org/api-doc/1.10.9/GraphQL/Schema/Resolver#ready%3F-instance_method) should
+return `(Boolean, early_return_data)` as follows:
+
+```ruby
+def ready?(**args)
+  [false, 'have this instead']
+end
+```
+
+For this reason, whenever you call a resolver (mainly in tests because framework
+abstractions Resolvers should not be considered re-usable, finders are to be
+preferred), remember to call the `ready?` method and check the boolean flag
+before calling `resolve`! An example can be seen in our [`GraphqlHelpers`](https://gitlab.com/gitlab-org/gitlab/-/blob/2d395f32d2efbb713f7bc861f96147a2a67e92f2/spec/support/helpers/graphql_helpers.rb#L20-27).
+
+For validating arguments, [validators](https://graphql-ruby.org/fields/validation.html) are preferred over using `#ready?`.
 
 ### Negated arguments
 
@@ -1194,9 +1517,19 @@ issues(labelName: "bug", not: {labelName: "bug2"}) {
 }
 ```
 
-To avoid duplicated argument definitions, you can place these arguments in a reusable module (or
-class, if the arguments are nested). Alternatively, you can consider to add a
-[helper resolver method](https://gitlab.com/gitlab-org/gitlab/-/issues/258969).
+You can use the `negated` helper from `Gitlab::Graphql::NegatableArguments` in your type or resolver.
+For example:
+
+```ruby
+extend ::Gitlab::Graphql::NegatableArguments
+
+negated do
+  argument :labels, [GraphQL::STRING_TYPE],
+            required: false,
+            as: :label_name,
+            description: 'Array of label names. All resolved merge requests will not have these labels.'
+end
+```
 
 ### Metadata
 
@@ -1256,8 +1589,8 @@ To find the parent object in your `Presenter` class:
    ```
 
 1. Declare your field's method in your Presenter class and have it accept the `parent` keyword argument.
-This argument contains the parent **GraphQL context**, so you have to access the parent object with
-`parent[:parent_object]` or whatever key you used in your `Resolver`:
+   This argument contains the parent **GraphQL context**, so you have to access the parent object with
+   `parent[:parent_object]` or whatever key you used in your `Resolver`:
 
    ```ruby
      # in ChildPresenter
@@ -1299,7 +1632,7 @@ It's acceptable to have both fine-grained mutations and coarse-grained mutations
 that too many fine-grained mutations can lead to organizational challenges in maintainability, code
 comprehensibility, and testing.
 Each mutation requires a new class, which can lead to technical debt.
-It also means the schema becomes very big, and we want users to easily navigate our schema.
+It also means the schema becomes very big, which can make it difficult for users to navigate our schema.
 As each new mutation also needs tests (including slower request integration tests), adding mutations
 slows down the test suite.
 
@@ -1366,97 +1699,6 @@ Examples:
 
 If you need advice for mutation naming, canvass the Slack `#graphql` channel for feedback.
 
-### Arguments
-
-Arguments for a mutation are defined using `argument`.
-
-Example:
-
-```ruby
-argument :my_arg, GraphQL::Types::String,
-         required: true,
-         description: "A description of the argument."
-```
-
-#### Nullability
-
-Arguments can be marked as `required: true` which means the value must be present and not `null`.
-If a required argument's value can be `null`, use the `required: :nullable` declaration.
-
-Example:
-
-```ruby
-argument :due_date,
-         Types::TimeType,
-         required: :nullable,
-         description: 'The desired due date for the issue. Due date is removed if null.'
-```
-
-In the above example, the `due_date` argument must be given, but unlike the GraphQL spec, the value can be `null`.
-This allows 'unsetting' the due date in a single mutation rather than creating a new mutation for removing the due date.
-
-```ruby
-{ due_date: null } # => OK
-{ due_date: "2025-01-10" } # => OK
-{  } # => invalid (not given)
-```
-
-#### Keywords
-
-Each GraphQL `argument` defined is passed to the `#resolve` method
-of a mutation as keyword arguments.
-
-Example:
-
-```ruby
-def resolve(my_arg:)
-  # Perform mutation ...
-end
-```
-
-#### Input Types
-
-`graphql-ruby` wraps up arguments into an
-[input type](https://graphql.org/learn/schema/#input-types).
-
-For example, the
-[`mergeRequestSetDraft` mutation](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/graphql/mutations/merge_requests/set_draft.rb)
-defines these arguments (some
-[through inheritance](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/graphql/mutations/merge_requests/base.rb)):
-
-```ruby
-argument :project_path, GraphQL::Types::ID,
-         required: true,
-         description: "The project the merge request to mutate is in."
-
-argument :iid, GraphQL::Types::String,
-         required: true,
-         description: "The IID of the merge request to mutate."
-
-argument :draft,
-         GraphQL::Types::Boolean,
-         required: false,
-         description: <<~DESC
-           Whether or not to set the merge request as a draft.
-         DESC
-```
-
-These arguments automatically generate an input type called
-`MergeRequestSetDraftInput` with the 3 arguments we specified and the
-`clientMutationId`.
-
-### Object identifier arguments
-
-In keeping with the GitLab use of [Global IDs](#global-ids), mutation
-arguments should use Global IDs to identify an object and never database
-primary key IDs.
-
-Where an object has an `iid`, prefer to use the `full_path` or `group_path`
-of its parent in combination with its `iid` as arguments to identify an
-object rather than its `id`.
-
-See also [Deprecate Global IDs](#deprecate-global-ids).
-
 ### Fields
 
 In the most common situations, a mutation would return 2 fields:
@@ -1508,7 +1750,7 @@ should look like this:
 ### Mounting the mutation
 
 To make the mutation available it must be defined on the mutation
-type that is stored in `graphql/types/mutation_types`. The
+type that is stored in `graphql/types/mutation_type`. The
 `mount_mutation` helper method defines a field based on the
 GraphQL-name of the mutation:
 
@@ -1553,13 +1795,13 @@ object on the mutation. This would allow you to use the
 
 When a user is not allowed to perform the action, or an object is not
 found, we should raise a
-`Gitlab::Graphql::Errors::ResourceNotAvailable` error which is
-correctly rendered to the clients.
+`Gitlab::Graphql::Errors::ResourceNotAvailable` by calling `raise_resource_not_available_error!`
+from in the `resolve` method.
 
 ### Errors in mutations
 
-We encourage following the practice of [errors as
-data](https://graphql-ruby.org/mutations/mutation_errors) for mutations, which
+We encourage following the practice of
+[errors as data](https://graphql-ruby.org/mutations/mutation_errors) for mutations, which
 distinguishes errors by who they are relevant to, defined by who can deal with
 them.
 
@@ -1579,7 +1821,7 @@ two fields: `errors: [String]`, and `thing: ThingType`. The specific nature of
 the `thing` itself is irrelevant to these examples, as we are considering the
 errors.
 
-There are three states a mutation response can be in:
+The three states a mutation response can be in are:
 
 - [Success](#success)
 - [Failure (relevant to the user)](#failure-relevant-to-the-user)
@@ -1604,15 +1846,18 @@ there are no problems we need to inform the user of.
 
 #### Failure (relevant to the user)
 
-An error that affects the **user** occurred. We refer to these as _mutation errors_. In
-this case there is typically no `thing` to return:
+An error that affects the **user** occurred. We refer to these as _mutation errors_.
+
+In a _create_ mutation there is typically no `thing` to return.
+
+In an _update_ mutation we return the current true state of `thing`. Developers may need to call `#reset` on the `thing` instance to ensure this happens.
 
 ```javascript
 {
   data: {
     doTheThing: {
       errors: ["you cannot touch the thing"],
-      thing: null
+      thing: { .. }
     }
   }
 }
@@ -1622,11 +1867,11 @@ Examples of this include:
 
 - Model validation errors: the user may need to change the inputs.
 - Permission errors: the user needs to know they cannot do this, they may need to request permission or sign in.
-- Problems with application state that prevent the user's action, for example: merge conflicts, the resource was locked, and so on.
+- Problems with the application state that prevent the user's action (for example, merge conflicts or a locked resource).
 
 Ideally, we should prevent the user from getting this far, but if they do, they
 need to be told what is wrong, so they understand the reason for the failure and
-what they can do to achieve their intent, even if that is as simple as retrying the
+what they can do to achieve their intent. For example, they might only need to retry the
 request.
 
 It is possible to return *recoverable* errors alongside mutation data. For example, if
@@ -1649,7 +1894,7 @@ In this case there is no `data`:
 }
 ```
 
-This is the result of raising an error during the mutation. In our implementation,
+This results from raising an error during the mutation. In our implementation,
 the messages of argument errors and validation errors are returned to the client, and all other
 `StandardError` instances are caught, logged and presented to the client with the message set to `"Internal server error"`.
 See [`GraphqlController`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/controllers/graphql_controller.rb) for details.
@@ -1678,7 +1923,7 @@ needs of the _user_ from the needs of the _client_.
 > _Never catch an error unless the user needs to know about it._
 
 If the user does need to know about it, communicate with frontend developers
-to make sure the error information we are passing back is useful.
+to make sure the error information we are passing back is relevant and serves a purpose.
 
 See also the [frontend GraphQL guide](../development/fe_guide/graphql.md#handling-errors).
 
@@ -1694,7 +1939,7 @@ mount_aliased_mutation 'BarMutation', Mutations::FooMutation
 ```
 
 This allows us to rename a mutation and continue to support the old name,
-when coupled with the [`deprecated`](#deprecating-fields-arguments-and-enum-values)
+when coupled with the [`deprecated`](#deprecating-schema-items)
 argument.
 
 Example:
@@ -1721,7 +1966,7 @@ process, read [merge request !42588](https://gitlab.com/gitlab-org/gitlab/-/merg
 We use subscriptions to push updates to clients. We use the [Action Cable implementation](https://graphql-ruby.org/subscriptions/action_cable_implementation)
 to deliver the messages over websockets.
 
-When a client subscribes to a subscription, we store their query in-memory within Puma workers. Then when the subscription is triggered,
+When a client subscribes to a subscription, we store their query in-memory in Puma workers. Then when the subscription is triggered,
 the Puma workers execute the stored GraphQL queries and push the results to the clients.
 
 NOTE:
@@ -1743,7 +1988,7 @@ This class runs during the initial subscription request and subsequent updates. 
 You should implement the `#authorized?` method of the subscription class so that the initial subscription and subsequent updates are authorized.
 
 When a user is not authorized, you should call the `unauthorized!` helper so that execution is halted and the user is unsubscribed. Returning `false`
-results in redaction of the response but we leak information that some updates are happening. This is due to a
+results in redaction of the response, but we leak information that some updates are happening. This leakage is due to a
 [bug in the GraphQL gem](https://github.com/rmosolgo/graphql-ruby/issues/3390).
 
 ### Triggering subscriptions
@@ -1753,38 +1998,223 @@ code so that we have a single source of truth and we do not trigger a subscripti
 
 ## Pagination implementation
 
-To learn more, visit [GraphQL pagination](graphql_guide/pagination.md).
+For more information, see [GraphQL pagination](graphql_guide/pagination.md).
 
-## Validating arguments
+## Arguments
 
-For validations of single arguments, use the
-[`prepare` option](https://github.com/rmosolgo/graphql-ruby/blob/master/guides/fields/arguments.md)
-as normal.
-
-Sometimes a mutation or resolver may accept a number of optional
-arguments, but we still want to validate that at least one of the optional
-arguments is provided. In this situation, consider using the `#ready?`
-method in your mutation or resolver to provide the validation. The
-`#ready?` method is called before any work is done in the
-`#resolve` method.
+[Arguments](https://graphql-ruby.org/fields/arguments.html) for a resolver or mutation are defined using `argument`.
 
 Example:
 
 ```ruby
-def ready?(**args)
-  if args.values_at(:body, :position).compact.blank?
-    raise Gitlab::Graphql::Errors::ArgumentError,
-          'body or position arguments are required'
-  end
+argument :my_arg, GraphQL::Types::String,
+         required: true,
+         description: "A description of the argument."
+```
 
-  # Always remember to call `#super`
-  super
+### Nullability
+
+Arguments can be marked as `required: true` which means the value must be present and not `null`.
+If a required argument's value can be `null`, use the `required: :nullable` declaration.
+
+Example:
+
+```ruby
+argument :due_date,
+         Types::TimeType,
+         required: :nullable,
+         description: 'The desired due date for the issue. Due date is removed if null.'
+```
+
+In the above example, the `due_date` argument must be given, but unlike the GraphQL spec, the value can be `null`.
+This allows 'unsetting' the due date in a single mutation rather than creating a new mutation for removing the due date.
+
+```ruby
+{ due_date: null } # => OK
+{ due_date: "2025-01-10" } # => OK
+{  } # => invalid (not given)
+```
+
+#### Nullability and required: false
+
+If an argument is marked `required: false` the client is permitted to send `null` as a value.
+Often this is undesirable.
+
+If an argument is optional but `null` is not an allowed value, use validation to ensure that passing `null` returns an error:
+
+```ruby
+argument :name, GraphQL::Types::String,
+         required: false,
+         validates: { allow_null: false }
+```
+
+Alternatively, if you wish to allow `null` when it is not an allowed value, you can replace it with a default value:
+
+```ruby
+argument :name, GraphQL::Types::String,
+         required: false,
+         default_value: "No Name Provided",
+         replace_null_with_default: true
+```
+
+See [Validation](https://graphql-ruby.org/fields/validation.html),
+[Nullability](https://graphql-ruby.org/fields/arguments.html#nullability) and
+[Default Values](https://graphql-ruby.org/fields/arguments.html#default-values) for more details.
+
+### Mutually exclusive arguments
+
+Arguments can be marked as mutually exclusive, ensuring that they are not provided at the same time.
+When more than one of the listed arguments are given, a top-level error will be added.
+
+Example:
+
+```ruby
+argument :user_id, GraphQL::Types::String, required: false
+argument :username, GraphQL::Types::String, required: false
+
+validates mutually_exclusive: [:user_id, :username]
+```
+
+When exactly one argument is required, you can use the `exactly_one_of` validator.
+
+Example:
+
+```ruby
+argument :group_path, GraphQL::Types::String, required: false
+argument :project_path, GraphQL::Types::String, required: false
+
+validates exactly_one_of: [:group_path, :project_path]
+```
+
+### Keywords
+
+Each GraphQL `argument` defined is passed to the `#resolve` method
+of a mutation as keyword arguments.
+
+Example:
+
+```ruby
+def resolve(my_arg:)
+  # Perform mutation ...
 end
 ```
 
-In the future this may be able to be done using `InputUnions` if
-[this RFC](https://github.com/graphql/graphql-spec/blob/master/rfcs/InputUnion.md)
-is merged.
+### Input Types
+
+`graphql-ruby` wraps up arguments into an
+[input type](https://graphql.org/learn/schema/#input-types).
+
+For example, the
+[`mergeRequestSetDraft` mutation](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/graphql/mutations/merge_requests/set_draft.rb)
+defines these arguments (some
+[through inheritance](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/graphql/mutations/merge_requests/base.rb)):
+
+```ruby
+argument :project_path, GraphQL::Types::ID,
+         required: true,
+         description: "Project the merge request belongs to."
+
+argument :iid, GraphQL::Types::String,
+         required: true,
+         description: "IID of the merge request."
+
+argument :draft,
+         GraphQL::Types::Boolean,
+         required: false,
+         description: <<~DESC
+           Whether or not to set the merge request as a draft.
+         DESC
+```
+
+These arguments automatically generate an input type called
+`MergeRequestSetDraftInput` with the 3 arguments we specified and the
+`clientMutationId`.
+
+### Object identifier arguments
+
+Arguments that identify an object should be:
+
+- [A full path](#full-path-object-identifier-arguments) or [an IID](#iid-object-identifier-arguments) if an object has either.
+- [The object's Global ID](#global-id-object-identifier-arguments) for all other objects. Never use plain database primary key IDs.
+
+#### Full path object identifier arguments
+
+Historically we have been inconsistent with the naming of full path arguments, but prefer to name the argument:
+
+- `project_path` for a project full path
+- `group_path` for a group full path
+- `namespace_path` for a namespace full path
+
+Using an example from the
+[`ciJobTokenScopeRemoveProject` mutation](https://gitlab.com/gitlab-org/gitlab/-/blob/c40d5637f965e724c496f3cd1392cd8e493237e2/app/graphql/mutations/ci/job_token_scope/remove_project.rb#L13-15):
+
+```ruby
+argument :project_path, GraphQL::Types::ID,
+         required: true,
+         description: 'Project the CI job token scope belongs to.'
+```
+
+#### IID object identifier arguments
+
+Use the `iid` of an object in combination with its parent `project_path` or `group_path`. For example:
+
+```ruby
+argument :project_path, GraphQL::Types::ID,
+         required: true,
+         description: 'Project the issue belongs to.'
+
+argument :iid, GraphQL::Types::String,
+         required: true,
+         description: 'IID of the issue.'
+```
+
+#### Global ID object identifier arguments
+
+Using an example from the
+[`discussionToggleResolve` mutation](https://gitlab.com/gitlab-org/gitlab/-/blob/3a9d20e72225dd82fe4e1a14e3dd1ffcd0fe81fa/app/graphql/mutations/discussions/toggle_resolve.rb#L10-13):
+
+```ruby
+argument :id, Types::GlobalIDType[Discussion],
+         required: true,
+         description: 'Global ID of the discussion.'
+```
+
+See also [Deprecate Global IDs](#deprecate-global-ids).
+
+### Sort arguments
+
+Sort arguments should use an [enum type](#enums) whenever possible to describe the set of available sorting values.
+
+The enum can inherit from `Types::SortEnum` to inherit some common values.
+
+The enum values should follow the format `{PROPERTY}_{DIRECTION}`. For example:
+
+```plaintext
+TITLE_ASC
+```
+
+Also see the [description style guide for sort enums](#sort-enums).
+
+Example from [`ContainerRepositoriesResolver`](https://gitlab.com/gitlab-org/gitlab/-/blob/dad474605a06c8ed5404978b0a9bd187e9fded80/app/graphql/resolvers/container_repositories_resolver.rb#L13-16):
+
+```ruby
+# Types::ContainerRepositorySortEnum:
+module Types
+  class ContainerRepositorySortEnum < SortEnum
+    graphql_name 'ContainerRepositorySort'
+    description 'Values for sorting container repositories'
+
+    value 'NAME_ASC', 'Name by ascending order.', value: :name_asc
+    value 'NAME_DESC', 'Name by descending order.', value: :name_desc
+  end
+end
+
+# Resolvers::ContainerRepositoriesResolver:
+argument :sort, Types::ContainerRepositorySortEnum,
+          description: 'Sort container repositories by this criteria.',
+          required: false,
+          default_value: :created_desc
+```
 
 ## GitLab custom scalars
 
@@ -1812,51 +2242,82 @@ Example:
 field :created_at, Types::TimeType, null: true, description: 'Timestamp of when the issue was created.'
 ```
 
+### Global ID scalars
+
+All of our [Global IDs](#global-ids) are custom scalars. They are
+[dynamically created](https://gitlab.com/gitlab-org/gitlab/-/blob/45b3c596ef8b181bc893bd3b71613edf66064936/app/graphql/types/global_id_type.rb#L46)
+from the abstract scalar class
+[`Types::GlobalIDType`](https://gitlab.com/gitlab-org/gitlab/-/blob/45b3c596ef8b181bc893bd3b71613edf66064936/app/graphql/types/global_id_type.rb#L4).
+
 ## Testing
 
-### Writing unit tests
+For testing mutations and resolvers, consider the unit of
+test a full GraphQL request, not a call to a resolver. This allows us to
+avoid tight coupling to the framework because such coupling makes
+upgrades to dependencies much more difficult.
+
+You should:
+
+- Prefer request specs (either using the full API endpoint or going through
+  `GitlabSchema.execute`) to unit specs for resolvers and mutations.
+- Prefer `GraphqlHelpers#execute_query` and `GraphqlHelpers#run_with_clean_state` to
+  `GraphqlHelpers#resolve` and `GraphqlHelpers#resolve_field`.
+
+For example:
+
+```ruby
+# Good:
+gql_query = %q(some query text...)
+post_graphql(gql_query, current_user: current_user)
+# or:
+GitlabSchema.execute(gql_query, context: { current_user: current_user })
+
+# Deprecated: avoid
+resolve(described_class, obj: project, ctx: { current_user: current_user })
+```
+
+### Writing unit tests (deprecated)
+
+WARNING:
+Avoid writing unit tests if the same thing can be tested with
+a full GraphQL request.
 
 Before creating unit tests, review the following examples:
 
 - [`spec/graphql/resolvers/users_resolver_spec.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/graphql/resolvers/users_resolver_spec.rb)
 - [`spec/graphql/mutations/issues/create_spec.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/graphql/mutations/issues/create_spec.rb)
 
-It's faster to test as much of the logic from your GraphQL queries and mutations
-with unit tests, which are stored in `spec/graphql`.
-
-Use unit tests to verify that:
-
-- Types have the expected fields.
-- Resolvers and mutations apply authorizations and return expected data.
-- Edge cases are handled correctly.
-
 ### Writing integration tests
 
 Integration tests check the full stack for a GraphQL query or mutation and are stored in
 `spec/requests/api/graphql`.
 
-For speed, you should test most logic in unit tests instead of integration tests.
-However, integration tests that check if data is returned verify the following
+For speed, consider calling `GitlabSchema.execute` directly, or making use
+of smaller test schemas that only contain the types under test.
+
+However, full request integration tests that check if data is returned verify the following
 additional items:
 
 - The mutation is actually queryable in the schema (was mounted in `MutationType`).
 - The data returned by a resolver or mutation correctly matches the
   [return types](https://graphql-ruby.org/fields/introduction.html#field-return-type) of
   the fields and resolves without errors.
+- The arguments coerce correctly on input, and the fields serialize correctly
+  on output.
 
 Integration tests can also verify the following items, because they invoke the
 full stack:
 
-- An argument or scalar's [`prepare`](#validating-arguments) applies correctly.
+- An argument or scalar's validations apply correctly.
 - Logic in a resolver or mutation's [`#ready?` method](#correct-use-of-resolverready) applies correctly.
 - An [argument's `default_value`](https://graphql-ruby.org/fields/arguments.html) applies correctly.
 - Objects resolve successfully, and there are no N+1 issues.
 
-When adding a query, you can use the `a working graphql query` shared example to test if the query
-renders valid results.
+When adding a query, you can use the `a working graphql query that returns data` and
+`a working graphql query that returns no data` shared examples to test if the query renders valid results.
 
 You can construct a query including all available fields using the `GraphqlHelpers#all_graphql_fields_for`
-helper. This makes it easy to add a test rendering all possible fields for a query.
+helper. This makes it more straightforward to add a test rendering all possible fields for a query.
 
 If you're adding a field to a query that supports pagination and sorting,
 visit [Testing](graphql_guide/pagination.md#testing) for details.
@@ -1895,12 +2356,61 @@ end
 
 ### Testing tips and tricks
 
+- Become familiar with the methods in the `GraphqlHelpers` support module.
+  Many of these methods make writing GraphQL tests easier.
+
+- Use traversal helpers like `GraphqlHelpers#graphql_data_at` and
+  `GraphqlHelpers#graphql_dig_at` to access result fields. For example:
+
+  ```ruby
+  result = GitlabSchema.execute(query)
+
+  mr_iid = graphql_dig_at(result.to_h, :data, :project, :merge_request, :iid)
+  ```
+
+- Use `GraphqlHelpers#a_graphql_entity_for` to match against results.
+  For example:
+
+  ```ruby
+  post_graphql(some_query)
+
+  # checks that it is a hash containing { id => global_id_of(issue) }
+  expect(graphql_data_at(:project, :issues, :nodes))
+    .to contain_exactly(a_graphql_entity_for(issue))
+
+  # Additional fields can be passed, either as names of methods, or with values
+  expect(graphql_data_at(:project, :issues, :nodes))
+    .to contain_exactly(a_graphql_entity_for(issue, :iid, :title, created_at: some_time))
+  ```
+
+- Use `GraphqlHelpers#empty_schema` to create an empty schema, rather than creating
+  one by hand. For example:
+
+  ```ruby
+  # good
+  let(:schema) { empty_schema }
+
+  # bad
+  let(:query_type) { GraphQL::ObjectType.new }
+  let(:schema) { GraphQL::Schema.define(query: query_type, mutation: nil)}
+  ```
+
+- Use `GraphqlHelpers#query_double(schema: nil)` of `double('query', schema: nil)`. For example:
+
+  ```ruby
+  # good
+  let(:query) { query_double(schema: GitlabSchema) }
+
+  # bad
+  let(:query) { double('Query', schema: GitlabSchema) }
+  ```
+
 - Avoid false positives:
 
   Authenticating a user with the `current_user:` argument for `post_graphql`
   generates more queries on the first request than on subsequent requests on that
   same user. If you are testing for N+1 queries using
-  [QueryRecorder](query_recorder.md), use a **different** user for each request.
+  [QueryRecorder](database/query_recorder.md), use a **different** user for each request.
 
   The below example shows how a test for avoiding N+1 queries should look:
 
@@ -1949,6 +2459,39 @@ end
   `spec/requests/api/graphql/ci/pipeline_spec.rb` regardless of the query being
   used to fetch the pipeline data.
 
+- When testing resolvers using `GraphqlHelpers#resolve`, arguments for the resolver can be handled two ways.
+
+  1. 95% of the resolver specs use arguments that are Ruby objects, as opposed to when using the GraphQL API
+     only strings and integers are used. This works fine in most cases.
+  1. If your resolver takes arguments that use a `prepare` proc, such as a resolver that accepts time frame
+     arguments (`TimeFrameArguments`), you must pass the `arg_style: :internal_prepared` parameter into
+     the `resolve` method. This tells the code to convert the arguments into strings and integers and pass
+     them through regular argument handling, ensuring that the `prepare` proc is called correctly.
+     For example in [`iterations_resolver_spec.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/spec/graphql/resolvers/iterations_resolver_spec.rb):
+
+     ```ruby
+     def resolve_group_iterations(args = {}, obj = group, context = { current_user: current_user })
+       resolve(described_class, obj: obj, args: args, ctx: context, arg_style: :internal_prepared)
+     end
+     ```
+
+     One additional caveat is that if you are passing enums as a resolver argument, you must use the
+     external representation of the enum, rather than the internal. For example:
+
+     ```ruby
+     # good
+     resolve_group_iterations({ search: search, in: ['CADENCE_TITLE'] })
+
+     # bad
+     resolve_group_iterations({ search: search, in: [:cadence_title] })
+     ```
+
+  The use of `:internal_prepared` was added as a bridge for the
+  [GraphQL gem](https://graphql-ruby.org) upgrade. Testing resolvers directly will
+  [eventually be removed](https://gitlab.com/gitlab-org/gitlab/-/issues/363121),
+  and writing unit tests for resolvers/mutations is
+  [already deprecated](#writing-unit-tests-deprecated)
+
 ## Notes about Query flow and GraphQL infrastructure
 
 The GitLab GraphQL infrastructure can be found in `lib/gitlab/graphql`.
@@ -1986,7 +2529,7 @@ Queries and mutations are limited by depth, complexity, and recursion
 to protect server resources from overly ambitious or malicious queries.
 These values can be set as defaults and overridden in specific queries as needed.
 The complexity values can be set per object as well, and the final query complexity is
-evaluated based on how many objects are being returned. This is useful
+evaluated based on how many objects are being returned. This can be used
 for objects that are expensive (such as requiring Gitaly calls).
 
 For example, a conditional complexity method in a resolver:
@@ -2034,7 +2577,3 @@ elimination of laziness, where needed.
 
 For dealing with lazy values without forcing them, use
 `Gitlab::Graphql::Lazy.with_value`.
-
-## Monitoring GraphQL
-
-See the [Monitoring GraphQL](graphql_guide/monitoring.md) guide for tips on how to inspect logs of GraphQL requests and monitor the performance of your GraphQL queries.

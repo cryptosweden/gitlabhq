@@ -54,36 +54,25 @@ RSpec.shared_examples 'User views wiki pages' do
     end
   end
 
-  context 'ordered by created_at' do
-    let(:pages_ordered_by_created_at) { [wiki_page1, wiki_page2, wiki_page3] }
+  context 'when listing more pages than allowed items per page' do
+    let(:items_per_page) { 1 }
 
     before do
-      page.within('.wiki-sort-dropdown') do
-        click_button('Title')
-        click_button('Created date')
-      end
+      allow(Kaminari.config).to receive(:default_per_page).and_return(items_per_page)
+
+      visit(wiki_path(wiki, action: :pages))
     end
 
-    context 'asc' do
-      it 'pages are displayed in direct order' do
-        pages.each.with_index do |page_title, index|
-          expect(page_title.text).to eq(pages_ordered_by_created_at[index].title)
-        end
-      end
-    end
-
-    context 'desc' do
-      before do
-        page.within('.wiki-sort-dropdown') do
-          page.find('.rspec-reverse-sort').click
-        end
-      end
-
-      it 'pages are displayed in reversed order' do
-        pages.reverse_each.with_index do |page_title, index|
-          expect(page_title.text).to eq(pages_ordered_by_created_at[index].title)
-        end
+    it 'shows pagination controls' do
+      page.within('.gl-pagination') do
+        expect(page).to have_link("Prev")
+        expect(page).to have_link("1")
+        expect(page).to have_link("2")
+        expect(page).to have_link("3")
+        expect(page).to have_link("Next")
       end
     end
   end
+
+  it_behaves_like 'Wiki redirection'
 end

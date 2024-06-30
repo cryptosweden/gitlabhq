@@ -20,12 +20,12 @@ class Projects::Ci::DailyBuildGroupReportResultsController < Projects::Applicati
   end
 
   def render_csv(collection)
-    CsvBuilders::SingleBatch.new(
+    CsvBuilder::SingleBatch.new(
       collection,
       {
         date: 'date',
         group_name: 'group_name',
-        param_type => -> (record) { record.data[param_type] }
+        param_type => ->(record) { record.data[param_type] }
       }
     ).render
   end

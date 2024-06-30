@@ -2,8 +2,11 @@
 
 class ResourceLabelEvent < ResourceEvent
   include CacheMarkdownField
-  include IssueResourceEvent
   include MergeRequestResourceEvent
+  include Import::HasImportSource
+  include IgnorableColumns
+
+  ignore_column :imported, remove_with: '17.2', remove_after: '2024-07-22'
 
   cache_markdown_field :reference
 
@@ -14,8 +17,7 @@ class ResourceLabelEvent < ResourceEvent
   validates :label, presence: { unless: :importing? }, on: :create
   validate :exactly_one_issuable, unless: :importing?
 
-  after_save :expire_etag_cache
-  after_destroy :expire_etag_cache
+  after_commit :broadcast_notes_changed, unless: :importing?
 
   enum action: {
     add: 1,
@@ -23,20 +25,23 @@ class ResourceLabelEvent < ResourceEvent
   }
 
   def self.issuable_attrs
-    %i(issue merge_request).freeze
+    %i[issue merge_request].freeze
   end
 
   def self.preload_label_subjects(events)
     labels = events.map(&:label).compact
     project_labels, group_labels = labels.partition { |label| label.is_a? ProjectLabel }
 
-    preloader = ActiveRecord::Associations::Preloader.new
-    preloader.preload(project_labels, { project: :project_feature })
-    preloader.preload(group_labels, :group)
+    ActiveRecord::Associations::Preloader.new(records: project_labels, associations: { project: :project_feature }).call
+    ActiveRecord::Associations::Preloader.new(records: group_labels, associations: :group).call
   end
 
   def issuable
     issue || merge_request
+  end
+
+  def synthetic_note_class
+    LabelNote
   end
 
   def project
@@ -44,7 +49,7 @@ class ResourceLabelEvent < ResourceEvent
   end
 
   def group
-    issuable.group if issuable.respond_to?(:group)
+    issuable.resource_parent if issuable.resource_parent.is_a?(Group)
   end
 
   def outdated_markdown?
@@ -92,11 +97,13 @@ class ResourceLabelEvent < ResourceEvent
   end
 
   def label_url_method
-    issuable.is_a?(MergeRequest) ? :project_merge_requests_url : :project_issues_url
+    return :project_merge_requests_url if issuable.is_a?(MergeRequest)
+
+    issuable.project_id.nil? ? :group_work_items_url : :project_issues_url
   end
 
-  def expire_etag_cache
-    issuable.expire_note_etag_cache
+  def broadcast_notes_changed
+    issuable.broadcast_notes_changed
   end
 
   def local_label?
@@ -111,11 +118,11 @@ class ResourceLabelEvent < ResourceEvent
   end
 
   def resource_parent
-    issuable.project || issuable.group
+    issuable.try(:resource_parent) || issuable.project || issuable.group
   end
 
   def discussion_id_key
-    [self.class.name, created_at, user_id]
+    [self.class.name, created_at.to_f, user_id]
   end
 end
 

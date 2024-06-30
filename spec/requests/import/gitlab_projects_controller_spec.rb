@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Import::GitlabProjectsController do
+RSpec.describe Import::GitlabProjectsController, feature_category: :importers do
   include WorkhorseHelpers
 
   include_context 'workhorse headers'
@@ -12,6 +12,8 @@ RSpec.describe Import::GitlabProjectsController do
 
   before do
     login_as(user)
+
+    stub_application_setting(import_sources: ['gitlab_project'])
   end
 
   describe 'POST create' do
@@ -88,6 +90,18 @@ RSpec.describe Import::GitlabProjectsController do
       let(:maximum_size) { Gitlab::CurrentSettings.max_import_size.megabytes }
 
       subject { post authorize_import_gitlab_project_path, headers: workhorse_headers }
+    end
+  end
+
+  describe 'GET new' do
+    context 'when the user is not allowed to import projects' do
+      let!(:group) { create(:group, developers: user) }
+
+      it 'returns 404' do
+        get new_import_gitlab_project_path, params: { namespace_id: group.id }
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
     end
   end
 end

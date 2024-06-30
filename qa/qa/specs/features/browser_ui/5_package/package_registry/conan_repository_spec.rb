@@ -1,39 +1,30 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package', :orchestrated, :packages, :object_storage, quarantine: {
-    only: { job: 'object_storage' },
-    issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/335981',
+  RSpec.describe 'Package', :object_storage, :external_api_calls, product_group: :package_registry, quarantine: {
+    only: {
+      job: /object_storage|cng-instance|release-environments-qa|qa_gke.*|qa_eks.*|debug_review_gke125/,
+      condition: -> { QA::Support::FIPS.enabled? }
+    },
+    issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/417584',
     type: :bug
   } do
     describe 'Conan Repository' do
       include Runtime::Fixtures
 
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'conan-package-project'
-        end
-      end
-
-      let(:package) do
-        Resource::Package.init do |package|
-          package.name = "conantest-#{SecureRandom.hex(8)}"
-          package.project = project
-        end
-      end
+      let(:project) { create(:project, :private, name: 'conan-package-project') }
+      let(:package) { build(:package, name: "conantest-#{SecureRandom.hex(8)}", project: project) }
 
       let!(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.name = "qa-runner-#{Time.now.to_i}"
-          runner.tags = ["runner-for-#{project.name}"]
-          runner.executor = :docker
-          runner.project = project
-        end
+        create(:project_runner,
+          name: "qa-runner-#{Time.now.to_i}",
+          tags: ["runner-for-#{project.name}"],
+          executor: :docker,
+          project: project)
       end
 
       let(:gitlab_address_with_port) do
-        uri = URI.parse(Runtime::Scenario.gitlab_address)
-        "#{uri.scheme}://#{uri.host}:#{uri.port}"
+        Support::GitlabAddress.address_with_port
       end
 
       after do
@@ -41,20 +32,17 @@ module QA
         package.remove_via_api!
       end
 
-      it 'publishes, installs, and deletes a Conan package', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348014' do
+      it 'publishes, installs, and deletes a Conan package', :blocking,
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348014' do
         Flow::Login.sign_in
 
         Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-          Resource::Repository::Commit.fabricate_via_api! do |commit|
-            conan_yaml = ERB.new(read_fixture('package_managers/conan', 'conan_upload_install_package.yaml.erb')).result(binding)
+          conan_yaml = ERB.new(read_fixture('package_managers/conan',
+            'conan_upload_install_package.yaml.erb')).result(binding)
 
-            commit.project = project
-            commit.commit_message = 'Add .gitlab-ci.yml'
-            commit.add_files([{
-                                  file_path: '.gitlab-ci.yml',
-                                  content: conan_yaml
-                              }])
-          end
+          create(:commit, project: project, commit_message: 'Add .gitlab-ci.yml', actions: [
+            { action: 'create', file_path: '.gitlab-ci.yml', content: conan_yaml }
+          ])
         end
 
         project.visit!
@@ -65,10 +53,10 @@ module QA
         end
 
         Page::Project::Job::Show.perform do |job|
-          expect(job).to be_successful(timeout: 800)
+          expect(job).to be_successful(timeout: 180)
         end
 
-        Page::Project::Menu.perform(&:click_packages_link)
+        Page::Project::Menu.perform(&:go_to_package_registry)
 
         Page::Project::Packages::Index.perform do |index|
           expect(index).to have_package(package.name)

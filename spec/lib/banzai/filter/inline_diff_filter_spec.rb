@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::InlineDiffFilter do
+RSpec.describe Banzai::Filter::InlineDiffFilter, feature_category: :source_code_management do
   include FilterSpecHelper
 
   it 'adds inline diff span tags for deletions when using square brackets' do
@@ -67,4 +67,14 @@ RSpec.describe Banzai::Filter::InlineDiffFilter do
     doc = "<tt>START {+something added+} END</tt>"
     expect(filter(doc).to_html).to eq(doc)
   end
+
+  it 'protects against malicious backtracking' do
+    doc = '[-{-' * 250_000
+
+    expect do
+      Timeout.timeout(3.seconds) { filter(doc) }
+    end.not_to raise_error
+  end
+
+  it_behaves_like 'pipeline timing check'
 end

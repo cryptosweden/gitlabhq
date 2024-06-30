@@ -8,7 +8,7 @@ RSpec.describe IssuableCollections do
   let(:user) { create(:user) }
 
   let(:controller) do
-    klass = Class.new do
+    klass = Class.new(ApplicationController) do
       def self.helper_method(name); end
 
       include IssuableCollections
@@ -74,7 +74,6 @@ RSpec.describe IssuableCollections do
           assignee_username: 'user1',
           author_id: '2',
           author_username: 'user2',
-          authorized_only: 'yes',
           confidential: true,
           due_date: '2017-01-01',
           group_id: '3',
@@ -92,7 +91,7 @@ RSpec.describe IssuableCollections do
         }
       end
 
-      it 'only allows whitelisted params' do
+      it 'only allows allowlisted params' do
         is_expected.to include({
           'assignee_id' => '1',
           'assignee_username' => 'user1',
@@ -123,7 +122,7 @@ RSpec.describe IssuableCollections do
         }
       end
 
-      it 'only allows whitelisted params' do
+      it 'only allows allowlisted params' do
         is_expected.to include({
           'label_name' => %w[label1 label2],
           'assignee_username' => %w[user1 user2]

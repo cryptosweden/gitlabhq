@@ -2,14 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Alert details', :js do
+RSpec.describe 'Alert details', :js, feature_category: :incident_management do
   let_it_be(:project) { create(:project) }
-  let_it_be(:developer) { create(:user) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
   let_it_be(:alert) { create(:alert_management_alert, project: project, status: 'triggered', title: 'Alert') }
-
-  before_all do
-    project.add_developer(developer)
-  end
 
   before do
     sign_in(developer)
@@ -27,9 +23,11 @@ RSpec.describe 'Alert details', :js do
 
     it 'shows the alert tabs' do
       page.within('.alert-management-details') do
-        alert_tabs = find('[data-testid="alertDetailsTabs"]')
+        alert_tabs = find_by_testid('alertDetailsTabs')
 
         expect(alert_tabs).to have_content('Alert details')
+        expect(alert_tabs).to have_content('Metrics')
+        expect(alert_tabs).to have_content('Activity feed')
       end
     end
 
@@ -45,10 +43,10 @@ RSpec.describe 'Alert details', :js do
 
     it 'updates the alert todo button from the right sidebar' do
       expect(page).to have_selector('[data-testid="alert-todo-button"]')
-      todo_button = find('[data-testid="alert-todo-button"]')
+      todo_button = find_by_testid('alert-todo-button')
 
       expect(todo_button).to have_content('Add a to do')
-      find('[data-testid="alert-todo-button"]').click
+      find_by_testid('alert-todo-button').click
       wait_for_requests
 
       expect(todo_button).to have_content('Mark as done')
@@ -56,7 +54,7 @@ RSpec.describe 'Alert details', :js do
 
     it 'updates the alert status from the right sidebar' do
       page.within('.alert-status') do
-        alert_status = find('[data-testid="status"]')
+        alert_status = find_by_testid('status')
 
         expect(alert_status).to have_content('Triggered')
 
@@ -75,7 +73,7 @@ RSpec.describe 'Alert details', :js do
 
         expect(alert_assignee).to have_content('None - assign yourself')
 
-        find('[data-testid="unassigned-users"]').click
+        find_by_testid('unassigned-users').click
 
         wait_for_requests
 

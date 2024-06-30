@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User views open merge requests' do
+RSpec.describe 'User views open merge requests', :js, feature_category: :code_review_workflow do
   let_it_be(:user) { create(:user) }
 
   shared_examples_for 'shows merge requests' do
@@ -57,10 +57,12 @@ RSpec.describe 'User views open merge requests' do
         let!(:build) { create :ci_build, pipeline: pipeline }
 
         let(:merge_request) do
-          create(:merge_request_with_diffs,
-          source_project: project,
-          target_project: project,
-          source_branch: 'merge-test')
+          create(
+            :merge_request_with_diffs,
+            source_project: project,
+            target_project: project,
+            source_branch: 'merge-test'
+          )
         end
 
         let(:pipeline) do

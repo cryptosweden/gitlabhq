@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
+RSpec.describe 'Projects > Show > User sees setup shortcut buttons', feature_category: :groups_and_projects do
   # For "New file", "Add license" functionality,
   # see spec/features/projects/files/project_owner_creates_license_file_spec.rb
   # see spec/features/projects/files/project_owner_sees_link_to_create_license_file_in_empty_project_spec.rb
@@ -18,14 +18,13 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
     describe 'as a normal user' do
       before do
         sign_in(user)
-
         visit project_path(project)
       end
 
       it 'project buttons are not visible' do
         visit project_path(project)
 
-        page.within('.project-buttons') do
+        within_testid('project-page-sidebar') do
           expect(page).not_to have_link('New file')
           expect(page).not_to have_link('Add README')
           expect(page).not_to have_link('Add CHANGELOG')
@@ -47,19 +46,19 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
       end
 
       it '"New file" button linked to IDE new file page' do
-        page.within('.project-buttons') do
+        within_testid('project-buttons') do
           expect(page).to have_link('New file', href: presenter.ide_edit_path(project, project.default_branch || 'master'))
         end
       end
 
       it '"Add README" button linked to IDE new file populated for a README' do
-        page.within('.project-buttons') do
+        within_testid('project-buttons') do
           expect(page).to have_link('Add README', href: presenter.add_readme_ide_path)
         end
       end
 
       it '"Add license" button linked to IDE new file populated for a license' do
-        page.within('.project-buttons') do
+        within_testid('project-buttons') do
           expect(page).to have_link('Add LICENSE', href: presenter.add_license_ide_path)
         end
       end
@@ -75,7 +74,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
         end
 
         it '"New file" button linked to IDE new file page' do
-          page.within('.project-buttons') do
+          within_testid('project-buttons') do
             expect(page).to have_link('New file', href: presenter.ide_edit_path(project, 'example_branch'))
           end
         end
@@ -98,7 +97,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
         it '"Auto DevOps enabled" button not linked' do
           visit project_path(project)
 
-          page.within('.project-buttons') do
+          within_testid('project-buttons') do
             expect(page).to have_text('Auto DevOps enabled')
           end
         end
@@ -108,14 +107,14 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
         let(:project) { create(:project, :public, :repository, auto_devops_attributes: { enabled: false }) }
 
         it 'no Auto DevOps button if can not manage pipelines' do
-          page.within('.project-buttons') do
+          within_testid('project-buttons') do
             expect(page).not_to have_link('Enable Auto DevOps')
             expect(page).not_to have_link('Auto DevOps enabled')
           end
         end
 
         it 'no Kubernetes cluster button if can not manage clusters' do
-          page.within('.project-buttons') do
+          within_testid('project-buttons') do
             expect(page).not_to have_link('Add Kubernetes cluster')
             expect(page).not_to have_link('Kubernetes')
           end
@@ -143,7 +142,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
 
             expect(project.repository.readme).not_to be_nil
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
               expect(page).not_to have_link('Add README', href: presenter.add_readme_ide_path)
               expect(page).to have_link('README', href: presenter.readme_path)
             end
@@ -155,7 +154,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
 
               visit project_path(project)
 
-              page.within('.project-buttons') do
+              within_testid('project-buttons') do
                 expect(page).not_to have_link('Add README', href: presenter.add_readme_path)
                 expect(page).to have_link('README', href: presenter.readme_path)
               end
@@ -169,7 +168,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
 
             visit project_path(project)
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
               expect(page).to have_link('Add README', href: presenter.add_readme_path)
             end
           end
@@ -181,7 +180,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
 
         expect(project.repository.changelog).not_to be_nil
 
-        page.within('.project-buttons') do
+        within_testid('project-buttons') do
           expect(page).not_to have_link('Add CHANGELOG')
         end
       end
@@ -191,7 +190,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
 
         expect(project.repository.license_blob).not_to be_nil
 
-        page.within('.project-buttons') do
+        within_testid('project-buttons') do
           expect(page).not_to have_link('Add LICENSE')
         end
       end
@@ -201,7 +200,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
 
         expect(project.repository.contribution_guide).not_to be_nil
 
-        page.within('.project-buttons') do
+        within_testid('project-buttons') do
           expect(page).not_to have_link('Add CONTRIBUTING')
         end
       end
@@ -211,7 +210,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
           it 'no "Set up CI/CD" button if the project has Auto DevOps enabled' do
             visit project_path(project)
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
               expect(page).not_to have_link('Set up CI/CD')
             end
           end
@@ -223,9 +222,9 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
           it '"Set up CI/CD" button linked to new file populated for a .gitlab-ci.yml' do
             visit project_path(project)
 
-            expect(project.repository.gitlab_ci_yml).to be_nil
+            expect(project.has_ci_config_file?).to eq(false)
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
               expect(page).to have_link('Set up CI/CD', href: project_ci_pipeline_editor_path(project))
             end
           end
@@ -241,11 +240,11 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
               file_content: File.read(Rails.root.join('spec/support/gitlab_stubs/gitlab_ci.yml'))
             ).execute
 
-            expect(project.repository.gitlab_ci_yml).not_to be_nil
+            expect(project.has_ci_config_file?).to eq(true)
 
             visit project_path(project)
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
               expect(page).not_to have_link('Set up CI/CD')
               expect(page).to have_link('CI/CD configuration')
             end
@@ -258,7 +257,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
           it '"Auto DevOps enabled" anchor linked to settings page' do
             visit project_path(project)
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
               expect(page).to have_link('Auto DevOps enabled', href: project_settings_ci_cd_path(project, anchor: 'autodevops-settings'))
             end
           end
@@ -270,7 +269,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
           it '"Enable Auto DevOps" button linked to settings page' do
             visit project_path(project)
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
               expect(page).to have_link('Enable Auto DevOps', href: project_settings_ci_cd_path(project, anchor: 'autodevops-settings'))
             end
           end
@@ -282,7 +281,18 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
 
             expect(page).to have_selector('.js-autodevops-banner')
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
+              expect(page).not_to have_link('Enable Auto DevOps')
+              expect(page).not_to have_link('Auto DevOps enabled')
+            end
+          end
+
+          it 'no Auto DevOps button if builds feature is disabled' do
+            project.project_feature.update_attribute(:builds_access_level, ProjectFeature::DISABLED)
+
+            visit project_path(project)
+
+            within_testid('project-buttons') do
               expect(page).not_to have_link('Enable Auto DevOps')
               expect(page).not_to have_link('Auto DevOps enabled')
             end
@@ -299,11 +309,11 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
               file_content: File.read(Rails.root.join('spec/support/gitlab_stubs/gitlab_ci.yml'))
             ).execute
 
-            expect(project.repository.gitlab_ci_yml).not_to be_nil
+            expect(project.has_ci_config_file?).to eq(true)
 
             visit project_path(project)
 
-            page.within('.project-buttons') do
+            within_testid('project-buttons') do
               expect(page).not_to have_link('Enable Auto DevOps')
               expect(page).not_to have_link('Auto DevOps enabled')
             end
@@ -315,7 +325,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
         it '"Add Kubernetes cluster" button linked to clusters page' do
           visit project_path(project)
 
-          page.within('.project-buttons') do
+          within_testid('project-buttons') do
             expect(page).to have_link('Add Kubernetes cluster', href: project_clusters_path(project))
           end
         end
@@ -325,7 +335,7 @@ RSpec.describe 'Projects > Show > User sees setup shortcut buttons' do
 
           visit project_path(project)
 
-          page.within('.project-buttons') do
+          within_testid('project-buttons') do
             expect(page).to have_link('Kubernetes', href: project_cluster_path(project, cluster))
           end
         end

@@ -1,16 +1,20 @@
 ---
-stage: Manage
+stage: Govern
 group: Compliance
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Events API **(FREE)**
+# Events API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 ## Filter parameters
 
 ### Actions
 
-See [User contribution events](../user/profile/index.md#user-contribution-events) for available types for the `action` parameter.
+See [User contribution events](../user/profile/contributions_calendar.md#user-contribution-events) for available types for the `action` parameter.
 These options are in lowercase.
 
 ### Target Types
@@ -76,6 +80,7 @@ Example response:
     "project_id":1,
     "action_name":"opened",
     "target_id":160,
+    "target_iid":53,
     "target_type":"Issue",
     "author_id":25,
     "target_title":"Qui natus eos odio tempore et quaerat consequuntur ducimus cupiditate quis.",
@@ -88,7 +93,9 @@ Example response:
       "avatar_url":"http://www.gravatar.com/avatar/97d6d9441ff85fdc730e02a6068d267b?s=80\u0026d=identicon",
       "web_url":"https://gitlab.example.com/user3"
     },
-    "author_username":"user3"
+    "author_username":"user3",
+    "imported":false,
+    "imported_from": "none"
   },
   {
     "id": 2,
@@ -96,6 +103,7 @@ Example response:
     "project_id":1,
     "action_name":"opened",
     "target_id":159,
+    "target_iid":14,
     "target_type":"Issue",
     "author_id":21,
     "target_title":"Nostrum enim non et sed optio illo deleniti non.",
@@ -108,7 +116,9 @@ Example response:
       "avatar_url":"http://www.gravatar.com/avatar/80fb888c9a48b9a3f87477214acaa63f?s=80\u0026d=identicon",
       "web_url":"https://gitlab.example.com/ted"
     },
-    "author_username":"ted"
+    "author_username":"ted",
+    "imported":false,
+    "imported_from": "none"
   }
 ]
 ```
@@ -149,6 +159,7 @@ Example response:
     "project_id": 15,
     "action_name": "closed",
     "target_id": 830,
+    "target_iid": 82,
     "target_type": "Issue",
     "author_id": 1,
     "target_title": "Public project search field",
@@ -160,7 +171,9 @@ Example response:
       "avatar_url": "http://localhost:3000/uploads/user/avatar/1/fox_avatar.png",
       "web_url": "http://localhost:3000/root"
     },
-    "author_username": "root"
+    "author_username": "root",
+    "imported": false,
+    "imported_from": "none"
   },
   {
     "id": 4,
@@ -168,6 +181,7 @@ Example response:
     "project_id": 15,
     "action_name": "pushed",
     "target_id": null,
+    "target_iid": null,
     "target_type": null,
     "author_id": 1,
     "author": {
@@ -179,13 +193,15 @@ Example response:
       "web_url": "http://localhost:3000/root"
     },
     "author_username": "john",
+    "imported": false,
+    "imported_from": "none",
     "push_data": {
       "commit_count": 1,
       "action": "pushed",
       "ref_type": "branch",
       "commit_from": "50d4420237a9de7be1304607147aec22e4a14af7",
       "commit_to": "c5feabde2d8cd023215af4d2ceeb7a64839fc428",
-      "ref": "master",
+      "ref": "main",
       "commit_title": "Add simple search to projects in public area"
     },
     "target_title": null
@@ -196,6 +212,7 @@ Example response:
     "project_id": 15,
     "action_name": "closed",
     "target_id": 840,
+    "target_iid": 11,
     "target_type": "Issue",
     "author_id": 1,
     "target_title": "Finish & merge Code search PR",
@@ -207,7 +224,9 @@ Example response:
       "avatar_url": "http://localhost:3000/uploads/user/avatar/1/fox_avatar.png",
       "web_url": "http://localhost:3000/root"
     },
-    "author_username": "root"
+    "author_username": "root",
+    "imported": false,
+    "imported_from": "none"
   },
   {
     "id": 7,
@@ -215,6 +234,7 @@ Example response:
     "project_id": 15,
     "action_name": "commented on",
     "target_id": 1312,
+    "target_iid": 61,
     "target_type": "Note",
     "author_id": 1,
     "target_title": null,
@@ -244,7 +264,9 @@ Example response:
       "avatar_url": "http://localhost:3000/uploads/user/avatar/1/fox_avatar.png",
       "web_url": "http://localhost:3000/root"
     },
-    "author_username": "root"
+    "author_username": "root",
+    "imported": false,
+    "imported_from": "none"
   }
 ]
 ```
@@ -264,7 +286,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `project_id` | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) |
+| `project_id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) |
 | `action` | string | no | Include only events of a particular [action type](#actions) |
 | `target_type` | string | no | Include only events of a particular [target type](#target-types) |
 | `before` | date | no |  Include only events created before a particular date. [View how to format dates](#date-formatting). |
@@ -300,7 +322,9 @@ Example response:
       "avatar_url":"http://www.gravatar.com/avatar/97d6d9441ff85fdc730e02a6068d267b?s=80\u0026d=identicon",
       "web_url":"https://gitlab.example.com/user3"
     },
-    "author_username":"user3"
+    "author_username":"user3",
+    "imported":false,
+    "imported_from": "none"
   },
   {
     "id": 9,
@@ -321,7 +345,9 @@ Example response:
       "avatar_url":"http://www.gravatar.com/avatar/80fb888c9a48b9a3f87477214acaa63f?s=80\u0026d=identicon",
       "web_url":"https://gitlab.example.com/ted"
     },
-    "author_username":"ted"
+    "author_username":"ted",
+    "imported":false,
+    "imported_from": "none"
   },
   {
     "id": 10,
@@ -361,7 +387,9 @@ Example response:
       "avatar_url": "https://gitlab.example.com/uploads/user/avatar/1/fox_avatar.png",
       "web_url": "https://gitlab.example.com/root"
     },
-    "author_username": "root"
+    "author_username": "root",
+    "imported": false,
+    "imported_from": "none"
   }
 ]
 ```

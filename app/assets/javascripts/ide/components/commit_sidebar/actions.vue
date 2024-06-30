@@ -1,6 +1,8 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlSprintf } from '@gitlab/ui';
 import { escape } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters, createNamespacedHelpers } from 'vuex';
 import { s__ } from '~/locale';
 import {
@@ -10,9 +12,8 @@ import {
 import NewMergeRequestOption from './new_merge_request_option.vue';
 import RadioGroup from './radio_group.vue';
 
-const { mapState: mapCommitState, mapActions: mapCommitActions } = createNamespacedHelpers(
-  'commit',
-);
+const { mapState: mapCommitState, mapActions: mapCommitActions } =
+  createNamespacedHelpers('commit');
 
 export default {
   components: {
@@ -76,7 +77,6 @@ export default {
       :value="$options.commitToCurrentBranch"
       :disabled="!canPushToBranch"
       :title="$options.currentBranchPermissionsTooltip"
-      data-qa-selector="commit_to_current_branch_radio_container"
     >
       <span class="ide-option-label">
         <gl-sprintf :message="s__('IDE|Commit to %{branchName} branch')">

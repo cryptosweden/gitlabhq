@@ -17,7 +17,9 @@ module Types
         field :type, GraphQL::Types::String, null: true,
           description: 'Type of the field value.'
 
-        field :options, ::Types::CiConfiguration::Sast::OptionsEntityType.connection_type, null: true,
+        field :options,
+          ::Types::CiConfiguration::Sast::OptionsEntityType.connection_type,
+          null: true,
           description: 'Different possible values of the field.'
 
         field :default_value, GraphQL::Types::String, null: true,

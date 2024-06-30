@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe PagesDeployment do
+RSpec.describe PagesDeployment, feature_category: :pages do
   let_it_be(:project) { create(:project) }
 
   describe 'associations' do
@@ -28,16 +28,6 @@ RSpec.describe PagesDeployment do
     end
   end
 
-  describe '.migrated_from_legacy_storage' do
-    it 'only returns migrated deployments' do
-      migrated_deployment = create_migrated_deployment(project)
-      # create one other deployment
-      create(:pages_deployment, project: project)
-
-      expect(described_class.migrated_from_legacy_storage).to eq([migrated_deployment])
-    end
-  end
-
   context 'with deployments stored locally and remotely' do
     before do
       stub_pages_object_storage(::Pages::DeploymentUploader)
@@ -59,32 +49,120 @@ RSpec.describe PagesDeployment do
     end
   end
 
-  describe '#migrated?' do
-    it 'returns false for normal deployment' do
-      deployment = create(:pages_deployment)
-
-      expect(deployment.migrated?).to eq(false)
+  context 'when uploading the file' do
+    before do
+      stub_pages_object_storage(::Pages::DeploymentUploader)
     end
 
-    it 'returns true for migrated deployment' do
-      deployment = create_migrated_deployment(project)
+    it 'stores the file outsize of the transaction' do
+      expect_next_instance_of(PagesDeployment) do |deployment|
+        expect(deployment).to receive(:store_file_now!)
+      end
 
-      expect(deployment.migrated?).to eq(true)
+      create(:pages_deployment, project: project)
+    end
+
+    it 'does nothing when the file did not change' do
+      deployment = create(:pages_deployment, project: project)
+
+      expect(deployment).not_to receive(:store_file_now!)
+
+      deployment.touch
     end
   end
 
-  def create_migrated_deployment(project)
-    public_path = File.join(project.pages_path, "public")
-    FileUtils.mkdir_p(public_path)
-    File.open(File.join(project.pages_path, "public/index.html"), "w") do |f|
-      f.write("Hello!")
+  describe '#upload_ready' do
+    it 'marks #upload_ready as true when upload finishes' do
+      deployment = build(:pages_deployment)
+
+      expect { deployment.save! }
+        .to change { deployment.upload_ready }
+        .from(false).to(true)
+    end
+  end
+
+  describe '.deactivate_all', :freeze_time do
+    let!(:deployment) { create(:pages_deployment, project: project, updated_at: 5.minutes.ago) }
+    let!(:nil_path_prefix_deployment) { create(:pages_deployment, project: project, path_prefix: nil) }
+    let!(:empty_path_prefix_deployment) { create(:pages_deployment, project: project, path_prefix: '') }
+
+    let!(:other_project_deployment) { create(:pages_deployment) }
+    let!(:deactivated_deployment) { create(:pages_deployment, project: project, deleted_at: 5.minutes.ago) }
+
+    it 'updates only older deployments for the same project and path prefix' do
+      expect { described_class.deactivate_all(project) }
+        .to change { deployment.reload.deleted_at }.from(nil).to(Time.zone.now)
+        .and change { deployment.reload.updated_at }.to(Time.zone.now)
+        .and change { nil_path_prefix_deployment.reload.deleted_at }.from(nil).to(Time.zone.now)
+        .and change { empty_path_prefix_deployment.reload.deleted_at }.from(nil).to(Time.zone.now)
+        .and not_change { other_project_deployment.reload.deleted_at }
+        .and not_change { deactivated_deployment.reload.deleted_at }
+    end
+  end
+
+  describe '.deactivate_deployments_older_than', :freeze_time do
+    let!(:nil_path_prefix_deployment) { create(:pages_deployment, project: project, path_prefix: nil) }
+    let!(:empty_path_prefix_deployment) { create(:pages_deployment, project: project, path_prefix: '') }
+    let!(:older_deployment) { create(:pages_deployment, project: project, updated_at: 5.minutes.ago) }
+    let!(:reference_deployment) { create(:pages_deployment, project: project, updated_at: 5.minutes.ago) }
+    let!(:newer_deployment) { create(:pages_deployment, project: project, updated_at: 5.minutes.ago) }
+
+    let!(:other_project_deployment) { create(:pages_deployment) }
+    let!(:other_path_prefix_deployment) { create(:pages_deployment, project: project, path_prefix: 'other') }
+    let!(:deactivated_deployment) { create(:pages_deployment, project: project, deleted_at: 5.minutes.ago) }
+
+    it 'updates only older deployments for the same project and path prefix' do
+      expect { described_class.deactivate_deployments_older_than(reference_deployment) }
+        .to change { older_deployment.reload.deleted_at }.from(nil).to(Time.zone.now)
+        .and change { older_deployment.reload.updated_at }.to(Time.zone.now)
+        .and change { nil_path_prefix_deployment.reload.deleted_at }.from(nil).to(Time.zone.now)
+        .and change { empty_path_prefix_deployment.reload.deleted_at }.from(nil).to(Time.zone.now)
+        .and not_change { reference_deployment.reload.deleted_at }
+        .and not_change { newer_deployment.reload.deleted_at }
+        .and not_change { other_project_deployment.reload.deleted_at }
+        .and not_change { other_path_prefix_deployment.reload.deleted_at }
+        .and not_change { deactivated_deployment.reload.deleted_at }
     end
 
-    expect(::Pages::MigrateLegacyStorageToDeploymentService.new(project).execute[:status]).to eq(:success)
+    it 'updates only older deployments for the same project with the given time' do
+      time = 30.minutes.from_now
 
-    project.reload.pages_metadatum.pages_deployment
-  ensure
-    FileUtils.rm_rf(public_path)
+      expect { described_class.deactivate_deployments_older_than(reference_deployment, time: time) }
+        .to change { older_deployment.reload.deleted_at }.from(nil).to(time)
+        .and change { older_deployment.reload.updated_at }.to(Time.zone.now)
+        .and change { nil_path_prefix_deployment.reload.deleted_at }.from(nil).to(time)
+        .and change { empty_path_prefix_deployment.reload.deleted_at }.from(nil).to(time)
+        .and not_change { reference_deployment.reload.deleted_at }
+        .and not_change { newer_deployment.reload.deleted_at }
+        .and not_change { other_project_deployment.reload.deleted_at }
+        .and not_change { other_path_prefix_deployment.reload.deleted_at }
+        .and not_change { deactivated_deployment.reload.deleted_at }
+    end
+  end
+
+  describe '.count_versioned_deployments_for' do
+    it 'counts the number of active pages deployments for the root level namespace of a given project' do
+      group = create(:group)
+      create(:project, group: group).tap do |project|
+        # not versioned
+        create(:pages_deployment, project: project)
+        # versioned, active
+        create(:pages_deployment, project: project, path_prefix: 'v1')
+        # versioned, not active
+        create(:pages_deployment, project: project, path_prefix: 'v2', deleted_at: 1.day.from_now)
+      end
+      project = create(:project, group: group).tap do |project|
+        # not versioned
+        create(:pages_deployment, project: project)
+        # versioned, active
+        create(:pages_deployment, project: project, path_prefix: 'v1')
+        # versioned, not active
+        create(:pages_deployment, project: project, path_prefix: 'v2', deleted_at: 1.day.from_now)
+      end
+
+      expect(described_class.count_versioned_deployments_for(project, 10)).to eq(2)
+      expect(described_class.count_versioned_deployments_for(project, 1)).to eq(1)
+    end
   end
 
   describe 'default for file_store' do
@@ -124,7 +202,24 @@ RSpec.describe PagesDeployment do
       # new deployment
       create(:pages_deployment)
 
-      expect(PagesDeployment.older_than(deployment.id)).to eq(old_deployments)
+      expect(described_class.older_than(deployment.id)).to eq(old_deployments)
+    end
+  end
+
+  # Verify that calling deactivate on an instance sets the deleted_at value to now
+  describe '.deactivate (instance method)' do
+    it 'sets deleted_at to the current time', :freeze_time do
+      deployment = create(:pages_deployment)
+      expect { deployment.deactivate }
+        .to change { deployment.deleted_at }.from(nil).to(Time.zone.now)
+    end
+  end
+
+  describe '.restore' do
+    it 'sets deleted_at to nil', :freeze_time do
+      deployment = create(:pages_deployment, deleted_at: Time.zone.now)
+      expect { deployment.restore }
+        .to change { deployment.deleted_at }.from(Time.zone.now).to(nil)
     end
   end
 end

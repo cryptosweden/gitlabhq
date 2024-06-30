@@ -44,14 +44,22 @@ end
 
 RSpec.shared_examples 'an email with X-GitLab headers containing IDs' do
   it 'has X-GitLab-*-ID header' do
-    is_expected.to have_header "X-GitLab-#{model.class.name}-ID", "#{model.id}"
+    is_expected.to have_header "X-GitLab-#{model.class.name}-ID", model.id.to_s
   end
 
   it 'has X-GitLab-*-IID header if model has iid defined' do
     if model.respond_to?(:iid)
-      is_expected.to have_header "X-GitLab-#{model.class.name}-IID", "#{model.iid}"
+      is_expected.to have_header "X-GitLab-#{model.class.name}-IID", model.iid.to_s
     else
       expect(subject.header["X-GitLab-#{model.class.name}-IID"]).to eq nil
+    end
+  end
+
+  it 'has X-GitLab-*-State header if model has state defined' do
+    if model.respond_to?(:state)
+      is_expected.to have_header "X-GitLab-#{model.class.name}-State", model.state.to_s
+    else
+      expect(subject.header["X-GitLab-#{model.class.name}-State"]).to eq nil
     end
   end
 end
@@ -59,7 +67,7 @@ end
 RSpec.shared_examples 'an email with X-GitLab headers containing project details' do
   it 'has X-GitLab-Project headers' do
     aggregate_failures do
-      full_path_as_domain = "#{project.name}.#{project.namespace.path}"
+      full_path_as_domain = "#{project.path}.#{project.namespace.path}"
       is_expected.to have_header('X-GitLab-Project', /#{project.name}/)
       is_expected.to have_header('X-GitLab-Project-Id', /#{project.id}/)
       is_expected.to have_header('X-GitLab-Project-Path', /#{project.full_path}/)
@@ -75,7 +83,7 @@ RSpec.shared_examples 'a new thread email with reply-by-email enabled' do
 
     aggregate_failures do
       is_expected.to have_header('Message-ID', "<#{route_key}@#{host}>")
-      is_expected.to have_header('References', /\A<reply\-.*@#{host}>\Z/ )
+      is_expected.to have_header('References', /\A<reply-.*@#{host}>\Z/ )
     end
   end
 end
@@ -91,7 +99,7 @@ RSpec.shared_examples 'a thread answer email with reply-by-email enabled' do
     aggregate_failures do
       is_expected.to have_header('Message-ID', /\A<.*@#{host}>\Z/)
       is_expected.to have_header('In-Reply-To', "<#{route_key}@#{host}>")
-      is_expected.to have_header('References', /\A<reply\-.*@#{host}> <#{route_key}@#{host}>\Z/ )
+      is_expected.to have_header('References', /\A<reply-.*@#{host}> <#{route_key}@#{host}>\Z/ )
       is_expected.to have_subject(/^Re: /)
     end
   end
@@ -188,11 +196,12 @@ end
 RSpec.shared_examples 'an unsubscribeable thread' do
   it_behaves_like 'an unsubscribeable thread with incoming address without %{key}'
 
-  it 'has a List-Unsubscribe header in the correct format, and a body link' do
+  it 'has a List-Unsubscribe header in the correct format, List-Unsubscribe-Post header, and a body link' do
     aggregate_failures do
       is_expected.to have_header('List-Unsubscribe', /unsubscribe/)
       is_expected.to have_header('List-Unsubscribe', /mailto/)
       is_expected.to have_header('List-Unsubscribe', /^<.+,.+>$/)
+      is_expected.to have_header('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click')
       is_expected.to have_body_text('unsubscribe')
     end
   end
@@ -201,20 +210,22 @@ end
 RSpec.shared_examples 'an unsubscribeable thread with incoming address without %{key}' do
   include_context 'reply-by-email is enabled with incoming address without %{key}'
 
-  it 'has a List-Unsubscribe header in the correct format, and a body link' do
+  it 'has a List-Unsubscribe header in the correct format, List-Unsubscribe-Post header, and a body link' do
     aggregate_failures do
       is_expected.to have_header('List-Unsubscribe', /unsubscribe/)
       is_expected.not_to have_header('List-Unsubscribe', /mailto/)
       is_expected.to have_header('List-Unsubscribe', /^<[^,]+>$/)
+      is_expected.to have_header('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click')
       is_expected.to have_body_text('unsubscribe')
     end
   end
 end
 
 RSpec.shared_examples 'a user cannot unsubscribe through footer link' do
-  it 'does not have a List-Unsubscribe header or a body link' do
+  it 'does not have a List-Unsubscribe header, List-Unsubscribe-Post header or a body link' do
     aggregate_failures do
       is_expected.not_to have_header('List-Unsubscribe', /unsubscribe/)
+      is_expected.not_to have_header('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click')
       is_expected.not_to have_body_text('unsubscribe')
     end
   end
@@ -222,6 +233,8 @@ end
 
 RSpec.shared_examples 'an email with a labels subscriptions link in its footer' do
   it { is_expected.to have_body_text('label subscriptions') }
+
+  it { is_expected.to have_body_text(%(href="#{project_labels_url(project, subscribed: true)}")) }
 end
 
 RSpec.shared_examples 'a note email' do
@@ -280,11 +293,31 @@ RSpec.shared_examples 'no email is sent' do
   end
 end
 
+RSpec.shared_examples 'a mail with default delivery method' do
+  it 'uses mailer default delivery method' do
+    expect(subject.delivery_method).to be_a ActionMailer::Base.delivery_methods[described_class.delivery_method]
+  end
+end
+
 RSpec.shared_examples 'does not render a manage notifications link' do
   it do
     aggregate_failures do
       expect(subject).not_to have_body_text("Manage all notifications")
       expect(subject).not_to have_body_text(profile_notifications_url)
     end
+  end
+end
+
+RSpec.shared_examples 'email with default notification reason' do
+  it do
+    is_expected.to have_body_text("You're receiving this email because of your account")
+    is_expected.to have_plain_text_content("You're receiving this email because of your account")
+  end
+end
+
+RSpec.shared_examples 'email with link to issue' do
+  it do
+    is_expected.to have_body_text(%(<a href="#{project_issue_url(project, issue)}">view it on GitLab</a>))
+    is_expected.to have_plain_text_content("view it on GitLab: #{project_issue_url(project, issue)}")
   end
 end

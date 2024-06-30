@@ -1,14 +1,23 @@
-import fileUpload, { getFilename, validateImageName } from '~/lib/utils/file_upload';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
+import fileUpload, {
+  getFilename,
+  validateImageName,
+  validateFileFromAllowList,
+} from '~/lib/utils/file_upload';
 
 describe('File upload', () => {
   beforeEach(() => {
-    setFixtures(`
+    setHTMLFixture(`
       <form>
         <button class="js-button" type="button">Click me!</button>
         <input type="text" class="js-input" />
         <span class="js-filename"></span>
       </form>
     `);
+  });
+
+  afterEach(() => {
+    resetHTMLFixture();
   });
 
   describe('when there is a matching button and input', () => {
@@ -82,5 +91,21 @@ describe('file name validator', () => {
     const file = new File([], 'test<.png');
 
     expect(validateImageName(file)).toBe('image.png');
+  });
+});
+
+describe('validateFileFromAllowList', () => {
+  it('returns true if the file type is in the allowed list', () => {
+    const allowList = ['.foo', '.bar'];
+    const fileName = 'file.foo';
+
+    expect(validateFileFromAllowList(fileName, allowList)).toBe(true);
+  });
+
+  it('returns false if the file type is in the allowed list', () => {
+    const allowList = ['.foo', '.bar'];
+    const fileName = 'file.baz';
+
+    expect(validateFileFromAllowList(fileName, allowList)).toBe(false);
   });
 });

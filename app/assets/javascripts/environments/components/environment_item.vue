@@ -1,23 +1,29 @@
 <script>
-import { GlDropdown, GlTooltipDirective, GlIcon, GlLink, GlSprintf, GlBadge } from '@gitlab/ui';
+import {
+  GlDisclosureDropdown,
+  GlTooltipDirective,
+  GlIcon,
+  GlLink,
+  GlSprintf,
+  GlBadge,
+  GlAvatar,
+  GlAvatarLink,
+} from '@gitlab/ui';
 import { isEmpty } from 'lodash';
 import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
 import { __, s__, sprintf } from '~/locale';
-import CiIcon from '~/vue_shared/components/ci_icon.vue';
+import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
 import CommitComponent from '~/vue_shared/components/commit.vue';
 import TooltipOnTruncate from '~/vue_shared/components/tooltip_on_truncate/tooltip_on_truncate.vue';
-import UserAvatarLink from '~/vue_shared/components/user_avatar/user_avatar_link.vue';
 import timeagoMixin from '~/vue_shared/mixins/timeago';
 import eventHub from '../event_hub';
 import ActionsComponent from './environment_actions.vue';
 import DeleteComponent from './environment_delete.vue';
 import ExternalUrlComponent from './environment_external_url.vue';
-import MonitoringButtonComponent from './environment_monitoring.vue';
 import PinComponent from './environment_pin.vue';
 import RollbackComponent from './environment_rollback.vue';
 import StopComponent from './environment_stop.vue';
 import TerminalButtonComponent from './environment_terminal_button.vue';
-
 /**
  * Environment Item Component
  *
@@ -29,19 +35,19 @@ export default {
     ActionsComponent,
     CommitComponent,
     ExternalUrlComponent,
-    GlDropdown,
+    GlDisclosureDropdown,
     GlBadge,
     GlIcon,
     GlLink,
     GlSprintf,
-    MonitoringButtonComponent,
     PinComponent,
     DeleteComponent,
     RollbackComponent,
     StopComponent,
     TerminalButtonComponent,
     TooltipOnTruncate,
-    UserAvatarLink,
+    GlAvatar,
+    GlAvatarLink,
     CiIcon,
   },
   directives: {
@@ -519,10 +525,6 @@ export default {
       return this.model.environment_path || '';
     },
 
-    monitoringUrl() {
-      return this.model.metrics_path || '';
-    },
-
     terminalPath() {
       return this.model?.terminal_path ?? '';
     },
@@ -535,7 +537,6 @@ export default {
       return (
         this.actions.length > 0 ||
         this.externalURL ||
-        this.monitoringUrl ||
         this.canStopEnvironment ||
         this.canDeleteEnvironment ||
         this.canRetry
@@ -549,7 +550,7 @@ export default {
     upcomingDeploymentCellClasses() {
       return [
         this.tableData.upcoming.spacing,
-        { 'gl-display-none gl-md-display-block': !this.upcomingDeployment },
+        { '!gl-hidden md:!gl-block': !this.upcomingDeployment },
       ];
     },
     tableNameSpacingClass() {
@@ -557,11 +558,7 @@ export default {
     },
     hasExtraActions() {
       return Boolean(
-        this.canRetry ||
-          this.canShowAutoStopDate ||
-          this.monitoringUrl ||
-          this.terminalPath ||
-          this.canDeleteEnvironment,
+        this.canRetry || this.canShowAutoStopDate || this.terminalPath || this.canDeleteEnvironment,
       );
     },
   },
@@ -618,7 +615,7 @@ export default {
         :title="model.name"
         class="environment-name table-mobile-content"
       >
-        <a class="qa-environment-link" :href="environmentPath">
+        <a :href="environmentPath">
           <span v-if="model.size === 1">{{ model.name }}</span>
           <span v-else>{{ model.name_without_type }}</span>
         </a>
@@ -646,25 +643,30 @@ export default {
 
     <div
       v-if="!isFolder"
-      class="table-section deployment-column d-none d-md-block"
+      class="table-section deployment-column gl-hidden md:gl-block"
       :class="tableData.deploy.spacing"
       role="gridcell"
-      data-testid="enviornment-deployment-id-cell"
+      data-testid="environment-deployment-id-cell"
     >
       <span v-if="shouldRenderDeploymentID" class="text-break-word">
         {{ deploymentInternalId }}
       </span>
 
-      <span v-if="!isFolder && deploymentHasUser" class="text-break-word">
+      <span
+        v-if="!isFolder && deploymentHasUser"
+        class="text-break-word gl-inline-flex gl-align-items-center"
+      >
         <gl-sprintf :message="s__('Environments|by %{avatar}')">
           <template #avatar>
-            <user-avatar-link
-              :link-href="deploymentUser.web_url"
-              :img-src="deploymentUser.avatar_url"
-              :img-alt="userImageAltDescription"
-              :tooltip-text="deploymentUser.username"
-              class="js-deploy-user-container float-none"
-            />
+            <gl-avatar-link :href="deploymentUser.web_url" class="gl-ml-2">
+              <gl-avatar
+                :src="deploymentUser.avatar_url"
+                :entity-name="deploymentUser.username"
+                :title="deploymentUser.username"
+                :alt="userImageAltDescription"
+                :size="24"
+              />
+            </gl-avatar-link>
           </template>
         </gl-sprintf>
       </span>
@@ -676,7 +678,7 @@ export default {
 
     <div
       v-if="!isFolder"
-      class="table-section d-none d-md-block"
+      class="table-section gl-hidden md:gl-block"
       :class="tableData.build.spacing"
       role="gridcell"
       data-testid="environment-build-cell"
@@ -750,23 +752,27 @@ export default {
             :title="upcomingDeploymentTooltipText"
             data-testid="upcoming-deployment-status-link"
           >
-            <ci-icon class="gl-mr-2" :status="upcomingDeployment.deployable.status" />
+            <ci-icon :status="upcomingDeployment.deployable.status" class="gl-mr-2" />
           </gl-link>
         </div>
-        <div class="gl-display-flex">
-          <span v-if="upcomingDeployment.user" class="text-break-word">
-            <gl-sprintf :message="s__('Environments|by %{avatar}')">
-              <template #avatar>
-                <user-avatar-link
-                  :link-href="upcomingDeployment.user.web_url"
-                  :img-src="upcomingDeployment.user.avatar_url"
-                  :img-alt="upcomingDeploymentUserImageAltDescription"
-                  :tooltip-text="upcomingDeployment.user.username"
+        <span
+          v-if="upcomingDeployment.user"
+          class="text-break-word gl-inline-flex gl-align-items-center gl-mt-2"
+        >
+          <gl-sprintf :message="s__('Environments|by %{avatar}')">
+            <template #avatar>
+              <gl-avatar-link :href="upcomingDeployment.user.web_url" class="gl-ml-2">
+                <gl-avatar
+                  :src="upcomingDeployment.user.avatar_url"
+                  :alt="upcomingDeploymentUserImageAltDescription"
+                  :entity-name="upcomingDeployment.user.username"
+                  :title="upcomingDeployment.user.username"
+                  :size="24"
                 />
-              </template>
-            </gl-sprintf>
-          </span>
-        </div>
+              </gl-avatar-link>
+            </template>
+          </gl-sprintf>
+        </span>
       </div>
     </div>
 
@@ -808,18 +814,18 @@ export default {
         <stop-component
           v-if="canStopEnvironment"
           :environment="model"
-          class="gl-z-index-2"
+          class="gl-z-2"
           data-track-action="click_button"
           data-track-label="environment_stop"
         />
 
-        <gl-dropdown
-          v-if="hasExtraActions"
-          icon="ellipsis_v"
+        <gl-disclosure-dropdown
           text-sr-only
-          :text="__('More actions')"
-          category="secondary"
           no-caret
+          icon="ellipsis_v"
+          category="secondary"
+          placement="bottom-end"
+          :toggle-text="__('More actions')"
         >
           <rollback-component
             v-if="canRetry"
@@ -837,13 +843,6 @@ export default {
             data-track-label="environment_pin"
           />
 
-          <monitoring-button-component
-            v-if="monitoringUrl"
-            :monitoring-url="monitoringUrl"
-            data-track-action="click_button"
-            data-track-label="environment_monitoring"
-          />
-
           <terminal-button-component
             v-if="terminalPath"
             :terminal-path="terminalPath"
@@ -857,7 +856,7 @@ export default {
             data-track-action="click_button"
             data-track-label="environment_delete"
           />
-        </gl-dropdown>
+        </gl-disclosure-dropdown>
       </div>
     </div>
   </div>

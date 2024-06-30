@@ -10,10 +10,12 @@ class GpgKey < ApplicationRecord
   sha_attribute :fingerprint
 
   belongs_to :user
-  has_many :gpg_signatures
+  has_many :gpg_signatures, class_name: 'CommitSignatures::GpgSignature'
   has_many :subkeys, class_name: 'GpgKeySubkey'
 
   scope :with_subkeys, -> { includes(:subkeys) }
+  scope :externally_invalid, -> { where(externally_verified: false) }
+  scope :externally_valid, -> { where(externally_verified: true) }
 
   validates :user, presence: true
 
@@ -21,7 +23,7 @@ class GpgKey < ApplicationRecord
     presence: true,
     uniqueness: true,
     format: {
-      with: /\A#{KEY_PREFIX}((?!#{KEY_PREFIX})(?!#{KEY_SUFFIX}).)+#{KEY_SUFFIX}\Z/m,
+      with: /\A#{KEY_PREFIX}((?!#{KEY_PREFIX})(?!#{KEY_SUFFIX}).)+#{KEY_SUFFIX}\Z/mo,
       message: "is invalid. A valid public GPG key begins with '#{KEY_PREFIX}' and ends with '#{KEY_SUFFIX}'"
     }
 
@@ -40,8 +42,8 @@ class GpgKey < ApplicationRecord
     unless: -> { errors.has_key?(:key) }
 
   before_validation :extract_fingerprint, :extract_primary_keyid
-  after_commit :update_invalid_gpg_signatures, on: :create
   after_create :generate_subkeys
+  after_commit :update_invalid_gpg_signatures, on: :create
 
   def primary_keyid
     super&.upcase

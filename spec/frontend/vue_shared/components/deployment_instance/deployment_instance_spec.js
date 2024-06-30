@@ -1,27 +1,24 @@
 import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import DeployBoardInstance from '~/vue_shared/components/deployment_instance.vue';
-import { folder } from './mock_data';
 
 describe('Deploy Board Instance', () => {
   let wrapper;
 
-  const createComponent = (props = {}) =>
+  const createComponent = (props = {}, provide) =>
     shallowMount(DeployBoardInstance, {
       propsData: {
         status: 'succeeded',
         ...props,
       },
+      provide: {
+        ...provide,
+      },
     });
 
   describe('as a non-canary deployment', () => {
-    afterEach(() => {
-      wrapper.destroy();
-    });
-
     it('should render a div with the correct css status and tooltip data', () => {
       wrapper = createComponent({
-        logsPath: folder.logs_path,
         tooltipText: 'This is a pod',
       });
 
@@ -39,24 +36,9 @@ describe('Deploy Board Instance', () => {
       expect(wrapper.classes('deployment-instance-deploying')).toBe(true);
       expect(wrapper.attributes('title')).toEqual('');
     });
-
-    it('should have a log path computed with a pod name as a parameter', () => {
-      wrapper = createComponent({
-        logsPath: folder.logs_path,
-        podName: 'tanuki-1',
-      });
-
-      expect(wrapper.vm.computedLogPath).toEqual(
-        '/root/review-app/-/logs?environment_name=foo&pod_name=tanuki-1',
-      );
-    });
   });
 
   describe('as a canary deployment', () => {
-    afterEach(() => {
-      wrapper.destroy();
-    });
-
     it('should render a div with canary class when stable prop is provided as false', async () => {
       wrapper = createComponent({
         stable: false,
@@ -68,27 +50,6 @@ describe('Deploy Board Instance', () => {
   });
 
   describe('as a legend item', () => {
-    afterEach(() => {
-      wrapper.destroy();
-    });
-
-    it('should not be a link without a logsPath prop', async () => {
-      wrapper = createComponent({
-        stable: false,
-        logsPath: '',
-      });
-
-      await nextTick();
-      expect(wrapper.vm.computedLogPath).toBeNull();
-      expect(wrapper.vm.isLink).toBeFalsy();
-    });
-
-    it('should render a link without href if path is not passed', () => {
-      wrapper = createComponent();
-
-      expect(wrapper.attributes('href')).toBeUndefined();
-    });
-
     it('should not have a tooltip', () => {
       wrapper = createComponent();
 

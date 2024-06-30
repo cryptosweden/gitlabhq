@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe PurgeDependencyProxyCacheWorker do
+RSpec.describe PurgeDependencyProxyCacheWorker, feature_category: :virtual_registry do
   let_it_be(:user) { create(:admin) }
-  let_it_be_with_refind(:blob) { create(:dependency_proxy_blob )}
+  let_it_be_with_refind(:blob) { create(:dependency_proxy_blob ) }
   let_it_be_with_reload(:group) { blob.group }
-  let_it_be_with_refind(:manifest) { create(:dependency_proxy_manifest, group: group )}
+  let_it_be_with_refind(:manifest) { create(:dependency_proxy_manifest, group: group ) }
   let_it_be(:group_id) { group.id }
 
   subject { described_class.new.perform(user.id, group_id) }
@@ -22,7 +22,7 @@ RSpec.describe PurgeDependencyProxyCacheWorker do
 
     context 'an admin user' do
       context 'when admin mode is enabled', :enable_admin_mode do
-        include_examples 'an idempotent worker' do
+        it_behaves_like 'an idempotent worker' do
           let(:job_args) { [user.id, group_id] }
 
           it 'marks the blobs as pending_destruction and returns ok', :aggregate_failures do

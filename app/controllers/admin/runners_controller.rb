@@ -3,55 +3,33 @@
 class Admin::RunnersController < Admin::ApplicationController
   include RunnerSetupScripts
 
-  before_action :runner, except: [:index, :tag_list, :runner_setup_scripts]
+  before_action :runner, only: [:show, :edit, :register, :update]
 
   feature_category :runner
+  urgency :low
 
-  def index
-  end
+  def index; end
 
-  def show
-    # We will show runner details in a read-only view in
-    # future iterations. For now, this route will have a
-    # redirect until this new view is developed. See more:
-    # https://gitlab.com/gitlab-org/gitlab/-/issues/347856
-    redirect_to edit_admin_runner_path(runner) unless Feature.enabled?(:runner_read_only_admin_view, default_enabled: :yaml)
-  end
+  def show; end
 
   def edit
-    assign_builds_and_projects
+    assign_projects
+  end
+
+  def new; end
+
+  def register
+    render_404 unless runner.registration_available?
   end
 
   def update
-    if Ci::Runners::UpdateRunnerService.new(@runner).update(runner_params)
+    if Ci::Runners::UpdateRunnerService.new(@runner).execute(runner_params).success?
       respond_to do |format|
         format.html { redirect_to edit_admin_runner_path(@runner) }
       end
     else
-      assign_builds_and_projects
+      assign_projects
       render 'show'
-    end
-  end
-
-  def destroy
-    Ci::Runners::UnregisterRunnerService.new(@runner, current_user).execute
-
-    redirect_to admin_runners_path, status: :found
-  end
-
-  def resume
-    if Ci::Runners::UpdateRunnerService.new(@runner).update(active: true)
-      redirect_to admin_runners_path, notice: _('Runner was successfully updated.')
-    else
-      redirect_to admin_runners_path, alert: _('Runner was not updated.')
-    end
-  end
-
-  def pause
-    if Ci::Runners::UpdateRunnerService.new(@runner).update(active: false)
-      redirect_to admin_runners_path, notice: _('Runner was successfully updated.')
-    else
-      redirect_to admin_runners_path, alert: _('Runner was not updated.')
     end
   end
 
@@ -84,12 +62,7 @@ class Admin::RunnersController < Admin::ApplicationController
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
-  def assign_builds_and_projects
-    @builds = runner
-      .builds
-      .order_id_desc
-      .preload_project_and_pipeline_project.first(30)
-
+  def assign_projects
     @projects =
       if params[:search].present?
         ::Project.search(params[:search])
@@ -104,3 +77,5 @@ class Admin::RunnersController < Admin::ApplicationController
   end
   # rubocop: enable CodeReuse/ActiveRecord
 end
+
+Admin::RunnersController.prepend_mod

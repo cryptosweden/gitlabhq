@@ -1,3 +1,6 @@
+# You can copy and paste this template into a new `.gitlab-ci.yml` file.
+# You should not add this template to an existing `.gitlab-ci.yml` file by using the `include:` keyword.
+#
 # To contribute improvements to CI/CD templates, please follow the Development guide at:
 # https://docs.gitlab.com/ee/development/cicd/templates.html
 # This specific template is located at:
@@ -9,7 +12,7 @@ image: node:latest
 
 # Pick zero or more services to be used on all builds.
 # Only needed when using a docker container to run your tests in.
-# Check out: http://docs.gitlab.com/ee/ci/docker/using_docker_images.html#what-is-a-service
+# Check out: https://docs.gitlab.com/ee/ci/services/index.html
 services:
   - mysql:latest
   - redis:latest
@@ -30,3 +33,8 @@ test_db:
   script:
     - npm install
     - node ./specs/start.js ./specs/db-postgres.spec.js
+
+deploy:
+  stage: deploy
+  script: echo "Define your deployment script!"
+  environment: production

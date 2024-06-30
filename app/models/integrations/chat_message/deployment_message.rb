@@ -26,9 +26,11 @@ module Integrations
       end
 
       def attachments
+        return description_message if markdown
+
         [{
-          text: "#{project_link} with job #{deployment_link} by #{user_link}\n#{commit_link}: #{strip_markup(commit_title)}",
-          color: color
+          text: format(description_message),
+          color: attachment_color
         }]
       end
 
@@ -36,17 +38,7 @@ module Integrations
         {}
       end
 
-      private
-
-      def message
-        if running?
-          "Starting deploy to #{strip_markup(environment)}"
-        else
-          "Deploy to #{strip_markup(environment)} #{humanized_status}"
-        end
-      end
-
-      def color
+      def attachment_color
         case status
         when 'success'
           'good'
@@ -56,6 +48,16 @@ module Integrations
           'danger'
         else
           '#334455'
+        end
+      end
+
+      private
+
+      def message
+        if running?
+          "Starting deploy to #{strip_markup(environment)}"
+        else
+          "Deploy to #{strip_markup(environment)} #{humanized_status}"
         end
       end
 
@@ -81,6 +83,10 @@ module Integrations
 
       def running?
         status == 'running'
+      end
+
+      def description_message
+        "#{project_link} with job #{deployment_link} by #{user_link}\n#{commit_link}: #{strip_markup(commit_title)}"
       end
     end
   end

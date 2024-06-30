@@ -12,15 +12,13 @@ class Projects::TreeController < Projects::ApplicationController
 
   before_action :require_non_empty_project, except: [:new, :create]
   before_action :assign_ref_vars
+  before_action :set_is_ambiguous_ref, only: [:show]
   before_action :assign_dir_vars, only: [:create_dir]
-  before_action :authorize_download_code!
+  before_action :authorize_read_code!
   before_action :authorize_edit_tree!, only: [:create_dir]
 
   before_action do
-    push_frontend_feature_flag(:lazy_load_commits, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:new_dir_modal, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:refactor_blob_viewer, @project, default_enabled: :yaml)
-    push_frontend_feature_flag(:highlight_js, @project, default_enabled: :yaml)
+    push_frontend_feature_flag(:explain_code_chat, current_user)
     push_licensed_feature(:file_locks) if @project.licensed_feature_available?(:file_locks)
   end
 
@@ -30,9 +28,11 @@ class Projects::TreeController < Projects::ApplicationController
   def show
     return render_404 unless @commit
 
+    @ref_type = ref_type
+
     if tree.entries.empty?
       if @repository.blob_at(@commit.id, @path)
-        redirect_to project_blob_path(@project, File.join(@ref, @path))
+        redirect_to project_blob_path(@project, File.join(@ref, @path), ref_type: @ref_type)
       elsif @path.present?
         redirect_to_tree_root_for_missing_path(@project, @ref, @path)
       end
@@ -42,12 +42,19 @@ class Projects::TreeController < Projects::ApplicationController
   def create_dir
     return render_404 unless @commit_params.values.all?
 
-    create_commit(Files::CreateDirService,  success_notice: _("The directory has been successfully created."),
-                                            success_path: project_tree_path(@project, File.join(@branch_name, @dir_name)),
-                                            failure_path: project_tree_path(@project, @ref))
+    create_commit(
+      Files::CreateDirService,
+      success_notice: _("The directory has been successfully created."),
+      success_path: project_tree_path(@project, File.join(@branch_name, @dir_name)),
+      failure_path: project_tree_path(@project, @ref)
+    )
   end
 
   private
+
+  def tree
+    @tree ||= @repo.tree(@commit.id, @path)
+  end
 
   def redirect_renamed_default_branch?
     action_name == 'show'

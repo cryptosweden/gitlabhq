@@ -2,14 +2,14 @@
 data_category: optional
 key_path: usage_activity_by_stage_monthly.manage.group_imports.gitlab_migration
 description: Count of groups imported using GitLab Migration
-product_section: dev
-product_stage: manage
-product_group: group::import
-product_category: importers
+product_group: import_and_integrate
 value_type: number
 status: active
 time_frame: 28d
 data_source: database
+instrumentation_class: CountBulkImportsEntitiesMetric
+options:
+  source_type: group_entity
 distribution:
 - ce
 - ee

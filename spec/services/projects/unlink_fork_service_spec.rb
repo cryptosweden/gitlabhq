@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::UnlinkForkService, :use_clean_rails_memory_store_caching do
+RSpec.describe Projects::UnlinkForkService, :use_clean_rails_memory_store_caching, feature_category: :source_code_management do
   include ProjectForksHelper
 
   subject { described_class.new(forked_project, user) }
@@ -56,6 +56,18 @@ RSpec.describe Projects::UnlinkForkService, :use_clean_rails_memory_store_cachin
     BatchLoader::Executor.clear_current
 
     expect(source.forks_count).to be_zero
+  end
+
+  it 'refreshes the project statistics of the forked project' do
+    expect(ProjectCacheWorker).to receive(:perform_async).with(forked_project.id, [], [:repository_size])
+
+    subject.execute
+  end
+
+  it 'does not refresh project statistics when refresh_statistics is false' do
+    expect(ProjectCacheWorker).not_to receive(:perform_async)
+
+    subject.execute(refresh_statistics: false)
   end
 
   context 'when the original project was deleted' do
@@ -116,8 +128,10 @@ RSpec.describe Projects::UnlinkForkService, :use_clean_rails_memory_store_cachin
 
       expect(project.fork_network_member).to be_nil
       expect(project.fork_network).to be_nil
-      expect(forked_project.fork_network).to have_attributes(root_project_id: nil,
-                                                             deleted_root_project_name: project.full_name)
+      expect(forked_project.fork_network).to have_attributes(
+        root_project_id: nil,
+        deleted_root_project_name: project.full_name
+      )
       expect(project.forked_to_members.count).to eq(0)
       expect(forked_project.forked_to_members.count).to eq(1)
       expect(fork_of_fork.forked_to_members.count).to eq(0)

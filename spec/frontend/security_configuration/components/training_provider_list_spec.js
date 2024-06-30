@@ -1,7 +1,15 @@
-import * as Sentry from '@sentry/browser';
-import { GlAlert, GlLink, GlToggle, GlCard, GlSkeletonLoader, GlIcon } from '@gitlab/ui';
+import {
+  GlAlert,
+  GlLink,
+  GlFormRadio,
+  GlToggle,
+  GlCard,
+  GlSkeletonLoader,
+  GlIcon,
+} from '@gitlab/ui';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
@@ -11,8 +19,8 @@ import {
   TRACK_TOGGLE_TRAINING_PROVIDER_LABEL,
   TRACK_PROVIDER_LEARN_MORE_CLICK_ACTION,
   TRACK_PROVIDER_LEARN_MORE_CLICK_LABEL,
+  TEMP_PROVIDER_URLS,
 } from '~/security_configuration/constants';
-import { TEMP_PROVIDER_URLS } from '~/security_configuration/components/constants';
 import TrainingProviderList from '~/security_configuration/components/training_provider_list.vue';
 import { updateSecurityTrainingOptimisticResponse } from '~/security_configuration/graphql/cache_utils';
 import securityTrainingProvidersQuery from '~/security_configuration/graphql/security_training_providers.query.graphql';
@@ -28,7 +36,6 @@ import {
   testProjectPath,
   testProviderIds,
   testProviderName,
-  tempProviderLogos,
 } from '../mock_data';
 
 Vue.use(VueApollo);
@@ -45,6 +52,30 @@ const TEST_TRAINING_PROVIDERS_ALL_ENABLED = getSecurityTrainingProvidersData({
   },
 });
 const TEST_TRAINING_PROVIDERS_DEFAULT = TEST_TRAINING_PROVIDERS_ALL_DISABLED;
+
+const TEMP_PROVIDER_LOGOS = {
+  Kontra: {
+    svg: '<svg>Kontra</svg>',
+  },
+  'Secure Code Warrior': {
+    svg: '<svg>Secure Code Warrior</svg>',
+  },
+};
+jest.mock('~/security_configuration/constants', () => {
+  return {
+    TEMP_PROVIDER_URLS: jest.requireActual('~/security_configuration/constants').TEMP_PROVIDER_URLS,
+    // NOTE: Jest hoists all mocks to the top so we can't use TEMP_PROVIDER_LOGOS
+    // here directly.
+    TEMP_PROVIDER_LOGOS: {
+      Kontra: {
+        svg: '<svg>Kontra</svg>',
+      },
+      'Secure Code Warrior': {
+        svg: '<svg>Secure Code Warrior</svg>',
+      },
+    },
+  };
+});
 
 describe('TrainingProviderList component', () => {
   let wrapper;
@@ -68,13 +99,17 @@ describe('TrainingProviderList component', () => {
     apolloProvider = createMockApollo(mergedHandlers);
   };
 
-  const createComponent = () => {
+  const createComponent = (props = {}) => {
     wrapper = shallowMountExtended(TrainingProviderList, {
       provide: {
         projectFullPath: testProjectPath,
       },
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
+      },
+      propsData: {
+        securityTrainingEnabled: true,
+        ...props,
       },
       apolloProvider,
     });
@@ -87,15 +122,15 @@ describe('TrainingProviderList component', () => {
   const findLinks = () => wrapper.findAllComponents(GlLink);
   const findToggles = () => wrapper.findAllComponents(GlToggle);
   const findFirstToggle = () => findToggles().at(0);
-  const findPrimaryProviderRadios = () => wrapper.findAllByTestId('primary-provider-radio');
+  const findPrimaryProviderRadios = () => wrapper.findAllComponents(GlFormRadio);
   const findLoader = () => wrapper.findComponent(GlSkeletonLoader);
   const findErrorAlert = () => wrapper.findComponent(GlAlert);
   const findLogos = () => wrapper.findAllByTestId('provider-logo');
+  const findUnavailableTexts = () => wrapper.findAllByTestId('unavailable-text');
 
   const toggleFirstProvider = () => findFirstToggle().vm.$emit('change', testProviderIds[0]);
 
   afterEach(() => {
-    wrapper.destroy();
     apolloProvider = null;
   });
 
@@ -156,7 +191,7 @@ describe('TrainingProviderList component', () => {
         });
 
         it(`shows the learn more link for enabled card ${index}`, () => {
-          const learnMoreLink = findCards().at(index).find(GlLink);
+          const learnMoreLink = findCards().at(index).findComponent(GlLink);
           const tempLogo = TEMP_PROVIDER_URLS[name];
 
           if (tempLogo) {
@@ -177,8 +212,8 @@ describe('TrainingProviderList component', () => {
           const primaryProviderRadioForCurrentCard = findPrimaryProviderRadios().at(index);
 
           // if the given provider is not enabled it should not be possible select it as primary
-          expect(primaryProviderRadioForCurrentCard.find('input').attributes('disabled')).toBe(
-            isEnabled ? undefined : 'disabled',
+          expect(primaryProviderRadioForCurrentCard.attributes('disabled')).toBe(
+            isEnabled ? undefined : 'true',
           );
 
           expect(primaryProviderRadioForCurrentCard.text()).toBe(
@@ -187,7 +222,7 @@ describe('TrainingProviderList component', () => {
         });
 
         it('shows a info-tooltip that describes the purpose of a primary provider', () => {
-          const infoIcon = findPrimaryProviderRadios().at(index).find(GlIcon);
+          const infoIcon = findPrimaryProviderRadios().at(index).findComponent(GlIcon);
           const tooltip = getBinding(infoIcon.element, 'gl-tooltip');
 
           expect(infoIcon.props()).toMatchObject({
@@ -204,7 +239,6 @@ describe('TrainingProviderList component', () => {
 
     describe('provider logo', () => {
       beforeEach(async () => {
-        wrapper.vm.$options.TEMP_PROVIDER_LOGOS = tempProviderLogos;
         await waitForQueryToBeLoaded();
       });
 
@@ -220,7 +254,7 @@ describe('TrainingProviderList component', () => {
 
       it.each(providerIndexArray)('renders the svg content for provider %s', (provider) => {
         expect(findLogos().at(provider).html()).toContain(
-          tempProviderLogos[testProviderName[provider]].svg,
+          TEMP_PROVIDER_LOGOS[testProviderName[provider]].svg,
         );
       });
     });
@@ -343,6 +377,41 @@ describe('TrainingProviderList component', () => {
         );
       });
     });
+
+    describe('non ultimate users', () => {
+      beforeEach(async () => {
+        createComponent({
+          securityTrainingEnabled: false,
+        });
+        await waitForQueryToBeLoaded();
+      });
+
+      it('displays unavailable text', () => {
+        findUnavailableTexts().wrappers.forEach((unavailableText) => {
+          expect(unavailableText.text()).toBe(TrainingProviderList.i18n.unavailableText);
+        });
+      });
+
+      it('has disabled state for toggle', () => {
+        findToggles().wrappers.forEach((toggle) => {
+          expect(toggle.props('disabled')).toBe(true);
+        });
+      });
+
+      it('has disabled state for radio', () => {
+        findPrimaryProviderRadios().wrappers.forEach((radio) => {
+          expect(radio.attributes('disabled')).toBeDefined();
+        });
+      });
+
+      it('adds backgrounds color', () => {
+        findCards().wrappers.forEach((card) => {
+          expect(card.props('bodyClass')).toMatchObject({
+            'gl-bg-gray-10': true,
+          });
+        });
+      });
+    });
   });
 
   describe('primary provider settings', () => {
@@ -434,7 +503,7 @@ describe('TrainingProviderList component', () => {
       ${'backend error'} | ${jest.fn().mockReturnValue(dismissUserCalloutErrorResponse)}
       ${'network error'} | ${jest.fn().mockRejectedValue()}
     `('when dismissing the callout and a "$errorType" happens', ({ mutationHandler }) => {
-      beforeEach(async () => {
+      it('logs the error to sentry', async () => {
         jest.spyOn(Sentry, 'captureException').mockImplementation();
 
         createApolloProvider({
@@ -452,9 +521,7 @@ describe('TrainingProviderList component', () => {
 
         await waitForQueryToBeLoaded();
         toggleFirstProvider();
-      });
 
-      it('logs the error to sentry', async () => {
         expect(Sentry.captureException).not.toHaveBeenCalled();
 
         await waitForMutationToBeLoaded();

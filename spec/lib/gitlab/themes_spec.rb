@@ -8,7 +8,7 @@ RSpec.describe Gitlab::Themes, lib: true do
       css = described_class.body_classes
 
       expect(css).to include('ui-indigo')
-      expect(css).to include('ui-dark')
+      expect(css).to include('ui-gray')
       expect(css).to include('ui-blue')
     end
   end
@@ -16,7 +16,7 @@ RSpec.describe Gitlab::Themes, lib: true do
   describe '.by_id' do
     it 'returns a Theme by its ID' do
       expect(described_class.by_id(1).name).to eq 'Indigo'
-      expect(described_class.by_id(3).name).to eq 'Light'
+      expect(described_class.by_id(3).name).to eq 'Neutral'
     end
   end
 
@@ -26,7 +26,8 @@ RSpec.describe Gitlab::Themes, lib: true do
       expect(described_class.default.id).to eq 2
     end
 
-    it 'prevents an infinite loop when configuration default is invalid' do
+    it 'prevents an infinite loop when configuration default is invalid',
+      quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/450515' do
       default = described_class::APPLICATION_DEFAULT
       themes  = described_class.available_themes
 
@@ -48,17 +49,9 @@ RSpec.describe Gitlab::Themes, lib: true do
     end
   end
 
-  describe 'theme.css_filename' do
-    described_class.each do |theme|
-      next unless theme.css_filename
-
-      context "for #{theme.name}" do
-        it 'returns an existing CSS filename' do
-          css_file_path = Rails.root.join('app/assets/stylesheets/themes', theme.css_filename + '.scss')
-
-          expect(File.exist?(css_file_path)).to eq(true)
-        end
-      end
+  describe '.valid_ids' do
+    it 'returns array of available_themes ids with DEPRECATED_DARK_THEME_ID' do
+      expect(described_class.valid_ids).to match_array [1, 6, 4, 7, 5, 8, 9, 10, 2, 3, 11]
     end
   end
 end

@@ -1,9 +1,10 @@
+import { GlIcon } from '@gitlab/ui';
 import { shallowMount, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import DesignTodoButton from '~/design_management/components/design_todo_button.vue';
 import createDesignTodoMutation from '~/design_management/graphql/mutations/create_design_todo.mutation.graphql';
 import todoMarkDoneMutation from '~/graphql_shared/mutations/todo_mark_done.mutation.graphql';
-import TodoButton from '~/vue_shared/components/sidebar/todo_toggle/todo_button.vue';
+import TodoButton from '~/sidebar/components/todo_toggle/todo_button.vue';
 import mockDesign from '../mock_data/design';
 
 const mockDesignWithPendingTodos = {
@@ -21,6 +22,7 @@ const mutate = jest.fn().mockResolvedValue();
 
 describe('Design management design todo button', () => {
   let wrapper;
+  const findIcon = () => wrapper.findComponent(GlIcon);
 
   function createComponent(props = {}, { mountFn = shallowMount } = {}) {
     wrapper = mountFn(DesignTodoButton, {
@@ -50,14 +52,8 @@ describe('Design management design todo button', () => {
     createComponent();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-    jest.clearAllMocks();
-  });
-
   it('renders TodoButton component', () => {
-    expect(wrapper.find(TodoButton).exists()).toBe(true);
+    expect(wrapper.findComponent(TodoButton).exists()).toBe(true);
   });
 
   describe('when design has a pending todo', () => {
@@ -65,8 +61,8 @@ describe('Design management design todo button', () => {
       createComponent({ design: mockDesignWithPendingTodos }, { mountFn: mount });
     });
 
-    it('renders correct button text', () => {
-      expect(wrapper.text()).toBe('Mark as done');
+    it('renders correct button icon', () => {
+      expect(findIcon().props('name')).toBe('todo-done');
     });
 
     describe('when clicked', () => {
@@ -74,16 +70,13 @@ describe('Design management design todo button', () => {
 
       beforeEach(async () => {
         dispatchEventSpy = jest.spyOn(document, 'dispatchEvent');
-        jest.spyOn(document, 'querySelector').mockReturnValue({
-          innerText: 2,
-        });
 
         createComponent({ design: mockDesignWithPendingTodos }, { mountFn: mount });
         wrapper.trigger('click');
         await nextTick();
       });
 
-      it('calls `$apollo.mutate` with the `todoMarkDone` mutation and variables containing `id`', async () => {
+      it('calls `$apollo.mutate` with the `todoMarkDone` mutation and variables containing `id`', () => {
         const todoMarkDoneMutationVariables = {
           mutation: todoMarkDoneMutation,
           update: expect.anything(),
@@ -100,7 +93,7 @@ describe('Design management design todo button', () => {
         const dispatchedEvent = dispatchEventSpy.mock.calls[0][0];
 
         expect(dispatchEventSpy).toHaveBeenCalledTimes(1);
-        expect(dispatchedEvent.detail).toEqual({ count: 1 });
+        expect(dispatchedEvent.detail).toEqual({ delta: -1 });
         expect(dispatchedEvent.type).toBe('todo:toggle');
       });
     });
@@ -112,7 +105,7 @@ describe('Design management design todo button', () => {
     });
 
     it('renders correct button text', () => {
-      expect(wrapper.text()).toBe('Add a to do');
+      expect(findIcon().props('name')).toBe('todo-add');
     });
 
     describe('when clicked', () => {
@@ -120,16 +113,13 @@ describe('Design management design todo button', () => {
 
       beforeEach(async () => {
         dispatchEventSpy = jest.spyOn(document, 'dispatchEvent');
-        jest.spyOn(document, 'querySelector').mockReturnValue({
-          innerText: 2,
-        });
 
         createComponent({}, { mountFn: mount });
         wrapper.trigger('click');
         await nextTick();
       });
 
-      it('calls `$apollo.mutate` with the `createDesignTodoMutation` mutation and variables containing `issuable_id`, `issue_id`, & `projectPath`', async () => {
+      it('calls `$apollo.mutate` with the `createDesignTodoMutation` mutation and variables containing `issuable_id`, `issue_id`, & `projectPath`', () => {
         const createDesignTodoMutationVariables = {
           mutation: createDesignTodoMutation,
           update: expect.anything(),
@@ -151,7 +141,7 @@ describe('Design management design todo button', () => {
         const dispatchedEvent = dispatchEventSpy.mock.calls[0][0];
 
         expect(dispatchEventSpy).toHaveBeenCalledTimes(1);
-        expect(dispatchedEvent.detail).toEqual({ count: 3 });
+        expect(dispatchedEvent.detail).toEqual({ delta: 1 });
         expect(dispatchedEvent.type).toBe('todo:toggle');
       });
     });

@@ -13,7 +13,7 @@ FactoryBot.define do
 
       # Expect base_types to exist on the DB
       if type_base_attributes.slice(:namespace, :namespace_id).compact.empty?
-        WorkItems::Type.find_or_initialize_by(type_base_attributes).tap { |type| type.assign_attributes(attributes) }
+        WorkItems::Type.find_or_initialize_by(type_base_attributes)
       else
         WorkItems::Type.new(attributes)
       end
@@ -21,6 +21,11 @@ FactoryBot.define do
 
     trait :default do
       namespace { nil }
+    end
+
+    trait :issue do
+      base_type { WorkItems::Type.base_types[:issue] }
+      icon_name { 'issue-type-issue' }
     end
 
     trait :incident do
@@ -36,6 +41,11 @@ FactoryBot.define do
     trait :requirement do
       base_type { WorkItems::Type.base_types[:requirement] }
       icon_name { 'issue-type-requirements' }
+    end
+
+    trait :task do
+      base_type { WorkItems::Type.base_types[:task] }
+      icon_name { 'issue-type-task' }
     end
   end
 end

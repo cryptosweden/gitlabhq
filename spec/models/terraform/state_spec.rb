@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Terraform::State do
+RSpec.describe Terraform::State, feature_category: :infrastructure_as_code do
   subject { create(:terraform_state, :with_version) }
 
   it { is_expected.to belong_to(:project) }
@@ -10,14 +10,18 @@ RSpec.describe Terraform::State do
 
   it { is_expected.to validate_presence_of(:name) }
   it { is_expected.to validate_presence_of(:project_id) }
+  it { is_expected.to validate_presence_of(:uuid) }
 
-  it { is_expected.to validate_uniqueness_of(:name).scoped_to(:project_id) }
+  describe 'default values' do
+    it { expect(described_class.new.uuid).to be_present }
+    it { expect(described_class.new(uuid: 'test').uuid).to eq('test') }
+  end
 
   describe 'scopes' do
     describe '.ordered_by_name' do
       let_it_be(:project) { create(:project) }
 
-      let(:names) { %w(state_d state_b state_a state_c) }
+      let(:names) { %w[state_d state_b state_a state_c] }
 
       subject { described_class.ordered_by_name }
 
@@ -37,22 +41,6 @@ RSpec.describe Terraform::State do
       subject { described_class.with_name(matching_name.name) }
 
       it { is_expected.to contain_exactly(matching_name) }
-    end
-  end
-
-  describe '#destroy' do
-    let(:terraform_state) { create(:terraform_state) }
-    let(:user) { terraform_state.project.creator }
-
-    it 'deletes when the state is unlocked' do
-      expect(terraform_state.destroy).to be_truthy
-    end
-
-    it 'fails to delete when the state is locked', :aggregate_failures do
-      terraform_state.update!(lock_xid: SecureRandom.uuid, locked_by_user: user, locked_at: Time.current)
-
-      expect(terraform_state.destroy).to be_falsey
-      expect(terraform_state.errors.full_messages).to eq(["You cannot remove the State file because it's locked. Unlock the State file first before removing it."])
     end
   end
 

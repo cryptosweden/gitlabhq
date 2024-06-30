@@ -17,6 +17,7 @@ module Gitlab
 
         class DisallowedKeysValidator < ActiveModel::EachValidator
           def validate_each(record, attribute, value)
+            value = value.try(:compact) if options[:ignore_nil]
             present_keys = value.try(:keys).to_a & options[:in]
 
             if present_keys.any?
@@ -39,13 +40,23 @@ module Gitlab
           end
         end
 
+        class OnlyOneOfKeysValidator < ActiveModel::EachValidator
+          def validate_each(record, attribute, value)
+            present_keys = value.try(:keys).to_a
+
+            unless options[:in].one? { |key| present_keys.include?(key) }
+              record.errors.add(attribute, "must use exactly one of these keys: " +
+                options[:in].join(', '))
+            end
+          end
+        end
+
         class MutuallyExclusiveKeysValidator < ActiveModel::EachValidator
           def validate_each(record, attribute, value)
             mutually_exclusive_keys = value.try(:keys).to_a & options[:in]
 
             if mutually_exclusive_keys.length > 1
-              record.errors.add(attribute, "please use only one the following keys: " +
-                mutually_exclusive_keys.join(', '))
+              record.errors.add(attribute, "these keys cannot be used together: #{mutually_exclusive_keys.join(', ')}")
             end
           end
         end
@@ -97,7 +108,7 @@ module Gitlab
           private
 
           def validate_array_of_hashes(value)
-            value.is_a?(Array) && value.all? { |obj| obj.is_a?(Hash) }
+            value.is_a?(Array) && value.all?(Hash)
           end
         end
 
@@ -292,6 +303,19 @@ module Gitlab
           end
         end
 
+        class NestedArrayOfStringsValidator < ActiveModel::EachValidator
+          include LegacyValidationHelpers
+          include NestedArrayHelpers
+
+          def validate_each(record, attribute, value)
+            max_level = options.fetch(:max_level, 1)
+
+            unless validate_nested_array(value, max_level, &method(:validate_string))
+              record.errors.add(attribute, "should be an array of strings or a nested array of strings up to #{max_level} levels deep")
+            end
+          end
+        end
+
         class TypeValidator < ActiveModel::EachValidator
           def validate_each(record, attribute, value)
             type = options[:with]
@@ -310,8 +334,6 @@ module Gitlab
           def validate_each(record, attribute, value)
             if options[:array_values]
               validate_key_array_values(record, attribute, value)
-            elsif options[:allowed_value_data]
-              validate_key_hash_values(record, attribute, value, options[:allowed_value_data])
             else
               validate_key_values(record, attribute, value)
             end
@@ -328,10 +350,29 @@ module Gitlab
               record.errors.add(attribute, 'should be a hash of key value pairs, value can be an array')
             end
           end
+        end
 
-          def validate_key_hash_values(record, attribute, value, allowed_value_data)
-            unless validate_string_or_hash_value_variables(value, allowed_value_data)
-              record.errors.add(attribute, 'should be a hash of key value pairs, value can be a hash')
+        class AlphanumericValidator < ActiveModel::EachValidator
+          def self.validate(value)
+            value.is_a?(String) || value.is_a?(Symbol) || value.is_a?(Integer)
+          end
+
+          def validate_each(record, attribute, value)
+            unless self.class.validate(value)
+              record.errors.add(attribute, 'must be an alphanumeric string')
+            end
+          end
+        end
+
+        class ScalarValidator < ActiveModel::EachValidator
+          def self.validate(value)
+            value.is_a?(String) || value.is_a?(Symbol) || value.is_a?(Integer) ||
+              value.is_a?(Float) || [true, false].include?(value)
+          end
+
+          def validate_each(record, attribute, value)
+            unless self.class.validate(value)
+              record.errors.add(attribute, 'must be a scalar')
             end
           end
         end
@@ -351,7 +392,7 @@ module Gitlab
             ports_size = value.count
             return if ports_size <= 1
 
-            named_ports = value.select { |e| e.is_a?(Hash) }.map { |e| e[:name] }.compact.map(&:downcase)
+            named_ports = value.select { |e| e.is_a?(Hash) }.filter_map { |e| e[:name] }.map(&:downcase)
 
             if ports_size != named_ports.size
               record.errors.add(attribute, 'when there is more than one port, a unique name should be added')

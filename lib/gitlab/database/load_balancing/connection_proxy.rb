@@ -13,39 +13,33 @@ module Gitlab
         WriteInsideReadOnlyTransactionError = Class.new(StandardError)
         READ_ONLY_TRANSACTION_KEY = :load_balacing_read_only_transaction
 
-        # The load balancer returned by connection might be different
-        # between `model.connection.load_balancer` vs `model.load_balancer`
-        #
-        # The used `model.connection` is dependent on `use_model_load_balancing`.
-        # See more in: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/73949.
-        #
-        # Always use `model.load_balancer` or `model.sticking`.
         attr_reader :load_balancer
 
         # These methods perform writes after which we need to stick to the
         # primary.
-        STICKY_WRITES = %i(
+        STICKY_WRITES = %i[
           delete
           delete_all
           insert
           update
           update_all
-        ).freeze
+          exec_insert_all
+        ].freeze
 
-        NON_STICKY_READS = %i(
+        NON_STICKY_READS = %i[
           sanitize_limit
           select
           select_one
           select_rows
           quote_column_name
-        ).freeze
+        ].freeze
 
         # hosts - The hosts to use for load balancing.
         def initialize(load_balancer)
           @load_balancer = load_balancer
         end
 
-        def select_all(arel, name = nil, binds = [], preparable: nil)
+        def select_all(arel, name = nil, binds = [], preparable: nil, async: false)
           if arel.respond_to?(:locked) && arel.locked
             # SELECT ... FOR UPDATE queries should be sent to the primary.
             current_session.write!
@@ -65,6 +59,13 @@ module Gitlab
           define_method(name) do |*args, **kwargs, &block|
             current_session.write!
             write_using_load_balancer(name, *args, **kwargs, &block)
+          end
+        end
+
+        def schema_cache(*args, **kwargs, &block)
+          # Ignore primary stickiness for schema_cache queries and always use replicas
+          @load_balancer.read do |connection|
+            connection.public_send(:schema_cache, *args, **kwargs, &block)
           end
         end
 
@@ -101,13 +102,13 @@ module Gitlab
         # name - The name of the method to call on a connection object.
         def read_using_load_balancer(...)
           if current_session.use_primary? &&
-             !current_session.use_replicas_for_read_queries?
+              !current_session.use_replicas_for_read_queries?
             @load_balancer.read_write do |connection|
-              connection.send(...)
+              connection.public_send(...)
             end
           else
             @load_balancer.read do |connection|
-              connection.send(...)
+              connection.public_send(...)
             end
           end
         end
@@ -123,7 +124,7 @@ module Gitlab
           end
 
           @load_balancer.read_write do |connection|
-            connection.send(...)
+            connection.public_send(...)
           end
         end
 

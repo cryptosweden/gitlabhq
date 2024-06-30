@@ -18,30 +18,35 @@ module QA
       end
 
       attribute :sandbox do
-        Sandbox.fabricate_via_api! do |sandbox|
-          sandbox.api_client = api_client
+        if Runtime::Env.personal_access_tokens_disabled?
+          Resource::Sandbox.fabricate! do |sandbox|
+            sandbox.path = Runtime::Namespace.sandbox_name
+          end
+        else
+          Sandbox.fabricate_via_api! do |sandbox|
+            sandbox.api_client = api_client
+          end
         end
       end
 
       def initialize
         @description = "QA test run at #{Runtime::Namespace.time}"
         @require_two_factor_authentication = false
+        # Add visibility to enable create private group
+        @visibility = 'public'
       end
 
       def fabricate!
         sandbox.visit!
 
         Page::Group::Show.perform do |group_show|
-          if group_show.has_subgroup?(path)
-            group_show.click_subgroup(path)
-          else
+          unless group_show.has_subgroup?(path)
             group_show.go_to_new_subgroup
 
             Page::Group::New.perform do |group_new|
-              group_new.click_create_group
               group_new.set_path(path)
-              group_new.set_visibility('Public')
-              group_new.create
+              group_new.set_visibility(@visibility)
+              group_new.create_subgroup
             end
 
             # Ensure that the group was actually created
@@ -49,6 +54,32 @@ module QA
               group_show.has_text?(path) &&
                 group_show.has_new_project_and_new_subgroup_buttons?
             end
+            sandbox.visit!
+          end
+
+          unless group_show.has_subgroup?(path)
+            raise ResourceFabricationFailedError, "Resource at #{path} could not be found under #{sandbox.path}"
+          end
+
+          group_show.click_subgroup(path)
+          @id = group_show.group_id
+        end
+      end
+
+      # Fabricate a Group using the UI from the Groups Dashboard page
+      # @param [String] group_name
+      # @return [Page::Group::New]
+      def fabricate_group!(group_name: nil)
+        Page::Main::Menu.perform(&:go_to_groups)
+        Page::Dashboard::Groups.perform do |groups|
+          groups.click_new_group
+
+          Page::Group::New.perform do |group_new|
+            group_new.click_create_group
+
+            group_new.set_path(group_name)
+
+            group_new.create
           end
         end
       end
@@ -63,12 +94,19 @@ module QA
         "/groups/#{CGI.escape(determine_full_path)}"
       end
 
+      # Parameters included in the query URL
+      #
+      # @return [Hash]
+      def query_parameters
+        super.merge({ with_projects: false })
+      end
+
       def api_post_body
         {
           parent_id: sandbox.id,
           path: path,
           name: name,
-          visibility: 'public',
+          visibility: @visibility.downcase,
           require_two_factor_authentication: @require_two_factor_authentication,
           avatar: avatar
         }

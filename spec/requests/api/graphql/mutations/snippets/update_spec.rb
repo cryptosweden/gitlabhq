@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Updating a Snippet' do
+RSpec.describe 'Updating a Snippet', feature_category: :source_code_management do
   include GraphqlHelpers
+  include SessionHelpers
 
   let_it_be(:original_content) { 'Initial content' }
   let_it_be(:original_description) { 'Initial description' }
@@ -17,6 +18,7 @@ RSpec.describe 'Updating a Snippet' do
   let(:updated_file) { 'CHANGELOG' }
   let(:deleted_file) { 'README' }
   let(:snippet_gid) { GitlabSchema.id_from_object(snippet).to_s }
+  let(:category) { ::Mutations::Snippets::Update }
   let(:mutation_vars) do
     {
       id: snippet_gid,
@@ -42,10 +44,11 @@ RSpec.describe 'Updating a Snippet' do
 
   shared_examples 'graphql update actions' do
     context 'when the user does not have permission' do
-      let(:current_user) { create(:user) }
+      let(:user) { create(:user) }
+      let(:current_user) { user }
 
       it_behaves_like 'a mutation that returns top-level errors',
-                      errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
+        errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
 
       it 'does not update the Snippet' do
         expect do
@@ -109,10 +112,6 @@ RSpec.describe 'Updating a Snippet' do
         end
       end
 
-      it_behaves_like 'a mutation which can mutate a spammable' do
-        let(:service) { Snippets::UpdateService }
-      end
-
       def blob_at(filename)
         snippet.repository.blob_at('HEAD', filename)
       end
@@ -121,36 +120,44 @@ RSpec.describe 'Updating a Snippet' do
 
   describe 'PersonalSnippet' do
     let(:snippet) do
-      create(:personal_snippet,
-             :private,
-             :repository,
-             file_name: original_file_name,
-             title: original_title,
-             content: original_content,
-             description: original_description)
+      create(
+        :personal_snippet,
+        :private,
+        :repository,
+        file_name: original_file_name,
+        title: original_title,
+        content: original_content,
+        description: original_description
+      )
     end
 
     it_behaves_like 'graphql update actions'
     it_behaves_like 'when the snippet is not found'
-    it_behaves_like 'snippet edit usage data counters'
+    it_behaves_like 'snippet edit usage data counters' do
+      let(:user) { current_user }
+    end
+
     it_behaves_like 'has spam protection' do
       let(:mutation_class) { ::Mutations::Snippets::Update }
     end
   end
 
   describe 'ProjectSnippet' do
-    let_it_be(:project) { create(:project, :private) }
+    let_it_be(:namespace) { create(:namespace) }
+    let_it_be(:project) { create(:project, :private, namespace: namespace) }
 
     let(:snippet) do
-      create(:project_snippet,
-             :private,
-             :repository,
-             project: project,
-             author: create(:user),
-             file_name: original_file_name,
-             title: original_title,
-             content: original_content,
-             description: original_description)
+      create(
+        :project_snippet,
+        :private,
+        :repository,
+        project: project,
+        author: create(:user),
+        file_name: original_file_name,
+        title: original_title,
+        content: original_content,
+        description: original_description
+      )
     end
 
     context 'when the author is not a member of the project' do
@@ -162,7 +169,7 @@ RSpec.describe 'Updating a Snippet' do
       end
     end
 
-    context 'when the author is a member of the project' do
+    context 'when the author is a member of the project', :snowplow do
       before do
         project.add_developer(current_user)
       end
@@ -180,10 +187,27 @@ RSpec.describe 'Updating a Snippet' do
         end
       end
 
-      it_behaves_like 'snippet edit usage data counters'
+      it_behaves_like 'snippet edit usage data counters' do
+        let(:user) { current_user }
+      end
 
       it_behaves_like 'has spam protection' do
         let(:mutation_class) { ::Mutations::Snippets::Update }
+      end
+
+      context 'when not sessionless', :clean_gitlab_redis_sessions do
+        before do
+          stub_session(
+            session_data: {
+              'warden.user.user.key' => [[current_user.id], current_user.authenticatable_salt]
+            }
+          )
+        end
+
+        it_behaves_like 'internal event tracking' do
+          let(:event) { 'g_edit_by_snippet_ide' }
+          let(:user) { current_user }
+        end
       end
     end
 

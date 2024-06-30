@@ -15,10 +15,6 @@ describe('ProjectAvatar', () => {
     wrapper = shallowMount(ProjectAvatar, { propsData: { ...defaultProps, ...props }, attrs });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('renders GlAvatar with correct props', () => {
     createComponent();
 
@@ -29,6 +25,7 @@ describe('ProjectAvatar', () => {
       entityName: defaultProps.projectName,
       size: 32,
       src: '',
+      fallbackOnError: true,
     });
   });
 
@@ -39,6 +36,42 @@ describe('ProjectAvatar', () => {
 
       const avatar = findGlAvatar();
       expect(avatar.props('size')).toBe(mockSize);
+    });
+  });
+
+  describe('with `projectId` prop', () => {
+    const validatorFunc = ProjectAvatar.props.projectId.validator;
+
+    it('prop validators return true for valid types', () => {
+      expect(validatorFunc(1)).toBe(true);
+      expect(validatorFunc('gid://gitlab/Project/1')).toBe(true);
+    });
+
+    it('prop validators return false for invalid types', () => {
+      expect(validatorFunc('1')).toBe(false);
+    });
+
+    it('renders GlAvatar with `entityId` 0 when `projectId` is not informed', () => {
+      createComponent({ props: { projectId: undefined } });
+
+      const avatar = findGlAvatar();
+      expect(avatar.props('entityId')).toBe(0);
+    });
+
+    it('renders GlAvatar with specified `entityId` when `projectId` is a Number', () => {
+      const mockProjectId = 1;
+      createComponent({ props: { projectId: mockProjectId } });
+
+      const avatar = findGlAvatar();
+      expect(avatar.props('entityId')).toBe(mockProjectId);
+    });
+
+    it('renders GlAvatar with specified `entityId` when `projectId` is a gid String', () => {
+      const mockProjectId = 'gid://gitlab/Project/1';
+      createComponent({ props: { projectId: mockProjectId } });
+
+      const avatar = findGlAvatar();
+      expect(avatar.props('entityId')).toBe(1);
     });
   });
 

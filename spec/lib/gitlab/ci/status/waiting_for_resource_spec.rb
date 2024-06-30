@@ -8,7 +8,7 @@ RSpec.describe Gitlab::Ci::Status::WaitingForResource do
   end
 
   describe '#text' do
-    it { expect(subject.text).to eq 'waiting' }
+    it { expect(subject.text).to eq 'Waiting' }
   end
 
   describe '#label' do
@@ -20,11 +20,15 @@ RSpec.describe Gitlab::Ci::Status::WaitingForResource do
   end
 
   describe '#favicon' do
-    it { expect(subject.favicon).to eq 'favicon_pending' }
+    it { expect(subject.favicon).to eq 'favicon_status_pending' }
   end
 
   describe '#group' do
     it { expect(subject.group).to eq 'waiting-for-resource' }
+  end
+
+  describe '#name' do
+    it { expect(subject.name).to eq 'WAITING_FOR_RESOURCE' }
   end
 
   describe '#details_path' do

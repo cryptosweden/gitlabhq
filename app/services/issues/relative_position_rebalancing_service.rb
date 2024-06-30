@@ -10,14 +10,12 @@ module Issues
     TooManyConcurrentRebalances = Class.new(StandardError)
 
     def initialize(projects)
-      @projects_collection = (projects.is_a?(Array) ? Project.id_in(projects) : projects).projects_order_id_asc
-      @root_namespace = @projects_collection.take.root_namespace # rubocop:disable CodeReuse/ActiveRecord
+      @projects_collection = (projects.is_a?(Array) ? Project.id_in(projects) : projects).select(:id).projects_order_id_asc
+      @root_namespace = @projects_collection.select(:namespace_id).reorder(nil).take.root_namespace # rubocop:disable CodeReuse/ActiveRecord
       @caching = ::Gitlab::Issues::Rebalancing::State.new(@root_namespace, @projects_collection)
     end
 
     def execute
-      return unless Feature.enabled?(:rebalance_issues, root_namespace)
-
       # Given can_start_rebalance? and track_new_running_rebalance are not atomic
       # it can happen that we end up with more than Rebalancing::State::MAX_NUMBER_OF_CONCURRENT_REBALANCES running.
       # Considering the number of allowed Rebalancing::State::MAX_NUMBER_OF_CONCURRENT_REBALANCES is small we should be ok,
@@ -143,7 +141,7 @@ module Issues
 
     def run_update_query(values, query_name)
       Issue.connection.exec_query(<<~SQL, query_name)
-        WITH cte(cte_id, new_pos) AS #{Gitlab::Database::AsWithMaterialized.materialized_if_supported} (
+        WITH cte(cte_id, new_pos) AS MATERIALIZED (
          SELECT *
          FROM (VALUES #{values}) as t (id, pos)
         )
@@ -163,7 +161,7 @@ module Issues
     end
 
     def start_position
-      @start_position ||= (RelativePositioning::START_POSITION - (gaps / 2) * gap_size).to_i
+      @start_position ||= (RelativePositioning::START_POSITION - ((gaps / 2) * gap_size)).to_i
     end
 
     def with_retry(initial_batch_size, exit_batch_size)

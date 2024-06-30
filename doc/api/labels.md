@@ -1,21 +1,22 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Labels API **(FREE)**
+# Labels API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Interact with [labels](../user/project/labels.md) using the REST API.
-
-NOTE:
-The `description_html` - was [added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/21413) to response JSON in GitLab 12.7.
 
 ## List labels
 
 Get all labels for a given project.
 
-By default, this request returns 20 results at a time because the API results [are paginated](index.md#pagination).
+By default, this request returns 20 results at a time because the API results [are paginated](rest/index.md#pagination).
 
 ```plaintext
 GET /projects/:id/labels
@@ -23,10 +24,10 @@ GET /projects/:id/labels
 
 | Attribute     | Type           | Required | Description                                                                                                                                                                  |
 | ---------     | -------        | -------- | ---------------------                                                                                                                                                        |
-| `id`          | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user                                                              |
-| `with_counts` | boolean        | no       | Whether or not to include issue and merge request counts. Defaults to `false`. _([Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/31543) in GitLab 12.2)_ |
+| `id`          | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user                                                              |
+| `with_counts` | boolean        | no       | Whether or not to include issue and merge request counts. Defaults to `false`. |
 | `include_ancestor_groups` | boolean | no | Include ancestor groups. Defaults to `true`. |
-| `search` | string | no | Keyword to filter labels by. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/259024) in GitLab 13.6 |
+| `search` | string | no | Keyword to filter labels by. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/labels?with_counts=true"
@@ -119,7 +120,7 @@ GET /projects/:id/labels/:label_id
 
 | Attribute     | Type           | Required | Description                                                                                                                                                                  |
 | ---------     | -------        | -------- | ---------------------                                                                                                                                                        |
-| `id`          | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user                                                              |
+| `id`          | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user                                                              |
 | `label_id` | integer or string | yes | The ID or title of a project's label. |
 | `include_ancestor_groups` | boolean | no | Include ancestor groups. Defaults to `true`. |
 
@@ -156,7 +157,7 @@ POST /projects/:id/labels
 
 | Attribute     | Type    | Required | Description                  |
 | ------------- | ------- | -------- | ---------------------------- |
-| `id`      | integer/string    | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `name`        | string  | yes      | The name of the label        |
 | `color`       | string  | yes      | The color of the label given in 6-digit hex notation with leading '#' sign (for example, #FFAABB) or one of the [CSS color names](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value#Color_keywords) |
 | `description` | string  | no       | The description of the label |
@@ -195,7 +196,7 @@ DELETE /projects/:id/labels/:label_id
 
 | Attribute | Type    | Required | Description           |
 | --------- | ------- | -------- | --------------------- |
-| `id`            | integer or string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`            | integer or string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 
 ```shell
@@ -216,7 +217,7 @@ PUT /projects/:id/labels/:label_id
 
 | Attribute       | Type    | Required                          | Description                      |
 | --------------- | ------- | --------------------------------- | -------------------------------  |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 | `new_name`      | string  | yes if `color` is not provided    | The new name of the label        |
 | `color`         | string  | yes if `new_name` is not provided | The color of the label given in 6-digit hex notation with leading '#' sign (for example, #FFAABB) or one of the [CSS color names](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value#Color_keywords) |
@@ -252,11 +253,6 @@ An older endpoint `PUT /projects/:id/labels` with `name` or `label_id` in the pa
 
 ## Promote a project label to a group label
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/25218) in GitLab 12.3.
-> - In [GitLab 13.6 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/231472), promoting a
->   project label keeps that label's ID and changes it into a group label. Previously, promoting a
->   project label created a new group label with a new ID and deleted the old label.
-
 Promotes a project label to a group label. The label keeps its ID.
 
 ```plaintext
@@ -265,7 +261,7 @@ PUT /projects/:id/labels/:label_id/promote
 
 | Attribute       | Type    | Required                          | Description                      |
 | --------------- | ------- | --------------------------------- | -------------------------------  |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 
 ```shell
@@ -303,7 +299,7 @@ POST /projects/:id/labels/:label_id/subscribe
 
 | Attribute  | Type              | Required | Description                          |
 | ---------- | ----------------- | -------- | ------------------------------------ |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `label_id` | integer or string | yes      | The ID or title of a project's label |
 
 ```shell
@@ -341,7 +337,7 @@ POST /projects/:id/labels/:label_id/unsubscribe
 
 | Attribute  | Type              | Required | Description                          |
 | ---------- | ----------------- | -------- | ------------------------------------ |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `label_id` | integer or string | yes      | The ID or title of a project's label |
 
 ```shell

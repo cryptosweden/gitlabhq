@@ -5,8 +5,8 @@
   // for Snippets is introduced and Clone button is relocated, we won't
   // need this style.
   // Issue for the refactoring: https://gitlab.com/gitlab-org/gitlab/-/issues/213327
-  &.gl-new-dropdown button.dropdown-toggle {
-    @include gl-display-inline-flex;
+  &.gl-dropdown button.dropdown-toggle {
+    display: inline-flex;
   }
 
   .btn-link {
@@ -41,32 +41,45 @@
       max-height: $extended-max-height;
 
       // See comment below for explanation
-      .gl-new-dropdown-inner {
+      .gl-dropdown-inner {
         max-height: $extended-max-height - 2px;
       }
+    }
+
+    &.dropdown-reduced-height {
+      max-height: $dropdown-max-height;
     }
 
     @include media-breakpoint-down(xs) {
       width: 100%;
     }
 
-    // `GlDropdown` specifies the `max-height` of `.gl-new-dropdown-inner`
+    // `GlDropdown` specifies the `max-height` of `.gl-dropdown-inner`
     // as `$dropdown-max-height`, but the `max-height` rule above forces
     // the parent `.dropdown-menu` to be _slightly_ too small because of
     // the 1px borders. The workaround below overrides the @gitlab/ui style
     // to avoid a double scroll bar.
-    .gl-new-dropdown-inner {
+    .gl-dropdown-inner {
       max-height: $dropdown-max-height - 2px;
     }
   }
 
   .dropdown-toggle,
   .dropdown-menu-toggle {
-    border-color: $gray-darkest;
+    border-color: $gray-200;
   }
 
   [data-toggle='dropdown'] {
     outline: 0;
+  }
+}
+
+.dropdown-toggle,
+.dropdown-menu-toggle,
+.dropdown-menu-close {
+  &:active,
+  &:focus {
+    @include gl-focus;
   }
 }
 
@@ -83,7 +96,7 @@
   color: $gl-text-color;
   font-size: 14px;
   text-align: left;
-  border: 1px solid $border-color;
+  border: 1px solid $gray-200;
   border-radius: $border-radius-base;
   white-space: nowrap;
 
@@ -116,12 +129,8 @@
     padding-right: 25px;
   }
 
-  .fa {
-    color: $gray-darkest;
-  }
-
   &:hover {
-    border-color: $gray-darkest;
+    border-color: $gray-200;
   }
 
   &:focus:active {
@@ -134,13 +143,22 @@
 .dropdown-menu-toggle.dropdown-menu-toggle {
   justify-content: flex-start;
   overflow: hidden;
+  padding-top: #{$gl-padding-8 - 1};
+  padding-bottom: #{$gl-padding-8 - 1};
   padding-right: 25px;
   position: relative;
   text-overflow: ellipsis;
+  line-height: $gl-line-height;
   width: 160px;
 
-  .fa {
-    position: absolute;
+  &:hover {
+    @apply gl-shadow-inner-1-gray-400;
+  }
+
+  &:hover,
+  &:focus {
+    background-color: $gray-50;
+    border-color: $gray-400;
   }
 
   .gl-spinner {
@@ -152,7 +170,7 @@
   .dropdown-menu-toggle-icon {
     position: absolute;
     right: $gl-padding-8;
-    color: $gray-darkest;
+    color: $gray-500;
   }
 }
 
@@ -172,7 +190,7 @@
 }
 
 @mixin dropdown-item-hover {
-  background-color: $gray-darker;
+  background-color: $gray-50;
   color: $gl-text-color;
   outline: 0;
 }
@@ -204,6 +222,13 @@
     @include dropdown-item-hover;
 
     text-decoration: none;
+  }
+
+  &:active,
+  &:focus,
+  &:focus:active,
+  &.is-focused {
+    @include gl-focus($inset: true);
   }
 
   &.dropdown-menu-user-link {
@@ -262,6 +287,23 @@
     }
   }
 
+  .non-blocking-loader & {
+    &.is-loading{
+      .dropdown-content {
+        display: block;
+        height: 2rem;
+
+        ul{
+          display: none;
+        }
+      }
+    }
+
+    .dropdown-loading{
+      position: relative;
+    }
+  }
+
   ul {
     margin: 0;
     padding: 0;
@@ -271,10 +313,9 @@
     display: block;
     text-align: left;
     list-style: none;
-    padding: 0 1px;
 
     > a,
-    button,
+    > button,
     .gl-button.btn-link,
     .menu-item {
       @include dropdown-link;
@@ -372,10 +413,6 @@
         margin: 0;
         text-align: left;
         text-overflow: inherit;
-
-        &.btn .fa:not(:last-child) {
-          margin-left: 5px;
-        }
       }
 
       > button.dropdown-epic-button {
@@ -462,6 +499,13 @@
     height: 2 * $gl-padding;
     margin: 0 10px 0 0;
   }
+
+  .sidebar-participant {
+    .merge-icon {
+      top: calc(50% + 5px);
+      left: 3rem;
+    }
+  }
 }
 
 .dropdown-menu-user-full-name {
@@ -531,7 +575,7 @@
           left: 1rem;
           width: 1rem;
           height: 1rem;
-          mask-image: asset_url('icons-stacked.svg#check');
+          mask-image: url('icons-stacked.svg#check');
           mask-repeat: no-repeat;
           mask-size: cover;
           mask-position: center center;
@@ -618,26 +662,21 @@
   display: block;
   width: 100%;
   min-height: 30px;
-  padding: 0 7px;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: $gl-spacing-scale-3;
+  padding-right: $gl-spacing-scale-3;
   color: $gray-700;
   line-height: 30px;
-  border: 1px solid $dropdown-divider-bg;
-  border-radius: 2px;
+  border: 1px solid $gray-400;
+  border-radius: $gl-border-radius-base;
   outline: 0;
 
   &:focus {
-    color: $gray-700;
-    border-color: $blue-300;
-    box-shadow: 0 0 4px $dropdown-input-focus-shadow;
-
-    ~ .fa,
-    ~ .dropdown-input-clear {
-      color: $gray-700;
-    }
+    @include gl-focus;
   }
 
   &:hover {
-    ~ .fa,
     ~ .dropdown-input-clear {
       color: $gray-700;
     }
@@ -695,24 +734,16 @@
   z-index: 9;
   background-color: $dropdown-loading-bg;
   font-size: 28px;
-
-  .fa {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    margin-top: -14px;
-    margin-left: -14px;
-  }
 }
 
 .dropdown-label-box {
-  position: relative;
-  top: 0;
-  margin-right: 5px;
+  margin-right: $gl-spacing-scale-3;
+  margin-top: $gl-spacing-scale-2;
   display: inline-block;
-  width: 15px;
-  height: 15px;
+  width: $gl-spacing-scale-5;
+  height: $gl-spacing-scale-3;
   border-radius: $border-radius-base;
+  border: 1px solid var(--white, $white);
 }
 
 .git-revision-dropdown {
@@ -774,114 +805,6 @@
   &.is-hidden {
     @include set-invisible;
     overflow: hidden;
-  }
-}
-
-@include media-breakpoint-down(xs) {
-  .navbar-gitlab {
-    li.dropdown {
-      position: static;
-
-      &.user-counter {
-        margin-left: 8px !important;
-
-        > a {
-          padding: 0 4px !important;
-        }
-      }
-    }
-  }
-
-  header.navbar-gitlab .dropdown {
-    .dropdown-menu {
-      width: 100%;
-      min-width: 100%;
-    }
-  }
-
-  header.navbar-gitlab-new .header-content .dropdown {
-    .dropdown-menu {
-      left: 0;
-      min-width: 100%;
-    }
-  }
-}
-
-.frequent-items-dropdown-container {
-  display: flex;
-  flex-direction: row;
-  height: $grid-size * 40;
-
-  .frequent-items-dropdown-content {
-    @include gl-pt-3;
-  }
-
-  .loading-animation {
-    color: $almost-black;
-  }
-
-  .frequent-items-dropdown-content {
-    position: relative;
-    width: 70%;
-  }
-
-  .section-header,
-  .frequent-items-list-container li.section-empty {
-    color: $gl-text-color-secondary;
-    font-size: $gl-font-size;
-  }
-
-  .frequent-items-list-container {
-    padding: 8px 0;
-    overflow-y: auto;
-
-    li.section-empty.section-failure {
-      color: $red-700;
-    }
-
-    .frequent-items-list-item-container a {
-      display: flex;
-    }
-  }
-
-  .section-header {
-    font-weight: 700;
-    margin-top: 8px;
-  }
-}
-
-.frequent-items-list-item-container {
-  .frequent-items-item-metadata-container {
-    display: flex;
-    flex-shrink: 0;
-    flex-direction: column;
-    justify-content: center;
-  }
-
-  .frequent-items-item-title,
-  .frequent-items-item-namespace {
-    max-width: 250px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .frequent-items-item-title {
-    font-size: $gl-font-size;
-    font-weight: 400;
-    line-height: 16px;
-  }
-
-  .frequent-items-item-namespace {
-    margin-top: 4px;
-    font-size: 12px;
-    line-height: 12px;
-    color: $gl-text-color-secondary;
-  }
-
-  @include media-breakpoint-down(xs) {
-    .frequent-items-item-metadata-container {
-      float: none;
-    }
   }
 }
 
@@ -974,17 +897,6 @@
   .label-item {
     padding: 8px 20px;
   }
-
-  .color-input-container {
-    .dropdown-label-color-preview {
-      border: 1px solid $gray-100;
-      border-right: 0;
-
-      &[style] {
-        border-color: transparent;
-      }
-    }
-  }
 }
 
 .bulk-update {
@@ -1014,7 +926,7 @@
 
 // This class won't be needed once we can add a prop for this in the GitLab UI component
 // https://gitlab.com/gitlab-org/gitlab-ui/-/issues/966
-.gl-new-dropdown {
+.gl-dropdown {
   .gl-dropdown-menu-wide {
     width: $gl-dropdown-width-wide;
   }
@@ -1022,8 +934,22 @@
 
 // This class won't be needed once we can add a prop for this in the GitLab UI component
 // https://gitlab.com/gitlab-org/gitlab-ui/-/issues/966
-.gl-new-dropdown.gl-dropdown-menu-full-width {
+.gl-dropdown.gl-dropdown-menu-full-width {
   .dropdown-menu {
     width: 100%;
   }
+}
+
+.group-namespace-dropdown .gl-new-dropdown-custom-toggle {
+  display: flex;
+  flex: auto;
+
+  .gl-button-text {
+    display: flex;
+    width: 100%;
+  }
+}
+
+.group-namespace-dropdown .gl-new-dropdown-item-text-wrapper {
+  word-break: break-word;
 }

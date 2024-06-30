@@ -23,14 +23,21 @@ query getProjectContainerRepositories(
       __typename
       nodes {
         id
+        migrationState
         name
         path
         status
         location
-        canDelete
         createdAt
         expirationPolicyStartedAt
         expirationPolicyCleanupStatus
+        project {
+          id
+          path
+        }
+        userPermissions {
+          destroyContainerRepository
+        }
         __typename
       }
       pageInfo {
@@ -57,14 +64,23 @@ query getProjectContainerRepositories(
       __typename
       nodes {
         id
+        migrationState
         name
         path
         status
         location
-        canDelete
         createdAt
         expirationPolicyStartedAt
         expirationPolicyCleanupStatus
+        project {
+          id
+          name
+          path
+          webUrl
+        }
+        userPermissions {
+          destroyContainerRepository
+        }
         __typename
       }
       pageInfo {

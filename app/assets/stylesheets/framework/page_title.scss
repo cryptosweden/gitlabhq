@@ -1,10 +1,6 @@
 .page-title-holder {
-  border-bottom: 1px solid $border-color;
-
   .page-title {
-    margin: $gl-padding 0;
-    font-size: 1.75em;
-    font-weight: $gl-font-weight-bold;
+    margin: $gl-spacing-scale-4 0;
     color: $gl-text-color;
   }
 

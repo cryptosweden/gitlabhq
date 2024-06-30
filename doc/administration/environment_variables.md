@@ -1,17 +1,22 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Environment variables **(FREE SELF)**
+# Environment variables
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 GitLab exposes certain environment variables which can be used to override
 their defaults values.
 
-People usually configure GitLab with `/etc/gitlab/gitlab.rb` for Omnibus
-installations, or `gitlab.yml` for installations from source.
+People usually configure GitLab with:
+
+- `/etc/gitlab/gitlab.rb` for Linux package installations.
+- `gitlab.yml` for self-compiled installations.
 
 You can use the following environment variables to override certain values:
 
@@ -25,7 +30,7 @@ You can use the following environment variables to override certain values:
 | `EXTERNAL_VALIDATION_SERVICE_TIMEOUT`      | integer | Timeout, in seconds, for an [external CI/CD pipeline validation service](external_pipeline_validation.md). Default is `5`. |
 | `EXTERNAL_VALIDATION_SERVICE_URL`          | string  | URL to an [external CI/CD pipeline validation service](external_pipeline_validation.md).                |
 | `EXTERNAL_VALIDATION_SERVICE_TOKEN`        | string  | The `X-Gitlab-Token` for authentication with an [external CI/CD pipeline validation service](external_pipeline_validation.md). |
-| `GITLAB_CDN_HOST`                          | string  | Sets the base URL for a CDN to serve static assets (for example, `//mycdnsubdomain.fictional-cdn.com`). |
+| `GITLAB_CDN_HOST`                          | string  | Sets the base URL for a CDN to serve static assets (for example, `https://mycdnsubdomain.fictional-cdn.com`). |
 | `GITLAB_EMAIL_DISPLAY_NAME`                | string  | The name used in the **From** field in emails sent by GitLab.                                           |
 | `GITLAB_EMAIL_FROM`                        | string  | The email address used in the **From** field in emails sent by GitLab.                                  |
 | `GITLAB_EMAIL_REPLY_TO`                    | string  | The email address used in the **Reply-To** field in emails sent by GitLab.                              |
@@ -33,34 +38,12 @@ You can use the following environment variables to override certain values:
 | `GITLAB_HOST`                              | string  | The full URL of the GitLab server (including `http://` or `https://`).                                  |
 | `GITLAB_MARKUP_TIMEOUT`                    | string  | Timeout, in seconds, for `rest2html` and `pod2html` commands executed by the [`gitlab-markup` gem](https://gitlab.com/gitlab-org/gitlab-markup/). Default is `10`. |
 | `GITLAB_ROOT_PASSWORD`                     | string  | Sets the password for the `root` user on installation.                                                  |
-| `GITLAB_SHARED_RUNNERS_REGISTRATION_TOKEN` | string  | Sets the initial registration token used for runners.                                                   |
+| `GITLAB_SHARED_RUNNERS_REGISTRATION_TOKEN` | string  | Sets the initial registration token used for runners. [Deprecated in GitLab 16.11](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/148310). |
 | `RAILS_ENV`                                | string  | The Rails environment; can be one of `production`, `development`, `staging`, or `test`.                 |
-| `UNSTRUCTURED_RAILS_LOG`                   | string  | Enables the unstructured log in addition to JSON logs (defaults to `true`).                             |
-
-## Complete database variables
-
-The recommended method for specifying your database connection information is
-to set the `DATABASE_URL` environment variable. This variable contains
-connection information (`adapter`, `database`, `username`, `password`, `host`,
-and `port`), but no behavior information (`encoding` or `pool`). If you don't
-want to use `DATABASE_URL`, or want to set database behavior information,
-either:
-
-- Copy the template file, `cp config/database.yml.env config/database.yml`.
-- Set a value for some `GITLAB_DATABASE_XXX` variables.
-
-The list of `GITLAB_DATABASE_XXX` variables that you can set is:
-
-| Variable                    | Default value                  | Overridden by `DATABASE_URL`? |
-|-----------------------------|--------------------------------|-------------------------------|
-| `GITLAB_DATABASE_ADAPTER`   | `postgresql`                   | **{check-circle}** Yes        |
-| `GITLAB_DATABASE_DATABASE`  | `gitlab_#{ENV['RAILS_ENV']`    | **{check-circle}** Yes        |
-| `GITLAB_DATABASE_ENCODING`  | `unicode`                      | **{dotted-circle}** No        |
-| `GITLAB_DATABASE_HOST`      | `localhost`                    | **{check-circle}** Yes        |
-| `GITLAB_DATABASE_PASSWORD`  | _none_                         | **{check-circle}** Yes        |
-| `GITLAB_DATABASE_POOL`      | `10`                           | **{dotted-circle}** No        |
-| `GITLAB_DATABASE_PORT`      | `5432`                         | **{check-circle}** Yes        |
-| `GITLAB_DATABASE_USERNAME`  | `root`                         | **{check-circle}** Yes        |
+| `GITLAB_RAILS_CACHE_DEFAULT_TTL_SECONDS`   | integer | The default TTL used for entries stored in the Rails-cache. Default is `28800`. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/95042) in 15.3. |
+| `GITLAB_CI_CONFIG_FETCH_TIMEOUT_SECONDS`   | integer | Timeout for resolving remote includes in CI config in seconds. Must be between `0` and `60`. Default is `30`. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/116383) in 15.11. |
+| `GITLAB_LFS_MAX_OID_TO_FETCH`              | integer | Sets the maximum number of LFS objects to link. Default is `100,000`.                                        |
+| `SIDEKIQ_SEMI_RELIABLE_FETCH_TIMEOUT`      | integer | Sets the timeout for Sidekiq semi-reliable fetch. Default is `5`. [Before GitLab 16.7](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/139583), default was `3`. If you experience high Redis CPU consumption on GitLab 16.6 and earlier, or if you have customized this variable, you should update this variable to `5`. |
 
 ## Adding more variables
 
@@ -68,11 +51,10 @@ We welcome merge requests to make more settings configurable by using variables.
 Make changes to the `config/initializers/1_settings.rb` file, and use the
 naming scheme `GITLAB_#{name in 1_settings.rb in upper case}`.
 
-## Omnibus configuration
+## Linux package installation configuration
 
 To set environment variables, follow [these instructions](https://docs.gitlab.com/omnibus/settings/environment-variables.html).
 
 It's possible to preconfigure the GitLab Docker image by adding the environment
 variable `GITLAB_OMNIBUS_CONFIG` to the `docker run` command.
-For more information, see the [Pre-configure Docker container](https://docs.gitlab.com/omnibus/docker/#pre-configure-docker-container)
-section of the Omnibus GitLab documentation.
+For more information, see [Pre-configure Docker container](../install/docker.md#pre-configure-docker-container).

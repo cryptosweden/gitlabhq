@@ -33,28 +33,28 @@ RSpec.describe ProfilesHelper do
     end
 
     it "returns omniauth provider label for users with external attributes" do
-      stub_omniauth_setting(sync_profile_from_provider: ['cas3'])
+      stub_omniauth_setting(sync_profile_from_provider: [example_omniauth_provider])
       stub_omniauth_setting(sync_profile_attributes: true)
-      stub_cas_omniauth_provider
-      cas_user = create(:omniauth_user, provider: 'cas3')
-      cas_user.create_user_synced_attributes_metadata(provider: 'cas3', name_synced: true, email_synced: true, location_synced: true)
-      allow(helper).to receive(:current_user).and_return(cas_user)
+      stub_auth0_omniauth_provider
+      auth0_user = create(:omniauth_user, provider: example_omniauth_provider)
+      auth0_user.create_user_synced_attributes_metadata(provider: example_omniauth_provider, name_synced: true, email_synced: true, location_synced: true)
+      allow(helper).to receive(:current_user).and_return(auth0_user)
 
-      expect(helper.attribute_provider_label(:email)).to eq('CAS')
-      expect(helper.attribute_provider_label(:name)).to eq('CAS')
-      expect(helper.attribute_provider_label(:location)).to eq('CAS')
+      expect(helper.attribute_provider_label(:email)).to eq(example_omniauth_provider_label)
+      expect(helper.attribute_provider_label(:name)).to eq(example_omniauth_provider_label)
+      expect(helper.attribute_provider_label(:location)).to eq(example_omniauth_provider_label)
     end
 
     it "returns the correct omniauth provider label for users with some external attributes" do
-      stub_omniauth_setting(sync_profile_from_provider: ['cas3'])
+      stub_omniauth_setting(sync_profile_from_provider: [example_omniauth_provider])
       stub_omniauth_setting(sync_profile_attributes: true)
-      stub_cas_omniauth_provider
-      cas_user = create(:omniauth_user, provider: 'cas3')
-      cas_user.create_user_synced_attributes_metadata(provider: 'cas3', name_synced: false, email_synced: true, location_synced: false)
-      allow(helper).to receive(:current_user).and_return(cas_user)
+      stub_auth0_omniauth_provider
+      auth0_user = create(:omniauth_user, provider: example_omniauth_provider)
+      auth0_user.create_user_synced_attributes_metadata(provider: example_omniauth_provider, name_synced: false, email_synced: true, location_synced: false)
+      allow(helper).to receive(:current_user).and_return(auth0_user)
 
       expect(helper.attribute_provider_label(:name)).to be_nil
-      expect(helper.attribute_provider_label(:email)).to eq('CAS')
+      expect(helper.attribute_provider_label(:email)).to eq(example_omniauth_provider_label)
       expect(helper.attribute_provider_label(:location)).to be_nil
     end
 
@@ -64,38 +64,6 @@ RSpec.describe ProfilesHelper do
       allow(helper).to receive(:current_user).and_return(ldap_user)
 
       expect(helper.attribute_provider_label(:email)).to eq('LDAP')
-    end
-  end
-
-  describe "#user_status_set_to_busy?" do
-    using RSpec::Parameterized::TableSyntax
-
-    where(:availability, :result) do
-      "busy"    | true
-      "not_set" | false
-      ""        | false
-      nil       | false
-    end
-
-    with_them do
-      it { expect(helper.user_status_set_to_busy?(OpenStruct.new(availability: availability))).to eq(result) }
-    end
-  end
-
-  describe "#show_status_emoji?" do
-    using RSpec::Parameterized::TableSyntax
-
-    where(:message, :emoji, :result) do
-      "Some message" | UserStatus::DEFAULT_EMOJI | true
-      "Some message" | ""                        | true
-      ""             | "basketball"              | true
-      ""             | "basketball"              | true
-      ""             | UserStatus::DEFAULT_EMOJI | false
-      ""             | UserStatus::DEFAULT_EMOJI | false
-    end
-
-    with_them do
-      it { expect(helper.show_status_emoji?(OpenStruct.new(message: message, emoji: emoji))).to eq(result) }
     end
   end
 
@@ -111,7 +79,6 @@ RSpec.describe ProfilesHelper do
     where(:error, :expired, :result) do
       false | false | nil
       true  | false | error_message
-      false | true  | 'Key usable beyond expiration date.'
       true  | true  | error_message
     end
 
@@ -130,22 +97,18 @@ RSpec.describe ProfilesHelper do
   end
 
   describe "#ssh_key_expires_field_description" do
-    before do
-      allow(Key).to receive(:enforce_ssh_key_expiration_feature_available?).and_return(false)
-    end
+    subject { helper.ssh_key_expires_field_description }
 
-    it 'returns the description' do
-      expect(helper.ssh_key_expires_field_description).to eq('Key can still be used after expiration.')
-    end
+    it { is_expected.to eq(s_('Profiles|Optional but recommended. If set, key becomes invalid on the specified date.')) }
   end
 
   describe '#middle_dot_divider_classes' do
     using RSpec::Parameterized::TableSyntax
 
     where(:stacking, :breakpoint, :expected) do
-      nil  | nil | %w(gl-mb-3 gl-display-inline-block middle-dot-divider)
-      true | nil | %w(gl-mb-3 middle-dot-divider-sm gl-display-block gl-sm-display-inline-block)
-      nil  | :sm | %w(gl-mb-3 gl-display-inline-block middle-dot-divider-sm)
+      nil  | nil | %w[gl-mb-3 gl-display-inline-block middle-dot-divider]
+      true | nil | %w[gl-mb-3 middle-dot-divider-sm gl-block sm:gl-inline-block]
+      nil  | :sm | %w[gl-mb-3 gl-display-inline-block middle-dot-divider-sm]
     end
 
     with_them do
@@ -155,12 +118,64 @@ RSpec.describe ProfilesHelper do
     end
   end
 
-  def stub_cas_omniauth_provider
+  describe '#prevent_delete_account?' do
+    it 'returns false' do
+      expect(helper.prevent_delete_account?).to eq false
+    end
+  end
+
+  describe '#user_profile_data' do
+    let(:time) { 3.hours.ago }
+    let(:timezone) { 'Europe/London' }
+    let(:user) do
+      build_stubbed(:user, status: UserStatus.new(
+        message: 'Some message',
+        emoji: 'basketball',
+        availability: 'busy',
+        clear_status_at: time
+      ), timezone: timezone)
+    end
+
+    before do
+      allow(helper).to receive(:current_user).and_return(user)
+    end
+
+    it 'returns user profile data' do
+      data = helper.user_profile_data(user)
+
+      expect(data[:profile_path]).to be_a(String)
+      expect(data[:profile_avatar_path]).to be_a(String)
+      expect(data[:avatar_url]).to be_http_url
+      expect(data[:has_avatar]).to be_a(String)
+      expect(data[:gravatar_enabled]).to be_a(String)
+      expect(Gitlab::Json.parse(data[:gravatar_link])).to match(hash_including('hostname' => Gitlab.config.gravatar.host, 'url' => a_valid_url))
+      expect(data[:brand_profile_image_guidelines]).to be_a(String)
+      expect(data[:cropper_css_path]).to eq(ActionController::Base.helpers.stylesheet_path('lazy_bundles/cropper.css'))
+      expect(data[:user_path]).to be_a(String)
+      expect(data[:current_emoji]).to eq('basketball')
+      expect(data[:current_message]).to eq('Some message')
+      expect(data[:current_availability]).to eq('busy')
+      expect(data[:current_clear_status_after]).to eq(time.to_fs(:iso8601))
+      expect(data[:default_emoji]).to eq(UserStatus::DEFAULT_EMOJI)
+      expect(data[:timezones]).to eq(helper.timezone_data_with_unique_identifiers.to_json)
+      expect(data[:user_timezone]).to eq(timezone)
+    end
+  end
+
+  def stub_auth0_omniauth_provider
     provider = OpenStruct.new(
-      'name' => 'cas3',
-      'label' => 'CAS'
+      'name' => example_omniauth_provider,
+      'label' => example_omniauth_provider_label
     )
 
     stub_omniauth_setting(providers: [provider])
+  end
+
+  def example_omniauth_provider
+    "auth0"
+  end
+
+  def example_omniauth_provider_label
+    "Auth0"
   end
 end

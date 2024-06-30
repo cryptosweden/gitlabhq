@@ -1,0 +1,18 @@
+---
+data_category: optional
+key_path: counts.groups_pumble_active
+description: Count of groups with active integrations for Pumble
+product_group: import_and_integrate
+value_type: number
+status: active
+time_frame: all
+data_source: database
+distribution:
+- ce
+- ee
+tier:
+- free
+- premium
+- ultimate
+performance_indicator_type: []
+milestone: "15.3"

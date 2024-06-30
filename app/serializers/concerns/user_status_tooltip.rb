@@ -8,15 +8,15 @@ module UserStatusTooltip
   include UsersHelper
 
   included do
-    expose :status_tooltip_html, if: -> (*) { status_loaded? } do |user|
+    expose :status_tooltip_html, if: ->(*) { status_loaded? } do |user|
       user_status(user)
     end
 
     expose :show_status do |user|
-      status_loaded? && show_status_emoji?(user.status)
+      status_loaded? && !!user.status&.customized?
     end
 
-    expose :availability, if: -> (*) { status_loaded? } do |user|
+    expose :availability, if: ->(*) { status_loaded? } do |user|
       user.status&.availability
     end
 

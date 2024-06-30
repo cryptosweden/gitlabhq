@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Clusters::Cleanup::ProjectNamespaceWorker do
+RSpec.describe Clusters::Cleanup::ProjectNamespaceWorker, feature_category: :deployment_management do
   describe '#perform' do
     context 'when cluster.cleanup_status is cleanup_removing_project_namespaces' do
       let!(:cluster) { create(:cluster, :with_environments, :cleanup_removing_project_namespaces) }
@@ -18,7 +18,7 @@ RSpec.describe Clusters::Cleanup::ProjectNamespaceWorker do
       end
 
       context 'when exceeded the execution limit' do
-        subject { worker_instance.perform(cluster.id, worker_instance.send(:execution_limit))}
+        subject { worker_instance.perform(cluster.id, worker_instance.send(:execution_limit)) }
 
         it 'logs the error' do
           expect(logger).to receive(:error)
@@ -27,7 +27,6 @@ RSpec.describe Clusters::Cleanup::ProjectNamespaceWorker do
                 exception: 'ClusterCleanupMethods::ExceededExecutionLimitError',
                 cluster_id: kind_of(Integer),
                 class_name: described_class.name,
-                applications: "",
                 cleanup_status: cluster.cleanup_status_name,
                 event: :failed_to_remove_cluster_and_resources,
                 message: "exceeded execution limit of 10 tries"

@@ -8,10 +8,9 @@ import (
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
-	"gitlab.com/gitlab-org/gitaly/v14/proto/go/gitalypb"
+	"gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/gitaly"
 )
 
 type smartHTTPServiceServerWithInfoRefs struct {
@@ -32,9 +31,9 @@ func TestGetInfoRefsHandler(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/?service=git-upload-pack", nil)
-	a := &api.Response{GitalyServer: gitaly.Server{Address: addr}}
+	a := &api.Response{GitalyServer: api.GitalyServer{Address: addr}}
 
-	handleGetInfoRefs(NewHttpResponseWriter(w), r, a)
+	handleGetInfoRefs(NewHTTPResponseWriter(w), r, a)
 	require.Equal(t, 503, w.Code)
 
 	msg := "The git server, Gitaly, is not available at this time. Please contact your administrator.\n"

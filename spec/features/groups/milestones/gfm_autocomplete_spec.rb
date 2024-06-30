@@ -2,9 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'GFM autocomplete', :js do
+RSpec.describe 'GFM autocomplete', :js, feature_category: :team_planning do
+  include Features::AutocompleteHelpers
+
   let_it_be(:user) { create(:user, name: '💃speciąl someone💃', username: 'someone.special') }
-  let_it_be(:group) { create(:group, name: 'Ancestor') }
+  let_it_be(:group) { create(:group, name: 'Ancestor', maintainers: user) }
   let_it_be(:project) { create(:project, :repository, group: group) }
   let_it_be(:issue) { create(:issue, project: project, assignees: [user], title: 'My special issue') }
   let_it_be(:label) { create(:group_label, group: group, title: 'special+') }
@@ -41,10 +43,6 @@ RSpec.describe 'GFM autocomplete', :js do
     end
   end
 
-  before_all do
-    group.add_maintainer(user)
-  end
-
   describe 'new milestone page' do
     before do
       sign_in(user)
@@ -68,10 +66,6 @@ RSpec.describe 'GFM autocomplete', :js do
   end
 
   private
-
-  def find_autocomplete_menu
-    find('.atwho-view ul', visible: true)
-  end
 
   def expect_autocomplete_entry(entry)
     page.within('.atwho-container') do

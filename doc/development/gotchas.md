@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Gotchas
@@ -11,7 +11,7 @@ might encounter or should avoid during development of GitLab CE and EE.
 
 ## Do not read files from app/assets directory
 
-In GitLab 10.8 and later, Omnibus has [dropped the `app/assets` directory](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/2456),
+Omnibus GitLab has [dropped the `app/assets` directory](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/2456),
 after asset compilation. The `ee/app/assets`, `vendor/assets` directories are dropped as well.
 
 This means that reading files from that directory fails in Omnibus-installed GitLab instances:
@@ -76,7 +76,7 @@ When run, this spec doesn't do what we might expect:
 
 This is because FactoryBot sequences are not reset for each example.
 
-Please remember that sequence-generated values exist only to avoid having to
+Remember that sequence-generated values exist only to avoid having to
 explicitly set attributes that have a uniqueness constraint when using a factory.
 
 ### Solution
@@ -127,9 +127,16 @@ end
        Using `any_instance` to stub a method (elasticsearch_indexing) that has been defined on a prepended module (EE::ApplicationSetting) is not supported.
   ```
 
-### Alternative: `expect_next_instance_of`, `allow_next_instance_of`, `expect_next_found_instance_of` or `allow_next_found_instance_of`
+### Alternatives
 
-Instead of writing:
+Instead, use any of these:
+
+- `expect_next_instance_of`
+- `allow_next_instance_of`
+- `expect_next_found_instance_of`
+- `allow_next_found_instance_of`
+
+For example:
 
 ```ruby
 # Don't do this:
@@ -164,7 +171,7 @@ end
 ```
 
 Since Active Record is not calling the `.new` method on model classes to instantiate the objects,
-you should use `expect_next_found_instance_of` or `allow_next_found_instance_of` mock helpers to setup mock on objects returned by Active Record query & finder methods._
+you should use `expect_next_found_instance_of` or `allow_next_found_instance_of` mock helpers to set up mock on objects returned by Active Record query & finder methods._
 
 It is also possible to set mocks and expectations for multiple instances of the same Active Record model by using the `expect_next_found_(number)_instances_of` and `allow_next_found_(number)_instances_of` helpers, like so;
 
@@ -200,8 +207,7 @@ refresh_service.execute(oldrev, newrev, ref)
 
 See ["Why is it bad style to `rescue Exception => e` in Ruby?"](https://stackoverflow.com/questions/10048173/why-is-it-bad-style-to-rescue-exception-e-in-ruby).
 
-This rule is [enforced automatically by
-RuboCop](https://gitlab.com/gitlab-org/gitlab-foss/blob/8-4-stable/.rubocop.yml#L911-914)._
+This rule is [enforced automatically by RuboCop](https://gitlab.com/gitlab-org/gitlab-foss/blob/8-4-stable/.rubocop.yml#L911-914)._
 
 ## Do not use inline JavaScript in views
 
@@ -222,7 +228,7 @@ Assets that need to be served to the user are stored under the `app/assets` dire
 However, you cannot access the content of any file from within `app/assets` from the application code, as we do not include that folder in production installations as a [space saving measure](https://gitlab.com/gitlab-org/omnibus-gitlab/-/commit/ca049f990b223f5e1e412830510a7516222810be).
 
 ```ruby
-support_bot = User.support_bot
+support_bot = Users::Internal.support_bot
 
 # accessing a file from the `app/assets` folder
 support_bot.avatar = Rails.root.join('app', 'assets', 'images', 'bot_avatars', 'support_bot.png').open
@@ -245,3 +251,59 @@ Use `app/assets` for storing any asset that needs to be precompiled and served t
 Use `lib/assets` for storing any asset that does not need to be served to the end user directly, but is still required to be accessed by the application code.
 
 MR for reference: [!37671](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/37671)
+
+## Do not override `has_many through:` or `has_one through:` associations
+
+Associations with the `:through` option should not be overridden as we could accidentally
+destroy the wrong object.
+
+This is because the `destroy()` method behaves differently when acting on
+`has_many through:` and `has_one through:` associations.
+
+```ruby
+group.users.destroy(id)
+```
+
+The code example above reads as if we are destroying a `User` record, but behind the scenes, it is destroying a `Member` record. This is because the `users` association is defined on `Group` as a `has_many through:` association:
+
+```ruby
+class Group < Namespace
+  has_many :group_members, -> { where(requested_at: nil).where.not(members: { access_level: Gitlab::Access::MINIMAL_ACCESS }) }, dependent: :destroy, as: :source
+
+  has_many :users, through: :group_members
+end
+```
+
+And Rails has the following [behavior](https://api.rubyonrails.org/classes/ActiveRecord/Associations/ClassMethods.html#method-i-has_many) on using `destroy()` on such associations:
+
+> If the :through option is used, then the join records are destroyed instead, not the objects themselves.
+
+This is why a `Member` record, which is the join record connecting a `User` and `Group`, is being destroyed.
+
+Now, if we override the `users` association, so like:
+
+```ruby
+class Group < Namespace
+  has_many :group_members, -> { where(requested_at: nil).where.not(members: { access_level: Gitlab::Access::MINIMAL_ACCESS }) }, dependent: :destroy, as: :source
+
+  has_many :users, through: :group_members
+
+  def users
+    super.where(admin: false)
+  end
+end
+```
+
+The overridden method now changes the above behavior of `destroy()`, such that if we execute
+
+```ruby
+group.users.destroy(id)
+```
+
+a `User` record will be deleted, which can lead to data loss.
+
+In short, overriding a `has_many through:` or `has_one through:` association can prove dangerous.
+To prevent this from happening, we are introducing an
+automated check in [!131455](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131455).
+
+For more information, see [issue 424536](https://gitlab.com/gitlab-org/gitlab/-/issues/424536).

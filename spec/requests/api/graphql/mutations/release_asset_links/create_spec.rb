@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Creation of a new release asset link' do
+RSpec.describe 'Creation of a new release asset link', feature_category: :release_orchestration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :private, :repository) }
   let_it_be(:release) { create(:release, project: project, tag: 'v13.10') }
-  let_it_be(:developer) { create(:user).tap { |u| project.add_developer(u) } }
+  let_it_be(:developer) { create(:user, developer_of: project) }
 
   let(:current_user) { developer }
 
@@ -32,7 +32,6 @@ RSpec.describe 'Creation of a new release asset link' do
         url
         linkType
         directAssetUrl
-        external
       }
       errors
     FIELDS
@@ -49,8 +48,7 @@ RSpec.describe 'Creation of a new release asset link' do
       name: mutation_arguments[:name],
       url: mutation_arguments[:url],
       linkType: mutation_arguments[:linkType],
-      directAssetUrl: end_with(mutation_arguments[:directAssetPath]),
-      external: true
+      directAssetUrl: end_with(mutation_arguments[:directAssetPath])
     }.with_indifferent_access
 
     expect(mutation_response[:link]).to include(expected_response)

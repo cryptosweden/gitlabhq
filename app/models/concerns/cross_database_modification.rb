@@ -80,32 +80,20 @@ module CrossDatabaseModification
     end
 
     def transaction(**options, &block)
-      if track_gitlab_schema_in_current_transaction?
-        super(**options) do
-          # Hook into current transaction to ensure that once
-          # the `COMMIT` is executed the `gitlab_transactions_stack`
-          # will be allowing to execute `after_commit_queue`
-          record = TransactionStackTrackRecord.new(self, gitlab_schema)
+      super(**options) do
+        # Hook into current transaction to ensure that once
+        # the `COMMIT` is executed the `gitlab_transactions_stack`
+        # will be allowing to execute `after_commit_queue`
+        record = TransactionStackTrackRecord.new(self, gitlab_schema)
 
-          begin
-            connection.current_transaction.add_record(record)
+        begin
+          connection.current_transaction.add_record(record)
 
-            yield
-          ensure
-            record.done!
-          end
+          yield
+        ensure
+          record.done!
         end
-      else
-        super(**options, &block)
       end
-    end
-
-    def track_gitlab_schema_in_current_transaction?
-      return false unless Feature::FlipperFeature.table_exists?
-
-      Feature.enabled?(:track_gitlab_schema_in_current_transaction, default_enabled: :yaml)
-    rescue ActiveRecord::NoDatabaseError, PG::ConnectionBad
-      false
     end
 
     def gitlab_schema
@@ -114,6 +102,10 @@ module CrossDatabaseModification
         :gitlab_main
       when 'Ci::ApplicationRecord'
         :gitlab_ci
+      when 'MainClusterwide::ApplicationRecord'
+        :gitlab_main_clusterwide
+      when 'PackageMetadata::ApplicationRecord'
+        :gitlab_pm
       else
         Gitlab::Database::GitlabSchema.table_schema(table_name) if table_name
       end

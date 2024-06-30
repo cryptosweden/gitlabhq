@@ -1,82 +1,89 @@
-import Vue, { nextTick } from 'vue';
-import { createComponentWithStore } from 'helpers/vue_mount_component_helper';
-import newDropdown from '~/ide/components/new_dropdown/index.vue';
-import { createStore } from '~/ide/stores';
+import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
+import Vuex from 'vuex';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
+import NewDropdown from '~/ide/components/new_dropdown/index.vue';
+import Button from '~/ide/components/new_dropdown/button.vue';
+import Modal from '~/ide/components/new_dropdown/modal.vue';
+import { stubComponent } from 'helpers/stub_component';
+
+Vue.use(Vuex);
 
 describe('new dropdown component', () => {
-  let store;
-  let vm;
+  let wrapper;
+  const openMock = jest.fn();
+  const deleteEntryMock = jest.fn();
 
-  beforeEach(() => {
-    store = createStore();
+  const findAllButtons = () => wrapper.findAllComponents(Button);
 
-    const component = Vue.extend(newDropdown);
-
-    vm = createComponentWithStore(component, store, {
-      branch: 'main',
-      path: '',
-      mouseOver: false,
-      type: 'tree',
-    });
-
-    vm.$store.state.currentProjectId = 'abcproject';
-    vm.$store.state.path = '';
-    vm.$store.state.trees['abcproject/mybranch'] = {
-      tree: [],
+  const mountComponent = (props = {}) => {
+    const fakeStore = () => {
+      return new Vuex.Store({
+        actions: {
+          deleteEntry: deleteEntryMock,
+        },
+      });
     };
 
-    vm.$mount();
+    wrapper = mountExtended(NewDropdown, {
+      store: fakeStore(),
+      propsData: {
+        branch: 'main',
+        path: '',
+        mouseOver: false,
+        type: 'tree',
+        ...props,
+      },
+      stubs: {
+        NewModal: stubComponent(Modal, {
+          methods: {
+            open: openMock,
+          },
+        }),
+      },
+    });
+  };
 
-    jest.spyOn(vm.$refs.newModal, 'open').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vm.$destroy();
+  beforeEach(() => {
+    mountComponent();
   });
 
   it('renders new file, upload and new directory links', () => {
-    const buttons = vm.$el.querySelectorAll('.dropdown-menu button');
-
-    expect(buttons[0].textContent.trim()).toBe('New file');
-    expect(buttons[1].textContent.trim()).toBe('Upload file');
-    expect(buttons[2].textContent.trim()).toBe('New directory');
+    expect(findAllButtons().at(0).text()).toBe('New file');
+    expect(findAllButtons().at(1).text()).toBe('Upload file');
+    expect(findAllButtons().at(2).text()).toBe('New directory');
   });
 
   describe('createNewItem', () => {
     it('opens modal for a blob when new file is clicked', () => {
-      vm.$el.querySelectorAll('.dropdown-menu button')[0].click();
+      findAllButtons().at(0).vm.$emit('click');
 
-      expect(vm.$refs.newModal.open).toHaveBeenCalledWith('blob', '');
+      expect(openMock).toHaveBeenCalledWith('blob', '');
     });
 
     it('opens modal for a tree when new directory is clicked', () => {
-      vm.$el.querySelectorAll('.dropdown-menu button')[2].click();
+      findAllButtons().at(2).vm.$emit('click');
 
-      expect(vm.$refs.newModal.open).toHaveBeenCalledWith('tree', '');
+      expect(openMock).toHaveBeenCalledWith('tree', '');
     });
   });
 
   describe('isOpen', () => {
     it('scrolls dropdown into view', async () => {
-      jest.spyOn(vm.$refs.dropdownMenu, 'scrollIntoView').mockImplementation(() => {});
+      const dropdownMenu = wrapper.findByTestId('dropdown-menu');
+      const scrollIntoViewSpy = jest.spyOn(dropdownMenu.element, 'scrollIntoView');
 
-      vm.isOpen = true;
+      await wrapper.setProps({ isOpen: true });
 
-      await nextTick();
-
-      expect(vm.$refs.dropdownMenu.scrollIntoView).toHaveBeenCalledWith({
-        block: 'nearest',
-      });
+      expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: 'nearest' });
     });
   });
 
   describe('delete entry', () => {
     it('calls delete action', () => {
-      jest.spyOn(vm, 'deleteEntry').mockImplementation(() => {});
+      findAllButtons().at(4).trigger('click');
 
-      vm.$el.querySelectorAll('.dropdown-menu button')[4].click();
-
-      expect(vm.deleteEntry).toHaveBeenCalledWith('');
+      expect(deleteEntryMock).toHaveBeenCalledWith(expect.anything(), '');
     });
   });
 });

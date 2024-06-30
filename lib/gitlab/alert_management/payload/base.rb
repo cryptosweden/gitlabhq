@@ -33,7 +33,6 @@ module Gitlab
           :has_required_attributes?,
           :hosts,
           :metric_id,
-          :metrics_dashboard_url,
           :monitoring_tool,
           :resolved?,
           :runbook,
@@ -43,6 +42,8 @@ module Gitlab
           :status,
           :title
         ].freeze
+
+        EPOCH_MILLISECONDS_DIGIT_COUNT = (Time.current.to_f * 1000).to_i.to_s.size
 
         private_constant :EXPECTED_PAYLOAD_ATTRIBUTES
 
@@ -102,19 +103,19 @@ module Gitlab
         # AlertManagement::Alert directly for read operations.
         def alert_params
           {
-            description: description&.truncate(::AlertManagement::Alert::DESCRIPTION_MAX_LENGTH),
+            description: truncate(description, ::AlertManagement::Alert::DESCRIPTION_MAX_LENGTH),
             ended_at: ends_at,
             environment: environment,
             fingerprint: gitlab_fingerprint,
             hosts: truncate_hosts(Array(hosts).flatten),
-            monitoring_tool: monitoring_tool&.truncate(::AlertManagement::Alert::TOOL_MAX_LENGTH),
+            monitoring_tool: truncate(monitoring_tool, ::AlertManagement::Alert::TOOL_MAX_LENGTH),
             payload: payload,
             project_id: project.id,
             prometheus_alert: gitlab_alert,
-            service: service&.truncate(::AlertManagement::Alert::SERVICE_MAX_LENGTH),
+            service: truncate(service, ::AlertManagement::Alert::SERVICE_MAX_LENGTH),
             severity: severity,
             started_at: starts_at,
-            title: title&.truncate(::AlertManagement::Alert::TITLE_MAX_LENGTH)
+            title: truncate(title, ::AlertManagement::Alert::TITLE_MAX_LENGTH)
           }.transform_values(&:presence).compact
         end
 
@@ -149,6 +150,10 @@ module Gitlab
           severity_mapping.fetch(severity_raw.to_s.downcase, UNMAPPED_SEVERITY)
         end
 
+        def source
+          monitoring_tool || integration&.name
+        end
+
         private
 
         def plain_gitlab_fingerprint
@@ -159,6 +164,10 @@ module Gitlab
 
         def severity_mapping
           SEVERITY_MAPPING
+        end
+
+        def truncate(value, length)
+          value.to_s.truncate(length)
         end
 
         def truncate_hosts(hosts)
@@ -173,7 +182,6 @@ module Gitlab
           end
         end
 
-        # Overriden in EE::Gitlab::AlertManagement::Payload::Generic
         def value_for_paths(paths)
           target_path = paths.find { |path| payload&.dig(*path) }
 
@@ -182,6 +190,12 @@ module Gitlab
 
         def parse_value(value, type)
           case type
+          when :time_with_epoch_millis
+            if value.is_a?(Integer) && value.to_s.size == EPOCH_MILLISECONDS_DIGIT_COUNT
+              Time.at(0, value, :millisecond).utc
+            else
+              parse_time(value)
+            end
           when :time
             parse_time(value)
           when :integer

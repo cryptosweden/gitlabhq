@@ -1,4 +1,4 @@
-import { GlKeysetPagination, GlEmptyState } from '@gitlab/ui';
+import { GlKeysetPagination, GlEmptyState, GlSkeletonLoader } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
@@ -12,33 +12,24 @@ import DetailsHeader from '~/packages_and_registries/container_registry/explorer
 import PartialCleanupAlert from '~/packages_and_registries/container_registry/explorer/components/details_page/partial_cleanup_alert.vue';
 import StatusAlert from '~/packages_and_registries/container_registry/explorer/components/details_page/status_alert.vue';
 import TagsList from '~/packages_and_registries/container_registry/explorer/components/details_page/tags_list.vue';
-import TagsLoader from '~/packages_and_registries/shared/components/tags_loader.vue';
 
 import {
   UNFINISHED_STATUS,
   DELETE_SCHEDULED,
   ALERT_DANGER_IMAGE,
-  ALERT_DANGER_IMPORTING,
   MISSING_OR_DELETED_IMAGE_BREADCRUMB,
-  ROOT_IMAGE_TEXT,
   MISSING_OR_DELETED_IMAGE_TITLE,
   MISSING_OR_DELETED_IMAGE_MESSAGE,
 } from '~/packages_and_registries/container_registry/explorer/constants';
-import deleteContainerRepositoryTagsMutation from '~/packages_and_registries/container_registry/explorer/graphql/mutations/delete_container_repository_tags.mutation.graphql';
 import getContainerRepositoryDetailsQuery from '~/packages_and_registries/container_registry/explorer/graphql/queries/get_container_repository_details.query.graphql';
-import getContainerRepositoryTagsQuery from '~/packages_and_registries/container_registry/explorer/graphql/queries/get_container_repository_tags.query.graphql';
 
 import component from '~/packages_and_registries/container_registry/explorer/pages/details.vue';
-import Tracking from '~/tracking';
+import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
 
 import {
   graphQLImageDetailsMock,
-  graphQLDeleteImageRepositoryTagsMock,
-  graphQLDeleteImageRepositoryTagImportingErrorMock,
   containerRepositoryMock,
   graphQLEmptyImageDetailsMock,
-  tagsMock,
-  imageTagsMock,
 } from '../mock_data';
 import { DeleteModal } from '../stubs';
 
@@ -46,16 +37,16 @@ describe('Details Page', () => {
   let wrapper;
   let apolloProvider;
 
-  const findDeleteModal = () => wrapper.find(DeleteModal);
-  const findPagination = () => wrapper.find(GlKeysetPagination);
-  const findTagsLoader = () => wrapper.find(TagsLoader);
-  const findTagsList = () => wrapper.find(TagsList);
-  const findDeleteAlert = () => wrapper.find(DeleteAlert);
-  const findDetailsHeader = () => wrapper.find(DetailsHeader);
-  const findEmptyState = () => wrapper.find(GlEmptyState);
-  const findPartialCleanupAlert = () => wrapper.find(PartialCleanupAlert);
-  const findStatusAlert = () => wrapper.find(StatusAlert);
-  const findDeleteImage = () => wrapper.find(DeleteImage);
+  const findDeleteModal = () => wrapper.findComponent(DeleteModal);
+  const findPagination = () => wrapper.findComponent(GlKeysetPagination);
+  const findLoader = () => wrapper.findComponent(GlSkeletonLoader);
+  const findTagsList = () => wrapper.findComponent(TagsList);
+  const findDeleteAlert = () => wrapper.findComponent(DeleteAlert);
+  const findDetailsHeader = () => wrapper.findComponent(DetailsHeader);
+  const findEmptyState = () => wrapper.findComponent(GlEmptyState);
+  const findPartialCleanupAlert = () => wrapper.findComponent(PartialCleanupAlert);
+  const findStatusAlert = () => wrapper.findComponent(StatusAlert);
+  const findDeleteImage = () => wrapper.findComponent(DeleteImage);
 
   const routeId = 1;
 
@@ -65,14 +56,10 @@ describe('Details Page', () => {
 
   const defaultConfig = {
     noContainersImage: 'noContainersImage',
+    projectListUrl: 'projectListUrl',
+    groupListUrl: 'groupListUrl',
+    isGroupPage: false,
   };
-
-  const cleanTags = tagsMock.map((t) => {
-    const result = { ...t };
-    // eslint-disable-next-line no-underscore-dangle
-    delete result.__typename;
-    return result;
-  });
 
   const waitForApolloRequestRender = async () => {
     await waitForPromises();
@@ -81,18 +68,12 @@ describe('Details Page', () => {
 
   const mountComponent = ({
     resolver = jest.fn().mockResolvedValue(graphQLImageDetailsMock()),
-    mutationResolver = jest.fn().mockResolvedValue(graphQLDeleteImageRepositoryTagsMock),
-    tagsResolver = jest.fn().mockResolvedValue(graphQLImageDetailsMock(imageTagsMock)),
     options,
     config = defaultConfig,
   } = {}) => {
     Vue.use(VueApollo);
 
-    const requestHandlers = [
-      [getContainerRepositoryDetailsQuery, resolver],
-      [deleteContainerRepositoryTagsMutation, mutationResolver],
-      [getContainerRepositoryTagsQuery, tagsResolver],
-    ];
+    const requestHandlers = [[getContainerRepositoryDetailsQuery, resolver]];
 
     apolloProvider = createMockApollo(requestHandlers);
 
@@ -119,26 +100,17 @@ describe('Details Page', () => {
     });
   };
 
-  beforeEach(() => {
-    jest.spyOn(Tracking, 'event');
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('when isLoading is true', () => {
     it('shows the loader', () => {
       mountComponent();
 
-      expect(findTagsLoader().exists()).toBe(true);
+      expect(findLoader().exists()).toBe(true);
     });
 
-    it('does not show the list', () => {
+    it('sets loading prop on tags list component', () => {
       mountComponent();
 
-      expect(findTagsList().exists()).toBe(false);
+      expect(findTagsList().props('isImageLoading')).toBe(true);
     });
   });
 
@@ -148,7 +120,7 @@ describe('Details Page', () => {
 
       await waitForApolloRequestRender();
 
-      expect(findTagsLoader().exists()).toBe(false);
+      expect(findLoader().exists()).toBe(false);
       expect(findDetailsHeader().exists()).toBe(false);
       expect(findTagsList().exists()).toBe(false);
       expect(findPagination().exists()).toBe(false);
@@ -185,50 +157,6 @@ describe('Details Page', () => {
         isMobile: false,
       });
     });
-
-    describe('deleteEvent', () => {
-      describe('single item', () => {
-        let tagToBeDeleted;
-        beforeEach(async () => {
-          mountComponent();
-
-          await waitForApolloRequestRender();
-
-          [tagToBeDeleted] = cleanTags;
-          findTagsList().vm.$emit('delete', [tagToBeDeleted]);
-        });
-
-        it('open the modal', async () => {
-          expect(DeleteModal.methods.show).toHaveBeenCalled();
-        });
-
-        it('tracks a single delete event', () => {
-          expect(Tracking.event).toHaveBeenCalledWith(undefined, 'click_button', {
-            label: 'registry_tag_delete',
-          });
-        });
-      });
-
-      describe('multiple items', () => {
-        beforeEach(async () => {
-          mountComponent();
-
-          await waitForApolloRequestRender();
-
-          findTagsList().vm.$emit('delete', cleanTags);
-        });
-
-        it('open the modal', () => {
-          expect(DeleteModal.methods.show).toHaveBeenCalled();
-        });
-
-        it('tracks a single delete event', () => {
-          expect(Tracking.event).toHaveBeenCalledWith(undefined, 'click_button', {
-            label: 'bulk_registry_tag_delete',
-          });
-        });
-      });
-    });
   });
 
   describe('modal', () => {
@@ -241,6 +169,16 @@ describe('Details Page', () => {
     });
 
     describe('cancel event', () => {
+      let trackingSpy;
+
+      beforeEach(() => {
+        trackingSpy = mockTracking(undefined, undefined, jest.spyOn);
+      });
+
+      afterEach(() => {
+        unmockTracking();
+      });
+
       it('tracks cancel_delete', async () => {
         mountComponent();
 
@@ -248,58 +186,25 @@ describe('Details Page', () => {
 
         findDeleteModal().vm.$emit('cancel');
 
-        expect(Tracking.event).toHaveBeenCalledWith(undefined, 'cancel_delete', {
-          label: 'registry_tag_delete',
+        expect(trackingSpy).toHaveBeenCalledWith(undefined, 'cancel_delete', {
+          label: 'registry_image_delete',
         });
       });
     });
 
-    describe('confirmDelete event', () => {
-      let mutationResolver;
-      let tagsResolver;
-
+    describe('tags list delete event', () => {
       beforeEach(() => {
-        mutationResolver = jest.fn().mockResolvedValue(graphQLDeleteImageRepositoryTagsMock);
-        tagsResolver = jest.fn().mockResolvedValue(graphQLImageDetailsMock(imageTagsMock));
-        mountComponent({ mutationResolver, tagsResolver });
+        mountComponent();
 
         return waitForApolloRequestRender();
       });
 
-      describe('when one item is selected to be deleted', () => {
-        it('calls apollo mutation with the right parameters and refetches the tags list query', async () => {
-          findTagsList().vm.$emit('delete', [cleanTags[0]]);
+      it('sets delete alert modal deleteAlertType value', async () => {
+        findTagsList().vm.$emit('delete', 'success_tag');
 
-          await nextTick();
+        await nextTick();
 
-          findDeleteModal().vm.$emit('confirmDelete');
-
-          expect(mutationResolver).toHaveBeenCalledWith(
-            expect.objectContaining({ tagNames: [cleanTags[0].name] }),
-          );
-
-          await waitForPromises();
-
-          expect(tagsResolver).toHaveBeenCalled();
-        });
-      });
-
-      describe('when more than one item is selected to be deleted', () => {
-        it('calls apollo mutation with the right parameters and refetches the tags list query', async () => {
-          findTagsList().vm.$emit('delete', tagsMock);
-
-          await nextTick();
-
-          findDeleteModal().vm.$emit('confirmDelete');
-
-          expect(mutationResolver).toHaveBeenCalledWith(
-            expect.objectContaining({ tagNames: tagsMock.map((t) => t.name) }),
-          );
-
-          await waitForPromises();
-
-          expect(tagsResolver).toHaveBeenCalled();
-        });
+        expect(findDeleteAlert().props('deleteAlertType')).toBe('success_tag');
       });
     });
   });
@@ -331,7 +236,6 @@ describe('Details Page', () => {
     const config = {
       isAdmin: true,
       garbageCollectionHelpPagePath: 'baz',
-      containerRegistryImportingHelpPagePath: 'https://foobar',
     };
     const deleteAlertType = 'success_tag';
 
@@ -355,35 +259,6 @@ describe('Details Page', () => {
       await waitForApolloRequestRender();
 
       expect(findDeleteAlert().props()).toEqual({ ...config, deleteAlertType });
-    });
-
-    describe('importing repository error', () => {
-      let mutationResolver;
-      let tagsResolver;
-
-      beforeEach(async () => {
-        mutationResolver = jest
-          .fn()
-          .mockResolvedValue(graphQLDeleteImageRepositoryTagImportingErrorMock);
-        tagsResolver = jest.fn().mockResolvedValue(graphQLImageDetailsMock(imageTagsMock));
-
-        mountComponent({ mutationResolver, tagsResolver });
-        await waitForApolloRequestRender();
-      });
-
-      it('displays the proper alert', async () => {
-        findTagsList().vm.$emit('delete', [cleanTags[0]]);
-        await nextTick();
-
-        findDeleteModal().vm.$emit('confirmDelete');
-        await waitForPromises();
-
-        expect(tagsResolver).toHaveBeenCalled();
-
-        const deleteAlert = findDeleteAlert();
-        expect(deleteAlert.exists()).toBe(true);
-        expect(deleteAlert.props('deleteAlertType')).toBe(ALERT_DANGER_IMPORTING);
-      });
     });
   });
 
@@ -482,7 +357,7 @@ describe('Details Page', () => {
       expect(breadCrumbState.updateName).toHaveBeenCalledWith(MISSING_OR_DELETED_IMAGE_BREADCRUMB);
     });
 
-    it(`when the image has no name set the breadcrumb to ${ROOT_IMAGE_TEXT}`, async () => {
+    it(`when the image has no name set the breadcrumb to project name`, async () => {
       mountComponent({
         resolver: jest
           .fn()
@@ -491,7 +366,7 @@ describe('Details Page', () => {
 
       await waitForApolloRequestRender();
 
-      expect(breadCrumbState.updateName).toHaveBeenCalledWith(ROOT_IMAGE_TEXT);
+      expect(breadCrumbState.updateName).toHaveBeenCalledWith('gitlab-test');
     });
   });
 
@@ -554,13 +429,15 @@ describe('Details Page', () => {
 
       await waitForPromises();
 
-      expect(findTagsLoader().exists()).toBe(true);
+      expect(findLoader().exists()).toBe(true);
+      expect(findTagsList().props('isImageLoading')).toBe(true);
 
       findDeleteImage().vm.$emit('end');
 
       await nextTick();
 
-      expect(findTagsLoader().exists()).toBe(false);
+      expect(findLoader().exists()).toBe(false);
+      expect(findTagsList().props('isImageLoading')).toBe(false);
     });
 
     it('binds correctly to delete-image error event', async () => {

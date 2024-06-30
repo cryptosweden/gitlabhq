@@ -41,27 +41,27 @@ RSpec.describe WebIdeTerminal do
 
     context 'when image does not have an alias' do
       let(:config) do
-        { image: 'ruby:2.7' }.merge(services_with_aliases)
+        { image: 'image:1.0' }.merge(services_with_aliases)
       end
 
       it 'returns services aliases' do
-        expect(subject.services).to eq %w(postgres docker)
+        expect(subject.services).to eq %w[postgres docker]
       end
     end
 
     context 'when both image and services have aliases' do
       let(:config) do
-        { image: { name: 'ruby:2.7', alias: 'ruby' } }.merge(services_with_aliases)
+        { image: { name: 'image:1.0', alias: 'ruby' } }.merge(services_with_aliases)
       end
 
       it 'returns all aliases' do
-        expect(subject.services).to eq %w(postgres docker ruby)
+        expect(subject.services).to eq %w[postgres docker ruby]
       end
     end
 
     context 'when image and services does not have any alias' do
       let(:config) do
-        { image: 'ruby:2.7', services: ['postgres'] }
+        { image: 'image:1.0', services: ['postgres'] }
       end
 
       it 'returns an empty array' do
@@ -71,7 +71,7 @@ RSpec.describe WebIdeTerminal do
 
     context 'when no image nor services' do
       let(:config) do
-        { script: %w(echo) }
+        { script: %w[echo] }
       end
 
       it 'returns an empty array' do

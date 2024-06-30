@@ -2,14 +2,14 @@
 data_category: optional
 key_path: grafana_link_enabled
 description: Whether Grafana is enabled
-product_section: growth
-product_stage: growth
-product_group: group::product intelligence
-product_category: collection
+product_group: respond
 value_type: boolean
 status: active
 time_frame: none
 data_source: system
+instrumentation_class: GitlabSettingsMetric
+options:
+  setting_method: grafana_enabled?
 distribution:
 - ce
 tier:

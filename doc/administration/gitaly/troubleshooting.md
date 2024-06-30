@@ -1,48 +1,48 @@
 ---
-stage: Create
+stage: Systems
 group: Gitaly
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Troubleshooting Gitaly and Gitaly Cluster **(FREE SELF)**
+# Troubleshooting Gitaly
 
-Refer to the information below when troubleshooting Gitaly and Gitaly Cluster.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
-Before troubleshooting, see the Gitaly and Gitaly Cluster
-[frequently asked questions](faq.md).
-
-## Troubleshoot Gitaly
+Refer to the information below when troubleshooting Gitaly. For information on troubleshooting Gitaly Cluster (Praefect),
+see [Troubleshooting Gitaly Cluster](troubleshooting_gitaly_cluster.md).
 
 The following sections provide possible solutions to Gitaly errors.
 
-See also [Gitaly timeout](../../user/admin_area/settings/gitaly_timeouts.md) settings.
+See also [Gitaly timeout](../settings/gitaly_timeouts.md) settings,
+and our advice on [parsing the `gitaly/current` file](../logs/log_parsing.md#parsing-gitalycurrent).
 
-### Check versions when using standalone Gitaly servers
+## Check versions when using standalone Gitaly servers
 
 When using standalone Gitaly servers, you must make sure they are the same version
 as GitLab to ensure full compatibility:
 
-1. On the top bar, select **Menu > Admin** on your GitLab instance.
-1. On the left sidebar, select **Overview > Gitaly Servers**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Overview > Gitaly Servers**.
 1. Confirm all Gitaly servers indicate that they are up to date.
 
-### Use `gitaly-debug`
+## Find storage resource details
+
+You can run the following commands in a [Rails console](../operations/rails_console.md#starting-a-rails-console-session)
+to determine the available and used space on a Gitaly storage:
+
+```ruby
+Gitlab::GitalyClient::ServerService.new("default").storage_disk_statistics
+# For Gitaly Cluster
+Gitlab::GitalyClient::ServerService.new("<storage name>").disk_statistics
+```
+
+## Use `gitaly-debug`
 
 The `gitaly-debug` command provides "production debugging" tools for Gitaly and Git
 performance. It is intended to help production engineers and support
 engineers investigate Gitaly performance problems.
-
-If you're using GitLab 11.6 or newer, this tool should be installed on
-your GitLab or Gitaly server already at `/opt/gitlab/embedded/bin/gitaly-debug`.
-If you're investigating an older GitLab version you can compile this
-tool offline and copy the executable to your server:
-
-```shell
-git clone https://gitlab.com/gitlab-org/gitaly.git
-cd cmd/gitaly-debug
-GOOS=linux GOARCH=amd64 go build -o gitaly-debug
-```
 
 To see the help page of `gitaly-debug` for a list of supported sub-commands, run:
 
@@ -50,7 +50,7 @@ To see the help page of `gitaly-debug` for a list of supported sub-commands, run
 gitaly-debug -h
 ```
 
-### Commits, pushes, and clones return a 401
+## Commits, pushes, and clones return a 401
 
 ```plaintext
 remote: GitLab: 401 Unauthorized
@@ -59,10 +59,17 @@ remote: GitLab: 401 Unauthorized
 You need to sync your `gitlab-secrets.json` file with your GitLab
 application nodes.
 
-### Client side gRPC logs
+## 500 and `fetching folder content` errors on repository pages
+
+`Fetching folder content`, and in some cases `500`, errors indicate
+connectivity problems between GitLab and Gitaly.
+Consult the [client-side gRPC logs](#client-side-grpc-logs)
+for details.
+
+## Client side gRPC logs
 
 Gitaly uses the [gRPC](https://grpc.io/) RPC framework. The Ruby gRPC
-client has its own log file which may contain useful information when
+client has its own log file which may contain helpful information when
 you are seeing Gitaly errors. You can control the log level of the
 gRPC client with the `GRPC_LOG_LEVEL` environment variable. The
 default level is `WARN`.
@@ -73,10 +80,23 @@ You can run a gRPC trace with:
 sudo GRPC_TRACE=all GRPC_VERBOSITY=DEBUG gitlab-rake gitlab:gitaly:check
 ```
 
-### Server side gRPC logs
+If this command fails with a `failed to connect to all addresses` error,
+check for an SSL or TLS problem:
+
+```shell
+/opt/gitlab/embedded/bin/openssl s_client -connect <gitaly-ipaddress>:<port> -verify_return_error
+```
+
+Check whether `Verify return code` field indicates a
+[known Linux package installation configuration problem](https://docs.gitlab.com/omnibus/settings/ssl/index.html).
+
+If `openssl` succeeds but `gitlab-rake gitlab:gitaly:check` fails,
+check [certificate requirements](tls_support.md#certificate-requirements) for Gitaly.
+
+## Server side gRPC logs
 
 gRPC tracing can also be enabled in Gitaly itself with the `GODEBUG=http2debug`
-environment variable. To set this in an Omnibus GitLab install:
+environment variable. To set this in a Linux package installation:
 
 1. Add the following to your `gitlab.rb` file:
 
@@ -86,9 +106,9 @@ environment variable. To set this in an Omnibus GitLab install:
    }
    ```
 
-1. [Reconfigure](../restart_gitlab.md#omnibus-gitlab-reconfigure) GitLab.
+1. [Reconfigure](../restart_gitlab.md#reconfigure-a-linux-package-installation) GitLab.
 
-### Correlating Git processes with RPCs
+## Correlating Git processes with RPCs
 
 Sometimes you need to find out which Gitaly RPC created a particular Git process.
 
@@ -106,29 +126,7 @@ sudo cat /proc/$PID/environ | tr '\0' '\n' | grep ^CORRELATION_ID=
 This method isn't reliable for `git cat-file` processes, because Gitaly
 internally pools and re-uses those across RPCs.
 
-### Observing `gitaly-ruby` traffic
-
-[`gitaly-ruby`](configure_gitaly.md#gitaly-ruby) is an internal implementation detail of Gitaly,
-so, there's not that much visibility into what goes on inside
-`gitaly-ruby` processes.
-
-If you have Prometheus set up to scrape your Gitaly process, you can see
-request rates and error codes for individual RPCs in `gitaly-ruby` by
-querying `grpc_client_handled_total`.
-
-- In theory, this metric does not differentiate between `gitaly-ruby` and other RPCs.
-- In practice from GitLab 11.9, all gRPC calls made by Gitaly itself are internal calls from the
-  main Gitaly process to one of its `gitaly-ruby` sidecars.
-
-Assuming your `grpc_client_handled_total` counter only observes Gitaly,
-the following query shows you RPCs are (most likely) internally
-implemented as calls to `gitaly-ruby`:
-
-```prometheus
-sum(rate(grpc_client_handled_total[5m])) by (grpc_method) > 0
-```
-
-### Repository changes fail with a `401 Unauthorized` error
+## Repository changes fail with a `401 Unauthorized` error
 
 If you run Gitaly on its own server and notice these conditions:
 
@@ -153,7 +151,7 @@ Confirm the following are all true:
 
 - When any user adds or modifies a file from the repository using the GitLab
   UI, it immediately fails with a red `401 Unauthorized` banner.
-- Creating a new project and [initializing it with a README](../../user/project/working_with_projects.md#create-a-blank-project)
+- Creating a new project and [initializing it with a README](../../user/project/index.md#create-a-blank-project)
   successfully creates the project but doesn't create the README.
 - When [tailing the logs](https://docs.gitlab.com/omnibus/settings/logs.html#tail-logs-in-a-console-on-the-server)
   on a Gitaly client and reproducing the error, you get `401` errors
@@ -221,14 +219,40 @@ Confirm the following are all true:
 To fix this problem, confirm that your [`gitlab-secrets.json` file](configure_gitaly.md#configure-gitaly-servers)
 on the Gitaly server matches the one on Gitaly client. If it doesn't match,
 update the secrets file on the Gitaly server to match the Gitaly client, then
-[reconfigure](../restart_gitlab.md#omnibus-gitlab-reconfigure).
+[reconfigure](../restart_gitlab.md#reconfigure-a-linux-package-installation).
 
-### Repository pushes fail with a `deny updating a hidden ref` error
+If you've confirmed that your `gitlab-secrets.json` file is the same on all Gitaly servers and clients,
+the application might be fetching this secret from a different file. Your Gitaly server's
+`config.toml file` indicates the secrets file in use.
+If that setting is missing, GitLab defaults to using `.gitlab_shell_secret` under
+`/opt/gitlab/embedded/service/gitlab-rails/.gitlab_shell_secret`.
 
-Due to [a change](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/3426)
-introduced in GitLab 13.12, Gitaly has read-only, internal GitLab references that users are not
-permitted to update. If you attempt to update internal references with `git push --mirror`, Git
-returns the rejection error, `deny updating a hidden ref`.
+## Repository pushes fail with `401 Unauthorized` and `JWT::VerificationError`
+
+When attempting `git push`, you can see:
+
+- `401 Unauthorized` errors.
+- The following in server logs:
+
+  ```json
+  {
+    ...
+    "exception.class":"JWT::VerificationError",
+    "exception.message":"Signature verification raised",
+    ...
+  }
+  ```
+
+This combination of errors occurs when the GitLab server has been upgraded to GitLab 15.5 or later but Gitaly has not yet been upgraded.
+
+From GitLab 15.5, GitLab [authenticates with GitLab Shell using a JWT token instead of a shared secret](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/86148).
+You should follow the [recommendations on upgrading external Gitaly](../../update/plan_your_upgrade.md#external-gitaly) and upgrade Gitaly before the GitLab
+server.
+
+## Repository pushes fail with a `deny updating a hidden ref` error
+
+Gitaly has read-only, internal GitLab references that users are not permitted to update. If you attempt to update
+internal references with `git push --mirror`, Git returns the rejection error, `deny updating a hidden ref`.
 
 The following references are read-only:
 
@@ -245,7 +269,7 @@ git push origin +refs/heads/*:refs/heads/* +refs/tags/*:refs/tags/*
 
 Any other namespaces that the administrator wants to push can be included there as well via additional patterns.
 
-### Command line tools cannot connect to Gitaly
+## Command-line tools cannot connect to Gitaly
 
 gRPC cannot reach your Gitaly server if:
 
@@ -284,7 +308,7 @@ unset http_proxy
 unset https_proxy
 ```
 
-### Permission denied errors appearing in Gitaly or Praefect logs when accessing repositories
+## Permission denied errors appearing in Gitaly or Praefect logs when accessing repositories
 
 You might see the following in Gitaly and Praefect logs:
 
@@ -301,34 +325,36 @@ You might see the following in Gitaly and Praefect logs:
 }
 ```
 
-This is a GRPC call
+This information in the logs is a gRPC call
 [error response code](https://grpc.github.io/grpc/core/md_doc_statuscodes.html).
 
 If this error occurs, even though
-[the Gitaly auth tokens are set up correctly](#praefect-errors-in-logs),
+[the Gitaly auth tokens are set up correctly](troubleshooting_gitaly_cluster.md#praefect-errors-in-logs),
 it's likely that the Gitaly servers are experiencing
-[clock drift](https://en.wikipedia.org/wiki/Clock_drift).
+[clock drift](https://en.wikipedia.org/wiki/Clock_drift). The auth tokens sent to Gitaly include a timestamp. To be considered valid, Gitaly requires that timestamp to be within 60 seconds of the Gitaly server time.
 
-Ensure the Gitaly clients and servers are synchronized, and use an NTP time
+Ensure the Gitaly clients and servers are synchronized, and use a Network Time Protocol (NTP) time
 server to keep them synchronized.
 
-### Gitaly not listening on new address after reconfiguring
+## Gitaly not listening on new address after reconfiguring
 
-When updating the `gitaly['listen_addr']` or `gitaly['prometheus_listen_addr']` values, Gitaly may
+When updating the `gitaly['configuration'][:listen_addr]` or `gitaly['configuration'][:prometheus_listen_addr]` values, Gitaly may
 continue to listen on the old address after a `sudo gitlab-ctl reconfigure`.
 
 When this occurs, run `sudo gitlab-ctl restart` to resolve the issue. This should no longer be
 necessary because [this issue](https://gitlab.com/gitlab-org/gitaly/-/issues/2521) is resolved.
 
-### Permission denied errors appearing in Gitaly logs when accessing repositories from a standalone Gitaly node
+## Errors in Gitaly logs when accessing repositories from a standalone Gitaly node
 
-If this error occurs even though file permissions are correct, it's likely that the Gitaly node is
+You might see permission-denied errors in the Gitaly logs when you access a repository
+from a standalone Gitaly node. This error occurs even though file permissions are correct.
+It's likely that the Gitaly node is
 experiencing [clock drift](https://en.wikipedia.org/wiki/Clock_drift).
 
-Please ensure that the GitLab and Gitaly nodes are synchronized and use an NTP time
+Ensure that the GitLab and Gitaly nodes are synchronized and use an NTP time
 server to keep them synchronized if possible.
 
-### Health check warnings
+## Health check warnings
 
 The following warning in `/var/log/gitlab/praefect/current` can be ignored.
 
@@ -337,7 +363,7 @@ The following warning in `/var/log/gitlab/praefect/current` can be ignored.
 "msg":"error when looking up method info"
 ```
 
-### File not found errors
+## File not found errors
 
 The following errors in `/var/log/gitlab/gitaly/current` can be ignored.
 They are caused by the GitLab Rails application checking for specific files
@@ -349,271 +375,100 @@ that do not exist in a repository.
 "error":"not found: .gitlab-ci.yml"
 ```
 
-## Troubleshoot Praefect (Gitaly Cluster)
+## Git pushes are slow when Dynatrace is enabled
 
-The following sections provide possible solutions to Gitaly Cluster errors.
+Dynatrace can cause the `/opt/gitlab/embedded/bin/gitaly-hooks` reference transaction hook,
+to take several seconds to start up and shut down. `gitaly-hooks` is executed twice when users
+push, which causes a significant delay.
 
-### Check cluster health
+If Git pushes are too slow when Dynatrace is enabled, disable Dynatrace.
 
-> [Introduced](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/) in GitLab 14.6.
+## `gitaly check` fails with `401` status code
 
-The `check` Praefect sub-command runs a series of checks to determine the health of the Gitaly Cluster.
+`gitaly check` can fail with `401` status code if Gitaly can't access the internal GitLab API.
 
-```shell
-gitlab-ctl praefect check
-```
+One way to resolve this is to make sure the entry is correct for the GitLab internal API URL configured in `gitlab.rb` with `gitlab_rails['internal_api_url']`.
 
-The following sections describe the checks that are run.
+## Changes (diffs) don't load for new merge requests when using Gitaly TLS
 
-#### Praefect migrations
-
-Because Database migrations must be up to date for Praefect to work correctly, checks if Praefect migrations are up to date.
-
-If this check fails:
-
-1. See the `schema_migrations` table in the database to see which migrations have run.
-1. Run `praefect sql-migrate` to bring the migrations up to date.
-
-#### Node connectivity and disk access
-
-Checks if Praefect can reach all of its Gitaly nodes, and if each Gitaly node has read and write access to all of its storages.
-
-If this check fails:
-
-1. Confirm the network addresses and tokens are set up correctly:
-   - In the Praefect configuration.
-   - In each Gitaly node's configuration.
-1. On the Gitaly nodes, check that the `gitaly` process being run as `git`. There might be a permissions issue that is preventing Gitaly from
-   accessing its storage directories.
-1. Confirm that there are no issues with the network that connects Praefect to Gitaly nodes.
-
-#### Database read and write access
-
-Checks if Praefect can read from and write to the database.
-
-If this check fails:
-
-1. See if the Praefect database is in recovery mode. In recovery mode, tables may be read only. To check, run:
-
-   ```sql
-   select pg_is_in_recovery()
-   ```
-
-1. Confirm that the user that Praefect uses to connect to PostgreSQL has read and write access to the database.
-1. See if the database has been placed into read-only mode. To check, run:
-
-   ```sql
-   show default_transaction_read_only
-   ```
-
-#### Inaccessible repositories
-
-Checks how many repositories are inaccessible because they are missing a primary assignment, or their primary is unavailable.
-
-If this check fails:
-
-1. See if any Gitaly nodes are down. Run `praefect ping-nodes` to check.
-1. Check if there is a high load on the Praefect database. If the Praefect database is slow to respond, it can lead health checks failing to persist
-   to the database, leading Praefect to think nodes are unhealthy.
-
-### Praefect errors in logs
-
-If you receive an error, check `/var/log/gitlab/gitlab-rails/production.log`.
-
-Here are common errors and potential causes:
-
-- 500 response code
-  - **ActionView::Template::Error (7:permission denied)**
-    - `praefect['auth_token']` and `gitlab_rails['gitaly_token']` do not match on the GitLab server.
-  - **Unable to save project. Error: 7:permission denied**
-    - Secret token in `praefect['storage_nodes']` on GitLab server does not match the
-      value in `gitaly['auth_token']` on one or more Gitaly servers.
-- 503 response code
-  - **GRPC::Unavailable (14:failed to connect to all addresses)**
-    - GitLab was unable to reach Praefect.
-  - **GRPC::Unavailable (14:all SubCons are in TransientFailure...)**
-    - Praefect cannot reach one or more of its child Gitaly nodes. Try running
-      the Praefect connection checker to diagnose.
-
-### Praefect database experiencing high CPU load
-
-Some common reasons for the Praefect database to experience elevated CPU usage include:
-
-- Prometheus metrics scrapes [running an expensive query](https://gitlab.com/gitlab-org/gitaly/-/issues/3796). If you have GitLab 14.2
-  or above, set `praefect['separate_database_metrics'] = true` in `gitlab.rb`.
-- [Read distribution caching](praefect.md#reads-distribution-caching) is disabled, increasing the number of queries made to the
-  database when user traffic is high. Ensure read distribution caching is enabled.
-
-### Determine primary Gitaly node
-
-To determine the primary node of a repository:
-
-- In GitLab 14.6 and later, use the [`praefect metadata`](#view-repository-metadata) subcommand.
-- In GitLab 13.12 to GitLab 14.5 with [repository-specific primaries](praefect.md#repository-specific-primary-nodes),
-  use the [`gitlab:praefect:replicas` Rake task](../raketasks/praefect.md#replica-checksums).
-- With legacy election strategies in GitLab 13.12 and earlier, the primary was the same for all repositories in a virtual storage.
-  To determine the current primary Gitaly node for a specific virtual storage:
-
-  - Use the `Shard Primary Election` [Grafana chart](praefect.md#grafana) on the
-    [`Gitlab Omnibus - Praefect` dashboard](https://gitlab.com/gitlab-org/grafana-dashboards/-/blob/master/omnibus/praefect.json).
-    This is recommended.
-  - If you do not have Grafana set up, use the following command on each host of each
-    Praefect node:
-
-    ```shell
-    curl localhost:9652/metrics | grep gitaly_praefect_primaries`
-    ```
-
-### View repository metadata
-
-> [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/3481) in GitLab 14.6.
-
-Gitaly Cluster maintains a [metadata database](index.md#components) about the repositories stored on the cluster. Use the `praefect metadata` subcommand
-to inspect the metadata for troubleshooting.
-
-You can retrieve a repository's metadata by its Praefect-assigned repository ID:
-
-```shell
-sudo /opt/gitlab/embedded/bin/praefect -config /var/opt/gitlab/praefect/config.toml metadata -repository-id <repository-id>
-```
-
-You can also retrieve a repository's metadata by its virtual storage and relative path:
-
-```shell
-sudo /opt/gitlab/embedded/bin/praefect -config /var/opt/gitlab/praefect/config.toml metadata -virtual-storage <virtual-storage> -relative-path <relative-path>
-```
-
-#### Examples
-
-To retrieve the metadata for a repository with a Praefect-assigned repository ID of 1:
-
-```shell
-sudo /opt/gitlab/embedded/bin/praefect -config /var/opt/gitlab/praefect/config.toml metadata -repository-id 1
-```
-
-To retrieve the metadata for a repository with virtual storage `default` and relative path `@hashed/b1/7e/b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9.git`:
-
-```shell
-sudo /opt/gitlab/embedded/bin/praefect -config /var/opt/gitlab/praefect/config.toml metadata -virtual-storage default -relative-path @hashed/b1/7e/b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9.git
-```
-
-Either of these examples retrieve the following metadata for an example repository:
+After enabling [Gitaly with TLS](tls_support.md), changes (diffs) for new merge requests are not generated
+and you see the following message in GitLab:
 
 ```plaintext
-Repository ID: 54771
-Virtual Storage: "default"
-Relative Path: "@hashed/b1/7e/b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9.git"
-Replica Path: "@hashed/b1/7e/b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9.git"
-Primary: "gitaly-1"
-Generation: 1
-Replicas:
-- Storage: "gitaly-1"
-  Assigned: true
-  Generation: 1, fully up to date
-  Healthy: true
-  Valid Primary: true
-- Storage: "gitaly-2"
-  Assigned: true
-  Generation: 0, behind by 1 changes
-  Healthy: true
-  Valid Primary: false
-- Storage: "gitaly-3"
-  Assigned: true
-  Generation: replica not yet created
-  Healthy: false
-  Valid Primary: false
+Building your merge request... This page will update when the build is complete
 ```
 
-#### Available metadata
+Gitaly must be able to connect to itself to complete some operations. If the Gitaly certificate is not trusted by the Gitaly server,
+merge request diffs can't be generated.
 
-The metadata retrieved by `praefect metadata` includes the fields in the following tables.
+If Gitaly can't connect to itself, you see messages in the [Gitaly logs](../../administration/logs/index.md#gitaly-logs) like the following messages:
 
-| Field             | Description                                                                                                        |
-|:------------------|:-------------------------------------------------------------------------------------------------------------------|
-| `Repository ID`   | Permanent unique ID assigned to the repository by Praefect. Different to the ID GitLab uses for repositories.      |
-| `Virtual Storage` | Name of the virtual storage the repository is stored in.                                                           |
-| `Relative Path`   | Repository's path in the virtual storage.                                                                          |
-| `Replica Path`    | Where on the Gitaly node's disk the repository's replicas are stored.                                                |
-| `Primary`         | Current primary of the repository.                                                                                 |
-| `Generation`      | Used by Praefect to track repository changes. Each write in the repository increments the repository's generation. |
-| `Replicas`        | A list of replicas that exist or are expected to exist.                                                            |
+```json
+{
+   "level":"warning",
+   "msg":"[core] [Channel #16 SubChannel #17] grpc: addrConn.createTransport failed to connect to {Addr: \"ext-gitaly.example.com:9999\", ServerName: \"ext-gitaly.example.com:9999\", }. Err: connection error: desc = \"transport: authentication handshake failed: tls: failed to verify certificate: x509: certificate signed by unknown authority\"",
+   "pid":820,
+   "system":"system",
+   "time":"2023-11-06T05:40:04.169Z"
+}
+{
+   "level":"info",
+   "msg":"[core] [Server #3] grpc: Server.Serve failed to create ServerTransport: connection error: desc = \"ServerHandshake(\\\"x.x.x.x:x\\\") failed: wrapped server handshake: remote error: tls: bad certificate\"",
+   "pid":820,
+   "system":"system",
+   "time":"2023-11-06T05:40:04.169Z"
+}
+```
 
-For each replica, the following metadata is available:
+To resolve the problem, ensure that you have added your Gitaly certificate to the `/etc/gitlab/trusted-certs` folder on the Gitaly server
+and:
 
-| `Replicas` Field | Description                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-|:-----------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Storage`        | Name of the Gitaly storage that contains the replica.                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `Assigned`       | Indicates whether the replica is expected to exist in the storage. Can be `false` if a Gitaly node is removed from the cluster or if the storage contains an extra copy after the repository's replication factor was decreased.                                                                                                                                                                                                                       |
-| `Generation`     | Latest confirmed generation of the replica. It indicates:<br><br>- The replica is fully up to date if the generation matches the repository's generation.<br>- The replica is outdated if the replica's generation is less than the repository's generation.<br>- `replica not yet created` if the replica does not yet exist at all on the storage.                                                                                                          |
-| `Healthy`        | Indicates whether the Gitaly node that is hosting this replica is considered healthy by the consensus of Praefect nodes.                                                                                                                                                                                                                                                                                                                               |
-| `Valid Primary`  | Indicates whether the replica is fit to serve as the primary node. If the repository's primary is not a valid primary, a failover occurs on the next write to the repository if there is another replica that is a valid primary. A replica is a valid primary if:<br><br>- It is stored on a healthy Gitaly node.<br>- It is fully up to date.<br>- It is not targeted by a pending deletion job from decreasing replication factor.<br>- It is assigned. |
+1. [Reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation) so the certificates are symlinked
+1. Restart Gitaly manually `sudo gitlab-ctl restart gitaly` for the certificates to be loaded by the Gitaly process.
 
-### Check that repositories are in sync
+## Gitaly fails to fork processes stored on `noexec` file systems
 
-Is [some cases](index.md#known-issues) the Praefect database can get out of sync with the underlying Gitaly nodes. To check that
-a given repository is fully synced on all nodes, run the [`gitlab:praefect:replicas` Rake task](../raketasks/praefect.md#replica-checksums)
-that checksums the repository on all Gitaly nodes.
+Applying the `noexec` option to a mount point (for example, `/var`) causes Gitaly to throw `permission denied` errors
+related to forking processes. For example:
 
-The [Praefect dataloss](recovery.md#check-for-data-loss) command only checks the state of the repository in the Praefect database, and cannot
-be relied to detect sync problems in this scenario.
+```shell
+fork/exec /var/opt/gitlab/gitaly/run/gitaly-2057/gitaly-git2go: permission denied
+```
 
-### Relation does not exist errors
+To resolve this, remove the `noexec` option from the file system mount. An alternative is to change the Gitaly runtime directory:
 
-By default Praefect database tables are created automatically by `gitlab-ctl reconfigure` task.
+1. Add `gitaly['runtime_dir'] = '<PATH_WITH_EXEC_PERM>'` to `/etc/gitlab/gitlab.rb` and specify a location without `noexec` set.
+1. Run `sudo gitlab-ctl reconfigure`.
 
-However, the Praefect database tables are not created on initial reconfigure and can throw
-errors that relations do not exist if either:
+## Commit signing fails with `invalid argument` or `invalid data`
 
-- The `gitlab-ctl reconfigure` command isn't executed.
-- There are errors during the execution.
+If commit signing fails with either of these errors:
+
+- `invalid argument: signing key is encrypted`
+- `invalid data: tag byte does not have MSB set`
+
+This error happens because Gitaly commit signing is headless and not associated with a specific user. The GPG signing key must be created without a passphrase, or the passphrase must be removed before export.
+
+## Gitaly logs show errors in `info` messages
+
+Because of a bug [introduced](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/6201) in GitLab 16.3, additional entries were written to the
+[Gitaly logs](../logs/index.md#gitaly-logs). These log entries contained `"level":"info"` but the `msg` string appeared to contain an error.
 
 For example:
 
-- `ERROR:  relation "node_status" does not exist at character 13`
-- `ERROR:  relation "replication_queue_lock" does not exist at character 40`
-- This error:
-
-  ```json
-  {"level":"error","msg":"Error updating node: pq: relation \"node_status\" does not exist","pid":210882,"praefectName":"gitlab1x4m:0.0.0.0:2305","time":"2021-04-01T19:26:19.473Z","virtual_storage":"praefect-cluster-1"}
-  ```
-
-To solve this, the database schema migration can be done using `sql-migrate` sub-command of
-the `praefect` command:
-
-```shell
-$ sudo /opt/gitlab/embedded/bin/praefect -config /var/opt/gitlab/praefect/config.toml sql-migrate
-praefect sql-migrate: OK (applied 21 migrations)
+```json
+{"level":"info","msg":"[core] [Server #3] grpc: Server.Serve failed to create ServerTransport: connection error: desc = \"ServerHandshake(\\\"x.x.x.x:x\\\") failed: wrapped server handshake: EOF\"","pid":6145,"system":"system","time":"2023-12-14T21:20:39.999Z"}
 ```
 
-### Requests fail with 'repository scoped: invalid Repository' errors
+The reason for this log entry is that the underlying gRPC library sometimes output verbose transportation logs. These log entries appear to be errors but are, in general,
+safe to ignore.
 
-This indicates that the virtual storage name used in the
-[Praefect configuration](praefect.md#praefect) does not match the storage name used in
-[`git_data_dirs` setting](praefect.md#gitaly) for GitLab.
-
-Resolve this by matching the virtual storage names used in Praefect and GitLab configuration.
-
-### Gitaly Cluster performance issues on cloud platforms
-
-Praefect does not require a lot of CPU or memory, and can run on small virtual machines.
-Cloud services may place other limits on the resources that small VMs can use, such as
-disk IO and network traffic.
-
-Praefect nodes generate a lot of network traffic. The following symptoms can be observed if their network bandwidth has
-been throttled by the cloud service:
-
-- Poor performance of Git operations.
-- High network latency.
-- High memory use by Praefect.
-
-Possible solutions:
-
-- Provision larger VMs to gain access to larger network traffic allowances.
-- Use your cloud service's monitoring and logging to check that the Praefect nodes are not exhausting their traffic allowances.
+This bug was [fixed](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/6513/) in GitLab 16.4.5, 16.5.5, and 16.6.0, which prevents these types of messages from
+being written to the Gitaly logs.
 
 ## Profiling Gitaly
 
-Gitaly exposes several of Golang's built-in performance profiling tools on the Prometheus listen port. For example, if Prometheus is listening
+Gitaly exposes several of the Go built-in performance profiling tools on the Prometheus listen port. For example, if Prometheus is listening
 on port `9236` of the GitLab server:
 
 - Get a list of running `goroutines` and their backtraces:
@@ -634,7 +489,7 @@ on port `9236` of the GitLab server:
   curl --output heap.bin "http://<gitaly_server>:9236/debug/pprof/heap"
   ```
 
-- Record a 5 second execution trace. This will impact Gitaly's performance while running:
+- Record a 5 second execution trace. This impacts the Gitaly performance while running:
 
   ```shell
   curl --output trace.bin "http://<gitaly_server>:9236/debug/pprof/trace?seconds=5"
@@ -652,3 +507,140 @@ Execution traces can be viewed by running:
 ```shell
 go tool trace heap.bin
 ```
+
+### Profile Git operations
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/5700) in GitLab 16.9 [with a flag](../../administration/feature_flags.md) named `log_git_traces`. Disabled by default.
+
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../administration/feature_flags.md)
+named `log_git_traces`. On GitLab.com, this feature is available but can be configured by GitLab.com administrators only. On GitLab Dedicated, this feature is not available.
+
+You can profile Git operations that Gitaly performs by sending additional information about Git operations to Gitaly logs. With this information, users have more insight
+for performance optimization, debugging, and general telemetry collection. For more information, see the [Git Trace2 API reference](https://git-scm.com/docs/api-trace2).
+
+To prevent system overload, the additional information logging is rate limited. If the rate limit is exceeded, traces are skipped. However, after the rate returns to a healthy
+state, the traces are processed again automatically. Rate limiting ensures that the system remains stable and avoids any adverse impact because of excessive trace processing.
+
+## Repositories are shown as empty after a GitLab restore
+
+When using `fapolicyd` for increased security, GitLab can report that a restore from a GitLab backup file was successful but:
+
+- Repositories show as empty.
+- Creating new files causes an error similar to:
+
+  ```plaintext
+  13:commit: commit: starting process [/var/opt/gitlab/gitaly/run/gitaly-5428/gitaly-git2go -log-format json -log-level -correlation-id
+  01GP1383JV6JD6MQJBH2E1RT03 -enabled-feature-flags -disabled-feature-flags commit]: fork/exec /var/opt/gitlab/gitaly/run/gitaly-5428/gitaly-git2go: operation not permitted.
+  ```
+
+- Gitaly logs might contain errors similar to:
+
+  ```plaintext
+   "error": "exit status 128, stderr: \"fatal: cannot exec '/var/opt/gitlab/gitaly/run/gitaly-5428/hooks-1277154941.d/reference-transaction':
+
+    Operation not permitted\\nfatal: cannot exec '/var/opt/gitlab/gitaly/run/gitaly-5428/hooks-1277154941.d/reference-transaction': Operation
+    not permitted\\nfatal: ref updates aborted by hook\\n\"",
+   "grpc.code": "Internal",
+   "grpc.meta.deadline_type": "none",
+   "grpc.meta.method_type": "client_stream",
+   "grpc.method": "FetchBundle",
+   "grpc.request.fullMethod": "/gitaly.RepositoryService/FetchBundle",
+  ...
+  ```
+
+You can use
+[debug mode](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/security_hardening/assembly_blocking-and-allowing-applications-using-fapolicyd_security-hardening#ref_troubleshooting-problems-related-to-fapolicyd_assembly_blocking-and-allowing-applications-using-fapolicyd)
+to help determine if `fapolicyd` is denying execution based on current rules.
+
+If you find that `fapolicyd` is denying execution, consider the following:
+
+1. Allow all executables in `/var/opt/gitlab/gitaly` in your `fapolicyd` configuration:
+
+   ```plaintext
+   allow perm=any all : ftype=application/x-executable dir=/var/opt/gitlab/gitaly/
+   ```
+
+1. Restart the services:
+
+   ```shell
+   sudo systemctl restart fapolicyd
+
+   sudo gitlab-ctl restart gitaly
+   ```
+
+## `Pre-receive hook declined` error when pushing to RHEL instance with `fapolicyd` enabled
+
+When pushing to an RHEL-based instance with `fapolicyd` enabled, you might get a `Pre-receive hook declined` error. This error can occur because `fapolicyd` can block the execution
+of the Gitaly binary. To resolve this problem, either:
+
+- Disable `fapolicyd`.
+- Create an `fapolicyd` rule to permit execution of Gitaly binaries with `fapolicyd` enabled.
+
+To create a rule to allow Gitaly binary execution:
+
+1. Create a file at `/etc/fapolicyd/rules.d/89-gitlab.rules`.
+1. Enter the following into the file:
+
+   ```plaintext
+   allow perm=any all : ftype=application/x-executable dir=/var/opt/gitlab/gitaly/
+   ```
+
+1. Restart the service:
+
+   ```shell
+   systemctl restart fapolicyd
+   ```
+
+The new rule takes effect after the daemon restarts.
+
+## Update repositories after removing a storage with a duplicate path
+
+> - Rake task `gitlab:gitaly:update_removed_storage_projects` [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/153008) in GitLab 17.1.
+
+In GitLab 17.0, support for configuring storages with duplicate paths [was removed](https://gitlab.com/gitlab-org/gitaly/-/issues/5598). This can mean that you
+must remove duplicate storage configuration from `gitaly` configuration.
+
+WARNING:
+Only use this Rake task when the old and new storages share the same disk path on the same Gitaly server. Using the this Rake task in any other situation
+causes the repository to become unavailable. Use the [project repository storage moves API](../../api/project_repository_storage_moves.md) to transfer
+projects between storages in all other situations.
+
+When removing from the Gitaly configuration a storage that used the same path as another storage,
+the projects associated with the old storage must be reassigned to the new one.
+
+For example, you might have configuration similar to the following:
+
+```ruby
+gitaly['configuration'] = {
+  storage: [
+    {
+       name: 'default',
+       path: '/var/opt/gitlab/git-data/repositories',
+    },
+    {
+       name: 'duplicate-path',
+       path: '/var/opt/gitlab/git-data/repositories',
+    },
+  ],
+}
+```
+
+If you were removing `duplicate-path` from the configuration, you would run the following
+Rake task to associate any projects assigned to it to `default` instead:
+
+::Tabs
+
+:::TabTitle Linux package installations
+
+```shell
+sudo gitlab-rake "gitlab:gitaly:update_removed_storage_projects[duplicate-path, default]"
+```
+
+:::TabTitle Self-compiled installations
+
+```shell
+sudo -u git -H bundle exec rake "gitlab:gitaly:update_removed_storage_projects[duplicate-path, default]" RAILS_ENV=production
+```
+
+::EndTabs

@@ -6,12 +6,12 @@ module NotesActions
   extend ActiveSupport::Concern
 
   # last_fetched_at is an integer number of microseconds, which is the same
-  # precision as PostgreSQL "timestamp" fields. It's important for them to have
-  # identical precision for accurate pagination
+  # precision as PostgreSQL "timestamp" fields.
   MICROSECOND = 1_000_000
 
   included do
     before_action :set_polling_interval_header, only: [:index]
+    before_action :require_last_fetched_at_header!, only: [:index]
     before_action :require_noteable!, only: [:index, :create]
     before_action :authorize_admin_note!, only: [:update, :destroy]
     before_action :note_project, only: [:create]
@@ -23,7 +23,7 @@ module NotesActions
   end
 
   def index
-    notes, meta = gather_notes
+    notes, meta = gather_all_notes
     notes = prepare_notes_for_rendering(notes)
     notes = notes.select { |n| n.readable_by?(current_user) }
     notes =
@@ -32,13 +32,6 @@ module NotesActions
       else
         notes.map { |note| note_json(note) }
       end
-
-    # We know there's more data, so tell the frontend to poll again after 1ms
-    set_polling_interval_header(interval: 1) if meta[:more]
-
-    # Only present an ETag for the empty response to ensure pagination works
-    # as expected
-    ::Gitlab::EtagCaching::Middleware.skip!(response) if notes.present?
 
     render json: meta.merge(notes: notes)
   end
@@ -50,7 +43,8 @@ module NotesActions
     respond_to do |format|
       format.json do
         json = {
-          commands_changes: @note.commands_changes&.slice(:emoji_award, :time_estimate, :spend_time)
+          commands_changes: @note.commands_changes&.slice(:emoji_award, :time_estimate, :spend_time),
+          command_names: @note.command_names
         }
 
         if @note.persisted? && return_discussion?
@@ -65,8 +59,8 @@ module NotesActions
           json.merge!(note_json(@note))
         end
 
-        if @note.errors.present? && @note.errors.attribute_names != [:commands_only]
-          render json: json, status: :unprocessable_entity
+        if @note.errors.present? && @note.errors.attribute_names != [:commands_only, :command_names]
+          render json: { errors: errors_on_create(@note.errors) }, status: :unprocessable_entity
         else
           render json: json
         end
@@ -79,24 +73,28 @@ module NotesActions
   # rubocop:disable Gitlab/ModuleWithInstanceVariables
   def update
     @note = Notes::UpdateService.new(project, current_user, update_note_params).execute(note)
-    unless @note
+    if @note.destroyed?
       head :gone
       return
     end
 
-    prepare_notes_for_rendering([@note])
-
     respond_to do |format|
-      format.json { render json: note_json(@note) }
+      format.json do
+        if @note.errors.present?
+          render json: { errors: @note.errors.full_messages.to_sentence }, status: :unprocessable_entity
+        else
+          prepare_notes_for_rendering([@note])
+          render json: note_json(@note)
+        end
+      end
+
       format.html { redirect_back_or_default }
     end
   end
   # rubocop:enable Gitlab/ModuleWithInstanceVariables
 
   def destroy
-    if note.editable?
-      Notes::DestroyService.new(project, current_user).execute(note)
-    end
+    Notes::DestroyService.new(project, current_user).execute(note) if note.editable?
 
     respond_to do |format|
       format.js { head :ok }
@@ -105,45 +103,18 @@ module NotesActions
 
   private
 
-  # Lower bound (last_fetched_at as specified in the request) is already set in
-  # the finder. Here, we select between returning all notes since then, or a
-  # page's worth of notes.
-  def gather_notes
-    if Feature.enabled?(:paginated_notes, noteable.try(:resource_parent))
-      gather_some_notes
-    else
-      gather_all_notes
-    end
-  end
-
   def gather_all_notes
     now = Time.current
-    notes = merge_resource_events(notes_finder.execute.inc_relations_for_view)
+    notes = merge_resource_events(notes_finder.execute.inc_relations_for_view(noteable))
 
     [notes, { last_fetched_at: (now.to_i * MICROSECOND) + now.usec }]
   end
 
-  def gather_some_notes
-    paginator = ::Gitlab::UpdatedNotesPaginator.new(
-      notes_finder.execute.inc_relations_for_view,
-      last_fetched_at: last_fetched_at
-    )
-
-    notes = paginator.notes
-
-    # Fetch all the synthetic notes in the same time range as the real notes.
-    # Although we don't limit the number, their text is under our control so
-    # should be fairly cheap to process.
-    notes = merge_resource_events(notes, fetch_until: paginator.next_fetched_at)
-
-    [notes, paginator.metadata]
-  end
-
-  def merge_resource_events(notes, fetch_until: nil)
+  def merge_resource_events(notes)
     return notes if notes_filter == UserPreference::NOTES_FILTERS[:only_comments]
 
     ResourceEvents::MergeIntoNotesService
-      .new(noteable, current_user, last_fetched_at: last_fetched_at, fetch_until: fetch_until)
+      .new(noteable, current_user, last_fetched_at: last_fetched_at)
       .execute(notes)
   end
 
@@ -240,7 +211,7 @@ module NotesActions
   end
 
   def authorize_admin_note!
-    return access_denied! unless can?(current_user, :admin_note, note)
+    access_denied! unless can?(current_user, :admin_note, note)
   end
 
   def create_note_params
@@ -249,7 +220,8 @@ module NotesActions
       :note,
       :line_code, # LegacyDiffNote
       :position, # DiffNote
-      :confidential
+      :confidential,
+      :internal
     ).tap do |create_params|
       create_params.merge!(
         params.permit(:merge_request_diff_head_sha, :in_reply_to_discussion_id)
@@ -288,16 +260,21 @@ module NotesActions
     render_404 unless noteable
   end
 
-  def last_fetched_at
-    strong_memoize(:last_fetched_at) do
-      microseconds = request.headers['X-Last-Fetched-At'].to_i
+  def require_last_fetched_at_header!
+    return if request.headers['X-Last-Fetched-At'].present?
 
-      seconds = microseconds / MICROSECOND
-      frac = microseconds % MICROSECOND
-
-      Time.zone.at(seconds, frac)
-    end
+    render json: { message: 'X-Last-Fetched-At header is required' }, status: :bad_request
   end
+
+  def last_fetched_at
+    microseconds = request.headers['X-Last-Fetched-At'].to_i
+
+    seconds = microseconds / MICROSECOND
+    frac = microseconds % MICROSECOND
+
+    Time.zone.at(seconds, frac)
+  end
+  strong_memoize_attr :last_fetched_at
 
   def notes_filter
     current_user&.notes_filter_for(params[:target_type])
@@ -316,23 +293,22 @@ module NotesActions
   end
 
   def note_project
-    strong_memoize(:note_project) do
-      next nil unless project
+    return unless project
 
-      note_project_id = params[:note_project_id]
+    note_project_id = params[:note_project_id]
 
-      the_project =
-        if note_project_id.present?
-          Project.find(note_project_id)
-        else
-          project
-        end
+    the_project =
+      if note_project_id.present?
+        Project.find(note_project_id)
+      else
+        project
+      end
 
-      next access_denied! unless can?(current_user, :create_note, the_project)
+    return access_denied! unless can?(current_user, :create_note, the_project)
 
-      the_project
-    end
+    the_project
   end
+  strong_memoize_attr :note_project
 
   def return_discussion?
     Gitlab::Utils.to_boolean(params[:return_discussion])
@@ -342,6 +318,12 @@ module NotesActions
     return false if params['html']
 
     noteable.discussions_rendered_on_frontend?
+  end
+
+  def errors_on_create(errors)
+    return { commands_only: errors.messages[:commands_only] } if errors.key?(:commands_only)
+
+    errors.full_messages.to_sentence
   end
 end
 

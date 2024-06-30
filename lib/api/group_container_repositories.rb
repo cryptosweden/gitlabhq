@@ -9,32 +9,38 @@ module API
 
     before { authorize_read_group_container_images! }
 
-    feature_category :package_registry
+    feature_category :container_registry
+    urgency :low
 
     REPOSITORY_ENDPOINT_REQUIREMENTS = API::NAMESPACE_OR_PROJECT_REQUIREMENTS.merge(
       tag_name: API::NO_SLASH_URL_PART_REGEX)
 
     params do
-      requires :id, type: String, desc: "Group's ID or path"
+      requires :id, types: [String, Integer],
+        desc: 'The ID or URL-encoded path of the group accessible by the authenticated user'
     end
     resource :groups, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
-      desc 'Get a list of all repositories within a group' do
-        detail 'This feature was introduced in GitLab 12.2.'
+      desc 'List registry repositories within a group' do
+        detail 'Get a list of registry repositories in a group. This feature was introduced in GitLab 12.2.'
         success Entities::ContainerRegistry::Repository
+        failure [
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Group Not Found' }
+        ]
+        is_array true
+        tags %w[container_registry]
       end
       params do
         use :pagination
-        optional :tags, type: Boolean, default: false, desc: 'Determines if tags should be included'
-        optional :tags_count, type: Boolean, default: false, desc: 'Determines if the tags count should be included'
       end
       get ':id/registry/repositories' do
         repositories = ContainerRepositoriesFinder.new(
           user: current_user, subject: user_group
         ).execute
 
-        track_package_event('list_repositories', :container, user: current_user, namespace: user_group)
+        track_package_event('list_repositories', :container, namespace: user_group)
 
-        present paginate(repositories), with: Entities::ContainerRegistry::Repository, tags: params[:tags], tags_count: params[:tags_count]
+        present paginate(repositories), with: Entities::ContainerRegistry::Repository, tags: false, tags_count: false
       end
     end
 

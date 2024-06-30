@@ -23,10 +23,10 @@ export default {
       return sprintf(__("%{userName}'s avatar"), { userName: this.user.name });
     },
     avatarUrl() {
-      return this.user.avatar || this.user.avatar_url || gon.default_avatar_url;
+      return this.user.avatarUrl || this.user.avatar_url || gon.default_avatar_url;
     },
     hasMergeIcon() {
-      return !this.user.can_merge;
+      return !this.user.mergeRequestInteraction?.canMerge;
     },
   },
 };
@@ -40,8 +40,12 @@ export default {
       :width="imgSize"
       :class="`s${imgSize}`"
       class="avatar avatar-inline m-0"
-      data-qa-selector="avatar_image"
     />
-    <gl-icon v-if="hasMergeIcon" name="warning-solid" aria-hidden="true" class="merge-icon" />
+    <gl-icon
+      v-if="hasMergeIcon"
+      name="warning-solid"
+      aria-hidden="true"
+      class="merge-icon reviewer-merge-icon"
+    />
   </span>
 </template>

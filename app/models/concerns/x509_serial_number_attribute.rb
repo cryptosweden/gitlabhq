@@ -5,7 +5,7 @@ module X509SerialNumberAttribute
 
   class_methods do
     def x509_serial_number_attribute(name)
-      return if ENV['STATIC_VERIFICATION']
+      return if Gitlab::Environment.static_verification?
 
       validate_binary_column_exists!(name) unless Rails.env.production?
 
@@ -33,8 +33,8 @@ module X509SerialNumberAttribute
       unless column.type == :binary
         raise ArgumentError, "x509_serial_number_attribute #{name.inspect} is invalid since the column type is not :binary"
       end
-    rescue StandardError => error
-      Gitlab::AppLogger.error "X509SerialNumberAttribute initialization: #{error.message}"
+    rescue StandardError => e
+      Gitlab::AppLogger.error "X509SerialNumberAttribute initialization: #{e.message}"
       raise
     end
 

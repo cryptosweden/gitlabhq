@@ -2,21 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe Environments::CanaryIngress::UpdateService, :clean_gitlab_redis_cache do
+RSpec.describe Environments::CanaryIngress::UpdateService, :clean_gitlab_redis_cache,
+  feature_category: :continuous_delivery do
   include KubernetesHelpers
 
   let_it_be(:project, refind: true) { create(:project) }
-  let_it_be(:maintainer) { create(:user) }
-  let_it_be(:reporter) { create(:user) }
+  let_it_be(:maintainer) { create(:user, maintainer_of: project) }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
 
   let(:user) { maintainer }
   let(:params) { {} }
   let(:service) { described_class.new(project, user, params) }
-
-  before_all do
-    project.add_maintainer(maintainer)
-    project.add_reporter(reporter)
-  end
 
   shared_examples_for 'failed request' do
     it 'returns an error' do

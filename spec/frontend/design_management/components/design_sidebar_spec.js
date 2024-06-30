@@ -1,13 +1,13 @@
-import { GlCollapse, GlPopover } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
-import Cookies from 'js-cookie';
+import { GlAccordionItem, GlEmptyState } from '@gitlab/ui';
 import { nextTick } from 'vue';
+import emptyDiscussionUrl from '@gitlab/svgs/dist/illustrations/empty-state/empty-activity-md.svg';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import DesignDiscussion from '~/design_management/components/design_notes/design_discussion.vue';
 import DesignNoteSignedOut from '~/design_management/components/design_notes/design_note_signed_out.vue';
 import DesignSidebar from '~/design_management/components/design_sidebar.vue';
-import DesignTodoButton from '~/design_management/components/design_todo_button.vue';
+import DesignDisclosure from '~/vue_shared/components/design_management/design_disclosure.vue';
+import DescriptionForm from '~/design_management/components/design_description/description_form.vue';
 import updateActiveDiscussionMutation from '~/design_management/graphql/mutations/update_active_discussion.mutation.graphql';
-import Participants from '~/sidebar/components/participants/participants.vue';
 import design from '../mock_data/design';
 
 const scrollIntoViewMock = jest.fn();
@@ -27,31 +27,37 @@ const $route = {
   },
 };
 
-const cookieKey = 'hide_design_resolved_comments_popover';
+const mockDesignVariables = {
+  fullPath: 'project-path',
+  iid: '1',
+  filenames: ['gid:/gitlab/Design/1'],
+  atVersion: null,
+};
 
 const mutate = jest.fn().mockResolvedValue();
 
 describe('Design management design sidebar component', () => {
-  const originalGon = window.gon;
   let wrapper;
 
-  const findDiscussions = () => wrapper.findAll(DesignDiscussion);
+  const findDiscussions = () => wrapper.findAllComponents(DesignDiscussion);
+  const findDisclosure = () => wrapper.findAllComponents(DesignDisclosure);
   const findFirstDiscussion = () => findDiscussions().at(0);
-  const findUnresolvedDiscussions = () => wrapper.findAll('[data-testid="unresolved-discussion"]');
-  const findResolvedDiscussions = () => wrapper.findAll('[data-testid="resolved-discussion"]');
-  const findParticipants = () => wrapper.find(Participants);
-  const findCollapsible = () => wrapper.find(GlCollapse);
-  const findToggleResolvedCommentsButton = () => wrapper.find('[data-testid="resolved-comments"]');
-  const findPopover = () => wrapper.find(GlPopover);
-  const findNewDiscussionDisclaimer = () =>
-    wrapper.find('[data-testid="new-discussion-disclaimer"]');
+  const findUnresolvedDiscussions = () => wrapper.findAllByTestId('unresolved-discussion');
+  const findResolvedDiscussions = () => wrapper.findAllByTestId('resolved-discussion');
+  const findResolvedCommentsToggle = () => wrapper.findComponent(GlAccordionItem);
+  const findDescriptionForm = () => wrapper.findComponent(DescriptionForm);
+  const findEmptyState = () => wrapper.findComponent(GlEmptyState);
+  const findUnresolvedDiscussionsCount = () => wrapper.findByTestId('unresolved-discussion-count');
 
   function createComponent(props = {}) {
-    wrapper = shallowMount(DesignSidebar, {
+    wrapper = shallowMountExtended(DesignSidebar, {
       propsData: {
         design,
         resolvedDiscussionsExpanded: false,
-        markdownPreviewPath: '',
+        markdownPreviewPath: 'markdown/path',
+        isLoading: false,
+        designVariables: mockDesignVariables,
+        isOpen: true,
         ...props,
       },
       mocks: {
@@ -60,7 +66,6 @@ describe('Design management design sidebar component', () => {
           mutate,
         },
       },
-      stubs: { GlPopover },
       provide: {
         registerPath: '/users/sign_up?redirect_to_referer=yes',
         signInPath: '/users/sign_in?redirect_to_referer=yes',
@@ -72,27 +77,57 @@ describe('Design management design sidebar component', () => {
     window.gon = { current_user_id: 1 };
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    window.gon = originalGon;
-  });
-
-  it('renders participants', () => {
+  it('renders disclosure', () => {
     createComponent();
 
-    expect(findParticipants().exists()).toBe(true);
+    expect(findDisclosure().exists()).toBe(true);
   });
 
-  it('passes the correct amount of participants to the Participants component', () => {
-    createComponent();
+  describe('description form', () => {
+    it('does not render when loading', () => {
+      createComponent({ isLoading: true });
 
-    expect(findParticipants().props('participants')).toHaveLength(1);
-  });
+      expect(findDescriptionForm().exists()).toBe(false);
+    });
 
-  it('renders To-Do button', () => {
-    createComponent();
+    it('renders with default props', () => {
+      createComponent();
 
-    expect(wrapper.find(DesignTodoButton).exists()).toBe(true);
+      expect(findDescriptionForm().props()).toMatchObject({
+        design,
+        markdownPreviewPath: 'markdown/path',
+        designVariables: mockDesignVariables,
+      });
+    });
+
+    it('renders when there is permission but description is empty', () => {
+      createComponent({
+        design: { ...design, description: '', descriptionHtml: '' },
+      });
+
+      expect(findDescriptionForm().exists()).toBe(true);
+    });
+
+    it('renders when there is description but no permission', () => {
+      createComponent({
+        design: { ...design, issue: { userPermissions: { updateDesign: false } } },
+      });
+
+      expect(findDescriptionForm().exists()).toBe(true);
+    });
+
+    it('does not render when there is no permission and description is empty', () => {
+      createComponent({
+        design: {
+          ...design,
+          description: '',
+          descriptionHtml: '',
+          issue: { userPermissions: { updateDesign: false } },
+        },
+      });
+
+      expect(findDescriptionForm().exists()).toBe(false);
+    });
   });
 
   describe('when has no discussions', () => {
@@ -112,13 +147,20 @@ describe('Design management design sidebar component', () => {
     });
 
     it('renders a message about possibility to create a new discussion', () => {
-      expect(findNewDiscussionDisclaimer().exists()).toBe(true);
+      const emptyState = findEmptyState();
+      expect(emptyState.exists()).toBe(true);
+      expect(emptyState.props('svgPath')).toBe(emptyDiscussionUrl);
+      expect(emptyState.text()).toBe(`Click on the image where you'd like to add a new comment.`);
+    });
+
+    it('renders 0 Threads for unresolved discussions', () => {
+      expect(findUnresolvedDiscussionsCount().exists()).toBe(true);
+      expect(findUnresolvedDiscussionsCount().text()).toBe('0 Threads');
     });
   });
 
   describe('when has discussions', () => {
     beforeEach(() => {
-      Cookies.set(cookieKey, true);
       createComponent();
     });
 
@@ -130,36 +172,81 @@ describe('Design management design sidebar component', () => {
       expect(findResolvedDiscussions()).toHaveLength(1);
     });
 
-    it('has resolved comments collapsible collapsed', () => {
-      expect(findCollapsible().attributes('visible')).toBeUndefined();
+    it('renders 1 Thread for unresolved discussions', () => {
+      expect(findUnresolvedDiscussionsCount().exists()).toBe(true);
+      expect(findUnresolvedDiscussionsCount().text()).toBe('1 Thread');
     });
 
-    it('emits toggleResolveComments event on resolve comments button click', () => {
-      findToggleResolvedCommentsButton().vm.$emit('click');
+    it('renders 2 Threads for unresolved discussions', () => {
+      createComponent({
+        design: {
+          ...design,
+          discussions: {
+            nodes: [
+              {
+                id: 'discussion-id-1',
+                resolved: false,
+                notes: {
+                  nodes: [
+                    {
+                      id: 'note-id-1',
+                      author: {
+                        id: 'gid://gitlab/User/1',
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                id: 'discussion-id-2',
+                resolved: false,
+                notes: {
+                  nodes: [
+                    {
+                      id: 'note-id-2',
+                      author: {
+                        id: 'gid://gitlab/User/1',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      expect(findUnresolvedDiscussionsCount().exists()).toBe(true);
+      expect(findUnresolvedDiscussionsCount().text()).toBe('2 Threads');
+    });
+
+    it('has resolved comments accordion item collapsed', () => {
+      expect(findResolvedCommentsToggle().props('visible')).toBe(false);
+    });
+
+    it('emits toggleResolveComments event on resolve comments button click', async () => {
+      findResolvedCommentsToggle().vm.$emit('input', true);
+      await nextTick();
       expect(wrapper.emitted('toggleResolvedComments')).toHaveLength(1);
     });
 
-    it('opens a collapsible when resolvedDiscussionsExpanded prop changes to true', async () => {
-      expect(findCollapsible().attributes('visible')).toBeUndefined();
+    it('opens the accordion item when resolvedDiscussionsExpanded prop changes to true', async () => {
+      expect(findResolvedCommentsToggle().props('visible')).toBe(false);
       wrapper.setProps({
         resolvedDiscussionsExpanded: true,
       });
       await nextTick();
-      expect(findCollapsible().attributes('visible')).toBe('true');
+      expect(findResolvedCommentsToggle().props('visible')).toBe(true);
     });
 
-    it('does not popover about resolved comments', () => {
-      expect(findPopover().exists()).toBe(false);
-    });
-
-    it('sends a mutation to set an active discussion when clicking on a discussion', () => {
-      findFirstDiscussion().trigger('click');
+    it('emits correct event to send a mutation to set an active discussion when clicking on a discussion', () => {
+      findFirstDiscussion().vm.$emit('update-active-discussion');
 
       expect(mutate).toHaveBeenCalledWith(updateActiveDiscussionMutationVariables);
     });
 
     it('sends a mutation to reset an active discussion when clicking outside of discussion', () => {
-      wrapper.trigger('click');
+      wrapper.find('.image-notes').trigger('click');
 
       expect(mutate).toHaveBeenCalledWith({
         ...updateActiveDiscussionMutationVariables,
@@ -223,41 +310,11 @@ describe('Design management design sidebar component', () => {
     });
 
     it('renders a message about possibility to create a new discussion', () => {
-      expect(findNewDiscussionDisclaimer().exists()).toBe(true);
+      expect(findEmptyState().exists()).toBe(true);
     });
 
     it('does not render unresolved discussions', () => {
       expect(findUnresolvedDiscussions()).toHaveLength(0);
-    });
-  });
-
-  describe('when showing resolved discussions for the first time', () => {
-    beforeEach(() => {
-      Cookies.set(cookieKey, false);
-      createComponent();
-    });
-
-    it('renders a popover if we show resolved comments collapsible for the first time', () => {
-      expect(findPopover().exists()).toBe(true);
-    });
-
-    it('scrolls to resolved threads link', () => {
-      expect(scrollIntoViewMock).toHaveBeenCalled();
-    });
-
-    it('dismisses a popover on the outside click', async () => {
-      wrapper.trigger('click');
-      await nextTick();
-      expect(findPopover().exists()).toBe(false);
-    });
-
-    it(`sets a ${cookieKey} cookie on clicking outside the popover`, () => {
-      jest.spyOn(Cookies, 'set');
-      wrapper.trigger('click');
-      expect(Cookies.set).toHaveBeenCalledWith(cookieKey, 'true', {
-        expires: 365 * 10,
-        secure: false,
-      });
     });
   });
 
@@ -281,7 +338,7 @@ describe('Design management design sidebar component', () => {
       });
 
       it('does not render a message about possibility to create a new discussion', () => {
-        expect(findNewDiscussionDisclaimer().exists()).toBe(false);
+        expect(findEmptyState().exists()).toBe(false);
       });
 
       it('renders design-note-signed-out component', () => {
@@ -291,7 +348,6 @@ describe('Design management design sidebar component', () => {
 
     describe('design has discussions', () => {
       beforeEach(() => {
-        Cookies.set(cookieKey, true);
         createComponent();
       });
 

@@ -1,10 +1,14 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# How to restart GitLab **(FREE SELF)**
+# How to restart GitLab
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 Depending on how you installed GitLab, there are different methods to restart
 its services.
@@ -12,12 +16,12 @@ its services.
 NOTE:
 A short downtime is expected for all methods.
 
-## Omnibus installations
+## Linux package installations
 
-If you have used the [Omnibus packages](https://about.gitlab.com/install/) to install GitLab, then
+If you have used the [Linux package](https://about.gitlab.com/install/) to install GitLab,
 you should already have `gitlab-ctl` in your `PATH`.
 
-`gitlab-ctl` interacts with the Omnibus packages and can be used to restart the
+`gitlab-ctl` interacts with the Linux package installation and can be used to restart the
 GitLab Rails application (Puma) as well as the other components, like:
 
 - GitLab Workhorse
@@ -28,10 +32,10 @@ GitLab Rails application (Puma) as well as the other components, like:
 - [Mailroom](reply_by_email.md)
 - Logrotate
 
-### Omnibus GitLab restart
+### Restart a Linux package installation
 
 There may be times in the documentation where you are asked to _restart_
-GitLab. In that case, you need to run the following command:
+GitLab. To restart a Linux package installation, run:
 
 ```shell
 sudo gitlab-ctl restart
@@ -71,15 +75,14 @@ In that case, you can use `gitlab-ctl kill <service>` to send the `SIGKILL`
 signal to the service, for example `sidekiq`. After that, a restart should
 perform fine.
 
-As a last resort, you can try to
-[reconfigure GitLab](#omnibus-gitlab-reconfigure) instead.
+As a last resort, you can try to reconfigure GitLab instead.
 
-### Omnibus GitLab reconfigure
+### Reconfigure a Linux package installation
 
 There may be times in the documentation where you are asked to _reconfigure_
-GitLab. Remember that this method applies only for the Omnibus packages.
+GitLab. Remember that this method applies only for Linux package installations.
 
-Reconfigure Omnibus GitLab with:
+To reconfigure a Linux package installation, run:
 
 ```shell
 sudo gitlab-ctl reconfigure
@@ -88,22 +91,20 @@ sudo gitlab-ctl reconfigure
 Reconfiguring GitLab should occur in the event that something in its
 configuration (`/etc/gitlab/gitlab.rb`) has changed.
 
-When you run this command, [Chef](https://www.chef.io/products/chef-infra), the underlying configuration management
-application that powers Omnibus GitLab, makes sure that all things like directories,
-permissions, and services are in place and in the same shape that they were
-initially shipped.
+When you run `gitlab-ctl reconfigure`, [Chef](https://www.chef.io/products/chef-infra),
+the underlying configuration management application that powers Linux package installations, runs some checks.
+Chef ensures directories, permissions, and services are in place and working.
 
-It also [restarts GitLab components](#how-to-restart-gitlab)
-where needed, if any of their configuration files have changed.
+Chef also restarts GitLab components if any of their configuration files have changed.
 
 If you manually edit any files in `/var/opt/gitlab` that are managed by Chef,
-running reconfigure reverts the changes AND restarts the services that
+running `reconfigure` reverts the changes and restarts the services that
 depend on those files.
 
-## Installations from source
+## Self-compiled installations
 
-If you have followed the official installation guide to [install GitLab from
-source](../install/installation.md), run the following command to restart GitLab:
+If you have followed the official installation guide to
+[self-compile your installation](../install/installation.md), run the following command to restart GitLab:
 
 ```shell
 # For systems running systemd
@@ -118,8 +119,8 @@ This should restart Puma, Sidekiq, GitLab Workhorse, and [Mailroom](reply_by_ema
 
 ## Helm chart installations
 
-There is no single command to restart the entire GitLab application installed via
-the [cloud native Helm Chart](https://docs.gitlab.com/charts/). Usually, it should be
+There is no single command to restart the entire GitLab application installed through
+the [cloud-native Helm chart](https://docs.gitlab.com/charts/). Usually, it should be
 enough to restart a specific component separately (for example, `gitaly`, `puma`,
 `workhorse`, or `gitlab-shell`) by deleting all the pods related to it:
 
@@ -128,3 +129,17 @@ kubectl delete pods -l release=<helm release name>,app=<component name>
 ```
 
 The release name can be obtained from the output of the `helm list` command.
+
+## Docker installation
+
+If you change the configuration on your [Docker installation](../install/docker.md), for that change to take effect you must restart:
+
+- The main `gitlab` container.
+- Any separate component containers.
+
+For example, if you deployed Sidekiq on a separate container, to restart the containers, run:
+
+```shell
+sudo docker restart gitlab
+sudo docker restart sidekiq
+```

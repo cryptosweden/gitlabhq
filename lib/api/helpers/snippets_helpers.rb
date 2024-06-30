@@ -29,7 +29,8 @@ module API
 
       params :update_file_params do |options|
         optional :files, type: Array, desc: 'An array of files to update' do
-          requires :action, type: String,
+          requires :action,
+            type: String,
             values: SnippetInputAction::ACTIONS.map(&:to_s),
             desc: "The type of action to perform on the file, must be one of: #{SnippetInputAction::ACTIONS.join(", ")}"
           optional :content, type: String, desc: 'The content of a snippet'
@@ -43,6 +44,9 @@ module API
 
       params :minimum_update_params do
         at_least_one_of :content, :description, :files, :file_name, :title, :visibility
+      end
+
+      params :optional_list_params_ee do # rubocop:disable Lint/EmptyBlock
       end
 
       def content_for(snippet)
@@ -95,3 +99,5 @@ module API
     end
   end
 end
+
+API::Helpers::SnippetsHelpers.prepend_mod_with('API::Helpers::SnippetsHelpers')

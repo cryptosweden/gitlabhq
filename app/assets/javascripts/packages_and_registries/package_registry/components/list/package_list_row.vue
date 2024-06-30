@@ -1,43 +1,64 @@
 <script>
-import { GlButton, GlSprintf, GlTooltipDirective, GlTruncate } from '@gitlab/ui';
+import {
+  GlDisclosureDropdown,
+  GlDisclosureDropdownItem,
+  GlFormCheckbox,
+  GlIcon,
+  GlTruncate,
+  GlBadge,
+  GlTooltipDirective,
+} from '@gitlab/ui';
 import { s__, __ } from '~/locale';
 import ListItem from '~/vue_shared/components/registry/list_item.vue';
 import {
+  DELETE_PACKAGE_TEXT,
+  ERRORED_PACKAGE_TEXT,
+  ERROR_PUBLISHING,
   PACKAGE_ERROR_STATUS,
   PACKAGE_DEFAULT_STATUS,
+  WARNING_TEXT,
 } from '~/packages_and_registries/package_registry/constants';
 import { getPackageTypeLabel } from '~/packages_and_registries/package_registry/utils';
-import PackagePath from '~/packages_and_registries/shared/components/package_path.vue';
 import PackageTags from '~/packages_and_registries/shared/components/package_tags.vue';
+import PublishMessage from '~/packages_and_registries/shared/components/publish_message.vue';
 import PublishMethod from '~/packages_and_registries/package_registry/components/list/publish_method.vue';
-import PackageIconAndName from '~/packages_and_registries/shared/components/package_icon_and_name.vue';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
-import TimeagoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 
 export default {
   name: 'PackageListRow',
   components: {
-    GlButton,
-    GlSprintf,
+    GlDisclosureDropdown,
+    GlDisclosureDropdownItem,
+    GlFormCheckbox,
+    GlIcon,
     GlTruncate,
+    GlBadge,
     PackageTags,
-    PackagePath,
+    PublishMessage,
     PublishMethod,
     ListItem,
-    PackageIconAndName,
-    TimeagoTooltip,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
   },
-  inject: ['isGroupPage'],
+  mixins: [glFeatureFlagsMixin()],
+  inject: ['isGroupPage', 'canDeletePackages'],
   props: {
     packageEntity: {
       type: Object,
       required: true,
     },
+    selected: {
+      type: Boolean,
+      default: false,
+      required: false,
+    },
   },
   computed: {
+    containsWebPathLink() {
+      return Boolean(this.packageEntity?._links?.webPath);
+    },
     packageType() {
       return getPackageTypeLabel(this.packageEntity.packageType);
     },
@@ -47,108 +68,153 @@ export default {
     pipeline() {
       return this.packageEntity?.pipelines?.nodes[0];
     },
+    projectName() {
+      return this.isGroupPage ? this.packageEntity.project?.name : '';
+    },
+    projectUrl() {
+      return this.isGroupPage ? this.packageEntity.project?.webUrl : '';
+    },
     pipelineUser() {
       return this.pipeline?.user?.name;
     },
-    showWarningIcon() {
+    errorStatusRow() {
       return this.packageEntity.status === PACKAGE_ERROR_STATUS;
+    },
+    errorStatusMessage() {
+      return this.packageEntity.statusMessage
+        ? this.packageEntity.statusMessage
+        : ERRORED_PACKAGE_TEXT;
     },
     showTags() {
       return Boolean(this.packageEntity.tags?.nodes?.length);
     },
-    disabledRow() {
+    showBadgeProtected() {
+      return (
+        Boolean(this.glFeatures.packagesProtectedPackages) &&
+        Boolean(this.packageEntity.protectionRuleExists)
+      );
+    },
+    nonDefaultRow() {
       return this.packageEntity.status && this.packageEntity.status !== PACKAGE_DEFAULT_STATUS;
     },
-    routerLinkEvent() {
-      return this.disabledRow ? '' : 'click';
+    errorPackageStyle() {
+      return {
+        'gl-text-red-500': this.errorStatusRow,
+        'gl-font-normal': this.errorStatusRow,
+      };
     },
   },
   i18n: {
-    erroredPackageText: s__('PackageRegistry|Invalid Package: failed metadata extraction'),
     createdAt: __('Created %{timestamp}'),
+    deletePackage: DELETE_PACKAGE_TEXT,
+    errorPublishing: ERROR_PUBLISHING,
+    warning: WARNING_TEXT,
+    moreActions: __('More actions'),
+    badgeProtectedTooltipText: s__('PackageRegistry|A protection rule exists for this package.'),
   },
 };
 </script>
 
 <template>
-  <list-item data-qa-selector="package_row" :disabled="disabledRow">
+  <list-item data-testid="package-row" :selected="selected" v-bind="$attrs">
+    <template #left-action>
+      <gl-form-checkbox
+        v-if="canDeletePackages"
+        class="gl-m-0"
+        :checked="selected"
+        @change="$emit('select')"
+      />
+    </template>
     <template #left-primary>
-      <div class="gl-display-flex gl-align-items-center gl-mr-3 gl-min-w-0">
+      <div
+        class="gl-display-flex gl-align-items-center gl-gap-3 gl-mr-5 gl-min-w-0"
+        data-testid="package-name"
+      >
         <router-link
-          class="gl-text-body gl-min-w-0"
+          v-if="containsWebPathLink"
+          :class="errorPackageStyle"
+          class="gl-text-body gl-min-w-0 gl-break-all"
           data-testid="details-link"
-          data-qa-selector="package_link"
-          :event="routerLinkEvent"
           :to="{ name: 'details', params: { id: packageId } }"
         >
-          <gl-truncate :text="packageEntity.name" />
+          {{ packageEntity.name }}
         </router-link>
+        <span v-else :class="errorPackageStyle">
+          {{ packageEntity.name }}
+        </span>
 
-        <gl-button
-          v-if="showWarningIcon"
-          v-gl-tooltip="{ title: $options.i18n.erroredPackageText }"
-          class="gl-hover-bg-transparent!"
-          icon="warning"
-          category="tertiary"
-          data-testid="warning-icon"
-          :aria-label="__('Warning')"
-        />
+        <div v-if="showTags || showBadgeProtected" class="gl-display-flex gl-gap-2">
+          <package-tags
+            v-if="showTags"
+            class="gl-ml-2"
+            :tags="packageEntity.tags.nodes"
+            hide-label
+            :tag-display-limit="1"
+          />
 
-        <package-tags
-          v-if="showTags"
-          class="gl-ml-3"
-          :tags="packageEntity.tags.nodes"
-          hide-label
-          :tag-display-limit="1"
-        />
+          <gl-badge
+            v-if="showBadgeProtected"
+            v-gl-tooltip="{ title: $options.i18n.badgeProtectedTooltipText }"
+            class="gl-ml-2"
+            icon-size="sm"
+            variant="neutral"
+          >
+            {{ __('protected') }}
+          </gl-badge>
+        </div>
       </div>
     </template>
     <template #left-secondary>
-      <div class="gl-display-flex" data-testid="left-secondary-infos">
-        <span>{{ packageEntity.version }}</span>
-
-        <div v-if="pipelineUser" class="gl-display-none gl-sm-display-flex gl-ml-2">
-          <gl-sprintf :message="s__('PackageRegistry|published by %{author}')">
-            <template #author>{{ pipelineUser }}</template>
-          </gl-sprintf>
-        </div>
-
-        <package-icon-and-name>
-          {{ packageType }}
-        </package-icon-and-name>
-
-        <package-path
-          v-if="isGroupPage"
-          :path="packageEntity.project.fullPath"
-          :disabled="disabledRow"
+      <div
+        v-if="!errorStatusRow"
+        class="gl-display-flex gl-align-items-center"
+        data-testid="left-secondary-infos"
+      >
+        <gl-truncate
+          class="gl-max-w-15 gl-md-max-w-26"
+          :text="packageEntity.version"
+          :with-tooltip="true"
         />
+        <span class="gl-ml-2" data-testid="package-type">&middot; {{ packageType }}</span>
+      </div>
+      <div v-else class="gl-text-red-500">
+        <gl-icon name="warning" :aria-label="$options.i18n.warning" data-testid="warning-icon" />
+        <span data-testid="error-message"
+          >{{ $options.i18n.errorPublishing }} &middot; {{ errorStatusMessage }}</span
+        >
       </div>
     </template>
 
-    <template #right-primary>
+    <template v-if="!errorStatusRow" #right-primary>
       <publish-method :pipeline="pipeline" />
     </template>
 
-    <template #right-secondary>
-      <span data-testid="created-date">
-        <gl-sprintf :message="$options.i18n.createdAt">
-          <template #timestamp>
-            <timeago-tooltip :time="packageEntity.createdAt" />
-          </template>
-        </gl-sprintf>
-      </span>
+    <template v-if="!errorStatusRow" #right-secondary>
+      <publish-message
+        :author="pipelineUser"
+        :project-name="projectName"
+        :project-url="projectUrl"
+        :publish-date="packageEntity.createdAt"
+      />
     </template>
 
-    <template v-if="!disabledRow" #right-action>
-      <gl-button
-        data-testid="action-delete"
-        icon="remove"
-        category="secondary"
-        variant="danger"
-        :title="s__('PackageRegistry|Remove package')"
-        :aria-label="s__('PackageRegistry|Remove package')"
-        @click="$emit('packageToDelete', packageEntity)"
-      />
+    <template v-if="packageEntity.userPermissions.destroyPackage" #right-action>
+      <gl-disclosure-dropdown
+        category="tertiary"
+        data-testid="delete-dropdown"
+        icon="ellipsis_v"
+        :toggle-text="$options.i18n.moreActions"
+        text-sr-only
+        no-caret
+      >
+        <gl-disclosure-dropdown-item data-testid="action-delete" @action="$emit('delete')">
+          <template #list-item>
+            <span class="gl-text-red-500">
+              {{ $options.i18n.deletePackage }}
+            </span>
+          </template>
+        </gl-disclosure-dropdown-item>
+      </gl-disclosure-dropdown>
     </template>
   </list-item>
 </template>

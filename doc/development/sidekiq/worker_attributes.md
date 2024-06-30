@@ -1,21 +1,26 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Sidekiq worker attributes
+
+Worker classes can define certain attributes to control their behavior and add metadata.
+
+Child classes inheriting from other workers also inherit these attributes, so you only
+have to redefine them if you want to override their values.
 
 ## Job urgency
 
 Jobs can have an `urgency` attribute set, which can be `:high`,
 `:low`, or `:throttled`. These have the below targets:
 
-| **Urgency**  | **Queue Scheduling Target** | **Execution Latency Requirement**  |
-|--------------|-----------------------------|------------------------------------|
-| `:high`      | 10 seconds                  | p50 of 1 second, p99 of 10 seconds |
-| `:low`       | 1 minute                    | Maximum run time of 5 minutes      |
-| `:throttled` | None                        | Maximum run time of 5 minutes      |
+| **Urgency**      | **Queue Scheduling Target**   | **Execution Latency Requirement**    |
+|---------------   | ----------------------------- | ------------------------------------ |
+| `:high`          | 10 seconds                    | 10 seconds                           |
+| `:low` (default) | 1 minute                      | 5 minutes                            |
+| `:throttled`     | None                          | 5 minutes                            |
 
 To set a job's urgency, use the `urgency` class method:
 
@@ -32,7 +37,7 @@ end
 ### Latency sensitive jobs
 
 If a large number of background jobs get scheduled at once, queueing of jobs may
-occur while jobs wait for a worker node to be become available. This is normal
+occur while jobs wait for a worker node to be become available. This is standard
 and gives the system resilience by allowing it to gracefully handle spikes in
 traffic. Some jobs, however, are more sensitive to latency than others.
 
@@ -55,7 +60,7 @@ that branch, but be told in the UI that the branch does not exist. We deem these
 jobs to be `urgency :high`.
 
 Extra effort is made to ensure that these jobs are started within a very short
-period of time after being scheduled. However, in order to ensure throughput,
+period of time after being scheduled. However, to ensure throughput,
 these jobs also have very strict execution duration requirements:
 
 1. The median job execution time should be less than 1 second.
@@ -74,20 +79,18 @@ On GitLab.com, we run Sidekiq in several
 each of which represents a particular type of workload.
 
 When changing a queue's urgency, or adding a new queue, we need to take
-into account the expected workload on the new shard. Note that, if we're
+into account the expected workload on the new shard. If we're
 changing an existing queue, there is also an effect on the old shard,
 but that always reduces work.
 
 To do this, we want to calculate the expected increase in total execution time
 and RPS (throughput) for the new shard. We can get these values from:
 
-- The [Queue Detail
-  dashboard](https://dashboards.gitlab.net/d/sidekiq-queue-detail/sidekiq-queue-detail)
+- The [Queue Detail dashboard](https://dashboards.gitlab.net/d/sidekiq-queue-detail/sidekiq-queue-detail)
   has values for the queue itself. For a new queue, we can look for
   queues that have similar patterns or are scheduled in similar
   circumstances.
-- The [Shard Detail
-  dashboard](https://dashboards.gitlab.net/d/sidekiq-shard-detail/sidekiq-shard-detail)
+- The [Shard Detail dashboard](https://dashboards.gitlab.net/d/sidekiq-shard-detail/sidekiq-shard-detail)
   has Total Execution Time and Throughput (RPS). The Shard Utilization
   panel displays if there is currently any excess capacity for this
   shard.
@@ -105,7 +108,7 @@ shard_consumption = shard_rps * shard_duration_avg
 
 If we expect an increase of **less than 5%**, then no further action is needed.
 
-Otherwise, please ping `@gitlab-org/scalability` on the merge request and ask
+Otherwise, ping `@gitlab-org/scalability` on the merge request and ask
 for a review.
 
 ## Jobs with External Dependencies
@@ -114,11 +117,11 @@ Most background jobs in the GitLab application communicate with other GitLab
 services. For example, PostgreSQL, Redis, Gitaly, and Object Storage. These are considered
 to be "internal" dependencies for a job.
 
-However, some jobs are dependent on external services in order to complete
+However, some jobs are dependent on external services to complete
 successfully. Some examples include:
 
 1. Jobs which call web-hooks configured by a user.
-1. Jobs which deploy an application to a k8s cluster configured by a user.
+1. Jobs which deploy an application to a Kubernetes cluster configured by a user.
 
 These jobs have "external dependencies". This is important for the operation of
 the background processing cluster in several ways:
@@ -176,8 +179,8 @@ performance.
 Likewise, if a worker uses large amounts of memory, we can run these on a
 bespoke low concurrency, high memory fleet.
 
-Note that memory-bound workers create heavy GC workloads, with pauses of
-10-50ms. This has an impact on the latency requirements for the
+Memory-bound workers create heavy GC workloads, with pauses of
+10-50 ms. This has an impact on the latency requirements for the
 worker. For this reason, `memory` bound, `urgency :high` jobs are not
 permitted and fail CI. In general, `memory` bound workers are
 discouraged, and alternative approaches to processing the work should be
@@ -216,7 +219,7 @@ We use the following approach to determine whether a worker is CPU-bound:
 - Divide `cpu_s` by `duration` to get the percentage time spend on-CPU.
 - If this ratio exceeds 33%, the worker is considered CPU-bound and should be
   annotated as such.
-- Note that these values should not be used over small sample sizes, but
+- These values should not be used over small sample sizes, but
   rather over fairly large aggregates.
 
 ## Feature category
@@ -239,7 +242,7 @@ can put unsustainable load on the primary database server. We therefore added th
 By configuring a worker's `data_consistency` field, we can then allow the scheduler to target read replicas
 under several strategies outlined below.
 
-## Trading immediacy for reduced primary load
+### Trading immediacy for reduced primary load
 
 We require Sidekiq workers to make an explicit decision around whether they need to use the
 primary database node for all reads and writes, or whether reads can be served from replicas. This is
@@ -251,12 +254,13 @@ When setting this field, consider the following trade-off:
 - Prefer read replicas to add relief to the primary, but increase the likelihood of stale reads that have to be retried.
 
 To maintain the same behavior compared to before this field was introduced, set it to `:always`, so
-database operations will only target the primary. Reasons for having to do so include workers
+database operations only target the primary. Reasons for having to do so include workers
 that mostly or exclusively perform writes, or workers that read their own writes and who might run
 into data consistency issues should a stale record be read back from a replica. **Try to avoid
 these scenarios, since `:always` should be considered the exception, not the rule.**
 
-To allow for reads to be served from replicas, we added two additional consistency modes: `:sticky` and `:delayed`.
+To allow for reads to be served from replicas, we added two additional consistency modes: `:sticky` and `:delayed`. A RuboCop rule
+reminds the developer when `:always` data consistency mode is used. If workers require the primary database, you can disable the rule in-line.
 
 When you declare either `:sticky` or `:delayed` consistency, workers become eligible for database
 load-balancing.
@@ -265,18 +269,17 @@ In both cases, if the replica is not up-to-date and the time from scheduling the
  the jobs sleep up to the minimum delay interval (0.8 seconds). This gives the replication process time to finish.
 The difference is in what happens when there is still replication lag after the delay: `sticky` workers
 switch over to the primary right away, whereas `delayed` workers fail fast and are retried once.
-If they still encounter replication lag, they also switch to the primary instead.
-**If your worker never performs any writes, it is strongly advised to apply one of these consistency settings,
-since it will never need to rely on the primary database node.**
+If the workers still encounter replication lag, they switch to the primary instead. **If your worker never performs any writes,
+it is strongly advised to apply `:sticky` or `:delayed` consistency settings, since the worker never needs to rely on the primary database node.**
 
 The table below shows the `data_consistency` attribute and its values, ordered by the degree to which
-they prefer read replicas and will wait for replicas to catch up:
+they prefer read replicas and wait for replicas to catch up:
 
-| **Data Consistency**  | **Description**  |
-|--------------|-----------------------------|
-| `:always`    | The job is required to use the primary database (default). It should be used for workers that primarily perform writes or that have strict requirements around data consistency when reading their own writes. |
-| `:sticky`    | The job prefers replicas, but switches to the primary for writes or when encountering replication lag. It should be used for jobs that require to be executed as fast as possible but can sustain a small initial queuing delay.  |
-| `:delayed`   | The job prefers replicas, but switches to the primary for writes. When encountering replication lag before the job starts, the job is retried once. If the replica is still not up to date on the next retry, it switches to the primary. It should be used for jobs where delaying execution further typically does not matter, such as cache expiration or web hooks execution. |
+| **Data consistency**  | **Description**  | **Guideline** |
+|--------------|-----------------------------|----------|
+| `:always`    | The job is required to use the primary database (default). | It should be used for workers that primarily perform writes, have strict requirements around data consistency when reading their own writes, or are cron jobs. |
+| `:sticky`    | The job prefers replicas, but switches to the primary for writes or when encountering replication lag. | It should be used for jobs that require to be executed as fast as possible but can sustain a small initial queuing delay.  |
+| `:delayed`   | The job prefers replicas, but switches to the primary for writes. When encountering replication lag before the job starts, the job is retried once. If the replica is still not up to date on the next retry, it switches to the primary. | It should be used for jobs where delaying execution further typically does not matter, such as cache expiration or web hooks execution. |
 
 In all cases workers read either from a replica that is fully caught up,
 or from the primary node, so data consistency is always ensured.
@@ -297,14 +300,14 @@ end
 
 The `feature_flag` property allows you to toggle a job's `data_consistency`,
 which permits you to safely toggle load balancing capabilities for a specific job.
-When `feature_flag` is disabled, the job defaults to `:always`, which means that the job will always use the primary database.
+When `feature_flag` is disabled, the job defaults to `:always`, which means that the job always uses the primary database.
 
 The `feature_flag` property does not allow the use of
 [feature gates based on actors](../feature_flags/index.md).
 This means that the feature flag cannot be toggled only for particular
 projects, groups, or users, but instead, you can safely use [percentage of time rollout](../feature_flags/index.md).
-Note that since we check the feature flag on both Sidekiq client and server, rolling out a 10% of the time,
-will likely results in 1% (`0.1` `[from client]*0.1` `[from server]`) of effective jobs using replicas.
+Since we check the feature flag on both Sidekiq client and server, rolling out a 10% of the time,
+likely results in 1% (`0.1` `[from client]*0.1` `[from server]`) of effective jobs using replicas.
 
 Example:
 
@@ -323,3 +326,101 @@ end
 For [idempotent jobs](idempotent_jobs.md) that declare either `:sticky` or `:delayed` data consistency, we are
 [preserving the latest WAL location](idempotent_jobs.md#preserve-the-latest-wal-location-for-idempotent-jobs) while deduplicating,
 ensuring that we read from the replica that is fully caught up.
+
+## Job pause control
+
+With the `pause_control` property, you can conditionally pause job processing. If the strategy is active, the job
+is stored in a separate `ZSET` and re-enqueued when the strategy becomes inactive. `PauseControl::ResumeWorker` is a cron
+worker that checks if any paused jobs must be restarted.
+
+To use `pause_control`, you can:
+
+- Use one of the strategies defined in `lib/gitlab/sidekiq_middleware/pause_control/strategies/`.
+- Define a custom strategy in `lib/gitlab/sidekiq_middleware/pause_control/strategies/` and add the strategy to `lib/gitlab/sidekiq_middleware/pause_control.rb`.
+
+For example:
+
+```ruby
+module Gitlab
+  module SidekiqMiddleware
+    module PauseControl
+      module Strategies
+        class CustomStrategy < Base
+          def should_pause?
+            ApplicationSetting.current.elasticsearch_pause_indexing?
+          end
+        end
+      end
+    end
+  end
+end
+```
+
+```ruby
+class PausedWorker
+  include ApplicationWorker
+
+  pause_control :custom_strategy
+
+  # ...
+end
+```
+
+## Concurrency limit
+
+With the `concurrency_limit` property, you can limit the worker's concurrency. It will put the jobs that are over this limit in
+a separate `LIST` and re-enqueued when it falls under the limit. `ConcurrencyLimit::ResumeWorker` is a cron
+worker that checks if any throttled jobs should be re-enqueued.
+
+The first job that crosses the defined concurency limit initiates the throttling process for all other jobs of this class.
+Until this happens, jobs are scheduled and executed as usual.
+
+When the throttling starts, newly scheduled and executed jobs will be added to the end of the `LIST` to ensure that
+the execution order is preserved. As soon as the `LIST` is empty again, the throttling process ends.
+
+WARNING:
+If there is a sustained workload over the limit, the `LIST` is going to grow until the limit is disabled or
+the workload drops under the limit.
+
+You should use a lambda to define the limit. If it returns `nil`, `0`, or a negative value, the limit won't be applied.
+
+```ruby
+class LimitedWorker
+  include ApplicationWorker
+
+  concurrency_limit -> { 60 }
+
+  # ...
+end
+```
+
+```ruby
+class LimitedWorker
+  include ApplicationWorker
+
+  concurrency_limit -> { ApplicationSetting.current.elasticsearch_concurrent_sidekiq_jobs }
+
+  # ...
+end
+```
+
+## Skip execution of workers in Geo secondary
+
+On Geo secondary sites, database writes are disabled.
+You must skip execution of workers that attempt database writes from Geo secondary sites,
+if those workers get enqueued on Geo secondary sites.
+Conveniently, most workers do not get enqueued on Geo secondary sites, because
+[most non-GET HTTP requests get proxied to the Geo primary site](https://gitlab.com/gitlab-org/gitlab/-/blob/v16.8.0-ee/workhorse/internal/upstream/routes.go#L382-L431),
+and because Geo secondary sites
+[disable most Sidekiq-Cron jobs](https://gitlab.com/gitlab-org/gitlab/-/blob/v16.8.0-ee/ee/lib/gitlab/geo/cron_manager.rb#L6-L26).
+Ask a Geo engineer if you are unsure.
+To skip execution, prepend the `::Geo::SkipSecondary` module to the worker class.
+
+```ruby
+class DummyWorker
+  include ApplicationWorker
+  prepend ::Geo::SkipSecondary
+
+ # ...
+end
+```

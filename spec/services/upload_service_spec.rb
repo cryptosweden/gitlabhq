@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe UploadService do
+RSpec.describe UploadService, feature_category: :shared do
   describe 'File service' do
     before do
       @user = create(:user)
@@ -66,29 +66,6 @@ RSpec.describe UploadService do
       end
 
       it { expect(@link_to_file).to eq({}) }
-    end
-
-    describe '#override_max_attachment_size' do
-      let(:txt) { fixture_file_upload('spec/fixtures/doc_sample.txt', 'text/plain') }
-      let(:service) { described_class.new(@project, txt, FileUploader) }
-
-      subject { service.execute.to_h }
-
-      before do
-        allow(txt).to receive(:size) { 100.megabytes.to_i }
-      end
-
-      it 'allows the upload' do
-        service.override_max_attachment_size = 101.megabytes
-
-        expect(subject.keys).to eq(%i(alt url markdown))
-      end
-
-      it 'disallows the upload' do
-        service.override_max_attachment_size = 99.megabytes
-
-        expect(subject).to eq({})
-      end
     end
   end
 

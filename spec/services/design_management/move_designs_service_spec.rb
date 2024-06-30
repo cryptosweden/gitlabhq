@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe DesignManagement::MoveDesignsService do
+RSpec.describe DesignManagement::MoveDesignsService, feature_category: :design_management do
   include DesignManagementTestHelpers
 
   let_it_be(:issue) { create(:issue) }
-  let_it_be(:developer) { create(:user, developer_projects: [issue.project]) }
+  let_it_be(:developer) { create(:user, developer_of: issue.project) }
   let_it_be(:designs) { create_list(:design, 3, :with_relative_position, issue: issue) }
 
   let(:project) { issue.project }
@@ -36,7 +36,7 @@ RSpec.describe DesignManagement::MoveDesignsService do
       let(:current_design) { designs.first }
       let(:current_user) { build_stubbed(:user) }
 
-      it 'raises cannot_move' do
+      it 'raises cannot_move', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446179' do
         expect(subject).to be_error.and(have_attributes(message: :cannot_move))
       end
     end
@@ -88,23 +88,24 @@ RSpec.describe DesignManagement::MoveDesignsService do
 
         expect(subject).to be_success
 
-        expect(issue.designs.ordered).to eq([
-          # Existing designs which already had a relative_position set.
-          # These should stay at the beginning, in the same order.
-          other_design1,
-          other_design2,
+        expect(issue.designs.ordered).to eq(
+          [
+            # Existing designs which already had a relative_position set.
+            # These should stay at the beginning, in the same order.
+            other_design1,
+            other_design2,
 
-          # The designs we're passing into the service.
-          # These should be placed between the existing designs, in the correct order.
-          previous_design,
-          current_design,
-          next_design,
+            # The designs we're passing into the service.
+            # These should be placed between the existing designs, in the correct order.
+            previous_design,
+            current_design,
+            next_design,
 
-          # Existing designs which didn't have a relative_position set.
-          # These should be placed at the end, in the order of their IDs.
-          other_design3,
-          other_design4
-        ])
+            # Existing designs which didn't have a relative_position set.
+            # These should be placed at the end, in the order of their IDs.
+            other_design3,
+            other_design4
+          ])
       end
     end
   end

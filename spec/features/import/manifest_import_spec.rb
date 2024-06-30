@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Import multiple repositories by uploading a manifest file', :js do
-  include Select2Helper
-
+RSpec.describe 'Import multiple repositories by uploading a manifest file', :js, feature_category: :importers do
   let(:user) { create(:admin) }
   let(:group) { create(:group) }
 
   before do
+    stub_application_setting(import_sources: ['manifest'])
+
     sign_in(user)
 
     group.add_owner(user)

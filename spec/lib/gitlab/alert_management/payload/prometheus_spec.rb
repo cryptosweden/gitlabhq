@@ -19,9 +19,9 @@ RSpec.describe Gitlab::AlertManagement::Payload::Prometheus do
     subject { parsed_payload.title }
 
     it_behaves_like 'parsable alert payload field',
-                    'annotations/title',
-                    'annotations/summary',
-                    'labels/alertname'
+      'annotations/title',
+      'annotations/summary',
+      'labels/alertname'
   end
 
   describe '#description' do
@@ -106,10 +106,10 @@ RSpec.describe Gitlab::AlertManagement::Payload::Prometheus do
     subject { parsed_payload.gitlab_y_label }
 
     it_behaves_like 'parsable alert payload field',
-                    'annotations/gitlab_y_label',
-                    'annotations/title',
-                    'annotations/summary',
-                    'labels/alertname'
+      'annotations/gitlab_y_label',
+      'annotations/title',
+      'annotations/summary',
+      'labels/alertname'
   end
 
   describe '#monitoring_tool' do
@@ -175,34 +175,6 @@ RSpec.describe Gitlab::AlertManagement::Payload::Prometheus do
       ].join('/')
 
       is_expected.to eq(Digest::SHA1.hexdigest(plain_fingerprint))
-    end
-  end
-
-  describe '#metrics_dashboard_url' do
-    include_context 'self-managed prometheus alert attributes' do
-      let(:raw_payload) { payload }
-    end
-
-    subject { parsed_payload.metrics_dashboard_url }
-
-    it { is_expected.to eq(dashboard_url_for_alert) }
-
-    context 'without environment' do
-      let(:raw_payload) { payload.except('labels') }
-
-      it { is_expected.to be_nil }
-    end
-
-    context 'without full query' do
-      let(:raw_payload) { payload.except('generatorURL') }
-
-      it { is_expected.to be_nil }
-    end
-
-    context 'without title' do
-      let(:raw_payload) { payload.except('annotations') }
-
-      it { is_expected.to be_nil }
     end
   end
 
@@ -295,6 +267,20 @@ RSpec.describe Gitlab::AlertManagement::Payload::Prometheus do
 
     context 'without key' do
       it { is_expected.to be_nil }
+    end
+  end
+
+  describe '#source' do
+    subject { parsed_payload.source }
+
+    it { is_expected.to eq('Prometheus') }
+
+    context 'with alerting integration provided' do
+      before do
+        parsed_payload.integration = instance_double('::AlertManagement::HttpIntegration', name: 'INTEGRATION')
+      end
+
+      it { is_expected.to eq('INTEGRATION') }
     end
   end
 end

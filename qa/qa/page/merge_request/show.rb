@@ -8,240 +8,292 @@ module QA
         include Page::Component::Issuable::Sidebar
 
         view 'app/assets/javascripts/batch_comments/components/preview_dropdown.vue' do
-          element :review_preview_dropdown
-        end
-
-        view 'app/assets/javascripts/batch_comments/components/publish_button.vue' do
-          element :submit_review_button
+          element 'review-preview-dropdown'
         end
 
         view 'app/assets/javascripts/batch_comments/components/review_bar.vue' do
-          element :review_bar_content
+          element 'review-bar-content'
+        end
+
+        view 'app/assets/javascripts/batch_comments/components/submit_dropdown.vue' do
+          element 'submit-review-dropdown'
+          element 'submit-review-button'
         end
 
         view 'app/assets/javascripts/diffs/components/compare_dropdown_layout.vue' do
-          element :dropdown_content
+          element 'version-dropdown-content'
         end
 
         view 'app/assets/javascripts/diffs/components/compare_versions.vue' do
-          element :target_version_dropdown
-          element :file_tree_button
+          element 'target-version-dropdown'
+          element 'file-tree-button'
         end
 
         view 'app/assets/javascripts/diffs/components/tree_list.vue' do
-          element :file_tree_container
+          element 'file-tree-container'
+          element 'diff-tree-search'
         end
 
         view 'app/assets/javascripts/diffs/components/diff_file_header.vue' do
-          element :file_name_content
-          element :file_title_container
-          element :dropdown_button
-          element :edit_in_ide_button
+          element 'file-title-container'
+          element 'options-dropdown-button'
+          element 'edit-in-ide-button'
+        end
+
+        view 'app/assets/javascripts/vue_shared/components/file_row.vue' do
+          element 'file-row-name-container'
         end
 
         view 'app/assets/javascripts/diffs/components/diff_row.vue' do
-          element :diff_comment_button
-          element :new_diff_line_link
+          element 'left-comment-button'
+          element 'left-line-number'
         end
 
         view 'app/assets/javascripts/notes/components/note_form.vue' do
-          element :start_review_button
-          element :comment_now_button
+          element 'start-review-button'
+          element 'comment-now-button'
         end
 
-        view 'app/assets/javascripts/vue_merge_request_widget/components/mr_widget_header.vue' do
-          element :download_dropdown
-          element :download_email_patches_menu_item
-          element :download_plain_diff_menu_item
-          element :open_in_web_ide_button
+        view 'app/views/projects/merge_requests/_code_dropdown.html.haml' do
+          element 'mr-code-dropdown'
+          element 'download-email-patches-menu-item'
+          element 'download-plain-diff-menu-item'
+          element 'open-in-web-ide-button'
         end
 
         view 'app/assets/javascripts/vue_merge_request_widget/components/mr_widget_pipeline.vue' do
-          element :merge_request_pipeline_info_content
-          element :pipeline_link
-        end
-
-        view 'app/assets/javascripts/vue_merge_request_widget/components/states/mr_widget_failed_to_merge.vue' do
-          element :merge_request_error_content
+          element 'pipeline-info-container'
+          element 'pipeline-id'
         end
 
         view 'app/assets/javascripts/vue_merge_request_widget/components/states/mr_widget_merged.vue' do
-          element :cherry_pick_button
-          element :merged_status_content
-          element :revert_button
+          element 'cherry-pick-button'
+          element 'revert-button'
         end
 
-        view 'app/assets/javascripts/vue_merge_request_widget/components/states/mr_widget_rebase.vue' do
-          element :mr_rebase_button
-          element :no_fast_forward_message_content
+        view 'app/assets/javascripts/vue_merge_request_widget/components/checks/rebase.vue' do
+          element 'standard-rebase-button'
         end
 
         view 'app/assets/javascripts/vue_merge_request_widget/components/states/ready_to_merge.vue' do
-          element :merge_button
-          element :fast_forward_message_content
-          element :merge_moment_dropdown
-          element :merge_immediately_menu_item
+          element 'merge-button'
+          element 'merge-immediately-dropdown'
+          element 'merge-immediately-button'
+          element 'merged-status-content'
         end
 
         view 'app/assets/javascripts/vue_merge_request_widget/components/states/sha_mismatch.vue' do
-          element :head_mismatch_content
+          element 'head-mismatch-content'
         end
 
         view 'app/assets/javascripts/vue_merge_request_widget/components/states/squash_before_merge.vue' do
-          element :squash_checkbox
+          element 'squash-checkbox'
         end
 
         view 'app/assets/javascripts/vue_merge_request_widget/mr_widget_options.vue' do
-          element :mr_widget_content
+          element 'mr-widget-content'
+          element 'pipeline-container'
+        end
+
+        view 'app/assets/javascripts/ci/pipelines_page/components/pipelines_artifacts.vue' do
+          element 'artifacts-dropdown'
         end
 
         view 'app/assets/javascripts/vue_shared/components/markdown/apply_suggestion.vue' do
-          element :apply_suggestion_dropdown
-          element :commit_message_field
-          element :commit_with_custom_message_button
+          element 'apply-suggestion-dropdown'
+          element 'commit-message-field'
+          element 'commit-with-custom-message-button'
         end
 
         view 'app/assets/javascripts/vue_shared/components/markdown/header.vue' do
-          element :suggestion_button
+          element 'suggestion-button'
+          element 'dismiss-suggestion-popover-button'
         end
 
         view 'app/assets/javascripts/vue_shared/components/markdown/suggestion_diff_header.vue' do
-          element :add_suggestion_batch_button
-          element :applied_badge
-          element :applying_badge
+          element 'add-suggestion-batch-button'
+          element 'applied-badge'
+          element 'applying-badge'
         end
 
         view 'app/views/projects/merge_requests/_description.html.haml' do
-          element :description_content
-        end
-
-        view 'app/views/projects/merge_requests/_mr_box.html.haml' do
-          element :title_content, required: true
+          element 'description-content'
         end
 
         view 'app/views/projects/merge_requests/_mr_title.html.haml' do
-          element :edit_button
+          element 'edit-title-button'
+          element 'title-content', required: true
         end
 
-        view 'app/views/projects/merge_requests/show.html.haml' do
-          element :notes_tab, required: true
-          element :commits_tab, required: true
-          element :diffs_tab, required: true
+        view 'app/views/projects/merge_requests/_page.html.haml' do
+          element 'notes-tab', required: true
+          element 'commits-tab', required: true
+          element 'diffs-tab', required: true
         end
 
-        view 'app/assets/javascripts/vue_merge_request_widget/components/states/mr_widget_auto_merge_enabled.vue' do
-          element :cancel_auto_merge_button
+        view 'app/views/shared/_broadcast_message.html.haml' do
+          element 'broadcast-notification-container'
+          element 'close-button'
+        end
+
+        view 'app/assets/javascripts/ci/jobs_page/components/job_cells/job_cell.vue' do
+          element 'fork-icon'
+        end
+
+        view 'app/assets/javascripts/vue_merge_request_widget/components/mr_collapsible_extension.vue' do
+          element 'mr-collapsible-title'
         end
 
         def start_review
-          click_element(:start_review_button)
+          click_element('start-review-button')
 
           # After clicking the button, wait for it to disappear
           # before moving on to the next part of the test
-          has_no_element?(:start_review_button)
+          has_no_element?('start-review-button')
         end
 
         def click_target_version_dropdown
-          click_element(:target_version_dropdown)
+          click_element('target-version-dropdown')
         end
 
         def version_dropdown_content
-          find_element(:dropdown_content).text
+          find_element('version-dropdown-content').text
         end
 
         def submit_pending_reviews
-          has_element?(:submit_review_button)
-          within_element(:review_bar_content) do
-            click_element(:review_preview_dropdown)
-            click_element(:submit_review_button)
+          # On test environments we have a broadcast message that can cover the buttons
+
+          if has_element?('broadcast-notification-container', wait: 5)
+            within_element('broadcast-notification-container') do
+              click_element('close-button')
+            end
           end
-          # After clicking the button, wait for it to disappear
+
+          within_element('review-bar-content') do
+            click_element('review-preview-dropdown')
+          end
+
+          click_element('submit-review-dropdown')
+          click_element('submit-review-button')
+
+          # After clicking the button, wait for the review bar to disappear
           # before moving on to the next part of the test
-          has_no_element?(:submit_review_button)
+          wait_until(reload: false) do
+            has_no_element?('review-bar-content')
+          end
         end
 
         def add_comment_to_diff(text)
           wait_until(sleep_interval: 5) do
             has_css?('a[data-linenumber="1"]')
           end
-          all_elements(:new_diff_line_link, minimum: 1).first.hover
-          click_element(:diff_comment_button)
-          fill_element(:reply_field, text)
+
+          all_elements('left-line-number', minimum: 1).first.hover
+          click_element('left-comment-button')
+
+          click_element('dismiss-suggestion-popover-button') if has_element?('dismiss-suggestion-popover-button',
+            wait: 1)
+
+          fill_element('reply-field', text)
         end
 
         def click_discussions_tab
-          click_element(:notes_tab)
+          click_element('notes-tab')
 
           wait_for_requests
         end
 
         def click_commits_tab
-          click_element(:commits_tab)
+          click_element('commits-tab')
         end
 
         def click_diffs_tab
-          click_element(:diffs_tab)
-          click_element(:dismiss_popover_button) if has_element?(:dismiss_popover_button, wait: 1)
+          # Do not wait for spinner due to https://gitlab.com/gitlab-org/gitlab/-/issues/398584
+          click_element('diffs-tab', skip_finished_loading_check: true)
         end
 
         def click_pipeline_link
-          click_element(:pipeline_link)
+          click_element('pipeline-id')
         end
 
         def edit!
-          click_element(:edit_button)
+          # Click by JS is needed to bypass the Moved MR actions popover
+          # Change back to regular click_element when moved_mr_sidebar FF is removed
+          # Rollout issue: https://gitlab.com/gitlab-org/gitlab/-/issues/385460
+          click_by_javascript(find_element('edit-title-button', skip_finished_loading_check: true))
         end
 
-        def fast_forward_possible?
-          has_element?(:fast_forward_message_content)
-        end
-
-        def fast_forward_not_possible?
-          has_element?(:no_fast_forward_message_content)
+        def expand_merge_checks
+          within_element('.mr-widget-section') do
+            click_element('chevron-lg-down-icon')
+          end
         end
 
         def has_file?(file_name)
           open_file_tree
-          has_element?(:file_name_content, file_name: file_name)
+
+          return true if has_element?('file-row-name-container', file_name: file_name)
+
+          # Since the file tree uses virtual scrolling, search for file in case it is outside of viewport
+          search_file_tree(file_name)
+          has_element?('file-row-name-container', file_name: file_name)
         end
 
         def has_no_file?(file_name)
+          # Since the file tree uses virtual scrolling, search for file to ensure non-existence
+          search_file_tree(file_name)
+          has_no_element?('file-row-name-container', file_name: file_name)
+        end
+
+        def search_file_tree(file_name)
           open_file_tree
-          has_no_element?(:file_name_content, file_name: file_name)
+          fill_element('diff-tree-search', file_name)
         end
 
         def open_file_tree
-          click_element(:file_tree_button) unless has_element?(:file_tree_container)
+          click_element('file-tree-button') if has_no_element?('file-tree-container', wait: 1)
         end
 
         def has_merge_button?
-          refresh
+          has_element?('merge-button', wait: 30)
+        end
 
-          has_element?(:merge_button)
+        def has_no_merge_button?
+          has_no_element?('merge-button')
+        end
+
+        RSpec::Matchers.define :have_merge_button do
+          match(&:has_merge_button?)
+          match_when_negated(&:has_no_merge_button?)
         end
 
         def has_pipeline_status?(text)
           # Pipelines can be slow, so we wait a bit longer than the usual 10 seconds
           wait_until(max_duration: 120, sleep_interval: 5, reload: true) do
-            has_element?(:merge_request_pipeline_info_content, text: text, wait: 15 )
+            has_element?('pipeline-info-container', text: text, wait: 15)
           end
         end
 
         def has_title?(title)
-          has_element?(:title_content, text: title)
+          has_element?('title-content', text: title)
         end
 
         def has_description?(description)
-          has_element?(:description_content, text: description)
+          has_element?('description-content', text: description)
         end
 
         def mark_to_squash
-          # The squash checkbox is enabled via JS
-          wait_until(reload: false) do
-            !find_element(:squash_checkbox, visible: false).disabled?
+          # Refresh page if commit arrived after loading the MR page
+          wait_until(reload: true, message: 'Wait for MR to be unblocked') do
+            has_no_element?('head-mismatch-content', wait: 1)
           end
 
-          check_element(:squash_checkbox, true)
+          # The squash checkbox is enabled via JS
+          wait_until(reload: false) do
+            !find_element('squash-checkbox', visible: false).disabled?
+          end
+
+          check_element('squash-checkbox', true)
         end
 
         def merge!
@@ -251,10 +303,10 @@ module QA
           raise "Merge did not appear to be successful" unless merged?
         end
 
-        def merge_when_pipeline_succeeds!
+        def set_to_auto_merge!
           wait_until_ready_to_merge
 
-          click_element(:merge_button, text: 'Merge when pipeline succeeds')
+          click_element('merge-button', text: 'Set to auto-merge')
         end
 
         def merged?
@@ -265,17 +317,23 @@ module QA
           # To remove page refresh logic if possible
           # We don't raise on failure because this method is used as a predicate matcher
           retry_until(max_attempts: 3, reload: true, raise_on_failure: false) do
-            has_element?(:merged_status_content, text: 'The changes were merged into', wait: 20)
+            has_element?('merged-status-content', text: /The changes were merged into|Changes merged into/, wait: 20)
           end
         end
 
-        # Check if the MR is able to be merged
-        # Waits up 10 seconds and returns false if the MR can't be merged
-        def mergeable?
-          # The merge button is enabled via JS, but `has_element?` calls
-          # `wait_for_requests`, which should ensure the disabled/enabled
-          # state of the element is reliable
-          has_element?(:merge_button, disabled: false)
+        RSpec::Matchers.define :be_mergeable do
+          match do |page|
+            page.has_element?('merge-button', disabled: false)
+          end
+
+          match_when_negated do |page|
+            page.has_no_element?('merge-button', disabled: false)
+          end
+        end
+
+        # Waits up 10 seconds and returns false if the Revert button is not enabled
+        def revertible?
+          has_element?('revert-button', disabled: false, wait: 10)
         end
 
         # Waits up 60 seconds and raises an error if unable to merge.
@@ -286,13 +344,15 @@ module QA
         #
         # @param [Boolean] transient_test true if the current test is a transient test (default: false)
         def wait_until_ready_to_merge(transient_test: false)
-          wait_until do
-            has_element?(:merge_button)
+          wait_until(message: "Waiting for ready to merge", sleep_interval: 1) do
+            # changes in mr are rendered async, because of that mr can sometimes show no changes and there will be no
+            # merge button, in such case we must retry loop otherwise find_element will raise ElementNotFound error
+            next false unless has_element?('merge-button', wait: 1)
 
-            break true unless find_element(:merge_button).disabled?
+            break true unless find_element('merge-button').disabled?
 
             # If the widget shows "Merge blocked: new changes were just added" we can refresh the page and check again
-            next false if has_element?(:head_mismatch_content)
+            next false if has_element?('head-mismatch-content', wait: 1)
 
             # Stop waiting if we're in a transient test. By this point we're in an unexpected state and should let the
             # test fail so we can investigate. If we're not in a transient test we keep trying until we reach timeout.
@@ -307,29 +367,27 @@ module QA
         def rebase!
           # The rebase button is disabled on load
           wait_until do
-            has_element?(:mr_rebase_button)
+            has_element?('standard-rebase-button')
           end
 
           # The rebase button is enabled via JS
           wait_until(reload: false) do
-            !find_element(:mr_rebase_button).disabled?
+            !find_element('standard-rebase-button').disabled?
           end
 
-          click_element(:mr_rebase_button)
-
-          success = wait_until do
-            fast_forward_possible?
-          end
-
-          raise "Rebase did not appear to be successful" unless success
+          click_element('standard-rebase-button')
         end
 
         def merge_immediately!
-          if has_element?(:merge_moment_dropdown)
-            click_element(:merge_moment_dropdown, skip_finished_loading_check: true)
-            click_element(:merge_immediately_menu_item, skip_finished_loading_check: true)
-          else
-            click_element(:merge_button, skip_finished_loading_check: true)
+          retry_until(reload: true, sleep_interval: 1, max_attempts: 12) do
+            if has_element?('merge-immediately-dropdown')
+              click_element('merge-immediately-dropdown', skip_finished_loading_check: true)
+              click_element('merge-immediately-button', skip_finished_loading_check: true)
+            else
+              click_element('merge-button', skip_finished_loading_check: true)
+            end
+
+            merged?
           end
         end
 
@@ -337,82 +395,123 @@ module QA
           # Revisit after merge page re-architect is done https://gitlab.com/gitlab-org/gitlab/-/issues/300042
           # To remove page refresh logic if possible
           wait_until_ready_to_merge
-          wait_until { !find_element(:merge_button).has_text?("when pipeline succeeds") }
+          wait_until { !find_element('merge-button').text.include?('auto-merge') } # rubocop:disable Rails/NegateInclude
 
-          click_element(:merge_button)
+          click_element('merge-button')
         end
 
         def view_email_patches
-          click_element(:download_dropdown)
-          visit_link_in_element(:download_email_patches_menu_item)
+          # Click by JS is needed to bypass the Moved MR actions popover
+          # Change back to regular click_element when moved_mr_sidebar FF is removed
+          # Rollout issue: https://gitlab.com/gitlab-org/gitlab/-/issues/385460
+          click_by_javascript(find_element('mr-code-dropdown'))
+          visit_link_in_element('download-email-patches-menu-item')
         end
 
         def view_plain_diff
-          click_element(:download_dropdown)
-          visit_link_in_element(:download_plain_diff_menu_item)
-        end
-
-        def wait_for_merge_request_error_message
-          wait_until(max_duration: 30, reload: false) do
-            has_element?(:merge_request_error_content)
-          end
+          # Click by JS is needed to bypass the Moved MR actions popover
+          # Change back to regular click_element when moved_mr_sidebar FF is removed
+          # Rollout issue: https://gitlab.com/gitlab-org/gitlab/-/issues/385460
+          click_by_javascript(find_element('mr-code-dropdown'))
+          visit_link_in_element('download-plain-diff-menu-item')
         end
 
         def click_open_in_web_ide
-          click_element(:open_in_web_ide_button)
+          # Click by JS is needed to bypass the Moved MR actions popover
+          # Change back to regular click_element when moved_mr_sidebar FF is removed
+          # Rollout issue: https://gitlab.com/gitlab-org/gitlab/-/issues/385460
+          click_by_javascript(find_element('mr-code-dropdown'))
+          click_element('open-in-web-ide-button')
+          page.driver.browser.switch_to.window(page.driver.browser.window_handles.last)
           wait_for_requests
         end
 
         def edit_file_in_web_ide(file_name)
-          within_element(:file_title_container, file_name: file_name) do
-            click_element(:dropdown_button)
-            click_element(:edit_in_ide_button)
+          within_element('file-title-container', file_name: file_name) do
+            click_element('options-dropdown-button')
+            click_element('edit-in-ide-button')
           end
+          page.driver.browser.switch_to.window(page.driver.browser.window_handles.last)
         end
 
         def add_suggestion_to_diff(suggestion, line)
           find("a[data-linenumber='#{line}']").hover
-          click_element(:diff_comment_button)
-          click_element(:suggestion_button)
-          initial_content = find_element(:reply_field).value
-          fill_element(:reply_field, '')
-          fill_element(:reply_field, initial_content.gsub(/(```suggestion:-0\+0\n).*(\n```)/, "\\1#{suggestion}\\2"))
-          click_element(:comment_now_button)
+          click_element('left-comment-button')
+          click_element('suggestion-button')
+          initial_content = find_element('reply-field').value
+          fill_element('reply-field', '')
+          fill_element('reply-field', initial_content.gsub(/(```suggestion:-0\+0\n).*(\n```)/, "\\1#{suggestion}\\2"))
+          click_element('comment-now-button')
+          wait_for_requests
         end
 
         def apply_suggestion_with_message(message)
-          all_elements(:apply_suggestion_dropdown, minimum: 1).first.click
-          fill_element(:commit_message_field, message)
-          click_element(:commit_with_custom_message_button)
+          all_elements('apply-suggestion-dropdown', minimum: 1).first.click
+          fill_element('commit-message-field', message)
+          click_element('commit-with-custom-message-button')
         end
 
         def add_suggestion_to_batch
-          all_elements(:add_suggestion_batch_button, minimum: 1).first.click
+          all_elements('add-suggestion-batch-button', minimum: 1).first.click
         end
 
         def has_suggestions_applied?(count = 1)
           wait_until(reload: false) do
-            has_no_element?(:applying_badge)
+            has_no_element?('applying-badge')
           end
-          all_elements(:applied_badge, count: count)
+          all_elements('applied-badge', count: count)
         end
 
         def cherry_pick!
-          click_element(:cherry_pick_button, Page::Component::CommitModal)
-          click_element(:submit_commit_button)
+          click_element('cherry-pick-button', Page::Component::CommitModal)
+          click_element('submit-commit')
         end
 
         def revert_change!
-          click_element(:revert_button, Page::Component::CommitModal)
-          click_element(:submit_commit_button)
-        end
-
-        def cancel_auto_merge!
-          click_element(:cancel_auto_merge_button)
+          # reload page when the revert modal occasionally doesn't appear in ee:large-setup job
+          # https://gitlab.com/gitlab-org/gitlab/-/issues/386623 (transient issue)
+          retry_on_exception(reload: true) do
+            click_element('revert-button', Page::Component::CommitModal)
+          end
+          click_element('submit-commit')
         end
 
         def mr_widget_text
-          find_element(:mr_widget_content).text
+          find_element('mr-widget-content').text
+        end
+
+        def has_fork_icon?
+          has_element?('fork-icon', skip_finished_loading_check: true)
+        end
+
+        def click_artifacts_dropdown_button
+          wait_for_requests
+          within_element('artifacts-dropdown') do
+            click_element('base-dropdown-toggle')
+          end
+        end
+
+        def has_artifact_with_name?(name)
+          has_text?(name)
+        end
+
+        def has_artifacts_dropdown?
+          has_element?('artifacts-dropdown')
+        end
+
+        def has_no_artifacts_dropdown?
+          has_no_element?('artifacts-dropdown')
+        end
+
+        def open_exposed_artifacts_list
+          within_element('pipeline-container') do
+            wait_until(reload: false) { has_no_text?('Loading artifacts') }
+            click_element('mr-collapsible-title')
+          end
+        end
+
+        def has_exposed_artifact_with_name?(name)
+          has_link?(name)
         end
       end
     end

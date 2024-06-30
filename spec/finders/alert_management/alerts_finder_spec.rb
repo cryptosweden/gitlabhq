@@ -183,7 +183,7 @@ RSpec.describe AlertManagement::AlertsFinder, '#execute' do
             let(:params) { { sort: 'severity_asc' } }
 
             it 'sorts alerts by severity from less critical to more critical' do
-              expect(execute.pluck(:severity).uniq).to eq(%w(unknown info low medium high critical))
+              expect(execute.pluck(:severity).uniq).to eq(%w[unknown info low medium high critical])
             end
           end
 
@@ -191,7 +191,7 @@ RSpec.describe AlertManagement::AlertsFinder, '#execute' do
             let(:params) { { sort: 'severity_desc' } }
 
             it 'sorts alerts by severity from more critical to less critical' do
-              expect(execute.pluck(:severity).uniq).to eq(%w(critical high medium low info unknown))
+              expect(execute.pluck(:severity).uniq).to eq(%w[critical high medium low info unknown])
             end
           end
         end
@@ -222,14 +222,15 @@ RSpec.describe AlertManagement::AlertsFinder, '#execute' do
 
       context 'search query given' do
         let_it_be(:alert) do
-          create(:alert_management_alert,
-                 :with_fingerprint,
-                 project: project,
-                 title: 'Title',
-                 description: 'Desc',
-                 service: 'Service',
-                 monitoring_tool: 'Monitor'
-                )
+          create(
+            :alert_management_alert,
+            :with_fingerprint,
+            project: project,
+            title: 'Title',
+            description: 'Desc',
+            service: 'Service',
+            monitoring_tool: 'Monitor'
+          )
         end
 
         context 'searching title' do

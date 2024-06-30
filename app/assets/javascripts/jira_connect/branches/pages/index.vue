@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlEmptyState } from '@gitlab/ui';
 import { sprintf } from '~/locale';
@@ -46,7 +47,7 @@ export default {
 <template>
   <div>
     <div class="gl-border-1 gl-border-b-solid gl-border-gray-100 gl-mb-5 gl-mt-7">
-      <h1 data-testid="page-title" class="page-title">{{ pageTitle }}</h1>
+      <h1 data-testid="page-title" class="page-title gl-font-size-h-display">{{ pageTitle }}</h1>
     </div>
 
     <new-branch-form v-if="showForm" @success="onNewBranchFormSuccess" />
@@ -55,6 +56,7 @@ export default {
       :title="$options.i18n.I18N_NEW_BRANCH_SUCCESS_TITLE"
       :description="$options.i18n.I18N_NEW_BRANCH_SUCCESS_MESSAGE"
       :svg-path="successStateSvgPath"
+      :svg-height="null"
     />
   </div>
 </template>

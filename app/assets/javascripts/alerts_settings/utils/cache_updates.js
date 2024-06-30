@@ -1,5 +1,5 @@
 import produce from 'immer';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 
 import { DELETE_INTEGRATION_ERROR, ADD_INTEGRATION_ERROR } from './error_messages';
 
@@ -15,9 +15,8 @@ const deleteIntegrationFromStore = (store, query, { httpIntegrationDestroy }, va
   });
 
   const data = produce(sourceData, (draftData) => {
-    draftData.project.alertManagementIntegrations.nodes = draftData.project.alertManagementIntegrations.nodes.filter(
-      ({ id }) => id !== integration.id,
-    );
+    draftData.project.alertManagementIntegrations.nodes =
+      draftData.project.alertManagementIntegrations.nodes.filter(({ id }) => id !== integration.id);
   });
 
   store.writeQuery({
@@ -59,7 +58,7 @@ const addIntegrationToStore = (
 };
 
 const onError = (data, message) => {
-  createFlash({ message });
+  createAlert({ message });
   throw new Error(data.errors);
 };
 

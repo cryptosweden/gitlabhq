@@ -2,12 +2,13 @@
 
 import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
 import $ from 'jquery';
-import { uniq } from 'lodash';
-import { getCookie, setCookie, scrollToElement } from '~/lib/utils/common_utils';
+import { uniq, escape } from 'lodash';
+import { getEmojiScoreWithIntent } from '~/emoji/utils';
+import { scrollToElement } from '~/lib/utils/common_utils';
 import * as Emoji from '~/emoji';
-
 import { dispose, fixTitle } from '~/tooltips';
-import createFlash from './flash';
+import { createAlert } from '~/alert';
+import { FREQUENTLY_USED_EMOJIS_STORAGE_KEY } from '~/emoji/constants';
 import axios from './lib/utils/axios_utils';
 import { isInVueNoteablePage } from './lib/utils/dom_utils';
 import { __ } from './locale';
@@ -149,7 +150,7 @@ export class AwardsHandler {
     let frequentlyUsedCatgegory = '';
     if (frequentlyUsedEmojis.length > 0) {
       frequentlyUsedCatgegory = this.renderCategory('Frequently used', frequentlyUsedEmojis, {
-        menuListClass: 'frequent-emojis',
+        frequentEmojis: true,
       });
     }
 
@@ -165,6 +166,7 @@ export class AwardsHandler {
     `;
 
     const targetEl = this.targetContainerEl ? this.targetContainerEl : document.body;
+    // eslint-disable-next-line no-unsanitized/method
     targetEl.insertAdjacentHTML('beforeend', emojiMenuMarkup);
 
     this.addRemainingEmojiMenuCategories();
@@ -198,6 +200,7 @@ export class AwardsHandler {
                 emojisInCategory,
               );
               requestAnimationFrame(() => {
+                // eslint-disable-next-line no-unsanitized/method
                 emojiContentElement.insertAdjacentHTML('beforeend', categoryMarkup);
                 resolve();
               });
@@ -226,9 +229,9 @@ export class AwardsHandler {
   renderCategory(name, emojiList, opts = {}) {
     return `
       <h5 class="emoji-menu-title">
-        ${name}
+        ${escape(name)}
       </h5>
-      <ul class="clearfix emoji-menu-list ${opts.menuListClass || ''}">
+      <ul class="clearfix emoji-menu-list ${opts.frequentEmojis ? 'frequent-emojis' : ''}">
         ${emojiList
           .map(
             (emojiName) => `
@@ -292,7 +295,7 @@ export class AwardsHandler {
     }
 
     const normalizedEmoji = this.emoji.normalizeEmojiName(emoji);
-    const $emojiButton = this.findEmojiIcon(votesBlock, normalizedEmoji).parent();
+    const $emojiButton = this.findEmojiIcon(votesBlock, normalizedEmoji).closest('button');
 
     this.postEmoji($emojiButton, awardUrl, normalizedEmoji, () => {
       this.addAwardToEmojiBar(votesBlock, normalizedEmoji, checkMutuality);
@@ -310,7 +313,7 @@ export class AwardsHandler {
     }
     this.addEmojiToFrequentlyUsedList(emoji);
     const normalizedEmoji = this.emoji.normalizeEmojiName(emoji);
-    const $emojiButton = this.findEmojiIcon(votesBlock, normalizedEmoji).parent();
+    const $emojiButton = this.findEmojiIcon(votesBlock, normalizedEmoji).closest('button');
     if ($emojiButton.length > 0) {
       if (this.isActive($emojiButton)) {
         this.decrementCounter($emojiButton, normalizedEmoji);
@@ -353,7 +356,7 @@ export class AwardsHandler {
     const awardUrl = this.getAwardUrl();
     if (emoji === 'thumbsup' || emoji === 'thumbsdown') {
       const mutualVote = emoji === 'thumbsup' ? 'thumbsdown' : 'thumbsup';
-      const $emojiButton = votesBlock.find(`[data-name="${mutualVote}"]`).parent();
+      const $emojiButton = votesBlock.find(`[data-name="${mutualVote}"]`).closest('button');
       const isAlreadyVoted = $emojiButton.hasClass('active');
       if (isAlreadyVoted) {
         this.addAward(votesBlock, awardUrl, mutualVote, false);
@@ -428,7 +431,7 @@ export class AwardsHandler {
   }
 
   addYouToUserList(votesBlock, emoji) {
-    const awardBlock = this.findEmojiIcon(votesBlock, emoji).parent();
+    const awardBlock = this.findEmojiIcon(votesBlock, emoji).closest('button');
     const origTitle = this.getAwardTooltip(awardBlock);
     let users = [];
     if (origTitle) {
@@ -489,7 +492,7 @@ export class AwardsHandler {
         }
       })
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('Something went wrong on our end.'),
         }),
       );
@@ -506,7 +509,7 @@ export class AwardsHandler {
   addEmojiToFrequentlyUsedList(emoji) {
     if (this.emoji.isEmojiNameValid(emoji)) {
       this.frequentlyUsedEmojis = uniq(this.getFrequentlyUsedEmojis().concat(emoji));
-      setCookie('frequently_used_emojis', this.frequentlyUsedEmojis.join(','));
+      localStorage.setItem(FREQUENTLY_USED_EMOJIS_STORAGE_KEY, this.frequentlyUsedEmojis.join(','));
     }
   }
 
@@ -514,7 +517,9 @@ export class AwardsHandler {
     return (
       this.frequentlyUsedEmojis ||
       (() => {
-        const frequentlyUsedEmojis = uniq((getCookie('frequently_used_emojis') || '').split(','));
+        const frequentlyUsedEmojis = uniq(
+          (localStorage.getItem(FREQUENTLY_USED_EMOJIS_STORAGE_KEY) || '').split(','),
+        );
         this.frequentlyUsedEmojis = frequentlyUsedEmojis.filter((inputName) =>
           this.emoji.isEmojiNameValid(inputName),
         );
@@ -559,13 +564,45 @@ export class AwardsHandler {
     }
   }
 
+  getEmojiScore(emojis, value) {
+    const elem = $(value).find('[data-name]').get(0);
+    const emoji = emojis.filter((x) => x.emoji.name === elem.dataset.name)[0];
+    elem.dataset.score = emoji.score;
+
+    return emoji.score;
+  }
+
+  sortEmojiElements(emojis, $elements) {
+    const scores = new WeakMap();
+
+    return $elements.sort((a, b) => {
+      let aScore = scores.get(a);
+      let bScore = scores.get(b);
+
+      if (!aScore) {
+        aScore = this.getEmojiScore(emojis, a);
+        scores.set(a, aScore);
+      }
+
+      if (!bScore) {
+        bScore = this.getEmojiScore(emojis, b);
+        scores.set(b, bScore);
+      }
+
+      return aScore - bScore;
+    });
+  }
+
   findMatchingEmojiElements(query) {
-    const emojiMatches = this.emoji.searchEmoji(query).map((x) => x.emoji.name);
+    const matchingEmoji = this.emoji
+      .searchEmoji(query)
+      .map((x) => ({ ...x, score: getEmojiScoreWithIntent(x.emoji.name, x.score) }));
+    const matchingEmojiNames = matchingEmoji.map((x) => x.emoji.name);
     const $emojiElements = $('.emoji-menu-list:not(.frequent-emojis) [data-name]');
     const $matchingElements = $emojiElements.filter(
-      (i, elm) => emojiMatches.indexOf(elm.dataset.name) >= 0,
+      (i, elm) => matchingEmojiNames.indexOf(elm.dataset.name) >= 0,
     );
-    return $matchingElements.closest('li').clone();
+    return this.sortEmojiElements(matchingEmoji, $matchingElements.closest('li').clone());
   }
 
   /* showMenuElement and hideMenuElement are performance optimizations. We use

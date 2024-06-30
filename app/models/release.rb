@@ -7,11 +7,11 @@ class Release < ApplicationRecord
   include Gitlab::Utils::StrongMemoize
   include EachBatch
   include FromUnion
+  include UpdatedAtFilterable
 
   cache_markdown_field :description
 
   belongs_to :project, touch: true
-  # releases prior to 11.7 have no author
   belongs_to :author, class_name: 'User'
 
   has_many :links, class_name: 'Releases::Link'
@@ -21,27 +21,45 @@ class Release < ApplicationRecord
   has_many :milestones, through: :milestone_releases
   has_many :evidences, inverse_of: :release, class_name: 'Releases::Evidence'
 
+  has_one :catalog_resource_version, class_name: 'Ci::Catalog::Resources::Version', inverse_of: :release
+
   accepts_nested_attributes_for :links, allow_destroy: true
 
   before_create :set_released_at
+  after_update :update_catalog_resource_version, if: -> { catalog_resource_version && saved_change_to_released_at? }
+  after_destroy :update_catalog_resource, if: -> { project.catalog_resource }
 
   validates :project, :tag, presence: true
+  validates :author_id, presence: true, on: :create
+
   validates :tag, uniqueness: { scope: :project_id }
 
   validates :description, length: { maximum: Gitlab::Database::MAX_TEXT_SIZE_LIMIT }, if: :description_changed?
-  validates_associated :milestone_releases, message: -> (_, obj) { obj[:value].map(&:errors).map(&:full_messages).join(",") }
+  validates_associated :milestone_releases, message: ->(_, obj) { obj[:value].map(&:errors).map(&:full_messages).join(",") }
   validates :links, nested_attributes_duplicates: { scope: :release, child_attributes: %i[name url filepath] }
+
+  # Custom validation methods
+  validate :sha_unchanged, on: :update
+
+  # All releases should have tags, but because of existing invalid data, we need a work around so that presenters don't
+  # fail to generate URLs on release related pages
+  scope :tagged, -> { where.not(tag: [nil, '']) }
 
   scope :sorted, -> { order(released_at: :desc) }
   scope :preloaded, -> {
-    includes(:author, :evidences, :milestones, :links, :sorted_links,
-             project: [:project_feature, :route, { namespace: :route }])
+    includes(
+      :author, :evidences, :milestones, :links, :sorted_links,
+      project: [:project_feature, :route, { namespace: :route }]
+    )
   }
   scope :with_milestones, -> { joins(:milestone_releases) }
   scope :with_group_milestones, -> { joins(:milestones).where.not(milestones: { group_id: nil }) }
   scope :recent, -> { sorted.limit(MAX_NUMBER_TO_DISPLAY) }
   scope :without_evidence, -> { left_joins(:evidences).where(::Releases::Evidence.arel_table[:id].eq(nil)) }
   scope :released_within_2hrs, -> { where(released_at: Time.zone.now - 1.hour..Time.zone.now + 1.hour) }
+  scope :unpublished, -> { where(release_published_at: nil) }
+  scope :for_projects, ->(projects) { where(project_id: projects) }
+  scope :by_tag, ->(tag) { where(tag: tag) }
 
   # Sorting
   scope :order_created, -> { reorder(created_at: :asc) }
@@ -52,9 +70,50 @@ class Release < ApplicationRecord
   delegate :repository, to: :project
 
   MAX_NUMBER_TO_DISPLAY = 3
+  MAX_NUMBER_TO_PUBLISH = 5000
+
+  class << self
+    # In the future, we should support `order_by=semver`;
+    # see https://gitlab.com/gitlab-org/gitlab/-/issues/352945
+    def latest(order_by: 'released_at')
+      sort_by_attribute("#{order_by}_desc").first
+    end
+
+    # This query uses LATERAL JOIN to find the latest release for each project. To avoid
+    # joining the `projects` table, we build an in-memory table using the project ids.
+    # Example:
+    # SELECT ...
+    # FROM (VALUES (PROJECT_ID_1),(PROJECT_ID_2)) projects (id)
+    # INNER JOIN LATERAL (...)
+    def latest_for_projects(projects, order_by: 'released_at')
+      return Release.none if projects.empty?
+
+      projects_table = Project.arel_table
+      releases_table = Release.arel_table
+
+      join_query = Release
+        .where(projects_table[:id].eq(releases_table[:project_id]))
+        .sort_by_attribute("#{order_by}_desc")
+        .limit(1)
+
+      project_ids_list = projects.map { |project| "(#{project.id})" }.join(',')
+
+      Release
+        .from("(VALUES #{project_ids_list}) projects (id)")
+        .joins("INNER JOIN LATERAL (#{join_query.to_sql}) #{Release.table_name} ON TRUE")
+    end
+
+    def waiting_for_publish_event
+      unpublished.released_within_2hrs.joins(:project).merge(Project.with_feature_enabled(:releases)).limit(MAX_NUMBER_TO_PUBLISH)
+    end
+  end
+
+  def sha_unchanged
+    errors.add(:sha, "cannot be changed") if sha_changed?
+  end
 
   def to_param
-    CGI.escape(tag)
+    tag
   end
 
   def commit
@@ -93,7 +152,7 @@ class Release < ApplicationRecord
   end
 
   def milestone_titles
-    self.milestones.order_by_dates_and_title.map {|m| m.title }.join(', ')
+    self.milestones.order_by_dates_and_title.map { |m| m.title }.join(', ')
   end
 
   def to_hook_data(action)
@@ -130,6 +189,14 @@ class Release < ApplicationRecord
     else
       order_created_desc
     end
+  end
+
+  def update_catalog_resource_version
+    catalog_resource_version.sync_with_release!
+  end
+
+  def update_catalog_resource
+    project.catalog_resource.update_latest_released_at!
   end
 end
 

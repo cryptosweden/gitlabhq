@@ -2,9 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User posts notes', :js do
+RSpec.describe 'Merge request > User posts notes', :js, feature_category: :code_review_workflow do
   include NoteInteractionHelpers
-
   let_it_be(:project) { create(:project, :repository) }
 
   let(:user) { project.creator }
@@ -13,12 +12,10 @@ RSpec.describe 'Merge request > User posts notes', :js do
   end
 
   let!(:note) do
-    create(:note_on_merge_request, :with_attachment, noteable: merge_request,
-                                                     project: project)
+    create(:note_on_merge_request, :with_attachment, noteable: merge_request, project: project)
   end
 
   before do
-    stub_feature_flags(bootstrap_confirmation_modals: false)
     project.add_maintainer(user)
     sign_in(user)
 
@@ -47,9 +44,9 @@ RSpec.describe 'Merge request > User posts notes', :js do
 
       it 'has enable submit button, preview button and saves content to local storage' do
         page.within('.js-main-target-form') do
-          page.within('[data-testid="comment-button"]') do
-            expect(page).to have_css('.split-content-button')
-            expect(page).not_to have_css('.split-content-button[disabled]')
+          within_testid('comment-button') do
+            expect(page).to have_css('.gl-button')
+            expect(page).not_to have_css('.disabled')
           end
           expect(page).to have_css('.js-md-preview-button', visible: true)
         end
@@ -63,7 +60,7 @@ RSpec.describe 'Merge request > User posts notes', :js do
     before do
       page.within('.js-main-target-form') do
         fill_in 'note[note]', with: 'This is awesome!'
-        find('.js-md-preview-button').click
+        click_button("Preview")
         click_button 'Comment'
       end
     end
@@ -88,7 +85,7 @@ RSpec.describe 'Merge request > User posts notes', :js do
       it 'shows a reply button' do
         reply_button = find('.js-reply-button', match: :first)
 
-        expect(reply_button).to have_selector('[data-testid="comment-icon"]')
+        expect(reply_button).to have_selector('[data-testid="reply-icon"]')
       end
 
       it 'shows reply placeholder when clicking reply button' do
@@ -124,7 +121,7 @@ RSpec.describe 'Merge request > User posts notes', :js do
 
           click_button 'Add comment now'
 
-          expect(page).to have_content('Your comment could not be submitted because discussion to reply to cannot be found')
+          expect(page).to have_content('Comment could not be submitted: discussion to reply to cannot be found')
         end
       end
     end
@@ -132,16 +129,16 @@ RSpec.describe 'Merge request > User posts notes', :js do
 
   describe 'when previewing a note' do
     it 'shows the toolbar buttons when editing a note' do
-      page.within('.js-main-target-form') do
-        expect(page).to have_css('.md-header-toolbar')
+      page.within('.js-main-target-form .md-header-toolbar') do
+        expect(page).to have_css('button', count: 16)
       end
     end
 
     it 'hides the toolbar buttons when previewing a note' do
       wait_for_requests
-      find('.js-md-preview-button').click
-      page.within('.js-main-target-form') do
-        expect(page).not_to have_css('.md-header-toolbar')
+      click_button("Preview")
+      page.within('.js-main-target-form .md-header-toolbar') do
+        expect(page).to have_css('button', count: 1)
       end
     end
   end
@@ -158,18 +155,18 @@ RSpec.describe 'Merge request > User posts notes', :js do
         page.within("#note_#{note.id}") do
           expect(find('.current-note-edit-form', visible: true)).to be_visible
           expect(find('.note-edit-form', visible: true)).to be_visible
-          expect(find(:css, '.note-body > .note-text', visible: false)).not_to be_visible
+          expect(find(:css, '.note-body .note-text', visible: false)).not_to be_visible
         end
       end
 
       it 'resets the edit note form textarea with the original content of the note if cancelled' do
         within('.current-note-edit-form') do
           fill_in 'note[note]', with: 'Some new content'
-          find('[data-testid="cancel"]').click
+          find_by_testid('cancel').click
         end
 
         page.within('.modal') do
-          click_button('OK', match: :first)
+          click_button('Cancel editing', match: :first)
         end
 
         expect(find('.js-note-text').text).to eq ''

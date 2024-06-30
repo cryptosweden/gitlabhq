@@ -2,14 +2,15 @@
 data_category: optional
 key_path: dependency_proxy_enabled
 description: A count of projects where the dependency proxy is enabled
-product_section: ops
-product_stage: package
-product_group: group::package
-product_category: container registry
+product_group: container_registry
 value_type: boolean
 status: active
 time_frame: none
 data_source: system
+instrumentation_class: GitlabConfigMetric
+options:
+  config:
+    dependency_proxy: enabled
 distribution:
 - ee
 - ce

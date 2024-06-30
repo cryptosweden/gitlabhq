@@ -35,25 +35,23 @@ export default {
   <div>
     <gl-button
       v-gl-modal="modalId"
-      category="primary"
+      category="secondary"
       variant="danger"
-      class="gl-float-right"
+      size="small"
       data-testid="revoke-button"
       >{{ s__('DeployTokens|Revoke') }}</gl-button
     >
     <gl-modal ref="modal" :modal-id="modalId">
       <template #modal-title>
-        <gl-sprintf :message="s__(`DeployTokens|Revoke %{boldStart}${token.name}%{boldEnd}?`)">
-          <template #bold="{ content }"
-            ><b>{{ content }}</b></template
+        <gl-sprintf :message="s__('DeployTokens|Revoke %{tokenName}?')">
+          <template #tokenName
+            ><b>{{ token.name }}</b></template
           >
         </gl-sprintf>
       </template>
-      <gl-sprintf
-        :message="s__(`DeployTokens|You are about to revoke %{boldStart}${token.name}%{boldEnd}.`)"
-      >
-        <template #bold="{ content }">
-          <b>{{ content }}</b>
+      <gl-sprintf :message="s__('DeployTokens|You are about to revoke %{tokenName}.')">
+        <template #tokenName>
+          <b>{{ token.name }}</b>
         </template>
       </gl-sprintf>
       {{ s__('DeployTokens|This action cannot be undone.') }}

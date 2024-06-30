@@ -1,12 +1,14 @@
 import { GlButton, GlModal } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import Api from '~/api';
 import DeployFreezeModal from '~/deploy_freeze/components/deploy_freeze_modal.vue';
 import createStore from '~/deploy_freeze/store';
-import TimezoneDropdown from '~/vue_shared/components/timezone_dropdown.vue';
-import { freezePeriodsFixture, timezoneDataFixture } from '../helpers';
+import TimezoneDropdown from '~/vue_shared/components/timezone_dropdown/timezone_dropdown.vue';
+import { freezePeriodsFixture } from '../helpers';
+import { timezoneDataFixture } from '../../vue_shared/components/timezone_dropdown/helpers';
 
 jest.mock('~/api');
 
@@ -42,17 +44,12 @@ describe('Deploy freeze modal', () => {
 
     wrapper.find('#deploy-freeze-start').trigger('input');
     wrapper.find('#deploy-freeze-end').trigger('input');
-    wrapper.find(TimezoneDropdown).trigger('input');
+    wrapper.findComponent(TimezoneDropdown).trigger('input');
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   describe('Basic interactions', () => {
     it('button is disabled when freeze period is invalid', () => {
-      expect(submitDeployFreezeButton().attributes('disabled')).toBeTruthy();
+      expect(submitDeployFreezeButton().attributes('disabled')).toBeDefined();
     });
   });
 
@@ -92,7 +89,7 @@ describe('Deploy freeze modal', () => {
       });
 
       it('disables the add deploy freeze button', () => {
-        expect(submitDeployFreezeButton().attributes('disabled')).toBeTruthy();
+        expect(submitDeployFreezeButton().attributes('disabled')).toBeDefined();
       });
     });
 
@@ -103,7 +100,7 @@ describe('Deploy freeze modal', () => {
       });
 
       it('does not disable the submit button', () => {
-        expect(submitDeployFreezeButton().attributes('disabled')).toBeFalsy();
+        expect(submitDeployFreezeButton().attributes('disabled')).toBeUndefined();
       });
     });
   });

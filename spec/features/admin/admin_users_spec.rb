@@ -2,16 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe "Admin::Users" do
+RSpec.describe "Admin::Users", feature_category: :user_management do
   let(:current_user) { create(:admin) }
 
   before do
     sign_in(current_user)
-    gitlab_enable_admin_mode_sign_in(current_user)
+    enable_admin_mode!(current_user)
   end
 
   describe 'Tabs' do
-    let(:tabs_selector) { '.js-users-tabs' }
+    let(:tabs_selector) { '[data-testid="admin-users-tabs"]' }
     let(:active_tab_selector) { '.nav-link.active' }
 
     it 'links to the Users tab' do
@@ -69,13 +69,9 @@ RSpec.describe "Admin::Users" do
       expect(page).not_to have_content(message)
     end
 
-    context 'with no license and service ping disabled' do
+    context 'with no license and service ping disabled', :without_license do
       before do
         stub_application_setting(usage_ping_enabled: false)
-
-        if Gitlab.ee?
-          allow(License).to receive(:current).and_return(nil)
-        end
       end
 
       it 'renders registration features CTA' do
@@ -85,5 +81,13 @@ RSpec.describe "Admin::Users" do
         expect(page).to have_link(s_('RegistrationFeatures|Registration Features Program'))
       end
     end
+  end
+
+  it 'does not perform N+1 queries' do
+    control_queries = ActiveRecord::QueryRecorder.new { visit admin_users_path }
+
+    expect { create(:user) }.to change { User.count }.by(1)
+
+    expect { visit admin_users_path }.not_to exceed_query_limit(control_queries)
   end
 end

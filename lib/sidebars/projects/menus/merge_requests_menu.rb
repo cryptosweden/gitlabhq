@@ -21,13 +21,6 @@ module Sidebars
           _('Merge requests')
         end
 
-        override :title_html_options
-        def title_html_options
-          {
-            id: 'js-onboarding-mr-link'
-          }
-        end
-
         override :sprite_icon
         def sprite_icon
           'git-merge'
@@ -46,7 +39,8 @@ module Sidebars
 
         override :pill_count
         def pill_count
-          @pill_count ||= context.project.open_merge_requests_count
+          count = @pill_count ||= context.project.open_merge_requests_count
+          format_cached_count(1000, count)
         end
 
         override :pill_html_options
@@ -59,10 +53,20 @@ module Sidebars
         override :active_routes
         def active_routes
           if context.project.issues_enabled?
-            { controller: :merge_requests }
+            { controller: ['projects/merge_requests', :conflicts] }
           else
-            { controller: [:merge_requests, :milestones] }
+            { controller: ['projects/merge_requests', :milestones, :conflicts] }
           end
+        end
+
+        override :serialize_as_menu_item_args
+        def serialize_as_menu_item_args
+          super.merge({
+            pill_count: pill_count,
+            has_pill: has_pill?,
+            super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::CodeMenu,
+            item_id: :project_merge_request_list
+          })
         end
       end
     end

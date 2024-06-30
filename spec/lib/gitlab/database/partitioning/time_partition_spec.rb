@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::Partitioning::TimePartition do
+RSpec.describe Gitlab::Database::Partitioning::TimePartition, feature_category: :database do
   describe '.from_sql' do
     subject { described_class.from_sql(table, partition_name, definition) }
 
@@ -156,12 +156,13 @@ RSpec.describe Gitlab::Database::Partitioning::TimePartition do
         described_class.new(table, '2020-03-01', '2020-04-01')
       ]
 
-      expect(partitions.sort).to eq([
-        described_class.new(table, nil, '2020-02-01'),
-        described_class.new(table, '2020-02-01', '2020-03-01'),
-        described_class.new(table, '2020-03-01', '2020-04-01'),
-        described_class.new(table, '2020-04-01', '2020-05-01')
-      ])
+      expect(partitions.sort).to eq(
+        [
+          described_class.new(table, nil, '2020-02-01'),
+          described_class.new(table, '2020-02-01', '2020-03-01'),
+          described_class.new(table, '2020-03-01', '2020-04-01'),
+          described_class.new(table, '2020-04-01', '2020-05-01')
+        ])
     end
 
     it 'returns nil for partitions of different tables' do

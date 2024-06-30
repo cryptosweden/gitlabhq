@@ -1,10 +1,11 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import FilterSortContainer from '~/members/components/filter_sort/filter_sort_container.vue';
 import MembersFilteredSearchBar from '~/members/components/filter_sort/members_filtered_search_bar.vue';
 import SortDropdown from '~/members/components/filter_sort/sort_dropdown.vue';
-import { MEMBER_TYPES } from '~/members/constants';
+import { MEMBERS_TAB_TYPES } from '~/members/constants';
 
 Vue.use(Vuex);
 
@@ -14,7 +15,7 @@ describe('FilterSortContainer', () => {
   const createComponent = (state) => {
     const store = new Vuex.Store({
       modules: {
-        [MEMBER_TYPES.user]: {
+        [MEMBERS_TAB_TYPES.user]: {
           namespaced: true,
           state: {
             filteredSearchBar: {
@@ -34,7 +35,7 @@ describe('FilterSortContainer', () => {
     wrapper = shallowMount(FilterSortContainer, {
       store,
       provide: {
-        namespace: MEMBER_TYPES.user,
+        namespace: MEMBERS_TAB_TYPES.user,
       },
     });
   };
@@ -60,7 +61,7 @@ describe('FilterSortContainer', () => {
         },
       });
 
-      expect(wrapper.find(MembersFilteredSearchBar).exists()).toBe(true);
+      expect(wrapper.findComponent(MembersFilteredSearchBar).exists()).toBe(true);
     });
   });
 
@@ -70,7 +71,7 @@ describe('FilterSortContainer', () => {
         tableSortableFields: ['account'],
       });
 
-      expect(wrapper.find(SortDropdown).exists()).toBe(true);
+      expect(wrapper.findComponent(SortDropdown).exists()).toBe(true);
     });
   });
 });

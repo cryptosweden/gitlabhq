@@ -44,10 +44,6 @@ describe('ActivityEvents', () => {
   const findAllActivityHistoryItems = () => wrapper.findAllComponents(ActivityHistoryItem);
   const findSectionTitle = (at) => wrapper.findAllByTestId('activity-section-title').at(at);
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('while the agentEvents query is loading', () => {
     it('displays a loading icon', async () => {
       createWrapper();
@@ -94,10 +90,10 @@ describe('ActivityEvents', () => {
     });
 
     it.each`
-      recordedAt                | date            | lineNumber
-      ${'2021-12-03T01:06:56Z'} | ${'Today'}      | ${0}
-      ${'2021-12-02T19:26:56Z'} | ${'Yesterday'}  | ${1}
-      ${'2021-11-22T19:26:56Z'} | ${'2021-11-22'} | ${2}
+      recordedAt                | date              | lineNumber
+      ${'2021-12-03T01:06:56Z'} | ${'Today'}        | ${0}
+      ${'2021-12-02T19:26:56Z'} | ${'Yesterday'}    | ${1}
+      ${'2021-11-22T19:26:56Z'} | ${'Nov 22, 2021'} | ${2}
     `('renders correct titles for different days', ({ date, lineNumber }) => {
       expect(findSectionTitle(lineNumber).text()).toBe(date);
     });

@@ -1,5 +1,6 @@
 <script>
 import { GlSprintf, GlIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
 import { IMAGE_DIFF_POSITION_TYPE } from '~/diffs/constants';
 import { sprintf, __ } from '~/locale';
@@ -67,6 +68,7 @@ export default {
     },
     content() {
       const el = document.createElement('div');
+      // eslint-disable-next-line no-unsanitized/property
       el.innerHTML = this.draft.note_html;
 
       return el.textContent;

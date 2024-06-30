@@ -7,9 +7,9 @@ module Gitlab
       # When rendering changelog entries, authors are not included.
       AUTHORS_NONE = 'none'
 
-      # The path to the configuration file as stored in the project's Git
+      # The default path to the configuration file as stored in the project's Git
       # repository.
-      FILE_PATH = '.gitlab/changelog_config.yml'
+      DEFAULT_FILE_PATH = '.gitlab/changelog_config.yml'
 
       # The default date format to use for formatting release dates.
       DEFAULT_DATE_FORMAT = '%Y-%m-%d'
@@ -36,9 +36,16 @@ module Gitlab
 
       attr_accessor :date_format, :categories, :template, :tag_regex, :always_credit_user_ids
 
-      def self.from_git(project, user = nil)
-        if (yaml = project.repository.changelog_config.presence)
-          from_hash(project, YAML.safe_load(yaml), user)
+      def self.from_git(project, user = nil, path = nil)
+        config_path = path.presence || DEFAULT_FILE_PATH
+        yaml = project.repository.changelog_config('HEAD', config_path)
+
+        if yaml.present?
+          begin
+            from_hash(project, YAML.safe_load(yaml), user)
+          rescue Psych::Exception
+            raise Error, "#{config_path} does not contain valid YAML"
+          end
         else
           new(project)
         end

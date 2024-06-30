@@ -1,7 +1,0 @@
-#import "./work_item.fragment.graphql"
-
-query workItem($id: ID!) {
-  workItem(id: $id) {
-    ...WorkItem
-  }
-}

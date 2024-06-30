@@ -7,8 +7,8 @@ describe('HelpPopover', () => {
   const title = 'popover <strong>title</strong>';
   const content = 'popover <b>content</b>';
 
-  const findQuestionButton = () => wrapper.find(GlButton);
-  const findPopover = () => wrapper.find(GlPopover);
+  const findQuestionButton = () => wrapper.findComponent(GlButton);
+  const findPopover = () => wrapper.findComponent(GlPopover);
 
   const createComponent = ({ props, ...opts } = {}) => {
     wrapper = mount(HelpPopover, {
@@ -23,10 +23,6 @@ describe('HelpPopover', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('with title and content', () => {
     beforeEach(() => {
       createComponent();
@@ -34,7 +30,7 @@ describe('HelpPopover', () => {
 
     it('renders a link button with an icon question', () => {
       expect(findQuestionButton().props()).toMatchObject({
-        icon: 'question',
+        icon: 'question-o',
         variant: 'link',
       });
     });
@@ -54,6 +50,24 @@ describe('HelpPopover', () => {
 
     it('allows rendering content with HTML tags', () => {
       expect(findPopover().find('b').exists()).toBe(true);
+    });
+  });
+
+  describe('aria label', () => {
+    it('renders default "Help" label', () => {
+      createComponent();
+
+      expect(findQuestionButton().attributes('aria-label')).toBe('Help');
+    });
+
+    it('renders custom label', () => {
+      createComponent({
+        props: {
+          ariaLabel: 'Learn more',
+        },
+      });
+
+      expect(findQuestionButton().attributes('aria-label')).toBe('Learn more');
     });
   });
 
@@ -78,6 +92,22 @@ describe('HelpPopover', () => {
     });
   });
 
+  describe('with trigger classes', () => {
+    it.each`
+      triggerClass
+      ${'class-a class-b'}
+      ${['class-a', 'class-b']}
+      ${{ 'class-a': true, 'class-b': true }}
+    `('renders button with classes given $triggerClass', ({ triggerClass }) => {
+      createComponent({
+        props: { triggerClass },
+      });
+
+      expect(findQuestionButton().classes('class-a')).toBe(true);
+      expect(findQuestionButton().classes('class-b')).toBe(true);
+    });
+  });
+
   describe('with other options', () => {
     const placement = 'bottom';
 
@@ -93,6 +123,34 @@ describe('HelpPopover', () => {
 
     it('options bind to the popover', () => {
       expect(findPopover().props().placement).toBe(placement);
+    });
+  });
+
+  describe('with alternative icon', () => {
+    beforeEach(() => {
+      createComponent({
+        props: {
+          icon: 'information-o',
+        },
+      });
+    });
+
+    it('uses the given icon', () => {
+      expect(findQuestionButton().props('icon')).toBe('information-o');
+    });
+  });
+
+  describe('with alternative aria label', () => {
+    beforeEach(() => {
+      createComponent({
+        props: {
+          icon: 'information-o',
+        },
+      });
+    });
+
+    it('uses the given icon', () => {
+      expect(findQuestionButton().props('icon')).toBe('information-o');
     });
   });
 

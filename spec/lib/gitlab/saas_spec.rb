@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
+require 'support/helpers/saas_test_helper'
 
-RSpec.describe Gitlab::Saas do
+RSpec.describe Gitlab::Saas, feature_category: :shared do
+  include SaasTestHelper
+
   describe '.canary_toggle_com_url' do
     subject { described_class.canary_toggle_com_url }
 
-    let(:next_url) { 'https://next.gitlab.com' }
-
-    it { is_expected.to eq(next_url) }
+    it { is_expected.to eq(get_next_url) }
   end
 end

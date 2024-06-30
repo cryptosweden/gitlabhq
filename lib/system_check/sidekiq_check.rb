@@ -5,6 +5,8 @@ module SystemCheck
   class SidekiqCheck < BaseCheck
     set_name 'Sidekiq:'
 
+    SYSTEMD_UNIT_PATH = '/run/systemd/units/invocation:gitlab-sidekiq.service'
+
     def multi_check
       check_sidekiq_running
       only_one_sidekiq_running
@@ -37,9 +39,9 @@ module SystemCheck
 
       $stdout.print 'Number of Sidekiq processes (cluster/worker) ... '
 
-      if (cluster_count == 1 && worker_count > 0) || (cluster_count == 0 && worker_count == 1)
+      if cluster_count == 1 && worker_count >= 1
         $stdout.puts "#{cluster_count}/#{worker_count}".color(:green)
-      elsif File.symlink?('/run/systemd/units/invocation:gitlab-sidekiq.service')
+      elsif File.symlink?(SYSTEMD_UNIT_PATH)
         $stdout.puts "#{cluster_count}/#{worker_count}".color(:red)
         try_fixing_it(
           'sudo systemctl restart gitlab-sidekiq.service'
@@ -58,12 +60,12 @@ module SystemCheck
     end
 
     def sidekiq_worker_process_count
-      ps_ux, _ = Gitlab::Popen.popen(%w(ps uxww))
+      ps_ux, _ = Gitlab::Popen.popen(%w[ps uxww])
       ps_ux.lines.grep(/sidekiq \d+\.\d+\.\d+/).count
     end
 
     def sidekiq_cluster_process_count
-      ps_ux, _ = Gitlab::Popen.popen(%w(ps uxww))
+      ps_ux, _ = Gitlab::Popen.popen(%w[ps uxww])
       ps_ux.lines.grep(/sidekiq-cluster/).count
     end
   end

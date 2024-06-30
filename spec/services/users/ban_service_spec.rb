@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Users::BanService do
+RSpec.describe Users::BanService, feature_category: :user_management do
   let(:user) { create(:user) }
 
   let_it_be(:current_user) { create(:admin) }
@@ -34,7 +34,21 @@ RSpec.describe Users::BanService do
       end
 
       it 'logs ban in application logs' do
-        expect(Gitlab::AppLogger).to receive(:info).with(message: "User ban", user: "#{user.username}", email: "#{user.email}", ban_by: "#{current_user.username}", ip_address: "#{current_user.current_sign_in_ip}")
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          message: "User ban",
+          username: user.username.to_s,
+          user_id: user.id,
+          email: user.email.to_s,
+          ban_by: current_user.username.to_s,
+          ip_address: current_user.current_sign_in_ip.to_s
+        )
+
+        ban_user
+      end
+
+      it 'tracks the event', :experiment do
+        expect(experiment(:phone_verification_for_low_risk_users))
+          .to track(:banned).on_next_instance.with_context(user: user)
 
         ban_user
       end

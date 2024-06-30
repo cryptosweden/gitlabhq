@@ -1,12 +1,11 @@
 # frozen_string_literal: true
 
 RSpec.shared_examples 'hardware device for 2fa' do |device_type|
-  include Spec::Support::Helpers::Features::TwoFactorHelpers
+  include Features::TwoFactorHelpers
+  include Spec::Support::Helpers::ModalHelpers
 
   def register_device(device_type, **kwargs)
     case device_type.downcase
-    when "u2f"
-      register_u2f_device(**kwargs)
     when "webauthn"
       register_webauthn_device(**kwargs)
     else
@@ -18,7 +17,6 @@ RSpec.shared_examples 'hardware device for 2fa' do |device_type|
     let(:user) { create(:user) }
 
     before do
-      stub_feature_flags(bootstrap_confirmation_modals: false)
       gitlab_sign_in(user)
       user.update_attribute(:otp_required_for_login, true)
     end
@@ -59,7 +57,7 @@ RSpec.shared_examples 'hardware device for 2fa' do |device_type|
         expect(page).to have_content(first_device.name)
         expect(page).to have_content(second_device.name)
 
-        accept_confirm { click_on 'Delete', match: :first }
+        accept_gl_confirm(button_text: 'Delete') { click_on 'Delete', match: :first }
 
         expect(page).to have_content('Successfully deleted')
         expect(page.body).not_to have_content(first_device.name)
@@ -68,7 +66,7 @@ RSpec.shared_examples 'hardware device for 2fa' do |device_type|
     end
   end
 
-  describe 'fallback code authentication' do
+  describe 'fallback code authentication', :js do
     let(:user) { create(:user) }
 
     before do
@@ -98,9 +96,7 @@ RSpec.shared_examples 'hardware device for 2fa' do |device_type|
       end
 
       it 'provides a button that shows the fallback otp code UI' do
-        expect(page).to have_link('Sign in via 2FA code')
-
-        click_link('Sign in via 2FA code')
+        click_button(_('Sign in via 2FA code'))
 
         assert_fallback_ui(page)
       end

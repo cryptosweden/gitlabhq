@@ -7,12 +7,15 @@ module ProtectedBranchAccess
   included do
     belongs_to :protected_branch
 
-    delegate :project, to: :protected_branch
-  end
+    delegate :project, to: :protected_branch, allow_nil: true
 
-  def check_access(user)
-    return false if access_level == Gitlab::Access::NO_ACCESS
-
-    super
+    # We cannot delegate to :protected_branch here (even with allow_nil: true)
+    # like above because it results in
+    # 'undefined method `project_group_links' for nil:NilClass' errors.
+    def protected_branch_group
+      protected_branch.group
+    end
   end
 end
+
+ProtectedBranchAccess.prepend_mod_with('ProtectedBranchAccess')

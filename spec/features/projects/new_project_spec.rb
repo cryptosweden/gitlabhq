@@ -2,74 +2,198 @@
 
 require 'spec_helper'
 
-RSpec.describe 'New project', :js do
-  include Select2Helper
-  include Spec::Support::Helpers::Features::TopNavSpecHelpers
+RSpec.describe 'New project', :js, feature_category: :groups_and_projects do
+  include ListboxHelpers
+
+  before do
+    stub_application_setting(import_sources: Gitlab::ImportSources.values)
+  end
+
+  shared_examples 'shows correct navigation' do
+    context 'for a new top-level project' do
+      it 'shows the "Your work" navigation' do
+        visit new_project_path
+        expect(page).to have_selector(".super-sidebar", text: "Your work")
+      end
+    end
+
+    context 'for a new group project' do
+      let_it_be(:parent_group) { create(:group) }
+
+      before do
+        parent_group.add_owner(user)
+      end
+
+      it 'shows the group sidebar of the parent group' do
+        visit new_project_path(namespace_id: parent_group.id)
+        expect(page).to have_selector(".super-sidebar", text: parent_group.name)
+      end
+    end
+  end
 
   context 'as a user' do
-    let(:user) { create(:user) }
+    let_it_be(:user) { create(:user) }
 
     before do
       sign_in(user)
     end
 
-    it 'shows a message if multiple levels are restricted' do
-      Gitlab::CurrentSettings.update!(
+    it_behaves_like 'shows correct navigation'
+
+    it 'shows the project description field when it should' do
+      description_label = 'Project description (optional)'
+
+      visit new_project_path
+      click_link 'Create blank project'
+
+      page.within('#blank-project-pane') do
+        expect(page).not_to have_content(description_label)
+      end
+
+      visit new_project_path
+      click_link 'Import project'
+
+      page.within('#import-project-pane') do
+        click_button 'Repository by URL'
+
+        expect(page).to have_content(description_label)
+      end
+
+      visit new_project_path
+      click_link 'Create from template'
+
+      page.within('#create-from-template-pane') do
+        find("[data-testid='use_template_#{Gitlab::ProjectTemplate.localized_templates_table.first.name}']").click
+
+        expect(page).to have_content(description_label)
+      end
+    end
+
+    it 'disables the radio button for visibility levels "Private" and "Internal"' do
+      stub_application_setting(default_project_visibility: Gitlab::VisibilityLevel::PUBLIC)
+      stub_application_setting(
         restricted_visibility_levels: [Gitlab::VisibilityLevel::PRIVATE, Gitlab::VisibilityLevel::INTERNAL]
       )
 
       visit new_project_path
       click_link 'Create blank project'
 
-      expect(page).to have_content 'Other visibility settings have been disabled by the administrator.'
+      expect(page).to have_field("Private",  checked: false, disabled: true)
+      expect(page).to have_field("Internal", checked: false, disabled: true)
+      expect(page).to have_field("Public",   checked: true,  disabled: false)
     end
 
-    it 'shows a message if all levels are restricted' do
-      Gitlab::CurrentSettings.update!(
-        restricted_visibility_levels: Gitlab::VisibilityLevel.values
-      )
+    it 'disables all radio button for visibility levels' do
+      stub_application_setting(restricted_visibility_levels: Gitlab::VisibilityLevel.values)
 
       visit new_project_path
       click_link 'Create blank project'
 
-      expect(page).to have_content 'Visibility settings have been disabled by the administrator.'
+      expect(page).to have_field("Private",  checked: true, disabled: true)
+      expect(page).to have_field("Internal", checked: false, disabled: true)
+      expect(page).to have_field("Public",   checked: false, disabled: true)
     end
   end
 
   context 'as an admin' do
     let(:user) { create(:admin) }
 
-    before do
-      sign_in(user)
-    end
+    it_behaves_like 'shows correct navigation'
 
-    it 'shows "New project" page', :js do
-      visit new_project_path
-      click_link 'Create blank project'
-
-      expect(page).to have_content('Project name')
-      expect(page).to have_content('Project URL')
-      expect(page).to have_content('Project slug')
-
-      click_link('New project')
-      click_link 'Import project'
-
-      expect(page).to have_link('GitHub')
-      expect(page).to have_link('Bitbucket')
-      expect(page).to have_link('GitLab.com')
-      expect(page).to have_button('Repo by URL')
-      expect(page).to have_link('GitLab export')
-    end
-
-    describe 'manifest import option' do
+    shared_examples '"New project" page' do
       before do
-        visit new_project_path
-
-        click_link 'Import project'
+        sign_in(user)
       end
 
-      it 'has Manifest file' do
-        expect(page).to have_link('Manifest file')
+      it 'shows "New project" page', :js do
+        visit new_project_path
+        click_link 'Create blank project'
+
+        expect(page).to have_content('Project name')
+        expect(page).to have_content('Project URL')
+        expect(page).to have_content('Project slug')
+
+        click_link('New project')
+        click_link 'Import project'
+
+        expect(page).to have_link('GitHub')
+        expect(page).to have_link('Bitbucket')
+        expect(page).to have_button('Repository by URL')
+        expect(page).to have_link('GitLab export')
+      end
+    end
+
+    include_examples '"New project" page'
+
+    shared_examples 'renders importer link' do |params|
+      context 'with user namespace' do
+        before do
+          visit new_project_path
+          click_link 'Import project'
+        end
+
+        it "renders link to #{params[:name]} importer" do
+          expect(page).to have_link(href: Rails.application.routes.url_helpers.send(params[:route]))
+        end
+      end
+
+      context 'with group namespace' do
+        let(:group) { create(:group, :private) }
+
+        before do
+          group.add_owner(user)
+          visit new_project_path(namespace_id: group.id)
+          click_link 'Import project'
+        end
+
+        it "renders link to #{params[:name]} importer including namespace id" do
+          expect(page).to have_link(href: Rails.application.routes.url_helpers.send(params[:route], namespace_id: group.id))
+        end
+      end
+    end
+
+    describe 'importer links' do
+      shared_examples 'link to importers' do
+        let(:importer_routes) do
+          {
+            'github': :new_import_github_path,
+            'bitbucket': :status_import_bitbucket_path,
+            'bitbucket server': :status_import_bitbucket_server_path,
+            'fogbugz': :new_import_fogbugz_path,
+            'gitea': :new_import_gitea_path,
+            'manifest': :new_import_manifest_path
+          }
+        end
+
+        it 'renders links to several importers', :aggregate_failures do
+          importer_routes.each_value do |route|
+            expect(page).to have_link(href: Rails.application.routes.url_helpers.send(route, link_params))
+          end
+        end
+      end
+
+      context 'with user namespace' do
+        let(:link_params) { {} }
+
+        before do
+          visit new_project_path
+          click_link 'Import project'
+        end
+
+        include_examples 'link to importers'
+      end
+
+      context 'with group namespace' do
+        let(:group) { create(:group, :private) }
+        let(:link_params) { { namespace_id: group.id } }
+
+        before do
+          group.add_owner(user)
+          visit new_project_path(namespace_id: group.id)
+          click_link 'Import project'
+        end
+
+        include_examples 'link to importers'
       end
     end
 
@@ -81,7 +205,7 @@ RSpec.describe 'New project', :js do
           visit new_project_path
           click_link 'Create blank project'
           page.within('#blank-project-pane') do
-            expect(find_field("project_visibility_level_#{level}")).to be_checked
+            expect(page).to have_field(key, checked: true)
           end
         end
 
@@ -92,7 +216,7 @@ RSpec.describe 'New project', :js do
           choose(key)
           click_button('Create project')
           page.within('#blank-project-pane') do
-            expect(find_field("project_visibility_level_#{level}")).to be_checked
+            expect(page).to have_field(key, checked: true)
           end
         end
       end
@@ -110,7 +234,7 @@ RSpec.describe 'New project', :js do
             click_link 'Create blank project'
 
             page.within('#blank-project-pane') do
-              expect(find_field("project_visibility_level_#{Gitlab::VisibilityLevel::PRIVATE}")).to be_checked
+              expect(page).to have_field('Private', checked: true)
             end
           end
         end
@@ -137,7 +261,7 @@ RSpec.describe 'New project', :js do
             click_link 'Create blank project'
 
             page.within('#blank-project-pane') do
-              expect(find_field("project_visibility_level_#{Gitlab::VisibilityLevel::PRIVATE}")).to be_checked
+              expect(page).to have_field('Private', checked: true)
             end
           end
         end
@@ -175,7 +299,7 @@ RSpec.describe 'New project', :js do
       it 'does not show the initialize with Readme checkbox on "Import project" tab' do
         visit new_project_path
         click_link 'Import project'
-        click_button 'Repo by URL'
+        click_button 'Repository by URL'
 
         page.within '#import-project-pane' do
           expect(page).not_to have_css('input#project_initialize_with_readme')
@@ -191,8 +315,9 @@ RSpec.describe 'New project', :js do
           click_link 'Create blank project'
         end
 
-        it 'selects the user namespace' do
-          expect(page).to have_button user.username
+        it 'does not select the user namespace' do
+          click_on 'Pick a group or namespace'
+          expect_listbox_item(user.username)
         end
       end
 
@@ -240,33 +365,47 @@ RSpec.describe 'New project', :js do
 
         it 'enables the correct visibility options' do
           click_button public_group.full_path
+          select_listbox_item user.username
+
+          expect(page).to have_field("Private", disabled: false)
+          expect(page).to have_field("Internal", disabled: false)
+          expect(page).to have_field("Public", disabled: false)
+
           click_button user.username
+          select_listbox_item public_group.full_path
 
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::PRIVATE}")).not_to be_disabled
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::INTERNAL}")).not_to be_disabled
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::PUBLIC}")).not_to be_disabled
-
-          click_button user.username
-          click_button public_group.full_path
-
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::PRIVATE}")).not_to be_disabled
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::INTERNAL}")).not_to be_disabled
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::PUBLIC}")).not_to be_disabled
+          expect(page).to have_field("Private", disabled: false)
+          expect(page).to have_field("Internal", disabled: false)
+          expect(page).to have_field("Public", disabled: false)
 
           click_button public_group.full_path
+          select_listbox_item internal_group.full_path
+
+          expect(page).to have_field("Private", disabled: false)
+          expect(page).to have_field("Internal", disabled: false)
+          expect(page).to have_field("Public", disabled: true)
+
           click_button internal_group.full_path
+          select_listbox_item private_group.full_path
 
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::PRIVATE}")).not_to be_disabled
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::INTERNAL}")).not_to be_disabled
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::PUBLIC}")).to be_disabled
-
-          click_button internal_group.full_path
-          click_button private_group.full_path
-
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::PRIVATE}")).not_to be_disabled
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::INTERNAL}")).to be_disabled
-          expect(find("#project_visibility_level_#{Gitlab::VisibilityLevel::PUBLIC}")).to be_disabled
+          expect(page).to have_field("Private", disabled: false)
+          expect(page).to have_field("Internal", disabled: true)
+          expect(page).to have_field("Public", disabled: true)
         end
+      end
+    end
+
+    context 'Import project options without any sources', :js do
+      before do
+        stub_application_setting(import_sources: [])
+
+        visit new_project_path
+        click_link 'Import project'
+      end
+
+      it 'displays the no import options message' do
+        expect(page).to have_text s_('ProjectsNew|No import options available')
+        expect(page).to have_text s_('ProjectsNew|Contact an administrator to enable options for importing your project.')
       end
     end
 
@@ -276,7 +415,7 @@ RSpec.describe 'New project', :js do
         click_link 'Import project'
       end
 
-      context 'from git repository url, "Repo by URL"' do
+      context 'from git repository url, "Repository by URL"' do
         before do
           first('.js-import-git-toggle-button').click
         end
@@ -319,13 +458,22 @@ RSpec.describe 'New project', :js do
 
         it 'keeps "Import project" tab open after form validation error' do
           collision_project = create(:project, name: 'test-name-collision', namespace: user.namespace)
-          stub_request(:get, "http://foo/bar/info/refs?service=git-upload-pack").to_return({ status: 200,
-            body: '001e# service=git-upload-pack',
-            headers: { 'Content-Type': 'application/x-git-upload-pack-advertisement' } })
+          stub_request(:get, "http://foo/bar/info/refs?service=git-upload-pack").to_return(
+            { status: 200,
+              body: '001e# service=git-upload-pack',
+              headers: { 'Content-Type': 'application/x-git-upload-pack-advertisement' } })
 
           fill_in 'project_import_url', with: 'http://foo/bar'
           fill_in 'project_name', with: collision_project.name
 
+          click_on 'Create project'
+
+          expect(page).to have_content(
+            s_('ProjectsNew|Pick a group or namespace where you want to create this project.')
+          )
+
+          click_on 'Pick a group or namespace'
+          select_listbox_item user.username
           click_on 'Create project'
 
           expect(page).to have_css('#import-project-pane.active')
@@ -352,9 +500,10 @@ RSpec.describe 'New project', :js do
         end
 
         it 'initiates import when valid repo url is provided' do
-          stub_request(:get, "http://foo/bar/info/refs?service=git-upload-pack").to_return({ status: 200,
-            body: '001e# service=git-upload-pack',
-            headers: { 'Content-Type': 'application/x-git-upload-pack-advertisement' } })
+          stub_request(:get, "http://foo/bar/info/refs?service=git-upload-pack").to_return(
+            { status: 200,
+              body: '001e# service=git-upload-pack',
+              headers: { 'Content-Type': 'application/x-git-upload-pack-advertisement' } })
 
           fill_in 'project_import_url', with: 'http://foo/bar'
 
@@ -437,28 +586,9 @@ RSpec.describe 'New project', :js do
       it_behaves_like 'has instructions to enable OAuth'
     end
 
-    context 'as an admin' do
+    context 'as an admin', :do_not_mock_admin_mode_setting do
       let(:user) { create(:admin) }
       let(:oauth_config_instructions) { 'To enable importing projects from Bitbucket, as administrator you need to configure OAuth integration' }
-
-      it_behaves_like 'has instructions to enable OAuth'
-    end
-  end
-
-  context 'from GitLab.com', :js do
-    let(:target_link) { 'GitLab.com' }
-    let(:provider) { :gitlab }
-
-    context 'as a user' do
-      let(:user) { create(:user) }
-      let(:oauth_config_instructions) { 'To enable importing projects from GitLab.com, ask your GitLab administrator to configure OAuth integration' }
-
-      it_behaves_like 'has instructions to enable OAuth'
-    end
-
-    context 'as an admin' do
-      let(:user) { create(:admin) }
-      let(:oauth_config_instructions) { 'To enable importing projects from GitLab.com, as administrator you need to configure OAuth integration' }
 
       it_behaves_like 'has instructions to enable OAuth'
     end

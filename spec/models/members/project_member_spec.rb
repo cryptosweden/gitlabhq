@@ -2,15 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe ProjectMember do
+RSpec.describe ProjectMember, feature_category: :groups_and_projects do
   describe 'associations' do
     it { is_expected.to belong_to(:project).with_foreign_key(:source_id) }
   end
 
   describe 'validations' do
     it { is_expected.to allow_value('Project').for(:source_type) }
-    it { is_expected.not_to allow_value('project').for(:source_type) }
+    it { is_expected.not_to allow_value('Group').for(:source_type) }
     it { is_expected.to validate_inclusion_of(:access_level).in_array(Gitlab::Access.values) }
+  end
+
+  describe 'default values' do
+    it { expect(described_class.new.source_type).to eq('Project') }
   end
 
   describe 'delegations' do
@@ -20,6 +24,99 @@ RSpec.describe ProjectMember do
   describe '.access_level_roles' do
     it 'returns Gitlab::Access.options' do
       expect(described_class.access_level_roles).to eq(Gitlab::Access.options)
+    end
+  end
+
+  describe '#permissible_access_level_roles' do
+    let_it_be(:owner) { create(:user) }
+    let_it_be(:maintainer) { create(:user) }
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project, group: group) }
+
+    before do
+      project.add_owner(owner)
+      project.add_maintainer(maintainer)
+    end
+
+    context 'when member can manage owners' do
+      it 'returns Gitlab::Access.options_with_owner' do
+        expect(described_class.permissible_access_level_roles(owner, project)).to eq(Gitlab::Access.options_with_owner)
+      end
+    end
+
+    context 'when member cannot manage owners' do
+      it 'returns Gitlab::Access.options' do
+        expect(described_class.permissible_access_level_roles(maintainer, project)).to eq(Gitlab::Access.options)
+      end
+    end
+  end
+
+  describe '.permissible_access_level_roles_for_project_access_token' do
+    let_it_be(:owner) { create(:user) }
+    let_it_be(:maintainer) { create(:user) }
+    let_it_be(:developer) { create(:user) }
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project, group: group) }
+    let_it_be(:admin) { create(:admin) }
+
+    before do
+      project.add_owner(owner)
+      project.add_maintainer(maintainer)
+      project.add_developer(developer)
+    end
+
+    subject(:access_levels) { described_class.permissible_access_level_roles_for_project_access_token(user, project) }
+
+    context 'when member can manage owners' do
+      let(:user) { owner }
+
+      it 'returns Gitlab::Access.options_with_owner' do
+        expect(access_levels).to eq(Gitlab::Access.options_with_owner)
+      end
+    end
+
+    context 'when member can manage owners via admin' do
+      let(:user) { admin }
+
+      context 'with admin mode', :enable_admin_mode do
+        it 'returns Gitlab::Access.options_with_owner' do
+          expect(access_levels).to eq(Gitlab::Access.options_with_owner)
+        end
+      end
+
+      context 'without admin mode' do
+        it 'returns empty hash' do
+          expect(access_levels).to eq({})
+        end
+      end
+    end
+
+    context 'when user is not a project member' do
+      let(:user) { create(:user) }
+
+      it 'return an empty hash' do
+        expect(access_levels).to eq({})
+      end
+    end
+
+    context 'when member cannot manage owners' do
+      let(:user) { maintainer }
+
+      it 'returns Gitlab::Access.options' do
+        expect(access_levels).to eq(Gitlab::Access.options)
+      end
+    end
+
+    context 'when the user is a developer' do
+      let(:user) { developer }
+
+      it 'returns Gitlab::Access.options' do
+        expect(access_levels).to eq({
+          "Guest" => 10,
+          "Reporter" => 20,
+          "Developer" => 30
+        })
+      end
     end
   end
 
@@ -57,51 +154,24 @@ RSpec.describe ProjectMember do
     end
   end
 
-  describe '.import_team' do
-    before do
-      @project_1 = create(:project)
-      @project_2 = create(:project)
+  describe '#holder_of_the_personal_namespace?' do
+    let_it_be(:project_member) { build(:project_member) }
 
-      @user_1 = create :user
-      @user_2 = create :user
+    using RSpec::Parameterized::TableSyntax
 
-      @project_1.add_developer(@user_1)
-      @project_2.add_reporter(@user_2)
-
-      @status = @project_2.team.import(@project_1)
+    where(:personal_namespace_holder?, :expected) do
+      false | false
+      true  | true
     end
 
-    it { expect(@status).to be_truthy }
+    with_them do
+      it "returns expected" do
+        allow(project_member.project).to receive(:personal_namespace_holder?)
+          .with(project_member.user)
+          .and_return(personal_namespace_holder?)
 
-    describe 'project 2 should get user 1 as developer. user_2 should not be changed' do
-      it { expect(@project_2.users).to include(@user_1) }
-      it { expect(@project_2.users).to include(@user_2) }
-
-      it { expect(Ability.allowed?(@user_1, :create_project, @project_2)).to be_truthy }
-      it { expect(Ability.allowed?(@user_2, :read_project, @project_2)).to be_truthy }
-    end
-
-    describe 'project 1 should not be changed' do
-      it { expect(@project_1.users).to include(@user_1) }
-      it { expect(@project_1.users).not_to include(@user_2) }
-    end
-  end
-
-  describe '.add_users_to_projects' do
-    it 'adds the given users to the given projects' do
-      projects = create_list(:project, 2)
-      users = create_list(:user, 2)
-
-      described_class.add_users_to_projects(
-        [projects.first.id, projects.second.id],
-        [users.first.id, users.second],
-        described_class::MAINTAINER)
-
-      expect(projects.first.users).to include(users.first)
-      expect(projects.first.users).to include(users.second)
-
-      expect(projects.second.users).to include(users.first)
-      expect(projects.second.users).to include(users.second)
+        expect(project_member.holder_of_the_personal_namespace?).to be(expected)
+      end
     end
   end
 
@@ -150,8 +220,9 @@ RSpec.describe ProjectMember do
         expect { project.destroy! }.to change { user.can?(:guest_access, project) }.from(true).to(false)
       end
 
-      it 'refreshes the authorization without calling AuthorizedProjectUpdate::ProjectRecalculatePerUserService' do
-        expect(AuthorizedProjectUpdate::ProjectRecalculatePerUserService).not_to receive(:new)
+      it 'refreshes the authorization without calling AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker' do
+        # this is inline with the overridden behaviour in stubbed_member.rb
+        expect(AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker).not_to receive(:new)
 
         project.destroy!
       end
@@ -166,8 +237,9 @@ RSpec.describe ProjectMember do
         expect(project.authorized_users).not_to include(user)
       end
 
-      it 'refreshes the authorization without calling UserProjectAccessChangedService' do
-        expect(UserProjectAccessChangedService).not_to receive(:new)
+      it 'refreshes the authorization without calling `AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker`' do
+        # this is inline with the overridden behaviour in stubbed_member.rb
+        expect(AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker).not_to receive(:new)
 
         user.destroy!
       end
@@ -175,9 +247,10 @@ RSpec.describe ProjectMember do
 
     context 'when importing' do
       it 'does not refresh' do
-        expect(AuthorizedProjectUpdate::ProjectRecalculatePerUserService).not_to receive(:new)
+        # this is inline with the overridden behaviour in stubbed_member.rb
+        expect(AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker).not_to receive(:new)
 
-        member = build(:project_member)
+        member = build(:project_member, project: project)
         member.importing = true
         member.save!
       end
@@ -188,11 +261,12 @@ RSpec.describe ProjectMember do
     let_it_be(:project) { create(:project) }
     let_it_be(:user) { create(:user) }
 
-    shared_examples_for 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserService to recalculate authorizations' do
-      it 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserService' do
-        expect_next_instance_of(AuthorizedProjectUpdate::ProjectRecalculatePerUserService, project, user) do |service|
-          expect(service).to receive(:execute)
-        end
+    shared_examples_for 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker inline to recalculate authorizations' do
+      # this is inline with the overridden behaviour in stubbed_member.rb
+      it 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker inline' do
+        worker_instance = AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker.new
+        expect(AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker).to receive(:new).and_return(worker_instance)
+        expect(worker_instance).to receive(:perform).with(project.id, user.id)
 
         action
       end
@@ -200,11 +274,10 @@ RSpec.describe ProjectMember do
 
     shared_examples_for 'calls AuthorizedProjectUpdate::UserRefreshFromReplicaWorker with a delay to update project authorizations' do
       it 'calls AuthorizedProjectUpdate::UserRefreshFromReplicaWorker' do
+        stub_feature_flags(do_not_run_safety_net_auth_refresh_jobs: false)
+
         expect(AuthorizedProjectUpdate::UserRefreshFromReplicaWorker).to(
-          receive(:bulk_perform_in)
-            .with(1.hour,
-                  [[user.id]],
-                  batch_delay: 30.seconds, batch_size: 100)
+          receive(:bulk_perform_in).with(1.hour, [[user.id]], batch_delay: 30.seconds, batch_size: 100)
         )
 
         action
@@ -212,13 +285,13 @@ RSpec.describe ProjectMember do
     end
 
     context 'on create' do
-      let(:action) { project.add_user(user, Gitlab::Access::GUEST) }
+      let(:action) { project.add_member(user, Gitlab::Access::GUEST) }
 
       it 'changes access level' do
         expect { action }.to change { user.can?(:guest_access, project) }.from(false).to(true)
       end
 
-      it_behaves_like 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserService to recalculate authorizations'
+      it_behaves_like 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker inline to recalculate authorizations'
       it_behaves_like 'calls AuthorizedProjectUpdate::UserRefreshFromReplicaWorker with a delay to update project authorizations'
     end
 
@@ -226,14 +299,14 @@ RSpec.describe ProjectMember do
       let(:action) { project.members.find_by(user: user).update!(access_level: Gitlab::Access::DEVELOPER) }
 
       before do
-        project.add_user(user, Gitlab::Access::GUEST)
+        project.add_member(user, Gitlab::Access::GUEST)
       end
 
       it 'changes access level' do
         expect { action }.to change { user.can?(:developer_access, project) }.from(false).to(true)
       end
 
-      it_behaves_like 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserService to recalculate authorizations'
+      it_behaves_like 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker inline to recalculate authorizations'
       it_behaves_like 'calls AuthorizedProjectUpdate::UserRefreshFromReplicaWorker with a delay to update project authorizations'
     end
 
@@ -241,19 +314,14 @@ RSpec.describe ProjectMember do
       let(:action) { project.members.find_by(user: user).destroy! }
 
       before do
-        project.add_user(user, Gitlab::Access::GUEST)
+        project.add_member(user, Gitlab::Access::GUEST)
       end
 
-      it 'changes access level', :sidekiq_inline do
+      it 'changes access level' do
         expect { action }.to change { user.can?(:guest_access, project) }.from(true).to(false)
       end
 
-      it 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker to recalculate authorizations' do
-        expect(AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker).to receive(:perform_async).with(project.id, user.id)
-
-        action
-      end
-
+      it_behaves_like 'calls AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker inline to recalculate authorizations'
       it_behaves_like 'calls AuthorizedProjectUpdate::UserRefreshFromReplicaWorker with a delay to update project authorizations'
     end
   end

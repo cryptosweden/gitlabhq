@@ -4,7 +4,6 @@ class LfsObject < ApplicationRecord
   include AfterCommitQueue
   include Checksummable
   include EachBatch
-  include ObjectStorage::BackgroundMove
   include FileStoreMounter
 
   has_many :lfs_objects_projects
@@ -12,18 +11,23 @@ class LfsObject < ApplicationRecord
 
   scope :with_files_stored_locally, -> { where(file_store: LfsObjectUploader::Store::LOCAL) }
   scope :with_files_stored_remotely, -> { where(file_store: LfsObjectUploader::Store::REMOTE) }
-  scope :for_oids, -> (oids) { where(oid: oids) }
-  scope :for_oid_and_size, -> (oid, size) { find_by(oid: oid, size: size) }
+  scope :for_oids, ->(oids) { where(oid: oids) }
 
-  validates :oid, presence: true, uniqueness: true
+  validates :oid, presence: true, uniqueness: true, format: { with: /\A\h{64}\z/ }
 
   mount_file_store_uploader LfsObjectUploader
 
   BATCH_SIZE = 3000
 
+  def self.for_oid_and_size(oid, size)
+    find_by(oid: oid, size: size)
+  end
+
   def self.not_linked_to_project(project)
-    where('NOT EXISTS (?)',
-          project.lfs_objects_projects.select(1).where('lfs_objects_projects.lfs_object_id = lfs_objects.id'))
+    where(
+      'NOT EXISTS (?)',
+      project.lfs_objects_projects.select(1).where('lfs_objects_projects.lfs_object_id = lfs_objects.id')
+    )
   end
 
   def project_allowed_access?(project)
@@ -42,8 +46,10 @@ class LfsObject < ApplicationRecord
 
   def self.unreferenced_in_batches
     each_batch(of: BATCH_SIZE, order: :desc) do |lfs_objects|
-      relation = lfs_objects.where('NOT EXISTS (?)',
-              LfsObjectsProject.select(1).where('lfs_objects_projects.lfs_object_id = lfs_objects.id'))
+      relation = lfs_objects.where(
+        'NOT EXISTS (?)',
+        LfsObjectsProject.select(1).where('lfs_objects_projects.lfs_object_id = lfs_objects.id')
+      )
 
       yield relation if relation.any?
     end

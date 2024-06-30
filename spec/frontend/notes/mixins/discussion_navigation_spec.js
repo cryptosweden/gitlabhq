@@ -1,24 +1,25 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
-import { setHTMLFixture } from 'helpers/fixtures';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import createEventHub from '~/helpers/event_hub_factory';
 import * as utils from '~/lib/utils/common_utils';
-import eventHub from '~/notes/event_hub';
 import discussionNavigation from '~/notes/mixins/discussion_navigation';
 import notesModule from '~/notes/stores/modules';
 
 let scrollToFile;
 const discussion = (id, index) => ({
   id,
-  resolvable: index % 2 === 0,
+  resolvable: index % 2 === 0, // discussions 'b' and 'd' are not resolvable
   active: true,
   notes: [{}],
   diff_discussion: true,
   position: { new_line: 1, old_line: 1 },
   diff_file: { file_path: 'test.js' },
 });
-const createDiscussions = () => [...'abcde'].map(discussion);
+const mockDiscussionIds = [...'abcde'];
+const createDiscussions = () => mockDiscussionIds.map(discussion);
 const createComponent = () => ({
   mixins: [discussionNavigation],
   render() {
@@ -33,19 +34,24 @@ describe('Discussion navigation mixin', () => {
   let store;
   let expandDiscussion;
 
+  const findDiscussionEl = (id) => document.querySelector(`div[data-discussion-id="${id}"]`);
+
   beforeEach(() => {
     setHTMLFixture(
-      [...'abcde']
+      `<div class="tab-pane notes">
+      ${mockDiscussionIds
         .map(
-          (id) =>
+          (id, index) =>
             `<ul class="notes" data-discussion-id="${id}"></ul>
-            <div class="discussion" data-discussion-id="${id}"></div>`,
+            <div class="discussion" data-discussion-id="${id}" ${
+              discussion(id, index).resolvable
+                ? 'data-discussion-resolvable="true"'
+                : 'data-discussion-resolved="true"'
+            }></div>`,
         )
-        .join(''),
+        .join('')}
+      </div>`,
     );
-
-    jest.spyOn(utils, 'scrollToElementWithContext');
-    jest.spyOn(utils, 'scrollToElement');
 
     expandDiscussion = jest.fn();
     scrollToFile = jest.fn();
@@ -58,7 +64,8 @@ describe('Discussion navigation mixin', () => {
         },
         diffs: {
           namespaced: true,
-          actions: { scrollToFile },
+          actions: { scrollToFile, disableVirtualScroller: () => {} },
+          state: { diffFiles: [] },
         },
       },
     });
@@ -68,12 +75,8 @@ describe('Discussion navigation mixin', () => {
   });
 
   afterEach(() => {
-    wrapper.vm.$destroy();
-    jest.clearAllMocks();
+    resetHTMLFixture();
   });
-
-  const findDiscussion = (selector, id) =>
-    document.querySelector(`${selector}[data-discussion-id="${id}"]`);
 
   describe('jumpToFirstUnresolvedDiscussion method', () => {
     let vm;
@@ -106,159 +109,61 @@ describe('Discussion navigation mixin', () => {
   describe('cycle through discussions', () => {
     beforeEach(() => {
       window.mrTabs = { eventHub: createEventHub(), tabShown: jest.fn() };
+
+      // Since we cannot actually scroll on the window, we have to mock each
+      // discussion's `getBoundingClientRect` to replicate the scroll position:
+      // a is at 100, b is at 200, c is at 300, d is at 400, e is at 500.
+      mockDiscussionIds.forEach((id, index) => {
+        jest
+          .spyOn(findDiscussionEl(id), 'getBoundingClientRect')
+          .mockReturnValue({ y: (index + 1) * 100 });
+      });
+
+      jest.spyOn(utils, 'scrollToElement');
     });
 
     describe.each`
-      fn                                | args      | currentId | expected
-      ${'jumpToNextDiscussion'}         | ${[]}     | ${null}   | ${'a'}
-      ${'jumpToNextDiscussion'}         | ${[]}     | ${'a'}    | ${'c'}
-      ${'jumpToNextDiscussion'}         | ${[]}     | ${'e'}    | ${'a'}
-      ${'jumpToPreviousDiscussion'}     | ${[]}     | ${null}   | ${'e'}
-      ${'jumpToPreviousDiscussion'}     | ${[]}     | ${'e'}    | ${'c'}
-      ${'jumpToPreviousDiscussion'}     | ${[]}     | ${'c'}    | ${'a'}
-      ${'jumpToNextRelativeDiscussion'} | ${[null]} | ${null}   | ${'a'}
-      ${'jumpToNextRelativeDiscussion'} | ${['a']}  | ${null}   | ${'c'}
-      ${'jumpToNextRelativeDiscussion'} | ${['e']}  | ${'c'}    | ${'a'}
-    `('$fn (args = $args, currentId = $currentId)', ({ fn, args, currentId, expected }) => {
-      beforeEach(() => {
-        store.state.notes.currentDiscussionId = currentId;
-      });
+      fn                            | currentScrollPosition | expectedId
+      ${'jumpToNextDiscussion'}     | ${null}               | ${'a'}
+      ${'jumpToNextDiscussion'}     | ${100}                | ${'c'}
+      ${'jumpToNextDiscussion'}     | ${200}                | ${'c'}
+      ${'jumpToNextDiscussion'}     | ${500}                | ${'a'}
+      ${'jumpToPreviousDiscussion'} | ${null}               | ${'e'}
+      ${'jumpToPreviousDiscussion'} | ${100}                | ${'e'}
+      ${'jumpToPreviousDiscussion'} | ${200}                | ${'a'}
+      ${'jumpToPreviousDiscussion'} | ${500}                | ${'c'}
+    `(
+      '$fn (currentScrollPosition = $currentScrollPosition)',
+      ({ fn, currentScrollPosition, expectedId }) => {
+        describe('on `show` active tab', () => {
+          beforeEach(async () => {
+            window.mrTabs.currentAction = 'show';
 
-      describe('on `show` active tab', () => {
-        beforeEach(async () => {
-          window.mrTabs.currentAction = 'show';
-          wrapper.vm[fn](...args);
+            // Set `document.body.scrollHeight` higher than `window.innerHeight` (which is 768)
+            // to prevent `hasReachedPageEnd` from always returning true
+            jest.spyOn(document.body, 'scrollHeight', 'get').mockReturnValue(1000);
+            // Mock current scroll position
+            jest.spyOn(utils, 'contentTop').mockReturnValue(currentScrollPosition);
 
-          await nextTick();
-        });
+            wrapper.vm[fn]();
 
-        it('sets current discussion', () => {
-          expect(store.state.notes.currentDiscussionId).toEqual(expected);
-        });
-
-        it('expands discussion', () => {
-          expect(expandDiscussion).toHaveBeenCalled();
-        });
-
-        it('scrolls to element', () => {
-          expect(utils.scrollToElement).toHaveBeenCalledWith(
-            findDiscussion('div.discussion', expected),
-            { behavior: 'auto' },
-          );
-        });
-      });
-
-      describe('on `diffs` active tab', () => {
-        beforeEach(async () => {
-          window.mrTabs.currentAction = 'diffs';
-          wrapper.vm[fn](...args);
-
-          await nextTick();
-        });
-
-        it('sets current discussion', () => {
-          expect(store.state.notes.currentDiscussionId).toEqual(expected);
-        });
-
-        it('expands discussion', () => {
-          expect(expandDiscussion).toHaveBeenCalled();
-        });
-
-        it('scrolls when scrollToDiscussion is emitted', () => {
-          expect(utils.scrollToElementWithContext).not.toHaveBeenCalled();
-
-          eventHub.$emit('scrollToDiscussion');
-
-          expect(utils.scrollToElementWithContext).toHaveBeenCalledWith(
-            findDiscussion('ul.notes', expected),
-            { behavior: 'auto' },
-          );
-        });
-      });
-
-      describe('on `other` active tab', () => {
-        beforeEach(async () => {
-          window.mrTabs.currentAction = 'other';
-          wrapper.vm[fn](...args);
-
-          await nextTick();
-        });
-
-        it('sets current discussion', () => {
-          expect(store.state.notes.currentDiscussionId).toEqual(expected);
-        });
-
-        it('does not expand discussion yet', () => {
-          expect(expandDiscussion).not.toHaveBeenCalled();
-        });
-
-        it('shows mrTabs', () => {
-          expect(window.mrTabs.tabShown).toHaveBeenCalledWith('show');
-        });
-
-        describe('when tab is changed', () => {
-          beforeEach(() => {
-            window.mrTabs.eventHub.$emit('MergeRequestTabChange');
-
-            jest.runAllTimers();
+            await nextTick();
           });
 
           it('expands discussion', () => {
-            expect(expandDiscussion).toHaveBeenCalledWith(expect.anything(), {
-              discussionId: expected,
+            expect(expandDiscussion).toHaveBeenCalledWith(expect.any(Object), {
+              discussionId: expectedId,
             });
           });
 
-          it('scrolls to discussion', () => {
-            expect(utils.scrollToElement).toHaveBeenCalledWith(
-              findDiscussion('div.discussion', expected),
-              { behavior: 'auto' },
+          it(`scrolls to discussion element with id "${expectedId}"`, () => {
+            expect(utils.scrollToElement).toHaveBeenLastCalledWith(
+              findDiscussionEl(expectedId),
+              undefined,
             );
           });
         });
-      });
-    });
-
-    describe('virtual scrolling feature', () => {
-      beforeEach(() => {
-        jest.spyOn(store, 'dispatch');
-
-        store.state.notes.currentDiscussionId = 'a';
-        window.location.hash = 'test';
-      });
-
-      afterEach(() => {
-        window.gon = {};
-        window.location.hash = '';
-      });
-
-      it('resets location hash', async () => {
-        wrapper.vm.jumpToNextDiscussion();
-
-        await nextTick();
-
-        expect(window.location.hash).toBe('');
-      });
-
-      it.each`
-        tabValue
-        ${'diffs'}
-        ${'show'}
-        ${'other'}
-      `(
-        'calls scrollToFile with setHash as $hashValue when the tab is $tabValue',
-        async ({ tabValue }) => {
-          window.mrTabs.currentAction = tabValue;
-
-          wrapper.vm.jumpToNextDiscussion();
-
-          await nextTick();
-
-          expect(store.dispatch).toHaveBeenCalledWith('diffs/scrollToFile', {
-            path: 'test.js',
-          });
-        },
-      );
-    });
+      },
+    );
   });
 });

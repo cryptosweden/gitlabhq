@@ -59,21 +59,31 @@ describe('Tracking', () => {
       window.doNotTrack = undefined;
       navigator.doNotTrack = undefined;
       navigator.msDoNotTrack = undefined;
-      jest.clearAllMocks();
     });
 
     it('tracks to snowplow (our current tracking system)', () => {
       Tracking.event(TEST_CATEGORY, TEST_ACTION, { label: TEST_LABEL });
 
-      expect(snowplowSpy).toHaveBeenCalledWith(
-        'trackStructEvent',
-        TEST_CATEGORY,
-        TEST_ACTION,
-        TEST_LABEL,
-        undefined,
-        undefined,
-        [standardContext],
-      );
+      expect(snowplowSpy).toHaveBeenCalledWith('trackStructEvent', {
+        category: TEST_CATEGORY,
+        action: TEST_ACTION,
+        label: TEST_LABEL,
+        property: undefined,
+        value: undefined,
+        context: [standardContext],
+      });
+    });
+
+    it('returns `true` if the Snowplow library was called without issues', () => {
+      expect(Tracking.event(TEST_CATEGORY, TEST_ACTION)).toBe(true);
+    });
+
+    it('returns `false` if the Snowplow library throws an error', () => {
+      snowplowSpy.mockImplementation(() => {
+        throw new Error();
+      });
+
+      expect(Tracking.event(TEST_CATEGORY, TEST_ACTION)).toBe(false);
     });
 
     it('allows adding extra data to the default context', () => {
@@ -81,14 +91,13 @@ describe('Tracking', () => {
 
       Tracking.event(TEST_CATEGORY, TEST_ACTION, { extra });
 
-      expect(snowplowSpy).toHaveBeenCalledWith(
-        'trackStructEvent',
-        TEST_CATEGORY,
-        TEST_ACTION,
-        undefined,
-        undefined,
-        undefined,
-        [
+      expect(snowplowSpy).toHaveBeenCalledWith('trackStructEvent', {
+        category: TEST_CATEGORY,
+        action: TEST_ACTION,
+        label: undefined,
+        property: undefined,
+        value: undefined,
+        context: [
           {
             ...standardContext,
             data: {
@@ -97,7 +106,7 @@ describe('Tracking', () => {
             },
           },
         ],
-      );
+      });
     });
 
     it('skips tracking if snowplow is unavailable', () => {
@@ -129,16 +138,84 @@ describe('Tracking', () => {
     });
   });
 
+  describe('.definition', () => {
+    const TEST_VALID_BASENAME = '202108302307_default_click_button';
+    const TEST_EVENT_DATA = { category: undefined, action: 'click_button' };
+    let eventSpy;
+    let dispatcherSpy;
+
+    beforeAll(() => {
+      Tracking.definitionsManifest = {
+        '202108302307_default_click_button': 'config/events/202108302307_default_click_button.yml',
+      };
+    });
+
+    beforeEach(() => {
+      eventSpy = jest.spyOn(Tracking, 'event');
+      dispatcherSpy = jest.spyOn(Tracking, 'dispatchFromDefinition');
+    });
+
+    it('throws an error if the definition does not exists', () => {
+      const basename = '20220230_default_missing_definition';
+      const expectedError = new Error(`Missing Snowplow event definition "${basename}"`);
+
+      expect(() => Tracking.definition(basename)).toThrow(expectedError);
+    });
+
+    it('dispatches an event from a definition present in the manifest', () => {
+      Tracking.definition(TEST_VALID_BASENAME);
+
+      expect(dispatcherSpy).toHaveBeenCalledWith(TEST_VALID_BASENAME, {});
+    });
+
+    it('push events to the queue if not loaded', () => {
+      Tracking.definitionsLoaded = false;
+      Tracking.definitionsEventsQueue = [];
+
+      const dispatched = Tracking.definition(TEST_VALID_BASENAME);
+
+      expect(dispatched).toBe(false);
+      expect(Tracking.definitionsEventsQueue[0]).toStrictEqual([TEST_VALID_BASENAME, {}]);
+      expect(eventSpy).not.toHaveBeenCalled();
+    });
+
+    it('dispatch events when the definition is loaded', () => {
+      const definition = { key: TEST_VALID_BASENAME, ...TEST_EVENT_DATA };
+      Tracking.definitions = [{ ...definition }];
+      Tracking.definitionsEventsQueue = [];
+      Tracking.definitionsLoaded = true;
+
+      const dispatched = Tracking.definition(TEST_VALID_BASENAME);
+
+      expect(dispatched).not.toBe(false);
+      expect(Tracking.definitionsEventsQueue).toEqual([]);
+      expect(eventSpy).toHaveBeenCalledWith(definition.category, definition.action, {});
+    });
+
+    it('lets defined event data takes precedence', () => {
+      const definition = { key: TEST_VALID_BASENAME, category: undefined, action: 'click_button' };
+      const eventData = { category: TEST_CATEGORY };
+      Tracking.definitions = [{ ...definition }];
+      Tracking.definitionsLoaded = true;
+
+      Tracking.definition(TEST_VALID_BASENAME, eventData);
+
+      expect(eventSpy).toHaveBeenCalledWith(TEST_CATEGORY, definition.action, eventData);
+    });
+  });
+
   describe('.enableFormTracking', () => {
     it('tells snowplow to enable form tracking, with only explicit contexts', () => {
-      const config = { forms: { allow: ['form-class1'] }, fields: { allow: ['input-class1'] } };
+      const config = {
+        forms: { allow: ['form-class1'] },
+        fields: { allow: ['input-class1'] },
+      };
       Tracking.enableFormTracking(config, ['_passed_context_', standardContext]);
 
-      expect(snowplowSpy).toHaveBeenCalledWith(
-        'enableFormTracking',
-        { forms: { whitelist: ['form-class1'] }, fields: { whitelist: ['input-class1'] } },
-        ['_passed_context_'],
-      );
+      expect(snowplowSpy).toHaveBeenCalledWith('enableFormTracking', {
+        options: { forms: { allowlist: ['form-class1'] }, fields: { allowlist: ['input-class1'] } },
+        context: ['_passed_context_'],
+      });
     });
 
     it('throws an error if no allow rules are provided', () => {
@@ -154,11 +231,10 @@ describe('Tracking', () => {
     it('does not add empty form allow rules', () => {
       Tracking.enableFormTracking({ fields: { allow: ['input-class1'] } });
 
-      expect(snowplowSpy).toHaveBeenCalledWith(
-        'enableFormTracking',
-        { fields: { whitelist: ['input-class1'] } },
-        [],
-      );
+      expect(snowplowSpy).toHaveBeenCalledWith('enableFormTracking', {
+        options: { fields: { allowlist: ['input-class1'] } },
+        context: [],
+      });
     });
 
     describe('when `document.readyState` does not equal `complete`', () => {
@@ -207,15 +283,14 @@ describe('Tracking', () => {
 
       Tracking.flushPendingEvents();
 
-      expect(snowplowSpy).toHaveBeenCalledWith(
-        'trackStructEvent',
-        TEST_CATEGORY,
-        TEST_ACTION,
-        TEST_LABEL,
-        undefined,
-        undefined,
-        [standardContext],
-      );
+      expect(snowplowSpy).toHaveBeenCalledWith('trackStructEvent', {
+        category: TEST_CATEGORY,
+        action: TEST_ACTION,
+        label: TEST_LABEL,
+        property: undefined,
+        value: undefined,
+        context: [standardContext],
+      });
     });
   });
 
@@ -321,6 +396,8 @@ describe('Tracking', () => {
       });
 
       it('ignores and removes old entries from the cache', () => {
+        window.gl.maskedDefaultReferrerUrl =
+          'https://gitlab.com/namespace:#/project:#/-/merge_requests/';
         const oldTimestamp = Date.now() - (REFERRER_TTL + 1);
         Object.defineProperty(document, 'referrer', { value: testOriginalUrl });
         setUrlsCache([
@@ -333,8 +410,28 @@ describe('Tracking', () => {
 
         Tracking.setAnonymousUrls();
 
-        expect(snowplowSpy).not.toHaveBeenCalledWith('setReferrerUrl', testUrl);
-        expect(localStorage.getItem(URLS_CACHE_STORAGE_KEY)).not.toContain(oldTimestamp);
+        expect(snowplowSpy).toHaveBeenCalledWith(
+          'setReferrerUrl',
+          window.gl.maskedDefaultReferrerUrl,
+        );
+        expect(localStorage.getItem(URLS_CACHE_STORAGE_KEY)).not.toContain(oldTimestamp.toString());
+      });
+
+      it('sets the referrer URL to maskedDefaultReferrerUrl if no referrer is found in cache', () => {
+        window.gl.maskedDefaultReferrerUrl =
+          'https://gitlab.com/namespace:#/project:#/-/merge_requests/';
+        setUrlsCache([]);
+
+        Object.defineProperty(document, 'referrer', {
+          value: 'https://gitlab.com/my-namespace/my-project/-/merge_requests/',
+        });
+
+        Tracking.setAnonymousUrls();
+
+        expect(snowplowSpy).toHaveBeenCalledWith(
+          'setReferrerUrl',
+          window.gl.maskedDefaultReferrerUrl,
+        );
       });
     });
   });
@@ -379,15 +476,14 @@ describe('Tracking', () => {
         value: '0',
       });
 
-      expect(snowplowSpy).toHaveBeenCalledWith(
-        'trackStructEvent',
-        TEST_CATEGORY,
-        'click_input2',
-        undefined,
-        undefined,
-        0,
-        [standardContext],
-      );
+      expect(snowplowSpy).toHaveBeenCalledWith('trackStructEvent', {
+        category: TEST_CATEGORY,
+        action: 'click_input2',
+        label: undefined,
+        property: undefined,
+        value: 0,
+        context: [standardContext],
+      });
     });
 
     it('handles checkbox values correctly', () => {
@@ -538,20 +634,35 @@ describe('Tracking', () => {
         expect(mixin.computed.trackingOptions()).toEqual({ foo: 'baz', baz: 'bar' });
       });
 
-      it('includes experiment data if linked to an experiment', () => {
+      describe('experiment', () => {
         const mockExperimentData = {
           variant: 'candidate',
           experiment: 'darkMode',
         };
-        getExperimentData.mockReturnValue(mockExperimentData);
 
-        const mixin = Tracking.mixin({ foo: 'bar', experiment: 'darkMode' });
-        expect(mixin.computed.trackingOptions()).toEqual({
+        const expectedOptions = {
           foo: 'bar',
           context: {
             schema: TRACKING_CONTEXT_SCHEMA,
             data: mockExperimentData,
           },
+        };
+
+        beforeEach(() => {
+          getExperimentData.mockReturnValue(mockExperimentData);
+        });
+
+        it('includes experiment data if linked to an experiment', () => {
+          const mixin = Tracking.mixin({ foo: 'bar', experiment: 'darkMode' });
+
+          expect(mixin.computed.trackingOptions()).toEqual(expectedOptions);
+        });
+
+        it('includes experiment data if local tracking value provides experiment name', () => {
+          const mixin = Tracking.mixin({ foo: 'bar' });
+          mixin.computed.tracking = { experiment: 'darkMode' };
+
+          expect(mixin.computed.trackingOptions()).toEqual(expectedOptions);
         });
       });
 

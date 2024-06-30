@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::GitGarbageCollectWorker do
+RSpec.describe Projects::GitGarbageCollectWorker, feature_category: :source_code_management do
   let_it_be(:project) { create(:project, :repository) }
 
   it_behaves_like 'can collect git garbage' do
@@ -24,8 +24,7 @@ RSpec.describe Projects::GitGarbageCollectWorker do
     end
 
     context 'when the repository has joined a pool' do
-      let!(:pool) { create(:pool_repository, :ready) }
-      let(:project) { pool.source_project }
+      let_it_be(:pool) { create(:pool_repository, :ready, source_project: project) }
 
       it 'ensures the repositories are linked' do
         expect(project.pool_repository).to receive(:link_repository).once
@@ -68,6 +67,20 @@ RSpec.describe Projects::GitGarbageCollectWorker do
         subject.perform(*params)
 
         expect(project.lfs_objects.reload).not_to include(lfs_object)
+      end
+
+      context 'when optimize repository call fails' do
+        before do
+          allow(project.repository.gitaly_repository_client).to receive(:optimize_repository).and_raise('Boom')
+        end
+
+        it 'does not clean up unreferenced LFS objects' do
+          expect(Gitlab::Cleanup::OrphanLfsFileReferences).not_to receive(:new)
+
+          expect { subject.perform(*params) }.to raise_error('Boom')
+
+          expect(project.lfs_objects.reload).to include(lfs_object)
+        end
       end
 
       it 'catches and logs exceptions' do

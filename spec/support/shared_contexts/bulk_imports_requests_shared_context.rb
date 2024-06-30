@@ -12,19 +12,19 @@ RSpec.shared_context 'bulk imports requests context' do |url|
     }
   end
 
-  let(:request_headers) { { 'Authorization' => 'Bearer demo-pat', 'Content-Type' => 'application/json' } }
+  let(:request_headers) { { 'Content-Type' => 'application/json' } }
 
   before do
-    stub_request(:get, "#{url}/api/v4/version")
+    stub_request(:get, "#{url}/api/v4/version?private_token=demo-pat")
       .with(headers: request_headers)
       .to_return(
         status: 200,
         body: { version: ::BulkImport.min_gl_version_for_project_migration.to_s }.to_json,
         headers: { 'Content-Type' => 'application/json' })
 
-    stub_request(:get, "https://gitlab.example.com/api/v4/groups?min_access_level=50&page=1&per_page=20&search=test&top_level_only=true")
-      .with(headers: request_headers)
-      .to_return(status: 200,
+    stub_request(:get, "https://gitlab.example.com/api/v4/groups?min_access_level=50&page=1&per_page=20&private_token=demo-pat&search=test&top_level_only=true")
+      .to_return(
+        status: 200,
         body: [{
           id: 2595440,
           web_url: 'https://gitlab.com/groups/test',
@@ -34,9 +34,9 @@ RSpec.shared_context 'bulk imports requests context' do |url|
           full_path: 'stub-test-group'
         }].to_json,
         headers: page_response_headers
-                )
+      )
 
-    stub_request(:get, "%{url}/api/v4/groups?page=1&per_page=20&top_level_only=true&min_access_level=50&search=" % { url: url })
+    stub_request(:get, "%{url}/api/v4/groups?min_access_level=50&page=1&per_page=20&private_token=demo-pat&search=&top_level_only=true" % { url: url })
       .to_return(
         body: [{
           id: 2595438,

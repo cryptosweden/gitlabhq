@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::ProjectSearchResults do
+RSpec.describe Gitlab::ProjectSearchResults, feature_category: :global_search do
   include SearchHelpers
 
   let_it_be(:user) { create(:user) }
@@ -118,7 +118,7 @@ RSpec.describe Gitlab::ProjectSearchResults do
   shared_examples 'blob search repository ref' do |entity_type, blob_type|
     let(:query) { 'files' }
     let(:file_finder) { double }
-    let(:project_branch) { 'project_branch' }
+    let(:project_branch) { blob_type == 'wiki_blobs' ? entity.default_branch : 'project_branch' }
 
     subject(:objects) { results.objects(blob_type) }
 
@@ -180,12 +180,12 @@ RSpec.describe Gitlab::ProjectSearchResults do
     end
 
     it 'limits search results based on the third page' do
-      expect(file_finder).to receive(:find).with(query, content_match_cutoff: count_limit + per_page * 2)
+      expect(file_finder).to receive(:find).with(query, content_match_cutoff: count_limit + (per_page * 2))
       results.objects(blob_type, page: 3, per_page: per_page)
     end
 
     it 'uses the per_page value when passed' do
-      expect(file_finder).to receive(:find).with(query, content_match_cutoff: count_limit + 10 * 2)
+      expect(file_finder).to receive(:find).with(query, content_match_cutoff: count_limit + (10 * 2))
       results.objects(blob_type, page: 3, per_page: 10)
     end
   end
@@ -209,8 +209,11 @@ RSpec.describe Gitlab::ProjectSearchResults do
 
   describe 'wiki search' do
     let(:project) { create(:project, :public, :wiki_repo) }
+    let(:project_branch) { 'project_branch' }
 
     before do
+      allow(project.wiki).to receive(:root_ref).and_return(project_branch)
+
       project.wiki.create_page('Files/Title', 'Content')
       project.wiki.create_page('CHANGELOG', 'Files example')
     end

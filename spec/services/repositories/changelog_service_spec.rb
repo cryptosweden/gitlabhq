@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Repositories::ChangelogService do
+RSpec.describe Repositories::ChangelogService, feature_category: :source_code_management do
   describe '#execute' do
     let!(:project) { create(:project, :empty_repo) }
     let!(:creator) { project.creator }
@@ -67,10 +67,11 @@ RSpec.describe Repositories::ChangelogService do
       allow(MergeRequestDiffCommit)
         .to receive(:oldest_merge_request_id_per_commit)
         .with(project.id, [commit2.id, commit1.id])
-        .and_return([
-          { sha: sha2, merge_request_id: mr1.id },
-          { sha: sha3, merge_request_id: mr2.id }
-        ])
+        .and_return(
+          [
+            { sha: sha2, merge_request_id: mr1.id },
+            { sha: sha3, merge_request_id: mr2.id }
+          ])
 
       service = described_class
         .new(project, creator, version: '1.0.0', from: sha1, to: sha3)
@@ -78,7 +79,7 @@ RSpec.describe Repositories::ChangelogService do
       recorder = ActiveRecord::QueryRecorder.new { service.execute(commit_to_changelog: commit_to_changelog) }
       changelog = project.repository.blob_at('master', 'CHANGELOG.md')&.data
 
-      expect(recorder.count).to eq(9)
+      expect(recorder.count).to eq(14)
       expect(changelog).to include('Title 1', 'Title 2')
     end
 
@@ -135,10 +136,11 @@ RSpec.describe Repositories::ChangelogService do
         allow(MergeRequestDiffCommit)
           .to receive(:oldest_merge_request_id_per_commit)
           .with(project.id, [commit2.id, commit1.id])
-          .and_return([
-            { sha: sha2, merge_request_id: mr1.id },
-            { sha: sha3, merge_request_id: mr2.id }
-          ])
+          .and_return(
+            [
+              { sha: sha2, merge_request_id: mr1.id },
+              { sha: sha3, merge_request_id: mr2.id }
+            ])
 
         service = described_class
           .new(project, creator, version: '1.0.0', from: sha1, to: sha3)
@@ -146,6 +148,71 @@ RSpec.describe Repositories::ChangelogService do
         changelog = service.execute(commit_to_changelog: commit_to_changelog)
 
         expect(changelog).to include('Title 1', 'Title 2')
+      end
+    end
+
+    it 'avoids N+1 queries', :request_store do
+      RequestStore.clear!
+
+      request = ->(to) do
+        described_class
+          .new(project, creator, version: '1.0.0', from: sha1, to: to)
+          .execute(commit_to_changelog: false)
+      end
+
+      control = ActiveRecord::QueryRecorder.new { request.call(sha2) }
+
+      RequestStore.clear!
+
+      expect { request.call(sha3) }.not_to exceed_query_limit(control)
+    end
+
+    context 'when one of commits does not exist' do
+      let(:service) { described_class.new(project, creator, version: '1.0.0', from: 'master', to: '54321') }
+
+      it 'raises an exception' do
+        expect { service.execute(commit_to_changelog: false) }.to raise_error(Gitlab::Changelog::Error)
+      end
+    end
+
+    context 'when commit range exceeds the limit' do
+      let(:service) { described_class.new(project, creator, version: '1.0.0', from: sha1) }
+
+      before do
+        stub_const("#{described_class.name}::COMMITS_LIMIT", 2)
+      end
+
+      it 'raises an exception' do
+        expect { service.execute(commit_to_changelog: false) }.to raise_error(Gitlab::Changelog::Error)
+      end
+
+      context 'when feature flag is off' do
+        before do
+          stub_feature_flags(changelog_commits_limitation: false)
+        end
+
+        it 'returns the changelog' do
+          expect(service.execute(commit_to_changelog: false)).to include('Title 1', 'Title 2', 'Title 3')
+        end
+      end
+    end
+
+    context 'with specified changelog config file path' do
+      it 'return specified changelog content' do
+        config = Gitlab::Changelog::Config.from_hash(project, { 'template' => 'specified_changelog_content' }, creator)
+
+        allow(Gitlab::Changelog::Config)
+          .to receive(:from_git)
+          .with(project, creator, 'specified_changelog_config.yml')
+          .and_return(config)
+
+        described_class
+          .new(project, creator, version: '1.0.0', from: sha1, config_file: 'specified_changelog_config.yml')
+          .execute(commit_to_changelog: commit_to_changelog)
+
+        changelog = project.repository.blob_at('master', 'CHANGELOG.md')&.data
+
+        expect(changelog).to include('specified_changelog_content')
       end
     end
   end

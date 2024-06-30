@@ -6,9 +6,11 @@ module Gitlab
     # Base GitLab CI Configuration facade
     #
     class Config
+      include Gitlab::Utils::StrongMemoize
+
       ConfigError = Class.new(StandardError)
-      TIMEOUT_SECONDS = 30.seconds
-      TIMEOUT_MESSAGE = 'Resolving config took longer than expected'
+      TIMEOUT_SECONDS = ENV.fetch('GITLAB_CI_CONFIG_FETCH_TIMEOUT_SECONDS', 30).to_i.clamp(0, 60).seconds
+      TIMEOUT_MESSAGE = 'Request timed out when fetching configuration files.'
 
       RESCUE_ERRORS = [
         Gitlab::Config::Loader::FormatError,
@@ -17,30 +19,43 @@ module Gitlab
         Config::Yaml::Tags::TagError
       ].freeze
 
-      attr_reader :root, :context, :source_ref_path, :source, :logger
+      attr_reader :root, :context, :source_ref_path, :source, :logger, :inject_edge_stages, :pipeline_policy_context
 
-      def initialize(config, project: nil, pipeline: nil, sha: nil, user: nil, parent_pipeline: nil, source: nil, logger: nil)
+      # rubocop: disable Metrics/ParameterLists
+      def initialize(config, project: nil, pipeline: nil, sha: nil, ref: nil, user: nil, parent_pipeline: nil, source: nil, pipeline_config: nil, logger: nil, inject_edge_stages: true, pipeline_policy_context: nil)
         @logger = logger || ::Gitlab::Ci::Pipeline::Logger.new(project: project)
         @source_ref_path = pipeline&.source_ref_path
+        @project = project
+        @inject_edge_stages = inject_edge_stages
+        @pipeline_policy_context = pipeline_policy_context
 
-        @context = self.logger.instrument(:config_build_context) do
-          build_context(project: project, pipeline: pipeline, sha: sha, user: user, parent_pipeline: parent_pipeline)
+        @context = self.logger.instrument(:config_build_context, once: true) do
+          pipeline ||= ::Ci::Pipeline.new(project: project, sha: sha, ref: ref, user: user, source: source)
+
+          build_context(project: project, pipeline: pipeline, sha: sha, user: user, parent_pipeline: parent_pipeline, pipeline_config: pipeline_config)
         end
 
         @context.set_deadline(TIMEOUT_SECONDS)
 
         @source = source
 
-        @config = self.logger.instrument(:config_expand) do
-          expand_config(config)
-        end
+        Gitlab::Ci::Config::FeatureFlags.with_actor(project) do
+          @config = self.logger.instrument(:config_expand, once: true) do
+            expand_config(config)
+          end
 
-        @root = self.logger.instrument(:config_compose) do
-          Entry::Root.new(@config, project: project, user: user).tap(&:compose!)
+          @root = self.logger.instrument(:config_root, once: true) do
+            Entry::Root.new(@config, project: project, user: user, logger: self.logger)
+          end
+
+          self.logger.instrument(:config_root_compose, once: true) do
+            @root.compose!
+          end
         end
       rescue *rescue_errors => e
         raise Config::ConfigError, e.message
       end
+      # rubocop: enable Metrics/ParameterLists
 
       def valid?
         @root.valid?
@@ -69,6 +84,10 @@ module Gitlab
         root.variables_entry.value_with_data
       end
 
+      def variables_with_prefill_data
+        root.variables_entry.value_with_prefill_data
+      end
+
       def stages
         root.stages_value
       end
@@ -77,12 +96,35 @@ module Gitlab
         root.jobs_value
       end
 
+      def workflow_rules
+        root.workflow_entry.rules_value
+      end
+
+      def workflow_name
+        root.workflow_entry.name
+      end
+
+      def workflow_auto_cancel
+        root.workflow_entry.auto_cancel_value
+      end
+
       def normalized_jobs
         @normalized_jobs ||= Ci::Config::Normalizer.new(jobs).normalize_jobs
       end
 
       def included_templates
-        @context.expandset.filter_map { |i| i[:template] }
+        @context.includes.filter_map { |i| i[:location] if i[:type] == :template }
+      end
+
+      def included_components
+        @context.includes.filter_map { |i| i[:component] if i[:type] == :component }.uniq
+      end
+
+      def metadata
+        {
+          includes: @context.includes,
+          merged_yaml: @config&.deep_stringify_keys&.to_yaml
+        }
       end
 
       private
@@ -100,23 +142,25 @@ module Gitlab
       end
 
       def build_config(config)
-        initial_config = logger.instrument(:config_yaml_load) do
+        initial_config = logger.instrument(:config_yaml_load, once: true) do
           Config::Yaml.load!(config)
         end
 
-        initial_config = logger.instrument(:config_external_process) do
+        initial_config = logger.instrument(:config_external_process, once: true) do
           Config::External::Processor.new(initial_config, @context).perform
         end
 
-        initial_config = logger.instrument(:config_yaml_extend) do
+        initial_config = logger.instrument(:config_yaml_extend, once: true) do
           Config::Extendable.new(initial_config).to_hash
         end
 
-        initial_config = logger.instrument(:config_tags_resolve) do
+        initial_config = logger.instrument(:config_tags_resolve, once: true) do
           Config::Yaml::Tags::Resolver.new(initial_config).to_hash
         end
 
-        logger.instrument(:config_stages_inject) do
+        return initial_config unless inject_edge_stages
+
+        logger.instrument(:config_stages_inject, once: true) do
           Config::EdgeStagesInjector.new(initial_config).to_hash
         end
       end
@@ -129,48 +173,23 @@ module Gitlab
         end
       end
 
-      def build_context(project:, pipeline:, sha:, user:, parent_pipeline:)
+      def build_context(project:, pipeline:, sha:, user:, parent_pipeline:, pipeline_config:)
         Config::External::Context.new(
           project: project,
+          pipeline: pipeline,
           sha: sha || find_sha(project),
           user: user,
           parent_pipeline: parent_pipeline,
-          variables: build_variables(project: project, pipeline: pipeline),
+          variables: build_variables(pipeline: pipeline),
+          pipeline_config: pipeline_config,
           logger: logger)
       end
 
-      def build_variables(project:, pipeline:)
-        logger.instrument(:config_build_variables) do
-          build_variables_without_instrumentation(
-            project: project,
-            pipeline: pipeline
-          )
-        end
-      end
-
-      def build_variables_without_instrumentation(project:, pipeline:)
-        Gitlab::Ci::Variables::Collection.new.tap do |variables|
-          break variables unless project
-
-          # The order of the following lines is important as priority of CI variables is
-          # defined globally within GitLab.
-          #
-          # See more detail in the docs: https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
-          variables.concat(project.predefined_variables)
-          variables.concat(pipeline.predefined_variables) if pipeline
-          variables.concat(secret_variables(project: project, pipeline: pipeline))
-          variables.concat(project.group.ci_variables_for(source_ref_path, project)) if project.group
-          variables.concat(project.ci_variables_for(ref: source_ref_path))
-          variables.concat(pipeline.variables) if pipeline
-          variables.concat(pipeline.pipeline_schedule.job_variables) if pipeline&.pipeline_schedule
-        end
-      end
-
-      def secret_variables(project:, pipeline:)
-        if pipeline
-          pipeline.variables_builder.secret_instance_variables
-        else
-          Gitlab::Ci::Variables::Builder::Instance.new.secret_variables
+      def build_variables(pipeline:)
+        logger.instrument(:config_build_variables, once: true) do
+          pipeline
+            .variables_builder
+            .config_variables
         end
       end
 

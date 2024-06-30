@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User creates branch and merge request on issue page', :js do
+RSpec.describe 'User creates branch and merge request on issue page', :js, feature_category: :team_planning do
   let(:membership_level) { :developer }
   let(:user) { create(:user) }
   let!(:project) { create(:project, :repository, :public) }
@@ -20,7 +20,7 @@ RSpec.describe 'User creates branch and merge request on issue page', :js do
 
   context 'when signed in' do
     before do
-      project.add_user(user, membership_level)
+      project.add_member(user, membership_level)
 
       sign_in(user)
     end
@@ -31,7 +31,7 @@ RSpec.describe 'User creates branch and merge request on issue page', :js do
       end
 
       # In order to improve tests performance, all UI checks are placed in this test.
-      it 'shows elements', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/27993' do
+      it 'shows elements' do
         button_create_merge_request = find('.js-create-merge-request')
         button_toggle_dropdown = find('.create-mr-dropdown-wrap .dropdown-toggle')
 
@@ -73,8 +73,8 @@ RSpec.describe 'User creates branch and merge request on issue page', :js do
 
             expect(page).to have_content('New merge request')
             expect(page).to have_content("From #{issue.to_branch_name} into #{project.default_branch}")
-            expect(page).to have_content("Closes ##{issue.iid}")
             expect(page).to have_field("Title", with: "Draft: Resolve \"Cherry-Coloured Funk\"")
+            expect(page).to have_field("Description", with: "Closes ##{issue.iid}")
             expect(page).to have_current_path(project_new_merge_request_path(project, merge_request: { source_branch: issue.to_branch_name, target_branch: project.default_branch, issue_iid: issue.iid }))
           end
         end
@@ -84,7 +84,7 @@ RSpec.describe 'User creates branch and merge request on issue page', :js do
 
           wait_for_requests
 
-          expect(page).to have_selector('.dropdown-toggle-text ', text: '1-cherry-coloured-funk')
+          expect(page).to have_selector('.ref-selector ', text: '1-cherry-coloured-funk')
           expect(page).to have_current_path project_tree_path(project, '1-cherry-coloured-funk'), ignore_query: true
         end
       end
@@ -98,8 +98,8 @@ RSpec.describe 'User creates branch and merge request on issue page', :js do
 
             expect(page).to have_content('New merge request')
             expect(page).to have_content("From #{branch_name} into #{project.default_branch}")
-            expect(page).to have_content("Closes ##{issue.iid}")
             expect(page).to have_field("Title", with: "Draft: Resolve \"Cherry-Coloured Funk\"")
+            expect(page).to have_field("Description", with: "Closes ##{issue.iid}")
             expect(page).to have_current_path(project_new_merge_request_path(project, merge_request: { source_branch: branch_name, target_branch: project.default_branch, issue_iid: issue.iid }))
           end
         end
@@ -109,21 +109,65 @@ RSpec.describe 'User creates branch and merge request on issue page', :js do
 
           wait_for_requests
 
-          expect(page).to have_selector('.dropdown-toggle-text ', text: branch_name)
+          expect(page).to have_selector('.ref-selector', text: branch_name)
           expect(page).to have_current_path project_tree_path(project, branch_name), ignore_query: true
+        end
+
+        context 'when source branch is non-default' do
+          let(:source_branch) { 'feature' }
+
+          it 'creates a branch' do
+            select_dropdown_option('create-branch', branch_name, source_branch)
+            wait_for_requests
+
+            expect(page).to have_selector('.ref-selector', text: branch_name)
+            expect(page).to have_current_path project_tree_path(project, branch_name), ignore_query: true
+          end
+        end
+      end
+
+      context 'when branch name is invalid' do
+        shared_examples 'has error message' do |dropdown|
+          it 'has error message' do
+            select_dropdown_option(dropdown, 'custom-branch-name w~th ^bad chars?')
+
+            wait_for_requests
+
+            expect(page).to have_text("Can't contain spaces, ~, ^, ?")
+          end
+        end
+
+        context 'when creating a merge request', :sidekiq_might_not_need_inline do
+          it_behaves_like 'has error message', 'create-mr'
+        end
+
+        context 'when creating a branch', :sidekiq_might_not_need_inline do
+          it_behaves_like 'has error message', 'create-branch'
         end
       end
     end
 
     context "when there is a referenced merge request" do
       let!(:note) do
-        create(:note, :on_issue, :system, project: project, noteable: issue,
-                                          note: "mentioned in #{referenced_mr.to_reference}")
+        create(
+          :note,
+          :on_issue,
+          :system,
+          project: project,
+          noteable: issue,
+          note: "mentioned in #{referenced_mr.to_reference}"
+        )
       end
 
       let(:referenced_mr) do
-        create(:merge_request, :simple, source_project: project, target_project: project,
-                                        description: "Fixes #{issue.to_reference}", author: user)
+        create(
+          :merge_request,
+          :simple,
+          source_project: project,
+          target_project: project,
+          description: "Fixes #{issue.to_reference}",
+          author: user
+        )
       end
 
       before do
@@ -135,7 +179,7 @@ RSpec.describe 'User creates branch and merge request on issue page', :js do
       it 'disables the create branch button', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/27985' do
         expect(page).to have_css('.create-mr-dropdown-wrap .unavailable:not(.hidden)')
         expect(page).to have_css('.create-mr-dropdown-wrap .available.hidden', visible: false)
-        expect(page).to have_content /Related merge requests/
+        expect(page).to have_content(/Related merge requests/)
       end
     end
 
@@ -199,12 +243,13 @@ RSpec.describe 'User creates branch and merge request on issue page', :js do
 
   private
 
-  def select_dropdown_option(option, branch_name = nil)
+  def select_dropdown_option(option, branch_name = nil, source_branch = nil)
     find('.create-mr-dropdown-wrap .dropdown-toggle').click
     find("li[data-value='#{option}']").click
 
-    if branch_name
-      find('.js-branch-name').set(branch_name)
+    if branch_name || source_branch
+      find('.js-branch-name').set(branch_name) if branch_name
+      find('.js-ref').set(source_branch) if source_branch
 
       # Javascript debounces AJAX calls.
       # So we have to wait until AJAX requests are started.

@@ -1,4 +1,4 @@
-import createFlash from './flash';
+import { createAlert } from '~/alert';
 import axios from './lib/utils/axios_utils';
 import { parseBoolean } from './lib/utils/common_utils';
 import { __ } from './locale';
@@ -7,11 +7,13 @@ const DEFERRED_LINK_CLASS = 'deferred-link';
 
 export default class PersistentUserCallout {
   constructor(container, options = container.dataset) {
-    const { dismissEndpoint, featureId, groupId, deferLinks } = options;
+    const { dismissEndpoint, featureId, groupId, namespaceId, projectId, deferLinks } = options;
     this.container = container;
     this.dismissEndpoint = dismissEndpoint;
     this.featureId = featureId;
     this.groupId = groupId;
+    this.namespaceId = namespaceId;
+    this.projectId = projectId;
     this.deferLinks = parseBoolean(deferLinks);
     this.closeButtons = this.container.querySelectorAll('.js-close');
 
@@ -56,6 +58,8 @@ export default class PersistentUserCallout {
       .post(this.dismissEndpoint, {
         feature_name: this.featureId,
         group_id: this.groupId,
+        namespace_id: this.namespaceId,
+        project_id: this.projectId,
       })
       .then(() => {
         this.container.remove();
@@ -69,7 +73,7 @@ export default class PersistentUserCallout {
         }
       })
       .catch(() => {
-        createFlash({
+        createAlert({
           message: __(
             'An error occurred while dismissing the alert. Refresh the page and try again.',
           ),
@@ -90,7 +94,7 @@ export default class PersistentUserCallout {
         window.location.assign(href);
       })
       .catch(() => {
-        createFlash({
+        createAlert({
           message: __(
             'An error occurred while acknowledging the notification. Refresh the page and try again.',
           ),

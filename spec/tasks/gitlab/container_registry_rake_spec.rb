@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-require 'rake_helper'
+require 'spec_helper'
 
 RSpec.describe 'gitlab:container_registry namespace rake tasks', :silence_stdout do
-  let_it_be(:api_url) { 'http://registry.gitlab' }
+  let(:api_url) { 'http://registry.gitlab' }
 
-  before :all do
+  before(:all) do
     Rake.application.rake_require 'tasks/gitlab/container_registry'
   end
 

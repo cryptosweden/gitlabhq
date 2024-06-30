@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe GpgKeys::CreateService do
+RSpec.describe GpgKeys::CreateService, feature_category: :source_code_management do
   let(:user) { create(:user) }
   let(:params) { attributes_for(:gpg_key) }
 
@@ -28,6 +28,18 @@ RSpec.describe GpgKeys::CreateService do
       gpg_key = subject.execute
 
       expect(gpg_key.subkeys.count).to eq(2)
+    end
+  end
+
+  context 'invalid key' do
+    let(:params) { {} }
+
+    it 'returns an invalid key' do
+      expect(GpgKeys::ValidateIntegrationsService).not_to receive(:new)
+
+      gpg_key = subject.execute
+
+      expect(gpg_key).not_to be_persisted
     end
   end
 end

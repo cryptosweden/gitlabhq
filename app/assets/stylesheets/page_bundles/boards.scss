@@ -5,77 +5,38 @@
   pointer-events: none;
 }
 
-.dropdown-projects {
-  .dropdown-content {
-    max-height: 200px;
-  }
-}
-
-.issue-board-dropdown-content {
-  margin: 0;
-  padding: $gl-padding-4 $gl-padding $gl-padding;
-  border-bottom: 0;
-  color: var(--gray-500, $gray-500);
-}
-
-[data-page$='epic_boards:index'],
-[data-page$='epic_boards:show'],
-.issue-boards-page {
-  .content-wrapper {
-    padding-bottom: 0;
-  }
-}
-
-[data-page$='epic_boards:index'],
-[data-page$='epic_boards:show'] {
-  .filtered-search-wrapper {
-    display: none !important;
-  }
-}
-
 .boards-app {
+  height: calc(#{$calc-application-viewport-height} - var(--header-height, 48px) - var(--broadcast-message-height, 0px));
+  display: flex;
+  flex-direction: column;
+
   @include media-breakpoint-up(sm) {
-    transition: width $sidebar-transition-duration;
+    transition: width $gl-transition-duration-medium;
     width: 100%;
 
     &.is-compact {
-      width: calc(100% - #{$gutter-width});
+      width: calc(100% - #{$right-sidebar-width});
     }
+  }
+}
+
+.board-swimlanes-headers {
+  background-color: $white;
+
+  .gl-dark & {
+    background-color: var(--gray-10);
   }
 }
 
 .boards-list,
 .board-swimlanes {
-  height: calc(100vh - #{$issue-board-list-difference-xs});
-  overflow-x: scroll;
-  min-height: 200px;
+  flex-grow: 1;
+  border-left: 8px solid var(--gl-background-color-default);
 
-  @include media-breakpoint-only(sm) {
-    height: calc(100vh - #{$issue-board-list-difference-sm});
-  }
+  min-height: calc(#{$calc-application-viewport-height} - var(--header-height));
 
-  @include media-breakpoint-up(md) {
-    height: calc(100vh - #{$issue-board-list-difference-md});
-  }
-
-  @include media-breakpoint-up(lg) {
-    height: calc(100vh - #{$issue-board-list-difference-lg});
-  }
-
-  .with-performance-bar & {
-    height: calc(100vh - #{$issue-board-list-difference-xs} - #{$performance-bar-height});
-
-    @include media-breakpoint-only(sm) {
-      height: calc(100vh - #{$issue-board-list-difference-sm} - #{$performance-bar-height});
-    }
-
-    @include media-breakpoint-up(md) {
-      height: calc(100vh - #{$issue-board-list-difference-md} - #{$performance-bar-height});
-    }
-
-    @include media-breakpoint-up(lg) {
-      height: calc(100vh - #{$issue-board-list-difference-lg} - #{$performance-bar-height});
-    }
+  @include media-breakpoint-up(sm) {
+    min-height: 0;
   }
 }
 
@@ -86,33 +47,13 @@
     width: 400px;
   }
 
-  .board-title-caret {
-    border-radius: $border-radius-default;
-    line-height: $gl-spacing-scale-5;
-
-    &.btn svg {
-      top: 0;
-    }
-
-    &:hover {
-      background-color: var(--gray-50, $gray-50);
-      transition: background-color 0.1s linear;
-    }
-  }
-
-  &:not(.is-collapsed) {
-    .board-title-caret {
-      margin-right: $gl-padding-4;
+  &.board-add-new-list {
+    @include media-breakpoint-down(sm) {
+      width: 100%;
     }
   }
 
   &.is-collapsed {
-    width: 50px;
-
-    .board-title-caret {
-      margin-top: 1px;
-    }
-
     .board-title-text > span,
     .issue-count-badge > span {
       height: 16px;
@@ -122,17 +63,11 @@
       // We do this because the flow of elements isn't affected by the rotate transform, so we must ensure that a
       // rotated element has square dimensions so it won't overlap with its siblings.
       margin: calc(50% - 8px) 0;
+      max-width: 50vh;
 
-      transform: rotate(90deg);
       transform-origin: center;
     }
   }
-}
-
-.board-inner {
-  font-size: $issue-boards-font-size;
-  background: var(--gray-10, $gray-10);
-  border: 1px solid var(--gray-100, $gray-100);
 }
 
 // to highlight columns we have animated pulse of box-shadow
@@ -150,7 +85,7 @@
   right: -1px;
   pointer-events: none;
   opacity: 0;
-  border-radius: $border-radius-default;
+  border-radius: $gl-border-radius-base;
   animation-name: board-column-flash-border;
   animation-duration: 1.2s;
   animation-fill-mode: forwards;
@@ -169,126 +104,34 @@
   }
 }
 
-.board-header {
-  &.has-border::before {
-    border-top: 3px solid;
-    border-color: inherit;
-    border-top-left-radius: $border-radius-default;
-    border-top-right-radius: $border-radius-default;
-    content: '';
-    position: absolute;
-    width: calc(100% + 2px);
-    top: 0;
-    left: 0;
-    margin-top: -1px;
-    margin-right: -1px;
-    margin-left: -1px;
-    padding-top: 1px;
-    padding-right: 1px;
-    padding-left: 1px;
+.board-card {
+  background: var(--gl-background-color-default);
+  box-shadow: 0 1px 2px rgba(var(--black, $black), 0.1);
 
-    .board-title {
-      padding-top: ($gl-padding - 3px);
-      padding-bottom: $gl-padding;
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  @include media-breakpoint-up(md) {
+    &:not(:hover, :focus, :focus-within, :active) .move-to-position {
+      visibility: hidden;
     }
   }
 }
 
-.board-title {
-  border-bottom: 1px solid var(--gray-100, $gray-100);
-  height: 3rem;
-
-  .js-max-issue-size::before {
-    content: '/';
-  }
-}
-
-.board-list-component {
-  min-height: 0; // firefox fix
-}
-
-.board-list {
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.board-list-loading {
-  margin-top: 10px;
-  font-size: (26px / $issue-boards-font-size) * 1em;
-}
-
-.board-card {
-  background: var(--white, $white);
-  border: 1px solid var(--gray-100, $gray-100);
-  box-shadow: 0 1px 2px rgba(var(--black, $black), 0.1);
-  line-height: $gl-padding;
-  list-style: none;
-  position: relative;
-
-  &:not(:last-child) {
-    margin-bottom: $gl-padding-8;
-  }
-
-  &.is-active,
-  &.is-active .board-card-assignee:hover a {
-    background-color: var(--blue-50, $blue-50);
-  }
-
-  &.multi-select {
-    border-color: var(--blue-200, $blue-200);
-    background-color: var(--blue-50, $blue-50);
-  }
-
-  .gl-label {
-    margin-top: 4px;
-    margin-right: 4px;
-  }
-
-  .confidential-icon,
-  .hidden-icon {
-    color: var(--orange-500, $orange-500);
-    cursor: help;
-  }
-
-  .issue-blocked-icon {
-    color: var(--red-500, $red-500);
-  }
-
+.board-card-title a {
   @include media-breakpoint-down(md) {
-    padding: $gl-padding-8;
-  }
-}
-
-.board-card-title {
-  @include overflow-break-word();
-  font-size: 1em;
-
-  a {
-    color: var(--gray-900, $gray-900);
-  }
-
-  @include media-breakpoint-down(md) {
-    font-size: $label-font-size;
+    font-size: $gl-font-size-sm;
   }
 }
 
 .board-card-assignee {
-  margin-top: -$gl-padding-4;
-  margin-bottom: -$gl-padding-4;
-
   .avatar-counter {
-    vertical-align: middle;
-    line-height: $gl-padding-24;
     min-width: $gl-padding-24;
     height: $gl-padding-24;
     border-radius: $gl-padding-24;
-    background-color: var(--gray-400, $gray-400);
     font-size: $gl-font-size-xs;
-    cursor: help;
-    font-weight: $gl-font-weight-bold;
-    margin-left: -$gl-padding-4;
-    border: 0;
-    padding: 0 $gl-padding-4;
+    position: relative;
 
     @include media-breakpoint-down(md) {
       min-width: auto;
@@ -298,19 +141,9 @@
     }
   }
 
-  img {
-    vertical-align: top;
-  }
-
-  .user-avatar-link:not(:only-child) {
-    margin-left: -$gl-padding-4;
-
-    &:nth-of-type(1) {
-      z-index: 2;
-    }
-
-    &:nth-of-type(2) {
-      z-index: 1;
+  .user-avatar-link {
+    &:not(:last-of-type) {
+      margin-right: -$gl-spacing-scale-3;
     }
   }
 
@@ -322,89 +155,24 @@
   }
 
   @include media-breakpoint-down(md) {
-    margin-top: 0;
-    margin-bottom: 0;
+    margin-bottom: 0 !important;
   }
 }
 
 .board-card-number {
-  font-size: $gl-font-size-xs;
-  color: var(--gray-500, $gray-500);
-
-  @include media-breakpoint-up(md) {
-    font-size: $label-font-size;
+  @include media-breakpoint-down(md) {
+    font-size: $gl-font-size-sm;
   }
 }
 
 .board-list-count {
-  padding: 10px 0;
-  color: var(--gray-500, $gray-500);
   font-size: 13px;
 }
 
-.board-new-issue-form {
-  z-index: 4;
-  margin: 5px;
-}
-
-.right-sidebar.boards-sidebar {
-  .gutter-toggle {
-    bottom: 15px;
-    width: 22px;
-    padding-left: $gl-padding-32;
-
-    svg {
-      position: absolute;
-      top: 50%;
-      right: 0;
-      margin-top: (-11px / 2);
-      height: $gl-font-size-12;
-      width: $gl-font-size-12;
-    }
-  }
-
-  .issuable-header-text {
-    @include overflow-break-word();
-    padding-right: 35px;
-  }
-}
-
-.right-sidebar.right-sidebar-expanded {
-  &.boards-sidebar-slide-enter-active,
-  &.boards-sidebar-slide-leave-active {
-    transition: width $sidebar-transition-duration, padding $sidebar-transition-duration;
-  }
-
-  &.boards-sidebar-slide-enter,
-  &.boards-sidebar-slide-leave-active {
-    width: 0;
-    padding-left: 0;
-    padding-right: 0;
-  }
-}
-
 .board-card-info {
-  color: var(--gray-500, $gray-500);
-  white-space: nowrap;
-  margin-right: $gl-padding-8;
-
-  &:not(.board-card-weight) {
-    cursor: help;
-  }
-
-  &.board-card-weight {
-    color: var(--gray-500, $gray-500);
-    cursor: pointer;
-
-    &:hover {
-      color: initial;
-      text-decoration: underline;
-    }
-  }
+  @apply gl-whitespace-nowrap;
 
   .board-card-info-icon {
-    color: var(--gray-500, $gray-500);
-    margin-right: $gl-padding-4;
     vertical-align: text-top;
   }
 
@@ -417,63 +185,50 @@
   cursor: help;
 }
 
-.board-labels-toggle-wrapper,
-.board-swimlanes-toggle-wrapper {
-  /**
-   * Make the wrapper the same height as a button so it aligns properly when the
-   * filtered-search-box input element increases in size on Linux smaller breakpoints
-   */
-  height: $input-height;
-}
-
 .issue-boards-content:not(.breadcrumbs) {
   isolation: isolate;
 }
 
 .issue-boards-content.is-focused {
+  $focus-mode-z-index: 9000;
+
   position: fixed;
   width: 100%;
   height: 100%;
   top: 0;
   left: 0;
   background: var(--white, $white);
-  z-index: 9000;
+  z-index: $focus-mode-z-index;
 
   @include media-breakpoint-down(sm) {
     padding-top: 10px;
   }
 
-  .boards-list {
-    height: calc(100vh - #{$issue-boards-filter-height});
-    overflow-x: scroll;
+  .boards-app {
+    height: 100vh;
   }
 
-  .boards-sidebar {
-    height: 100%;
-    top: 0;
+  // Use !important for these as top and z-index are set on style attribute
+  // in gitlab-ui; https://gitlab.com/gitlab-org/gitlab-ui/-/issues/1805
+  ~ #js-right-sidebar-portal .boards-sidebar {
+    top: 0 !important;
+    z-index: calc(#{$focus-mode-z-index} + 1) !important;
   }
 }
 
 .boards-sidebar {
+  top: $calc-application-header-height !important;
+  height: auto;
+  bottom: $calc-application-footer-height;
+  padding-bottom: 0.5rem;
+
   .sidebar-collapsed-icon {
     display: none;
   }
 
-  .gl-drawer-header {
-    align-items: flex-start;
-  }
-
-  .labels-select-wrapper.is-embedded .labels-select-wrapper.is-embedded {
-    width: auto;
-  }
-
   .show.dropdown .dropdown-menu {
-    @include gl-w-full;
+    width: 100%;
   }
-}
-
-.board-header-collapsed-info-icon:hover {
-  color: var(--gray-900, $gray-900);
 }
 
 .board-card-skeleton {
@@ -483,5 +238,14 @@
   .board-card-skeleton-inner {
     width: 340px;
     height: 100px;
+  }
+}
+
+.board-cut-line {
+  &::before, &::after {
+    content: '';
+    height: 1px;
+    flex: 1;
+    border-top: 1px dashed $red-700;
   }
 }

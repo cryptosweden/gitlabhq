@@ -20,6 +20,10 @@ We have two kinds of changes related to JH:
     codes under `jh/`.
   - We will generalize this so both EE and JH can share the same mechanism,
     then we wouldn't have to treat them differently.
+  - Database migrations and database schema changes which are required to
+    support running JH edition. See
+    [JiHu guidelines for database changes](https://handbook.gitlab.com/handbook/ceo/chief-of-staff-team/jihu-support/jihu-database-change-process/)
+    for details.
 
 If needed, review the corresponding JH merge request located at [JH repository](https://jihulab.com/gitlab-cn/gitlab).
 
@@ -33,9 +37,12 @@ the reference from being misidentified as a missing partial and subsequently del
 
 ## Process overview
 
-See the [merge request process](https://about.gitlab.com/handbook/ceo/chief-of-staff-team/jihu-support/#merge-request-process)
-on the JiHu Support handbook.
-This page is the single source of truth for JiHu-related processes.
+Read the following process guides:
+
+- [Contribution review process](https://handbook.gitlab.com/handbook/ceo/chief-of-staff-team/jihu-support/jihu-contribution-process/)
+- [Database change process](https://handbook.gitlab.com/handbook/ceo/chief-of-staff-team/jihu-support/jihu-database-change-process/)
+- [Security review process](https://handbook.gitlab.com/handbook/ceo/chief-of-staff-team/jihu-support/jihu-security-review-process/)
+- [Merge request process](https://handbook.gitlab.com/handbook/ceo/chief-of-staff-team/jihu-support/jihu-contribution-process/#merge-request-review-process)
 
 ## Act as EE when `jh/` does not exist or when `EE_ONLY=1`
 
@@ -62,7 +69,8 @@ For features that build on existing CE/EE features, a module in the `JH`
 namespace injected in the CE/EE class/module is needed. This aligns with
 what we're doing with EE features.
 
-See [EE features based on CE features](ee_features.md#ee-features-based-on-ce-features) for more details.
+See [Extend CE features with EE backend code](ee_features.md#extend-ce-features-with-ee-backend-code)
+for more details.
 
 For example, to prepend a module into the `User` class you would use
 the following approach:
@@ -90,6 +98,20 @@ the relevant EE and JH modules by the name of the receiver module.
 
 If reviewing the corresponding JH file is needed, it should be found at
 [JH repository](https://jihulab.com/gitlab-cn/gitlab).
+
+NOTE:
+In some cases, JH does need to override something we don't need, and in that
+case it is ok to also add `prepend_mod` for the modules. When we do this,
+also add a comment mentioning it, and a link to the JH module using it.
+This way we know where it's used and when we might not need it anymore,
+and we do not remove them only because we're not using it, accidentally
+breaking JH. An example of this:
+
+```ruby
+# Added for JiHu
+# Used in https://jihulab.com/gitlab-cn/gitlab/-/blob/main-jh/jh/lib/jh/api/integrations.rb
+API::Integrations.prepend_mod
+```
 
 ### General guidance for writing JH extensions
 

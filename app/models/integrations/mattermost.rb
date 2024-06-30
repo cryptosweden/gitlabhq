@@ -3,12 +3,14 @@
 module Integrations
   class Mattermost < BaseChatNotification
     include SlackMattermostNotifier
+    include SlackMattermostFields
+    include HasAvatar
 
-    def title
-      s_('Mattermost notifications')
+    def self.title
+      _('Mattermost notifications')
     end
 
-    def description
+    def self.description
       s_('Send notifications about project events to Mattermost channels.')
     end
 
@@ -16,7 +18,7 @@ module Integrations
       'mattermost'
     end
 
-    def help
+    def self.help
       docs_link = ActionController::Base.helpers.link_to _('Learn more.'), Rails.application.routes.url_helpers.help_page_url('user/project/integrations/mattermost'), target: '_blank', rel: 'noopener noreferrer'
       s_('Send notifications about project events to Mattermost channels. %{docs_link}').html_safe % { docs_link: docs_link.html_safe }
     end
@@ -25,8 +27,13 @@ module Integrations
       'my-channel'
     end
 
-    def webhook_placeholder
-      'http://mattermost.example.com/hooks/'
+    def self.webhook_help
+      'http://mattermost.example.com/hooks/...'
+    end
+
+    override :configurable_channels?
+    def configurable_channels?
+      true
     end
   end
 end

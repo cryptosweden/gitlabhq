@@ -1,5 +1,6 @@
 <script>
 import { GlModal, GlSprintf, GlForm } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapActions } from 'vuex';
 import csrf from '~/lib/utils/csrf';
 import { __, s__, sprintf } from '~/locale';
@@ -14,6 +15,7 @@ export default {
     text: s__('Members|Remove group'),
     attributes: {
       variant: 'danger',
+      'data-testid': 'remove-group-button',
     },
   },
   csrf,
@@ -67,7 +69,7 @@ export default {
     :action-primary="$options.actionPrimary"
     :action-cancel="$options.actionCancel"
     size="sm"
-    data-qa-selector="remove_group_link_modal_content"
+    data-testid="remove-group-link-modal-content"
     @primary="handlePrimary"
     @hide="hideRemoveGroupLinkModal"
   >

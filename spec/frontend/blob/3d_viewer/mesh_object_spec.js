@@ -1,11 +1,11 @@
-import { BoxGeometry } from 'three/build/three.module';
+import { BoxGeometry } from 'three';
 import MeshObject from '~/blob/3d_viewer/mesh_object';
 
 describe('Mesh object', () => {
   it('defaults to non-wireframe material', () => {
     const object = new MeshObject(new BoxGeometry(10, 10, 10));
 
-    expect(object.material.wireframe).toBeFalsy();
+    expect(object.material.wireframe).toBe(false);
   });
 
   it('changes to wirefame material', () => {
@@ -13,7 +13,7 @@ describe('Mesh object', () => {
 
     object.changeMaterial('wireframe');
 
-    expect(object.material.wireframe).toBeTruthy();
+    expect(object.material.wireframe).toBe(true);
   });
 
   it('scales object down', () => {

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Checks::SnippetCheck do
+RSpec.describe Gitlab::Checks::SnippetCheck, feature_category: :source_code_management do
   include_context 'change access checks context'
 
   let_it_be(:snippet) { create(:personal_snippet, :repository) }
@@ -13,7 +13,7 @@ RSpec.describe Gitlab::Checks::SnippetCheck do
   let(:creation) { false }
   let(:deletion) { false }
 
-  subject { Gitlab::Checks::SnippetCheck.new(changes, default_branch: default_branch, root_ref: snippet.repository.root_ref, logger: logger) }
+  subject { described_class.new(changes, default_branch: default_branch, root_ref: snippet.repository.root_ref, logger: logger) }
 
   describe '#validate!' do
     it 'does not raise any error' do

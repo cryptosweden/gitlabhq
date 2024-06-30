@@ -2,32 +2,41 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Blob shortcuts', :js do
-  let(:user) { create(:user) }
-  let(:project) { create(:project, :public, :repository) }
-  let(:issue) { create(:issue, project: project, author: user) }
+RSpec.describe 'Blob shortcuts', :js, feature_category: :team_planning do
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :public, :repository) }
+  let_it_be(:issue) { create(:issue, project: project, author: user) }
   let(:merge_request) { create(:merge_request, source_project: project) }
   let(:note_text) { 'I got this!' }
 
-  before do
+  before_all do
     project.add_developer(user)
-    sign_in(user)
   end
 
   shared_examples "quotes the selected text" do
-    it 'quotes the selected text in main comment form', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/356388' do
-      select_element('#notes-list .note:first-child .note-text')
+    it 'focuses main comment field by default' do
       find('body').native.send_key('r')
 
-      expect(find('.js-main-target-form .js-vue-comment-form').value).to include(note_text)
+      expect(page).to have_selector('.js-main-target-form .js-gfm-input:focus')
     end
 
-    it 'quotes the selected text in the discussion reply form', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/356388' do
-      find('#notes-list .note:first-child .js-reply-button').click
-      select_element('#notes-list .note:first-child .note-text')
+    it 'quotes the selected text in main comment form' do
+      select_element('#notes-list .note-comment:first-child .note-text')
       find('body').native.send_key('r')
 
-      expect(find('#notes-list .note:first-child .js-vue-markdown-field .js-gfm-input').value).to include(note_text)
+      page.within('.js-main-target-form') do
+        expect(page).to have_field('Write a comment or drag your files here…', with: "> #{note_text}\n\n")
+      end
+    end
+
+    it 'quotes the selected text in the discussion reply form' do
+      find('#notes-list .note:first-child .js-reply-button').click
+      select_element('#notes-list .note-comment:first-child .note-text')
+      find('body').native.send_key('r')
+
+      page.within('.notes .discussion-reply-holder') do
+        expect(page).to have_field('Write a comment or drag your files here…', with: "> #{note_text}\n\n")
+      end
     end
   end
 
@@ -35,6 +44,7 @@ RSpec.describe 'Blob shortcuts', :js do
     describe 'On an Issue' do
       before do
         create(:note, noteable: issue, project: project, note: note_text)
+        sign_in(user)
         visit project_issue_path(project, issue)
         wait_for_requests
       end
@@ -45,6 +55,7 @@ RSpec.describe 'Blob shortcuts', :js do
     describe 'On a Merge Request' do
       before do
         create(:note, noteable: merge_request, project: project, note: note_text)
+        sign_in(user)
         visit project_merge_request_path(project, merge_request)
         wait_for_requests
       end
@@ -57,14 +68,14 @@ RSpec.describe 'Blob shortcuts', :js do
     it "opens assignee dropdown for editing" do
       find('body').native.send_key('a')
 
-      expect(find('.block.assignee')).to have_selector('.js-sidebar-assignee-data')
+      expect(find('.block.assignee')).to have_selector('.dropdown-menu-user')
     end
   end
 
   describe 'pressing "a"' do
     describe 'On an Issue' do
       before do
-        stub_feature_flags(issue_assignees_widget: false)
+        sign_in(user)
         visit project_issue_path(project, issue)
         wait_for_requests
       end
@@ -74,7 +85,7 @@ RSpec.describe 'Blob shortcuts', :js do
 
     describe 'On a Merge Request' do
       before do
-        stub_feature_flags(issue_assignees_widget: false)
+        sign_in(user)
         visit project_merge_request_path(project, merge_request)
         wait_for_requests
       end
@@ -87,13 +98,14 @@ RSpec.describe 'Blob shortcuts', :js do
     it "opens milestones dropdown for editing" do
       find('body').native.send_key('m')
 
-      expect(find('[data-testid="milestone-edit"]')).to have_selector('.gl-new-dropdown-inner')
+      expect(find_by_testid('milestone-edit')).to have_selector('.gl-dropdown-inner')
     end
   end
 
   describe 'pressing "m"' do
     describe 'On an Issue' do
       before do
+        sign_in(user)
         visit project_issue_path(project, issue)
         wait_for_requests
       end
@@ -103,6 +115,7 @@ RSpec.describe 'Blob shortcuts', :js do
 
     describe 'On a Merge Request' do
       before do
+        sign_in(user)
         visit project_merge_request_path(project, merge_request)
         wait_for_requests
       end
@@ -122,6 +135,7 @@ RSpec.describe 'Blob shortcuts', :js do
   describe 'pressing "l"' do
     describe 'On an Issue' do
       before do
+        sign_in(user)
         visit project_issue_path(project, issue)
         wait_for_requests
       end
@@ -131,6 +145,7 @@ RSpec.describe 'Blob shortcuts', :js do
 
     describe 'On a Merge Request' do
       before do
+        sign_in(user)
         visit project_merge_request_path(project, merge_request)
         wait_for_requests
       end

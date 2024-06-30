@@ -5,6 +5,7 @@ module BulkImports
     module Pipelines
       class ProjectEntitiesPipeline
         include Pipeline
+        include HexdigestCacheStrategy
 
         extractor Common::Extractors::GraphqlExtractor, query: Graphql::GetProjectsQuery
         transformer Common::Transformers::ProhibitedAttributesTransformer
@@ -13,9 +14,10 @@ module BulkImports
           {
             source_type: :project_entity,
             source_full_path: data['full_path'],
-            destination_name: data['name'],
+            destination_name: data['path'],
             destination_namespace: context.entity.group.full_path,
-            parent_id: context.entity.id
+            parent_id: context.entity.id,
+            source_xid: GlobalID.parse(data['id']).model_id
           }
         end
 

@@ -91,22 +91,22 @@ RSpec.describe CommitsHelper do
     let(:node) { Nokogiri::HTML.parse(helper.diff_mode_swap_button(keyword, 'abc')).at_css('a') }
 
     context 'for rendered' do
-      it 'renders the correct select-rendered button' do
+      it 'renders the correct select-rendered button', :aggregate_failures do
         expect(node[:title]).to eq('Display rendered diff')
         expect(node['data-file-hash']).to eq('abc')
-        expect(node['data-diff-toggle-entity']).to eq('toShowBtn')
-        expect(node.xpath("//a/svg")[0]["data-testid"]).to eq('doc-text-icon')
+        expect(node['data-diff-toggle-entity']).to eq('renderedButton')
+        expect(node.xpath("//a/span/svg")[0]["data-testid"]).to eq('doc-text-icon')
       end
     end
 
     context 'for raw' do
       let(:keyword) { 'raw' }
 
-      it 'renders the correct select-raw button' do
+      it 'renders the correct select-raw button', :aggregate_failures do
         expect(node[:title]).to eq('Display raw diff')
         expect(node['data-file-hash']).to eq('abc')
-        expect(node['data-diff-toggle-entity']).to eq('toHideBtn')
-        expect(node.xpath("//a/svg")[0]["data-testid"]).to eq('doc-code-icon')
+        expect(node['data-diff-toggle-entity']).to eq('rawButton')
+        expect(node.xpath("//a/span/svg")[0]["data-testid"]).to eq('doc-code-icon')
       end
     end
   end
@@ -153,23 +153,25 @@ RSpec.describe CommitsHelper do
   end
 
   describe "#conditionally_paginate_diff_files" do
-    let(:diffs_collection) { instance_double(Gitlab::Diff::FileCollection::Commit, diff_files: diff_files) }
-    let(:diff_files) { Gitlab::Git::DiffCollection.new(files) }
-    let(:page) { nil }
+    let_it_be(:project) { create(:project, :repository) }
 
+    let(:diffs_collection) { instance_double(Gitlab::Diff::FileCollection::Commit, diff_files: decorated_diff_files, project: project) }
+    let(:decorated_diff_files) do
+      diffs.map do |diff|
+        Gitlab::Diff::File.new(diff, repository: project.repository)
+      end
+    end
+
+    let(:diffs) { Gitlab::Git::DiffCollection.new(files) }
     let(:files) do
       Array.new(85).map do
         { too_large: false, diff: "" }
       end
     end
 
-    let(:params) do
-      {
-        page: page
-      }
-    end
+    let(:page) { nil }
 
-    subject { helper.conditionally_paginate_diff_files(diffs_collection, paginate: paginate, per: Projects::CommitController::COMMIT_DIFFS_PER_PAGE) }
+    subject { helper.conditionally_paginate_diff_files(diffs_collection, paginate: paginate, page: page, per: Projects::CommitController::COMMIT_DIFFS_PER_PAGE) }
 
     before do
       allow(helper).to receive(:params).and_return(params)
@@ -183,7 +185,7 @@ RSpec.describe CommitsHelper do
       end
 
       it "can change the number of items per page" do
-        commits = helper.conditionally_paginate_diff_files(diffs_collection, paginate: paginate, per: 10)
+        commits = helper.conditionally_paginate_diff_files(diffs_collection, page: page, paginate: paginate, per: 10)
 
         expect(commits).to be_an(Array)
         expect(commits.size).to eq(10)
@@ -209,15 +211,15 @@ RSpec.describe CommitsHelper do
     context "pagination is disabled" do
       let(:paginate) { false }
 
-      it "returns a standard DiffCollection" do
-        expect(subject).to be_a(Gitlab::Git::DiffCollection)
+      it "returns the unpaginated collection" do
+        expect(subject.size).to eq(85)
       end
     end
   end
 
   describe '#cherry_pick_projects_data' do
     let(:project) { create(:project, :repository) }
-    let(:user) { create(:user, maintainer_projects: [project]) }
+    let(:user) { create(:user, maintainer_of: project) }
     let!(:forked_project) { fork_project(project, user, { namespace: user.namespace, repository: true }) }
 
     before do
@@ -225,10 +227,11 @@ RSpec.describe CommitsHelper do
     end
 
     it 'returns data for cherry picking into a project' do
-      expect(helper.cherry_pick_projects_data(forked_project)).to match_array([
-        { id: project.id.to_s, name: project.full_path, refsUrl: refs_project_path(project) },
-        { id: forked_project.id.to_s, name: forked_project.full_path, refsUrl: refs_project_path(forked_project) }
-      ])
+      expect(helper.cherry_pick_projects_data(forked_project)).to match_array(
+        [
+          { id: project.id.to_s, name: project.full_path, refsUrl: refs_project_path(project) },
+          { id: forked_project.id.to_s, name: forked_project.full_path, refsUrl: refs_project_path(forked_project) }
+        ])
     end
   end
 
@@ -318,25 +321,24 @@ RSpec.describe CommitsHelper do
     let(:current_path) { "test" }
 
     before do
-      expect(commit).to receive(:status_for).with(ref).and_return(commit_status)
+      expect(commit).to receive(:detailed_status_for).with(ref).and_return(commit_status)
       assign(:path, current_path)
     end
 
-    it { is_expected.to be_an(Array) }
-    it { is_expected.to include(commit) }
-    it { is_expected.to include(commit.author) }
-    it { is_expected.to include(ref) }
-
-    it do
-      is_expected.to include(
+    specify do
+      expect(subject).to eq([
+        commit,
+        commit.author,
+        ref,
         {
           merge_request: merge_request.cache_key,
           pipeline_status: pipeline.cache_key,
           xhr: true,
           controller: "commits",
-          path: current_path
+          path: current_path,
+          referenced_by: helper.tag_checksum(commit.referenced_by)
         }
-      )
+      ])
     end
 
     describe "final cache key output" do
@@ -354,5 +356,47 @@ RSpec.describe CommitsHelper do
     subject { helper.commit_path_template(project) }
 
     it { is_expected.to eq(expected_path) }
+  end
+
+  describe '#local_committed_date' do
+    let(:commit) { build(:commit, committed_date: time) }
+    let(:user) { build(:user) }
+    let(:time) { Time.find_zone('UTC').parse('2023-01-01') }
+
+    subject { helper.local_committed_date(commit, user).to_s }
+
+    it { is_expected.to eq('2023-01-01') }
+
+    context 'when user has a custom timezone' do
+      let(:user) { build(:user, timezone: 'America/Mexico_City') }
+
+      it 'selects timezone of the user' do
+        is_expected.to eq('2022-12-31')
+      end
+    end
+
+    context "when user doesn't have a preferred timezone" do
+      let(:user) { build(:user, timezone: nil) }
+
+      it 'uses system timezone' do
+        is_expected.to eq('2023-01-01')
+      end
+    end
+
+    context 'when user timezone is not supported' do
+      let(:user) { build(:user, timezone: 'unknown') }
+
+      it 'uses system timezone' do
+        is_expected.to eq('2023-01-01')
+      end
+    end
+
+    context 'when user is missing' do
+      let(:user) { nil }
+
+      it 'uses system timezone' do
+        is_expected.to eq('2023-01-01')
+      end
+    end
   end
 end

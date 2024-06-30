@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::CustomEmojiFilter do
+RSpec.describe Banzai::Filter::CustomEmojiFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   let_it_be(:group) { create(:group) }
@@ -18,42 +18,70 @@ RSpec.describe Banzai::Filter::CustomEmojiFilter do
     doc = filter('<p>:tanuki:</p>', project: project)
 
     expect(doc.css('gl-emoji').first.attributes['title'].value).to eq('tanuki')
-    expect(doc.css('gl-emoji img').size).to eq 1
   end
 
   it 'correctly uses the custom emoji URL' do
     doc = filter('<p>:tanuki:</p>')
 
-    expect(doc.css('img').first.attributes['src'].value).to eq(custom_emoji.file)
+    expect(doc.css('gl-emoji').first.attributes['data-fallback-src'].value).to eq(custom_emoji.file)
   end
 
   it 'matches multiple same custom emoji' do
     doc = filter(':tanuki: :tanuki:')
 
-    expect(doc.css('img').size).to eq 2
+    expect(doc.css('gl-emoji').size).to eq 2
   end
 
   it 'matches multiple custom emoji' do
     doc = filter(':tanuki: (:happy_tanuki:)')
 
-    expect(doc.css('img').size).to eq 2
+    expect(doc.css('gl-emoji').size).to eq 2
   end
 
   it 'does not match enclosed colons' do
     doc = filter('tanuki:tanuki:')
 
-    expect(doc.css('img').size).to be 0
+    expect(doc.css('gl-emoji').size).to be 0
   end
 
   it 'does not do N+1 query' do
     create(:custom_emoji, name: 'party-parrot', group: group)
 
-    control_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+    control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
       filter('<p>:tanuki:</p>')
     end
 
     expect do
       filter('<p>:tanuki:</p> <p>:party-parrot:</p>')
-    end.not_to exceed_all_query_limit(control_count.count)
+    end.not_to exceed_all_query_limit(control)
+  end
+
+  it 'uses custom emoji from ancestor group' do
+    subgroup = create(:group, parent: group)
+
+    doc = filter('<p>:tanuki:</p>', group: subgroup)
+
+    expect(doc.css('gl-emoji').size).to eq 1
+  end
+
+  context 'when asset proxy is configured' do
+    before do
+      stub_asset_proxy_setting(
+        enabled: true,
+        secret_key: 'shared-secret',
+        url: 'https://assets.example.com'
+      )
+    end
+
+    it 'uses the proxied url' do
+      doc = filter('<p>:tanuki:</p>')
+
+      expect(doc.css('gl-emoji').first.attributes['data-fallback-src'].value).to start_with('https://assets.example.com')
+    end
+  end
+
+  it_behaves_like 'pipeline timing check'
+  it_behaves_like 'a filter timeout' do
+    let(:text) { 'text' }
   end
 end

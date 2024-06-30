@@ -5,7 +5,7 @@ class SnippetRepository < ApplicationRecord
   include Shardable
 
   DEFAULT_EMPTY_FILE_NAME = 'snippetfile'
-  EMPTY_FILE_PATTERN = /^#{DEFAULT_EMPTY_FILE_NAME}(\d+)\.txt$/.freeze
+  EMPTY_FILE_PATTERN = /^#{DEFAULT_EMPTY_FILE_NAME}(\d+)\.txt$/
 
   CommitError = Class.new(StandardError)
   InvalidPathError = Class.new(CommitError)
@@ -31,7 +31,12 @@ class SnippetRepository < ApplicationRecord
 
     options[:actions] = transform_file_entries(files)
 
-    capture_git_error { repository.multi_action(user, **options) }
+    # The Gitaly calls perform HTTP requests for permissions check
+    # Stick to the primary in order to make those requests aware that
+    # primary database must be used to fetch the data
+    self.class.sticking.stick(:user, user.id)
+
+    capture_git_error { repository.commit_files(user, **options) }
   ensure
     Gitlab::ExclusiveLease.cancel(lease_key, uuid)
   end
@@ -41,14 +46,14 @@ class SnippetRepository < ApplicationRecord
   def capture_git_error(&block)
     yield block
   rescue Gitlab::Git::Index::IndexError,
-         Gitlab::Git::CommitError,
-         Gitlab::Git::PreReceiveError,
-         Gitlab::Git::CommandError,
-         ArgumentError => error
+    Gitlab::Git::CommitError,
+    Gitlab::Git::PreReceiveError,
+    Gitlab::Git::CommandError,
+    ArgumentError => e
 
-    logger.error(message: "Snippet git error. Reason: #{error.message}", snippet: snippet.id)
+    logger.error(message: "Snippet git error. Reason: #{e.message}", snippet: snippet.id)
 
-    raise commit_error_exception(error)
+    raise commit_error_exception(e)
   end
 
   def transform_file_entries(files)
@@ -121,7 +126,7 @@ class SnippetRepository < ApplicationRecord
 
   def invalid_signature_error?(err)
     err.is_a?(ArgumentError) &&
-      err.message.downcase.match?(/failed to parse signature/)
+      err.message.downcase.include?('failed to parse signature')
   end
 
   def only_rename_action?(action)

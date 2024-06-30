@@ -1,6 +1,7 @@
 import { GlIcon } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import DesignImage from '~/design_management/components/image.vue';
 
 describe('Design management large image component', () => {
@@ -15,8 +16,8 @@ describe('Design management large image component', () => {
     wrapper.setData(data);
   }
 
-  afterEach(() => {
-    wrapper.destroy();
+  beforeEach(() => {
+    stubPerformanceWebAPI();
   });
 
   it('renders loading state', () => {
@@ -31,6 +32,16 @@ describe('Design management large image component', () => {
     createComponent({
       isLoading: false,
       image: 'test.jpg',
+      name: 'test',
+    });
+
+    expect(wrapper.element).toMatchSnapshot();
+  });
+
+  it('renders SVG with proper height and width', () => {
+    createComponent({
+      isLoading: false,
+      image: 'mockImage.svg',
       name: 'test',
     });
 
@@ -66,7 +77,7 @@ describe('Design management large image component', () => {
     image.trigger('error');
     await nextTick();
     expect(image.isVisible()).toBe(false);
-    expect(wrapper.find(GlIcon).element).toMatchSnapshot();
+    expect(wrapper.findComponent(GlIcon).element).toMatchSnapshot();
   });
 
   describe('zoom', () => {

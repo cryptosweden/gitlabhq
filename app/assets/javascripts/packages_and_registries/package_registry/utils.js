@@ -1,6 +1,7 @@
 import { capitalize } from 'lodash';
 import { s__ } from '~/locale';
 import {
+  GRAPHQL_PAGE_SIZE,
   PACKAGE_TYPE_CONAN,
   PACKAGE_TYPE_MAVEN,
   PACKAGE_TYPE_NPM,
@@ -11,6 +12,7 @@ import {
   PACKAGE_TYPE_GENERIC,
   PACKAGE_TYPE_DEBIAN,
   PACKAGE_TYPE_HELM,
+  PACKAGE_TYPE_ML_MODEL,
   LIST_KEY_PROJECT,
   SORT_FIELDS,
 } from './constants';
@@ -37,6 +39,8 @@ export const getPackageTypeLabel = (packageType) => {
       return s__('PackageRegistry|Debian');
     case PACKAGE_TYPE_HELM:
       return s__('PackageRegistry|Helm');
+    case PACKAGE_TYPE_ML_MODEL:
+      return s__('PackageRegistry|MlModel');
     default:
       return null;
   }
@@ -46,3 +50,26 @@ export const packageTypeToTrackCategory = (type) => `UI::${capitalize(type)}Pack
 
 export const sortableFields = (isGroupPage) =>
   SORT_FIELDS.filter((f) => f.orderBy !== LIST_KEY_PROJECT || isGroupPage);
+
+export const getNextPageParams = (cursor) => ({
+  after: cursor,
+  first: GRAPHQL_PAGE_SIZE,
+});
+
+export const getPreviousPageParams = (cursor) => ({
+  first: null,
+  before: cursor,
+  last: GRAPHQL_PAGE_SIZE,
+});
+
+export const getPageParams = (pageInfo = {}) => {
+  if (pageInfo.before) {
+    return getPreviousPageParams(pageInfo.before);
+  }
+
+  if (pageInfo.after) {
+    return getNextPageParams(pageInfo.after);
+  }
+
+  return {};
+};

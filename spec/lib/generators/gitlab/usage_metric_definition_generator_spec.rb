@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::UsageMetricDefinitionGenerator, :silence_stdout do
+RSpec.describe Gitlab::UsageMetricDefinitionGenerator, :silence_stdout, feature_category: :service_ping do
   include UsageDataHelpers
 
   let(:key_path) { 'counts_weekly.test_metric' }
@@ -14,6 +14,10 @@ RSpec.describe Gitlab::UsageMetricDefinitionGenerator, :silence_stdout do
     stub_const("#{described_class}::TOP_LEVEL_DIR", temp_dir)
     # Stub Prometheus requests from Gitlab::Utils::UsageData
     stub_prometheus_queries
+
+    allow_next_instance_of(described_class) do |instance|
+      allow(instance).to receive(:ask).and_return('y') # confirm deprecation warning
+    end
   end
 
   after do
@@ -26,11 +30,10 @@ RSpec.describe Gitlab::UsageMetricDefinitionGenerator, :silence_stdout do
     # Stub version so that `milestone` key remains constant between releases to prevent flakiness.
     before do
       stub_const('Gitlab::VERSION', '13.9.0')
-      allow(::Gitlab::Usage::Metrics::NamesSuggestions::Generator).to receive(:generate).and_return('test metric name')
     end
 
     context 'without ee option' do
-      let(:sample_filename) { 'sample_metric_with_name_suggestions.yml' }
+      let(:sample_filename) { 'sample_metric.yml' }
       let(:metric_definition_path) { Dir.glob(File.join(temp_dir, 'metrics/counts_7d/*_test_metric.yml')).first }
 
       it 'creates a metric definition file using the template' do
@@ -49,7 +52,7 @@ RSpec.describe Gitlab::UsageMetricDefinitionGenerator, :silence_stdout do
       end
 
       it 'creates a metric definition file using the template' do
-        described_class.new([key_path], { 'dir' => dir, 'class_name' => class_name, 'ee': true }).invoke_all
+        described_class.new([key_path], { 'dir' => dir, 'class_name' => class_name, ee: true }).invoke_all
         expect(YAML.safe_load(File.read(metric_definition_path))).to eq(sample_metric)
       end
     end
@@ -91,16 +94,6 @@ RSpec.describe Gitlab::UsageMetricDefinitionGenerator, :silence_stdout do
     end
   end
 
-  describe 'Name suggestions' do
-    it 'adds name key to metric definition' do
-      expect(::Gitlab::Usage::Metrics::NamesSuggestions::Generator).to receive(:generate).and_return('some name')
-      described_class.new([key_path], { 'dir' => dir, 'class_name' => class_name }).invoke_all
-      metric_definition_path = Dir.glob(File.join(temp_dir, 'metrics/counts_7d/*_test_metric.yml')).first
-
-      expect(YAML.safe_load(File.read(metric_definition_path))).to include("name" => "some name")
-    end
-  end
-
   context 'with multiple file names' do
     let(:key_paths) { ['counts_weekly.test_metric', 'counts_weekly.test1_metric'] }
 
@@ -109,6 +102,21 @@ RSpec.describe Gitlab::UsageMetricDefinitionGenerator, :silence_stdout do
       files = Dir.glob(File.join(temp_dir, 'metrics/counts_7d/*_metric.yml'))
 
       expect(files.count).to eq(2)
+    end
+  end
+
+  ['n', 'N', 'random word', nil].each do |answer|
+    context "when user agreed with deprecation warning by typing: #{answer}" do
+      it 'does not create definition file' do
+        allow_next_instance_of(described_class) do |instance|
+          allow(instance).to receive(:ask).and_return(answer)
+        end
+
+        described_class.new([key_path], { 'dir' => dir, 'class_name' => class_name }).invoke_all
+        files = Dir.glob(File.join(temp_dir, 'metrics/counts_7d/*_metric.yml'))
+
+        expect(files.count).to eq(0)
+      end
     end
   end
 end

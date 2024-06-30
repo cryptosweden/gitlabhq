@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Renderer do
+RSpec.describe Banzai::Renderer, feature_category: :team_planning do
   let(:renderer) { described_class }
 
   def fake_object(fresh:)
@@ -76,7 +76,7 @@ RSpec.describe Banzai::Renderer do
         let(:object) { fake_object(fresh: true) }
 
         it 'uses the cache' do
-          expect(object).to receive(:refresh_markdown_cache!).never
+          expect(object).not_to receive(:refresh_markdown_cache!)
 
           is_expected.to eq('field_html')
         end
@@ -87,15 +87,11 @@ RSpec.describe Banzai::Renderer do
   describe '#cacheless_render' do
     context 'without cache' do
       let(:object) { fake_object(fresh: false) }
-      let(:histogram) { double('prometheus histogram') }
 
       it 'returns cacheless render field' do
         allow(renderer).to receive(:render_result).and_return(output: 'test')
-        allow(renderer).to receive(:real_duration_histogram).and_return(histogram)
-        allow(renderer).to receive(:cpu_duration_histogram).and_return(histogram)
 
         expect(renderer).to receive(:render_result).with('test', {})
-        expect(histogram).to receive(:observe).twice
 
         renderer.cacheless_render('test')
       end
@@ -104,7 +100,7 @@ RSpec.describe Banzai::Renderer do
 
   describe '#post_process' do
     let(:context_options) { {} }
-    let(:html) { 'Consequatur aperiam et nesciunt modi aut assumenda quo id. '}
+    let(:html) { 'Consequatur aperiam et nesciunt modi aut assumenda quo id. ' }
     let(:post_processed_html) { double(html_safe: 'safe doc') }
     let(:doc) { double(to_html: post_processed_html) }
 
@@ -152,6 +148,51 @@ RSpec.describe Banzai::Renderer do
           subject
         end
       end
+    end
+  end
+
+  describe 'instrumentation in render_result' do
+    it 'calculates pipeline timing' do
+      expect(ActiveSupport::Notifications).to receive(:monotonic_subscribe).with('call_filter.html_pipeline')
+                                                                           .and_call_original.at_least(:once)
+      expect(ActiveSupport::Notifications).to receive(:unsubscribe).and_call_original.at_least(:once)
+      expect(Rainbow).not_to receive(:new)
+
+      result = renderer.render_result('test', pipeline: :plain_markdown, project: nil)
+
+      expect(result[:pipeline_timing]).not_to be_nil
+    end
+
+    it 'enables debug output' do
+      expect(ActiveSupport::Notifications).to receive(:monotonic_subscribe).with('call_filter.html_pipeline')
+                                                                           .and_call_original.at_least(:once)
+      expect(ActiveSupport::Notifications).to receive(:unsubscribe).and_call_original.at_least(:once)
+      expect(Rainbow).to receive(:new).and_call_original.at_least(:once)
+      expect(described_class).to receive(:color_for_duration).and_call_original.at_least(:twice)
+
+      renderer.render_result('test', pipeline: :plain_markdown, project: nil, debug: true)
+    end
+
+    it 'enables debug_timing output' do
+      expect(ActiveSupport::Notifications).to receive(:monotonic_subscribe).with('call_filter.html_pipeline')
+                                                                           .and_call_original.at_least(:once)
+      expect(ActiveSupport::Notifications).to receive(:unsubscribe).and_call_original.at_least(:once)
+      expect(Rainbow).to receive(:new).and_call_original.at_least(:once)
+      expect(described_class).to receive(:color_for_duration).and_call_original.at_least(:twice)
+
+      renderer.render_result('test', pipeline: :plain_markdown, project: nil, debug_timing: true)
+    end
+
+    it 'generates a color for the duration' do
+      expect(described_class.color_for_duration(0.5)).to eq :green
+      expect(described_class.color_for_duration(1.5)).to eq :orange
+      expect(described_class.color_for_duration(2.5)).to eq :red
+    end
+
+    it 'formats duration' do
+      expect(described_class.formatted_duration(0.5)).to eq '0.500000_s'
+      expect(described_class.formatted_duration(1.5)).to eq '1.500000_s'
+      expect(described_class.formatted_duration(2.5)).to eq '2.500000_s'
     end
   end
 end

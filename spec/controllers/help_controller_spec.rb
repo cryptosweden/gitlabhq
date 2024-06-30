@@ -4,34 +4,35 @@ require 'spec_helper'
 
 RSpec.describe HelpController do
   include StubVersion
+  include DocUrlHelper
 
   let(:user) { create(:user) }
 
   shared_examples 'documentation pages local render' do
     it 'renders HTML' do
       aggregate_failures do
-        is_expected.to render_template('show.html.haml')
+        is_expected.to render_template('help/show')
         expect(response.media_type).to eq 'text/html'
       end
     end
   end
 
   shared_examples 'documentation pages redirect' do |documentation_base_url|
-    let(:gitlab_version) { '13.4.0-ee' }
+    let(:gitlab_version) { version }
 
     before do
       stub_version(gitlab_version, 'ignored_revision_value')
     end
 
     it 'redirects user to custom documentation url with a specified version' do
-      is_expected.to redirect_to("#{documentation_base_url}/13.4/ee/#{path}.html")
+      is_expected.to redirect_to(doc_url(documentation_base_url))
     end
 
     context 'when it is a pre-release' do
       let(:gitlab_version) { '13.4.0-pre' }
 
       it 'redirects user to custom documentation url without a version' do
-        is_expected.to redirect_to("#{documentation_base_url}/ee/#{path}.html")
+        is_expected.to redirect_to(doc_url_without_version(documentation_base_url))
       end
     end
   end
@@ -43,7 +44,7 @@ RSpec.describe HelpController do
   describe 'GET #index' do
     context 'with absolute url' do
       it 'keeps the URL absolute' do
-        stub_readme("[API](/api/README.md)")
+        stub_doc_file_read(content: "[API](/api/README.md)")
 
         get :index
 
@@ -53,7 +54,7 @@ RSpec.describe HelpController do
 
     context 'with relative url' do
       it 'prefixes it with /help/' do
-        stub_readme("[API](api/README.md)")
+        stub_doc_file_read(content: "[API](api/README.md)")
 
         get :index
 
@@ -63,7 +64,7 @@ RSpec.describe HelpController do
 
     context 'when url is an external link' do
       it 'does not change it' do
-        stub_readme("[external](https://some.external.link)")
+        stub_doc_file_read(content: "[external](https://some.external.link)")
 
         get :index
 
@@ -73,7 +74,7 @@ RSpec.describe HelpController do
 
     context 'when relative url with external on same line' do
       it 'prefix it with /help/' do
-        stub_readme("[API](api/README.md) [external](https://some.external.link)")
+        stub_doc_file_read(content: "[API](api/README.md) [external](https://some.external.link)")
 
         get :index
 
@@ -83,7 +84,7 @@ RSpec.describe HelpController do
 
     context 'when relative url with http:// in query' do
       it 'prefix it with /help/' do
-        stub_readme("[API](api/README.md?go=https://example.com/)")
+        stub_doc_file_read(content: "[API](api/README.md?go=https://example.com/)")
 
         get :index
 
@@ -93,7 +94,7 @@ RSpec.describe HelpController do
 
     context 'when mailto URL' do
       it 'do not change it' do
-        stub_readme("[report bug](mailto:bugs@example.com)")
+        stub_doc_file_read(content: "[report bug](mailto:bugs@example.com)")
 
         get :index
 
@@ -103,7 +104,7 @@ RSpec.describe HelpController do
 
     context 'when protocol-relative link' do
       it 'do not change it' do
-        stub_readme("[protocol-relative](//example.com)")
+        stub_doc_file_read(content: "[protocol-relative](//example.com)")
 
         get :index
 
@@ -136,17 +137,106 @@ RSpec.describe HelpController do
         expect(response).not_to redirect_to(profile_two_factor_auth_path)
       end
     end
+
+    context 'when requesting help index (underscore prefix test)' do
+      subject { get :index }
+
+      before do
+        stub_application_setting(help_page_documentation_base_url: '')
+      end
+
+      context 'and the doc/index.md file exists' do
+        it 'returns index.md' do
+          expect(subject).to be_successful
+          expect(assigns[:help_index]).to include('Explore the different areas of the documentation')
+        end
+      end
+
+      context 'but the doc/index.md file does not exist' do
+        it 'returns _index.md' do
+          stub_doc_file_read(content: '_index.md content', file_name: '_index.md')
+
+          allow(File).to receive(:exist?).and_call_original
+          allow(File).to receive(:exist?).with(Rails.root.join('doc/index.md').to_s).and_return(false)
+          allow(File).to receive(:exist?).with(Rails.root.join('doc/_index.md').to_s).and_return(true)
+
+          expect(subject).to be_successful
+          expect(assigns[:help_index]).to eq '_index.md content'
+        end
+      end
+    end
+
+    context 'when requesting help index (frontmatter test)' do
+      subject { get :index }
+
+      before do
+        stub_application_setting(help_page_documentation_base_url: '')
+        stub_doc_file_read(content: content)
+      end
+
+      context 'and the doc/index.md file has the level 1 heading in frontmatter' do
+        let(:content) { "---\ntitle: Test heading\n---\n\nTest content" }
+
+        it 'returns content with title in Markdown' do
+          expect(subject).to be_successful
+          expect(assigns[:help_index]).to eq "# Test heading\n\nTest content"
+        end
+      end
+
+      context 'and the doc/index.md file has the level 1 heading in Markdown' do
+        let(:content) { "# Test heading\n\nTest content" }
+
+        it 'returns content with title in Markdown' do
+          expect(subject).to be_successful
+          expect(assigns[:help_index]).to eq "# Test heading\n\nTest content"
+        end
+      end
+    end
+  end
+
+  describe 'GET #drawers' do
+    subject { get :drawers, params: { markdown_file: path } }
+
+    context 'when requested file exists' do
+      let(:path) { 'user/ssh' }
+      let(:file_name) { "#{path}.md" }
+
+      before do
+        subject
+      end
+
+      it 'assigns variables', :aggregate_failures do
+        expect(assigns[:path]).not_to be_empty
+        expect(assigns[:clean_path]).not_to be_empty
+      end
+
+      it 'renders HTML', :aggregate_failures do
+        is_expected.to render_template('help/drawers')
+        expect(response.media_type).to eq 'text/html'
+      end
+    end
+
+    context 'when requested file is missing' do
+      let(:path) { 'foo/bar' }
+
+      it 'renders not found' do
+        subject
+
+        expect(response).to be_not_found
+      end
+    end
   end
 
   describe 'GET #show' do
     context 'for Markdown formats' do
       subject { get :show, params: { path: path }, format: :md }
 
-      let(:path) { 'ssh/index' }
+      let(:path) { 'user/ssh' }
 
       context 'when requested file exists' do
         before do
-          expect_file_read(File.join(Rails.root, 'doc/ssh/index.md'), content: fixture_file('blockquote_fence_after.md'))
+          stub_doc_file_read(file_name: 'user/ssh.md', content: fixture_file('blockquote_fence_legacy_after.md'))
+          stub_application_setting(help_page_documentation_base_url: '')
 
           subject
         end
@@ -189,13 +279,13 @@ RSpec.describe HelpController do
         context 'when gitlab_docs is disabled' do
           let(:docs_enabled) { false }
 
-          it_behaves_like 'documentation pages local render'
+          it_behaves_like 'documentation pages redirect', 'https://docs.gitlab.com'
         end
 
         context 'when host is missing' do
           let(:host) { nil }
 
-          it_behaves_like 'documentation pages local render'
+          it_behaves_like 'documentation pages redirect', 'https://docs.gitlab.com'
         end
       end
 
@@ -217,6 +307,10 @@ RSpec.describe HelpController do
       end
 
       context 'when requested file is missing' do
+        before do
+          stub_application_setting(help_page_documentation_base_url: '')
+        end
+
         it 'renders not found' do
           get :show, params: { path: 'foo/bar' }, format: :md
           expect(response).to be_not_found
@@ -227,11 +321,7 @@ RSpec.describe HelpController do
     context 'for image formats' do
       context 'when requested file exists' do
         it 'renders the raw file' do
-          get :show,
-              params: {
-                path: 'user/img/markdown_logo'
-              },
-              format: :png
+          get :show, params: { path: 'user/img/markdown_logo' }, format: :png
 
           aggregate_failures do
             expect(response).to be_successful
@@ -243,11 +333,7 @@ RSpec.describe HelpController do
 
       context 'when requested file is missing' do
         it 'renders not found' do
-          get :show,
-              params: {
-                path: 'foo/bar'
-              },
-              format: :png
+          get :show, params: { path: 'foo/bar' }, format: :png
           expect(response).to be_not_found
         end
       end
@@ -255,18 +341,95 @@ RSpec.describe HelpController do
 
     context 'for other formats' do
       it 'always renders not found' do
-        get :show,
-            params: {
-              path: 'ssh/index'
-            },
-            format: :foo
+        get :show, params: { path: 'user/ssh' }, format: :foo
         expect(response).to be_not_found
+      end
+    end
+
+    context 'when requesting an index.md' do
+      let(:path) { 'index' }
+
+      subject { get :show, params: { path: path }, format: :md }
+
+      before do
+        stub_application_setting(help_page_documentation_base_url: '')
+      end
+
+      context 'and the index.md file exists' do
+        it 'returns an index.md file' do
+          expect(subject).to be_successful
+          expect(assigns[:markdown]).to include('Explore the different areas of the documentation')
+        end
+      end
+
+      context 'but the index.md file does not exist' do
+        it 'returns an _index.md file' do
+          stub_doc_file_read(content: '_index.md content', file_name: '_index.md')
+
+          allow(File).to receive(:exist?).and_call_original
+          allow(File).to receive(:exist?).with(Rails.root.join('doc/index.md').to_s).and_return(false)
+          allow(File).to receive(:exist?).with(Rails.root.join('doc/_index.md').to_s).and_return(true)
+
+          expect(subject).to be_successful
+          expect(assigns[:markdown]).to eq '_index.md content'
+        end
+      end
+    end
+
+    context 'when requesting content' do
+      subject { get :show, params: { path: 'install/install_methods' }, format: :md }
+
+      before do
+        stub_application_setting(help_page_documentation_base_url: '')
+        stub_doc_file_read(content: content, file_name: 'install/install_methods.md')
+      end
+
+      context 'and the Markdown file has the level 1 heading in frontmatter' do
+        let(:content) { "---\ntitle: Test heading\n---\n\nTest content" }
+
+        it 'returns content with the level 1 heading in Markdown' do
+          expect(subject).to be_successful
+          expect(assigns[:markdown]).to eq "# Test heading\n\nTest content"
+        end
+      end
+
+      context 'and the Markdown file has the level 1 heading in Markdown' do
+        let(:content) { "# Test heading\n\nTest content" }
+
+        it 'returns content with the level 1 heading in Markdown' do
+          expect(subject).to be_successful
+          expect(assigns[:markdown]).to eq "# Test heading\n\nTest content"
+        end
       end
     end
   end
 
-  def stub_readme(content)
-    expect_file_read(Rails.root.join('doc', 'index.md'), content: content)
+  describe 'GET #docs' do
+    subject { get :redirect_to_docs }
+
+    before do
+      stub_application_setting(help_page_documentation_base_url: custom_docs_url)
+    end
+
+    context 'with no custom docs URL configured' do
+      let(:custom_docs_url) { nil }
+
+      it 'redirects to docs.gitlab.com' do
+        subject
+
+        expect(response).to redirect_to('https://docs.gitlab.com')
+      end
+    end
+
+    context 'with a custom docs URL configured' do
+      let(:custom_docs_url) { 'https://foo.example.com' }
+
+      it 'redirects to the configured docs URL' do
+        subject
+
+        expect(response).to redirect_to(custom_docs_url)
+      end
+    end
   end
 
   def stub_two_factor_required

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Projects::Pipelines::IssuesPipeline do
+RSpec.describe BulkImports::Projects::Pipelines::IssuesPipeline, feature_category: :importers do
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, group: group) }
@@ -14,7 +14,7 @@ RSpec.describe BulkImports::Projects::Pipelines::IssuesPipeline do
       project: project,
       bulk_import: bulk_import,
       source_full_path: 'source/full/path',
-      destination_name: 'My Destination Project',
+      destination_slug: 'My-Destination-Project',
       destination_namespace: group.full_path
     )
   end
@@ -36,7 +36,7 @@ RSpec.describe BulkImports::Projects::Pipelines::IssuesPipeline do
 
   subject(:pipeline) { described_class.new(context) }
 
-  describe '#run' do
+  describe '#run', :clean_gitlab_redis_shared_state do
     before do
       group.add_owner(user)
       issue_with_index = [issue, 0]
@@ -44,6 +44,8 @@ RSpec.describe BulkImports::Projects::Pipelines::IssuesPipeline do
       allow_next_instance_of(BulkImports::Common::Extractors::NdjsonExtractor) do |extractor|
         allow(extractor).to receive(:extract).and_return(BulkImports::Pipeline::ExtractedData.new(data: [issue_with_index]))
       end
+
+      allow(pipeline).to receive(:set_source_objects_counter)
 
       pipeline.run
     end
@@ -89,6 +91,7 @@ RSpec.describe BulkImports::Projects::Pipelines::IssuesPipeline do
         expect(award_emoji.user).to eq(user)
       end
     end
+
     context 'issue state' do
       let(:issue_attributes) { { 'state' => 'closed' } }
 
@@ -159,8 +162,42 @@ RSpec.describe BulkImports::Projects::Pipelines::IssuesPipeline do
         note = project.issues.last.notes.first
 
         aggregate_failures do
-          expect(note.note).to eq("Issue note\n\n *By User 22 on 2016-06-14T15:02:47 (imported from GitLab)*")
+          expect(note.note).to eq("Issue note\n\n *By User 22 on 2016-06-14T15:02:47*")
           expect(note.award_emoji.first.name).to eq('clapper')
+        end
+      end
+
+      context "when importing an issue with one award emoji and other relations with one item" do
+        let(:issue_attributes) do
+          {
+            "notes" => [
+              {
+                'note' => 'Description changed',
+                'author_id' => 22,
+                'author' => {
+                  'name' => 'User 22'
+                },
+                'updated_at' => '2016-06-14T15:02:47.770Z'
+              }
+            ],
+            'award_emoji' => [
+              {
+                'name' => 'thumbsup',
+                'user_id' => 22
+              }
+            ]
+          }
+        end
+
+        it 'saves properly' do
+          issue = project.issues.last
+          notes = issue.notes
+
+          aggregate_failures do
+            expect(notes.count).to eq 1
+            expect(notes[0].note).to include("Description changed")
+            expect(issue.award_emoji.first.name).to eq "thumbsup"
+          end
         end
       end
     end

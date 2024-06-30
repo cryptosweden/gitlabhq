@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Caching guidelines
@@ -22,11 +22,11 @@ A faster store for data, which is:
 
 ## What is fast?
 
-The goal for every web page should be to return in under 100ms:
+The goal for every web page should be to return in under 100 ms:
 
 - This is achievable, but you need caching on a modern application.
 - Larger responses take longer to build, and caching becomes critical to maintaining a constant speed.
-- Cache reads are typically sub-1ms. There is very little that this doesn't improve.
+- Cache reads are typically sub-1 ms. There is very little that this doesn't improve.
 - It's no good only being fast on subsequent page loads, as the initial experience
   is important too, so this isn't a complete solution.
 - User-specific data makes this challenging, and presents the biggest challenge
@@ -80,7 +80,7 @@ indicates we have plenty of headroom.
    - Generic data can be cached for everyone.
    - You must keep this in mind when building new features.
 1. Try to preserve cache data as much as possible:
-   - Use nested caches to maintain as much cached data as possible across expiries.
+   - Use nested caches to maintain as much cached data as possible across expires.
 1. Perform as few requests to the cache as possible:
    - This reduces variable latency caused by network issues.
    - Lower overhead for each read on the cache.
@@ -118,8 +118,8 @@ Is the cache being added "worthy"? This can be hard to measure, but you can cons
     - `tail -f log/development.log | grep "Rendered "`
 - After you're looking in the right place:
   - Remove or comment out sections of code until you find the cause.
-  - Use `binding.pry` to poke about in live requests. This requires a foreground
-    web process like [Thin](https://gitlab.com/gitlab-org/gitlab-development-kit/-/blob/main/doc/howto/pry.md).
+  - Use `binding.pry` to poke about in live requests. This requires a
+    [foreground web process](https://gitlab.com/gitlab-org/gitlab-development-kit/-/blob/main/doc/howto/pry.md).
 
 #### Verification
 
@@ -166,7 +166,7 @@ Is the cache being added "worthy"? This can be hard to measure, but you can cons
    - Calling the same method multiple times but only calculating the value once.
    - Stored in Ruby memory.
    - `@article ||= Article.find(params[:id])`
-   - `strong_memoize { Article.find(params[:id]) }`
+   - `strong_memoize_attr :method_name`
 1. Request caching:
    - Return the same value for a key for the duration of a web request.
    - `Gitlab::SafeRequestStore.fetch`
@@ -219,7 +219,7 @@ Use conditional GET caching when the entire response is cacheable:
 
 - Users and API libraries can ignore the cache.
 - Sometimes Chrome does weird things with caches.
-- You will forget it exists in development mode and get angry when your changes aren't appearing.
+- You forget it exists in development mode and get angry when your changes aren't appearing.
 - In theory using conditional GET caching makes sense everywhere, but in practice it can
   sometimes cause odd issues.
 
@@ -252,7 +252,7 @@ All the time!
 
 ### When to use method caching
 
-- Using instance variables, or [strong_memoize](utilities.md#strongmemoize) is something we all tend to do anyway.
+- Use instance variables, or [`StrongMemoize`](utilities.md#strongmemoize).
 - Useful when the same value is needed multiple times in a request.
 - Can be used to prevent multiple cache calls for the same key.
 - Can cause issues with ActiveRecord objects where a value doesn't change until you call
@@ -267,7 +267,7 @@ All the time!
 
 #### Possible downsides
 
-- Adding new attributes to a cached object using `Gitlab::JsonCache`
+- Adding new attributes to a cached object using `Gitlab::Cache::JsonCache`
   and `Gitlab::SafeRequestStore`, for example, can lead to stale data issues
   where the cache data doesn't have the appropriate value for the new attribute
   (see this past [incident](https://gitlab.com/gitlab-com/gl-infra/production/-/issues/6372)).
@@ -301,12 +301,12 @@ it's time to look at a custom solution:
 
 In short: the oldest stuff is replaced with new stuff:
 
-- A [useful article](https://redis.io/topics/lru-cache) about configuring Redis as an LRU cache.
+- A [useful article](https://redis.io/docs/latest/operate/rs/databases/memory-performance/eviction-policy/) about configuring Redis as an LRU cache.
 - Lots of options for different cache eviction strategies.
 - You probably want `allkeys-lru`, which is functionally similar to Memcached.
-- In Redis 4.0 and later, [allkeys-lfu is available](https://redis.io/topics/lru-cache#the-new-lfu-mode),
+- In Redis 4.0 and later, [allkeys-lfu is available](https://redis.io/docs/latest/operate/rs/databases/memory-performance/eviction-policy/),
   which is similar but different.
-- We handle all explicit deletes using UNLINK instead of DEL now, which allows Redis to
+- We handle all explicit deletes using `UNLINK` instead of `DEL` now, which allows Redis to
   reclaim memory in its own time, rather than immediately.
   - This marks a key as deleted and returns a successful value quickly,
     but actually deletes it later.
@@ -332,11 +332,11 @@ views/projects/_home_panel:462ad2485d7d6957e03ceba2c6717c29/projects/16-20210316
 ```
 
 1. The view name and template tree digest
-    `views/projects/_home_panel:462ad2485d7d6957e03ceba2c6717c29`
+   `views/projects/_home_panel:462ad2485d7d6957e03ceba2c6717c29`
 1. The model name, ID, and `updated_at` values
-    `projects/16-20210316142425469452`
+   `projects/16-20210316142425469452`
 1. The symbol we passed in, converted to a string
-    `tag_list`
+   `tag_list`
 
 ### Look for
 

@@ -24,7 +24,7 @@ class TodosFinder
 
   NONE = '0'
 
-  TODO_TYPES = Set.new(%w(Issue MergeRequest DesignManagement::Design AlertManagement::Alert)).freeze
+  TODO_TYPES = Set.new(%w[Issue WorkItem MergeRequest DesignManagement::Design AlertManagement::Alert Namespace Project]).freeze
 
   attr_accessor :current_user, :params
 
@@ -106,9 +106,7 @@ class TodosFinder
 
   def author
     strong_memoize(:author) do
-      if author? && params[:author_id] != NONE
-        User.find(params[:author_id])
-      end
+      User.find(params[:author_id]) if author? && params[:author_id] != NONE
     end
   end
 

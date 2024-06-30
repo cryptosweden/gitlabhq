@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require "spec_helper"
 
-RSpec.describe "uploading designs" do
+RSpec.describe "uploading designs", feature_category: :design_management do
   include GraphqlHelpers
   include DesignManagementTestHelpers
   include WorkhorseHelpers
@@ -36,10 +36,11 @@ RSpec.describe "uploading designs" do
     end
 
     it 'returns an error' do
-      workhorse_post_with_file(api('/', current_user, version: 'graphql'),
-                               params: params,
-                               file_key: '1'
-                              )
+      workhorse_post_with_file(
+        api('/', current_user, version: 'graphql'),
+        params: params,
+        file_key: '1'
+      )
 
       expect(response).to have_attributes(
         code: eq('400'),

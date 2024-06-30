@@ -1,13 +1,23 @@
 ---
 stage: Verify
 group: Pipeline Authoring
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: index, concepts, howto
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# Development guide for GitLab CI/CD templates **(FREE)**
+# Development guide for GitLab CI/CD templates (Deprecated)
 
-This document explains how to develop [GitLab CI/CD templates](../../ci/examples/index.md).
+NOTE:
+With the introduction of the [CI/CD Catalog](../../ci/components/index.md#cicd-catalog),
+GitLab is no longer accepting contributions of new CI/CD templates to the codebase. Instead,
+we encourage team members to create [CI/CD components](../../ci/components/index.md)
+for the catalog. This transition enhances the modularity and maintainability of our
+shared CI/CD resources, and avoids the complexities of contributing new CI/CD templates.
+If you need to update an existing template, you must also update the matching CI/CD component.
+If no component exists that matches the CI/CD template yet, consider [creating the matching component](components.md).
+This ensures that template and component functionality remain in sync, aligning with
+our new development practices.
+
+This document explains how to develop [GitLab CI/CD templates](../../ci/examples/index.md#cicd-templates).
 
 ## Requirements for CI/CD templates
 
@@ -285,13 +295,36 @@ the user's `.gitlab-ci.yml` immediately causes a lint error because there
 are no such jobs named `performance` in the included template anymore. Therefore,
 users have to fix their `.gitlab-ci.yml` that could annoy their workflow.
 
-Please read [versioning](#versioning) section for introducing breaking change safely.
+Read [versioning](#versioning) section for introducing breaking change safely.
 
 ## Versioning
 
-Versioning allows you to introduce a new template without modifying the existing
-one. This process is useful when we need to introduce a breaking change,
-but don't want to affect the existing projects that depends on the current template.
+To introduce a breaking change without affecting the existing projects that depend on
+the current template, use [stable](#stable-version) and [latest](#latest-version) versioning.
+
+Stable templates usually only receive breaking changes in major version releases, while
+latest templates can receive breaking changes in any release. In major release milestones,
+the latest template is made the new stable template (and the latest template might be deleted).
+
+Adding a latest template is safe, but comes with a maintenance burden:
+
+- GitLab has to choose a DRI to overwrite the stable template with the contents of the
+  latest template at the next major release of GitLab. The DRI is responsible for
+  supporting users who have trouble with the change.
+- When we make a new non-breaking change, both the stable and latest templates must be updated
+  to match, as must as possible.
+- A latest template could remain for longer than planned because many users could
+  directly depend on it continuing to exist.
+
+Before adding a new latest template, see if the change can be made to the stable
+template instead, even if it's a breaking change. If the template is intended for copy-paste
+usage only, it might be possible to directly change the stable version. Before changing
+the stable template with a breaking change in a minor milestone, make sure:
+
+- It's a [pipeline template](#template-types) and it has a [code comment](#explain-requirements-and-expectations)
+  explaining that it's not designed to be used with the `includes`.
+- The [CI/CD template usage metrics](#add-metrics) doesn't show any usage. If the metrics
+  show zero usage for the template, the template is not actively being used with `include`.
 
 ### Stable version
 
@@ -300,11 +333,10 @@ release milestones. Name the stable version of a template as `<template-name>.gi
 for example `Jobs/Deploy.gitlab-ci.yml`.
 
 You can make a new stable template by copying [the latest template](#latest-version)
-available in a major milestone release of GitLab like `13.0`. All breaking changes
-must be announced in a blog post before the official release, for example
-[GitLab.com is moving to 13.0, with narrow breaking changes](https://about.gitlab.com/blog/2020/05/06/gitlab-com-13-0-breaking-changes/)
+available in a major milestone release of GitLab like `15.0`. All breaking changes must be announced
+on the [Deprecations and removals by version](../../update/deprecations.md) page.
 
-You can change a stable template version in a minor GitLab release like `13.1` if:
+You can change a stable template version in a minor GitLab release like `15.1` if:
 
 - The change is not a [breaking change](#backward-compatibility).
 - The change is ported to [the latest template](#latest-version), if one exists.
@@ -324,9 +356,9 @@ If the `latest` template does not exist yet, you can copy [the stable template](
 ### How to include an older stable template
 
 Users may want to use an older [stable template](#stable-version) that is not bundled
-in the current GitLab package. For example, the stable templates in GitLab 13.0 and
-GitLab 14.0 could be so different that a user wants to continue using the GitLab 13.0
-template even after upgrading to GitLab 14.0.
+in the current GitLab package. For example, the stable templates in GitLab 15.0 and
+GitLab 16.0 could be so different that a user wants to continue using the GitLab 15.0
+template even after upgrading to GitLab 16.0.
 
 You can add a note in the template or in documentation explaining how to use `include:remote`
 to include older template versions. If other templates are included with `include: template`,
@@ -342,32 +374,6 @@ include:
   - remote: https://gitlab.com/gitlab-org/gitlab/-/raw/v13.0.1-ee/lib/gitlab/ci/templates/Jobs/Deploy.gitlab-ci.yml
 ```
 
-### Use a feature flag to roll out a `latest` template
-
-With a major version release like 13.0 or 14.0, [stable templates](#stable-version) must be
-updated with their corresponding [latest template versions](#latest-version).
-It may be hard to gauge the impact of this change, so use the `redirect_to_latest_template_<name>`
-feature flag to test the impact on a subset of users. Using a feature flag can help
-reduce the risk of reverts or rollbacks on production.
-
-For example, to redirect the stable `Jobs/Deploy` template to its latest template in 25% of
-projects on `gitlab.com`:
-
-```shell
-/chatops run feature set redirect_to_latest_template_jobs_deploy 25 --actors
-```
-
-After you're confident the latest template can be moved to stable:
-
-1. Update the stable template with the content of the latest version.
-1. Remove the migration template from `Gitlab::Template::GitlabCiYmlTemplate::TEMPLATES_WITH_LATEST_VERSION` const.
-1. Remove the corresponding feature flag.
-
-NOTE:
-Feature flags are enabled by default in RSpec, so all tests are performed
-against the latest templates. You should also test the stable templates
-with `stub_feature_flags(redirect_to_latest_template_<name>: false)`.
-
 ### Further reading
 
 There is an [open issue](https://gitlab.com/gitlab-org/gitlab/-/issues/17716) about
@@ -381,7 +387,7 @@ Each CI/CD template must be tested to make sure that it's safe to be published.
 ### Manual QA
 
 It's always good practice to test the template in a minimal demo project.
-To do so, please follow the following steps:
+To do so, follow the following steps:
 
 1. Create a public sample project on <https://gitlab.com>.
 1. Add a `.gitlab-ci.yml` to the project with the proposed template.
@@ -394,7 +400,7 @@ This is useful information for reviewers to make sure the template is safe to be
 ### Make sure the new template can be selected in UI
 
 Templates located under some directories are also [selectable in the **New file** UI](#template-directories).
-When you add a template into one of those directories, make sure that it correctly appears in the dropdown:
+When you add a template into one of those directories, make sure that it correctly appears in the dropdown list:
 
 ![CI/CD template selection](img/ci_template_selection_v13_1.png)
 
@@ -419,35 +425,20 @@ is updated in a major version GitLab release.
 
 ### Add metrics
 
-Every CI/CD template must also have metrics defined to track their use.
+Every CI/CD template must also have metrics defined to track their use. The CI/CD template monthly usage report
+can be found in [Sisense (GitLab team members only)](https://app.periscopedata.com/app/gitlab/785953/Pipeline-Authoring-Dashboard?widget=13440051&udv=0).
+Select a template to see the graph for that single template.
 
 To add a metric definition for a new template:
 
 1. Install and start the [GitLab GDK](https://gitlab.com/gitlab-org/gitlab-development-kit#installation).
 1. In the `gitlab` directory in your GDK, check out the branch that contains the new template.
-1. [Add the template inclusion event](../service_ping/implement.md#add-new-events)
-   with this Rake task:
-
-   ```shell
-   bin/rake gitlab:usage_data:generate_ci_template_events
-   ```
-
-   The task adds a section like the following to [`lib/gitlab/usage_data_counters/known_events/ci_templates.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/usage_data_counters/known_events/ci_templates.yml):
-
-   ```yaml
-   - name: p_ci_templates_my_template_name
-     category: ci_templates
-     redis_slot: ci_templates
-     aggregation: weekly
-   ```
-
-1. Copy the value of `name` from the new YAML section, and add it to the weekly
-   and monthly CI/CD template total count metrics:
+1. Add the new template event name to the weekly and monthly CI/CD template total count metrics:
    - [`config/metrics/counts_7d/20210216184557_ci_templates_total_unique_counts_weekly.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/metrics/counts_7d/20210216184557_ci_templates_total_unique_counts_weekly.yml)
    - [`config/metrics/counts_28d/20210216184559_ci_templates_total_unique_counts_monthly.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/metrics/counts_28d/20210216184559_ci_templates_total_unique_counts_monthly.yml)
 
-1. Use the same `name` as above as the last argument in the following command to
-  [add new metric definitions](../service_ping/metrics_dictionary.md#metrics-added-dynamic-to-service-ping-payload):
+1. Use the same event name as above as the last argument in the following command to
+   [add new metric definitions](../internal_analytics/metrics/metrics_instrumentation.md#create-a-new-metric-instrumentation-class):
 
    ```shell
    bundle exec rails generate gitlab:usage_metric_definition:redis_hll ci_templates <template_metric_event_name>
@@ -466,7 +457,10 @@ To add a metric definition for a new template:
    - `name:` and `performance_indicator_type:`: Delete (not needed).
    - `introduced_by_url:`: The URL of the MR adding the template.
    - `data_source:`: Set to `redis_hll`.
-   - All other fields that have no values: Set to empty strings (`''`).
+   - `description`: Add a short description of what this metric counts, for example: `Count of pipelines using the latest Auto Deploy template`
+   - `product_*`: Set to [section, stage, group, and feature category](https://handbook.gitlab.com/handbook/product/categories/#devops-stages)
+     as per the [metrics dictionary guide](../internal_analytics/metrics/metrics_dictionary.md#metrics-definition-and-validation).
+     If you are unsure what to use for these keywords, you can ask for help in the merge request.
    - Add the following to the end of each file:
 
      ```yaml
@@ -480,7 +474,6 @@ To add a metric definition for a new template:
 For example, these are the metrics configuration files for the
 [5 Minute Production App template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/5-Minute-Production-App.gitlab-ci.yml):
 
-- The template inclusion event: [`lib/gitlab/usage_data_counters/known_events/ci_templates.yml#L438-L441`](https://gitlab.com/gitlab-org/gitlab/-/blob/dcddbf83c29d1ad0839d55362c1b43888304f453/lib/gitlab/usage_data_counters/known_events/ci_templates.yml#L438-L441)
 - The weekly and monthly metrics definitions:
   - [`config/metrics/counts_7d/20210901223501_p_ci_templates_5_minute_production_app_weekly.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/1a6eceff3914f240864b2ca15ae2dc076ea67bf6/config/metrics/counts_7d/20210216184515_p_ci_templates_5_min_production_app_weekly.yml)
   - [`config/metrics/counts_28d/20210901223505_p_ci_templates_5_minute_production_app_monthly.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/metrics/counts_28d/20210216184517_p_ci_templates_5_min_production_app_monthly.yml)
@@ -498,6 +491,6 @@ If you're unsure if it's secure or not, you must ask security experts for cross-
 
 After your CI/CD template MR is created and labeled with `ci::templates`, DangerBot
 suggests one reviewer and one maintainer that can review your code. When your merge
-request is ready for review, please [mention](../../user/discussions/index.md#mentions)
+request is ready for review, [mention](../../user/discussions/index.md#mentions)
 the reviewer and ask them to review your CI/CD template changes. See details in the merge request that added
 [a DangerBot task for CI/CD template MRs](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/44688).

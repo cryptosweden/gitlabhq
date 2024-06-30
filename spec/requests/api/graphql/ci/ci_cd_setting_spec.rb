@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'Getting Ci Cd Setting' do
+RSpec.describe 'Getting Ci Cd Setting', feature_category: :continuous_integration do
   include GraphqlHelpers
 
   let_it_be_with_reload(:project) { create(:project, :repository) }
@@ -45,9 +45,18 @@ RSpec.describe 'Getting Ci Cd Setting' do
 
     it 'fetches the settings data' do
       expect(settings_data['mergePipelinesEnabled']).to eql project.ci_cd_settings.merge_pipelines_enabled?
-      expect(settings_data['mergeTrainsEnabled']).to eql project.ci_cd_settings.merge_trains_enabled?
       expect(settings_data['keepLatestArtifact']).to eql project.keep_latest_artifacts_available?
       expect(settings_data['jobTokenScopeEnabled']).to eql project.ci_cd_settings.job_token_scope_enabled?
+      expect(settings_data['inboundJobTokenScopeEnabled']).to eql(
+        project.ci_cd_settings.inbound_job_token_scope_enabled?)
+      expect(settings_data['pushRepositoryForJobTokenAllowed']).to eql(
+        project.ci_cd_settings.push_repository_for_job_token_allowed?)
+
+      if Gitlab.ee?
+        expect(settings_data['mergeTrainsEnabled']).to eql project.ci_cd_settings.merge_trains_enabled?
+      else
+        expect(settings_data['mergeTrainsEnabled']).to be_nil
+      end
     end
   end
 end

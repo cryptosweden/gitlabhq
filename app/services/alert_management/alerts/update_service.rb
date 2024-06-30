@@ -12,7 +12,6 @@ module AlertManagement
         @alert = alert
         @param_errors = []
         @status = params.delete(:status)
-        @status_change_reason = params.delete(:status_change_reason)
 
         super(project: alert.project, current_user: current_user, params: params)
       end
@@ -37,7 +36,7 @@ module AlertManagement
 
       private
 
-      attr_reader :alert, :param_errors, :status, :status_change_reason
+      attr_reader :alert, :param_errors, :status
 
       def allowed?
         current_user&.can?(:update_alert_management_alert, alert)
@@ -130,40 +129,20 @@ module AlertManagement
       def handle_status_change
         add_status_change_system_note
         resolve_todos if alert.resolved?
-        sync_to_incident if should_sync_to_incident?
       end
 
       def add_status_change_system_note
-        SystemNoteService.change_alert_status(alert, current_user, status_change_reason)
+        SystemNoteService.change_alert_status(alert, current_user)
       end
 
       def resolve_todos
         todo_service.resolve_todos_for_target(alert, current_user)
       end
 
-      def sync_to_incident
-        ::Issues::UpdateService.new(
-          project: project,
-          current_user: current_user,
-          params: {
-            escalation_status: {
-              status: status,
-              status_change_reason: " by changing the status of #{alert.to_reference(project)}"
-            }
-          }
-        ).execute(alert.issue)
-      end
-
-      def should_sync_to_incident?
-        alert.issue &&
-          alert.issue.supports_escalation? &&
-          alert.issue.escalation_status &&
-          alert.issue.escalation_status.status != alert.status
-      end
-
       def filter_duplicate
-        # Only need to check if changing to an open status
-        return unless params[:status_event] && AlertManagement::Alert.open_status?(status)
+        # Only need to check if changing to a not-resolved status
+        return if params[:status_event].blank? || params[:status_event] == :resolve
+        return unless alert.resolved?
 
         param_errors << unresolved_alert_error if duplicate_alert?
       end
@@ -171,24 +150,23 @@ module AlertManagement
       def duplicate_alert?
         return if alert.fingerprint.blank?
 
-        open_alerts.any? && open_alerts.exclude?(alert)
+        unresolved_alert.present?
       end
 
-      def open_alerts
-        strong_memoize(:open_alerts) do
-          AlertManagement::Alert.for_fingerprint(project, alert.fingerprint).open
+      def unresolved_alert
+        strong_memoize(:unresolved_alert) do
+          AlertManagement::Alert.find_unresolved_alert(project, alert.fingerprint)
         end
       end
 
       def unresolved_alert_error
         _('An %{link_start}alert%{link_end} with the same fingerprint is already open. ' \
           'To change the status of this alert, resolve the linked alert.'
-         ) % open_alert_url_params
+         ) % unresolved_alert_url_params
       end
 
-      def open_alert_url_params
-        open_alert = open_alerts.first
-        alert_path = Gitlab::Routing.url_helpers.details_project_alert_management_path(project, open_alert)
+      def unresolved_alert_url_params
+        alert_path = Gitlab::Routing.url_helpers.details_project_alert_management_path(project, unresolved_alert)
 
         {
           link_start: '<a href="%{url}">'.html_safe % { url: alert_path },

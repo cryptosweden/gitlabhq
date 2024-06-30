@@ -1,6 +1,6 @@
 <script>
 import { GlIcon } from '@gitlab/ui';
-import { n__ } from '../../locale';
+import { n__ } from '~/locale';
 import { MAX_CHILDREN_COUNT } from '../constants';
 
 export default {
@@ -39,7 +39,8 @@ export default {
 </script>
 
 <template>
-  <ul class="groups-list group-list-tree">
+  <ul class="groups-list group-list-tree gl-display-flex gl-flex-direction-column gl-m-0">
+    <!-- eslint-disable-next-line vue/no-undef-components -->
     <group-item
       v-for="(group, index) in groups"
       :key="index"

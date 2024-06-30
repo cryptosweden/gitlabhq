@@ -2,12 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe AwardEmojis::CopyService do
+RSpec.describe AwardEmojis::CopyService, feature_category: :team_planning do
   let_it_be(:from_awardable) do
-    create(:issue, award_emoji: [
-      build(:award_emoji, name: 'thumbsup'),
-      build(:award_emoji, name: 'thumbsdown')
-    ])
+    create(
+      :issue,
+      award_emoji: [
+        build(:award_emoji, name: 'thumbsup'),
+        build(:award_emoji, name: 'thumbsdown')
+      ])
   end
 
   describe '#initialize' do
@@ -23,7 +25,7 @@ RSpec.describe AwardEmojis::CopyService do
 
     it 'copies AwardEmojis', :aggregate_failures do
       expect { execute_service }.to change { AwardEmoji.count }.by(2)
-      expect(to_awardable.award_emoji.map(&:name)).to match_array(%w(thumbsup thumbsdown))
+      expect(to_awardable.award_emoji.map(&:name)).to match_array(%w[thumbsup thumbsdown])
     end
 
     it 'returns success', :aggregate_failures do

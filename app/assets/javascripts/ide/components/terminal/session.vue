@@ -1,5 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlButton } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 import { __ } from '~/locale';
 import { isEndingStatus } from '../../stores/modules/terminal/utils';
@@ -16,7 +18,7 @@ export default {
       if (isEndingStatus(this.session.status)) {
         return {
           action: () => this.restartSession(),
-          variant: 'info',
+          variant: 'confirm',
           category: 'primary',
           text: __('Restart Terminal'),
         };
@@ -37,8 +39,8 @@ export default {
 </script>
 
 <template>
-  <div v-if="session" class="ide-terminal d-flex flex-column">
-    <header class="ide-job-header d-flex align-items-center">
+  <div v-if="session" class="ide-terminal gl-flex flex-column">
+    <header class="ide-job-header gl-flex gl-items-center">
       <h5>{{ __('Web Terminal') }}</h5>
       <div class="ml-auto align-self-center">
         <gl-button

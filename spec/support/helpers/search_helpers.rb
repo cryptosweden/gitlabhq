@@ -2,19 +2,25 @@
 
 module SearchHelpers
   def fill_in_search(text)
-    page.within('.search-input-wrap') do
-      find('#search').click
-      fill_in('search', with: text)
+    within_testid('super-sidebar') do
+      click_button "Search or go to…"
     end
+    fill_in 'search', with: text
 
     wait_for_all_requests
   end
 
   def submit_search(query)
-    # Once the `new_header_search` feature flag has been removed
-    # We can remove the `.search-form` selector
-    # https://gitlab.com/gitlab-org/gitlab/-/issues/339348
-    page.within('.header-search, .search-form, .search-page-form') do
+    # Forms directly on the search page
+    if page.has_css?('.search-page-form')
+      search_form = '.search-page-form'
+    # Open search modal from super sidebar
+    else
+      find_by_testid('super-sidebar-search-button').click
+      search_form = '#super-sidebar-search-modal'
+    end
+
+    page.within(search_form) do
       field = find_field('search')
       field.click
       field.fill_in(with: query)
@@ -29,14 +35,27 @@ module SearchHelpers
     end
   end
 
+  def submit_dashboard_search(query)
+    visit(search_path) unless page.has_css?('#dashboard_search')
+
+    search_form = page.find('input[name="search"]', match: :first)
+
+    search_form.fill_in(with: query)
+    search_form.send_keys(:enter)
+  end
+
   def select_search_scope(scope)
-    page.within '.search-filter' do
+    within_testid('search-filter') do
       click_link scope
+
+      wait_for_all_requests
     end
   end
 
   def has_search_scope?(scope)
-    page.within '.search-filter' do
+    return false unless has_testid?('search-filter')
+
+    within_testid('search-filter') do
       has_link?(scope)
     end
   end

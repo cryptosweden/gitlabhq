@@ -2,6 +2,7 @@ import { GlEmptyState, GlTooltip, GlTruncate } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import TokenTable from '~/clusters/agents/components/token_table.vue';
 import CreateTokenButton from '~/clusters/agents/components/create_token_button.vue';
+import CreateTokenModal from '~/clusters/agents/components/create_token_modal.vue';
 import { useFakeDate } from 'helpers/fake_date';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import { MAX_LIST_COUNT } from '~/clusters/agents/constants';
@@ -50,21 +51,18 @@ describe('ClusterAgentTokenTable', () => {
 
   const findEmptyState = () => wrapper.findComponent(GlEmptyState);
   const findCreateTokenBtn = () => wrapper.findComponent(CreateTokenButton);
+  const findCreateModal = () => wrapper.findComponent(CreateTokenModal);
 
   beforeEach(() => {
     return createComponent(defaultTokens);
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   it('displays the create token button', () => {
     expect(findCreateTokenBtn().exists()).toBe(true);
   });
 
-  it('passes the correct params to the create token component', () => {
-    expect(findCreateTokenBtn().props()).toMatchObject({
+  it('passes the correct params to the create token modal component', () => {
+    expect(findCreateModal().props()).toMatchObject({
       clusterAgentId,
       cursor,
     });
@@ -134,8 +132,8 @@ describe('ClusterAgentTokenTable', () => {
       const token = tokens.at(lineNumber);
 
       expect(token.text()).toContain(description);
-      expect(token.find(GlTruncate).exists()).toBe(truncatesText);
-      expect(token.find(GlTooltip).exists()).toBe(hasTooltip);
+      expect(token.findComponent(GlTruncate).exists()).toBe(truncatesText);
+      expect(token.findComponent(GlTooltip).exists()).toBe(hasTooltip);
     },
   );
 

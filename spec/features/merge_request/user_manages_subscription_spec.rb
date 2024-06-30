@@ -2,12 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User manages subscription', :js do
+RSpec.describe 'User manages subscription', :js, feature_category: :code_review_workflow do
   let(:project) { create(:project, :public, :repository) }
   let(:merge_request) { create(:merge_request, source_project: project, target_project: project) }
   let(:user) { create(:user) }
+  let(:notifications_todos_buttons_enabled) { false }
 
   before do
+    stub_feature_flags(notifications_todos_buttons: notifications_todos_buttons_enabled)
     project.add_maintainer(user)
     sign_in(user)
 
@@ -15,20 +17,38 @@ RSpec.describe 'User manages subscription', :js do
   end
 
   it 'toggles subscription' do
-    page.within('[data-testid="subscription-toggle"]') do
+    wait_for_requests
+
+    find('#new-actions-header-dropdown button').click
+
+    expect(page).to have_selector('.gl-toggle:not(.is-checked)')
+    within_testid('notification-toggle') do
+      find('.gl-toggle').click
+    end
+
+    wait_for_requests
+
+    expect(page).to have_selector('.gl-toggle.is-checked')
+    within_testid('notification-toggle') do
+      find('.gl-toggle').click
+    end
+
+    wait_for_requests
+
+    expect(page).to have_selector('.gl-toggle:not(.is-checked)')
+  end
+
+  context 'with notifications_todos_buttons feature flag enabled' do
+    let(:notifications_todos_buttons_enabled) { true }
+
+    it 'toggles subscription' do
       wait_for_requests
 
-      expect(page).to have_css 'button:not(.is-checked)'
-      find('button:not(.is-checked)').click
+      find_by_testid('subscribe-button').click
+      expect(page).to have_selector('[data-testid="notifications-off-icon"]')
 
-      wait_for_requests
-
-      expect(page).to have_css 'button.is-checked'
-      find('button.is-checked').click
-
-      wait_for_requests
-
-      expect(page).to have_css 'button:not(.is-checked)'
+      find_by_testid('subscribe-button').click
+      expect(page).to have_selector('[data-testid="notifications-icon"]')
     end
   end
 end

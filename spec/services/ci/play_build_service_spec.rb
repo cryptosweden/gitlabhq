@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PlayBuildService, '#execute' do
-  let(:user) { create(:user, developer_projects: [project]) }
+RSpec.describe Ci::PlayBuildService, '#execute', feature_category: :continuous_integration do
+  let(:user) { create(:user, developer_of: project) }
   let(:project) { create(:project) }
   let(:pipeline) { create(:ci_pipeline, project: project) }
   let(:build) { create(:ci_build, :manual, pipeline: pipeline) }
@@ -16,8 +16,7 @@ RSpec.describe Ci::PlayBuildService, '#execute' do
     let(:project) { create(:project) }
 
     it 'allows user to play build if protected branch rules are met' do
-      create(:protected_branch, :developers_can_merge,
-             name: build.ref, project: project)
+      create(:protected_branch, :developers_can_merge, name: build.ref, project: project)
 
       service.execute(build)
 
@@ -64,10 +63,6 @@ RSpec.describe Ci::PlayBuildService, '#execute' do
     context 'when a subsequent job is skipped' do
       let!(:job) { create(:ci_build, :skipped, pipeline: pipeline, stage_idx: build.stage_idx + 1) }
 
-      before do
-        create(:ci_build_need, build: job, name: build.name)
-      end
-
       it 'marks the subsequent job as processable' do
         expect { service.execute(build) }.to change { job.reload.status }.from('skipped').to('created')
       end
@@ -87,11 +82,15 @@ RSpec.describe Ci::PlayBuildService, '#execute' do
         expect(build.reload.job_variables.map(&:key)).to contain_exactly('first', 'second')
       end
 
-      context 'when variables are invalid' do
+      context 'and variables are invalid' do
         let(:job_variables) { [{}] }
 
-        it 'raises an error' do
-          expect { subject }.to raise_error(ActiveRecord::RecordInvalid)
+        it 'resets the attributes of the build' do
+          build.update!(job_variables_attributes: [{ key: 'old', value: 'old variable' }])
+
+          subject
+
+          expect(build.job_variables.map(&:key)).to contain_exactly('old')
         end
       end
 

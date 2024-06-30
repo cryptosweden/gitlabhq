@@ -32,7 +32,7 @@
           left: !useTransform && direction !== 'vertical' ? `${view.position}px` : null,
         } : null"
         class="vue-recycle-scroller__item-view"
-        :class="{ hover: hoverKey === view.nr.key }"
+        :class="{ hover: hoverKey === view.nr.key, 'will-change-transform': useTransform }"
         @mouseenter="hoverKey = view.nr.key"
         @mouseleave="hoverKey = null"
       >
@@ -146,7 +146,7 @@ export default {
         const items = this.items
         const field = this.sizeField
         const minItemSize = this.minItemSize
-        let computedMinSize = 10000
+        let computedMinSize = this.buffer
         let accumulator = 0
         let current
         for (let i = 0, l = items.length; i < l; i++) {
@@ -222,6 +222,10 @@ export default {
         position: 0,
       }
       const nonReactive = {
+        // FIXME: replace with markRaw in Vue3
+        // See https://gitlab.com/gitlab-org/gitlab/-/issues/395772
+        __v_skip: true,
+        
         id: uid++,
         index,
         used: true,
@@ -666,6 +670,9 @@ export default {
   position: absolute;
   top: 0;
   left: 0;
+}
+
+.will-change-transform {
   will-change: transform;
 }
 

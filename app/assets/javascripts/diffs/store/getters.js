@@ -63,9 +63,31 @@ export const diffHasAllCollapsedDiscussions = (state, getters) => (diff) => {
  * @returns {Boolean}
  */
 export const diffHasExpandedDiscussions = () => (diff) => {
-  return diff[INLINE_DIFF_LINES_KEY].filter((l) => l.discussions.length >= 1).some(
-    (l) => l.discussionsExpanded,
-  );
+  const diffLineDiscussionsExpanded = diff[INLINE_DIFF_LINES_KEY].filter(
+    (l) => l.discussions.length >= 1,
+  ).some((l) => l.discussionsExpanded);
+  const diffFileDiscussionsExpanded = diff.discussions?.some((d) => d.expanded);
+
+  return diffFileDiscussionsExpanded || diffLineDiscussionsExpanded;
+};
+
+/**
+ * Checks if every diff has every discussion open
+ * @returns {Boolean}
+ */
+export const allDiffDiscussionsExpanded = (state) => {
+  return state.diffFiles.every((diff) => {
+    const highlightedLines = diff[INLINE_DIFF_LINES_KEY];
+    if (highlightedLines.length) {
+      return highlightedLines
+        .filter((l) => l.discussions.length >= 1)
+        .every((l) => l.discussionsExpanded);
+    }
+    if (diff.viewer.name === 'image') {
+      return diff.discussions.every((discussion) => discussion.expandedOnDiff);
+    }
+    return true;
+  });
 };
 
 /**
@@ -74,7 +96,10 @@ export const diffHasExpandedDiscussions = () => (diff) => {
  * @returns {Boolean}
  */
 export const diffHasDiscussions = () => (diff) => {
-  return diff[INLINE_DIFF_LINES_KEY].some((l) => l.discussions.length >= 1);
+  return (
+    diff.discussions?.length >= 1 ||
+    diff[INLINE_DIFF_LINES_KEY].some((l) => l.discussions.length >= 1)
+  );
 };
 
 /**
@@ -89,6 +114,12 @@ export const getDiffFileDiscussions = (state, getters, rootState, rootGetters) =
 
 export const getDiffFileByHash = (state) => (fileHash) =>
   state.diffFiles.find((file) => file.file_hash === fileHash);
+
+export function isTreePathLoaded(state) {
+  return (path) => {
+    return Boolean(state.treeEntries[path]?.diffLoaded);
+  };
+}
 
 export const flatBlobsList = (state) =>
   Object.values(state.treeEntries).filter((f) => f.type === 'blob');
@@ -127,18 +158,14 @@ export const fileLineCoverage = (state) => (file, line) => {
 
   if (lineCoverage === 0) {
     return { text: __('No test coverage'), class: 'no-coverage' };
-  } else if (lineCoverage >= 0) {
+  }
+  if (lineCoverage >= 0) {
     return {
       text: n__('Test coverage: %d hit', 'Test coverage: %d hits', lineCoverage),
       class: 'coverage',
     };
   }
   return {};
-};
-
-// This function is overwritten for the inline codequality feature in EE
-export const fileLineCodequality = () => () => {
-  return null;
 };
 
 /**
@@ -148,7 +175,7 @@ export const fileLineCodequality = () => () => {
 export const currentDiffIndex = (state) =>
   Math.max(
     0,
-    state.diffFiles.findIndex((diff) => diff.file_hash === state.currentDiffFileId),
+    flatBlobsList(state).findIndex((diff) => diff.fileHash === state.currentDiffFileId),
   );
 
 export const diffLines = (state) => (file) => {
@@ -183,3 +210,18 @@ export const isVirtualScrollingEnabled = (state) => {
 
 export const isBatchLoading = (state) => state.batchLoadingState === 'loading';
 export const isBatchLoadingError = (state) => state.batchLoadingState === 'error';
+
+export const diffFiles = (state, getters) => {
+  const { pinnedFile } = getters;
+  if (pinnedFile) {
+    const diffs = state.diffFiles.slice(0);
+    diffs.splice(diffs.indexOf(pinnedFile), 1);
+    return [pinnedFile, ...diffs];
+  }
+  return state.diffFiles;
+};
+
+export const pinnedFile = (state) => {
+  if (!state.pinnedFileHash) return null;
+  return state.diffFiles.find((file) => file.file_hash === state.pinnedFileHash);
+};

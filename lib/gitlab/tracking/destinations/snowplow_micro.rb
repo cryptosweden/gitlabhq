@@ -7,6 +7,8 @@ module Gitlab
         include ::Gitlab::Utils::StrongMemoize
         extend ::Gitlab::Utils::Override
 
+        delegate :flush, to: :tracker
+
         DEFAULT_URI = 'http://localhost:9090'
 
         override :options
@@ -30,8 +32,9 @@ module Gitlab
 
         def uri
           strong_memoize(:snowplow_uri) do
-            uri = URI(ENV['SNOWPLOW_MICRO_URI'] || DEFAULT_URI)
-            uri = URI("http://#{ENV['SNOWPLOW_MICRO_URI']}") unless %w[http https].include?(uri.scheme)
+            base = base_uri
+            uri = URI(base)
+            uri = URI("http://#{base}") unless %w[http https].include?(uri.scheme)
             uri
           end
         end
@@ -46,6 +49,14 @@ module Gitlab
         override :protocol
         def protocol
           uri.scheme
+        end
+
+        def base_uri
+          url = Gitlab.config.snowplow_micro.address
+          scheme = Gitlab.config.gitlab.https ? 'https' : 'http'
+          "#{scheme}://#{url}"
+        rescue GitlabSettings::MissingSetting
+          DEFAULT_URI
         end
       end
     end

@@ -3,10 +3,6 @@
 module AvatarsHelper
   DEFAULT_AVATAR_PATH = 'no_avatar.png'
 
-  def project_icon(project, options = {})
-    source_icon(project, options)
-  end
-
   def group_icon(group, options = {})
     source_icon(group, options)
   end
@@ -27,11 +23,17 @@ module AvatarsHelper
     end
   end
 
-  def avatar_icon_for_email(email = nil, size = nil, scale = 2, only_path: true)
-    return gravatar_icon(email, size, scale) if email.nil?
+  def avatar_icon_for_email(email = nil, size = nil, scale = 2, only_path: true, by_commit_email: false)
+    return default_avatar if email.blank?
 
     Gitlab::AvatarCache.by_email(email, size, scale, only_path) do
-      avatar_icon_by_user_email_or_gravatar(email, size, scale, only_path: only_path)
+      avatar_icon_by_user_email_or_gravatar(
+        email,
+        size,
+        scale,
+        only_path: only_path,
+        by_commit_email: by_commit_email
+      )
     end
   end
 
@@ -39,7 +41,9 @@ module AvatarsHelper
     return gravatar_icon(nil, size, scale) unless user
     return default_avatar if blocked_or_unconfirmed?(user) && !can_admin?(current_user)
 
-    user_avatar = user.avatar_url(size: size, only_path: only_path)
+    image_size = !size.nil? ? size * 2 : size
+
+    user_avatar = user.avatar_url(size: image_size, only_path: only_path)
     user_avatar || default_avatar
   end
 
@@ -53,12 +57,33 @@ module AvatarsHelper
   end
 
   def author_avatar(commit_or_event, options = {})
-    user_avatar(options.merge({
-      user: commit_or_event.author,
-      user_name: commit_or_event.author_name,
-      user_email: commit_or_event.author_email,
-      css_class: 'd-none d-sm-inline-block'
-    }))
+    options[:css_class] ||= "gl-hidden sm:gl-inline-block"
+
+    if Feature.enabled?(:cached_author_avatar_helper, options.delete(:project))
+      Gitlab::AvatarCache.by_email(commit_or_event.author_email, commit_or_event.author_name, options) do
+        user_avatar(options.merge({
+          user: commit_or_event.author,
+          user_name: commit_or_event.author_name,
+          user_email: commit_or_event.author_email
+        }))
+      end.html_safe # rubocop: disable Rails/OutputSafety -- this is only needed as the AvatarCache is a direct Redis cache
+    else
+      user_avatar(options.merge({
+        user: commit_or_event.author,
+        user_name: commit_or_event.author_name,
+        user_email: commit_or_event.author_email
+      }))
+    end
+  end
+
+  def user_avatar(options = {})
+    avatar = user_avatar_without_link(options)
+
+    if options[:user]
+      link_to(avatar, user_path(options[:user]))
+    elsif options[:user_email]
+      mail_to(options[:user_email], avatar)
+    end
   end
 
   def user_avatar_without_link(options = {})
@@ -84,38 +109,34 @@ module AvatarsHelper
     end
 
     image_options = {
-      alt:   alt_text,
-      src:   avatar_url,
-      data:  data_attributes,
+      alt: alt_text,
+      src: avatar_url,
+      data: data_attributes,
       class: css_class,
       title: user_name
     }
 
-    tag(:img, image_options)
-  end
-
-  def user_avatar(options = {})
-    avatar = user_avatar_without_link(options)
-
-    if options[:user]
-      link_to(avatar, user_path(options[:user]))
-    elsif options[:user_email]
-      mail_to(options[:user_email], avatar)
-    end
+    tag.img(**image_options)
   end
 
   def avatar_without_link(resource, options = {})
-    if resource.is_a?(Namespaces::UserNamespace)
+    case resource
+    when Namespaces::UserNamespace
       user_avatar_without_link(options.merge(user: resource.first_owner))
-    elsif resource.is_a?(Group)
-      group_icon(resource, options.merge(class: 'avatar'))
+    when Group
+      render Pajamas::AvatarComponent.new(resource, class: 'gl-avatar-circle gl-mr-3', size: 32)
     end
   end
 
   private
 
-  def avatar_icon_by_user_email_or_gravatar(email, size, scale, only_path:)
-    user = User.find_by_any_email(email)
+  def avatar_icon_by_user_email_or_gravatar(email, size, scale, only_path:, by_commit_email: false)
+    user =
+      if by_commit_email
+        User.find_by_any_email(email)
+      else
+        User.with_public_email(email).first
+      end
 
     if user
       avatar_icon_for_user(user, size, scale, only_path: only_path)

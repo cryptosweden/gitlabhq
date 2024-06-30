@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User comments on a diff', :js do
+RSpec.describe 'User comments on a diff', :js, feature_category: :code_review_workflow do
   include MergeRequestDiffHelpers
   include RepoHelpers
 
@@ -303,13 +303,17 @@ RSpec.describe 'User comments on a diff', :js do
           "5 # heh"
         ]
 
-        expect_suggestion_has_content(suggestion_1,
-                                      suggestion_1_expected_changing_content,
-                                      suggestion_1_expected_suggested_content)
+        expect_suggestion_has_content(
+          suggestion_1,
+          suggestion_1_expected_changing_content,
+          suggestion_1_expected_suggested_content
+        )
 
-        expect_suggestion_has_content(suggestion_2,
-                                      suggestion_2_expected_changing_content,
-                                      suggestion_2_expected_suggested_content)
+        expect_suggestion_has_content(
+          suggestion_2,
+          suggestion_2_expected_changing_content,
+          suggestion_2_expected_suggested_content
+        )
       end
     end
   end
@@ -376,6 +380,43 @@ RSpec.describe 'User comments on a diff', :js do
         wait_for_requests
 
         expect(page).to have_content('Unresolve thread')
+      end
+    end
+  end
+
+  context 'failed to load metadata' do
+    let(:dummy_controller) do
+      Class.new(Projects::MergeRequests::DiffsController) do
+        def diffs_metadata
+          render json: '', status: :internal_server_error
+        end
+      end
+    end
+
+    before do
+      stub_const('Projects::MergeRequests::DiffsController', dummy_controller)
+
+      click_diff_line(find_by_scrolling("[id='#{sample_compare.changes[1][:line_code]}']"))
+
+      page.within('.js-discussion-note-form') do
+        fill_in('note_note', with: "```suggestion\n# change to a comment\n```")
+        click_button('Add comment now')
+      end
+
+      wait_for_requests
+
+      visit(project_merge_request_path(project, merge_request))
+
+      wait_for_requests
+    end
+
+    it 'displays an error' do
+      page.within('.discussion-notes') do
+        click_button('Apply suggestion')
+
+        wait_for_requests
+
+        expect(page).to have_content('Unable to fully load the default commit message. You can still apply this suggestion and the commit message will be correct.')
       end
     end
   end

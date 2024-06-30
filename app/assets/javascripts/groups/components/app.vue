@@ -1,27 +1,30 @@
 <script>
-import { GlLoadingIcon, GlModal } from '@gitlab/ui';
-import createFlash from '~/flash';
-import { HIDDEN_CLASS } from '~/lib/utils/constants';
+import { GlLoadingIcon, GlModal, GlEmptyState } from '@gitlab/ui';
+import { createAlert } from '~/alert';
+import { HTTP_STATUS_FORBIDDEN } from '~/lib/utils/http_status';
 import { mergeUrlParams, getParameterByName } from '~/lib/utils/url_utility';
 import { __, s__, sprintf } from '~/locale';
 
-import { COMMON_STR, CONTENT_LIST_CLASS } from '../constants';
+import { COMMON_STR } from '../constants';
 import eventHub from '../event_hub';
-import groupsComponent from './groups.vue';
+import GroupsComponent from './groups.vue';
 
 export default {
+  i18n: {
+    searchEmptyState: {
+      title: __('No results found'),
+      description: __('Edit your search and try again'),
+    },
+  },
   components: {
-    groupsComponent,
+    GroupsComponent,
     GlModal,
     GlLoadingIcon,
+    GlEmptyState,
   },
+  inject: ['emptySearchIllustration'],
   props: {
     action: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    containerId: {
       type: String,
       required: false,
       default: '',
@@ -34,17 +37,12 @@ export default {
       type: Object,
       required: true,
     },
-    hideProjects: {
-      type: Boolean,
-      required: true,
-    },
   },
   data() {
     return {
       isModalVisible: false,
       isLoading: true,
-      isSearchEmpty: false,
-      searchEmptyMessage: '',
+      fromSearch: false,
       targetGroup: null,
       targetParentGroup: null,
     };
@@ -53,7 +51,7 @@ export default {
     primaryProps() {
       return {
         text: __('Leave group'),
-        attributes: [{ variant: 'warning' }, { category: 'primary' }],
+        attributes: { variant: 'danger', category: 'primary' },
       };
     },
     cancelProps() {
@@ -72,27 +70,26 @@ export default {
     groups() {
       return this.store.getGroups();
     },
+    hasGroups() {
+      return this.groups && this.groups.length > 0;
+    },
     pageInfo() {
       return this.store.getPaginationInfo();
     },
+    filterGroupsBy() {
+      return getParameterByName('filter') || null;
+    },
   },
   created() {
-    this.searchEmptyMessage = this.hideProjects
-      ? COMMON_STR.GROUP_SEARCH_EMPTY
-      : COMMON_STR.GROUP_PROJECT_SEARCH_EMPTY;
-
     eventHub.$on(`${this.action}fetchPage`, this.fetchPage);
     eventHub.$on(`${this.action}toggleChildren`, this.toggleChildren);
     eventHub.$on(`${this.action}showLeaveGroupModal`, this.showLeaveGroupModal);
     eventHub.$on(`${this.action}updatePagination`, this.updatePagination);
     eventHub.$on(`${this.action}updateGroups`, this.updateGroups);
+    eventHub.$on(`${this.action}fetchFilteredAndSortedGroups`, this.fetchFilteredAndSortedGroups);
   },
   mounted() {
     this.fetchAllGroups();
-
-    if (this.containerId) {
-      this.containerEl = document.getElementById(this.containerId);
-    }
   },
   beforeDestroy() {
     eventHub.$off(`${this.action}fetchPage`, this.fetchPage);
@@ -100,6 +97,7 @@ export default {
     eventHub.$off(`${this.action}showLeaveGroupModal`, this.showLeaveGroupModal);
     eventHub.$off(`${this.action}updatePagination`, this.updatePagination);
     eventHub.$off(`${this.action}updateGroups`, this.updateGroups);
+    eventHub.$off(`${this.action}fetchFilteredAndSortedGroups`, this.fetchFilteredAndSortedGroups);
   },
   methods: {
     hideModal() {
@@ -108,9 +106,9 @@ export default {
     showModal() {
       this.isModalVisible = true;
     },
-    fetchGroups({ parentId, page, filterGroupsBy, sortBy, archived, updatePagination }) {
+    fetchGroups({ parentId, page, filterGroupsBy, sortBy, updatePagination }) {
       return this.service
-        .getGroups(parentId, page, filterGroupsBy, sortBy, archived)
+        .getGroups(parentId, page, filterGroupsBy, sortBy)
         .then((res) => {
           if (updatePagination) {
             this.updatePagination(res.headers);
@@ -121,36 +119,44 @@ export default {
           this.isLoading = false;
           window.scrollTo({ top: 0, behavior: 'smooth' });
 
-          createFlash({ message: COMMON_STR.FAILURE });
+          createAlert({ message: COMMON_STR.FAILURE });
         });
     },
     fetchAllGroups() {
       const page = getParameterByName('page') || null;
       const sortBy = getParameterByName('sort') || null;
-      const archived = getParameterByName('archived') || null;
-      const filterGroupsBy = getParameterByName('filter') || null;
 
       this.isLoading = true;
 
       return this.fetchGroups({
         page,
+        filterGroupsBy: this.filterGroupsBy,
+        sortBy,
+        updatePagination: true,
+      }).then((res) => {
+        this.isLoading = false;
+        this.updateGroups(res, Boolean(this.filterGroupsBy));
+      });
+    },
+    fetchFilteredAndSortedGroups({ filterGroupsBy, sortBy }) {
+      this.isLoading = true;
+
+      return this.fetchGroups({
         filterGroupsBy,
         sortBy,
-        archived,
         updatePagination: true,
       }).then((res) => {
         this.isLoading = false;
         this.updateGroups(res, Boolean(filterGroupsBy));
       });
     },
-    fetchPage({ page, filterGroupsBy, sortBy, archived }) {
+    fetchPage({ page, filterGroupsBy, sortBy }) {
       this.isLoading = true;
 
       return this.fetchGroups({
         page,
         filterGroupsBy,
         sortBy,
-        archived,
         updatePagination: true,
       }).then((res) => {
         this.isLoading = false;
@@ -205,41 +211,23 @@ export default {
         })
         .catch((err) => {
           let message = COMMON_STR.FAILURE;
-          if (err.status === 403) {
+          if (err.status === HTTP_STATUS_FORBIDDEN) {
             message = COMMON_STR.LEAVE_FORBIDDEN;
           }
-          createFlash({ message });
+          createAlert({ message });
           this.targetGroup.isBeingRemoved = false;
         });
-    },
-    showEmptyState() {
-      const { containerEl } = this;
-      const contentListEl = containerEl.querySelector(CONTENT_LIST_CLASS);
-      const emptyStateEl = containerEl.querySelector('.empty-state');
-
-      if (contentListEl) {
-        contentListEl.remove();
-      }
-
-      if (emptyStateEl) {
-        emptyStateEl.classList.remove(HIDDEN_CLASS);
-      }
     },
     updatePagination(headers) {
       this.store.setPaginationInfo(headers);
     },
     updateGroups(groups, fromSearch) {
-      const hasGroups = groups && groups.length > 0;
-      this.isSearchEmpty = !hasGroups;
+      this.fromSearch = fromSearch;
 
       if (fromSearch) {
         this.store.setSearchedGroups(groups);
       } else {
         this.store.setGroups(groups);
-      }
-
-      if (this.action && !hasGroups && !fromSearch) {
-        this.showEmptyState();
       }
     },
   },
@@ -251,17 +239,20 @@ export default {
     <gl-loading-icon
       v-if="isLoading"
       :label="s__('GroupsTree|Loading groups')"
-      size="md"
+      size="lg"
       class="loading-animation prepend-top-20"
     />
-    <groups-component
-      v-else
-      :groups="groups"
-      :search-empty="isSearchEmpty"
-      :search-empty-message="searchEmptyMessage"
-      :page-info="pageInfo"
-      :action="action"
-    />
+    <template v-else>
+      <groups-component v-if="hasGroups" :groups="groups" :page-info="pageInfo" :action="action" />
+      <gl-empty-state
+        v-else-if="fromSearch"
+        :svg-path="emptySearchIllustration"
+        :title="$options.i18n.searchEmptyState.title"
+        :description="$options.i18n.searchEmptyState.description"
+        data-testid="search-empty-state"
+      />
+      <slot v-else name="empty-state"></slot>
+    </template>
     <gl-modal
       modal-id="leave-group-modal"
       :visible="isModalVisible"

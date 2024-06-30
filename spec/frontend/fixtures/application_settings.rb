@@ -8,7 +8,7 @@ RSpec.describe Admin::ApplicationSettingsController, '(JavaScript fixtures)', ty
   include AdminModeHelper
 
   let(:admin) { create(:admin) }
-  let(:namespace) { create(:namespace, name: 'frontend-fixtures' )}
+  let(:namespace) { create(:namespace, name: 'frontend-fixtures') }
   let(:project) { create(:project_empty_repo, namespace: namespace, path: 'application-settings') }
 
   before do
@@ -34,6 +34,7 @@ RSpec.describe Admin::ApplicationSettingsController, '(JavaScript fixtures)', ty
 
   it 'application_settings/usage.html' do
     stub_application_setting(usage_ping_enabled: false)
+    stub_application_setting(include_optional_metrics_in_service_ping: false)
 
     get :metrics_and_profiling
 

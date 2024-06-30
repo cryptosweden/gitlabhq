@@ -26,11 +26,11 @@ module API
         params do
           requires :noteable_id, type: Integer, desc: 'The ID of the noteable'
           optional :order_by, type: String, values: %w[created_at updated_at], default: 'created_at',
-                              desc: 'Return notes ordered by `created_at` or `updated_at` fields.'
+            desc: 'Return notes ordered by `created_at` or `updated_at` fields.'
           optional :sort, type: String, values: %w[asc desc], default: 'desc',
-                          desc: 'Return notes sorted in `asc` or `desc` order.'
+            desc: 'Return notes sorted in `asc` or `desc` order.'
           optional :activity_filter, type: String, values: UserPreference::NOTES_FILTERS.stringify_keys.keys, default: 'all_notes',
-                           desc: 'The type of notables which are returned.'
+            desc: 'The type of notables which are returned.'
           use :pagination
         end
         # rubocop: disable CodeReuse/ActiveRecord
@@ -51,7 +51,7 @@ module API
           notes = paginate(raw_notes)
           notes = prepare_notes_for_rendering(notes)
           notes = notes.select { |note| note.readable_by?(current_user) }
-          present notes, with: Entities::Note
+          present notes, with: Entities::Note, current_user: current_user
         end
         # rubocop: enable CodeReuse/ActiveRecord
 
@@ -73,7 +73,8 @@ module API
         params do
           requires :noteable_id, type: Integer, desc: 'The ID of the noteable'
           requires :body, type: String, desc: 'The content of a note'
-          optional :confidential, type: Boolean, desc: 'Confidentiality note flag, default is false'
+          optional :confidential, type: Boolean, desc: '[Deprecated in 15.5] Renamed to internal'
+          optional :internal, type: Boolean, desc: 'Internal note flag, default is false'
           optional :created_at, type: String, desc: 'The creation date of the note'
           optional :merge_request_diff_head_sha, type: String, desc: 'The SHA of the head commit'
         end
@@ -87,17 +88,17 @@ module API
             note: params[:body],
             noteable_type: noteables_str.classify,
             noteable_id: noteable.id,
-            confidential: params[:confidential],
+            internal: params[:internal] || params[:confidential],
             created_at: params[:created_at],
             merge_request_diff_head_sha: params[:merge_request_diff_head_sha]
           }
 
           note = create_note(noteable, opts)
 
-          if note.errors.attribute_names == [:commands_only]
+          if note.errors.attribute_names == [:commands_only, :command_names]
             status 202
             present note, with: Entities::NoteCommands
-          elsif note.valid?
+          elsif note.persisted?
             present note, with: Entities.const_get(note.class.name, false)
           else
             note.errors.delete(:commands_only) if note.errors.has_key?(:commands)
@@ -112,7 +113,7 @@ module API
           requires :noteable_id, type: Integer, desc: 'The ID of the noteable'
           requires :note_id, type: Integer, desc: 'The ID of a note'
           optional :body, type: String, allow_blank: false, desc: 'The content of a note'
-          optional :confidential, type: Boolean, desc: 'Confidentiality note flag'
+          optional :confidential, type: Boolean, desc: '[Deprecated in 14.10] No longer allowed to update confidentiality of notes'
         end
         put ":id/#{noteables_str}/:noteable_id/notes/:note_id", feature_category: feature_category do
           noteable = find_noteable(noteable_type, params[:noteable_id])

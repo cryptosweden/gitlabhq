@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'A Todoable that implements the CurrentUserTodos interface' do
+RSpec.describe 'A Todoable that implements the CurrentUserTodos interface',
+  feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:current_user) { create(:user) }
@@ -37,8 +38,8 @@ RSpec.describe 'A Todoable that implements the CurrentUserTodos interface' do
     post_graphql(query, current_user: current_user)
 
     expect(todoable_response).to contain_exactly(
-      a_hash_including('id' => global_id_of(done_todo)),
-      a_hash_including('id' => global_id_of(pending_todo))
+      a_graphql_entity_for(done_todo),
+      a_graphql_entity_for(pending_todo)
     )
   end
 
@@ -63,7 +64,7 @@ RSpec.describe 'A Todoable that implements the CurrentUserTodos interface' do
       post_graphql(query, current_user: current_user)
 
       expect(todoable_response).to contain_exactly(
-        a_hash_including('id' => global_id_of(pending_todo))
+        a_graphql_entity_for(pending_todo)
       )
     end
   end
@@ -75,7 +76,7 @@ RSpec.describe 'A Todoable that implements the CurrentUserTodos interface' do
       post_graphql(query, current_user: current_user)
 
       expect(todoable_response).to contain_exactly(
-        a_hash_including('id' => global_id_of(done_todo))
+        a_graphql_entity_for(done_todo)
       )
     end
   end

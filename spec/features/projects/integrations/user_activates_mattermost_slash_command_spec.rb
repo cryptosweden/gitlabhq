@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Set up Mattermost slash commands', :js do
+RSpec.describe 'Set up Mattermost slash commands', :js, feature_category: :integrations do
   describe 'user visits the mattermost slash command config page' do
     include_context 'project integration activation'
 
@@ -15,7 +15,7 @@ RSpec.describe 'Set up Mattermost slash commands', :js do
       let(:mattermost_enabled) { true }
 
       describe 'activation' do
-        let(:edit_path) { edit_project_integration_path(project, :mattermost_slash_commands) }
+        let(:edit_path) { edit_project_settings_integration_path(project, :mattermost_slash_commands) }
 
         include_examples 'user activates the Mattermost Slash Command integration'
       end
@@ -79,7 +79,7 @@ RSpec.describe 'Set up Mattermost slash commands', :js do
 
         select_element = find('#mattermost_team_id')
 
-        expect(select_element['disabled']).to be_falsey
+        expect(select_element['disabled']).to eq('false')
         expect(select_element.all('option').count).to eq(3)
       end
 
@@ -99,7 +99,7 @@ RSpec.describe 'Set up Mattermost slash commands', :js do
 
         click_link 'Add to Mattermost'
 
-        expect(find('input[type="submit"]')['disabled']).not_to eq("true")
+        expect(find('button[type="submit"]')['disabled']).not_to eq("true")
       end
 
       it 'disables the submit button if the required fields are not provided', :js do
@@ -109,7 +109,7 @@ RSpec.describe 'Set up Mattermost slash commands', :js do
 
         fill_in('mattermost_trigger', with: '')
 
-        expect(find('input[type="submit"]')['disabled']).to eq("true")
+        expect(find('button[type="submit"]')['disabled']).to eq("true")
       end
 
       def stub_teams(count: 0)
@@ -139,13 +139,13 @@ RSpec.describe 'Set up Mattermost slash commands', :js do
       it 'shows the correct trigger url' do
         value = find_field('request_url').value
 
-        expect(value).to match("api/v4/projects/#{project.id}/services/mattermost_slash_commands/trigger")
+        expect(value).to match("api/v4/projects/#{project.id}/integrations/mattermost_slash_commands/trigger")
       end
 
       it 'shows a token placeholder' do
-        token_placeholder = find_field('service_token')['placeholder']
+        token_placeholder = find_field('service-token')['placeholder']
 
-        expect(token_placeholder).to eq('XXxxXXxxXXxxXXxxXXxxXXxx')
+        expect(token_placeholder).to eq('')
       end
     end
   end

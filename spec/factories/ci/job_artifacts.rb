@@ -15,11 +15,13 @@ FactoryBot.define do
     end
 
     trait :remote_store do
-      file_store { JobArtifactUploader::Store::REMOTE}
+      file_store { JobArtifactUploader::Store::REMOTE }
     end
 
     after :build do |artifact|
       artifact.project ||= artifact.job.project
+
+      artifact.job&.valid?
     end
 
     trait :raw do
@@ -172,6 +174,18 @@ FactoryBot.define do
       end
     end
 
+    trait :private do
+      accessibility { 'private' }
+    end
+
+    trait :public do
+      accessibility { 'public' }
+    end
+
+    trait :none do
+      accessibility { 'none' }
+    end
+
     trait :accessibility do
       file_type { :accessibility }
       file_format { :raw }
@@ -302,6 +316,68 @@ FactoryBot.define do
       end
     end
 
+    # Bandit reports are correctly de-duplicated when ran in the same pipeline
+    # as a corresponding semgrep report.
+    # This report does not include signature tracking.
+    trait :sast_bandit do
+      file_type { :sast }
+      file_format { :raw }
+
+      after(:build) do |artifact, _|
+        artifact.file = fixture_file_upload(
+          Rails.root.join('spec/fixtures/security_reports/master/gl-sast-report-bandit.json'), 'application/json')
+      end
+    end
+
+    # Equivalent Semgrep report for :sast_bandit report.
+    # This report includes signature tracking.
+    trait :sast_semgrep_for_bandit do
+      file_type { :sast }
+      file_format { :raw }
+
+      after(:build) do |artifact, _|
+        artifact.file = fixture_file_upload(
+          Rails.root.join('spec/fixtures/security_reports/master/gl-sast-report-semgrep-for-bandit.json'), 'application/json')
+      end
+    end
+
+    # Gosec reports are not correctly de-duplicated when ran in the same pipeline
+    # as a corresponding semgrep report.
+    # This report includes signature tracking.
+    trait :sast_gosec do
+      file_type { :sast }
+      file_format { :raw }
+
+      after(:build) do |artifact, _|
+        artifact.file = fixture_file_upload(
+          Rails.root.join('spec/fixtures/security_reports/master/gl-sast-report-gosec.json'), 'application/json')
+      end
+    end
+
+    # Equivalent Semgrep report for :sast_gosec report.
+    # This report includes signature tracking.
+    trait :sast_semgrep_for_gosec do
+      file_type { :sast }
+      file_format { :raw }
+
+      after(:build) do |artifact, _|
+        artifact.file = fixture_file_upload(
+          Rails.root.join('spec/fixtures/security_reports/master/gl-sast-report-semgrep-for-gosec.json'), 'application/json')
+      end
+    end
+
+    # Equivalent Semgrep report for combined :sast_bandit and :sast_gosec reports.
+    # This report includes signature tracking.
+    trait :sast_semgrep_for_multiple_findings do
+      file_type { :sast }
+      file_format { :raw }
+
+      after(:build) do |artifact, _|
+        artifact.file = fixture_file_upload(
+          Rails.root.join('spec/fixtures/security_reports/master/gl-sast-report-semgrep-for-multiple-findings.json'), 'application/json')
+      end
+    end
+
     trait :common_security_report do
       file_format { :raw }
       file_type { :dependency_scanning }
@@ -309,6 +385,15 @@ FactoryBot.define do
       after(:build) do |artifact, _|
         artifact.file = fixture_file_upload(
           Rails.root.join('spec/fixtures/security_reports/master/gl-common-scanning-report.json'), 'application/json')
+      end
+    end
+
+    trait :common_security_report_without_top_level_scanner do
+      common_security_report
+
+      after(:build) do |artifact, _|
+        artifact.file = fixture_file_upload(
+          Rails.root.join('spec/fixtures/security_reports/master/gl-common-scanning-report-without-top-level-scanner.json'), 'application/json')
       end
     end
 
@@ -322,13 +407,12 @@ FactoryBot.define do
       end
     end
 
-    trait :sast_deprecated do
-      file_type { :sast }
-      file_format { :raw }
+    trait :common_security_report_with_unicode_null_character do
+      common_security_report
 
       after(:build) do |artifact, _|
         artifact.file = fixture_file_upload(
-          Rails.root.join('spec/fixtures/security_reports/deprecated/gl-sast-report.json'), 'application/json')
+          Rails.root.join('spec/fixtures/security_reports/master/gl-common-scanning-report-with-unicode-null-character.json'), 'application/json')
       end
     end
 
@@ -405,6 +489,16 @@ FactoryBot.define do
     trait :correct_checksum do
       after(:build) do |artifact, evaluator|
         artifact.file_sha256 = Digest::SHA256.file(artifact.file.path).hexdigest
+      end
+    end
+
+    trait :annotations do
+      file_type { :annotations }
+      file_format { :gzip }
+
+      after(:build) do |artifact, evaluator|
+        artifact.file = fixture_file_upload(
+          Rails.root.join('spec/fixtures/gl-annotations.json.gz'), 'application/x-gzip')
       end
     end
   end

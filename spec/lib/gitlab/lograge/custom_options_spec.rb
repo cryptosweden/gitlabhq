@@ -25,7 +25,8 @@ RSpec.describe Gitlab::Lograge::CustomOptions do
         remote_ip: '192.168.1.2',
         ua: 'Nyxt',
         queue_duration_s: 0.2,
-        etag_route: '/etag'
+        etag_route: '/etag',
+        response_bytes: 1234
       }
     end
 
@@ -53,6 +54,20 @@ RSpec.describe Gitlab::Lograge::CustomOptions do
 
     it 'adds the user id' do
       expect(subject[:user_id]).to eq('test')
+    end
+
+    it 'adds the response length' do
+      expect(subject[:response_bytes]).to eq(1234)
+    end
+
+    context 'with log_response_length disabled' do
+      before do
+        stub_feature_flags(log_response_length: false)
+      end
+
+      it 'does not add the response length' do
+        expect(subject).not_to include(:response_bytes)
+      end
     end
 
     it 'adds Cloudflare headers' do
@@ -96,22 +111,14 @@ RSpec.describe Gitlab::Lograge::CustomOptions do
       end
     end
 
-    context  'when feature flags are present', :request_store do
+    context 'when feature flags are present', :request_store do
       before do
         allow(Feature).to receive(:log_feature_flag_states?).and_return(false)
 
-        definitions = {}
         [:enabled_feature, :disabled_feature].each do |flag_name|
-          definitions[flag_name] = Feature::Definition.new("development/enabled_feature.yml",
-                                                           name: flag_name,
-                                                           type: 'development',
-                                                           log_state_changes: true,
-                                                           default_enabled: false)
-
+          stub_feature_flag_definition(flag_name, log_state_changes: true)
           allow(Feature).to receive(:log_feature_flag_states?).with(flag_name).and_call_original
         end
-
-        allow(Feature::Definition).to receive(:definitions).and_return(definitions)
 
         Feature.enable(:enabled_feature)
         Feature.disable(:disabled_feature)

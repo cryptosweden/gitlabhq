@@ -8,7 +8,7 @@ RSpec.describe ::Users::MergeRequestInteraction do
   let_it_be(:merge_request) { create(:merge_request, source_project: project) }
 
   subject(:interaction) do
-    ::Users::MergeRequestInteraction.new(user: user, merge_request: merge_request.reset)
+    described_class.new(user: user, merge_request: merge_request.reset)
   end
 
   describe 'declarative policy delegation' do
@@ -60,8 +60,6 @@ RSpec.describe ::Users::MergeRequestInteraction do
       before do
         merge_request.reviewers << user
       end
-
-      it { is_expected.to eq(Types::MergeRequestReviewStateEnum.values['ATTENTION_REQUESTED'].value) }
 
       it 'implies not reviewed' do
         expect(interaction).not_to be_reviewed

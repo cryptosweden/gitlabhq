@@ -36,8 +36,8 @@ module Gitlab
     def self.set(jid, expire = DEFAULT_EXPIRATION)
       return unless expire
 
-      Sidekiq.redis do |redis|
-        redis.set(key_for(jid), 1, ex: expire)
+      with_redis do |redis|
+        redis.set(key_for(jid), 1, ex: expire.to_i)
       end
     end
 
@@ -45,8 +45,18 @@ module Gitlab
     #
     # jid - The Sidekiq job ID to remove.
     def self.unset(jid)
-      Sidekiq.redis do |redis|
+      with_redis do |redis|
         redis.del(key_for(jid))
+      end
+    end
+
+    # Refreshes the timeout on the key if it exists
+    #
+    # jid = The Sidekiq job ID
+    # expire - The expiration time of the Redis key.
+    def self.expire(jid, expire = DEFAULT_EXPIRATION)
+      with_redis do |redis|
+        redis.expire(key_for(jid), expire.to_i)
       end
     end
 
@@ -94,9 +104,17 @@ module Gitlab
 
       keys = job_ids.map { |jid| key_for(jid) }
 
-      Sidekiq
-        .redis { |redis| redis.mget(*keys) }
-        .map { |result| !result.nil? }
+      status = with_redis do |redis|
+        Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
+          if Gitlab::Redis::ClusterUtil.cluster?(redis)
+            Gitlab::Redis::ClusterUtil.batch_get(keys, redis)
+          else
+            redis.mget(*keys)
+          end
+        end
+      end
+
+      status.map { |result| !result.nil? }
     end
 
     # Returns the JIDs that are completed
@@ -118,5 +136,10 @@ module Gitlab
     def self.key_for(jid)
       STATUS_KEY % jid
     end
+
+    def self.with_redis
+      Redis::QueuesMetadata.with { |redis| yield redis }
+    end
+    private_class_method :with_redis
   end
 end

@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create', :reliable do
-    context 'File management' do
-      let(:file) { Resource::File.fabricate_via_api! }
+  RSpec.describe 'Create', :blocking do
+    describe 'File management', product_group: :source_code do
+      let(:file) { create(:file) }
 
       updated_file_content = 'QA Test - Updated file content'
       commit_message_for_update = 'QA Test - Update file'
@@ -25,7 +25,7 @@ module QA
 
         Page::File::Show.perform do |file|
           aggregate_failures 'file details' do
-            expect(file).to have_notice('Your changes have been successfully committed.')
+            expect(file).to have_notice('Your changes have been committed successfully.')
             expect(file).to have_file_content(updated_file_content)
             expect(file).to have_commit_message(commit_message_for_update)
           end

@@ -4,17 +4,22 @@ module API
   class ResourceAccessTokens < ::API::Base
     include PaginationParams
 
+    ALLOWED_RESOURCE_ACCESS_LEVELS = Gitlab::Access.options_with_owner.freeze
+
     before { authenticate! }
 
-    feature_category :authentication_and_authorization
+    feature_category :system_access
 
     %w[project group].each do |source_type|
       resource source_type.pluralize, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
         desc 'Get list of all access tokens for the specified resource' do
           detail 'This feature was introduced in GitLab 13.9.'
+          is_array true
+          tags ["#{source_type}_access_tokens"]
+          success Entities::ResourceAccessToken
         end
         params do
-          requires :id, type: String, desc: "The #{source_type} ID"
+          requires :id, types: [String, Integer], desc: "ID or URL-encoded path of the #{source_type}"
         end
         get ":id/access_tokens" do
           resource = find_source(source_type, params[:id])
@@ -29,9 +34,11 @@ module API
 
         desc 'Get an access token for the specified resource by ID' do
           detail 'This feature was introduced in GitLab 14.10.'
+          tags ["#{source_type}_access_tokens"]
+          success Entities::ResourceAccessToken
         end
         params do
-          requires :id, type: String, desc: "The #{source_type} ID"
+          requires :id, types: [String, Integer], desc: "ID or URL-encoded path of the #{source_type}"
           requires :token_id, type: String, desc: "The ID of the token"
         end
         get ":id/access_tokens/:token_id" do
@@ -51,6 +58,12 @@ module API
 
         desc 'Revoke a resource access token' do
           detail 'This feature was introduced in GitLab 13.9.'
+          tags ["#{source_type}_access_tokens"]
+          success code: 204
+          failure [
+            { code: 400, message: 'Bad Request' },
+            { code: 404, message: 'Not found' }
+          ]
         end
         params do
           requires :id, type: String, desc: "The #{source_type} ID"
@@ -75,13 +88,34 @@ module API
 
         desc 'Create a resource access token' do
           detail 'This feature was introduced in GitLab 13.9.'
+          tags ["#{source_type}_access_tokens"]
+          success Entities::ResourceAccessTokenWithToken
         end
         params do
-          requires :id, type: String, desc: "The #{source_type} ID"
-          requires :name, type: String, desc: "Resource access token name"
-          requires :scopes, type: Array[String], desc: "The permissions of the token"
-          optional :access_level, type: Integer, desc: "The access level of the token in the #{source_type}"
-          optional :expires_at, type: Date, desc: "The expiration date of the token"
+          requires :id,
+            type: String,
+            desc: "The #{source_type} ID",
+            documentation: { example: 2 }
+          requires :name,
+            type: String,
+            desc: "Resource access token name",
+            documentation: { example: 'test' }
+          requires :scopes,
+            type: Array[String],
+            values: ::Gitlab::Auth.resource_bot_scopes.map(&:to_s),
+            desc: "The permissions of the token",
+            documentation: { example: %w[api read_repository] }
+          requires :expires_at,
+            type: Date,
+            desc: "The expiration date of the token",
+            default: PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS.days.from_now,
+            documentation: { example: '"2021-01-31' }
+          optional :access_level,
+            type: Integer,
+            values: ALLOWED_RESOURCE_ACCESS_LEVELS.values,
+            default: Gitlab::Access::MAINTAINER,
+            desc: "The access level of the token in the #{source_type}",
+            documentation: { example: 40 }
         end
         post ':id/access_tokens' do
           resource = find_source(source_type, params[:id])
@@ -96,6 +130,51 @@ module API
             present token_response.payload[:access_token], with: Entities::ResourceAccessTokenWithToken, resource: resource
           else
             bad_request!(token_response.message)
+          end
+        end
+
+        desc 'Rotate a resource access token' do
+          detail 'This feature was introduced in GitLab 16.0.'
+          tags ["#{source_type}_access_tokens"]
+          success Entities::ResourceAccessTokenWithToken
+        end
+        params do
+          requires :id, type: String, desc: "The #{source_type} ID"
+          requires :token_id, type: String, desc: "The ID of the token"
+          optional :expires_at,
+            type: Date,
+            desc: "The expiration date of the token",
+            documentation: { example: '2021-01-31' }
+        end
+        post ':id/access_tokens/:token_id/rotate' do
+          resource = find_source(source_type, params[:id])
+
+          resource_accessible = Ability.allowed?(current_user, :manage_resource_access_tokens, resource)
+          token = find_token(resource, params[:token_id]) if resource_accessible
+
+          if token
+            response = if source_type == "project"
+                         ::ProjectAccessTokens::RotateService.new(current_user, token, resource)
+                                   .execute(declared_params)
+                       elsif source_type == "group"
+                         ::GroupAccessTokens::RotateService.new(current_user, token, resource)
+                                   .execute(declared_params)
+                       else
+                         ::PersonalAccessTokens::RotateService.new(current_user, token)
+                                     .execute(declared_params)
+                       end
+
+            if response.success?
+              status :ok
+
+              new_token = response.payload[:personal_access_token]
+              present new_token, with: Entities::ResourceAccessTokenWithToken, resource: resource
+            else
+              bad_request!(response.message)
+            end
+          else
+            # Only admins should be informed if the token doesn't exist
+            current_user.can_admin_all_resources? ? not_found! : unauthorized!
           end
         end
       end

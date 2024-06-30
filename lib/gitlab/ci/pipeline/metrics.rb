@@ -9,7 +9,8 @@ module Gitlab
         def self.pipeline_creation_duration_histogram
           name = :gitlab_ci_pipeline_creation_duration_seconds
           comment = 'Pipeline creation duration'
-          labels = {}
+          # @gitlab: boolean value - if project is gitlab-org/gitlab
+          labels = { gitlab: false }
           buckets = [0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 20.0, 50.0, 240.0]
 
           ::Gitlab::Metrics.histogram(name, comment, labels, buckets)
@@ -42,11 +43,20 @@ module Gitlab
           ::Gitlab::Metrics.histogram(name, comment, labels, buckets)
         end
 
+        def self.pipeline_age_histogram
+          name = :gitlab_ci_pipeline_age_minutes
+          comment = 'Pipeline age histogram'
+          buckets = [5, 30, 120, 720, 1440, 7200, 21600, 43200, 86400, 172800, 518400, 1036800]
+          #          5m 30m 2h   12h  24h   5d    15d    30d    60d    180d    360d    2y
+
+          ::Gitlab::Metrics.histogram(name, comment, {}, buckets)
+        end
+
         def self.active_jobs_histogram
           name = :gitlab_ci_active_jobs
           comment = 'Total amount of active jobs'
           labels = { plan: nil }
-          buckets = [0, 200, 500, 1_000, 2_000, 5_000, 10_000]
+          buckets = [0, 200, 500, 1_000, 2_000, 5_000, 10_000, 15_000, 20_000, 30_000, 40_000]
 
           ::Gitlab::Metrics.histogram(name, comment, labels, buckets)
         end
@@ -88,9 +98,16 @@ module Gitlab
           Gitlab::Metrics.counter(name, comment)
         end
 
+        def self.job_token_inbound_access_counter
+          name = :gitlab_ci_job_token_inbound_access
+          comment = 'Count of inbound accesses via CI job token'
+
+          Gitlab::Metrics.counter(name, comment)
+        end
+
         def ci_minutes_exceeded_builds_counter
           name = :ci_minutes_exceeded_builds_counter
-          comment = 'Count of builds dropped due to CI minutes exceeded'
+          comment = 'Count of builds dropped due to compute minutes exceeded'
 
           Gitlab::Metrics.counter(name, comment)
         end

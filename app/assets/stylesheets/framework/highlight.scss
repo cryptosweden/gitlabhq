@@ -6,12 +6,11 @@
   table-layout: fixed;
 
   pre {
-    padding: 10px 0;
+    line-height: 0;
     border: 0;
-    border-radius: 0 0 $border-radius-default;
+    border-radius: 0 0 $gl-border-radius-base;
     font-family: $monospace-font;
     font-size: $code-font-size;
-    line-height: 1.5;
     margin: 0;
     overflow: auto;
     overflow-y: hidden;
@@ -34,7 +33,7 @@
         padding-right: 10px;
         white-space: pre;
 
-        &:empty::before {
+        &:empty::before, span:empty::before {
           content: '\200b';
         }
       }
@@ -42,15 +41,17 @@
   }
 
   .line-numbers {
-    padding: 10px;
+    padding: 0 10px;
+    line-height: 19px;
     text-align: right;
     float: left;
-    border-bottom-left-radius: $border-radius-default;
+    border-bottom-left-radius: $gl-border-radius-base;
 
     a {
       font-family: $monospace-font;
-      display: block;
       white-space: nowrap;
+      display: flex;
+      justify-content: flex-end;
 
       i,
       svg {
@@ -69,6 +70,10 @@
           visibility: visible;
         }
       }
+    }
+
+    &:last-of-type {
+     border-bottom-left-radius: $gl-border-radius-base-inner;
     }
   }
 
@@ -90,4 +95,47 @@ td.line-numbers {
   content: '\FFFD';
   cursor: pointer;
   text-decoration: underline wavy $red-500;
+}
+
+.blob-viewer {
+  .line-numbers {
+    min-width: 6rem;
+    // for server-side-rendering
+    .line-links {
+      display: flex;
+    }
+
+    // for client
+    &.line-links {
+      border-bottom-left-radius: 0;
+
+      + pre {
+        margin-left: 6rem;
+      }
+    }
+  }
+
+  .line-numbers:not(.line-links) a:hover::before,
+  .line-numbers:not(.line-links) a:focus-within::before,
+  .line-links:hover a::before,
+  .line-links:focus-within a::before {
+    visibility: visible;
+  }
+
+
+  .file-line-num {
+    justify-content: flex-end;
+    flex-grow: 1;
+    padding-right: $gl-spacing-scale-3;
+  }
+
+  .file-line-blame {
+    margin-left: $gl-spacing-scale-3;
+  }
+
+  .file-line-num,
+  .file-line-blame {
+    align-items: center;
+    display: flex;
+  }
 }

@@ -1,13 +1,15 @@
 # frozen_string_literal: true
 
-require "active_support/core_ext/module/delegation"
-
 module QA
   module Support
     # Common tools for use with influxdb metrics setup
     #
     module InfluxdbTools
+      # @return [String] bucket for storing all test run metrics
       INFLUX_TEST_METRICS_BUCKET = "e2e-test-stats"
+      # @return [String] bucket for storing metrics from main runs
+      INFLUX_MAIN_TEST_METRICS_BUCKET = "e2e-test-stats-main"
+      # @return [Array] live environment names
       LIVE_ENVS = %w[staging staging-canary staging-ref canary preprod production].freeze
 
       private
@@ -37,7 +39,9 @@ module QA
           ENV["QA_INFLUXDB_TOKEN"] || raise("Missing QA_INFLUXDB_TOKEN env variable"),
           bucket: INFLUX_TEST_METRICS_BUCKET,
           org: "gitlab-qa",
-          precision: InfluxDB2::WritePrecision::NANOSECOND
+          precision: InfluxDB2::WritePrecision::NANOSECOND,
+          read_timeout: ENV["QA_INFLUXDB_TIMEOUT"]&.to_i || 60,
+          open_timeout: ENV["QA_INFLUXDB_TIMEOUT"]&.to_i || 60
         )
       end
 
@@ -46,20 +50,19 @@ module QA
       #
       # @return [String, nil]
       def run_type
-        @run_type ||= begin
-          return env('QA_RUN_TYPE') if env('QA_RUN_TYPE')
-          return unless LIVE_ENVS.include?(ci_project_name)
+        @run_type ||= if env('QA_RUN_TYPE')
+                        env('QA_RUN_TYPE')
+                      elsif LIVE_ENVS.exclude?(ci_project_name)
+                        nil
+                      else
+                        test_subset = if env('SMOKE_ONLY') == 'true'
+                                        'sanity'
+                                      else
+                                        'full'
+                                      end
 
-          test_subset = if env('NO_ADMIN') == 'true'
-                          'sanity-no-admin'
-                        elsif env('SMOKE_ONLY') == 'true'
-                          'sanity'
-                        else
-                          'full'
-                        end
-
-          "#{ci_project_name}-#{test_subset}"
-        end
+                        "#{ci_project_name}-#{test_subset}"
+                      end
       end
 
       # Merge request iid

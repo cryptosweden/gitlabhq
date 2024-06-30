@@ -10,6 +10,7 @@ RSpec.describe Gitlab::Gfm::ReferenceRewriter do
   let(:old_project) { create(:project, name: 'old-project', group: group) }
   let(:old_project_ref) { old_project.to_reference_base(new_project) }
   let(:text) { 'some text' }
+  let(:note) { create(:note, note: text, project: old_project) }
 
   before do
     old_project.add_reporter(user)
@@ -17,7 +18,7 @@ RSpec.describe Gitlab::Gfm::ReferenceRewriter do
 
   describe '#rewrite' do
     subject do
-      described_class.new(text, old_project, user).rewrite(new_project)
+      described_class.new(note.note, note.note_html, old_project, user).rewrite(new_project)
     end
 
     context 'multiple issues and merge requests referenced' do
@@ -77,13 +78,13 @@ RSpec.describe Gitlab::Gfm::ReferenceRewriter do
           context 'label referenced by id' do
             let(:text) { '#1 and ~123' }
 
-            it { is_expected.to eq %Q{#{old_project_ref}#1 and #{old_project_ref}~123} }
+            it { is_expected.to eq %(#{old_project_ref}#1 and #{old_project_ref}~123) }
           end
 
           context 'label referenced by text' do
             let(:text) { '#1 and ~"test"' }
 
-            it { is_expected.to eq %Q{#{old_project_ref}#1 and #{old_project_ref}~123} }
+            it { is_expected.to eq %(#{old_project_ref}#1 and #{old_project_ref}~123) }
           end
         end
 
@@ -98,13 +99,13 @@ RSpec.describe Gitlab::Gfm::ReferenceRewriter do
           context 'label referenced by id' do
             let(:text) { '#1 and ~321' }
 
-            it { is_expected.to eq %Q{#{old_project_ref}#1 and #{old_project_ref}~321} }
+            it { is_expected.to eq %(#{old_project_ref}#1 and #{old_project_ref}~321) }
           end
 
           context 'label referenced by text' do
             let(:text) { '#1 and ~"group label"' }
 
-            it { is_expected.to eq %Q{#{old_project_ref}#1 and #{old_project_ref}~321} }
+            it { is_expected.to eq %(#{old_project_ref}#1 and #{old_project_ref}~321) }
           end
         end
       end
@@ -148,7 +149,7 @@ RSpec.describe Gitlab::Gfm::ReferenceRewriter do
 
       let(:text) { 'milestone: %"9.0"' }
 
-      it { is_expected.to eq %Q[milestone: #{old_project_ref}%"9.0"] }
+      it { is_expected.to eq %(milestone: #{old_project_ref}%"9.0") }
     end
 
     context 'when referring to group milestone' do

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Search for labels', :js do
+RSpec.describe 'Search for labels', :js, feature_category: :team_planning do
   let(:user) { create(:user) }
   let(:group) { create(:group) }
   let!(:label1) { create(:group_label, title: 'Foo', description: 'Lorem ipsum', group: group) }
@@ -44,5 +44,12 @@ RSpec.describe 'Search for labels', :js do
     expect(page).not_to have_content(label1.description)
     expect(page).not_to have_content(label2.title)
     expect(page).not_to have_content(label2.description)
+  end
+
+  it 'sorts by relevance when searching' do
+    find('#label-search').fill_in(with: 'Bar')
+    find('#label-search').native.send_keys(:enter)
+
+    expect(page).to have_button('Relevance')
   end
 end

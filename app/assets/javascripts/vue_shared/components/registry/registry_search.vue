@@ -1,6 +1,7 @@
 <script>
-import { GlSorting, GlSortingItem, GlFilteredSearch } from '@gitlab/ui';
-import { FILTERED_SEARCH_TERM } from '~/packages_and_registries/shared/constants';
+import { GlSorting, GlFilteredSearch } from '@gitlab/ui';
+import { SORT_DIRECTION_UI } from '~/search/sort/constants';
+import { FILTERED_SEARCH_TERM } from '~/vue_shared/components/filtered_search_bar/constants';
 
 const ASCENDING_ORDER = 'asc';
 const DESCENDING_ORDER = 'desc';
@@ -8,11 +9,10 @@ const DESCENDING_ORDER = 'desc';
 export default {
   components: {
     GlSorting,
-    GlSortingItem,
     GlFilteredSearch,
   },
   props: {
-    filter: {
+    filters: {
       type: Array,
       required: true,
     },
@@ -33,7 +33,7 @@ export default {
   computed: {
     internalFilter: {
       get() {
-        return this.filter;
+        return this.filters;
       },
       set(value) {
         this.$emit('filter:changed', value);
@@ -48,30 +48,50 @@ export default {
     },
     baselineQueryStringFilters() {
       return this.tokens.reduce((acc, curr) => {
-        acc[curr.type] = '';
+        acc[curr.type] = null;
         return acc;
       }, {});
+    },
+    sortDirectionData() {
+      return this.isSortAscending ? SORT_DIRECTION_UI.asc : SORT_DIRECTION_UI.desc;
+    },
+    sortOptions() {
+      return this.sortableFields.map(({ orderBy, label }) => ({ text: label, value: orderBy }));
     },
   },
   methods: {
     generateQueryData({ sorting = {}, filter = [] } = {}) {
       // Ensure that we clean up the query when we remove a token from the search
-      const result = { ...this.baselineQueryStringFilters, ...sorting, search: [] };
+      const result = {
+        ...this.baselineQueryStringFilters,
+        ...sorting,
+        search: null,
+        after: null,
+        before: null,
+      };
 
       filter.forEach((f) => {
         if (f.type === FILTERED_SEARCH_TERM) {
-          result.search.push(f.value.data);
+          const value = f.value.data?.trim();
+          if (!value) return;
+
+          if (Array.isArray(result.search)) {
+            result.search.push(value);
+          } else {
+            result.search = [value];
+          }
         } else {
           result[f.type] = f.value.data;
         }
       });
+
       return result;
     },
     onDirectionChange() {
       const sort = this.isSortAscending ? DESCENDING_ORDER : ASCENDING_ORDER;
       const newQueryString = this.generateQueryData({
         sorting: { ...this.sorting, sort },
-        filter: this.filter,
+        filter: this.filters,
       });
       this.$emit('sorting:changed', { sort });
       this.$emit('query:changed', newQueryString);
@@ -79,7 +99,7 @@ export default {
     onSortItemClick(item) {
       const newQueryString = this.generateQueryData({
         sorting: { ...this.sorting, orderBy: item },
-        filter: this.filter,
+        filter: this.filters,
       });
       this.$emit('sorting:changed', { orderBy: item });
       this.$emit('query:changed', newQueryString);
@@ -87,7 +107,7 @@ export default {
     submitSearch() {
       const newQueryString = this.generateQueryData({
         sorting: this.sorting,
-        filter: this.filter,
+        filter: this.filters,
       });
       this.$emit('filter:submit');
       this.$emit('query:changed', newQueryString);
@@ -106,28 +126,28 @@ export default {
 </script>
 
 <template>
-  <div class="gl-display-flex gl-p-5 gl-bg-gray-10 gl-border-solid gl-border-1 gl-border-gray-100">
+  <div
+    class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row gl-gap-3 row-content-block"
+  >
     <gl-filtered-search
       v-model="internalFilter"
-      class="gl-mr-4 gl-flex-grow-1"
+      class="gl-flex-grow-1 gl-min-w-0"
       :placeholder="__('Filter results')"
       :available-tokens="tokens"
       @submit="submitSearch"
       @clear="clearSearch"
     />
     <gl-sorting
+      data-testid="registry-sort-dropdown"
+      dropdown-class="gl-w-full"
+      block
       :text="sortText"
       :is-ascending="isSortAscending"
+      :sort-direction-tool-tip="sortDirectionData.tooltip"
+      :sort-options="sortOptions"
+      :sort-by="sorting.orderBy"
       @sortDirectionChange="onDirectionChange"
-    >
-      <gl-sorting-item
-        v-for="item in sortableFields"
-        ref="packageListSortItem"
-        :key="item.orderBy"
-        @click="onSortItemClick(item.orderBy)"
-      >
-        {{ item.label }}
-      </gl-sorting-item>
-    </gl-sorting>
+      @sortByChange="onSortItemClick"
+    />
   </div>
 </template>

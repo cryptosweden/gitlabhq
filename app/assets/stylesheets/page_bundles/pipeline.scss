@@ -125,21 +125,28 @@
 // They are here to still access a variable or because they use magic values.
 // scoped to the graph. Do not add other styles.
 .gl-pipeline-min-h {
-  min-height: $dropdown-max-height-lg;
+  min-height: calc(#{$dropdown-max-height-lg} + #{$gl-spacing-scale-6});
 }
 
 .gl-pipeline-job-width {
   width: 100%;
   max-width: 400px;
-}
 
-.gl-pipeline-job-width\! {
-  width: 100% !important;
-  max-width: 400px !important;
+  .pipeline-graph-container & {
+    max-width: unset;
+  }
 }
 
 .gl-downstream-pipeline-job-width {
-  width: 170px;
+  width: 8rem;
+
+  .pipeline-graph-container & {
+    width: 100%;
+
+    @media (min-width: $breakpoint-sm) {
+      width: 8rem;
+    }
+  }
 }
 
 .gl-linked-pipeline-padding {
@@ -154,13 +161,17 @@
 
   // Action Icons in big pipeline-graph nodes
   &.ci-action-icon-wrapper {
-    height: 30px;
-    width: 30px;
+    height: 24px;
+    width: 24px;
     border-radius: 100%;
     display: block;
     padding: 0;
     line-height: 0;
   }
+}
+
+.stage-column-title .gl-ci-action-icon-container {
+  right: 11px;
 }
 
 .split-report-section {
@@ -208,7 +219,7 @@
   min-width: 195px;
   left: 100%;
   top: -10px;
-  box-shadow: 0 1px 5px $black-transparent;
+  box-shadow: 0 1px 5px $t-gray-a-24;
 }
 
 .codequality-report {
@@ -225,12 +236,133 @@
   }
 }
 
-.test-reports-table {
-  .build-log {
-    @include build-log();
+.progress-bar.bg-primary {
+  background-color: var(--blue-500, $blue-500) !important;
+}
+
+.ci-job-item-failed {
+  background-color: var(--red-50, $red-50);
+
+  .gl-dark & {
+    background-color: var(--gray-200, $gray-200);
   }
 }
 
-.progress-bar.bg-primary {
-  background-color: var(--blue-500, $blue-500) !important;
+.pipeline-graph-container {
+  .stage-column.is-stage-view:not(:last-of-type)::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: $gl-spacing-scale-6;
+    width: 2px;
+    height: $gl-spacing-scale-5 * 2;
+    background-color: $gray-200;
+
+    @media (min-width: $breakpoint-sm) {
+      top: 1.25rem;
+      left: 100%;
+      width: $gl-spacing-scale-5 * 2;
+      height: 2px;
+    }
+  }
+
+  .stage-column,
+  .stage-column.is-stage-view {
+    min-width: 1px;
+
+    @media (min-width: $breakpoint-sm) {
+      min-width: inherit;
+      max-width: $gl-spacing-scale-48;
+
+      &:first-of-type {
+        margin-left: $gl-spacing-scale-6;
+      }
+    }
+  }
+
+  .linked-pipeline-container[aria-expanded=true] {
+    @media (max-width: $breakpoint-sm) {
+      width: 100%;
+
+      > div {
+        border-bottom-left-radius: 0;
+      }
+
+      > div > button {
+        border-bottom-right-radius: 0 !important;
+      }
+    }
+  }
+
+  .linked-pipelines-column,
+  .pipeline-show-container,
+  .pipeline-links-container {
+    @media (max-width: $breakpoint-sm) {
+      flex-basis: 100%;
+    }
+  }
+
+  .pipeline-graph {
+    @media (max-width: $breakpoint-sm) {
+      border-top-left-radius: 0;
+      border-top-right-radius: 0;
+    }
+  }
+
+  .pipeline-graph .pipeline-graph {
+    background-color: var(--gray-100, $gray-100);
+  }
+}
+
+.stage-column .ci-job-group-dropdown {
+  &,
+  .gl-new-dropdown-custom-toggle {
+    width: 100%;
+
+    .gl-badge.badge-muted {
+      .gl-dark & {
+        @apply gl-bg-gray-100;
+      }
+    }
+  }
+
+  // Reset padding, as inner element will
+  // define padding
+  .gl-new-dropdown-item-content,
+  .gl-new-dropdown-item-text-wrapper {
+    padding: 0;
+  }
+
+  // Set artificial focus on the menu-item to keep
+  // it consistent with the original dropdown items
+  .gl-new-dropdown-item:focus,
+  .gl-new-dropdown-item-content:focus {
+    outline: none;
+
+    .menu-item {
+      background-color: var(--gray-50, $gray-50);
+      border-radius: $gl-border-radius-base;
+      box-shadow: inset 0 0 0 2px $blue-400,
+        inset 0 0 0 3px var(--white, $white);
+      outline: none;
+    }
+  }
+
+}
+
+.scan-reports-summary-grid {
+  grid-template-columns: 1fr 1fr max-content;
+}
+
+@media (max-width: $breakpoint-sm) {
+  .scan-reports-summary-grid :nth-child(3n+1) {
+    grid-column: 1 / -1;
+  }
+}
+
+// Temporary fix to make tooltip appear correctly
+// until we refactor the tooltip handling in
+// https://gitlab.com/gitlab-org/gitlab/-/issues/463629
+.ci-job-component-tooltip::first-letter {
+  text-transform: uppercase;
 }

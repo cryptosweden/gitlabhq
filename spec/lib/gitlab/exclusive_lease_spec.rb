@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::ExclusiveLease, :clean_gitlab_redis_shared_state do
+RSpec.describe Gitlab::ExclusiveLease, :request_store,
+  :clean_gitlab_redis_shared_state, feature_category: :shared do
   let(:unique_key) { SecureRandom.hex(10) }
 
   describe '#try_obtain' do
@@ -18,6 +19,78 @@ RSpec.describe Gitlab::ExclusiveLease, :clean_gitlab_redis_shared_state do
       lease.try_obtain # start the lease
       sleep(2 * timeout) # lease should have expired now
       expect(lease.try_obtain).to be_present
+    end
+
+    context 'when lease attempt within pg transaction' do
+      let(:lease) { described_class.new(unique_key, timeout: 1) }
+
+      subject(:lease_attempt) { lease.try_obtain }
+
+      context 'in development/test environment' do
+        it 'raises error within ci db', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446120' do
+          expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception).and_call_original
+
+          Ci::Pipeline.transaction do
+            expect { lease_attempt }.to raise_error(Gitlab::ExclusiveLease::LeaseWithinTransactionError)
+          end
+        end
+
+        it 'raises error within main db', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446121' do
+          expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception).and_call_original
+
+          ApplicationRecord.transaction do
+            expect { lease_attempt }.to raise_error(Gitlab::ExclusiveLease::LeaseWithinTransactionError)
+          end
+        end
+      end
+
+      context 'in production environment' do
+        before do
+          stub_rails_env('production')
+        end
+
+        it 'logs error within ci db', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446122' do
+          expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception).and_call_original
+
+          Ci::Pipeline.transaction { lease_attempt }
+        end
+
+        it 'logs error within main db', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446123' do
+          expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception).and_call_original
+
+          ApplicationRecord.transaction { lease_attempt }
+        end
+      end
+    end
+
+    context 'when allowed to attempt within pg transaction' do
+      shared_examples 'no error tracking performed' do
+        it 'does not raise error within ci db' do
+          expect(Gitlab::ErrorTracking).not_to receive(:track_and_raise_for_dev_exception).and_call_original
+
+          Ci::Pipeline.transaction { allowed_lease_attempt }
+        end
+
+        it 'does not raise error within main db' do
+          expect(Gitlab::ErrorTracking).not_to receive(:track_and_raise_for_dev_exception).and_call_original
+
+          ApplicationRecord.transaction { allowed_lease_attempt }
+        end
+      end
+
+      let(:lease) { described_class.new(unique_key, timeout: 1) }
+
+      subject(:allowed_lease_attempt) { described_class.skipping_transaction_check { lease.try_obtain } }
+
+      it_behaves_like 'no error tracking performed'
+
+      context 'in production environment' do
+        before do
+          stub_rails_env('production')
+        end
+
+        it_behaves_like 'no error tracking performed'
+      end
     end
   end
 
@@ -52,33 +125,6 @@ RSpec.describe Gitlab::ExclusiveLease, :clean_gitlab_redis_shared_state do
     it 'returns false when we dont have a lease' do
       lease = described_class.new(unique_key, timeout: 3600)
       expect(lease.renew).to be_falsey
-    end
-  end
-
-  describe '#exists?' do
-    it 'returns true for an existing lease' do
-      lease = described_class.new(unique_key, timeout: 3600)
-      lease.try_obtain
-
-      expect(lease.exists?).to eq(true)
-    end
-
-    it 'returns false for a lease that does not exist' do
-      lease = described_class.new(unique_key, timeout: 3600)
-
-      expect(lease.exists?).to eq(false)
-    end
-  end
-
-  describe '.get_uuid' do
-    it 'gets the uuid if lease with the key associated exists' do
-      uuid = described_class.new(unique_key, timeout: 3600).try_obtain
-
-      expect(described_class.get_uuid(unique_key)).to eq(uuid)
-    end
-
-    it 'returns false if the lease does not exist' do
-      expect(described_class.get_uuid(unique_key)).to be false
     end
   end
 
@@ -140,6 +186,45 @@ RSpec.describe Gitlab::ExclusiveLease, :clean_gitlab_redis_shared_state do
     end
   end
 
+  describe '.reset_all!' do
+    it 'removes all existing lease keys from redis' do
+      uuid = described_class.new(unique_key, timeout: 3600).try_obtain
+
+      expect(described_class.get_uuid(unique_key)).to eq(uuid)
+
+      described_class.reset_all!
+
+      expect(described_class.get_uuid(unique_key)).to be_falsey
+    end
+  end
+
+  describe '#exists?' do
+    it 'returns true for an existing lease' do
+      lease = described_class.new(unique_key, timeout: 3600)
+      lease.try_obtain
+
+      expect(lease.exists?).to eq(true)
+    end
+
+    it 'returns false for a lease that does not exist' do
+      lease = described_class.new(unique_key, timeout: 3600)
+
+      expect(lease.exists?).to eq(false)
+    end
+  end
+
+  describe '.get_uuid' do
+    it 'gets the uuid if lease with the key associated exists' do
+      uuid = described_class.new(unique_key, timeout: 3600).try_obtain
+
+      expect(described_class.get_uuid(unique_key)).to eq(uuid)
+    end
+
+    it 'returns false if the lease does not exist' do
+      expect(described_class.get_uuid(unique_key)).to be false
+    end
+  end
+
   describe '#ttl' do
     it 'returns the TTL of the Redis key' do
       lease = described_class.new('kittens', timeout: 100)
@@ -152,18 +237,6 @@ RSpec.describe Gitlab::ExclusiveLease, :clean_gitlab_redis_shared_state do
       lease = described_class.new('kittens', timeout: 10)
 
       expect(lease.ttl).to be_nil
-    end
-  end
-
-  describe '.reset_all!' do
-    it 'removes all existing lease keys from redis' do
-      uuid = described_class.new(unique_key, timeout: 3600).try_obtain
-
-      expect(described_class.get_uuid(unique_key)).to eq(uuid)
-
-      described_class.reset_all!
-
-      expect(described_class.get_uuid(unique_key)).to be_falsey
     end
   end
 
@@ -220,8 +293,8 @@ RSpec.describe Gitlab::ExclusiveLease, :clean_gitlab_redis_shared_state do
     it 'allows count to be specified' do
       expect(described_class)
         .to receive(:new)
-        .with(anything, hash_including(timeout: 15.minutes.to_i))
-        .and_call_original
+              .with(anything, hash_including(timeout: 15.minutes.to_i))
+              .and_call_original
 
       described_class.throttle(1, count: 4) {}
     end
@@ -229,8 +302,8 @@ RSpec.describe Gitlab::ExclusiveLease, :clean_gitlab_redis_shared_state do
     it 'allows period to be specified' do
       expect(described_class)
         .to receive(:new)
-        .with(anything, hash_including(timeout: 1.day.to_i))
-        .and_call_original
+              .with(anything, hash_including(timeout: 1.day.to_i))
+              .and_call_original
 
       described_class.throttle(1, period: 1.day) {}
     end
@@ -238,8 +311,8 @@ RSpec.describe Gitlab::ExclusiveLease, :clean_gitlab_redis_shared_state do
     it 'allows period and count to be specified' do
       expect(described_class)
         .to receive(:new)
-        .with(anything, hash_including(timeout: 30.minutes.to_i))
-        .and_call_original
+              .with(anything, hash_including(timeout: 30.minutes.to_i))
+              .and_call_original
 
       described_class.throttle(1, count: 48, period: 1.day) {}
     end

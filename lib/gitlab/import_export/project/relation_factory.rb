@@ -5,6 +5,7 @@ module Gitlab
     module Project
       class RelationFactory < Base::RelationFactory
         OVERRIDES = { snippets: :project_snippets,
+                      commit_notes: 'Note',
                       ci_pipelines: 'Ci::Pipeline',
                       pipelines: 'Ci::Pipeline',
                       stages: 'Ci::Stage',
@@ -12,13 +13,19 @@ module Gitlab
                       triggers: 'Ci::Trigger',
                       pipeline_schedules: 'Ci::PipelineSchedule',
                       builds: 'Ci::Build',
+                      bridges: 'Ci::Bridge',
                       runners: 'Ci::Runner',
+                      pipeline_metadata: 'Ci::PipelineMetadata',
+                      external_pull_request: 'Ci::ExternalPullRequest',
+                      external_pull_requests: 'Ci::ExternalPullRequest',
                       hooks: 'ProjectHook',
                       merge_access_levels: 'ProtectedBranch::MergeAccessLevel',
                       push_access_levels: 'ProtectedBranch::PushAccessLevel',
                       create_access_levels: 'ProtectedTag::CreateAccessLevel',
                       design: 'DesignManagement::Design',
                       designs: 'DesignManagement::Design',
+                      design_management_repository: 'DesignManagement::Repository',
+                      design_management_repository_state: 'Geo::DesignManagementRepositoryState',
                       design_versions: 'DesignManagement::Version',
                       actions: 'DesignManagement::Action',
                       labels: :project_labels,
@@ -31,12 +38,13 @@ module Gitlab
                       ci_cd_settings: 'ProjectCiCdSetting',
                       error_tracking_setting: 'ErrorTracking::ProjectErrorTrackingSetting',
                       links: 'Releases::Link',
-                      metrics_setting: 'ProjectMetricsSetting',
                       commit_author: 'MergeRequest::DiffCommitUser',
                       committer: 'MergeRequest::DiffCommitUser',
-                      merge_request_diff_commits: 'MergeRequestDiffCommit' }.freeze
+                      merge_request_diff_commits: 'MergeRequestDiffCommit',
+                      work_item_type: 'WorkItems::Type',
+                      user_contributions: 'User' }.freeze
 
-        BUILD_MODELS = %i[Ci::Build commit_status].freeze
+        BUILD_MODELS = %i[Ci::Build Ci::Bridge commit_status generic_commit_status].freeze
 
         GROUP_REFERENCES = %w[group_id].freeze
 
@@ -56,11 +64,11 @@ module Gitlab
           epic
           ProjectCiCdSetting
           container_expiration_policy
-          external_pull_request
-          external_pull_requests
+          Ci::ExternalPullRequest
           DesignManagement::Design
           MergeRequest::DiffCommitUser
           MergeRequestDiffCommit
+          WorkItems::Type
         ].freeze
 
         def create
@@ -74,6 +82,8 @@ module Gitlab
 
         private
 
+        attr_reader :relation_hash, :user
+
         def invalid_relation?
           # Do not create relation if it is a legacy trigger
           legacy_trigger?
@@ -82,11 +92,17 @@ module Gitlab
         def setup_models
           case @relation_name
           when :merge_request_diff_files then setup_diff
-          when :notes then setup_note
+          when :note_diff_file then setup_diff
+          when :notes, :Note then setup_note
           when :'Ci::Pipeline' then setup_pipeline
           when *BUILD_MODELS then setup_build
-          when :issues then setup_issue
+          when :issues then setup_work_item
           when :'Ci::PipelineSchedule' then setup_pipeline_schedule
+          when :'ProtectedBranch::MergeAccessLevel' then setup_protected_branch_access_level
+          when :'ProtectedBranch::PushAccessLevel' then setup_protected_branch_access_level
+          when :ApprovalProjectRulesProtectedBranch then setup_merge_approval_protected_branch
+          when :releases then setup_release
+          when :merge_requests, :MergeRequest, :merge_request then setup_merge_request
           end
 
           update_project_references
@@ -131,31 +147,91 @@ module Gitlab
         end
 
         def setup_diff
-          diff = @relation_hash.delete('utf8_diff')
+          diff = @relation_hash.delete('diff_export') || @relation_hash.delete('utf8_diff')
 
-          parsed_relation_hash['diff'] = diff
+          parsed_relation_hash['diff'] = diff.delete("\x00")
         end
 
         def setup_pipeline
+          @relation_hash['status'] = transform_status(@relation_hash['status'])
+
           @relation_hash.fetch('stages', []).each do |stage|
-            stage.statuses.each do |status|
-              status.pipeline = imported_object
+            stage.status = transform_status(stage.status)
+
+            # old export files have statuses
+            stage.statuses.each do |job|
+              job.status = transform_status(job.status)
+              job.pipeline = imported_object
+            end
+
+            stage.builds.each do |job|
+              job.status = transform_status(job.status)
+              job.pipeline = imported_object
+            end
+
+            stage.bridges.each do |job|
+              job.status = transform_status(job.status)
+              job.pipeline = imported_object
+            end
+
+            stage.generic_commit_statuses.each do |job|
+              job.status = transform_status(job.status)
+              job.pipeline = imported_object
             end
           end
         end
 
-        def setup_issue
+        def setup_work_item
           @relation_hash['relative_position'] = compute_relative_position
+
+          issue_type = @relation_hash.delete('issue_type')
+          @relation_hash['work_item_type'] ||= ::WorkItems::Type.default_by_type(issue_type) if issue_type
+        end
+
+        def setup_release
+          # When author is not present for source release set the author as ghost user.
+
+          if @relation_hash['author_id'].blank?
+            @relation_hash['author_id'] = Users::Internal.ghost.id
+          end
         end
 
         def setup_pipeline_schedule
           @relation_hash['active'] = false
+          @relation_hash['owner_id'] = @user.id
+        end
+
+        def setup_merge_request
+          @relation_hash['merge_when_pipeline_succeeds'] = false
+        end
+
+        def setup_protected_branch_access_level
+          return if root_group_owner?
+          return if @relation_hash['access_level'] == Gitlab::Access::NO_ACCESS
+          return if @relation_hash['access_level'] == Gitlab::Access::MAINTAINER
+
+          @relation_hash['access_level'] = Gitlab::Access::MAINTAINER
+        end
+
+        def root_group_owner?
+          root_ancestor = @importable.root_ancestor
+
+          return false unless root_ancestor.is_a?(::Group)
+
+          root_ancestor.max_member_access_for_user(@user) == Gitlab::Access::OWNER
+        end
+
+        def setup_merge_approval_protected_branch
+          source_branch_name = @relation_hash.delete('branch_name')
+          target_branch = @importable.protected_branches.find_by(name: source_branch_name)
+
+          @relation_hash['protected_branch'] = target_branch
         end
 
         def compute_relative_position
           return unless max_relative_position
 
-          max_relative_position + (@relation_index + 1) * Gitlab::RelativePositioning::IDEAL_DISTANCE
+          max_relative_position + ((@relation_index + 1) * Gitlab::RelativePositioning::IDEAL_DISTANCE)
         end
 
         def max_relative_position
@@ -166,6 +242,12 @@ module Gitlab
 
         def legacy_trigger?
           @relation_name == :'Ci::Trigger' && @relation_hash['owner_id'].nil?
+        end
+
+        def transform_status(status)
+          return 'canceled' if ::Ci::HasStatus::COMPLETED_STATUSES.exclude?(status)
+
+          status
         end
 
         def preload_keys(object, references, value)

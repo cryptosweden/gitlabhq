@@ -2,12 +2,15 @@
 
 require 'action_dispatch/testing/test_request'
 require 'fileutils'
+require 'graphlyte'
+require 'active_support/testing/time_helpers'
 
 require_relative '../../../lib/gitlab/popen'
 
 module JavaScriptFixturesHelpers
   extend ActiveSupport::Concern
   include Gitlab::Popen
+  include ActiveSupport::Testing::TimeHelpers
 
   extend self
 
@@ -21,7 +24,9 @@ module JavaScriptFixturesHelpers
 
       # pick an arbitrary date from the past, so tests are not time dependent
       # Also see spec/frontend/__helpers__/fake_date/jest.js
-      Timecop.freeze(Time.utc(2015, 7, 3, 10)) { example.run }
+      travel_to Time.utc(2015, 7, 3, 10)
+      example.run
+      travel_back
 
       raise NoMethodError.new('You need to set `response` for the fixture generator! This will automatically happen with `type: :controller` or `type: :request`.', 'response') unless respond_to?(:response)
 
@@ -34,26 +39,44 @@ module JavaScriptFixturesHelpers
   end
 
   def remove_repository(project)
-    Gitlab::Shell.new.remove_repository(project.repository_storage, project.disk_path)
+    project.repository.remove
   end
 
   # Public: Reads a GraphQL query from the filesystem as a string
   #
   # query_path - file path to the GraphQL query, relative to `app/assets/javascripts`.
   # ee - boolean, when true `query_path` will be looked up in `/ee`.
-  def get_graphql_query_as_string(query_path, ee: false)
-    base = (ee ? 'ee/' : '') + 'app/assets/javascripts'
-
+  def get_graphql_query_as_string(query_path, ee: false, with_base_path: true)
+    base = (ee ? 'ee/' : '') + (with_base_path ? 'app/assets/javascripts' : '')
     path = Rails.root / base / query_path
     queries = Gitlab::Graphql::Queries.find(path)
     if queries.length == 1
-      queries.first.text(mode: Gitlab.ee? ? :ee : :ce )
+      query = queries.first.text(mode: Gitlab.ee? ? :ee : :ce )
+      inflate_query_with_typenames(query)
     else
       raise "Could not find query file at #{path}, please check your query_path" % path
     end
   end
 
   private
+
+  # Private: Parse a GraphQL query and inflate the fields with a __typename
+  #
+  # query - the GraqhQL query to parse
+  def inflate_query_with_typenames(query, doc: Graphlyte.parse(query))
+    typename_editor.edit(doc)
+
+    doc.to_s
+  end
+
+  def typename_editor
+    typename = Graphlyte::Syntax::Field.new(name: '__typename')
+
+    @editor ||= Graphlyte::Editor.new.on_field do |field|
+      is_typename = field.selection.respond_to?(:name) && field.selection.map(&:name).include?('__typename')
+      field.selection << typename unless field.selection.empty? || is_typename
+    end
+  end
 
   # Private: Store a response object as fixture file
   #

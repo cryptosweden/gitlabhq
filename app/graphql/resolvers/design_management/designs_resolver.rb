@@ -9,28 +9,32 @@ module Resolvers
       type ::Types::DesignManagement::DesignType.connection_type, null: true
 
       argument :at_version, VersionID,
-               required: false,
-               description: 'Filters designs to only those that existed at the version. ' \
-                            'If argument is omitted or nil then all designs will reflect the latest version'
+        required: false,
+        description: 'Filters designs to only those that existed at the version. ' \
+                     'If argument is omitted or nil then all designs will reflect the latest version'
       argument :filenames, [GraphQL::Types::String],
-               required: false,
-               description: 'Filters designs by their filename.'
+        required: false,
+        description: 'Filters designs by their filename.'
       argument :ids, [DesignID],
-               required: false,
-               description: 'Filters designs by their ID.'
+        required: false,
+        description: 'Filters designs by their ID.'
 
       def self.single
         ::Resolvers::DesignManagement::DesignResolver
       end
 
       def resolve(ids: nil, filenames: nil, at_version: nil)
-        ::DesignManagement::DesignsFinder.new(
-          issue,
-          current_user,
-          ids: design_ids(ids),
-          filenames: filenames,
-          visible_at_version: version(at_version)
-        ).execute
+        context.scoped_set!(:at_version_argument, at_version) if at_version
+
+        ::Gitlab::Graphql::Lazy.with_value(version(at_version)) do |visible_at|
+          ::DesignManagement::DesignsFinder.new(
+            issue,
+            current_user,
+            ids: design_ids(ids),
+            filenames: filenames,
+            visible_at_version: visible_at
+          ).execute
+        end
       end
 
       private
@@ -38,19 +42,12 @@ module Resolvers
       def version(at_version)
         return unless at_version
 
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        at_version = VersionID.coerce_isolated_input(at_version)
-        # TODO: when we get promises use this to make resolve lazy
-        Gitlab::Graphql::Lazy.force(GitlabSchema.find_by_gid(at_version))
+        GitlabSchema.find_by_gid(at_version)
       end
 
       def design_ids(gids)
         return if gids.nil?
 
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        gids = gids.map { |id| DesignID.coerce_isolated_input(id) }
         gids.map(&:model_id)
       end
 

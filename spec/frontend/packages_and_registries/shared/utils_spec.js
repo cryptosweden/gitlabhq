@@ -1,12 +1,13 @@
-import { FILTERED_SEARCH_TERM } from '~/packages_and_registries/shared/constants';
 import {
   getQueryParams,
   keyValueToFilterToken,
   searchArrayToFilterTokens,
   extractFilterAndSorting,
+  extractPageInfo,
   beautifyPath,
   getCommitLink,
 } from '~/packages_and_registries/shared/utils';
+import { FILTERED_SEARCH_TERM } from '~/vue_shared/components/filtered_search_bar/constants';
 
 import { packageList } from 'jest/packages_and_registries/infrastructure_registry/components/mock_data';
 
@@ -40,25 +41,42 @@ describe('Packages And Registries shared utils', () => {
   });
   describe('extractFilterAndSorting', () => {
     it.each`
-      search     | type        | sort     | orderBy  | result
-      ${['one']} | ${'myType'} | ${'asc'} | ${'foo'} | ${{ sorting: { sort: 'asc', orderBy: 'foo' }, filters: [{ type: 'type', value: { data: 'myType' } }, { type: FILTERED_SEARCH_TERM, value: { data: 'one' } }] }}
-      ${['one']} | ${null}     | ${'asc'} | ${'foo'} | ${{ sorting: { sort: 'asc', orderBy: 'foo' }, filters: [{ type: FILTERED_SEARCH_TERM, value: { data: 'one' } }] }}
-      ${[]}      | ${null}     | ${'asc'} | ${'foo'} | ${{ sorting: { sort: 'asc', orderBy: 'foo' }, filters: [] }}
-      ${null}    | ${null}     | ${'asc'} | ${'foo'} | ${{ sorting: { sort: 'asc', orderBy: 'foo' }, filters: [] }}
-      ${null}    | ${null}     | ${null}  | ${'foo'} | ${{ sorting: { orderBy: 'foo' }, filters: [] }}
-      ${null}    | ${null}     | ${null}  | ${null}  | ${{ sorting: {}, filters: [] }}
+      search       | type         | version      | status       | sort         | orderBy      | result
+      ${['one']}   | ${'myType'}  | ${'1.0.1'}   | ${'DEFAULT'} | ${'asc'}     | ${'foo'}     | ${{ sorting: { sort: 'asc', orderBy: 'foo' }, filters: [{ type: 'type', value: { data: 'myType' } }, { type: 'version', value: { data: '1.0.1' } }, { type: 'status', value: { data: 'DEFAULT' } }, { type: FILTERED_SEARCH_TERM, value: { data: 'one' } }] }}
+      ${['one']}   | ${undefined} | ${undefined} | ${undefined} | ${'asc'}     | ${'foo'}     | ${{ sorting: { sort: 'asc', orderBy: 'foo' }, filters: [{ type: FILTERED_SEARCH_TERM, value: { data: 'one' } }] }}
+      ${[]}        | ${undefined} | ${undefined} | ${undefined} | ${'asc'}     | ${'foo'}     | ${{ sorting: { sort: 'asc', orderBy: 'foo' }, filters: [] }}
+      ${undefined} | ${undefined} | ${undefined} | ${undefined} | ${'asc'}     | ${'foo'}     | ${{ sorting: { sort: 'asc', orderBy: 'foo' }, filters: [] }}
+      ${undefined} | ${undefined} | ${undefined} | ${undefined} | ${undefined} | ${'foo'}     | ${{ sorting: { orderBy: 'foo' }, filters: [] }}
+      ${undefined} | ${undefined} | ${undefined} | ${undefined} | ${undefined} | ${undefined} | ${{ sorting: {}, filters: [] }}
     `(
       'returns sorting and filters objects in the correct form',
-      ({ search, type, sort, orderBy, result }) => {
+      ({ search, type, version, sort, status, orderBy, result }) => {
         const queryObject = {
           search,
           type,
+          version,
           sort,
+          status,
           orderBy,
         };
         expect(extractFilterAndSorting(queryObject)).toStrictEqual(result);
       },
     );
+  });
+
+  describe('extractPageInfo', () => {
+    it.each`
+      after    | before   | result
+      ${null}  | ${null}  | ${{ after: null, before: null }}
+      ${'123'} | ${null}  | ${{ after: '123', before: null }}
+      ${null}  | ${'123'} | ${{ after: null, before: '123' }}
+    `('returns pagination objects', ({ after, before, result }) => {
+      const queryObject = {
+        after,
+        before,
+      };
+      expect(extractPageInfo(queryObject)).toStrictEqual(result);
+    });
   });
 
   describe('beautifyPath', () => {

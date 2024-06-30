@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Projects::Pipelines::ContainerExpirationPolicyPipeline do
+RSpec.describe BulkImports::Projects::Pipelines::ContainerExpirationPolicyPipeline, feature_category: :importers do
   let_it_be(:project) { create(:project) }
   let_it_be(:entity) { create(:bulk_import_entity, :project_entity, project: project) }
-  let_it_be(:tracker) { create(:bulk_import_tracker, entity: entity) }
+  let_it_be(:tracker) { create(:bulk_import_tracker, entity: entity, pipeline_name: described_class) }
   let_it_be(:context) { BulkImports::Pipeline::Context.new(tracker) }
 
   let_it_be(:policy) do
@@ -19,7 +19,7 @@ RSpec.describe BulkImports::Projects::Pipelines::ContainerExpirationPolicyPipeli
       'older_than' => '1month',
       'keep_n' => 100,
       'enabled' => true
-     }
+    }
   end
 
   subject(:pipeline) { described_class.new(context) }
@@ -29,6 +29,8 @@ RSpec.describe BulkImports::Projects::Pipelines::ContainerExpirationPolicyPipeli
       allow_next_instance_of(BulkImports::Common::Extractors::NdjsonExtractor) do |extractor|
         allow(extractor).to receive(:extract).and_return(BulkImports::Pipeline::ExtractedData.new(data: [[policy, 0]]))
       end
+
+      allow(pipeline).to receive(:set_source_objects_counter)
 
       pipeline.run
 

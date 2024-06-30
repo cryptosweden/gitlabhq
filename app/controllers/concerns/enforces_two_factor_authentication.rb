@@ -15,16 +15,25 @@ module EnforcesTwoFactorAuthentication
 
     # to include this in controllers inheriting from `ActionController::Metal`
     # we need to add this block
-    if respond_to?(:helper_method)
-      helper_method :two_factor_grace_period_expired?, :two_factor_skippable?
-    end
+    helper_method :two_factor_grace_period_expired?, :two_factor_skippable? if respond_to?(:helper_method)
   end
 
   def check_two_factor_requirement
     return unless respond_to?(:current_user)
 
     if two_factor_authentication_required? && current_user_requires_two_factor?
-      redirect_to profile_two_factor_auth_path
+      case self
+      when GraphqlController
+        render_error(
+          format(
+            _("Authentication error: enable 2FA in your profile settings to continue using GitLab: %{mfa_help_page}"),
+            mfa_help_page: mfa_help_page_url
+          ),
+          status: :unauthorized
+        )
+      else
+        redirect_to profile_two_factor_auth_path
+      end
     end
   end
 
@@ -37,15 +46,11 @@ module EnforcesTwoFactorAuthentication
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
-  def two_factor_authentication_reason(global: -> {}, group: -> {})
-    if two_factor_authentication_required?
-      if Gitlab::CurrentSettings.require_two_factor_authentication?
-        global.call
-      else
-        groups = current_user.source_groups_of_two_factor_authentication_requirement.reorder(name: :asc)
-        group.call(groups)
-      end
-    end
+  def execute_action_for_2fa_reason(actions)
+    reason = two_factor_verifier.two_factor_authentication_reason
+    groups_enforcing_two_factor = current_user.source_groups_of_two_factor_authentication_requirement
+                                              .reorder(name: :asc)
+    actions[reason].call(groups_enforcing_two_factor)
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
@@ -64,11 +69,18 @@ module EnforcesTwoFactorAuthentication
   end
 
   def skip_two_factor?
-    session[:skip_two_factor] && session[:skip_two_factor] > Time.current
+    session[:skip_two_factor] && session[:skip_two_factor].future?
   end
 
   def two_factor_verifier
-    @two_factor_verifier ||= Gitlab::Auth::TwoFactorAuthVerifier.new(current_user) # rubocop:disable Gitlab/ModuleWithInstanceVariables
+    @two_factor_verifier ||= Gitlab::Auth::TwoFactorAuthVerifier.new(current_user, request) # rubocop:disable Gitlab/ModuleWithInstanceVariables
+  end
+
+  def mfa_help_page_url
+    Rails.application.routes.url_helpers.help_page_url(
+      'user/profile/account/two_factor_authentication.html',
+      anchor: 'enable-two-factor-authentication'
+    )
   end
 end
 

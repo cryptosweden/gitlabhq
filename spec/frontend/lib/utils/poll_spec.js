@@ -1,5 +1,9 @@
 import waitForPromises from 'helpers/wait_for_promises';
-import { successCodes } from '~/lib/utils/http_status';
+import {
+  HTTP_STATUS_INTERNAL_SERVER_ERROR,
+  HTTP_STATUS_OK,
+  successCodes,
+} from '~/lib/utils/http_status';
 import Poll from '~/lib/utils/poll';
 
 describe('Poll', () => {
@@ -50,58 +54,48 @@ describe('Poll', () => {
     };
   });
 
-  it('calls the success callback when no header for interval is provided', (done) => {
-    mockServiceCall({ status: 200 });
+  it('calls the success callback when no header for interval is provided', () => {
+    mockServiceCall({ status: HTTP_STATUS_OK });
     setup();
 
-    waitForAllCallsToFinish(1, () => {
+    return waitForAllCallsToFinish(1, () => {
       expect(callbacks.success).toHaveBeenCalled();
       expect(callbacks.error).not.toHaveBeenCalled();
-
-      done();
     });
   });
 
-  it('calls the error callback when the http request returns an error', (done) => {
-    mockServiceCall({ status: 500 }, true);
+  it('calls the error callback when the http request returns an error', () => {
+    mockServiceCall({ status: HTTP_STATUS_INTERNAL_SERVER_ERROR }, true);
     setup();
 
-    waitForAllCallsToFinish(1, () => {
+    return waitForAllCallsToFinish(1, () => {
       expect(callbacks.success).not.toHaveBeenCalled();
       expect(callbacks.error).toHaveBeenCalled();
-
-      done();
     });
   });
 
-  it('skips the error callback when request is aborted', (done) => {
+  it('skips the error callback when request is aborted', () => {
     mockServiceCall({ status: 0 }, true);
     setup();
 
-    waitForAllCallsToFinish(1, () => {
+    return waitForAllCallsToFinish(1, () => {
       expect(callbacks.success).not.toHaveBeenCalled();
       expect(callbacks.error).not.toHaveBeenCalled();
       expect(callbacks.notification).toHaveBeenCalled();
-
-      done();
     });
   });
 
-  it('should call the success callback when the interval header is -1', (done) => {
-    mockServiceCall({ status: 200, headers: { 'poll-interval': -1 } });
-    setup()
-      .then(() => {
-        expect(callbacks.success).toHaveBeenCalled();
-        expect(callbacks.error).not.toHaveBeenCalled();
-
-        done();
-      })
-      .catch(done.fail);
+  it('should call the success callback when the interval header is -1', () => {
+    mockServiceCall({ status: HTTP_STATUS_OK, headers: { 'poll-interval': -1 } });
+    return setup().then(() => {
+      expect(callbacks.success).toHaveBeenCalled();
+      expect(callbacks.error).not.toHaveBeenCalled();
+    });
   });
 
   describe('for 2xx status code', () => {
     successCodes.forEach((httpCode) => {
-      it(`starts polling when http status is ${httpCode} and interval header is provided`, (done) => {
+      it(`starts polling when http status is ${httpCode} and interval header is provided`, () => {
         mockServiceCall({ status: httpCode, headers: { 'poll-interval': 1 } });
 
         const Polling = new Poll({
@@ -114,23 +108,21 @@ describe('Poll', () => {
 
         Polling.makeRequest();
 
-        waitForAllCallsToFinish(2, () => {
+        return waitForAllCallsToFinish(2, () => {
           Polling.stop();
 
           expect(service.fetch.mock.calls).toHaveLength(2);
           expect(service.fetch).toHaveBeenCalledWith({ page: 1 });
           expect(callbacks.success).toHaveBeenCalled();
           expect(callbacks.error).not.toHaveBeenCalled();
-
-          done();
         });
       });
     });
   });
 
   describe('with delayed initial request', () => {
-    it('delays the first request', async (done) => {
-      mockServiceCall({ status: 200, headers: { 'poll-interval': 1 } });
+    it('delays the first request', () => {
+      mockServiceCall({ status: HTTP_STATUS_OK, headers: { 'poll-interval': 1 } });
 
       const Polling = new Poll({
         resource: service,
@@ -140,26 +132,26 @@ describe('Poll', () => {
         errorCallback: callbacks.error,
       });
 
+      expect(Polling.timeoutID).toBeNull();
+
       Polling.makeDelayedRequest(1);
 
-      expect(Polling.timeoutID).toBeTruthy();
+      expect(Polling.timeoutID).not.toBeNull();
 
-      waitForAllCallsToFinish(2, () => {
+      return waitForAllCallsToFinish(2, () => {
         Polling.stop();
 
         expect(service.fetch.mock.calls).toHaveLength(2);
         expect(service.fetch).toHaveBeenCalledWith({ page: 1 });
         expect(callbacks.success).toHaveBeenCalled();
         expect(callbacks.error).not.toHaveBeenCalled();
-
-        done();
       });
     });
   });
 
   describe('stop', () => {
-    it('stops polling when method is called', (done) => {
-      mockServiceCall({ status: 200, headers: { 'poll-interval': 1 } });
+    it('stops polling when method is called', () => {
+      mockServiceCall({ status: HTTP_STATUS_OK, headers: { 'poll-interval': 1 } });
 
       const Polling = new Poll({
         resource: service,
@@ -175,19 +167,17 @@ describe('Poll', () => {
 
       Polling.makeRequest();
 
-      waitForAllCallsToFinish(1, () => {
+      return waitForAllCallsToFinish(1, () => {
         expect(service.fetch.mock.calls).toHaveLength(1);
         expect(service.fetch).toHaveBeenCalledWith({ page: 1 });
         expect(Polling.stop).toHaveBeenCalled();
-
-        done();
       });
     });
   });
 
   describe('enable', () => {
-    it('should enable polling upon a response', (done) => {
-      mockServiceCall({ status: 200 });
+    it('should enable polling upon a response', () => {
+      mockServiceCall({ status: HTTP_STATUS_OK });
       const Polling = new Poll({
         resource: service,
         method: 'fetch',
@@ -197,23 +187,22 @@ describe('Poll', () => {
 
       Polling.enable({
         data: { page: 4 },
-        response: { status: 200, headers: { 'poll-interval': 1 } },
+        response: { status: HTTP_STATUS_OK, headers: { 'poll-interval': 1 } },
       });
 
-      waitForAllCallsToFinish(1, () => {
+      return waitForAllCallsToFinish(1, () => {
         Polling.stop();
 
         expect(service.fetch.mock.calls).toHaveLength(1);
         expect(service.fetch).toHaveBeenCalledWith({ page: 4 });
         expect(Polling.options.data).toEqual({ page: 4 });
-        done();
       });
     });
   });
 
   describe('restart', () => {
-    it('should restart polling when its called', (done) => {
-      mockServiceCall({ status: 200, headers: { 'poll-interval': 1 } });
+    it('should restart polling when its called', () => {
+      mockServiceCall({ status: HTTP_STATUS_OK, headers: { 'poll-interval': 1 } });
 
       const Polling = new Poll({
         resource: service,
@@ -238,7 +227,7 @@ describe('Poll', () => {
 
       Polling.makeRequest();
 
-      waitForAllCallsToFinish(2, () => {
+      return waitForAllCallsToFinish(2, () => {
         Polling.stop();
 
         expect(service.fetch.mock.calls).toHaveLength(2);
@@ -247,7 +236,6 @@ describe('Poll', () => {
         expect(Polling.enable).toHaveBeenCalled();
         expect(Polling.restart).toHaveBeenCalled();
         expect(Polling.options.data).toEqual({ page: 4 });
-        done();
       });
     });
   });

@@ -3,16 +3,12 @@
 module API
   module Entities
     class FeatureFlag < Grape::Entity
-      class UserList < Grape::Entity
+      class UserList < BasicUserList
         include RequestAwareEntity
 
-        expose :id
-        expose :iid
-        expose :project_id
-        expose :created_at
-        expose :updated_at
-        expose :name
-        expose :user_xids
+        expose :project_id, documentation: { type: 'integer', example: 2 }
+        expose :created_at, documentation: { type: 'dateTime', example: '2020-02-04T08:13:10.507Z' }
+        expose :updated_at, documentation: { type: 'dateTime', example: '2020-02-04T08:13:10.507Z' }
 
         expose :path do |list|
           project_feature_flags_user_list_path(list.project, list)

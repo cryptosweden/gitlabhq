@@ -1,11 +1,9 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 require_relative '../../../../rubocop/cop/migration/with_lock_retries_disallowed_method'
 
-RSpec.describe RuboCop::Cop::Migration::WithLockRetriesDisallowedMethod do
-  subject(:cop) { described_class.new }
-
+RSpec.describe RuboCop::Cop::Migration::WithLockRetriesDisallowedMethod, feature_category: :database do
   context 'when in migration' do
     before do
       allow(cop).to receive(:in_migration?).and_return(true)

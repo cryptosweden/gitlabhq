@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'rendering project pipeline statistics' do
+RSpec.describe 'rendering project pipeline statistics', feature_category: :continuous_integration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
@@ -21,9 +21,11 @@ RSpec.describe 'rendering project pipeline statistics' do
   end
 
   let(:query) do
-    graphql_query_for('project',
-                      { 'fullPath' => project.full_path },
-                      query_graphql_field('pipelineAnalytics', {}, fields))
+    graphql_query_for(
+      'project',
+      { 'fullPath' => project.full_path },
+      query_graphql_field('pipelineAnalytics', {}, fields)
+    )
   end
 
   before do

@@ -1,17 +1,21 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Proxying assets **(FREE SELF)**
+# Proxying assets
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
 A possible security concern when managing a public-facing GitLab instance is
 the ability to steal a user's IP address by referencing images in issues and comments.
 
 For example, adding `![Example image](http://example.com/example.png)` to
 an issue description causes the image to be loaded from the external
-server in order to be displayed. However, this also allows the external server
+server to be displayed. However, this also allows the external server
 to log the IP address of the user.
 
 One way to mitigate this is by proxying any external images to a server you
@@ -48,11 +52,11 @@ To install a Camo server as an asset proxy:
 
    | Attribute                | Description                                                                                                                          |
    |:-------------------------|:-------------------------------------------------------------------------------------------------------------------------------------|
-   | `asset_proxy_enabled`    | Enable proxying of assets. If enabled, requires: `asset_proxy_url`).                                                                 |
+   | `asset_proxy_enabled`    | Enable proxying of assets. If enabled, requires: `asset_proxy_url`.                                                                  |
    | `asset_proxy_secret_key` | Shared secret with the asset proxy server.                                                                                           |
    | `asset_proxy_url`        | URL of the asset proxy server.                                                                                                       |
-   | `asset_proxy_whitelist`  | (Deprecated: Use `asset_proxy_allowlist` instead) Assets that match these domain(s) are NOT proxied. Wildcards allowed. Your GitLab installation URL is automatically allowed.         |
-   | `asset_proxy_allowlist`  | Assets that match these domain(s) are NOT proxied. Wildcards allowed. Your GitLab installation URL is automatically allowed.         |
+   | `asset_proxy_whitelist`  | (Deprecated: Use `asset_proxy_allowlist` instead) Assets that match these domains are NOT proxied. Wildcards allowed. Your GitLab installation URL is automatically allowed.         |
+   | `asset_proxy_allowlist`  | Assets that match these domains are NOT proxied. Wildcards allowed. Your GitLab installation URL is automatically allowed.         |
 
 1. Restart the server for the changes to take effect. Each time you change any values for the asset
    proxy, you need to restart the server.

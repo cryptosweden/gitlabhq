@@ -1,14 +1,20 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Deploy Tokens API **(FREE)**
+# Deploy Tokens API
 
-## List all deploy tokens **(FREE SELF)**
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21811) in GitLab 12.9.
+## List all deploy tokens
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
 Get a list of all deploy tokens across the GitLab instance. This endpoint requires administrator access.
 
@@ -20,7 +26,7 @@ Parameters:
 
 | Attribute | Type     | Required               | Description |
 |-----------|----------|------------------------|-------------|
-| `active`  | boolean  | **{dotted-circle}** No | Limit by active status. |
+| `active`  | boolean  | No | Limit by active status. |
 
 Example request:
 
@@ -49,12 +55,10 @@ Example response:
 
 ## Project deploy tokens
 
-Project deploy token API endpoints require the Maintainer role or higher
+Project deploy token API endpoints require at least the Maintainer role
 for the project.
 
 ### List project deploy tokens
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21811) in GitLab 12.9.
 
 Get a list of a project's deploy tokens.
 
@@ -66,8 +70,8 @@ Parameters:
 
 | Attribute      | Type           | Required               | Description |
 |:---------------|:---------------|:-----------------------|:------------|
-| `id`           | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding). |
-| `active`       | boolean        | **{dotted-circle}** No | Limit by active status. |
+| `id`           | integer/string | Yes | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `active`       | boolean        | No | Limit by active status. |
 
 Example request:
 
@@ -96,8 +100,6 @@ Example response:
 
 ### Get a project deploy token
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/82467) in GitLab 14.9.
-
 Get a single project's deploy token by ID.
 
 ```plaintext
@@ -108,8 +110,8 @@ Parameters:
 
 | Attribute  | Type           | Required               | Description |
 | ---------- | -------------- | ---------------------- | ----------- |
-| `id`       | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `token_id` | integer        | **{check-circle}** Yes | ID of the deploy token |
+| `id`       | integer/string | Yes | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `token_id` | integer        | Yes | ID of the deploy token |
 
 Example request:
 
@@ -136,8 +138,6 @@ Example response:
 
 ### Create a project deploy token
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21811) in GitLab 12.9.
-
 Creates a new deploy token for a project.
 
 ```plaintext
@@ -148,11 +148,11 @@ Parameters:
 
 | Attribute    | Type             | Required               | Description |
 | ------------ | ---------------- | ---------------------- | ----------- |
-| `id`         | integer/string   | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `name`       | string           | **{check-circle}** Yes | New deploy token's name |
-| `expires_at` | datetime         | **{dotted-circle}** No | Expiration date for the deploy token. Does not expire if no value is provided. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
-| `username`   | string           | **{dotted-circle}** No | Username for deploy token. Default is `gitlab+deploy-token-{n}` |
-| `scopes`     | array of strings | **{check-circle}** Yes | Indicates the deploy token scopes. Must be at least one of `read_repository`, `read_registry`, `write_registry`, `read_package_registry`, or `write_package_registry`. |
+| `id`         | integer/string   | Yes | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `name`       | string           | Yes | New deploy token's name |
+| `scopes`     | array of strings | Yes | Indicates the deploy token scopes. Must be at least one of `read_repository`, `read_registry`, `write_registry`, `read_package_registry`, or `write_package_registry`. |
+| `expires_at` | datetime         | No | Expiration date for the deploy token. Does not expire if no value is provided. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
+| `username`   | string           | No | Username for deploy token. Default is `gitlab+deploy-token-{n}` |
 
 Example request:
 
@@ -181,8 +181,6 @@ Example response:
 
 ### Delete a project deploy token
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21811) in GitLab 12.9.
-
 Removes a deploy token from the project.
 
 ```plaintext
@@ -193,8 +191,8 @@ Parameters:
 
 | Attribute  | Type           | Required               | Description |
 | ---------- | -------------- | ---------------------- | ----------- |
-| `id`       | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `token_id` | integer        | **{check-circle}** Yes | ID of the deploy token |
+| `id`       | integer/string | Yes | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `token_id` | integer        | Yes | ID of the deploy token |
 
 Example request:
 
@@ -210,8 +208,6 @@ tokens. Only group Owners can create and delete group deploy tokens.
 
 ### List group deploy tokens
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21811) in GitLab 12.9.
-
 Get a list of a group's deploy tokens
 
 ```plaintext
@@ -222,8 +218,8 @@ Parameters:
 
 | Attribute      | Type           | Required               | Description |
 |:---------------|:---------------|:-----------------------|:------------|
-| `id`           | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding). |
-| `active`       | boolean        | **{dotted-circle}** No | Limit by active status. |
+| `id`           | integer/string | Yes | ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding). |
+| `active`       | boolean        | No | Limit by active status. |
 
 Example request:
 
@@ -252,8 +248,6 @@ Example response:
 
 ### Get a group deploy token
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/82467) in GitLab 14.9.
-
 Get a single group's deploy token by ID.
 
 ```plaintext
@@ -264,8 +258,8 @@ Parameters:
 
 | Attribute   | Type           | Required               | Description |
 | ----------- | -------------- | ---------------------- | ----------- |
-| `id`        | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `token_id`  | integer        | **{check-circle}** Yes | ID of the deploy token |
+| `id`        | integer/string | Yes | ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `token_id`  | integer        | Yes | ID of the deploy token |
 
 Example request:
 
@@ -292,8 +286,6 @@ Example response:
 
 ### Create a group deploy token
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21811) in GitLab 12.9.
-
 Creates a new deploy token for a group.
 
 ```plaintext
@@ -304,11 +296,11 @@ Parameters:
 
 | Attribute    | Type | Required  | Description |
 | ------------ | ---- | --------- | ----------- |
-| `id`         | integer/string   | **{check-circle}** Yes | ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `name`       | string           | **{check-circle}** Yes | New deploy token's name |
-| `expires_at` | datetime         | **{dotted-circle}** No | Expiration date for the deploy token. Does not expire if no value is provided. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
-| `username`   | string           | **{dotted-circle}** No | Username for deploy token. Default is `gitlab+deploy-token-{n}` |
-| `scopes`     | array of strings | **{check-circle}** Yes | Indicates the deploy token scopes. Must be at least one of `read_repository`, `read_registry`, `write_registry`, `read_package_registry`, or `write_package_registry`. |
+| `id`         | integer/string   | Yes | ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `name`       | string           | Yes | New deploy token's name |
+| `scopes`     | array of strings | Yes | Indicates the deploy token scopes. Must be at least one of `read_repository`, `read_registry`, `write_registry`, `read_package_registry`, or `write_package_registry`. |
+| `expires_at` | datetime         | No | Expiration date for the deploy token. Does not expire if no value is provided. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
+| `username`   | string           | No | Username for deploy token. Default is `gitlab+deploy-token-{n}` |
 
 Example request:
 
@@ -337,8 +329,6 @@ Example response:
 
 ### Delete a group deploy token
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21811) in GitLab 12.9.
-
 Removes a deploy token from the group.
 
 ```plaintext
@@ -349,8 +339,8 @@ Parameters:
 
 | Attribute   | Type           | Required               | Description |
 | ----------- | -------------- | ---------------------- | ----------- |
-| `id`        | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `token_id`  | integer        | **{check-circle}** Yes | ID of the deploy token |
+| `id`        | integer/string | Yes | ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `token_id`  | integer        | Yes | ID of the deploy token |
 
 Example request:
 

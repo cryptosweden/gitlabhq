@@ -17,17 +17,39 @@ var hashFactories = map[string](func() hash.Hash){
 	"sha512": sha512.New,
 }
 
+func factories() map[string](func() hash.Hash) {
+	return hashFactories
+}
+
 type multiHash struct {
 	io.Writer
 	hashes map[string]hash.Hash
 }
 
-func newMultiHash() (m *multiHash) {
+func permittedHashFunction(hashFunctions []string, hash string) bool {
+	if len(hashFunctions) == 0 {
+		return true
+	}
+
+	for _, name := range hashFunctions {
+		if name == hash {
+			return true
+		}
+	}
+
+	return false
+}
+
+func newMultiHash(hashFunctions []string) (m *multiHash) {
 	m = &multiHash{}
 	m.hashes = make(map[string]hash.Hash)
 
 	var writers []io.Writer
-	for hash, hashFactory := range hashFactories {
+	for hash, hashFactory := range factories() {
+		if !permittedHashFunction(hashFunctions, hash) {
+			continue
+		}
+
 		writer := hashFactory()
 
 		m.hashes[hash] = writer

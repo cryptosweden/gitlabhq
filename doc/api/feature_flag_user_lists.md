@@ -1,21 +1,25 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Feature flag user lists API **(FREE)**
+# Feature flag user lists API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 > - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/205409) in [GitLab Premium](https://about.gitlab.com/pricing/) 12.10.
 > - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/212318) to GitLab Free in 13.5.
 
-API for accessing GitLab Feature Flag User Lists.
+API for accessing GitLab feature flag user lists.
 
-Users with Developer or higher [permissions](../user/permissions.md) can access the Feature Flag User Lists API.
+Users with at least the Developer [role](../user/permissions.md) can access the feature flag user lists API.
 
 NOTE:
 `GET` requests return twenty results at a time because the API results
-are [paginated](index.md#pagination). You can change this value.
+are [paginated](rest/index.md#pagination). You can change this value.
 
 ## List all feature flag user lists for a project
 
@@ -27,7 +31,7 @@ GET /projects/:id/feature_flags_user_lists
 
 | Attribute | Type           | Required | Description                                                                      |
 | --------- | -------------- | -------- | -------------------------------------------------------------------------------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding). |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
 | `search`  | string         | no       | Return user lists matching the search criteria.                                  |
 
 ```shell
@@ -69,9 +73,9 @@ POST /projects/:id/feature_flags_user_lists
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding).       |
-| `name`              | string           | yes        | The name of the feature flag. |
-| `user_xids`         | string           | yes        | A comma-separated list of user IDs. |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding).       |
+| `name`              | string           | yes        | The name of the list. |
+| `user_xids`         | string           | yes        | A comma-separated list of external user IDs. |
 
 ```shell
 curl "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists" \
@@ -109,7 +113,7 @@ GET /projects/:id/feature_flags_user_lists/:iid
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding).       |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding).       |
 | `iid`               | integer/string   | yes        | The internal ID of the project's feature flag user list.                               |
 
 ```shell
@@ -140,10 +144,10 @@ PUT /projects/:id/feature_flags_user_lists/:iid
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding).       |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding).       |
 | `iid`               | integer/string   | yes        | The internal ID of the project's feature flag user list.                               |
-| `name`              | string           | no         | The name of the feature flag.                                                          |
-| `user_xids`         | string           | no         | A comma-separated list of user IDs.                                                    |
+| `name`              | string           | no         | The name of the list.                                                          |
+| `user_xids`         | string           | no         | A comma-separated list of external user IDs.                                                    |
 
 ```shell
 curl "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists/1" \
@@ -181,7 +185,7 @@ DELETE /projects/:id/feature_flags_user_lists/:iid
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding).       |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding).       |
 | `iid`               | integer/string   | yes        | The internal ID of the project's feature flag user list                                |
 
 ```shell

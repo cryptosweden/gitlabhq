@@ -1,11 +1,14 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'Pages edits pages settings', :js do
-  let(:project) { create(:project, pages_https_only: false) }
-  let(:user) { create(:user) }
+RSpec.describe 'Pages edits pages settings', :js, feature_category: :pages do
+  include Spec::Support::Helpers::ModalHelpers
+
+  let_it_be_with_reload(:project) { create(:project, :pages_published, pages_https_only: false) }
+  let_it_be(:user) { create(:user) }
 
   before do
+    stub_feature_flags(new_pages_ui: false)
     allow(Gitlab.config.pages).to receive(:enabled).and_return(true)
 
     project.add_maintainer(user)
@@ -20,7 +23,7 @@ RSpec.describe 'Pages edits pages settings', :js do
 
     context 'when pages deployed' do
       before do
-        project.mark_pages_as_deployed
+        create(:pages_deployment, project: project)
       end
 
       it 'renders Access pages' do
@@ -78,32 +81,41 @@ RSpec.describe 'Pages edits pages settings', :js do
       end
     end
 
-    it 'does not see anything to destroy' do
-      visit project_pages_path(project)
+    describe 'menu entry' do
+      describe 'on the pages page' do
+        it 'renders "Pages" tab' do
+          visit project_pages_path(project)
 
-      expect(page).to have_content('Configure pages')
-      expect(page).not_to have_link('Remove pages')
-    end
-
-    describe 'project settings page' do
-      it 'renders "Pages" tab' do
-        visit edit_project_path(project)
-
-        page.within '.nav-sidebar' do
-          expect(page).to have_link('Pages')
+          within_testid 'super-sidebar' do
+            expect(page).to have_link('Pages')
+          end
         end
       end
 
-      context 'when pages are disabled' do
-        before do
-          allow(Gitlab.config.pages).to receive(:enabled).and_return(false)
+      describe 'in another menu entry under deployments' do
+        context 'when pages are enabled' do
+          it 'renders "Pages" tab' do
+            visit project_environments_path(project)
+
+            within_testid 'super-sidebar' do
+              click_button 'Deploy'
+              expect(page).to have_link('Pages')
+            end
+          end
         end
 
-        it 'does not render "Pages" tab' do
-          visit edit_project_path(project)
+        context 'when pages are disabled' do
+          before do
+            allow(Gitlab.config.pages).to receive(:enabled).and_return(false)
+          end
 
-          page.within '.nav-sidebar' do
-            expect(page).not_to have_link('Pages')
+          it 'does not render "Pages" tab' do
+            visit project_environments_path(project)
+
+            within_testid 'super-sidebar' do
+              click_button 'Deploy'
+              expect(page).not_to have_link('Pages')
+            end
           end
         end
       end
@@ -114,7 +126,7 @@ RSpec.describe 'Pages edits pages settings', :js do
     before do
       project.namespace.update!(owner: user)
 
-      project.mark_pages_as_deployed
+      create(:pages_deployment, project: project)
     end
 
     it 'tries to change the setting' do
@@ -149,7 +161,7 @@ RSpec.describe 'Pages edits pages settings', :js do
     end
 
     context 'non-HTTPS domain exists' do
-      let(:project) { create(:project, pages_https_only: false) }
+      let(:project) { create(:project, :pages_published, pages_https_only: false) }
 
       before do
         create(:pages_domain, :without_key, :without_certificate, project: project)
@@ -171,13 +183,22 @@ RSpec.describe 'Pages edits pages settings', :js do
         expect(page).not_to have_content('Force HTTPS (requires valid certificates)')
       end
     end
+
+    context 'when project uses subdomain namespace' do
+      let_it_be_with_reload(:project) { create(:project, namespace: create(:namespace, path: 'subdomain.namespace')) }
+
+      it 'shows warning message' do
+        visit project_pages_path(project)
+
+        expect(page).to have_content("you cannot use HTTPS with subdomains")
+      end
+    end
   end
 
   describe 'Remove page' do
     context 'when pages are deployed' do
       before do
-        stub_feature_flags(bootstrap_confirmation_modals: false)
-        project.mark_pages_as_deployed
+        create(:pages_deployment, project: project)
       end
 
       it 'removes the pages', :sidekiq_inline do
@@ -185,11 +206,21 @@ RSpec.describe 'Pages edits pages settings', :js do
 
         expect(page).to have_link('Remove pages')
 
-        accept_confirm { click_link 'Remove pages' }
+        accept_gl_confirm(button_text: 'Remove pages') { click_link 'Remove pages' }
 
         expect(page).to have_content('Pages were scheduled for removal')
         expect(project.reload.pages_deployed?).to be_falsey
       end
+    end
+  end
+
+  context 'when pages are disabled for project' do
+    let_it_be_with_reload(:project) { create(:project, :pages_disabled) }
+
+    it 'renders warning message' do
+      visit project_pages_path(project)
+
+      expect(page).to have_content('GitLab Pages are disabled for this project')
     end
   end
 end

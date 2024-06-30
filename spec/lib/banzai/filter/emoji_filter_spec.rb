@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::EmojiFilter do
+RSpec.describe Banzai::Filter::EmojiFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   it_behaves_like 'emoji filter' do
@@ -97,5 +97,47 @@ RSpec.describe Banzai::Filter::EmojiFilter do
     doc = filter('This deserves a 🎱, big time.')
 
     expect(doc.to_html).to match(/^This deserves a <gl-emoji.+>, big time\.\z/)
+  end
+
+  context 'and protects against pathological number of emojis' do
+    context 'with hard limit' do
+      before do
+        stub_const('Banzai::Filter::EmojiFilter::EMOJI_LIMIT', 2)
+      end
+
+      it 'enforces limits on unicode emojis' do
+        doc = filter('⏯' * 3)
+
+        expect(doc.search('gl-emoji').count).to eq(2)
+        expect(doc.to_html).to end_with('⏯')
+      end
+
+      it 'enforces limits on named emojis' do
+        doc = filter(':play_pause: ' * 3)
+
+        expect(doc.search('gl-emoji').count).to eq(2)
+        expect(doc.to_html).to end_with(':play_pause: ')
+      end
+
+      # Since we convert unicode emojis first, those reach the limits
+      # first and `:play_pause:` is not converted because we're over limit.
+      it 'enforces limits on mixed emojis' do
+        doc = filter('⏯ :play_pause: ⏯')
+
+        expect(doc.search('gl-emoji').count).to eq(2)
+        expect(doc.to_html).to include(' :play_pause: ')
+      end
+    end
+
+    it 'limit keeps it from timing out' do
+      expect do
+        Timeout.timeout(1.second) { filter('⏯ :play_pause: ' * 500000) }
+      end.not_to raise_error
+    end
+  end
+
+  it_behaves_like 'pipeline timing check'
+  it_behaves_like 'a filter timeout' do
+    let(:text) { 'text' }
   end
 end

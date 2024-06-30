@@ -3,10 +3,10 @@ package upstream
 import (
 	"net/http"
 	"net/url"
-	"path"
 	"regexp"
 
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"gitlab.com/gitlab-org/labkit/log"
 	"gitlab.com/gitlab-org/labkit/tracing"
@@ -22,7 +22,6 @@ import (
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/imageresizer"
 	proxypkg "gitlab.com/gitlab-org/gitlab/workhorse/internal/proxy"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/queueing"
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/redis"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/secret"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/senddata"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/sendfile"
@@ -44,22 +43,16 @@ type routeOptions struct {
 	tracing         bool
 	isGeoProxyRoute bool
 	matchers        []matcherFunc
-}
-
-type uploadPreparers struct {
-	artifacts upload.Preparer
-	lfs       upload.Preparer
-	packages  upload.Preparer
-	uploads   upload.Preparer
+	allowOrigins    *regexp.Regexp
 }
 
 const (
 	apiPattern           = `^/api/`
-	ciAPIPattern         = `^/ci/api/`
 	gitProjectPattern    = `^/.+\.git/`
 	geoGitProjectPattern = `^/[^-].+\.git/` // Prevent matching routes like /-/push_from_secondary
 	projectPattern       = `^/([^/]+/){1,}[^/]+/`
-	apiProjectPattern    = apiPattern + `v4/projects/[^/]+/` // API: Projects can be encoded via group%2Fsubgroup%2Fproject
+	apiProjectPattern    = apiPattern + `v4/projects/[^/]+` // API: Projects can be encoded via group%2Fsubgroup%2Fproject
+	apiGroupPattern      = apiPattern + `v4/groups/[^/]+`
 	apiTopicPattern      = apiPattern + `v4/topics`
 	snippetUploadPattern = `^/uploads/personal_snippet`
 	userUploadPattern    = `^/uploads/user`
@@ -100,6 +93,12 @@ func withGeoProxy() func(*routeOptions) {
 	}
 }
 
+func withAllowOrigins(pattern string) func(*routeOptions) {
+	return func(options *routeOptions) {
+		options.allowOrigins = compileRegexp(pattern)
+	}
+}
+
 func (u *upstream) observabilityMiddlewares(handler http.Handler, method string, regexpStr string, opts *routeOptions) http.Handler {
 	handler = log.AccessLogger(
 		handler,
@@ -135,6 +134,9 @@ func (u *upstream) route(method, regexpStr string, handler http.Handler, opts ..
 	if options.tracing {
 		// Add distributed tracing
 		handler = tracing.Handler(handler, tracing.WithRouteIdentifier(regexpStr))
+	}
+	if options.allowOrigins != nil {
+		handler = corsMiddleware(handler, options.allowOrigins)
 	}
 
 	return routeEntry{
@@ -225,13 +227,15 @@ func configureRoutes(u *upstream) {
 	signingTripper := secret.NewRoundTripper(u.RoundTripper, u.Version)
 	signingProxy := buildProxy(u.Backend, u.Version, signingTripper, u.Config, dependencyProxyInjector)
 
-	preparers := createUploadPreparers(u.Config)
-	uploadPath := path.Join(u.DocumentRoot, "uploads/tmp")
-	tempfileMultipartProxy := upload.Multipart(&upload.SkipRailsAuthorizer{TempPath: uploadPath}, proxy, preparers.uploads)
-	ciAPIProxyQueue := queueing.QueueRequests("ci_api_job_requests", tempfileMultipartProxy, u.APILimit, u.APIQueueLimit, u.APIQueueTimeout)
-	ciAPILongPolling := builds.RegisterHandler(ciAPIProxyQueue, redis.WatchKey, u.APICILongPollingDuration)
+	preparer := upload.NewObjectStoragePreparer(u.Config)
+	requestBodyUploader := upload.RequestBody(api, signingProxy, preparer)
+	mimeMultipartUploader := upload.Multipart(api, signingProxy, preparer, &u.Config)
 
-	dependencyProxyInjector.SetUploadHandler(upload.RequestBody(api, signingProxy, preparers.packages))
+	tempfileMultipartProxy := upload.FixedPreAuthMultipart(api, proxy, preparer, &u.Config)
+	ciAPIProxyQueue := queueing.QueueRequests("ci_api_job_requests", tempfileMultipartProxy, u.APILimit, u.APIQueueLimit, u.APIQueueTimeout, prometheus.DefaultRegisterer)
+	ciAPILongPolling := builds.RegisterHandler(ciAPIProxyQueue, u.watchKeyHandler, u.APICILongPollingDuration)
+
+	dependencyProxyInjector.SetUploadHandler(requestBodyUploader)
 
 	// Serve static files or forward the requests
 	defaultUpstream := static.ServeExisting(
@@ -247,11 +251,11 @@ func configureRoutes(u *upstream) {
 		u.route("GET", gitProjectPattern+`info/refs\z`, git.GetInfoRefsHandler(api)),
 		u.route("POST", gitProjectPattern+`git-upload-pack\z`, contentEncodingHandler(git.UploadPack(api)), withMatcher(isContentType("application/x-git-upload-pack-request"))),
 		u.route("POST", gitProjectPattern+`git-receive-pack\z`, contentEncodingHandler(git.ReceivePack(api)), withMatcher(isContentType("application/x-git-receive-pack-request"))),
-		u.route("PUT", gitProjectPattern+`gitlab-lfs/objects/([0-9a-f]{64})/([0-9]+)\z`, upload.RequestBody(api, signingProxy, preparers.lfs), withMatcher(isContentType("application/octet-stream"))),
+		u.route("PUT", gitProjectPattern+`gitlab-lfs/objects/([0-9a-f]{64})/([0-9]+)\z`, requestBodyUploader, withMatcher(isContentType("application/octet-stream"))),
+		u.route("POST", gitProjectPattern+`ssh-upload-pack\z`, git.SSHUploadPack(api)),
 
 		// CI Artifacts
-		u.route("POST", apiPattern+`v4/jobs/[0-9]+/artifacts\z`, contentEncodingHandler(upload.Artifacts(api, signingProxy, preparers.artifacts))),
-		u.route("POST", ciAPIPattern+`v1/builds/[0-9]+/artifacts\z`, contentEncodingHandler(upload.Artifacts(api, signingProxy, preparers.artifacts))),
+		u.route("POST", apiPattern+`v4/jobs/[0-9]+/artifacts\z`, contentEncodingHandler(upload.Artifacts(api, signingProxy, preparer, &u.Config))),
 
 		// ActionCable websocket
 		u.wsRoute(`^/-/cable\z`, cableProxy),
@@ -265,7 +269,6 @@ func configureRoutes(u *upstream) {
 
 		// Long poll and limit capacity given to jobs/request and builds/register.json
 		u.route("", apiPattern+`v4/jobs/request\z`, ciAPILongPolling),
-		u.route("", ciAPIPattern+`v1/builds/register.json\z`, ciAPILongPolling),
 
 		// Not all API endpoints support encoded project IDs
 		// (e.g. `group%2Fproject`), but for the sake of consistency we
@@ -275,63 +278,89 @@ func configureRoutes(u *upstream) {
 		// https://gitlab.com/gitlab-org/gitlab/-/merge_requests/56731.
 
 		// Maven Artifact Repository
-		u.route("PUT", apiProjectPattern+`packages/maven/`, upload.RequestBody(api, signingProxy, preparers.packages)),
+		u.route("PUT", apiProjectPattern+`/packages/maven/`, requestBodyUploader),
 
 		// Conan Artifact Repository
-		u.route("PUT", apiPattern+`v4/packages/conan/`, upload.RequestBody(api, signingProxy, preparers.packages)),
-		u.route("PUT", apiProjectPattern+`packages/conan/`, upload.RequestBody(api, signingProxy, preparers.packages)),
+		u.route("PUT", apiPattern+`v4/packages/conan/`, requestBodyUploader),
+		u.route("PUT", apiProjectPattern+`/packages/conan/`, requestBodyUploader),
 
 		// Generic Packages Repository
-		u.route("PUT", apiProjectPattern+`packages/generic/`, upload.RequestBody(api, signingProxy, preparers.packages)),
+		u.route("PUT", apiProjectPattern+`/packages/generic/`, requestBodyUploader),
+
+		// Ml Model Packages Repository
+		u.route("PUT", apiProjectPattern+`/packages/ml_models/`, requestBodyUploader),
 
 		// NuGet Artifact Repository
-		u.route("PUT", apiProjectPattern+`packages/nuget/`, upload.Multipart(api, signingProxy, preparers.packages)),
+		u.route("PUT", apiProjectPattern+`/packages/nuget/`, mimeMultipartUploader),
+
+		// NuGet v2 Artifact Repository
+		u.route("PUT", apiProjectPattern+`/packages/nuget/v2`, mimeMultipartUploader),
 
 		// PyPI Artifact Repository
-		u.route("POST", apiProjectPattern+`packages/pypi`, upload.Multipart(api, signingProxy, preparers.packages)),
+		u.route("POST", apiProjectPattern+`/packages/pypi`, mimeMultipartUploader),
 
 		// Debian Artifact Repository
-		u.route("PUT", apiProjectPattern+`packages/debian/`, upload.RequestBody(api, signingProxy, preparers.packages)),
+		u.route("PUT", apiProjectPattern+`/packages/debian/`, requestBodyUploader),
+
+		// RPM Artifact Repository
+		u.route("POST", apiProjectPattern+`/packages/rpm/`, requestBodyUploader),
 
 		// Gem Artifact Repository
-		u.route("POST", apiProjectPattern+`packages/rubygems/`, upload.RequestBody(api, signingProxy, preparers.packages)),
+		u.route("POST", apiProjectPattern+`/packages/rubygems/`, requestBodyUploader),
 
 		// Terraform Module Package Repository
-		u.route("PUT", apiProjectPattern+`packages/terraform/modules/`, upload.RequestBody(api, signingProxy, preparers.packages)),
+		u.route("PUT", apiProjectPattern+`/packages/terraform/modules/`, requestBodyUploader),
 
 		// Helm Artifact Repository
-		u.route("POST", apiProjectPattern+`packages/helm/api/[^/]+/charts\z`, upload.Multipart(api, signingProxy, preparers.packages)),
+		u.route("POST", apiProjectPattern+`/packages/helm/api/[^/]+/charts\z`, mimeMultipartUploader),
 
 		// We are porting API to disk acceleration
 		// we need to declare each routes until we have fixed all the routes on the rails codebase.
 		// Overall status can be seen at https://gitlab.com/groups/gitlab-org/-/epics/1802#current-status
-		u.route("POST", apiProjectPattern+`wikis/attachments\z`, tempfileMultipartProxy),
+		u.route("POST", apiProjectPattern+`/wikis/attachments\z`, tempfileMultipartProxy),
+		u.route("POST", apiGroupPattern+`/wikis/attachments\z`, tempfileMultipartProxy),
 		u.route("POST", apiPattern+`graphql\z`, tempfileMultipartProxy),
 		u.route("POST", apiTopicPattern, tempfileMultipartProxy),
 		u.route("PUT", apiTopicPattern, tempfileMultipartProxy),
-		u.route("POST", apiPattern+`v4/groups/import`, upload.Multipart(api, signingProxy, preparers.uploads)),
-		u.route("POST", apiPattern+`v4/projects/import`, upload.Multipart(api, signingProxy, preparers.uploads)),
+		u.route("POST", apiPattern+`v4/groups/import`, mimeMultipartUploader),
+		u.route("POST", apiPattern+`v4/projects/import`, mimeMultipartUploader),
+		u.route("POST", apiPattern+`v4/projects/import-relation`, mimeMultipartUploader),
 
 		// Project Import via UI upload acceleration
-		u.route("POST", importPattern+`gitlab_project`, upload.Multipart(api, signingProxy, preparers.uploads)),
+		u.route("POST", importPattern+`gitlab_project`, mimeMultipartUploader),
 		// Group Import via UI upload acceleration
-		u.route("POST", importPattern+`gitlab_group`, upload.Multipart(api, signingProxy, preparers.uploads)),
+		u.route("POST", importPattern+`gitlab_group`, mimeMultipartUploader),
 
 		// Issuable Metric image upload
-		u.route("POST", apiProjectPattern+`issues/[0-9]+/metric_images\z`, upload.Multipart(api, signingProxy, preparers.uploads)),
+		u.route("POST", apiProjectPattern+`/issues/[0-9]+/metric_images\z`, mimeMultipartUploader),
 
 		// Alert Metric image upload
-		u.route("POST", apiProjectPattern+`alert_management_alerts/[0-9]+/metric_images\z`, upload.Multipart(api, signingProxy, preparers.uploads)),
+		u.route("POST", apiProjectPattern+`/alert_management_alerts/[0-9]+/metric_images\z`, mimeMultipartUploader),
 
 		// Requirements Import via UI upload acceleration
-		u.route("POST", projectPattern+`requirements_management/requirements/import_csv`, upload.Multipart(api, signingProxy, preparers.uploads)),
+		u.route("POST", projectPattern+`requirements_management/requirements/import_csv`, mimeMultipartUploader),
+
+		// Work items Import via UI upload acceleration
+		u.route("POST", projectPattern+`work_items/import_csv`, mimeMultipartUploader),
 
 		// Uploads via API
-		u.route("POST", apiProjectPattern+`uploads\z`, upload.Multipart(api, signingProxy, preparers.uploads)),
+		u.route("POST", apiProjectPattern+`/uploads\z`, mimeMultipartUploader),
+
+		// Project Avatar
+		u.route("POST", apiPattern+`v4/projects\z`, tempfileMultipartProxy),
+		u.route("PUT", apiProjectPattern+`\z`, tempfileMultipartProxy),
+
+		// Group Avatar
+		u.route("POST", apiPattern+`v4/groups\z`, tempfileMultipartProxy),
+		u.route("PUT", apiPattern+`v4/groups/[^/]+\z`, tempfileMultipartProxy),
+
+		// User Avatar
+		u.route("PUT", apiPattern+`v4/user/avatar\z`, tempfileMultipartProxy),
+		u.route("POST", apiPattern+`v4/users\z`, tempfileMultipartProxy),
+		u.route("PUT", apiPattern+`v4/users/[0-9]+\z`, tempfileMultipartProxy),
 
 		// Explicitly proxy API requests
 		u.route("", apiPattern, proxy),
-		u.route("", ciAPIPattern, proxy),
 
 		// Serve assets
 		u.route(
@@ -342,12 +371,13 @@ func configureRoutes(u *upstream) {
 				assetsNotFoundHandler,
 			),
 			withoutTracing(), // Tracing on assets is very noisy
+			withAllowOrigins("^https://.*\\.web-ide\\.gitlab-static\\.net$"),
 		),
 
 		// Uploads
-		u.route("POST", projectPattern+`uploads\z`, upload.Multipart(api, signingProxy, preparers.uploads)),
-		u.route("POST", snippetUploadPattern, upload.Multipart(api, signingProxy, preparers.uploads)),
-		u.route("POST", userUploadPattern, upload.Multipart(api, signingProxy, preparers.uploads)),
+		u.route("POST", projectPattern+`uploads\z`, mimeMultipartUploader),
+		u.route("POST", snippetUploadPattern, mimeMultipartUploader),
+		u.route("POST", userUploadPattern, mimeMultipartUploader),
 
 		// health checks don't intercept errors and go straight to rails
 		// TODO: We should probably not return a HTML deploy page?
@@ -366,14 +396,15 @@ func configureRoutes(u *upstream) {
 	u.geoLocalRoutes = []routeEntry{
 		// Git and LFS requests
 		//
-		// Note that Geo already redirects pushes, with special terminal output.
-		// Note that excessive secondary lag can cause unexpected behavior since
+		// Geo already redirects pushes, with special terminal output.
+		// Excessive secondary lag can cause unexpected behavior since
 		// pulls are performed against a different source of truth. Ideally, we'd
 		// proxy/redirect pulls as well, when the secondary is not up-to-date.
 		//
 		u.route("GET", geoGitProjectPattern+`info/refs\z`, git.GetInfoRefsHandler(api)),
 		u.route("POST", geoGitProjectPattern+`git-upload-pack\z`, contentEncodingHandler(git.UploadPack(api)), withMatcher(isContentType("application/x-git-upload-pack-request"))),
 		u.route("GET", geoGitProjectPattern+`gitlab-lfs/objects/([0-9a-f]{64})\z`, defaultUpstream),
+		u.route("POST", geoGitProjectPattern+`info/lfs/objects/batch\z`, defaultUpstream),
 
 		// Serve health checks from this Geo secondary
 		u.route("", "^/-/(readiness|liveness)$", static.DeployPage(probeUpstream)),
@@ -392,6 +423,8 @@ func configureRoutes(u *upstream) {
 		u.route("", "^/api/v4/geo_replication", defaultUpstream),
 		u.route("", "^/api/v4/geo/proxy_git_ssh", defaultUpstream),
 		u.route("", "^/api/v4/geo/graphql", defaultUpstream),
+		u.route("", "^/api/v4/geo_nodes/current/failures", defaultUpstream),
+		u.route("", "^/api/v4/geo_sites/current/failures", defaultUpstream),
 
 		// Internal API routes
 		u.route("", "^/api/v4/internal", defaultUpstream),
@@ -404,6 +437,7 @@ func configureRoutes(u *upstream) {
 				assetsNotFoundHandler,
 			),
 			withoutTracing(), // Tracing on assets is very noisy
+			withAllowOrigins("^https://.*\\.web-ide\\.gitlab-static\\.net$"),
 		),
 
 		// Don't define a catch-all route. If a route does not match, then we know
@@ -411,22 +445,28 @@ func configureRoutes(u *upstream) {
 	}
 }
 
-func createUploadPreparers(cfg config.Config) uploadPreparers {
-	defaultPreparer := upload.NewObjectStoragePreparer(cfg)
-
-	return uploadPreparers{
-		artifacts: defaultPreparer,
-		lfs:       upload.NewLfsPreparer(cfg, defaultPreparer),
-		packages:  defaultPreparer,
-		uploads:   defaultPreparer,
-	}
-}
-
 func denyWebsocket(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if websocket.IsWebSocketUpgrade(r) {
-			helper.HTTPError(w, r, "websocket upgrade not allowed", http.StatusBadRequest)
+			httpError(w, r, "websocket upgrade not allowed", http.StatusBadRequest)
 			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func corsMiddleware(next http.Handler, allowOriginRegex *regexp.Regexp) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestOrigin := r.Header.Get("Origin")
+		hasOriginMatch := allowOriginRegex.MatchString(requestOrigin)
+		hasMethodMatch := r.Method == "GET" || r.Method == "HEAD" || r.Method == "OPTIONS"
+
+		if hasOriginMatch && hasMethodMatch {
+			w.Header().Set("Access-Control-Allow-Origin", requestOrigin)
+			// why: `Vary: Origin` is needed because allowable origin is variable
+			//      https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS#the_http_response_headers
+			w.Header().Set("Vary", "Origin")
 		}
 
 		next.ServeHTTP(w, r)

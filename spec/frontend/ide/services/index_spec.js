@@ -2,11 +2,10 @@ import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import getIdeProject from 'ee_else_ce/ide/queries/get_ide_project.query.graphql';
 import Api from '~/api';
-import dismissUserCallout from '~/graphql_shared/mutations/dismiss_user_callout.mutation.graphql';
 import services from '~/ide/services';
-import { query, mutate } from '~/ide/services/gql';
+import { query } from '~/ide/services/gql';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { escapeFileUrl } from '~/lib/utils/url_utility';
-import ciConfig from '~/pipeline_editor/graphql/queries/ci_config.query.graphql';
 import { projectData } from '../mock_data';
 
 jest.mock('~/api');
@@ -108,7 +107,7 @@ describe('IDE services', () => {
         };
 
         mock = new MockAdapter(axios);
-        mock.onGet(file.rawPath).reply(200, 'raw content');
+        mock.onGet(file.rawPath).reply(HTTP_STATUS_OK, 'raw content');
 
         jest.spyOn(axios, 'get');
       });
@@ -205,7 +204,7 @@ describe('IDE services', () => {
                 filePath,
               )}`,
             )
-            .reply(200, TEST_FILE_CONTENTS);
+            .reply(HTTP_STATUS_OK, TEST_FILE_CONTENTS);
         });
 
         it('fetches file content', () =>
@@ -230,7 +229,7 @@ describe('IDE services', () => {
 
       mock
         .onGet(`${TEST_RELATIVE_URL_ROOT}/${TEST_PROJECT_ID}/-/files/${TEST_COMMIT_SHA}`)
-        .reply(200, [TEST_FILE_PATH]);
+        .reply(HTTP_STATUS_OK, [TEST_FILE_PATH]);
     });
 
     afterEach(() => {
@@ -251,12 +250,10 @@ describe('IDE services', () => {
 
   describe('pingUsage', () => {
     let mock;
-    let relativeUrlRoot;
     const TEST_RELATIVE_URL_ROOT = 'blah-blah';
 
     beforeEach(() => {
       jest.spyOn(axios, 'post');
-      relativeUrlRoot = gon.relative_url_root;
       gon.relative_url_root = TEST_RELATIVE_URL_ROOT;
 
       mock = new MockAdapter(axios);
@@ -264,46 +261,16 @@ describe('IDE services', () => {
 
     afterEach(() => {
       mock.restore();
-      gon.relative_url_root = relativeUrlRoot;
     });
 
     it('posts to usage endpoint', () => {
       const TEST_PROJECT_PATH = 'foo/bar';
       const axiosURL = `${TEST_RELATIVE_URL_ROOT}/${TEST_PROJECT_PATH}/service_ping/web_ide_pipelines_count`;
 
-      mock.onPost(axiosURL).reply(200);
+      mock.onPost(axiosURL).reply(HTTP_STATUS_OK);
 
       return services.pingUsage(TEST_PROJECT_PATH).then(() => {
         expect(axios.post).toHaveBeenCalledWith(axiosURL);
-      });
-    });
-  });
-  describe('getCiConfig', () => {
-    const TEST_PROJECT_PATH = 'foo/bar';
-    const TEST_CI_CONFIG = 'test config';
-
-    it('queries with the given CI config and project', () => {
-      const result = { data: { ciConfig: { test: 'data' } } };
-      query.mockResolvedValue(result);
-      return services.getCiConfig(TEST_PROJECT_PATH, TEST_CI_CONFIG).then((data) => {
-        expect(data).toEqual(result.data.ciConfig);
-        expect(query).toHaveBeenCalledWith({
-          query: ciConfig,
-          variables: { projectPath: TEST_PROJECT_PATH, content: TEST_CI_CONFIG },
-        });
-      });
-    });
-  });
-  describe('dismissUserCallout', () => {
-    it('mutates the callout to dismiss', () => {
-      const result = { data: { callouts: { test: 'data' } } };
-      mutate.mockResolvedValue(result);
-      return services.dismissUserCallout('test').then((data) => {
-        expect(data).toEqual(result.data);
-        expect(mutate).toHaveBeenCalledWith({
-          mutation: dismissUserCallout,
-          variables: { input: { featureName: 'test' } },
-        });
       });
     });
   });

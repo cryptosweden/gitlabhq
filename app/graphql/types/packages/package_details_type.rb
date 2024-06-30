@@ -4,25 +4,18 @@ module Types
   module Packages
     class PackageDetailsType < PackageType
       graphql_name 'PackageDetailsType'
-      description 'Represents a package details in the Package Registry. Note that this type is in beta and susceptible to changes'
+      description 'Represents a package details in the Package Registry'
 
       include ::PackagesHelper
 
       authorize :read_package
 
-      field :versions, ::Types::Packages::PackageType.connection_type, null: true,
+      field :versions, ::Types::Packages::PackageBaseType.connection_type, null: true,
         description: 'Other versions of the package.'
 
       field :package_files, Types::Packages::PackageFileType.connection_type, null: true, method: :installable_package_files, description: 'Package files.'
 
       field :dependency_links, Types::Packages::PackageDependencyLinkType.connection_type, null: true, description: 'Dependency link.'
-
-      # this is an override of Types::Packages::PackageType.pipelines
-      # in order to use a custom resolver: Resolvers::PackagePipelinesResolver
-      field :pipelines,
-            resolver: Resolvers::PackagePipelinesResolver,
-            description: 'Pipelines that built the package.',
-            deprecated: { reason: 'Due to scalability concerns, this field is going to be removed', milestone: '14.6' }
 
       field :composer_config_repository_url, GraphQL::Types::String, null: true, description: 'Url of the Composer setup endpoint.'
       field :composer_url, GraphQL::Types::String, null: true, description: 'Url of the Composer endpoint.'
@@ -32,6 +25,10 @@ module Types
       field :nuget_url, GraphQL::Types::String, null: true, description: 'Url of the Nuget project endpoint.'
       field :pypi_setup_url, GraphQL::Types::String, null: true, description: 'Url of the PyPi project setup endpoint.'
       field :pypi_url, GraphQL::Types::String, null: true, description: 'Url of the PyPi project endpoint.'
+
+      field :last_downloaded_at, Types::TimeType, null: true, description: 'Last time that a file of this package was downloaded.'
+
+      field :public_package, GraphQL::Types::Boolean, null: true, description: 'Indicates if there is public access to the package.'
 
       def versions
         object.versions
@@ -66,7 +63,11 @@ module Types
       end
 
       def pypi_url
-        pypi_registry_url(object.project.id)
+        pypi_registry_url(object.project)
+      end
+
+      def public_package
+        object.project.project_feature.public_packages?
       end
     end
   end

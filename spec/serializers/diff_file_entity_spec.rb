@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe DiffFileEntity do
+RSpec.describe DiffFileEntity, feature_category: :code_review_workflow do
   include RepoHelpers
 
   let_it_be(:project) { create(:project, :repository) }
@@ -28,7 +28,7 @@ RSpec.describe DiffFileEntity do
     let(:code_navigation_path) { Gitlab::CodeNavigationPath.new(project, project.commit.sha) }
     let(:request) { EntityRequest.new(project: project, current_user: user) }
     let(:entity) { described_class.new(diff_file, options.merge(request: request, merge_request: merge_request, code_navigation_path: code_navigation_path)) }
-    let(:exposed_urls) { %i(edit_path view_path context_lines_path) }
+    let(:exposed_urls) { %i[edit_path view_path context_lines_path] }
 
     it_behaves_like 'diff file entity'
 
@@ -80,14 +80,13 @@ RSpec.describe DiffFileEntity do
     end
   end
 
-  describe '#is_fully_expanded' do
-    context 'file with a conflict' do
-      let(:options) { { conflicts: { diff_file.new_path => double(diff_lines_for_serializer: [], conflict_type: :both_modified) } } }
+  describe '#highlighted_diff_lines' do
+    let(:options) { { conflicts: {} } }
 
-      it 'returns false' do
-        expect(diff_file).not_to receive(:fully_expanded?)
-        expect(subject[:is_fully_expanded]).to eq(false)
-      end
+    it 'calls diff_lines_for_serializer on diff_file' do
+      # #diff_lines_for_serializer gets called in #fully_expanded? and whitespace_only as well so we expect three calls
+      expect(diff_file).to receive(:diff_lines_for_serializer).exactly(3).times.and_return([])
+      expect(subject[:highlighted_diff_lines]).to eq([])
     end
   end
 

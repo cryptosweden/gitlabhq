@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Reposition and move issue within board lists' do
+RSpec.describe 'Reposition and move issue within board lists', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:group)   { create(:group, :private) }
   let_it_be(:project) { create(:project, group: group) }
   let_it_be(:board)   { create(:board, group: group) }
-  let_it_be(:user)    { create(:user) }
+  let_it_be(:user)    { create(:user, maintainer_of: group) }
   let_it_be(:development) { create(:label, project: project, name: 'Development') }
   let_it_be(:testing) { create(:label, project: project, name: 'Testing') }
   let_it_be(:list1)   { create(:list, board: board, label: development, position: 0) }
@@ -28,10 +28,6 @@ RSpec.describe 'Reposition and move issue within board lists' do
       from_list_id: list1.id,
       to_list_id: list2.id
     }
-  end
-
-  before_all do
-    group.add_maintainer(user)
   end
 
   shared_examples 'returns an error' do
@@ -100,6 +96,20 @@ RSpec.describe 'Reposition and move issue within board lists' do
         expect(response_issue['labels']['edges'][0]['node']['title']).to eq(testing.title)
       end
     end
+
+    context 'when moving an issue using position_in_list' do
+      let(:issue_move_params) { { from_list_id: list1.id, to_list_id: list2.id, position_in_list: 0 } }
+
+      it 'repositions an issue' do
+        post_graphql_mutation(mutation(params), current_user: current_user)
+
+        expect(response).to have_gitlab_http_status(:success)
+        response_issue = json_response['data'][mutation_result_identifier]['issue']
+        expect(response_issue['iid']).to eq(issue1.iid.to_s)
+        expect(response_issue['labels']['edges'][0]['node']['title']).to eq(testing.title)
+        expect(response_issue['relativePosition']).to be < existing_issue1.relative_position
+      end
+    end
   end
 
   context 'when user has no access to resources' do
@@ -117,22 +127,24 @@ RSpec.describe 'Reposition and move issue within board lists' do
   end
 
   def mutation(additional_params = {})
-    graphql_mutation(mutation_name, issue_move_params.merge(additional_params),
-                     <<-QL.strip_heredoc
-                       clientMutationId
-                       issue {
-                         iid,
-                         relativePosition
-                         labels {
-                           edges {
-                             node{
-                               title
-                             }
-                           }
-                         }
-                       }
-                       errors
-    QL
+    graphql_mutation(
+      mutation_name,
+      issue_move_params.merge(additional_params),
+      <<-QL.strip_heredoc
+        clientMutationId
+        issue {
+          iid,
+          relativePosition
+          labels {
+            edges {
+              node{
+                title
+              }
+            }
+          }
+        }
+        errors
+      QL
     )
   end
 end

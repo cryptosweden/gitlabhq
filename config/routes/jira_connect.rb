@@ -5,7 +5,6 @@ namespace :jira_connect do
   root to: proc { [404, {}, ['']] }, as: 'base'
 
   get 'app_descriptor' => 'app_descriptor#show'
-  get :users, to: 'users#show'
 
   namespace :events do
     post 'installed'
@@ -13,7 +12,24 @@ namespace :jira_connect do
   end
 
   resources :subscriptions, only: [:index, :create, :destroy]
-  resources :branches, only: [:new]
+  resources :branches, only: [:new] do
+    collection do
+      get :route
+    end
+  end
+  resources :public_keys, only: :show
+
+  resources :workspaces, only: [] do
+    collection do
+      get :search
+    end
+  end
+  resources :repositories, only: [] do
+    collection do
+      get :search
+      post :associate
+    end
+  end
 
   resources :installations, only: [:index] do
     collection do
@@ -22,4 +38,5 @@ namespace :jira_connect do
   end
 
   resources :oauth_callbacks, only: [:index]
+  resource :oauth_application_id, only: [:show]
 end

@@ -1,6 +1,9 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlModal, GlSafeHtmlDirective, GlButton, GlTooltipDirective } from '@gitlab/ui';
+import { GlModal, GlButton, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapActions, mapGetters } from 'vuex';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { n__ } from '~/locale';
 import { leftSidebarViews, MAX_WINDOW_HEIGHT_COMPACT } from '../../constants';
 import { createUnexpectedCommitError } from '../../lib/errors';
@@ -17,7 +20,7 @@ export default {
     GlButton,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
     GlTooltip: GlTooltipDirective,
   },
   data() {
@@ -154,13 +157,12 @@ export default {
           <gl-button
             :disabled="commitButtonDisabled"
             category="primary"
-            variant="info"
+            variant="confirm"
             block
-            class="qa-begin-commit-button"
             data-testid="begin-commit-button"
             @click="beginCommit"
           >
-            {{ __('Commit…') }}
+            {{ __('Create commit...') }}
           </gl-button>
         </div>
         <p class="text-center bold">{{ overviewText }}</p>
@@ -184,7 +186,6 @@ export default {
               :disabled="commitButtonDisabled"
               :loading="submitCommitLoading"
               data-testid="commit-button"
-              class="qa-commit-button"
               category="primary"
               variant="confirm"
               type="submit"
@@ -194,7 +195,7 @@ export default {
           </div>
           <gl-button
             v-if="!discardDraftButtonDisabled"
-            class="float-right"
+            class="gl-float-right"
             data-testid="discard-draft"
             @click="discardDraft"
           >
@@ -203,7 +204,7 @@ export default {
           <gl-button
             v-else
             type="button"
-            class="float-right"
+            class="gl-float-right"
             category="secondary"
             variant="default"
             @click="toggleIsCompact"
@@ -216,7 +217,9 @@ export default {
           modal-id="ide-commit-error-modal"
           :title="lastCommitError.title"
           :action-primary="commitErrorPrimaryAction.button"
-          :action-cancel="{ text: __('Cancel') }"
+          :action-cancel="/* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */ {
+            text: __('Cancel'),
+          } /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */"
           @ok="commitErrorPrimaryAction.callback"
         >
           <div v-safe-html="lastCommitError.messageHTML"></div>

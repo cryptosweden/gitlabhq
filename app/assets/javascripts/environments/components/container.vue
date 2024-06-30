@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlLoadingIcon } from '@gitlab/ui';
 import TablePagination from '~/vue_shared/components/pagination/table_pagination.vue';
@@ -33,7 +34,7 @@ export default {
 
 <template>
   <div class="environments-container">
-    <gl-loading-icon v-if="isLoading" size="md" class="gl-mt-3" label="Loading environments" />
+    <gl-loading-icon v-if="isLoading" size="lg" class="gl-mt-3" label="Loading environments" />
 
     <slot name="empty-state"></slot>
 

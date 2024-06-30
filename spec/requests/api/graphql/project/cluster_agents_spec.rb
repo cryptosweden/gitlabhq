@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Project.cluster_agents' do
+RSpec.describe 'Project.cluster_agents', feature_category: :deployment_management do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :public) }
-  let_it_be(:current_user) { create(:user, maintainer_projects: [project]) }
+  let_it_be(:current_user) { create(:user, maintainer_of: project) }
   let_it_be(:agents) { create_list(:cluster_agent, 3, project: project) }
 
   let(:first) { var('Int') }
@@ -22,14 +22,14 @@ RSpec.describe 'Project.cluster_agents' do
   end
 
   before do
-    allow(Gitlab::Kas::Client).to receive(:new).and_return(double(get_connected_agents: []))
+    allow(Gitlab::Kas::Client).to receive(:new).and_return(double(get_connected_agents_by_agent_ids: []))
   end
 
   it 'can retrieve cluster agents' do
     post_graphql(query, current_user: current_user)
 
     expect(graphql_data_at(:project, :cluster_agents, :nodes)).to match_array(
-      agents.map { |agent| a_hash_including('id' => global_id_of(agent)) }
+      agents.map { |agent| a_graphql_entity_for(agent) }
     )
   end
 
@@ -53,19 +53,21 @@ RSpec.describe 'Project.cluster_agents' do
     let_it_be(:token_1) { create(:cluster_agent_token, agent: agents.second) }
     let_it_be(:token_2) { create(:cluster_agent_token, agent: agents.second, last_used_at: 3.days.ago) }
     let_it_be(:token_3) { create(:cluster_agent_token, agent: agents.second, last_used_at: 2.days.ago) }
+    let_it_be(:revoked_token) { create(:cluster_agent_token, :revoked, agent: agents.second) }
 
     let(:cluster_agents_fields) { [:id, query_nodes(:tokens, of: 'ClusterAgentToken')] }
 
-    it 'can select tokens in last_used_at order' do
+    it 'can select active tokens in last_used_at order' do
       post_graphql(query, current_user: current_user)
 
       tokens = graphql_data_at(:project, :cluster_agents, :nodes, :tokens, :nodes)
 
-      expect(tokens).to match([
-        a_hash_including('id' => global_id_of(token_3)),
-        a_hash_including('id' => global_id_of(token_2)),
-        a_hash_including('id' => global_id_of(token_1))
-      ])
+      expect(tokens).to match(
+        [
+          a_graphql_entity_for(token_3),
+          a_graphql_entity_for(token_2),
+          a_graphql_entity_for(token_1)
+        ])
     end
 
     it 'does not suffer from N+1 performance issues' do
@@ -85,7 +87,7 @@ RSpec.describe 'Project.cluster_agents' do
     let(:cluster_agents_fields) { [:id, query_nodes(:connections, [:connection_id, :connected_at, metadata_fields])] }
 
     before do
-      allow(Gitlab::Kas::Client).to receive(:new).and_return(double(get_connected_agents: [connected_agent]))
+      allow(Gitlab::Kas::Client).to receive(:new).and_return(double(get_connected_agents_by_agent_ids: [connected_agent]))
     end
 
     it 'can retrieve connections and agent metadata' do

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group callouts' do
+RSpec.describe 'Group callouts', feature_category: :navigation do
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group) }
 
@@ -32,10 +32,12 @@ RSpec.describe 'Group callouts' do
 
       context 'when callout entry already exists' do
         let!(:callout) do
-          create(:group_callout,
-                 feature_name: Users::GroupCallout.feature_names.each_key.first,
-                 user: user,
-                 group: group)
+          create(
+            :group_callout,
+            feature_name: Users::GroupCallout.feature_names.each_key.first,
+            user: user,
+            group: group
+          )
         end
 
         it 'returns success', :aggregate_failures do

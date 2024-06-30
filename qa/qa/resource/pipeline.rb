@@ -9,10 +9,10 @@ module QA
         end
       end
 
-      attribute :id
-      attribute :status
-      attribute :ref
-      attribute :sha
+      attributes :id,
+        :status,
+        :ref,
+        :sha
 
       # array in form
       # [
@@ -28,9 +28,15 @@ module QA
       def fabricate!
         project.visit!
 
-        Page::Project::Menu.perform(&:click_ci_cd_pipelines)
+        Page::Project::Menu.perform(&:go_to_pipelines)
         Page::Project::Pipeline::Index.perform(&:click_run_pipeline_button)
         Page::Project::Pipeline::New.perform(&:click_run_pipeline_button)
+      end
+
+      def fabricate_via_api!
+        resource_web_url(api_get)
+      rescue ResourceNotFoundError, NoValueError
+        super
       end
 
       def ref
@@ -39,6 +45,10 @@ module QA
 
       def api_get_path
         "/projects/#{project.id}/pipelines/#{id}"
+      end
+
+      def api_jobs_path
+        "#{api_get_path}/jobs"
       end
 
       def api_post_path
@@ -50,6 +60,44 @@ module QA
           ref: ref,
           variables: variables
         }
+      end
+
+      def pipeline_variables
+        response = get(request_url("#{api_get_path}/variables"))
+
+        unless response.code == HTTP_STATUS_OK
+          raise ResourceQueryError, "Could not get variables. Request returned (#{response.code}): `#{response}`."
+        end
+
+        parse_body(response)
+      end
+
+      def has_variable?(key:, value:)
+        pipeline_variables.any? { |var| var[:key] == key && var[:value] == value }
+      end
+
+      def has_no_variable?(key:, value:)
+        !pipeline_variables.any? { |var| var[:key] == key && var[:value] == value }
+      end
+
+      def pipeline_bridges
+        response = get(request_url("#{api_get_path}/bridges"))
+
+        unless response.code == HTTP_STATUS_OK
+          raise ResourceQueryError, "Could not get bridges. Request returned (#{response.code}): `#{response}`."
+        end
+
+        parse_body(response)
+      end
+
+      def downstream_pipeline_id(bridge_name:)
+        result = pipeline_bridges.find { |bridge| bridge[:name] == bridge_name }
+
+        result[:downstream_pipeline][:id]
+      end
+
+      def jobs
+        parse_body(api_get_from(api_jobs_path))
       end
     end
   end

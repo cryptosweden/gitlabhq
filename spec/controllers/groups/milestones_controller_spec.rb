@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::MilestonesController do
-  let(:group) { create(:group, :public) }
-  let!(:project) { create(:project, :public, group: group) }
-  let!(:project2) { create(:project, group: group) }
-  let(:user)    { create(:user) }
+RSpec.describe Groups::MilestonesController, feature_category: :team_planning do
+  let_it_be(:group) { create(:group, :public) }
+  let_it_be(:project) { create(:project, :public, group: group) }
+  let_it_be(:project2) { create(:project, group: group) }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:milestone) { create(:milestone, project: project) }
   let(:title) { '肯定不是中文的问题' }
-  let(:milestone) { create(:milestone, project: project) }
 
   let(:milestone_params) do
     {
@@ -86,13 +86,13 @@ RSpec.describe Groups::MilestonesController do
           end
         end
 
-        let!(:public_group) { create(:group, :public) }
+        let_it_be(:public_group) { create(:group, :public) }
 
-        let!(:public_project_with_private_issues_and_mrs) do
+        let_it_be(:public_project_with_private_issues_and_mrs) do
           create(:project, :public, :issues_private, :merge_requests_private, group: public_group)
         end
 
-        let!(:private_milestone) { create(:milestone, project: public_project_with_private_issues_and_mrs, title: 'project milestone') }
+        let_it_be(:private_milestone) { create(:milestone, project: public_project_with_private_issues_and_mrs, title: 'project milestone') }
 
         context 'when anonymous user' do
           before do
@@ -165,17 +165,19 @@ RSpec.describe Groups::MilestonesController do
     end
 
     context 'as JSON' do
-      let!(:milestone) { create(:milestone, group: group, title: 'group milestone') }
-      let!(:project_milestone1) { create(:milestone, project: project, title: 'same name') }
-      let!(:project_milestone2) { create(:milestone, project: project2, title: 'same name') }
+      before do
+        create(:milestone, group: group, title: 'group milestone')
+        create(:milestone, project: project, title: 'same name')
+        create(:milestone, project: project2, title: 'same name')
+      end
 
       it 'lists project and group milestones' do
         get :index, params: { group_id: group.to_param }, format: :json
 
         milestones = json_response
 
-        expect(milestones.count).to eq(3)
-        expect(milestones.collect { |m| m['title'] }).to match_array(['same name', 'same name', 'group milestone'])
+        expect(milestones.count).to eq(4)
+        expect(milestones.collect { |m| m['title'] }).to match_array([milestone.name, 'same name', 'same name', 'group milestone'])
         expect(response).to have_gitlab_http_status(:ok)
         expect(response.media_type).to eq 'application/json'
       end
@@ -189,8 +191,8 @@ RSpec.describe Groups::MilestonesController do
           milestones = json_response
 
           milestone_titles = milestones.map { |m| m['title'] }
-          expect(milestones.count).to eq(4)
-          expect(milestone_titles).to match_array(['same name', 'same name', 'group milestone', 'subgroup milestone'])
+          expect(milestones.count).to eq(5)
+          expect(milestone_titles).to match_array([milestone.name, 'same name', 'same name', 'group milestone', 'subgroup milestone'])
         end
       end
 
@@ -230,11 +232,10 @@ RSpec.describe Groups::MilestonesController do
 
   describe "#create" do
     it "creates group milestone with Chinese title" do
-      post :create,
-           params: {
-             group_id: group.to_param,
-             milestone: milestone_params
-           }
+      post :create, params: {
+        group_id: group.to_param,
+        milestone: milestone_params
+      }
 
       milestone = Milestone.find_by_title(title)
 
@@ -246,21 +247,98 @@ RSpec.describe Groups::MilestonesController do
   end
 
   describe "#update" do
-    let(:milestone) { create(:milestone, group: group) }
+    let_it_be_with_reload(:milestone) { create(:milestone, group: group) }
+
+    subject do
+      put :update, params: {
+        id: milestone.iid,
+        milestone: milestone_params,
+        group_id: group.to_param
+      }
+    end
 
     it "updates group milestone" do
       milestone_params[:title] = "title changed"
 
-      put :update,
-           params: {
-             id: milestone.iid,
-             group_id: group.to_param,
-             milestone: milestone_params
-           }
-
+      subject
       milestone.reload
+
       expect(response).to redirect_to(group_milestone_path(group, milestone.iid))
       expect(milestone.title).to eq("title changed")
+    end
+
+    it "handles validation error" do
+      subgroup = create(:group, parent: group)
+      subgroup_milestone = create(:milestone, group: subgroup)
+
+      milestone_params[:title] = subgroup_milestone.title
+
+      subject
+
+      expect(response).not_to redirect_to(group_milestone_path(group, milestone.iid))
+      expect(response).to render_template(:edit)
+    end
+
+    it "handles ActiveRecord::StaleObjectError" do
+      milestone_params[:title] = "title changed"
+      # Purposely reduce the lock_version to trigger an ActiveRecord::StaleObjectError
+      milestone_params[:lock_version] = milestone.lock_version - 1
+
+      subject
+
+      expect(response).not_to redirect_to(group_milestone_path(group, milestone.iid))
+      expect(response).to render_template(:edit)
+    end
+
+    context 'with format :json' do
+      subject do
+        patch :update,
+          params: {
+            id: milestone.iid,
+            milestone: milestone_params,
+            group_id: group.to_param,
+            format: :json
+          }
+      end
+
+      it "responds :no_content (204) without content body and updates milestone successfully" do
+        subject
+
+        expect(response).to have_gitlab_http_status(:no_content)
+        expect(response.body).to be_blank
+
+        milestone.reload
+
+        expect(milestone).to have_attributes(title: milestone_params[:title])
+      end
+
+      it 'responds unprocessable_entity (422) with error data' do
+        # Note: This assignment ensures and triggers a validation error when updating the milestone.
+        # Same approach used in spec/models/milestone_spec.rb .
+        milestone_params[:title] = '<img src=x onerror=prompt(1)>'
+
+        subject
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+
+        expect(json_response).to include("errors" => be_an(Array))
+      end
+
+      it "handles ActiveRecord::StaleObjectError" do
+        milestone_params[:title] = "title changed"
+        # Purposely reduce the `lock_version` to trigger an ActiveRecord::StaleObjectError
+        milestone_params[:lock_version] = milestone.lock_version - 1
+
+        subject
+
+        expect(response).to have_gitlab_http_status(:conflict)
+        expect(json_response).to include "errors" => [
+          format(
+            _("Someone edited this %{model_name} at the same time you did. Please refresh your browser and make sure your changes will not unintentionally remove theirs."), # rubocop:disable Layout/LineLength
+            model_name: _('milestone')
+          )
+        ]
+      end
     end
   end
 
@@ -390,21 +468,19 @@ RSpec.describe Groups::MilestonesController do
   context 'for a non-GET request' do
     context 'when requesting the canonical path with different casing' do
       it 'does not 404' do
-        post :create,
-             params: {
-               group_id: group.to_param,
-               milestone: { title: title }
-             }
+        post :create, params: {
+          group_id: group.to_param,
+          milestone: { title: title }
+        }
 
         expect(response).not_to have_gitlab_http_status(:not_found)
       end
 
       it 'does not redirect to the correct casing' do
-        post :create,
-             params: {
-               group_id: group.to_param,
-               milestone: { title: title }
-             }
+        post :create, params: {
+          group_id: group.to_param,
+          milestone: { title: title }
+        }
 
         expect(response).not_to have_gitlab_http_status(:moved_permanently)
       end
@@ -414,11 +490,10 @@ RSpec.describe Groups::MilestonesController do
       let(:redirect_route) { group.redirect_routes.create!(path: 'old-path') }
 
       it 'returns not found' do
-        post :create,
-             params: {
-               group_id: redirect_route.path,
-               milestone: { title: title }
-             }
+        post :create, params: {
+          group_id: redirect_route.path,
+          milestone: { title: title }
+        }
 
         expect(response).to have_gitlab_http_status(:not_found)
       end

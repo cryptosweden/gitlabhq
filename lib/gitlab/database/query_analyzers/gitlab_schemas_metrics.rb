@@ -14,14 +14,14 @@ module Gitlab
         class << self
           def enabled?
             ::Feature::FlipperFeature.table_exists? &&
-              Feature.enabled?(:query_analyzer_gitlab_schema_metrics)
+              Feature.enabled?(:query_analyzer_gitlab_schema_metrics, type: :ops)
           end
 
           def analyze(parsed)
             db_config_name = ::Gitlab::Database.db_config_name(parsed.connection)
             return unless db_config_name
 
-            gitlab_schemas = ::Gitlab::Database::GitlabSchema.table_schemas(parsed.pg.tables)
+            gitlab_schemas = ::Gitlab::Database::GitlabSchema.table_schemas!(parsed.pg.tables)
             return if gitlab_schemas.empty?
 
             # to reduce amount of labels sort schemas used

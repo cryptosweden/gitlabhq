@@ -2,13 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
+RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching,
+  feature_category: :deployment_management do
   include ReactiveCachingHelpers
   include KubernetesHelpers
 
   it_behaves_like 'having unique enum values'
 
-  subject { build(:cluster) }
+  subject(:cluster) { build(:cluster) }
 
   it { is_expected.to include_module(HasEnvironmentScope) }
   it { is_expected.to belong_to(:user) }
@@ -22,41 +23,23 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
   it { is_expected.to have_one(:provider_aws) }
   it { is_expected.to have_one(:platform_kubernetes) }
   it { is_expected.to have_one(:integration_prometheus) }
-  it { is_expected.to have_one(:application_helm) }
-  it { is_expected.to have_one(:application_ingress) }
-  it { is_expected.to have_one(:application_prometheus) }
-  it { is_expected.to have_one(:application_runner) }
   it { is_expected.to have_many(:kubernetes_namespaces) }
   it { is_expected.to have_one(:cluster_project) }
   it { is_expected.to have_many(:deployment_clusters) }
-  it { is_expected.to have_many(:metrics_dashboard_annotations) }
-  it { is_expected.to have_many(:successful_deployments) }
   it { is_expected.to have_many(:environments).through(:deployments) }
 
   it { is_expected.to delegate_method(:status).to(:provider) }
   it { is_expected.to delegate_method(:status_reason).to(:provider) }
-  it { is_expected.to delegate_method(:on_creation?).to(:provider) }
-  it { is_expected.to delegate_method(:knative_pre_installed?).to(:provider) }
-  it { is_expected.to delegate_method(:active?).to(:platform_kubernetes).with_prefix }
-  it { is_expected.to delegate_method(:rbac?).to(:platform_kubernetes).with_prefix }
-  it { is_expected.to delegate_method(:available?).to(:application_helm).with_prefix }
-  it { is_expected.to delegate_method(:available?).to(:application_ingress).with_prefix }
-  it { is_expected.to delegate_method(:available?).to(:application_knative).with_prefix }
-  it { is_expected.to delegate_method(:available?).to(:integration_elastic_stack).with_prefix }
-  it { is_expected.to delegate_method(:available?).to(:integration_prometheus).with_prefix }
-  it { is_expected.to delegate_method(:external_ip).to(:application_ingress).with_prefix }
-  it { is_expected.to delegate_method(:external_hostname).to(:application_ingress).with_prefix }
 
   it { is_expected.to respond_to :project }
   it { is_expected.to be_namespace_per_environment }
 
-  describe 'applications have inverse_of: :cluster option' do
-    let(:cluster) { create(:cluster) }
-    let!(:helm) { create(:clusters_applications_helm, cluster: cluster) }
+  describe 'default values' do
+    it { expect(subject.helm_major_version).to eq(3) }
+  end
 
-    it 'does not do a third query when referencing cluster again' do
-      expect { cluster.application_helm.cluster }.not_to exceed_query_limit(2)
-    end
+  it_behaves_like 'it has loose foreign keys' do
+    let(:factory_name) { :cluster }
   end
 
   describe '.enabled' do
@@ -196,22 +179,6 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
     end
   end
 
-  describe '.with_available_elasticstack' do
-    subject { described_class.with_available_elasticstack }
-
-    let_it_be(:cluster) { create(:cluster) }
-
-    context 'cluster has ElasticStack application' do
-      let!(:application) { create(:clusters_applications_elastic_stack, :installed, cluster: cluster) }
-
-      it { is_expected.to include(cluster) }
-    end
-
-    context 'cluster does not have ElasticStack application' do
-      it { is_expected.not_to include(cluster) }
-    end
-  end
-
   describe '.distinct_with_deployed_environments' do
     subject { described_class.distinct_with_deployed_environments }
 
@@ -219,8 +186,15 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
 
     context 'cluster has multiple successful deployment with environment' do
       let!(:environment) { create(:environment) }
-      let!(:deployment) { create(:deployment, :success, cluster: cluster, environment: environment) }
-      let!(:deployment_2) { create(:deployment, :success, cluster: cluster, environment: environment) }
+      let!(:deployment) { create(:deployment, :on_cluster, :success, environment: environment) }
+      let!(:deployment_2) { create(:deployment, :on_cluster, :success, environment: environment) }
+
+      before do
+        deployment.deployment_cluster.update!(cluster: cluster)
+        deployment_2.deployment_cluster.update!(cluster: cluster)
+        deployment.reload
+        deployment_2.reload
+      end
 
       it { is_expected.to include(cluster) }
 
@@ -231,9 +205,9 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
 
     context 'cluster has only failed deployment with environment' do
       let!(:environment) { create(:environment) }
-      let!(:deployment) { create(:deployment, :failed, cluster: cluster, environment: environment) }
+      let!(:deployment) { create(:deployment, :failed, :on_cluster, environment: environment) }
 
-      it { is_expected.not_to include(cluster) }
+      it { is_expected.not_to include(deployment.cluster) }
     end
 
     context 'cluster does not have any deployment' do
@@ -602,9 +576,9 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
 
       it 'avoids N+1 queries' do
         another_project = create(:project)
-        control_count = ActiveRecord::QueryRecorder.new do
+        control = ActiveRecord::QueryRecorder.new do
           described_class.ancestor_clusters_for_clusterable(another_project, hierarchy_order: hierarchy_order)
-        end.count
+        end
 
         cluster2 = create(:cluster, :provided_by_gcp, :group)
         child2 = cluster2.group
@@ -613,7 +587,7 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
 
         expect do
           described_class.ancestor_clusters_for_clusterable(project, hierarchy_order: hierarchy_order)
-        end.not_to exceed_query_limit(control_count)
+        end.not_to exceed_query_limit(control)
       end
 
       context 'for a group' do
@@ -709,104 +683,6 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
     end
   end
 
-  describe '.with_persisted_applications' do
-    let(:cluster) { create(:cluster) }
-    let!(:helm) { create(:clusters_applications_helm, :installed, cluster: cluster) }
-
-    it 'preloads persisted applications' do
-      query_rec = ActiveRecord::QueryRecorder.new do
-        described_class.with_persisted_applications.find_by_id(cluster.id).application_helm
-      end
-
-      expect(query_rec.count).to eq(1)
-    end
-  end
-
-  describe '#persisted_applications' do
-    let(:cluster) { create(:cluster) }
-
-    subject { cluster.persisted_applications }
-
-    context 'when all applications are created' do
-      let!(:helm) { create(:clusters_applications_helm, cluster: cluster) }
-      let!(:ingress) { create(:clusters_applications_ingress, cluster: cluster) }
-      let!(:cert_manager) { create(:clusters_applications_cert_manager, cluster: cluster) }
-      let!(:prometheus) { create(:clusters_applications_prometheus, cluster: cluster) }
-      let!(:runner) { create(:clusters_applications_runner, cluster: cluster) }
-      let!(:jupyter) { create(:clusters_applications_jupyter, cluster: cluster) }
-      let!(:knative) { create(:clusters_applications_knative, cluster: cluster) }
-
-      it 'returns a list of created applications' do
-        is_expected.to contain_exactly(helm, ingress, cert_manager, prometheus, runner, jupyter, knative)
-      end
-    end
-
-    context 'when not all were created' do
-      let!(:helm) { create(:clusters_applications_helm, cluster: cluster) }
-      let!(:ingress) { create(:clusters_applications_ingress, cluster: cluster) }
-
-      it 'returns a list of created applications' do
-        is_expected.to contain_exactly(helm, ingress)
-      end
-    end
-  end
-
-  describe '#applications' do
-    let_it_be(:cluster, reload: true) { create(:cluster) }
-
-    subject { cluster.applications }
-
-    context 'when none of applications are created' do
-      it 'returns a list of a new objects' do
-        is_expected.not_to be_empty
-      end
-    end
-
-    context 'when applications are created' do
-      let(:cluster) { create(:cluster, :with_all_applications) }
-
-      it 'returns a list of created applications', :aggregate_failures do
-        is_expected.to have_attributes(size: described_class::APPLICATIONS.size)
-        is_expected.to all(be_kind_of(::Clusters::Concerns::ApplicationCore))
-        is_expected.to all(be_persisted)
-      end
-    end
-  end
-
-  describe '#find_or_build_application' do
-    let_it_be(:cluster, reload: true) { create(:cluster) }
-
-    it 'rejects classes that are not applications' do
-      expect do
-        cluster.find_or_build_application(Project)
-      end.to raise_error(ArgumentError)
-    end
-
-    context 'when none of applications are created' do
-      it 'returns the new application', :aggregate_failures do
-        described_class::APPLICATIONS.values.each do |application_class|
-          application = cluster.find_or_build_application(application_class)
-
-          expect(application).to be_a(application_class)
-          expect(application).not_to be_persisted
-        end
-      end
-    end
-
-    context 'when application is persisted' do
-      let(:cluster) { create(:cluster, :with_all_applications) }
-
-      it 'returns the persisted application', :aggregate_failures do
-        described_class::APPLICATIONS.each_value do |application_class|
-          application = cluster.find_or_build_application(application_class)
-
-          expect(application).to be_kind_of(::Clusters::Concerns::ApplicationCore)
-          expect(application).to be_persisted
-        end
-      end
-    end
-  end
-
   describe '#allow_user_defined_namespace?' do
     subject { cluster.allow_user_defined_namespace? }
 
@@ -856,7 +732,7 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
   describe '#all_projects' do
     context 'cluster_type is project_type' do
       let(:project) { create(:project) }
-      let(:cluster) { create(:cluster, :with_installed_helm, projects: [project]) }
+      let(:cluster) { create(:cluster, projects: [project]) }
 
       it 'returns projects' do
         expect(cluster.all_projects).to match_array [project]
@@ -866,7 +742,7 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
     context 'cluster_type is group_type' do
       let(:group) { create(:group) }
       let!(:project) { create(:project, group: group) }
-      let(:cluster) { create(:cluster_for_group, :with_installed_helm, groups: [group]) }
+      let(:cluster) { create(:cluster_for_group, groups: [group]) }
 
       it 'returns group projects' do
         expect(cluster.all_projects.ids).to match_array [project.id]
@@ -1105,7 +981,7 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
     end
 
     describe '#make_cleanup_errored!' do
-      non_errored_states = Clusters::Cluster.state_machines[:cleanup_status].states.keys - [:cleanup_errored]
+      non_errored_states = described_class.state_machines[:cleanup_status].states.keys - [:cleanup_errored]
 
       non_errored_states.each do |state|
         it "transitions cleanup_status from #{state} to cleanup_errored" do
@@ -1291,14 +1167,14 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
 
         context 'generic timeout' do
           let(:connection_status) { { connection_status: :unreachable, connection_error: :http_error } }
-          let(:error_message) { 'Timed out connecting to server'}
+          let(:error_message) { 'Timed out connecting to server' }
 
           it { is_expected.to eq(**connection_status, **expected_nodes) }
         end
 
         context 'gateway timeout' do
           let(:connection_status) { { connection_status: :unreachable, connection_error: :http_error } }
-          let(:error_message) { '504 Gateway Timeout for GET https://kubernetes.example.com/api/v1'}
+          let(:error_message) { '504 Gateway Timeout for GET https://kubernetes.example.com/api/v1' }
 
           it { is_expected.to eq(**connection_status, **expected_nodes) }
         end
@@ -1359,22 +1235,6 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
         expect(cluster.prometheus_adapter).to eq(integration)
       end
     end
-
-    context 'has application_prometheus' do
-      let_it_be(:application) { create(:clusters_applications_prometheus, :no_helm_installed, cluster: cluster) }
-
-      it 'returns nil' do
-        expect(cluster.prometheus_adapter).to be_nil
-      end
-
-      context 'also has a integration_prometheus' do
-        let_it_be(:integration) { create(:clusters_integrations_prometheus, cluster: cluster) }
-
-        it 'returns the integration' do
-          expect(cluster.prometheus_adapter).to eq(integration)
-        end
-      end
-    end
   end
 
   describe '#delete_cached_resources!' do
@@ -1423,6 +1283,100 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching do
 
       it 'raises NotImplementedError' do
         expect { subject }.to raise_error(NotImplementedError)
+      end
+    end
+  end
+
+  describe '#on_creation?' do
+    subject(:on_creation?) { cluster.on_creation? }
+
+    before do
+      allow(cluster).to receive(:provider).and_return(provider)
+    end
+
+    context 'without provider' do
+      let(:provider) {}
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'with provider' do
+      let(:provider) { instance_double(Clusters::Providers::Gcp, on_creation?: on_creation?) }
+
+      before do
+        allow(cluster).to receive(:provider).and_return(provider)
+      end
+
+      context 'with on_creation? set to true' do
+        let(:on_creation?) { true }
+
+        it { is_expected.to eq(true) }
+      end
+
+      context 'with on_creation? set to false' do
+        let(:on_creation?) { false }
+
+        it { is_expected.to eq(false) }
+      end
+    end
+  end
+
+  describe '#platform_kubernetes_active?' do
+    subject(:platform_kubernetes_active?) { cluster.platform_kubernetes_active? }
+
+    before do
+      allow(cluster).to receive(:platform_kubernetes).and_return(platform_kubernetes)
+    end
+
+    context 'without platform_kubernetes' do
+      let(:platform_kubernetes) {}
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'with platform_kubernetes' do
+      let(:platform_kubernetes) { instance_double(Clusters::Platforms::Kubernetes, active?: active?) }
+
+      context 'with active? set to true' do
+        let(:active?) { true }
+
+        it { is_expected.to eq(true) }
+      end
+
+      context 'with active? set to false' do
+        let(:active?) { false }
+
+        it { is_expected.to eq(false) }
+      end
+    end
+  end
+
+  describe '#platform_kubernetes_rbac?' do
+    subject(:platform_kubernetes_rbac?) { cluster.platform_kubernetes_rbac? }
+
+    before do
+      allow(cluster).to receive(:platform_kubernetes).and_return(platform_kubernetes)
+    end
+
+    context 'without platform_kubernetes' do
+      let(:platform_kubernetes) {}
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'with platform_kubernetes' do
+      let(:platform_kubernetes) { instance_double(Clusters::Platforms::Kubernetes, rbac?: rbac?) }
+
+      context 'with rbac? set to true' do
+        let(:rbac?) { true }
+
+        it { is_expected.to eq(true) }
+      end
+
+      context 'with rbac? set to false' do
+        let(:rbac?) { false }
+
+        it { is_expected.to eq(false) }
       end
     end
   end

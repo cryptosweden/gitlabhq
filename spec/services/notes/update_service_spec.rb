@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Notes::UpdateService do
+RSpec.describe Notes::UpdateService, feature_category: :team_planning do
   let(:group) { create(:group, :public) }
   let(:project) { create(:project, :public, group: group) }
   let(:private_group) { create(:group, :private) }
@@ -47,21 +47,55 @@ RSpec.describe Notes::UpdateService do
       end
     end
 
-    it 'does not track usage data when params is blank' do
-      expect(Gitlab::UsageDataCounters::IssueActivityUniqueCounter).not_to receive(:track_issue_comment_edited_action)
-      expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter).not_to receive(:track_edit_comment_action)
+    context 'when the note is invalid' do
+      let(:edit_note_text) { { note: 'new text' } }
 
-      update_note({})
+      before do
+        allow(note).to receive(:valid?).and_return(false)
+      end
+
+      it 'does not update the note' do
+        travel_to(1.day.from_now) do
+          expect { update_note(edit_note_text) }.not_to change { note.reload.updated_at }
+        end
+      end
+
+      it 'returns the note' do
+        expect(update_note(edit_note_text)).to eq(note)
+      end
     end
 
-    it 'tracks issue usage data', :clean_gitlab_redis_shared_state do
-      event = Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_COMMENT_EDITED
-      counter = Gitlab::UsageDataCounters::HLLRedisCounter
+    describe 'event tracking' do
+      it 'does not track usage data when params is blank', :clean_gitlab_redis_shared_state do
+        expect { update_note({}) }
+          .to not_trigger_internal_events(
+            Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_COMMENT_EDITED,
+            Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter::MR_EDIT_COMMENT_ACTION,
+            Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter::MR_EDIT_MULTILINE_COMMENT_ACTION
+          ).and not_increment_usage_metrics(
+            'redis_hll_counters.issues_edit.g_project_management_issue_comment_edited_monthly',
+            'redis_hll_counters.issues_edit.g_project_management_issue_comment_edited_weekly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_mr_comment_monthly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_mr_comment_weekly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_multiline_mr_comment_monthly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_multiline_mr_comment_weekly'
+          )
+      end
 
-      expect(Gitlab::UsageDataCounters::IssueActivityUniqueCounter).to receive(:track_issue_comment_edited_action).with(author: user).and_call_original
-      expect do
-        update_note(note: 'new text')
-      end.to change { counter.unique_events(event_names: event, start_date: 1.day.ago, end_date: 1.day.from_now) }.by(1)
+      it 'tracks internal events and increments usage metrics', :clean_gitlab_redis_shared_state do
+        expect { update_note(note: 'new text') }
+          .to trigger_internal_events(Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_COMMENT_EDITED)
+            .with(project: project, user: user, category: 'InternalEventTracking')
+          .and increment_usage_metrics(
+            'redis_hll_counters.issues_edit.g_project_management_issue_comment_edited_monthly',
+            'redis_hll_counters.issues_edit.g_project_management_issue_comment_edited_weekly'
+          ).by(1)
+          .and increment_usage_metrics(
+            # Issue creation & update are performed by 2 different users
+            'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_monthly',
+            'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_weekly'
+          ).by(2)
+      end
     end
 
     context 'when note text was changed' do
@@ -79,11 +113,33 @@ RSpec.describe Notes::UpdateService do
           expect { edit_note_text }.to change { note.reload.updated_by }
         end
       end
+
+      it 'checks for spam' do
+        expect(note).to receive(:check_for_spam).with(action: :update, user: user)
+        edit_note_text
+      end
+
+      it 'creates a webhook event' do
+        expect(project).to receive(:execute_hooks)
+        edit_note_text
+      end
+
+      context 'when quick action only update' do
+        it "delete note and return commands_only error" do
+          updated_note = described_class.new(project, user, { note: "/close\n" }).execute(note)
+
+          expect(updated_note.destroyed?).to eq(true)
+          expect(updated_note.errors).to match_array([
+            "Note can't be blank",
+            "Commands only Closed this issue."
+          ])
+        end
+      end
     end
 
     context 'when note text was not changed' do
       let!(:note) { create(:note, project: project, noteable: issue, author: user2, note: "Old note #{user3.to_reference}") }
-      let(:does_not_edit_note_text) { update_note({}) }
+      let(:does_not_edit_note_text) { update_note({ note: note.note }) }
 
       it 'does not update last_edited_at' do
         travel_to(1.day.from_now) do
@@ -96,16 +152,49 @@ RSpec.describe Notes::UpdateService do
           expect { does_not_edit_note_text }.not_to change { note.reload.updated_by }
         end
       end
+
+      it 'does not check for spam' do
+        expect(note).not_to receive(:check_for_spam)
+        does_not_edit_note_text
+      end
+
+      it 'does not create a webhook event' do
+        expect(project).not_to receive(:execute_hooks)
+        does_not_edit_note_text
+      end
     end
 
     context 'when the notable is a merge request' do
       let(:merge_request) { create(:merge_request, source_project: project) }
       let(:note) { create(:note, project: project, noteable: merge_request, author: user, note: "Old note #{user2.to_reference}") }
 
-      it 'tracks merge request usage data' do
-        expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter).to receive(:track_edit_comment_action).with(note: note)
+      it 'does not track usage data when params is blank', :clean_gitlab_redis_shared_state do
+        expect { update_note({}) }
+          .to not_increment_usage_metrics(
+            'redis_hll_counters.issues_edit.g_project_management_issue_comment_edited_monthly',
+            'redis_hll_counters.issues_edit.g_project_management_issue_comment_edited_weekly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_mr_comment_monthly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_mr_comment_weekly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_multiline_mr_comment_monthly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_multiline_mr_comment_weekly'
+          )
+      end
 
-        update_note(note: 'new text')
+      it 'tracks merge request usage data', :clean_gitlab_redis_shared_state do
+        expect { update_note(note: 'new text') }
+          .to increment_usage_metrics(
+            'redis_hll_counters.code_review.i_code_review_user_edit_mr_comment_monthly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_mr_comment_weekly',
+            'redis_hll_counters.code_review.code_review_total_unique_counts_monthly',
+            'redis_hll_counters.code_review.code_review_total_unique_counts_weekly',
+            'counts_monthly.aggregated_metrics.code_review_category_monthly_active_users',
+            'counts_weekly.aggregated_metrics.code_review_category_monthly_active_users',
+            'counts_monthly.aggregated_metrics.code_review_group_monthly_active_users',
+            'counts_weekly.aggregated_metrics.code_review_group_monthly_active_users'
+          ).and not_increment_usage_metrics(
+            'redis_hll_counters.code_review.i_code_review_user_edit_multiline_mr_comment_monthly',
+            'redis_hll_counters.code_review.i_code_review_user_edit_multiline_mr_comment_weekly'
+          )
       end
     end
 
@@ -135,45 +224,6 @@ RSpec.describe Notes::UpdateService do
 
         expect(note.suggestions.order(:relative_order).map(&:to_content))
           .to eq(["  foo\n", "  bar\n"])
-      end
-    end
-
-    context 'setting confidentiality' do
-      let(:opts) { { confidential: true } }
-
-      context 'simple note' do
-        it 'updates the confidentiality' do
-          expect { update_note(opts) }.to change { note.reload.confidential }.from(nil).to(true)
-        end
-      end
-
-      context 'discussion notes' do
-        let(:note) { create(:discussion_note, project: project, noteable: issue, author: user, note: "Old note #{user2.to_reference}") }
-        let!(:response_note_1) { create(:discussion_note, project: project, noteable: issue, in_reply_to: note) }
-        let!(:response_note_2) { create(:discussion_note, project: project, noteable: issue, in_reply_to: note, confidential: false) }
-        let!(:other_note) { create(:note, project: project, noteable: issue) }
-
-        context 'when updating the root note' do
-          it 'updates the confidentiality of the root note and all the responses' do
-            update_note(opts)
-
-            expect(note.reload.confidential).to be_truthy
-            expect(response_note_1.reload.confidential).to be_truthy
-            expect(response_note_2.reload.confidential).to be_truthy
-            expect(other_note.reload.confidential).to be_falsey
-          end
-        end
-
-        context 'when updating one of the response notes' do
-          it 'updates only the confidentiality of the note that is being updated' do
-            Notes::UpdateService.new(project, user, opts).execute(response_note_1)
-
-            expect(note.reload.confidential).to be_falsey
-            expect(response_note_1.reload.confidential).to be_truthy
-            expect(response_note_2.reload.confidential).to be_falsey
-            expect(other_note.reload.confidential).to be_falsey
-          end
-        end
       end
     end
 
@@ -274,7 +324,7 @@ RSpec.describe Notes::UpdateService do
     context 'for a personal snippet' do
       let_it_be(:snippet) { create(:personal_snippet, :public) }
 
-      let(:note) { create(:note, project: nil, noteable: snippet, author: user, note: "Note on a snippet with reference #{issue.to_reference}" ) }
+      let(:note) { create(:note, project: nil, noteable: snippet, author: user, note: "Note on a snippet with reference #{issue.to_reference}") }
 
       it 'does not create todos' do
         expect { update_note({ note: "Mentioning user #{user2}" }) }.not_to change { note.todos.count }
@@ -292,6 +342,12 @@ RSpec.describe Notes::UpdateService do
 
       it 'does not track usage data' do
         expect(Gitlab::UsageDataCounters::IssueActivityUniqueCounter).not_to receive(:track_issue_comment_edited_action)
+
+        update_note(note: 'new text')
+      end
+
+      it 'does not create a webhook event' do
+        expect(project).not_to receive(:execute_hooks)
 
         update_note(note: 'new text')
       end

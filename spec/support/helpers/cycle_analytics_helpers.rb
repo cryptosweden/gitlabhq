@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
+require_relative './listbox_helpers'
+
 module CycleAnalyticsHelpers
-  include GitHelpers
+  include ::ListboxHelpers
 
   def toggle_value_stream_dropdown
     page.find('[data-testid="dropdown-value-streams"]').click
@@ -9,24 +11,26 @@ module CycleAnalyticsHelpers
 
   def path_nav_stage_names_without_median
     # Returns the path names with the median value stripped out
-    page.all('.gl-path-button').collect(&:text).map {|name_with_median| name_with_median.split("\n")[0] }
+    page.all('.gl-path-button').collect(&:text).map { |name_with_median| name_with_median.split("\n")[0] }
   end
 
-  def fill_in_custom_stage_fields
+  def fill_in_custom_stage_fields(stage_name = nil)
     index = page.all('[data-testid="value-stream-stage-fields"]').length
     last_stage = page.all('[data-testid="value-stream-stage-fields"]').last
 
+    stage_name = "Cool custom stage - name #{index}" if stage_name.blank?
+
     within last_stage do
-      find('[name*="custom-stage-name-"]').fill_in with: "Cool custom stage - name #{index}"
-      select_dropdown_option_by_value "custom-stage-start-event-", :merge_request_created
-      select_dropdown_option_by_value "custom-stage-end-event-", :merge_request_merged
+      find('[name*="custom-stage-name-"]').fill_in with: stage_name
+      select_dropdown_option_by_value "custom-stage-start-event-", 'Merge request created'
+      select_dropdown_option_by_value "custom-stage-end-event-", 'Merge request merged'
     end
   end
 
   def select_event_label(sel)
     page.within(sel) do
-      find('.dropdown-toggle').click
-      page.find(".dropdown-menu").all(".dropdown-item")[1].click
+      find('[data-testid="base-dropdown-toggle"]').click
+      page.find('[data-testid="base-dropdown-menu"]').all(".gl-new-dropdown-item")[1].click
     end
   end
 
@@ -36,8 +40,8 @@ module CycleAnalyticsHelpers
 
     within last_stage do
       find('[name*="custom-stage-name-"]').fill_in with: "Cool custom label stage - name #{index}"
-      select_dropdown_option_by_value "custom-stage-start-event-", :issue_label_added
-      select_dropdown_option_by_value "custom-stage-end-event-", :issue_label_removed
+      select_dropdown_option_by_value "custom-stage-start-event-", 'Issue label was added'
+      select_dropdown_option_by_value "custom-stage-end-event-", 'Issue label was removed'
 
       select_event_label("[data-testid*='custom-stage-start-event-label-']")
       select_event_label("[data-testid*='custom-stage-end-event-label-']")
@@ -59,7 +63,7 @@ module CycleAnalyticsHelpers
   def save_value_stream(custom_value_stream_name)
     fill_in 'create-value-stream-name', with: custom_value_stream_name
 
-    page.find_button(s_('CreateValueStreamForm|Create value stream')).click
+    click_button(_('New value stream'))
     wait_for_requests
   end
 
@@ -69,7 +73,7 @@ module CycleAnalyticsHelpers
 
   def create_custom_value_stream(custom_value_stream_name)
     toggle_value_stream_dropdown
-    page.find_button(_('Create new Value Stream')).click
+    find_by_testid('create-value-stream-option').click
 
     add_custom_stage_to_form
     save_value_stream(custom_value_stream_name)
@@ -86,19 +90,32 @@ module CycleAnalyticsHelpers
     wait_for_stages_to_load(ready_selector)
   end
 
-  def toggle_dropdown(field)
-    page.within("[data-testid*='#{field}']") do
-      find('.dropdown-toggle').click
-
-      wait_for_requests
-
-      expect(find('.dropdown-menu')).to have_selector('.dropdown-item')
-    end
+  def select_value_stream(value_stream_name)
+    toggle_value_stream_dropdown
+    page.find('[data-testid="dropdown-value-streams"]').all('li span').find { |item| item.text == value_stream_name.to_s }.click
+    wait_for_requests
   end
 
-  def select_dropdown_option_by_value(name, value, elem = '.dropdown-item')
-    toggle_dropdown name
-    page.find("[data-testid*='#{name}'] .dropdown-menu").find("#{elem}[value='#{value}']").click
+  def create_value_stream_aggregation(namespace)
+    aggregation = Analytics::CycleAnalytics::Aggregation.safe_create_for_namespace(namespace)
+    Analytics::CycleAnalytics::AggregatorService.new(aggregation: aggregation).execute
+  end
+
+  def select_group_and_custom_value_stream(group, custom_value_stream_name)
+    create_value_stream_aggregation(group)
+
+    select_group(group)
+    select_value_stream(custom_value_stream_name)
+  end
+
+  def select_dropdown_option_by_value(name, value)
+    page.within("[data-testid*='#{name}']") do
+      toggle_listbox
+
+      wait_for_requests
+    end
+
+    select_listbox_item(value)
   end
 
   def create_commit_referencing_issue(issue, branch_name: generate(:branch))
@@ -108,11 +125,7 @@ module CycleAnalyticsHelpers
 
   def create_commit(message, project, user, branch_name, count: 1, commit_time: nil, skip_push_handler: false)
     repository = project.repository
-    oldrev = repository.commit(branch_name)&.sha || Gitlab::Git::BLANK_SHA
-
-    if Timecop.frozen?
-      mock_gitaly_multi_action_dates(repository, commit_time)
-    end
+    oldrev = repository.commit(branch_name)&.sha || Gitlab::Git::SHA1_BLANK_SHA
 
     commit_shas = Array.new(count) do |index|
       commit_sha = repository.create_file(user, generate(:branch), "content", message: message, branch_name: branch_name)
@@ -172,7 +185,7 @@ module CycleAnalyticsHelpers
 
   def merge_merge_requests_closing_issue(user, project, issue)
     merge_requests = Issues::ReferencedMergeRequestsService
-                       .new(project: project, current_user: user)
+                       .new(container: project, current_user: user)
                        .closed_by_merge_requests(issue)
 
     merge_requests.each { |merge_request| MergeRequests::MergeService.new(project: project, current_user: user, params: { sha: merge_request.diff_head_sha }).execute(merge_request) }
@@ -223,22 +236,12 @@ module CycleAnalyticsHelpers
       protected: false)
   end
 
-  def mock_gitaly_multi_action_dates(repository, commit_time)
-    allow(repository.raw).to receive(:multi_action).and_wrap_original do |m, user, kargs|
-      new_date = commit_time || Time.now
-      branch_update = m.call(user, **kargs)
+  def create_deployment(args)
+    project = args[:project]
+    environment = project.environments.production.first || create(:environment, :production, project: project)
+    create(:deployment, :success, args.merge(environment: environment))
 
-      if branch_update.newrev
-        commit = rugged_repo(repository).rev_parse(branch_update.newrev)
-
-        branch_update.newrev = commit.amend(
-          update_ref: "#{Gitlab::Git::BRANCH_REF_PREFIX}#{kargs[:branch_name]}",
-          author: commit.author.merge(time: new_date),
-          committer: commit.committer.merge(time: new_date)
-        )
-      end
-
-      branch_update
-    end
+    # this is needed for the DORA API so we have aggregated data
+    ::Dora::DailyMetrics::RefreshWorker.new.perform(environment.id, Time.current.to_date.to_s) if Gitlab.ee?
   end
 end

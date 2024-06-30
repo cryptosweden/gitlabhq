@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe IssueEntity do
+  include Gitlab::Routing.url_helpers
+
   let(:project)  { create(:project) }
   let(:resource) { create(:issue, project: project) }
   let(:user)     { create(:user) }
@@ -11,13 +13,40 @@ RSpec.describe IssueEntity do
 
   subject { described_class.new(resource, request: request).as_json }
 
+  describe 'web_url' do
+    context 'when issue is of type task' do
+      let(:resource) { create(:issue, :task, project: project) }
+
+      # This was already a path and not a url when the work items change was introduced
+      it 'has a work item path with iid' do
+        expect(subject[:web_url]).to eq(project_work_item_path(project, resource.iid))
+      end
+    end
+  end
+
+  describe 'type' do
+    it 'has an issue type' do
+      expect(subject[:type]).to eq('ISSUE')
+    end
+  end
+
   it 'has Issuable attributes' do
-    expect(subject).to include(:id, :iid, :author_id, :description, :lock_version, :milestone_id,
-                               :title, :updated_by_id, :created_at, :updated_at, :milestone, :labels)
+    expect(subject).to include(
+      :id, :iid, :author_id, :description, :lock_version, :milestone_id,
+      :title, :updated_by_id, :created_at, :updated_at, :milestone, :labels
+    )
   end
 
   it 'has time estimation attributes' do
     expect(subject).to include(:time_estimate, :total_time_spent, :human_time_estimate, :human_total_time_spent)
+  end
+
+  describe 'current_user' do
+    it 'has the exprected permissions' do
+      expect(subject[:current_user]).to include(
+        :can_create_note, :can_update, :can_set_issue_metadata, :can_award_emoji
+      )
+    end
   end
 
   context 'when issue got moved' do
@@ -29,7 +58,7 @@ RSpec.describe IssueEntity do
     before do
       project.add_developer(member)
       public_project.add_developer(member)
-      Issues::MoveService.new(project: public_project, current_user: member).execute(issue, project)
+      Issues::MoveService.new(container: public_project, current_user: member).execute(issue, project)
     end
 
     context 'when user cannot read target project' do
@@ -61,7 +90,7 @@ RSpec.describe IssueEntity do
 
     before do
       Issues::DuplicateService
-        .new(project: project, current_user: member)
+        .new(container: project, current_user: member)
         .execute(issue, new_issue)
     end
 
@@ -120,7 +149,65 @@ RSpec.describe IssueEntity do
       end
 
       it 'returns archived project doc' do
-        expect(subject[:archived_project_docs_path]).to eq('/help/user/project/settings/index.md#archiving-a-project')
+        expect(subject[:archived_project_docs_path]).to eq('/help/user/project/settings/index#archive-a-project')
+      end
+    end
+  end
+
+  it_behaves_like 'issuable entity current_user properties'
+
+  context 'when issue has email participants' do
+    let(:obfuscated_email) { 'an*****@e*****.c**' }
+    let(:email) { 'any@email.com' }
+
+    before do
+      resource.issue_email_participants.create!(email: email)
+    end
+
+    context 'with anonymous user' do
+      it 'returns obfuscated email participants email' do
+        request = double('request', current_user: nil)
+
+        response = described_class.new(resource, request: request).as_json
+        expect(response[:issue_email_participants]).to eq([{ email: obfuscated_email }])
+      end
+    end
+
+    context 'with signed in user' do
+      context 'when user has no role in project' do
+        it 'returns obfuscated email participants email' do
+          expect(subject[:issue_email_participants]).to eq([{ email: obfuscated_email }])
+        end
+      end
+
+      context 'when user has guest role in project' do
+        let(:member) { create(:user) }
+
+        before do
+          project.add_guest(member)
+        end
+
+        it 'returns obfuscated email participants email' do
+          request = double('request', current_user: member)
+
+          response = described_class.new(resource, request: request).as_json
+          expect(response[:issue_email_participants]).to eq([{ email: obfuscated_email }])
+        end
+      end
+
+      context 'when user has (at least) reporter role in project' do
+        let(:member) { create(:user) }
+
+        before do
+          project.add_reporter(member)
+        end
+
+        it 'returns full email participants email' do
+          request = double('request', current_user: member)
+
+          response = described_class.new(resource, request: request).as_json
+          expect(response[:issue_email_participants]).to eq([{ email: email }])
+        end
       end
     end
   end

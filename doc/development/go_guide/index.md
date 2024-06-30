@@ -1,15 +1,13 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Go standards and style guidelines
 
 This document describes various guidelines and best practices for GitLab
 projects using the [Go language](https://go.dev/).
-
-## Overview
 
 GitLab is built on top of [Ruby on Rails](https://rubyonrails.org/), but we're
 also using Go for projects where it makes sense. Go is a very powerful
@@ -28,7 +26,7 @@ can still have specifics. They are described in their respective
 The Go upgrade documentation [provides an overview](go_upgrade.md#overview)
 of how GitLab manages and ships Go binary support.
 
-If a GitLab component requires a newer version of Go, please
+If a GitLab component requires a newer version of Go,
 follow the [upgrade process](go_upgrade.md#updating-go-version) to ensure no customer, team, or component is adversely impacted.
 
 Sometimes, individual projects must also [manage builds with multiple versions of Go](go_upgrade.md#supporting-multiple-go-versions).
@@ -72,8 +70,7 @@ of possible security breaches in our code:
 - SQL injections
 
 Remember to run
-[SAST](../../user/application_security/sast/index.md) and [Dependency Scanning](../../user/application_security/dependency_scanning/index.md)
-**(ULTIMATE)** on your project (or at least the
+[SAST](../../user/application_security/sast/index.md) and [Dependency Scanning](../../user/application_security/dependency_scanning/index.md) on your project (or at least the
 [`gosec` analyzer](https://gitlab.com/gitlab-org/security-products/analyzers/gosec)),
 and to follow our [Security requirements](../code_review.md#security).
 
@@ -83,12 +80,12 @@ Web servers can take advantages of middlewares like [Secure](https://github.com/
 
 Many of our projects are too small to have full-time maintainers. That's why we
 have a shared pool of Go reviewers at GitLab. To find a reviewer, use the
-["Go" section](https://about.gitlab.com/handbook/engineering/projects/#gitlab_reviewers_go)
+["Go" section](https://handbook.gitlab.com/handbook/engineering/projects/#gitlab_reviewers_go)
 of the "GitLab" project on the Engineering Projects
 page in the handbook.
 
 To add yourself to this list, add the following to your profile in the
-[team.yml](https://gitlab.com/gitlab-com/www-gitlab-com/blob/master/data/team.yml)
+[`team.yml`](https://gitlab.com/gitlab-com/www-gitlab-com/blob/master/data/team.yml)
 file and ask your manager to review and merge.
 
 ```yaml
@@ -112,19 +109,26 @@ projects:
 
 ### Automatic linting
 
-All Go projects should include these GitLab CI/CD jobs:
+WARNING:
+The use of `registry.gitlab.com/gitlab-org/gitlab-build-images:golangci-lint-alpine` has been
+[deprecated as of 16.10](https://gitlab.com/gitlab-org/gitlab-build-images/-/issues/131).
+
+Use the upstream version of [golangci-lint](https://golangci-lint.run/).
+See the list of linters [enabled/disabled by default](https://golangci-lint.run/usage/linters/#enabled-by-default).
+
+Go projects should include this GitLab CI/CD job:
 
 ```yaml
+variables:
+  GOLANGCI_LINT_VERSION: 'v1.56.2'
 lint:
-  image: registry.gitlab.com/gitlab-org/gitlab-build-images:golangci-lint-alpine
+  image: golangci/golangci-lint:$GOLANGCI_LINT_VERSION
   stage: test
   script:
-    # Use default .golangci.yml file from the image if one is not present in the project root.
-    - '[ -e .golangci.yml ] || cp /golangci/.golangci.yml .'
     # Write the code coverage report to gl-code-quality-report.json
     # and print linting issues to stdout in the format: path/to/file:line description
     # remove `--issues-exit-code 0` or set to non-zero to fail the job if linting issues are detected
-    - golangci-lint run --issues-exit-code 0 --out-format code-climate | tee gl-code-quality-report.json | jq -r '.[] | "\(.location.path):\(.location.lines.begin) \(.description)"'
+    - golangci-lint run --issues-exit-code 0 --print-issued-lines=false --out-format code-climate:gl-code-quality-report.json,line-number
   artifacts:
     reports:
       codequality: gl-code-quality-report.json
@@ -134,29 +138,33 @@ lint:
 
 Including a `.golangci.yml` in the root directory of the project allows for
 configuration of `golangci-lint`. All options for `golangci-lint` are listed in
-this [example](https://github.com/golangci/golangci-lint/blob/master/.golangci.example.yml).
+this [example](https://github.com/golangci/golangci-lint/blob/master/.golangci.yml).
 
 Once [recursive includes](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/56836)
 become available, you can share job templates like this
 [analyzer](https://gitlab.com/gitlab-org/security-products/ci-templates/raw/master/includes-dev/analyzer.yml).
 
-Go GitLab linter plugins are maintained in the [`gitlab-org/language-tools/go/linters`](https://gitlab.com/gitlab-org/language-tools/go/linters/) namespace.
+Go GitLab linter plugins are maintained in the
+[`gitlab-org/language-tools/go/linters`](https://gitlab.com/gitlab-org/language-tools/go/linters/) namespace.
+
+### Help text style guide
+
+If your Go project produces help text for users, consider following the advice given in the
+[Help text style guide](https://gitlab.com/gitlab-org/gitaly/-/blob/master/doc/help_text_style_guide.md) in the
+`gitaly` project.
 
 ## Dependencies
 
 Dependencies should be kept to the minimum. The introduction of a new
-dependency should be argued in the merge request, as per our [Approval
-Guidelines](../code_review.md#approval-guidelines). Both [License
-Scanning](../../user/compliance/license_compliance/index.md)
-**(ULTIMATE)** and [Dependency
-Scanning](../../user/application_security/dependency_scanning/index.md)
-**(ULTIMATE)** should be activated on all projects to ensure new dependencies
+dependency should be argued in the merge request, as per our [Approval Guidelines](../code_review.md#approval-guidelines).
+[Dependency Scanning](../../user/application_security/dependency_scanning/index.md)
+should be activated on all projects to ensure new dependencies
 security status and license compatibility.
 
 ### Modules
 
-In Go 1.11 and later, a standard dependency system is available behind the name [Go
-Modules](https://github.com/golang/go/wiki/Modules). It provides a way to
+In Go 1.11 and later, a standard dependency system is available behind the name
+[Go Modules](https://github.com/golang/go/wiki/Modules). It provides a way to
 define and lock dependencies for reproducible builds. It should be used
 whenever possible.
 
@@ -168,8 +176,8 @@ projects, and makes merge requests easier to review.
 In some cases, such as building a Go project for it to act as a dependency of a
 CI run for another project, removing the `vendor/` directory means the code must
 be downloaded repeatedly, which can lead to intermittent problems due to rate
-limiting or network failures. In these circumstances, you should [cache the
-downloaded code between](../../ci/caching/index.md#cache-go-dependencies).
+limiting or network failures. In these circumstances, you should
+[cache the downloaded code between](../../ci/caching/index.md#cache-go-dependencies).
 
 There was a
 [bug on modules checksums](https://github.com/golang/go/issues/29278) in Go versions earlier than v1.11.4, so make
@@ -218,7 +226,7 @@ When comparing expected and actual values in tests, use
 and others to improve readability when comparing structs, errors,
 large portions of text, or JSON documents:
 
-```golang
+```go
 type TestData struct {
     // ...
 }
@@ -293,7 +301,7 @@ easier to debug.
 
 For example:
 
-```golang
+```go
 // Wrap the error
 return nil, fmt.Errorf("get cache %s: %w", f.Name, err)
 
@@ -330,40 +338,49 @@ A few things to keep in mind when adding context:
 ### References for working with errors
 
 - [Go 1.13 errors](https://go.dev/blog/go1.13-errors).
-- [Programing with
-  errors](https://peter.bourgon.org/blog/2019/09/11/programming-with-errors.html).
-- [Don't just check errors, handle them
-  gracefully](https://dave.cheney.net/2016/04/27/dont-just-check-errors-handle-them-gracefully).
+- [Programing with errors](https://peter.bourgon.org/blog/2019/09/11/programming-with-errors.html).
+- [Don't just check errors, handle them gracefully](https://dave.cheney.net/2016/04/27/dont-just-check-errors-handle-them-gracefully).
 
 ## CLIs
 
 Every Go program is launched from the command line.
 [`cli`](https://github.com/urfave/cli) is a convenient package to create command
 line apps. It should be used whether the project is a daemon or a simple CLI
-tool. Flags can be mapped to [environment
-variables](https://github.com/urfave/cli#values-from-the-environment) directly,
+tool. Flags can be mapped to [environment variables](https://github.com/urfave/cli#values-from-the-environment) directly,
 which documents and centralizes at the same time all the possible command line
 interactions with the program. Don't use `os.GetEnv`, it hides variables deep
 in the code.
 
-## Daemons
+## Libraries
 
-### Logging
+### LabKit
 
-The usage of a logging library is strongly recommended for daemons. Even
-though there is a `log` package in the standard library, we generally use
-[Logrus](https://github.com/sirupsen/logrus). Its plugin ("hooks") system
-makes it a powerful logging library, with the ability to add notifiers and
-formatters at the logger level directly.
+[LabKit](https://gitlab.com/gitlab-org/labkit) is a place to keep common
+libraries for Go services. For examples using of using LabKit, see [`workhorse`](https://gitlab.com/gitlab-org/gitlab/tree/master/workhorse)
+and [`gitaly`](https://gitlab.com/gitlab-org/gitaly). LabKit exports three related pieces of functionality:
+
+- [`gitlab.com/gitlab-org/labkit/correlation`](https://gitlab.com/gitlab-org/labkit/tree/master/correlation):
+  for propagating and extracting correlation ids between services.
+- [`gitlab.com/gitlab-org/labkit/tracing`](https://gitlab.com/gitlab-org/labkit/tree/master/tracing):
+  for instrumenting Go libraries for distributed tracing.
+- [`gitlab.com/gitlab-org/labkit/log`](https://gitlab.com/gitlab-org/labkit/tree/master/log):
+  for structured logging using Logrus.
+
+This gives us a thin abstraction over underlying implementations that is
+consistent across Workhorse, Gitaly, and possibly other Go servers. For
+example, in the case of `gitlab.com/gitlab-org/labkit/tracing` we can switch
+from using `Opentracing` directly to using `Zipkin` or the Go kit's own tracing wrapper
+without changes to the application code, while still keeping the same
+consistent configuration mechanism (that is, the `GITLAB_TRACING` environment
+variable).
 
 #### Structured (JSON) logging
 
 Every binary ideally must have structured (JSON) logging in place as it helps
-with searching and filtering the logs. At GitLab we use structured logging in
-JSON format, as all our infrastructure assumes that. When using
+with searching and filtering the logs. LabKit provides an abstraction over [Logrus](https://github.com/sirupsen/logrus).
+We use structured logging in JSON format, because all our infrastructure assumes that. When using
 [Logrus](https://github.com/sirupsen/logrus) you can turn on structured
-logging simply by using the build in [JSON
-formatter](https://github.com/sirupsen/logrus#formatters). This follows the
+logging by using the built-in [JSON formatter](https://github.com/sirupsen/logrus#formatters). This follows the
 same logging type we use in our [Ruby applications](../logging.md#use-structured-json-logging).
 
 #### How to use Logrus
@@ -382,41 +399,19 @@ There are a few guidelines one should follow when using the
   have to log multiple keys, always use `WithFields` instead of calling
   `WithField` more than once.
 
-### Tracing and Correlation
-
-[LabKit](https://gitlab.com/gitlab-org/labkit) is a place to keep common
-libraries for Go services. Currently it's vendored into two projects:
-Workhorse and Gitaly, and it exports two main (but related) pieces of
-functionality:
-
-- [`gitlab.com/gitlab-org/labkit/correlation`](https://gitlab.com/gitlab-org/labkit/tree/master/correlation):
-  for propagating and extracting correlation ids between services.
-- [`gitlab.com/gitlab-org/labkit/tracing`](https://gitlab.com/gitlab-org/labkit/tree/master/tracing):
-  for instrumenting Go libraries for distributed tracing.
-
-This gives us a thin abstraction over underlying implementations that is
-consistent across Workhorse, Gitaly, and, in future, other Go servers. For
-example, in the case of `gitlab.com/gitlab-org/labkit/tracing` we can switch
-from using `Opentracing` directly to using `Zipkin` or Gokit's own tracing wrapper
-without changes to the application code, while still keeping the same
-consistent configuration mechanism (that is, the `GITLAB_TRACING` environment
-variable).
-
 ### Context
 
 Since daemons are long-running applications, they should have mechanisms to
 manage cancellations, and avoid unnecessary resources consumption (which could
-lead to DDOS vulnerabilities). [Go
-Context](https://github.com/golang/go/wiki/CodeReviewComments#contexts) should
-be used in functions that can block and passed as the first parameter.
+lead to DDoS vulnerabilities). [Go Context](https://github.com/golang/go/wiki/CodeReviewComments#contexts)
+should be used in functions that can block and passed as the first parameter.
 
 ## Dockerfiles
 
 Every project should have a `Dockerfile` at the root of their repository, to
 build and run the project. Since Go program are static binaries, they should
 not require any external dependency, and shells in the final image are useless.
-We encourage [Multistage
-builds](https://docs.docker.com/develop/develop-images/multistage-build/):
+We encourage [Multistage builds](https://docs.docker.com/build/building/multi-stage/):
 
 - They let the user build the project with the right Go version and
   dependencies.
@@ -444,17 +439,81 @@ of the Code Review Comments page on the Go wiki for more details.
 Most editors/IDEs allow you to run commands before/after saving a file, you can set it
 up to run `goimports -local gitlab.com/gitlab-org` so that it's applied to every file when saving.
 
+### Naming branches
+
+In addition to the GitLab [branch name rules](../../user/project/repository/branches/index.md#name-your-branch), use only the characters `a-z`, `0-9` or `-` in branch names. This restriction is because `go get` doesn't work as expected when a branch name contains certain characters, such as a slash `/`:
+
+```shell
+$ go get -u gitlab.com/gitlab-org/security-products/analyzers/report/v3@some-user/some-feature
+
+go get: gitlab.com/gitlab-org/security-products/analyzers/report/v3@some-user/some-feature: invalid version: version "some-user/some-feature" invalid: disallowed version string
+```
+
+If a branch name contains a slash, it forces us to refer to the commit SHA instead, which is less flexible. For example:
+
+```shell
+$ go get -u gitlab.com/gitlab-org/security-products/analyzers/report/v3@5c9a4279fa1263755718cf069d54ba8051287954
+
+go: downloading gitlab.com/gitlab-org/security-products/analyzers/report/v3 v3.15.3-0.20221012172609-5c9a4279fa12
+...
+```
+
+### Initializing slices
+
+If initializing a slice, provide a capacity where possible to avoid extra
+allocations.
+
+**Don't:**
+
+```go
+var s2 []string
+for _, val := range s1 {
+    s2 = append(s2, val)
+}
+```
+
+**Do:**
+
+```go
+s2 := make([]string, 0, len(s1))
+for _, val := range s1 {
+    s2 = append(s2, val)
+}
+```
+
+If no capacity is passed to `make` when creating a new slice, `append`
+will continuously resize the slice's backing array if it cannot hold
+the values. Providing the capacity ensures that allocations are kept
+to a minimum. It's recommended that the [`prealloc`](https://github.com/alexkohler/prealloc)
+golanci-lint rule automatically check for this.
+
 ### Analyzer Tests
 
-The conventional Secure [analyzer](https://gitlab.com/gitlab-org/security-products/analyzers/) has a [`convert` function](https://gitlab.com/gitlab-org/security-products/analyzers/command/-/blob/main/convert.go#L15-17) that converts SAST/DAST scanner reports into [GitLab Security Reports](https://gitlab.com/gitlab-org/security-products/security-report-schemas). When writing tests for the `convert` function, we should make use of [test fixtures](https://dave.cheney.net/2016/05/10/test-fixtures-in-go) using a `testdata` directory at the root of the analyzer's repository. The `testdata` directory should contain two subdirectories: `expect` and `reports`. The `reports` directory should contain sample SAST/DAST scanner reports which are passed into the `convert` function during the test setup. The `expect` directory should contain the expected GitLab Security Report that the `convert` returns. See Secret Detection for an [example](https://gitlab.com/gitlab-org/security-products/analyzers/secrets/-/blob/160424589ef1eed7b91b59484e019095bc7233bd/convert_test.go#L13-66).
+The conventional Secure [analyzer](https://gitlab.com/gitlab-org/security-products/analyzers/) has a
+[`convert` function](https://gitlab.com/gitlab-org/security-products/analyzers/command/-/blob/main/convert.go#L15-17)
+that converts SAST/DAST scanner reports into
+[GitLab Security Reports](https://gitlab.com/gitlab-org/security-products/security-report-schemas).
+When writing tests for the `convert` function, we should make use of
+[test fixtures](https://dave.cheney.net/2016/05/10/test-fixtures-in-go) using a `testdata`
+directory at the root of the analyzer's repository. The `testdata` directory should
+contain two subdirectories: `expect` and `reports`. The `reports` directory should
+contain sample SAST/DAST scanner reports which are passed into the `convert` function
+during the test setup. The `expect` directory should contain the expected GitLab Security Report
+that the `convert` returns. See Secret Detection for an
+[example](https://gitlab.com/gitlab-org/security-products/analyzers/secrets/-/blob/160424589ef1eed7b91b59484e019095bc7233bd/convert_test.go#L13-66).
 
-If the scanner report is small, less than 35 lines, then feel free to [inline the report](https://gitlab.com/gitlab-org/security-products/analyzers/sobelow/-/blob/8bd2428a/convert/convert_test.go#L13-77) rather than use a `testdata` directory.
+If the scanner report is small, less than 35 lines, then feel free to
+[inline the report](https://gitlab.com/gitlab-org/security-products/analyzers/sobelow/-/blob/8bd2428a/convert/convert_test.go#L13-77)
+rather than use a `testdata` directory.
 
 #### Test Diffs
 
-The [go-cmp](https://github.com/google/go-cmp) package should be used when comparing large structs in tests. It makes it possible to output a specific diff where the two structs differ, rather than seeing the whole of both structs printed out in the test logs. Here is a small example:
+The [go-cmp](https://github.com/google/go-cmp) package should be used when
+comparing large structs in tests. It makes it possible to output a specific diff
+where the two structs differ, rather than seeing the whole of both structs
+printed out in the test logs. Here is a small example:
 
-```golang
+```go
 package main
 
 import (
@@ -502,7 +561,9 @@ func TestHelloWorld(t *testing.T) {
 }
 ```
 
-The output demonstrates why `go-cmp` is far superior when comparing large structs. Even though you could spot the difference with this small difference, it quickly gets unwieldy as the data grows.
+The output demonstrates why `go-cmp` is far superior when comparing large
+structs. Even though you could spot the difference with this small difference,
+it quickly gets unwieldy as the data grows.
 
 ```plaintext
   main_test.go:36: reflect comparison:

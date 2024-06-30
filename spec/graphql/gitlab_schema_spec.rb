@@ -3,16 +3,12 @@
 require 'spec_helper'
 
 RSpec.describe GitlabSchema do
-  let_it_be(:connections) { GitlabSchema.connections.all_wrappers }
+  let_it_be(:connections) { described_class.connections.all_wrappers }
 
   let(:user) { build :user }
 
   it 'uses batch loading' do
-    expect(field_instrumenters).to include(BatchLoader::GraphQL)
-  end
-
-  it 'enables the generic instrumenter' do
-    expect(field_instrumenters).to include(instance_of(::Gitlab::Graphql::GenericTracing))
+    expect(described_class.trace_modules_for(:default)).to include(BatchLoader::GraphQL::Trace)
   end
 
   it 'has the base mutation' do
@@ -199,6 +195,39 @@ RSpec.describe GitlabSchema do
     end
   end
 
+  describe '.resolve_type' do
+    let(:object) { build(:user) }
+
+    let(:object_type) { Class.new(Types::BaseObject) }
+    let(:union_type) { Class.new(Types::BaseUnion) }
+
+    it 'returns the type for object types' do
+      expect(described_class.resolve_type(object_type, object, {})).to eq([object_type, object])
+    end
+
+    it 'raises an exception for non-object types' do
+      expect { described_class.resolve_type(union_type, object, {}) }.to raise_error(GraphQL::RequiredImplementationMissingError)
+    end
+
+    context 'when accepts is defined' do
+      let(:object_type) do
+        Class.new(Types::BaseObject) do
+          accepts User
+        end
+      end
+
+      it 'returns the type if the object is accepted' do
+        expect(described_class.resolve_type(object_type, object, {})).to eq([object_type, object])
+      end
+
+      it 'returns nil when object is not accepted' do
+        project = build(:project)
+
+        expect(described_class.resolve_type(object_type, project, {})).to eq([nil, project])
+      end
+    end
+  end
+
   describe 'validate_max_errors' do
     it 'reports at most 5 errors' do
       query = <<~GQL
@@ -219,6 +248,8 @@ RSpec.describe GitlabSchema do
             badField
             veryBadField
             alsoNotAGoodField
+            yetAnotherBadField
+            andYetAnother
           }
         }
       GQL
@@ -229,11 +260,7 @@ RSpec.describe GitlabSchema do
     end
   end
 
-  describe '.parse_gid' do
-    let_it_be(:global_id) { 'gid://gitlab/TestOne/2147483647' }
-
-    subject(:parse_gid) { described_class.parse_gid(global_id) }
-
+  context 'for gid parsing' do
     before do
       test_base = Class.new
       test_one = Class.new(test_base)
@@ -246,70 +273,85 @@ RSpec.describe GitlabSchema do
       stub_const('TestThree', test_three)
     end
 
-    it 'parses the gid' do
-      gid = parse_gid
+    describe '.parse_gid' do
+      let_it_be(:global_id) { 'gid://gitlab/TestOne/2147483647' }
 
-      expect(gid.model_id).to eq '2147483647'
-      expect(gid.model_class).to eq TestOne
-    end
+      subject(:parse_gid) { described_class.parse_gid(global_id) }
 
-    context 'when gid is malformed' do
-      let_it_be(:global_id) { 'malformed://gitlab/TestOne/2147483647' }
+      it 'parses the gid' do
+        gid = parse_gid
 
-      it 'raises an error' do
-        expect { parse_gid }
-          .to raise_error(Gitlab::Graphql::Errors::ArgumentError, "#{global_id} is not a valid GitLab ID.")
-      end
-    end
-
-    context 'when using expected_type' do
-      it 'accepts a single type' do
-        gid = described_class.parse_gid(global_id, expected_type: TestOne)
-
+        expect(gid.model_id).to eq '2147483647'
         expect(gid.model_class).to eq TestOne
       end
 
-      it 'accepts an ancestor type' do
-        gid = described_class.parse_gid(global_id, expected_type: TestBase)
+      context 'when gid is malformed' do
+        let_it_be(:global_id) { 'malformed://gitlab/TestOne/2147483647' }
 
-        expect(gid.model_class).to eq TestOne
+        it 'raises an error' do
+          expect { parse_gid }
+            .to raise_error(Gitlab::Graphql::Errors::ArgumentError, "#{global_id} is not a valid GitLab ID.")
+        end
       end
 
-      it 'rejects an unknown type' do
-        expect { described_class.parse_gid(global_id, expected_type: TestTwo) }
-          .to raise_error(Gitlab::Graphql::Errors::ArgumentError, "#{global_id} is not a valid ID for TestTwo.")
-      end
+      context 'when using expected_type' do
+        it 'accepts a single type' do
+          gid = described_class.parse_gid(global_id, expected_type: TestOne)
 
-      context 'when expected_type is an array' do
-        subject(:parse_gid) { described_class.parse_gid(global_id, expected_type: [TestOne, TestTwo]) }
-
-        context 'when global_id is of type TestOne' do
-          it 'returns an object of an expected type' do
-            expect(parse_gid.model_class).to eq TestOne
-          end
+          expect(gid.model_class).to eq TestOne
         end
 
-        context 'when global_id is of type TestTwo' do
-          let_it_be(:global_id) { 'gid://gitlab/TestTwo/2147483647' }
+        it 'accepts an ancestor type' do
+          gid = described_class.parse_gid(global_id, expected_type: TestBase)
 
-          it 'returns an object of an expected type' do
-            expect(parse_gid.model_class).to eq TestTwo
-          end
+          expect(gid.model_class).to eq TestOne
         end
 
-        context 'when global_id is of type TestThree' do
-          let_it_be(:global_id) { 'gid://gitlab/TestThree/2147483647' }
+        it 'rejects an unknown type' do
+          expect { described_class.parse_gid(global_id, expected_type: TestTwo) }
+            .to raise_error(Gitlab::Graphql::Errors::ArgumentError, "#{global_id} is not a valid ID for TestTwo.")
+        end
 
-          it 'rejects an unknown type' do
-            expect { parse_gid }
-              .to raise_error(Gitlab::Graphql::Errors::ArgumentError, "#{global_id} is not a valid ID for TestOne, TestTwo.")
+        context 'when expected_type is an array' do
+          subject(:parse_gid) { described_class.parse_gid(global_id, expected_type: [TestOne, TestTwo]) }
+
+          context 'when global_id is of type TestOne' do
+            it 'returns an object of an expected type' do
+              expect(parse_gid.model_class).to eq TestOne
+            end
+          end
+
+          context 'when global_id is of type TestTwo' do
+            let_it_be(:global_id) { 'gid://gitlab/TestTwo/2147483647' }
+
+            it 'returns an object of an expected type' do
+              expect(parse_gid.model_class).to eq TestTwo
+            end
+          end
+
+          context 'when global_id is of type TestThree' do
+            let_it_be(:global_id) { 'gid://gitlab/TestThree/2147483647' }
+
+            it 'rejects an unknown type' do
+              expect { parse_gid }
+                .to raise_error(Gitlab::Graphql::Errors::ArgumentError, "#{global_id} is not a valid ID for TestOne, TestTwo.")
+            end
           end
         end
       end
     end
-  end
 
-  def field_instrumenters
-    described_class.instrumenters[:field] + described_class.instrumenters[:field_after_built_ins]
+    describe '.parse_gids' do
+      let_it_be(:global_ids) { %w[gid://gitlab/TestOne/123 gid://gitlab/TestTwo/456] }
+
+      subject(:parse_gids) { described_class.parse_gids(global_ids, expected_type: [TestOne, TestTwo]) }
+
+      it 'parses the gids' do
+        expect(described_class).to receive(:parse_gid).with('gid://gitlab/TestOne/123', { expected_type: [TestOne, TestTwo] }).and_call_original
+        expect(described_class).to receive(:parse_gid).with('gid://gitlab/TestTwo/456', { expected_type: [TestOne, TestTwo] }).and_call_original
+        expect(parse_gids.map(&:model_id)).to eq %w[123 456]
+        expect(parse_gids.map(&:model_class)).to eq [TestOne, TestTwo]
+      end
+    end
   end
 end

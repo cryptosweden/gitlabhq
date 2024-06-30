@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Mark snippet as spam' do
+RSpec.describe 'Mark snippet as spam', feature_category: :source_code_management do
   include GraphqlHelpers
   include AfterNextHelpers
 
@@ -40,7 +40,7 @@ RSpec.describe 'Mark snippet as spam' do
     let(:current_user) { other_user }
 
     it_behaves_like 'a mutation that returns top-level errors',
-                    errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
+      errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
 
     it_behaves_like 'does not mark the snippet as spam'
   end

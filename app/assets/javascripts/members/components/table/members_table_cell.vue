@@ -1,17 +1,18 @@
 <script>
-import { MEMBER_TYPES } from '../../constants';
+import { MEMBERS_TAB_TYPES } from 'ee_else_ce/members/constants';
 import {
   isGroup,
   isDirectMember,
   isCurrentUser,
   canRemove,
+  canRemoveBlockedByLastOwner,
   canResend,
   canUpdate,
 } from '../../utils';
 
 export default {
   name: 'MembersTableCell',
-  inject: ['currentUserId'],
+  inject: ['currentUserId', 'canManageMembers'],
   props: {
     member: {
       type: Object,
@@ -30,20 +31,25 @@ export default {
     },
     memberType() {
       if (this.isGroup) {
-        return MEMBER_TYPES.group;
-      } else if (this.isInvite) {
-        return MEMBER_TYPES.invite;
-      } else if (this.isAccessRequest) {
-        return MEMBER_TYPES.accessRequest;
+        return MEMBERS_TAB_TYPES.group;
+      }
+      if (this.isInvite) {
+        return MEMBERS_TAB_TYPES.invite;
+      }
+      if (this.isAccessRequest) {
+        return MEMBERS_TAB_TYPES.accessRequest;
       }
 
-      return MEMBER_TYPES.user;
+      return MEMBERS_TAB_TYPES.user;
     },
     isDirectMember() {
       return isDirectMember(this.member);
     },
     isCurrentUser() {
       return isCurrentUser(this.member, this.currentUserId);
+    },
+    canRemoveBlockedByLastOwner() {
+      return canRemoveBlockedByLastOwner(this.member, this.canManageMembers);
     },
     canRemove() {
       return canRemove(this.member);
@@ -62,6 +68,7 @@ export default {
       isCurrentUser: this.isCurrentUser,
       permissions: {
         canRemove: this.canRemove,
+        canRemoveBlockedByLastOwner: this.canRemoveBlockedByLastOwner,
         canResend: this.canResend,
         canUpdate: this.canUpdate,
       },

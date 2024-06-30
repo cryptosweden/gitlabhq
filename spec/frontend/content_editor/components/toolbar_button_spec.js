@@ -42,11 +42,7 @@ describe('content_editor/components/toolbar_button', () => {
     buildEditor();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  it('displays tertiary, small button with a provided label and icon', () => {
+  it('displays tertiary, medium button with a provided label and icon', () => {
     buildWrapper();
 
     expect(findButton().html()).toMatchSnapshot();
@@ -85,7 +81,7 @@ describe('content_editor/components/toolbar_button', () => {
 
       await emitEditorEvent({ event: 'transaction', tiptapEditor });
 
-      expect(findButton().classes().includes('active')).toBe(outcome);
+      expect(findButton().classes().includes('gl-bg-gray-100!')).toBe(outcome);
       expect(tiptapEditor.isActive).toHaveBeenCalledWith(CONTENT_TYPE);
     },
   );

@@ -25,11 +25,18 @@ class ActiveSession
   SESSION_BATCH_SIZE = 200
   ALLOWED_NUMBER_OF_ACTIVE_SESSIONS = 100
 
-  attr_accessor :ip_address, :browser, :os,
-                :device_name, :device_type,
-                :is_impersonated, :session_id, :session_private_id
+  ATTR_ACCESSOR_LIST = [
+    :ip_address, :browser, :os,
+    :device_name, :device_type,
+    :is_impersonated, :session_id, :session_private_id,
+    :admin_mode
+  ].freeze
+  ATTR_READER_LIST = [
+    :created_at, :updated_at
+  ].freeze
 
-  attr_reader :created_at, :updated_at
+  attr_accessor(*ATTR_ACCESSOR_LIST)
+  attr_reader(*ATTR_READER_LIST)
 
   def created_at=(time)
     @created_at = time.is_a?(String) ? Time.zone.parse(time) : time
@@ -67,7 +74,7 @@ class ActiveSession
   def self.set(user, request)
     Gitlab::Redis::Sessions.with do |redis|
       session_private_id = request.session.id.private_id
-      client = DeviceDetector.new(request.user_agent)
+      client = Gitlab::SafeDeviceDetector.new(request.user_agent)
       timestamp = Time.current
       expiry = Settings.gitlab['session_expire_delay'] * 60
 
@@ -80,27 +87,23 @@ class ActiveSession
         created_at: user.current_sign_in_at || timestamp,
         updated_at: timestamp,
         session_private_id: session_private_id,
-        is_impersonated: request.session[:impersonator_id].present?
+        is_impersonated: request.session[:impersonator_id].present?,
+        admin_mode: Gitlab::Auth::CurrentUserMode.new(user, request.session).admin_mode?
       )
 
-      redis.pipelined do
-        redis.setex(
-          key_name(user.id, session_private_id),
-          expiry,
-          active_user_session.dump
-        )
+      Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
+        redis.pipelined do |pipeline|
+          pipeline.setex(
+            key_name(user.id, session_private_id),
+            expiry,
+            active_user_session.dump
+          )
 
-        # Deprecated legacy format - temporary to support mixed deployments
-        redis.setex(
-          key_name_v1(user.id, session_private_id),
-          expiry,
-          Marshal.dump(active_user_session)
-        )
-
-        redis.sadd(
-          lookup_key_name(user.id),
-          session_private_id
-        )
+          pipeline.sadd?(
+            lookup_key_name(user.id),
+            session_private_id
+          )
+        end
       end
     end
   end
@@ -128,9 +131,15 @@ class ActiveSession
 
     redis.srem(lookup_key_name(user.id), session_ids)
 
+    session_keys = rack_session_keys(session_ids)
     Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
-      redis.del(key_names)
-      redis.del(rack_session_keys(session_ids))
+      if Gitlab::Redis::ClusterUtil.cluster?(redis)
+        Gitlab::Redis::ClusterUtil.batch_unlink(key_names, redis)
+        Gitlab::Redis::ClusterUtil.batch_unlink(session_keys, redis)
+      else
+        redis.del(key_names)
+        redis.del(session_keys)
+      end
     end
   end
 
@@ -199,7 +208,13 @@ class ActiveSession
 
       session_keys.each_slice(SESSION_BATCH_SIZE).flat_map do |session_keys_batch|
         Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
-          redis.mget(session_keys_batch).compact.map do |raw_session|
+          raw_sessions = if Gitlab::Redis::ClusterUtil.cluster?(redis)
+                           Gitlab::Redis::ClusterUtil.batch_get(session_keys_batch, redis)
+                         else
+                           redis.mget(session_keys_batch)
+                         end
+
+          raw_sessions.compact.map do |raw_session|
             load_raw_session(raw_session)
           end
         end
@@ -221,12 +236,14 @@ class ActiveSession
 
     if raw_session.start_with?('v2:')
       session_data = Gitlab::Json.parse(raw_session[3..]).symbolize_keys
+      # load only known attributes
+      session_data.slice!(*ATTR_ACCESSOR_LIST.union(ATTR_READER_LIST))
       new(**session_data)
     else
       # Deprecated legacy format. To be removed in 15.0
       # See: https://gitlab.com/gitlab-org/gitlab/-/issues/30516
       # Explanation of why this Marshal.load call is OK:
-      # https://gitlab.com/gitlab-com/gl-security/appsec/appsec-reviews/-/issues/124#note_744576714
+      # https://gitlab.com/gitlab-com/gl-security/product-security/appsec/appsec-reviews/-/issues/124#note_744576714
       # rubocop:disable Security/MarshalLoad
       Marshal.load(raw_session)
       # rubocop:enable Security/MarshalLoad
@@ -242,7 +259,13 @@ class ActiveSession
 
     found = Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
       entry_keys = session_ids.map { |session_id| key_name(user_id, session_id) }
-      session_ids.zip(redis.mget(entry_keys)).to_h
+      entries = if Gitlab::Redis::ClusterUtil.cluster?(redis)
+                  Gitlab::Redis::ClusterUtil.batch_get(entry_keys, redis)
+                else
+                  redis.mget(entry_keys)
+                end
+
+      session_ids.zip(entries).to_h
     end
 
     found.compact!
@@ -251,7 +274,13 @@ class ActiveSession
 
     fallbacks = Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
       entry_keys = missing.map { |session_id| key_name_v1(user_id, session_id) }
-      missing.zip(redis.mget(entry_keys)).to_h
+      entries = if Gitlab::Redis::ClusterUtil.cluster?(redis)
+                  Gitlab::Redis::ClusterUtil.batch_get(entry_keys, redis)
+                else
+                  redis.mget(entry_keys)
+                end
+
+      missing.zip(entries).to_h
     end
 
     fallbacks.merge(found.compact)
@@ -298,11 +327,14 @@ class ActiveSession
       session_ids_and_entries.each do |session_id, entry|
         next if entry
 
-        pipeline.srem(lookup_key, session_id)
-        removed << session_id
+        pipeline.srem?(lookup_key, session_id)
       end
     end
+
+    removed.concat(session_ids_and_entries.select { |_, v| v.nil? }.keys)
 
     session_ids_and_entries.values.compact
   end
 end
+
+ActiveSession.prepend_mod_with('ActiveSession')

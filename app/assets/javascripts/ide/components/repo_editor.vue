@@ -1,5 +1,6 @@
 <script>
-import { debounce } from 'lodash';
+import { GlTabs, GlTab } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters, mapActions } from 'vuex';
 import {
   EDITOR_TYPE_DIFF,
@@ -10,7 +11,7 @@ import {
 import { SourceEditorExtension } from '~/editor/extensions/source_editor_extension_base';
 import { EditorWebIdeExtension } from '~/editor/extensions/source_editor_webide_ext';
 import SourceEditor from '~/editor/source_editor';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import ModelManager from '~/ide/lib/common/model_manager';
 import { defaultDiffEditorOptions, defaultEditorOptions } from '~/ide/lib/editor_options';
 import { __ } from '~/locale';
@@ -25,6 +26,10 @@ import { performanceMarkAndMeasure } from '~/performance/utils';
 import ContentViewer from '~/vue_shared/components/content_viewer/content_viewer.vue';
 import { viewerInformationForPath } from '~/vue_shared/components/content_viewer/lib/viewer_utils';
 import DiffViewer from '~/vue_shared/components/diff_viewer/diff_viewer.vue';
+import { markRaw } from '~/lib/utils/vue3compat/mark_raw';
+import { readFileAsDataURL } from '~/lib/utils/file_utility';
+import { hasCiConfigExtension } from '~/lib/utils/common_utils';
+
 import {
   leftSidebarViews,
   viewerTypes,
@@ -36,8 +41,7 @@ import { getRulesWithTraversal } from '../lib/editorconfig/parser';
 import mapRulesToMonaco from '../lib/editorconfig/rules_mapper';
 import { getFileEditorOrDefault } from '../stores/modules/editor/utils';
 import { extractMarkdownImagesFromEntries } from '../stores/utils';
-import { getPathParent, readFileAsDataURL, registerSchema, isTextFile } from '../utils';
-import FileAlert from './file_alert.vue';
+import { getPathParent, registerSchema, isTextFile } from '../utils';
 import FileTemplatesBar from './file_templates/bar.vue';
 
 const MARKDOWN_FILE_TYPE = 'markdown';
@@ -45,7 +49,8 @@ const MARKDOWN_FILE_TYPE = 'markdown';
 export default {
   name: 'RepoEditor',
   components: {
-    FileAlert,
+    GlTabs,
+    GlTab,
     ContentViewer,
     DiffViewer,
     FileTemplatesBar,
@@ -62,9 +67,11 @@ export default {
       images: {},
       rules: {},
       globalEditor: null,
-      modelManager: new ModelManager(),
+      modelManager: markRaw(new ModelManager()),
       isEditorLoading: true,
       unwatchCiYaml: null,
+      SELivepreviewExtension: null,
+      MarkdownLivePreview: null,
     };
   },
   computed: {
@@ -83,7 +90,6 @@ export default {
       'previewMarkdownPath',
     ]),
     ...mapGetters([
-      'getAlert',
       'currentMergeRequest',
       'getStagedFile',
       'isEditModeActive',
@@ -92,9 +98,6 @@ export default {
       'getJsonSchemaForPath',
     ]),
     ...mapGetters('fileTemplates', ['showFileTemplatesBar']),
-    alertKey() {
-      return this.getAlert(this.file);
-    },
     fileEditor() {
       return getFileEditorOrDefault(this.fileEditors, this.file.path);
     },
@@ -119,16 +122,6 @@ export default {
     isPreviewViewMode() {
       return this.fileEditor.viewMode === FILE_VIEW_MODE_PREVIEW;
     },
-    editTabCSS() {
-      return {
-        active: this.isEditorViewMode,
-      };
-    },
-    previewTabCSS() {
-      return {
-        active: this.isPreviewViewMode,
-      };
-    },
     showEditor() {
       return !this.shouldHideEditor && this.isEditorViewMode;
     },
@@ -150,18 +143,15 @@ export default {
     showTabs() {
       return !this.shouldHideEditor && this.isEditModeActive && this.previewMode;
     },
+    isCiConfigFile() {
+      return (
+        // For CI config schemas the filename must match '*.gitlab-ci.yml' regardless of project configuration.
+        // https://gitlab.com/gitlab-org/gitlab/-/issues/293641
+        hasCiConfigExtension(this.file.path) && this.editor?.getEditorType() === EDITOR_TYPE_CODE
+      );
+    },
   },
   watch: {
-    'file.name': {
-      handler() {
-        this.stopWatchingCiYaml();
-
-        if (this.file.name === '.gitlab-ci.yml') {
-          this.startWatchingCiYaml();
-        }
-      },
-      immediate: true,
-    },
     file(newVal, oldVal) {
       if (oldVal.pending) {
         this.removePendingTab(oldVal);
@@ -192,23 +182,6 @@ export default {
         this.createEditorInstance();
       }
     },
-    panelResizing() {
-      if (!this.panelResizing) {
-        this.refreshEditorDimensions();
-      }
-    },
-    showTabs() {
-      this.$nextTick(() => this.refreshEditorDimensions());
-    },
-    rightPaneIsOpen() {
-      this.refreshEditorDimensions();
-    },
-    showEditor(val) {
-      if (val) {
-        // We need to wait for the editor to actually be rendered.
-        this.$nextTick(() => this.refreshEditorDimensions());
-      }
-    },
     showContentViewer(val) {
       if (!val) return;
 
@@ -227,7 +200,7 @@ export default {
   },
   mounted() {
     if (!this.globalEditor) {
-      this.globalEditor = new SourceEditor();
+      this.globalEditor = markRaw(new SourceEditor());
     }
     this.initEditor();
 
@@ -245,7 +218,6 @@ export default {
       'removePendingTab',
       'triggerFilesChange',
       'addTempImage',
-      'detectGitlabCiFileAlerts',
     ]),
     ...mapActions('editor', ['updateFileEditor']),
     initEditor() {
@@ -254,14 +226,12 @@ export default {
         return;
       }
 
-      this.registerSchemaForFile();
-
       Promise.all([this.fetchFileData(), this.fetchEditorconfigRules()])
         .then(() => {
           this.createEditorInstance();
         })
         .catch((err) => {
-          createFlash({
+          createAlert({
             message: __('Error setting up editor. Please try again.'),
             fadeTransition: false,
             addBodyClass: true,
@@ -301,14 +271,16 @@ export default {
         const instanceOptions = isDiff ? defaultDiffEditorOptions : defaultEditorOptions;
         const method = isDiff ? EDITOR_DIFF_INSTANCE_FN : EDITOR_CODE_INSTANCE_FN;
 
-        this.editor = this.globalEditor[method]({
-          el: this.$refs.editor,
-          blobPath: this.file.path,
-          blobGlobalId: this.file.key,
-          blobContent: this.content || this.file.content,
-          ...instanceOptions,
-          ...this.editorOptions,
-        });
+        this.editor = markRaw(
+          this.globalEditor[method]({
+            el: this.$refs.editor,
+            blobPath: this.file.path,
+            blobGlobalId: this.file.key,
+            blobContent: this.content || this.file.content,
+            ...instanceOptions,
+            ...this.editorOptions,
+          }),
+        );
         this.editor.use([
           {
             definition: SourceEditorExtension,
@@ -324,25 +296,6 @@ export default {
           },
         ]);
 
-        if (
-          this.fileType === MARKDOWN_FILE_TYPE &&
-          this.editor?.getEditorType() === EDITOR_TYPE_CODE &&
-          this.previewMarkdownPath
-        ) {
-          import('~/editor/extensions/source_editor_markdown_livepreview_ext')
-            .then(({ EditorMarkdownPreviewExtension: MarkdownLivePreview }) => {
-              this.editor.use({
-                definition: MarkdownLivePreview,
-                setupOptions: { previewMarkdownPath: this.previewMarkdownPath },
-              });
-            })
-            .catch((e) =>
-              createFlash({
-                message: e,
-              }),
-            );
-        }
-
         this.$nextTick(() => {
           this.setupEditor();
         });
@@ -351,6 +304,35 @@ export default {
 
     setupEditor() {
       if (!this.file || !this.editor || this.file.loading) return;
+
+      const useLivePreviewExtension = () => {
+        this.SELivepreviewExtension = this.editor.use({
+          definition: this.MarkdownLivePreview,
+          setupOptions: { previewMarkdownPath: this.previewMarkdownPath },
+        });
+      };
+      if (
+        this.fileType === MARKDOWN_FILE_TYPE &&
+        this.editor?.getEditorType() === EDITOR_TYPE_CODE &&
+        this.previewMarkdownPath
+      ) {
+        if (this.MarkdownLivePreview) {
+          useLivePreviewExtension();
+        } else {
+          import('~/editor/extensions/source_editor_markdown_livepreview_ext')
+            .then(({ EditorMarkdownPreviewExtension }) => {
+              this.MarkdownLivePreview = EditorMarkdownPreviewExtension;
+              useLivePreviewExtension();
+            })
+            .catch((e) =>
+              createAlert({
+                message: e,
+              }),
+            );
+        }
+      } else if (this.SELivepreviewExtension) {
+        this.editor.unuse(this.SELivepreviewExtension);
+      }
 
       const head = this.getStagedFile(this.file.path);
 
@@ -368,6 +350,8 @@ export default {
       this.isEditorLoading = false;
 
       this.model.updateOptions(this.rules);
+
+      this.registerSchemaForFile();
 
       this.model.onChange((model) => {
         const { file } = model;
@@ -396,10 +380,6 @@ export default {
         fileLanguage: this.model.language,
       });
 
-      this.$nextTick(() => {
-        this.editor.updateDimensions();
-      });
-
       this.$emit('editorSetup');
       if (performance.getEntriesByName(WEBIDE_MARK_FILE_CLICKED).length) {
         eventHub.$emit(WEBIDE_MEASURE_FILE_AFTER_INTERACTION);
@@ -413,11 +393,6 @@ export default {
             },
           ],
         });
-      }
-    },
-    refreshEditorDimensions() {
-      if (this.showEditor && this.editor) {
-        this.editor.updateDimensions();
       }
     },
     fetchEditorconfigRules() {
@@ -467,8 +442,33 @@ export default {
       return Promise.resolve();
     },
     registerSchemaForFile() {
-      const schema = this.getJsonSchemaForPath(this.file.path);
-      registerSchema(schema);
+      const registerExternalSchema = () => {
+        const schema = this.getJsonSchemaForPath(this.file.path);
+        return registerSchema(schema);
+      };
+      const registerLocalSchema = async () => {
+        if (!this.CiSchemaExtension) {
+          const { CiSchemaExtension } = await import(
+            '~/editor/extensions/source_editor_ci_schema_ext'
+          ).catch((e) =>
+            createAlert({
+              message: e,
+            }),
+          );
+          this.CiSchemaExtension = CiSchemaExtension;
+        }
+        this.editor.use({ definition: this.CiSchemaExtension });
+        this.editor.registerCiSchema();
+      };
+
+      if (this.isCiConfigFile) {
+        registerLocalSchema();
+      } else {
+        if (this.CiSchemaExtension) {
+          this.editor.unuse(this.CiSchemaExtension);
+        }
+        registerExternalSchema();
+      }
     },
     updateEditor(data) {
       // Looks like our model wrapper `.dispose` causes the monaco editor to emit some position changes after
@@ -480,18 +480,6 @@ export default {
 
       this.updateFileEditor({ path: this.file.path, data });
     },
-    startWatchingCiYaml() {
-      this.unwatchCiYaml = this.$watch(
-        'file.content',
-        debounce(this.detectGitlabCiFileAlerts, 500),
-      );
-    },
-    stopWatchingCiYaml() {
-      if (this.unwatchCiYaml) {
-        this.unwatchCiYaml();
-        this.unwatchCiYaml = null;
-      }
-    },
   },
   viewerTypes,
   FILE_VIEW_MODE_EDITOR,
@@ -501,29 +489,18 @@ export default {
 
 <template>
   <div id="ide" class="blob-viewer-container blob-editor-container">
-    <div v-if="showTabs" class="ide-mode-tabs clearfix">
-      <ul class="nav-links float-left border-bottom-0">
-        <li :class="editTabCSS">
-          <a
-            href="javascript:void(0);"
-            role="button"
-            data-testid="edit-tab"
-            @click.prevent="updateEditor({ viewMode: $options.FILE_VIEW_MODE_EDITOR })"
-            >{{ __('Edit') }}</a
-          >
-        </li>
-        <li :class="previewTabCSS">
-          <a
-            href="javascript:void(0);"
-            role="button"
-            data-testid="preview-tab"
-            @click.prevent="updateEditor({ viewMode: $options.FILE_VIEW_MODE_PREVIEW })"
-            >{{ previewMode.previewTitle }}</a
-          >
-        </li>
-      </ul>
-    </div>
-    <file-alert v-if="alertKey" :alert-key="alertKey" />
+    <gl-tabs v-if="showTabs" content-class="gl-display-none">
+      <gl-tab
+        :title="__('Edit')"
+        data-testid="edit-tab"
+        @click="updateEditor({ viewMode: $options.FILE_VIEW_MODE_EDITOR })"
+      />
+      <gl-tab
+        :title="previewMode.previewTitle"
+        data-testid="preview-tab"
+        @click="updateEditor({ viewMode: $options.FILE_VIEW_MODE_PREVIEW })"
+      />
+    </gl-tabs>
     <file-templates-bar v-else-if="showFileTemplatesBar(file.name)" />
     <div
       v-show="showEditor"
@@ -535,7 +512,6 @@ export default {
         'is-added': file.tempFile,
       }"
       class="multi-file-editor-holder"
-      data-qa-selector="editor_container"
       data-testid="editor-container"
       :data-editor-loading="isEditorLoading"
       @focusout="triggerFilesChange"

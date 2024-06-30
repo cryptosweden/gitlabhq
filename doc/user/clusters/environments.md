@@ -1,17 +1,22 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Cluster Environments (DEPRECATED) **(PREMIUM)**
+# Cluster Environments (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/13392) in GitLab 12.3 for group-level clusters.
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/14809) in GitLab 12.4 for instance-level clusters.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - [Disabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/353410) in GitLab 15.0.
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../administration/feature_flags.md) named `certificate_based_clusters`.
 
 Cluster environments provide a consolidated view of which CI [environments](../../ci/environments/index.md) are
 deployed to the Kubernetes cluster and it:
@@ -29,12 +34,12 @@ With cluster environments, you can gain insight into:
 
 ![Cluster environments page](img/cluster_environments_table_v12_3.png)
 
-Access to cluster environments is restricted to [group maintainers and
-owners](../permissions.md#group-members-permissions)
+Access to cluster environments is restricted to
+[group maintainers and owners](../permissions.md#group-members-permissions)
 
 ## Usage
 
-In order to:
+To:
 
 - Track environments for the cluster, you must
   [deploy to a Kubernetes cluster](../project/clusters/deploy_to_cluster.md)
@@ -44,8 +49,8 @@ In order to:
 
 After you have successful deployments to your group-level or instance-level cluster:
 
-1. Navigate to your group's **Kubernetes** page.
-1. Click on the **Environments** tab.
+1. Go to your group's **Kubernetes** page.
+1. Select the **Environments** tab.
 
 Only successful deployments to the cluster are included in this page.
 Non-cluster environments aren't included.

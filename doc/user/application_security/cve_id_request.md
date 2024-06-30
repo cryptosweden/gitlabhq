@@ -1,18 +1,20 @@
 ---
-type: tutorial
-stage: Secure
+stage: Govern
 group: Threat Insights
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# CVE ID request **(FREE SAAS)**
+# CVE ID request
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/41203) in GitLab 13.4, only for public projects on GitLab.com.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com
+
+For any public project, you can request a CVE identifier (ID).
 
 A [CVE](https://cve.mitre.org/index.html) identifier is assigned to a publicly-disclosed software
 vulnerability. GitLab is a [CVE Numbering Authority](https://about.gitlab.com/security/cve/)
-([CNA](https://cve.mitre.org/cve/cna.html)). For any public project you can request
-a CVE identifier (ID).
+([CNA](https://cve.mitre.org/cve/cna.html)).
 
 Assigning a CVE ID to a vulnerability in your project helps your users stay secure and informed. For
 example, [dependency scanning tools](../application_security/dependency_scanning/index.md) can

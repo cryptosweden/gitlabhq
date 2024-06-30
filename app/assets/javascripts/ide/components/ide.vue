@@ -1,5 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlButton, GlLoadingIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters, mapState } from 'vuex';
 import { __ } from '~/locale';
 import {
@@ -47,6 +49,7 @@ export default {
   data() {
     return {
       loadDeferred: false,
+      skipBeforeUnload: false,
     };
   },
   computed: {
@@ -78,8 +81,13 @@ export default {
   mounted() {
     window.onbeforeunload = (e) => this.onBeforeUnload(e);
 
+    eventHub.$on('skip-beforeunload', this.handleSkipBeforeUnload);
+
     if (this.themeName)
-      document.querySelector('.navbar-gitlab').classList.add(`theme-${this.themeName}`);
+      document.querySelector('.navbar-gitlab')?.classList.add(`theme-${this.themeName}`);
+  },
+  destroyed() {
+    eventHub.$off('skip-beforeunload', this.handleSkipBeforeUnload);
   },
   beforeCreate() {
     performanceMarkAndMeasure({
@@ -94,6 +102,11 @@ export default {
   methods: {
     ...mapActions(['toggleFileFinder']),
     onBeforeUnload(e = {}) {
+      if (this.skipBeforeUnload) {
+        this.skipBeforeUnload = false;
+        return undefined;
+      }
+
       const returnValue = __('Are you sure you want to lose unsaved changes?');
 
       if (!this.someUncommittedChanges) return undefined;
@@ -102,6 +115,9 @@ export default {
         returnValue,
       });
       return returnValue;
+    },
+    handleSkipBeforeUnload() {
+      this.skipBeforeUnload = true;
     },
     openFile(file) {
       this.$router.push(this.getUrlForPath(file.path));
@@ -118,7 +134,7 @@ export default {
 
 <template>
   <article
-    class="ide position-relative d-flex flex-column align-items-stretch"
+    class="ide position-relative gl-flex flex-column align-items-stretch"
     :class="{ [`theme-${themeName}`]: themeName }"
   >
     <cannot-push-code-alert
@@ -127,7 +143,7 @@ export default {
       :action="canPushCodeStatus.action"
     />
     <error-message v-if="errorMessage" :message="errorMessage" />
-    <div class="ide-view flex-grow d-flex">
+    <div class="ide-view flex-grow gl-flex">
       <template v-if="loadDeferred">
         <find-file
           :files="allBlobs"
@@ -166,17 +182,16 @@ export default {
                       }}
                     </p>
                     <gl-button
-                      variant="success"
+                      variant="confirm"
                       category="primary"
                       :title="__('New file')"
                       :aria-label="__('New file')"
-                      data-qa-selector="first_file_button"
                       @click="createNewFile()"
                     >
                       {{ __('New file') }}
                     </gl-button>
                   </template>
-                  <gl-loading-icon v-else-if="!currentTree || currentTree.loading" size="md" />
+                  <gl-loading-icon v-else-if="!currentTree || currentTree.loading" size="lg" />
                   <p v-else>
                     {{
                       __(

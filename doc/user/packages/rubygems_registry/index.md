@@ -1,21 +1,24 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Ruby gems in the Package Registry **(FREE)**
+# Ruby gems in the package registry
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/803) in GitLab 13.10.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+**Status:** Experiment
 
 WARNING:
 The Ruby gems package registry for GitLab is under development and isn't ready for production use due to
 limited functionality. This [epic](https://gitlab.com/groups/gitlab-org/-/epics/3200) details the remaining
 work and timelines to make it production ready.
 
-You can publish Ruby gems in your project's Package Registry, then install the packages when you
+You can publish Ruby gems in your project's package registry, then install the packages when you
 need to use them as a dependency. Although you can push gems to the registry, you cannot install
-them from the registry. However, you can download `gem` files directly from the Package Registry's
+them from the registry. However, you can download `gem` files directly from the package registry's
 UI, or by using the [API](../../../api/packages/rubygems.md#download-a-gem-file).
 
 For documentation of the specific API endpoints that the Ruby gems and Bundler package manager
@@ -49,9 +52,9 @@ Feature.disable(:rubygem_packages, Project.find(2))
 
 If you need help creating a Ruby gem, see the [RubyGems documentation](https://guides.rubygems.org/make-your-own-gem/).
 
-## Authenticate to the Package Registry
+## Authenticate to the package registry
 
-Before you can push to the Package Registry, you must authenticate.
+Before you can push to the package registry, you must authenticate.
 
 To do this, you can use:
 
@@ -71,12 +74,12 @@ https://gitlab.example.com/api/v4/projects/<project_id>/packages/rubygems: '<you
 ```
 
 - `<your token>` must be the token value of either your personal access token or deploy token.
-- Your project ID is on your project's home page.
+- Your project ID is displayed on the [project overview page](../../project/working_with_projects.md#access-a-project-by-using-the-project-id).
 
 ### Authenticate with a CI job token
 
 To work with RubyGems commands within [GitLab CI/CD](../../../ci/index.md),
-you can use `CI_JOB_TOKEN` instead of a personal access token or deploy token.
+you can use the [`CI_JOB_TOKEN`](../../../ci/jobs/ci_job_token.md) predefined environment variable instead of a personal access token or deploy token.
 
 For example:
 
@@ -108,7 +111,7 @@ https://gitlab.example.com/api/v4/projects/${env.CI_PROJECT_ID}/packages/rubygem
 
 Prerequisites:
 
-- You must [authenticate to the Package Registry](#authenticate-to-the-package-registry).
+- You must [authenticate to the package registry](#authenticate-to-the-package-registry).
 - The maximum allowed gem size is 3 GB.
 
 To push your gem, run a command like this one:
@@ -117,7 +120,7 @@ To push your gem, run a command like this one:
 gem push my_gem-0.0.1.gem --host <host>
 ```
 
-Note that `<host>` is the URL you used when setting up authentication. For example:
+`<host>` is the URL you used when setting up authentication. For example:
 
 ```shell
 gem push my_gem-0.0.1.gem --host https://gitlab.example.com/api/v4/projects/1/packages/rubygems
@@ -130,7 +133,7 @@ Pushing gem to https://gitlab.example.com/api/v4/projects/1/packages/rubygems...
 {"message":"201 Created"}
 ```
 
-To view the published gem, go to your project's **Packages & Registries** page. Gems pushed to
+To view the published gem, go to your project's **Packages and registries** page. Gems pushed to
 GitLab aren't displayed in your project's Packages UI immediately. It can take up to 10 minutes to
 process a gem.
 

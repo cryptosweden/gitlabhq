@@ -1,10 +1,11 @@
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
+import { GlToast } from '@gitlab/ui';
 import createDefaultClient from '~/lib/graphql';
 import { parseBooleanDataAttributes } from '~/lib/utils/dom_utils';
 import SecurityConfigurationApp from './components/app.vue';
-import { securityFeatures, complianceFeatures } from './components/constants';
 import { augmentFeatures } from './utils';
+import { securityFeatures } from './constants';
 
 export const initSecurityConfiguration = (el) => {
   if (!el) {
@@ -12,6 +13,7 @@ export const initSecurityConfiguration = (el) => {
   }
 
   Vue.use(VueApollo);
+  Vue.use(GlToast);
 
   const apolloProvider = new VueApollo({
     defaultClient: createDefaultClient(),
@@ -25,27 +27,35 @@ export const initSecurityConfiguration = (el) => {
     gitlabCiHistoryPath,
     autoDevopsHelpPagePath,
     autoDevopsPath,
+    vulnerabilityTrainingDocsPath,
+    containerScanningForRegistryEnabled,
   } = el.dataset;
 
-  const { augmentedSecurityFeatures, augmentedComplianceFeatures } = augmentFeatures(
+  const { augmentedSecurityFeatures } = augmentFeatures(
     securityFeatures,
-    complianceFeatures,
     features ? JSON.parse(features) : [],
   );
 
   return new Vue({
     el,
     apolloProvider,
+    name: 'SecurityConfigurationRoot',
     provide: {
       projectFullPath,
       upgradePath,
       autoDevopsHelpPagePath,
       autoDevopsPath,
+      vulnerabilityTrainingDocsPath,
+      containerScanningForRegistryEnabled,
+      ...parseBooleanDataAttributes(el, [
+        'preReceiveSecretDetectionAvailable',
+        'preReceiveSecretDetectionEnabled',
+        'userIsProjectAdmin',
+      ]),
     },
     render(createElement) {
       return createElement(SecurityConfigurationApp, {
         props: {
-          augmentedComplianceFeatures,
           augmentedSecurityFeatures,
           latestPipelinePath,
           gitlabCiHistoryPath,
@@ -53,6 +63,7 @@ export const initSecurityConfiguration = (el) => {
             'gitlabCiPresent',
             'autoDevopsEnabled',
             'canEnableAutoDevops',
+            'securityTrainingEnabled',
           ]),
         },
       });

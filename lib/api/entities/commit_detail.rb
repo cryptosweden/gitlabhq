@@ -3,11 +3,13 @@
 module API
   module Entities
     class CommitDetail < Commit
-      expose :stats, using: Entities::CommitStats, if: :stats
-      expose :status
-      expose :project_id
+      include ::API::Helpers::Presentable
 
-      expose :last_pipeline do |commit, options|
+      expose :stats, using: Entities::CommitStats, if: :include_stats
+      expose :status_for, as: :status, documentation: { type: 'string', example: 'success' }
+      expose :project_id, documentation: { type: 'integer', example: 1 }
+
+      expose :last_pipeline, documentation: { type: ::API::Entities::Ci::PipelineBasic.to_s } do |commit, options|
         pipeline = commit.last_pipeline if can_read_pipeline?
         ::API::Entities::Ci::PipelineBasic.represent(pipeline, options)
       end

@@ -1,10 +1,14 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Geo Frequently Asked Questions **(PREMIUM SELF)**
+# Geo Frequently Asked Questions
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
 ## What are the minimum requirements to run Geo?
 
@@ -22,7 +26,7 @@ For each project to sync:
 
 1. Geo issues a `git fetch geo --mirror` to get the latest information from the **primary** site.
    If there are no changes, the sync is fast. Otherwise, it has to pull the latest commits.
-1. The **secondary** site updates the tracking database to store the fact that it has synced projects A, B, C, and so on.
+1. The **secondary** site updates the tracking database to store the fact that it has synced projects by name.
 1. Repeat until all projects are synced.
 
 When someone pushes a commit to the **primary** site, it generates an event in the GitLab database that the repository has changed.
@@ -32,10 +36,10 @@ To ensure that problems with pipelines (for example, syncs failing too many time
 the number of concurrent syncs falls below `repos_max_capacity` and there are no new projects waiting to be synced.
 
 Geo also has a checksum feature which runs a SHA256 sum across all the Git references to the SHA values.
-If the refs don't match between the **primary** site and the **secondary** site, then the **secondary** site will mark that project as dirty and try to resync it.
+If the refs don't match between the **primary** site and the **secondary** site, then the **secondary** site marks that project as dirty and try to resync it.
 So even if we have an outdated tracking database, the validation should activate and find discrepancies in the repository state and resync.
 
-## Can I use Geo in a disaster recovery situation?
+## Can you use Geo in a disaster recovery situation?
 
 Yes, but there are limitations to what we replicate (see
 [What data is replicated to a **secondary** site?](#what-data-is-replicated-to-a-secondary-site)).
@@ -44,12 +48,12 @@ Read the documentation for [Disaster Recovery](../disaster_recovery/index.md).
 
 ## What data is replicated to a **secondary** site?
 
-We currently replicate project repositories, LFS objects, generated
-attachments and avatars, and the whole database. This means user accounts,
-issues, merge requests, groups, project data, and so on, will be available for
+We currently replicate the whole rails database, project repositories, LFS objects, generated
+attachments, avatars and more. This means information such as user accounts,
+issues, merge requests, groups, and project data are available for
 query.
 
-For more details, see the [supported Geo data types](datatypes.md).
+For a comprehensive list of data replicated by Geo, see the [supported Geo data types page](datatypes.md).
 
 ## Can I `git push` to a **secondary** site?
 
@@ -58,17 +62,33 @@ Pushing directly to a **secondary** site (for both HTTP and SSH, including Git L
 ## How long does it take to have a commit replicated to a **secondary** site?
 
 All replication operations are asynchronous and are queued to be dispatched. Therefore, it depends on a lot of
-factors including the amount of traffic, how big your commit is, the
-connectivity between your sites, your hardware, and so on.
+factors such as the amount of traffic, how big your commit is, the
+connectivity between your sites, and your hardware.
 
 ## What if the SSH server runs at a different port?
 
 That's totally fine. We use HTTP(s) to fetch repository changes from the **primary** site to all **secondary** sites.
 
-## Is this possible to set up a Docker Registry for a **secondary** site that mirrors the one on the **primary** site?
+## Can I set up a container registry for a **secondary** site that mirrors the **primary** site?
 
-Yes. See [Docker Registry for a **secondary** site](docker_registry.md).
+Yes, however, we only support this for Disaster Recovery scenarios. See [container registry for a **secondary** site](container_registry.md).
 
-## Can I login to a secondary site?
+## Can you sign in to a secondary site?
 
 Yes, but secondary sites receive all authentication data (like user accounts and logins) from the primary instance. This means you are re-directed to the primary for authentication and then routed back.
+
+## Do all Geo sites need to be the same as the primary?
+
+No, Geo sites can be based on different reference architectures. For example, you can have the primary site based on a 3K reference architecture, one secondary site based 3K reference architecture, and another one based on a 1K reference architecture.
+
+## Does Geo replicate archived projects?
+
+Yes, provided they are not excluded through [selective sync](../replication/selective_synchronization.md).
+
+## Does Geo replicate personal projects?
+
+Yes, provided they are not excluded through [selective sync](../replication/selective_synchronization.md).
+
+## Are delayed deletion projects replicated to secondary sites?
+
+Yes, projects scheduled for deletion by [delayed deletion](../../settings/visibility_and_access_controls.md#delayed-project-deletion), but are yet to be permanently deleted, are replicated to secondary sites.

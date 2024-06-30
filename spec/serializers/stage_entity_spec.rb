@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe StageEntity do
+RSpec.describe StageEntity, feature_category: :continuous_integration do
   let(:pipeline) { create(:ci_pipeline) }
   let(:request) { double('request') }
   let(:user) { create(:user) }
@@ -12,12 +12,12 @@ RSpec.describe StageEntity do
   end
 
   let(:stage) do
-    build(:ci_stage, pipeline: pipeline, name: 'test')
+    create(:ci_stage, pipeline: pipeline, status: :success)
   end
 
   before do
     allow(request).to receive(:current_user).and_return(user)
-    create(:ci_build, :success, pipeline: pipeline)
+    create(:ci_build, :success, pipeline: pipeline, stage_id: stage.id)
   end
 
   describe '#as_json' do
@@ -63,7 +63,7 @@ RSpec.describe StageEntity do
 
       context 'and contains commit status' do
         before do
-          create(:generic_commit_status, pipeline: pipeline, stage: 'test')
+          create(:generic_commit_status, pipeline: pipeline, ci_stage: stage)
         end
 
         it 'contains commit status' do
@@ -74,7 +74,7 @@ RSpec.describe StageEntity do
     end
 
     context 'with a skipped stage ' do
-      let(:stage) { create(:ci_stage_entity, status: 'skipped') }
+      let(:stage) { create(:ci_stage, status: 'skipped') }
 
       it 'contains play_all_manual' do
         expect(subject[:status][:action]).to be_present
@@ -82,7 +82,7 @@ RSpec.describe StageEntity do
     end
 
     context 'with a scheduled stage ' do
-      let(:stage) { create(:ci_stage_entity, status: 'scheduled') }
+      let(:stage) { create(:ci_stage, status: 'scheduled') }
 
       it 'contains play_all_manual' do
         expect(subject[:status][:action]).to be_present
@@ -90,10 +90,40 @@ RSpec.describe StageEntity do
     end
 
     context 'with a manual stage ' do
-      let(:stage) { create(:ci_stage_entity, status: 'manual') }
+      let(:stage) { create(:ci_stage, status: 'manual') }
 
       it 'contains play_all_manual' do
         expect(subject[:status][:action]).to be_present
+      end
+    end
+
+    context 'when details: true' do
+      def serialize(stage)
+        described_class.new(stage, request: request, details: true).as_json
+      end
+
+      it 'avoids N+1 queries on latest_statuses', :use_sql_query_cache, :request_store do
+        pipeline = create(:ci_pipeline)
+        stage = create(:ci_stage, pipeline: pipeline, status: :success)
+
+        serialize(stage) # Warm up O(1) queries
+
+        # Prepare control
+        create(:ci_build, :tags, ci_stage: stage, pipeline: pipeline)
+        create(:ci_bridge, ci_stage: stage, pipeline: pipeline)
+        create(:generic_commit_status, ci_stage: stage, pipeline: pipeline)
+
+        control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+          serialize(stage)
+        end
+
+        # Prepare sample using a generous number to counteract any caches from
+        # the control
+        create_list(:ci_build, 10, :tags, ci_stage: stage, pipeline: pipeline)
+        create_list(:ci_bridge, 10, ci_stage: stage, pipeline: pipeline)
+        create_list(:generic_commit_status, 10, ci_stage: stage, pipeline: pipeline)
+
+        expect { serialize(stage) }.not_to exceed_query_limit(control)
       end
     end
   end

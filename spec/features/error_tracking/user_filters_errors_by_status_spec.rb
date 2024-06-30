@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'When a user filters Sentry errors by status', :js, :use_clean_rails_memory_store_caching, :sidekiq_inline do
+RSpec.describe 'When a user filters Sentry errors by status', :js, :use_clean_rails_memory_store_caching, :sidekiq_inline,
+  feature_category: :error_tracking do
   include_context 'sentry error tracking context feature'
 
   let_it_be(:issues_response_body) { fixture_file('sentry/issues_sample_response.json') }
@@ -10,8 +11,8 @@ RSpec.describe 'When a user filters Sentry errors by status', :js, :use_clean_ra
 
   let(:issues_api_url) { "#{sentry_api_urls.issues_url}?limit=20&query=is:unresolved" }
   let(:issues_api_url_filter) { "#{sentry_api_urls.issues_url}?limit=20&query=is:ignored" }
-  let(:auth_token) {{ 'Authorization' => 'Bearer access_token_123' }}
-  let(:return_header) {{ 'Content-Type' => 'application/json' }}
+  let(:auth_token) { { 'Authorization' => 'Bearer access_token_123' } }
+  let(:return_header) { { 'Content-Type' => 'application/json' } }
 
   before do
     stub_request(:get, issues_api_url).with(headers: auth_token)

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Snippets::UpdateService do
+RSpec.describe Snippets::UpdateService, feature_category: :source_code_management do
   describe '#execute', :aggregate_failures do
     let_it_be(:user) { create(:user) }
     let_it_be(:admin) { create :user, admin: true }
@@ -21,9 +21,8 @@ RSpec.describe Snippets::UpdateService do
     let(:extra_opts) { {} }
     let(:options) { base_opts.merge(extra_opts) }
     let(:updater) { user }
-    let(:spam_params) { double }
 
-    let(:service) { Snippets::UpdateService.new(project: project, current_user: updater, params: options, spam_params: spam_params) }
+    let(:service) { described_class.new(project: project, current_user: updater, params: options, perform_spam_check: true) }
 
     subject { service.execute(snippet) }
 
@@ -85,18 +84,15 @@ RSpec.describe Snippets::UpdateService do
     end
 
     shared_examples 'snippet update data is tracked' do
-      let(:counter) { Gitlab::UsageDataCounters::SnippetCounter }
+      let(:event) { 'update_snippet' }
+      let(:category) { 'Snippets::UpdateService' }
 
-      it 'increments count when create succeeds' do
-        expect { subject }.to change { counter.read(:update) }.by 1
-      end
+      it_behaves_like 'internal event tracking'
 
       context 'when update fails' do
         let(:extra_opts) { { title: '' } }
 
-        it 'does not increment count' do
-          expect { subject }.not_to change { counter.read(:update) }
-        end
+        it_behaves_like 'internal event not tracked'
       end
     end
 
@@ -140,7 +136,7 @@ RSpec.describe Snippets::UpdateService do
 
       context 'when snippet_actions param is used' do
         let(:file_path) { 'CHANGELOG' }
-        let(:created_file_path) { 'New file'}
+        let(:created_file_path) { 'New file' }
         let(:content) { 'foobar' }
         let(:snippet_actions) { [{ action: :move, previous_path: snippet.file_name, file_path: file_path }, { action: :create, file_path: created_file_path, content: content }] }
         let(:base_opts) do
@@ -722,10 +718,6 @@ RSpec.describe Snippets::UpdateService do
         expect(response).to be_success
         expect(blob.data).to eq content
       end
-    end
-
-    before do
-      stub_spam_services
     end
 
     context 'when Project Snippet' do

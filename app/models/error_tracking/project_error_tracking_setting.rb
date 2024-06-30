@@ -19,10 +19,11 @@ module ErrorTracking
           (?<project>[^/]+)/*
         )?
       \z
-    }x.freeze
+    }x
 
     self.reactive_cache_key = ->(setting) { [setting.class.model_name.singular, setting.project_id] }
     self.reactive_cache_work_type = :external_dependency
+    self.reactive_cache_hard_limit = ErrorTracking::SentryClient::RESPONSE_MEMORY_SIZE_LIMIT
 
     self.table_name = 'project_error_tracking_settings'
 
@@ -43,6 +44,8 @@ module ErrorTracking
       mode: :per_attribute_iv,
       key: Settings.attr_encrypted_db_key_base_32,
       algorithm: 'aes-256-gcm'
+
+    before_validation :reset_token
 
     after_save :clear_reactive_cache!
 
@@ -125,19 +128,24 @@ module ErrorTracking
 
     def issue_details(opts = {})
       with_reactive_cache('issue_details', opts.stringify_keys) do |result|
+        ensure_issue_belongs_to_project!(result[:issue].project_id) if result[:issue]
         result
       end
     end
 
     def issue_latest_event(opts = {})
       with_reactive_cache('issue_latest_event', opts.stringify_keys) do |result|
+        ensure_issue_belongs_to_project!(result[:latest_event].project_id) if result[:latest_event]
         result
       end
     end
 
-    def update_issue(opts = {} )
+    def update_issue(opts = {})
+      issue_to_be_updated = sentry_client.issue_details(issue_id: opts[:issue_id])
+      ensure_issue_belongs_to_project!(issue_to_be_updated.project_id)
+
       handle_exceptions do
-        { updated: sentry_client.update_issue(opts) }
+        { updated: sentry_client.update_issue(**opts) }
       end
     end
 
@@ -176,6 +184,31 @@ module ErrorTracking
     end
 
     private
+
+    def reset_token
+      if api_url_changed? && !encrypted_token_changed?
+        self.token = nil
+      end
+    end
+
+    def ensure_issue_belongs_to_project!(project_id_from_api)
+      raise 'The Sentry issue appers to be outside of the configured Sentry project' if Integer(project_id_from_api) != ensure_sentry_project_id!
+    end
+
+    def ensure_sentry_project_id!
+      return sentry_project_id if sentry_project_id.present?
+
+      raise("Couldn't find project: #{organization_name} / #{project_name} on Sentry") if sentry_project.nil?
+
+      update!(sentry_project_id: sentry_project.id)
+      sentry_project_id
+    end
+
+    def sentry_project
+      strong_memoize(:sentry_project) do
+        sentry_client.projects.find { |project| project.name == project_name && project.organization_name == organization_name }
+      end
+    end
 
     def add_gitlab_issue_details(issue)
       issue.gitlab_commit = match_gitlab_commit(issue.first_release_version)

@@ -21,10 +21,6 @@ describe('CollapsedAssignee assignee component', () => {
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('has author name', () => {
     createComponent();
 
@@ -34,7 +30,7 @@ describe('CollapsedAssignee assignee component', () => {
   it('has assignee avatar', () => {
     createComponent();
 
-    expect(wrapper.find(AssigneeAvatar).props()).toEqual({
+    expect(wrapper.findComponent(AssigneeAvatar).props()).toEqual({
       imgSize: 24,
       user: TEST_USER,
       issuableType: TEST_ISSUABLE_TYPE,

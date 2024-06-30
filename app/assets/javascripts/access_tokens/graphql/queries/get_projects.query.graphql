@@ -1,4 +1,4 @@
-#import "~/graphql_shared/fragments/pageInfo.fragment.graphql"
+#import "~/graphql_shared/fragments/page_info.fragment.graphql"
 
 query accessTokensGetProjects(
   $search: String = ""
@@ -22,7 +22,6 @@ query accessTokensGetProjects(
       avatarUrl
     }
     pageInfo {
-      __typename
       ...PageInfo
     }
   }

@@ -11,6 +11,7 @@ class Projects::DeployKeysController < Projects::ApplicationController
   layout 'project_settings'
 
   feature_category :continuous_delivery
+  urgency :low
 
   def index
     respond_to do |format|
@@ -21,16 +22,42 @@ class Projects::DeployKeysController < Projects::ApplicationController
     end
   end
 
+  def enabled_keys
+    respond_to do |format|
+      format.json do
+        enabled_keys = find_keys(filter: :enabled_keys)
+        render json: { keys: serialize(enabled_keys) }
+      end
+    end
+  end
+
+  def available_project_keys
+    respond_to do |format|
+      format.json do
+        available_project_keys = find_keys(filter: :available_project_keys)
+        render json: { keys: serialize(available_project_keys) }
+      end
+    end
+  end
+
+  def available_public_keys
+    respond_to do |format|
+      format.json do
+        available_public_keys = find_keys(filter: :available_public_keys)
+
+        render json: { keys: serialize(available_public_keys) }
+      end
+    end
+  end
+
   def new
     redirect_to_repository
   end
 
   def create
-    @key = DeployKeys::CreateService.new(current_user, create_params).execute(project: @project)
+    @key = DeployKeys::CreateService.new(current_user, create_params).execute(project: @project).present
 
-    unless @key.valid?
-      flash[:alert] = @key.errors.full_messages.join(', ').html_safe
-    end
+    flash[:alert] = @key.humanized_error_message unless @key.valid?
 
     redirect_to_repository
   end
@@ -83,14 +110,14 @@ class Projects::DeployKeysController < Projects::ApplicationController
 
   def create_params
     create_params = params.require(:deploy_key)
-                          .permit(:key, :title, deploy_keys_projects_attributes: [:can_push])
+                          .permit(:key, :title, :expires_at, deploy_keys_projects_attributes: [:can_push])
     create_params.dig(:deploy_keys_projects_attributes, '0')&.merge!(project_id: @project.id)
     create_params
   end
 
   def update_params
     permitted_params = [deploy_keys_projects_attributes: [:can_push]]
-    permitted_params << :title if can?(current_user, :update_deploy_key, deploy_key)
+    permitted_params << :title if can?(current_user, :update_deploy_key_title, deploy_key)
 
     key_update_params = params.require(:deploy_key).permit(*permitted_params)
     key_update_params.dig(:deploy_keys_projects_attributes, '0')&.merge!(id: deploy_keys_project.id)
@@ -108,5 +135,18 @@ class Projects::DeployKeysController < Projects::ApplicationController
 
   def redirect_to_repository
     redirect_to_repository_settings(@project, anchor: 'js-deploy-keys-settings')
+  end
+
+  def find_keys(params)
+    DeployKeys::DeployKeysFinder.new(@project, current_user, params)
+                         .execute
+  end
+
+  def serialize(keys)
+    opts = { user: current_user, project: project }
+
+    DeployKeys::DeployKeySerializer.new
+                 .with_pagination(request, response)
+                 .represent(keys, opts)
   end
 end

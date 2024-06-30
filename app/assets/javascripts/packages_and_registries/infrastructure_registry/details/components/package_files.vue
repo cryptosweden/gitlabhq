@@ -1,5 +1,11 @@
 <script>
-import { GlLink, GlTable, GlDropdownItem, GlDropdown, GlIcon, GlButton } from '@gitlab/ui';
+import {
+  GlLink,
+  GlTable,
+  GlDisclosureDropdownItem,
+  GlDisclosureDropdown,
+  GlButton,
+} from '@gitlab/ui';
 import { last } from 'lodash';
 import { numberToHumanSize } from '~/lib/utils/number_utils';
 import { __ } from '~/locale';
@@ -13,9 +19,8 @@ export default {
   components: {
     GlLink,
     GlTable,
-    GlIcon,
-    GlDropdown,
-    GlDropdownItem,
+    GlDisclosureDropdown,
+    GlDisclosureDropdownItem,
     GlButton,
     FileIcon,
     TimeAgoTooltip,
@@ -84,14 +89,14 @@ export default {
     },
   },
   i18n: {
-    deleteFile: __('Delete file'),
+    deleteFile: __('Delete asset'),
   },
 };
 </script>
 
 <template>
   <div>
-    <h3 class="gl-font-lg gl-mt-5">{{ __('Files') }}</h3>
+    <h3 class="gl-font-lg gl-mt-5">{{ __('Assets') }}</h3>
     <gl-table
       :fields="filesTableHeaderFields"
       :items="filesTableRows"
@@ -100,7 +105,7 @@ export default {
       <template #cell(name)="{ item, toggleDetails, detailsShowing }">
         <gl-button
           v-if="hasDetails(item)"
-          :icon="detailsShowing ? 'angle-up' : 'angle-down'"
+          :icon="detailsShowing ? 'chevron-lg-up' : 'chevron-lg-down'"
           :aria-label="detailsShowing ? __('Collapse') : __('Expand')"
           category="tertiary"
           size="small"
@@ -108,7 +113,7 @@ export default {
         />
         <gl-link
           :href="item.download_path"
-          class="gl-text-gray-500"
+          class="gl-text-secondary"
           data-testid="download-link"
           @click="$emit('download-file')"
         >
@@ -125,7 +130,7 @@ export default {
         <gl-link
           v-if="item.pipeline && item.pipeline.project"
           :href="item.pipeline.project.commit_url"
-          class="gl-text-gray-500"
+          class="gl-text-secondary"
           data-testid="commit-link"
           >{{ item.pipeline.git_commit_message }}</gl-link
         >
@@ -136,19 +141,21 @@ export default {
       </template>
 
       <template #cell(actions)="{ item }">
-        <gl-dropdown category="tertiary" right>
-          <template #button-content>
-            <gl-icon name="ellipsis_v" />
-          </template>
-          <gl-dropdown-item data-testid="delete-file" @click="$emit('delete-file', item)">
-            {{ $options.i18n.deleteFile }}
-          </gl-dropdown-item>
-        </gl-dropdown>
+        <gl-disclosure-dropdown category="tertiary" right no-caret icon="ellipsis_v">
+          <gl-disclosure-dropdown-item
+            data-testid="delete-file"
+            @action="$emit('delete-file', item)"
+          >
+            <template #list-item>
+              <span class="gl-text-red-500">{{ $options.i18n.deleteFile }}</span>
+            </template>
+          </gl-disclosure-dropdown-item>
+        </gl-disclosure-dropdown>
       </template>
 
       <template #row-details="{ item }">
         <div
-          class="gl-display-flex gl-flex-direction-column gl-flex-grow-1 gl-bg-gray-10 gl-rounded-base gl-inset-border-1-gray-100"
+          class="gl-display-flex gl-flex-direction-column gl-flex-grow-1 gl-bg-gray-10 gl-rounded-base gl-shadow-inner-1-gray-100"
         >
           <file-sha
             v-if="item.file_sha256"

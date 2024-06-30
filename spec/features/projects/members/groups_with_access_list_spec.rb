@@ -2,14 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Members > Groups with access list', :js do
-  include Spec::Support::Helpers::Features::MembersHelpers
+RSpec.describe 'Projects > Members > Groups with access list', :js, feature_category: :groups_and_projects do
+  include ListboxHelpers
+  include Features::MembersHelpers
   include Spec::Support::Helpers::ModalHelpers
-  include Spec::Support::Helpers::Features::InviteMembersModalHelper
+  include Features::InviteMembersModalHelpers
 
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group, :public) }
-  let_it_be(:project) { create(:project, :public) }
+  let_it_be(:project) { create(:project, :public, :with_namespace_settings) }
   let_it_be(:expiration_date) { 5.days.from_now.to_date }
 
   let(:additional_link_attrs) { {} }
@@ -17,6 +18,7 @@ RSpec.describe 'Projects > Members > Groups with access list', :js do
 
   before do
     travel_to Time.now.utc.beginning_of_day
+    stub_feature_flags(show_role_details_in_drawer: false)
 
     project.add_maintainer(user)
     sign_in(user)
@@ -26,8 +28,7 @@ RSpec.describe 'Projects > Members > Groups with access list', :js do
   end
 
   it 'updates group access level' do
-    click_button group_link.human_access
-    click_button 'Guest'
+    select_from_listbox('Guest', from: group_link.human_access)
 
     wait_for_requests
 
@@ -56,7 +57,7 @@ RSpec.describe 'Projects > Members > Groups with access list', :js do
       page.within find_group_row(group) do
         expect(page).to have_field('Expiration date', with: expiration_date)
 
-        find('[data-testid="clear-button"]').click
+        find_by_testid('clear-button').click
 
         wait_for_requests
 

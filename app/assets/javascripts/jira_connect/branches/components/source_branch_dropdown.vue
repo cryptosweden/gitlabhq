@@ -1,16 +1,16 @@
 <script>
-import { GlDropdown, GlDropdownItem, GlSearchBoxByType, GlLoadingIcon } from '@gitlab/ui';
+import { GlCollapsibleListbox } from '@gitlab/ui';
+import { debounce } from 'lodash';
 import { __ } from '~/locale';
+import { logError } from '~/lib/logger';
+
 import { BRANCHES_PER_PAGE } from '../constants';
 import getProjectQuery from '../graphql/queries/get_project.query.graphql';
 
 export default {
   BRANCHES_PER_PAGE,
   components: {
-    GlDropdown,
-    GlDropdownItem,
-    GlSearchBoxByType,
-    GlLoadingIcon,
+    GlCollapsibleListbox,
   },
   props: {
     selectedProject: {
@@ -26,9 +26,9 @@ export default {
   },
   data() {
     return {
-      sourceBranchSearchQuery: '',
       initialSourceBranchNamesLoading: false,
       sourceBranchNamesLoading: false,
+      sourceBranchNamesLoadingMore: false,
       sourceBranchNames: [],
     };
   },
@@ -38,6 +38,11 @@ export default {
     },
     hasSelectedSourceBranch() {
       return Boolean(this.selectedBranchName);
+    },
+    hasMoreBranches() {
+      return (
+        this.sourceBranchNames.length > 0 && this.sourceBranchNames.length % BRANCHES_PER_PAGE === 0
+      );
     },
     branchDropdownText() {
       return this.selectedBranchName || __('Select a branch');
@@ -59,42 +64,66 @@ export default {
     onSourceBranchSelect(branchName) {
       this.$emit('change', branchName);
     },
-    onSourceBranchSearchQuery(branchSearchQuery) {
+    onSearch: debounce(function debouncedSearch(branchSearchQuery) {
+      this.onSourceBranchSearchQuery(branchSearchQuery);
+    }, 250),
+    async onSourceBranchSearchQuery(branchSearchQuery) {
       this.branchSearchQuery = branchSearchQuery;
-      this.fetchSourceBranchNames({
+      this.sourceBranchNamesLoading = true;
+
+      await this.fetchSourceBranchNames({
         projectPath: this.selectedProject.fullPath,
         searchPattern: this.branchSearchQuery,
       });
+      this.sourceBranchNamesLoading = false;
+    },
+    async onBottomReached() {
+      this.sourceBranchNamesLoadingMore = true;
+
+      await this.fetchSourceBranchNames({
+        projectPath: this.selectedProject.fullPath,
+        searchPattern: this.branchSearchQuery,
+        append: true,
+      });
+
+      this.sourceBranchNamesLoadingMore = false;
     },
     onError({ message } = {}) {
       this.$emit('error', { message });
     },
-    async fetchSourceBranchNames({ projectPath, searchPattern } = {}) {
-      this.sourceBranchNamesLoading = true;
+    async fetchSourceBranchNames({ projectPath, searchPattern, append = false } = {}) {
       try {
         const { data } = await this.$apollo.query({
           query: getProjectQuery,
           variables: {
             projectPath,
             branchNamesLimit: this.$options.BRANCHES_PER_PAGE,
-            branchNamesOffset: 0,
+            branchNamesOffset: append ? this.sourceBranchNames.length : 0,
             branchNamesSearchPattern: searchPattern ? `*${searchPattern}*` : '*',
           },
         });
 
         const { branchNames, rootRef } = data?.project.repository || {};
-        this.sourceBranchNames = branchNames || [];
+        const branchNameItems =
+          branchNames?.map((value) => {
+            return { text: value, value };
+          }) || [];
 
-        // Use root ref as the default selection
-        if (rootRef && !this.hasSelectedSourceBranch) {
-          this.onSourceBranchSelect(rootRef);
+        if (append) {
+          this.sourceBranchNames.push(...branchNameItems);
+        } else {
+          this.sourceBranchNames = branchNameItems;
+
+          // Use root ref as the default selection
+          if (rootRef && !this.hasSelectedSourceBranch) {
+            this.onSourceBranchSelect(rootRef);
+          }
         }
       } catch (err) {
+        logError(err);
         this.onError({
           message: __('Something went wrong while fetching source branches.'),
         });
-      } finally {
-        this.sourceBranchNamesLoading = false;
       }
     },
   },
@@ -102,33 +131,20 @@ export default {
 </script>
 
 <template>
-  <gl-dropdown
-    :text="branchDropdownText"
-    :loading="initialSourceBranchNamesLoading"
-    :disabled="!hasSelectedProject"
+  <gl-collapsible-listbox
     :class="{ 'gl-font-monospace': hasSelectedSourceBranch }"
-  >
-    <template #header>
-      <gl-search-box-by-type
-        :debounce="250"
-        :value="sourceBranchSearchQuery"
-        @input="onSourceBranchSearchQuery"
-      />
-    </template>
-
-    <gl-loading-icon v-show="sourceBranchNamesLoading" />
-    <template v-if="!sourceBranchNamesLoading">
-      <gl-dropdown-item
-        v-for="branchName in sourceBranchNames"
-        v-show="!sourceBranchNamesLoading"
-        :key="branchName"
-        :is-checked="branchName === selectedBranchName"
-        is-check-item
-        class="gl-font-monospace"
-        @click="onSourceBranchSelect(branchName)"
-      >
-        {{ branchName }}
-      </gl-dropdown-item>
-    </template>
-  </gl-dropdown>
+    :selected="selectedBranchName"
+    :disabled="!hasSelectedProject"
+    :items="sourceBranchNames"
+    :loading="initialSourceBranchNamesLoading"
+    :searchable="true"
+    :searching="sourceBranchNamesLoading"
+    :toggle-text="branchDropdownText"
+    fluid-width
+    :infinite-scroll="hasMoreBranches"
+    :infinite-scroll-loading="sourceBranchNamesLoadingMore"
+    @bottom-reached="onBottomReached"
+    @search="onSearch"
+    @select="onSourceBranchSelect"
+  />
 </template>

@@ -1,56 +1,98 @@
 ---
 stage: Create
 group: Code Review
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: index, reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "Understand how to read the display of commits in a merge request."
 ---
 
-# Commits tab in merge requests **(FREE)**
+# Merge request commits
 
-The **Commits** tab in a merge request displays a sequential list of commits
-to the Git branch your merge request is based on. From this page, you can review
-full commit messages and copy a commit's SHA when you need to
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+Each merge request has a history of the commits made to the source branch
+after the merge request was created.
+
+These commits are displayed on the merge request's **Commits** tab.
+From this tab, you can review commit messages and copy a commit's SHA when you need to
 [cherry-pick changes](cherry_pick_changes.md).
 
-## Merge requests commit navigation
+## View commits in a merge request
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/18140) in GitLab 13.0.
+To see the commits included in a merge request:
 
-To seamlessly navigate among commits in a merge request:
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Merge requests**, then select your merge request.
+1. To show a list of the commits in the merge request, newest first, select **Commits** .
+   To read more about the commit, select **Toggle commit description** (**{ellipsis_h}**)
+   on any commit.
+1. To view the changes in the commit, select the title of the commit link.
+1. To view other commits in the merge request, either:
 
-1. Select the **Commits** tab.
-1. Select a commit to open it in the single-commit view.
-1. Navigate through the commits by either:
+   - Select **Prev** or **Next**.
+   - Use keyboard shortcuts: <kbd>X</kbd> (previous commit) and <kbd>C</kbd> (next commit).
 
-   - Selecting **Prev** and **Next** buttons below the tab buttons.
-   - Using the <kbd>X</kbd> and <kbd>C</kbd> keyboard shortcuts.
+If your merge request builds upon a previous merge request, you might
+need to [include more commits for context](#show-commits-from-previous-merge-requests).
 
-![Merge requests commit navigation](img/commit_nav_v13_11.png)
+### Show commits from previous merge requests
 
-## View merge request commits in context
+When you review a merge request, you might need information from previous commits
+to help understand the commits you're reviewing. You might need more context
+if another merge request:
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/29274) in GitLab 13.12 [with a flag](../../../administration/feature_flags.md) named `context_commits`. Enabled by default.
-> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/320757) in GitLab 14.8.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/320757) in GitLab 14.9. [Feature flag `context_commits`](https://gitlab.com/gitlab-org/gitlab/-/issues/320757) removed.
-
-When reviewing a merge request, it helps to have more context about the changes
-made. That includes unchanged lines in unchanged files, and previous commits
-that have already merged that the change is built on.
+- Changed files your current merge request doesn't modify, so those files aren't shown
+  in your current merge request's diff.
+- Changed files that you're modifying in your current merge request, and you need
+  to see the progression of work.
 
 To add previously merged commits to a merge request for more context:
 
-1. Go to your merge request.
-1. Select the **Commits** tab.
-1. Scroll to the end of the list of commits, and select **Add previously merged commits**:
-
-   ![Add previously merged commits button](img/add_previously_merged_commits_button_v14_1.png)
-
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Merge requests**, then select your merge request.
+1. Select **Commits**.
+1. Scroll to the end of the list of commits, and select **Add previously merged commits**.
 1. Select the commits that you want to add.
 1. Select **Save changes**.
 
-To view the changes done on those previously merged commits:
+Previously merged commits are referred to as **Context Commits** in
+the [API](../../../api/merge_request_context_commits.md).
 
-1. On your merge request, select the **Changes** tab.
-1. Scroll to **(file-tree)** **Compare** and select **previously merged commits**:
+## Add a comment to a commit
 
-   ![Previously merged commits](img/previously_merged_commits_v14_1.png)
+WARNING:
+Threads created this way are lost if the commit ID changes after a
+force push.
+
+To add discussion to a specific commit:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Commits**.
+1. Below the commits, in the **Comment** field, enter a comment.
+1. Save your comment as either a standalone comment, or a thread:
+   - To add a comment, select **Comment**.
+   - To start a thread, select the down arrow (**{chevron-down}**), then select **Start thread**.
+
+## View diffs between commits
+
+To view the changes between previously merged commits:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Merge requests**, then select your merge request.
+1. Select **Changes**.
+1. By **Compare** (**{file-tree}**), select the commits to compare:
+
+   ![Previously merged commits](img/previously_merged_commits_v16_0.png)
+
+If you selected to add previously merged commits for context, those commits are
+also shown in the list.
+
+## Find the merge request that introduced a change
+
+When you view the commit details page, GitLab links to one or more merge requests
+that contain that commit.
+
+This behavior only applies to commits that are in the most recent version of a merge
+request. If the commits were in a merge request and were rebased out of that merge
+request, the commits are not linked.

@@ -2,6 +2,7 @@ import { GlToggle, GlAlert } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import { mockTracking } from 'helpers/tracking_helper';
 import waitForPromises from 'helpers/wait_for_promises';
@@ -10,6 +11,7 @@ import EditFeatureFlag from '~/feature_flags/components/edit_feature_flag.vue';
 import Form from '~/feature_flags/components/form.vue';
 import createStore from '~/feature_flags/store/edit';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
 Vue.use(Vuex);
 
@@ -23,10 +25,6 @@ describe('Edit feature flag form', () => {
   });
 
   const factory = (provide = { searchPath: '/search' }) => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
     wrapper = shallowMount(EditFeatureFlag, {
       store,
       provide,
@@ -35,7 +33,7 @@ describe('Edit feature flag form', () => {
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
-    mock.onGet(`${TEST_HOST}/feature_flags.json`).replyOnce(200, {
+    mock.onGet(`${TEST_HOST}/feature_flags.json`).replyOnce(HTTP_STATUS_OK, {
       id: 21,
       iid: 5,
       active: true,
@@ -52,7 +50,6 @@ describe('Edit feature flag form', () => {
   });
 
   afterEach(() => {
-    wrapper.destroy();
     mock.restore();
   });
 

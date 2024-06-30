@@ -1,19 +1,24 @@
+import MockAdapter from 'axios-mock-adapter';
 import {
   emojiFixtureMap,
-  mockEmojiData,
   initEmojiMock,
   validEmoji,
   invalidEmoji,
   clearEmojiMock,
+  mockEmojiData,
 } from 'helpers/emoji';
 import { trimText } from 'helpers/text_helper';
+import { createMockClient } from 'helpers/mock_apollo_helper';
 import {
   glEmojiTag,
   searchEmoji,
   getEmojiInfo,
   sortEmoji,
   initEmojiMap,
-  getAllEmoji,
+  getEmojiMap,
+  emojiFallbackImageSrc,
+  loadCustomEmojiWithNames,
+  EMOJI_VERSION,
 } from '~/emoji';
 
 import isEmojiUnicodeSupported, {
@@ -24,6 +29,16 @@ import isEmojiUnicodeSupported, {
   isHorceRacingSkinToneComboEmoji,
   isPersonZwjEmoji,
 } from '~/emoji/support/is_emoji_unicode_supported';
+import { CACHE_KEY, CACHE_VERSION_KEY, NEUTRAL_INTENT_MULTIPLIER } from '~/emoji/constants';
+import customEmojiQuery from '~/emoji/queries/custom_emoji.query.graphql';
+import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { useLocalStorageSpy } from 'jest/__helpers__/local_storage_helper';
+
+let mockClient;
+jest.mock('~/lib/graphql', () => {
+  return () => mockClient;
+});
 
 const emptySupportMap = {
   personZwj: false,
@@ -44,12 +59,242 @@ const emptySupportMap = {
   1.1: false,
 };
 
+function createMockEmojiClient(hasNextPage = false) {
+  mockClient = createMockClient(
+    [
+      [
+        customEmojiQuery,
+        ({ after }) =>
+          Promise.resolve({
+            data: {
+              group: {
+                id: 1,
+                customEmoji: {
+                  pageInfo: {
+                    hasNextPage: after ? false : hasNextPage,
+                    endCursor: 'test',
+                  },
+                  nodes: [{ id: 1, name: `parrot${after ? `-${after}` : ''}`, url: 'parrot.gif' }],
+                },
+              },
+            },
+          }),
+      ],
+    ],
+    {},
+    {
+      typePolicies: {
+        Query: {
+          fields: {
+            group: {
+              merge: true,
+            },
+          },
+        },
+      },
+    },
+  );
+
+  document.body.dataset.groupFullPath = 'test-group';
+}
+
+describe('retrieval of emojis.json', () => {
+  useLocalStorageSpy();
+
+  let mock;
+  beforeEach(() => {
+    mock = new MockAdapter(axios);
+    mock.onGet(/emojis\.json$/).reply(HTTP_STATUS_OK, mockEmojiData);
+    initEmojiMap.promise = null;
+  });
+
+  afterEach(() => {
+    mock.restore();
+  });
+
+  const assertCorrectLocalStorage = () => {
+    expect(localStorage.length).toBe(1);
+    expect(localStorage.getItem(CACHE_KEY)).toBe(
+      JSON.stringify({ data: mockEmojiData, EMOJI_VERSION }),
+    );
+  };
+
+  const assertEmojiBeingLoadedCorrectly = () => {
+    expect(Object.keys(getEmojiMap())).toEqual(Object.keys(validEmoji));
+  };
+
+  it('should remove the old `CACHE_VERSION_KEY`', async () => {
+    localStorage.setItem(CACHE_VERSION_KEY, EMOJI_VERSION);
+
+    await initEmojiMap();
+
+    expect(localStorage.getItem(CACHE_VERSION_KEY)).toBe(null);
+  });
+
+  describe('when the localStorage is empty', () => {
+    it('should call the API and store results in localStorage', async () => {
+      await initEmojiMap();
+
+      assertEmojiBeingLoadedCorrectly();
+      expect(mock.history.get.length).toBe(1);
+      assertCorrectLocalStorage();
+    });
+  });
+
+  describe('when the localStorage stores the correct version', () => {
+    beforeEach(async () => {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ data: mockEmojiData, EMOJI_VERSION }));
+      localStorage.setItem.mockClear();
+      await initEmojiMap();
+    });
+
+    it('should not call the API and not mutate the localStorage', () => {
+      assertEmojiBeingLoadedCorrectly();
+      expect(mock.history.get.length).toBe(0);
+      expect(localStorage.setItem).not.toHaveBeenCalled();
+      assertCorrectLocalStorage();
+    });
+  });
+
+  describe('when the localStorage stores an incorrect version', () => {
+    beforeEach(async () => {
+      localStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify({ data: mockEmojiData, EMOJI_VERSION: `${EMOJI_VERSION}-different` }),
+      );
+      localStorage.setItem.mockClear();
+      await initEmojiMap();
+    });
+
+    it('should call the API and store results in localStorage', () => {
+      assertEmojiBeingLoadedCorrectly();
+      expect(mock.history.get.length).toBe(1);
+      assertCorrectLocalStorage();
+    });
+  });
+
+  describe('when the localStorage stores corrupted data', () => {
+    beforeEach(async () => {
+      localStorage.setItem(CACHE_KEY, "[invalid: 'INVALID_JSON");
+      localStorage.setItem.mockClear();
+      await initEmojiMap();
+    });
+
+    it('should call the API and store results in localStorage', () => {
+      assertEmojiBeingLoadedCorrectly();
+      expect(mock.history.get.length).toBe(1);
+      assertCorrectLocalStorage();
+    });
+  });
+
+  describe('when the localStorage stores data in a different format', () => {
+    beforeEach(async () => {
+      localStorage.setItem(CACHE_KEY, JSON.stringify([]));
+      localStorage.setItem.mockClear();
+      await initEmojiMap();
+    });
+
+    it('should call the API and store results in localStorage', () => {
+      assertEmojiBeingLoadedCorrectly();
+      expect(mock.history.get.length).toBe(1);
+      assertCorrectLocalStorage();
+    });
+  });
+
+  describe('when the localStorage is full', () => {
+    beforeEach(async () => {
+      const oldSetItem = localStorage.setItem;
+      localStorage.setItem = jest.fn().mockImplementationOnce((key, value) => {
+        if (key === CACHE_KEY) {
+          throw new Error('Storage Full');
+        }
+        oldSetItem(key, value);
+      });
+      await initEmojiMap();
+    });
+
+    it('should call API but not store the results', () => {
+      assertEmojiBeingLoadedCorrectly();
+      expect(mock.history.get.length).toBe(1);
+      expect(localStorage.length).toBe(0);
+      expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(localStorage.setItem).toHaveBeenCalledWith(
+        CACHE_KEY,
+        JSON.stringify({ data: mockEmojiData, EMOJI_VERSION }),
+      );
+    });
+  });
+
+  describe('backwards compatibility', () => {
+    // As per: https://gitlab.com/gitlab-org/gitlab/-/blob/62b66abd3bb7801e7c85b4e42a1bbd51fbb37c1b/app/assets/javascripts/emoji/index.js#L27-52
+    async function prevImplementation() {
+      if (
+        window.localStorage.getItem(CACHE_VERSION_KEY) === EMOJI_VERSION &&
+        window.localStorage.getItem(CACHE_KEY)
+      ) {
+        return JSON.parse(window.localStorage.getItem(CACHE_KEY));
+      }
+
+      // We load the JSON file direct from the server
+      // because it can't be loaded from a CDN due to
+      // cross domain problems with JSON
+      const { data } = await axios.get(
+        `${gon.relative_url_root || ''}/-/emojis/${EMOJI_VERSION}/emojis.json`,
+      );
+
+      try {
+        window.localStorage.setItem(CACHE_VERSION_KEY, EMOJI_VERSION);
+        window.localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      } catch {
+        // Setting data in localstorage may fail when storage quota is exceeded.
+        // We should continue even when this fails.
+      }
+
+      return data;
+    }
+
+    it('Old -> New -> Old should not break', async () => {
+      // The follow steps simulate a multi-version deployment. e.g.
+      // Hitting a page on "regular" .com, then canary, and then "regular" again
+
+      // Load emoji the old way to pre-populate the cache
+      let res = await prevImplementation();
+      expect(res).toEqual(mockEmojiData);
+      expect(mock.history.get.length).toBe(1);
+      localStorage.setItem.mockClear();
+
+      // Load emoji the new way
+      await initEmojiMap();
+      expect(mock.history.get.length).toBe(2);
+      assertEmojiBeingLoadedCorrectly();
+      assertCorrectLocalStorage();
+      localStorage.setItem.mockClear();
+
+      // Load emoji the old way to pre-populate the cache
+      res = await prevImplementation();
+      expect(res).toEqual(mockEmojiData);
+      expect(mock.history.get.length).toBe(3);
+      expect(localStorage.setItem.mock.calls).toEqual([
+        [CACHE_VERSION_KEY, EMOJI_VERSION],
+        [CACHE_KEY, JSON.stringify(mockEmojiData)],
+      ]);
+
+      // Load emoji the old way should work again (and be taken from the cache)
+      res = await prevImplementation();
+      expect(res).toEqual(mockEmojiData);
+      expect(mock.history.get.length).toBe(3);
+    });
+  });
+});
+
 describe('emoji', () => {
   beforeEach(async () => {
     await initEmojiMock();
   });
 
   afterEach(() => {
+    window.gon = {};
+    delete document.body.dataset.groupFullPath;
     clearEmojiMock();
   });
 
@@ -57,7 +302,7 @@ describe('emoji', () => {
     it('should contain valid emoji', async () => {
       await initEmojiMap();
 
-      const allEmoji = Object.keys(getAllEmoji());
+      const allEmoji = Object.keys(getEmojiMap());
       Object.keys(validEmoji).forEach((key) => {
         expect(allEmoji.includes(key)).toBe(true);
       });
@@ -66,32 +311,9 @@ describe('emoji', () => {
     it('should not contain invalid emoji', async () => {
       await initEmojiMap();
 
-      const allEmoji = Object.keys(getAllEmoji());
+      const allEmoji = Object.keys(getEmojiMap());
       Object.keys(invalidEmoji).forEach((key) => {
         expect(allEmoji.includes(key)).toBe(false);
-      });
-    });
-
-    it('fixes broken pride emoji', async () => {
-      clearEmojiMock();
-      await initEmojiMock({
-        gay_pride_flag: {
-          c: 'flags',
-          // Without a zero-width joiner
-          e: '🏳🌈',
-          name: 'gay_pride_flag',
-          u: '6.0',
-        },
-      });
-
-      expect(getAllEmoji()).toEqual({
-        gay_pride_flag: {
-          c: 'flags',
-          // With a zero-width joiner
-          e: '🏳️‍🌈',
-          name: 'gay_pride_flag',
-          u: '6.0',
-        },
       });
     });
   });
@@ -101,9 +323,11 @@ describe('emoji', () => {
       const emojiKey = 'bomb';
       const markup = glEmojiTag(emojiKey);
 
-      expect(trimText(markup)).toMatchInlineSnapshot(
-        `"<gl-emoji data-name=\\"bomb\\"></gl-emoji>"`,
-      );
+      expect(trimText(markup)).toMatchInlineSnapshot(`
+        <gl-emoji
+          data-name="bomb"
+        />
+      `);
     });
 
     it('bomb emoji with sprite fallback readiness', () => {
@@ -111,185 +335,188 @@ describe('emoji', () => {
       const markup = glEmojiTag(emojiKey, {
         sprite: true,
       });
-      expect(trimText(markup)).toMatchInlineSnapshot(
-        `"<gl-emoji data-fallback-sprite-class=\\"emoji-bomb\\" data-name=\\"bomb\\"></gl-emoji>"`,
-      );
+      expect(trimText(markup)).toMatchInlineSnapshot(`
+        <gl-emoji
+          data-fallback-sprite-class="emoji-bomb"
+          data-name="bomb"
+        />
+      `);
     });
   });
 
   describe('isFlagEmoji', () => {
     it('should gracefully handle empty string', () => {
-      expect(isFlagEmoji('')).toBeFalsy();
+      expect(isFlagEmoji('')).toBe(false);
     });
 
     it('should detect flag_ac', () => {
-      expect(isFlagEmoji('🇦🇨')).toBeTruthy();
+      expect(isFlagEmoji('🇦🇨')).toBe(true);
     });
 
     it('should detect flag_us', () => {
-      expect(isFlagEmoji('🇺🇸')).toBeTruthy();
+      expect(isFlagEmoji('🇺🇸')).toBe(true);
     });
 
     it('should detect flag_zw', () => {
-      expect(isFlagEmoji('🇿🇼')).toBeTruthy();
+      expect(isFlagEmoji('🇿🇼')).toBe(true);
     });
 
     it('should not detect flags', () => {
-      expect(isFlagEmoji('🎏')).toBeFalsy();
+      expect(isFlagEmoji('🎏')).toBe(false);
     });
 
     it('should not detect triangular_flag_on_post', () => {
-      expect(isFlagEmoji('🚩')).toBeFalsy();
+      expect(isFlagEmoji('🚩')).toBe(false);
     });
 
     it('should not detect single letter', () => {
-      expect(isFlagEmoji('🇦')).toBeFalsy();
+      expect(isFlagEmoji('🇦')).toBe(false);
     });
 
     it('should not detect >2 letters', () => {
-      expect(isFlagEmoji('🇦🇧🇨')).toBeFalsy();
+      expect(isFlagEmoji('🇦🇧🇨')).toBe(false);
     });
   });
 
   describe('isRainbowFlagEmoji', () => {
     it('should gracefully handle empty string', () => {
-      expect(isRainbowFlagEmoji('')).toBeFalsy();
+      expect(isRainbowFlagEmoji('')).toBe(false);
     });
 
     it('should detect rainbow_flag', () => {
-      expect(isRainbowFlagEmoji('🏳🌈')).toBeTruthy();
+      expect(isRainbowFlagEmoji('🏳🌈')).toBe(true);
     });
 
     it("should not detect flag_white on its' own", () => {
-      expect(isRainbowFlagEmoji('🏳')).toBeFalsy();
+      expect(isRainbowFlagEmoji('🏳')).toBe(false);
     });
 
     it("should not detect rainbow on its' own", () => {
-      expect(isRainbowFlagEmoji('🌈')).toBeFalsy();
+      expect(isRainbowFlagEmoji('🌈')).toBe(false);
     });
 
     it('should not detect flag_white with something else', () => {
-      expect(isRainbowFlagEmoji('🏳🔵')).toBeFalsy();
+      expect(isRainbowFlagEmoji('🏳🔵')).toBe(false);
     });
   });
 
   describe('isKeycapEmoji', () => {
     it('should gracefully handle empty string', () => {
-      expect(isKeycapEmoji('')).toBeFalsy();
+      expect(isKeycapEmoji('')).toBe(false);
     });
 
     it('should detect one(keycap)', () => {
-      expect(isKeycapEmoji('1️⃣')).toBeTruthy();
+      expect(isKeycapEmoji('1️⃣')).toBe(true);
     });
 
     it('should detect nine(keycap)', () => {
-      expect(isKeycapEmoji('9️⃣')).toBeTruthy();
+      expect(isKeycapEmoji('9️⃣')).toBe(true);
     });
 
     it('should not detect ten(keycap)', () => {
-      expect(isKeycapEmoji('🔟')).toBeFalsy();
+      expect(isKeycapEmoji('🔟')).toBe(false);
     });
 
     it('should not detect hash(keycap)', () => {
-      expect(isKeycapEmoji('#⃣')).toBeFalsy();
+      expect(isKeycapEmoji('#⃣')).toBe(false);
     });
   });
 
   describe('isSkinToneComboEmoji', () => {
     it('should gracefully handle empty string', () => {
-      expect(isSkinToneComboEmoji('')).toBeFalsy();
+      expect(isSkinToneComboEmoji('')).toBe(false);
     });
 
     it('should detect hand_splayed_tone5', () => {
-      expect(isSkinToneComboEmoji('🖐🏿')).toBeTruthy();
+      expect(isSkinToneComboEmoji('🖐🏿')).toBe(true);
     });
 
     it('should not detect hand_splayed', () => {
-      expect(isSkinToneComboEmoji('🖐')).toBeFalsy();
+      expect(isSkinToneComboEmoji('🖐')).toBe(false);
     });
 
     it('should detect lifter_tone1', () => {
-      expect(isSkinToneComboEmoji('🏋🏻')).toBeTruthy();
+      expect(isSkinToneComboEmoji('🏋🏻')).toBe(true);
     });
 
     it('should not detect lifter', () => {
-      expect(isSkinToneComboEmoji('🏋')).toBeFalsy();
+      expect(isSkinToneComboEmoji('🏋')).toBe(false);
     });
 
     it('should detect rowboat_tone4', () => {
-      expect(isSkinToneComboEmoji('🚣🏾')).toBeTruthy();
+      expect(isSkinToneComboEmoji('🚣🏾')).toBe(true);
     });
 
     it('should not detect rowboat', () => {
-      expect(isSkinToneComboEmoji('🚣')).toBeFalsy();
+      expect(isSkinToneComboEmoji('🚣')).toBe(false);
     });
 
     it('should not detect individual tone emoji', () => {
-      expect(isSkinToneComboEmoji('🏻')).toBeFalsy();
+      expect(isSkinToneComboEmoji('🏻')).toBe(false);
     });
   });
 
   describe('isHorceRacingSkinToneComboEmoji', () => {
     it('should gracefully handle empty string', () => {
-      expect(isHorceRacingSkinToneComboEmoji('')).toBeFalsy();
+      expect(isHorceRacingSkinToneComboEmoji('')).toBeUndefined();
     });
 
     it('should detect horse_racing_tone2', () => {
-      expect(isHorceRacingSkinToneComboEmoji('🏇🏼')).toBeTruthy();
+      expect(isHorceRacingSkinToneComboEmoji('🏇🏼')).toBe(true);
     });
 
     it('should not detect horse_racing', () => {
-      expect(isHorceRacingSkinToneComboEmoji('🏇')).toBeFalsy();
+      expect(isHorceRacingSkinToneComboEmoji('🏇')).toBe(false);
     });
   });
 
   describe('isPersonZwjEmoji', () => {
     it('should gracefully handle empty string', () => {
-      expect(isPersonZwjEmoji('')).toBeFalsy();
+      expect(isPersonZwjEmoji('')).toBe(false);
     });
 
     it('should detect couple_mm', () => {
-      expect(isPersonZwjEmoji('👨‍❤️‍👨')).toBeTruthy();
+      expect(isPersonZwjEmoji('👨‍❤️‍👨')).toBe(true);
     });
 
     it('should not detect couple_with_heart', () => {
-      expect(isPersonZwjEmoji('💑')).toBeFalsy();
+      expect(isPersonZwjEmoji('💑')).toBe(false);
     });
 
     it('should not detect couplekiss', () => {
-      expect(isPersonZwjEmoji('💏')).toBeFalsy();
+      expect(isPersonZwjEmoji('💏')).toBe(false);
     });
 
     it('should detect family_mmb', () => {
-      expect(isPersonZwjEmoji('👨‍👨‍👦')).toBeTruthy();
+      expect(isPersonZwjEmoji('👨‍👨‍👦')).toBe(true);
     });
 
     it('should detect family_mwgb', () => {
-      expect(isPersonZwjEmoji('👨‍👩‍👧‍👦')).toBeTruthy();
+      expect(isPersonZwjEmoji('👨‍👩‍👧‍👦')).toBe(true);
     });
 
     it('should not detect family', () => {
-      expect(isPersonZwjEmoji('👪')).toBeFalsy();
+      expect(isPersonZwjEmoji('👪')).toBe(false);
     });
 
     it('should detect kiss_ww', () => {
-      expect(isPersonZwjEmoji('👩‍❤️‍💋‍👩')).toBeTruthy();
+      expect(isPersonZwjEmoji('👩‍❤️‍💋‍👩')).toBe(true);
     });
 
     it('should not detect girl', () => {
-      expect(isPersonZwjEmoji('👧')).toBeFalsy();
+      expect(isPersonZwjEmoji('👧')).toBe(false);
     });
 
     it('should not detect girl_tone5', () => {
-      expect(isPersonZwjEmoji('👧🏿')).toBeFalsy();
+      expect(isPersonZwjEmoji('👧🏿')).toBe(false);
     });
 
     it('should not detect man', () => {
-      expect(isPersonZwjEmoji('👨')).toBeFalsy();
+      expect(isPersonZwjEmoji('👨')).toBe(false);
     });
 
     it('should not detect woman', () => {
-      expect(isPersonZwjEmoji('👩')).toBeFalsy();
+      expect(isPersonZwjEmoji('👩')).toBe(false);
     });
   });
 
@@ -297,13 +524,13 @@ describe('emoji', () => {
     it('should gracefully handle empty string with unicode support', () => {
       const isSupported = isEmojiUnicodeSupported({ '1.0': true }, '', '1.0');
 
-      expect(isSupported).toBeTruthy();
+      expect(isSupported).toBe(true);
     });
 
     it('should gracefully handle empty string without unicode support', () => {
       const isSupported = isEmojiUnicodeSupported({}, '', '1.0');
 
-      expect(isSupported).toBeFalsy();
+      expect(isSupported).toBeUndefined();
     });
 
     it('bomb(6.0) with 6.0 support', () => {
@@ -315,7 +542,7 @@ describe('emoji', () => {
         emojiFixtureMap[emojiKey].unicodeVersion,
       );
 
-      expect(isSupported).toBeTruthy();
+      expect(isSupported).toBe(true);
     });
 
     it('bomb(6.0) without 6.0 support', () => {
@@ -327,7 +554,7 @@ describe('emoji', () => {
         emojiFixtureMap[emojiKey].unicodeVersion,
       );
 
-      expect(isSupported).toBeFalsy();
+      expect(isSupported).toBe(false);
     });
 
     it('bomb(6.0) without 6.0 but with 9.0 support', () => {
@@ -339,7 +566,7 @@ describe('emoji', () => {
         emojiFixtureMap[emojiKey].unicodeVersion,
       );
 
-      expect(isSupported).toBeFalsy();
+      expect(isSupported).toBe(false);
     });
 
     it('construction_worker_tone5(8.0) without skin tone modifier support', () => {
@@ -366,7 +593,7 @@ describe('emoji', () => {
         emojiFixtureMap[emojiKey].unicodeVersion,
       );
 
-      expect(isSupported).toBeFalsy();
+      expect(isSupported).toBe(false);
     });
 
     it('use native keycap on >=57 chrome', () => {
@@ -385,7 +612,7 @@ describe('emoji', () => {
         emojiFixtureMap[emojiKey].unicodeVersion,
       );
 
-      expect(isSupported).toBeTruthy();
+      expect(isSupported).toBe(true);
     });
 
     it('fallback keycap on <57 chrome', () => {
@@ -404,17 +631,17 @@ describe('emoji', () => {
         emojiFixtureMap[emojiKey].unicodeVersion,
       );
 
-      expect(isSupported).toBeFalsy();
+      expect(isSupported).toBe(false);
     });
   });
 
   describe('getEmojiInfo', () => {
     it.each(['atom', 'five', 'black_heart'])("should return a correct emoji for '%s'", (name) => {
-      expect(getEmojiInfo(name)).toEqual(mockEmojiData[name]);
+      expect(getEmojiInfo(name)).toEqual(getEmojiMap()[name]);
     });
 
     it('should return fallback emoji by default', () => {
-      expect(getEmojiInfo('atjs')).toEqual(mockEmojiData.grey_question);
+      expect(getEmojiInfo('atjs')).toEqual(getEmojiMap().grey_question);
     });
 
     it('should return null when fallback is false', () => {
@@ -423,7 +650,7 @@ describe('emoji', () => {
 
     describe('when query is undefined', () => {
       it('should return fallback emoji by default', () => {
-        expect(getEmojiInfo()).toEqual(mockEmojiData.grey_question);
+        expect(getEmojiInfo()).toEqual(getEmojiMap().grey_question);
       });
 
       it('should return null when fallback is false', () => {
@@ -436,14 +663,28 @@ describe('emoji', () => {
     it.each([undefined, null, ''])("should return all emoji when the input is '%s'", (input) => {
       const search = searchEmoji(input);
 
-      const expected = Object.keys(validEmoji).map((name) => {
-        return {
-          emoji: mockEmojiData[name],
-          field: 'd',
-          fieldValue: mockEmojiData[name].d,
-          score: 0,
-        };
-      });
+      const expected = Object.keys(validEmoji)
+        .map((name) => {
+          let score = NEUTRAL_INTENT_MULTIPLIER;
+
+          // Positive intent value retrieved from ~/emoji/intents.json
+          if (name === 'thumbsup') {
+            score = 0.5;
+          }
+
+          // Negative intent value retrieved from ~/emoji/intents.json
+          if (name === 'thumbsdown') {
+            score = 1.5;
+          }
+
+          return {
+            emoji: getEmojiMap()[name],
+            field: 'd',
+            fieldValue: getEmojiMap()[name].d,
+            score,
+          };
+        })
+        .sort(sortEmoji);
 
       expect(search).toEqual(expected);
     });
@@ -457,7 +698,7 @@ describe('emoji', () => {
             name: 'atom',
             field: 'e',
             fieldValue: 'atom',
-            score: 0,
+            score: NEUTRAL_INTENT_MULTIPLIER,
           },
         ],
       ],
@@ -469,7 +710,7 @@ describe('emoji', () => {
             name: 'atom',
             field: 'alias',
             fieldValue: 'atom_symbol',
-            score: 4,
+            score: 16,
           },
         ],
       ],
@@ -481,7 +722,7 @@ describe('emoji', () => {
             name: 'atom',
             field: 'alias',
             fieldValue: 'atom_symbol',
-            score: 0,
+            score: NEUTRAL_INTENT_MULTIPLIER,
           },
         ],
       ],
@@ -490,7 +731,7 @@ describe('emoji', () => {
         const { field, score, fieldValue, name } = item;
 
         return {
-          emoji: mockEmojiData[name],
+          emoji: getEmojiMap()[name],
           field,
           fieldValue,
           score,
@@ -509,7 +750,7 @@ describe('emoji', () => {
           {
             name: 'atom',
             field: 'd',
-            score: 0,
+            score: NEUTRAL_INTENT_MULTIPLIER,
           },
         ],
       ],
@@ -521,7 +762,7 @@ describe('emoji', () => {
           {
             name: 'atom',
             field: 'd',
-            score: 0,
+            score: NEUTRAL_INTENT_MULTIPLIER,
           },
         ],
       ],
@@ -533,7 +774,7 @@ describe('emoji', () => {
           {
             name: 'grey_question',
             field: 'name',
-            score: 5,
+            score: 32,
           },
         ],
       ],
@@ -544,7 +785,7 @@ describe('emoji', () => {
           {
             name: 'grey_question',
             field: 'd',
-            score: 24,
+            score: 16777216,
           },
         ],
       ],
@@ -553,14 +794,14 @@ describe('emoji', () => {
         'heart',
         [
           {
-            name: 'black_heart',
-            field: 'd',
-            score: 6,
-          },
-          {
             name: 'heart',
             field: 'name',
-            score: 0,
+            score: NEUTRAL_INTENT_MULTIPLIER,
+          },
+          {
+            name: 'black_heart',
+            field: 'd',
+            score: 64,
           },
         ],
       ],
@@ -569,14 +810,14 @@ describe('emoji', () => {
         'HEART',
         [
           {
-            name: 'black_heart',
-            field: 'd',
-            score: 6,
-          },
-          {
             name: 'heart',
             field: 'name',
-            score: 0,
+            score: NEUTRAL_INTENT_MULTIPLIER,
+          },
+          {
+            name: 'black_heart',
+            field: 'd',
+            score: 64,
           },
         ],
       ],
@@ -585,14 +826,30 @@ describe('emoji', () => {
         'star',
         [
           {
-            name: 'custard',
-            field: 'd',
-            score: 2,
-          },
-          {
             name: 'star',
             field: 'name',
-            score: 0,
+            score: NEUTRAL_INTENT_MULTIPLIER,
+          },
+          {
+            name: 'custard',
+            field: 'd',
+            score: 4,
+          },
+        ],
+      ],
+      [
+        'searching for emoji with intentions assigned',
+        'thumbs',
+        [
+          {
+            name: 'thumbsup',
+            field: 'd',
+            score: 0.5,
+          },
+          {
+            name: 'thumbsdown',
+            field: 'd',
+            score: 1.5,
           },
         ],
       ],
@@ -601,9 +858,9 @@ describe('emoji', () => {
         const { field, score, name } = item;
 
         return {
-          emoji: mockEmojiData[name],
+          emoji: getEmojiMap()[name],
           field,
-          fieldValue: mockEmojiData[name][field],
+          fieldValue: getEmojiMap()[name][field],
           score,
         };
       });
@@ -619,10 +876,10 @@ describe('emoji', () => {
         [
           { score: 10, fieldValue: '', emoji: { name: 'a' } },
           { score: 5, fieldValue: '', emoji: { name: 'b' } },
-          { score: 0, fieldValue: '', emoji: { name: 'c' } },
+          { score: 1, fieldValue: '', emoji: { name: 'c' } },
         ],
         [
-          { score: 0, fieldValue: '', emoji: { name: 'c' } },
+          { score: 1, fieldValue: '', emoji: { name: 'c' } },
           { score: 5, fieldValue: '', emoji: { name: 'b' } },
           { score: 10, fieldValue: '', emoji: { name: 'a' } },
         ],
@@ -630,25 +887,25 @@ describe('emoji', () => {
       [
         'should correctly sort by fieldValue',
         [
-          { score: 0, fieldValue: 'y', emoji: { name: 'b' } },
-          { score: 0, fieldValue: 'x', emoji: { name: 'a' } },
-          { score: 0, fieldValue: 'z', emoji: { name: 'c' } },
+          { score: 1, fieldValue: 'y', emoji: { name: 'b' } },
+          { score: 1, fieldValue: 'x', emoji: { name: 'a' } },
+          { score: 1, fieldValue: 'z', emoji: { name: 'c' } },
         ],
         [
-          { score: 0, fieldValue: 'x', emoji: { name: 'a' } },
-          { score: 0, fieldValue: 'y', emoji: { name: 'b' } },
-          { score: 0, fieldValue: 'z', emoji: { name: 'c' } },
+          { score: 1, fieldValue: 'x', emoji: { name: 'a' } },
+          { score: 1, fieldValue: 'y', emoji: { name: 'b' } },
+          { score: 1, fieldValue: 'z', emoji: { name: 'c' } },
         ],
       ],
       [
         'should correctly sort by score and then by fieldValue (in order)',
         [
           { score: 5, fieldValue: 'y', emoji: { name: 'c' } },
-          { score: 0, fieldValue: 'z', emoji: { name: 'a' } },
+          { score: 1, fieldValue: 'z', emoji: { name: 'a' } },
           { score: 5, fieldValue: 'x', emoji: { name: 'b' } },
         ],
         [
-          { score: 0, fieldValue: 'z', emoji: { name: 'a' } },
+          { score: 1, fieldValue: 'z', emoji: { name: 'a' } },
           { score: 5, fieldValue: 'x', emoji: { name: 'b' } },
           { score: 5, fieldValue: 'y', emoji: { name: 'c' } },
         ],
@@ -656,7 +913,109 @@ describe('emoji', () => {
     ];
 
     it.each(testCases)('%s', (_, scoredItems, expected) => {
-      expect(sortEmoji(scoredItems)).toEqual(expected);
+      expect(scoredItems.sort(sortEmoji)).toEqual(expected);
+    });
+  });
+
+  describe('emojiFallbackImageSrc', () => {
+    beforeEach(async () => {
+      createMockEmojiClient();
+
+      await initEmojiMock();
+    });
+
+    it.each`
+      emoji         | src
+      ${'thumbsup'} | ${'/-/emojis/3/thumbsup.png'}
+      ${'parrot'}   | ${'parrot.gif'}
+    `('returns $src for emoji with name $emoji', ({ emoji, src }) => {
+      expect(emojiFallbackImageSrc(emoji)).toBe(src);
+    });
+  });
+
+  describe('loadCustomEmojiWithNames', () => {
+    describe('when not in a group', () => {
+      beforeEach(() => {
+        createMockEmojiClient();
+        delete document.body.dataset.groupFullPath;
+      });
+
+      it('returns empty emoji data', async () => {
+        const result = await loadCustomEmojiWithNames();
+
+        expect(result).toEqual({ emojis: {}, names: [] });
+      });
+    });
+
+    describe('when GraphQL request returns null data', () => {
+      beforeEach(() => {
+        mockClient = createMockClient([
+          [
+            customEmojiQuery,
+            jest.fn().mockResolvedValue({
+              data: {
+                group: null,
+              },
+            }),
+          ],
+        ]);
+      });
+
+      it('returns empty emoji data', async () => {
+        const result = await loadCustomEmojiWithNames();
+
+        expect(result).toEqual({ emojis: {}, names: [] });
+      });
+    });
+
+    describe('when in a group', () => {
+      it('returns emoji data', async () => {
+        createMockEmojiClient();
+
+        const result = await loadCustomEmojiWithNames();
+
+        expect(result).toEqual({
+          emojis: {
+            parrot: {
+              c: 'custom',
+              d: 'parrot',
+              e: undefined,
+              name: 'parrot',
+              src: 'parrot.gif',
+              u: 'custom',
+            },
+          },
+          names: ['parrot'],
+        });
+      });
+
+      it('paginates custom emoji emoji', async () => {
+        createMockEmojiClient(true);
+
+        const result = await loadCustomEmojiWithNames();
+
+        expect(result).toEqual({
+          emojis: {
+            parrot: {
+              c: 'custom',
+              d: 'parrot',
+              e: undefined,
+              name: 'parrot',
+              src: 'parrot.gif',
+              u: 'custom',
+            },
+            'parrot-test': {
+              c: 'custom',
+              d: 'parrot-test',
+              e: undefined,
+              name: 'parrot-test',
+              src: 'parrot.gif',
+              u: 'custom',
+            },
+          },
+          names: ['parrot', 'parrot-test'],
+        });
+      });
     });
   });
 });

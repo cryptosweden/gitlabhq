@@ -1,4 +1,5 @@
 import { getLocationHash } from '../lib/utils/url_utility';
+import { getPageParamValue, getPageSearchString } from './utils';
 
 const lineNumberRe = /^(L|LC)[0-9]+/;
 
@@ -9,18 +10,23 @@ const updateLineNumbersOnBlobPermalinks = (linksToUpdate) => {
 
     [].concat(Array.prototype.slice.call(linksToUpdate)).forEach((permalinkButton) => {
       const baseHref =
-        permalinkButton.getAttribute('data-original-href') ||
+        permalinkButton.dataset.originalHref ||
         (() => {
           const href = permalinkButton.getAttribute('href');
-          permalinkButton.setAttribute('data-original-href', href);
+          // eslint-disable-next-line no-param-reassign
+          permalinkButton.dataset.originalHref = href;
           return href;
         })();
-      permalinkButton.setAttribute('href', `${baseHref}${hashUrlString}`);
+      const lineNum = parseInt(hash.split('L')[1], 10);
+      const page = getPageParamValue(lineNum);
+      const searchString = getPageSearchString(baseHref, page);
+      permalinkButton.setAttribute('href', `${baseHref}${searchString}${hashUrlString}`);
     });
   }
 };
 
 function BlobLinePermalinkUpdater(blobContentHolder, lineNumberSelector, elementsToUpdate) {
+  if (!blobContentHolder) return;
   const updateBlameAndBlobPermalinkCb = () => {
     // Wait for the hash to update from the LineHighlighter callback
     setTimeout(() => {

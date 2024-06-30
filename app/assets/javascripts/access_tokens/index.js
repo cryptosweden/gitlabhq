@@ -1,13 +1,54 @@
 import Vue from 'vue';
 
-import createFlash from '~/flash';
 import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
 import { parseRailsFormFields } from '~/lib/utils/forms';
-import { __ } from '~/locale';
-
+import { __, sprintf } from '~/locale';
+import Translate from '~/vue_shared/translate';
+import AccessTokenTableApp from './components/access_token_table_app.vue';
 import ExpiresAtField from './components/expires_at_field.vue';
+import NewAccessTokenApp from './components/new_access_token_app.vue';
 import TokensApp from './components/tokens_app.vue';
 import { FEED_TOKEN, INCOMING_EMAIL_TOKEN, STATIC_OBJECT_TOKEN } from './constants';
+
+Vue.use(Translate);
+
+export const initAccessTokenTableApp = () => {
+  const el = document.querySelector('#js-access-token-table-app');
+
+  if (!el) {
+    return null;
+  }
+
+  const {
+    accessTokenType,
+    accessTokenTypePlural,
+    initialActiveAccessTokens: initialActiveAccessTokensJson,
+    noActiveTokensMessage: noTokensMessage,
+  } = el.dataset;
+
+  // Default values
+  const noActiveTokensMessage =
+    noTokensMessage ||
+    sprintf(__('This user has no active %{accessTokenTypePlural}.'), { accessTokenTypePlural });
+  const showRole = 'showRole' in el.dataset;
+
+  const initialActiveAccessTokens = JSON.parse(initialActiveAccessTokensJson);
+
+  return new Vue({
+    el,
+    name: 'AccessTokenTableRoot',
+    provide: {
+      accessTokenType,
+      accessTokenTypePlural,
+      initialActiveAccessTokens,
+      noActiveTokensMessage,
+      showRole,
+    },
+    render(h) {
+      return h(AccessTokenTableApp);
+    },
+  });
+};
 
 export const initExpiresAtField = () => {
   const el = document.querySelector('.js-access-tokens-expires-at');
@@ -17,7 +58,7 @@ export const initExpiresAtField = () => {
   }
 
   const { expiresAt: inputAttrs } = parseRailsFormFields(el);
-  const { maxDate } = el.dataset;
+  const { minDate, maxDate, defaultDateOffset, description } = el.dataset;
 
   return new Vue({
     el,
@@ -25,73 +66,41 @@ export const initExpiresAtField = () => {
       return h(ExpiresAtField, {
         props: {
           inputAttrs,
+          minDate: minDate ? new Date(minDate) : undefined,
           maxDate: maxDate ? new Date(maxDate) : undefined,
+          defaultDateOffset: defaultDateOffset ? Number(defaultDateOffset) : undefined,
+          description,
         },
       });
     },
   });
 };
 
-export const initProjectsField = () => {
-  const el = document.querySelector('.js-access-tokens-projects');
+export const initNewAccessTokenApp = () => {
+  const el = document.querySelector('#js-new-access-token-app');
 
   if (!el) {
     return null;
   }
 
-  const { projects: inputAttrs } = parseRailsFormFields(el);
+  const { accessTokenType } = el.dataset;
 
-  if (window.gon.features.personalAccessTokensScopedToProjects) {
-    return new Promise((resolve) => {
-      Promise.all([
-        import('./components/projects_field.vue'),
-        import('vue-apollo'),
-        import('~/lib/graphql'),
-      ])
-        .then(
-          ([
-            { default: ProjectsField },
-            { default: VueApollo },
-            { default: createDefaultClient },
-          ]) => {
-            const apolloProvider = new VueApollo({
-              defaultClient: createDefaultClient(),
-            });
-
-            Vue.use(VueApollo);
-
-            resolve(
-              new Vue({
-                el,
-                apolloProvider,
-                render(h) {
-                  return h(ProjectsField, {
-                    props: {
-                      inputAttrs,
-                    },
-                  });
-                },
-              }),
-            );
-          },
-        )
-        .catch(() => {
-          createFlash({
-            message: __(
-              'An error occurred while loading the access tokens form, please try again.',
-            ),
-          });
-        });
-    });
-  }
-
-  return null;
+  return new Vue({
+    el,
+    name: 'NewAccessTokenRoot',
+    provide: {
+      accessTokenType,
+    },
+    render(h) {
+      return h(NewAccessTokenApp);
+    },
+  });
 };
 
 export const initTokensApp = () => {
   const el = document.getElementById('js-tokens-app');
 
-  if (!el) return false;
+  if (!el) return null;
 
   const tokensData = convertObjectPropsToCamelCase(JSON.parse(el.dataset.tokensData), {
     deep: true,

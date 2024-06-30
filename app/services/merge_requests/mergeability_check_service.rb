@@ -78,8 +78,8 @@ module MergeRequests
       lease_key = "mergeability_check:#{merge_request.id}"
 
       lease_opts = {
-        ttl:       1.minute,
-        retries:   retry_lease ? 10 : 0,
+        ttl: 1.minute,
+        retries: retry_lease ? 10 : 0,
         sleep_sec: retry_lease ? 1.second : 0
       }
 
@@ -114,11 +114,11 @@ module MergeRequests
 
       merge_to_ref_success = merge_to_ref
 
-      reload_merge_head_diff
       update_diff_discussion_positions! if merge_to_ref_success
 
       if merge_to_ref_success && can_git_merge?
         merge_request.mark_as_mergeable
+        reload_merge_head_diff
       else
         merge_request.mark_as_unmergeable
       end
@@ -156,8 +156,7 @@ module MergeRequests
     end
 
     def merge_to_ref
-      params = { allow_conflicts: Feature.enabled?(:display_merge_conflicts_in_diff, project) }
-      result = MergeRequests::MergeToRefService.new(project: project, current_user: merge_request.author, params: params).execute(merge_request)
+      result = MergeRequests::MergeToRefService.new(project: project, current_user: merge_request.author, params: {}).execute(merge_request)
 
       result[:status] == :success
     end

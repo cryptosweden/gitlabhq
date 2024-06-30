@@ -6,11 +6,15 @@ namespace :explore do
       get :trending
       get :starred
       get :topics
-      get 'topics/:topic_name', action: :topic, as: :topic, constraints: { topic_name: /.+/ }
+      get 'topics/:topic_name', action: :topic, as: :topic, constraints: { format: /(html|atom)/, topic_name: /.+?/ }
     end
   end
 
   resources :groups, only: [:index]
+  scope :catalog do
+    get '/' => 'catalog#index', as: :catalog_index
+    get '/*full_path' => 'catalog#show', as: :catalog
+  end
   resources :snippets, only: [:index]
   root to: 'projects#index'
 end

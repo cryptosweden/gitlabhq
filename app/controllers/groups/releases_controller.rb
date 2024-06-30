@@ -3,6 +3,7 @@
 module Groups
   class ReleasesController < Groups::ApplicationController
     feature_category :release_evidence
+    urgency :low
 
     def index
       respond_to do |format|
@@ -15,17 +16,11 @@ module Groups
     private
 
     def releases
-      if Feature.enabled?(:group_releases_finder_inoperator)
-        Releases::GroupReleasesFinder
-          .new(@group, current_user, { include_subgroups: true, page: params[:page], per: 30 })
-          .execute(preload: false)
-      else
-        ReleasesFinder
-          .new(@group, current_user, { include_subgroups: true })
-          .execute(preload: false)
-          .page(params[:page])
-          .per(30)
-      end
+      Releases::GroupReleasesFinder
+        .new(@group, current_user)
+        .execute(preload: false)
+        .page(pagination_params[:page])
+        .per(30)
     end
   end
 end

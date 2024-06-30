@@ -1,25 +1,29 @@
-import { __ } from '~/locale';
-
-export const SNIPPET_VISIBILITY_PRIVATE = 'private';
-export const SNIPPET_VISIBILITY_INTERNAL = 'internal';
-export const SNIPPET_VISIBILITY_PUBLIC = 'public';
+import { __, s__ } from '~/locale';
+import {
+  VISIBILITY_LEVEL_PRIVATE_STRING,
+  VISIBILITY_LEVEL_INTERNAL_STRING,
+  VISIBILITY_LEVEL_PUBLIC_STRING,
+} from '~/visibility_level/constants';
 
 export const SNIPPET_VISIBILITY = {
-  [SNIPPET_VISIBILITY_PRIVATE]: {
+  [VISIBILITY_LEVEL_PRIVATE_STRING]: {
     label: __('Private'),
     icon: 'lock',
     description: __('The snippet is visible only to me.'),
     description_project: __('The snippet is visible only to project members.'),
   },
-  [SNIPPET_VISIBILITY_INTERNAL]: {
+  [VISIBILITY_LEVEL_INTERNAL_STRING]: {
     label: __('Internal'),
     icon: 'shield',
     description: __('The snippet is visible to any logged in user except external users.'),
   },
-  [SNIPPET_VISIBILITY_PUBLIC]: {
+  [VISIBILITY_LEVEL_PUBLIC_STRING]: {
     label: __('Public'),
     icon: 'earth',
     description: __('The snippet can be accessed without any authentication.'),
+    description_project: __(
+      'The snippet can be accessed without any authentication. To embed snippets, a project must be public.',
+    ),
   },
 };
 
@@ -34,14 +38,11 @@ export const SNIPPET_BLOB_ACTION_DELETE = 'delete';
 
 export const SNIPPET_MAX_BLOBS = 10;
 
-export const SNIPPET_LEVELS_MAP = {
-  0: SNIPPET_VISIBILITY_PRIVATE,
-  10: SNIPPET_VISIBILITY_INTERNAL,
-  20: SNIPPET_VISIBILITY_PUBLIC,
-};
 export const SNIPPET_LEVELS_RESTRICTED = __(
   'Other visibility settings have been disabled by the administrator.',
 );
 export const SNIPPET_LEVELS_DISABLED = __(
   'Visibility settings have been disabled by the administrator.',
 );
+
+export const SNIPPET_LIMITATIONS = s__('Snippets|Snippets are limited to %{total} files.');

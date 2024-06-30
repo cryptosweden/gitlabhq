@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::MergeRequests::Update do
+RSpec.describe Mutations::MergeRequests::Update, feature_category: :team_planning do
   let(:merge_request) { create(:merge_request) }
   let(:user) { create(:user) }
 
@@ -26,10 +26,68 @@ RSpec.describe Mutations::MergeRequests::Update do
         merge_request.project.add_developer(user)
       end
 
-      it 'applies all attributes' do
-        expect(mutated_merge_request).to eq(merge_request)
-        expect(mutated_merge_request).to have_attributes(attributes)
-        expect(subject[:errors]).to be_empty
+      context 'when all attributes except timeEstimate are provided' do
+        before do
+          merge_request.update!(time_estimate: 3600)
+        end
+
+        it 'applies all attributes' do
+          expect(mutated_merge_request).to eq(merge_request)
+          expect(mutated_merge_request).to have_attributes(attributes)
+          expect(mutated_merge_request.time_estimate).to eq(3600)
+          expect(subject[:errors]).to be_empty
+        end
+      end
+
+      context 'when timeEstimate attribute is provided' do
+        let(:time_estimate) { '0' }
+        let(:attributes) { { time_estimate: time_estimate } }
+
+        before do
+          merge_request.update!(time_estimate: 3600)
+        end
+
+        context 'when timeEstimate is invalid' do
+          let(:time_estimate) { '1e' }
+
+          it 'changes are not applied' do
+            expect { mutation.ready?(time_estimate: time_estimate) }
+              .to raise_error(
+                Gitlab::Graphql::Errors::ArgumentError,
+                'timeEstimate must be formatted correctly, for example `1h 30m`')
+            expect(mutated_merge_request.time_estimate).to eq(3600)
+          end
+        end
+
+        context 'when timeEstimate is negative' do
+          let(:time_estimate) { '-1h' }
+
+          it 'raises an argument error and changes are not applied' do
+            expect { mutation.ready?(time_estimate: time_estimate) }
+            .to raise_error(Gitlab::Graphql::Errors::ArgumentError,
+              'timeEstimate must be greater than or equal to zero. ' \
+              'Remember that every new timeEstimate overwrites the previous value.')
+            expect { subject }.not_to change { merge_request.time_estimate }
+          end
+        end
+
+        context 'when timeEstimate is 0' do
+          let(:time_estimate) { '0' }
+
+          it 'resets the time estimate' do
+            expect(mutated_merge_request.time_estimate).to eq(0)
+            expect(subject[:errors]).to be_empty
+          end
+        end
+
+        context 'when timeEstimate is a valid human readable time' do
+          let(:time_estimate) { '1h 30m' }
+
+          it 'updates the time estimate' do
+            expect(mutated_merge_request.time_estimate).to eq(5400)
+            expect(subject[:errors]).to be_empty
+          end
+        end
       end
 
       context 'the merge request is invalid' do
@@ -78,6 +136,41 @@ RSpec.describe Mutations::MergeRequests::Update do
           merge_request.close!
 
           expect(mutated_merge_request).to be_open
+        end
+      end
+    end
+  end
+
+  describe '#ready?' do
+    let(:extra_args) { {} }
+
+    let(:arguments) do
+      {
+        project_path: merge_request.project.full_path,
+        iid: merge_request.iid
+      }.merge(extra_args)
+    end
+
+    subject(:ready) { mutation.ready?(**arguments) }
+
+    context 'when timeEstimate is provided' do
+      let(:extra_args) { { time_estimate: time_estimate } }
+
+      context 'when the value is invalid' do
+        let(:time_estimate) { '1e' }
+
+        it 'raises an argument error' do
+          expect { subject }.to raise_error(
+            Gitlab::Graphql::Errors::ArgumentError,
+            'timeEstimate must be formatted correctly, for example `1h 30m`')
+        end
+      end
+
+      context 'when the value valid' do
+        let(:time_estimate) { '1d' }
+
+        it 'returns true' do
+          expect(subject).to eq(true)
         end
       end
     end

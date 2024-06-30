@@ -19,7 +19,7 @@ module Gitlab
         # Allows to give a description to the next quick action.
         # This description is shown in the autocomplete menu.
         # It accepts a block that will be evaluated with the context given to
-        # `CommandDefintion#to_h`.
+        # `CommandDefinition#to_h`.
         #
         # Example:
         #
@@ -30,11 +30,11 @@ module Gitlab
         #     # Awesome code block
         #   end
         def desc(text = '', &block)
-          @description = block_given? ? block : text
+          @description = block || text
         end
 
         def warning(text = '', &block)
-          @warning = block_given? ? block : text
+          @warning = block || text
         end
 
         def icon(string = '')
@@ -51,7 +51,7 @@ module Gitlab
         #     # Awesome code block
         #   end
         def params(*params, &block)
-          @params = block_given? ? block : params
+          @params = block || params
         end
 
         # Allows to give an explanation of what the command will do when
@@ -61,13 +61,13 @@ module Gitlab
         # Example:
         #
         #   explanation do |arguments|
-        #     "Adds label(s) #{arguments.join(' ')}"
+        #     "Adds labels #{arguments.join(' ')}"
         #   end
         #   command :command_key do |arguments|
         #     # Awesome code block
         #   end
         def explanation(text = '', &block)
-          @explanation = block_given? ? block : text
+          @explanation = block || text
         end
 
         # Allows to provide a message about quick action execution result, success or failure.
@@ -76,7 +76,7 @@ module Gitlab
         # Example:
         #
         #   execution_message do |arguments|
-        #     "Added label(s) #{arguments.join(' ')}"
+        #     "Added labels #{arguments.join(' ')}"
         #   end
         #   command :command_key do |arguments|
         #     # Awesome code block
@@ -96,7 +96,7 @@ module Gitlab
         #   end
         #
         def execution_message(text = '', &block)
-          @execution_message = block_given? ? block : text
+          @execution_message = block || text
         end
 
         # Allows to define type(s) that must be met in order for the command
@@ -136,7 +136,7 @@ module Gitlab
         # both to `command` and `explanation` blocks, instead of the raw
         # parameters.
         # It accepts a block that will be evaluated with the context given to
-        # `CommandDefintion#to_h`.
+        # `CommandDefinition#to_h`.
         #
         # Example:
         #
@@ -150,7 +150,7 @@ module Gitlab
           @parse_params_block = block
         end
 
-        # Registers a new command which is recognizeable from body of email or
+        # Registers a new command which is recognizable from body of email or
         # comment.
         # It accepts aliases and takes a block.
         #

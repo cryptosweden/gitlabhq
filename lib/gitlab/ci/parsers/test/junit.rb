@@ -6,10 +6,11 @@ module Gitlab
       module Test
         class Junit
           JunitParserError = Class.new(Gitlab::Ci::Parsers::ParserError)
-          ATTACHMENT_TAG_REGEX = /\[\[ATTACHMENT\|(?<path>.+?)\]\]/.freeze
+          ATTACHMENT_TAG_REGEX = /\[\[ATTACHMENT\|(?<path>[^\[\]\|]+?)\]\]/
 
-          def parse!(xml_data, test_suite, job:)
-            root = Hash.from_xml(xml_data)
+          def parse!(xml_data, test_report, job:)
+            test_suite = test_report.get_suite(job.test_suite_name)
+            root = XmlConverter.new(xml_data).to_h
             total_parsed = 0
             max_test_cases = job.max_test_cases_per_report
 
@@ -62,13 +63,16 @@ module Gitlab
           end
 
           def create_test_case(data, test_suite, job)
+            system_out = data.key?('system_out') ? "System Out:\n\n#{data['system_out']}" : nil
+            system_err = data.key?('system_err') ? "System Err:\n\n#{data['system_err']}" : nil
+
             if data.key?('failure')
               status = ::Gitlab::Ci::Reports::TestCase::STATUS_FAILED
-              system_output = data['failure'] || data['system_err']
+              system_output = [data['failure'], system_out, system_err].compact.join("\n\n")
               attachment = attachment_path(data['system_out'])
             elsif data.key?('error')
               status = ::Gitlab::Ci::Reports::TestCase::STATUS_ERROR
-              system_output = data['error'] || data['system_err']
+              system_output = [data['error'], system_out, system_err].compact.join("\n\n")
               attachment = attachment_path(data['system_out'])
             elsif data.key?('skipped')
               status = ::Gitlab::Ci::Reports::TestCase::STATUS_SKIPPED

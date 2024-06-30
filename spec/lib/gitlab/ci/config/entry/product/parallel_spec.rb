@@ -27,16 +27,16 @@ RSpec.describe ::Gitlab::Ci::Config::Entry::Product::Parallel do
       it_behaves_like 'invalid config', /should be an integer or a hash/
     end
 
-    context 'when it is lower than two' do
-      let(:config) { 1 }
+    context 'when it is lower than one' do
+      let(:config) { 0 }
 
-      it_behaves_like 'invalid config', /must be greater than or equal to 2/
+      it_behaves_like 'invalid config', /must be greater than or equal to 1/
     end
 
-    context 'when it is bigger than 50' do
-      let(:config) { 51 }
+    context 'when it is bigger than 200' do
+      let(:config) { 201 }
 
-      it_behaves_like 'invalid config', /must be less than or equal to 50/
+      it_behaves_like 'invalid config', /must be less than or equal to 200/
     end
 
     context 'when it is not an integer' do
@@ -91,10 +91,11 @@ RSpec.describe ::Gitlab::Ci::Config::Entry::Product::Parallel do
 
       describe '#value' do
         it 'returns job needs configuration' do
-          expect(parallel.value).to match(matrix: [
-            { PROVIDER: 'aws', STACK: %w[monitoring app1 app2] },
-            { PROVIDER: 'gcp', STACK: %w[data processing] }
-          ])
+          expect(parallel.value).to match(matrix:
+            [
+              { PROVIDER: 'aws', STACK: %w[monitoring app1 app2] },
+              { PROVIDER: 'gcp', STACK: %w[data processing] }
+            ])
         end
       end
 

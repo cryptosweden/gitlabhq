@@ -34,6 +34,7 @@ module Gitlab
           }
         )
       end
+      alias_method :octokit, :api
 
       def client
         unless config
@@ -79,6 +80,20 @@ module Gitlab
         @users[login] = api.user(login)
       end
 
+      def repository(id)
+        request(:repository, id).to_h
+      end
+
+      def repos
+        repositories = request(:repos, nil)
+
+        if repositories.is_a?(Array)
+          repositories.map(&:to_h)
+        else
+          repositories
+        end
+      end
+
       private
 
       def api_endpoint
@@ -99,9 +114,9 @@ module Gitlab
 
       def github_options
         if config
-          config["args"]["client_options"].deep_symbolize_keys
+          config["args"]["client_options"].to_h.deep_symbolize_keys
         else
-          OmniAuth::Strategies::GitHub.default_options[:client_options].symbolize_keys
+          OmniAuth::Strategies::GitHub.default_options[:client_options].to_h.symbolize_keys
         end
       end
 
@@ -136,7 +151,7 @@ module Gitlab
 
         last_response = api.last_response
 
-        if block_given?
+        if block
           yield data
           # api.last_response could change while we're yielding (e.g. fetching labels for each PR)
           # so we cache our own last response

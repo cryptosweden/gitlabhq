@@ -41,19 +41,19 @@ module Gitlab
 
         {
           'type' => 'zip',
-          'url' => expose_url(archive_api_path) + "?sha=#{package.composer_target_sha}",
-          'reference' => package.composer_target_sha,
+          'url' => expose_url(archive_api_path) + "?sha=#{package.target_sha}",
+          'reference' => package.target_sha,
           'shasum' => ''
         }
       end
 
       def package_source(package)
-        git_url = package.project.http_url_to_repo
+        git_url = package.project.public? ? package.project.http_url_to_repo : package.project.ssh_url_to_repo
 
         {
           'type' => 'git',
           'url' => git_url,
-          'reference' => package.composer_target_sha
+          'reference' => package.target_sha
         }
       end
     end

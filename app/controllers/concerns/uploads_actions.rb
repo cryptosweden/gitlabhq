@@ -5,12 +5,18 @@ module UploadsActions
   include Gitlab::Utils::StrongMemoize
   include SendFileUpload
 
-  UPLOAD_MOUNTS = %w(avatar attachment file logo header_logo favicon).freeze
+  # Starting with version 2, Markdown upload URLs use project / group IDs instead of paths
+  ID_BASED_UPLOAD_PATH_VERSION = 2
+
+  UPLOAD_MOUNTS = %w[avatar attachment file logo pwa_icon header_logo favicon screenshot].freeze
 
   included do
     prepend_before_action :set_request_format_from_path_extension
-    skip_before_action :default_cache_headers, only: :show
     rescue_from FileUploader::InvalidSecret, with: :render_404
+
+    rescue_from ::Gitlab::PathTraversal::PathTraversalAttackError do
+      head :bad_request
+    end
   end
 
   def create
@@ -34,6 +40,8 @@ module UploadsActions
   #   - or redirect to its URL
   #
   def show
+    Gitlab::PathTraversal.check_path_traversal!(params[:filename])
+
     return render_404 unless uploader&.exists?
 
     ttl, directives = *cache_settings
@@ -73,11 +81,11 @@ module UploadsActions
   def set_request_format_from_path_extension
     path = request.headers['action_dispatch.original_path'] || request.headers['PATH_INFO']
 
-    if match = path&.match(/\.(\w+)\z/)
-      format = Mime[match.captures.first]
+    return unless match = path&.match(/\.(\w+)\z/)
 
-      request.format = format.symbol if format
-    end
+    format = Mime[match.captures.first]
+
+    request.format = format.symbol if format
   end
 
   def content_disposition
@@ -102,14 +110,13 @@ module UploadsActions
   end
 
   def uploader
-    strong_memoize(:uploader) do
-      if uploader_mounted?
-        model.public_send(upload_mount) # rubocop:disable GitlabSecurity/PublicSend
-      else
-        build_uploader_from_upload || build_uploader_from_params
-      end
+    if uploader_mounted?
+      model.public_send(upload_mount) # rubocop:disable GitlabSecurity/PublicSend
+    else
+      build_uploader_from_upload
     end
   end
+  strong_memoize_attr :uploader
 
   # rubocop: disable CodeReuse/ActiveRecord
   def build_uploader_from_upload
@@ -120,13 +127,6 @@ module UploadsActions
     upload&.retrieve_uploader
   end
   # rubocop: enable CodeReuse/ActiveRecord
-
-  def build_uploader_from_params
-    return unless uploader = build_uploader
-
-    uploader.retrieve_from_store!(params[:filename])
-    uploader
-  end
 
   def build_uploader
     return unless params[:secret] && params[:filename]
@@ -143,11 +143,19 @@ module UploadsActions
   end
 
   def bypass_auth_checks_on_uploads?
-    if ::Feature.enabled?(:enforce_auth_checks_on_uploads, project, default_enabled: :yaml)
-      false
-    else
-      action_name == 'show' && embeddable?
-    end
+    return false if target_project && !target_project.public? && target_project.enforce_auth_checks_on_uploads?
+
+    action_name == 'show' && embeddable?
+  end
+
+  def upload_version_at_least?(version)
+    return unless uploader && uploader.upload
+
+    uploader.upload.version >= version
+  end
+
+  def target_project
+    nil
   end
 
   def find_model
@@ -159,8 +167,9 @@ module UploadsActions
   end
 
   def model
-    strong_memoize(:model) { find_model }
+    find_model
   end
+  strong_memoize_attr :model
 
   def workhorse_authorize_request?
     action_name == 'authorize'

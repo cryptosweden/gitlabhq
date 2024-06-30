@@ -1,10 +1,14 @@
 ---
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Knowledge
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Exploring GitLab Pages **(FREE)**
+# GitLab Pages settings
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This document is a user guide to explore the options and settings
 GitLab Pages offers.
@@ -23,8 +27,6 @@ In brief, this is what you need to upload your website in GitLab Pages:
 1. Domain of the instance: domain name that is used for GitLab Pages
    (ask your administrator).
 1. GitLab CI/CD: a `.gitlab-ci.yml` file with a specific job named [`pages`](../../../ci/yaml/index.md#pages) in the root directory of your repository.
-1. A directory called `public` in your site's repository containing the content
-   to be published.
 1. GitLab Runner enabled for the project.
 
 ## GitLab Pages on GitLab.com
@@ -33,64 +35,63 @@ If you are using [GitLab Pages on GitLab.com](#gitlab-pages-on-gitlabcom) to hos
 
 - The domain name for GitLab Pages on GitLab.com is `gitlab.io`.
 - Custom domains and TLS support are enabled.
-- Shared runners are enabled by default, provided for free and can be used to
+- Instance runners are enabled by default, provided for free and can be used to
   build your website. If you want you can still bring your own runner.
 
 ## Example projects
 
 Visit the [GitLab Pages group](https://gitlab.com/groups/pages) for a complete list of example projects. Contributions are very welcome.
 
-## Custom error codes Pages
+## Custom error codes pages
 
-You can provide your own 403 and 404 error pages by creating the `403.html` and
-`404.html` files respectively in the root directory of the `public/` directory
-that are included in the artifacts. Usually this is the root directory of
-your project, but that may differ depending on your static generator
-configuration.
+You can provide your own `403` and `404` error pages by creating `403.html` and
+`404.html` files in the root of the `public/` directory. Usually this is
+the root directory of your project, but that may differ
+depending on your static generator configuration.
 
 If the case of `404.html`, there are different scenarios. For example:
 
-- If you use project Pages (served under `/projectname/`) and try to access
-  `/projectname/non/existing_file`, GitLab Pages tries to serve first
-  `/projectname/404.html`, and then `/404.html`.
-- If you use user/group Pages (served under `/`) and try to access
+- If you use project Pages (served under `/project-slug/`) and try to access
+  `/project-slug/non/existing_file`, GitLab Pages tries to serve first
+  `/project-slug/404.html`, and then `/404.html`.
+- If you use user or group Pages (served under `/`) and try to access
   `/non/existing_file` GitLab Pages tries to serve `/404.html`.
 - If you use a custom domain and try to access `/non/existing_file`, GitLab
   Pages tries to serve only `/404.html`.
 
 ## Redirects in GitLab Pages
 
-You can configure redirects for your site using a `_redirects` file. To learn more, read
-the [redirects documentation](redirects.md).
+You can configure redirects for your site using a `_redirects` file. For more information, see
+[Create redirects for GitLab Pages](redirects.md).
 
-## GitLab Pages Access Control
+## Remove your pages
 
-To restrict access to your website, enable [GitLab Pages Access Control](pages_access_control.md).
+To remove your pages:
 
-## Unpublishing your Pages
-
-If you ever feel the need to purge your Pages content, you can do so by going
-to your project's settings through the gear icon in the top right, and then
-navigating to **Pages**. Click the **Remove pages** button to delete your Pages
-website.
-
-![Remove pages](img/remove_pages.png)
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Deploy > Pages**.
+1. Select **Remove pages**.
 
 ## Subdomains of subdomains
 
 When using Pages under the top-level domain of a GitLab instance (`*.example.io`), you can't use HTTPS with subdomains
 of subdomains. If your namespace or group name contains a dot (for example, `foo.bar`) the domain
-`https://foo.bar.example.io` does _not_ work.
+`https://foo.bar.example.io` does **not** work.
 
-This limitation is because of the [HTTP Over TLS protocol](https://tools.ietf.org/html/rfc2818#section-3.1). HTTP pages
+This limitation is because of the [HTTP Over TLS protocol](https://www.rfc-editor.org/rfc/rfc2818#section-3.1). HTTP pages
 work as long as you don't redirect HTTP to HTTPS.
 
-## GitLab Pages and subgroups
+## GitLab Pages in projects and groups
 
-You must host your GitLab Pages website in a project. This project can belong to a [group](../../group/index.md) or
-[subgroup](../../group/subgroups/index.md). For
-[group websites](../../project/pages/getting_started_part_one.md#gitlab-pages-default-domain-names), the group must be
-at the top level and not a subgroup.
+You must host your GitLab Pages website in a project. This project can be
+[private, internal, or public](../../../user/public_access.md) and belong
+to a [group](../../group/index.md) or [subgroup](../../group/subgroups/index.md).
+
+For [group websites](../../project/pages/getting_started_part_one.md#user-and-group-website-examples),
+the group must be at the top level and not a subgroup.
+
+For [project websites](../../project/pages/getting_started_part_one.md#project-website-examples),
+you can create your project first and access it under `http(s)://namespace.example.io/project-path`.
 
 ## Specific configuration options for Pages
 
@@ -108,7 +109,7 @@ Supposed your repository contained the following files:
     └── main.js
 ```
 
-Then the `.gitlab-ci.yml` example below simply moves all files from the root
+Then the `.gitlab-ci.yml` example below moves all files from the root
 directory of the project to the `public/` directory. The `.public` workaround
 is so `cp` doesn't also copy `public/` to itself in an infinite loop:
 
@@ -121,19 +122,19 @@ pages:
   artifacts:
     paths:
       - public
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
 ```
 
 ### `.gitlab-ci.yml` for a static site generator
 
 See this document for a [step-by-step guide](getting_started/pages_from_scratch.md).
 
-### `.gitlab-ci.yml` for a repository where there's also actual code
+### `.gitlab-ci.yml` for a repository with code
 
 Remember that GitLab Pages are by default branch/tag agnostic and their
 deployment relies solely on what you specify in `.gitlab-ci.yml`. You can limit
-the `pages` job with the [`only` parameter](../../../ci/yaml/index.md#only--except),
+the `pages` job with [`rules:if`](../../../ci/yaml/index.md#rulesif),
 whenever a new commit is pushed to a branch used specifically for your
 pages.
 
@@ -163,8 +164,8 @@ pages:
   artifacts:
     paths:
       - public
-  only:
-    - pages
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "pages"'
 ```
 
 See an example that has different files in the [`main` branch](https://gitlab.com/pages/jekyll-branched/tree/main)
@@ -254,32 +255,41 @@ instead. Here are some examples of what happens given the above Pages site:
 | `/info/details`      | `200 OK`: `public/info/details.html` |
 | `/info/details.html` | `200 OK`: `public/info/details.html` |
 
-Note that when `public/data/index.html` exists, it takes priority over the `public/data.html` file
+When `public/data/index.html` exists, it takes priority over the `public/data.html` file
 for both the `/data` and `/data/` URL paths.
 
-## Frequently Asked Questions
+## Customize the default folder
 
-### Can I download my generated pages?
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab-pages/-/merge_requests/859) in GitLab 16.1 with a Pages flag named `FF_CONFIGURABLE_ROOT_DIR`. Disabled by default.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab-pages/-/issues/1073) in GitLab 16.1.
+> - [Enabled on self-managed](https://gitlab.com/gitlab-org/gitlab-pages/-/merge_requests/890) in GitLab 16.2.
 
-Sure. All you need to do is download the artifacts archive from the job page.
+By default, the [artifact](../../../ci/jobs/job_artifacts.md) folder
+that contains the static files of your site needs to have the name `public`.
 
-### Can I use GitLab Pages if my project is private?
+To change that folder name to any other value, add a `publish` property to your
+`pages` job configuration in `.gitlab-ci.yml`.
 
-Yes. GitLab Pages doesn't care whether you set your project's visibility level
-to private, internal or public.
+The following example publishes a folder named `dist` instead:
 
-### Can I create a personal or a group website
+```yaml
+pages:
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - dist
+  publish: dist
+```
 
-Yes. See the documentation about [GitLab Pages domain names, URLs, and base URLs](getting_started_part_one.md).
-
-### Do I need to create a user/group website before creating a project website?
-
-No, you don't. You can create your project first and access it under
-`http(s)://namespace.example.io/projectname`.
+If you're using a folder name other than `public`you must specify
+the directory to be deployed with Pages both as an artifact, and under the
+`publish` property. The reason you need both is that you can define multiple paths
+as artifacts, and GitLab doesn't know which one you want to deploy.
 
 ## Known issues
 
-For a list of known issues, visit the GitLab [public issue tracker](https://gitlab.com/gitlab-org/gitlab/-/issues?label_name[]=Category%3APages).
+For a list of known issues, see the GitLab [public issue tracker](https://gitlab.com/gitlab-org/gitlab/-/issues?label_name[]=Category%3APages).
 
 ## Troubleshooting
 
@@ -287,24 +297,31 @@ For a list of known issues, visit the GitLab [public issue tracker](https://gitl
 
 This problem most likely results from a missing `index.html` file in the public directory. If after deploying a Pages site
 a 404 is encountered, confirm that the public directory contains an `index.html` file. If the file contains a different name
-such as `test.html`, the Pages site can still be accessed, but the full path would be needed. For example: `https//group-name.pages.example.com/project-name/test.html`.
+such as `test.html`, the Pages site can still be accessed, but the full path would be needed. For example: `https//group-name.pages.example.com/project-slug/test.html`.
 
-The contents of the public directory can be confirmed by [browsing the artifacts](../../../ci/pipelines/job_artifacts.md#download-job-artifacts) from the latest pipeline.
+The contents of the public directory can be confirmed by [browsing the artifacts](../../../ci/jobs/job_artifacts.md#download-job-artifacts) from the latest pipeline.
 
 Files listed under the public directory can be accessed through the Pages URL for the project.
 
 A 404 can also be related to incorrect permissions. If [Pages Access Control](pages_access_control.md) is enabled, and a user
-navigates to the Pages URL and receives a 404 response, it is possible that the user does not have permission to view the site.
+goes to the Pages URL and receives a 404 response, it is possible that the user does not have permission to view the site.
 To fix this, verify that the user is a member of the project.
 
-For Geo instances, 404 errors on Pages occur after promoting a secondary to a primary.
-Find more details in the [Pages administration documentation](../../../administration/pages/index.md#404-error-after-promoting-a-geo-secondary-to-a-primary-node)
+### Broken relative links
+
+GitLab Pages supports extensionless URLs. However, due to the problem
+described in [issue #354](https://gitlab.com/gitlab-org/gitlab-pages/-/issues/354),
+if an extensionless URL ends in a forward slash (`/`), it breaks any relative links on the page.
+
+To work around this issue:
+
+- Ensure any URLs pointing to your Pages site have extensions, or do not include a trailing slash.
+- If possible, use only absolute URLs on your site.
 
 ### Cannot play media content on Safari
 
-Safari requires the web server to support the [Range request header](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/CreatingVideoforSafarioniPhone/CreatingVideoforSafarioniPhone.html#//apple_ref/doc/uid/TP40006514-SW6)
-in order to play your media content. For GitLab Pages to serve
-HTTP Range requests, you should use the following two variables in your `.gitlab-ci.yaml` file:
+Safari requires the web server to support the [Range request header](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/CreatingVideoforSafarioniPhone/CreatingVideoforSafarioniPhone.html#//apple_ref/doc/uid/TP40006514-SW6) to play your media content. For GitLab Pages to serve
+HTTP Range requests, you should use the following two variables in your `.gitlab-ci.yml` file:
 
 ```yaml
 pages:
@@ -317,6 +334,7 @@ pages:
   artifacts:
     paths:
       - public
+  environment: production
 ```
 
 The `FF_USE_FASTZIP` variable enables the [feature flag](https://docs.gitlab.com/runner/configuration/feature-flags.html#available-feature-flags) which is needed for [`ARTIFACT_COMPRESSION_LEVEL`](../../../ci/runners/configure_runners.md#artifact-and-cache-settings).

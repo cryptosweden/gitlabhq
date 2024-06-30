@@ -1,10 +1,71 @@
-import { VARIANT_DANGER } from '~/flash';
+import { uniqueId } from 'lodash';
+import { VARIANT_DANGER } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-import { __ } from '~/locale';
-import { extractFilename, readFileAsDataURL } from './utils';
+import { __, sprintf } from '~/locale';
+import { bytesToMiB } from '~/lib/utils/number_utils';
+import { getRetinaDimensions } from '~/lib/utils/image_utils';
+import TappablePromise from '~/lib/utils/tappable_promise';
+import { ALERT_EVENT } from '../constants';
+
+const chain = (editor) => editor.chain().setMeta('preventAutolink', true);
+
+const findUploadedFilePosition = (editor, fileId) => {
+  let position;
+  let node;
+
+  editor.view.state.doc.descendants((descendant, pos) => {
+    if (descendant.attrs.uploading === fileId) {
+      position = pos;
+      node = descendant;
+      return false;
+    }
+
+    for (const mark of descendant.marks) {
+      if (mark.type.name === 'link' && mark.attrs.uploading === fileId) {
+        position = pos + 1;
+        node = descendant;
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  return { position, node };
+};
 
 export const acceptedMimes = {
-  image: ['image/jpeg', 'image/png', 'image/gif', 'image/jpg'],
+  drawioDiagram: {
+    mimes: ['image/svg+xml'],
+    ext: 'drawio.svg',
+  },
+  image: {
+    mimes: [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/svg+xml',
+      'image/webp',
+      'image/tiff',
+      'image/bmp',
+      'image/vnd.microsoft.icon',
+      'image/x-icon',
+    ],
+  },
+  audio: {
+    mimes: [
+      'audio/basic',
+      'audio/mid',
+      'audio/mpeg',
+      'audio/x-aiff',
+      'audio/ogg',
+      'audio/vorbis',
+      'audio/vnd.wav',
+    ],
+  },
+  video: {
+    mimes: ['video/mp4', 'video/quicktime'],
+  },
 };
 
 const extractAttachmentLinkUrl = (html) => {
@@ -15,6 +76,18 @@ const extractAttachmentLinkUrl = (html) => {
   const { canonicalSrc } = link.dataset;
 
   return { src, canonicalSrc };
+};
+
+class UploadError extends Error {}
+
+const notifyUploadError = (eventHub, error) => {
+  eventHub.$emit(ALERT_EVENT, {
+    message:
+      error instanceof UploadError
+        ? error.message
+        : __('An error occurred while uploading the file. Please try again.'),
+    variant: VARIANT_DANGER,
+  });
 };
 
 /**
@@ -34,90 +107,175 @@ const extractAttachmentLinkUrl = (html) => {
  * and returns a rendered version in HTML format.
  * @param {File} params.file The file to upload
  *
- * @returns Returns an object with two properties:
+ * @returns {TappablePromise} Returns an object with two properties:
  *
  * canonicalSrc: The URL as defined in the Markdown
  * src: The absolute URL that points to the resource in the server
  */
-export const uploadFile = async ({ uploadsPath, renderMarkdown, file }) => {
-  const formData = new FormData();
-  formData.append('file', file, file.name);
+export const uploadFile = ({ uploadsPath, renderMarkdown, file }) => {
+  return new TappablePromise(async (tap) => {
+    const maxFileSize = (gon.max_file_size || 10).toFixed(0);
+    const fileSize = bytesToMiB(file.size);
+    if (fileSize > maxFileSize) {
+      throw new UploadError(
+        sprintf(__('File is too big (%{fileSize}MiB). Max filesize: %{maxFileSize}MiB.'), {
+          fileSize: fileSize.toFixed(2),
+          maxFileSize,
+        }),
+      );
+    }
 
-  const { data } = await axios.post(uploadsPath, formData);
-  const { markdown } = data.link;
-  const rendered = await renderMarkdown(markdown);
+    const formData = new FormData();
+    formData.append('file', file, file.name);
 
-  return extractAttachmentLinkUrl(rendered);
+    const { data } = await axios.post(uploadsPath, formData, {
+      onUploadProgress: (e) => tap(e.loaded / e.total),
+    });
+    const { markdown } = data.link;
+    const rendered = await renderMarkdown(markdown);
+
+    return extractAttachmentLinkUrl(rendered);
+  });
 };
 
-const uploadImage = async ({ editor, file, uploadsPath, renderMarkdown, eventHub }) => {
-  const encodedSrc = await readFileAsDataURL(file);
-  const { view } = editor;
+export const uploadingStates = {};
 
-  editor.commands.setImage({ uploading: true, src: encodedSrc });
+const uploadMedia = async ({ type, editor, file, uploadsPath, renderMarkdown, eventHub }) => {
+  // needed to avoid mismatched transaction error
+  await Promise.resolve();
 
-  const { state } = view;
-  const position = state.selection.from - 1;
-  const { tr } = state;
+  const objectUrl = URL.createObjectURL(file);
+  const { selection } = editor.view.state;
+  const currentNode = selection.$to.node();
+  const fileId = uniqueId(type);
 
-  try {
-    const { src, canonicalSrc } = await uploadFile({ file, uploadsPath, renderMarkdown });
+  let position = selection.to;
+  let node;
+  let content = {
+    type,
+    attrs: { uploading: fileId, src: objectUrl, alt: file.name },
+  };
+  let selectionIncrement = 0;
+  getRetinaDimensions(file)
+    .then(({ width, height } = {}) => {
+      if (width && height) {
+        chain(editor).updateAttributes(type, { width, height }).run();
+      }
+    })
+    .catch(() => {});
 
-    view.dispatch(
-      tr.setNodeMarkup(position, undefined, {
-        uploading: false,
-        src: encodedSrc,
-        alt: extractFilename(src),
-        canonicalSrc,
-      }),
-    );
-  } catch (e) {
-    editor.commands.deleteRange({ from: position, to: position + 1 });
-    eventHub.$emit('alert', {
-      message: __('An error occurred while uploading the image. Please try again.'),
-      variant: VARIANT_DANGER,
-    });
+  // if the current node is not empty, we need to wrap the content in a new paragraph
+  if (currentNode.content.size > 0 || currentNode.type.name === 'doc') {
+    content = {
+      type: 'paragraph',
+      content: [content],
+    };
+    selectionIncrement = 1;
   }
+
+  chain(editor)
+    .insertContentAt(position, content)
+    .setNodeSelection(position + selectionIncrement)
+    .run();
+
+  uploadFile({ file, uploadsPath, renderMarkdown })
+    .tap((progress) => {
+      chain(editor).setMeta('uploadProgress', { uploading: fileId, progress }).run();
+    })
+    .then(({ canonicalSrc }) => {
+      // the position might have changed while uploading, so we need to find it again
+      ({ node, position } = findUploadedFilePosition(editor, fileId));
+
+      uploadingStates[fileId] = true;
+
+      editor.view.dispatch(
+        editor.state.tr.setMeta('preventAutolink', true).setNodeMarkup(position, undefined, {
+          ...node.attrs,
+          uploading: false,
+          src: objectUrl,
+          alt: file.name,
+          canonicalSrc,
+        }),
+      );
+
+      chain(editor).setNodeSelection(position).run();
+    })
+    .catch((e) => {
+      ({ position } = findUploadedFilePosition(editor, fileId));
+
+      chain(editor)
+        .deleteRange({ from: position, to: position + 1 })
+        .run();
+
+      notifyUploadError(eventHub, e);
+    });
 };
 
 const uploadAttachment = async ({ editor, file, uploadsPath, renderMarkdown, eventHub }) => {
+  // needed to avoid mismatched transaction error
   await Promise.resolve();
 
-  const { view } = editor;
+  const objectUrl = URL.createObjectURL(file);
+  const { selection } = editor.view.state;
+  const currentNode = selection.$to.node();
+  const fileId = uniqueId('file');
 
-  const text = extractFilename(file.name);
+  uploadingStates[fileId] = true;
 
-  const { state } = view;
-  const { from } = state.selection;
+  let position = selection.to;
+  let content = {
+    type: 'text',
+    text: file.name,
+    marks: [{ type: 'link', attrs: { href: objectUrl, uploading: fileId } }],
+  };
 
-  editor.commands.insertContent({
-    type: 'loading',
-    attrs: { label: text },
-  });
-
-  try {
-    const { src, canonicalSrc } = await uploadFile({ file, uploadsPath, renderMarkdown });
-
-    editor.commands.insertContentAt(
-      { from, to: from + 1 },
-      { type: 'text', text, marks: [{ type: 'link', attrs: { href: src, canonicalSrc } }] },
-    );
-  } catch (e) {
-    editor.commands.deleteRange({ from, to: from + 1 });
-    eventHub.$emit('alert', {
-      message: __('An error occurred while uploading the file. Please try again.'),
-      variant: VARIANT_DANGER,
-    });
+  // if the current node is not empty, we need to wrap the content in a new paragraph
+  if (currentNode.content.size > 0 || currentNode.type.name === 'doc') {
+    content = {
+      type: 'paragraph',
+      content: [content],
+    };
   }
+
+  chain(editor).insertContentAt(position, content).extendMarkRange('link').run();
+
+  uploadFile({ file, uploadsPath, renderMarkdown })
+    .tap((progress) => {
+      chain(editor).setMeta('uploadProgress', { filename: file.name, progress }).run();
+    })
+    .then(({ src, canonicalSrc }) => {
+      // the position might have changed while uploading, so we need to find it again
+      ({ position } = findUploadedFilePosition(editor, fileId));
+
+      chain(editor)
+        .setTextSelection(position)
+        .extendMarkRange('link')
+        .updateAttributes('link', { href: src, canonicalSrc, uploading: false })
+        .run();
+    })
+    .catch((e) => {
+      ({ position } = findUploadedFilePosition(editor, fileId));
+
+      chain(editor)
+        .setTextSelection(position)
+        .extendMarkRange('link')
+        .unsetLink()
+        .deleteSelection()
+        .run();
+
+      notifyUploadError(eventHub, e);
+    });
 };
 
 export const handleFileEvent = ({ editor, file, uploadsPath, renderMarkdown, eventHub }) => {
   if (!file) return false;
 
-  if (acceptedMimes.image.includes(file?.type)) {
-    uploadImage({ editor, file, uploadsPath, renderMarkdown, eventHub });
+  for (const [type, { mimes, ext }] of Object.entries(acceptedMimes)) {
+    if (mimes.includes(file?.type) && (!ext || file?.name.endsWith(ext))) {
+      uploadMedia({ type, editor, file, uploadsPath, renderMarkdown, eventHub });
 
-    return true;
+      return true;
+    }
   }
 
   uploadAttachment({ editor, file, uploadsPath, renderMarkdown, eventHub });

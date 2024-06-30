@@ -1,0 +1,39 @@
+query getModelVersions(
+  $id: MlModelID!
+  $version: String
+  $orderBy: MlModelVersionsOrderBy
+  $sort: SortDirectionEnum
+  $first: Int
+  $last: Int
+  $after: String
+  $before: String
+) {
+  mlModel(id: $id) {
+    id
+    versions(
+      version: $version
+      orderBy: $orderBy
+      sort: $sort
+      after: $after
+      before: $before
+      first: $first
+      last: $last
+    ) {
+      count
+      nodes {
+        id
+        version
+        createdAt
+        _links {
+          showPath
+        }
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        endCursor
+        startCursor
+      }
+    }
+  }
+}

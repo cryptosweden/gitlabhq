@@ -1,16 +1,18 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlIcon, GlLoadingIcon, GlTooltipDirective } from '@gitlab/ui';
+import { GlButton, GlLoadingIcon, GlTooltipDirective } from '@gitlab/ui';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import { __, n__, sprintf } from '~/locale';
-import userAvatarImage from '~/vue_shared/components/user_avatar/user_avatar_image.vue';
+import UserAvatarImage from '~/vue_shared/components/user_avatar/user_avatar_image.vue';
 
 export default {
   directives: {
     GlTooltip: GlTooltipDirective,
   },
   components: {
-    userAvatarImage,
-    GlIcon,
+    GlButton,
     GlLoadingIcon,
+    UserAvatarImage,
   },
   props: {
     loading: {
@@ -26,7 +28,7 @@ export default {
     numberOfLessParticipants: {
       type: Number,
       required: false,
-      default: 7,
+      default: 8,
     },
     showParticipantLabel: {
       type: Boolean,
@@ -68,7 +70,7 @@ export default {
     },
     participantLabel() {
       return sprintf(
-        n__('%{count} participant', '%{count} participants', this.participants.length),
+        n__('%{count} Participant', '%{count} Participants', this.participants.length),
         { count: this.loading ? '' : this.participantCount },
       );
     },
@@ -80,8 +82,8 @@ export default {
     toggleMoreParticipants() {
       this.isShowingMoreParticipants = !this.isShowingMoreParticipants;
     },
-    onClickCollapsedIcon() {
-      this.$emit('toggleSidebar');
+    getParticipantId(participantId) {
+      return getIdFromGraphQLId(participantId);
     },
   },
 };
@@ -91,42 +93,38 @@ export default {
   <div>
     <div
       v-if="showParticipantLabel"
-      v-gl-tooltip.left.viewport
-      :title="participantLabel"
-      class="sidebar-collapsed-icon"
-      @click="onClickCollapsedIcon"
+      class="gl-display-flex gl-align-items-center gl-leading-24 gl-text-gray-900 gl-font-bold gl-mb-2 gl-gap-2"
     >
-      <gl-icon name="users" />
-      <gl-loading-icon v-if="loading" size="sm" />
-      <span v-else data-testid="collapsed-count"> {{ participantCount }} </span>
-    </div>
-    <div v-if="showParticipantLabel" class="title hide-collapsed gl-mb-2 gl-line-height-20">
-      <gl-loading-icon v-if="loading" size="sm" :inline="true" />
       {{ participantLabel }}
+      <gl-loading-icon v-if="loading" inline />
     </div>
-    <div class="hide-collapsed gl-display-flex gl-flex-wrap">
-      <div
+    <div class="gl-display-flex gl-flex-wrap gl-gap-3">
+      <a
         v-for="participant in visibleParticipants"
         :key="participant.id"
-        class="participants-author gl-display-inline-block gl-pr-3 gl-pb-3"
+        :href="participant.web_url || participant.webUrl"
+        :data-user-id="getParticipantId(participant.id)"
+        :data-username="participant.username"
+        class="author-link js-user-link gl-display-inline-block gl-rounded-full"
       >
-        <a :href="participant.web_url || participant.webUrl" class="author-link">
-          <user-avatar-image
-            :lazy="lazy"
-            :img-src="participant.avatar_url || participant.avatarUrl"
-            :size="24"
-            :tooltip-text="participant.name"
-            :img-alt="participant.name"
-            css-classes="avatar-inline"
-            tooltip-placement="bottom"
-          />
-        </a>
-      </div>
+        <user-avatar-image
+          :lazy="lazy"
+          :img-src="participant.avatar_url || participant.avatarUrl"
+          :size="24"
+          :img-alt="participant.name"
+          css-classes="gl-mr-0!"
+          tooltip-placement="bottom"
+        />
+      </a>
     </div>
-    <div v-if="hasMoreParticipants" class="participants-more hide-collapsed">
-      <button type="button" class="btn-transparent btn-link" @click="toggleMoreParticipants">
-        {{ toggleLabel }}
-      </button>
-    </div>
+    <gl-button
+      v-if="hasMoreParticipants"
+      class="gl-mt-3"
+      category="tertiary"
+      size="small"
+      @click="toggleMoreParticipants"
+    >
+      {{ toggleLabel }}
+    </gl-button>
   </div>
 </template>

@@ -2,15 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe ::Import::GitlabProjects::FileAcquisitionStrategies::RemoteFile, :aggregate_failures do
+RSpec.describe ::Import::GitlabProjects::FileAcquisitionStrategies::RemoteFile, :aggregate_failures, feature_category: :importers do
   let(:remote_url) { 'https://external.file.path/file.tar.gz' }
   let(:params) { { remote_import_url: remote_url } }
 
   subject { described_class.new(params: params) }
 
   before do
+    stub_application_setting(max_import_remote_file_size: 10)
+
     stub_headers_for(remote_url, {
-      'content-length' => 10.gigabytes,
+      'content-length' => 10.megabytes,
       'content-type' => 'application/gzip'
     })
   end
@@ -40,29 +42,25 @@ RSpec.describe ::Import::GitlabProjects::FileAcquisitionStrategies::RemoteFile, 
       end
     end
 
-    context 'when import_project_from_remote_file_s3 is enabled' do
-      before do
-        stub_feature_flags(import_project_from_remote_file_s3: true)
-      end
-
-      context 'when the HTTP request fail to recover the headers' do
-        it 'adds the error message' do
-          expect(Gitlab::HTTP)
-            .to receive(:head)
-            .and_raise(StandardError, 'request invalid')
-
-          expect(subject).not_to be_valid
-          expect(subject.errors.full_messages)
-            .to include('Failed to retrive headers: request invalid')
-        end
-      end
-
-      it 'validates the remote content-length' do
-        stub_headers_for(remote_url, { 'content-length' => 11.gigabytes })
+    context 'when the HTTP request fails to recover the headers' do
+      it 'adds the error message' do
+        expect(Gitlab::HTTP)
+          .to receive(:head)
+          .and_raise(StandardError, 'request invalid')
 
         expect(subject).not_to be_valid
         expect(subject.errors.full_messages)
-          .to include('Content length is too big (should be at most 10 GB)')
+          .to include('Failed to retrive headers: request invalid')
+      end
+    end
+
+    context 'when request is not from an S3 server' do
+      it 'validates the remote content-length' do
+        stub_application_setting(max_import_remote_file_size: 1)
+
+        expect(subject).not_to be_valid
+        expect(subject.errors.full_messages)
+          .to include('Content length is too big (should be at most 1 MiB)')
       end
 
       it 'validates the remote content-type' do
@@ -72,57 +70,19 @@ RSpec.describe ::Import::GitlabProjects::FileAcquisitionStrategies::RemoteFile, 
         expect(subject.errors.full_messages)
           .to include("Content type 'unknown' not allowed. (Allowed: application/gzip, application/x-tar, application/x-gzip)")
       end
-
-      context 'when trying to import from AWS S3' do
-        it 'adds an error suggesting to use `projects/remote-import-s3`' do
-          stub_headers_for(
-            remote_url,
-            'Server' => 'AmazonS3',
-            'x-amz-request-id' => 'some-id'
-          )
-
-          expect(subject).not_to be_valid
-          expect(subject.errors.full_messages)
-            .to include('To import from AWS S3 use `projects/remote-import-s3`')
-        end
-      end
     end
 
-    context 'when import_project_from_remote_file_s3 is disabled' do
-      before do
-        stub_feature_flags(import_project_from_remote_file_s3: false)
-      end
+    context 'when request is from an S3 server' do
+      it 'does not validate the remote content-length or content-type' do
+        stub_headers_for(
+          remote_url,
+          'Server' => 'AmazonS3',
+          'x-amz-request-id' => 'some-id',
+          'content-length' => 11.gigabytes,
+          'content-type' => 'unknown'
+        )
 
-      context 'when trying to import from AWS S3' do
-        it 'does not validate the remote content-length or content-type' do
-          stub_headers_for(
-            remote_url,
-            'Server' => 'AmazonS3',
-            'x-amz-request-id' => 'some-id',
-            'content-length' => 11.gigabytes,
-            'content-type' => 'unknown'
-          )
-
-          expect(subject).to be_valid
-        end
-      end
-
-      context 'when NOT trying to import from AWS S3' do
-        it 'validates content-length and content-type' do
-          stub_headers_for(
-            remote_url,
-            'Server' => 'NOT AWS S3',
-            'content-length' => 11.gigabytes,
-            'content-type' => 'unknown'
-          )
-
-          expect(subject).not_to be_valid
-
-          expect(subject.errors.full_messages)
-            .to include("Content type 'unknown' not allowed. (Allowed: application/gzip, application/x-tar, application/x-gzip)")
-          expect(subject.errors.full_messages)
-            .to include('Content length is too big (should be at most 10 GB)')
-        end
+        expect(subject).to be_valid
       end
     end
   end

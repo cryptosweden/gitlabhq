@@ -1,5 +1,6 @@
 <script>
 import { GlFormSelect, GlSprintf } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
 import { getSymbol, getLineClasses } from './multiline_comment_utils';
 
@@ -87,8 +88,8 @@ export default {
           id="comment-line-start"
           :value="commentLineStart"
           :options="commentLineOptions"
-          size="sm"
-          class="gl-w-auto gl-vertical-align-baseline"
+          width="sm"
+          class="gl-w-auto gl-align-baseline"
           @change="updateCommentLineStart"
         />
       </template>

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Updating the package settings' do
+RSpec.describe 'Updating the package settings', feature_category: :package_registry do
   include GraphqlHelpers
   using RSpec::Parameterized::TableSyntax
 
@@ -14,7 +14,18 @@ RSpec.describe 'Updating the package settings' do
       maven_duplicates_allowed: false,
       maven_duplicate_exception_regex: 'foo-.*',
       generic_duplicates_allowed: false,
-      generic_duplicate_exception_regex: 'bar-.*'
+      generic_duplicate_exception_regex: 'bar-.*',
+      nuget_duplicates_allowed: false,
+      nuget_duplicate_exception_regex: 'bar-.*',
+      maven_package_requests_forwarding: true,
+      lock_maven_package_requests_forwarding: true,
+      npm_package_requests_forwarding: true,
+      lock_npm_package_requests_forwarding: true,
+      pypi_package_requests_forwarding: true,
+      lock_pypi_package_requests_forwarding: true,
+      nuget_symbol_server_enabled: true,
+      terraform_module_duplicates_allowed: true,
+      terraform_module_duplicate_exception_regex: 'foo-.*'
     }
   end
 
@@ -26,6 +37,17 @@ RSpec.describe 'Updating the package settings' do
           mavenDuplicateExceptionRegex
           genericDuplicatesAllowed
           genericDuplicateExceptionRegex
+          nugetDuplicatesAllowed
+          nugetDuplicateExceptionRegex
+          mavenPackageRequestsForwarding
+          lockMavenPackageRequestsForwarding
+          npmPackageRequestsForwarding
+          lockNpmPackageRequestsForwarding
+          pypiPackageRequestsForwarding
+          lockPypiPackageRequestsForwarding
+          nugetSymbolServerEnabled
+          terraformModuleDuplicatesAllowed
+          terraformModuleDuplicateExceptionRegex
         }
         errors
       QL
@@ -46,6 +68,17 @@ RSpec.describe 'Updating the package settings' do
       expect(package_settings_response['mavenDuplicateExceptionRegex']).to eq(params[:maven_duplicate_exception_regex])
       expect(package_settings_response['genericDuplicatesAllowed']).to eq(params[:generic_duplicates_allowed])
       expect(package_settings_response['genericDuplicateExceptionRegex']).to eq(params[:generic_duplicate_exception_regex])
+      expect(package_settings_response['nugetDuplicatesAllowed']).to eq(params[:nuget_duplicates_allowed])
+      expect(package_settings_response['nugetDuplicateExceptionRegex']).to eq(params[:nuget_duplicate_exception_regex])
+      expect(package_settings_response['mavenPackageRequestsForwarding']).to eq(params[:maven_package_requests_forwarding])
+      expect(package_settings_response['lockMavenPackageRequestsForwarding']).to eq(params[:lock_maven_package_requests_forwarding])
+      expect(package_settings_response['pypiPackageRequestsForwarding']).to eq(params[:pypi_package_requests_forwarding])
+      expect(package_settings_response['lockPypiPackageRequestsForwarding']).to eq(params[:lock_pypi_package_requests_forwarding])
+      expect(package_settings_response['npmPackageRequestsForwarding']).to eq(params[:npm_package_requests_forwarding])
+      expect(package_settings_response['lockNpmPackageRequestsForwarding']).to eq(params[:lock_npm_package_requests_forwarding])
+      expect(package_settings_response['nugetSymbolServerEnabled']).to eq(params[:nuget_symbol_server_enabled])
+      expect(package_settings_response['terraformModuleDuplicatesAllowed']).to eq(params[:terraform_module_duplicates_allowed])
+      expect(package_settings_response['terraformModuleDuplicateExceptionRegex']).to eq(params[:terraform_module_duplicate_exception_regex])
     end
   end
 
@@ -75,8 +108,39 @@ RSpec.describe 'Updating the package settings' do
 
   RSpec.shared_examples 'accepting the mutation request updating the package settings' do
     it_behaves_like 'updating the namespace package setting attributes',
-      from: { maven_duplicates_allowed: true, maven_duplicate_exception_regex: 'SNAPSHOT', generic_duplicates_allowed: true, generic_duplicate_exception_regex: 'foo' },
-      to: { maven_duplicates_allowed: false, maven_duplicate_exception_regex: 'foo-.*', generic_duplicates_allowed: false, generic_duplicate_exception_regex: 'bar-.*' }
+      from: {
+        maven_duplicates_allowed: true,
+        maven_duplicate_exception_regex: 'SNAPSHOT',
+        generic_duplicates_allowed: true,
+        generic_duplicate_exception_regex: 'foo',
+        nuget_duplicates_allowed: true,
+        nuget_duplicate_exception_regex: 'foo',
+        maven_package_requests_forwarding: nil,
+        lock_maven_package_requests_forwarding: false,
+        npm_package_requests_forwarding: nil,
+        lock_npm_package_requests_forwarding: false,
+        pypi_package_requests_forwarding: nil,
+        lock_pypi_package_requests_forwarding: false,
+        nuget_symbol_server_enabled: false,
+        terraform_module_duplicates_allowed: false,
+        terraform_module_duplicate_exception_regex: 'foo'
+      }, to: {
+        maven_duplicates_allowed: false,
+        maven_duplicate_exception_regex: 'foo-.*',
+        generic_duplicates_allowed: false,
+        generic_duplicate_exception_regex: 'bar-.*',
+        nuget_duplicates_allowed: false,
+        nuget_duplicate_exception_regex: 'bar-.*',
+        maven_package_requests_forwarding: true,
+        lock_maven_package_requests_forwarding: true,
+        npm_package_requests_forwarding: true,
+        lock_npm_package_requests_forwarding: true,
+        pypi_package_requests_forwarding: true,
+        lock_pypi_package_requests_forwarding: true,
+        nuget_symbol_server_enabled: true,
+        terraform_module_duplicates_allowed: true,
+        terraform_module_duplicate_exception_regex: 'foo-.*'
+      }
 
     it_behaves_like 'returning a success'
     it_behaves_like 'rejecting invalid regex'
@@ -108,8 +172,9 @@ RSpec.describe 'Updating the package settings' do
       let_it_be(:namespace, reload: true) { package_settings.namespace }
 
       where(:user_role, :shared_examples_name) do
-        :maintainer | 'accepting the mutation request updating the package settings'
-        :developer  | 'accepting the mutation request updating the package settings'
+        :owner      | 'accepting the mutation request updating the package settings'
+        :maintainer | 'denying the mutation request'
+        :developer  | 'denying the mutation request'
         :reporter   | 'denying the mutation request'
         :guest      | 'denying the mutation request'
         :anonymous  | 'denying the mutation request'
@@ -130,8 +195,9 @@ RSpec.describe 'Updating the package settings' do
       let(:package_settings) { namespace.package_settings }
 
       where(:user_role, :shared_examples_name) do
-        :maintainer | 'accepting the mutation request creating the package settings'
-        :developer  | 'accepting the mutation request creating the package settings'
+        :owner      | 'accepting the mutation request creating the package settings'
+        :maintainer | 'denying the mutation request'
+        :developer  | 'denying the mutation request'
         :reporter   | 'denying the mutation request'
         :guest      | 'denying the mutation request'
         :anonymous  | 'denying the mutation request'

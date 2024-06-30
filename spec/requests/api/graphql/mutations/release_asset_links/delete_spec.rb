@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Deletes a release asset link' do
+RSpec.describe 'Deletes a release asset link', feature_category: :release_orchestration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :private, :repository) }
   let_it_be(:release) { create(:release, project: project) }
-  let_it_be(:maintainer) { create(:user).tap { |u| project.add_maintainer(u) } }
+  let_it_be(:maintainer) { create(:user, maintainer_of: project) }
   let_it_be(:release_link) { create(:release_link, release: release) }
 
   let(:current_user) { maintainer }
@@ -22,7 +22,6 @@ RSpec.describe 'Deletes a release asset link' do
         url
         linkType
         directAssetUrl
-        external
       }
       errors
     FIELDS
@@ -39,8 +38,7 @@ RSpec.describe 'Deletes a release asset link' do
       name: release_link.name,
       url: release_link.url,
       linkType: release_link.link_type.upcase,
-      directAssetUrl: end_with(release_link.filepath),
-      external: true
+      directAssetUrl: end_with(release_link.filepath)
     }.with_indifferent_access
 
     expect(mutation_response[:link]).to match(expected_response)

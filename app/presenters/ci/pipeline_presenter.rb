@@ -13,12 +13,13 @@ module Ci
         config_error: 'The pipeline failed due to an error on the CI/CD configuration file.',
         external_validation_failure: 'The external pipeline validation failed.',
         user_not_verified: 'The pipeline failed due to the user not being verified',
-        activity_limit_exceeded: 'The pipeline activity limit was exceeded.',
         size_limit_exceeded: 'The pipeline size limit was exceeded.',
         job_activity_limit_exceeded: 'The pipeline job activity limit was exceeded.',
         deployments_limit_exceeded: 'The pipeline deployments limit was exceeded.',
         project_deleted: 'The project associated with this pipeline was deleted.',
-        user_blocked: 'The user who created this pipeline is blocked.' }
+        filtered_by_rules: 'Pipeline will not run for the selected trigger. ' \
+                           'The rules configuration prevented any jobs from being added to the pipeline.',
+        filtered_by_workflow_rules: 'Pipeline filtered out by workflow rules.' }
     end
 
     presents ::Ci::Pipeline, as: :pipeline
@@ -50,11 +51,11 @@ module Ci
       {
         merge_train: s_('Pipeline|Merge train pipeline'),
         merged_result: s_('Pipeline|Merged result pipeline'),
-        detached: s_('Pipeline|Detached merge request pipeline')
+        detached: s_('Pipeline|Merge request pipeline')
       }.freeze
     end
 
-    def name
+    def event_type_name
       # Currently, `merge_request_event_type` is the only source to name pipelines
       # but this could be extended with the other types in the future.
       localized_names.fetch(pipeline.merge_request_event_type, s_('Pipeline|Pipeline'))
@@ -69,46 +70,36 @@ module Ci
 
     def ref_text
       if pipeline.detached_merge_request_pipeline?
-        _("for %{link_to_merge_request} with %{link_to_merge_request_source_branch}")
+        _("Related merge request %{link_to_merge_request} to merge %{link_to_merge_request_source_branch}")
           .html_safe % {
             link_to_merge_request: link_to_merge_request,
             link_to_merge_request_source_branch: link_to_merge_request_source_branch
           }
       elsif pipeline.merged_result_pipeline?
-        _("for %{link_to_merge_request} with %{link_to_merge_request_source_branch} into %{link_to_merge_request_target_branch}")
+        _("Related merge request %{link_to_merge_request} to merge %{link_to_merge_request_source_branch} into %{link_to_merge_request_target_branch}")
           .html_safe % {
             link_to_merge_request: link_to_merge_request,
             link_to_merge_request_source_branch: link_to_merge_request_source_branch,
             link_to_merge_request_target_branch: link_to_merge_request_target_branch
           }
-      elsif pipeline.ref && pipeline.ref_exists?
-        _("for %{link_to_pipeline_ref}")
-        .html_safe % { link_to_pipeline_ref: link_to_pipeline_ref }
-      elsif pipeline.ref
-        _("for %{ref}").html_safe % { ref: plain_ref_name }
-      end
-    end
-
-    def all_related_merge_request_text(limit: nil)
-      if all_related_merge_requests.none?
-        _("No related merge requests found.")
-      else
-        _("%{count} related %{pluralized_subject}: %{links}" % {
+      elsif all_related_merge_requests.any?
+        (_("%{count} related %{pluralized_subject}: %{links}") % {
           count: all_related_merge_requests.count,
           pluralized_subject: n_('merge request', 'merge requests', all_related_merge_requests.count),
-          links: all_related_merge_request_links(limit: limit).join(', ')
+          links: all_related_merge_request_links.join(', ')
         }).html_safe
+      elsif pipeline.ref && pipeline.ref_exists?
+        _("For %{link_to_pipeline_ref}")
+        .html_safe % { link_to_pipeline_ref: link_to_pipeline_ref }
+      elsif pipeline.ref
+        _("For %{ref}").html_safe % { ref: plain_ref_name }
       end
-    end
-
-    def has_many_merge_requests?
-      all_related_merge_requests.count > 1
     end
 
     def link_to_pipeline_ref
       ApplicationController.helpers.link_to(pipeline.ref,
         project_commits_path(pipeline.project, pipeline.ref),
-        class: "ref-name")
+        class: "ref-container gl-link")
     end
 
     def link_to_merge_request
@@ -116,7 +107,7 @@ module Ci
 
       ApplicationController.helpers.link_to(merge_request_presenter.to_reference,
         project_merge_request_path(merge_request_presenter.project, merge_request_presenter),
-        class: 'mr-iid')
+        class: 'mr-iid ref-container')
     end
 
     def link_to_merge_request_source_branch
@@ -138,6 +129,10 @@ module Ci
       end
     end
 
+    def triggered_by_path
+      pipeline.child? ? project_pipeline_path(pipeline.triggered_by_pipeline.project, pipeline.triggered_by_pipeline) : ''
+    end
+
     private
 
     def plain_ref_name
@@ -152,10 +147,8 @@ module Ci
       end
     end
 
-    def all_related_merge_request_links(limit: nil)
-      limit ||= all_related_merge_requests.count
-
-      all_related_merge_requests.first(limit).map do |merge_request|
+    def all_related_merge_request_links
+      all_related_merge_requests.map do |merge_request|
         mr_path = project_merge_request_path(merge_request.project, merge_request)
 
         ApplicationController.helpers.link_to "#{merge_request.to_reference} #{merge_request.title}", mr_path, class: 'mr-iid'
@@ -165,7 +158,7 @@ module Ci
     def all_related_merge_requests
       strong_memoize(:all_related_merge_requests) do
         if pipeline.ref && can?(current_user, :read_merge_request, pipeline.project)
-          pipeline.all_merge_requests_by_recency.to_a
+          pipeline.all_merge_requests_by_recency
         else
           []
         end

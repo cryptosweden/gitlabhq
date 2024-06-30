@@ -2,8 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_caching do
+RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_caching,
+  feature_category: :system_access do
   include RackAttackSpecHelpers
+  include WorkhorseHelpers
   include SessionHelpers
 
   let(:settings) { Gitlab::CurrentSettings.current_application_settings }
@@ -26,6 +28,8 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
       throttle_unauthenticated_packages_api_period_in_seconds: 1,
       throttle_authenticated_packages_api_requests_per_period: 100,
       throttle_authenticated_packages_api_period_in_seconds: 1,
+      throttle_unauthenticated_git_http_requests_per_period: 100,
+      throttle_unauthenticated_git_http_period_in_seconds: 1,
       throttle_authenticated_git_lfs_requests_per_period: 100,
       throttle_authenticated_git_lfs_period_in_seconds: 1,
       throttle_unauthenticated_files_api_requests_per_period: 100,
@@ -93,28 +97,28 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
       let(:request_args) { [api(api_partial_url, personal_access_token: token), {}] }
       let(:other_user_request_args) { [api(api_partial_url, personal_access_token: other_user_token), {}] }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
 
     context 'with the token in the headers' do
       let(:request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(token)) }
       let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(other_user_token)) }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
 
     context 'with the token in the OAuth headers' do
-      let(:request_args) { api_get_args_with_token_headers(api_partial_url, oauth_token_headers(token)) }
-      let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, oauth_token_headers(other_user_token)) }
+      let(:request_args) { api_get_args_with_token_headers(api_partial_url, bearer_headers(token)) }
+      let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, bearer_headers(other_user_token)) }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
 
     context 'with the token in basic auth' do
       let(:request_args) { api_get_args_with_token_headers(api_partial_url, basic_auth_headers(user, token)) }
       let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, basic_auth_headers(other_user, other_user_token)) }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
 
     context 'with a read_api scope' do
@@ -127,14 +131,14 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
         let(:request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(token)) }
         let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(other_user_token)) }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
 
       context 'with the token in the OAuth headers' do
-        let(:request_args) { api_get_args_with_token_headers(api_partial_url, oauth_token_headers(token)) }
-        let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, oauth_token_headers(other_user_token)) }
+        let(:request_args) { api_get_args_with_token_headers(api_partial_url, bearer_headers(token)) }
+        let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, bearer_headers(other_user_token)) }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
     end
   end
@@ -142,11 +146,11 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
   describe 'API requests authenticated with OAuth token', :api do
     let(:user) { create(:user) }
     let(:application) { Doorkeeper::Application.create!(name: "MyApp", redirect_uri: "https://app.com", owner: user) }
-    let(:token) { Doorkeeper::AccessToken.create!(application_id: application.id, resource_owner_id: user.id, scopes: "api") }
+    let(:token) { create(:oauth_access_token, application_id: application.id, resource_owner_id: user.id, scopes: "api", expires_in: period_in_seconds + 1) }
 
     let(:other_user) { create(:user) }
     let(:other_user_application) { Doorkeeper::Application.create!(name: "MyApp", redirect_uri: "https://app.com", owner: other_user) }
-    let(:other_user_token) { Doorkeeper::AccessToken.create!(application_id: application.id, resource_owner_id: other_user.id, scopes: "api") }
+    let(:other_user_token) { create(:oauth_access_token, application_id: application.id, resource_owner_id: other_user.id, scopes: "api") }
 
     let(:throttle_setting_prefix) { 'throttle_authenticated_api' }
     let(:api_partial_url) { '/todos' }
@@ -155,23 +159,23 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
       let(:request_args) { [api(api_partial_url, oauth_access_token: token), {}] }
       let(:other_user_request_args) { [api(api_partial_url, oauth_access_token: other_user_token), {}] }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
 
     context 'with the token in the headers' do
       let(:request_args) { api_get_args_with_token_headers(api_partial_url, oauth_token_headers(token)) }
       let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, oauth_token_headers(other_user_token)) }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
 
     context 'with a read_api scope' do
-      let(:read_token) { Doorkeeper::AccessToken.create!(application_id: application.id, resource_owner_id: user.id, scopes: "read_api") }
-      let(:other_user_read_token) { Doorkeeper::AccessToken.create!(application_id: other_user_application.id, resource_owner_id: other_user.id, scopes: "read_api") }
+      let(:read_token) { create(:oauth_access_token, application_id: application.id, resource_owner_id: user.id, scopes: "read_api", expires_in: period_in_seconds + 1) }
+      let(:other_user_read_token) { create(:oauth_access_token, application_id: other_user_application.id, resource_owner_id: other_user.id, scopes: "read_api") }
       let(:request_args) { api_get_args_with_token_headers(api_partial_url, oauth_token_headers(read_token)) }
       let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, oauth_token_headers(other_user_read_token)) }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
   end
 
@@ -181,10 +185,10 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
     let(:throttle_setting_prefix) { 'throttle_authenticated_web' }
 
     context 'with the token in the query string' do
-      let(:request_args) { [rss_url(user), params: nil] }
-      let(:other_user_request_args) { [rss_url(other_user), params: nil] }
+      let(:request_args) { [rss_url(user), { params: nil }] }
+      let(:other_user_request_args) { [rss_url(other_user), { params: nil }] }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
   end
 
@@ -288,14 +292,14 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
         let(:request_args) { [api(api_partial_url, personal_access_token: token), {}] }
         let(:other_user_request_args) { [api(api_partial_url, personal_access_token: other_user_token), {}] }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
 
       context 'with the token in the headers' do
         let(:request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(token)) }
         let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(other_user_token)) }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
     end
 
@@ -312,6 +316,120 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
 
       before do
         settings_to_set[:protected_paths] = protected_paths
+        stub_application_setting(settings_to_set)
+      end
+
+      it_behaves_like 'rate-limited web authenticated requests'
+    end
+  end
+
+  describe 'protected paths for get' do
+    let(:request_method) { 'GET' }
+
+    context 'unauthenticated requests' do
+      let(:protected_path_for_get_request_that_does_not_require_authentication) do
+        '/users/sign_in'
+      end
+
+      def do_request
+        get protected_path_for_get_request_that_does_not_require_authentication
+      end
+
+      before do
+        settings_to_set[:throttle_protected_paths_requests_per_period] = requests_per_period # 1
+        settings_to_set[:throttle_protected_paths_period_in_seconds] = period_in_seconds # 10_000
+        settings_to_set[:protected_paths_for_get_request] = %w[/users/sign_in]
+      end
+
+      context 'when protected paths throttle is disabled' do
+        before do
+          settings_to_set[:throttle_protected_paths_enabled] = false
+          stub_application_setting(settings_to_set)
+        end
+
+        it 'allows requests over the rate limit' do
+          (1 + requests_per_period).times do
+            do_request
+            expect(response).to have_gitlab_http_status(:ok)
+          end
+        end
+      end
+
+      context 'when protected paths throttle is enabled' do
+        before do
+          settings_to_set[:throttle_protected_paths_enabled] = true
+          stub_application_setting(settings_to_set)
+        end
+
+        it 'rejects requests over the rate limit' do
+          requests_per_period.times do
+            do_request
+            expect(response).to have_gitlab_http_status(:ok)
+          end
+
+          expect_rejection { get protected_path_for_get_request_that_does_not_require_authentication }
+        end
+
+        it 'allows GET requests to unprotected paths over the rate limit' do
+          (1 + requests_per_period).times do
+            get '/api/graphql'
+            expect(response).to have_gitlab_http_status(:ok)
+          end
+        end
+
+        it_behaves_like 'tracking when dry-run mode is set' do
+          let(:throttle_name) { 'throttle_unauthenticated_get_protected_paths' }
+        end
+      end
+    end
+
+    context 'API requests authenticated with personal access token', :api do
+      let(:user) { create(:user) }
+      let(:token) { create(:personal_access_token, user: user) }
+      let(:other_user) { create(:user) }
+      let(:other_user_token) { create(:personal_access_token, user: other_user) }
+      let(:throttle_setting_prefix) { 'throttle_protected_paths' }
+      let(:api_partial_url) { '/user/emails' }
+
+      let(:protected_paths_for_get_request) do
+        [
+          '/api/v4/user/emails'
+        ]
+      end
+
+      before do
+        settings_to_set[:protected_paths_for_get_request] = protected_paths_for_get_request
+        stub_application_setting(settings_to_set)
+      end
+
+      context 'with the token in the query string' do
+        let(:request_args) { [api(api_partial_url, personal_access_token: token), {}] }
+        let(:other_user_request_args) { [api(api_partial_url, personal_access_token: other_user_token), {}] }
+
+        it_behaves_like 'rate-limited user based token-authenticated requests'
+      end
+
+      context 'with the token in the headers' do
+        let(:request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(token)) }
+        let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(other_user_token)) }
+
+        it_behaves_like 'rate-limited user based token-authenticated requests'
+      end
+    end
+
+    describe 'web requests authenticated with regular login' do
+      let(:throttle_setting_prefix) { 'throttle_protected_paths' }
+      let(:user) { create(:user) }
+      let(:url_that_requires_authentication) { '/users/confirmation' }
+
+      let(:protected_paths_for_get_request) do
+        [
+          url_that_requires_authentication
+        ]
+      end
+
+      before do
+        settings_to_set[:protected_paths_for_get_request] = protected_paths_for_get_request
         stub_application_setting(settings_to_set)
       end
 
@@ -444,14 +562,14 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
         let(:request_args) { [api(api_partial_url, personal_access_token: token), {}] }
         let(:other_user_request_args) { [api(api_partial_url, personal_access_token: other_user_token), {}] }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
 
       context 'with the token in the headers' do
         let(:request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(token)) }
         let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(other_user_token)) }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
 
       context 'precedence over authenticated api throttle' do
@@ -512,6 +630,16 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
           end
         end
       end
+
+      context 'authenticated via deploy token headers' do
+        let(:deploy_token) { create(:deploy_token, read_package_registry: true, write_package_registry: true, projects: [project]) }
+        let(:other_deploy_token) { create(:deploy_token, read_package_registry: true, write_package_registry: true) }
+
+        let(:request_args) { [api(api_partial_url), { headers: deploy_token_headers(deploy_token) }] }
+        let(:other_user_request_args) { [api(api_partial_url), { headers: deploy_token_headers(other_deploy_token) }] }
+
+        it_behaves_like 'rate-limited deploy-token-authenticated requests'
+      end
     end
   end
 
@@ -526,8 +654,8 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
     let(:throttle_setting_prefix) { 'throttle_authenticated_web' }
     let(:jwt_token) { build_jwt(user) }
     let(:other_jwt_token) { build_jwt(other_user) }
-    let(:request_args) { [path, headers: jwt_token_authorization_headers(jwt_token)] }
-    let(:other_user_request_args) { [other_path, headers: jwt_token_authorization_headers(other_jwt_token)] }
+    let(:request_args) { [path, { headers: jwt_token_authorization_headers(jwt_token) }] }
+    let(:other_user_request_args) { [other_path, { headers: jwt_token_authorization_headers(other_jwt_token) }] }
 
     before do
       group.add_owner(user)
@@ -558,7 +686,7 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
         end
       end
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
 
     context 'getting a blob' do
@@ -568,7 +696,46 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
       let(:path) { "/v2/#{blob.group.path}/dependency_proxy/containers/alpine/blobs/sha256:a0d0a0d46f8b52473982a3c466318f479767577551a53ffc9074c9fa7035982e" }
       let(:other_path) { "/v2/#{other_blob.group.path}/dependency_proxy/containers/alpine/blobs/sha256:a0d0a0d46f8b52473982a3c466318f479767577551a53ffc9074c9fa7035982e" }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
+    end
+  end
+
+  describe 'unauthenticated git http requests' do
+    let_it_be(:project) { create(:project, :repository, :public) }
+
+    let(:git_http_clone_path) { "/#{project.full_path}.git/info/refs?service=git-upload-pack" }
+
+    it_behaves_like 'rate-limited unauthenticated requests' do
+      let(:throttle_name) { 'throttle_unauthenticated_git_http' }
+      let(:throttle_setting_prefix) { 'throttle_unauthenticated_git_http' }
+      let(:url_that_does_not_require_authentication) { "/#{project.full_path}.git/info/refs?service=git-upload-pack" }
+      let(:url_that_is_not_matched) { '/users/sign_in' }
+      let(:headers) { WorkhorseHelpers.workhorse_internal_api_request_header }
+    end
+
+    context 'when authenticated' do
+      let_it_be(:user) { create(:user) }
+      let_it_be(:token) { create(:personal_access_token, user: user) }
+
+      let(:headers) { WorkhorseHelpers.workhorse_internal_api_request_header.merge(basic_auth_headers(user, token)) }
+
+      def do_request
+        get git_http_clone_path, headers: headers
+      end
+
+      before do
+        settings_to_set[:throttle_unauthenticated_git_http_requests_per_period] = requests_per_period
+        settings_to_set[:throttle_unauthenticated_git_http_period_in_seconds] = period_in_seconds
+        settings_to_set[:throttle_unauthenticated_git_http_enabled] = true
+        stub_application_setting(settings_to_set)
+      end
+
+      it 'rejects requests over the rate limit' do
+        (requests_per_period + 1).times do
+          do_request
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
     end
   end
 
@@ -598,7 +765,7 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
       let(:request_args) { [git_lfs_url, { headers: basic_auth_headers(user, token) }] }
       let(:other_user_request_args) { [git_lfs_url, { headers: basic_auth_headers(other_user, other_user_token) }] }
 
-      it_behaves_like 'rate-limited token-authenticated requests'
+      it_behaves_like 'rate-limited user based token-authenticated requests'
     end
 
     context 'precedence over authenticated web throttle' do
@@ -786,14 +953,14 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
         let(:request_args) { [api(api_partial_url, personal_access_token: token), {}] }
         let(:other_user_request_args) { [api(api_partial_url, personal_access_token: other_user_token), {}] }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
 
       context 'with the token in the headers' do
         let(:request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(token)) }
         let(:other_user_request_args) { api_get_args_with_token_headers(api_partial_url, personal_access_token_headers(other_user_token)) }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
 
       context 'precedence over authenticated api throttle' do
@@ -993,14 +1160,14 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
         let(:request_args) { [api(path, personal_access_token: token), {}] }
         let(:other_user_request_args) { [api(path, personal_access_token: other_user_token), {}] }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
 
       context 'with the token in the headers' do
         let(:request_args) { api_get_args_with_token_headers(path, personal_access_token_headers(token)) }
         let(:other_user_request_args) { api_get_args_with_token_headers(path, personal_access_token_headers(other_user_token)) }
 
-        it_behaves_like 'rate-limited token-authenticated requests'
+        it_behaves_like 'rate-limited user based token-authenticated requests'
       end
 
       context 'precedence over authenticated api throttle' do
@@ -1179,7 +1346,7 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
       it 'request is authenticated by token in the OAuth headers' do
         expect_authenticated_request
 
-        get url, headers: oauth_token_headers(personal_access_token)
+        get url, headers: bearer_headers(personal_access_token)
       end
 
       it 'request is authenticated by token in basic auth' do
@@ -1191,12 +1358,12 @@ RSpec.describe 'Rack Attack global throttles', :use_clean_rails_memory_store_cac
 
     context 'authenticated with OAuth token' do
       let(:application) { Doorkeeper::Application.create!(name: "MyApp", redirect_uri: "https://app.com", owner: user) }
-      let(:oauth_token) { Doorkeeper::AccessToken.create!(application_id: application.id, resource_owner_id: user.id, scopes: "api") }
+      let(:oauth_token) { create(:oauth_access_token, application_id: application.id, resource_owner_id: user.id, scopes: "api", expires_in: period_in_seconds + 1) }
 
       it 'request is authenticated by token in query string' do
         expect_authenticated_request
 
-        get url, params: { access_token: oauth_token.token }
+        get url, params: { access_token: oauth_token.plaintext_token }
       end
 
       it 'request is authenticated by token in the headers' do

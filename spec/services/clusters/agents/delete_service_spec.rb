@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Clusters::Agents::DeleteService do
+RSpec.describe Clusters::Agents::DeleteService, feature_category: :deployment_management do
   subject(:service) { described_class.new(container: project, current_user: user) }
 
   let(:cluster_agent) { create(:cluster_agent) }
@@ -17,7 +17,7 @@ RSpec.describe Clusters::Agents::DeleteService do
         expect(response.status).to eq(:error)
         expect(response.message).to eq('You have insufficient permissions to delete this cluster agent')
 
-        expect { cluster_agent.reload }.not_to raise_error(ActiveRecord::RecordNotFound)
+        expect { cluster_agent.reload }.not_to raise_error
       end
     end
 

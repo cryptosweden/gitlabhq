@@ -2,9 +2,12 @@
 
 require 'fast_spec_helper'
 
-require_relative '../../app/services/service_response'
+require 're2'
 
-RSpec.describe ServiceResponse do
+require_relative '../../app/services/service_response'
+require_relative '../../lib/gitlab/error_tracking'
+
+RSpec.describe ServiceResponse, feature_category: :shared do
   describe '.success' do
     it 'creates a successful response without a message' do
       expect(described_class.success).to be_success
@@ -40,14 +43,14 @@ RSpec.describe ServiceResponse do
   end
 
   describe '.error' do
-    it 'creates a failed response without HTTP status' do
+    it 'creates an error response without HTTP status' do
       response = described_class.error(message: 'Bad apple')
 
       expect(response).to be_error
       expect(response.message).to eq('Bad apple')
     end
 
-    it 'creates a failed response with HTTP status' do
+    it 'creates an error response with HTTP status' do
       response = described_class.error(message: 'Bad apple', http_status: 400)
 
       expect(response).to be_error
@@ -55,13 +58,20 @@ RSpec.describe ServiceResponse do
       expect(response.http_status).to eq(400)
     end
 
-    it 'creates a failed response with payload' do
-      response = described_class.error(message: 'Bad apple',
-                                       payload: { bad: 'apple' })
+    it 'creates an error response with payload' do
+      response = described_class.error(message: 'Bad apple', payload: { bad: 'apple' })
 
       expect(response).to be_error
       expect(response.message).to eq('Bad apple')
       expect(response.payload).to eq(bad: 'apple')
+    end
+
+    it 'creates an error response with a reason' do
+      response = described_class.error(message: 'Bad apple', reason: :permission_denied)
+
+      expect(response).to be_error
+      expect(response.message).to eq('Bad apple')
+      expect(response.reason).to eq(:permission_denied)
     end
   end
 
@@ -92,6 +102,134 @@ RSpec.describe ServiceResponse do
 
     it 'returns an array with a correct message for an error response' do
       expect(described_class.error(message: 'error message').errors).to eq(['error message'])
+    end
+  end
+
+  describe '#track_and_raise_exception' do
+    context 'when successful' do
+      let(:response) { described_class.success }
+
+      it 'returns self' do
+        expect(response.track_and_raise_exception).to be response
+      end
+    end
+
+    context 'when an error' do
+      let(:response) { described_class.error(message: 'bang') }
+
+      it 'tracks and raises' do
+        expect(::Gitlab::ErrorTracking).to receive(:track_and_raise_exception)
+          .with(StandardError.new('bang'), {})
+
+        response.track_and_raise_exception
+      end
+
+      it 'allows specification of error class' do
+        error = Class.new(StandardError)
+        expect(::Gitlab::ErrorTracking).to receive(:track_and_raise_exception)
+          .with(error.new('bang'), {})
+
+        response.track_and_raise_exception(as: error)
+      end
+
+      it 'allows extra data for tracking' do
+        expect(::Gitlab::ErrorTracking).to receive(:track_and_raise_exception)
+          .with(StandardError.new('bang'), { foo: 1, bar: 2 })
+
+        response.track_and_raise_exception(foo: 1, bar: 2)
+      end
+    end
+  end
+
+  describe '#track_exception' do
+    context 'when successful' do
+      let(:response) { described_class.success }
+
+      it 'returns self' do
+        expect(response.track_exception).to be response
+      end
+    end
+
+    context 'when an error' do
+      let(:response) { described_class.error(message: 'bang') }
+
+      it 'tracks' do
+        expect(::Gitlab::ErrorTracking).to receive(:track_exception)
+          .with(StandardError.new('bang'), {})
+
+        expect(response.track_exception).to be response
+      end
+
+      it 'allows specification of error class' do
+        error = Class.new(StandardError)
+        expect(::Gitlab::ErrorTracking).to receive(:track_exception)
+          .with(error.new('bang'), {})
+
+        expect(response.track_exception(as: error)).to be response
+      end
+
+      it 'allows extra data for tracking' do
+        expect(::Gitlab::ErrorTracking).to receive(:track_exception)
+          .with(StandardError.new('bang'), { foo: 1, bar: 2 })
+
+        expect(response.track_exception(foo: 1, bar: 2)).to be response
+      end
+    end
+  end
+
+  describe '#log_and_raise_exception' do
+    context 'when successful' do
+      let(:response) { described_class.success }
+
+      it 'returns self' do
+        expect(response.log_and_raise_exception).to be response
+      end
+    end
+
+    context 'when an error' do
+      let(:response) { described_class.error(message: 'bang') }
+
+      it 'logs' do
+        expect(::Gitlab::ErrorTracking).to receive(:log_and_raise_exception)
+          .with(StandardError.new('bang'), {})
+
+        response.log_and_raise_exception
+      end
+
+      it 'allows specification of error class' do
+        error = Class.new(StandardError)
+        expect(::Gitlab::ErrorTracking).to receive(:log_and_raise_exception)
+          .with(error.new('bang'), {})
+
+        response.log_and_raise_exception(as: error)
+      end
+
+      it 'allows extra data for tracking' do
+        expect(::Gitlab::ErrorTracking).to receive(:log_and_raise_exception)
+          .with(StandardError.new('bang'), { foo: 1, bar: 2 })
+
+        response.log_and_raise_exception(foo: 1, bar: 2)
+      end
+    end
+  end
+
+  describe '#deconstruct_keys' do
+    it 'supports pattern matching' do
+      status =
+        case described_class.error(message: 'Bad apple')
+        in { status: Symbol => status }
+          status
+        else
+          raise
+        end
+      expect(status).to eq(:error)
+    end
+  end
+
+  describe '#cause' do
+    it 'returns a string inquirer' do
+      response = described_class.error(message: 'Bad apple', reason: :invalid_input)
+      expect(response.cause).to be_invalid_input
     end
   end
 end

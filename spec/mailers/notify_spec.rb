@@ -3,10 +3,11 @@
 require 'spec_helper'
 require 'email_spec'
 
-RSpec.describe Notify do
+RSpec.describe Notify, feature_category: :code_review_workflow do
   include EmailSpec::Helpers
   include EmailSpec::Matchers
   include EmailHelpers
+  include EmailsHelper
   include RepoHelpers
   include MembersHelper
 
@@ -19,20 +20,29 @@ RSpec.describe Notify do
   let_it_be(:assignee, reload: true) { create(:user, email: 'assignee@example.com', name: 'John Doe') }
   let_it_be(:reviewer, reload: true) { create(:user, email: 'reviewer@example.com', name: 'Jane Doe') }
 
-  let_it_be(:merge_request) do
-    create(:merge_request, source_project: project,
-                           target_project: project,
-                           author: current_user,
-                           assignees: [assignee],
-                           reviewers: [reviewer],
-                           description: 'Awesome description')
+  let(:previous_assignee1) { create(:user, name: 'Previous Assignee 1') }
+  let(:previous_assignee_ids) { [previous_assignee1.id] }
+
+  let_it_be(:merge_request, reload: true) do
+    create(
+      :merge_request,
+      source_project: project,
+      target_project: project,
+      author: current_user,
+      assignees: [assignee],
+      reviewers: [reviewer],
+      description: 'Awesome description'
+    )
   end
 
   let_it_be(:issue, reload: true) do
-    create(:issue, author: current_user,
-                   assignees: [assignee],
-                   project: project,
-                   description: 'My awesome description!')
+    create(
+      :issue,
+      author: current_user,
+      assignees: [assignee],
+      project: project,
+      description: 'My awesome description!'
+    )
   end
 
   describe 'with HTML-encoded entities' do
@@ -45,21 +55,6 @@ RSpec.describe Notify do
     it 'retains 7bit encoding' do
       expect(subject.body.ascii_only?).to eq(true)
       expect(subject.body.encoding).to eq('7bit')
-    end
-  end
-
-  shared_examples 'it requires a group' do
-    context 'when given an deleted group' do
-      before do
-        # destroy group and group member
-        group_member.destroy!
-        group.destroy!
-      end
-
-      it 'returns NullMail type message' do
-        expect(Gitlab::AppLogger).to receive(:info)
-        expect(subject.message).to be_a(ActionMailer::Base::NullMail)
-      end
     end
   end
 
@@ -77,11 +72,43 @@ RSpec.describe Notify do
       end
     end
 
-    context 'for issues' do
+    shared_examples 'an assignee email with previous assignees' do
+      context 'when all assignees are removed' do
+        before do
+          resource.update!(assignees: [])
+        end
+
+        it_behaves_like 'email with default notification reason'
+
+        it 'uses fixed copy "All assignees were removed"' do
+          is_expected.to have_body_text("<p> All assignees were removed. </p>")
+          is_expected.to have_plain_text_content("All assignees were removed.")
+        end
+      end
+
+      context 'with multiple previous assignees' do
+        let(:previous_assignee2) { create(:user, name: 'Previous Assignee 2') }
+        let(:previous_assignee_ids) { [previous_assignee1.id, previous_assignee2.id] }
+
+        it_behaves_like 'email with default notification reason'
+
+        it 'has the correct subject and body' do
+          aggregate_failures do
+            is_expected.to have_referable_subject(resource, reply: true)
+            is_expected.to have_body_text("<p> <strong>#{assignee.name}</strong> was added as an assignee. </p> <p> <strong>#{previous_assignee1.name} and #{previous_assignee2.name}</strong> were removed as assignees. </p>")
+            is_expected.to have_plain_text_content("#{assignee.name} was added as an assignee.")
+            is_expected.to have_plain_text_content("#{previous_assignee1.name} and #{previous_assignee2.name} were removed as assignees.")
+          end
+        end
+      end
+    end
+
+    context 'for issues', feature_category: :team_planning do
       describe 'that are new' do
         subject { described_class.new_issue_email(issue.assignees.first.id, issue.id) }
 
         it_behaves_like 'an assignee email'
+
         it_behaves_like 'an email starting a new thread with reply-by-email enabled' do
           let(:model) { issue }
         end
@@ -95,6 +122,7 @@ RSpec.describe Notify do
           aggregate_failures do
             is_expected.to have_referable_subject(issue)
             is_expected.to have_body_text(project_issue_path(project, issue))
+            is_expected.not_to have_body_text 'This project does not include diff previews in email notifications'
           end
         end
 
@@ -102,8 +130,14 @@ RSpec.describe Notify do
           is_expected.to have_body_text issue.description
         end
 
-        it 'does not add a reason header' do
-          is_expected.not_to have_header('X-GitLab-NotificationReason', /.+/)
+        context 'when issue is confidential' do
+          before do
+            issue.update_attribute(:confidential, true)
+          end
+
+          it 'has a confidential header set to true' do
+            is_expected.to have_header('X-GitLab-ConfidentialIssue', 'true')
+          end
         end
 
         context 'when sent with a reason' do
@@ -129,9 +163,7 @@ RSpec.describe Notify do
       end
 
       describe 'that are reassigned' do
-        let(:previous_assignee) { create(:user, name: 'Previous Assignee') }
-
-        subject { described_class.reassigned_issue_email(recipient.id, issue.id, [previous_assignee.id], current_user.id) }
+        subject { described_class.reassigned_issue_email(recipient.id, issue.id, previous_assignee_ids, current_user.id) }
 
         it_behaves_like 'a multiple recipients email'
         it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
@@ -142,6 +174,8 @@ RSpec.describe Notify do
         it_behaves_like 'an unsubscribeable thread'
         it_behaves_like 'appearance header and footer enabled'
         it_behaves_like 'appearance header and footer not enabled'
+        it_behaves_like 'email with default notification reason'
+        it_behaves_like 'email with link to issue'
 
         it 'is sent as the author' do
           expect_sender(current_user)
@@ -150,20 +184,47 @@ RSpec.describe Notify do
         it 'has the correct subject and body' do
           aggregate_failures do
             is_expected.to have_referable_subject(issue, reply: true)
-            is_expected.to have_body_text(previous_assignee.name)
-            is_expected.to have_body_text(assignee.name)
-            is_expected.to have_body_text(project_issue_path(project, issue))
+            is_expected.to have_body_text("<p> <strong>#{assignee.name}</strong> was added as an assignee. </p> <p> <strong>#{previous_assignee1.name}</strong> was removed as an assignee. </p>")
+            is_expected.to have_plain_text_content("#{assignee.name} was added as an assignee.")
+            is_expected.to have_plain_text_content("#{previous_assignee1.name} was removed as an assignee.")
+          end
+        end
+
+        it_behaves_like 'an assignee email with previous assignees' do
+          let(:resource) { issue }
+        end
+
+        context 'without previous assignees' do
+          subject { described_class.reassigned_issue_email(recipient.id, issue.id, [], current_user.id) }
+
+          it_behaves_like 'email with default notification reason'
+          it_behaves_like 'email with link to issue'
+
+          it 'does not mention any previous assignees' do
+            is_expected.to have_body_text("<p> <strong>#{assignee.name}</strong> was added as an assignee. </p>")
+            is_expected.to have_plain_text_content("#{assignee.name} was added as an assignee.")
           end
         end
 
         context 'when sent with a reason' do
-          subject { described_class.reassigned_issue_email(recipient.id, issue.id, [previous_assignee.id], current_user.id, NotificationReason::ASSIGNED) }
+          subject { described_class.reassigned_issue_email(recipient.id, issue.id, [previous_assignee1.id], current_user.id, NotificationReason::ASSIGNED) }
 
           it_behaves_like 'appearance header and footer enabled'
           it_behaves_like 'appearance header and footer not enabled'
 
           it 'includes the reason in a header' do
             is_expected.to have_header('X-GitLab-NotificationReason', NotificationReason::ASSIGNED)
+          end
+        end
+
+        context 'when sent with a non default locale' do
+          let(:email_obj) { create(:email, :confirmed, user_id: recipient.id, email: '123@abc') }
+          let(:recipient) { create(:user, preferred_language: :zh_CN) }
+
+          it 'is sent with html lang attribute set to the user\'s preferred language' do
+            recipient.notification_email = email_obj.email
+            recipient.save!
+            is_expected.to have_body_text '<html lang="zh-CN">'
           end
         end
       end
@@ -258,6 +319,81 @@ RSpec.describe Notify do
         end
       end
 
+      describe 'closed' do
+        subject { described_class.closed_issue_email(recipient.id, issue.id, current_user.id) }
+
+        it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+          let(:model) { issue }
+        end
+
+        it_behaves_like 'it should show Gmail Actions View Issue link'
+        it_behaves_like 'an unsubscribeable thread'
+        it_behaves_like 'appearance header and footer enabled'
+        it_behaves_like 'appearance header and footer not enabled'
+        it_behaves_like 'email with default notification reason'
+        it_behaves_like 'email with link to issue'
+
+        it 'is sent as the author' do
+          expect_sender(current_user)
+        end
+
+        it 'has the correct subject and body' do
+          aggregate_failures do
+            is_expected.to have_referable_subject(issue, reply: true)
+            is_expected.to have_body_text("Issue was closed by #{current_user_sanitized}")
+            is_expected.to have_plain_text_content("Issue was closed by #{current_user_sanitized}")
+          end
+        end
+
+        context 'via commit' do
+          let(:closing_commit) { project.commit }
+
+          subject { described_class.closed_issue_email(recipient.id, issue.id, current_user.id, closed_via: closing_commit.id) }
+
+          before do
+            allow(Ability).to receive(:allowed?).with(recipient, :mark_note_as_internal, anything).and_return(true)
+            allow(Ability).to receive(:allowed?).with(recipient, :download_code, project).and_return(true)
+          end
+
+          it_behaves_like 'email with default notification reason'
+          it_behaves_like 'email with link to issue'
+
+          it 'has the correct subject and body' do
+            aggregate_failures do
+              is_expected.to have_referable_subject(issue, reply: true)
+              is_expected.to have_body_text("Issue was closed by #{current_user_sanitized} with #{closing_commit.id}")
+              is_expected.to have_plain_text_content("Issue was closed by #{current_user_sanitized} with #{closing_commit.id}")
+            end
+          end
+        end
+
+        context 'via merge request' do
+          let(:closing_merge_request) { merge_request }
+
+          subject { described_class.closed_issue_email(recipient.id, issue.id, current_user.id, closed_via: closing_merge_request) }
+
+          before do
+            allow(Ability).to receive(:allowed?).with(recipient, :read_cross_project, :global).and_return(true)
+            allow(Ability).to receive(:allowed?).with(recipient, :mark_note_as_internal, anything).and_return(true)
+            allow(Ability).to receive(:allowed?).with(recipient, :read_merge_request, anything).and_return(true)
+          end
+
+          it_behaves_like 'email with default notification reason'
+          it_behaves_like 'email with link to issue'
+
+          it 'has the correct subject and body' do
+            aggregate_failures do
+              url = project_merge_request_url(project, closing_merge_request)
+              is_expected.to have_referable_subject(issue, reply: true)
+              is_expected.to have_body_text("Issue was closed by #{current_user_sanitized} with merge request " +
+                                            %(<a href="#{url}">#{closing_merge_request.to_reference}</a>))
+              is_expected.to have_plain_text_content("Issue was closed by #{current_user_sanitized} with merge request " \
+                                                     "#{closing_merge_request.to_reference} (#{url})")
+            end
+          end
+        end
+      end
+
       describe 'moved to another project' do
         let(:new_issue) { create(:issue) }
 
@@ -324,6 +460,7 @@ RSpec.describe Notify do
         subject { described_class.new_merge_request_email(merge_request.assignee_ids.first, merge_request.id) }
 
         it_behaves_like 'an assignee email'
+
         it_behaves_like 'an email starting a new thread with reply-by-email enabled' do
           let(:model) { merge_request }
         end
@@ -369,9 +506,7 @@ RSpec.describe Notify do
       end
 
       describe 'that are reassigned' do
-        let(:previous_assignee) { create(:user, name: 'Previous Assignee') }
-
-        subject { described_class.reassigned_merge_request_email(recipient.id, merge_request.id, [previous_assignee.id], current_user.id) }
+        subject { described_class.reassigned_merge_request_email(recipient.id, merge_request.id, previous_assignee_ids, current_user.id) }
 
         it_behaves_like 'a multiple recipients email'
         it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
@@ -383,6 +518,10 @@ RSpec.describe Notify do
         it_behaves_like 'appearance header and footer enabled'
         it_behaves_like 'appearance header and footer not enabled'
 
+        it_behaves_like 'an assignee email with previous assignees' do
+          let(:resource) { merge_request }
+        end
+
         it 'is sent as the author' do
           expect_sender(current_user)
         end
@@ -390,14 +529,14 @@ RSpec.describe Notify do
         it 'has the correct subject and body' do
           aggregate_failures do
             is_expected.to have_referable_subject(merge_request, reply: true)
-            is_expected.to have_body_text(previous_assignee.name)
+            is_expected.to have_body_text(previous_assignee1.name)
             is_expected.to have_body_text(project_merge_request_path(project, merge_request))
             is_expected.to have_body_text(assignee.name)
           end
         end
 
-        context 'when sent with a reason' do
-          subject { described_class.reassigned_merge_request_email(recipient.id, merge_request.id, [previous_assignee.id], current_user.id, NotificationReason::ASSIGNED) }
+        context 'when sent with a reason', type: :helper do
+          subject { described_class.reassigned_merge_request_email(recipient.id, merge_request.id, [previous_assignee1.id], current_user.id, NotificationReason::ASSIGNED) }
 
           it_behaves_like 'appearance header and footer enabled'
           it_behaves_like 'appearance header and footer not enabled'
@@ -407,15 +546,15 @@ RSpec.describe Notify do
           end
 
           it 'includes the reason in the footer' do
-            text = EmailsHelper.instance_method(:notification_reason_text).bind(self).call(NotificationReason::ASSIGNED)
+            text = EmailsHelper.instance_method(:notification_reason_text).bind_call(self, reason: NotificationReason::ASSIGNED, format: :html)
             is_expected.to have_body_text(text)
 
-            new_subject = described_class.reassigned_merge_request_email(recipient.id, merge_request.id, [previous_assignee.id], current_user.id, NotificationReason::MENTIONED)
-            text = EmailsHelper.instance_method(:notification_reason_text).bind(self).call(NotificationReason::MENTIONED)
+            new_subject = described_class.reassigned_merge_request_email(recipient.id, merge_request.id, [previous_assignee1.id], current_user.id, NotificationReason::MENTIONED)
+            text = EmailsHelper.instance_method(:notification_reason_text).bind_call(self, reason: NotificationReason::MENTIONED, format: :html)
             expect(new_subject).to have_body_text(text)
 
-            new_subject = described_class.reassigned_merge_request_email(recipient.id, merge_request.id, [previous_assignee.id], current_user.id, nil)
-            text = EmailsHelper.instance_method(:notification_reason_text).bind(self).call(nil)
+            new_subject = described_class.reassigned_merge_request_email(recipient.id, merge_request.id, [previous_assignee1.id], current_user.id, nil)
+            text = EmailsHelper.instance_method(:notification_reason_text).bind_call(self, format: :html)
             expect(new_subject).to have_body_text(text)
           end
         end
@@ -601,7 +740,7 @@ RSpec.describe Notify do
 
       describe 'that have new commits on top of more than two existing ones' do
         let(:existing_commits) do
-          [merge_request.commits.first] + [double(:commit)] * 3 + [merge_request.commits.second]
+          [merge_request.commits.first] + ([double(:commit)] * 3) + [merge_request.commits.second]
         end
 
         subject do
@@ -637,16 +776,20 @@ RSpec.describe Notify do
       end
 
       context 'the model has no namespace' do
-        class TopLevelThing
-          include Referable
-          include Noteable
+        before do
+          stub_const('TopLevelThing', Class.new)
 
-          def to_reference(*_args)
-            'tlt-ref'
-          end
+          TopLevelThing.class_eval do
+            include Referable
+            include Noteable
 
-          def id
-            'tlt-id'
+            def to_reference(*_args)
+              'tlt-ref'
+            end
+
+            def id
+              'tlt-id'
+            end
           end
         end
 
@@ -660,8 +803,10 @@ RSpec.describe Notify do
       end
 
       context 'the model has a namespace' do
-        module Namespaced
-          class Thing
+        before do
+          stub_const('Namespaced::Thing', Class.new)
+
+          Namespaced::Thing.class_eval do
             include Referable
             include Noteable
 
@@ -693,6 +838,10 @@ RSpec.describe Notify do
         let_it_be(:second_note) { create(:discussion_note_on_issue, in_reply_to: first_note, project: project) }
         let_it_be(:third_note) { create(:discussion_note_on_issue, in_reply_to: second_note, project: project) }
 
+        before_all do
+          first_note.noteable.update_attribute(:confidential, "true")
+        end
+
         subject { described_class.note_issue_email(recipient.id, third_note.id) }
 
         it_behaves_like 'an email sent to a user'
@@ -704,24 +853,38 @@ RSpec.describe Notify do
         end
 
         it 'has References header including the notes and issue of the discussion' do
-          expect(subject.header['References'].message_ids).to include("issue_#{first_note.noteable.id}@#{host}",
-                                                                   "note_#{first_note.id}@#{host}",
-                                                                   "note_#{second_note.id}@#{host}")
+          expect(subject.header['References'].message_ids).to include(
+            "issue_#{first_note.noteable.id}@#{host}",
+            "note_#{first_note.id}@#{host}",
+            "note_#{second_note.id}@#{host}"
+          )
         end
 
         it 'has X-GitLab-Discussion-ID header' do
           expect(subject.header['X-GitLab-Discussion-ID'].value).to eq(third_note.discussion.id)
+        end
+
+        it 'has a confidential header set to true' do
+          is_expected.to have_header('X-GitLab-ConfidentialIssue', 'true')
         end
       end
 
       context 'individual issue comments' do
         let_it_be(:note) { create(:note_on_issue, project: project) }
 
+        before_all do
+          note.noteable.update_attribute(:confidential, "true")
+        end
+
         subject { described_class.note_issue_email(recipient.id, note.id) }
 
         it_behaves_like 'an email sent to a user'
         it_behaves_like 'appearance header and footer enabled'
         it_behaves_like 'appearance header and footer not enabled'
+
+        it 'has a confidential header set to true' do
+          expect(subject.header['X-GitLab-ConfidentialIssue'].value).to eq('true')
+        end
 
         it 'has In-Reply-To header pointing to the issue' do
           expect(subject.header['In-Reply-To'].message_ids).to eq(["issue_#{note.noteable.id}@#{host}"])
@@ -738,7 +901,7 @@ RSpec.describe Notify do
           before_all do
             private_project.add_guest(recipient)
 
-            note.update!(note: "#{private_issue.to_reference(full: true)}")
+            note.update!(note: private_issue.to_reference(full: true).to_s)
           end
 
           let(:html_part) { subject.body.parts.last.to_s }
@@ -779,9 +942,11 @@ RSpec.describe Notify do
       end
 
       it 'links to the project snippet' do
-        target_url = project_snippet_url(project,
-                                         project_snippet_note.noteable,
-                                         { anchor: "note_#{project_snippet_note.id}" })
+        target_url = project_snippet_url(
+          project,
+          project_snippet_note.noteable,
+          { anchor: "note_#{project_snippet_note.id}" }
+        )
         is_expected.to have_body_text target_url
       end
     end
@@ -790,9 +955,7 @@ RSpec.describe Notify do
       let_it_be(:design) { create(:design, :with_file) }
       let_it_be(:recipient) { create(:user) }
       let_it_be(:note) do
-        create(:diff_note_on_design,
-           noteable: design,
-           note: "Hello #{recipient.to_reference}")
+        create(:diff_note_on_design, noteable: design, note: "Hello #{recipient.to_reference}")
       end
 
       let(:header_name) { 'X-Gitlab-DesignManagement-Design-ID' }
@@ -907,23 +1070,13 @@ RSpec.describe Notify do
         is_expected.to have_body_text project.full_name
         is_expected.to have_body_text project.web_url
         is_expected.to have_body_text project_member.human_access
+        is_expected.to have_body_text 'default role'
         is_expected.to have_body_text 'leave the project'
         is_expected.to have_body_text project_url(project, leave: 1)
-        is_expected.not_to have_body_text 'You were assigned the following tasks:'
-      end
-
-      context 'with tasks to be done present' do
-        let(:project_member) { create(:project_member, project: project, user: user, tasks_to_be_done: [:ci, :code]) }
-
-        it 'contains the assigned tasks to be done' do
-          is_expected.to have_body_text 'You were assigned the following tasks:'
-          is_expected.to have_body_text localized_tasks_to_be_done_choices[:ci]
-          is_expected.to have_body_text localized_tasks_to_be_done_choices[:code]
-        end
       end
     end
 
-    def invite_to_project(project, inviter:, user: nil, tasks_to_be_done: [])
+    def invite_to_project(project, inviter:, user: nil)
       create(
         :project_member,
         :developer,
@@ -931,99 +1084,13 @@ RSpec.describe Notify do
         invite_token: '1234',
         invite_email: 'toto@example.com',
         user: user,
-        created_by: inviter,
-        tasks_to_be_done: tasks_to_be_done
+        created_by: inviter
       )
-    end
-
-    describe 'project invitation' do
-      let(:maintainer) { create(:user).tap { |u| project.add_maintainer(u) } }
-      let(:project_member) { invite_to_project(project, inviter: inviter) }
-      let(:inviter) { maintainer }
-
-      subject(:invite_email) do
-        described_class.member_invited_email('project', project_member.id, project_member.invite_token)
-      end
-
-      it_behaves_like 'an email sent from GitLab'
-      it_behaves_like 'it should show Gmail Actions Join now link'
-      it_behaves_like "a user cannot unsubscribe through footer link"
-      it_behaves_like 'appearance header and footer enabled'
-      it_behaves_like 'appearance header and footer not enabled'
-      it_behaves_like 'does not render a manage notifications link'
-
-      context 'when there is an inviter', :aggregate_failures do
-        it 'contains all the useful information' do
-          is_expected.to have_subject "#{inviter.name} invited you to join GitLab"
-          is_expected.to have_body_text project.full_name
-          is_expected.to have_body_text project_member.human_access.downcase
-          is_expected.to have_body_text project_member.invite_token
-          is_expected.to have_link('Join now',
-                                   href: invite_url(project_member.invite_token,
-                                                    invite_type: Emails::Members::INITIAL_INVITE))
-          is_expected.to have_content("#{inviter.name} invited you to join the")
-          is_expected.to have_content('Project details')
-          is_expected.to have_content("What's it about?")
-          is_expected.not_to have_body_text 'and has assigned you the following tasks:'
-        end
-      end
-
-      context 'when there is no inviter', :aggregate_failures do
-        let(:inviter) { nil }
-
-        it 'contains all the useful information' do
-          is_expected.to have_subject "Invitation to join the #{project.full_name} project"
-          is_expected.to have_body_text project.full_name
-          is_expected.to have_body_text project_member.human_access.downcase
-          is_expected.to have_body_text project_member.invite_token
-          is_expected.to have_link('Join now',
-                                   href: invite_url(project_member.invite_token,
-                                                    invite_type: Emails::Members::INITIAL_INVITE))
-          is_expected.to have_content('Project details')
-          is_expected.to have_content("What's it about?")
-        end
-      end
-
-      context 'when invite email sent is tracked', :snowplow do
-        it 'tracks the sent invite' do
-          invite_email.deliver_now
-
-          expect_snowplow_event(
-            category: 'Notify',
-            action: 'invite_email_sent',
-            label: 'invite_email',
-            property: project_member.id.to_s
-          )
-        end
-      end
-
-      context 'when mailgun events are enabled' do
-        before do
-          stub_application_setting(mailgun_events_enabled: true)
-        end
-
-        it 'has custom headers' do
-          aggregate_failures do
-            expect(subject).to have_header('X-Mailgun-Tag', ::Members::Mailgun::INVITE_EMAIL_TAG)
-            expect(subject).to have_header('X-Mailgun-Variables', { ::Members::Mailgun::INVITE_EMAIL_TOKEN_KEY => project_member.invite_token }.to_json)
-          end
-        end
-      end
-
-      context 'with tasks to be done present', :aggregate_failures do
-        let(:project_member) { invite_to_project(project, inviter: inviter, tasks_to_be_done: [:ci, :code]) }
-
-        it 'contains the assigned tasks to be done' do
-          is_expected.to have_body_text 'and has assigned you the following tasks:'
-          is_expected.to have_body_text localized_tasks_to_be_done_choices[:ci]
-          is_expected.to have_body_text localized_tasks_to_be_done_choices[:code]
-        end
-      end
     end
 
     describe 'project invitation accepted' do
       let(:invited_user) { create(:user, name: 'invited user') }
-      let(:recipient) { create(:user).tap { |u| project.add_maintainer(u) } }
+      let(:recipient) { create(:user, maintainer_of: project) }
       let(:project_member) do
         invitee = invite_to_project(project, inviter: recipient)
         invitee.accept_invite!(invited_user)
@@ -1049,7 +1116,7 @@ RSpec.describe Notify do
     end
 
     describe 'project invitation declined' do
-      let(:recipient) { create(:user).tap { |u| project.add_maintainer(u) } }
+      let(:recipient) { create(:user, maintainer_of: project) }
       let(:project_member) do
         invitee = invite_to_project(project, inviter: recipient)
         invitee.decline_invite!
@@ -1173,7 +1240,12 @@ RSpec.describe Notify do
       shared_examples 'a discussion note email' do |model|
         it_behaves_like 'it should have Gmail Actions links'
 
-        it 'is sent to the given recipient as the author' do
+        # Two tests with flakiness:1 are coming from this test:
+        #
+        # 1. https://gitlab.com/gitlab-org/gitlab/-/issues/464578
+        # 2. https://gitlab.com/gitlab-org/gitlab/-/issues/464577
+        it 'is sent to the given recipient as the author',
+          quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/464578' do
           aggregate_failures do
             expect_sender(note_author)
             expect(subject).to deliver_to(recipient.notification_email_or_default)
@@ -1308,14 +1380,23 @@ RSpec.describe Notify do
       end
 
       shared_examples 'an email for a note on a diff discussion' do |model|
-        let(:note) { create(model, author: note_author) }
-
         context 'when note is not on text' do
           before do
             allow(note.discussion).to receive(:on_text?).and_return(false)
           end
 
           it 'does not include diffs with character-level highlighting' do
+            is_expected.not_to have_body_text '<span class="p">}</span></span>'
+          end
+        end
+
+        context 'when the project does not show diffs in emails' do
+          before do
+            allow(project).to receive(:show_diff_preview_in_email?).and_return(false)
+          end
+
+          it "does not show diff and displays a separate message" do
+            is_expected.to have_body_text 'This project does not include diff previews in email notifications'
             is_expected.not_to have_body_text '<span class="p">}</span></span>'
           end
         end
@@ -1330,7 +1411,12 @@ RSpec.describe Notify do
 
         it_behaves_like 'it should have Gmail Actions links'
 
-        it 'is sent to the given recipient as the author' do
+        # Two tests with flakiness:1 are coming from this test:
+        #
+        # 1. https://gitlab.com/gitlab-org/gitlab/-/issues/464579
+        # 2. https://gitlab.com/gitlab-org/gitlab/-/issues/464580
+        it 'is sent to the given recipient as the author',
+          quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/464579' do
           aggregate_failures do
             expect_sender(note_author)
             expect(subject).to deliver_to(recipient.notification_email_or_default)
@@ -1357,7 +1443,7 @@ RSpec.describe Notify do
 
       describe 'on a commit' do
         let(:commit) { project.commit }
-        let(:note) { create(:diff_note_on_commit) }
+        let(:note) { create(:diff_note_on_commit, author: note_author, project: project) }
 
         subject { described_class.note_commit_email(recipient.id, note.id) }
 
@@ -1369,7 +1455,7 @@ RSpec.describe Notify do
       end
 
       describe 'on a merge request' do
-        let(:note) { create(:diff_note_on_merge_request) }
+        let(:note) { create(:diff_note_on_merge_request, author: note_author, noteable: merge_request, project: project) }
 
         subject { described_class.note_merge_request_email(recipient.id, note.id) }
 
@@ -1382,15 +1468,21 @@ RSpec.describe Notify do
     end
 
     context 'for service desk issues' do
-      before do
-        issue.update!(external_author: 'service.desk@example.com')
-        issue.issue_email_participants.create!(email: 'service.desk@example.com')
+      let_it_be(:issue_email_participant) do
+        create(:issue_email_participant, issue: issue, email: 'service.desk@example.com')
       end
 
-      describe 'thank you email' do
+      before do
+        issue.update!(external_author: 'service.desk@example.com')
+      end
+
+      describe 'thank you email', feature_category: :service_desk do
         subject { described_class.service_desk_thank_you_email(issue.id) }
 
         it_behaves_like 'an unsubscribeable thread'
+        it_behaves_like 'appearance header and footer enabled'
+        it_behaves_like 'appearance header and footer not enabled'
+        it_behaves_like 'a mail with default delivery method'
 
         it 'has the correct recipient' do
           is_expected.to deliver_to('service.desk@example.com')
@@ -1404,7 +1496,7 @@ RSpec.describe Notify do
         end
 
         it 'uses service bot name by default' do
-          expect_sender(User.support_bot)
+          expect_sender(Users::Internal.support_bot)
         end
 
         context 'when custom outgoing name is set' do
@@ -1421,17 +1513,47 @@ RSpec.describe Notify do
           let_it_be(:settings) { create(:service_desk_setting, project: project, outgoing_name: '') }
 
           it 'uses service bot name' do
-            expect_sender(User.support_bot)
+            expect_sender(Users::Internal.support_bot)
+          end
+        end
+
+        context 'when custom email is enabled' do
+          let_it_be(:credentials) { create(:service_desk_custom_email_credential, project: project) }
+          let_it_be(:verification) { create(:service_desk_custom_email_verification, project: project) }
+
+          let_it_be(:settings) do
+            create(
+              :service_desk_setting,
+              project: project,
+              custom_email: 'supersupport@example.com'
+            )
+          end
+
+          before_all do
+            verification.mark_as_finished!
+            project.reset
+            settings.update!(custom_email_enabled: true)
+          end
+
+          it 'uses custom email and service bot name in "from" header' do
+            expect_sender(Users::Internal.support_bot, sender_email: 'supersupport@example.com')
+          end
+
+          it 'uses SMTP delivery method and has correct settings' do
+            expect_service_desk_custom_email_delivery_options(settings)
           end
         end
       end
 
-      describe 'new note email' do
+      describe 'new note email', feature_category: :service_desk do
         let_it_be(:first_note) { create(:discussion_note_on_issue, note: 'Hello world') }
 
-        subject { described_class.service_desk_new_note_email(issue.id, first_note.id, 'service.desk@example.com') }
+        subject { described_class.service_desk_new_note_email(issue.id, first_note.id, issue_email_participant) }
 
         it_behaves_like 'an unsubscribeable thread'
+        it_behaves_like 'appearance header and footer enabled'
+        it_behaves_like 'appearance header and footer not enabled'
+        it_behaves_like 'a mail with default delivery method'
 
         it 'has the correct recipient' do
           is_expected.to deliver_to('service.desk@example.com')
@@ -1445,6 +1567,33 @@ RSpec.describe Notify do
           aggregate_failures do
             is_expected.to have_referable_subject(issue, include_project: false, reply: true)
             is_expected.to have_body_text(first_note.note)
+          end
+        end
+
+        context 'when custom email is enabled' do
+          let_it_be(:credentials) { create(:service_desk_custom_email_credential, project: project) }
+          let_it_be(:verification) { create(:service_desk_custom_email_verification, project: project) }
+
+          let_it_be(:settings) do
+            create(
+              :service_desk_setting,
+              project: project,
+              custom_email: 'supersupport@example.com'
+            )
+          end
+
+          before_all do
+            verification.mark_as_finished!
+            project.reset
+            settings.update!(custom_email_enabled: true)
+          end
+
+          it 'uses custom email and author\'s name in "from" header' do
+            expect_sender(first_note.author, sender_email: project.service_desk_setting.custom_email)
+          end
+
+          it 'uses SMTP delivery method and has correct settings' do
+            expect_service_desk_custom_email_delivery_options(settings)
           end
         end
       end
@@ -1524,7 +1673,6 @@ RSpec.describe Notify do
       it_behaves_like "a user cannot unsubscribe through footer link"
       it_behaves_like 'appearance header and footer enabled'
       it_behaves_like 'appearance header and footer not enabled'
-      it_behaves_like 'it requires a group'
 
       it 'contains all the useful information' do
         is_expected.to have_subject "Access to the #{group.name} group was granted"
@@ -1536,7 +1684,7 @@ RSpec.describe Notify do
       end
     end
 
-    def invite_to_group(group, inviter:, user: nil, tasks_to_be_done: [])
+    def invite_to_group(group, inviter:, user: nil)
       create(
         :group_member,
         :developer,
@@ -1544,68 +1692,12 @@ RSpec.describe Notify do
         invite_token: '1234',
         invite_email: 'toto@example.com',
         user: user,
-        created_by: inviter,
-        tasks_to_be_done: tasks_to_be_done
+        created_by: inviter
       )
     end
 
-    describe 'invitations' do
-      let(:owner) { create(:user).tap { |u| group.add_user(u, Gitlab::Access::OWNER) } }
-      let(:group_member) { invite_to_group(group, inviter: inviter) }
-      let(:inviter) { owner }
-
-      subject { described_class.member_invited_email('Group', group_member.id, group_member.invite_token) }
-
-      it_behaves_like 'an email sent from GitLab'
-      it_behaves_like 'it should show Gmail Actions Join now link'
-      it_behaves_like "a user cannot unsubscribe through footer link"
-      it_behaves_like 'appearance header and footer enabled'
-      it_behaves_like 'appearance header and footer not enabled'
-      it_behaves_like 'it requires a group'
-      it_behaves_like 'does not render a manage notifications link'
-
-      context 'when there is an inviter' do
-        it 'contains all the useful information' do
-          is_expected.to have_subject "#{group_member.created_by.name} invited you to join GitLab"
-          is_expected.to have_body_text group.name
-          is_expected.to have_body_text group_member.human_access.downcase
-          is_expected.to have_body_text group_member.invite_token
-          is_expected.not_to have_body_text 'and has assigned you the following tasks:'
-        end
-      end
-
-      context 'when there is no inviter' do
-        let(:inviter) { nil }
-
-        it 'contains all the useful information' do
-          is_expected.to have_subject "Invitation to join the #{group.name} group"
-          is_expected.to have_body_text group.name
-          is_expected.to have_body_text group_member.human_access.downcase
-          is_expected.to have_body_text group_member.invite_token
-        end
-      end
-
-      context 'with tasks to be done present', :aggregate_failures do
-        let(:group_member) { invite_to_group(group, inviter: inviter, tasks_to_be_done: [:ci, :code]) }
-
-        it 'contains the assigned tasks to be done' do
-          is_expected.to have_body_text 'and has assigned you the following tasks:'
-          is_expected.to have_body_text localized_tasks_to_be_done_choices[:ci]
-          is_expected.to have_body_text localized_tasks_to_be_done_choices[:code]
-        end
-
-        context 'when there is no inviter' do
-          let(:inviter) { nil }
-
-          it 'does not contain the assigned tasks to be done' do
-            is_expected.not_to have_body_text 'and has assigned you the following tasks:'
-          end
-        end
-      end
-    end
-
     describe 'group invitation reminders' do
-      let_it_be(:inviter) { create(:user).tap { |u| group.add_user(u, Gitlab::Access::OWNER) } }
+      let_it_be(:inviter) { create(:user, owner_of: group) }
 
       let(:group_member) { invite_to_group(group, inviter: inviter) }
 
@@ -1688,7 +1780,7 @@ RSpec.describe Notify do
 
     describe 'group invitation accepted' do
       let(:invited_user) { create(:user, name: 'invited user') }
-      let(:owner) { create(:user).tap { |u| group.add_user(u, Gitlab::Access::OWNER) } }
+      let(:owner) { create(:user, owner_of: group) }
       let(:group_member) do
         invitee = invite_to_group(group, inviter: owner)
         invitee.accept_invite!(invited_user)
@@ -1702,7 +1794,6 @@ RSpec.describe Notify do
       it_behaves_like "a user cannot unsubscribe through footer link"
       it_behaves_like 'appearance header and footer enabled'
       it_behaves_like 'appearance header and footer not enabled'
-      it_behaves_like 'it requires a group'
 
       it 'contains all the useful information' do
         is_expected.to have_subject 'Invitation accepted'
@@ -1714,7 +1805,7 @@ RSpec.describe Notify do
     end
 
     describe 'group invitation declined' do
-      let(:owner) { create(:user).tap { |u| group.add_user(u, Gitlab::Access::OWNER) } }
+      let(:owner) { create(:user, owner_of: group) }
       let(:group_member) do
         invitee = invite_to_group(group, inviter: owner)
         invitee.decline_invite!
@@ -1819,6 +1910,68 @@ RSpec.describe Notify do
       end
     end
 
+    describe 'membership about to expire' do
+      context "with group membership" do
+        let_it_be(:group_member) { create(:group_member, source: group, expires_at: 7.days.from_now) }
+
+        subject { described_class.member_about_to_expire_email("Namespace", group_member.id) }
+
+        it_behaves_like 'an email sent from GitLab'
+        it_behaves_like 'it should not have Gmail Actions links'
+        it_behaves_like 'a user cannot unsubscribe through footer link'
+        it_behaves_like 'appearance header and footer enabled'
+        it_behaves_like 'appearance header and footer not enabled'
+
+        it 'contains all the useful information' do
+          is_expected.to deliver_to group_member.user.email
+          is_expected.to have_subject "Your membership will expire in 7 days"
+          is_expected.to have_body_text "group will expire in 7 days."
+          is_expected.to have_body_text group_url(group)
+          is_expected.to have_body_text group_group_members_url(group)
+        end
+      end
+
+      context "with project membership" do
+        let_it_be(:project_member) { create(:project_member, source: project, expires_at: 7.days.from_now) }
+
+        subject { described_class.member_about_to_expire_email('Project', project_member.id) }
+
+        it_behaves_like 'an email sent from GitLab'
+        it_behaves_like 'it should not have Gmail Actions links'
+        it_behaves_like 'a user cannot unsubscribe through footer link'
+        it_behaves_like 'appearance header and footer enabled'
+        it_behaves_like 'appearance header and footer not enabled'
+
+        it 'contains all the useful information' do
+          is_expected.to deliver_to project_member.user.email
+          is_expected.to have_subject "Your membership will expire in 7 days"
+          is_expected.to have_body_text "project will expire in 7 days."
+          is_expected.to have_body_text project_url(project)
+          is_expected.to have_body_text project_project_members_url(project)
+        end
+      end
+
+      context "with expired membership" do
+        let_it_be(:project_member) { create(:project_member, source: project, expires_at: Date.today) }
+
+        subject { described_class.member_about_to_expire_email('Project', project_member.id) }
+
+        it 'not deliver expiry email' do
+          should_not_email_anyone
+        end
+      end
+
+      context "with expiry notified membership" do
+        let_it_be(:project_member) { create(:project_member, source: project, expires_at: 7.days.from_now, expiry_notified_at: Date.today) }
+
+        subject { described_class.member_about_to_expire_email('Project', project_member.id) }
+
+        it 'not deliver expiry email' do
+          should_not_email_anyone
+        end
+      end
+    end
+
     describe 'admin notification' do
       let(:example_site_path) { root_path }
       let(:user) { create(:user) }
@@ -1858,7 +2011,7 @@ RSpec.describe Notify do
       end
     end
 
-    subject { ActionMailer::Base.deliveries.last }
+    subject { ActionMailer::Base.deliveries.first }
 
     it_behaves_like 'an email sent from GitLab'
     it_behaves_like "a user cannot unsubscribe through footer link"
@@ -2181,13 +2334,49 @@ RSpec.describe Notify do
     context 'when diff note' do
       let!(:notes) { create_list(:diff_note_on_merge_request, 3, review: review, project: project, author: review.author, noteable: merge_request) }
 
-      it 'links to notes' do
+      it 'links to notes and discussions', :aggregate_failures do
+        reply_note = create(:diff_note_on_merge_request, review: review, project: project, author: review.author, noteable: merge_request, in_reply_to: notes.first)
+
         review.notes.each do |note|
           # Text part
           expect(subject.text_part.body.raw_source).to include(
             project_merge_request_url(project, merge_request, anchor: "note_#{note.id}")
           )
+
+          if note == reply_note
+            expect(subject.text_part.body.raw_source).to include("commented on a discussion on #{note.discussion.file_path}")
+          else
+            expect(subject.text_part.body.raw_source).to include("started a new discussion on #{note.discussion.file_path}")
+          end
         end
+      end
+
+      it 'includes only one link to the highlighted_diff_email' do
+        expect(subject.html_part.body.raw_source).to include('assets/mailers/highlighted_diff_email').once
+      end
+
+      it 'avoids N+1 cached queries when rendering html', :use_sql_query_cache, :request_store do
+        control = ActiveRecord::QueryRecorder.new(query_recorder_debug: true, skip_cached: false) do
+          subject.html_part
+        end
+
+        create_list(:diff_note_on_merge_request, 3, review: review, project: project, author: review.author, noteable: merge_request)
+
+        expect do
+          described_class.new_review_email(recipient.id, review.id).html_part
+        end.not_to exceed_all_query_limit(control)
+      end
+
+      it 'avoids N+1 cached queries when rendering text', :use_sql_query_cache, :request_store do
+        control = ActiveRecord::QueryRecorder.new(query_recorder_debug: true, skip_cached: false) do
+          subject.text_part
+        end
+
+        create_list(:diff_note_on_merge_request, 3, review: review, project: project, author: review.author, noteable: merge_request)
+
+        expect do
+          described_class.new_review_email(recipient.id, review.id).text_part
+        end.not_to exceed_all_query_limit(control)
       end
     end
 
@@ -2204,22 +2393,33 @@ RSpec.describe Notify do
     end
   end
 
-  describe 'in product marketing', :mailer do
-    let_it_be(:group) { create(:group) }
+  describe 'rate limiting', :freeze_time, :clean_gitlab_redis_rate_limiting do
+    let(:recipient) { issue.assignees.first }
 
-    let(:mail) { ActionMailer::Base.deliveries.last }
-
-    it 'does not raise error' do
-      described_class.in_product_marketing_email(user.id, group.id, :trial, 0).deliver
-
-      expect(mail.subject).to eq('Go farther with GitLab')
-      expect(mail.body.parts.first.to_s).to include('Start a GitLab Ultimate trial today in less than one minute, no credit card required.')
+    before do
+      allow(Gitlab::ApplicationRateLimiter).to receive(:rate_limits)
+        .and_return(notification_emails: { threshold: 1, interval: 1.minute })
     end
-  end
 
-  def expect_sender(user)
-    sender = subject.header[:from].addrs[0]
-    expect(sender.display_name).to eq("#{user.name} (@#{user.username})")
-    expect(sender.address).to eq(gitlab_sender)
+    it 'logs a message, stops sending notifications, and notifies the user of the rate limit only once', :aggregate_failures do
+      expect(Gitlab::AppLogger).to receive(:info).with(
+        event: 'notification_emails_rate_limited',
+        user_id: recipient.id,
+        project_id: issue.project_id,
+        group_id: nil
+      )
+
+      perform_enqueued_jobs do
+        3.times { described_class.new_issue_email(recipient.id, issue.id).deliver }
+      end
+
+      expect(ActionMailer::Base.deliveries.count).to eq(2)
+
+      allowed_notification, rate_limit_notification = ActionMailer::Base.deliveries
+
+      expect(allowed_notification).to have_referable_subject(issue)
+      expect(rate_limit_notification.to).to contain_exactly(recipient.notification_email)
+      expect(rate_limit_notification).to have_subject(/Notifications temporarily disabled/)
+    end
   end
 end

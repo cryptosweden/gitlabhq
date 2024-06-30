@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
-require_dependency 're2'
+require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Pipeline::Expression::Lexeme::NotMatches do
+RSpec.describe Gitlab::Ci::Pipeline::Expression::Lexeme::NotMatches, feature_category: :continuous_integration do
+  include StubFeatureFlags
+
   let(:left) { double('left') }
   let(:right) { double('right') }
 
@@ -147,6 +148,22 @@ RSpec.describe Gitlab::Ci::Pipeline::Expression::Lexeme::NotMatches do
       let(:right_value) { Gitlab::UntrustedRegexp.new('(?i)terrible') }
 
       it { is_expected.to eq(true) }
+    end
+
+    context 'when right value is a regexp string' do
+      let(:right_value) { '/^ab.*/' }
+
+      context 'when matching' do
+        let(:left_value) { 'abcde' }
+
+        it { is_expected.to eq(false) }
+      end
+
+      context 'when not matching' do
+        let(:left_value) { 'dfg' }
+
+        it { is_expected.to eq(true) }
+      end
     end
   end
 end

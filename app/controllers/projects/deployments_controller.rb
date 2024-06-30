@@ -4,6 +4,7 @@ class Projects::DeploymentsController < Projects::ApplicationController
   before_action :authorize_read_deployment!
 
   feature_category :continuous_delivery
+  urgency :low
 
   # rubocop: disable CodeReuse/ActiveRecord
   def index
@@ -14,6 +15,10 @@ class Projects::DeploymentsController < Projects::ApplicationController
                                   .represent_concise(deployments) }
   end
   # rubocop: enable CodeReuse/ActiveRecord
+
+  def show
+    @deployment = environment.all_deployments.find_by_iid!(params[:id])
+  end
 
   def metrics
     return render_404 unless deployment_metrics.has_metrics?

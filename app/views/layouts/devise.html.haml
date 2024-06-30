@@ -1,42 +1,36 @@
+- add_page_specific_style 'page_bundles/login'
+- custom_text = custom_sign_in_description
+
 !!! 5
-%html.devise-layout-html{ class: system_message_class }
-  = render "layouts/head", { startup_filename: 'signin' }
-  %body.ui-indigo.login-page.application.navless{ class: "#{client_class_list}", data: { page: body_data_page, qa_selector: 'login_page' } }
+%html.html-devise-layout{ class: user_application_theme, lang: I18n.locale }
+  = render "layouts/head"
+  %body.gl-h-full.login-page{ class: "#{system_message_class} #{client_class_list}", data: { page: body_data_page, testid: 'login-page' } }
     = header_message
     = render "layouts/init_client_detection_flags"
-    .page-wrap
-      = render "layouts/header/empty"
-      .login-page-broadcast
-        = render "layouts/broadcast"
-      .container.navless-container
+    = yield :sessions_broadcast
+    .gl-h-full.gl-display-flex.gl-flex-wrap
+      .container.gl-align-self-center
         .content
           = render "layouts/flash"
-          .row.mt-3
-            .col-sm-12
-              %h1.mb-3.font-weight-normal
-                = current_appearance&.title.presence || _('GitLab')
-          .row.mb-3
-            .col-sm-7.order-12.order-sm-1.brand-holder
-              - unless recently_confirmed_com?
+          - if custom_text.present?
+            .row.gl-mt-5.gl-gap-y-5
+              .col-md.order-12.sm-bg-gray
+                .col-sm-12
+                  %h1.gl-mb-5.gl-font-size-h2
+                    = brand_title
+                  #js-custom-sign-in-description= custom_text
+              .col-md.order-md-12
+                .col-sm-12.bar
+                  .gl-text-center.gl-mb-5
+                    = brand_image
+                  = yield
+          - else
+            .gl-my-5
+              .col-sm-12.gl-text-center
                 = brand_image
-                - if current_appearance&.description?
-                  = brand_text
-                - else
-                  %h3.gl-sm-mt-0
-                    = _('A complete DevOps platform')
+                %h1.mb-3.gl-font-size-h2
+                  = brand_title
+              .gl-w-full.gl-sm-w-half.gl-ml-auto.gl-mr-auto.bar
+                = yield
 
-                  %p
-                    = _('GitLab is a single application for the entire software development lifecycle. From project planning and source code management to CI/CD, monitoring, and security.')
-
-                  %p
-                    = _('This is a self-managed instance of GitLab.')
-
-              - if Gitlab::CurrentSettings.sign_in_text.present?
-                = markdown_field(Gitlab::CurrentSettings.current_application_settings, :sign_in_text)
-
-              = render_if_exists 'layouts/devise_help_text'
-
-            .col-sm-5.order-1.new-session-forms-container{ class: recently_confirmed_com? ? 'order-sm-first' : 'order-sm-12' }
-              = yield
-
-      = render 'devise/shared/footer', footer_message: footer_message
+      = render 'devise/shared/footer'

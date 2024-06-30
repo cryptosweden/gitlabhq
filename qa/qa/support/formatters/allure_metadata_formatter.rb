@@ -3,6 +3,14 @@
 module QA
   module Support
     module Formatters
+      # RSpec formatter to enhance metadata present in allure report
+      # Following additional data is added:
+      #   * quarantine issue links
+      #   * failure issues search link
+      #   * ci job link
+      #   * flaky status and test pass rate
+      #   * devops stage and group as epic and feature behaviour tags
+      #
       class AllureMetadataFormatter < ::RSpec::Core::Formatters::BaseFormatter
         include Support::InfluxdbTools
 
@@ -18,13 +26,11 @@ module QA
         # @param [RSpec::Core::Notifications::StartNotification] _start_notification
         # @return [void]
         def start(_start_notification)
-          return unless merge_request_iid # on main runs allure native history has pass rate already
-
-          save_failures
-          log(:debug, "Fetched #{failures.length} flaky testcases!")
+          save_flaky_specs
+          log(:debug, "Fetched #{flaky_specs.length} flaky testcases!")
         rescue StandardError => e
           log(:error, "Failed to fetch flaky spec data for report: #{e}")
-          @failures = {}
+          @flaky_specs = {}
         end
 
         # Finished example
@@ -39,6 +45,7 @@ module QA
           add_failure_issues_link(example)
           add_ci_job_link(example)
           set_flaky_status(example)
+          set_behaviour_categories(example)
         end
 
         private
@@ -53,6 +60,8 @@ module QA
           return unless issue_link
           return example.issue('Quarantine issue', issue_link) if issue_link.is_a?(String)
           return issue_link.each { |link| example.issue('Quarantine issue', link) } if issue_link.is_a?(Array)
+        rescue StandardError => e
+          log(:error, "Failed to add quarantine issue linkt for example '#{example.description}', error: #{e}")
         end
 
         # Add failure issues link
@@ -60,11 +69,13 @@ module QA
         # @param [RSpec::Core::Example] example
         # @return [void]
         def add_failure_issues_link(example)
-          spec_file = example.file_path.split('/').last
-          example.issue(
-            'Failure issues',
-            "https://gitlab.com/gitlab-org/gitlab/-/issues?scope=all&state=opened&search=#{spec_file}"
-          )
+          return unless example.execution_result.status == :failed
+
+          search_query = ERB::Util.url_encode("Failure in #{example.file_path.gsub('./qa/specs/features/', '')}")
+          search_url = "https://gitlab.com/gitlab-org/gitlab/-/issues?scope=all&state=opened&search=#{search_query}"
+          example.issue('Failure issues', search_url)
+        rescue StandardError => e
+          log(:error, "Failed to add failure issue link for example '#{example.description}', error: #{e}")
         end
 
         # Add ci job link
@@ -75,6 +86,8 @@ module QA
           return unless Runtime::Env.running_in_ci?
 
           example.add_link(name: "Job(#{Runtime::Env.ci_job_name})", url: Runtime::Env.ci_job_url)
+        rescue StandardError => e
+          log(:error, "Failed to add failure issue link for example '#{example.description}', error: #{e}")
         end
 
         # Mark test as flaky
@@ -82,32 +95,44 @@ module QA
         # @param [RSpec::Core::Example] example
         # @return [void]
         def set_flaky_status(example)
-          return unless merge_request_iid
-          return unless example.execution_result.status == :failed && failures.key?(example.metadata[:testcase])
+          return unless flaky_specs.key?(example.metadata[:testcase]) && example.execution_result.status != :pending
 
           example.set_flaky
-          example.parameter("pass_rate", "#{failures[example.metadata[:testcase]].round(1)}%")
-          log(:debug, "Setting spec as flaky due to present failures in last 14 days!")
+          log(:debug, "Setting spec as flaky because it's pass rate is below 98%")
+        rescue StandardError => e
+          log(:error, "Failed to add spec pass rate data for example '#{example.description}', error: #{e}")
         end
 
-        # Failed spec testcases
+        # Add behaviour categories to report
+        #
+        # @param [RSpec::Core::Example] example
+        # @return [void]
+        def set_behaviour_categories(example)
+          file_path = example.file_path.gsub('./qa/specs/features', '')
+          devops_stage = file_path.match(%r{\d{1,2}_(\w+)/})&.captures&.first
+          product_group = example.metadata[:product_group]
+
+          example.epic(devops_stage) if devops_stage
+          example.feature(product_group) if product_group
+        end
+
+        # Flaky specs with pass rate below 98%
         #
         # @return [Array]
-        def failures
-          @failures ||= influx_data.lazy.each_with_object({}) do |data, result|
-            # TODO: replace with mr_iid once stats are populated
-            records = data.records.reject { |r| r.values["_value"] == env("CI_PIPELINE_ID") }
+        def flaky_specs
+          @flaky_specs ||= influx_data.lazy.each_with_object({}) do |data, result|
+            records = data.records
 
             runs = records.count
             failed = records.count { |r| r.values["status"] == "failed" }
-            pass_rate = 100 - ((failed.to_f / runs.to_f) * 100)
+            pass_rate = 100 - ((failed.to_f / runs) * 100)
 
             # Consider spec with a pass rate less than 98% as flaky
             result[records.last.values["testcase"]] = pass_rate if pass_rate < 98
           end.compact
         end
 
-        alias_method :save_failures, :failures
+        alias_method :save_flaky_specs, :flaky_specs
 
         # Records of previous failures for runs of same type
         #
@@ -115,14 +140,14 @@ module QA
         def influx_data
           return [] unless run_type
 
-          query_api.query(query: <<~QUERY).values
-            from(bucket: "#{Support::InfluxdbTools::INFLUX_TEST_METRICS_BUCKET}")
-              |> range(start: -14d)
+          query_api.query(query: <<~QUERY)
+            from(bucket: "#{Support::InfluxdbTools::INFLUX_MAIN_TEST_METRICS_BUCKET}")
+              |> range(start: -30d)
               |> filter(fn: (r) => r._measurement == "test-stats")
               |> filter(fn: (r) => r.run_type == "#{run_type}" and
                 r.status != "pending" and
                 r.quarantined == "false" and
-                r._field == "pipeline_id"
+                r._field == "id"
               )
               |> group(columns: ["testcase"])
           QUERY

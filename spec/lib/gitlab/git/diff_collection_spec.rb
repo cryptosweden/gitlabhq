@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
+RSpec.describe Gitlab::Git::DiffCollection, feature_category: :source_code_management do
   before do
     stub_const('MutatingConstantIterator', Class.new)
 
@@ -45,7 +45,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
   end
 
   subject do
-    Gitlab::Git::DiffCollection.new(
+    described_class.new(
       iterator,
       max_files: max_files,
       max_lines: max_lines,
@@ -495,7 +495,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
   end
 
   describe 'empty collection' do
-    subject { Gitlab::Git::DiffCollection.new([]) }
+    subject { described_class.new([]) }
 
     it_behaves_like 'overflow stuff'
 
@@ -520,7 +520,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
     describe '#real_size' do
       subject { super().real_size }
 
-      it { is_expected.to eq('0')}
+      it { is_expected.to eq('0') }
     end
 
     describe '#line_count' do
@@ -531,9 +531,88 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
   end
 
   describe '#each' do
+    context 'with Gitlab::GitalyClient::DiffStitcher' do
+      let(:collection) do
+        described_class.new(
+          iterator,
+          max_files: max_files,
+          max_lines: max_lines,
+          limits: limits,
+          expanded: expanded,
+          generated_files: generated_files
+        )
+      end
+
+      let(:iterator) { Gitlab::GitalyClient::DiffStitcher.new(diff_params) }
+      let(:diff_params) { [diff_1, diff_2] }
+      let(:diff_1) do
+        OpenStruct.new(
+          to_path: ".gitmodules",
+          from_path: ".gitmodules",
+          old_mode: 0100644,
+          new_mode: 0100644,
+          from_id: '357406f3075a57708d0163752905cc1576fceacc',
+          to_id: '8e5177d718c561d36efde08bad36b43687ee6bf0',
+          patch: 'a' * 10,
+          raw_patch_data: 'a' * 10,
+          end_of_patch: true
+        )
+      end
+
+      let(:diff_2) do
+        OpenStruct.new(
+          to_path: ".gitignore",
+          from_path: ".gitignore",
+          old_mode: 0100644,
+          new_mode: 0100644,
+          from_id: '357406f3075a57708d0163752905cc1576fceacc',
+          to_id: '8e5177d718c561d36efde08bad36b43687ee6bf0',
+          patch: 'a' * 20,
+          raw_patch_data: 'a' * 20,
+          end_of_patch: true
+        )
+      end
+
+      context 'with generated_files' do
+        let(:generated_files) { [diff_1.from_path] }
+
+        it 'sets generated files as generated' do
+          collection.each do |d|
+            if d.old_path == diff_1.from_path
+              expect(d.generated).to be true
+            else
+              expect(d.generated).to be false
+            end
+          end
+        end
+      end
+
+      context 'without generated_files' do
+        let(:generated_files) { nil }
+
+        it 'set generated as nil' do
+          collection.each do |d|
+            expect(d.generated).to be_nil
+          end
+        end
+      end
+    end
+
+    context 'with existing generated value in the hash' do
+      let(:collection) do
+        described_class.new([{ diff: 'some content', generated: true }])
+      end
+
+      it 'sets the diff as generated' do
+        collection.each do |diff|
+          expect(diff.generated).to eq true
+        end
+      end
+    end
+
     context 'when diff are too large' do
       let(:collection) do
-        Gitlab::Git::DiffCollection.new([{ diff: 'a' * 204800 }])
+        described_class.new([{ diff: 'a' * 204800 }])
       end
 
       it 'yields Diff instances even when they are too large' do
@@ -595,7 +674,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
         end
 
         context 'multi-file collections' do
-          let(:iterator) { [{ diff: 'b' }, { diff: 'a' * 20480 }]}
+          let(:iterator) { [{ diff: 'b' }, { diff: 'a' * 20480 }] }
 
           it 'prunes diffs that are quite big' do
             diff = nil
@@ -612,7 +691,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
           let(:iterator) { [fake_diff(1, 1)] * 4 }
 
           before do
-            allow(Gitlab::Git::DiffCollection)
+            allow(described_class)
               .to receive(:default_limits)
               .and_return({ max_files: 2, max_lines: max_lines })
           end
@@ -641,7 +720,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
           end
 
           before do
-            allow(Gitlab::Git::DiffCollection)
+            allow(described_class)
               .to receive(:default_limits)
               .and_return({ max_files: max_files, max_lines: 80 })
           end
@@ -672,7 +751,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
           before do
             allow(Gitlab::CurrentSettings).to receive(:diff_max_patch_bytes).and_return(1.megabyte)
 
-            allow(Gitlab::Git::DiffCollection)
+            allow(described_class)
               .to receive(:default_limits)
               .and_return({ max_files: 4, max_lines: 3000 })
           end
@@ -713,7 +792,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
 
     context 'when offset_index is given' do
       subject do
-        Gitlab::Git::DiffCollection.new(
+        described_class.new(
           iterator,
           max_files: max_files,
           max_lines: max_lines,
@@ -760,7 +839,7 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
         end
 
         before do
-          allow(Gitlab::Git::DiffCollection)
+          allow(described_class)
             .to receive(:default_limits)
             .and_return({ max_files: max_files, max_lines: 80 })
         end
@@ -773,6 +852,26 @@ RSpec.describe Gitlab::Git::DiffCollection, :seed_helper do
             ]
           )
         end
+      end
+    end
+  end
+
+  describe '.limits' do
+    let(:options) { {} }
+
+    subject { described_class.limits(options) }
+
+    context 'when options do not include max_patch_bytes_for_file_extension' do
+      it 'sets max_patch_bytes_for_file_extension as empty' do
+        expect(subject[:max_patch_bytes_for_file_extension]).to eq({})
+      end
+    end
+
+    context 'when options include max_patch_bytes_for_file_extension' do
+      let(:options) { { max_patch_bytes_for_file_extension: { '.file' => 1 } } }
+
+      it 'sets value for max_patch_bytes_for_file_extension' do
+        expect(subject[:max_patch_bytes_for_file_extension]).to eq({ '.file' => 1 })
       end
     end
   end

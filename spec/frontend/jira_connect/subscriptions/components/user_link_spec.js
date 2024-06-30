@@ -1,11 +1,7 @@
 import { GlSprintf } from '@gitlab/ui';
 import UserLink from '~/jira_connect/subscriptions/components/user_link.vue';
-import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
-import waitForPromises from 'helpers/wait_for_promises';
 
-jest.mock('~/jira_connect/subscriptions/utils', () => ({
-  getGitlabSignInURL: jest.fn().mockImplementation((path) => Promise.resolve(path)),
-}));
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 
 describe('UserLink', () => {
   let wrapper;
@@ -20,51 +16,13 @@ describe('UserLink', () => {
     });
   };
 
-  const findSignInLink = () => wrapper.findByTestId('sign-in-link');
   const findGitlabUserLink = () => wrapper.findByTestId('gitlab-user-link');
   const findSprintf = () => wrapper.findComponent(GlSprintf);
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  it('renders template correctly', () => {
+    createComponent();
 
-  describe.each`
-    userSignedIn | hasSubscriptions | expectGlSprintf | expectGlLink
-    ${true}      | ${false}         | ${true}         | ${false}
-    ${false}     | ${true}          | ${false}        | ${true}
-    ${true}      | ${true}          | ${true}         | ${false}
-    ${false}     | ${false}         | ${false}        | ${false}
-  `(
-    'when `userSignedIn` is $userSignedIn and `hasSubscriptions` is $hasSubscriptions',
-    ({ userSignedIn, hasSubscriptions, expectGlSprintf, expectGlLink }) => {
-      it('renders template correctly', () => {
-        createComponent({
-          userSignedIn,
-          hasSubscriptions,
-        });
-
-        expect(findSprintf().exists()).toBe(expectGlSprintf);
-        expect(findSignInLink().exists()).toBe(expectGlLink);
-      });
-    },
-  );
-
-  describe('sign in link', () => {
-    it('renders with correct href', async () => {
-      const mockUsersPath = '/user';
-      createComponent(
-        {
-          userSignedIn: false,
-          hasSubscriptions: true,
-        },
-        { provide: { usersPath: mockUsersPath } },
-      );
-
-      await waitForPromises();
-
-      expect(findSignInLink().exists()).toBe(true);
-      expect(findSignInLink().attributes('href')).toBe(mockUsersPath);
-    });
+    expect(findSprintf().exists()).toBe(true);
   });
 
   describe('gitlab user link', () => {
@@ -79,14 +37,7 @@ describe('UserLink', () => {
         beforeEach(() => {
           window.gon = { current_username, relative_root_url: '' };
 
-          createComponent(
-            {
-              userSignedIn: true,
-              hasSubscriptions: true,
-              user,
-            },
-            { provide: { gitlabUserPath } },
-          );
+          createComponent({ user }, { provide: { gitlabUserPath } });
         });
 
         it(`sets href to ${expectedUserLink}`, () => {

@@ -1,40 +1,90 @@
 <script>
+import api from '~/api';
+import showGlobalToast from '~/vue_shared/plugins/global_toast';
+
 import MrWidgetAuthorTime from '../mr_widget_author_time.vue';
-import statusIcon from '../mr_widget_status_icon.vue';
+import StateContainer from '../state_container.vue';
+
+import {
+  MR_WIDGET_CLOSED_REOPEN,
+  MR_WIDGET_CLOSED_REOPENING,
+  MR_WIDGET_CLOSED_RELOADING,
+  MR_WIDGET_CLOSED_REOPEN_FAILURE,
+} from '../../i18n';
 
 export default {
   name: 'MRWidgetClosed',
   components: {
     MrWidgetAuthorTime,
-    statusIcon,
+    StateContainer,
   },
   props: {
-    /* TODO: This is providing all store and service down when it
-      only needs metrics and targetBranch */
     mr: {
       type: Object,
       required: true,
     },
   },
+  data() {
+    return {
+      isPending: false,
+      isReloading: false,
+    };
+  },
+  computed: {
+    reopenText() {
+      let text = MR_WIDGET_CLOSED_REOPEN;
+
+      if (this.isPending) {
+        text = MR_WIDGET_CLOSED_REOPENING;
+      } else if (this.isReloading) {
+        text = MR_WIDGET_CLOSED_RELOADING;
+      }
+
+      return text;
+    },
+    actions() {
+      if (!window.gon?.current_user_id) {
+        return [];
+      }
+
+      return [
+        {
+          text: this.reopenText,
+          loading: this.isPending || this.isReloading,
+          onClick: this.reopen,
+          testId: 'extension-actions-reopen-button',
+        },
+      ];
+    },
+  },
+  methods: {
+    reopen() {
+      this.isPending = true;
+
+      api
+        .updateMergeRequest(this.mr.targetProjectId, this.mr.iid, { state_event: 'reopen' })
+        .then(() => {
+          this.isReloading = true;
+
+          window.location.reload();
+        })
+        .catch(() => {
+          showGlobalToast(MR_WIDGET_CLOSED_REOPEN_FAILURE);
+        })
+        .finally(() => {
+          this.isPending = false;
+        });
+    },
+  },
 };
 </script>
 <template>
-  <div class="mr-widget-body media">
-    <status-icon status="warning" />
-    <div class="media-body">
-      <mr-widget-author-time
-        :action-text="s__('mrWidget|Closed by')"
-        :author="mr.metrics.closedBy"
-        :date-title="mr.metrics.closedAt"
-        :date-readable="mr.metrics.readableClosedAt"
-      />
-
-      <section class="mr-info-list">
-        <p>
-          {{ s__('mrWidget|The changes were not merged into') }}
-          <a :href="mr.targetBranchPath" class="label-branch"> {{ mr.targetBranch }} </a>
-        </p>
-      </section>
-    </div>
-  </div>
+  <state-container status="closed" :actions="actions" is-collapsible>
+    <mr-widget-author-time
+      :action-text="s__('mrWidget|Closed by')"
+      :author="mr.metrics.closedBy"
+      :date-title="mr.metrics.closedAt"
+      :date-readable="mr.metrics.readableClosedAt"
+    />
+  </state-container>
 </template>

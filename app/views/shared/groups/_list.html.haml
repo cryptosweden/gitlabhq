@@ -1,5 +1,5 @@
-- illustration_path = 'illustrations/profile-page/groups.svg'
-- current_user_empty_message_header = s_('UserProfile|You can create a group for several dependent projects.')
+- illustration_path = 'illustrations/empty-state/empty-groups-md.svg'
+- current_user_empty_message_header = s_('UserProfile|You can create a group for several dependent projects')
 - current_user_empty_message_description = s_('UserProfile|Groups are the best way to manage projects and members.')
 - primary_button_label = _('New group')
 - primary_button_link = new_group_path
@@ -11,6 +11,7 @@
   %ul.content-list
     - groups.each_with_index do |group, i|
       = render "shared/groups/group", group: group, user: user
+    = paginate_collection(groups)
 - else
   = render partial: 'shared/empty_states/profile_tabs', locals: { illustration_path: illustration_path,
     current_user_empty_message_header: current_user_empty_message_header,

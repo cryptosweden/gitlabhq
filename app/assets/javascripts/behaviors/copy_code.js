@@ -5,9 +5,14 @@ import { setAttributes } from '~/lib/utils/dom_utils';
 
 class CopyCodeButton extends HTMLElement {
   connectedCallback() {
+    if (this.querySelector('.btn')) return;
+
     this.for = uniqueId('code-');
 
-    this.parentNode.querySelector('pre').setAttribute('id', this.for);
+    const target = this.parentNode.querySelector('pre');
+    if (!target || this.closest('.suggestions')) return;
+
+    target.setAttribute('id', this.for);
 
     this.appendChild(this.createButton());
   }
@@ -22,6 +27,7 @@ class CopyCodeButton extends HTMLElement {
       'data-clipboard-target': `pre#${this.for}`,
     });
 
+    // eslint-disable-next-line no-unsanitized/property
     button.innerHTML = spriteIcon('copy-to-clipboard');
 
     return button;
@@ -52,9 +58,10 @@ export const initCopyCodeButton = (selector = '#content-body') => {
     customElements.define('copy-code', CopyCodeButton);
   }
 
+  const exclude = document.querySelector('.file-content.code'); // this behavior is not needed when viewing raw file content, so excluding it as the unnecessary dom lookups can become expensive
   const el = document.querySelector(selector);
 
-  if (!el) return () => {};
+  if (!el || exclude) return () => {};
 
   const observer = new MutationObserver(() => addCodeButton());
 

@@ -2,10 +2,11 @@
 
 module Issuable
   class CommonSystemNotesService < ::BaseProjectService
-    attr_reader :issuable
+    attr_reader :issuable, :is_update
 
     def execute(issuable, old_labels: [], old_milestone: nil, is_update: true)
       @issuable = issuable
+      @is_update = is_update
 
       # We disable touch so that created system notes do not update
       # the noteable's updated_at field
@@ -17,11 +18,11 @@ module Issuable
 
           handle_description_change_note
 
-          handle_time_tracking_note if issuable.is_a?(TimeTrackable)
           create_discussion_lock_note if issuable.previous_changes.include?('discussion_locked')
         end
 
-        create_due_date_note if issuable.previous_changes.include?('due_date')
+        handle_time_tracking_note if issuable.is_a?(TimeTrackable)
+        handle_start_date_or_due_date_change_note
         create_milestone_change_event(old_milestone) if issuable.previous_changes.include?('milestone_id')
         create_labels_note(old_labels) if old_labels && issuable.labels != old_labels
       end
@@ -29,14 +30,19 @@ module Issuable
 
     private
 
-    def handle_time_tracking_note
-      if issuable.previous_changes.include?('time_estimate')
-        create_time_estimate_note
-      end
+    def handle_start_date_or_due_date_change_note
+      # Type check needed as some issuables do their own date change handling for date fields other than due_date
+      change_date_fields = issuable.is_a?(Issue) ? %w[due_date start_date] : %w[due_date]
+      changed_dates = issuable.previous_changes.slice(*change_date_fields)
+      create_start_date_or_due_date_note(changed_dates)
+    end
 
-      if issuable.time_spent?
-        create_time_spent_note
-      end
+    def handle_time_tracking_note
+      estimate_updated = is_update && issuable.previous_changes.include?('time_estimate')
+      estimate_set = !is_update && issuable.time_estimate != 0
+
+      create_time_estimate_note if estimate_updated || estimate_set
+      create_time_spent_note if issuable.time_spent?
     end
 
     def handle_description_change_note
@@ -54,7 +60,7 @@ module Issuable
     def create_draft_note(old_title)
       return unless issuable.is_a?(MergeRequest)
 
-      if MergeRequest.work_in_progress?(old_title) != issuable.work_in_progress?
+      if MergeRequest.draft?(old_title) != issuable.draft?
         SystemNoteService.handle_merge_request_draft(issuable, issuable.project, current_user)
       end
     end
@@ -99,8 +105,10 @@ module Issuable
         .execute
     end
 
-    def create_due_date_note
-      SystemNoteService.change_due_date(issuable, issuable.project, current_user, issuable.due_date)
+    def create_start_date_or_due_date_note(changed_dates)
+      return if changed_dates.blank?
+
+      SystemNoteService.change_start_date_or_due_date(issuable, issuable.project, current_user, changed_dates)
     end
 
     def create_discussion_lock_note

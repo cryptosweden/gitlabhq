@@ -3,9 +3,42 @@
 require 'spec_helper'
 
 RSpec.describe Ability do
-  context 'using a nil subject' do
-    it 'has no permissions' do
-      expect(described_class.policy_for(nil, nil)).to be_banned
+  describe '#policy_for' do
+    subject(:policy) { described_class.policy_for(user, subject, **options) }
+
+    let(:user) { User.new }
+    let(:subject) { :global }
+    let(:options) { {} }
+
+    context 'using a nil subject' do
+      let(:user) { nil }
+      let(:subject) { nil }
+
+      it 'has no permissions' do
+        expect(policy).to be_banned
+      end
+    end
+
+    context 'with request store', :request_store do
+      before do
+        ::Gitlab::SafeRequestStore.write(:example, :value) # make request store different from {}
+      end
+
+      it 'caches in the request store' do
+        expect(DeclarativePolicy).to receive(:policy_for).with(user, subject, cache: ::Gitlab::SafeRequestStore.storage)
+
+        policy
+      end
+
+      context 'when cache: false' do
+        let(:options) { { cache: false } }
+
+        it 'uses a fresh cache each time' do
+          expect(DeclarativePolicy).to receive(:policy_for).with(user, subject, cache: {})
+
+          policy
+        end
+      end
     end
   end
 
@@ -151,6 +184,38 @@ RSpec.describe Ability do
     end
   end
 
+  describe '.users_that_can_read_internal_note' do
+    shared_examples 'filtering users that can read internal note' do
+      let_it_be(:guest) { create(:user) }
+      let_it_be(:reporter) { create(:user) }
+
+      let(:users) { [reporter, guest] }
+
+      before do
+        parent.add_guest(guest)
+        parent.add_reporter(reporter)
+      end
+
+      it 'returns users that can read internal notes' do
+        result = described_class.users_that_can_read_internal_notes(users, parent)
+
+        expect(result).to match_array([reporter])
+      end
+    end
+
+    context 'for groups' do
+      it_behaves_like 'filtering users that can read internal note' do
+        let(:parent) { create(:group) }
+      end
+    end
+
+    context 'for projects' do
+      it_behaves_like 'filtering users that can read internal note' do
+        let(:parent) { create(:project) }
+      end
+    end
+  end
+
   describe '.merge_requests_readable_by_user' do
     context 'with an admin when admin mode is enabled', :enable_admin_mode do
       it 'returns all merge requests' do
@@ -219,7 +284,7 @@ RSpec.describe Ability do
         end
 
         subject(:readable_merge_requests) do
-          read_cross_project_filter = -> (merge_requests) do
+          read_cross_project_filter = ->(merge_requests) do
             merge_requests.select { |mr| mr.source_project == project }
           end
           described_class.merge_requests_readable_by_user(
@@ -238,6 +303,11 @@ RSpec.describe Ability do
   end
 
   describe '.issues_readable_by_user' do
+    it 'is aliased to .work_items_readable_by_user' do
+      expect(described_class.method(:issues_readable_by_user))
+        .to eq(described_class.method(:work_items_readable_by_user))
+    end
+
     context 'with an admin when admin mode is enabled', :enable_admin_mode do
       it 'returns all given issues' do
         user = build(:user, admin: true)
@@ -320,7 +390,7 @@ RSpec.describe Ability do
       it 'excludes issues from other projects whithout checking separatly when passing a scope' do
         expect(described_class).not_to receive(:allowed?).with(user, :read_issue, other_project_issue)
 
-        filters = { read_cross_project: -> (issues) { issues.where(project: project) } }
+        filters = { read_cross_project: ->(issues) { issues.where(project: project) } }
         result = described_class.issues_readable_by_user(Issue.all, user, filters: filters)
 
         expect(result).to contain_exactly(issue)
@@ -373,7 +443,7 @@ RSpec.describe Ability do
         end
 
         subject(:readable_feature_flags) do
-          read_cross_project_filter = -> (feature_flags) do
+          read_cross_project_filter = ->(feature_flags) do
             feature_flags.select { |flag| flag.project == project }
           end
           described_class.feature_flags_readable_by_user(

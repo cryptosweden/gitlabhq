@@ -1,39 +1,28 @@
 <script>
-import {
-  GlIcon,
-  GlLoadingIcon,
-  GlAvatar,
-  GlDropdown,
-  GlDropdownSectionHeader,
-  GlDropdownItem,
-  GlSearchBoxByType,
-} from '@gitlab/ui';
-import { debounce } from 'lodash';
+import { GlButton, GlIcon, GlAvatar, GlCollapsibleListbox, GlTruncate } from '@gitlab/ui';
+import { debounce, unionBy } from 'lodash';
 import { filterBySearchTerm } from '~/analytics/shared/utils';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { AVATAR_SHAPE_OPTION_RECT } from '~/vue_shared/constants';
 import { DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
 import { n__, s__, __ } from '~/locale';
 import getProjects from '../graphql/projects.query.graphql';
 
+const MIN_SEARCH_CHARS = 3;
+
 const sortByProjectName = (projects = []) => projects.sort((a, b) => a.name.localeCompare(b.name));
+const mapItemToListboxFormat = (item) => ({ ...item, value: item.id, text: item.name });
 
 export default {
   name: 'ProjectsDropdownFilter',
   components: {
+    GlButton,
     GlIcon,
-    GlLoadingIcon,
     GlAvatar,
-    GlDropdown,
-    GlDropdownSectionHeader,
-    GlDropdownItem,
-    GlSearchBoxByType,
+    GlCollapsibleListbox,
+    GlTruncate,
   },
   props: {
-    groupId: {
-      type: Number,
-      required: false,
-      default: null,
-    },
     groupNamespace: {
       type: String,
       required: true,
@@ -63,6 +52,11 @@ export default {
       required: false,
       default: false,
     },
+    toggleClasses: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
   data() {
     return {
@@ -77,7 +71,8 @@ export default {
     selectedProjectsLabel() {
       if (this.selectedProjects.length === 1) {
         return this.selectedProjects[0].name;
-      } else if (this.selectedProjects.length > 1) {
+      }
+      if (this.selectedProjects.length > 1) {
         return n__(
           'CycleAnalytics|Project selected',
           'CycleAnalytics|%d projects selected',
@@ -96,21 +91,42 @@ export default {
     selectedProjectIds() {
       return this.selectedProjects.map((p) => p.id);
     },
+    selectedListBoxItems() {
+      return this.multiSelect ? this.selectedProjectIds : this.selectedProjectIds[0];
+    },
     hasSelectedProjects() {
       return Boolean(this.selectedProjects.length);
     },
     availableProjects() {
       return filterBySearchTerm(this.projects, this.searchTerm);
     },
-    noResultsAvailable() {
-      const { loading, availableProjects } = this;
-      return !loading && !availableProjects.length;
-    },
     selectedItems() {
       return sortByProjectName(this.selectedProjects);
     },
     unselectedItems() {
       return this.availableProjects.filter(({ id }) => !this.selectedProjectIds.includes(id));
+    },
+    selectedGroupOptions() {
+      return this.selectedItems.map(mapItemToListboxFormat);
+    },
+    unSelectedGroupOptions() {
+      return this.unselectedItems.map(mapItemToListboxFormat);
+    },
+    listBoxItems() {
+      if (this.selectedGroupOptions.length === 0) {
+        return this.unSelectedGroupOptions;
+      }
+
+      return [
+        {
+          text: __('Selected'),
+          options: this.selectedGroupOptions,
+        },
+        {
+          text: __('Unselected'),
+          options: this.unSelectedGroupOptions,
+        },
+      ];
     },
   },
   watch: {
@@ -131,32 +147,34 @@ export default {
     search: debounce(function debouncedSearch() {
       this.fetchData();
     }, DEFAULT_DEBOUNCE_AND_THROTTLE_MS),
-    getSelectedProjects(selectedProject, isSelected) {
-      return isSelected
-        ? this.selectedProjects.concat([selectedProject])
-        : this.selectedProjects.filter((project) => project.id !== selectedProject.id);
-    },
     singleSelectedProject(selectedObj, isMarking) {
       return isMarking ? [selectedObj] : [];
     },
-    setSelectedProjects(project) {
-      this.selectedProjects = this.multiSelect
-        ? this.getSelectedProjects(project, !this.isProjectSelected(project))
-        : this.singleSelectedProject(project, !this.isProjectSelected(project));
+    getSelectedProjects(projects, selectedProjectIds) {
+      return projects.filter(({ id }) => selectedProjectIds.includes(id));
     },
-    onClick(project) {
+    setSelectedProjects(payload) {
+      this.selectedProjects = this.multiSelect
+        ? payload
+        : this.singleSelectedProject(payload, !this.isProjectSelected(payload));
+    },
+    onClick(projectId) {
+      const project = this.availableProjects.find(({ id }) => id === projectId);
       this.setSelectedProjects(project);
       this.handleUpdatedSelectedProjects();
     },
-    onMultiSelectClick(project) {
-      this.setSelectedProjects(project);
+    onMultiSelectClick(projectIds) {
+      const newlySelectedProjects = this.getSelectedProjects(this.availableProjects, projectIds);
+      const selectedProjects = this.getSelectedProjects(this.selectedProjects, projectIds);
+
+      this.setSelectedProjects(unionBy(newlySelectedProjects, selectedProjects, 'id'));
       this.isDirty = true;
     },
-    onSelected(project) {
+    onSelected(payload) {
       if (this.multiSelect) {
-        this.onMultiSelectClick(project);
+        this.onMultiSelectClick(payload);
       } else {
-        this.onClick(project);
+        this.onClick(payload);
       }
     },
     onHide() {
@@ -203,97 +221,72 @@ export default {
     getEntityId(project) {
       return getIdFromGraphQLId(project.id);
     },
+    setSearchTerm(val) {
+      if (val && val.length >= MIN_SEARCH_CHARS) {
+        this.searchTerm = val;
+        return;
+      }
+
+      this.searchTerm = '';
+    },
   },
+  AVATAR_SHAPE_OPTION_RECT,
 };
 </script>
 <template>
-  <gl-dropdown
+  <gl-collapsible-listbox
     ref="projectsDropdown"
-    class="dropdown dropdown-projects"
-    toggle-class="gl-shadow-none"
+    :header-text="__('Projects')"
+    :items="listBoxItems"
+    :reset-button-label="__('Clear All')"
     :loading="loadingDefaultProjects"
-    :show-clear-all="hasSelectedProjects"
-    show-highlighted-items-title
-    highlighted-items-title-class="gl-p-3"
-    @clear-all.stop="onClearAll"
-    @hide="onHide"
+    :multiple="multiSelect"
+    :no-results-text="__('No matching results')"
+    :selected="selectedListBoxItems"
+    :searching="loading"
+    searchable
+    @hidden="onHide"
+    @reset="onClearAll"
+    @search="setSearchTerm"
+    @select="onSelected"
   >
-    <template #button-content>
-      <gl-loading-icon v-if="loadingDefaultProjects" class="gl-mr-2" />
-      <div class="gl-display-flex gl-flex-grow-1">
+    <template #toggle>
+      <gl-button
+        button-text-classes="gl-w-full gl-justify-content-space-between gl-display-flex gl-shadow-none gl-mb-0"
+        :class="['dropdown-projects', toggleClasses]"
+      >
         <gl-avatar
           v-if="isOnlyOneProjectSelected"
           :src="selectedProjects[0].avatarUrl"
           :entity-id="getEntityId(selectedProjects[0])"
           :entity-name="selectedProjects[0].name"
           :size="16"
-          shape="rect"
+          :shape="$options.AVATAR_SHAPE_OPTION_RECT"
           :alt="selectedProjects[0].name"
-          class="gl-display-inline-flex gl-vertical-align-middle gl-mr-2"
+          class="gl-inline-flex gl-align-middle gl-mr-2 gl-flex-shrink-0"
         />
-        {{ selectedProjectsLabel }}
-      </div>
-      <gl-icon class="gl-ml-2" name="chevron-down" />
+        <gl-truncate :text="selectedProjectsLabel" class="gl-min-w-0 gl-flex-grow-1" />
+        <gl-icon class="gl-ml-2 gl-flex-shrink-0" name="chevron-down" />
+      </gl-button>
     </template>
-    <template #header>
-      <gl-dropdown-section-header>{{ __('Projects') }}</gl-dropdown-section-header>
-      <gl-search-box-by-type v-model.trim="searchTerm" />
-    </template>
-    <template #highlighted-items>
-      <gl-dropdown-item
-        v-for="project in selectedItems"
-        :key="project.id"
-        is-check-item
-        :is-checked="isProjectSelected(project)"
-        @click.native.capture.stop="onSelected(project)"
-      >
-        <div class="gl-display-flex">
-          <gl-avatar
-            class="gl-mr-2 gl-vertical-align-middle"
-            :alt="project.name"
-            :size="16"
-            :entity-id="getEntityId(project)"
-            :entity-name="project.name"
-            :src="project.avatarUrl"
-            shape="rect"
-          />
-          <div>
-            <div data-testid="project-name">{{ project.name }}</div>
-            <div class="gl-text-gray-500" data-testid="project-full-path">
-              {{ project.fullPath }}
-            </div>
-          </div>
-        </div>
-      </gl-dropdown-item>
-    </template>
-    <gl-dropdown-item
-      v-for="project in unselectedItems"
-      :key="project.id"
-      @click.native.capture.stop="onSelected(project)"
-    >
+    <template #list-item="{ item }">
       <div class="gl-display-flex">
         <gl-avatar
-          class="gl-mr-2 vertical-align-middle"
-          :alt="project.name"
+          class="gl-mr-2 gl-align-middle"
+          :alt="item.name"
           :size="16"
-          :entity-id="getEntityId(project)"
-          :entity-name="project.name"
-          :src="project.avatarUrl"
-          shape="rect"
+          :entity-id="getEntityId(item)"
+          :entity-name="item.name"
+          :src="item.avatarUrl"
+          :shape="$options.AVATAR_SHAPE_OPTION_RECT"
         />
         <div>
-          <div data-testid="project-name">{{ project.name }}</div>
+          <div data-testid="project-name">{{ item.name }}</div>
           <div class="gl-text-gray-500" data-testid="project-full-path">
-            {{ project.fullPath }}
+            {{ item.fullPath }}
           </div>
         </div>
       </div>
-    </gl-dropdown-item>
-    <gl-dropdown-item v-show="noResultsAvailable" class="gl-pointer-events-none text-secondary">{{
-      __('No matching results')
-    }}</gl-dropdown-item>
-    <gl-dropdown-item v-if="loading">
-      <gl-loading-icon size="lg" />
-    </gl-dropdown-item>
-  </gl-dropdown>
+    </template>
+  </gl-collapsible-listbox>
 </template>

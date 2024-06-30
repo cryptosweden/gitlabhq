@@ -7,7 +7,7 @@ RSpec.describe Resolvers::BoardListIssuesResolver do
 
   let_it_be(:user)          { create(:user) }
   let_it_be(:unauth_user)   { create(:user) }
-  let_it_be(:user_project)  { create(:project, creator_id: user.id, namespace: user.namespace ) }
+  let_it_be(:user_project)  { create(:project, creator_id: user.id, namespace: user.namespace) }
   let_it_be(:group)         { create(:group, :private) }
 
   shared_examples_for 'group and project board list issues resolver' do
@@ -128,6 +128,6 @@ RSpec.describe Resolvers::BoardListIssuesResolver do
   end
 
   def resolve_board_list_issues(args: {}, current_user: user)
-    resolve(described_class, obj: list, args: args, ctx: { current_user: current_user })
+    resolve(described_class, obj: list, args: args, ctx: { current_user: current_user }, arg_style: :internal)
   end
 end

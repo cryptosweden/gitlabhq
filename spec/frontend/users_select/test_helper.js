@@ -1,17 +1,16 @@
 import MockAdapter from 'axios-mock-adapter';
 import { memoize, cloneDeep } from 'lodash';
 import usersFixture from 'test_fixtures/autocomplete/users.json';
-import { getFixture } from 'helpers/fixtures';
 import waitForPromises from 'helpers/wait_for_promises';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import UsersSelect from '~/users_select';
 
 // fixtures -------------------------------------------------------------------
-const getUserSearchHTML = memoize((fixturePath) => {
-  const html = getFixture(fixturePath);
+const getUserSearchHTML = memoize((fixture) => {
   const parser = new DOMParser();
 
-  const el = parser.parseFromString(html, 'text/html').querySelector('.assignee');
+  const el = parser.parseFromString(fixture, 'text/html').querySelector('.assignee');
 
   return el.outerHTML;
 });
@@ -21,17 +20,17 @@ const getUsersFixture = () => usersFixture;
 export const getUsersFixtureAt = (idx) => getUsersFixture()[idx];
 
 // test context ---------------------------------------------------------------
-export const createTestContext = ({ fixturePath }) => {
+export const createTestContext = ({ fixture }) => {
   let mock = null;
   let subject = null;
 
   const setup = () => {
     const rootEl = document.createElement('div');
-    rootEl.innerHTML = getUserSearchHTML(fixturePath);
+    rootEl.innerHTML = getUserSearchHTML(fixture);
     document.body.appendChild(rootEl);
 
     mock = new MockAdapter(axios);
-    mock.onGet('/-/autocomplete/users.json').reply(200, cloneDeep(getUsersFixture()));
+    mock.onGet('/-/autocomplete/users.json').reply(HTTP_STATUS_OK, cloneDeep(getUsersFixture()));
   };
 
   const teardown = () => {
@@ -71,7 +70,8 @@ export const findDropdownItemsModel = () =>
       return {
         type: 'divider',
       };
-    } else if (el.classList.contains('dropdown-header')) {
+    }
+    if (el.classList.contains('dropdown-header')) {
       return {
         type: 'dropdown-header',
         text: el.textContent,
@@ -95,10 +95,10 @@ export const setAssignees = (...users) => {
       const input = document.createElement('input');
       input.name = 'merge_request[assignee_ids][]';
       input.value = user.id.toString();
-      input.setAttribute('data-avatar-url', user.avatar_url);
-      input.setAttribute('data-name', user.name);
-      input.setAttribute('data-username', user.username);
-      input.setAttribute('data-can-merge', user.can_merge);
+      input.dataset.avatarUrl = user.avatar_url;
+      input.dataset.name = user.name;
+      input.dataset.username = user.username;
+      input.dataset.canMerge = user.can_merge;
       return input;
     }),
   );
@@ -147,6 +147,7 @@ export const createInputsModelExpectation = (users) =>
       name: user.name,
       show_status: user.show_status.toString(),
       state: user.state,
+      locked: user.locked.toString(),
       username: user.username,
       web_url: user.web_url,
     },

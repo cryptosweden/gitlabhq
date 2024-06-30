@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Testing levels
@@ -55,7 +55,7 @@ records should use stubs/doubles as much as possible.
 | `lib/` | `spec/lib/` | RSpec | |
 | `lib/tasks/` | `spec/tasks/` | RSpec | |
 | `rubocop/` | `spec/rubocop/` | RSpec | |
-| `spec/factories` | `spec/factories_spec.rb` | RSpec | |
+| `spec/support/` | `spec/support_specs/` | RSpec | |
 
 ### Frontend unit tests
 
@@ -66,7 +66,7 @@ that is not directly perceivable by a user.
 graph RL
     plain[Plain JavaScript];
     Vue[Vue Components];
-    feature-flags[Feature Flags];
+    feature-flags[Feature flags];
     license-checks[License Checks];
 
     plain---Vuex;
@@ -116,7 +116,7 @@ graph RL
   Testing the value of a constant means copying it, resulting in extra effort without additional confidence that the value is correct.
 - **Vue components**:
   Computed properties, methods, and lifecycle hooks can be considered an implementation detail of components, are implicitly covered by component tests, and don't need to be tested.
-  For more information, see the [official Vue guidelines](https://vue-test-utils.vuejs.org/guides/#getting-started).
+  For more information, see the [official Vue guidelines](https://v1.test-utils.vuejs.org/guides/#getting-started).
 
 #### What to mock in unit tests
 
@@ -138,7 +138,7 @@ graph RL
 - **Methods of the class under test**:
   By mocking methods of the class under test, the mocks are tested and not the real methods.
 - **Utility functions (pure functions, or those that only modify parameters)**:
- If a function has no side effects because it has no state, it is safe to not mock it in tests.
+  If a function has no side effects because it has no state, it is safe to not mock it in tests.
 - **Full HTML pages**:
   Avoid loading the HTML of a full page in unit tests, as it slows down tests.
 
@@ -150,7 +150,7 @@ Component tests cover the state of a single component that is perceivable by a u
 graph RL
     plain[Plain JavaScript];
     Vue[Vue Components];
-    feature-flags[Feature Flags];
+    feature-flags[Feature flags];
     license-checks[License Checks];
 
     plain---Vuex;
@@ -197,26 +197,20 @@ graph RL
 
 #### What to mock in component tests
 
-- **DOM**:
-  Operating on the real DOM is significantly slower than on the virtual DOM.
-- **Properties and state of the component under test**:
-  Similar to testing classes, modifying the properties directly (rather than relying on methods of the component) avoids side effects.
-- **Vuex store**:
-  To avoid side effects and keep component tests simple, Vuex stores are replaced with mocks.
-- **All server requests**:
-  Similar to unit tests, when running component tests, the backend may not be reachable, so all outgoing requests need to be mocked.
-- **Asynchronous background operations**:
-  Similar to unit tests, background operations cannot be stopped or waited on. This means they continue running in the following tests and cause side effects.
+- **Side effects**:
+  Anything that can change external state (for example, a network request) should be mocked.
 - **Child components**:
   Every component is tested individually, so child components are mocked.
-  See also [`shallowMount()`](https://vue-test-utils.vuejs.org/api/#shallowmount)
+  See also [`shallowMount()`](https://v1.test-utils.vuejs.org/api/#shallowmount)
 
 #### What *not* to mock in component tests
 
 - **Methods or computed properties of the component under test**:
   By mocking part of the component under test, the mocks are tested and not the real component.
-- **Functions and classes independent from Vue**:
-  All plain JavaScript code is already covered by unit tests and needs not to be mocked in component tests.
+- **Vuex**:
+  Keep Vuex unmocked to avoid fragile and false-positive tests.
+  Set the Vuex to a proper state using mutations.
+  Mock the side-effects, not the Vuex actions.
 
 ## Integration tests
 
@@ -244,7 +238,7 @@ Their abstraction level is comparable to how a user would interact with the UI.
 graph RL
     plain[Plain JavaScript];
     Vue[Vue Components];
-    feature-flags[Feature Flags];
+    feature-flags[Feature flags];
     license-checks[License Checks];
 
     plain---Vuex;
@@ -301,7 +295,7 @@ graph RL
 
 - **DOM**:
   Testing on the real DOM ensures your components work in the intended environment.
-  Part of DOM testing is delegated to [cross-browser testing](https://gitlab.com/gitlab-org/quality/team-tasks/-/issues/45).
+  Part of DOM testing is delegated to [cross-browser testing](https://gitlab.com/gitlab-org/quality/quality-engineering/team-tasks/-/issues/45).
 - **Properties or state of components**:
   On this level, all tests can only perform actions a user would do.
   For example: to change the state of a component, a click event would be fired.
@@ -355,7 +349,7 @@ possible).
 
 | Tests path | Testing engine | Notes |
 | ---------- | -------------- | ----- |
-| `spec/features/` | [Capybara](https://github.com/teamcapybara/capybara) + [RSpec](https://github.com/rspec/rspec-rails#feature-specs) | If your test has the `:js` metadata, the browser driver is [Poltergeist](https://github.com/teamcapybara/capybara#poltergeist), otherwise it's using [RackTest](https://github.com/teamcapybara/capybara#racktest). |
+| `spec/features/` | [Capybara](https://github.com/teamcapybara/capybara) + [RSpec](https://github.com/rspec/rspec-rails#feature-specs) | If your test has the `:js` metadata, the browser driver is [Selenium](https://github.com/teamcapybara/capybara#selenium), otherwise it's using [RackTest](https://github.com/teamcapybara/capybara#racktest). |
 
 ### Frontend feature tests
 
@@ -367,13 +361,12 @@ See also:
 
 - The [RSpec testing guidelines](../testing_guide/best_practices.md#rspec).
 - System / Feature tests in the [Testing Best Practices](best_practices.md#system--feature-tests).
-- [Issue #26159](https://gitlab.com/gitlab-org/gitlab/-/issues/26159) which aims at combining those guidelines with this page.
 
 ```mermaid
 graph RL
     plain[Plain JavaScript];
     Vue[Vue Components];
-    feature-flags[Feature Flags];
+    feature-flags[Feature flags];
     license-checks[License Checks];
 
     plain---Vuex;
@@ -483,7 +476,7 @@ Every new feature should come with a [test plan](https://gitlab.com/gitlab-org/g
 
 | Tests path | Testing engine | Notes |
 | ---------- | -------------- | ----- |
-| `qa/qa/specs/features/` | [Capybara](https://github.com/teamcapybara/capybara) + [RSpec](https://github.com/rspec/rspec-rails#feature-specs) + Custom QA framework | Tests should be placed under their corresponding [Product category](https://about.gitlab.com/handbook/product/categories/) |
+| `qa/qa/specs/features/` | [Capybara](https://github.com/teamcapybara/capybara) + [RSpec](https://github.com/rspec/rspec-rails#feature-specs) + Custom QA framework | Tests should be placed under their corresponding [Product category](https://handbook.gitlab.com/handbook/product/categories/) |
 
 > See [end-to-end tests](end_to_end/index.md) for more information.
 

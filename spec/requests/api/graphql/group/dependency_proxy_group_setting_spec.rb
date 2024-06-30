@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'getting dependency proxy settings for a group' do
+RSpec.describe 'getting dependency proxy settings for a group', feature_category: :virtual_registry do
   using RSpec::Parameterized::TableSyntax
   include GraphqlHelpers
 
@@ -46,22 +46,25 @@ RSpec.describe 'getting dependency proxy settings for a group' do
 
     context 'with different permissions' do
       where(:group_visibility, :role, :access_granted) do
-        :private | :maintainer | true
-        :private | :developer  | true
-        :private | :reporter   | true
-        :private | :guest      | true
+        :private | :owner      | true
+        :private | :maintainer | false
+        :private | :developer  | false
+        :private | :reporter   | false
+        :private | :guest      | false
         :private | :anonymous  | false
-        :public  | :maintainer | true
-        :public  | :developer  | true
-        :public  | :reporter   | true
-        :public  | :guest      | true
+
+        :public  | :owner      | true
+        :public  | :maintainer | false
+        :public  | :developer  | false
+        :public  | :reporter   | false
+        :public  | :guest      | false
         :public  | :anonymous  | false
       end
 
       with_them do
         before do
           group.update_column(:visibility_level, Gitlab::VisibilityLevel.const_get(group_visibility.to_s.upcase, false))
-          group.add_user(user, role) unless role == :anonymous
+          group.add_member(user, role) unless role == :anonymous
         end
 
         it 'return the proper response' do

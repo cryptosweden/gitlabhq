@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # API style guide
@@ -10,7 +10,7 @@ This style guide recommends best practices for API development.
 
 ## Instance variables
 
-Please do not use instance variables, there is no need for them (we don't need
+Don't use instance variables, there is no need for them (we don't need
 to access them as we do in Rails views), local variables are fine.
 
 ## Entities
@@ -44,22 +44,107 @@ A good example is as follows:
 ```ruby
 desc 'Get all broadcast messages' do
   detail 'This feature was introduced in GitLab 8.12.'
-  success Entities::BroadcastMessage
+  success Entities::System::BroadcastMessage
 end
 params do
   optional :page,     type: Integer, desc: 'Current page number'
   optional :per_page, type: Integer, desc: 'Number of messages per page'
 end
 get do
-  messages = BroadcastMessage.all
+  messages = System::BroadcastMessage.all
 
-  present paginate(messages), with: Entities::BroadcastMessage
+  present paginate(messages), with: Entities::System::BroadcastMessage
 end
 ```
 
+## Breaking changes
+
+We must not make breaking changes to our REST API v4, even in major GitLab releases.
+
+Our REST API maintains its own versioning independent of GitLab versioning.
+The current REST API version is `4`. [We commit to follow semantic versioning for our REST API](../api/rest/index.md#compatibility-guidelines),
+which means we cannot make breaking changes until a major version change (most likely, `5`).
+
+Because version `5` is not scheduled, we allow rare [exceptions](#exceptions).
+
+### Accommodating backward compatibility instead of breaking changes
+
+Backward compatibility can often be accommodated in the API by continuing to adapt a changed feature to
+the old API schema. For example, our REST API
+[exposes](https://gitlab.com/gitlab-org/gitlab/-/blob/c104f6b8/lib/api/entities/merge_request_basic.rb#L43-47) both
+`work_in_progress` and `draft` fields.
+
+### Exceptions
+
+The exception is only when:
+
+- A feature must be removed in a major GitLab release.
+- Backward compatibility cannot be maintained
+  [in any form](#accommodating-backward-compatibility-instead-of-breaking-changes).
+- The feature was previously [marked as experimental or beta](#experimental-beta-and-generally-available-features).
+
+This exception should be rare.
+
+Even in this exception, rather than removing a field or argument, we must always do the following:
+
+- Return an empty response for a field (for example, `"null"` or `[]`).
+- Turn an argument into a no-op.
+
+## What is a breaking change
+
+Some examples of breaking changes are:
+
+- Removing or renaming fields, arguments, or enum values. In a JSON response, a field is any JSON key.
+- Removing endpoints.
+- Adding new redirects (not all clients follow redirects).
+- Changing the content type of any response.
+- Changing the type of fields in the response. In a JSON response, this would be a change of any `Number`, `String`, `Boolean`, `Array`, or `Object` type to another type.
+- Adding a new **required** argument.
+- Changing authentication, authorization, or other header requirements.
+- Changing [any status code](../api/rest/index.md#status-codes) other than `500`.
+
+## What is not a breaking change
+
+Some examples of non-breaking changes:
+
+- Any additive change, such as adding endpoints, non-required arguments, fields, or enum values.
+- Changes to error messages.
+- Changes from a `500` status code to [any supported status code](../api/rest/index.md#status-codes) (this is a bugfix).
+- Changes to the order of fields returned in a response.
+
+## Experimental, beta, and generally available features
+
+You can add API elements as [experimental and beta features](../policy/experiment-beta-support.md). They must be additive changes, otherwise they are categorized as
+[a breaking change](#what-is-not-a-breaking-change).
+
+API elements marked as experiment or beta are exempt from the [ensuring backward compatibility](#accommodating-backward-compatibility-instead-of-breaking-changes) policy,
+and can be changed or removed at any time without prior notice.
+
+While in the [experiment status](../policy/experiment-beta-support.md#experiment):
+
+- Use a feature flag that is [off by default](feature_flags/index.md#beta-type).
+- When the flag is off:
+  - Any added endpoints must return `404 Not Found`.
+  - Any added arguments must be ignored.
+  - Any added fields must not be exposed.
+- The [API documentation](../api/api_resources.md) must [document the experimental status](documentation/experiment_beta.md) and the feature flag [must be documented](documentation/feature_flags.md).
+- The [OpenAPI documentation](../api/openapi/openapi_interactive.md) should not describe the changes.
+
+While in the [beta status](../policy/experiment-beta-support.md#beta):
+
+- Use a feature flag that is [on by default](feature_flags/index.md#beta-type).
+- The [API documentation](../api/api_resources.md) must [document the beta status](documentation/experiment_beta.md) and the feature flag [must be documented](documentation/feature_flags.md).
+- The [OpenAPI documentation](../api/openapi/openapi_interactive.md) should not describe the changes.
+
+When the feature becomes [generally available](../policy/experiment-beta-support.md#generally-available-ga):
+
+- [Remove](feature_flags/controls.md#cleaning-up) the feature flag.
+- Remove the [experiment or beta status](documentation/experiment_beta.md) from the [API documentation](../api/api_resources.md).
+- Add the [OpenAPI documentation](../api/openapi/openapi_interactive.md) to make the changes programatically discoverable.
+
 ## Declared parameters
 
-> Grape allows you to access only the parameters that have been declared by your
+Grape allows you to access only the parameters that have been declared by your
 `params` block. It filters out the parameters that have been passed, but are not
 allowed.
 
@@ -67,7 +152,7 @@ allowed.
 
 ### Exclude parameters from parent namespaces
 
-> By default `declared(params)`includes parameters that were defined in all
+By default `declared(params)`includes parameters that were defined in all
 parent namespaces.
 
 – <https://github.com/ruby-grape/grape#include-parent-namespaces>
@@ -110,15 +195,15 @@ Model.create(foo: params[:foo])
 
 With Grape v1.3+, Array types must be defined with a `coerce_with`
 block, or parameters, fails to validate when passed a string from an
-API request. See the [Grape upgrading
-documentation](https://github.com/ruby-grape/grape/blob/master/UPGRADING.md#ensure-that-array-types-have-explicit-coercions)
+API request. See the
+[Grape upgrading documentation](https://github.com/ruby-grape/grape/blob/master/UPGRADING.md#ensure-that-array-types-have-explicit-coercions)
 for more details.
 
 ### Automatic coercion of nil inputs
 
 Prior to Grape v1.3.3, Array parameters with `nil` values would
-automatically be coerced to an empty Array. However, due to [this pull
-request in v1.3.3](https://github.com/ruby-grape/grape/pull/2040), this
+automatically be coerced to an empty Array. However, due to
+[this pull request in v1.3.3](https://github.com/ruby-grape/grape/pull/2040), this
 is no longer the case. For example, suppose you define a PUT `/test`
 request that has an optional parameter:
 
@@ -126,7 +211,7 @@ request that has an optional parameter:
 optional :user_ids, type: Array[Integer], coerce_with: ::API::Validations::Types::CommaSeparatedToIntegerArray.coerce, desc: 'The user ids for this rule'
 ```
 
-Normally, a request to PUT `/test?user_ids` would cause Grape to pass
+Usually, a request to PUT `/test?user_ids` would cause Grape to pass
 `params` of `{ user_ids: nil }`.
 
 This may introduce errors with endpoints that expect a blank array and
@@ -151,6 +236,34 @@ to make this easier.
 For non-200 HTTP responses, use the provided helpers in `lib/api/helpers.rb` to ensure correct behavior (like `not_found!` or `no_content!`). These `throw` inside Grape and abort the execution of your endpoint.
 
 For `DELETE` requests, you should also generally use the `destroy_conditionally!` helper which by default returns a `204 No Content` response on success, or a `412 Precondition Failed` response if the given `If-Unmodified-Since` header is out of range. This helper calls `#destroy` on the passed resource, but you can also implement a custom deletion method by passing a block.
+
+## Choosing HTTP verbs
+
+When defining a new [API route](https://github.com/ruby-grape/grape#routes), use
+the correct [HTTP request method](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods).
+
+### Deciding between `PATCH` and `PUT`
+
+In a Rails application, both the `PATCH` and `PUT` request methods are routed to
+the `update` method in controllers. With Grape, the framework we use to write
+the GitLab API, you must explicitly set the `PATCH` or `PUT` HTTP verb for an
+endpoint that does updates.
+
+If the endpoint updates *all* attributes of a given resource, use the
+[`PUT`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PUT) request
+method. If the endpoint updates *some* attributes of a given resource, use the
+[`PATCH`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PATCH)
+request method.
+
+Here is a good example for `PATCH`: [`PATCH /projects/:id/protected_branches/:name`](../api/protected_branches.md#update-a-protected-branch)
+Here is a good example for `PUT`: [`PUT /projects/:id/merge_requests/:merge_request_iid/approve`](../api/merge_request_approvals.md#approve-merge-request)
+
+Often, a good `PUT` endpoint only has ids and a verb (in the example above, "approve").
+Or, they only have a single value and represent a key/value pair.
+
+The [Rails blog](https://rubyonrails.org/2012/2/26/edge-rails-patch-is-the-new-primary-http-method-for-updates)
+has a detailed explanation of why `PATCH` is usually the most apt verb for web
+API endpoints that perform an update.
 
 ## Using API path helpers in GitLab Rails codebase
 
@@ -222,7 +335,7 @@ from the server to the platform if we identify invalid parameters at the beginni
 If you need to add a custom validator, it would be added to
 it's own file in the [`validators`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/api/validations/validators) directory.
 Since we use [Grape](https://github.com/ruby-grape/grape) to add our API
-we inherit from the `Grape::Validations::Base` class in our validator class.
+we inherit from the `Grape::Validations::Validators::Base` class in our validator class.
 Now, all you have to do is define the `validate_param!` method which takes
 in two parameters: the `params` hash and the `param` name to validate.
 
@@ -240,7 +353,7 @@ it's own file in the [`validators`](https://gitlab.com/gitlab-org/gitlab/-/blob/
 
 ## Internal API
 
-The [internal API](internal_api/index.md) is documented for internal use. Please keep it up to date so we know what endpoints
+The [internal API](internal_api/index.md) is documented for internal use. Keep it up to date so we know what endpoints
 different components are making use of.
 
 ## Avoiding N+1 problems
@@ -259,8 +372,8 @@ In situations where the same model has multiple entities in the API
 discretion with applying this scope. It may be that you optimize for the
 most basic entity, with successive entities building upon that scope.
 
-The `with_api_entity_associations` scope also [automatically preloads
-data](https://gitlab.com/gitlab-org/gitlab/-/blob/19f74903240e209736c7668132e6a5a735954e7c/app%2Fmodels%2Ftodo.rb#L34)
+The `with_api_entity_associations` scope also
+[automatically preloads data](https://gitlab.com/gitlab-org/gitlab/-/blob/19f74903240e209736c7668132e6a5a735954e7c/app%2Fmodels%2Ftodo.rb#L34)
 for `Todo` _targets_ when returned in the [to-dos API](../api/todos.md).
 
 For more context and discussion about preloading see
@@ -271,7 +384,7 @@ which introduced the scope.
 
 When an API endpoint returns collections, always add a test to verify
 that the API endpoint does not have an N+1 problem, now and in the future.
-We can do this using [`ActiveRecord::QueryRecorder`](query_recorder.md).
+We can do this using [`ActiveRecord::QueryRecorder`](database/query_recorder.md).
 
 Example:
 

@@ -1,11 +1,14 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: tutorial
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Using Dpl as a deployment tool **(FREE)**
+# Using Dpl as a deployment tool
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 [Dpl](https://github.com/travis-ci/dpl) (pronounced like the letters D-P-L) is a deploy tool made for
 continuous deployment that's developed and used by Travis CI, but can also be
@@ -13,7 +16,7 @@ used with GitLab CI/CD.
 
 Dpl can be used to deploy to any of the [supported providers](https://github.com/travis-ci/dpl#supported-providers).
 
-## Requirements
+## Prerequisite
 
 To use Dpl you need at least Ruby 1.9.3 with ability to install gems.
 
@@ -36,7 +39,7 @@ apt-get install ruby-dev
 ```
 
 The Dpl provides support for vast number of services, including: Heroku, Cloud Foundry, AWS/S3, and more.
-To use it simply define provider and any additional parameters required by the provider.
+To use it, define provider and any additional parameters required by the provider.
 
 For example if you want to use it to deploy your application to Heroku, you need to specify `heroku` as provider, specify `api_key` and `app`.
 All possible parameters can be found in the [Heroku API section](https://github.com/travis-ci/dpl#heroku-api).
@@ -46,7 +49,8 @@ staging:
   stage: deploy
   script:
     - gem install dpl
-    - dpl --provider=heroku --app=my-app-staging --api_key=$HEROKU_STAGING_API_KEY
+    - dpl heroku api --app=my-app-staging --api_key=$HEROKU_STAGING_API_KEY
+  environment: staging
 ```
 
 In the above example we use Dpl to deploy `my-app-staging` to Heroku server with API key stored in `HEROKU_STAGING_API_KEY` secure variable.
@@ -67,9 +71,10 @@ staging:
     - apt-get update -yq
     - apt-get install -y ruby-dev
     - gem install dpl
-    - dpl --provider=heroku --app=my-app-staging --api_key=$HEROKU_STAGING_API_KEY
-  only:
-    - main
+    - dpl heroku api --app=my-app-staging --api_key=$HEROKU_STAGING_API_KEY
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment: staging
 ```
 
 The first line `apt-get update -yq` updates the list of available packages,
@@ -90,17 +95,19 @@ staging:
   stage: deploy
   script:
     - gem install dpl
-    - dpl --provider=heroku --app=my-app-staging --api_key=$HEROKU_STAGING_API_KEY
-  only:
-    - main
+    - dpl heroku api --app=my-app-staging --api_key=$HEROKU_STAGING_API_KEY
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment: staging
 
 production:
   stage: deploy
   script:
     - gem install dpl
-    - dpl --provider=heroku --app=my-app-production --api_key=$HEROKU_PRODUCTION_API_KEY
-  only:
-    - tags
+    - dpl heroku api --app=my-app-production --api_key=$HEROKU_PRODUCTION_API_KEY
+  rules:
+    - if: $CI_COMMIT_TAG
+  environment: production
 ```
 
 We created two deploy jobs that are executed on different events:
@@ -117,8 +124,8 @@ We also use two secure variables:
 
 To store API keys as secure variables:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > CI/CD**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > CI/CD**.
 1. Expand **Variables**.
 
 The variables defined in the project settings are sent along with the build script to the runner.

@@ -1,13 +1,15 @@
 <script>
-import { GlSorting, GlSortingItem } from '@gitlab/ui';
+import { GlSorting } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 import { visitUrl } from '~/lib/utils/url_utility';
 import { FIELDS } from '~/members/constants';
 import { parseSortParam, buildSortHref } from '~/members/utils';
+import { SORT_DIRECTION_UI } from '~/search/sort/constants';
 
 export default {
   name: 'SortDropdown',
-  components: { GlSorting, GlSortingItem },
+  components: { GlSorting },
   inject: ['namespace'],
   computed: {
     ...mapState({
@@ -27,21 +29,21 @@ export default {
     activeOptionLabel() {
       return this.activeOption?.label;
     },
+    activeOptionKey() {
+      return this.activeOption?.key;
+    },
     isAscending() {
       return !this.sort.sortDesc;
+    },
+    sortDirectionData() {
+      return this.isAscending ? SORT_DIRECTION_UI.asc : SORT_DIRECTION_UI.desc;
     },
     filteredOptions() {
       return FIELDS.filter(
         (field) => this.tableSortableFields.includes(field.key) && field.sort,
       ).map((field) => ({
-        key: field.key,
-        label: field.label,
-        href: buildSortHref({
-          sortBy: field.key,
-          sortDesc: false,
-          filteredSearchBarTokens: this.filteredSearchBar.tokens,
-          filteredSearchBarSearchParam: this.filteredSearchBar.searchParam,
-        }),
+        text: field.label,
+        value: field.key,
       }));
     },
   },
@@ -59,6 +61,16 @@ export default {
         }),
       );
     },
+    handleSortingItemClick(value) {
+      visitUrl(
+        buildSortHref({
+          sortBy: value,
+          sortDesc: false,
+          filteredSearchBarTokens: this.filteredSearchBar.tokens,
+          filteredSearchBarSearchParam: this.filteredSearchBar.searchParam,
+        }),
+      );
+    },
   },
 };
 </script>
@@ -67,19 +79,14 @@ export default {
   <gl-sorting
     class="gl-display-flex"
     dropdown-class="gl-w-full"
+    block
     data-testid="members-sort-dropdown"
     :text="activeOptionLabel"
     :is-ascending="isAscending"
-    :sort-direction-tool-tip="__('Sort direction')"
+    :sort-direction-tool-tip="sortDirectionData.tooltip"
+    :sort-options="filteredOptions"
+    :sort-by="activeOptionKey"
+    @sortByChange="handleSortingItemClick"
     @sortDirectionChange="handleSortDirectionChange"
-  >
-    <gl-sorting-item
-      v-for="option in filteredOptions"
-      :key="option.key"
-      :href="option.href"
-      :active="isActive(option.key)"
-    >
-      {{ option.label }}
-    </gl-sorting-item>
-  </gl-sorting>
+  />
 </template>

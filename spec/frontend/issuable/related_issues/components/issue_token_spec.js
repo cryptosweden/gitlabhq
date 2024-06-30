@@ -24,18 +24,11 @@ describe('IssueToken', () => {
     });
   };
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
-  });
-
-  const findLink = () => wrapper.find({ ref: 'link' });
-  const findReference = () => wrapper.find({ ref: 'reference' });
+  const findLink = () => wrapper.findComponent({ ref: 'link' });
+  const findReference = () => wrapper.findComponent({ ref: 'reference' });
   const findReferenceIcon = () => wrapper.find('[data-testid="referenceIcon"]');
   const findRemoveBtn = () => wrapper.find('[data-testid="removeBtn"]');
-  const findTitle = () => wrapper.find({ ref: 'title' });
+  const findTitle = () => wrapper.findComponent({ ref: 'title' });
 
   describe('with reference supplied', () => {
     beforeEach(() => {

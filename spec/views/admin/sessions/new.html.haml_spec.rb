@@ -19,9 +19,8 @@ RSpec.describe 'admin/sessions/new.html.haml' do
     it 'shows enter password form' do
       render
 
-      expect(rendered).to have_selector('[data-qa-selector="sign_in_tab"]') # rubocop:disable QA/SelectorUsage
-      expect(rendered).to have_css('#login-pane.active')
-      expect(rendered).to have_selector('[data-qa-selector="password_field"]') # rubocop:disable QA/SelectorUsage
+      expect(rendered).to have_selector('[data-testid="sign-in-form"]')
+      expect(rendered).to have_selector('[data-testid="password-field"]')
     end
 
     it 'warns authentication not possible if password not set' do
@@ -29,7 +28,7 @@ RSpec.describe 'admin/sessions/new.html.haml' do
 
       render
 
-      expect(rendered).not_to have_css('#login-pane')
+      expect(rendered).to have_no_selector('[data-testid="sign-in-form"]')
       expect(rendered).to have_content _('No authentication methods configured.')
     end
   end
@@ -37,15 +36,17 @@ RSpec.describe 'admin/sessions/new.html.haml' do
   context 'omniauth authentication enabled' do
     before do
       allow(view).to receive(:omniauth_enabled?).and_return(true)
-      allow(view).to receive(:button_based_providers_enabled?).and_return(true)
+      allow(view).to receive(:password_authentication_enabled_for_web?).and_return(true)
     end
 
     it 'shows omniauth form' do
       render
 
-      expect(rendered).to have_css('.omniauth-container')
-      expect(rendered).to have_content _('Sign in with')
       expect(rendered).not_to have_content _('No authentication methods configured.')
+      within('[data-testid="divider"]') do
+        expect(rendered).to have_content(_('or sign in with'))
+      end
+      expect(rendered).to have_css('.js-oauth-login')
     end
   end
 
@@ -60,9 +61,9 @@ RSpec.describe 'admin/sessions/new.html.haml' do
     it 'is shown when enabled' do
       render
 
-      expect(rendered).to have_selector('[data-qa-selector="ldap_tab"]') # rubocop:disable QA/SelectorUsage
-      expect(rendered).to have_css('.login-box#ldapmain')
-      expect(rendered).to have_field('LDAP Username')
+      expect(rendered).to have_selector('[data-testid="ldap-tab"]')
+      expect(rendered).to have_css('#ldapmain')
+      expect(rendered).to have_field(_('Username'))
       expect(rendered).not_to have_content('No authentication methods configured')
     end
 
@@ -71,8 +72,8 @@ RSpec.describe 'admin/sessions/new.html.haml' do
 
       render
 
-      expect(rendered).not_to have_selector('[data-qa-selector="ldap_tab"]') # rubocop:disable QA/SelectorUsage
-      expect(rendered).not_to have_field('LDAP Username')
+      expect(rendered).not_to have_selector('[data-testid="ldap-tab"]')
+      expect(rendered).not_to have_field(_('Username'))
       expect(rendered).to have_content('No authentication methods configured')
     end
 

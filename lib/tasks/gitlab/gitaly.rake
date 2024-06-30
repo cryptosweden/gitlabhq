@@ -26,17 +26,34 @@ Usage: rake "gitlab:gitaly:install[/installation/dir,/storage/path]")
       Gitlab::SetupHelper::Gitaly.create_configuration(args.dir, storage_paths)
 
       Dir.chdir(args.dir) do
-        Bundler.with_original_env do
-          env = { "RUBYOPT" => nil, "BUNDLE_GEMFILE" => nil }
+        output, status = Gitlab::Popen.popen([make_cmd, 'clean', 'all'])
+        raise "Gitaly failed to compile: #{output}" unless status&.zero?
+      end
+    end
 
-          if Rails.env.test?
-            env["GEM_HOME"] = Bundler.bundle_path.to_s
-            env["BUNDLE_DEPLOYMENT"] = 'false'
-          end
+    desc 'GitLab | Gitaly | Update removed storage projects'
+    task :update_removed_storage_projects,
+      [:removed_storage_name, :target_storage_name] => :gitlab_environment do |t, args|
+      warn_user_is_not_gitlab
 
-          output, status = Gitlab::Popen.popen([make_cmd, 'all', 'git'], nil, env)
-          raise "Gitaly failed to compile: #{output}" unless status&.zero?
-        end
+      unless args.removed_storage_name.present? && args.target_storage_name.present?
+        abort %(Please specify the names of the removed storage and the storage to move projects to
+Usage: rake "gitlab:gitaly:update_removed_storage_projects[removed_storage_name,target_storage_name]")
+      end
+
+      project_ct = Project.where(repository_storage: args.removed_storage_name).length
+
+      if ENV['APPLY'] == '1'
+        puts "Updating #{project_ct} projects from storage " \
+          "#{args.removed_storage_name} to #{args.target_storage_name} in the Rails database."
+
+        Project
+          .where(repository_storage: args.removed_storage_name)
+          .update_all(repository_storage: args.target_storage_name)
+      else
+        puts "DRY RUN: would have updated #{project_ct} projects from storage " \
+          "#{args.removed_storage_name} to #{args.target_storage_name} in the Rails database."
+        puts "Run again with environment variable 'APPLY=1' to perform the change."
       end
     end
 

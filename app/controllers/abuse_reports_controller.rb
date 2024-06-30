@@ -1,14 +1,25 @@
 # frozen_string_literal: true
 
 class AbuseReportsController < ApplicationController
-  before_action :set_user, only: [:new]
+  before_action :set_user, only: [:add_category]
 
-  feature_category :users
+  feature_category :insider_threat
 
-  def new
-    @abuse_report = AbuseReport.new
-    @abuse_report.user_id = @user.id
-    @ref_url = params.fetch(:ref_url, '')
+  def add_category
+    @abuse_report = AbuseReport.new(
+      user_id: @user.id,
+      category: report_params[:category],
+      reported_from_url: report_params[:reported_from_url]
+    )
+
+    Gitlab::Tracking.event(
+      'ReportAbuse',
+      'select_abuse_category',
+      property: report_params[:category],
+      user: @user
+    )
+
+    render :new
   end
 
   def create
@@ -17,6 +28,13 @@ class AbuseReportsController < ApplicationController
 
     if @abuse_report.save
       @abuse_report.notify
+
+      Gitlab::Tracking.event(
+        'ReportAbuse',
+        'submit_form',
+        property: @abuse_report.category,
+        user: @abuse_report.user
+      )
 
       message = _("Thank you for your report. A GitLab administrator will look into it shortly.")
       redirect_to root_path, notice: message
@@ -30,10 +48,7 @@ class AbuseReportsController < ApplicationController
   private
 
   def report_params
-    params.require(:abuse_report).permit(%i(
-      message
-      user_id
-    ))
+    params.require(:abuse_report).permit(:message, :user_id, :category, :reported_from_url, :screenshot, links_to_spam: [])
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
@@ -42,8 +57,8 @@ class AbuseReportsController < ApplicationController
 
     if @user.nil?
       redirect_to root_path, alert: _("Cannot create the abuse report. The user has been deleted.")
-    elsif @user.blocked?
-      redirect_to @user, alert: _("Cannot create the abuse report. This user has been blocked.")
+    elsif @user.banned?
+      redirect_to @user, alert: _("Cannot create the abuse report. This user has been banned.")
     end
   end
   # rubocop: enable CodeReuse/ActiveRecord

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::Ci::DestroyPipelineService do
+RSpec.describe ::Ci::DestroyPipelineService, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project, :repository) }
 
   let!(:pipeline) { create(:ci_pipeline, :success, project: project, sha: project.commit.id) }
@@ -90,13 +90,19 @@ RSpec.describe ::Ci::DestroyPipelineService do
       end
     end
 
-    context 'when pipeline is in cancelable state' do
-      before do
-        allow(pipeline).to receive(:cancelable?).and_return(true)
-      end
+    context 'when pipeline is in cancelable state', :sidekiq_inline do
+      let!(:build) { create(:ci_build, :running, pipeline: pipeline) }
+      let!(:child_pipeline) { create(:ci_pipeline, :running, child_of: pipeline) }
+      let!(:child_build) { create(:ci_build, :running, pipeline: child_pipeline) }
 
-      it 'cancels the pipeline' do
-        expect(pipeline).to receive(:cancel_running)
+      it 'cancels the pipelines sync' do
+        cancel_pipeline_service = instance_double(::Ci::CancelPipelineService)
+        expect(::Ci::CancelPipelineService)
+          .to receive(:new)
+          .with(pipeline: pipeline, current_user: user, cascade_to_children: true, execute_async: false)
+          .and_return(cancel_pipeline_service)
+
+        expect(cancel_pipeline_service).to receive(:force_execute)
 
         subject
       end

@@ -11,31 +11,29 @@ class RemoteMirror < ApplicationRecord
   UNPROTECTED_BACKOFF_DELAY = 5.minutes
 
   attr_encrypted :credentials,
-                 key: Settings.attr_encrypted_db_key_base,
-                 marshal: true,
-                 encode: true,
-                 mode: :per_attribute_iv_and_salt,
-                 insecure_mode: true,
-                 algorithm: 'aes-256-cbc'
+    key: Settings.attr_encrypted_db_key_base,
+    marshal: true,
+    encode: true,
+    mode: :per_attribute_iv_and_salt,
+    insecure_mode: true,
+    algorithm: 'aes-256-cbc'
 
   belongs_to :project, inverse_of: :remote_mirrors
 
-  validates :url, presence: true, public_url: { schemes: %w(ssh git http https), allow_blank: true, enforce_user: true }
-
-  after_save :set_override_remote_mirror_available, unless: -> { Gitlab::CurrentSettings.current_application_settings.mirror_available }
-  after_update :reset_fields, if: :saved_change_to_mirror_url?
+  validates :url, presence: true, public_url: { schemes: Project::VALID_MIRROR_PROTOCOLS, allow_blank: true, enforce_user: true }
+  validates :only_protected_branches, inclusion: { in: [true, false], message: :blank }
 
   before_validation :store_credentials
+  after_update :reset_fields, if: :saved_change_to_mirror_url?
+  after_save :set_override_remote_mirror_available, unless: -> { Gitlab::CurrentSettings.current_application_settings.mirror_available }
 
   scope :enabled, -> { where(enabled: true) }
   scope :started, -> { with_update_status(:started) }
 
   scope :stuck, -> do
     started
-      .where('(last_update_started_at < ? AND last_update_at IS NOT NULL)',
-             MAX_INCREMENTAL_RUNTIME.ago)
-      .or(where('(last_update_started_at < ? AND last_update_at IS NULL)',
-                MAX_FIRST_RUNTIME.ago))
+      .where('(last_update_started_at < ? AND last_update_at IS NOT NULL)', MAX_INCREMENTAL_RUNTIME.ago)
+      .or(where('(last_update_started_at < ? AND last_update_at IS NULL)', MAX_FIRST_RUNTIME.ago))
   end
 
   state_machine :update_status, initial: :none do
@@ -128,7 +126,7 @@ class RemoteMirror < ApplicationRecord
   def sync
     return unless sync?
 
-    if recently_scheduled?
+    if schedule_with_delay?
       RepositoryUpdateRemoteMirrorWorker.perform_in(backoff_delay, self.id, Time.current)
     else
       RepositoryUpdateRemoteMirrorWorker.perform_async(self.id, Time.current)
@@ -140,6 +138,7 @@ class RemoteMirror < ApplicationRecord
     return false unless project.remote_mirror_available?
     return false unless project.repository_exists?
     return false if project.pending_delete?
+    return false if Gitlab::SilentMode.enabled?
 
     true
   end
@@ -261,7 +260,8 @@ class RemoteMirror < ApplicationRecord
     super
   end
 
-  def recently_scheduled?
+  def schedule_with_delay?
+    return false if Feature.enabled?(:remote_mirror_no_delay, project, type: :ops)
     return false unless self.last_update_started_at
 
     self.last_update_started_at >= Time.current - backoff_delay

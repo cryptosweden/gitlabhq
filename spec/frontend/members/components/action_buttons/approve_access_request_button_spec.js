@@ -1,10 +1,11 @@
 import { GlButton, GlForm } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import ApproveAccessRequestButton from '~/members/components/action_buttons/approve_access_request_button.vue';
-import { MEMBER_TYPES } from '~/members/constants';
+import { MEMBERS_TAB_TYPES } from '~/members/constants';
 
 jest.mock('~/lib/utils/csrf', () => ({ token: 'mock-csrf-token' }));
 
@@ -16,7 +17,7 @@ describe('ApproveAccessRequestButton', () => {
   const createStore = (state = {}) => {
     return new Vuex.Store({
       modules: {
-        [MEMBER_TYPES.accessRequest]: {
+        [MEMBERS_TAB_TYPES.accessRequest]: {
           namespaced: true,
           state: {
             memberPath: '/groups/foo-bar/-/group_members/:id',
@@ -31,27 +32,23 @@ describe('ApproveAccessRequestButton', () => {
     wrapper = shallowMount(ApproveAccessRequestButton, {
       store: createStore(state),
       provide: {
-        namespace: MEMBER_TYPES.accessRequest,
+        namespace: MEMBERS_TAB_TYPES.accessRequest,
       },
       propsData: {
         memberId: 1,
         ...propsData,
       },
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
     });
   };
 
-  const findForm = () => wrapper.find(GlForm);
-  const findButton = () => findForm().find(GlButton);
+  const findForm = () => wrapper.findComponent(GlForm);
+  const findButton = () => findForm().findComponent(GlButton);
 
   beforeEach(() => {
     createComponent();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   it('displays a tooltip', () => {

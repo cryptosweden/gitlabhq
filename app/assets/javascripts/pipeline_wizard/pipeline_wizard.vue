@@ -1,5 +1,6 @@
 <script>
 import { parseDocument } from 'yaml';
+import { DEFAULT_CI_CONFIG_PATH } from '~/lib/utils/constants';
 import WizardWrapper from './components/wrapper.vue';
 
 export default {
@@ -23,7 +24,7 @@ export default {
     defaultFilename: {
       type: String,
       required: false,
-      default: '.gitlab-ci.yml',
+      default: DEFAULT_CI_CONFIG_PATH,
     },
   },
   computed: {
@@ -42,6 +43,9 @@ export default {
     steps() {
       return this.parsedTemplate?.get('steps');
     },
+    templateId() {
+      return this.parsedTemplate?.get('id');
+    },
   },
 };
 </script>
@@ -49,7 +53,7 @@ export default {
 <template>
   <div>
     <div class="gl-my-8">
-      <h2 class="gl-mb-4" data-testid="title">{{ title }}</h2>
+      <h1 class="gl-mb-4" data-testid="title">{{ title }}</h1>
       <p class="text-tertiary gl-font-lg gl-max-w-80" data-testid="description">
         {{ description }}
       </p>
@@ -60,6 +64,8 @@ export default {
       :filename="filename"
       :project-path="projectPath"
       :steps="steps"
+      :template-id="templateId"
+      @done="$emit('done')"
     />
   </div>
 </template>

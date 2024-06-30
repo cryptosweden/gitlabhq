@@ -122,26 +122,48 @@ describe('date_format_utility.js', () => {
 describe('formatTimeAsSummary', () => {
   it.each`
     unit         | value   | result
-    ${'months'}  | ${1.5}  | ${'1.5M'}
-    ${'weeks'}   | ${1.25} | ${'1.5w'}
-    ${'days'}    | ${2}    | ${'2d'}
-    ${'hours'}   | ${10}   | ${'10h'}
-    ${'minutes'} | ${20}   | ${'20m'}
-    ${'seconds'} | ${10}   | ${'<1m'}
+    ${'months'}  | ${1.5}  | ${'1.5 months'}
+    ${'weeks'}   | ${1.25} | ${'1.5 weeks'}
+    ${'days'}    | ${2}    | ${'2 days'}
+    ${'hours'}   | ${10}   | ${'10 hours'}
+    ${'minutes'} | ${20}   | ${'20 minutes'}
+    ${'seconds'} | ${10}   | ${'<1 minute'}
     ${'seconds'} | ${0}    | ${'-'}
   `('will format $value $unit to $result', ({ unit, value, result }) => {
     expect(utils.formatTimeAsSummary({ [unit]: value })).toBe(result);
   });
 });
 
-describe('durationTimeFormatted', () => {
+describe('formatUtcOffset', () => {
   it.each`
-    duration | expectedOutput
-    ${87}    | ${'00:01:27'}
-    ${141}   | ${'00:02:21'}
-    ${12}    | ${'00:00:12'}
-    ${60}    | ${'00:01:00'}
-  `('returns $expectedOutput when provided $duration', ({ duration, expectedOutput }) => {
-    expect(utils.durationTimeFormatted(duration)).toBe(expectedOutput);
+    offset       | expected
+    ${-32400}    | ${'-9'}
+    ${'-12600'}  | ${'-3.5'}
+    ${0}         | ${' 0'}
+    ${'10800'}   | ${'+3'}
+    ${19800}     | ${'+5.5'}
+    ${0}         | ${' 0'}
+    ${[]}        | ${' 0'}
+    ${{}}        | ${' 0'}
+    ${true}      | ${' 0'}
+    ${null}      | ${' 0'}
+    ${undefined} | ${' 0'}
+  `('returns $expected given $offset', ({ offset, expected }) => {
+    expect(utils.formatUtcOffset(offset)).toEqual(expected);
   });
+});
+
+describe('humanTimeframe', () => {
+  it.each`
+    startDate     | dueDate        | returnValue
+    ${'2021-1-1'} | ${'2021-2-28'} | ${'Jan 1 – Feb 28, 2021'}
+    ${'2021-1-1'} | ${'2022-2-28'} | ${'Jan 1, 2021 – Feb 28, 2022'}
+    ${'2021-1-1'} | ${null}        | ${'Jan 1, 2021 – No due date'}
+    ${null}       | ${'2021-2-28'} | ${'No start date – Feb 28, 2021'}
+  `(
+    'returns string "$returnValue" when startDate is $startDate and dueDate is $dueDate',
+    ({ startDate, dueDate, returnValue }) => {
+      expect(utils.humanTimeframe(startDate, dueDate)).toBe(returnValue);
+    },
+  );
 });

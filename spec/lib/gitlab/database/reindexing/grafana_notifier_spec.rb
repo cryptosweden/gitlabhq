@@ -6,26 +6,28 @@ RSpec.describe Gitlab::Database::Reindexing::GrafanaNotifier do
   include Database::DatabaseHelpers
 
   let(:api_key) { "foo" }
-  let(:api_url) { "http://bar"}
+  let(:api_url) { "http://bar" }
   let(:additional_tag) { "some-tag" }
 
   let(:action) { create(:reindex_action) }
 
   before do
-    swapout_view_for_table(:postgres_indexes)
+    swapout_view_for_table(:postgres_indexes, connection: ApplicationRecord.connection)
   end
 
   let(:headers) do
     {
       'Content-Type': 'application/json',
-      'Authorization': "Bearer #{api_key}"
+      Authorization: "Bearer #{api_key}"
     }
   end
 
   let(:response) { double('response', success?: true) }
 
   def expect_api_call(payload)
-    expect(Gitlab::HTTP).to receive(:post).with("#{api_url}/api/annotations", body: payload.to_json, headers: headers, allow_local_requests: true).and_return(response)
+    expect(Gitlab::HTTP).to receive(:post).with(
+      "#{api_url}/api/annotations", body: payload.to_json, headers: headers, allow_local_requests: true
+    ).and_return(response)
   end
 
   shared_examples_for 'interacting with Grafana annotations API' do
@@ -109,7 +111,9 @@ RSpec.describe Gitlab::Database::Reindexing::GrafanaNotifier do
     end
 
     context 'additional tag is provided' do
-      subject { described_class.new(api_key: api_key, api_url: api_url, additional_tag: additional_tag).notify_start(action) }
+      subject do
+        described_class.new(api_key: api_key, api_url: api_url, additional_tag: additional_tag).notify_start(action)
+      end
 
       let(:payload) do
         {
@@ -163,7 +167,9 @@ RSpec.describe Gitlab::Database::Reindexing::GrafanaNotifier do
     end
 
     context 'additional tag is provided' do
-      subject { described_class.new(api_key: api_key, api_url: api_url, additional_tag: additional_tag).notify_end(action) }
+      subject do
+        described_class.new(api_key: api_key, api_url: api_url, additional_tag: additional_tag).notify_end(action)
+      end
 
       let(:payload) do
         {

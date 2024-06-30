@@ -9,7 +9,7 @@ class MergeRequestCleanupRefsWorker
 
   sidekiq_options retry: 3
 
-  feature_category :code_review
+  feature_category :code_review_workflow
   idempotent!
 
   # Hard-coded to 4 for now. Will be configurable later on via application settings.
@@ -18,10 +18,8 @@ class MergeRequestCleanupRefsWorker
   FAILURE_THRESHOLD = 3
 
   def perform_work
-    return unless Feature.enabled?(:merge_request_refs_cleanup, default_enabled: false)
-
     unless merge_request
-      logger.error('No existing merge request to be cleaned up.')
+      logger.info('No existing merge request to be cleaned up.')
       return
     end
 

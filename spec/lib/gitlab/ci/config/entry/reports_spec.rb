@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Config::Entry::Reports do
+RSpec.describe Gitlab::Ci::Config::Entry::Reports, feature_category: :pipeline_composition do
   let(:entry) { described_class.new(config) }
 
   describe 'validates ALLOWED_KEYS' do
@@ -45,10 +45,11 @@ RSpec.describe Gitlab::Ci::Config::Entry::Reports do
         :load_performance | 'load-performance.json'
         :lsif | 'lsif.json'
         :dotenv | 'build.dotenv'
-        :cobertura | 'cobertura-coverage.xml'
         :terraform | 'tfplan.json'
         :accessibility | 'gl-accessibility.json'
-        :cluster_applications | 'gl-cluster-applications.json'
+        :cyclonedx | 'gl-sbom.cdx.zip'
+        :annotations | 'gl-annotations.json'
+        :repository_xray | 'gl-repository-xray.json'
       end
 
       with_them do
@@ -90,17 +91,17 @@ RSpec.describe Gitlab::Ci::Config::Entry::Reports do
             expect(entry.value).to eq({ coverage_report: coverage_report, dast: ['gl-dast-report.json'] })
           end
         end
+      end
 
-        context 'and a direct coverage report format is specified' do
-          let(:config) { { coverage_report: coverage_report, cobertura: 'cobertura-coverage.xml' } }
+      context 'when coverage_report is nil' do
+        let(:config) { { coverage_report: nil } }
 
-          it 'is not valid' do
-            expect(entry).not_to be_valid
-          end
+        it 'is valid' do
+          expect(entry).to be_valid
+        end
 
-          it 'reports error' do
-            expect(entry.errors).to include /please use only one the following keys: coverage_report, cobertura/
-          end
+        it 'returns artifacts configuration as an empty hash' do
+          expect(entry.value).to eq({})
         end
       end
     end

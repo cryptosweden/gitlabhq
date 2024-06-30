@@ -1,9 +1,0 @@
-query searchProjectTopics($search: String) {
-  topics(search: $search) {
-    nodes {
-      id
-      name
-      avatarUrl
-    }
-  }
-}

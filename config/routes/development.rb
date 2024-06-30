@@ -12,4 +12,6 @@ if Rails.env.development?
   get '/rails/info'            => 'rails/info#index'
 
   mount LetterOpenerWeb::Engine, at: '/rails/letter_opener'
+  mount Lookbook::Engine, at: '/rails/lookbook'
+  mount Toogle::Engine, at: '/rails/features'
 end

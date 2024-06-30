@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::ReleaseAssetLinks::Create do
+RSpec.describe Mutations::ReleaseAssetLinks::Create, feature_category: :release_orchestration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :private, :repository) }
   let_it_be(:release) { create(:release, project: project, tag: 'v13.10') }
-  let_it_be(:reporter) { create(:user).tap { |u| project.add_reporter(u) } }
-  let_it_be(:developer) { create(:user).tap { |u| project.add_developer(u) } }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
 
   let(:current_user) { developer }
   let(:context) { { current_user: current_user } }
@@ -37,7 +37,7 @@ RSpec.describe Mutations::ReleaseAssetLinks::Create do
 
     context 'when the user has access and no validation errors occur' do
       it 'creates a new release asset link', :aggregate_failures do
-        expect(subject).to eq({
+        expect(subject).to include({
           link: release.reload.links.first,
           errors: []
         })

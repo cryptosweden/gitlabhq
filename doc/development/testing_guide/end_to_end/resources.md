@@ -1,24 +1,16 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Resource classes in GitLab QA
 
 Resources are primarily created using Browser UI steps, but can also be created via the API or the CLI.
 
-A typical resource class is used to create a new resource that can be used in a single test. However, several tests can
-end up creating the same kind of resource and use it in ways that mean it could have been
-used by more than one test. Creating a new resource each time is not efficient. Therefore, we can also create reusable
-resources that are created once and can then be used by many tests.
-
-In the following section the content focuses on single-use resources, however it also applies to reusable resources.
-Information specific to [reusable resources is detailed below](#reusable-resources).
-
 ## How to properly implement a resource class?
 
-All non-reusable resource classes should inherit from `Resource::Base`.
+All resource classes should inherit from `Resource::Base`.
 
 There is only one mandatory method to implement to define a resource class.
 This is the `#fabricate!` method, which is used to build the resource via the
@@ -57,7 +49,7 @@ create the resource via the public GitLab API:
 - `#api_post_path`: The `POST` path to create a new resource.
 - `#api_post_body`: The `POST` body (as a Ruby hash) to create a new resource.
 
-> Be aware that many API resources are [paginated](../../../api/index.md#pagination).
+> Be aware that many API resources are [paginated](../../../api/rest/index.md#pagination).
 > If you don't find the results you expect, check if there is more that one page of results.
 
 Let's take the `Shirt` resource class, and add these three API methods:
@@ -257,7 +249,7 @@ end
 ```
 
 The `populate` method iterates through its arguments and call each
-attribute respectively. Here `populate(:brand)` has the same effect as
+attribute. Here `populate(:brand)` has the same effect as
 just `brand`. Using the populate method makes the intention clearer.
 
 With this, it ensures we construct the data right after we create the
@@ -355,7 +347,7 @@ end
 ## Creating resources in your tests
 
 To create a resource in your tests, you can call the `.fabricate!` method on
-the resource class.
+the resource class, or use the [factory](#factories) to create it.
 Note that if the resource class supports API fabrication, this uses this
 fabrication by default.
 
@@ -398,180 +390,118 @@ end
 
 In this case, the result is similar to calling `Resource::Shirt.fabricate!`.
 
-## Reusable resources
+### Factories
 
-Reusable resources are created by the first test that needs a particular kind of resource, and then any test that needs
-the same kind of resource can reuse it instead of creating a new one.
-
-The `ReusableProject` resource is an example of this class:
+You may also use [FactoryBot](https://github.com/thoughtbot/factory_bot/) invocations to create, build, and fetch resources within your tests.
 
 ```ruby
+# create a project via the API to use in the test
+let(:project) { create(:project) }
+
+# create an issue belonging to a project via the API to use in the test
+let(:issue) { create(:issue, project: project) }
+
+# create a private project via the API with a specific name
+let(:project) { create(:project, :private, name: 'my-project-name', add_name_uuid: false) }
+
+# create one commit in a project that performs three actions
+let(:commit) do
+  create(:commit, commit_message: 'my message', project: project, actions: [
+    { action: 'create', file_path: 'README.md', content: '# Welcome!' },
+    { action: 'update', file_path: 'README.md', content: '# Updated' },
+    { action: 'delete', file_path: 'README.md' }
+  ])
+end
+
+###
+
+# instantiate an Issue but don't create it via API yet
+let(:issue) { build(:issue) }
+
+# instantiate a Project and perform some actions before creating
+let(:project) do
+  build(:project) do |p|
+    p.name = 'Test'
+    p.add_name_uuid = false
+  end
+end
+
+# fetch an existing issue via the API with attributes
+let(:existing_issue) { build(:issue, project: project, iid: issue.iid).reload! }
+```
+
+All factories are defined in [`qa/qa/factories`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/qa/qa/factories/) and are representative of
+their respective `QA::Resource::Base` class.
+
+For example, a factory `:issue` can be found in `qa/resource/issue.rb`. A factory `:project` can be found in `qa/resource/project.rb`.
+
+#### Create a new Factory
+
+Given a resource:
+
+```ruby
+# qa/resource/shirt.rb
 module QA
   module Resource
-    class ReusableProject < Project # A reusable resource inherits from the resource class that we want to be able to reuse.
-      prepend Reusable # The Reusable module mixes in some methods that help implement reuse.
+    class Shirt < Base
+      attr_accessor :name
+      attr_reader :read_only
 
-      def initialize
-        super # A ReusableProject is a Project so it should be initialized as one.
+      attribute :brand
 
-        # Some Project attributes aren't valid and need to be overridden. For example, a ReusableProject keeps its name once it's created,
-        # so we don't add a random string to the name specified.
-        @add_name_uuid = false
-
-        # It has a default name, and a different name can be specified when a resource is first created. However, the same name must be
-        # provided any time that instance of the resource is used.
-        @name = "reusable_project"
-
-        # Several instances of a ReusableProject can exists as long as each is identified via a unique value for `reuse_as`.
-        @reuse_as = :default_project
-      end
-
-      # All reusable resource classes must validate that an instance meets the conditions that allow reuse. For example,
-      # by confirming that the name specified for the instance is valid and doesn't conflict with other instances.
-      def validate_reuse_preconditions
-        raise ResourceReuseError unless reused_name_valid?
-      end
-
-      # Internally we identify an instance of a reusable resource by a unique value of `@reuse_as`, but in GitLab the
-      # resource has one or more attributes that must also be unique. This method lists those attributes and allows the
-      # test framework to check that each instance of a reusable resource has values that match the associated values
-      # in Gitlab.
-      def unique_identifiers
-        [:name, :path]
+      def api_post_body
+        { name: name, brand: brand }
       end
     end
   end
 end
 ```
 
-Reusable resources aren't removed immediately when `remove_via_api!` is called. Instead, they're removed after the test
-suite completes. To do so each class must be registered with `QA::Resource::ReusableCollection` in `qa/spec/spec_helper.rb`
-as in the example below. Registration allows `QA::Resource::ReusableCollection` to keep track of each instance of each
-registered class, and to delete them all in the `config.after(:suite)` hook.
+Define a factory with defaults and overrides:
 
 ```ruby
-config.before(:suite) do |suite|
-  QA::Resource::ReusableCollection.register_resource_classes do |collection|
-    QA::Resource::ReusableProject.register(collection)
-  end
-end
-```
+# qa/factories/shirts.rb
+module QA
+  FactoryBot.define do
+    factory :shirt, class: 'QA::Resource::Shirt' do
+      brand { 'BrandName' }
 
-Consider some examples of how a reusable resource is used:
-
-```ruby
-# This will create a project.
-default_project = Resource::ReusableProject.fabricate_via_api!
-default_project.name # => "reusable_project"
-default_project.reuse_as # => :default_project
-```
-
-Then in another test we could reuse the project:
-
-```ruby
-# This will fetch the project created above rather than creating a new one.
-default_project_again = Resource::ReusableProject.fabricate_via_api!
-default_project_again.name # => "reusable_project"
-default_project_again.reuse_as # => :default_project
-```
-
-We can also create another project that we want to change in a way that might not be suitable for tests using the
-default project:
-
-```ruby
-project_with_member = Resource::ReusableProject.fabricate_via_api! do |project|
-  project.name = "project-with-member"
-  project.reuse_as = :project_with_member
-end
-
-project_with_member.add_member(user)
-```
-
-Another test can reuse that project:
-
-```ruby
-project_still_has_member = Resource::ReusableProject.fabricate_via_api! do |project|
-  project.name = "project-with-member"
-  project.reuse_as = :project_with_member
-end
-
-expect(project_still_has_member).to have_member(user)
-```
-
-However, if we don't provide the name again an error will be raised:
-
-```ruby
-Resource::ReusableProject.fabricate_via_api! do |project|
-  project.reuse_as = :project_with_member
-end
-
-# => ResourceReuseError will be raised because it will try to use the default name, "reusable_project", which doesn't
-# match the name specified when the project was first fabricated.
-```
-
-### Validating reusable resources
-
-Reusable resources can speed up test suites by avoiding the cost of creating the same resource again and again. However,
-that can cause problems if a test makes changes to a resource that prevent it from being reused as expected by later
-tests. That can lead to order-dependent test failures that can be difficult to troubleshoot.
-
-For example, the default project created by `QA::Resource::ReusableProject` has `auto_devops_enabled` set to `false`
-(inherited from `QA::Resource::Project`). If a test reuses that project and enables Auto DevOps, subsequent tests that reuse
-the project will fail if they expect Auto DevOps to be disabled.
-
-We try to avoid that kind of trouble by validating reusable resources after a test suite. If the environment variable
-`QA_VALIDATE_RESOURCE_REUSE` is set to `true` the test framework will check each reusable resource to verify that none
-of the attributes they were created with have been changed. It does that by creating a new resource using the same
-attributes that were used to create the original resource. It then compares the new resource to the original and raises
-an error if any attributes don't match.
-
-#### Implementation
-
-When you implement a new type of reusable resource there are two `private` methods you must implement so the resource
-can be validated. They are:
-
-- `reference_resource`: creates a new instance of the resource that can be compared with the one that was used during the tests.
-- `unique_identifiers`: returns an array of attributes that allow the resource to be identified (e.g., name) and that are therefore
-expected to differ when comparing the reference resource with the resource reused in the tests.
-
-The following example shows the implementation of those two methods in `QA::Resource::ReusableProject`.
-
-```ruby
-# Creates a new project that can be compared to a reused project, using the attributes of the original.
-#
-# @return [QA::Resource] a new instance of Resource::ReusableProject that should be a copy of the original resource
-def reference_resource
-  # These are the attributes that the reused resource was created with
-  attributes = self.class.resources[reuse_as][:attributes]
-
-  # Two projects can't have the same path, and since we typically use the same value for the name and path, we assign
-  # a unique name and path to the reference resource.
-  name = "reference_resource_#{SecureRandom.hex(8)}_for_#{attributes.delete(:name)}"
-
-  Project.fabricate_via_api! do |project|
-    self.class.resources[reuse_as][:attributes].each do |attribute_name, attribute_value|
-      project.instance_variable_set("@#{attribute_name}", attribute_value) if attribute_value
+      trait :with_name do
+        name { 'Shirt Name' }
+      end
     end
-    project.name = name
-    project.path = name
-    project.path_with_namespace = "#{project.group.full_path}/#{project.name}"
   end
 end
+```
 
-# The attributes of the resource that should be the same whenever a test wants to reuse a project.
-#
-# @return [Array<Symbol>] the attribute names.
-def unique_identifiers
-  # As noted above, path must be unique, and since we typically use the same value for both, we treat name and path
-  # as unique. These attributes are ignored when we compare the reference and reused resources.
-  [:name, :path]
+In the test, create the resource via the API:
+
+```ruby
+let(:my_shirt) { create(:shirt, brand: 'AnotherBrand') } #<Resource::Shirt @brand="AnotherBrand" @name=nil>
+let(:named_shirt) { create(:shirt, :with_name) } #<Resource::Shirt @brand="Brand Name" @name="Shirt Name">
+let(:invalid_shirt) { create(:shirt, read_only: true) } # NoMethodError
+
+it 'creates a shirt' do
+  expect(my_shirt.brand).to eq('AnotherBrand')
+  expect(named_shirt.name).to eq('Shirt Name')
+  expect(invalid_shirt).to raise_error(NoMethodError) # tries to call Resource::Shirt#read_only=
 end
 ```
+
+### Resources cleanup
+
+We have a mechanism to [collect](https://gitlab.com/gitlab-org/gitlab/-/blob/44345381e89d6bbd440f7b4c680d03e8b75b86de/qa/qa/tools/test_resource_data_processor.rb#L32)
+all resources created during test executions, and another to [handle](https://gitlab.com/gitlab-org/gitlab/-/blob/44345381e89d6bbd440f7b4c680d03e8b75b86de/qa/qa/tools/test_resources_handler.rb#L44)
+these resources. On [dotcom environments](https://handbook.gitlab.com/handbook/engineering/infrastructure/environments/#environments), after a test suite finishes in the [QA pipelines](https://handbook.gitlab.com/handbook/engineering/infrastructure/test-platform/debugging-qa-test-failures/#qa-test-pipelines), resources from all passing test are
+automatically deleted in the same pipeline run. Resources from all failed tests are reserved for investigation,
+and won't be deleted until the following Saturday by a scheduled pipeline. When introducing new resources,
+also make sure to add any resource that cannot be deleted to the [IGNORED_RESOURCES](https://gitlab.com/gitlab-org/gitlab/-/blob/44345381e89d6bbd440f7b4c680d03e8b75b86de/qa/qa/tools/test_resources_handler.rb#L29)
+list.
 
 ## Where to ask for help?
 
-If you need more information, ask for help on `#quality` channel on Slack
+If you need more information, ask for help on `#test-platform` channel on Slack
 (internal, GitLab Team only).
 
-If you are not a Team Member, and you still need help to contribute, please
+If you are not a Team Member, and you still need help to contribute,
 open an issue in GitLab CE issue tracker with the `~QA` label.

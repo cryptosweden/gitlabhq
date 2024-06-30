@@ -4,7 +4,7 @@ module Notes
   class CreateService < ::Notes::BaseService
     include IncidentManagement::UsageData
 
-    def execute(skip_capture_diff_note_position: false)
+    def execute(skip_capture_diff_note_position: false, skip_merge_status_trigger: false)
       note = Notes::BuildService.new(project, current_user, params.except(:merge_request_diff_head_sha)).execute
 
       # n+1: https://gitlab.com/gitlab-org/gitlab-foss/issues/37440
@@ -21,6 +21,8 @@ module Notes
       # only, there is no need be create a note!
 
       execute_quick_actions(note) do |only_commands|
+        note.check_for_spam(action: :create, user: current_user) unless only_commands
+
         note.run_after_commit do
           # Finish the harder work in the background
           NewNoteWorker.perform_async(note.id)
@@ -34,7 +36,13 @@ module Notes
           end
         end
 
-        when_saved(note, skip_capture_diff_note_position: skip_capture_diff_note_position) if note_saved
+        if note_saved
+          when_saved(
+            note,
+            skip_capture_diff_note_position: skip_capture_diff_note_position,
+            skip_merge_status_trigger: skip_merge_status_trigger
+          )
+        end
       end
 
       note
@@ -45,13 +53,14 @@ module Notes
     def execute_quick_actions(note)
       return yield(false) unless quick_actions_supported?(note)
 
-      content, update_params, message = quick_actions_service.execute(note, quick_action_options)
+      content, update_params, message, command_names = quick_actions_service.execute(note, quick_action_options)
       only_commands = content.empty?
       note.note = content
+      note.command_names = command_names
 
       yield(only_commands)
 
-      do_commands(note, update_params, message, only_commands)
+      do_commands(note, update_params, message, command_names, only_commands)
     end
 
     def quick_actions_supported?(note)
@@ -72,33 +81,55 @@ module Notes
       end
     end
 
-    def when_saved(note, skip_capture_diff_note_position: false)
+    def when_saved(
+      note, skip_capture_diff_note_position: false, skip_merge_status_trigger: false)
       todo_service.new_note(note, current_user)
       clear_noteable_diffs_cache(note)
       Suggestions::CreateService.new(note).execute
       increment_usage_counter(note)
       track_event(note, current_user)
 
-      if !skip_capture_diff_note_position && note.for_merge_request? && note.diff_note? && note.start_of_discussion?
-        Discussions::CaptureDiffNotePositionService.new(note.noteable, note.diff_file&.paths).execute(note.discussion)
+      if note.for_merge_request? && note.start_of_discussion?
+        if !skip_capture_diff_note_position && note.diff_note?
+          Discussions::CaptureDiffNotePositionService.new(note.noteable, note.diff_file&.paths).execute(note.discussion)
+        end
+
+        if !skip_merge_status_trigger && note.to_be_resolved?
+          GraphqlTriggers.merge_request_merge_status_updated(note.noteable)
+        end
       end
     end
 
-    def do_commands(note, update_params, message, only_commands)
+    def do_commands(note, update_params, message, command_names, only_commands)
       return if quick_actions_service.commands_executed_count.to_i == 0
 
-      if update_params.present?
-        quick_actions_service.apply_updates(update_params, note)
-        note.commands_changes = update_params
+      update_error = quick_actions_update_errors(note, update_params)
+      if update_error
+        note.errors.add(:validation, update_error)
+        message = update_error
       end
 
       # We must add the error after we call #save because errors are reset
       # when #save is called
       if only_commands
         note.errors.add(:commands_only, message.presence || _('Failed to apply commands.'))
+        note.errors.add(:command_names, command_names.flatten)
         # Allow consumers to detect problems applying commands
         note.errors.add(:commands, _('Failed to apply commands.')) unless message.present?
       end
+    end
+
+    def quick_actions_update_errors(note, params)
+      return unless params.present?
+
+      invalid_message = validate_commands(note, params)
+      return invalid_message if invalid_message
+
+      service_response = quick_actions_service.apply_updates(params, note)
+      note.commands_changes = params
+      return if service_response.success?
+
+      service_response.message.join(', ')
     end
 
     def quick_action_options
@@ -108,18 +139,43 @@ module Notes
       }
     end
 
+    def validate_commands(note, update_params)
+      if invalid_reviewers?(update_params)
+        "Reviewers #{note.noteable.class.max_number_of_assignees_or_reviewers_message}"
+      elsif invalid_assignees?(update_params)
+        "Assignees #{note.noteable.class.max_number_of_assignees_or_reviewers_message}"
+      end
+    end
+
+    def invalid_reviewers?(update_params)
+      if update_params.key?(:reviewer_ids)
+        possible_reviewers = update_params[:reviewer_ids]&.uniq&.size
+
+        possible_reviewers > ::Issuable::MAX_NUMBER_OF_ASSIGNEES_OR_REVIEWERS
+      else
+        false
+      end
+    end
+
+    def invalid_assignees?(update_params)
+      if update_params.key?(:assignee_ids)
+        possible_assignees = update_params[:assignee_ids]&.uniq&.size
+
+        possible_assignees > ::Issuable::MAX_NUMBER_OF_ASSIGNEES_OR_REVIEWERS
+      else
+        false
+      end
+    end
+
     def track_event(note, user)
       track_note_creation_usage_for_issues(note) if note.for_issue?
       track_note_creation_usage_for_merge_requests(note) if note.for_merge_request?
       track_incident_action(user, note.noteable, 'incident_comment') if note.for_issue?
-
-      if Feature.enabled?(:notes_create_service_tracking, project)
-        Gitlab::Tracking.event('Notes::CreateService', 'execute', **tracking_data_for(note))
-      end
+      track_note_creation_in_ipynb(note)
     end
 
     def tracking_data_for(note)
-      label = Gitlab.ee? && note.author == User.visual_review_bot ? 'anonymous_visual_review_note' : 'note'
+      label = Gitlab.ee? && note.author == Users::Internal.visual_review_bot ? 'anonymous_visual_review_note' : 'note'
 
       {
         label: label,
@@ -128,11 +184,24 @@ module Notes
     end
 
     def track_note_creation_usage_for_issues(note)
-      Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_comment_added_action(author: note.author)
+      Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_comment_added_action(
+        author: note.author,
+        project: project
+      )
     end
 
     def track_note_creation_usage_for_merge_requests(note)
       Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter.track_create_comment_action(note: note)
+    end
+
+    def should_track_ipynb_notes?(note)
+      note.respond_to?(:diff_file) && note.diff_file&.ipynb?
+    end
+
+    def track_note_creation_in_ipynb(note)
+      return unless should_track_ipynb_notes?(note)
+
+      Gitlab::UsageDataCounters::IpynbDiffActivityCounter.note_created(note)
     end
   end
 end

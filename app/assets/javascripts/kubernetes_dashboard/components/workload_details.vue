@@ -1,0 +1,136 @@
+<script>
+import { GlBadge, GlTruncate } from '@gitlab/ui';
+import { stringify } from 'yaml';
+import { s__ } from '~/locale';
+import PodLogsButton from '~/environments/environment_details/components/kubernetes/pod_logs_button.vue';
+import { WORKLOAD_STATUS_BADGE_VARIANTS } from '../constants';
+import WorkloadDetailsItem from './workload_details_item.vue';
+
+export default {
+  components: {
+    GlBadge,
+    GlTruncate,
+    WorkloadDetailsItem,
+    PodLogsButton,
+  },
+  props: {
+    item: {
+      type: Object,
+      required: true,
+      validator: (item) => ['name', 'kind', 'labels', 'annotations'].every((key) => item[key]),
+    },
+  },
+  computed: {
+    itemLabels() {
+      const { labels } = this.item;
+      return Object.entries(labels).map(this.getLabelBadgeText);
+    },
+    itemAnnotations() {
+      const { annotations } = this.item;
+      return Object.entries(annotations).map(this.getAnnotationsText);
+    },
+    specYaml() {
+      return this.getYamlStringFromJSON(this.item.spec);
+    },
+    statusYaml() {
+      return this.getYamlStringFromJSON(this.item.fullStatus);
+    },
+    annotationsYaml() {
+      return this.getYamlStringFromJSON(this.item.annotations);
+    },
+    hasFullStatus() {
+      return Boolean(this.item.fullStatus);
+    },
+    hasContainers() {
+      return Boolean(this.item.containers);
+    },
+  },
+  methods: {
+    getLabelBadgeText([key, value]) {
+      return `${key}=${value}`;
+    },
+
+    getAnnotationsText([key, value]) {
+      return `${key}: ${value}`;
+    },
+    getYamlStringFromJSON(json) {
+      if (!json) {
+        return '';
+      }
+      return stringify(json);
+    },
+    getContainersProp(container) {
+      return [container];
+    },
+  },
+  i18n: {
+    name: s__('KubernetesDashboard|Name'),
+    kind: s__('KubernetesDashboard|Kind'),
+    labels: s__('KubernetesDashboard|Labels'),
+    status: s__('KubernetesDashboard|Status'),
+    annotations: s__('KubernetesDashboard|Annotations'),
+    spec: s__('KubernetesDashboard|Spec'),
+    containers: s__('KubernetesDashboard|Containers'),
+  },
+  WORKLOAD_STATUS_BADGE_VARIANTS,
+};
+</script>
+
+<template>
+  <ul class="gl-list-none">
+    <workload-details-item :label="$options.i18n.name">
+      <span class="gl-break-anywhere"> {{ item.name }}</span>
+    </workload-details-item>
+    <workload-details-item :label="$options.i18n.kind">
+      {{ item.kind }}
+    </workload-details-item>
+    <workload-details-item v-if="itemLabels.length" :label="$options.i18n.labels">
+      <div class="gl-display-flex gl-flex-wrap gl-gap-2">
+        <gl-badge v-for="label of itemLabels" :key="label" class="gl-max-w-full">
+          <gl-truncate :text="label" with-tooltip />
+        </gl-badge>
+      </div>
+    </workload-details-item>
+    <workload-details-item v-if="item.status && !item.fullStatus" :label="$options.i18n.status">
+      <gl-badge :variant="$options.WORKLOAD_STATUS_BADGE_VARIANTS[item.status]">{{
+        item.status
+      }}</gl-badge>
+    </workload-details-item>
+    <workload-details-item v-if="item.fullStatus" :label="$options.i18n.status" collapsible>
+      <template v-if="item.status" #label>
+        <span class="gl-mr-2 gl-font-bold">{{ $options.i18n.status }}</span>
+        <gl-badge :variant="$options.WORKLOAD_STATUS_BADGE_VARIANTS[item.status]">{{
+          item.status
+        }}</gl-badge>
+      </template>
+      <pre>{{ statusYaml }}</pre>
+    </workload-details-item>
+    <workload-details-item
+      v-if="itemAnnotations.length"
+      :label="$options.i18n.annotations"
+      collapsible
+    >
+      <pre>{{ annotationsYaml }}</pre>
+    </workload-details-item>
+    <workload-details-item v-if="item.spec" :label="$options.i18n.spec" collapsible>
+      <pre>{{ specYaml }}</pre>
+    </workload-details-item>
+    <workload-details-item v-if="hasContainers" :label="$options.i18n.containers">
+      <div
+        v-for="(container, index) of item.containers"
+        :key="index"
+        class="gl-flex gl-justify-between gl-items-center gl-py-3 gl-px-5"
+        :class="{
+          'gl-border-t-solid gl-border-t-1 gl-border-t-gray-100': index > 0,
+        }"
+      >
+        {{ container.name }}
+        <pod-logs-button
+          :pod-name="item.name"
+          :namespace="item.namespace"
+          :containers="getContainersProp(container)"
+        />
+      </div>
+    </workload-details-item>
+  </ul>
+</template>

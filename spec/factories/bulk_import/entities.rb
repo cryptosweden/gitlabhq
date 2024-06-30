@@ -8,7 +8,9 @@ FactoryBot.define do
     sequence(:source_full_path) { |n| "source-path-#{n}" }
 
     sequence(:destination_namespace) { |n| "destination-path-#{n}" }
-    destination_name { 'Imported Entity' }
+    destination_slug { 'imported-entity' }
+    sequence(:source_xid)
+    migrate_projects { true }
 
     trait(:group_entity) do
       source_type { :group_entity }
@@ -16,6 +18,7 @@ FactoryBot.define do
 
     trait(:project_entity) do
       source_type { :project_entity }
+      sequence(:source_full_path) { |n| "root/source-path-#{n}" }
     end
 
     trait :created do

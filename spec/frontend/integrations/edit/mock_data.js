@@ -9,7 +9,10 @@ export const mockIntegrationProps = {
     initialEnableComments: false,
   },
   jiraIssuesProps: {},
-  triggerEvents: [],
+  triggerEvents: [
+    { name: 'push_events', title: 'Push', value: true },
+    { name: 'issues_events', title: 'Issue', value: true },
+  ],
   sections: [],
   fields: [],
   type: '',
@@ -21,6 +24,24 @@ export const mockJiraIssueTypes = [
   { id: '1', name: 'issue', description: 'issue' },
   { id: '2', name: 'bug', description: 'bug' },
   { id: '3', name: 'epic', description: 'epic' },
+];
+
+export const mockJiraAuthFields = [
+  {
+    name: 'jira_auth_type',
+    type: 'select',
+    title: 'Authentication type',
+  },
+  {
+    name: 'username',
+    type: 'text',
+    help: 'Email for Jira Cloud or username for Jira Data Center and Jira Server',
+  },
+  {
+    name: 'password',
+    type: 'password',
+    help: 'API token for Jira Cloud or password for Jira Data Center and Jira Server',
+  },
 ];
 
 export const mockField = {
@@ -36,4 +57,12 @@ export const mockSectionConnection = {
   type: 'connection',
   title: 'Connection details',
   description: 'Learn more on how to configure this integration.',
+};
+
+export const mockSectionJiraIssues = {
+  type: 'jira_issues',
+  title: 'Issues',
+  description:
+    'Work on Jira issues without leaving GitLab. Add a Jira menu to access a read-only list of your Jira issues. Learn more.',
+  plan: 'premium',
 };

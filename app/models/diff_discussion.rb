@@ -10,13 +10,13 @@ class DiffDiscussion < Discussion
     DiffNote
   end
 
-  delegate  :position,
-            :original_position,
-            :change_position,
-            :diff_note_positions,
-            :on_text?,
-            :on_image?,
-            to: :first_note
+  delegate :position,
+    :original_position,
+    :change_position,
+    :diff_note_positions,
+    :on_text?,
+    :on_image?,
+    to: :first_note
 
   def legacy_diff_discussion?
     false
@@ -37,18 +37,18 @@ class DiffDiscussion < Discussion
 
   def reply_attributes
     super.merge(
-      original_position: original_position.to_json,
-      position: position.to_json
+      original_position: Gitlab::Json.dump(original_position.to_h),
+      position: Gitlab::Json.dump(position.to_h)
     )
   end
 
   def cache_key
-    positions_json = diff_note_positions.map { |dnp| dnp.position.to_json }
+    positions_json = diff_note_positions.map { |dnp| Gitlab::Json.dump(dnp.position) }
     positions_sha = Digest::SHA1.hexdigest(positions_json.join(':')) if positions_json.any?
 
     [
       super,
-      Digest::SHA1.hexdigest(position.to_json),
+      Digest::SHA1.hexdigest(Gitlab::Json.dump(position)),
       positions_sha
     ].join(':')
   end

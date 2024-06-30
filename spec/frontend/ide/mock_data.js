@@ -13,6 +13,8 @@ export const projectData = {
       can_push: true,
       commit: {
         id: '123',
+        short_id: 'abc123de',
+        committed_date: '2019-09-13T15:37:30+0300',
       },
     },
   },
@@ -79,6 +81,7 @@ export const jobs = [
     path: 'testing',
     status: {
       icon: 'status_success',
+      group: 'success',
       text: 'passed',
     },
     stage: 'test',

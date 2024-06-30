@@ -11,9 +11,9 @@ describe('JiraIssuesImportStatus', () => {
   };
   let wrapper;
 
-  const findAlert = () => wrapper.find(GlAlert);
+  const findAlert = () => wrapper.findComponent(GlAlert);
 
-  const findAlertLabel = () => wrapper.find(GlAlert).find(GlLabel);
+  const findAlertLabel = () => wrapper.findComponent(GlAlert).findComponent(GlLabel);
 
   const mountComponent = ({
     shouldShowFinishedAlert = false,
@@ -38,18 +38,13 @@ describe('JiraIssuesImportStatus', () => {
       },
     });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('when Jira import is neither in progress nor finished', () => {
     beforeEach(() => {
       wrapper = mountComponent();
     });
 
     it('does not show an alert', () => {
-      expect(wrapper.find(GlAlert).exists()).toBe(false);
+      expect(wrapper.findComponent(GlAlert).exists()).toBe(false);
     });
   });
 
@@ -99,18 +94,18 @@ describe('JiraIssuesImportStatus', () => {
     });
   });
 
-  describe('alert message', () => {
+  describe('alert', () => {
     it('is hidden when dismissed', async () => {
       wrapper = mountComponent({
         shouldShowInProgressAlert: true,
       });
 
-      expect(wrapper.find(GlAlert).exists()).toBe(true);
+      expect(wrapper.findComponent(GlAlert).exists()).toBe(true);
 
       findAlert().vm.$emit('dismiss');
 
       await nextTick();
-      expect(wrapper.find(GlAlert).exists()).toBe(false);
+      expect(wrapper.findComponent(GlAlert).exists()).toBe(false);
     });
   });
 });

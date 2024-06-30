@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlSprintf } from '@gitlab/ui';
 import { s__ } from '~/locale';
@@ -18,7 +19,7 @@ export default {
     ClipboardButton,
   },
   props: {
-    packageEntity: {
+    packageMetadata: {
       type: Object,
       required: true,
     },
@@ -31,10 +32,10 @@ export default {
     <details-row icon="information-o" padding="gl-p-4" dashed data-testid="composer-target-sha">
       <gl-sprintf :message="$options.i18n.targetSha">
         <template #sha>
-          <strong>{{ packageEntity.metadata.targetSha }}</strong>
+          <strong>{{ packageMetadata.targetSha }}</strong>
           <clipboard-button
             :title="$options.i18n.targetShaCopyButton"
-            :text="packageEntity.metadata.targetSha"
+            :text="packageMetadata.targetSha"
             category="tertiary"
             css-class="gl-p-0!"
           />
@@ -44,10 +45,10 @@ export default {
     <details-row icon="information-o" padding="gl-p-4" data-testid="composer-json">
       <gl-sprintf :message="$options.i18n.composerJson">
         <template #license>
-          <strong>{{ packageEntity.metadata.composerJson.license }}</strong>
+          <strong>{{ packageMetadata.composerJson.license }}</strong>
         </template>
         <template #version>
-          <strong>{{ packageEntity.metadata.composerJson.version }}</strong>
+          <strong>{{ packageMetadata.composerJson.version }}</strong>
         </template>
       </gl-sprintf>
     </details-row>

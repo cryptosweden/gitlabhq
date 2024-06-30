@@ -1,8 +1,7 @@
 ---
-type: reference, dev
 stage: none
-group: Development
-info: "See the Technical Writers assigned to Development Guidelines: https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments-to-development-guidelines"
+group: unassigned
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # GraphQL
@@ -14,7 +13,7 @@ info: "See the Technical Writers assigned to Development Guidelines: https://abo
 **General resources**:
 
 - [📚 Official Introduction to GraphQL](https://graphql.org/learn/)
-- [📚 Official Introduction to Apollo](https://www.apollographql.com/docs/tutorial/introduction/)
+- [📚 Official Introduction to Apollo](https://www.apollographql.com/tutorials/fullstack-quickstart/01-introduction)
 
 **GraphQL at GitLab**:
 
@@ -63,17 +62,17 @@ the GraphQL extension, follow these steps:
 1. Add an `apollo.config.js` file to the root of your `gitlab` local directory.
 1. Populate the file with the following content:
 
-    ```javascript
-    module.exports = {
-      client: {
-        includes: ['./app/assets/javascripts/**/*.graphql', './ee/app/assets/javascripts/**/*.graphql'],
-        service: {
-          name: 'GitLab',
-          localSchemaFile: './tmp/tests/graphql/gitlab_schema.graphql',
-        },
-      },
-    };
-    ```
+   ```javascript
+   module.exports = {
+     client: {
+       includes: ['./app/assets/javascripts/**/*.graphql', './ee/app/assets/javascripts/**/*.graphql'],
+       service: {
+         name: 'GitLab',
+         localSchemaFile: './tmp/tests/graphql/gitlab_schema.graphql',
+       },
+     },
+   };
+   ```
 
 1. Restart VS Code.
 
@@ -81,13 +80,11 @@ the GraphQL extension, follow these steps:
 
 Our GraphQL API can be explored via GraphiQL at your instance's
 `/-/graphql-explorer` or at [GitLab.com](https://gitlab.com/-/graphql-explorer). Consult the
-[GitLab GraphQL API Reference documentation](../../api/graphql/reference)
+[GitLab GraphQL API Reference documentation](../../api/graphql/reference/index.md)
 where needed.
 
-You can check all existing queries and mutations on the right side
-of GraphiQL in its **Documentation explorer**. You can also
-write queries and mutations directly on the left tab and check
-their execution by clicking **Execute query** button on the top left:
+To check all existing queries and mutations, on the right side of GraphiQL, select **Documentation explorer**.
+To check the execution of the queries and mutations you've written, in the upper-left corner, select **Execute query**.
 
 ![GraphiQL interface](img/graphiql_explorer_v12_4.png)
 
@@ -107,9 +104,11 @@ Default client accepts two parameters: `resolvers` and `config`.
 
 ### Multiple client queries for the same object
 
-If you are making multiple queries to the same Apollo client object you might encounter the following error: `Cache data may be lost when replacing the someProperty field of a Query object. To address this problem, either ensure all objects of SomeEntityhave an id or a custom merge function`. We are already checking `ID` presence for every GraphQL type that has an `ID`, so this shouldn't be the case. Most likely, the `SomeEntity` type doesn't have an `ID` property, and to fix this warning we need to define a custom merge function.
+If you are making multiple queries to the same Apollo client object you might encounter the following error: `Cache data may be lost when replacing the someProperty field of a Query object. To address this problem, either ensure all objects of SomeEntityhave an id or a custom merge function`. We are already checking `id` presence for every GraphQL type that has an `id`, so this shouldn't be the case (unless you see this warning when running unit tests; in this case ensure your mocked responses contain an `id` whenever it's requested).
 
-We have some client-wide types with `merge: true` defined in the default client as [typePolicies](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/lib/graphql.js) (this means that Apollo will merge existing and incoming responses in the case of subsequent queries). Please consider adding `SomeEntity` there or defining a custom merge function for it.
+When `SomeEntity` type doesn't have an `id` property in the GraphQL schema, to fix this warning we need to define a custom merge function.
+
+We have some client-wide types with `merge: true` defined in the default client as [`typePolicies`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/lib/graphql.js) (this means that Apollo will merge existing and incoming responses in the case of subsequent queries). Consider adding `SomeEntity` there or defining a custom merge function for it.
 
 ## GraphQL Queries
 
@@ -212,7 +211,7 @@ with a **new and updated** object.
 
 To facilitate the process of updating the cache and returning the new object we
 use the library [Immer](https://immerjs.github.io/immer/).
-Please, follow these conventions:
+Follow these conventions:
 
 - The updated cache is named `data`.
 - The original cache data is named `sourceData`.
@@ -264,9 +263,13 @@ Read more about [Vue Apollo](https://github.com/vuejs/vue-apollo) in the [Vue Ap
 
 ### Local state with Apollo
 
-It is possible to manage an application state with Apollo by passing
-in a resolvers object when creating the default client. The default state can be set by writing
-to the cache after setting up the default client. In the example below, we are using query with `@client` Apollo directive to write the initial data to Apollo cache and then get this state in the Vue component:
+It is possible to manage an application state with Apollo when creating your default client.
+
+#### Using client-side resolvers
+
+The default state can be set by writing to the cache after setting up the default client. In the
+example below, we are using query with `@client` Apollo directive to write the initial data to
+Apollo cache and then get this state in the Vue component:
 
 ```javascript
 // user.query.graphql
@@ -320,11 +323,37 @@ export default {
 }
 ```
 
+Instead of using `writeQuery`, we can create a type policy that will return `user` on every attempt of reading the `userQuery` from the cache:
+
+```javascript
+const defaultClient = createDefaultClient({}, {
+  cacheConfig: {
+    typePolicies: {
+      Query: {
+        fields: {
+          user: {
+            read(data) {
+              return data || {
+                user: {
+                  name: 'John',
+                  surname: 'Doe',
+                  age: 30
+                },
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+});
+```
+
 Along with creating local data, we can also extend existing GraphQL types with `@client` fields. This is extremely helpful when we need to mock an API response for fields not yet added to our GraphQL API.
 
-#### Mocking API response with local Apollo cache
+##### Mocking API response with local Apollo cache
 
-Using local Apollo Cache is helpful when we have a need to mock some GraphQL API responses, queries, or mutations locally (such as when they're still not added to our actual API).
+Using local Apollo Cache is helpful when we have a reason to mock some GraphQL API responses, queries, or mutations locally (such as when they're still not added to our actual API).
 
 For example, we have a [fragment](#fragments) on `DesignVersion` used in our queries:
 
@@ -335,7 +364,7 @@ fragment VersionListItem on DesignVersion {
 }
 ```
 
-We also need to fetch the version author and the `created at` property to display in the versions dropdown. But, these changes are still not implemented in our API. We can change the existing fragment to get a mocked response for these new fields:
+We also must fetch the version author and the `created at` property to display in the versions dropdown list. But, these changes are still not implemented in our API. We can change the existing fragment to get a mocked response for these new fields:
 
 ```javascript
 fragment VersionListItem on DesignVersion {
@@ -386,18 +415,11 @@ Read more about local state management with Apollo in the [Vue Apollo documentat
 
 ### Using with Vuex
 
-When the Apollo Client is used in Vuex and fetched data is stored in the Vuex store, the Apollo Client cache does not need to be enabled. Otherwise we would have data from the API stored in two places - Vuex store and Apollo Client cache. With Apollo's default settings, a subsequent fetch from the GraphQL API could result in fetching data from Apollo cache (in the case where we have the same query and variables). To prevent this behavior, we need to disable Apollo Client cache by passing a valid `fetchPolicy` option to its constructor:
+We do not recommend creating new applications with Vuex and Apollo Client combined. There are a few reasons:
 
-```javascript
-import fetchPolicies from '~/graphql_shared/fetch_policy_constants';
-
-export const gqClient = createGqClient(
-  {},
-  {
-    fetchPolicy: fetchPolicies.NO_CACHE,
-  },
-);
-```
+- VueX and Apollo are both **global stores**, which means sharing responsibilities and having two sources of truth.
+- Keeping VueX and Apollo in sync can be high maintenance.
+- Bugs that would come from the communication between Apollo and VueX would be subtle and hard to debug.
 
 ### Working on GraphQL-based features when frontend and backend are not in sync
 
@@ -414,7 +436,7 @@ of the backend.
 
 #### Implementing frontend queries and mutations ahead of the backend
 
-In such case, the frontend will define GraphQL schemas or fields that do not correspond to any
+In such case, the frontend defines GraphQL schemas or fields that do not correspond to any
 backend resolver yet. This is fine as long as the implementation is properly feature-flagged so it
 does not translate to public-facing errors in the product. However, we do validate client-side
 queries/mutations against the backend GraphQL schema with the `graphql-verify` CI job.
@@ -427,7 +449,7 @@ The preferred approach is to use the `@client` directive on any new query, mutat
 isn't yet supported by the backend. Any entity with the directive is skipped by the
 `graphql-verify` validation job.
 
-Additionally Apollo will attempt to resolve them client-side, which can be used in conjunction with
+Additionally Apollo attempts to resolve them client-side, which can be used in conjunction with
 [Mocking API response with local Apollo cache](#mocking-api-response-with-local-apollo-cache). This
 provides a convenient way of testing your feature with fake data defined client-side.
 When opening a merge request for your changes, it can be a good idea to provide local resolvers as a
@@ -442,7 +464,7 @@ GraphQL queries/mutations validation can be completely turned off for specific f
 paths to the
 [`config/known_invalid_graphql_queries.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/known_invalid_graphql_queries.yml)
 file, much like you would disable ESLint for some files via an `.eslintignore` file.
-Bear in mind that any file listed in here will not be validated at all. So if you're only adding
+Bear in mind that any file listed in here is not validated at all. So if you're only adding
 fields to an existing query, use the `@client` directive approach so that the rest of the query
 is still validated.
 
@@ -489,7 +511,7 @@ export default {
 Note that, even if the directive evaluates to `false`, the guarded entity is sent to the backend and
 matched against the GraphQL schema. So this approach requires that the feature-flagged entity
 exists in the schema, even if the feature flag is disabled. When the feature flag is turned off, it
-is recommended that the resolver returns `null` at the very least.
+is recommended that the resolver returns `null` at the very least using the same feature flag as the frontend. See the [API GraphQL guide](../api_graphql_styleguide.md#feature-flags).
 
 ##### Different versions of a query
 
@@ -509,15 +531,17 @@ export default {
 };
 ```
 
-This approach is not recommended as it results in bigger merge requests and requires maintaining
-two similar queries for as long as the feature flag exists. This can be used in cases where the new
+##### Avoiding multiple query versions
+
+The multiple version approach is not recommended as it results in bigger merge requests and requires maintaining
+two similar queries for as long as the feature flag exists. Multiple versions can be used in cases where the new
 GraphQL entities are not yet part of the schema, or if they are feature-flagged at the schema level
 (`new_entity: :feature_flag`).
 
 ### Manually triggering queries
 
 Queries on a component's `apollo` property are made automatically when the component is created.
-Some components instead want the network request made on-demand, for example a dropdown with lazy-loaded items.
+Some components instead want the network request made on-demand, for example a dropdown list with lazy-loaded items.
 
 There are two ways to do this:
 
@@ -570,8 +594,7 @@ pageInfo {
 
 Here:
 
-- `startCursor` and `endCursor` display the cursor of the first and last items
-  respectively.
+- `startCursor` displays the cursor of the first items and `endCursor` displays the cursor of the last items.
 - `hasPreviousPage` and `hasNextPage` allow us to check if there are more pages
   available before or after the current page.
 
@@ -583,7 +606,7 @@ we want to fetch after or before a given endpoint.
 For example, here we're fetching 10 designs after a cursor (let us call this `projectQuery`):
 
 ```javascript
-#import "~/graphql_shared/fragments/pageInfo.fragment.graphql"
+#import "~/graphql_shared/fragments/page_info.fragment.graphql"
 
 query {
   project(fullPath: "root/my-project") {
@@ -606,7 +629,7 @@ query {
 }
 ```
 
-Note that we are using the [`pageInfo.fragment.graphql`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/graphql_shared/fragments/pageInfo.fragment.graphql) to populate the `pageInfo` information.
+Note that we are using the [`page_info.fragment.graphql`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/graphql_shared/fragments/page_info.fragment.graphql) to populate the `pageInfo` information.
 
 #### Using `fetchMore` method in components
 
@@ -619,8 +642,9 @@ In this case, we can either:
 - Skip passing a cursor.
 - Pass `null` explicitly to `after`.
 
-After data is fetched, we can use the `update`-hook as an opportunity [to customize
-the data that is set in the Vue component property](https://apollo.vuejs.org/api/smart-query.html#options). This allows us to get a hold of the `pageInfo` object among other data.
+After data is fetched, we can use the `update`-hook as an opportunity
+[to customize the data that is set in the Vue component property](https://apollo.vuejs.org/api/smart-query.html#options).
+This allows us to get a hold of the `pageInfo` object among other data.
 
 In the `result`-hook, we can inspect the `pageInfo` object to see if we need to fetch
 the next page. Note that we also keep a `requestCount` to ensure that the application
@@ -785,6 +809,49 @@ export default new VueApollo({
 This is similar to the `DesignCollection` example above as new page results are appended to the
 previous ones.
 
+For some cases, it's hard to define the correct `keyArgs` for the field because all
+the fields are updated. In this case, we can set `keyArgs` to `false`. This instructs
+Apollo Client to not perform any automatic merge, and fully rely on the logic we
+put into the `merge` function.
+
+For example, we have a query like this:
+
+```javascript
+query searchGroupsWhereUserCanTransfer {
+  currentUser {
+    id
+    groups(after: 'somecursor') {
+      nodes {
+        id
+        fullName
+      }
+      pageInfo {
+        ...PageInfo
+      }
+    }
+  }
+}
+```
+
+Here, the `groups` field doesn't have a good candidate for `keyArgs`: we don't want to account for `after` argument because it will change on requesting subsequent pages. Setting `keyArgs` to `false` makes the update work as intended:
+
+```javascript
+typePolicies: {
+  UserCore: {
+    fields: {
+      groups: {
+        keyArgs: false,
+      },
+    },
+  },
+  GroupConnection: {
+    fields: {
+      nodes: concatPagination(),
+    },
+  },
+}
+```
+
 #### Using a recursive query in components
 
 When it is necessary to fetch all paginated data initially an Apollo query can do the trick for us.
@@ -869,7 +936,7 @@ You'd then be able to retrieve the data without providing any pagination-specifi
 Here's an example of a query using the `@connection` directive:
 
 ```graphql
-#import "~/graphql_shared/fragments/pageInfo.fragment.graphql"
+#import "~/graphql_shared/fragments/page_info.fragment.graphql"
 
 query DastSiteProfiles($fullPath: ID!, $after: String, $before: String, $first: Int, $last: Int) {
   project(fullPath: $fullPath) {
@@ -906,27 +973,30 @@ const data = store.readQuery({
 
 Read more about the `@connection` directive in [Apollo's documentation](https://www.apollographql.com/docs/react/caching/advanced-topics/#the-connection-directive).
 
-### Managing performance
+### Batching similar queries
 
-The Apollo client batches queries by default. Given 3 deferred queries,
-Apollo groups them into one request, sends the single request to the server, and
-responds after all 3 queries have completed.
+By default, the Apollo client sends one HTTP request from the browser per query. You can choose to
+batch several queries in a single outgoing request and lower the number of requests by defining a
+[batchKey](https://www.apollographql.com/docs/react/api/link/apollo-link-batch-http/#batchkey).
 
-If you need to have queries sent as individual requests, additional context can be provided
-to tell Apollo to do this.
+This can be helpful when a query is called multiple times from the same component but you
+want to update the UI once. In this example we use the component name as the key:
 
 ```javascript
 export default {
+  name: 'MyComponent'
   apollo: {
     user: {
       query: QUERY_IMPORT,
       context: {
-        isSingleRequest: true,
-      }
+        batchKey: 'MyComponent',
+      },
     }
   },
 };
 ```
+
+The batch key can be the name of the component.
 
 #### Polling and Performance
 
@@ -984,7 +1054,7 @@ query getPipelineEtag {
 ```javascript
 /* pipeline_editor/components/header/pipeline_status.vue */
 
-import getPipelineEtag from '~/pipeline_editor/graphql/queries/client/pipeline_etag.query.graphql';
+import getPipelineEtag from '~/ci/pipeline_editor/graphql/queries/client/pipeline_etag.query.graphql';
 
 apollo: {
   pipelineEtag: {
@@ -1010,21 +1080,6 @@ await this.$apollo.mutate({
       store.writeQuery({ query: getPipelineEtag, data: { pipelineEtag } });
     }
   },
-});
-```
-
-ETags depend on the request being a `GET` instead of GraphQL's usual `POST`. Our default link library does not support `GET` requests, so we must let our default Apollo client know to use a different library. Keep in mind, this means your app cannot batch queries.
-
-```javascript
-/* componentMountIndex.js */
-
-const apolloProvider = new VueApollo({
-  defaultClient: createDefaultClient(
-    {},
-    {
-      useGet: true,
-    },
-  ),
 });
 ```
 
@@ -1064,53 +1119,7 @@ We use [subscriptions](https://www.apollographql.com/docs/react/data/subscriptio
 **NOTE:**
 We cannot test subscriptions using GraphiQL, because they require an ActionCable client, which GraphiQL does not support at the moment.
 
-Subscriptions don't require any additional configuration of Apollo Client instance, you can use them in the application right away. To distinguish subscriptions from queries and mutations, we recommend naming them with `.subscription.graphql` extension:
-
-```graphql
-// ~/sidebar/queries/issuable_assignees.subscription.graphql
-
-subscription issuableAssigneesUpdated($issuableId: IssuableID!) {
-  issuableAssigneesUpdated(issuableId: $issuableId) {
-    ... on Issue {
-      assignees {
-        nodes {
-          ...User
-          status {
-            availability
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-When using GraphQL subscriptions in Vue application, we recommend updating existing Apollo query results with [subscribeToMore](https://apollo.vuejs.org/guide/apollo/subscriptions.html#subscribe-to-more) option:
-
-```javascript
-import issuableAssigneesSubscription from '~/sidebar/queries/issuable_assignees.subscription.graphql'
-
-apollo: {
-  issuable: {
-    query() {
-      return assigneesQueries[this.issuableType].query;
-    },
-    subscribeToMore: {
-      // Specify the subscription that will update the query
-      document() {
-        return issuableAssigneesSubscription;
-      },
-      variables() {
-        return {
-          issuableId: convertToGraphQLId(this.issuableClass, this.issuableId),
-        };
-      },
-    },
-  },
-},
-```
-
-We would need also to define a field policy similarly like we do it for the [paginated queries](#defining-field-merge-policy)
+Refer to the [Real-time widgets developer guide](../real_time.md) for a comprehensive introduction to subscriptions.
 
 ### Best Practices
 
@@ -1160,73 +1169,6 @@ If you use the RubyMine IDE, and have marked the `tmp` directory as
 `gitlab/tmp/tests/graphql`. This will allow the **JS GraphQL** plugin to
 automatically find and index the schema.
 
-#### Testing Apollo components
-
-If we use `ApolloQuery` or `ApolloMutation` in our components, in order to test their functionality we need to add a stub first:
-
-```javascript
-import { ApolloMutation } from 'vue-apollo';
-
-function createComponent(props = {}) {
-  wrapper = shallowMount(MyComponent, {
-    sync: false,
-    propsData: {
-      ...props,
-    },
-    stubs: {
-      ApolloMutation,
-    },
-  });
-}
-```
-
-`ApolloMutation` component exposes `mutate` method via scoped slot. If we want to test this method, we need to add it to mocks:
-
-```javascript
-const mutate = jest.fn().mockResolvedValue();
-const $apollo = {
-  mutate,
-};
-
-function createComponent(props = {}) {
-  wrapper = shallowMount(MyComponent, {
-    sync: false,
-    propsData: {
-      ...props,
-    },
-    stubs: {
-      ApolloMutation,
-    },
-    mocks: {
-      $apollo,
-    }
-  });
-}
-```
-
-Then we can check if `mutate` is called with correct variables:
-
-```javascript
-const mutationVariables = {
-  mutation: createNoteMutation,
-  update: expect.anything(),
-  variables: {
-    input: {
-      noteableId: 'noteable-id',
-      body: 'test',
-      discussionId: '0',
-    },
-  },
-};
-
-it('calls mutation on submitting form ', () => {
-  createComponent()
-  findReplyForm().vm.$emit('submitForm');
-
-  expect(mutate).toHaveBeenCalledWith(mutationVariables);
-});
-```
-
 #### Mocking Apollo Client
 
 To test the components with Apollo operations, we need to mock an Apollo Client in our unit tests. We use [`mock-apollo-client`](https://www.npmjs.com/package/mock-apollo-client) library to mock Apollo client and [`createMockApollo` helper](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/frontend/__helpers__/mock_apollo_helper.js) we created on top of it.
@@ -1239,38 +1181,40 @@ import Vue from 'vue';
 
 Vue.use(VueApollo);
 
-function createMockApolloProvider() {
-  return createMockApollo(requestHandlers);
-}
-
-function createComponent(options = {}) {
-  const { mockApollo } = options;
-  ...
-  return shallowMount(..., {
-    apolloProvider: mockApollo,
-    ...
-  });
-}
-```
-
-After this, you can control whether you need a variable for `mockApollo` and assign it in the appropriate `describe`-scope:
-
-```javascript
-describe('Some component', () => {
+describe('Some component with Apollo mock', () => {
   let wrapper;
 
-  describe('with Apollo mock', () => {
-    let mockApollo;
-
-    beforeEach(() => {
-      mockApollo = createMockApolloProvider();
-      wrapper = createComponent({ mockApollo });
-    });
-  });
-});
+  function createComponent(options = {}) {
+    wrapper = shallowMount(...);
+  }
+})
 ```
 
-In the `createMockApolloProvider`-factory, we need to define an array of _handlers_ for every query or mutation:
+After this, we need to create a mocked Apollo provider:
+
+```javascript
+import createMockApollo from 'helpers/mock_apollo_helper';
+
+describe('Some component with Apollo mock', () => {
+  let wrapper;
+  let mockApollo;
+
+  function createComponent(options = {}) {
+    mockApollo = createMockApollo(...)
+
+    wrapper = shallowMount(SomeComponent, {
+      apolloProvider: mockApollo
+    });
+  }
+
+  afterEach(() => {
+    // we need to ensure we don't have provider persisted between tests
+    mockApollo = null
+  })
+})
+```
+
+Now, we need to define an array of _handlers_ for every query or mutation. Handlers should be mock functions that return either a correct query response, or an error:
 
 ```javascript
 import getDesignListQuery from '~/design_management/graphql/queries/get_design_list.query.graphql';
@@ -1281,72 +1225,70 @@ describe('Some component with Apollo mock', () => {
   let wrapper;
   let mockApollo;
 
-  function createMockApolloProvider() {
-    Vue.use(VueApollo);
+  function createComponent(options = {
+    designListHandler: jest.fn().mockResolvedValue(designListQueryResponse)
+  }) {
+    mockApollo = createMockApollo([
+       [getDesignListQuery, options.designListHandler],
+       [permissionsQuery, jest.fn().mockResolvedValue(permissionsQueryResponse)],
+       [moveDesignMutation, jest.fn().mockResolvedValue(moveDesignMutationResponse)],
+    ])
 
-    const requestHandlers = [
-      [getDesignListQuery, jest.fn().mockResolvedValue(designListQueryResponse)],
-      [permissionsQuery, jest.fn().mockResolvedValue(permissionsQueryResponse)],
-    ];
-    ...
+    wrapper = shallowMount(SomeComponent, {
+      apolloProvider: mockApollo
+    });
   }
 })
 ```
 
-After this, we need to create a mock Apollo Client instance using a helper:
+When mocking resolved values, ensure the structure of the response is the same
+as the actual API response. For example, root property should be `data`:
 
 ```javascript
-import createMockApollo from 'helpers/mock_apollo_helper';
-
-describe('Some component', () => {
-  let wrapper;
-
-  function createMockApolloProvider() {
-    Vue.use(VueApollo);
-
-    const requestHandlers = [
-      [getDesignListQuery, jest.fn().mockResolvedValue(designListQueryResponse)],
-      [permissionsQuery, jest.fn().mockResolvedValue(permissionsQueryResponse)],
-    ];
-
-    return createMockApollo(requestHandlers);
-  }
-
-  function createComponent(options = {}) {
-    const { mockApollo } = options;
-
-    return shallowMount(Index, {
-      apolloProvider: mockApollo,
-    });
-  }
-
-  describe('with Apollo mock', () => {
-    let mockApollo;
-
-    beforeEach(() => {
-      mockApollo = createMockApolloProvider();
-      wrapper = createComponent({ mockApollo });
-    });
-  });
-});
+const designListQueryResponse = {
+  data: {
+    project: {
+      id: '1',
+      issue: {
+        id: 'issue-1',
+        designCollection: {
+          copyState: 'READY',
+          designs: {
+            nodes: [
+              {
+                id: '3',
+                event: 'NONE',
+                filename: 'fox_3.jpg',
+                notesCount: 1,
+                image: 'image-3',
+                imageV432x230: 'image-3',
+                currentUserTodos: {
+                  nodes: [],
+                },
+              },
+            ],
+          },
+          versions: {
+            nodes: [],
+          },
+        },
+      },
+    },
+  },
+};
 ```
 
-When mocking resolved values, ensure the structure of the response is the same
-as the actual API response. For example, root property should be `data`.
-
-When testing queries, please keep in mind they are promises, so they need to be _resolved_ to render a result. Without resolving, we can check the `loading` state of the query:
+When testing queries, keep in mind they are promises, so they need to be _resolved_ to render a result. Without resolving, we can check the `loading` state of the query:
 
 ```javascript
 it('renders a loading state', () => {
-  const mockApollo = createMockApolloProvider();
-  const wrapper = createComponent({ mockApollo });
+  const wrapper = createComponent();
 
   expect(wrapper.findComponent(LoadingSpinner).exists()).toBe(true)
 });
 
 it('renders designs list', async () => {
-  const mockApollo = createMockApolloProvider();
-  const wrapper = createComponent({ mockApollo });
+  const wrapper = createComponent();
 
   await waitForPromises()
 
@@ -1357,17 +1299,10 @@ it('renders designs list', async () => {
 If we need to test a query error, we need to mock a rejected value as request handler:
 
 ```javascript
-function createMockApolloProvider() {
-  ...
-  const requestHandlers = [
-    [getDesignListQuery, jest.fn().mockRejectedValue(new Error('GraphQL error')],
-  ];
-  ...
-}
-...
-
 it('renders error if query fails', async () => {
-  const wrapper = createComponent();
+  const wrapper = createComponent({
+    designListHandler: jest.fn().mockRejectedValue('Houston, we have a problem!')
+  });
 
   await waitForPromises()
 
@@ -1375,38 +1310,28 @@ it('renders error if query fails', async () => {
 })
 ```
 
-Request handlers can also be passed to component factory as a parameter.
-
 Mutations could be tested the same way:
 
 ```javascript
-function createMockApolloProvider({
-  moveHandler = jest.fn().mockResolvedValue(moveDesignMutationResponse),
-}) {
-  Vue.use(VueApollo);
+  const moveDesignHandlerSuccess = jest.fn().mockResolvedValue(moveDesignMutationResponse)
 
-  moveDesignHandler = moveHandler;
+  function createComponent(options = {
+    designListHandler: jest.fn().mockResolvedValue(designListQueryResponse),
+    moveDesignHandler: moveDesignHandlerSuccess
+  }) {
+    mockApollo = createMockApollo([
+       [getDesignListQuery, options.designListHandler],
+       [permissionsQuery, jest.fn().mockResolvedValue(permissionsQueryResponse)],
+       [moveDesignMutation, moveDesignHandler],
+    ])
 
-  const requestHandlers = [
-    [getDesignListQuery, jest.fn().mockResolvedValue(designListQueryResponse)],
-    [permissionsQuery, jest.fn().mockResolvedValue(permissionsQueryResponse)],
-    [moveDesignMutation, moveDesignHandler],
-  ];
+    wrapper = shallowMount(SomeComponent, {
+      apolloProvider: mockApollo
+    });
+  }
 
-  return createMockApollo(requestHandlers);
-}
-
-function createComponent(options = {}) {
-  const { mockApollo } = options;
-
-  return shallowMount(Index, {
-    apolloProvider: mockApollo,
-  });
-}
-...
 it('calls a mutation with correct parameters and reorders designs', async () => {
-  const mockApollo = createMockApolloProvider({});
-  const wrapper = createComponent({ mockApollo });
+  const wrapper = createComponent();
 
   wrapper.find(VueDraggable).vm.$emit('change', {
     moved: {
@@ -1415,7 +1340,7 @@ it('calls a mutation with correct parameters and reorders designs', async () => 
     },
   });
 
-  expect(moveDesignHandler).toHaveBeenCalled();
+  expect(moveDesignHandlerSuccess).toHaveBeenCalled();
 
   await waitForPromises();
 
@@ -1463,6 +1388,66 @@ describe('when query times out', () => {
     expect(getGraph().exists()).toBe(true);
   });
 });
+```
+
+Previously, we've used `{ mocks: { $apollo ...}}` on `mount` to test Apollo functionality. This approach is discouraged - proper `$apollo` mocking leaks a lot of implementation details to the tests. Consider replacing it with mocked Apollo provider
+
+```javascript
+wrapper = mount(SomeComponent, {
+  mocks: {
+    // avoid! Mock real graphql queries and mutations instead
+    $apollo: {
+      mutate: jest.fn(),
+      queries: {
+        groups: {
+          loading,
+        },
+      },
+    },
+  },
+});
+```
+
+#### Testing subscriptions
+
+When testing subscriptions, be aware that default behavior for subscription in `vue-apollo@4` is to re-subscribe and immediately issue new request on error (unless value of `skip` restricts us from doing that)
+
+```javascript
+import waitForPromises from 'helpers/wait_for_promises';
+
+// subscriptionMock is registered as handler function for subscription
+// in our helper
+const subcriptionMock = jest.fn().mockResolvedValue(okResponse);
+
+// ...
+
+it('testing error state', () => {
+  // Avoid: will stuck below!
+  subscriptionMock = jest.fn().mockRejectedValue({ errors: [] });
+
+  // component calls subscription mock as part of
+  createComponent();
+  // will be stuck forever:
+  // * rejected promise will trigger resubscription
+  // * re-subscription will call subscriptionMock again, resulting in rejected promise
+  // * rejected promise will trigger next re-subscription,
+  await waitForPromises();
+  // ...
+})
+```
+
+To avoid such infinite loops when using `vue@3` and `vue-apollo@4` consider using one-time rejections
+
+```javascript
+it('testing failure', () => {
+  // OK: subscription will fail once
+  subscriptionMock.mockRejectedValueOnce({ errors: [] });
+  // component calls subscription mock as part of
+  createComponent();
+  await waitForPromises();
+
+  // code below now will be executred
+})
 ```
 
 #### Testing `@client` queries
@@ -1572,121 +1557,29 @@ query fetchLocalUser {
 ```javascript
 import fetchLocalUserQuery from '~/design_management/graphql/queries/fetch_local_user.query.graphql';
 
-function createMockApolloProvider() {
-  Vue.use(VueApollo);
-
-  const requestHandlers = [
-    [getDesignListQuery, jest.fn().mockResolvedValue(designListQueryResponse)],
-    [permissionsQuery, jest.fn().mockResolvedValue(permissionsQueryResponse)],
-  ];
-
-  const mockApollo = createMockApollo(requestHandlers, {});
-  mockApollo.clients.defaultClient.cache.writeQuery({
-    query: fetchLocalUserQuery,
-    data: {
-      fetchLocalUser: {
-        __typename: 'User',
-        name: 'Test',
-      },
-    },
-  });
-
-  return mockApollo;
-}
-
-function createComponent(options = {}) {
-  const { mockApollo } = options;
-
-  return shallowMount(Index, {
-    apolloProvider: mockApollo,
-  });
-}
-```
-
-Sometimes it is necessary to control what the local resolver returns and inspect how it is called by the component. This can be done by mocking your local resolver:
-
-```javascript
-import fetchLocalUserQuery from '~/design_management/graphql/queries/fetch_local_user.query.graphql';
-
-function createMockApolloProvider(options = {}) {
-  Vue.use(VueApollo);
-  const { fetchLocalUserSpy } = options;
-
-  const mockApollo = createMockApollo([], {
-    Query: {
-      fetchLocalUser: fetchLocalUserSpy,
-    },
-  });
-
-  // Necessary for local resolvers to be activated
-  mockApollo.clients.defaultClient.cache.writeQuery({
-    query: fetchLocalUserQuery,
-    data: {},
-  });
-
-  return mockApollo;
-}
-```
-
-In the test you can then control what the spy is supposed to do and inspect the component after the request have returned:
-
-```javascript
-describe('My Index test with `createMockApollo`', () => {
+describe('Some component with Apollo mock', () => {
   let wrapper;
-  let fetchLocalUserSpy;
+  let mockApollo;
 
-  afterEach(() => {
-    wrapper.destroy();
-    fetchLocalUserSpy = null;
-  });
-
-  describe('when loading', () => {
-    beforeEach(() => {
-      const mockApollo = createMockApolloProvider();
-      wrapper = createComponent({ mockApollo });
+  function createComponent(options = {
+    designListHandler: jest.fn().mockResolvedValue(designListQueryResponse)
+  }) {
+    mockApollo = createMockApollo([...])
+    mockApollo.clients.defaultClient.cache.writeQuery({
+      query: fetchLocalUserQuery,
+      data: {
+        fetchLocalUser: {
+          __typename: 'User',
+          name: 'Test',
+        },
+      },
     });
 
-    it('displays the loader', () => {
-      // Assess that the loader is present
+    wrapper = shallowMount(SomeComponent, {
+      apolloProvider: mockApollo
     });
-  });
-
-  describe('with data', () => {
-    beforeEach(async () => {
-      fetchLocalUserSpy = jest.fn().mockResolvedValue(localUserQueryResponse);
-      const mockApollo = createMockApolloProvider(fetchLocalUserSpy);
-      wrapper = createComponent({ mockApollo });
-      await waitForPromises();
-    });
-
-    it('should fetch data once', () => {
-      expect(fetchLocalUserSpy).toHaveBeenCalledTimes(1);
-    });
-
-    it('displays data', () => {
-      // Assess that data is present
-    });
-  });
-
-  describe('with error', () => {
-    const error = 'Error!';
-
-    beforeEach(async () => {
-      fetchLocalUserSpy = jest.fn().mockRejectedValueOnce(error);
-      const mockApollo = createMockApolloProvider(fetchLocalUserSpy);
-      wrapper = createComponent({ mockApollo });
-      await waitForPromises();
-    });
-
-    it('should fetch data once', () => {
-      expect(fetchLocalUserSpy).toHaveBeenCalledTimes(1);
-    });
-
-    it('displays the error', () => {
-      // Assess that the error is displayed
-    });
-  });
-});
+  }
+})
 ```
 
 When you need to configure the mocked apollo client's caching behavior,
@@ -1700,21 +1593,15 @@ const defaultCacheOptions = {
 ```
 
 ```javascript
-function createMockApolloProvider({ props = {}, requestHandlers } = {}) {
-  Vue.use(VueApollo);
-
-  const mockApollo = createMockApollo(
-    requestHandlers,
-    {},
-    {
-      dataIdFromObject: (object) =>
-        // eslint-disable-next-line no-underscore-dangle
-        object.__typename === 'Requirement' ? object.iid : defaultDataIdFromObject(object),
-    },
-  );
-
-  return mockApollo;
-}
+mockApollo = createMockApollo(
+  requestHandlers,
+  {},
+  {
+    dataIdFromObject: (object) =>
+      // eslint-disable-next-line no-underscore-dangle
+      object.__typename === 'Requirement' ? object.iid : defaultDataIdFromObject(object),
+  },
+);
 ```
 
 ## Handling errors
@@ -1784,7 +1671,7 @@ When [using Vuex](#using-with-vuex), disable the cache when:
 
 - The data is being cached elsewhere
 - The use case does not need caching
-if the data is being cached elsewhere, or if there is no need for it for the given use case.
+  if the data is being cached elsewhere, or if there is no need for it for the given use case.
 
 ```javascript
 import createDefaultClient from '~/lib/graphql';
@@ -1879,23 +1766,27 @@ To improve performance, sometimes we want to make initial GraphQL queries early.
   }
   ```
 
-- Add startup call(s) with correct variables to the HAML file that serves as a view
-for your application. To add GraphQL startup calls, we use
-`add_page_startup_graphql_call` helper where the first parameter is a path to the
-query, the second one is an object containing query variables. Path to the query is
-relative to `app/graphql/queries` folder: for example, if we need a
-`app/graphql/queries/repository/files.query.graphql` query, the path is
-`repository/files`.
+- Add startup calls with correct variables to the HAML file that serves as a view
+  for your application. To add GraphQL startup calls, we use
+  `add_page_startup_graphql_call` helper where the first parameter is a path to the
+  query, the second one is an object containing query variables. Path to the query is
+  relative to `app/graphql/queries` folder: for example, if we need a
+  `app/graphql/queries/repository/files.query.graphql` query, the path is
+  `repository/files`.
 
 ## Troubleshooting
 
 ### Mocked client returns empty objects instead of mock response
 
-If your unit test is failing because response contains empty objects instead of mock data, you would need to add `__typename` field to the mocked response. This happens because mocked client (unlike the real one) does not populate the response with typenames and in some cases we need to do it manually so the client is able to recognize a GraphQL type.
+If your unit test is failing because the response contains empty objects instead of mock data, add
+`__typename` field to the mocked responses.
+
+Alternatively, [GraphQL query fixtures](../testing_guide/frontend_testing.md#graphql-query-fixtures)
+automatically adds the `__typename` for you upon generation.
 
 ### Warning about losing cache data
 
-Sometimes you can see a warning in the console: `Cache data may be lost when replacing the someProperty field of a Query object. To address this problem, either ensure all objects of SomeEntityhave an id or a custom merge function`. Please check section about [multiple queries](#multiple-client-queries-for-the-same-object) to resolve an issue.
+Sometimes you can see a warning in the console: `Cache data may be lost when replacing the someProperty field of a Query object. To address this problem, either ensure all objects of SomeEntityhave an id or a custom merge function`. Check section about [multiple queries](#multiple-client-queries-for-the-same-object) to resolve an issue.
 
   ```yaml
   - current_route_path = request.fullpath.match(/-\/tree\/[^\/]+\/(.+$)/).to_a[1]

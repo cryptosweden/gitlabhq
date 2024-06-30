@@ -1,14 +1,15 @@
 import { escape } from 'lodash';
 import labelData from 'test_fixtures/labels/project_labels.json';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import FilteredSearchSpecHelper from 'helpers/filtered_search_spec_helper';
 import { TEST_HOST } from 'helpers/test_constants';
 import DropdownUtils from '~/filtered_search/dropdown_utils';
 import VisualTokenValue from '~/filtered_search/visual_token_value';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import AjaxCache from '~/lib/utils/ajax_cache';
 import UsersCache from '~/lib/utils/users_cache';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('Filtered Search Visual Tokens', () => {
   const findElements = (tokenElement) => {
@@ -28,7 +29,7 @@ describe('Filtered Search Visual Tokens', () => {
   let bugLabelToken;
 
   beforeEach(() => {
-    setFixtures(`
+    setHTMLFixture(`
       <ul class="tokens-container">
         ${FilteredSearchSpecHelper.createInputHTML()}
       </ul>
@@ -39,6 +40,10 @@ describe('Filtered Search Visual Tokens', () => {
     bugLabelToken = FilteredSearchSpecHelper.createFilterVisualToken('label', '=', '~bug');
   });
 
+  afterEach(() => {
+    resetHTMLFixture();
+  });
+
   describe('updateUserTokenAppearance', () => {
     let usersCacheSpy;
 
@@ -46,7 +51,7 @@ describe('Filtered Search Visual Tokens', () => {
       jest.spyOn(UsersCache, 'retrieve').mockImplementation((username) => usersCacheSpy(username));
     });
 
-    it('ignores error if UsersCache throws', (done) => {
+    it('ignores error if UsersCache throws', async () => {
       const dummyError = new Error('Earth rotated backwards');
       const { subject, tokenValueContainer, tokenValueElement } = findElements(authorToken);
       const tokenValue = tokenValueElement.innerText;
@@ -55,16 +60,11 @@ describe('Filtered Search Visual Tokens', () => {
         return Promise.reject(dummyError);
       };
 
-      subject
-        .updateUserTokenAppearance(tokenValueContainer, tokenValueElement, tokenValue)
-        .then(() => {
-          expect(createFlash.mock.calls.length).toBe(0);
-        })
-        .then(done)
-        .catch(done.fail);
+      await subject.updateUserTokenAppearance(tokenValueContainer, tokenValueElement, tokenValue);
+      expect(createAlert).toHaveBeenCalledTimes(0);
     });
 
-    it('does nothing if user cannot be found', (done) => {
+    it('does nothing if user cannot be found', async () => {
       const { subject, tokenValueContainer, tokenValueElement } = findElements(authorToken);
       const tokenValue = tokenValueElement.innerText;
       usersCacheSpy = (username) => {
@@ -72,19 +72,14 @@ describe('Filtered Search Visual Tokens', () => {
         return Promise.resolve(undefined);
       };
 
-      subject
-        .updateUserTokenAppearance(tokenValueContainer, tokenValueElement, tokenValue)
-        .then(() => {
-          expect(tokenValueElement.innerText).toBe(tokenValue);
-        })
-        .then(done)
-        .catch(done.fail);
+      await subject.updateUserTokenAppearance(tokenValueContainer, tokenValueElement, tokenValue);
+      expect(tokenValueElement.innerText).toBe(tokenValue);
     });
 
-    it('replaces author token with avatar and display name', (done) => {
+    it('replaces author token with avatar and display name', async () => {
       const dummyUser = {
         name: 'Important Person',
-        avatar_url: 'https://host.invalid/mypics/avatar.png',
+        avatar_url: `${TEST_HOST}/mypics/avatar.png`,
       };
       const { subject, tokenValueContainer, tokenValueElement } = findElements(authorToken);
       const tokenValue = tokenValueElement.innerText;
@@ -93,21 +88,16 @@ describe('Filtered Search Visual Tokens', () => {
         return Promise.resolve(dummyUser);
       };
 
-      subject
-        .updateUserTokenAppearance(tokenValueContainer, tokenValueElement, tokenValue)
-        .then(() => {
-          expect(tokenValueContainer.dataset.originalValue).toBe(tokenValue);
-          expect(tokenValueElement.innerText.trim()).toBe(dummyUser.name);
-          const avatar = tokenValueElement.querySelector('img.avatar');
+      await subject.updateUserTokenAppearance(tokenValueContainer, tokenValueElement, tokenValue);
+      expect(tokenValueContainer.dataset.originalValue).toBe(tokenValue);
+      expect(tokenValueElement.innerText.trim()).toBe(dummyUser.name);
+      const avatar = tokenValueElement.querySelector('img.avatar');
 
-          expect(avatar.getAttribute('src')).toBe(dummyUser.avatar_url);
-          expect(avatar.getAttribute('alt')).toBe('');
-        })
-        .then(done)
-        .catch(done.fail);
+      expect(avatar.getAttribute('src')).toBe(dummyUser.avatar_url);
+      expect(avatar.getAttribute('alt')).toBe('');
     });
 
-    it('escapes user name when creating token', (done) => {
+    it('escapes user name when creating token', async () => {
       const dummyUser = {
         name: '<script>',
         avatar_url: `${TEST_HOST}/mypics/avatar.png`,
@@ -119,16 +109,11 @@ describe('Filtered Search Visual Tokens', () => {
         return Promise.resolve(dummyUser);
       };
 
-      subject
-        .updateUserTokenAppearance(tokenValueContainer, tokenValueElement, tokenValue)
-        .then(() => {
-          expect(tokenValueElement.innerText.trim()).toBe(dummyUser.name);
-          tokenValueElement.querySelector('.avatar').remove();
+      await subject.updateUserTokenAppearance(tokenValueContainer, tokenValueElement, tokenValue);
+      expect(tokenValueElement.innerText.trim()).toBe(dummyUser.name);
+      tokenValueElement.querySelector('.avatar').remove();
 
-          expect(tokenValueElement.innerHTML.trim()).toBe(escape(dummyUser.name));
-        })
-        .then(done)
-        .catch(done.fail);
+      expect(tokenValueElement.innerHTML.trim()).toBe(escape(dummyUser.name));
     });
   });
 
@@ -177,48 +162,33 @@ describe('Filtered Search Visual Tokens', () => {
     const findLabel = (tokenValue) =>
       labelData.find((label) => tokenValue === `~${DropdownUtils.getEscapedText(label.title)}`);
 
-    it('updates the color of a label token', (done) => {
+    it('updates the color of a label token', async () => {
       const { subject, tokenValueContainer, tokenValueElement } = findElements(bugLabelToken);
       const tokenValue = tokenValueElement.innerText;
       const matchingLabel = findLabel(tokenValue);
 
-      subject
-        .updateLabelTokenColor(tokenValueContainer, tokenValue)
-        .then(() => {
-          expectValueContainerStyle(tokenValueContainer, matchingLabel);
-        })
-        .then(done)
-        .catch(done.fail);
+      await subject.updateLabelTokenColor(tokenValueContainer, tokenValue);
+      expectValueContainerStyle(tokenValueContainer, matchingLabel);
     });
 
-    it('updates the color of a label token with spaces', (done) => {
+    it('updates the color of a label token with spaces', async () => {
       const { subject, tokenValueContainer, tokenValueElement } = findElements(spaceLabelToken);
       const tokenValue = tokenValueElement.innerText;
       const matchingLabel = findLabel(tokenValue);
 
-      subject
-        .updateLabelTokenColor(tokenValueContainer, tokenValue)
-        .then(() => {
-          expectValueContainerStyle(tokenValueContainer, matchingLabel);
-        })
-        .then(done)
-        .catch(done.fail);
+      await subject.updateLabelTokenColor(tokenValueContainer, tokenValue);
+      expectValueContainerStyle(tokenValueContainer, matchingLabel);
     });
 
-    it('does not change color of a missing label', (done) => {
+    it('does not change color of a missing label', async () => {
       const { subject, tokenValueContainer, tokenValueElement } = findElements(missingLabelToken);
       const tokenValue = tokenValueElement.innerText;
       const matchingLabel = findLabel(tokenValue);
 
       expect(matchingLabel).toBe(undefined);
 
-      subject
-        .updateLabelTokenColor(tokenValueContainer, tokenValue)
-        .then(() => {
-          expect(tokenValueContainer.getAttribute('style')).toBe(null);
-        })
-        .then(done)
-        .catch(done.fail);
+      await subject.updateLabelTokenColor(tokenValueContainer, tokenValue);
+      expect(tokenValueContainer.getAttribute('style')).toBe(null);
     });
   });
 
@@ -244,12 +214,11 @@ describe('Filtered Search Visual Tokens', () => {
       expect(token.style.color).not.toEqual(originalTextColor);
     });
 
-    it('should add inverted class when textColor is #FFFFFF', () => {
+    it('should set the color of the remove token close icon to the label text color', () => {
       const token = VisualTokenValue.setTokenStyle(bugLabelToken, 'black', '#FFFFFF');
+      const removeIcon = token.querySelector('.close-icon');
 
-      expect(token.style.color).toEqual('rgb(255, 255, 255)');
-      expect(token.style.color).not.toEqual(originalTextColor);
-      expect(token.querySelector('.remove-token').classList.contains('inverted')).toEqual(true);
+      expect(removeIcon.style.color).toEqual('rgb(255, 255, 255)');
     });
   });
 

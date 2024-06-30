@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # GitLab utilities
@@ -152,7 +152,7 @@ Derived.f # => nil
 
 ## `StrongMemoize`
 
-Refer to [`strong_memoize.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/utils/strong_memoize.rb):
+Refer to [`strong_memoize.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/gems/gitlab-utils/lib/gitlab/utils/strong_memoize.rb):
 
 - Memoize the value even if it is `nil` or `false`.
 
@@ -181,8 +181,48 @@ Refer to [`strong_memoize.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/maste
     include Gitlab::Utils::StrongMemoize
 
     def result
-      strong_memoize(:result) do
-        search
+      search
+    end
+    strong_memoize_attr :result
+
+    def enabled?
+      Feature.enabled?(:some_feature)
+    end
+    strong_memoize_attr :enabled?
+  end
+  ```
+
+  Using `strong_memoize_attr` on methods with parameters is not supported.
+  It does not work when combined with [`override`](#override) and might memoize wrong results.
+
+  Use `strong_memoize_with` instead.
+
+  ```ruby
+  # bad
+  def expensive_method(arg)
+    # ...
+  end
+  strong_memoize_attr :expensive_method
+
+  # good
+  def expensive_method(arg)
+    strong_memoize_with(:expensive_method, arg) do
+      # ...
+    end
+  end
+  ```
+
+  There's also `strong_memoize_with` to help memoize methods that take arguments.
+  This should be used for methods that have a low number of possible values
+  as arguments or with consistent repeating arguments in a loop.
+
+  ```ruby
+  class Find
+    include Gitlab::Utils::StrongMemoize
+
+    def result(basic: true)
+      strong_memoize_with(:result, basic) do
+        search(basic)
       end
     end
   end
@@ -244,3 +284,54 @@ end
 ## `ReactiveCaching`
 
 Read the documentation on [`ReactiveCaching`](reactive_caching.md).
+
+## `CircuitBreaker`
+
+The `Gitlab::CircuitBreaker` can be wrapped around any class that needs to run code with circuit breaker protection. It provides a `run_with_circuit` method that wraps a code block with circuit breaker functionality, which helps prevent cascading failures and improves system resilience. For more information about the circuit breaker pattern, see:
+
+- [What is Circuit breaker](https://martinfowler.com/bliki/CircuitBreaker.html).
+- [The Hystrix documentation on CircuitBreaker](https://github.com/Netflix/Hystrix/wiki/How-it-Works#circuit-breaker).
+
+### Use CircuitBreaker
+
+To use the CircuitBreaker wrapper:
+
+```ruby
+class MyService
+  def call_external_service
+    Gitlab::CircuitBreaker.run_with_circuit('ServiceName') do
+      # Code that interacts with external service goes here
+
+      raise Gitlab::CircuitBreaker::InternalServerError # if there is an issue
+    end
+  end
+end
+```
+
+The `call_external_service` method is an example method that interacts with an external service.
+By wrapping the code that interacts with the external service with `run_with_circuit`, the method is executed within the circuit breaker.
+
+The method should raise an `InternalServerError` error, which will be counted towards the error threshold if raised during the execution of the code block.
+The circuit breaker tracks the number of errors and the rate of requests,
+and opens the circuit if it reaches the configured error threshold or volume threshold.
+If the circuit is open, subsequent requests fail fast without executing the code block, and the circuit breaker periodically allows a small number of requests through to test the service's availability before closing the circuit again.
+
+### Configuration
+
+You need to specify a service name for each unique circuit that is used as the cache key. This should be a `CamelCase` string which identifies the circuit.
+
+The circuit breaker has defaults that can be overridden per circuit, for example:
+
+```ruby
+Gitlab::CircuitBreaker.run_with_circuit('ServiceName', options = { volume_threshold: 5 }) do
+  ...
+end
+```
+
+The defaults are:
+
+- `exceptions`: `[Gitlab::CircuitBreaker::InternalServerError]`
+- `error_threshold`: `50`
+- `volume_threshold`: `10`
+- `sleep_window`: `90`
+- `time_window`: `60`

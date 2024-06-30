@@ -2,27 +2,47 @@
 
 module Ci
   class PipelineSchedulesFinder
-    attr_reader :project, :pipeline_schedules
+    attr_reader :project, :pipeline_schedules, :params
 
-    def initialize(project)
+    def initialize(project, params = {})
       @project = project
       @pipeline_schedules = project.pipeline_schedules
+      @params = params
     end
 
-    # rubocop: disable CodeReuse/ActiveRecord
-    def execute(scope: nil)
-      scoped_schedules =
-        case scope
-        when 'active'
-          pipeline_schedules.active
-        when 'inactive'
-          pipeline_schedules.inactive
-        else
-          pipeline_schedules
-        end
+    def execute(scope: nil, ids: nil)
+      items = pipeline_schedules
+      items = by_ids(items, ids)
+      items = by_scope(items, scope)
 
-      scoped_schedules.order(id: :desc)
+      sort_items(items)
     end
-    # rubocop: enable CodeReuse/ActiveRecord
+
+    private
+
+    def by_ids(items, ids)
+      if ids.present?
+        items.id_in(ids)
+      else
+        items
+      end
+    end
+
+    def by_scope(items, scope)
+      case scope
+      when 'active'
+        items.active
+      when 'inactive'
+        items.inactive
+      else
+        items
+      end
+    end
+
+    def sort_items(items)
+      return items unless params[:sort]
+
+      items.sort_by_attribute(params[:sort])
+    end
   end
 end

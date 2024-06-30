@@ -23,7 +23,7 @@ export const TAGS_LIST_TITLE = s__('ContainerRegistry|Image tags');
 export const DIGEST_LABEL = s__('ContainerRegistry|Digest: %{imageId}');
 export const CREATED_AT_LABEL = s__('ContainerRegistry|Published %{timeInfo}');
 export const PUBLISHED_DETAILS_ROW_TEXT = s__(
-  'ContainerRegistry|Published to the %{repositoryPath} image repository at %{time} on %{date}',
+  'ContainerRegistry|Published to the %{repositoryPath} image repository on %{dateTime}',
 );
 export const MANIFEST_DETAILS_ROW_TEST = s__('ContainerRegistry|Manifest digest: %{digest}');
 export const CONFIGURATION_DETAILS_ROW_TEST = s__(
@@ -65,10 +65,11 @@ export const MISSING_MANIFEST_WARNING_TOOLTIP = s__(
   'ContainerRegistry|Invalid tag: missing manifest digest',
 );
 
-export const UPDATED_AT = s__('ContainerRegistry|Last updated %{time}');
+export const CREATED_AT = s__('ContainerRegistry|Created %{time}');
+export const LAST_PUBLISHED_AT = s__('ContainerRegistry|Last published at %{time}');
 
-export const NOT_AVAILABLE_TEXT = __('N/A');
-export const NOT_AVAILABLE_SIZE = __('0 bytes');
+export const NOT_AVAILABLE_TEXT = __('Not applicable.');
+export const NOT_AVAILABLE_SIZE = __('0 B');
 
 export const CLEANUP_UNSCHEDULED_TEXT = s__('ContainerRegistry|Cleanup will run %{time}');
 export const CLEANUP_SCHEDULED_TEXT = s__('ContainerRegistry|Cleanup pending');
@@ -87,16 +88,13 @@ export const CLEANUP_DISABLED_TOOLTIP = s__(
 
 export const CLEANUP_STATUS_SCHEDULED = s__('ContainerRegistry|Cleanup will run soon');
 export const CLEANUP_STATUS_ONGOING = s__('ContainerRegistry|Cleanup is ongoing');
-export const CLEANUP_STATUS_UNFINISHED = s__('ContainerRegistry|Cleanup timed out');
+export const CLEANUP_STATUS_UNFINISHED = s__('ContainerRegistry|Partial cleanup complete');
 
 export const DETAILS_DELETE_IMAGE_ERROR_MESSAGE = s__(
   'ContainerRegistry|Something went wrong while scheduling the image for deletion.',
 );
 
-export const DETAILS_IMPORTING_ERROR_MESSAGE = s__(
-  'ContainerRegistry|Tags temporarily cannot be marked for deletion. Please try again in a few minutes. %{docLinkStart}More details%{docLinkEnd}.',
-);
-
+export const DELETE_IMAGE_TEXT = s__('ContainerRegistry|Delete image repository');
 export const DELETE_IMAGE_CONFIRMATION_TITLE = s__('ContainerRegistry|Delete image repository?');
 export const DELETE_IMAGE_CONFIRMATION_TEXT = s__(
   'ContainerRegistry|Deleting the image repository will delete all images and tags inside. This action cannot be undone. Please type the following to confirm: %{code}',
@@ -137,7 +135,6 @@ export const ALERT_DANGER_TAG = 'danger_tag';
 export const ALERT_SUCCESS_TAGS = 'success_tags';
 export const ALERT_DANGER_TAGS = 'danger_tags';
 export const ALERT_DANGER_IMAGE = 'danger_image';
-export const ALERT_DANGER_IMPORTING = 'danger_importing';
 
 export const DELETE_SCHEDULED = 'DELETE_SCHEDULED';
 export const DELETE_FAILED = 'DELETE_FAILED';
@@ -148,7 +145,6 @@ export const ALERT_MESSAGES = {
   [ALERT_SUCCESS_TAGS]: DELETE_TAGS_SUCCESS_MESSAGE,
   [ALERT_DANGER_TAGS]: DELETE_TAGS_ERROR_MESSAGE,
   [ALERT_DANGER_IMAGE]: DETAILS_DELETE_IMAGE_ERROR_MESSAGE,
-  [ALERT_DANGER_IMPORTING]: DETAILS_IMPORTING_ERROR_MESSAGE,
 };
 
 export const UNFINISHED_STATUS = 'UNFINISHED';

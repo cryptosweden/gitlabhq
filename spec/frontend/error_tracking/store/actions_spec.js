@@ -2,11 +2,12 @@ import MockAdapter from 'axios-mock-adapter';
 import testAction from 'helpers/vuex_action_helper';
 import * as actions from '~/error_tracking/store/actions';
 import * as types from '~/error_tracking/store/mutation_types';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { visitUrl } from '~/lib/utils/url_utility';
 
-jest.mock('~/flash.js');
+jest.mock('~/alert');
 jest.mock('~/lib/utils/url_utility');
 
 let mock;
@@ -20,7 +21,7 @@ describe('Sentry common store actions', () => {
 
   afterEach(() => {
     mock.restore();
-    createFlash.mockClear();
+    createAlert.mockClear();
   });
   const endpoint = '123/stacktrace';
   const redirectUrl = '/list';
@@ -28,9 +29,9 @@ describe('Sentry common store actions', () => {
   const params = { endpoint, redirectUrl, status };
 
   describe('updateStatus', () => {
-    it('should handle successful status update', (done) => {
-      mock.onPut().reply(200, {});
-      testAction(
+    it('should handle successful status update', async () => {
+      mock.onPut().reply(HTTP_STATUS_OK, {});
+      await testAction(
         actions.updateStatus,
         params,
         {},
@@ -41,20 +42,15 @@ describe('Sentry common store actions', () => {
           },
         ],
         [],
-        () => {
-          done();
-          expect(visitUrl).toHaveBeenCalledWith(redirectUrl);
-        },
       );
+      expect(visitUrl).toHaveBeenCalledWith(redirectUrl);
     });
 
-    it('should handle unsuccessful status update', (done) => {
-      mock.onPut().reply(400, {});
-      testAction(actions.updateStatus, params, {}, [], [], () => {
-        expect(visitUrl).not.toHaveBeenCalled();
-        expect(createFlash).toHaveBeenCalledTimes(1);
-        done();
-      });
+    it('should handle unsuccessful status update', async () => {
+      mock.onPut().reply(HTTP_STATUS_BAD_REQUEST, {});
+      await testAction(actions.updateStatus, params, {}, [], []);
+      expect(visitUrl).not.toHaveBeenCalled();
+      expect(createAlert).toHaveBeenCalledTimes(1);
     });
   });
 

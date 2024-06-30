@@ -1,10 +1,14 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Use GitHub as an authentication provider **(FREE SELF)**
+# Use GitHub as an OAuth 2.0 authentication provider
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 You can integrate your GitLab instance with GitHub.com and GitHub Enterprise.
 You can import projects from GitHub, or sign in to GitLab
@@ -16,7 +20,7 @@ To enable the GitHub OmniAuth provider, you need an OAuth 2.0 client ID and clie
 secret from GitHub:
 
 1. Sign in to GitHub.
-1. [Create an OAuth App](https://docs.github.com/en/developers/apps/building-oauth-apps/creating-an-oauth-app)
+1. [Create an OAuth App](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app)
    and provide the following information:
    - The URL of your GitLab instance, such as `https://gitlab.example.com`.
    - The authorization callback URL, such as, `https://gitlab.example.com/users/auth`.
@@ -35,7 +39,9 @@ your website could enable the covert redirect attack.
 
 ## Enable GitHub OAuth in GitLab
 
-1. [Configure the initial settings](omniauth.md#configure-initial-settings) in GitLab.
+1. Configure the [common settings](omniauth.md#configure-common-settings)
+   to add `github` as a single sign-on provider. This enables Just-In-Time
+   account provisioning for users who do not have an existing GitLab account.
 
 1. Edit the GitLab configuration file using the following information:
 
@@ -45,7 +51,7 @@ your website could enable the covert redirect attack.
    | Client secret  | `YOUR_APP_SECRET`                      | OAuth 2.0 client secret |
    | URL            | `https://github.example.com/`          | GitHub deployment URL   |
 
-   - **For Omnibus installations**
+   - For Linux package installations:
 
      1. Open the `/etc/gitlab/gitlab.rb` file.
 
@@ -79,10 +85,10 @@ your website could enable the covert redirect attack.
         ]
         ```
 
-     1. Save the file and [reconfigure](../administration/restart_gitlab.md#omnibus-gitlab-reconfigure)
+     1. Save the file and [reconfigure](../administration/restart_gitlab.md#reconfigure-a-linux-package-installation)
         GitLab.
 
-   - **For installations from source**
+   - For self-compiled installations:
 
      1. Open the `config/gitlab.yml` file.
 
@@ -108,7 +114,7 @@ your website could enable the covert redirect attack.
             args: { scope: 'user:email' } }
         ```
 
-     1. Save the file and [restart](../administration/restart_gitlab.md#installations-from-source)
+     1. Save the file and [restart](../administration/restart_gitlab.md#self-compiled-installations)
         GitLab.
 
 1. Refresh the GitLab sign-in page. A GitHub icon should display below the
@@ -127,7 +133,7 @@ To fix this issue, you must disable SSL verification:
 
 1. Set `verify_ssl` to `false` in the configuration file.
 
-   - **For Omnibus installations**
+   - For Linux package installations:
 
      ```ruby
      gitlab_rails['omniauth_providers'] = [
@@ -143,7 +149,7 @@ To fix this issue, you must disable SSL verification:
      ]
      ```
 
-   - **For installations from source**
+   - For self-compiled installations:
 
      ```yaml
      - { name: 'github',
@@ -157,21 +163,37 @@ To fix this issue, you must disable SSL verification:
 
 1. Change the global Git `sslVerify` option to `false` on the GitLab server.
 
-   - **For Omnibus installations**
+   - For Linux package installations running [GitLab 15.3](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/6800) and later:
+
+     ```ruby
+     gitaly['gitconfig'] = [
+        {key: "http.sslVerify", value: "false"},
+     ]
+     ```
+
+   - For Linux package installations running GitLab 15.2 and earlier (legacy method):
 
      ```ruby
      omnibus_gitconfig['system'] = { "http" => ["sslVerify = false"] }
      ```
 
-   - **For installations from source**
+   - For self-compiled installations running [GitLab 15.3](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/6800) and later, edit the Gitaly configuration (`gitaly.toml`):
+
+     ```toml
+     [[git.config]]
+     key = "http.sslVerify"
+     value = "false"
+     ```
+
+   - For self-compiled installations running GitLab 15.2 and earlier (legacy method):
 
      ```shell
      git config --global http.sslVerify false
      ```
 
-1. [Reconfigure GitLab](../administration/restart_gitlab.md#omnibus-gitlab-reconfigure)
-   if you installed using Omnibus, or [restart GitLab](../administration/restart_gitlab.md#installations-from-source)
-   if you installed from source.
+1. [Reconfigure GitLab](../administration/restart_gitlab.md#reconfigure-a-linux-package-installation)
+   if you installed using the Linux package, or [restart GitLab](../administration/restart_gitlab.md#self-compiled-installations)
+   if you self-compiled your installation.
 
 ### Signing in using GitHub Enterprise returns a 500 error
 
@@ -180,7 +202,7 @@ GitLab instance and GitHub Enterprise.
 
 To check for a connectivity issue:
 
-1. Go to the [`production.log`](../administration/logs.md#productionlog)
+1. Go to the [`production.log`](../administration/logs/index.md#productionlog)
    on your GitLab server and look for the following error:
 
    ``` plaintext
@@ -215,7 +237,7 @@ and then connect it to your GitHub account
 
 To fix this issue, you must activate GitHub sign-in in GitLab:
 
-1. On the top bar, in the top right corner, select your avatar.
+1. On the left sidebar, select your avatar.
 1. Select **Edit profile**.
 1. On the left sidebar, select **Account**.
-1. In the **Social sign-in** section, select **Connect to GitHub**.
+1. In the **Service sign-in** section, select **Connect to GitHub**.

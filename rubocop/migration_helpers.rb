@@ -12,6 +12,7 @@ module RuboCop
     # Tables with large number of columns (> 50 on GitLab.com as of 01/2021)
     WIDE_TABLES = %i[
       ci_builds
+      p_ci_builds
       namespaces
       projects
       users
@@ -19,9 +20,9 @@ module RuboCop
 
     # List of helpers that add new columns, either directly (ADD_COLUMN_METHODS)
     # or through a create/alter table (TABLE_METHODS)
-    ADD_COLUMN_METHODS = %i(add_column add_column_with_default change_column_type_concurrently).freeze
+    ADD_COLUMN_METHODS = %i[add_column change_column_type_concurrently].freeze
 
-    TABLE_METHODS = %i(create_table create_table_if_not_exists change_table create_table_with_constraints).freeze
+    TABLE_METHODS = %i[create_table create_table_if_not_exists change_table].freeze
 
     def high_traffic_tables
       @high_traffic_tables ||= rubocop_migrations_config.dig('Migration/UpdateLargeTable', 'HighTrafficTables')
@@ -32,32 +33,58 @@ module RuboCop
       in_deployment_migration?(node) || in_post_deployment_migration?(node)
     end
 
+    def in_background_migration?(node)
+      filepath(node).include?('/lib/gitlab/background_migration/') ||
+        in_ee_background_migration?(node)
+    end
+
+    def in_ee_background_migration?(node)
+      filepath(node).include?('/ee/lib/ee/gitlab/background_migration/')
+    end
+
     def in_deployment_migration?(node)
-      dirname(node).end_with?('db/migrate', 'db/geo/migrate')
+      dirname(node).end_with?('db/migrate', 'db/embedding/migrate', 'db/geo/migrate')
     end
 
     def in_post_deployment_migration?(node)
-      dirname(node).end_with?('db/post_migrate', 'db/geo/post_migrate')
+      dirname(node).end_with?('db/post_migrate', 'db/embedding/post_migrate', 'db/geo/post_migrate')
+    end
+
+    # Returns true if we've defined an 'EnforcedSince' variable in rubocop.yml and the migration version
+    # is greater.
+    def time_enforced?(node)
+      return false unless enforced_since
+
+      version(node) > enforced_since
     end
 
     def version(node)
       File.basename(node.location.expression.source_buffer.name).split('_').first.to_i
     end
 
-    # Returns true if a column definition is for an array
+    # Returns true if a column definition is for an array, like { array: true }
+    #
+    # @example
+    #          add_column :table, :ids, :integer, array: true, default: []
+    #
     # rubocop:disable Lint/BooleanSymbol
     def array_column?(node)
       node.each_descendant(:pair).any? do |pair_node|
-        pair_node.child_nodes[0].value == :array && # Searching for a (pair (sym :array) (true)) node
-        pair_node.child_nodes[1].type == :true # RuboCop::AST::Node uses symbols for types, even when that is a :true
+        pair_node.child_nodes[0].sym_type? && # Searching for a RuboCop::AST::SymbolNode
+          pair_node.child_nodes[0].value == :array && # Searching for a (pair (sym :array) (true)) node
+          pair_node.child_nodes[1].type == :true # RuboCop::AST::Node uses symbols for types, even when that is a :true
       end
     end
     # rubocop:enable Lint/BooleanSymbol
 
     private
 
+    def filepath(node)
+      node.location.expression.source_buffer.name
+    end
+
     def dirname(node)
-      File.dirname(node.location.expression.source_buffer.name)
+      File.dirname(filepath(node))
     end
 
     def rubocop_migrations_config
@@ -66,6 +93,10 @@ module RuboCop
 
     def rubocop_path
       File.expand_path(__dir__)
+    end
+
+    def enforced_since
+      @enforced_since ||= config.for_cop(name)['EnforcedSince']
     end
   end
 end

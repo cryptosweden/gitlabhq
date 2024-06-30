@@ -1,17 +1,50 @@
 ---
-stage: Growth
-group: Product Intelligence
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference, api
+stage: Monitor
+group: Analytics Instrumentation
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Service Data API **(FREE SELF)**
+# Service Ping API
 
-The Service Data API is associated with [Service Ping](../development/service_ping/index.md).
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+The Service Ping API is associated with [Service Ping](../development/internal_analytics/service_ping/index.md).
+
+## Export Service Ping data
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141446) in GitLab 16.9.
+
+Requires a Personal Access Token with `read_service_ping` scope.
+
+Returns the JSON payload collected in Service Ping. If no payload data is available in the application cache, it returns empty response.
+If payload data is empty, make sure the [Service Ping feature is enabled](../administration/settings/usage_statistics.md#enable-or-disable-service-ping) and
+wait for the cron job to be executed, or [generate payload data manually](../development/internal_analytics/service_ping/troubleshooting.md#generate-service-ping).
+
+Example request:
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/usage_data/service_ping"
+```
+
+Example response:
+
+```json
+  "recorded_at": "2024-01-15T23:33:50.387Z",
+  "license": {},
+  "counts": {
+    "assignee_lists": 0,
+    "ci_builds": 463,
+    "ci_external_pipelines": 0,
+    "ci_pipeline_config_auto_devops": 0,
+    "ci_pipeline_config_repository": 0,
+    "ci_triggers": 0,
+    "ci_pipeline_schedules": 0
+...
+```
 
 ## Export metric definitions as a single YAML file
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/57270) in GitLab 13.11.
 
 Export all metric definitions as a single YAML file, similar to the [Metrics Dictionary](https://metrics.gitlab.com/), for easier importing.
 
@@ -32,10 +65,7 @@ Example response:
 - key_path: redis_hll_counters.search.i_search_paid_monthly
   description: Calculated unique users to perform a search with a paid license enabled
     by month
-  product_section: enablement
-  product_stage: enablement
-  product_group: group::global search
-  product_category: global_search
+  product_group: global_search
   value_type: number
   status: active
   time_frame: 28d
@@ -50,10 +80,10 @@ Example response:
 
 ## Export Service Ping SQL queries
 
-This action is available only for the GitLab instance [Administrator](../user/permissions.md) users.
+This action is behind the `usage_data_queries_api` feature flag and is available only for the GitLab instance [Administrator](../user/permissions.md) users.
 
 > - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/57016) in GitLab 13.11.
-> - [Deployed behind a feature flag](../user/feature_flags.md), disabled by default.
+> - [Deployed behind a feature flag](../user/feature_flags.md) named `usage_data_queries_api`, disabled by default.
 
 Return all of the raw SQL queries used to compute Service Ping.
 
@@ -79,6 +109,7 @@ Example response:
   "active_user_count": "SELECT COUNT(\"users\".\"id\") FROM \"users\" WHERE (\"users\".\"state\" IN ('active')) AND (\"users\".\"user_type\" IS NULL OR \"users\".\"user_type\" IN (NULL, 6, 4))",
   "edition": "EE",
   "license_md5": "c701acc03844c45366dd175ef7a4e19c",
+  "license_sha256": "366dd175ef7a4e19cc701acc03844c45366dd175ef7a4e19cc701acc03844c45",
   "license_id": null,
   "historical_max_users": 0,
   "licensee": {
@@ -113,8 +144,10 @@ Example response:
 
 ## UsageDataNonSqlMetrics API
 
+This action is behind the `usage_data_non_sql_metrics` feature flag and is available only for the GitLab instance [Administrator](../user/permissions.md) users.
+
 > - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/57050) in GitLab 13.11.
-> - [Deployed behind a feature flag](../user/feature_flags.md), disabled by default.
+> - [Deployed behind a feature flag](../user/feature_flags.md), named `usage_data_non_sql_metrics`, disabled by default.
 
 Return all non-SQL metrics data used in the Service ping.
 
@@ -136,6 +169,7 @@ Sample response:
   "active_user_count": -3,
   "edition": "EE",
   "license_md5": "bb8cd0d8a6d9569ff3f70b8927a1f949",
+  "license_sha256": "366dd175ef7a4e19cc701acc03844c45366dd175ef7a4e19cc701acc03844c45",
   "license_id": null,
   "historical_max_users": 0,
   "licensee": {

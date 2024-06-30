@@ -1,5 +1,6 @@
 <script>
-import { GlLoadingIcon, GlButton, GlAlert, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlLoadingIcon, GlButton, GlAlert } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 
 export default {
   components: {
@@ -8,7 +9,7 @@ export default {
     GlAlert,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   props: {
     isLoading: {
@@ -52,13 +53,7 @@ export default {
     <template v-else>
       <p>{{ __('Run tests against your code live using the Web Terminal') }}</p>
       <p>
-        <gl-button
-          :disabled="!isValid"
-          category="primary"
-          variant="info"
-          data-qa-selector="start_web_terminal_button"
-          @click="onStart"
-        >
+        <gl-button :disabled="!isValid" category="primary" variant="confirm" @click="onStart">
           {{ __('Start Web Terminal') }}
         </gl-button>
       </p>

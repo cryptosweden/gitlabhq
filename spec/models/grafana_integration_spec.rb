@@ -15,7 +15,7 @@ RSpec.describe GrafanaIntegration do
       unsafe_url = %{https://replaceme.com/'><script>alert(document.cookie)</script>}
       non_ascii_url = 'http://gitlab.com/api/0/projects/project1/something€'
       blank_url = ''
-      excessively_long_url = 'https://grafan' + 'a' * 1024 + '.com'
+      excessively_long_url = 'https://grafan' + ('a' * 1024) + '.com'
 
       is_expected.not_to allow_values(
         unsafe_url,
@@ -83,6 +83,40 @@ RSpec.describe GrafanaIntegration do
       it 'prevents overriding token value with its encrypted or masked version', :aggregate_failures do
         expect { grafana_integration.update!(token: grafana_integration.encrypted_token) }.not_to change { grafana_integration.reload.send(:token) }
         expect { grafana_integration.update!(token: grafana_integration.masked_token) }.not_to change { grafana_integration.reload.send(:token) }
+      end
+    end
+  end
+
+  describe 'Callbacks' do
+    describe 'before_validation :reset_token' do
+      context 'when a token was previously set' do
+        subject(:grafana_integration) { create(:grafana_integration) }
+
+        it 'resets token if url changed' do
+          grafana_integration.grafana_url = 'http://gitlab1.com'
+
+          expect(grafana_integration).not_to be_valid
+          expect(grafana_integration.send(:token)).to be_nil
+        end
+
+        it "does not reset token if new url is set together with the same token" do
+          grafana_integration.grafana_url = 'http://gitlab_edited.com'
+          current_token = grafana_integration.send(:token)
+          grafana_integration.token = current_token
+
+          expect(grafana_integration).to be_valid
+          expect(grafana_integration.send(:token)).to eq(current_token)
+          expect(grafana_integration.grafana_url).to eq('http://gitlab_edited.com')
+        end
+
+        it 'does not reset token if new url is set together with a new token' do
+          grafana_integration.grafana_url = 'http://gitlab_edited.com'
+          grafana_integration.token = 'token'
+
+          expect(grafana_integration).to be_valid
+          expect(grafana_integration.send(:token)).to eq('token')
+          expect(grafana_integration.grafana_url).to eq('http://gitlab_edited.com')
+        end
       end
     end
   end

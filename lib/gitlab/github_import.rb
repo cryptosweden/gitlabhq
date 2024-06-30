@@ -20,7 +20,7 @@ module Gitlab
     def self.ghost_user_id
       key = 'github-import/ghost-user-id'
 
-      Gitlab::Cache::Import::Caching.read_integer(key) || Gitlab::Cache::Import::Caching.write(key, User.select(:id).ghost.id)
+      Gitlab::Cache::Import::Caching.read_integer(key) || Gitlab::Cache::Import::Caching.write(key, Users::Internal.ghost.id)
     end
 
     # Get formatted GitHub import URL. If github.com is in the import URL, this will return nil and octokit will use the default github.com API URL
@@ -36,7 +36,7 @@ module Gitlab
     end
 
     def self.per_page(project)
-      if project.group.present? && Feature.enabled?(:github_importer_lower_per_page_limit, project.group, type: :ops, default_enabled: :yaml)
+      if project.group.present? && Feature.enabled?(:github_importer_lower_per_page_limit, project.group, type: :ops)
         Gitlab::GithubImport::Client::LOWER_PER_PAGE
       else
         Gitlab::GithubImport::Client::DEFAULT_PER_PAGE

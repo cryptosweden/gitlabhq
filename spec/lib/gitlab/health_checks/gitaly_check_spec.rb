@@ -1,14 +1,9 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::HealthChecks::GitalyCheck do
   let(:result_class) { Gitlab::HealthChecks::Result }
-  let(:repository_storages) { ['default'] }
-
-  before do
-    allow(described_class).to receive(:repository_storages) { repository_storages }
-  end
 
   describe '#readiness' do
     subject { described_class.readiness }

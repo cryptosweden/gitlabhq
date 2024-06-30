@@ -1,10 +1,12 @@
 <script>
-import { refreshUserMergeRequestCounts } from '~/commons/nav/user_merge_requests';
+import { STATUS_MERGED } from '~/issues/constants';
 import simplePoll from '~/lib/utils/simple_poll';
-import MergeRequest from '../../../merge_request';
+import MergeRequest from '~/merge_request';
+import BoldText from '~/vue_merge_request_widget/components/bold_text.vue';
+import { fetchUserCounts } from '~/super_sidebar/user_counts_fetch';
 import eventHub from '../../event_hub';
 import { MERGE_ACTIVE_STATUS_PHRASES, STATE_MACHINE } from '../../constants';
-import statusIcon from '../mr_widget_status_icon.vue';
+import StatusIcon from '../mr_widget_status_icon.vue';
 
 const { transitions } = STATE_MACHINE;
 const { MERGE_FAILURE } = transitions;
@@ -12,7 +14,8 @@ const { MERGE_FAILURE } = transitions;
 export default {
   name: 'MRWidgetMerging',
   components: {
-    statusIcon,
+    BoldText,
+    StatusIcon,
   },
   props: {
     mr: {
@@ -48,15 +51,14 @@ export default {
         .poll()
         .then((res) => res.data)
         .then((data) => {
-          if (data.state === 'merged') {
+          if (data.state === STATUS_MERGED) {
             // If state is merged we should update the widget and stop the polling
             eventHub.$emit('MRWidgetUpdateRequested');
             eventHub.$emit('FetchActionsContent');
-            MergeRequest.hideCloseButton();
             MergeRequest.decreaseCounter();
             stopPolling();
 
-            refreshUserMergeRequestCounts();
+            fetchUserCounts();
 
             // If user checked remove source branch and we didn't remove the branch yet
             // we should start another polling for source branch remove process
@@ -83,19 +85,9 @@ export default {
 <template>
   <div class="mr-widget-body mr-state-locked media">
     <status-icon status="loading" />
-    <div class="media-body">
-      <h4>
-        {{ mergeStatus.message }}
-        <gl-emoji :data-name="mergeStatus.emoji" />
-      </h4>
-      <section class="mr-info-list">
-        <p>
-          {{ s__('mrWidget|Merges changes into') }}
-          <span class="label-branch">
-            <a :href="mr.targetBranchPath">{{ mr.targetBranch }}</a>
-          </span>
-        </p>
-      </section>
+    <div class="media-body" data-testid="merging-state">
+      <bold-text :message="mergeStatus.message" />
+      <gl-emoji :data-name="mergeStatus.emoji" />
     </div>
   </div>
 </template>

@@ -22,9 +22,7 @@ module WikiHelper
   end
 
   def wiki_sidebar_toggle_button
-    content_tag :button, class: 'gl-button btn btn-default btn-icon sidebar-toggle js-sidebar-wiki-toggle', role: 'button', type: 'button' do
-      sprite_icon('chevron-double-lg-left')
-    end
+    render Pajamas::ButtonComponent.new(icon: 'chevron-double-lg-left', button_options: { class: 'sidebar-toggle js-sidebar-wiki-toggle' })
   end
 
   # Produces a pure text breadcrumb for a given page.
@@ -46,7 +44,10 @@ module WikiHelper
     page_slug_split
       .map do |dir_or_page|
         current_slug = "#{current_slug}#{dir_or_page}/"
-        add_to_breadcrumb_collapsed_links link_to(WikiPage.unhyphenize(dir_or_page).capitalize, wiki_page_path(@wiki, current_slug)), location: :after
+        add_to_breadcrumb_collapsed_links(
+          { text: WikiPage.unhyphenize(dir_or_page).capitalize, href: wiki_page_path(@wiki, current_slug) },
+          location: :after
+        )
       end
   end
 
@@ -59,59 +60,42 @@ module WikiHelper
     end
   end
 
-  def wiki_sort_controls(wiki, sort, direction)
-    sort ||= Wiki::TITLE_ORDER
-    link_class = 'gl-button btn btn-default btn-icon has-tooltip reverse-sort-btn qa-reverse-sort rspec-reverse-sort'
+  def wiki_sort_controls(wiki, direction, action: :pages)
+    link_class = 'has-tooltip reverse-sort-btn rspec-reverse-sort'
     reversed_direction = direction == 'desc' ? 'asc' : 'desc'
     icon_class = direction == 'desc' ? 'highest' : 'lowest'
+    title = direction == 'desc' ? _('Sort direction: Descending') : _('Sort direction: Ascending')
 
-    link_to(wiki_path(wiki, action: :pages, sort: sort, direction: reversed_direction),
-      type: 'button', class: link_class, title: _('Sort direction')) do
-      sprite_icon("sort-#{icon_class}")
-    end
-  end
+    link_options = { action: action, direction: reversed_direction }
 
-  def wiki_sort_title(key)
-    if key == Wiki::CREATED_AT_ORDER
-      s_("Wiki|Created date")
-    else
-      s_("Wiki|Title")
-    end
+    render Pajamas::ButtonComponent.new(href: wiki_path(wiki, **link_options), icon: "sort-#{icon_class}", button_options: { class: link_class, title: title })
   end
 
   def wiki_empty_state_messages(wiki)
     case wiki.container
     when Project
-      writable_body = s_("WikiEmpty|A wiki is where you can store all the details about your project. This can include why you've created it, its principles, how to use it, and so on.")
+      writable_body = s_("WikiEmpty|Use GitLab Wiki to collaborate on documentation in a project or group. You can store wiki pages written in markup formats like Markdown or AsciiDoc in a separate Git repository, and access the wiki through Git, the GitLab web interface, or the API.")
       writable_body += s_("WikiEmpty| Have a Confluence wiki already? Use that instead.") if show_enable_confluence_integration?(wiki.container)
 
       {
         writable: {
-          title: s_('WikiEmpty|The wiki lets you write documentation for your project'),
+          title: s_('WikiEmpty|Get started with wikis'),
           body: writable_body
         },
-        issuable: {
-          title: s_('WikiEmpty|This project has no wiki pages'),
-          body: s_('WikiEmptyIssueMessage|You must be a project member in order to add wiki pages. If you have suggestions for how to improve the wiki for this project, consider opening an issue in the %{issues_link}.')
-        },
         readonly: {
-          title: s_('WikiEmpty|This project has no wiki pages'),
-          body: s_('WikiEmpty|You must be a project member in order to add wiki pages.')
+          title: s_('WikiEmpty|This wiki doesn\'t have any content yet'),
+          body: s_('WikiEmpty|You can use GitLab Wiki to collaborate on documentation in a project or group. You can store wiki pages written in markup formats like Markdown or AsciiDoc in a separate Git repository, and access the wiki through Git, the GitLab web interface, or the API.')
         }
       }
     when Group
       {
         writable: {
-          title: s_('WikiEmpty|The wiki lets you write documentation for your group'),
-          body: s_("WikiEmpty|A wiki is where you can store all the details about your group. This can include why you've created it, its principles, how to use it, and so on.")
-        },
-        issuable: {
-          title: s_('WikiEmpty|This group has no wiki pages'),
-          body: s_('WikiEmptyIssueMessage|You must be a group member in order to add wiki pages. If you have suggestions for how to improve the wiki for this group, consider opening an issue in the %{issues_link}.')
+          title: s_('WikiEmpty|Get started with wikis'),
+          body: s_("WikiEmpty|Use GitLab Wiki to collaborate on documentation in a project or group. You can store wiki pages written in markup formats like Markdown or AsciiDoc in a separate Git repository, and access the wiki through Git, the GitLab web interface, or the API.")
         },
         readonly: {
-          title: s_('WikiEmpty|This group has no wiki pages'),
-          body: s_('WikiEmpty|You must be a group member in order to add wiki pages.')
+          title: s_('WikiEmpty|This wiki doesn\'t have any content yet'),
+          body: s_('WikiEmpty|You can use GitLab Wiki to collaborate on documentation in a project or group. You can store wiki pages written in markup formats like Markdown or AsciiDoc in a separate Git repository, and access the wiki through Git, the GitLab web interface, or the API.')
         }
       }
     else
@@ -121,11 +105,11 @@ module WikiHelper
 
   def wiki_page_tracking_context(page)
     {
-      'wiki-format'               => page.format,
-      'wiki-title-size'           => page.title.bytesize,
-      'wiki-content-size'         => page.raw_content.bytesize,
+      'wiki-format' => page.format,
+      'wiki-title-size' => page.title.bytesize,
+      'wiki-content-size' => page.raw_content.bytesize,
       'wiki-directory-nest-level' => page.path.scan('/').count,
-      'wiki-container-type'       => page.wiki.container.class.name
+      'wiki-container-type' => page.wiki.container.class.name
     }
   end
 
@@ -136,13 +120,44 @@ module WikiHelper
   end
 
   def wiki_page_render_api_endpoint(page)
-    api_v4_projects_wikis_path(wiki_page_render_api_endpoint_params(page))
+    expose_path(api_v4_projects_wikis_path(wiki_page_render_api_endpoint_params(page)))
+  end
+
+  def wiki_markup_hash_by_name_id
+    Wiki::VALID_USER_MARKUPS.map { |key, value| { value[:name] => key } }.reduce({}, :merge)
   end
 
   private
 
   def wiki_page_render_api_endpoint_params(page)
     { id: page.container.id, slug: ERB::Util.url_encode(page.slug), params: { version: page.version.id } }
+  end
+
+  def wiki_page_info(page, uploads_path: '')
+    {
+      last_commit_sha: page.last_commit_sha,
+      persisted: page.persisted?,
+      title: page.title,
+      content: page.raw_content || '',
+      format: page.format.to_s,
+      uploads_path: uploads_path,
+      slug: page.slug,
+      path: wiki_page_path(page.wiki, page),
+      wiki_path: wiki_path(page.wiki),
+      help_path: help_page_path('user/project/wiki/index'),
+      markdown_help_path: help_page_path('user/markdown'),
+      markdown_preview_path: wiki_page_path(page.wiki, page, action: :preview_markdown),
+      create_path: wiki_path(page.wiki, action: :create)
+    }
+  end
+
+  def wiki_page_basic_info(page)
+    {
+      title: page.title,
+      format: page.format.to_s,
+      slug: page.slug,
+      path: wiki_page_path(page.wiki, page)
+    }
   end
 end
 

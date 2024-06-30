@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-PUMA_EXTERNAL_METRICS_SERVER = Gitlab::Utils.to_boolean(ENV['PUMA_EXTERNAL_METRICS_SERVER'])
-require Rails.root.join('metrics_server', 'metrics_server') if PUMA_EXTERNAL_METRICS_SERVER
+require Rails.root.join('metrics_server', 'metrics_server')
 
 # Keep separate directories for separate processes
 def metrics_temp_dir
@@ -20,11 +19,17 @@ def prometheus_metrics_dir
   ENV['prometheus_multiproc_dir'] || metrics_temp_dir
 end
 
-def puma_metrics_server_process?
+def puma_master?
   Prometheus::PidProvider.worker_id == 'puma_master'
 end
 
-if puma_metrics_server_process?
+# Whether a dedicated process should run that serves Rails application metrics, as opposed
+# to using a Rails controller.
+def puma_dedicated_metrics_server?
+  Settings.monitoring.web_exporter.enabled
+end
+
+if puma_master?
   # The following is necessary to ensure stale Prometheus metrics don't accumulate over time.
   # It needs to be done as early as possible to ensure new metrics aren't being deleted.
   #
@@ -53,35 +58,18 @@ end
 # context (i.e. not in the Rails console or rspec) and when users have enabled metrics.
 return if Rails.env.test? || !Gitlab::Runtime.application? || !Gitlab::Metrics.prometheus_metrics_enabled?
 
-if Gitlab::Runtime.sidekiq? && (!ENV['SIDEKIQ_WORKER_ID'] || ENV['SIDEKIQ_WORKER_ID'] == '0')
-  # The single worker outside of a sidekiq-cluster, or the first worker (sidekiq_0)
-  # in a cluster of processes, is responsible for serving health checks.
-  #
-  # Do not clean the metrics directory here - the supervisor script should
-  # have already taken care of that.
-  Sidekiq.configure_server do |config|
-    config.on(:startup) do
-      # In https://gitlab.com/gitlab-org/gitlab/-/issues/345804 we are looking to
-      # only serve health-checks from a worker process; for backwards compatibility
-      # we still go through the metrics exporter server, but start to configure it
-      # with the new settings keys.
-      exporter_settings = Settings.monitoring.sidekiq_health_checks
-      Gitlab::Metrics::Exporter::SidekiqExporter.instance(exporter_settings).start
-    end
-  end
-end
-
 Gitlab::Cluster::LifecycleEvents.on_master_start do
   Gitlab::Metrics.gauge(:deployments, 'GitLab Version', {}, :max).set({ version: Gitlab::VERSION, revision: Gitlab.revision }, 1)
 
   if Gitlab::Runtime.puma?
+    [
+      Gitlab::Metrics::Samplers::RubySampler,
+      Gitlab::Metrics::Samplers::ThreadsSampler
+    ].each { |sampler| sampler.instance(logger: Gitlab::AppLogger).start }
+
     Gitlab::Metrics::Samplers::PumaSampler.instance.start
 
-    if PUMA_EXTERNAL_METRICS_SERVER && Settings.monitoring.web_exporter.enabled
-      MetricsServer.start_for_puma
-    else
-      Gitlab::Metrics::Exporter::WebExporter.instance.start
-    end
+    MetricsServer.start_for_puma if puma_dedicated_metrics_server?
   end
 
   Gitlab::Ci::Parsers.instrument!
@@ -93,18 +81,19 @@ end
 Gitlab::Cluster::LifecycleEvents.on_worker_start do
   defined?(::Prometheus::Client.reinitialize_on_pid_change) && ::Prometheus::Client.reinitialize_on_pid_change
   logger = Gitlab::AppLogger
-  Gitlab::Metrics::Samplers::RubySampler.initialize_instance(logger: logger).start
+  # Since we also run these samplers in the Puma primary, we need to re-create them each time we fork.
+  # For Sidekiq, this does not make any difference, since there is no primary.
+  [
+    Gitlab::Metrics::Samplers::RubySampler,
+    Gitlab::Metrics::Samplers::ThreadsSampler
+  ].each { |sampler| sampler.initialize_instance(logger: logger, recreate: true).start }
+
   Gitlab::Metrics::Samplers::DatabaseSampler.initialize_instance(logger: logger).start
-  Gitlab::Metrics::Samplers::ThreadsSampler.initialize_instance(logger: logger).start
 
   if Gitlab::Runtime.puma?
     # Since we are observing a metrics server from the Puma primary, we would inherit
     # this supervision thread after forking into workers, so we need to explicitly stop it here.
-    if PUMA_EXTERNAL_METRICS_SERVER
-      ::MetricsServer::PumaProcessSupervisor.instance.stop
-    else
-      Gitlab::Metrics::Exporter::WebExporter.instance.stop
-    end
+    ::MetricsServer::PumaProcessSupervisor.instance.stop if puma_dedicated_metrics_server?
 
     Gitlab::Metrics::Samplers::ActionCableSampler.instance(logger: logger).start
   end
@@ -114,20 +103,21 @@ Gitlab::Cluster::LifecycleEvents.on_worker_start do
   end
 
   Gitlab::Ci::Parsers.instrument!
+
+  # We intentionally defer this instrumentation to occur after `reinitialize_on_pid_change`.
+  # Otherwise `ConnectionPool.after_fork` will result in the instrumentation being called early,
+  # before we had a chance to re-initialize prometheus mmapped metrics.
+  ConnectionPool.prepend(Gitlab::Instrumentation::ConnectionPool)
 rescue IOError => e
   Gitlab::ErrorTracking.track_exception(e)
   Gitlab::Metrics.error_detected!
 end
 
-if Gitlab::Runtime.puma?
+if Gitlab::Runtime.puma? && puma_dedicated_metrics_server?
   Gitlab::Cluster::LifecycleEvents.on_before_graceful_shutdown do
     # We need to ensure that before we re-exec or shutdown server
     # we also stop the metrics server
-    if PUMA_EXTERNAL_METRICS_SERVER
-      ::MetricsServer::PumaProcessSupervisor.instance.shutdown
-    else
-      Gitlab::Metrics::Exporter::WebExporter.instance.stop
-    end
+    ::MetricsServer::PumaProcessSupervisor.instance.shutdown
   end
 
   Gitlab::Cluster::LifecycleEvents.on_before_master_restart do
@@ -136,10 +126,6 @@ if Gitlab::Runtime.puma?
     #
     # We do it again, for being extra safe,
     # but it should not be needed
-    if PUMA_EXTERNAL_METRICS_SERVER
-      ::MetricsServer::PumaProcessSupervisor.instance.shutdown
-    else
-      Gitlab::Metrics::Exporter::WebExporter.instance.stop
-    end
+    ::MetricsServer::PumaProcessSupervisor.instance.shutdown
   end
 end

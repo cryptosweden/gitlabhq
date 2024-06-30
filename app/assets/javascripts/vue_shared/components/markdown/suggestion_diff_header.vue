@@ -4,6 +4,10 @@ import { isLoggedIn } from '~/lib/utils/common_utils';
 import { __ } from '~/locale';
 import ApplySuggestion from './apply_suggestion.vue';
 
+const APPLY_SUGGESTION_ERROR_MESSAGE = __(
+  'Unable to fully load the default commit message. You can still apply this suggestion and the commit message will be correct.',
+);
+
 export default {
   components: { GlBadge, GlIcon, GlButton, GlLoadingIcon, ApplySuggestion },
   directives: { 'gl-tooltip': GlTooltipDirective },
@@ -52,6 +56,11 @@ export default {
       required: false,
       default: 0,
     },
+    failedToLoadMetadata: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     return {
@@ -68,9 +77,7 @@ export default {
         return this.inapplicableReason;
       }
 
-      return this.batchSuggestionsCount > 1
-        ? __('This also resolves all related threads')
-        : __('This also resolves this thread');
+      return false;
     },
     isDisableButton() {
       return this.isApplying || !this.canApply;
@@ -93,6 +100,9 @@ export default {
       }
 
       return true;
+    },
+    applySuggestionErrorMessage() {
+      return this.failedToLoadMetadata ? APPLY_SUGGESTION_ERROR_MESSAGE : null;
     },
   },
   methods: {
@@ -127,29 +137,30 @@ export default {
 </script>
 
 <template>
-  <div class="md-suggestion-header border-bottom-0 mt-2">
-    <div class="js-suggestion-diff-header font-weight-bold">
+  <div class="md-suggestion-header border-bottom-0 gl-px-4 gl-py-3">
+    <div class="js-suggestion-diff-header gl-font-bold">
       {{ __('Suggested change') }}
       <a v-if="helpPagePath" :href="helpPagePath" :aria-label="__('Help')" class="js-help-btn">
         <gl-icon name="question-o" css-classes="link-highlight" />
       </a>
     </div>
-    <gl-badge v-if="isApplied" variant="success" data-qa-selector="applied_badge">
+    <gl-badge v-if="isApplied" variant="success" data-testid="applied-badge">
       {{ __('Applied') }}
     </gl-badge>
     <div
       v-else-if="isApplying"
-      class="d-flex align-items-center text-secondary"
-      data-qa-selector="applying_badge"
+      class="gl-display-flex gl-align-items-center text-secondary"
+      data-testid="applying-badge"
     >
-      <gl-loading-icon size="sm" class="d-flex-center mr-2" />
+      <gl-loading-icon size="sm" class="gl-align-items-center gl-justify-content-center gl-mr-3" />
       <span>{{ applyingSuggestionsMessage }}</span>
     </div>
-    <div v-else-if="isLoggedIn" class="d-flex align-items-center">
+    <div v-else-if="isLoggedIn" class="gl-display-flex gl-align-items-center">
       <div v-if="isBatched">
         <gl-button
           class="btn-inverted js-remove-from-batch-btn btn-grouped"
           :disabled="isApplying"
+          size="small"
           @click="removeSuggestionFromBatch"
         >
           {{ __('Remove from batch') }}
@@ -158,8 +169,9 @@ export default {
       <div v-else-if="!isDisableButton && suggestionsCount > 1">
         <gl-button
           class="btn-inverted js-add-to-batch-btn btn-grouped"
-          data-qa-selector="add_suggestion_batch_button"
+          data-testid="add-suggestion-batch-button"
           :disabled="isDisableButton"
+          size="small"
           @click="addSuggestionToBatch"
         >
           {{ __('Add suggestion to batch') }}
@@ -171,6 +183,7 @@ export default {
         :disabled="isDisableButton"
         :default-commit-message="defaultCommitMessage"
         :batch-suggestions-count="batchSuggestionsCount"
+        :error-message="applySuggestionErrorMessage"
         class="gl-ml-3"
         @apply="apply"
       />

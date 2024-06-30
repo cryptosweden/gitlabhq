@@ -1,18 +1,11 @@
 <script>
-import {
-  GlButton,
-  GlButtonGroup,
-  GlDropdown,
-  GlDropdownItem,
-  GlDropdownText,
-  GlDropdownSectionHeader,
-  GlSearchBoxByType,
-} from '@gitlab/ui';
+import { GlButton, GlButtonGroup, GlTruncate, GlCollapsibleListbox, GlIcon } from '@gitlab/ui';
 import { joinPaths, PATH_SEPARATOR } from '~/lib/utils/url_utility';
 import { MINIMUM_SEARCH_LENGTH } from '~/graphql_shared/constants';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import Tracking from '~/tracking';
 import { DEBOUNCE_DELAY } from '~/vue_shared/components/filtered_search_bar/constants';
+import { __, s__, n__ } from '~/locale';
 import searchNamespacesWhereUserCanCreateProjectsQuery from '../queries/search_namespaces_where_user_can_create_projects.query.graphql';
 import eventHub from '../event_hub';
 
@@ -20,11 +13,9 @@ export default {
   components: {
     GlButton,
     GlButtonGroup,
-    GlDropdown,
-    GlDropdownItem,
-    GlDropdownText,
-    GlDropdownSectionHeader,
-    GlSearchBoxByType,
+    GlTruncate,
+    GlCollapsibleListbox,
+    GlIcon,
   },
   mixins: [Tracking.mixin()],
   apollo: {
@@ -48,8 +39,9 @@ export default {
     'namespaceId',
     'rootUrl',
     'trackLabel',
-    'userNamespaceFullPath',
     'userNamespaceId',
+    'inputName',
+    'inputId',
   ],
   data() {
     return {
@@ -61,11 +53,9 @@ export default {
             id: this.namespaceId,
             fullPath: this.namespaceFullPath,
           }
-        : {
-            id: this.userNamespaceId,
-            fullPath: this.userNamespaceFullPath,
-          },
+        : this.$options.emptyNameSpace,
       shouldSkipQuery: true,
+      userNamespaceUniqueId: this.userNamespaceId,
     };
   },
   computed: {
@@ -89,8 +79,60 @@ export default {
         !this.groupPathToFilterBy
       );
     },
-    hasNoMatches() {
-      return !this.hasGroupMatches && !this.hasNamespaceMatches;
+    items() {
+      return this.groupsItems.concat(this.namespaceItems);
+    },
+    groupsItems() {
+      if (this.hasGroupMatches) {
+        return [
+          {
+            text: __('Groups'),
+            options: this.filteredGroups.map((group) => ({
+              value: group.id,
+              text: group.fullPath,
+            })),
+          },
+        ];
+      }
+
+      return [];
+    },
+    allItems() {
+      return this.filteredGroups.concat(this.currentUser.namespace);
+    },
+    namespaceItems() {
+      if (this.hasNamespaceMatches && this.userNamespaceUniqueId)
+        return [
+          {
+            text: __('Users'),
+            options: [
+              {
+                value: this.userNamespace.id,
+                text: this.userNamespace.fullPath,
+              },
+            ],
+          },
+        ];
+      return [];
+    },
+    dropdownPlaceholderClass() {
+      return this.selectedNamespace.id ? '' : 'gl-text-gray-500!';
+    },
+    dropdownText() {
+      if (this.selectedNamespace && this.selectedNamespace?.fullPath) {
+        return this.selectedNamespace.fullPath;
+      }
+      return null;
+    },
+    loading() {
+      return this.$apollo.queries.currentUser.loading;
+    },
+    searchSummary() {
+      return n__(
+        'ProjectsNew|%d group or namespace found',
+        'ProjectsNew|%d groups or namespaces found',
+        this.items.length,
+      );
     },
   },
   created() {
@@ -104,15 +146,18 @@ export default {
       if (this.shouldSkipQuery) {
         this.shouldSkipQuery = false;
       }
-      this.$refs.search.focusInput();
     },
-    handleDropdownItemClick(namespace) {
-      eventHub.$emit('update-visibility', {
-        name: namespace.name,
-        visibility: namespace.visibility,
-        showPath: namespace.webUrl,
-        editPath: joinPaths(namespace.webUrl, '-', 'edit'),
-      });
+    handleDropdownItemClick(namespaceId) {
+      const namespace = this.allItems.find((item) => item.id === namespaceId);
+
+      if (namespace) {
+        eventHub.$emit('update-visibility', {
+          name: namespace.name,
+          visibility: namespace.visibility,
+          showPath: namespace.webUrl,
+          editPath: joinPaths(namespace.webUrl, '-', 'edit'),
+        });
+      }
       this.setNamespace(namespace);
     },
     handleSelectTemplate(id, fullPath) {
@@ -120,57 +165,80 @@ export default {
       this.setNamespace({ id, fullPath });
     },
     setNamespace({ id, fullPath }) {
-      this.selectedNamespace = {
-        id: getIdFromGraphQLId(id),
-        fullPath,
-      };
+      this.selectedNamespace = id
+        ? {
+            id: getIdFromGraphQLId(id),
+            fullPath,
+          }
+        : this.$options.emptyNameSpace;
     },
+    trackDropdownShow() {
+      if (this.trackLabel) {
+        this.track('activate_form_input', { label: this.trackLabel, property: 'project_path' });
+      }
+    },
+    onSearch(query) {
+      this.search = query;
+    },
+  },
+  i18n: {
+    emptySearchResult: __('No matches found'),
+  },
+  emptyNameSpace: {
+    id: undefined,
+    fullPath: s__('ProjectsNew|Pick a group or namespace'),
   },
 };
 </script>
 
 <template>
-  <gl-button-group class="input-lg">
-    <gl-button class="gl-text-truncate" label :title="rootUrl">{{ rootUrl }}</gl-button>
-    <gl-dropdown
-      :text="selectedNamespace.fullPath"
-      toggle-class="gl-rounded-top-right-base! gl-rounded-bottom-right-base! gl-w-20"
-      data-qa-selector="select_namespace_dropdown"
-      @show="track('activate_form_input', { label: trackLabel, property: 'project_path' })"
-      @shown="handleDropdownShown"
+  <gl-button-group class="gl-w-full">
+    <gl-button
+      class="js-group-namespace-button gl-text-truncate gl-flex-grow-0!"
+      label
+      :title="rootUrl"
+      >{{ rootUrl }}</gl-button
     >
-      <gl-search-box-by-type
-        ref="search"
-        v-model.trim="search"
-        :is-loading="$apollo.queries.currentUser.loading"
-        data-qa-selector="select_namespace_dropdown_search_field"
-      />
-      <template v-if="!$apollo.queries.currentUser.loading">
-        <template v-if="hasGroupMatches">
-          <gl-dropdown-section-header>{{ __('Groups') }}</gl-dropdown-section-header>
-          <gl-dropdown-item
-            v-for="group of filteredGroups"
-            :key="group.id"
-            @click="handleDropdownItemClick(group)"
-          >
-            {{ group.fullPath }}
-          </gl-dropdown-item>
-        </template>
-        <template v-if="hasNamespaceMatches">
-          <gl-dropdown-section-header>{{ __('Users') }}</gl-dropdown-section-header>
-          <gl-dropdown-item @click="handleDropdownItemClick(userNamespace)">
-            {{ userNamespace.fullPath }}
-          </gl-dropdown-item>
-        </template>
-        <gl-dropdown-text v-if="hasNoMatches">{{ __('No matches found') }}</gl-dropdown-text>
+
+    <gl-collapsible-listbox
+      searchable
+      fluid-width
+      :searching="loading"
+      :items="items"
+      class="js-group-namespace-dropdown group-namespace-dropdown gl-flex-grow-1"
+      :toggle-text="dropdownText"
+      :no-results-text="$options.i18n.emptySearchResult"
+      data-testid="select-namespace-dropdown"
+      @show="trackDropdownShow"
+      @shown="handleDropdownShown"
+      @select="handleDropdownItemClick"
+      @search="onSearch"
+    >
+      <template #toggle>
+        <gl-button
+          class="gl-flex-basis-full! gl-rounded-left-none! gl-w-20"
+          :class="dropdownPlaceholderClass"
+        >
+          <gl-truncate
+            :text="dropdownText"
+            position="start"
+            class="gl-overflow-hidden gl-mr-auto"
+            with-tooltip
+          />
+          <gl-icon class="gl-button-icon dropdown-chevron gl-mr-0! gl-ml-2!" name="chevron-down" />
+        </gl-button>
       </template>
-    </gl-dropdown>
+      <template #search-summary-sr-only>
+        {{ searchSummary }}
+      </template>
+    </gl-collapsible-listbox>
+    <input type="hidden" name="project[selected_namespace_id]" :value="selectedNamespace.id" />
 
     <input
-      id="project_namespace_id"
+      :id="inputId"
       type="hidden"
-      name="project[namespace_id]"
-      :value="selectedNamespace.id"
+      :name="inputName"
+      :value="selectedNamespace.id || userNamespaceUniqueId"
     />
   </gl-button-group>
 </template>

@@ -78,14 +78,12 @@ RSpec.describe Projects::ReleasesController do
   end
 
   describe 'GET #index' do
-    before do
-      get_index
-    end
-
     context 'as html' do
       let(:format) { :html }
 
       it 'returns a text/html content_type' do
+        get_index
+
         expect(response.media_type).to eq 'text/html'
       end
 
@@ -95,6 +93,8 @@ RSpec.describe Projects::ReleasesController do
         let(:project) { private_project }
 
         it 'returns a redirect' do
+          get_index
+
           expect(response).to have_gitlab_http_status(:redirect)
         end
       end
@@ -104,11 +104,15 @@ RSpec.describe Projects::ReleasesController do
       let(:format) { :json }
 
       it 'returns an application/json content_type' do
+        get_index
+
         expect(response.media_type).to eq 'application/json'
       end
 
       it "returns the project's releases as JSON, ordered by released_at" do
-        expect(response.body).to eq([release_2, release_1].to_json)
+        get_index
+
+        expect(json_response.map { |release| release["id"] }).to eq([release_2.id, release_1.id])
       end
 
       it_behaves_like 'common access controls'
@@ -117,6 +121,8 @@ RSpec.describe Projects::ReleasesController do
         let(:project) { private_project }
 
         it 'returns a redirect' do
+          get_index
+
           expect(response).to have_gitlab_http_status(:redirect)
         end
       end
@@ -142,19 +148,19 @@ RSpec.describe Projects::ReleasesController do
     end
 
     let(:release) { create(:release, project: project) }
-    let(:tag) { CGI.escape(release.tag) }
+    let(:tag) { release.tag }
 
     it_behaves_like 'successful request'
 
     context 'when tag name contains slash' do
       let(:release) { create(:release, project: project, tag: 'awesome/v1.0') }
-      let(:tag) { CGI.escape(release.tag) }
+      let(:tag) { release.tag }
 
       it_behaves_like 'successful request'
 
-      it 'is accesible at a URL encoded path' do
+      it 'is accessible at a URL encoded path' do
         expect(edit_project_release_path(project, release))
-          .to eq("/#{project.namespace.path}/#{project.name}/-/releases/awesome%252Fv1.0/edit")
+          .to eq("/#{project.full_path}/-/releases/awesome%2Fv1.0/edit")
       end
     end
 
@@ -181,19 +187,19 @@ RSpec.describe Projects::ReleasesController do
     end
 
     let(:release) { create(:release, project: project) }
-    let(:tag) { CGI.escape(release.tag) }
+    let(:tag) { release.tag }
 
     it_behaves_like 'successful request'
 
     context 'when tag name contains slash' do
       let(:release) { create(:release, project: project, tag: 'awesome/v1.0') }
-      let(:tag) { CGI.escape(release.tag) }
+      let(:tag) { release.tag }
 
       it_behaves_like 'successful request'
 
       it 'is accesible at a URL encoded path' do
         expect(project_release_path(project, release))
-          .to eq("/#{project.namespace.path}/#{project.name}/-/releases/awesome%252Fv1.0")
+          .to eq("/#{project.full_path}/-/releases/awesome%2Fv1.0")
       end
     end
 
@@ -233,7 +239,7 @@ RSpec.describe Projects::ReleasesController do
     end
 
     let(:release) { create(:release, project: project) }
-    let(:tag) { CGI.escape(release.tag) }
+    let(:tag) { release.tag }
 
     context 'when user is a guest' do
       let(:project) { private_project }
@@ -306,12 +312,12 @@ RSpec.describe Projects::ReleasesController do
       end
 
       context 'suffix path abuse' do
-        let(:suffix_path) { 'downloads/zips/../../../../../../../robots.txt'}
+        let(:suffix_path) { 'downloads/zips/../../../../../../../robots.txt' }
 
         it 'raises attack error' do
           expect do
             subject
-          end.to raise_error(Gitlab::Utils::PathTraversalAttackError)
+          end.to raise_error(Gitlab::PathTraversal::PathTraversalAttackError)
         end
       end
 

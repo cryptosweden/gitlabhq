@@ -1,12 +1,12 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlLoadingIcon, GlAlert } from '@gitlab/ui';
+import { GlAlert } from '@gitlab/ui';
 import { isNull } from 'lodash';
-import Mousetrap from 'mousetrap';
-import { ApolloMutation } from 'vue-apollo';
+import { Mousetrap } from '~/lib/mousetrap';
 import { keysFor, ISSUE_CLOSE_DESIGN } from '~/behaviors/shortcuts/keybindings';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { fetchPolicies } from '~/lib/graphql';
-import { updateGlobalTodoCount } from '~/vue_shared/components/sidebar/todo_toggle/utils';
+import { updateGlobalTodoCount } from '~/sidebar/utils';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import DesignDestroyer from '../../components/design_destroyer.vue';
 import DesignReplyForm from '../../components/design_notes/design_reply_form.vue';
@@ -34,13 +34,11 @@ import {
   getPageLayoutElement,
 } from '../../utils/design_management_utils';
 import {
-  ADD_DISCUSSION_COMMENT_ERROR,
-  ADD_IMAGE_DIFF_NOTE_ERROR,
   UPDATE_IMAGE_DIFF_NOTE_ERROR,
   DESIGN_NOT_FOUND_ERROR,
   DESIGN_VERSION_NOT_EXIST_ERROR,
-  UPDATE_NOTE_ERROR,
   TOGGLE_TODO_ERROR,
+  DELETE_NOTE_ERROR,
   designDeletionError,
 } from '../../utils/error_messages';
 import { trackDesignDetailView, servicePingDesignDetailView } from '../../utils/tracking';
@@ -50,13 +48,11 @@ const DEFAULT_MAX_SCALE = 2;
 
 export default {
   components: {
-    ApolloMutation,
     DesignReplyForm,
     DesignPresentation,
     DesignScaler,
     DesignDestroyer,
     Toolbar,
-    GlLoadingIcon,
     GlAlert,
     DesignSidebar,
   },
@@ -91,13 +87,13 @@ export default {
   data() {
     return {
       design: {},
-      comment: '',
       annotationCoordinates: null,
       errorMessage: '',
       scale: DEFAULT_SCALE,
       resolvedDiscussionsExpanded: false,
       prevCurrentUserTodos: null,
       maxScale: DEFAULT_MAX_SCALE,
+      isSidebarOpen: true,
     };
   },
   apollo: {
@@ -118,10 +114,8 @@ export default {
     },
   },
   computed: {
-    isFirstLoading() {
-      // We only want to show spinner on initial design load (when opened from a deep link to design)
-      // If we already have cached a design, loading shouldn't be indicated to user
-      return this.$apollo.queries.design.loading && !this.design.filename;
+    isLoading() {
+      return this.$apollo.queries.design.loading;
     },
     discussions() {
       if (!this.design.discussions) {
@@ -130,10 +124,7 @@ export default {
       return extractDiscussions(this.design.discussions);
     },
     markdownPreviewPath() {
-      return `/${this.projectPath}/preview_markdown?target_type=Issue`;
-    },
-    isSubmitButtonDisabled() {
-      return this.comment.trim().length === 0;
+      return `/${this.projectPath}/-/preview_markdown?target_type=Issue`;
     },
     designVariables() {
       return {
@@ -143,11 +134,10 @@ export default {
         atVersion: this.designsVersion,
       };
     },
-    mutationPayload() {
+    mutationVariables() {
       const { x, y, width, height } = this.annotationCoordinates;
       return {
         noteableId: this.design.id,
-        body: this.comment,
         position: {
           headSha: this.design.diffRefs.headSha,
           baseSha: this.design.diffRefs.baseSha,
@@ -199,13 +189,23 @@ export default {
     Mousetrap.unbind(keysFor(ISSUE_CLOSE_DESIGN));
   },
   methods: {
-    addImageDiffNoteToStore(store, { data: { createImageDiffNote } }) {
+    addImageDiffNoteToStore({ data }) {
+      const { createImageDiffNote } = data;
+      /**
+       * https://gitlab.com/gitlab-org/gitlab/-/issues/388314
+       *
+       * The getClient method is not documented. In future,
+       * need to check for any alternative.
+       */
+      const { cache } = this.$apollo.getClient();
+
       updateStoreAfterAddImageDiffNote(
-        store,
+        cache,
         createImageDiffNote,
         getDesignQuery,
         this.designVariables,
       );
+      this.closeCommentForm(data);
     },
     updateImageDiffNoteInStore(store, { data: { repositionImageDiffNote } }) {
       return updateStoreAfterRepositionImageDiffNote(
@@ -252,22 +252,16 @@ export default {
     },
     onQueryError(message) {
       // because we redirect user to /designs (the issue page),
-      // we want to create these flashes on the issue page
-      createFlash({ message });
+      // we want to create these alerts on the issue page
+      createAlert({ message });
       this.$router.push({ name: this.$options.DESIGNS_ROUTE_NAME });
     },
     onError(message, e) {
       this.errorMessage = message;
       if (e) throw e;
     },
-    onCreateImageDiffNoteError(e) {
-      this.onError(ADD_IMAGE_DIFF_NOTE_ERROR, e);
-    },
-    onUpdateNoteError(e) {
-      this.onError(UPDATE_NOTE_ERROR, e);
-    },
-    onDesignDiscussionError(e) {
-      this.onError(ADD_DISCUSSION_COMMENT_ERROR, e);
+    onDeleteNoteError(e) {
+      this.onError(DELETE_NOTE_ERROR, e);
     },
     onUpdateImageDiffNoteError(e) {
       this.onError(UPDATE_IMAGE_DIFF_NOTE_ERROR, e);
@@ -283,12 +277,8 @@ export default {
     },
     openCommentForm(annotationCoordinates) {
       this.annotationCoordinates = annotationCoordinates;
-      if (this.$refs.newDiscussionForm) {
-        this.$refs.newDiscussionForm.focusInput();
-      }
     },
     closeCommentForm(data) {
-      this.comment = '';
       this.annotationCoordinates = null;
 
       if (data?.data && !isNull(this.prevCurrentUserTodos)) {
@@ -327,11 +317,14 @@ export default {
       const diffNoteGid = noteId ? toDiffNoteGid(noteId) : undefined;
       return this.updateActiveDiscussion(diffNoteGid, ACTIVE_DISCUSSION_SOURCE_TYPES.url);
     },
-    toggleResolvedComments() {
-      this.resolvedDiscussionsExpanded = !this.resolvedDiscussionsExpanded;
+    toggleResolvedComments(newValue) {
+      this.resolvedDiscussionsExpanded = newValue;
     },
     setMaxScale(event) {
       this.maxScale = 1 / event;
+    },
+    toggleSidebar() {
+      this.isSidebarOpen = !this.isSidebarOpen;
     },
   },
   createImageDiffNoteMutation,
@@ -341,88 +334,94 @@ export default {
 
 <template>
   <div
-    class="design-detail js-design-detail fixed-top gl-w-full gl-bottom-0 gl-display-flex gl-justify-content-center gl-flex-direction-column gl-lg-flex-direction-row"
+    class="design-detail js-design-detail fixed-top gl-w-full gl-display-flex gl-justify-content-center gl-flex-direction-column gl-lg-flex-direction-row gl-bg-gray-10"
   >
-    <gl-loading-icon v-if="isFirstLoading" size="xl" class="gl-align-self-center" />
-    <template v-else>
-      <div
-        class="gl-display-flex gl-overflow-hidden gl-flex-grow-1 gl-flex-direction-column gl-relative"
+    <div
+      class="gl-display-flex gl-overflow-hidden gl-flex-grow-1 gl-flex-direction-column gl-relative"
+    >
+      <design-destroyer
+        :filenames="/* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */ [
+          design.filename,
+        ] /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */"
+        :project-path="projectPath"
+        :iid="issueIid"
+        @done="$router.push({ name: $options.DESIGNS_ROUTE_NAME })"
+        @error="onDesignDeleteError"
       >
-        <design-destroyer
-          :filenames="[design.filename]"
-          :project-path="projectPath"
-          :iid="issueIid"
-          @done="$router.push({ name: $options.DESIGNS_ROUTE_NAME })"
-          @error="onDesignDeleteError"
+        <template #default="{ mutate, loading }">
+          <toolbar
+            :id="id"
+            :is-deleting="loading"
+            :is-latest-version="isLatestVersion"
+            :is-loading="isLoading"
+            :design="design"
+            :is-sidebar-open="isSidebarOpen"
+            v-bind="design"
+            @delete="mutate"
+            @toggle-sidebar="toggleSidebar"
+          />
+        </template>
+      </design-destroyer>
+
+      <div
+        class="gl-display-flex gl-overflow-hidden gl-flex-direction-column gl-lg-flex-direction-row gl-flex-grow-1 gl-relative"
+      >
+        <div
+          class="gl-display-flex gl-overflow-hidden gl-flex-grow-2 gl-flex-direction-column gl-relative"
         >
-          <template #default="{ mutate, loading }">
-            <toolbar
-              :id="id"
-              :is-deleting="loading"
-              :is-latest-version="isLatestVersion"
-              v-bind="design"
-              @delete="mutate"
+          <div v-if="errorMessage" class="gl-p-5">
+            <gl-alert variant="danger" @dismiss="errorMessage = null">
+              {{ errorMessage }}
+            </gl-alert>
+          </div>
+          <design-presentation
+            :image="design.image"
+            :image-name="design.filename"
+            :discussions="discussions"
+            :is-annotating="isAnnotating"
+            :scale="scale"
+            :resolved-discussions-expanded="resolvedDiscussionsExpanded"
+            :is-loading="isLoading"
+            :disable-commenting="!isSidebarOpen"
+            @openCommentForm="openCommentForm"
+            @closeCommentForm="closeCommentForm"
+            @moveNote="onMoveNote"
+            @setMaxScale="setMaxScale"
+          />
+
+          <div
+            class="design-scaler-wrapper gl-absolute gl-mb-6 gl-display-flex gl-justify-content-center gl-align-items-center"
+          >
+            <design-scaler :max-scale="maxScale" @scale="scale = $event" />
+          </div>
+        </div>
+        <design-sidebar
+          :design="design"
+          :design-variables="designVariables"
+          :resolved-discussions-expanded="resolvedDiscussionsExpanded"
+          :markdown-preview-path="markdownPreviewPath"
+          :is-loading="isLoading"
+          :is-open="isSidebarOpen"
+          @deleteNoteError="onDeleteNoteError"
+          @resolveDiscussionError="onResolveDiscussionError"
+          @toggleResolvedComments="toggleResolvedComments"
+          @todoError="onTodoError"
+        >
+          <template #reply-form>
+            <design-reply-form
+              v-if="isAnnotating"
+              ref="newDiscussionForm"
+              :design-note-mutation="$options.createImageDiffNoteMutation"
+              :mutation-variables="mutationVariables"
+              :markdown-preview-path="markdownPreviewPath"
+              :noteable-id="design.id"
+              :is-discussion="true"
+              @note-submit-complete="addImageDiffNoteToStore"
+              @cancel-form="closeCommentForm"
             />
           </template>
-        </design-destroyer>
-
-        <div v-if="errorMessage" class="gl-p-5">
-          <gl-alert variant="danger" @dismiss="errorMessage = null">
-            {{ errorMessage }}
-          </gl-alert>
-        </div>
-        <design-presentation
-          :image="design.image"
-          :image-name="design.filename"
-          :discussions="discussions"
-          :is-annotating="isAnnotating"
-          :scale="scale"
-          :resolved-discussions-expanded="resolvedDiscussionsExpanded"
-          @openCommentForm="openCommentForm"
-          @closeCommentForm="closeCommentForm"
-          @moveNote="onMoveNote"
-          @setMaxScale="setMaxScale"
-        />
-
-        <div
-          class="design-scaler-wrapper gl-absolute gl-mb-6 gl-display-flex gl-justify-content-center gl-align-items-center"
-        >
-          <design-scaler :max-scale="maxScale" @scale="scale = $event" />
-        </div>
+        </design-sidebar>
       </div>
-      <design-sidebar
-        :design="design"
-        :resolved-discussions-expanded="resolvedDiscussionsExpanded"
-        :markdown-preview-path="markdownPreviewPath"
-        @onDesignDiscussionError="onDesignDiscussionError"
-        @onCreateImageDiffNoteError="onCreateImageDiffNoteError"
-        @updateNoteError="onUpdateNoteError"
-        @resolveDiscussionError="onResolveDiscussionError"
-        @toggleResolvedComments="toggleResolvedComments"
-        @todoError="onTodoError"
-      >
-        <template #reply-form>
-          <apollo-mutation
-            v-if="isAnnotating"
-            #default="{ mutate, loading }"
-            :mutation="$options.createImageDiffNoteMutation"
-            :variables="{
-              input: mutationPayload,
-            }"
-            :update="addImageDiffNoteToStore"
-            @done="closeCommentForm"
-            @error="onCreateImageDiffNoteError"
-          >
-            <design-reply-form
-              ref="newDiscussionForm"
-              v-model="comment"
-              :is-saving="loading"
-              :markdown-preview-path="markdownPreviewPath"
-              @submit-form="mutate"
-              @cancel-form="closeCommentForm"
-            /> </apollo-mutation
-        ></template>
-      </design-sidebar>
-    </template>
+    </div>
   </div>
 </template>

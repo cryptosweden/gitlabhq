@@ -8,6 +8,8 @@ RSpec.describe Gitlab::Changelog::Config do
   let(:project) { build_stubbed(:project) }
 
   describe '.from_git' do
+    let(:changelog_config_file) { 'specified_changelog_config.yml' }
+
     it 'retrieves the configuration from Git' do
       allow(project.repository)
         .to receive(:changelog_config)
@@ -20,6 +22,18 @@ RSpec.describe Gitlab::Changelog::Config do
       described_class.from_git(project)
     end
 
+    it "retrieves the specified configuration from git" do
+      allow(project.repository)
+        .to receive(:changelog_config).with('HEAD', changelog_config_file)
+        .and_return("---\ndate_format: '%Y'")
+
+      expect(described_class)
+        .to receive(:from_hash)
+        .with(project, { 'date_format' => '%Y' }, nil)
+
+      described_class.from_git(project, nil, changelog_config_file)
+    end
+
     it 'returns the default configuration when no YAML file exists in Git' do
       allow(project.repository)
         .to receive(:changelog_config)
@@ -30,6 +44,17 @@ RSpec.describe Gitlab::Changelog::Config do
         .with(project)
 
       described_class.from_git(project)
+    end
+
+    context 'when the specified configuration yml is invalid' do
+      it 'raises an error' do
+        allow(project.repository)
+          .to receive(:changelog_config).with('HEAD', changelog_config_file)
+          .and_return("invalid: :yaml")
+
+        expect { described_class.from_git(project, nil, changelog_config_file) }
+          .to raise_error(Gitlab::Changelog::Error, "#{changelog_config_file} does not contain valid YAML")
+      end
     end
 
     context 'when changelog is empty' do
@@ -114,11 +139,14 @@ RSpec.describe Gitlab::Changelog::Config do
       let(:user_fork) { fork_project(project, contributor, repository: true) }
 
       before do
-        create(:merge_request, :merged,
-               author: contributor,
-               target_project: project,
-               source_project: user_fork,
-               target_branch: project.default_branch.to_s)
+        create(
+          :merge_request,
+          :merged,
+          author: contributor,
+          target_project: project,
+          source_project: user_fork,
+          target_branch: project.default_branch.to_s
+        )
       end
 
       it { expect(described_class.new(project).contributor?(contributor)).to eq(true) }

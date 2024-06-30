@@ -28,7 +28,7 @@ module QA
           if volume_exists?(volume_name)
             volume_name
           else
-            File.expand_path("../fixtures/ldap/#{volume_name}", __dir__)
+            Runtime::Path.fixture('ldap', volume_name)
           end
         end
 

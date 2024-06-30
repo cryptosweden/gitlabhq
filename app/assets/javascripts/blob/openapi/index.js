@@ -1,27 +1,52 @@
-import { SwaggerUIBundle } from 'swagger-ui-dist';
-import createFlash from '~/flash';
-import { removeParams, updateHistory } from '~/lib/utils/url_utility';
-import { __ } from '~/locale';
+import SwaggerClient from 'swagger-client';
+import { setAttributes } from '~/lib/utils/dom_utils';
+import {
+  getBaseURL,
+  relativePathToAbsolute,
+  joinPaths,
+  setUrlParams,
+  getParameterByName,
+} from '~/lib/utils/url_utility';
 
-export default () => {
-  const el = document.getElementById('js-openapi-viewer');
+const SANDBOX_FRAME_PATH = '/-/sandbox/swagger';
 
-  Promise.all([import(/* webpackChunkName: 'openapi' */ 'swagger-ui-dist/swagger-ui.css')])
-    .then(() => {
-      // Temporary fix to prevent an XSS attack due to "useUnsafeMarkdown"
-      // Once we upgrade Swagger to "4.0.0", we can safely remove this as it will be deprecated
-      // Follow-up issue: https://gitlab.com/gitlab-org/gitlab/-/issues/339696
-      updateHistory({ url: removeParams(['useUnsafeMarkdown']), replace: true });
-      SwaggerUIBundle({
-        url: el.dataset.endpoint,
-        dom_id: '#js-openapi-viewer',
-        useUnsafeMarkdown: false,
-      });
-    })
-    .catch((error) => {
-      createFlash({
-        message: __('Something went wrong while initializing the OpenAPI viewer'),
-      });
-      throw error;
-    });
+const getSandboxFrameSrc = () => {
+  const path = joinPaths(gon.relative_url_root || '', SANDBOX_FRAME_PATH);
+  const absoluteUrl = relativePathToAbsolute(path, getBaseURL());
+  const displayOperationId = getParameterByName('displayOperationId');
+  const params = { displayOperationId };
+
+  if (window.gon?.relative_url_root) {
+    params.relativeRootPath = window.gon.relative_url_root;
+  }
+
+  return setUrlParams(params, absoluteUrl);
+};
+
+const createSandbox = () => {
+  const iframeEl = document.createElement('iframe');
+
+  setAttributes(iframeEl, {
+    src: getSandboxFrameSrc(),
+    sandbox: 'allow-scripts allow-popups allow-forms',
+    frameBorder: 0,
+    width: '100%',
+    // The height will be adjusted dynamically.
+    // Follow-up issue: https://gitlab.com/gitlab-org/gitlab/-/issues/377969
+    height: '1000',
+  });
+  return iframeEl;
+};
+
+export default async (el = document.getElementById('js-openapi-viewer')) => {
+  const wrapperEl = el;
+  const sandboxEl = createSandbox();
+
+  const { spec } = await SwaggerClient.resolve({ url: wrapperEl.dataset.endpoint });
+
+  wrapperEl.appendChild(sandboxEl);
+
+  sandboxEl.addEventListener('load', () => {
+    if (spec) sandboxEl.contentWindow.postMessage(JSON.stringify(spec), '*');
+  });
 };

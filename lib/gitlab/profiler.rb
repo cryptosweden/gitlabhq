@@ -2,8 +2,6 @@
 
 module Gitlab
   module Profiler
-    extend WithRequestStore
-
     FILTERED_STRING = '[FILTERED]'
 
     IGNORE_BACKTRACES = %w[
@@ -16,7 +14,6 @@ module Gitlab
       lib/gitlab/middleware/
       ee/lib/gitlab/middleware/
       lib/gitlab/performance_bar/
-      lib/gitlab/request_profiler/
       lib/gitlab/query_limiting/
       lib/gitlab/tracing/
       lib/gitlab/profiler.rb
@@ -44,12 +41,9 @@ module Gitlab
     # - private_token: instead of providing a user instance, the token can be
     #   given as a string. Takes precedence over the user option.
     #
-    # - sampling_mode: When true, uses a sampling profiler (StackProf) instead of a tracing profiler (RubyProf).
-    #
-    # - profiler_options: A keyword Hash of arguments passed to the profiler. Defaults by profiler type:
-    #     RubyProf - {}
-    #     StackProf - { mode: :wall, out: <some temporary file>, interval: 1000, raw: true }
-    def self.profile(url, logger: nil, post_data: nil, user: nil, private_token: nil, sampling_mode: false, profiler_options: {})
+    # - profiler_options: A keyword Hash of arguments passed to the profiler. Defaults:
+    #   { mode: :wall, out: <some temporary file>, interval: 1000, raw: true }
+    def self.profile(url, logger: nil, post_data: nil, user: nil, private_token: nil, profiler_options: {})
       app = ActionDispatch::Integration::Session.new(Rails.application)
       verb = :get
       headers = {}
@@ -66,7 +60,7 @@ module Gitlab
 
       logger = create_custom_logger(logger, private_token: private_token)
 
-      result = with_request_store do
+      result = ::Gitlab::SafeRequestStore.ensure_request_store do
         # Make an initial call for an asset path in development mode to avoid
         # sprockets dominating the profiler output.
         ActionController::Base.helpers.asset_path('katex.css') if Rails.env.development?
@@ -81,7 +75,7 @@ module Gitlab
 
         with_custom_logger(logger) do
           with_user(user) do
-            with_profiler(sampling_mode, profiler_options) do
+            with_profiler(profiler_options) do
               app.public_send(verb, url, params: post_data, headers: headers) # rubocop:disable GitlabSecurity/PublicSend
             end
           end
@@ -127,18 +121,18 @@ module Gitlab
 
     def self.with_custom_logger(logger)
       original_colorize_logging = ActiveSupport::LogSubscriber.colorize_logging
-      original_activerecord_logger = ApplicationRecord.logger
+      original_activerecord_logger = ActiveRecord::Base.logger
       original_actioncontroller_logger = ActionController::Base.logger
 
       if logger
         ActiveSupport::LogSubscriber.colorize_logging = false
-        ApplicationRecord.logger = logger
+        ActiveRecord::Base.logger = logger
         ActionController::Base.logger = logger
       end
 
       yield.tap do
         ActiveSupport::LogSubscriber.colorize_logging = original_colorize_logging
-        ApplicationRecord.logger = original_activerecord_logger
+        ActiveRecord::Base.logger = original_activerecord_logger
         ActionController::Base.logger = original_actioncontroller_logger
       end
     end
@@ -147,7 +141,7 @@ module Gitlab
       if user
         API::Helpers::CommonHelpers.send(:define_method, :find_current_user!) { user } # rubocop:disable GitlabSecurity/PublicSend
         ApplicationController.send(:define_method, :current_user) { user } # rubocop:disable GitlabSecurity/PublicSend
-        ApplicationController.send(:define_method, :authenticate_user!) { } # rubocop:disable GitlabSecurity/PublicSend
+        ApplicationController.send(:define_method, :authenticate_user!) {} # rubocop:disable GitlabSecurity/PublicSend
       end
 
       yield.tap do
@@ -175,21 +169,11 @@ module Gitlab
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
-    def self.print_by_total_time(result, options = {})
-      default_options = { sort_method: :total_time, filter_by: :total_time }
-
-      RubyProf::FlatPrinter.new(result).print($stdout, default_options.merge(options))
-    end
-
-    def self.with_profiler(sampling_mode, profiler_options)
-      if sampling_mode
-        require 'stackprof'
-        args = { mode: :wall, interval: 1000, raw: true }.merge!(profiler_options)
-        args[:out] ||= ::Tempfile.new(["profile-#{Time.now.to_i}-", ".dump"]).path
-        ::StackProf.run(**args) { yield }
-      else
-        RubyProf.profile(**profiler_options) { yield }
-      end
+    def self.with_profiler(profiler_options)
+      require 'stackprof'
+      args = { mode: :wall, interval: 1000, raw: true }.merge!(profiler_options)
+      args[:out] ||= ::Tempfile.new(["profile-#{Time.now.to_i}-", ".dump"]).path
+      ::StackProf.run(**args) { yield }
     end
   end
 end

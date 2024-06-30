@@ -1,9 +1,26 @@
-import { Node } from '@tiptap/core';
+import { Node, InputRule } from '@tiptap/core';
+import { VueNodeViewRenderer } from '@tiptap/vue-2';
+import ReferenceWrapper from '../components/wrappers/reference.vue';
 import { PARSE_HTML_PRIORITY_HIGHEST } from '../constants';
 
 const getAnchor = (element) => {
   if (element.nodeName === 'A') return element;
   return element.querySelector('a');
+};
+
+const findReference = (editor, reference) => {
+  let position;
+
+  editor.view.state.doc.descendants((descendant, pos) => {
+    if (descendant.isText && descendant.text.includes(reference)) {
+      position = pos + descendant.text.indexOf(reference);
+      return false;
+    }
+
+    return true;
+  });
+
+  return position;
 };
 
 export default Node.create({
@@ -14,6 +31,12 @@ export default Node.create({
   group: 'inline',
 
   atom: true,
+
+  addOptions() {
+    return {
+      assetResolver: null,
+    };
+  },
 
   addAttributes() {
     return {
@@ -40,28 +63,95 @@ export default Node.create({
     };
   },
 
+  addCommands() {
+    return {
+      insertQuickAction:
+        () =>
+        ({ commands }) =>
+          commands.insertContent('<p>/</p>'),
+    };
+  },
+
+  addInputRules() {
+    const { editor } = this;
+    const { assetResolver } = this.options;
+    const referenceInputRegex =
+      /(?:^|\s)([\w/]*([#!&%$@~]|\[vulnerability:)[\w.]+(\+?s?\]?))(?:\s|\n)/m;
+    const referenceTypes = {
+      '#': 'issue',
+      '!': 'merge_request',
+      '&': 'epic',
+      '%': 'milestone',
+      $: 'snippet',
+      '@': 'user',
+      '~': 'label',
+      '[vulnerability:': 'vulnerability',
+    };
+    const nodeTypes = {
+      label: editor.schema.nodes.referenceLabel,
+      default: editor.schema.nodes.reference,
+    };
+
+    return [
+      new InputRule({
+        find: referenceInputRegex,
+        handler: async ({ match }) => {
+          const [, referenceId, referenceSymbol, expansionType] = match;
+          const referenceType = referenceTypes[referenceSymbol];
+
+          const { href, text, expandedText, fullyExpandedText, backgroundColor } =
+            await assetResolver.resolveReference(referenceId);
+
+          if (!text) return;
+
+          let referenceText = text;
+          if (expansionType === '+') referenceText = expandedText || text;
+          if (expansionType === '+s') referenceText = fullyExpandedText || text;
+
+          const position = findReference(editor, referenceId);
+          if (!position) return;
+
+          const nodeType = nodeTypes[referenceType] || nodeTypes.default;
+
+          editor.view.dispatch(
+            editor.state.tr.replaceWith(position, position + referenceId.length, [
+              nodeType.create({
+                referenceType,
+                originalText: referenceId,
+                color: backgroundColor,
+                href,
+                text: referenceText,
+              }),
+            ]),
+          );
+        },
+      }),
+    ];
+  },
+
   parseHTML() {
     return [
       {
         tag: 'a.gfm:not([data-link=true])',
         priority: PARSE_HTML_PRIORITY_HIGHEST,
       },
-      {
-        tag: 'span.gl-label',
-      },
     ];
   },
 
   renderHTML({ node }) {
     return [
-      'a',
+      'gl-reference',
       {
-        class: node.attrs.className,
-        href: node.attrs.href,
         'data-reference-type': node.attrs.referenceType,
-        'data-original': node.attrs.originalText,
+        'data-original-text': node.attrs.originalText,
+        href: node.attrs.href,
+        text: node.attrs.text,
       },
       node.attrs.text,
     ];
+  },
+
+  addNodeView() {
+    return new VueNodeViewRenderer(ReferenceWrapper);
   },
 });

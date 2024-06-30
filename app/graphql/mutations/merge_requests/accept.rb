@@ -7,8 +7,12 @@ module Mutations
       authorize :accept_merge_request
       description <<~DESC
         Accepts a merge request.
-        When accepted, the source branch will be merged into the target branch, either
+        When accepted, the source branch will be scheduled to merge into the target branch, either
         immediately if possible, or using one of the automatic merge strategies.
+
+        [In GitLab 16.5](https://gitlab.com/gitlab-org/gitlab/-/issues/421510), the merging happens asynchronously.
+        This results in `mergeRequest` and `state` not updating after a mutation request,
+        because the merging may not have happened yet.
       DESC
 
       NOT_MERGEABLE = 'This branch cannot be merged'
@@ -18,28 +22,28 @@ module Mutations
       ALREADY_SCHEDULED = 'The merge request is already scheduled to be merged'
 
       argument :strategy,
-               ::Types::MergeStrategyEnum,
-               required: false,
-               as: :auto_merge_strategy,
-               description: 'How to merge this merge request.'
+        ::Types::MergeStrategyEnum,
+        required: false,
+        as: :auto_merge_strategy,
+        description: 'How to merge the merge request.'
 
       argument :commit_message, ::GraphQL::Types::String,
-               required: false,
-               description: 'Custom merge commit message.'
+        required: false,
+        description: 'Custom merge commit message.'
       argument :sha, ::GraphQL::Types::String,
-               required: true,
-               description: 'HEAD SHA at the time when this merge was requested.'
+        required: true,
+        description: 'HEAD SHA at the time when the merge was requested.'
       argument :squash_commit_message, ::GraphQL::Types::String,
-               required: false,
-               description: 'Custom squash commit message (if squash is true).'
+        required: false,
+        description: 'Custom squash commit message (if squash is true).'
 
       argument :should_remove_source_branch, ::GraphQL::Types::Boolean,
-               required: false,
-               description: 'Should the source branch be removed.'
+        required: false,
+        description: 'Should the source branch be removed.'
       argument :squash, ::GraphQL::Types::Boolean,
-               required: false,
-               default_value: false,
-               description: 'Squash commits on the source branch before merge.'
+        required: false,
+        default_value: false,
+        description: 'Squash commits on the source branch before merge.'
 
       def resolve(project_path:, iid:, **args)
         Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/4796')
@@ -59,7 +63,7 @@ module Mutations
                    service = AutoMergeService.new(project, current_user, merge_params)
                    service.execute(merge_request, merge_params[:auto_merge_strategy])
                  else
-                   merge_service.execute(merge_request)
+                   merge_request.merge_async(current_user.id, merge_params)
                  end
 
         {

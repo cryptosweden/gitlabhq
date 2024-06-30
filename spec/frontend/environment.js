@@ -1,27 +1,34 @@
 /* eslint-disable import/no-commonjs, max-classes-per-file */
 
-const path = require('path');
-const JSDOMEnvironment = require('jest-environment-jsdom');
+const { TestEnvironment } = require('jest-environment-jsdom');
 const { ErrorWithStack } = require('jest-util');
 const {
   setGlobalDateToFakeDate,
   setGlobalDateToRealDate,
 } = require('./__helpers__/fake_date/fake_date');
 const { TEST_HOST } = require('./__helpers__/test_constants');
+const { createGon } = require('./__helpers__/gon_helper');
 
-const ROOT_PATH = path.resolve(__dirname, '../..');
-
-class CustomEnvironment extends JSDOMEnvironment {
-  constructor(config, context) {
+class CustomEnvironment extends TestEnvironment {
+  constructor({ globalConfig, projectConfig }, context) {
     // Setup testURL so that window.location is setup properly
-    super({ ...config, testURL: TEST_HOST }, context);
+    super({ globalConfig, projectConfig: { ...projectConfig, testURL: TEST_HOST } }, context);
 
     // Fake the `Date` for `jsdom` which fixes things like document.cookie
     // https://gitlab.com/gitlab-org/gitlab/-/merge_requests/39496#note_503084332
     setGlobalDateToFakeDate();
 
+    const { error: originalErrorFn } = context.console;
     Object.assign(context.console, {
       error(...args) {
+        if (
+          args?.[0]?.includes('[Vue warn]: Missing required prop') ||
+          args?.[0]?.includes('[Vue warn]: Invalid prop')
+        ) {
+          originalErrorFn.apply(context.console, args);
+          return;
+        }
+
         throw new ErrorWithStack(
           `Unexpected call of console.error() with:\n\n${args.join(', ')}`,
           this.error,
@@ -29,7 +36,7 @@ class CustomEnvironment extends JSDOMEnvironment {
       },
 
       warn(...args) {
-        if (args[0].includes('The updateQuery callback for fetchMore is deprecated')) {
+        if (args?.[0]?.includes('The updateQuery callback for fetchMore is deprecated')) {
           return;
         }
         throw new ErrorWithStack(
@@ -39,12 +46,12 @@ class CustomEnvironment extends JSDOMEnvironment {
       },
     });
 
-    const { testEnvironmentOptions } = config;
-    const { IS_EE } = testEnvironmentOptions;
-    this.global.gon = {
-      ee: IS_EE,
-    };
+    const { IS_EE } = projectConfig.testEnvironmentOptions;
+
     this.global.IS_EE = IS_EE;
+
+    // Set up global `gon` object
+    this.global.gon = createGon(IS_EE);
 
     // Set up global `gl` object
     this.global.gl = {};
@@ -55,9 +62,6 @@ class CustomEnvironment extends JSDOMEnvironment {
       this.rejectedPromises.push(error);
     };
 
-    this.global.fixturesBasePath = `${ROOT_PATH}/tmp/tests/frontend/fixtures${IS_EE ? '-ee' : ''}`;
-    this.global.staticFixturesBasePath = `${ROOT_PATH}/spec/frontend/fixtures`;
-
     /**
      * window.fetch() is required by the apollo-upload-client library otherwise
      * a ReferenceError is generated: https://github.com/jaydenseric/apollo-upload-client/issues/100
@@ -67,16 +71,9 @@ class CustomEnvironment extends JSDOMEnvironment {
     // Expose the jsdom (created in super class) to the global so that we can call reconfigure({ url: '' }) to properly set `window.location`
     this.global.jsdom = this.dom;
 
-    Object.assign(this.global.performance, {
-      mark: () => null,
-      measure: () => null,
-      getEntriesByName: () => [],
-    });
-
     //
     // Monaco-related environment variables
     //
-    this.global.MonacoEnvironment = { globalAPI: true };
     Object.defineProperty(this.global, 'matchMedia', {
       writable: true,
       value: (query) => ({

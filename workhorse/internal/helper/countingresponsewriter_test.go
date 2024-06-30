@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"testing/iotest"
 
@@ -47,4 +48,15 @@ func TestCountingResponseWriterWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, string(testData), string(trw.data))
+}
+
+func TestCountingResponseWriterFlushable(t *testing.T) {
+	rw := httptest.NewRecorder()
+
+	crw := countingResponseWriter{rw: rw}
+	rc := http.NewResponseController(&crw) //nolint:bodyclose // false-positive https://github.com/timakin/bodyclose/issues/52
+
+	err := rc.Flush()
+	require.NoError(t, err, "the underlying response writer is not flushable")
+	require.True(t, rw.Flushed)
 }

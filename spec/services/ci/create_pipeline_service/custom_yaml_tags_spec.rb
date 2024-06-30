@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService do
+RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
+  feature_category: :continuous_integration do
   describe '!reference tags' do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:user)    { project.first_owner }

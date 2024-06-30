@@ -1,10 +1,11 @@
 <script>
 import produce from 'immer';
 import Vue from 'vue';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { __, sprintf } from '~/locale';
-import SidebarEditableItem from '~/sidebar/components/sidebar_editable_item.vue';
-import { confidentialityQueries, Tracking } from '~/sidebar/constants';
+import { Tracking } from '../../constants';
+import { confidentialityQueries } from '../../queries/constants';
+import SidebarEditableItem from '../sidebar_editable_item.vue';
 import SidebarConfidentialityContent from './sidebar_confidentiality_content.vue';
 import SidebarConfidentialityForm from './sidebar_confidentiality_form.vue';
 
@@ -65,6 +66,9 @@ export default {
       update(data) {
         return data.workspace?.issuable?.confidential || false;
       },
+      skip() {
+        return !this.iid;
+      },
       result({ data }) {
         if (!data) {
           return;
@@ -72,7 +76,7 @@ export default {
         this.$emit('confidentialityUpdated', data.workspace?.issuable?.confidential);
       },
       error() {
-        createFlash({
+        createAlert({
           message: sprintf(
             __('Something went wrong while setting %{issuableType} confidentiality.'),
             {
@@ -134,6 +138,7 @@ export default {
     :tracking="$options.tracking"
     :loading="isLoading"
     class="block confidentiality"
+    data-testid="sidebar-confidentiality"
   >
     <template #collapsed>
       <div>

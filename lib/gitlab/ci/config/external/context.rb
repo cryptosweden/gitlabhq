@@ -11,21 +11,35 @@ module Gitlab
 
           include ::Gitlab::Utils::StrongMemoize
 
-          attr_reader :project, :sha, :user, :parent_pipeline, :variables
-          attr_reader :expandset, :execution_deadline, :logger
+          attr_reader :project, :sha, :user, :parent_pipeline, :variables, :pipeline_config, :parallel_requests,
+            :pipeline, :expandset, :execution_deadline, :logger, :max_includes, :max_total_yaml_size_bytes
+
+          attr_accessor :total_file_size_in_bytes
 
           delegate :instrument, to: :logger
 
-          def initialize(project: nil, sha: nil, user: nil, parent_pipeline: nil, variables: nil, logger: nil)
+          # We try to keep the number of parallel HTTP requests to a minimum to avoid overloading IO.
+          MAX_PARALLEL_REMOTE_REQUESTS = 4
+
+          def initialize(
+            project: nil, pipeline: nil, sha: nil, user: nil, parent_pipeline: nil, variables: nil,
+            pipeline_config: nil, logger: nil
+          )
             @project = project
+            @pipeline = pipeline
             @sha = sha
             @user = user
             @parent_pipeline = parent_pipeline
             @variables = variables || Ci::Variables::Collection.new
-            @expandset = Set.new
+            @pipeline_config = pipeline_config
+            @expandset = []
+            @parallel_requests = []
             @execution_deadline = 0
             @logger = logger || Gitlab::Ci::Pipeline::Logger.new(project: project)
-
+            @max_includes = Gitlab::CurrentSettings.current_application_settings.ci_max_includes
+            @max_total_yaml_size_bytes =
+              Gitlab::CurrentSettings.current_application_settings.ci_max_total_yaml_size_bytes
+            @total_file_size_in_bytes = 0
             yield self if block_given?
           end
 
@@ -49,9 +63,13 @@ module Gitlab
 
           def mutate(attrs = {})
             self.class.new(**attrs) do |ctx|
+              ctx.pipeline = pipeline
               ctx.expandset = expandset
               ctx.execution_deadline = execution_deadline
               ctx.logger = logger
+              ctx.max_includes = max_includes
+              ctx.max_total_yaml_size_bytes = max_total_yaml_size_bytes
+              ctx.parallel_requests = parallel_requests
             end
           end
 
@@ -63,6 +81,16 @@ module Gitlab
             raise TimeoutError if execution_expired?
           end
 
+          def execute_remote_parallel_request(lazy_response)
+            parallel_requests.delete_if(&:complete?)
+
+            # We are "assuming" that the first request in the queue is the first one to complete.
+            # This is good enough approximation.
+            parallel_requests.first&.wait unless parallel_requests.size < MAX_PARALLEL_REMOTE_REQUESTS
+
+            parallel_requests << lazy_response.execute
+          end
+
           def sentry_payload
             {
               user: user.inspect,
@@ -70,9 +98,31 @@ module Gitlab
             }
           end
 
+          def mask_variables_from(string)
+            variables.reduce(string.dup) do |str, variable|
+              if variable[:masked]
+                Gitlab::Ci::MaskSecret.mask!(str, variable[:value])
+              else
+                str
+              end
+            end
+          end
+
+          def includes
+            expandset.map(&:metadata)
+          end
+
+          # Some Ci::ProjectConfig sources prepend the config content with an "internal" `include`, which becomes
+          # the first included file. When running a pipeline, we pass pipeline_config into the context of the first
+          # included file, which we use in this method to determine if the file is an "internal" one.
+          def internal_include?
+            !!pipeline_config&.internal_include_prepended?
+          end
+
           protected
 
-          attr_writer :expandset, :execution_deadline, :logger
+          attr_writer :pipeline, :expandset, :execution_deadline, :logger, :max_includes, :max_total_yaml_size_bytes,
+            :parallel_requests
 
           private
 

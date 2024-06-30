@@ -9,14 +9,14 @@ export const packageTags = () => [
 export const packagePipelines = (extend) => [
   {
     commitPath: '/namespace14/project14/-/commit/b83d6e391c22777fca1ed3012fce84f633d7fed0',
-    createdAt: '2020-08-17T14:23:32Z',
+    createdAt: '2020-05-17T14:23:32Z',
     id: 'gid://gitlab/Ci::Pipeline/36',
     path: '/namespace14/project14/-/pipelines/36',
     name: 'project14',
     ref: 'master',
     sha: 'b83d6e391c22777fca1ed3012fce84f633d7fed0',
     project: {
-      id: '1',
+      id: '14',
       name: 'project14',
       webUrl: 'http://gdk.test:3000/namespace14/project14',
       __typename: 'Project',
@@ -38,7 +38,7 @@ export const packageFiles = () => [
     fileSha1: 'be93151dc23ac34a82752444556fe79b32c7a1ad',
     fileSha256: 'fileSha256',
     size: '409600',
-    createdAt: '2020-08-17T14:23:32Z',
+    createdAt: '2020-05-17T14:23:32Z',
     downloadPath: 'downloadPath',
     __typename: 'PackageFile',
   },
@@ -49,7 +49,7 @@ export const packageFiles = () => [
     fileSha1: 'be93151dc23ac34a82752444556fe79b32c7a1ss',
     fileSha256: null,
     size: '409600',
-    createdAt: '2020-08-17T14:23:32Z',
+    createdAt: '2020-05-17T14:23:32Z',
     downloadPath: 'downloadPath',
     __typename: 'PackageFile',
   },
@@ -92,10 +92,29 @@ export const dependencyLinks = () => [
 
 export const packageProject = () => ({
   id: '1',
-  fullPath: 'gitlab-org/gitlab-test',
+  name: 'gitlab-test',
   webUrl: 'http://gdk.test:3000/gitlab-org/gitlab-test',
   __typename: 'Project',
 });
+
+export const linksData = {
+  _links: {
+    webPath: '/gitlab-org/package-15',
+  },
+};
+
+const userPermissionsData = {
+  userPermissions: {
+    destroyPackage: true,
+  },
+};
+
+export const defaultPackageGroupSettings = {
+  mavenPackageRequestsForwarding: true,
+  npmPackageRequestsForwarding: true,
+  pypiPackageRequestsForwarding: true,
+  __typename: 'PackageSettings',
+};
 
 export const packageVersions = () => [
   {
@@ -103,8 +122,12 @@ export const packageVersions = () => [
     id: 'gid://gitlab/Packages::Package/243',
     name: '@gitlab-org/package-15',
     status: 'DEFAULT',
+    statusMessage: null,
+    packageType: 'NPM',
     tags: { nodes: packageTags() },
     version: '1.0.1',
+    ...linksData,
+    ...userPermissionsData,
     __typename: 'Package',
   },
   {
@@ -112,22 +135,27 @@ export const packageVersions = () => [
     id: 'gid://gitlab/Packages::Package/244',
     name: '@gitlab-org/package-15',
     status: 'DEFAULT',
+    statusMessage: null,
+    packageType: 'NPM',
     tags: { nodes: packageTags() },
     version: '1.0.2',
+    ...linksData,
+    ...userPermissionsData,
     __typename: 'Package',
   },
 ];
 
 export const packageData = (extend) => ({
   __typename: 'Package',
-  id: 'gid://gitlab/Packages::Package/111',
-  canDestroy: true,
+  id: 'gid://gitlab/Packages::Package/1',
   name: '@gitlab-org/package-15',
   packageType: 'NPM',
   version: '1.0.0',
-  createdAt: '2020-08-17T14:23:32Z',
+  createdAt: '2020-05-17T14:23:32Z',
   updatedAt: '2020-08-17T14:23:32Z',
+  lastDownloadedAt: '2021-08-17T14:23:32Z',
   status: 'DEFAULT',
+  statusMessage: null,
   mavenUrl: 'http://gdk.test:3000/api/v4/projects/1/packages/maven',
   npmUrl: 'http://gdk.test:3000/api/v4/projects/1/packages/npm',
   nugetUrl: 'http://gdk.test:3000/api/v4/projects/1/packages/nuget/index.json',
@@ -136,11 +164,15 @@ export const packageData = (extend) => ({
   conanUrl: 'http://gdk.test:3000/api/v4/projects/1/packages/conan',
   pypiUrl:
     'http://__token__:<your_personal_token>@gdk.test:3000/api/v4/projects/1/packages/pypi/simple',
+  publicPackage: false,
   pypiSetupUrl: 'http://gdk.test:3000/api/v4/projects/1/packages/pypi',
+  protectionRuleExists: false,
+  ...userPermissionsData,
   ...extend,
 });
 
 export const conanMetadata = () => ({
+  __typename: 'ConanMetadata',
   id: 'conan-1',
   packageChannel: 'stable',
   packageUsername: 'gitlab-org+gitlab-test',
@@ -149,6 +181,7 @@ export const conanMetadata = () => ({
 });
 
 export const composerMetadata = () => ({
+  __typename: 'ComposerMetadata',
   targetSha: 'b83d6e391c22777fca1ed3012fce84f633d7fed0',
   composerJson: {
     license: 'MIT',
@@ -157,10 +190,17 @@ export const composerMetadata = () => ({
 });
 
 export const pypiMetadata = () => ({
+  __typename: 'PypiMetadata',
+  id: 'pypi-1',
+  authorEmail: '"C. Schultz" <cschultz@example.com>',
+  keywords: 'dog,puppy,voting,election',
   requiredPython: '1.0.0',
+  summary: 'A module for collecting votes from beagles.',
 });
 
 export const mavenMetadata = () => ({
+  __typename: 'MavenMetadata',
+  id: 'maven-1',
   appName: 'appName',
   appGroup: 'appGroup',
   appVersion: 'appVersion',
@@ -168,10 +208,20 @@ export const mavenMetadata = () => ({
 });
 
 export const nugetMetadata = () => ({
+  __typename: 'NugetMetadata',
+  id: 'nuget-1',
   iconUrl: 'iconUrl',
   licenseUrl: 'licenseUrl',
   projectUrl: 'projectUrl',
 });
+
+const packageTypeMetadataQueryMapping = {
+  CONAN: conanMetadata,
+  COMPOSER: composerMetadata,
+  PYPI: pypiMetadata,
+  MAVEN: mavenMetadata,
+  NUGET: nugetMetadata,
+};
 
 export const pagination = (extend) => ({
   endCursor: 'eyJpZCI6IjIwNSIsIm5hbWUiOiJteS9jb21wYW55L2FwcC9teS1hcHAifQ',
@@ -182,7 +232,7 @@ export const pagination = (extend) => ({
   ...extend,
 });
 
-export const packageDetailsQuery = (extendPackage) => ({
+export const packageDetailsQuery = ({ extendPackage = {} } = {}) => ({
   data: {
     package: {
       ...packageData(),
@@ -197,6 +247,8 @@ export const packageDetailsQuery = (extendPackage) => ({
         id: '1',
         path: 'projectPath',
         name: 'gitlab-test',
+        fullPath: 'gitlab-test',
+        __typename: 'Project',
       },
       tags: {
         nodes: packageTags(),
@@ -206,19 +258,69 @@ export const packageDetailsQuery = (extendPackage) => ({
         nodes: packagePipelines(),
         __typename: 'PipelineConnection',
       },
-      packageFiles: {
-        nodes: packageFiles(),
-        __typename: 'PackageFileConnection',
-      },
       versions: {
-        nodes: packageVersions(),
-        __typename: 'PackageConnection',
+        count: packageVersions().length,
       },
       dependencyLinks: {
         nodes: dependencyLinks(),
       },
       __typename: 'PackageDetailsType',
       ...extendPackage,
+    },
+  },
+});
+
+export const groupPackageSettingsQueryForGroup = ({
+  packageSettings = defaultPackageGroupSettings,
+} = {}) => ({
+  data: {
+    group: {
+      id: 'group-id',
+      packageSettings,
+      __typename: 'Group',
+    },
+  },
+});
+
+export const groupPackageSettingsQuery = ({
+  packageSettings = defaultPackageGroupSettings,
+} = {}) => ({
+  data: {
+    project: {
+      id: '1',
+      group: {
+        id: '1',
+        packageSettings,
+        __typename: 'Group',
+      },
+      __typename: 'Project',
+    },
+  },
+});
+
+export const packagePipelinesQuery = (pipelines = packagePipelines()) => ({
+  data: {
+    package: {
+      id: 'gid://gitlab/Packages::Package/111',
+      pipelines: {
+        nodes: pipelines,
+        __typename: 'PipelineConnection',
+      },
+      __typename: 'PackageDetailsType',
+    },
+  },
+});
+
+export const packageFilesQuery = ({ files = packageFiles(), extendPagination = {} } = {}) => ({
+  data: {
+    package: {
+      id: 'gid://gitlab/Packages::Package/111',
+      packageFiles: {
+        pageInfo: pagination(extendPagination),
+        nodes: files,
+        __typename: 'PackageFileConnection',
+      },
+      __typename: 'PackageDetailsType',
     },
   },
 });
@@ -231,17 +333,67 @@ export const emptyPackageDetailsQuery = () => ({
   },
 });
 
-export const packageDestroyMutation = () => ({
+export const packageMetadataQuery = (packageType) => {
+  return {
+    data: {
+      package: {
+        id: 'gid://gitlab/Packages::Package/111',
+        packageType,
+        metadata: {
+          ...packageTypeMetadataQueryMapping[packageType]?.(),
+        },
+        __typename: 'PackageDetailsType',
+      },
+    },
+  };
+};
+
+export const packageVersionsQuery = (versions = packageVersions()) => ({
   data: {
-    destroyPackage: {
+    package: {
+      id: 'gid://gitlab/Packages::Package/111',
+      versions: {
+        count: versions.length,
+        nodes: versions,
+        pageInfo: pagination(),
+        __typename: 'PackageConnection',
+      },
+      __typename: 'PackageDetailsType',
+    },
+  },
+});
+
+export const emptyPackageVersionsQuery = {
+  data: {
+    package: {
+      id: 'gid://gitlab/Packages::Package/111',
+      versions: {
+        count: 0,
+        nodes: [],
+        pageInfo: {
+          hasNextPage: false,
+          hasPreviousPage: false,
+          endCursor: 'endCursor',
+          startCursor: 'startCursor',
+        },
+        __typename: 'PackageConnection',
+      },
+      __typename: 'PackageDetailsType',
+    },
+  },
+};
+
+export const packagesDestroyMutation = () => ({
+  data: {
+    destroyPackages: {
       errors: [],
     },
   },
 });
 
-export const packageDestroyMutationError = () => ({
+export const packagesDestroyMutationError = () => ({
   data: {
-    destroyPackage: null,
+    destroyPackages: null,
   },
   errors: [
     {
@@ -253,21 +405,22 @@ export const packageDestroyMutationError = () => ({
           column: 3,
         },
       ],
-      path: ['destroyPackage'],
+      path: ['destroyPackages'],
     },
   ],
 });
 
-export const packageDestroyFileMutation = () => ({
+export const packageDestroyFilesMutation = () => ({
   data: {
-    destroyPackageFile: {
+    destroyPackageFiles: {
       errors: [],
     },
   },
 });
-export const packageDestroyFileMutationError = () => ({
+
+export const packageDestroyFilesMutationError = () => ({
   data: {
-    destroyPackageFile: null,
+    destroyPackageFiles: null,
   },
   errors: [
     {
@@ -279,7 +432,7 @@ export const packageDestroyFileMutationError = () => ({
           column: 3,
         },
       ],
-      path: ['destroyPackageFile'],
+      path: ['destroyPackageFiles'],
     },
   ],
 });
@@ -293,7 +446,9 @@ export const packagesListQuery = ({ type = 'group', extend = {}, extendPaginatio
         nodes: [
           {
             ...packageData(),
-            project: packageProject(),
+            protectionRuleExists: false,
+            ...linksData,
+            ...(type === 'group' && { project: packageProject() }),
             tags: { nodes: packageTags() },
             pipelines: {
               nodes: packagePipelines(),
@@ -301,9 +456,11 @@ export const packagesListQuery = ({ type = 'group', extend = {}, extendPaginatio
           },
           {
             ...packageData(),
-            project: packageProject(),
+            protectionRuleExists: false,
+            ...(type === 'group' && { project: packageProject() }),
             tags: { nodes: [] },
             pipelines: { nodes: [] },
+            ...linksData,
           },
         ],
         pageInfo: pagination(extendPagination),

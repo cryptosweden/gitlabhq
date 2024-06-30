@@ -66,7 +66,7 @@ RSpec.describe Ci::BuildRunnerPresenter do
     end
 
     context "with reports" do
-      Ci::JobArtifact::DEFAULT_FILE_NAMES.each do |file_type, filename|
+      Enums::Ci::JobArtifact.default_file_names.each do |file_type, filename|
         context file_type.to_s do
           let(:report) { { "#{file_type}": [filename] } }
           let(:build) { create(:ci_build, options: { artifacts: { reports: report } }) }
@@ -75,7 +75,7 @@ RSpec.describe Ci::BuildRunnerPresenter do
             {
               name: filename,
               artifact_type: :"#{file_type}",
-              artifact_format: Ci::JobArtifact::TYPE_AND_FORMAT_PAIRS.fetch(file_type),
+              artifact_format: Enums::Ci::JobArtifact.type_and_format_pairs.fetch(file_type),
               paths: [filename],
               when: 'always'
             }.compact
@@ -99,7 +99,7 @@ RSpec.describe Ci::BuildRunnerPresenter do
         {
           name: filename,
           artifact_type: coverage_format,
-          artifact_format: Ci::JobArtifact::TYPE_AND_FORMAT_PAIRS.fetch(coverage_format),
+          artifact_format: Enums::Ci::JobArtifact.type_and_format_pairs.fetch(coverage_format),
           paths: [filename],
           when: 'always'
         }
@@ -123,7 +123,7 @@ RSpec.describe Ci::BuildRunnerPresenter do
         {
           name: coverage_filename,
           artifact_type: coverage_format,
-          artifact_format: Ci::JobArtifact::TYPE_AND_FORMAT_PAIRS.fetch(coverage_format),
+          artifact_format: Enums::Ci::JobArtifact.type_and_format_pairs.fetch(coverage_format),
           paths: [coverage_filename],
           when: 'always'
         }
@@ -133,7 +133,7 @@ RSpec.describe Ci::BuildRunnerPresenter do
         {
           name: ds_filename,
           artifact_type: :dependency_scanning,
-          artifact_format: Ci::JobArtifact::TYPE_AND_FORMAT_PAIRS.fetch(:dependency_scanning),
+          artifact_format: Enums::Ci::JobArtifact.type_and_format_pairs.fetch(:dependency_scanning),
           paths: [ds_filename],
           when: 'always'
         }
@@ -221,6 +221,18 @@ RSpec.describe Ci::BuildRunnerPresenter do
     end
   end
 
+  describe '#repo_object_format' do
+    let(:build) { create(:ci_build) }
+
+    subject { presenter.repo_object_format }
+
+    it 'delegates the call to #repository_object_format' do
+      expect(build.project).to receive(:repository_object_format).and_return('object_format')
+
+      is_expected.to eq 'object_format'
+    end
+  end
+
   describe '#refspecs' do
     subject { presenter.refspecs }
 
@@ -228,16 +240,20 @@ RSpec.describe Ci::BuildRunnerPresenter do
     let(:pipeline) { build.pipeline }
 
     it 'returns the correct refspecs' do
-      is_expected.to contain_exactly("+refs/heads/#{build.ref}:refs/remotes/origin/#{build.ref}",
-                                     "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}")
+      is_expected.to contain_exactly(
+        "+refs/heads/#{build.ref}:refs/remotes/origin/#{build.ref}",
+        "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}"
+      )
     end
 
     context 'when ref is tag' do
       let(:build) { create(:ci_build, :tag) }
 
       it 'returns the correct refspecs' do
-        is_expected.to contain_exactly("+refs/tags/#{build.ref}:refs/tags/#{build.ref}",
-                                       "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}")
+        is_expected.to contain_exactly(
+          "+refs/tags/#{build.ref}:refs/tags/#{build.ref}",
+          "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}"
+        )
       end
 
       context 'when GIT_DEPTH is zero' do
@@ -246,9 +262,11 @@ RSpec.describe Ci::BuildRunnerPresenter do
         end
 
         it 'returns the correct refspecs' do
-          is_expected.to contain_exactly('+refs/tags/*:refs/tags/*',
-                                         '+refs/heads/*:refs/remotes/origin/*',
-                                         "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}")
+          is_expected.to contain_exactly(
+            '+refs/tags/*:refs/tags/*',
+            '+refs/heads/*:refs/remotes/origin/*',
+            "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}"
+          )
         end
       end
     end
@@ -273,10 +291,11 @@ RSpec.describe Ci::BuildRunnerPresenter do
         end
 
         it 'returns the correct refspecs' do
-          is_expected
-            .to contain_exactly("+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
-                                '+refs/heads/*:refs/remotes/origin/*',
-                                '+refs/tags/*:refs/tags/*')
+          is_expected.to contain_exactly(
+            "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
+            '+refs/heads/*:refs/remotes/origin/*',
+            '+refs/tags/*:refs/tags/*'
+          )
         end
       end
 
@@ -284,8 +303,10 @@ RSpec.describe Ci::BuildRunnerPresenter do
         let(:merge_request) { create(:merge_request, :with_legacy_detached_merge_request_pipeline) }
 
         it 'returns the correct refspecs' do
-          is_expected.to contain_exactly("+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
-                                         "+refs/heads/#{build.ref}:refs/remotes/origin/#{build.ref}")
+          is_expected.to contain_exactly(
+            "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
+            "+refs/heads/#{build.ref}:refs/remotes/origin/#{build.ref}"
+          )
         end
       end
     end
@@ -301,33 +322,78 @@ RSpec.describe Ci::BuildRunnerPresenter do
       end
 
       it 'exposes the persistent pipeline ref' do
-        is_expected
-          .to contain_exactly("+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
-                              "+refs/heads/#{build.ref}:refs/remotes/origin/#{build.ref}")
+        is_expected.to contain_exactly(
+          "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
+          "+refs/heads/#{build.ref}:refs/remotes/origin/#{build.ref}"
+        )
       end
     end
   end
 
   describe '#runner_variables' do
-    subject { presenter.runner_variables }
+    subject(:runner_variables) { presenter.runner_variables }
 
     let_it_be(:project) { create(:project, :repository) }
-
-    shared_examples 'returns an array with the expected variables' do
-      it 'returns an array' do
-        is_expected.to be_an_instance_of(Array)
-      end
-
-      it 'returns the expected variables' do
-        is_expected.to eq(presenter.variables.to_runner_variables)
-      end
-    end
 
     let(:sha) { project.repository.commit.sha }
     let(:pipeline) { create(:ci_pipeline, sha: sha, project: project) }
     let(:build) { create(:ci_build, pipeline: pipeline) }
 
-    it_behaves_like 'returns an array with the expected variables'
+    it 'returns an array' do
+      is_expected.to be_an_instance_of(Array)
+    end
+
+    it 'returns the expected variables' do
+      is_expected.to eq(presenter.variables.to_runner_variables)
+    end
+
+    context 'when there is a file variable to expand' do
+      before_all do
+        create(:ci_variable, project: project, key: 'regular_var', value: 'value 1')
+        create(:ci_variable, project: project, key: 'file_var', value: 'value 2', variable_type: :file)
+        create(
+          :ci_variable,
+          project: project,
+          key: 'var_with_variables',
+          value: 'value 3 and $regular_var and $file_var and $undefined_var'
+        )
+      end
+
+      it 'returns variables with expanded' do
+        expect(runner_variables).to include(
+          { key: 'regular_var', value: 'value 1',
+            public: false, masked: false },
+          { key: 'file_var', value: 'value 2',
+            public: false, masked: false, file: true },
+          { key: 'var_with_variables', value: 'value 3 and value 1 and $file_var and $undefined_var',
+            public: false, masked: false }
+        )
+      end
+    end
+
+    context 'when there is a raw variable to expand' do
+      before_all do
+        create(:ci_variable, project: project, key: 'regular_var', value: 'value 1')
+        create(:ci_variable, project: project, key: 'raw_var', value: 'value 2', raw: true)
+        create(
+          :ci_variable,
+          project: project,
+          key: 'var_with_variables',
+          value: 'value 3 and $regular_var and $raw_var and $undefined_var'
+        )
+      end
+
+      it 'returns expanded variables without expanding raws' do
+        expect(runner_variables).to include(
+          { key: 'regular_var', value: 'value 1',
+            public: false, masked: false },
+          { key: 'raw_var', value: 'value 2',
+            public: false, masked: false, raw: true },
+          { key: 'var_with_variables', value: 'value 3 and value 1 and $raw_var and $undefined_var',
+            public: false, masked: false }
+        )
+      end
+    end
   end
 
   describe '#runner_variables subset' do
@@ -344,10 +410,10 @@ RSpec.describe Ci::BuildRunnerPresenter do
 
       it 'returns expanded and sorted variables' do
         is_expected.to eq [
-                            { key: 'C', value: 'value', public: false, masked: false },
-                            { key: 'B', value: 'refB-value-$D', public: false, masked: false },
-                            { key: 'A', value: 'refA-refB-value-$D', public: false, masked: false }
-                          ]
+          { key: 'C', value: 'value', public: false, masked: false },
+          { key: 'B', value: 'refB-value-$D', public: false, masked: false },
+          { key: 'A', value: 'refA-refB-value-$D', public: false, masked: false }
+        ]
       end
     end
   end

@@ -5,6 +5,12 @@ require 'spec_helper'
 RSpec.describe NotificationSetting do
   it_behaves_like 'having unique enum values'
 
+  describe 'default values' do
+    subject(:notification_setting) { build(:notification_setting) }
+
+    it { expect(notification_setting.level).to eq('global') }
+  end
+
   describe "Associations" do
     it { is_expected.to belong_to(:user) }
     it { is_expected.to belong_to(:source) }
@@ -187,7 +193,11 @@ RSpec.describe NotificationSetting do
     end
 
     it 'includes EXCLUDED_WATCHER_EVENTS' do
-      expect(subject).to include(*described_class::EXCLUDED_WATCHER_EVENTS)
+      expect(subject).to include(
+        :push_to_merge_request,
+        :issue_due,
+        :success_pipeline
+      )
     end
   end
 
@@ -214,5 +224,12 @@ RSpec.describe NotificationSetting do
     subject(:ordered_records) { described_class.where(id: ids, source: project).order_by_id_asc }
 
     it { is_expected.to eq([notification_setting_1, notification_setting_3]) }
+  end
+
+  context 'with loose foreign key on notification_settings.user_id' do
+    it_behaves_like 'cleanup by a loose foreign key' do
+      let_it_be(:parent) { create(:user) }
+      let_it_be(:model) { create(:notification_setting, user: parent) }
+    end
   end
 end

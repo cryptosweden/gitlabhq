@@ -1,9 +1,12 @@
+import { GlSkeletonLoader } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
-import $ from 'jquery';
 import waitForPromises from 'helpers/wait_for_promises';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import MarkdownViewer from '~/vue_shared/components/content_viewer/viewers/markdown_viewer.vue';
+
+jest.mock('~/behaviors/markdown/render_gfm');
 
 describe('MarkdownViewer', () => {
   let wrapper;
@@ -25,7 +28,6 @@ describe('MarkdownViewer', () => {
     mock = new MockAdapter(axios);
 
     jest.spyOn(axios, 'post');
-    jest.spyOn($.fn, 'renderGFM');
   });
 
   afterEach(() => {
@@ -34,15 +36,17 @@ describe('MarkdownViewer', () => {
 
   describe('success', () => {
     beforeEach(() => {
-      mock.onPost(`${gon.relative_url_root}/testproject/preview_markdown`).replyOnce(200, {
-        body: '<b>testing</b> {{gl_md_img_1}}',
-      });
+      mock
+        .onPost(`${gon.relative_url_root}/testproject/-/preview_markdown`)
+        .replyOnce(HTTP_STATUS_OK, {
+          body: '<b>testing</b> {{gl_md_img_1}}',
+        });
     });
 
-    it('renders an animation container while the markdown is loading', () => {
+    it('renders a skeleton loader while the markdown is loading', () => {
       createComponent();
 
-      expect(wrapper.find('.animation-container').exists()).toBe(true);
+      expect(wrapper.findComponent(GlSkeletonLoader).exists()).toBe(true);
     });
 
     it('renders markdown preview preview renders and loads rendered markdown from server', () => {
@@ -57,7 +61,7 @@ describe('MarkdownViewer', () => {
       createComponent({ filePath: 'foo/test.md', commitSha: 'abcdef' });
 
       expect(axios.post).toHaveBeenCalledWith(
-        `${gon.relative_url_root}/testproject/preview_markdown`,
+        `${gon.relative_url_root}/testproject/-/preview_markdown`,
         { path: 'foo/test.md', text: '*  Test', ref: 'abcdef' },
         expect.any(Object),
       );
@@ -99,9 +103,11 @@ describe('MarkdownViewer', () => {
 
   describe('error', () => {
     beforeEach(() => {
-      mock.onPost(`${gon.relative_url_root}/testproject/preview_markdown`).replyOnce(500, {
-        body: 'Internal Server Error',
-      });
+      mock
+        .onPost(`${gon.relative_url_root}/testproject/preview_markdown`)
+        .replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR, {
+          body: 'Internal Server Error',
+        });
     });
     it('renders an error message if loading the markdown preview fails', () => {
       createComponent();

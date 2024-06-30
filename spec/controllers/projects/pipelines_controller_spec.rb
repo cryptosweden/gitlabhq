@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::PipelinesController do
+RSpec.describe Projects::PipelinesController, feature_category: :continuous_integration do
   include ApiHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project, :public, :repository) }
+  let_it_be_with_reload(:project) { create(:project, :public, :repository) }
 
   let(:feature) { ProjectFeature::ENABLED }
 
@@ -17,6 +17,15 @@ RSpec.describe Projects::PipelinesController do
     project.project_feature.update!(builds_access_level: feature)
 
     sign_in(user)
+  end
+
+  shared_examples 'the show page' do |param|
+    it 'renders the show template' do
+      get param, params: { namespace_id: project.namespace, project_id: project, id: pipeline }
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(response).to render_template :show
+    end
   end
 
   describe 'GET index.json' do
@@ -43,21 +52,6 @@ RSpec.describe Projects::PipelinesController do
           expect(stages.count).to eq 3
         end
       end
-
-      it 'does not execute N+1 queries', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/345470' do
-        get_pipelines_index_json
-
-        control_count = ActiveRecord::QueryRecorder.new do
-          get_pipelines_index_json
-        end.count
-
-        create_all_pipeline_types
-
-        # There appears to be one extra query for Pipelines#has_warnings? for some reason
-        expect { get_pipelines_index_json }.not_to exceed_query_limit(control_count + 1)
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['pipelines'].count).to eq 12
-      end
     end
 
     it 'does not include coverage data for the pipelines' do
@@ -74,7 +68,7 @@ RSpec.describe Projects::PipelinesController do
       check_pipeline_response(returned: 2, all: 6)
     end
 
-    context 'when performing gitaly calls', :request_store do
+    context 'when performing gitaly calls', :request_store, :use_null_store_as_repository_cache do
       it 'limits the Gitaly requests' do
         # Isolate from test preparation (Repository#exists? is also cached in RequestStore)
         RequestStore.end!
@@ -209,22 +203,20 @@ RSpec.describe Projects::PipelinesController do
 
     def get_pipelines_index_html(params = {})
       get :index, params: {
-                    namespace_id: project.namespace,
-                    project_id: project
-                  }.merge(params),
-                  format: :html
+        namespace_id: project.namespace,
+        project_id: project
+      }.merge(params), format: :html
     end
 
     def get_pipelines_index_json(params = {})
       get :index, params: {
-                    namespace_id: project.namespace,
-                    project_id: project
-                  }.merge(params),
-                  format: :json
+        namespace_id: project.namespace,
+        project_id: project
+      }.merge(params), format: :json
     end
 
     def create_all_pipeline_types
-      %w(pending running success failed canceled).each_with_index do |status, index|
+      %w[pending running success failed canceled].each_with_index do |status, index|
         create_pipeline(status, project.commit("HEAD~#{index}"))
       end
 
@@ -242,16 +234,23 @@ RSpec.describe Projects::PipelinesController do
 
     def create_pipeline(status, sha, merge_request: nil)
       user = create(:user)
-      pipeline = create(:ci_empty_pipeline, status: status,
-                                            project: project,
-                                            sha: sha.id,
-                                            ref: sha.id.first(8),
-                                            user: user,
-                                            merge_request: merge_request)
+      pipeline = create(
+        :ci_empty_pipeline,
+        status: status,
+        project: project,
+        sha: sha.id,
+        ref: sha.id.first(8),
+        user: user,
+        merge_request: merge_request
+      )
 
-      create_build(pipeline, 'build', 1, 'build', user)
-      create_build(pipeline, 'test', 2, 'test', user)
-      create_build(pipeline, 'deploy', 3, 'deploy', user)
+      build_stage = create(:ci_stage, name: 'build', pipeline: pipeline)
+      test_stage = create(:ci_stage, name: 'test', pipeline: pipeline)
+      deploy_stage = create(:ci_stage, name: 'deploy', pipeline: pipeline)
+
+      create_build(pipeline, build_stage, 1, 'build', user)
+      create_build(pipeline, test_stage, 2, 'test', user)
+      create_build(pipeline, deploy_stage, 3, 'deploy', user)
 
       pipeline
     end
@@ -263,7 +262,7 @@ RSpec.describe Projects::PipelinesController do
         :artifacts,
         artifacts_expire_at: 2.days.from_now,
         pipeline: pipeline,
-        stage: stage,
+        ci_stage: stage,
         stage_idx: stage_idx,
         name: name,
         status: status,
@@ -281,22 +280,6 @@ RSpec.describe Projects::PipelinesController do
     end
   end
 
-  describe 'GET #index' do
-    before do
-      stub_application_setting(auto_devops_enabled: false)
-    end
-
-    def action
-      get :index, params: { namespace_id: project.namespace, project_id: project }
-    end
-
-    subject { project.namespace }
-
-    context 'runners_availability_section experiment' do
-      it_behaves_like 'tracks assignment and records the subject', :runners_availability_section, :namespace
-    end
-  end
-
   describe 'GET #show' do
     def get_pipeline_html
       get :show, params: { namespace_id: project.namespace, project_id: project, id: pipeline }, format: :html
@@ -306,21 +289,24 @@ RSpec.describe Projects::PipelinesController do
       render_views
 
       let_it_be(:pipeline) { create(:ci_pipeline, project: project) }
+      let_it_be(:build_stage) { create(:ci_stage, name: 'build', pipeline: pipeline) }
+      let_it_be(:test_stage) { create(:ci_stage, name: 'test', pipeline: pipeline) }
+      let_it_be(:deploy_stage) { create(:ci_stage, name: 'deploy', pipeline: pipeline) }
 
       def create_build_with_artifacts(stage, stage_idx, name, status)
-        create(:ci_build, :artifacts, :tags, status, user: user, pipeline: pipeline, stage: stage, stage_idx: stage_idx, name: name)
+        create(:ci_build, :artifacts, :tags, status, user: user, pipeline: pipeline, ci_stage: stage, stage_idx: stage_idx, name: name)
       end
 
       def create_bridge(stage, stage_idx, name, status)
-        create(:ci_bridge, status, pipeline: pipeline, stage: stage, stage_idx: stage_idx, name: name)
+        create(:ci_bridge, status, pipeline: pipeline, ci_stage: stage, stage_idx: stage_idx, name: name)
       end
 
       before do
-        create_build_with_artifacts('build', 0, 'job1', :failed)
-        create_build_with_artifacts('build', 0, 'job2', :running)
-        create_build_with_artifacts('build', 0, 'job3', :pending)
-        create_bridge('deploy', 1, 'deploy-a', :failed)
-        create_bridge('deploy', 1, 'deploy-b', :created)
+        create_build_with_artifacts(build_stage, 0, 'job1', :failed)
+        create_build_with_artifacts(build_stage, 0, 'job2', :running)
+        create_build_with_artifacts(build_stage, 0, 'job3', :pending)
+        create_bridge(deploy_stage, 1, 'deploy-a', :failed)
+        create_bridge(deploy_stage, 1, 'deploy-b', :created)
       end
 
       it 'avoids N+1 database queries', :request_store, :use_sql_query_cache do
@@ -333,16 +319,16 @@ RSpec.describe Projects::PipelinesController do
           expect(response).to have_gitlab_http_status(:ok)
         end
 
-        create_build_with_artifacts('build', 0, 'job4', :failed)
-        create_build_with_artifacts('build', 0, 'job5', :running)
-        create_build_with_artifacts('build', 0, 'job6', :pending)
-        create_bridge('deploy', 1, 'deploy-c', :failed)
-        create_bridge('deploy', 1, 'deploy-d', :created)
+        create_build_with_artifacts(build_stage, 0, 'job4', :failed)
+        create_build_with_artifacts(build_stage, 0, 'job5', :running)
+        create_build_with_artifacts(build_stage, 0, 'job6', :pending)
+        create_bridge(deploy_stage, 1, 'deploy-c', :failed)
+        create_bridge(deploy_stage, 1, 'deploy-d', :created)
 
         expect do
           get_pipeline_html
           expect(response).to have_gitlab_http_status(:ok)
-        end.not_to exceed_all_query_limit(control)
+        end.not_to exceed_all_query_limit(control).with_threshold(3)
       end
     end
 
@@ -376,23 +362,26 @@ RSpec.describe Projects::PipelinesController do
       let(:project) { create(:project, :repository) }
 
       let(:pipeline) do
-        create(:ci_empty_pipeline, project: project,
-                                   user: user,
-                                   sha: project.commit.id)
+        create(:ci_empty_pipeline, project: project, user: user, sha: project.commit.id)
       end
 
+      let(:build_stage) { create(:ci_stage, name: 'build', pipeline: pipeline) }
+      let(:test_stage) { create(:ci_stage, name: 'test', pipeline: pipeline) }
+      let(:deploy_stage) { create(:ci_stage, name: 'deploy', pipeline: pipeline) }
+      let(:post_deploy_stage) { create(:ci_stage, name: 'post deploy', pipeline: pipeline) }
+
       before do
-        create_build('build', 0, 'build')
-        create_build('test', 1, 'rspec 0')
-        create_build('deploy', 2, 'production')
-        create_build('post deploy', 3, 'pages 0')
+        create_build(build_stage, 0, 'build')
+        create_build(test_stage, 1, 'rspec 0')
+        create_build(deploy_stage, 2, 'production')
+        create_build(post_deploy_stage, 3, 'pages 0')
       end
 
       it 'does not perform N + 1 queries' do
         # Set up all required variables
         get_pipeline_json
 
-        control_count = ActiveRecord::QueryRecorder.new { get_pipeline_json }.count
+        control = ActiveRecord::QueryRecorder.new { get_pipeline_json }
 
         first_build = pipeline.builds.first
         first_build.tag_list << [:hello, :world]
@@ -402,9 +391,7 @@ RSpec.describe Projects::PipelinesController do
         second_build.tag_list << [:docker, :ruby]
         create(:deployment, deployable: second_build)
 
-        new_count = ActiveRecord::QueryRecorder.new { get_pipeline_json }.count
-
-        expect(new_count).to be_within(1).of(control_count)
+        expect { get_pipeline_json }.not_to exceed_query_limit(control).with_threshold(1)
       end
     end
 
@@ -591,7 +578,7 @@ RSpec.describe Projects::PipelinesController do
 
       def create_pipeline(project)
         create(:ci_empty_pipeline, project: project).tap do |pipeline|
-          create(:ci_build, pipeline: pipeline, stage: 'test', name: 'rspec')
+          create(:ci_build, pipeline: pipeline, ci_stage: create(:ci_stage, name: 'test', pipeline: pipeline), name: 'rspec')
         end
       end
 
@@ -621,16 +608,24 @@ RSpec.describe Projects::PipelinesController do
     end
 
     def create_build(stage, stage_idx, name)
-      create(:ci_build, pipeline: pipeline, stage: stage, stage_idx: stage_idx, name: name)
+      create(:ci_build, pipeline: pipeline, ci_stage: stage, stage_idx: stage_idx, name: name)
     end
+  end
+
+  describe 'GET dag' do
+    let(:pipeline) { create(:ci_pipeline, project: project) }
+
+    it_behaves_like 'the show page', 'dag'
   end
 
   describe 'GET dag.json' do
     let(:pipeline) { create(:ci_pipeline, project: project) }
+    let(:build_stage) { create(:ci_stage, name: 'build', pipeline: pipeline) }
+    let(:test_stage) { create(:ci_stage, name: 'test', pipeline: pipeline) }
 
     before do
-      create_build('build', 1, 'build')
-      create_build('test', 2, 'test', scheduling_type: 'dag').tap do |job|
+      create_build(build_stage, 1, 'build')
+      create_build(test_stage, 2, 'test', scheduling_type: 'dag').tap do |job|
         create(:ci_build_need, build: job, name: 'build')
       end
     end
@@ -654,17 +649,49 @@ RSpec.describe Projects::PipelinesController do
     end
 
     def create_build(stage, stage_idx, name, params = {})
-      create(:ci_build, pipeline: pipeline, stage: stage, stage_idx: stage_idx, name: name, **params)
+      create(:ci_build, pipeline: pipeline, ci_stage: stage, stage_idx: stage_idx, name: name, **params)
+    end
+  end
+
+  describe 'GET builds' do
+    let(:pipeline) { create(:ci_pipeline, project: project) }
+
+    it_behaves_like 'the show page', 'builds'
+  end
+
+  describe 'GET failures' do
+    let(:pipeline) { create(:ci_pipeline, project: project) }
+
+    context 'with failed jobs' do
+      before do
+        create(:ci_build, :failed, pipeline: pipeline, name: 'hello')
+      end
+
+      it 'shows the page' do
+        get :failures, params: { namespace_id: project.namespace, project_id: project, id: pipeline }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to render_template :show
+      end
+    end
+
+    context 'without failed jobs' do
+      it 'redirects to the main pipeline page' do
+        get :failures, params: { namespace_id: project.namespace, project_id: project, id: pipeline }
+
+        expect(response).to redirect_to(pipeline_path(pipeline))
+      end
     end
   end
 
   describe 'GET stages.json' do
     let(:pipeline) { create(:ci_pipeline, project: project) }
+    let(:build_stage) { create(:ci_stage, name: 'build', pipeline: pipeline) }
 
     context 'when accessing existing stage' do
       before do
-        create(:ci_build, :retried, :failed, pipeline: pipeline, stage: 'build')
-        create(:ci_build, pipeline: pipeline, stage: 'build')
+        create(:ci_build, :retried, :failed, pipeline: pipeline, ci_stage: build_stage)
+        create(:ci_build, pipeline: pipeline, ci_stage: build_stage)
       end
 
       context 'without retried' do
@@ -722,11 +749,8 @@ RSpec.describe Projects::PipelinesController do
 
     before do
       get :status, params: {
-                     namespace_id: project.namespace,
-                     project_id: project,
-                     id: pipeline.id
-                   },
-                   format: :json
+        namespace_id: project.namespace, project_id: project, id: pipeline.id
+      }, format: :json
     end
 
     it 'return a detailed pipeline status in json' do
@@ -743,25 +767,64 @@ RSpec.describe Projects::PipelinesController do
 
     [
       {
-        chart_param: '',
-        event: 'p_analytics_ci_cd_pipelines'
+        chart_param: 'time-to-restore-service',
+        event: 'p_analytics_ci_cd_time_to_restore_service'
       },
       {
-        chart_param: 'pipelines',
-        event: 'p_analytics_ci_cd_pipelines'
-      },
-      {
-        chart_param: 'deployment-frequency',
-        event: 'p_analytics_ci_cd_deployment_frequency'
-      },
-      {
-        chart_param: 'lead-time',
-        event: 'p_analytics_ci_cd_lead_time'
+        chart_param: 'change-failure-rate',
+        event: 'p_analytics_ci_cd_change_failure_rate'
       }
     ].each do |tab|
       it_behaves_like 'tracking unique visits', :charts do
         let(:request_params) { { namespace_id: project.namespace, project_id: project, id: pipeline.id, chart: tab[:chart_param] } }
         let(:target_id) { ['p_analytics_pipelines', tab[:event]] }
+      end
+
+      it_behaves_like 'Snowplow event tracking with RedisHLL context' do
+        subject { get :charts, params: request_params, format: :html }
+
+        let(:request_params) { { namespace_id: project.namespace, project_id: project, id: pipeline.id, chart: tab[:chart_param] } }
+        let(:category) { described_class.name }
+        let(:action) { 'perform_analytics_usage_action' }
+        let(:namespace) { project.namespace }
+        let(:label) { 'redis_hll_counters.analytics.analytics_total_unique_counts_monthly' }
+        let(:property) { 'p_analytics_pipelines' }
+      end
+    end
+
+    using RSpec::Parameterized::TableSyntax
+
+    where(:chart, :event, :additional_metrics) do
+      ''                        | 'p_analytics_ci_cd_pipelines'               | ['analytics_unique_visits.p_analytics_ci_cd_pipelines']
+      'pipelines'               | 'p_analytics_ci_cd_pipelines'               | ['analytics_unique_visits.p_analytics_ci_cd_pipelines']
+      'deployment-frequency'    | 'p_analytics_ci_cd_deployment_frequency'    | []
+      'lead-time'               | 'p_analytics_ci_cd_lead_time'               | []
+    end
+
+    with_them do
+      let(:params) { { namespace_id: project.namespace, project_id: project, id: pipeline.id, chart: chart } }
+
+      it_behaves_like 'tracking unique visits', :charts do
+        let(:request_params) { params }
+        let(:target_id) { ['p_analytics_pipelines', event] }
+      end
+
+      it 'tracks events and increment usage metrics', :clean_gitlab_redis_shared_state do
+        expect { get :charts, params: params, format: :html }
+          .to trigger_internal_events(event).with(project: project, user: user, category: 'InternalEventTracking')
+          .and increment_usage_metrics(
+            # These are currently double-counted --- what's up with this?; is it the mix of track_internal_events and track_events?
+            # Or that track_internal_events is being used with events which aren't actually internal_events?
+            'analytics_unique_visits.analytics_unique_visits_for_any_target',
+            'analytics_unique_visits.analytics_unique_visits_for_any_target_monthly',
+            'redis_hll_counters.analytics.analytics_total_unique_counts_monthly',
+            'redis_hll_counters.analytics.analytics_total_unique_counts_weekly'
+          ).by(2)
+          .and increment_usage_metrics(
+            "redis_hll_counters.analytics.#{event}_monthly",
+            "redis_hll_counters.analytics.#{event}_weekly",
+            *additional_metrics
+          ).by(1)
       end
     end
   end
@@ -799,9 +862,7 @@ RSpec.describe Projects::PipelinesController do
 
       context 'when latest commit contains [ci skip]' do
         before do
-          project.repository.create_file(user, 'new-file.txt', 'A new file',
-                                         message: '[skip ci] This is a test',
-                                         branch_name: 'master')
+          project.repository.create_file(user, 'new-file.txt', 'A new file', message: '[skip ci] This is a test', branch_name: 'master')
         end
 
         it_behaves_like 'creates a pipeline'
@@ -837,11 +898,8 @@ RSpec.describe Projects::PipelinesController do
 
     subject do
       post :create, params: {
-                      namespace_id: project.namespace,
-                      project_id: project,
-                      pipeline: { ref: 'master' }
-                    },
-                    format: :json
+        namespace_id: project.namespace, project_id: project, pipeline: { ref: 'master' }
+      }, format: :json
     end
 
     before do
@@ -900,11 +958,8 @@ RSpec.describe Projects::PipelinesController do
   describe 'POST retry.json' do
     subject(:post_retry) do
       post :retry, params: {
-                     namespace_id: project.namespace,
-                     project_id: project,
-                     id: pipeline.id
-                   },
-                   format: :json
+        namespace_id: project.namespace, project_id: project, id: pipeline.id
+      }, format: :json
     end
 
     let!(:pipeline) { create(:ci_pipeline, :failed, project: project) }
@@ -963,29 +1018,63 @@ RSpec.describe Projects::PipelinesController do
 
   describe 'POST cancel.json' do
     let!(:pipeline) { create(:ci_pipeline, project: project) }
-    let!(:build) { create(:ci_build, :running, pipeline: pipeline) }
+    let!(:job) { create(:ci_build, :running, pipeline: pipeline) }
 
-    before do
+    subject do
       post :cancel, params: {
-                      namespace_id: project.namespace,
-                      project_id: project,
-                      id: pipeline.id
-                    },
-                    format: :json
+        namespace_id: project.namespace, project_id: project, id: pipeline.id
+      }, format: :json
     end
 
-    it 'cancels a pipeline without returning any content', :sidekiq_might_not_need_inline do
-      expect(response).to have_gitlab_http_status(:no_content)
-      expect(pipeline.reload).to be_canceled
-    end
+    context 'when supports canceling is true' do
+      include_context 'when canceling support'
 
-    context 'when builds are disabled' do
-      let(:feature) { ProjectFeature::DISABLED }
+      it 'sets a pipeline status to canceling', :sidekiq_inline do
+        subject
 
-      it 'fails to retry pipeline' do
-        expect(response).to have_gitlab_http_status(:not_found)
+        expect(pipeline.reload).to be_canceling
+      end
+
+      it 'returns a no content http status' do
+        subject
+
+        expect(response).to have_gitlab_http_status(:no_content)
       end
     end
+
+    context 'when supports canceling is false' do
+      before do
+        allow(job).to receive(:supports_canceling?).and_return(false)
+      end
+
+      it 'sets a pipeline status to canceled', :sidekiq_inline do
+        subject
+
+        expect(pipeline.reload).to be_canceled
+      end
+
+      it 'returns a no content http status' do
+        subject
+
+        expect(response).to have_gitlab_http_status(:no_content)
+      end
+
+      context 'when builds are disabled' do
+        let(:feature) { ProjectFeature::DISABLED }
+
+        it 'fails to retry pipeline' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+    end
+  end
+
+  describe 'GET test_report' do
+    let(:pipeline) { create(:ci_pipeline, project: project) }
+
+    it_behaves_like 'the show page', 'test_report'
   end
 
   describe 'GET test_report.json' do
@@ -1018,7 +1107,7 @@ RSpec.describe Projects::PipelinesController do
 
         clear_controller_memoization
 
-        control_count = ActiveRecord::QueryRecorder.new { get_test_report_json }.count
+        control = ActiveRecord::QueryRecorder.new { get_test_report_json }
 
         create(:ci_build, name: 'karma', pipeline: pipeline).tap do |build|
           create(:ci_job_artifact, :junit, job: build)
@@ -1026,7 +1115,7 @@ RSpec.describe Projects::PipelinesController do
 
         clear_controller_memoization
 
-        expect { get_test_report_json }.not_to exceed_query_limit(control_count)
+        expect { get_test_report_json }.not_to exceed_query_limit(control)
       end
     end
 
@@ -1108,7 +1197,7 @@ RSpec.describe Projects::PipelinesController do
 
     def clear_controller_memoization
       controller.clear_memoization(:pipeline_test_report)
-      controller.instance_variable_set(:@pipeline, nil)
+      controller.remove_instance_variable(:@pipeline)
     end
   end
 
@@ -1117,17 +1206,11 @@ RSpec.describe Projects::PipelinesController do
     let(:branch_secondary) { project.repository.branches[1] }
 
     let!(:pipeline_master) do
-      create(:ci_pipeline,
-             ref: branch_main.name,
-             sha: branch_main.target,
-             project: project)
+      create(:ci_pipeline, ref: branch_main.name, sha: branch_main.target, project: project)
     end
 
     let!(:pipeline_secondary) do
-      create(:ci_pipeline,
-             ref: branch_secondary.name,
-             sha: branch_secondary.target,
-             project: project)
+      create(:ci_pipeline, ref: branch_secondary.name, sha: branch_secondary.target, project: project)
     end
 
     before do
@@ -1213,6 +1296,18 @@ RSpec.describe Projects::PipelinesController do
           expect(response).to have_gitlab_http_status(:not_found)
         end
       end
+
+      context 'and project is undergoing stats refresh' do
+        it_behaves_like 'preventing request because of ongoing project stats refresh' do
+          let(:make_request) { delete_pipeline }
+
+          it 'does not delete the pipeline' do
+            make_request
+
+            expect(Ci::Pipeline.exists?(pipeline.id)).to be_truthy
+          end
+        end
+      end
     end
 
     context 'when user has no privileges' do
@@ -1229,157 +1324,6 @@ RSpec.describe Projects::PipelinesController do
                          project_id: project,
                          id: pipeline.id
                        }
-    end
-  end
-
-  describe 'GET config_variables.json', :use_clean_rails_memory_store_caching do
-    include ReactiveCachingHelpers
-
-    let(:result) { YAML.dump(ci_config) }
-    let(:service) { Ci::ListConfigVariablesService.new(project, user) }
-
-    before do
-      stub_gitlab_ci_yml_for_sha(sha, result)
-      allow(Ci::ListConfigVariablesService)
-        .to receive(:new)
-        .and_return(service)
-    end
-
-    context 'when sending a valid sha' do
-      let(:sha) { 'master' }
-      let(:ci_config) do
-        {
-          variables: {
-            KEY1: { value: 'val 1', description: 'description 1' }
-          },
-          test: {
-            stage: 'test',
-            script: 'echo'
-          }
-        }
-      end
-
-      before do
-        synchronous_reactive_cache(service)
-      end
-
-      it 'returns variable list' do
-        get_config_variables
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['KEY1']).to eq({ 'value' => 'val 1', 'description' => 'description 1' })
-      end
-    end
-
-    context 'when sending an invalid sha' do
-      let(:sha) { 'invalid-sha' }
-      let(:ci_config) { nil }
-
-      before do
-        synchronous_reactive_cache(service)
-      end
-
-      it 'returns empty json' do
-        get_config_variables
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response).to eq({})
-      end
-    end
-
-    context 'when sending an invalid config' do
-      let(:sha) { 'master' }
-      let(:ci_config) do
-        {
-          variables: {
-            KEY1: { value: 'val 1', description: 'description 1' }
-          },
-          test: {
-            stage: 'invalid',
-            script: 'echo'
-          }
-        }
-      end
-
-      before do
-        synchronous_reactive_cache(service)
-      end
-
-      it 'returns empty result' do
-        get_config_variables
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response).to eq({})
-      end
-    end
-
-    context 'when the cache is empty' do
-      let(:sha) { 'master' }
-      let(:ci_config) do
-        {
-          variables: {
-            KEY1: { value: 'val 1', description: 'description 1' }
-          },
-          test: {
-            stage: 'test',
-            script: 'echo'
-          }
-        }
-      end
-
-      it 'returns no content' do
-        get_config_variables
-
-        expect(response).to have_gitlab_http_status(:no_content)
-      end
-    end
-
-    context 'when project uses external project ci config' do
-      let(:other_project) { create(:project) }
-      let(:sha) { 'master' }
-      let(:service) { ::Ci::ListConfigVariablesService.new(other_project, user) }
-
-      let(:ci_config) do
-        {
-          variables: {
-            KEY1: { value: 'val 1', description: 'description 1' }
-          },
-          test: {
-            stage: 'test',
-            script: 'echo'
-          }
-        }
-      end
-
-      before do
-        project.update!(ci_config_path: ".gitlab-ci.yml@#{other_project.full_path}")
-        synchronous_reactive_cache(service)
-      end
-
-      it 'returns other project config variables' do
-        expect(::Ci::ListConfigVariablesService).to receive(:new).with(other_project, anything).and_return(service)
-
-        get_config_variables
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['KEY1']).to eq({ 'value' => 'val 1', 'description' => 'description 1' })
-      end
-    end
-
-    private
-
-    def stub_gitlab_ci_yml_for_sha(sha, result)
-      allow_any_instance_of(Repository)
-          .to receive(:gitlab_ci_yml_for)
-          .with(sha, '.gitlab-ci.yml')
-          .and_return(result)
-    end
-
-    def get_config_variables
-      get :config_variables, params: { namespace_id: project.namespace,
-                                       project_id: project,
-                                       sha: sha },
-                             format: :json
     end
   end
 

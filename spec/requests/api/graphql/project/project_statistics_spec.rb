@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'rendering project statistics' do
+RSpec.describe 'rendering project statistics', feature_category: :shared do
   include GraphqlHelpers
 
   let(:project) { create(:project) }
@@ -10,9 +10,11 @@ RSpec.describe 'rendering project statistics' do
   let(:user) { create(:user) }
 
   let(:query) do
-    graphql_query_for('project',
-                      { 'fullPath' => project.full_path },
-                      "statistics { #{all_graphql_fields_for('ProjectStatistics')} }")
+    graphql_query_for(
+      'project',
+      { 'fullPath' => project.full_path },
+      "statistics { #{all_graphql_fields_for('ProjectStatistics')} }"
+    )
   end
 
   before do

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe TestHooks::ProjectService do
+RSpec.describe TestHooks::ProjectService, feature_category: :code_testing do
   include AfterNextHelpers
 
   let(:current_user) { create(:user) }
@@ -26,7 +26,7 @@ RSpec.describe TestHooks::ProjectService do
     context 'hook with not implemented test' do
       it 'returns error message' do
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Testing not available for this hook' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Testing not available for this hook')
       end
     end
 
@@ -47,7 +47,10 @@ RSpec.describe TestHooks::ProjectService do
       let(:trigger_key) { :tag_push_hooks }
 
       it 'executes hook' do
-        allow(Gitlab::DataBuilder::Push).to receive(:build_sample).and_return(sample_data)
+        allow(Gitlab::DataBuilder::Push)
+          .to receive(:build_sample)
+          .with(project, current_user, is_tag: true)
+          .and_return(sample_data)
 
         expect(hook).to receive(:execute).with(sample_data, trigger_key, force: true).and_return(success_result)
         expect(service.execute).to include(success_result)
@@ -60,7 +63,7 @@ RSpec.describe TestHooks::ProjectService do
 
       it 'returns error message if not enough data' do
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Ensure the project has notes.' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the project has notes.')
       end
 
       it 'executes hook' do
@@ -79,7 +82,7 @@ RSpec.describe TestHooks::ProjectService do
 
       it 'returns error message if not enough data' do
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Ensure the project has issues.' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the project has issues.')
       end
 
       it 'executes hook' do
@@ -112,7 +115,7 @@ RSpec.describe TestHooks::ProjectService do
 
       it 'returns error message if not enough data' do
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Ensure the project has merge requests.' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the project has merge requests.')
       end
 
       it 'executes hook' do
@@ -131,7 +134,7 @@ RSpec.describe TestHooks::ProjectService do
 
       it 'returns error message if not enough data' do
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Ensure the project has CI jobs.' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the project has CI jobs.')
       end
 
       it 'executes hook' do
@@ -150,7 +153,7 @@ RSpec.describe TestHooks::ProjectService do
 
       it 'returns error message if not enough data' do
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Ensure the project has CI pipelines.' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the project has CI pipelines.')
       end
 
       it 'executes hook' do
@@ -172,12 +175,12 @@ RSpec.describe TestHooks::ProjectService do
         allow(project).to receive(:wiki_enabled?).and_return(false)
 
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Ensure the wiki is enabled and has pages.' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the wiki is enabled and has pages.')
       end
 
       it 'returns error message if not enough data' do
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Ensure the wiki is enabled and has pages.' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the wiki is enabled and has pages.')
       end
 
       it 'executes hook' do
@@ -196,12 +199,45 @@ RSpec.describe TestHooks::ProjectService do
 
       it 'returns error message if not enough data' do
         expect(hook).not_to receive(:execute)
-        expect(service.execute).to include({ status: :error, message: 'Ensure the project has releases.' })
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the project has releases.')
       end
 
       it 'executes hook' do
         allow(release).to receive(:to_hook_data).and_return(sample_data)
         allow_next(ReleasesFinder).to receive(:execute).and_return([release])
+
+        expect(hook).to receive(:execute).with(sample_data, trigger_key, force: true).and_return(success_result)
+        expect(service.execute).to include(success_result)
+      end
+    end
+
+    context 'emoji' do
+      let(:trigger) { 'emoji_events' }
+      let(:trigger_key) { :emoji_hooks }
+
+      it 'returns error message if not enough data' do
+        expect(hook).not_to receive(:execute)
+        expect(service.execute).to have_attributes(status: :error, message: 'Ensure the project has notes.')
+      end
+
+      it 'executes hook' do
+        note = create(:note)
+        allow(project).to receive_message_chain(:notes, :any?).and_return(true)
+        allow(project).to receive_message_chain(:notes, :last).and_return(note)
+        allow(Gitlab::DataBuilder::Emoji).to receive(:build).with(anything, current_user, 'award')
+          .and_return(sample_data)
+
+        expect(hook).to receive(:execute).with(sample_data, trigger_key, force: true).and_return(success_result)
+        expect(service.execute).to include(success_result)
+      end
+    end
+
+    context 'when resource access token events hook' do
+      let(:trigger) { 'resource_access_token_events' }
+      let(:trigger_key) { :resource_access_token_hooks }
+
+      it 'executes hook' do
+        allow(Gitlab::DataBuilder::ResourceAccessToken).to receive(:build).and_return(sample_data)
 
         expect(hook).to receive(:execute).with(sample_data, trigger_key, force: true).and_return(success_result)
         expect(service.execute).to include(success_result)

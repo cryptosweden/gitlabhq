@@ -1,10 +1,14 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# YouTrack service **(FREE)**
+# YouTrack
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 JetBrains [YouTrack](https://www.jetbrains.com/youtrack/) is a web-based issue tracking and project
 management platform.
@@ -14,21 +18,23 @@ You can configure YouTrack as an
 
 To enable the YouTrack integration in a project:
 
-1. Go to the [Integrations page](overview.md#accessing-integrations).
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Integrations**.
 1. Select **YouTrack**.
-1. Select the checkbox under **Enable integration**.
+1. Under **Enable integration**, select the **Active** checkbox.
 1. Fill in the required fields:
    - **Project URL**: The URL to the project in YouTrack.
    - **Issue URL**: The URL to view an issue in the YouTrack project.
      The URL must contain `:id`. GitLab replaces `:id` with the issue number.
-1. Select **Save changes** or optionally select **Test settings**.
+1. Optional. Select **Test settings**.
+1. Select **Save changes**.
 
 After you configure and enable YouTrack, a link appears on the GitLab
 project pages. This link takes you to the appropriate YouTrack project.
 
 You can also disable [GitLab internal issue tracking](../issues/index.md) in this project.
-Learn more about the steps and consequences of disabling GitLab issues in
-[Sharing and permissions](../settings/index.md#sharing-and-permissions).
+For more information about the steps and consequences of disabling GitLab issues, see
+Configure project [visibility](../../../user/public_access.md#change-project-visibility), [features, and permissions](../settings/index.md#configure-project-features-and-permissions).
 
 ## Reference YouTrack issues in GitLab
 

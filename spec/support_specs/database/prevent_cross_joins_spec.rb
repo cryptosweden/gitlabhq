@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Database::PreventCrossJoins do
+RSpec.describe Database::PreventCrossJoins, :suppress_gitlab_schemas_validate_connection do
   context 'when running in a default scope' do
     context 'when only non-CI tables are used' do
       it 'does not raise exception' do
@@ -46,6 +46,20 @@ RSpec.describe Database::PreventCrossJoins do
           # but this tests that we rescue the PGQuery::ParseError which would
           # have otherwise raised first
           expect { ApplicationRecord.connection.execute('SELECT SELECT FROM SELECT') }.to raise_error(ActiveRecord::StatementInvalid)
+        end
+      end
+
+      context 'when an ALTER INDEX query is used' do
+        before do
+          ApplicationRecord.connection.execute(<<~SQL)
+            CREATE INDEX index_on_projects ON public.projects USING gin (name gin_trgm_ops)
+          SQL
+        end
+
+        it 'does not raise exception' do
+          expect do
+            ApplicationRecord.connection.execute('ALTER INDEX index_on_projects SET ( fastupdate = false )')
+          end.not_to raise_error
         end
       end
     end

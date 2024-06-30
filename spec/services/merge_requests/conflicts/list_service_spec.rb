@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::Conflicts::ListService do
+RSpec.describe MergeRequests::Conflicts::ListService, feature_category: :code_review_workflow do
   describe '#can_be_resolved_in_ui?' do
     def create_merge_request(source_branch, target_branch = 'conflict-start')
       create(:merge_request, source_branch: source_branch, target_branch: target_branch, merge_status: :unchecked) do |mr|
@@ -84,7 +84,7 @@ RSpec.describe MergeRequests::Conflicts::ListService do
     it 'returns a falsey value when the MR has a missing revision after a force push' do
       merge_request = create_merge_request('conflict-resolvable')
       service = conflicts_service(merge_request)
-      allow(merge_request).to receive_message_chain(:target_branch_head, :raw, :id).and_return(Gitlab::Git::BLANK_SHA)
+      allow(merge_request).to receive_message_chain(:target_branch_head, :raw, :id).and_return(Gitlab::Git::SHA1_BLANK_SHA)
 
       expect(service.can_be_resolved_in_ui?).to be_falsey
     end

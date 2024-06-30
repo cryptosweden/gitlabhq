@@ -1,6 +1,9 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import App from '~/code_navigation/components/app.vue';
 import Popover from '~/code_navigation/components/popover.vue';
 import createState from '~/code_navigation/store/state';
@@ -30,20 +33,21 @@ function factory(initialState = {}, props = {}) {
 }
 
 describe('Code navigation app component', () => {
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('sets initial data on mount if the correct props are passed', () => {
     const codeNavigationPath = 'code/nav/path.js';
     const path = 'blob/path.js';
     const definitionPathPrefix = 'path/prefix';
+    const wrapTextNodes = true;
 
-    factory({}, { codeNavigationPath, blobPath: path, pathPrefix: definitionPathPrefix });
+    factory(
+      {},
+      { codeNavigationPath, blobPath: path, pathPrefix: definitionPathPrefix, wrapTextNodes },
+    );
 
     expect(setInitialData).toHaveBeenCalledWith(expect.anything(), {
       blobs: [{ codeNavigationPath, path }],
       definitionPathPrefix,
+      wrapTextNodes,
     });
   });
 
@@ -56,7 +60,7 @@ describe('Code navigation app component', () => {
   it('hides popover when no definition set', () => {
     factory();
 
-    expect(wrapper.find(Popover).exists()).toBe(false);
+    expect(wrapper.findComponent(Popover).exists()).toBe(false);
   });
 
   it('renders popover when definition set', () => {
@@ -66,16 +70,18 @@ describe('Code navigation app component', () => {
       currentBlobPath: 'index.js',
     });
 
-    expect(wrapper.find(Popover).exists()).toBe(true);
+    expect(wrapper.findComponent(Popover).exists()).toBe(true);
   });
 
   it('calls showDefinition when clicking blob viewer', () => {
-    setFixtures('<div class="blob-viewer"></div>');
+    setHTMLFixture('<div class="blob-viewer"></div>');
 
     factory();
 
     document.querySelector('.blob-viewer').click();
 
     expect(showDefinition).toHaveBeenCalled();
+
+    resetHTMLFixture();
   });
 });

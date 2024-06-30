@@ -6,7 +6,7 @@ require_relative '../../code_reuse_helpers'
 module RuboCop
   module Cop
     module Scalability
-      class BulkPerformWithContext < RuboCop::Cop::Cop
+      class BulkPerformWithContext < RuboCop::Cop::Base
         include RuboCop::MigrationHelpers
         include RuboCop::CodeReuseHelpers
 
@@ -20,7 +20,7 @@ module RuboCop
           being scheduled, please disable this cop with a comment explaing which
           context will be applied.
 
-          Read more about it https://docs.gitlab.com/ee/development/sidekiq_style_guide.html#worker-context
+          Read more about it https://docs.gitlab.com/ee/development/sidekiq/logging.html#worker-context
         MSG
 
         BACKGROUND_MIGRATION_WORKER_NAMES = %w[BackgroundMigrationWorker CiDatabaseWorker].freeze
@@ -34,7 +34,7 @@ module RuboCop
           return unless schedules_in_batch_without_context?(node)
           return if scheduled_for_background_migration?(node)
 
-          add_offense(node, location: :expression)
+          add_offense(node)
         end
 
         private

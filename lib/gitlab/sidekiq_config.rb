@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'yaml'
+require 'sidekiq/capsule'
 
 module Gitlab
   module SidekiqConfig
@@ -40,11 +41,7 @@ module Gitlab
 
     class << self
       include Gitlab::SidekiqConfig::CliMethods
-
-      def redis_queues
-        # Not memoized, because this can change during the life of the application
-        Sidekiq::Queue.all.map(&:name)
-      end
+      include Gitlab::Utils::StrongMemoize
 
       def config_queues
         @config_queues ||= begin
@@ -53,8 +50,31 @@ module Gitlab
         end
       end
 
+      def cron_jobs
+        Gitlab.config.load_dynamic_cron_schedules!
+
+        jobs = Gitlab.config.cron_jobs.to_hash
+
+        jobs.delete('poll_interval') # Would be interpreted as a job otherwise
+
+        # Settingslogic (former gem used for yaml configuration) didn't allow 'class' key
+        # Therefore, we configure cron jobs with `job_class` as a workaround.
+        required_keys = %w[job_class cron]
+        jobs.each do |k, v|
+          if jobs[k] && required_keys.all? { |s| jobs[k].key?(s) }
+            jobs[k]['class'] = jobs[k].delete('job_class')
+          else
+            jobs.delete(k)
+            Gitlab::AppLogger.error("Invalid cron_jobs config key: '#{k}'. Check your gitlab config file.")
+          end
+        end
+
+        jobs
+      end
+      strong_memoize_attr :cron_jobs
+
       def cron_workers
-        @cron_workers ||= Settings.cron_jobs.map { |job_name, options| options['job_class'].constantize }
+        @cron_workers ||= cron_jobs.map { |job_name, options| options['class'].constantize }
       end
 
       def workers
@@ -137,8 +157,22 @@ module Gitlab
       # the current Sidekiq process
       def current_worker_queue_mappings
         worker_queue_mappings
-          .select { |worker, queue| Sidekiq.options[:queues].include?(queue) }
+          .select { |worker, queue| Sidekiq.default_configuration.queues.include?(queue) }
           .to_h
+      end
+
+      # Get the list of queues from all available workers following queue
+      # routing rules. Sidekiq::Queue.all fetches the list of queues from Redis.
+      # It may contain some redundant, obsolete queues from previous iterations
+      # of GitLab.
+      def routing_queues
+        @routing_queues ||= workers.map do |worker|
+          if worker.klass.is_a?(Gitlab::SidekiqConfig::DummyWorker)
+            worker.queue
+          else
+            ::Gitlab::SidekiqConfig::WorkerRouter.global.route(worker.klass)
+          end
+        end.uniq.sort
       end
 
       private

@@ -1,16 +1,18 @@
 <script>
-import { GlFormText, GlIcon, GlLink } from '@gitlab/ui';
+import { GlIcon, GlLink, GlFormGroup, GlFormCheckbox } from '@gitlab/ui';
 import IntegrationHelpText from '~/vue_shared/components/integrations_help_text.vue';
+
+const toCheckboxValue = (bool) => (bool ? '1' : false);
 
 export default {
   name: 'IntegrationView',
   components: {
-    GlFormText,
     GlIcon,
     GlLink,
+    GlFormGroup,
+    GlFormCheckbox,
     IntegrationHelpText,
   },
-  inject: ['userFields'],
   props: {
     helpLink: {
       type: String,
@@ -28,10 +30,14 @@ export default {
       type: Object,
       required: true,
     },
+    value: {
+      type: Boolean,
+      required: true,
+    },
   },
   data() {
     return {
-      isEnabled: this.userFields[this.config.formName],
+      checkboxValue: toCheckboxValue(this.value),
     };
   },
   computed: {
@@ -42,40 +48,40 @@ export default {
       return `user_${this.config.formName}`;
     },
   },
+  watch: {
+    value(val) {
+      this.checkboxValue = toCheckboxValue(val);
+    },
+    checkboxValue(val) {
+      // note: When checked we get '1' since we set `value` prop. Unchecked is `false` as expected.
+      //       This value="1" needs to be set to properly handle the Rails form.
+      //       https://bootstrap-vue.org/docs/components/form-checkbox#comp-ref-b-form-checkbox-props
+      this.$emit('input', Boolean(val));
+    },
+  },
 };
 </script>
 
 <template>
-  <div>
-    <label class="label-bold">
+  <gl-form-group>
+    <template #label>
       {{ config.title }}
-    </label>
-    <gl-link class="has-tooltip" title="More information" :href="helpLink">
-      <gl-icon name="question-o" class="vertical-align-middle" />
-    </gl-link>
-    <div class="form-group form-check" data-testid="profile-preferences-integration-form-group">
-      <!-- Necessary for Rails to receive the value when not checked -->
-      <input
-        :name="formName"
-        type="hidden"
-        value="0"
-        data-testid="profile-preferences-integration-hidden-field"
-      />
-      <input
-        :id="formId"
-        v-model="isEnabled"
-        type="checkbox"
-        class="form-check-input"
-        :name="formName"
-        value="1"
-        data-testid="profile-preferences-integration-checkbox"
-      />
-      <label class="form-check-label" :for="formId">
-        {{ config.label }}
-      </label>
-      <gl-form-text tag="div">
+      <gl-link class="has-tooltip" title="More information" :href="helpLink">
+        <gl-icon name="question-o" class="vertical-align-middle" />
+      </gl-link>
+    </template>
+    <!-- Necessary for Rails to receive the value when not checked -->
+    <input
+      :name="formName"
+      type="hidden"
+      value="0"
+      data-testid="profile-preferences-integration-hidden-field"
+    />
+    <gl-form-checkbox :id="formId" v-model="checkboxValue" :name="formName" value="1"
+      >{{ config.label }}
+      <template #help>
         <integration-help-text :message="message" :message-url="messageUrl" />
-      </gl-form-text>
-    </div>
-  </div>
+      </template>
+    </gl-form-checkbox>
+  </gl-form-group>
 </template>

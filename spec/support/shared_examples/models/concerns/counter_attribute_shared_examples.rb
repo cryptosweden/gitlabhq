@@ -2,32 +2,54 @@
 require 'spec_helper'
 
 RSpec.shared_examples_for CounterAttribute do |counter_attributes|
-  it 'defines a Redis counter_key' do
-    expect(model.counter_key(:counter_name))
-      .to eq("project:{#{model.project_id}}:counters:CounterAttributeModel:#{model.id}:counter_name")
+  before do
+    Gitlab::ApplicationContext.push(feature_category: 'test', caller_id: 'caller')
   end
 
   it 'defines a method to store counters' do
-    expect(model.class.counter_attributes.to_a).to eq(counter_attributes)
+    registered_attributes = model.class.counter_attributes.map { |e| e[:attribute] } # rubocop:disable Rails/Pluck
+    expect(registered_attributes).to contain_exactly(*counter_attributes)
   end
 
   counter_attributes.each do |attribute|
     describe attribute do
-      describe '#delayed_increment_counter', :redis do
-        let(:increment) { 10 }
+      describe '#increment_counter', :redis do
+        let(:amount) { 10 }
+        let(:increment) { Gitlab::Counters::Increment.new(amount: amount, ref: 3) }
+        let(:counter_key) { model.counter(attribute).key }
+        let(:returns_current) do
+          model.class.counter_attributes
+               .find { |a| a[:attribute] == attribute }
+               .fetch(:returns_current, false)
+        end
 
-        subject { model.delayed_increment_counter(attribute, increment) }
+        subject { model.increment_counter(attribute, increment) }
 
         context 'when attribute is a counter attribute' do
-          where(:increment) { [10, -3] }
+          where(:amount) { [10, -3] }
 
           with_them do
-            it 'increments the counter in Redis' do
+            it 'increments the counter in Redis and logs it' do
+              expect(Gitlab::AppLogger).to receive(:info).with(
+                hash_including(
+                  message: 'Increment counter attribute',
+                  attribute: attribute,
+                  project_id: model.project_id,
+                  increment: amount,
+                  ref: increment.ref,
+                  new_counter_value: 0 + amount,
+                  current_db_value: model.read_attribute(attribute),
+                  'correlation_id' => an_instance_of(String),
+                  'meta.feature_category' => 'test',
+                  'meta.caller_id' => 'caller'
+                )
+              )
+
               subject
 
               Gitlab::Redis::SharedState.with do |redis|
-                counter = redis.get(model.counter_key(attribute))
-                expect(counter).to eq(increment.to_s)
+                counter = redis.get(counter_key)
+                expect(counter).to eq(amount.to_s)
               end
             end
 
@@ -37,15 +59,42 @@ RSpec.shared_examples_for CounterAttribute do |counter_attributes|
 
             it 'schedules a worker to flush counter increments asynchronously' do
               expect(FlushCounterIncrementsWorker).to receive(:perform_in)
-                .with(CounterAttribute::WORKER_DELAY, model.class.name, model.id, attribute)
+                .with(Gitlab::Counters::BufferedCounter::WORKER_DELAY, model.class.name, model.id, attribute)
                 .and_call_original
 
               subject
             end
           end
 
-          context 'when increment is 0' do
-            let(:increment) { 0 }
+          describe '#increment_amount' do
+            it 'increases the egress in cache' do
+              model.increment_amount(attribute, 3)
+
+              expect(model.counter(attribute).get).to eq(3)
+            end
+          end
+
+          describe '#current_counter' do
+            let(:data_transfer_node) do
+              args = { project: project }
+              args[attribute] = 2
+              create(:project_data_transfer, **args)
+            end
+
+            it 'increases the amount in cache' do
+              if returns_current
+                incremented_by = 4
+                db_state = model.read_attribute(attribute)
+
+                model.send("increment_#{attribute}".to_sym, incremented_by)
+
+                expect(model.send(attribute)).to eq(db_state + incremented_by)
+              end
+            end
+          end
+
+          context 'when increment amount is 0' do
+            let(:amount) { 0 }
 
             it 'does nothing' do
               expect(FlushCounterIncrementsWorker).not_to receive(:perform_in)
@@ -55,102 +104,135 @@ RSpec.shared_examples_for CounterAttribute do |counter_attributes|
             end
           end
         end
+      end
 
-        context 'when attribute is not a counter attribute' do
-          it 'delegates to ActiveRecord update!' do
-            expect { model.delayed_increment_counter(:unknown_attribute, 10) }
-              .to raise_error(ActiveModel::MissingAttributeError)
+      describe '#bulk_increment_counter', :redis do
+        let(:increments) do
+          [
+            Gitlab::Counters::Increment.new(amount: 10, ref: 1),
+            Gitlab::Counters::Increment.new(amount: 5, ref: 2)
+          ]
+        end
+
+        let(:total_amount) { increments.sum(&:amount) }
+        let(:counter_key) { model.counter(attribute).key }
+
+        subject { model.bulk_increment_counter(attribute, increments) }
+
+        context 'when attribute is a counter attribute' do
+          it 'increments the counter in Redis and logs each increment' do
+            increments.each do |increment|
+              expect(Gitlab::AppLogger).to receive(:info).with(
+                hash_including(
+                  message: 'Increment counter attribute',
+                  attribute: attribute,
+                  project_id: model.project_id,
+                  increment: increment.amount,
+                  ref: increment.ref,
+                  new_counter_value: 0 + total_amount,
+                  current_db_value: model.read_attribute(attribute),
+                  'correlation_id' => an_instance_of(String),
+                  'meta.feature_category' => 'test',
+                  'meta.caller_id' => 'caller'
+                )
+              )
+            end
+
+            subject
+
+            Gitlab::Redis::SharedState.with do |redis|
+              counter = redis.get(counter_key)
+              expect(counter).to eq(total_amount.to_s)
+            end
+          end
+
+          context 'when feature flag split_log_bulk_increment_counter is disabled' do
+            before do
+              stub_feature_flags(split_log_bulk_increment_counter: false)
+            end
+
+            it 'logs a single total increment' do
+              expect(Gitlab::AppLogger).to receive(:info).with(
+                hash_including(
+                  message: 'Increment counter attribute',
+                  attribute: attribute,
+                  project_id: model.project_id,
+                  increment: increments.sum(&:amount),
+                  new_counter_value: 0 + total_amount,
+                  current_db_value: model.read_attribute(attribute),
+                  'correlation_id' => an_instance_of(String),
+                  'meta.feature_category' => 'test',
+                  'meta.caller_id' => 'caller'
+                )
+              )
+
+              subject
+            end
+          end
+
+          it 'does not increment the counter for the record' do
+            expect { subject }.not_to change { model.reset.read_attribute(attribute) }
+          end
+
+          it 'schedules a worker to flush counter increments asynchronously' do
+            expect(FlushCounterIncrementsWorker).to receive(:perform_in)
+              .with(Gitlab::Counters::BufferedCounter::WORKER_DELAY, model.class.name, model.id, attribute)
+              .and_call_original
+
+            subject
           end
         end
       end
     end
   end
 
-  describe '.flush_increments_to_database!', :redis do
-    let(:incremented_attribute) { counter_attributes.first }
+  describe '#update_counters_with_lease' do
+    let_it_be(:first_attribute) { counter_attributes.first }
+    let_it_be(:second_attribute) { counter_attributes.second }
 
-    subject { model.flush_increments_to_database!(incremented_attribute) }
+    let_it_be(:increments) do
+      increments_hash = {}
 
-    it 'obtains an exclusive lease during processing' do
-      expect(model)
-        .to receive(:in_lock)
-        .with(model.counter_lock_key(incremented_attribute), ttl: described_class::WORKER_LOCK_TTL)
-        .and_call_original
+      increments_hash[first_attribute] = 1
+      increments_hash[second_attribute] = 2
 
-      subject
+      increments_hash
     end
 
-    context 'when there is a counter to flush' do
-      before do
-        model.delayed_increment_counter(incremented_attribute, 10)
-        model.delayed_increment_counter(incremented_attribute, -3)
-      end
+    subject { model.update_counters_with_lease(increments) }
 
-      it 'updates the record' do
-        expect { subject }.to change { model.reset.read_attribute(incremented_attribute) }.by(7)
-      end
-
-      it 'removes the increment entry from Redis' do
-        Gitlab::Redis::SharedState.with do |redis|
-          key_exists = redis.exists(model.counter_key(incremented_attribute))
-          expect(key_exists).to be_truthy
-        end
-
-        subject
-
-        Gitlab::Redis::SharedState.with do |redis|
-          key_exists = redis.exists(model.counter_key(incremented_attribute))
-          expect(key_exists).to be_falsey
-        end
-      end
+    it 'updates counters of the record' do
+      expect { subject }
+        .to change { model.reload.send(first_attribute) }.by(1)
+        .and change { model.reload.send(second_attribute) }.by(2)
     end
 
-    context 'when there are no counters to flush' do
-      context 'when there are no counters in the relative :flushed key' do
-        it 'does not change the record' do
-          expect { subject }.not_to change { model.reset.attributes }
-        end
-      end
-
-      # This can be the case where updating counters in the database fails with error
-      # and retrying the worker will retry flushing the counters but the main key has
-      # disappeared and the increment has been moved to the "<...>:flushed" key.
-      context 'when there are counters in the relative :flushed key' do
+    it_behaves_like 'obtaining lease to update database' do
+      context 'when the execution raises error' do
         before do
-          Gitlab::Redis::SharedState.with do |redis|
-            redis.incrby(model.counter_flushed_key(incremented_attribute), 10)
-          end
+          allow(model.class).to receive(:update_counters).and_raise(StandardError, 'Something went wrong')
         end
 
-        it 'updates the record' do
-          expect { subject }.to change { model.reset.read_attribute(incremented_attribute) }.by(10)
-        end
-
-        it 'deletes the relative :flushed key' do
-          subject
-
-          Gitlab::Redis::SharedState.with do |redis|
-            key_exists = redis.exists(model.counter_flushed_key(incremented_attribute))
-            expect(key_exists).to be_falsey
-          end
+        it 'reraises error' do
+          expect { subject }.to raise_error(StandardError, 'Something went wrong')
         end
       end
     end
+  end
+end
 
-    context 'when deleting :flushed key fails' do
-      before do
-        Gitlab::Redis::SharedState.with do |redis|
-          redis.incrby(model.counter_flushed_key(incremented_attribute), 10)
+RSpec.shared_examples 'obtaining lease to update database' do
+  context 'when it is unable to obtain lock' do
+    before do
+      allow(model).to receive(:in_lock).and_raise(Gitlab::ExclusiveLeaseHelpers::FailedToObtainLockError)
+    end
 
-          expect(redis).to receive(:del).and_raise('could not delete key')
-        end
-      end
+    it 'logs a warning' do
+      allow(model).to receive(:in_lock).and_raise(Gitlab::ExclusiveLeaseHelpers::FailedToObtainLockError)
 
-      it 'does a rollback of the counter update' do
-        expect { subject }.to raise_error('could not delete key')
+      expect(Gitlab::AppLogger).to receive(:warn).once
 
-        expect(model.reset.read_attribute(incremented_attribute)).to eq(0)
-      end
+      expect { subject }.not_to raise_error
     end
   end
 end

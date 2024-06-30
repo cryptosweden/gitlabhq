@@ -4,6 +4,10 @@ module Projects
   class CreateService < BaseService
     include ValidatesClassificationLabel
 
+    ImportSourceDisabledError = Class.new(StandardError)
+    INTERNAL_IMPORT_SOURCES = %w[gitlab_custom_project_template gitlab_project_migration].freeze
+    README_FILE = 'README.md'
+
     def initialize(user, params)
       @current_user = user
       @params = params.dup
@@ -14,16 +18,25 @@ module Projects
       @relations_block = @params.delete(:relations_block)
       @default_branch = @params.delete(:default_branch)
       @readme_template = @params.delete(:readme_template)
+      @repository_object_format = @params.delete(:repository_object_format)
 
       build_topics
     end
 
     def execute
+      params[:wiki_enabled] = params[:wiki_access_level] if params[:wiki_access_level]
+      params[:builds_enabled] = params[:builds_access_level] if params[:builds_access_level]
+      params[:snippets_enabled] = params[:snippets_access_level] if params[:snippets_access_level]
+      params[:merge_requests_enabled] = params[:merge_requests_access_level] if params[:merge_requests_access_level]
+      params[:issues_enabled] = params[:issues_access_level] if params[:issues_access_level]
+
       if create_from_template?
         return ::Projects::CreateFromTemplateService.new(current_user, params).execute
       end
 
-      @project = Project.new(params)
+      @project = Project.new(params.merge(creator: current_user))
+
+      validate_import_source_enabled!
 
       @project.visibility_level = @project.group.visibility_level unless @project.visibility_level_allowed_by_group?
 
@@ -40,20 +53,18 @@ module Projects
       set_project_name_from_path
 
       # get namespace id
-      namespace_id = params[:namespace_id]
+      namespace_id = params[:namespace_id] || current_user.namespace_id
+      @project.namespace_id = namespace_id.to_i
 
-      if namespace_id
-        # Find matching namespace and check if it allowed
-        # for current user if namespace_id passed.
-        unless current_user.can?(:create_projects, parent_namespace)
-          @project.namespace_id = nil
-          deny_namespace
-          return @project
-        end
-      else
-        # Set current user namespace if namespace_id is nil
-        @project.namespace_id = current_user.namespace_id
-      end
+      organization_id = params[:organization_id] || @project.namespace.organization_id
+      @project.organization_id = organization_id.to_i
+
+      @project.check_personal_projects_limit
+      return @project if @project.errors.any?
+
+      validate_create_permissions
+      validate_import_permissions
+      return @project if @project.errors.any?
 
       @relations_block&.call(@project)
       yield(@project) if block_given?
@@ -77,6 +88,9 @@ module Projects
     rescue ActiveRecord::RecordInvalid => e
       message = "Unable to save #{e.inspect}: #{e.record.errors.full_messages.join(", ")}"
       fail(error: message)
+    rescue ImportSourceDisabledError => e
+      @project.errors.add(:import_source_disabled, e.message) if @project
+      fail(error: e.message)
     rescue StandardError => e
       @project.errors.add(:base, e.message) if @project
       fail(error: e.message)
@@ -84,20 +98,24 @@ module Projects
 
     protected
 
-    def deny_namespace
+    def validate_create_permissions
+      return if current_user.can?(:create_projects, parent_namespace)
+
       @project.errors.add(:namespace, "is not valid")
+    end
+
+    def validate_import_permissions
+      return unless @project.import?
+      return if current_user.can?(:import_projects, parent_namespace)
+
+      @project.errors.add(:user, 'is not allowed to import projects')
     end
 
     def after_create_actions
       log_info("#{current_user.name} created a new project \"#{@project.full_name}\"")
 
       if @project.import?
-        experiment(:combined_registration, user: current_user).track(:import_project)
-      else
-        # Skip writing the config for project imports/forks because it
-        # will always fail since the Git directory doesn't exist until
-        # a background job creates it (see Project#add_import_job).
-        @project.set_full_path
+        Gitlab::Tracking.event(self.class.name, 'import_project', user: current_user)
       end
 
       unless @project.gitlab_project_import?
@@ -105,7 +123,8 @@ module Projects
       end
 
       @project.track_project_repository
-      @project.create_project_setting unless @project.project_setting
+
+      create_project_settings
 
       yield if block_given?
 
@@ -114,12 +133,20 @@ module Projects
 
       setup_authorizations
 
-      current_user.invalidate_personal_projects_count
+      project.invalidate_personal_projects_count_of_owner
 
       Projects::PostCreationWorker.perform_async(@project.id)
 
       create_readme if @initialize_with_readme
       create_sast_commit if @initialize_with_sast
+
+      publish_event
+    end
+
+    def create_project_settings
+      Gitlab::Pages.add_unique_domain_to(project)
+
+      @project.project_setting.save if @project.project_setting.changed?
     end
 
     # Add an authorization for the current user authorizations inline
@@ -127,8 +154,10 @@ module Projects
     # completes), and any other affected users in the background
     def setup_authorizations
       if @project.group
-        group_access_level = @project.group.max_member_access_for_user(current_user,
-                                                                       only_concrete_membership: true)
+        group_access_level = @project.group.max_member_access_for_user(
+          current_user,
+          only_concrete_membership: true
+        )
 
         if group_access_level > GroupMember::NO_ACCESS
           current_user.project_authorizations.safe_find_or_create_by!(
@@ -143,19 +172,36 @@ module Projects
         # AuthorizedProjectsWorker but with some delay and lower urgency as a
         # safety net.
         @project.group.refresh_members_authorized_projects(
-          blocking: false,
           priority: UserProjectAccessChangedService::LOW_PRIORITY
         )
       else
-        @project.add_owner(@project.namespace.owner, current_user: current_user)
+        owner_user = @project.namespace.owner
+        owner_member = @project.add_owner(owner_user, current_user: current_user)
+
+        # There is a possibility that the sidekiq job to refresh the authorizations of the owner_user in this project
+        # isn't picked up (or finished) by the time the user is redirected to the newly created project's page.
+        # If that happens, the user will hit a 404. To avoid that scenario, we manually create a `project_authorizations` record for the user here.
+        if owner_member.persisted?
+          owner_user.project_authorizations.safe_find_or_create_by(
+            project: @project,
+            access_level: ProjectMember::OWNER
+          )
+        end
+        # During the process of adding a project owner, a check on permissions is made on the user which caches
+        # the max member access for that user on this project.
+        # Since that is `0` before the member is created - and we are still inside the request
+        # cycle when we need to do other operations that might check those permissions (e.g. write a commit)
+        # we need to purge that cache so that the updated permissions is fetched instead of using the outdated cached value of 0
+        # from before member creation
+        @project.team.purge_member_access_cache_for_user_id(owner_user.id)
       end
     end
 
     def create_readme
       commit_attrs = {
-        branch_name: @default_branch.presence || @project.default_branch_or_main,
+        branch_name: default_branch,
         commit_message: 'Initial commit',
-        file_path: 'README.md',
+        file_path: README_FILE,
         file_content: readme_content
       }
 
@@ -163,11 +209,22 @@ module Projects
     end
 
     def create_sast_commit
-      ::Security::CiConfiguration::SastCreateService.new(@project, current_user, {}, commit_on_default: true).execute
+      ::Security::CiConfiguration::SastCreateService.new(@project, current_user, { initialize_with_sast: true }, commit_on_default: true).execute
+    end
+
+    def repository_object_format
+      return Repository::FORMAT_SHA1 unless Feature.enabled?(:support_sha256_repositories, current_user)
+      return Repository::FORMAT_SHA256 if @repository_object_format == Repository::FORMAT_SHA256
+
+      Repository::FORMAT_SHA1
     end
 
     def readme_content
-      @readme_template.presence || ReadmeRendererService.new(@project, current_user).execute
+      readme_attrs = {
+        default_branch: default_branch
+      }
+
+      @readme_template.presence || ReadmeRendererService.new(@project, current_user, readme_attrs).execute
     end
 
     def skip_wiki?
@@ -175,16 +232,26 @@ module Projects
     end
 
     def save_project_and_import_data
-      Project.transaction do
-        @project.create_or_update_import_data(data: @import_data[:data], credentials: @import_data[:credentials]) if @import_data
+      Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModification.temporary_ignore_tables_in_transaction(
+        %w[routes redirect_routes], url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/424281'
+      ) do
+        ApplicationRecord.transaction do
+          @project.build_or_assign_import_data(data: @import_data[:data], credentials: @import_data[:credentials]) if @import_data
 
-        if @project.save
-          Integration.create_from_active_default_integrations(@project, :project_id)
+          # Avoid project callbacks being triggered multiple times by saving the parent first.
+          # See https://github.com/rails/rails/issues/41701.
+          Namespaces::ProjectNamespace.create_from_project!(@project) if @project.valid?
 
-          @project.create_labels unless @project.gitlab_project_import?
+          if @project.saved?
+            Integration.create_from_default_integrations(@project, :project_id)
 
-          unless @project.import?
-            raise 'Failed to create repository' unless @project.create_repository
+            @project.create_labels unless @project.gitlab_project_import?
+
+            next if @project.import?
+
+            unless @project.create_repository(default_branch: default_branch, object_format: repository_object_format)
+              raise 'Failed to create repository'
+            end
           end
         end
       end
@@ -233,6 +300,28 @@ module Projects
 
     private
 
+    def default_branch
+      @default_branch.presence || @project.default_branch_or_main
+    end
+
+    def validate_import_source_enabled!
+      return unless @params[:import_type]
+
+      import_type = @params[:import_type].to_s
+
+      return if INTERNAL_IMPORT_SOURCES.include?(import_type)
+
+      # Skip validation when creating project from a built in template
+      return if @params[:import_export_upload].present? && import_type == 'gitlab_project'
+
+      unless ::Gitlab::CurrentSettings.import_sources&.include?(import_type)
+        return if import_type == 'github' && Feature.enabled?(:override_github_disabled, current_user, type: :ops)
+        return if import_type == 'bitbucket_server' && Feature.enabled?(:override_bitbucket_server_disabled, current_user, type: :ops)
+
+        raise ImportSourceDisabledError, "#{import_type} import source is disabled"
+      end
+    end
+
     def parent_namespace
       @parent_namespace ||= Namespace.find_by_id(@params[:namespace_id]) || current_user.namespace
     end
@@ -243,7 +332,7 @@ module Projects
 
     def import_schedule
       if @project.errors.empty?
-        @project.import_state.schedule if @project.import? && !@project.bare_repository_import?
+        @project.import_state.schedule if @project.import? && !@project.gitlab_project_migration?
       else
         fail(error: @project.errors.full_messages.join(', '))
       end
@@ -262,10 +351,17 @@ module Projects
 
       params[:topic_list] ||= topic_list if topic_list
     end
+
+    def publish_event
+      event = Projects::ProjectCreatedEvent.new(data: {
+        project_id: project.id,
+        namespace_id: project.namespace_id,
+        root_namespace_id: project.root_namespace.id
+      })
+
+      Gitlab::EventStore.publish(event)
+    end
   end
 end
 
 Projects::CreateService.prepend_mod_with('Projects::CreateService')
-
-# Measurable should be at the bottom of the ancestor chain, so it will measure execution of EE::Projects::CreateService as well
-Projects::CreateService.prepend(Measurable)

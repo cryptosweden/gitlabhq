@@ -1,7 +1,17 @@
 import Vue from 'vue';
+import VueApollo from 'vue-apollo';
+import VueRouter from 'vue-router';
 import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
+import { removeLastSlashInUrlPath } from '~/lib/utils/url_utility';
+import { injectVueAppBreadcrumbs } from '~/lib/utils/breadcrumbs';
+import EnvironmentBreadcrumbs from './environment_details/environment_breadcrumbs.vue';
 import EnvironmentsDetailHeader from './components/environments_detail_header.vue';
+import { apolloProvider as createApolloProvider } from './graphql/client';
 import environmentsMixin from './mixins/environments_mixin';
+
+Vue.use(VueApollo);
+
+const apolloProvider = createApolloProvider();
 
 export const initHeader = () => {
   const el = document.getElementById('environments-detail-view-header');
@@ -10,7 +20,11 @@ export const initHeader = () => {
 
   return new Vue({
     el,
+    apolloProvider,
     mixins: [environmentsMixin],
+    provide: {
+      projectFullPath: dataset.projectFullPath,
+    },
     data() {
       const environment = {
         name: dataset.name,
@@ -40,10 +54,75 @@ export const initHeader = () => {
           canAdminEnvironment: dataset.canAdminEnvironment,
           cancelAutoStopPath: dataset.environmentCancelAutoStopPath,
           terminalPath: dataset.environmentTerminalPath,
-          metricsPath: dataset.environmentMetricsPath,
           updatePath: dataset.environmentEditPath,
         },
       });
+    },
+  });
+};
+
+export const initPage = async () => {
+  const dataElement = document.getElementById('environments-detail-view');
+  const dataSet = convertObjectPropsToCamelCase(JSON.parse(dataElement.dataset.details));
+
+  Vue.use(VueRouter);
+  const el = document.getElementById('environment_details_page');
+
+  const router = new VueRouter({
+    mode: 'history',
+    base: dataSet.basePath,
+    routes: [
+      {
+        path: '/k8s/namespace/:namespace/pods/:podName/logs',
+        name: 'logs',
+        meta: {
+          environmentName: dataSet.name,
+        },
+        component: () => import('./environment_details/components/kubernetes/kubernetes_logs.vue'),
+        props: (route) => ({
+          containerName: route.query.container,
+          podName: route.params.podName,
+          namespace: route.params.namespace,
+          environmentName: dataSet.name,
+          highlightedLineHash: (route.hash || '').replace('#', ''),
+        }),
+      },
+      {
+        path: '/',
+        name: 'environment_details',
+        meta: {
+          environmentName: dataSet.name,
+        },
+        component: () => import('./environment_details/index.vue'),
+        props: (route) => ({
+          after: route.query.after,
+          before: route.query.before,
+          projectFullPath: dataSet.projectFullPath,
+          environmentName: dataSet.name,
+        }),
+      },
+    ],
+    scrollBehavior(to, from, savedPosition) {
+      if (savedPosition) {
+        return savedPosition;
+      }
+      return { top: 0 };
+    },
+  });
+
+  injectVueAppBreadcrumbs(router, EnvironmentBreadcrumbs);
+
+  return new Vue({
+    el,
+    apolloProvider,
+    router,
+    provide: {
+      projectPath: dataSet.projectFullPath,
+      graphqlEtagKey: dataSet.graphqlEtagKey,
+      kasTunnelUrl: removeLastSlashInUrlPath(dataElement.dataset.kasTunnelUrl),
+    },
+    render(createElement) {
+      return createElement('router-view');
     },
   });
 };

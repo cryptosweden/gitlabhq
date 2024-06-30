@@ -22,10 +22,11 @@ module Gitlab
         osx: {
           human_readable_name: "macOS",
           download_locations: {
-            amd64: "https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-darwin-amd64"
+            amd64: "https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-darwin-amd64",
+            arm64: "https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-darwin-arm64"
           },
           install_script_template_path: "lib/gitlab/ci/runner_instructions/templates/osx/install.sh",
-          runner_executable: "sudo gitlab-runner"
+          runner_executable: "gitlab-runner"
         },
         windows: {
           human_readable_name: "Windows",
@@ -46,6 +47,9 @@ module Gitlab
         kubernetes: {
           human_readable_name: "Kubernetes",
           installation_instructions_url: "https://docs.gitlab.com/runner/install/kubernetes.html"
+        },
+        aws: {
+          human_readable_name: "AWS"
         }
       }.freeze
 
@@ -61,7 +65,7 @@ module Gitlab
 
       def install_script
         with_error_handling [Gitlab::Ci::RunnerInstructions::ArgumentError] do
-          raise Gitlab::Ci::RunnerInstructions::ArgumentError, s_('Architecture not found for OS') unless environment[:download_locations].key?(@arch.to_sym)
+          raise Gitlab::Ci::RunnerInstructions::ArgumentError, _('Architecture not found for OS') unless environment[:download_locations].key?(@arch.to_sym)
 
           replace_variables(get_file(environment[:install_script_template_path]))
         end
@@ -69,7 +73,7 @@ module Gitlab
 
       def register_command
         with_error_handling [Gitlab::Ci::RunnerInstructions::ArgumentError, Gitlab::Access::AccessDeniedError] do
-          raise Gitlab::Ci::RunnerInstructions::ArgumentError, s_('No runner executable') unless environment[:runner_executable]
+          raise Gitlab::Ci::RunnerInstructions::ArgumentError, _('No runner executable') unless environment[:runner_executable]
 
           server_url = Gitlab::Routing.url_helpers.root_url(only_path: false)
           runner_executable = environment[:runner_executable]
@@ -90,16 +94,16 @@ module Gitlab
       end
 
       def environment
-        @environment ||= OS[@os.to_sym] || ( raise Gitlab::Ci::RunnerInstructions::ArgumentError, s_('Invalid OS') )
+        @environment ||= OS[@os.to_sym] || (raise Gitlab::Ci::RunnerInstructions::ArgumentError, _('Invalid OS'))
       end
 
       def validate_params
-        @errors << s_('Missing OS') unless @os.present?
-        @errors << s_('Missing arch') unless @arch.present?
+        @errors << _('Missing OS') unless @os.present?
+        @errors << _('Missing arch') unless @arch.present?
       end
 
       def replace_variables(expression)
-        expression.sub('${GITLAB_CI_RUNNER_DOWNLOAD_LOCATION}', "#{environment[:download_locations][@arch.to_sym]}")
+        expression.sub('${GITLAB_CI_RUNNER_DOWNLOAD_LOCATION}', (environment[:download_locations][@arch.to_sym]).to_s)
       end
 
       def get_file(path)
@@ -108,3 +112,5 @@ module Gitlab
     end
   end
 end
+
+::Gitlab::Ci::RunnerInstructions.prepend_mod

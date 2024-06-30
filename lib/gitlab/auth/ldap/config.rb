@@ -7,8 +7,8 @@ module Gitlab
       class Config
         NET_LDAP_ENCRYPTION_METHOD = {
           simple_tls: :simple_tls,
-          start_tls:  :start_tls,
-          plain:      nil
+          start_tls: :start_tls,
+          plain: nil
         }.freeze
 
         attr_accessor :provider, :options
@@ -82,7 +82,8 @@ module Gitlab
 
         def adapter_options
           opts = base_options.merge(
-            encryption: encryption_options
+            encryption: encryption_options,
+            instrumentation_service: ActiveSupport::Notifications
           )
 
           opts.merge!(auth_options) if has_auth?
@@ -93,7 +94,7 @@ module Gitlab
         def omniauth_options
           opts = base_options.merge(
             base: base,
-            encryption: options['encryption'],
+            encryption: encryption,
             filter: omniauth_user_filter,
             name_proc: name_proc,
             disable_verify_certificates: !options['verify_certificates'],
@@ -151,6 +152,14 @@ module Gitlab
           options['active_directory']
         end
 
+        def smartcard_ad_cert_field
+          options['smartcard_ad_cert_field'] || 'altSecurityIdentities'
+        end
+
+        def smartcard_ad_cert_format
+          options['smartcard_ad_cert_format']
+        end
+
         def block_auto_created_users
           options['block_auto_created_users']
         end
@@ -183,6 +192,14 @@ module Gitlab
           options['lowercase_usernames']
         end
 
+        def sync_name
+          options['sync_name']
+        end
+
+        def encryption
+          options['encryption'] || 'plain'
+        end
+
         def name_proc
           if allow_username_or_email_login
             proc { |name| name.gsub(/@.*\z/, '') }
@@ -193,11 +210,11 @@ module Gitlab
 
         def default_attributes
           {
-            'username'    => %W(#{uid} uid sAMAccountName userid).uniq,
-            'email'       => %w(mail email userPrincipalName),
-            'name'        => 'cn',
-            'first_name'  => 'givenName',
-            'last_name'   => 'sn'
+            'username' => %W[#{uid} uid sAMAccountName userid].uniq,
+            'email' => %w[mail email userPrincipalName],
+            'name' => 'cn',
+            'first_name' => 'givenName',
+            'last_name' => 'sn'
           }
         end
 
@@ -230,7 +247,7 @@ module Gitlab
         end
 
         def translate_method
-          NET_LDAP_ENCRYPTION_METHOD[options['encryption']&.to_sym]
+          NET_LDAP_ENCRYPTION_METHOD[encryption.to_sym]
         end
 
         def tls_options
@@ -259,7 +276,7 @@ module Gitlab
           return {} unless options['tls_options']
 
           # Dup so we don't overwrite the original value
-          custom_options = options['tls_options'].dup.delete_if { |_, value| value.nil? || value.blank? }
+          custom_options = options['tls_options'].to_hash.delete_if { |_, value| value.nil? || value.blank? }
           custom_options.symbolize_keys!
 
           if custom_options[:cert]

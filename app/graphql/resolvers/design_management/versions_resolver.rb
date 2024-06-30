@@ -9,28 +9,23 @@ module Resolvers
 
       VersionID = ::Types::GlobalIDType[::DesignManagement::Version]
 
-      extras [:parent]
-
       argument :earlier_or_equal_to_sha, GraphQL::Types::String,
-               as: :sha,
-               required: false,
-               description: 'SHA256 of the most recent acceptable version.'
+        as: :sha,
+        required: false,
+        description: 'SHA256 of the most recent acceptable version.'
 
       argument :earlier_or_equal_to_id, VersionID,
-               as: :id,
-               required: false,
-               description: 'Global ID of the most recent acceptable version.'
+        as: :id,
+        required: false,
+        description: 'Global ID of the most recent acceptable version.'
 
       # This resolver has a custom singular resolver
       def self.single
         ::Resolvers::DesignManagement::VersionInCollectionResolver
       end
 
-      def resolve(parent: nil, id: nil, sha: nil)
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id &&= VersionID.coerce_isolated_input(id)
-        version = cutoff(parent, id, sha)
+      def resolve(id: nil, sha: nil)
+        version = cutoff(id, sha)
 
         raise ::Gitlab::Graphql::Errors::ResourceNotAvailable, 'cutoff not found' unless version.present?
 
@@ -44,11 +39,9 @@ module Resolvers
       private
 
       # Find the most recent version that the client will accept
-      def cutoff(parent, id, sha)
+      def cutoff(id, sha)
         if sha.present? || id.present?
           specific_version(id, sha)
-        elsif at_version = at_version_arg(parent)
-          by_id(at_version)
         else
           :unconstrained
         end
@@ -67,20 +60,6 @@ module Resolvers
 
       def by_id(gid)
         ::Gitlab::Graphql::Lazy.force(GitlabSchema.find_by_gid(gid))
-      end
-
-      # Find an `at_version` argument passed to a parent node.
-      #
-      # If one is found, then a design collection further up the AST
-      # has been filtered to reflect designs at that version, and so
-      # for consistency we should only present versions up to the given
-      # version here.
-      def at_version_arg(parent)
-        # TODO: remove coercion when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        version_id = ::Gitlab::Graphql::FindArgumentInParent.find(parent, :at_version, limit_depth: 4)
-        version_id &&= VersionID.coerce_isolated_input(version_id)
-        version_id
       end
     end
   end

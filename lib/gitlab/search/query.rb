@@ -5,15 +5,15 @@ module Gitlab
     class Query < SimpleDelegator
       include EncodingHelper
 
-      QUOTES_REGEXP = %r{\A"|"\Z}.freeze
-      TOKEN_WITH_QUOTES_REGEXP = %r{\s(?=(?:[^"]|"[^"]*")*$)}.freeze
+      QUOTES_REGEXP = %r{\A"|"\Z}
+      TOKEN_WITH_QUOTES_REGEXP = %r{\s(?=(?:[^"]|"[^"]*")*$)}
 
       def initialize(query, filter_opts = {}, &block)
         @raw_query = query.dup
         @filters = []
         @filter_options = { default_parser: :downcase.to_proc }.merge(filter_opts)
 
-        self.instance_eval(&block) if block_given?
+        self.instance_eval(&block) if block
 
         @query = Gitlab::Search::ParsedQuery.new(*extract_filters)
         # set the ParsedQuery as our default delegator thanks to SimpleDelegator
@@ -40,19 +40,24 @@ module Gitlab
 
         query_tokens = parse_raw_query
         filters = @filters.each_with_object([]) do |filter, parsed_filters|
-          match = query_tokens.find { |part| part =~ /\A-?#{filter[:name]}:/ }
+          matches = query_tokens.select { |part| part =~ /\A-?#{filter[:name]}:/ }
 
-          next unless match
+          next unless matches.any?
 
-          input = match.split(':')[1..].join
-          next if input.empty?
+          matches.each do |match|
+            query_filter = filter.dup
 
-          filter[:negated] = match.start_with?("-")
-          filter[:value] = parse_filter(filter, input.gsub(QUOTES_REGEXP, ''))
-          filter[:regex_value] = Regexp.escape(filter[:value]).gsub('\*', '.*?')
-          fragments << match
+            input = match.split(':')[1..].join
 
-          parsed_filters << filter
+            next if input.empty?
+
+            query_filter[:negated] = match.start_with?("-")
+            query_filter[:value] = parse_filter(query_filter, input.gsub(QUOTES_REGEXP, ''))
+            query_filter[:regex_value] = Regexp.escape(query_filter[:value]).gsub('\*', '.*?')
+
+            fragments << match
+            parsed_filters << query_filter
+          end
         end
 
         query = (query_tokens - fragments).join(' ')

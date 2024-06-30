@@ -4,19 +4,26 @@ module BulkImports
   module Projects
     module Transformers
       class ProjectAttributesTransformer
+        include BulkImports::VisibilityLevel
+        include BulkImports::PathNormalization
+        include BulkImports::Uniquify
+
         PROJECT_IMPORT_TYPE = 'gitlab_project_migration'
 
         def transform(context, data)
+          project = {}
           entity = context.entity
-          visibility = data.delete('visibility')
+          namespace = Namespace.find_by_full_path(entity.destination_namespace)
+          path = normalize_path(entity.destination_slug)
 
-          data['name'] = entity.destination_name
-          data['path'] = entity.destination_name.parameterize
-          data['import_type'] = PROJECT_IMPORT_TYPE
-          data['visibility_level'] = Gitlab::VisibilityLevel.string_options[visibility] if visibility.present?
-          data['namespace_id'] = Namespace.find_by_full_path(entity.destination_namespace)&.id if entity.destination_namespace.present?
+          project[:name] = uniquify(namespace, data['name'], :name)
+          project[:path] = uniquify(namespace, path, :path)
+          project[:created_at] = data['created_at']
+          project[:import_type] = PROJECT_IMPORT_TYPE
+          project[:visibility_level] = visibility_level(entity, namespace, data['visibility'])
+          project[:namespace_id] = namespace.id
 
-          data.transform_keys!(&:to_sym)
+          project.with_indifferent_access
         end
       end
     end

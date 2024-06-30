@@ -1,28 +1,49 @@
 # frozen_string_literal: true
 
 module Ci
+  # This class is a collection of common features between Ci::Build and Ci::Bridge.
+  # In https://gitlab.com/groups/gitlab-org/-/epics/9991, we aim to clarify class naming conventions.
   class Processable < ::CommitStatus
     include Gitlab::Utils::StrongMemoize
+    include FromUnion
+    include Ci::Metadatable
     extend ::Gitlab::Utils::Override
 
-    has_one :resource, class_name: 'Ci::Resource', foreign_key: 'build_id', inverse_of: :processable
+    self.allow_legacy_sti_class = true
 
+    has_one :resource, class_name: 'Ci::Resource', foreign_key: 'build_id', inverse_of: :processable
+    has_one :sourced_pipeline, class_name: 'Ci::Sources::Pipeline', foreign_key: :source_job_id, inverse_of: :source_job
+
+    belongs_to :trigger_request
     belongs_to :resource_group, class_name: 'Ci::ResourceGroup', inverse_of: :processables
+
+    delegate :trigger_short_token, to: :trigger_request, allow_nil: true
 
     accepts_nested_attributes_for :needs
 
     scope :preload_needs, -> { preload(:needs) }
+    scope :manual_actions, -> { where(when: :manual, status: COMPLETED_STATUSES + %i[manual]) }
 
-    scope :with_needs, -> (names = nil) do
+    scope :with_needs, ->(names = nil) do
       needs = Ci::BuildNeed.scoped_build.select(1)
       needs = needs.where(name: names) if names
       where('EXISTS (?)', needs)
     end
 
-    scope :without_needs, -> (names = nil) do
+    scope :without_needs, ->(names = nil) do
       needs = Ci::BuildNeed.scoped_build.select(1)
       needs = needs.where(name: names) if names
       where('NOT EXISTS (?)', needs)
+    end
+
+    scope :interruptible, -> do
+      joins(:metadata).merge(Ci::BuildMetadata.with_interruptible)
+    end
+
+    scope :not_interruptible, -> do
+      joins(:metadata).where.not(
+        Ci::BuildMetadata.table_name => { id: Ci::BuildMetadata.scoped_build.with_interruptible.select(:id) }
+      )
     end
 
     state_machine :status do
@@ -51,8 +72,7 @@ module Ci
 
       after_transition any => :waiting_for_resource do |processable|
         processable.run_after_commit do
-          Ci::ResourceGroups::AssignResourceFromResourceGroupWorker
-            .perform_async(processable.resource_group_id)
+          assign_resource_from_resource_group(processable)
         end
       end
 
@@ -62,9 +82,25 @@ module Ci
         processable.resource_group.release_resource_from(processable)
 
         processable.run_after_commit do
-          Ci::ResourceGroups::AssignResourceFromResourceGroupWorker
-            .perform_async(processable.resource_group_id)
+          assign_resource_from_resource_group(processable)
         end
+      end
+
+      after_transition any => [:failed] do |processable|
+        next if processable.allow_failure?
+        next unless processable.can_auto_cancel_pipeline_on_job_failure?
+
+        processable.run_after_commit do
+          processable.pipeline.cancel_async_on_job_failure
+        end
+      end
+    end
+
+    def assign_resource_from_resource_group(processable)
+      if Feature.enabled?(:assign_resource_worker_deduplicate_until_executing, processable.project)
+        Ci::ResourceGroups::AssignResourceFromResourceGroupWorkerV2.perform_async(processable.resource_group_id)
+      else
+        Ci::ResourceGroups::AssignResourceFromResourceGroupWorker.perform_async(processable.resource_group_id)
       end
     end
 
@@ -101,10 +137,25 @@ module Ci
       :merge_train_pipeline?,
       to: :pipeline
 
+    def clone(current_user:, new_job_variables_attributes: [])
+      new_attributes = self.class.clone_accessors.index_with do |attribute|
+        public_send(attribute) # rubocop:disable GitlabSecurity/PublicSend
+      end
+
+      if persisted_environment.present?
+        new_attributes[:metadata_attributes] ||= {}
+        new_attributes[:metadata_attributes][:expanded_environment_name] = expanded_environment_name
+      end
+
+      new_attributes[:user] = current_user
+
+      self.class.new(new_attributes)
+    end
+
     def retryable?
       return false if retried? || archived? || deployment_rejected?
 
-      success? || failed? || canceled?
+      success? || failed? || canceled? || canceling?
     end
 
     def aggregated_needs_names
@@ -117,6 +168,14 @@ module Ci
 
     def action?
       raise NotImplementedError
+    end
+
+    def can_auto_cancel_pipeline_on_job_failure?
+      raise NotImplementedError
+    end
+
+    def other_manual_actions
+      pipeline.manual_actions.reject { |action| action.name == name }
     end
 
     def when
@@ -170,15 +229,34 @@ module Ci
     def dependency_variables
       return [] if all_dependencies.empty?
 
+      dependencies_with_accessible_artifacts = find_dependencies_with_accessible_artifacts(all_dependencies)
+
       Gitlab::Ci::Variables::Collection.new.concat(
-        Ci::JobVariable.where(job: all_dependencies).dotenv_source
+        Ci::JobVariable.where(job: dependencies_with_accessible_artifacts).dotenv_source
       )
+    end
+
+    def find_dependencies_with_accessible_artifacts(all_dependencies)
+      ids = all_dependencies.collect(&:id)
+
+      Ci::Build.joins(:job_artifacts).where(job_artifacts: { job_id: nil })
+        .or(Ci::Build.joins(:job_artifacts).where(job_artifacts: {
+          job_id: ids, file_type: 'dotenv', accessibility: 'public'
+        }))
     end
 
     def all_dependencies
       strong_memoize(:all_dependencies) do
         dependencies.all
       end
+    end
+
+    def manual_job?
+      self.when == 'manual'
+    end
+
+    def manual_confirmation_message
+      options[:manual_confirmation] if manual_job?
     end
 
     private
@@ -190,3 +268,5 @@ module Ci
     end
   end
 end
+
+Ci::Processable.prepend_mod

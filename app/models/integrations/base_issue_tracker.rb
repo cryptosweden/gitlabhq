@@ -4,7 +4,7 @@ module Integrations
   class BaseIssueTracker < Integration
     validate :one_issue_tracker, if: :activated?, on: :manual_change
 
-    default_value_for :category, 'issue_tracker'
+    attribute :category, default: 'issue_tracker'
 
     before_validation :handle_properties
     before_validation :set_default_data, on: :create
@@ -14,7 +14,7 @@ module Integrations
     # This pattern does not support cross-project references
     # The other code assumes that this pattern is a superset of all
     # overridden patterns. See ReferenceRegexes.external_pattern
-    def self.reference_pattern(only_long: false)
+    def self.base_reference_pattern(only_long: false)
       if only_long
         /(\b[A-Z][A-Z0-9_]*-)#{Gitlab::Regex.issue}/
       else
@@ -22,15 +22,22 @@ module Integrations
       end
     end
 
+    def reference_pattern(only_long: false)
+      self.class.base_reference_pattern(only_long: only_long)
+    end
+
     def handle_properties
       # this has been moved from initialize_properties and should be improved
       # as part of https://gitlab.com/gitlab-org/gitlab/issues/29404
-      return unless properties
+      return unless properties.present?
+
+      safe_keys = data_fields.attributes.keys.grep_v(/encrypted/) - %w[id service_id created_at]
 
       @legacy_properties_data = properties.dup
-      data_values = properties.slice!('title', 'description')
+
+      data_values = properties.slice(*safe_keys)
       data_values.reject! { |key| data_fields.changed.include?(key) }
-      data_values.slice!(*data_fields.attributes.keys)
+
       data_fields.assign_attributes(data_values) if data_values.present?
 
       self.properties = {}
@@ -68,10 +75,6 @@ module Integrations
       issue_url(iid)
     end
 
-    def initialize_properties
-      {}
-    end
-
     # Initialize with default properties values
     def set_default_data
       return unless issues_tracker.present?
@@ -85,7 +88,7 @@ module Integrations
     end
 
     def self.supported_events
-      %w(push)
+      %w[push]
     end
 
     def execute(data)
@@ -95,14 +98,14 @@ module Integrations
       result = false
 
       begin
-        response = Gitlab::HTTP.head(self.project_url, verify: true, use_read_total_timeout: true)
+        response = Gitlab::HTTP.head(self.project_url, verify: true)
 
         if response
           message = "#{self.type} received response #{response.code} when attempting to connect to #{self.project_url}"
           result = true
         end
-      rescue Gitlab::HTTP::Error, Timeout::Error, SocketError, Errno::ECONNRESET, Errno::ECONNREFUSED, OpenSSL::SSL::SSLError => error
-        message = "#{self.type} had an error when trying to connect to #{self.project_url}: #{error.message}"
+      rescue Gitlab::HTTP::Error, Timeout::Error, SocketError, Errno::ECONNRESET, Errno::ECONNREFUSED, OpenSSL::SSL::SSLError => e
+        message = "#{self.type} had an error when trying to connect to #{self.project_url}: #{e.message}"
       end
       log_info(message)
       result

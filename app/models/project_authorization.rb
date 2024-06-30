@@ -2,6 +2,7 @@
 
 class ProjectAuthorization < ApplicationRecord
   extend SuppressCompositePrimaryKeyWarning
+  include EachBatch
   include FromUnion
 
   belongs_to :user
@@ -10,6 +11,15 @@ class ProjectAuthorization < ApplicationRecord
   validates :project, presence: true
   validates :access_level, inclusion: { in: Gitlab::Access.all_values }, presence: true
   validates :user, uniqueness: { scope: :project }, presence: true
+
+  scope :for_project, ->(projects) { where(project: projects) }
+  scope :non_guests, -> { where('access_level > ?', ::Gitlab::Access::GUEST) }
+  scope :owners, -> { where(access_level: ::Gitlab::Access::OWNER) }
+
+  scope :preload_users, -> { preload(:user) }
+
+  # TODO: To be removed after https://gitlab.com/gitlab-org/gitlab/-/issues/418205
+  before_create :assign_is_unique
 
   def self.select_from_union(relations)
     from_union(relations)
@@ -26,10 +36,10 @@ class ProjectAuthorization < ApplicationRecord
     super(attributes, unique_by: connection.schema_cache.primary_keys(table_name))
   end
 
-  def self.insert_all_in_batches(attributes, per_batch = 1000)
-    attributes.each_slice(per_batch) do |attributes_batch|
-      insert_all(attributes_batch)
-    end
+  private
+
+  def assign_is_unique
+    self.is_unique = true
   end
 end
 

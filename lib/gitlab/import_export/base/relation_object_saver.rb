@@ -15,7 +15,8 @@ module Gitlab
         include Gitlab::Utils::StrongMemoize
 
         BATCH_SIZE = 100
-        MIN_RECORDS_SIZE = 5
+
+        attr_reader :invalid_subrelations
 
         # @param relation_object [Object] Object of a project/group, e.g. an issue
         # @param relation_key [String] Name of the object association to group/project, e.g. :issues
@@ -43,14 +44,11 @@ module Gitlab
           relation_object.save!
 
           save_subrelations
-        ensure
-          log_invalid_subrelations
         end
 
         private
 
-        attr_reader :relation_object, :relation_key, :relation_definition,
-                    :importable, :collection_subrelations, :invalid_subrelations
+        attr_reader :relation_object, :relation_key, :relation_definition, :importable, :collection_subrelations
 
         # rubocop:disable GitlabSecurity/PublicSend
         def save_subrelations
@@ -58,8 +56,21 @@ module Gitlab
             records.each_slice(BATCH_SIZE) do |batch|
               valid_records, invalid_records = batch.partition { |record| record.valid? }
 
-              invalid_subrelations << invalid_records
               relation_object.public_send(relation_name) << valid_records
+
+              # Attempt to save some of the invalid subrelations, as they might be valid after all.
+              # For example, a merge request `Approval` validates presence of merge_request_id.
+              # It is not present at a time of calling `#valid?` above, since it's indeed missing.
+              # However, when saving such subrelation against already persisted merge request
+              # such validation won't fail (e.g. `merge_request.approvals << Approval.new(user_id: 1)`),
+              # as we're operating on a merge request that has `id` present.
+              invalid_records.each do |invalid_record|
+                relation_object.public_send(relation_name) << invalid_record
+
+                invalid_subrelations << invalid_record unless invalid_record.persisted?
+              end
+
+              relation_object.save
             end
           end
         end
@@ -70,39 +81,15 @@ module Gitlab
               subrelation = relation_object.public_send(definition)
               association = relation_object.class.reflect_on_association(definition)
 
-              if association&.collection? && subrelation.size > MIN_RECORDS_SIZE
-                collection_subrelations[definition] = subrelation.records
+              next unless association&.collection?
 
-                subrelation.clear
-              end
+              collection_subrelations[definition] = subrelation.records
+
+              subrelation.clear
             end
           end
         end
         # rubocop:enable GitlabSecurity/PublicSend
-
-        def log_invalid_subrelations
-          invalid_subrelations.flatten.each do |record|
-            Gitlab::Import::Logger.info(
-              message: '[Project/Group Import] Invalid subrelation',
-              importable_column_name => importable.id,
-              relation_key: relation_key,
-              error_messages: record.errors.full_messages.to_sentence
-            )
-
-            ImportFailure.create(
-              source: 'RelationObjectSaver#save!',
-              relation_key: relation_key,
-              exception_class: 'RecordInvalid',
-              exception_message: record.errors.full_messages.to_sentence,
-              correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id,
-              importable_column_name => importable.id
-            )
-          end
-        end
-
-        def importable_column_name
-          @column_name ||= importable.class.reflect_on_association(:import_failures).foreign_key.to_sym
-        end
       end
     end
   end

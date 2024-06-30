@@ -17,12 +17,9 @@ FactoryBot.define do
       association :pipeline, :unlocked, factory: :ci_pipeline
     end
 
-    trait :checksummed do
-      verification_checksum { 'abc' }
-    end
-
-    trait :checksum_failure do
-      verification_failure { 'Could not calculate the checksum' }
+    trait :artifact_unlocked do
+      association :pipeline, :unlocked, factory: :ci_pipeline
+      locked { :unlocked }
     end
 
     trait :expired do
@@ -30,7 +27,7 @@ FactoryBot.define do
     end
 
     trait :remote_store do
-      file_store { ::ObjectStorage::Store::REMOTE}
+      file_store { ::ObjectStorage::Store::REMOTE }
     end
 
     trait :with_coverage_report do

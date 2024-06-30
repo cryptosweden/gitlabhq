@@ -16,7 +16,6 @@ RSpec.describe Projects::Analytics::CycleAnalytics::StagesController do
   end
 
   before do
-    stub_feature_flags(use_vsa_aggregated_tables: false)
     sign_in(user)
   end
 
@@ -54,6 +53,32 @@ RSpec.describe Projects::Analytics::CycleAnalytics::StagesController do
     end
   end
 
+  shared_examples 'project-level value stream analytics with guest user' do
+    let_it_be(:guest) { create(:user) }
+
+    before do
+      project.add_guest(guest)
+      sign_out(user)
+      sign_in(guest)
+    end
+
+    %w[code review].each do |id|
+      it "disallows stage #{id}" do
+        get action, params: params.merge(id: id)
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
+    %w[issue plan test staging].each do |id|
+      it "allows stage #{id}" do
+        get action, params: params.merge(id: id)
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
+  end
+
   describe 'GET index' do
     let(:action) { :index }
 
@@ -78,6 +103,20 @@ RSpec.describe Projects::Analytics::CycleAnalytics::StagesController do
     end
 
     it_behaves_like 'project-level value stream analytics request error examples'
+
+    it 'only returns authorized stages' do
+      guest = create(:user)
+      sign_out(user)
+      sign_in(guest)
+      project.add_guest(guest)
+
+      get action, params: params
+
+      expect(response).to have_gitlab_http_status(:ok)
+
+      expect(json_response['stages'].map { |stage| stage['title'] })
+        .to contain_exactly('Issue', 'Plan', 'Test', 'Staging')
+    end
   end
 
   describe 'GET median' do
@@ -102,6 +141,8 @@ RSpec.describe Projects::Analytics::CycleAnalytics::StagesController do
     end
 
     it_behaves_like 'project-level value stream analytics request error examples'
+
+    it_behaves_like 'project-level value stream analytics with guest user'
   end
 
   describe 'GET average' do
@@ -126,6 +167,8 @@ RSpec.describe Projects::Analytics::CycleAnalytics::StagesController do
     end
 
     it_behaves_like 'project-level value stream analytics request error examples'
+
+    it_behaves_like 'project-level value stream analytics with guest user'
   end
 
   describe 'GET count' do
@@ -150,6 +193,8 @@ RSpec.describe Projects::Analytics::CycleAnalytics::StagesController do
     end
 
     it_behaves_like 'project-level value stream analytics request error examples'
+
+    it_behaves_like 'project-level value stream analytics with guest user'
   end
 
   describe 'GET records' do
@@ -174,5 +219,7 @@ RSpec.describe Projects::Analytics::CycleAnalytics::StagesController do
     end
 
     it_behaves_like 'project-level value stream analytics request error examples'
+
+    it_behaves_like 'project-level value stream analytics with guest user'
   end
 end

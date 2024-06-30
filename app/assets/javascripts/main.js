@@ -1,7 +1,6 @@
 /* global $ */
 
 import jQuery from 'jquery';
-import Cookies from 'js-cookie';
 
 // bootstrap webpack, common libs, polyfills, and behaviors
 import './webpack';
@@ -9,7 +8,6 @@ import './commons';
 import './behaviors';
 
 // lib/utils
-import applyGitLabUIConfig from '@gitlab/ui/dist/config';
 import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
 import { initRails } from '~/lib/utils/rails_ujs';
 import * as popovers from '~/popovers';
@@ -17,33 +15,27 @@ import * as tooltips from '~/tooltips';
 import { initPrefetchLinks } from '~/lib/utils/navigation_utility';
 import { logHelloDeferred } from 'jh_else_ce/lib/logger/hello_deferred';
 import initAlertHandler from './alert_handler';
-import { addDismissFlashClickListener } from './flash';
-import initTodoToggle from './header';
 import initLayoutNav from './layout_nav';
 import { handleLocationHash, addSelectOnFocusBehaviour } from './lib/utils/common_utils';
 import { localTimeAgo } from './lib/utils/datetime/timeago_utility';
-import { getLocationHash, visitUrl } from './lib/utils/url_utility';
+import { getLocationHash, visitUrl, mergeUrlParams } from './lib/utils/url_utility';
 
 // everything else
-import initFeatureHighlight from './feature_highlight';
 import LazyLoader from './lazy_loader';
-import initLogoAnimation from './logo';
+import initLogoAnimation, { initPortraitLogoDetection } from './logo';
 import initBreadcrumbs from './breadcrumb';
 import initPersistentUserCallouts from './persistent_user_callouts';
 import { initUserTracking, initDefaultTrackers } from './tracking';
-import initServicePingConsent from './service_ping_consent';
 import GlFieldErrors from './gl_field_errors';
 import initUserPopovers from './user_popovers';
 import initBroadcastNotifications from './broadcast_notification';
-import { initTopNav } from './nav';
 import { initCopyCodeButton } from './behaviors/copy_code';
+import initGitlabVersionCheck from './gitlab_version_check';
 
 import 'ee_else_ce/main_ee';
 import 'jh_else_ce/main_jh';
 
 logHelloDeferred();
-
-applyGitLabUIConfig();
 
 // expose jQuery as global (TODO: remove these)
 window.jQuery = jQuery;
@@ -54,7 +46,7 @@ window.gl = window.gl || {};
 
 // inject test utilities if necessary
 if (process.env.NODE_ENV !== 'production' && gon?.test_env) {
-  import(/* webpackMode: "eager" */ './test_utils/');
+  import(/* webpackMode: "eager" */ './test_utils');
 }
 
 document.addEventListener('beforeunload', () => {
@@ -88,60 +80,16 @@ initRails();
 function deferredInitialisation() {
   const $body = $('body');
 
-  initTopNav();
   initBreadcrumbs();
-  initTodoToggle();
   initPrefetchLinks('.js-prefetch-document');
   initLogoAnimation();
-  initServicePingConsent();
+  initPortraitLogoDetection();
   initUserPopovers();
   initBroadcastNotifications();
   initPersistentUserCallouts();
   initDefaultTrackers();
-  initFeatureHighlight();
   initCopyCodeButton();
-
-  const helpToggle = document.querySelector('.header-help-dropdown-toggle');
-  if (helpToggle) {
-    helpToggle.addEventListener(
-      'click',
-      () => {
-        import(/* webpackChunkName: 'versionCheck' */ './gitlab_version_check')
-          .then(({ default: initGitlabVersionCheck }) => {
-            initGitlabVersionCheck();
-          })
-          .catch(() => {});
-      },
-      { once: true },
-    );
-  }
-
-  const searchInputBox = document.querySelector('#search');
-  if (searchInputBox) {
-    searchInputBox.addEventListener(
-      'focus',
-      () => {
-        if (gon.features?.newHeaderSearch) {
-          import(/* webpackChunkName: 'globalSearch' */ '~/header_search')
-            .then(async ({ initHeaderSearchApp }) => {
-              // In case the user started searching before we bootstrapped, let's pass the search along.
-              const initialSearchValue = searchInputBox.value;
-              await initHeaderSearchApp(initialSearchValue);
-              searchInputBox.focus();
-            })
-            .catch(() => {});
-        } else {
-          import(/* webpackChunkName: 'globalSearch' */ './search_autocomplete')
-            .then(({ default: initSearchAutocomplete }) => {
-              const searchDropdown = initSearchAutocomplete();
-              searchDropdown.onSearchInputFocus();
-            })
-            .catch(() => {});
-        }
-      },
-      { once: true },
-    );
-  }
+  initGitlabVersionCheck();
 
   addSelectOnFocusBehaviour('.js-select-on-focus');
 
@@ -161,12 +109,6 @@ function deferredInitialisation() {
 
   // Adding a helper class to activate animations only after all is rendered
   setTimeout(() => $body.addClass('page-initialised'), 1000);
-
-  if (window.gon?.features?.mrAttentionRequests) {
-    import('~/attention_requests')
-      .then((module) => module.default())
-      .catch(() => {});
-  }
 }
 
 const $body = $('body');
@@ -176,9 +118,6 @@ const bootstrapBreakpoint = bp.getBreakpointSize();
 initUserTracking();
 initLayoutNav();
 initAlertHandler();
-
-// Set the default path for all cookies to GitLab's root directory
-Cookies.defaults.path = gon.relative_url_root || '/';
 
 // `hashchange` is not triggered when link target is already in window.location
 $body.on('click', 'a[href^="#"]', function clickHashLinkCallback() {
@@ -197,9 +136,11 @@ $body.on('click', 'a[href^="#"]', function clickHashLinkCallback() {
  *
  * Quick fix: Get rid of jQuery for this implementation
  */
-const isBoardsPage = /(projects|groups):boards:show/.test(document.body.dataset.page);
-if (!isBoardsPage && (bootstrapBreakpoint === 'sm' || bootstrapBreakpoint === 'xs')) {
-  const $rightSidebar = $('aside.right-sidebar');
+const isBoardsOrMR = /((projects|groups):boards:show|projects:merge_requests:)/.test(
+  document.body.dataset.page,
+);
+if (!isBoardsOrMR && (bootstrapBreakpoint === 'sm' || bootstrapBreakpoint === 'xs')) {
+  const $rightSidebar = $('.js-right-sidebar[data-auto-collapse]');
   const $layoutPage = $('.layout-page');
 
   if ($rightSidebar.length > 0) {
@@ -240,10 +181,6 @@ $body.on('ajax:complete, ajax:beforeSend, submit', 'form', function ajaxComplete
   }
 });
 
-$('.navbar-toggler').on('click', () => {
-  document.body.classList.toggle('top-nav-responsive-open');
-});
-
 /**
  * Show suppressed commit diff
  *
@@ -277,24 +214,20 @@ $('form.filter-form').on('submit', function filterFormSubmitCallback(event) {
   const link = document.createElement('a');
   link.href = this.action;
 
-  const action = `${this.action}${link.search === '' ? '?' : '&'}`;
+  const action = mergeUrlParams(Object.fromEntries(new FormData(this)), this.action);
 
   event.preventDefault();
-  // eslint-disable-next-line no-jquery/no-serialize
-  visitUrl(`${action}${$(this).serialize()}`);
+  visitUrl(action);
 });
-
-const flashContainer = document.querySelector('.flash-container');
-
-if (flashContainer && flashContainer.children.length) {
-  flashContainer
-    .querySelectorAll('.flash-alert, .flash-notice, .flash-success')
-    .forEach((flashEl) => {
-      addDismissFlashClickListener(flashEl);
-    });
-}
 
 // initialize field errors
 $('.gl-show-field-errors').each((i, form) => new GlFieldErrors(form));
 
 requestIdleCallback(deferredInitialisation);
+
+// initialize hiding of tooltip after clicking on dropdown's links and buttons
+document
+  .querySelectorAll('a[data-toggle="dropdown"], button[data-toggle="dropdown"], a.has-tooltip')
+  .forEach((element) => {
+    element.addEventListener('click', () => tooltips.hide(element));
+  });

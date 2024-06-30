@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User awards emoji', :js do
+RSpec.describe 'Merge request > User awards emoji', :js, feature_category: :code_review_workflow do
   let(:project) { create(:project, :public, :repository) }
   let(:user) { project.creator }
   let(:merge_request) { create(:merge_request, source_project: project, author: create(:user)) }
@@ -11,34 +11,46 @@ RSpec.describe 'Merge request > User awards emoji', :js do
   describe 'logged in' do
     before do
       sign_in(user)
-      visit project_merge_request_path(project, merge_request)
 
+      visit project_merge_request_path(project, merge_request)
       wait_for_requests
     end
 
     it 'adds award to merge request' do
       first('[data-testid="award-button"]').click
+      wait_for_requests
       expect(page).to have_selector('[data-testid="award-button"].selected')
       expect(first('[data-testid="award-button"]')).to have_content '1'
 
       visit project_merge_request_path(project, merge_request)
+      wait_for_requests
+
       expect(first('[data-testid="award-button"]')).to have_content '1'
     end
 
     it 'removes award from merge request' do
       first('[data-testid="award-button"]').click
+      wait_for_requests
       expect(first('[data-testid="award-button"]')).to have_content '1'
+
       find('[data-testid="award-button"].selected').click
+      wait_for_requests
       expect(first('[data-testid="award-button"]')).to have_content '0'
 
       visit project_merge_request_path(project, merge_request)
+      wait_for_requests
+
       expect(first('[data-testid="award-button"]')).to have_content '0'
     end
 
     it 'adds awards to note' do
       page.within('.note-actions') do
-        first('.note-emoji-button').click
-        find('gl-emoji[data-name="8ball"]').click
+        first('.add-reaction-button').click
+
+        # make sure emoji popup is visible
+        execute_script("window.scrollBy(0, 200)")
+
+        find('gl-emoji[data-name="grinning"]').click
       end
 
       wait_for_requests
@@ -58,6 +70,7 @@ RSpec.describe 'Merge request > User awards emoji', :js do
   describe 'logged out' do
     before do
       visit project_merge_request_path(project, merge_request)
+      wait_for_requests
     end
 
     it 'does not see award menu button' do

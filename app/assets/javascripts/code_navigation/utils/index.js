@@ -1,9 +1,13 @@
+import { wrapNodes, isTextNode } from './dom_utils';
+
 export const cachedData = new Map();
+
+const wrappedLines = new WeakSet();
 
 export const getCurrentHoverElement = () => cachedData.get('current');
 export const setCurrentHoverElement = (el) => cachedData.set('current', el);
 
-export const addInteractionClass = (path, d) => {
+export const addInteractionClass = ({ path, d, wrapTextNodes }) => {
   const lineNumber = d.start_line + 1;
   const lines = document
     .querySelector(`[data-path="${path}"]`)
@@ -12,15 +16,25 @@ export const addInteractionClass = (path, d) => {
 
   lines.forEach((line) => {
     let charCount = 0;
+
+    if (wrapTextNodes) {
+      line.childNodes.forEach((elm) => {
+        // Highlight.js does not wrap all text nodes by default
+        // We need all text nodes to be wrapped in order to append code nav attributes
+        elm.replaceWith(...wrapNodes(elm.textContent, elm.classList, elm.dataset));
+      });
+      wrappedLines.add(line);
+    }
+
     const el = [...line.childNodes].find(({ textContent }) => {
       if (charCount === d.start_char) return true;
       charCount += textContent.length;
       return false;
     });
 
-    if (el) {
-      el.setAttribute('data-char-index', d.start_char);
-      el.setAttribute('data-line-index', d.start_line);
+    if (el && !isTextNode(el)) {
+      el.dataset.charIndex = d.start_char;
+      el.dataset.lineIndex = d.start_line;
       el.classList.add('cursor-pointer', 'code-navigation', 'js-code-navigation');
       el.closest('.line').classList.add('code-navigation-line');
     }

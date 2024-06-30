@@ -6,10 +6,7 @@ module Projects
       class DeleteTagsService
         include BaseServiceUtility
         include ::Gitlab::Utils::StrongMemoize
-
-        DISABLED_TIMEOUTS = [nil, 0].freeze
-
-        TimeoutError = Class.new(StandardError)
+        include ::Projects::ContainerRepository::Gitlab::Timeoutable
 
         def initialize(container_repository, tag_names)
           @container_repository = container_repository
@@ -37,29 +34,12 @@ module Projects
           @tag_names.each do |name|
             raise TimeoutError if timeout?(start_time)
 
-            if @container_repository.delete_tag_by_name(name)
+            if @container_repository.delete_tag(name)
               @deleted_tags.append(name)
             end
           end
 
-          @deleted_tags.any? ? success(deleted: @deleted_tags) : error('could not delete tags')
-        end
-
-        def timeout?(start_time)
-          return false unless throttling_enabled?
-          return false if service_timeout.in?(DISABLED_TIMEOUTS)
-
-          (Time.zone.now - start_time) > service_timeout
-        end
-
-        def throttling_enabled?
-          strong_memoize(:feature_flag) do
-            Feature.enabled?(:container_registry_expiration_policies_throttling, default_enabled: :yaml)
-          end
-        end
-
-        def service_timeout
-          ::Gitlab::CurrentSettings.current_application_settings.container_registry_delete_tags_service_timeout
+          @deleted_tags.any? ? success(deleted: @deleted_tags) : error("could not delete tags: #{@tag_names.join(', ')}".truncate(1000))
         end
       end
     end

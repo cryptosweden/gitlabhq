@@ -2,21 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::GoogleCloud::GcpRegionsController do
+RSpec.describe Projects::GoogleCloud::GcpRegionsController, feature_category: :deployment_management do
   let_it_be(:project) { create(:project, :public, :repository) }
   let_it_be(:repository) { project.repository }
 
-  let(:user_guest) { create(:user) }
-  let(:user_maintainer) { create(:user) }
+  let_it_be(:user_guest) { create(:user) }
+  let_it_be(:user_maintainer) { create(:user) }
 
   RSpec.shared_examples "should track not_found event" do
     it "tracks event" do
       is_expected.to be(404)
       expect_snowplow_event(
-        category: 'Projects::GoogleCloud',
-        action: 'admin_project_google_cloud!',
-        label: 'access_denied',
-        property: 'invalid_user',
+        category: 'Projects::GoogleCloud::GcpRegionsController',
+        action: 'error_invalid_user',
+        label: nil,
         project: project,
         user: nil
       )
@@ -27,10 +26,9 @@ RSpec.describe Projects::GoogleCloud::GcpRegionsController do
     it "tracks event" do
       is_expected.to be(404)
       expect_snowplow_event(
-        category: 'Projects::GoogleCloud',
-        action: 'admin_project_google_cloud!',
-        label: 'access_denied',
-        property: 'invalid_user',
+        category: 'Projects::GoogleCloud::GcpRegionsController',
+        action: 'error_invalid_user',
+        label: nil,
         project: project,
         user: nil
       )
@@ -41,10 +39,9 @@ RSpec.describe Projects::GoogleCloud::GcpRegionsController do
     it "tracks event" do
       is_expected.to be(404)
       expect_snowplow_event(
-        category: 'Projects::GoogleCloud',
-        action: 'feature_flag_enabled!',
-        label: 'access_denied',
-        property: 'feature_flag_not_enabled',
+        category: 'Projects::GoogleCloud::GcpRegionsController',
+        action: 'error_feature_flag_not_enabled',
+        label: nil,
         project: project,
         user: user_maintainer
       )
@@ -55,10 +52,9 @@ RSpec.describe Projects::GoogleCloud::GcpRegionsController do
     it "tracks event" do
       is_expected.to be(403)
       expect_snowplow_event(
-        category: 'Projects::GoogleCloud',
-        action: 'google_oauth2_enabled!',
-        label: 'access_denied',
-        extra: { reason: 'google_oauth2_not_configured', config: config },
+        category: 'Projects::GoogleCloud::GcpRegionsController',
+        action: 'error_google_oauth2_not_enabled',
+        label: nil,
         project: project,
         user: user_maintainer
       )
@@ -144,8 +140,8 @@ RSpec.describe Projects::GoogleCloud::GcpRegionsController do
         sign_in(user_maintainer)
       end
 
-      it 'redirects to google cloud index' do
-        is_expected.to redirect_to(project_google_cloud_index_path(project))
+      it 'redirects to google cloud configurations' do
+        is_expected.to redirect_to(project_google_cloud_configuration_path(project))
       end
     end
   end

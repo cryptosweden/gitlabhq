@@ -1,4 +1,4 @@
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { __ } from '~/locale';
 
 export default {
@@ -11,14 +11,6 @@ export default {
       return this.note.resolved;
     },
     resolveButtonTitle() {
-      if (this.updatedNoteBody) {
-        if (this.discussionResolved) {
-          return __('Comment & unresolve thread');
-        }
-
-        return __('Comment & resolve thread');
-      }
-
       return this.discussionResolved ? __('Unresolve thread') : __('Resolve thread');
     },
   },
@@ -46,7 +38,7 @@ export default {
           this.isResolving = false;
 
           const msg = __('Something went wrong while resolving this discussion. Please try again.');
-          createFlash({
+          createAlert({
             message: msg,
             parent: this.$el,
           });

@@ -1,7 +1,7 @@
 <script>
-import { GlDeprecatedSkeletonLoading as GlSkeletonLoading } from '@gitlab/ui';
+import { GlSkeletonLoader } from '@gitlab/ui';
 import { GlSingleStat } from '@gitlab/ui/dist/charts';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { number } from '~/lib/utils/unit_format';
 import { __, s__ } from '~/locale';
 import usageTrendsCountQuery from '../graphql/queries/usage_trends_count.query.graphql';
@@ -11,7 +11,7 @@ const defaultPrecision = 0;
 export default {
   name: 'UsageCounts',
   components: {
-    GlSkeletonLoading,
+    GlSkeletonLoader,
     GlSingleStat,
   },
   data() {
@@ -35,7 +35,7 @@ export default {
         });
       },
       error(error) {
-        createFlash({
+        createAlert({
           message: this.$options.i18n.loadCountsError,
           captureError: true,
           error,
@@ -65,7 +65,7 @@ export default {
     <div
       class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row gl-my-6 gl-align-items-flex-start"
     >
-      <gl-skeleton-loading v-if="$apollo.queries.counts.loading" />
+      <gl-skeleton-loader v-if="$apollo.queries.counts.loading" />
       <template v-else>
         <gl-single-stat
           v-for="count in counts"

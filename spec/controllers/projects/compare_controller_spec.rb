@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::CompareController do
+RSpec.describe Projects::CompareController, feature_category: :source_code_management do
   include ProjectForksHelper
 
   using RSpec::Parameterized::TableSyntax
@@ -44,6 +44,14 @@ RSpec.describe Projects::CompareController do
         expect(response).to be_successful
       end
     end
+
+    context 'with missing parameters' do
+      let(:params) { super().merge(from: '', to: '') }
+
+      it 'returns successfully' do
+        expect(response).to be_successful
+      end
+    end
   end
 
   describe 'GET show' do
@@ -58,11 +66,15 @@ RSpec.describe Projects::CompareController do
         from_project_id: from_project_id,
         from: from_ref,
         to: to_ref,
-        w: whitespace
+        w: whitespace,
+        page: page,
+        straight: straight
       }
     end
 
     let(:whitespace) { nil }
+    let(:straight) { nil }
+    let(:page) { nil }
 
     context 'when the refs exist in the same project' do
       context 'when we set the white space param' do
@@ -100,6 +112,23 @@ RSpec.describe Projects::CompareController do
       end
     end
 
+    context 'when refs have CI::Pipeline' do
+      let(:from_project_id) { nil }
+      let(:from_ref) { '08f22f25' }
+      let(:to_ref) { '59e29889' }
+
+      before do
+        create(:ci_pipeline, project: project)
+      end
+
+      it 'avoids N+1 queries' do
+        control = ActiveRecord::QueryRecorder.new { show_request }
+
+        # Only 1 query to ci/pipeline.rb is allowed
+        expect(control.find_query(/pipeline\.rb/, 1)).to be_empty
+      end
+    end
+
     context 'when the refs exist in different projects that the user can see' do
       let(:from_project_id) { public_fork.id }
       let(:from_ref) { 'improve%2Fmore-awesome' }
@@ -115,6 +144,58 @@ RSpec.describe Projects::CompareController do
       end
     end
 
+    context 'when comparing missing commits between source and target' do
+      let(:from_project_id) { nil }
+      let(:from_ref) { '5937ac0a7beb003549fc5fd26fc247adbce4a52e' }
+      let(:to_ref) { '6f6d7e7ed97bb5f0054f2b1df789b39ca89b6ff9' }
+      let(:page) { 1 }
+
+      context 'when comparing them in the other direction' do
+        let(:straight) { "false" }
+        let(:from_ref) { '6f6d7e7ed97bb5f0054f2b1df789b39ca89b6ff9' }
+        let(:to_ref) { '5937ac0a7beb003549fc5fd26fc247adbce4a52e' }
+
+        it 'the commits are there' do
+          show_request
+
+          expect(response).to be_successful
+          expect(assigns(:commits).length).to be >= 2
+          expect(assigns(:diffs).raw_diff_files.size).to be >= 2
+          expect(assigns(:diffs).diff_files.first).to be_present
+        end
+      end
+
+      context 'with straight mode true' do
+        let(:from_ref) { '5937ac0a7beb003549fc5fd26fc247adbce4a52e' }
+        let(:to_ref) { '6f6d7e7ed97bb5f0054f2b1df789b39ca89b6ff9' }
+
+        let(:straight) { "true" }
+
+        it 'the commits are empty, but the removed lines are visible as diffs' do
+          show_request
+
+          expect(response).to be_successful
+          expect(assigns(:commits).length).to be == 0
+          expect(assigns(:diffs).diff_files.size).to be >= 4
+        end
+      end
+
+      context 'with straight mode false' do
+        let(:from_ref) { '5937ac0a7beb003549fc5fd26fc247adbce4a52e' }
+        let(:to_ref) { '6f6d7e7ed97bb5f0054f2b1df789b39ca89b6ff9' }
+
+        let(:straight) { "false" }
+
+        it 'the additional commits are not visible in diffs and commits' do
+          show_request
+
+          expect(response).to be_successful
+          expect(assigns(:commits).length).to be == 0
+          expect(assigns(:diffs).diff_files.size).to be == 0
+        end
+      end
+    end
+
     context 'when the refs exist in different projects but the user cannot see' do
       let(:from_project_id) { private_fork.id }
       let(:from_ref) { 'improve%2Fmore-awesome' }
@@ -122,6 +203,36 @@ RSpec.describe Projects::CompareController do
       let(:whitespace) { nil }
 
       it 'does not show the diff' do
+        show_request
+
+        expect(response).to be_successful
+        expect(assigns(:diffs)).to be_empty
+        expect(assigns(:commits)).to be_empty
+      end
+    end
+
+    context 'when the target project is the default source but hidden to the user' do
+      let(:project) { create(:project, :repository, :private) }
+      let(:from_ref) { 'improve%2Fmore-awesome' }
+      let(:to_ref) { 'feature' }
+      let(:whitespace) { nil }
+
+      let(:request_params) do
+        {
+          namespace_id: project.namespace,
+          project_id: project,
+          from: from_ref,
+          to: to_ref,
+          w: whitespace,
+          page: page,
+          straight: straight
+        }
+      end
+
+      it 'does not show the diff' do
+        allow(controller).to receive(:source_project).and_return(project)
+        expect(project).to receive(:default_merge_request_target).and_return(private_fork)
+
         show_request
 
         expect(response).to be_successful
@@ -171,6 +282,19 @@ RSpec.describe Projects::CompareController do
       end
     end
 
+    context 'when the from_ref and to_ref are the same' do
+      let(:from_project_id) { nil }
+      let(:from_ref) { 'master' }
+      let(:to_ref) { "master" }
+
+      it 'shows a message that refs are identical' do
+        show_request
+
+        expect(response).to be_successful
+        expect(response.body).to include('are the same')
+      end
+    end
+
     context 'when the source ref is invalid' do
       let(:from_project_id) { nil }
       let(:from_ref) { "master%' AND 2554=4423 AND '%'='" }
@@ -194,6 +318,66 @@ RSpec.describe Projects::CompareController do
 
         expect(flash[:alert]).to eq("Invalid branch name(s): improve%' =,awesome, master%' AND 2554=4423 AND '%'='")
         expect(response).to have_gitlab_http_status(:found)
+      end
+    end
+
+    context 'when page is valid' do
+      let(:from_project_id) { nil }
+      let(:from_ref) { '6f6d7e7ed97bb5f0054f2b1df789b39ca89b6ff9' }
+      let(:to_ref) { '5937ac0a7beb003549fc5fd26fc247adbce4a52e' }
+      let(:page) { 1 }
+
+      shared_examples 'valid compare page' do
+        it 'shows the diff' do
+          show_request
+
+          expect(response).to be_successful
+          expect(assigns(:diffs).diff_files.first).to be_present
+          expect(assigns(:commits).length).to be >= 1
+        end
+      end
+
+      it_behaves_like 'valid compare page'
+
+      it 'only loads blobs in the current page' do
+        stub_const('Projects::CompareController::COMMIT_DIFFS_PER_PAGE', 1)
+
+        expect_next_instance_of(Repository) do |repository|
+          # This comparison contains 4 changed files but we expect only the blobs for the first one to be loaded
+          expect(repository).to receive(:blobs_at).with(
+            contain_exactly([from_ref, '.gitmodules'], [to_ref, '.gitmodules']), anything
+          ).and_call_original
+        end
+
+        show_request
+
+        expect(response).to be_successful
+      end
+
+      context 'when from_ref is HEAD ref' do
+        let(:from_ref) { 'HEAD' }
+        let(:to_ref) { 'feature' } # Need to change to_ref too so there's something to compare with HEAD
+
+        it_behaves_like 'valid compare page'
+      end
+
+      context 'when to_ref is HEAD ref' do
+        let(:to_ref) { 'HEAD' }
+
+        it_behaves_like 'valid compare page'
+      end
+    end
+
+    context 'when page is not valid' do
+      let(:from_project_id) { nil }
+      let(:from_ref) { '08f22f25' }
+      let(:to_ref) { '66eceea0' }
+      let(:page) { ['invalid'] }
+
+      it 'does not return an error' do
+        show_request
+
+        expect(response).to be_successful
       end
     end
   end
@@ -380,9 +564,12 @@ RSpec.describe Projects::CompareController do
         project_id: project,
         from: from_ref,
         to: to_ref,
+        straight: straight,
         format: :json
       }
     end
+
+    let(:straight) { nil }
 
     context 'when the source and target refs exist' do
       let(:from_ref) { 'improve%2Fawesome' }
@@ -399,12 +586,45 @@ RSpec.describe Projects::CompareController do
           escaped_to_ref = Addressable::URI.unescape(to_ref)
 
           compare_service = CompareService.new(project, escaped_to_ref)
+          compare = compare_service.execute(project, escaped_from_ref, straight: false)
+
+          expect(CompareService).to receive(:new).with(project, escaped_to_ref).and_return(compare_service)
+          expect(compare_service).to receive(:execute).with(project, escaped_from_ref, straight: false).and_return(compare)
+
+          expect(compare).to receive(:commits).and_return(CommitCollection.new(project, [signature_commit, non_signature_commit]))
+          expect(non_signature_commit).to receive(:has_signature?).and_return(false)
+        end
+
+        it 'returns only the commit with a signature' do
+          signatures_request
+
+          expect(response).to have_gitlab_http_status(:ok)
+          signatures = json_response['signatures']
+
+          expect(signatures.size).to eq(1)
+          expect(signatures.first['commit_sha']).to eq(signature_commit.sha)
+          expect(signatures.first['html']).to be_present
+        end
+      end
+
+      context 'when the user has access to the project with straight compare' do
+        render_views
+
+        let(:signature_commit) { project.commit_by(oid: '0b4bc9a49b562e85de7cc9e834518ea6828729b9') }
+        let(:non_signature_commit) { build(:commit, project: project, safe_message: "message", sha: 'non_signature_commit') }
+        let(:straight) { "true" }
+
+        before do
+          escaped_from_ref = Addressable::URI.unescape(from_ref)
+          escaped_to_ref = Addressable::URI.unescape(to_ref)
+
+          compare_service = CompareService.new(project, escaped_to_ref)
           compare = compare_service.execute(project, escaped_from_ref)
 
           expect(CompareService).to receive(:new).with(project, escaped_to_ref).and_return(compare_service)
-          expect(compare_service).to receive(:execute).with(project, escaped_from_ref).and_return(compare)
+          expect(compare_service).to receive(:execute).with(project, escaped_from_ref, straight: true).and_return(compare)
 
-          expect(compare).to receive(:commits).and_return([signature_commit, non_signature_commit])
+          expect(compare).to receive(:commits).and_return(CommitCollection.new(project, [signature_commit, non_signature_commit]))
           expect(non_signature_commit).to receive(:has_signature?).and_return(false)
         end
 

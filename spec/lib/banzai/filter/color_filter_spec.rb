@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::ColorFilter, lib: true do
+RSpec.describe Banzai::Filter::ColorFilter, feature_category: :team_planning, lib: true do
   include FilterSpecHelper
 
   let(:color) { '#F00' }
@@ -56,6 +56,8 @@ RSpec.describe Banzai::Filter::ColorFilter, lib: true do
 
     expect(doc.css(color_chip_selector).size).to be_zero
   end
+
+  it_behaves_like 'pipeline timing check'
 
   def code_tag(string)
     "<code>#{string}</code>"

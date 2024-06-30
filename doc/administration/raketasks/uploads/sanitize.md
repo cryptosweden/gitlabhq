@@ -1,22 +1,26 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Uploads sanitize Rake tasks **(FREE SELF)**
+# Uploads sanitize Rake tasks
 
-In GitLab 11.9 and later, EXIF data is automatically stripped from JPG or TIFF image uploads.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+EXIF data is automatically stripped from JPG or TIFF image uploads.
 
 EXIF data may contain sensitive information (for example, GPS location), so you
 can remove EXIF data from existing images that were uploaded to an earlier version of GitLab.
 
-## Requirements
+## Prerequisite
 
 To run this Rake task, you need `exiftool` installed on your system. If you installed GitLab:
 
-- Using the Omnibus package, you're all set.
-- From source, make sure `exiftool` is installed:
+- By using the Linux package, you're all set.
+- By using the self-compiled installation, make sure `exiftool` is installed:
 
   ```shell
   # Debian/Ubuntu

@@ -1,27 +1,32 @@
 <script>
-import { GlButton } from '@gitlab/ui';
-import createFlash from '~/flash';
+import { GlForm, GlButton, GlSprintf } from '@gitlab/ui';
+import { createAlert } from '~/alert';
+import csrf from '~/lib/utils/csrf';
+import { STATUS_MERGED } from '~/issues/constants';
 import { BV_SHOW_MODAL } from '~/lib/utils/constants';
-import { s__ } from '~/locale';
-import sidebarEventHub from '~/sidebar/event_hub';
-import eventHub from '../../event_hub';
+import { HTTP_STATUS_UNAUTHORIZED } from '~/lib/utils/http_status';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { s__, __, sprintf } from '~/locale';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import approvalsMixin from '../../mixins/approvals';
-import MrWidgetContainer from '../mr_widget_container.vue';
-import MrWidgetIcon from '../mr_widget_icon.vue';
+import StateContainer from '../state_container.vue';
+import { INVALID_RULES_DOCS_PATH } from '../../constants';
 import ApprovalsSummary from './approvals_summary.vue';
 import ApprovalsSummaryOptional from './approvals_summary_optional.vue';
-import { FETCH_LOADING, FETCH_ERROR, APPROVE_ERROR, UNAPPROVE_ERROR } from './messages';
+import { FETCH_LOADING, APPROVE_ERROR, UNAPPROVE_ERROR } from './messages';
 
 export default {
   name: 'MRWidgetApprovals',
   components: {
-    MrWidgetContainer,
-    MrWidgetIcon,
     ApprovalsSummary,
     ApprovalsSummaryOptional,
+    StateContainer,
     GlButton,
+    GlSprintf,
+    GlForm,
   },
-  mixins: [approvalsMixin],
+  csrf,
+  mixins: [approvalsMixin, glFeatureFlagsMixin()],
   props: {
     mr: {
       type: Object,
@@ -51,20 +56,32 @@ export default {
       required: false,
       default: false,
     },
+    collapsed: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    hasAllApprovals: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     return {
-      fetchingApprovals: true,
       hasApprovalAuthError: false,
       isApproving: false,
     };
   },
   computed: {
+    isLoading() {
+      return this.$apollo.queries.approvals.loading || !this.approvals;
+    },
     isBasic() {
       return this.mr.approvalsWidgetType === 'base';
     },
     isApproved() {
-      return Boolean(this.approvals.approved);
+      return this.hasAllApprovals;
     },
     isOptional() {
       return this.isOptionalDefault !== null ? this.isOptionalDefault : !this.approvedBy.length;
@@ -72,25 +89,52 @@ export default {
     hasAction() {
       return Boolean(this.action);
     },
-    approvals() {
-      return this.mr.approvals || {};
+    invalidRules() {
+      return this.approvals.approvalState?.rules?.filter((rule) => rule.invalid) || [];
+    },
+    invalidApprovedRules() {
+      return this.invalidRules.filter((rule) => rule.allowMergeWhenInvalid);
+    },
+    invalidFailedRules() {
+      return this.invalidRules.filter((rule) => !rule.allowMergeWhenInvalid);
+    },
+    hasInvalidRules() {
+      return this.mr.mergeRequestApproversAvailable && this.invalidRules.length;
+    },
+    hasInvalidApprovedRules() {
+      return this.mr.mergeRequestApproversAvailable && this.invalidApprovedRules.length;
+    },
+    hasInvalidFailedRules() {
+      return this.mr.mergeRequestApproversAvailable && this.invalidFailedRules.length;
     },
     approvedBy() {
-      return this.approvals.approved_by ? this.approvals.approved_by.map((x) => x.user) : [];
+      return this.approvals.approvedBy?.nodes || [];
     },
     userHasApproved() {
-      return Boolean(this.approvals.user_has_approved);
+      return this.approvedBy.some(
+        (approver) => getIdFromGraphQLId(approver.id) === gon.current_user_id,
+      );
     },
     userCanApprove() {
-      return Boolean(this.approvals.user_can_approve);
+      return Boolean(this.approvals.userPermissions.canApprove);
     },
     showApprove() {
       return !this.userHasApproved && this.userCanApprove && this.mr.isOpen;
     },
     showUnapprove() {
-      return this.userHasApproved && !this.userCanApprove && this.mr.state !== 'merged';
+      return this.userHasApproved && !this.userCanApprove && this.mr.state !== STATUS_MERGED;
+    },
+    showApproveButton() {
+      return (!this.requireSamlAuthToApprove || this.showUnapprove) && this.action;
     },
     approvalText() {
+      // Repeating a text of this to keep i18n easier to do (vs, construcing a compound string)
+      if (this.requireSamlAuthToApprove) {
+        return this.isApproved && this.approvedBy.length > 0
+          ? s__('mrWidget|Approve additionally with SAML')
+          : s__('mrWidget|Approve with SAML');
+      }
+
       return this.isApproved && this.approvedBy.length > 0
         ? s__('mrWidget|Approve additionally')
         : s__('mrWidget|Approve');
@@ -101,31 +145,49 @@ export default {
         return {
           text: this.approvalText,
           category: this.isApproved ? 'secondary' : 'primary',
-          variant: 'info',
+          variant: 'confirm',
           action: () => this.approve(),
         };
-      } else if (this.showUnapprove) {
+      }
+      if (this.showUnapprove) {
         return {
           text: s__('mrWidget|Revoke approval'),
-          variant: 'warning',
-          category: 'secondary',
+          variant: 'default',
           action: () => this.unapprove(),
         };
       }
 
       return null;
     },
-  },
-  created() {
-    this.refreshApprovals()
-      .then(() => {
-        this.fetchingApprovals = false;
-      })
-      .catch(() =>
-        createFlash({
-          message: FETCH_ERROR,
-        }),
-      );
+    pluralizedApprovedRuleText() {
+      return this.invalidApprovedRules.length > 1
+        ? this.$options.i18n.invalidRulesPlural
+        : this.$options.i18n.invalidRuleSingular;
+    },
+    pluralizedFailedRuleText() {
+      return this.invalidFailedRules.length > 1
+        ? this.$options.i18n.invalidFailedRulesPlural
+        : this.$options.i18n.invalidFailedRuleSingular;
+    },
+    pluralizedRuleText() {
+      return [
+        this.hasInvalidFailedRules
+          ? sprintf(this.pluralizedFailedRuleText, { rules: this.invalidFailedRules.length })
+          : null,
+        this.hasInvalidApprovedRules
+          ? sprintf(this.pluralizedApprovedRuleText, { rules: this.invalidApprovedRules.length })
+          : null,
+      ]
+        .filter((text) => Boolean(text))
+        .join(', ')
+        .concat('.');
+    },
+    samlApprovalPath() {
+      return this.mr.samlApprovalPath;
+    },
+    requireSamlAuthToApprove() {
+      return this.mr.requireSamlAuthToApprove;
+    },
   },
   methods: {
     approve() {
@@ -133,26 +195,33 @@ export default {
         this.$root.$emit(BV_SHOW_MODAL, this.modalId);
         return;
       }
-
       this.updateApproval(
         () => this.service.approveMergeRequest(),
         () =>
-          createFlash({
-            message: APPROVE_ERROR,
-          }),
+          this.alerts.push(
+            createAlert({
+              message: APPROVE_ERROR,
+            }),
+          ),
       );
+    },
+    approveWithSamlAuth() {
+      // Intentionally direct to SAML Identity Provider for renewed authorization even if SSO session exists
+      this.$refs.form.$el.submit();
     },
     approveWithAuth(data) {
       this.updateApproval(
         () => this.service.approveMergeRequestWithAuth(data),
         (error) => {
-          if (error && error.response && error.response.status === 401) {
+          if (error?.response?.status === HTTP_STATUS_UNAUTHORIZED) {
             this.hasApprovalAuthError = true;
             return;
           }
-          createFlash({
-            message: APPROVE_ERROR,
-          });
+          this.alerts.push(
+            createAlert({
+              message: APPROVE_ERROR,
+            }),
+          );
         },
       );
     },
@@ -160,21 +229,20 @@ export default {
       this.updateApproval(
         () => this.service.unapproveMergeRequest(),
         () =>
-          createFlash({
-            message: UNAPPROVE_ERROR,
-          }),
+          this.alerts.push(
+            createAlert({
+              message: UNAPPROVE_ERROR,
+            }),
+          ),
       );
     },
     updateApproval(serviceFn, errFn) {
       this.isApproving = true;
       this.clearError();
       return serviceFn()
-        .then((data) => {
-          this.mr.setApprovals(data);
-          eventHub.$emit('MRWidgetUpdateRequested');
-          eventHub.$emit('ApprovalUpdated');
-          sidebarEventHub.$emit('removeCurrentUserAttentionRequested');
-          this.$emit('updated');
+        .then(() => {
+          // TODO: Remove this line when we move to Apollo subscriptions
+          this.$apollo.queries.approvals.refetch();
         })
         .catch(errFn)
         .then(() => {
@@ -183,46 +251,96 @@ export default {
     },
   },
   FETCH_LOADING,
+  linkToInvalidRules: INVALID_RULES_DOCS_PATH,
+  i18n: {
+    invalidRuleSingular: s__('mrWidget|%{rules} invalid rule has been approved automatically'),
+    invalidRulesPlural: s__('mrWidget|%{rules} invalid rules have been approved automatically'),
+    invalidFailedRuleSingular: s__(
+      "mrWidget|%{dangerStart}%{rules} rule can't be approved%{dangerEnd}",
+    ),
+    invalidFailedRulesPlural: s__(
+      "mrWidget|%{dangerStart}%{rules} rules can't be approved%{dangerEnd}",
+    ),
+    learnMore: __('Learn more.'),
+  },
 };
 </script>
 <template>
-  <mr-widget-container>
-    <div class="js-mr-approvals d-flex align-items-start align-items-md-center">
-      <mr-widget-icon name="approval" />
-      <div v-if="fetchingApprovals">{{ $options.FETCH_LOADING }}</div>
+  <div v-if="approvals" class="js-mr-approvals mr-section-container">
+    <state-container
+      :is-loading="isLoading"
+      :mr="mr"
+      status="approval"
+      is-collapsible
+      collapse-on-desktop
+      :collapsed="collapsed"
+      :expand-details-tooltip="__('Expand eligible approvers')"
+      :collapse-details-tooltip="__('Collapse eligible approvers')"
+      @toggle="() => $emit('toggle')"
+    >
+      <template v-if="isLoading">{{ $options.FETCH_LOADING }}</template>
       <template v-else>
-        <gl-button
-          v-if="action"
-          :variant="action.variant"
-          :category="action.category"
-          :loading="isApproving"
-          class="mr-3"
-          data-qa-selector="approve_button"
-          @click="action.action"
-        >
-          {{ action.text }}
-        </gl-button>
-        <approvals-summary-optional
-          v-if="isOptional"
-          :can-approve="hasAction"
-          :help-path="mr.approvalsHelpPath"
-        />
-        <approvals-summary
-          v-else
-          :approved="isApproved"
-          :approvals-left="approvals.approvals_left || 0"
-          :rules-left="approvals.approvalRuleNamesLeft"
-          :approvers="approvedBy"
-        />
+        <div class="gl-flex gl-flex-col">
+          <div class="gl-flex gl-flex-col sm:gl-flex-row gl-gap-3 gl-items-baseline">
+            <div v-if="requireSamlAuthToApprove && showApprove">
+              <gl-form
+                ref="form"
+                :action="samlApprovalPath"
+                method="post"
+                data-testid="approve-form"
+              >
+                <gl-button
+                  v-if="action"
+                  :variant="action.variant"
+                  size="small"
+                  :category="action.category"
+                  :loading="isApproving"
+                  data-testid="approve-button"
+                  type="submit"
+                >
+                  {{ action.text }}
+                </gl-button>
+                <input :value="$options.csrf.token" type="hidden" name="authenticity_token" />
+              </gl-form>
+            </div>
+            <gl-button
+              v-if="showApproveButton"
+              :variant="action.variant"
+              size="small"
+              :category="action.category"
+              :loading="isApproving"
+              data-testid="approve-button"
+              @click="action.action"
+            >
+              {{ action.text }}
+            </gl-button>
+            <approvals-summary-optional
+              v-if="isOptional"
+              :can-approve="hasAction"
+              :help-path="mr.approvalsHelpPath"
+            />
+            <approvals-summary
+              v-else
+              :approval-state="approvals"
+              :disable-committers-approval="disableCommittersApproval"
+              :multiple-approval-rules-available="mr.multipleApprovalRulesAvailable"
+            />
+          </div>
+          <div v-if="hasInvalidRules" class="gl-text-secondary gl-mt-2" data-testid="invalid-rules">
+            <gl-sprintf :message="pluralizedRuleText">
+              <template #danger="{ content }">
+                <span class="gl-font-bold text-danger">{{ content }}</span>
+              </template>
+            </gl-sprintf>
+          </div>
+        </div>
         <slot
           :is-approving="isApproving"
           :approve-with-auth="approveWithAuth"
-          :hasApproval-auth-error="hasApprovalAuthError"
+          :has-approval-auth-error="hasApprovalAuthError"
         ></slot>
       </template>
-    </div>
-    <template #footer>
-      <slot name="footer"></slot>
-    </template>
-  </mr-widget-container>
+    </state-container>
+    <slot name="footer"></slot>
+  </div>
 </template>

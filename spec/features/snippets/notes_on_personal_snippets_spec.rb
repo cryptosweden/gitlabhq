@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Comments on personal snippets', :js do
+RSpec.describe 'Comments on personal snippets', :js, feature_category: :source_code_management do
   include NoteInteractionHelpers
+  include Spec::Support::Helpers::ModalHelpers
 
   let_it_be(:snippet) { create(:personal_snippet, :public) }
   let_it_be(:other_note) { create(:note_on_personal_snippet) }
@@ -18,7 +19,6 @@ RSpec.describe 'Comments on personal snippets', :js do
   end
 
   before do
-    stub_feature_flags(bootstrap_confirmation_modals: false)
     sign_in user
     visit snippet_path(snippet)
 
@@ -81,6 +81,7 @@ RSpec.describe 'Comments on personal snippets', :js do
 
     it 'previews a note' do
       fill_in 'note[note]', with: 'This is **awesome**!'
+
       find('.js-md-preview-button').click
 
       page.within('.new-note .md-preview-holder') do
@@ -119,20 +120,36 @@ RSpec.describe 'Comments on personal snippets', :js do
   end
 
   context 'when editing a note' do
-    it 'changes the text' do
-      find('.js-note-edit').click
+    context 'when note is empty' do
+      before do
+        find('.js-note-edit').click
 
-      page.within('.current-note-edit-form') do
-        fill_in 'note[note]', with: 'new content'
-        find('.btn-success').click
+        page.within('.current-note-edit-form') do
+          fill_in 'note[note]', with: ''
+        end
       end
 
-      page.within("#notes-list li#note_#{snippet_notes[0].id}") do
-        edited_text = find('.edited-text')
+      it 'disables save button' do
+        expect(page).to have_button('Save comment', disabled: true)
+      end
+    end
 
-        expect(page).to have_css('.note_edited_ago')
-        expect(page).to have_content('new content')
-        expect(edited_text).to have_selector('.note_edited_ago')
+    context 'when note is not empty' do
+      it 'changes the text' do
+        find('.js-note-edit').click
+
+        page.within('.current-note-edit-form') do
+          fill_in 'note[note]', with: 'new content'
+          find('.btn-confirm').click
+        end
+
+        page.within("#notes-list li#note_#{snippet_notes[0].id}") do
+          edited_text = find('.edited-text')
+
+          expect(page).to have_css('.note_edited_ago')
+          expect(page).to have_content('new content')
+          expect(edited_text).to have_selector('.note_edited_ago')
+        end
       end
     end
   end
@@ -142,8 +159,10 @@ RSpec.describe 'Comments on personal snippets', :js do
       open_more_actions_dropdown(snippet_notes[0])
 
       page.within("#notes-list li#note_#{snippet_notes[0].id}") do
-        accept_confirm { click_on 'Delete comment' }
+        click_on 'Delete comment'
       end
+
+      accept_gl_confirm(button_text: 'Delete comment')
 
       wait_for_requests
 

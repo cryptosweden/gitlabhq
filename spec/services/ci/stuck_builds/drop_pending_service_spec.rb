@@ -2,15 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::StuckBuilds::DropPendingService do
+RSpec.describe Ci::StuckBuilds::DropPendingService, feature_category: :continuous_integration do
   let_it_be(:runner) { create(:ci_runner) }
   let_it_be(:pipeline) { create(:ci_empty_pipeline) }
   let_it_be_with_reload(:job) do
     create(:ci_build, pipeline: pipeline, runner: runner)
   end
 
-  let(:created_at) { }
-  let(:updated_at) { }
+  let(:created_at) {}
+  let(:updated_at) {}
 
   subject(:service) { described_class.new }
 
@@ -139,7 +139,7 @@ RSpec.describe Ci::StuckBuilds::DropPendingService do
     end
   end
 
-  %w(success skipped failed canceled).each do |status|
+  %w[success skipped failed canceled].each do |status|
     context "when job is #{status}" do
       let(:status) { status }
       let(:updated_at) { 2.days.ago }

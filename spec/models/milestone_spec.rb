@@ -2,48 +2,85 @@
 
 require 'spec_helper'
 
-RSpec.describe Milestone do
+RSpec.describe Milestone, feature_category: :team_planning do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :public) }
+  let_it_be(:group) { create(:group) }
   let_it_be(:issue) { create(:issue, project: project) }
 
+  describe 'modules' do
+    context 'with a project' do
+      it_behaves_like 'AtomicInternalId' do
+        let(:internal_id_attribute) { :iid }
+        let(:instance) { build(:milestone, project: create(:project), group: nil) }
+        let(:scope) { :project }
+        let(:scope_attrs) { { project: instance.project } }
+        let(:usage) { :milestones }
+      end
+    end
+
+    context 'with a group' do
+      it_behaves_like 'AtomicInternalId' do
+        let(:internal_id_attribute) { :iid }
+        let(:instance) { build(:milestone, project: nil, group: create(:group)) }
+        let(:scope) { :group }
+        let(:scope_attrs) { { namespace: instance.group } }
+        let(:usage) { :milestones }
+      end
+    end
+  end
+
   it_behaves_like 'a timebox', :milestone do
-    describe "#uniqueness_of_title" do
-      context "per project" do
-        it "does not accept the same title in a project twice" do
-          new_timebox = timebox.dup
-          expect(new_timebox).not_to be_valid
-        end
+    let(:project) { create(:project, :public) }
+    let(:timebox) { create(:milestone, project: project) }
+  end
 
-        it "accepts the same title in another project" do
-          project = create(:project)
-          new_timebox = timebox.dup
-          new_timebox.project = project
+  describe "#uniqueness_of_title" do
+    let_it_be(:root_group) { create(:group) }
+    let_it_be(:sub_group) { create(:group, parent: root_group) }
+    let_it_be(:sub_sub_group) { create(:group, parent: sub_group) }
+    let_it_be(:sub_sub_project) { create(:project, group: sub_sub_group) }
+    let_it_be(:sub_sub_group_milestone) { create(:milestone, group: sub_sub_group) }
+    let_it_be(:sub_sub_project_milestone) { create(:milestone, project: sub_sub_project) }
 
-          expect(new_timebox).to be_valid
-        end
+    context "per project" do
+      it "does not accept the same title in a project twice" do
+        milestone = described_class.new(project: sub_sub_project, title: sub_sub_project_milestone.title)
+
+        expect(milestone).not_to be_valid
       end
 
-      context "per group" do
-        let(:timebox) { create(:milestone, *timebox_args, group: group) }
+      it "accepts the same title in another project" do
+        project = create(:project, group: sub_sub_group)
+        milestone = described_class.new(project: project, title: sub_sub_project_milestone.title)
 
-        before do
-          project.update!(group: group)
-        end
+        expect(milestone).to be_valid
+      end
+    end
 
-        it "does not accept the same title in a group twice" do
-          new_timebox = described_class.new(group: group, title: timebox.title)
+    context "per group" do
+      it "does not accept the same title in a group twice" do
+        milestone = described_class.new(group: sub_sub_group, title: sub_sub_group_milestone.title)
 
-          expect(new_timebox).not_to be_valid
-        end
+        expect(milestone).not_to be_valid
+      end
 
-        it "does not accept the same title of a child project timebox" do
-          create(:milestone, *timebox_args, project: group.projects.first)
+      it "does not accept the same title of a child project timebox" do
+        milestone = described_class.new(group: sub_sub_group, title: sub_sub_project_milestone.title)
 
-          new_timebox = described_class.new(group: group, title: timebox.title)
+        expect(milestone).not_to be_valid
+      end
 
-          expect(new_timebox).not_to be_valid
-        end
+      it "does not accept the same title in a descendant group" do
+        new_timebox = described_class.new(group: root_group, title: sub_sub_group_milestone.title)
+
+        expect(new_timebox).not_to be_valid
+      end
+
+      it "does not accept the same title in a descendant project" do
+        new_timebox = described_class.new(group: root_group, title: sub_sub_project_milestone.title)
+
+        expect(new_timebox).not_to be_valid
       end
     end
   end
@@ -82,21 +119,36 @@ RSpec.describe Milestone do
       context 'when it is tied to a release for another project' do
         it 'creates a validation error' do
           other_project = create(:project)
-          milestone.releases << build(:release, project: other_project)
+          milestone.releases << build(:release,
+            project: other_project, author_id: other_project.members.first.user_id)
           expect(milestone).not_to be_valid
         end
       end
 
       context 'when it is tied to a release for the same project' do
         it 'is valid' do
-          milestone.releases << build(:release, project: project)
+          milestone.releases << build(:release,
+            project: project, author_id: project.members.first.user_id)
           expect(milestone).to be_valid
         end
+      end
+    end
+
+    describe '#parent_type_check' do
+      let(:milestone) { build(:milestone, group: group) }
+
+      it 'is invalid if it has both project_id and group_id' do
+        milestone.project = project
+
+        expect(milestone).not_to be_valid
+        expect(milestone.errors[:project_id]).to include("milestone should belong either to a project or a group.")
       end
     end
   end
 
   describe "Associations" do
+    it { is_expected.to belong_to(:project) }
+    it { is_expected.to belong_to(:group) }
     it { is_expected.to have_many(:releases) }
     it { is_expected.to have_many(:milestone_releases) }
   end
@@ -105,11 +157,11 @@ RSpec.describe Milestone do
     let_it_be(:milestone) { create(:milestone, project: project) }
 
     it 'returns true for a predefined Milestone ID' do
-      expect(Milestone.predefined_id?(described_class::Upcoming.id)).to be true
+      expect(described_class.predefined_id?(described_class::Upcoming.id)).to be true
     end
 
     it 'returns false for a Milestone ID that is not predefined' do
-      expect(Milestone.predefined_id?(milestone.id)).to be false
+      expect(described_class.predefined_id?(milestone.id)).to be false
     end
   end
 
@@ -255,7 +307,7 @@ RSpec.describe Milestone do
     let(:milestone) { create(:milestone, title: 'foo', description: 'bar') }
 
     it 'returns milestones with a matching title' do
-      expect(described_class.search_title(milestone.title)) .to eq([milestone])
+      expect(described_class.search_title(milestone.title)).to eq([milestone])
     end
 
     it 'returns milestones with a partially matching title' do
@@ -270,7 +322,7 @@ RSpec.describe Milestone do
     it 'searches only on the title and ignores milestones with a matching description' do
       create(:milestone, title: 'bar', description: 'foo')
 
-      expect(described_class.search_title(milestone.title)) .to eq([milestone])
+      expect(described_class.search_title(milestone.title)).to eq([milestone])
     end
   end
 
@@ -281,7 +333,7 @@ RSpec.describe Milestone do
       let_it_be(:group) { create(:group) }
       let_it_be(:group_other) { create(:group) }
 
-      before(:all) do
+      before_all do
         create(:milestone, project: project)
         create(:milestone, project: project_other)
         create(:milestone, group: group)
@@ -398,8 +450,8 @@ RSpec.describe Milestone do
 
   describe '#to_reference' do
     let(:group) { build_stubbed(:group) }
-    let(:project) { build_stubbed(:project, name: 'sample-project') }
-    let(:another_project) { build_stubbed(:project, name: 'another-project', namespace: project.namespace) }
+    let(:project) { build_stubbed(:project, path: 'sample-project') }
+    let(:another_project) { build_stubbed(:project, path: 'another-project', namespace: project.namespace) }
 
     context 'for a project milestone' do
       let(:milestone) { build_stubbed(:milestone, iid: 1, project: project, name: 'milestone') }
@@ -429,7 +481,7 @@ RSpec.describe Milestone do
       end
 
       it 'does supports cross-project references within a group' do
-        expect(milestone.to_reference(another_project, format: :name)).to eq '%"milestone"'
+        expect(milestone.to_reference(another_project, format: :name)).to eq "#{group.full_path}%\"milestone\""
       end
 
       it 'raises an error when using iid format' do
@@ -560,6 +612,57 @@ RSpec.describe Milestone do
     it { is_expected.not_to match("gitlab-org/gitlab-ce/milestones/123") }
   end
 
+  describe '#merge_requests_enabled?' do
+    context "per project" do
+      it "is true for projects with MRs enabled" do
+        project = create(:project, :merge_requests_enabled)
+        milestone = build(:milestone, project: project)
+
+        expect(milestone.merge_requests_enabled?).to be_truthy
+      end
+
+      it "is false for projects with MRs disabled" do
+        project = create(:project, :repository_enabled, :merge_requests_disabled)
+        milestone = build(:milestone, project: project)
+
+        expect(milestone.merge_requests_enabled?).to be_falsey
+      end
+
+      it "is false for projects with repository disabled" do
+        project = create(:project, :repository_disabled)
+        milestone = build(:milestone, project: project)
+
+        expect(milestone.merge_requests_enabled?).to be_falsey
+      end
+    end
+
+    context "per group" do
+      let(:milestone) { build(:milestone, group: group) }
+
+      it "is always true for groups, for performance reasons" do
+        expect(milestone.merge_requests_enabled?).to be_truthy
+      end
+    end
+  end
+
+  describe '#resource_parent' do
+    context 'when group is present' do
+      let(:milestone) { build(:milestone, group: group) }
+
+      it 'returns the group' do
+        expect(milestone.resource_parent).to eq(group)
+      end
+    end
+
+    context 'when project is present' do
+      let(:milestone) { build(:milestone, project: project) }
+
+      it 'returns the project' do
+        expect(milestone.resource_parent).to eq(project)
+      end
+    end
+  end
+
   describe '#parent' do
     context 'with group' do
       it 'returns the expected parent' do
@@ -594,6 +697,110 @@ RSpec.describe Milestone do
 
         expect(build(:milestone, group: group).subgroup_milestone?).to eq(false)
       end
+    end
+  end
+
+  describe '#project_milestone?' do
+    context 'when project_id is present' do
+      let(:milestone) { build(:milestone, project: project) }
+
+      it 'returns true' do
+        expect(milestone.project_milestone?).to be_truthy
+      end
+    end
+
+    context 'when project_id is not present' do
+      let(:milestone) { build(:milestone, group: group) }
+
+      it 'returns false' do
+        expect(milestone.project_milestone?).to be_falsey
+      end
+    end
+  end
+
+  describe '#group_milestone?' do
+    context 'when group_id is present' do
+      let(:milestone) { build(:milestone, group: group) }
+
+      it 'returns true' do
+        expect(milestone.group_milestone?).to be_truthy
+      end
+    end
+
+    context 'when group_id is not present' do
+      let(:milestone) { build(:milestone, project: project) }
+
+      it 'returns false' do
+        expect(milestone.group_milestone?).to be_falsey
+      end
+    end
+  end
+
+  describe '#lock_version' do
+    let_it_be(:milestone) { create(:milestone, project: project) }
+
+    it 'ensures that lock_version and optimistic locking is enabled' do
+      expect(milestone.lock_version).to be_present
+    end
+  end
+
+  describe '#check_for_spam?' do
+    let_it_be(:milestone) { build_stubbed(:milestone, project: project) }
+
+    subject { milestone.check_for_spam? }
+
+    context 'when spammable attribute title has changed' do
+      before do
+        milestone.title = 'New title'
+      end
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'when spammable attribute description has changed' do
+      before do
+        milestone.description = 'New description'
+      end
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'when spammable attribute has changed but parent is private' do
+      before do
+        milestone.title = 'New title'
+        milestone.parent.update_attribute(:visibility_level, Gitlab::VisibilityLevel::PRIVATE)
+      end
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when no spammable attribute has changed' do
+      before do
+        milestone.title = milestone.title_was
+        milestone.description = milestone.description_was
+      end
+
+      it { is_expected.to eq(false) }
+    end
+  end
+
+  describe '.with_ids_or_title' do
+    subject(:milestones) { described_class.with_ids_or_title(ids: ids, title: title) }
+
+    let_it_be(:milestone1) { create(:milestone, title: 'Foo') }
+    let_it_be(:milestone2) { create(:milestone) }
+
+    let(:ids) { [milestone1.id] }
+    let(:title) { milestone2.title }
+
+    before do
+      # Milestones below should not be returned
+      create(:milestone, title: 'Bar')
+      create(:milestone, id: 10)
+    end
+
+    it 'returns milestones with matching id or title' do
+      expect(milestones).to contain_exactly(milestone1, milestone2)
     end
   end
 end

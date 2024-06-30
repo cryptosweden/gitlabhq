@@ -1,8 +1,9 @@
 import $ from 'jquery';
 import { escape } from 'lodash';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { backOff } from '~/lib/utils/common_utils';
+import { HTTP_STATUS_NO_CONTENT } from '~/lib/utils/http_status';
 import { __ } from '~/locale';
 import AUTH_METHOD from './constants';
 
@@ -76,7 +77,7 @@ export default class SSHMirror {
 
     // Disable button while we make request
     this.$btnDetectHostKeys.disable();
-    $btnLoadSpinner.removeClass('d-none');
+    $btnLoadSpinner.removeClass('gl-display-none');
 
     // Make backOff polling to get data
     backOff((next, stop) => {
@@ -87,7 +88,7 @@ export default class SSHMirror {
           )}`,
         )
         .then(({ data, status }) => {
-          if (status === 204) {
+          if (status === HTTP_STATUS_NO_CONTENT) {
             this.backOffRequestCounter += 1;
             if (this.backOffRequestCounter < 3) {
               next();
@@ -101,7 +102,7 @@ export default class SSHMirror {
         .catch(stop);
     })
       .then((res) => {
-        $btnLoadSpinner.addClass('d-none');
+        $btnLoadSpinner.addClass('gl-display-none');
         // Once data is received, we show verification info along with Host keys and fingerprints
         this.$hostKeysInformation
           .find('.js-fingerprint-verification')
@@ -115,7 +116,7 @@ export default class SSHMirror {
         const failureMessage = response.data
           ? response.data.message
           : __('An error occurred while detecting host keys');
-        createFlash({
+        createAlert({
           message: failureMessage,
         });
 
@@ -163,7 +164,7 @@ export default class SSHMirror {
     const $fingerprintsList = this.$hostKeysInformation.find('.js-fingerprints-list');
     let fingerprints = '';
     sshHostKeys.fingerprints.forEach((fingerprint) => {
-      const escFingerprints = escape(fingerprint.fingerprint);
+      const escFingerprints = escape(fingerprint.fingerprint_sha256 || fingerprint.fingerprint);
       fingerprints += `<code>${escFingerprints}</code>`;
     });
 

@@ -33,10 +33,10 @@ module Gitlab
           l.strip.empty? || (!allow_only_quotes && l.start_with?('>'))
         end
 
-        encoded_body = body.force_encoding(encoding).encode("UTF-8")
+        encoded_body = force_utf8(body.force_encoding(encoding))
         return encoded_body unless @append_reply
 
-        [encoded_body, stripped_text.force_encoding(encoding).encode("UTF-8")]
+        [encoded_body, force_utf8(stripped_text.force_encoding(encoding))]
       end
 
       private
@@ -54,7 +54,7 @@ module Gitlab
         return "" unless decoded
 
         # Certain trigger phrases that means we didn't parse correctly
-        if decoded =~ %r{(Content\-Type\:|multipart/alternative|text/plain)}
+        if %r{(Content\-Type\:|multipart/alternative|text/plain)}.match?(decoded)
           return ""
         end
 
@@ -70,12 +70,26 @@ module Gitlab
         return if object.nil?
 
         if object.charset
+          # A part of a multi-part may have a different encoding. Its encoding
+          # is denoted in its header. For example:
+          #
+          # ```
+          # ------=_Part_2192_32400445.1115745999735
+          # Content-Type: text/plain; charset=ISO-8859-1
+          # Content-Transfer-Encoding: 7bit
+          #
+          # Plain email.
+          # ```
           object.body.decoded.force_encoding(object.charset.gsub(/utf8/i, "UTF-8")).encode("UTF-8").to_s
         else
           object.body.to_s
         end
       rescue StandardError
         nil
+      end
+
+      def force_utf8(str)
+        Gitlab::EncodingHelper.encode_utf8(str).to_s
       end
     end
   end

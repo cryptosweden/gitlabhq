@@ -2,10 +2,7 @@
 data_category: operational
 key_path: usage_activity_by_stage_monthly.verify.ci_pipelines
 description: Distinct users triggering pipelines in a month
-product_section: ops
-product_stage: verify
-product_group: group::pipeline execution
-product_category: continuous_integration
+product_group: pipeline_execution
 value_type: number
 status: active
 time_frame: 28d
@@ -22,5 +19,6 @@ performance_indicator_type:
 - smau
 - gmau
 - paid_gmau
+- customer_health_score
 milestone: "12.9"
 introduced_by_url: "https://gitlab.com/gitlab-org/gitlab/-/merge_requests/26441"

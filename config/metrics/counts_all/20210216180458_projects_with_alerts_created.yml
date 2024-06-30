@@ -2,14 +2,12 @@
 data_category: optional
 key_path: counts.projects_with_alerts_created
 description: Count of projects with alerts created in given time period
-product_section: ops
-product_stage: monitor
-product_group: group::monitor
-product_category: alert_management
+product_group: respond
 value_type: number
 status: active
 time_frame: all
 data_source: database
+instrumentation_class: CountProjectsWithAlertsCreatedMetric
 distribution:
 - ce
 - ee

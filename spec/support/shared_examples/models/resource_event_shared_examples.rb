@@ -10,9 +10,10 @@ RSpec.shared_examples 'a resource event' do
   let_it_be(:issue2) { create(:issue, author: user1) }
   let_it_be(:issue3) { create(:issue, author: user2) }
 
+  let(:resource_event) { described_class.name.demodulize.underscore.to_sym }
+
   describe 'importable' do
     it { is_expected.to respond_to(:importing?) }
-    it { is_expected.to respond_to(:imported?) }
   end
 
   describe 'validations' do
@@ -36,9 +37,9 @@ RSpec.shared_examples 'a resource event' do
     let!(:created_at2) { 2.days.ago }
     let!(:created_at3) { 3.days.ago }
 
-    let!(:event1) { create(described_class.name.underscore.to_sym, issue: issue1, created_at: created_at1) }
-    let!(:event2) { create(described_class.name.underscore.to_sym, issue: issue2, created_at: created_at2) }
-    let!(:event3) { create(described_class.name.underscore.to_sym, issue: issue2, created_at: created_at3) }
+    let!(:event1) { create(resource_event, issue: issue1, created_at: created_at1) }
+    let!(:event2) { create(resource_event, issue: issue2, created_at: created_at2) }
+    let!(:event3) { create(resource_event, issue: issue2, created_at: created_at3) }
 
     it 'returns the expected events' do
       events = described_class.created_after(created_at3)
@@ -52,6 +53,20 @@ RSpec.shared_examples 'a resource event' do
       expect(events).to be_empty
     end
   end
+
+  describe '#synthetic_note_class' do
+    it 'must implement #synthetic_note_class method' do
+      expect { described_class.new.synthetic_note_class }
+        .not_to raise_error
+    end
+  end
+end
+
+RSpec.shared_examples 'a resource event that responds to imported' do
+  describe 'import source' do
+    it { is_expected.to respond_to(:imported?) }
+    it { is_expected.to respond_to(:imported_from) }
+  end
 end
 
 RSpec.shared_examples 'a resource event for issues' do
@@ -62,9 +77,10 @@ RSpec.shared_examples 'a resource event for issues' do
   let_it_be(:issue2) { create(:issue, author: user1) }
   let_it_be(:issue3) { create(:issue, author: user2) }
 
-  let_it_be(:event1) { create(described_class.name.underscore.to_sym, issue: issue1) }
-  let_it_be(:event2) { create(described_class.name.underscore.to_sym, issue: issue2) }
-  let_it_be(:event3) { create(described_class.name.underscore.to_sym, issue: issue1) }
+  let_it_be(:resource_event) { described_class.name.demodulize.underscore.to_sym }
+  let_it_be(:event1) { create(resource_event, issue: issue1) }
+  let_it_be(:event2) { create(resource_event, issue: issue2) }
+  let_it_be(:event3) { create(resource_event, issue: issue1) }
 
   describe 'associations' do
     it { is_expected.to belong_to(:issue) }
@@ -93,9 +109,9 @@ RSpec.shared_examples 'a resource event for issues' do
   end
 
   describe '.by_created_at_earlier_or_equal_to' do
-    let_it_be(:event1) { create(described_class.name.underscore.to_sym, issue: issue1, created_at: '2020-03-10') }
-    let_it_be(:event2) { create(described_class.name.underscore.to_sym, issue: issue2, created_at: '2020-03-10') }
-    let_it_be(:event3) { create(described_class.name.underscore.to_sym, issue: issue1, created_at: '2020-03-12') }
+    let_it_be(:event1) { create(resource_event, issue: issue1, created_at: '2020-03-10') }
+    let_it_be(:event2) { create(resource_event, issue: issue2, created_at: '2020-03-10') }
+    let_it_be(:event3) { create(resource_event, issue: issue1, created_at: '2020-03-12') }
 
     it 'returns the expected events' do
       events = described_class.by_created_at_earlier_or_equal_to('2020-03-11 23:59:59')
@@ -112,7 +128,7 @@ RSpec.shared_examples 'a resource event for issues' do
 
   if described_class.method_defined?(:issuable)
     describe '#issuable' do
-      let_it_be(:event1) { create(described_class.name.underscore.to_sym, issue: issue2) }
+      let_it_be(:event1) { create(resource_event, issue: issue2) }
 
       it 'returns the expected issuable' do
         expect(event1.issuable).to eq(issue2)
@@ -125,6 +141,7 @@ RSpec.shared_examples 'a resource event for merge requests' do
   let_it_be(:user1) { create(:user) }
   let_it_be(:user2) { create(:user) }
 
+  let_it_be(:resource_event) { described_class.name.demodulize.underscore.to_sym }
   let_it_be(:merge_request1) { create(:merge_request, author: user1) }
   let_it_be(:merge_request2) { create(:merge_request, author: user1) }
   let_it_be(:merge_request3) { create(:merge_request, author: user2) }
@@ -134,9 +151,9 @@ RSpec.shared_examples 'a resource event for merge requests' do
   end
 
   describe '.by_merge_request' do
-    let_it_be(:event1) { create(described_class.name.underscore.to_sym, merge_request: merge_request1) }
-    let_it_be(:event2) { create(described_class.name.underscore.to_sym, merge_request: merge_request2) }
-    let_it_be(:event3) { create(described_class.name.underscore.to_sym, merge_request: merge_request1) }
+    let_it_be(:event1) { create(resource_event, merge_request: merge_request1) }
+    let_it_be(:event2) { create(resource_event, merge_request: merge_request2) }
+    let_it_be(:event3) { create(resource_event, merge_request: merge_request1) }
 
     it 'returns the expected records for an issue with events' do
       events = described_class.by_merge_request(merge_request1)
@@ -153,11 +170,45 @@ RSpec.shared_examples 'a resource event for merge requests' do
 
   if described_class.method_defined?(:issuable)
     describe '#issuable' do
-      let_it_be(:event1) { create(described_class.name.underscore.to_sym, merge_request: merge_request2) }
+      let_it_be(:event1) { create(resource_event, merge_request: merge_request2) }
 
       it 'returns the expected issuable' do
         expect(event1.issuable).to eq(merge_request2)
       end
+    end
+  end
+
+  context 'on callbacks' do
+    it 'does not trigger note created subscription' do
+      event = build(resource_event, merge_request: merge_request1)
+
+      expect(GraphqlTriggers).not_to receive(:work_item_note_created)
+      expect(event).not_to receive(:trigger_note_subscription_create)
+      event.save!
+    end
+  end
+end
+
+RSpec.shared_examples 'a note for work item resource event' do
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project) }
+  let_it_be(:work_item) { create(:work_item, :task, project: project, author: user) }
+
+  let(:resource_event) { described_class.name.demodulize.underscore.to_sym }
+
+  it 'builds synthetic note with correct synthetic_note_class' do
+    event = build(resource_event, issue: work_item)
+
+    expect(event.work_item_synthetic_system_note.class.name).to eq(event.synthetic_note_class.name)
+  end
+
+  context 'on callbacks' do
+    it 'triggers note created subscription' do
+      event = build(resource_event, issue: work_item)
+
+      expect(GraphqlTriggers).to receive(:work_item_note_created)
+      expect(event).to receive(:trigger_note_subscription_create).and_call_original
+      event.save!
     end
   end
 end

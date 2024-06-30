@@ -8,7 +8,7 @@ RSpec.describe 'Direct upload support' do
   end
 
   where(:config_name) do
-    %w(artifacts lfs uploads)
+    %w[artifacts lfs uploads]
   end
 
   with_them do
@@ -69,10 +69,10 @@ RSpec.describe 'Direct upload support' do
         end
 
         context 'when other provider is used' do
-          let(:provider) { 'Rackspace' }
+          let(:provider) { 'Aliyun' }
 
           it 'raises an error' do
-            expect { subject }.to raise_error /Object storage provider '#{provider}' is not supported when 'direct_upload' is used for '#{config_name}'/
+            expect { subject }.to raise_error(/Object storage provider '#{provider}' is not supported when 'direct_upload' is used for '#{config_name}'/)
           end
         end
 
@@ -85,7 +85,7 @@ RSpec.describe 'Direct upload support' do
           end
 
           it 'raises an error' do
-            expect { subject }.to raise_error /the 'connection' section is missing/
+            expect { subject }.to raise_error(/the 'connection' section is missing/)
           end
         end
       end
@@ -103,7 +103,7 @@ RSpec.describe 'Direct upload support' do
     context 'when object storage is disabled' do
       let(:enabled) { false }
       let(:direct_upload) { false }
-      let(:provider) { 'Rackspace' }
+      let(:provider) { 'Aliyun' }
 
       it 'succeeds' do
         expect { subject }.not_to raise_error

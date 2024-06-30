@@ -4,10 +4,11 @@ module ApplicationSettingsHelper
   extend self
 
   delegate :allow_signup?,
-           :gravatar_enabled?,
-           :password_authentication_enabled_for_web?,
-           :akismet_enabled?,
-           to: :'Gitlab::CurrentSettings.current_application_settings'
+    :gravatar_enabled?,
+    :password_authentication_enabled_for_web?,
+    :akismet_enabled?,
+    :spam_check_endpoint_enabled?,
+    to: :'Gitlab::CurrentSettings.current_application_settings'
 
   def user_oauth_applications?
     Gitlab::CurrentSettings.user_oauth_applications
@@ -37,9 +38,12 @@ module ApplicationSettingsHelper
   end
 
   def storage_weights
-    Gitlab.config.repositories.storages.keys.each_with_object(OpenStruct.new) do |storage, weights|
-      weights[storage.to_sym] = @application_setting.repository_storages_weighted[storage] || 0
-    end
+    # Instead of using a `Struct` we could wrap this into an object.
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/358419
+    storages_weighted = @application_setting.repository_storages_with_default_weight
+
+    weights = Struct.new(*storages_weighted.keys.map(&:to_sym))
+    weights.new(*storages_weighted.values)
   end
 
   def all_protocols_enabled?
@@ -54,6 +58,10 @@ module ApplicationSettingsHelper
     all_protocols_enabled? || Gitlab::CurrentSettings.enabled_git_access_protocol == 'http'
   end
 
+  def anti_spam_service_enabled?
+    akismet_enabled? || spam_check_endpoint_enabled?
+  end
+
   def enabled_protocol_button(container, protocol)
     case protocol
     when 'ssh'
@@ -63,60 +71,68 @@ module ApplicationSettingsHelper
     end
   end
 
-  # Return a group of checkboxes that use Bootstrap's button plugin for a
-  # toggle button effect.
-  def restricted_level_checkboxes(help_block_id, checkbox_name, options = {})
-    Gitlab::VisibilityLevel.values.map do |level|
-      checked = restricted_visibility_levels(true).include?(level)
-      css_class = checked ? 'active' : ''
-      tag_name = "application_setting_visibility_level_#{level}"
+  def restricted_level_checkboxes(form)
+    restricted_visibility_levels_help_text = {
+      Gitlab::VisibilityLevel::PUBLIC => s_(
+        'AdminSettings|If selected, only administrators are able to create public groups, projects, ' \
+        'and snippets. Also, profiles are only visible to authenticated users.'
+      ),
+      Gitlab::VisibilityLevel::INTERNAL => s_(
+        'AdminSettings|If selected, only administrators are able to create internal groups, projects, and ' \
+        'snippets.'
+      ),
+      Gitlab::VisibilityLevel::PRIVATE => s_(
+        'AdminSettings|If selected, only administrators are able to create private groups, projects, and ' \
+        'snippets.'
+      )
+    }
 
-      label_tag(tag_name, class: css_class) do
-        check_box_tag(checkbox_name, level, checked,
-                      autocomplete: 'off',
-                      'aria-describedby' => help_block_id,
-                      'class' => options[:class],
-                      id: tag_name) + visibility_level_icon(level) + visibility_level_label(level)
+    Gitlab::VisibilityLevel.options.map do |label, level|
+      checked = restricted_visibility_levels(true).include?(level)
+
+      form.gitlab_ui_checkbox_component(
+        :restricted_visibility_levels,
+        checkbox_options: { checked: checked, multiple: true, autocomplete: 'off' },
+        checked_value: level,
+        unchecked_value: nil
+      ) do |c|
+        c.with_label do
+          visibility_level_icon(level) + content_tag(:span, label, { class: 'gl-ml-2' })
+        end
+
+        c.with_help_text do
+          restricted_visibility_levels_help_text.fetch(level)
+        end
       end
     end
   end
 
-  # Return a group of checkboxes that use Bootstrap's button plugin for a
-  # toggle button effect.
-  def import_sources_checkboxes(help_block_id, options = {})
+  def import_sources_checkboxes(form)
     Gitlab::ImportSources.options.map do |name, source|
       checked = @application_setting.import_sources.include?(source)
-      css_class = checked ? 'active' : ''
-      checkbox_name = 'application_setting[import_sources][]'
 
-      label_tag(name, class: css_class) do
-        check_box_tag(checkbox_name, source, checked,
-                      autocomplete: 'off',
-                      'aria-describedby' => help_block_id,
-                      'class' => options[:class],
-                      id: name.tr(' ', '_')) + name
-      end
+      form.gitlab_ui_checkbox_component(
+        :import_sources,
+        name,
+        checkbox_options: { checked: checked, multiple: true, autocomplete: 'off' },
+        checked_value: source,
+        unchecked_value: nil
+      )
     end
   end
 
-  def oauth_providers_checkboxes
+  def oauth_providers_checkboxes(form)
     button_based_providers.map do |source|
-      disabled = @application_setting.disabled_oauth_sign_in_sources.include?(source.to_s)
+      checked = @application_setting.disabled_oauth_sign_in_sources.exclude?(source.to_s)
       name = Gitlab::Auth::OAuth::Provider.label_for(source)
-      checkbox_name = 'application_setting[enabled_oauth_sign_in_sources][]'
-      checkbox_id = "application_setting_enabled_oauth_sign_in_sources_#{name.parameterize(separator: '_')}"
 
-      content_tag :div, class: 'form-check' do
-        check_box_tag(
-          checkbox_name,
-          source,
-          !disabled,
-          autocomplete: 'off',
-          id: checkbox_id,
-          class: 'form-check-input'
-        ) +
-        label_tag(checkbox_id, name, class: 'form-check-label')
-      end
+      form.gitlab_ui_checkbox_component(
+        :enabled_oauth_sign_in_sources,
+        name,
+        checkbox_options: { checked: checked, multiple: true, autocomplete: 'off' },
+        checked_value: source,
+        unchecked_value: nil
+      )
     end
   end
 
@@ -144,8 +160,12 @@ module ApplicationSettingsHelper
   end
 
   def external_authorization_description
-    s_("ExternalAuthorization|Access to projects is validated on an external service"\
-        " using their classification label.")
+    s_("ExternalAuthorization|Access to projects is validated on an external service "\
+        "using their classification label.")
+  end
+
+  def external_authorization_allow_token_help_text
+    s_("ExternalAuthorization|Does not apply if service URL is specified.")
   end
 
   def external_authorization_timeout_help_text
@@ -175,8 +195,8 @@ module ApplicationSettingsHelper
   end
 
   def external_authorization_client_url_help_text
-    s_("ExternalAuthorization|Classification label to use when requesting authorization if no specific "\
-      " label is defined on the project.")
+    s_("ExternalAuthorization|Classification label to use when requesting authorization if no specific  "\
+      "label is defined on the project.")
   end
 
   def sidekiq_job_limiter_mode_help_text
@@ -200,6 +220,7 @@ module ApplicationSettingsHelper
       :allow_local_requests_from_hooks_and_services,
       :allow_local_requests_from_web_hooks_and_services,
       :allow_local_requests_from_system_hooks,
+      :allow_possible_spam,
       :dns_rebinding_protection_enabled,
       :archive_builds_in_human_readable,
       :asset_proxy_enabled,
@@ -211,18 +232,28 @@ module ApplicationSettingsHelper
       :authorized_keys_enabled,
       :auto_devops_enabled,
       :auto_devops_domain,
+      :concurrent_github_import_jobs_limit,
+      :concurrent_bitbucket_import_jobs_limit,
+      :concurrent_bitbucket_server_import_jobs_limit,
       :container_expiration_policies_enable_historic_entries,
       :container_registry_expiration_policies_caching,
       :container_registry_token_expire_delay,
+      :decompress_archive_file_timeout,
       :default_artifacts_expire_in,
       :default_branch_name,
       :default_branch_protection,
+      :default_branch_protection_defaults,
       :default_ci_config_path,
       :default_group_visibility,
+      :default_preferred_language,
       :default_project_creation,
       :default_project_visibility,
       :default_projects_limit,
       :default_snippet_visibility,
+      :default_syntax_highlighting_theme,
+      :delete_inactive_projects,
+      :deny_all_requests_except_allowed,
+      :disable_admin_oauth_scopes,
       :disable_feed_token,
       :disabled_oauth_sign_in_sources,
       :domain_denylist,
@@ -243,11 +274,15 @@ module ApplicationSettingsHelper
       :eks_access_key_id,
       :eks_secret_access_key,
       :email_author_in_body,
+      :email_confirmation_setting,
       :enabled_git_access_protocol,
       :enforce_terms,
+      :error_tracking_enabled,
+      :error_tracking_api_url,
       :external_pipeline_validation_service_timeout,
       :external_pipeline_validation_service_token,
       :external_pipeline_validation_service_url,
+      :failed_login_attempts_unlock_period_in_minutes,
       :first_day_of_week,
       :floc_enabled,
       :force_pages_access_control,
@@ -266,19 +301,32 @@ module ApplicationSettingsHelper
       :help_page_text,
       :hide_third_party_offers,
       :home_page_url,
-      :housekeeping_bitmaps_enabled,
       :housekeeping_enabled,
       :housekeeping_full_repack_period,
       :housekeeping_gc_period,
       :housekeeping_incremental_repack_period,
+      :housekeeping_optimize_repository_period,
       :html_emails_enabled,
       :import_sources,
-      :in_product_marketing_emails_enabled,
+      :inactive_projects_delete_after_months,
+      :inactive_projects_min_size_mb,
+      :inactive_projects_send_warning_email_after_months,
+      :include_optional_metrics_in_service_ping,
       :invisible_captcha_enabled,
+      :jira_connect_application_key,
+      :jira_connect_public_key_storage_enabled,
+      :jira_connect_proxy_url,
+      :math_rendering_limits_enabled,
       :max_artifacts_size,
       :max_attachment_size,
+      :max_decompressed_archive_size,
+      :max_export_size,
       :max_import_size,
+      :max_import_remote_file_size,
+      :max_login_attempts,
       :max_pages_size,
+      :max_pages_custom_domains_per_project,
+      :max_terraform_state_size_bytes,
       :max_yaml_size_bytes,
       :max_yaml_depth,
       :metrics_method_call_threshold,
@@ -296,6 +344,8 @@ module ApplicationSettingsHelper
       :kroki_formats,
       :plantuml_enabled,
       :plantuml_url,
+      :diagramsnet_enabled,
+      :diagramsnet_url,
       :polling_interval_multiplier,
       :project_export_enabled,
       :prometheus_metrics_enabled,
@@ -307,15 +357,21 @@ module ApplicationSettingsHelper
       :repository_checks_enabled,
       :repository_storages_weighted,
       :require_admin_approval_after_user_signup,
+      :require_admin_two_factor_authentication,
       :require_two_factor_authentication,
+      :remember_me_enabled,
       :restricted_visibility_levels,
       :rsa_key_restriction,
-      :send_user_confirmation_email,
       :session_expire_delay,
       :shared_runners_enabled,
       :shared_runners_text,
-      :sign_in_text,
       :signup_enabled,
+      :silent_mode_enabled,
+      :slack_app_enabled,
+      :slack_app_id,
+      :slack_app_secret,
+      :slack_app_signing_secret,
+      :slack_app_verification_token,
       :sourcegraph_enabled,
       :sourcegraph_url,
       :sourcegraph_public_only,
@@ -354,6 +410,9 @@ module ApplicationSettingsHelper
       :throttle_unauthenticated_files_api_enabled,
       :throttle_unauthenticated_files_api_period_in_seconds,
       :throttle_unauthenticated_files_api_requests_per_period,
+      :throttle_unauthenticated_git_http_enabled,
+      :throttle_unauthenticated_git_http_period_in_seconds,
+      :throttle_unauthenticated_git_http_requests_per_period,
       :throttle_unauthenticated_deprecated_api_enabled,
       :throttle_unauthenticated_deprecated_api_period_in_seconds,
       :throttle_unauthenticated_deprecated_api_requests_per_period,
@@ -361,8 +420,10 @@ module ApplicationSettingsHelper
       :throttle_protected_paths_period_in_seconds,
       :throttle_protected_paths_requests_per_period,
       :protected_paths_raw,
+      :protected_paths_for_get_request_raw,
       :time_tracking_limit_to_hours,
       :two_factor_grace_period,
+      :update_runner_versions_enabled,
       :unique_ips_limit_enabled,
       :unique_ips_limit_per_user,
       :unique_ips_limit_time_window,
@@ -373,7 +434,6 @@ module ApplicationSettingsHelper
       :user_default_internal_regex,
       :user_oauth_applications,
       :version_check_enabled,
-      :web_ide_clientside_preview_enabled,
       :diff_max_patch_bytes,
       :diff_max_files,
       :diff_max_lines,
@@ -384,6 +444,7 @@ module ApplicationSettingsHelper
       :mailgun_events_enabled,
       :snowplow_collector_hostname,
       :snowplow_cookie_domain,
+      :snowplow_database_collector_hostname,
       :snowplow_enabled,
       :snowplow_app_id,
       :push_event_hooks_limit,
@@ -395,6 +456,7 @@ module ApplicationSettingsHelper
       :issues_create_limit,
       :notes_create_limit,
       :notes_create_limit_allowlist_raw,
+      :members_delete_limit,
       :raw_blob_request_limit,
       :project_import_limit,
       :project_export_limit,
@@ -403,16 +465,13 @@ module ApplicationSettingsHelper
       :group_export_limit,
       :group_download_export_limit,
       :wiki_page_max_content_bytes,
+      :wiki_asciidoc_allow_uri_includes,
       :container_registry_delete_tags_service_timeout,
       :rate_limiting_response_text,
+      :package_registry_allow_anyone_to_pull_option,
+      :package_registry_cleanup_policies_worker_capacity,
       :container_registry_expiration_policies_worker_capacity,
       :container_registry_cleanup_tags_service_max_list_size,
-      :container_registry_import_max_tags_count,
-      :container_registry_import_max_retries,
-      :container_registry_import_start_max_retries,
-      :container_registry_import_max_step_duration,
-      :container_registry_import_target_plan,
-      :container_registry_import_created_before,
       :keep_latest_artifact,
       :whats_new_variant,
       :user_deactivation_emails_enabled,
@@ -420,20 +479,67 @@ module ApplicationSettingsHelper
       :sentry_dsn,
       :sentry_clientside_dsn,
       :sentry_environment,
+      :sentry_clientside_traces_sample_rate,
       :sidekiq_job_limiter_mode,
       :sidekiq_job_limiter_compression_threshold_bytes,
       :sidekiq_job_limiter_limit_bytes,
       :suggest_pipeline_enabled,
+      :enable_artifact_external_redirect_warning_page,
       :search_rate_limit,
       :search_rate_limit_unauthenticated,
+      :search_rate_limit_allowlist_raw,
       :users_get_by_id_limit,
       :users_get_by_id_limit_allowlist_raw,
       :runner_token_expiration_interval,
       :group_runner_token_expiration_interval,
-      :project_runner_token_expiration_interval
+      :project_runner_token_expiration_interval,
+      :pipeline_limit_per_project_user_sha,
+      :invitation_flow_enforcement,
+      :can_create_group,
+      :bulk_import_concurrent_pipeline_batch_limit,
+      :bulk_import_enabled,
+      :bulk_import_max_download_file_size,
+      :silent_admin_exports_enabled,
+      :allow_runner_registration_token,
+      :user_defaults_to_private_profile,
+      :deactivation_email_additional_text,
+      :projects_api_rate_limit_unauthenticated,
+      :group_api_limit,
+      :group_shared_groups_api_limit,
+      :group_projects_api_limit,
+      :groups_api_limit,
+      :project_api_limit,
+      :projects_api_limit,
+      :user_contributed_projects_api_limit,
+      :user_projects_api_limit,
+      :user_starred_projects_api_limit,
+      :gitlab_dedicated_instance,
+      :gitlab_environment_toolkit_instance,
+      :ci_max_includes,
+      :allow_account_deletion,
+      :gitlab_shell_operation_limit,
+      :namespace_aggregation_schedule_lease_duration_in_seconds,
+      :ci_max_total_yaml_size_bytes,
+      :project_jobs_api_rate_limit,
+      :security_txt_content,
+      :allow_project_creation_for_guest_and_below,
+      :downstream_pipeline_trigger_limit_per_project_user_sha,
+      :asciidoc_max_includes
     ].tap do |settings|
-      settings << :deactivate_dormant_users unless Gitlab.com?
+      unless Gitlab.com?
+        settings << :deactivate_dormant_users
+        settings << :deactivate_dormant_users_period
+        settings << :nuget_skip_metadata_url_validation
+      end
     end
+  end
+
+  def runner_token_expiration_interval_attributes
+    {
+      instance_runner_token_expiration_interval: @application_setting.runner_token_expiration_interval,
+      group_runner_token_expiration_interval: @application_setting.group_runner_token_expiration_interval,
+      project_runner_token_expiration_interval: @application_setting.project_runner_token_expiration_interval
+    }
   end
 
   def external_authorization_service_attributes
@@ -444,7 +550,8 @@ module ApplicationSettingsHelper
       :external_authorization_service_default_label,
       :external_authorization_service_enabled,
       :external_authorization_service_timeout,
-      :external_authorization_service_url
+      :external_authorization_service_url,
+      :allow_deploy_tokens_and_keys_with_external_authn
     ]
   end
 
@@ -467,34 +574,8 @@ module ApplicationSettingsHelper
   def instance_clusters_enabled?
     clusterable = Clusters::Instance.new
 
-    Feature.enabled?(:certificate_based_clusters, clusterable, default_enabled: :yaml, type: :ops) &&
+    clusterable.certificate_based_clusters_enabled? &&
       can?(current_user, :read_cluster, clusterable)
-  end
-
-  def omnibus_protected_paths_throttle?
-    Rack::Attack.throttles.key?('protected paths')
-  end
-
-  def self_monitoring_project_data
-    {
-      'create_self_monitoring_project_path' =>
-        create_self_monitoring_project_admin_application_settings_path,
-
-      'status_create_self_monitoring_project_path' =>
-        status_create_self_monitoring_project_admin_application_settings_path,
-
-      'delete_self_monitoring_project_path' =>
-        delete_self_monitoring_project_admin_application_settings_path,
-
-      'status_delete_self_monitoring_project_path' =>
-        status_delete_self_monitoring_project_admin_application_settings_path,
-
-      'self_monitoring_project_exists' =>
-        Gitlab::CurrentSettings.self_monitoring_project.present?.to_s,
-
-      'self_monitoring_project_full_path' =>
-        Gitlab::CurrentSettings.self_monitoring_project&.full_path
-    }
   end
 
   def valid_runner_registrars
@@ -511,6 +592,32 @@ module ApplicationSettingsHelper
 
   def registration_features_can_be_prompted?
     !Gitlab::CurrentSettings.usage_ping_enabled?
+  end
+
+  def signup_form_data
+    {
+      host: new_user_session_url(host: Gitlab.config.gitlab.host),
+      settings_path: general_admin_application_settings_path(anchor: 'js-signup-settings'),
+      signup_enabled: @application_setting[:signup_enabled].to_s,
+      require_admin_approval_after_user_signup: @application_setting[:require_admin_approval_after_user_signup].to_s,
+      email_confirmation_setting: @application_setting[:email_confirmation_setting].to_s,
+      minimum_password_length: @application_setting[:minimum_password_length],
+      minimum_password_length_min: ApplicationSetting::DEFAULT_MINIMUM_PASSWORD_LENGTH,
+      minimum_password_length_max: Devise.password_length.max,
+      minimum_password_length_help_link:
+        'https://about.gitlab.com/handbook/security/#gitlab-password-policy-guidelines',
+      domain_allowlist_raw: @application_setting.domain_allowlist_raw,
+      new_user_signups_cap: @application_setting[:new_user_signups_cap].to_s,
+      domain_denylist_enabled: @application_setting[:domain_denylist_enabled].to_s,
+      denylist_type_raw_selected:
+        (@application_setting.domain_denylist.present? || @application_setting.domain_denylist.blank?).to_s,
+      domain_denylist_raw: @application_setting.domain_denylist_raw,
+      email_restrictions_enabled: @application_setting[:email_restrictions_enabled].to_s,
+      supported_syntax_link_url: 'https://github.com/google/re2/wiki/Syntax',
+      email_restrictions: @application_setting.email_restrictions.to_s,
+      after_sign_up_text: @application_setting[:after_sign_up_text].to_s,
+      pending_user_count: pending_user_count
+    }
   end
 end
 

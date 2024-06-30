@@ -1,11 +1,17 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
+import { GlFormGroup, GlFormInput } from '@gitlab/ui';
 import updateMixin from '../../mixins/update';
 
 export default {
+  components: {
+    GlFormGroup,
+    GlFormInput,
+  },
   mixins: [updateMixin],
   props: {
-    formState: {
-      type: Object,
+    value: {
+      type: String,
       required: true,
     },
   },
@@ -13,21 +19,24 @@ export default {
 </script>
 
 <template>
-  <fieldset>
-    <label class="sr-only" for="issuable-title">{{ __('Title') }}</label>
-    <!-- eslint-disable vue/no-mutating-props -->
-    <input
+  <gl-form-group
+    :label="__('Title')"
+    label-for="issuable-title"
+    label-class="gl-sr-only"
+    class="gl-mb-0"
+  >
+    <gl-form-input
       id="issuable-title"
       ref="input"
-      v-model="formState.title"
-      class="form-control qa-title-input gl-border-gray-200"
+      :value="value"
+      class="form-control"
       dir="auto"
       type="text"
       :placeholder="__('Title')"
       :aria-label="__('Title')"
-      @keydown.meta.enter="updateIssuable"
-      @keydown.ctrl.enter="updateIssuable"
+      @input="(val) => $emit('input', val)"
+      @keydown.meta.enter.native="updateIssuable"
+      @keydown.ctrl.enter.native="updateIssuable"
     />
-    <!-- eslint-enable vue/no-mutating-props -->
-  </fieldset>
+  </gl-form-group>
 </template>

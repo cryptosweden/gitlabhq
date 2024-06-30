@@ -2,10 +2,7 @@
 data_category: optional
 key_path: redis_hll_counters.ci_templates.p_ci_templates_security_sast_weekly
 description: Count of pipelines with SAST runs
-product_section: ops
-product_stage: verify
-product_group: "group::static analysis"
-product_category: SAST
+product_group: "static_analysis"
 value_type: number
 status: active
 time_frame: 7d

@@ -15,15 +15,15 @@ RSpec.shared_examples 'board destroy service' do
 
         expect do
           expect(service.execute(board)).to be_success
-        end.to change(boards, :count).by(-1)
+        end.to change { boards.count }.by(-1)
       end
     end
 
     context 'when there is only one board' do
-      it 'does not remove board' do
+      it 'does remove board' do
         expect do
-          expect(service.execute(board)).to be_error
-        end.not_to change(boards, :count)
+          service.execute(board)
+        end.to change { boards.count }.by(-1)
       end
     end
   end

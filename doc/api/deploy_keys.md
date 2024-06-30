@@ -1,12 +1,27 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Deploy keys API **(FREE)**
+# Deploy keys API
 
-## List all deploy keys **(FREE SELF)**
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+The deploy keys API can return in responses fingerprints of the public key in the following fields:
+
+- `fingerprint` (MD5 hash). Not available on FIPS-enabled systems.
+- `fingerprint_sha256` (SHA256 hash). [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/91302) in GitLab 15.2.
+
+## List all deploy keys
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+> `projects_with_readonly_access` [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/119147) in GitLab 16.0.
 
 Get a list of all deploy keys across all projects of the GitLab instance. This
 endpoint requires administrator access and is not available on GitLab.com.
@@ -19,7 +34,7 @@ Supported attributes:
 
 | Attribute   | Type     | Required | Description           |
 |:------------|:---------|:---------|:----------------------|
-| `public` | boolean | **{dotted-circle}** No | Only return deploy keys that are public. Defaults to `false`. |
+| `public` | boolean | No | Only return deploy keys that are public. Defaults to `false`. |
 
 Example request:
 
@@ -34,9 +49,11 @@ Example response:
   {
     "id": 1,
     "title": "Public key",
-    "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt4596k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
-    "fingerprint": "7f:72:08:7d:0e:47:48:ec:37:79:b2:76:68:b5:87:65",
+    "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQDNJAkI3Wdf0r13c8a5pEExB2YowPWCSVzfZV22pNBc1CuEbyYLHpUyaD0GwpGvFdx2aP7lMEk35k6Rz3ccBF6jRaVJyhsn5VNnW92PMpBJ/P1UebhXwsFHdQf5rTt082cSxWuk61kGWRQtk4ozt/J2DF/dIUVaLvc+z4HomT41fQ==",
+    "fingerprint": "4a:9d:64:15:ed:3a:e6:07:6e:89:36:b3:3b:03:05:d9",
+    "fingerprint_sha256": "SHA256:Jrs3LD1Ji30xNLtTVf9NDCj7kkBgPBb2pjvTZ3HfIgU",
     "created_at": "2013-10-02T10:12:29Z",
+    "expires_at": null,
     "projects_with_write_access": [
       {
         "id": 73,
@@ -56,20 +73,34 @@ Example response:
         "path_with_namespace": "sidney_jones/project3",
         "created_at": "2021-10-25T18:33:17.666Z"
       }
-    ]
+    ],
+    "projects_with_readonly_access": []
   },
   {
     "id": 3,
     "title": "Another Public key",
-    "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt4596k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
-    "fingerprint": "64:d3:73:d4:83:70:ab:41:96:68:d5:3d:a5:b0:34:ea",
+    "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQDIJFwIL6YNcCgVBLTHgM6hzmoL5vf0ThDKQMWT3HrwCjUCGPwR63vBwn6+/Gx+kx+VTo9FuojzR0O4XfwD3LrYA+oT3ETbn9U4e/VS4AH/G4SDMzgSLwu0YuPe517FfGWhWGQhjiXphkaQ+6bXPmcASWb0RCO5+pYlGIfxv4eFGQ=="
+    "fingerprint": "0b:cf:58:40:b9:23:96:c7:ba:44:df:0e:9e:87:5e:75",
+    "fingerprint_sha256": "SHA256:lGI/Ys/Wx7PfMhUO1iuBH92JQKYN+3mhJZvWO4Q5ims",
     "created_at": "2013-10-02T11:12:29Z",
-    "projects_with_write_access": []
+    "expires_at": null,
+    "projects_with_write_access": [],
+    "projects_with_readonly_access": [
+      {
+        "id": 74,
+        "description": null,
+        "name": "project3",
+        "name_with_namespace": "Sidney Jones / project3",
+        "path": "project3",
+        "path_with_namespace": "sidney_jones/project3",
+        "created_at": "2021-10-25T18:33:17.666Z"
+      }
+    ]
   }
 ]
 ```
 
-## List project deploy keys
+## List deploy keys for project
 
 Get a list of a project's deploy keys.
 
@@ -79,7 +110,7 @@ GET /projects/:id/deploy_keys
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/deploy_keys"
@@ -92,16 +123,81 @@ Example response:
   {
     "id": 1,
     "title": "Public key",
-    "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt4596k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
+    "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQDNJAkI3Wdf0r13c8a5pEExB2YowPWCSVzfZV22pNBc1CuEbyYLHpUyaD0GwpGvFdx2aP7lMEk35k6Rz3ccBF6jRaVJyhsn5VNnW92PMpBJ/P1UebhXwsFHdQf5rTt082cSxWuk61kGWRQtk4ozt/J2DF/dIUVaLvc+z4HomT41fQ==",
+    "fingerprint": "4a:9d:64:15:ed:3a:e6:07:6e:89:36:b3:3b:03:05:d9",
+    "fingerprint_sha256": "SHA256:Jrs3LD1Ji30xNLtTVf9NDCj7kkBgPBb2pjvTZ3HfIgU",
     "created_at": "2013-10-02T10:12:29Z",
+    "expires_at": null,
     "can_push": false
   },
   {
     "id": 3,
     "title": "Another Public key",
-    "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt4596k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
+    "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQDIJFwIL6YNcCgVBLTHgM6hzmoL5vf0ThDKQMWT3HrwCjUCGPwR63vBwn6+/Gx+kx+VTo9FuojzR0O4XfwD3LrYA+oT3ETbn9U4e/VS4AH/G4SDMzgSLwu0YuPe517FfGWhWGQhjiXphkaQ+6bXPmcASWb0RCO5+pYlGIfxv4eFGQ=="
+    "fingerprint": "0b:cf:58:40:b9:23:96:c7:ba:44:df:0e:9e:87:5e:75",
+    "fingerprint_sha256": "SHA256:lGI/Ys/Wx7PfMhUO1iuBH92JQKYN+3mhJZvWO4Q5ims",
     "created_at": "2013-10-02T11:12:29Z",
+    "expires_at": null,
     "can_push": false
+  }
+]
+```
+
+## List project deploy keys for user
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88917) in GitLab 15.1.
+
+Get a list of a specified user (requestee) and the authenticated user's (requester) common [project deploy keys](../user/project/deploy_keys/index.md#scope). It lists only the **enabled project keys from the common projects of requester and requestee**.
+
+```plaintext
+GET /users/:id_or_username/project_deploy_keys
+```
+
+Parameters:
+
+| Attribute          | Type   | Required | Description                                                        |
+|------------------- |--------|----------|------------------------------------------------------------------- |
+| `id_or_username`   | string | yes      | The ID or username of the user to get the project deploy keys for. |
+
+```json
+[
+    {
+        "id": 1,
+        "title": "Key A",
+        "created_at": "2022-05-30T12:28:27.855Z",
+        "expires_at": null,
+        "key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILkYXU2fVeO4/0rDCSsswP5iIX2+B6tv15YT3KObgyDl Key",
+        "fingerprint": "40:8e:fa:df:70:f7:a7:06:1e:0d:6f:ae:f2:27:92:01",
+        "fingerprint_sha256": "SHA256:Ojq2LZW43BFK/AMP81jBkDGn9YpPWYRNcViKBB44LPU"
+    },
+    {
+        "id": 2,
+        "title": "Key B",
+        "created_at": "2022-05-30T13:34:56.219Z",
+        "expires_at": null,
+        "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQDNJAkI3Wdf0r13c8a5pEExB2YowPWCSVzfZV22pNBc1CuEbyYLHpUyaD0GwpGvFdx2aP7lMEk35k6Rz3ccBF6jRaVJyhsn5VNnW92PMpBJ/P1UebhXwsFHdQf5rTt082cSxWuk61kGWRQtk4ozt/J2DF/dIUVaLvc+z4HomT41fQ==",
+        "fingerprint": "4a:9d:64:15:ed:3a:e6:07:6e:89:36:b3:3b:03:05:d9",
+        "fingerprint_sha256": "SHA256:Jrs3LD1Ji30xNLtTVf9NDCj7kkBgPBb2pjvTZ3HfIgU",
+    }
+]
+```
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/users/20/project_deploy_keys"
+```
+
+Example response:
+
+```json
+[
+  {
+    "id": 1,
+    "title": "Key A",
+    "created_at": "2022-05-30T12:28:27.855Z",
+    "expires_at": "2022-10-30T12:28:27.855Z",
+    "key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILkYXU2fVeO4/0rDCSsswP5iIX2+B6tv15YT3KObgyDl Key",
+    "fingerprint": "40:8e:fa:df:70:f7:a7:06:1e:0d:6f:ae:f2:27:92:01",
+    "fingerprint_sha256": "SHA256:Ojq2LZW43BFK/AMP81jBkDGn9YpPWYRNcViKBB44LPU"
   }
 ]
 ```
@@ -118,7 +214,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `key_id`  | integer | yes | The ID of the deploy key |
 
 ```shell
@@ -131,8 +227,11 @@ Example response:
 {
   "id": 1,
   "title": "Public key",
-  "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt4596k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
+  "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQDNJAkI3Wdf0r13c8a5pEExB2YowPWCSVzfZV22pNBc1CuEbyYLHpUyaD0GwpGvFdx2aP7lMEk35k6Rz3ccBF6jRaVJyhsn5VNnW92PMpBJ/P1UebhXwsFHdQf5rTt082cSxWuk61kGWRQtk4ozt/J2DF/dIUVaLvc+z4HomT41fQ==",
+  "fingerprint": "4a:9d:64:15:ed:3a:e6:07:6e:89:36:b3:3b:03:05:d9",
+  "fingerprint_sha256": "SHA256:Jrs3LD1Ji30xNLtTVf9NDCj7kkBgPBb2pjvTZ3HfIgU",
   "created_at": "2013-10-02T10:12:29Z",
+  "expires_at": null,
   "can_push": false
 }
 ```
@@ -148,12 +247,13 @@ project only if the original one is accessible by the same user.
 POST /projects/:id/deploy_keys
 ```
 
-| Attribute  | Type | Required | Description |
-| ---------  | ---- | -------- | ----------- |
-| `id`       | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `title`    | string  | yes | New deploy key's title |
-| `key`      | string  | yes | New deploy key |
-| `can_push` | boolean | no  | Can deploy key push to the project's repository |
+| Attribute    | Type | Required | Description |
+| -----------  | ---- | -------- | ----------- |
+| `id`         | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `key`        | string   | yes | New deploy key |
+| `title`      | string   | yes | New deploy key's title |
+| `can_push`   | boolean  | no  | Can deploy key push to the project's repository |
+| `expires_at` | datetime | no | Expiration date for the deploy key. Does not expire if no value is provided. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
 
 ```shell
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
@@ -169,7 +269,8 @@ Example response:
    "id" : 12,
    "title" : "My deploy key",
    "can_push": true,
-   "created_at" : "2015-08-29T12:44:31.550Z"
+   "created_at" : "2015-08-29T12:44:31.550Z",
+   "expires_at": null
 }
 ```
 
@@ -183,9 +284,9 @@ PUT /projects/:id/deploy_keys/:key_id
 
 | Attribute  | Type | Required | Description |
 | ---------  | ---- | -------- | ----------- |
-| `id`       | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `title`    | string  | no | New deploy key's title |
+| `id`       | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `can_push` | boolean | no  | Can deploy key push to the project's repository |
+| `title`    | string  | no | New deploy key's title |
 
 ```shell
 curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
@@ -200,6 +301,7 @@ Example response:
    "title": "New deploy key",
    "key": "ssh-rsa AAAA...",
    "created_at": "2015-08-29T12:44:31.550Z",
+   "expires_at": null,
    "can_push": true
 }
 ```
@@ -214,7 +316,7 @@ DELETE /projects/:id/deploy_keys/:key_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `key_id`  | integer | yes | The ID of the deploy key |
 
 ```shell
@@ -225,14 +327,18 @@ curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://git
 
 Enables a deploy key for a project so this can be used. Returns the enabled key, with a status code 201 when successful.
 
-```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/deploy_keys/13/enable"
+```plaintext
+POST /projects/:id/deploy_keys/:key_id/enable
 ```
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `key_id`  | integer | yes | The ID of the deploy key |
+
+```shell
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/deploy_keys/12/enable"
+```
 
 Example response:
 
@@ -241,7 +347,8 @@ Example response:
    "key" : "ssh-rsa AAAA...",
    "id" : 12,
    "title" : "My deploy key",
-   "created_at" : "2015-08-29T12:44:31.550Z"
+   "created_at" : "2015-08-29T12:44:31.550Z",
+   "expires_at": null
 }
 ```
 

@@ -1,11 +1,12 @@
 import MockAdapter from 'axios-mock-adapter';
 import axios from '~/lib/utils/axios_utils';
 import { loadCommits, isRequested, resetRequestedCommits } from '~/repository/commits_service';
-import httpStatus from '~/lib/utils/http_status';
-import createFlash from '~/flash';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { createAlert } from '~/alert';
 import { I18N_COMMIT_DATA_FETCH_ERROR } from '~/repository/constants';
+import { refWithSpecialCharMock } from './mock_data';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('commits service', () => {
   let mock;
@@ -13,8 +14,7 @@ describe('commits service', () => {
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
-
-    mock.onGet(url).reply(httpStatus.OK, [], {});
+    mock.onGet(url).reply(HTTP_STATUS_OK, [], {});
 
     jest.spyOn(axios, 'get');
   });
@@ -24,8 +24,13 @@ describe('commits service', () => {
     resetRequestedCommits();
   });
 
-  const requestCommits = (offset, project = 'my-project', path = '', ref = 'main') =>
-    loadCommits(project, path, ref, offset);
+  const requestCommits = (
+    offset,
+    project = 'my-project',
+    path = '',
+    ref = 'main',
+    refType = 'heads',
+  ) => loadCommits(project, path, ref, offset, refType);
 
   it('calls axios get', async () => {
     const offset = 10;
@@ -36,13 +41,17 @@ describe('commits service', () => {
 
     await requestCommits(offset, project, path, ref);
 
-    expect(axios.get).toHaveBeenCalledWith(testUrl, { params: { format: 'json', offset } });
+    expect(axios.get).toHaveBeenCalledWith(testUrl, {
+      params: { format: 'json', offset, ref_type: 'heads' },
+    });
   });
 
-  it('encodes the path correctly', async () => {
-    await requestCommits(1, 'some-project', 'with $peci@l ch@rs/');
+  it('encodes the path and ref', async () => {
+    const encodedRef = encodeURIComponent(refWithSpecialCharMock);
+    const encodedUrl = `/some-project/-/refs/${encodedRef}/logs_tree/with%20$peci@l%20ch@rs/`;
 
-    const encodedUrl = '/some-project/-/refs/main/logs_tree/with%20%24peci%40l%20ch%40rs%2F';
+    await requestCommits(1, 'some-project', 'with $peci@l ch@rs/', refWithSpecialCharMock);
+
     expect(axios.get).toHaveBeenCalledWith(encodedUrl, expect.anything());
   });
 
@@ -65,13 +74,13 @@ describe('commits service', () => {
     expect(isRequested(300)).toBe(false);
   });
 
-  it('calls `createFlash` when the request fails', async () => {
+  it('calls `createAlert` when the request fails', async () => {
     const invalidPath = '/#@ some/path';
     const invalidUrl = `${url}${invalidPath}`;
-    mock.onGet(invalidUrl).replyOnce(httpStatus.INTERNAL_SERVER_ERROR, [], {});
+    mock.onGet(invalidUrl).replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR, [], {});
 
     await requestCommits(1, 'my-project', invalidPath);
 
-    expect(createFlash).toHaveBeenCalledWith({ message: I18N_COMMIT_DATA_FETCH_ERROR });
+    expect(createAlert).toHaveBeenCalledWith({ message: I18N_COMMIT_DATA_FETCH_ERROR });
   });
 });

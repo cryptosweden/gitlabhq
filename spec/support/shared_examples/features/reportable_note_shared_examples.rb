@@ -6,7 +6,6 @@ RSpec.shared_examples 'reportable note' do |type|
 
   let(:comment) { find("##{ActionView::RecordIdentifier.dom_id(note)}") }
   let(:more_actions_selector) { '.more-actions.dropdown' }
-  let(:abuse_report_path) { new_abuse_report_path(user_id: note.author.id, ref_url: noteable_note_url(note)) }
 
   it 'has an edit button' do
     expect(comment).to have_selector('.js-note-edit')
@@ -20,7 +19,7 @@ RSpec.shared_examples 'reportable note' do |type|
     dropdown = comment.find(more_actions_selector)
     open_dropdown(dropdown)
 
-    expect(dropdown).to have_link('Report abuse to admin', href: abuse_report_path)
+    expect(dropdown).to have_button('Report abuse')
 
     if type == 'issue' || type == 'merge_request'
       expect(dropdown).to have_button('Delete comment')
@@ -33,10 +32,14 @@ RSpec.shared_examples 'reportable note' do |type|
     dropdown = comment.find(more_actions_selector)
     open_dropdown(dropdown)
 
-    dropdown.click_link('Report abuse to admin')
+    dropdown.click_button('Report abuse')
+
+    choose "They're posting spam."
+    click_button "Next"
 
     expect(find('#user_name')['value']).to match(note.author.username)
-    expect(find('#abuse_report_message')['value']).to match(noteable_note_url(note))
+    expect(find('#abuse_report_reported_from_url')['value']).to match(noteable_note_url(note))
+    expect(find('#abuse_report_category', visible: false)['value']).to match('spam')
   end
 
   def open_dropdown(dropdown)
@@ -44,6 +47,6 @@ RSpec.shared_examples 'reportable note' do |type|
     restore_window_size
 
     dropdown.find('.more-actions-toggle').click
-    dropdown.find('.dropdown-menu li', match: :first)
+    dropdown.find('.more-actions li', match: :first)
   end
 end

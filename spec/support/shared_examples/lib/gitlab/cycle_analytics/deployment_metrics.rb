@@ -1,14 +1,7 @@
 # frozen_string_literal: true
 
-shared_examples 'deployment metrics examples' do
-  def create_deployment(args)
-    project = args[:project]
-    environment = project.environments.production.first || create(:environment, :production, project: project)
-    create(:deployment, :success, args.merge(environment: environment))
-
-    # this is needed for the DORA API so we have aggregated data
-    ::Dora::DailyMetrics::RefreshWorker.new.perform(environment.id, Time.current.to_date.to_s) if Gitlab.ee?
-  end
+RSpec.shared_examples 'deployment metrics examples' do
+  include CycleAnalyticsHelpers
 
   describe "#deploys" do
     subject { stage_summary.third }
@@ -62,12 +55,12 @@ shared_examples 'deployment metrics examples' do
   describe '#deployment_frequency' do
     subject { stage_summary.fourth[:value] }
 
-    it 'includes the unit: `per day`' do
-      expect(stage_summary.fourth[:unit]).to eq _('per day')
-    end
-
     before do
       travel_to(5.days.ago) { create_deployment(project: project) }
+    end
+
+    it 'includes the unit: `/day`' do
+      expect(stage_summary.fourth[:unit]).to eq _('/day')
     end
 
     it 'returns 0.0 when there were deploys but the frequency was too low' do

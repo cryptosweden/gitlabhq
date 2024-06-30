@@ -2,11 +2,12 @@
 
 module Groups
   class VariablesController < Groups::ApplicationController
-    before_action :authorize_admin_group!
+    before_action :authorize_admin_group!, except: :update
+    before_action :authorize_admin_cicd_variables!, only: :update
 
     skip_cross_project_access_check :show, :update
 
-    feature_category :pipeline_authoring
+    feature_category :secrets_management
 
     urgency :low, [:show]
 
@@ -46,15 +47,11 @@ module Groups
     end
 
     def group_variables_params
-      params.permit(variables_attributes: [*variable_params_attributes])
+      params.permit(variables_attributes: Array(variable_params_attributes))
     end
 
     def variable_params_attributes
-      %i[id variable_type key secret_value protected masked _destroy]
-    end
-
-    def authorize_admin_build!
-      return render_404 unless can?(current_user, :admin_build, group)
+      %i[id variable_type key description secret_value protected masked raw _destroy]
     end
   end
 end

@@ -1,13 +1,9 @@
 <script>
-import { GlPopover, GlSafeHtmlDirective } from '@gitlab/ui';
-import { glEmojiTag } from '~/emoji';
+import { GlTooltipDirective } from '@gitlab/ui';
 
 export default {
-  components: {
-    GlPopover,
-  },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    GlTooltip: GlTooltipDirective,
   },
   props: {
     htmlId: {
@@ -31,15 +27,18 @@ export default {
       return this.warnings.join('\n');
     },
   },
-  methods: {
-    glEmojiTag,
-  },
   safeHtmlConfig: { ADD_TAGS: ['gl-emoji'] },
 };
 </script>
 <template>
   <span v-if="hasWarnings" class="gl-cursor-default">
-    <span :id="htmlId" v-safe-html:[$options.safeHtmlConfig]="glEmojiTag('warning')"></span>
-    <gl-popover placement="bottom" :target="htmlId" :content="warningMessage" />
+    <gl-emoji
+      v-if="hasWarnings"
+      :id="htmlId"
+      v-gl-tooltip.viewport="warningMessage"
+      data-name="warning"
+      data-testid="warning"
+      class="gl-ml-2"
+    />
   </span>
 </template>

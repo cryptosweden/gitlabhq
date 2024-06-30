@@ -1,8 +1,13 @@
+// Package builds provides functionality for registering builds.
 package builds
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -10,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/redis"
 )
 
@@ -52,7 +58,8 @@ var (
 
 type largeBodyError struct{ error }
 
-type WatchKeyHandler func(key, value string, timeout time.Duration) (redis.WatchKeyStatus, error)
+// WatchKeyHandler is a function type for watching keys in Redis.
+type WatchKeyHandler func(ctx context.Context, key, value string, timeout time.Duration) (redis.WatchKeyStatus, error)
 
 type runnerRequest struct {
 	Token      string `json:"token,omitempty"`
@@ -63,21 +70,37 @@ func readRunnerBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	registerHandlerOpenAtReading.Inc()
 	defer registerHandlerOpenAtReading.Dec()
 
-	return helper.ReadRequestBody(w, r, maxRegisterBodySize)
+	return readRequestBody(w, r, maxRegisterBodySize)
+}
+
+func readRequestBody(w http.ResponseWriter, r *http.Request, maxBodySize int64) ([]byte, error) {
+	limitedBody := http.MaxBytesReader(w, r.Body, maxBodySize)
+	defer func() {
+		if err := limitedBody.Close(); err != nil {
+			fmt.Printf("Failed to close request body: %v", err)
+		}
+	}()
+
+	return io.ReadAll(limitedBody)
 }
 
 func readRunnerRequest(r *http.Request, body []byte) (*runnerRequest, error) {
-	if !helper.IsApplicationJson(r) {
+	if !isApplicationJSON(r) {
 		return nil, errors.New("invalid content-type received")
 	}
 
-	var runnerRequest runnerRequest
-	err := json.Unmarshal(body, &runnerRequest)
+	var request runnerRequest
+	err := json.Unmarshal(body, &request)
 	if err != nil {
 		return nil, err
 	}
 
-	return &runnerRequest, nil
+	return &request, nil
+}
+
+func isApplicationJSON(r *http.Request) bool {
+	contentType := r.Header.Get("Content-Type")
+	return helper.IsContentType("application/json", contentType)
 }
 
 func proxyRegisterRequest(h http.Handler, w http.ResponseWriter, r *http.Request) {
@@ -87,11 +110,11 @@ func proxyRegisterRequest(h http.Handler, w http.ResponseWriter, r *http.Request
 	h.ServeHTTP(w, r)
 }
 
-func watchForRunnerChange(watchHandler WatchKeyHandler, token, lastUpdate string, duration time.Duration) (redis.WatchKeyStatus, error) {
+func watchForRunnerChange(ctx context.Context, watchHandler WatchKeyHandler, token, lastUpdate string, duration time.Duration) (redis.WatchKeyStatus, error) {
 	registerHandlerOpenAtWatching.Inc()
 	defer registerHandlerOpenAtWatching.Dec()
 
-	return watchHandler(runnerBuildQueue+token, lastUpdate, duration)
+	return watchHandler(ctx, runnerBuildQueue+token, lastUpdate, duration)
 }
 
 func RegisterHandler(h http.Handler, watchHandler WatchKeyHandler, pollingDuration time.Duration) http.Handler {
@@ -105,11 +128,12 @@ func RegisterHandler(h http.Handler, watchHandler WatchKeyHandler, pollingDurati
 		requestBody, err := readRunnerBody(w, r)
 		if err != nil {
 			registerHandlerBodyReadErrors.Inc()
-			helper.RequestEntityTooLarge(w, r, &largeBodyError{err})
+			fail.Request(w, r, &largeBodyError{err},
+				fail.WithStatus(http.StatusRequestEntityTooLarge))
 			return
 		}
 
-		newRequest := helper.CloneRequestWithNewBody(r, requestBody)
+		newRequest := cloneRequestWithNewBody(r, requestBody)
 
 		runnerRequest, err := readRunnerRequest(r, requestBody)
 		if err != nil {
@@ -124,7 +148,7 @@ func RegisterHandler(h http.Handler, watchHandler WatchKeyHandler, pollingDurati
 			return
 		}
 
-		result, err := watchForRunnerChange(watchHandler, runnerRequest.Token,
+		result, err := watchForRunnerChange(r.Context(), watchHandler, runnerRequest.Token,
 			runnerRequest.LastUpdate, pollingDuration)
 		if err != nil {
 			registerHandlerWatchErrors.Inc()
@@ -160,4 +184,11 @@ func RegisterHandler(h http.Handler, watchHandler WatchKeyHandler, pollingDurati
 			w.WriteHeader(http.StatusNoContent)
 		}
 	})
+}
+
+func cloneRequestWithNewBody(r *http.Request, body []byte) *http.Request {
+	newReq := r.Clone(r.Context())
+	newReq.Body = io.NopCloser(bytes.NewReader(body))
+	newReq.ContentLength = int64(len(body))
+	return newReq
 }

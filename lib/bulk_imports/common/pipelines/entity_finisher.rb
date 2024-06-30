@@ -4,7 +4,11 @@ module BulkImports
   module Common
     module Pipelines
       class EntityFinisher
-        def self.ndjson_pipeline?
+        def self.file_extraction_pipeline?
+          false
+        end
+
+        def self.abort_on_failure?
           false
         end
 
@@ -24,12 +28,11 @@ module BulkImports
           end
 
           logger.info(
-            bulk_import_id: context.bulk_import.id,
-            bulk_import_entity_id: context.entity.id,
-            bulk_import_entity_type: context.entity.source_type,
             pipeline_class: self.class.name,
             message: "Entity #{entity.status_name}"
           )
+
+          ::BulkImports::FinishProjectImportWorker.perform_async(entity.project_id) if entity.project?
         end
 
         private
@@ -37,7 +40,7 @@ module BulkImports
         attr_reader :context, :entity, :trackers
 
         def logger
-          @logger ||= Gitlab::Import::Logger.build
+          @logger ||= Logger.build.with_entity(entity)
         end
 
         def all_other_trackers_failed?

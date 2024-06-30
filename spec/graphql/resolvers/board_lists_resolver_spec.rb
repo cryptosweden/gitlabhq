@@ -8,7 +8,7 @@ RSpec.describe Resolvers::BoardListsResolver do
   let_it_be(:user)          { create(:user) }
   let_it_be(:guest)         { create(:user) }
   let_it_be(:unauth_user)   { create(:user) }
-  let_it_be(:project)       { create(:project, creator_id: user.id, namespace: user.namespace ) }
+  let_it_be(:project)       { create(:project, creator_id: user.id, namespace: user.namespace) }
   let_it_be(:group)         { create(:group, :private) }
   let_it_be(:project_label) { create(:label, project: project, name: 'Development') }
   let_it_be(:group_label)   { create(:group_label, group: group, name: 'Development') }
@@ -21,6 +21,7 @@ RSpec.describe Resolvers::BoardListsResolver do
     end
 
     it 'does not create the backlog list' do
+      board.lists.backlog.delete_all
       lists = resolve_board_lists
 
       expect(lists.count).to eq 1
@@ -35,13 +36,12 @@ RSpec.describe Resolvers::BoardListsResolver do
 
     context 'when authorized' do
       let!(:label_list) { create(:list, board: board, label: label) }
-      let!(:backlog_list) { create(:backlog_list, board: board) }
 
       it 'returns a list of board lists' do
         lists = resolve_board_lists
 
         expect(lists.count).to eq 3
-        expect(lists.map(&:list_type)).to eq %w(backlog label closed)
+        expect(lists.map(&:list_type)).to eq %w[backlog label closed]
       end
 
       context 'when another user has list preferences' do
@@ -65,7 +65,7 @@ RSpec.describe Resolvers::BoardListsResolver do
 
         it 'returns empty result if list is not found' do
           external_group = create(:group, :private)
-          external_board = create(:board, resource_parent: external_group )
+          external_board = create(:board, resource_parent: external_group)
           external_label = create(:group_label, group: group)
           external_list = create(:list, board: external_board, label: external_label)
 
@@ -100,6 +100,12 @@ RSpec.describe Resolvers::BoardListsResolver do
   end
 
   def resolve_board_lists(args: {}, current_user: user)
-    resolve(described_class, obj: board, args: args, ctx: { current_user: current_user })
+    resolve(
+      described_class,
+      obj: board,
+      args: args,
+      ctx: { current_user: current_user },
+      arg_style: :internal
+    )
   end
 end

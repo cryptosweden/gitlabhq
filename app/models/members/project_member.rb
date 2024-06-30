@@ -1,16 +1,17 @@
 # frozen_string_literal: true
 
 class ProjectMember < Member
-  extend ::Gitlab::Utils::Override
   SOURCE_TYPE = 'Project'
-  SOURCE_TYPE_FORMAT = /\AProject\z/.freeze
+  SOURCE_TYPE_FORMAT = /\AProject\z/
+
+  self.allow_legacy_sti_class = true
 
   belongs_to :project, foreign_key: 'source_id'
 
   delegate :namespace_id, to: :project
 
   # Make sure project member points only to project as it source
-  default_value_for :source_type, SOURCE_TYPE
+  attribute :source_type, default: SOURCE_TYPE
   validates :source_type, format: { with: SOURCE_TYPE_FORMAT }
   default_scope { where(source_type: SOURCE_TYPE) } # rubocop:disable Cop/DefaultScope
 
@@ -21,40 +22,6 @@ class ProjectMember < Member
   end
 
   class << self
-    # Add users to projects with passed access option
-    #
-    # access can be an integer representing a access code
-    # or symbol like :maintainer representing role
-    #
-    # Ex.
-    #   add_users_to_projects(
-    #     project_ids,
-    #     user_ids,
-    #     ProjectMember::MAINTAINER
-    #   )
-    #
-    #   add_users_to_projects(
-    #     project_ids,
-    #     user_ids,
-    #     :maintainer
-    #   )
-    #
-    def add_users_to_projects(project_ids, users, access_level, current_user: nil, expires_at: nil)
-      self.transaction do
-        project_ids.each do |project_id|
-          project = Project.find(project_id)
-
-          Members::Projects::BulkCreatorService.add_users( # rubocop:disable CodeReuse/ServiceClass
-            project,
-            users,
-            access_level,
-            current_user: current_user,
-            expires_at: expires_at
-          )
-        end
-      end
-    end
-
     def truncate_teams(project_ids)
       ProjectMember.transaction do
         members = ProjectMember.where(source_id: project_ids)
@@ -73,6 +40,29 @@ class ProjectMember < Member
       truncate_teams [project.id]
     end
 
+    # For those who get to see a modal with a role dropdown, here are the options presented
+    def permissible_access_level_roles(current_user, project)
+      # This method is a stopgap in preparation for https://gitlab.com/gitlab-org/gitlab/-/issues/364087
+      if Ability.allowed?(current_user, :manage_owners, project)
+        Gitlab::Access.options_with_owner
+      else
+        ProjectMember.access_level_roles
+      end
+    end
+
+    def permissible_access_level_roles_for_project_access_token(current_user, project)
+      if Ability.allowed?(current_user, :manage_owners, project)
+        Gitlab::Access.options_with_owner
+      else
+        max_access_level = project.team.max_member_access(current_user.id)
+        return {} unless max_access_level.present?
+
+        ProjectMember.access_level_roles.filter do |_, value|
+          value <= max_access_level
+        end
+      end
+    end
+
     def access_level_roles
       Gitlab::Access.options
     end
@@ -82,12 +72,8 @@ class ProjectMember < Member
     source
   end
 
-  def owner?
-    project.owner == user
-  end
-
-  def notifiable_options
-    { project: project }
+  def holder_of_the_personal_namespace?
+    project.personal_namespace_holder?(user)
   end
 
   private
@@ -99,23 +85,24 @@ class ProjectMember < Member
     end
   end
 
+  # This method is overridden in the test environment, see stubbed_member.rb
   override :refresh_member_authorized_projects
-  def refresh_member_authorized_projects(blocking:)
+  def refresh_member_authorized_projects
     return unless user
 
-    # rubocop:disable CodeReuse/ServiceClass
-    if blocking
-      AuthorizedProjectUpdate::ProjectRecalculatePerUserService.new(project, user).execute
-    else
-      AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker.perform_async(project.id, user.id)
-    end
+    execute_project_authorizations_refresh
 
+    # rubocop:disable CodeReuse/ServiceClass
     # Until we compare the inconsistency rates of the new, specialized service and
     # the old approach, we still run AuthorizedProjectsWorker
     # but with some delay and lower urgency as a safety net.
     UserProjectAccessChangedService.new(user_id)
-                                   .execute(blocking: false, priority: UserProjectAccessChangedService::LOW_PRIORITY)
+                                   .execute(priority: UserProjectAccessChangedService::LOW_PRIORITY)
     # rubocop:enable CodeReuse/ServiceClass
+  end
+
+  def execute_project_authorizations_refresh
+    AuthorizedProjectUpdate::ProjectRecalculatePerUserWorker.perform_async(project.id, user.id)
   end
 
   # TODO: https://gitlab.com/groups/gitlab-org/-/epics/7054
@@ -123,29 +110,6 @@ class ProjectMember < Member
   override :set_member_namespace_id
   def set_member_namespace_id
     self.member_namespace_id = project&.project_namespace_id
-  end
-
-  def send_invite
-    run_after_commit_or_now { notification_service.invite_project_member(self, @raw_invite_token) }
-
-    super
-  end
-
-  def post_create_hook
-    unless owner?
-      event_service.join_project(self.project, self.user)
-      run_after_commit_or_now { notification_service.new_project_member(self) }
-    end
-
-    super
-  end
-
-  def post_update_hook
-    if saved_change_to_access_level?
-      run_after_commit { notification_service.update_project_member(self) }
-    end
-
-    super
   end
 
   def post_destroy_hook
@@ -157,24 +121,6 @@ class ProjectMember < Member
 
     super
   end
-
-  def after_accept_invite
-    notification_service.accept_project_invite(self)
-
-    super
-  end
-
-  def after_decline_invite
-    notification_service.decline_project_invite(self)
-
-    super
-  end
-
-  # rubocop: disable CodeReuse/ServiceClass
-  def event_service
-    EventCreateService.new
-  end
-  # rubocop: enable CodeReuse/ServiceClass
 end
 
 ProjectMember.prepend_mod_with('ProjectMember')

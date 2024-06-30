@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::Partitioning::MonthlyStrategy do
+RSpec.describe Gitlab::Database::Partitioning::MonthlyStrategy, feature_category: :database do
   let(:connection) { ActiveRecord::Base.connection }
 
   describe '#current_partitions' do
@@ -29,10 +29,11 @@ RSpec.describe Gitlab::Database::Partitioning::MonthlyStrategy do
     end
 
     it 'detects both partitions' do
-      expect(subject).to eq([
-        Gitlab::Database::Partitioning::TimePartition.new(table_name, nil, '2020-05-01', partition_name: '_test_partitioned_test_000000'),
-        Gitlab::Database::Partitioning::TimePartition.new(table_name, '2020-05-01', '2020-06-01', partition_name: '_test_partitioned_test_202005')
-    ])
+      expect(subject).to eq(
+        [
+          Gitlab::Database::Partitioning::TimePartition.new(table_name, nil, '2020-05-01', partition_name: '_test_partitioned_test_000000'),
+          Gitlab::Database::Partitioning::TimePartition.new(table_name, '2020-05-01', '2020-06-01', partition_name: '_test_partitioned_test_202005')
+        ])
     end
   end
 
@@ -234,8 +235,12 @@ RSpec.describe Gitlab::Database::Partitioning::MonthlyStrategy do
         subject { described_class.new(model, partitioning_key, retain_for: 3.months).extra_partitions }
 
         it 'prunes the unbounded partition ending 2020-05-01' do
-          min_value_to_may = Gitlab::Database::Partitioning::TimePartition.new(model.table_name, nil, '2020-05-01',
-                                                                               partition_name: '_test_partitioned_test_000000')
+          min_value_to_may = Gitlab::Database::Partitioning::TimePartition.new(
+            model.table_name,
+            nil,
+            '2020-05-01',
+            partition_name: '_test_partitioned_test_000000'
+          )
 
           expect(subject).to contain_exactly(min_value_to_may)
         end
@@ -246,8 +251,18 @@ RSpec.describe Gitlab::Database::Partitioning::MonthlyStrategy do
 
         it 'prunes the unbounded partition and the partition for May-June' do
           expect(subject).to contain_exactly(
-            Gitlab::Database::Partitioning::TimePartition.new(model.table_name, nil, '2020-05-01', partition_name: '_test_partitioned_test_000000'),
-                               Gitlab::Database::Partitioning::TimePartition.new(model.table_name, '2020-05-01', '2020-06-01', partition_name: '_test_partitioned_test_202005')
+            Gitlab::Database::Partitioning::TimePartition.new(
+              model.table_name,
+              nil,
+              '2020-05-01',
+              partition_name: '_test_partitioned_test_000000'
+            ),
+            Gitlab::Database::Partitioning::TimePartition.new(
+              model.table_name,
+              '2020-05-01',
+              '2020-06-01',
+              partition_name: '_test_partitioned_test_202005'
+            )
           )
         end
 
@@ -256,8 +271,18 @@ RSpec.describe Gitlab::Database::Partitioning::MonthlyStrategy do
 
           it 'prunes empty partitions' do
             expect(subject).to contain_exactly(
-              Gitlab::Database::Partitioning::TimePartition.new(model.table_name, nil, '2020-05-01', partition_name: '_test_partitioned_test_000000'),
-                                 Gitlab::Database::Partitioning::TimePartition.new(model.table_name, '2020-05-01', '2020-06-01', partition_name: '_test_partitioned_test_202005')
+              Gitlab::Database::Partitioning::TimePartition.new(
+                model.table_name,
+                nil,
+                '2020-05-01',
+                partition_name: '_test_partitioned_test_000000'
+              ),
+              Gitlab::Database::Partitioning::TimePartition.new(
+                model.table_name,
+                '2020-05-01',
+                '2020-06-01',
+                partition_name: '_test_partitioned_test_202005'
+              )
             )
           end
 
@@ -270,6 +295,34 @@ RSpec.describe Gitlab::Database::Partitioning::MonthlyStrategy do
           end
         end
       end
+    end
+  end
+
+  describe 'attributes' do
+    let(:partitioning_key) { :partition }
+    let(:retain_non_empty_partitions) { true }
+    let(:retain_for) { 12.months }
+    let(:analyze_interval) { 1.week }
+    let(:model) { class_double(ApplicationRecord, table_name: table_name, connection: connection) }
+    let(:table_name) { :_test_partitioned_test }
+
+    subject(:strategy) do
+      described_class.new(
+        model, partitioning_key,
+        retain_for: retain_for,
+        retain_non_empty_partitions: retain_non_empty_partitions,
+        analyze_interval: analyze_interval
+      )
+    end
+
+    specify do
+      expect(strategy).to have_attributes({
+        model: model,
+        partitioning_key: partitioning_key,
+        retain_for: retain_for,
+        retain_non_empty_partitions: retain_non_empty_partitions,
+        analyze_interval: analyze_interval
+      })
     end
   end
 end

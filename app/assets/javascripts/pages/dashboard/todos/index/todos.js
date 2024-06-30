@@ -4,11 +4,9 @@ import $ from 'jquery';
 import { getGroups } from '~/api/groups_api';
 import { getProjects } from '~/api/projects_api';
 import initDeprecatedJQueryDropdown from '~/deprecated_jquery_dropdown';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-import { isMetaClick } from '~/lib/utils/common_utils';
 import { addDelimiter } from '~/lib/utils/text_utility';
-import { visitUrl } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
 import UsersSelect from '~/users_select';
 
@@ -28,18 +26,24 @@ export default class Todos {
   }
 
   unbindEvents() {
-    $('.js-done-todo, .js-undo-todo, .js-add-todo').off('click', this.updateRowStateClickedWrapper);
-    $('.js-todos-mark-all', '.js-todos-undo-all').off('click', this.updateallStateClickedWrapper);
-    $('.todo').off('click', this.goToTodoUrl);
+    document.querySelectorAll('.js-done-todo, .js-undo-todo, .js-add-todo').forEach((el) => {
+      el.removeEventListener('click', this.updateRowStateClickedWrapper);
+    });
+    document.querySelectorAll('.js-todos-mark-all, .js-todos-undo-all').forEach((el) => {
+      el.removeEventListener('click', this.updateallStateClickedWrapper);
+    });
   }
 
   bindEvents() {
     this.updateRowStateClickedWrapper = this.updateRowStateClicked.bind(this);
     this.updateAllStateClickedWrapper = this.updateAllStateClicked.bind(this);
 
-    $('.js-done-todo, .js-undo-todo, .js-add-todo').on('click', this.updateRowStateClickedWrapper);
-    $('.js-todos-mark-all, .js-todos-undo-all').on('click', this.updateAllStateClickedWrapper);
-    $('.todo').on('click', this.goToTodoUrl);
+    document.querySelectorAll('.js-done-todo, .js-undo-todo, .js-add-todo').forEach((el) => {
+      el.addEventListener('click', this.updateRowStateClickedWrapper);
+    });
+    document.querySelectorAll('.js-todos-mark-all, .js-todos-undo-all').forEach((el) => {
+      el.addEventListener('click', this.updateAllStateClickedWrapper);
+    });
   }
 
   initFilters() {
@@ -92,20 +96,23 @@ export default class Todos {
     e.stopPropagation();
     e.preventDefault();
 
-    const { target } = e;
-    target.setAttribute('disabled', true);
-    target.classList.add('disabled');
+    let { currentTarget } = e;
+    if (currentTarget.tagName === 'svg' || currentTarget.tagName === 'use') {
+      currentTarget = currentTarget.closest('a');
+    }
+    currentTarget.setAttribute('disabled', true);
+    currentTarget.classList.add('disabled');
 
-    target.querySelector('.gl-spinner-container').classList.add('gl-mr-2');
+    currentTarget.querySelector('.js-todo-button-icon').classList.add('hidden');
 
-    axios[target.dataset.method](target.dataset.href)
+    axios[currentTarget.dataset.method](currentTarget.href)
       .then(({ data }) => {
-        this.updateRowState(target);
+        this.updateRowState(currentTarget);
         this.updateBadges(data);
       })
       .catch(() => {
-        this.updateRowState(target, true);
-        return createFlash({
+        this.updateRowState(currentTarget, true);
+        return createAlert({
           message: __('Error updating status of to-do item.'),
         });
       });
@@ -120,16 +127,16 @@ export default class Todos {
     target.removeAttribute('disabled');
     target.classList.remove('disabled');
 
-    target.querySelector('.gl-spinner-container').classList.remove('gl-mr-2');
+    target.querySelector('.js-todo-button-icon').classList.remove('hidden');
 
     if (isInactive === true) {
       restoreBtn.classList.add('hidden');
       doneBtn.classList.remove('hidden');
     } else if (target === doneBtn) {
-      row.classList.add('done-reversible');
+      row.classList.add('done-reversible', 'gl-bg-gray-10', 'gl-border-gray-50');
       restoreBtn.classList.remove('hidden');
     } else if (target === restoreBtn) {
-      row.classList.remove('done-reversible');
+      row.classList.remove('done-reversible', 'gl-bg-gray-10', 'gl-border-gray-50');
       doneBtn.classList.remove('hidden');
     } else {
       row.parentNode.removeChild(row);
@@ -140,21 +147,21 @@ export default class Todos {
     e.stopPropagation();
     e.preventDefault();
 
-    const target = e.currentTarget;
-    target.setAttribute('disabled', true);
-    target.classList.add('disabled');
+    const { currentTarget } = e;
+    currentTarget.setAttribute('disabled', true);
+    currentTarget.classList.add('disabled');
 
-    target.querySelector('.gl-spinner-container').classList.add('gl-mr-2');
+    currentTarget.querySelector('.gl-spinner-container').classList.add('gl-mr-2');
 
-    axios[target.dataset.method](target.dataset.href, {
+    axios[currentTarget.dataset.method](currentTarget.href, {
       ids: this.todo_ids,
     })
       .then(({ data }) => {
-        this.updateAllState(target, data);
+        this.updateAllState(currentTarget, data);
         this.updateBadges(data);
       })
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('Error updating status for all to-do items.'),
         }),
       );
@@ -179,31 +186,20 @@ export default class Todos {
   }
 
   updateBadges(data) {
-    $(document).trigger('todo:toggle', data.count);
+    const event = new CustomEvent('todo:toggle', {
+      detail: {
+        count: data.count,
+      },
+    });
+
+    document.dispatchEvent(event);
+    // eslint-disable-next-line no-unsanitized/property
     document.querySelector('.js-todos-pending .js-todos-badge').innerHTML = addDelimiter(
       data.count,
     );
+    // eslint-disable-next-line no-unsanitized/property
     document.querySelector('.js-todos-done .js-todos-badge').innerHTML = addDelimiter(
       data.done_count,
     );
-  }
-
-  goToTodoUrl(e) {
-    const todoLink = this.dataset.url;
-
-    if (!todoLink || e.target.closest('a')) {
-      return;
-    }
-
-    e.stopPropagation();
-    e.preventDefault();
-
-    if (isMetaClick(e)) {
-      const windowTarget = '_blank';
-
-      window.open(todoLink, windowTarget);
-    } else {
-      visitUrl(todoLink);
-    }
   }
 }

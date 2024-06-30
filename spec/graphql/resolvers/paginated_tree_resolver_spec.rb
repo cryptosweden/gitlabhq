@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Resolvers::PaginatedTreeResolver do
+RSpec.describe Resolvers::PaginatedTreeResolver, feature_category: :source_code_management do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :repository) }
@@ -61,14 +61,23 @@ RSpec.describe Resolvers::PaginatedTreeResolver do
       end
     end
 
+    context 'when repository is empty' do
+      before do
+        allow(repository).to receive(:empty?).and_return(true)
+      end
+
+      it 'returns nil' do
+        is_expected.to be(nil)
+      end
+    end
+
     describe 'Cursor pagination' do
       context 'when cursor is invalid' do
         let(:args) { super().merge(after: 'invalid') }
 
         it 'generates an error' do
-          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ArgumentError) do
-            subject
-          end
+          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::BaseError) { subject }
+          expect(subject.extensions.keys).to match_array([:code, :gitaly_code, :service])
         end
       end
 
@@ -92,15 +101,32 @@ RSpec.describe Resolvers::PaginatedTreeResolver do
         expect(collected_entries).to match_array(expected_entries)
       end
     end
+
+    describe 'Custom error handling' do
+      before do
+        grpc_err = GRPC::Unavailable.new
+        allow(repository).to receive(:tree).and_raise(Gitlab::Git::CommandError, grpc_err)
+      end
+
+      context 'when gitaly is not available' do
+        let(:request) { get :index, format: :html, params: { namespace_id: project.namespace, project_id: project } }
+
+        it 'generates an unavailable error' do
+          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::BaseError) { subject }
+          expect(subject.extensions).to eq(code: 'unavailable', gitaly_code: 14, service: 'git')
+        end
+      end
+    end
   end
 
   def resolve_repository(args, opts = {})
-    field_options = described_class.field_options.merge(
+    field_options = {
       owner: resolver_parent,
-      name: 'field_value'
-    ).merge(opts)
+      resolver: described_class,
+      connection_extension: Gitlab::Graphql::Extensions::ExternallyPaginatedArrayExtension
+    }.merge(opts)
 
-    field = ::Types::BaseField.new(**field_options)
+    field = ::Types::BaseField.from_options('field_value', **field_options)
     resolve_field(field, repository, args: args, object_type: resolver_parent)
   end
 end

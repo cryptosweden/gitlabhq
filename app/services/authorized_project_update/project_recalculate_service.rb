@@ -47,7 +47,7 @@ module AuthorizedProjectUpdate
     def user_ids_to_remove
       strong_memoize(:user_ids_to_remove) do
         (current_authorizations - fresh_authorizations)
-          .map {|user_id, _| user_id }
+          .map { |user_id, _| user_id }
       end
     end
 
@@ -64,8 +64,10 @@ module AuthorizedProjectUpdate
     end
 
     def refresh_authorizations
-      project.remove_project_authorizations(user_ids_to_remove) if user_ids_to_remove.any?
-      ProjectAuthorization.insert_all_in_batches(authorizations_to_create) if authorizations_to_create.any?
+      ProjectAuthorizations::Changes.new do |changes|
+        changes.add(authorizations_to_create)
+        changes.remove_users_in_project(project, user_ids_to_remove)
+      end.apply!
     end
 
     def apply_scopes(project_authorizations)
@@ -77,3 +79,5 @@ module AuthorizedProjectUpdate
     end
   end
 end
+
+AuthorizedProjectUpdate::ProjectRecalculateService.prepend_mod

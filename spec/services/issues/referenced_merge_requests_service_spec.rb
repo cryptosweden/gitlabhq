@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Issues::ReferencedMergeRequestsService do
+RSpec.describe Issues::ReferencedMergeRequestsService, feature_category: :team_planning do
   def create_referencing_mr(attributes = {})
     create(:merge_request, attributes).tap do |merge_request|
       create(:note, :system, project: project, noteable: issue, author: user, note: merge_request.to_reference(full: true))
@@ -26,7 +26,7 @@ RSpec.describe Issues::ReferencedMergeRequestsService do
   let_it_be(:referencing_mr) { create_referencing_mr(source_project: project, source_branch: 'csv') }
   let_it_be(:referencing_mr_other_project) { create_referencing_mr(source_project: other_project, source_branch: 'csv') }
 
-  let(:service) { described_class.new(project: project, current_user: user) }
+  let(:service) { described_class.new(container: project, current_user: user) }
 
   describe '#execute' do
     it 'returns a list of sorted merge requests' do
@@ -39,13 +39,13 @@ RSpec.describe Issues::ReferencedMergeRequestsService do
     context 'performance' do
       it 'does not run extra queries when extra namespaces are included', :use_clean_rails_memory_store_caching do
         service.execute(issue) # warm cache
-        control_count = ActiveRecord::QueryRecorder.new { service.execute(issue) }.count
+        control = ActiveRecord::QueryRecorder.new { service.execute(issue) }
 
         third_project = create(:project, :public)
         create_closing_mr(source_project: third_project)
         service.execute(issue) # warm cache
 
-        expect { service.execute(issue) }.not_to exceed_query_limit(control_count)
+        expect { service.execute(issue) }.not_to exceed_query_limit(control)
       end
 
       it 'preloads the head pipeline for each merge request, and its routes' do
@@ -58,12 +58,12 @@ RSpec.describe Issues::ReferencedMergeRequestsService do
         end
 
         closing_mr_other_project.update!(head_pipeline: create(:ci_pipeline))
-        control_count = ActiveRecord::QueryRecorder.new { service.execute(reloaded_issue).each(&pipeline_routes) }
+        control = ActiveRecord::QueryRecorder.new { service.execute(reloaded_issue).each(&pipeline_routes) }
 
         closing_mr.update!(head_pipeline: create(:ci_pipeline))
 
         expect { service.execute(issue).each(&pipeline_routes) }
-          .not_to exceed_query_limit(control_count)
+          .not_to exceed_query_limit(control)
       end
 
       it 'only loads issue notes once' do
@@ -77,11 +77,11 @@ RSpec.describe Issues::ReferencedMergeRequestsService do
   describe '#referenced_merge_requests' do
     it 'returns the referenced merge requests' do
       expect(service.referenced_merge_requests(issue)).to match_array([
-                                                                        closing_mr,
+        closing_mr,
                                                                         closing_mr_other_project,
                                                                         referencing_mr,
                                                                         referencing_mr_other_project
-                                                                      ])
+      ])
     end
 
     it 'excludes cross project references if the user cannot read cross project' do
@@ -95,18 +95,18 @@ RSpec.describe Issues::ReferencedMergeRequestsService do
     context 'performance' do
       it 'does not run a query for each note author', :use_clean_rails_memory_store_caching do
         service.referenced_merge_requests(issue) # warm cache
-        control_count = ActiveRecord::QueryRecorder.new { service.referenced_merge_requests(issue) }.count
+        control = ActiveRecord::QueryRecorder.new { service.referenced_merge_requests(issue) }
 
         create(:note, project: project, noteable: issue, author: create(:user))
         service.referenced_merge_requests(issue) # warm cache
 
-        expect { service.referenced_merge_requests(issue) }.not_to exceed_query_limit(control_count)
+        expect { service.referenced_merge_requests(issue) }.not_to exceed_query_limit(control)
       end
     end
   end
 
   describe '#closed_by_merge_requests' do
-    let(:closed_issue) { build(:issue, :closed, project: project)}
+    let(:closed_issue) { build(:issue, :closed, project: project) }
 
     it 'returns the open merge requests that close this issue' do
       create_closing_mr(source_project: project, state: 'closed')
@@ -121,12 +121,12 @@ RSpec.describe Issues::ReferencedMergeRequestsService do
     context 'performance' do
       it 'does not run a query for each note author', :use_clean_rails_memory_store_caching do
         service.closed_by_merge_requests(issue) # warm cache
-        control_count = ActiveRecord::QueryRecorder.new { service.closed_by_merge_requests(issue) }.count
+        control = ActiveRecord::QueryRecorder.new { service.closed_by_merge_requests(issue) }
 
         create(:note, :system, project: project, noteable: issue, author: create(:user))
         service.closed_by_merge_requests(issue) # warm cache
 
-        expect { service.closed_by_merge_requests(issue) }.not_to exceed_query_limit(control_count)
+        expect { service.closed_by_merge_requests(issue) }.not_to exceed_query_limit(control)
       end
     end
   end

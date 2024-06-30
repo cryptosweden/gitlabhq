@@ -76,6 +76,11 @@ export default {
       type: Boolean,
       required: true,
     },
+    isUsingLfs: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   computed: {
     replaceModalTitle() {
@@ -87,8 +92,8 @@ export default {
     deleteModalTitle() {
       return sprintf(__('Delete %{name}'), { name: this.name });
     },
-    lockBtnQASelector() {
-      return this.canLock ? 'lock_button' : 'disabled_lock_button';
+    lockBtnTestId() {
+      return this.canLock ? 'lock-button' : 'disabled-lock-button';
     },
   },
   methods: {
@@ -115,8 +120,7 @@ export default {
         :project-path="projectPath"
         :is-locked="isLocked"
         :can-lock="canLock"
-        data-testid="lock"
-        :data-qa-selector="lockBtnQASelector"
+        :data-testid="lockBtnTestId"
       />
       <gl-button data-testid="replace" @click="showModal($options.replaceBlobModalId)">
         {{ $options.i18n.replace }}
@@ -148,6 +152,7 @@ export default {
       :can-push-code="canPushCode"
       :can-push-to-branch="canPushToBranch"
       :empty-repo="emptyRepo"
+      :is-using-lfs="isUsingLfs"
     />
   </div>
 </template>

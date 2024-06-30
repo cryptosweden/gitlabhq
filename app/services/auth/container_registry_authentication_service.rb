@@ -14,10 +14,6 @@ module Auth
       :build_destroy_container_image
     ].freeze
 
-    FORBIDDEN_IMPORTING_SCOPES = %w[push delete *].freeze
-
-    ActiveImportError = Class.new(StandardError)
-
     def execute(authentication_abilities:)
       @authentication_abilities = authentication_abilities
 
@@ -29,37 +25,58 @@ module Auth
         return error('DENIED', status: 403, message: 'access forbidden')
       end
 
+      if repository_path_push_protected?
+        return error('DENIED', status: 403, message: 'Pushing to protected repository path forbidden')
+      end
+
       { token: authorized_token(*scopes).encoded }
-    rescue ActiveImportError
-      error(
-        'DENIED',
-        status: 403,
-        message: 'Your repository is currently being migrated to a new platform and writes are temporarily disabled. Go to https://gitlab.com/groups/gitlab-org/-/epics/5523 to learn more.'
-      )
     end
 
     def self.full_access_token(*names)
-      access_token(%w(*), names)
-    end
-
-    def self.import_access_token
-      access_token(%w(*), ['import'], 'registry')
+      names_and_actions = names.index_with { %w[*] }
+      access_token(names_and_actions)
     end
 
     def self.pull_access_token(*names)
-      access_token(['pull'], names)
+      names_and_actions = names.index_with { %w[pull] }
+      access_token(names_and_actions)
     end
 
-    def self.access_token(actions, names, type = 'repository')
-      names = names.flatten
+    def self.pull_nested_repositories_access_token(name)
+      name = name.chomp('/')
+
+      access_token({
+        name => %w[pull],
+        "#{name}/*" => %w[pull]
+      })
+    end
+
+    def self.push_pull_nested_repositories_access_token(name)
+      name = name.chomp('/')
+
+      access_token(
+        {
+          name => %w[pull push],
+          "#{name}/*" => %w[pull]
+        },
+        override_project_path: name
+      )
+    end
+
+    def self.access_token(names_and_actions, type = 'repository', override_project_path: nil)
       registry = Gitlab.config.registry
       token = JSONWebToken::RSAToken.new(registry.key)
       token.issuer = registry.issuer
       token.audience = AUDIENCE
       token.expire_time = token_expire_at
 
-      token[:access] = names.map do |name|
-        { type: type, name: name, actions: actions }
+      token[:access] = names_and_actions.map do |name, actions|
+        {
+          type: type,
+          name: name,
+          actions: actions,
+          meta: access_metadata(path: name, override_project_path: override_project_path)
+        }.compact
       end
 
       token.encoded
@@ -67,6 +84,33 @@ module Auth
 
     def self.token_expire_at
       Time.current + Gitlab::CurrentSettings.container_registry_token_expire_delay.minutes
+    end
+
+    def self.access_metadata(project: nil, path: nil, override_project_path: nil)
+      return { project_path: override_project_path.downcase } if override_project_path
+
+      # If the project is not given, try to infer it from the provided path
+      if project.nil?
+        return if path.nil? # If no path is given, return early
+        return if path == 'import' # Ignore the special 'import' path
+
+        # If the path ends with '/*', remove it so we can parse the actual repository path
+        path = path.chomp('/*')
+
+        # Parse the repository project from the path
+        begin
+          project = ContainerRegistry::Path.new(path).repository_project
+        rescue ContainerRegistry::Path::InvalidRegistryPathError
+          # If the path is invalid, gracefully handle the error
+          return
+        end
+      end
+
+      {
+        project_path: project&.full_path&.downcase,
+        project_id: project&.id,
+        root_namespace_id: project&.root_ancestor&.id
+      }
     end
 
     private
@@ -77,7 +121,30 @@ module Auth
         token.audience = params[:service]
         token.subject = current_user.try(:username)
         token.expire_time = self.class.token_expire_at
+        token[:auth_type] = params[:auth_type]
         token[:access] = accesses.compact
+        token[:user] = user_info_token.encoded
+      end
+    end
+
+    def user_info_token
+      info =
+        if current_user
+          {
+            token_type: params[:auth_type],
+            username: current_user.username,
+            user_id: current_user.id
+          }
+        elsif deploy_token
+          {
+            token_type: params[:auth_type],
+            username: deploy_token.username,
+            deploy_token_id: deploy_token.id
+          }
+        end
+
+      JSONWebToken::RSAToken.new(registry.key).tap do |token|
+        token[:user_info] = info
       end
     end
 
@@ -113,8 +180,6 @@ module Auth
     def process_repository_access(type, path, actions)
       return unless path.valid?
 
-      raise ActiveImportError if actively_importing?(actions, path)
-
       requested_project = path.repository_project
 
       return unless requested_project
@@ -131,16 +196,12 @@ module Auth
       #
       ensure_container_repository!(path, authorized_actions)
 
-      { type: type, name: path.to_s, actions: authorized_actions }
-    end
-
-    def actively_importing?(actions, path)
-      return false if FORBIDDEN_IMPORTING_SCOPES.intersection(actions).empty?
-
-      container_repository = ContainerRepository.find_by_path(path)
-      return false unless container_repository
-
-      container_repository.migration_importing?
+      {
+        type: type,
+        name: path.to_s,
+        actions: authorized_actions,
+        meta: self.class.access_metadata(project: requested_project)
+      }
     end
 
     ##
@@ -152,13 +213,12 @@ module Auth
       return if path.has_repository?
       return unless actions.include?('push')
 
-      ContainerRepository.find_or_create_from_path(path)
+      ContainerRepository.find_or_create_from_path!(path)
     end
 
     # Overridden in EE
     def can_access?(requested_project, requested_action)
       return false unless requested_project.container_registry_enabled?
-      return false if requested_project.repository_access_level == ::ProjectFeature::DISABLED
 
       case requested_action
       when 'pull'
@@ -209,15 +269,13 @@ module Auth
     def deploy_token_can_pull?(requested_project)
       has_authentication_ability?(:read_container_image) &&
         deploy_token.present? &&
-        deploy_token.has_access_to?(requested_project) &&
-        deploy_token.read_registry?
+        can?(deploy_token, :read_container_image, requested_project)
     end
 
     def deploy_token_can_push?(requested_project)
       has_authentication_ability?(:create_container_image) &&
         deploy_token.present? &&
-        deploy_token.has_access_to?(requested_project) &&
-        deploy_token.write_registry?
+        can?(deploy_token, :create_container_image, requested_project)
     end
 
     ##
@@ -251,12 +309,34 @@ module Auth
       end
     end
 
+    def repository_path_push_protected?
+      return false if Feature.disabled?(:container_registry_protected_containers, project)
+
+      push_scopes = scopes.select { |scope| scope[:actions].include?('push') || scope[:actions].include?('*') }
+
+      push_scopes.any? do |push_scope|
+        push_scope_container_registry_path = ContainerRegistry::Path.new(push_scope[:name])
+
+        next unless push_scope_container_registry_path.valid?
+
+        repository_project = push_scope_container_registry_path.repository_project
+        current_user_project_authorization_access_level = current_user&.max_member_access_for_project(repository_project.id)
+
+        repository_project.container_registry_protection_rules.for_push_exists?(
+          access_level: current_user_project_authorization_access_level,
+          repository_path: push_scope_container_registry_path.to_s
+        )
+      end
+    end
+
     # Overridden in EE
     def extra_info
       {}
     end
 
     def deploy_token
+      return unless Gitlab::ExternalAuthorization.allow_deploy_tokens_and_deploy_keys?
+
       params[:deploy_token]
     end
 

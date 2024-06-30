@@ -21,6 +21,16 @@ export default {
       required: false,
       default: false,
     },
+    uploadSingleMessage: {
+      type: String,
+      required: false,
+      default: __('Drop or %{linkStart}upload%{linkEnd} file to attach'),
+    },
+    uploadMultipleMessage: {
+      type: String,
+      required: false,
+      default: __('Drop or %{linkStart}upload%{linkEnd} files to attach'),
+    },
     dropToStartMessage: {
       type: String,
       required: false,
@@ -149,7 +159,7 @@ export default {
   >
     <slot>
       <button
-        class="card upload-dropzone-card upload-dropzone-border gl-w-full gl-h-full gl-align-items-center gl-justify-content-center gl-p-3"
+        class="card upload-dropzone-card upload-dropzone-border gl-w-full gl-h-full gl-align-items-center gl-justify-content-center gl-px-5 gl-py-4 gl-mb-0"
         type="button"
         @click="openFileUpload"
       >
@@ -160,18 +170,12 @@ export default {
         >
           <gl-icon name="upload" :size="iconStyles.size" :class="iconStyles.class" />
           <p class="gl-mb-0" data-testid="upload-text">
-            <slot name="upload-text" :openFileUpload="openFileUpload">
+            <slot name="upload-text" :open-file-upload="openFileUpload">
               <gl-sprintf
-                :message="
-                  singleFileSelection
-                    ? __('Drop or %{linkStart}upload%{linkEnd} file to attach')
-                    : __('Drop or %{linkStart}upload%{linkEnd} files to attach')
-                "
+                :message="singleFileSelection ? uploadSingleMessage : uploadMultipleMessage"
               >
                 <template #link="{ content }">
-                  <gl-link @click.stop="openFileUpload">
-                    {{ content }}
-                  </gl-link>
+                  <gl-link @click.stop="openFileUpload">{{ content }}</gl-link>
                 </template>
               </gl-sprintf>
             </slot>
@@ -192,7 +196,7 @@ export default {
     <transition name="upload-dropzone-fade">
       <div
         v-show="dragging && !enableDragBehavior"
-        class="card upload-dropzone-border upload-dropzone-overlay gl-w-full gl-h-full gl-absolute gl-display-flex gl-align-items-center gl-justify-content-center gl-p-3 gl-bg-white"
+        class="card upload-dropzone-border upload-dropzone-overlay gl-w-full gl-h-full gl-absolute gl-display-flex gl-align-items-center gl-justify-content-center gl-p-4"
       >
         <div v-show="!isDragDataValid" class="mw-50 gl-text-center">
           <slot name="invalid-drag-data-slot">

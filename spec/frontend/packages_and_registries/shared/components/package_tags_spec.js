@@ -20,10 +20,6 @@ describe('PackageTags', () => {
   const tagBadges = () => wrapper.findAll('[data-testid="tagBadge"]');
   const moreBadge = () => wrapper.find('[data-testid="moreBadge"]');
 
-  afterEach(() => {
-    if (wrapper) wrapper.destroy();
-  });
-
   describe('tag label', () => {
     it('shows the tag label by default', () => {
       createComponent();
@@ -81,7 +77,7 @@ describe('PackageTags', () => {
     it('shows tag badge for medium or heigher resolutions', () => {
       createComponent(mockTags);
 
-      const expectedStyle = [...defaultStyle, 'd-md-flex'];
+      const expectedStyle = [...defaultStyle, 'md:!gl-flex'];
 
       expect(tagBadges().at(1).classes()).toEqual(expect.arrayContaining(expectedStyle));
     });
@@ -91,7 +87,7 @@ describe('PackageTags', () => {
         tagDisplayLimit: 4,
       });
 
-      const expectedStyleWithoutAppend = [...defaultStyle, 'd-md-flex'];
+      const expectedStyleWithoutAppend = [...defaultStyle, 'md:!gl-flex'];
       const expectedStyleWithAppend = [...expectedStyleWithoutAppend, 'gl-mr-2'];
 
       const allBadges = tagBadges();

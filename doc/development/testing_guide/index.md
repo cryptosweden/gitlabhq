@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Testing standards and style guidelines
@@ -9,9 +9,9 @@ info: To determine the technical writer assigned to the Stage/Group associated w
 This document describes various guidelines and best practices for automated
 testing of the GitLab project.
 
-It is meant to be an _extension_ of the [Thoughtbot testing
-style guide](https://github.com/thoughtbot/guides/tree/master/testing-rspec). If
-this guide defines a rule that contradicts the Thoughtbot guide, this guide
+It is meant to be an _extension_ of the
+[thoughtbot testing style guide](https://github.com/thoughtbot/guides/tree/master/testing-rspec). If
+this guide defines a rule that contradicts the thoughtbot guide, this guide
 takes precedence. Some guidelines may be repeated verbatim to stress their
 importance.
 
@@ -43,12 +43,17 @@ system tests, parameterized tests etc.
 Everything you should know about how to write good Frontend tests: Jest,
 testing promises, stubbing etc.
 
+## [Getting started with Feature tests](frontend_testing.md#get-started-with-feature-tests)
+
+Need to get started with feature tests? Here are some general guidelines,
+tips and tricks to get the most out of white-box testing.
+
 ## [Flaky tests](flaky_tests.md)
 
 What are flaky tests, the different kind of flaky tests we encountered, and what
 we do about them.
 
-## [GitLab pipelines](../pipelines.md)
+## [GitLab pipelines](../pipelines/index.md)
 
 How GitLab test suite is run in the CI context: setup, caches, artifacts,
 parallelization, monitoring.
@@ -69,5 +74,13 @@ Everything you should know about how to run end-to-end tests using
 ## [Migrations tests](testing_migrations_guide.md)
 
 Everything you should know about how to test migrations.
+
+## [Contract tests](contract/index.md)
+
+Introduction to contract testing, how to run the tests, and how to write them.
+
+## [Test results tracking](test_results_tracking.md)
+
+How we track our test suite run results.
 
 [Return to Development documentation](../index.md)

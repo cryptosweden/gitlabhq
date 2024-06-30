@@ -1,6 +1,7 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
-import eventHub from '../../notes/event_hub';
+import eventHub from '~/notes/event_hub';
 import Popover from './popover.vue';
 
 export default {
@@ -23,6 +24,11 @@ export default {
       required: false,
       default: null,
     },
+    wrapTextNodes: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   computed: {
     ...mapState([
@@ -37,6 +43,7 @@ export default {
       const initialData = {
         blobs: [{ path: this.blobPath, codeNavigationPath: this.codeNavigationPath }],
         definitionPathPrefix: this.pathPrefix,
+        wrapTextNodes: this.wrapTextNodes,
       };
       this.setInitialData(initialData);
     }

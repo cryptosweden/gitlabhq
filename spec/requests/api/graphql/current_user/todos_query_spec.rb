@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query current user todos' do
+RSpec.describe 'Query current user todos', feature_category: :source_code_management do
   include GraphqlHelpers
   include DesignManagementTestHelpers
 
   let_it_be(:current_user) { create(:user) }
-  let_it_be(:project) { create(:project, :repository) }
+  let_it_be(:project) { create(:project, :repository, developers: current_user) }
   let_it_be(:unauthorize_project) { create(:project) }
   let_it_be(:commit_todo) { create(:on_commit_todo, user: current_user, project: project) }
   let_it_be(:issue) { create(:issue, project: project) }
@@ -19,17 +19,13 @@ RSpec.describe 'Query current user todos' do
   let(:fields) do
     <<~QUERY
     nodes {
-      #{all_graphql_fields_for('todos'.classify)}
+      #{all_graphql_fields_for('todos'.classify, max_depth: 2, excluded: ['productAnalyticsState'])}
     }
     QUERY
   end
 
   let(:query) do
     graphql_query_for('currentUser', {}, query_graphql_field('todos', {}, fields))
-  end
-
-  before_all do
-    project.add_developer(current_user)
   end
 
   subject { graphql_data.dig('currentUser', 'todos', 'nodes') }
@@ -40,7 +36,7 @@ RSpec.describe 'Query current user todos' do
     post_graphql(query, current_user: current_user)
   end
 
-  it_behaves_like 'a working graphql query'
+  it_behaves_like 'a working graphql query that returns data'
 
   it 'contains the expected ids' do
     is_expected.to contain_exactly(

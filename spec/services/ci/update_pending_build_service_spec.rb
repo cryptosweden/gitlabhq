@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::UpdatePendingBuildService do
+RSpec.describe Ci::UpdatePendingBuildService, feature_category: :continuous_integration do
   let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, namespace: group) }
   let_it_be_with_reload(:pending_build_1) { create(:ci_pending_build, project: project, instance_runners_enabled: false) }
@@ -42,19 +42,6 @@ RSpec.describe Ci::UpdatePendingBuildService do
         expect(pending_build_1.instance_runners_enabled).to be_truthy
         expect(pending_build_2.instance_runners_enabled).to be_truthy
       end
-
-      context 'when ci_pending_builds_maintain_denormalized_data is disabled' do
-        before do
-          stub_feature_flags(ci_pending_builds_maintain_denormalized_data: false)
-        end
-
-        it 'does not update all pending builds', :aggregate_failures do
-          update_pending_builds
-
-          expect(pending_build_1.instance_runners_enabled).to be_falsey
-          expect(pending_build_2.instance_runners_enabled).to be_truthy
-        end
-      end
     end
 
     context 'when model is a project with pending builds' do
@@ -65,19 +52,6 @@ RSpec.describe Ci::UpdatePendingBuildService do
 
         expect(pending_build_1.instance_runners_enabled).to be_truthy
         expect(pending_build_2.instance_runners_enabled).to be_truthy
-      end
-
-      context 'when ci_pending_builds_maintain_denormalized_data is disabled' do
-        before do
-          stub_feature_flags(ci_pending_builds_maintain_denormalized_data: false)
-        end
-
-        it 'does not update all pending builds', :aggregate_failures do
-          update_pending_builds
-
-          expect(pending_build_1.instance_runners_enabled).to be_falsey
-          expect(pending_build_2.instance_runners_enabled).to be_truthy
-        end
       end
     end
   end

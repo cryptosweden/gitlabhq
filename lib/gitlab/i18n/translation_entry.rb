@@ -3,8 +3,8 @@
 module Gitlab
   module I18n
     class TranslationEntry
-      PERCENT_REGEX = /(?:^|[^%])%(?!{\w*}|[a-z%])/.freeze
-      ANGLE_BRACKET_REGEX = /[<>]/.freeze
+      PERCENT_REGEX = /(?:^|[^%])%(?!{\w*}|[a-z%])/
+      ANGLE_BRACKET_REGEX = /[<>]/
 
       attr_reader :nplurals, :entry_data
 
@@ -65,7 +65,7 @@ module Gitlab
       end
 
       def translations_have_multiple_lines?
-        translation_entries.any? { |translation| translation.is_a?(Array) }
+        translation_entries.any?(Array)
       end
 
       def msgid_contains_unescaped_chars?

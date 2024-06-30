@@ -106,7 +106,7 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
   describe '#initialize' do
     shared_examples 'local address' do
       it 'blocks local addresses' do
-        expect { client }.to raise_error(Gitlab::UrlBlocker::BlockedUrlError)
+        expect { client }.to raise_error(Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError)
       end
 
       context 'when local requests are allowed' do
@@ -132,12 +132,20 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
       it_behaves_like 'local address'
     end
 
+    context 'when a non HTTP/HTTPS URL is provided' do
+      let(:api_url) { 'ssh://192.168.1.2' }
+
+      it 'raises an error' do
+        expect { client }.to raise_error(Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError)
+      end
+    end
+
     it 'falls back to default options, but allows overriding' do
       client = described_class.new(api_url)
       defaults = Gitlab::Kubernetes::KubeClient::DEFAULT_KUBECLIENT_OPTIONS
       expect(client.kubeclient_options[:timeouts]).to eq(defaults[:timeouts])
 
-      client = Gitlab::Kubernetes::KubeClient.new(api_url, timeouts: { read: 7 })
+      client = described_class.new(api_url, timeouts: { read: 7 })
       expect(client.kubeclient_options[:timeouts][:read]).to eq(7)
       expect(client.kubeclient_options[:timeouts][:open]).to eq(defaults[:timeouts][:open])
     end
@@ -149,7 +157,7 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
     it_behaves_like 'a Kubeclient'
 
     it 'has the core API endpoint' do
-      expect(subject.api_endpoint.to_s).to match(%r{\/api\Z})
+      expect(subject.api_endpoint.to_s).to match(%r{/api\Z})
     end
 
     it 'has the api_version' do
@@ -163,25 +171,11 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
     it_behaves_like 'a Kubeclient'
 
     it 'has the RBAC API group endpoint' do
-      expect(subject.api_endpoint.to_s).to match(%r{\/apis\/rbac.authorization.k8s.io\Z})
+      expect(subject.api_endpoint.to_s).to match(%r{/apis/rbac.authorization.k8s.io\Z})
     end
 
     it 'has the api_version' do
       expect(subject.instance_variable_get(:@api_version)).to eq('v1')
-    end
-  end
-
-  describe '#extensions_client' do
-    subject { client.extensions_client }
-
-    it_behaves_like 'a Kubeclient'
-
-    it 'has the extensions API group endpoint' do
-      expect(subject.api_endpoint.to_s).to match(%r{\/apis\/extensions\Z})
-    end
-
-    it 'has the api_version' do
-      expect(subject.instance_variable_get(:@api_version)).to eq('v1beta1')
     end
   end
 
@@ -191,7 +185,7 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
     it_behaves_like 'a Kubeclient'
 
     it 'has the Istio API group endpoint' do
-      expect(subject.api_endpoint.to_s).to match(%r{\/apis\/networking.istio.io\Z})
+      expect(subject.api_endpoint.to_s).to match(%r{/apis/networking.istio.io\Z})
     end
 
     it 'has the api_version' do
@@ -205,7 +199,7 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
     it_behaves_like 'a Kubeclient'
 
     it 'has the extensions API group endpoint' do
-      expect(subject.api_endpoint.to_s).to match(%r{\/apis\/serving.knative.dev\Z})
+      expect(subject.api_endpoint.to_s).to match(%r{/apis/serving.knative.dev\Z})
     end
 
     it 'has the api_version' do
@@ -219,25 +213,11 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
     it_behaves_like 'a Kubeclient'
 
     it 'has the networking API group endpoint' do
-      expect(subject.api_endpoint.to_s).to match(%r{\/apis\/networking.k8s.io\Z})
+      expect(subject.api_endpoint.to_s).to match(%r{/apis/networking.k8s.io\Z})
     end
 
     it 'has the api_version' do
       expect(subject.instance_variable_get(:@api_version)).to eq('v1')
-    end
-  end
-
-  describe '#cilium_networking_client' do
-    subject { client.cilium_networking_client }
-
-    it_behaves_like 'a Kubeclient'
-
-    it 'has the cilium API group endpoint' do
-      expect(subject.api_endpoint.to_s).to match(%r{\/apis\/cilium.io\Z})
-    end
-
-    it 'has the api_version' do
-      expect(subject.instance_variable_get(:@api_version)).to eq('v2')
     end
   end
 
@@ -247,7 +227,7 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
     it_behaves_like 'a Kubeclient'
 
     it 'has the metrics API group endpoint' do
-      expect(subject.api_endpoint.to_s).to match(%r{\/apis\/metrics.k8s.io\Z})
+      expect(subject.api_endpoint.to_s).to match(%r{/apis/metrics.k8s.io\Z})
     end
 
     it 'has the api_version' do
@@ -321,86 +301,38 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
     end
   end
 
-  describe '#get_deployments' do
-    let(:extensions_client) { client.extensions_client }
+  describe 'apps/v1 API group' do
     let(:apps_client) { client.apps_client }
 
-    include_examples 'redirection not allowed', 'get_deployments'
-    include_examples 'dns rebinding not allowed', 'get_deployments'
-
-    it 'delegates to the extensions client' do
-      expect(extensions_client).to receive(:get_deployments)
-
-      client.get_deployments
-    end
-
-    context 'extensions does not have deployments for Kubernetes 1.16+ clusters' do
-      before do
-        WebMock
-          .stub_request(:get, api_url + '/apis/extensions/v1beta1')
-          .to_return(kube_response(kube_1_16_extensions_v1beta1_discovery_body))
-      end
+    describe 'get_deployments' do
+      include_examples 'redirection not allowed', 'get_deployments'
+      include_examples 'dns rebinding not allowed', 'get_deployments'
 
       it 'delegates to the apps client' do
-        expect(apps_client).to receive(:get_deployments)
+        expect(client).to delegate_method(:get_deployments).to(:apps_client)
+      end
 
-        client.get_deployments
+      it 'responds to the method' do
+        expect(client).to respond_to :get_deployments
       end
     end
   end
 
-  describe '#get_ingresses' do
-    let(:extensions_client) { client.extensions_client }
+  describe 'networking.k8s.io/v1 API group' do
     let(:networking_client) { client.networking_client }
 
-    include_examples 'redirection not allowed', 'get_ingresses'
-    include_examples 'dns rebinding not allowed', 'get_ingresses'
+    [:get_ingresses, :patch_ingress].each do |method|
+      describe "##{method}" do
+        include_examples 'redirection not allowed', method
+        include_examples 'dns rebinding not allowed', method
 
-    it 'delegates to the extensions client' do
-      expect(extensions_client).to receive(:get_ingresses)
+        it 'delegates to the networking client' do
+          expect(client).to delegate_method(method).to(:networking_client)
+        end
 
-      client.get_ingresses
-    end
-
-    context 'extensions does not have deployments for Kubernetes 1.22+ clusters' do
-      before do
-        WebMock
-          .stub_request(:get, api_url + '/apis/extensions/v1beta1')
-          .to_return(kube_response(kube_1_22_extensions_v1beta1_discovery_body))
-      end
-
-      it 'delegates to the apps client' do
-        expect(networking_client).to receive(:get_ingresses)
-
-        client.get_ingresses
-      end
-    end
-  end
-
-  describe '#patch_ingress' do
-    let(:extensions_client) { client.extensions_client }
-    let(:networking_client) { client.networking_client }
-
-    include_examples 'redirection not allowed', 'patch_ingress'
-    include_examples 'dns rebinding not allowed', 'patch_ingress'
-
-    it 'delegates to the extensions client' do
-      expect(extensions_client).to receive(:patch_ingress)
-
-      client.patch_ingress
-    end
-
-    context 'extensions does not have ingress for Kubernetes 1.22+ clusters' do
-      before do
-        WebMock
-          .stub_request(:get, api_url + '/apis/extensions/v1beta1')
-          .to_return(kube_response(kube_1_22_extensions_v1beta1_discovery_body))
-      end
-
-      it 'delegates to the apps client' do
-        expect(networking_client).to receive(:patch_ingress)
-
-        client.patch_ingress
+        it 'responds to the method' do
+          expect(client).to respond_to method
+        end
       end
     end
   end
@@ -419,56 +351,6 @@ RSpec.describe Gitlab::Kubernetes::KubeClient do
 
         it 'delegates to the istio client' do
           expect(client).to delegate_method(method).to(:istio_client)
-        end
-
-        it 'responds to the method' do
-          expect(client).to respond_to method
-        end
-      end
-    end
-  end
-
-  describe 'networking API group' do
-    let(:networking_client) { client.networking_client }
-
-    [
-      :create_network_policy,
-      :get_network_policies,
-      :get_network_policy,
-      :update_network_policy,
-      :delete_network_policy
-    ].each do |method|
-      describe "##{method}" do
-        include_examples 'redirection not allowed', method
-        include_examples 'dns rebinding not allowed', method
-
-        it 'delegates to the networking client' do
-          expect(client).to delegate_method(method).to(:networking_client)
-        end
-
-        it 'responds to the method' do
-          expect(client).to respond_to method
-        end
-      end
-    end
-  end
-
-  describe 'cilium API group' do
-    let(:cilium_networking_client) { client.cilium_networking_client }
-
-    [
-      :create_cilium_network_policy,
-      :get_cilium_network_policies,
-      :get_cilium_network_policy,
-      :update_cilium_network_policy,
-      :delete_cilium_network_policy
-    ].each do |method|
-      describe "##{method}" do
-        include_examples 'redirection not allowed', method
-        include_examples 'dns rebinding not allowed', method
-
-        it 'delegates to the cilium client' do
-          expect(client).to delegate_method(method).to(:cilium_networking_client)
         end
 
         it 'responds to the method' do

@@ -6,19 +6,19 @@ module Nav
       return unless current_user
 
       menu_sections = []
+      data = { title: _('Create new...') }
 
-      if group&.persisted?
-        menu_sections.push(group_menu_section(group))
-      elsif project&.persisted?
+      if project&.persisted?
         menu_sections.push(project_menu_section(project))
+      elsif group&.persisted?
+        menu_sections.push(group_menu_section(group))
       end
 
       menu_sections.push(general_menu_section)
 
-      {
-        title: _("New..."),
-        menu_sections: menu_sections.select { |x| x.fetch(:menu_items).any? }
-      }
+      data[:menu_sections] = menu_sections.select { |x| x.fetch(:menu_items).any? }
+
+      data
     end
 
     private
@@ -32,7 +32,7 @@ module Nav
             id: 'new_project',
             title: _('New project/repository'),
             href: new_project_path(namespace_id: group.id),
-            data: { track_action: 'click_link_new_project_group', track_label: 'plus_menu_dropdown' }
+            data: { track_action: 'click_link_new_project_group', track_label: 'plus_menu_dropdown', track_property: 'navigation_top' }
           )
         )
       end
@@ -42,8 +42,8 @@ module Nav
           ::Gitlab::Nav::TopNavMenuItem.build(
             id: 'new_subgroup',
             title: _('New subgroup'),
-            href: new_group_path(parent_id: group.id),
-            data: { track_action: 'click_link_new_subgroup', track_label: 'plus_menu_dropdown' }
+            href: new_group_path(parent_id: group.id, anchor: 'create-group-pane'),
+            data: { track_action: 'click_link_new_subgroup', track_label: 'plus_menu_dropdown', track_property: 'navigation_top' }
           )
         )
       end
@@ -51,15 +51,11 @@ module Nav
       menu_items.push(create_epic_menu_item(group))
 
       if can?(current_user, :admin_group_member, group)
-        menu_items.push(
-          invite_members_menu_item(
-            href: group_group_members_path(group)
-          )
-        )
+        menu_items.push(invite_members_menu_item(partial: 'groups/invite_members_top_nav_link'))
       end
 
       {
-        title: _('This group'),
+        title: _('In this group'),
         menu_items: menu_items.compact
       }
     end
@@ -74,7 +70,7 @@ module Nav
             id: 'new_issue',
             title: _('New issue'),
             href: new_project_issue_path(project),
-            data: { track_action: 'click_link_new_issue', track_label: 'plus_menu_dropdown', qa_selector: 'new_issue_link' }
+            data: { track_action: 'click_link_new_issue', track_label: 'plus_menu_dropdown', track_property: 'navigation_top', testid: 'new_issue_link' }
           )
         )
       end
@@ -85,7 +81,7 @@ module Nav
             id: 'new_mr',
             title: _('New merge request'),
             href: project_new_merge_request_path(merge_project),
-            data: { track_action: 'click_link_new_mr', track_label: 'plus_menu_dropdown' }
+            data: { track_action: 'click_link_new_mr', track_label: 'plus_menu_dropdown', track_property: 'navigation_top' }
           )
         )
       end
@@ -96,21 +92,17 @@ module Nav
             id: 'new_snippet',
             title: _('New snippet'),
             href: new_project_snippet_path(project),
-            data: { track_action: 'click_link_new_snippet_project', track_label: 'plus_menu_dropdown' }
+            data: { track_action: 'click_link_new_snippet_project', track_label: 'plus_menu_dropdown', track_property: 'navigation_top' }
           )
         )
       end
 
       if can_admin_project_member?(project)
-        menu_items.push(
-          invite_members_menu_item(
-            href: project_project_members_path(project)
-          )
-        )
+        menu_items.push(invite_members_menu_item(partial: 'projects/invite_members_top_nav_link'))
       end
 
       {
-        title: _('This project'),
+        title: _('In this project'),
         menu_items: menu_items
       }
     end
@@ -124,7 +116,7 @@ module Nav
             id: 'general_new_project',
             title: _('New project/repository'),
             href: new_project_path,
-            data: { track_action: 'click_link_new_project', track_label: 'plus_menu_dropdown', qa_selector: 'global_new_project_link' }
+            data: { track_action: 'click_link_new_project', track_label: 'plus_menu_dropdown', track_property: 'navigation_top', testid: 'global-new-project-link' }
           )
         )
       end
@@ -135,7 +127,20 @@ module Nav
             id: 'general_new_group',
             title: _('New group'),
             href: new_group_path,
-            data: { track_action: 'click_link_new_group', track_label: 'plus_menu_dropdown' }
+            data: { track_action: 'click_link_new_group', track_label: 'plus_menu_dropdown', track_property: 'navigation_top', testid: 'global-new-group-link' }
+          )
+        )
+      end
+
+      if Feature.enabled?(:ui_for_organizations, current_user) &&
+          Feature.enabled?(:allow_organization_creation, current_user) &&
+          current_user.can?(:create_organization)
+        menu_items.push(
+          ::Gitlab::Nav::TopNavMenuItem.build(
+            id: 'general_new_organization',
+            title: s_('Organization|New organization'),
+            href: new_organization_path,
+            data: { track_action: 'click_link_new_organization_parent', track_label: 'plus_menu_dropdown', track_property: 'navigation_top', testid: 'global_new_organization_link' }
           )
         )
       end
@@ -146,26 +151,27 @@ module Nav
             id: 'general_new_snippet',
             title: _('New snippet'),
             href: new_snippet_path,
-            data: { track_action: 'click_link_new_snippet_parent', track_label: 'plus_menu_dropdown', qa_selector: 'global_new_snippet_link' }
+            data: { track_action: 'click_link_new_snippet_parent', track_label: 'plus_menu_dropdown', track_property: 'navigation_top', testid: 'global-new-snippet-link' }
           )
         )
       end
 
       {
-        title: _('GitLab'),
+        title: _('In GitLab'),
         menu_items: menu_items
       }
     end
 
-    def invite_members_menu_item(href:)
+    def invite_members_menu_item(partial:)
       ::Gitlab::Nav::TopNavMenuItem.build(
         id: 'invite',
         title: s_('InviteMember|Invite members'),
-        emoji: 'shaking_hands',
-        href: href,
+        icon: 'shaking_hands',
+        partial: partial,
+        component: 'invite_members',
         data: {
-          track_action: 'click_link_invite_members',
-          track_label: 'plus_menu_dropdown'
+          trigger_source: 'top_nav',
+          trigger_element: 'text-emoji'
         }
       )
     end

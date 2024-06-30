@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::RemoteMirrors do
+RSpec.describe API::RemoteMirrors, feature_category: :source_code_management do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :repository, :remote_mirror) }
   let_it_be(:developer) { create(:user) { |u| project.add_developer(u) } }
@@ -46,19 +46,70 @@ RSpec.describe API::RemoteMirrors do
     end
   end
 
+  describe 'POST /projects/:id/remote_mirrors/:mirror_id/sync' do
+    let(:route) { "/projects/#{project.id}/remote_mirrors/#{mirror_id}/sync" }
+    let(:mirror) { project.remote_mirrors.first }
+    let(:mirror_id) { mirror.id }
+
+    context 'without enough permissions' do
+      it 'requires `admin_remote_mirror` permission' do
+        post api(route, developer)
+
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+    end
+
+    context 'with sufficient permissions' do
+      before do
+        project.add_maintainer(user)
+      end
+
+      it 'returns a successful response' do
+        post api(route, user)
+
+        expect(response).to have_gitlab_http_status(:no_content)
+      end
+
+      context 'when some error occurs' do
+        before do
+          mirror.update!(enabled: false)
+        end
+
+        it 'returns an error' do
+          post api(route, user)
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+          expect(json_response['message']).to match(/Cannot proceed with the push mirroring/)
+        end
+      end
+
+      context 'when mirror ID is missing' do
+        let(:mirror_id) { non_existing_record_id }
+
+        it 'returns a not found error' do
+          post api(route, user)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+    end
+  end
+
   describe 'POST /projects/:id/remote_mirrors' do
     let(:route) { "/projects/#{project.id}/remote_mirrors" }
 
     shared_examples 'creates a remote mirror' do
-      it 'creates a remote mirror and returns reponse' do
+      it 'creates a remote mirror and returns response' do
         project.add_maintainer(user)
 
         post api(route, user), params: params
 
         enabled = params.fetch(:enabled, false)
+        auth_method = params.fetch(:auth_method, 'password')
         expect(response).to have_gitlab_http_status(:success)
         expect(response).to match_response_schema('remote_mirror')
         expect(json_response['enabled']).to eq(enabled)
+        expect(json_response['auth_method']).to eq(auth_method)
       end
     end
 
@@ -80,6 +131,12 @@ RSpec.describe API::RemoteMirrors do
 
         it_behaves_like 'creates a remote mirror'
       end
+
+      context 'auth method' do
+        let(:params) { { url: 'https://foo:bar@test.com', enabled: true, auth_method: 'ssh_public_key' } }
+
+        it_behaves_like 'creates a remote mirror'
+      end
     end
 
     it 'returns error if url is invalid' do
@@ -90,7 +147,35 @@ RSpec.describe API::RemoteMirrors do
       }
 
       expect(response).to have_gitlab_http_status(:bad_request)
-      expect(json_response['message']['url']).to eq(["is blocked: Only allowed schemes are ssh, git, http, https"])
+      expect(json_response['message']['url']).to match_array(
+        ["is blocked: Only allowed schemes are http, https, ssh, git"]
+      )
+    end
+
+    context 'when auth method is invalid' do
+      let(:params) { { url: 'https://foo:bar@test.com', enabled: true, auth_method: 'invalid' } }
+
+      it 'returns an error' do
+        project.add_maintainer(user)
+
+        post api(route, user), params: params
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['error']).to eq('auth_method does not have a valid value')
+      end
+    end
+
+    context 'when only_protected_branches is not set' do
+      let(:params) { { url: 'https://foo:bar@test.com', enabled: true, only_protected_branches: nil } }
+
+      it 'returns an error' do
+        project.add_maintainer(user)
+
+        post api(route, user), params: params
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']['only_protected_branches']).to match_array(["can't be blank"])
+      end
     end
   end
 
@@ -118,6 +203,32 @@ RSpec.describe API::RemoteMirrors do
       expect(json_response['only_protected_branches']).to eq(true)
       expect(json_response['keep_divergent_refs']).to eq(true)
     end
+
+    context 'when auth method is invalid' do
+      let(:params) { { enabled: true, auth_method: 'invalid' } }
+
+      it 'returns an error' do
+        project.add_maintainer(user)
+
+        put api(route, user), params: params
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']['auth_method']).to match_array(['is not included in the list'])
+      end
+    end
+
+    context 'when only_protected_branches is not set' do
+      let(:params) { { enabled: true, only_protected_branches: nil } }
+
+      it 'returns an error' do
+        project.add_maintainer(user)
+
+        put api(route, user), params: params
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']['only_protected_branches']).to match_array(["can't be blank"])
+      end
+    end
   end
 
   describe 'DELETE /projects/:id/remote_mirrors/:mirror_id' do
@@ -141,15 +252,15 @@ RSpec.describe API::RemoteMirrors do
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
-      it 'returns bad request if the update service fails' do
-        expect_next_instance_of(Projects::UpdateService) do |service|
-          expect(service).to receive(:execute).and_return(status: :error, message: 'message')
+      it 'returns bad request if the destroy service fails' do
+        expect_next_instance_of(RemoteMirrors::DestroyService) do |service|
+          expect(service).to receive(:execute).and_return(ServiceResponse.error(message: 'error'))
         end
 
         expect { delete api(route[mirror.id], user) }.not_to change { project.remote_mirrors.count }
 
         expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response).to eq({ 'message' => 'message' })
+        expect(json_response).to eq({ 'message' => 'error' })
       end
 
       it 'deletes a remote mirror' do

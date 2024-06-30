@@ -9,13 +9,12 @@ module ApplicationSettingImplementation
                             \s              # any whitespace character
                             |               # or
                             [\r\n]          # any number of newline characters
-                          }x.freeze
+                          }x
 
   # Setting a key restriction to `-1` means that all keys of this type are
   # forbidden.
   FORBIDDEN_KEY_VALUE = KeyRestrictionValidator::FORBIDDEN
-  SUPPORTED_KEY_TYPES = Gitlab::SSHPublicKey.supported_types
-  VALID_RUNNER_REGISTRAR_TYPES = %w(project group).freeze
+  VALID_RUNNER_REGISTRAR_TYPES = %w[project group].freeze
 
   DEFAULT_PROTECTED_PATHS = [
     '/users/password',
@@ -34,7 +33,7 @@ module ApplicationSettingImplementation
   DEFAULT_MINIMUM_PASSWORD_LENGTH = 8
 
   class_methods do
-    def defaults
+    def defaults # rubocop:disable Metrics/AbcSize
       {
         admin_mode: false,
         after_sign_up_text: nil,
@@ -42,45 +41,57 @@ module ApplicationSettingImplementation
         akismet_api_key: nil,
         allow_local_requests_from_system_hooks: true,
         allow_local_requests_from_web_hooks_and_services: false,
+        allow_possible_spam: false,
         asset_proxy_enabled: false,
         authorized_keys_enabled: true, # TODO default to false if the instance is configured to use AuthorizedKeysCommand
+        ci_max_total_yaml_size_bytes: 157286400, # max_yaml_size_bytes * ci_max_includes = 1.megabyte * 150
         commit_email_hostname: default_commit_email_hostname,
         container_expiration_policies_enable_historic_entries: false,
         container_registry_features: [],
         container_registry_token_expire_delay: 5,
         container_registry_vendor: '',
         container_registry_version: '',
+        container_registry_db_enabled: false,
         custom_http_clone_url_root: nil,
+        decompress_archive_file_timeout: 210,
         default_artifacts_expire_in: '30 days',
         default_branch_name: nil,
         default_branch_protection: Settings.gitlab['default_branch_protection'],
+        default_branch_protection_defaults: Settings.gitlab['default_branch_protection_defaults'],
         default_ci_config_path: nil,
         default_group_visibility: Settings.gitlab.default_projects_features['visibility_level'],
         default_project_creation: Settings.gitlab['default_project_creation'],
         default_project_visibility: Settings.gitlab.default_projects_features['visibility_level'],
         default_projects_limit: Settings.gitlab['default_projects_limit'],
         default_snippet_visibility: Settings.gitlab.default_projects_features['visibility_level'],
+        default_syntax_highlighting_theme: 1,
+        deny_all_requests_except_allowed: false,
         diff_max_patch_bytes: Gitlab::Git::Diff::DEFAULT_MAX_PATCH_BYTES,
         diff_max_files: Commit::DEFAULT_MAX_DIFF_FILES_SETTING,
         diff_max_lines: Commit::DEFAULT_MAX_DIFF_LINES_SETTING,
+        disable_admin_oauth_scopes: false,
         disable_feed_token: false,
+        disabled_direct_code_suggestions: false,
         disabled_oauth_sign_in_sources: [],
         dns_rebinding_protection_enabled: true,
         domain_allowlist: Settings.gitlab['domain_allowlist'],
-        dsa_key_restriction: 0,
-        ecdsa_key_restriction: 0,
-        ecdsa_sk_key_restriction: 0,
-        ed25519_key_restriction: 0,
-        ed25519_sk_key_restriction: 0,
+        dsa_key_restriction: default_min_key_size(:dsa),
+        ecdsa_key_restriction: default_min_key_size(:ecdsa),
+        ecdsa_sk_key_restriction: default_min_key_size(:ecdsa_sk),
+        ed25519_key_restriction: default_min_key_size(:ed25519),
+        ed25519_sk_key_restriction: default_min_key_size(:ed25519_sk),
+        require_admin_two_factor_authentication: false,
         eks_access_key_id: nil,
         eks_account_id: nil,
         eks_integration_enabled: false,
         eks_secret_access_key: nil,
+        email_confirmation_setting: 'off',
         email_restrictions_enabled: false,
         email_restrictions: nil,
         external_pipeline_validation_service_timeout: nil,
         external_pipeline_validation_service_token: nil,
         external_pipeline_validation_service_url: nil,
+        failed_login_attempts_unlock_period_in_minutes: nil,
         first_day_of_week: 0,
         floc_enabled: false,
         gitaly_timeout_default: 55,
@@ -94,37 +105,50 @@ module ApplicationSettingImplementation
         group_import_limit: 6,
         help_page_hide_commercial_content: false,
         help_page_text: nil,
-        help_page_documentation_base_url: nil,
+        help_page_documentation_base_url: 'https://docs.gitlab.com',
         hide_third_party_offers: false,
-        housekeeping_bitmaps_enabled: true,
         housekeeping_enabled: true,
         housekeeping_full_repack_period: 50,
         housekeeping_gc_period: 200,
         housekeeping_incremental_repack_period: 10,
         import_sources: Settings.gitlab['import_sources'],
+        include_optional_metrics_in_service_ping: Settings.gitlab['usage_ping_enabled'],
+        instance_level_ai_beta_features_enabled: false,
         invisible_captcha_enabled: false,
         issues_create_limit: 300,
+        jira_connect_application_key: nil,
+        jira_connect_public_key_storage_enabled: false,
+        jira_connect_proxy_url: nil,
         local_markdown_version: 0,
         login_recaptcha_protection_enabled: false,
         mailgun_signing_key: nil,
         mailgun_events_enabled: false,
+        math_rendering_limits_enabled: true,
         max_artifacts_size: Settings.artifacts['max_size'],
         max_attachment_size: Settings.gitlab['max_attachment_size'],
+        max_decompressed_archive_size: 25600,
+        max_export_size: 0,
         max_import_size: 0,
+        max_import_remote_file_size: 10240,
+        max_login_attempts: nil,
+        max_terraform_state_size_bytes: 0,
         max_yaml_size_bytes: 1.megabyte,
         max_yaml_depth: 100,
         minimum_password_length: DEFAULT_MINIMUM_PASSWORD_LENGTH,
         mirror_available: true,
         notes_create_limit: 300,
         notes_create_limit_allowlist: [],
+        members_delete_limit: 60,
         notify_on_unknown_sign_in: true,
         outbound_local_requests_whitelist: [],
         password_authentication_enabled_for_git: true,
         password_authentication_enabled_for_web: Settings.gitlab['signin_enabled'],
         performance_bar_allowed_group_id: nil,
-        personal_access_token_prefix: nil,
+        personal_access_token_prefix: 'glpat-',
         plantuml_enabled: false,
         plantuml_url: nil,
+        diagramsnet_enabled: true,
+        diagramsnet_url: 'https://embed.diagrams.net',
         polling_interval_multiplier: 1,
         productivity_analytics_start_date: Time.current,
         project_download_export_limit: 1,
@@ -139,24 +163,22 @@ module ApplicationSettingImplementation
         recaptcha_enabled: false,
         repository_checks_enabled: true,
         repository_storages_weighted: { 'default' => 100 },
-        repository_storages: ['default'],
         require_admin_approval_after_user_signup: true,
         require_two_factor_authentication: false,
         restricted_visibility_levels: Settings.gitlab['restricted_visibility_levels'],
-        rsa_key_restriction: 0,
-        send_user_confirmation_email: false,
+        rsa_key_restriction: default_min_key_size(:rsa),
         session_expire_delay: Settings.gitlab['session_expire_delay'],
         shared_runners_enabled: Settings.gitlab_ci['shared_runners_enabled'],
         shared_runners_text: nil,
         sidekiq_job_limiter_mode: Gitlab::SidekiqMiddleware::SizeLimiter::Validator::COMPRESS_MODE,
         sidekiq_job_limiter_compression_threshold_bytes: Gitlab::SidekiqMiddleware::SizeLimiter::Validator::DEFAULT_COMPRESSION_THRESHOLD_BYTES,
         sidekiq_job_limiter_limit_bytes: Gitlab::SidekiqMiddleware::SizeLimiter::Validator::DEFAULT_SIZE_LIMIT,
-        sign_in_text: nil,
         signup_enabled: Settings.gitlab['signup_enabled'],
         snippet_size_limit: 50.megabytes,
         snowplow_app_id: nil,
         snowplow_collector_hostname: nil,
         snowplow_cookie_domain: nil,
+        snowplow_database_collector_hostname: nil,
         snowplow_enabled: false,
         sourcegraph_enabled: false,
         sourcegraph_public_only: true,
@@ -211,22 +233,19 @@ module ApplicationSettingImplementation
         unique_ips_limit_per_user: 10,
         unique_ips_limit_time_window: 3600,
         usage_ping_enabled: Settings.gitlab['usage_ping_enabled'],
+        usage_ping_features_enabled: false,
         usage_stats_set_by_user_id: nil,
         user_default_external: false,
         user_default_internal_regex: nil,
         user_show_add_ssh_key_message: true,
         valid_runner_registrars: VALID_RUNNER_REGISTRAR_TYPES,
         wiki_page_max_content_bytes: 50.megabytes,
+        wiki_asciidoc_allow_uri_includes: false,
+        package_registry_cleanup_policies_worker_capacity: 2,
         container_registry_delete_tags_service_timeout: 250,
         container_registry_expiration_policies_worker_capacity: 4,
         container_registry_cleanup_tags_service_max_list_size: 200,
         container_registry_expiration_policies_caching: true,
-        container_registry_import_max_tags_count: 100,
-        container_registry_import_max_retries: 3,
-        container_registry_import_start_max_retries: 50,
-        container_registry_import_max_step_duration: 5.minutes,
-        container_registry_import_target_plan: 'free',
-        container_registry_import_created_before: '2022-01-23 00:00:00',
         kroki_enabled: false,
         kroki_url: nil,
         kroki_formats: { blockdiag: false, bpmn: false, excalidraw: false },
@@ -235,13 +254,65 @@ module ApplicationSettingImplementation
         user_deactivation_emails_enabled: true,
         search_rate_limit: 30,
         search_rate_limit_unauthenticated: 10,
+        search_rate_limit_allowlist: [],
         users_get_by_id_limit: 300,
-        users_get_by_id_limit_allowlist: []
-      }
+        users_get_by_id_limit_allowlist: [],
+        can_create_group: true,
+        can_create_organization: true,
+        bulk_import_enabled: false,
+        bulk_import_max_download_file_size: 5120,
+        silent_admin_exports_enabled: false,
+        allow_runner_registration_token: true,
+        user_defaults_to_private_profile: false,
+        projects_api_rate_limit_unauthenticated: 400,
+        gitlab_dedicated_instance: false,
+        gitlab_environment_toolkit_instance: false,
+        ci_max_includes: 150,
+        allow_account_deletion: true,
+        gitlab_shell_operation_limit: 600,
+        project_jobs_api_rate_limit: 600,
+        security_txt_content: nil,
+        allow_project_creation_for_guest_and_below: true,
+        enable_member_promotion_management: false,
+        security_approval_policies_limit: 5,
+        downstream_pipeline_trigger_limit_per_project_user_sha: 0,
+        asciidoc_max_includes: 32,
+        use_clickhouse_for_analytics: false,
+        group_api_limit: 400,
+        group_projects_api_limit: 600,
+        group_shared_groups_api_limit: 60,
+        groups_api_limit: 200,
+        project_api_limit: 400,
+        projects_api_limit: 2000,
+        user_contributed_projects_api_limit: 100,
+        user_projects_api_limit: 300,
+        user_starred_projects_api_limit: 100,
+        nuget_skip_metadata_url_validation: false
+      }.tap do |hsh|
+        hsh.merge!(non_production_defaults) unless Rails.env.production?
+      end
+    end
+
+    def non_production_defaults
+      {}
     end
 
     def default_commit_email_hostname
       "users.noreply.#{Gitlab.config.gitlab.host}"
+    end
+
+    # Return the default allowed minimum key size for a type.
+    # By default this is 0 (unrestricted), but in FIPS mode
+    # this will return the smallest allowed key size. If no
+    # size is available, this type is denied.
+    #
+    # @return [Integer]
+    def default_min_key_size(name)
+      if Gitlab::FIPS.enabled?
+        Gitlab::SSHPublicKey.supported_sizes(name).select(&:positive?).min || -1
+      else
+        0
+      end
     end
 
     def create_from_defaults
@@ -271,11 +342,11 @@ module ApplicationSettingImplementation
   end
 
   def domain_allowlist_raw
-    array_to_string(self.domain_allowlist)
+    array_to_string(domain_allowlist)
   end
 
   def domain_denylist_raw
-    array_to_string(self.domain_denylist)
+    array_to_string(domain_denylist)
   end
 
   def domain_allowlist_raw=(values)
@@ -291,7 +362,7 @@ module ApplicationSettingImplementation
   end
 
   def outbound_local_requests_allowlist_raw
-    array_to_string(self.outbound_local_requests_whitelist)
+    array_to_string(outbound_local_requests_whitelist)
   end
 
   def outbound_local_requests_allowlist_raw=(values)
@@ -324,15 +395,23 @@ module ApplicationSettingImplementation
   end
 
   def protected_paths_raw
-    array_to_string(self.protected_paths)
+    array_to_string(protected_paths)
   end
 
   def protected_paths_raw=(values)
     self.protected_paths = strings_to_array(values)
   end
 
+  def protected_paths_for_get_request_raw
+    array_to_string(protected_paths_for_get_request)
+  end
+
+  def protected_paths_for_get_request_raw=(values)
+    self.protected_paths_for_get_request = strings_to_array(values)
+  end
+
   def notes_create_limit_allowlist_raw
-    array_to_string(self.notes_create_limit_allowlist)
+    array_to_string(notes_create_limit_allowlist)
   end
 
   def notes_create_limit_allowlist_raw=(values)
@@ -340,11 +419,19 @@ module ApplicationSettingImplementation
   end
 
   def users_get_by_id_limit_allowlist_raw
-    array_to_string(self.users_get_by_id_limit_allowlist)
+    array_to_string(users_get_by_id_limit_allowlist)
   end
 
   def users_get_by_id_limit_allowlist_raw=(values)
     self.users_get_by_id_limit_allowlist = strings_to_array(values).map(&:downcase)
+  end
+
+  def search_rate_limit_allowlist_raw
+    array_to_string(search_rate_limit_allowlist)
+  end
+
+  def search_rate_limit_allowlist_raw=(values)
+    self.search_rate_limit_allowlist = strings_to_array(values).map(&:downcase)
   end
 
   def asset_proxy_whitelist=(values)
@@ -359,10 +446,6 @@ module ApplicationSettingImplementation
 
   def asset_proxy_allowlist
     read_attribute(:asset_proxy_whitelist)
-  end
-
-  def repository_storages
-    Array(read_attribute(:repository_storages))
   end
 
   def commit_email_hostname
@@ -421,6 +504,8 @@ module ApplicationSettingImplementation
   end
 
   def runners_registration_token
+    return unless Gitlab::CurrentSettings.allow_runner_registration_token
+
     ensure_runners_registration_token!
   end
 
@@ -428,21 +513,32 @@ module ApplicationSettingImplementation
     ensure_health_check_access_token!
   end
 
+  def error_tracking_access_token
+    ensure_error_tracking_access_token!
+  end
+
   def usage_ping_can_be_configured?
     Settings.gitlab.usage_ping_enabled
   end
 
-  def usage_ping_features_enabled?
-    usage_ping_enabled? && usage_ping_features_enabled
+  def usage_ping_features_enabled
+    return false unless usage_ping_enabled? && super
+
+    return include_optional_metrics_in_service_ping if Gitlab.ee? && respond_to?(:include_optional_metrics_in_service_ping)
+
+    true
   end
+
+  alias_method :usage_ping_features_enabled?, :usage_ping_features_enabled
 
   def usage_ping_enabled
     usage_ping_can_be_configured? && super
   end
+
   alias_method :usage_ping_enabled?, :usage_ping_enabled
 
   def allowed_key_types
-    SUPPORTED_KEY_TYPES.select do |type|
+    Gitlab::SSHPublicKey.supported_types.select do |type|
       key_restriction_for(type) != FORBIDDEN_KEY_VALUE
     end
   end
@@ -487,13 +583,44 @@ module ApplicationSettingImplementation
     static_objects_external_storage_url.present?
   end
 
-  # This will eventually be configurable
-  # https://gitlab.com/gitlab-org/gitlab/issues/208161
-  def web_ide_clientside_preview_bundler_url
-    'https://sandbox-prod.gitlab-static.net'
+  def ensure_key_restrictions!
+    return if Gitlab::Database.read_only?
+    return unless Gitlab::FIPS.enabled?
+
+    Gitlab::SSHPublicKey.supported_types.each do |key_type|
+      set_max_key_restriction!(key_type)
+    end
+  end
+
+  def repository_storages_with_default_weight
+    # config file config/gitlab.yml becomes SSOT for this API
+    # see https://gitlab.com/gitlab-org/gitlab/-/issues/426091#note_1675160909
+    storages_map = Gitlab.config.repositories.storages.keys.map do |storage|
+      [storage, repository_storages_weighted[storage] || 0]
+    end
+
+    Hash[storages_map]
   end
 
   private
+
+  def set_max_key_restriction!(key_type)
+    attr_name = "#{key_type}_key_restriction"
+    current = attributes[attr_name].to_i
+
+    return if current == KeyRestrictionValidator::FORBIDDEN
+
+    min_size = self.class.default_min_key_size(key_type)
+
+    new_value =
+      if min_size == KeyRestrictionValidator::FORBIDDEN
+        min_size
+      else
+        [min_size, current].max
+      end
+
+    assign_attributes({ attr_name => new_value })
+  end
 
   def separate_allowlists(string_array)
     string_array.reduce([[], []]) do |(ip_allowlist, domain_allowlist), string|
@@ -545,12 +672,6 @@ module ApplicationSettingImplementation
     return if uuid?
 
     self.uuid = SecureRandom.uuid
-  end
-
-  def check_repository_storages
-    invalid = repository_storages - Gitlab.config.repositories.storages.keys
-    errors.add(:repository_storages, "can't include: #{invalid.join(", ")}") unless
-      invalid.empty?
   end
 
   def coerce_repository_storages_weighted

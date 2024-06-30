@@ -2,7 +2,7 @@ import { GlSingleStat } from '@gitlab/ui/dist/charts';
 import { shallowMount } from '@vue/test-utils';
 import MetricTile from '~/analytics/shared/components/metric_tile.vue';
 import MetricPopover from '~/analytics/shared/components/metric_popover.vue';
-import { redirectTo } from '~/lib/utils/url_utility';
+import { visitUrl } from '~/lib/utils/url_utility';
 
 jest.mock('~/lib/utils/url_utility');
 
@@ -21,10 +21,6 @@ describe('MetricTile', () => {
   const findSingleStat = () => wrapper.findComponent(GlSingleStat);
   const findPopover = () => wrapper.findComponent(MetricPopover);
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('template', () => {
     describe('links', () => {
       it('when the metric has links, it redirects the user on click', () => {
@@ -36,36 +32,39 @@ describe('MetricTile', () => {
         };
         wrapper = createComponent({ metric });
 
-        const singleStat = findSingleStat();
-        singleStat.vm.$emit('click');
-        expect(redirectTo).toHaveBeenCalledWith('foo/bar');
+        findSingleStat().vm.$emit('click');
+        expect(visitUrl).toHaveBeenCalledWith('foo/bar');
       });
 
       it("when the metric doesn't have links, it won't the user on click", () => {
         const metric = { identifier: 'deploys', value: '10', label: 'Deploys' };
         wrapper = createComponent({ metric });
 
-        const singleStat = findSingleStat();
-        singleStat.vm.$emit('click');
-        expect(redirectTo).not.toHaveBeenCalled();
+        findSingleStat().vm.$emit('click');
+        expect(visitUrl).not.toHaveBeenCalled();
       });
     });
 
-    describe('decimal places', () => {
+    describe('number formatting', () => {
       it(`will render 0 decimal places for an integer value`, () => {
         const metric = { identifier: 'deploys', value: '10', label: 'Deploys' };
         wrapper = createComponent({ metric });
 
-        const singleStat = findSingleStat();
-        expect(singleStat.props('animationDecimalPlaces')).toBe(0);
+        expect(findSingleStat().props('animationDecimalPlaces')).toBe(0);
       });
 
       it(`will render 1 decimal place for a float value`, () => {
         const metric = { identifier: 'deploys', value: '10.5', label: 'Deploys' };
         wrapper = createComponent({ metric });
 
-        const singleStat = findSingleStat();
-        expect(singleStat.props('animationDecimalPlaces')).toBe(1);
+        expect(findSingleStat().props('animationDecimalPlaces')).toBe(1);
+      });
+
+      it('will render using delimiters', () => {
+        const metric = { identifier: 'deploys', value: '10000', label: 'Deploys' };
+        wrapper = createComponent({ metric });
+
+        expect(findSingleStat().props('useDelimiters')).toBe(true);
       });
     });
 

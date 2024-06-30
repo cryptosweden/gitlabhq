@@ -1,6 +1,8 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlLoadingIcon, GlIcon } from '@gitlab/ui';
 import { debounce } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 import { __ } from '~/locale';
 import TokenedInput from '../shared/tokened_input.vue';
@@ -76,7 +78,7 @@ export default {
 <template>
   <div>
     <label
-      class="dropdown-input gl-pt-3 gl-pb-5 gl-mb-0 gl-border-b-1 gl-border-b-solid gl-display-block"
+      class="dropdown-input gl-pt-3 gl-pb-5 gl-mb-0 gl-border-b-1 gl-border-b-solid gl-block"
       @click.stop
     >
       <tokened-input
@@ -89,22 +91,22 @@ export default {
       />
       <gl-icon :size="16" name="search" class="ml-3 input-icon" />
     </label>
-    <div class="dropdown-content ide-merge-requests-dropdown-content d-flex">
+    <div class="dropdown-content ide-merge-requests-dropdown-content gl-flex">
       <gl-loading-icon
         v-if="isLoading"
         size="lg"
         class="mt-3 mb-3 align-self-center ml-auto mr-auto"
       />
       <template v-else>
-        <ul class="mb-0 w-100">
+        <ul class="mb-0 gl-w-full">
           <template v-if="showSearchTypes">
             <li v-for="searchType in $options.searchTypes" :key="searchType.type">
               <button
                 type="button"
-                class="btn-link d-flex align-items-center"
+                class="btn-link gl-flex gl-items-center"
                 @click.stop="setSearchType(searchType)"
               >
-                <span class="d-flex gl-mr-3 ide-search-list-current-icon">
+                <span class="gl-flex gl-mr-3 ide-search-list-current-icon">
                   <gl-icon :size="16" name="search" />
                 </span>
                 <span>{{ searchType.label }}</span>
@@ -120,7 +122,7 @@ export default {
               />
             </li>
           </template>
-          <li v-else class="ide-search-list-empty d-flex align-items-center justify-content-center">
+          <li v-else class="ide-search-list-empty gl-flex gl-items-center justify-content-center">
             {{ __('No merge requests found') }}
           </li>
         </ul>

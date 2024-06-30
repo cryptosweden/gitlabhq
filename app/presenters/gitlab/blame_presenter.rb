@@ -21,11 +21,15 @@ module Gitlab
       :project_blame_link,
       :time_ago_tooltip)
 
-    def initialize(subject, **attributes)
+    def initialize(blame, **attributes)
       super
 
       @commits = {}
       precalculate_data_by_commit!
+    end
+
+    def first_line
+      blame.first_line
     end
 
     def groups
@@ -34,6 +38,10 @@ module Gitlab
 
     def commit_data(commit, previous_path = nil)
       @commits[commit.id] ||= get_commit_data(commit, previous_path)
+    end
+
+    def groups_commit_data
+      groups.each { |group| group[:commit_data] = commit_data(group[:commit]) }
     end
 
     private
@@ -49,7 +57,7 @@ module Gitlab
 
     def get_commit_data(commit, previous_path = nil)
       CommitData.new.tap do |data|
-        data.author_avatar = author_avatar(commit, size: 36, has_tooltip: false, lazy: true)
+        data.author_avatar = author_avatar(commit, size: 36, has_tooltip: false, lazy: true, project: project)
         data.age_map_class = age_map_class(commit.committed_date, project_duration)
         data.commit_link = link_to commit.title, project_commit_path(project, commit.id), class: "cdark", title: commit.title
         data.commit_author_link = commit_author_link(commit, avatar: false)
@@ -62,7 +70,7 @@ module Gitlab
       previous_commit_id = commit.parent_id
       return unless previous_commit_id && !previous_path.nil?
 
-      link_to project_blame_path(project, tree_join(previous_commit_id, previous_path)),
+      link_to project_blame_path(project, tree_join(previous_commit_id, previous_path), page: page),
         title: _('View blame prior to this change'),
         aria: { label: _('View blame prior to this change') },
         class: 'version-link',
@@ -81,6 +89,18 @@ module Gitlab
 
     def mail_to(*args, &block)
       ActionController::Base.helpers.mail_to(*args, &block)
+    end
+
+    def project
+      return super.project if defined?(super.project)
+
+      blame.commit.repository.project
+    end
+
+    def page
+      return super.page if defined?(super.page)
+
+      nil
     end
   end
 end

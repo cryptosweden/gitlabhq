@@ -3,17 +3,18 @@
 # This specific template is located at:
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Pages/Hyde.gitlab-ci.yml
 
-# Full project: https://gitlab.com/pages/hyde
-image: python:2.7
+default:
+  # Full project: https://gitlab.com/pages/hyde
+  image: python:2.7
 
-cache:
-  paths:
-    - vendor/
+  cache:
+    paths:
+      - vendor/
 
 test:
   stage: test
   script:
-    - pip install hyde
+    - pip install hyde==0.8.9
     - hyde gen
   except:
     variables:
@@ -21,8 +22,9 @@ test:
 
 pages:
   stage: deploy
+  environment: production
   script:
-    - pip install hyde
+    - pip install hyde==0.8.9
     - hyde gen -d public
   artifacts:
     paths:

@@ -1,18 +1,71 @@
 import { augmentFeatures, translateScannerNames } from '~/security_configuration/utils';
-import { SCANNER_NAMES_MAP } from '~/security_configuration/components/constants';
+import { SCANNER_NAMES_MAP, securityFeatures } from '~/security_configuration/constants';
 
 describe('augmentFeatures', () => {
   const mockSecurityFeatures = [
     {
       name: 'SAST',
       type: 'SAST',
+      security_features: {
+        type: 'SAST',
+      },
     },
   ];
 
-  const mockComplianceFeatures = [
+  const mockSecurityFeaturesWithSlot = [
     {
-      name: 'LICENSE_COMPLIANCE',
-      type: 'LICENSE_COMPLIANCE',
+      name: 'CONTAINER_REGISTRY',
+      type: 'CONTAINER_REGISTRY',
+      security_features: {
+        type: 'CONTAINER_REGISTRY',
+      },
+    },
+  ];
+
+  const expectedMockSecurityFeatures = [
+    {
+      name: 'SAST',
+      type: 'SAST',
+      securityFeatures: {
+        type: 'SAST',
+      },
+    },
+  ];
+
+  const expectedMockSecurityWithSlotFeatures = [
+    {
+      name: 'CONTAINER_REGISTRY',
+      type: 'CONTAINER_REGISTRY',
+      securityFeatures: {
+        type: 'CONTAINER_REGISTRY',
+      },
+    },
+  ];
+
+  const expectedInvalidMockSecurityFeatures = [
+    {
+      foo: 'bar',
+      name: 'SAST',
+      type: 'SAST',
+      securityFeatures: {
+        type: 'SAST',
+      },
+    },
+  ];
+
+  const expectedSecondarymockSecurityFeatures = [
+    {
+      name: 'DAST',
+      type: 'DAST',
+      helpPath: '/help/user/application_security/dast/index',
+      secondary: {
+        type: 'DAST PROFILES',
+        name: 'DAST PROFILES',
+      },
+      securityFeatures: {
+        type: 'DAST',
+        helpPath: '/help/user/application_security/dast/index',
+      },
     },
   ];
 
@@ -23,6 +76,10 @@ describe('augmentFeatures', () => {
       secondary: {
         type: 'DAST PROFILES',
         name: 'DAST PROFILES',
+      },
+      security_features: {
+        type: 'DAST',
+        help_path: '/help/user/application_security/dast/index',
       },
     },
   ];
@@ -38,6 +95,45 @@ describe('augmentFeatures', () => {
       name: 'SAST',
       type: 'SAST',
       customField: 'customvalue',
+      securityFeatures: {
+        type: 'SAST',
+      },
+    },
+  ];
+
+  const mockSecurityFeaturesDast = [
+    {
+      name: 'DAST',
+      type: 'dast',
+      security_features: {
+        type: 'DAST',
+      },
+    },
+  ];
+
+  const mockValidCustomFeatureWithOnDemandAvailableFalse = [
+    {
+      name: 'DAST',
+      type: 'dast',
+      customField: 'customvalue',
+      onDemandAvailable: false,
+      badge: {},
+      security_features: {
+        type: 'dast',
+      },
+    },
+  ];
+
+  const mockValidCustomFeatureWithOnDemandAvailableTrue = [
+    {
+      name: 'DAST',
+      type: 'dast',
+      customField: 'customvalue',
+      onDemandAvailable: true,
+      badge: {},
+      security_features: {
+        type: 'dast',
+      },
     },
   ];
 
@@ -50,55 +146,120 @@ describe('augmentFeatures', () => {
   ];
 
   const expectedOutputDefault = {
-    augmentedSecurityFeatures: mockSecurityFeatures,
-    augmentedComplianceFeatures: mockComplianceFeatures,
+    augmentedSecurityFeatures: expectedMockSecurityFeatures,
+  };
+
+  const expectedOutputWithSlot = {
+    augmentedSecurityFeatures: expectedMockSecurityWithSlotFeatures,
+  };
+
+  const expectedInvalidOutputDefault = {
+    augmentedSecurityFeatures: expectedInvalidMockSecurityFeatures,
   };
 
   const expectedOutputSecondary = {
-    augmentedSecurityFeatures: mockSecurityFeatures,
-    augmentedComplianceFeatures: mockFeaturesWithSecondary,
+    augmentedSecurityFeatures: expectedSecondarymockSecurityFeatures,
   };
 
   const expectedOutputCustomFeature = {
     augmentedSecurityFeatures: mockValidCustomFeature,
-    augmentedComplianceFeatures: mockComplianceFeatures,
   };
 
-  describe('returns an object with augmentedSecurityFeatures and augmentedComplianceFeatures when', () => {
-    it('given an empty array', () => {
-      expect(augmentFeatures(mockSecurityFeatures, mockComplianceFeatures, [])).toEqual(
+  const expectedOutputCustomFeatureWithOnDemandAvailableFalse = {
+    augmentedSecurityFeatures: [
+      {
+        name: 'DAST',
+        type: 'dast',
+        customField: 'customvalue',
+        onDemandAvailable: false,
+        securityFeatures: {
+          type: 'dast',
+        },
+      },
+    ],
+  };
+
+  const expectedOutputCustomFeatureWithOnDemandAvailableTrue = {
+    augmentedSecurityFeatures: [
+      {
+        name: 'DAST',
+        type: 'dast',
+        customField: 'customvalue',
+        onDemandAvailable: true,
+        badge: {},
+        securityFeatures: {
+          type: 'dast',
+        },
+      },
+    ],
+  };
+
+  describe('returns an object with augmentedSecurityFeatures  when', () => {
+    it('given an properly formatted array', () => {
+      expect(augmentFeatures(securityFeatures, mockSecurityFeatures)).toEqual(
         expectedOutputDefault,
       );
     });
 
     it('given an invalid populated array', () => {
       expect(
-        augmentFeatures(mockSecurityFeatures, mockComplianceFeatures, mockInvalidCustomFeature),
-      ).toEqual(expectedOutputDefault);
+        augmentFeatures(securityFeatures, [
+          { ...mockSecurityFeatures[0], ...mockInvalidCustomFeature[0] },
+        ]),
+      ).toEqual(expectedInvalidOutputDefault);
     });
 
     it('features have secondary key', () => {
-      expect(augmentFeatures(mockSecurityFeatures, mockFeaturesWithSecondary, [])).toEqual(
-        expectedOutputSecondary,
-      );
+      expect(
+        augmentFeatures(securityFeatures, [
+          { ...mockSecurityFeatures[0], ...mockFeaturesWithSecondary[0] },
+        ]),
+      ).toEqual(expectedOutputSecondary);
     });
 
     it('given a valid populated array', () => {
       expect(
-        augmentFeatures(mockSecurityFeatures, mockComplianceFeatures, mockValidCustomFeature),
+        augmentFeatures(securityFeatures, [
+          { ...mockSecurityFeatures[0], ...mockValidCustomFeature[0] },
+        ]),
       ).toEqual(expectedOutputCustomFeature);
+    });
+
+    it('when a custom vue slot is defined', () => {
+      expect(augmentFeatures(securityFeatures, mockSecurityFeaturesWithSlot)).toEqual(
+        expectedOutputWithSlot,
+      );
     });
   });
 
   describe('returns an object with camelcased keys', () => {
     it('given a customfeature in snakecase', () => {
       expect(
-        augmentFeatures(
-          mockSecurityFeatures,
-          mockComplianceFeatures,
-          mockValidCustomFeatureSnakeCase,
-        ),
+        augmentFeatures(securityFeatures, [
+          { ...mockSecurityFeatures[0], ...mockValidCustomFeatureSnakeCase[0] },
+        ]),
       ).toEqual(expectedOutputCustomFeature);
+    });
+  });
+
+  describe('follows onDemandAvailable', () => {
+    it('deletes badge when false', () => {
+      expect(
+        augmentFeatures(securityFeatures, [
+          {
+            ...mockSecurityFeaturesDast[0],
+            ...mockValidCustomFeatureWithOnDemandAvailableFalse[0],
+          },
+        ]),
+      ).toEqual(expectedOutputCustomFeatureWithOnDemandAvailableFalse);
+    });
+
+    it('keeps badge when true', () => {
+      expect(
+        augmentFeatures(securityFeatures, [
+          { ...mockSecurityFeaturesDast[0], ...mockValidCustomFeatureWithOnDemandAvailableTrue[0] },
+        ]),
+      ).toEqual(expectedOutputCustomFeatureWithOnDemandAvailableTrue);
     });
   });
 });

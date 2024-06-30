@@ -38,6 +38,7 @@ class NotificationRecipient
     return !unsubscribed? if @type == :subscription
 
     return false unless suitable_notification_level?
+    return false if email_blocked?
 
     # check this last because it's expensive
     # nobody should receive notifications if they've specifically unsubscribed
@@ -95,6 +96,13 @@ class NotificationRecipient
     end
   end
 
+  def email_blocked?
+    recipient_email = user.notification_email_for(@group)
+
+    Gitlab::ApplicationRateLimiter.peek(:permanent_email_failure, scope: recipient_email) ||
+      Gitlab::ApplicationRateLimiter.peek(:temporary_email_failure, scope: recipient_email)
+  end
+
   def has_access?
     DeclarativePolicy.subject_scope do
       break false unless user.can?(:receive_notifications)
@@ -111,7 +119,7 @@ class NotificationRecipient
   end
 
   def excluded_watcher_action?
-    return false unless @type == :watch
+    return false unless notification_level == :watch
     return false unless @custom_action
 
     NotificationSetting::EXCLUDED_WATCHER_EVENTS.include?(@custom_action)
@@ -123,6 +131,10 @@ class NotificationRecipient
   # No need to check the group if there is already a project
   def emails_disabled?
     @project ? @project.emails_disabled? : @group&.emails_disabled?
+  end
+
+  def emails_enabled?
+    !emails_disabled?
   end
 
   def read_ability

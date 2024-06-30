@@ -2,11 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'GFM autocomplete', :js do
+RSpec.describe 'GFM autocomplete', :js, feature_category: :team_planning do
+  include Features::AutocompleteHelpers
+
   let_it_be(:user) { create(:user, name: '💃speciąl someone💃', username: 'someone.special') }
   let_it_be(:user2) { create(:user, name: 'Marge Simpson', username: 'msimpson') }
 
-  let_it_be(:group) { create(:group, :crm_enabled) }
+  let_it_be(:group) { create(:group, maintainers: [user, user2]) }
   let_it_be(:project) { create(:project, group: group) }
   let_it_be(:issue) { create(:issue, project: project, assignees: [user]) }
   let_it_be(:label) { create(:label, project: project, title: 'special+') }
@@ -15,15 +17,9 @@ RSpec.describe 'GFM autocomplete', :js do
   let_it_be(:snippet) { create(:project_snippet, project: project, title: 'code snippet') }
 
   let_it_be(:user_xss_title) { 'eve <img src=x onerror=alert(2)&lt;img src=x onerror=alert(1)&gt;' }
-  let_it_be(:user_xss) { create(:user, name: user_xss_title, username: 'xss.user') }
+  let_it_be(:user_xss) { create(:user, name: user_xss_title, username: 'xss.user', maintainer_of: group) }
   let_it_be(:label_xss_title) { 'alert label &lt;img src=x onerror="alert(\'Hello xss\');" a' }
   let_it_be(:label_xss) { create(:label, project: project, title: label_xss_title) }
-
-  before_all do
-    group.add_maintainer(user)
-    group.add_maintainer(user_xss)
-    group.add_maintainer(user2)
-  end
 
   describe 'new issue page' do
     before do
@@ -183,7 +179,7 @@ RSpec.describe 'GFM autocomplete', :js do
       end
     end
 
-    describe 'assignees' do
+    context 'autocomplete user mentions' do
       it 'does not wrap with quotes for assignee values' do
         fill_in 'Comment', with: "@#{user.username}"
 
@@ -247,6 +243,24 @@ RSpec.describe 'GFM autocomplete', :js do
           expect(find_autocomplete_menu).not_to have_text(user.username)
           expect(find_autocomplete_menu).to have_text(user2.username)
         end
+      end
+    end
+
+    context 'autocomplete wiki pages' do
+      let_it_be(:wiki_page1) { create(:wiki_page, project: project, title: 'Home') }
+      let_it_be(:wiki_page2) { create(:wiki_page, project: project, title: 'How to use GitLab') }
+
+      it 'shows wiki pages in the autocomplete menu' do
+        fill_in 'Comment', with: '[[ho'
+
+        wait_for_requests
+
+        expect(find_autocomplete_menu).to have_text('Home')
+        expect(find_autocomplete_menu).to have_text('How to use GitLab (How-to-use-GitLab)')
+
+        send_keys [:arrow_down, :enter]
+
+        expect(find_field('Comment').value).to have_text('[[How to use GitLab|How-to-use-GitLab]]')
       end
     end
 
@@ -414,7 +428,7 @@ RSpec.describe 'GFM autocomplete', :js do
 
       it 'shows all contacts' do
         page.within(find_autocomplete_menu) do
-          expected_data = contacts.map { |c| "#{c.first_name} #{c.last_name} #{c.email}"}
+          expected_data = contacts.map { |c| "#{c.first_name} #{c.last_name} #{c.email}" }
 
           expect(page.all('li').map(&:text)).to match_array(expected_data)
         end
@@ -445,17 +459,9 @@ RSpec.describe 'GFM autocomplete', :js do
     click_button('Cancel')
 
     page.within('.modal') do
-      click_button('OK', match: :first)
+      click_button('Discard changes', match: :first)
     end
 
     wait_for_requests
-  end
-
-  def find_autocomplete_menu
-    find('.atwho-view ul', visible: true)
-  end
-
-  def find_highlighted_autocomplete_item
-    find('.atwho-view li.cur', visible: true)
   end
 end

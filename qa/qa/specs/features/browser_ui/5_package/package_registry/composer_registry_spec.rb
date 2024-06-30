@@ -1,56 +1,33 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package', :orchestrated, :packages, :object_storage do
-    describe 'Composer Repository' do
+  RSpec.describe 'Package', :object_storage, product_group: :package_registry do
+    describe 'Composer Repository', :external_api_calls do
       include Runtime::Fixtures
 
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'composer-package-project'
-        end
-      end
-
-      let(:package) do
-        Resource::Package.init do |package|
-          package.name = "my_package-#{SecureRandom.hex(4)}"
-          package.project = project
-        end
-      end
+      let(:project) { create(:project, :private, name: 'composer-package-project') }
+      let(:package) { build(:package, name: "my_package-#{SecureRandom.hex(4)}", project: project) }
 
       let!(:runner) do
-        Resource::Runner.fabricate! do |runner|
-          runner.name = "qa-runner-#{Time.now.to_i}"
-          runner.tags = ["runner-for-#{project.name}"]
-          runner.executor = :docker
-          runner.project = project
-        end
+        create(:project_runner,
+          name: "qa-runner-#{Time.now.to_i}",
+          tags: ["runner-for-#{project.name}"],
+          executor: :docker,
+          project: project)
       end
 
-      let!(:gitlab_address_with_port) do
-        uri = URI.parse(Runtime::Scenario.gitlab_address)
-        "#{uri.scheme}://#{uri.host}:#{uri.port}"
-      end
+      let(:gitlab_address_without_port) { Support::GitlabAddress.address_with_port(with_default_port: false) }
 
       before do
         Flow::Login.sign_in
         Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-          Resource::Repository::Commit.fabricate_via_api! do |commit|
-            composer_yaml = ERB.new(read_fixture('package_managers/composer', 'composer_upload_package.yaml.erb')).result(binding)
-            composer_json = ERB.new(read_fixture('package_managers/composer', 'composer.json.erb')).result(binding)
+          composer_yaml = ERB.new(read_fixture('package_managers/composer', 'composer_upload_package.yaml.erb')).result(binding)
+          composer_json = ERB.new(read_fixture('package_managers/composer', 'composer.json.erb')).result(binding)
 
-            commit.project = project
-            commit.commit_message = 'Add files'
-            commit.add_files([{
-                                file_path: '.gitlab-ci.yml',
-                                content: composer_yaml
-                              },
-                              {
-                                file_path: 'composer.json',
-                                content: composer_json
-                              }]
-                            )
-          end
+          create(:commit, project: project, commit_message: 'Add files', actions: [
+            { action: 'create', file_path: '.gitlab-ci.yml', content: composer_yaml },
+            { action: 'create', file_path: 'composer.json', content: composer_json }
+          ])
         end
 
         project.visit!
@@ -70,8 +47,11 @@ module QA
         package.remove_via_api!
       end
 
-      it 'publishes a composer package and deletes it', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348016' do
-        Page::Project::Menu.perform(&:click_packages_link)
+      it(
+        'publishes a composer package and deletes it', :blocking,
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348016'
+      ) do
+        Page::Project::Menu.perform(&:go_to_package_registry)
 
         Page::Project::Packages::Index.perform do |index|
           expect(index).to have_package(package.name)

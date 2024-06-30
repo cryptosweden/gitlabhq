@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Users::RegistrationsBuildService do
+RSpec.describe Users::RegistrationsBuildService, feature_category: :system_access do
   describe '#execute' do
     let(:base_params) { build_stubbed(:user).slice(:first_name, :last_name, :username, :email, :password) }
     let(:skip_param) { {} }
@@ -14,9 +14,29 @@ RSpec.describe Users::RegistrationsBuildService do
       stub_application_setting(signup_enabled?: true)
     end
 
+    context 'with user_detail built' do
+      it 'creates the user_detail record' do
+        user = service.execute
+
+        expect { user.save! }.to change { UserDetail.count }.by(1)
+      end
+
+      context 'when create_user_details_all_user_creation feature flag is disabled' do
+        before do
+          stub_feature_flags(create_user_details_all_user_creation: false)
+        end
+
+        it 'creates the user_detail record' do
+          user = service.execute
+
+          expect { user.save! }.to change { UserDetail.count }.by(1)
+        end
+      end
+    end
+
     context 'when automatic user confirmation is not enabled' do
       before do
-        stub_application_setting(send_user_confirmation_email: true)
+        stub_application_setting_enum('email_confirmation_setting', 'hard')
       end
 
       context 'when skip_confirmation is true' do
@@ -44,7 +64,7 @@ RSpec.describe Users::RegistrationsBuildService do
 
     context 'when automatic user confirmation is enabled' do
       before do
-        stub_application_setting(send_user_confirmation_email: false)
+        stub_application_setting_enum('email_confirmation_setting', 'off')
       end
 
       context 'when skip_confirmation is true' do

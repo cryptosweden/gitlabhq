@@ -8,11 +8,13 @@ module Gitlab
           :assign,
           :create,
           :description,
+          :draft,
           :label,
           :merge_when_pipeline_succeeds,
           :milestone,
           :remove_source_branch,
           :target,
+          :target_project,
           :title,
           :unassign,
           :unlabel
@@ -20,6 +22,12 @@ module Gitlab
       },
       ci: {
         keys: [:skip, :variable]
+      },
+      integrations: {
+        keys: [:skip_ci]
+      },
+      secret_detection: {
+        keys: [:skip_all]
       }
     }).freeze
 
@@ -35,7 +43,7 @@ module Gitlab
       mr: :merge_request
     }).freeze
 
-    OPTION_MATCHER = /(?<namespace>[^\.]+)\.(?<key>[^=]+)=?(?<value>.*)/.freeze
+    OPTION_MATCHER = /(?<namespace>[^\.]+)\.(?<key>[^=]+)=?(?<value>.*)/
 
     CI_SKIP = 'ci.skip'
 
@@ -45,8 +53,8 @@ module Gitlab
       @options = parse_options(options)
     end
 
-    def get(*args)
-      options.dig(*args)
+    def get(...)
+      options.dig(...)
     end
 
     # Allow #to_json serialization
@@ -82,7 +90,7 @@ module Gitlab
     end
 
     def option_multi_value?(namespace, key)
-      MULTI_VALUE_OPTIONS.any? { |arr| arr == [namespace, key] }
+      MULTI_VALUE_OPTIONS.any?([namespace, key])
     end
 
     def parse_option(option)

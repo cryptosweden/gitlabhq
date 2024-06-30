@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Clusters::Integrations::CreateService, '#execute' do
+RSpec.describe Clusters::Integrations::CreateService, '#execute', feature_category: :deployment_management do
   let_it_be(:project) { create(:project) }
   let_it_be_with_reload(:cluster) { create(:cluster, :provided_by_gcp, projects: [project]) }
 
@@ -61,7 +61,6 @@ RSpec.describe Clusters::Integrations::CreateService, '#execute' do
   end
 
   it_behaves_like 'a cluster integration', 'prometheus'
-  it_behaves_like 'a cluster integration', 'elastic_stack'
 
   context 'when application_type is invalid' do
     let(:params) do
@@ -69,7 +68,7 @@ RSpec.describe Clusters::Integrations::CreateService, '#execute' do
     end
 
     it 'errors' do
-      expect { service.execute}.to raise_error(ArgumentError)
+      expect { service.execute }.to raise_error(ArgumentError)
     end
   end
 

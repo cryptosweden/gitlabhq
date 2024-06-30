@@ -2,20 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Importer::NotesImporter do
-  let(:project) { double(:project, id: 4, import_source: 'foo/bar') }
-  let(:client) { double(:client) }
+RSpec.describe Gitlab::GithubImport::Importer::NotesImporter, feature_category: :importers do
+  let(:project) { build(:project, id: 4, import_source: 'foo/bar') }
+  let(:client) { instance_double(Gitlab::GithubImport::Client) }
 
   let(:github_comment) do
-    double(
-      :response,
+    {
       html_url: 'https://github.com/foo/bar/issues/42',
-      user: double(:user, id: 4, login: 'alice'),
+      user: { id: 4, login: 'alice' },
       body: 'Hello world',
       created_at: Time.zone.now,
       updated_at: Time.zone.now,
       id: 1
-    )
+    }
   end
 
   describe '#parallel?' do
@@ -76,7 +75,7 @@ RSpec.describe Gitlab::GithubImport::Importer::NotesImporter do
     end
   end
 
-  describe '#parallel_import' do
+  describe '#parallel_import', :clean_gitlab_redis_shared_state do
     it 'imports each note in parallel' do
       importer = described_class.new(project, client)
 
@@ -84,9 +83,8 @@ RSpec.describe Gitlab::GithubImport::Importer::NotesImporter do
         .to receive(:each_object_to_import)
         .and_yield(github_comment)
 
-      expect(Gitlab::GithubImport::ImportNoteWorker)
-        .to receive(:perform_async)
-        .with(project.id, an_instance_of(Hash), an_instance_of(String))
+      expect(Gitlab::GithubImport::ImportNoteWorker).to receive(:perform_in)
+        .with(an_instance_of(Float), project.id, an_instance_of(Hash), an_instance_of(String))
 
       waiter = importer.parallel_import
 

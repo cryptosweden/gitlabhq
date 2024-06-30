@@ -2,7 +2,6 @@ import Api from '~/api';
 import { addNumericSuffix } from '~/ide/utils';
 import {
   leftSidebarViews,
-  packageJsonPath,
   DEFAULT_PERMISSIONS,
   PERMISSION_READ_MR,
   PERMISSION_CREATE_MR,
@@ -31,7 +30,8 @@ const getCannotPushCodeViewModel = (state) => {
         text: MSG_GO_TO_FORK,
       },
     };
-  } else if (forkPath) {
+  }
+  if (forkPath) {
     return {
       message: MSG_CANNOT_PUSH_CODE_SHOULD_FORK,
       action: {
@@ -153,8 +153,6 @@ export const currentBranch = (state, getters) =>
 
 export const branchName = (_state, getters) => getters.currentBranch && getters.currentBranch.name;
 
-export const packageJson = (state) => state.entries[packageJsonPath];
-
 export const isOnDefaultBranch = (_state, getters) =>
   getters.currentProject && getters.currentProject.default_branch === getters.branchName;
 
@@ -262,5 +260,3 @@ export const getJsonSchemaForPath = (state, getters) => (path) => {
     fileMatch: [`*${path}`],
   };
 };
-
-export * from './getters/alert';

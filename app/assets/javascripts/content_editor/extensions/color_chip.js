@@ -1,6 +1,6 @@
 import { Node } from '@tiptap/core';
-import { Plugin, PluginKey } from 'prosemirror-state';
-import { Decoration, DecorationSet } from 'prosemirror-view';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { isValidColorExpression } from '~/lib/utils/color_utils';
 import { PARSE_HTML_PRIORITY_HIGHEST } from '../constants';
 
@@ -27,7 +27,7 @@ const highlightColors = (doc) => {
     const from = position;
     const to = from + text.length;
     const decoration = Decoration.inline(from, to, {
-      class: 'gl-display-inline-flex gl-align-items-center content-editor-color-chip',
+      class: 'gl-inline-flex gl-align-items-center content-editor-color-chip',
       style: `--gl-color-chip-color: ${text}`,
     });
 

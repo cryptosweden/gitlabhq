@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QuickActions
-  class InterpretService < BaseService
+  class InterpretService < BaseContainerService
     include Gitlab::Utils::StrongMemoize
     include Gitlab::QuickActions::Dsl
     include Gitlab::QuickActions::IssueActions
@@ -11,6 +11,7 @@ module QuickActions
     include Gitlab::QuickActions::CommitActions
     include Gitlab::QuickActions::CommonActions
     include Gitlab::QuickActions::RelateActions
+    include Gitlab::QuickActions::WorkItemActions
 
     attr_reader :quick_action_target
 
@@ -44,17 +45,18 @@ module QuickActions
       content, commands = extractor.extract_commands(content, only: only)
       extract_updates(commands)
 
-      [content, @updates, execution_messages_for(commands)]
+      [content, @updates, execution_messages_for(commands), command_names(commands)]
     end
 
     # Takes a text and interprets the commands that are extracted from it.
     # Returns the content without commands, and array of changes explained.
-    def explain(content, quick_action_target)
+    # `keep_actions: true` will keep the quick actions in the content.
+    def explain(content, quick_action_target, keep_actions: false)
       return [content, []] unless current_user.can?(:use_quick_actions)
 
       @quick_action_target = quick_action_target
 
-      content, commands = extractor.extract_commands(content)
+      content, commands = extractor(keep_actions).extract_commands(content)
       commands = explain_commands(commands)
       [content, commands]
     end
@@ -65,27 +67,36 @@ module QuickActions
       raise Gitlab::QuickActions::CommandDefinition::ParseError, message
     end
 
-    def extractor
-      Gitlab::QuickActions::Extractor.new(self.class.command_definitions)
+    def extractor(keep_actions = false)
+      Gitlab::QuickActions::Extractor.new(self.class.command_definitions, keep_actions: keep_actions)
     end
 
+    # Find users for commands like /assign
+    #
+    # eg. /assign me and @jane and jack
     def extract_users(params)
-      return [] if params.blank?
+      Gitlab::QuickActions::UsersExtractor
+        .new(current_user, project: project, group: group, target: quick_action_target, text: params)
+        .execute
 
-      # We are using the a simple User.by_username query here rather than a ReferenceExtractor
-      # because the needs here are much simpler: we only deal in usernames, and
-      # want to also handle bare usernames. The ReferenceExtractor also has
-      # different behaviour, and will return all group members for groups named
-      # using a user-style reference, which is not in scope here.
-      args        = params.split(/\s|,/).select(&:present?).uniq - ['and']
-      usernames   = (args - ['me']).map { _1.delete_prefix('@') }
-      found       = User.by_username(usernames).to_a.select { can?(:read_user, _1) }
-      found_names = found.map(&:username).to_set
-      missing     = args.reject { |arg| arg == 'me' || found_names.include?(arg.delete_prefix('@')) }.map { "'#{_1}'" }
+    rescue Gitlab::QuickActions::UsersExtractor::Error => err
+      extract_users_failed(err)
+    end
 
-      failed_parse(format(_("Failed to find users for %{missing}"), missing: missing.to_sentence)) if missing.present?
-
-      found + [current_user].select { args.include?('me') }
+    def extract_users_failed(err)
+      case err
+      when Gitlab::QuickActions::UsersExtractor::MissingError
+        failed_parse(format(_("Failed to find users for %{missing}"), missing: err.message))
+      when Gitlab::QuickActions::UsersExtractor::TooManyRefsError
+        failed_parse(format(_('Too many references. Quick actions are limited to at most %{max_count} user references'),
+          max_count: err.limit))
+      when Gitlab::QuickActions::UsersExtractor::TooManyFoundError
+        failed_parse(format(_("Too many users found. Quick actions are limited to at most %{max_count} users"),
+          max_count: err.limit))
+      else
+        Gitlab::ErrorTracking.track_and_raise_for_dev_exception(err)
+        failed_parse(_('Something went wrong'))
+      end
     end
 
     def find_milestones(project, params = {})
@@ -96,12 +107,6 @@ module QuickActions
 
     def parent
       project || group
-    end
-
-    def group
-      strong_memoize(:group) do
-        quick_action_target.group if quick_action_target.respond_to?(:group)
-      end
     end
 
     def find_labels(labels_params = nil)
@@ -149,16 +154,25 @@ module QuickActions
     end
 
     def map_commands(commands, method)
-      commands.map do |name, arg|
-        definition = self.class.definition_by_name(name)
+      commands.map do |name_or_alias, arg|
+        definition = self.class.definition_by_name(name_or_alias)
         next unless definition
 
         case method
         when :explain
           definition.explain(self, arg)
         when :execute_message
-          @execution_message[name.to_sym] || definition.execute_message(self, arg)
+          @execution_message[definition.name.to_sym] || definition.execute_message(self, arg)
         end
+      end.compact
+    end
+
+    def command_names(commands)
+      commands.flatten.map do |name|
+        definition = self.class.definition_by_name(name)
+        next unless definition
+
+        name
       end.compact
     end
 
@@ -168,7 +182,7 @@ module QuickActions
         next unless definition
 
         definition.execute(self, arg)
-        usage_ping_tracking(name, arg)
+        usage_ping_tracking(definition.name, arg)
       end
     end
 
@@ -185,8 +199,14 @@ module QuickActions
     # rubocop: enable CodeReuse/ActiveRecord
 
     def usage_ping_tracking(quick_action_name, arg)
+      # Need to add this guard clause as `duo_code_review` quick action will fail
+      # if we continue to track its usage. This is because we don't have a metric
+      # for it and this is something that can change soon (e.g. quick action may
+      # be replaced by a UI component).
+      return if quick_action_name == :duo_code_review
+
       Gitlab::UsageDataCounters::QuickActionActivityUniqueCounter.track_unique_action(
-        quick_action_name,
+        quick_action_name.to_s,
         args: arg&.strip,
         user: current_user
       )
@@ -198,4 +218,4 @@ module QuickActions
   end
 end
 
-QuickActions::InterpretService.prepend_mod_with('QuickActions::InterpretService')
+QuickActions::InterpretService.prepend_mod

@@ -13,7 +13,7 @@ Gitlab::Experiment.configure do |config|
   # Customize the logic of our default rollout, which shouldn't include
   # assigning the control yet -- we specifically set it to false for now.
   #
-  config.default_rollout = Gitlab::Experiment::Rollout::Feature.new
+  config.default_rollout = Gitlab::Experiment::Rollout.resolve(:feature)
 
   # Mount the engine and middleware at a gitlab friendly style path.
   #
@@ -49,7 +49,7 @@ Gitlab::Experiment.configure do |config|
   #
   valid_domains = %w[about.gitlab.com docs.gitlab.com gitlab.com gdk.test localhost]
   config.redirect_url_validator = lambda do |url|
-    Gitlab.com? && (url = URI.parse(url)) && valid_domains.include?(url.host)
+    ApplicationExperiment.available? && (url = URI.parse(url)) && valid_domains.include?(url.host)
   rescue URI::InvalidURIError
     false
   end
@@ -65,7 +65,7 @@ Gitlab::Experiment.configure do |config|
   # permitted, and will be sent along using Gitlab::Tracking::StandardContext.
   #
   config.tracking_behavior = lambda do |action, event_args|
-    Gitlab::Tracking.event(name, action.to_s, **event_args.merge(
+    Gitlab::Tracking.event(name, action, **event_args.merge(
       context: (event_args[:context] || []) << SnowplowTracker::SelfDescribingJson.new(
         'iglu:com.gitlab/gitlab_experiment/jsonschema/1-0-0', signature
       )
@@ -83,19 +83,5 @@ Gitlab::Experiment.configure do |config|
     def deprecated(*args, version:, stack: 0)
       super if Gitlab.dev_or_test_env?
     end
-
-    # Maintain a list of resolved deprecations to ensure that no new uses appear.
-    #
-    # Once a resolved deprecation warning has been added here, any future use will
-    # raise an exception.
-    #
-    ActiveSupport::Deprecation.disallowed_warnings += [
-      # 'Gitlab::Experiment 0.8 (instead use `control`)', # don't use `use`
-      # 'Gitlab::Experiment 0.8 (instead use `candidate`)', # don't use `try`
-      # 'Gitlab::Experiment 0.8 (instead use `variant(:variant_name)`)', # don't use `try(:variant_name)`
-      # 'Gitlab::Experiment 0.8 (instead use `assigned(:candidate)`)', # don't use variant(:variant_name) to assign
-      # 'Gitlab::Experiment 0.8 (instead use `assigned`)', # don't use variant.name to get the assigned variant
-      # 'Gitlab::Experiment 0.8, instead register variants using:', # don't use public `*_behavior` methods
-    ]
   end)
 end

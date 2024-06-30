@@ -1,9 +1,12 @@
 <script>
 import { GlProgressBar } from '@gitlab/ui';
 import { Document } from 'yaml';
+import { uniqueId } from 'lodash';
 import { merge } from '~/lib/utils/yaml';
 import { __ } from '~/locale';
 import { isValidStepSeq } from '~/pipeline_wizard/validators';
+import Tracking from '~/tracking';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import YamlEditor from './editor.vue';
 import WizardStep from './step.vue';
 import CommitStep from './commit.vue';
@@ -11,9 +14,10 @@ import CommitStep from './commit.vue';
 export const i18n = {
   stepNofN: __('Step %{currentStep} of %{stepCount}'),
   draft: __('Draft: %{filename}'),
-  overlayMessage: __(`Start inputting changes and we will generate a
-    YAML-file for you to add to your repository`),
+  overlayMessage: __(`Enter values to populate the .gitlab-ci.yml configuration file.`),
 };
+
+const trackingMixin = Tracking.mixin();
 
 export default {
   name: 'PipelineWizardWrapper',
@@ -24,6 +28,7 @@ export default {
     WizardStep,
     CommitStep,
   },
+  mixins: [trackingMixin, glFeatureFlagsMixin()],
   props: {
     steps: {
       type: Object,
@@ -42,6 +47,11 @@ export default {
       type: String,
       required: true,
     },
+    templateId: {
+      type: String,
+      required: false,
+      default: null,
+    },
   },
   data() {
     return {
@@ -57,15 +67,6 @@ export default {
     };
   },
   computed: {
-    currentStepConfig() {
-      return this.steps.get(this.currentStepIndex);
-    },
-    currentStepInputs() {
-      return this.currentStepConfig.get('inputs').toJSON();
-    },
-    currentStepTemplate() {
-      return this.currentStepConfig.get('template', true);
-    },
     currentStep() {
       return this.currentStepIndex + 1;
     },
@@ -77,6 +78,23 @@ export default {
     },
     isLastStep() {
       return this.currentStep === this.stepCount;
+    },
+    stepList() {
+      return this.steps.items.map((_, i) => ({
+        id: uniqueId(),
+        inputs: this.steps.get(i).get('inputs').toJSON(),
+        template: this.steps.get(i).get('template', true),
+      }));
+    },
+    tracking() {
+      return {
+        category: `pipeline_wizard:${this.templateId}`,
+      };
+    },
+    trackingExtraData() {
+      return {
+        features: this.glFeatures,
+      };
     },
   },
   watch: {
@@ -104,6 +122,47 @@ export default {
       });
       return doc;
     },
+    onBack() {
+      this.currentStepIndex -= 1;
+      this.track('click_button', {
+        property: 'back',
+        label: 'pipeline_wizard_navigation',
+        extra: {
+          fromStep: this.currentStepIndex + 1,
+          toStep: this.currentStepIndex,
+          ...this.trackingExtraData,
+        },
+      });
+    },
+    onNext() {
+      this.currentStepIndex += 1;
+      this.track('click_button', {
+        property: 'next',
+        label: 'pipeline_wizard_navigation',
+        extra: {
+          fromStep: this.currentStepIndex - 1,
+          toStep: this.currentStepIndex,
+          ...this.trackingExtraData,
+        },
+      });
+    },
+    onDone() {
+      this.$emit('done');
+      this.track('click_button', {
+        label: 'pipeline_wizard_commit',
+        property: 'commit',
+        extra: this.trackingExtraData,
+      });
+    },
+    onEditorTouched() {
+      this.track('edit', {
+        label: 'pipeline_wizard_editor_interaction',
+        extra: {
+          currentStep: this.currentStepIndex,
+          ...this.trackingExtraData,
+        },
+      });
+    },
   },
 };
 </script>
@@ -115,30 +174,32 @@ export default {
         <h3 class="text-secondary gl-mt-0" data-testid="step-count">
           {{ sprintf($options.i18n.stepNofN, { currentStep, stepCount }) }}
         </h3>
-        <gl-progress-bar :value="progress" variant="success" />
+        <gl-progress-bar :value="progress" />
       </header>
       <section class="gl-mb-4">
         <commit-step
-          v-if="isLastStep"
-          ref="step"
+          v-show="isLastStep"
+          data-testid="step"
           :default-branch="defaultBranch"
           :file-content="pipelineBlob"
           :filename="filename"
           :project-path="projectPath"
-          @back="currentStepIndex--"
+          @back="onBack"
+          @done="onDone"
         />
         <wizard-step
-          v-else
-          :key="currentStepIndex"
-          ref="step"
+          v-for="(step, i) in stepList"
+          v-show="i === currentStepIndex"
+          :key="step.id"
+          data-testid="step"
           :compiled.sync="compiled"
-          :has-next-step="currentStepIndex < steps.items.length"
-          :has-previous-step="currentStepIndex > 0"
+          :has-next-step="i < steps.items.length"
+          :has-previous-step="i > 0"
           :highlight.sync="highlightPath"
-          :inputs="currentStepInputs"
-          :template="currentStepTemplate"
-          @back="currentStepIndex--"
-          @next="currentStepIndex++"
+          :inputs="step.inputs"
+          :template="step.template"
+          @back="onBack"
+          @next="onNext"
           @update:compiled="onUpdate"
         />
       </section>
@@ -158,6 +219,7 @@ export default {
             :highlight="highlightPath"
             class="gl-w-full"
             @update:yaml="onEditorUpdate"
+            @touch.once="onEditorTouched"
           />
           <div
             v-if="showPlaceholder"
@@ -165,10 +227,10 @@ export default {
             data-testid="placeholder-overlay"
           >
             <div
-              class="gl-absolute gl-top-0 gl-right-0 gl-bottom-0 gl-left-0 bg-white gl-opacity-5 gl-z-index-2"
+              class="gl-absolute gl-top-0 gl-right-0 gl-bottom-0 gl-left-0 bg-white gl-opacity-5 gl-z-2"
             ></div>
             <div
-              class="gl-relative gl-h-full gl-display-flex gl-align-items-center gl-justify-content-center gl-z-index-3"
+              class="gl-relative gl-h-full gl-display-flex gl-align-items-center gl-justify-content-center gl-z-3"
             >
               <div class="gl-max-w-34">
                 <h4 data-testid="filename">{{ filename }}</h4>

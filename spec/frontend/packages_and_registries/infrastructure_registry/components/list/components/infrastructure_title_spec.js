@@ -7,8 +7,8 @@ describe('Infrastructure Title', () => {
   let wrapper;
   let store;
 
-  const findTitleArea = () => wrapper.find(TitleArea);
-  const findMetadataItem = () => wrapper.find(MetadataItem);
+  const findTitleArea = () => wrapper.findComponent(TitleArea);
+  const findMetadataItem = () => wrapper.findComponent(MetadataItem);
 
   const exampleProps = { helpUrl: 'http://example.gitlab.com/help' };
 
@@ -22,11 +22,6 @@ describe('Infrastructure Title', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('title area', () => {
     beforeEach(() => {
       mountComponent();
@@ -37,7 +32,7 @@ describe('Infrastructure Title', () => {
     });
 
     it('has the correct title', () => {
-      expect(findTitleArea().props('title')).toBe('Infrastructure Registry');
+      expect(findTitleArea().props('title')).toBe('Terraform Module Registry');
     });
 
     describe('with no modules', () => {
@@ -74,7 +69,7 @@ describe('Infrastructure Title', () => {
       mountComponent({ ...exampleProps, count });
     });
 
-    it(exist ? 'exists' : 'does not exist', () => {
+    it(`${exist ? 'exists' : 'does not exist'}`, () => {
       expect(findMetadataItem().exists()).toBe(exist);
     });
 

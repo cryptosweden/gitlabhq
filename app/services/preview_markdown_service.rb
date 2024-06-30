@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class PreviewMarkdownService < BaseService
+class PreviewMarkdownService < BaseContainerService
   def execute
     text, commands = explain_quick_actions(params[:text])
     users = find_user_references(text)
@@ -10,21 +10,21 @@ class PreviewMarkdownService < BaseService
       text: text,
       users: users,
       suggestions: suggestions,
-      commands: commands.join(' ')
+      commands: commands.join('<br>')
     )
   end
 
   private
 
   def quick_action_types
-    %w(Issue MergeRequest Commit)
+    %w[Issue MergeRequest Commit WorkItem]
   end
 
   def explain_quick_actions(text)
     return text, [] unless quick_action_types.include?(target_type)
 
-    quick_actions_service = QuickActions::InterpretService.new(project, current_user)
-    quick_actions_service.explain(text, find_commands_target)
+    quick_actions_service = QuickActions::InterpretService.new(container: container, current_user: current_user)
+    quick_actions_service.explain(text, find_commands_target, keep_actions: params[:render_quick_actions])
   end
 
   def find_user_references(text)
@@ -37,14 +37,14 @@ class PreviewMarkdownService < BaseService
     return [] unless preview_sugestions?
 
     position = Gitlab::Diff::Position.new(new_path: params[:file_path],
-                                          new_line: params[:line].to_i,
-                                          base_sha: params[:base_sha],
-                                          head_sha: params[:head_sha],
-                                          start_sha: params[:start_sha])
+      new_line: params[:line].to_i,
+      base_sha: params[:base_sha],
+      head_sha: params[:head_sha],
+      start_sha: params[:start_sha])
 
     Gitlab::Diff::SuggestionsParser.parse(text, position: position,
-                                                project: project,
-                                                supports_suggestion: params[:preview_suggestions])
+      project: project,
+      supports_suggestion: params[:preview_suggestions])
   end
 
   def preview_sugestions?
@@ -55,7 +55,7 @@ class PreviewMarkdownService < BaseService
 
   def find_commands_target
     QuickActions::TargetService
-      .new(project, current_user, group: params[:group])
+      .new(container: container, current_user: current_user)
       .execute(target_type, target_id)
   end
 
@@ -68,4 +68,4 @@ class PreviewMarkdownService < BaseService
   end
 end
 
-PreviewMarkdownService.prepend_mod_with('PreviewMarkdownService')
+PreviewMarkdownService.prepend_mod

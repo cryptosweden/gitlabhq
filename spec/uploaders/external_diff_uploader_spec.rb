@@ -9,9 +9,9 @@ RSpec.describe ExternalDiffUploader do
   subject(:uploader) { described_class.new(diff, :external_diff) }
 
   it_behaves_like "builds correct paths",
-                  store_dir: %r[merge_request_diffs/mr-\d+],
-                  cache_dir: %r[/external-diffs/tmp/cache],
-                  work_dir: %r[/external-diffs/tmp/work]
+    store_dir: %r{merge_request_diffs/mr-\d+},
+    cache_dir: %r{/external-diffs/tmp/cache},
+    work_dir: %r{/external-diffs/tmp/work}
 
   context "object store is REMOTE" do
     before do
@@ -21,30 +21,7 @@ RSpec.describe ExternalDiffUploader do
     include_context 'with storage', described_class::Store::REMOTE
 
     it_behaves_like "builds correct paths",
-                    store_dir: %r[merge_request_diffs/mr-\d+]
-  end
-
-  describe 'migration to object storage' do
-    context 'with object storage disabled' do
-      it "is skipped" do
-        expect(ObjectStorage::BackgroundMoveWorker).not_to receive(:perform_async)
-
-        diff
-      end
-    end
-
-    context 'with object storage enabled' do
-      before do
-        stub_external_diffs_setting(enabled: true)
-        stub_external_diffs_object_storage(background_upload: true)
-      end
-
-      it 'is scheduled to run after creation' do
-        expect(ObjectStorage::BackgroundMoveWorker).to receive(:perform_async).with(described_class.name, 'MergeRequestDiff', :external_diff, kind_of(Numeric))
-
-        diff
-      end
-    end
+      store_dir: %r{merge_request_diffs/mr-\d+}
   end
 
   describe 'remote file' do
@@ -57,8 +34,6 @@ RSpec.describe ExternalDiffUploader do
       end
 
       it 'can store file remotely' do
-        allow(ObjectStorage::BackgroundMoveWorker).to receive(:perform_async)
-
         diff
 
         expect(diff.external_diff_store).to eq(described_class::Store::REMOTE)

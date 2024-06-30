@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Packages::GroupPackagesFinder do
+RSpec.describe Packages::GroupPackagesFinder, feature_category: :package_registry do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be(:user) { create(:user) }
@@ -23,6 +23,16 @@ RSpec.describe Packages::GroupPackagesFinder do
       let(:params) { { exclude_subgroups: false, package_type: package_type } }
 
       it { is_expected.to match_array([send("package_#{package_type}")]) }
+    end
+
+    shared_examples 'disabling package registry for project' do
+      let(:params) { super().merge(with_package_registry_enabled: true) }
+
+      before do
+        project.update!(package_registry_access_level: 'disabled', packages_enabled: false)
+      end
+
+      it { is_expected.to match_array(packages_returned) }
     end
 
     def self.package_types
@@ -98,8 +108,8 @@ RSpec.describe Packages::GroupPackagesFinder do
               )
 
               unless role == :anonymous
-                project.add_user(user, role)
-                subproject.add_user(user, role)
+                project.add_member(user, role)
+                subproject.add_member(user, role)
               end
             end
 
@@ -117,6 +127,10 @@ RSpec.describe Packages::GroupPackagesFinder do
             let(:user) { deploy_token_for_group }
 
             it { is_expected.to match_array([package1, package2, package4]) }
+
+            it_behaves_like 'disabling package registry for project' do
+              let(:packages_returned) { [package4] }
+            end
           end
 
           context 'project deploy token' do
@@ -126,6 +140,11 @@ RSpec.describe Packages::GroupPackagesFinder do
             let(:user) { deploy_token_for_project }
 
             it { is_expected.to match_array([package4]) }
+
+            it_behaves_like 'disabling package registry for project' do
+              let(:project) { subproject }
+              let(:packages_returned) { [] }
+            end
           end
         end
 
@@ -147,6 +166,22 @@ RSpec.describe Packages::GroupPackagesFinder do
         let_it_be(:package4) { create(:nuget_package, :processing, project: project) }
 
         it { is_expected.to match_array([package1, package2]) }
+      end
+
+      context 'preload_pipelines' do
+        it 'preloads pipelines by default' do
+          expect(Packages::Package).to receive(:preload_pipelines).and_call_original
+          expect(subject).to match_array([package1, package2])
+        end
+
+        context 'set to false' do
+          let(:params) { { preload_pipelines: false } }
+
+          it 'does not preload pipelines' do
+            expect(Packages::Package).not_to receive(:preload_pipelines)
+            expect(subject).to match_array([package1, package2])
+          end
+        end
       end
 
       context 'with package_name' do
@@ -184,10 +219,15 @@ RSpec.describe Packages::GroupPackagesFinder do
 
       it_behaves_like 'concerning versionless param'
       it_behaves_like 'concerning package statuses'
+      it_behaves_like 'disabling package registry for project' do
+        let(:packages_returned) { [] }
+      end
     end
 
     context 'group has package of all types' do
-      package_types.each { |pt| let_it_be("package_#{pt}") { create("#{pt}_package", project: project) } }
+      package_types.each do |pt| # rubocop:disable RSpec/UselessDynamicDefinition -- `pt` used in `let`
+        let_it_be("package_#{pt}") { create("#{pt}_package", project: project) }
+      end
 
       package_types.each do |package_type|
         it_behaves_like 'with package type', package_type
@@ -201,7 +241,7 @@ RSpec.describe Packages::GroupPackagesFinder do
     context 'group is nil' do
       subject { described_class.new(user, nil).execute }
 
-      it { is_expected.to be_empty}
+      it { is_expected.to be_empty }
     end
 
     context 'package type is nil' do
@@ -209,7 +249,7 @@ RSpec.describe Packages::GroupPackagesFinder do
 
       subject { described_class.new(user, group, package_type: nil).execute }
 
-      it { is_expected.to match_array([package1])}
+      it { is_expected.to match_array([package1]) }
     end
 
     context 'with invalid package_type' do

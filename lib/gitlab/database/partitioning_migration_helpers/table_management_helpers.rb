@@ -6,18 +6,70 @@ module Gitlab
       module TableManagementHelpers
         include ::Gitlab::Database::SchemaHelpers
         include ::Gitlab::Database::MigrationHelpers
-        include ::Gitlab::Database::Migrations::BackgroundMigrationHelpers
+        include ::Gitlab::Database::MigrationHelpers::LooseForeignKeyHelpers
 
-        ALLOWED_TABLES = %w[audit_events web_hook_logs].freeze
+        ALLOWED_TABLES = %w[group_audit_events project_audit_events instance_audit_events user_audit_events
+          audit_events web_hook_logs merge_request_diff_files merge_request_diff_commits].freeze
+
         ERROR_SCOPE = 'table partitioning'
 
         MIGRATION_CLASS_NAME = "::#{module_parent_name}::BackfillPartitionedTable"
+        MIGRATION = "BackfillPartitionedTable"
         BATCH_INTERVAL = 2.minutes.freeze
         BATCH_SIZE = 50_000
+        SUB_BATCH_SIZE = 2_500
+        PARTITION_BUFFER = 6
+        MIN_ID = 1
 
-        JobArguments = Struct.new(:start_id, :stop_id, :source_table_name, :partitioned_table_name, :source_column) do
-          def self.from_array(arguments)
-            self.new(*arguments)
+        # Creates a partitioned copy of an existing table, using a RANGE partitioning strategy on a int/bigint column.
+        # One partition is created per partition_size between 1 and MAX(column_name). Also installs a trigger on
+        # the original table to copy writes into the partitioned table. To copy over historic data from before creation
+        # of the partitioned table, use the `enqueue_partitioning_data_migration` helper in a post-deploy migration.
+        # Note: If the original table is empty the system creates 6 partitions in the new table.
+        #
+        # A copy of the original table is required as PG currently does not support partitioning existing tables.
+        #
+        # Example:
+        #
+        #   partition_table_by_int_range :merge_request_diff_commits, :merge_request_diff_id, partition_size: 500, primary_key: ['merge_request_diff_id', 'relative_order']
+        #
+        # Options are:
+        #   :partition_size - a int specifying the partition size
+        #   :primary_key - a array specifying the primary query of the new table
+        #
+        # Note: The system always adds a buffer of 6 partitions.
+        def partition_table_by_int_range(table_name, column_name, partition_size:, primary_key:)
+          Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.require_ddl_mode!
+
+          assert_table_is_allowed(table_name)
+
+          assert_not_in_transaction_block(scope: ERROR_SCOPE)
+
+          current_primary_key = Array.wrap(connection.primary_key(table_name))
+          raise "primary key not defined for #{table_name}" if current_primary_key.blank?
+
+          partition_column = find_column_definition(table_name, column_name)
+          raise "partition column #{column_name} does not exist on #{table_name}" if partition_column.nil?
+
+          primary_key = Array.wrap(primary_key).map(&:to_s)
+          raise "the partition column must be part of the primary key" unless primary_key.include?(column_name.to_s)
+
+          primary_key_objects = connection.columns(table_name).select { |column| primary_key.include?(column.name) }
+
+          raise 'partition_size must be greater than 1' unless partition_size > 1
+
+          max_id = Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.with_suppressed do
+            Gitlab::Database::QueryAnalyzers::GitlabSchemasValidateConnection.with_suppressed do
+              define_batchable_model(table_name, connection: connection).maximum(column_name) || (partition_size * PARTITION_BUFFER)
+            end
+          end
+
+          partitioned_table_name = make_partitioned_table_name(table_name)
+
+          with_lock_retries do
+            create_range_id_partitioned_copy(table_name, partitioned_table_name, partition_column, primary_key_objects)
+            create_int_range_partitions(partitioned_table_name, partition_size, MIN_ID, max_id)
+            create_trigger_to_sync_tables(table_name, partitioned_table_name, current_primary_key)
           end
         end
 
@@ -40,16 +92,20 @@ module Gitlab
         # 1. The minimum value for the partitioning column in the table
         # 2. If no data is present yet, the current month
         def partition_table_by_date(table_name, column_name, min_date: nil, max_date: nil)
+          Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.require_ddl_mode!
+
           assert_table_is_allowed(table_name)
 
           assert_not_in_transaction_block(scope: ERROR_SCOPE)
 
           max_date ||= Date.today + 1.month
 
-          min_date ||= connection.select_one(<<~SQL)['minimum'] || max_date - 1.month
-            SELECT date_trunc('MONTH', MIN(#{column_name})) AS minimum
-            FROM #{table_name}
-          SQL
+          Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.with_suppressed do
+            min_date ||= connection.select_one(<<~SQL)['minimum'] || (max_date - 1.month)
+              SELECT date_trunc('MONTH', MIN(#{column_name})) AS minimum
+              FROM #{table_name}
+            SQL
+          end
 
           raise "max_date #{max_date} must be greater than min_date #{min_date}" if min_date >= max_date
 
@@ -104,12 +160,21 @@ module Gitlab
 
           partitioned_table_name = make_partitioned_table_name(table_name)
           primary_key = connection.primary_key(table_name)
-          enqueue_background_migration(table_name, partitioned_table_name, primary_key)
+
+          queue_batched_background_migration(
+            MIGRATION,
+            table_name,
+            primary_key,
+            partitioned_table_name,
+            batch_size: BATCH_SIZE,
+            sub_batch_size: SUB_BATCH_SIZE,
+            job_interval: BATCH_INTERVAL
+          )
         end
 
         # Cleanup a previously enqueued background migration to copy data into a partitioned table. This will not
         # prevent the enqueued jobs from executing, but instead cleans up information in the database used to track the
-        # state of the background migration. It should be safe to also remove the partitioned table even if the
+        # state of the batched background migration. It should be safe to also remove the partitioned table even if the
         # background jobs are still in-progress, as the absence of the table will cause them to safely exit.
         #
         # Example:
@@ -119,7 +184,10 @@ module Gitlab
         def cleanup_partitioning_data_migration(table_name)
           assert_table_is_allowed(table_name)
 
-          cleanup_migration_jobs(table_name)
+          partitioned_table_name = make_partitioned_table_name(table_name)
+          primary_key = connection.primary_key(table_name)
+
+          delete_batched_background_migration(MIGRATION, table_name, primary_key, [partitioned_table_name])
         end
 
         def create_hash_partitions(table_name, number_of_partitions)
@@ -139,14 +207,11 @@ module Gitlab
           end
         end
 
-        # Executes cleanup tasks from a previous BackgroundMigration to backfill a partitioned table by finishing
-        # pending jobs and performing a final data synchronization.
-        # This performs two steps:
-        #   1. Wait to finish any pending BackgroundMigration jobs that have not succeeded
-        #   2. Inline copy any missed rows from the original table to the partitioned table
+        # Executes jobs from previous BatchedBackgroundMigration to backfill the partitioned table by finishing
+        # pending jobs.
         #
         # **NOTE** Migrations using this method cannot be scheduled in the same release as the migration that
-        # schedules the background migration using the `enqueue_background_migration` helper, or else the
+        # schedules the background migration using the `enqueue_partitioning_data_migration` helper, or else the
         # background migration jobs will be force-executed.
         #
         # Example:
@@ -155,23 +220,25 @@ module Gitlab
         #
         def finalize_backfilling_partitioned_table(table_name)
           assert_table_is_allowed(table_name)
-          assert_not_in_transaction_block(scope: ERROR_SCOPE)
 
           partitioned_table_name = make_partitioned_table_name(table_name)
+
           unless table_exists?(partitioned_table_name)
             raise "could not find partitioned table for #{table_name}, " \
               "this could indicate the previous partitioning migration has been rolled back."
           end
 
-          Gitlab::BackgroundMigration.steal(MIGRATION_CLASS_NAME) do |background_job|
-            JobArguments.from_array(background_job.args.second).source_table_name == table_name.to_s
-          end
+          ensure_batched_background_migration_is_finished(
+            job_class_name: MIGRATION,
+            table_name: table_name,
+            column_name: connection.primary_key(table_name),
+            job_arguments: [partitioned_table_name]
+          )
 
-          primary_key = connection.primary_key(table_name)
-          copy_missed_records(table_name, partitioned_table_name, primary_key)
-
-          disable_statement_timeout do
-            execute("VACUUM FREEZE ANALYZE #{partitioned_table_name}")
+          Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.with_suppressed do
+            disable_statement_timeout do
+              execute("VACUUM FREEZE ANALYZE #{partitioned_table_name}")
+            end
           end
         end
 
@@ -244,6 +311,54 @@ module Gitlab
           create_sync_trigger(source_table_name, trigger_name, function_name)
         end
 
+        def prepare_constraint_for_list_partitioning(table_name:, partitioning_column:, parent_table_name:, initial_partitioning_value:, async: false)
+          validate_not_in_transaction!(:prepare_constraint_for_list_partitioning)
+
+          Gitlab::Database::Partitioning::List::ConvertTable
+            .new(migration_context: self,
+                 table_name: table_name,
+                 parent_table_name: parent_table_name,
+                 partitioning_column: partitioning_column,
+                 zero_partition_value: initial_partitioning_value
+                ).prepare_for_partitioning(async: async)
+        end
+
+        def revert_preparing_constraint_for_list_partitioning(table_name:, partitioning_column:, parent_table_name:, initial_partitioning_value:)
+          validate_not_in_transaction!(:revert_preparing_constraint_for_list_partitioning)
+
+          Gitlab::Database::Partitioning::List::ConvertTable
+            .new(migration_context: self,
+                 table_name: table_name,
+                 parent_table_name: parent_table_name,
+                 partitioning_column: partitioning_column,
+                 zero_partition_value: initial_partitioning_value
+                ).revert_preparation_for_partitioning
+        end
+
+        def convert_table_to_first_list_partition(table_name:, partitioning_column:, parent_table_name:, initial_partitioning_value:, lock_tables: [])
+          validate_not_in_transaction!(:convert_table_to_first_list_partition)
+
+          Gitlab::Database::Partitioning::List::ConvertTable
+            .new(migration_context: self,
+                 table_name: table_name,
+                 parent_table_name: parent_table_name,
+                 partitioning_column: partitioning_column,
+                 zero_partition_value: initial_partitioning_value
+                ).partition
+        end
+
+        def revert_converting_table_to_first_list_partition(table_name:, partitioning_column:, parent_table_name:, initial_partitioning_value:)
+          validate_not_in_transaction!(:revert_converting_table_to_first_list_partition)
+
+          Gitlab::Database::Partitioning::List::ConvertTable
+            .new(migration_context: self,
+                 table_name: table_name,
+                 parent_table_name: parent_table_name,
+                 partitioning_column: partitioning_column,
+                 zero_partition_value: initial_partitioning_value
+                ).revert_partitioning
+        end
+
         private
 
         def assert_table_is_allowed(table_name)
@@ -254,7 +369,7 @@ module Gitlab
         end
 
         def make_partitioned_table_name(table)
-          tmp_table_name("#{table}_part")
+          tmp_table_name(table)
         end
 
         def make_archived_table_name(table)
@@ -273,10 +388,38 @@ module Gitlab
           connection.columns(table).find { |c| c.name == column.to_s }
         end
 
+        def create_range_id_partitioned_copy(source_table_name, partitioned_table_name, partition_column, primary_keys)
+          if table_exists?(partitioned_table_name)
+            Gitlab::AppLogger.warn "Partitioned table not created because it already exists " \
+              "(this may be due to an aborted migration or similar): table_name: #{partitioned_table_name} "
+            return
+          end
+
+          tmp_partitioning_column_name = "#{partition_column.name}_tmp"
+
+          temporary_columns = primary_keys.map { |key| "#{key.name}_tmp" }.join(", ")
+          temporary_columns_statement = build_temporary_columns_statement(primary_keys)
+
+          transaction do
+            execute(<<~SQL)
+              CREATE TABLE #{partitioned_table_name} (
+                LIKE #{source_table_name} INCLUDING ALL EXCLUDING INDEXES,
+                 #{temporary_columns_statement},
+                PRIMARY KEY (#{temporary_columns})
+              ) PARTITION BY RANGE (#{tmp_partitioning_column_name})
+            SQL
+
+            primary_keys.each do |key|
+              remove_column(partitioned_table_name, key.name)
+              rename_column(partitioned_table_name, "#{key.name}_tmp", key.name)
+            end
+          end
+        end
+
         def create_range_partitioned_copy(source_table_name, partitioned_table_name, partition_column, primary_key)
           if table_exists?(partitioned_table_name)
-            Gitlab::AppLogger.warn "Partitioned table not created because it already exists" \
-              " (this may be due to an aborted migration or similar): table_name: #{partitioned_table_name} "
+            Gitlab::AppLogger.warn "Partitioned table not created because it already exists " \
+              "(this may be due to an aborted migration or similar): table_name: #{partitioned_table_name} "
             return
           end
 
@@ -323,14 +466,28 @@ module Gitlab
           end
         end
 
+        def create_int_range_partitions(table_name, partition_size, min_id, max_id)
+          lower_bound = min_id
+          upper_bound = min_id + partition_size
+
+          end_id = max_id + (PARTITION_BUFFER * partition_size) # Adds a buffer of 6 partitions
+
+          while lower_bound < end_id
+            create_range_partition_safely("#{table_name}_#{lower_bound}", table_name, lower_bound, upper_bound)
+
+            lower_bound += partition_size
+            upper_bound += partition_size
+          end
+        end
+
         def to_sql_date_literal(date)
           connection.quote(date.strftime('%Y-%m-%d'))
         end
 
         def create_range_partition_safely(partition_name, table_name, lower_bound, upper_bound)
           if table_exists?(table_for_range_partition(partition_name))
-            Gitlab::AppLogger.warn "Partition not created because it already exists" \
-              " (this may be due to an aborted migration or similar): partition_name: #{partition_name}"
+            Gitlab::AppLogger.warn "Partition not created because it already exists " \
+              "(this may be due to an aborted migration or similar): partition_name: #{partition_name}"
             return
           end
 
@@ -347,26 +504,30 @@ module Gitlab
 
         def create_sync_function(name, partitioned_table_name, unique_key)
           if function_exists?(name)
-            Gitlab::AppLogger.warn "Partitioning sync function not created because it already exists" \
-              " (this may be due to an aborted migration or similar): function name: #{name}"
+            Gitlab::AppLogger.warn "Partitioning sync function not created because it already exists " \
+              "(this may be due to an aborted migration or similar): function name: #{name}"
             return
           end
+
+          unique_key = Array.wrap(unique_key)
 
           delimiter = ",\n    "
           column_names = connection.columns(partitioned_table_name).map(&:name)
           set_statements = build_set_statements(column_names, unique_key)
-          insert_values = column_names.map { |name| "NEW.#{name}" }
+          insert_values = column_names.map { |name| "NEW.#{connection.quote_column_name(name)}" }
+          delete_where_statement = unique_key.map { |unique_key| "#{connection.quote_column_name(unique_key)} = OLD.#{connection.quote_column_name(unique_key)}" }.join(' AND ')
+          update_where_statement = unique_key.map { |unique_key| "#{partitioned_table_name}.#{connection.quote_column_name(unique_key)} = NEW.#{connection.quote_column_name(unique_key)}" }.join(' AND ')
 
           create_trigger_function(name, replace: false) do
             <<~SQL
               IF (TG_OP = 'DELETE') THEN
-                DELETE FROM #{partitioned_table_name} where #{unique_key} = OLD.#{unique_key};
+                DELETE FROM #{partitioned_table_name} where #{delete_where_statement};
               ELSIF (TG_OP = 'UPDATE') THEN
                 UPDATE #{partitioned_table_name}
                 SET #{set_statements.join(delimiter)}
-                WHERE #{partitioned_table_name}.#{unique_key} = NEW.#{unique_key};
+                WHERE #{update_where_statement};
               ELSIF (TG_OP = 'INSERT') THEN
-                INSERT INTO #{partitioned_table_name} (#{column_names.join(delimiter)})
+                INSERT INTO #{partitioned_table_name} (#{column_names.map { |name| connection.quote_column_name(name).to_s }.join(delimiter)})
                 VALUES (#{insert_values.join(delimiter)});
               END IF;
               RETURN NULL;
@@ -374,57 +535,27 @@ module Gitlab
           end
         end
 
+        def build_temporary_columns_statement(columns)
+          columns.map do |column|
+            type = column.name == 'id' || column.name.end_with?('_id') ? 'bigint' : column.sql_type
+
+            "#{column.name}_tmp #{type} NOT NULL"
+          end.join(", ")
+        end
+
         def build_set_statements(column_names, unique_key)
-          column_names.reject { |name| name == unique_key }.map { |name| "#{name} = NEW.#{name}" }
+          column_names.reject { |name| unique_key.include?(name) }
+            .map { |name| "#{connection.quote_column_name(name)} = NEW.#{connection.quote_column_name(name)}" }
         end
 
         def create_sync_trigger(table_name, trigger_name, function_name)
           if trigger_exists?(table_name, trigger_name)
-            Gitlab::AppLogger.warn "Partitioning sync trigger not created because it already exists" \
-              " (this may be due to an aborted migration or similar): trigger name: #{trigger_name}"
+            Gitlab::AppLogger.warn "Partitioning sync trigger not created because it already exists " \
+              "(this may be due to an aborted migration or similar): trigger name: #{trigger_name}"
             return
           end
 
           create_trigger(table_name, trigger_name, function_name, fires: 'AFTER INSERT OR UPDATE OR DELETE')
-        end
-
-        def enqueue_background_migration(source_table_name, partitioned_table_name, source_column)
-          source_model = define_batchable_model(source_table_name)
-
-          queue_background_migration_jobs_by_range_at_intervals(
-            source_model,
-            MIGRATION_CLASS_NAME,
-            BATCH_INTERVAL,
-            batch_size: BATCH_SIZE,
-            other_job_arguments: [source_table_name.to_s, partitioned_table_name, source_column],
-            track_jobs: true)
-        end
-
-        def cleanup_migration_jobs(table_name)
-          ::Gitlab::Database::BackgroundMigrationJob.for_partitioning_migration(MIGRATION_CLASS_NAME, table_name).delete_all
-        end
-
-        def copy_missed_records(source_table_name, partitioned_table_name, source_column)
-          backfill_table = BackfillPartitionedTable.new(connection: connection)
-
-          relation = ::Gitlab::Database::BackgroundMigrationJob.pending
-            .for_partitioning_migration(MIGRATION_CLASS_NAME, source_table_name)
-
-          relation.each_batch do |batch|
-            batch.each do |pending_migration_job|
-              job_arguments = JobArguments.from_array(pending_migration_job.arguments)
-              start_id = job_arguments.start_id
-              stop_id = job_arguments.stop_id
-
-              say("Backfilling data into partitioned table for ids from #{start_id} to #{stop_id}")
-              job_updated_count = backfill_table.perform(start_id, stop_id, source_table_name,
-                partitioned_table_name, source_column)
-
-              unless job_updated_count > 0
-                raise "failed to update tracking record for ids from #{start_id} to #{stop_id}"
-              end
-            end
-          end
         end
 
         def replace_table(original_table_name, replacement_table_name, replaced_table_name, primary_key_name)

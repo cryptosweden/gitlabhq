@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Import::GitlabGroupsController do
+RSpec.describe Import::GitlabGroupsController, feature_category: :importers do
   include WorkhorseHelpers
 
   include_context 'workhorse headers'
@@ -69,7 +69,7 @@ RSpec.describe Import::GitlabGroupsController do
 
         expect(GroupImportWorker).to have_received(:perform_async).with(user.id, group.id)
         expect(group.description).to eq 'A voluptate non sequi temporibus quam at.'
-        expect(group.visibility_level).to eq Gitlab::VisibilityLevel::PRIVATE
+        expect(group.visibility_level).to eq Gitlab::VisibilityLevel::PUBLIC
       end
     end
 
@@ -152,20 +152,6 @@ RSpec.describe Import::GitlabGroupsController do
 
         expect(response).to have_gitlab_http_status(:found)
         expect(flash[:alert]).to eq 'This endpoint has been requested too many times. Try again later.'
-      end
-    end
-
-    context 'when group import FF is disabled' do
-      let(:request_params) { { path: 'test-group-import', name: 'test-group-import' } }
-
-      before do
-        stub_feature_flags(group_import_export: false)
-      end
-
-      it 'returns an error' do
-        expect { import_request }.not_to change { Group.count }
-
-        expect(response).to have_gitlab_http_status(:not_found)
       end
     end
 

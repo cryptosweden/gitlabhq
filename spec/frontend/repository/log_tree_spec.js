@@ -1,6 +1,7 @@
 import MockAdapter from 'axios-mock-adapter';
 import { createMockClient } from 'helpers/mock_apollo_helper';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { resolveCommit, fetchLogsTree } from '~/repository/log_tree';
 import commitsQuery from '~/repository/queries/commits.query.graphql';
 import projectPathQuery from '~/repository/queries/project_path.query.graphql';
@@ -16,27 +17,25 @@ const mockData = [
     commit_path: `https://test.com`,
     commit_title_html: 'commit title',
     file_name: 'index.js',
-    type: 'blob',
   },
 ];
 
 describe('resolveCommit', () => {
   it('calls resolve when commit found', () => {
     const resolver = {
-      entry: { name: 'index.js', type: 'blob' },
+      entry: { name: 'index.js' },
       resolve: jest.fn(),
     };
     const commits = [
-      { fileName: 'index.js', filePath: '/index.js', type: 'blob' },
-      { fileName: 'index.js', filePath: '/app/assets/index.js', type: 'blob' },
+      { fileName: 'index.js', filePath: '/index.js' },
+      { fileName: 'index.js', filePath: '/app/assets/index.js' },
     ];
 
-    resolveCommit(commits, '', resolver);
+    resolveCommit(commits, '/', resolver);
 
     expect(resolver.resolve).toHaveBeenCalledWith({
       fileName: 'index.js',
       filePath: '/index.js',
-      type: 'blob',
     });
   });
 });
@@ -49,14 +48,14 @@ describe('fetchLogsTree', () => {
   beforeEach(() => {
     mock = new MockAdapter(axios);
 
-    mock.onGet(/(.*)/).reply(200, mockData, {});
+    mock.onGet(/(.*)/).reply(HTTP_STATUS_OK, mockData, {});
 
     jest.spyOn(axios, 'get');
 
     global.gon = { relative_url_root: '' };
 
     resolver = {
-      entry: { name: 'index.js', type: 'blob' },
+      entry: { name: 'index.js' },
       resolve: jest.fn(),
     };
 
@@ -109,23 +108,22 @@ describe('fetchLogsTree', () => {
     }));
 
   it('calls entry resolver', () =>
-    fetchLogsTree(client, '', '0', resolver).then(() => {
+    fetchLogsTree(client, 'test', '0', resolver).then(() => {
       expect(resolver.resolve).toHaveBeenCalledWith(
         expect.objectContaining({
           __typename: 'LogTreeCommit',
           commitPath: 'https://test.com',
           committedDate: '2019-01-01',
           fileName: 'index.js',
-          filePath: '/index.js',
+          filePath: 'test/index.js',
           message: 'testing message',
           sha: '123',
-          type: 'blob',
         }),
       );
     }));
 
   it('writes query to client', async () => {
-    await fetchLogsTree(client, '', '0', resolver);
+    await fetchLogsTree(client, '/', '0', resolver);
     expect(client.readQuery({ query: commitsQuery })).toEqual({
       commits: [
         expect.objectContaining({
@@ -136,7 +134,6 @@ describe('fetchLogsTree', () => {
           message: 'testing message',
           sha: '123',
           titleHtml: 'commit title',
-          type: 'blob',
         }),
       ],
     });

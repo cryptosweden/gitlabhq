@@ -4,34 +4,78 @@ import {
   GlToggle,
   GlLoadingIcon,
   GlSprintf,
+  GlFormCheckbox,
   GlFormInputGroup,
   GlFormGroup,
   GlFormInput,
   GlLink,
+  GlAlert,
 } from '@gitlab/ui';
 import { helpPagePath } from '~/helpers/help_page_helper';
-import { __ } from '~/locale';
+import { __, s__ } from '~/locale';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import ServiceDeskTemplateDropdown from './service_desk_template_dropdown.vue';
 
 export default {
   i18n: {
     toggleLabel: __('Activate Service Desk'),
+    headlines: {
+      ticketVisibility: s__('ServiceDesk|Ticket visibility'),
+      externalParticipants: s__('ServiceDesk|External participants'),
+    },
+    issueTrackerEnableMessage: __(
+      'To use Service Desk in this project, you must %{linkStart}activate the issue tracker%{linkEnd}.',
+    ),
+    areTicketsConfidentialByDefault: {
+      label: s__('ServiceDesk|New tickets are confidential by default'),
+      help: {
+        publicProject: s__(
+          'ServiceDesk|On public projects, tickets are always confidential by default.',
+        ),
+        confidential: s__(
+          'ServiceDesk|Only project members with at least the Reporter role can view new tickets.',
+        ),
+        nonConfidential: s__('ServiceDesk|Any project member can view new tickets.'),
+      },
+    },
+    reopenIssueOnExternalParticipantNote: {
+      label: s__('ServiceDesk|Reopen issues when an external participant comments'),
+      help: s__(
+        'ServiceDesk|This also adds an internal comment that mentions the assignees of the issue.',
+      ),
+    },
+    addExternalParticipantsFromCc: {
+      label: s__('ServiceDesk|Add external participants from the %{codeStart}Cc%{codeEnd} header'),
+      help: s__(
+        'ServiceDesk|Add email addresses in the %{codeStart}Cc%{codeEnd} header of Service Desk emails to the issue.',
+      ),
+      helpNotificationExtra: s__(
+        'ServiceDesk|Like the author, external participants receive Service Desk emails and can participate in the discussion.',
+      ),
+    },
   },
   components: {
     ClipboardButton,
     GlButton,
     GlToggle,
     GlLoadingIcon,
+    GlFormCheckbox,
     GlSprintf,
     GlFormInput,
     GlFormGroup,
     GlFormInputGroup,
     GlLink,
+    GlAlert,
     ServiceDeskTemplateDropdown,
   },
+  mixins: [glFeatureFlagsMixin()],
   props: {
     isEnabled: {
+      type: Boolean,
+      required: true,
+    },
+    isIssueTrackerEnabled: {
       type: Boolean,
       required: true,
     },
@@ -40,12 +84,12 @@ export default {
       required: false,
       default: '',
     },
-    customEmail: {
+    serviceDeskEmail: {
       type: String,
       required: false,
       default: '',
     },
-    customEmailEnabled: {
+    serviceDeskEmailEnabled: {
       type: Boolean,
       required: false,
     },
@@ -69,6 +113,26 @@ export default {
       required: false,
       default: '',
     },
+    initialAreTicketsConfidentialByDefault: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
+    initialReopenIssueOnExternalParticipantNote: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    initialAddExternalParticipantsFromCc: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    publicProject: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
     templates: {
       type: Array,
       required: false,
@@ -86,29 +150,59 @@ export default {
       selectedFileTemplateProjectId: this.initialSelectedFileTemplateProjectId,
       outgoingName: this.initialOutgoingName || __('GitLab Support Bot'),
       projectKey: this.initialProjectKey,
+      // Tickets will always be confidential for public projects by default. Reflect that also in the frontend
+      // although the backend setting might be `false`. The value will be persisted on save.
+      // Refactoring issue: https://gitlab.com/gitlab-org/gitlab/-/issues/467547
+      areTicketsConfidentialByDefault: this.publicProject
+        ? true
+        : this.initialAreTicketsConfidentialByDefault,
+      reopenIssueOnExternalParticipantNote: this.initialReopenIssueOnExternalParticipantNote,
+      addExternalParticipantsFromCc: this.initialAddExternalParticipantsFromCc,
       searchTerm: '',
       projectKeyError: null,
     };
   },
   computed: {
+    showAreTicketsConfidentialByDefault() {
+      return this.glFeatures.serviceDeskTicketsConfidentiality;
+    },
+    showAddExternalParticipantsFromCC() {
+      return this.glFeatures.issueEmailParticipants;
+    },
     hasProjectKeySupport() {
-      return Boolean(this.customEmailEnabled);
+      return Boolean(this.serviceDeskEmailEnabled);
     },
     email() {
-      return this.customEmail || this.incomingEmail;
+      return this.serviceDeskEmail || this.incomingEmail;
     },
-    hasCustomEmail() {
-      return this.customEmail && this.customEmail !== this.incomingEmail;
+    hasServiceDeskEmail() {
+      return this.serviceDeskEmail && this.serviceDeskEmail !== this.incomingEmail;
     },
     emailSuffixHelpUrl() {
-      return helpPagePath('user/project/service_desk.html', {
-        anchor: 'configuring-a-custom-email-address-suffix',
+      return helpPagePath('user/project/service_desk/configure.html', {
+        anchor: 'configure-a-suffix-for-service-desk-alias-email',
       });
     },
-    customEmailAddressHelpUrl() {
-      return helpPagePath('user/project/service_desk.html', {
-        anchor: 'using-a-custom-email-address',
+    serviceDeskEmailAddressHelpUrl() {
+      return helpPagePath('user/project/service_desk/configure.html', {
+        anchor: 'use-an-additional-service-desk-alias-email',
       });
+    },
+    issuesHelpPagePath() {
+      return helpPagePath('user/project/settings/index.md', {
+        anchor: 'configure-project-visibility-features-and-permissions',
+      });
+    },
+    areTicketsConfidentialByDefaultHelp() {
+      if (this.publicProject) {
+        return this.$options.i18n.areTicketsConfidentialByDefault.help.publicProject;
+      }
+
+      if (this.areTicketsConfidentialByDefault) {
+        return this.$options.i18n.areTicketsConfidentialByDefault.help.confidential;
+      }
+
+      return this.$options.i18n.areTicketsConfidentialByDefault.help.nonConfidential;
     },
   },
   methods: {
@@ -120,6 +214,9 @@ export default {
         selectedTemplate: this.selectedTemplate,
         outgoingName: this.outgoingName,
         projectKey: this.projectKey,
+        areTicketsConfidentialByDefault: this.areTicketsConfidentialByDefault,
+        reopenIssueOnExternalParticipantNote: this.reopenIssueOnExternalParticipantNote,
+        addExternalParticipantsFromCc: this.addExternalParticipantsFromCc,
         fileTemplateProjectId: this.selectedFileTemplateProjectId,
       });
     },
@@ -128,7 +225,7 @@ export default {
       this.selectedTemplate = selectedTemplate;
     },
     validateProjectKey() {
-      if (this.projectKey && !new RegExp(/^[a-z0-9_]+$/).test(this.projectKey)) {
+      if (this.projectKey && !/^[a-z0-9_]+$/.test(this.projectKey)) {
         this.projectKeyError = __('Only use lowercase letters, numbers, and underscores.');
         return;
       }
@@ -141,10 +238,25 @@ export default {
 
 <template>
   <div>
+    <gl-alert v-if="!isIssueTrackerEnabled" class="mb-3" variant="info" :dismissible="false">
+      <gl-sprintf :message="$options.i18n.issueTrackerEnableMessage">
+        <template #link="{ content }">
+          <gl-link
+            class="gl-inline-block"
+            data-testid="issue-help-page"
+            :href="issuesHelpPagePath"
+            target="_blank"
+          >
+            {{ content }}
+          </gl-link>
+        </template>
+      </gl-sprintf>
+    </gl-alert>
     <gl-toggle
       id="service-desk-checkbox"
       :value="isEnabled"
-      class="d-inline-block align-middle mr-1"
+      :disabled="!isIssueTrackerEnabled"
+      class="!gl-inline-block align-middle mr-1"
       :label="$options.i18n.toggleLabel"
       label-position="hidden"
       @change="onCheckboxToggle"
@@ -155,7 +267,7 @@ export default {
     <div v-if="isEnabled" class="row mt-3">
       <div class="col-md-9 mb-0">
         <gl-form-group
-          :label="__('Email address to use for Support Desk')"
+          :label="__('Email address to use for Service Desk')"
           label-for="incoming-email"
           data-testid="incoming-email-label"
         >
@@ -175,8 +287,8 @@ export default {
               <clipboard-button :title="__('Copy')" :text="email" css-class="input-group-text" />
             </template>
           </gl-form-input-group>
-          <template v-if="email && hasCustomEmail" #description>
-            <span class="gl-mt-2 d-inline-block">
+          <template v-if="email && hasServiceDeskEmail" #description>
+            <span class="gl-mt-2 gl-inline-block">
               <gl-sprintf :message="__('Emails sent to %{email} are also supported.')">
                 <template #email>
                   <code>{{ incomingEmail }}</code>
@@ -190,7 +302,12 @@ export default {
           </template>
         </gl-form-group>
 
-        <gl-form-group :label="__('Email address suffix')" :state="!projectKeyError">
+        <gl-form-group
+          :label="__('Email address suffix')"
+          :state="!projectKeyError"
+          data-testid="suffix-form-group"
+          :disabled="!isIssueTrackerEnabled"
+        >
           <gl-form-input
             v-if="hasProjectKeySupport"
             id="service-desk-project-suffix"
@@ -202,36 +319,30 @@ export default {
           <template v-if="hasProjectKeySupport" #description>
             <gl-sprintf
               :message="
-                __('Add a suffix to Service Desk email address. %{linkStart}Learn more.%{linkEnd}')
+                __('Add a suffix to Service Desk email address. %{linkStart}Learn more%{linkEnd}.')
               "
             >
               <template #link="{ content }">
-                <gl-link
-                  :href="emailSuffixHelpUrl"
-                  target="_blank"
-                  class="gl-text-blue-600 font-size-inherit"
-                  >{{ content }}
-                </gl-link>
+                <gl-link :href="emailSuffixHelpUrl" target="_blank">{{ content }}</gl-link>
               </template>
             </gl-sprintf>
           </template>
           <template v-else #description>
-            <gl-sprintf
-              :message="
-                __(
-                  'To add a custom suffix, set up a Service Desk email address. %{linkStart}Learn more.%{linkEnd}',
-                )
-              "
-            >
-              <template #link="{ content }">
-                <gl-link
-                  :href="customEmailAddressHelpUrl"
-                  target="_blank"
-                  class="gl-text-blue-600 font-size-inherit"
-                  >{{ content }}
-                </gl-link>
-              </template>
-            </gl-sprintf>
+            <span class="gl-text-gray-900">
+              <gl-sprintf
+                :message="
+                  __(
+                    'To add a custom suffix, set up a Service Desk email address. %{linkStart}Learn more%{linkEnd}.',
+                  )
+                "
+              >
+                <template #link="{ content }">
+                  <gl-link :href="serviceDeskEmailAddressHelpUrl" target="_blank">{{
+                    content
+                  }}</gl-link>
+                </template>
+              </gl-sprintf>
+            </span>
           </template>
 
           <template v-if="hasProjectKeySupport && projectKeyError" #invalid-feedback>
@@ -243,6 +354,7 @@ export default {
           :label="__('Template to append to all Service Desk issues')"
           :state="!projectKeyError"
           class="mt-3"
+          :disabled="!isIssueTrackerEnabled"
         >
           <service-desk-template-dropdown
             :selected-template="selectedTemplate"
@@ -259,29 +371,82 @@ export default {
           class="mt-3"
         >
           <gl-form-input
-            v-if="hasProjectKeySupport"
             id="service-desk-email-from-name"
             v-model.trim="outgoingName"
             data-testid="email-from-name"
+            :disabled="!isIssueTrackerEnabled"
           />
 
-          <template v-if="hasProjectKeySupport" #description>
-            {{ __('Emails sent from Service Desk have this name.') }}
+          <template #description>
+            {{ __('Name to be used as the sender for emails from Service Desk.') }}
           </template>
         </gl-form-group>
 
-        <div class="gl-display-flex gl-justify-content-end">
-          <gl-button
-            variant="success"
-            class="gl-mt-5"
-            data-testid="save_service_desk_settings_button"
-            data-qa-selector="save_service_desk_settings_button"
-            :disabled="isTemplateSaving"
-            @click="onSaveTemplate"
+        <div
+          v-if="showAreTicketsConfidentialByDefault"
+          data-testid="service-desk-are-tickets-confidential-by-default-wrapper"
+        >
+          <h5>{{ $options.i18n.headlines.ticketVisibility }}</h5>
+
+          <gl-form-checkbox
+            v-model="areTicketsConfidentialByDefault"
+            :disabled="!isIssueTrackerEnabled || publicProject"
+            data-testid="service-desk-are-tickets-confidential-by-default"
           >
-            {{ __('Save changes') }}
-          </gl-button>
+            {{ $options.i18n.areTicketsConfidentialByDefault.label }}
+
+            <template #help>
+              {{ areTicketsConfidentialByDefaultHelp }}
+            </template>
+          </gl-form-checkbox>
         </div>
+
+        <h5>{{ $options.i18n.headlines.externalParticipants }}</h5>
+
+        <gl-form-checkbox
+          v-model="reopenIssueOnExternalParticipantNote"
+          :disabled="!isIssueTrackerEnabled"
+          data-testid="reopen-issue-on-external-participant-note"
+          class="gl-mb-3"
+        >
+          {{ $options.i18n.reopenIssueOnExternalParticipantNote.label }}
+
+          <template #help>
+            {{ $options.i18n.reopenIssueOnExternalParticipantNote.help }}
+          </template>
+        </gl-form-checkbox>
+
+        <gl-form-checkbox
+          v-if="showAddExternalParticipantsFromCC"
+          v-model="addExternalParticipantsFromCc"
+          :disabled="!isIssueTrackerEnabled"
+          data-testid="add-external-participants-from-cc"
+        >
+          <gl-sprintf :message="$options.i18n.addExternalParticipantsFromCc.label">
+            <template #code="{ content }">
+              <code>{{ content }}</code>
+            </template>
+          </gl-sprintf>
+
+          <template #help>
+            <gl-sprintf :message="$options.i18n.addExternalParticipantsFromCc.help">
+              <template #code="{ content }">
+                <code>{{ content }}</code>
+              </template>
+            </gl-sprintf>
+            {{ $options.i18n.addExternalParticipantsFromCc.helpNotificationExtra }}
+          </template>
+        </gl-form-checkbox>
+
+        <gl-button
+          variant="confirm"
+          class="gl-mt-5"
+          data-testid="save_service_desk_settings_button"
+          :disabled="isTemplateSaving || !isIssueTrackerEnabled"
+          @click="onSaveTemplate"
+        >
+          {{ __('Save changes') }}
+        </gl-button>
       </div>
     </div>
   </div>

@@ -1,5 +1,6 @@
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import CollapsibleSidebar from '~/ide/components/panes/collapsible_sidebar.vue';
 import RightPane from '~/ide/components/panes/right.vue';
@@ -28,16 +29,23 @@ describe('ide/components/panes/right.vue', () => {
     store = createStore();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
+  describe('default', () => {
+    beforeEach(() => {
+      createComponent();
+    });
+
+    it('renders collapsible-sidebar', () => {
+      expect(wrapper.findComponent(CollapsibleSidebar).props()).toMatchObject({
+        side: 'right',
+      });
+    });
   });
 
   describe('pipelines tab', () => {
     it('is always shown', () => {
       createComponent();
 
-      expect(wrapper.find(CollapsibleSidebar).props('extensionTabs')).toEqual(
+      expect(wrapper.findComponent(CollapsibleSidebar).props('extensionTabs')).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             show: true,
@@ -56,31 +64,6 @@ describe('ide/components/panes/right.vue', () => {
     });
   });
 
-  describe('clientside live preview tab', () => {
-    it('is shown if there is a packageJson and clientsidePreviewEnabled', () => {
-      Vue.set(store.state.entries, 'package.json', {
-        name: 'package.json',
-      });
-      store.state.clientsidePreviewEnabled = true;
-
-      createComponent();
-
-      expect(wrapper.find(CollapsibleSidebar).props('extensionTabs')).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            show: true,
-            title: 'Live preview',
-            views: expect.arrayContaining([
-              expect.objectContaining({
-                name: rightSidebarViews.clientSidePreview.name,
-              }),
-            ]),
-          }),
-        ]),
-      );
-    });
-  });
-
   describe('terminal tab', () => {
     beforeEach(() => {
       createComponent();
@@ -90,7 +73,7 @@ describe('ide/components/panes/right.vue', () => {
       store.state.terminal.isVisible = true;
 
       await nextTick();
-      expect(wrapper.find(CollapsibleSidebar).props('extensionTabs')).toEqual(
+      expect(wrapper.findComponent(CollapsibleSidebar).props('extensionTabs')).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             show: true,
@@ -103,7 +86,7 @@ describe('ide/components/panes/right.vue', () => {
     it('hides terminal tab when not visible', () => {
       store.state.terminal.isVisible = false;
 
-      expect(wrapper.find(CollapsibleSidebar).props('extensionTabs')).toEqual(
+      expect(wrapper.findComponent(CollapsibleSidebar).props('extensionTabs')).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             show: false,

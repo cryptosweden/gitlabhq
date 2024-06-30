@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe RemoveExpiredGroupLinksWorker do
+RSpec.describe RemoveExpiredGroupLinksWorker, feature_category: :system_access do
   describe '#perform' do
     context 'ProjectGroupLinks' do
       let!(:expired_project_group_link) { create(:project_group_link, expires_at: 1.hour.ago) }
@@ -51,16 +51,41 @@ RSpec.describe RemoveExpiredGroupLinksWorker do
           subject.perform
         end
 
-        it 'removes project authorization', :sidekiq_inline do
-          shared_group = group_group_link.shared_group
-          shared_with_group = group_group_link.shared_with_group
-          project = create(:project, group: shared_group)
+        context 'with skip_group_share_unlink_auth_refresh feature flag disabled' do
+          before do
+            stub_feature_flags(skip_group_share_unlink_auth_refresh: false)
+          end
 
-          user = create(:user)
-          shared_with_group.add_maintainer(user)
+          it 'removes project authorization', :sidekiq_inline do
+            shared_group = group_group_link.shared_group
+            shared_with_group = group_group_link.shared_with_group
+            project = create(:project, group: shared_group)
 
-          expect { subject.perform }.to(
-            change { user.can?(:read_project, project) }.from(true).to(false))
+            user = create(:user)
+            shared_with_group.add_maintainer(user)
+
+            expect { subject.perform }.to(
+              change { user.can?(:read_project, project) }.from(true).to(false))
+          end
+        end
+
+        context 'with skip_group_share_unlink_auth_refresh feature flag enabled' do
+          before do
+            stub_feature_flags(skip_group_share_unlink_auth_refresh: true)
+          end
+
+          it 'does not remove project authorization', :sidekiq_inline do
+            shared_group = group_group_link.shared_group
+            shared_with_group = group_group_link.shared_with_group
+            project = create(:project, group: shared_group)
+
+            user = create(:user)
+            shared_with_group.add_maintainer(user)
+
+            subject.perform
+
+            expect(user.can?(:read_project, project)).to be_truthy
+          end
         end
       end
 

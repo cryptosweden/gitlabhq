@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'timecop'
+require 'active_support/testing/time_helpers'
 
 RSpec.describe JSONWebToken::HMACToken do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:secret) { 'shh secret squirrel' }
 
   shared_examples 'a valid, non-expired token' do
@@ -23,7 +25,7 @@ RSpec.describe JSONWebToken::HMACToken do
   end
 
   describe '.decode' do
-    let(:leeway) { described_class::IAT_LEEWAY }
+    let(:leeway) { described_class::LEEWAY }
     let(:decoded_token) { described_class.decode(encoded_token, secret, leeway: leeway) }
 
     context 'with an invalid token' do
@@ -48,19 +50,19 @@ RSpec.describe JSONWebToken::HMACToken do
       context 'that was generated using a different secret' do
         let(:encoded_token) { described_class.new('some other secret').encoded }
 
-        it "raises exception saying 'Signature verification raised" do
-          expect { decoded_token }.to raise_error(JWT::VerificationError, 'Signature verification raised')
+        it "raises exception saying 'Signature verification failed" do
+          expect { decoded_token }.to raise_error(JWT::VerificationError, 'Signature verification failed')
         end
       end
 
       context 'that is expired' do
-        # Needs the ! so Timecop.freeze() is effective
+        # Needs the ! so freeze_time() is effective
         let!(:encoded_token) { described_class.new(secret).encoded }
 
         it "raises exception saying 'Signature has expired'" do
           # Needs to be 120 seconds, because the default expiry is 60 seconds
           # with an additional 60 second leeway.
-          Timecop.freeze(Time.now + 120) do
+          travel_to(Time.now + 120) do
             expect { decoded_token }.to raise_error(JWT::ExpiredSignature, 'Signature has expired')
           end
         end
@@ -77,19 +79,19 @@ RSpec.describe JSONWebToken::HMACToken do
       context 'that has expired' do
         let(:expire_time) { 0 }
 
+        around do |example|
+          travel_to(Time.now + 1) { example.run }
+        end
+
         context 'with the default leeway' do
-          Timecop.freeze(Time.now + 1) do
-            it_behaves_like 'a valid, non-expired token'
-          end
+          it_behaves_like 'a valid, non-expired token'
         end
 
         context 'with a leeway of 0 seconds' do
           let(:leeway) { 0 }
 
           it "raises exception saying 'Signature has expired'" do
-            Timecop.freeze(Time.now + 1) do
-              expect { decoded_token }.to raise_error(JWT::ExpiredSignature, 'Signature has expired')
-            end
+            expect { decoded_token }.to raise_error(JWT::ExpiredSignature, 'Signature has expired')
           end
         end
       end

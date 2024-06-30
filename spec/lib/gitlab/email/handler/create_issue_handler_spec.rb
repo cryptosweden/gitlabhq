@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::Email::Handler::CreateIssueHandler do
-  include_context :email_shared_context
+  include_context 'email shared context'
   let!(:user) do
     create(
       :user,
@@ -16,12 +16,12 @@ RSpec.describe Gitlab::Email::Handler::CreateIssueHandler do
   let(:namespace) { create(:namespace, path: 'gitlabhq') }
   let(:email_raw) { email_fixture('emails/valid_new_issue.eml') }
 
-  it_behaves_like :reply_processing_shared_examples
-
   before do
     stub_incoming_email_setting(enabled: true, address: "incoming+%{key}@appmail.adventuretime.ooo")
     stub_config_setting(host: 'localhost')
   end
+
+  it_behaves_like 'reply processing shared examples'
 
   context "when email key" do
     let(:mail) { Mail::Message.new(email_raw) }
@@ -116,7 +116,7 @@ RSpec.describe Gitlab::Email::Handler::CreateIssueHandler do
     context "when the issue could not be saved" do
       before do
         allow_any_instance_of(Issue).to receive(:persisted?).and_return(false)
-        allow_any_instance_of(Issue).to receive(:ensure_metrics).and_return(nil)
+        allow_any_instance_of(Issue).to receive(:ensure_metrics!).and_return(nil)
       end
 
       it "raises an InvalidIssueError" do

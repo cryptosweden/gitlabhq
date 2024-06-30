@@ -1,14 +1,15 @@
 import { GlAlert, GlLoadingIcon } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import waitForPromises from 'helpers/wait_for_promises';
 import Api from '~/api';
-import { redirectTo } from '~/lib/utils/url_utility';
+import { visitUrl } from '~/lib/utils/url_utility';
 import EditUserList from '~/user_lists/components/edit_user_list.vue';
 import UserListForm from '~/user_lists/components/user_list_form.vue';
 import createStore from '~/user_lists/store/edit';
-import { userList } from '../../feature_flags/mock_data';
+import { userList } from 'jest/feature_flags/mock_data';
 
 jest.mock('~/api');
 jest.mock('~/lib/utils/url_utility');
@@ -47,7 +48,7 @@ describe('user_lists/components/edit_user_list', () => {
     });
 
     it('should show a loading icon', () => {
-      expect(wrapper.find(GlLoadingIcon).exists()).toBe(true);
+      expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
     });
   });
 
@@ -60,19 +61,19 @@ describe('user_lists/components/edit_user_list', () => {
       factory();
       await waitForPromises();
 
-      alert = wrapper.find(GlAlert);
+      alert = wrapper.findComponent(GlAlert);
     });
 
     it('should show a flash with the error respopnse', () => {
       expect(alert.text()).toContain(message);
     });
 
-    it('should not be dismissible', async () => {
+    it('should not be dismissible', () => {
       expect(alert.props('dismissible')).toBe(false);
     });
 
     it('should not show a user list form', () => {
-      expect(wrapper.find(UserListForm).exists()).toBe(false);
+      expect(wrapper.findComponent(UserListForm).exists()).toBe(false);
     });
   });
 
@@ -114,7 +115,7 @@ describe('user_lists/components/edit_user_list', () => {
       });
 
       it('should redirect to the feature flag details page', () => {
-        expect(redirectTo).toHaveBeenCalledWith(userList.path);
+        expect(visitUrl).toHaveBeenCalledWith(userList.path);
       });
     });
 
@@ -129,7 +130,7 @@ describe('user_lists/components/edit_user_list', () => {
         clickSave();
         await waitForPromises();
 
-        alert = wrapper.find(GlAlert);
+        alert = wrapper.findComponent(GlAlert);
       });
 
       it('should show a flash with the error respopnse', () => {

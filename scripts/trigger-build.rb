@@ -9,10 +9,6 @@ module Trigger
     %w[gitlab gitlab-ee].include?(ENV['CI_PROJECT_NAME'])
   end
 
-  def self.security?
-    %r{\Agitlab-org/security(\z|/)}.match?(ENV['CI_PROJECT_NAMESPACE'])
-  end
-
   def self.non_empty_variable_value(variable)
     variable_value = ENV[variable]
 
@@ -23,23 +19,24 @@ module Trigger
 
   def self.variables_for_env_file(variables)
     variables.map do |key, value|
-      %Q(#{key}=#{value})
+      %(#{key}=#{value})
     end.join("\n")
   end
 
   class Base
     # Can be overridden
+    STABLE_BRANCH_REGEX = /^[\d-]+-stable(-ee|-jh)?$/
     def self.access_token
-      ENV['GITLAB_BOT_MULTI_PROJECT_PIPELINE_POLLING_TOKEN']
+      ENV['PROJECT_TOKEN_FOR_CI_SCRIPTS_API_USAGE']
     end
 
-    def invoke!(post_comment: false, downstream_job_name: nil)
+    def invoke!
       pipeline_variables = variables
 
       puts "Triggering downstream pipeline on #{downstream_project_path}"
       puts "with variables #{pipeline_variables}"
 
-      pipeline = gitlab_client(:downstream).run_trigger(
+      pipeline = downstream_client.run_trigger(
         downstream_project_path,
         trigger_token,
         ref,
@@ -48,19 +45,7 @@ module Trigger
       puts "Triggered downstream pipeline: #{pipeline.web_url}\n"
       puts "Waiting for downstream pipeline status"
 
-      Trigger::CommitComment.post!(pipeline, gitlab_client(:upstream)) if post_comment
-      downstream_job =
-        if downstream_job_name
-          gitlab_client(:downstream).pipeline_jobs(downstream_project_path, pipeline.id).auto_paginate.find do |potential_job|
-            potential_job.name == downstream_job_name
-          end
-        end
-
-      if downstream_job
-        Trigger::Job.new(downstream_project_path, downstream_job.id, gitlab_client(:downstream))
-      else
-        Trigger::Pipeline.new(downstream_project_path, pipeline.id, gitlab_client(:downstream))
-      end
+      Trigger::Pipeline.new(downstream_project_path, pipeline.id, downstream_client)
     end
 
     def variables
@@ -80,15 +65,17 @@ module Trigger
 
     private
 
-    # Override to trigger and work with pipeline on different GitLab instance
-    # type: :downstream -> downstream build and pipeline status
-    # type: :upstream -> this project, e.g. for posting comments
-    def gitlab_client(type)
-      # By default, always use the same client
-      @gitlab_client ||= Gitlab.client(
-        endpoint: 'https://gitlab.com/api/v4',
+    def com_gitlab_client
+      @com_gitlab_client ||= Gitlab.client(
+        endpoint: endpoint,
         private_token: self.class.access_token
       )
+    end
+
+    # This client is used for downstream build and pipeline status
+    # Can be overridden
+    def downstream_client
+      com_gitlab_client
     end
 
     # Must be overridden
@@ -97,8 +84,13 @@ module Trigger
     end
 
     # Must be overridden
-    def ref
+    def ref_param_name
       raise NotImplementedError
+    end
+
+    # Can be overridden
+    def primary_ref
+      'main'
     end
 
     # Can be overridden
@@ -116,64 +108,68 @@ module Trigger
       ENV[version_file]&.strip || File.read(version_file).strip
     end
 
+    # Can be overridden
+    def trigger_stable_branch_if_detected?
+      false
+    end
+
+    def stable_branch?
+      ENV['CI_COMMIT_REF_NAME'] =~ STABLE_BRANCH_REGEX
+    end
+
+    def mr_target_stable_branch?
+      ENV['CI_MERGE_REQUEST_TARGET_BRANCH_NAME'] =~ STABLE_BRANCH_REGEX
+    end
+
+    def fallback_ref
+      return primary_ref unless trigger_stable_branch_if_detected?
+
+      if stable_branch?
+        normalize_stable_branch_name(ENV['CI_COMMIT_REF_NAME'])
+      elsif mr_target_stable_branch?
+        normalize_stable_branch_name(ENV['CI_MERGE_REQUEST_TARGET_BRANCH_NAME'])
+      else
+        primary_ref
+      end
+    end
+
+    def normalize_stable_branch_name(branch_name)
+      if ENV['CI_PROJECT_NAMESPACE'] == 'gitlab-cn'
+        branch_name.delete_suffix('-jh')
+      elsif ENV['CI_PROJECT_NAMESPACE'] == 'gitlab-org'
+        branch_name.delete_suffix('-ee')
+      end
+    end
+
+    def ref
+      ENV.fetch(ref_param_name, fallback_ref)
+    end
+
     def base_variables
-      # Use CI_MERGE_REQUEST_SOURCE_BRANCH_SHA for omnibus checkouts due to pipeline for merged results,
-      # and fallback to CI_COMMIT_SHA for the `detached` pipelines.
       {
         'GITLAB_REF_SLUG' => ENV['CI_COMMIT_TAG'] ? ENV['CI_COMMIT_REF_NAME'] : ENV['CI_COMMIT_REF_SLUG'],
         'TRIGGERED_USER' => ENV['TRIGGERED_USER'] || ENV['GITLAB_USER_NAME'],
-        'TOP_UPSTREAM_SOURCE_SHA' => Trigger.non_empty_variable_value('CI_MERGE_REQUEST_SOURCE_BRANCH_SHA') || ENV['CI_COMMIT_SHA']
+        'TOP_UPSTREAM_SOURCE_SHA' => ENV['CI_COMMIT_SHA']
       }
     end
 
     # Read version files from all components
     def version_file_variables
-      Dir.glob("*_VERSION").each_with_object({}) do |version_file, params|
+      Dir.glob("*_VERSION").each_with_object({}) do |version_file, params| # rubocop:disable Rails/IndexWith
         params[version_file] = version_param_value(version_file)
       end
     end
-  end
 
-  class Omnibus < Base
-    def self.access_token
-      # Default to "Multi-pipeline (from 'gitlab-org/gitlab' 'package-and-qa' job)" at https://gitlab.com/gitlab-org/build/omnibus-gitlab-mirror/-/settings/access_tokens
-      ENV['OMNIBUS_GITLAB_PROJECT_ACCESS_TOKEN'] || super
-    end
+    def endpoint
+      return "https://jihulab.com/api/v4" if ENV['CI_PROJECT_NAMESPACE'] == 'gitlab-cn'
 
-    private
-
-    def downstream_project_path
-      ENV.fetch('OMNIBUS_PROJECT_PATH', 'gitlab-org/build/omnibus-gitlab-mirror')
-    end
-
-    def ref
-      ENV.fetch('OMNIBUS_BRANCH', 'master')
-    end
-
-    def extra_variables
-      # Use CI_MERGE_REQUEST_SOURCE_BRANCH_SHA (MR HEAD commit) so that the image is in sync with the assets and QA images.
-      # See https://docs.gitlab.com/ee/development/testing_guide/end_to_end/index.html#with-pipeline-for-merged-results.
-      # We also set IMAGE_TAG so the GitLab Docker image is tagged with that SHA.
-      source_sha = Trigger.non_empty_variable_value('CI_MERGE_REQUEST_SOURCE_BRANCH_SHA') || ENV['CI_COMMIT_SHA']
-
-      {
-        'GITLAB_VERSION' => source_sha,
-        'IMAGE_TAG' => source_sha,
-        'QA_IMAGE' => ENV['QA_IMAGE'],
-        'SKIP_QA_DOCKER' => 'true',
-        'ALTERNATIVE_SOURCES' => 'true',
-        'SECURITY_SOURCES' => Trigger.security? ? 'true' : 'false',
-        'ee' => Trigger.ee? ? 'true' : 'false',
-        'QA_BRANCH' => ENV['QA_BRANCH'] || 'master',
-        'CACHE_UPDATE' => ENV['OMNIBUS_GITLAB_CACHE_UPDATE'],
-        'GITLAB_QA_OPTIONS' => ENV['GITLAB_QA_OPTIONS'],
-        'QA_TESTS' => ENV['QA_TESTS'],
-        'ALLURE_JOB_NAME' => ENV['ALLURE_JOB_NAME']
-      }
+      "https://gitlab.com/api/v4"
     end
   end
 
   class CNG < Base
+    ASSETS_HASH = "cached-assets-hash.txt"
+
     def variables
       # Delete variables that aren't useful when using native triggers.
       super.tap do |hash|
@@ -184,21 +180,39 @@ module Trigger
 
     private
 
-    def ref
-      return ENV['CI_COMMIT_REF_NAME'] if ENV['CI_COMMIT_REF_NAME'] =~ /^[\d-]+-stable(-ee)?$/
+    def ref_param_name
+      'CNG_BRANCH'
+    end
 
-      ENV.fetch('CNG_BRANCH', 'master')
+    def primary_ref
+      return "main-jh" if ENV['CI_PROJECT_NAMESPACE'] == 'gitlab-cn'
+
+      "master"
+    end
+
+    def trigger_stable_branch_if_detected?
+      true
+    end
+
+    def gitlab_ref_slug
+      if ENV['CI_COMMIT_TAG']
+        ENV['CI_COMMIT_REF_NAME']
+      else
+        ENV['CI_COMMIT_SHA']
+      end
+    end
+
+    def base_variables
+      super.merge(
+        'GITLAB_REF_SLUG' => gitlab_ref_slug
+      )
     end
 
     def extra_variables
-      # Use CI_MERGE_REQUEST_SOURCE_BRANCH_SHA (MR HEAD commit) so that the image is in sync with the assets and QA images.
-      source_sha = Trigger.non_empty_variable_value('CI_MERGE_REQUEST_SOURCE_BRANCH_SHA') || ENV['CI_COMMIT_SHA']
-
       {
         "TRIGGER_BRANCH" => ref,
-        "GITLAB_VERSION" => source_sha,
+        "GITLAB_VERSION" => ENV['CI_COMMIT_SHA'],
         "GITLAB_TAG" => ENV['CI_COMMIT_TAG'], # Always set a value, even an empty string, so that the downstream pipeline can correctly check it.
-        "GITLAB_ASSETS_TAG" => ENV['CI_COMMIT_TAG'] ? ENV['CI_COMMIT_REF_NAME'] : source_sha,
         "FORCE_RAILS_IMAGE_BUILDS" => 'true',
         "CE_PIPELINE" => Trigger.ee? ? nil : "true", # Always set a value, even an empty string, so that the downstream pipeline can correctly check it.
         "EE_PIPELINE" => Trigger.ee? ? "true" : nil # Always set a value, even an empty string, so that the downstream pipeline can correctly check it.
@@ -217,6 +231,11 @@ module Trigger
     end
   end
 
+  # This is used in:
+  # - https://gitlab.com/gitlab-org/gitlab-runner/-/blob/ddaf90761c917a42ed4aab60541b6bc33871fe68/.gitlab/ci/docs.gitlab-ci.yml#L1-47
+  # - https://gitlab.com/gitlab-org/charts/gitlab/-/blob/fa348e709e901196803051669b4874b657b4ea91/.gitlab-ci.yml#L497-543
+  # - https://gitlab.com/gitlab-org/omnibus-gitlab/-/blob/b44483f05c5e22628ba3b49ec4c7f8761c688af0/gitlab-ci-config/gitlab-com.yml#L199-224
+  # - https://gitlab.com/gitlab-org/omnibus-gitlab/-/blob/b44483f05c5e22628ba3b49ec4c7f8761c688af0/gitlab-ci-config/gitlab-com.yml#L356-380
   class Docs < Base
     def self.access_token
       # Default to "DOCS_PROJECT_API_TOKEN" at https://gitlab.com/gitlab-org/gitlab-docs/-/settings/access_tokens
@@ -243,12 +262,12 @@ module Trigger
     # Remove a remote branch in gitlab-docs.
     #
     def cleanup!
-      environment = gitlab_client(:downstream).environments(downstream_project_path, name: downstream_environment).first
+      environment = com_gitlab_client.environments(downstream_project_path, name: downstream_environment).first
       return unless environment
 
-      environment = gitlab_client(:downstream).stop_environment(downstream_project_path, environment.id)
+      environment = com_gitlab_client.stop_environment(downstream_project_path, environment.id)
       if environment.state == 'stopped'
-        puts "=> Downstream environment '#{downstream_environment}' stopped"
+        puts "=> Downstream environment '#{downstream_environment}' stopped."
       else
         puts "=> Downstream environment '#{downstream_environment}' failed to stop."
       end
@@ -272,8 +291,8 @@ module Trigger
       ENV.fetch('DOCS_PROJECT_PATH', 'gitlab-org/gitlab-docs')
     end
 
-    def ref
-      ENV.fetch('DOCS_BRANCH', 'main')
+    def ref_param_name
+      'DOCS_BRANCH'
     end
 
     # `gitlab-org/gitlab-docs` pipeline trigger "Triggered from gitlab-org/gitlab 'review-docs-deploy' job"
@@ -284,6 +303,7 @@ module Trigger
     def extra_variables
       {
         "BRANCH_#{project_slug.upcase}" => ENV['CI_COMMIT_REF_NAME'],
+        "MERGE_REQUEST_IID_#{project_slug.upcase}" => ENV['CI_MERGE_REQUEST_IID'],
         "REVIEW_SLUG" => review_slug
       }
     end
@@ -300,6 +320,8 @@ module Trigger
         'omnibus'
       when 'gitlab-org/charts/gitlab'
         'charts'
+      when 'gitlab-org/cloud-native/gitlab-operator'
+        'operator'
       end
     end
 
@@ -317,26 +339,21 @@ module Trigger
   class DatabaseTesting < Base
     IDENTIFIABLE_NOTE_TAG = 'gitlab-org/database-team/gitlab-com-database-testing:identifiable-note'
 
-    def self.access_token
-      ENV['GITLABCOM_DATABASE_TESTING_ACCESS_TOKEN']
-    end
-
-    def invoke!(post_comment: false, downstream_job_name: nil)
+    def invoke!
       pipeline = super
-      gitlab = gitlab_client(:upstream)
       project_path = variables['TOP_UPSTREAM_SOURCE_PROJECT']
       merge_request_id = variables['TOP_UPSTREAM_MERGE_REQUEST_IID']
       comment = "<!-- #{IDENTIFIABLE_NOTE_TAG} --> \nStarted database testing [pipeline](https://ops.gitlab.net/#{downstream_project_path}/-/pipelines/#{pipeline.id}) " \
                 "(limited access). This comment will be updated once the pipeline has finished running."
 
       # Look for an existing note
-      db_testing_notes = gitlab.merge_request_notes(project_path, merge_request_id).auto_paginate.select do |note|
+      db_testing_notes = com_gitlab_client.merge_request_notes(project_path, merge_request_id).auto_paginate.select do |note|
         note.body.include?(IDENTIFIABLE_NOTE_TAG)
       end
 
       if db_testing_notes.empty?
         # This is the first note
-        note = gitlab.create_merge_request_note(project_path, merge_request_id, comment)
+        note = com_gitlab_client.create_merge_request_note(project_path, merge_request_id, comment)
 
         puts "Posted comment to:\n"
         puts "https://gitlab.com/#{project_path}/-/merge_requests/#{merge_request_id}#note_#{note.id}"
@@ -345,19 +362,16 @@ module Trigger
 
     private
 
-    def gitlab_client(type)
-      @gitlab_clients ||= {
-        downstream: Gitlab.client(
-          endpoint: 'https://ops.gitlab.net/api/v4',
-          private_token: self.class.access_token
-        ),
-        upstream: Gitlab.client(
-          endpoint: 'https://gitlab.com/api/v4',
-          private_token: Base.access_token
-        )
-      }
+    def ops_gitlab_client
+      # No access token is needed here - we only use this client to trigger pipelines,
+      # and the trigger token authenticates the request to the pipeline
+      @ops_gitlab_client ||= Gitlab.client(
+        endpoint: 'https://ops.gitlab.net/api/v4'
+      )
+    end
 
-      @gitlab_clients[type]
+    def downstream_client
+      ops_gitlab_client
     end
 
     def trigger_token
@@ -370,27 +384,18 @@ module Trigger
 
     def extra_variables
       {
-        # Use CI_MERGE_REQUEST_SOURCE_BRANCH_SHA for omnibus checkouts due to pipeline for merged results
-        # and fallback to CI_COMMIT_SHA for the `detached` pipelines.
         'GITLAB_COMMIT_SHA' => Trigger.non_empty_variable_value('CI_MERGE_REQUEST_SOURCE_BRANCH_SHA') || ENV['CI_COMMIT_SHA'],
-        'TRIGGERED_USER_LOGIN' => ENV['GITLAB_USER_LOGIN']
+        'TRIGGERED_USER_LOGIN' => ENV['GITLAB_USER_LOGIN'],
+        'TOP_UPSTREAM_SOURCE_SHA' => Trigger.non_empty_variable_value('CI_MERGE_REQUEST_SOURCE_BRANCH_SHA') || ENV['CI_COMMIT_SHA']
       }
     end
 
-    def ref
-      ENV['GITLABCOM_DATABASE_TESTING_TRIGGER_REF'] || 'master'
+    def ref_param_name
+      'GITLABCOM_DATABASE_TESTING_TRIGGER_REF'
     end
-  end
 
-  class CommitComment
-    def self.post!(downstream_pipeline, gitlab_client)
-      gitlab_client.create_commit_comment(
-        ENV['CI_PROJECT_PATH'],
-        Trigger.non_empty_variable_value('CI_MERGE_REQUEST_SOURCE_BRANCH_SHA') || ENV['CI_COMMIT_SHA'],
-        "The [`#{ENV['CI_JOB_NAME']}`](#{ENV['CI_JOB_URL']}) job from pipeline #{ENV['CI_PIPELINE_URL']} triggered #{downstream_pipeline.web_url} downstream.")
-
-    rescue Gitlab::Error::Error => error
-      puts "Ignoring the following error: #{error}"
+    def primary_ref
+      'master'
     end
   end
 
@@ -451,16 +456,10 @@ module Trigger
 
     attr_reader :project, :gitlab_client, :start_time
   end
-
-  Job = Class.new(Pipeline)
 end
 
-if $0 == __FILE__
+if $PROGRAM_NAME == __FILE__
   case ARGV[0]
-  when 'omnibus'
-    Trigger::Omnibus.new.invoke!(post_comment: true, downstream_job_name: 'Trigger:qa-test').wait!
-  when 'cng'
-    Trigger::CNG.new.invoke!.wait!
   when 'gitlab-com-database-testing'
     Trigger::DatabaseTesting.new.invoke!
   when 'docs'
@@ -478,7 +477,6 @@ if $0 == __FILE__
   else
     puts "Please provide a valid option:
     omnibus - Triggers a pipeline that builds the omnibus-gitlab package
-    cng - Triggers a pipeline that builds images used by the GitLab helm chart
     gitlab-com-database-testing - Triggers a pipeline that tests database changes on GitLab.com data"
   end
 end

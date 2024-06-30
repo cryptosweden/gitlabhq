@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'admin issues labels' do
+RSpec.describe 'admin issues labels', feature_category: :team_planning do
   include Spec::Support::Helpers::ModalHelpers
 
   let!(:bug_label) { Label.create!(title: 'bug', template: true) }
@@ -11,12 +11,11 @@ RSpec.describe 'admin issues labels' do
   before do
     admin = create(:admin)
     sign_in(admin)
-    gitlab_enable_admin_mode_sign_in(admin)
+    enable_admin_mode!(admin)
   end
 
   describe 'list' do
     before do
-      stub_feature_flags(bootstrap_confirmation_modals: false)
       visit admin_labels_path
     end
 
@@ -27,9 +26,16 @@ RSpec.describe 'admin issues labels' do
       end
     end
 
-    it 'deletes label' do
+    it 'deletes label', :js do
       page.within "#label_#{bug_label.id}" do
-        click_link 'Delete'
+        find_by_testid('label-actions-dropdown-toggle').click
+        click_button 'Delete'
+      end
+
+      within_modal do
+        expect(page).to have_content("#{bug_label.title} will be permanently deleted. This cannot be undone.")
+
+        click_link 'Delete label'
       end
 
       page.within '.manage-labels-list' do
@@ -38,18 +44,19 @@ RSpec.describe 'admin issues labels' do
     end
 
     it 'deletes all labels', :js do
-      page.within '.labels' do
-        page.all('.js-remove-label').each do |remove|
-          accept_confirm { remove.click }
-          wait_for_requests
+      page.all('.labels [data-testid="label-actions-dropdown-toggle"]').each do |actions_toggle|
+        actions_toggle.click
+        click_button 'Delete'
+        within_modal do
+          click_link 'Delete label'
         end
+        wait_for_requests
       end
 
       wait_for_requests
 
-      expect(page).to have_content("Define your default set of project labels")
-      expect(page).not_to have_content('bug')
-      expect(page).not_to have_content('feature_label')
+      expect(page).to have_css '.js-admin-labels-container', visible: :hidden
+      expect(page).to have_css '.js-admin-labels-empty-state', visible: :visible
     end
   end
 
@@ -113,7 +120,7 @@ RSpec.describe 'admin issues labels' do
         click_link 'Delete label'
       end
 
-      expect(page).to have_content('Label was removed')
+      expect(page).to have_content("#{bug_label.title} was removed").and have_no_content("#{bug_label.title}</span>")
     end
   end
 end

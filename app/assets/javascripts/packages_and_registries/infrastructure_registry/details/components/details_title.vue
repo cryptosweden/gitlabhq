@@ -1,5 +1,6 @@
 <script>
 import { GlIcon, GlSprintf, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters } from 'vuex';
 import { numberToHumanSize } from '~/lib/utils/number_utils';
 import { __ } from '~/locale';
@@ -29,16 +30,11 @@ export default {
       return numberToHumanSize(this.packageFiles.reduce((acc, p) => acc + p.size, 0));
     },
   },
-  methods: {
-    dynamicSlotName(index) {
-      return `metadata-tag${index}`;
-    },
-  },
 };
 </script>
 
 <template>
-  <title-area :title="packageEntity.name" data-qa-selector="package_title">
+  <title-area :title="packageEntity.name">
     <template #sub-header>
       <gl-icon name="eye" class="gl-mr-3" />
       <gl-sprintf :message="$options.i18n.packageInfo">

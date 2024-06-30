@@ -5,23 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"gitlab.com/gitlab-org/labkit/log"
-
-	"golang.org/x/image/tiff"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/lsif_transformer/parser"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/upload/destination"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/upload/exif"
 )
@@ -30,14 +25,14 @@ const maxFilesAllowed = 10
 
 // ErrInjectedClientParam means that the client sent a parameter that overrides one of our own fields
 var (
-	ErrInjectedClientParam  = errors.New("injected client parameter")
-	ErrTooManyFilesUploaded = fmt.Errorf("upload request contains more than %v files", maxFilesAllowed)
+	ErrInjectedClientParam    = errors.New("injected client parameter")
+	ErrTooManyFilesUploaded   = fmt.Errorf("upload request contains more than %v files", maxFilesAllowed)
+	ErrUnexpectedMultipartEOF = fmt.Errorf("unexpected EOF when reading multipart data")
 )
 
 var (
 	multipartUploadRequests = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-
 			Name: "gitlab_workhorse_multipart_upload_requests",
 			Help: "How many multipart upload requests have been processed by gitlab-workhorse. Partitioned by type.",
 		},
@@ -62,28 +57,27 @@ var (
 )
 
 type rewriter struct {
-	writer          *multipart.Writer
-	preauth         *api.Response
+	writer *multipart.Writer
+	fileAuthorizer
+	Preparer
 	filter          MultipartFormProcessor
 	finalizedFields map[string]bool
 }
 
-func rewriteFormFilesFromMultipart(r *http.Request, writer *multipart.Writer, preauth *api.Response, filter MultipartFormProcessor, opts *destination.UploadOpts) error {
+func rewriteFormFilesFromMultipart(r *http.Request, writer *multipart.Writer, filter MultipartFormProcessor, fa fileAuthorizer, preparer Preparer, cfg *config.Config) error {
 	// Create multipart reader
 	reader, err := r.MultipartReader()
 	if err != nil {
-		if err == http.ErrNotMultipart {
-			// We want to be able to recognize http.ErrNotMultipart elsewhere so no fmt.Errorf
-			return http.ErrNotMultipart
-		}
-		return fmt.Errorf("get multipart reader: %v", err)
+		// We want to be able to recognize these errors elsewhere so no fmt.Errorf
+		return err
 	}
 
 	multipartUploadRequests.WithLabelValues(filter.Name()).Inc()
 
 	rew := &rewriter{
 		writer:          writer,
-		preauth:         preauth,
+		fileAuthorizer:  fa,
+		Preparer:        preparer,
 		filter:          filter,
 		finalizedFields: make(map[string]bool),
 	}
@@ -93,6 +87,14 @@ func rewriteFormFilesFromMultipart(r *http.Request, writer *multipart.Writer, pr
 		if err != nil {
 			if err == io.EOF {
 				break
+			}
+			// Unfortunately as described in https://github.com/golang/go/issues/54133,
+			// we don't have a good way to determine the actual error cause of NextPart()
+			// without an ugly string comparison.
+			// io.EOF is treated differently from an unexpected EOF:
+			// https://github.com/golang/go/blob/69d6c7b8ee62b4db5a8f6399e15f27d47b209a29/src/mime/multipart/multipart.go#L395-L405
+			if err.Error() == "multipart: NextPart: EOF" {
+				return ErrUnexpectedMultipartEOF
 			}
 			return err
 		}
@@ -108,7 +110,7 @@ func rewriteFormFilesFromMultipart(r *http.Request, writer *multipart.Writer, pr
 		}
 
 		if filename != "" {
-			err = rew.handleFilePart(r.Context(), name, p, opts)
+			err = rew.handleFilePart(r, name, p, cfg)
 		} else {
 			err = rew.copyPart(r.Context(), name, p)
 		}
@@ -128,7 +130,7 @@ func parseAndNormalizeContentDisposition(header textproto.MIMEHeader) (string, s
 	return params["name"], params["filename"]
 }
 
-func (rew *rewriter) handleFilePart(ctx context.Context, name string, p *multipart.Part, opts *destination.UploadOpts) error {
+func (rew *rewriter) handleFilePart(r *http.Request, name string, p *multipart.Part, cfg *config.Config) error {
 	if rew.filter.Count() >= maxFilesAllowed {
 		return ErrTooManyFilesUploaded
 	}
@@ -141,36 +143,33 @@ func (rew *rewriter) handleFilePart(ctx context.Context, name string, p *multipa
 		return fmt.Errorf("illegal filename: %q", filename)
 	}
 
-	opts.TempFilePrefix = filename
-
-	var inputReader io.ReadCloser
-	var err error
-
-	imageType := exif.FileTypeFromSuffix(filename)
-	switch {
-	case imageType != exif.TypeUnknown:
-		inputReader, err = handleExifUpload(ctx, p, filename, imageType)
-		if err != nil {
-			return err
-		}
-	case rew.preauth.ProcessLsif:
-		inputReader, err = handleLsifUpload(ctx, p, opts.LocalTempPath, filename, rew.preauth)
-		if err != nil {
-			return err
-		}
-	default:
-		inputReader = ioutil.NopCloser(p)
+	apiResponse, err := rew.AuthorizeFile(r)
+	if err != nil {
+		return err
+	}
+	opts, err := rew.Prepare(apiResponse)
+	if err != nil {
+		return err
 	}
 
-	defer inputReader.Close()
+	ctx := r.Context()
+	inputReader, err := rew.filter.TransformContents(ctx, filename, p)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err = inputReader.Close(); err != nil {
+			fmt.Printf("error closing multipart file: %v", err)
+		}
+	}()
 
-	fh, err := destination.Upload(ctx, inputReader, -1, opts)
+	fh, err := destination.Upload(ctx, inputReader, -1, filename, opts)
 	if err != nil {
 		switch err {
 		case destination.ErrEntityTooLarge, exif.ErrRemovingExif:
 			return err
 		default:
-			return fmt.Errorf("persisting multipart file: %v", err)
+			return fmt.Errorf("persisting multipart file: %w", err)
 		}
 	}
 
@@ -180,99 +179,15 @@ func (rew *rewriter) handleFilePart(ctx context.Context, name string, p *multipa
 	}
 
 	for key, value := range fields {
-		rew.writer.WriteField(key, value)
+		if err := rew.writer.WriteField(key, value); err != nil {
+			return err
+		}
 		rew.finalizedFields[key] = true
 	}
 
 	multipartFileUploadBytes.WithLabelValues(rew.filter.Name()).Add(float64(fh.Size))
 
-	return rew.filter.ProcessFile(ctx, name, fh, rew.writer)
-}
-
-func handleExifUpload(ctx context.Context, r io.Reader, filename string, imageType exif.FileType) (io.ReadCloser, error) {
-	tmpfile, err := ioutil.TempFile("", "exifremove")
-	if err != nil {
-		return nil, err
-	}
-	go func() {
-		<-ctx.Done()
-		tmpfile.Close()
-	}()
-	if err := os.Remove(tmpfile.Name()); err != nil {
-		return nil, err
-	}
-
-	_, err = io.Copy(tmpfile, r)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := tmpfile.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-
-	isValidType := false
-	switch imageType {
-	case exif.TypeJPEG:
-		isValidType = isJPEG(tmpfile)
-	case exif.TypeTIFF:
-		isValidType = isTIFF(tmpfile)
-	}
-
-	if _, err := tmpfile.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-
-	if !isValidType {
-		log.WithContextFields(ctx, log.Fields{
-			"filename":  filename,
-			"imageType": imageType,
-		}).Print("invalid content type, not running exiftool")
-
-		return tmpfile, nil
-	}
-
-	log.WithContextFields(ctx, log.Fields{
-		"filename": filename,
-	}).Print("running exiftool to remove any metadata")
-
-	cleaner, err := exif.NewCleaner(ctx, tmpfile)
-	if err != nil {
-		return nil, err
-	}
-
-	return cleaner, nil
-}
-
-func isTIFF(r io.Reader) bool {
-	_, err := tiff.DecodeConfig(r)
-	if err == nil {
-		return true
-	}
-
-	if _, unsupported := err.(tiff.UnsupportedError); unsupported {
-		return true
-	}
-
-	return false
-}
-
-func isJPEG(r io.Reader) bool {
-	// Only the first 512 bytes are used to sniff the content type.
-	buf, err := ioutil.ReadAll(io.LimitReader(r, 512))
-	if err != nil {
-		return false
-	}
-
-	return http.DetectContentType(buf) == "image/jpeg"
-}
-
-func handleLsifUpload(ctx context.Context, reader io.Reader, tempPath, filename string, preauth *api.Response) (io.ReadCloser, error) {
-	parserConfig := parser.Config{
-		TempPath: tempPath,
-	}
-
-	return parser.NewParser(ctx, reader, parserConfig)
+	return rew.filter.ProcessFile(ctx, name, fh, rew.writer, cfg)
 }
 
 func (rew *rewriter) copyPart(ctx context.Context, name string, p *multipart.Part) error {
@@ -291,3 +206,29 @@ func (rew *rewriter) copyPart(ctx context.Context, name string, p *multipart.Par
 
 	return nil
 }
+
+type fileAuthorizer interface {
+	AuthorizeFile(*http.Request) (*api.Response, error)
+}
+
+type eagerAuthorizer struct{ response *api.Response }
+
+func (ea *eagerAuthorizer) AuthorizeFile(_ *http.Request) (*api.Response, error) {
+	return ea.response, nil
+}
+
+var _ fileAuthorizer = &eagerAuthorizer{}
+
+type apiAuthorizer struct {
+	api *api.API
+}
+
+func (aa *apiAuthorizer) AuthorizeFile(r *http.Request) (*api.Response, error) {
+	return aa.api.PreAuthorizeFixedPath(
+		r,
+		"POST",
+		"/api/v4/internal/workhorse/authorize_upload",
+	)
+}
+
+var _ fileAuthorizer = &apiAuthorizer{}

@@ -1,17 +1,21 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Deploy to a Kubernetes cluster with cluster certificates (DEPRECATED) **(FREE)**
+# Deploy to a Kubernetes cluster with cluster certificates (deprecated)
 
-> [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed
+
+> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
 To connect your cluster to GitLab, use the [GitLab agent](../../clusters/agent/index.md).
-To deploy with the agent, use the [CI/CD workflow](../../clusters/agent/ci_cd_tunnel.md).
+To deploy with the agent, use the [CI/CD workflow](../../clusters/agent/ci_cd_workflow.md).
 
 A Kubernetes cluster can be the destination for a deployment job. If
 
@@ -21,7 +25,7 @@ A Kubernetes cluster can be the destination for a deployment job. If
   the cluster from your jobs using tools such as `kubectl` or `helm`.
 - You don't use the GitLab cluster integration, you can still deploy to your
   cluster. However, you must configure Kubernetes tools yourself
-  using [CI/CD variables](../../../ci/variables/index.md#custom-cicd-variables)
+  using [CI/CD variables](../../../ci/variables/index.md#for-a-project)
   before you can interact with the cluster from your jobs.
 
 ## Deployment variables
@@ -43,29 +47,26 @@ following command in your deployment job script, for Kubernetes to access the re
   ```
 
 The Kubernetes cluster integration exposes these
-[deployment variables](../../../ci/variables/index.md#deployment-variables) in the
+[deployment variables](../../../ci/variables/predefined_variables.md#deployment-variables) in the
 GitLab CI/CD build environment to deployment jobs. Deployment jobs have
 [defined a target environment](../../../ci/environments/index.md).
 
 | Deployment Variable        | Description |
 |----------------------------|-------------|
 | `KUBE_URL`                 | Equal to the API URL. |
-| `KUBE_TOKEN`               | The Kubernetes token of the [environment service account](cluster_access.md). Prior to GitLab 11.5, `KUBE_TOKEN` was the Kubernetes token of the main service account of the cluster integration. |
+| `KUBE_TOKEN`               | The Kubernetes token of the [environment service account](cluster_access.md). |
 | `KUBE_NAMESPACE`           | The namespace associated with the project's deployment service account. In the format `<project_name>-<project_id>-<environment>`. For GitLab-managed clusters, a matching namespace is automatically created by GitLab in the cluster. If your cluster was created before GitLab 12.2, the default `KUBE_NAMESPACE` is set to `<project_name>-<project_id>`. |
 | `KUBE_CA_PEM_FILE`         | Path to a file containing PEM data. Only present if a custom CA bundle was specified. |
 | `KUBE_CA_PEM`              | (**deprecated**) Raw PEM data. Only if a custom CA bundle was specified. |
 | `KUBECONFIG`               | Path to a file containing `kubeconfig` for this deployment. CA bundle would be embedded if specified. This configuration also embeds the same token defined in `KUBE_TOKEN` so you likely need only this variable. This variable name is also automatically picked up by `kubectl` so you don't need to reference it explicitly if using `kubectl`. |
-| `KUBE_INGRESS_BASE_DOMAIN` | From GitLab 11.8, this variable can be used to set a domain per cluster. See [cluster domains](gitlab_managed_clusters.md#base-domain) for more information. |
+| `KUBE_INGRESS_BASE_DOMAIN` | This variable can be used to set a domain per cluster. See [cluster domains](gitlab_managed_clusters.md#base-domain) for more information. |
 
 ## Custom namespace
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/27630) in GitLab 12.6.
-> - An option to use project-wide namespaces [was added](https://gitlab.com/gitlab-org/gitlab/-/issues/38054) in GitLab 13.5.
 
 The Kubernetes integration provides a `KUBECONFIG` with an auto-generated namespace
 to deployment jobs. It defaults to using project-environment specific namespaces
 of the form `<prefix>-<environment>`, where `<prefix>` is of the form
-`<project_name>-<project_id>`. To learn more, read [Deployment variables](#deployment-variables).
+`<project_name>-<project_id>`. For more information, see [Deployment variables](#deployment-variables).
 
 You can customize the deployment namespace in a few ways:
 
@@ -78,7 +79,7 @@ You can customize the deployment namespace in a few ways:
 - For **non-managed** clusters, the auto-generated namespace is set in the `KUBECONFIG`,
   but the user is responsible for ensuring its existence. You can fully customize
   this value using
-  [`environment:kubernetes:namespace`](../../../ci/environments/index.md#configure-kubernetes-deployments-deprecated)
+  [`environment:kubernetes:namespace`](../../../ci/environments/configure_kubernetes_deployments.md)
   in `.gitlab-ci.yml`.
 
 When you customize the namespace, existing environments remain linked to their current
@@ -98,8 +99,6 @@ combined with *one* of the following:
   can be added multiple times with multiple restricted service accounts.
 
 ## Web terminals for Kubernetes clusters
-
-> Introduced in GitLab 8.15.
 
 The Kubernetes integration adds [web terminal](../../../ci/environments/index.md#web-terminals-deprecated)
 support to your [environments](../../../ci/environments/index.md). This is based
@@ -131,7 +130,7 @@ However, sometimes GitLab cannot create them. In such instances, your job can fa
 This job failed because the necessary resources were not successfully created.
 ```
 
-To find the cause of this error when creating a namespace and service account, check the [logs](../../../administration/logs.md#kuberneteslog).
+To find the cause of this error when creating a namespace and service account, check the [logs](../../../administration/logs/index.md#kuberneteslog-deprecated).
 
 Reasons for failure include:
 

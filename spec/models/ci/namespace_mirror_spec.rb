@@ -16,7 +16,19 @@ RSpec.describe Ci::NamespaceMirror do
     expect(group1.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group1.id])
     expect(group2.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group1.id, group2.id])
     expect(group3.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group1.id, group2.id, group3.id])
-    expect(group4.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group1.id, group2.id, group3.id, group4.id])
+    expect(group4.reload.ci_namespace_mirror).to have_attributes(
+      traversal_ids: [group1.id, group2.id, group3.id, group4.id]
+    )
+  end
+
+  describe 'associations' do
+    it { is_expected.to belong_to(:namespace) }
+    it { is_expected.to have_many(:project_mirrors) }
+
+    it 'has a bidirectional relationship with project mirrors' do
+      expect(described_class.reflect_on_association(:project_mirrors).has_inverse?).to eq(:namespace_mirror)
+      expect(Ci::ProjectMirror.reflect_on_association(:namespace_mirror).has_inverse?).to eq(:project_mirrors)
+    end
   end
 
   context 'scopes' do
@@ -44,10 +56,57 @@ RSpec.describe Ci::NamespaceMirror do
       end
     end
 
+    describe '.contains_traversal_ids' do
+      let!(:other_group1) { create(:group) }
+      let!(:other_group2) { create(:group, parent: other_group1) }
+      let!(:other_group3) { create(:group, parent: other_group2) }
+      let!(:other_group4) { create(:group) }
+
+      subject(:result) { described_class.contains_traversal_ids(all_traversal_ids) }
+
+      context 'when passing a top-level group' do
+        let(:all_traversal_ids) do
+          [
+            [other_group1.id]
+          ]
+        end
+
+        it 'returns only itself and children of that group' do
+          expect(result.map(&:namespace)).to contain_exactly(other_group1, other_group2, other_group3)
+        end
+      end
+
+      context 'when passing many levels of groups' do
+        let(:all_traversal_ids) do
+          [
+            [other_group2.parent_id, other_group2.id],
+            [other_group3.parent_id, other_group3.id],
+            [other_group4.id]
+          ]
+        end
+
+        it 'returns only the asked group' do
+          expect(result.map(&:namespace)).to contain_exactly(other_group2, other_group3, other_group4)
+        end
+      end
+
+      context 'when passing invalid data ' do
+        let(:all_traversal_ids) do
+          [
+            ["; UPDATE"]
+          ]
+        end
+
+        it 'data is properly sanitised' do
+          expect(result.to_sql).to include "((traversal_ids[1])) IN (('; UPDATE'))"
+        end
+      end
+    end
+
     describe '.by_namespace_id' do
       subject(:result) { described_class.by_namespace_id(group2.id) }
 
-      it 'returns namesapce mirrors of namespace id' do
+      it 'returns namespace mirrors of namespace id' do
         expect(result).to contain_exactly(group2.ci_namespace_mirror)
       end
     end
@@ -55,6 +114,8 @@ RSpec.describe Ci::NamespaceMirror do
 
   describe '.sync!' do
     subject(:sync) { described_class.sync!(Namespaces::SyncEvent.last) }
+
+    let(:expected_traversal_ids) { [group1.id, group2.id, group3.id] }
 
     context 'when namespace mirror does not exist in the first place' do
       let(:namespace) { group3 }
@@ -67,7 +128,7 @@ RSpec.describe Ci::NamespaceMirror do
       it 'creates the mirror' do
         expect { sync }.to change { described_class.count }.from(3).to(4)
 
-        expect(namespace.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group1.id, group2.id, group3.id])
+        expect(namespace.reload.ci_namespace_mirror).to have_attributes(traversal_ids: expected_traversal_ids)
       end
     end
 
@@ -81,37 +142,8 @@ RSpec.describe Ci::NamespaceMirror do
       it 'updates the mirror' do
         expect { sync }.not_to change { described_class.count }
 
-        expect(namespace.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group1.id, group2.id, group3.id])
+        expect(namespace.reload.ci_namespace_mirror).to have_attributes(traversal_ids: expected_traversal_ids)
       end
-    end
-
-    shared_context 'changing the middle namespace' do
-      let(:namespace) { group2 }
-
-      before do
-        group2.update!(parent: nil) # creates a sync event
-      end
-
-      it 'updates traversal_ids for the base and descendants' do
-        expect { sync }.not_to change { described_class.count }
-
-        expect(group1.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group1.id])
-        expect(group2.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group2.id])
-        expect(group3.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group2.id, group3.id])
-        expect(group4.reload.ci_namespace_mirror).to have_attributes(traversal_ids: [group2.id, group3.id, group4.id])
-      end
-    end
-
-    it_behaves_like 'changing the middle namespace'
-
-    context 'when the FFs sync_traversal_ids, use_traversal_ids and use_traversal_ids_for_ancestors are disabled' do
-      before do
-        stub_feature_flags(sync_traversal_ids: false,
-                           use_traversal_ids: false,
-                           use_traversal_ids_for_ancestors: false)
-      end
-
-      it_behaves_like 'changing the middle namespace'
     end
   end
 end

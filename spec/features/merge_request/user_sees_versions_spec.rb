@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User sees versions', :js do
+RSpec.describe 'Merge request > User sees versions', :js, feature_category: :code_review_workflow do
   include MergeRequestDiffHelpers
 
   let(:merge_request) do
@@ -24,23 +24,21 @@ RSpec.describe 'Merge request > User sees versions', :js do
     visit diffs_project_merge_request_path(project, merge_request, params)
   end
 
-  shared_examples 'allows commenting' do |file_id:, line_code:, comment:|
+  shared_examples 'allows commenting' do |file_name:, line_text:, comment:|
     it do
-      diff_file_selector = ".diff-file[id='#{file_id}']"
-      line_code = "#{file_id}_#{line_code}"
+      page.within find_by_scrolling('.diff-file', text: file_name) do
+        line_code_element = page.find('.diff-grid-row', text: line_text)
 
-      page.within find_by_scrolling(diff_file_selector) do
-        line_code_element = first("[id='#{line_code}']")
         # scrolling to element's bottom is required in order for .hover action to work
         # otherwise, the element could be hidden underneath a sticky header
         scroll_to_elements_bottom(line_code_element)
         line_code_element.hover
-        first("[id='#{line_code}'] [role='button']").click
+        find_by_testid('left-comment-button', visible: true).click
 
-        page.within("form[data-line-code='#{line_code}']") do
-          fill_in "note[note]", with: comment
-          click_button('Add comment now')
-        end
+        expect(page).to have_selector("form", count: 1)
+
+        fill_in("note[note]", with: comment)
+        click_button('Add comment now')
 
         wait_for_requests
 
@@ -58,10 +56,14 @@ RSpec.describe 'Merge request > User sees versions', :js do
       expect(page).to have_content '8 files'
     end
 
+    it 'has the correct count for changes' do
+      expect(page).to have_content 'Changes 8'
+    end
+
     it_behaves_like 'allows commenting',
-                    file_id: '7445606fbf8f3683cd42bdc54b05d7a0bc2dfc44',
-                    line_code: '1_1',
-                    comment: 'Typo, please fix.'
+      file_name: '.gitmodules',
+      line_text: '[submodule "six"]',
+      comment: 'Typo, please fix.'
   end
 
   describe 'switch between versions' do
@@ -101,14 +103,15 @@ RSpec.describe 'Merge request > User sees versions', :js do
       outdated_diff_note.save!
 
       refresh
+      wait_for_requests
 
       expect(page).to have_css(".diffs .notes[data-discussion-id='#{outdated_diff_note.discussion_id}']")
     end
 
     it_behaves_like 'allows commenting',
-                    file_id: '7445606fbf8f3683cd42bdc54b05d7a0bc2dfc44',
-                    line_code: '2_2',
-                    comment: 'Typo, please fix.'
+      file_name: '.gitmodules',
+      line_text: 'path = six',
+      comment: 'Typo, please fix.'
   end
 
   describe 'compare with older version' do
@@ -122,6 +125,10 @@ RSpec.describe 'Merge request > User sees versions', :js do
       page.within '.mr-version-compare-dropdown' do
         expect(page).to have_content 'version 1'
       end
+    end
+
+    it 'has the correct count for changes' do
+      expect(page).to have_content 'Changes 4'
     end
 
     it 'has a path with comparison context and shows comments that were last relevant at that version' do
@@ -173,9 +180,9 @@ RSpec.describe 'Merge request > User sees versions', :js do
     end
 
     it_behaves_like 'allows commenting',
-                   file_id: '7445606fbf8f3683cd42bdc54b05d7a0bc2dfc44',
-                   line_code: '4_4',
-                   comment: 'Typo, please fix.'
+      file_name: '.gitmodules',
+      line_text: '[submodule "gitlab-shell"]',
+      comment: 'Typo, please fix.'
   end
 
   describe 'compare with same version' do
@@ -233,15 +240,15 @@ RSpec.describe 'Merge request > User sees versions', :js do
     end
 
     it 'only shows diffs from the commit' do
-      diff_commit_ids = find_all('.diff-file [data-commit-id]').map {|diff| diff['data-commit-id']}
+      diff_commit_ids = find_all('.diff-file [data-commit-id]').pluck('data-commit-id')
 
       expect(diff_commit_ids).not_to be_empty
       expect(diff_commit_ids).to all(eq(params[:commit_id]))
     end
 
     it_behaves_like 'allows commenting',
-                    file_id: '2f6fcd96b88b36ce98c38da085c795a27d92a3dd',
-                    line_code: '6_6',
-                    comment: 'Typo, please fix.'
+      file_name: 'files/ruby/popen.rb',
+      line_text: 'RuntimeError',
+      comment: 'Typo, please fix.'
   end
 end

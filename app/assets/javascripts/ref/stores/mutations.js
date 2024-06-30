@@ -1,5 +1,5 @@
 import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { HTTP_STATUS_NOT_FOUND } from '~/lib/utils/http_status';
 import { X_TOTAL_HEADER } from '../constants';
 import * as types from './mutation_types';
 
@@ -9,6 +9,9 @@ export default {
   },
   [types.SET_USE_SYMBOLIC_REF_NAMES](state, useSymbolicRefNames) {
     state.useSymbolicRefNames = useSymbolicRefNames;
+  },
+  [types.SET_PARAMS](state, params) {
+    state.params = params;
   },
   [types.SET_PROJECT_ID](state, projectId) {
     state.projectId = projectId;
@@ -33,6 +36,7 @@ export default {
         name: b.name,
         value: state.useSymbolicRefNames ? `refs/heads/${b.name}` : undefined,
         default: b.default,
+        protected: b.protected,
       })),
       totalCount: parseInt(response.headers[X_TOTAL_HEADER], 10),
       error: null,
@@ -51,6 +55,7 @@ export default {
       list: convertObjectPropsToCamelCase(response.data).map((b) => ({
         name: b.name,
         value: state.useSymbolicRefNames ? `refs/tags/${b.name}` : undefined,
+        protected: b.protected,
       })),
       totalCount: parseInt(response.headers[X_TOTAL_HEADER], 10),
       error: null,
@@ -86,7 +91,7 @@ export default {
 
       // 404's are expected when the search query doesn't match any commits
       // and shouldn't be treated as an actual error
-      error: error.response?.status !== httpStatusCodes.NOT_FOUND ? error : null,
+      error: error.response?.status !== HTTP_STATUS_NOT_FOUND ? error : null,
     };
   },
   [types.RESET_COMMIT_MATCHES](state) {

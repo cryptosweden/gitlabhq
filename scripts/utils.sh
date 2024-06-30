@@ -1,30 +1,87 @@
 function retry() {
+  retry_times_sleep 2 3 "$@"
+}
+
+function retry_times_sleep() {
+  number_of_retries="$1"
+  shift
+  sleep_seconds="$1"
+  shift
+
   if eval "$@"; then
     return 0
   fi
 
-  for i in 2 1; do
-    sleep 3s
-    echo "Retrying $i..."
+  for i in $(seq "${number_of_retries}" -1 1); do
+    sleep "$sleep_seconds"s
+    echo "[$(date '+%H:%M:%S')] Retry attempts left: $i..."
     if eval "$@"; then
       return 0
     fi
   done
+
+  return 1
+}
+
+# Retry after 2s, 4s, 8s, 16s, 32, 64s, 128s
+function retry_exponential() {
+  if eval "$@"; then
+    return 0
+  fi
+
+  local sleep_time=0
+  # The last try will be after 2**7 = 128 seconds (2min8s)
+  for i in 1 2 3 4 5 6 7; do
+    sleep_time=$((2 ** i))
+
+    echo "Sleep for $sleep_time seconds..."
+    sleep $sleep_time
+    echo "[$(date '+%H:%M:%S')] Attempt #$i..."
+    if eval "$@"; then
+      return 0
+    fi
+  done
+
   return 1
 }
 
 function test_url() {
   local url="${1}"
-  local curl_output="${2}"
+  local curl_args="${2}"
   local status
+  local cmd="curl ${curl_args} --output /dev/null -L -s -w ''%{http_code}'' \"${url}\""
 
-  status=$(curl -s -o "${curl_output}" -L -w ''%{http_code}'' "${url}")
+  status=$(eval "${cmd}")
 
   if [[ $status == "200" ]]; then
+    echo -e "\n[$(date '+%H:%M:%S')] Curl to $url successful with 200 response"
     return 0
+  else
+    # We display the error in the job to allow for better debugging
+    curl -L --fail --output /dev/null "${url}"
+    echo -e "\nExpected HTTP status 200: received ${status}\n"
+    return 1
   fi
+}
 
-  return 1
+function section_start () {
+  local section_title="${1}"
+  local section_description="${2:-$section_title}"
+  local collapsed="${3:-true}"
+
+  echo -e "section_start:`date +%s`:${section_title}[collapsed=${collapsed}]\r\e[0K${section_description}"
+}
+
+function section_end () {
+  local section_title="${1}"
+
+  echo -e "section_end:`date +%s`:${section_title}\r\e[0K"
+}
+
+function rspec_section() {
+  section_start "rspec" "RSpec" "false"
+  "$@"
+  section_end "rspec"
 }
 
 function bundle_install_script() {
@@ -36,16 +93,18 @@ function bundle_install_script() {
     exit 1;
   fi;
 
-  gem install bundler --no-document --conservative --version 2.3.6
+  section_start "bundle-install" "Installing gems"
+
+  gem --version
   bundle --version
+  test -d jh && bundle config set --local gemfile 'jh/Gemfile'
   bundle config set path "$(pwd)/vendor"
   bundle config set clean 'true'
-  test -d jh && bundle config set --local gemfile 'jh/Gemfile'
 
   echo "${BUNDLE_WITHOUT}"
   bundle config
 
-  run_timed_command "bundle install ${BUNDLE_INSTALL_FLAGS} ${extra_install_args} && bundle check"
+  run_timed_command "bundle install ${BUNDLE_INSTALL_FLAGS} ${extra_install_args}"
 
   if [[ $(bundle info pg) ]]; then
     # When we test multiple versions of PG in the same pipeline, we have a single `setup-test-env`
@@ -53,32 +112,153 @@ function bundle_install_script() {
     # Uncomment the following line if multiple versions of PG are tested in the same pipeline.
     run_timed_command "bundle pristine pg"
   fi
+
+  section_end "bundle-install"
+}
+
+function yarn_install_script() {
+  section_start "yarn-install" "Installing Yarn packages"
+
+  retry yarn install --frozen-lockfile
+
+  section_end "yarn-install"
+}
+
+function yarn_install_script_storybook() {
+  section_start "yarn-install-storybook" "Installing Yarn packages for Storybook"
+
+  retry yarn storybook:install --frozen-lockfile
+
+  section_end "yarn-install-storybook"
+}
+
+function assets_compile_script() {
+  section_start "assets-compile" "Compiling frontend assets"
+
+  bin/rake gitlab:assets:compile
+
+  section_end "assets-compile"
+}
+
+function setup_database_yml() {
+  if [ "$DECOMPOSED_DB" == "true" ]; then
+    if [ "$CLUSTERWIDE_DB" == "true" ]; then
+      echo "Using decomposed database config, containing clusterwide connection (config/database.yml.decomposed-clusterwide-postgresql)"
+      cp config/database.yml.decomposed-clusterwide-postgresql config/database.yml
+    else
+      echo "Using decomposed database config (config/database.yml.decomposed-postgresql)"
+      cp config/database.yml.decomposed-postgresql config/database.yml
+    fi
+  else
+    echo "Using two connections, single database config (config/database.yml.postgresql)"
+    cp config/database.yml.postgresql config/database.yml
+
+    if [ "$CI_CONNECTION_DB" != "true" ]; then
+      echo "Disabling ci connection in config/database.yml"
+      sed -i "/ci:$/, /geo:$/ {s|^|#|;s|#  geo:|  geo:|;}" config/database.yml
+    fi
+  fi
+
+  # Set up Geo database if the job name matches `rspec-ee` or `geo`.
+  # Since Geo is an EE feature, we shouldn't set it up for non-EE tests.
+  if [[ "${CI_JOB_NAME}" =~ "rspec-ee" ]] || [[ "${CI_JOB_NAME}" =~ "geo" ]]; then
+    echoinfo "Geo DB will be set up."
+  else
+    echoinfo "Geo DB won't be set up."
+    sed -i '/geo:/,/^$/d' config/database.yml
+  fi
+
+  # Set up Embedding database if the job name matches `rspec-ee`
+  # Since Embedding is an EE feature, we shouldn't set it up for non-EE tests.
+  if [[ "${CI_JOB_NAME}" =~ "rspec-ee" ]]; then
+    echoinfo "Embedding DB will be set up."
+  else
+    echoinfo "Embedding DB won't be set up."
+    sed -i '/embedding:/,/^$/d' config/database.yml
+  fi
+
+  # Set user to a non-superuser to ensure we test permissions
+  sed -i 's/username: root/username: gitlab/g' config/database.yml
+
+  sed -i 's/localhost/postgres/g' config/database.yml
+  sed -i 's/username: git/username: postgres/g' config/database.yml
 }
 
 function setup_db_user_only() {
   source scripts/create_postgres_user.sh
 }
 
-function setup_db() {
-  run_timed_command "setup_db_user_only"
-  run_timed_command_with_metric "bundle exec rake db:drop db:create db:structure:load db:migrate gitlab:db:setup_ee" "setup_db"
+function setup_db_praefect() {
+  createdb -h postgres -U postgres --encoding=UTF8 --echo praefect_test
 }
 
-function install_api_client_dependencies_with_apk() {
-  run_timed_command "apk add --update openssl curl jq"
+function setup_db() {
+  section_start "setup-db" "Setting up DBs"
+
+  setup_db_user_only
+  run_timed_command_with_metric "bundle exec rake db:drop db:create db:schema:load db:migrate gitlab:db:lock_writes" "setup_db"
+  setup_db_praefect
+
+  section_end "setup-db"
 }
 
 function install_gitlab_gem() {
-  run_timed_command "gem install httparty --no-document --version 0.18.1"
-  run_timed_command "gem install gitlab --no-document --version 4.17.0"
+  run_timed_command "gem install httparty --no-document --version 0.20.0"
+  run_timed_command "gem install gitlab --no-document --version 4.19.0"
 }
 
 function install_tff_gem() {
-  run_timed_command "gem install test_file_finder --no-document --version 0.1.1"
+  run_timed_command "gem install test_file_finder --no-document --version 0.3.1"
+}
+
+function install_activesupport_gem() {
+  run_timed_command "gem install activesupport --no-document --version 6.1.7.2"
 }
 
 function install_junit_merge_gem() {
   run_timed_command "gem install junit_merge --no-document --version 0.1.2"
+}
+
+function select_existing_files() {
+  ruby -e 'print $stdin.read.split(" ").select { |f| File.exist?(f) }.join(" ")'
+}
+
+function fail_on_warnings() {
+  local cmd="$*"
+  local warning_file
+  warning_file="$(mktemp)"
+
+  local allowed_warning_file
+  allowed_warning_file="$(mktemp)"
+
+  eval "$cmd 2>$warning_file"
+  local ret=$?
+
+  # Filter out comments and empty lines from allowed warnings file.
+  grep --invert-match --extended-regexp "^#|^$" scripts/allowed_warnings.txt > "$allowed_warning_file"
+
+  local warnings
+  # Filter out allowed warnings from stderr.
+  # Turn grep errors into warnings so we fail later.
+  warnings=$(grep --invert-match --extended-regexp --file "$allowed_warning_file" "$warning_file" 2>&1 || true)
+
+  rm -f "$allowed_warning_file"
+
+  if [ "$warnings" != "" ]
+  then
+    echoerr "There were warnings:"
+    echoerr "======================== Filtered warnings ====================================="
+    echo "$warnings" >&2
+    echoerr "======================= Unfiltered warnings ===================================="
+    cat "$warning_file" >&2
+    echoerr "================================================================================"
+    rm -f "$warning_file"
+    return 1
+  fi
+
+  rm -f "$warning_file"
+
+  return $ret
 }
 
 function run_timed_command() {
@@ -173,9 +353,133 @@ function fail_pipeline_early() {
   fi
 }
 
-function danger_as_local() {
-  # Force danger to skip CI source GitLab and fallback to "local only git repo".
-  unset GITLAB_CI
-  # We need to base SHA to help danger determine the base commit for this shallow clone.
-  bundle exec danger dry_run --fail-on-errors=true --verbose --base="${CI_MERGE_REQUEST_DIFF_BASE_SHA}" --head="${CI_MERGE_REQUEST_SOURCE_BRANCH_SHA:-$CI_COMMIT_SHA}"
+# We're inlining this function in `.gitlab/ci/package-and-test/main.gitlab-ci.yml` so make sure to reflect any changes there
+function assets_image_tag() {
+  local cache_assets_hash_file="cached-assets-hash.txt"
+
+  if [[ -n "${CI_COMMIT_TAG}" ]]; then
+    echo -n "${CI_COMMIT_REF_NAME}"
+  elif [[ -f "${cache_assets_hash_file}" ]]; then
+    echo -n "assets-hash-$(cat ${cache_assets_hash_file} | cut -c1-10)"
+  else
+    echo -n "${CI_COMMIT_SHA}"
+  fi
+}
+
+function setup_gcloud() {
+  gcloud auth activate-service-account --key-file="${REVIEW_APPS_GCP_CREDENTIALS}"
+  gcloud config set project "${REVIEW_APPS_GCP_PROJECT}"
+}
+
+function download_files() {
+  base_url_prefix="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/repository/files"
+  base_url_suffix="raw?ref=${CI_COMMIT_SHA}"
+
+  # Construct the list of files to download with curl
+  for file in "$@"; do
+    local url_encoded_filename
+    url_encoded_filename=$(url_encode "${file}")
+    local file_url="${base_url_prefix}/${url_encoded_filename}/${base_url_suffix}"
+    echo "url = ${file_url}" >> urls_outputs.txt
+    echo "output = ${file}" >> urls_outputs.txt
+  done
+
+  echo "List of files to download:"
+  cat urls_outputs.txt
+
+  curl -f --header "Private-Token: ${PROJECT_TOKEN_FOR_CI_SCRIPTS_API_USAGE}" --create-dirs --parallel --config urls_outputs.txt
+}
+
+# Taken from https://gist.github.com/jaytaylor/5a90c49e0976aadfe0726a847ce58736
+#
+# It is surprisingly hard to url-encode an URL in shell. shorter alternatives used jq,
+# but we would then need to install it wherever we would use this no-clone functionality.
+#
+# For the purposes of url-encoding filenames, this function should be enough.
+function url_encode() {
+  echo "$@" | sed \
+    -e 's/%/%25/g' \
+    -e 's/ /%20/g' \
+    -e 's/!/%21/g' \
+    -e 's/"/%22/g' \
+    -e "s/'/%27/g" \
+    -e 's/#/%23/g' \
+    -e 's/(/%28/g' \
+    -e 's/)/%29/g' \
+    -e 's/+/%2b/g' \
+    -e 's/,/%2c/g' \
+    -e 's/-/%2d/g' \
+    -e 's/:/%3a/g' \
+    -e 's/;/%3b/g' \
+    -e 's/?/%3f/g' \
+    -e 's/@/%40/g' \
+    -e 's/\$/%24/g' \
+    -e 's/\&/%26/g' \
+    -e 's/\*/%2a/g' \
+    -e 's/\./%2e/g' \
+    -e 's/\//%2f/g' \
+    -e 's/\[/%5b/g' \
+    -e 's/\\/%5c/g' \
+    -e 's/\]/%5d/g' \
+    -e 's/\^/%5e/g' \
+    -e 's/_/%5f/g' \
+    -e 's/`/%60/g' \
+    -e 's/{/%7b/g' \
+    -e 's/|/%7c/g' \
+    -e 's/}/%7d/g' \
+    -e 's/~/%7e/g'
+}
+
+# Download the local gems in `gems` and `vendor/gems` folders from the API.
+#
+# This is useful if you need to run bundle install while not doing a git clone of the gitlab-org/gitlab repo.
+function download_local_gems() {
+  for folder_path in vendor/gems gems; do
+    local output="${folder_path}.tar.gz"
+
+    # From https://docs.gitlab.com/ee/api/repositories.html#get-file-archive:
+    #
+    #   This endpoint can be accessed without authentication if the repository is publicly accessible.
+    #   For GitLab.com users, this endpoint has a rate limit threshold of 5 requests per minute.
+    #
+    # We don't want to set a token for public repo (e.g. gitlab-org/gitlab), as 5 requests/minute can
+    # potentially be reached with many pipelines running in parallel.
+    local private_token_header=""
+    if [[ "${CI_PROJECT_VISIBILITY}" != "public" ]]; then
+      private_token_header="Private-Token: ${PROJECT_TOKEN_FOR_CI_SCRIPTS_API_USAGE}"
+    fi
+
+    echo "Downloading ${folder_path}"
+
+    url="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/repository/archive"
+    curl -f \
+      --create-dirs \
+      --get \
+      --header "${private_token_header}" \
+      --output "${output}" \
+      --data-urlencode "sha=${CI_COMMIT_SHA}" \
+      --data-urlencode "path=${folder_path}" \
+      "${url}"
+
+    tar -zxf "${output}" --strip-component 1
+    rm "${output}"
+  done
+}
+
+function define_trigger_branch_in_build_env() {
+  target_branch_name="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_COMMIT_REF_NAME}}"
+  stable_branch_regex="^[0-9-]+-stable(-ee)?$"
+
+  echo "target_branch_name: ${target_branch_name}"
+
+  if [[ $target_branch_name =~ $stable_branch_regex  ]]
+  then
+    export TRIGGER_BRANCH="${target_branch_name%-ee}"
+  else
+    export TRIGGER_BRANCH=master
+  fi
+
+  if [ -f "$BUILD_ENV" ]; then
+    echo "TRIGGER_BRANCH=${TRIGGER_BRANCH}" >> $BUILD_ENV
+  fi
 }

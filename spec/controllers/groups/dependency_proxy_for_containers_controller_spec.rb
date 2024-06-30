@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::DependencyProxyForContainersController do
+RSpec.describe Groups::DependencyProxyForContainersController, feature_category: :virtual_registry do
   include HttpBasicAuthHelpers
   include DependencyProxyHelpers
   include WorkhorseHelpers
@@ -20,31 +20,7 @@ RSpec.describe Groups::DependencyProxyForContainersController do
       request.headers['HTTP_AUTHORIZATION'] = nil
     end
 
-    context 'feature flag disabled' do
-      let_it_be(:group) { create(:group) }
-
-      before do
-        stub_feature_flags(dependency_proxy_for_private_groups: false)
-      end
-
-      it { is_expected.to have_gitlab_http_status(:ok) }
-    end
-
     it { is_expected.to have_gitlab_http_status(:unauthorized) }
-  end
-
-  shared_examples 'feature flag disabled with private group' do
-    before do
-      stub_feature_flags(dependency_proxy_for_private_groups: false)
-    end
-
-    it 'returns not found' do
-      group.update!(visibility_level: Gitlab::VisibilityLevel::PRIVATE)
-
-      subject
-
-      expect(response).to have_gitlab_http_status(:not_found)
-    end
   end
 
   shared_examples 'with invalid path' do
@@ -52,7 +28,7 @@ RSpec.describe Groups::DependencyProxyForContainersController do
       let(:image) { '../path_traversal' }
 
       it 'raises an error' do
-        expect { subject }.to raise_error(Gitlab::Utils::PathTraversalAttackError, 'Invalid path')
+        expect { subject }.to raise_error(Gitlab::PathTraversal::PathTraversalAttackError, 'Invalid path')
       end
     end
 
@@ -60,7 +36,7 @@ RSpec.describe Groups::DependencyProxyForContainersController do
       let(:tag) { 'latest%2f..%2f..%2fpath_traversal' }
 
       it 'raises an error' do
-        expect { subject }.to raise_error(Gitlab::Utils::PathTraversalAttackError, 'Invalid path')
+        expect { subject }.to raise_error(Gitlab::PathTraversal::PathTraversalAttackError, 'Invalid path')
       end
     end
   end
@@ -82,6 +58,42 @@ RSpec.describe Groups::DependencyProxyForContainersController do
       end
 
       it { is_expected.to have_gitlab_http_status(:not_found) }
+    end
+
+    context 'with invalid group access token' do
+      let_it_be(:user) { create(:user, :project_bot) }
+      let_it_be(:token) { create(:personal_access_token, user: user, scopes: [Gitlab::Auth::READ_API_SCOPE]) }
+      let_it_be(:jwt) { build_jwt(token) }
+
+      context 'not under the group' do
+        it { is_expected.to have_gitlab_http_status(:not_found) }
+      end
+
+      context 'with sufficient scopes, but not active' do
+        %i[expired revoked].each do |status|
+          context status.to_s do
+            let_it_be(:pat) do
+              create(:personal_access_token, status, user: user).tap do |pat|
+                pat.update_column(:scopes, Gitlab::Auth::REGISTRY_SCOPES)
+              end
+            end
+
+            it { is_expected.to have_gitlab_http_status(:not_found) }
+          end
+        end
+      end
+
+      context 'with insufficient scopes' do
+        it { is_expected.to have_gitlab_http_status(:not_found) }
+
+        context 'packages_dependency_proxy_containers_scope_check disabled' do
+          before do
+            stub_feature_flags(packages_dependency_proxy_containers_scope_check: false)
+          end
+
+          it { is_expected.to have_gitlab_http_status(:not_found) }
+        end
+      end
     end
 
     context 'with deploy token from a different group,' do
@@ -143,11 +155,7 @@ RSpec.describe Groups::DependencyProxyForContainersController do
   end
 
   shared_examples 'authorize action with permission' do
-    context 'with a valid user' do
-      before do
-        group.add_guest(user)
-      end
-
+    shared_examples 'sends Workhorse instructions' do
       it 'sends Workhorse local file instructions', :aggregate_failures do
         subject
 
@@ -167,6 +175,46 @@ RSpec.describe Groups::DependencyProxyForContainersController do
         expect(json_response['RemoteObject']).not_to be_nil
         expect(json_response['MaximumSize']).to eq(maximum_size)
       end
+    end
+
+    before do
+      group.add_guest(user)
+    end
+
+    # When authenticating with a job token, the encoded token is the same as
+    # that built when authenticating with a user
+    context 'with a valid user or a job token' do
+      it_behaves_like 'sends Workhorse instructions'
+    end
+
+    context 'with a valid group access token' do
+      let_it_be(:user) { create(:user, :project_bot) }
+      let_it_be_with_reload(:token) { create(:personal_access_token, user: user) }
+
+      before do
+        token.update_column(:scopes, Gitlab::Auth::REGISTRY_SCOPES)
+      end
+
+      context 'with packages_dependency_proxy_pass_token_to_policy disabled' do
+        before do
+          stub_feature_flags(packages_dependency_proxy_pass_token_to_policy: false)
+        end
+
+        it_behaves_like 'sends Workhorse instructions'
+      end
+
+      context 'with packages_dependency_proxy_pass_token_to_policy enabled' do
+        let_it_be(:jwt) { build_jwt(token) }
+
+        it_behaves_like 'sends Workhorse instructions'
+      end
+    end
+
+    context 'with a deploy token' do
+      let_it_be(:user) { create(:deploy_token, :dependency_proxy_scopes, :group) }
+      let_it_be(:group_deploy_token) { create(:group_deploy_token, deploy_token: user, group: group) }
+
+      it_behaves_like 'sends Workhorse instructions'
     end
   end
 
@@ -208,7 +256,6 @@ RSpec.describe Groups::DependencyProxyForContainersController do
     context 'feature enabled' do
       it_behaves_like 'without a token'
       it_behaves_like 'without permission'
-      it_behaves_like 'feature flag disabled with private group'
 
       context 'remote token request fails' do
         let(:token_response) do
@@ -252,13 +299,24 @@ RSpec.describe Groups::DependencyProxyForContainersController do
         end
       end
 
-      context 'a valid user' do
+      # When authenticating with a job token, the encoded token is the same as
+      # that built when authenticating with a user
+      context 'a valid user or a job token' do
         before do
           group.add_guest(user)
         end
 
         it_behaves_like 'a successful manifest pull'
-        it_behaves_like 'a package tracking event', described_class.name, 'pull_manifest'
+        it_behaves_like 'a package tracking event', described_class.name, 'pull_manifest', false
+
+        context 'when packages_dependency_proxy_pass_token_to_policy is disabled' do
+          before do
+            stub_feature_flags(packages_dependency_proxy_containers_scope_check: false)
+          end
+
+          it_behaves_like 'a successful manifest pull'
+          it_behaves_like 'a package tracking event', described_class.name, 'pull_manifest', false
+        end
 
         context 'with workhorse response' do
           let(:pull_response) { { status: :success, manifest: nil, from_cache: false } }
@@ -269,12 +327,12 @@ RSpec.describe Groups::DependencyProxyForContainersController do
             subject
 
             send_data_type, send_data = workhorse_send_data
-            header, url = send_data.values_at('Header', 'Url')
+            header, url = send_data.values_at('Headers', 'Url')
 
             expect(send_data_type).to eq('send-dependency')
             expect(header).to eq(
               "Authorization" => ["Bearer abcd1234"],
-              "Accept" => ::ContainerRegistry::Client::ACCEPTED_TYPES
+              "Accept" => ::DependencyProxy::Manifest::ACCEPTED_TYPES
             )
             expect(url).to eq(DependencyProxy::Registry.manifest_url(image, tag))
             expect(response.headers['Content-Type']).to eq('application/gzip')
@@ -291,6 +349,14 @@ RSpec.describe Groups::DependencyProxyForContainersController do
 
         it_behaves_like 'a successful manifest pull'
 
+        context 'when packages_dependency_proxy_pass_token_to_policy is disabled' do
+          before do
+            stub_feature_flags(packages_dependency_proxy_containers_scope_check: false)
+          end
+
+          it_behaves_like 'a successful manifest pull'
+        end
+
         context 'pulling from a subgroup' do
           let_it_be_with_reload(:parent_group) { create(:group) }
           let_it_be_with_reload(:group) { create(:group, parent: parent_group) }
@@ -300,6 +366,31 @@ RSpec.describe Groups::DependencyProxyForContainersController do
           end
 
           it_behaves_like 'a successful manifest pull'
+        end
+      end
+
+      context 'a valid group access token' do
+        let_it_be(:user) { create(:user, :project_bot) }
+        let_it_be(:token) { create(:personal_access_token, :dependency_proxy_scopes, user: user) }
+
+        before do
+          group.add_guest(user)
+        end
+
+        context 'when packages_dependency_proxy_pass_token_to_policy is disabled' do
+          before do
+            stub_feature_flags(packages_dependency_proxy_pass_token_to_policy: false)
+          end
+
+          it_behaves_like 'a successful manifest pull'
+          it_behaves_like 'a package tracking event', described_class.name, 'pull_manifest', false
+        end
+
+        context 'when packages_dependency_proxy_pass_token_to_policy is enabled' do
+          let_it_be(:jwt) { build_jwt(token) }
+
+          it_behaves_like 'a successful manifest pull'
+          it_behaves_like 'a package tracking event', described_class.name, 'pull_manifest', false
         end
       end
     end
@@ -321,7 +412,14 @@ RSpec.describe Groups::DependencyProxyForContainersController do
     context 'feature enabled' do
       it_behaves_like 'without a token'
       it_behaves_like 'without permission'
-      it_behaves_like 'feature flag disabled with private group'
+
+      context 'when packages_dependency_proxy_pass_token_to_policy is disabled' do
+        before do
+          stub_feature_flags(packages_dependency_proxy_containers_scope_check: false)
+        end
+
+        it { is_expected.to have_gitlab_http_status(:not_found) }
+      end
 
       context 'a valid user' do
         before do
@@ -329,7 +427,7 @@ RSpec.describe Groups::DependencyProxyForContainersController do
         end
 
         it_behaves_like 'a successful blob pull'
-        it_behaves_like 'a package tracking event', described_class.name, 'pull_blob_from_cache'
+        it_behaves_like 'a package tracking event', described_class.name, 'pull_blob_from_cache', false
 
         context 'when cache entry does not exist' do
           let(:blob_sha) { 'a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4' }
@@ -338,7 +436,7 @@ RSpec.describe Groups::DependencyProxyForContainersController do
             subject
 
             send_data_type, send_data = workhorse_send_data
-            header, url = send_data.values_at('Header', 'Url')
+            header, url = send_data.values_at('Headers', 'Url')
 
             expect(send_data_type).to eq('send-dependency')
             expect(header).to eq("Authorization" => ["Bearer abcd1234"])
@@ -413,7 +511,7 @@ RSpec.describe Groups::DependencyProxyForContainersController do
         group.add_guest(user)
       end
 
-      it_behaves_like 'a package tracking event', described_class.name, 'pull_blob'
+      it_behaves_like 'a package tracking event', described_class.name, 'pull_blob', false
 
       it 'creates a blob' do
         expect { subject }.to change { group.dependency_proxy_blobs.count }.by(1)
@@ -471,7 +569,7 @@ RSpec.describe Groups::DependencyProxyForContainersController do
         group.add_guest(user)
       end
 
-      it_behaves_like 'a package tracking event', described_class.name, 'pull_manifest'
+      it_behaves_like 'a package tracking event', described_class.name, 'pull_manifest', false
       it_behaves_like 'with invalid path'
 
       context 'with no existing manifest' do

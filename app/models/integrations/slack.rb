@@ -1,22 +1,15 @@
 # frozen_string_literal: true
 
 module Integrations
-  class Slack < BaseChatNotification
+  class Slack < BaseSlackNotification
     include SlackMattermostNotifier
-    extend ::Gitlab::Utils::Override
+    include SlackMattermostFields
 
-    SUPPORTED_EVENTS_FOR_USAGE_LOG = %w[
-      push issue confidential_issue merge_request note confidential_note
-      tag_push wiki_page deployment
-    ].freeze
-
-    prop_accessor EVENT_CHANNEL['alert']
-
-    def title
+    def self.title
       'Slack notifications'
     end
 
-    def description
+    def self.description
       'Send notifications about project events to Slack.'
     end
 
@@ -24,36 +17,15 @@ module Integrations
       'slack'
     end
 
-    def default_channel_placeholder
-      _('#general, #development')
+    def self.webhook_help
+      'https://hooks.slack.com/services/...'
     end
 
-    def webhook_placeholder
-      'https://hooks.slack.com/services/…'
-    end
+    private
 
-    def supported_events
-      additional = []
-      additional << 'alert'
-
-      super + additional
-    end
-
-    def get_message(object_kind, data)
-      return Integrations::ChatMessage::AlertMessage.new(data) if object_kind == 'alert'
-
-      super
-    end
-
-    override :log_usage
-    def log_usage(event, user_id)
-      return unless user_id
-
-      return unless SUPPORTED_EVENTS_FOR_USAGE_LOG.include?(event)
-
-      key = "i_ecosystem_slack_service_#{event}_notification"
-
-      Gitlab::UsageDataCounters::HLLRedisCounter.track_event(key, values: user_id)
+    override :metrics_key_prefix
+    def metrics_key_prefix
+      'i_ecosystem_slack_service'
     end
   end
 end

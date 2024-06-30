@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::UserCounts do
+RSpec.describe API::UserCounts, feature_category: :service_ping do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :public) }
   let_it_be(:issue) { create(:issue, project: project, author: user, assignees: [user]) }
@@ -26,39 +26,22 @@ RSpec.describe API::UserCounts do
         expect(json_response['assigned_issues']).to eq(1)
       end
 
-      context 'merge requests' do
-        it 'returns assigned MR counts for current user' do
-          get api('/user_counts', user)
+      it 'returns assigned MR counts for current user' do
+        get api('/user_counts', user)
 
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(json_response).to be_a Hash
-          expect(json_response['merge_requests']).to eq(1)
-        end
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response).to be_a Hash
+        expect(json_response['merge_requests']).to eq(1)
+      end
 
-        it 'updates the mr count when a new mr is assigned' do
-          create(:merge_request, source_project: project, author: user, assignees: [user])
+      it 'updates the mr count when a new mr is assigned' do
+        create(:merge_request, source_project: project, author: user, assignees: [user])
 
-          get api('/user_counts', user)
+        get api('/user_counts', user)
 
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(json_response).to be_a Hash
-          expect(json_response['merge_requests']).to eq(2)
-          expect(json_response['attention_requests']).to eq(2)
-        end
-
-        describe 'mr_attention_requests is disabled' do
-          before do
-            stub_feature_flags(mr_attention_requests: false)
-          end
-
-          it 'does not include attention_requests count' do
-            create(:merge_request, source_project: project, author: user, assignees: [user])
-
-            get api('/user_counts', user)
-
-            expect(json_response.key?('attention_requests')).to be(false)
-          end
-        end
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response).to be_a Hash
+        expect(json_response['merge_requests']).to eq(2)
       end
 
       it 'returns pending todo counts for current_user' do

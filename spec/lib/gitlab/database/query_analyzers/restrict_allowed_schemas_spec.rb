@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas, query_analyzers: false do
+RSpec.describe Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas,
+  query_analyzers: false, feature_category: :database do
   let(:analyzer) { described_class }
 
   context 'properly analyzes queries' do
@@ -15,14 +16,38 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas, query_a
           expected_allowed_gitlab_schemas: {
             no_schema: :dml_not_allowed,
             gitlab_main: :success,
+            gitlab_main_clusterwide: :success,
+            gitlab_main_cell: :success,
             gitlab_ci: :dml_access_denied # cross-schema access
           }
         },
-        "for INSERT" => {
+        "for SELECT on namespaces" => {
+          sql: "SELECT 1 FROM namespaces",
+          expected_allowed_gitlab_schemas: {
+            no_schema: :dml_not_allowed,
+            gitlab_main: :success,
+            gitlab_main_clusterwide: :success,
+            gitlab_main_cell: :success,
+            gitlab_ci: :dml_access_denied # cross-schema access
+          }
+        },
+        "for INSERT on projects" => {
           sql: "INSERT INTO projects VALUES (1)",
           expected_allowed_gitlab_schemas: {
             no_schema: :dml_not_allowed,
             gitlab_main: :success,
+            gitlab_main_clusterwide: :success,
+            gitlab_main_cell: :success,
+            gitlab_ci: :dml_access_denied # cross-schema access
+          }
+        },
+        "for INSERT on namespaces" => {
+          sql: "INSERT INTO namespaces VALUES (1)",
+          expected_allowed_gitlab_schemas: {
+            no_schema: :dml_not_allowed,
+            gitlab_main: :success,
+            gitlab_main_clusterwide: :success,
+            gitlab_main_cell: :success,
             gitlab_ci: :dml_access_denied # cross-schema access
           }
         },
@@ -53,6 +78,14 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas, query_a
         },
         "for CREATE TRIGGER" => {
           sql: "CREATE TRIGGER check_projects BEFORE UPDATE ON projects FOR EACH ROW EXECUTE PROCEDURE check_projects_update()",
+          expected_allowed_gitlab_schemas: {
+            no_schema: :success,
+            gitlab_main: :ddl_not_allowed,
+            gitlab_ci: :ddl_not_allowed
+          }
+        },
+        "for CREATE VIEW" => {
+          sql: "CREATE VIEW my_view AS SELECT * FROM issues",
           expected_allowed_gitlab_schemas: {
             no_schema: :success,
             gitlab_main: :ddl_not_allowed,
@@ -155,7 +188,7 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas, query_a
       yield if block_given?
 
       # Skip load balancer and retrieve connection assigned to model
-      Gitlab::Database::QueryAnalyzer.instance.process_sql(sql, model.retrieve_connection)
+      Gitlab::Database::QueryAnalyzer.instance.send(:process_sql, sql, model.retrieve_connection, 'load')
     end
   end
 end

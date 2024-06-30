@@ -12,7 +12,6 @@ module Gitlab
         def initialize(name = nil)
           @name = name
           @test_cases = {}
-          @all_test_cases = []
           @total_time = 0.0
         end
 
@@ -59,7 +58,7 @@ module Gitlab
         end
 
         TestCase::STATUS_TYPES.each do |status_type|
-          define_method("#{status_type}") do
+          define_method(status_type.to_s) do
             return {} if suite_error || test_cases[status_type].nil?
 
             test_cases[status_type]
@@ -78,7 +77,7 @@ module Gitlab
 
         def +(other)
           self.class.new.tap do |test_suite|
-            test_suite.name = self.name
+            test_suite.name = other.name
             test_suite.test_cases = self.test_cases.deep_merge(other.test_cases)
             test_suite.total_time = self.total_time + other.total_time
           end
@@ -97,8 +96,8 @@ module Gitlab
         end
 
         def sort_by_execution_time_desc
-          @test_cases = @test_cases.keys.each_with_object({}) do |key, hash|
-            hash[key] = @test_cases[key].sort_by { |_key, test_case| -test_case.execution_time }.to_h
+          @test_cases = @test_cases.keys.index_with do |key|
+            @test_cases[key].sort_by { |_key, test_case| -test_case.execution_time }.to_h
           end
         end
       end

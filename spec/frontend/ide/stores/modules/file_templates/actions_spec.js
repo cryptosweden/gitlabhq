@@ -4,6 +4,7 @@ import * as actions from '~/ide/stores/modules/file_templates/actions';
 import * as types from '~/ide/stores/modules/file_templates/mutation_types';
 import createState from '~/ide/stores/modules/file_templates/state';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
 describe('IDE file templates actions', () => {
   let state;
@@ -20,21 +21,20 @@ describe('IDE file templates actions', () => {
   });
 
   describe('requestTemplateTypes', () => {
-    it('commits REQUEST_TEMPLATE_TYPES', (done) => {
-      testAction(
+    it('commits REQUEST_TEMPLATE_TYPES', () => {
+      return testAction(
         actions.requestTemplateTypes,
         null,
         state,
         [{ type: types.REQUEST_TEMPLATE_TYPES }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveTemplateTypesError', () => {
-    it('commits RECEIVE_TEMPLATE_TYPES_ERROR and dispatches setErrorMessage', (done) => {
-      testAction(
+    it('commits RECEIVE_TEMPLATE_TYPES_ERROR and dispatches setErrorMessage', () => {
+      return testAction(
         actions.receiveTemplateTypesError,
         null,
         state,
@@ -49,20 +49,18 @@ describe('IDE file templates actions', () => {
             },
           },
         ],
-        done,
       );
     });
   });
 
   describe('receiveTemplateTypesSuccess', () => {
-    it('commits RECEIVE_TEMPLATE_TYPES_SUCCESS', (done) => {
-      testAction(
+    it('commits RECEIVE_TEMPLATE_TYPES_SUCCESS', () => {
+      return testAction(
         actions.receiveTemplateTypesSuccess,
         'test',
         state,
         [{ type: types.RECEIVE_TEMPLATE_TYPES_SUCCESS, payload: 'test' }],
         [],
-        done,
       );
     });
   });
@@ -77,27 +75,21 @@ describe('IDE file templates actions', () => {
           const page = pages[pageNum - 1];
           const hasNextPage = pageNum < pages.length;
 
-          return [200, page, hasNextPage ? { 'X-NEXT-PAGE': pageNum + 1 } : {}];
+          return [HTTP_STATUS_OK, page, hasNextPage ? { 'X-NEXT-PAGE': pageNum + 1 } : {}];
         });
       });
 
-      it('rejects if selectedTemplateType is empty', (done) => {
+      it('rejects if selectedTemplateType is empty', async () => {
         const dispatch = jest.fn().mockName('dispatch');
 
-        actions
-          .fetchTemplateTypes({ dispatch, state })
-          .then(done.fail)
-          .catch(() => {
-            expect(dispatch).not.toHaveBeenCalled();
-
-            done();
-          });
+        await expect(actions.fetchTemplateTypes({ dispatch, state })).rejects.toBeUndefined();
+        expect(dispatch).not.toHaveBeenCalled();
       });
 
-      it('dispatches actions', (done) => {
+      it('dispatches actions', () => {
         state.selectedTemplateType = { key: 'licenses' };
 
-        testAction(
+        return testAction(
           actions.fetchTemplateTypes,
           null,
           state,
@@ -111,26 +103,24 @@ describe('IDE file templates actions', () => {
               payload: pages[0].concat(pages[1]).concat(pages[2]),
             },
           ],
-          done,
         );
       });
     });
 
     describe('error', () => {
       beforeEach(() => {
-        mock.onGet(/api\/(.*)\/templates\/licenses/).replyOnce(500);
+        mock.onGet(/api\/(.*)\/templates\/licenses/).replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR);
       });
 
-      it('dispatches actions', (done) => {
+      it('dispatches actions', () => {
         state.selectedTemplateType = { key: 'licenses' };
 
-        testAction(
+        return testAction(
           actions.fetchTemplateTypes,
           null,
           state,
           [],
           [{ type: 'requestTemplateTypes' }, { type: 'receiveTemplateTypesError' }],
-          done,
         );
       });
     });
@@ -184,8 +174,8 @@ describe('IDE file templates actions', () => {
   });
 
   describe('receiveTemplateError', () => {
-    it('dispatches setErrorMessage', (done) => {
-      testAction(
+    it('dispatches setErrorMessage', () => {
+      return testAction(
         actions.receiveTemplateError,
         'test',
         state,
@@ -201,7 +191,6 @@ describe('IDE file templates actions', () => {
             },
           },
         ],
-        done,
       );
     });
   });
@@ -211,73 +200,71 @@ describe('IDE file templates actions', () => {
       beforeEach(() => {
         mock
           .onGet(/api\/(.*)\/templates\/licenses\/mit/)
-          .replyOnce(200, { content: 'MIT content' });
+          .replyOnce(HTTP_STATUS_OK, { content: 'MIT content' });
         mock
           .onGet(/api\/(.*)\/templates\/licenses\/testing/)
-          .replyOnce(200, { content: 'testing content' });
+          .replyOnce(HTTP_STATUS_OK, { content: 'testing content' });
       });
 
-      it('dispatches setFileTemplate if template already has content', (done) => {
+      it('dispatches setFileTemplate if template already has content', () => {
         const template = { content: 'already has content' };
 
-        testAction(
+        return testAction(
           actions.fetchTemplate,
           template,
           state,
           [],
           [{ type: 'setFileTemplate', payload: template }],
-          done,
         );
       });
 
-      it('dispatches success', (done) => {
+      it('dispatches success', () => {
         const template = { key: 'mit' };
 
         state.selectedTemplateType = { key: 'licenses' };
 
-        testAction(
+        return testAction(
           actions.fetchTemplate,
           template,
           state,
           [],
           [{ type: 'setFileTemplate', payload: { content: 'MIT content' } }],
-          done,
         );
       });
 
-      it('dispatches success and uses name key for API call', (done) => {
+      it('dispatches success and uses name key for API call', () => {
         const template = { name: 'testing' };
 
         state.selectedTemplateType = { key: 'licenses' };
 
-        testAction(
+        return testAction(
           actions.fetchTemplate,
           template,
           state,
           [],
           [{ type: 'setFileTemplate', payload: { content: 'testing content' } }],
-          done,
         );
       });
     });
 
     describe('error', () => {
       beforeEach(() => {
-        mock.onGet(/api\/(.*)\/templates\/licenses\/mit/).replyOnce(500);
+        mock
+          .onGet(/api\/(.*)\/templates\/licenses\/mit/)
+          .replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR);
       });
 
-      it('dispatches error', (done) => {
+      it('dispatches error', () => {
         const template = { name: 'testing' };
 
         state.selectedTemplateType = { key: 'licenses' };
 
-        testAction(
+        return testAction(
           actions.fetchTemplate,
           template,
           state,
           [],
           [{ type: 'receiveTemplateError', payload: template }],
-          done,
         );
       });
     });

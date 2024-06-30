@@ -2,6 +2,9 @@ import { handleLocationHash } from '~/lib/utils/common_utils';
 
 export default {
   inject: ['vscrollParent'],
+  model: {
+    prop: 'index',
+  },
   props: {
     index: {
       type: Number,
@@ -15,17 +18,18 @@ export default {
 
         if (index < 0) return;
 
-        if (this.vscrollParent.itemsWithSize[index].size) {
-          this.scrollToIndex(index);
-        } else {
+        this.scrollToIndex(index);
+
+        if (!this.vscrollParent.itemsWithSize[index].size) {
           this.$_itemsWithSizeWatcher = this.$watch('vscrollParent.itemsWithSize', async () => {
             await this.$nextTick();
 
             if (this.vscrollParent.itemsWithSize[index].size) {
               this.$_itemsWithSizeWatcher();
-              this.scrollToIndex(index);
 
               await this.$nextTick();
+
+              this.scrollToIndex(index);
             }
           });
         }
@@ -37,8 +41,11 @@ export default {
     if (this.$_itemsWithSizeWatcher) this.$_itemsWithSizeWatcher();
   },
   methods: {
-    scrollToIndex(index) {
+    async scrollToIndex(index) {
       this.vscrollParent.scrollToItem(index);
+      this.$emit('update', -1);
+
+      await this.$nextTick();
 
       setTimeout(() => {
         handleLocationHash();

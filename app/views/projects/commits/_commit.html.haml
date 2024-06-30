@@ -14,28 +14,31 @@
 - project           = local_assigns.fetch(:project) { merge_request&.project }
 - ref               = local_assigns.fetch(:ref) { merge_request&.source_branch }
 - commit            = commit.present(current_user: current_user)
-- commit_status     = commit.status_for(ref)
+- commit_status     = commit.detailed_status_for(ref)
+- tags              = commit.tags_for_display
 - collapsible       = local_assigns.fetch(:collapsible, true)
 - link_data_attrs   = local_assigns.fetch(:link_data_attrs, {})
 - link              = commit_path(project, commit, merge_request: merge_request)
 - show_project_name = local_assigns.fetch(:show_project_name, false)
+- toggle_commit_message = _("Toggle commit description")
+- add_page_specific_style 'page_bundles/commit_description'
 
 %li{ class: ["commit flex-row", ("js-toggle-container" if collapsible)], id: "commit-#{commit.short_id}" }
-  .avatar-cell.d-none.d-sm-block
+  .avatar-cell.gl-hidden.sm:gl-block
     = author_avatar(commit, size: 40, has_tooltip: false)
 
-  .commit-detail.flex-list
-    .commit-content{ data: { qa_selector: 'commit_content' } }
+  .commit-detail.flex-list.gl-display-flex.gl-justify-content-space-between.gl-align-items-center.gl-flex-grow-1.gl-min-w-0
+    .commit-content{ data: { testid: 'commit-content' } }
       - if view_details && merge_request
         = link_to commit.title, project_commit_path(project, commit.id, merge_request_iid: merge_request.iid), class: ["commit-row-message item-title js-onboarding-commit-item", ("font-italic" if commit.message.empty?)]
       - else
-        = link_to_markdown_field(commit, :title, link, class: "commit-row-message item-title js-onboarding-commit-item #{"font-italic" if commit.message.empty?}", data: link_data_attrs)
+        = link_to_markdown_field(commit, :title, link, class: "commit-row-message item-title js-onboarding-commit-item #{'font-italic' if commit.message.empty?}", data: link_data_attrs)
       %span.commit-row-message.d-inline.d-sm-none
         &middot;
         = commit.short_id
       - if commit.description? && collapsible
-        %button.gl-button.btn.btn-default.button-ellipsis-horizontal.btn-sm.gl-ml-2.text-expander.js-toggle-button{ data: { toggle: 'tooltip', container: 'body' }, :title => _("Toggle commit description"), aria: { label: _("Toggle commit description") } }
-          = sprite_icon('ellipsis_h', size: 12)
+        = render Pajamas::ButtonComponent.new(icon: 'ellipsis_h',
+          button_options: { class: 'button-ellipsis-horizontal text-expander js-toggle-button', data: { toggle: 'tooltip', container: 'body', collapse_title: toggle_commit_message, expand_title: toggle_commit_message }, title: toggle_commit_message, aria: { label: toggle_commit_message }})
 
       .committer
         - commit_author_link = commit_author_link(commit, avatar: false, size: 24)
@@ -51,10 +54,17 @@
       = render_if_exists 'projects/commits/project_namespace', show_project_name: show_project_name, project: project
 
       - if commit.description?
-        %pre{ class: ["commit-row-description gl-mb-3", (collapsible ? "js-toggle-content" : "d-block")] }
+        %pre{ class: ["commit-row-description gl-mb-3 gl-whitespace-pre-wrap", (collapsible ? "js-toggle-content" : "!gl-block")] }
           = preserve(markdown_field(commit, :description))
 
     .commit-actions.flex-row
+      - if tags.present?
+        = gl_badge_tag(variant: :neutral, icon: 'tag', class: 'gl-font-monospace') do
+          - if tags.size > 1
+            = link_to _('%{count} tags') % { count: tags.size } , project_commit_path(project, commit.id)
+          - else
+            = link_to tags.first, project_commits_path(project, tags.first, ref_type: 'tags'), class: 'gl-text-truncate gl-max-w-15'
+
       - if request.xhr?
         = render partial: 'projects/commit/signature', object: commit.signature
       - else
@@ -65,8 +75,8 @@
 
       .js-commit-pipeline-status{ data: { endpoint: pipelines_project_commit_path(project, commit.id, ref: ref) } }
 
-      .commit-sha-group.btn-group.d-none.d-sm-flex
+      .commit-sha-group.btn-group.gl-hidden.sm:gl-flex
         .label.label-monospace.monospace
           = commit.short_id
-        = clipboard_button(text: commit.id, title: _("Copy commit SHA"), class: "gl-button btn btn-default btn-icon", container: "body")
+        = clipboard_button(text: commit.id, category: :primary, size: :medium, title: _("Copy commit SHA"))
         = link_to_browse_code(project, commit)

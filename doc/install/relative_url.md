@@ -1,17 +1,21 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Install GitLab under a relative URL **(FREE SELF)**
+# Install GitLab under a relative URL
 
-While we recommend to install GitLab on its own (sub)domain, sometimes
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+While you should install GitLab on its own (sub)domain, sometimes
 this is not possible due to a variety of reasons. In that case, GitLab can also
 be installed under a relative URL, for example `https://example.com/gitlab`.
 
 This document describes how to run GitLab under a relative URL for installations
-from source. If you are using an Omnibus package,
+from source. If you are using an official Linux package,
 [the steps are different](https://docs.gitlab.com/omnibus/settings/configuration.html#configuring-a-relative-url-for-gitlab). Use this guide along with the
 [installation guide](installation.md) if you are installing GitLab for the
 first time.
@@ -32,7 +36,7 @@ relative URL is:
 - `/home/git/gitlab-shell/config.yml`
 - `/etc/default/gitlab`
 
-After all the changes, you must recompile the assets and [restart GitLab](../administration/restart_gitlab.md#installations-from-source).
+After all the changes, you must recompile the assets and [restart GitLab](../administration/restart_gitlab.md#self-compiled-installations).
 
 ## Relative URL requirements
 
@@ -115,7 +119,7 @@ Make sure to follow all steps below:
    If you are using a custom init script, make sure to edit the above
    GitLab Workhorse setting as needed.
 
-1. [Restart GitLab](../administration/restart_gitlab.md#installations-from-source) for the changes to take effect.
+1. [Restart GitLab](../administration/restart_gitlab.md#self-compiled-installations) for the changes to take effect.
 
 ## Disable relative URL in GitLab
 
@@ -124,7 +128,7 @@ To disable the relative URL:
 1. Remove `/home/git/gitlab/config/initializers/relative_url.rb`
 
 1. Follow the same as above starting from 2. and set up the
-    GitLab URL to one that doesn't contain a relative path.
+   GitLab URL to one that doesn't contain a relative path.
 
 <!-- ## Troubleshooting
 
@@ -134,6 +138,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

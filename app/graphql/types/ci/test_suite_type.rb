@@ -7,7 +7,7 @@ module Types
       graphql_name 'TestSuite'
       description 'Test suite in a pipeline test report.'
 
-      connection_type_class(Types::CountableConnectionType)
+      connection_type_class Types::CountableConnectionType
 
       field :name, GraphQL::Types::String, null: true,
         description: 'Name of the test suite.'
@@ -18,13 +18,18 @@ module Types
       field :total_count, GraphQL::Types::Int, null: true,
         description: 'Total number of the test cases in the test suite.'
 
-      field :success_count, GraphQL::Types::Int, null: true,
+      field :success_count,
+        GraphQL::Types::Int,
+        null: true,
         description: 'Total number of test cases that succeeded in the test suite.'
 
-      field :failed_count, GraphQL::Types::Int, null: true,
+      field :failed_count,
+        GraphQL::Types::Int,
+        null: true,
         description: 'Total number of test cases that failed in the test suite.'
 
-      field :skipped_count, GraphQL::Types::Int, null: true,
+      field :skipped_count,
+        GraphQL::Types::Int, null: true,
         description: 'Total number of test cases that were skipped in the test suite.'
 
       field :error_count, GraphQL::Types::Int, null: true,

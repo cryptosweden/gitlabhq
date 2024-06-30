@@ -12,7 +12,7 @@ module Packages
       DEFAULT_LEASE_TIMEOUT = 1.hour.to_i.freeze
 
       # From https://salsa.debian.org/ftp-team/dak/-/blob/991aaa27a7f7aa773bb9c0cf2d516e383d9cffa0/setup/core-init.d/080_metadatakeys#L9
-      METADATA_KEYS = %w(
+      METADATA_KEYS = %w[
         Package
         Source
         Binary
@@ -60,12 +60,11 @@ module Packages
         Tag
         Package-Type
         Installer-Menu-Item
-      ).freeze
+      ].freeze
 
       def initialize(distribution)
         @distribution = distribution
         @oldest_kept_generated_at = nil
-        @md5sum = []
         @sha256 = []
       end
 
@@ -103,7 +102,7 @@ module Packages
                                   .with_debian_architecture_name(architecture&.name)
                                   .with_debian_file_type(package_file_type)
                                   .find_each
-                                  .map(&method(:package_stanza_from_fields))
+                                  .map { |package_file| package_stanza_from_fields(package_file) }
         reuse_or_create_component_file(component, component_file_type, architecture, paragraphs.join("\n"))
       end
 
@@ -140,10 +139,10 @@ module Packages
             rfc822_field('Directory', package_dirname(package_file))
           ]
         else
+          # NB: MD5sum was removed for FIPS compliance
           [
             rfc822_field('Filename', "#{package_dirname(package_file)}/#{package_file.file_name}"),
             rfc822_field('Size', package_file.size),
-            rfc822_field('MD5sum', package_file.file_md5),
             rfc822_field('SHA256', package_file.file_sha256)
           ]
         end
@@ -164,30 +163,41 @@ module Packages
       end
 
       def reuse_or_create_component_file(component, component_file_type, architecture, content)
-        file_md5 = Digest::MD5.hexdigest(content)
         file_sha256 = Digest::SHA256.hexdigest(content)
-        component_file = component.files
-                                  .with_file_type(component_file_type)
-                                  .with_architecture(architecture)
-                                  .with_compression_type(nil)
-                                  .with_file_sha256(file_sha256)
-                                  .last
+        component_files = component.files
+                                   .with_file_type(component_file_type)
+                                   .with_architecture(architecture)
+                                   .with_compression_type(nil)
+                                   .order_updated_asc
+        component_file = component_files.with_file_sha256(file_sha256).last
+        last_component_file = component_files.last
 
-        if component_file
+        if content.empty? && (!last_component_file || last_component_file.file_sha256 == file_sha256)
+          # Do not create empty component file for empty content
+          # when there is no last component file or when the last component file is empty too
+          component_file = last_component_file || component.files.build(
+            updated_at: release_date,
+            file_type: component_file_type,
+            architecture: architecture,
+            compression_type: nil,
+            size: 0
+          )
+        elsif component_file
+          # Reuse existing component file
           component_file.touch(time: release_date)
         else
+          # Create a new component file
           component_file = component.files.create!(
             updated_at: release_date,
             file_type: component_file_type,
             architecture: architecture,
             compression_type: nil,
             file: CarrierWaveStringFile.new(content),
-            file_md5: file_md5,
-            file_sha256: file_sha256
+            file_sha256: file_sha256,
+            size: content.bytesize
           )
         end
 
-        @md5sum.append(" #{file_md5} #{component_file.size.to_s.rjust(8)} #{component_file.relative_path}")
         @sha256.append(" #{file_sha256} #{component_file.size.to_s.rjust(8)} #{component_file.relative_path}")
       end
 
@@ -203,10 +213,9 @@ module Packages
       end
 
       def release_content
-        strong_memoize(:release_content) do
-          release_header + release_sums
-        end
+        release_header + release_sums
       end
+      strong_memoize_attr :release_content
 
       def release_header
         [
@@ -217,6 +226,7 @@ module Packages
           valid_until_field,
           rfc822_field('NotAutomatic', !@distribution.automatic, !@distribution.automatic),
           rfc822_field('ButAutomaticUpgrades', @distribution.automatic_upgrades, !@distribution.automatic && @distribution.automatic_upgrades),
+          rfc822_field('Acquire-By-Hash', 'yes'),
           rfc822_field('Architectures', @distribution.architectures.map { |architecture| architecture.name }.sort.join(' ')),
           rfc822_field('Components', @distribution.components.map { |component| component.name }.sort.join(' ')),
           rfc822_field('Description', @distribution.description)
@@ -224,13 +234,13 @@ module Packages
       end
 
       def release_date
-        strong_memoize(:release_date) do
-          Time.now.utc
-        end
+        Time.now.utc
       end
+      strong_memoize_attr :release_date
 
       def release_sums
-        ["MD5Sum:", @md5sum, "SHA256:", @sha256].flatten.compact.join("\n") + "\n"
+        # NB: MD5Sum was removed for FIPS compliance
+        ["SHA256:", @sha256].flatten.compact.join("\n") + "\n"
       end
 
       def rfc822_field(name, value, condition = true)
@@ -255,7 +265,7 @@ module Packages
 
       # used by ExclusiveLeaseGuard
       def lease_key
-        "packages:debian:generate_distribution_service:distribution:#{@distribution.id}"
+        "packages:debian:generate_distribution_service:#{@distribution.class.container_type}_distribution:#{@distribution.id}"
       end
 
       # used by ExclusiveLeaseGuard

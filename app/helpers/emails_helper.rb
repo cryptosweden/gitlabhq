@@ -2,6 +2,15 @@
 
 module EmailsHelper
   include AppearancesHelper
+  include SafeFormatHelper
+
+  def subject_with_suffix(subject_line)
+    subject_line << Gitlab.config.gitlab.email_subject_suffix if Gitlab.config.gitlab.email_subject_suffix.present?
+
+    subject_line.join(' | ')
+  end
+
+  module_function :subject_with_suffix
 
   # Google Actions
   # https://developers.google.com/gmail/markup/reference/go-to-action
@@ -15,7 +24,7 @@ module EmailsHelper
   def action_title(url)
     return unless url
 
-    %w(merge_requests issues commit).each do |action|
+    %w[merge_requests issues commit].each do |action|
       if url.split("/").include?(action)
         return "View #{action.humanize.singularize}"
       end
@@ -41,7 +50,7 @@ module EmailsHelper
   end
 
   def sanitize_name(name)
-    if name =~ URI::DEFAULT_PARSER.regexp[:URI_REF]
+    if URI::DEFAULT_PARSER.regexp[:URI_REF].match?(name)
       name.tr('.', '_')
     else
       name
@@ -62,15 +71,15 @@ module EmailsHelper
   end
 
   def header_logo
-    if current_appearance&.header_logo?
+    if current_appearance&.header_logo? && !current_appearance.header_logo.filename.ends_with?('.svg')
       image_tag(
         current_appearance.header_logo_path,
         style: 'height: 50px'
       )
     else
       image_tag(
-        image_url('mailers/gitlab_header_logo.gif'),
-        size: '55x50',
+        image_url('mailers/gitlab_logo.png'),
+        size: '55x55',
         alt: 'GitLab'
       )
     end
@@ -89,7 +98,8 @@ module EmailsHelper
     ].join(';')
   end
 
-  def closure_reason_text(closed_via, format: nil)
+  def closure_reason_text(closed_via, format:, name:)
+    name = sanitize_name(name)
     case closed_via
     when MergeRequest
       merge_request = MergeRequest.find(closed_via[:id]).present
@@ -99,10 +109,10 @@ module EmailsHelper
       case format
       when :html
         merge_request_link = link_to(merge_request.to_reference, merge_request.web_url)
-        _("via merge request %{link}").html_safe % { link: merge_request_link }
+        safe_format(_("Issue was closed by %{name} with merge request %{link}"), name: name, link: merge_request_link)
       else
         # If it's not HTML nor text then assume it's text to be safe
-        _("via merge request %{link}") % { link: "#{merge_request.to_reference} (#{merge_request.web_url})" }
+        _("Issue was closed by %{name} with merge request %{link}") % { name: name, link: "#{merge_request.to_reference} (#{merge_request.web_url})" }
       end
     when String
       # Technically speaking this should be Commit but per
@@ -110,25 +120,26 @@ module EmailsHelper
       # we can't deserialize Commit without custom serializer for ActiveJob
       return "" unless Ability.allowed?(@recipient, :download_code, @project)
 
-      _("via %{closed_via}") % { closed_via: closed_via }
+      _("Issue was closed by %{name} with %{closed_via}") % { name: name, closed_via: closed_via }
     else
-      ""
+      if name
+        _("Issue was closed by %{name}") % { name: name }
+      else
+        ""
+      end
     end
   end
 
-  # "You are receiving this email because #{reason} on #{gitlab_host}."
-  def notification_reason_text(reason)
-    gitlab_host = Gitlab.config.gitlab.host
-
-    case reason
-    when NotificationReason::OWN_ACTIVITY
-      _("You're receiving this email because of your activity on %{host}.") % { host: gitlab_host }
-    when NotificationReason::ASSIGNED
-      _("You're receiving this email because you have been assigned an item on %{host}.") % { host: gitlab_host }
-    when NotificationReason::MENTIONED
-      _("You're receiving this email because you have been mentioned on %{host}.") % { host: gitlab_host }
+  # "You are receiving this email because ... on #{host}. ..."
+  def notification_reason_text(reason: nil, show_manage_notifications_link: false, show_help_link: false, manage_label_subscriptions_url: nil, unsubscribe_url: nil, format: :text)
+    if unsubscribe_url && show_manage_notifications_link && show_help_link
+      notification_reason_text_with_unsubscribe_and_manage_notifications_and_help_links(reason: reason, unsubscribe_url: unsubscribe_url, format: format)
+    elsif !reason && manage_label_subscriptions_url && show_help_link
+      notification_reason_text_with_manage_label_subscriptions_and_help_links(manage_label_subscriptions_url: manage_label_subscriptions_url, format: format)
+    elsif show_manage_notifications_link && show_help_link
+      notification_reason_text_with_manage_notifications_and_help_links(reason: reason, format: format)
     else
-      _("You're receiving this email because of your account on %{host}.") % { host: gitlab_host }
+      notification_reason_text_without_links(reason: reason, format: format)
     end
   end
 
@@ -142,7 +153,7 @@ module EmailsHelper
     max_domain_length = list_id_max_length - Gitlab.config.gitlab.host.length - project.id.to_s.length - 2
 
     if max_domain_length < 3
-      return project.id.to_s + "..." + Gitlab.config.gitlab.host
+      return "#{project.id}...#{Gitlab.config.gitlab.host}"
     end
 
     if project_path_as_domain.length > max_domain_length
@@ -154,7 +165,7 @@ module EmailsHelper
       project_path_as_domain = project_path_as_domain.slice(0, last_dot_index).concat("..")
     end
 
-    project.id.to_s + "." + project_path_as_domain + "." + Gitlab.config.gitlab.host
+    "#{project.id}.#{project_path_as_domain}.#{Gitlab.config.gitlab.host}"
   end
 
   def html_header_message
@@ -179,6 +190,10 @@ module EmailsHelper
     return unless show_footer?
 
     strip_tags(render_message(:footer_message, style: ''))
+  end
+
+  def service_desk_email_additional_text
+    # overridden on EE
   end
 
   def say_hi(user)
@@ -235,6 +250,44 @@ module EmailsHelper
     end
   end
 
+  def member_about_to_expire_text(member_source, days_to_expire, format: nil)
+    days_formatted = pluralize(days_to_expire, 'day')
+
+    case member_source
+    when Project
+      url = project_url(member_source)
+    when Group
+      url = group_url(member_source)
+    end
+
+    case format
+    when :html
+      link_to = generate_link(member_source.human_name, url).html_safe
+      safe_format(_("Your membership in %{link_to} %{project_or_group_name} will expire in %{days_formatted}."), link_to: link_to, project_or_group_name: member_source.model_name.singular, days_formatted: days_formatted)
+    else
+      _("Your membership in %{project_or_group} %{project_or_group_name} will expire in %{days_formatted}.") % { project_or_group: member_source.human_name, project_or_group_name: member_source.model_name.singular, days_formatted: days_formatted }
+    end
+  end
+
+  def member_about_to_expire_link(member, member_source, format: nil)
+    project_or_group = member_source.human_name
+
+    case member_source
+    when Project
+      url = project_project_members_url(member_source, search: member.user.username)
+    when Group
+      url = group_group_members_url(member_source, search: member.user.username)
+    end
+
+    case format
+    when :html
+      link_to = generate_link("#{member_source.class.name.downcase} membership", url).html_safe
+      safe_format(_('For additional information, review your %{link_to} or contact your %{project_or_group} owner.'), link_to: link_to, project_or_group: project_or_group)
+    else
+      _('For additional information, review your %{project_or_group} membership: %{url} or contact your %{project_or_group} owner.') % { project_or_group: project_or_group, url: url }
+    end
+  end
+
   def group_membership_expiration_changed_text(member, group)
     if member.expires?
       days = (member.expires_at - Date.today).to_i
@@ -259,9 +312,7 @@ module EmailsHelper
   end
 
   def instance_access_request_text(user, format: nil)
-    gitlab_host = Gitlab.config.gitlab.host
-
-    _('%{username} has asked for a GitLab account on your instance %{host}:') % { username: sanitize_name(user.name), host: gitlab_host }
+    _('%{username} has asked for a GitLab account on your instance %{host}:').html_safe % { username: sanitize_name(user.name), host: gitlab_host_link(format) }
   end
 
   def instance_access_request_link(user, format: nil)
@@ -276,27 +327,62 @@ module EmailsHelper
     end
   end
 
+  def link_start(url)
+    '<a href="%{url}" target="_blank" rel="noopener noreferrer">'.html_safe % { url: url }
+  end
+
+  def link_end
+    '</a>'.html_safe
+  end
+
   def contact_your_administrator_text
     _('Please contact your administrator with any questions.')
   end
 
   def change_reviewer_notification_text(new_reviewers, previous_reviewers, html_tag = nil)
-    new = new_reviewers.any? ? users_to_sentence(new_reviewers) : s_('ChangeReviewer|Unassigned')
-    old = previous_reviewers.any? ? users_to_sentence(previous_reviewers) : nil
-
-    if html_tag.present?
-      new = content_tag(html_tag, new)
-      old = content_tag(html_tag, old) if old.present?
-    end
-
-    if old.present?
-      s_('ChangeReviewer|Reviewer changed from %{old} to %{new}').html_safe % { old: old, new: new }
+    if new_reviewers.empty?
+      s_('ChangeReviewer|All reviewers were removed.')
     else
-      s_('ChangeReviewer|Reviewer changed to %{new}').html_safe % { new: new }
+      added_reviewers = new_reviewers - previous_reviewers
+      removed_reviewers = previous_reviewers - new_reviewers
+
+      added_reviewers_text = if added_reviewers.any?
+                               n_(
+                                 '%{reviewer_names} was added as a reviewer.',
+                                 '%{reviewer_names} were added as reviewers.',
+                                 added_reviewers.size) % {
+                                   reviewer_names: format_reviewers_string(added_reviewers, html_tag)
+                                 }
+                             end
+
+      removed_reviewers_text = if removed_reviewers.any?
+                                 n_(
+                                   '%{reviewer_names} was removed from reviewers.',
+                                   '%{reviewer_names} were removed from reviewers.',
+                                   removed_reviewers.size) % {
+                                     reviewer_names: format_reviewers_string(removed_reviewers, html_tag)
+                                   }
+                               end
+
+      line_delimiter = html_tag.present? ? '<br>' : "\n"
+
+      [added_reviewers_text, removed_reviewers_text].compact.join(line_delimiter).html_safe
     end
   end
 
   private
+
+  def format_reviewers_string(reviewers, html_tag = nil)
+    return unless reviewers.any?
+
+    formatted_reviewers = users_to_sentence(reviewers)
+
+    if html_tag.present?
+      content_tag(html_tag, formatted_reviewers)
+    else
+      formatted_reviewers
+    end
+  end
 
   def users_to_sentence(users)
     sanitize_name(users.map(&:name).to_sentence)
@@ -316,6 +402,75 @@ module EmailsHelper
 
   def email_header_and_footer_enabled?
     current_appearance&.email_header_and_footer_enabled?
+  end
+
+  def gitlab_host_link(format)
+    case format
+    when :html
+      generate_link(Gitlab.config.gitlab.host, Gitlab.config.gitlab.url)
+    when :text
+      Gitlab.config.gitlab.host
+    end
+  end
+
+  def notification_reason_text_with_unsubscribe_and_manage_notifications_and_help_links(reason:, unsubscribe_url:, format:)
+    unsubscribe_link_start = '<a href="%{url}" target="_blank" rel="noopener noreferrer">'.html_safe % { url: unsubscribe_url }
+    unsubscribe_link_end = '</a>'.html_safe
+
+    manage_notifications_link_start = '<a href="%{url}" target="_blank" rel="noopener noreferrer" class="mng-notif-link">'.html_safe % { url: profile_notifications_url }
+    manage_notifications_link_end = '</a>'.html_safe
+
+    help_link_start = '<a href="%{url}" target="_blank" rel="noopener noreferrer" class="help-link">'.html_safe % { url: help_url }
+    help_link_end = '</a>'.html_safe
+
+    case reason
+    when NotificationReason::OWN_ACTIVITY
+      _("You're receiving this email because of your activity on %{host}. %{unsubscribe_link_start}Unsubscribe%{unsubscribe_link_end} from this thread &middot; %{manage_notifications_link_start}Manage all notifications%{manage_notifications_link_end} &middot; %{help_link_start}Help%{help_link_end}").html_safe % { host: gitlab_host_link(format), unsubscribe_link_start: unsubscribe_link_start, unsubscribe_link_end: unsubscribe_link_end, manage_notifications_link_start: manage_notifications_link_start, manage_notifications_link_end: manage_notifications_link_end, help_link_start: help_link_start, help_link_end: help_link_end }
+    when NotificationReason::ASSIGNED
+      _("You're receiving this email because you have been assigned an item on %{host}. %{unsubscribe_link_start}Unsubscribe%{unsubscribe_link_end} from this thread &middot; %{manage_notifications_link_start}Manage all notifications%{manage_notifications_link_end} &middot; %{help_link_start}Help%{help_link_end}").html_safe % { host: gitlab_host_link(format), unsubscribe_link_start: unsubscribe_link_start, unsubscribe_link_end: unsubscribe_link_end, manage_notifications_link_start: manage_notifications_link_start, manage_notifications_link_end: manage_notifications_link_end, help_link_start: help_link_start, help_link_end: help_link_end }
+    when NotificationReason::MENTIONED
+      _("You're receiving this email because you have been mentioned on %{host}. %{unsubscribe_link_start}Unsubscribe%{unsubscribe_link_end} from this thread &middot; %{manage_notifications_link_start}Manage all notifications%{manage_notifications_link_end} &middot; %{help_link_start}Help%{help_link_end}").html_safe % { host: gitlab_host_link(format), unsubscribe_link_start: unsubscribe_link_start, unsubscribe_link_end: unsubscribe_link_end, manage_notifications_link_start: manage_notifications_link_start, manage_notifications_link_end: manage_notifications_link_end, help_link_start: help_link_start, help_link_end: help_link_end }
+    else
+      _("You're receiving this email because of your account on %{host}. %{unsubscribe_link_start}Unsubscribe%{unsubscribe_link_end} from this thread &middot; %{manage_notifications_link_start}Manage all notifications%{manage_notifications_link_end} &middot; %{help_link_start}Help%{help_link_end}").html_safe % { host: gitlab_host_link(format), unsubscribe_link_start: unsubscribe_link_start, unsubscribe_link_end: unsubscribe_link_end, manage_notifications_link_start: manage_notifications_link_start, manage_notifications_link_end: manage_notifications_link_end, help_link_start: help_link_start, help_link_end: help_link_end }
+    end
+  end
+
+  def notification_reason_text_with_manage_label_subscriptions_and_help_links(manage_label_subscriptions_url:, format:)
+    manage_label_subscriptions_link_start = '<a href="%{url}" target="_blank" rel="noopener noreferrer" class="mng-notif-link">'.html_safe % { url: manage_label_subscriptions_url }
+    manage_label_subscriptions_link_end = '</a>'.html_safe
+
+    help_link_start = '<a href="%{url}" target="_blank" rel="noopener noreferrer" class="help-link">'.html_safe % { url: help_url }
+    help_link_end = '</a>'.html_safe
+
+    _("You're receiving this email because of your account on %{host}. %{manage_label_subscriptions_link_start}Manage label subscriptions%{manage_label_subscriptions_link_end} &middot; %{help_link_start}Help%{help_link_end}").html_safe % { host: gitlab_host_link(format), manage_label_subscriptions_link_start: manage_label_subscriptions_link_start, manage_label_subscriptions_link_end: manage_label_subscriptions_link_end, help_link_start: help_link_start, help_link_end: help_link_end }
+  end
+
+  def notification_reason_text_with_manage_notifications_and_help_links(reason:, format:)
+    manage_notifications_link_start = '<a href="%{url}" target="_blank" rel="noopener noreferrer" class="mng-notif-link">'.html_safe % { url: profile_notifications_url }
+    manage_notifications_link_end = '</a>'.html_safe
+
+    help_link_start = '<a href="%{url}" target="_blank" rel="noopener noreferrer" class="help-link">'.html_safe % { url: help_url }
+    help_link_end = '</a>'.html_safe
+
+    case reason
+    when NotificationReason::MENTIONED
+      _("You're receiving this email because you have been mentioned on %{host}. %{manage_notifications_link_start}Manage all notifications%{manage_notifications_link_end} &middot; %{help_link_start}Help%{help_link_end}").html_safe % { host: gitlab_host_link(format), manage_notifications_link_start: manage_notifications_link_start, manage_notifications_link_end: manage_notifications_link_end, help_link_start: help_link_start, help_link_end: help_link_end }
+    else
+      _("You're receiving this email because of your account on %{host}. %{manage_notifications_link_start}Manage all notifications%{manage_notifications_link_end} &middot; %{help_link_start}Help%{help_link_end}").html_safe % { host: gitlab_host_link(format), manage_notifications_link_start: manage_notifications_link_start, manage_notifications_link_end: manage_notifications_link_end, help_link_start: help_link_start, help_link_end: help_link_end }
+    end
+  end
+
+  def notification_reason_text_without_links(reason:, format:)
+    case reason
+    when NotificationReason::OWN_ACTIVITY
+      _("You're receiving this email because of your activity on %{host}.").html_safe % { host: gitlab_host_link(format) }
+    when NotificationReason::ASSIGNED
+      _("You're receiving this email because you have been assigned an item on %{host}.").html_safe % { host: gitlab_host_link(format) }
+    when NotificationReason::MENTIONED
+      _("You're receiving this email because you have been mentioned on %{host}.").html_safe % { host: gitlab_host_link(format) }
+    else
+      _("You're receiving this email because of your account on %{host}.").html_safe % { host: gitlab_host_link(format) }
+    end
   end
 end
 

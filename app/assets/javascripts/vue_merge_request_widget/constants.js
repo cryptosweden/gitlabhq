@@ -1,19 +1,30 @@
 import { s__ } from '~/locale';
+import { helpPagePath } from '~/helpers/help_page_helper';
+import { DOCS_URL_IN_EE_DIR } from 'jh_else_ce/lib/utils/url_utility';
 import { stateToComponentMap as classStateMap, stateKey } from './stores/state_maps';
+
+export const FOUR_MINUTES_IN_MS = 1000 * 60 * 4;
+
+export const STATE_QUERY_POLLING_INTERVAL_DEFAULT = 5000;
+export const STATE_QUERY_POLLING_INTERVAL_BACKOFF = 1.2;
 
 export const SUCCESS = 'success';
 export const WARNING = 'warning';
-export const DANGER = 'danger';
 export const INFO = 'info';
-export const CONFIRM = 'confirm';
 
 export const MWPS_MERGE_STRATEGY = 'merge_when_pipeline_succeeds';
+export const MWCP_MERGE_STRATEGY = 'merge_when_checks_pass';
 export const MTWPS_MERGE_STRATEGY = 'add_to_merge_train_when_pipeline_succeeds';
 export const MT_MERGE_STRATEGY = 'merge_train';
 
 export const PIPELINE_FAILED_STATE = 'failed';
 
-export const AUTO_MERGE_STRATEGIES = [MWPS_MERGE_STRATEGY, MTWPS_MERGE_STRATEGY, MT_MERGE_STRATEGY];
+export const AUTO_MERGE_STRATEGIES = [
+  MWPS_MERGE_STRATEGY,
+  MTWPS_MERGE_STRATEGY,
+  MT_MERGE_STRATEGY,
+  MWCP_MERGE_STRATEGY,
+];
 
 // SP - "Suggest Pipelines"
 export const SP_TRACK_LABEL = 'no_pipeline_noticed';
@@ -22,44 +33,49 @@ export const SP_SHOW_TRACK_VALUE = 10;
 export const SP_HELP_CONTENT = s__(
   `mrWidget|GitLab %{linkStart}CI/CD can automatically build, test, and deploy your application.%{linkEnd} It only takes a few minutes to get started, and we can help you create a pipeline configuration file.`,
 );
-export const SP_HELP_URL = 'https://docs.gitlab.com/ee/ci/quick_start/';
+export const SP_HELP_URL = `${DOCS_URL_IN_EE_DIR}/ci/quick_start/`;
 export const SP_ICON_NAME = 'status_notfound';
+
+// JM - "Jenkins Migration"
+export const JM_JENKINS_TITLE_ICON_NAME = 'information';
+export const JM_EVENT_NAME = 'click_dismiss_button_jenkins_migration_callout';
+export const JM_MIGRATION_LINK = helpPagePath('ci/migration/jenkins.md');
 
 export const MERGE_ACTIVE_STATUS_PHRASES = [
   {
-    message: s__('mrWidget|Merging! Drum roll, please…'),
+    message: s__('mrWidget|%{boldStart}Merging!%{boldEnd} Drum roll, please…'),
     emoji: 'drum',
   },
   {
-    message: s__("mrWidget|Merging! We're almost there…"),
+    message: s__("mrWidget|%{boldStart}Merging!%{boldEnd} We're almost there…"),
     emoji: 'sparkles',
   },
   {
-    message: s__('mrWidget|Merging! Changes will land soon…'),
+    message: s__('mrWidget|%{boldStart}Merging!%{boldEnd} Changes will land soon…'),
     emoji: 'airplane_arriving',
   },
   {
-    message: s__('mrWidget|Merging! Changes are being shipped…'),
+    message: s__('mrWidget|%{boldStart}Merging!%{boldEnd} Changes are being shipped…'),
     emoji: 'ship',
   },
   {
-    message: s__("mrWidget|Merging! Everything's good…"),
+    message: s__("mrWidget|%{boldStart}Merging!%{boldEnd} Everything's good…"),
     emoji: 'relieved',
   },
   {
-    message: s__('mrWidget|Merging! This is going to be great…'),
+    message: s__('mrWidget|%{boldStart}Merging!%{boldEnd} This is going to be great…'),
     emoji: 'heart_eyes',
   },
   {
-    message: s__('mrWidget|Merging! Lift-off in 5… 4… 3…'),
+    message: s__('mrWidget|%{boldStart}Merging!%{boldEnd} Lift-off in 5… 4… 3…'),
     emoji: 'rocket',
   },
   {
-    message: s__('mrWidget|Merging! The changes are leaving the station…'),
+    message: s__('mrWidget|%{boldStart}Merging!%{boldEnd} The changes are leaving the station…'),
     emoji: 'bullettrain_front',
   },
   {
-    message: s__('mrWidget|Merging! Take a deep breath and relax…'),
+    message: s__('mrWidget|%{boldStart}Merging!%{boldEnd} Take a deep breath and relax…'),
     emoji: 'sunglasses',
   },
 ];
@@ -139,6 +155,7 @@ export const EXTENSION_ICON_NAMES = {
   neutral: 'status-neutral',
   error: 'status-alert',
   notice: 'status-alert',
+  scheduled: 'status-scheduled',
   severityCritical: 'severity-critical',
   severityHigh: 'severity-high',
   severityMedium: 'severity-medium',
@@ -154,6 +171,7 @@ export const EXTENSION_ICON_CLASS = {
   neutral: 'gl-text-gray-400',
   error: 'gl-text-red-500',
   notice: 'gl-text-gray-500',
+  scheduled: 'gl-text-blue-500',
   severityCritical: 'gl-text-red-800',
   severityHigh: 'gl-text-red-600',
   severityMedium: 'gl-text-orange-400',
@@ -162,7 +180,32 @@ export const EXTENSION_ICON_CLASS = {
   severityUnknown: 'gl-text-gray-400',
 };
 
-export const EXTENSION_SUMMARY_FAILED_CLASS = 'gl-text-red-500';
-export const EXTENSION_SUMMARY_NEUTRAL_CLASS = 'gl-text-gray-700';
+export const TELEMETRY_WIDGET_VIEWED = 'WIDGET_VIEWED';
+export const TELEMETRY_WIDGET_EXPANDED = 'WIDGET_EXPANDED';
+export const TELEMETRY_WIDGET_FULL_REPORT_CLICKED = 'WIDGET_FULL_REPORT_CLICKED';
 
 export { STATE_MACHINE };
+
+export const INVALID_RULES_DOCS_PATH = helpPagePath(
+  'user/project/merge_requests/approvals/index.md',
+  {
+    anchor: 'invalid-rules',
+  },
+);
+
+export const DETAILED_MERGE_STATUS = {
+  PREPARING: 'PREPARING',
+  MERGEABLE: 'MERGEABLE',
+  CHECKING: 'CHECKING',
+  NOT_OPEN: 'NOT_OPEN',
+  DISCUSSIONS_NOT_RESOLVED: 'DISCUSSIONS_NOT_RESOLVED',
+  NOT_APPROVED: 'NOT_APPROVED',
+  DRAFT_STATUS: 'DRAFT_STATUS',
+  BLOCKED_STATUS: 'BLOCKED_STATUS',
+  CI_MUST_PASS: 'CI_MUST_PASS',
+  CI_STILL_RUNNING: 'CI_STILL_RUNNING',
+  EXTERNAL_STATUS_CHECKS: 'EXTERNAL_STATUS_CHECKS',
+};
+
+export const MT_SKIP_TRAIN = 'skip';
+export const MT_RESTART_TRAIN = 'restart';

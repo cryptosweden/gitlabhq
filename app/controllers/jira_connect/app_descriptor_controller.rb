@@ -28,7 +28,7 @@ class JiraConnect::AppDescriptorController < JiraConnect::ApplicationController
         type: 'jwt'
       },
       modules: modules,
-      scopes: %w(READ WRITE DELETE),
+      scopes: %w[READ WRITE DELETE],
       apiVersion: 1,
       apiMigrations: {
         'context-qsh': true,
@@ -74,17 +74,13 @@ class JiraConnect::AppDescriptorController < JiraConnect::ApplicationController
   def development_tool_module
     {
       jiraDevelopmentTool: {
-        actions: {
-          createBranch: {
-            templateUrl: new_jira_connect_branch_url + '?issue_key={issue.key}&issue_summary={issue.summary}'
-          }
-        },
+        actions: actions,
         key: 'gitlab-development-tool',
         application: { value: 'GitLab' },
         name: { value: 'GitLab' },
         url: HOME_URL,
         logoUrl: logo_url,
-        capabilities: %w(branch commit pull_request)
+        capabilities: %w[branch commit pull_request]
       }
     }
   end
@@ -132,5 +128,26 @@ class JiraConnect::AppDescriptorController < JiraConnect::ApplicationController
 
   def relative_to_base_path(full_path)
     full_path.sub(/^#{jira_connect_base_path}/, '')
+  end
+
+  def create_branch_params
+    "?issue_key={issue.key}&issue_summary={issue.summary}&jwt={jwt}&addonkey=#{Atlassian::JiraConnect.app_key}"
+  end
+
+  def actions
+    {
+      createBranch: {
+        templateUrl: "#{route_jira_connect_branches_url}#{create_branch_params}"
+      },
+      searchConnectedWorkspaces: {
+        templateUrl: search_jira_connect_workspaces_url
+      },
+      searchRepositories: {
+        templateUrl: search_jira_connect_repositories_url
+      },
+      associateRepository: {
+        templateUrl: associate_jira_connect_repositories_url
+      }
+    }
   end
 end

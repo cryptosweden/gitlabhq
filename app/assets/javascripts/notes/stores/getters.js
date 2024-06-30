@@ -1,6 +1,8 @@
 import { flattenDeep, clone } from 'lodash';
-import { statusBoxState } from '~/issuable/components/status_box.vue';
+import { match } from '~/diffs/utils/diff_file';
 import { isInMRPage } from '~/lib/utils/common_utils';
+import { doesHashExistInUrl } from '~/lib/utils/url_utility';
+import { badgeState } from '~/merge_requests/components/merge_request_header.vue';
 import * as constants from '../constants';
 import { collapseSystemNotes } from './collapse_utils';
 
@@ -20,9 +22,55 @@ const getDraftComments = (state) => {
     .sort((a, b) => a.id - b.id);
 };
 
+const hideActivity = (filters, discussion) => {
+  if (filters.length === constants.MR_FILTER_OPTIONS) return false;
+  if (filters.length === 0) return true;
+
+  const firstNote = discussion.notes[0];
+  const hidingFilters = constants.MR_FILTER_OPTIONS.filter(({ value }) => !filters.includes(value));
+
+  for (let i = 0, len = hidingFilters.length; i < len; i += 1) {
+    const filter = hidingFilters[i];
+
+    if (
+      // For all of the below firstNote is the first note of a discussion, whether that be
+      // the first in a discussion or a single note
+      // If the filter option filters based on icon check against the first notes system note icon
+      filter.systemNoteIcons?.includes(firstNote.system_note_icon_name) ||
+      // If the filter option filters based on note type use the first notes type
+      (filter.noteType?.includes(firstNote.type) && !firstNote.author?.bot) ||
+      // If the filter option filters based on the note text then check if it is sytem
+      // and filter based on the text of the system note
+      (firstNote.system && filter.noteText?.some((t) => firstNote.note.includes(t))) ||
+      // For individual notes we filter if the discussion is a single note and is not a sytem
+      (filter.individualNote === discussion.individual_note &&
+        !firstNote.system &&
+        !firstNote.author?.bot) ||
+      // For bot comments we filter on the authors `bot` boolean attribute
+      (filter.bot && firstNote.author?.bot)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 export const discussions = (state, getters, rootState) => {
   let discussionsInState = clone(state.discussions);
   // NOTE: not testing bc will be removed when backend is finished.
+
+  if (state.noteableData.targetType === 'merge_request') {
+    discussionsInState = discussionsInState.reduce((acc, discussion) => {
+      if (hideActivity(state.mergeRequestFilters, discussion)) {
+        return acc;
+      }
+
+      acc.push(discussion);
+
+      return acc;
+    }, []);
+  }
 
   if (state.isTimelineEnabled) {
     discussionsInState = discussionsInState
@@ -84,14 +132,20 @@ export const getBlockedByIssues = (state) => state.noteableData.blocked_by_issue
 
 export const userCanReply = (state) => Boolean(state.noteableData.current_user.can_create_note);
 
-export const openState = (state) =>
-  isInMRPage() ? statusBoxState.state : state.noteableData.state;
+export const openState = (state) => (isInMRPage() ? badgeState.state : state.noteableData.state);
 
 export const getUserData = (state) => state.userData || {};
 
 export const getUserDataByProp = (state) => (prop) => state.userData && state.userData[prop];
 
 export const descriptionVersions = (state) => state.descriptionVersions;
+
+export const canUserAddIncidentTimelineEvents = (state) => {
+  return Boolean(
+    state.userData?.can_add_timeline_events &&
+      state.noteableData.type === constants.NOTEABLE_TYPE_MAPPING.Incident,
+  );
+};
 
 export const notesById = (state) =>
   state.discussions.reduce((acc, note) => {
@@ -125,14 +179,16 @@ export const getDiscussionLastNote = (state) => (discussion) =>
 export const unresolvedDiscussionsCount = (state) => state.unresolvedDiscussionsCount;
 export const resolvableDiscussionsCount = (state) => state.resolvableDiscussionsCount;
 
-export const showJumpToNextDiscussion = (state, getters) => (mode = 'discussion') => {
-  const orderedDiffs =
-    mode !== 'discussion'
-      ? getters.unresolvedDiscussionsIdsByDiff
-      : getters.unresolvedDiscussionsIdsByDate;
+export const showJumpToNextDiscussion =
+  (state, getters) =>
+  (mode = 'discussion') => {
+    const orderedDiffs =
+      mode !== 'discussion'
+        ? getters.unresolvedDiscussionsIdsByDiff
+        : getters.unresolvedDiscussionsIdsByDate;
 
-  return orderedDiffs.length > 1;
-};
+    return orderedDiffs.length > 1;
+  };
 
 export const isDiscussionResolved = (state, getters) => (discussionId) =>
   getters.resolvedDiscussionsById[discussionId] !== undefined;
@@ -179,29 +235,42 @@ export const unresolvedDiscussionsIdsByDate = (state, getters) =>
 // Sorts the array of resolvable yet unresolved discussions by
 // comparing file names first. If file names are the same, compares
 // line numbers.
-export const unresolvedDiscussionsIdsByDiff = (state, getters) =>
-  getters.allResolvableDiscussions
+export const unresolvedDiscussionsIdsByDiff = (state, getters, allState) => {
+  const authoritativeFiles = allState.diffs.diffFiles;
+
+  return getters.allResolvableDiscussions
     .filter((d) => !d.resolved && d.active)
     .sort((a, b) => {
+      let order = 0;
+
       if (!a.diff_file || !b.diff_file) {
-        return 0;
+        return order;
       }
 
-      // Get file names comparison result
-      const filenameComparison = a.diff_file.file_path.localeCompare(b.diff_file.file_path);
+      const authoritativeA = authoritativeFiles.find((source) =>
+        match({ fileA: source, fileB: a.diff_file, mode: 'mr' }),
+      );
+      const authoritativeB = authoritativeFiles.find((source) =>
+        match({ fileA: source, fileB: b.diff_file, mode: 'mr' }),
+      );
+
+      if (authoritativeA && authoritativeB) {
+        order = authoritativeA.order - authoritativeB.order;
+      }
 
       // Get the line numbers, to compare within the same file
       const aLines = [a.position.new_line, a.position.old_line];
       const bLines = [b.position.new_line, b.position.old_line];
 
-      return filenameComparison < 0 ||
-        (filenameComparison === 0 &&
+      return order < 0 ||
+        (order === 0 &&
           // .max() because one of them might be zero (if removed/added)
           Math.max(aLines[0], aLines[1]) < Math.max(bLines[0], bLines[1]))
         ? -1
         : 1;
     })
     .map((d) => d.id);
+};
 
 export const resolvedDiscussionCount = (state, getters) => {
   const resolvedMap = getters.resolvedDiscussionsById;
@@ -235,26 +304,24 @@ export const isLastUnresolvedDiscussion = (state, getters) => (discussionId, dif
   return lastDiscussionId === discussionId;
 };
 
-export const findUnresolvedDiscussionIdNeighbor = (state, getters) => ({
-  discussionId,
-  diffOrder,
-  step,
-}) => {
-  const diffIds = getters.unresolvedDiscussionsIdsOrdered(diffOrder);
-  const dateIds = getters.unresolvedDiscussionsIdsOrdered(false);
-  const ids = diffIds.length ? diffIds : dateIds;
-  const index = ids.indexOf(discussionId) + step;
+export const findUnresolvedDiscussionIdNeighbor =
+  (state, getters) =>
+  ({ discussionId, diffOrder, step }) => {
+    const diffIds = getters.unresolvedDiscussionsIdsOrdered(diffOrder);
+    const dateIds = getters.unresolvedDiscussionsIdsOrdered(false);
+    const ids = diffIds.length ? diffIds : dateIds;
+    const index = ids.indexOf(discussionId) + step;
 
-  if (index < 0 && step < 0) {
-    return ids[ids.length - 1];
-  }
+    if (index < 0 && step < 0) {
+      return ids[ids.length - 1];
+    }
 
-  if (index === ids.length && step > 0) {
-    return ids[0];
-  }
+    if (index === ids.length && step > 0) {
+      return ids[0];
+    }
 
-  return ids[index];
-};
+    return ids[index];
+  };
 
 // Gets the ID of the discussion following the one provided, respecting order (diff or date)
 // @param {Boolean} discussionId - id of the current discussion
@@ -294,3 +361,26 @@ export const getSuggestionsFilePaths = (state) => () =>
 
     return acc;
   }, []);
+
+export const getFetchDiscussionsConfig = (state, getters) => {
+  const defaultConfig = { path: getters.getNotesDataByProp('discussionsPath') };
+
+  const currentFilter =
+    getters.getNotesDataByProp('notesFilter') || constants.DISCUSSION_FILTERS_DEFAULT_VALUE;
+
+  if (
+    doesHashExistInUrl(constants.NOTE_UNDERSCORE) &&
+    currentFilter !== constants.DISCUSSION_FILTERS_DEFAULT_VALUE
+  ) {
+    return {
+      ...defaultConfig,
+      filter: constants.DISCUSSION_FILTERS_DEFAULT_VALUE,
+      persistFilter: false,
+    };
+  }
+  return defaultConfig;
+};
+
+export const allDiscussionsExpanded = (state) => {
+  return state.discussions.every((discussion) => discussion.expanded);
+};

@@ -3,37 +3,44 @@
 require 'spec_helper'
 
 RSpec.describe BulkInsertableAssociations do
-  class BulkFoo < ApplicationRecord
-    include BulkInsertSafe
+  before do
+    stub_const('BulkFoo', Class.new(ApplicationRecord))
+    stub_const('BulkBar', Class.new(ApplicationRecord))
+    stub_const('SimpleBar', Class.new(ApplicationRecord))
+    stub_const('BulkParent', Class.new(ApplicationRecord))
 
-    self.table_name = '_test_bulk_foos'
+    BulkFoo.class_eval do
+      include BulkInsertSafe
 
-    validates :name, presence: true
+      self.table_name = '_test_bulk_foos'
+
+      validates :name, presence: true
+    end
+
+    BulkBar.class_eval do
+      include BulkInsertSafe
+
+      self.table_name = '_test_bulk_bars'
+    end
+
+    SimpleBar.class_eval do
+      self.table_name = '_test_simple_bars'
+    end
+
+    BulkParent.class_eval do
+      include BulkInsertableAssociations
+
+      self.table_name = '_test_bulk_parents'
+
+      has_many :bulk_foos, class_name: 'BulkFoo'
+      has_many :bulk_hunks, class_name: 'BulkFoo'
+      has_many :bulk_bars, class_name: 'BulkBar'
+      has_many :simple_bars, class_name: 'SimpleBar' # not `BulkInsertSafe`
+      has_one :bulk_foo # not supported
+    end
   end
 
-  class BulkBar < ApplicationRecord
-    include BulkInsertSafe
-
-    self.table_name = '_test_bulk_bars'
-  end
-
-  SimpleBar = Class.new(ApplicationRecord) do
-    self.table_name = '_test_simple_bars'
-  end
-
-  class BulkParent < ApplicationRecord
-    include BulkInsertableAssociations
-
-    self.table_name = '_test_bulk_parents'
-
-    has_many :bulk_foos, class_name: 'BulkFoo'
-    has_many :bulk_hunks, class_name: 'BulkFoo'
-    has_many :bulk_bars, class_name: 'BulkBar'
-    has_many :simple_bars, class_name: 'SimpleBar' # not `BulkInsertSafe`
-    has_one :bulk_foo # not supported
-  end
-
-  before(:all) do
+  before_all do
     ActiveRecord::Schema.define do
       create_table :_test_bulk_parents, force: true do |t|
         t.string :name, null: true

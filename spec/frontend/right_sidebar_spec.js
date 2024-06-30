@@ -1,6 +1,7 @@
 import MockAdapter from 'axios-mock-adapter';
 import $ from 'jquery';
-import '~/commons/bootstrap';
+import htmlOpenIssues from 'test_fixtures/issues/open-issue.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import axios from '~/lib/utils/axios_utils';
 import Sidebar from '~/right_sidebar';
 
@@ -26,11 +27,10 @@ const assertSidebarState = (state) => {
 
 describe('RightSidebar', () => {
   describe('fixture tests', () => {
-    const fixtureName = 'issues/open-issue.html';
     let mock;
 
     beforeEach(() => {
-      loadFixtures(fixtureName);
+      setHTMLFixture(htmlOpenIssues);
       mock = new MockAdapter(axios);
       new Sidebar(); // eslint-disable-line no-new
       $aside = $('.right-sidebar');
@@ -44,6 +44,8 @@ describe('RightSidebar', () => {
 
     afterEach(() => {
       mock.restore();
+
+      resetHTMLFixture();
     });
 
     it('should expand/collapse the sidebar when arrow is clicked', () => {
@@ -67,8 +69,11 @@ describe('RightSidebar', () => {
     });
 
     it('should not hide collapsed icons', () => {
+      $toggle.click();
+      assertSidebarState('collapsed');
+
       [].forEach.call(document.querySelectorAll('.sidebar-collapsed-icon'), (el) => {
-        expect(el.querySelector('.fa, svg').classList.contains('hidden')).toBeFalsy();
+        expect(el.querySelector('.fa, svg').classList.contains('hidden')).toBe(false);
       });
     });
   });

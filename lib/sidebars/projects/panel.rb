@@ -19,7 +19,6 @@ module Sidebars
 
       def add_menus
         add_menu(Sidebars::Projects::Menus::ProjectInformationMenu.new(context))
-        add_menu(Sidebars::Projects::Menus::LearnGitlabMenu.new(context))
         add_menu(Sidebars::Projects::Menus::RepositoryMenu.new(context))
         add_menu(Sidebars::Projects::Menus::IssuesMenu.new(context))
         add_menu(Sidebars::Projects::Menus::ExternalIssueTrackerMenu.new(context))
@@ -28,21 +27,13 @@ module Sidebars
         add_menu(Sidebars::Projects::Menus::CiCdMenu.new(context))
         add_menu(Sidebars::Projects::Menus::SecurityComplianceMenu.new(context))
         add_menu(Sidebars::Projects::Menus::DeploymentsMenu.new(context))
-        add_menu(Sidebars::Projects::Menus::MonitorMenu.new(context))
-        add_menu(Sidebars::Projects::Menus::InfrastructureMenu.new(context))
         add_menu(Sidebars::Projects::Menus::PackagesRegistriesMenu.new(context))
+        add_menu(Sidebars::Projects::Menus::InfrastructureMenu.new(context))
+        add_menu(Sidebars::Projects::Menus::MonitorMenu.new(context))
         add_menu(Sidebars::Projects::Menus::AnalyticsMenu.new(context))
         add_wiki_menus
         add_menu(Sidebars::Projects::Menus::SnippetsMenu.new(context))
         add_menu(Sidebars::Projects::Menus::SettingsMenu.new(context))
-        add_invite_members_menu
-      end
-
-      def add_invite_members_menu
-        experiment(:invite_members_in_side_nav, group: context.project.group) do |e|
-          e.control {}
-          e.candidate { add_menu(Sidebars::Projects::Menus::InviteTeamMembersMenu.new(context)) }
-        end
       end
 
       def add_wiki_menus
@@ -51,10 +42,9 @@ module Sidebars
       end
 
       def third_party_wiki_menu
-        wiki_menu_list = [::Sidebars::Projects::Menus::ConfluenceMenu]
-        wiki_menu_list << ::Sidebars::Projects::Menus::ShimoMenu if Feature.enabled?(:shimo_integration, context.project)
+        return unless ::Sidebars::Projects::Menus::ConfluenceMenu.new(context).render?
 
-        wiki_menu_list.find { |wiki_menu| wiki_menu.new(context).render? }
+        ::Sidebars::Projects::Menus::ConfluenceMenu
       end
     end
   end

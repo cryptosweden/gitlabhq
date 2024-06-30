@@ -12,8 +12,6 @@ end
 namespace :import do
   resources :history, only: [:index], controller: :history
 
-  resources :available_namespaces, only: [:index], controller: :available_namespaces
-
   namespace :url do
     post :validate
   end
@@ -21,19 +19,18 @@ namespace :import do
   resource :github, only: [:create, :new], controller: :github do
     post :personal_access_token
     get :status
+    get :details
     get :callback
     get :realtime_changes
+    get :failures
+    post :cancel
+    post :cancel_all
+    get :counts
   end
 
   resource :gitea, only: [:create, :new], controller: :gitea do
     post :personal_access_token
     get :status
-    get :realtime_changes
-  end
-
-  resource :gitlab, only: [:create], controller: :gitlab do
-    get :status
-    get :callback
     get :realtime_changes
   end
 
@@ -68,11 +65,22 @@ namespace :import do
     post :authorize
   end
 
+  resource :github_group, only: [] do
+    get :status
+  end
+
   resource :bulk_imports, only: [:create] do
     post :configure
     get :status
     get :realtime_changes
     get :history
+  end
+
+  resources :bulk_imports, only: [] do
+    member do
+      get :history
+      get '/history/:entity_id/failures', action: :failures, as: :failures
+    end
   end
 
   resource :manifest, only: [:create, :new], controller: :manifest do
@@ -81,5 +89,11 @@ namespace :import do
     post :upload
   end
 
-  resource :phabricator, only: [:create, :new], controller: :phabricator
+  resources :source_users, only: [] do
+    member do
+      get :show
+      post :accept
+      post :decline
+    end
+  end
 end

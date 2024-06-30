@@ -1,34 +1,37 @@
 <script>
 import { GlTooltipDirective, GlIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters } from 'vuex';
 import DraftNote from '~/batch_comments/components/draft_note.vue';
-import createFlash from '~/flash';
-import { clearDraft, getDiscussionReplyKey } from '~/lib/utils/autosave';
+import { createAlert } from '~/alert';
+import { clearDraft, getDraft, getAutoSaveKeyFromDiscussion } from '~/lib/utils/autosave';
 import { isLoggedIn } from '~/lib/utils/common_utils';
 import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
 import { ignoreWhilePending } from '~/lib/utils/ignore_while_pending';
-import { s__, __ } from '~/locale';
+import { s__, __, sprintf } from '~/locale';
 import diffLineNoteFormMixin from '~/notes/mixins/diff_line_note_form';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
-import userAvatarLink from '../../vue_shared/components/user_avatar/user_avatar_link.vue';
+import UserAvatarLink from '~/vue_shared/components/user_avatar/user_avatar_link.vue';
+import { containsSensitiveToken, confirmSensitiveAction } from '~/lib/utils/secret_detection';
 import eventHub from '../event_hub';
 import noteable from '../mixins/noteable';
 import resolvable from '../mixins/resolvable';
-import diffDiscussionHeader from './diff_discussion_header.vue';
-import diffWithNote from './diff_with_note.vue';
+import { createNoteErrorMessages } from '../utils';
+import DiffDiscussionHeader from './diff_discussion_header.vue';
+import DiffWithNote from './diff_with_note.vue';
 import DiscussionActions from './discussion_actions.vue';
 import DiscussionNotes from './discussion_notes.vue';
-import noteForm from './note_form.vue';
-import noteSignedOutWidget from './note_signed_out_widget.vue';
+import NoteForm from './note_form.vue';
+import NoteSignedOutWidget from './note_signed_out_widget.vue';
 
 export default {
   name: 'NoteableDiscussion',
   components: {
     GlIcon,
-    userAvatarLink,
-    diffDiscussionHeader,
-    noteSignedOutWidget,
-    noteForm,
+    UserAvatarLink,
+    DiffDiscussionHeader,
+    NoteSignedOutWidget,
+    NoteForm,
     DraftNote,
     TimelineEntryItem,
     DiscussionNotes,
@@ -73,6 +76,11 @@ export default {
       required: false,
       default: false,
     },
+    shouldScrollToNote: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
   },
   data() {
     return {
@@ -89,20 +97,35 @@ export default {
       'showJumpToNextDiscussion',
       'getUserData',
     ]),
+    diffFile() {
+      const diffFile = this.discussion.diff_file;
+      if (!diffFile) return null;
+
+      return {
+        ...diffFile,
+        view_path: window.location.href.replace(
+          /\/-\/merge_requests.*/,
+          `/-/blob/${diffFile.content_sha}/${diffFile.new_path}`,
+        ),
+      };
+    },
     currentUser() {
       return this.getUserData;
     },
     isLoggedIn() {
       return isLoggedIn();
     },
+    commentType() {
+      return this.discussion.internal ? __('internal note') : __('comment');
+    },
     autosaveKey() {
-      return getDiscussionReplyKey(this.firstNote.noteable_type, this.discussion.id);
+      return getAutoSaveKeyFromDiscussion(this.discussion);
     },
     newNotePath() {
       return this.getNoteableData.create_note_path;
     },
-    firstNote() {
-      return this.discussion.notes.slice(0, 1)[0];
+    saveButtonTitle() {
+      return this.discussion.internal ? __('Reply internally') : __('Reply');
     },
     shouldShowJumpToNextDiscussion() {
       return this.showJumpToNextDiscussion(this.discussionsByDiffOrder ? 'diff' : 'discussion');
@@ -114,7 +137,7 @@ export default {
       return !this.shouldRenderDiffs;
     },
     wrapperComponent() {
-      return this.shouldRenderDiffs ? diffWithNote : 'div';
+      return this.shouldRenderDiffs ? DiffWithNote : 'div';
     },
     wrapperComponentProps() {
       if (this.shouldRenderDiffs) {
@@ -144,15 +167,32 @@ export default {
       return !this.discussionResolved ? this.discussion.resolve_with_issue_path : '';
     },
     canShowReplyActions() {
-      if (this.shouldRenderDiffs && !this.discussion.diff_file.diff_refs) {
+      if (this.shouldRenderDiffs && !this.discussion.diff_file?.diff_refs) {
         return false;
       }
 
       return true;
     },
+    isDiscussionInternal() {
+      return this.discussion.notes[0]?.internal;
+    },
+    discussionHolderClass() {
+      return {
+        'is-replying gl-pt-0!': this.isReplying,
+        'internal-note': this.isDiscussionInternal,
+        'public-note': !this.isDiscussionInternal,
+        'gl-pt-0!': !this.discussion.diff_discussion && this.isReplying,
+      };
+    },
+    hasDraft() {
+      return Boolean(getDraft(this.autosaveKey));
+    },
   },
   created() {
     eventHub.$on('startReplying', this.onStartReplying);
+    if (this.hasDraft) {
+      this.showReplyForm();
+    }
   },
   beforeDestroy() {
     eventHub.$off('startReplying', this.onStartReplying);
@@ -174,9 +214,15 @@ export default {
     },
     cancelReplyForm: ignoreWhilePending(async function cancelReplyForm(shouldConfirm, isDirty) {
       if (shouldConfirm && isDirty) {
-        const msg = s__('Notes|Are you sure you want to cancel creating this comment?');
+        const msg = sprintf(
+          s__('Notes|Are you sure you want to cancel creating this %{commentType}?'),
+          { commentType: this.commentType },
+        );
 
-        const confirmed = await confirmAction(msg);
+        const confirmed = await confirmAction(msg, {
+          primaryBtnText: __('Discard changes'),
+          cancelBtnText: __('Continue editing'),
+        });
 
         if (!confirmed) {
           return;
@@ -190,12 +236,21 @@ export default {
       this.isReplying = false;
       clearDraft(this.autosaveKey);
     }),
-    saveReply(noteText, form, callback) {
+    async saveReply(noteText, form, callback) {
       if (!noteText) {
         this.cancelReplyForm();
         callback();
         return;
       }
+
+      if (containsSensitiveToken(noteText)) {
+        const confirmed = await confirmSensitiveAction();
+        if (!confirmed) {
+          callback();
+          return;
+        }
+      }
+
       const postData = {
         in_reply_to_discussion_id: this.discussion.reply_id,
         target_type: this.getNoteableData.targetType,
@@ -217,31 +272,26 @@ export default {
       };
 
       this.saveNote(replyData)
-        .then((res) => {
-          if (res.hasFlash !== true) {
-            this.isReplying = false;
-            clearDraft(this.autosaveKey);
-          }
+        .then(() => {
+          this.isReplying = false;
+          clearDraft(this.autosaveKey);
+
           callback();
         })
         .catch((err) => {
-          this.removePlaceholderNotes();
           this.handleSaveError(err); // The 'err' parameter is being used in JH, don't remove it
-          this.$refs.noteForm.note = noteText;
+          this.removePlaceholderNotes();
+
           callback(err);
         });
     },
-    handleSaveError() {
-      const msg = __(
-        'Your comment could not be submitted! Please check your network connection and try again.',
-      );
-      createFlash({
-        message: msg,
+    handleSaveError({ response }) {
+      const errorMessage = createNoteErrorMessages(response.data, response.status)[0];
+
+      createAlert({
+        message: errorMessage,
         parent: this.$el,
       });
-    },
-    deleteNoteHandler(note) {
-      this.$emit('noteDeleted', this.discussion, note);
     },
     onStartReplying(discussionId) {
       if (this.discussion.id === discussionId) {
@@ -257,8 +307,10 @@ export default {
     <div class="timeline-content">
       <div
         :data-discussion-id="discussion.id"
+        :data-discussion-resolvable="discussion.resolvable"
+        :data-discussion-resolved="discussion.resolved"
         class="discussion js-discussion-container"
-        data-qa-selector="discussion_content"
+        data-testid="discussion-content"
       >
         <diff-discussion-header v-if="shouldRenderDiffs" :discussion="discussion" />
         <div v-if="!shouldHideDiscussionBody" class="discussion-body">
@@ -275,8 +327,8 @@ export default {
               :line="line"
               :should-group-replies="shouldGroupReplies"
               :is-overview-tab="isOverviewTab"
+              :should-scroll-to-note="shouldScrollToNote"
               @startReplying="showReplyForm"
-              @deleteNote="deleteNoteHandler"
             >
               <template #avatar-badge>
                 <slot name="avatar-badge"></slot>
@@ -288,10 +340,11 @@ export default {
                   :draft="draftForDiscussion(discussion.reply_id)"
                   :line="line"
                 />
-                <div
+                <li
                   v-else-if="canShowReplyActions && showReplies"
-                  :class="{ 'is-replying': isReplying }"
-                  class="discussion-reply-holder gl-border-t-0! clearfix"
+                  data-testid="reply-wrapper"
+                  class="discussion-reply-holder gl-border-t-0! gl-pb-5! clearfix"
+                  :class="discussionHolderClass"
                 >
                   <discussion-actions
                     v-if="!isReplying && userCanReply"
@@ -307,16 +360,17 @@ export default {
                     v-if="isReplying"
                     ref="noteForm"
                     :discussion="discussion"
-                    :is-editing="false"
+                    :diff-file="diffFile"
                     :line="diffLine"
-                    save-button-title="Comment"
+                    :save-button-title="saveButtonTitle"
+                    :autofocus="!hasDraft"
                     :autosave-key="autosaveKey"
                     @handleFormUpdateAddToReview="addReplyToReview"
                     @handleFormUpdate="saveReply"
                     @cancelForm="cancelReplyForm"
                   />
                   <note-signed-out-widget v-if="!isLoggedIn" />
-                </div>
+                </li>
               </template>
             </discussion-notes>
           </component>

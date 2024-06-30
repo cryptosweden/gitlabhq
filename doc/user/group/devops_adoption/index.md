@@ -1,53 +1,49 @@
 ---
-stage: Manage
+stage: Plan
 group: Optimize
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Group DevOps Adoption **(ULTIMATE)**
+# Group DevOps Adoption
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/321083) in GitLab 13.11 as a [Beta feature](../../../policy/alpha-beta-support.md#beta-features).
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/333556) in GitLab 14.1.
-> - The Overview tab [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/330401) in GitLab 14.1.
-> - DAST and SAST metrics [added](https://gitlab.com/gitlab-org/gitlab/-/issues/328033) in GitLab 14.1.
-> - Fuzz Testing metrics [added](https://gitlab.com/gitlab-org/gitlab/-/issues/330398) in GitLab 14.2.
-> - Dependency Scanning metrics [added](https://gitlab.com/gitlab-org/gitlab/-/issues/328034) in GitLab 14.2.
-> - Multiselect [added](https://gitlab.com/gitlab-org/gitlab/-/issues/333586) in GitLab 14.2.
-> - Overview table [added](https://gitlab.com/gitlab-org/gitlab/-/issues/335638) in GitLab 14.3.
-> - Adoption over time chart [added](https://gitlab.com/gitlab-org/gitlab/-/issues/337561) in GitLab 14.4.
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - [Added](https://gitlab.com/gitlab-org/gitlab/-/issues/367093) to the [Registration Features Program](../../../administration/settings/usage_statistics.md#registration-features-program) in GitLab 16.6.
 
 DevOps Adoption shows you how groups in your organization adopt and use the most essential features of GitLab.
 
 You can use Group DevOps Adoption to:
 
 - Identify specific subgroups that are lagging in their adoption of GitLab features, so you can guide them on
-their DevOps journey.
+  their DevOps journey.
 - Find subgroups that have adopted certain features, and provide guidance to other subgroups on
-how to use those features.
+  how to use those features.
 - Verify if you are getting the return on investment that you expected from GitLab.
 
 ![DevOps Adoption](img/group_devops_adoption_v14_2.png)
 
 ## View DevOps Adoption
 
-Prerequisite:
+Prerequisites:
 
 - You must have at least the Reporter role for the group.
 
 To view DevOps Adoption:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Analytics > DevOps adoption**
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Analyze > DevOps adoption**
 
 ## DevOps Adoption categories
 
 DevOps Adoption shows feature adoption for development, security, and operations.
 
-| Category | Feature |
-| ---      | ---      |
-| Development   | Approvals<br>Code owners<br>Issues<br>Merge requests   |
-| Security   | DAST<br>Dependency Scanning<br>Fuzz Testing<br>SAST  |
-| Operations   | Deployments<br>Pipelines<br>Runners   |
+| Category    | Feature |
+|-------------|---------|
+| Development | Approvals<br>Code owners<br>Issues<br>Merge requests |
+| Security    | DAST<br>Dependency Scanning<br>Fuzz Testing<br>SAST |
+| Operations  | Deployments<br>Pipelines<br>Runners |
 
 ## Feature adoption
 
@@ -80,8 +76,8 @@ twelve months. The chart only shows data from when you enabled DevOps Adoption f
 
 To view feature adoption over time:
 
-1. On the top bar, select **Menu > Groups** and find your group.
-1. On the left sidebar, select **Analytics > DevOps adoption**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Analyze > DevOps adoption**.
 1. Select the **Overview** tab.
 
 Tooltips display information about the features tracked for individual months.

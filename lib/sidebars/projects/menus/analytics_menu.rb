@@ -41,19 +41,25 @@ module Sidebars
           'chart'
         end
 
+        override :serialize_as_menu_item_args
+        def serialize_as_menu_item_args
+          nil
+        end
+
         private
 
         def ci_cd_analytics_menu_item
           if !context.project.feature_available?(:builds, context.current_user) ||
-            !can?(context.current_user, :read_build, context.project) ||
-            !can?(context.current_user, :read_ci_cd_analytics, context.project) ||
-            context.project.empty_repo?
+              !can?(context.current_user, :read_build, context.project) ||
+              !can?(context.current_user, :read_ci_cd_analytics, context.project) ||
+              context.project.empty_repo?
             return ::Sidebars::NilMenuItem.new(item_id: :ci_cd_analytics)
           end
 
           ::Sidebars::MenuItem.new(
-            title: _('CI/CD'),
+            title: context.is_super_sidebar ? _('CI/CD analytics') : _('CI/CD'),
             link: charts_project_pipelines_path(context.project),
+            super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::AnalyzeMenu,
             active_routes: { path: 'pipelines#charts' },
             item_id: :ci_cd_analytics
           )
@@ -65,8 +71,9 @@ module Sidebars
           end
 
           ::Sidebars::MenuItem.new(
-            title: _('Repository'),
+            title: context.is_super_sidebar ? _('Repository analytics') : _('Repository'),
             link: charts_project_graph_path(context.project, context.current_ref),
+            super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::AnalyzeMenu,
             container_html_options: { class: 'shortcuts-repository-charts' },
             active_routes: { path: 'graphs#charts' },
             item_id: :repository_analytics
@@ -80,8 +87,9 @@ module Sidebars
             end
 
             ::Sidebars::MenuItem.new(
-              title: _('Value stream'),
+              title: context.is_super_sidebar ? _('Value stream analytics') : _('Value stream'),
               link: project_cycle_analytics_path(context.project),
+              super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::AnalyzeMenu,
               container_html_options: { class: 'shortcuts-project-cycle-analytics' },
               active_routes: { path: 'cycle_analytics#show' },
               item_id: :cycle_analytics

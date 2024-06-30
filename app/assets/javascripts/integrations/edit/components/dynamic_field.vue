@@ -1,14 +1,9 @@
 <script>
-import {
-  GlFormGroup,
-  GlFormCheckbox,
-  GlFormInput,
-  GlFormSelect,
-  GlFormTextarea,
-  GlSafeHtmlDirective as SafeHtml,
-} from '@gitlab/ui';
+import { GlFormGroup, GlFormCheckbox, GlFormInput, GlFormSelect, GlFormTextarea } from '@gitlab/ui';
 import { capitalize, lowerCase, isEmpty } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 
 export default {
   name: 'DynamicField',
@@ -23,12 +18,22 @@ export default {
     SafeHtml,
   },
   props: {
+    fieldClass: {
+      type: String,
+      required: false,
+      default: null,
+    },
     choices: {
       type: Array,
       required: false,
       default: null,
     },
     help: {
+      type: String,
+      required: false,
+      default: null,
+    },
+    labelDescription: {
       type: String,
       required: false,
       default: null,
@@ -80,7 +85,7 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['isInheriting']),
+    ...mapGetters(['isInheriting', 'propsSource']),
     isCheckbox() {
       return this.type === 'checkbox';
     },
@@ -103,7 +108,7 @@ export default {
       return isEmpty(this.value) && this.required;
     },
     options() {
-      return this.choices.map((choice) => {
+      return this.choices?.map((choice) => {
         return {
           value: choice[1],
           text: choice[0],
@@ -111,7 +116,7 @@ export default {
       });
     },
     fieldId() {
-      return `service_${this.name}`;
+      return `service-${this.name}`;
     },
     fieldName() {
       return `service[${this.name}]`;
@@ -122,10 +127,22 @@ export default {
         name: this.fieldName,
         state: this.valid,
         readonly: this.isInheriting,
+        disabled: this.isDisabled,
       };
     },
     valid() {
       return !this.required || !isEmpty(this.model) || this.isNonEmptyPassword || !this.isValidated;
+    },
+    isInheritingOrDisabled() {
+      return this.isInheriting || this.isDisabled;
+    },
+    isDisabled() {
+      return !this.propsSource.editable;
+    },
+  },
+  watch: {
+    model(newValue) {
+      this.$emit('update', newValue);
     },
   },
   created() {
@@ -133,40 +150,45 @@ export default {
       this.model = null;
     }
   },
-  helpHtmlConfig: {
-    ADD_ATTR: ['target'], // allow external links, can be removed after https://gitlab.com/gitlab-org/gitlab-ui/-/issues/1427 is implemented
-  },
 };
 </script>
 
 <template>
   <gl-form-group
     :label="humanizedTitle"
+    :label-description="labelDescription"
     :label-for="fieldId"
     :invalid-feedback="__('This field is required.')"
     :state="valid"
+    :class="fieldClass"
   >
     <template v-if="!isCheckbox" #description>
-      <span v-safe-html:[$options.helpHtmlConfig]="help"></span>
+      <span v-safe-html="help"></span>
     </template>
 
     <template v-if="isCheckbox">
       <input :name="fieldName" type="hidden" :value="model || false" />
-      <gl-form-checkbox :id="fieldId" v-model="model" :disabled="isInheriting">
+      <gl-form-checkbox :id="fieldId" v-model="model" :disabled="isInheritingOrDisabled">
         {{ checkboxLabel || humanizedTitle }}
         <template #help>
-          <span v-safe-html:[$options.helpHtmlConfig]="help"></span>
+          <span v-safe-html="help"></span>
         </template>
       </gl-form-checkbox>
     </template>
     <template v-else-if="isSelect">
       <input type="hidden" :name="fieldName" :value="model" />
-      <gl-form-select :id="fieldId" v-model="model" :options="options" :disabled="isInheriting" />
+      <gl-form-select
+        :id="fieldId"
+        v-model="model"
+        :options="options"
+        :disabled="isInheritingOrDisabled"
+      />
     </template>
     <gl-form-textarea
       v-else-if="isTextarea"
       v-model="model"
       v-bind="sharedProps"
+      no-resize
       :placeholder="placeholder"
       :required="required"
     />
@@ -178,7 +200,7 @@ export default {
       autocomplete="new-password"
       :placeholder="placeholder"
       :required="passwordRequired"
-      :data-qa-selector="`${fieldId}_field`"
+      :data-testid="`${fieldId}-field`"
     />
     <gl-form-input
       v-else
@@ -187,7 +209,7 @@ export default {
       :type="type"
       :placeholder="placeholder"
       :required="required"
-      :data-qa-selector="`${fieldId}_field`"
+      :data-testid="`${fieldId}-field`"
     />
   </gl-form-group>
 </template>

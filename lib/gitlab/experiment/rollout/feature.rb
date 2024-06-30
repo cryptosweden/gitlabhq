@@ -13,8 +13,8 @@ module Gitlab
         #   no inclusions, etc.)
         def enabled?
           return false unless feature_flag_defined?
-          return false unless Gitlab.com?
-          return false unless ::Feature.enabled?(:gitlab_experiment, type: :ops, default_enabled: :yaml)
+          return false unless available?
+          return false unless ::Feature.enabled?(:gitlab_experiment, type: :ops)
 
           feature_flag_instance.state != :off
         end
@@ -27,13 +27,11 @@ module Gitlab
         #
         # If the `Feature.enabled?` check is false, we return nil implicitly,
         # which will assign the control. Otherwise we call super, which will
-        # assign a variant evenly, or based on our provided distribution rules.
-        def execute_assigment
-          super if ::Feature.enabled?(feature_flag_name, self, type: :experiment, default_enabled: :yaml)
+        # assign a variant based on our provided distribution rules.
+        # Otherwise we will assign a variant evenly across the behaviours without control.
+        def execute_assignment
+          super if ::Feature.enabled?(feature_flag_name, self, type: :experiment)
         end
-
-        # NOTE: There's a typo in the name of this method that we'll fix up.
-        alias_method :execute_assignment, :execute_assigment
 
         # This is what's provided to the `Feature.enabled?` call that will be
         # used to determine experiment inclusion. An experiment may provide an
@@ -59,8 +57,12 @@ module Gitlab
 
         private
 
+        def available?
+          ApplicationExperiment.available?
+        end
+
         def feature_flag_instance
-          ::Feature.get(feature_flag_name) # rubocop:disable Gitlab/AvoidFeatureGet
+          ::Feature.get(feature_flag_name) # rubocop:disable Gitlab/AvoidFeatureGet -- We are using at a lower layer here in experiment framework
         end
 
         def feature_flag_defined?
@@ -69,6 +71,10 @@ module Gitlab
 
         def feature_flag_name
           experiment.name.tr('/', '_')
+        end
+
+        def behavior_names
+          super - [:control]
         end
       end
     end

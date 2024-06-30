@@ -1,7 +1,14 @@
 import { last } from 'lodash';
 import recentSearchesStorageKeys from 'ee_else_ce/filtered_search/recent_searches_storage_keys';
-import IssuableFilteredSearchTokenKeys from '~/filtered_search/issuable_filtered_search_token_keys';
-import createFlash from '~/flash';
+import { createFilteredSearchTokenKeys } from '~/filtered_search/issuable_filtered_search_token_keys';
+import { createAlert } from '~/alert';
+import {
+  STATUS_ALL,
+  STATUS_CLOSED,
+  STATUS_MERGED,
+  STATUS_OPEN,
+  WORKSPACE_PROJECT,
+} from '~/issues/constants';
 import {
   ENTER_KEY_CODE,
   BACKSPACE_KEY_CODE,
@@ -10,8 +17,12 @@ import {
   DOWN_KEY_CODE,
 } from '~/lib/utils/keycodes';
 import { __ } from '~/locale';
-import { addClassIfElementExists } from '../lib/utils/dom_utils';
-import { visitUrl, getUrlParamsArray, getParameterByName } from '../lib/utils/url_utility';
+import { addClassIfElementExists } from '~/lib/utils/dom_utils';
+import { visitUrl, getUrlParamsArray, getParameterByName } from '~/lib/utils/url_utility';
+import {
+  TOKEN_TYPE_ASSIGNEE,
+  TOKEN_TYPE_AUTHOR,
+} from '~/vue_shared/components/filtered_search_bar/constants';
 import FilteredSearchContainer from './container';
 import DropdownUtils from './dropdown_utils';
 import eventHub from './event_hub';
@@ -29,16 +40,16 @@ export default class FilteredSearchManager {
     isGroupAncestor = true,
     isGroupDecendent = false,
     useDefaultState = false,
-    filteredSearchTokenKeys = IssuableFilteredSearchTokenKeys,
+    filteredSearchTokenKeys = createFilteredSearchTokenKeys(),
     stateFiltersSelector = '.issues-state-filters',
-    placeholder = __('Search or filter results...'),
+    placeholder = __('Search or filter results…'),
     anchor = null,
   }) {
     this.isGroup = isGroup;
     this.isGroupAncestor = isGroupAncestor;
     this.isGroupDecendent = isGroupDecendent;
     this.useDefaultState = useDefaultState;
-    this.states = ['opened', 'closed', 'merged', 'all'];
+    this.states = [STATUS_OPEN, STATUS_CLOSED, STATUS_MERGED, STATUS_ALL];
 
     this.page = page;
     this.container = FilteredSearchContainer.container;
@@ -51,11 +62,8 @@ export default class FilteredSearchManager {
     this.placeholder = placeholder;
     this.anchor = anchor;
 
-    const {
-      multipleAssignees,
-      epicsEndpoint,
-      iterationsEndpoint,
-    } = this.filteredSearchInput.dataset;
+    const { multipleAssignees, epicsEndpoint, iterationsEndpoint } =
+      this.filteredSearchInput.dataset;
 
     if (multipleAssignees && this.filteredSearchTokenKeys.enableMultipleAssignees) {
       this.filteredSearchTokenKeys.enableMultipleAssignees();
@@ -78,7 +86,7 @@ export default class FilteredSearchManager {
     );
     const fullPath = this.searchHistoryDropdownElement
       ? this.searchHistoryDropdownElement.dataset.fullPath
-      : 'project';
+      : WORKSPACE_PROJECT;
     const recentSearchesKey = `${fullPath}-${recentSearchesStorageKeys[this.page]}`;
     this.recentSearchesService = new RecentSearchesService(recentSearchesKey);
   }
@@ -91,7 +99,7 @@ export default class FilteredSearchManager {
       .fetch()
       .catch((error) => {
         if (error.name === 'RecentSearchesServiceError') return undefined;
-        createFlash({
+        createAlert({
           message: __('An error occurred while parsing recent searches'),
         });
         // Gracefully fail to empty array
@@ -114,7 +122,6 @@ export default class FilteredSearchManager {
       this.tokenizer = FilteredSearchTokenizer;
 
       const {
-        runnerTagsEndpoint = '',
         labelsEndpoint = '',
         milestonesEndpoint = '',
         releasesEndpoint = '',
@@ -124,7 +131,6 @@ export default class FilteredSearchManager {
       } = this.filteredSearchInput.dataset;
 
       this.dropdownManager = new FilteredSearchDropdownManager({
-        runnerTagsEndpoint,
         labelsEndpoint,
         milestonesEndpoint,
         releasesEndpoint,
@@ -439,6 +445,7 @@ export default class FilteredSearchManager {
 
   onClearSearch(e) {
     e.preventDefault();
+    this.isHandledAsync = true;
     this.clearSearch();
   }
 
@@ -536,7 +543,8 @@ export default class FilteredSearchManager {
       }
     } else {
       // Keep listening to token until we determine that the user is done typing the token value
-      const valueCompletedRegex = /([~%@]{0,1}".+")|([~%@]{0,1}'.+')|^((?![~%@]')(?![~%@]")(?!')(?!")).*/g;
+      const valueCompletedRegex =
+        /([~%@]{0,1}".+")|([~%@]{0,1}'.+')|^((?![~%@]')(?![~%@]")(?!')(?!")).*/g;
 
       if (searchToken.match(valueCompletedRegex) && input.value[input.value.length - 1] === ' ') {
         const tokenKey = FilteredSearchVisualTokens.getLastTokenPartial();
@@ -583,7 +591,7 @@ export default class FilteredSearchManager {
      * Eg. not[foo]=%bar
      * key = foo; value = %bar
      */
-    const notKeyValueRegex = new RegExp(/not\[(\w+)\]\[?\]?=(.*)/);
+    const notKeyValueRegex = /not\[(\w+)\]\[?\]?=(.*)/;
 
     return params.map((query) => {
       // Check if there are matches for `not` operator
@@ -677,7 +685,7 @@ export default class FilteredSearchManager {
           const id = parseInt(value, 10);
           if (usernameParams[id]) {
             hasFilteredSearch = true;
-            const tokenName = 'assignee';
+            const tokenName = TOKEN_TYPE_ASSIGNEE;
             const canEdit = this.canEdit && this.canEdit(tokenName);
             const operator = FilteredSearchVisualTokens.getOperatorToken(usernameParams[id]);
             const valueToken = FilteredSearchVisualTokens.getValueToken(usernameParams[id]);
@@ -690,7 +698,7 @@ export default class FilteredSearchManager {
           const id = parseInt(value, 10);
           if (usernameParams[id]) {
             hasFilteredSearch = true;
-            const tokenName = 'author';
+            const tokenName = TOKEN_TYPE_AUTHOR;
             const canEdit = this.canEdit && this.canEdit(tokenName);
             const operator = FilteredSearchVisualTokens.getOperatorToken(usernameParams[id]);
             const valueToken = FilteredSearchVisualTokens.getValueToken(usernameParams[id]);
@@ -740,7 +748,7 @@ export default class FilteredSearchManager {
     const { tokens, searchToken } = this.getSearchTokens();
     let currentState = state || getParameterByName('state');
     if (!currentState && this.useDefaultState) {
-      currentState = 'opened';
+      currentState = STATUS_OPEN;
     }
     if (this.states.includes(currentState)) {
       paths.push(`state=${currentState}`);
@@ -816,7 +824,7 @@ export default class FilteredSearchManager {
   getUsernameParams() {
     const usernamesById = {};
     try {
-      const attribute = this.filteredSearchInput.getAttribute('data-username-params');
+      const attribute = this.filteredSearchInput.dataset.usernameParams;
       JSON.parse(attribute).forEach((user) => {
         usernamesById[user.id] = user.username;
       });

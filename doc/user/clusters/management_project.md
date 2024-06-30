@@ -1,18 +1,24 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Cluster management project (DEPRECATED) **(FREE)**
+# Cluster management project (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/32810) in GitLab 12.5.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - [Disabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/353410) in GitLab 15.0.
 
 WARNING:
 The cluster management project was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
 To manage cluster applications, use the [GitLab agent](agent/index.md)
 with the [Cluster Management Project Template](management_project_template.md).
+
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../administration/feature_flags.md) named `certificate_based_clusters`.
 
 A project can be designated as the management project for a cluster.
 A management project can be used to run deployment jobs with
@@ -43,7 +49,7 @@ Management projects are restricted to the following:
 To use a cluster management project to manage your cluster:
 
 1. Create a new project to serve as the cluster management project
-for your cluster.
+   for your cluster.
 1. [Associate the cluster with the management project](#associate-the-cluster-management-project-with-the-cluster).
 1. [Configure your cluster's pipelines](#configuring-your-pipeline).
 1. [Set the environment scope](#setting-the-environment-scope).
@@ -52,20 +58,22 @@ for your cluster.
 
 To associate a cluster management project with your cluster:
 
-1. Navigate to the appropriate configuration page. For a:
+1. Go to the appropriate configuration page. For a:
    - [Project-level cluster](../project/clusters/index.md), go to your project's
-     **Infrastructure > Kubernetes clusters** page.
+     **Operate > Kubernetes clusters** page.
    - [Group-level cluster](../group/clusters/index.md), go to your group's **Kubernetes**
      page.
-   - [Instance-level cluster](../instance/clusters/index.md), on the top bar, select **Menu > Admin > Kubernetes**.
+   - [Instance-level cluster](../instance/clusters/index.md):
+     1. On the left sidebar, at the bottom, select **Admin Area**.
+     1. Select **Kubernetes**.
 1. Expand **Advanced settings**.
-1. From the **Cluster management project** dropdown, select the cluster management project
-you created in the previous step.
+1. From the **Cluster management project** dropdown list, select the cluster management project
+   you created in the previous step.
 
 ### Configuring your pipeline
 
 After designating a project as the management project for the cluster,
-write a [`.gitlab-ci.yml`](../../ci/yaml/index.md) in that project. For example:
+add a `.gitlab-ci.yml` file in that project. For example:
 
 ```yaml
 configure cluster:
@@ -77,8 +85,7 @@ configure cluster:
 
 ### Setting the environment scope
 
-[Environment
-scopes](../project/clusters/multiple_kubernetes_clusters.md#setting-the-environment-scope)
+[Environment scopes](../project/clusters/multiple_kubernetes_clusters.md#setting-the-environment-scope)
 are usable when associating multiple clusters to the same management
 project.
 
@@ -93,9 +100,8 @@ to a management project:
 | Staging     | `staging`         |
 | Production  | `production`      |
 
-The following environments set in
-[`.gitlab-ci.yml`](../../ci/yaml/index.md) deploy to the
-Development, Staging, and Production cluster respectively.
+The environments set in the `.gitlab-ci.yml` file deploy to the
+Development, Staging, and Production cluster.
 
 ```yaml
 stages:

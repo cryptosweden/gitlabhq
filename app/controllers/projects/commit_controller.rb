@@ -12,26 +12,30 @@ class Projects::CommitController < Projects::ApplicationController
 
   # Authorize
   before_action :require_non_empty_project
-  before_action :authorize_download_code!
+  before_action :authorize_read_code!
   before_action :authorize_read_pipeline!, only: [:pipelines]
   before_action :commit
-  before_action :define_commit_vars, only: [:show, :diff_for_path, :diff_files, :pipelines, :merge_requests]
-  before_action :define_commit_box_vars, only: [:show, :pipelines]
+  before_action :define_commit_vars, only: [:show, :diff_for_path, :diff_files, :pipelines, :merge_requests, :rapid_diffs]
+  before_action :define_commit_box_vars, only: [:show, :pipelines, :rapid_diffs]
   before_action :define_note_vars, only: [:show, :diff_for_path, :diff_files]
   before_action :authorize_edit_tree!, only: [:revert, :cherry_pick]
+  before_action do
+    push_frontend_feature_flag(:ci_graphql_pipeline_mini_graph, @project)
+  end
 
   BRANCH_SEARCH_LIMIT = 1000
   COMMIT_DIFFS_PER_PAGE = 20
 
   feature_category :source_code_management
-  urgency :low, [:pipelines, :merge_requests, :show]
+  urgency :low, [:pipelines, :merge_requests, :show, :rapid_diffs]
 
   def show
     apply_diff_view_cookie!
 
     respond_to do |format|
       format.html do
-        render
+        @ref = params[:id]
+        render locals: { pagination_params: params.permit(:page) }
       end
       format.diff do
         send_git_diff(@project.repository, @commit.diff_refs)
@@ -47,7 +51,11 @@ class Projects::CommitController < Projects::ApplicationController
   end
 
   def diff_files
-    render template: 'projects/commit/diff_files', layout: false, locals: { diffs: @diffs, environment: @environment }
+    respond_to do |format|
+      format.html do
+        render template: 'projects/commit/diff_files', layout: false, locals: { diffs: @diffs, environment: @environment }
+      end
+    end
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
@@ -86,7 +94,7 @@ class Projects::CommitController < Projects::ApplicationController
 
     respond_to do |format|
       format.json do
-        render json: @merge_requests.to_json
+        render json: Gitlab::Json.dump(@merge_requests)
       end
     end
   end
@@ -114,8 +122,12 @@ class Projects::CommitController < Projects::ApplicationController
 
     @branch_name = create_new_branch? ? @commit.revert_branch_name : @start_branch
 
-    create_commit(Commits::RevertService, success_notice: "The #{@commit.change_type_title(current_user)} has been successfully reverted.",
-                                          success_path: -> { successful_change_path(@project) }, failure_path: failed_change_path)
+    create_commit(
+      Commits::RevertService,
+      success_notice: "The #{@commit.change_type_title(current_user)} has been successfully reverted.",
+      success_path: -> { successful_change_path(@project) },
+      failure_path: failed_change_path
+    )
   end
 
   def cherry_pick
@@ -130,10 +142,19 @@ class Projects::CommitController < Projects::ApplicationController
 
     @branch_name = create_new_branch? ? @commit.cherry_pick_branch_name : @start_branch
 
-    create_commit(Commits::CherryPickService, success_notice: "The #{@commit.change_type_title(current_user)} has been successfully cherry-picked into #{@branch_name}.",
-                                              success_path: -> { successful_change_path(target_project) },
-                                              failure_path: failed_change_path,
-                                              target_project: target_project)
+    create_commit(
+      Commits::CherryPickService,
+      success_notice: "The #{@commit.change_type_title(current_user)} has been successfully cherry-picked into #{@branch_name}.",
+      success_path: -> { successful_change_path(target_project) },
+      failure_path: failed_change_path,
+      target_project: target_project
+    )
+  end
+
+  def rapid_diffs
+    return render_404 unless ::Feature.enabled?(:rapid_diffs, current_user, type: :wip)
+
+    show
   end
 
   private
@@ -171,7 +192,6 @@ class Projects::CommitController < Projects::ApplicationController
     opts[:use_extra_viewer_as_main] = false
 
     @diffs = commit.diffs(opts)
-    @notes_count = commit.notes.count
 
     @environment = ::Environments::EnvironmentsByDeploymentsFinder.new(@project, current_user, commit: @commit, find_latest: true).execute.last
   end
@@ -207,7 +227,7 @@ class Projects::CommitController < Projects::ApplicationController
     end
 
     @notes = (@grouped_diff_discussions.values.flatten + @discussions).flat_map(&:notes)
-    @notes = prepare_notes_for_rendering(@notes, @commit)
+    @notes = prepare_notes_for_rendering(@notes)
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
@@ -231,5 +251,14 @@ class Projects::CommitController < Projects::ApplicationController
       .new(current_user: current_user, source_project: @project, project_feature: :repository)
       .execute
       .find_by_id(params[:target_project_id])
+  end
+
+  def append_info_to_payload(payload)
+    super
+
+    return unless action_name == 'show' && @diffs.present?
+
+    payload[:metadata] ||= {}
+    payload[:metadata]['meta.diffs_files_count'] = @diffs.size
   end
 end

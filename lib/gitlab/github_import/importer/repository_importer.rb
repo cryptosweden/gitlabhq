@@ -17,7 +17,7 @@ module Gitlab
         # Returns true if we should import the wiki for the project.
         # rubocop: disable CodeReuse/ActiveRecord
         def import_wiki?
-          client_repository&.has_wiki &&
+          client_repository[:has_wiki] &&
             !project.wiki_repository_exists? &&
             Gitlab::GitalyClient::RemoteService.exists?(wiki_url)
         end
@@ -54,6 +54,8 @@ module Gitlab
 
           project.change_head(default_branch) if default_branch
 
+          validate_repository_size!
+
           # The initial fetch can bring in lots of loose refs and objects.
           # Running a `git gc` will make importing pull requests faster.
           Repositories::HousekeepingService.new(project, :gc).execute
@@ -66,13 +68,10 @@ module Gitlab
 
           true
         rescue ::Gitlab::Git::CommandError => e
-          if e.message !~ /repository not exported/
-            project.create_wiki
+          return true if e.message.include?('repository not exported')
 
-            raise e
-          else
-            true
-          end
+          project.create_wiki
+          raise e
         end
 
         def wiki_url
@@ -80,21 +79,25 @@ module Gitlab
         end
 
         def update_clone_time
-          project.touch(:last_repository_updated_at) # rubocop: disable Rails/SkipsModelValidations
+          project.touch(:last_repository_updated_at)
         end
 
         private
 
         def default_branch
-          client_repository&.default_branch
+          client_repository[:default_branch]
         end
 
-        def client_repository
-          strong_memoize(:client_repository) do
-            client.repository(project.import_source)
-          end
+        strong_memoize_attr def client_repository
+          client.repository(project.import_source)
+        end
+
+        def validate_repository_size!
+          # Defined in EE
         end
       end
     end
   end
 end
+
+Gitlab::GithubImport::Importer::RepositoryImporter.prepend_mod

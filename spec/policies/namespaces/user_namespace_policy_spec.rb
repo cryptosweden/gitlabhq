@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Namespaces::UserNamespacePolicy do
+RSpec.describe Namespaces::UserNamespacePolicy, feature_category: :groups_and_projects do
   let_it_be(:user) { create(:user) }
   let_it_be(:owner) { create(:user) }
   let_it_be(:admin) { create(:admin) }
   let_it_be(:namespace) { create(:user_namespace, owner: owner) }
 
-  let(:owner_permissions) { [:owner_access, :create_projects, :admin_namespace, :read_namespace, :read_statistics, :transfer_projects, :create_package_settings, :read_package_settings] }
+  let(:owner_permissions) { [:owner_access, :create_projects, :admin_runner, :admin_namespace, :read_namespace, :read_namespace_via_membership, :read_statistics, :transfer_projects, :admin_package, :read_billing, :edit_billing, :import_projects] }
 
   subject { described_class.new(current_user, namespace) }
 
@@ -34,6 +34,15 @@ RSpec.describe Namespaces::UserNamespacePolicy do
 
       it { is_expected.to be_disallowed(:create_projects) }
       it { is_expected.to be_disallowed(:transfer_projects) }
+      it { is_expected.to be_disallowed(:import_projects) }
+    end
+
+    context 'bot user' do
+      let(:owner) { create(:user, :project_bot) }
+
+      it { is_expected.to be_disallowed(:create_projects) }
+      it { is_expected.to be_disallowed(:transfer_projects) }
+      it { is_expected.to be_disallowed(:import_projects) }
     end
   end
 
@@ -49,7 +58,7 @@ RSpec.describe Namespaces::UserNamespacePolicy do
     end
   end
 
-  describe 'create_jira_connect_subscription' do
+  describe 'create_jira_connect_subscription', feature_category: :integrations do
     context 'admin' do
       let(:current_user) { build_stubbed(:admin) }
 
@@ -94,6 +103,28 @@ RSpec.describe Namespaces::UserNamespacePolicy do
       end
 
       it { is_expected.to be_disallowed(:create_projects) }
+    end
+  end
+
+  describe 'import projects', feature_category: :importers do
+    context 'when user can import projects' do
+      let(:current_user) { owner }
+
+      before do
+        allow(current_user).to receive(:can_import_project?).and_return(true)
+      end
+
+      it { is_expected.to be_allowed(:import_projects) }
+    end
+
+    context 'when user cannot create projects' do
+      let(:current_user) { user }
+
+      before do
+        allow(current_user).to receive(:can_import_project?).and_return(false)
+      end
+
+      it { is_expected.to be_disallowed(:import_projects) }
     end
   end
 end

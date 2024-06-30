@@ -3,11 +3,12 @@
 require 'spec_helper'
 
 RSpec.describe CommitSignatures::X509CommitSignature do
-  let(:commit_sha) { '189a6c924013fc3fe40d6f1ec1dc20214183bc97' }
-  let(:project) { create(:project, :public, :repository) }
-  let!(:commit) { create(:commit, project: project, sha: commit_sha) }
-  let(:x509_certificate) { create(:x509_certificate) }
-  let(:x509_signature) { create(:x509_commit_signature, commit_sha: commit_sha) }
+  # This commit is seeded from https://gitlab.com/gitlab-org/gitlab-test
+  # For instructions on how to add more seed data, see the project README
+  let_it_be(:commit_sha) { '189a6c924013fc3fe40d6f1ec1dc20214183bc97' }
+  let_it_be(:project) { create(:project, :public, :repository) }
+  let_it_be(:commit) { create(:commit, project: project, sha: commit_sha) }
+  let_it_be(:x509_certificate) { create(:x509_certificate) }
 
   let(:attributes) do
     {
@@ -18,37 +19,18 @@ RSpec.describe CommitSignatures::X509CommitSignature do
     }
   end
 
+  let(:signature) { create(:x509_commit_signature, commit_sha: commit_sha, x509_certificate: x509_certificate) }
+
   it_behaves_like 'having unique enum values'
+  it_behaves_like 'commit signature'
+  it_behaves_like 'signature with type checking', :x509
 
   describe 'validation' do
-    it { is_expected.to validate_presence_of(:commit_sha) }
-    it { is_expected.to validate_presence_of(:project_id) }
     it { is_expected.to validate_presence_of(:x509_certificate_id) }
   end
 
   describe 'associations' do
-    it { is_expected.to belong_to(:project).required }
     it { is_expected.to belong_to(:x509_certificate).required }
-  end
-
-  describe '.safe_create!' do
-    it 'finds a signature by commit sha if it existed' do
-      x509_signature
-
-      expect(described_class.safe_create!(commit_sha: commit_sha)).to eq(x509_signature)
-    end
-
-    it 'creates a new signature if it was not found' do
-      expect { described_class.safe_create!(attributes) }.to change { described_class.count }.by(1)
-    end
-
-    it 'assigns the correct attributes when creating' do
-      signature = described_class.safe_create!(attributes)
-
-      expect(signature.project).to eq(project)
-      expect(signature.commit_sha).to eq(commit_sha)
-      expect(signature.x509_certificate_id).to eq(x509_certificate.id)
-    end
   end
 
   describe '#user' do
@@ -56,12 +38,12 @@ RSpec.describe CommitSignatures::X509CommitSignature do
       let!(:user) { create(:user, email: X509Helpers::User1.certificate_email) }
 
       it 'returns user' do
-        expect(described_class.safe_create!(attributes).user).to eq(user)
+        expect(described_class.safe_create!(attributes).signed_by_user).to eq(user)
       end
     end
 
     it 'if email is not assigned to a user, return nil' do
-      expect(described_class.safe_create!(attributes).user).to be_nil
+      expect(described_class.safe_create!(attributes).signed_by_user).to be_nil
     end
   end
 end

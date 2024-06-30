@@ -1,6 +1,8 @@
+import { GlButton, GlIcon } from '@gitlab/ui';
 import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
-import Cookies from 'js-cookie';
 import { nextTick } from 'vue';
+import Cookies from '~/lib/utils/cookies';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 
 import IssuableSidebarRoot from '~/vue_shared/issuable/sidebar/components/issuable_sidebar_root.vue';
@@ -9,13 +11,17 @@ import { USER_COLLAPSED_GUTTER_COOKIE } from '~/vue_shared/issuable/sidebar/cons
 const MOCK_LAYOUT_PAGE_CLASS = 'layout-page';
 
 const createComponent = () => {
-  setFixtures(`<div class="${MOCK_LAYOUT_PAGE_CLASS}"></div>`);
+  setHTMLFixture(`<div class="${MOCK_LAYOUT_PAGE_CLASS}"></div>`);
 
   return shallowMountExtended(IssuableSidebarRoot, {
     slots: {
       'right-sidebar-items': `
         <button class="js-todo">Todo</button>
       `,
+    },
+    stubs: {
+      GlButton,
+      GlIcon,
     },
   });
 };
@@ -37,7 +43,7 @@ describe('IssuableSidebarRoot', () => {
   };
 
   afterEach(() => {
-    wrapper.destroy();
+    resetHTMLFixture();
   });
 
   describe('when sidebar is expanded', () => {
@@ -61,9 +67,8 @@ describe('IssuableSidebarRoot', () => {
       const buttonEl = findToggleSidebarButton();
 
       expect(buttonEl.exists()).toBe(true);
-      expect(buttonEl.attributes('title')).toBe('Toggle sidebar');
-      expect(buttonEl.find('span').text()).toBe('Collapse sidebar');
-      expect(wrapper.findByTestId('icon-collapse').isVisible()).toBe(true);
+      expect(buttonEl.attributes('title')).toBe('Collapse sidebar');
+      expect(wrapper.findByTestId('chevron-double-lg-right-icon').isVisible()).toBe(true);
     });
 
     describe('when collapsing the sidebar', () => {
@@ -115,12 +120,12 @@ describe('IssuableSidebarRoot', () => {
       assertPageLayoutClasses({ isExpanded: false });
     });
 
-    it('renders sidebar toggle button with text and icon', () => {
+    it('renders sidebar toggle button with title and icon', () => {
       const buttonEl = findToggleSidebarButton();
 
       expect(buttonEl.exists()).toBe(true);
-      expect(buttonEl.attributes('title')).toBe('Toggle sidebar');
-      expect(wrapper.findByTestId('icon-expand').isVisible()).toBe(true);
+      expect(buttonEl.attributes('title')).toBe('Expand sidebar');
+      expect(wrapper.findByTestId('chevron-double-lg-left-icon').isVisible()).toBe(true);
     });
   });
 

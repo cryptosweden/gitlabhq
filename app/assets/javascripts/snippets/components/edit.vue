@@ -1,9 +1,10 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlButton, GlLoadingIcon } from '@gitlab/ui';
+import { GlButton, GlLoadingIcon, GlFormInput, GlFormGroup } from '@gitlab/ui';
 
 import eventHub from '~/blob/components/eventhub';
-import createFlash from '~/flash';
-import { redirectTo, joinPaths } from '~/lib/utils/url_utility';
+import { createAlert } from '~/alert';
+import { visitUrl, joinPaths } from '~/lib/utils/url_utility';
 import { __, sprintf } from '~/locale';
 import {
   SNIPPET_MARK_EDIT_APP_START,
@@ -11,12 +12,11 @@ import {
 } from '~/performance/constants';
 import { performanceMarkAndMeasure } from '~/performance/utils';
 import FormFooterActions from '~/vue_shared/components/form/form_footer_actions.vue';
-import TitleField from '~/vue_shared/components/form/title.vue';
 
 import { SNIPPET_CREATE_MUTATION_ERROR, SNIPPET_UPDATE_MUTATION_ERROR } from '../constants';
 import { getSnippetMixin } from '../mixins/snippets';
-import CreateSnippetMutation from '../mutations/createSnippet.mutation.graphql';
-import UpdateSnippetMutation from '../mutations/updateSnippet.mutation.graphql';
+import CreateSnippetMutation from '../mutations/create_snippet.mutation.graphql';
+import UpdateSnippetMutation from '../mutations/update_snippet.mutation.graphql';
 import { markBlobPerformance } from '../utils/blob';
 import { getErrorMessage } from '../utils/error';
 
@@ -31,10 +31,11 @@ export default {
     SnippetDescriptionEdit,
     SnippetVisibilityEdit,
     SnippetBlobActionsEdit,
-    TitleField,
     FormFooterActions,
     GlButton,
     GlLoadingIcon,
+    GlFormInput,
+    GlFormGroup,
   },
   mixins: [getSnippetMixin],
   inject: ['selectedLevel'],
@@ -67,6 +68,7 @@ export default {
         description: '',
         visibilityLevel: this.selectedLevel,
       },
+      showValidation: false,
     };
   },
   computed: {
@@ -85,8 +87,11 @@ export default {
     hasValidBlobs() {
       return this.actions.every((x) => x.content);
     },
-    updatePrevented() {
-      return this.snippet.title === '' || !this.hasValidBlobs || this.isUpdating;
+    isTitleValid() {
+      return this.snippet.title !== '';
+    },
+    isFormValid() {
+      return this.isTitleValid && this.hasValidBlobs;
     },
     isProjectSnippet() {
       return Boolean(this.projectPath);
@@ -112,6 +117,12 @@ export default {
       }
       return this.snippet.webUrl;
     },
+    shouldShowBlobsErrors() {
+      return this.showValidation && !this.hasValidBlobs;
+    },
+    shouldShowTitleErrors() {
+      return this.showValidation && !this.isTitleValid;
+    },
   },
   beforeCreate() {
     performanceMarkAndMeasure({ mark: SNIPPET_MARK_EDIT_APP_START });
@@ -131,11 +142,11 @@ export default {
       Object.assign(e, { returnValue });
       return returnValue;
     },
-    flashAPIFailure(err) {
+    alertAPIFailure(err) {
       const defaultErrorMsg = this.newSnippet
         ? SNIPPET_CREATE_MUTATION_ERROR
         : SNIPPET_UPDATE_MUTATION_ERROR;
-      createFlash({
+      createAlert({
         message: sprintf(defaultErrorMsg, { err }),
       });
       this.isUpdating = false;
@@ -165,6 +176,12 @@ export default {
       };
     },
     handleFormSubmit() {
+      this.showValidation = true;
+
+      if (!this.isFormValid) {
+        return;
+      }
+
       this.isUpdating = true;
 
       this.$apollo
@@ -174,16 +191,16 @@ export default {
 
           const errors = baseObj?.errors;
           if (errors?.length) {
-            this.flashAPIFailure(errors[0]);
+            this.alertAPIFailure(errors[0]);
           } else {
-            redirectTo(baseObj.snippet.webUrl);
+            visitUrl(baseObj.snippet.webUrl);
           }
         })
         .catch((e) => {
           // eslint-disable-next-line no-console
           console.error('[gitlab] unexpected error while updating snippet', e);
 
-          this.flashAPIFailure(getErrorMessage(e));
+          this.alertAPIFailure(getErrorMessage(e));
         });
     },
     updateActions(actions) {
@@ -206,19 +223,30 @@ export default {
       class="loading-animation prepend-top-20 gl-mb-6"
     />
     <template v-else>
-      <title-field
-        id="snippet-title"
-        v-model="snippet.title"
-        data-qa-selector="snippet_title_field"
-        required
-        :autofocus="true"
-      />
+      <gl-form-group
+        :label="__('Title')"
+        label-for="snippet-title"
+        :invalid-feedback="__('This field is required.')"
+        :state="!shouldShowTitleErrors"
+      >
+        <gl-form-input
+          id="snippet-title"
+          v-model="snippet.title"
+          data-testid="snippet-title-input-field"
+          :autofocus="true"
+        />
+      </gl-form-group>
+
       <snippet-description-edit
         v-model="snippet.description"
         :markdown-preview-path="markdownPreviewPath"
         :markdown-docs-path="markdownDocsPath"
       />
-      <snippet-blob-actions-edit :init-blobs="blobs" @actions="updateActions" />
+      <snippet-blob-actions-edit
+        :init-blobs="blobs"
+        :is-valid="!shouldShowBlobsErrors"
+        @actions="updateActions"
+      />
 
       <snippet-visibility-edit
         v-model="snippet.visibilityLevel"
@@ -228,19 +256,19 @@ export default {
       <form-footer-actions>
         <template #prepend>
           <gl-button
+            class="js-no-auto-disable gl-mr-2"
             category="primary"
             type="submit"
             variant="confirm"
-            :disabled="updatePrevented"
-            data-qa-selector="submit_button"
-            data-testid="snippet-submit-btn"
+            data-testid="submit-button"
+            :disabled="isUpdating"
             >{{ saveButtonLabel }}</gl-button
           >
         </template>
         <template #append>
-          <gl-button type="cancel" data-testid="snippet-cancel-btn" :href="cancelButtonHref">{{
-            __('Cancel')
-          }}</gl-button>
+          <gl-button type="cancel" data-testid="snippet-cancel-btn" :href="cancelButtonHref">
+            {{ __('Cancel') }}
+          </gl-button>
         </template>
       </form-footer-actions>
     </template>

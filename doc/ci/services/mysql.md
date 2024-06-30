@@ -1,11 +1,14 @@
 ---
 stage: Verify
 group: Runner
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Using MySQL **(FREE)**
+# Using MySQL
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Many applications depend on MySQL as their database, and you may
 need it for your tests to run.
@@ -18,7 +21,7 @@ This example shows you how to set a username and password that GitLab uses to ac
 
 NOTE:
 Variables set in the GitLab UI are not passed down to the service containers.
-[Learn more](../variables/index.md).
+For more information, see [GitLab CI/CD variables](../variables/index.md).
 
 1. To specify a MySQL image, add the following to your `.gitlab-ci.yml` file:
 
@@ -128,5 +131,5 @@ GitLab Runner with the Shell executor.
 ## Example project
 
 To view a MySQL example, create a fork of this [sample project](https://gitlab.com/gitlab-examples/mysql).
-This project uses publicly-available [shared runners](../runners/index.md) on [GitLab.com](https://gitlab.com).
+This project uses publicly-available [instance runners](../runners/index.md) on [GitLab.com](https://gitlab.com).
 Update the README.md file, commit your changes, and view the CI/CD pipeline to see it in action.

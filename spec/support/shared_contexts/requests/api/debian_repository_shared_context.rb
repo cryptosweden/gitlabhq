@@ -18,6 +18,11 @@ RSpec.shared_context 'Debian repository shared context' do |container_type, can_
   let_it_be(:private_architecture_all, freeze: true) { create("debian_#{container_type}_architecture", distribution: private_distribution, name: 'all') }
   let_it_be(:private_architecture, freeze: true) { create("debian_#{container_type}_architecture", distribution: private_distribution, name: 'existing-arch') }
   let_it_be(:private_component_file) { create("debian_#{container_type}_component_file", component: private_component, architecture: private_architecture) }
+  let_it_be(:private_component_file_sources) { create("debian_#{container_type}_component_file", :sources, component: private_component) }
+  let_it_be(:private_component_file_di) { create("debian_#{container_type}_component_file", :di_packages, component: private_component, architecture: private_architecture) }
+  let_it_be(:private_component_file_older_sha256) { create("debian_#{container_type}_component_file", :older_sha256, component: private_component, architecture: private_architecture) }
+  let_it_be(:private_component_file_sources_older_sha256) { create("debian_#{container_type}_component_file", :sources, :older_sha256, component: private_component) }
+  let_it_be(:private_component_file_di_older_sha256) { create("debian_#{container_type}_component_file", :di_packages, :older_sha256, component: private_component, architecture: private_architecture) }
 
   let_it_be(:public_distribution, freeze: true) { create("debian_#{container_type}_distribution", :with_file, container: public_container, codename: 'existing-codename') }
   let_it_be(:public_distribution_key, freeze: true) { create("debian_#{container_type}_distribution_key", distribution: public_distribution) }
@@ -25,6 +30,11 @@ RSpec.shared_context 'Debian repository shared context' do |container_type, can_
   let_it_be(:public_architecture_all, freeze: true) { create("debian_#{container_type}_architecture", distribution: public_distribution, name: 'all') }
   let_it_be(:public_architecture, freeze: true) { create("debian_#{container_type}_architecture", distribution: public_distribution, name: 'existing-arch') }
   let_it_be(:public_component_file) { create("debian_#{container_type}_component_file", component: public_component, architecture: public_architecture) }
+  let_it_be(:public_component_file_sources) { create("debian_#{container_type}_component_file", :sources, component: public_component) }
+  let_it_be(:public_component_file_di) { create("debian_#{container_type}_component_file", :di_packages, component: public_component, architecture: public_architecture) }
+  let_it_be(:public_component_file_older_sha256) { create("debian_#{container_type}_component_file", :older_sha256, component: public_component, architecture: public_architecture) }
+  let_it_be(:public_component_file_sources_older_sha256) { create("debian_#{container_type}_component_file", :sources, :older_sha256, component: public_component) }
+  let_it_be(:public_component_file_di_older_sha256) { create("debian_#{container_type}_component_file", :di_packages, :older_sha256, component: public_component, architecture: public_architecture) }
 
   if container_type == :group
     let_it_be(:private_project) { create(:project, :private, group: private_container) }
@@ -40,8 +50,8 @@ RSpec.shared_context 'Debian repository shared context' do |container_type, can_
     let_it_be(:public_project_distribution) { public_distribution }
   end
 
-  let_it_be(:private_package) { create(:debian_package, project: private_project, published_in: private_project_distribution) }
-  let_it_be(:public_package) { create(:debian_package, project: public_project, published_in: public_project_distribution) }
+  let_it_be(:private_package) { create(:debian_package, project: private_project, published_in: private_project_distribution, with_changes_file: true) }
+  let_it_be(:public_package) { create(:debian_package, project: public_project, published_in: public_project_distribution, with_changes_file: true) }
 
   let(:visibility_level) { :public }
 
@@ -49,6 +59,11 @@ RSpec.shared_context 'Debian repository shared context' do |container_type, can_
   let(:architecture) { { private: private_architecture, public: public_architecture }[visibility_level] }
   let(:component) { { private: private_component, public: public_component }[visibility_level] }
   let(:component_file) { { private: private_component_file, public: public_component_file }[visibility_level] }
+  let(:component_file_sources) { { private: private_component_file_sources, public: public_component_file_sources }[visibility_level] }
+  let(:component_file_di) { { private: private_component_file_di, public: public_component_file_di }[visibility_level] }
+  let(:component_file_older_sha256) { { private: private_component_file_older_sha256, public: public_component_file_older_sha256 }[visibility_level] }
+  let(:component_file_sources_older_sha256) { { private: private_component_file_sources_older_sha256, public: public_component_file_sources_older_sha256 }[visibility_level] }
+  let(:component_file_di_older_sha256) { { private: private_component_file_di_older_sha256, public: public_component_file_di_older_sha256 }[visibility_level] }
   let(:package) { { private: private_package, public: public_package }[visibility_level] }
   let(:letter) { package.name[0..2] == 'lib' ? package.name[0..3] : package.name[0] }
 
@@ -63,7 +78,8 @@ RSpec.shared_context 'Debian repository shared context' do |container_type, can_
     end
   end
 
-  let(:api_params) { workhorse_params }
+  let(:extra_params) { {} }
+  let(:api_params) { workhorse_params.merge(extra_params) }
 
   let(:auth_headers) { {} }
   let(:wh_headers) do

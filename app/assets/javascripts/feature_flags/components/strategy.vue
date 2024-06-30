@@ -1,7 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlAlert, GlButton, GlFormSelect, GlFormGroup, GlIcon, GlLink, GlToken } from '@gitlab/ui';
 import { isNumber } from 'lodash';
-import Vue from 'vue';
 import { s__, __ } from '~/locale';
 import {
   EMPTY_PARAMETERS,
@@ -113,7 +113,8 @@ export default {
     },
     removeScope(environment) {
       if (isNumber(environment.id)) {
-        Vue.set(environment, 'shouldBeDestroyed', true);
+        // eslint-disable-next-line no-param-reassign
+        environment.shouldBeDestroyed = true;
       } else {
         this.environments = this.environments.filter((e) => e !== environment);
       }
@@ -138,7 +139,7 @@ export default {
             <template #description>
               {{ $options.i18n.strategyTypeDescription }}
               <gl-link :href="strategyTypeDocsPagePath" target="_blank">
-                <gl-icon name="question" />
+                <gl-icon name="question-o" />
               </gl-link>
             </template>
             <gl-form-select
@@ -171,12 +172,12 @@ export default {
         </div>
       </div>
 
-      <label class="gl-display-block" :for="environmentsDropdownId">{{
+      <label class="gl-block" :for="environmentsDropdownId">{{
         $options.i18n.environmentsLabel
       }}</label>
       <div class="gl-display-flex gl-flex-direction-column">
         <div
-          class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row align-items-start gl-md-align-items-center"
+          class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row gl-md-align-items-center"
         >
           <new-environments-dropdown
             :id="environmentsDropdownId"
@@ -202,7 +203,7 @@ export default {
         {{ $options.i18n.environmentsSelectDescription }}
       </span>
       <gl-link :href="environmentsScopeDocsPath" target="_blank">
-        <gl-icon name="question" />
+        <gl-icon name="question-o" />
       </gl-link>
     </div>
   </div>

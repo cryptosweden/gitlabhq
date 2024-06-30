@@ -1,13 +1,13 @@
 # frozen_string_literal: true
-require 'fast_spec_helper'
+require 'spec_helper'
 require 'rack'
 require 'request_store'
-require_relative '../../../support/helpers/next_instance_of'
+require 'gitlab/rspec/next_instance_of'
 
-RSpec.describe Gitlab::Middleware::RequestContext do
+RSpec.describe Gitlab::Middleware::RequestContext, feature_category: :application_instrumentation do
   include NextInstanceOf
 
-  let(:app) { -> (env) {} }
+  let(:app) { ->(env) {} }
   let(:env) { {} }
 
   around do |example|
@@ -54,6 +54,10 @@ RSpec.describe Gitlab::Middleware::RequestContext do
 
         it 'sets the `request_start_time`' do
           expect { subject }.to change { instance.request_start_time }.from(nil).to(Float)
+        end
+
+        it 'sets the `spam_params`' do
+          expect { subject }.to change { instance.spam_params }.from(nil).to(::Spam::SpamParams)
         end
       end
     end

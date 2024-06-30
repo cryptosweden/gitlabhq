@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe "Internal Project Access" do
+RSpec.describe "Internal Project Access", feature_category: :system_access do
   include AccessMatchers
 
-  let_it_be(:project, reload: true) { create(:project, :internal, :repository) }
+  let_it_be(:project, reload: true) { create(:project, :internal, :repository, :with_namespace_settings) }
 
   describe "Project should be internal" do
     describe '#internal?' do
@@ -555,6 +555,7 @@ RSpec.describe "Internal Project Access" do
       stub_container_registry_config(enabled: true)
       stub_container_registry_info
       project.container_repositories << container_repository
+      allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
     end
 
     subject { project_container_registry_index_path(project) }

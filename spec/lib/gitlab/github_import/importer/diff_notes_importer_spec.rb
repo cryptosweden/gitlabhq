@@ -2,19 +2,18 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Importer::DiffNotesImporter do
-  let(:project) { double(:project, id: 4, import_source: 'foo/bar') }
-  let(:client) { double(:client) }
+RSpec.describe Gitlab::GithubImport::Importer::DiffNotesImporter, feature_category: :importers do
+  let(:project) { build(:project, id: 4, import_source: 'foo/bar') }
+  let(:client) { instance_double(Gitlab::GithubImport::Client) }
 
   let(:github_comment) do
-    double(
-      :response,
+    {
       html_url: 'https://github.com/foo/bar/pull/42',
       path: 'README.md',
       commit_id: '123abc',
       original_commit_id: 'original123abc',
       diff_hunk: "@@ -1 +1 @@\n-Hello\n+Hello world",
-      user: double(:user, id: 4, login: 'alice'),
+      user: { id: 4, login: 'alice' },
       created_at: Time.zone.now,
       updated_at: Time.zone.now,
       line: 23,
@@ -29,7 +28,7 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNotesImporter do
         sug1
         ```
       BODY
-    )
+    }
   end
 
   describe '#parallel?' do
@@ -90,7 +89,7 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNotesImporter do
     end
   end
 
-  describe '#parallel_import' do
+  describe '#parallel_import', :clean_gitlab_redis_shared_state do
     it 'imports each diff note in parallel' do
       importer = described_class.new(project, client)
 
@@ -98,9 +97,8 @@ RSpec.describe Gitlab::GithubImport::Importer::DiffNotesImporter do
         .to receive(:each_object_to_import)
         .and_yield(github_comment)
 
-      expect(Gitlab::GithubImport::ImportDiffNoteWorker)
-        .to receive(:perform_async)
-        .with(project.id, an_instance_of(Hash), an_instance_of(String))
+      expect(Gitlab::GithubImport::ImportDiffNoteWorker).to receive(:perform_in)
+        .with(an_instance_of(Float), project.id, an_instance_of(Hash), an_instance_of(String))
 
       waiter = importer.parallel_import
 

@@ -5,40 +5,86 @@ module Gitlab
     module Group
       module Settings
         class UsageQuotas < Chemlab::Page
-          link :pipeline_tab, id: 'pipelines-quota'
-          link :storage_tab, id: 'storage-quota'
-          link :buy_ci_minutes, text: 'Buy additional minutes'
-          link :buy_storage, text: /Purchase more storage/
-          div :plan_ci_minutes
-          div :additional_ci_minutes
-          span :purchased_usage_total
-          div :ci_purchase_successful_alert, text: /You have successfully purchased CI minutes/
+          # Seats section
+          div :seats_in_use
+          p :seats_used
+          p :seats_owed
+          table :subscription_users
+
+          # Pipelines section
+          link :pipelines_tab
+          link :buy_compute_minutes
+          div :plan_compute_minutes
+          div :additional_compute_minutes
+          div :ci_purchase_successful_alert, text: /You have successfully purchased compute minutes/
+
+          # Storage section
+          link :storage_tab
+          link :purchase_more_storage
+          div :namespace_usage_total
+          span :group_usage_message
+          span :dependency_proxy_size
+          div :storage_purchased
           div :storage_purchase_successful_alert, text: /You have successfully purchased a storage/
-          h4 :storage_available_alert, text: /purchased storage is available/
+          span :project_repository_size
+          span :project_wiki_size
+          span :project_snippets_size
+          span :project_containers_registry_size
+
+          # Pending members
+          div :pending_members
+          button :approve_member
+          button :confirm_member_approval, text: /^OK$/
 
           def plan_ci_limits
-            plan_ci_minutes_element.span.text[%r{([^/ ]+)$}]
+            plan_compute_minutes[/(\d+){2}/]
           end
 
           def additional_ci_limits
-            additional_ci_minutes_element.span.text[%r{([^/ ]+)$}]
+            additional_compute_minutes[/(\d+){2}/]
           end
 
-          # Waits and Checks if storage available alert presents on the page
-          #
-          # @return [Boolean] True if the alert presents, false if not after 5 second wait
-          def purchased_storage_available?
-            storage_available_alert_element.wait_until(timeout: 5, &:present?)
-          rescue Watir::Wait::TimeoutError
-            false
+          def additional_compute_minutes_added?
+            #  When opening the Usage quotas page, Seats quota tab is opened briefly even when url is to a different tab
+            ::QA::Support::WaitForRequests.wait_for_requests
+            additional_compute_minutes?
           end
 
           # Returns total purchased storage value once it's ready on page
           #
           # @return [Float] Total purchased storage value in GiB
           def total_purchased_storage
-            storage_available_alert_element.wait_until(&:present?)
-            purchased_usage_total.to_f
+            ::QA::Support::WaitForRequests.wait_for_requests
+
+            storage_purchased[/(\d+){2}.\d+/].to_f
+          end
+
+          # Waits for additional compute minutes to be available on the page
+          def wait_for_additional_compute_minutes_available
+            ::QA::Support::Waiter.wait_until(
+              max_duration: ::QA::Support::Helpers::Zuora::ZUORA_TIMEOUT,
+              sleep_interval: 2,
+              reload_page: Chemlab.configuration.browser.session,
+              message: 'Expected additional compute minutes but they did not appear.'
+            ) do
+              additional_compute_minutes_added?
+            end
+          end
+
+          # Waits for additional compute minutes amount to match the expected number of minutes
+          #
+          # @param [String] minutes
+          def wait_for_additional_compute_minute_limits(minutes)
+            wait_for_additional_compute_minutes_available
+
+            ::QA::Support::Waiter.wait_until(
+              max_duration: ::QA::Support::Helpers::Zuora::ZUORA_TIMEOUT,
+              sleep_interval: 2,
+              reload_page: Chemlab.configuration.browser.session,
+              message: "Expected additional compute minutes to equal #{minutes}"
+            ) do
+              additional_ci_limits == minutes
+            end
           end
         end
       end

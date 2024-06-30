@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'query Jira import data' do
+RSpec.describe 'query Jira import data', feature_category: :importers do
   include GraphqlHelpers
 
   let_it_be(:current_user) { create(:user) }
@@ -56,8 +56,8 @@ RSpec.describe 'query Jira import data' do
     )
   end
 
-  let(:jira_imports) { graphql_data.dig('project', 'jiraImports', 'nodes')}
-  let(:jira_import_status) { graphql_data.dig('project', 'jiraImportStatus')}
+  let(:jira_imports) { graphql_data.dig('project', 'jiraImports', 'nodes') }
+  let(:jira_import_status) { graphql_data.dig('project', 'jiraImportStatus') }
 
   context 'when user cannot read Jira import data' do
     before do
@@ -89,14 +89,14 @@ RSpec.describe 'query Jira import data' do
 
     context 'list of jira imports sorted ascending by scheduledAt time' do
       it 'retuns list of jira imports' do
-        jira_proket_keys = jira_imports.map {|ji| ji['jiraProjectKey']}
-        usernames = jira_imports.map {|ji| ji.dig('scheduledBy', 'username')}
-        imported_issues_count = jira_imports.map {|ji| ji.dig('importedIssuesCount')}
-        failed_issues_count = jira_imports.map {|ji| ji.dig('failedToImportCount')}
-        total_issue_count = jira_imports.map {|ji| ji.dig('totalIssueCount')}
+        jira_proket_keys = jira_imports.map { |ji| ji['jiraProjectKey'] }
+        usernames = jira_imports.map { |ji| ji.dig('scheduledBy', 'username') }
+        imported_issues_count = jira_imports.map { |ji| ji.dig('importedIssuesCount') }
+        failed_issues_count = jira_imports.map { |ji| ji.dig('failedToImportCount') }
+        total_issue_count = jira_imports.map { |ji| ji.dig('totalIssueCount') }
 
         expect(jira_imports.size).to eq 2
-        expect(jira_proket_keys).to eq %w(BB AA)
+        expect(jira_proket_keys).to eq %w[BB AA]
         expect(usernames).to eq [current_user.username, current_user.username]
         expect(imported_issues_count).to eq [2, 2]
         expect(failed_issues_count).to eq [1, 2]

@@ -1,33 +1,51 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Webhook events **(FREE)**
+# Webhook events
 
-You can configure a [webhook](webhooks.md) in your project that triggers when
-an event occurs. The following events are supported.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+This page lists the events that are triggered for [project webhooks](webhooks.md) and [group webhooks](webhooks.md#group-webhooks).
+
+For a list of events triggered for system webhooks, see [system webhooks](../../../administration/system_hooks.md).
+
+**Events triggered for both project and group webhooks:**
 
 Event type                                   | Trigger
 ---------------------------------------------|-----------------------------------------------------------------------------
 [Push event](#push-events)                   | A push is made to the repository.
 [Tag event](#tag-events)                     | Tags are created or deleted in the repository.
 [Issue event](#issue-events)                 | A new issue is created or an existing issue is updated, closed, or reopened.
-[Comment event](#comment-events)             | A new comment is made on commits, merge requests, issues, and code snippets.
+[Comment event](#comment-events)             | A new comment is made or edited on commits, merge requests, issues, and code snippets. <sup>1</sup>
 [Merge request event](#merge-request-events) | A merge request is created, updated, merged, or closed, or a commit is added in the source branch.
 [Wiki page event](#wiki-page-events)         | A wiki page is created, updated, or deleted.
 [Pipeline event](#pipeline-events)           | A pipeline status changes.
 [Job event](#job-events)                     | A job status changes.
 [Deployment event](#deployment-events)       | A deployment starts, succeeds, fails, or is canceled.
+[Feature flag event](#feature-flag-events)   | A feature flag is turned on or off.
+[Release event](#release-events)             | A release is created, updated, or deleted.
+[Emoji event](#emoji-events)                 | An emoji reaction is added or removed.
+[Project or group access token event](#project-and-group-access-token-events) | A project or group access token will expire in seven days.
+
+**Footnotes:**
+
+1. Comment events triggered when the comment is edited [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/127169) in GitLab 16.11.
+
+**Events triggered for group webhooks only:**
+
+Event type                                   | Trigger
+---------------------------------------------|-----------------------------------------------------------------------------
 [Group member event](#group-member-events)   | A user is added or removed from a group, or a user's access level or access expiration date changes.
 [Subgroup event](#subgroup-events)           | A subgroup is created or removed from a group.
-[Feature flag event](#feature-flag-events)   | A feature flag is turned on or off.
-[Release event](#release-events)             | A release is created or updated.
 
 NOTE:
 If an author has no public email listed in their
-[GitLab profile](https://gitlab.com/-/profile), the `email` attribute in the
+[GitLab profile](https://gitlab.com/-/user_settings/profile), the `email` attribute in the
 webhook payload displays a value of `[REDACTED]`.
 
 ## Push events
@@ -61,6 +79,7 @@ Payload example:
   "before": "95790bf891e76fee5e1747ab589903a6a1f80f22",
   "after": "da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
   "ref": "refs/heads/master",
+  "ref_protected": true,
   "checkout_sha": "da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
   "user_id": 4,
   "user_name": "John Smith",
@@ -151,6 +170,7 @@ Payload example:
   "before": "0000000000000000000000000000000000000000",
   "after": "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
   "ref": "refs/tags/v1.0.0",
+  "ref_protected": true,
   "checkout_sha": "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
   "user_id": 1,
   "user_name": "John Smith",
@@ -189,8 +209,19 @@ Payload example:
 
 ## Issue events
 
-Issue events are triggered when a new issue is created or
-an existing issue is updated, closed, or reopened.
+> - `type` attribute in `object_attributes` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/467415) in GitLab 17.2.
+
+Issue events are triggered when an issue or work item is created, updated, closed, or reopened.
+The supported work item types are:
+
+- [Tasks](../../tasks.md)
+- [Incidents](../../../operations/incident_management/incidents.md)
+- [Test cases](../../../ci/test_cases/index.md)
+- [Requirements](../requirements/index.md)
+- [Objectives and key results (OKRs)](../../okrs.md)
+
+For issues and [Service Desk](../service_desk/index.md) issues, the `object_kind` is `issue`, and the `type` is `Issue`.
+For all other work items, the `object_kind` field is `work_item`, and the `type` is the work item type.
 
 The available values for `object_attributes.action` in the payload are:
 
@@ -271,6 +302,8 @@ Payload example:
     "human_time_estimate": null,
     "human_time_change": null,
     "weight": null,
+    "health_status": "at_risk",
+    "type": "Issue",
     "iid": 23,
     "url": "http://example.com/diaspora/issues/23",
     "state": "opened",
@@ -363,19 +396,26 @@ Payload example:
 
 ## Comment events
 
-Comment events are triggered when a new comment is made on commits,
+> - `object_attributes.action` property [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147856) in GitLab 16.11.
+
+Comment events are triggered when a new comment is made or edited on commits,
 merge requests, issues, and code snippets.
 
 The note data is stored in `object_attributes` (for example, `note` or `noteable_type`).
 The payload includes information about the target of the comment. For example,
 a comment on an issue includes specific issue information under the `issue` key.
 
-The valid target types are:
+The available target types are:
 
 - `commit`
 - `merge_request`
 - `issue`
 - `snippet`
+
+The available values for `object_attributes.action` in the payload are:
+
+- `create`
+- `update`
 
 ### Comment on a commit
 
@@ -445,6 +485,7 @@ Payload example:
       "renamed_file": false,
       "deleted_file": false
     },
+    "action": "create",
     "url": "http://example.com/gitlab-org/gitlab-test/commit/cfe32cf61b73a0d5e9f13e774abde7ff789b1660#note_1243"
   },
   "commit": {
@@ -519,6 +560,7 @@ Payload example:
     "noteable_id": 7,
     "system": false,
     "st_diff": null,
+    "action": "create",
     "url": "http://example.com/gitlab-org/gitlab-test/merge_requests/1#note_1244"
   },
   "merge_request": {
@@ -538,6 +580,32 @@ Payload example:
     "iid": 1,
     "description": "Et voluptas corrupti assumenda temporibus. Architecto cum animi eveniet amet asperiores. Vitae numquam voluptate est natus sit et ad id.",
     "position": 0,
+    "labels": [
+      {
+        "id": 25,
+        "title": "Afterpod",
+        "color": "#3e8068",
+        "project_id": null,
+        "created_at": "2019-06-05T14:32:20.211Z",
+        "updated_at": "2019-06-05T14:32:20.211Z",
+        "template": false,
+        "description": null,
+        "type": "GroupLabel",
+        "group_id": 4
+      },
+      {
+        "id": 86,
+        "title": "Element",
+        "color": "#231afe",
+        "project_id": 4,
+        "created_at": "2019-06-05T14:32:20.637Z",
+        "updated_at": "2019-06-05T14:32:20.637Z",
+        "template": false,
+        "description": null,
+        "type": "ProjectLabel",
+        "group_id": null
+      }
+    ],
     "source":{
       "name":"Gitlab Test",
       "description":"Aut reprehenderit ut est.",
@@ -581,11 +649,13 @@ Payload example:
       }
     },
     "work_in_progress": false,
+    "draft": false,
     "assignee": {
       "name": "User1",
       "username": "user1",
       "avatar_url": "http://www.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=40\u0026d=identicon"
-    }
+    },
+    "detailed_merge_status": "checking"
   }
 }
 ```
@@ -652,6 +722,7 @@ Payload example:
     "noteable_id": 92,
     "system": false,
     "st_diff": null,
+    "action": "create",
     "url": "http://example.com/gitlab-org/gitlab-test/issues/17#note_1241"
   },
   "issue": {
@@ -758,20 +829,22 @@ Payload example:
     "noteable_id": 53,
     "system": false,
     "st_diff": null,
-    "url": "http://example.com/gitlab-org/gitlab-test/snippets/53#note_1245"
+    "action": "create",
+    "url": "http://example.com/gitlab-org/gitlab-test/-/snippets/53#note_1245"
   },
   "snippet": {
     "id": 53,
     "title": "test",
+    "description": "A snippet description.",
     "content": "puts 'Hello world'",
     "author_id": 1,
     "project_id": 5,
     "created_at": "2015-04-09 02:40:38 UTC",
     "updated_at": "2015-04-09 02:40:38 UTC",
     "file_name": "test.rb",
-    "expires_at": null,
     "type": "ProjectSnippet",
-    "visibility_level": 0
+    "visibility_level": 0,
+    "url": "http://example.com/gitlab-org/gitlab-test/-/snippets/53"
   }
 }
 ```
@@ -797,6 +870,11 @@ The available values for `object_attributes.action` in the payload are:
 - `approval`
 - `unapproval`
 - `merge`
+
+The field `object_attributes.oldrev` is only available when there are actual code changes, like:
+
+- New code is pushed.
+- A [suggestion](../merge_requests/reviews/suggestions.md) is applied.
 
 Request header:
 
@@ -829,6 +907,7 @@ Payload example:
     "visibility_level":20,
     "path_with_namespace":"gitlabhq/gitlab-test",
     "default_branch":"master",
+    "ci_config_path":"",
     "homepage":"http://example.com/gitlabhq/gitlab-test",
     "url":"http://example.com/gitlabhq/gitlab-test.git",
     "ssh_url":"git@example.com:gitlabhq/gitlab-test.git",
@@ -842,21 +921,36 @@ Payload example:
   },
   "object_attributes": {
     "id": 99,
+    "iid": 1,
     "target_branch": "master",
     "source_branch": "ms-viewport",
     "source_project_id": 14,
     "author_id": 51,
+    "assignee_ids": [6],
     "assignee_id": 6,
+    "reviewer_ids": [6],
     "title": "MS-Viewport",
     "created_at": "2013-12-03T17:23:34Z",
     "updated_at": "2013-12-03T17:23:34Z",
+    "last_edited_at": "2013-12-03T17:23:34Z",
+    "last_edited_by_id": 1,
     "milestone_id": null,
+    "state_id": 1,
     "state": "opened",
     "blocking_discussions_resolved": true,
+    "work_in_progress": false,
+    "draft": false,
+    "first_contribution": true,
     "merge_status": "unchecked",
     "target_project_id": 14,
-    "iid": 1,
     "description": "",
+    "prepared_at": "2013-12-03T19:23:34Z",
+    "total_time_spent": 1800,
+    "time_change": 30,
+    "human_total_time_spent": "30m",
+    "human_time_change": "30s",
+    "human_time_estimate": "30m",
+    "url": "http://example.com/diaspora/merge_requests/1",
     "source": {
       "name":"Awesome Project",
       "description":"Aut reprehenderit ut est.",
@@ -892,6 +986,7 @@ Payload example:
     "last_commit": {
       "id": "da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
       "message": "fixed readme",
+      "title": "Update file README.md",
       "timestamp": "2012-01-03T23:36:29+02:00",
       "url": "http://example.com/awesome_space/awesome_project/commits/da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
       "author": {
@@ -899,14 +994,20 @@ Payload example:
         "email": "gitlabdev@dv6700.(none)"
       }
     },
-    "work_in_progress": false,
-    "url": "http://example.com/diaspora/merge_requests/1",
+    "labels": [{
+      "id": 206,
+      "title": "API",
+      "color": "#ffffff",
+      "project_id": 14,
+      "created_at": "2013-12-03T17:15:43Z",
+      "updated_at": "2013-12-03T17:15:43Z",
+      "template": false,
+      "description": "API related issues",
+      "type": "ProjectLabel",
+      "group_id": 41
+    }],
     "action": "open",
-    "assignee": {
-      "name": "User1",
-      "username": "user1",
-      "avatar_url": "http://www.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=40\u0026d=identicon"
-    }
+    "detailed_merge_status": "mergeable"
   },
   "labels": [{
     "id": 206,
@@ -924,6 +1025,10 @@ Payload example:
     "updated_by_id": {
       "previous": null,
       "current": 1
+    },
+    "draft": {
+      "previous": true,
+      "current": false
     },
     "updated_at": {
       "previous": "2017-09-15 16:50:55 UTC",
@@ -954,10 +1059,37 @@ Payload example:
         "type": "ProjectLabel",
         "group_id": 41
       }]
+    },
+    "last_edited_at": {
+      "previous": null,
+      "current": "2023-03-15 00:00:10 UTC"
+    },
+    "last_edited_by_id": {
+      "previous": null,
+      "current": 3278533
     }
-  }
+  },
+  "assignees": [
+    {
+      "id": 6,
+      "name": "User1",
+      "username": "user1",
+      "avatar_url": "http://www.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=40\u0026d=identicon"
+    }
+  ],
+  "reviewers": [
+    {
+      "id": 6,
+      "name": "User1",
+      "username": "user1",
+      "avatar_url": "http://www.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=40\u0026d=identicon"
+    }
+  ]
 }
 ```
+
+NOTE:
+The fields `assignee_id` and `merge_status` are [deprecated](../../../api/merge_requests.md).
 
 ## Wiki page events
 
@@ -1012,7 +1144,9 @@ Payload example:
     "message": "adding an awesome page to the wiki",
     "slug": "awesome",
     "url": "http://example.com/root/awesome-project/-/wikis/awesome",
-    "action": "create"
+    "action": "create",
+    "diff_url": "http://example.com/root/awesome-project/-/wikis/home/diff?version_id=78ee4a6705abfbff4f4132c6646dbaae9c8fb6ec",
+    "version_id": "3ad67c972065298d226dd80b2b03e0fc2421e731"
   }
 }
 ```
@@ -1021,8 +1155,11 @@ Payload example:
 
 Pipeline events are triggered when the status of a pipeline changes.
 
-In [GitLab 13.9](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/53159)
-and later, the pipeline webhook returns only the latest jobs.
+In [GitLab 15.1](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/89546)
+and later, pipeline webhooks triggered by blocked users are not processed.
+
+In [GitLab 16.1](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123639)
+and later, pipeline webhooks started to expose `object_attributes.name`.
 
 Request header:
 
@@ -1037,6 +1174,8 @@ Payload example:
    "object_kind": "pipeline",
    "object_attributes":{
       "id": 31,
+      "iid": 3,
+      "name": "Pipeline for branch: master",
       "ref": "master",
       "tag": false,
       "sha": "bcbb5ec396a2c0f828686f14fac9b80b780504f2",
@@ -1056,7 +1195,8 @@ Payload example:
           "key": "NESTOR_PROD_ENVIRONMENT",
           "value": "us-west-1"
         }
-      ]
+      ],
+      "url": "http://example.com/gitlab-org/gitlab-test/-/pipelines/31"
    },
     "merge_request": {
       "id": 1,
@@ -1068,6 +1208,7 @@ Payload example:
       "target_project_id": 1,
       "state": "opened",
       "merge_status": "can_be_merged",
+      "detailed_merge_status": "mergeable",
       "url": "http://192.168.64.1:3005/gitlab-org/gitlab-test/merge_requests/1"
    },
    "user":{
@@ -1100,6 +1241,15 @@ Payload example:
          "email": "user@gitlab.com"
       }
    },
+   "source_pipeline":{
+      "project":{
+        "id": 41,
+        "web_url": "https://gitlab.example.com/gitlab-org/upstream-project",
+        "path_with_namespace": "gitlab-org/upstream-project"
+      },
+      "pipeline_id": 30,
+      "job_id": 3401
+   },
    "builds":[
       {
          "id": 380,
@@ -1109,6 +1259,9 @@ Payload example:
          "created_at": "2016-08-12 15:23:28 UTC",
          "started_at": null,
          "finished_at": null,
+         "duration": null,
+         "queued_duration": null,
+         "failure_reason": null,
          "when": "manual",
          "manual": true,
          "allow_failure": false,
@@ -1137,7 +1290,10 @@ Payload example:
          "status": "success",
          "created_at": "2016-08-12 15:23:28 UTC",
          "started_at": "2016-08-12 15:26:12 UTC",
-         "finished_at": null,
+         "finished_at": "2016-08-12 15:26:29 UTC",
+         "duration": 17.0,
+         "queued_duration": 196.0,
+         "failure_reason": null,
          "when": "on_success",
          "manual": false,
          "allow_failure": false,
@@ -1170,10 +1326,13 @@ Payload example:
          "id": 378,
          "stage": "test",
          "name": "test-build",
-         "status": "success",
+         "status": "failed",
          "created_at": "2016-08-12 15:23:28 UTC",
          "started_at": "2016-08-12 15:26:12 UTC",
          "finished_at": "2016-08-12 15:26:29 UTC",
+         "duration": 17.0,
+         "queued_duration": 196.0,
+         "failure_reason": "script_failure",
          "when": "on_success",
          "manual": false,
          "allow_failure": false,
@@ -1209,6 +1368,9 @@ Payload example:
          "created_at": "2016-08-12 15:23:28 UTC",
          "started_at": "2016-08-12 15:24:56 UTC",
          "finished_at": "2016-08-12 15:25:26 UTC",
+         "duration": 17.0,
+         "queued_duration": 196.0,
+         "failure_reason": null,
          "when": "on_success",
          "manual": false,
          "allow_failure": false,
@@ -1244,6 +1406,9 @@ Payload example:
          "created_at": "2016-08-12 15:23:28 UTC",
          "started_at": null,
          "finished_at": null,
+         "duration": null,
+         "queued_duration": null,
+         "failure_reason": null,
          "when": "on_success",
          "manual": false,
          "allow_failure": false,
@@ -1275,6 +1440,9 @@ Job events are triggered when the status of a job changes.
 
 The `commit.id` in the payload is the ID of the pipeline, not the ID of the commit.
 
+In [GitLab 15.1](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/89546)
+and later, job events triggered by blocked users are not processed.
+
 Request header:
 
 ```plaintext
@@ -1298,8 +1466,10 @@ Payload example:
   "build_started_at": null,
   "build_finished_at": null,
   "build_duration": null,
+  "build_queued_duration": 1095.588715, // duration in seconds
   "build_allow_failure": false,
   "build_failure_reason": "script_failure",
+  "retries_count": 2,        // the second retry of this job
   "pipeline_id": 2366,
   "project_id": 380,
   "project_name": "gitlab-org/gitlab-test",
@@ -1311,6 +1481,7 @@ Payload example:
   },
   "commit": {
     "id": 2366,
+    "name": "Build pipeline",
     "sha": "2293ada6b400935a1378653304eaf6221e0fdb8f",
     "message": "test\n",
     "author_name": "User",
@@ -1328,6 +1499,19 @@ Payload example:
     "git_http_url": "http://192.168.64.1:3005/gitlab-org/gitlab-test.git",
     "visibility_level": 20
   },
+  "project":{
+     "id": 380,
+     "name": "Gitlab Test",
+     "description": "Atque in sunt eos similique dolores voluptatem.",
+     "web_url": "http://192.168.64.1:3005/gitlab-org/gitlab-test",
+     "avatar_url": null,
+     "git_ssh_url": "git@192.168.64.1:gitlab-org/gitlab-test.git",
+     "git_http_url": "http://192.168.64.1:3005/gitlab-org/gitlab-test.git",
+     "namespace": "Gitlab Org",
+     "visibility_level": 20,
+     "path_with_namespace": "gitlab-org/gitlab-test",
+     "default_branch": "master"
+  },
   "runner": {
     "active": true,
     "runner_type": "project_type",
@@ -1339,20 +1523,45 @@ Payload example:
       "docker"
     ]
   },
-  "environment": null
+  "environment": null,
+  "source_pipeline":{
+     "project":{
+       "id": 41,
+       "web_url": "https://gitlab.example.com/gitlab-org/upstream-project",
+       "path_with_namespace": "gitlab-org/upstream-project"
+     },
+     "pipeline_id": 30,
+     "job_id": 3401
+  },
 }
 ```
+
+### Number of retries
+
+> - `retries_count` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/382046) in GitLab 15.6 [with a flag](../../../administration/feature_flags.md) named `job_webhook_retries_count`. Disabled by default.
+> - `retries_count` [enabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/382046) in GitLab 16.2.
+
+`retries_count` is an integer that indicates if the job is a retry. `0` means that the job
+has not been retried. `1` means that it's the first retry.
+
+### Pipeline name
+
+> - `commit.name` [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/107963) in GitLab 15.8.
+
+You can set custom names for pipelines with [`workflow:name`](../../../ci/yaml/index.md#workflowname).
+If the pipeline has a name, that name is the value of `commit.name`.
 
 ## Deployment events
 
 Deployment events are triggered when a deployment:
 
-- Starts ([introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/41214) in GitLab 13.5)
+- Starts
 - Succeeds
 - Fails
 - Is cancelled
 
-The `deployable_id` in the payload is the ID of the CI/CD job.
+The `deployable_id` and `deployable_url` in the payload represent a CI/CD job that executed the deployment.
+When the deployment event occurs by [API](../../../ci/environments/external_deployment_tools.md) or [`trigger` jobs](../../../ci/pipelines/downstream_pipelines.md), `deployable_url` is `null`.
 
 Request header:
 
@@ -1371,6 +1580,9 @@ Payload example:
   "deployable_id": 796,
   "deployable_url": "http://10.126.0.2:3000/root/test-deployment-webhooks/-/jobs/796",
   "environment": "staging",
+  "environment_tier": "staging",
+  "environment_slug": "staging",
+  "environment_external_url": "https://staging.example.com",
   "project": {
     "id": 30,
     "name": "test-deployment-webhooks",
@@ -1403,9 +1615,13 @@ Payload example:
 }
 ```
 
-## Group member events **(PREMIUM)**
+## Group member events
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/260347) in GitLab 13.7.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+These events are triggered for [group webhooks](webhooks.md#group-webhooks) only.
 
 Member events are triggered when:
 
@@ -1498,9 +1714,13 @@ Payload example:
 }
 ```
 
-## Subgroup events **(PREMIUM)**
+## Subgroup events
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/260419) in GitLab 13.9.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+These events are triggered for [group webhooks](webhooks.md#group-webhooks) only.
 
 Subgroup events are triggered when:
 
@@ -1537,7 +1757,7 @@ Payload example:
 
 ### Remove a subgroup from a group
 
-This webhook is not triggered when a [subgroup is transferred to a new parent group](../../group/index.md#transfer-a-group).
+This webhook is not triggered when a [subgroup is transferred to a new parent group](../../group/manage.md#transfer-a-group).
 
 Request header:
 
@@ -1617,12 +1837,15 @@ Payload example:
 
 ## Release events
 
-Release events are triggered when a release is created or updated.
+> - Delete release event [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418113) in GitLab 16.5.
+
+Release events are triggered when a release is created, updated, or deleted.
 
 The available values for `object_attributes.action` in the payload are:
 
 - `create`
 - `update`
+- `delete`
 
 Request header:
 
@@ -1636,7 +1859,7 @@ Payload example:
 {
   "id": 1,
   "created_at": "2020-11-02 12:55:12 UTC",
-  "description": "v1.0 has been released",
+  "description": "v1.1 has been released",
   "name": "v1.1",
   "released_at": "2020-11-02 12:55:12 UTC",
   "tag": "v1.1",
@@ -1666,7 +1889,7 @@ Payload example:
     "links": [
       {
         "id": 1,
-        "external": true,
+        "external": true, // deprecated in GitLab 15.9, will be removed in GitLab 16.0.
         "link_type": "other",
         "name": "Changelog",
         "url": "https://example.net/changelog"
@@ -1702,5 +1925,228 @@ Payload example:
       "email": "user@example.com"
     }
   }
+}
+```
+
+## Emoji events
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123952) in GitLab 16.2 [with a flag](../../../administration/feature_flags.md) named `emoji_webhooks`. Disabled by default.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/417288) in GitLab 16.3.
+> - [Enabled by default](https://gitlab.com/gitlab-org/gitlab/-/issues/417288) in GitLab 16.4.
+
+FLAG:
+On self-managed GitLab, by default this feature is available. To hide the feature, an administrator can
+[disable the feature flag](../../../administration/feature_flags.md) named `emoji_webhooks`. On GitLab.com, this feature is available. On GitLab Dedicated, this feature is available.
+
+NOTE:
+To have the `emoji_webhooks` flag enabled on GitLab.com, see [issue 417288](https://gitlab.com/gitlab-org/gitlab/-/issues/417288).
+
+An emoji event is triggered when an [emoji reaction](../../emoji_reactions.md) is added or removed on:
+
+- Issues
+- Merge requests
+- Project snippets
+- Comments on:
+  - Issues
+  - Merge requests
+  - Project snippets
+  - Commits
+
+The available values for `object_attributes.action` in the payload are:
+
+- `award` to add a reaction
+- `revoke` to remove a reaction
+
+Request header:
+
+```plaintext
+X-Gitlab-Event: Emoji Hook
+```
+
+Payload example:
+
+```json
+{
+  "object_kind": "emoji",
+  "event_type": "award",
+  "user": {
+    "id": 1,
+    "name": "Blake Bergstrom",
+    "username": "root",
+    "avatar_url": "http://example.com/uploads/-/system/user/avatar/1/avatar.png",
+    "email": "[REDACTED]"
+  },
+  "project_id": 6,
+  "project": {
+    "id": 6,
+    "name": "Flight",
+    "description": "Velit fugit aperiam illum deleniti odio sequi.",
+    "web_url": "http://example.com/flightjs/Flight",
+    "avatar_url": null,
+    "git_ssh_url": "ssh://git@example.com/flightjs/Flight.git",
+    "git_http_url": "http://example.com/flightjs/Flight.git",
+    "namespace": "Flightjs",
+    "visibility_level": 20,
+    "path_with_namespace": "flightjs/Flight",
+    "default_branch": "master",
+    "ci_config_path": null,
+    "homepage": "http://example.com/flightjs/Flight",
+    "url": "ssh://git@example.com/flightjs/Flight.git",
+    "ssh_url": "ssh://git@example.com/flightjs/Flight.git",
+    "http_url": "http://example.com/flightjs/Flight.git"
+  },
+  "object_attributes": {
+    "user_id": 1,
+    "created_at": "2023-07-04 20:44:11 UTC",
+    "id": 1,
+    "name": "thumbsup",
+    "awardable_type": "Note",
+    "awardable_id": 363,
+    "updated_at": "2023-07-04 20:44:11 UTC",
+    "action": "award",
+    "awarded_on_url": "http://example.com/flightjs/Flight/-/issues/42#note_363"
+  },
+  "note": {
+    "attachment": null,
+    "author_id": 1,
+    "change_position": null,
+    "commit_id": null,
+    "created_at": "2023-07-04 15:09:55 UTC",
+    "discussion_id": "c3d97fd471f210a5dc8b97a409e3bea95ee06c14",
+    "id": 363,
+    "line_code": null,
+    "note": "Testing 123",
+    "noteable_id": 635,
+    "noteable_type": "Issue",
+    "original_position": null,
+    "position": null,
+    "project_id": 6,
+    "resolved_at": null,
+    "resolved_by_id": null,
+    "resolved_by_push": null,
+    "st_diff": null,
+    "system": false,
+    "type": null,
+    "updated_at": "2023-07-04 19:58:46 UTC",
+    "updated_by_id": null,
+    "description": "Testing 123",
+    "url": "http://example.com/flightjs/Flight/-/issues/42#note_363"
+  },
+  "issue": {
+    "author_id": 1,
+    "closed_at": null,
+    "confidential": false,
+    "created_at": "2023-07-04 14:59:43 UTC",
+    "description": "Issue description!",
+    "discussion_locked": null,
+    "due_date": null,
+    "id": 635,
+    "iid": 42,
+    "last_edited_at": null,
+    "last_edited_by_id": null,
+    "milestone_id": null,
+    "moved_to_id": null,
+    "duplicated_to_id": null,
+    "project_id": 6,
+    "relative_position": 18981,
+    "state_id": 1,
+    "time_estimate": 0,
+    "title": "New issue!",
+    "updated_at": "2023-07-04 15:09:55 UTC",
+    "updated_by_id": null,
+    "weight": null,
+    "health_status": null,
+    "url": "http://example.com/flightjs/Flight/-/issues/42",
+    "total_time_spent": 0,
+    "time_change": 0,
+    "human_total_time_spent": null,
+    "human_time_change": null,
+    "human_time_estimate": null,
+    "assignee_ids": [
+      1
+    ],
+    "assignee_id": 1,
+    "labels": [
+
+    ],
+    "state": "opened",
+    "severity": "unknown"
+  }
+}
+```
+
+## Project and group access token events
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141907) in GitLab 16.10 [with a flag](../../../administration/feature_flags.md) named `access_token_webhooks`. Disabled by default.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/439379) in GitLab 16.11.
+> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/454642) in GitLab 16.11. Feature flag `access_token_webhooks` removed.
+
+Two access token expiration events are generated:
+
+- Seven days before a [project or group access token](../../../security/token_overview.md) expires. 
+- One day before the token expires.
+
+The available values for `event_name` in the payload are:
+
+- `expiring_access_token`
+
+Request header:
+
+```plaintext
+X-Gitlab-Event:  Resource Access Token Hook
+```
+
+Payload example for project:
+
+```json
+{
+  "object_kind": "access_token",
+  "project": {
+    "id": 7,
+    "name": "Flight",
+    "description": "Eum dolore maxime atque reprehenderit voluptatem.",
+    "web_url": "https://example.com/flightjs/Flight",
+    "avatar_url": null,
+    "git_ssh_url": "ssh://git@example.com/flightjs/Flight.git",
+    "git_http_url": "https://example.com/flightjs/Flight.git",
+    "namespace": "Flightjs",
+    "visibility_level": 0,
+    "path_with_namespace": "flightjs/Flight",
+    "default_branch": "master",
+    "ci_config_path": null,
+    "homepage": "https://example.com/flightjs/Flight",
+    "url": "ssh://git@example.com/flightjs/Flight.git",
+    "ssh_url": "ssh://git@example.com/flightjs/Flight.git",
+    "http_url": "https://example.com/flightjs/Flight.git"
+  },
+  "object_attributes": {
+    "user_id": 90,
+    "created_at": "2024-01-24 16:27:40 UTC",
+    "id": 25,
+    "name": "acd",
+    "expires_at": "2024-01-26"
+  },
+  "event_name": "expiring_access_token"
+}
+```
+
+Payload example for group:
+
+```json
+{
+  "object_kind": "access_token",
+  "group": {
+    "group_name": "Twitter",
+    "group_path": "twitter",
+    "group_id": 35
+  },
+  "object_attributes": {
+    "user_id": 90,
+    "created_at": "2024-01-24 16:27:40 UTC",
+    "id": 25,
+    "name": "acd",
+    "expires_at": "2024-01-26"
+  },
+  "event_name": "expiring_access_token"
 }
 ```

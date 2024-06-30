@@ -5,6 +5,7 @@ FactoryBot.define do
     user
     source_type { :gitlab }
     source_version { BulkImport.min_gl_version_for_project_migration.to_s }
+    source_enterprise { false }
 
     trait :created do
       status { 0 }
@@ -20,6 +21,14 @@ FactoryBot.define do
 
     trait :failed do
       status { -1 }
+    end
+
+    trait :timeout do
+      status { 3 }
+    end
+
+    trait :with_configuration do
+      configuration { association(:bulk_import_configuration, bulk_import: instance) }
     end
   end
 end

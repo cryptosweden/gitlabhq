@@ -29,6 +29,11 @@ module Gitlab
     # values. Enums/state fields must be translated into their underlying
     # representations, for example, and no hooks will be called.
     #
+    # This tool does not support all column types. For example,
+    # ActiveModel::Type.lookup(column.type) throws an exception when
+    # the column type is `:timestamptz` (timestamp with time zone).
+    #
+    #
     module BulkUpdate
       LIST_SEPARATOR = ', '
 
@@ -43,15 +48,7 @@ module Gitlab
         end
 
         def update!
-          if without_prepared_statement?
-            # A workaround for https://github.com/rails/rails/issues/24893
-            # When prepared statements are prevented (such as when using the
-            # query counter or in omnibus by default), we cannot call
-            # `exec_update`, since that will discard the bindings.
-            connection.send(:exec_no_cache, sql, log_name, params) # rubocop: disable GitlabSecurity/PublicSend
-          else
-            connection.exec_update(sql, log_name, params)
-          end
+          connection.exec_update(sql, log_name, params)
         end
 
         def self.column_definitions(model, columns)
@@ -93,14 +90,6 @@ module Gitlab
           end
         end
 
-        # A workaround for https://github.com/rails/rails/issues/24893
-        # We need to detect if prepared statements have been disabled.
-        def without_prepared_statement?
-          strong_memoize(:without_prepared_statement) do
-            connection.send(:without_prepared_statement?, [1]) # rubocop: disable GitlabSecurity/PublicSend
-          end
-        end
-
         def query_attribute(column, key, values)
           value = values[column.name]
           key[column.name] = value if key.try(:id) # optimistic update
@@ -130,7 +119,7 @@ module Gitlab
 
         def sql
           <<~SQL
-            WITH cte(#{list_of(cte_columns)}) AS #{Gitlab::Database::AsWithMaterialized.materialized_if_supported} (VALUES #{list_of(values)})
+            WITH cte(#{list_of(cte_columns)}) AS MATERIALIZED (VALUES #{list_of(values)})
             UPDATE #{table_name} SET #{list_of(updates)} FROM cte WHERE cte_id = id
           SQL
         end
@@ -157,7 +146,7 @@ module Gitlab
       def self.execute(columns, mapping, &to_class)
         raise ArgumentError if mapping.blank?
 
-        entries_by_class = mapping.group_by { |k, v| block_given? ? to_class.call(k) : k.class }
+        entries_by_class = mapping.group_by { |k, v| to_class ? yield(k) : k.class }
 
         entries_by_class.each do |model, entries|
           Setter.new(model, columns, entries).update!

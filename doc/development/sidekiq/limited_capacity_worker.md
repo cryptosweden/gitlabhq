@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Sidekiq limited capacity worker
@@ -34,17 +34,29 @@ class MyDummyWorker
 end
 ```
 
-Additional to the regular worker, a cron worker must be defined as well to
-backfill the queue with jobs. the arguments passed to `perform_with_capacity`
-are passed to the `perform_work` method.
+To queue this worker, use
+`MyDummyWorker.perform_with_capacity(*args)`. The `*args` passed to this worker
+are passed to the `perform_work` method. Due to the way this job throttles
+and requeues itself, it is expected that you always provide the same
+`*args` in every usage. In practice, this type of worker is often not
+used with arguments and must instead consume a workload stored
+elsewhere (like in PostgreSQL). This design also means it is unsuitable to
+take a normal Sidekiq workload with arguments and make it a
+`LimitedCapacity::Worker`. Instead, to use this, you might need to
+re-architect your queue to be stored elsewhere.
+
+A common use case for this kind of worker is one that runs periodically
+consuming a separate queue of work to be done (like from PostgreSQL). In that case,
+you need an additional cron worker to start the worker periodically. For
+example, in the following scheduler:
 
 ```ruby
 class ScheduleMyDummyCronWorker
   include ApplicationWorker
   include CronjobQueue
 
-  def perform(*args)
-    MyDummyWorker.perform_with_capacity(*args)
+  def perform
+    MyDummyWorker.perform_with_capacity
   end
 end
 ```
@@ -82,3 +94,8 @@ name as label:
 - `limited_capacity_worker_running_jobs`
 - `limited_capacity_worker_max_running_jobs`
 - `limited_capacity_worker_remaining_work_count`
+
+## Alternatives
+
+If limited capacity worker doesn't fit your architecture, there's also a [concurrency limit](worker_attributes.md#concurrency-limit)
+attribute that can be used to restrict concurrency of a Sidekiq worker.

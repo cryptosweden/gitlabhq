@@ -1,11 +1,11 @@
 <script>
-import { GlModal, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlModal } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { __ } from '~/locale';
 
 export default {
-  cancelAction: { text: __('Cancel') },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   components: {
     GlModal,
@@ -26,6 +26,26 @@ export default {
       required: false,
       default: 'confirm',
     },
+    secondaryText: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    secondaryVariant: {
+      type: String,
+      required: false,
+      default: 'confirm',
+    },
+    cancelText: {
+      type: String,
+      required: false,
+      default: __('Cancel'),
+    },
+    cancelVariant: {
+      type: String,
+      required: false,
+      default: 'default',
+    },
     modalHtmlMessage: {
       type: String,
       required: false,
@@ -36,6 +56,11 @@ export default {
       required: false,
       default: false,
     },
+    size: {
+      type: String,
+      required: false,
+      default: 'sm',
+    },
   },
   computed: {
     primaryAction() {
@@ -43,12 +68,32 @@ export default {
         text: this.primaryText,
         attributes: {
           variant: this.primaryVariant,
-          'data-qa-selector': 'confirm_ok_button',
+          'data-testid': 'confirm-ok-button',
+        },
+      };
+    },
+    secondaryAction() {
+      if (!this.secondaryText) {
+        return null;
+      }
+
+      return {
+        text: this.secondaryText,
+        attributes: {
+          variant: this.secondaryVariant,
+          category: 'secondary',
         },
       };
     },
     cancelAction() {
-      return this.hideCancel ? null : this.$options.cancelAction;
+      return this.hideCancel
+        ? null
+        : {
+            text: this.cancelText,
+            attributes: {
+              variant: this.cancelVariant,
+            },
+          };
     },
     shouldShowHeader() {
       return Boolean(this.title?.length);
@@ -63,12 +108,14 @@ export default {
 <template>
   <gl-modal
     ref="modal"
-    size="sm"
     modal-id="confirmationModal"
     body-class="gl-display-flex"
+    data-testid="confirmation-modal"
+    :size="size"
     :title="title"
     :action-primary="primaryAction"
     :action-cancel="cancelAction"
+    :action-secondary="secondaryAction"
     :hide-header="!shouldShowHeader"
     @primary="$emit('confirmed')"
     @hidden="$emit('closed')"

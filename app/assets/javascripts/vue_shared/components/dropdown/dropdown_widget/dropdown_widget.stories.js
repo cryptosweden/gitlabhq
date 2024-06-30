@@ -1,11 +1,9 @@
-/* eslint-disable @gitlab/require-i18n-strings */
-
 import { __ } from '~/locale';
 import DropdownWidget from './dropdown_widget.vue';
 
 export default {
   component: DropdownWidget,
-  title: 'vue_shared/components/dropdown/dropdown_widget/dropdown_widget',
+  title: 'vue_shared/dropdown/dropdown_widget/dropdown_widget',
 };
 
 const Template = (args, { argTypes }) => ({

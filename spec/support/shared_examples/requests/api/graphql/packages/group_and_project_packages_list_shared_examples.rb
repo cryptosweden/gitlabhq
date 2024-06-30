@@ -9,9 +9,10 @@ RSpec.shared_examples 'group and project packages query' do
   let_it_be(:composer_package) { create(:composer_package, project: project2, name: 'dab', version: '4.0.0', created_at: 3.days.ago) }
   let_it_be(:debian_package) { create(:debian_package, project: project2, name: 'aab', version: '5.0.0', created_at: 2.days.ago) }
   let_it_be(:composer_metadatum) do
-    create(:composer_metadatum, package: composer_package,
-           target_sha: 'afdeh',
-           composer_json: { name: 'x', type: 'y', license: 'z', version: 1 })
+    create(:composer_metadatum,
+      package: composer_package,
+      target_sha: 'afdeh',
+      composer_json: { name: 'x', type: 'y', license: 'z', version: 1 })
   end
 
   let(:package_names) { graphql_data_at(resource_type, :packages, :nodes, :name) }
@@ -43,7 +44,7 @@ RSpec.shared_examples 'group and project packages query' do
       post_graphql(query, current_user: current_user)
     end
 
-    it_behaves_like 'a working graphql query'
+    it_behaves_like 'a working graphql query that returns data'
 
     it 'returns packages successfully' do
       expect(package_names).to contain_exactly(
@@ -61,6 +62,21 @@ RSpec.shared_examples 'group and project packages query' do
     it 'returns the count of the packages' do
       expect(packages_count).to eq(4)
     end
+
+    context '_links' do
+      let_it_be(:errored_package) { create(:maven_package, :error, project: project1) }
+
+      let(:package_web_paths) { graphql_data_at(resource_type, :packages, :nodes, :_links, :web_path) }
+
+      it 'does not contain the web path of errored package' do
+        expect(package_web_paths.compact).to contain_exactly(
+          "/#{project1.full_path}/-/packages/#{npm_package.id}",
+          "/#{project1.full_path}/-/packages/#{maven_package.id}",
+          "/#{project2.full_path}/-/packages/#{debian_package.id}",
+          "/#{project2.full_path}/-/packages/#{composer_package.id}"
+        )
+      end
+    end
   end
 
   context 'when the user does not have access to the resource' do
@@ -68,11 +84,7 @@ RSpec.shared_examples 'group and project packages query' do
       post_graphql(query, current_user: current_user)
     end
 
-    it_behaves_like 'a working graphql query'
-
-    it 'returns nil' do
-      expect(packages).to be_nil
-    end
+    it_behaves_like 'a working graphql query that returns no data'
   end
 
   context 'when the user is not authenticated' do
@@ -80,11 +92,7 @@ RSpec.shared_examples 'group and project packages query' do
       post_graphql(query)
     end
 
-    it_behaves_like 'a working graphql query'
-
-    it 'returns nil' do
-      expect(packages).to be_nil
-    end
+    it_behaves_like 'a working graphql query that returns no data'
   end
 
   describe 'sorting and pagination' do
@@ -104,7 +112,7 @@ RSpec.shared_examples 'group and project packages query' do
       }
     end
 
-    let(:expected_packages) { sorted_packages.map { |package| global_id_of(package) } }
+    let(:expected_packages) { sorted_packages.map { |package| global_id_of(package).to_s } }
 
     let(:data_path) { [resource_type, :packages] }
 
@@ -113,7 +121,7 @@ RSpec.shared_examples 'group and project packages query' do
     end
 
     [:CREATED_ASC, :NAME_ASC, :VERSION_ASC, :TYPE_ASC, :CREATED_DESC, :NAME_DESC, :VERSION_DESC, :TYPE_DESC].each do |order|
-      context "#{order}" do
+      context order.to_s do
         let(:sorted_packages) { packages_order_map.fetch(order) }
 
         it_behaves_like 'sorted paginated query' do
@@ -138,7 +146,7 @@ RSpec.shared_examples 'group and project packages query' do
       end
 
       it 'throws an error' do
-        expect_graphql_errors_to_include(/Argument \'sort\' on Field \'packages\' has an invalid value/)
+        expect_graphql_errors_to_include(/Argument 'sort' on Field 'packages' has an invalid value/)
       end
     end
 
@@ -189,6 +197,93 @@ RSpec.shared_examples 'group and project packages query' do
       let(:params) { { include_versionless: true } }
 
       it { is_expected.to include({ "name" => versionless_package.name }) }
+    end
+  end
+
+  context 'when reading pipelines' do
+    let(:npm_pipelines) { create_list(:ci_pipeline, 6, project: project1) }
+    let(:npm_pipeline_gids) { npm_pipelines.sort_by(&:id).map(&:to_gid).map(&:to_s).reverse }
+    let(:composer_pipelines) { create_list(:ci_pipeline, 6, project: project2) }
+    let(:composer_pipeline_gids) { composer_pipelines.sort_by(&:id).map(&:to_gid).map(&:to_s).reverse }
+    let(:npm_end_cursor) { graphql_data_npm_package.dig('pipelines', 'pageInfo', 'endCursor') }
+    let(:npm_start_cursor) { graphql_data_npm_package.dig('pipelines', 'pageInfo', 'startCursor') }
+    let(:pipelines_nodes) do
+      <<~QUERY
+        nodes {
+          id
+        }
+        pageInfo {
+          startCursor
+          endCursor
+        }
+      QUERY
+    end
+
+    before do
+      resource.add_maintainer(current_user)
+
+      npm_pipelines.each do |pipeline|
+        create(:package_build_info, package: npm_package, pipeline: pipeline)
+      end
+
+      composer_pipelines.each do |pipeline|
+        create(:package_build_info, package: composer_package, pipeline: pipeline)
+      end
+    end
+
+    it 'loads the second page with pagination first correctly' do
+      run_query(first: 2)
+      expect(npm_pipeline_ids).to eq(npm_pipeline_gids[0..1])
+      expect(composer_pipeline_ids).to eq(composer_pipeline_gids[0..1])
+
+      run_query(first: 2, after: npm_end_cursor)
+      expect(npm_pipeline_ids).to eq(npm_pipeline_gids[2..3])
+      expect(composer_pipeline_ids).to be_empty
+    end
+
+    it 'loads the second page with pagination last correctly' do
+      run_query(last: 2)
+      expect(npm_pipeline_ids).to eq(npm_pipeline_gids[4..5])
+      expect(composer_pipeline_ids).to eq(composer_pipeline_gids[4..5])
+
+      run_query(last: 2, before: npm_start_cursor)
+      expect(npm_pipeline_ids).to eq(npm_pipeline_gids[2..3])
+      expect(composer_pipeline_ids).to eq(composer_pipeline_gids[4..5])
+    end
+
+    def run_query(args)
+      pipelines_field = query_graphql_field('pipelines', args, pipelines_nodes)
+
+      packages_nodes = <<~QUERY
+        nodes {
+          id
+          #{pipelines_field}
+        }
+      QUERY
+
+      query = graphql_query_for(
+        resource_type,
+        { 'fullPath' => resource.full_path },
+        query_graphql_field('packages', {}, packages_nodes)
+      )
+
+      post_graphql(query, current_user: current_user)
+    end
+
+    def npm_pipeline_ids
+      graphql_data_npm_package.dig('pipelines', 'nodes').pluck('id')
+    end
+
+    def composer_pipeline_ids
+      graphql_data_composer_package.dig('pipelines', 'nodes').pluck('id')
+    end
+
+    def graphql_data_npm_package
+      graphql_data_at(resource_type, :packages, :nodes).find { |pkg| pkg['id'] == npm_package.to_gid.to_s }
+    end
+
+    def graphql_data_composer_package
+      graphql_data_at(resource_type, :packages, :nodes).find { |pkg| pkg['id'] == composer_package.to_gid.to_s }
     end
   end
 end

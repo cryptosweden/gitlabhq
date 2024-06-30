@@ -3,6 +3,7 @@
 module BitbucketServer
   class Connection
     include ActionView::Helpers::SanitizeHelper
+    include BitbucketServer::RetryWithDelay
 
     DEFAULT_API_VERSION = '1.0'
     SEPARATOR = '/'
@@ -15,6 +16,7 @@ module BitbucketServer
       Errno::EHOSTUNREACH,
       Net::OpenTimeout,
       Net::ReadTimeout,
+      URI::InvalidURIError,
       Gitlab::HTTP::BlockedUrlError
     ].freeze
 
@@ -30,10 +32,9 @@ module BitbucketServer
     end
 
     def get(path, extra_query = {})
-      response = Gitlab::HTTP.get(build_url(path),
-                                  basic_auth: auth,
-                                  headers: accept_headers,
-                                  query: extra_query)
+      response = retry_with_delay do
+        Gitlab::HTTP.get(build_url(path), basic_auth: auth, headers: accept_headers, query: extra_query)
+      end
 
       check_errors!(response)
 
@@ -43,10 +44,9 @@ module BitbucketServer
     end
 
     def post(path, body)
-      response = Gitlab::HTTP.post(build_url(path),
-                                   basic_auth: auth,
-                                   headers: post_headers,
-                                   body: body)
+      response = retry_with_delay do
+        Gitlab::HTTP.post(build_url(path), basic_auth: auth, headers: post_headers, body: body)
+      end
 
       check_errors!(response)
 
@@ -62,10 +62,9 @@ module BitbucketServer
     def delete(resource, path, body)
       url = delete_url(resource, path)
 
-      response = Gitlab::HTTP.delete(url,
-                                     basic_auth: auth,
-                                     headers: post_headers,
-                                     body: body)
+      response = retry_with_delay do
+        Gitlab::HTTP.delete(url, basic_auth: auth, headers: post_headers, body: body)
+      end
 
       check_errors!(response)
 
@@ -119,6 +118,10 @@ module BitbucketServer
       else
         build_url(path)
       end
+    end
+
+    def logger
+      Gitlab::BitbucketServerImport::Logger
     end
   end
 end

@@ -1,4 +1,4 @@
-import { sanitize } from '~/lib/dompurify';
+import { sanitize, defaultConfig } from '~/lib/dompurify';
 
 // GDK
 const rootGon = {
@@ -34,12 +34,21 @@ const unsafeUrls = [
   `${absoluteGon.sprite_file_icons}/../../https://evil.url`,
 ];
 
-const forbiddenDataAttrs = ['data-remote', 'data-url', 'data-type', 'data-method'];
+/* eslint-disable no-script-url */
+const invalidProtocolUrls = [
+  'javascript:alert(1)',
+  'jAvascript:alert(1)',
+  'data:text/html,<script>alert(1);</script>',
+  ' javascript:',
+  'javascript :',
+];
+/* eslint-enable no-script-url */
+const validProtocolUrls = ['slack://open', 'x-devonthink-item://90909', 'x-devonthink-item:90909'];
+
+const forbiddenDataAttrs = defaultConfig.FORBID_ATTR;
 const acceptedDataAttrs = ['data-random', 'data-custom'];
 
 describe('~/lib/dompurify', () => {
-  let originalGon;
-
   it('uses local configuration when given', () => {
     // As dompurify uses a "Persistent Configuration", it might
     // ignore config, this check verifies we respect
@@ -73,18 +82,28 @@ describe('~/lib/dompurify', () => {
     expect(sanitize('<p><gl-emoji>💯</gl-emoji></p>')).toBe('<p><gl-emoji>💯</gl-emoji></p>');
   });
 
+  it("doesn't allow style tags", () => {
+    // removes style tags
+    expect(sanitize('<style>p {width:50%;}</style>')).toBe('');
+    expect(sanitize('<style type="text/css">p {width:50%;}</style>')).toBe('');
+    // removes mstyle tag (this can removed later by disallowing math tags)
+    expect(sanitize('<math><mstyle displaystyle="true"></mstyle></math>')).toBe('<math></math>');
+    // removes link tag (this is DOMPurify's default behavior)
+    expect(sanitize('<link rel="stylesheet" href="styles.css">')).toBe('');
+  });
+
+  it("doesn't allow form tags", () => {
+    expect(sanitize('<form>')).toBe('');
+    expect(sanitize('<form method="post" action="path"></form>')).toBe('');
+  });
+
   describe.each`
     type          | gon
     ${'root'}     | ${rootGon}
     ${'absolute'} | ${absoluteGon}
   `('when gon contains $type icon urls', ({ type, gon }) => {
-    beforeAll(() => {
-      originalGon = window.gon;
+    beforeEach(() => {
       window.gon = gon;
-    });
-
-    afterAll(() => {
-      window.gon = originalGon;
     });
 
     it('allows no href attrs', () => {
@@ -111,12 +130,7 @@ describe('~/lib/dompurify', () => {
 
   describe('when gon does not contain icon urls', () => {
     beforeAll(() => {
-      originalGon = window.gon;
       window.gon = {};
-    });
-
-    afterAll(() => {
-      window.gon = originalGon;
     });
 
     it.each([...safeUrls.root, ...safeUrls.absolute, ...unsafeUrls])('sanitizes URL %s', (url) => {
@@ -138,6 +152,64 @@ describe('~/lib/dompurify', () => {
       const attrWithValue = `${attr}="true"`;
       const htmlHref = `<a ${attrWithValue}>hello</a>`;
       expect(sanitize(htmlHref)).toBe(`<a ${attrWithValue}>hello</a>`);
+    });
+  });
+
+  describe('with non-http links', () => {
+    it.each(validProtocolUrls)('should allow %s', (url) => {
+      const html = `<a href="${url}">internal link</a>`;
+      expect(sanitize(html)).toBe(`<a href="${url}">internal link</a>`);
+    });
+
+    it.each(invalidProtocolUrls)('should not allow %s', (url) => {
+      const html = `<a href="${url}">internal link</a>`;
+      expect(sanitize(html)).toBe(`<a>internal link</a>`);
+    });
+  });
+
+  describe('links with target attribute', () => {
+    const getSanitizedNode = (html) => {
+      return document.createRange().createContextualFragment(sanitize(html)).firstElementChild;
+    };
+
+    it('adds secure context', () => {
+      const html = `<a href="https://example.com" target="_blank">link</a>`;
+      const el = getSanitizedNode(html);
+
+      expect(el.getAttribute('target')).toBe('_blank');
+      expect(el.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+
+    it('adds secure context and merge existing `rel` values', () => {
+      const html = `<a href="https://example.com" target="_blank" rel="help External">link</a>`;
+      const el = getSanitizedNode(html);
+
+      expect(el.getAttribute('target')).toBe('_blank');
+      expect(el.getAttribute('rel')).toBe('help external noopener noreferrer');
+    });
+
+    it('does not duplicate noopener/noreferrer `rel` values', () => {
+      const html = `<a href="https://example.com" target="_blank" rel="noreferrer noopener">link</a>`;
+      const el = getSanitizedNode(html);
+
+      expect(el.getAttribute('target')).toBe('_blank');
+      expect(el.getAttribute('rel')).toBe('noreferrer noopener');
+    });
+
+    it('does not update `rel` values when target is not `_blank`', () => {
+      const html = `<a href="https://example.com" target="_self" rel="help">internal</a>`;
+      const el = getSanitizedNode(html);
+
+      expect(el.getAttribute('target')).toBe('_self');
+      expect(el.getAttribute('rel')).toBe('help');
+    });
+
+    it('does not update `rel` values when target attribute is not present', () => {
+      const html = `<a href="https://example.com">link</a>`;
+      const el = getSanitizedNode(html);
+
+      expect(el.hasAttribute('target')).toBe(false);
+      expect(el.hasAttribute('rel')).toBe(false);
     });
   });
 });

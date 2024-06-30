@@ -2,27 +2,28 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Sentry' do
-  let(:sentry_regex_path) { '\/sentry.*\.chunk\.js' }
+RSpec.describe 'Sentry', feature_category: :error_tracking do
+  it 'does not load sentry if sentry settings are disabled' do
+    allow(Gitlab::CurrentSettings).to receive(:sentry_enabled).and_return(false)
 
-  it 'does not load sentry if sentry is disabled' do
-    allow(Gitlab.config.sentry).to receive(:enabled).and_return(false)
     visit new_user_session_path
 
     expect(has_requested_sentry).to eq(false)
   end
 
-  it 'loads sentry if sentry is enabled' do
-    stub_sentry_settings
+  it 'loads sentry if sentry settings are enabled', :js do
+    allow(Gitlab::CurrentSettings).to receive(:sentry_enabled).and_return(true)
+    allow(Gitlab::CurrentSettings).to receive(:sentry_clientside_dsn).and_return('https://mockdsn@example.com/1')
 
     visit new_user_session_path
 
     expect(has_requested_sentry).to eq(true)
+    expect(evaluate_script('window._Sentry.SDK_VERSION')).to match(%r{^8\.})
   end
 
   def has_requested_sentry
     page.all('script', visible: false).one? do |elm|
-      elm[:src] =~ /#{sentry_regex_path}$/
+      elm[:src] =~ %r{/sentry.*\.chunk\.js\z}
     end
   end
 end

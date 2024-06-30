@@ -1,93 +1,71 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Auditor users **(PREMIUM SELF)**
+# Auditor users
 
-Auditor users are given read-only access to all projects, groups, and other
-resources on the GitLab instance.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
-## Overview
+Users with auditor access have read-only access to all groups, projects, and other resources except:
 
-Auditor users are able to have both full access to their own resources
-(including projects, groups, and snippets) and read-only access to _all_ other
-resources, except the [Admin Area](../user/admin_area/index.md). These user
-accounts are regular users who can be added to projects, create personal
-snippets, and create milestones on their groups, while also having read-only
-access to all projects on the server to which they haven't been explicitly
-[given access](../user/permissions.md).
+- The [Admin Area](../administration/admin_area.md).
+- Project and group settings.
 
-The `Auditor` access level is _not_ a read-only version of the `Admin` access level. Auditor users
-can't access the project or group settings pages, or the Admin Area.
-
-Assuming you have signed in as an Auditor user:
-
-- For a project the Auditor is not member of, the Auditor should have
-  read-only access. If the project is public or internal, they have the same
-  access as users that aren't members of that project or group.
-- For a project the Auditor owns, the Auditor should have full access to
-  everything.
-- For a project to which the Auditor is added as a member, the Auditor should
-  have the same access as their given [permissions](../user/permissions.md).
-  For example, if they were added as a Developer, they can push commits or
-  comment on issues.
-- The Auditor can't view the Admin Area, or perform any administration actions.
-
-For more information about what an Auditor can or can't do, see the
-[Permissions and restrictions of an Auditor user](#permissions-and-restrictions-of-an-auditor-user)
+For more information, see [Auditor user permissions and restrictions](#auditor-user-permissions-and-restrictions)
 section.
 
-## Use cases
-
-The following use cases describe some situations where Auditor users could be
-helpful:
+Situations where auditor access for users could be helpful include:
 
 - Your compliance department wants to run tests against the entire GitLab base
   to ensure users are complying with password, credit card, and other sensitive
-  data policies. With Auditor users, this can be achieved very without having
-  to give them user administration rights or using the API to add them to all projects.
+  data policies. You can achieve this with auditor access without giving the compliance department
+  user administration rights or adding them to all projects.
 - If particular users need visibility or access to most of all projects in
   your GitLab instance, instead of manually adding the user to all projects,
-  you can create an Auditor user and then share the credentials with those users
-  to which you want to grant access.
+  you can create an account with auditor access and then share the credentials
+  with those users to which you want to grant access.
 
-## Add an Auditor user
+NOTE:
+An auditor user counts as a billable user and consumes a license seat.
 
-To create an Auditor user:
+## Add a user with auditor access
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Overview > Users**.
-1. Create a new user or edit an existing one, and in the **Access** section
-   select Auditor.
+To create a new user account with auditor access (or change an existing user):
+
+To create a user account with auditor access:
+
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Overview > Users**.
+1. Create a new user or edit an existing one. Set **Access Level** to **Auditor**.
 1. If you created a user, select **Create user**. For an existing user, select **Save changes**.
 
-To revoke Auditor permissions from a user, make them a Regular user by
-following the previous steps.
+To revoke auditor access from a user, follow these steps but set **Access Level** to **Regular**.
 
-Additionally users can be set as an Auditor using [SAML groups](../integration/saml.md#auditor-groups).
+You can also give users auditor access using [SAML groups](../integration/saml.md#auditor-groups).
 
-## Permissions and restrictions of an Auditor user
+## Auditor user permissions and restrictions
 
-An Auditor user should be able to access all projects and groups of a GitLab
-instance, with the following permissions and restrictions:
+Auditor access is _not_ a read-only version of administrator access because it doesn't permit access to the Admin Area.
 
-- Has read-only access to the API
-- Can access projects that are:
-  - Private
-  - Public
-  - Internal
-- Can read all files in a repository
-- Can read issues and MRs
-- Can read project snippets
-- Cannot be Administrator and Auditor at the same time
-- Cannot access the Admin Area
-- In a group or project they're not a member of:
-  - Cannot access project settings
-  - Cannot access group settings
-  - Cannot commit to repository
-  - Cannot create or comment on issues and MRs
-  - Cannot create or modify files from the Web UI
-  - Cannot merge a merge request
-  - Cannot create project snippets
+For access to their own resources and resources within a group or project where they are a member,
+users with auditor access have the same [permissions](../user/permissions.md) as regular users.
+
+If you are signed in with auditor access, you:
+
+- Have full access to the projects and groups you own.
+- Have read-only access to the projects and groups you are not a member of.
+- Have [permissions](../user/permissions.md) based on your role to projects and groups you are a member of. For example, if you have the Developer role,
+  you can push commits or comment on issues.
+- Can access the same resources using the GitLab UI or API.
+- Can't view the Admin Area, or perform any administration actions.
+- Can't view job logs when [debug logging](../ci/variables/index.md#enable-debug-logging) is enabled.
+
+## Maintain auditor users using API
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/366404) in GitLab 15.3.
+
+Administrators can use the GitLab API to [create](../api/users.md#user-creation) and [modify](../api/users.md#user-modification) auditor users.

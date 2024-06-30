@@ -1,33 +1,11 @@
 ---
-stage: Create
-group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
+redirect_to: 'undo.md'
+remove_date: '2024-07-12'
 ---
 
-# Unstage **(FREE)**
+This document was moved to [another location](undo.md).
 
-- To remove files from stage use reset HEAD where HEAD is the last commit of the current branch. This unstages the file but maintain the modifications.
-
-  ```shell
-  git reset HEAD <file>
-  ```
-
-- To revert the file back to the state it was in before the changes we can use:
-
-  ```shell
-  git checkout -- <file>
-  ```
-
-- To remove a file from disk and repository, use `git rm`. To remove a directory, use the `-r` flag:
-
-  ```shell
-  git rm '*.txt'
-  git rm -r <dirname>
-  ```
-
-- If we want to remove a file from the repository but keep it on disk, say we forgot to add it to our `.gitignore` file then use `--cache`:
-
-  ```shell
-  git rm <filename> --cache
-  ```
+<!-- This redirect file can be deleted after <2024-07-12>. -->
+<!-- Redirects that point to other docs in the same project expire in three months. -->
+<!-- Redirects that point to docs in a different project or site (for example, link is not relative and starts with `https:`) expire in one year. -->
+<!-- Before deletion, see: https://docs.gitlab.com/ee/development/documentation/redirects.html -->

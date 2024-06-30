@@ -1,29 +1,27 @@
 <script>
-import $ from 'jquery';
-import { GlSafeHtmlDirective } from '@gitlab/ui';
 import { escape } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters, mapState } from 'vuex';
-
-import '~/behaviors/markdown/render_gfm';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { __ } from '~/locale';
 import Suggestions from '~/vue_shared/components/markdown/suggestions.vue';
-import autosave from '../mixins/autosave';
-import noteAttachment from './note_attachment.vue';
-import noteAwardsList from './note_awards_list.vue';
-import noteEditedText from './note_edited_text.vue';
-import noteForm from './note_form.vue';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
+import NoteAttachment from './note_attachment.vue';
+import NoteAwardsList from './note_awards_list.vue';
+import NoteEditedText from './note_edited_text.vue';
+import NoteForm from './note_form.vue';
 
 export default {
   components: {
-    noteEditedText,
-    noteAwardsList,
-    noteAttachment,
-    noteForm,
+    NoteEditedText,
+    NoteAwardsList,
+    NoteAttachment,
+    NoteForm,
     Suggestions,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
-  mixins: [autosave],
   props: {
     note: {
       type: Object,
@@ -57,16 +55,20 @@ export default {
   computed: {
     ...mapGetters(['getDiscussion', 'suggestionsCount', 'getSuggestionsFilePaths']),
     ...mapGetters('diffs', ['suggestionCommitMessage']),
+    ...mapState({
+      batchSuggestionsInfo: (state) => state.notes.batchSuggestionsInfo,
+      failedToLoadMetadata: (state) => state.page.failedToLoadMetadata,
+    }),
     discussion() {
       if (!this.note.isDraft) return {};
 
       return this.getDiscussion(this.note.discussion_id);
     },
-    ...mapState({
-      batchSuggestionsInfo: (state) => state.notes.batchSuggestionsInfo,
-    }),
     noteBody() {
       return this.note.note;
+    },
+    saveButtonTitle() {
+      return this.note.internal ? __('Save internal note') : __('Save comment');
     },
     hasSuggestion() {
       return this.note.suggestions && this.note.suggestions.length;
@@ -82,10 +84,13 @@ export default {
       const batchFilePaths = this.getSuggestionsFilePaths();
       const filePaths = batchFilePaths.length ? batchFilePaths : [this.file.file_path];
       const filesCount = filePaths.length;
+      // Can be potentially replaced by calculated co-authors of a particular suggestion or batched suggestion
+      const coAuthoredByTrailer = __('Co-authored-by: ...');
       const suggestion = this.suggestionCommitMessage({
         file_paths: filePaths.join(', '),
         suggestions_count: suggestionsCount,
         files_count: filesCount,
+        co_authored_by: coAuthoredByTrailer,
       });
 
       return escape(suggestion);
@@ -93,21 +98,9 @@ export default {
   },
   mounted() {
     this.renderGFM();
-
-    if (this.isEditing) {
-      this.initAutoSave(this.note);
-    }
   },
   updated() {
     this.renderGFM();
-
-    if (this.isEditing) {
-      if (!this.autosave) {
-        this.initAutoSave(this.note);
-      } else {
-        this.setAutoSave();
-      }
-    }
   },
   methods: {
     ...mapActions([
@@ -117,7 +110,7 @@ export default {
       'removeSuggestionInfoFromBatch',
     ]),
     renderGFM() {
-      $(this.$refs['note-body']).renderGFM();
+      renderGFM(this.$refs['note-body']);
     },
     handleFormUpdate(noteText, parentElement, callback, resolveDiscussion) {
       this.$emit('handleFormUpdate', { noteText, parentElement, callback, resolveDiscussion });
@@ -155,7 +148,13 @@ export default {
 </script>
 
 <template>
-  <div ref="note-body" :class="{ 'js-task-list-container': canEdit }" class="note-body">
+  <div
+    ref="note-body"
+    :class="{
+      'js-task-list-container': canEdit,
+    }"
+    class="note-body"
+  >
     <suggestions
       v-if="hasSuggestion && !isEditing"
       :suggestions="note.suggestions"
@@ -165,6 +164,7 @@ export default {
       :line-type="lineType"
       :help-page-path="helpPagePath"
       :default-commit-message="commitMessage"
+      :failed-to-load-metadata="failedToLoadMetadata"
       @apply="applySuggestion"
       @applyBatch="applySuggestionBatch"
       @addToBatch="addSuggestionToBatch"
@@ -174,11 +174,12 @@ export default {
     <note-form
       v-if="isEditing"
       ref="noteForm"
-      :is-editing="isEditing"
       :note-body="noteBody"
       :note-id="note.id"
       :line="line"
       :note="note"
+      :diff-file="file"
+      :save-button-title="saveButtonTitle"
       :help-page-path="helpPagePath"
       :discussion="discussion"
       :resolve-discussion="note.resolve_discussion"
@@ -198,7 +199,7 @@ export default {
       v-if="note.last_edited_at"
       :edited-at="note.last_edited_at"
       :edited-by="note.last_edited_by"
-      action-text="Edited"
+      :action-text="__('Edited')"
       class="note_edited_ago"
     />
     <note-awards-list

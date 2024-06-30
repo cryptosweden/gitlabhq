@@ -1,29 +1,31 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Geo **(PREMIUM SELF)**
+# Geo
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
 Geo is the solution for widely distributed development teams and for providing
 a warm-standby as part of a disaster recovery strategy.
 
-## Overview
-
 WARNING:
 Geo undergoes significant changes from release to release. Upgrades are
-supported and [documented](#updating-geo), but you should ensure that you're
+supported and [documented](#upgrading-geo), but you should ensure that you're
 using the right version of the documentation for your installation.
 
-Fetching large repositories can take a long time for teams located far from a single GitLab instance.
+Fetching large repositories can take a long time for teams and runners located far from a single GitLab instance.
 
-Geo provides local, read-only sites of your GitLab instances. This can reduce the time it takes
-to clone and fetch large repositories, speeding up development.
+Geo provides local caches that can be placed geographically close to remote teams which can serve read requests. This can reduce the time it takes
+to clone and fetch large repositories, speeding up development and increasing the productivity of your remote teams.
 
-For a video introduction to Geo, see [Introduction to GitLab Geo - GitLab Features](https://www.youtube.com/watch?v=-HDLxSjEh6w).
+Geo secondary sites transparently proxy write requests to the primary site. All Geo sites can be configured to respond to a single GitLab URL, to deliver a consistent, seamless, and comprehensive experience whichever site the user lands on.
 
-To make sure you're using the right version of the documentation, go to [the Geo page on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/blob/master/doc/administration/geo/index.md) and choose the appropriate release from the **Switch branch/tag** dropdown list. For example, [`v13.7.6-ee`](https://gitlab.com/gitlab-org/gitlab/-/blob/v13.7.6-ee/doc/administration/geo/index.md).
+To make sure you're using the right version of the documentation, go to [the Geo page on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/blob/master/doc/administration/geo/index.md) and choose the appropriate release from the **Switch branch/tag** dropdown list. For example, [`v15.7.6-ee`](https://gitlab.com/gitlab-org/gitlab/-/blob/v15.7.6-ee/doc/administration/geo/index.md).
 
 Geo uses a set of defined terms that are described in the [Geo Glossary](glossary.md).
 Be sure to familiarize yourself with those terms.
@@ -46,17 +48,17 @@ In addition, it:
 
 Geo provides:
 
-- Read-only **secondary** sites: Maintain one **primary** GitLab site while still enabling read-only **secondary** sites for each of your distributed teams.
-- Authentication system hooks: **Secondary** sites receives all authentication data (like user accounts and logins) from the **primary** instance.
-- An intuitive UI: **Secondary** sites use the same web interface your team has grown accustomed to. In addition, there are visual notifications that block write operations and make it clear that a user is on a **secondary** sites.
+- A complete GitLab experience on **Secondary** sites: Maintain one **primary** GitLab site while enabling **secondary** sites with full read and write and UI experience for each of your distributed teams.
+- Authentication system hooks: **Secondary** sites receive all authentication data (like user accounts and logins) from the **primary** instance.
 
 ### Gitaly Cluster
 
 Geo should not be confused with [Gitaly Cluster](../gitaly/praefect.md). For more information about
-the difference between Geo and Gitaly Cluster, see
-[How does Gitaly Cluster compare to Geo?](../gitaly/faq.md#how-does-gitaly-cluster-compare-to-geo).
+the difference between Geo and Gitaly Cluster, see [Comparison to Geo](../gitaly/index.md#comparison-to-geo).
 
 ## How it works
+
+This is a brief summary of how Geo works in your GitLab environment. For a more detailed information, see the [Geo Development page](/ee/development/geo.md).
 
 Your Geo instance can be used for cloning and fetching projects, in addition to reading any data. This makes working with large repositories over large distances much faster.
 
@@ -65,7 +67,7 @@ Your Geo instance can be used for cloning and fetching projects, in addition to 
 When Geo is enabled, the:
 
 - Original instance is known as the **primary** site.
-- Replicated read-only sites are known as **secondary** sites.
+- Replicating sites are known as **secondary** sites.
 
 Keep in mind that:
 
@@ -87,7 +89,7 @@ In this diagram:
 
 - There is the **primary** site and the details of one **secondary** site.
 - Writes to the database can only be performed on the **primary** site. A **secondary** site receives database
-  updates via PostgreSQL streaming replication.
+  updates by using [PostgreSQL streaming replication](https://wiki.postgresql.org/wiki/Streaming_Replication).
 - If present, the [LDAP server](#ldap) should be configured to replicate for [Disaster Recovery](disaster_recovery/index.md) scenarios.
 - A **secondary** site performs different type of synchronizations against the **primary** site, using a special
   authorization protected by JWT:
@@ -98,6 +100,7 @@ From the perspective of a user performing Git operations:
 
 - The **primary** site behaves as a full read-write GitLab instance.
 - **Secondary** sites are read-only but proxy Git push operations to the **primary** site. This makes **secondary** sites appear to support push operations themselves.
+- **Secondary** sites proxy web UI requests to the primary. This makes the **secondary** sites appear to support full UI read/write operations.
 
 To simplify the diagram, some necessary components are omitted.
 
@@ -107,7 +110,7 @@ To simplify the diagram, some necessary components are omitted.
 A **secondary** site needs two different PostgreSQL databases:
 
 - A read-only database instance that streams data from the main GitLab database.
-- [Another database instance](#geo-tracking-database) used internally by the **secondary** site to record what data has been replicated.
+- A [read/write database instance(tracking database)](#geo-tracking-database) used internally by the **secondary** site to record what data has been replicated.
 
 In **secondary** sites, there is an additional daemon: [Geo Log Cursor](#geo-log-cursor).
 
@@ -120,18 +123,24 @@ The following are required to run Geo:
   The following operating systems are known to ship with a current version of OpenSSH:
   - [CentOS](https://www.centos.org) 7.4 or later
   - [Ubuntu](https://ubuntu.com) 16.04 or later
-- PostgreSQL 12 with [Streaming Replication](https://wiki.postgresql.org/wiki/Streaming_Replication)
-  - PostgreSQL 13 is not supported for Geo, see [epic 3832](https://gitlab.com/groups/gitlab-org/-/epics/3832)
+- Where possible, you should also use the same operating system version on all
+  Geo sites. If using different operating system versions between Geo sites, you
+  **must** [check OS locale data compatibility](replication/troubleshooting/common.md#check-os-locale-data-compatibility)
+  across Geo sites to avoid silent corruption of database indexes.
+- [Supported PostgreSQL versions](https://handbook.gitlab.com/handbook/engineering/infrastructure/core-platform/data_stores/database/postgresql-upgrade-cadence/) for your GitLab releases with [Streaming Replication](https://wiki.postgresql.org/wiki/Streaming_Replication).
+  - [PostgreSQL Logical replication](https://www.postgresql.org/docs/current/logical-replication.html) is not supported.
+- All sites must run [the same PostgreSQL versions](setup/database.md#postgresql-replication).
 - Git 2.9 or later
 - Git-lfs 2.4.2 or later on the user side when using LFS
-- All sites must run the same GitLab version.
+- All sites must run the exact same GitLab version. The [major, minor, and patch versions](../../policy/maintenance.md#versioning) must all match.
+- All sites must define the same [repository storages](../repository_storage_paths.md).
 
 Additionally, check the GitLab [minimum requirements](../../install/requirements.md),
-and we recommend you use the latest version of GitLab for a better experience.
+and use the latest version of GitLab for a better experience.
 
 ### Firewall rules
 
-The following table lists basic ports that must be open between the **primary** and **secondary** sites for Geo. To simplify failovers, we recommend opening ports in both directions.
+The following table lists basic ports that must be open between the **primary** and **secondary** sites for Geo. To simplify failovers, you should open ports in both directions.
 
 | Source site | Source port | Destination site | Destination port | Protocol    |
 |-------------|-------------|------------------|------------------|-------------|
@@ -159,22 +168,14 @@ public URL of the primary site is used.
 
 To update the internal URL of the primary Geo site:
 
-1. On the top bar, go to **Menu > Admin > Geo > Sites**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Geo > Sites**.
 1. Select **Edit** on the primary site.
 1. Change the **Internal URL**, then select **Save changes**.
 
-### LDAP
-
-We recommend that if you use LDAP on your **primary** site, you also set up secondary LDAP servers on each **secondary** site. Otherwise, users are unable to perform Git operations over HTTP(s) on the **secondary** site using HTTP Basic Authentication. However, Git via SSH and personal access tokens still works.
-
-NOTE:
-It is possible for all **secondary** sites to share an LDAP server, but additional latency can be an issue. Also, consider what LDAP server is available in a [disaster recovery](disaster_recovery/index.md) scenario if a **secondary** site is promoted to be a **primary** site.
-
-Check for instructions on how to set up replication in your LDAP service. Instructions are different depending on the software or service used. For example, OpenLDAP provides [these instructions](https://www.openldap.org/doc/admin24/replication.html).
-
 ### Geo Tracking Database
 
-The tracking database instance is used as metadata to control what needs to be updated on the disk of the local instance. For example:
+The tracking database instance is used as metadata to control what needs to be updated on the local instance. For example:
 
 - Download new assets.
 - Fetch new LFS Objects.
@@ -198,29 +199,26 @@ This new architecture allows GitLab to be resilient to connectivity issues betwe
 WARNING:
 This list of limitations only reflects the latest version of GitLab. If you are using an older version, extra limitations may be in place.
 
-- Pushing directly to a **secondary** site redirects (for HTTP) or proxies (for SSH) the request to the **primary** site instead of [handling it directly](https://gitlab.com/gitlab-org/gitlab/-/issues/1381), except when using Git over HTTP with credentials embedded in the URI. For example, `https://user:password@secondary.tld`.
+- Pushing directly to a **secondary** site redirects (for HTTP) or proxies (for SSH) the request to the **primary** site instead of [handling it directly](https://gitlab.com/gitlab-org/gitlab/-/issues/1381). The limitation is that you cannot use Git over HTTP with credentials embedded in the URI, for example, `https://user:personal-access-token@secondary.tld`. For more information, see how to [use a Geo Site](replication/usage.md).
 - The **primary** site has to be online for OAuth login to happen. Existing sessions and Git are not affected. Support for the **secondary** site to use an OAuth provider independent from the primary is [being planned](https://gitlab.com/gitlab-org/gitlab/-/issues/208465).
-- The installation takes multiple manual steps that together can take about an hour depending on circumstances. Consider using [the GitLab Environment Toolkit](https://gitlab.com/gitlab-org/gitlab-environment-toolkit) to deploy and operate production GitLab instances based on our [Reference Architectures](../reference_architectures/index.md), including automation of common daily tasks. We are planning to [improve Geo's installation even further](https://gitlab.com/groups/gitlab-org/-/epics/1465).
+- The installation takes multiple manual steps that together can take about an hour depending on circumstances. Consider using the
+  [GitLab Environment Toolkit](https://gitlab.com/gitlab-org/gitlab-environment-toolkit) Terraform and Ansible scripts to deploy and operate production
+  GitLab instances based on our [Reference Architectures](../reference_architectures/index.md), including automation of common daily tasks.
+  [Epic 1465](https://gitlab.com/groups/gitlab-org/-/epics/1465) proposes to improve Geo installation even more.
 - Real-time updates of issues/merge requests (for example, via long polling) doesn't work on the **secondary** site.
-- GitLab Runners cannot register with a **secondary** site. Support for this is [planned for the future](https://gitlab.com/gitlab-org/gitlab/-/issues/3294).
-- [Selective synchronization](replication/configuration.md#selective-synchronization) only limits what repositories and files are replicated. The entire PostgreSQL data is still replicated. Selective synchronization is not built to accommodate compliance / export control use cases.
+- [Selective synchronization](replication/selective_synchronization.md) only limits what repositories and files are replicated. The entire PostgreSQL data is still replicated. Selective synchronization is not built to accommodate compliance / export control use cases.
 - [Pages access control](../../user/project/pages/pages_access_control.md) doesn't work on secondaries. See [GitLab issue #9336](https://gitlab.com/gitlab-org/gitlab/-/issues/9336) for details.
+- [Disaster recovery](disaster_recovery/index.md) for deployments that have multiple secondary sites causes downtime due to the need to perform complete re-synchronization and re-configuration of all non-promoted secondaries to follow the new primary site.
+- For Git over SSH, to make the project clone URL display correctly regardless of which site you are browsing, secondary sites must use the same port as the primary. [GitLab issue #339262](https://gitlab.com/gitlab-org/gitlab/-/issues/339262) proposes to remove this limitation.
+- Git push over SSH against a secondary site does not work for pushes over 1.86 GB. [GitLab issue #413109](https://gitlab.com/gitlab-org/gitlab/-/issues/413109) tracks this bug.
+- Backups [cannot be run on secondaries](replication/troubleshooting/replication.md#message-error-canceling-statement-due-to-conflict-with-recovery).
+- Git clone and fetch requests with option `--depth` over SSH against a secondary site does not work and hangs indefinitely if the secondary site is not up to date at the time the request is initiated. For more information, see [issue 391980](https://gitlab.com/gitlab-org/gitlab/-/issues/391980).
+- Git push with options over SSH against a secondary site does not work and terminates the connection. For more information, see [issue 417186](https://gitlab.com/gitlab-org/gitlab/-/issues/417186).
+- The Geo secondary site does not accelerate (serve) the clone request for the first stage of the pipeline in most cases. Later stages are not guaranteed to be served by the secondary site either, for example if the Git change is large, bandwidth is small, or pipeline stages are short. In general, it does serve the clone request for subsequent stages. [Issue 446176](https://gitlab.com/gitlab-org/gitlab/-/issues/446176) discusses the reasons for this and proposes an enhancement to increase the chance that Runner clone requests are served from the secondary site.
 
 ### Limitations on replication/verification
 
 There is a complete list of all GitLab [data types](replication/datatypes.md) and [existing support for replication and verification](replication/datatypes.md#limitations-on-replicationverification).
-
-### View replication data on the primary site
-
-If you try to view replication data on the primary site, you receive a warning that this may be inconsistent:
-
-> Viewing projects and designs data from a primary site is not possible when using a unified URL. Visit the secondary site directly.
-
-The only way to view projects replication data for a particular secondary site is to visit that secondary site directly. For example, `https://<IP of your secondary site>/admin/geo/replication/projects`.
-An [epic exists](https://gitlab.com/groups/gitlab-org/-/epics/4623) to fix this limitation.
-
-The only way to view designs replication data for a particular secondary site is to visit that secondary site directly. For example, `https://<IP of your secondary site>/admin/geo/replication/designs`.
-An [epic exists](https://gitlab.com/groups/gitlab-org/-/epics/4624) to fix this limitation.
 
 ## Setup instructions
 
@@ -234,37 +232,42 @@ After installing GitLab on the **secondary** sites and performing the initial co
 
 For information on configuring Geo, see [Geo configuration](replication/configuration.md).
 
-### Updating Geo
+### Upgrading Geo
 
-For information on how to update your Geo sites to the latest GitLab version, see [Updating the Geo sites](replication/updating_the_geo_sites.md).
+For information on how to update your Geo sites to the latest GitLab version, see [Upgrading the Geo sites](replication/upgrading_the_geo_sites.md).
 
 ### Pausing and resuming replication
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/35913) in GitLab 13.2.
-
 WARNING:
-In GitLab 13.2 and 13.3, promoting a secondary site to a primary while the
-secondary is paused fails. Do not pause replication before promoting a
-secondary. If the site is paused, be sure to resume before promoting. This
-issue has been fixed in GitLab 13.4 and later.
+Pausing and resuming of replication is only supported for Geo installations using a
+Linux package-managed database. External databases are not supported.
 
-WARNING:
-Pausing and resuming of replication is only supported for Geo installations using an
-Omnibus GitLab-managed database. External databases are not supported.
+In some circumstances, like during [upgrades](replication/upgrading_the_geo_sites.md) or a
+[planned failover](disaster_recovery/planned_failover.md), it is desirable to pause replication between the primary and secondary.
 
-In some circumstances, like during [upgrades](replication/updating_the_geo_sites.md) or a [planned failover](disaster_recovery/planned_failover.md), it is desirable to pause replication between the primary and secondary.
+If you plan to allow user activity on your secondary sites during the upgrade,
+do not pause replication for a [zero-downtime upgrade](../../update/zero_downtime.md). While paused, the secondary site gets more and more out-of-date.
+One known effect is that more and more Git fetches get redirected or proxied to the primary site. There may be additional unknown effects.
 
-Pausing and resuming replication is done via a command line tool from the a node in the secondary site where the `postgresql` service is enabled.
+Pausing and resuming replication is done through a command-line tool from a specific node in the secondary site. Depending on your database architecture,
+this will target either the `postgresql` or `patroni` service:
 
-If `postgresql` is on a standalone database node, ensure that `gitlab.rb` on that node contains the configuration line `gitlab_rails['geo_node_name'] = 'node_name'`, where `node_name` is the same as the `geo_name_name` on the application node.
+- If you are using a single node for all services on your secondary site, you must run the commands on this single node.
+- If you have a standalone PostgreSQL node on your secondary site, you must run the commands on this standalone PostgreSQL node.
+- If your secondary site is using a Patroni cluster, you must run these commands on the secondary Patroni standby leader node.
 
-**To Pause: (from secondary)**
+If you aren't using a single node for all services on your secondary site, ensure that the `/etc/gitlab/gitlab.rb` on your PostgreSQL or Patroni nodes
+contains the configuration line `gitlab_rails['geo_node_name'] = 'node_name'`, where `node_name` is the same as the `geo_node_name` on the application node.
+
+**To Pause: (from secondary site)**
+
+Also, be aware that if PostgreSQL is restarted after pausing replication (either by restarting the VM or restarting the service with `gitlab-ctl restart postgresql`), PostgreSQL automatically resumes replication, which is something you wouldn't want during an upgrade or in a planned failover scenario.
 
 ```shell
 gitlab-ctl geo-replication-pause
 ```
 
-**To Resume: (from secondary)**
+**To Resume: (from secondary site)**
 
 ```shell
 gitlab-ctl geo-replication-resume
@@ -276,19 +279,27 @@ For information on configuring Geo for multiple nodes, see [Geo for multiple ser
 
 ### Configuring Geo with Object Storage
 
-For information on configuring Geo with object storage, see [Geo with Object storage](replication/object_storage.md).
+For information on configuring Geo with Object storage, see [Geo with Object storage](replication/object_storage.md).
 
 ### Disaster Recovery
 
 For information on using Geo in disaster recovery situations to mitigate data-loss and restore services, see [Disaster Recovery](disaster_recovery/index.md).
 
-### Replicating the Container Registry
+### Replicating the container registry
 
-For more information on how to replicate the Container Registry, see [Docker Registry for a **secondary** site](replication/docker_registry.md).
+For more information on how to replicate the container registry, see [Container registry for a **secondary** site](replication/container_registry.md).
 
 ### Geo secondary proxy
 
-For more information on using Geo proxying on secondary nodes, see [Geo proxying for secondary sites](secondary_proxy/index.md).
+For more information on using Geo proxying on secondary sites, see [Geo proxying for secondary sites](secondary_proxy/index.md).
+
+### Single Sign On (SSO)
+
+For more information on configuring Single Sign-On (SSO), see [Geo with Single Sign-On (SSO)](replication/single_sign_on.md).
+
+#### LDAP
+
+For more information on configuring LDAP, see [Geo with Single Sign-On (SSO) > LDAP](replication/single_sign_on.md#ldap).
 
 ### Security Review
 
@@ -304,13 +315,18 @@ For an example of how to set up a location-aware Git remote URL with AWS Route53
 
 ### Backfill
 
-Once a **secondary** site is set up, it starts replicating missing data from
+When a **secondary** site is set up, it starts replicating missing data from
 the **primary** site in a process known as **backfill**. You can monitor the
 synchronization process on each Geo site from the **primary** site's **Geo Nodes**
 dashboard in your browser.
 
 Failures that happen during a backfill are scheduled to be retried at the end
 of the backfill.
+
+### Runners
+
+- In addition to our standard best practices for deploying a [fleet of runners](https://docs.gitlab.com/runner/fleet_scaling/index.html), runners can also be configured to connect to Geo secondaries to spread out job load. See how to [register runners against secondaries](secondary_proxy/runners.md).
+- See also how to handle [Disaster Recovery with runners](disaster_recovery/planned_failover.md#runner-failover).
 
 ## Remove Geo site
 
@@ -326,19 +342,10 @@ For answers to common questions, see the [Geo FAQ](replication/faq.md).
 
 ## Log files
 
-Geo stores structured log messages in a `geo.log` file. For Omnibus GitLab
-installations, this file is at `/var/log/gitlab/gitlab-rails/geo.log`.
+Geo stores structured log messages in a `geo.log` file.
 
-This file contains information about when Geo attempts to sync repositories and files. Each line in the file contains a separate JSON entry that can be ingested into. For example, Elasticsearch or Splunk.
-
-For example:
-
-```json
-{"severity":"INFO","time":"2017-08-06T05:40:16.104Z","message":"Repository update","project_id":1,"source":"repository","resync_repository":true,"resync_wiki":true,"class":"Gitlab::Geo::LogCursor::Daemon","cursor_delay_s":0.038}
-```
-
-This message shows that Geo detected that a repository update was needed for project `1`.
+For more information on how to access and consume Geo logs, see the [Geo section in the log system documentation](../logs/index.md#geolog).
 
 ## Troubleshooting
 
-For troubleshooting steps, see [Geo Troubleshooting](replication/troubleshooting.md).
+For troubleshooting steps, see [Geo Troubleshooting](replication/troubleshooting/index.md).

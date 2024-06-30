@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'getting milestone listings nested in a project' do
+RSpec.describe 'getting milestone listings nested in a project', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:today) { Time.now.utc.to_date }
@@ -25,15 +25,16 @@ RSpec.describe 'getting milestone listings nested in a project' do
     graphql_query_for(
       :project,
       { full_path: project.full_path },
-      query_graphql_field(:milestones, search_params, [
-        query_graphql_field(:nodes, nil, %i[id title])
-      ])
+      query_graphql_field(:milestones, search_params,
+        [
+          query_graphql_field(:nodes, nil, %i[id title])
+        ])
     )
   end
 
   def result_list(expected)
     expected.map do |milestone|
-      a_hash_including('id' => global_id_of(milestone))
+      a_graphql_entity_for(milestone)
     end
   end
 
@@ -56,6 +57,27 @@ RSpec.describe 'getting milestone listings nested in a project' do
       post_graphql(query, current_user: current_user)
 
       expect(results).to match_array(result_list(expected))
+    end
+  end
+
+  context 'the user does not have access' do
+    let_it_be(:project) { create(:project) }
+    let_it_be(:milestones) { create_list(:milestone, 2, project: project) }
+
+    it 'is nil' do
+      post_graphql(query, current_user: current_user)
+
+      expect(graphql_data_at(:project)).to be_nil
+    end
+
+    context 'the user has access' do
+      let(:expected) { milestones }
+
+      before do
+        project.add_guest(current_user)
+      end
+
+      it_behaves_like 'searching with parameters'
     end
   end
 
@@ -115,18 +137,6 @@ RSpec.describe 'getting milestone listings nested in a project' do
     it_behaves_like 'searching with parameters'
   end
 
-  context 'searching by custom range' do
-    let(:expected) { [no_end, fully_future] }
-    let(:search_params) do
-      {
-        start_date: (today + 6.days).iso8601,
-        end_date: (today + 7.days).iso8601
-      }
-    end
-
-    it_behaves_like 'searching with parameters'
-  end
-
   context 'using timeframe argument' do
     let(:expected) { [no_end, fully_future] }
     let(:search_params) do
@@ -164,23 +174,6 @@ RSpec.describe 'getting milestone listings nested in a project' do
 
         post_graphql(query, current_user: current_user, variables: vars)
       end
-    end
-
-    it 'is invalid to provide timeframe and start_date/end_date' do
-      query = <<~GQL
-        query($path: ID!, $tstart: Date!, $tend: Date!, $start: Time!, $end: Time!) {
-          project(fullPath: $path) {
-            milestones(timeframe: { start: $tstart, end: $tend }, startDate: $start, endDate: $end) {
-              nodes { id }
-            }
-          }
-        }
-      GQL
-
-      post_graphql(query, current_user: current_user,
-                          variables: vars.merge(vars.transform_keys { |k| :"t#{k}" }))
-
-      expect(graphql_errors).to contain_exactly(a_hash_including('message' => include('deprecated in favor of timeframe')))
     end
 
     it 'is invalid to invert the timeframe arguments' do

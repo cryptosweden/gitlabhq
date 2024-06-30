@@ -17,9 +17,7 @@ RSpec.describe BuildDetailsEntity do
     let(:request) { double('request', project: project) }
 
     let(:entity) do
-      described_class.new(build, request: request,
-                                 current_user: user,
-                                 project: project)
+      described_class.new(build, request: request, current_user: user, project: project)
     end
 
     subject { entity.as_json }
@@ -69,9 +67,7 @@ RSpec.describe BuildDetailsEntity do
         end
 
         let(:merge_request) do
-          create(:merge_request, source_project: forked_project,
-                                 target_project: project,
-                                 source_branch: build.ref)
+          create(:merge_request, source_project: forked_project, target_project: project, source_branch: build.ref)
         end
 
         it 'contains the needed key value pairs' do
@@ -127,21 +123,66 @@ RSpec.describe BuildDetailsEntity do
     end
 
     context 'when the build has failed due to a missing dependency' do
-      let!(:test1) { create(:ci_build, :success, :expired, pipeline: pipeline, name: 'test1', stage_idx: 0) }
-      let!(:test2) { create(:ci_build, :success, :expired, pipeline: pipeline, name: 'test2', stage_idx: 1) }
-      let!(:build) { create(:ci_build, :pending, pipeline: pipeline, stage_idx: 2, options: { dependencies: %w(test1 test2) }) }
       let(:message) { subject[:callout_message] }
 
-      before do
-        build.pipeline.unlocked!
-        build.drop!(:missing_dependency_failure)
+      context 'when the dependency is in the same pipeline' do
+        let!(:test1) { create(:ci_build, :success, :expired, pipeline: pipeline, name: 'test1', stage_idx: 0) }
+        let!(:test2) { create(:ci_build, :success, :expired, pipeline: pipeline, name: 'test2', stage_idx: 1) }
+        let!(:build) { create(:ci_build, :pending, pipeline: pipeline, stage_idx: 2, options: { dependencies: %w[test1 test2] }) }
+
+        before do
+          build.pipeline.unlocked!
+          build.drop!(:missing_dependency_failure)
+        end
+
+        it { is_expected.to include(failure_reason: 'missing_dependency_failure') }
+
+        it 'includes the failing dependencies in the callout message' do
+          expect(message).to include('test1')
+          expect(message).to include('test2')
+        end
+
+        it 'includes message for list of invalid dependencies' do
+          expect(message).to include('could not retrieve the needed artifacts:')
+        end
       end
 
-      it { is_expected.to include(failure_reason: 'missing_dependency_failure') }
+      context 'when dependency is not found' do
+        let!(:build) { create(:ci_build, :pending, pipeline: pipeline, stage_idx: 2, options: { dependencies: %w[test1 test2] }) }
 
-      it 'includes the failing dependencies in the callout message' do
-        expect(message).to include('test1')
-        expect(message).to include('test2')
+        before do
+          build.pipeline.unlocked!
+          build.drop!(:missing_dependency_failure)
+        end
+
+        it { is_expected.to include(failure_reason: 'missing_dependency_failure') }
+
+        it 'excludes the failing dependencies in the callout message' do
+          expect(message).not_to include('test1')
+          expect(message).not_to include('test2')
+        end
+
+        it 'includes the correct punctuation in the message' do
+          expect(message).to include('could not retrieve the needed artifacts.')
+        end
+      end
+
+      context 'when dependency contains invalid dependency names' do
+        invalid_name = 'XSS<a href=# data-disable-with="<img src=x onerror=alert(document.domain)>">'
+        let!(:test1) { create(:ci_build, :success, :expired, pipeline: pipeline, name: invalid_name, stage_idx: 0) }
+        let!(:build) { create(:ci_build, :pending, pipeline: pipeline, stage_idx: 1, options: { dependencies: [invalid_name] }) }
+
+        before do
+          build.pipeline.unlocked!
+          build.drop!(:missing_dependency_failure)
+        end
+
+        it { is_expected.to include(failure_reason: 'missing_dependency_failure') }
+
+        it 'escapes the invalid dependency names' do
+          escaped_name = html_escape(invalid_name)
+          expect(message).to include(escaped_name)
+        end
       end
     end
 
@@ -240,21 +281,27 @@ RSpec.describe BuildDetailsEntity do
       end
 
       context 'when the build has non public archive type artifacts' do
-        let(:build) { create(:ci_build, :artifacts, :non_public_artifacts, pipeline: pipeline) }
+        let(:build) { create(:ci_build, :private_artifacts, :with_private_artifacts_config, pipeline: pipeline) }
 
         it 'does not expose non public artifacts' do
           expect(subject.keys).not_to include(:artifact)
         end
+      end
+    end
 
-        context 'with the non_public_artifacts feature flag disabled' do
-          before do
-            stub_feature_flags(non_public_artifacts: false)
-          end
+    context 'when the build has annotations' do
+      let!(:build) { create(:ci_build) }
+      let!(:annotation) { create(:ci_job_annotation, job: build, name: 'external_links', data: [{ external_link: { label: 'URL', url: 'https://example.com/' } }]) }
 
-          it 'exposes artifact details' do
-            expect(subject[:artifact].keys).to include(:download_path, :browse_path, :locked)
-          end
-        end
+      it 'exposes job URLs' do
+        expect(subject[:annotations].count).to eq(1)
+        expect(subject[:annotations].first[:name]).to eq('external_links')
+        expect(subject[:annotations].first[:data]).to include(a_hash_including(
+          'external_link' => a_hash_including(
+            'label' => 'URL',
+            'url' => 'https://example.com/'
+          )
+        ))
       end
     end
   end

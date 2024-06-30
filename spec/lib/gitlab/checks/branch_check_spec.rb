@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Checks::BranchCheck do
+RSpec.describe Gitlab::Checks::BranchCheck, feature_category: :source_code_management do
   include_context 'change access checks context'
 
   describe '#validate!' do
@@ -19,15 +19,39 @@ RSpec.describe Gitlab::Checks::BranchCheck do
       end
     end
 
-    context "prohibited branches check" do
-      it "prohibits 40-character hexadecimal branch names" do
+    describe "prohibited branches check" do
+      it "forbids SHA-1 values" do
         allow(subject).to receive(:branch_name).and_return("267208abfe40e546f5e847444276f7d43a39503e")
 
-        expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError, "You cannot create a branch with a 40-character hexadecimal branch name.")
+        expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError, "You cannot create a branch with a SHA-1 or SHA-256 branch name.")
       end
 
-      it "doesn't prohibit a nested hexadecimal in a branch name" do
+      it "forbids SHA-256 values" do
+        allow(subject).to receive(:branch_name).and_return("09b9fd3ea68e9b95a51b693a29568c898e27d1476bbd83c825664f18467fc175")
+
+        expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError, "You cannot create a branch with a SHA-1 or SHA-256 branch name.")
+      end
+
+      it "forbids '{SHA-1}{+anything}' values" do
+        allow(subject).to receive(:branch_name).and_return("267208abfe40e546f5e847444276f7d43a39503e-")
+
+        expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError, "You cannot create a branch with a SHA-1 or SHA-256 branch name.")
+      end
+
+      it "forbids '{SHA-256}{+anything} values" do
+        allow(subject).to receive(:branch_name).and_return("09b9fd3ea68e9b95a51b693a29568c898e27d1476bbd83c825664f18467fc175-")
+
+        expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError, "You cannot create a branch with a SHA-1 or SHA-256 branch name.")
+      end
+
+      it "allows SHA-1 values to be appended to the branch name" do
         allow(subject).to receive(:branch_name).and_return("fix-267208abfe40e546f5e847444276f7d43a39503e")
+
+        expect { subject.validate! }.not_to raise_error
+      end
+
+      it "allows SHA-256 values to be appended to the branch name" do
+        allow(subject).to receive(:branch_name).and_return("fix-09b9fd3ea68e9b95a51b693a29568c898e27d1476bbd83c825664f18467fc175")
 
         expect { subject.validate! }.not_to raise_error
       end
@@ -38,6 +62,23 @@ RSpec.describe Gitlab::Checks::BranchCheck do
 
         it "doesn't prohibit the deletion of a hexadecimal branch name" do
           expect { subject.validate! }.not_to raise_error
+        end
+      end
+
+      context 'when branch name is invalid' do
+        let(:ref) { 'refs/heads/-wrong' }
+
+        it 'prohibits branches with an invalid name' do
+          expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError, 'You cannot create a branch with an invalid name.')
+        end
+
+        context 'deleting an invalid branch' do
+          let(:ref) { 'refs/heads/-wrong' }
+          let(:newrev) { '0000000000000000000000000000000000000000' }
+
+          it "doesn't prohibit the deletion of an invalid branch name" do
+            expect { subject.validate! }.not_to raise_error
+          end
         end
       end
     end
@@ -103,7 +144,7 @@ RSpec.describe Gitlab::Checks::BranchCheck do
           it 'prevents force push' do
             expect(Gitlab::Checks::ForcePush).to receive(:force_push?).and_return(true)
 
-            expect { subject.validate! }.to raise_error
+            expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError)
           end
         end
       end
@@ -126,7 +167,7 @@ RSpec.describe Gitlab::Checks::BranchCheck do
           it 'prevents force push' do
             expect(Gitlab::Checks::ForcePush).to receive(:force_push?).and_return(true)
 
-            expect { subject.validate! }.to raise_error
+            expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError)
           end
         end
 
@@ -141,7 +182,7 @@ RSpec.describe Gitlab::Checks::BranchCheck do
           it 'prevents force push' do
             expect(Gitlab::Checks::ForcePush).to receive(:force_push?).and_return(true)
 
-            expect { subject.validate! }.to raise_error
+            expect { subject.validate! }.to raise_error(Gitlab::GitAccess::ForbiddenError)
           end
         end
       end

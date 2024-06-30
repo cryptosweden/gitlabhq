@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe API::ConanInstancePackages do
-  let(:snowplow_standard_context_params) { { user: user, project: project, namespace: project.namespace } }
+RSpec.describe API::ConanInstancePackages, feature_category: :package_registry do
+  let(:snowplow_gitlab_standard_context) { { user: user, project: project, namespace: project.namespace, property: 'i_package_conan_user' } }
 
   include_context 'conan api setup'
 
@@ -17,6 +17,12 @@ RSpec.describe API::ConanInstancePackages do
     let_it_be(:url) { '/packages/conan/v1/conans/search' }
 
     it_behaves_like 'conan search endpoint'
+
+    it_behaves_like 'conan FIPS mode' do
+      let(:params) { { q: package.conan_recipe } }
+
+      subject { get api(url), params: params }
+    end
   end
 
   describe 'GET /api/v4/packages/conan/v1/users/authenticate' do
@@ -88,7 +94,7 @@ RSpec.describe API::ConanInstancePackages do
     end
 
     describe 'DELETE /api/v4/packages/conan/v1/conans/:package_name/package_version/:package_username/:package_channel' do
-      subject { delete api("/packages/conan/v1/conans/#{recipe_path}"), headers: headers}
+      subject { delete api("/packages/conan/v1/conans/#{recipe_path}"), headers: headers }
 
       it_behaves_like 'delete package endpoint'
     end
@@ -97,22 +103,20 @@ RSpec.describe API::ConanInstancePackages do
   context 'file download endpoints' do
     include_context 'conan file download endpoints'
 
-    describe 'GET /api/v4/packages/conan/v1/files/:package_name/package_version/:package_username/:package_channel/
-:recipe_revision/export/:file_name' do
+    describe 'GET /api/v4/packages/conan/v1/files/:package_name/package_version/:package_username/:package_channel/:recipe_revision/export/:file_name' do
       subject do
         get api("/packages/conan/v1/files/#{recipe_path}/#{metadata.recipe_revision}/export/#{recipe_file.file_name}"),
-            headers: headers
+          headers: headers
       end
 
       it_behaves_like 'recipe file download endpoint'
       it_behaves_like 'project not found by recipe'
     end
 
-    describe 'GET /api/v4/packages/conan/v1/files/:package_name/package_version/:package_username/:package_channel/
-:recipe_revision/package/:conan_package_reference/:package_revision/:file_name' do
+    describe 'GET /api/v4/packages/conan/v1/files/:package_name/package_version/:package_username/:package_channel/:recipe_revision/package/:conan_package_reference/:package_revision/:file_name' do
       subject do
         get api("/packages/conan/v1/files/#{recipe_path}/#{metadata.recipe_revision}/package/#{metadata.conan_package_reference}/#{metadata.package_revision}/#{package_file.file_name}"),
-            headers: headers
+          headers: headers
       end
 
       it_behaves_like 'package file download endpoint'

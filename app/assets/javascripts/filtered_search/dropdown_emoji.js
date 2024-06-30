@@ -1,4 +1,4 @@
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { __ } from '~/locale';
 import Ajax from './droplab/plugins/ajax';
 import Filter from './droplab/plugins/filter';
@@ -14,7 +14,7 @@ export default class DropdownEmoji extends FilteredSearchDropdown {
         method: 'setData',
         loadingTemplate: this.loadingTemplate,
         onError() {
-          createFlash({
+          createAlert({
             message: __('An error occurred fetching the dropdown data.'),
           });
         },
@@ -75,6 +75,7 @@ export default class DropdownEmoji extends FilteredSearchDropdown {
         const name = valueElement.innerText;
         const emojiTag = this.glEmojiTag(name);
         const emojiElement = dropdownItem.querySelector('gl-emoji');
+        // eslint-disable-next-line no-unsanitized/property
         emojiElement.outerHTML = emojiTag;
       }
     });

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User activates issue tracker', :js do
+RSpec.describe 'User activates issue tracker', :js, feature_category: :integrations do
   include_context 'project integration activation'
 
   let(:url) { 'http://tracker.example.com' }
@@ -10,10 +10,10 @@ RSpec.describe 'User activates issue tracker', :js do
   def fill_form(disable: false, skip_new_issue_url: false)
     click_active_checkbox if disable
 
-    fill_in 'service_project_url', with: url
-    fill_in 'service_issues_url', with: "#{url}/:id"
+    fill_in 'service-project_url', with: url
+    fill_in 'service-issues_url', with: "#{url}/:id"
 
-    fill_in 'service_new_issue_url', with: url unless skip_new_issue_url
+    fill_in 'service-new_issue_url', with: url unless skip_new_issue_url
   end
 
   shared_examples 'external issue tracker activation' do |tracker:, skip_new_issue_url: false, skip_test: false|
@@ -34,11 +34,12 @@ RSpec.describe 'User activates issue tracker', :js do
 
         it 'activates the integration' do
           expect(page).to have_content("#{tracker} settings saved and active.")
-          expect(page).to have_current_path(edit_project_integration_path(project, tracker.parameterize(separator: '_')), ignore_query: true)
+          expect(page).to have_current_path(edit_project_settings_integration_path(project, tracker.parameterize(separator: '_')), ignore_query: true)
         end
 
         it 'shows the link in the menu' do
-          page.within('.nav-sidebar') do
+          within_testid('super-sidebar') do
+            click_button 'Plan'
             expect(page).to have_link(tracker, href: url)
           end
         end
@@ -58,7 +59,7 @@ RSpec.describe 'User activates issue tracker', :js do
           end
 
           expect(page).to have_content("#{tracker} settings saved and active.")
-          expect(page).to have_current_path(edit_project_integration_path(project, tracker.parameterize(separator: '_')), ignore_query: true)
+          expect(page).to have_current_path(edit_project_settings_integration_path(project, tracker.parameterize(separator: '_')), ignore_query: true)
         end
       end
     end
@@ -73,11 +74,12 @@ RSpec.describe 'User activates issue tracker', :js do
 
       it 'saves but does not activate the integration' do
         expect(page).to have_content("#{tracker} settings saved, but not active.")
-        expect(page).to have_current_path(edit_project_integration_path(project, tracker.parameterize(separator: '_')), ignore_query: true)
+        expect(page).to have_current_path(edit_project_settings_integration_path(project, tracker.parameterize(separator: '_')), ignore_query: true)
       end
 
       it 'does not show the external tracker link in the menu' do
-        page.within('.nav-sidebar') do
+        within_testid('super-sidebar') do
+          click_button 'Plan'
           expect(page).not_to have_link(tracker, href: url)
         end
       end
@@ -89,4 +91,6 @@ RSpec.describe 'User activates issue tracker', :js do
   it_behaves_like 'external issue tracker activation', tracker: 'Bugzilla'
   it_behaves_like 'external issue tracker activation', tracker: 'Custom issue tracker'
   it_behaves_like 'external issue tracker activation', tracker: 'EWM', skip_test: true
+  it_behaves_like 'external issue tracker activation', tracker: 'ClickUp', skip_new_issue_url: true
+  it_behaves_like 'external issue tracker activation', tracker: 'Phorge', skip_new_issue_url: true
 end

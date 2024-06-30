@@ -6,10 +6,10 @@
 # to provide additional features for environments.
 module Integrations
   class BaseMonitoring < Integration
-    default_value_for :category, 'monitoring'
+    attribute :category, default: 'monitoring'
 
     def self.supported_events
-      %w()
+      %w[]
     end
 
     def can_query?

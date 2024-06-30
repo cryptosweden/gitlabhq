@@ -2,18 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User selects branches for new MR', :js do
-  let(:project) { create(:project, :public, :repository) }
-  let(:user) { project.creator }
+RSpec.describe 'Merge request > User selects branches for new MR', :js, feature_category: :code_review_workflow do
+  include ListboxHelpers
+
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :public, :repository, namespace: user.namespace) }
 
   def select_source_branch(branch_name)
     find('.js-source-branch', match: :first).click
-    find('.js-source-branch-dropdown .dropdown-input-field').native.send_keys branch_name
-    find('.js-source-branch-dropdown .dropdown-content a', text: branch_name, match: :first).click
+    find('.gl-listbox-search-input').native.send_keys branch_name
+    select_listbox_item(branch_name)
   end
 
   before do
-    project.add_maintainer(user)
     sign_in(user)
   end
 
@@ -27,7 +28,7 @@ RSpec.describe 'Merge request > User selects branches for new MR', :js do
     expect(page).to have_content('Target branch')
 
     first('.js-source-branch').click
-    find('.js-source-branch-dropdown .dropdown-content a', match: :first).click
+    find('.gl-new-dropdown-item', match: :first).click
 
     expect(page).to have_content "b83d6e3"
   end
@@ -42,8 +43,12 @@ RSpec.describe 'Merge request > User selects branches for new MR', :js do
     expect(page).to have_content('Source branch')
     expect(page).to have_content('Target branch')
 
+    find('.js-source-branch').click
+    select_listbox_item('master')
+
     first('.js-target-branch').click
-    find('.js-target-branch-dropdown .dropdown-content a', text: 'v1.1.0', match: :first).click
+    find('.gl-listbox-search-input').native.send_keys 'v1.1.0'
+    select_listbox_item('v1.1.0')
 
     expect(page).to have_content "b83d6e3"
   end
@@ -62,30 +67,12 @@ RSpec.describe 'Merge request > User selects branches for new MR', :js do
     fill_in "merge_request_title", with: "Orphaned MR test"
     click_button "Create merge request"
 
-    click_button "Check out branch"
-
-    expect(page).to have_content 'git checkout -b \'orphaned-branch\' \'origin/orphaned-branch\''
-  end
-
-  it 'allows filtering multiple dropdowns' do
-    visit project_new_merge_request_path(project)
-
-    first('.js-source-branch').click
-
-    page.within '.js-source-branch-dropdown' do
-      input = find('.dropdown-input-field')
-      input.click
-      input.send_keys('orphaned-branch')
-
-      expect(page).to have_css('.dropdown-content li', count: 1)
+    page.within 'main' do
+      click_button 'Code'
+      click_button "Check out branch"
     end
 
-    first('.js-target-branch').click
-
-    find('.js-target-branch-dropdown .dropdown-content li', match: :first)
-    target_items = all('.js-target-branch-dropdown .dropdown-content li')
-
-    expect(target_items.count).to be > 1
+    expect(page).to have_content 'git checkout -b \'orphaned-branch\' \'origin/orphaned-branch\''
   end
 
   context 'when target project cannot be viewed by the current user' do
@@ -159,9 +146,7 @@ RSpec.describe 'Merge request > User selects branches for new MR', :js do
 
   context 'when a new merge request has a pipeline' do
     let!(:pipeline) do
-      create(:ci_pipeline, sha: project.commit('fix').id,
-                           ref: 'fix',
-                           project: project)
+      create(:ci_pipeline, sha: project.commit('fix').id, ref: 'fix', project: project)
     end
 
     it 'shows pipelines for a new merge request' do

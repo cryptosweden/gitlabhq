@@ -4,6 +4,9 @@ import {
   addExperimentContext,
   addReferrersCacheEntry,
   filterOldReferrersCacheEntries,
+  InternalEventHandler,
+  createInternalEventPayload,
+  validateAdditionalProperties,
 } from '~/tracking/utils';
 import { TRACKING_CONTEXT_SCHEMA } from '~/experimentation/constants';
 import { REFERRER_TTL, URLS_CACHE_STORAGE_KEY } from '~/tracking/constants';
@@ -94,6 +97,93 @@ describe('~/tracking/utils', () => {
         expect(cache[0].referrer).toBe(TEST_HOST);
         expect(cache[0].timestamp).toBeDefined();
       });
+    });
+
+    describe('createInternalEventPayload', () => {
+      it('should return event name from element', () => {
+        const mockEl = { dataset: { eventTracking: 'click' } };
+        const result = createInternalEventPayload(mockEl);
+        expect(result).toEqual({ additionalProperties: {}, event: 'click' });
+      });
+      it('should return event and additional Properties from element', () => {
+        const mockEl = {
+          dataset: {
+            eventTracking: 'click',
+            eventProperty: 'test-property',
+            eventLabel: 'test-label',
+            eventValue: 2,
+          },
+        };
+        const result = createInternalEventPayload(mockEl);
+        expect(result).toEqual({
+          additionalProperties: { property: 'test-property', label: 'test-label', value: 2 },
+          event: 'click',
+        });
+      });
+    });
+
+    describe('InternalEventHandler', () => {
+      it.each([
+        ['should call the provided function with the correct event payload', 'click', true],
+        [
+          'should not call the provided function if the closest matching element is not found',
+          null,
+          false,
+        ],
+      ])('%s', (_, payload, shouldCallFunc) => {
+        const mockFunc = jest.fn();
+        const mockEl = payload ? { dataset: { eventTracking: payload } } : null;
+        const mockEvent = {
+          target: {
+            closest: jest.fn().mockReturnValue(mockEl),
+          },
+        };
+
+        InternalEventHandler(mockEvent, mockFunc);
+
+        if (shouldCallFunc) {
+          expect(mockFunc).toHaveBeenCalledWith(payload, {});
+        } else {
+          expect(mockFunc).not.toHaveBeenCalled();
+        }
+      });
+    });
+  });
+
+  describe('validateAdditionalProperties', () => {
+    it('returns undefined for allowed additional properties', () => {
+      const additionalProperties = {
+        label: 'value',
+        property: 'property',
+        value: 123,
+      };
+
+      expect(validateAdditionalProperties(additionalProperties)).toBe(undefined);
+    });
+
+    it('throws an error if unallowed additional properties are passed', () => {
+      const additionalProperties = {
+        role: 'admin',
+      };
+
+      expect(() => {
+        validateAdditionalProperties(additionalProperties);
+      }).toThrow(
+        'Allowed additional properties are label, property, value for InternalEvents tracking.\nDisallowed additional properties were provided: role.',
+      );
+    });
+
+    it('throws an error and lists all disallowed additional properties if multiple are passed', () => {
+      const additionalProperties = {
+        node: 'admin',
+        lang: 'golang',
+      };
+
+      expect(() => {
+        validateAdditionalProperties(additionalProperties);
+      }).toThrow(
+        'Allowed additional properties are label, property, value for InternalEvents tracking.\nDisallowed additional properties were provided: node, lang.',
+      );
     });
   });
 });

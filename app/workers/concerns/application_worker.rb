@@ -2,7 +2,7 @@
 
 require 'sidekiq/api'
 
-Sidekiq::Worker.extend ActiveSupport::Concern
+Sidekiq::Worker.extend ActiveSupport::Concern # rubocop:disable Cop/SidekiqApiUsage
 
 module ApplicationWorker
   extend ActiveSupport::Concern
@@ -11,11 +11,13 @@ module ApplicationWorker
   include WorkerAttributes
   include WorkerContext
   include Gitlab::SidekiqVersioning::Worker
+  include Gitlab::Loggable
 
   LOGGING_EXTRA_KEY = 'extra'
   SAFE_PUSH_BULK_LIMIT = 1000
 
   included do
+    prefer_calling_context_feature_category false
     set_queue
     after_set_class_attribute { set_queue }
 
@@ -27,12 +29,17 @@ module ApplicationWorker
         'jid' => jid
       )
 
-      payload.stringify_keys.merge(context)
+      build_structured_payload(**payload).merge(context)
     end
 
     def log_extra_metadata_on_done(key, value)
       @done_log_extra_metadata ||= {}
       @done_log_extra_metadata[key] = value
+    end
+
+    def log_hash_metadata_on_done(hash)
+      @done_log_extra_metadata ||= {}
+      hash.each { |key, value| @done_log_extra_metadata[key] = value }
     end
 
     def logging_extras
@@ -58,6 +65,10 @@ module ApplicationWorker
       status_from_class = self.sidekiq_options_hash['status_expiration']
 
       set(status_expiration: status_from_class || Gitlab::SidekiqStatus::DEFAULT_EXPIRATION)
+    end
+
+    def deferred(count = 0, by = nil)
+      set(deferred: true, deferred_count: count, deferred_by: by)
     end
 
     def generated_queue_name
@@ -91,9 +102,22 @@ module ApplicationWorker
       validate_worker_attributes!
     end
 
+    # Only override perform_at and perform_in since perform_async calls Setter.new(..).perform_async
+    # which is handled in the Gitlab::Patch::SidekiqJobSetter.
+    %i[perform_at perform_in].each do |name|
+      define_method(name) do |*args|
+        Gitlab::SidekiqSharding::Router.route(self) do
+          super(*args)
+        end
+      end
+    end
+
     def set_queue
       queue_name = ::Gitlab::SidekiqConfig::WorkerRouter.global.route(self)
       sidekiq_options queue: queue_name # rubocop:disable Cop/SidekiqOptionsQueue
+
+      store_name = ::Gitlab::SidekiqConfig::WorkerRouter.global.store(self)
+      sidekiq_options store: store_name # rubocop:disable Cop/SidekiqOptionsQueue
     end
 
     def queue_namespace(new_namespace = nil)
@@ -134,10 +158,6 @@ module ApplicationWorker
       @log_bulk_perform_async = true
     end
 
-    def queue_size
-      Sidekiq::Queue.new(queue).size
-    end
-
     def bulk_perform_async(args_list)
       if log_bulk_perform_async?
         Sidekiq.logger.info('class' => self.name, 'args_list' => args_list, 'args_list_count' => args_list.length, 'message' => 'Inserting multiple jobs')
@@ -176,16 +196,24 @@ module ApplicationWorker
         schedule_at = bulk_schedule_at
       end
 
-      in_safe_limit_batches(args_list, schedule_at) do |args_batch, schedule_at_for_batch|
-        Sidekiq::Client.push_bulk('class' => self, 'args' => args_batch, 'at' => schedule_at_for_batch)
+      Gitlab::SidekiqSharding::Router.route(self) do
+        in_safe_limit_batches(args_list, schedule_at) do |args_batch, schedule_at_for_batch|
+          Sidekiq::Client.push_bulk('class' => self, 'args' => args_batch, 'at' => schedule_at_for_batch)
+        end
       end
+    end
+
+    def with_ip_address_state
+      set(ip_address_state: ::Gitlab::IpAddressState.current)
     end
 
     private
 
     def do_push_bulk(args_list)
-      in_safe_limit_batches(args_list) do |args_batch, _|
-        Sidekiq::Client.push_bulk('class' => self, 'args' => args_batch)
+      Gitlab::SidekiqSharding::Router.route(self) do
+        in_safe_limit_batches(args_list) do |args_batch, _|
+          Sidekiq::Client.push_bulk('class' => self, 'args' => args_batch)
+        end
       end
     end
 

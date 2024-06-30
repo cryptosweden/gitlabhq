@@ -5,7 +5,7 @@ module Gitlab
     module Dvcs
       ENCODED_SLASH = '@'
       SLASH = '/'
-      ENCODED_ROUTE_REGEX = /[a-zA-Z0-9_\-\.#{ENCODED_SLASH}]+/.freeze
+      ENCODED_ROUTE_REGEX = /[a-zA-Z0-9_\-\.#{ENCODED_SLASH}]+/
 
       def self.encode_slash(path)
         path.gsub(SLASH, ENCODED_SLASH)
@@ -38,7 +38,8 @@ module Gitlab
       # @param [String] namespace
       def self.restore_full_path(namespace:, project:)
         if project.include?(ENCODED_SLASH)
-          project.gsub(ENCODED_SLASH, SLASH)
+          # Replace multiple slashes with single ones to make sure the redirect stays on the same host
+          project.gsub(ENCODED_SLASH, SLASH).gsub(%r{\/{2,}}, '/')
         else
           "#{namespace}/#{project}"
         end

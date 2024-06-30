@@ -1,5 +1,6 @@
 import MockAdapter from 'axios-mock-adapter';
-import { editor as monacoEditor } from 'monaco-editor';
+import { Emitter } from 'monaco-editor';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import waitForPromises from 'helpers/wait_for_promises';
 import {
   EXTENSION_MARKDOWN_PREVIEW_PANEL_CLASS,
@@ -10,13 +11,14 @@ import {
 } from '~/editor/constants';
 import { EditorMarkdownPreviewExtension } from '~/editor/extensions/source_editor_markdown_livepreview_ext';
 import SourceEditor from '~/editor/source_editor';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import syntaxHighlight from '~/syntax_highlight';
 import { spyOnApi } from './helpers';
 
 jest.mock('~/syntax_highlight');
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('Markdown Live Preview Extension for Source Editor', () => {
   let editor;
@@ -25,14 +27,16 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
   let panelSpy;
   let mockAxios;
   let extension;
+  let resizeCallback;
   const previewMarkdownPath = '/gitlab/fooGroup/barProj/preview_markdown';
   const firstLine = 'This is a';
   const secondLine = 'multiline';
   const thirdLine = 'string with some **markup**';
   const text = `${firstLine}\n${secondLine}\n${thirdLine}`;
-  const plaintextPath = 'foo.txt';
   const markdownPath = 'foo.md';
   const responseData = '<div>FooBar</div>';
+  const observeSpy = jest.fn();
+  const disconnectSpy = jest.fn();
 
   const togglePreview = async () => {
     instance.togglePreview();
@@ -41,14 +45,35 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
 
   beforeEach(() => {
     mockAxios = new MockAdapter(axios);
-    setFixtures('<div id="editor" data-editor-loading></div>');
+    setHTMLFixture(
+      '<div style="width: 500px; height: 500px"><div id="editor" data-editor-loading></div></div>',
+    );
     editorEl = document.getElementById('editor');
+    global.ResizeObserver = class {
+      constructor(callback) {
+        resizeCallback = callback;
+        this.observe = (node) => {
+          return observeSpy(node);
+        };
+        this.disconnect = () => {
+          return disconnectSpy();
+        };
+      }
+    };
+
     editor = new SourceEditor();
     instance = editor.createInstance({
       el: editorEl,
       blobPath: markdownPath,
       blobContent: text,
     });
+
+    instance.toolbar = {
+      addItems: jest.fn(),
+      updateItem: jest.fn(),
+      removeItems: jest.fn(),
+    };
+
     extension = instance.use({
       definition: EditorMarkdownPreviewExtension,
       setupOptions: { previewMarkdownPath },
@@ -58,64 +83,89 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
 
   afterEach(() => {
     instance.dispose();
-    editorEl.remove();
     mockAxios.restore();
+    resetHTMLFixture();
   });
 
   it('sets up the preview on the instance', () => {
     expect(instance.markdownPreview).toEqual({
       el: undefined,
-      action: expect.any(Object),
+      actions: expect.any(Object),
       shown: false,
       modelChangeListener: undefined,
       path: previewMarkdownPath,
+      actionShowPreviewCondition: expect.any(Object),
+      eventEmitter: expect.any(Object),
     });
   });
 
-  describe('model language changes listener', () => {
-    let cleanupSpy;
-    let actionSpy;
+  it('support external preview trigger via emitter event', () => {
+    expect(panelSpy).not.toHaveBeenCalled();
 
-    beforeEach(async () => {
-      cleanupSpy = jest.fn();
-      actionSpy = jest.fn();
-      spyOnApi(extension, {
-        cleanup: cleanupSpy,
-        setupPreviewAction: actionSpy,
+    instance.markdownPreview.eventEmitter.fire();
+
+    expect(panelSpy).toHaveBeenCalled();
+  });
+
+  describe('ResizeObserver handler', () => {
+    it('sets a ResizeObserver to observe the container DOM node', () => {
+      observeSpy.mockClear();
+      instance.togglePreview();
+      expect(observeSpy).toHaveBeenCalledWith(instance.getContainerDomNode());
+    });
+
+    describe('disconnects the ResizeObserver when…', () => {
+      beforeEach(() => {
+        instance.togglePreview();
+        instance.markdownPreview.modelChangeListener = {
+          dispose: jest.fn(),
+        };
       });
-      await togglePreview();
+
+      it('the preview gets closed', () => {
+        expect(disconnectSpy).not.toHaveBeenCalled();
+        instance.togglePreview();
+        expect(disconnectSpy).toHaveBeenCalled();
+      });
+
+      it('the extension is unused', () => {
+        expect(disconnectSpy).not.toHaveBeenCalled();
+        instance.unuse(extension);
+        expect(disconnectSpy).toHaveBeenCalled();
+      });
     });
 
-    afterEach(() => {
-      jest.clearAllMocks();
+    describe('layout behavior', () => {
+      let layoutSpy;
+      let instanceDimensions;
+      let newInstanceWidth;
+
+      beforeEach(() => {
+        instanceDimensions = instance.getLayoutInfo();
+      });
+
+      it('does not trigger the layout if the preview panel is closed', () => {
+        layoutSpy = jest.spyOn(instance, 'layout');
+        newInstanceWidth = instanceDimensions.width + 100;
+
+        // Manually trigger the resize event
+        resizeCallback([{ contentRect: { width: newInstanceWidth } }]);
+        expect(layoutSpy).not.toHaveBeenCalled();
+      });
+
+      it('triggers the layout if the preview panel is opened, and width of the editor has changed', () => {
+        instance.togglePreview();
+        layoutSpy = jest.spyOn(instance, 'layout');
+        newInstanceWidth = instanceDimensions.width + 100;
+
+        // Manually trigger the resize event
+        resizeCallback([{ contentRect: { width: newInstanceWidth } }]);
+        expect(layoutSpy).toHaveBeenCalledWith({
+          width: newInstanceWidth * EXTENSION_MARKDOWN_PREVIEW_PANEL_WIDTH,
+          height: instanceDimensions.height,
+        });
+      });
     });
-
-    it('cleans up when switching away from markdown', () => {
-      expect(cleanupSpy).not.toHaveBeenCalled();
-      expect(actionSpy).not.toHaveBeenCalled();
-
-      instance.updateModelLanguage(plaintextPath);
-
-      expect(cleanupSpy).toHaveBeenCalled();
-      expect(actionSpy).not.toHaveBeenCalled();
-    });
-
-    it.each`
-      oldLanguage    | newLanguage    | setupCalledTimes
-      ${'plaintext'} | ${'markdown'}  | ${1}
-      ${'markdown'}  | ${'markdown'}  | ${0}
-      ${'markdown'}  | ${'plaintext'} | ${0}
-      ${'markdown'}  | ${undefined}   | ${0}
-      ${undefined}   | ${'markdown'}  | ${1}
-    `(
-      'correctly handles re-enabling of the action when switching from $oldLanguage to $newLanguage',
-      ({ oldLanguage, newLanguage, setupCalledTimes } = {}) => {
-        expect(actionSpy).not.toHaveBeenCalled();
-        instance.updateModelLanguage(oldLanguage);
-        instance.updateModelLanguage(newLanguage);
-        expect(actionSpy).toHaveBeenCalledTimes(setupCalledTimes);
-      },
-    );
   });
 
   describe('model change listener', () => {
@@ -132,41 +182,24 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
       instance.togglePreview();
     });
 
-    afterEach(() => {
-      jest.clearAllMocks();
-    });
-
     it('does not do anything if there is no model', () => {
       instance.setModel(null);
 
       expect(cleanupSpy).not.toHaveBeenCalled();
       expect(actionSpy).not.toHaveBeenCalled();
     });
-
-    it('cleans up the preview when the model changes', () => {
-      instance.setModel(monacoEditor.createModel('foo'));
-      expect(cleanupSpy).toHaveBeenCalled();
-    });
-
-    it.each`
-      language       | setupCalledTimes
-      ${'markdown'}  | ${1}
-      ${'plaintext'} | ${0}
-      ${undefined}   | ${0}
-    `(
-      'correctly handles actions when the new model is $language',
-      ({ language, setupCalledTimes } = {}) => {
-        instance.setModel(monacoEditor.createModel('foo', language));
-
-        expect(actionSpy).toHaveBeenCalledTimes(setupCalledTimes);
-      },
-    );
   });
 
-  describe('cleanup', () => {
+  describe('onBeforeUnuse', () => {
     beforeEach(async () => {
-      mockAxios.onPost().reply(200, { body: responseData });
+      mockAxios.onPost().reply(HTTP_STATUS_OK, { body: responseData });
       await togglePreview();
+    });
+
+    it('removes the registered buttons from the toolbar', () => {
+      expect(instance.toolbar.removeItems).not.toHaveBeenCalled();
+      instance.unuse(extension);
+      expect(instance.toolbar.removeItems).toHaveBeenCalledWith([]);
     });
 
     it('disposes the modelChange listener and does not fetch preview on content changes', () => {
@@ -176,7 +209,7 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
         fetchPreview: fetchPreviewSpy,
       });
 
-      instance.cleanup();
+      instance.unuse(extension);
       instance.setValue('Foo Bar');
       jest.advanceTimersByTime(EXTENSION_MARKDOWN_PREVIEW_UPDATE_DELAY);
 
@@ -186,15 +219,9 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
     it('removes the contextual menu action', () => {
       expect(instance.getAction(EXTENSION_MARKDOWN_PREVIEW_ACTION_ID)).toBeDefined();
 
-      instance.cleanup();
+      instance.unuse(extension);
 
       expect(instance.getAction(EXTENSION_MARKDOWN_PREVIEW_ACTION_ID)).toBe(null);
-    });
-
-    it('toggles the `shown` flag', () => {
-      expect(instance.markdownPreview.shown).toBe(true);
-      instance.cleanup();
-      expect(instance.markdownPreview.shown).toBe(false);
     });
 
     it('toggles the panel only if the preview is visible', () => {
@@ -204,13 +231,13 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
       expect(previewEl).toBeVisible();
       expect(parentEl.classList.contains(EXTENSION_MARKDOWN_PREVIEW_PANEL_PARENT_CLASS)).toBe(true);
 
-      instance.cleanup();
+      instance.unuse(extension);
       expect(previewEl).toBeHidden();
       expect(parentEl.classList.contains(EXTENSION_MARKDOWN_PREVIEW_PANEL_PARENT_CLASS)).toBe(
         false,
       );
 
-      instance.cleanup();
+      instance.unuse(extension);
       expect(previewEl).toBeHidden();
       expect(parentEl.classList.contains(EXTENSION_MARKDOWN_PREVIEW_PANEL_PARENT_CLASS)).toBe(
         false,
@@ -222,13 +249,37 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
 
       expect(instance.markdownPreview.shown).toBe(true);
 
-      instance.cleanup();
+      instance.unuse(extension);
 
       const { width: newWidth } = instance.getLayoutInfo();
       expect(newWidth === width / EXTENSION_MARKDOWN_PREVIEW_PANEL_WIDTH).toBe(true);
 
-      instance.cleanup();
+      instance.unuse(extension);
       expect(newWidth === width / EXTENSION_MARKDOWN_PREVIEW_PANEL_WIDTH).toBe(true);
+    });
+
+    it('disconnects the ResizeObserver', () => {
+      instance.unuse(extension);
+
+      expect(disconnectSpy).toHaveBeenCalled();
+    });
+
+    it('does not trigger the re-layout after instance is unused', async () => {
+      const emitter = new Emitter();
+
+      instance.unuse(extension);
+      instance.onDidLayoutChange = emitter.event;
+
+      // we have to re-use the extension to pick up the emitter
+      extension = instance.use({
+        definition: EditorMarkdownPreviewExtension,
+        setupOptions: { previewMarkdownPath },
+      });
+      instance.unuse(extension);
+      const layoutSpy = jest.spyOn(instance, 'layout');
+
+      await emitter.fire();
+      expect(layoutSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -241,7 +292,9 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
     let previewMarkdownSpy;
 
     beforeEach(() => {
-      previewMarkdownSpy = jest.fn().mockImplementation(() => [200, { body: responseData }]);
+      previewMarkdownSpy = jest
+        .fn()
+        .mockImplementation(() => [HTTP_STATUS_OK, { body: responseData }]);
       mockAxios.onPost(previewMarkdownPath).replyOnce((req) => previewMarkdownSpy(req));
     });
 
@@ -266,10 +319,10 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
     });
 
     it('catches the errors when fetching the preview', async () => {
-      mockAxios.onPost().reply(500);
+      mockAxios.onPost().reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
 
       await fetchPreview();
-      expect(createFlash).toHaveBeenCalled();
+      expect(createAlert).toHaveBeenCalled();
     });
   });
 
@@ -302,7 +355,13 @@ describe('Markdown Live Preview Extension for Source Editor', () => {
 
   describe('togglePreview', () => {
     beforeEach(() => {
-      mockAxios.onPost().reply(200, { body: responseData });
+      mockAxios.onPost().reply(HTTP_STATUS_OK, { body: responseData });
+    });
+
+    it('toggles the condition to toggle preview/hide actions in the context menu', () => {
+      expect(instance.markdownPreview.actionShowPreviewCondition.get()).toBe(true);
+      instance.togglePreview();
+      expect(instance.markdownPreview.actionShowPreviewCondition.get()).toBe(false);
     });
 
     it('toggles preview flag on instance', () => {

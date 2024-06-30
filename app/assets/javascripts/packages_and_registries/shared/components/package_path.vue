@@ -47,7 +47,7 @@ export default {
 </script>
 
 <template>
-  <div data-qa-selector="package-path" class="gl-display-flex gl-align-items-center">
+  <div class="gl-display-flex gl-align-items-center">
     <gl-icon data-testid="base-icon" name="project" class="gl-mx-3 gl-min-w-0" />
 
     <gl-link
@@ -66,7 +66,7 @@ export default {
         <span
           v-gl-tooltip="{ title: path }"
           data-testid="ellipsis-icon"
-          class="gl-inset-border-1-gray-200 gl-rounded-base gl-px-2 gl-min-w-0"
+          class="gl-shadow-inner-1-gray-200 gl-rounded-base gl-px-2 gl-min-w-0"
         >
           <gl-icon name="ellipsis_h" />
         </span>

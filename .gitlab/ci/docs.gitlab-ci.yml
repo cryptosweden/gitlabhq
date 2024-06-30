@@ -2,7 +2,7 @@
   extends:
     - .default-retry
     - .docs:rules:review-docs
-  image: ${GITLAB_DEPENDENCY_PROXY}ruby:2.7-alpine
+  image: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}ruby:${RUBY_VERSION}-alpine
   stage: review
   needs: []
   variables:
@@ -39,33 +39,61 @@ review-docs-cleanup:
   script:
     - ./scripts/trigger-build.rb docs cleanup
 
+.docs-markdown-lint-image:
+  # When updating the image version here, update it in /scripts/lint-doc.sh too.
+  image: ${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-docs/lint-markdown:alpine-3.20-vale-3.4.2-markdownlint2-0.13.0-lychee-0.15.1
+
 docs-lint markdown:
   extends:
     - .default-retry
     - .docs:rules:docs-lint
-  # When updating the image version here, update it in /scripts/lint-doc.sh too.
-  image: registry.gitlab.com/gitlab-org/gitlab-docs/lint-markdown:alpine-3.15-vale-2.15.0-markdownlint-0.31.0
+    - .docs-markdown-lint-image
+    - .yarn-cache
   stage: lint
   needs: []
   script:
+    - source ./scripts/utils.sh
+    - yarn_install_script
+    - install_gitlab_gem
     - scripts/lint-doc.sh
+    - scripts/lint/check_mermaid.mjs
+
+docs-lint blueprint:
+  extends:
+    - .default-retry
+    - .docs:rules:docs-blueprints-lint
+  image: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}ruby:${RUBY_VERSION}-slim
+  stage: lint
+  needs: []
+  script:
+    - scripts/lint-docs-blueprints.rb
+
+docs code_quality:
+  extends:
+    - .reports:rules:docs_code_quality
+    - .docs-markdown-lint-image
+  stage: lint
+  needs: []
+  dependencies: []
+  allow_failure: true
+  script:
+    - vale --output=doc/.vale/vale-json.tmpl --minAlertLevel warning doc > gl-code-quality-report-docs.json || exit_code=$?
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report-docs.json
+    paths:
+      - gl-code-quality-report-docs.json
+    expire_in: 2 weeks
+    when: always
 
 docs-lint links:
   extends:
     - .docs:rules:docs-lint
-  image: registry.gitlab.com/gitlab-org/gitlab-docs/lint-html:alpine-3.15-ruby-2.7.5-cee62c13
+    - .docs-markdown-lint-image
   stage: lint
   needs: []
   script:
-    # Prepare docs for build
-    # The path must be 'ee/' because we have hardcoded links relying on it
-    # https://gitlab.com/gitlab-org/gitlab-docs/-/blob/887850752fc0e72856da6632db132f005ba77f16/content/index.erb#L44-63
-    - mv doc/ /tmp/gitlab-docs/content/ee
-    - cd /tmp/gitlab-docs
-    # Build HTML from Markdown
-    - bundle exec nanoc
-    # Check the internal links and anchors (in parallel)
-    - "parallel time bundle exec nanoc check ::: internal_links internal_anchors"
+    - lychee --offline --include-fragments doc
 
 ui-docs-links lint:
   extends:
@@ -82,11 +110,20 @@ docs-lint deprecations-and-removals:
     SETUP_DB: "false"
   extends:
     - .default-retry
-    - .rails-cache
+    - .ruby-cache
     - .default-before_script
     - .docs:rules:deprecations-and-removals
   stage: lint
   needs: []
   script:
     - bundle exec rake gitlab:docs:check_deprecations
-    - bundle exec rake gitlab:docs:check_removals
+
+docs-lint redirects:
+  image: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}ruby:${RUBY_VERSION}-alpine
+  stage: lint
+  extends:
+    - .default-retry
+    - .docs:rules:redirect-check
+  needs: []
+  script:
+    - ./scripts/lint-docs-redirects.rb

@@ -32,7 +32,7 @@ RSpec.describe Gitlab::AlertManagement::Payload::Base do
     context 'with multiple paths provided' do
       let(:payload_class) do
         Class.new(described_class) do
-          attribute :test, paths: [['test'], %w(alt test)]
+          attribute :test, paths: [['test'], %w[alt test]]
         end
       end
 
@@ -110,6 +110,37 @@ RSpec.describe Gitlab::AlertManagement::Payload::Base do
         let(:raw_payload) { { 'test' => '15' } }
 
         it { is_expected.to eq 15 }
+      end
+
+      context 'with an incompatible matching value' do
+        let(:raw_payload) { { 'test' => String } }
+
+        it { is_expected.to be_nil }
+      end
+
+      context 'with an incompatible matching value' do
+        let(:raw_payload) { { 'test' => 'apple' } }
+
+        it { is_expected.to be_nil }
+      end
+    end
+
+    context 'with a time_with_epoch_millis type provided' do
+      let(:timestamp) { 3.hours.ago }
+      let(:epoch_millis) { (timestamp.to_f * 1000).to_i }
+
+      let(:payload_class) do
+        Class.new(described_class) do
+          attribute :test, paths: [['test']], type: :time_with_epoch_millis
+        end
+      end
+
+      it { is_expected.to be_nil }
+
+      context 'with a compatible matching value' do
+        let(:raw_payload) { { 'test' => epoch_millis } }
+
+        it { is_expected.to be_within(1.second).of(timestamp) }
       end
 
       context 'with an incompatible matching value' do
@@ -204,8 +235,8 @@ RSpec.describe Gitlab::AlertManagement::Payload::Base do
     end
 
     context 'with too-long hosts array' do
-      let(:hosts) { %w(abc def ghij) }
-      let(:shortened_hosts) { %w(abc def ghi) }
+      let(:hosts) { %w[abc def ghij] }
+      let(:shortened_hosts) { %w[abc def ghi] }
 
       before do
         stub_const('::AlertManagement::Alert::HOSTS_MAX_LENGTH', 9)
@@ -215,17 +246,57 @@ RSpec.describe Gitlab::AlertManagement::Payload::Base do
       it { is_expected.to eq(hosts: shortened_hosts, project_id: project.id) }
 
       context 'with host cut off between elements' do
-        let(:hosts) { %w(abcde fghij) }
-        let(:shortened_hosts) { %w(abcde fghi) }
+        let(:hosts) { %w[abcde fghij] }
+        let(:shortened_hosts) { %w[abcde fghi] }
 
         it { is_expected.to eq({ hosts: shortened_hosts, project_id: project.id }) }
       end
 
       context 'with nested hosts' do
         let(:hosts) { ['abc', ['de', 'f'], 'g', 'hij'] } # rubocop:disable Style/WordArray
-        let(:shortened_hosts) { %w(abc de f g hi) }
+        let(:shortened_hosts) { %w[abc de f g hi] }
 
         it { is_expected.to eq({ hosts: shortened_hosts, project_id: project.id }) }
+      end
+    end
+
+    context 'with present, non-string values for string fields' do
+      let_it_be(:stubs) do
+        {
+          description: { "description" => "description" },
+          monitoring_tool: ['datadog', 5],
+          service: 4356875,
+          title: true
+        }
+      end
+
+      before do
+        allow(parsed_payload).to receive_messages(stubs)
+      end
+
+      it 'casts values to strings' do
+        is_expected.to eq({
+          description: "{\"description\"=>\"description\"}",
+          monitoring_tool: "[\"datadog\", 5]",
+          service: '4356875',
+          project_id: project.id,
+          title: "true"
+        })
+      end
+    end
+
+    context 'with blank values for string fields' do
+      let_it_be(:stubs) do
+        {
+          description: nil,
+          monitoring_tool: '',
+          service: {},
+          title: []
+        }
+      end
+
+      it 'leaves the fields blank' do
+        is_expected.to eq({ project_id: project.id })
       end
     end
   end
@@ -306,5 +377,27 @@ RSpec.describe Gitlab::AlertManagement::Payload::Base do
     subject { parsed_payload.has_required_attributes? }
 
     it { is_expected.to be(true) }
+  end
+
+  describe '#source' do
+    subject { parsed_payload.source }
+
+    it { is_expected.to be_nil }
+
+    context 'with alerting integration provided' do
+      before do
+        parsed_payload.integration = instance_double('::AlertManagement::HttpIntegration', name: 'INTEGRATION')
+      end
+
+      it { is_expected.to eq('INTEGRATION') }
+    end
+
+    context 'with monitoring tool defined in the raw payload' do
+      before do
+        allow(parsed_payload).to receive(:monitoring_tool).and_return('TOOL')
+      end
+
+      it { is_expected.to eq('TOOL') }
+    end
   end
 end

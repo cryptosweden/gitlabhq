@@ -1,10 +1,14 @@
 ---
 stage: Monitor
 group: Respond
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Alert Management alerts API **(FREE)**
+# Alert Management alerts API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 The Alert Management alerts API is limited to metric images. For more API endpoints, see the
 [GraphQL API](graphql/reference/index.md#alertmanagementalert).
@@ -17,7 +21,7 @@ POST /projects/:id/alert_management_alerts/:alert_iid/metric_images
 
 | Attribute   | Type    | Required | Description                          |
 |-------------|---------|----------|--------------------------------------|
-| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 | `alert_iid` | integer | yes      | The internal ID of a project's alert. |
 
 ```shell
@@ -33,7 +37,7 @@ Example response:
     "created_at": "2020-11-12T20:07:58.156Z",
     "filename": "sample_2054",
     "file_path": "/uploads/-/system/alert_metric_image/file/17/sample_2054.png",
-    "url": "example.com/metric",
+    "url": "https://example.com/metric",
     "url_text": "An example metric"
 }
 ```
@@ -46,7 +50,7 @@ GET /projects/:id/alert_management_alerts/:alert_iid/metric_images
 
 | Attribute   | Type    | Required | Description                          |
 |-------------|---------|----------|--------------------------------------|
-| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 | `alert_iid` | integer | yes      | The internal ID of a project's alert. |
 
 ```shell
@@ -62,7 +66,7 @@ Example response:
         "created_at": "2020-11-12T20:07:58.156Z",
         "filename": "sample_2054",
         "file_path": "/uploads/-/system/alert_metric_image/file/17/sample_2054.png",
-        "url": "example.com/metric",
+        "url": "https://example.com/metric",
         "url_text": "An example metric"
     },
     {
@@ -70,7 +74,7 @@ Example response:
         "created_at": "2020-11-12T20:14:26.441Z",
         "filename": "sample_2054",
         "file_path": "/uploads/-/system/alert_metric_image/file/18/sample_2054.png",
-        "url": "example.com/metric",
+        "url": "https://example.com/metric",
         "url_text": "An example metric"
     }
 ]
@@ -79,12 +83,12 @@ Example response:
 ## Update metric image
 
 ```plaintext
-PUT /projects/:id/alert_management_alerts/:alert_iid/metric_image/:image_id
+PUT /projects/:id/alert_management_alerts/:alert_iid/metric_images/:image_id
 ```
 
 | Attribute   | Type    | Required | Description                          |
 |-------------|---------|----------|--------------------------------------|
-| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 | `alert_iid` | integer | yes      | The internal ID of a project's alert. |
 | `image_id` | integer | yes      | The ID of the image. |
 | `url` | string | no      | The URL to view more metrics information. |
@@ -102,8 +106,8 @@ Example response:
     "created_at": "2020-11-13T00:06:18.084Z",
     "filename": "file.png",
     "file_path": "/uploads/-/system/alert_metric_image/file/23/file.png",
-    "url": "http://example.com",
-    "url_text": "Example website"
+    "url": "https://example.com/metric",
+    "url_text": "An example metric"
 }
 ```
 
@@ -115,7 +119,7 @@ DELETE /projects/:id/alert_management_alerts/:alert_iid/metric_images/:image_id
 
 | Attribute   | Type    | Required | Description                          |
 |-------------|---------|----------|--------------------------------------|
-| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
 | `alert_iid` | integer | yes      | The internal ID of a project's alert. |
 | `image_id` | integer | yes      | The ID of the image. |
 

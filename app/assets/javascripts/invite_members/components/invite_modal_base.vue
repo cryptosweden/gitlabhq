@@ -1,24 +1,27 @@
 <script>
 import {
+  GlCollapsibleListbox,
   GlFormGroup,
   GlModal,
-  GlDropdown,
-  GlDropdownItem,
   GlDatepicker,
   GlLink,
   GlSprintf,
   GlButton,
-  GlFormInput,
 } from '@gitlab/ui';
+
+import Tracking from '~/tracking';
 import { sprintf } from '~/locale';
 import ContentTransition from '~/vue_shared/components/content_transition.vue';
+import { initialSelectedRole, roleDropdownItems } from 'ee_else_ce/members/utils';
 import {
   ACCESS_LEVEL,
   ACCESS_EXPIRE_DATE,
   READ_MORE_TEXT,
   INVITE_BUTTON_TEXT,
+  INVITE_BUTTON_TEXT_DISABLED,
   CANCEL_BUTTON_TEXT,
   HEADER_CLOSE_LABEL,
+  ON_SHOW_TRACK_LABEL,
 } from '../constants';
 
 const DEFAULT_SLOT = 'default';
@@ -34,17 +37,18 @@ const DEFAULT_SLOTS = [
 
 export default {
   components: {
+    GlCollapsibleListbox,
     GlFormGroup,
     GlDatepicker,
     GlLink,
     GlModal,
-    GlDropdown,
-    GlDropdownItem,
     GlSprintf,
     GlButton,
-    GlFormInput,
     ContentTransition,
+    ManageRolesDropdownFooter: () =>
+      import('ee_component/members/components/action_dropdowns/manage_roles_dropdown_footer.vue'),
   },
+  mixins: [Tracking.mixin()],
   inheritAttrs: false,
   props: {
     modalTitle: {
@@ -66,6 +70,11 @@ export default {
     defaultAccessLevel: {
       type: Number,
       required: true,
+    },
+    defaultMemberRoleId: {
+      type: Number,
+      required: false,
+      default: null,
     },
     helpLink: {
       type: String,
@@ -94,6 +103,11 @@ export default {
       required: false,
       default: false,
     },
+    isLoadingRoles: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
     invalidFeedbackMessage: {
       type: String,
       required: false,
@@ -103,6 +117,11 @@ export default {
       type: String,
       required: false,
       default: INVITE_BUTTON_TEXT,
+    },
+    cancelButtonText: {
+      type: String,
+      required: false,
+      default: CANCEL_BUTTON_TEXT,
     },
     currentSlot: {
       type: String,
@@ -114,62 +133,128 @@ export default {
       required: false,
       default: () => [],
     },
+    preventCancelDefault: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    usersLimitDataset: {
+      type: Object,
+      required: false,
+      default: () => ({}),
+    },
   },
   data() {
     // Be sure to check out reset!
     return {
-      selectedAccessLevel: this.defaultAccessLevel,
+      selectedAccessLevel: null,
       selectedDate: undefined,
       minDate: new Date(),
     };
   },
   computed: {
+    accessLevelOptions() {
+      return roleDropdownItems(this.accessLevels);
+    },
     introText() {
       return sprintf(this.labelIntroText, { name: this.name });
     },
-    validationState() {
+    exceptionState() {
       return this.invalidFeedbackMessage ? false : null;
     },
-    selectLabelId() {
-      return `${this.modalId}_select`;
+    selectId() {
+      return `${this.modalId}_search`;
     },
-    selectedRoleName() {
-      return Object.keys(this.accessLevels).find(
-        (key) => this.accessLevels[key] === Number(this.selectedAccessLevel),
-      );
+    dropdownId() {
+      return `${this.modalId}_dropdown`;
+    },
+    datepickerId() {
+      return `${this.modalId}_expires_at`;
     },
     contentSlots() {
       return [...DEFAULT_SLOTS, ...(this.extraSlots || [])];
     },
+    actionPrimary() {
+      return {
+        text: this.submitButtonText,
+        attributes: {
+          variant: 'confirm',
+          disabled: this.submitDisabled,
+          loading: this.isLoading,
+        },
+      };
+    },
+    actionCancel() {
+      if (this.usersLimitDataset.closeToDashboardLimit && this.usersLimitDataset.userNamespace) {
+        return {
+          text: INVITE_BUTTON_TEXT_DISABLED,
+          attributes: {
+            href: this.usersLimitDataset.membersPath,
+            category: 'secondary',
+            variant: 'confirm',
+          },
+        };
+      }
+
+      return {
+        text: this.cancelButtonText,
+      };
+    },
   },
   watch: {
-    selectedAccessLevel: {
+    accessLevelOptions: {
       immediate: true,
-      handler(val) {
-        this.$emit('access-level', val);
-      },
+      handler: 'resetSelectedAccessLevel',
     },
   },
   methods: {
-    reset() {
+    onReset() {
       // This component isn't necessarily disposed,
       // so we might need to reset it's state.
-      this.selectedAccessLevel = this.defaultAccessLevel;
+      this.resetSelectedAccessLevel();
       this.selectedDate = undefined;
 
       this.$emit('reset');
     },
-    closeModal() {
-      this.reset();
-      this.$refs.modal.hide();
+    onShowModal() {
+      this.$emit('shown');
+      if (this.usersLimitDataset.reachedLimit) {
+        this.track('render', { category: 'default', label: ON_SHOW_TRACK_LABEL });
+      }
     },
-    changeSelectedItem(item) {
-      this.selectedAccessLevel = item;
+    onCancel(e) {
+      if (this.preventCancelDefault) {
+        e.preventDefault();
+      } else {
+        this.onReset();
+        this.$refs.modal.hide();
+      }
+
+      this.$emit('cancel');
     },
-    submit() {
+    onSubmit(e) {
+      // We never want to hide when submitting
+      e.preventDefault();
+
+      const { accessLevel, memberRoleId } = this.accessLevelOptions.flatten.find(
+        (item) => item.value === this.selectedAccessLevel,
+      );
       this.$emit('submit', {
-        accessLevel: this.selectedAccessLevel,
+        accessLevel,
+        memberRoleId,
         expiresAt: this.selectedDate,
+      });
+    },
+    onClose() {
+      this.$emit('close');
+    },
+    resetSelectedAccessLevel() {
+      const accessLevel = {
+        integerValue: this.defaultAccessLevel,
+        memberRoleId: this.defaultMemberRoleId,
+      };
+      this.selectedAccessLevel = initialSelectedRole(this.accessLevelOptions.flatten, {
+        accessLevel,
       });
     },
   },
@@ -187,14 +272,15 @@ export default {
   <gl-modal
     ref="modal"
     :modal-id="modalId"
-    data-qa-selector="invite_members_modal_content"
     data-testid="invite-modal"
     size="sm"
+    dialog-class="gl-mx-5"
     :title="modalTitle"
     :header-close-label="$options.HEADER_CLOSE_LABEL"
-    @hidden="reset"
-    @close="reset"
-    @hide="reset"
+    no-focus-on-show
+    @shown="onShowModal"
+    @close="onClose"
+    @hidden="onReset"
   >
     <content-transition
       class="gl-display-grid"
@@ -211,91 +297,103 @@ export default {
                 <strong>{{ content }}</strong>
               </template>
             </gl-sprintf>
+            <slot name="intro-text-after"></slot>
           </p>
-          <slot name="intro-text-after"></slot>
         </div>
 
+        <slot name="alert"></slot>
+        <slot name="active-trial-alert"></slot>
+
         <gl-form-group
+          :label="labelSearchField"
+          :label-for="selectId"
           :invalid-feedback="invalidFeedbackMessage"
-          :state="validationState"
+          :state="exceptionState"
           :description="formGroupDescription"
           data-testid="members-form-group"
         >
-          <label :id="selectLabelId" class="col-form-label">{{ labelSearchField }}</label>
-          <slot name="select" v-bind="{ validationState, labelId: selectLabelId }"></slot>
+          <slot name="select" v-bind="{ exceptionState, inputId: selectId }"></slot>
         </gl-form-group>
 
-        <label class="gl-font-weight-bold">{{ $options.ACCESS_LEVEL }}</label>
-        <div class="gl-mt-2 gl-w-half gl-xs-w-full">
-          <gl-dropdown
-            class="gl-shadow-none gl-w-full"
-            data-qa-selector="access_level_dropdown"
-            v-bind="$attrs"
-            :text="selectedRoleName"
+        <slot name="after-members-input"></slot>
+
+        <gl-form-group
+          class="gl-sm-w-half gl-w-full"
+          :label="$options.ACCESS_LEVEL"
+          :label-for="dropdownId"
+        >
+          <template #description>
+            <gl-sprintf :message="$options.READ_MORE_TEXT">
+              <template #link="{ content }">
+                <gl-link :href="helpLink" target="_blank">{{ content }}</gl-link>
+              </template>
+            </gl-sprintf>
+          </template>
+          <gl-collapsible-listbox
+            :id="dropdownId"
+            v-model="selectedAccessLevel"
+            data-testid="access-level-dropdown"
+            :items="accessLevelOptions.formatted"
+            :loading="isLoadingRoles"
+            block
           >
-            <template v-for="(key, item) in accessLevels">
-              <gl-dropdown-item
-                :key="key"
-                active-class="is-active"
-                is-check-item
-                :is-checked="key === selectedAccessLevel"
-                @click="changeSelectedItem(key)"
+            <template #list-item="{ item }">
+              <div :class="{ 'gl-font-bold': item.memberRoleId }">{{ item.text }}</div>
+              <div
+                v-if="item.description"
+                class="gl-text-gray-700 gl-font-sm gl-pt-1 gl-line-clamp-2 gl-whitespace-normal"
               >
-                <div>{{ item }}</div>
-              </gl-dropdown-item>
+                {{ item.description }}
+              </div>
             </template>
-          </gl-dropdown>
-        </div>
-
-        <div class="gl-mt-2 gl-w-half gl-xs-w-full">
-          <gl-sprintf :message="$options.READ_MORE_TEXT">
-            <template #link="{ content }">
-              <gl-link :href="helpLink" target="_blank">{{ content }}</gl-link>
+            <template #footer>
+              <manage-roles-dropdown-footer />
             </template>
-          </gl-sprintf>
-        </div>
+          </gl-collapsible-listbox>
+        </gl-form-group>
 
-        <label class="gl-mt-5 gl-display-block" for="expires_at">{{
-          $options.ACCESS_EXPIRE_DATE
-        }}</label>
-        <div class="gl-mt-2 gl-w-half gl-xs-w-full gl-display-inline-block">
+        <gl-form-group
+          class="gl-sm-w-half gl-w-full"
+          :label="$options.ACCESS_EXPIRE_DATE"
+          :label-for="datepickerId"
+        >
           <gl-datepicker
             v-model="selectedDate"
-            class="gl-display-inline!"
+            :input-id="datepickerId"
+            class="!gl-block"
             :min-date="minDate"
             :target="null"
-          >
-            <template #default="{ formattedDate }">
-              <gl-form-input
-                class="gl-w-full"
-                :value="formattedDate"
-                :placeholder="__(`YYYY-MM-DD`)"
-              />
-            </template>
-          </gl-datepicker>
-        </div>
-        <slot name="form-after"></slot>
+          />
+        </gl-form-group>
       </template>
+
       <template v-for="{ key } in extraSlots" #[key]>
         <slot :name="key"></slot>
       </template>
     </content-transition>
+
     <template #modal-footer>
-      <slot name="cancel-button">
-        <gl-button data-testid="cancel-button" @click="closeModal">
-          {{ $options.CANCEL_BUTTON_TEXT }}
-        </gl-button>
-      </slot>
-      <gl-button
-        :disabled="submitDisabled"
-        :loading="isLoading"
-        variant="confirm"
-        data-qa-selector="invite_button"
-        data-testid="invite-button"
-        @click="submit"
+      <div
+        class="gl-m-0 gl-w-full gl-display-flex gl-flex-direction-column gl-sm-flex-direction-row-reverse"
       >
-        {{ submitButtonText }}
-      </gl-button>
+        <gl-button
+          class="gl-w-full gl-sm-w-auto gl-sm-ml-3!"
+          data-testid="invite-modal-submit"
+          v-bind="actionPrimary.attributes"
+          @click="onSubmit"
+        >
+          {{ actionPrimary.text }}
+        </gl-button>
+
+        <gl-button
+          class="gl-w-full gl-sm-w-auto"
+          data-testid="invite-modal-cancel"
+          v-bind="actionCancel.attributes"
+          @click="onCancel"
+        >
+          {{ actionCancel.text }}
+        </gl-button>
+      </div>
     </template>
   </gl-modal>
 </template>

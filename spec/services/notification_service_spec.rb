@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe NotificationService, :mailer do
+RSpec.describe NotificationService, :mailer, feature_category: :team_planning do
   include EmailSpec::Matchers
   include ExternalAuthorizationServiceHelpers
   include NotificationHelpers
@@ -99,7 +99,7 @@ RSpec.describe NotificationService, :mailer do
     end
   end
 
-  shared_examples 'is not able to send notifications' do
+  shared_examples 'is not able to send notifications' do |check_delivery_jobs_queue: false|
     it 'does not send any notification' do
       user_1 = create(:user)
       recipient_1 = NotificationRecipient.new(user_1, :custom, custom_action: :new_release)
@@ -107,12 +107,21 @@ RSpec.describe NotificationService, :mailer do
 
       expect(Gitlab::AppLogger).to receive(:warn).with(message: 'Skipping sending notifications', user: current_user.id, klass: object.class.to_s, object_id: object.id)
 
-      action
+      if check_delivery_jobs_queue
+        expect do
+          action
+        end.to not_enqueue_mail_with(Notify, notification_method, @u_mentioned, anything, anything)
+          .and(not_enqueue_mail_with(Notify, notification_method, @u_guest_watcher, anything, anything))
+          .and(not_enqueue_mail_with(Notify, notification_method, user_1, anything, anything))
+          .and(not_enqueue_mail_with(Notify, notification_method, current_user, anything, anything))
+      else
+        action
 
-      should_not_email(@u_mentioned)
-      should_not_email(@u_guest_watcher)
-      should_not_email(user_1)
-      should_not_email(current_user)
+        should_not_email(@u_mentioned)
+        should_not_email(@u_guest_watcher)
+        should_not_email(user_1)
+        should_not_email(current_user)
+      end
     end
   end
 
@@ -123,13 +132,19 @@ RSpec.describe NotificationService, :mailer do
   # * notification trigger
   # * participant
   #
-  shared_examples 'participating by note notification' do
+  shared_examples 'participating by note notification' do |check_delivery_jobs_queue: false|
     it 'emails the participant' do
       create(:note_on_issue, noteable: issuable, project_id: project.id, note: 'anything', author: participant)
 
-      notification_trigger
+      if check_delivery_jobs_queue
+        expect do
+          notification_trigger
+        end.to enqueue_mail_with(Notify, mailer_method, *expectation_args_for_user(participant))
+      else
+        notification_trigger
 
-      should_email(participant)
+        should_email(participant)
+      end
     end
 
     context 'for subgroups' do
@@ -140,30 +155,85 @@ RSpec.describe NotificationService, :mailer do
       it 'emails the participant' do
         create(:note_on_issue, noteable: issuable, project_id: project.id, note: 'anything', author: @pg_participant)
 
-        notification_trigger
+        if check_delivery_jobs_queue
+          expect do
+            notification_trigger
+          end.to enqueue_mail_with(Notify, mailer_method, *expectation_args_for_user(@pg_participant))
+        else
+          notification_trigger
 
-        should_email_nested_group_user(@pg_participant)
+          should_email_nested_group_user(@pg_participant)
+        end
       end
     end
   end
 
-  shared_examples 'participating by assignee notification' do
-    it 'emails the participant' do
-      issuable.assignees << participant
+  shared_examples 'participating by confidential note notification' do |check_delivery_jobs_queue: false|
+    context 'when user is mentioned on confidential note' do
+      let_it_be(:guest_1) { create(:user) }
+      let_it_be(:guest_2) { create(:user) }
+      let_it_be(:reporter) { create(:user) }
 
-      notification_trigger
+      before do
+        issuable.resource_parent.add_guest(guest_1)
+        issuable.resource_parent.add_guest(guest_2)
+        issuable.resource_parent.add_reporter(reporter)
+      end
 
-      should_email(participant)
+      it 'only emails authorized users' do
+        confidential_note_text = "#{guest_1.to_reference} and #{guest_2.to_reference} and #{reporter.to_reference}"
+        note_text = "Mentions #{guest_2.to_reference}"
+        create(:note_on_issue, noteable: issuable, project_id: project.id, note: confidential_note_text, confidential: true)
+        create(:note_on_issue, noteable: issuable, project_id: project.id, note: note_text)
+
+        if check_delivery_jobs_queue
+          expect do
+            notification_trigger
+          end.to enqueue_mail_with(Notify, mailer_method, *expectation_args_for_user(guest_2))
+            .and(enqueue_mail_with(Notify, mailer_method, *expectation_args_for_user(reporter)))
+            .and(not_enqueue_mail_with(Notify, mailer_method, *expectation_args_for_user(guest_1)))
+        else
+          reset_delivered_emails!
+
+          notification_trigger
+
+          should_not_email(guest_1)
+          should_email(guest_2)
+          should_email(reporter)
+        end
+      end
     end
   end
 
-  shared_examples 'participating by author notification' do
+  shared_examples 'participating by assignee notification' do |check_delivery_jobs_queue: false|
+    it 'emails the participant' do
+      issuable.assignees << participant
+
+      if check_delivery_jobs_queue
+        expect do
+          notification_trigger
+        end.to enqueue_mail_with(Notify, mailer_method, *expectation_args_for_user(participant))
+      else
+        notification_trigger
+
+        should_email(participant)
+      end
+    end
+  end
+
+  shared_examples 'participating by author notification' do |check_delivery_jobs_queue: false|
     it 'emails the participant' do
       issuable.author = participant
 
-      notification_trigger
+      if check_delivery_jobs_queue
+        expect do
+          notification_trigger
+        end.to enqueue_mail_with(Notify, mailer_method, *expectation_args_for_user(participant))
+      else
+        notification_trigger
 
-      should_email(participant)
+        should_email(participant)
+      end
     end
   end
 
@@ -177,10 +247,37 @@ RSpec.describe NotificationService, :mailer do
     end
   end
 
-  shared_examples_for 'participating notifications' do
-    it_behaves_like 'participating by note notification'
-    it_behaves_like 'participating by author notification'
-    it_behaves_like 'participating by assignee notification'
+  shared_examples_for 'participating notifications' do |check_delivery_jobs_queue: false|
+    it_behaves_like 'participating by note notification', check_delivery_jobs_queue: check_delivery_jobs_queue
+    it_behaves_like 'participating by author notification', check_delivery_jobs_queue: check_delivery_jobs_queue
+    it_behaves_like 'participating by assignee notification', check_delivery_jobs_queue: check_delivery_jobs_queue
+  end
+
+  shared_examples 'declines the invite' do
+    specify do
+      member = source.members.last
+
+      expect do
+        notification.decline_invite(member)
+      end.to change { ActionMailer::Base.deliveries.size }.by(1)
+    end
+  end
+
+  describe '.permitted_actions' do
+    it 'includes public methods' do
+      expect(described_class.permitted_actions).to include(:access_token_created)
+    end
+
+    it 'excludes EXCLUDED_ACTIONS' do
+      described_class::EXCLUDED_ACTIONS.each do |action|
+        expect(described_class.permitted_actions).not_to include(action)
+      end
+    end
+
+    it 'excludes protected and private methods' do
+      expect(described_class.permitted_actions).not_to include(:new_resource_email)
+      expect(described_class.permitted_actions).not_to include(:approve_mr_email)
+    end
   end
 
   describe '#async' do
@@ -227,7 +324,7 @@ RSpec.describe NotificationService, :mailer do
       end
 
       describe "never emails the ghost user" do
-        let(:key_options) { { user: User.ghost } }
+        let(:key_options) { { user: Users::Internal.ghost } }
 
         it "does not send email to key owner" do
           expect { subject }.not_to have_enqueued_email(key.id, mail: "new_ssh_key_email")
@@ -248,7 +345,7 @@ RSpec.describe NotificationService, :mailer do
       end
 
       describe "never emails the ghost user" do
-        let(:key_options) { { user: User.ghost } }
+        let(:key_options) { { user: Users::Internal.ghost } }
 
         it "does not send email to key owner" do
           expect { subject }.not_to have_enqueued_email(key.id, mail: "new_gpg_key_email")
@@ -279,6 +376,149 @@ RSpec.describe NotificationService, :mailer do
       end
     end
 
+    describe '#resource_access_token_about_to_expire' do
+      let_it_be(:project_bot) { create(:user, :project_bot) }
+      let_it_be(:expiring_token) { "Expiring Token" }
+
+      let_it_be(:owner1) { create(:user) }
+      let_it_be(:owner2) { create(:user) }
+      let_it_be(:maintainer) { create(:user) }
+      let_it_be(:parent_group) { create(:group) }
+      let_it_be(:group) { create(:group, parent: parent_group) }
+
+      subject(:notification_service) do
+        notification.bot_resource_access_token_about_to_expire(project_bot, [expiring_token])
+      end
+
+      context 'when the resource is a group' do
+        before_all do
+          group.add_owner(owner1)
+          group.add_owner(owner2)
+          group.add_reporter(project_bot)
+          group.add_maintainer(maintainer)
+        end
+
+        it 'sends emails to the group owners' do
+          expect { notification_service }.to(
+            have_enqueued_email(
+              owner1,
+              project_bot.resource_bot_resource,
+              [expiring_token],
+              mail: "bot_resource_access_token_about_to_expire_email"
+            ).and(
+              have_enqueued_email(
+                owner2,
+                project_bot.resource_bot_resource,
+                [expiring_token],
+                mail: "bot_resource_access_token_about_to_expire_email"
+              )
+            )
+          )
+        end
+
+        it 'does not send an email to group maintainer' do
+          expect { notification_service }.not_to(
+            have_enqueued_email(
+              maintainer,
+              project_bot.resource_bot_resource,
+              [expiring_token],
+              mail: "bot_resource_access_token_about_to_expire_email"
+            )
+          )
+        end
+
+        context 'when group has inherited members' do
+          let_it_be(:project_bot) { create(:user, :project_bot) }
+          let_it_be(:expiring_token_1) { "Expiring Token 1" }
+          let_it_be(:expiring_token_2) { "Expirigin Token 2" }
+
+          subject(:notification_service) do
+            notification.bot_resource_access_token_about_to_expire(project_bot, [expiring_token_1, expiring_token_2])
+          end
+
+          before_all do
+            parent_group.add_owner(owner2)
+            group.add_owner(owner1)
+            group.add_reporter(project_bot)
+          end
+
+          it 'does not send email to inherited members' do
+            expect { notification_service }.to(
+              have_enqueued_email(
+                owner1,
+                project_bot.resource_bot_resource,
+                [expiring_token_1, expiring_token_2],
+                mail: "bot_resource_access_token_about_to_expire_email"
+              )
+            )
+
+            expect { notification_service }.not_to(
+              have_enqueued_email(
+                owner2,
+                project_bot.resource_bot_resource,
+                [expiring_token_1, expiring_token_2],
+                mail: "bot_resource_access_token_about_to_expire_email"
+              )
+            )
+          end
+        end
+      end
+
+      context 'when the resource is a project' do
+        let_it_be(:project) { create(:project) }
+
+        before_all do
+          project.add_maintainer(maintainer)
+          project.add_reporter(project_bot)
+        end
+
+        it 'sends emails to the project maintainers and owners' do
+          expect { notification_service }.to(
+            have_enqueued_email(
+              maintainer,
+              project_bot.resource_bot_resource,
+              [expiring_token],
+              mail: "bot_resource_access_token_about_to_expire_email"
+            ).and(
+              have_enqueued_email(
+                project.owner,
+                project_bot.resource_bot_resource,
+                [expiring_token],
+                mail: "bot_resource_access_token_about_to_expire_email"
+              )
+            )
+          )
+        end
+
+        context 'when project has inherited members' do
+          before_all do
+            project.namespace = group
+            project.save!
+          end
+
+          it 'does not send email to inherited members' do
+            expect { notification_service }.to(
+              have_enqueued_email(
+                maintainer,
+                project_bot.resource_bot_resource,
+                [expiring_token],
+                mail: "bot_resource_access_token_about_to_expire_email"
+              )
+            )
+
+            expect { notification_service }.not_to(
+              have_enqueued_email(
+                project.owner,
+                project_bot.resource_bot_resource,
+                [expiring_token],
+                mail: "bot_resource_access_token_about_to_expire_email"
+              )
+            )
+          end
+        end
+      end
+    end
+
     describe '#access_token_about_to_expire' do
       let_it_be(:user) { create(:user) }
       let_it_be(:pat) { create(:personal_access_token, user: user, expires_at: 5.days.from_now) }
@@ -292,11 +532,12 @@ RSpec.describe NotificationService, :mailer do
 
     describe '#access_token_expired' do
       let_it_be(:user) { create(:user) }
+      let_it_be(:pat) { create(:personal_access_token, user: user) }
 
-      subject { notification.access_token_expired(user) }
+      subject { notification.access_token_expired(user, pat.name) }
 
       it 'sends email to the token owner' do
-        expect { subject }.to have_enqueued_email(user, mail: "access_token_expired_email")
+        expect { subject }.to have_enqueued_email(user, pat.name, mail: "access_token_expired_email")
       end
 
       context 'when user is not allowed to receive notifications' do
@@ -305,7 +546,34 @@ RSpec.describe NotificationService, :mailer do
         end
 
         it 'does not send email to the token owner' do
-          expect { subject }.not_to have_enqueued_email(user, mail: "access_token_expired_email")
+          expect { subject }.not_to have_enqueued_email(user, pat.name, mail: "access_token_expired_email")
+        end
+      end
+    end
+
+    describe '#access_token_revoked' do
+      let_it_be(:user) { create(:user) }
+      let_it_be(:pat) { create(:personal_access_token, user: user) }
+
+      subject(:notification_service) { notification.access_token_revoked(user, pat.name) }
+
+      it 'sends email to the token owner without source' do
+        expect { notification_service }.to have_enqueued_email(user, pat.name, nil, mail: "access_token_revoked_email")
+      end
+
+      it 'sends email to the token owner with source' do
+        expect do
+          notification.access_token_revoked(user, pat.name, 'secret_detection')
+        end.to have_enqueued_email(user, pat.name, 'secret_detection', mail: "access_token_revoked_email")
+      end
+
+      context 'when user is not allowed to receive notifications' do
+        before do
+          user.block!
+        end
+
+        it 'does not send email to the token owner' do
+          expect { notification_service }.not_to have_enqueued_email(user, pat.name, mail: "access_token_revoked_email")
         end
       end
     end
@@ -388,7 +656,7 @@ RSpec.describe NotificationService, :mailer do
   end
 
   describe 'Notes' do
-    context 'issue note' do
+    describe 'issue note' do
       let_it_be(:project) { create(:project, :private) }
       let_it_be_with_reload(:issue) { create(:issue, project: project, assignees: [assignee]) }
       let_it_be(:mentioned_issue) { create(:issue, assignees: issue.assignees) }
@@ -398,26 +666,28 @@ RSpec.describe NotificationService, :mailer do
 
       subject { notification.new_note(note) }
 
-      context 'issue_email_participants' do
+      describe 'issue_email_participants' do
         before do
           allow(Notify).to receive(:service_desk_new_note_email)
-                             .with(Integer, Integer, String).and_return(mailer)
+                             .with(Integer, Integer, IssueEmailParticipant).and_return(mailer)
 
-          allow(::Gitlab::IncomingEmail).to receive(:enabled?) { true }
-          allow(::Gitlab::IncomingEmail).to receive(:supports_wildcard?) { true }
+          allow(::Gitlab::Email::IncomingEmail).to receive(:enabled?).and_return(true)
+          allow(::Gitlab::Email::IncomingEmail).to receive(:supports_wildcard?).and_return(true)
         end
 
-        let(:subject) { NotificationService.new }
         let(:mailer) { double(deliver_later: true) }
-        let(:issue) { create(:issue, author: User.support_bot) }
+        let(:issue) { create(:issue, author: Users::Internal.support_bot) }
         let(:project) { issue.project }
         let(:note) { create(:note, noteable: issue, project: project) }
+
+        subject(:notification_service) { described_class.new }
 
         shared_examples 'notification with exact metric events' do |number_of_events|
           it 'adds metric event' do
             metric_transaction = double('Gitlab::Metrics::WebTransaction', increment: true, observe: true)
             allow(::Gitlab::Metrics::BackgroundTransaction).to receive(:current).and_return(metric_transaction)
-            expect(metric_transaction).to receive(:add_event).with(:service_desk_new_note_email).exactly(number_of_events).times
+            expect(metric_transaction).to receive(:add_event)
+              .with(:service_desk_new_note_email).exactly(number_of_events).times
 
             subject.new_note(note)
           end
@@ -445,12 +715,85 @@ RSpec.describe NotificationService, :mailer do
 
           it 'sends the email' do
             expect(Notify).to receive(:service_desk_new_note_email)
-              .with(issue.id, note.id, issue.external_author)
+              .with(issue.id, note.id, issue_email_participant)
 
-            subject.new_note(note)
+            notification_service.new_note(note)
           end
 
           it_behaves_like 'notification with exact metric events', 1
+
+          context 'when service desk is disabled' do
+            before do
+              project.update!(service_desk_enabled: false)
+            end
+
+            it_behaves_like 'no participants are notified'
+          end
+
+          context 'with multiple external participants' do
+            let!(:other_external_participant) { issue.issue_email_participants.create!(email: 'user@example.com') }
+
+            it 'sends emails' do
+              expect(Notify).to receive(:service_desk_new_note_email)
+                .with(issue.id, note.id, IssueEmailParticipant).twice
+
+              notification_service.new_note(note)
+            end
+
+            context 'when note is from an external participant' do
+              shared_examples 'only sends one Service Desk notification email' do
+                it 'sends one email' do
+                  expect(Notify).not_to receive(:service_desk_new_note_email)
+                    .with(issue.id, note.id, non_recipient)
+
+                  expect(Notify).to receive(:service_desk_new_note_email)
+                    .with(issue.id, note.id, recipient)
+
+                  notification_service.new_note(note)
+                end
+              end
+
+              let!(:note) do
+                create(
+                  :note_on_issue,
+                  author: Users::Internal.support_bot,
+                  noteable: issue,
+                  project_id: issue.project_id,
+                  note: '@mention referenced, @unsubscribed_mentioned and @outsider also'
+                )
+              end
+
+              context 'and the note is from the external issue author' do
+                let(:non_recipient) { issue_email_participant }
+                let(:recipient) { other_external_participant }
+                let!(:note_metadata) do
+                  create(:note_metadata, note: note, email_participant: issue_email_participant.email)
+                end
+
+                it_behaves_like 'only sends one Service Desk notification email'
+              end
+
+              context 'and the note is from another external participant' do
+                let(:non_recipient) { other_external_participant }
+                let(:recipient) { issue_email_participant }
+                let!(:note_metadata) do
+                  create(:note_metadata, note: note, email_participant: other_external_participant.email)
+                end
+
+                it_behaves_like 'only sends one Service Desk notification email'
+
+                context 'and the external note auhor email has different format' do
+                  let(:non_recipient) { other_external_participant }
+                  let(:recipient) { issue_email_participant }
+                  let!(:note_metadata) do
+                    create(:note_metadata, note: note, email_participant: 'USER@example.com')
+                  end
+
+                  it_behaves_like 'only sends one Service Desk notification email'
+                end
+              end
+            end
+          end
         end
 
         context 'do exist and note is confidential' do
@@ -554,8 +897,8 @@ RSpec.describe NotificationService, :mailer do
 
           before do
             note.project.namespace_id = group.id
-            group.add_user(@u_watcher, GroupMember::MAINTAINER)
-            group.add_user(@u_custom_global, GroupMember::MAINTAINER)
+            group.add_member(@u_watcher, GroupMember::MAINTAINER)
+            group.add_member(@u_custom_global, GroupMember::MAINTAINER)
             note.project.save!
 
             @u_watcher.notification_settings_for(note.project).participating!
@@ -673,9 +1016,24 @@ RSpec.describe NotificationService, :mailer do
     context 'issue note mention', :deliver_mails_inline do
       let_it_be(:issue) { create(:issue, project: project, assignees: [assignee]) }
       let_it_be(:mentioned_issue) { create(:issue, assignees: issue.assignees) }
+      let_it_be(:user_to_exclude) { create(:user) }
       let_it_be(:author) { create(:user) }
 
-      let(:note) { create(:note_on_issue, author: author, noteable: issue, project_id: issue.project_id, note: '@all mentioned') }
+      let(:user_mentions) do
+        other_members = [
+          @unsubscribed_mentioned,
+          @u_guest_watcher,
+          @pg_watcher,
+          @u_mentioned,
+          @u_not_mentioned,
+          @u_disabled,
+          @pg_disabled
+        ]
+
+        (issue.project.team.members + other_members).map(&:to_reference).join(' ')
+      end
+
+      let(:note) { create(:note_on_issue, author: author, noteable: issue, project_id: issue.project_id, note: note_content) }
 
       before_all do
         build_team(project)
@@ -690,33 +1048,6 @@ RSpec.describe NotificationService, :mailer do
       end
 
       describe '#new_note' do
-        it 'notifies the team members' do
-          notification.new_note(note)
-
-          # Make sure @unsubscribed_mentioned is part of the team
-          expect(note.project.team.members).to include(@unsubscribed_mentioned)
-
-          # Notify all team members
-          note.project.team.members.each do |member|
-            # User with disabled notification should not be notified
-            next if member.id == @u_disabled.id
-            # Author should not be notified
-            next if member.id == note.author.id
-
-            should_email(member)
-          end
-
-          should_email(@u_guest_watcher)
-          should_email(note.noteable.author)
-          should_email(note.noteable.assignees.first)
-          should_email_nested_group_user(@pg_watcher)
-          should_email(@u_mentioned)
-          should_email(@u_not_mentioned)
-          should_not_email(note.author)
-          should_not_email(@u_disabled)
-          should_not_email_nested_group_user(@pg_disabled)
-        end
-
         it 'notifies parent group members with mention level' do
           note = create(:note_on_issue, noteable: issue, project_id: issue.project_id, note: "@#{@pg_mention.username}")
 
@@ -725,59 +1056,223 @@ RSpec.describe NotificationService, :mailer do
           should_email_nested_group_user(@pg_mention)
         end
 
-        it 'filters out "mentioned in" notes' do
-          mentioned_note = SystemNoteService.cross_reference(mentioned_issue, issue, issue.author)
+        shared_examples 'correct team members are notified' do
+          it 'notifies the team members' do
+            notification.new_note(note)
 
-          expect(Notify).not_to receive(:note_issue_email)
-          notification.new_note(mentioned_note)
+            # Make sure @unsubscribed_mentioned is part of the team
+            expect(note.project.team.members).to include(@unsubscribed_mentioned)
+
+            # Notify all team members
+            note.project.team.members.each do |member|
+              # User with disabled notification should not be notified
+              next if member.id == @u_disabled.id
+              # Author should not be notified
+              next if member.id == note.author.id
+
+              should_email(member)
+            end
+
+            should_email(@u_guest_watcher)
+            should_email(note.noteable.author)
+            should_email(note.noteable.assignees.first)
+            should_email_nested_group_user(@pg_watcher)
+            should_email(@u_mentioned)
+            should_email(@u_not_mentioned)
+            should_not_email(note.author)
+            should_not_email(@u_disabled)
+            should_not_email_nested_group_user(@pg_disabled)
+          end
+
+          it 'filters out "mentioned in" notes' do
+            mentioned_note = SystemNoteService.cross_reference(mentioned_issue, issue, issue.author)
+
+            expect(Notify).not_to receive(:note_issue_email)
+            notification.new_note(mentioned_note)
+          end
+
+          it_behaves_like 'project emails are disabled' do
+            let(:notification_target)  { note }
+            let(:notification_trigger) { notification.new_note(note) }
+          end
+
+          context 'when note is confidential' do
+            let(:note) { create(:note_on_issue, author: author, noteable: issue, project_id: issue.project_id, note: note_content, confidential: true) }
+            let(:guest) { create(:user) }
+
+            it 'does not notify users that cannot read note' do
+              project.add_guest(guest)
+              reset_delivered_emails!
+
+              notification.new_note(note)
+
+              should_not_email(guest)
+            end
+          end
         end
 
-        it_behaves_like 'project emails are disabled' do
-          let(:notification_target)  { note }
-          let(:notification_trigger) { notification.new_note(note) }
+        context 'when `disable_all_mention` FF is disabled' do
+          before do
+            stub_feature_flags(disable_all_mention: false)
+          end
+
+          context 'when `@all` mention is used' do
+            let(:note_content) { "@all mentioned" }
+
+            it_behaves_like 'correct team members are notified'
+          end
+
+          context 'when users are individually mentioned' do
+            # `user_mentions` is concatenanting individual user mentions
+            # so that the end result is the same as `@all`.
+            let(:note_content) { "#{user_mentions} mentioned" }
+
+            it_behaves_like 'correct team members are notified'
+          end
+        end
+
+        context 'when `disable_all_mention` FF is enabled' do
+          before do
+            stub_feature_flags(disable_all_mention: true)
+          end
+
+          context 'when `@all` mention is used' do
+            before_all do
+              # user_to_exclude is in the note's project but is neither mentioned nor participating.
+              project.add_maintainer(user_to_exclude)
+            end
+
+            let(:note_content) { "@all mentioned" }
+
+            it "does not notify users who are not participating or mentioned" do
+              reset_delivered_emails!
+
+              notification.new_note(note)
+
+              should_email(note.noteable.author)
+              should_not_email(user_to_exclude)
+            end
+          end
+
+          context 'when users are individually mentioned' do
+            # `user_mentions` is concatenanting individual user mentions
+            # so that the end result is the same as `@all`.
+            let(:note_content) { "#{user_mentions} mentioned" }
+
+            it_behaves_like 'correct team members are notified'
+          end
         end
       end
     end
 
     context 'project snippet note', :deliver_mails_inline do
-      let(:snippet) { create(:project_snippet, project: project, author: create(:user)) }
-      let(:author) { create(:user) }
-      let(:note) { create(:note_on_project_snippet, author: author, noteable: snippet, project_id: project.id, note: '@all mentioned') }
+      let(:user_mentions) do
+        other_members = [
+          @u_custom_global,
+          @u_guest_watcher,
+          snippet.author, # snippet = note.noteable's author
+          author, # note's author
+          @u_disabled,
+          @u_mentioned,
+          @u_not_mentioned
+        ]
 
-      before do
-        build_team(project)
-        build_group(project)
-        project.add_maintainer(author)
-
-        # make sure these users can read the project snippet!
-        project.add_guest(@u_guest_watcher)
-        project.add_guest(@u_guest_custom)
-        add_member_for_parent_group(@pg_watcher, project)
-        reset_delivered_emails!
+        (snippet.project.team.members + other_members).map(&:to_reference).join(' ')
       end
 
-      describe '#new_note' do
-        it 'notifies the team members' do
-          notification.new_note(note)
-          # Notify all team members
-          note.project.team.members.each do |member|
-            # User with disabled notification should not be notified
-            next if member.id == @u_disabled.id
-            # Author should not be notified
-            next if member.id == note.author.id
+      let(:snippet) { create(:project_snippet, project: project, author: create(:user)) }
+      let(:author) { create(:user) }
+      let(:note) { create(:note_on_project_snippet, author: author, noteable: snippet, project_id: project.id, note: note_content) }
 
-            should_email(member)
+      describe '#new_note' do
+        shared_examples 'correct team members are notified' do
+          before do
+            build_team(project)
+            build_group(project)
+            project.add_maintainer(author)
+
+            # make sure these users can read the project snippet!
+            project.add_guest(@u_guest_watcher)
+            project.add_guest(@u_guest_custom)
+            add_member_for_parent_group(@pg_watcher, project)
+            reset_delivered_emails!
           end
 
-          # it emails custom global users on mention
-          should_email(@u_custom_global)
+          it 'notifies the team members' do
+            notification.new_note(note)
+            # Notify all team members
+            note.project.team.members.each do |member|
+              # User with disabled notification should not be notified
+              next if member.id == @u_disabled.id
+              # Author should not be notified
+              next if member.id == note.author.id
 
-          should_email(@u_guest_watcher)
-          should_email(note.noteable.author)
-          should_not_email(note.author)
-          should_email(@u_mentioned)
-          should_not_email(@u_disabled)
-          should_email(@u_not_mentioned)
+              should_email(member)
+            end
+
+            # it emails custom global users on mention
+            should_email(@u_custom_global)
+
+            should_email(@u_guest_watcher)
+            should_email(note.noteable.author)
+            should_not_email(note.author)
+            should_email(@u_mentioned)
+            should_not_email(@u_disabled)
+            should_email(@u_not_mentioned)
+          end
+        end
+
+        context 'when `disable_all_mention` FF is disabled' do
+          before do
+            stub_feature_flags(disable_all_mention: false)
+          end
+
+          context 'when `@all` mention is used' do
+            let(:note_content) { "@all mentioned" }
+
+            it_behaves_like 'correct team members are notified'
+          end
+
+          context 'when users are individually mentioned' do
+            # `user_mentions` is concatenanting individual user mentions
+            # so that the end result is the same as `@all`.
+            let(:note_content) { "#{user_mentions} mentioned" }
+
+            it_behaves_like 'correct team members are notified'
+          end
+        end
+
+        context 'when `disable_all_mention` FF is enabled' do
+          before do
+            stub_feature_flags(disable_all_mention: true)
+          end
+
+          context 'when `@all` mention is used' do
+            let(:user_to_exclude) { create(:user) }
+            let(:note_content) { "@all mentioned" }
+
+            before do
+              project.add_maintainer(author)
+              project.add_maintainer(user_to_exclude)
+
+              reset_delivered_emails!
+            end
+
+            it "does not notify users who are not participating or mentioned" do
+              notification.new_note(note)
+
+              should_email(note.noteable.author)
+              should_not_email(user_to_exclude)
+            end
+          end
+
+          context 'when users are individually mentioned' do
+            # `user_mentions` is concatenanting individual user mentions
+            # so that the end result is the same as `@all`.
+            let(:note_content) { "#{user_mentions} mentioned" }
+
+            it_behaves_like 'correct team members are notified'
+          end
         end
       end
     end
@@ -929,14 +1424,16 @@ RSpec.describe NotificationService, :mailer do
 
       let_it_be(:design) { create(:design, :with_file) }
       let_it_be(:project) { design.project }
-      let_it_be(:member_and_mentioned) { create(:user, developer_projects: [project]) }
-      let_it_be(:member_and_author_of_second_note) { create(:user, developer_projects: [project]) }
-      let_it_be(:member_and_not_mentioned) { create(:user, developer_projects: [project]) }
+      let_it_be(:member_and_mentioned) { create(:user, developer_of: project) }
+      let_it_be(:member_and_author_of_second_note) { create(:user, developer_of: project) }
+      let_it_be(:member_and_not_mentioned) { create(:user, developer_of: project) }
       let_it_be(:non_member_and_mentioned) { create(:user) }
       let_it_be(:note) do
-        create(:diff_note_on_design,
-           noteable: design,
-           note: "Hello #{member_and_mentioned.to_reference}, G'day #{non_member_and_mentioned.to_reference}")
+        create(
+          :diff_note_on_design,
+          noteable: design,
+          note: "Hello #{member_and_mentioned.to_reference}, G'day #{non_member_and_mentioned.to_reference}"
+        )
       end
 
       let_it_be(:note_2) do
@@ -975,9 +1472,16 @@ RSpec.describe NotificationService, :mailer do
   end
 
   describe '#send_new_release_notifications', :deliver_mails_inline do
-    let(:release) { create(:release, author: current_user) }
+    let(:release) { create(:release, project: project, author: current_user) }
     let(:object) { release }
     let(:action) { notification.send_new_release_notifications(release) }
+
+    before_all do
+      build_team(project)
+
+      update_custom_notification(:new_release, @u_guest_custom, resource: project)
+      update_custom_notification(:new_release, @u_custom_global)
+    end
 
     context 'when release author is blocked' do
       let(:current_user) { create(:user, :blocked) }
@@ -994,19 +1498,15 @@ RSpec.describe NotificationService, :mailer do
     context 'when recipients for a new release exist' do
       let(:current_user) { create(:user) }
 
-      it 'calls new_release_email for each relevant recipient' do
-        user_1 = create(:user)
-        user_2 = create(:user)
-        user_3 = create(:user)
-        recipient_1 = NotificationRecipient.new(user_1, :custom, custom_action: :new_release)
-        recipient_2 = NotificationRecipient.new(user_2, :custom, custom_action: :new_release)
-        allow(NotificationRecipients::BuildService).to receive(:build_new_release_recipients).and_return([recipient_1, recipient_2])
-
+      it 'notifies the expected users' do
         notification.send_new_release_notifications(release)
 
-        should_email(user_1)
-        should_email(user_2)
-        should_not_email(user_3)
+        should_only_email(
+          @u_watcher,
+          @u_guest_watcher,
+          @u_custom_global,
+          @u_guest_custom
+        )
       end
     end
   end
@@ -1069,7 +1569,7 @@ RSpec.describe NotificationService, :mailer do
     end
   end
 
-  describe 'Issues', :deliver_mails_inline do
+  describe 'Issues', :aggregate_failures do
     let(:another_project) { create(:project, :public, namespace: group) }
     let(:issue) { create :issue, project: project, assignees: [assignee], description: 'cc @participant @unsubscribed_mentioned' }
 
@@ -1094,79 +1594,77 @@ RSpec.describe NotificationService, :mailer do
 
     describe '#new_issue' do
       it 'notifies the expected users' do
-        notification.new_issue(issue, @u_disabled)
-
-        should_email(assignee)
-        should_email(@u_watcher)
-        should_email(@u_guest_watcher)
-        should_email(@u_guest_custom)
-        should_email(@u_custom_global)
-        should_email(@u_participant_mentioned)
-        should_email(@g_global_watcher)
-        should_email(@g_watcher)
-        should_email(@unsubscribed_mentioned)
-        should_email_nested_group_user(@pg_watcher)
-        should_not_email(@u_mentioned)
-        should_not_email(@u_participating)
-        should_not_email(@u_disabled)
-        should_not_email(@u_lazy_participant)
-        should_not_email_nested_group_user(@pg_disabled)
-        should_not_email_nested_group_user(@pg_mention)
+        expect do
+          notification.new_issue(issue, @u_disabled)
+        end.to enqueue_mail_with(Notify, :new_issue_email, assignee, issue, 'assigned')
+          .and(enqueue_mail_with(Notify, :new_issue_email, @u_watcher, issue, nil))
+          .and(enqueue_mail_with(Notify, :new_issue_email, @u_guest_watcher, issue, nil))
+          .and(enqueue_mail_with(Notify, :new_issue_email, @u_guest_custom, issue, nil))
+          .and(enqueue_mail_with(Notify, :new_issue_email, @u_custom_global, issue, nil))
+          .and(enqueue_mail_with(Notify, :new_issue_email, @u_participant_mentioned, issue, 'mentioned'))
+          .and(enqueue_mail_with(Notify, :new_issue_email, @g_global_watcher.id, issue.id, nil))
+          .and(enqueue_mail_with(Notify, :new_issue_email, @g_watcher, issue, nil))
+          .and(enqueue_mail_with(Notify, :new_issue_email, @unsubscribed_mentioned, issue, 'mentioned'))
+          .and(enqueue_mail_with(Notify, :new_issue_email, @pg_watcher, issue, nil))
+          .and(not_enqueue_mail_with(Notify, :new_issue_email, @u_mentioned, anything, anything))
+          .and(not_enqueue_mail_with(Notify, :new_issue_email, @u_participating, anything, anything))
+          .and(not_enqueue_mail_with(Notify, :new_issue_email, @u_disabled, anything, anything))
+          .and(not_enqueue_mail_with(Notify, :new_issue_email, @u_lazy_participant, anything, anything))
+          .and(not_enqueue_mail_with(Notify, :new_issue_email, @pg_disabled, anything, anything))
+          .and(not_enqueue_mail_with(Notify, :new_issue_email, @pg_mention, anything, anything))
       end
 
-      it do
-        create_global_setting_for(issue.assignees.first, :mention)
-        notification.new_issue(issue, @u_disabled)
+      context 'when user has an only mention notification setting' do
+        before do
+          create_global_setting_for(issue.assignees.first, :mention)
+        end
 
-        should_not_email(issue.assignees.first)
+        it 'does not send assignee notifications' do
+          expect do
+            notification.new_issue(issue, @u_disabled)
+          end.to not_enqueue_mail_with(Notify, :new_issue_email, issue.assignees.first, anything, anything)
+        end
       end
 
       it 'properly prioritizes notification reason' do
         # have assignee be both assigned and mentioned
         issue.update_attribute(:description, "/cc #{assignee.to_reference} #{@u_mentioned.to_reference}")
 
-        notification.new_issue(issue, @u_disabled)
-
-        email = find_email_for(assignee)
-        expect(email).to have_header('X-GitLab-NotificationReason', 'assigned')
-
-        email = find_email_for(@u_mentioned)
-        expect(email).to have_header('X-GitLab-NotificationReason', 'mentioned')
+        expect do
+          notification.new_issue(issue, @u_disabled)
+        end.to enqueue_mail_with(Notify, :new_issue_email, assignee, issue, 'assigned')
+          .and(enqueue_mail_with(Notify, :new_issue_email, @u_mentioned, issue, 'mentioned'))
       end
 
       it 'adds "assigned" reason for assignees if any' do
-        notification.new_issue(issue, @u_disabled)
-
-        email = find_email_for(assignee)
-
-        expect(email).to have_header('X-GitLab-NotificationReason', 'assigned')
+        expect do
+          notification.new_issue(issue, @u_disabled)
+        end.to enqueue_mail_with(Notify, :new_issue_email, assignee, issue, 'assigned')
       end
 
       it "emails any mentioned users with the mention level" do
         issue.description = @u_mentioned.to_reference
 
-        notification.new_issue(issue, @u_disabled)
-
-        email = find_email_for(@u_mentioned)
-        expect(email).not_to be_nil
-        expect(email).to have_header('X-GitLab-NotificationReason', 'mentioned')
+        expect do
+          notification.new_issue(issue, @u_disabled)
+        end.to enqueue_mail_with(Notify, :new_issue_email, @u_mentioned, issue, 'mentioned')
       end
 
       it "emails the author if they've opted into notifications about their activity" do
         issue.author.notified_of_own_activity = true
 
-        notification.new_issue(issue, issue.author)
-
-        should_email(issue.author)
+        expect do
+          notification.new_issue(issue, issue.author)
+        end.to enqueue_mail_with(Notify, :new_issue_email, issue.author, issue, 'own_activity')
       end
 
       it "doesn't email the author if they haven't opted into notifications about their activity" do
-        notification.new_issue(issue, issue.author)
-
-        should_not_email(issue.author)
+        expect do
+          notification.new_issue(issue, issue.author)
+        end.to not_enqueue_mail_with(Notify, :new_issue_email, issue.author, anything, anything)
       end
 
-      it "emails subscribers of the issue's labels" do
+      it "emails subscribers of the issue's labels and adds `subscribed` reason" do
         user_1 = create(:user)
         user_2 = create(:user)
         user_3 = create(:user)
@@ -1179,27 +1677,15 @@ RSpec.describe NotificationService, :mailer do
         group_label.toggle_subscription(user_3, another_project)
         group_label.toggle_subscription(user_4)
 
-        notification.new_issue(issue, @u_disabled)
-
-        should_email(user_1)
-        should_email(user_2)
-        should_not_email(user_3)
-        should_email(user_4)
+        expect do
+          notification.new_issue(issue, issue.author)
+        end.to enqueue_mail_with(Notify, :new_issue_email, user_1, issue, NotificationReason::SUBSCRIBED)
+          .and(enqueue_mail_with(Notify, :new_issue_email, user_2, issue, NotificationReason::SUBSCRIBED))
+          .and(enqueue_mail_with(Notify, :new_issue_email, user_4, issue, NotificationReason::SUBSCRIBED))
+          .and(not_enqueue_mail_with(Notify, :new_issue_email, user_3, anything, anything))
       end
 
-      it 'adds "subscribed" reason to subscriber emails' do
-        user_1 = create(:user)
-        label = create(:label, project: project, issues: [issue])
-        issue.reload
-        label.subscribe(user_1)
-
-        notification.new_issue(issue, @u_disabled)
-
-        email = find_email_for(user_1)
-        expect(email).to have_header('X-GitLab-NotificationReason', NotificationReason::SUBSCRIBED)
-      end
-
-      it_behaves_like 'project emails are disabled' do
+      it_behaves_like 'project emails are disabled', check_delivery_jobs_queue: true do
         let(:notification_target)  { issue }
         let(:notification_trigger) { notification.new_issue(issue, @u_disabled) }
       end
@@ -1225,35 +1711,33 @@ RSpec.describe NotificationService, :mailer do
           label.toggle_subscription(guest, project)
           label.toggle_subscription(admin, project)
 
-          reset_delivered_emails!
-
-          notification.new_issue(confidential_issue, @u_disabled)
-
-          should_not_email(@u_guest_watcher)
-          should_not_email(non_member)
-          should_not_email(author)
-          should_not_email(guest)
-          should_email(assignee)
-          should_email(member)
-          should_email(admin)
+          expect do
+            notification.new_issue(confidential_issue, issue.author)
+          end.to enqueue_mail_with(Notify, :new_issue_email, assignee, confidential_issue, NotificationReason::ASSIGNED)
+            .and(enqueue_mail_with(Notify, :new_issue_email, member, confidential_issue, NotificationReason::SUBSCRIBED))
+            .and(enqueue_mail_with(Notify, :new_issue_email, admin, confidential_issue, NotificationReason::SUBSCRIBED))
+            .and(not_enqueue_mail_with(Notify, :new_issue_email, @u_guest_watcher, anything, anything))
+            .and(not_enqueue_mail_with(Notify, :new_issue_email, non_member, anything, anything))
+            .and(not_enqueue_mail_with(Notify, :new_issue_email, author, anything, anything))
+            .and(not_enqueue_mail_with(Notify, :new_issue_email, guest, anything, anything))
         end
       end
 
       context 'when the author is not allowed to trigger notifications' do
-        let(:current_user) { nil }
         let(:object) { issue }
         let(:action) { notification.new_issue(issue, current_user) }
+        let(:notification_method) { :new_issue_email }
 
         context 'because they are blocked' do
           let(:current_user) { create(:user, :blocked) }
 
-          include_examples 'is not able to send notifications'
+          include_examples 'is not able to send notifications', check_delivery_jobs_queue: true
         end
 
         context 'because they are a ghost' do
           let(:current_user) { create(:user, :ghost) }
 
-          include_examples 'is not able to send notifications'
+          include_examples 'is not able to send notifications', check_delivery_jobs_queue: true
         end
       end
     end
@@ -1264,9 +1748,52 @@ RSpec.describe NotificationService, :mailer do
       let(:object) { mentionable }
       let(:action) { send_notifications(@u_mentioned, current_user: current_user) }
 
-      include_examples 'notifications for new mentions'
+      it 'sends no emails when no new mentions are present' do
+        send_notifications
 
-      it_behaves_like 'project emails are disabled' do
+        expect_no_delivery_jobs
+      end
+
+      it 'emails new mentions with a watch level higher than mention' do
+        expect do
+          send_notifications(@u_watcher, @u_participant_mentioned, @u_custom_global, @u_mentioned)
+        end.to have_only_enqueued_mail_with_args(
+          Notify,
+          :new_mention_in_issue_email,
+          [@u_watcher.id, mentionable.id, anything, anything],
+          [@u_participant_mentioned.id, mentionable.id, anything, anything],
+          [@u_custom_global.id, mentionable.id, anything, anything],
+          [@u_mentioned.id, mentionable.id, anything, anything]
+        )
+      end
+
+      it 'does not email new mentions with a watch level equal to or less than mention' do
+        send_notifications(@u_disabled)
+
+        expect_no_delivery_jobs
+      end
+
+      it 'emails new mentions despite being unsubscribed' do
+        expect do
+          send_notifications(@unsubscribed_mentioned)
+        end.to have_only_enqueued_mail_with_args(
+          Notify,
+          :new_mention_in_issue_email,
+          [@unsubscribed_mentioned.id, mentionable.id, anything, anything]
+        )
+      end
+
+      it 'sends the proper notification reason header' do
+        expect do
+          send_notifications(@u_watcher)
+        end.to have_only_enqueued_mail_with_args(
+          Notify,
+          :new_mention_in_issue_email,
+          [@u_watcher.id, mentionable.id, anything, NotificationReason::MENTIONED]
+        )
+      end
+
+      it_behaves_like 'project emails are disabled', check_delivery_jobs_queue: true do
         let(:notification_target)  { issue }
         let(:notification_trigger) { send_notifications(@u_watcher, @u_participant_mentioned, @u_custom_global, @u_mentioned) }
       end
@@ -1274,112 +1801,130 @@ RSpec.describe NotificationService, :mailer do
       context 'where current_user is blocked' do
         let(:current_user) { create(:user, :blocked) }
 
-        include_examples 'is not able to send notifications'
+        include_examples 'is not able to send notifications', check_delivery_jobs_queue: true
       end
 
       context 'where current_user is a ghost' do
         let(:current_user) { create(:user, :ghost) }
 
-        include_examples 'is not able to send notifications'
+        include_examples 'is not able to send notifications', check_delivery_jobs_queue: true
       end
     end
 
     describe '#reassigned_issue' do
+      let(:anything_args) { [anything, anything, anything, anything] }
+      let(:mailer_method) { :reassigned_issue_email }
+
       before do
         update_custom_notification(:reassign_issue, @u_guest_custom, resource: project)
         update_custom_notification(:reassign_issue, @u_custom_global)
       end
 
       it 'emails new assignee' do
-        notification.reassigned_issue(issue, @u_disabled, [assignee])
-
-        should_email(issue.assignees.first)
-        should_email(@u_watcher)
-        should_email(@u_guest_watcher)
-        should_email(@u_guest_custom)
-        should_email(@u_custom_global)
-        should_email(@u_participant_mentioned)
-        should_email(@subscriber)
-        should_not_email(@unsubscriber)
-        should_not_email(@u_participating)
-        should_not_email(@u_disabled)
-        should_not_email(@u_lazy_participant)
+        expect do
+          notification.reassigned_issue(issue, @u_disabled, [assignee])
+        end.to enqueue_mail_with(Notify, :reassigned_issue_email, issue.assignees.first, *anything_args)
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_watcher, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_guest_watcher, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_guest_custom, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_custom_global, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_participant_mentioned, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @subscriber, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @unsubscriber, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_participating, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_disabled, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_lazy_participant, *anything_args))
       end
 
       it 'adds "assigned" reason for new assignee' do
-        notification.reassigned_issue(issue, @u_disabled, [assignee])
-
-        email = find_email_for(assignee)
-
-        expect(email).to have_header('X-GitLab-NotificationReason', NotificationReason::ASSIGNED)
+        expect do
+          notification.reassigned_issue(issue, @u_disabled, [assignee])
+        end.to enqueue_mail_with(
+          Notify,
+          :reassigned_issue_email,
+          issue.assignees.first,
+          anything,
+          anything,
+          anything,
+          NotificationReason::ASSIGNED
+        )
       end
 
       it 'emails previous assignee even if they have the "on mention" notif level' do
         issue.assignees = [@u_mentioned]
-        notification.reassigned_issue(issue, @u_disabled, [@u_watcher])
 
-        should_email(@u_mentioned)
-        should_email(@u_watcher)
-        should_email(@u_guest_watcher)
-        should_email(@u_guest_custom)
-        should_email(@u_participant_mentioned)
-        should_email(@subscriber)
-        should_email(@u_custom_global)
-        should_not_email(@unsubscriber)
-        should_not_email(@u_participating)
-        should_not_email(@u_disabled)
-        should_not_email(@u_lazy_participant)
+        expect do
+          notification.reassigned_issue(issue, @u_disabled, [@u_watcher])
+        end.to enqueue_mail_with(Notify, :reassigned_issue_email, @u_mentioned, *anything_args)
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_watcher, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_guest_watcher, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_guest_custom, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_participant_mentioned, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @subscriber, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_custom_global, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @unsubscriber, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_participating, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_disabled, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_lazy_participant, *anything_args))
       end
 
       it 'emails new assignee even if they have the "on mention" notif level' do
         issue.assignees = [@u_mentioned]
-        notification.reassigned_issue(issue, @u_disabled, [@u_mentioned])
 
-        expect(issue.assignees.first).to be @u_mentioned
-        should_email(issue.assignees.first)
-        should_email(@u_watcher)
-        should_email(@u_guest_watcher)
-        should_email(@u_guest_custom)
-        should_email(@u_participant_mentioned)
-        should_email(@subscriber)
-        should_email(@u_custom_global)
-        should_not_email(@unsubscriber)
-        should_not_email(@u_participating)
-        should_not_email(@u_disabled)
-        should_not_email(@u_lazy_participant)
+        expect(issue.assignees.first).to eq(@u_mentioned)
+        expect do
+          notification.reassigned_issue(issue, @u_disabled, [@u_mentioned])
+        end.to enqueue_mail_with(Notify, :reassigned_issue_email, issue.assignees.first, *anything_args)
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_watcher, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_guest_watcher, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_guest_custom, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_participant_mentioned, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @subscriber, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_custom_global, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @unsubscriber, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_participating, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_disabled, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_lazy_participant, *anything_args))
       end
 
       it 'does not email new assignee if they are the current user' do
         issue.assignees = [@u_mentioned]
         notification.reassigned_issue(issue, @u_mentioned, [@u_mentioned])
 
-        expect(issue.assignees.first).to be @u_mentioned
-        should_email(@u_watcher)
-        should_email(@u_guest_watcher)
-        should_email(@u_guest_custom)
-        should_email(@u_participant_mentioned)
-        should_email(@subscriber)
-        should_email(@u_custom_global)
-        should_not_email(issue.assignees.first)
-        should_not_email(@unsubscriber)
-        should_not_email(@u_participating)
-        should_not_email(@u_disabled)
-        should_not_email(@u_lazy_participant)
+        expect(issue.assignees.first).to eq(@u_mentioned)
+        expect do
+          notification.reassigned_issue(issue, @u_mentioned, [@u_mentioned])
+        end.to enqueue_mail_with(Notify, :reassigned_issue_email, @u_watcher, *anything_args)
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_guest_watcher, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_guest_custom, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_participant_mentioned, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @subscriber, *anything_args))
+          .and(enqueue_mail_with(Notify, :reassigned_issue_email, @u_custom_global, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, issue.assignees.first, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @unsubscriber, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_participating, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_disabled, *anything_args))
+          .and(not_enqueue_mail_with(Notify, :reassigned_issue_email, @u_lazy_participant, *anything_args))
       end
 
-      it_behaves_like 'participating notifications' do
+      it_behaves_like 'participating notifications', check_delivery_jobs_queue: true do
         let(:participant) { create(:user, username: 'user-participant') }
         let(:issuable) { issue }
         let(:notification_trigger) { notification.reassigned_issue(issue, @u_disabled, [assignee]) }
       end
 
-      it_behaves_like 'project emails are disabled' do
+      it_behaves_like 'participating by confidential note notification', check_delivery_jobs_queue: true do
+        let(:issuable) { issue }
+        let(:notification_trigger) { notification.reassigned_issue(issue, @u_disabled, [assignee]) }
+      end
+
+      it_behaves_like 'project emails are disabled', check_delivery_jobs_queue: true do
         let(:notification_target)  { issue }
         let(:notification_trigger) { notification.reassigned_issue(issue, @u_disabled, [assignee]) }
       end
     end
 
-    describe '#relabeled_issue' do
+    describe '#relabeled_issue', :deliver_mails_inline do
       let(:group_label_1) { create(:group_label, group: group, title: 'Group Label 1', issues: [issue]) }
       let(:group_label_2) { create(:group_label, group: group, title: 'Group Label 2') }
       let(:label_1) { create(:label, project: project, title: 'Label 1', issues: [issue]) }
@@ -1476,20 +2021,25 @@ RSpec.describe NotificationService, :mailer do
       end
     end
 
-    describe '#removed_milestone_issue' do
+    describe '#removed_milestone on Issue', :deliver_mails_inline do
       context do
         let(:milestone) { create(:milestone, project: project, issues: [issue]) }
         let!(:subscriber_to_new_milestone) { create(:user) { |u| issue.toggle_subscription(u, project) } }
 
         it_behaves_like 'altered milestone notification on issue' do
           before do
-            notification.removed_milestone_issue(issue, issue.author)
+            notification.removed_milestone(issue, issue.author)
           end
         end
 
         it_behaves_like 'project emails are disabled' do
           let(:notification_target)  { issue }
-          let(:notification_trigger) { notification.removed_milestone_issue(issue, issue.author) }
+          let(:notification_trigger) { notification.removed_milestone(issue, issue.author) }
+        end
+
+        it_behaves_like 'participating by confidential note notification' do
+          let(:issuable) { issue }
+          let(:notification_trigger) { notification.removed_milestone(issue, issue.author) }
         end
       end
 
@@ -1515,7 +2065,7 @@ RSpec.describe NotificationService, :mailer do
 
           reset_delivered_emails!
 
-          notification.removed_milestone_issue(confidential_issue, @u_disabled)
+          notification.removed_milestone(confidential_issue, @u_disabled)
 
           should_not_email(non_member)
           should_not_email(guest)
@@ -1527,20 +2077,20 @@ RSpec.describe NotificationService, :mailer do
       end
     end
 
-    describe '#changed_milestone_issue' do
+    describe '#changed_milestone on Issue', :deliver_mails_inline do
       context do
         let(:new_milestone) { create(:milestone, project: project, issues: [issue]) }
         let!(:subscriber_to_new_milestone) { create(:user) { |u| issue.toggle_subscription(u, project) } }
 
         it_behaves_like 'altered milestone notification on issue' do
           before do
-            notification.changed_milestone_issue(issue, new_milestone, issue.author)
+            notification.changed_milestone(issue, new_milestone, issue.author)
           end
         end
 
         it_behaves_like 'project emails are disabled' do
           let(:notification_target)  { issue }
-          let(:notification_trigger) { notification.changed_milestone_issue(issue, new_milestone, issue.author) }
+          let(:notification_trigger) { notification.changed_milestone(issue, new_milestone, issue.author) }
         end
       end
 
@@ -1566,7 +2116,7 @@ RSpec.describe NotificationService, :mailer do
 
           reset_delivered_emails!
 
-          notification.changed_milestone_issue(confidential_issue, new_milestone, @u_disabled)
+          notification.changed_milestone(confidential_issue, new_milestone, @u_disabled)
 
           should_not_email(non_member)
           should_not_email(guest)
@@ -1578,7 +2128,7 @@ RSpec.describe NotificationService, :mailer do
       end
     end
 
-    describe '#close_issue' do
+    describe '#close_issue', :deliver_mails_inline do
       before do
         update_custom_notification(:close_issue, @u_guest_custom, resource: project)
         update_custom_notification(:close_issue, @u_custom_global)
@@ -1613,6 +2163,11 @@ RSpec.describe NotificationService, :mailer do
         let(:notification_trigger) { notification.close_issue(issue, @u_disabled) }
       end
 
+      it_behaves_like 'participating by confidential note notification' do
+        let(:issuable) { issue }
+        let(:notification_trigger) { notification.close_issue(issue, @u_disabled) }
+      end
+
       it 'adds "subscribed" reason to subscriber emails' do
         user_1 = create(:user)
         issue.subscribe(user_1)
@@ -1625,7 +2180,7 @@ RSpec.describe NotificationService, :mailer do
       end
     end
 
-    describe '#reopen_issue' do
+    describe '#reopen_issue', :deliver_mails_inline do
       before do
         update_custom_notification(:reopen_issue, @u_guest_custom, resource: project)
         update_custom_notification(:reopen_issue, @u_custom_global)
@@ -1655,13 +2210,18 @@ RSpec.describe NotificationService, :mailer do
         let(:notification_trigger) { notification.reopen_issue(issue, @u_disabled) }
       end
 
+      it_behaves_like 'participating by confidential note notification' do
+        let(:issuable) { issue }
+        let(:notification_trigger) { notification.reopen_issue(issue, @u_disabled) }
+      end
+
       it_behaves_like 'project emails are disabled' do
         let(:notification_target)  { issue }
         let(:notification_trigger) { notification.reopen_issue(issue, @u_disabled) }
       end
     end
 
-    describe '#issue_moved' do
+    describe '#issue_moved', :deliver_mails_inline do
       let(:new_issue) { create(:issue) }
 
       it 'sends email to issue notification recipients' do
@@ -1686,13 +2246,18 @@ RSpec.describe NotificationService, :mailer do
         let(:notification_trigger) { notification.issue_moved(issue, new_issue, @u_disabled) }
       end
 
+      it_behaves_like 'participating by confidential note notification' do
+        let(:issuable) { issue }
+        let(:notification_trigger) { notification.issue_moved(issue, new_issue, @u_disabled) }
+      end
+
       it_behaves_like 'project emails are disabled' do
         let(:notification_target)  { issue }
         let(:notification_trigger) { notification.issue_moved(issue, new_issue, @u_disabled) }
       end
     end
 
-    describe '#issue_cloned' do
+    describe '#issue_cloned', :deliver_mails_inline do
       let(:new_issue) { create(:issue) }
 
       it 'sends email to issue notification recipients' do
@@ -1717,13 +2282,18 @@ RSpec.describe NotificationService, :mailer do
         let(:notification_trigger) { notification.issue_cloned(issue, new_issue, @u_disabled) }
       end
 
+      it_behaves_like 'participating by confidential note notification' do
+        let(:issuable) { issue }
+        let(:notification_trigger) { notification.issue_cloned(issue, new_issue, @u_disabled) }
+      end
+
       it_behaves_like 'project emails are disabled' do
         let(:notification_target)  { issue }
         let(:notification_trigger) { notification.issue_cloned(issue, new_issue, @u_disabled) }
       end
     end
 
-    describe '#issue_due' do
+    describe '#issue_due', :deliver_mails_inline do
       before do
         issue.update!(due_date: Date.today)
 
@@ -1758,6 +2328,11 @@ RSpec.describe NotificationService, :mailer do
 
       it_behaves_like 'participating notifications' do
         let(:participant) { create(:user, username: 'user-participant') }
+        let(:issuable) { issue }
+        let(:notification_trigger) { notification.issue_due(issue) }
+      end
+
+      it_behaves_like 'participating by confidential note notification' do
         let(:issuable) { issue }
         let(:notification_trigger) { notification.issue_due(issue) }
       end
@@ -1869,21 +2444,76 @@ RSpec.describe NotificationService, :mailer do
         let(:notification_trigger) { notification.new_merge_request(merge_request, @u_disabled) }
       end
 
+      describe 'Approvals' do
+        let(:notification_target)  { merge_request }
+        let(:maintainer) { create(:user) }
+
+        describe '#approve_mr' do
+          it 'will notify the author, subscribers, and assigned users' do
+            notification.approve_mr(merge_request, maintainer)
+
+            merge_request.assignees.each { |assignee| should_email(assignee) }
+            should_email(merge_request.author)
+            should_email(@u_watcher)
+            should_email(@u_participant_mentioned)
+            should_email(@subscribed_participant)
+            should_email(@subscriber)
+            should_email(@watcher_and_subscriber)
+            should_email(@u_guest_watcher)
+
+            should_not_email(@unsubscriber)
+            should_not_email(@u_participating)
+            should_not_email(@u_disabled)
+            should_not_email(@u_lazy_participant)
+
+            expect(email_recipients.size).to eq(8)
+            # assignee, author, @u_watcher,
+            # @u_participant_mentioned, @subscribed_participant,
+            # @subscriber, @watcher_and_subscriber, @u_guest_watcher
+          end
+        end
+
+        describe '#unapprove_mr' do
+          it 'will notify the author, subscribers, and assigned users' do
+            notification.unapprove_mr(merge_request, maintainer)
+
+            merge_request.assignees.each { |assignee| should_email(assignee) }
+            should_email(merge_request.author)
+            should_email(@u_watcher)
+            should_email(@u_participant_mentioned)
+            should_email(@subscribed_participant)
+            should_email(@subscriber)
+            should_email(@watcher_and_subscriber)
+            should_email(@u_guest_watcher)
+
+            should_not_email(@unsubscriber)
+            should_not_email(@u_participating)
+            should_not_email(@u_disabled)
+            should_not_email(@u_lazy_participant)
+
+            expect(email_recipients.size).to eq(8)
+            # assignee, author, @u_watcher,
+            # @u_participant_mentioned, @subscribed_participant,
+            # @subscriber, @watcher_and_subscriber, @u_guest_watcher
+          end
+        end
+      end
+
       context 'participating' do
         it_behaves_like 'participating by assignee notification' do
-          let(:participant) { create(:user, username: 'user-participant')}
+          let(:participant) { create(:user, username: 'user-participant') }
           let(:issuable) { merge_request }
           let(:notification_trigger) { notification.new_merge_request(merge_request, @u_disabled) }
         end
 
         it_behaves_like 'participating by note notification' do
-          let(:participant) { create(:user, username: 'user-participant')}
+          let(:participant) { create(:user, username: 'user-participant') }
           let(:issuable) { merge_request }
           let(:notification_trigger) { notification.new_merge_request(merge_request, @u_disabled) }
         end
 
         context 'by author' do
-          let(:participant) { create(:user, username: 'user-participant')}
+          let(:participant) { create(:user, username: 'user-participant') }
 
           before do
             merge_request.author = participant
@@ -2215,35 +2845,35 @@ RSpec.describe NotificationService, :mailer do
       end
     end
 
-    describe '#removed_milestone_merge_request' do
+    describe '#removed_milestone on MergeRequest' do
       let(:milestone) { create(:milestone, project: project, merge_requests: [merge_request]) }
       let!(:subscriber_to_new_milestone) { create(:user) { |u| merge_request.toggle_subscription(u, project) } }
 
       it_behaves_like 'altered milestone notification on merge request' do
         before do
-          notification.removed_milestone_merge_request(merge_request, merge_request.author)
+          notification.removed_milestone(merge_request, merge_request.author)
         end
       end
 
       it_behaves_like 'project emails are disabled' do
         let(:notification_target)  { merge_request }
-        let(:notification_trigger) { notification.removed_milestone_merge_request(merge_request, merge_request.author) }
+        let(:notification_trigger) { notification.removed_milestone(merge_request, merge_request.author) }
       end
     end
 
-    describe '#changed_milestone_merge_request' do
+    describe '#changed_milestone on MergeRequest' do
       let(:new_milestone) { create(:milestone, project: project, merge_requests: [merge_request]) }
       let!(:subscriber_to_new_milestone) { create(:user) { |u| merge_request.toggle_subscription(u, project) } }
 
       it_behaves_like 'altered milestone notification on merge request' do
         before do
-          notification.changed_milestone_merge_request(merge_request, new_milestone, merge_request.author)
+          notification.changed_milestone(merge_request, new_milestone, merge_request.author)
         end
       end
 
       it_behaves_like 'project emails are disabled' do
         let(:notification_target)  { merge_request }
-        let(:notification_trigger) { notification.changed_milestone_merge_request(merge_request, new_milestone, merge_request.author) }
+        let(:notification_trigger) { notification.changed_milestone(merge_request, new_milestone, merge_request.author) }
       end
     end
 
@@ -2485,6 +3115,7 @@ RSpec.describe NotificationService, :mailer do
 
     describe '#review_requested_of_merge_request' do
       let(:merge_request) { create(:merge_request, author: author, source_project: project, reviewers: [reviewer]) }
+      let(:mailer) { double }
 
       let_it_be(:current_user) { create(:user) }
       let_it_be(:reviewer) { create(:user) }
@@ -2507,8 +3138,16 @@ RSpec.describe NotificationService, :mailer do
         should_not_email(@u_lazy_participant)
       end
 
+      it 'deliver email immediately' do
+        allow(Notify).to receive(:request_review_merge_request_email)
+                           .with(Integer, Integer, Integer, String).and_return(mailer)
+        expect(mailer).to receive(:deliver_later).with({})
+
+        notification.review_requested_of_merge_request(merge_request, current_user, reviewer)
+      end
+
       it 'adds "review requested" reason for new reviewer' do
-        notification.review_requested_of_merge_request(merge_request, current_user, [reviewer])
+        notification.review_requested_of_merge_request(merge_request, current_user, reviewer)
 
         merge_request.reviewers.each do |reviewer|
           email = find_email_for(reviewer)
@@ -2520,45 +3159,6 @@ RSpec.describe NotificationService, :mailer do
       it_behaves_like 'project emails are disabled' do
         let(:notification_target)  { merge_request }
         let(:notification_trigger) { notification.review_requested_of_merge_request(merge_request, current_user, reviewer) }
-      end
-    end
-
-    describe '#attention_requested_of_merge_request' do
-      let_it_be(:current_user) { create(:user) }
-      let_it_be(:reviewer) { create(:user) }
-      let_it_be(:merge_request) { create(:merge_request, source_project: project, reviewers: [reviewer]) }
-
-      it 'sends email to reviewer', :aggregate_failures do
-        notification.attention_requested_of_merge_request(merge_request, current_user, reviewer)
-
-        merge_request.reviewers.each { |reviewer| should_email(reviewer) }
-        should_not_email(merge_request.author)
-        should_not_email(@u_watcher)
-        should_not_email(@u_participant_mentioned)
-        should_not_email(@subscriber)
-        should_not_email(@watcher_and_subscriber)
-        should_not_email(@u_guest_watcher)
-        should_not_email(@u_guest_custom)
-        should_not_email(@u_custom_global)
-        should_not_email(@unsubscriber)
-        should_not_email(@u_participating)
-        should_not_email(@u_disabled)
-        should_not_email(@u_lazy_participant)
-      end
-
-      it 'adds "attention requested" reason' do
-        notification.attention_requested_of_merge_request(merge_request, current_user, [reviewer])
-
-        merge_request.reviewers.each do |reviewer|
-          email = find_email_for(reviewer)
-
-          expect(email).to have_header('X-GitLab-NotificationReason', NotificationReason::ATTENTION_REQUESTED)
-        end
-      end
-
-      it_behaves_like 'project emails are disabled' do
-        let(:notification_target)  { merge_request }
-        let(:notification_trigger) { notification.attention_requested_of_merge_request(merge_request, current_user, reviewer) }
       end
     end
   end
@@ -2806,7 +3406,7 @@ RSpec.describe NotificationService, :mailer do
       end
     end
 
-    describe '#decline_group_invite' do
+    describe '#decline_invite' do
       let(:creator) { create(:user) }
       let(:group) { create(:group) }
       let(:member) { create(:user) }
@@ -2816,49 +3416,8 @@ RSpec.describe NotificationService, :mailer do
         group.add_developer(member, creator)
       end
 
-      it do
-        group_member = group.members.last
-
-        expect do
-          notification.decline_group_invite(group_member)
-        end.to change { ActionMailer::Base.deliveries.size }.by(1)
-      end
-    end
-
-    describe '#new_group_member' do
-      let(:group) { create(:group) }
-
-      it 'sends a notification' do
-        group.add_guest(added_user)
-        should_only_email(added_user)
-      end
-
-      describe 'when notifications are disabled' do
-        before do
-          create_global_setting_for(added_user, :disabled)
-        end
-
-        it 'does not send a notification' do
-          group.add_guest(added_user)
-          should_not_email_anyone
-        end
-      end
-
-      it_behaves_like 'group emails are disabled' do
-        let(:notification_target)  { group }
-        let(:notification_trigger) { group.add_guest(added_user) }
-      end
-    end
-
-    describe '#updated_group_member_expiration' do
-      let_it_be(:group_member) { create(:group_member) }
-
-      it 'emails the user that their group membership expiry has changed' do
-        expect_next_instance_of(NotificationService) do |notification|
-          allow(notification).to receive(:updated_group_member_expiration).with(group_member)
-        end
-
-        group_member.update!(expires_at: 5.days.from_now)
+      it_behaves_like 'declines the invite' do
+        let(:source) { group }
       end
     end
   end
@@ -2903,7 +3462,7 @@ RSpec.describe NotificationService, :mailer do
 
       context 'for a project in a group' do
         let(:group_owner) { create(:user) }
-        let(:group) { create(:group).tap { |g| g.add_owner(group_owner) } }
+        let(:group) { create(:group, owners: group_owner) }
 
         context 'when the project has no maintainers' do
           context 'when the group has at least one owner' do
@@ -2978,47 +3537,124 @@ RSpec.describe NotificationService, :mailer do
       end
     end
 
-    describe '#decline_project_invite' do
+    describe '#decline_invite' do
       let(:member) { create(:user) }
 
       before do
         project.add_developer(member, current_user: project.first_owner)
       end
 
-      it do
-        project_member = project.members.last
-
-        expect do
-          notification.decline_project_invite(project_member)
-        end.to change { ActionMailer::Base.deliveries.size }.by(1)
+      it_behaves_like 'declines the invite' do
+        let(:source) { project }
       end
     end
 
-    describe '#new_project_member' do
-      it do
-        create_member!
-        should_only_email(added_user)
+    describe '#member_about_to_expire' do
+      let_it_be(:group_member) { create(:group_member, expires_at: 7.days.from_now.to_date) }
+      let_it_be(:project_member) { create(:project_member, expires_at: 7.days.from_now.to_date) }
+
+      context "with group member" do
+        it 'emails the user that their group membership will be expired' do
+          notification.member_about_to_expire(group_member)
+
+          should_email(group_member.user)
+        end
+      end
+
+      context "with project member" do
+        it 'emails the user that their project membership will be expired' do
+          notification.member_about_to_expire(project_member)
+
+          should_email(project_member.user)
+        end
+      end
+    end
+  end
+
+  describe '#new_member', :deliver_mails_inline do
+    let_it_be(:source) { create(:group) }
+    let_it_be(:added_user) { create(:user) }
+
+    subject(:new_member) { notification.new_member(member) }
+
+    shared_examples_for 'new member added' do |source_type|
+      it 'triggers a notification about about the added access', deliver_mails_inline: false do
+        new_member
+
+        expect_delivery_jobs_count(1)
+        expect_enqueud_email(source_type, member.id, mail: 'member_access_granted_email')
+      end
+    end
+
+    context 'when source is a Group' do
+      it_behaves_like 'new member added', 'Group' do
+        let_it_be(:member) { create(:group_member, source: source) }
+      end
+
+      it_behaves_like 'group emails are disabled' do
+        let(:notification_target) { source }
+        let(:notification_trigger) { notification_target.add_guest(added_user) }
+      end
+    end
+
+    context 'when source is a Project' do
+      let_it_be(:source) { create(:project) }
+
+      it_behaves_like 'new member added', 'Project' do
+        let_it_be(:member) { create(:project_member, source: project) }
       end
 
       it_behaves_like 'project emails are disabled' do
-        let(:notification_target)  { project }
-        let(:notification_trigger) { create_member! }
-      end
-
-      context 'when notifications are disabled' do
-        before do
-          create_global_setting_for(added_user, :disabled)
-        end
-
-        it do
-          create_member!
-          should_not_email_anyone
-        end
+        let_it_be(:notification_target) { source }
+        let(:notification_trigger) { source.add_guest(added_user) }
       end
     end
 
-    def create_member!
-      create(:project_member, user: added_user, project: project)
+    context 'when notifications are disabled' do
+      before do
+        create_global_setting_for(added_user, :disabled)
+      end
+
+      it 'does not send a notification' do
+        source.add_guest(added_user)
+        should_not_email_anyone
+      end
+    end
+  end
+
+  describe '#updated_member_expiration' do
+    subject(:updated_member_expiration) { notification.updated_member_expiration(member) }
+
+    context 'for group member' do
+      let_it_be(:member) { create(:group_member) }
+
+      it 'triggers a notification about the expiration change' do
+        updated_member_expiration
+
+        expect_delivery_jobs_count(1)
+        expect_enqueud_email('Group', member.id, mail: 'member_expiration_date_updated_email')
+      end
+    end
+
+    context 'for project member' do
+      let_it_be(:member) { create(:project_member) }
+
+      it 'does not trigger a notification' do
+        updated_member_expiration
+
+        expect_delivery_jobs_count(0)
+      end
+    end
+  end
+
+  describe '#updated_member_access_level' do
+    let_it_be(:member) { create(:group_member) }
+
+    it 'triggers a notification about the access_level change' do
+      notification.updated_member_access_level(member)
+
+      expect_delivery_jobs_count(1)
+      expect_enqueud_email('Group', member.id, mail: 'member_access_granted_email')
     end
   end
 
@@ -3105,12 +3741,14 @@ RSpec.describe NotificationService, :mailer do
       let(:commit) { project.commit }
 
       def create_pipeline(user, status)
-        create(:ci_pipeline, status,
-               project: project,
-               user: user,
-               ref: 'refs/heads/master',
-               sha: commit.id,
-               before_sha: '00000000')
+        create(
+          :ci_pipeline, status,
+          project: project,
+          user: user,
+          ref: 'refs/heads/master',
+          sha: commit.id,
+          before_sha: '00000000'
+        )
       end
 
       before_all do
@@ -3526,7 +4164,7 @@ RSpec.describe NotificationService, :mailer do
     let(:note) { create(:note, noteable: issue, project: project) }
     let(:member) { create(:user) }
 
-    subject { NotificationService.new }
+    subject { described_class.new }
 
     before do
       project.add_maintainer(member)
@@ -3619,12 +4257,14 @@ RSpec.describe NotificationService, :mailer do
       project.add_maintainer(reviewer)
       merge_request.assignees.each { |assignee| project.add_maintainer(assignee) }
 
-      create(:diff_note_on_merge_request,
-             project: project,
-             noteable: merge_request,
-             author: reviewer,
-             review: review,
-             note: "cc @mention")
+      create(
+        :diff_note_on_merge_request,
+        project: project,
+        noteable: merge_request,
+        author: reviewer,
+        review: review,
+        note: "cc @mention"
+      )
     end
 
     it 'sends emails' do
@@ -3650,6 +4290,34 @@ RSpec.describe NotificationService, :mailer do
       around do |example|
         perform_enqueued_jobs { example.run }
       end
+    end
+  end
+
+  describe '#inactive_project_deletion_warning' do
+    let_it_be(:deletion_date) { Date.current }
+    let_it_be(:project) { create(:project) }
+    let_it_be(:maintainer) { create(:user) }
+    let_it_be(:developer) { create(:user) }
+
+    before do
+      project.add_maintainer(maintainer)
+    end
+
+    subject { notification.inactive_project_deletion_warning(project, deletion_date) }
+
+    it "sends email to project owners and maintainers" do
+      expect { subject }.to have_enqueued_email(
+        project,
+        maintainer,
+        deletion_date,
+        mail: "inactive_project_deletion_warning_email"
+      )
+      expect { subject }.not_to have_enqueued_email(
+        project,
+        developer,
+        deletion_date,
+        mail: "inactive_project_deletion_warning_email"
+      )
     end
   end
 
@@ -3695,7 +4363,7 @@ RSpec.describe NotificationService, :mailer do
 
     # Group member: global=watch, group=global
     @g_global_watcher ||= create_global_setting_for(create(:user), :watch)
-    group.add_users([@g_watcher, @g_global_watcher], :maintainer)
+    group.add_members([@g_watcher, @g_global_watcher], :maintainer)
 
     group
   end
@@ -3758,5 +4426,9 @@ RSpec.describe NotificationService, :mailer do
     issuable.subscriptions.create!(user: @unsubscriber, project: project, subscribed: false)
     # Make the watcher a subscriber to detect dupes
     issuable.subscriptions.create!(user: @watcher_and_subscriber, project: project, subscribed: true)
+  end
+
+  def expectation_args_for_user(user)
+    [user, *anything_args]
   end
 end

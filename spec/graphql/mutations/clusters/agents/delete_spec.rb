@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe Mutations::Clusters::Agents::Delete do
+  include GraphqlHelpers
+
   subject(:mutation) { described_class.new(object: nil, context: context, field: nil) }
 
   let(:cluster_agent) { create(:cluster_agent) }
@@ -10,9 +12,8 @@ RSpec.describe Mutations::Clusters::Agents::Delete do
   let(:user) { create(:user) }
   let(:context) do
     GraphQL::Query::Context.new(
-      query: OpenStruct.new(schema: nil),
-      values: { current_user: user },
-      object: nil
+      query: query_double(schema: nil), # rubocop:disable RSpec/VerifiedDoubles
+      values: { current_user: user }
     )
   end
 
@@ -36,15 +37,6 @@ RSpec.describe Mutations::Clusters::Agents::Delete do
       it 'deletes a cluster agent', :aggregate_failures do
         expect { subject }.to change { ::Clusters::Agent.count }.by(-1)
         expect { cluster_agent.reload }.to raise_error(ActiveRecord::RecordNotFound)
-      end
-    end
-
-    context 'with invalid params' do
-      subject { mutation.resolve(id: cluster_agent.id) }
-
-      it 'raises an error if the cluster agent id is invalid', :aggregate_failures do
-        expect { subject }.to raise_error(::GraphQL::CoercionError)
-        expect { cluster_agent.reload }.not_to raise_error
       end
     end
   end

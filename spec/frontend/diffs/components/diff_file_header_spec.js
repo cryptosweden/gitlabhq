@@ -1,25 +1,33 @@
-import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
 import { cloneDeep } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 
 import { mockTracking, triggerEvent } from 'helpers/tracking_helper';
 
 import DiffFileHeader from '~/diffs/components/diff_file_header.vue';
 import { DIFF_FILE_AUTOMATIC_COLLAPSE, DIFF_FILE_MANUAL_COLLAPSE } from '~/diffs/constants';
-import { reviewFile } from '~/diffs/store/actions';
-import { SET_DIFF_FILE_VIEWED, SET_MR_FILE_REVIEWS } from '~/diffs/store/mutation_types';
+import { reviewFile, setFileForcedOpen } from '~/diffs/store/actions';
+import {
+  SET_DIFF_FILE_VIEWED,
+  SET_MR_FILE_REVIEWS,
+  SET_FILE_FORCED_OPEN,
+} from '~/diffs/store/mutation_types';
 import { diffViewerModes } from '~/ide/constants';
 import { scrollToElement } from '~/lib/utils/common_utils';
 import { truncateSha } from '~/lib/utils/text_utility';
 import { __, sprintf } from '~/locale';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
-import FileIcon from '~/vue_shared/components/file_icon.vue';
 
+import { TEST_HOST } from 'spec/test_constants';
 import testAction from '../../__helpers__/vuex_action_helper';
 import diffDiscussionsMockData from '../mock_data/diff_discussions';
 
-jest.mock('~/lib/utils/common_utils');
+jest.mock('~/lib/utils/common_utils', () => ({
+  scrollToElement: jest.fn(),
+  isLoggedIn: () => true,
+}));
 
 const diffFile = Object.freeze(
   Object.assign(diffDiscussionsMockData.diff_file, {
@@ -48,6 +56,9 @@ describe('DiffFileHeader component', () => {
   const diffHasDiscussionsResultMock = jest.fn();
   const defaultMockStoreConfig = {
     state: {},
+    getters: {
+      getNoteableData: () => ({ current_user: { can_create_note: true } }),
+    },
     modules: {
       diffs: {
         namespaced: true,
@@ -56,12 +67,13 @@ describe('DiffFileHeader component', () => {
           diffHasDiscussions: () => diffHasDiscussionsResultMock,
         },
         actions: {
-          toggleFileDiscussions: jest.fn(),
           toggleFileDiscussionWrappers: jest.fn(),
           toggleFullDiff: jest.fn(),
           setCurrentFileHash: jest.fn(),
           setFileCollapsedByUser: jest.fn(),
+          setFileForcedOpen: jest.fn(),
           reviewFile: jest.fn(),
+          unpinFile: jest.fn(),
         },
       },
     },
@@ -73,29 +85,28 @@ describe('DiffFileHeader component', () => {
       diffHasExpandedDiscussionsResultMock,
       ...Object.values(mockStoreConfig.modules.diffs.actions),
     ].forEach((mock) => mock.mockReset());
-
-    wrapper.destroy();
   });
 
-  const findHeader = () => wrapper.find({ ref: 'header' });
-  const findTitleLink = () => wrapper.find({ ref: 'titleWrapper' });
-  const findExpandButton = () => wrapper.find({ ref: 'expandDiffToFullFileButton' });
+  const findHeader = () => wrapper.findComponent({ ref: 'header' });
+  const findTitleLink = () => wrapper.findByTestId('file-title');
+  const findExpandButton = () => wrapper.findComponent({ ref: 'expandDiffToFullFileButton' });
   const findFileActions = () => wrapper.find('.file-actions');
-  const findModeChangedLine = () => wrapper.find({ ref: 'fileMode' });
+  const findModeChangedLine = () => wrapper.findComponent({ ref: 'fileMode' });
   const findLfsLabel = () => wrapper.find('[data-testid="label-lfs"]');
-  const findToggleDiscussionsButton = () => wrapper.find({ ref: 'toggleDiscussionsButton' });
-  const findExternalLink = () => wrapper.find({ ref: 'externalLink' });
-  const findReplacedFileButton = () => wrapper.find({ ref: 'replacedFileButton' });
-  const findViewFileButton = () => wrapper.find({ ref: 'viewButton' });
-  const findCollapseIcon = () => wrapper.find({ ref: 'collapseIcon' });
-  const findEditButton = () => wrapper.find({ ref: 'editButton' });
+  const findToggleDiscussionsButton = () =>
+    wrapper.findComponent({ ref: 'toggleDiscussionsButton' });
+  const findExternalLink = () => wrapper.findComponent({ ref: 'externalLink' });
+  const findReplacedFileButton = () => wrapper.findComponent({ ref: 'replacedFileButton' });
+  const findViewFileButton = () => wrapper.findComponent({ ref: 'viewButton' });
+  const findCollapseButton = () => wrapper.findComponent({ ref: 'collapseButton' });
+  const findEditButton = () => wrapper.findComponent({ ref: 'editButton' });
   const findReviewFileCheckbox = () => wrapper.find("[data-testid='fileReviewCheckbox']");
 
   const createComponent = ({ props, options = {} } = {}) => {
     mockStoreConfig = cloneDeep(defaultMockStoreConfig);
-    const store = new Vuex.Store({ ...mockStoreConfig, ...(options.store || {}) });
+    const store = new Vuex.Store({ ...mockStoreConfig, ...options.store });
 
-    wrapper = shallowMount(DiffFileHeader, {
+    wrapper = shallowMountExtended(DiffFileHeader, {
       propsData: {
         diffFile,
         canCurrentUserFork: false,
@@ -113,7 +124,7 @@ describe('DiffFileHeader component', () => {
     ${'hidden'}  | ${false}
   `('collapse toggle is $visibility if collapsible is $collapsible', ({ collapsible }) => {
     createComponent({ props: { collapsible } });
-    expect(findCollapseIcon().exists()).toBe(collapsible);
+    expect(findCollapseButton().exists()).toBe(collapsible);
   });
 
   it.each`
@@ -122,7 +133,7 @@ describe('DiffFileHeader component', () => {
     ${false} | ${'chevron-right'}
   `('collapse icon is $icon if expanded is $expanded', ({ icon, expanded }) => {
     createComponent({ props: { expanded, collapsible: true } });
-    expect(findCollapseIcon().props('name')).toBe(icon);
+    expect(findCollapseButton().props('icon')).toBe(icon);
   });
 
   it('when header is clicked emits toggleFile', async () => {
@@ -133,9 +144,22 @@ describe('DiffFileHeader component', () => {
     expect(wrapper.emitted().toggleFile).toBeDefined();
   });
 
+  it('when header is clicked it triggers the action that removes the value that forces a file to be uncollapsed', () => {
+    createComponent();
+    findHeader().trigger('click');
+
+    return testAction(
+      setFileForcedOpen,
+      { filePath: diffFile.file_path, forced: false },
+      {},
+      [{ type: SET_FILE_FORCED_OPEN, payload: { filePath: diffFile.file_path, forced: false } }],
+      [],
+    );
+  });
+
   it('when collapseIcon is clicked emits toggleFile', async () => {
     createComponent({ props: { collapsible: true } });
-    findCollapseIcon().vm.$emit('click', new Event('click'));
+    findCollapseButton().vm.$emit('click', new Event('click'));
     await nextTick();
     expect(wrapper.emitted().toggleFile).toBeDefined();
   });
@@ -154,7 +178,7 @@ describe('DiffFileHeader component', () => {
     });
 
     it('displays a copy to clipboard button', () => {
-      expect(wrapper.find(ClipboardButton).exists()).toBe(true);
+      expect(wrapper.findComponent(ClipboardButton).exists()).toBe(true);
     });
 
     it('triggers the copy to clipboard tracking event', () => {
@@ -224,16 +248,6 @@ describe('DiffFileHeader component', () => {
       });
       expect(findFileActions().exists()).toBe(false);
     });
-
-    it('renders submodule icon', () => {
-      createComponent({
-        props: {
-          diffFile: submoduleDiffFile,
-        },
-      });
-
-      expect(wrapper.find(FileIcon).props('submodule')).toBe(true);
-    });
   });
 
   describe('for any file', () => {
@@ -274,7 +288,7 @@ describe('DiffFileHeader component', () => {
             },
           },
         });
-        expect(findModeChangedLine().exists()).toBeFalsy();
+        expect(findModeChangedLine().exists()).toBe(false);
       },
     );
 
@@ -454,7 +468,9 @@ describe('DiffFileHeader component', () => {
 
     it('uses local anchor for link as last resort', () => {
       createComponent();
-      expect(findTitleLink().attributes('href')).toMatch(/^#diff-content/);
+      expect(findTitleLink().attributes('href')).toMatch(
+        new RegExp(`#diff-content-${diffFile.file_hash}$`),
+      );
     });
 
     describe('when local anchor for link is clicked', () => {
@@ -529,6 +545,7 @@ describe('DiffFileHeader component', () => {
 
   describe('file reviews', () => {
     it('calls the action to set the new review', () => {
+      jest.spyOn(document.activeElement, 'blur');
       createComponent({
         props: {
           diffFile: {
@@ -547,6 +564,8 @@ describe('DiffFileHeader component', () => {
       const file = wrapper.vm.diffFile;
 
       findReviewFileCheckbox().vm.$emit('change', true);
+
+      expect(document.activeElement.blur).toHaveBeenCalled();
 
       return testAction(
         reviewFile,
@@ -648,5 +667,73 @@ describe('DiffFileHeader component', () => {
         expect(Boolean(wrapper.emitted().toggleFile)).toBe(fires);
       },
     );
+
+    it('removes the property that forces a file to be shown when the file review is toggled', () => {
+      createComponent({
+        props: {
+          diffFile: {
+            ...diffFile,
+            viewer: {
+              ...diffFile.viewer,
+              automaticallyCollapsed: false,
+              manuallyCollapsed: null,
+            },
+          },
+          showLocalFileReviews: true,
+          addMergeRequestButtons: true,
+          expanded: false,
+        },
+      });
+
+      findReviewFileCheckbox().vm.$emit('change', true);
+
+      testAction(
+        setFileForcedOpen,
+        { filePath: diffFile.file_path, forced: false },
+        {},
+        [{ type: SET_FILE_FORCED_OPEN, payload: { filePath: diffFile.file_path, forced: false } }],
+        [],
+      );
+
+      findReviewFileCheckbox().vm.$emit('change', false);
+
+      testAction(
+        setFileForcedOpen,
+        { filePath: diffFile.file_path, forced: false },
+        {},
+        [{ type: SET_FILE_FORCED_OPEN, payload: { filePath: diffFile.file_path, forced: false } }],
+        [],
+      );
+    });
+  });
+
+  it('should render the comment on files button', () => {
+    window.gon = { current_user_id: 1 };
+    createComponent({
+      props: {
+        addMergeRequestButtons: true,
+      },
+    });
+
+    expect(wrapper.find('[data-testid="comment-files-button"]').exists()).toEqual(true);
+  });
+
+  describe('pinned file', () => {
+    beforeEach(() => {
+      window.gon.features = { pinnedFile: true };
+    });
+
+    it('has pinned URL search param', () => {
+      createComponent();
+      const url = new URL(TEST_HOST + findTitleLink().attributes('href'));
+      expect(url.searchParams.get('pin')).toBe(diffFile.file_hash);
+    });
+
+    it('can unpin file', () => {
+      createComponent({ props: { addMergeRequestButtons: true, pinned: true } });
+      const unpinButton = wrapper.findComponentByTestId('unpin-button');
+      unpinButton.vm.$emit('click');
+      expect(mockStoreConfig.modules.diffs.actions.unpinFile).toHaveBeenCalled();
+    });
   });
 });

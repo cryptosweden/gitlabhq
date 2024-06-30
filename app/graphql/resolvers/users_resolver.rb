@@ -8,30 +8,39 @@ module Resolvers
     description 'Find Users'
 
     argument :ids, [GraphQL::Types::ID],
-             required: false,
-             description: 'List of user Global IDs.'
+      required: false,
+      description: 'List of user Global IDs.'
 
     argument :usernames, [GraphQL::Types::String], required: false,
-              description: 'List of usernames.'
+      description: 'List of usernames.'
 
     argument :sort, Types::SortEnum,
-             description: 'Sort users by this criteria.',
-             required: false,
-             default_value: :created_desc
+      description: 'Sort users by the criteria.',
+      required: false,
+      default_value: :created_desc
 
     argument :search, GraphQL::Types::String,
-             required: false,
-             description: "Query to search users by name, username, or primary email."
+      required: false,
+      description: "Query to search users by name, username, or primary email."
 
     argument :admins, GraphQL::Types::Boolean,
-              required: false,
-              default_value: false,
-              description: 'Return only admin users.'
+      required: false,
+      default_value: false,
+      description: 'Return only admin users.'
 
-    def resolve(ids: nil, usernames: nil, sort: nil, search: nil, admins: nil)
+    argument :group_id, ::Types::GlobalIDType[::Group],
+      required: false,
+      description: 'Return users member of a given group.'
+
+    def resolve(ids: nil, usernames: nil, sort: nil, search: nil, admins: nil, group_id: nil)
       authorize!(usernames)
 
-      ::UsersFinder.new(context[:current_user], finder_params(ids, usernames, sort, search, admins)).execute
+      group = group_id ? find_authorized_group!(group_id) : nil
+
+      ::UsersFinder.new(
+        context[:current_user],
+        finder_params(ids, usernames, sort, search, admins, group)
+      ).execute
     end
 
     def ready?(**args)
@@ -39,7 +48,7 @@ module Resolvers
 
       return super if args.values.compact.blank?
 
-      if args[:usernames]&.present? && args[:ids]&.present?
+      if args[:usernames].present? && args[:ids].present?
         raise Gitlab::Graphql::Errors::ArgumentError, 'Provide either a list of usernames or ids'
       end
 
@@ -47,22 +56,30 @@ module Resolvers
     end
 
     def authorize!(usernames)
-      authorized = Ability.allowed?(context[:current_user], :read_users_list)
-      authorized &&= usernames.present? if context[:current_user].blank?
-
-      raise_resource_not_available_error! unless authorized
+      raise_resource_not_available_error! unless context[:current_user].present?
     end
 
     private
 
-    def finder_params(ids, usernames, sort, search, admins)
+    def finder_params(ids, usernames, sort, search, admins, group)
       params = {}
       params[:sort] = sort if sort
       params[:username] = usernames if usernames
       params[:id] = parse_gids(ids) if ids
       params[:search] = search if search
       params[:admins] = admins if admins
+      params[:group] = group if group
       params
+    end
+
+    def find_authorized_group!(group_id)
+      group = GitlabSchema.find_by_gid(group_id).sync
+
+      unless Ability.allowed?(current_user, :read_group, group)
+        raise_resource_not_available_error! "Could not find a Group with ID #{group_id}"
+      end
+
+      group
     end
 
     def parse_gids(gids)

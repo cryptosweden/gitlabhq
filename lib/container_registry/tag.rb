@@ -4,19 +4,34 @@ module ContainerRegistry
   class Tag
     include Gitlab::Utils::StrongMemoize
 
-    attr_reader :repository, :name
-    attr_writer :created_at
+    attr_reader :repository, :name, :updated_at, :referrers, :published_at
+    attr_writer :created_at, :manifest_digest, :revision, :total_size
+    attr_accessor :media_type
 
     delegate :registry, :client, to: :repository
-    delegate :revision, :short_revision, to: :config_blob, allow_nil: true
 
-    def initialize(repository, name)
+    def initialize(repository, name, from_api: false)
       @repository = repository
       @name = name
+      @from_api = from_api
+    end
+
+    def referrers=(refs)
+      @referrers = Array.wrap(refs).map { |ref| Referrer.new(ref['artifactType'], ref['digest'], self) }
+    end
+
+    def revision
+      @revision || config_blob&.revision
+    end
+
+    def short_revision
+      return unless revision
+
+      revision[0..8]
     end
 
     def valid?
-      manifest.present?
+      from_api? || manifest.present?
     end
 
     def latest?
@@ -53,7 +68,7 @@ module ContainerRegistry
 
     def digest
       strong_memoize(:digest) do
-        client.repository_tag_digest(repository.path, name)
+        @manifest_digest || client.repository_tag_digest(repository.path, name)
       end
     end
 
@@ -75,13 +90,33 @@ module ContainerRegistry
 
     def created_at
       return @created_at if @created_at
-      return unless config
 
       strong_memoize(:memoized_created_at) do
+        next unless config
+
         DateTime.rfc3339(config['created'])
       rescue ArgumentError
         nil
       end
+    end
+
+    # this function will set and memoize a created_at
+    # to avoid a #config_blob call.
+    def force_created_at_from_iso8601(string_value)
+      date = parse_iso8601_string(string_value)
+      instance_variable_set(ivar(:memoized_created_at), date)
+    end
+
+    def updated_at=(string_value)
+      return unless string_value
+
+      @updated_at = parse_iso8601_string(string_value)
+    end
+
+    def published_at=(string_value)
+      return unless string_value
+
+      @published_at = parse_iso8601_string(string_value)
     end
 
     def layers
@@ -102,6 +137,8 @@ module ContainerRegistry
 
     # rubocop: disable CodeReuse/ActiveRecord
     def total_size
+      return @total_size if @total_size
+
       return unless layers
 
       layers.sum(&:size) if v2?
@@ -115,6 +152,18 @@ module ContainerRegistry
       return unless digest
 
       client.delete_repository_tag_by_digest(repository.path, digest)
+    end
+
+    private
+
+    def from_api?
+      @from_api
+    end
+
+    def parse_iso8601_string(string_value)
+      DateTime.iso8601(string_value)
+    rescue ArgumentError
+      nil
     end
   end
 end

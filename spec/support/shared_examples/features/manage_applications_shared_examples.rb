@@ -9,23 +9,21 @@ RSpec.shared_examples 'manage applications' do
     visit new_application_path
 
     expect(page).to have_content 'Add new application'
-    expect(find('#doorkeeper_application_expire_access_tokens')).to be_checked
+
+    click_button 'Add new application' if page.has_css?('.gl-new-card-header')
 
     fill_in :doorkeeper_application_name, with: application_name
     fill_in :doorkeeper_application_redirect_uri, with: application_redirect_uri
-    uncheck :doorkeeper_application_expire_access_tokens
     check :doorkeeper_application_scopes_read_user
     click_on 'Save application'
 
     validate_application(application_name, 'Yes')
+    expect(page).to have_content _('This is the only time the secret is accessible. Copy the secret and store it securely')
     expect(page).to have_link('Continue', href: index_path)
 
-    application = Doorkeeper::Application.find_by(name: application_name)
-    expect(page).to have_css("button[title=\"Copy secret\"][data-clipboard-text=\"#{application.secret}\"]", text: 'Copy')
+    expect(page).to have_button(_('Copy secret'))
 
     click_on 'Edit'
-
-    expect(find('#doorkeeper_application_expire_access_tokens')).not_to be_checked
 
     application_name_changed = "#{application_name} changed"
 
@@ -35,13 +33,14 @@ RSpec.shared_examples 'manage applications' do
 
     validate_application(application_name_changed, 'No')
     expect(page).not_to have_link('Continue')
+    expect(page).to have_content _('The secret is only available when you create the application or renew the secret.')
 
     visit_applications_path
 
-    page.within '.oauth-applications' do
+    page.within('[data-testid="oauth-applications"]') do
       click_on 'Destroy'
     end
-    expect(page.find('.oauth-applications')).not_to have_content 'test_changed'
+    expect(page.find('[data-testid="oauth-applications"]')).not_to have_content 'test_changed'
   end
 
   context 'when scopes are blank' do

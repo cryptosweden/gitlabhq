@@ -1,25 +1,24 @@
 ---
-type: reference
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Burndown and burnup charts **(PREMIUM)**
+# Burndown and burnup charts
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 [Burndown](#burndown-charts) and [burnup](#burnup-charts) charts show the progress of completing a milestone.
 
-![burndown and burnup chart](img/burndown_and_burnup_charts_v13_6.png)
+![burndown and burnup chart](img/burndown_and_burnup_charts_v15_3.png)
 
 ## Burndown charts
 
-> - [Added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/6495) to GitLab 11.2 for group milestones.
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/6903) [fixed burndown charts](#fixed-burndown-charts) in GitLab 13.6.
-> - Moved to GitLab Premium in 13.9.
-
 Burndown charts show the number of issues over the course of a milestone.
 
-![burndown chart](img/burndown_chart_v13_6.png)
+![burndown chart](img/burndown_chart_v15_3.png)
 
 At a glance, you see the current state for the completion a given milestone.
 Without them, you would have to organize the data from the milestone and plot it
@@ -32,12 +31,14 @@ For an overview, check the video demonstration on [Mapping work versus time with
 
 To view a project's burndown chart:
 
-1. In a project, navigate to **Issues > Milestones**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Plan > Milestones**.
 1. Select a milestone from the list.
 
 To view a group's burndown chart:
 
-1. In a group, navigate to **Issues > Milestones**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Milestones**.
 1. Select a milestone from the list.
 
 ### Use cases for burndown charts
@@ -66,7 +67,7 @@ A burndown chart is available for every project or group milestone that has been
 date** and a **due date**.
 
 NOTE:
-You're able to [promote project](index.md#promoting-project-milestones-to-group-milestones) to group milestones and still see the **burndown chart** for them, respecting license limitations.
+You're able to [promote project](index.md#promote-a-project-milestone-to-a-group-milestone) to group milestones and still see the **burndown chart** for them, respecting license limitations.
 
 The chart indicates the project's progress throughout that milestone (for issues assigned to it).
 
@@ -100,22 +101,20 @@ Reopened issues are considered as having been opened on the day after they were 
 
 ## Burnup charts
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/6903) in GitLab 13.6.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/268350) in GitLab 13.7.
-> - Moved to GitLab Premium in 13.9.
-
 Burnup charts show the assigned and completed work for a milestone.
 
-![burnup chart](img/burnup_chart_v13_6.png)
+![burnup chart](img/burnup_chart_v15_3.png)
 
 To view a project's burnup chart:
 
-1. In a project, navigate to **Issues > Milestones**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Plan > Milestones**.
 1. Select a milestone from the list.
 
 To view a group's burnup chart:
 
-1. In a group, navigate to **Issues > Milestones**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Plan > Milestones**.
 1. Select a milestone from the list.
 
 ### How burnup charts work
@@ -137,14 +136,73 @@ To switch between the two settings, select either **Issues** or **Issue weight**
 When sorting by weight, make sure all your issues
 have weight assigned, because issues with no weight don't show on the chart.
 
-<!-- ## Troubleshooting
+## Roll up weights
 
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/381879) in GitLab 16.11 [with a flag](../../../administration/feature_flags.md) named `rollup_timebox_chart`. Disabled by default.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../../administration/feature_flags.md) named `rollup_timebox_chart`.
+On GitLab.com and GitLab Dedicated, this feature is not available.
+This feature is not ready for production use.
+
+With [tasks](../../tasks.md), a more granular planning is possible.
+If this feature is enabled, the weight of issues that have tasks is derived from the tasks in the
+same milestone.
+Issues with tasks are not counted separately in burndown or burnup charts.
+
+How issue weight is counted in charts:
+
+- If an issue's tasks do not have weights assigned, the issue's weight is used instead.
+- If an issue has multiple tasks, and some tasks are completed in a prior iteration, only tasks in
+  this iteration are shown and counted.
+- If a task is directly assigned to an iteration, without its parent, it's the top level item and
+  contributes its own weight. The parent issue is not shown.
+
+### Weight rollup examples
+
+**Example 1**
+
+- Issue has weight 5 and is assigned to Milestone 2.
+- Task 1 has weight 2 and is assigned to Milestone 1.
+- Task 2 has weight 2 and is assigned to Milestone 2.
+- Task 3 has weight 2 and is assigned to Milestone 2.
+
+The charts for Milestone 1 would show Task 1 as having weight 2.
+
+The charts for Milestone 2 would show Issue as having weight 4.
+
+**Example 2**
+
+- Issue has weight 5 and is assigned to Milestone 2.
+- Task 1 is assigned to Milestone 1 without any weight.
+- Task 2 is assigned to Milestone 2 without any weight.
+- Task 3 is assigned to Milestone 2 without any weight.
+
+The charts for Milestone 1 would show Task 1 as having weight 0.
+
+The charts for Milestone 2 would show Issue as having weight 5.
+
+**Example 3**
+
+- Issue is assigned to Milestone 2 without any weight.
+- Task 1 has weight 2 and is assigned to Milestone 1
+- Task 2 has weight 2 and is assigned to Milestone 2
+- Task 3 has weight 2 and is assigned to Milestone 2
+
+The charts for Milestone 1 would show Task 1 as having weight 2.
+
+The charts for Milestone 2 would show Issue as having weight 4.
+
+## Troubleshooting
+
+### Burndown and burnup charts do not show the correct issue status
+
+A limitation of these charts is that [the days are in the UTC time zone](https://gitlab.com/gitlab-org/gitlab/-/issues/267967).
+
+This can cause the graphs to be inaccurate in other timezones. For example:
+
+- All the issues in a milestone are recorded as being closed on or before the last day.
+- One issue was closed on the last day at 6 PM PST (Pacific time), which is UTC-7.
+- The issue activity log displays the closure time at 6 PM on the last day of the milestone.
+- The charts plot the time in UTC, so for this issue, the close time is 1 AM the following day.
+- The charts show the milestone as incomplete and missing one closed issue.

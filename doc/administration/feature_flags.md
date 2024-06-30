@@ -1,18 +1,22 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 description: "GitLab administrator: enable and disable GitLab features deployed behind feature flags"
 ---
 
-# Enable and disable GitLab features deployed behind feature flags **(FREE SELF)**
+# Enable and disable GitLab features deployed behind feature flags
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 GitLab adopted [feature flags strategies](../development/feature_flags/index.md)
 to deploy features in an early stage of development so that they can be
 incrementally rolled out.
 
 Before making them permanently available, features can be deployed behind
-flags for a [number of reasons](https://about.gitlab.com/handbook/product-development-flow/feature-flag-lifecycle/#when-to-use-feature-flags), such as:
+flags for a [number of reasons](https://handbook.gitlab.com/handbook/product-development-flow/feature-flag-lifecycle/#when-to-use-feature-flags), such as:
 
 - To test the feature.
 - To get feedback from users and customers while in an early stage of the development of the feature.
@@ -27,8 +31,9 @@ Features behind flags can be gradually rolled out, typically:
 1. The feature flag is removed.
 
 These features can be enabled and disabled to allow or prevent users from using
-them. It can be done by GitLab administrators with access to GitLab Rails
-console.
+them. It can be done by GitLab administrators with access to the
+[Rails console](#how-to-enable-and-disable-features-behind-flags) or the
+[Feature flags API](../api/features.md).
 
 When you disable a feature flag, the feature is hidden from users and all of the functionality is turned off.
 For example, data is not recorded and services do not run.
@@ -40,15 +45,18 @@ GitLab, the feature flag status may change.
 
 ## Risks when enabling features still in development
 
+Before enabling a disabled feature flag in a production GitLab environment, it is crucial to understand the potential risks involved.
+
+WARNING:
+Data corruption, stability degradation, performance degradation, and security issues may occur if you enable a feature that's disabled by default.
+
 Features that are disabled by default may change or be removed without notice in a future version of GitLab.
 
-Data corruption, stability degradation, performance degradation, or security issues might occur if
-you enable a feature that's disabled by default. Problems caused by using a default
-disabled feature aren't covered by GitLab support, unless you were directed by GitLab
-to enable the feature.
+Features behind default-disabled feature flags are not recommended for use in a production environment
+and problems caused by using a default disabled features aren't covered by GitLab Support.
 
 Security issues found in features that are disabled by default are patched in regular releases
-and do not follow our regular [maintenance policy](../policy/maintenance.md#security-releases)
+and do not follow our regular [maintenance policy](../policy/maintenance.md#patch-releases)
 with regards to backporting the fix.
 
 ## Risks when disabling released features
@@ -64,10 +72,10 @@ the status of the flag and the command to enable or disable it.
 
 ### Start the GitLab Rails console
 
-The first thing you need to enable or disable a feature behind a flag is to
+The first thing you must do to enable or disable a feature behind a flag is to
 start a session on GitLab Rails console.
 
-For Omnibus installations:
+For Linux package installations:
 
 ```shell
 sudo gitlab-rails console
@@ -83,7 +91,7 @@ For details, see [starting a Rails console session](operations/rails_console.md#
 
 ### Enable or disable the feature
 
-Once the Rails console session has started, run the `Feature.enable` or
+After the Rails console session has started, run the `Feature.enable` or
 `Feature.disable` commands accordingly. The specific flag can be found
 in the feature's documentation itself.
 
@@ -93,10 +101,10 @@ To enable a feature, run:
 Feature.enable(:<feature flag>)
 ```
 
-Example, to enable a fictional feature flag named `my_awesome_feature`:
+Example, to enable a fictional feature flag named `example_feature`:
 
 ```ruby
-Feature.enable(:my_awesome_feature)
+Feature.enable(:example_feature)
 ```
 
 To disable a feature, run:
@@ -105,10 +113,10 @@ To disable a feature, run:
 Feature.disable(:<feature flag>)
 ```
 
-Example, to disable a fictional feature flag named `my_awesome_feature`:
+Example, to disable a fictional feature flag named `example_feature`:
 
 ```ruby
-Feature.disable(:my_awesome_feature)
+Feature.disable(:example_feature)
 ```
 
 Some feature flags can be enabled or disabled on a per project basis:
@@ -117,17 +125,17 @@ Some feature flags can be enabled or disabled on a per project basis:
 Feature.enable(:<feature flag>, Project.find(<project id>))
 ```
 
-For example, to enable the [`:product_analytics`](../operations/product_analytics.md#enable-or-disable-product-analytics) feature flag for project `1234`:
+For example, to enable the `:example_feature` feature flag for project `1234`:
 
 ```ruby
-Feature.enable(:product_analytics, Project.find(1234))
+Feature.enable(:example_feature, Project.find(1234))
 ```
 
-`Feature.enable` and `Feature.disable` always return `nil`, this is not an indication that the command failed:
+`Feature.enable` and `Feature.disable` always return `true`, even if the application doesn't use the flag:
 
 ```ruby
-irb(main):001:0> Feature.enable(:my_awesome_feature)
-=> nil
+irb(main):001:0> Feature.enable(:example_feature)
+=> true
 ```
 
 When the feature is ready, GitLab removes the feature flag, and the option for
@@ -136,12 +144,12 @@ enabling and disabling it no longer exists. The feature becomes available in all
 ### Check if a feature flag is enabled
 
 To check if a flag is enabled or disabled, use `Feature.enabled?` or `Feature.disabled?`.
-For example, for a feature flag named `my_awesome_feature` that is already enabled:
+For example, for a feature flag named `example_feature` that is already enabled:
 
 ```ruby
-Feature.enabled?(:my_awesome_feature)
+Feature.enabled?(:example_feature)
 => true
-Feature.disabled?(:my_awesome_feature)
+Feature.disabled?(:example_feature)
 => false
 ```
 
@@ -154,14 +162,17 @@ You can view all GitLab administrator set feature flags:
 
 ```ruby
 Feature.all
-=> [#<Flipper::Feature:198220 name="my_awesome_feature", state=:on, enabled_gate_names=[:boolean], adapter=:memoizable>]
+=> [#<Flipper::Feature:198220 name="example_feature", state=:on, enabled_gate_names=[:boolean], adapter=:memoizable>]
+
+# Nice output
+Feature.all.map {|f| [f.name, f.state]}
 ```
 
 ### Unset feature flag
 
-You can unset a feature flag so that GitLab will fall back to the current defaults for that flag:
+You can unset a feature flag so that GitLab falls back to the current defaults for that flag:
 
 ```ruby
-Feature.remove(:my_awesome_feature)
+Feature.remove(:example_feature)
 => true
 ```

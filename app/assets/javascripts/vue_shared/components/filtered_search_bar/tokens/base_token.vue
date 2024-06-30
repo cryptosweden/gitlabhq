@@ -7,14 +7,18 @@ import {
   GlDropdownText,
   GlLoadingIcon,
 } from '@gitlab/ui';
-import { debounce } from 'lodash';
+import { debounce, last } from 'lodash';
 
-import { DEBOUNCE_DELAY, FILTER_NONE_ANY, OPERATOR_IS_NOT } from '../constants';
+import { stripQuotes } from '~/lib/utils/text_utility';
+import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import {
-  getRecentlyUsedSuggestions,
-  setTokenValueToRecentlyUsed,
-  stripQuotes,
-} from '../filtered_search_utils';
+  DEBOUNCE_DELAY,
+  FILTERS_NONE_ANY,
+  OPERATOR_NOT,
+  OPERATOR_OR,
+  OPERATORS_TO_GROUP,
+} from '../constants';
+import { getRecentlyUsedSuggestions, setTokenValueToRecentlyUsed } from '../filtered_search_utils';
 
 export default {
   components: {
@@ -25,6 +29,7 @@ export default {
     GlDropdownText,
     GlLoadingIcon,
   },
+  mixins: [glFeatureFlagMixin()],
   props: {
     config: {
       type: Object,
@@ -64,22 +69,32 @@ export default {
       default: () => [],
     },
     valueIdentifier: {
-      type: String,
+      type: Function,
       required: false,
-      default: 'id',
+      default: (token) => token.id,
     },
     searchBy: {
       type: String,
       required: false,
       default: undefined,
     },
+    appliedTokens: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
   },
   data() {
     return {
       hasFetched: false, // use this to avoid flash of `No suggestions found` before fetching
       searchKey: '',
+      selectedTokens: [],
       recentSuggestions: this.config.recentSuggestionsStorageKey
-        ? getRecentlyUsedSuggestions(this.config.recentSuggestionsStorageKey) ?? []
+        ? getRecentlyUsedSuggestions(
+            this.config.recentSuggestionsStorageKey,
+            this.appliedTokens,
+            this.valueIdentifier,
+          ) ?? []
         : [],
     };
   },
@@ -91,18 +106,22 @@ export default {
       return !this.config.suggestionsDisabled;
     },
     recentTokenIds() {
-      return this.recentSuggestions.map((tokenValue) => tokenValue[this.valueIdentifier]);
+      return this.recentSuggestions.map(this.valueIdentifier);
     },
     preloadedTokenIds() {
-      return this.preloadedSuggestions.map((tokenValue) => tokenValue[this.valueIdentifier]);
+      return this.preloadedSuggestions.map(this.valueIdentifier);
     },
     activeTokenValue() {
-      return this.getActiveTokenValue(this.suggestions, this.value.data);
+      const data =
+        this.multiSelectEnabled && Array.isArray(this.value.data)
+          ? last(this.value.data)
+          : this.value.data;
+      return this.getActiveTokenValue(this.suggestions, data);
     },
     availableDefaultSuggestions() {
-      if (this.value.operator === OPERATOR_IS_NOT) {
+      if ([OPERATOR_NOT, OPERATOR_OR].includes(this.value.operator)) {
         return this.defaultSuggestions.filter(
-          (suggestion) => !FILTER_NONE_ANY.includes(suggestion.value),
+          (suggestion) => !FILTERS_NONE_ANY.includes(suggestion.value),
         );
       }
       return this.defaultSuggestions;
@@ -113,13 +132,15 @@ export default {
      * present in "Recently used"
      */
     availableSuggestions() {
-      return this.searchKey
+      const suggestions = this.searchKey
         ? this.suggestions
         : this.suggestions.filter(
             (tokenValue) =>
-              !this.recentTokenIds.includes(tokenValue[this.valueIdentifier]) &&
-              !this.preloadedTokenIds.includes(tokenValue[this.valueIdentifier]),
+              !this.recentTokenIds.includes(this.valueIdentifier(tokenValue)) &&
+              !this.preloadedTokenIds.includes(this.valueIdentifier(tokenValue)),
           );
+
+      return this.applyMaxSuggestions(suggestions);
     },
     showDefaultSuggestions() {
       return this.availableDefaultSuggestions.length > 0;
@@ -143,14 +164,34 @@ export default {
         ? this.activeTokenValue[this.searchBy]
         : undefined;
     },
+    multiSelectEnabled() {
+      return (
+        this.config.multiSelect &&
+        this.glFeatures.groupMultiSelectTokens &&
+        OPERATORS_TO_GROUP.includes(this.value.operator)
+      );
+    },
+    validatedConfig() {
+      if (this.config.multiSelect && !this.multiSelectEnabled) {
+        return {
+          ...this.config,
+          multiSelect: false,
+        };
+      }
+      return this.config;
+    },
   },
   watch: {
     active: {
       immediate: true,
-      handler(newValue) {
-        if (!newValue && !this.suggestions.length) {
-          const search = this.searchTerm ? this.searchTerm : this.value.data;
-          this.$emit('fetch-suggestions', search);
+      handler(active) {
+        if (!active && !this.suggestions.length) {
+          // data could be a string or an array of strings
+          const selectedItems = [this.value.data].flat();
+          selectedItems.forEach((item) => {
+            const search = this.searchTerm ? this.searchTerm : item;
+            this.$emit('fetch-suggestions', search);
+          });
         }
       },
     },
@@ -161,14 +202,41 @@ export default {
         }
       },
     },
+    value: {
+      deep: true,
+      immediate: true,
+      handler(newValue) {
+        const { data } = newValue;
+
+        if (!this.multiSelectEnabled) {
+          return;
+        }
+
+        // don't add empty values to selectedUsernames
+        if (!data) {
+          return;
+        }
+
+        if (Array.isArray(data)) {
+          this.selectedTokens = data;
+          // !active so we don't add strings while searching, e.g. r, ro, roo
+          // !includes so we don't add the same usernames (if @input is emitted twice)
+        } else if (!this.active && !this.selectedTokens.includes(data)) {
+          this.selectedTokens = this.selectedTokens.concat(data);
+        }
+      },
+    },
   },
   methods: {
     handleInput: debounce(function debouncedSearch({ data, operator }) {
+      // in multiSelect mode, data could be an array
+      if (Array.isArray(data)) return;
+
       // Prevent fetching suggestions when data or operator is not present
       if (data || operator) {
         this.searchKey = data;
 
-        if (!this.suggestionsLoading && !this.activeTokenValue) {
+        if (!this.activeTokenValue) {
           let search = this.searchTerm ? this.searchTerm : data;
 
           if (search.startsWith('"') && search.endsWith('"')) {
@@ -182,8 +250,19 @@ export default {
       }
     }, DEBOUNCE_DELAY),
     handleTokenValueSelected(selectedValue) {
-      const activeTokenValue = this.getActiveTokenValue(this.suggestions, selectedValue);
+      if (this.multiSelectEnabled) {
+        const index = this.selectedTokens.indexOf(selectedValue);
+        if (index > -1) {
+          this.selectedTokens.splice(index, 1);
+        } else {
+          this.selectedTokens.push(selectedValue);
+        }
 
+        // need to clear search
+        this.$emit('input', { ...this.value, data: '' });
+      }
+
+      const activeTokenValue = this.getActiveTokenValue(this.suggestions, selectedValue);
       // Make sure that;
       // 1. Recently used values feature is enabled
       // 2. User has actually selected a value
@@ -191,10 +270,16 @@ export default {
       if (
         this.isRecentSuggestionsEnabled &&
         activeTokenValue &&
-        !this.preloadedTokenIds.includes(activeTokenValue[this.valueIdentifier])
+        !this.preloadedTokenIds.includes(this.valueIdentifier(activeTokenValue))
       ) {
         setTokenValueToRecentlyUsed(this.config.recentSuggestionsStorageKey, activeTokenValue);
       }
+    },
+    applyMaxSuggestions(suggestions) {
+      const { maxSuggestions } = this.config;
+      if (!maxSuggestions || maxSuggestions <= 0) return suggestions;
+
+      return suggestions.slice(0, maxSuggestions);
     },
   },
 };
@@ -202,19 +287,34 @@ export default {
 
 <template>
   <gl-filtered-search-token
-    :config="config"
+    :config="validatedConfig"
     :value="value"
     :active="active"
+    :multi-select-values="selectedTokens"
     v-bind="$attrs"
     v-on="$listeners"
     @input="handleInput"
     @select="handleTokenValueSelected"
   >
     <template #view-token="viewTokenProps">
-      <slot name="view-token" :view-token-props="{ ...viewTokenProps, activeTokenValue }"></slot>
+      <slot
+        name="view-token"
+        :view-token-props="/* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */ {
+          ...viewTokenProps,
+          activeTokenValue,
+          selectedTokens,
+        } /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */"
+      ></slot>
     </template>
     <template #view="viewTokenProps">
-      <slot name="view" :view-token-props="{ ...viewTokenProps, activeTokenValue }"></slot>
+      <slot
+        name="view"
+        :view-token-props="/* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */ {
+          ...viewTokenProps,
+          activeTokenValue,
+          selectedTokens,
+        } /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */"
+      ></slot>
     </template>
     <template v-if="suggestionsEnabled" #suggestions>
       <template v-if="showDefaultSuggestions">
@@ -229,22 +329,32 @@ export default {
       </template>
       <template v-if="showRecentSuggestions">
         <gl-dropdown-section-header>{{ __('Recently used') }}</gl-dropdown-section-header>
-        <slot name="suggestions-list" :suggestions="recentSuggestions"></slot>
+        <slot
+          name="suggestions-list"
+          :suggestions="recentSuggestions"
+          :selections="selectedTokens"
+        ></slot>
         <gl-dropdown-divider />
       </template>
       <slot
         v-if="showPreloadedSuggestions"
         name="suggestions-list"
         :suggestions="preloadedSuggestions"
+        :selections="selectedTokens"
       ></slot>
       <gl-loading-icon v-if="suggestionsLoading" size="sm" />
       <template v-else-if="showAvailableSuggestions">
-        <slot name="suggestions-list" :suggestions="availableSuggestions"></slot>
+        <slot
+          name="suggestions-list"
+          :suggestions="availableSuggestions"
+          :selections="selectedTokens"
+        ></slot>
       </template>
       <gl-dropdown-text v-else-if="showNoMatchesText">
         {{ __('No matches found') }}
       </gl-dropdown-text>
       <gl-dropdown-text v-else-if="hasFetched">{{ __('No suggestions found') }}</gl-dropdown-text>
+      <slot name="footer"></slot>
     </template>
   </gl-filtered-search-token>
 </template>

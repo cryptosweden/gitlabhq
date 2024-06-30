@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Working with email in development
@@ -15,6 +15,8 @@ both backward and forward compatibility. Adhere to the Sidekiq steps for
 
 The same applies to a new mailer method, or a new mailer. If you introduce either,
 follow the steps for [adding new workers](sidekiq/compatibility_across_updates.md#adding-new-workers).
+This includes wrapping the new method with a [feature flag](feature_flags/index.md)
+so the new mailer can be disabled if a problem arises after deployment.
 
 In the following example from [`NotificationService`](https://gitlab.com/gitlab-org/gitlab/-/blob/33ccb22e4fc271dbaac94b003a7a1a2915a13441/app/services/notification_service.rb#L74)
 adding or removing an argument in this mailer's definition may cause problems
@@ -60,7 +62,7 @@ See the [Rails guides](https://guides.rubyonrails.org/action_mailer_basics.html#
      # The email address including the %{key} placeholder that will be replaced to reference the
      # item being replied to. This %{key} should be included in its entirety within the email
      # address and not replaced by another value.
-     # For example: emailadress+%{key}@gmail.com.
+     # For example: emailaddress+%{key}@gmail.com.
      # The placeholder must appear in the "user" part of the address (before the `@`). It can be omitted but some features,
      # including Service Desk, may not work properly.
      address: "gitlab-incoming+%{key}@gmail.com"
@@ -86,7 +88,7 @@ See the [Rails guides](https://guides.rubyonrails.org/action_mailer_basics.html#
      # The IDLE command timeout.
      idle_timeout: 60
 
-     # Whether to expunge (permanently remove) messages from the mailbox when they are deleted after delivery
+     # Whether to expunge (permanently remove) messages from the mailbox when they are marked as deleted after delivery
      expunge_deleted: false
    ```
 
@@ -110,7 +112,7 @@ See the [Rails guides](https://guides.rubyonrails.org/action_mailer_basics.html#
 
 ## Email namespace
 
-As of GitLab 11.7, we support a new format for email handler addresses. This was done to
+GitLab supports the new format for email handler addresses. This was done to
 support catch-all mailboxes.
 
 If you need to implement a feature which requires a new email handler, follow these rules
@@ -146,41 +148,15 @@ In GitLab, the handler for the Service Desk feature is `path/to/project`.
 
 ### MailRoom Gem updates
 
-We use [`gitlab-mail_room`](https://gitlab.com/gitlab-org/gitlab-mail_room), a
+We use [`gitlab-mail_room`](https://gitlab.com/gitlab-org/ruby/gems/gitlab-mail_room), a
 fork of [`MailRoom`](https://github.com/tpitale/mail_room/), to ensure
 that we can make updates quickly to the gem if necessary. We try to upstream
 changes as soon as possible and keep the two projects in sync.
 
-Updating the `gitlab-mail_room` dependency in `Gemfile` is deprecated at
-the moment in favor of updating the version in
-[Omnibus](https://gitlab.com/gitlab-org/omnibus-gitlab/-/blob/master/config/software/mail_room.rb)
-(see [example merge request](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/5816))
-and Helm Chart configuration (see [example merge request](https://gitlab.com/gitlab-org/build/CNG/-/merge_requests/854)).
+To update MailRoom:
 
-#### Rationale
-
-This was done because to avoid [thread deadlocks](https://github.com/ruby/net-imap/issues/14), `MailRoom` needs
-an updated version of the `net-imap` gem. However, this [version of the net-imap cannot be installed by an unprivileged
-user](https://github.com/ruby/net-imap/issues/14) due to [an error installing the digest
-gem](https://github.com/ruby/digest/issues/14). [This bug in the Ruby interpreter](https://bugs.ruby-lang.org/issues/17761) was fixed in Ruby
-3.0.2.
-
-Updating the gem directly in the GitLab Rails `Gemfile` caused a [production incident](https://gitlab.com/gitlab-com/gl-infra/production/-/issues/4053)
-since Kubernetes pods do not run as privileged users.
-
-Note that Omnibus GitLab runs `/opt/gitlab/embedded/bin/mail_room`
-instead of `bundle exec rake` to avoid loading the older version. With a
-Kubernetes install, the MailRoom version has always been explicitly set
-in the Helm Chart configuration rather than the `Gemfile`.
-
-#### Preserving backwards compatibility
-
-Removing the `Gemfile` would break incoming e-mail processing for source
-installs. For now, source installs are advised to upgrade manually to
-the version specified in Omnibus and run `bin/mail_room` directly as
-done with Omnibus.
-
-We can reconsider this deprecation once we upgrade to Ruby 3.0.
+1. Update `Gemfile` in GitLab Rails (see [example merge request](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/116494)).
+1. Update the Helm Chart configuration (see [example merge request](https://gitlab.com/gitlab-org/build/CNG/-/merge_requests/854)).
 
 ---
 

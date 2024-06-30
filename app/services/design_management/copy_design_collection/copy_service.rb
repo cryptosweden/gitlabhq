@@ -58,8 +58,8 @@ module DesignManagement
       private
 
       attr_reader :designs, :event_enum_map, :git_user, :sha_attribute, :shas,
-                  :temporary_branch, :target_design_collection, :target_issue,
-                  :target_repository, :target_project, :versions
+        :temporary_branch, :target_design_collection, :target_issue,
+        :target_repository, :target_project, :versions
 
       alias_method :merge_branch, :target_branch
 
@@ -128,9 +128,9 @@ module DesignManagement
 
         target_repository.raw.merge(
           git_user,
-          source_sha,
-          merge_branch,
-          'CopyDesignCollectionService finalize merge'
+          source_sha: source_sha,
+          target_branch: merge_branch,
+          message: 'CopyDesignCollectionService finalize merge'
         ) { nil }
 
         target_design_collection.end_copy!
@@ -143,7 +143,7 @@ module DesignManagement
           gitaly_actions = version.actions.map do |action|
             design = action.design
             # Map the raw Action#event enum value to a Gitaly "action" for the
-            # `Repository#multi_action` call.
+            # `Repository#commit_files` call.
             gitaly_action_name = @event_enum_map[action.event_before_type_cast]
             # `content` will be the LfsPointer file and not the design file,
             # and can be nil for deletions.
@@ -157,7 +157,7 @@ module DesignManagement
             }.compact
           end
 
-          sha = target_repository.multi_action(
+          sha = target_repository.commit_files(
             git_user,
             branch_name: temporary_branch,
             message: commit_message(version),
@@ -172,7 +172,7 @@ module DesignManagement
       def copy_designs!
         design_attributes = attributes_config[:design_attributes]
 
-        ::DesignManagement::Design.with_project_iid_supply(target_project) do |supply|
+        DesignManagement::Design.with_project_iid_supply(target_project) do |supply|
           new_rows = designs.each_with_index.map do |design, i|
             design.attributes.slice(*design_attributes).merge(
               issue_id: target_issue.id,

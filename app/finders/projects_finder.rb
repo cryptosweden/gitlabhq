@@ -16,6 +16,7 @@
 #     visibility_level: int
 #     tag: string[] - deprecated, use 'topic' instead
 #     topic: string[]
+#     topic_id: int
 #     personal: boolean
 #     search: string
 #     search_namespaces: boolean
@@ -26,11 +27,13 @@
 #     last_activity_after: datetime
 #     last_activity_before: datetime
 #     repository_storage: string
-#     without_deleted: boolean
 #     not_aimed_for_deletion: boolean
+#     full_paths: string[]
+#     organization: Scope the groups to the Organizations::Organization
 #
 class ProjectsFinder < UnionFinder
   include CustomAttributesFilter
+  include UpdatedAtFilter
 
   attr_accessor :params
   attr_reader :current_user, :project_ids_relation
@@ -52,15 +55,15 @@ class ProjectsFinder < UnionFinder
         init_collection
       end
 
+    if Feature.enabled?(:hide_projects_of_banned_users)
+      collection = without_created_and_owned_by_banned_user(collection)
+    end
+
     use_cte = params.delete(:use_cte)
     collection = Project.wrap_with_cte(collection) if use_cte
     collection = filter_projects(collection)
 
-    if params[:sort] == 'similarity' && params[:search]
-      collection.sorted_by_similarity_desc(params[:search])
-    else
-      sort(collection)
-    end
+    sort(collection).allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/427628")
   end
 
   private
@@ -75,19 +78,25 @@ class ProjectsFinder < UnionFinder
 
   # EE would override this to add more filters
   def filter_projects(collection)
+    collection = by_deleted_status(collection)
     collection = by_ids(collection)
+    collection = by_full_paths(collection)
     collection = by_personal(collection)
     collection = by_starred(collection)
     collection = by_trending(collection)
     collection = by_visibility_level(collection)
     collection = by_topics(collection)
+    collection = by_topic_id(collection)
     collection = by_search(collection)
     collection = by_archived(collection)
     collection = by_custom_attributes(collection)
-    collection = by_deleted_status(collection)
     collection = by_not_aimed_for_deletion(collection)
     collection = by_last_activity_after(collection)
     collection = by_last_activity_before(collection)
+    collection = by_language(collection)
+    collection = by_feature_availability(collection)
+    collection = by_updated_at(collection)
+    collection = by_organization(collection)
     by_repository_storage(collection)
   end
 
@@ -96,12 +105,10 @@ class ProjectsFinder < UnionFinder
       current_user.owned_projects
     elsif min_access_level?
       current_user.authorized_projects(params[:min_access_level])
+    elsif private_only? || impossible_visibility_level?
+      current_user.authorized_projects
     else
-      if private_only? || impossible_visibility_level?
-        current_user.authorized_projects
-      else
-        Project.public_or_visible_to_user(current_user)
-      end
+      Project.public_or_visible_to_user(current_user)
     end
   end
 
@@ -117,9 +124,9 @@ class ProjectsFinder < UnionFinder
   # This is an optimization - surprisingly PostgreSQL does not optimize
   # for this.
   #
-  # If the default visiblity level and desired visiblity level filter cancels
+  # If the default visibility level and desired visibility level filter cancels
   # each other out, don't use the SQL clause for visibility level in
-  # `Project.public_or_visible_to_user`. In fact, this then becames equivalent
+  # `Project.public_or_visible_to_user`. In fact, this then becomes equivalent
   # to just authorized projects for the user.
   #
   # E.g.
@@ -135,7 +142,7 @@ class ProjectsFinder < UnionFinder
 
     public_visibility_levels = Gitlab::VisibilityLevel.levels_for_user(current_user)
 
-    !public_visibility_levels.include?(params[:visibility_level].to_i)
+    public_visibility_levels.exclude?(params[:visibility_level].to_i)
   end
 
   def owned_projects?
@@ -150,6 +157,12 @@ class ProjectsFinder < UnionFinder
     params[:min_access_level].present?
   end
 
+  def by_deleted_status(items)
+    return items.without_deleted unless current_user&.can?(:admin_all_resources)
+
+    params[:include_pending_delete].present? ? items : items.without_deleted
+  end
+
   # rubocop: disable CodeReuse/ActiveRecord
   def by_ids(items)
     items = items.where(id: project_ids_relation) if project_ids_relation
@@ -158,6 +171,10 @@ class ProjectsFinder < UnionFinder
     items
   end
   # rubocop: enable CodeReuse/ActiveRecord
+
+  def by_full_paths(items)
+    params[:full_paths].present? ? items.where_full_path_in(params[:full_paths], preload_routes: false) : items
+  end
 
   def union(items)
     find_union(items, Project).with_route
@@ -186,23 +203,31 @@ class ProjectsFinder < UnionFinder
 
     topics = params[:topic].instance_of?(String) ? params[:topic].split(',') : params[:topic]
     topics.map(&:strip).uniq.reject(&:empty?).each do |topic|
-      items = items.with_topic(topic)
+      items = items.with_topic_by_name(topic)
     end
 
     items
+  end
+
+  def by_topic_id(items)
+    return items unless params[:topic_id].present?
+
+    topic = Projects::Topic.find_by(id: params[:topic_id]) # rubocop: disable CodeReuse/ActiveRecord
+    return Project.none unless topic
+
+    items.with_topic(topic)
   end
 
   def by_search(items)
     params[:search] ||= params[:name]
 
     return items if Feature.enabled?(:disable_anonymous_project_search, type: :ops) && current_user.nil?
-    return items.none if params[:search].present? && params[:minimum_search_length].present? && params[:search].length < params[:minimum_search_length].to_i
+
+    if params[:search].present? && params[:minimum_search_length].present? && params[:search].length < params[:minimum_search_length].to_i
+      return items.none
+    end
 
     items.optionally_search(params[:search], include_namespace: params[:search_namespaces].present?)
-  end
-
-  def by_deleted_status(items)
-    params[:without_deleted].present? ? items.without_deleted : items
   end
 
   def by_not_aimed_for_deletion(items)
@@ -233,12 +258,20 @@ class ProjectsFinder < UnionFinder
     end
   end
 
-  def sort(items)
-    if params[:sort].present?
-      items.sort_by_attribute(params[:sort])
+  def by_language(items)
+    if params[:language].present?
+      items.with_programming_language_id(params[:language])
     else
-      items.projects_order_id_desc
+      items
     end
+  end
+
+  def sort(items)
+    return items.projects_order_id_desc unless params[:sort]
+
+    return items.sorted_by_similarity_desc(params[:search]) if params[:sort] == 'similarity' && params[:search].present?
+
+    items.sort_by_attribute(params[:sort])
   end
 
   def by_archived(projects)
@@ -257,10 +290,29 @@ class ProjectsFinder < UnionFinder
     end
   end
 
+  def by_feature_availability(items)
+    items = items.with_issues_available_for_user(current_user) if params[:with_issues_enabled]
+    items = items.with_merge_requests_available_for_user(current_user) if params[:with_merge_requests_enabled]
+    items
+  end
+
+  def by_organization(items)
+    organization = params[:organization]
+    return items unless organization
+
+    items.in_organization(organization)
+  end
+
   def finder_params
     return {} unless min_access_level?
 
     { min_access_level: params[:min_access_level] }
+  end
+
+  def without_created_and_owned_by_banned_user(projects)
+    return projects if current_user&.can?(:admin_all_resources)
+
+    projects.without_created_and_owned_by_banned_user
   end
 end
 

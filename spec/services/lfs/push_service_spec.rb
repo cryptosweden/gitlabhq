@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Lfs::PushService do
+RSpec.describe Lfs::PushService, feature_category: :source_code_management do
   let(:logger) { service.send(:logger) }
   let(:lfs_client) { service.send(:lfs_client) }
 
@@ -98,7 +98,7 @@ RSpec.describe Lfs::PushService do
   end
 
   def batch_spec(*objects, upload: true, verify: false)
-    { 'transfer' => 'basic', 'objects' => objects.map {|o| object_spec(o, upload: upload) } }
+    { 'transfer' => 'basic', 'objects' => objects.map { |o| object_spec(o, upload: upload) } }
   end
 
   def object_spec(object, upload: true, verify: false)

@@ -4,13 +4,17 @@ module Ci
   class SecureFileUploader < GitlabUploader
     include ObjectStorage::Concern
 
-    storage_options Gitlab.config.ci_secure_files
+    storage_location :ci_secure_files
+
+    # TODO: Remove this line
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/232917
+    alias_method :upload, :model
 
     # Use Lockbox to encrypt/decrypt the stored file (registers CarrierWave callbacks)
     encrypt(key: :key)
 
     def key
-      OpenSSL::HMAC.digest('SHA256', Gitlab::Application.secrets.db_key_base, model.project_id.to_s)
+      Digest::SHA256.digest model.key_data
     end
 
     def checksum
@@ -31,10 +35,6 @@ module Ci
       # direct upload is disabled since the file
       # must always be encrypted
       def direct_upload_enabled?
-        false
-      end
-
-      def background_upload_enabled?
         false
       end
 

@@ -9,16 +9,18 @@ module Gitlab
       SHARED_STATE_NAMESPACE = 'etag:'
 
       def get(key)
-        Gitlab::Redis::SharedState.with { |redis| redis.get(redis_shared_state_key(key)) }
+        with_redis { |redis| redis.get(redis_shared_state_key(key)) }
       end
 
       def touch(*keys, only_if_missing: false)
         etags = keys.map { generate_etag }
 
-        Gitlab::Redis::SharedState.with do |redis|
-          redis.pipelined do
-            keys.each_with_index do |key, i|
-              redis.set(redis_shared_state_key(key), etags[i], ex: EXPIRY_TIME, nx: only_if_missing)
+        Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
+          with_redis do |redis|
+            redis.pipelined do |pipeline|
+              keys.each_with_index do |key, i|
+                pipeline.set(redis_shared_state_key(key), etags[i], ex: EXPIRY_TIME, nx: only_if_missing)
+              end
             end
           end
         end
@@ -27,6 +29,10 @@ module Gitlab
       end
 
       private
+
+      def with_redis(&blk)
+        Gitlab::Redis::Cache.with(&blk) # rubocop:disable CodeReuse/ActiveRecord
+      end
 
       def generate_etag
         SecureRandom.hex

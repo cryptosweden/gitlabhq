@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ContainerRegistry::Client do
+RSpec.describe ContainerRegistry::Client, feature_category: :container_registry do
   using RSpec::Parameterized::TableSyntax
 
   include_context 'container registry client'
@@ -23,7 +23,7 @@ RSpec.describe ContainerRegistry::Client do
     it 'handles network timeouts' do
       actual_retries = 0
       retry_options_with_block = retry_options.merge(
-        retry_block: -> (_, _, _, _) { actual_retries += 1 }
+        retry_block: ->(_, _, _, _) { actual_retries += 1 }
       )
 
       stub_const('ContainerRegistry::BaseClient::RETRY_OPTIONS', retry_options_with_block)
@@ -75,10 +75,10 @@ RSpec.describe ContainerRegistry::Client do
     it 'GET /v2/:name/manifests/mytag' do
       stub_request(method, url)
         .with(headers: {
-                'Accept' => 'application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json',
-                'Authorization' => "bearer #{token}",
-                'User-Agent' => "GitLab/#{Gitlab::VERSION}"
-              })
+          'Accept' => 'application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json',
+          'Authorization' => "bearer #{token}",
+          'User-Agent' => "GitLab/#{Gitlab::VERSION}"
+        })
         .to_return(status: 200, body: manifest.to_json, headers: { content_type: manifest_type })
 
       expect_new_faraday
@@ -89,13 +89,14 @@ RSpec.describe ContainerRegistry::Client do
     it_behaves_like 'handling timeouts'
   end
 
-  shared_examples 'handling repository info' do
+  shared_examples 'handling registry info' do
     context 'when the check is successful' do
       context 'when using the GitLab container registry' do
         before do
           stub_registry_info(headers: {
             'GitLab-Container-Registry-Version' => '2.9.1-gitlab',
-            'GitLab-Container-Registry-Features' => 'a,b,c'
+            'GitLab-Container-Registry-Features' => 'a,b,c',
+            'GitLab-Container-Registry-Database-Enabled' => 'true'
           })
         end
 
@@ -105,6 +106,10 @@ RSpec.describe ContainerRegistry::Client do
 
         it 'identifies version and features' do
           expect(subject).to include(version: '2.9.1-gitlab', features: %w[a b c])
+        end
+
+        it 'identifies the registry DB as enabled' do
+          expect(subject).to include(db_enabled: true)
         end
       end
 
@@ -120,6 +125,10 @@ RSpec.describe ContainerRegistry::Client do
         it 'does not identify version or features' do
           expect(subject).to include(version: nil, features: [])
         end
+
+        it 'does not identify the registry DB as enabled' do
+          expect(subject).to include(db_enabled: false)
+        end
       end
     end
 
@@ -128,6 +137,16 @@ RSpec.describe ContainerRegistry::Client do
         stub_registry_info(status: 500)
 
         expect(subject).to eq({})
+      end
+    end
+
+    context 'when the check returns an unexpected value in the database enabled header' do
+      it 'does not identify the registry DB as enabled' do
+        stub_registry_info(headers: {
+          'GitLab-Container-Registry-Database-Enabled' => '123'
+        })
+
+        expect(subject).to include(db_enabled: false)
       end
     end
   end
@@ -144,9 +163,9 @@ RSpec.describe ContainerRegistry::Client do
     let(:url) { 'http://container-registry/v2/group/test/blobs/sha256:0123456789012345' }
     let(:blob_headers) do
       {
-          'Accept' => 'application/octet-stream',
-          'Authorization' => "bearer #{token}",
-          'User-Agent' => "GitLab/#{Gitlab::VERSION}"
+        'Accept' => 'application/octet-stream',
+        'Authorization' => "bearer #{token}",
+        'User-Agent' => "GitLab/#{Gitlab::VERSION}"
       }
     end
 
@@ -180,7 +199,7 @@ RSpec.describe ContainerRegistry::Client do
         # https://github.com/bblimke/webmock/blob/master/lib/webmock/matchers/hash_excluding_matcher.rb
         stub_request(:get, redirect_location)
           .with(headers: redirect_header) do |request|
-            !request.headers.include?('Authorization')
+            request.headers.exclude?('Authorization')
           end
           .to_return(status: 200, body: "Successfully redirected")
       end
@@ -199,69 +218,16 @@ RSpec.describe ContainerRegistry::Client do
         let(:redirect_location) { 'http://redirect?foo=bar&test=signature=' }
 
         it_behaves_like 'handling redirects'
-
-        context 'with container_registry_follow_redirects_middleware disabled' do
-          before do
-            stub_feature_flags(container_registry_follow_redirects_middleware: false)
-          end
-
-          it 'follows the redirect' do
-            expect(Faraday::Utils).to receive(:escape).with('foo').and_call_original
-            expect(Faraday::Utils).to receive(:escape).with('bar').and_call_original
-            expect(Faraday::Utils).to receive(:escape).with('test').and_call_original
-            expect(Faraday::Utils).to receive(:escape).with('signature=').and_call_original
-
-            expect_new_faraday(times: 2)
-            expect(subject).to eq('Successfully redirected')
-          end
-        end
       end
 
       context 'with a redirect location with params ending with %3D' do
         let(:redirect_location) { 'http://redirect?foo=bar&test=signature%3D' }
 
         it_behaves_like 'handling redirects'
-
-        context 'with container_registry_follow_redirects_middleware disabled' do
-          before do
-            stub_feature_flags(container_registry_follow_redirects_middleware: false)
-          end
-
-          it 'follows the redirect' do
-            expect(Faraday::Utils).to receive(:escape).with('foo').and_call_original
-            expect(Faraday::Utils).to receive(:escape).with('bar').and_call_original
-            expect(Faraday::Utils).to receive(:escape).with('test').and_call_original
-            expect(Faraday::Utils).to receive(:escape).with('signature=').and_call_original
-
-            expect_new_faraday(times: 2)
-            expect(subject).to eq('Successfully redirected')
-          end
-        end
       end
     end
 
     it_behaves_like 'handling timeouts'
-
-    # TODO Remove this context along with the
-    # container_registry_follow_redirects_middleware feature flag
-    # See https://gitlab.com/gitlab-org/gitlab/-/issues/353291
-    context 'faraday blob' do
-      subject { client.send(:faraday_blob) }
-
-      it 'has a follow redirects middleware' do
-        expect(subject.builder.handlers).to include(::FaradayMiddleware::FollowRedirects)
-      end
-
-      context 'with container_registry_follow_redirects_middleware is disabled' do
-        before do
-          stub_feature_flags(container_registry_follow_redirects_middleware: false)
-        end
-
-        it 'has  not a follow redirects middleware' do
-          expect(subject.builder.handlers).not_to include(::FaradayMiddleware::FollowRedirects)
-        end
-      end
-    end
   end
 
   describe '#upload_blob' do
@@ -321,10 +287,10 @@ RSpec.describe ContainerRegistry::Client do
   describe '#put_tag' do
     let(:manifest_headers) do
       {
-          'Accept' => 'application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json',
-          'Authorization' => "bearer #{token}",
-          'Content-Type' => 'application/vnd.docker.distribution.manifest.v2+json',
-          'User-Agent' => "GitLab/#{Gitlab::VERSION}"
+        'Accept' => 'application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json',
+        'Authorization' => "bearer #{token}",
+        'Content-Type' => 'application/vnd.docker.distribution.manifest.v2+json',
+        'User-Agent' => "GitLab/#{Gitlab::VERSION}"
       }
     end
 
@@ -341,12 +307,12 @@ RSpec.describe ContainerRegistry::Client do
     end
   end
 
-  describe '#delete_repository_tag_by_name' do
-    subject { client.delete_repository_tag_by_name('group/test', 'a') }
+  describe '#delete_repository_tag_by_digest' do
+    subject { client.delete_repository_tag_by_digest('group/test', 'a') }
 
     context 'when the tag exists' do
       before do
-        stub_request(:delete, "http://container-registry/v2/group/test/tags/reference/a")
+        stub_request(:delete, "http://container-registry/v2/group/test/manifests/a")
           .with(headers: headers_with_accept_types)
           .to_return(status: 200, body: "")
       end
@@ -356,7 +322,7 @@ RSpec.describe ContainerRegistry::Client do
 
     context 'when the tag does not exist' do
       before do
-        stub_request(:delete, "http://container-registry/v2/group/test/tags/reference/a")
+        stub_request(:delete, "http://container-registry/v2/group/test/manifests/a")
           .with(headers: headers_with_accept_types)
           .to_return(status: 404, body: "")
       end
@@ -366,7 +332,7 @@ RSpec.describe ContainerRegistry::Client do
 
     context 'when an error occurs' do
       before do
-        stub_request(:delete, "http://container-registry/v2/group/test/tags/reference/a")
+        stub_request(:delete, "http://container-registry/v2/group/test/manifests/a")
           .with(headers: headers_with_accept_types)
           .to_return(status: 500, body: "")
       end
@@ -391,7 +357,7 @@ RSpec.describe ContainerRegistry::Client do
 
     with_them do
       before do
-        allow(::Gitlab).to receive(:com?).and_return(is_on_dot_com)
+        allow(::Gitlab).to receive(:com_except_jh?).and_return(is_on_dot_com)
         stub_registry_tags_support(registry_tags_support_enabled)
         stub_application_setting(container_registry_features: container_registry_features)
       end
@@ -413,7 +379,7 @@ RSpec.describe ContainerRegistry::Client do
   describe '#registry_info' do
     subject { client.registry_info }
 
-    it_behaves_like 'handling repository info'
+    it_behaves_like 'handling registry info'
   end
 
   describe '.supports_tag_delete?' do
@@ -456,7 +422,7 @@ RSpec.describe ContainerRegistry::Client do
 
     with_them do
       before do
-        allow(::Gitlab).to receive(:com?).and_return(is_on_dot_com)
+        allow(::Gitlab).to receive(:com_except_jh?).and_return(is_on_dot_com)
         stub_container_registry_config(enabled: registry_enabled, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
         stub_registry_tags_support(registry_tags_support_enabled)
         stub_application_setting(container_registry_features: container_registry_features)
@@ -476,6 +442,22 @@ RSpec.describe ContainerRegistry::Client do
     end
   end
 
+  describe '#repository_tags' do
+    let(:path) { 'repository/path' }
+
+    subject { client.repository_tags(path) }
+
+    before do
+      stub_container_registry_config(enabled: true, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
+    end
+
+    it 'returns a successful response' do
+      stub_registry_tags_list(query_params: { n: described_class::DEFAULT_TAGS_PAGE_SIZE }, tags: %w[t1 t2])
+
+      expect(subject).to eq('tags' => %w[t1 t2])
+    end
+  end
+
   describe '.registry_info' do
     subject { described_class.registry_info }
 
@@ -483,7 +465,33 @@ RSpec.describe ContainerRegistry::Client do
       stub_container_registry_config(enabled: true, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
     end
 
-    it_behaves_like 'handling repository info'
+    it_behaves_like 'handling registry info'
+  end
+
+  describe '#connected?' do
+    subject { client.connected? }
+
+    context 'with a valid connection' do
+      before do
+        stub_container_registry_config(enabled: true, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
+        stub_registry_info
+      end
+
+      it 'returns true' do
+        expect(subject).to be true
+      end
+    end
+
+    context 'with an invalid connection' do
+      before do
+        stub_container_registry_config(enabled: true, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
+        stub_registry_info(status: 500)
+      end
+
+      it 'returns false' do
+        expect(subject).to be false
+      end
+    end
   end
 
   def stub_upload(path, content, digest, status = 200)
@@ -503,12 +511,28 @@ RSpec.describe ContainerRegistry::Client do
 
   def stub_registry_tags_support(supported = true)
     status_code = supported ? 200 : 404
-    stub_request(:options, "#{registry_api_url}/v2/name/tags/reference/tag")
+    stub_request(:options, "#{registry_api_url}/v2/name/manifests/tag")
       .to_return(
         status: status_code,
         body: '',
         headers: { 'Allow' => 'DELETE' }
       )
+  end
+
+  def stub_registry_tags_list(query_params: {}, status: 200, tags: ['test_tag'])
+    url = "#{registry_api_url}/v2/#{path}/tags/list"
+
+    unless query_params.empty?
+      url += "?"
+      url += query_params.map { |k, v| "#{k}=#{v}" }.join(',')
+    end
+
+    stub_request(:get, url)
+      .with(headers: { 'Accept' => ContainerRegistry::Client::ACCEPTED_TYPES.join(', ') })
+      .to_return(
+        status: status,
+        body: Gitlab::Json.dump(tags: tags),
+        headers: { 'Content-Type' => 'application/json' })
   end
 
   def expect_new_faraday(times: 1, timeout: true)

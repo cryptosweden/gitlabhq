@@ -4,7 +4,7 @@ module Pages
   class DeploymentUploader < GitlabUploader
     include ObjectStorage::Concern
 
-    storage_options Gitlab.config.pages
+    storage_location :pages
 
     alias_method :upload, :model
 
@@ -33,13 +33,6 @@ module Pages
       # so we don't need direct upload for pages deployments
       # this method is here to ignore any user setting
       def direct_upload_enabled?
-        false
-      end
-
-      # we don't need background uploads because we upload files
-      # to the right store right away, and we already do that in
-      # the background job
-      def background_upload_enabled?
         false
       end
 

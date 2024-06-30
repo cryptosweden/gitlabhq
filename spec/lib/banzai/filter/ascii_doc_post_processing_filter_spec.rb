@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::AsciiDocPostProcessingFilter do
+RSpec.describe Banzai::Filter::AsciiDocPostProcessingFilter, feature_category: :wiki do
   include FilterSpecHelper
 
   it "adds class for elements with data-math-style" do
     result = filter('<pre data-math-style="inline">some code</pre><div data-math>and</div>').to_html
-    expect(result).to eq('<pre data-math-style="inline" class="code math js-render-math">some code</pre><div data-math>and</div>')
+    expect(result).to eq('<pre data-math-style="inline" class="js-render-math">some code</pre><div data-math>and</div>')
   end
 
   it "adds class for elements with data-mermaid-style" do
@@ -20,4 +20,6 @@ RSpec.describe Banzai::Filter::AsciiDocPostProcessingFilter do
     result = filter('<pre>some code</pre><div data-math>and</div>').to_html
     expect(result).to eq('<pre>some code</pre><div data-math>and</div>')
   end
+
+  it_behaves_like 'pipeline timing check'
 end

@@ -1,14 +1,14 @@
 # frozen_string_literal: true
 
-class UserPreference < ApplicationRecord
-  include IgnorableColumns
-
+class UserPreference < MainClusterwide::ApplicationRecord
   # We could use enums, but Rails 4 doesn't support multiple
   # enum options with same name for multiple fields, also it creates
   # extra methods that aren't really needed here.
   NOTES_FILTERS = { all_notes: 0, only_comments: 1, only_activity: 2 }.freeze
+  TIME_DISPLAY_FORMATS = { system: 0, non_iso_format: 1, iso_format: 2 }.freeze
 
   belongs_to :user
+  belongs_to :home_organization, class_name: "Organizations::Organization", optional: true
 
   scope :with_user, -> { joins(:user) }
   scope :gitpod_enabled, -> { where(gitpod_enabled: true) }
@@ -19,14 +19,31 @@ class UserPreference < ApplicationRecord
     greater_than_or_equal_to: Gitlab::TabWidth::MIN,
     less_than_or_equal_to: Gitlab::TabWidth::MAX
   }
+  validates :diffs_deletion_color, :diffs_addition_color,
+    format: { with: ColorsHelper::HEX_COLOR_PATTERN },
+    allow_blank: true
 
-  ignore_columns :experience_level, remove_with: '14.10', remove_after: '2021-03-22'
+  validates :time_display_relative, allow_nil: false, inclusion: { in: [true, false] }
+  validates :render_whitespace_in_code, allow_nil: false, inclusion: { in: [true, false] }
+  validates :pass_user_identities_to_ci_jwt, allow_nil: false, inclusion: { in: [true, false] }
 
-  default_value_for :tab_width, value: Gitlab::TabWidth::DEFAULT, allows_nil: false
-  default_value_for :time_display_relative, value: true, allows_nil: false
-  default_value_for :time_format_in_24h, value: false, allows_nil: false
-  default_value_for :render_whitespace_in_code, value: false, allows_nil: false
-  default_value_for :markdown_surround_selection, value: true, allows_nil: false
+  validates :pinned_nav_items, json_schema: { filename: 'pinned_nav_items' }
+
+  validates :time_display_format, inclusion: { in: TIME_DISPLAY_FORMATS.values }, presence: true
+
+  validate :user_belongs_to_home_organization, if: :home_organization_changed?
+
+  attribute :tab_width, default: -> { Gitlab::TabWidth::DEFAULT }
+  attribute :time_display_relative, default: true
+  attribute :time_display_format, default: 0
+  attribute :render_whitespace_in_code, default: false
+  attribute :project_shortcut_buttons, default: true
+  attribute :keyboard_shortcuts_enabled, default: true
+  attribute :use_web_ide_extension_marketplace, default: false
+
+  enum visibility_pipeline_id_type: { id: 0, iid: 1 }
+  enum extensions_marketplace_opt_in_status: Enums::WebIde::ExtensionsMarketplaceOptInStatus.statuses
+  enum organization_groups_projects_display: { projects: 0, groups: 1 }
 
   class << self
     def notes_filters
@@ -56,7 +73,88 @@ class UserPreference < ApplicationRecord
     self[notes_filter_field_for(resource)]
   end
 
+  def tab_width
+    read_attribute(:tab_width) || self.class.column_defaults['tab_width']
+  end
+
+  def tab_width=(value)
+    if value.nil?
+      default = self.class.column_defaults['tab_width']
+      super(default)
+    else
+      super(value)
+    end
+  end
+
+  class << self
+    def time_display_formats
+      {
+        s_('Time Display|System') => TIME_DISPLAY_FORMATS[:system],
+        s_('Time Display|12-hour: 2:34 PM') => TIME_DISPLAY_FORMATS[:non_iso_format],
+        s_('Time Display|24-hour: 14:34') => TIME_DISPLAY_FORMATS[:iso_format]
+      }
+    end
+  end
+
+  def time_display_relative
+    value = read_attribute(:time_display_relative)
+    return value unless value.nil?
+
+    self.class.column_defaults['time_display_relative']
+  end
+
+  def time_display_relative=(value)
+    if value.nil?
+      default = self.class.column_defaults['time_display_relative']
+      super(default)
+    else
+      super(value)
+    end
+  end
+
+  def render_whitespace_in_code
+    value = read_attribute(:render_whitespace_in_code)
+    return value unless value.nil?
+
+    self.class.column_defaults['render_whitespace_in_code']
+  end
+
+  def render_whitespace_in_code=(value)
+    if value.nil?
+      default = self.class.column_defaults['render_whitespace_in_code']
+      super(default)
+    else
+      super(value)
+    end
+  end
+
+  def early_access_event_tracking?
+    early_access_program_participant? && early_access_program_tracking?
+  end
+
+  # NOTE: Despite this returning a boolean, it does not end in `?` out of
+  #       symmetry with the other integration fields like `gitpod_enabled`
+  def extensions_marketplace_enabled
+    extensions_marketplace_opt_in_status == "enabled"
+  end
+
+  def extensions_marketplace_enabled=(value)
+    status = ActiveRecord::Type::Boolean.new.cast(value) ? 'enabled' : 'disabled'
+
+    self.extensions_marketplace_opt_in_status = status
+  end
+
   private
+
+  def user_belongs_to_home_organization
+    # If we don't ignore the default organization id below then all users need to have their corresponding entry
+    # with default organization id as organization id in the `organization_users` table.
+    # Otherwise, the user won't be able to set the default organization as the home organization.
+    return if home_organization.default?
+    return if home_organization.user?(user)
+
+    errors.add(:user, _("is not part of the given organization"))
+  end
 
   def notes_filter_field_for(resource)
     field_key =

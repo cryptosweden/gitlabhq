@@ -1,31 +1,32 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# Test Import Project
+# Test import project
 
 For testing, we can import our own [GitLab CE](https://gitlab.com/gitlab-org/gitlab-foss/) project (named `gitlabhq` in this case) under a group named `qa-perf-testing`. Project tarballs that can be used for testing can be found over on the [performance-data](https://gitlab.com/gitlab-org/quality/performance-data) project. A different project could be used if required.
 
-There are several options for importing the project into your GitLab environment. They are detailed as follows with the assumption that the recommended group `qa-perf-testing` and project `gitlabhq` are being set up.
+You can import the project into your GitLab environment in a number of ways. They are detailed as follows with the
+assumption that the recommended group `qa-perf-testing` and project `gitlabhq` are being set up.
 
 ## Importing the project
 
-There are several ways to import a project.
+Use one of these methods to import the test project.
 
-### Importing via UI
+### Import by using the UI
 
-The first option is to simply [import the Project tarball file via the GitLab UI](../user/project/settings/import_export.md#import-a-project-and-its-data):
+The first option is to [import the project tarball file by using the GitLab UI](../user/project/settings/import_export.md#import-a-project-and-its-data):
 
-1. Create the group `qa-perf-testing`
-1. Import the [GitLab FOSS project tarball](https://gitlab.com/gitlab-org/quality/performance-data/-/blob/master/projects_export/gitlabhq_export.tar.gz) into the Group.
+1. Create the group `qa-perf-testing`.
+1. Import the [GitLab FOSS project tarball](https://gitlab.com/gitlab-org/quality/performance-data/-/blob/master/projects_export/gitlabhq_export.tar.gz) into the group.
 
 It should take up to 15 minutes for the project to fully import. You can head to the project's main page for the current status.
 
 This method ignores all the errors silently (including the ones related to `GITALY_DISABLE_REQUEST_LIMITS`) and is used by GitLab users. For development and testing, check the other methods below.
 
-### Importing via the `import-project` script
+### Import by using the `import-project` script
 
 A convenient script, [`bin/import-project`](https://gitlab.com/gitlab-org/quality/performance/blob/master/bin/import-project), is provided with [performance](https://gitlab.com/gitlab-org/quality/performance) project to import the Project tarball into a GitLab environment via API from the terminal.
 
@@ -42,7 +43,7 @@ bin/import-project --help
 
 The process should take up to 15 minutes for the project to import fully. The script checks the status periodically and exits after the import has completed.
 
-### Importing via GitHub
+### Import by using GitHub
 
 There is also an option to [import the project via GitHub](../user/project/import/github.md):
 
@@ -51,89 +52,18 @@ There is also an option to [import the project via GitHub](../user/project/impor
 
 This method takes longer to import than the other methods and depends on several factors. It's recommended to use the other methods.
 
-### Importing via a Rake task
+To test importing from GitHub Enterprise (GHE) to GitLab, you need a GHE instance. You can request a
+[GitHub Enterprise Server trial](https://docs.github.com/en/enterprise-cloud@latest/admin/overview/setting-up-a-trial-of-github-enterprise-server) and install it on Google Cloud Platform.
 
-> The [Rake task](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/tasks/gitlab/import_export/import.rake) was [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/20724) in GitLab 12.6, replacing a GitLab.com Ruby script.
+- GitLab team members can use [Sandbox Cloud Realm](https://handbook.gitlab.com/handbook/infrastructure-standards/realms/sandbox/) for this purpose.
+- Others can request a [Google Cloud Platforms free trial](https://cloud.google.com/free).
 
-This script was introduced in GitLab 12.6 for importing large GitLab project exports.
+### Import by using a Rake task
 
-As part of this script we also disable direct and background upload to avoid situations where a huge archive is being uploaded to GCS (while being inside a transaction, which can cause idle transaction timeouts).
+To import the test project by using a Rake task, see
+[Import large projects](../administration/raketasks/project_import_export.md#import-large-projects).
 
-We can simply run this script from the terminal:
-
-Parameters:
-
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `username`      | string | yes | User name |
-| `namespace_path` | string | yes | Namespace path |
-| `project_path` | string | yes | Project name |
-| `archive_path` | string | yes | Path to the exported project tarball you want to import |
-
-```shell
-bundle exec rake "gitlab:import_export:import[root, group/subgroup, testingprojectimport, /path/to/file.tar.gz]"
-```
-
-If you're running Omnibus, run the following Rake task:
-
-```shell
-gitlab-rake "gitlab:import_export:import[root, group/subgroup, testingprojectimport, /path/to/file.tar.gz]"
-```
-
-#### Troubleshooting
-
-Check the common errors listed below, what they mean, and how to fix them.
-
-##### `Exception: undefined method 'name' for nil:NilClass`
-
-The `username` is not valid.
-
-##### `Exception: undefined method 'full_path' for nil:NilClass`
-
-The `namespace_path` does not exist.
-For example, one of the groups or subgroups is mistyped or missing
-or you've specified the project name in the path.
-
-The task only creates the project.
-If you want to import it to a new group or subgroup then create it first.
-
-##### `Exception: No such file or directory @ rb_sysopen - (filename)`
-
-The specified project export file in `archive_path` is missing.
-
-##### `Exception: Permission denied @ rb_sysopen - (filename)`
-
-The specified project export file can not be accessed by the `git` user.
-
-Setting the file owner to `git:git`, changing the file permissions to `0400`, and moving it to a
-public folder (for example `/tmp/`) fixes the issue.
-
-##### `Name can contain only letters, digits, emojis ...`
-
-```plaintext
-Name can contain only letters, digits, emojis, '_', '.', '+', dashes, or spaces. It must start with a letter,
-digit, emoji, or '_', and Path can contain only letters, digits, '_', '-', or '.'. It cannot start
-with '-', end in '.git', or end in '.atom'.
-```
-
-The project name specified in `project_path` is not valid for one of the specified reasons.
-
-Only put the project name in `project_path`. For example, if you provide a path of subgroups
-it fails with this error as `/` is not a valid character in a project name.
-
-##### `Name has already been taken and Path has already been taken`
-
-A project with that name already exists.
-
-##### `Exception: Error importing repository into (namespace) - No space left on device`
-
-The disk has insufficient space to complete the import.
-
-During import, the tarball is cached in your configured `shared_path` directory. Verify the
-disk has enough free space to accommodate both the cached tarball and the unpacked
-project files on disk.
-
-### Importing via the Rails console
+### Import by using the Rails console
 
 The last option is to import a project using a Rails console:
 
@@ -206,24 +136,11 @@ You can execute the script from the `gdk/gitlab` directory like this:
 bundle exec rails r  /path_to_script/script.rb project_name /path_to_extracted_project request_store_enabled
 ```
 
-## Troubleshooting
-
-This section details known issues we've seen when trying to import a project and how to manage them.
-
-### Gitaly calls error when importing
-
-If you're attempting to import a large project into a development environment, you may see Gitaly throw an error about too many calls or invocations, for example:
-
-```plaintext
-Error importing repository into qa-perf-testing/gitlabhq - GitalyClient#call called 31 times from single request. Potential n+1?
-```
-
-This is due to a [n+1 calls limit being set for development setups](gitaly.md#toomanyinvocationserror-errors). You can work around this by setting `GITALY_DISABLE_REQUEST_LIMITS=1` as an environment variable, restarting your development environment and importing again.
-
 ## Access token setup
 
-Many of the tests also require a GitLab Personal Access Token. This is due to numerous endpoints themselves requiring authentication.
+Many of the tests also require a GitLab personal access token because numerous endpoints require authentication themselves.
 
-[The official GitLab docs detail how to create this token](../user/profile/personal_access_tokens.md#create-a-personal-access-token). The tests require that the token is generated by an administrator and that it has the `API` and `read_repository` permissions.
+[The GitLab documentation details how to create this token](../user/profile/personal_access_tokens.md#create-a-personal-access-token).
+The tests require that the token is generated by an administrator and that it has the `API` and `read_repository` permissions.
 
 Details on how to use the Access Token with each type of test are found in their respective documentation.

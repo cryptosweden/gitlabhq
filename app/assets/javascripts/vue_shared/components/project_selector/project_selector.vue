@@ -100,10 +100,10 @@ export default {
       type="search"
       class="mb-3"
       autofocus
-      data-qa-selector="project_search_field"
+      data-testid="project-search-field"
       @input="onInput"
     />
-    <div class="d-flex flex-column">
+    <div class="gl-flex flex-column">
       <gl-loading-icon v-if="showLoadingIndicator" size="sm" class="py-2 px-4" />
       <gl-infinite-scroll
         :max-list-height="maxListHeight"
@@ -112,7 +112,7 @@ export default {
         @bottomReached="bottomReached"
       >
         <template v-if="!showLoadingIndicator" #items>
-          <div class="gl-display-flex gl-flex-direction-column gl-p-3">
+          <div class="gl-flex gl-flex-col gl-p-3">
             <project-list-item
               v-for="project in projectSearchResults"
               :key="project.id"
@@ -120,7 +120,7 @@ export default {
               :project="project"
               :matcher="searchQuery"
               class="js-project-list-item"
-              data-qa-selector="project_list_item"
+              data-testid="project-list-item"
               @click="projectClicked(project)"
             />
           </div>
@@ -130,16 +130,19 @@ export default {
           <span data-testid="legend-text">{{ legendText }}</span>
         </template>
       </gl-infinite-scroll>
-      <div v-if="showNoResultsMessage" class="text-muted ml-2 js-no-results-message">
+      <div v-if="showNoResultsMessage" class="gl-text-gray-600 gl-ml-3 js-no-results-message">
         {{ __('Sorry, no projects matched your search') }}
       </div>
       <div
         v-if="showMinimumSearchQueryMessage"
-        class="text-muted ml-2 js-minimum-search-query-message"
+        class="gl-text-gray-600 gl-ml-3 js-minimum-search-query-message"
       >
         {{ __('Enter at least three characters to search') }}
       </div>
-      <div v-if="showSearchErrorMessage" class="text-danger ml-2 js-search-error-message">
+      <div
+        v-if="showSearchErrorMessage"
+        class="gl-text-red-500 gl-font-bold gl-ml-3 js-search-error-message"
+      >
         {{ __('Something went wrong, unable to search projects') }}
       </div>
     </div>

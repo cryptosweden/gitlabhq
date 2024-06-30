@@ -1,7 +1,9 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlButton, GlModal, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
-import { __, sprintf } from '~/locale';
+import { __ } from '~/locale';
 import ListItem from './list_item.vue';
 
 export default {
@@ -38,12 +40,21 @@ export default {
       default: __('No changes'),
     },
   },
-  computed: {
-    titleText() {
-      if (!this.title) return __('Changes');
-
-      return sprintf(__('%{title} changes'), { title: this.title });
+  modal: {
+    actionPrimary: {
+      text: __('Discard all changes'),
+      attributes: {
+        variant: 'danger',
+      },
     },
+    actionCancel: {
+      text: __('Cancel'),
+      attributes: {
+        variant: 'default',
+      },
+    },
+  },
+  computed: {
     filesLength() {
       return this.fileList.length;
     },
@@ -66,10 +77,10 @@ export default {
 
 <template>
   <div class="ide-commit-list-container">
-    <header class="multi-file-commit-panel-header d-flex mb-0">
-      <div class="d-flex align-items-center flex-fill">
-        <strong> {{ titleText }} </strong>
-        <div class="d-flex ml-auto">
+    <header class="multi-file-commit-panel-header gl-display-flex gl-mb-0">
+      <div class="gl-display-flex gl-align-items-center flex-fill">
+        <strong> {{ __('Changes') }} </strong>
+        <div class="gl-display-flex gl-ml-auto">
           <gl-button
             v-if="!stagedList"
             v-gl-tooltip
@@ -79,7 +90,7 @@ export default {
             :class="{
               'disabled-content': !filesLength,
             }"
-            class="gl-shadow-none!"
+            class="!gl-shadow-none"
             category="tertiary"
             icon="remove-all"
             data-placement="bottom"
@@ -100,17 +111,17 @@ export default {
         />
       </li>
     </ul>
-    <p v-else class="multi-file-commit-list form-text text-muted text-center">
+    <p v-else class="multi-file-commit-list form-text gl-text-gray-600 gl-text-center">
       {{ emptyStateText }}
     </p>
     <gl-modal
       v-if="!stagedList"
       ref="discardAllModal"
-      ok-variant="danger"
       modal-id="discard-all-changes"
-      :ok-title="__('Discard all changes')"
       :title="__('Discard all changes?')"
-      @ok="unstageAndDiscardAllChanges"
+      :action-primary="$options.modal.actionPrimary"
+      :action-cancel="$options.modal.actionCancel"
+      @primary="unstageAndDiscardAllChanges"
     >
       {{ $options.discardModalText }}
     </gl-modal>

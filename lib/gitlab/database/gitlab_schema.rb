@@ -3,56 +3,43 @@
 # This module gathers information about table to schema mapping
 # to understand table affinity
 #
-# Each table / view needs to have assigned gitlab_schema. Names supported today:
+# Each table / view needs to have assigned gitlab_schema. For example:
 #
 # - gitlab_shared - defines a set of tables that are found on all databases (data accessed is dependent on connection)
-# - gitlab_main / gitlab_ci - defines a set of tables that can only exist on a given database
+# - gitlab_main / gitlab_ci - defines a set of tables that can only exist on a given application database
+# - gitlab_geo - defines a set of tables that can only exist on the geo database
+# - gitlab_internal - defines all internal tables of Rails and PostgreSQL
+#
+# All supported GitLab schemas can be viewed in `db/gitlab_schemas/` and `ee/db/gitlab_schemas/`
 #
 # Tables for the purpose of tests should be prefixed with `_test_my_table_name`
 
 module Gitlab
   module Database
     module GitlabSchema
-      # These tables are deleted/renamed, but still referenced by migrations.
-      # This is needed for now, but should be removed in the future
-      DELETED_TABLES = {
-        # main tables
-        'alerts_service_data' => :gitlab_main,
-        'analytics_devops_adoption_segment_selections' => :gitlab_main,
-        'analytics_repository_file_commits' => :gitlab_main,
-        'analytics_repository_file_edits' => :gitlab_main,
-        'analytics_repository_files' => :gitlab_main,
-        'audit_events_archived' => :gitlab_main,
-        'backup_labels' => :gitlab_main,
-        'clusters_applications_fluentd' => :gitlab_main,
-        'forked_project_links' => :gitlab_main,
-        'issue_milestones' => :gitlab_main,
-        'merge_request_milestones' => :gitlab_main,
-        'namespace_onboarding_actions' => :gitlab_main,
-        'services' => :gitlab_main,
-        'terraform_state_registry' => :gitlab_main,
-        'tmp_fingerprint_sha256_migration' => :gitlab_main, # used by lib/gitlab/background_migration/migrate_fingerprint_sha256_within_keys.rb
-        'web_hook_logs_archived' => :gitlab_main,
-        'vulnerability_export_registry' => :gitlab_main,
-        'vulnerability_finding_fingerprints' => :gitlab_main,
-        'vulnerability_export_verification_status' => :gitlab_main,
+      UnknownSchemaError = Class.new(StandardError)
 
-        # CI tables
-        'ci_build_trace_sections' => :gitlab_ci,
-        'ci_build_trace_section_names' => :gitlab_ci,
-        'ci_daily_report_results' => :gitlab_ci,
-        'ci_test_cases' => :gitlab_ci,
-        'ci_test_case_failures' => :gitlab_ci,
-
-        # leftovers from early implementation of partitioning
-        'audit_events_part_5fc467ac26' => :gitlab_main,
-        'web_hook_logs_part_0c5294f417' => :gitlab_main
-      }.freeze
-
-      def self.table_schemas(tables)
-        tables.map { |table| table_schema(table) }.to_set
+      def self.table_schemas!(tables)
+        tables.map { |table| table_schema!(table) }.to_set
       end
 
+      # Mainly used for test tables
+      # It maps table names prefixes to gitlab_schemas.
+      # The order of keys matter. Prefixes that contain other prefixes should come first.
+      IMPLICIT_GITLAB_SCHEMAS = {
+        '_test_gitlab_main_clusterwide_' => :gitlab_main_clusterwide,
+        '_test_gitlab_main_cell_' => :gitlab_main_cell,
+        '_test_gitlab_main_' => :gitlab_main,
+        '_test_gitlab_ci_' => :gitlab_ci,
+        '_test_gitlab_jh_' => :gitlab_jh,
+        '_test_gitlab_embedding_' => :gitlab_embedding,
+        '_test_gitlab_geo_' => :gitlab_geo,
+        '_test_gitlab_pm_' => :gitlab_pm,
+        '_test_' => :gitlab_shared,
+        'pg_' => :gitlab_internal
+      }.freeze
+
+      # rubocop:disable Metrics/CyclomaticComplexity
       def self.table_schema(name)
         schema_name, table_name = name.split('.', 2) # Strip schema name like: `public.`
 
@@ -65,40 +52,108 @@ module Gitlab
         # strip partition number of a form `loose_foreign_keys_deleted_records_1`
         table_name.gsub!(/_[0-9]+$/, '')
 
-        # Tables that are properly mapped
-        if gitlab_schema = tables_to_schema[table_name]
+        # Tables and views that are properly mapped
+        if gitlab_schema = views_and_tables_to_schema[table_name]
           return gitlab_schema
         end
 
-        # Tables that are deleted, but we still need to reference them
-        if gitlab_schema = DELETED_TABLES[table_name]
+        # Tables and views that are deleted, but we still need to reference them
+        if gitlab_schema = deleted_views_and_tables_to_schema[table_name]
           return gitlab_schema
         end
 
-        # All tables from `information_schema.` are `:gitlab_shared`
-        return :gitlab_shared if schema_name == 'information_schema'
+        # Partitions that belong to the CI domain
+        if table_name.start_with?('ci_') && gitlab_schema = views_and_tables_to_schema["p_#{table_name}"]
+          return gitlab_schema
+        end
 
-        return :gitlab_main if table_name.start_with?('_test_gitlab_main_')
+        # All tables from `information_schema.` are marked as `internal`
+        return :gitlab_internal if schema_name == 'information_schema'
 
-        return :gitlab_ci if table_name.start_with?('_test_gitlab_ci_')
+        IMPLICIT_GITLAB_SCHEMAS.each do |prefix, gitlab_schema|
+          return gitlab_schema if table_name.start_with?(prefix)
+        end
 
-        # All tables that start with `_test_` without a following schema are shared and ignored
-        return :gitlab_shared if table_name.start_with?('_test_')
+        nil
+      end
+      # rubocop:enable Metrics/CyclomaticComplexity
 
-        # All `pg_` tables are marked as `shared`
-        return :gitlab_shared if table_name.start_with?('pg_')
+      def self.table_schema!(name)
+        # rubocop:disable Gitlab/DocUrl
+        self.table_schema(name) || raise(
+          UnknownSchemaError,
+          "Could not find gitlab schema for table #{name}: Any new or deleted tables must be added to the database dictionary " \
+          "See https://docs.gitlab.com/ee/development/database/database_dictionary.html"
+        )
+        # rubocop:enable Gitlab/DocUrl
+      end
 
-        # When undefined it's best to return a unique name so that we don't incorrectly assume that 2 undefined schemas belong on the same database
-        :"undefined_#{table_name}"
+      def self.cell_local?(schema)
+        Gitlab::Database.all_gitlab_schemas[schema.to_s].cell_local
+      end
+
+      def self.cross_joins_allowed?(table_schemas, all_tables)
+        return true unless table_schemas.many?
+
+        table_schemas.any? do |schema|
+          schema_info = Gitlab::Database.all_gitlab_schemas[schema]
+          next false unless schema_info
+
+          schema_info.allow_cross_joins?(table_schemas, all_tables)
+        end
+      end
+
+      def self.cross_transactions_allowed?(table_schemas, all_tables)
+        return true unless table_schemas.many?
+
+        table_schemas.any? do |schema|
+          schema_info = Gitlab::Database.all_gitlab_schemas[schema]
+          next false unless schema_info
+
+          schema_info.allow_cross_transactions?(table_schemas, all_tables)
+        end
+      end
+
+      def self.cross_foreign_key_allowed?(table_schemas, all_tables)
+        return true if table_schemas.one?
+
+        table_schemas.any? do |schema|
+          schema_info = Gitlab::Database.all_gitlab_schemas[schema]
+          next false unless schema_info
+
+          schema_info.allow_cross_foreign_keys?(table_schemas, all_tables)
+        end
+      end
+
+      def self.views_and_tables_to_schema
+        @views_and_tables_to_schema ||= self.tables_to_schema.merge(self.views_to_schema)
+      end
+
+      def self.deleted_views_and_tables_to_schema
+        @deleted_views_and_tables_to_schema ||= self.deleted_tables_to_schema.merge(self.deleted_views_to_schema)
+      end
+
+      def self.deleted_tables_to_schema
+        @deleted_tables_to_schema ||= ::Gitlab::Database::Dictionary.entries('deleted_tables').to_name_and_schema_mapping
+      end
+
+      def self.deleted_views_to_schema
+        @deleted_views_to_schema ||= ::Gitlab::Database::Dictionary.entries('deleted_views').to_name_and_schema_mapping
       end
 
       def self.tables_to_schema
-        @tables_to_schema ||= YAML.load_file(Rails.root.join('lib/gitlab/database/gitlab_schemas.yml'))
+        @tables_to_schema ||= ::Gitlab::Database::Dictionary.entries.to_name_and_schema_mapping
+      end
+
+      def self.views_to_schema
+        @views_to_schema ||= ::Gitlab::Database::Dictionary.entries('views').to_name_and_schema_mapping
       end
 
       def self.schema_names
-        @schema_names ||= self.tables_to_schema.values.to_set
+        @schema_names ||= self.views_and_tables_to_schema.values.to_set
       end
     end
   end
 end
+
+Gitlab::Database::GitlabSchema.prepend_mod

@@ -2,34 +2,35 @@
 
 module SystemNoteHelper
   ICON_NAMES_BY_ACTION = {
-    'approved' => 'approval',
+    'approved' => 'check',
     'unapproved' => 'unapproval',
     'cherry_pick' => 'cherry-pick-commit',
     'commit' => 'commit',
-    'description' => 'pencil-square',
-    'merge' => 'git-merge',
-    'merged' => 'git-merge',
+    'description' => 'pencil',
+    'merged' => 'merge',
+    'merge' => 'merge',
     'opened' => 'issues',
     'closed' => 'issue-close',
     'time_tracking' => 'timer',
     'assignee' => 'user',
     'reviewer' => 'user',
-    'title' => 'pencil-square',
+    'title' => 'pencil',
     'task' => 'task-done',
     'label' => 'label',
     'cross_reference' => 'comment-dots',
     'branch' => 'fork',
     'confidential' => 'eye-slash',
     'visible' => 'eye',
-    'milestone' => 'clock',
+    'milestone' => 'milestone',
     'discussion' => 'comment',
     'moved' => 'arrow-right',
-    'outdated' => 'pencil-square',
+    'outdated' => 'pencil',
     'pinned_embed' => 'thumbtack',
     'duplicate' => 'duplicate',
     'locked' => 'lock',
     'unlocked' => 'lock-open',
     'due_date' => 'calendar',
+    'start_date_or_due_date' => 'calendar',
     'health_status' => 'status-health',
     'designs_added' => 'doc-image',
     'designs_modified' => 'doc-image',
@@ -40,14 +41,24 @@ module SystemNoteHelper
     'new_alert_added' => 'warning',
     'severity' => 'information-o',
     'cloned' => 'documents',
-    'issue_type' => 'pencil-square',
-    'attention_requested' => 'user',
-    'attention_request_removed' => 'user',
-    'contact' => 'users'
+    'issue_type' => 'pencil',
+    'contact' => 'users',
+    'timeline_event' => 'clock',
+    'relate_to_child' => 'link',
+    'unrelate_from_child' => 'link',
+    'relate_to_parent' => 'link',
+    'unrelate_from_parent' => 'link',
+    'requested_changes' => 'error'
   }.freeze
 
   def system_note_icon_name(note)
-    ICON_NAMES_BY_ACTION[note.system_note_metadata&.action]
+    if note.system_note_metadata&.action == 'closed' && note.for_merge_request?
+      'merge-request-close'
+    elsif note.system_note_metadata&.action == 'merge' && note.for_merge_request?
+      'mr-system-note-empty'
+    else
+      ICON_NAMES_BY_ACTION[note.system_note_metadata&.action]
+    end
   end
 
   def icon_for_system_note(note)

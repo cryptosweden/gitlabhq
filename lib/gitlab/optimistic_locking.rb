@@ -7,11 +7,14 @@ module Gitlab
     module_function
 
     def retry_lock(subject, max_retries = MAX_RETRIES, name:, &block)
-      start_time = Gitlab::Metrics::System.monotonic_time
+      start_time = ::Gitlab::Metrics::System.monotonic_time
       retry_attempts = 0
 
+      # prevent scope override, see https://gitlab.com/gitlab-org/gitlab/-/issues/391186
+      klass = subject.is_a?(ActiveRecord::Relation) ? subject.klass : subject.class
+
       begin
-        subject.transaction do
+        klass.transaction do
           yield(subject)
         end
       rescue ActiveRecord::StaleObjectError
@@ -36,7 +39,7 @@ module Gitlab
     def log_optimistic_lock_retries(name:, retry_attempts:, start_time:)
       return unless retry_attempts > 0
 
-      elapsed_time = Gitlab::Metrics::System.monotonic_time - start_time
+      elapsed_time = ::Gitlab::Metrics::System.monotonic_time - start_time
 
       retry_lock_logger.info(
         message: "Optimistic Lock released with retries",

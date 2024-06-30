@@ -10,19 +10,41 @@ module Gitlab
       included do
         include ApplicationWorker
 
-        sidekiq_options retry: 3
         include GithubImport::Queue
         include ReschedulingMethods
-        include Gitlab::NotifyUponDeath
 
         feature_category :importers
         worker_has_external_dependencies!
+
+        sidekiq_options retry: 5
+        sidekiq_retries_exhausted do |msg|
+          args = msg['args']
+          jid = msg['jid']
+
+          # If a job is being exhausted we still want to notify the
+          # Gitlab::Import::AdvanceStageWorker to prevent the entire import from getting stuck
+          if args.length == 3 && (key = args.last) && key.is_a?(String)
+            JobWaiter.notify(key, jid, ttl: Gitlab::Import::JOB_WAITER_TTL)
+          end
+        end
       end
+
+      NotRetriableError = Class.new(StandardError)
 
       # project - An instance of `Project` to import the data into.
       # client - An instance of `Gitlab::GithubImport::Client`
       # hash - A Hash containing the details of the object to import.
       def import(project, client, hash)
+        if project.import_state&.completed?
+          info(
+            project.id,
+            message: 'Project import is no longer running. Stopping worker.',
+            import_status: project.import_state.status
+          )
+
+          return
+        end
+
         object = representation_class.from_json_hash(hash)
 
         # To better express in the logs what object is being imported.
@@ -31,27 +53,26 @@ module Gitlab
 
         importer_class.new(object, project, client).execute
 
-        Gitlab::GithubImport::ObjectCounter.increment(project, object_type, :imported)
+        increment_object_counter(object, project) if increment_object_counter?(object)
 
         info(project.id, message: 'importer finished')
-      rescue NoMethodError => e
-        # This exception will be more useful in development when a new
-        # Representation is created but the developer forgot to add a
-        # `:github_identifiers` field.
-        Gitlab::Import::ImportFailureService.track(
-          project_id: project.id,
-          error_source: importer_class.name,
-          exception: e,
-          fail_import: true
-        )
+      rescue ActiveRecord::RecordInvalid, NotRetriableError, NoMethodError => e
+        # We do not raise exception to prevent job retry
+        track_exception(project, e)
+      rescue UserFinder::FailedToObtainLockError
+        warn(project.id, message: 'Failed to obtaing lock for user finder. Retrying later.')
 
-        raise(e)
+        raise
       rescue StandardError => e
-        Gitlab::Import::ImportFailureService.track(
-          project_id: project.id,
-          error_source: importer_class.name,
-          exception: e
-        )
+        track_and_raise_exception(project, e)
+      end
+
+      def increment_object_counter?(_object)
+        true
+      end
+
+      def increment_object_counter(_object, project)
+        Gitlab::GithubImport::ObjectCounter.increment(project, object_type, :imported)
       end
 
       def object_type
@@ -77,12 +98,35 @@ module Gitlab
         Logger.info(log_attributes(project_id, extra))
       end
 
+      def warn(project_id, extra = {})
+        Logger.warn(log_attributes(project_id, extra))
+      end
+
       def log_attributes(project_id, extra = {})
         extra.merge(
           project_id: project_id,
           importer: importer_class.name,
-          github_identifiers: github_identifiers
+          external_identifiers: github_identifiers
         )
+      end
+
+      def track_exception(project, exception, fail_import: false)
+        external_identifiers = github_identifiers || {}
+        external_identifiers[:object_type] ||= object_type&.to_s
+
+        Gitlab::Import::ImportFailureService.track(
+          project_id: project.id,
+          error_source: importer_class.name,
+          exception: exception,
+          fail_import: fail_import,
+          external_identifiers: external_identifiers
+        )
+      end
+
+      def track_and_raise_exception(project, exception, fail_import: false)
+        track_exception(project, exception, fail_import: fail_import)
+
+        raise(exception)
       end
     end
   end

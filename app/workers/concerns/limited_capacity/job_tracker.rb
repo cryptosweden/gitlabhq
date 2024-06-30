@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module LimitedCapacity
   class JobTracker # rubocop:disable Scalability/IdempotentWorker
     include Gitlab::Utils::StrongMemoize
@@ -20,7 +21,7 @@ module LimitedCapacity
 
     def register(jid, max_jids)
       with_redis do |redis|
-        redis.eval(LUA_REGISTER_SCRIPT, keys: [counter_key], argv: [jid, max_jids])
+        redis.eval(LUA_REGISTER_SCRIPT, keys: [counter_key], argv: [jid.to_s, max_jids.to_i])
       end.present?
     end
 
@@ -58,11 +59,11 @@ module LimitedCapacity
     end
 
     def remove_job_keys(redis, keys)
-      redis.srem(counter_key, keys)
+      redis.srem?(counter_key, keys) if keys.present?
     end
 
     def with_redis(&block)
-      Gitlab::Redis::Queues.with(&block) # rubocop: disable CodeReuse/ActiveRecord
+      Gitlab::Redis::SharedState.with(&block) # rubocop: disable CodeReuse/ActiveRecord
     end
   end
 end

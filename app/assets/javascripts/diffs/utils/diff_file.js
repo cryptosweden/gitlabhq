@@ -35,24 +35,28 @@ function collapsed(file) {
   return {
     automaticallyCollapsed: viewer.automaticallyCollapsed || viewer.collapsed || false,
     manuallyCollapsed: null,
+    forceOpen: false,
   };
 }
 
 function identifier(file) {
-  const { userOrGroup, project, id } = getDerivedMergeRequestInformation({
+  const { namespace, project, id } = getDerivedMergeRequestInformation({
     endpoint: file.load_collapsed_diff_url,
   });
 
   return uuids({
-    seeds: [userOrGroup, project, id, file.file_identifier_hash, file.blob?.id],
+    seeds: [namespace, project, id, file.file_identifier_hash, file.blob?.id],
   })[0];
 }
 
 export const isNotDiffable = (file) => file?.viewer?.name === viewerModes.not_diffable;
 
-export function prepareRawDiffFile({ file, allFiles, meta = false }) {
+export function prepareRawDiffFile({ file, allFiles, meta = false, index = -1 }) {
   const additionalProperties = {
     brokenSymlink: fileSymlinkInformation(file, allFiles),
+    hasCommentForm: false,
+    discussions: file.discussions || [],
+    drafts: [],
     viewer: {
       ...file.viewer,
       ...collapsed(file),
@@ -66,11 +70,15 @@ export function prepareRawDiffFile({ file, allFiles, meta = false }) {
     additionalProperties.id = identifier(file);
   }
 
+  if (index >= 0 && Number(index) === index) {
+    additionalProperties.order = index;
+  }
+
   return Object.assign(file, additionalProperties);
 }
 
 export function collapsedType(file) {
-  const isManual = typeof file.viewer?.manuallyCollapsed === 'boolean';
+  const isManual = typeof file?.viewer?.manuallyCollapsed === 'boolean';
 
   return isManual ? DIFF_FILE_MANUAL_COLLAPSE : DIFF_FILE_AUTOMATIC_COLLAPSE;
 }
@@ -78,8 +86,8 @@ export function collapsedType(file) {
 export function isCollapsed(file) {
   const type = collapsedType(file);
   const collapsedStates = {
-    [DIFF_FILE_AUTOMATIC_COLLAPSE]: file.viewer?.automaticallyCollapsed || false,
-    [DIFF_FILE_MANUAL_COLLAPSE]: file.viewer?.manuallyCollapsed,
+    [DIFF_FILE_AUTOMATIC_COLLAPSE]: file?.viewer?.automaticallyCollapsed || false,
+    [DIFF_FILE_MANUAL_COLLAPSE]: file?.viewer?.manuallyCollapsed,
   };
 
   return collapsedStates[type];
@@ -87,6 +95,27 @@ export function isCollapsed(file) {
 
 export function getShortShaFromFile(file) {
   return file.content_sha ? truncateSha(String(file.content_sha)) : null;
+}
+
+export function match({ fileA, fileB, mode = 'universal' } = {}) {
+  const matching = {
+    universal: (a, b) => (a?.id && b?.id ? a.id === b.id : false),
+    /*
+     * MR mode can be wildly incorrect if there is ever the possibility of files from multiple MRs
+     *  (e.g. a browser-local merge request/file cache).
+     * That's why the default here is "universal" mode: UUIDs can't conflict, but you can opt into
+     *  the dangerous one.
+     *
+     * For reference:
+     *    file_identifier_hash === sha1( `${filePath}-${Boolean(isNew)}-${Boolean(isDeleted)}-${Boolean(isRenamed)}` )
+     */
+    mr: (a, b) =>
+      a?.file_identifier_hash && b?.file_identifier_hash
+        ? a.file_identifier_hash === b.file_identifier_hash
+        : false,
+  };
+
+  return (matching[mode] || (() => false))(fileA, fileB);
 }
 
 export function stats(file) {

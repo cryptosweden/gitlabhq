@@ -36,15 +36,9 @@ module AlertManagement
       SystemNoteService.log_resolving_alert(alert, alert_source)
 
       if alert.resolve(incoming_payload.ends_at)
-        SystemNoteService.change_alert_status(alert, User.alert_bot)
+        SystemNoteService.change_alert_status(alert, Users::Internal.alert_bot)
 
-        close_issue(alert.issue) if auto_close_incident?
-      else
-        logger.warn(
-          message: 'Unable to update AlertManagement::Alert status to resolved',
-          project_id: project.id,
-          alert_id: alert.id
-        )
+        close_issue(alert.issue_id) if auto_close_incident?
       end
     end
 
@@ -52,33 +46,34 @@ module AlertManagement
       alert.register_new_event!
     end
 
-    def close_issue(issue)
-      return if issue.blank? || issue.closed?
+    def close_issue(issue_id)
+      return unless issue_id
 
-      ::Issues::CloseService
-        .new(project: project, current_user: User.alert_bot)
-        .execute(issue, system_note: false)
-
-      SystemNoteService.auto_resolve_prometheus_alert(issue, project, User.alert_bot) if issue.reset.closed?
+      ::IncidentManagement::CloseIncidentWorker.perform_async(issue_id)
     end
 
     def process_new_alert
+      return if resolving_alert?
+
       if alert.save
         alert.execute_integrations
         SystemNoteService.create_new_alert(alert, alert_source)
-
-        process_resolved_alert if resolving_alert?
+      elsif alert.errors[:fingerprint].any?
+        refind_and_increment_alert
       else
         logger.warn(
-          message: "Unable to create AlertManagement::Alert from #{alert_source}",
+          message: "Unable to create AlertManagement::Alert",
           project_id: project.id,
-          alert_errors: alert.errors.messages
+          alert_errors: alert.errors.messages,
+          alert_source: alert_source
         )
       end
+    rescue ActiveRecord::RecordNotUnique
+      refind_and_increment_alert
     end
 
     def process_incident_issues
-      return if alert.issue || alert.resolved?
+      return if alert.issue_id || alert.resolved?
 
       ::IncidentManagement::ProcessAlertWorkerV2.perform_async(alert.id)
     end
@@ -104,15 +99,21 @@ module AlertManagement
     def find_existing_alert
       return unless incoming_payload.gitlab_fingerprint
 
-      AlertManagement::Alert.not_resolved.for_fingerprint(project, incoming_payload.gitlab_fingerprint).first
+      AlertManagement::Alert.find_unresolved_alert(project, incoming_payload.gitlab_fingerprint)
     end
 
     def build_new_alert
       AlertManagement::Alert.new(**incoming_payload.alert_params, ended_at: nil)
     end
 
+    def refind_and_increment_alert
+      clear_memoization(:alert)
+
+      process_firing_alert
+    end
+
     def resolving_alert?
-      incoming_payload.ends_at.present?
+      incoming_payload.resolved?
     end
 
     def notifying_alert?
@@ -120,7 +121,7 @@ module AlertManagement
     end
 
     def alert_source
-      incoming_payload.monitoring_tool
+      incoming_payload.source
     end
 
     def logger

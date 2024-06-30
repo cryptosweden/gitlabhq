@@ -1,45 +1,107 @@
 # frozen_string_literal: true
 
-# This model represents the surface where a CI_JOB_TOKEN can be used.
-# A Scope is initialized with the project that the job token belongs to,
-# and indicates what are all the other projects that the token could access.
+# This model represents the scope of access for a CI_JOB_TOKEN.
 #
-# By default a job token can only access its own project, which is the same
-# project that defines the scope.
-# By adding ScopeLinks to the scope we can allow other projects to be accessed
-# by the job token. This works as an allowlist of projects for a job token.
+# A scope is initialized with a current project.
 #
-# If a project is not included in the scope we should not allow the job user
-# to access it since operations using CI_JOB_TOKEN should be considered untrusted.
+# Projects can be added to the scope by adding ScopeLinks to
+# create an allowlist of projects in either access direction (inbound, outbound).
+#
+# Projects in the outbound allowlist can be accessed via the current project's job token.
+#
+# Projects in the inbound allowlist can use their project's job token to
+# access the current project.
+#
+# CI_JOB_TOKEN should be considered untrusted without a scope enabled.
+#
 
 module Ci
   module JobToken
     class Scope
-      attr_reader :source_project
+      attr_reader :current_project
 
-      def initialize(project)
-        @source_project = project
+      def initialize(current_project)
+        @current_project = current_project
       end
 
-      def includes?(target_project)
-        # if the setting is disabled any project is considered to be in scope.
-        return true unless source_project.ci_job_token_scope_enabled?
+      def accessible?(accessed_project)
+        return true if self_referential?(accessed_project)
 
-        target_project.id == source_project.id ||
-          Ci::JobToken::ProjectScopeLink.from_project(source_project).to_project(target_project).exists?
+        outbound_accessible?(accessed_project) && inbound_accessible?(accessed_project)
       end
 
-      def all_projects
-        Project.from_union([
-          Project.id_in(source_project),
-          Project.id_in(target_project_ids)
-        ], remove_duplicates: false)
+      def outbound_projects
+        outbound_allowlist.projects
+      end
+
+      def inbound_projects
+        inbound_allowlist.projects
+      end
+
+      def inbound_projects_count
+        inbound_projects.count
+      end
+
+      def groups
+        inbound_allowlist.groups
+      end
+
+      def groups_count
+        groups.count
+      end
+
+      def self_referential?(accessed_project)
+        current_project.id == accessed_project.id
       end
 
       private
 
-      def target_project_ids
-        Ci::JobToken::ProjectScopeLink.from_project(source_project).pluck(:target_project_id)
+      def outbound_accessible?(accessed_project)
+        # if the setting is disabled any project is considered to be in scope.
+        return true unless current_project.ci_outbound_job_token_scope_enabled?
+
+        return true unless accessed_project.private?
+
+        outbound_allowlist.includes_project?(accessed_project)
+      end
+
+      def inbound_accessible?(accessed_project)
+        if accessed_project.ci_inbound_job_token_scope_enabled?
+          ::Gitlab::Ci::Pipeline::Metrics.job_token_inbound_access_counter.increment(legacy: false)
+
+          inbound_linked_as_accessible?(accessed_project) ||
+            group_linked_as_accessible?(accessed_project)
+        else
+          ::Gitlab::Ci::Pipeline::Metrics.job_token_inbound_access_counter.increment(legacy: true)
+
+          # if the setting is disabled any project is considered to be in scope.
+          true
+        end
+      end
+
+      # We don't check the inbound allowlist here. That is because
+      # the access check starts from the current project but the inbound
+      # allowlist contains projects that can access the current project.
+      def inbound_linked_as_accessible?(accessed_project)
+        inbound_accessible_projects(accessed_project).includes_project?(current_project)
+      end
+
+      def group_linked_as_accessible?(accessed_project)
+        Ci::JobToken::Allowlist.new(accessed_project).includes_group?(current_project)
+      end
+
+      def inbound_accessible_projects(accessed_project)
+        Ci::JobToken::Allowlist.new(accessed_project, direction: :inbound)
+      end
+
+      # User created list of projects allowed to access the current project
+      def inbound_allowlist
+        Ci::JobToken::Allowlist.new(current_project, direction: :inbound)
+      end
+
+      # User created list of projects that can be accessed from the current project
+      def outbound_allowlist
+        Ci::JobToken::Allowlist.new(current_project, direction: :outbound)
       end
     end
   end

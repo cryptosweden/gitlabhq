@@ -1,323 +1,169 @@
 ---
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Data Stores
+group: Global Search
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Searching in GitLab **(FREE)**
+# Searching in GitLab
 
-## Search issues and merge requests
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-To search through issues and merge requests in multiple projects, on the top bar, select the **Issues** or **Merge requests** links.
+GitLab has three types of search: **basic search**, [**advanced search**](advanced_search.md),
+and [**exact code search**](exact_code_search.md).
 
-The numbers indicate how many issues, merge requests, and to-do items are assigned to you:
+For code search, GitLab uses these types in this order:
 
-![issues and MRs dashboard links](img/dashboard_links_v14_6.png)
+- **Exact code search:** where you can use regular expression and exact match modes.
+- **Advanced search:** when exact code search is not available.
+- **Basic search:** when exact code search and advanced search are not available
+  or when you search against a non-default branch.
+  This type does not support group or global search.
 
-- **{issues}** **Issues**: The open issues assigned to you.
-- **{merge-request-open}** **Merge requests**: The [merge requests](../project/merge_requests/index.md) assigned to you.
-- **{todo-done}** **To-do items**: The [to-do items](../todos.md) assigned to you.
+You can search in all GitLab or in a specific project and filter the results.
+Autocomplete suggestions are displayed as you type.
 
-You can search through **Open**, **Closed**, or **All** issues.
+## Global search scopes
 
-You can also filter the results using the search and filter field, as described in
-[Filter issue and merge request lists](#filter-issue-and-merge-request-lists).
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
-### Issues and MRs assigned to you or created by you
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/68640) in GitLab 14.3.
 
-GitLab shows shortcuts to issues and merge requests created by you or assigned to you
-in the search field in the upper right corner:
+To improve the performance of your instance's global search, an administrator can limit the search scope
+by disabling one or more [`ops` feature flags](../../development/feature_flags/index.md#ops-type).
 
-![shortcut to your issues and merge requests](img/issues_mrs_shortcut_v14_6.png)
+| Scope          | Feature flag                       | Description                                                                               |
+|----------------|------------------------------------|-------------------------------------------------------------------------------------------|
+| Code           | `global_search_code_tab`           | When enabled, global search includes code.                                                |
+| Commits        | `global_search_commits_tab`        | When enabled, global search includes commits.                                             |
+| Epics          | `global_search_epics_tab`          | When enabled, global search includes epics.                                               |
+| Issues         | `global_search_issues_tab`         | When enabled, global search includes issues.                                              |
+| Merge requests | `global_search_merge_requests_tab` | When enabled, global search includes merge requests.                                      |
+| Users          | `global_search_users_tab`          | When enabled, global search includes users.                                               |
+| Wiki           | `global_search_wiki_tab`           | When enabled, global search includes project and [group wikis](../project/wiki/group.md). |
 
-### Filter issue and merge request lists
+All global search scopes are enabled by default on self-managed instances.
 
-> - Filtering by epics was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/195704) in GitLab 12.9.
-> - Filtering by child epics was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/9029) in GitLab 13.0.
-> - Filtering by iterations was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/118742) in GitLab 13.6.
-> - Filtering by iterations was moved from GitLab Ultimate to GitLab Premium in 13.9.
-> - Filtering by type was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/322755) in GitLab 13.10 [with a flag](../../administration/feature_flags.md) named `vue_issues_list`. Disabled by default.
+## Global search validation
 
-Follow these steps to filter the **Issues** and **Merge requests** list pages in projects and
-groups:
+> - Support for partial matches in issue search [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/71913) in GitLab 14.9 [with a flag](../../administration/feature_flags.md) named `issues_full_text_search`. Disabled by default.
+> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/124703) in GitLab 16.2. Feature flag `issues_full_text_search` removed.
 
-1. Select **Search or filter results...**.
-1. In the dropdown list that appears, select the attribute you wish to filter by:
-   - Assignee
-   - Author
-   - Confidential
-   - [Epic and child Epic](../group/epics/index.md) (available only for the group the Epic was created, not for [higher group levels](https://gitlab.com/gitlab-org/gitlab/-/issues/233729)).
-   - [Iteration](../group/iterations/index.md)
-   - [Label](../project/labels.md)
-   - [Milestone](../project/milestones/index.md)
-   - My-reaction
-   - Release
-   - Type
+Global search ignores and logs as abusive any search that includes:
 
-     FLAG:
-     On self-managed GitLab, by default filtering by type is not available.
-     To make it available per group, ask an administrator to [enable the feature flag](../../administration/feature_flags.md) named `vue_issues_list`.
-     On GitLab.com, this feature is not available.
+- Fewer than two characters
+- A term longer than 100 characters (URL search terms must not exceed 200 characters)
+- A stop word only (for example, `the`, `and`, or `if`)
+- An unknown `scope`
+- `group_id` or `project_id` that is not completely numeric
+- `repository_ref` or `project_ref` with special characters not allowed by [Git refname](https://git-scm.com/docs/git-check-ref-format)
 
-   - Weight
-   - Search for this text
-1. Select or type the operator to use for filtering the attribute. The following operators are
-   available:
-   - `=`: Is
-   - `!=`: Is not ([Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/18059) in GitLab 12.7)
-1. Enter the text to [filter the attribute by](#filters-autocomplete).
-   You can filter some attributes by **None** or **Any**.
-1. Repeat this process to filter by multiple attributes. Multiple attributes are joined by a logical
-   `AND`.
+Global search only flags with an error any search that includes more than:
 
-GitLab displays the results on-screen, but you can also
-[retrieve them as an RSS feed](#retrieve-search-results-as-feed).
+- 4096 characters
+- 64 terms
 
-### Searching for specific terms
-
-You can filter issues and merge requests by specific terms included in titles or descriptions.
-
-- Syntax
-  - Searches look for all the words in a query, in any order. For example: searching
-    issues for `display bug` returns all issues matching both those words, in any order.
-  - To find the exact term, use double quotes: `"display bug"`
-- Limitation
-  - For performance reasons, terms shorter than 3 chars are ignored. For example: searching
-    issues for `included in titles` is same as `included titles`
-  - Search is limited to 4096 characters and 64 terms per query.
-
-### Retrieve search results as feed
-
-> Feeds for merge requests were [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/66336) in GitLab 14.3.
-
-GitLab provides RSS feeds of search results for your project. To subscribe to the
-RSS feed of search results:
-
-1. Go to your project's page.
-1. On the left sidebar, select **Issues** or **Merge requests**.
-1. Build your search query as described in [Filter issue and merge request lists](#filter-issue-and-merge-request-lists).
-1. Select the feed symbol **{rss}** to display the results as an RSS feed in Atom format.
-
-The URL of the result contains both a feed token, and your search query.
-You can add this URL to your feed reader.
-
-### Filtering by ID
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/39908) in GitLab 12.1.
-
-You can filter the **Issues** list to individual instances by their ID. For example, enter filter `#10` to return only issue 10. The same applies to the **Merge requests** list. Enter filter `#30` to return only merge request 30.
-
-![filter issues by specific ID](img/issue_search_by_id.png)
-
-### Filtering merge requests by approvers **(PREMIUM)**
-
-> Moved to GitLab Premium in 13.9.
-
-To filter merge requests by an individual eligible approver ([Codeowner](../project/code_owners.md)), you can type (or select from
-the dropdown list) **Approver** and select the user.
-
-![Filter MRs by an approver](img/filter_approver_merge_requests_v14_6.png)
-
-### Filtering merge requests by "approved by" **(PREMIUM)**
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/30335) in GitLab 13.0.
-> - Moved to GitLab Premium in 13.9.
-
-To filter merge requests already approved by a specific individual, you can type (or select from
-the dropdown list) **Approved-By** and select the user.
-
-![Filter MRs by approved by](img/filter_approved_by_merge_requests_v14_6.png)
-
-### Filtering merge requests by reviewer
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/47605) in GitLab 13.7.
-
-To filter review requested merge requests for a specific individual, you can type (or select from
-the dropdown list) **Reviewer** and select the user.
-
-### Filtering merge requests by environment or deployment date
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/44041) in GitLab 13.6.
-
-To filter merge requests by deployment data, such as the environment or a date,
-you can type (or select from the dropdown list) the following:
-
-- Environment
-- Deployed-before
-- Deployed-after
-
-When filtering by an environment, a dropdown list presents all environments that
-you can choose from:
-
-![Filter MRs by their environment](img/filtering_merge_requests_by_environment_v14_6.png)
-
-When filtering by `Deployed-before` or `Deployed-after`, the date refers to when
-the deployment to an environment (triggered by the merge commit) completed successfully.
-You must enter the deploy date manually. Deploy dates
-use the format `YYYY-MM-DD`, and must be quoted if you wish to specify
-both a date and time (`"YYYY-MM-DD HH:MM"`):
-
-![Filter MRs by a deploy date](img/filtering_merge_requests_by_date_v14_6.png)
-
-## Filters autocomplete
-
-GitLab provides many filters across many pages (issues, merge requests, epics,
-and pipelines among others) which you can use to narrow down your search. When
-using the filter functionality, you can start typing characters to bring up
-relevant users or other attributes.
-
-For performance optimization, there is a requirement of a minimum of three
-characters to begin your search. To search for issues with the assignee `Simone Presley`,
-you must type at least `Sim` before autocomplete displays results.
-
-## Search history
-
-Search history is available for issues and merge requests, and is stored locally
-in your browser. To run a search from history:
-
-1. In the top menu, select **Issues** or **Merge requests**.
-1. To the left of the search bar, click **Recent searches**, and select a search from the list.
-
-## Removing search filters
-
-Individual filters can be removed by clicking on the filter's (x) button or backspacing. The entire search filter can be cleared by clicking on the search box's (x) button or via <kbd>⌘</kbd> (Mac) + <kbd>⌫</kbd>.
-
-To delete filter tokens one at a time, the <kbd>⌥</kbd> (Mac) / <kbd>Control</kbd> + <kbd>⌫</kbd> keyboard combination can be used.
-
-## Filtering with multiple filters of the same type
-
-Some filters can be added multiple times. These include but are not limited to assignees and labels. When you filter with these multiple filters of the same type, the `AND` logic is applied. For example, if you were filtering `assignee:@sam assignee:@sarah`, your results include only entries whereby the assignees are assigned to both Sam and Sarah are returned.
-
-![multiple assignees filtering](img/multiple_assignees.png)
-
-## To-Do List
-
-You can search your [To-Do List](../todos.md) by "to do" and "done".
-You can filter to-do items per project, author, type, and action.
-Also, you can sort them by [**Label priority**](../../user/project/labels.md#set-label-priority),
-**Last created**, and **Oldest created**.
-
-## Projects
-
-You can search through your projects from the top bar, by selecting **Menu > Projects**.
-On the field **Filter by name**, type the project or group name you want to find, and GitLab
-filters them for you as you type.
-
-You can also look for the projects you [starred](../project/working_with_projects.md#star-a-project) (**Starred projects**).
-You can **Explore** all public and internal projects available in GitLab.com, from which you can filter by visibility,
-through **Trending**, best rated with **Most stars**, or **All** of them.
-
-You can also sort them by:
-
-- Name
-- Created date
-- Updated date
-- Owner
-
-You can also choose to hide or show archived projects.
-
-## Groups
-
-Similarly to [projects search](#projects), you can search through your groups from
-the left menu, by clicking the menu bar, then **Groups**.
-
-On the field **Filter by name**, type the group name you want to find, and GitLab
-filters them for you as you type.
-
-You can also **Explore** all public and internal groups available in GitLab.com,
-and sort them by **Name**, **Last created**, **Oldest created**, or **Updated date**.
-
-## Issue boards
-
-From an [issue board](../../user/project/issue_board.md), you can filter issues by **Author**, **Assignee**, **Milestone**, and **Labels**.
-You can also filter them by name (issue title), from the field **Filter by name**, which is loaded as you type.
-
-To search for issues to add to lists present in your issue board, select
-the button **Add issues** on the top-right of your screen, opening a modal window from which
-you can, besides filtering them by **Name**, **Author**, **Assignee**, **Milestone**,
-and **Labels**, select multiple issues to add to a list of your choice:
-
-![search and select issues to add to board](img/search_issues_board.png)
+Partial matches are not supported in issue search.
+For example, when you search issues for `play`, the query does not return issues that contain `display`.
+However, the query matches all possible variations of the string (for example, `plays`).
 
 ## Autocomplete suggestions
 
-In the search bar, you can view autocomplete suggestions for:
+As you type in the search box, autocomplete suggestions are displayed for:
 
-- Projects and groups
-- Various help pages (try and type **API help**)
-- Project feature pages (try and type **milestones**)
-- Various settings pages (try and type **user settings**)
-- Recently viewed issues (try and type some word from the title of a recently viewed issue)
-- Recently viewed merge requests (try and type some word from the title of a recently viewed merge request)
-- Recently viewed epics (try and type some word from the title of a recently viewed epic)
-- [GitLab Flavored Markdown](../markdown.md#gitlab-specific-references) (GFM) for issues in a project (try and type a GFM reference for an issue)
-
-## Basic search
-
-The Basic search in GitLab enables you to search
-across the entire GitLab instance, in a group, or in a single project. Basic search is
-backed by the database and allows searching in:
-
-- Projects
-- Issues
-- Merge requests
-- Milestones
+- [Projects](#search-for-a-project-by-full-path) and groups
 - Users
-- Epics (Group only)
-- Code (Project only)
-- Comments (Project only)
-- Commits (Project only)
-- Wiki (Project only)
+- Help pages
+- Project features (for example, milestones)
+- Settings (for example, user settings)
+- Recently viewed merge requests
+- Recently viewed issues and epics
+- [GitLab Flavored Markdown references](../markdown.md#gitlab-specific-references) for issues in a project
 
-To start a search, type into the search bar on the top-right of the screen. You can always search
-in all GitLab and may also see the options to search in a group or project if you are in the
-group or project dashboard.
+## Search in all GitLab
 
-![basic search](img/basic_search_v14_4.png)
+To search in all GitLab:
 
-After the results are returned, you can modify the search, select a different type of data to
-search, or choose a specific group or project.
+1. On the left sidebar, at the top, select **Search or go to**.
+1. Type your search query. You must type at least two characters.
+1. Press <kbd>Enter</kbd> to search, or select from the list.
 
-![basic_search_results](img/basic_search_results.png)
+The results are displayed. To filter the results, on the left sidebar, select a filter.
 
-### Code search
+## Search in a project
 
-To search through code or other documents in a single project, you can use
-the search field on the top-right of your screen while the project page is open.
+To search in a project:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Search or go to** again and type the string you want to search for.
+1. Press <kbd>Enter</kbd> to search, or select from the list.
+
+The results are displayed. To filter the results, on the left sidebar, select a filter.
+
+## Search for a project by full path
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/108906) in GitLab 15.9 [with a flag](../../administration/feature_flags.md) named `full_path_project_search`. Disabled by default.
+> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/114932) in GitLab 15.11. Feature flag `full_path_project_search` removed.
+
+You can search for a project by entering its full path (including the namespace it belongs to) in the search box.
+As you type the project path, [autocomplete suggestions](#autocomplete-suggestions) are displayed.
+
+For example:
+
+- `gitlab-org/gitlab` searches for the `gitlab` project in the `gitlab-org` namespace.
+- `gitlab-org/` displays autocomplete suggestions for projects that belong to the `gitlab-org` namespace.
+
+## Include archived projects in search results
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121981) in GitLab 16.1 [with a flag](../../administration/feature_flags.md) named `search_projects_hide_archived` for project search. Disabled by default.
+> - [Generally available](https://gitlab.com/groups/gitlab-org/-/epics/10957) in GitLab 16.6 for all search scopes.
+
+By default, archived projects are excluded from search results.
+To include archived projects in search results:
+
+1. On the search page, on the left sidebar, select the **Include archived** checkbox.
+1. On the left sidebar, select **Apply**.
+
+## Search for code
+
+To search for code in a project:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Search or go to** again and type the code you want to search for.
+1. Press <kbd>Enter</kbd> to search, or select from the list.
+
 Code search shows only the first result in the file.
+To search for code in all GitLab, ask your administrator to enable [advanced search](advanced_search.md).
 
-#### Git blame from code search **(FREE)**
+### View Git blame from code search
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/327052) in GitLab 14.7.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/327052) in GitLab 14.7.
 
-You can access Git blame from any line that returned a result from the code search:
+After you find search results, you can view who made the last change to the line
+where the results were found.
 
-![code search results](img/code_search_git_blame_v14_9.png)
+1. From the code search result, hover over the line number.
+1. On the left, select **View blame**.
 
-### SHA search
+### Filter code search results by language
 
-You can quickly access a commit from the project dashboard by entering the SHA
-into the search field on the top right of the screen. If a single result is found, you are
-redirected to the commit result and given the option to return to the search results page.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/342651) in GitLab 15.10.
 
-![project SHA search redirect](img/project_search_sha_redirect.png)
+To filter code search results by one or more languages:
 
-## Advanced Search **(PREMIUM)**
+1. On the code search page, on the left sidebar, select one or more languages.
+1. On the left sidebar, select **Apply**.
 
-Leverage Elasticsearch for faster, more advanced code search across your entire
-GitLab instance.
+## Search for a commit SHA
 
-[Learn how to use the Advanced Search.](advanced_search.md)
+To search for a commit SHA:
 
-## Search settings
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Search or go to** again and type the commit SHA you want to search for.
+1. Press <kbd>Enter</kbd> to search, or select from the list.
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/292941) in GitLab 13.8 [with a flag](../../administration/feature_flags.md) named `search_settings_in_page`. Disabled by default.
-> - [Added](https://gitlab.com/groups/gitlab-org/-/epics/4842) to Group, Administrator, and User settings in GitLab 13.9.
-> - [Feature flag `search_settings_in_page` removed](https://gitlab.com/gitlab-org/gitlab/-/issues/294025) in GitLab 13.11.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/294025) in GitLab 13.11.
-
-You can search inside a Project, Group, Administrator, or User's settings by entering
-a search term in the search box located at the top of the page. The search results
-appear highlighted in the sections that match the search term.
-
-![Search project settings](img/project_search_general_settings_v13_8.png)
+If a single result is returned, GitLab redirects to the commit result
+and gives you the option to return to the search results page.

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 module WebpackHelper
+  include ViteHelper
+
   def prefetch_link_tag(source)
     href = asset_path(source)
 
@@ -14,10 +16,16 @@ module WebpackHelper
   end
 
   def webpack_bundle_tag(bundle)
-    javascript_include_tag(*webpack_entrypoint_paths(bundle))
+    if vite_enabled?
+      vite_javascript_tag bundle
+    else
+      javascript_include_tag(*webpack_entrypoint_paths(bundle))
+    end
   end
 
   def webpack_preload_asset_tag(asset, options = {})
+    return if vite_enabled?
+
     path = Gitlab::Webpack::Manifest.asset_paths(asset).first
 
     if options.delete(:prefetch)
@@ -83,16 +91,8 @@ module WebpackHelper
   end
 
   def webpack_public_host
-    # We do not proxy the webpack output in the 'test' environment,
-    # so we must reference the webpack dev server directly.
-    if Rails.env.test? && Gitlab.config.webpack.dev_server.enabled
-      host = Gitlab.config.webpack.dev_server.host
-      port = Gitlab.config.webpack.dev_server.port
-      protocol = Gitlab.config.webpack.dev_server.https ? 'https' : 'http'
-      "#{protocol}://#{host}:#{port}"
-    else
-      ActionController::Base.asset_host.try(:chomp, '/')
-    end
+    # We proxy webpack output in 'test' and 'dev' environment, so we can just use asset_host
+    ActionController::Base.asset_host.try(:chomp, '/')
   end
 
   def webpack_public_path

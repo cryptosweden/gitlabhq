@@ -2,25 +2,26 @@
 
 exports[`Issue placeholder note component matches snapshot 1`] = `
 <timeline-entry-item-stub
-  class="note note-wrapper being-posted fade-in-half"
+  class="being-posted fade-in-half note note-comment note-wrapper"
 >
   <div
-    class="timeline-icon"
+    class="gl-float-left timeline-avatar"
   >
-    <user-avatar-link-stub
-      imgalt=""
-      imgcssclasses=""
-      imgsize="40"
-      imgsrc="mock_path"
-      linkhref="/root"
-      tooltipplacement="top"
-      tooltiptext=""
-      username=""
-    />
+    <gl-avatar-link-stub
+      href="/root"
+    >
+      <gl-avatar-stub
+        alt="Root"
+        entityid="0"
+        entityname="root"
+        shape="circle"
+        size="32"
+        src="mock_path"
+      />
+    </gl-avatar-link-stub>
   </div>
-   
   <div
-    class="timeline-content discussion"
+    class="discussion timeline-content"
   >
     <div
       class="note-header"
@@ -32,11 +33,10 @@ exports[`Issue placeholder note component matches snapshot 1`] = `
           href="/root"
         >
           <span
-            class="d-none d-sm-inline-block bold"
+            class="bold gl-hidden sm:gl-inline-block"
           >
             Root
           </span>
-           
           <span
             class="note-headline-light"
           >
@@ -45,18 +45,21 @@ exports[`Issue placeholder note component matches snapshot 1`] = `
         </a>
       </div>
     </div>
-     
     <div
-      class="note-body"
+      class="timeline-discussion-body"
     >
       <div
-        class="note-text md"
+        class="note-body"
       >
-        <p>
-          Foo
-        </p>
-        
-
+        <div
+          class="md note-text"
+        >
+          <p
+            dir="auto"
+          >
+            Foo
+          </p>
+        </div>
       </div>
     </div>
   </div>

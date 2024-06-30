@@ -2,14 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
+RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_category: :fleet_visibility do
   include StubGitlabCalls
   include RedisHelpers
   include WorkhorseHelpers
 
   before do
     stub_feature_flags(ci_enable_live_trace: true)
-    stub_feature_flags(runner_registration_control: false)
     stub_gitlab_calls
     stub_application_setting(valid_runner_registrars: ApplicationSetting::VALID_RUNNER_REGISTRAR_TYPES)
   end
@@ -20,6 +19,10 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
   let_it_be(:group_runner) { create(:ci_runner, :group, groups: [group], token_expires_at: 1.day.from_now) }
 
   describe 'POST /runners/reset_authentication_token', :freeze_time do
+    it_behaves_like 'runner migrations backoff' do
+      let(:request) { post api("/runners/reset_authentication_token") }
+    end
+
     context 'current token provided' do
       it "resets authentication token when token doesn't have an expiration" do
         expect do
@@ -35,9 +38,10 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
         expect do
           post api("/runners/reset_authentication_token"), params: { token: group_runner.reload.token }
 
+          group_runner.reload
           expect(response).to have_gitlab_http_status(:success)
-          expect(json_response).to eq({ 'token' => group_runner.reload.token, 'token_expires_at' => group_runner.reload.token_expires_at.iso8601(3) })
-          expect(group_runner.reload.token_expires_at).to eq(5.days.from_now)
+          expect(json_response).to eq({ 'token' => group_runner.token, 'token_expires_at' => group_runner.token_expires_at.iso8601(3) })
+          expect(group_runner.token_expires_at).to eq(5.days.from_now)
         end.to change { group_runner.reload.token }
       end
 

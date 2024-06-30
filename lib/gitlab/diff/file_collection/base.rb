@@ -46,7 +46,9 @@ module Gitlab
 
         # This is either the new path, otherwise the old path for the diff_file
         def diff_file_paths
-          diff_files.map(&:file_path)
+          diffs.map do |diff|
+            diff.new_path.presence || diff.old_path
+          end
         end
 
         # This is both the new and old paths for the diff_file
@@ -68,20 +70,12 @@ module Gitlab
           end
         end
 
-        def diff_file_with_old_path(old_path, a_mode = nil)
-          if Feature.enabled?(:file_identifier_hash) && a_mode.present?
-            diff_files.find { |diff_file| diff_file.old_path == old_path && diff_file.a_mode == a_mode }
-          else
-            diff_files.find { |diff_file| diff_file.old_path == old_path }
-          end
+        def diff_file_with_old_path(old_path)
+          diff_files.find { |diff_file| diff_file.old_path == old_path }
         end
 
-        def diff_file_with_new_path(new_path, b_mode = nil)
-          if Feature.enabled?(:file_identifier_hash) && b_mode.present?
-            diff_files.find { |diff_file| diff_file.new_path == new_path && diff_file.b_mode == b_mode }
-          else
-            diff_files.find { |diff_file| diff_file.new_path == new_path }
-          end
+        def diff_file_with_new_path(new_path)
+          diff_files.find { |diff_file| diff_file.new_path == new_path }
         end
 
         def clear_cache
@@ -125,7 +119,8 @@ module Gitlab
                                  repository: project.repository,
                                  diff_refs: diff_refs,
                                  fallback_diff_refs: fallback_diff_refs,
-                                 stats: stats)
+                                 stats: stats,
+                                 max_blob_size: self.class.max_blob_size(project))
 
           if @use_extra_viewer_as_main && diff_file.has_renderable?
             diff_file.rendered
@@ -137,6 +132,8 @@ module Gitlab
         def sort_diffs(diffs)
           Gitlab::Diff::FileCollectionSorter.new(diffs).sort
         end
+
+        def self.max_blob_size(_) = nil
       end
     end
   end

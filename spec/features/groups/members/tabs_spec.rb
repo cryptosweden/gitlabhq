@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Groups > Members > Tabs', :js do
+RSpec.describe 'Groups > Members > Tabs', :js, feature_category: :groups_and_projects do
   using RSpec::Parameterized::TableSyntax
 
   shared_examples 'active "Members" tab' do
@@ -11,9 +11,9 @@ RSpec.describe 'Groups > Members > Tabs', :js do
     end
   end
 
-  shared_examples 'active "Invited" tab' do
-    it 'displays "Invited" tab' do
-      expect(page).to have_selector('.nav-link.active', text: 'Invited')
+  shared_examples 'active "Pending invitations" tab' do
+    it 'displays "Pending invitations" tab' do
+      expect(page).to have_selector('.nav-link.active', text: 'Pending invitations')
     end
   end
 
@@ -34,10 +34,10 @@ RSpec.describe 'Groups > Members > Tabs', :js do
   end
 
   where(:tab, :count) do
-    'Members'         | 3
-    'Invited'         | 2
-    'Groups'          | 2
-    'Access requests' | 2
+    'Members'             | 3
+    'Pending invitations' | 2
+    'Groups'              | 2
+    'Access requests'     | 2
   end
 
   with_them do
@@ -56,26 +56,26 @@ RSpec.describe 'Groups > Members > Tabs', :js do
     it_behaves_like 'active "Members" tab'
   end
 
-  context 'when searching "Invited"' do
+  context 'when searching "Pending invitations"' do
     before do
       visit group_group_members_path(group)
 
-      click_link 'Invited'
+      click_link 'Pending invitations'
 
-      page.within '[data-testid="members-filtered-search-bar"]' do
+      within_testid('members-filtered-search-bar') do
         find_field('Search invited').click
         find('input').native.send_keys('email')
         click_button 'Search'
       end
     end
 
-    it_behaves_like 'active "Invited" tab'
+    it_behaves_like 'active "Pending invitations" tab'
 
     context 'and then searching "Members"' do
       before do
         click_link 'Members'
 
-        page.within '[data-testid="members-filtered-search-bar"]' do
+        within_testid 'members-filtered-search-bar' do
           find_field('Filter members').click
           find('input').native.send_keys('test')
           click_button 'Search'
@@ -86,18 +86,18 @@ RSpec.describe 'Groups > Members > Tabs', :js do
     end
   end
 
-  context 'when using "Invited" pagination' do
+  context 'when using "Pending invitations" pagination' do
     before do
       visit group_group_members_path(group)
 
-      click_link 'Invited'
+      click_link 'Pending invitations'
 
       page.within '.pagination' do
         click_link '2'
       end
     end
 
-    it_behaves_like 'active "Invited" tab'
+    it_behaves_like 'active "Pending invitations" tab'
 
     context 'and then using "Members" pagination' do
       before do

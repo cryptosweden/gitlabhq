@@ -4,42 +4,43 @@ module Resolvers
   class MilestonesResolver < BaseResolver
     include Gitlab::Graphql::Authorize::AuthorizeResource
     include TimeFrameArguments
+    include LooksAhead
+
+    # authorize before resolution
+    authorize :read_milestone
+    authorizes_object!
 
     argument :ids, [GraphQL::Types::ID],
-             required: false,
-             description: 'Array of global milestone IDs, e.g., `"gid://gitlab/Milestone/1"`.'
+      required: false,
+      description: 'Array of global milestone IDs, e.g., `"gid://gitlab/Milestone/1"`.'
 
     argument :state, Types::MilestoneStateEnum,
-             required: false,
-             description: 'Filter milestones by state.'
+      required: false,
+      description: 'Filter milestones by state.'
 
     argument :title, GraphQL::Types::String,
-             required: false,
-             description: 'Title of the milestone.'
+      required: false,
+      description: 'Title of the milestone.'
 
     argument :search_title, GraphQL::Types::String,
-             required: false,
-             description: 'Search string for the title.'
+      required: false,
+      description: 'Search string for the title.'
 
     argument :containing_date, Types::TimeType,
-             required: false,
-             description: 'Date the milestone contains.'
+      required: false,
+      description: 'Date the milestone contains.'
 
     argument :sort, Types::MilestoneSortEnum,
-             description: 'Sort milestones by this criteria.',
-             required: false,
-             default_value: :due_date_asc
+      description: 'Sort milestones by the criteria.',
+      required: false,
+      default_value: :due_date_asc
 
     type Types::MilestoneType.connection_type, null: true
 
     NON_STABLE_CURSOR_SORTS = %i[expired_last_due_date_asc expired_last_due_date_desc].freeze
 
-    def resolve(**args)
-      validate_timeframe_params!(args)
-
-      authorize!
-
-      milestones = MilestonesFinder.new(milestones_finder_params(args)).execute
+    def resolve_with_lookahead(**args)
+      milestones = apply_lookahead(MilestonesFinder.new(milestones_finder_params(args)).execute)
 
       if non_stable_cursor_sort?(args[:sort])
         offset_pagination(milestones)
@@ -49,6 +50,12 @@ module Resolvers
     end
 
     private
+
+    def preloads
+      {
+        releases: :releases
+      }
+    end
 
     def milestones_finder_params(args)
       {
@@ -67,12 +74,6 @@ module Resolvers
 
     def parent_id_parameters(args)
       raise NotImplementedError
-    end
-
-    # MilestonesFinder does not check for current_user permissions,
-    # so for now we need to keep it here.
-    def authorize!
-      Ability.allowed?(context[:current_user], :read_milestone, parent) || raise_resource_not_available_error!
     end
 
     def parse_gids(gids)

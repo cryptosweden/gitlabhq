@@ -2,6 +2,7 @@
 
 class PasswordsController < Devise::PasswordsController
   include GitlabRecaptcha
+  include Gitlab::Tracking::Helpers::WeakPasswordErrorEvent
 
   skip_before_action :require_no_authentication, only: [:edit, :update]
 
@@ -11,7 +12,7 @@ class PasswordsController < Devise::PasswordsController
   before_action :check_password_authentication_available, only: [:create]
   before_action :throttle_reset, only: [:create]
 
-  feature_category :authentication_and_authorization
+  feature_category :system_access
 
   # rubocop: disable CodeReuse/ActiveRecord
   def edit
@@ -41,23 +42,24 @@ class PasswordsController < Devise::PasswordsController
         resource.password_automatically_set = false
         resource.password_expires_at = nil
         resource.save(validate: false) if resource.changed?
+      else
+        log_audit_reset_failure(@user)
+        track_weak_password_error(@user, self.class.name, 'create')
       end
     end
   end
 
   protected
 
+  # overriden in EE
+  def log_audit_reset_failure(_user); end
+
   def resource_from_email
-    email = resource_params[:email]
-    self.resource = resource_class.find_by_email(email)
+    self.resource = resource_class.find_by_email(resource_params[:email].to_s)
   end
 
   def check_password_authentication_available
-    if resource
-      return if resource.allow_password_authentication?
-    else
-      return if Gitlab::CurrentSettings.password_authentication_enabled?
-    end
+    return if Gitlab::CurrentSettings.password_authentication_enabled?
 
     redirect_to after_sending_reset_password_instructions_path_for(resource_name),
       alert: _("Password authentication is unavailable.")

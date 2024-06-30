@@ -6,9 +6,13 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
+
+	"gitlab.com/gitlab-org/labkit/fips"
 )
 
 type s3Session struct {
@@ -34,17 +38,13 @@ func (s *s3Session) isExpired() bool {
 	return time.Now().After(s.expiry)
 }
 
-func newS3SessionCache() *s3SessionCache {
-	return &s3SessionCache{sessions: make(map[config.S3Config]*s3Session)}
-}
-
 var (
 	// By default, it looks like IAM instance profiles may last 6 hours
 	// (via curl http://169.254.169.254/latest/meta-data/iam/security-credentials/<role_name>),
 	// but this may be configurable from anywhere for 15 minutes to 12
 	// hours. To be safe, refresh AWS sessions every 10 minutes.
-	sessionExpiration = time.Duration(10 * time.Minute)
-	sessionCache      = newS3SessionCache()
+	sessionExpiration = 10 * time.Minute
+	sessionCache      = &s3SessionCache{sessions: make(map[config.S3Config]*s3Session)}
 )
 
 // SetupS3Session initializes a new AWS S3 session and refreshes one if
@@ -60,8 +60,9 @@ func setupS3Session(s3Credentials config.S3Credentials, s3Config config.S3Config
 	}
 
 	cfg := &aws.Config{
-		Region:           aws.String(s3Config.Region),
-		S3ForcePathStyle: aws.Bool(s3Config.PathStyle),
+		Region:                        aws.String(s3Config.Region),
+		S3ForcePathStyle:              aws.Bool(s3Config.PathStyle),
+		S3DisableContentMD5Validation: aws.Bool(fips.Enabled()),
 	}
 
 	// In case IAM profiles aren't being used, use the static credentials
@@ -70,7 +71,23 @@ func setupS3Session(s3Credentials config.S3Credentials, s3Config config.S3Config
 	}
 
 	if s3Config.Endpoint != "" {
-		cfg.Endpoint = aws.String(s3Config.Endpoint)
+		// The administrator has configured an S3 endpoint override,
+		// e.g. to make use of S3 IPv6 support or S3 FIPS mode. We
+		// need to configure a custom resolver to make sure that
+		// the custom endpoint is only used for S3 API calls, and not
+		// for STS API calls.
+		s3CustomResolver := func(service, region string, optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
+			if service == s3.EndpointsID {
+				return endpoints.ResolvedEndpoint{
+					URL:           s3Config.Endpoint,
+					SigningRegion: region,
+				}, nil
+			}
+
+			return endpoints.DefaultResolver().EndpointFor(service, region, optFns...)
+		}
+
+		cfg.EndpointResolver = endpoints.ResolverFunc(s3CustomResolver)
 	}
 
 	sess, err := session.NewSession(cfg)
@@ -84,11 +101,4 @@ func setupS3Session(s3Credentials config.S3Credentials, s3Config config.S3Config
 	}
 
 	return sess, nil
-}
-
-func ResetS3Session(s3Config config.S3Config) {
-	sessionCache.Lock()
-	defer sessionCache.Unlock()
-
-	delete(sessionCache.sessions, s3Config)
 }

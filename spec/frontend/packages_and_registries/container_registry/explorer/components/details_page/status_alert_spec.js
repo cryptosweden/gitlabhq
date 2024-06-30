@@ -14,8 +14,8 @@ import {
 describe('Status Alert', () => {
   let wrapper;
 
-  const findLink = () => wrapper.find(GlLink);
-  const findAlert = () => wrapper.find(GlAlert);
+  const findLink = () => wrapper.findComponent(GlLink);
+  const findAlert = () => wrapper.findComponent(GlAlert);
   const findMessage = () => wrapper.find('[data-testid="message"]');
 
   const mountComponent = (propsData) => {
@@ -26,11 +26,6 @@ describe('Status Alert', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   it.each`
     status              | title                                  | variant      | message                                  | link

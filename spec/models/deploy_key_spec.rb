@@ -5,19 +5,38 @@ require 'spec_helper'
 RSpec.describe DeployKey, :mailer do
   describe "Associations" do
     it { is_expected.to have_many(:deploy_keys_projects) }
+
     it do
       is_expected.to have_many(:deploy_keys_projects_with_write_access)
         .conditions(can_push: true)
         .class_name('DeployKeysProject')
+        .inverse_of(:deploy_key)
     end
+
     it do
       is_expected.to have_many(:projects_with_write_access)
         .class_name('Project')
         .through(:deploy_keys_projects_with_write_access)
         .source(:project)
     end
+
+    it do
+      is_expected.to have_many(:deploy_keys_projects_with_readonly_access)
+        .conditions(can_push: false)
+        .class_name('DeployKeysProject')
+        .inverse_of(:deploy_key)
+    end
+
+    it do
+      is_expected.to have_many(:projects_with_readonly_access)
+        .class_name('Project')
+        .through(:deploy_keys_projects_with_readonly_access)
+        .source(:project)
+    end
+
     it { is_expected.to have_many(:projects) }
-    it { is_expected.to have_many(:protected_branch_push_access_levels) }
+    it { is_expected.to have_many(:protected_branch_push_access_levels).inverse_of(:deploy_key) }
+    it { is_expected.to have_many(:protected_tag_create_access_levels).inverse_of(:deploy_key) }
   end
 
   describe 'notification' do
@@ -48,7 +67,7 @@ RSpec.describe DeployKey, :mailer do
 
     context 'when user is not set' do
       it 'returns the ghost user' do
-        expect(deploy_key.user).to eq(User.ghost)
+        expect(deploy_key.user).to eq(Users::Internal.ghost)
       end
     end
   end
@@ -90,7 +109,7 @@ RSpec.describe DeployKey, :mailer do
           it { is_expected.to be_empty }
         end
 
-        context 'and this deploy key has not write access to the project' do
+        context 'and this deploy key has no write access to the project' do
           let(:specific_deploy_key) { create(:deploy_key, deploy_keys_projects: [create(:deploy_keys_project, project: project)]) }
 
           it { is_expected.to be_empty }
@@ -144,6 +163,12 @@ RSpec.describe DeployKey, :mailer do
         it { expect(subject.can?(:download_code, project)).to be false }
         it { expect(subject.can?(:push_code, project)).to be false }
       end
+    end
+  end
+
+  describe '#audit_details' do
+    it "equals to the key's title" do
+      expect(subject.audit_details).to eq(subject.title)
     end
   end
 end

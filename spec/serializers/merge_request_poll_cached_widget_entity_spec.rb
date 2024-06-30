@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequestPollCachedWidgetEntity do
+RSpec.describe MergeRequestPollCachedWidgetEntity, feature_category: :code_review_workflow do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be(:project, refind: true)  { create :project, :repository }
@@ -49,8 +49,9 @@ RSpec.describe MergeRequestPollCachedWidgetEntity do
   describe 'diverged_commits_count' do
     context 'when MR open and its diverging' do
       it 'returns diverged commits count' do
-        allow(resource).to receive_messages(open?: true, diverged_from_target_branch?: true,
-                                            diverged_commits_count: 10)
+        allow(resource).to receive_messages(
+          open?: true, diverged_from_target_branch?: true, diverged_commits_count: 10
+        )
 
         expect(subject[:diverged_commits_count]).to eq(10)
       end
@@ -152,10 +153,10 @@ RSpec.describe MergeRequestPollCachedWidgetEntity do
             .to eq(closed_event.author_id)
 
           expect(subject.dig(:metrics, :merged_at).to_s)
-            .to eq(merge_event.updated_at.to_s)
+            .to eq(merge_event.updated_at.iso8601)
 
           expect(subject.dig(:metrics, :closed_at).to_s)
-            .to eq(closed_event.updated_at.to_s)
+            .to eq(closed_event.updated_at.iso8601)
         end
       end
 
@@ -180,22 +181,6 @@ RSpec.describe MergeRequestPollCachedWidgetEntity do
       expect(commits_in_widget.length).to eq(resource.commits.without_merge_commits.length)
       commits_in_widget.each do |c|
         expect(find_matching_commit(c[:short_id]).merge_commit?).to eq(false)
-      end
-    end
-  end
-
-  describe 'auto merge' do
-    context 'when auto merge is enabled' do
-      let(:resource) { create(:merge_request, :merge_when_pipeline_succeeds) }
-
-      it 'returns auto merge related information' do
-        expect(subject[:auto_merge_enabled]).to be_truthy
-      end
-    end
-
-    context 'when auto merge is not enabled' do
-      it 'returns auto merge related information' do
-        expect(subject[:auto_merge_enabled]).to be_falsy
       end
     end
   end
@@ -342,6 +327,41 @@ RSpec.describe MergeRequestPollCachedWidgetEntity do
 
         it 'does not set reports path' do
           expect(subject[path_field]).to be_nil
+        end
+      end
+    end
+  end
+
+  describe 'favicon overlay path' do
+    context 'when merged' do
+      before do
+        resource.mark_as_merged!
+        resource.metrics.update!(merged_by: user)
+      end
+
+      it 'returns merged favicon overlay' do
+        expect(subject[:favicon_overlay_path]).to match_asset_path('/assets/mr_favicons/favicon_status_merged.png')
+      end
+
+      context 'with pipeline' do
+        let_it_be(:pipeline) { create(:ci_empty_pipeline, project: project, ref: resource.source_branch, sha: resource.source_branch_sha, head_pipeline_of: resource) }
+
+        it 'returns merged favicon overlay' do
+          expect(subject[:favicon_overlay_path]).to match_asset_path('/assets/mr_favicons/favicon_status_merged.png')
+        end
+      end
+    end
+
+    context 'when not merged' do
+      it 'returns no favicon overlay' do
+        expect(subject[:favicon_overlay_path]).to be_nil
+      end
+
+      context 'with pipeline' do
+        let_it_be(:pipeline) { create(:ci_empty_pipeline, project: project, ref: resource.source_branch, sha: resource.source_branch_sha, head_pipeline_of: resource) }
+
+        it 'returns pipeline favicon overlay' do
+          expect(subject[:favicon_overlay_path]).to match_asset_path('/assets/ci_favicons/favicon_status_pending.png')
         end
       end
     end

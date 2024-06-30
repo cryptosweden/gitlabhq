@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group Issue Boards', :js do
+RSpec.describe 'Group Issue Boards', :js, feature_category: :portfolio_management do
   include BoardHelpers
 
   let(:group)            { create(:group) }
-  let(:user)             { create(:group_member, user: create(:user), group: group ).user }
+  let(:user)             { create(:group_member, user: create(:user), group: group).user }
   let!(:project_1)       { create(:project, :public, group: group) }
   let!(:project_2)       { create(:project, :public, group: group) }
   let!(:project_1_label) { create(:label, project: project_1, name: 'Development 1') }
@@ -34,7 +34,7 @@ RSpec.describe 'Group Issue Boards', :js do
 
         wait_for_requests
 
-        page.within('[data-testid="dropdown-content"]') do
+        within_testid('dropdown-content') do
           expect(page).to have_content(project_1_label.title)
           expect(page).to have_content(group_label.title)
           expect(page).not_to have_content(project_2_label.title)

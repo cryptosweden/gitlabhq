@@ -1,6 +1,8 @@
 <script>
-import { GlAlert, GlLoadingIcon, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlAlert, GlLoadingIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 
 export default {
   components: {
@@ -8,7 +10,7 @@ export default {
     GlLoadingIcon,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   props: {
     message: {
@@ -51,7 +53,6 @@ export default {
 
 <template>
   <gl-alert
-    data-qa-selector="flash_alert"
     variant="danger"
     :dismissible="canDismiss"
     :primary-button-text="message.actionText"

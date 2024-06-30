@@ -6,13 +6,13 @@ module Mutations
       graphql_name 'DestroyBoard'
 
       field :board,
-            Types::BoardType,
-            null: true,
-            description: 'Board after mutation.'
+        Types::BoardType,
+        null: true,
+        description: 'Board after mutation.'
       argument :id,
-                ::Types::GlobalIDType[::Board],
-                required: true,
-                description: 'Global ID of the board to destroy.'
+        ::Types::GlobalIDType[::Board],
+        required: true,
+        description: 'Global ID of the board to destroy.'
 
       authorize :admin_issue_board
 
@@ -25,12 +25,6 @@ module Mutations
           board: response.success? ? nil : board,
           errors: response.errors
         }
-      end
-
-      private
-
-      def find_object(id:)
-        GitlabSchema.object_from_id(id, expected_type: ::Board)
       end
     end
   end

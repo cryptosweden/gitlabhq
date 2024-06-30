@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::BuildPolicy do
+RSpec.describe Ci::BuildPolicy, feature_category: :continuous_integration do
   let(:user) { create(:user) }
   let(:build) { create(:ci_build, pipeline: pipeline) }
   let(:pipeline) { create(:ci_empty_pipeline, project: project) }
@@ -11,9 +11,58 @@ RSpec.describe Ci::BuildPolicy do
     described_class.new(user, build)
   end
 
+  it_behaves_like 'a deployable job policy', :ci_build
+
   shared_context 'public pipelines disabled' do
     before do
       project.update_attribute(:public_builds, false)
+    end
+  end
+
+  describe 'artifacts access config with access keyword' do
+    let_it_be(:project) { create(:project, :public) }
+    let_it_be(:user) { create(:user) }
+
+    include_context 'public pipelines disabled'
+
+    before_all do
+      project.add_developer(user)
+    end
+
+    context 'when job artifact access is set to all' do
+      let(:build) { create(:ci_build, :artifacts, pipeline: pipeline) }
+
+      it 'allows read_job_artifacts to project members' do
+        expect(policy).to be_allowed :read_job_artifacts
+      end
+    end
+
+    context 'when job artifact is private to developers' do
+      let(:build) { create(:ci_build, :private_artifacts, pipeline: pipeline) }
+
+      it 'allows read_job_artifacts to project members' do
+        expect(policy).to be_allowed :read_job_artifacts
+      end
+
+      context 'when user is anon' do
+        let(:user2) { create(:user) }
+
+        let(:policy2) do
+          described_class.new(user2, build)
+        end
+
+        it 'disallows read_job_artifacts to anon user' do
+          expect(policy2).to be_disallowed :read_job_artifacts
+        end
+      end
+    end
+
+    context 'when job artifact access is set to none' do
+      let(:build) { create(:ci_build, :no_access_artifacts, pipeline: pipeline) }
+
+      it 'disallows read_job_artifacts to project members' do
+        expect(policy).to be_disallowed :read_job_artifacts
+      end
     end
   end
 
@@ -99,12 +148,16 @@ RSpec.describe Ci::BuildPolicy do
 
       context 'when maintainer is allowed to push to pipeline branch' do
         let(:project) { create(:project, :public) }
-        let(:owner) { user }
 
-        it 'enables update_build if user is maintainer' do
-          allow_any_instance_of(Project).to receive(:empty_repo?).and_return(false)
-          allow_any_instance_of(Project).to receive(:branch_allows_collaboration?).and_return(true)
+        before do
+          project.add_maintainer(user)
 
+          allow(project).to receive(:empty_repo?).and_return(false)
+          allow(project).to receive(:branch_allows_collaboration?).and_return(true)
+        end
+
+        it 'enables updates if user is maintainer', :aggregate_failures do
+          expect(policy).to be_allowed :cancel_build
           expect(policy).to be_allowed :update_build
           expect(policy).to be_allowed :update_commit_status
         end
@@ -121,46 +174,57 @@ RSpec.describe Ci::BuildPolicy do
 
       context 'when no one can push or merge to the branch' do
         before do
-          create(:protected_branch, :no_one_can_push,
-                 name: build.ref, project: project)
+          create(:protected_branch, :no_one_can_push, name: build.ref, project: project)
         end
 
         it 'does not include ability to update build' do
+          expect(policy).to be_disallowed :cancel_build
           expect(policy).to be_disallowed :update_build
+        end
+
+        context 'when the user is admin', :enable_admin_mode do
+          before do
+            user.update!(admin: true)
+          end
+
+          it 'does not include ability to update build' do
+            expect(policy).to be_disallowed :cancel_build
+            expect(policy).to be_disallowed :update_build
+          end
         end
       end
 
       context 'when developers can push to the branch' do
         before do
-          create(:protected_branch, :developers_can_merge,
-                 name: build.ref, project: project)
+          create(:protected_branch, :developers_can_merge, name: build.ref, project: project)
         end
 
         it 'includes ability to update build' do
+          expect(policy).to be_allowed :cancel_build
           expect(policy).to be_allowed :update_build
         end
       end
 
       context 'when no one can create the tag' do
         before do
-          create(:protected_tag, :no_one_can_create,
-                 name: build.ref, project: project)
+          create(:protected_tag, :no_one_can_create, name: build.ref, project: project)
 
           build.update!(tag: true)
         end
 
         it 'does not include ability to update build' do
+          expect(policy).to be_disallowed :cancel_build
           expect(policy).to be_disallowed :update_build
         end
       end
 
       context 'when no one can create the tag but it is not a tag' do
         before do
-          create(:protected_tag, :no_one_can_create,
-                 name: build.ref, project: project)
+          create(:protected_tag, :no_one_can_create, name: build.ref, project: project)
         end
 
         it 'includes ability to update build' do
+          expect(policy).to be_allowed :cancel_build
           expect(policy).to be_allowed :update_build
         end
       end
@@ -181,8 +245,7 @@ RSpec.describe Ci::BuildPolicy do
 
             context 'when the build was created for a protected ref' do
               before do
-                create(:protected_branch, :developers_can_push,
-                       name: build.ref, project: project)
+                create(:protected_branch, :developers_can_push, name: build.ref, project: project)
               end
 
               it { expect(policy).to be_disallowed :erase_build }
@@ -204,8 +267,7 @@ RSpec.describe Ci::BuildPolicy do
           let(:owner) { user }
 
           before do
-            create(:protected_branch, :no_one_can_push, :no_one_can_merge,
-                   name: build.ref, project: project)
+            create(:protected_branch, :no_one_can_push, :no_one_can_merge, name: build.ref, project: project)
           end
 
           it { expect(policy).to be_disallowed :erase_build }
@@ -219,8 +281,7 @@ RSpec.describe Ci::BuildPolicy do
 
         context 'when maintainers can push to the branch' do
           before do
-            create(:protected_branch, :maintainers_can_push,
-                   name: build.ref, project: project)
+            create(:protected_branch, :maintainers_can_push, name: build.ref, project: project)
           end
 
           context 'when the build was created by the maintainer' do
@@ -240,8 +301,7 @@ RSpec.describe Ci::BuildPolicy do
           let(:owner) { user }
 
           before do
-            create(:protected_branch, :no_one_can_push, :no_one_can_merge,
-                   name: build.ref, project: project)
+            create(:protected_branch, :no_one_can_push, :no_one_can_merge, name: build.ref, project: project)
           end
 
           it { expect(policy).to be_disallowed :erase_build }
@@ -257,20 +317,20 @@ RSpec.describe Ci::BuildPolicy do
 
         context 'when the build was created for a protected branch' do
           before do
-            create(:protected_branch, :developers_can_push,
-                   name: build.ref, project: project)
+            create(:protected_branch, :developers_can_push, name: build.ref, project: project)
           end
 
-          it { expect(policy).to be_allowed :erase_build }
+          it { expect(policy).to be_disallowed :erase_build }
         end
 
         context 'when the build was created for a protected tag' do
           before do
-            create(:protected_tag, :developers_can_create,
-                   name: build.ref, project: project)
+            create(:protected_tag, :developers_can_create, name: build.ref, project: project)
+
+            build.update!(tag: true)
           end
 
-          it { expect(policy).to be_allowed :erase_build }
+          it { expect(policy).to be_disallowed :erase_build }
         end
 
         context 'when the build was created for an unprotected ref' do
@@ -403,6 +463,54 @@ RSpec.describe Ci::BuildPolicy do
 
         it_behaves_like 'forbidden access'
       end
+    end
+  end
+
+  describe 'ability :create_build_terminal' do
+    let(:project) { create(:project, :private) }
+
+    subject { described_class.new(user, build) }
+
+    context 'when user can update_build' do
+      before do
+        project.add_maintainer(user)
+      end
+
+      context 'when job has terminal' do
+        before do
+          allow(build).to receive(:has_terminal?).and_return(true)
+        end
+
+        context 'when current user is the job owner' do
+          before do
+            build.update!(user: user)
+          end
+
+          it { expect_allowed(:create_build_terminal) }
+        end
+
+        context 'when current user is not the job owner' do
+          it { expect_disallowed(:create_build_terminal) }
+        end
+      end
+
+      context 'when job does not have terminal' do
+        before do
+          allow(build).to receive(:has_terminal?).and_return(false)
+          build.update!(user: user)
+        end
+
+        it { expect_disallowed(:create_build_terminal) }
+      end
+    end
+
+    context 'when user cannot update build' do
+      before do
+        project.add_guest(user)
+        allow(build).to receive(:has_terminal?).and_return(true)
+      end
+
+      it { expect_disallowed(:create_build_terminal) }
     end
   end
 end

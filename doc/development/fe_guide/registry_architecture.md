@@ -1,7 +1,7 @@
 ---
 stage: Package
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Registry architecture
@@ -12,9 +12,9 @@ already exists to unify the user and developer experiences.
 
 Existing registries:
 
-- Package Registry
-- Container Registry
-- Infrastructure Registry
+- Package registry
+- Container registry
+- Terraform Module Registry
 - Dependency Proxy
 
 ## Frontend architecture
@@ -56,7 +56,7 @@ in the container components when needed. This makes it easier to:
   [`delete_package.vue`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/packages_and_registries/package_registry/components/functional/delete_package.vue)).
 - Leverage [startup for GraphQL calls](graphql.md#making-initial-queries-early-with-graphql-startup-calls).
 
-## Shared compoenents library
+## Shared components library
 
 Inside `vue_shared/components/registry` and `packages_and_registries/shared`, there's a set of
 shared components that you can use to implement registry functionality. These components build the
@@ -64,14 +64,14 @@ main pieces of the desired UI and UX of a registry page. The most important comp
 
 - `code-instruction`: represents a copyable box containing code. Supports multiline and single line
   code boxes. Snowplow tracks the code copy event.
-- `details-row`: represents a row of details. Used to add additional info in the details area of
+- `details-row`: represents a row of details. Used to add additional information in the details area of
   the `list-item` component.
 - `history-item`: represents a history list item used to build a timeline.
 - `list-item`: represents a list element in the registry. It supports: left action, left primary and
   secondary content, right primary and secondary content, right action, and details slots.
 - `metadata-item`: represents one piece of metadata, with an icon or a link. Used primarily in the
   title area.
-- `persisted-dropdown-selection`: represents a dropdown menu that stores the user selection in the
+- `persisted-dropdown-selection`: represents a menu that stores the user selection in the
   `localStorage`.
 - `registry-search`: implements `gl-filtered-search` with a sorting section on the right.
 - `title-area`: implements the top title area of the registry. Includes: a main title, an avatar, a
@@ -82,7 +82,7 @@ main pieces of the desired UI and UX of a registry page. The most important comp
 When adding a new registry:
 
 - Leverage the shared components that already exist. It's good to look at how the components are
-  structured and used in the more mature registries (for example, the Package Registry).
+  structured and used in the more mature registries (for example, the package registry).
 - If it's in line with the backend requirements, we suggest using GraphQL for the API. This helps in
   dealing with the innate performance issue of registries.
 - If possible, we recommend using [Vue Router](https://v3.router.vuejs.org/)

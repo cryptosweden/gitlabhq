@@ -8,7 +8,7 @@ module API
 
     helpers ::API::Helpers::BadgesHelpers
 
-    feature_category :projects
+    feature_category :groups_and_projects
 
     helpers do
       def find_source_if_admin(source_type)
@@ -22,17 +22,22 @@ module API
 
     %w[group project].each do |source_type|
       params do
-        requires :id, type: String, desc: "The ID of a #{source_type}"
+        requires :id,
+          type: String,
+          desc: "The ID or URL-encoded path of the #{source_type} owned by the authenticated user."
       end
       resource source_type.pluralize, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
         desc "Gets a list of #{source_type} badges viewable by the authenticated user." do
           detail 'This feature was introduced in GitLab 10.6.'
           success Entities::Badge
+          is_array true
+          tags %w[badges]
         end
         params do
           use :pagination
+          optional :name, type: String, desc: 'Name for the badge'
         end
-        get ":id/badges" do
+        get ":id/badges", urgency: :low do
           source = find_source(source_type, params[:id])
 
           badges = source.badges
@@ -45,6 +50,7 @@ module API
         desc "Preview a badge from a #{source_type}." do
           detail 'This feature was introduced in GitLab 10.6.'
           success Entities::BasicBadgeDetails
+          tags %w[badges]
         end
         params do
           requires :link_url, type: String, desc: 'URL of the badge link'
@@ -68,11 +74,15 @@ module API
         desc "Gets a badge of a #{source_type}." do
           detail 'This feature was introduced in GitLab 10.6.'
           success Entities::Badge
+          tags %w[badges]
         end
         params do
           requires :badge_id, type: Integer, desc: 'The badge ID'
         end
-        get ":id/badges/:badge_id" do
+        # TODO: Set PUT /projects/:id/badges/:badge_id to low urgency and GET to default urgency
+        # after different urgencies are supported for different HTTP verbs.
+        # See https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/1670
+        get ":id/badges/:badge_id", urgency: :low do
           source = find_source(source_type, params[:id])
           badge = find_badge(source)
 
@@ -82,6 +92,7 @@ module API
         desc "Adds a badge to a #{source_type}." do
           detail 'This feature was introduced in GitLab 10.6.'
           success Entities::Badge
+          tags %w[badges]
         end
         params do
           requires :link_url, type: String, desc: 'URL of the badge link'
@@ -103,6 +114,7 @@ module API
         desc "Updates a badge of a #{source_type}." do
           detail 'This feature was introduced in GitLab 10.6.'
           success Entities::Badge
+          tags %w[badges]
         end
         params do
           optional :link_url, type: String, desc: 'URL of the badge link'
@@ -123,8 +135,9 @@ module API
           end
         end
 
-        desc 'Removes a badge from a project or group.' do
+        desc "Removes a badge from the #{source_type}." do
           detail 'This feature was introduced in GitLab 10.6.'
+          tags %w[badges]
         end
         params do
           requires :badge_id, type: Integer, desc: 'The badge ID'

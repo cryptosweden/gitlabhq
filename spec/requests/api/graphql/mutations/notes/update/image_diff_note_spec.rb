@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Updating an image DiffNote' do
+RSpec.describe 'Updating an image DiffNote', feature_category: :team_planning do
   include GraphqlHelpers
   using RSpec::Parameterized::TableSyntax
 
@@ -37,11 +37,13 @@ RSpec.describe 'Updating an image DiffNote' do
   end
 
   let!(:diff_note) do
-    create(:image_diff_note_on_merge_request,
-           noteable: noteable,
-           project: noteable.project,
-           note: original_body,
-           position: original_position)
+    create(
+      :image_diff_note_on_merge_request,
+      noteable: noteable,
+      project: noteable.project,
+      note: original_body,
+      position: original_position
+    )
   end
 
   let(:mutation) do

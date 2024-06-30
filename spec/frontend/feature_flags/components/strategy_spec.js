@@ -1,10 +1,14 @@
 import { GlAlert, GlFormSelect, GlLink, GlToken, GlButton } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
+import MockAdapter from 'axios-mock-adapter';
 import Vue, { nextTick } from 'vue';
 import { last } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import Api from '~/api';
+import axios from '~/lib/utils/axios_utils';
 import NewEnvironmentsDropdown from '~/feature_flags/components/new_environments_dropdown.vue';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import Strategy from '~/feature_flags/components/strategy.vue';
 import StrategyParameters from '~/feature_flags/components/strategy_parameters.vue';
 import {
@@ -21,19 +25,22 @@ import { userList } from '../mock_data';
 
 jest.mock('~/api');
 
+const TEST_HOST = '/test';
 const provide = {
   strategyTypeDocsPagePath: 'link-to-strategy-docs',
   environmentsScopeDocsPath: 'link-scope-docs',
-  environmentsEndpoint: '',
+  environmentsEndpoint: TEST_HOST,
 };
 
 Vue.use(Vuex);
 
 describe('Feature flags strategy', () => {
   let wrapper;
+  let axiosMock;
 
-  const findStrategyParameters = () => wrapper.find(StrategyParameters);
-  const findDocsLinks = () => wrapper.findAll(GlLink);
+  const findStrategyParameters = () => wrapper.findComponent(StrategyParameters);
+  const findDocsLinks = () => wrapper.findAllComponents(GlLink);
+  const findToken = () => wrapper.findComponent(GlToken);
 
   const factory = (
     opts = {
@@ -44,10 +51,8 @@ describe('Feature flags strategy', () => {
       provide,
     },
   ) => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
+    axiosMock = new MockAdapter(axios);
+    axiosMock.onGet(TEST_HOST).reply(HTTP_STATUS_OK, []);
     wrapper = mount(Strategy, { store: createStore({ projectId: '1' }), ...opts });
   };
 
@@ -56,10 +61,7 @@ describe('Feature flags strategy', () => {
   });
 
   afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
+    axiosMock.restore();
   });
 
   describe('helper links', () => {
@@ -93,7 +95,7 @@ describe('Feature flags strategy', () => {
     });
 
     it('should set the select to match the strategy name', () => {
-      expect(wrapper.find(GlFormSelect).element.value).toBe(name);
+      expect(wrapper.findComponent(GlFormSelect).element.value).toBe(name);
     });
 
     it('should emit a change if the parameters component does', () => {
@@ -118,7 +120,7 @@ describe('Feature flags strategy', () => {
     });
 
     it('shows an alert asking users to consider using flexibleRollout instead', () => {
-      expect(wrapper.find(GlAlert).text()).toContain(
+      expect(wrapper.findComponent(GlAlert).text()).toContain(
         'Consider using the more flexible "Percent rollout" strategy instead.',
       );
     });
@@ -139,16 +141,44 @@ describe('Feature flags strategy', () => {
       });
 
       it('should revert to all-environments scope when last scope is removed', async () => {
-        const token = wrapper.find(GlToken);
+        const token = findToken();
         token.vm.$emit('close');
         await nextTick();
-        expect(wrapper.findAll(GlToken)).toHaveLength(0);
+        expect(wrapper.findAllComponents(GlToken)).toHaveLength(0);
         expect(last(wrapper.emitted('change'))).toEqual([
           {
             name: ROLLOUT_STRATEGY_PERCENT_ROLLOUT,
             parameters: { percentage: '50', groupId: PERCENT_ROLLOUT_GROUP_ID },
             scopes: [{ environmentScope: '*' }],
           },
+        ]);
+      });
+    });
+
+    describe('with a single environment scope defined and existing feature flag', () => {
+      let strategy;
+      beforeEach(() => {
+        strategy = {
+          name: ROLLOUT_STRATEGY_PERCENT_ROLLOUT,
+          parameters: { percentage: '50', groupId: 'default' },
+          scopes: [{ environmentScope: 'production', id: 1 }],
+        };
+        const propsData = { strategy, index: 0 };
+        factory({ propsData, provide });
+      });
+
+      it('should revert single environment scope when last scope is removed', async () => {
+        findToken().vm.$emit('close');
+        await nextTick();
+
+        expect(wrapper.emitted('change')).toEqual([
+          [
+            {
+              name: ROLLOUT_STRATEGY_PERCENT_ROLLOUT,
+              parameters: { percentage: '50', groupId: PERCENT_ROLLOUT_GROUP_ID },
+              scopes: [{ environmentScope: 'production', id: 1, shouldBeDestroyed: true }],
+            },
+          ],
         ]);
       });
     });
@@ -167,8 +197,9 @@ describe('Feature flags strategy', () => {
       });
 
       it('should change the parameters if a different strategy is chosen', async () => {
-        const select = wrapper.find(GlFormSelect);
-        select.setValue(ROLLOUT_STRATEGY_ALL_USERS);
+        const select = wrapper.findComponent(GlFormSelect);
+        select.element.value = ROLLOUT_STRATEGY_ALL_USERS;
+        select.trigger('change');
         await nextTick();
         expect(last(wrapper.emitted('change'))).toEqual([
           {
@@ -180,26 +211,26 @@ describe('Feature flags strategy', () => {
       });
 
       it('should display selected scopes', async () => {
-        const dropdown = wrapper.find(NewEnvironmentsDropdown);
+        const dropdown = wrapper.findComponent(NewEnvironmentsDropdown);
         dropdown.vm.$emit('add', 'production');
         await nextTick();
-        expect(wrapper.findAll(GlToken)).toHaveLength(1);
-        expect(wrapper.find(GlToken).text()).toBe('production');
+        expect(wrapper.findAllComponents(GlToken)).toHaveLength(1);
+        expect(findToken().text()).toBe('production');
       });
 
       it('should display all selected scopes', async () => {
-        const dropdown = wrapper.find(NewEnvironmentsDropdown);
+        const dropdown = wrapper.findComponent(NewEnvironmentsDropdown);
         dropdown.vm.$emit('add', 'production');
         dropdown.vm.$emit('add', 'staging');
         await nextTick();
-        const tokens = wrapper.findAll(GlToken);
+        const tokens = wrapper.findAllComponents(GlToken);
         expect(tokens).toHaveLength(2);
         expect(tokens.at(0).text()).toBe('production');
         expect(tokens.at(1).text()).toBe('staging');
       });
 
       it('should emit selected scopes', async () => {
-        const dropdown = wrapper.find(NewEnvironmentsDropdown);
+        const dropdown = wrapper.findComponent(NewEnvironmentsDropdown);
         dropdown.vm.$emit('add', 'production');
         await nextTick();
         expect(last(wrapper.emitted('change'))).toEqual([
@@ -215,7 +246,7 @@ describe('Feature flags strategy', () => {
       });
 
       it('should emit a delete if the delete button is clicked', () => {
-        wrapper.find(GlButton).vm.$emit('click');
+        wrapper.findComponent(GlButton).vm.$emit('click');
         expect(wrapper.emitted('delete')).toEqual([[]]);
       });
     });
@@ -232,26 +263,26 @@ describe('Feature flags strategy', () => {
       });
 
       it('should display selected scopes', async () => {
-        const dropdown = wrapper.find(NewEnvironmentsDropdown);
+        const dropdown = wrapper.findComponent(NewEnvironmentsDropdown);
         dropdown.vm.$emit('add', 'production');
         await nextTick();
-        expect(wrapper.findAll(GlToken)).toHaveLength(1);
-        expect(wrapper.find(GlToken).text()).toBe('production');
+        expect(wrapper.findAllComponents(GlToken)).toHaveLength(1);
+        expect(findToken().text()).toBe('production');
       });
 
       it('should display all selected scopes', async () => {
-        const dropdown = wrapper.find(NewEnvironmentsDropdown);
+        const dropdown = wrapper.findComponent(NewEnvironmentsDropdown);
         dropdown.vm.$emit('add', 'production');
         dropdown.vm.$emit('add', 'staging');
         await nextTick();
-        const tokens = wrapper.findAll(GlToken);
+        const tokens = wrapper.findAllComponents(GlToken);
         expect(tokens).toHaveLength(2);
         expect(tokens.at(0).text()).toBe('production');
         expect(tokens.at(1).text()).toBe('staging');
       });
 
       it('should emit selected scopes', async () => {
-        const dropdown = wrapper.find(NewEnvironmentsDropdown);
+        const dropdown = wrapper.findComponent(NewEnvironmentsDropdown);
         dropdown.vm.$emit('add', 'production');
         await nextTick();
         expect(last(wrapper.emitted('change'))).toEqual([

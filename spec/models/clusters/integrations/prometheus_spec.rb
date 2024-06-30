@@ -15,13 +15,23 @@ RSpec.describe Clusters::Integrations::Prometheus do
     it { is_expected.not_to allow_value(nil).for(:enabled) }
   end
 
+  describe 'default values' do
+    subject(:integration) { build(:clusters_integrations_prometheus) }
+
+    before do
+      allow(SecureRandom).to receive(:hex).and_return('randomtoken')
+    end
+
+    it { expect(integration.alert_manager_token).to eq('randomtoken') }
+  end
+
   describe 'after_destroy' do
     subject(:integration) { create(:clusters_integrations_prometheus, cluster: cluster, enabled: true) }
 
-    let(:cluster) { create(:cluster, :with_installed_helm) }
+    let(:cluster) { create(:cluster) }
 
     it 'deactivates prometheus_integration' do
-      expect(Clusters::Applications::DeactivateServiceWorker)
+      expect(Clusters::Applications::DeactivateIntegrationWorker)
         .to receive(:perform_async).with(cluster.id, 'prometheus')
 
       integration.destroy!
@@ -31,17 +41,17 @@ RSpec.describe Clusters::Integrations::Prometheus do
   describe 'after_save' do
     subject(:integration) { create(:clusters_integrations_prometheus, cluster: cluster, enabled: enabled) }
 
-    let(:cluster) { create(:cluster, :with_installed_helm) }
+    let(:cluster) { create(:cluster) }
     let(:enabled) { true }
 
     context 'when no change to enabled status' do
       it 'does not touch project integrations' do
         integration # ensure integration exists before we set the expectations
 
-        expect(Clusters::Applications::DeactivateServiceWorker)
+        expect(Clusters::Applications::DeactivateIntegrationWorker)
           .not_to receive(:perform_async)
 
-        expect(Clusters::Applications::ActivateServiceWorker)
+        expect(Clusters::Applications::ActivateIntegrationWorker)
           .not_to receive(:perform_async)
 
         integration.update!(enabled: enabled)
@@ -51,8 +61,8 @@ RSpec.describe Clusters::Integrations::Prometheus do
     context 'when enabling' do
       let(:enabled) { false }
 
-      it 'deactivates prometheus_integration' do
-        expect(Clusters::Applications::ActivateServiceWorker)
+      it 'activates prometheus_integration' do
+        expect(Clusters::Applications::ActivateIntegrationWorker)
           .to receive(:perform_async).with(cluster.id, 'prometheus')
 
         integration.update!(enabled: true)
@@ -63,7 +73,7 @@ RSpec.describe Clusters::Integrations::Prometheus do
       let(:enabled) { true }
 
       it 'activates prometheus_integration' do
-        expect(Clusters::Applications::DeactivateServiceWorker)
+        expect(Clusters::Applications::DeactivateIntegrationWorker)
           .to receive(:perform_async).with(cluster.id, 'prometheus')
 
         integration.update!(enabled: false)

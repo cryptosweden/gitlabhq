@@ -11,25 +11,34 @@ module Gitlab
 
       data_consistency :always
 
-      sidekiq_options retry: 3
       include ::Gitlab::Import::AdvanceStage
 
-      sidekiq_options dead: false
-      feature_category :importers
       loggable_arguments 1, 2
 
       # The known importer stages and their corresponding Sidekiq workers.
+      #
+      # Note: AdvanceStageWorker is not used to initiate the repository, base_data, and pull_requests stages.
+      # They are included in the list for us to easily see all stage workers and the order in which they are executed.
+
       STAGES = {
-        pull_requests_merged_by: Stage::ImportPullRequestsMergedByWorker,
-        pull_request_reviews: Stage::ImportPullRequestsReviewsWorker,
+        repository: Stage::ImportRepositoryWorker,
+        base_data: Stage::ImportBaseDataWorker,
+        pull_requests: Stage::ImportPullRequestsWorker,
+        collaborators: Stage::ImportCollaboratorsWorker,
         issues_and_diff_notes: Stage::ImportIssuesAndDiffNotesWorker,
-        notes: Stage::ImportNotesWorker,
+        issue_events: Stage::ImportIssueEventsWorker,
+        attachments: Stage::ImportAttachmentsWorker,
+        protected_branches: Stage::ImportProtectedBranchesWorker,
         lfs_objects: Stage::ImportLfsObjectsWorker,
         finish: Stage::FinishImportWorker
       }.freeze
 
-      def find_import_state(project_id)
+      def find_import_state_jid(project_id)
         ProjectImportState.jid_by(project_id: project_id, status: :started)
+      end
+
+      def find_import_state(id)
+        ProjectImportState.find(id)
       end
 
       private

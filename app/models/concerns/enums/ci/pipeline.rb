@@ -11,13 +11,22 @@ module Enums
           config_error: 1,
           external_validation_failure: 2,
           user_not_verified: 3,
-          activity_limit_exceeded: 20,
           size_limit_exceeded: 21,
           job_activity_limit_exceeded: 22,
           deployments_limit_exceeded: 23,
-          user_blocked: 24,
-          project_deleted: 25
+          # 24 was previously used by the deprecated `user_blocked`
+          project_deleted: 25,
+          filtered_by_rules: 26,
+          filtered_by_workflow_rules: 27
         }
+      end
+
+      def self.persistable_failure_reasons
+        failure_reasons.except(:filtered_by_rules, :filtered_by_workflow_rules)
+      end
+
+      def self.persistable_failure_reason?(reason)
+        persistable_failure_reasons.include?(reason)
       end
 
       # Returns the `Hash` to use for creating the `sources` enum for
@@ -39,7 +48,8 @@ module Enums
           parent_pipeline: 12,
           ondemand_dast_scan: 13,
           ondemand_dast_validation: 14,
-          security_orchestration_policy: 15
+          security_orchestration_policy: 15,
+          container_registry_push: 16
         }
       end
 
@@ -52,8 +62,10 @@ module Enums
       #   not affect the ref CI status.
       # - when an ondemand_dast_validation pipeline runs it is for validating a DAST site
       #   profile and should not affect the ref CI status.
+      # - when a container_registry_push pipeline runs it is for security testing purpose and should
+      #   not affect the ref CI status.
       def self.dangling_sources
-        sources.slice(:webide, :parent_pipeline, :ondemand_dast_scan, :ondemand_dast_validation, :security_orchestration_policy)
+        sources.slice(:webide, :parent_pipeline, :ondemand_dast_scan, :ondemand_dast_validation, :security_orchestration_policy, :container_registry_push)
       end
 
       # CI sources are those pipeline events that affect the CI status of the ref
@@ -70,6 +82,10 @@ module Enums
         ci_sources.merge(sources.slice(:parent_pipeline))
       end
 
+      def self.ci_and_security_orchestration_sources
+        ci_sources.merge(sources.slice(:security_orchestration_policy))
+      end
+
       # Returns the `Hash` to use for creating the `config_sources` enum for
       # `Ci::Pipeline`.
       def self.config_sources
@@ -82,7 +98,9 @@ module Enums
           external_project_source: 5,
           bridge_source: 6,
           parameter_source: 7,
-          compliance_source: 8
+          compliance_source: 8,
+          security_policies_default_source: 9,
+          pipeline_execution_policy_forced: 10
         }
       end
     end

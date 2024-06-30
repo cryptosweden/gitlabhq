@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Resolving all open threads in a merge request from an issue', :js do
+RSpec.describe 'Resolving all open threads in a merge request from an issue', :js, feature_category: :team_planning do
   let(:user) { create(:user) }
   let(:project) { create(:project, :repository) }
   let(:merge_request) { create(:merge_request, source_project: project) }
@@ -12,9 +12,9 @@ RSpec.describe 'Resolving all open threads in a merge request from an issue', :j
     url = new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid)
 
     if title.empty?
-      %Q{a[href="#{url}"]}
+      %(a[href="#{url}"])
     else
-      %Q{a[title="#{title}"][href="#{url}"]}
+      %(a[title="#{title}"][href="#{url}"])
     end
   end
 
@@ -26,24 +26,26 @@ RSpec.describe 'Resolving all open threads in a merge request from an issue', :j
     end
 
     it 'shows a button to resolve all threads by creating a new issue' do
-      within('.line-resolve-all-container') do
-        expect(page).to have_selector resolve_all_discussions_link_selector( title: "Create issue to resolve all threads" )
+      find('.discussions-counter .gl-new-dropdown-toggle').click
+
+      within('.discussions-counter') do
+        expect(page).to have_link(_("Resolve all with new issue"), href: new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid))
       end
     end
 
     context 'resolving the thread' do
       before do
-        find('button[data-qa-selector="resolve_discussion_button"]').click # rubocop:disable QA/SelectorUsage
+        find('button[data-testid="resolve-discussion-button"]').click
       end
 
       it 'hides the link for creating a new issue' do
         expect(page).not_to have_selector resolve_all_discussions_link_selector
-        expect(page).not_to have_content "Create issue to resolve all threads"
       end
     end
 
-    context 'creating an issue for threads' do
+    context 'creating an issue for threads', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/420845' do
       before do
+        find('.discussions-counter .gl-new-dropdown-toggle').click
         find(resolve_all_discussions_link_selector).click
       end
 
@@ -59,10 +61,11 @@ RSpec.describe 'Resolving all open threads in a merge request from an issue', :j
         before do
           project.project_feature.update_attribute(:issues_access_level, ProjectFeature::DISABLED)
           visit project_merge_request_path(project, merge_request)
+          find('.discussions-counter .gl-new-dropdown-toggle').click
         end
 
         it 'does not show a link to create a new issue' do
-          expect(page).not_to have_link 'Create issue to resolve all threads'
+          expect(page).not_to have_link 'Resolve all with new issue'
         end
       end
 
@@ -72,25 +75,9 @@ RSpec.describe 'Resolving all open threads in a merge request from an issue', :j
         end
 
         it 'shows a warning that the merge request contains unresolved threads' do
-          expect(page).to have_content 'all threads must be resolved'
-        end
+          click_button 'Expand merge checks'
 
-        it 'has a link to resolve all threads by creating an issue' do
-          page.within '.mr-widget-body' do
-            expect(page).to have_link 'Create issue to resolve all threads', href: new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid)
-          end
-        end
-
-        context 'creating an issue for threads' do
-          before do
-            page.within '.mr-widget-body' do
-              page.click_link 'Create issue to resolve all threads', href: new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid)
-
-              wait_for_all_requests
-            end
-          end
-
-          it_behaves_like 'creating an issue for a thread'
+          expect(page).to have_content 'Unresolved discussions must be resolved'
         end
       end
     end

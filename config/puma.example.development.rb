@@ -53,9 +53,6 @@ on_restart do
 end
 
 before_fork do
-  # Signal to the puma killer
-  Gitlab::Cluster::PumaWorkerKillerInitializer.start @config.options unless ENV['DISABLE_PUMA_WORKER_KILLER']
-
   # Signal application hooks that we're about to fork
   Gitlab::Cluster::LifecycleEvents.do_before_fork
 end
@@ -64,6 +61,11 @@ Gitlab::Cluster::LifecycleEvents.set_puma_options @config.options
 on_worker_boot do
   # Signal application hooks of worker start
   Gitlab::Cluster::LifecycleEvents.do_worker_start
+end
+
+on_worker_shutdown do
+  # Signal application hooks that a worker is shutting down
+  Gitlab::Cluster::LifecycleEvents.do_worker_stop
 end
 
 # Preload the application before starting the workers; this conflicts with
@@ -81,9 +83,6 @@ worker_timeout 60
 
 # https://github.com/puma/puma/blob/master/5.0-Upgrade.md#lower-latency-better-throughput
 wait_for_less_busy_worker ENV.fetch('PUMA_WAIT_FOR_LESS_BUSY_WORKER', 0.001).to_f
-
-# https://github.com/puma/puma/blob/master/5.0-Upgrade.md#nakayoshi_fork
-nakayoshi_fork unless ENV['DISABLE_PUMA_NAKAYOSHI_FORK'] == 'true'
 
 # Use json formatter
 require_relative "/home/git/gitlab/lib/gitlab/puma_logging/json_formatter"

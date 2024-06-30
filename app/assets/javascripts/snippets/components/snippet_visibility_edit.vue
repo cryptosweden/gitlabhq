@@ -42,7 +42,7 @@ export default {
     <label>
       {{ __('Visibility level') }}
       <gl-link v-if="helpLink" :href="helpLink" target="_blank"
-        ><gl-icon :size="12" name="question"
+        ><gl-icon :size="12" name="question-o"
       /></gl-link>
     </label>
     <gl-form-group id="visibility-level-setting" class="gl-mb-0">
@@ -51,13 +51,13 @@ export default {
           v-for="option in defaultVisibilityLevels"
           :key="option.value"
           :value="option.value"
-          class="mb-3"
+          class="gl-mb-3"
         >
-          <div class="d-flex align-items-center">
+          <div class="gl-flex gl-items-center">
             <gl-icon :size="16" :name="option.icon" />
             <span
-              class="font-weight-bold ml-1 js-visibility-option"
-              data-qa-selector="visibility_content"
+              class="gl-font-semibold gl-ml-2 js-visibility-option"
+              data-testid="visibility-content"
               :data-qa-visibility="option.label"
               >{{ option.label }}</span
             >
@@ -71,7 +71,7 @@ export default {
       </gl-form-radio-group>
     </gl-form-group>
 
-    <div class="text-muted" data-testid="restricted-levels-info">
+    <div class="gl-text-secondary" data-testid="restricted-levels-info">
       <template v-if="!defaultVisibilityLevels.length">{{
         $options.SNIPPET_LEVELS_DISABLED
       }}</template>

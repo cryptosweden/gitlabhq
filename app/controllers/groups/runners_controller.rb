@@ -1,73 +1,73 @@
 # frozen_string_literal: true
 
 class Groups::RunnersController < Groups::ApplicationController
-  before_action :authorize_read_group_runners!, only: [:index, :show]
-  before_action :authorize_admin_group_runners!, only: [:edit, :update, :destroy, :pause, :resume]
-  before_action :runner_list_group_view_vue_ui_enabled, only: [:index]
-  before_action :runner, only: [:edit, :update, :destroy, :pause, :resume, :show]
+  # overrriden in EE
+  def self.needs_authorize_read_group_runners
+    [:index, :show]
+  end
+
+  before_action :authorize_read_group_runners!, only: needs_authorize_read_group_runners
+  before_action :authorize_create_group_runners!, only: [:new, :register]
+  before_action :authorize_update_runner!, only: [:edit, :update]
+  before_action :runner, only: [:edit, :update, :show, :register]
 
   feature_category :runner
+  urgency :low
 
   def index
-    finder = Ci::RunnersFinder.new(current_user: current_user, params: { group: @group })
-    @group_runners_limited_count = finder.execute.except(:limit, :offset).page.total_count_with_limit(:all, limit: 1000)
+    @allow_registration_token = @group.allow_runner_registration_token?
+    @group_runner_registration_token = @group.runners_token if can?(current_user, :register_group_runners, group)
+
+    @group_new_runner_path = new_group_runner_path(@group) if can?(current_user, :create_runner, group)
 
     Gitlab::Tracking.event(self.class.name, 'index', user: current_user, namespace: @group)
   end
 
-  def runner_list_group_view_vue_ui_enabled
-    render_404 unless Feature.enabled?(:runner_list_group_view_vue_ui, group, default_enabled: :yaml)
-  end
+  def show; end
 
-  def show
-  end
-
-  def edit
-  end
+  def edit; end
 
   def update
-    if Ci::Runners::UpdateRunnerService.new(@runner).update(runner_params)
+    if Ci::Runners::UpdateRunnerService.new(@runner).execute(runner_params).success?
       redirect_to group_runner_path(@group, @runner), notice: _('Runner was successfully updated.')
     else
       render 'edit'
     end
   end
 
-  def destroy
-    if can?(current_user, :delete_runner, @runner)
-      Ci::Runners::UnregisterRunnerService.new(@runner, current_user).execute
+  def new; end
 
-      redirect_to group_settings_ci_cd_path(@group, anchor: 'runners-settings'), status: :found
-    else
-      redirect_to group_settings_ci_cd_path(@group, anchor: 'runners-settings'), status: :found, alert: _('Runner cannot be deleted, please contact your administrator.')
-    end
-  end
-
-  def resume
-    if Ci::Runners::UpdateRunnerService.new(@runner).update(active: true)
-      redirect_to group_settings_ci_cd_path(@group, anchor: 'runners-settings'), notice: _('Runner was successfully updated.')
-    else
-      redirect_to group_settings_ci_cd_path(@group, anchor: 'runners-settings'), alert: _('Runner was not updated.')
-    end
-  end
-
-  def pause
-    if Ci::Runners::UpdateRunnerService.new(@runner).update(active: false)
-      redirect_to group_settings_ci_cd_path(@group, anchor: 'runners-settings'), notice: _('Runner was successfully updated.')
-    else
-      redirect_to group_settings_ci_cd_path(@group, anchor: 'runners-settings'), alert: _('Runner was not updated.')
-    end
+  def register
+    render_404 unless runner.registration_available?
   end
 
   private
 
   def runner
-    @runner ||= Ci::RunnersFinder.new(current_user: current_user, params: { group: @group }).execute
+    group_params = { group: @group, membership: :all_available }
+
+    @runner ||= Ci::RunnersFinder.new(current_user: current_user, params: group_params).execute
       .except(:limit, :offset)
       .find(params[:id])
+  rescue Gitlab::Access::AccessDeniedError
+    nil
   end
 
   def runner_params
     params.require(:runner).permit(Ci::Runner::FORM_EDITABLE)
   end
+
+  def authorize_update_runner!
+    return if can?(current_user, :update_runner, runner)
+
+    render_404
+  end
+
+  def authorize_create_group_runners!
+    return if can?(current_user, :create_runner, group)
+
+    render_404
+  end
 end
+
+Groups::RunnersController.prepend_mod

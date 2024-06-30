@@ -115,13 +115,13 @@ module Gitlab
 
           labels = []
           [bug['sCategory'], bug['sPriority']].each do |label|
-            unless label.blank?
-              labels << label
+            next if label.blank?
 
-              unless @known_labels.include?(label)
-                create_label(label)
-                @known_labels << label
-              end
+            labels << label
+
+            unless @known_labels.include?(label)
+              create_label(label)
+              @known_labels << label
             end
           end
 
@@ -129,15 +129,15 @@ module Gitlab
           author_id = user_info(bug['ixPersonOpenedBy'])[:gitlab_id] || project.creator_id
 
           issue = Issue.create!(
-            iid:          bug['ixBug'],
-            project_id:   project.id,
-            title:        bug['sTitle'],
-            description:  body,
-            author_id:    author_id,
+            iid: bug['ixBug'],
+            project_id: project.id,
+            title: bug['sTitle'],
+            description: body,
+            author_id: author_id,
             assignee_ids: [assignee_id],
-            state:        bug['fOpen'] == 'true' ? 'opened' : 'closed',
-            created_at:   date,
-            updated_at:   DateTime.parse(bug['dtLastUpdated'])
+            state: bug['fOpen'] == 'true' ? 'opened' : 'closed',
+            created_at: date,
+            updated_at: DateTime.parse(bug['dtLastUpdated'])
           )
 
           issue_labels = ::LabelsFinder.new(nil, project_id: project.id, title: labels).execute(skip_authorization: true)
@@ -158,42 +158,40 @@ module Gitlab
       end
 
       def import_issue_comments(issue, comments)
-        Note.transaction do
-          while comment = comments.shift
-            verb = comment['sVerb']
+        while comment = comments.shift
+          verb = comment['sVerb']
 
-            next if verb == 'Opened'
+          next if verb == 'Opened'
 
-            content = format_content(comment['s'])
-            attachments = format_attachments(comment['rgAttachments'])
-            updates = format_updates(comment)
+          content = format_content(comment['s'])
+          attachments = format_attachments(comment['rgAttachments'])
+          updates = format_updates(comment)
 
-            next if content.blank? && attachments.empty? && updates.empty?
+          next if content.blank? && attachments.empty? && updates.empty?
 
-            author = user_info(comment['ixPerson'])[:name]
-            author_id = user_info(comment['ixPerson'])[:gitlab_id] || project.creator_id
-            date = DateTime.parse(comment['dt'])
+          author = user_info(comment['ixPerson'])[:name]
+          author_id = user_info(comment['ixPerson'])[:gitlab_id] || project.creator_id
+          date = DateTime.parse(comment['dt'])
 
-            body = format_issue_comment_body(
-              comment['ixBugEvent'],
-              author,
-              date,
-              content,
-              attachments,
-              updates
-            )
+          body = format_issue_comment_body(
+            comment['ixBugEvent'],
+            author,
+            date,
+            content,
+            attachments,
+            updates
+          )
 
-            note = Note.create!(
-              project_id:     project.id,
-              noteable_type:  "Issue",
-              noteable_id:    issue.id,
-              author_id:      author_id,
-              note:           body
-            )
-
-            note.update_attribute(:created_at, date)
-            note.update_attribute(:updated_at, date)
-          end
+          Note.create!(
+            importing: true,
+            project_id: project.id,
+            noteable_type: "Issue",
+            noteable_id: issue.id,
+            author_id: author_id,
+            note: body,
+            created_at: date,
+            updated_at: date
+          )
         end
       end
 

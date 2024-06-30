@@ -27,7 +27,7 @@ RSpec.describe Gitlab::HookData::ProjectMemberBuilder do
           expect(data[:user_username]).to eq('johndoe')
           expect(data[:user_name]).to eq('John Doe')
           expect(data[:user_id]).to eq(user.id)
-          expect(data[:user_email]).to eq('john@example.com')
+          expect(data[:user_email]).to eq(_('[REDACTED]'))
           expect(data[:access_level]).to eq('Developer')
           expect(data[:project_visibility]).to eq('internal')
         end
@@ -37,6 +37,7 @@ RSpec.describe Gitlab::HookData::ProjectMemberBuilder do
         let(:event) { :create }
 
         it { expect(event_name).to eq('user_add_to_team') }
+
         it_behaves_like 'includes the required attributes'
       end
 
@@ -44,6 +45,7 @@ RSpec.describe Gitlab::HookData::ProjectMemberBuilder do
         let(:event) { :update }
 
         it { expect(event_name).to eq('user_update_for_team') }
+
         it_behaves_like 'includes the required attributes'
       end
 
@@ -51,6 +53,7 @@ RSpec.describe Gitlab::HookData::ProjectMemberBuilder do
         let(:event) { :destroy }
 
         it { expect(event_name).to eq('user_remove_from_team') }
+
         it_behaves_like 'includes the required attributes'
       end
     end

@@ -1,31 +1,34 @@
 ---
-stage: none
-group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Operations Dashboard **(PREMIUM)**
+# Operations Dashboard
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 The Operations Dashboard provides a summary of each project's operational health,
 including pipeline and alert status.
 
-To access the dashboard, on the top bar, select **Menu > Operations**.
+To access the dashboard:
+
+1. On the left sidebar, select **Search or go to**.
+1. Select **Your work**.
+1. Select **Operations**.
 
 ## Adding a project to the dashboard
 
-NOTE:
-For GitLab.com, you can add your project to the Operations Dashboard for free if
-your project is public. If your project is private, the group it belongs to must
-have a [GitLab Premium](https://about.gitlab.com/pricing/) plan.
-
 To add a project to the dashboard:
 
-1. Ensure your alerts
-   [populate the `gitlab_environment_name` field](../../operations/metrics/alerts.md#external-prometheus-instances).
-   In GitLab 13.9, you can display alerts for the `production` environment only.
-1. Click the **Add projects** button in the home screen of the dashboard.
+1. Ensure your alerts populate the `gitlab_environment_name` label on the alerts you set up in Prometheus.
+   The value of this should match the name of your environment in GitLab.
+   You can display alerts for the `production` environment only.
+1. Select **Add projects** in the home screen of the dashboard.
 1. Search and add one or more projects using the **Search your projects** field.
-1. Click the **Add projects** button.
+1. Select **Add projects**.
 
 Once added, the dashboard displays the project's number of active alerts,
 last commit, pipeline status, and when it was last deployed.
@@ -41,4 +44,4 @@ You can drag project cards to change their order. The card order is currently on
 ## Making it the default dashboard when you sign in
 
 The Operations Dashboard can also be made the default GitLab dashboard shown when
-you sign in. To make it the default, visit your [profile preferences](../profile/preferences.md).
+you sign in. To make it the default, see [Profile preferences](../profile/preferences.md).

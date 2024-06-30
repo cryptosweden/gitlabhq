@@ -8,15 +8,24 @@ class Badge < ApplicationRecord
   # the placeholder is found.
   PLACEHOLDERS = {
     'project_path' => :full_path,
+    'project_title' => :title,
+    'project_name' => :path,
     'project_id' => :id,
+    'project_namespace' => ->(project) { project.project_namespace.to_param },
+    'group_name' => ->(project) { project.group&.to_param },
+    'gitlab_server' => proc { Gitlab.config.gitlab.host },
+    'gitlab_pages_domain' => proc { Gitlab.config.pages.host },
     'default_branch' => :default_branch,
-    'commit_sha' => ->(project) { project.commit&.sha }
+    'commit_sha' => ->(project) { project.commit&.sha },
+    'latest_tag' => ->(project) do
+      TagsFinder.new(project.repository, per_page: 1, sort: 'updated_desc').execute.first&.name if project.repository
+    end
   }.freeze
 
   # This regex is built dynamically using the keys from the PLACEHOLDER struct.
   # So, we can easily add new placeholder just by modifying the PLACEHOLDER hash.
   # This regex will build the new PLACEHOLDER_REGEX with the new information
-  PLACEHOLDERS_REGEX = /(#{PLACEHOLDERS.keys.join('|')})/.freeze
+  PLACEHOLDERS_REGEX = /(#{PLACEHOLDERS.keys.join('|')})/
 
   default_scope { order_created_at_asc } # rubocop:disable Cop/DefaultScope
 
@@ -40,7 +49,7 @@ class Badge < ApplicationRecord
   private
 
   def build_rendered_url(url, project = nil)
-    return url unless valid? && project
+    return url unless project
 
     Gitlab::StringPlaceholderReplacer.replace_string_placeholders(url, PLACEHOLDERS_REGEX) do |arg|
       replace_placeholder_action(PLACEHOLDERS[arg], project)

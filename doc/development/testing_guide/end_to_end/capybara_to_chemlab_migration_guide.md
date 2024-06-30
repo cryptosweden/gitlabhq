@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Migration Guide Capybara → Chemlab
@@ -12,66 +12,28 @@ Given the view:
 
 ```html
 <form id="my-form">
-    <label for="first-name">First name</label>    
-    <input type="text" name="first-name" data-qa-selector="first_name" />
+    <label for="first-name">First name</label>
+    <input type="text" name="first-name" data-testid="first_name" />
 
     <label for="last-name">Last name</label>
-    <input type="text" name="last-name" data-qa-selector="last_name" />
+    <input type="text" name="last-name" data-testid="last_name" />
 
     <label for="company-name">Company name</label>
-    <input type="text" name="company-name" data-qa-selector="company_name" />
+    <input type="text" name="company-name" data-testid="company_name" />
 
     <label for="user-name">User name</label>
-    <input type="text" name="user-name" data-qa-selector="user_name" />
+    <input type="text" name="user-name" data-testid="user_name" />
 
     <label for="password">Password</label>
-    <input type="password" name="password" data-qa-selector="password" />
-    
-    <input type="submit" value="Continue" data-qa-selector="continue"/>
+    <input type="password" name="password" data-testid="password" />
+
+    <input type="submit" value="Continue" data-testid="continue"/>
 </form>
 ```
 
 | Capybara | Chemlab |
 | ------ | ----- |
 | ![before](img/gl-capybara_V13_12.png) | ![after](img/gl-chemlab_V13_12.png) |
-
-<!--
-```ruby
-# frozen_string_literal: true
-
-module QA
-  module Page
-    class Form < Page::Base
-      view '_form.html' do
-        element :first_name
-        element :last_name
-        element :company_name
-        element :user_name
-        element :password
-        element :continue
-      end
-    end
-  end
-end
-```
-```ruby
-# frozen_string_literal: true
-
-module QA
-  module Page
-    class Form < Chemlab::Page
-      text_field :first_name
-      text_field :last_name
-      text_field :company_name
-      text_field :user_name
-      text_field :password
-
-      button :continue
-    end
-  end
-end
-```
--->
 
 ## Key Differences
 
@@ -133,16 +95,16 @@ end
 
 ### Element Naming Convention
 
-Since the element type is preserved within the Page Library, there is no need to specify a `_field` or `_button` suffix to the data-qa-selector.
+Since the element type is preserved within the Page Library, there is no need to specify a `_field` or `_button` suffix to the data-testid.
 
 ```html
 <!-- Before -->
-<input type="text" name="first-name" data-qa-selector="first_name_field" />
-<input type="submit" name="continue" value="Continue" data-qa-selector="continue_button" />
+<input type="text" name="first-name" data-testid="first_name_field" />
+<input type="submit" name="continue" value="Continue" data-testid="continue-button" />
 
 <!-- After -->
-<input type="text" name="first-name" data-qa-selector="first_name" />
-<input type="submit" name="continue" value="Continue" data-qa-selector="continue" />
+<input type="text" name="first-name" data-testid="first_name" />
+<input type="submit" name="continue" value="Continue" data-testid="continue" />
 ```
 
 This makes it much easier for Developers to write tests and contributes to testability since we can write the Page Library while we look at the UI.

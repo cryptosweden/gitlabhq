@@ -1,6 +1,7 @@
-import { GlIcon, GlSprintf, GlSkeletonLoader } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
-import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
+import { GlSprintf, GlSkeletonLoader, GlButton } from '@gitlab/ui';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { createMockDirective } from 'helpers/vue_mock_directive';
+import { mockTracking } from 'helpers/tracking_helper';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import DeleteButton from '~/packages_and_registries/container_registry/explorer/components/delete_button.vue';
 import CleanupStatus from '~/packages_and_registries/container_registry/explorer/components/list_page/cleanup_status.vue';
@@ -10,11 +11,13 @@ import {
   LIST_DELETE_BUTTON_DISABLED,
   REMOVE_REPOSITORY_LABEL,
   IMAGE_DELETE_SCHEDULED_STATUS,
+  IMAGE_MIGRATING_STATE,
   SCHEDULED_STATUS,
-  ROOT_IMAGE_TEXT,
+  COPY_IMAGE_PATH_TITLE,
 } from '~/packages_and_registries/container_registry/explorer/constants';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import ListItem from '~/vue_shared/components/registry/list_item.vue';
+import PublishMessage from '~/packages_and_registries/shared/components/publish_message.vue';
 import { imagesListResponse } from '../../mock_data';
 import { RouterLink } from '../../stubs';
 
@@ -29,72 +32,70 @@ describe('Image List Row', () => {
   const findCleanupStatus = () => wrapper.findComponent(CleanupStatus);
   const findSkeletonLoader = () => wrapper.findComponent(GlSkeletonLoader);
   const findListItemComponent = () => wrapper.findComponent(ListItem);
+  const findShowFullPathButton = () => wrapper.findComponent(GlButton);
+  const findPublishMessage = () => wrapper.findComponent(PublishMessage);
 
-  const mountComponent = (props) => {
-    wrapper = shallowMount(Component, {
+  const mountComponent = ({ props = {}, config = {} } = {}) => {
+    wrapper = shallowMountExtended(Component, {
       stubs: {
         RouterLink,
-        GlSprintf,
         ListItem,
+        GlButton,
+        GlSprintf,
       },
       propsData: {
         item,
         ...props,
       },
+      provide: {
+        config: {
+          ...config,
+        },
+      },
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
-  describe('list item component', () => {
-    describe('tooltip', () => {
-      it(`the title is ${ROW_SCHEDULED_FOR_DELETION}`, () => {
-        mountComponent();
-
-        const tooltip = getBinding(wrapper.element, 'gl-tooltip');
-        expect(tooltip).toBeDefined();
-        expect(tooltip.value.title).toBe(ROW_SCHEDULED_FOR_DELETION);
-      });
-
-      it('is disabled when item is being deleted', () => {
-        mountComponent({ item: { ...item, status: IMAGE_DELETE_SCHEDULED_STATUS } });
-
-        const tooltip = getBinding(wrapper.element, 'gl-tooltip');
-        expect(tooltip.value.disabled).toBe(false);
-      });
-    });
-
-    it('is disabled when the item is in deleting status', () => {
-      mountComponent({ item: { ...item, status: IMAGE_DELETE_SCHEDULED_STATUS } });
-
-      expect(findListItemComponent().props('disabled')).toBe(true);
-    });
-  });
-
   describe('image title and path', () => {
-    it('contains a link to the details page', () => {
+    it('renders shortened name of image and contains a link to the details page', () => {
       mountComponent();
 
       const link = findDetailsLink();
-      expect(link.text()).toBe(item.path);
-      expect(findDetailsLink().props('to')).toMatchObject({
+      expect(link.text()).toBe('gitlab-test/rails-12009');
+
+      expect(link.props('to')).toMatchObject({
         name: 'details',
         params: {
           id: getIdFromGraphQLId(item.id),
         },
       });
+
+      expect(findShowFullPathButton().exists()).toBe(true);
     });
 
-    it(`when the image has no name appends ${ROOT_IMAGE_TEXT} to the path`, () => {
-      mountComponent({ item: { ...item, name: '' } });
+    it('when the image has no name lists the path', () => {
+      mountComponent({ props: { item: { ...item, name: '' } } });
 
-      expect(findDetailsLink().text()).toBe(`${item.path}/ ${ROOT_IMAGE_TEXT}`);
+      expect(findDetailsLink().text()).toBe('gitlab-test');
+    });
+
+    it('clicking on shortened name of image hides the button & shows full path', async () => {
+      mountComponent();
+
+      const trackingSpy = mockTracking(undefined, wrapper.element, jest.spyOn);
+      const mockFocusFn = jest.fn();
+      wrapper.findComponent(RouterLink).element.focus = mockFocusFn;
+
+      await findShowFullPathButton().trigger('click');
+
+      expect(findShowFullPathButton().exists()).toBe(false);
+      expect(findDetailsLink().text()).toBe(item.path);
+      expect(mockFocusFn).toHaveBeenCalled();
+      expect(trackingSpy).toHaveBeenCalledWith(undefined, 'click_show_full_path', {
+        label: 'registry_image_list',
+      });
     });
 
     it('contains a clipboard button', () => {
@@ -102,7 +103,7 @@ describe('Image List Row', () => {
       const button = findClipboardButton();
       expect(button.exists()).toBe(true);
       expect(button.props('text')).toBe(item.location);
-      expect(button.props('title')).toBe(item.location);
+      expect(button.props('title')).toBe(COPY_IMAGE_PATH_TITLE);
     });
 
     describe('cleanup status component', () => {
@@ -113,7 +114,7 @@ describe('Image List Row', () => {
       `(
         'when expirationPolicyCleanupStatus is $expirationPolicyCleanupStatus it is $shown that the component exists',
         ({ expirationPolicyCleanupStatus, shown }) => {
-          mountComponent({ item: { ...item, expirationPolicyCleanupStatus } });
+          mountComponent({ props: { item: { ...item, expirationPolicyCleanupStatus } } });
 
           expect(findCleanupStatus().exists()).toBe(shown);
 
@@ -128,15 +129,27 @@ describe('Image List Row', () => {
 
     describe('when the item is deleting', () => {
       beforeEach(() => {
-        mountComponent({ item: { ...item, status: IMAGE_DELETE_SCHEDULED_STATUS } });
+        mountComponent({ props: { item: { ...item, status: IMAGE_DELETE_SCHEDULED_STATUS } } });
       });
 
-      it('the router link is disabled', () => {
-        // we check the event prop as is the only workaround to disable a router link
-        expect(findDetailsLink().props('event')).toBe('');
+      it('the router link does not exist', () => {
+        expect(findDetailsLink().exists()).toBe(false);
       });
+
+      it('image name exists', () => {
+        expect(findListItemComponent().text()).toContain('gitlab-test/rails-12009');
+      });
+
+      it(`contains secondary text ${ROW_SCHEDULED_FOR_DELETION}`, () => {
+        expect(findListItemComponent().text()).toContain(ROW_SCHEDULED_FOR_DELETION);
+      });
+
+      it('the tags count does not exist', () => {
+        expect(findTagsCount().exists()).toBe(false);
+      });
+
       it('the clipboard button is disabled', () => {
-        expect(findClipboardButton().attributes('disabled')).toBe('true');
+        expect(findClipboardButton().attributes('disabled')).toBeDefined();
       });
     });
   });
@@ -152,7 +165,7 @@ describe('Image List Row', () => {
 
       expect(findDeleteBtn().props()).toMatchObject({
         title: REMOVE_REPOSITORY_LABEL,
-        tooltipDisabled: item.canDelete,
+        tooltipDisabled: item.userPermissions.destroyContainerRepository,
         tooltipTitle: LIST_DELETE_BUTTON_DISABLED,
       });
     });
@@ -165,19 +178,35 @@ describe('Image List Row', () => {
     });
 
     it.each`
-      canDelete | status                           | state
-      ${false}  | ${''}                            | ${true}
-      ${false}  | ${IMAGE_DELETE_SCHEDULED_STATUS} | ${true}
-      ${true}   | ${IMAGE_DELETE_SCHEDULED_STATUS} | ${true}
-      ${true}   | ${''}                            | ${false}
+      destroyContainerRepository | status                           | state
+      ${false}                   | ${''}                            | ${true}
+      ${false}                   | ${IMAGE_DELETE_SCHEDULED_STATUS} | ${true}
+      ${true}                    | ${IMAGE_DELETE_SCHEDULED_STATUS} | ${true}
+      ${true}                    | ${''}                            | ${false}
     `(
-      'disabled is $state when canDelete is $canDelete and status is $status',
-      ({ canDelete, status, state }) => {
-        mountComponent({ item: { ...item, canDelete, status } });
+      'disabled is $state when userPermissions.destroyContainerRepository is $destroyContainerRepository and status is $status',
+      ({ destroyContainerRepository, status, state }) => {
+        mountComponent({
+          props: {
+            item: {
+              ...item,
+              userPermissions: {
+                destroyContainerRepository,
+              },
+              status,
+            },
+          },
+        });
 
         expect(findDeleteBtn().props('disabled')).toBe(state);
       },
     );
+
+    it('is disabled when migrationState is importing', () => {
+      mountComponent({ props: { item: { ...item, migrationState: IMAGE_MIGRATING_STATE } } });
+
+      expect(findDeleteBtn().props('disabled')).toBe(true);
+    });
   });
 
   describe('tags count', () => {
@@ -186,37 +215,58 @@ describe('Image List Row', () => {
       expect(findTagsCount().exists()).toBe(true);
     });
 
-    it('contains a tag icon', () => {
-      mountComponent();
-      const icon = findTagsCount().find(GlIcon);
-      expect(icon.exists()).toBe(true);
-      expect(icon.props('name')).toBe('tag');
-    });
-
     describe('loading state', () => {
-      it('shows a loader when metadataLoading is true', () => {
-        mountComponent({ metadataLoading: true });
+      beforeEach(() => {
+        mountComponent({ props: { metadataLoading: true } });
+      });
 
+      it('shows a loader when metadataLoading is true', () => {
         expect(findSkeletonLoader().exists()).toBe(true);
       });
 
       it('hides the tags count while loading', () => {
-        mountComponent({ metadataLoading: true });
-
         expect(findTagsCount().exists()).toBe(false);
       });
     });
 
     describe('tags count text', () => {
       it('with one tag in the image', () => {
-        mountComponent({ item: { ...item, tagsCount: 1 } });
+        mountComponent({ props: { item: { ...item, tagsCount: 1 } } });
 
-        expect(findTagsCount().text()).toMatchInterpolatedText('1 Tag');
+        expect(findTagsCount().text()).toMatchInterpolatedText('1 tag');
       });
       it('with more than one tag in the image', () => {
-        mountComponent({ item: { ...item, tagsCount: 3 } });
+        mountComponent({ props: { item: { ...item, tagsCount: 3 } } });
 
-        expect(findTagsCount().text()).toMatchInterpolatedText('3 Tags');
+        expect(findTagsCount().text()).toMatchInterpolatedText('3 tags');
+      });
+    });
+  });
+
+  describe('PublishMessage component', () => {
+    it('is rendered', () => {
+      mountComponent();
+
+      expect(findPublishMessage().props()).toStrictEqual({
+        author: '',
+        projectUrl: '',
+        projectName: '',
+        publishDate: item.createdAt,
+      });
+    });
+
+    it('is rendered with package name & link on group pages', () => {
+      mountComponent({
+        config: {
+          isGroupPage: true,
+        },
+      });
+
+      expect(findPublishMessage().props()).toStrictEqual({
+        author: '',
+        projectName: 'gitlab-test',
+        projectUrl: 'http://localhost:3000/gitlab-org/gitlab-test',
+        publishDate: item.createdAt,
       });
     });
   });

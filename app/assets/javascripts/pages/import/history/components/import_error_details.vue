@@ -1,7 +1,7 @@
 <script>
 import { GlLoadingIcon } from '@gitlab/ui';
 import API from '~/api';
-import { createAlert } from '~/flash';
+import { createAlert } from '~/alert';
 import { DEFAULT_ERROR } from '../utils/error_messages';
 
 export default {
@@ -36,7 +36,7 @@ export default {
 };
 </script>
 <template>
-  <gl-loading-icon v-if="loading" size="md" />
+  <gl-loading-icon v-if="loading" size="lg" />
   <pre
     v-else
   ><code>{{ error || s__('BulkImport|No additional information provided.') }}</code></pre>

@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 class CommitStatusPresenter < Gitlab::View::Presenter::Delegated
   CALLOUT_FAILURE_MESSAGES = {
     unknown_failure: 'There is an unknown failure, please try again',
@@ -13,33 +14,41 @@ class CommitStatusPresenter < Gitlab::View::Presenter::Delegated
     archived_failure: 'The job is archived and cannot be run',
     unmet_prerequisites: 'The job failed to complete prerequisite tasks',
     scheduler_failure: 'The scheduler failed to assign job to the runner, please try again or contact system administrator',
-    data_integrity_failure: 'There has been a structural integrity problem detected, please contact system administrator',
+    data_integrity_failure: 'There has been an unknown job problem, please contact your system administrator with the job ID to review the logs',
     forward_deployment_failure: 'The deployment job is older than the previously succeeded deployment job, and therefore cannot be run',
     pipeline_loop_detected: 'This job could not be executed because it would create infinitely looping pipelines',
+    insufficient_upstream_permissions: 'This job could not be executed because of insufficient permissions to track the upstream project.',
+    upstream_bridge_project_not_found: 'This job could not be executed because upstream bridge project could not be found.',
     invalid_bridge_trigger: 'This job could not be executed because downstream pipeline trigger definition is invalid',
     downstream_bridge_project_not_found: 'This job could not be executed because downstream bridge project could not be found',
+    protected_environment_failure: 'The environment this job is deploying to is protected. Only users with permission may successfully run this job.',
     insufficient_bridge_permissions: 'This job could not be executed because of insufficient permissions to create a downstream pipeline',
     bridge_pipeline_is_child_pipeline: 'This job belongs to a child pipeline and cannot create further child pipelines',
     downstream_pipeline_creation_failed: 'The downstream pipeline could not be created',
-    secrets_provider_not_found: 'The secrets provider can not be found',
+    secrets_provider_not_found: 'The secrets provider can not be found. Check your CI/CD variables and try again.',
     reached_max_descendant_pipelines_depth: 'You reached the maximum depth of child pipelines',
+    reached_max_pipeline_hierarchy_size: 'The downstream pipeline tree is too large',
     project_deleted: 'The job belongs to a deleted project',
     user_blocked: 'The user who created this job is blocked',
-    ci_quota_exceeded: 'No more CI minutes available',
+    ci_quota_exceeded: 'No more compute minutes available',
     no_matching_runner: 'No matching runner available',
     trace_size_exceeded: 'The job log size limit was reached',
     builds_disabled: 'The CI/CD is disabled for this project',
     environment_creation_failure: 'This job could not be executed because it would create an environment with an invalid parameter.',
-    deployment_rejected: 'This deployment job was rejected.'
+    deployment_rejected: 'This deployment job was rejected.',
+    ip_restriction_failure: "This job could not be executed because group IP address restrictions are enabled, and the runner's IP address is not in the allowed range.",
+    failed_outdated_deployment_job: 'The deployment job is older than the latest deployment, and therefore failed.',
+    reached_downstream_pipeline_trigger_rate_limit: 'Too many downstream pipelines triggered in the last minute. Try again later.'
   }.freeze
 
   TROUBLESHOOTING_DOC = {
-    environment_creation_failure: { path: 'ci/environments/index', anchor: 'a-deployment-job-failed-with-this-job-could-not-be-executed-because-it-would-create-an-environment-with-an-invalid-parameter-error' }
+    environment_creation_failure: { path: 'ci/environments/index', anchor: 'a-deployment-job-failed-with-this-job-could-not-be-executed-because-it-would-create-an-environment-with-an-invalid-parameter-error' },
+    failed_outdated_deployment_job: { path: 'ci/environments/deployment_safety', anchor: 'prevent-outdated-deployment-jobs' }
   }.freeze
 
   private_constant :CALLOUT_FAILURE_MESSAGES
 
-  presents ::CommitStatus, as: :build
+  presents ::CommitStatus
 
   def self.callout_failure_messages
     CALLOUT_FAILURE_MESSAGES
@@ -61,5 +70,3 @@ class CommitStatusPresenter < Gitlab::View::Presenter::Delegated
     ActionController::Base.helpers.link_to('How do I fix it?', help_page_path(path, anchor: anchor))
   end
 end
-
-CommitStatusPresenter.prepend_mod_with('CommitStatusPresenter')

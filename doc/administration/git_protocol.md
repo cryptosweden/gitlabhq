@@ -1,13 +1,15 @@
 ---
 stage: Create
 group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-description: "Set and configure Git protocol v2"
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "Set and configure Git protocol v2 for your self-managed GitLab instance."
 ---
 
-# Configuring Git Protocol v2 **(FREE)**
+# Configuring Git Protocol v2
 
-> [Re-enabled](https://gitlab.com/gitlab-org/gitlab/-/issues/27828) in GitLab 12.8.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 Git protocol v2 improves the v1 wire protocol in several ways and is
 enabled by default in GitLab for HTTP requests. To enable SSH, additional
@@ -15,9 +17,9 @@ configuration is required by an administrator.
 
 More details about the new features and improvements are available in
 the [Google Open Source Blog](https://opensource.googleblog.com/2018/05/introducing-git-protocol-version-2.html)
-and the [protocol documentation](https://github.com/git/git/blob/master/Documentation/technical/protocol-v2.txt).
+and the [protocol documentation](https://github.com/git/git/blob/master/Documentation/gitprotocol-v2.txt).
 
-## Requirements
+## Prerequisites
 
 From the client side, `git` `v2.18.0` or newer must be installed.
 
@@ -25,18 +27,18 @@ From the server side, if we want to configure SSH we need to set the `sshd`
 server to accept the `GIT_PROTOCOL` environment.
 
 In installations using [GitLab Helm Charts](https://docs.gitlab.com/charts/)
-and [All-in-one Docker image](https://docs.gitlab.com/omnibus/docker/), the SSH
+and [All-in-one Docker image](../install/docker.md), the SSH
 service is already configured to accept the `GIT_PROTOCOL` environment. Users
 need not do anything more.
 
-For Omnibus GitLab and installations from source, update
+For installations from the Linux package or self-compiled installations, update
 the SSH configuration of your server manually by adding this line to the `/etc/ssh/sshd_config` file:
 
 ```plaintext
 AcceptEnv GIT_PROTOCOL
 ```
 
-Once configured, restart the SSH daemon for the change to take effect:
+When you have configured the SSH daemon, restart it for the change to take effect:
 
 ```shell
 # CentOS 6 / RHEL 6
@@ -111,4 +113,4 @@ URL to use SSH.
 ### Observe Git protocol version of connections
 
 For information on observing the Git protocol versions are being used in a production environment,
-see the [relevant documentation](gitaly/index.md#useful-queries).
+see the [relevant documentation](gitaly/monitoring.md#queries).

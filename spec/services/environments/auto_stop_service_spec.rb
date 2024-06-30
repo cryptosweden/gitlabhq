@@ -2,18 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe Environments::AutoStopService, :clean_gitlab_redis_shared_state, :sidekiq_inline do
+RSpec.describe Environments::AutoStopService, :clean_gitlab_redis_shared_state, :sidekiq_inline,
+  feature_category: :continuous_delivery do
   include CreateEnvironmentsHelpers
   include ExclusiveLeaseHelpers
 
   let_it_be(:project) { create(:project, :repository) }
-  let_it_be(:user) { create(:user) }
+  let_it_be(:user) { create(:user, developer_of: project) }
 
   let(:service) { described_class.new }
-
-  before_all do
-    project.add_developer(user)
-  end
 
   describe '#execute' do
     subject { service.execute }
@@ -37,7 +34,7 @@ RSpec.describe Environments::AutoStopService, :clean_gitlab_redis_shared_state, 
     it 'stops environments and play stop jobs' do
       expect { subject }
         .to change { Environment.all.map(&:state).uniq }
-        .from(['available']).to(['stopped'])
+        .from(['available']).to(['stopping'])
 
       expect(Ci::Build.where(name: 'stop_review_app').map(&:status).uniq).to eq(['pending'])
     end

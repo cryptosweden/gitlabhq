@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User resolves outdated diff discussions', :js do
+RSpec.describe 'Merge request > User resolves outdated diff discussions',
+  :js, feature_category: :code_review_workflow do
   let(:project) { create(:project, :repository, :public) }
 
   let(:merge_request) do
@@ -29,17 +30,21 @@ RSpec.describe 'Merge request > User resolves outdated diff discussions', :js do
   end
 
   let!(:outdated_discussion) do
-    create(:diff_note_on_merge_request,
-           project: project,
-           noteable: merge_request,
-           position: outdated_position).to_discussion
+    create(
+      :diff_note_on_merge_request,
+      project: project,
+      noteable: merge_request,
+      position: outdated_position
+    ).to_discussion
   end
 
   let!(:current_discussion) do
-    create(:diff_note_on_merge_request,
-           noteable: merge_request,
-           project: project,
-           position: current_position).to_discussion
+    create(
+      :diff_note_on_merge_request,
+      noteable: merge_request,
+      project: project,
+      position: current_position
+    ).to_discussion
   end
 
   before do

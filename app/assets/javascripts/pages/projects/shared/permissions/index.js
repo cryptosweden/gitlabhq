@@ -1,10 +1,22 @@
 import Vue from 'vue';
+import VueApollo from 'vue-apollo';
+import createDefaultClient from '~/lib/graphql';
+
 import { parseBoolean } from '~/lib/utils/common_utils';
 import settingsPanel from './components/settings_panel.vue';
 
+Vue.use(VueApollo);
+
 export default function initProjectPermissionsSettings() {
+  const apolloProvider = new VueApollo({
+    defaultClient: createDefaultClient(),
+  });
+
   const mountPoint = document.querySelector('.js-project-permissions-form');
   const componentPropsEl = document.querySelector('.js-project-permissions-form-data');
+
+  if (!mountPoint) return null;
+
   const componentProps = JSON.parse(componentPropsEl.innerHTML);
 
   const {
@@ -19,6 +31,8 @@ export default function initProjectPermissionsSettings() {
 
   return new Vue({
     el: mountPoint,
+    name: 'ProjectPermissionsRoot',
+    apolloProvider,
     provide: {
       additionalInformation,
       confirmDangerMessage,

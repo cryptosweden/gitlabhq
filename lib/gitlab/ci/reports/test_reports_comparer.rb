@@ -9,7 +9,7 @@ module Gitlab
         attr_reader :base_reports, :head_reports
 
         def initialize(base_reports, head_reports)
-          @base_reports = base_reports || TestReports.new
+          @base_reports = base_reports || TestReport.new
           @head_reports = head_reports
         end
 
@@ -29,7 +29,7 @@ module Gitlab
           end
         end
 
-        %w(total_count resolved_count failed_count error_count).each do |method|
+        %w[total_count resolved_count failed_count error_count].each do |method|
           define_method(method) do
             # rubocop: disable CodeReuse/ActiveRecord
             suite_comparers.sum { |suite| suite.public_send(method) } # rubocop:disable GitlabSecurity/PublicSend

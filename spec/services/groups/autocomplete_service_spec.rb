@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::AutocompleteService do
+RSpec.describe Groups::AutocompleteService, feature_category: :groups_and_projects do
   let_it_be(:group, refind: true) { create(:group, :nested, :private, avatar: fixture_file_upload('spec/fixtures/dk.png')) }
   let_it_be(:sub_group) { create(:group, :private, parent: group) }
 
@@ -46,6 +46,7 @@ RSpec.describe Groups::AutocompleteService do
 
       expect(issues.map(&:iid)).to contain_exactly(project_issue.iid, sub_group_project_issue.iid)
       expect(issues.map(&:title)).to contain_exactly(project_issue.title, sub_group_project_issue.title)
+      expect(issues.map(&:icon_name)).to contain_exactly('issue-type-issue', 'issue-type-issue')
     end
 
     it 'returns only confidential issues if confidential_only is true' do

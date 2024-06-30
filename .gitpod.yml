@@ -1,29 +1,37 @@
+# Gitpod file reference
+# https://www.gitpod.io/docs/configure/workspaces/tasks
+
 image: registry.gitlab.com/gitlab-org/gitlab-development-kit/gitpod-workspace:stable
+checkoutLocation: gitlab-development-kit/gitlab
 
 tasks:
 
   - name: GDK
-    command: gp sync-await gdk-copied && cd /workspace/gitlab-development-kit && gdk help
+    # "command:" emits gitpod-start
+    before: |
+      START_UNIXTIME="$(date +%s)"
+      echo START_UNIXTIME="$(date +%s)" > /workspace/gitpod_start_time.sh
+    command: |
+      # send signal to other tasks that Gitpod started
+      gp sync-done gitpod-start
+      echo "Waiting for other task to copy GDK.."
+      gp sync-await gdk-copied && cd /workspace/gitlab-development-kit && gdk help
 
-  - init: |
-      echo "$(date) – Copying GDK" | tee -a /workspace/startup.log
-      cp -r $HOME/gitlab-development-kit /workspace/
+  - name: GitLab
+    # "command:" emits gdk-copied
+    init: |
       (
         set -e
+        echo "$(date) – Copying GDK" | tee -a /workspace/startup.log
+        cp -r $HOME/gitlab-development-kit /workspace/
         cd /workspace/gitlab-development-kit
-        # GitLab FOSS
-        [[ -d /workspace/gitlab-foss ]] && ln -fs /workspace/gitlab-foss /workspace/gitlab-development-kit/gitlab
-        # GitLab
-        [[ -d /workspace/gitlab ]] && ln -fs /workspace/gitlab /workspace/gitlab-development-kit/gitlab
-        mv /workspace/gitlab-development-kit/secrets.yml /workspace/gitlab-development-kit/gitlab/config
+        mv -v /workspace/gitlab-development-kit/secrets.yml /workspace/gitlab-development-kit/gitlab/config
         # ensure gdk.yml has correct instance settings
-        gdk config set gitlab.rails.port 443
-        gdk config set gitlab.rails.https.enabled true
-        gdk config set webpack.host 127.0.0.1
-        gdk config set webpack.static false
-        gdk config set webpack.live_reload false
-        # make documentation builds available
-        gdk config set gitlab_docs.enabled true
+        gdk config set gitlab.rails.port 443  |& tee -a /workspace/startup.log
+        gdk config set gitlab.rails.https.enabled true  |& tee -a /workspace/startup.log
+        gdk config set webpack.host 127.0.0.1  |& tee -a /workspace/startup.log
+        gdk config set webpack.static false  |& tee -a /workspace/startup.log
+        gdk config set webpack.live_reload false  |& tee -a /workspace/startup.log
         # reconfigure GDK
         echo "$(date) – Reconfiguring GDK" | tee -a /workspace/startup.log
         gdk reconfigure
@@ -39,13 +47,15 @@ tasks:
       (
         set -e
         gp sync-done gdk-copied
+        gp sync-await gitpod-start
+        [[ -f /workspace/gitpod_start_time.sh ]] && source /workspace/gitpod_start_time.sh
         SECONDS=0
         cd /workspace/gitlab-development-kit
         # update GDK
-        if [ "$GITLAB_UPDATE_GDK" == true ]; then
-          echo "$(date) – Updating GDK" | tee -a /workspace/startup.log
-          gdk update
-        fi
+        echo "$(date) – Updating GDK" | tee -a /workspace/startup.log
+        export DEFAULT_BRANCH=$(git --git-dir=gitlab/.git branch --show-current)
+        gdk config set gitlab.default_branch "$DEFAULT_BRANCH"
+        gdk update
         # ensure gdk.yml has correct instance settings
         gdk config set gitlab.rails.hostname $(gp url 3000 | sed -e 's+^http[s]*://++')
         gdk config set gitlab.rails.port 443
@@ -66,15 +76,14 @@ tasks:
           make gitlab-db-migrate
         fi
         cd /workspace/gitlab-development-kit/gitlab
-        # Display which branch we're on
-        git branch --show-current
-        # Install Lefthook
+        echo "--- on branch: $DEFAULT_BRANCH"
+        echo "--- installing lefthook"
         bundle exec lefthook install
+        echo "--- resetting db/structure.sql"
         git checkout db/structure.sql
-        cd /workspace/gitlab-development-kit
-        # Waiting for GitLab ...
-        gp await-port 3000
-        printf "Waiting for GitLab at $(gp url 3000) ..."
+        echo "--- waiting for GitLab"
+        gp ports await 3000
+        printf "Awaiting /-/readiness on $(gp url 3000) ..."
         # Check /-/readiness which returns JSON, but we're only interested in the exit code
         #
         # We use http://localhost:3000 instead of the public hostname because
@@ -83,7 +92,9 @@ tasks:
         # Give Gitpod a few more seconds to set up everything ...
         sleep 5
         printf "$(date) – GitLab is up (took ~%.1f minutes)\n" "$((10*$SECONDS/60))e-1" | tee -a /workspace/startup.log
-        gp preview $(gp url 3000) || true
+        gp preview $(gp url 3000) --external || true
+        PREBUILD_LOG=(/workspace/.gitpod/prebuild-log-*)
+        [[ -f /workspace/gitpod_start_time.sh ]] && printf "Took %.1f minutes from https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitpod.yml being executed through to completion %s\n" "$((10*(($(date +%s)-${START_UNIXTIME}))/60))e-1" "$([[ -f "$PREBUILD_LOG" ]] && echo "With Prebuilds")"
       )
 
 ports:
@@ -108,10 +119,11 @@ ports:
 
 vscode:
   extensions:
-    - rebornix.ruby@0.28.0
-    - wingrunr21.vscode-ruby@0.27.0
-    - karunamurti.haml@1.3.1
-    - octref.vetur@0.34.1
-    - dbaeumer.vscode-eslint@2.1.8
-    - gitlab.gitlab-workflow@3.24.0
-    - DavidAnson.vscode-markdownlint@0.44.4
+    - GitLab.gitlab-workflow
+    - rebornix.ruby@0.28.1
+    - wingrunr21.vscode-ruby@0.28.0
+    - karunamurti.haml@1.4.1
+    - octref.vetur@0.37.3
+    - dbaeumer.vscode-eslint@2.4.0
+    - DavidAnson.vscode-markdownlint@0.49.0
+    - esbenp.prettier-vscode

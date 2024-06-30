@@ -8,7 +8,18 @@ FactoryBot.define do
     owner { nil }
     project_creation_level { ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS }
 
-    after(:create) do |group|
+    transient do
+      # rubocop:disable Lint/EmptyBlock -- block is required by factorybot
+      guests {}
+      reporters {}
+      developers {}
+      maintainers {}
+      owners {}
+      creator {}
+      # rubocop:enable Lint/EmptyBlock
+    end
+
+    after(:create) do |group, evaluator|
       if group.owner
         # We could remove this after we have proper constraint:
         # https://gitlab.com/gitlab-org/gitlab-foss/issues/43292
@@ -16,6 +27,17 @@ FactoryBot.define do
       end
 
       create(:namespace_settings, namespace: group) unless group.namespace_settings
+
+      group.add_members(Array.wrap(evaluator.guests), :guest)
+      group.add_members(Array.wrap(evaluator.reporters), :reporter)
+      group.add_members(Array.wrap(evaluator.developers), :developer)
+      group.add_members(Array.wrap(evaluator.maintainers), :maintainer)
+      group.add_members(Array.wrap(evaluator.owners), :owner)
+      group.add_creator(evaluator.creator) if evaluator.creator
+    end
+
+    trait :with_organization do
+      association :organization
     end
 
     trait :public do
@@ -65,18 +87,14 @@ FactoryBot.define do
       end
     end
 
-    trait :allow_descendants_override_disabled_shared_runners do
-      allow_descendants_override_disabled_shared_runners { true }
-    end
-
-    trait :disabled_and_unoverridable do
+    trait :shared_runners_disabled_and_unoverridable do
       shared_runners_disabled
       allow_descendants_override_disabled_shared_runners { false }
     end
 
-    trait :disabled_with_override do
+    trait :shared_runners_disabled_and_overridable do
       shared_runners_disabled
-      allow_descendants_override_disabled_shared_runners
+      allow_descendants_override_disabled_shared_runners { true }
     end
 
     trait :shared_runners_enabled do
@@ -106,26 +124,21 @@ FactoryBot.define do
         end
 
         create_graph(
-          parent:   group,
+          parent: group,
           children: evaluator.children,
-          depth:    evaluator.depth
+          depth: evaluator.depth
         )
       end
     end
 
-    trait :crm_enabled do
+    trait :crm_disabled do
       after(:create) do |group|
-        create(:crm_settings, group: group, enabled: true)
+        create(:crm_settings, group: group, enabled: false)
       end
     end
 
-    trait :test_group do
-      path { "test-group-fulfillment#{SecureRandom.hex(4)}" }
-      created_at { 4.days.ago }
-
-      after(:create) do |group|
-        group.add_owner(create(:user, email: "test-user-#{SecureRandom.hex(4)}@test.com"))
-      end
+    trait :with_root_storage_statistics do
+      association :root_storage_statistics, factory: :namespace_root_storage_statistics
     end
   end
 end

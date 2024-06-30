@@ -10,12 +10,13 @@ module Gitlab
 
       attr_reader :imported_items_cache_key, :start_at, :job_waiter
 
-      def initialize(project)
+      def initialize(project, client = nil)
         super
         # get cached start_at value, or zero if not cached yet
         @start_at = Gitlab::JiraImport.get_issues_next_start_at(project.id)
         @imported_items_cache_key = JiraImport.already_imported_cache_key(:issues, project.id)
         @job_waiter = JobWaiter.new
+        @issue_type_id = ::WorkItems::Type.default_issue_type.id
       end
 
       def execute
@@ -47,7 +48,7 @@ module Gitlab
       end
 
       def schedule_issue_import_workers(issues)
-        next_iid = project.issues.maximum(:iid).to_i + 1
+        next_iid = Issue.with_namespace_iid_supply(project.project_namespace, &:next_value)
 
         issues.each do |jira_issue|
           # Technically it's possible that the same work is performed multiple
@@ -58,12 +59,19 @@ module Gitlab
           next if already_imported?(jira_issue.id)
 
           begin
-            issue_attrs = IssueSerializer.new(project, jira_issue, running_import.user_id, { iid: next_iid }).execute
+            issue_attrs = IssueSerializer.new(
+              project,
+              jira_issue,
+              running_import.user_id,
+              @issue_type_id,
+              { iid: next_iid }
+            ).execute
 
             Gitlab::JiraImport::ImportIssueWorker.perform_async(project.id, jira_issue.id, issue_attrs, job_waiter.key)
 
             job_waiter.jobs_remaining += 1
-            next_iid += 1
+
+            next_iid = Issue.with_namespace_iid_supply(project.project_namespace, &:next_value)
 
             # Mark the issue as imported immediately so we don't end up
             # importing it multiple times within same import.

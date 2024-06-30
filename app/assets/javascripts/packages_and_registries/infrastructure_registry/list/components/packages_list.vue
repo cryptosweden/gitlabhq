@@ -1,8 +1,9 @@
 <script>
-import { GlPagination, GlModal, GlSprintf } from '@gitlab/ui';
+import { GlPagination } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters } from 'vuex';
-import { s__ } from '~/locale';
 import Tracking from '~/tracking';
+import DeletePackageModal from '~/packages_and_registries/shared/components/delete_package_modal.vue';
 import PackagesListRow from '~/packages_and_registries/infrastructure_registry/shared/package_list_row.vue';
 import PackagesListLoader from '~/packages_and_registries/shared/components/packages_list_loader.vue';
 import { TRACKING_ACTIONS } from '~/packages_and_registries/shared/constants';
@@ -11,12 +12,16 @@ import { TRACK_CATEGORY } from '~/packages_and_registries/infrastructure_registr
 export default {
   components: {
     GlPagination,
-    GlModal,
-    GlSprintf,
+    DeletePackageModal,
     PackagesListLoader,
     PackagesListRow,
   },
   mixins: [Tracking.mixin()],
+  inject: {
+    isGroupPage: {
+      default: false,
+    },
+  },
   data() {
     return {
       itemToBeDeleted: null,
@@ -27,7 +32,6 @@ export default {
       perPage: (state) => state.pagination.perPage,
       totalItems: (state) => state.pagination.total,
       page: (state) => state.pagination.page,
-      isGroupPage: (state) => state.config.isGroupPage,
       isLoading: 'isLoading',
     }),
     ...mapGetters({ list: 'getList' }),
@@ -42,12 +46,6 @@ export default {
     isListEmpty() {
       return !this.list || this.list.length === 0;
     },
-    modalAction() {
-      return s__('PackageRegistry|Delete package');
-    },
-    deletePackageName() {
-      return this.itemToBeDeleted?.name ?? '';
-    },
     tracking() {
       return {
         category: TRACK_CATEGORY,
@@ -58,7 +56,6 @@ export default {
     setItemToBeDeleted(item) {
       this.itemToBeDeleted = { ...item };
       this.track(TRACKING_ACTIONS.REQUEST_DELETE_PACKAGE);
-      this.$refs.packageListDeleteModal.show();
     },
     deleteItemConfirmation() {
       this.$emit('package:delete', this.itemToBeDeleted);
@@ -69,11 +66,6 @@ export default {
       this.track(TRACKING_ACTIONS.CANCEL_DELETE_PACKAGE);
       this.itemToBeDeleted = null;
     },
-  },
-  i18n: {
-    deleteModalContent: s__(
-      'PackageRegistry|You are about to delete %{name}, this operation is irreversible, are you sure?',
-    ),
   },
 };
 </script>
@@ -87,16 +79,16 @@ export default {
     </div>
 
     <template v-else>
-      <div data-qa-selector="packages-table">
-        <packages-list-row
-          v-for="packageEntity in list"
-          :key="packageEntity.id"
-          :package-entity="packageEntity"
-          :package-link="packageEntity._links.web_path"
-          :is-group="isGroupPage"
-          @packageToDelete="setItemToBeDeleted"
-        />
-      </div>
+      <ul data-testid="packages-table" class="gl-pl-0">
+        <li v-for="packageEntity in list" :key="packageEntity.id" class="gl-list-style-none">
+          <packages-list-row
+            :package-entity="packageEntity"
+            :package-link="packageEntity._links.web_path"
+            :is-group="isGroupPage"
+            @packageToDelete="setItemToBeDeleted"
+          />
+        </li>
+      </ul>
 
       <gl-pagination
         v-model="currentPage"
@@ -106,22 +98,11 @@ export default {
         class="gl-w-full gl-mt-3"
       />
 
-      <gl-modal
-        ref="packageListDeleteModal"
-        size="sm"
-        modal-id="confirm-delete-pacakge"
-        ok-variant="danger"
+      <delete-package-modal
+        :item-to-be-deleted="itemToBeDeleted"
         @ok="deleteItemConfirmation"
         @cancel="deleteItemCanceled"
-      >
-        <template #modal-title>{{ modalAction }}</template>
-        <template #modal-ok>{{ modalAction }}</template>
-        <gl-sprintf :message="$options.i18n.deleteModalContent">
-          <template #name>
-            <strong>{{ deletePackageName }}</strong>
-          </template>
-        </gl-sprintf>
-      </gl-modal>
+      />
     </template>
   </div>
 </template>

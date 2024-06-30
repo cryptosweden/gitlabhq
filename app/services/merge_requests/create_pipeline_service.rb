@@ -9,9 +9,11 @@ module MergeRequests
     end
 
     def create_detached_merge_request_pipeline(merge_request)
-      Ci::CreatePipelineService.new(pipeline_project(merge_request),
-                                    current_user,
-                                    ref: pipeline_ref_for_detached_merge_request_pipeline(merge_request))
+      Ci::CreatePipelineService
+        .new(pipeline_project(merge_request),
+          current_user,
+          ref: pipeline_ref_for_detached_merge_request_pipeline(merge_request),
+          push_options: params[:push_options])
         .execute(:merge_request_event, merge_request: merge_request)
     end
 
@@ -19,7 +21,7 @@ module MergeRequests
       ##
       # UpdateMergeRequestsWorker could be retried by an exception.
       # pipelines for merge request should not be recreated in such case.
-      return false if !allow_duplicate && merge_request.find_actual_head_pipeline&.merge_request?
+      return false if !allow_duplicate && merge_request.find_diff_head_pipeline&.merge_request?
       return false if merge_request.has_no_commits?
 
       true
@@ -48,12 +50,9 @@ module MergeRequests
     end
 
     def can_create_pipeline_in_target_project?(merge_request)
-      if ::Feature.enabled?(:ci_disallow_to_create_merge_request_pipelines_in_target_project, merge_request.target_project)
-        merge_request.for_same_project?
-      else
+      merge_request.target_project.ci_allow_fork_pipelines_to_run_in_parent_project? &&
         can?(current_user, :create_pipeline, merge_request.target_project) &&
-          can_update_source_branch_in_target_project?(merge_request)
-      end
+        can_update_source_branch_in_target_project?(merge_request)
     end
 
     def can_update_source_branch_in_target_project?(merge_request)

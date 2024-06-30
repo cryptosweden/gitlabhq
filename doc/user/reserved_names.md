@@ -1,32 +1,39 @@
 ---
-stage: Manage
-group: Workspace
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Data Stores
+group: Tenant Scale
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Reserved project and group names **(FREE)**
+# Reserved project and group names
 
-Not all project & group names are allowed because they would conflict with
-existing routes used by GitLab.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-For a list of words that are not allowed to be used as group or project names, see the
-[`path_regex.rb` file](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/path_regex.rb)
-under the `TOP_LEVEL_ROUTES`, `PROJECT_WILDCARD_ROUTES` and `GROUP_ROUTES` lists:
+To not conflict with existing routes used by GitLab, some words cannot be used as project or group names.
+These words are listed in the
+[`path_regex.rb` file](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/path_regex.rb),
+where:
 
-- `TOP_LEVEL_ROUTES`: are names that are reserved as usernames or top level groups
-- `PROJECT_WILDCARD_ROUTES`: are names that are reserved for child groups or projects.
-- `GROUP_ROUTES`: are names that are reserved for all groups or projects.
+- `TOP_LEVEL_ROUTES` are names reserved as usernames or top-level groups.
+- `PROJECT_WILDCARD_ROUTES` are names reserved for child groups or projects.
+- `GROUP_ROUTES` are names reserved for all groups or projects.
 
-## Limitations on project and group names
+## Limitations on usernames, project and group names
 
-- Special characters are not permitted at the start or end of project or group names. They are permitted in any other location of the name.
-- Project or group names cannot end in `.git` or `.atom`.
-- Project or group names can only contain letters, digits, emojis, "_", ".", "+", dashes, or spaces.
-- Paths can only contain letters, digits, "_", "-", and "."
+- Usernames, project and group names must start and end with a letter (`a-zA-Z`) or a digit (`0-9`). Additionally:
+  - Usernames and group names can contain only letters (`a-zA-Z`), digits (`0-9`), emoji, underscores (`_`), dots (`.`), parentheses (`()`), dashes (`-`), or spaces.
+  - Project names can contain only letters (`a-zA-Z`), digits (`0-9`), emoji, underscores (`_`), dots (`.`), pluses (`+`), dashes (`-`), or spaces.
+- Usernames, project or group slugs:
+  - Must start with a letter (`a-zA-Z`) or digit (`0-9`).
+  - Must not contain consecutive special characters.
+  - Cannot start or end with a special character.
+  - Cannot end in `.git` or `.atom`.
+  - Can contain only letters (`a-zA-Z`), digits (`0-9`), underscores (`_`), dots (`.`), or dashes (`-`).
 
 ## Reserved project names
 
-It is currently not possible to create a project with the following names:
+You cannot create projects with the following names:
 
 - `\-`
 - `badges`
@@ -52,7 +59,7 @@ It is currently not possible to create a project with the following names:
 
 ## Reserved group names
 
-Currently, the following names are reserved as top level groups:
+You cannot create groups with the following names, because they are reserved for top-level groups:
 
 - `\-`
 - `.well-known`
@@ -63,7 +70,6 @@ Currently, the following names are reserved as top level groups:
 - `503.html`
 - `admin`
 - `api`
-- `apple-touch-icon-precomposed.png`
 - `apple-touch-icon.png`
 - `assets`
 - `dashboard`
@@ -95,6 +101,6 @@ Currently, the following names are reserved as top level groups:
 - `users`
 - `v2`
 
-These group names are unavailable as subgroup names:
+You cannot create subgroups with the following names:
 
 - `\-`

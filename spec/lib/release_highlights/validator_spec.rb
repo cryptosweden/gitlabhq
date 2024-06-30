@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ReleaseHighlights::Validator do
+RSpec.describe ReleaseHighlights::Validator, feature_category: :activation do
   let(:validator) { described_class.new(file: yaml_path) }
   let(:yaml_path) { 'spec/fixtures/whats_new/valid.yml' }
   let(:invalid_yaml_path) { 'spec/fixtures/whats_new/invalid.yml' }
@@ -70,7 +70,7 @@ RSpec.describe ReleaseHighlights::Validator do
          ---------------------------------------------------------
          Validation failed for spec/fixtures/whats_new/invalid.yml
          ---------------------------------------------------------
-         * Packages must be one of ["Free", "Premium", "Ultimate"] (line 6)
+         * Available in must be one of ["Free", "Premium", "Ultimate"] (line 6)
 
         MESSAGE
       end

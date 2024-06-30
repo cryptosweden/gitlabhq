@@ -4,14 +4,16 @@ class Admin::RunnerProjectsController < Admin::ApplicationController
   before_action :project, only: [:create]
 
   feature_category :runner
+  urgency :low
 
   def create
     @runner = Ci::Runner.find(params[:runner_project][:runner_id])
 
-    if ::Ci::Runners::AssignRunnerService.new(@runner, @project, current_user).execute
-      redirect_to edit_admin_runner_url(@runner), notice: s_('Runners|Runner assigned to project.')
+    if ::Ci::Runners::AssignRunnerService.new(@runner, @project, current_user).execute.success?
+      flash[:success] = s_('Runners|Runner assigned to project.')
+      redirect_to edit_admin_runner_url(@runner)
     else
-      redirect_to edit_admin_runner_url(@runner), alert: 'Failed adding runner to project'
+      redirect_to edit_admin_runner_url(@runner), alert: s_('Runners|Failed adding runner to project')
     end
   end
 
@@ -21,7 +23,8 @@ class Admin::RunnerProjectsController < Admin::ApplicationController
 
     ::Ci::Runners::UnassignRunnerService.new(rp, current_user).execute
 
-    redirect_to edit_admin_runner_url(runner), status: :found, notice: s_('Runners|Runner unassigned from project.')
+    flash[:success] = s_('Runners|Runner unassigned from project.')
+    redirect_to edit_admin_runner_url(runner), status: :found
   end
 
   private

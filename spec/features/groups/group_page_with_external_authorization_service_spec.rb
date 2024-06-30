@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'The group page' do
+RSpec.describe 'The group page', :js, feature_category: :groups_and_projects do
   include ExternalAuthorizationServiceHelpers
 
   let(:user) { create(:user) }
-  let(:group) { create(:group) }
+  let(:group) { create(:group, :crm_disabled) }
 
   before do
     sign_in user
@@ -14,8 +14,9 @@ RSpec.describe 'The group page' do
   end
 
   def expect_all_sidebar_links
-    within('.nav-sidebar') do
-      expect(page).to have_link('Group information')
+    within('#super-sidebar .contextual-nav') do
+      click_button 'Manage'
+      click_button 'Plan'
       expect(page).to have_link('Activity')
       expect(page).to have_link('Issues')
       expect(page).to have_link('Merge requests')
@@ -42,8 +43,11 @@ RSpec.describe 'The group page' do
       enable_external_authorization_service_check
       visit group_path(group)
 
-      within('.nav-sidebar') do
-        expect(page).to have_link('Group information')
+      within('#super-sidebar .contextual-nav') do
+        expect(page).not_to have_button('Plan')
+
+        click_button 'Manage'
+
         expect(page).not_to have_link('Activity')
         expect(page).not_to have_link('Contribution')
 

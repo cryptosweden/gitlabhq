@@ -4,52 +4,117 @@ module BulkImports
   class ExportRequestWorker
     include ApplicationWorker
 
-    data_consistency :always
-
     idempotent!
-    worker_has_external_dependencies!
+    data_consistency :always
     feature_category :importers
+    sidekiq_options dead: false, retry: 5
+    worker_has_external_dependencies!
+
+    sidekiq_retries_exhausted do |msg, exception|
+      new.perform_failure(exception, msg['args'].first)
+    end
 
     def perform(entity_id)
-      entity = BulkImports::Entity.find(entity_id)
+      @entity = BulkImports::Entity.find(entity_id)
 
-      request_export(entity)
-    rescue BulkImports::NetworkError => e
-      log_export_failure(e, entity)
+      set_source_xid
+      request_export
 
-      entity.fail_op!
+      with_context(bulk_import_entity_id: entity_id) do
+        BulkImports::EntityWorker.perform_async(entity_id)
+      end
+    end
+
+    def perform_failure(exception, entity_id)
+      @entity = BulkImports::Entity.find(entity_id)
+
+      log_and_fail(exception)
     end
 
     private
 
-    def request_export(entity)
-      http_client(entity.bulk_import.configuration).post(entity.export_relations_url_path)
+    attr_reader :entity
+
+    def set_source_xid
+      entity.update!(source_xid: entity_source_xid) if entity.source_xid.nil?
     end
 
-    def http_client(configuration)
+    def request_export
+      http_client.post(export_url)
+    end
+
+    def http_client
       @client ||= Clients::HTTP.new(
-        url: configuration.url,
-        token: configuration.access_token
+        url: entity.bulk_import.configuration.url,
+        token: entity.bulk_import.configuration.access_token
       )
     end
 
-    def log_export_failure(exception, entity)
-      attributes = {
+    def failure_attributes(exception)
+      {
         bulk_import_entity_id: entity.id,
         pipeline_class: 'ExportRequestWorker',
         exception_class: exception.class.to_s,
         exception_message: exception.message.truncate(255),
         correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id
       }
+    end
 
-      Gitlab::Import::Logger.warn(
-        attributes.merge(
-          bulk_import_id: entity.bulk_import.id,
-          bulk_import_entity_type: entity.source_type
-        )
+    def graphql_client
+      @graphql_client ||= BulkImports::Clients::Graphql.new(
+        url: entity.bulk_import.configuration.url,
+        token: entity.bulk_import.configuration.access_token
       )
+    end
 
-      BulkImports::Failure.create(attributes)
+    def entity_source_xid
+      response = graphql_client.execute(
+        graphql_client.parse(entity_query.to_s),
+        { full_path: entity.source_full_path }
+      ).original_hash
+
+      ::GlobalID.parse(response.dig(*entity_query.data_path, 'id')).model_id
+    rescue StandardError => e
+      log_warning(e, message: 'Failed to fetch source entity id')
+
+      nil
+    end
+
+    def entity_query
+      @entity_query ||= if entity.group?
+                          BulkImports::Groups::Graphql::GetGroupQuery.new(context: nil)
+                        else
+                          BulkImports::Projects::Graphql::GetProjectQuery.new(context: nil)
+                        end
+    end
+
+    def logger
+      @logger ||= Logger.build.with_entity(entity)
+    end
+
+    def build_payload(exception, payload)
+      Gitlab::ExceptionLogFormatter.format!(exception, payload)
+      structured_payload(payload)
+    end
+
+    def log_warning(exception, payload)
+      logger.warn(build_payload(exception, payload))
+    end
+
+    def log_error(exception, payload)
+      logger.error(build_payload(exception, payload))
+    end
+
+    def log_and_fail(exception)
+      log_error(exception, message: "Request to export #{entity.source_type} failed")
+
+      BulkImports::Failure.create(failure_attributes(exception))
+
+      entity.fail_op!
+    end
+
+    def export_url
+      entity.export_relations_url_path
     end
   end
 end

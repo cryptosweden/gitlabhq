@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Getting designs related to an issue' do
+RSpec.describe 'Getting designs related to an issue', feature_category: :design_management do
   include GraphqlHelpers
   include DesignManagementTestHelpers
 
@@ -51,7 +51,7 @@ RSpec.describe 'Getting designs related to an issue' do
     design_data = designs_data['nodes'].first
     note_data = design_data['notes']['nodes'].first
 
-    expect(note_data['id']).to eq(note.to_global_id.to_s)
+    expect(note_data).to match(a_graphql_entity_for(note))
   end
 
   def query(note_fields = all_graphql_fields_for(Note, max_depth: 1))

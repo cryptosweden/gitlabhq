@@ -1,11 +1,14 @@
 # frozen_string_literal: true
 
 class Admin::DevOpsReportController < Admin::ApplicationController
-  include RedisTracking
+  include ProductAnalyticsTracking
 
   helper_method :show_adoption?
 
-  track_redis_hll_event :show, name: 'i_analytics_dev_ops_score', if: -> { should_track_devops_score? }
+  track_internal_event :show,
+    name: 'i_analytics_dev_ops_score',
+    category: name,
+    conditions: -> { should_track_devops_score? }
 
   feature_category :devops_reports
 
@@ -23,6 +26,14 @@ class Admin::DevOpsReportController < Admin::ApplicationController
 
   def should_track_devops_score?
     true
+  end
+
+  def tracking_namespace_source
+    nil
+  end
+
+  def tracking_project_source
+    nil
   end
 end
 

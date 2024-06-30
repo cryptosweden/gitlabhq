@@ -15,7 +15,7 @@ RSpec.shared_examples 'languages and percentages JSON response' do
   end
 
   context "when the languages haven't been detected yet" do
-    it 'returns expected language values', :sidekiq_might_not_need_inline do
+    it 'returns expected language values', :aggregate_failures, :sidekiq_might_not_need_inline do
       get api("/projects/#{project.id}/languages", user)
 
       expect(response).to have_gitlab_http_status(:ok)
@@ -33,7 +33,7 @@ RSpec.shared_examples 'languages and percentages JSON response' do
       Projects::DetectRepositoryLanguagesService.new(project, project.first_owner).execute
     end
 
-    it 'returns the detection from the database' do
+    it 'returns the detection from the database', :aggregate_failures do
       # Allow this to happen once, so the expected languages can be determined
       expect(project.repository).to receive(:languages).once
 
@@ -46,45 +46,44 @@ RSpec.shared_examples 'languages and percentages JSON response' do
   end
 end
 
-RSpec.describe API::Projects do
+RSpec.describe API::Projects, :aggregate_failures, feature_category: :groups_and_projects do
   include ProjectForksHelper
+  include WorkhorseHelpers
   include StubRequests
 
   let_it_be(:user) { create(:user) }
   let_it_be(:user2) { create(:user) }
   let_it_be(:user3) { create(:user) }
   let_it_be(:admin) { create(:admin) }
-  let_it_be(:project, reload: true) { create(:project, :repository, create_branch: 'something_else', namespace: user.namespace) }
-  let_it_be(:project2, reload: true) { create(:project, namespace: user.namespace) }
+  let_it_be(:project, reload: true) { create(:project, :repository, create_branch: 'something_else', namespace: user.namespace, updated_at: 5.days.ago) }
+  let_it_be(:project2, reload: true) { create(:project, namespace: user.namespace, updated_at: 4.days.ago) }
   let_it_be(:project_member) { create(:project_member, :developer, user: user3, project: project) }
   let_it_be(:user4) { create(:user, username: 'user.withdot') }
   let_it_be(:project3, reload: true) do
-    create(:project,
-    :private,
-    :repository,
-    name: 'second_project',
-    path: 'second_project',
-    creator_id: user.id,
-    namespace: user.namespace,
-    merge_requests_enabled: false,
-    issues_enabled: false, wiki_enabled: false,
-    builds_enabled: false,
-    snippets_enabled: false)
+    create(
+      :project,
+      :private,
+      :repository,
+      creator_id: user.id,
+      namespace: user.namespace,
+      merge_requests_enabled: false,
+      issues_enabled: false, wiki_enabled: false,
+      builds_enabled: false,
+      snippets_enabled: false
+    )
   end
 
   let_it_be(:project_member2) do
-    create(:project_member,
-    user: user4,
-    project: project3,
-    access_level: ProjectMember::MAINTAINER)
+    create(
+      :project_member,
+      user: user4,
+      project: project3,
+      access_level: ProjectMember::MAINTAINER
+    )
   end
 
   let_it_be(:project4, reload: true) do
-    create(:project,
-    name: 'third_project',
-    path: 'third_project',
-    creator_id: user4.id,
-    namespace: user4.namespace)
+    create(:project, creator_id: user4.id, namespace: user4.namespace)
   end
 
   let(:user_projects) { [public_project, project, project2, project3] }
@@ -148,9 +147,15 @@ RSpec.describe API::Projects do
   end
 
   describe 'GET /projects' do
+    let(:path) { '/projects' }
+
+    let_it_be(:public_project) { create(:project, :public, name: 'public_project') }
+
     shared_examples_for 'projects response' do
+      let_it_be(:admin_mode) { false }
+
       it 'returns an array of projects' do
-        get api('/projects', current_user), params: filter
+        get api(path, current_user, admin_mode: admin_mode), params: filter
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -159,7 +164,7 @@ RSpec.describe API::Projects do
       end
 
       it 'returns the proper security headers' do
-        get api('/projects', current_user), params: filter
+        get api(path, current_user, admin_mode: admin_mode), params: filter
 
         expect(response).to include_security_headers
       end
@@ -168,26 +173,22 @@ RSpec.describe API::Projects do
     shared_examples_for 'projects response without N + 1 queries' do |threshold|
       let(:additional_project) { create(:project, :public) }
 
-      it 'avoids N + 1 queries' do
-        get api('/projects', current_user)
-
-        control = ActiveRecord::QueryRecorder.new do
-          get api('/projects', current_user)
+      it 'avoids N + 1 queries', :use_sql_query_cache do
+        control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+          get api(path, current_user)
         end
 
         additional_project
 
         expect do
-          get api('/projects', current_user)
-        end.not_to exceed_query_limit(control).with_threshold(threshold)
+          get api(path, current_user)
+        end.not_to exceed_all_query_limit(control).with_threshold(threshold)
       end
     end
 
-    let_it_be(:public_project) { create(:project, :public, name: 'public_project') }
-
     context 'when unauthenticated' do
       it_behaves_like 'projects response' do
-        let(:filter) { { search: project.name } }
+        let(:filter) { { search: project.path } }
         let(:current_user) { user }
         let(:projects) { [project] }
       end
@@ -208,16 +209,32 @@ RSpec.describe API::Projects do
         let(:current_user) { user }
       end
 
-      it 'includes container_registry_access_level', :aggregate_failures do
-        project.project_feature.update!(container_registry_access_level: ProjectFeature::DISABLED)
+      shared_examples 'includes container_registry_access_level' do
+        specify do
+          project.project_feature.update!(container_registry_access_level: ProjectFeature::DISABLED)
 
-        get api('/projects', user)
+          get api(path, user)
+          project_response = json_response.find { |p| p['id'] == project.id }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response).to be_an Array
+          expect(project_response['container_registry_access_level']).to eq('disabled')
+          expect(project_response['container_registry_enabled']).to eq(false)
+        end
+      end
+
+      include_examples 'includes container_registry_access_level'
+
+      it 'includes various project feature fields' do
+        get api(path, user)
         project_response = json_response.find { |p| p['id'] == project.id }
 
         expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response).to be_an Array
-        expect(project_response['container_registry_access_level']).to eq('disabled')
-        expect(project_response['container_registry_enabled']).to eq(false)
+        expect(project_response['releases_access_level']).to eq('enabled')
+        expect(project_response['environments_access_level']).to eq('enabled')
+        expect(project_response['feature_flags_access_level']).to eq('enabled')
+        expect(project_response['infrastructure_access_level']).to eq('enabled')
+        expect(project_response['monitor_access_level']).to eq('enabled')
       end
 
       context 'when some projects are in a group' do
@@ -231,10 +248,10 @@ RSpec.describe API::Projects do
         end
       end
 
-      it 'includes correct value of container_registry_enabled', :aggregate_failures do
+      it 'includes correct value of container_registry_enabled' do
         project.project_feature.update!(container_registry_access_level: ProjectFeature::DISABLED)
 
-        get api('/projects', user)
+        get api(path, user)
         project_response = json_response.find { |p| p['id'] == project.id }
 
         expect(response).to have_gitlab_http_status(:ok)
@@ -243,7 +260,7 @@ RSpec.describe API::Projects do
       end
 
       it 'includes project topics' do
-        get api('/projects', user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -253,7 +270,7 @@ RSpec.describe API::Projects do
       end
 
       it 'includes open_issues_count' do
-        get api('/projects', user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -264,17 +281,43 @@ RSpec.describe API::Projects do
       it 'does not include projects marked for deletion' do
         project.update!(pending_delete: true)
 
-        get api('/projects', user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response).to be_an Array
         expect(json_response.map { |p| p['id'] }).not_to include(project.id)
       end
 
+      context 'when user requests pending_delete projects' do
+        before do
+          project.update!(pending_delete: true)
+        end
+
+        let(:params) { { include_pending_delete: true } }
+
+        it 'does not return projects marked for deletion' do
+          get api(path, user), params: params
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response).to be_an Array
+          expect(json_response.map { |p| p['id'] }).not_to include(project.id)
+        end
+
+        context 'when user is an admin' do
+          it 'returns projects marked for deletion' do
+            get api(path, admin, admin_mode: true), params: params
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response).to be_an Array
+            expect(json_response.map { |p| p['id'] }).to include(project.id)
+          end
+        end
+      end
+
       it 'does not include open_issues_count if issues are disabled' do
         project.project_feature.update_attribute(:issues_access_level, ProjectFeature::DISABLED)
 
-        get api('/projects', user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -284,11 +327,11 @@ RSpec.describe API::Projects do
 
       context 'filter by topic (column topic_list)' do
         before do
-          project.update!(topic_list: %w(ruby javascript))
+          project.update!(topic_list: %w[ruby javascript])
         end
 
         it 'returns no projects' do
-          get api('/projects', user), params: { topic: 'foo' }
+          get api(path, user), params: { topic: 'foo' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -296,7 +339,7 @@ RSpec.describe API::Projects do
         end
 
         it 'returns matching project for a single topic' do
-          get api('/projects', user), params: { topic: 'ruby' }
+          get api(path, user), params: { topic: 'ruby' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -304,7 +347,7 @@ RSpec.describe API::Projects do
         end
 
         it 'returns matching project for multiple topics' do
-          get api('/projects', user), params: { topic: 'ruby, javascript' }
+          get api(path, user), params: { topic: 'ruby, javascript' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -312,7 +355,7 @@ RSpec.describe API::Projects do
         end
 
         it 'returns no projects if project match only some topic' do
-          get api('/projects', user), params: { topic: 'ruby, foo' }
+          get api(path, user), params: { topic: 'ruby, foo' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -320,11 +363,50 @@ RSpec.describe API::Projects do
         end
 
         it 'ignores topic if it is empty' do
-          get api('/projects', user), params: { topic: '' }
+          get api(path, user), params: { topic: '' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
           expect(json_response).to be_present
+        end
+      end
+
+      context 'filter by topic_id' do
+        let_it_be(:topic1) { create(:topic) }
+        let_it_be(:topic2) { create(:topic) }
+
+        let(:current_user) { user }
+
+        before do
+          project.topics << topic1
+        end
+
+        context 'with id of assigned topic' do
+          it_behaves_like 'projects response' do
+            let(:filter) { { topic_id: topic1.id } }
+            let(:projects) { [project] }
+          end
+        end
+
+        context 'with id of unassigned topic' do
+          it_behaves_like 'projects response' do
+            let(:filter) { { topic_id: topic2.id } }
+            let(:projects) { [] }
+          end
+        end
+
+        context 'with non-existing topic id' do
+          it_behaves_like 'projects response' do
+            let(:filter) { { topic_id: non_existing_record_id } }
+            let(:projects) { [] }
+          end
+        end
+
+        context 'with empty topic id' do
+          it_behaves_like 'projects response' do
+            let(:filter) { { topic_id: '' } }
+            let(:projects) { user_projects }
+          end
         end
       end
 
@@ -342,7 +424,7 @@ RSpec.describe API::Projects do
       end
 
       it "does not include statistics by default" do
-        get api('/projects', user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -351,7 +433,7 @@ RSpec.describe API::Projects do
       end
 
       it "includes statistics if requested" do
-        get api('/projects', user), params: { statistics: true }
+        get api(path, user), params: { statistics: true }
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -359,11 +441,11 @@ RSpec.describe API::Projects do
 
         statistics = json_response.find { |p| p['id'] == project.id }['statistics']
         expect(statistics).to be_present
-        expect(statistics).to include('commit_count', 'storage_size', 'repository_size', 'wiki_size', 'lfs_objects_size', 'job_artifacts_size', 'pipeline_artifacts_size', 'snippets_size', 'packages_size', 'uploads_size')
+        expect(statistics).to include('commit_count', 'storage_size', 'repository_size', 'wiki_size', 'lfs_objects_size', 'job_artifacts_size', 'pipeline_artifacts_size', 'snippets_size', 'packages_size', 'uploads_size', 'container_registry_size')
       end
 
       it "does not include license by default" do
-        get api('/projects', user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -372,7 +454,7 @@ RSpec.describe API::Projects do
       end
 
       it "does not include license if requested" do
-        get api('/projects', user), params: { license: true }
+        get api(path, user), params: { license: true }
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -384,7 +466,7 @@ RSpec.describe API::Projects do
         let!(:jira_integration) { create(:jira_integration, project: project) }
 
         it 'includes open_issues_count' do
-          get api('/projects', user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -396,7 +478,7 @@ RSpec.describe API::Projects do
         it 'does not include open_issues_count if issues are disabled' do
           project.project_feature.update_attribute(:issues_access_level, ProjectFeature::DISABLED)
 
-          get api('/projects', user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -439,7 +521,7 @@ RSpec.describe API::Projects do
         end
 
         it 'returns every project' do
-          get api('/projects', user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -448,9 +530,38 @@ RSpec.describe API::Projects do
         end
       end
 
+      context 'filter by updated_at' do
+        let(:filter) { { updated_before: 2.days.ago.iso8601, updated_after: 6.days.ago, order_by: :updated_at } }
+
+        it_behaves_like 'projects response' do
+          let(:current_user) { user }
+          let(:projects) { [project2, project] }
+        end
+
+        it 'returns projects sorted by updated_at' do
+          get api(path, user), params: filter
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response.map { |p| p['id'] }).to match([project2, project].map(&:id))
+        end
+
+        context 'when filtering by updated_at and sorting by a different column' do
+          let(:filter) { { updated_before: 2.days.ago.iso8601, updated_after: 6.days.ago, order_by: 'id' } }
+
+          it 'returns an error' do
+            get api(path, user), params: filter
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(json_response['message']).to eq(
+              '400 Bad request - `updated_at` filter and `updated_at` sorting must be paired'
+            )
+          end
+        end
+      end
+
       context 'and using search' do
         it_behaves_like 'projects response' do
-          let(:filter) { { search: project.name } }
+          let(:filter) { { search: project.path } }
           let(:current_user) { user }
           let(:projects) { [project] }
         end
@@ -521,7 +632,7 @@ RSpec.describe API::Projects do
 
       context 'and using the visibility filter' do
         it 'filters based on private visibility param' do
-          get api('/projects', user), params: { visibility: 'private' }
+          get api(path, user), params: { visibility: 'private' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -532,7 +643,7 @@ RSpec.describe API::Projects do
         it 'filters based on internal visibility param' do
           project2.update_attribute(:visibility_level, Gitlab::VisibilityLevel::INTERNAL)
 
-          get api('/projects', user), params: { visibility: 'internal' }
+          get api(path, user), params: { visibility: 'internal' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -541,7 +652,7 @@ RSpec.describe API::Projects do
         end
 
         it 'filters based on public visibility param' do
-          get api('/projects', user), params: { visibility: 'public' }
+          get api(path, user), params: { visibility: 'public' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -554,7 +665,7 @@ RSpec.describe API::Projects do
         include_context 'with language detection'
 
         it 'filters case-insensitively by programming language' do
-          get api('/projects', user), params: { with_programming_language: 'javascript' }
+          get api(path, user), params: { with_programming_language: 'javascript' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -565,7 +676,7 @@ RSpec.describe API::Projects do
 
       context 'and using sorting' do
         it 'returns the correct order when sorted by id' do
-          get api('/projects', user), params: { order_by: 'id', sort: 'desc' }
+          get api(path, user), params: { order_by: 'id', sort: 'desc' }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -576,7 +687,7 @@ RSpec.describe API::Projects do
 
       context 'and with owned=true' do
         it 'returns an array of projects the user owns' do
-          get api('/projects', user4), params: { owned: true }
+          get api(path, user4), params: { owned: true }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -597,7 +708,7 @@ RSpec.describe API::Projects do
           end
 
           it 'does not list as owned project for admin' do
-            get api('/projects', admin), params: { owned: true }
+            get api(path, admin, admin_mode: true), params: { owned: true }
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(json_response).to be_empty
@@ -613,7 +724,7 @@ RSpec.describe API::Projects do
         end
 
         it 'returns the starred projects viewable by the user' do
-          get api('/projects', user3), params: { starred: true }
+          get api(path, user3), params: { starred: true }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -630,12 +741,14 @@ RSpec.describe API::Projects do
         let!(:project9) { create(:project, :public, path: 'gitlab9') }
 
         before do
-          user.update!(starred_projects: [project5, project7, project8, project9])
+          [project5, project7, project8, project9].each do |project|
+            user.users_star_projects.create!(project_id: project.id)
+          end
         end
 
         context 'including owned filter' do
           it 'returns only projects that satisfy all query parameters' do
-            get api('/projects', user), params: { visibility: 'public', owned: true, starred: true, search: 'gitlab' }
+            get api(path, user), params: { visibility: 'public', owned: true, starred: true, search: 'gitlab' }
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to include_pagination_headers
@@ -647,14 +760,11 @@ RSpec.describe API::Projects do
 
         context 'including membership filter' do
           before do
-            create(:project_member,
-                   user: user,
-                   project: project5,
-                   access_level: ProjectMember::MAINTAINER)
+            create(:project_member, user: user, project: project5, access_level: ProjectMember::MAINTAINER)
           end
 
           it 'returns only projects that satisfy all query parameters' do
-            get api('/projects', user), params: { visibility: 'public', membership: true, starred: true, search: 'gitlab' }
+            get api(path, user), params: { visibility: 'public', membership: true, starred: true, search: 'gitlab' }
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to include_pagination_headers
@@ -673,7 +783,7 @@ RSpec.describe API::Projects do
         end
 
         it 'returns an array of projects the user has at least developer access' do
-          get api('/projects', user2), params: { min_access_level: 30 }
+          get api(path, user2), params: { min_access_level: 30 }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -735,13 +845,55 @@ RSpec.describe API::Projects do
       it_behaves_like 'projects response' do
         let(:filter) { {} }
         let(:current_user) { admin }
+        let(:admin_mode) { true }
         let(:projects) { Project.all }
+      end
+
+      it 'returns a project with user namespace that has a missing owner' do
+        project.namespace.update_column(:owner_id, non_existing_record_id)
+        project.route.update_column(:name, nil)
+
+        get api(path, admin, admin_mode: true), params: { search: project.path }
+        expect(response).to have_gitlab_http_status(:ok)
+
+        project_response = json_response.find { |p| p['id'] == project.id }
+        expect(project_response).to be_present
+        expect(project_response['path']).to eq(project.path)
+
+        namespace_response = project_response['namespace']
+        expect(project_response['web_url']).to include(namespace_response['web_url'])
+      end
+    end
+
+    context 'with default created_at desc order' do
+      let_it_be(:group_with_projects) { create(:group) }
+      let_it_be(:project_1) { create(:project, name: 'Project 1', created_at: 3.days.ago, path: 'project1', group: group_with_projects) }
+      let_it_be(:project_2) { create(:project, name: 'Project 2', created_at: 2.days.ago, path: 'project2', group: group_with_projects) }
+      let_it_be(:project_3) { create(:project, name: 'Project 3', created_at: 1.day.ago, path: 'project3', group: group_with_projects) }
+
+      let(:current_user) { user }
+      let(:params) { {} }
+
+      subject(:request) { get api(path, current_user), params: params }
+
+      before do
+        group_with_projects.add_owner(current_user) if current_user
+      end
+
+      it 'orders by id desc instead' do
+        projects_ordered_by_id_desc = /SELECT "projects".+ORDER BY "projects"."id" DESC/i
+        expect { request }.to make_queries_matching projects_ordered_by_id_desc
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to include_pagination_headers
+        expect(json_response).to be_an Array
+        expect(json_response.first['id']).to eq(project_3.id)
       end
     end
 
     context 'sorting' do
       context 'by project statistics' do
-        %w(repository_size storage_size wiki_size packages_size).each do |order_by|
+        %w[repository_size storage_size wiki_size packages_size].each do |order_by|
           context "sorting by #{order_by}" do
             before do
               ProjectStatistics.update_all(order_by => 100)
@@ -754,7 +906,7 @@ RSpec.describe API::Projects do
 
               context "when sorting by #{order_by} ascendingly" do
                 it 'returns a properly sorted list of projects' do
-                  get api('/projects', current_user), params: { order_by: order_by, sort: :asc }
+                  get api(path, current_user, admin_mode: true), params: { order_by: order_by, sort: :asc }
 
                   expect(response).to have_gitlab_http_status(:ok)
                   expect(response).to include_pagination_headers
@@ -765,7 +917,7 @@ RSpec.describe API::Projects do
 
               context "when sorting by #{order_by} descendingly" do
                 it 'returns a properly sorted list of projects' do
-                  get api('/projects', current_user), params: { order_by: order_by, sort: :desc }
+                  get api(path, current_user, admin_mode: true), params: { order_by: order_by, sort: :desc }
 
                   expect(response).to have_gitlab_http_status(:ok)
                   expect(response).to include_pagination_headers
@@ -779,7 +931,7 @@ RSpec.describe API::Projects do
               let(:current_user) { user }
 
               it 'returns projects ordered normally' do
-                get api('/projects', current_user), params: { order_by: order_by }
+                get api(path, current_user), params: { order_by: order_by }
 
                 expect(response).to have_gitlab_http_status(:ok)
                 expect(response).to include_pagination_headers
@@ -791,7 +943,7 @@ RSpec.describe API::Projects do
         end
       end
 
-      context 'by similarity', :aggregate_failures do
+      context 'by similarity' do
         let_it_be(:group_with_projects) { create(:group) }
         let_it_be(:project_1) { create(:project, name: 'Project', path: 'project', group: group_with_projects) }
         let_it_be(:project_2) { create(:project, name: 'Test Project', path: 'test-project', group: group_with_projects) }
@@ -801,14 +953,14 @@ RSpec.describe API::Projects do
         let(:current_user) { user }
         let(:params) { { order_by: 'similarity', search: 'test' } }
 
-        subject { get api('/projects', current_user), params: params }
+        subject(:request) { get api(path, current_user), params: params }
 
         before do
           group_with_projects.add_owner(current_user) if current_user
         end
 
         it 'returns non-public items based ordered by similarity' do
-          subject
+          request
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -822,14 +974,14 @@ RSpec.describe API::Projects do
           let(:params) { { order_by: 'similarity' } }
 
           it 'returns items ordered by created_at descending' do
-            subject
+            request
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to include_pagination_headers
             expect(json_response.length).to eq(8)
 
             project_names = json_response.map { |proj| proj['name'] }
-            expect(project_names).to contain_exactly(project.name, project2.name, 'second_project', 'public_project', 'Project', 'Test Project', 'Test Public Project', 'Test')
+            expect(project_names).to match_array([project, project2, project3, public_project, project_1, project_2, project_4, project_3].map(&:name))
           end
         end
 
@@ -837,14 +989,14 @@ RSpec.describe API::Projects do
           let(:current_user) { nil }
 
           it 'returns items ordered by created_at descending' do
-            subject
+            request
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to include_pagination_headers
             expect(json_response.length).to eq(1)
 
             project_names = json_response.map { |proj| proj['name'] }
-            expect(project_names).to contain_exactly('Test Public Project')
+            expect(project_names).to contain_exactly(project_4.name)
           end
         end
       end
@@ -864,6 +1016,7 @@ RSpec.describe API::Projects do
         it_behaves_like 'projects response' do
           let(:filter) { { repository_storage: 'nfs-11' } }
           let(:current_user) { admin }
+          let(:admin_mode) { true }
           let(:projects) { [project, project3] }
         end
       end
@@ -886,7 +1039,7 @@ RSpec.describe API::Projects do
         let(:params) { { pagination: 'keyset', order_by: :id, sort: :asc, per_page: 1 } }
 
         it 'includes a pagination header with link to the next page' do
-          get api('/projects', current_user), params: params
+          get api(path, current_user), params: params
 
           expect(response.header).to include('Link')
           expect(response.header['Link']).to include('pagination=keyset')
@@ -894,7 +1047,7 @@ RSpec.describe API::Projects do
         end
 
         it 'contains only the first project with per_page = 1' do
-          get api('/projects', current_user), params: params
+          get api(path, current_user), params: params
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response).to be_an Array
@@ -902,7 +1055,7 @@ RSpec.describe API::Projects do
         end
 
         it 'still includes a link if the end has reached and there is no more data after this page' do
-          get api('/projects', current_user), params: params.merge(id_after: project2.id)
+          get api(path, current_user), params: params.merge(id_after: project2.id)
 
           expect(response.header).to include('Link')
           expect(response.header['Link']).to include('pagination=keyset')
@@ -910,20 +1063,20 @@ RSpec.describe API::Projects do
         end
 
         it 'does not include a next link when the page does not have any records' do
-          get api('/projects', current_user), params: params.merge(id_after: Project.maximum(:id))
+          get api(path, current_user), params: params.merge(id_after: Project.maximum(:id))
 
           expect(response.header).not_to include('Link')
         end
 
         it 'returns an empty array when the page does not have any records' do
-          get api('/projects', current_user), params: params.merge(id_after: Project.maximum(:id))
+          get api(path, current_user), params: params.merge(id_after: Project.maximum(:id))
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response).to eq([])
         end
 
         it 'responds with 501 if order_by is different from id' do
-          get api('/projects', current_user), params: params.merge(order_by: :created_at)
+          get api(path, current_user), params: params.merge(order_by: :created_at)
 
           expect(response).to have_gitlab_http_status(:method_not_allowed)
         end
@@ -933,7 +1086,7 @@ RSpec.describe API::Projects do
         let(:params) { { pagination: 'keyset', order_by: :id, sort: :desc, per_page: 1 } }
 
         it 'includes a pagination header with link to the next page' do
-          get api('/projects', current_user), params: params
+          get api(path, current_user), params: params
 
           expect(response.header).to include('Link')
           expect(response.header['Link']).to include('pagination=keyset')
@@ -941,7 +1094,7 @@ RSpec.describe API::Projects do
         end
 
         it 'contains only the last project with per_page = 1' do
-          get api('/projects', current_user), params: params
+          get api(path, current_user), params: params
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response).to be_an Array
@@ -953,7 +1106,7 @@ RSpec.describe API::Projects do
         let(:params) { { pagination: 'keyset', order_by: :id, sort: :desc, per_page: 2 } }
 
         it 'returns all projects' do
-          url = '/projects'
+          url = path
           requests = 0
           ids = []
 
@@ -979,62 +1132,104 @@ RSpec.describe API::Projects do
 
       let_it_be(:admin) { create(:admin) }
 
-      it 'avoids N+1 queries' do
-        get api('/projects', admin)
+      subject(:request) { get api(path, admin) }
+
+      it 'avoids N+1 queries', :use_sql_query_cache do
+        request
+        expect(response).to have_gitlab_http_status(:ok)
 
         base_project = create(:project, :public, namespace: admin.namespace)
 
         fork_project1 = fork_project(base_project, admin, namespace: create(:user).namespace)
         fork_project2 = fork_project(fork_project1, admin, namespace: create(:user).namespace)
 
-        control = ActiveRecord::QueryRecorder.new do
-          get api('/projects', admin)
+        control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+          request
         end
 
         fork_project(fork_project2, admin, namespace: create(:user).namespace)
 
         expect do
-          get api('/projects', admin)
-        end.not_to exceed_query_limit(control.count)
+          request
+        end.not_to exceed_all_query_limit(control)
       end
     end
 
     context 'when service desk is enabled', :use_clean_rails_memory_store_caching do
       let_it_be(:admin) { create(:admin) }
 
-      it 'avoids N+1 queries' do
-        allow(Gitlab::ServiceDeskEmail).to receive(:enabled?).and_return(true)
-        allow(Gitlab::IncomingEmail).to receive(:enabled?).and_return(true)
+      subject(:request) { get api(path, admin) }
 
-        get api('/projects', admin)
+      it 'avoids N+1 queries' do
+        allow(Gitlab::Email::ServiceDeskEmail).to receive(:enabled?).and_return(true)
+        allow(Gitlab::Email::IncomingEmail).to receive(:enabled?).and_return(true)
+
+        request
+        expect(response).to have_gitlab_http_status(:ok)
 
         create(:project, :public, :service_desk_enabled, namespace: admin.namespace)
 
         control = ActiveRecord::QueryRecorder.new do
-          get api('/projects', admin)
+          request
         end
 
         create_list(:project, 2, :public, :service_desk_enabled, namespace: admin.namespace)
 
         expect do
-          get api('/projects', admin)
-        end.not_to exceed_query_limit(control)
+          request
+        end.not_to exceed_all_query_limit(control)
+      end
+    end
+
+    context 'rate limiting' do
+      let_it_be(:current_user) { create(:user) }
+
+      context 'when the user is signed in' do
+        it_behaves_like 'rate limited endpoint', rate_limit_key: :projects_api do
+          def request
+            get api(path, current_user)
+          end
+        end
+
+        context 'when rate_limit_groups_and_projects_api feature flag is disabled' do
+          before do
+            stub_feature_flags(rate_limit_groups_and_projects_api: false)
+          end
+
+          it_behaves_like 'unthrottled endpoint'
+
+          def request
+            get api(path, current_user)
+          end
+        end
+      end
+
+      context 'when the user is not signed in' do
+        let_it_be(:current_user) { nil }
+
+        it_behaves_like 'rate limited endpoint', rate_limit_key: :projects_api_rate_limit_unauthenticated do
+          def request
+            get api(path, current_user)
+          end
+        end
       end
     end
   end
 
   describe 'POST /projects' do
+    let(:path) { '/projects' }
+
     context 'maximum number of projects reached' do
       it 'does not create new project and respond with 403' do
         allow_any_instance_of(User).to receive(:projects_limit_left).and_return(0)
-        expect { post api('/projects', user2), params: { name: 'foo' } }
-          .to change {Project.count}.by(0)
+        expect { post api(path, user2), params: { name: 'foo' } }
+          .to change { Project.count }.by(0)
         expect(response).to have_gitlab_http_status(:forbidden)
       end
     end
 
     it 'creates new project without path but with name and returns 201' do
-      expect { post api('/projects', user), params: { name: 'Foo Project' } }
+      expect { post api(path, user), params: { name: 'Foo Project' } }
         .to change { Project.count }.by(1)
       expect(response).to have_gitlab_http_status(:created)
 
@@ -1045,7 +1240,7 @@ RSpec.describe API::Projects do
     end
 
     it 'creates new project without name but with path and returns 201' do
-      expect { post api('/projects', user), params: { path: 'foo_project' } }
+      expect { post api(path, user), params: { path: 'foo_project' } }
         .to change { Project.count }.by(1)
       expect(response).to have_gitlab_http_status(:created)
 
@@ -1056,7 +1251,7 @@ RSpec.describe API::Projects do
     end
 
     it 'creates new project with name and path and returns 201' do
-      expect { post api('/projects', user), params: { path: 'path-project-Foo', name: 'Foo Project' } }
+      expect { post api(path, user), params: { path: 'path-project-Foo', name: 'Foo Project' } }
         .to change { Project.count }.by(1)
       expect(response).to have_gitlab_http_status(:created)
 
@@ -1067,21 +1262,21 @@ RSpec.describe API::Projects do
     end
 
     it_behaves_like 'create project with default branch parameter' do
-      let(:request) { post api('/projects', user), params: params }
+      subject(:request) { post api(path, user), params: params }
     end
 
     it 'creates last project before reaching project limit' do
       allow_any_instance_of(User).to receive(:projects_limit_left).and_return(1)
-      post api('/projects', user2), params: { name: 'foo' }
+      post api(path, user2), params: { name: 'foo' }
       expect(response).to have_gitlab_http_status(:created)
     end
 
     it 'does not create new project without name or path and returns 400' do
-      expect { post api('/projects', user) }.not_to change { Project.count }
+      expect { post api(path, user) }.not_to change { Project.count }
       expect(response).to have_gitlab_http_status(:bad_request)
     end
 
-    it "assigns attributes to project", :aggregate_failures do
+    it 'assigns attributes to project' do
       project = attributes_for(:project, {
         path: 'camelCasePath',
         issues_enabled: false,
@@ -1101,20 +1296,32 @@ RSpec.describe API::Projects do
         merge_method: 'ff',
         squash_option: 'always'
       }).tap do |attrs|
-        attrs[:operations_access_level] = 'disabled'
         attrs[:analytics_access_level] = 'disabled'
         attrs[:container_registry_access_level] = 'private'
         attrs[:security_and_compliance_access_level] = 'private'
+        attrs[:releases_access_level] = 'disabled'
+        attrs[:environments_access_level] = 'disabled'
+        attrs[:feature_flags_access_level] = 'disabled'
+        attrs[:infrastructure_access_level] = 'disabled'
+        attrs[:monitor_access_level] = 'disabled'
+        attrs[:snippets_access_level] = 'disabled'
+        attrs[:wiki_access_level] = 'disabled'
+        attrs[:builds_access_level] = 'disabled'
+        attrs[:merge_requests_access_level] = 'disabled'
+        attrs[:issues_access_level] = 'disabled'
+        attrs[:model_experiments_access_level] = 'disabled'
+        attrs[:model_registry_access_level] = 'disabled'
       end
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(response).to have_gitlab_http_status(:created)
 
       project.each_pair do |k, v|
         next if %i[
           has_external_issue_tracker has_external_wiki issues_enabled merge_requests_enabled wiki_enabled storage_version
-          container_registry_access_level
+          container_registry_access_level releases_access_level environments_access_level feature_flags_access_level
+          infrastructure_access_level monitor_access_level model_experiments_access_level model_registry_access_level
         ].include?(k)
 
         expect(json_response[k.to_s]).to eq(v)
@@ -1125,16 +1332,25 @@ RSpec.describe API::Projects do
       expect(project.project_feature.issues_access_level).to eq(ProjectFeature::DISABLED)
       expect(project.project_feature.merge_requests_access_level).to eq(ProjectFeature::DISABLED)
       expect(project.project_feature.wiki_access_level).to eq(ProjectFeature::DISABLED)
-      expect(project.operations_access_level).to eq(ProjectFeature::DISABLED)
       expect(project.project_feature.analytics_access_level).to eq(ProjectFeature::DISABLED)
       expect(project.project_feature.container_registry_access_level).to eq(ProjectFeature::PRIVATE)
       expect(project.project_feature.security_and_compliance_access_level).to eq(ProjectFeature::PRIVATE)
+      expect(project.project_feature.releases_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.environments_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.feature_flags_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.infrastructure_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.monitor_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.wiki_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.builds_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.merge_requests_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.issues_access_level).to eq(ProjectFeature::DISABLED)
+      expect(project.project_feature.snippets_access_level).to eq(ProjectFeature::DISABLED)
     end
 
-    it 'assigns container_registry_enabled to project', :aggregate_failures do
+    it 'assigns container_registry_enabled to project' do
       project = attributes_for(:project, { container_registry_enabled: true })
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(response).to have_gitlab_http_status(:created)
       expect(json_response['container_registry_enabled']).to eq(true)
@@ -1145,7 +1361,7 @@ RSpec.describe API::Projects do
     it 'assigns container_registry_enabled to project' do
       project = attributes_for(:project, { container_registry_enabled: true })
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(response).to have_gitlab_http_status(:created)
       expect(json_response['container_registry_enabled']).to eq(true)
@@ -1153,7 +1369,7 @@ RSpec.describe API::Projects do
     end
 
     it 'creates a project using a template' do
-      expect { post api('/projects', user), params: { template_name: 'rails', name: 'rails-test' } }
+      expect { post api(path, user), params: { template_name: 'rails', name: 'rails-test' } }
         .to change { Project.count }.by(1)
 
       expect(response).to have_gitlab_http_status(:created)
@@ -1164,7 +1380,7 @@ RSpec.describe API::Projects do
     end
 
     it 'returns 400 for an invalid template' do
-      expect { post api('/projects', user), params: { template_name: 'unknown', name: 'rails-test' } }
+      expect { post api(path, user), params: { template_name: 'unknown', name: 'rails-test' } }
         .not_to change { Project.count }
 
       expect(response).to have_gitlab_http_status(:bad_request)
@@ -1173,44 +1389,52 @@ RSpec.describe API::Projects do
 
     it 'disallows creating a project with an import_url and template' do
       project_params = { import_url: 'http://example.com', template_name: 'rails', name: 'rails-test' }
-      expect { post api('/projects', user), params: project_params }
+      expect { post api(path, user), params: project_params }
         .not_to change {  Project.count }
 
       expect(response).to have_gitlab_http_status(:bad_request)
     end
 
     it 'disallows creating a project with an import_url when git import source is disabled' do
+      url = 'http://example.com'
       stub_application_setting(import_sources: nil)
 
-      project_params = { import_url: 'http://example.com', path: 'path-project-Foo', name: 'Foo Project' }
-      expect { post api('/projects', user), params: project_params }
+      endpoint_url = "#{url}/info/refs?service=git-upload-pack"
+      stub_full_request(endpoint_url, method: :get).to_return(
+        { status: 200,
+          body: '001e# service=git-upload-pack',
+          headers: { 'Content-Type': 'application/x-git-upload-pack-advertisement' } })
+
+      project_params = { import_url: url, path: 'path-project-Foo', name: 'Foo Project' }
+      expect { post api(path, user), params: project_params }
         .not_to change {  Project.count }
 
       expect(response).to have_gitlab_http_status(:forbidden)
     end
 
-    it 'allows creating a project without an import_url when git import source is disabled', :aggregate_failures do
+    it 'allows creating a project without an import_url when git import source is disabled' do
       stub_application_setting(import_sources: nil)
       project_params = { path: 'path-project-Foo' }
 
-      expect { post api('/projects', user), params: project_params }.to change { Project.count }.by(1)
+      expect { post api(path, user), params: project_params }.to change { Project.count }.by(1)
 
       expect(response).to have_gitlab_http_status(:created)
     end
 
-    it 'disallows creating a project with an import_url that is not reachable', :aggregate_failures do
+    it 'disallows creating a project with an import_url that is not reachable' do
       url = 'http://example.com'
       endpoint_url = "#{url}/info/refs?service=git-upload-pack"
-      stub_full_request(endpoint_url, method: :get).to_return({ status: 301, body: '', headers: nil })
+      error_response = { status: 301, body: '', headers: nil }
+      stub_full_request(endpoint_url, method: :get).to_return(error_response)
       project_params = { import_url: url, path: 'path-project-Foo', name: 'Foo Project' }
 
-      expect { post api('/projects', user), params: project_params }.not_to change { Project.count }
+      expect { post api(path, user), params: project_params }.not_to change { Project.count }
 
       expect(response).to have_gitlab_http_status(:unprocessable_entity)
-      expect(json_response['message']).to eq("#{url} is not a valid HTTP Git repository")
+      expect(json_response['message']).to eq("#{url} endpoint error: #{error_response[:status]}")
     end
 
-    it 'creates a project with an import_url that is valid', :aggregate_failures do
+    it 'creates a project with an import_url that is valid' do
       url = 'http://example.com'
       endpoint_url = "#{url}/info/refs?service=git-upload-pack"
       git_response = {
@@ -1218,10 +1442,11 @@ RSpec.describe API::Projects do
         body: '001e# service=git-upload-pack',
         headers: { 'Content-Type': 'application/x-git-upload-pack-advertisement' }
       }
+      stub_application_setting(import_sources: ['git'])
       stub_full_request(endpoint_url, method: :get).to_return(git_response)
       project_params = { import_url: url, path: 'path-project-Foo', name: 'Foo Project' }
 
-      expect { post api('/projects', user), params: project_params }.to change { Project.count }.by(1)
+      expect { post api(path, user), params: project_params }.to change { Project.count }.by(1)
 
       expect(response).to have_gitlab_http_status(:created)
     end
@@ -1229,7 +1454,7 @@ RSpec.describe API::Projects do
     it 'sets a project as public' do
       project = attributes_for(:project, visibility: 'public')
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['visibility']).to eq('public')
     end
@@ -1237,7 +1462,7 @@ RSpec.describe API::Projects do
     it 'sets a project as internal' do
       project = attributes_for(:project, visibility: 'internal')
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['visibility']).to eq('internal')
     end
@@ -1245,23 +1470,23 @@ RSpec.describe API::Projects do
     it 'sets a project as private' do
       project = attributes_for(:project, visibility: 'private')
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['visibility']).to eq('private')
     end
 
     it 'creates a new project initialized with a README.md' do
-      project = attributes_for(:project, initialize_with_readme: 1, name: 'somewhere')
+      project = attributes_for(:project, initialize_with_readme: 1)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
-      expect(json_response['readme_url']).to eql("#{Gitlab.config.gitlab.url}/#{json_response['namespace']['full_path']}/somewhere/-/blob/master/README.md")
+      expect(json_response['readme_url']).to eql("#{Gitlab.config.gitlab.url}/#{json_response['namespace']['full_path']}/#{json_response['path']}/-/blob/master/README.md")
     end
 
     it 'sets tag list to a project (deprecated)' do
       project = attributes_for(:project, tag_list: %w[tagFirst tagSecond])
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['topics']).to eq(%w[tagFirst tagSecond])
     end
@@ -1269,7 +1494,7 @@ RSpec.describe API::Projects do
     it 'sets topics to a project' do
       project = attributes_for(:project, topics: %w[topic1 topics2])
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['topics']).to eq(%w[topic1 topics2])
     end
@@ -1277,7 +1502,12 @@ RSpec.describe API::Projects do
     it 'uploads avatar for project a project' do
       project = attributes_for(:project, avatar: fixture_file_upload('spec/fixtures/banana_sample.gif', 'image/gif'))
 
-      post api('/projects', user), params: project
+      workhorse_form_with_file(
+        api(path, user),
+        method: :post,
+        file_key: :avatar,
+        params: project
+      )
 
       project_id = json_response['id']
       expect(json_response['avatar_url']).to eq("http://localhost/uploads/-/system/project/avatar/#{project_id}/banana_sample.gif")
@@ -1286,7 +1516,7 @@ RSpec.describe API::Projects do
     it 'sets a project as not allowing outdated diff discussions to automatically resolve' do
       project = attributes_for(:project, resolve_outdated_diff_discussions: false)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['resolve_outdated_diff_discussions']).to be_falsey
     end
@@ -1294,7 +1524,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing outdated diff discussions to automatically resolve' do
       project = attributes_for(:project, resolve_outdated_diff_discussions: true)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['resolve_outdated_diff_discussions']).to be_truthy
     end
@@ -1302,7 +1532,7 @@ RSpec.describe API::Projects do
     it 'sets a project as not removing source branches' do
       project = attributes_for(:project, remove_source_branch_after_merge: false)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['remove_source_branch_after_merge']).to be_falsey
     end
@@ -1310,7 +1540,7 @@ RSpec.describe API::Projects do
     it 'sets a project as removing source branches' do
       project = attributes_for(:project, remove_source_branch_after_merge: true)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['remove_source_branch_after_merge']).to be_truthy
     end
@@ -1318,7 +1548,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge even if build fails' do
       project = attributes_for(:project, only_allow_merge_if_pipeline_succeeds: false)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['only_allow_merge_if_pipeline_succeeds']).to be_falsey
     end
@@ -1326,7 +1556,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge only if merge_when_pipeline_succeeds' do
       project = attributes_for(:project, only_allow_merge_if_pipeline_succeeds: true)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['only_allow_merge_if_pipeline_succeeds']).to be_truthy
     end
@@ -1334,7 +1564,7 @@ RSpec.describe API::Projects do
     it 'sets a project as not allowing merge when pipeline is skipped' do
       project_params = attributes_for(:project, allow_merge_on_skipped_pipeline: false)
 
-      post api('/projects', user), params: project_params
+      post api(path, user), params: project_params
 
       expect(json_response['allow_merge_on_skipped_pipeline']).to be_falsey
     end
@@ -1342,7 +1572,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge when pipeline is skipped' do
       project_params = attributes_for(:project, allow_merge_on_skipped_pipeline: true)
 
-      post api('/projects', user), params: project_params
+      post api(path, user), params: project_params
 
       expect(json_response['allow_merge_on_skipped_pipeline']).to be_truthy
     end
@@ -1350,7 +1580,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge even if discussions are unresolved' do
       project = attributes_for(:project, only_allow_merge_if_all_discussions_are_resolved: false)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['only_allow_merge_if_all_discussions_are_resolved']).to be_falsey
     end
@@ -1358,7 +1588,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge if only_allow_merge_if_all_discussions_are_resolved is nil' do
       project = attributes_for(:project, only_allow_merge_if_all_discussions_are_resolved: nil)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['only_allow_merge_if_all_discussions_are_resolved']).to be_falsey
     end
@@ -1366,7 +1596,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge only if all discussions are resolved' do
       project = attributes_for(:project, only_allow_merge_if_all_discussions_are_resolved: true)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['only_allow_merge_if_all_discussions_are_resolved']).to be_truthy
     end
@@ -1374,7 +1604,7 @@ RSpec.describe API::Projects do
     it 'sets a project as enabling auto close referenced issues' do
       project = attributes_for(:project, autoclose_referenced_issues: true)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['autoclose_referenced_issues']).to be_truthy
     end
@@ -1382,7 +1612,7 @@ RSpec.describe API::Projects do
     it 'sets a project as disabling auto close referenced issues' do
       project = attributes_for(:project, autoclose_referenced_issues: false)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['autoclose_referenced_issues']).to be_falsey
     end
@@ -1390,7 +1620,7 @@ RSpec.describe API::Projects do
     it 'sets the merge method of a project to rebase merge' do
       project = attributes_for(:project, merge_method: 'rebase_merge')
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(json_response['merge_method']).to eq('rebase_merge')
     end
@@ -1398,7 +1628,7 @@ RSpec.describe API::Projects do
     it 'rejects invalid values for merge_method' do
       project = attributes_for(:project, merge_method: 'totally_not_valid_method')
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(response).to have_gitlab_http_status(:bad_request)
     end
@@ -1406,9 +1636,58 @@ RSpec.describe API::Projects do
     it 'ignores import_url when it is nil' do
       project = attributes_for(:project, import_url: nil)
 
-      post api('/projects', user), params: project
+      post api(path, user), params: project
 
       expect(response).to have_gitlab_http_status(:created)
+    end
+
+    context 'with repository_object_format' do
+      context 'when sha1' do
+        it 'creates a project with SHA1 repository' do
+          project = attributes_for(:project)
+
+          post api(path, user), params: project.merge(repository_object_format: 'sha1')
+
+          expect(response).to have_gitlab_http_status(:created)
+          expect(json_response['repository_object_format']).to eq 'sha1'
+        end
+      end
+
+      context 'when sha256' do
+        it 'creates a project with SHA256 repository' do
+          project = attributes_for(:project)
+
+          post api(path, user), params: project.merge(repository_object_format: 'sha256')
+
+          expect(response).to have_gitlab_http_status(:created)
+          expect(json_response['repository_object_format']).to eq 'sha256'
+        end
+
+        context 'when "support_sha256_repositories" FF is disabled' do
+          before do
+            stub_feature_flags(support_sha256_repositories: false)
+          end
+
+          it 'creates a project with SHA1 repository' do
+            project = attributes_for(:project)
+
+            post api(path, user), params: project.merge(repository_object_format: 'sha256')
+
+            expect(response).to have_gitlab_http_status(:created)
+            expect(json_response['repository_object_format']).to eq 'sha1'
+          end
+        end
+      end
+
+      context 'when unknown format' do
+        it 'rejects a project creation' do
+          project = attributes_for(:project)
+
+          post api(path, user), params: project.merge(repository_object_format: 'unknown')
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+        end
+      end
     end
 
     context 'when a visibility level is restricted' do
@@ -1419,7 +1698,7 @@ RSpec.describe API::Projects do
       end
 
       it 'does not allow a non-admin to use a restricted visibility level' do
-        post api('/projects', user), params: project_param
+        post api(path, user), params: project_param
 
         expect(response).to have_gitlab_http_status(:bad_request)
         expect(json_response['message']['visibility_level'].first).to(
@@ -1428,7 +1707,7 @@ RSpec.describe API::Projects do
       end
 
       it 'allows an admin to override restricted visibility settings' do
-        post api('/projects', admin), params: project_param
+        post api(path, admin), params: project_param
 
         expect(json_response['visibility']).to eq('public')
       end
@@ -1436,7 +1715,7 @@ RSpec.describe API::Projects do
   end
 
   describe 'GET /users/:user_id/projects/' do
-    let!(:public_project) { create(:project, :public, name: 'public_project', creator_id: user4.id, namespace: user4.namespace) }
+    let_it_be(:public_project) { create(:project, :public, creator_id: user4.id, namespace: user4.namespace) }
 
     it 'returns error when user not found' do
       get api("/users/#{non_existing_record_id}/projects/")
@@ -1454,7 +1733,25 @@ RSpec.describe API::Projects do
       expect(json_response.map { |project| project['id'] }).to contain_exactly(public_project.id)
     end
 
-    it 'includes container_registry_access_level', :aggregate_failures do
+    it_behaves_like 'rate limited endpoint', rate_limit_key: :user_projects_api do
+      def request
+        get api("/users/#{user4.id}/projects/")
+      end
+    end
+
+    context 'when rate_limit_groups_and_projects_api feature flag is disabled' do
+      before do
+        stub_feature_flags(rate_limit_groups_and_projects_api: false)
+      end
+
+      it_behaves_like 'unthrottled endpoint'
+
+      def request
+        get api("/users/#{user4.id}/projects/")
+      end
+    end
+
+    it 'includes container_registry_access_level' do
       get api("/users/#{user4.id}/projects/", user)
 
       expect(response).to have_gitlab_http_status(:ok)
@@ -1462,8 +1759,18 @@ RSpec.describe API::Projects do
       expect(json_response.first.keys).to include('container_registry_access_level')
     end
 
+    context 'filter by updated_at' do
+      it 'returns only projects updated on the given timeframe' do
+        get api("/users/#{user.id}/projects", user),
+          params: { updated_before: 2.days.ago.iso8601, updated_after: 6.days.ago }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response.map { |project| project['id'] }).to contain_exactly(project2.id, project.id)
+      end
+    end
+
     context 'and using id_after' do
-      let!(:another_public_project) { create(:project, :public, name: 'another_public_project', creator_id: user4.id, namespace: user4.namespace) }
+      let_it_be(:another_public_project) { create(:project, :public, creator_id: user4.id, namespace: user4.namespace) }
 
       it 'only returns projects with id_after filter given' do
         get api("/users/#{user4.id}/projects?id_after=#{public_project.id}", user)
@@ -1485,7 +1792,7 @@ RSpec.describe API::Projects do
     end
 
     context 'and using id_before' do
-      let!(:another_public_project) { create(:project, :public, name: 'another_public_project', creator_id: user4.id, namespace: user4.namespace) }
+      let_it_be(:another_public_project) { create(:project, :public, creator_id: user4.id, namespace: user4.namespace) }
 
       it 'only returns projects with id_before filter given' do
         get api("/users/#{user4.id}/projects?id_before=#{another_public_project.id}", user)
@@ -1507,7 +1814,7 @@ RSpec.describe API::Projects do
     end
 
     context 'and using both id_before and id_after' do
-      let!(:more_projects) { create_list(:project, 5, :public, creator_id: user4.id, namespace: user4.namespace) }
+      let_it_be(:more_projects) { create_list(:project, 5, :public, creator_id: user4.id, namespace: user4.namespace) }
 
       it 'only returns projects with id matching the range' do
         get api("/users/#{user4.id}/projects?id_after=#{more_projects.first.id}&id_before=#{more_projects.last.id}", user)
@@ -1542,7 +1849,7 @@ RSpec.describe API::Projects do
       expect(json_response.map { |project| project['id'] }).to contain_exactly(private_project1.id)
     end
 
-    context 'and using an admin to search', :enable_admin_mode, :aggregate_errors do
+    context 'and using an admin to search', :enable_admin_mode do
       it 'returns users projects when authenticated as admin' do
         private_project1 = create(:project, :private, name: 'private_project1', creator_id: user4.id, namespace: user4.namespace)
 
@@ -1576,6 +1883,8 @@ RSpec.describe API::Projects do
       user3.reload
     end
 
+    let(:path) { "/users/#{user3.id}/starred_projects/" }
+
     it 'returns error when user not found' do
       get api("/users/#{non_existing_record_id}/starred_projects/")
 
@@ -1583,15 +1892,43 @@ RSpec.describe API::Projects do
       expect(json_response['message']).to eq('404 User Not Found')
     end
 
+    it_behaves_like 'rate limited endpoint', rate_limit_key: :user_starred_projects_api do
+      def request
+        get api(path)
+      end
+    end
+
+    context 'when rate_limit_groups_and_projects_api feature flag is disabled' do
+      before do
+        stub_feature_flags(rate_limit_groups_and_projects_api: false)
+      end
+
+      it_behaves_like 'unthrottled endpoint'
+
+      def request
+        get api(path)
+      end
+    end
+
     context 'with a public profile' do
       it 'returns projects filtered by user' do
-        get api("/users/#{user3.id}/starred_projects/", user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
         expect(json_response).to be_an Array
         expect(json_response.map { |project| project['id'] })
           .to contain_exactly(project.id, project2.id, project3.id)
+      end
+
+      context 'filter by updated_at' do
+        it 'returns only projects updated on the given timeframe' do
+          get api(path, user),
+            params: { updated_before: 2.days.ago.iso8601, updated_after: 6.days.ago }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response.map { |project| project['id'] }).to contain_exactly(project2.id, project.id)
+        end
       end
     end
 
@@ -1603,7 +1940,7 @@ RSpec.describe API::Projects do
 
       context 'user does not have access to view the private profile' do
         it 'returns no projects' do
-          get api("/users/#{user3.id}/starred_projects/", user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -1614,7 +1951,7 @@ RSpec.describe API::Projects do
 
       context 'user has access to view the private profile' do
         it 'returns projects filtered by user' do
-          get api("/users/#{user3.id}/starred_projects/", admin)
+          get api(path, admin, admin_mode: true)
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
@@ -1626,9 +1963,99 @@ RSpec.describe API::Projects do
     end
   end
 
+  describe 'GET /users/:user_id/contributed_projects/' do
+    let(:path) { "/users/#{user3.id}/contributed_projects/" }
+
+    let_it_be(:project1) { create(:project, :public, path: 'my-project') }
+    let_it_be(:project2) { create(:project, :public) }
+    let_it_be(:project3) { create(:project, :public) }
+    let_it_be(:private_project) { create(:project, :private) }
+
+    before do
+      private_project.add_maintainer(user3)
+
+      create(:push_event, project: project1, author: user3)
+      create(:push_event, project: project2, author: user3)
+      create(:push_event, project: private_project, author: user3)
+    end
+
+    it 'returns error when user not found' do
+      get api("/users/#{non_existing_record_id}/contributed_projects/", user)
+
+      expect(response).to have_gitlab_http_status(:not_found)
+      expect(json_response['message']).to eq('404 User Not Found')
+    end
+
+    it_behaves_like 'rate limited endpoint', rate_limit_key: :user_contributed_projects_api do
+      def request
+        get api(path)
+      end
+    end
+
+    context 'when rate_limit_groups_and_projects_api feature flag is disabled' do
+      before do
+        stub_feature_flags(rate_limit_groups_and_projects_api: false)
+      end
+
+      it_behaves_like 'unthrottled endpoint'
+
+      def request
+        get api(path)
+      end
+    end
+
+    context 'with a public profile' do
+      it 'returns projects filtered by user' do
+        get api(path, user)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to include_pagination_headers
+        expect(json_response).to be_an Array
+        expect(json_response.map { |project| project['id'] })
+          .to contain_exactly(project1.id, project2.id)
+      end
+    end
+
+    context 'with a private profile' do
+      before do
+        user3.update!(private_profile: true)
+        user3.reload
+      end
+
+      context 'user does not have access to view the private profile' do
+        it 'returns no projects', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/444704' do
+          get api(path, user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to include_pagination_headers
+          expect(json_response).to be_an Array
+          expect(json_response).to be_empty
+        end
+      end
+
+      context 'user has access to view the private profile as an admin' do
+        it 'returns projects filtered by user' do
+          get api(path, admin, admin_mode: true)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to include_pagination_headers
+          expect(json_response).to be_an Array
+          expect(json_response.map { |project| project['id'] })
+            .to contain_exactly(project1.id, project2.id, private_project.id)
+        end
+      end
+    end
+  end
+
   describe 'POST /projects/user/:id' do
+    let(:path) { "/projects/user/#{user.id}" }
+
+    it_behaves_like 'POST request permissions for admin mode' do
+      let(:params) { { name: 'Foo Project' } }
+    end
+
     it 'creates new project without path but with name and return 201' do
-      expect { post api("/projects/user/#{user.id}", admin), params: { name: 'Foo Project' } }.to change { Project.count }.by(1)
+      expect { post api(path, admin, admin_mode: true), params: { name: 'Foo Project' } }.to change { Project.count }.by(1)
       expect(response).to have_gitlab_http_status(:created)
 
       project = Project.find(json_response['id'])
@@ -1638,7 +2065,7 @@ RSpec.describe API::Projects do
     end
 
     it 'creates new project with name and path and returns 201' do
-      expect { post api("/projects/user/#{user.id}", admin), params: { path: 'path-project-Foo', name: 'Foo Project' } }
+      expect { post api(path, admin, admin_mode: true), params: { path: 'path-project-Foo', name: 'Foo Project' } }
         .to change { Project.count }.by(1)
       expect(response).to have_gitlab_http_status(:created)
 
@@ -1649,11 +2076,11 @@ RSpec.describe API::Projects do
     end
 
     it_behaves_like 'create project with default branch parameter' do
-      let(:request) { post api("/projects/user/#{user.id}", admin), params: params }
+      subject(:request) { post api(path, admin, admin_mode: true), params: params }
     end
 
     it 'responds with 400 on failure and not project' do
-      expect { post api("/projects/user/#{user.id}", admin) }
+      expect { post api(path, admin, admin_mode: true) }
         .not_to change { Project.count }
 
       expect(response).to have_gitlab_http_status(:bad_request)
@@ -1665,7 +2092,7 @@ RSpec.describe API::Projects do
         attrs[:container_registry_enabled] = true
       end
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(response).to have_gitlab_http_status(:created)
       expect(json_response['container_registry_enabled']).to eq(true)
@@ -1681,7 +2108,7 @@ RSpec.describe API::Projects do
         jobs_enabled: true
       })
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(response).to have_gitlab_http_status(:created)
 
@@ -1695,7 +2122,7 @@ RSpec.describe API::Projects do
     it 'sets a project as public' do
       project = attributes_for(:project, visibility: 'public')
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(response).to have_gitlab_http_status(:created)
       expect(json_response['visibility']).to eq('public')
@@ -1704,7 +2131,7 @@ RSpec.describe API::Projects do
     it 'sets a project as internal' do
       project = attributes_for(:project, visibility: 'internal')
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(response).to have_gitlab_http_status(:created)
       expect(json_response['visibility']).to eq('internal')
@@ -1713,7 +2140,7 @@ RSpec.describe API::Projects do
     it 'sets a project as private' do
       project = attributes_for(:project, visibility: 'private')
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['visibility']).to eq('private')
     end
@@ -1721,7 +2148,7 @@ RSpec.describe API::Projects do
     it 'sets a project as not allowing outdated diff discussions to automatically resolve' do
       project = attributes_for(:project, resolve_outdated_diff_discussions: false)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['resolve_outdated_diff_discussions']).to be_falsey
     end
@@ -1729,7 +2156,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing outdated diff discussions to automatically resolve' do
       project = attributes_for(:project, resolve_outdated_diff_discussions: true)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['resolve_outdated_diff_discussions']).to be_truthy
     end
@@ -1737,7 +2164,7 @@ RSpec.describe API::Projects do
     it 'sets a project as not removing source branches' do
       project = attributes_for(:project, remove_source_branch_after_merge: false)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['remove_source_branch_after_merge']).to be_falsey
     end
@@ -1745,7 +2172,7 @@ RSpec.describe API::Projects do
     it 'sets a project as removing source branches' do
       project = attributes_for(:project, remove_source_branch_after_merge: true)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['remove_source_branch_after_merge']).to be_truthy
     end
@@ -1753,7 +2180,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge even if build fails' do
       project = attributes_for(:project, only_allow_merge_if_pipeline_succeeds: false)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['only_allow_merge_if_pipeline_succeeds']).to be_falsey
     end
@@ -1761,7 +2188,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge only if pipeline succeeds' do
       project = attributes_for(:project, only_allow_merge_if_pipeline_succeeds: true)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['only_allow_merge_if_pipeline_succeeds']).to be_truthy
     end
@@ -1769,7 +2196,7 @@ RSpec.describe API::Projects do
     it 'sets a project as not allowing merge when pipeline is skipped' do
       project = attributes_for(:project, allow_merge_on_skipped_pipeline: false)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['allow_merge_on_skipped_pipeline']).to be_falsey
     end
@@ -1777,7 +2204,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge when pipeline is skipped' do
       project = attributes_for(:project, allow_merge_on_skipped_pipeline: true)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['allow_merge_on_skipped_pipeline']).to be_truthy
     end
@@ -1785,7 +2212,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge even if discussions are unresolved' do
       project = attributes_for(:project, only_allow_merge_if_all_discussions_are_resolved: false)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['only_allow_merge_if_all_discussions_are_resolved']).to be_falsey
     end
@@ -1793,7 +2220,7 @@ RSpec.describe API::Projects do
     it 'sets a project as allowing merge only if all discussions are resolved' do
       project = attributes_for(:project, only_allow_merge_if_all_discussions_are_resolved: true)
 
-      post api("/projects/user/#{user.id}", admin), params: project
+      post api(path, admin, admin_mode: true), params: project
 
       expect(json_response['only_allow_merge_if_all_discussions_are_resolved']).to be_truthy
     end
@@ -1807,12 +2234,12 @@ RSpec.describe API::Projects do
       end
 
       with_them do
-        it 'setting container_registry_enabled also sets container_registry_access_level', :aggregate_failures do
+        it 'setting container_registry_enabled also sets container_registry_access_level' do
           project_attributes = attributes_for(:project).tap do |attrs|
             attrs[:container_registry_enabled] = container_registry_enabled
           end
 
-          post api("/projects/user/#{user.id}", admin), params: project_attributes
+          post api(path, admin, admin_mode: true), params: project_attributes
 
           project = Project.find_by(path: project_attributes[:path])
           expect(response).to have_gitlab_http_status(:created)
@@ -1834,12 +2261,12 @@ RSpec.describe API::Projects do
       end
 
       with_them do
-        it 'setting container_registry_access_level also sets container_registry_enabled', :aggregate_failures do
+        it 'setting container_registry_access_level also sets container_registry_enabled' do
           project_attributes = attributes_for(:project).tap do |attrs|
             attrs[:container_registry_access_level] = container_registry_access_level
           end
 
-          post api("/projects/user/#{user.id}", admin), params: project_attributes
+          post api(path, admin, admin_mode: true), params: project_attributes
 
           project = Project.find_by(path: project_attributes[:path])
           expect(response).to have_gitlab_http_status(:created)
@@ -1852,140 +2279,6 @@ RSpec.describe API::Projects do
     end
   end
 
-  describe "POST /projects/:id/uploads/authorize" do
-    include WorkhorseHelpers
-
-    let(:headers) { workhorse_internal_api_request_header.merge({ 'HTTP_GITLAB_WORKHORSE' => 1 }) }
-
-    context 'with authorized user' do
-      it "returns 200" do
-        post api("/projects/#{project.id}/uploads/authorize", user), headers: headers
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['MaximumSize']).to eq(project.max_attachment_size)
-      end
-    end
-
-    context 'with unauthorized user' do
-      it "returns 404" do
-        post api("/projects/#{project.id}/uploads/authorize", user2), headers: headers
-
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-    end
-
-    context 'with exempted project' do
-      before do
-        stub_env('GITLAB_UPLOAD_API_ALLOWLIST', project.id)
-      end
-
-      it "returns 200" do
-        post api("/projects/#{project.id}/uploads/authorize", user), headers: headers
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['MaximumSize']).to eq(1.gigabyte)
-      end
-    end
-
-    context 'with upload size enforcement disabled' do
-      before do
-        stub_feature_flags(enforce_max_attachment_size_upload_api: false)
-      end
-
-      it "returns 200" do
-        post api("/projects/#{project.id}/uploads/authorize", user), headers: headers
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['MaximumSize']).to eq(1.gigabyte)
-      end
-    end
-
-    context 'with no Workhorse headers' do
-      it "returns 403" do
-        post api("/projects/#{project.id}/uploads/authorize", user)
-
-        expect(response).to have_gitlab_http_status(:forbidden)
-      end
-    end
-  end
-
-  describe "POST /projects/:id/uploads" do
-    let(:file) { fixture_file_upload("spec/fixtures/dk.png", "image/png") }
-
-    before do
-      project
-    end
-
-    it "uploads the file and returns its info" do
-      expect_next_instance_of(UploadService) do |instance|
-        expect(instance).to receive(:override_max_attachment_size=).with(project.max_attachment_size).and_call_original
-      end
-
-      post api("/projects/#{project.id}/uploads", user), params: { file: file }
-
-      expect(response).to have_gitlab_http_status(:created)
-      expect(json_response['alt']).to eq("dk")
-      expect(json_response['url']).to start_with("/uploads/")
-      expect(json_response['url']).to end_with("/dk.png")
-      expect(json_response['full_path']).to start_with("/#{project.namespace.path}/#{project.path}/uploads")
-    end
-
-    it "does not leave the temporary file in place after uploading, even when the tempfile reaper does not run" do
-      tempfile = Tempfile.new('foo')
-      path = tempfile.path
-
-      allow_any_instance_of(Rack::TempfileReaper).to receive(:call) do |instance, env|
-        instance.instance_variable_get(:@app).call(env)
-      end
-
-      expect(path).not_to be(nil)
-      expect(Rack::Multipart::Parser::TEMPFILE_FACTORY).to receive(:call).and_return(tempfile)
-
-      post api("/projects/#{project.id}/uploads", user), params: { file: fixture_file_upload("spec/fixtures/dk.png", "image/png") }
-
-      expect(tempfile.path).to be(nil)
-      expect(File.exist?(path)).to be(false)
-    end
-
-    shared_examples 'capped upload attachments' do |upload_allowed|
-      it "limits the upload to 1 GB" do
-        expect_next_instance_of(UploadService) do |instance|
-          expect(instance).to receive(:override_max_attachment_size=).with(1.gigabyte).and_call_original
-        end
-
-        post api("/projects/#{project.id}/uploads", user), params: { file: file }
-
-        expect(response).to have_gitlab_http_status(:created)
-      end
-
-      it "logs a warning if file exceeds attachment size" do
-        allow(Gitlab::CurrentSettings).to receive(:max_attachment_size).and_return(0)
-
-        expect(Gitlab::AppLogger).to receive(:info).with(
-          hash_including(message: 'File exceeds maximum size', upload_allowed: upload_allowed))
-            .and_call_original
-
-        post api("/projects/#{project.id}/uploads", user), params: { file: file }
-      end
-    end
-
-    context 'with exempted project' do
-      before do
-        stub_env('GITLAB_UPLOAD_API_ALLOWLIST', project.id)
-      end
-
-      it_behaves_like 'capped upload attachments', true
-    end
-
-    context 'with upload size enforcement disabled' do
-      before do
-        stub_feature_flags(enforce_max_attachment_size_upload_api: false)
-      end
-
-      it_behaves_like 'capped upload attachments', false
-    end
-  end
-
   describe "GET /projects/:id/groups" do
     let_it_be(:root_group) { create(:group, :public, name: 'root group') }
     let_it_be(:project_group) { create(:group, :public, parent: root_group, name: 'project group') }
@@ -1994,33 +2287,37 @@ RSpec.describe API::Projects do
     let_it_be(:private_project) { create(:project, :private, group: project_group) }
     let_it_be(:public_project) { create(:project, :public, group: project_group) }
 
+    let(:path) { "/projects/#{private_project.id}/groups" }
+
     before_all do
       create(:project_group_link, :developer, group: shared_group_with_dev_access, project: private_project)
       create(:project_group_link, :reporter, group: shared_group_with_reporter_access, project: private_project)
+    end
+
+    it_behaves_like 'GET request permissions for admin mode' do
+      let(:failed_status_code) { :not_found }
     end
 
     shared_examples_for 'successful groups response' do
       it 'returns an array of groups' do
         request
 
-        aggregate_failures do
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(response).to include_pagination_headers
-          expect(json_response).to be_an Array
-          expect(json_response.map { |g| g['name'] }).to match_array(expected_groups.map(&:name))
-        end
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to include_pagination_headers
+        expect(json_response).to be_an Array
+        expect(json_response.map { |g| g['name'] }).to match_array(expected_groups.map(&:name))
       end
     end
 
     context 'when unauthenticated' do
       it 'does not return groups for private projects' do
-        get api("/projects/#{private_project.id}/groups")
+        get api(path)
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
       context 'for public projects' do
-        let(:request) { get api("/projects/#{public_project.id}/groups") }
+        subject(:request) { get api("/projects/#{public_project.id}/groups") }
 
         it_behaves_like 'successful groups response' do
           let(:expected_groups) { [root_group, project_group] }
@@ -2031,14 +2328,15 @@ RSpec.describe API::Projects do
     context 'when authenticated as user' do
       context 'when user does not have access to the project' do
         it 'does not return groups' do
-          get api("/projects/#{private_project.id}/groups", user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:not_found)
         end
       end
 
       context 'when user has access to the project' do
-        let(:request) { get api("/projects/#{private_project.id}/groups", user), params: params }
+        subject(:request) { get api(path, user), params: params }
+
         let(:params) { {} }
 
         before do
@@ -2100,7 +2398,7 @@ RSpec.describe API::Projects do
     end
 
     context 'when authenticated as admin' do
-      let(:request) { get api("/projects/#{private_project.id}/groups", admin) }
+      subject(:request) { get api(path, admin, admin_mode: true) }
 
       it_behaves_like 'successful groups response' do
         let(:expected_groups) { [root_group, project_group] }
@@ -2108,7 +2406,130 @@ RSpec.describe API::Projects do
     end
   end
 
+  describe 'GET /project/:id/share_locations' do
+    let_it_be(:root_group) { create(:group, :public, name: 'root group', path: 'root-group-path') }
+    let_it_be(:project_group1) { create(:group, :public, parent: root_group, name: 'group1', path: 'group-1-path') }
+    let_it_be(:project_group2) { create(:group, :public, parent: root_group, name: 'group2', path: 'group-2-path') }
+    let_it_be(:project) { create(:project, :private, group: project_group1) }
+    let(:path) { "/projects/#{project.id}/share_locations" }
+
+    it_behaves_like 'GET request permissions for admin mode' do
+      let(:failed_status_code) { :not_found }
+    end
+
+    shared_examples_for 'successful groups response' do
+      it 'returns an array of groups' do
+        request
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to include_pagination_headers
+        expect(json_response).to be_an Array
+        expect(json_response.map { |g| g['name'] }).to match_array(expected_groups.map(&:name))
+      end
+    end
+
+    context 'when unauthenticated' do
+      it 'does not return the groups for the given project' do
+        get api(path)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context 'when authenticated' do
+      context 'when user is not the owner of the project' do
+        it 'does not return the groups' do
+          get api(path, user)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when user is the owner of the project' do
+        subject(:request) { get api(path, user), params: params }
+
+        let(:params) { {} }
+
+        before do
+          project.add_owner(user)
+          project_group1.add_developer(user)
+          project_group2.add_developer(user)
+        end
+
+        context 'with default search' do
+          it_behaves_like 'successful groups response' do
+            let(:expected_groups) { [project_group2] }
+          end
+        end
+
+        context 'when searching by group name' do
+          context 'searching by group name' do
+            it_behaves_like 'successful groups response' do
+              let(:params) { { search: 'group2' } }
+              let(:expected_groups) { [project_group2] }
+            end
+          end
+
+          context 'searching by full group path' do
+            let_it_be(:project_group2_subgroup) do
+              create(:group, :public, parent: project_group2, name: 'subgroup', path: 'subgroup-path')
+            end
+
+            it_behaves_like 'successful groups response' do
+              let(:params) { { search: 'root-group-path/group-2-path/subgroup-path' } }
+              let(:expected_groups) { [project_group2_subgroup] }
+            end
+          end
+        end
+      end
+    end
+
+    context 'when authenticated as admin' do
+      subject(:request) { get api(path, admin, admin_mode: true), params: {} }
+
+      context 'without share_with_group_lock' do
+        it_behaves_like 'successful groups response' do
+          let(:expected_groups) { [project_group2] }
+        end
+      end
+
+      context 'with share_with_group_lock' do
+        before do
+          project.namespace.update!(share_with_group_lock: true)
+        end
+
+        it_behaves_like 'successful groups response' do
+          let(:expected_groups) { [] }
+        end
+      end
+    end
+  end
+
   describe 'GET /projects/:id' do
+    let(:path) { "/projects/#{project.id}" }
+
+    it_behaves_like 'GET request permissions for admin mode' do
+      let(:failed_status_code) { :not_found }
+    end
+
+    it_behaves_like 'rate limited endpoint', rate_limit_key: :project_api do
+      def request
+        get api(path)
+      end
+    end
+
+    context 'when rate_limit_groups_and_projects_api feature flag is disabled' do
+      before do
+        stub_feature_flags(rate_limit_groups_and_projects_api: false)
+      end
+
+      it_behaves_like 'unthrottled endpoint'
+
+      def request
+        get api(path)
+      end
+    end
+
     context 'when unauthenticated' do
       it 'does not return private projects' do
         private_project = create(:project, :private)
@@ -2132,9 +2553,26 @@ RSpec.describe API::Projects do
       end
 
       context 'the project is a public fork' do
-        it 'hides details of a public fork parent' do
+        it 'shows details of a public fork parent' do
           public_project = create(:project, :repository, :public)
           fork = fork_project(public_project)
+
+          get api("/projects/#{fork.id}")
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['forked_from_project']).to include('id' => public_project.id)
+        end
+
+        it 'hides details of a private fork parent' do
+          public_project = create(:project, :repository, :public)
+          parent_user = create(:user)
+          public_project.team.add_developer(parent_user)
+
+          fork = fork_project(public_project, user)
+
+          # Make the parent private
+          public_project.visibility = Gitlab::VisibilityLevel::PRIVATE
+          public_project.save!
 
           get api("/projects/#{fork.id}")
 
@@ -2145,10 +2583,10 @@ RSpec.describe API::Projects do
 
       context 'and the project has a private repository' do
         let(:project) { create(:project, :repository, :public, :repository_private) }
-        let(:protected_attributes) { %w(default_branch ci_config_path) }
+        let(:protected_attributes) { %w[default_branch ci_config_path] }
 
         it 'hides protected attributes of private repositories if user is not a member' do
-          get api("/projects/#{project.id}", user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:ok)
           protected_attributes.each do |attribute|
@@ -2159,7 +2597,7 @@ RSpec.describe API::Projects do
         it 'exposes protected attributes of private repositories if user is a member' do
           project.add_developer(user)
 
-          get api("/projects/#{project.id}", user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:ok)
           protected_attributes.each do |attribute|
@@ -2169,7 +2607,7 @@ RSpec.describe API::Projects do
       end
     end
 
-    context 'when authenticated as an admin' do
+    context 'when authenticated as an admin', :with_license do
       before do
         stub_container_registry_config(enabled: true, host_port: 'registry.example.org:5000')
       end
@@ -2178,7 +2616,7 @@ RSpec.describe API::Projects do
       let(:project_attributes) { YAML.load_file(project_attributes_file) }
 
       let(:expected_keys) do
-        keys = project_attributes.map do |relation, relation_config|
+        keys = project_attributes.flat_map do |relation, relation_config|
           begin
             actual_keys = project.send(relation).attributes.keys
           rescue NoMethodError
@@ -2188,7 +2626,7 @@ RSpec.describe API::Projects do
           remapped_attributes = relation_config['remapped_attributes'] || {}
           computed_attributes = relation_config['computed_attributes'] || []
           actual_keys - unexposed_attributes - remapped_attributes.keys + remapped_attributes.values + computed_attributes
-        end.flatten
+        end
 
         unless Gitlab.ee?
           keys -= %w[
@@ -2206,17 +2644,17 @@ RSpec.describe API::Projects do
         keys
       end
 
-      it 'returns a project by id', :aggregate_failures do
+      it 'returns a project by id' do
         project
         project_member
         group = create(:group)
         link = create(:project_group_link, project: project, group: group)
 
-        get api("/projects/#{project.id}", admin)
-
+        get api(path, admin, admin_mode: true)
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['id']).to eq(project.id)
         expect(json_response['description']).to eq(project.description)
+        expect(json_response['description_html']).to eq(project.description_html)
         expect(json_response['default_branch']).to eq(project.default_branch)
         expect(json_response['tag_list']).to be_an Array # deprecated in favor of 'topics'
         expect(json_response['topics']).to be_an Array
@@ -2238,8 +2676,10 @@ RSpec.describe API::Projects do
         expect(json_response['container_registry_enabled']).to be_present
         expect(json_response['container_registry_access_level']).to be_present
         expect(json_response['created_at']).to be_present
+        expect(json_response['updated_at']).to be_present
         expect(json_response['last_activity_at']).to be_present
         expect(json_response['shared_runners_enabled']).to be_present
+        expect(json_response['group_runners_enabled']).to be_present
         expect(json_response['creator_id']).to be_present
         expect(json_response['namespace']).to be_present
         expect(json_response['avatar_url']).to be_nil
@@ -2254,15 +2694,23 @@ RSpec.describe API::Projects do
         expect(json_response['only_allow_merge_if_pipeline_succeeds']).to eq(project.only_allow_merge_if_pipeline_succeeds)
         expect(json_response['allow_merge_on_skipped_pipeline']).to eq(project.allow_merge_on_skipped_pipeline)
         expect(json_response['restrict_user_defined_variables']).to eq(project.restrict_user_defined_variables?)
+        expect(json_response['ci_pipeline_variables_minimum_override_role']).to eq(project.ci_pipeline_variables_minimum_override_role.to_s)
         expect(json_response['only_allow_merge_if_all_discussions_are_resolved']).to eq(project.only_allow_merge_if_all_discussions_are_resolved)
-        expect(json_response['operations_access_level']).to be_present
         expect(json_response['security_and_compliance_access_level']).to be_present
+        expect(json_response['releases_access_level']).to be_present
+        expect(json_response['environments_access_level']).to be_present
+        expect(json_response['feature_flags_access_level']).to be_present
+        expect(json_response['infrastructure_access_level']).to be_present
+        expect(json_response['monitor_access_level']).to be_present
+        expect(json_response['warn_about_potentially_unwanted_characters']).to be_present
+        expect(json_response).to have_key('emails_disabled')
+        expect(json_response).to have_key('emails_enabled')
       end
 
       it 'exposes all necessary attributes' do
         create(:project_group_link, project: project)
 
-        get api("/projects/#{project.id}", admin)
+        get api(path, admin, admin_mode: true)
 
         diff = Set.new(json_response.keys) ^ Set.new(expected_keys)
 
@@ -2288,11 +2736,11 @@ RSpec.describe API::Projects do
         stub_container_registry_config(enabled: true, host_port: 'registry.example.org:5000')
       end
 
-      it 'returns a project by id', :aggregate_failures do
+      it 'returns a project by id' do
         group = create(:group)
         link = create(:project_group_link, project: project, group: group)
 
-        get api("/projects/#{project.id}", user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['id']).to eq(project.id)
@@ -2324,9 +2772,12 @@ RSpec.describe API::Projects do
         expect(json_response['analytics_access_level']).to be_present
         expect(json_response['wiki_access_level']).to be_present
         expect(json_response['builds_access_level']).to be_present
-        expect(json_response['operations_access_level']).to be_present
         expect(json_response['security_and_compliance_access_level']).to be_present
-        expect(json_response).to have_key('emails_disabled')
+        expect(json_response['releases_access_level']).to be_present
+        expect(json_response['environments_access_level']).to be_present
+        expect(json_response['feature_flags_access_level']).to be_present
+        expect(json_response['infrastructure_access_level']).to be_present
+        expect(json_response['monitor_access_level']).to be_present
         expect(json_response['resolve_outdated_diff_discussions']).to eq(project.resolve_outdated_diff_discussions)
         expect(json_response['remove_source_branch_after_merge']).to be_truthy
         expect(json_response['container_registry_enabled']).to be_present
@@ -2334,6 +2785,7 @@ RSpec.describe API::Projects do
         expect(json_response['created_at']).to be_present
         expect(json_response['last_activity_at']).to be_present
         expect(json_response['shared_runners_enabled']).to be_present
+        expect(json_response['group_runners_enabled']).to be_present
         expect(json_response['creator_id']).to be_present
         expect(json_response['namespace']).to be_present
         expect(json_response['import_status']).to be_present
@@ -2356,11 +2808,15 @@ RSpec.describe API::Projects do
         expect(json_response['only_allow_merge_if_all_discussions_are_resolved']).to eq(project.only_allow_merge_if_all_discussions_are_resolved)
         expect(json_response['ci_default_git_depth']).to eq(project.ci_default_git_depth)
         expect(json_response['ci_forward_deployment_enabled']).to eq(project.ci_forward_deployment_enabled)
+        expect(json_response['ci_forward_deployment_rollback_allowed']).to eq(project.ci_forward_deployment_rollback_allowed)
+        expect(json_response['ci_allow_fork_pipelines_to_run_in_parent_project']).to eq(project.ci_allow_fork_pipelines_to_run_in_parent_project)
+        expect(json_response['ci_separated_caches']).to eq(project.ci_separated_caches)
         expect(json_response['merge_method']).to eq(project.merge_method.to_s)
         expect(json_response['squash_option']).to eq(project.squash_option.to_s)
         expect(json_response['readme_url']).to eq(project.readme_url)
         expect(json_response).to have_key 'packages_enabled'
         expect(json_response['keep_latest_artifact']).to be_present
+        expect(json_response['warn_about_potentially_unwanted_characters']).to be_present
       end
 
       it 'returns a group link with expiration date' do
@@ -2368,7 +2824,7 @@ RSpec.describe API::Projects do
         expires_at = 5.days.from_now.to_date
         link = create(:project_group_link, project: project, group: group, expires_at: expires_at)
 
-        get api("/projects/#{project.id}", user)
+        get api(path, user)
 
         expect(json_response['shared_with_groups']).to be_an Array
         expect(json_response['shared_with_groups'].length).to eq(1)
@@ -2379,10 +2835,49 @@ RSpec.describe API::Projects do
         expect(json_response['shared_with_groups'][0]['expires_at']).to eq(expires_at.to_s)
       end
 
-      it 'returns a project by path name' do
-        get api("/projects/#{project.id}", user)
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['name']).to eq(project.name)
+      context 'when path name is specified' do
+        it 'returns a project' do
+          get api("/projects/#{CGI.escape(project.full_path)}", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['name']).to eq(project.name)
+        end
+
+        it 'returns a project using case-insensitive search' do
+          get api("/projects/#{CGI.escape(project.full_path.swapcase)}", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['name']).to eq(project.name)
+        end
+      end
+
+      context 'when a project is moved' do
+        let(:redirect_route) { 'new/project/location' }
+        let(:perform_request) { get api("/projects/#{CGI.escape(redirect_route)}", user), params: { license: true } }
+
+        before do
+          project.route.create_redirect(redirect_route)
+        end
+
+        it 'redirects to the new project location' do
+          perform_request
+
+          expect(response).to have_gitlab_http_status(:moved_permanently)
+
+          url = response.headers['Location']
+          expect(url).to start_with("#{request.base_url}/api/v4/projects/#{project.id}")
+          expect(CGI.parse(URI(url).query)).to include({ 'license' => ['true'] })
+        end
+
+        context 'when a user do not have access' do
+          let(:user) { create(:user) }
+
+          it 'returns a 404 error' do
+            perform_request
+
+            expect(response).to have_gitlab_http_status(:not_found)
+          end
+        end
       end
 
       it 'returns a 404 error if not found' do
@@ -2393,7 +2888,7 @@ RSpec.describe API::Projects do
 
       it 'returns a 404 error if user is not a member' do
         other_user = create(:user)
-        get api("/projects/#{project.id}", other_user)
+        get api(path, other_user)
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
@@ -2407,7 +2902,7 @@ RSpec.describe API::Projects do
       end
 
       it 'exposes namespace fields' do
-        get api("/projects/#{project.id}", user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['namespace']).to eq({
@@ -2423,14 +2918,14 @@ RSpec.describe API::Projects do
       end
 
       it "does not include license fields by default" do
-        get api("/projects/#{project.id}", user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response).not_to include('license', 'license_url')
       end
 
       it 'includes license fields when requested' do
-        get api("/projects/#{project.id}", user), params: { license: true }
+        get api(path, user), params: { license: true }
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['license']).to eq({
@@ -2438,19 +2933,19 @@ RSpec.describe API::Projects do
           'name' => project.repository.license.name,
           'nickname' => project.repository.license.nickname,
           'html_url' => project.repository.license.url,
-          'source_url' => project.repository.license.meta['source']
+          'source_url' => nil
         })
       end
 
       it "does not include statistics by default" do
-        get api("/projects/#{project.id}", user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response).not_to include 'statistics'
       end
 
       it "includes statistics if requested" do
-        get api("/projects/#{project.id}", user), params: { statistics: true }
+        get api(path, user), params: { statistics: true }
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response).to include 'statistics'
@@ -2460,7 +2955,7 @@ RSpec.describe API::Projects do
         let(:project) { create(:project, :public, :repository, :repository_private) }
 
         it "does not include statistics if user is not a member" do
-          get api("/projects/#{project.id}", user), params: { statistics: true }
+          get api(path, user), params: { statistics: true }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response).not_to include 'statistics'
@@ -2469,7 +2964,7 @@ RSpec.describe API::Projects do
         it "includes statistics if user is a member" do
           project.add_developer(user)
 
-          get api("/projects/#{project.id}", user), params: { statistics: true }
+          get api(path, user), params: { statistics: true }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response).to include 'statistics'
@@ -2479,7 +2974,7 @@ RSpec.describe API::Projects do
           project.add_developer(user)
           project.project_feature.update_attribute(:repository_access_level, ProjectFeature::DISABLED)
 
-          get api("/projects/#{project.id}", user), params: { statistics: true }
+          get api(path, user), params: { statistics: true }
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response).to include 'statistics'
@@ -2487,14 +2982,14 @@ RSpec.describe API::Projects do
       end
 
       it "includes import_error if user can admin project" do
-        get api("/projects/#{project.id}", user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response).to include("import_error")
       end
 
       it "does not include import_error if user cannot admin project" do
-        get api("/projects/#{project.id}", user3)
+        get api(path, user3)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response).not_to include("import_error")
@@ -2503,7 +2998,7 @@ RSpec.describe API::Projects do
       it 'returns 404 when project is marked for deletion' do
         project.update!(pending_delete: true)
 
-        get api("/projects/#{project.id}", user)
+        get api(path, user)
 
         expect(response).to have_gitlab_http_status(:not_found)
         expect(json_response['message']).to eq('404 Project Not Found')
@@ -2511,7 +3006,7 @@ RSpec.describe API::Projects do
 
       context 'links exposure' do
         it 'exposes related resources full URIs' do
-          get api("/projects/#{project.id}", user)
+          get api(path, user)
 
           links = json_response['_links']
 
@@ -2522,14 +3017,18 @@ RSpec.describe API::Projects do
           expect(links['labels']).to end_with("/api/v4/projects/#{project.id}/labels")
           expect(links['events']).to end_with("/api/v4/projects/#{project.id}/events")
           expect(links['members']).to end_with("/api/v4/projects/#{project.id}/members")
+          expect(links['cluster_agents']).to end_with("/api/v4/projects/#{project.id}/cluster_agents")
         end
 
         it 'filters related URIs when their feature is not enabled' do
-          project = create(:project, :public,
-                           :merge_requests_disabled,
-                           :issues_disabled,
-                           creator_id: user.id,
-                           namespace: user.namespace)
+          project = create(
+            :project,
+            :public,
+            :merge_requests_disabled,
+            :issues_disabled,
+            creator_id: user.id,
+            namespace: user.namespace
+          )
 
           get api("/projects/#{project.id}", user)
 
@@ -2584,7 +3083,7 @@ RSpec.describe API::Projects do
         context 'personal project' do
           it 'sets project access and returns 200' do
             project.add_maintainer(user)
-            get api("/projects/#{project.id}", user)
+            get api(path, user)
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(json_response['permissions']['project_access']['access_level'])
@@ -2651,7 +3150,7 @@ RSpec.describe API::Projects do
         let!(:project_member) { create(:project_member, :developer, user: user, project: project) }
 
         it 'returns group web_url and avatar_url' do
-          get api("/projects/#{project.id}", user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:ok)
 
@@ -2666,7 +3165,7 @@ RSpec.describe API::Projects do
         let(:project) { create(:project, namespace: user.namespace) }
 
         it 'returns user web_url and avatar_url' do
-          get api("/projects/#{project.id}", user)
+          get api(path, user)
 
           expect(response).to have_gitlab_http_status(:ok)
 
@@ -2677,21 +3176,64 @@ RSpec.describe API::Projects do
       end
     end
 
+    context 'when authenticated as a developer' do
+      before do
+        project
+        project_member
+      end
+
+      it 'hides sensitive admin attributes' do
+        get api(path, user3)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['id']).to eq(project.id)
+        expect(json_response['description']).to eq(project.description)
+        expect(json_response['default_branch']).to eq(project.default_branch)
+        expect(json_response['ci_config_path']).to eq(project.ci_config_path)
+        expect(json_response['forked_from_project']).to eq(project.forked_from_project)
+        expect(json_response['service_desk_address']).to eq(project.service_desk_address)
+        expect(json_response).not_to include(
+          'ci_default_git_depth',
+          'ci_forward_deployment_enabled',
+          'ci_forward_deployment_rollback_allowed',
+          'ci_job_token_scope_enabled',
+          'ci_separated_caches',
+          'ci_allow_fork_pipelines_to_run_in_parent_project',
+          'build_git_strategy',
+          'keep_latest_artifact',
+          'restrict_user_defined_variables',
+          'ci_pipeline_variables_minimum_override_role',
+          'runners_token',
+          'runner_token_expiration_interval',
+          'group_runners_enabled',
+          'auto_cancel_pending_pipelines',
+          'build_timeout',
+          'auto_devops_enabled',
+          'auto_devops_deploy_strategy',
+          'import_error',
+          'ci_push_repository_for_job_token_allowed'
+        )
+      end
+    end
+
     it_behaves_like 'storing arguments in the application context for the API' do
       let_it_be(:user) { create(:user) }
       let_it_be(:project) { create(:project, :public) }
       let(:expected_params) { { user: user.username, project: project.full_path } }
 
-      subject { get api("/projects/#{project.id}", user) }
+      subject { get api(path, user) }
     end
 
     describe 'repository_storage attribute' do
+      let_it_be(:admin_mode) { false }
+
       before do
-        get api("/projects/#{project.id}", user)
+        get api(path, user, admin_mode: admin_mode)
       end
 
       context 'when authenticated as an admin' do
         let(:user) { create(:admin) }
+        let_it_be(:admin_mode) { true }
 
         it 'returns repository_storage attribute' do
           expect(response).to have_gitlab_http_status(:ok)
@@ -2707,31 +3249,34 @@ RSpec.describe API::Projects do
     end
 
     it 'exposes service desk attributes' do
-      get api("/projects/#{project.id}", user)
+      get api(path, user)
 
       expect(json_response).to have_key 'service_desk_enabled'
       expect(json_response).to have_key 'service_desk_address'
     end
 
     context 'when project is shared to multiple groups' do
-      it 'avoids N+1 queries' do
+      it 'avoids N+1 queries', :use_sql_query_cache do
         create(:project_group_link, project: project)
-        get api("/projects/#{project.id}", user)
+        get api(path, user)
+        expect(response).to have_gitlab_http_status(:ok)
 
         control = ActiveRecord::QueryRecorder.new do
-          get api("/projects/#{project.id}", user)
+          get api(path, user)
         end
 
         create(:project_group_link, project: project)
 
         expect do
-          get api("/projects/#{project.id}", user)
+          get api(path, user)
         end.not_to exceed_query_limit(control)
       end
     end
   end
 
   describe 'GET /projects/:id/users' do
+    let(:path) { "/projects/#{project.id}/users" }
+
     shared_examples_for 'project users response' do
       let(:reporter_1) { create(:user) }
       let(:reporter_2) { create(:user) }
@@ -2742,7 +3287,7 @@ RSpec.describe API::Projects do
       end
 
       it 'returns the project users' do
-        get api("/projects/#{project.id}/users", current_user)
+        get api(path, current_user)
 
         user = project.namespace.first_owner
 
@@ -2759,6 +3304,10 @@ RSpec.describe API::Projects do
         ids = json_response.map { |raw_user| raw_user['id'] }
         expect(ids).to eq([user.id, reporter_1.id, reporter_2.id])
       end
+    end
+
+    it_behaves_like 'GET request permissions for admin mode' do
+      let(:failed_status_code) { :not_found }
     end
 
     context 'when unauthenticated' do
@@ -2786,7 +3335,7 @@ RSpec.describe API::Projects do
       it 'returns a 404 error if user is not a member' do
         other_user = create(:user)
 
-        get api("/projects/#{project.id}/users", other_user)
+        get api(path, other_user)
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
@@ -2805,25 +3354,32 @@ RSpec.describe API::Projects do
   end
 
   describe 'fork management' do
-    let(:project_fork_target) { create(:project) }
-    let(:project_fork_source) { create(:project, :public) }
-    let(:private_project_fork_source) { create(:project, :private) }
+    let_it_be_with_refind(:project_fork_target) { create(:project) }
+    let_it_be_with_refind(:project_fork_source) { create(:project, :public) }
+    let_it_be_with_refind(:private_project_fork_source) { create(:project, :private) }
 
     describe 'POST /projects/:id/fork/:forked_from_id' do
+      let(:path) { "/projects/#{project_fork_target.id}/fork/#{project_fork_source.id}" }
+
+      it_behaves_like 'POST request permissions for admin mode' do
+        let(:params) { {} }
+        let(:failed_status_code) { :not_found }
+      end
+
+      it 'refreshes the forks count cache' do
+        expect(project_fork_source.forks_count).to be_zero
+      end
+
       context 'user is a developer' do
         before do
           project_fork_target.add_developer(user)
         end
 
         it 'denies project to be forked from an existing project' do
-          post api("/projects/#{project_fork_target.id}/fork/#{project_fork_source.id}", user)
+          post api(path, user)
 
           expect(response).to have_gitlab_http_status(:forbidden)
         end
-      end
-
-      it 'refreshes the forks count cache' do
-        expect(project_fork_source.forks_count).to be_zero
       end
 
       context 'user is maintainer' do
@@ -2831,22 +3387,59 @@ RSpec.describe API::Projects do
           project_fork_target.add_maintainer(user)
         end
 
-        it 'allows project to be forked from an existing project' do
-          expect(project_fork_target).not_to be_forked
+        it 'denies project to be forked from an existing project' do
+          post api(path, user)
 
-          post api("/projects/#{project_fork_target.id}/fork/#{project_fork_source.id}", user)
-          project_fork_target.reload
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
 
-          expect(response).to have_gitlab_http_status(:created)
-          expect(project_fork_target.forked_from_project.id).to eq(project_fork_source.id)
-          expect(project_fork_target.fork_network_member).to be_present
-          expect(project_fork_target).to be_forked
+      context 'user is owner' do
+        before do
+          project_fork_target.add_owner(user)
+        end
+
+        context 'and user is a reporter of target group' do
+          let_it_be_with_reload(:target_group) { create(:group, project_creation_level: ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS) }
+          let_it_be_with_reload(:project_fork_target) { create(:project, namespace: target_group) }
+
+          before do
+            target_group.add_reporter(user)
+          end
+
+          it 'fails as target namespace is unauthorized' do
+            post api(path, user)
+
+            expect(response).to have_gitlab_http_status(:unauthorized)
+            expect(json_response['message']).to eq "401 Unauthorized - Target Namespace"
+          end
+        end
+
+        context 'and user is a developer of target group' do
+          let_it_be_with_reload(:target_group) { create(:group, project_creation_level: ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS) }
+          let_it_be_with_reload(:project_fork_target) { create(:project, namespace: target_group) }
+
+          before do
+            target_group.add_developer(user)
+          end
+
+          it 'allows project to be forked from an existing project' do
+            expect(project_fork_target).not_to be_forked
+
+            post api(path, user)
+            project_fork_target.reload
+
+            expect(response).to have_gitlab_http_status(:created)
+            expect(project_fork_target.forked_from_project.id).to eq(project_fork_source.id)
+            expect(project_fork_target.fork_network_member).to be_present
+            expect(project_fork_target).to be_forked
+          end
         end
 
         it 'fails without permission from forked_from project' do
           project_fork_source.project_feature.update_attribute(:forking_access_level, ProjectFeature::PRIVATE)
 
-          post api("/projects/#{project_fork_target.id}/fork/#{project_fork_source.id}", user)
+          post api(path, user)
 
           expect(response).to have_gitlab_http_status(:forbidden)
           expect(project_fork_target.forked_from_project).to be_nil
@@ -2865,25 +3458,25 @@ RSpec.describe API::Projects do
         it 'allows project to be forked from an existing project' do
           expect(project_fork_target).not_to be_forked
 
-          post api("/projects/#{project_fork_target.id}/fork/#{project_fork_source.id}", admin)
+          post api(path, admin, admin_mode: true)
 
           expect(response).to have_gitlab_http_status(:created)
         end
 
         it 'allows project to be forked from a private project' do
-          post api("/projects/#{project_fork_target.id}/fork/#{private_project_fork_source.id}", admin)
+          post api("/projects/#{project_fork_target.id}/fork/#{private_project_fork_source.id}", admin, admin_mode: true)
 
           expect(response).to have_gitlab_http_status(:created)
         end
 
         it 'refreshes the forks count cachce' do
           expect do
-            post api("/projects/#{project_fork_target.id}/fork/#{project_fork_source.id}", admin)
+            post api(path, admin, admin_mode: true)
           end.to change(project_fork_source, :forks_count).by(1)
         end
 
         it 'fails if forked_from project which does not exist' do
-          post api("/projects/#{project_fork_target.id}/fork/#{non_existing_record_id}", admin)
+          post api("/projects/#{project_fork_target.id}/fork/#{non_existing_record_id}", admin, admin_mode: true)
           expect(response).to have_gitlab_http_status(:not_found)
         end
 
@@ -2892,19 +3485,48 @@ RSpec.describe API::Projects do
 
           Projects::ForkService.new(project_fork_source, admin).execute(project_fork_target)
 
-          post api("/projects/#{project_fork_target.id}/fork/#{other_project_fork_source.id}", admin)
+          post api("/projects/#{project_fork_target.id}/fork/#{other_project_fork_source.id}", admin, admin_mode: true)
           project_fork_target.reload
 
           expect(response).to have_gitlab_http_status(:conflict)
           expect(project_fork_target.forked_from_project.id).to eq(project_fork_source.id)
           expect(project_fork_target).to be_forked
         end
+
+        context 'when forking process fails' do
+          before do
+            allow_next_instance_of(Projects::ForkService) do |instance|
+              allow(instance).to receive(:execute).and_return(ServiceResponse.error(message: 'Error'))
+            end
+          end
+
+          it 'fails with 400 error' do
+            expect(project_fork_target).not_to be_forked
+
+            post api(path, admin, admin_mode: true)
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(json_response['message']).to eq "Error"
+            expect(project_fork_target).not_to be_forked
+          end
+        end
+
+        context 'when fork target and source are the same' do
+          it 'returns an error' do
+            post api("/projects/#{project_fork_target.id}/fork/#{project_fork_target.id}", admin, admin_mode: true)
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(json_response['message']).to eq 'Target project cannot be equal to source project'
+          end
+        end
       end
     end
 
     describe 'DELETE /projects/:id/fork' do
+      let(:path) { "/projects/#{project_fork_target.id}/fork" }
+
       it "is not visible to users outside group" do
-        delete api("/projects/#{project_fork_target.id}/fork", user)
+        delete api(path, user)
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
@@ -2918,14 +3540,19 @@ RSpec.describe API::Projects do
 
         context 'for a forked project' do
           before do
-            post api("/projects/#{project_fork_target.id}/fork/#{project_fork_source.id}", admin)
+            post api("/projects/#{project_fork_target.id}/fork/#{project_fork_source.id}", admin, admin_mode: true)
             project_fork_target.reload
             expect(project_fork_target.forked_from_project).to be_present
             expect(project_fork_target).to be_forked
           end
 
+          it_behaves_like 'DELETE request permissions for admin mode' do
+            let(:success_status_code) { :no_content }
+            let(:failed_status_code) { :not_found }
+          end
+
           it 'makes forked project unforked' do
-            delete api("/projects/#{project_fork_target.id}/fork", admin)
+            delete api(path, admin, admin_mode: true)
 
             expect(response).to have_gitlab_http_status(:no_content)
             project_fork_target.reload
@@ -2934,18 +3561,18 @@ RSpec.describe API::Projects do
           end
 
           it_behaves_like '412 response' do
-            let(:request) { api("/projects/#{project_fork_target.id}/fork", admin) }
+            subject(:request) { api(path, admin, admin_mode: true) }
           end
         end
 
         it 'is forbidden to non-owner users' do
-          delete api("/projects/#{project_fork_target.id}/fork", user2)
+          delete api(path, user2)
           expect(response).to have_gitlab_http_status(:forbidden)
         end
 
         it 'is idempotent if not forked' do
           expect(project_fork_target.forked_from_project).to be_nil
-          delete api("/projects/#{project_fork_target.id}/fork", admin)
+          delete api(path, admin, admin_mode: true)
           expect(response).to have_gitlab_http_status(:not_modified)
           expect(project_fork_target.reload.forked_from_project).to be_nil
         end
@@ -2953,17 +3580,17 @@ RSpec.describe API::Projects do
     end
 
     describe 'GET /projects/:id/forks' do
-      let(:private_fork) { create(:project, :private, :empty_repo) }
-      let(:member) { create(:user) }
-      let(:non_member) { create(:user) }
+      let_it_be_with_refind(:private_fork) { create(:project, :private, :empty_repo) }
+      let_it_be(:member) { create(:user) }
+      let_it_be(:non_member) { create(:user) }
 
-      before do
+      before_all do
         private_fork.add_developer(member)
       end
 
       context 'for a forked project' do
         before do
-          post api("/projects/#{private_fork.id}/fork/#{project_fork_source.id}", admin)
+          post api("/projects/#{private_fork.id}/fork/#{project_fork_source.id}", admin, admin_mode: true)
           private_fork.reload
           expect(private_fork.forked_from_project).to be_present
           expect(private_fork).to be_forked
@@ -2980,6 +3607,20 @@ RSpec.describe API::Projects do
             expect(response).to include_pagination_headers
             expect(json_response.length).to eq(1)
             expect(json_response[0]['name']).to eq(private_fork.name)
+          end
+
+          context 'filter by updated_at' do
+            before do
+              private_fork.update!(updated_at: 4.days.ago)
+            end
+
+            it 'returns only forks updated on the given timeframe' do
+              get api("/projects/#{project_fork_source.id}/forks", member),
+                params: { updated_before: 2.days.ago.iso8601, updated_after: 6.days.ago }
+
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(json_response.map { |project| project['id'] }).to contain_exactly(private_fork.id)
+            end
           end
         end
 
@@ -3009,6 +3650,7 @@ RSpec.describe API::Projects do
   describe "POST /projects/:id/share" do
     let_it_be(:group) { create(:group, :private) }
     let_it_be(:group_user) { create(:user) }
+    let(:path) { "/projects/#{project.id}/share" }
 
     before do
       group.add_developer(user)
@@ -3019,7 +3661,7 @@ RSpec.describe API::Projects do
       expires_at = 10.days.from_now.to_date
 
       expect do
-        post api("/projects/#{project.id}/share", user), params: { group_id: group.id, group_access: Gitlab::Access::DEVELOPER, expires_at: expires_at }
+        post api(path, user), params: { group_id: group.id, group_access: Gitlab::Access::DEVELOPER, expires_at: expires_at }
       end.to change { ProjectGroupLink.count }.by(1)
 
       expect(response).to have_gitlab_http_status(:created)
@@ -3030,56 +3672,79 @@ RSpec.describe API::Projects do
 
     it 'updates project authorization', :sidekiq_inline do
       expect do
-        post api("/projects/#{project.id}/share", user), params: { group_id: group.id, group_access: Gitlab::Access::DEVELOPER }
+        post api(path, user), params: { group_id: group.id, group_access: Gitlab::Access::DEVELOPER }
       end.to(
         change { group_user.can?(:read_project, project) }.from(false).to(true)
       )
     end
 
     it "returns a 400 error when group id is not given" do
-      post api("/projects/#{project.id}/share", user), params: { group_access: Gitlab::Access::DEVELOPER }
+      post api(path, user), params: { group_access: Gitlab::Access::DEVELOPER }
       expect(response).to have_gitlab_http_status(:bad_request)
     end
 
     it "returns a 400 error when access level is not given" do
-      post api("/projects/#{project.id}/share", user), params: { group_id: group.id }
+      post api(path, user), params: { group_id: group.id }
       expect(response).to have_gitlab_http_status(:bad_request)
     end
 
     it "returns a 400 error when sharing is disabled" do
       project.namespace.update!(share_with_group_lock: true)
-      post api("/projects/#{project.id}/share", user), params: { group_id: group.id, group_access: Gitlab::Access::DEVELOPER }
+      post api(path, user), params: { group_id: group.id, group_access: Gitlab::Access::DEVELOPER }
       expect(response).to have_gitlab_http_status(:bad_request)
     end
 
     it 'returns a 404 error when user cannot read group' do
       private_group = create(:group, :private)
 
-      post api("/projects/#{project.id}/share", user), params: { group_id: private_group.id, group_access: Gitlab::Access::DEVELOPER }
+      post api(path, user), params: { group_id: private_group.id, group_access: Gitlab::Access::DEVELOPER }
 
       expect(response).to have_gitlab_http_status(:not_found)
     end
 
     it 'returns a 404 error when group does not exist' do
-      post api("/projects/#{project.id}/share", user), params: { group_id: non_existing_record_id, group_access: Gitlab::Access::DEVELOPER }
+      post api(path, user), params: { group_id: non_existing_record_id, group_access: Gitlab::Access::DEVELOPER }
 
       expect(response).to have_gitlab_http_status(:not_found)
     end
 
     it "returns a 400 error when wrong params passed" do
-      post api("/projects/#{project.id}/share", user), params: { group_id: group.id, group_access: non_existing_record_access_level }
+      post api(path, user), params: { group_id: group.id, group_access: non_existing_record_access_level }
 
       expect(response).to have_gitlab_http_status(:bad_request)
       expect(json_response['error']).to eq 'group_access does not have a valid value'
+    end
+
+    it 'returns a 403 when a maintainer tries to create a link with OWNER access' do
+      user = create(:user)
+      project.add_maintainer(user)
+
+      expect do
+        post api(path, user), params: { group_id: group.id, group_access: Gitlab::Access::OWNER }
+      end.to not_change { project.reload.project_group_links.count }
+
+      expect(response).to have_gitlab_http_status(:forbidden)
     end
 
     it "returns a 409 error when link is not saved" do
       allow(::Projects::GroupLinks::CreateService).to receive_message_chain(:new, :execute)
         .and_return({ status: :error, http_status: 409, message: 'error' })
 
-      post api("/projects/#{project.id}/share", user), params: { group_id: group.id, group_access: Gitlab::Access::DEVELOPER }
+      post api(path, user), params: { group_id: group.id, group_access: Gitlab::Access::DEVELOPER }
 
       expect(response).to have_gitlab_http_status(:conflict)
+    end
+
+    context 'when project is forked' do
+      let(:forked_project) { fork_project(project) }
+      let(:path) { "/projects/#{forked_project.id}/share" }
+
+      it 'returns a 404 error when group does not exist' do
+        forked_project.add_maintainer(user)
+        post api(path, user), params: { group_id: non_existing_record_id, group_access: Gitlab::Access::DEVELOPER }
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
     end
   end
 
@@ -3087,11 +3752,12 @@ RSpec.describe API::Projects do
     context 'for a valid group' do
       let_it_be(:group) { create(:group, :private) }
       let_it_be(:group_user) { create(:user) }
+      let(:group_access) { Gitlab::Access::DEVELOPER }
 
       before do
         group.add_developer(group_user)
 
-        create(:project_group_link, group: group, project: project)
+        create(:project_group_link, group: group, project: project, group_access: group_access)
       end
 
       it 'returns 204 when deleting a group share' do
@@ -3110,7 +3776,32 @@ RSpec.describe API::Projects do
       end
 
       it_behaves_like '412 response' do
-        let(:request) { api("/projects/#{project.id}/share/#{group.id}", user) }
+        subject(:request) { api("/projects/#{project.id}/share/#{group.id}", user) }
+      end
+
+      it "returns an error when link is not destroyed" do
+        allow(::Projects::GroupLinks::DestroyService).to receive_message_chain(:new, :execute)
+          .and_return(ServiceResponse.error(message: '404 Not Found', reason: :not_found))
+
+        delete api("/projects/#{project.id}/share/#{group.id}", user)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+        expect(json_response['message']).to eq '404 Not Found'
+      end
+
+      context 'when a MAINTAINER tries to destroy a link with OWNER access' do
+        let(:group_access) { Gitlab::Access::OWNER }
+
+        it 'returns 403' do
+          user = create(:user)
+          project.add_maintainer(user)
+
+          expect do
+            delete api("/projects/#{project.id}/share/#{group.id}", user)
+          end.to not_change { project.reload.project_group_links.count }
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
       end
     end
 
@@ -3136,6 +3827,7 @@ RSpec.describe API::Projects do
   describe 'POST /projects/:id/import_project_members/:project_id' do
     let_it_be(:project2) { create(:project) }
     let_it_be(:project2_user) { create(:user) }
+    let(:path) { "/projects/#{project.id}/import_project_members/#{project2.id}" }
 
     before_all do
       project.add_maintainer(user)
@@ -3144,7 +3836,8 @@ RSpec.describe API::Projects do
     end
 
     it 'records the query', :request_store, :use_sql_query_cache do
-      post api("/projects/#{project.id}/import_project_members/#{project2.id}", user)
+      post api(path, user)
+      expect(response).to have_gitlab_http_status(:created)
 
       control_project = create(:project)
       control_project.add_maintainer(user)
@@ -3159,20 +3852,20 @@ RSpec.describe API::Projects do
       measure_project.add_developer(create(:user))
       measure_project.add_developer(create(:user)) # make this 2nd one to find any n+1
 
-      unresolved_n_plus_ones = 21 # 21 queries added per member
+      unresolved_n_plus_ones = 28 # 28 queries added per member
 
       expect do
         post api("/projects/#{project.id}/import_project_members/#{measure_project.id}", user)
-      end.not_to exceed_all_query_limit(control.count).with_threshold(unresolved_n_plus_ones)
+      end.not_to exceed_all_query_limit(control).with_threshold(unresolved_n_plus_ones)
     end
 
     it 'returns 200 when it successfully imports members from another project' do
       expect do
-        post api("/projects/#{project.id}/import_project_members/#{project2.id}", user)
+        post api(path, user)
       end.to change { project.members.count }.by(2)
 
       expect(response).to have_gitlab_http_status(:created)
-      expect(json_response['message']).to eq('Successfully imported')
+      expect(json_response['status']).to eq('success')
     end
 
     it 'returns 404 if the source project does not exist' do
@@ -3211,7 +3904,7 @@ RSpec.describe API::Projects do
       project2.add_developer(user2)
 
       expect do
-        post api("/projects/#{project.id}/import_project_members/#{project2.id}", user2)
+        post api(path, user2)
       end.not_to change { project.members.count }
 
       expect(response).to have_gitlab_http_status(:forbidden)
@@ -3224,15 +3917,35 @@ RSpec.describe API::Projects do
       end
 
       expect do
-        post api("/projects/#{project.id}/import_project_members/#{project2.id}", user)
+        post api(path, user)
       end.not_to change { project.members.count }
 
       expect(response).to have_gitlab_http_status(:unprocessable_entity)
       expect(json_response['message']).to eq('Import failed')
+      expect(json_response['reason']).to eq('import_failed_error')
+    end
+
+    context 'when importing of members did not work for some or all members' do
+      it 'fails to import some members' do
+        project_bot = create(:user, :project_bot)
+        project2.add_developer(project_bot)
+
+        expect do
+          post api(path, user)
+        end.to change { project.members.count }.by(2)
+
+        expect(response).to have_gitlab_http_status(:created)
+        error_message = { project_bot.username => 'User project bots cannot be added to other groups / projects' }
+        expect(json_response['message']).to eq(error_message)
+        expect(json_response['total_members_count']).to eq(3)
+        expect(json_response['status']).to eq('error')
+      end
     end
   end
 
   describe 'PUT /projects/:id' do
+    let(:path) { "/projects/#{project.id}" }
+
     before do
       expect(project).to be_persisted
       expect(user).to be_persisted
@@ -3244,13 +3957,32 @@ RSpec.describe API::Projects do
       expect(project_member).to be_persisted
     end
 
+    it_behaves_like 'PUT request permissions for admin mode' do
+      let(:params) { { visibility: 'internal' } }
+      let(:failed_status_code) { :not_found }
+    end
+
+    describe 'updating ci_push_repository_for_job_token_allowed attribute' do
+      it 'is disabled by default' do
+        expect(project.ci_push_repository_for_job_token_allowed).to be_falsey
+      end
+
+      it 'enables push to repository using job token' do
+        put(api(path, user), params: { ci_push_repository_for_job_token_allowed: true })
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(project.reload.ci_push_repository_for_job_token_allowed).to be_truthy
+        expect(json_response['ci_push_repository_for_job_token_allowed']).to eq(true)
+      end
+    end
+
     describe 'updating packages_enabled attribute' do
       it 'is enabled by default' do
         expect(project.packages_enabled).to be true
       end
 
       it 'disables project packages feature' do
-        put(api("/projects/#{project.id}", user), params: { packages_enabled: false })
+        put(api(path, user), params: { packages_enabled: false })
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(project.reload.packages_enabled).to be false
@@ -3258,8 +3990,8 @@ RSpec.describe API::Projects do
       end
     end
 
-    it 'sets container_registry_access_level', :aggregate_failures do
-      put api("/projects/#{project.id}", user), params: { container_registry_access_level: 'private' }
+    it 'sets container_registry_access_level' do
+      put api(path, user), params: { container_registry_access_level: 'private' }
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['container_registry_access_level']).to eq('private')
@@ -3269,41 +4001,43 @@ RSpec.describe API::Projects do
     it 'sets container_registry_enabled' do
       project.project_feature.update!(container_registry_access_level: ProjectFeature::DISABLED)
 
-      put(api("/projects/#{project.id}", user), params: { container_registry_enabled: true })
+      put(api(path, user), params: { container_registry_enabled: true })
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['container_registry_enabled']).to eq(true)
       expect(project.reload.container_registry_access_level).to eq(ProjectFeature::ENABLED)
     end
 
-    it 'sets security_and_compliance_access_level', :aggregate_failures do
-      put api("/projects/#{project.id}", user), params: { security_and_compliance_access_level: 'private' }
+    it 'sets security_and_compliance_access_level' do
+      put api(path, user), params: { security_and_compliance_access_level: 'private' }
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['security_and_compliance_access_level']).to eq('private')
       expect(Project.find_by(path: project[:path]).security_and_compliance_access_level).to eq(ProjectFeature::PRIVATE)
     end
 
-    it 'sets operations_access_level', :aggregate_failures do
-      put api("/projects/#{project.id}", user), params: { operations_access_level: 'private' }
-
-      expect(response).to have_gitlab_http_status(:ok)
-      expect(json_response['operations_access_level']).to eq('private')
-      expect(Project.find_by(path: project[:path]).operations_access_level).to eq(ProjectFeature::PRIVATE)
-    end
-
-    it 'sets analytics_access_level', :aggregate_failures do
-      put api("/projects/#{project.id}", user), params: { analytics_access_level: 'private' }
+    it 'sets analytics_access_level' do
+      put api(path, user), params: { analytics_access_level: 'private' }
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['analytics_access_level']).to eq('private')
       expect(Project.find_by(path: project[:path]).analytics_access_level).to eq(ProjectFeature::PRIVATE)
     end
 
+    %i[releases_access_level environments_access_level feature_flags_access_level infrastructure_access_level monitor_access_level model_experiments_access_level model_registry_access_level].each do |field|
+      it "sets #{field}" do
+        put api(path, user), params: { field => 'private' }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response[field.to_s]).to eq('private')
+        expect(Project.find_by(path: project[:path]).public_send(field)).to eq(ProjectFeature::PRIVATE)
+      end
+    end
+
     it 'returns 400 when nothing sent' do
       project_param = {}
 
-      put api("/projects/#{project.id}", user), params: project_param
+      put api(path, user), params: project_param
 
       expect(response).to have_gitlab_http_status(:bad_request)
       expect(json_response['error']).to match('at least one parameter must be provided')
@@ -3313,25 +4047,13 @@ RSpec.describe API::Projects do
       it 'returns authentication error' do
         project_param = { name: 'bar' }
 
-        put api("/projects/#{project.id}"), params: project_param
+        put api(path), params: project_param
 
         expect(response).to have_gitlab_http_status(:unauthorized)
       end
     end
 
     context 'when authenticated as project owner' do
-      it 'updates name' do
-        project_param = { name: 'bar' }
-
-        put api("/projects/#{project.id}", user), params: project_param
-
-        expect(response).to have_gitlab_http_status(:ok)
-
-        project_param.each_pair do |k, v|
-          expect(json_response[k.to_s]).to eq(v)
-        end
-      end
-
       it 'updates visibility_level' do
         project_param = { visibility: 'public' }
 
@@ -3371,7 +4093,7 @@ RSpec.describe API::Projects do
       it 'does not update name to existing name' do
         project_param = { name: project3.name }
 
-        put api("/projects/#{project.id}", user), params: project_param
+        put api(path, user), params: project_param
 
         expect(response).to have_gitlab_http_status(:bad_request)
         expect(json_response['message']['name']).to eq(['has already been taken'])
@@ -3380,7 +4102,7 @@ RSpec.describe API::Projects do
       it 'updates request_access_enabled' do
         project_param = { request_access_enabled: false }
 
-        put api("/projects/#{project.id}", user), params: project_param
+        put api(path, user), params: project_param
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['request_access_enabled']).to eq(false)
@@ -3401,7 +4123,7 @@ RSpec.describe API::Projects do
       it 'updates default_branch' do
         project_param = { default_branch: 'something_else' }
 
-        put api("/projects/#{project.id}", user), params: project_param
+        put api(path, user), params: project_param
 
         expect(response).to have_gitlab_http_status(:ok)
 
@@ -3452,6 +4174,16 @@ RSpec.describe API::Projects do
         expect(json_response['emails_disabled']).to eq(true)
       end
 
+      it 'updates emails_enabled?' do
+        project_param = { emails_enabled: false }
+
+        put api("/projects/#{project3.id}", user), params: project_param
+
+        expect(response).to have_gitlab_http_status(:ok)
+
+        expect(json_response['emails_enabled']).to eq(false)
+      end
+
       it 'updates build_git_strategy' do
         project_param = { build_git_strategy: 'clone' }
 
@@ -3490,7 +4222,119 @@ RSpec.describe API::Projects do
         expect(response).to have_gitlab_http_status(:bad_request)
       end
 
-      it 'updates restrict_user_defined_variables', :aggregate_failures do
+      context 'when ci_pipeline_variables_minimum_override_role is owner' do
+        before do
+          project3.add_maintainer(user2)
+          ci_cd_settings = project3.ci_cd_settings
+          ci_cd_settings.restrict_user_defined_variables = false
+          ci_cd_settings.pipeline_variables_minimum_override_role = 'owner'
+          ci_cd_settings.save!
+        end
+
+        context 'and current user is maintainer' do
+          let_it_be(:current_user) { user2 }
+
+          it 'rejects to change restrict_user_defined_variables' do
+            project_param = { restrict_user_defined_variables: true }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+          end
+
+          it 'rejects to change ci_pipeline_variables_minimum_override_role' do
+            project_param = { ci_pipeline_variables_minimum_override_role: 'developer' }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+          end
+        end
+
+        context 'and current user is owner' do
+          let_it_be(:current_user) { user }
+
+          it 'successfully changes restrict_user_defined_variables' do
+            project_param = { restrict_user_defined_variables: true }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:ok)
+          end
+
+          it 'successfully changes ci_pipeline_variables_minimum_override_role' do
+            project_param = { ci_pipeline_variables_minimum_override_role: 'developer' }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:ok)
+          end
+        end
+      end
+
+      context 'when ci_pipeline_variables_minimum_override_role is set to maintainer' do
+        before do
+          project3.add_maintainer(user2)
+          ci_cd_settings = project3.ci_cd_settings
+          ci_cd_settings.restrict_user_defined_variables = false
+          ci_cd_settings.pipeline_variables_minimum_override_role = 'maintainer'
+          ci_cd_settings.save!
+        end
+
+        context 'and current user is maintainer' do
+          let_it_be(:current_user) { user2 }
+
+          it 'successfully changes restrict_user_defined_variables' do
+            project_param = { restrict_user_defined_variables: true }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:ok)
+          end
+
+          it 'successfully changes ci_pipeline_variables_minimum_override_role' do
+            project_param = { ci_pipeline_variables_minimum_override_role: 'developer' }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:ok)
+          end
+
+          it 'rejects to ci_pipeline_variables_minimum_override_role to owner' do
+            project_param = { ci_pipeline_variables_minimum_override_role: 'owner' }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+          end
+        end
+
+        context 'and current user is developer' do
+          let_it_be(:current_user) { user3 }
+
+          before do
+            project3.add_developer(user3)
+          end
+
+          it 'fails to change restrict_user_defined_variables' do
+            project_param = { restrict_user_defined_variables: true }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+          end
+
+          it 'fails to change ci_pipeline_variables_minimum_override_role' do
+            project_param = { ci_pipeline_variables_minimum_override_role: 'developer' }
+
+            put api("/projects/#{project3.id}", current_user), params: project_param
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+          end
+        end
+      end
+
+      it 'updates restrict_user_defined_variables' do
         project_param = { restrict_user_defined_variables: true }
 
         put api("/projects/#{project3.id}", user), params: project_param
@@ -3502,18 +4346,129 @@ RSpec.describe API::Projects do
         end
       end
 
-      it 'updates avatar' do
-        project_param = {
-          avatar: fixture_file_upload('spec/fixtures/banana_sample.gif',
-                                      'image/gif')
-        }
+      it 'updates ci_pipeline_variables_minimum_override_role' do
+        project_param = { ci_pipeline_variables_minimum_override_role: 'owner' }
 
         put api("/projects/#{project3.id}", user), params: project_param
 
         expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['avatar_url']).to eq('http://localhost/uploads/'\
-                                                  '-/system/project/avatar/'\
-                                                  "#{project3.id}/banana_sample.gif")
+
+        project_param.each_pair do |k, v|
+          expect(json_response[k.to_s]).to eq(v)
+        end
+      end
+
+      it 'rejects updating ci_pipeline_variables_minimum_override_role when an invalid role is provided' do
+        project_param = { ci_pipeline_variables_minimum_override_role: 'wrong' }
+
+        put api("/projects/#{project3.id}", user), params: project_param
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+      end
+
+      it 'rejects updating ci_pipeline_variables_minimum_override_role when an existing but not allowed role is provided' do
+        project_param = { ci_pipeline_variables_minimum_override_role: 'guest' }
+
+        put api("/projects/#{project3.id}", user), params: project_param
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+      end
+
+      it 'updates public_builds (deprecated)' do
+        project3.update!({ public_builds: false })
+        project_param = { public_builds: 'true' }
+
+        put api("/projects/#{project3.id}", user), params: project_param
+
+        expect(response).to have_gitlab_http_status(:ok)
+
+        expect(json_response['public_jobs']).to be_truthy
+      end
+
+      it 'updates public_jobs' do
+        project3.update!({ public_builds: false })
+        project_param = { public_jobs: 'true' }
+
+        put api("/projects/#{project3.id}", user), params: project_param
+
+        expect(response).to have_gitlab_http_status(:ok)
+
+        expect(json_response['public_jobs']).to be_truthy
+      end
+
+      context 'with changes to the avatar' do
+        let_it_be(:avatar_file) { fixture_file_upload('spec/fixtures/banana_sample.gif', 'image/gif') }
+        let_it_be(:alternate_avatar_file) { fixture_file_upload('spec/fixtures/rails_sample.png', 'image/png') }
+        let_it_be(:project_with_avatar, reload: true) do
+          create(
+            :project,
+            :private,
+            :repository,
+            name: 'project-with-avatar',
+            creator_id: user.id,
+            namespace: user.namespace,
+            avatar: avatar_file
+          )
+        end
+
+        it 'uploads avatar to project without an avatar' do
+          workhorse_form_with_file(
+            api("/projects/#{project3.id}", user),
+            method: :put,
+            file_key: :avatar,
+            params: { avatar: avatar_file }
+          )
+
+          aggregate_failures "testing response" do
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response['avatar_url']).to eq('http://localhost/uploads/' \
+                                                      '-/system/project/avatar/' \
+                                                      "#{project3.id}/banana_sample.gif")
+          end
+        end
+
+        it 'uploads and changes avatar to project with an avatar' do
+          workhorse_form_with_file(
+            api("/projects/#{project_with_avatar.id}", user),
+            method: :put,
+            file_key: :avatar,
+            params: { avatar: alternate_avatar_file }
+          )
+
+          aggregate_failures "testing response" do
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response['avatar_url']).to eq('http://localhost/uploads/' \
+                                                      '-/system/project/avatar/' \
+                                                      "#{project_with_avatar.id}/rails_sample.png")
+          end
+        end
+
+        it 'uploads and changes avatar to project among other changes' do
+          workhorse_form_with_file(
+            api("/projects/#{project_with_avatar.id}", user),
+            method: :put,
+            file_key: :avatar,
+            params: { description: 'changed description', avatar: avatar_file }
+          )
+
+          aggregate_failures "testing response" do
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response['description']).to eq('changed description')
+            expect(json_response['avatar_url']).to eq('http://localhost/uploads/' \
+                                                      '-/system/project/avatar/' \
+                                                      "#{project_with_avatar.id}/banana_sample.gif")
+          end
+        end
+
+        it 'removes avatar from project with an avatar' do
+          put api("/projects/#{project_with_avatar.id}", user), params: { avatar: '' }
+
+          aggregate_failures "testing response" do
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(json_response['avatar_url']).to be_nil
+            expect(project_with_avatar.reload.avatar_url).to be_nil
+          end
+        end
       end
 
       it 'updates auto_devops_deploy_strategy' do
@@ -3554,6 +4509,20 @@ RSpec.describe API::Projects do
         expect(response).to have_gitlab_http_status(:ok)
 
         expect(json_response['topics']).to eq(%w[topic2])
+      end
+
+      it 'updates enforce_auth_checks_on_uploads' do
+        project3.update!(enforce_auth_checks_on_uploads: false)
+
+        project_param = { enforce_auth_checks_on_uploads: true }
+
+        expect { put api("/projects/#{project3.id}", user), params: project_param }
+          .to change { project3.reload.enforce_auth_checks_on_uploads }
+          .from(false)
+          .to(true)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['enforce_auth_checks_on_uploads']).to eq(true)
       end
 
       it 'updates squash_option' do
@@ -3598,6 +4567,9 @@ RSpec.describe API::Projects do
                           merge_method: 'ff',
                           ci_default_git_depth: 20,
                           ci_forward_deployment_enabled: false,
+                          ci_forward_deployment_rollback_allowed: false,
+                          ci_allow_fork_pipelines_to_run_in_parent_project: false,
+                          ci_separated_caches: false,
                           description: 'new description' }
 
         put api("/projects/#{project3.id}", user4), params: project_param
@@ -3614,10 +4586,16 @@ RSpec.describe API::Projects do
         expect(json_response['message']['path']).to eq(['has already been taken'])
       end
 
-      it 'does not update name' do
+      it 'updates name' do
         project_param = { name: 'bar' }
-        put api("/projects/#{project3.id}", user4), params: project_param
-        expect(response).to have_gitlab_http_status(:forbidden)
+
+        put api(path, user), params: project_param
+
+        expect(response).to have_gitlab_http_status(:ok)
+
+        project_param.each_pair do |k, v|
+          expect(json_response[k.to_s]).to eq(v)
+        end
       end
 
       it 'does not update visibility_level' do
@@ -3677,6 +4655,23 @@ RSpec.describe API::Projects do
       end
     end
 
+    context 'with repository_object_format' do
+      it 'ignores repository object format field' do
+        put api(path, user), params: { name: 'new', repository_object_format: 'sha256' }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['repository_object_format']).to eq 'sha1'
+      end
+    end
+
+    context 'with initialize_with_readme' do
+      it 'ignores initialize_with_readme field' do
+        put api(path, user), params: { name: 'new', initialize_with_readme: true }
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
+
     context 'when authenticated as project developer' do
       it 'does not update other attributes' do
         project_param = { path: 'bar',
@@ -3686,7 +4681,7 @@ RSpec.describe API::Projects do
                           merge_requests_enabled: true,
                           description: 'new description',
                           request_access_enabled: true }
-        put api("/projects/#{project.id}", user3), params: project_param
+        put api(path, user3), params: project_param
         expect(response).to have_gitlab_http_status(:forbidden)
       end
     end
@@ -3697,7 +4692,7 @@ RSpec.describe API::Projects do
       it 'ignores visibility level restrictions' do
         stub_application_setting(restricted_visibility_levels: [Gitlab::VisibilityLevel::INTERNAL])
 
-        put api("/projects/#{project3.id}", admin), params: { visibility: 'internal' }
+        put api("/projects/#{project3.id}", admin, admin_mode: true), params: { visibility: 'internal' }
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['visibility']).to eq('internal')
@@ -3728,18 +4723,18 @@ RSpec.describe API::Projects do
         let(:admin) { create(:admin) }
 
         it 'returns 400 when repository storage is unknown' do
-          put(api("/projects/#{new_project.id}", admin), params: { repository_storage: unknown_storage })
+          put(api("/projects/#{new_project.id}", admin, admin_mode: true), params: { repository_storage: unknown_storage })
 
           expect(response).to have_gitlab_http_status(:bad_request)
           expect(json_response['message']['repository_storage_moves']).to eq(['is invalid'])
         end
 
         it 'returns 200 when repository storage has changed' do
-          stub_storage_settings('test_second_storage' => { 'path' => TestEnv::SECOND_STORAGE_PATH })
+          stub_storage_settings('test_second_storage' => {})
 
           expect do
             Sidekiq::Testing.fake! do
-              put(api("/projects/#{new_project.id}", admin), params: { repository_storage: 'test_second_storage' })
+              put(api("/projects/#{new_project.id}", admin, admin_mode: true), params: { repository_storage: 'test_second_storage' })
             end
           end.to change(Projects::UpdateRepositoryStorageWorker.jobs, :size).by(1)
 
@@ -3749,40 +4744,42 @@ RSpec.describe API::Projects do
     end
 
     context 'when updating service desk' do
-      subject { put(api("/projects/#{project.id}", user), params: { service_desk_enabled: true }) }
+      let(:params) { { service_desk_enabled: true } }
+
+      subject(:request) { put(api(path, user), params: params) }
 
       before do
         project.update!(service_desk_enabled: false)
 
-        allow(::Gitlab::IncomingEmail).to receive(:enabled?).and_return(true)
+        allow(::Gitlab::Email::IncomingEmail).to receive(:enabled?).and_return(true)
       end
 
       it 'returns 200' do
-        subject
+        request
 
         expect(response).to have_gitlab_http_status(:ok)
       end
 
       it 'enables the service_desk' do
-        expect { subject }.to change { project.reload.service_desk_enabled }.to(true)
+        expect { request }.to change { project.reload.service_desk_enabled }.to(true)
       end
     end
 
     context 'when updating keep latest artifact' do
-      subject { put(api("/projects/#{project.id}", user), params: { keep_latest_artifact: true }) }
+      subject(:request) { put(api(path, user), params: { keep_latest_artifact: true }) }
 
       before do
         project.update!(keep_latest_artifact: false)
       end
 
       it 'returns 200' do
-        subject
+        request
 
         expect(response).to have_gitlab_http_status(:ok)
       end
 
       it 'enables keep_latest_artifact' do
-        expect { subject }.to change { project.reload.keep_latest_artifact }.to(true)
+        expect { request }.to change { project.reload.keep_latest_artifact }.to(true)
       end
     end
 
@@ -3828,9 +4825,11 @@ RSpec.describe API::Projects do
   end
 
   describe 'POST /projects/:id/archive' do
+    let(:path) { "/projects/#{project.id}/archive" }
+
     context 'on an unarchived project' do
       it 'archives the project' do
-        post api("/projects/#{project.id}/archive", user)
+        post api(path, user)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['archived']).to be_truthy
@@ -3843,7 +4842,7 @@ RSpec.describe API::Projects do
       end
 
       it 'remains archived' do
-        post api("/projects/#{project.id}/archive", user)
+        post api(path, user)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['archived']).to be_truthy
@@ -3856,17 +4855,42 @@ RSpec.describe API::Projects do
       end
 
       it 'rejects the action' do
-        post api("/projects/#{project.id}/archive", user3)
+        post api(path, user3)
 
         expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
+    context 'when a project is moved' do
+      let_it_be(:redirect_route) { 'new/project/location' }
+      let_it_be(:path) { "/projects/#{CGI.escape(redirect_route)}/archive" }
+
+      before do
+        project.route.create_redirect(redirect_route)
+      end
+
+      it 'returns 405 error' do
+        post api(path, user)
+
+        expect(response).to have_gitlab_http_status(:method_not_allowed)
+      end
+
+      context 'when user do not have access to the project' do
+        it 'returns 404 error' do
+          post api(path, create(:user))
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
       end
     end
   end
 
   describe 'POST /projects/:id/unarchive' do
+    let(:path) { "/projects/#{project.id}/unarchive" }
+
     context 'on an unarchived project' do
       it 'remains unarchived' do
-        post api("/projects/#{project.id}/unarchive", user)
+        post api(path, user)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['archived']).to be_falsey
@@ -3879,7 +4903,7 @@ RSpec.describe API::Projects do
       end
 
       it 'unarchives the project' do
-        post api("/projects/#{project.id}/unarchive", user)
+        post api(path, user)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['archived']).to be_falsey
@@ -3892,7 +4916,7 @@ RSpec.describe API::Projects do
       end
 
       it 'rejects the action' do
-        post api("/projects/#{project.id}/unarchive", user3)
+        post api(path, user3)
 
         expect(response).to have_gitlab_http_status(:forbidden)
       end
@@ -3900,9 +4924,11 @@ RSpec.describe API::Projects do
   end
 
   describe 'POST /projects/:id/star' do
+    let(:path) { "/projects/#{project.id}/star" }
+
     context 'on an unstarred project' do
       it 'stars the project' do
-        expect { post api("/projects/#{project.id}/star", user) }.to change { project.reload.star_count }.by(1)
+        expect { post api(path, user) }.to change { project.reload.star_count }.by(1)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['star_count']).to eq(1)
@@ -3916,7 +4942,7 @@ RSpec.describe API::Projects do
       end
 
       it 'does not modify the star count' do
-        expect { post api("/projects/#{project.id}/star", user) }.not_to change { project.reload.star_count }
+        expect { post api(path, user) }.not_to change { project.reload.star_count }
 
         expect(response).to have_gitlab_http_status(:not_modified)
       end
@@ -3924,6 +4950,8 @@ RSpec.describe API::Projects do
   end
 
   describe 'POST /projects/:id/unstar' do
+    let(:path) { "/projects/#{project.id}/unstar" }
+
     context 'on a starred project' do
       before do
         user.toggle_star(project)
@@ -3931,7 +4959,7 @@ RSpec.describe API::Projects do
       end
 
       it 'unstars the project' do
-        expect { post api("/projects/#{project.id}/unstar", user) }.to change { project.reload.star_count }.by(-1)
+        expect { post api(path, user) }.to change { project.reload.star_count }.by(-1)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['star_count']).to eq(0)
@@ -3940,7 +4968,7 @@ RSpec.describe API::Projects do
 
     context 'on an unstarred project' do
       it 'does not modify the star count' do
-        expect { post api("/projects/#{project.id}/unstar", user) }.not_to change { project.reload.star_count }
+        expect { post api(path, user) }.not_to change { project.reload.star_count }
 
         expect(response).to have_gitlab_http_status(:not_modified)
       end
@@ -3948,9 +4976,13 @@ RSpec.describe API::Projects do
   end
 
   describe 'GET /projects/:id/starrers' do
+    let(:path) { "/projects/#{public_project.id}/starrers" }
+    let(:public_project) { create(:project, :public) }
+    let(:private_user) { create(:user, private_profile: true) }
+
     shared_examples_for 'project starrers response' do
       it 'returns an array of starrers' do
-        get api("/projects/#{public_project.id}/starrers", current_user)
+        get api(path, current_user)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
@@ -3960,18 +4992,15 @@ RSpec.describe API::Projects do
       end
 
       it 'returns the proper security headers' do
-        get api("/projects/#{public_project.id}/starrers", current_user)
+        get api(path, current_user)
 
         expect(response).to include_security_headers
       end
     end
 
-    let(:public_project) { create(:project, :public) }
-    let(:private_user) { create(:user, private_profile: true) }
-
     before do
-      user.update!(starred_projects: [public_project])
-      private_user.update!(starred_projects: [public_project])
+      user.users_star_projects.create!(project_id: public_project.id)
+      private_user.users_star_projects.create!(project_id: public_project.id)
     end
 
     it 'returns not_found(404) for not existing project' do
@@ -3986,7 +5015,7 @@ RSpec.describe API::Projects do
       end
 
       it 'returns only starrers with a public profile' do
-        get api("/projects/#{public_project.id}/starrers", nil)
+        get api(path, nil)
 
         user_ids = json_response.map { |s| s['user']['id'] }
         expect(user_ids).to include(user.id)
@@ -4000,7 +5029,7 @@ RSpec.describe API::Projects do
       end
 
       it 'returns current user with a private profile' do
-        get api("/projects/#{public_project.id}/starrers", private_user)
+        get api(path, private_user)
 
         user_ids = json_response.map { |s| s['user']['id'] }
         expect(user_ids).to include(user.id, private_user.id)
@@ -4063,9 +5092,16 @@ RSpec.describe API::Projects do
   end
 
   describe 'DELETE /projects/:id' do
+    let(:path) { "/projects/#{project.id}" }
+
+    it_behaves_like 'DELETE request permissions for admin mode' do
+      let(:success_status_code) { :accepted }
+      let(:failed_status_code) { :not_found }
+    end
+
     context 'when authenticated as user' do
       it 'removes project' do
-        delete api("/projects/#{project.id}", user)
+        delete api(path, user)
 
         expect(response).to have_gitlab_http_status(:accepted)
         expect(json_response['message']).to eql('202 Accepted')
@@ -4073,13 +5109,13 @@ RSpec.describe API::Projects do
 
       it_behaves_like '412 response' do
         let(:success_status) { 202 }
-        let(:request) { api("/projects/#{project.id}", user) }
+        subject(:request) { api(path, user) }
       end
 
       it 'does not remove a project if not an owner' do
         user3 = create(:user)
         project.add_developer(user3)
-        delete api("/projects/#{project.id}", user3)
+        delete api(path, user3)
         expect(response).to have_gitlab_http_status(:forbidden)
       end
 
@@ -4089,27 +5125,27 @@ RSpec.describe API::Projects do
       end
 
       it 'does not remove a project not attached to user' do
-        delete api("/projects/#{project.id}", user2)
+        delete api(path, user2)
         expect(response).to have_gitlab_http_status(:not_found)
       end
     end
 
     context 'when authenticated as admin' do
       it 'removes any existing project' do
-        delete api("/projects/#{project.id}", admin)
+        delete api("/projects/#{project.id}", admin, admin_mode: true)
 
         expect(response).to have_gitlab_http_status(:accepted)
         expect(json_response['message']).to eql('202 Accepted')
       end
 
       it 'does not remove a non existing project' do
-        delete api("/projects/#{non_existing_record_id}", admin)
+        delete api("/projects/#{non_existing_record_id}", admin, admin_mode: true)
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
       it_behaves_like '412 response' do
         let(:success_status) { 202 }
-        let(:request) { api("/projects/#{project.id}", admin) }
+        subject(:request) { api("/projects/#{project.id}", admin, admin_mode: true) }
       end
     end
   end
@@ -4118,6 +5154,8 @@ RSpec.describe API::Projects do
     let(:project) do
       create(:project, :repository, creator: user, namespace: user.namespace)
     end
+
+    let(:path) { "/projects/#{project.id}/fork" }
 
     let(:project2) do
       create(:project, :repository, creator: user, namespace: user.namespace)
@@ -4135,9 +5173,14 @@ RSpec.describe API::Projects do
       project2.add_reporter(user2)
     end
 
+    it_behaves_like 'POST request permissions for admin mode' do
+      let(:params) { {} }
+      let(:failed_status_code) { :not_found }
+    end
+
     context 'when authenticated' do
       it 'forks if user has sufficient access to project' do
-        post api("/projects/#{project.id}/fork", user2)
+        post api(path, user2)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['name']).to eq(project.name)
@@ -4150,7 +5193,7 @@ RSpec.describe API::Projects do
       end
 
       it 'forks if user is admin' do
-        post api("/projects/#{project.id}/fork", admin)
+        post api(path, admin, admin_mode: true)
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['name']).to eq(project.name)
@@ -4164,7 +5207,7 @@ RSpec.describe API::Projects do
 
       it 'fails on missing project access for the project to fork' do
         new_user = create(:user)
-        post api("/projects/#{project.id}/fork", new_user)
+        post api(path, new_user)
 
         expect(response).to have_gitlab_http_status(:not_found)
         expect(json_response['message']).to eq('404 Project Not Found')
@@ -4177,8 +5220,13 @@ RSpec.describe API::Projects do
         post api("/projects/#{new_project.id}/fork", user)
 
         expect(response).to have_gitlab_http_status(:conflict)
-        expect(json_response['message']['name']).to eq(['has already been taken'])
-        expect(json_response['message']['path']).to eq(['has already been taken'])
+        expect(json_response['message']).to match_array(
+          [
+            'Name has already been taken',
+            'Path has already been taken',
+            'Project namespace name has already been taken'
+          ]
+        )
       end
 
       it 'fails if project to fork from does not exist' do
@@ -4189,41 +5237,41 @@ RSpec.describe API::Projects do
       end
 
       it 'forks with explicit own user namespace id' do
-        post api("/projects/#{project.id}/fork", user2), params: { namespace: user2.namespace.id }
+        post api(path, user2), params: { namespace: user2.namespace.id }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['owner']['id']).to eq(user2.id)
       end
 
       it 'forks with explicit own user name as namespace' do
-        post api("/projects/#{project.id}/fork", user2), params: { namespace: user2.username }
+        post api(path, user2), params: { namespace: user2.username }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['owner']['id']).to eq(user2.id)
       end
 
       it 'forks to another user when admin' do
-        post api("/projects/#{project.id}/fork", admin), params: { namespace: user2.username }
+        post api(path, admin, admin_mode: true), params: { namespace: user2.username }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['owner']['id']).to eq(user2.id)
       end
 
       it 'fails if trying to fork to another user when not admin' do
-        post api("/projects/#{project.id}/fork", user2), params: { namespace: admin.namespace.id }
+        post api(path, user2), params: { namespace: admin.namespace.id }
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
       it 'fails if trying to fork to non-existent namespace' do
-        post api("/projects/#{project.id}/fork", user2), params: { namespace: non_existing_record_id }
+        post api(path, user2), params: { namespace: non_existing_record_id }
 
         expect(response).to have_gitlab_http_status(:not_found)
         expect(json_response['message']).to eq('404 Namespace Not Found')
       end
 
       it 'forks to owned group' do
-        post api("/projects/#{project.id}/fork", user2), params: { namespace: group2.name }
+        post api(path, user2), params: { namespace: group2.name }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['namespace']['name']).to eq(group2.name)
@@ -4240,7 +5288,7 @@ RSpec.describe API::Projects do
 
         context 'and namespace_id is specified alone' do
           before do
-            post api("/projects/#{project.id}/fork", user2), params: { namespace_id: user2.namespace.id }
+            post api(path, user2), params: { namespace_id: user2.namespace.id }
           end
 
           it_behaves_like 'forking to specified namespace_id'
@@ -4248,7 +5296,7 @@ RSpec.describe API::Projects do
 
         context 'and namespace_id and namespace are both specified' do
           before do
-            post api("/projects/#{project.id}/fork", user2), params: { namespace_id: user2.namespace.id, namespace: admin.namespace.id }
+            post api(path, user2), params: { namespace_id: user2.namespace.id, namespace: admin.namespace.id }
           end
 
           it_behaves_like 'forking to specified namespace_id'
@@ -4256,7 +5304,7 @@ RSpec.describe API::Projects do
 
         context 'and namespace_id and namespace_path are both specified' do
           before do
-            post api("/projects/#{project.id}/fork", user2), params: { namespace_id: user2.namespace.id, namespace_path: admin.namespace.path }
+            post api(path, user2), params: { namespace_id: user2.namespace.id, namespace_path: admin.namespace.path }
           end
 
           it_behaves_like 'forking to specified namespace_id'
@@ -4274,7 +5322,7 @@ RSpec.describe API::Projects do
 
         context 'and namespace_path is specified alone' do
           before do
-            post api("/projects/#{project.id}/fork", user2), params: { namespace_path: user2.namespace.path }
+            post api(path, user2), params: { namespace_path: user2.namespace.path }
           end
 
           it_behaves_like 'forking to specified namespace_path'
@@ -4282,7 +5330,7 @@ RSpec.describe API::Projects do
 
         context 'and namespace_path and namespace are both specified' do
           before do
-            post api("/projects/#{project.id}/fork", user2), params: { namespace_path: user2.namespace.path, namespace: admin.namespace.path }
+            post api(path, user2), params: { namespace_path: user2.namespace.path, namespace: admin.namespace.path }
           end
 
           it_behaves_like 'forking to specified namespace_path'
@@ -4291,7 +5339,7 @@ RSpec.describe API::Projects do
 
       it 'forks to owned subgroup' do
         full_path = "#{group2.path}/#{group3.path}"
-        post api("/projects/#{project.id}/fork", user2), params: { namespace: full_path }
+        post api(path, user2), params: { namespace: full_path }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['namespace']['name']).to eq(group3.name)
@@ -4299,21 +5347,21 @@ RSpec.describe API::Projects do
       end
 
       it 'fails to fork to not owned group' do
-        post api("/projects/#{project.id}/fork", user2), params: { namespace: group.name }
+        post api(path, user2), params: { namespace: group.name }
 
         expect(response).to have_gitlab_http_status(:not_found)
         expect(json_response['message']).to eq("404 Target Namespace Not Found")
       end
 
       it 'forks to not owned group when admin' do
-        post api("/projects/#{project.id}/fork", admin), params: { namespace: group.name }
+        post api(path, admin, admin_mode: true), params: { namespace: group.name }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['namespace']['name']).to eq(group.name)
       end
 
       it 'accepts a path for the target project' do
-        post api("/projects/#{project.id}/fork", user2), params: { path: 'foobar' }
+        post api(path, user2), params: { path: 'foobar' }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['name']).to eq(project.name)
@@ -4326,15 +5374,15 @@ RSpec.describe API::Projects do
       end
 
       it 'fails to fork if path is already taken' do
-        post api("/projects/#{project.id}/fork", user2), params: { path: 'foobar' }
+        post api(path, user2), params: { path: 'foobar' }
         post api("/projects/#{project2.id}/fork", user2), params: { path: 'foobar' }
 
         expect(response).to have_gitlab_http_status(:conflict)
-        expect(json_response['message']['path']).to eq(['has already been taken'])
+        expect(json_response['message']).to eq(['Path has already been taken'])
       end
 
       it 'accepts custom parameters for the target project' do
-        post api("/projects/#{project.id}/fork", user2),
+        post api(path, user2),
           params: {
             name: 'My Random Project',
             description: 'A description',
@@ -4356,15 +5404,20 @@ RSpec.describe API::Projects do
       end
 
       it 'fails to fork if name is already taken' do
-        post api("/projects/#{project.id}/fork", user2), params: { name: 'My Random Project' }
+        post api(path, user2), params: { name: 'My Random Project' }
         post api("/projects/#{project2.id}/fork", user2), params: { name: 'My Random Project' }
 
         expect(response).to have_gitlab_http_status(:conflict)
-        expect(json_response['message']['name']).to eq(['has already been taken'])
+        expect(json_response['message']).to match_array(
+          [
+            'Name has already been taken',
+            'Project namespace name has already been taken'
+          ]
+        )
       end
 
       it 'forks to the same namespace with alternative path and name' do
-        post api("/projects/#{project.id}/fork", user), params: { path: 'path_2', name: 'name_2' }
+        post api(path, user), params: { path: 'path_2', name: 'name_2' }
 
         expect(response).to have_gitlab_http_status(:created)
         expect(json_response['name']).to eq('name_2')
@@ -4376,15 +5429,20 @@ RSpec.describe API::Projects do
       end
 
       it 'fails to fork to the same namespace without alternative path and name' do
-        post api("/projects/#{project.id}/fork", user)
+        post api(path, user)
 
         expect(response).to have_gitlab_http_status(:conflict)
-        expect(json_response['message']['path']).to eq(['has already been taken'])
-        expect(json_response['message']['name']).to eq(['has already been taken'])
+        expect(json_response['message']).to match_array(
+          [
+            'Name has already been taken',
+            'Path has already been taken',
+            'Project namespace name has already been taken'
+          ]
+        )
       end
 
       it 'fails to fork with an unknown visibility level' do
-        post api("/projects/#{project.id}/fork", user2), params: { visibility: 'something' }
+        post api(path, user2), params: { visibility: 'something' }
 
         expect(response).to have_gitlab_http_status(:bad_request)
         expect(json_response['error']).to eq('visibility does not have a valid value')
@@ -4393,7 +5451,7 @@ RSpec.describe API::Projects do
 
     context 'when unauthenticated' do
       it 'returns authentication error' do
-        post api("/projects/#{project.id}/fork")
+        post api(path)
 
         expect(response).to have_gitlab_http_status(:unauthorized)
         expect(json_response['message']).to eq('401 Unauthorized')
@@ -4407,7 +5465,7 @@ RSpec.describe API::Projects do
       end
 
       it 'denies project to be forked' do
-        post api("/projects/#{project.id}/fork", admin)
+        post api(path, admin, admin_mode: true)
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
@@ -4416,25 +5474,67 @@ RSpec.describe API::Projects do
 
   describe 'POST /projects/:id/housekeeping' do
     let(:housekeeping) { Repositories::HousekeepingService.new(project) }
+    let(:params) { {} }
+    let(:path) { "/projects/#{project.id}/housekeeping" }
+
+    subject(:request) { post api(path, user), params: params }
 
     before do
-      allow(Repositories::HousekeepingService).to receive(:new).with(project, :gc).and_return(housekeeping)
+      allow(Repositories::HousekeepingService).to receive(:new).with(project, :eager).and_return(housekeeping)
     end
 
     context 'when authenticated as owner' do
       it 'starts the housekeeping process' do
         expect(housekeeping).to receive(:execute).once
 
-        post api("/projects/#{project.id}/housekeeping", user)
+        request
 
         expect(response).to have_gitlab_http_status(:created)
+      end
+
+      it 'logs an audit event' do
+        expect(housekeeping).to receive(:execute).once.and_yield
+        expect(::Gitlab::Audit::Auditor).to receive(:audit).with(a_hash_including(
+          name: 'manually_trigger_housekeeping',
+          author: user,
+          scope: project,
+          target: project,
+          message: "Housekeeping task: eager"
+        ))
+
+        request
+      end
+
+      context 'when requesting prune' do
+        let(:params) { { task: :prune } }
+
+        it 'triggers a prune' do
+          expect(Repositories::HousekeepingService).to receive(:new).with(project, :prune).and_return(housekeeping)
+          expect(housekeeping).to receive(:execute).once
+
+          request
+
+          expect(response).to have_gitlab_http_status(:created)
+        end
+      end
+
+      context 'when requesting an unsupported task' do
+        let(:params) { { task: :unsupported_task } }
+
+        it 'responds with bad_request' do
+          expect(Repositories::HousekeepingService).not_to receive(:new)
+
+          request
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+        end
       end
 
       context 'when housekeeping lease is taken' do
         it 'returns conflict' do
           expect(housekeeping).to receive(:execute).once.and_raise(Repositories::HousekeepingService::LeaseTaken)
 
-          post api("/projects/#{project.id}/housekeeping", user)
+          request
 
           expect(response).to have_gitlab_http_status(:conflict)
           expect(json_response['message']).to match(/Somebody already triggered housekeeping for this resource/)
@@ -4448,7 +5548,7 @@ RSpec.describe API::Projects do
       end
 
       it 'returns forbidden error' do
-        post api("/projects/#{project.id}/housekeeping", user3)
+        post api(path, user3)
 
         expect(response).to have_gitlab_http_status(:forbidden)
       end
@@ -4456,7 +5556,46 @@ RSpec.describe API::Projects do
 
     context 'when unauthenticated' do
       it 'returns authentication error' do
-        post api("/projects/#{project.id}/housekeeping")
+        post api(path)
+
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+    end
+  end
+
+  describe 'POST /projects/:id/repository_size' do
+    let(:update_statistics_service) { Projects::UpdateStatisticsService.new(project, nil, statistics: [:repository_size, :lfs_objects_size]) }
+    let(:path) { "/projects/#{project.id}/repository_size" }
+
+    before do
+      allow(Projects::UpdateStatisticsService).to receive(:new).with(project, nil, statistics: [:repository_size, :lfs_objects_size]).and_return(update_statistics_service)
+    end
+
+    context 'when authenticated as owner' do
+      it 'starts the housekeeping process' do
+        expect(update_statistics_service).to receive(:execute).once
+
+        post api(path, user)
+
+        expect(response).to have_gitlab_http_status(:created)
+      end
+    end
+
+    context 'when authenticated as developer' do
+      before do
+        project_member
+      end
+
+      it 'returns forbidden error' do
+        post api(path, user3)
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
+    context 'when unauthenticated' do
+      it 'returns authentication error' do
+        post api(path)
 
         expect(response).to have_gitlab_http_status(:unauthorized)
       end
@@ -4464,31 +5603,33 @@ RSpec.describe API::Projects do
   end
 
   describe 'PUT /projects/:id/transfer' do
+    let(:path) { "/projects/#{project.id}/transfer" }
+
     context 'when authenticated as owner' do
       let(:group) { create :group }
 
       it 'transfers the project to the new namespace' do
         group.add_owner(user)
 
-        put api("/projects/#{project.id}/transfer", user), params: { namespace: group.id }
+        put api(path, user), params: { namespace: group.id }
 
         expect(response).to have_gitlab_http_status(:ok)
       end
 
       it 'fails when transferring to a non owned namespace' do
-        put api("/projects/#{project.id}/transfer", user), params: { namespace: group.id }
+        put api(path, user), params: { namespace: group.id }
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
       it 'fails when transferring to an unknown namespace' do
-        put api("/projects/#{project.id}/transfer", user), params: { namespace: 'unknown' }
+        put api(path, user), params: { namespace: 'unknown' }
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
       it 'fails on missing namespace' do
-        put api("/projects/#{project.id}/transfer", user)
+        put api(path, user)
 
         expect(response).to have_gitlab_http_status(:bad_request)
       end
@@ -4503,7 +5644,7 @@ RSpec.describe API::Projects do
         let(:group) { create(:group, project_creation_level: ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS) }
 
         it 'fails transferring the project to the target namespace' do
-          put api("/projects/#{project.id}/transfer", user), params: { namespace: group.id }
+          put api(path, user), params: { namespace: group.id }
 
           expect(response).to have_gitlab_http_status(:bad_request)
         end
@@ -4511,17 +5652,114 @@ RSpec.describe API::Projects do
     end
   end
 
+  describe 'GET /projects/:id/transfer_locations' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:source_group) { create(:group) }
+    let_it_be(:project) { create(:project, group: source_group) }
+
+    let(:params) { {} }
+
+    subject(:request) do
+      get api("/projects/#{project.id}/transfer_locations", user), params: params
+    end
+
+    context 'when the user has rights to transfer the project' do
+      let_it_be(:guest_group) { create(:group) }
+      let_it_be(:maintainer_group) { create(:group, name: 'maintainer group', path: 'maintainer-group') }
+      let_it_be(:owner_group) { create(:group, name: 'owner group', path: 'owner-group') }
+
+      before do
+        source_group.add_owner(user)
+        guest_group.add_guest(user)
+        maintainer_group.add_maintainer(user)
+        owner_group.add_owner(user)
+      end
+
+      it 'returns 200' do
+        request
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to include_pagination_headers
+      end
+
+      it 'includes groups where the user has permissions to transfer a project to' do
+        request
+
+        expect(project_ids_from_response).to match_array [maintainer_group.id, owner_group.id]
+      end
+
+      it 'does not include groups where the user doesn not have permissions to transfer a project' do
+        request
+
+        expect(project_ids_from_response).not_to include(guest_group.id)
+      end
+
+      it 'does not include the group id of the current project' do
+        request
+
+        expect(project_ids_from_response).not_to include(project.group.id)
+      end
+
+      context 'with search' do
+        let(:params) { { search: 'maintainer' } }
+
+        it 'includes groups where the user has permissions to transfer a project to' do
+          request
+
+          expect(project_ids_from_response).to contain_exactly(maintainer_group.id)
+        end
+      end
+
+      context 'group shares' do
+        let_it_be(:shared_to_owner_group) { create(:group) }
+        let_it_be(:shared_to_guest_group) { create(:group) }
+
+        before do
+          create(:group_group_link, :owner, shared_with_group: owner_group, shared_group: shared_to_owner_group)
+          create(:group_group_link, :guest, shared_with_group: guest_group, shared_group: shared_to_guest_group)
+        end
+
+        it 'only includes groups arising from group shares where the user has permission to transfer a project to' do
+          request
+
+          expect(project_ids_from_response).to include(shared_to_owner_group.id)
+          expect(project_ids_from_response).not_to include(shared_to_guest_group.id)
+        end
+      end
+
+      def project_ids_from_response
+        json_response.map { |project| project['id'] }
+      end
+    end
+
+    context 'when the user does not have permissions to transfer the project' do
+      before do
+        source_group.add_developer(user)
+      end
+
+      it 'returns 403' do
+        request
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+  end
+
   describe 'GET /projects/:id/storage' do
+    let(:path) { "/projects/#{project.id}/storage" }
+
+    it_behaves_like 'GET request permissions for admin mode'
+
     context 'when unauthenticated' do
       it 'does not return project storage data' do
-        get api("/projects/#{project.id}/storage")
+        get api(path)
 
         expect(response).to have_gitlab_http_status(:unauthorized)
       end
     end
 
     it 'returns project storage data when user is admin' do
-      get api("/projects/#{project.id}/storage", create(:admin))
+      get api(path, create(:admin), admin_mode: true)
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['project_id']).to eq(project.id)
@@ -4531,7 +5769,7 @@ RSpec.describe API::Projects do
     end
 
     it 'does not return project storage data when user is not admin' do
-      get api("/projects/#{project.id}/storage", user3)
+      get api(path, user3)
 
       expect(response).to have_gitlab_http_status(:forbidden)
     end

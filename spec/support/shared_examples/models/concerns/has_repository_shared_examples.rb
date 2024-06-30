@@ -125,17 +125,17 @@ RSpec.shared_examples 'model with repository' do
   end
 
   describe '#valid_repo?' do
-    it { expect(stubbed_container.valid_repo?).to be(false)}
+    it { expect(stubbed_container.valid_repo?).to be(false) }
     it { expect(container.valid_repo?).to be(true) }
   end
 
   describe '#repository_exists?' do
-    it { expect(stubbed_container.repository_exists?).to be(false)}
+    it { expect(stubbed_container.repository_exists?).to be(false) }
     it { expect(container.repository_exists?).to be(true) }
   end
 
   describe '#repo_exists?' do
-    it { expect(stubbed_container.repo_exists?).to be(false)}
+    it { expect(stubbed_container.repo_exists?).to be(false) }
     it { expect(container.repo_exists?).to be(true) }
   end
 
@@ -162,8 +162,22 @@ RSpec.shared_examples 'model with repository' do
   end
 
   describe '#after_repository_change_head' do
+    let(:event) { instance_double('Repositories::DefaultBranchChangedEvent') }
+    let(:event_data) { { container_id: stubbed_container.id, container_type: stubbed_container.class.name } }
+
     it 'calls #reload_default_branch' do
       expect(stubbed_container).to receive(:reload_default_branch)
+
+      stubbed_container.after_repository_change_head
+    end
+
+    it 'publishes an Repositories::DefaultBranchChangedEvent event' do
+      allow(Repositories::DefaultBranchChangedEvent)
+        .to receive(:new)
+        .with(data: event_data)
+        .and_return(event)
+
+      expect(Gitlab::EventStore).to receive(:publish).with(event).once
 
       stubbed_container.after_repository_change_head
     end

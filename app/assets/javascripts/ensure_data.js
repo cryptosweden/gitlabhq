@@ -1,6 +1,6 @@
-import emptySvg from '@gitlab/svgs/dist/illustrations/security-dashboard-empty-state.svg';
+import emptySvg from '@gitlab/svgs/dist/illustrations/empty-state/empty-dashboard-md.svg?raw';
 import { GlEmptyState } from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { __ } from '~/locale';
 
 export const ERROR_FETCHING_DATA_HEADER = __('Could not get the data properly');

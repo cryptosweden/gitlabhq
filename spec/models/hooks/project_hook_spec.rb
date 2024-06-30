@@ -2,7 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe ProjectHook do
+RSpec.describe ProjectHook, feature_category: :webhooks do
+  include_examples 'a hook that gets automatically disabled on failure' do
+    let_it_be(:project) { create(:project) }
+
+    let(:hook) { build(:project_hook, project: project) }
+    let(:hook_factory) { :project_hook }
+    let(:default_factory_arguments) { { project: project } }
+
+    def find_hooks
+      project.hooks
+    end
+  end
+
   describe 'associations' do
     it { is_expected.to belong_to :project }
   end
@@ -12,31 +24,37 @@ RSpec.describe ProjectHook do
   end
 
   it_behaves_like 'includes Limitable concern' do
-    subject { build(:project_hook, project: create(:project)) }
+    subject { build(:project_hook) }
+  end
+
+  describe '.for_projects' do
+    it 'finds related project hooks' do
+      hook_a = create(:project_hook, project: build(:project))
+      hook_b = create(:project_hook, project: build(:project))
+      hook_c = create(:project_hook, project: build(:project))
+
+      expect(described_class.for_projects([hook_a.project, hook_b.project]))
+        .to contain_exactly(hook_a, hook_b)
+      expect(described_class.for_projects(hook_c.project))
+        .to contain_exactly(hook_c)
+    end
   end
 
   describe '.push_hooks' do
     it 'returns hooks for push events only' do
-      hook = create(:project_hook, push_events: true)
-      create(:project_hook, push_events: false)
+      project = build(:project)
+      hook = create(:project_hook, project: project, push_events: true)
+      create(:project_hook, project: project, push_events: false)
       expect(described_class.push_hooks).to eq([hook])
     end
   end
 
   describe '.tag_push_hooks' do
     it 'returns hooks for tag push events only' do
-      hook = create(:project_hook, tag_push_events: true)
-      create(:project_hook, tag_push_events: false)
+      project = build(:project)
+      hook = create(:project_hook, project: project, tag_push_events: true)
+      create(:project_hook, project: project, tag_push_events: false)
       expect(described_class.tag_push_hooks).to eq([hook])
-    end
-  end
-
-  describe '#rate_limit' do
-    let_it_be(:plan_limits) { create(:plan_limits, :default_plan, web_hook_calls: 100) }
-    let_it_be(:hook) { create(:project_hook) }
-
-    it 'returns the default limit' do
-      expect(hook.rate_limit).to be(100)
     end
   end
 

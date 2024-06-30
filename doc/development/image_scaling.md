@@ -1,7 +1,7 @@
 ---
-stage: Enablement
-group: Memory
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Data Stores
+group: Tenant Scale
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Image scaling guide
@@ -13,7 +13,7 @@ For a general introduction to the history of image scaling at GitLab, you might 
 
 ## Why image scaling?
 
-Since version 13.6, GitLab scales down images on demand in order to reduce the page data footprint.
+Since version 13.6, GitLab scales down images on demand to reduce the page data footprint.
 This both reduces the amount of data "on the wire", but also helps with rendering performance,
 since the browser has less work to do.
 
@@ -26,12 +26,12 @@ Whether we allow an image to be rescaled or not is decided by combination of har
 The hard-coded rules only permit:
 
 - [Project, group and user avatars](https://gitlab.com/gitlab-org/gitlab/-/blob/fd08748862a5fe5c25b919079858146ea85843ae/app/controllers/concerns/send_file_upload.rb#L65-67)
-- [PNGs or JPEGs](https://gitlab.com/gitlab-org/gitlab/-/blob/5dff8fa3814f2a683d8884f468cba1ec06a60972/lib/gitlab/file_type_detection.rb#L23)
+- [PNG or JPEG images](https://gitlab.com/gitlab-org/gitlab/-/blob/5dff8fa3814f2a683d8884f468cba1ec06a60972/lib/gitlab/file_type_detection.rb#L23)
 - [Specific dimensions](https://gitlab.com/gitlab-org/gitlab/-/blob/5dff8fa3814f2a683d8884f468cba1ec06a60972/app/models/concerns/avatarable.rb#L6)
 
 Furthermore, configuration in Workhorse can lead to the image scaler rejecting a request if:
 
-- The image file is too large (controlled by [`max_filesize`](- we only rescale images that do not exceed a configured size in bytes (see [`max_filesize`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/workhorse/config.toml.example#L22)))).
+- The image file is too large (controlled by `max_filesize`, we only rescale images that do not exceed a configured size in bytes, see [`max_filesize`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/workhorse/config.toml.example#L22)).
 - Too many image scalers are already running (controlled by [`max_scaler_procs`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/workhorse/config.toml.example#L21)).
 
 For instance, here are two different URLs that serve the GitLab project avatar both in its
@@ -68,7 +68,7 @@ controller mixin. Upon receiving a request coming from a client through Workhors
 it should trigger the image scaler as per the criteria mentioned above, and if so, render a special response
 header field (`Gitlab-Workhorse-Send-Data`) with the necessary parameters for Workhorse to carry
 out the scaling request. If Rails decides the request does not constitute a valid image scaling request,
-we simply follow the path we take to serve any ordinary upload.
+we follow the path we take to serve any ordinary upload.
 
 ### Workhorse
 

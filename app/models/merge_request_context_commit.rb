@@ -12,8 +12,10 @@ class MergeRequestContextCommit < ApplicationRecord
   validates :sha, presence: true
   validates :sha, uniqueness: { message: 'has already been added' }
 
-  serialize :trailers, Serializers::Json # rubocop:disable Cop/ActiveRecordSerialize
+  attribute :trailers, :ind_jsonb
   validates :trailers, json_schema: { filename: 'git_trailers' }
+
+  validates :merge_request_id, presence: true
 
   # Sort by committed date in descending order to ensure latest commits comes on the top
   scope :order_by_committed_date_desc, -> { order('committed_date DESC') }
@@ -26,6 +28,13 @@ class MergeRequestContextCommit < ApplicationRecord
 
   # create MergeRequestContextCommit by given commit sha and it's diff file record
   def self.bulk_insert(rows, **args)
+    # Remove the new extended_trailers attribute as this shouldn't be
+    # inserted into the database. This will be removed once the old
+    # format of the trailers attribute is deprecated.
+    rows = rows.map do |row|
+      row.except(:extended_trailers).to_hash
+    end
+
     ApplicationRecord.legacy_bulk_insert('merge_request_context_commits', rows, **args) # rubocop:disable Gitlab/BulkInsert
   end
 

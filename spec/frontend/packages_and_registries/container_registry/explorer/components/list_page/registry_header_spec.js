@@ -1,11 +1,11 @@
-import { GlSprintf } from '@gitlab/ui';
+import { GlSprintf, GlLink } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import Component from '~/packages_and_registries/container_registry/explorer/components/list_page/registry_header.vue';
 import {
   CONTAINER_REGISTRY_TITLE,
-  LIST_INTRO_TEXT,
   EXPIRATION_POLICY_DISABLED_TEXT,
+  SET_UP_CLEANUP,
 } from '~/packages_and_registries/container_registry/explorer/constants';
 import TitleArea from '~/vue_shared/components/registry/title_area.vue';
 
@@ -17,27 +17,31 @@ jest.mock('~/lib/utils/datetime_utility', () => ({
 describe('registry_header', () => {
   let wrapper;
 
-  const findTitleArea = () => wrapper.find(TitleArea);
+  const findTitleArea = () => wrapper.findComponent(TitleArea);
   const findCommandsSlot = () => wrapper.find('[data-testid="commands-slot"]');
   const findImagesCountSubHeader = () => wrapper.find('[data-testid="images-count"]');
   const findExpirationPolicySubHeader = () => wrapper.find('[data-testid="expiration-policy"]');
+  const findSetupCleanUpLink = () => wrapper.findComponent(GlLink);
 
   const mountComponent = async (propsData, slots) => {
     wrapper = shallowMount(Component, {
       stubs: {
         GlSprintf,
         TitleArea,
+        MetadataContainerScanning: true,
       },
       propsData,
       slots,
+      provide() {
+        return {
+          config: {
+            isGroupPage: false,
+          },
+        };
+      },
     });
     await nextTick();
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   describe('header', () => {
     it('has a title', () => {
@@ -57,6 +61,12 @@ describe('registry_header', () => {
 
     describe('sub header parts', () => {
       describe('images count', () => {
+        it('does not exist', async () => {
+          await mountComponent({ imagesCount: 0 });
+
+          expect(findImagesCountSubHeader().exists()).toBe(false);
+        });
+
         it('exists', async () => {
           await mountComponent({ imagesCount: 1 });
 
@@ -69,6 +79,7 @@ describe('registry_header', () => {
           expect(findImagesCountSubHeader().props()).toMatchObject({
             text: '1 Image repository',
             icon: 'container-image',
+            size: 'xl',
           });
         });
 
@@ -79,7 +90,7 @@ describe('registry_header', () => {
         });
       });
 
-      describe('expiration policy', () => {
+      describe('cleanup policy', () => {
         it('when is disabled', async () => {
           await mountComponent({
             expirationPolicy: { enabled: false },
@@ -88,10 +99,11 @@ describe('registry_header', () => {
           });
 
           const text = findExpirationPolicySubHeader();
+
           expect(text.exists()).toBe(true);
           expect(text.props()).toMatchObject({
             text: EXPIRATION_POLICY_DISABLED_TEXT,
-            icon: 'expire',
+            icon: 'clock',
             size: 'xl',
           });
         });
@@ -100,14 +112,19 @@ describe('registry_header', () => {
           await mountComponent({
             expirationPolicy: { enabled: true },
             expirationPolicyHelpPagePath: 'foo',
+            showCleanupPolicyLink: true,
             imagesCount: 1,
           });
 
           const text = findExpirationPolicySubHeader();
+          const cleanupLink = findSetupCleanUpLink();
+
           expect(text.exists()).toBe(true);
-          expect(text.props('text')).toBe('Expiration policy will run in ');
+          expect(text.props('text')).toBe('Cleanup will run in ');
+          expect(cleanupLink.exists()).toBe(true);
+          expect(cleanupLink.text()).toBe(SET_UP_CLEANUP);
         });
-        it('when the expiration policy is completely disabled', async () => {
+        it('when the cleanup policy is not scheduled', async () => {
           await mountComponent({
             expirationPolicy: { enabled: true },
             expirationPolicyHelpPagePath: 'foo',
@@ -127,9 +144,7 @@ describe('registry_header', () => {
       it('is correctly bound to title_area props', () => {
         mountComponent({ helpPagePath: 'foo' });
 
-        expect(findTitleArea().props('infoMessages')).toEqual([
-          { text: LIST_INTRO_TEXT, link: 'foo' },
-        ]);
+        expect(findTitleArea().props('infoMessages')).toEqual([]);
       });
     });
   });

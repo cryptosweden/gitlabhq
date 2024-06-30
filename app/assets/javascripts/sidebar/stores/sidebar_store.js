@@ -1,9 +1,12 @@
+import { parseBoolean } from '~/lib/utils/common_utils';
+
 export default class SidebarStore {
   constructor(options) {
     if (!SidebarStore.singleton) {
       this.initSingleton(options);
     }
 
+    // eslint-disable-next-line no-constructor-return
     return SidebarStore.singleton;
   }
 
@@ -11,7 +14,7 @@ export default class SidebarStore {
     const { currentUser, rootPath, editable, timeTrackingLimitToHours } = options;
     this.currentUser = currentUser;
     this.rootPath = rootPath;
-    this.editable = editable;
+    this.editable = parseBoolean(editable);
     this.timeEstimate = 0;
     this.totalTimeSpent = 0;
     this.humanTimeEstimate = '';
@@ -28,10 +31,11 @@ export default class SidebarStore {
     this.moveToProjectId = 0;
     this.isLockDialogOpen = false;
     this.participants = [];
-    this.projectEmailsDisabled = false;
+    this.projectEmailsEnabled = true;
     this.subscribeDisabledDescription = '';
     this.subscribed = null;
     this.changing = false;
+    this.issuableType = options.issuableType;
 
     SidebarStore.singleton = this;
   }
@@ -134,6 +138,10 @@ export default class SidebarStore {
 
   setAssigneesFromRealtime(data) {
     this.assignees = data;
+  }
+
+  setReviewersFromRealtime(data) {
+    this.reviewers = data;
   }
 
   setAutocompleteProjects(projects) {

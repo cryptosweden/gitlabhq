@@ -1,4 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
+import { GlButton } from '@gitlab/ui';
+import { TYPE_ISSUE } from '~/issues/constants';
 import CollapsedAssigneeList from './collapsed_assignee_list.vue';
 import UncollapsedAssigneeList from './uncollapsed_assignee_list.vue';
 
@@ -7,6 +10,7 @@ export default {
   // eslint-disable-next-line @gitlab/require-i18n-strings
   name: 'Assignees',
   components: {
+    GlButton,
     CollapsedAssigneeList,
     UncollapsedAssigneeList,
   },
@@ -22,7 +26,7 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: 'issue',
+      default: TYPE_ISSUE,
     },
   },
   computed: {
@@ -39,9 +43,6 @@ export default {
     assignSelf() {
       this.$emit('assign-self');
     },
-    toggleAttentionRequested(data) {
-      this.$emit('toggle-attention-requested', data);
-    },
   },
 };
 </script>
@@ -50,23 +51,23 @@ export default {
   <div>
     <collapsed-assignee-list :users="sortedAssigness" :issuable-type="issuableType" />
 
-    <div data-testid="expanded-assignee" class="value hide-collapsed">
+    <div class="value hide-collapsed">
       <span v-if="hasNoUsers" class="no-value" data-testid="no-value">
         {{ __('None') }}
         <template v-if="editable">
           -
-          <button type="button" class="btn-link" data-testid="assign-yourself" @click="assignSelf">
+          <gl-button
+            variant="link"
+            class="!gl-text-inherit"
+            data-testid="assign-yourself"
+            @click="assignSelf"
+          >
             {{ __('assign yourself') }}
-          </button>
+          </gl-button>
         </template>
       </span>
 
-      <uncollapsed-assignee-list
-        v-else
-        :users="sortedAssigness"
-        :issuable-type="issuableType"
-        @toggle-attention-requested="toggleAttentionRequested"
-      />
+      <uncollapsed-assignee-list v-else :users="sortedAssigness" :issuable-type="issuableType" />
     </div>
   </div>
 </template>

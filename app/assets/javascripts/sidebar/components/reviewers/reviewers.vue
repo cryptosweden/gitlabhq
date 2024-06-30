@@ -1,7 +1,9 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
+import { GlButton } from '@gitlab/ui';
 // NOTE! For the first iteration, we are simply copying the implementation of Assignees
 // It will soon be overhauled in Issue https://gitlab.com/gitlab-org/gitlab/-/issues/233736
-import CollapsedReviewerList from './collapsed_reviewer_list.vue';
+import { TYPE_ISSUE } from '~/issues/constants';
 import UncollapsedReviewerList from './uncollapsed_reviewer_list.vue';
 
 export default {
@@ -9,7 +11,7 @@ export default {
   // eslint-disable-next-line @gitlab/require-i18n-strings
   name: 'Reviewers',
   components: {
-    CollapsedReviewerList,
+    GlButton,
     UncollapsedReviewerList,
   },
   props: {
@@ -28,7 +30,7 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: 'issue',
+      default: TYPE_ISSUE,
     },
   },
   computed: {
@@ -36,8 +38,8 @@ export default {
       return !this.users.length;
     },
     sortedReviewers() {
-      const canMergeUsers = this.users.filter((user) => user.can_merge);
-      const canNotMergeUsers = this.users.filter((user) => !user.can_merge);
+      const canMergeUsers = this.users.filter((user) => user.mergeRequestInteraction?.canMerge);
+      const canNotMergeUsers = this.users.filter((user) => !user.mergeRequestInteraction?.canMerge);
 
       return [...canMergeUsers, ...canNotMergeUsers];
     },
@@ -49,23 +51,32 @@ export default {
     requestReview(data) {
       this.$emit('request-review', data);
     },
-    toggleAttentionRequested(data) {
-      this.$emit('toggle-attention-requested', data);
-    },
   },
 };
 </script>
 
 <template>
   <div>
-    <collapsed-reviewer-list :users="sortedReviewers" :issuable-type="issuableType" />
-
     <div class="value hide-collapsed">
-      <template v-if="hasNoUsers">
-        <span class="no-value">
-          {{ __('None') }}
-        </span>
-      </template>
+      <span
+        v-if="hasNoUsers"
+        class="no-value gl-display-flex gl-font-base gl-leading-normal"
+        data-testid="no-value"
+      >
+        {{ __('None') }}
+        <template v-if="editable">
+          -
+          <gl-button
+            category="tertiary"
+            variant="link"
+            class="gl-ml-2"
+            data-testid="assign-yourself"
+            @click="assignSelf"
+          >
+            <span class="gl-text-gray-500 gl-hover-text-blue-800">{{ __('assign yourself') }}</span>
+          </gl-button>
+        </template>
+      </span>
 
       <uncollapsed-reviewer-list
         v-else
@@ -73,7 +84,6 @@ export default {
         :root-path="rootPath"
         :issuable-type="issuableType"
         @request-review="requestReview"
-        @toggle-attention-requested="toggleAttentionRequested"
       />
     </div>
   </div>

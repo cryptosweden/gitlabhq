@@ -1,21 +1,45 @@
 # frozen_string_literal: true
 
-# We set the instance variable directly to suppress warnings.
-# We cannot switch to the new behavior until we change all existing `redis.exists` calls to `redis.exists?`.
-# Some gems also need to be updated
-# https://gitlab.com/gitlab-org/gitlab/-/issues/340602
-Redis.instance_variable_set(:@exists_returns_integer, false)
+require 'gitlab/redis'
 
-Redis::Client.prepend(Gitlab::Instrumentation::RedisInterceptor)
+Redis.raise_deprecations = true unless Rails.env.production?
+
+# rubocop:disable Gitlab/NoCodeCoverageComment
+# :nocov: This snippet is for local development only, reloading in specs would raise NameError
+if Rails.env.development?
+  # reset all pools in the event of a reload
+  # This makes sure that there are no stale references to classes in the `Gitlab::Redis` namespace
+  # that also got reloaded.
+  Gitlab::Application.config.to_prepare do
+    Gitlab::Redis::ALL_CLASSES.each do |redis_instance|
+      redis_instance.instance_variable_set(:@pool, nil)
+    end
+
+    Rails.cache = ActiveSupport::Cache::RedisCacheStore.new(**Gitlab::Redis::Cache.active_support_config)
+  end
+end
+# :nocov:
+# rubocop:enable Gitlab/NoCodeCoverageComment
+
+# RedisClient instrumentation deadlocks with code reloading due to
+# Prometheus metrics needing to check ApplicationSetting. Disable the
+# instrumentation in that case. Code reloading should only be enabled in
+# development.
+if Rails.application.config.cache_classes
+  # this only instruments `RedisClient` used in `Sidekiq.redis`
+  RedisClient.register(Gitlab::Instrumentation::RedisClientMiddleware)
+  RedisClient.prepend(Gitlab::Patch::RedisClient)
+end
+
+if Gitlab::Redis::Workhorse.params[:cluster].present?
+  raise "Do not configure workhorse with a Redis Cluster as pub/sub commands are not cluster-compatible."
+end
 
 # Make sure we initialize a Redis connection pool before multi-threaded
 # execution starts by
 # 1. Sidekiq
 # 2. Rails.cache
 # 3. HTTP clients
-Gitlab::Redis::Cache.with { nil }
-Gitlab::Redis::Queues.with { nil }
-Gitlab::Redis::SharedState.with { nil }
-Gitlab::Redis::TraceChunks.with { nil }
-Gitlab::Redis::RateLimiting.with { nil }
-Gitlab::Redis::Sessions.with { nil }
+Gitlab::Redis::ALL_CLASSES.each do |redis_instance|
+  redis_instance.with { nil }
+end

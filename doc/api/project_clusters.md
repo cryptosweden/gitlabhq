@@ -1,13 +1,14 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Project clusters API (certificate-based) (DEPRECATED) **(FREE)**
+# Project clusters API (certificate-based) (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/23922) in GitLab 11.7.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
@@ -26,7 +27,7 @@ Parameters:
 
 | Attribute | Type    | Required | Description                                           |
 | --------- | ------- | -------- | ----------------------------------------------------- |
-| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 
 Example request:
 
@@ -88,7 +89,7 @@ Example response:
 
 Gets a single project cluster.
 
-```shell
+```plaintext
 GET /projects/:id/clusters/:cluster_id
 ```
 
@@ -96,7 +97,7 @@ Parameters:
 
 | Attribute    | Type    | Required | Description                                           |
 | ------------ | ------- | -------- | ----------------------------------------------------- |
-| `id`         | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`         | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `cluster_id` | integer | yes      | The ID of the cluster                                 |
 
 Example request:
@@ -182,7 +183,7 @@ Example response:
 
 Adds an existing Kubernetes cluster to the project.
 
-```shell
+```plaintext
 POST /projects/:id/clusters/user
 ```
 
@@ -190,7 +191,7 @@ Parameters:
 
 | Attribute                                            | Type    | Required | Description                                                                                           |
 | ---------------------------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `id`                                                 | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user                                                 |
+| `id`                                                 | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user                                                 |
 | `name`                                               | string  | yes      | The name of the cluster                                                                               |
 | `domain`                                             | string  | no       | The [base domain](../user/project/clusters/gitlab_managed_clusters.md#base-domain) of the cluster                       |
 | `management_project_id`                              | integer | no       | The ID of the [management project](../user/clusters/management_project.md) for the cluster            |
@@ -201,7 +202,7 @@ Parameters:
 | `platform_kubernetes_attributes[ca_cert]`            | string  | no       | TLS certificate. Required if API is using a self-signed TLS certificate.                              |
 | `platform_kubernetes_attributes[namespace]`          | string  | no       | The unique namespace related to the project                                                           |
 | `platform_kubernetes_attributes[authorization_type]` | string  | no       | The cluster authorization type: `rbac`, `abac` or `unknown_authorization`. Defaults to `rbac`.        |
-| `environment_scope`                                  | string  | no       | The associated environment to the cluster. Defaults to `*` **(PREMIUM)**                              |
+| `environment_scope`                                  | string  | no       | The associated environment to the cluster. Defaults to `*`. Premium and Ultimate only.                         |
 
 Example request:
 
@@ -279,7 +280,7 @@ Example response:
 
 Updates an existing project cluster.
 
-```shell
+```plaintext
 PUT /projects/:id/clusters/:cluster_id
 ```
 
@@ -287,7 +288,7 @@ Parameters:
 
 | Attribute                                   | Type    | Required | Description                                                                                |
 | ------------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------ |
-| `id`                                        | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user                                      |
+| `id`                                        | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user                                      |
 | `cluster_id`                                | integer | yes      | The ID of the cluster                                                                      |
 | `name`                                      | string  | no       | The name of the cluster                                                                    |
 | `domain`                                    | string  | no       | The [base domain](../user/project/clusters/gitlab_managed_clusters.md#base-domain) of the cluster            |
@@ -302,7 +303,7 @@ Parameters:
 
 NOTE:
 `name`, `api_url`, `ca_cert` and `token` can only be updated if the cluster was added
-through the ["Add existing Kubernetes cluster"](../user/project/clusters/add_remove_clusters.md#add-existing-cluster) option or
+through the ["Add existing Kubernetes cluster"](../user/project/clusters/add_existing_cluster.md) option or
 through the ["Add existing cluster to project"](#add-existing-cluster-to-project) endpoint.
 
 Example request:
@@ -388,7 +389,7 @@ Example response:
 
 ## Delete project cluster
 
-Deletes an existing project cluster.
+Deletes an existing project cluster. Does not remove existing resources within the connected Kubernetes cluster.
 
 ```plaintext
 DELETE /projects/:id/clusters/:cluster_id
@@ -398,7 +399,7 @@ Parameters:
 
 | Attribute    | Type    | Required | Description                                           |
 | ------------ | ------- | -------- | ----------------------------------------------------- |
-| `id`         | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`         | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `cluster_id` | integer | yes      | The ID of the cluster                                 |
 
 Example request:

@@ -1,67 +1,113 @@
 review-cleanup:
+  timeout: 15min
   extends:
     - .default-retry
     - .review:rules:review-cleanup
-  image: ${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images:gitlab-helm3-kubectl1.14
+  image: ${REVIEW_APPS_IMAGE}
   stage: prepare
+  needs: []
   environment:
-    name: review/${CI_COMMIT_REF_SLUG}${FREQUENCY}
-    action: stop
+    name: review/regular-cleanup
+    action: access
+  variables:
+    GIT_DEPTH: 1
   before_script:
     - source scripts/utils.sh
-    - source scripts/review_apps/review-apps.sh
-    - source scripts/review_apps/gcp_cleanup.sh
+    - !reference [".use-kube-context", before_script]
     - install_gitlab_gem
-    - setup_gcp_dependencies
+    - setup_gcloud
   script:
-    - delete_release
-    - delete_namespace
-    - ruby -rrubygems scripts/review_apps/automated_cleanup.rb
-    - gcp_cleanup
+    - scripts/review_apps/automated_cleanup.rb --dry-run="${DRY_RUN:-false}" || (scripts/slack review-apps-monitoring "☠️ \`${CI_JOB_NAME}\` failed! ☠️ See ${CI_JOB_URL} - <https://gitlab.com/gitlab-org/quality/engineering-productivity/team/-/blob/main/runbooks/review-apps.md#review-cleanup-job-failed|📗 RUNBOOK 📕>" warning "GitLab Bot" && exit 1);
+
+review-stop:
+  extends:
+    - review-cleanup
+    - .review:rules:review-stop
+  environment:
+    name: review/${CI_COMMIT_REF_SLUG}${SCHEDULE_TYPE}  # No separator for SCHEDULE_TYPE so it's compatible as before and looks nice without it
+    action: stop
+  resource_group: review/${CI_COMMIT_REF_SLUG}${SCHEDULE_TYPE}  # CI_ENVIRONMENT_SLUG is not available here and we want this to be the same as the environment
+  before_script:
+    - source ./scripts/utils.sh
+    - source ./scripts/review_apps/review-apps.sh
+    - !reference [".use-kube-context", before_script]
+  script:
+    - retry delete_helm_release
+
+.base-review-checks:
+  extends:
+    - .default-retry
+  image: ${REVIEW_APPS_IMAGE}
+  stage: prepare
+  before_script:
+    - source scripts/utils.sh
+    - setup_gcloud
+    - !reference [".use-kube-context", before_script]
+
+review-k8s-resources-count-checks:
+  extends:
+    - .base-review-checks
+    - .review:rules:review-k8s-resources-count-checks
+  needs:
+    - job: review-cleanup
+      optional: true
+  environment:
+    name: review/k8s-resources-count-checks
+    action: verify
+  script:
+    - scripts/review_apps/k8s-resources-count-checks.sh || (scripts/slack review-apps-monitoring "☠️ \`${CI_JOB_NAME}\` failed! ☠️ See ${CI_JOB_URL} - <https://gitlab.com/gitlab-org/quality/engineering-productivity/team/-/blob/main/runbooks/review-apps.md#review-k8s-resources-count-checks-job-failed|📗 RUNBOOK 📕>" warning "GitLab Bot" && exit 1);
+
+review-gcp-quotas-checks:
+  extends:
+    - .base-review-checks
+    - .review:rules:review-gcp-quotas-checks
+  needs: []
+  environment:
+    name: review/gcp-quotas-checks
+    action: verify
+  script:
+    - ruby scripts/review_apps/gcp-quotas-checks.rb || (scripts/slack review-apps-monitoring "☠️ \`${CI_JOB_NAME}\` failed! ☠️ See ${CI_JOB_URL} - <https://gitlab.com/gitlab-org/quality/engineering-productivity/team/-/blob/main/runbooks/review-apps.md#review-gcp-quotas-checks-job-failed|📗 RUNBOOK 📕>" warning "GitLab Bot" && exit 1);
 
 start-review-app-pipeline:
   extends:
     - .review:rules:start-review-app-pipeline
+  resource_group: review/${CI_COMMIT_REF_SLUG}${SCHEDULE_TYPE}  # CI_ENVIRONMENT_SLUG is not available here and we want this to be the same as the environment
   stage: review
   needs:
+    - job: rails-production-server-boot-puma-example
+      optional: true
+    - job: rails-production-server-boot-puma-cng
+      optional: true
     - job: build-assets-image
       artifacts: false
-    - job: build-qa-image
-      artifacts: false
+  # We do not want to have ALL global variables passed as trigger variables,
+  # as they cannot be overridden. See this issue for more context:
+  #
+  # https://gitlab.com/gitlab-org/gitlab/-/issues/387183
+  inherit:
+    variables:
+      - REGISTRY_GROUP
+      - REGISTRY_HOST
+      - REVIEW_APPS_DOMAIN
+      - REVIEW_APPS_GCP_PROJECT
+      - REVIEW_APPS_GCP_REGION
+      - REVIEW_APPS_IMAGE
+      - RUBY_VERSION_DEFAULT
+      - RUBY_VERSION_NEXT
+      - RUBY_VERSION
+      - BUILD_OS
+      - OS_VERSION
+      - DOCKER_VERSION
+      - CHROME_VERSION
   # These variables are set in the pipeline schedules.
   # They need to be explicitly passed on to the child pipeline.
   # https://docs.gitlab.com/ee/ci/pipelines/multi_project_pipelines.html#pass-cicd-variables-to-a-downstream-pipeline-by-using-the-variables-keyword
   variables:
-    FREQUENCY: $FREQUENCY
+    # This is needed by `review-build-cng-env` (`.gitlab/ci/review-apps/main.gitlab-ci.yml`).
+    PARENT_PIPELINE_ID: $CI_PIPELINE_ID
+    SCHEDULE_TYPE: $SCHEDULE_TYPE
     DAST_RUN: $DAST_RUN
   trigger:
+    strategy: depend
     include:
       - local: .gitlab/ci/review-apps/main.gitlab-ci.yml
-    strategy: depend
-
-danger-review:
-  extends:
-    - .default-retry
-    - .danger-review-cache
-    - .review:rules:danger
-  stage: test
-  needs: []
-  before_script:
-    - source scripts/utils.sh
-    - bundle_install_script "--with danger"
-    - run_timed_command "retry yarn install --frozen-lockfile"
-  script:
-    - >
-      if [ -z "$DANGER_GITLAB_API_TOKEN" ]; then
-        run_timed_command danger_as_local
-      else
-        danger_id=$(echo -n ${DANGER_GITLAB_API_TOKEN} | md5sum | awk '{print $1}' | cut -c5-10)
-        run_timed_command "bundle exec danger --fail-on-errors=true --verbose --danger_id=${danger_id}"
-      fi
-
-danger-review-local:
-  extends:
-    - danger-review
-    - .review:rules:danger-local
-  script:
-    - run_timed_command danger_as_local

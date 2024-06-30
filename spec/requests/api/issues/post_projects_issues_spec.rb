@@ -2,15 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Issues do
+RSpec.describe API::Issues, :aggregate_failures, feature_category: :team_planning do
   let_it_be(:user) { create(:user) }
   let_it_be(:project, reload: true) do
-    create(:project, :public, creator_id: user.id, namespace: user.namespace)
+    create(:project, :public, creator_id: user.id, namespace: user.namespace, reporters: user)
   end
 
   let_it_be(:user2) { create(:user) }
   let_it_be(:non_member) { create(:user) }
-  let_it_be(:guest) { create(:user) }
+  let_it_be(:guest) { create(:user, guest_of: project) }
   let_it_be(:author) { create(:author) }
   let_it_be(:milestone) { create(:milestone, title: '1.0.0', project: project) }
   let_it_be(:assignee) { create(:assignee) }
@@ -63,11 +63,6 @@ RSpec.describe API::Issues do
 
   let(:no_milestone_title) { 'None' }
   let(:any_milestone_title) { 'Any' }
-
-  before_all do
-    project.add_reporter(user)
-    project.add_guest(guest)
-  end
 
   before do
     stub_licensed_features(multiple_issue_assignees: false, issue_weights: false)
@@ -123,7 +118,7 @@ RSpec.describe API::Issues do
     context 'an internal ID is provided' do
       context 'by an admin' do
         it 'sets the internal ID on the new issue' do
-          post api("/projects/#{project.id}/issues", admin),
+          post api("/projects/#{project.id}/issues", admin, admin_mode: true),
             params: { title: 'new issue', iid: 9001 }
 
           expect(response).to have_gitlab_http_status(:created)
@@ -167,7 +162,7 @@ RSpec.describe API::Issues do
 
       context 'when an issue with the same IID exists on database' do
         it 'returns 409' do
-          post api("/projects/#{project.id}/issues", admin),
+          post api("/projects/#{project.id}/issues", admin, admin_mode: true),
             params: { title: 'new issue', iid: issue.iid }
 
           expect(response).to have_gitlab_http_status(:conflict)
@@ -183,7 +178,7 @@ RSpec.describe API::Issues do
       expect(response).to have_gitlab_http_status(:created)
       expect(json_response['title']).to eq('new issue')
       expect(json_response['description']).to be_nil
-      expect(json_response['labels']).to eq(%w(label label2))
+      expect(json_response['labels']).to eq(%w[label label2])
       expect(json_response['confidential']).to be_falsy
       expect(json_response['assignee']['name']).to eq(user2.name)
       expect(json_response['assignees'].first['name']).to eq(user2.name)
@@ -191,12 +186,12 @@ RSpec.describe API::Issues do
 
     it 'creates a new project issue with labels param as array' do
       post api("/projects/#{project.id}/issues", user),
-        params: { title: 'new issue', labels: %w(label label2), weight: 3, assignee_ids: [user2.id] }
+        params: { title: 'new issue', labels: %w[label label2], weight: 3, assignee_ids: [user2.id] }
 
       expect(response).to have_gitlab_http_status(:created)
       expect(json_response['title']).to eq('new issue')
       expect(json_response['description']).to be_nil
-      expect(json_response['labels']).to eq(%w(label label2))
+      expect(json_response['labels']).to eq(%w[label label2])
       expect(json_response['confidential']).to be_falsy
       expect(json_response['assignee']['name']).to eq(user2.name)
       expect(json_response['assignees'].first['name']).to eq(user2.name)
@@ -274,9 +269,7 @@ RSpec.describe API::Issues do
       post api("/projects/#{project.id}/issues", user),
         params: { title: 'g' * 256 }
       expect(response).to have_gitlab_http_status(:bad_request)
-      expect(json_response['message']['title']).to eq([
-        'is too long (maximum is 255 characters)'
-      ])
+      expect(json_response['message']['title']).to eq(['is too long (maximum is 255 characters)'])
     end
 
     context 'resolving discussions' do
@@ -292,7 +285,7 @@ RSpec.describe API::Issues do
         before do
           post api("/projects/#{project.id}/issues", user),
             params: {
-              title: 'New Issue',
+              title: 'New issue',
               merge_request_to_resolve_discussions_of: merge_request.iid
             }
         end
@@ -304,7 +297,7 @@ RSpec.describe API::Issues do
         before do
           post api("/projects/#{project.id}/issues", user),
             params: {
-              title: 'New Issue',
+              title: 'New issue',
               merge_request_to_resolve_discussions_of: merge_request.iid,
               discussion_to_resolve: discussion.id
             }
@@ -316,7 +309,7 @@ RSpec.describe API::Issues do
 
     context 'with due date' do
       it 'creates a new project issue' do
-        due_date = 2.weeks.from_now.strftime('%Y-%m-%d')
+        due_date = 2.weeks.from_now.to_date.iso8601
 
         post api("/projects/#{project.id}/issues", user),
           params: { title: 'new issue', due_date: due_date }
@@ -339,7 +332,7 @@ RSpec.describe API::Issues do
 
       context 'by an admin' do
         it 'sets the creation time on the new issue' do
-          post api("/projects/#{project.id}/issues", admin), params: params
+          post api("/projects/#{project.id}/issues", admin, admin_mode: true), params: params
 
           expect(response).to have_gitlab_http_status(:created)
           expect(Time.parse(json_response['created_at'])).to be_like_time(creation_time)
@@ -393,7 +386,7 @@ RSpec.describe API::Issues do
 
       it 'cannot create new labels with labels param as array' do
         expect do
-          post api("/projects/#{project.id}/issues", non_member), params: { title: 'new issue', labels: %w(label label2) }
+          post api("/projects/#{project.id}/issues", non_member), params: { title: 'new issue', labels: %w[label label2] }
         end.not_to change { project.labels.count }
       end
     end
@@ -403,7 +396,7 @@ RSpec.describe API::Issues do
         allow(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).and_return(true)
 
         post api("/projects/#{project.id}/issues", user),
-        params: { title: 'new issue', labels: 'label, label2', weight: 3, assignee_ids: [user2.id] }
+          params: { title: 'new issue', labels: 'label, label2', weight: 3, assignee_ids: [user2.id] }
 
         expect(json_response['message']['error']).to eq('This endpoint has been requested too many times. Try again later.')
 
@@ -418,11 +411,12 @@ RSpec.describe API::Issues do
     end
 
     before do
-      expect_next_instance_of(Spam::SpamActionService) do |spam_service|
-        expect(spam_service).to receive_messages(check_for_spam?: true)
+      expect_next_instance_of(Issue) do |instance|
+        expect(instance).to receive(:check_for_spam).with(user: user, action: :create).and_call_original
       end
+
       expect_next_instance_of(Spam::AkismetService) do |akismet_service|
-        expect(akismet_service).to receive_messages(spam?: true)
+        expect(akismet_service).to receive(:spam?).and_return(true)
       end
     end
 
@@ -434,11 +428,7 @@ RSpec.describe API::Issues do
       }
     end
 
-    context 'when allow_possible_spam feature flag is false' do
-      before do
-        stub_feature_flags(allow_possible_spam: false)
-      end
-
+    context 'when allow_possible_spam application setting is false' do
       it 'does not create a new project issue' do
         expect { post_issue }.not_to change(Issue, :count)
       end
@@ -456,7 +446,11 @@ RSpec.describe API::Issues do
       end
     end
 
-    context 'when allow_possible_spam feature flag is true' do
+    context 'when allow_possible_spam application setting is true' do
+      before do
+        stub_application_setting(allow_possible_spam: true)
+      end
+
       it 'does creates a new project issue' do
         expect { post_issue }.to change(Issue, :count).by(1)
       end
@@ -475,11 +469,17 @@ RSpec.describe API::Issues do
   end
 
   describe '/projects/:id/issues/:issue_iid/move' do
-    let!(:target_project) { create(:project, creator_id: user.id, namespace: user.namespace ) }
-    let!(:target_project2) { create(:project, creator_id: non_member.id, namespace: non_member.namespace ) }
+    let!(:target_project) { create(:project, creator_id: user.id, namespace: user.namespace) }
+    let!(:target_project2) { create(:project, creator_id: non_member.id, namespace: non_member.namespace) }
+    let(:path) { "/projects/#{project.id}/issues/#{issue.iid}/move" }
+
+    it_behaves_like 'POST request permissions for admin mode' do
+      let(:params) { { to_project_id: target_project2.id } }
+      let(:failed_status_code) { 400 }
+    end
 
     it 'moves an issue' do
-      post api("/projects/#{project.id}/issues/#{issue.iid}/move", user),
+      post api(path, user),
         params: { to_project_id: target_project.id }
 
       expect(response).to have_gitlab_http_status(:created)
@@ -488,7 +488,7 @@ RSpec.describe API::Issues do
 
     context 'when source and target projects are the same' do
       it 'returns 400 when trying to move an issue' do
-        post api("/projects/#{project.id}/issues/#{issue.iid}/move", user),
+        post api(path, user),
           params: { to_project_id: project.id }
 
         expect(response).to have_gitlab_http_status(:bad_request)
@@ -498,7 +498,7 @@ RSpec.describe API::Issues do
 
     context 'when the user does not have the permission to move issues' do
       it 'returns 400 when trying to move an issue' do
-        post api("/projects/#{project.id}/issues/#{issue.iid}/move", user),
+        post api(path, user),
           params: { to_project_id: target_project2.id }
 
         expect(response).to have_gitlab_http_status(:bad_request)
@@ -507,7 +507,7 @@ RSpec.describe API::Issues do
     end
 
     it 'moves the issue to another namespace if I am admin' do
-      post api("/projects/#{project.id}/issues/#{issue.iid}/move", admin),
+      post api(path, admin, admin_mode: true),
         params: { to_project_id: target_project2.id }
 
       expect(response).to have_gitlab_http_status(:created)
@@ -546,7 +546,7 @@ RSpec.describe API::Issues do
 
     context 'when target project does not exist' do
       it 'returns 404 when trying to move an issue' do
-        post api("/projects/#{project.id}/issues/#{issue.iid}/move", user),
+        post api(path, user),
           params: { to_project_id: 0 }
 
         expect(response).to have_gitlab_http_status(:not_found)

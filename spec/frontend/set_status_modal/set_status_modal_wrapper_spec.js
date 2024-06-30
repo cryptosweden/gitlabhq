@@ -1,20 +1,27 @@
 import { GlModal, GlFormCheckbox } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { createWrapper } from '@vue/test-utils';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
+import { useFakeDate } from 'helpers/fake_date';
 import { initEmojiMock, clearEmojiMock } from 'helpers/emoji';
 import * as UserApi from '~/api/user_api';
 import EmojiPicker from '~/emoji/components/picker.vue';
-import createFlash from '~/flash';
-import SetStatusModalWrapper, {
-  AVAILABILITY_STATUS,
-} from '~/set_status_modal/set_status_modal_wrapper.vue';
+import { createAlert } from '~/alert';
+import stubChildren from 'helpers/stub_children';
+import SetStatusModalWrapper from '~/set_status_modal/set_status_modal_wrapper.vue';
+import { AVAILABILITY_STATUS } from '~/set_status_modal/constants';
+import SetStatusForm from '~/set_status_modal/set_status_form.vue';
+import { useMockLocationHelper } from 'helpers/mock_window_location_helper';
+import { BV_HIDE_MODAL } from '~/lib/utils/constants';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('SetStatusModalWrapper', () => {
   let wrapper;
+  const mockToastShow = jest.fn();
+
   const $toast = {
-    show: jest.fn(),
+    show: mockToastShow,
   };
 
   const defaultEmoji = 'speech_balloon';
@@ -26,11 +33,23 @@ describe('SetStatusModalWrapper', () => {
     defaultEmoji,
   };
 
+  const EmojiPickerStub = {
+    props: EmojiPicker.props,
+    template: '<div></div>',
+  };
+
   const createComponent = (props = {}) => {
-    return shallowMount(SetStatusModalWrapper, {
+    return mountExtended(SetStatusModalWrapper, {
       propsData: {
         ...defaultProps,
         ...props,
+      },
+      stubs: {
+        ...stubChildren(SetStatusModalWrapper),
+        GlFormInput: false,
+        GlFormInputGroup: false,
+        SetStatusForm: false,
+        EmojiPicker: EmojiPickerStub,
       },
       mocks: {
         $toast,
@@ -38,27 +57,15 @@ describe('SetStatusModalWrapper', () => {
     });
   };
 
-  const findModal = () => wrapper.find(GlModal);
-  const findFormField = (field) => wrapper.find(`[name="user[status][${field}]"]`);
+  const findModal = () => wrapper.findComponent(GlModal);
+  const findMessageField = () =>
+    wrapper.findByPlaceholderText(SetStatusForm.i18n.statusMessagePlaceholder);
   const findClearStatusButton = () => wrapper.find('.js-clear-user-status-button');
-  const findAvailabilityCheckbox = () => wrapper.find(GlFormCheckbox);
-  const findClearStatusAtMessage = () => wrapper.find('[data-testid="clear-status-at-message"]');
-  const getEmojiPicker = () => wrapper.findComponent(EmojiPicker);
-
-  const initModal = async ({ mockOnUpdateSuccess = true, mockOnUpdateFailure = true } = {}) => {
-    const modal = findModal();
-    // mock internal emoji methods
-    wrapper.vm.showEmojiMenu = jest.fn();
-    wrapper.vm.hideEmojiMenu = jest.fn();
-    if (mockOnUpdateSuccess) wrapper.vm.onUpdateSuccess = jest.fn();
-    if (mockOnUpdateFailure) wrapper.vm.onUpdateFail = jest.fn();
-
-    modal.vm.$emit('shown');
-    await nextTick();
-  };
+  const findAvailabilityCheckbox = () => wrapper.findComponent(GlFormCheckbox);
+  const getEmojiPicker = () => wrapper.findComponent(EmojiPickerStub);
+  const initModal = () => findModal().vm.$emit('shown');
 
   afterEach(() => {
-    wrapper.destroy();
     clearEmojiMock();
   });
 
@@ -69,14 +76,8 @@ describe('SetStatusModalWrapper', () => {
       return initModal();
     });
 
-    it('sets the hidden status emoji field', () => {
-      const field = findFormField('emoji');
-      expect(field.exists()).toBe(true);
-      expect(field.element.value).toBe(defaultEmoji);
-    });
-
     it('sets the message field', () => {
-      const field = findFormField('message');
+      const field = findMessageField();
       expect(field.exists()).toBe(true);
       expect(field.element.value).toBe(defaultMessage);
     });
@@ -88,28 +89,23 @@ describe('SetStatusModalWrapper', () => {
     });
 
     it('has a clear status button', () => {
-      expect(findClearStatusButton().isVisible()).toBe(true);
+      expect(findClearStatusButton().exists()).toBe(true);
     });
 
     it('displays the clear status at dropdown', () => {
       expect(wrapper.find('[data-testid="clear-status-at-dropdown"]').exists()).toBe(true);
     });
 
-    it('does not display the clear status at message', () => {
-      expect(findClearStatusAtMessage().exists()).toBe(false);
-    });
-
     it('renders emoji picker dropdown with custom positioning', () => {
       expect(getEmojiPicker().props()).toMatchObject({
         right: false,
-        boundary: 'viewport',
       });
     });
 
-    it('sets emojiTag when clicking in emoji picker', async () => {
+    it('passes emoji to `SetStatusForm`', async () => {
       await getEmojiPicker().vm.$emit('click', 'thumbsup');
 
-      expect(wrapper.vm.emojiTag).toContain('data-name="thumbsup"');
+      expect(wrapper.findComponent(SetStatusForm).props('emoji')).toBe('thumbsup');
     });
   });
 
@@ -121,43 +117,32 @@ describe('SetStatusModalWrapper', () => {
     });
 
     it('does not set the message field', () => {
-      expect(findFormField('message').element.value).toBe('');
+      expect(findMessageField().element.value).toBe('');
     });
 
     it('hides the clear status button', () => {
-      expect(findClearStatusButton().isVisible()).toBe(false);
-    });
-  });
-
-  describe('with no currentEmoji set', () => {
-    beforeEach(async () => {
-      await initEmojiMock();
-      wrapper = createComponent({ currentEmoji: '' });
-      return initModal();
-    });
-
-    it('does not set the hidden status emoji field', () => {
-      expect(findFormField('emoji').element.value).toBe('');
+      expect(findClearStatusButton().exists()).toBe(false);
     });
   });
 
   describe('with currentClearStatusAfter set', () => {
+    useFakeDate(2022, 11, 5);
+
     beforeEach(async () => {
       await initEmojiMock();
-      wrapper = createComponent({ currentClearStatusAfter: '2021-01-01 00:00:00 UTC' });
+      wrapper = createComponent({ currentClearStatusAfter: '2022-12-06T11:00:00Z' });
       return initModal();
     });
 
-    it('displays the clear status at message', () => {
-      const clearStatusAtMessage = findClearStatusAtMessage();
-
-      expect(clearStatusAtMessage.exists()).toBe(true);
-      expect(clearStatusAtMessage.text()).toBe('Your status resets on 2021-01-01 00:00:00 UTC.');
+    it('displays date and time that status will expire in dropdown toggle button', () => {
+      expect(wrapper.findByRole('button', { name: 'Dec 6, 2022, 11:00 AM' }).exists()).toBe(true);
     });
   });
 
   describe('update status', () => {
     describe('succeeds', () => {
+      useMockLocationHelper();
+
       beforeEach(async () => {
         await initEmojiMock();
         wrapper = createComponent();
@@ -170,46 +155,55 @@ describe('SetStatusModalWrapper', () => {
         findModal().vm.$emit('secondary');
         await nextTick();
 
-        expect(findFormField('message').element.value).toBe('');
-        expect(findFormField('emoji').element.value).toBe('');
+        expect(findMessageField().element.value).toBe('');
       });
 
       it('clicking "setStatus" submits the user status', async () => {
-        findModal().vm.$emit('primary');
-        await nextTick();
-
         // set the availability status
         findAvailabilityCheckbox().vm.$emit('input', true);
 
         // set the currentClearStatusAfter to 30 minutes
-        wrapper.find('[data-testid="thirtyMinutes"]').vm.$emit('click');
+        await wrapper.find('[data-testid="listbox-item-thirtyMinutes"]').trigger('click');
 
         findModal().vm.$emit('primary');
         await nextTick();
 
-        const commonParams = {
-          emoji: defaultEmoji,
-          message: defaultMessage,
-        };
-
-        expect(UserApi.updateUserStatus).toHaveBeenCalledTimes(2);
-        expect(UserApi.updateUserStatus).toHaveBeenNthCalledWith(1, {
-          availability: AVAILABILITY_STATUS.NOT_SET,
-          clearStatusAfter: null,
-          ...commonParams,
-        });
-        expect(UserApi.updateUserStatus).toHaveBeenNthCalledWith(2, {
+        expect(UserApi.updateUserStatus).toHaveBeenCalledWith({
           availability: AVAILABILITY_STATUS.BUSY,
           clearStatusAfter: '30_minutes',
-          ...commonParams,
+          emoji: defaultEmoji,
+          message: defaultMessage,
         });
       });
 
-      it('calls the "onUpdateSuccess" handler', async () => {
+      describe('when `Clear status after` field has not been set', () => {
+        it('does not include `clearStatusAfter` in API request', async () => {
+          findModal().vm.$emit('primary');
+          await nextTick();
+
+          expect(UserApi.updateUserStatus).toHaveBeenCalledWith({
+            availability: AVAILABILITY_STATUS.NOT_SET,
+            emoji: defaultEmoji,
+            message: defaultMessage,
+          });
+        });
+      });
+
+      it('displays a toast message and reloads window', async () => {
         findModal().vm.$emit('primary');
         await nextTick();
 
-        expect(wrapper.vm.onUpdateSuccess).toHaveBeenCalled();
+        expect(mockToastShow).toHaveBeenCalledWith('Status updated');
+        expect(window.location.reload).toHaveBeenCalled();
+      });
+
+      it('closes modal', async () => {
+        const rootWrapper = createWrapper(wrapper.vm.$root);
+
+        findModal().vm.$emit('primary');
+        await nextTick();
+
+        expect(rootWrapper.emitted(BV_HIDE_MODAL)).toEqual([['set-user-status-modal']]);
       });
     });
 
@@ -238,11 +232,22 @@ describe('SetStatusModalWrapper', () => {
         jest.spyOn(UserApi, 'updateUserStatus').mockRejectedValue();
       });
 
-      it('calls the "onUpdateFail" handler', async () => {
+      it('displays an error alert', async () => {
         findModal().vm.$emit('primary');
         await nextTick();
 
-        expect(wrapper.vm.onUpdateFail).toHaveBeenCalled();
+        expect(createAlert).toHaveBeenCalledWith({
+          message: "Sorry, we weren't able to set your status. Please try again later.",
+        });
+      });
+
+      it('closes modal', async () => {
+        const rootWrapper = createWrapper(wrapper.vm.$root);
+
+        findModal().vm.$emit('primary');
+        await nextTick();
+
+        expect(rootWrapper.emitted(BV_HIDE_MODAL)).toEqual([['set-user-status-modal']]);
       });
     });
 
@@ -254,11 +259,11 @@ describe('SetStatusModalWrapper', () => {
         return initModal({ mockOnUpdateFailure: false });
       });
 
-      it('flashes an error message', async () => {
+      it('alerts an error message', async () => {
         findModal().vm.$emit('primary');
         await nextTick();
 
-        expect(createFlash).toHaveBeenCalledWith({
+        expect(createAlert).toHaveBeenCalledWith({
           message: "Sorry, we weren't able to set your status. Please try again later.",
         });
       });

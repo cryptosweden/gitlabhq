@@ -11,6 +11,50 @@ RSpec.describe Projects::GraphsController do
     project.add_maintainer(user)
   end
 
+  describe '#show' do
+    subject { get(:show, params: params) }
+
+    let(:params) { { namespace_id: project.namespace.path, project_id: project.path, id: 'master' } }
+
+    describe 'ref_type' do
+      it 'assigns ref_type' do
+        subject
+
+        expect(assigns[:languages]).to be_nil
+      end
+
+      context 'when ref_type is provided' do
+        before do
+          params[:ref_type] = 'heads'
+        end
+
+        it 'assigns ref_type' do
+          subject
+
+          expect(assigns[:ref_type]).to eq('heads')
+        end
+      end
+    end
+
+    describe 'when format is json' do
+      let(:stubbed_limit) { 1 }
+
+      before do
+        params[:format] = 'json'
+        stub_const('Projects::GraphsController::MAX_COMMITS', stubbed_limit)
+      end
+
+      it 'renders json' do
+        subject
+
+        expect(json_response.size).to eq(stubbed_limit)
+        %w[author_name author_email date].each do |key|
+          expect(json_response[0]).to have_key(key)
+        end
+      end
+    end
+  end
+
   describe 'GET languages' do
     it "redirects_to action charts" do
       get(:commits, params: { namespace_id: project.namespace.path, project_id: project.path, id: 'master' })
@@ -88,6 +132,20 @@ RSpec.describe Projects::GraphsController do
 
         let(:request_params) { { namespace_id: project.namespace.path, project_id: project.path, id: 'master' } }
         let(:target_id) { 'p_analytics_repo' }
+      end
+
+      it_behaves_like 'Snowplow event tracking with RedisHLL context' do
+        subject do
+          sign_in(user)
+          get :charts, params: request_params, format: :html
+        end
+
+        let(:request_params) { { namespace_id: project.namespace.path, project_id: project.path, id: 'master' } }
+        let(:category) { described_class.name }
+        let(:action) { 'perform_analytics_usage_action' }
+        let(:namespace) { project.namespace }
+        let(:label) { 'redis_hll_counters.analytics.analytics_total_unique_counts_monthly' }
+        let(:property) { 'p_analytics_repo' }
       end
     end
 

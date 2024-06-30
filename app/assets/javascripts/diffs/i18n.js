@@ -1,6 +1,11 @@
 import { __, s__ } from '~/locale';
 
-export const GENERIC_ERROR = __('Something went wrong on our end. Please try again!');
+export const LOAD_SINGLE_DIFF_FAILED = s__(
+  "MergeRequest|Can't fetch the diff needed to update this view. Please reload this page.",
+);
+export const DISCUSSION_SINGLE_DIFF_FAILED = s__(
+  "MergeRequest|Can't fetch the single file diff for the discussion. Please reload this page.",
+);
 
 export const DIFF_FILE_HEADER = {
   optionsDropdownTitle: __('Options'),
@@ -17,8 +22,12 @@ export const DIFF_FILE = {
   fork: __('Fork'),
   cancel: __('Cancel'),
   autoCollapsed: __('Files with large changes are collapsed by default.'),
+  autoCollapsedGenerated: __(
+    'Generated files are collapsed by default. To change this behavior, edit the %{tagStart}.gitattributes%{tagEnd} file. %{linkStart}Learn more.%{linkEnd}',
+  ),
   expand: __('Expand file'),
 };
+export const START_THREAD = __('Start another thread');
 
 export const SETTINGS_DROPDOWN = {
   whitespace: __('Show whitespace changes'),
@@ -47,3 +56,22 @@ export const CONFLICT_TEXT = {
     'Conflict: This file was added both in the source and target branches, but with different contents.',
   ),
 };
+
+export const HIDE_COMMENTS = __('Hide comments');
+
+export const NEW_CODE_QUALITY_FINDINGS = __('New code quality findings');
+export const NEW_SAST_FINDINGS = __('New Security findings');
+
+export const BUILDING_YOUR_MR = __(
+  'Building your merge request… This page will update when the build is complete.',
+);
+export const SOMETHING_WENT_WRONG = __('Something went wrong on our end. Please try again!');
+export const SAVING_THE_COMMENT_FAILED = s__(
+  'MergeRequests|Comment could not be submitted: %{reason}.',
+);
+export const ERROR_LOADING_FULL_DIFF = s__(
+  'MergeRequest|Error loading full diff. Please try again.',
+);
+export const ERROR_DISMISSING_SUGESTION_POPOVER = s__(
+  'MergeRequest|Error dismissing suggestion popover. Please try again.',
+);

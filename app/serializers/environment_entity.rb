@@ -4,7 +4,7 @@ class EnvironmentEntity < Grape::Entity
   include RequestAwareEntity
 
   UNNECESSARY_ENTRIES_FOR_UPCOMING_DEPLOYMENT =
-    %i[manual_actions scheduled_actions playable_build cluster].freeze
+    %i[manual_actions scheduled_actions playable_job cluster].freeze
 
   expose :id
 
@@ -18,17 +18,13 @@ class EnvironmentEntity < Grape::Entity
   expose :environment_type
   expose :name_without_type
   expose :last_deployment, using: DeploymentEntity
-  expose :stop_action_available?, as: :has_stop_action
-  expose :rollout_status, if: -> (*) { can_read_deploy_board? }, using: RolloutStatusEntity
+  expose :stop_actions_available?, as: :has_stop_action
+  expose :rollout_status, if: ->(*) { can_read_deploy_board? }, using: RolloutStatusEntity
   expose :tier
 
-  expose :upcoming_deployment, if: -> (environment) { environment.upcoming_deployment } do |environment, ops|
+  expose :upcoming_deployment, if: ->(environment) { environment.upcoming_deployment } do |environment, ops|
     DeploymentEntity.represent(environment.upcoming_deployment,
       ops.merge(except: UNNECESSARY_ENTRIES_FOR_UPCOMING_DEPLOYMENT))
-  end
-
-  expose :metrics_path, if: -> (*) { environment.has_metrics? } do |environment|
-    metrics_project_environment_path(environment.project, environment)
   end
 
   expose :environment_path do |environment|
@@ -39,7 +35,7 @@ class EnvironmentEntity < Grape::Entity
     stop_project_environment_path(environment.project, environment)
   end
 
-  expose :cancel_auto_stop_path, if: -> (*) { can_update_environment? } do |environment|
+  expose :cancel_auto_stop_path, if: ->(*) { can_update_environment? } do |environment|
     cancel_auto_stop_project_environment_path(environment.project, environment)
   end
 
@@ -66,22 +62,6 @@ class EnvironmentEntity < Grape::Entity
     environment.available? && can?(current_user, :stop_environment, environment)
   end
 
-  expose :logs_path, if: -> (*) { can_read_pod_logs? } do |environment|
-    project_logs_path(environment.project, environment_name: environment.name)
-  end
-
-  expose :logs_api_path, if: -> (*) { can_read_pod_logs? } do |environment|
-    if environment.elastic_stack_available?
-      elasticsearch_project_logs_path(environment.project, environment_name: environment.name, format: :json)
-    else
-      k8s_project_logs_path(environment.project, environment_name: environment.name, format: :json)
-    end
-  end
-
-  expose :enable_advanced_logs_querying, if: -> (*) { can_read_pod_logs? } do |environment|
-    environment.elastic_stack_available?
-  end
-
   expose :can_delete do |environment|
     can?(current_user, :destroy_environment, environment)
   end
@@ -100,10 +80,6 @@ class EnvironmentEntity < Grape::Entity
 
   def can_update_environment?
     can?(current_user, :update_environment, environment)
-  end
-
-  def can_read_pod_logs?
-    can?(current_user, :read_pod_logs, environment.project)
   end
 
   def can_read_deploy_board?

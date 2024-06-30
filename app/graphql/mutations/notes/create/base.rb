@@ -9,19 +9,19 @@ module Mutations
         authorize :create_note
 
         argument :noteable_id,
-                 ::Types::GlobalIDType[::Noteable],
-                  required: true,
-                  description: 'Global ID of the resource to add a note to.'
+          ::Types::GlobalIDType[::Noteable],
+          required: true,
+          description: 'Global ID of the resource to add a note to.'
 
         argument :body,
-                  GraphQL::Types::String,
-                  required: true,
-                  description: copy_field_description(Types::Notes::NoteType, :body)
+          GraphQL::Types::String,
+          required: true,
+          description: copy_field_description(Types::Notes::NoteType, :body)
 
-        argument :confidential,
-                  GraphQL::Types::Boolean,
-                  required: false,
-                  description: 'Confidentiality flag of a note. Default is false.'
+        argument :internal,
+          GraphQL::Types::Boolean,
+          required: false,
+          description: 'Internal flag for a note. Default is false.'
 
         def resolve(args)
           noteable = authorized_find!(id: args[:noteable_id])
@@ -41,18 +41,11 @@ module Mutations
 
         private
 
-        def find_object(id:)
-          # TODO: remove explicit coercion once compatibility layer has been removed
-          # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-          id = ::Types::GlobalIDType[::Noteable].coerce_isolated_input(id)
-          GitlabSchema.find_by_gid(id)
-        end
-
         def create_note_params(noteable, args)
           {
             noteable: noteable,
             note: args[:body],
-            confidential: args[:confidential]
+            internal: args[:internal]
           }
         end
 

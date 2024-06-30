@@ -1,8 +1,8 @@
 import { initListbox } from '~/listbox';
-import { redirectTo } from '~/lib/utils/url_utility';
+import { visitUrl } from '~/lib/utils/url_utility';
 
 /**
- * Instantiates GlListbox components with redirect behavior for tags created
+ * Instantiates GlCollapsibleListbox components with redirect behavior for tags created
  * with the `gl_redirect_listbox_tag` HAML helper.
  *
  * NOTE: Do not import this script explicitly. Using `gl_redirect_listbox_tag`
@@ -15,7 +15,7 @@ export function initRedirectListboxBehavior() {
   return elements.map((el) =>
     initListbox(el, {
       onChange({ href }) {
-        redirectTo(href);
+        visitUrl(href);
       },
     }),
   );

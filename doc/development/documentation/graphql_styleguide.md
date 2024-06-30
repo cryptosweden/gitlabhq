@@ -1,15 +1,14 @@
 ---
-type: reference, dev
 stage: none
-group: Development
-info: "See the Technical Writers assigned to Development Guidelines: https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments-to-development-guidelines"
+group: unassigned
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 description: "Writing styles, markup, formatting, and other standards for GraphQL API's GitLab Documentation."
 ---
 
 # Creating a GraphQL example page
 
 GraphQL APIs are different from [RESTful APIs](restful_api_styleguide.md). Reference
-information is generated in our [GraphQL reference](../../api/graphql/reference/index.md).
+information is generated in our [GraphQL API resources](../../api/graphql/reference/index.md) page.
 
 However, it's helpful to include examples on how to use GraphQL for different
 *use cases*, with samples that readers can use directly in the

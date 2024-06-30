@@ -1,7 +1,8 @@
 import MockAdapter from 'axios-mock-adapter';
 import $ from 'jquery';
-import { setHTMLFixture } from 'helpers/fixtures';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import SingleFileDiff from '~/single_file_diff';
 
 describe('SingleFileDiff', () => {
@@ -10,11 +11,14 @@ describe('SingleFileDiff', () => {
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
-    mock.onGet(blobDiffPath).replyOnce(200, { html: `<div class="diff-content">MOCKED</div>` });
+    mock
+      .onGet(blobDiffPath)
+      .replyOnce(HTTP_STATUS_OK, { html: `<div class="diff-content">MOCKED</div>` });
   });
 
   afterEach(() => {
     mock.restore();
+    resetHTMLFixture();
   });
 
   it('loads diff via axios exactly once for collapsed diffs', async () => {
@@ -53,7 +57,7 @@ describe('SingleFileDiff', () => {
     expect(diff.isOpen).toBe(false);
     expect(diff.content).not.toBeNull();
 
-    mock.onGet(blobDiffPath).replyOnce(400, '');
+    mock.onGet(blobDiffPath).replyOnce(HTTP_STATUS_BAD_REQUEST, '');
 
     // Opening again
     await diff.toggleDiff($(document.querySelector('.js-file-title')));
@@ -61,6 +65,21 @@ describe('SingleFileDiff', () => {
     expect(diff.content).not.toBeNull();
 
     expect(mock.history.get.length).toBe(1);
+  });
+
+  it('ignores user-defined diff path attributes', () => {
+    setHTMLFixture(`
+    <div class="diff-file">
+      <div class="diff-content">
+        <div class="diff-viewer" data-type="simple">
+          <div class="note-text"><a data-diff-for-path="test/note/path">Test note</a></div>
+          <div data-diff-for-path="${blobDiffPath}">MOCK CONTENT</div>
+        </div>
+      </div>
+    </div>
+`);
+    const { diffForPath } = new SingleFileDiff(document.querySelector('.diff-file'));
+    expect(diffForPath).toEqual(blobDiffPath);
   });
 
   it('does not load diffs via axios for already expanded diffs', async () => {

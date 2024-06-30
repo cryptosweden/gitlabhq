@@ -1,13 +1,16 @@
 ---
-stage: Enablement
+stage: Systems
 group: Geo
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Disabling Geo **(PREMIUM SELF)**
+# Disabling Geo
 
-If you want to revert to a regular Omnibus setup after a test, or you have encountered a Disaster Recovery
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
+
+If you want to revert to a regular Linux package installation setup after a test, or you have encountered a Disaster Recovery
 situation and you want to disable Geo momentarily, you can use these instructions to disable your
 Geo setup.
 
@@ -24,11 +27,11 @@ To disable Geo, follow these steps:
 
 ## Remove all secondary Geo sites
 
-To disable Geo, you need to first remove all your secondary Geo sites, which means replication will not happen
-anymore on these sites. You can follow our docs to [remove your secondary Geo sites](remove_geo_site.md).
+To disable Geo, you need to first remove all your secondary Geo sites, which means replication does not happen
+anymore on these sites. You can follow our documentation to [remove your secondary Geo sites](remove_geo_site.md).
 
 If the current site that you want to keep using is a secondary site, you need to first promote it to primary.
-You can use our steps on [how to promote a secondary site](../disaster_recovery/#step-3-promoting-a-secondary-site)
+You can use our steps on [how to promote a secondary site](../disaster_recovery/index.md#step-3-promoting-a-secondary-site)
 to do that.
 
 ## Remove the primary site from the UI
@@ -36,8 +39,8 @@ to do that.
 To remove the **primary** site:
 
 1. [Remove all secondary Geo sites](remove_geo_site.md)
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Geo > Nodes**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Geo > Nodes**.
 1. Select **Remove** for the **primary** node.
 1. Confirm by selecting **Remove** when the prompt appears.
 
@@ -63,7 +66,7 @@ Geo node in a PostgreSQL console (`sudo gitlab-psql`):
 
 ## Remove Geo-related configuration
 
-1. For each node on your primary Geo site, SSH into the node and log in as root:
+1. For each node on your primary Geo site, SSH into the node and sign in as root:
 
    ```shell
    sudo -i
@@ -80,7 +83,7 @@ Geo node in a PostgreSQL console (`sudo gitlab-psql`):
    roles ['geo_primary_role']
    ```
 
-1. After making these changes, [reconfigure GitLab](../../restart_gitlab.md#omnibus-gitlab-reconfigure)
+1. After making these changes, [reconfigure GitLab](../../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
 ## (Optional) Revert PostgreSQL settings to use a password and listen on an IP

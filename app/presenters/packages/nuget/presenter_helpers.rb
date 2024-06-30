@@ -4,11 +4,10 @@ module Packages
   module Nuget
     module PresenterHelpers
       include ::API::Helpers::RelatedResourcesHelpers
+      include Packages::Nuget::VersionHelpers
 
-      BLANK_STRING = ''
       PACKAGE_DEPENDENCY_GROUP = 'PackageDependencyGroup'
       PACKAGE_DEPENDENCY = 'PackageDependency'
-      NUGET_PACKAGE_FORMAT = 'nupkg'
 
       private
 
@@ -27,8 +26,7 @@ module Packages
       end
 
       def archive_url_for(package)
-        package_filename = package.installable_package_files
-                                  .with_format(NUGET_PACKAGE_FORMAT)
+        package_filename = package.installable_nuget_package_files
                                   .last
                                   &.file_name
         path = api_v4_projects_packages_nuget_download_package_name_package_version_package_filename_path(
@@ -47,14 +45,13 @@ module Packages
       def catalog_entry_for(package)
         {
           json_url: json_url_for(package),
-          authors: BLANK_STRING,
           dependency_groups: dependency_groups_for(package),
           package_name: package.name,
           package_version: package.version,
           archive_url: archive_url_for(package),
-          summary: BLANK_STRING,
           tags: tags_for(package),
-          metadatum: metadatum_for(package)
+          metadatum: metadatum_for(package),
+          published: package.created_at.iso8601
         }
       end
 
@@ -75,8 +72,6 @@ module Packages
       def dependency_links_grouped_by_target_framework(package)
         package
           .dependency_links
-          .includes_dependency
-          .preload_nuget_metadatum
           .group_by { |dependency_link| dependency_link.nuget_metadatum&.target_framework }
       end
 
@@ -102,8 +97,8 @@ module Packages
         metadatum = package.nuget_metadatum
         return {} unless metadatum
 
-        metadatum.slice(:project_url, :license_url, :icon_url)
-                  .compact
+        metadatum.slice(:authors, :description, :project_url, :license_url, :icon_url)
+                 .compact
       end
 
       def base_path_for(package)

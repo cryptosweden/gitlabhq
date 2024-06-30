@@ -4,7 +4,6 @@ module Sidebars
   class Panel
     extend ::Gitlab::Utils::Override
     include ::Sidebars::Concerns::PositionableList
-    include Gitlab::Experiment::Dsl
 
     attr_reader :context, :scope_menu, :hidden_menu
 
@@ -53,7 +52,7 @@ module Sidebars
       raise NotImplementedError
     end
 
-    def has_renderable_menus?
+    def render?
       renderable_menus.any?
     end
 
@@ -61,24 +60,18 @@ module Sidebars
       @renderable_menus ||= @menus.select(&:render?)
     end
 
+    # Serializes every renderable menu and returns a flattened result
+    def super_sidebar_menu_items
+      @super_sidebar_menu_items ||= renderable_menus
+        .flat_map(&:serialize_for_super_sidebar)
+    end
+
+    def super_sidebar_context_header
+      raise NotImplementedError
+    end
+
     def container
       context.container
-    end
-
-    # Auxiliar method that helps with the migration from
-    # regular views to the new logic
-    def render_raw_scope_menu_partial
-      # No-op
-    end
-
-    # Auxiliar method that helps with the migration from
-    # regular views to the new logic.
-    #
-    # Any menu inside this partial will be added after
-    # all the menus added in the `configure_menus`
-    # method.
-    def render_raw_menus_partial
-      # No-op
     end
 
     private

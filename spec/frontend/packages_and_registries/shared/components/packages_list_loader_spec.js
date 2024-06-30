@@ -17,11 +17,6 @@ describe('PackagesListLoader', () => {
 
   beforeEach(createComponent);
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('desktop loader', () => {
     it('produces the right loader', () => {
       expect(findDesktopShapes().findAll('rect[width="1000"]')).toHaveLength(20);
@@ -29,8 +24,8 @@ describe('PackagesListLoader', () => {
 
     it('has the correct classes', () => {
       expect(findDesktopShapes().classes()).toEqual([
-        'gl-display-none',
-        'gl-sm-display-flex',
+        'gl-hidden',
+        'sm:gl-flex',
         'gl-flex-direction-column',
       ]);
     });
@@ -42,10 +37,7 @@ describe('PackagesListLoader', () => {
     });
 
     it('has the correct classes', () => {
-      expect(findMobileShapes().classes()).toEqual([
-        'gl-flex-direction-column',
-        'gl-sm-display-none',
-      ]);
+      expect(findMobileShapes().classes()).toEqual(['gl-flex-direction-column', 'sm:gl-hidden']);
     });
   });
 });

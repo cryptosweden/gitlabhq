@@ -1,17 +1,17 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe DesignManagement::SaveDesignsService do
+RSpec.describe DesignManagement::SaveDesignsService, feature_category: :design_management do
   include DesignManagementTestHelpers
   include ConcurrentHelpers
 
   let_it_be_with_reload(:issue) { create(:issue) }
-  let_it_be(:developer) { create(:user, developer_projects: [issue.project]) }
 
   let(:project) { issue.project }
-  let(:user) { developer }
+  let(:user) {  create(:user) }
   let(:files) { [rails_sample] }
-  let(:design_repository) { ::Gitlab::GlRepository::DESIGN.repository_resolver.call(project) }
+  let(:design_repository) { project.find_or_create_design_management_repository.repository }
+
   let(:rails_sample_name) { 'rails_sample.jpg' }
   let(:rails_sample) { sample_image(rails_sample_name) }
   let(:dk_png) { sample_image('dk.png') }
@@ -29,10 +29,12 @@ RSpec.describe DesignManagement::SaveDesignsService do
   before do
     if issue.design_collection.repository.exists?
       issue.design_collection.repository.expire_all_method_caches
-      issue.design_collection.repository.raw.delete_all_refs_except([Gitlab::Git::BLANK_SHA])
+      issue.design_collection.repository.raw.delete_all_refs_except([Gitlab::Git::SHA1_BLANK_SHA])
     end
 
-    allow(::DesignManagement::NewVersionWorker)
+    project.add_reporter(user)
+
+    allow(DesignManagement::NewVersionWorker)
       .to receive(:perform_async).with(Integer, false).and_return(nil)
   end
 
@@ -40,9 +42,7 @@ RSpec.describe DesignManagement::SaveDesignsService do
     design_files = files_to_upload || files
     design_files.each(&:rewind)
 
-    service = described_class.new(project, user,
-                                  issue: issue,
-                                  files: design_files)
+    service = described_class.new(project, user, issue: issue, files: design_files)
     service.execute
   end
 
@@ -104,14 +104,12 @@ RSpec.describe DesignManagement::SaveDesignsService do
       end
 
       it 'creates a commit, an event in the activity stream and updates the creation count', :aggregate_failures do
-        counter = Gitlab::UsageDataCounters::DesignsCounter
-
-        expect(Gitlab::UsageDataCounters::IssueActivityUniqueCounter).to receive(:track_issue_designs_added_action).with(author: user)
+        expect(Gitlab::UsageDataCounters::IssueActivityUniqueCounter).to receive(:track_issue_designs_added_action)
+                                                                           .with(author: user, project: project)
 
         expect { run_service }
           .to change { Event.count }.by(1)
           .and change { Event.for_design.created_action.count }.by(1)
-          .and change { counter.read(:create) }.by(1)
 
         expect(design_repository.commit).to have_attributes(
           author: user,
@@ -119,7 +117,23 @@ RSpec.describe DesignManagement::SaveDesignsService do
         )
       end
 
-      it 'can run the same command in parallel' do
+      it 'tracks internal events and increments usage metrics', :clean_gitlab_redis_shared_state do
+        expect { run_service }
+          .to trigger_internal_events(Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_DESIGNS_ADDED)
+            .with(user: user, project: project, category: 'InternalEventTracking')
+          .and trigger_internal_events('create_design_management_design')
+            .with(user: user, project: project)
+          .and increment_usage_metrics(
+            'redis_hll_counters.issues_edit.g_project_management_issue_designs_added_monthly',
+            'redis_hll_counters.issues_edit.g_project_management_issue_designs_added_weekly',
+            'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_monthly',
+            'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_weekly',
+            'counts.design_management_designs_create'
+          )
+      end
+
+      it 'can run the same command in parallel',
+        quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/450483' do
         parellism = 4
 
         blocks = Array.new(parellism).map do
@@ -191,8 +205,12 @@ RSpec.describe DesignManagement::SaveDesignsService do
 
       context 'when a design is being updated' do
         before do
-          run_service
-          touch_files
+          # This setup triggers multiple different internal events, so we'll trigger
+          # the irrelevant events farther in the past to better test the metrics
+          travel_to(2.months.ago) do
+            run_service
+            touch_files
+          end
         end
 
         it 'creates a new version for the existing design and updates the file' do
@@ -205,17 +223,24 @@ RSpec.describe DesignManagement::SaveDesignsService do
           expect(updated_designs.first.versions.size).to eq(2)
         end
 
-        it 'updates UsageData for changed designs' do
-          expect(Gitlab::UsageDataCounters::IssueActivityUniqueCounter).to receive(:track_issue_designs_modified_action).with(author: user)
-
-          run_service
+        it 'tracks internal events and increments usage metrics', :clean_gitlab_redis_shared_state do
+          expect { run_service }
+            .to trigger_internal_events(Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_DESIGNS_MODIFIED)
+              .with(user: user, project: project, category: 'InternalEventTracking')
+            .and trigger_internal_events('update_design_management_design')
+              .with(user: user, project: project)
+            .and increment_usage_metrics(
+              'redis_hll_counters.issues_edit.g_project_management_issue_designs_modified_monthly',
+              'redis_hll_counters.issues_edit.g_project_management_issue_designs_modified_weekly',
+              'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_monthly',
+              'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_weekly',
+              'counts.design_management_designs_update'
+            )
         end
 
         it 'records the correct events' do
-          counter = Gitlab::UsageDataCounters::DesignsCounter
           expect { run_service }
-            .to change { counter.read(:update) }.by(1)
-            .and change { Event.count }.by(1)
+            .to change { Event.count }.by(1)
             .and change { Event.for_design.updated_action.count }.by(1)
         end
 
@@ -228,6 +253,27 @@ RSpec.describe DesignManagement::SaveDesignsService do
             expect(existing_design.versions.reload.size).to eq(1)
             expect(updated_designs.size).to eq(1)
             expect(updated_designs.first.versions.size).to eq(1)
+          end
+        end
+
+        context 'when detecting content type' do
+          it 'detects content type when feature flag is enabled' do
+            expect_next_instance_of(::Lfs::FileTransformer) do |file_transformer|
+              expect(file_transformer).to receive(:new_file)
+                .with(anything, anything, hash_including(detect_content_type: true)).and_call_original
+            end
+
+            run_service
+          end
+
+          it 'skips content type detection when feature flag is disabled' do
+            stub_feature_flags(design_management_allow_dangerous_images: false)
+            expect_next_instance_of(::Lfs::FileTransformer) do |file_transformer|
+              expect(file_transformer).to receive(:new_file)
+                .with(anything, anything, hash_including(detect_content_type: false)).and_call_original
+            end
+
+            run_service
           end
         end
       end
@@ -251,15 +297,15 @@ RSpec.describe DesignManagement::SaveDesignsService do
         let(:files) { [rails_sample, dk_png] }
 
         before do
-          # Create just the first one, which we will later update.
-          run_service([files.first])
-          touch_files([files.first])
+          travel_to(2.months.ago) do
+            # Create just the first one, which we will later update.
+            run_service([files.first])
+            touch_files([files.first])
+          end
         end
 
         it 'has the correct side-effects' do
-          counter = Gitlab::UsageDataCounters::DesignsCounter
-
-          expect(::DesignManagement::NewVersionWorker)
+          expect(DesignManagement::NewVersionWorker)
             .to receive(:perform_async).once.with(Integer, false).and_return(nil)
 
           expect { run_service }
@@ -267,9 +313,29 @@ RSpec.describe DesignManagement::SaveDesignsService do
             .and change { Event.for_design.count }.by(2)
             .and change { Event.created_action.count }.by(1)
             .and change { Event.updated_action.count }.by(1)
-            .and change { counter.read(:create) }.by(1)
-            .and change { counter.read(:update) }.by(1)
             .and change { commit_count }.by(1)
+        end
+
+        it 'tracks internal events and increments usage metrics', :clean_gitlab_redis_shared_state do
+          expect { run_service }
+            .to trigger_internal_events(
+              Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_DESIGNS_ADDED,
+              Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_DESIGNS_MODIFIED
+            ).with(user: user, project: project, category: 'InternalEventTracking')
+            .and trigger_internal_events(
+              'create_design_management_design',
+              'update_design_management_design'
+            ).with(user: user, project: project)
+            .and increment_usage_metrics(
+              'redis_hll_counters.issues_edit.g_project_management_issue_designs_modified_monthly',
+              'redis_hll_counters.issues_edit.g_project_management_issue_designs_modified_weekly',
+              'redis_hll_counters.issues_edit.g_project_management_issue_designs_added_monthly',
+              'redis_hll_counters.issues_edit.g_project_management_issue_designs_added_weekly',
+              'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_monthly',
+              'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_weekly',
+              'counts.design_management_designs_update',
+              'counts.design_management_designs_create'
+            )
         end
       end
 
@@ -280,8 +346,7 @@ RSpec.describe DesignManagement::SaveDesignsService do
           expect(response).to include(designs: have_attributes(size: 2), status: :success)
         end
 
-        it 'has the correct side-effects', :request_store do
-          counter = Gitlab::UsageDataCounters::DesignsCounter
+        it 'has the correct side-effects', :request_store, :clean_gitlab_redis_shared_state do
           service = described_class.new(project, user, issue: issue, files: files)
 
           # Some unrelated calls that are usually cached or happen only once
@@ -293,15 +358,24 @@ RSpec.describe DesignManagement::SaveDesignsService do
           design_repository.create_if_not_exists
           design_repository.has_visible_content?
 
-          expect(::DesignManagement::NewVersionWorker)
+          expect(DesignManagement::NewVersionWorker)
             .to receive(:perform_async).once.with(Integer, false).and_return(nil)
 
           expect { service.execute }
             .to change { issue.designs.count }.from(0).to(2)
             .and change { DesignManagement::Version.count }.by(1)
-            .and change { counter.read(:create) }.by(2)
             .and change { Gitlab::GitalyClient.get_request_count }.by(3)
             .and change { commit_count }.by(1)
+            .and trigger_internal_events(Gitlab::UsageDataCounters::IssueActivityUniqueCounter::ISSUE_DESIGNS_ADDED)
+              .twice.with(user: user, project: project, category: 'InternalEventTracking')
+            .and trigger_internal_events('create_design_management_design')
+              .twice.with(user: user, project: project)
+            .and increment_usage_metrics(
+              'redis_hll_counters.issues_edit.g_project_management_issue_designs_added_monthly',
+              'redis_hll_counters.issues_edit.g_project_management_issue_designs_added_weekly',
+              'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_monthly',
+              'redis_hll_counters.issues_edit.issues_edit_total_unique_counts_weekly'
+            ).and increment_usage_metrics('counts.design_management_designs_create').by(2)
         end
 
         context 'when uploading too many files' do
@@ -354,9 +428,12 @@ RSpec.describe DesignManagement::SaveDesignsService do
         before do
           path = File.join(build(:design, issue: issue, filename: filename).full_path)
           design_repository.create_if_not_exists
-          design_repository.create_file(user, path, 'something fake',
-                                        branch_name: project.default_branch_or_main,
-                                        message: 'Somehow created without being tracked in db')
+          design_repository.create_file(
+            user,
+            path, 'something fake',
+            branch_name: project.default_branch_or_main,
+            message: 'Somehow created without being tracked in db'
+          )
         end
 
         it 'creates the design and a new version for it' do

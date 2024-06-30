@@ -23,7 +23,7 @@ module Projects
       def execute
         return unless project&.lfs_enabled? && lfs_download_object
         return error("LFS file with oid #{lfs_oid} has invalid attributes") unless lfs_download_object.valid?
-        return link_existing_lfs_object! if Feature.enabled?(:lfs_link_existing_object, project, default_enabled: :yaml) && lfs_size > LARGE_FILE_SIZE && lfs_object
+        return link_existing_lfs_object! if Feature.enabled?(:lfs_link_existing_object, project) && lfs_size > LARGE_FILE_SIZE && lfs_object
 
         wrap_download_errors do
           download_lfs_file!
@@ -50,7 +50,7 @@ module Projects
 
       def find_or_create_lfs_object(tmp_file)
         lfs_obj = LfsObject.safe_find_or_create_by!(
-          oid:  lfs_oid,
+          oid: lfs_oid,
           size: lfs_size
         )
 
@@ -92,9 +92,15 @@ module Projects
       end
 
       def fetch_file(&block)
+        attempts ||= 1
         response = Gitlab::HTTP.get(lfs_sanitized_url, download_options, &block)
 
         raise ResponseError, "Received error code #{response.code}" unless response.success?
+      rescue Net::OpenTimeout
+        raise if attempts >= 3
+
+        attempts += 1
+        retry
       end
 
       def with_tmp_file

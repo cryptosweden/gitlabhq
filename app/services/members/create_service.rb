@@ -5,45 +5,79 @@ module Members
     BlankInvitesError = Class.new(StandardError)
     TooManyInvitesError = Class.new(StandardError)
     MembershipLockedError = Class.new(StandardError)
+    SeatLimitExceededError = Class.new(StandardError)
 
     DEFAULT_INVITE_LIMIT = 100
 
-    attr_reader :membership_locked
+    attr_reader :membership_locked, :http_status
 
     def initialize(*args)
       super
 
       @errors = []
-      @invites = invites_from_params&.split(',')&.uniq&.flatten
+      @http_status = nil
+      @invites = invites_from_params
       @source = params[:source]
     end
 
     def execute
-      raise Gitlab::Access::AccessDeniedError unless can?(current_user, create_member_permission(source), source)
+      validate_source_type!
+
+      if adding_at_least_one_owner && cannot_assign_owner_responsibilities_to_member_in_project?
+        raise Gitlab::Access::AccessDeniedError
+      end
 
       validate_invite_source!
       validate_invitable!
 
       add_members
+      after_add_hooks
+
       enqueue_onboarding_progress_action
 
       publish_event!
 
       result
-    rescue BlankInvitesError, TooManyInvitesError, MembershipLockedError => e
-      error(e.message)
+    rescue BlankInvitesError, TooManyInvitesError, MembershipLockedError, SeatLimitExceededError => e
+      Gitlab::ErrorTracking.log_exception(e, class: self.class.to_s, user_id: current_user.id)
+
+      error(e.message, pass_back: { reason: e.class.name.demodulize.underscore.to_sym })
     end
 
     def single_member
-      members.last
+      members&.last
     end
 
     private
 
     attr_reader :source, :errors, :invites, :member_created_namespace_id, :members
 
+    def adding_at_least_one_owner
+      params[:access_level] == Gitlab::Access::OWNER
+    end
+
+    def cannot_assign_owner_responsibilities_to_member_in_project?
+      source.is_a?(Project) && !current_user.can?(:manage_owners, source)
+    end
+
     def invites_from_params
-      params[:user_ids]
+      # String, Nil, Array, Integer
+      users = param_to_array(params[:user_id] || params[:username])
+      if params.key?(:username)
+        User.by_username(users).pluck_primary_key
+      else
+        users.to_a
+      end
+    end
+
+    def param_to_array(param)
+      return param if param.is_a?(Array)
+
+      param.to_s.split(',').uniq
+    end
+
+    def validate_source_type!
+      raise "Unknown source type: #{source.class}!" unless source.is_a?(Group) || source.is_a?(Project)
     end
 
     def validate_invite_source!
@@ -55,8 +89,8 @@ module Members
 
       return unless user_limit && invites.size > user_limit
 
-      raise TooManyInvitesError,
-            format(s_("AddMember|Too many users specified (limit is %{user_limit})"), user_limit: user_limit)
+      message = format(s_("AddMember|Too many users specified (limit is %{user_limit})"), user_limit: user_limit)
+      raise TooManyInvitesError, message
     end
 
     def blank_invites_message
@@ -64,33 +98,51 @@ module Members
     end
 
     def add_members
-      @members = source.add_users(
-        invites,
-        params[:access_level],
-        expires_at: params[:expires_at],
-        current_user: current_user,
-        tasks_to_be_done: params[:tasks_to_be_done],
-        tasks_project_id: params[:tasks_project_id]
+      @members = creator_service.add_members(
+        source, invites, params[:access_level], **create_params
       )
 
       members.each { |member| process_result(member) }
+    end
 
-      create_tasks_to_be_done
+    def creator_service
+      "Members::#{source.class.to_s.pluralize}::CreatorService".constantize
+    end
+
+    def create_params
+      {
+        expires_at: params[:expires_at],
+        current_user: current_user
+      }
     end
 
     def process_result(member)
-      if member.invalid?
-        add_error_for_member(member)
+      @http_status = :unauthorized if member.errors.added? :base, :unauthorized
+      existing_errors = member.errors.full_messages
+
+      # calling invalid? clears any errors that were added outside of the
+      # rails validation process
+      if member.invalid? || existing_errors.present?
+        add_error_for_member(member, existing_errors)
       else
         after_execute(member: member)
         @member_created_namespace_id ||= member.namespace_id
       end
     end
 
-    def add_error_for_member(member)
+    # overridden
+    def add_error_for_member(member, existing_errors)
       prefix = "#{member.user.username}: " if member.user.present?
 
-      errors << "#{prefix}#{member.errors.full_messages.to_sentence}"
+      errors << "#{prefix}#{all_member_errors(member, existing_errors).to_sentence}"
+    end
+
+    def all_member_errors(member, existing_errors)
+      existing_errors.concat(member.errors.full_messages).uniq
+    end
+
+    def after_add_hooks
+      # overridden in subclasses/ee
     end
 
     def after_execute(member:)
@@ -100,7 +152,13 @@ module Members
     end
 
     def track_invite_source(member)
-      Gitlab::Tracking.event(self.class.name, 'create_member', label: invite_source, property: tracking_property(member), user: current_user)
+      Gitlab::Tracking.event(
+        self.class.name,
+        'create_member',
+        label: invite_source,
+        property: tracking_property(member),
+        user: current_user
+      )
     end
 
     def invite_source
@@ -114,18 +172,6 @@ module Members
       member.invite? ? 'net_new_user' : 'existing_user'
     end
 
-    def create_tasks_to_be_done
-      return if params[:tasks_to_be_done].blank? || params[:tasks_project_id].blank?
-
-      valid_members = members.select { |member| member.valid? && member.member_task.valid? }
-      return unless valid_members.present?
-
-      # We can take the first `member_task` here, since all tasks will have the same attributes needed
-      # for the `TasksToBeDone::CreateWorker`, ie. `project` and `tasks_to_be_done`.
-      member_task = valid_members[0].member_task
-      TasksToBeDone::CreateWorker.perform_async(member_task.id, current_user.id, valid_members.map(&:user_id))
-    end
-
     def user_limit
       limit = params.fetch(:limit, DEFAULT_INVITE_LIMIT)
 
@@ -133,14 +179,18 @@ module Members
     end
 
     def enqueue_onboarding_progress_action
-      return unless member_created_namespace_id
+      return unless at_least_one_member_created?
 
-      Namespaces::OnboardingUserAddedWorker.perform_async(member_created_namespace_id)
+      Onboarding::UserAddedWorker.perform_async(member_created_namespace_id)
+    end
+
+    def at_least_one_member_created?
+      member_created_namespace_id.present?
     end
 
     def result
       if errors.any?
-        error(formatted_errors)
+        error(formatted_errors, http_status)
       else
         success
       end
@@ -151,23 +201,14 @@ module Members
     end
 
     def publish_event!
+      return unless at_least_one_member_created?
+
       Gitlab::EventStore.publish(
         Members::MembersAddedEvent.new(data: {
           source_id: source.id,
           source_type: source.class.name
         })
       )
-    end
-
-    def create_member_permission(source)
-      case source
-      when Group
-        :admin_group_member
-      when Project
-        :admin_project_member
-      else
-        raise "Unknown source type: #{source.class}!"
-      end
     end
   end
 end

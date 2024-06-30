@@ -12,15 +12,13 @@ class RepositoryImportWorker # rubocop:disable Scalability/IdempotentWorker
   # Do not retry on Import/Export until https://gitlab.com/gitlab-org/gitlab/-/issues/16812 is solved.
   sidekiq_options retry: false, dead: false
   sidekiq_options status_expiration: Gitlab::Import::StuckImportJob::IMPORT_JOBS_EXPIRATION
-
-  # technical debt: https://gitlab.com/gitlab-org/gitlab/issues/33991
-  sidekiq_options memory_killer_memory_growth_kb: ENV.fetch('MEMORY_KILLER_REPOSITORY_IMPORT_WORKER_MEMORY_GROWTH_KB', 50).to_i
-  sidekiq_options memory_killer_max_memory_growth_kb: ENV.fetch('MEMORY_KILLER_REPOSITORY_IMPORT_WORKER_MAX_MEMORY_GROWTH_KB', 300_000).to_i
+  worker_resource_boundary :memory
 
   def perform(project_id)
-    @project = Project.find(project_id)
+    Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/464677')
 
-    return unless start_import
+    @project = Project.find_by_id(project_id)
+    return if project.nil? || !start_import?
 
     Gitlab::Metrics.add_event(:import_repository)
 
@@ -33,21 +31,19 @@ class RepositoryImportWorker # rubocop:disable Scalability/IdempotentWorker
 
     if result[:status] == :error
       fail_import(result[:message])
-
-      raise result[:message]
+    else
+      project.after_import
     end
-
-    project.after_import
   end
 
   private
 
   attr_reader :project
 
-  def start_import
+  def start_import?
     return true if start(project.import_state)
 
-    Gitlab::Import::Logger.info(
+    ::Import::Framework::Logger.info(
       message: 'Project was in inconsistent state while importing',
       project_full_path: project.full_path,
       project_import_status: project.import_status

@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Packages::Composer::Metadatum, type: :model do
+RSpec.describe Packages::Composer::Metadatum, type: :model, feature_category: :package_registry do
   describe 'relationships' do
-    it { is_expected.to belong_to(:package) }
+    it { is_expected.to belong_to(:package).class_name('Packages::Composer::Package').inverse_of(:composer_metadatum) }
   end
 
   describe 'validations' do

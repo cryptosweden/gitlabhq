@@ -17,18 +17,25 @@ module Banzai
     # can be used for a single render). So you get `id=fn-1-4335` and `id=fn-foot-4335`.
     #
     class FootnoteFilter < HTML::Pipeline::Filter
+      prepend Concerns::PipelineTimingCheck
+
       FOOTNOTE_ID_PREFIX              = 'fn-'
       FOOTNOTE_LINK_ID_PREFIX         = 'fnref-'
-      FOOTNOTE_LI_REFERENCE_PATTERN   = /\A#{FOOTNOTE_ID_PREFIX}.+\z/.freeze
-      FOOTNOTE_LINK_REFERENCE_PATTERN = /\A#{FOOTNOTE_LINK_ID_PREFIX}.+\z/.freeze
+      FOOTNOTE_LI_REFERENCE_PATTERN   = /\A#{FOOTNOTE_ID_PREFIX}.+\z/
+      FOOTNOTE_LINK_REFERENCE_PATTERN = /\A#{FOOTNOTE_LINK_ID_PREFIX}.+\z/
 
       CSS_SECTION    = "section[data-footnotes]"
       XPATH_SECTION  = Gitlab::Utils::Nokogiri.css_to_xpath(CSS_SECTION).freeze
       CSS_FOOTNOTE   = 'sup > a[data-footnote-ref]'
       XPATH_FOOTNOTE = Gitlab::Utils::Nokogiri.css_to_xpath(CSS_FOOTNOTE).freeze
 
+      # Limit of how many footnotes we will process.
+      # Protects against pathological number of footnotes.
+      FOOTNOTE_LIMIT = 1000
+
       def call
         # Sanitization stripped off the section class - add it back in
+        return doc if doc.xpath(XPATH_FOOTNOTE).count > 1000
         return doc unless section_node = doc.at_xpath(XPATH_SECTION)
 
         section_node.append_class('footnotes')
@@ -37,6 +44,8 @@ module Banzai
         modified_footnotes = {}
 
         doc.xpath(XPATH_FOOTNOTE).each do |link_node|
+          next unless link_node[:id]
+
           ref_num = link_node[:id].delete_prefix(FOOTNOTE_LINK_ID_PREFIX)
           ref_num.gsub!(/[[:punct:]]/, '\\\\\&')
 
@@ -44,25 +53,25 @@ module Banzai
           node_xpath = Gitlab::Utils::Nokogiri.css_to_xpath(css)
           footnote_node = doc.at_xpath(node_xpath)
 
-          if footnote_node || modified_footnotes[ref_num]
-            link_node[:href] += rand_suffix
-            link_node[:id]   += rand_suffix
+          next unless footnote_node || modified_footnotes[ref_num]
 
-            # Sanitization stripped off class - add it back in
-            link_node.parent.append_class('footnote-ref')
+          link_node[:href] += rand_suffix
+          link_node[:id]   += rand_suffix
 
-            unless modified_footnotes[ref_num]
-              footnote_node[:id] += rand_suffix
-              backref_node        = footnote_node.at_css("a[href=\"##{fnref_id(ref_num)}\"]")
+          # Sanitization stripped off class - add it back in
+          link_node.parent.append_class('footnote-ref')
 
-              if backref_node
-                backref_node[:href] += rand_suffix
-                backref_node.append_class('footnote-backref')
-              end
+          next if modified_footnotes[ref_num]
 
-              modified_footnotes[ref_num] = true
-            end
+          footnote_node[:id] += rand_suffix
+          backref_node        = footnote_node.at_css("a[href=\"##{fnref_id(ref_num)}\"]")
+
+          if backref_node
+            backref_node[:href] += rand_suffix
+            backref_node.append_class('footnote-backref')
           end
+
+          modified_footnotes[ref_num] = true
         end
 
         doc
@@ -71,7 +80,12 @@ module Banzai
       private
 
       def random_number
-        @random_number ||= rand(10000)
+        # We allow overriding the randomness with a static value from GITLAB_TEST_FOOTNOTE_ID.
+        # This allows stable generation of example HTML during GLFM Snapshot Testing
+        # (https://docs.gitlab.com/ee/development/gitlab_flavored_markdown/specification_guide/#markdown-snapshot-testing),
+        # and reduces the need for normalization of the example HTML
+        # (https://docs.gitlab.com/ee/development/gitlab_flavored_markdown/specification_guide/#normalization)
+        @random_number ||= ENV.fetch('GITLAB_TEST_FOOTNOTE_ID', rand(10000))
       end
 
       def fn_id(num)

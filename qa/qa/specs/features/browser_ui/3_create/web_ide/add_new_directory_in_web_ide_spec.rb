@@ -1,18 +1,12 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
+  RSpec.describe 'Create', product_group: :ide do
     describe 'Add a directory in Web IDE' do
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'add-directory-project'
-          project.initialize_with_readme = true
-        end
-      end
+      let(:project) { create(:project, :with_readme, name: 'webide-add-directory-project') }
 
       before do
         Flow::Login.sign_in
-
         project.visit!
       end
 
@@ -20,27 +14,21 @@ module QA
         let(:directory_name) { 'first_directory' }
 
         before do
-          Resource::Repository::Commit.fabricate_via_api! do |commit|
-            commit.project = project
-            commit.add_files([
-              {
-                file_path: 'first_directory/test_file.txt',
-                content: "Test file content"
-              }
-            ])
-          end
+          create(:commit, project: project, actions: [
+            { action: 'create', file_path: 'first_directory/test_file.txt', content: 'Test file content' }
+          ])
 
           project.visit!
-
           Page::Project::Show.perform(&:open_web_ide!)
+          Page::Project::WebIDE::VSCode.perform(&:wait_for_ide_to_load)
         end
 
-        it 'throws an error', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347733' do
-          Page::Project::WebIDE::Edit.perform do |ide|
-            ide.add_directory(directory_name)
-          end
+        it 'throws an error', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/386760' do
+          Page::Project::WebIDE::VSCode.perform do |ide|
+            ide.create_new_folder(directory_name)
 
-          expect(page).to have_content('The name "first_directory" is already taken in this directory.')
+            expect(ide).to have_message('A file or folder first_directory already exists at this location.')
+          end
         end
       end
 
@@ -49,19 +37,16 @@ module QA
 
         before do
           Page::Project::Show.perform(&:open_web_ide!)
+          Page::Project::WebIDE::VSCode.perform(&:wait_for_ide_to_load)
         end
 
-        it 'shows in the tree view but cannot be committed', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347732' do
-          Page::Project::WebIDE::Edit.perform do |ide|
-            ide.add_directory(directory_name)
+        it 'shows successfully but not able to be committed', :blocking,
+          testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/386761' do
+          Page::Project::WebIDE::VSCode.perform do |ide|
+            ide.create_new_folder(directory_name)
+            ide.commit_toggle(directory_name)
 
-            expect(ide).to have_file(directory_name)
-            expect(ide).to have_folder_icon(directory_name)
-            expect(ide).not_to have_file_addition_icon(directory_name)
-
-            ide.switch_to_commit_tab
-
-            expect(ide).not_to have_file_to_commit(directory_name)
+            expect(ide).to have_message('No changes found. Not able to commit.')
           end
         end
       end

@@ -18,8 +18,13 @@ RSpec.describe Gitlab::Diff::PositionTracer do
     let(:project) { double }
     let(:old_diff_refs) { diff_refs }
     let(:new_diff_refs) { diff_refs }
-    let(:position) { double(on_text?: on_text?, diff_refs: diff_refs) }
+    let(:on_file?) { false }
+    let(:on_text?) { false }
     let(:tracer) { double }
+    let(:position) do
+      double(on_text?: on_text?, on_image?: false, on_file?: on_file?, diff_refs: diff_refs,
+        ignore_whitespace_change: false)
+    end
 
     context 'position is on text' do
       let(:on_text?) { true }
@@ -40,6 +45,20 @@ RSpec.describe Gitlab::Diff::PositionTracer do
 
       it 'calls ImageStrategy#trace' do
         expect(Gitlab::Diff::PositionTracer::ImageStrategy)
+          .to receive(:new)
+          .with(subject)
+          .and_return(tracer)
+        expect(tracer).to receive(:trace).with(position)
+
+        subject.trace(position)
+      end
+    end
+
+    context 'position on file' do
+      let(:on_file?) { true }
+
+      it 'calls ImageStrategy#trace' do
+        expect(Gitlab::Diff::PositionTracer::FileStrategy)
           .to receive(:new)
           .with(subject)
           .and_return(tracer)
@@ -95,6 +114,36 @@ RSpec.describe Gitlab::Diff::PositionTracer do
         expect(diff_refs.base_sha).to eq(new_diff_refs.base_sha)
         expect(diff_refs.start_sha).to eq(new_diff_refs.base_sha)
         expect(diff_refs.head_sha).to eq(new_diff_refs.head_sha)
+      end
+    end
+
+    describe 'when requesting diffs' do
+      shared_examples 'it does not call diff stats' do
+        it 'does not call diff stats' do
+          expect_next_instance_of(Compare) do |instance|
+            expect(instance).to receive(:diffs).with(hash_including(include_stats: false)).and_call_original
+          end
+
+          diff_files
+        end
+      end
+
+      context 'ac diffs' do
+        let(:diff_files) { subject.ac_diffs.diff_files }
+
+        it_behaves_like 'it does not call diff stats'
+      end
+
+      context 'bd diffs' do
+        let(:diff_files) { subject.bd_diffs.diff_files }
+
+        it_behaves_like 'it does not call diff stats'
+      end
+
+      context 'cd diffs' do
+        let(:diff_files) { subject.cd_diffs.diff_files }
+
+        it_behaves_like 'it does not call diff stats'
       end
     end
   end

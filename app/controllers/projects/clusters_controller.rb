@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 
-class Projects::ClustersController < Clusters::ClustersController
-  prepend_before_action :project
+class Projects::ClustersController < ::Clusters::ClustersController
   before_action :repository
 
   before_action do
-    push_frontend_feature_flag(:prometheus_computed_alerts)
-    push_frontend_feature_flag(:show_gitlab_agent_feedback, type: :ops, default_enabled: :yaml)
+    push_frontend_feature_flag(:show_gitlab_agent_feedback, type: :ops)
   end
 
   layout 'project'
@@ -14,7 +12,7 @@ class Projects::ClustersController < Clusters::ClustersController
   private
 
   def clusterable
-    @clusterable ||= ClusterablePresenter.fabricate(project, current_user: current_user)
+    @clusterable ||= project && ClusterablePresenter.fabricate(project, current_user: current_user)
   end
 
   def project

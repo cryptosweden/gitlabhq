@@ -39,11 +39,11 @@ Rails.application.configure do
   # Include generic and useful information about system operation, but avoid logging too much
   # information to avoid inadvertent exposure of personally identifiable information (PII).
   # Note: This configuration does not affect the log level of `Gitlab::Logger` and its subclasses.
-  config.log_level = :info
+  config.log_level = Gitlab::Utils.to_rails_log_level(ENV["GITLAB_LOG_LEVEL"], :info)
 
   # Suppress 'Rendered template ...' messages in the log
   # source: http://stackoverflow.com/a/16369363
-  %w{render_template render_partial render_collection}.each do |event|
+  %w[render_template render_partial render_collection].each do |event|
     ActiveSupport::Notifications.unsubscribe "#{event}.action_view"
   end
 
@@ -64,9 +64,6 @@ Rails.application.configure do
 
   # Enable threaded mode
   # config.threadsafe! unless $rails_rake_task
-
-  # Send deprecation notices to registered listeners
-  config.active_support.deprecation = :notify
 
   config.action_mailer.delivery_method = :sendmail
   # Defaults to:

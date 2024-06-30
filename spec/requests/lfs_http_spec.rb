@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'Git LFS API and storage' do
+RSpec.describe 'Git LFS API and storage', feature_category: :source_code_management do
+  using RSpec::Parameterized::TableSyntax
+
   include LfsHttpHelpers
   include ProjectForksHelper
   include WorkhorseHelpers
+  include WorkhorseLfsHelpers
 
   let_it_be(:project, reload: true) { create(:project, :empty_repo) }
   let_it_be(:user) { create(:user) }
@@ -126,13 +129,13 @@ RSpec.describe 'Git LFS API and storage' do
             it_behaves_like 'LFS http 200 blob response'
 
             context 'when user password is expired' do
-              let_it_be(:user) { create(:user, password_expires_at: 1.minute.ago)}
+              let_it_be(:user) { create(:user, password_expires_at: 1.minute.ago) }
 
               it_behaves_like 'LFS http 401 response'
             end
 
             context 'when user is blocked' do
-              let_it_be(:user) { create(:user, :blocked)}
+              let_it_be(:user) { create(:user, :blocked) }
 
               it_behaves_like 'LFS http 401 response'
             end
@@ -320,6 +323,49 @@ RSpec.describe 'Git LFS API and storage' do
 
               it_behaves_like 'process authorization header', renew_authorization: renew_authorization
             end
+
+            context 'when downloading an LFS object that is stored on object storage' do
+              before do
+                stub_lfs_object_storage
+                lfs_object.file.migrate!(LfsObjectUploader::Store::REMOTE)
+              end
+
+              context 'when lfs.object_store.proxy_download=true' do
+                before do
+                  stub_lfs_object_storage(proxy_download: true)
+                end
+
+                it_behaves_like 'LFS http 200 response'
+
+                it 'does return proxied address URL' do
+                  expect(json_response['objects'].first).to include(sample_object)
+                  expect(json_response['objects'].first['actions']['download']['href']).to eq(objects_url(project, sample_oid))
+                end
+              end
+
+              context 'when "lfs.object_store.proxy_download" is "false"' do
+                before do
+                  stub_lfs_object_storage(proxy_download: false)
+                end
+
+                it_behaves_like 'LFS http 200 response'
+
+                it 'does return direct object storage URL' do
+                  expect(json_response['objects'].first).to include(sample_object)
+                  expect(json_response['objects'].first['actions']['download']['href']).to start_with("https://lfs-objects.s3.amazonaws.com/")
+                  expect(json_response['objects'].first['actions']['download']['href']).to include("X-Amz-Expires=3600&")
+                end
+              end
+            end
+
+            context 'when sending objects=[]' do
+              let(:body) { download_body([]) }
+
+              it_behaves_like 'LFS http expected response code and message' do
+                let(:response_code) { 404 }
+                let(:message) { 'Not found.' }
+              end
+            end
           end
 
           context 'when user is authenticated' do
@@ -344,17 +390,17 @@ RSpec.describe 'Git LFS API and storage' do
             end
 
             context 'when user password is expired' do
-              let_it_be(:user) { create(:user, password_expires_at: 1.minute.ago)}
+              let_it_be(:user) { create(:user, password_expires_at: 1.minute.ago) }
 
-              let(:role) { :reporter}
+              let(:role) { :reporter }
 
               it_behaves_like 'LFS http 401 response'
             end
 
             context 'when user is blocked' do
-              let_it_be(:user) { create(:user, :blocked)}
+              let_it_be(:user) { create(:user, :blocked) }
 
-              let(:role) { :reporter}
+              let(:role) { :reporter }
 
               it_behaves_like 'LFS http 401 response'
             end
@@ -373,6 +419,21 @@ RSpec.describe 'Git LFS API and storage' do
               let(:deploy_token) { create(:deploy_token, projects: [other_project]) }
 
               it_behaves_like 'LFS http 401 response'
+            end
+
+            context 'when deploy token is from an unrelated group to the project' do
+              let(:group) { create(:group) }
+              let(:deploy_token) { create(:deploy_token, :group, groups: [group]) }
+
+              it_behaves_like 'LFS http 401 response'
+            end
+
+            context 'when deploy token is from a parent group of the project and valid' do
+              let(:group) { create(:group) }
+              let(:project) { create(:project, group: group) }
+              let(:deploy_token) { create(:deploy_token, :group, groups: [group]) }
+
+              it_behaves_like 'an authorized request', renew_authorization: false
             end
 
             # TODO: We should fix this test case that causes flakyness by alternating the result of the above test cases.
@@ -603,8 +664,7 @@ RSpec.describe 'Git LFS API and storage' do
                 context 'tries to push to other project' do
                   let(:pipeline) { create(:ci_empty_pipeline, project: other_project) }
 
-                  # I'm not sure what this tests that is different from the previous test
-                  it_behaves_like 'LFS http 403 response'
+                  it_behaves_like 'LFS http 404 response'
                 end
               end
 
@@ -814,21 +874,29 @@ RSpec.describe 'Git LFS API and storage' do
 
               context 'and request to finalize the upload is not sent by gitlab-workhorse' do
                 it 'fails with a JWT decode error' do
-                  expect { put_finalize(lfs_tmp_file, verified: false) }.to raise_error(JWT::DecodeError)
+                  expect { put_finalize(verified: false) }.to raise_error(JWT::DecodeError)
+                end
+              end
+
+              context 'and the uploaded file is invalid' do
+                where(:size, :sha256, :status) do
+                  nil | nil | :ok # Test setup sanity check
+                  0 | nil | :bad_request
+                  nil | ('a' * 64) | :bad_request
+                end
+
+                with_them do
+                  it 'validates the upload size and SHA256' do
+                    put_finalize(size: size, sha256: sha256)
+
+                    expect(response).to have_gitlab_http_status(status)
+                  end
                 end
               end
 
               context 'and workhorse requests upload finalize for a new LFS object' do
                 before do
                   lfs_object.destroy!
-                end
-
-                context 'with object storage disabled' do
-                  it "doesn't attempt to migrate file to object storage" do
-                    expect(ObjectStorage::BackgroundMoveWorker).not_to receive(:perform_async)
-
-                    put_finalize(with_tempfile: true)
-                  end
                 end
 
                 context 'with object storage enabled' do
@@ -840,7 +908,7 @@ RSpec.describe 'Git LFS API and storage' do
                     let(:tmp_object) do
                       fog_connection.directories.new(key: 'lfs-objects').files.create( # rubocop: disable Rails/SaveBang
                         key: 'tmp/uploads/12312300',
-                        body: 'content'
+                        body: 'x' * sample_size
                       )
                     end
 
@@ -890,18 +958,6 @@ RSpec.describe 'Git LFS API and storage' do
                         expect(LfsObject.last.file_store).to eq(ObjectStorage::Store::REMOTE)
                         expect(LfsObject.last.file).to be_exists
                       end
-                    end
-                  end
-
-                  context 'and background upload enabled' do
-                    before do
-                      stub_lfs_object_storage(background_upload: true)
-                    end
-
-                    it 'schedules migration of file to object storage' do
-                      expect(ObjectStorage::BackgroundMoveWorker).to receive(:perform_async).with('LfsObjectUploader', 'LfsObject', :file, kind_of(Numeric))
-
-                      put_finalize(with_tempfile: true)
                     end
                   end
                 end
@@ -994,7 +1050,7 @@ RSpec.describe 'Git LFS API and storage' do
               end
 
               context 'when user is blocked' do
-                let_it_be(:user) { create(:user, :blocked)}
+                let_it_be(:user) { create(:user, :blocked) }
 
                 it_behaves_like 'LFS http 401 response'
               end
@@ -1017,7 +1073,7 @@ RSpec.describe 'Git LFS API and storage' do
         end
 
         describe 'to a forked project' do
-          let_it_be(:upstream_project) { create(:project, :public) }
+          let_it_be_with_reload(:upstream_project) { create(:project, :public) }
           let_it_be(:project_owner) { create(:user) }
 
           let(:project) { fork_project(upstream_project, project_owner) }
@@ -1055,6 +1111,58 @@ RSpec.describe 'Git LFS API and storage' do
               end
             end
 
+            describe 'when user has push access to upstream project' do
+              before do
+                upstream_project.add_maintainer(user)
+              end
+
+              context 'an MR exists on target forked project' do
+                let(:allow_collaboration) { true }
+                let(:merge_request) do
+                  create(
+                    :merge_request,
+                    target_project: upstream_project,
+                    source_project: project,
+                    allow_collaboration: allow_collaboration
+                  )
+                end
+
+                before do
+                  merge_request
+                end
+
+                context 'with allow_collaboration option set to true' do
+                  context 'and request is sent by gitlab-workhorse to authorize the request' do
+                    before do
+                      put_authorize
+                    end
+
+                    it_behaves_like 'LFS http 200 workhorse response'
+                  end
+
+                  context 'and request is sent by gitlab-workhorse to finalize the upload' do
+                    before do
+                      put_finalize
+                    end
+
+                    it_behaves_like 'LFS http 200 response'
+                  end
+                end
+
+                context 'with allow_collaboration option set to false' do
+                  context 'request is sent by gitlab-workhorse to authorize the request' do
+                    let(:allow_collaboration) { false }
+
+                    before do
+                      put_authorize
+                    end
+
+                    it_behaves_like 'forbidden'
+                  end
+                end
+              end
+            end
+
             describe 'and user does not have push access' do
               it_behaves_like 'forbidden'
             end
@@ -1078,8 +1186,7 @@ RSpec.describe 'Git LFS API and storage' do
               context 'tries to push to other project' do
                 let(:pipeline) { create(:ci_empty_pipeline, project: other_project) }
 
-                # I'm not sure what this tests that is different from the previous test
-                it_behaves_like 'LFS http 403 response'
+                it_behaves_like 'LFS http 404 response'
               end
             end
 
@@ -1106,13 +1213,7 @@ RSpec.describe 'Git LFS API and storage' do
 
             context 'when pushing the same LFS object to the second project' do
               before do
-                finalize_headers = headers
-                  .merge('X-Gitlab-Lfs-Tmp' => lfs_tmp_file)
-                  .merge(workhorse_internal_api_request_header)
-
-                put objects_url(second_project, sample_oid, sample_size),
-                  params: {},
-                  headers: finalize_headers
+                put_finalize(with_tempfile: true, to_project: second_project)
               end
 
               it_behaves_like 'LFS http 200 response'
@@ -1129,38 +1230,6 @@ RSpec.describe 'Git LFS API and storage' do
           authorize_headers.merge!(workhorse_internal_api_request_header) if verified
 
           put authorize_url(project, sample_oid, sample_size), params: {}, headers: authorize_headers
-        end
-
-        def put_finalize(lfs_tmp = lfs_tmp_file, with_tempfile: false, verified: true, remote_object: nil, args: {})
-          uploaded_file = nil
-
-          if with_tempfile
-            upload_path = LfsObjectUploader.workhorse_local_upload_path
-            file_path = upload_path + '/' + lfs_tmp if lfs_tmp
-
-            FileUtils.mkdir_p(upload_path)
-            FileUtils.touch(file_path)
-
-            uploaded_file = UploadedFile.new(file_path, filename: File.basename(file_path))
-          elsif remote_object
-            uploaded_file = fog_to_uploaded_file(remote_object)
-          end
-
-          finalize_headers = headers
-          finalize_headers.merge!(workhorse_internal_api_request_header) if verified
-
-          workhorse_finalize(
-            objects_url(project, sample_oid, sample_size),
-            method: :put,
-            file_key: :file,
-            params: args.merge(file: uploaded_file),
-            headers: finalize_headers,
-            send_rewritten_field: include_workhorse_jwt_header
-          )
-        end
-
-        def lfs_tmp_file
-          "#{sample_oid}012345678"
         end
       end
     end

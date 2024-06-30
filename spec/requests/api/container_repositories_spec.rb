@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::ContainerRepositories do
+RSpec.describe API::ContainerRepositories, feature_category: :container_registry do
   include_context 'container registry client stubs'
 
   let_it_be(:project) { create(:project, :private) }
@@ -67,14 +67,79 @@ RSpec.describe API::ContainerRepositories do
         let(:url) { "/registry/repositories/#{repository.id}?tags=true" }
 
         before do
-          stub_container_registry_tags(repository: repository.path, tags: %w(rootA latest), with_manifest: true)
+          stub_container_registry_tags(repository: repository.path, tags: %w[rootA latest], with_manifest: true)
         end
 
-        it 'returns a repository and its tags' do
-          subject
+        shared_examples 'returning a repository and its tags' do
+          it 'returns a repository and its tags' do
+            subject
 
-          expect(json_response['id']).to eq(repository.id)
-          expect(response.body).to include('tags')
+            expect(json_response['id']).to eq(repository.id)
+            expect(response.body).to include('tags')
+            expect(json_response['tags']).to eq(repository.tags.map do |tag|
+              {
+                "location" => tag.location,
+                "name" => tag.name,
+                "path" => tag.path
+              }
+            end)
+          end
+        end
+
+        it_behaves_like 'returning a repository and its tags'
+
+        context 'when the repository is migrated', :saas do
+          context 'when the GitLab API is supported' do
+            before do
+              stub_container_registry_gitlab_api_support(supported: true) do |client|
+                allow(client).to receive(:tags).and_return(response_body)
+              end
+            end
+
+            context 'when the Gitlab API returns tags' do
+              include_context 'with the container registry GitLab API returning tags'
+
+              it 'returns instantiated tags from the response' do
+                expect_any_instance_of(ContainerRepository) do |repository|
+                  expect(repository).to receive(:each_tags_page).and_call_original
+                end
+
+                subject
+
+                expect(json_response['id']).to eq(repository.id)
+                expect(response.body).to include('tags')
+                expect(json_response['tags'].count).to eq(2)
+                expect(json_response['tags']).to eq(tags_response.map do |response|
+                  {
+                    "name" => response[:name],
+                    "path" => "#{repository.path}:#{response[:name]}",
+                    "location" => "#{repository.location}:#{response[:name]}"
+                  }
+                end)
+              end
+            end
+
+            context 'when the Gitlab API does not return any tags' do
+              let(:response_body) { { pagination: {}, response_body: {} } }
+
+              it 'returns an instantiated tag from the response' do
+                subject
+
+                expect(json_response['id']).to eq(repository.id)
+                expect(response.body).to include('tags')
+                expect(json_response['tags'].count).to eq(0)
+                expect(json_response['tags']).to be_empty
+              end
+            end
+          end
+
+          context 'when the GitLab API is not supported' do
+            before do
+              stub_container_registry_gitlab_api_support(supported: false)
+            end
+
+            it_behaves_like 'returning a repository and its tags'
+          end
         end
 
         context 'with a network error' do
@@ -95,7 +160,7 @@ RSpec.describe API::ContainerRepositories do
         let(:url) { "/registry/repositories/#{repository.id}?tags_count=true" }
 
         before do
-          stub_container_registry_tags(repository: repository.path, tags: %w(rootA latest), with_manifest: true)
+          stub_container_registry_tags(repository: repository.path, tags: %w[rootA latest], with_manifest: true)
         end
 
         it 'returns a repository and its tags_count' do
@@ -108,17 +173,15 @@ RSpec.describe API::ContainerRepositories do
 
       context 'with size param' do
         let(:url) { "/registry/repositories/#{repository.id}?size=true" }
-        let(:on_com) { true }
-        let(:created_at) { ::ContainerRepository::MIGRATION_PHASE_1_STARTED_AT + 3.months }
-
-        before do
-          allow(::Gitlab).to receive(:com?).and_return(on_com)
-          repository.update_column(:created_at, created_at)
-        end
 
         it 'returns a repository and its size' do
           stub_container_registry_gitlab_api_support(supported: true) do |client|
-            stub_container_registry_gitlab_api_repository_details(client, path: repository.path, size_bytes: 12345)
+            stub_container_registry_gitlab_api_repository_details(
+              client,
+              path: repository.path,
+              size_bytes: 12345,
+              sizing: :self
+            )
           end
 
           subject
@@ -141,26 +204,6 @@ RSpec.describe API::ContainerRepositories do
           it 'returns nil' do
             stub_container_registry_gitlab_api_support(supported: false)
 
-            subject
-
-            expect(json_response['size']).to eq(nil)
-          end
-        end
-
-        context 'not on .com' do
-          let(:on_com) { false }
-
-          it 'returns nil' do
-            subject
-
-            expect(json_response['size']).to eq(nil)
-          end
-        end
-
-        context 'with an older container repository' do
-          let(:created_at) { ::ContainerRepository::MIGRATION_PHASE_1_STARTED_AT - 3.months }
-
-          it 'returns nil' do
             subject
 
             expect(json_response['size']).to eq(nil)

@@ -1,4 +1,4 @@
-import { GlIcon, GlSprintf } from '@gitlab/ui';
+import { GlSprintf, GlBadge } from '@gitlab/ui';
 import { GlBreakpointInstance } from '@gitlab/ui/dist/utils';
 import { nextTick } from 'vue';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
@@ -22,18 +22,24 @@ const packageWithTags = {
   packageFiles: { nodes: packageFiles() },
 };
 
+const defaultProvide = {
+  isGroupPage: false,
+};
+
 describe('PackageTitle', () => {
   let wrapper;
 
-  async function createComponent(packageEntity = packageWithTags) {
+  async function createComponent(packageEntity = packageWithTags, provide = defaultProvide) {
     wrapper = shallowMountExtended(PackageTitle, {
       propsData: { packageEntity },
       stubs: {
         TitleArea,
         GlSprintf,
       },
+      provide,
       directives: {
-        GlResizeObserver: createMockDirective(),
+        GlResizeObserver: createMockDirective('gl-resize-observer'),
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
     });
     await nextTick();
@@ -41,30 +47,25 @@ describe('PackageTitle', () => {
 
   const findTitleArea = () => wrapper.findComponent(TitleArea);
   const findPackageType = () => wrapper.findByTestId('package-type');
-  const findPackageSize = () => wrapper.findByTestId('package-size');
   const findPipelineProject = () => wrapper.findByTestId('pipeline-project');
   const findPackageRef = () => wrapper.findByTestId('package-ref');
+  const findPackageLastDownloadedAt = () => wrapper.findByTestId('package-last-downloaded-at');
   const findPackageTags = () => wrapper.findComponent(PackageTags);
   const findPackageBadges = () => wrapper.findAllByTestId('tag-badge');
-  const findSubHeaderIcon = () => wrapper.findComponent(GlIcon);
   const findSubHeaderText = () => wrapper.findByTestId('sub-header');
   const findSubHeaderTimeAgo = () => wrapper.findComponent(TimeAgoTooltip);
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('renders', () => {
     it('without tags', async () => {
       await createComponent({ ...packageData(), packageFiles: { nodes: packageFiles() } });
 
-      expect(wrapper.element).toMatchSnapshot();
+      expect(findPackageTags().exists()).toBe(false);
     });
 
     it('with tags', async () => {
       await createComponent();
 
-      expect(wrapper.element).toMatchSnapshot();
+      expect(findPackageTags().exists()).toBe(true);
     });
 
     it('with tags on mobile', async () => {
@@ -120,16 +121,10 @@ describe('PackageTitle', () => {
   });
 
   describe('sub-header', () => {
-    it('has the eye icon', async () => {
-      await createComponent();
-
-      expect(findSubHeaderIcon().props('name')).toBe('eye');
-    });
-
     it('has a text showing version', async () => {
       await createComponent();
 
-      expect(findSubHeaderText().text()).toMatchInterpolatedText('v 1.0.0 published');
+      expect(findSubHeaderText().text()).toMatchInterpolatedText('v1.0.0 published');
     });
 
     it('has a time ago tooltip component', async () => {
@@ -149,20 +144,6 @@ describe('PackageTitle', () => {
 
     it(`${packageType} should render ${text}`, () => {
       expect(findPackageType().props()).toEqual(expect.objectContaining({ text, icon: 'package' }));
-    });
-  });
-
-  describe('calculates the package size', () => {
-    it('correctly calculates when there is only 1 file', async () => {
-      await createComponent({ ...packageData(), packageFiles: { nodes: [packageFiles()[0]] } });
-
-      expect(findPackageSize().props()).toMatchObject({ text: '400.00 KiB', icon: 'disk' });
-    });
-
-    it('correctly calculates when there are multiple files', async () => {
-      await createComponent();
-
-      expect(findPackageSize().props('text')).toBe('800.00 KiB');
     });
   });
 
@@ -206,15 +187,104 @@ describe('PackageTitle', () => {
       expect(findPipelineProject().exists()).toBe(false);
     });
 
-    it('correctly shows the pipeline project if there is one', async () => {
+    it('does not display the pipeline project on project page even if it exists', async () => {
       await createComponent({
         ...packageData(),
         pipelines: { nodes: packagePipelines() },
       });
+      expect(findPipelineProject().exists()).toBe(false);
+    });
+
+    it('correctly shows the pipeline project on group page if there is one', async () => {
+      await createComponent(
+        {
+          ...packageData(),
+          pipelines: { nodes: packagePipelines() },
+        },
+        { isGroupPage: true },
+      );
       expect(findPipelineProject().props()).toMatchObject({
         text: packagePipelines()[0].project.name,
         icon: 'review-list',
         link: packagePipelines()[0].project.webUrl,
+      });
+    });
+  });
+
+  describe('package last downloaded at', () => {
+    it('does not display the data if missing', async () => {
+      await createComponent({
+        ...packageData(),
+        lastDownloadedAt: null,
+      });
+
+      expect(findPackageLastDownloadedAt().exists()).toBe(false);
+    });
+
+    it('correctly shows the data if present', async () => {
+      await createComponent();
+
+      expect(findPackageLastDownloadedAt().props()).toMatchObject({
+        text: 'Last downloaded Aug 17, 2021',
+        icon: 'download',
+        size: 'm',
+      });
+    });
+  });
+
+  describe('badge "protected"', () => {
+    const createComponentForBadgeProtected = async ({
+      packageEntityProtectionRuleExists = true,
+      glFeaturesPackagesProtectedPackages = true,
+    } = {}) => {
+      await createComponent(
+        {
+          ...packageWithTags,
+          protectionRuleExists: packageEntityProtectionRuleExists,
+        },
+        {
+          ...defaultProvide,
+          glFeatures: { packagesProtectedPackages: glFeaturesPackagesProtectedPackages },
+        },
+      );
+    };
+
+    const findBadgeProtected = () => wrapper.findComponent(GlBadge);
+
+    describe('when a protection rule exists for the given package', () => {
+      it('shows badge', () => {
+        createComponentForBadgeProtected();
+
+        expect(findBadgeProtected().exists()).toBe(true);
+        expect(findBadgeProtected().text()).toBe('protected');
+      });
+
+      it('binds tooltip directive', () => {
+        createComponentForBadgeProtected();
+
+        const badgeProtectionRuleExistsTooltipBinding = getBinding(
+          findBadgeProtected().element,
+          'gl-tooltip',
+        );
+        expect(badgeProtectionRuleExistsTooltipBinding.value).toMatchObject({
+          title: 'A protection rule exists for this package.',
+        });
+      });
+    });
+
+    describe('when no protection rule exists for the given package', () => {
+      it('does not show badge', () => {
+        createComponentForBadgeProtected({ packageEntityProtectionRuleExists: false });
+
+        expect(findBadgeProtected().exists()).toBe(false);
+      });
+    });
+
+    describe('when feature flag ":packages_protected_packages" is disabled', () => {
+      it('does not show badge', () => {
+        createComponentForBadgeProtected({ glFeaturesPackagesProtectedPackages: false });
+
+        expect(findBadgeProtected().exists()).toBe(false);
       });
     });
   });

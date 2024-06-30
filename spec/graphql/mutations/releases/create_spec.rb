@@ -6,14 +6,14 @@ RSpec.describe Mutations::Releases::Create do
   let_it_be(:project) { create(:project, :public, :repository) }
   let_it_be(:milestone_12_3) { create(:milestone, project: project, title: '12.3') }
   let_it_be(:milestone_12_4) { create(:milestone, project: project, title: '12.4') }
-  let_it_be(:reporter) { create(:user) }
-  let_it_be(:developer) { create(:user) }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
 
   let(:mutation) { described_class.new(object: nil, context: { current_user: current_user }, field: nil) }
 
-  let(:tag) { 'v1.1.0'}
-  let(:ref) { 'master'}
-  let(:name) { 'Version 1.0'}
+  let(:tag) { 'v1.1.0' }
+  let(:ref) { 'master' }
+  let(:name) { 'Version 1.0' }
   let(:description) { 'The first release :rocket:' }
   let(:released_at) { Time.parse('2018-12-10') }
   let(:milestones) { [milestone_12_3.title, milestone_12_4.title] }
@@ -45,11 +45,6 @@ RSpec.describe Mutations::Releases::Create do
 
   around do |example|
     freeze_time { example.run }
-  end
-
-  before do
-    project.add_reporter(reporter)
-    project.add_developer(developer)
   end
 
   describe '#resolve' do
@@ -135,7 +130,7 @@ RSpec.describe Mutations::Releases::Create do
           it 'has an access error' do
             subject
 
-            expect(resolve).to include(errors: ['Access Denied'])
+            expect(resolve).to include(errors: ['You are not allowed to create this tag as it is protected.'])
           end
         end
       end

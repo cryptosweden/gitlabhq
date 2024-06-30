@@ -1,6 +1,6 @@
 import $ from 'jquery';
 import { joinPaths } from '~/lib/utils/url_utility';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { EVENT_ISSUABLE_VUE_APP_CHANGE } from '~/issuable/constants';
 import axios from '~/lib/utils/axios_utils';
 import { addDelimiter } from '~/lib/utils/text_utility';
@@ -49,15 +49,12 @@ export default class Issue {
     issueFailMessage = __('Unable to update this issue at this time.'),
   ) {
     if ('id' in data) {
-      const isClosedBadge = $('div.status-box-issue-closed');
-      const isOpenBadge = $('div.status-box-open');
       const projectIssuesCounter = $('.issue_counter');
-
-      isClosedBadge.toggleClass('hidden', !isClosed);
-      isOpenBadge.toggleClass('hidden', isClosed);
 
       $(document).trigger('issuable:change', isClosed);
 
+      // TODO: Remove this with the removal of the old navigation.
+      // See https://gitlab.com/groups/gitlab-org/-/epics/11875.
       let numProjectIssues = Number(
         projectIssuesCounter.first().text().trim().replace(/[^\d]/, ''),
       );
@@ -68,7 +65,7 @@ export default class Issue {
         this.createMergeRequestDropdown.checkAbilityToCreateBranch();
       }
     } else {
-      createFlash({
+      createAlert({
         message: issueFailMessage,
       });
     }
@@ -105,7 +102,7 @@ export default class Issue {
         }
       })
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('Failed to load related branches'),
         }),
       );

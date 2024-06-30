@@ -38,6 +38,10 @@ module Gitlab
           raise NotImplementedError
         end
 
+        def name
+          self.class.name.demodulize.underscore.upcase
+        end
+
         def group
           self.class.name.demodulize.underscore
         end
@@ -82,6 +86,10 @@ module Gitlab
         # Hint that appears on the build badges
         def badge_tooltip
           subject.status
+        end
+
+        def confirmation_message
+          nil
         end
       end
     end

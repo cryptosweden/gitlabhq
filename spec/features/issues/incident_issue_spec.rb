@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Incident Detail', :js do
+RSpec.describe 'Incident Detail', :js, feature_category: :team_planning do
   let_it_be(:project) { create(:project, :public) }
   let_it_be(:payload) do
     {
@@ -29,13 +29,13 @@ RSpec.describe 'Incident Detail', :js do
       project.add_developer(user)
       sign_in(user)
 
-      visit project_issue_path(project, incident)
+      visit incident_project_issues_path(project, incident)
       wait_for_requests
     end
 
     it 'shows incident and alert data' do
       page.within('.issuable-details') do
-        incident_tabs = find('[data-testid="incident-tabs"]')
+        incident_tabs = find_by_testid('incident-tabs')
 
         aggregate_failures 'shows title and Summary tab' do
           expect(find('h1')).to have_content(incident.title)
@@ -48,11 +48,47 @@ RSpec.describe 'Incident Detail', :js do
           expect(incident_tabs).to have_content('Original alert: #1')
         end
 
+        aggregate_failures 'when on summary tab (default tab)' do
+          hidden_items = find_all('.js-issue-widgets')
+
+          # Description footer + Linked Issues/MRs + comment box + emoji block
+          expect(hidden_items.count).to eq(4)
+          expect(hidden_items).to all(be_visible)
+
+          edit_button = find_all('[aria-label="Edit title and description"]')
+          expect(edit_button).to all(be_visible)
+        end
+
         aggregate_failures 'shows the Alert details tab' do
           click_link 'Alert details'
 
           expect(incident_tabs).to have_content('"title": "Alert title"')
           expect(incident_tabs).to have_content('"yet.another": 73')
+
+          # does not show the linked issues and notes/comment components' do
+          hidden_items = find_all('.js-issue-widgets', wait: false)
+
+          # Linked Issues/MRs and comment box are hidden on page
+          expect(hidden_items.count).to eq(0)
+        end
+      end
+    end
+
+    context 'when on timeline events tab from issue route' do
+      before do
+        visit project_issue_path(project, incident)
+        wait_for_requests
+
+        click_link 'Timeline'
+        wait_for_requests
+      end
+
+      it 'does not show the linked issues and notes/comment components' do
+        page.within('.issuable-details') do
+          hidden_items = find_all('.js-issue-widgets', wait: false)
+
+          # Linked Issues/MRs and comment box are hidden on page
+          expect(hidden_items.count).to eq(0)
         end
       end
     end

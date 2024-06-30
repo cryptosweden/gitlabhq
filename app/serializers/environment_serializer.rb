@@ -34,16 +34,18 @@ class EnvironmentSerializer < BaseSerializer
   # rubocop: disable CodeReuse/ActiveRecord
   def itemize(resource)
     items = resource.order('folder ASC')
-      .group('COALESCE(environment_type, name)')
-      .select('COALESCE(environment_type, name) AS folder',
-              'COUNT(*) AS size', 'MAX(id) AS last_id')
+      .group('COALESCE(environment_type, id::text)', 'COALESCE(environment_type, name)')
+      .select(
+        'COALESCE(environment_type, id::text), COALESCE(environment_type, name) AS folder',
+        'COUNT(*) AS size', 'MAX(id) AS last_id'
+      )
 
     # It makes a difference when you call `paginate` method, because
     # although `page` is effective at the end, it calls counting methods
     # immediately.
     items = @paginator.paginate(items) if paginated?
 
-    environments = batch_load(resource.where(id: items.map(&:last_id)))
+    environments = batch_load(Environment.where(id: items.map(&:last_id)))
     environments_by_id = environments.index_by(&:id)
 
     items.map do |item|
@@ -52,7 +54,10 @@ class EnvironmentSerializer < BaseSerializer
   end
 
   def batch_load(resource)
-    resource = resource.preload(environment_associations.except(:last_deployment, :upcoming_deployment))
+    resource = resource.preload(environment_associations)
+
+    Preloaders::Environments::DeploymentPreloader.new(resource)
+      .execute_with_union(:last_finished_deployment, deployment_associations)
 
     Preloaders::Environments::DeploymentPreloader.new(resource)
       .execute_with_union(:last_deployment, deployment_associations)
@@ -65,14 +70,16 @@ class EnvironmentSerializer < BaseSerializer
         # Batch loading the commits of the deployments
         environment.last_deployment&.commit&.try(:lazy_author)
         environment.upcoming_deployment&.commit&.try(:lazy_author)
+
+        # Batch loading last_finished_deployment_group,
+        #   which is called later by environment.stop_actions
+        environment.last_finished_deployment_group
       end
     end
   end
 
   def environment_associations
     {
-      last_deployment: deployment_associations,
-      upcoming_deployment: deployment_associations,
       project: project_associations
     }
   end
@@ -80,14 +87,18 @@ class EnvironmentSerializer < BaseSerializer
   def deployment_associations
     {
       user: [],
-      cluster: [],
-      project: [],
+      deployment_cluster: { cluster: [] },
+      project: {
+        route: [],
+        namespace: :route
+      },
       deployable: {
         user: [],
         metadata: [],
         pipeline: {
-          manual_actions: [],
-          scheduled_actions: []
+          manual_actions: [:metadata, :deployment],
+          scheduled_actions: [:metadata],
+          latest_successful_jobs: []
         },
         project: project_associations
       }

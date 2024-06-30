@@ -3,10 +3,10 @@
 require 'spec_helper'
 require 'sidekiq/testing'
 
-RSpec.describe Gitlab::SidekiqMiddleware do
+RSpec.describe Gitlab::SidekiqMiddleware, feature_category: :shared do
   let(:job_args) { [0.01] }
   let(:disabled_sidekiq_middlewares) { [] }
-  let(:chain) { Sidekiq::Middleware::Chain.new }
+  let(:chain) { Sidekiq::Middleware::Chain.new(Sidekiq) }
   let(:queue) { 'test' }
   let(:enabled_sidekiq_middlewares) { all_sidekiq_middlewares - disabled_sidekiq_middlewares }
   let(:worker_class) do
@@ -31,6 +31,7 @@ RSpec.describe Gitlab::SidekiqMiddleware do
   shared_examples "a middleware chain" do
     before do
       configurator.call(chain)
+      stub_feature_flags("drop_sidekiq_jobs_#{worker_class.name}": false) # not dropping the job
     end
 
     it "passes through the right middlewares", :aggregate_failures do
@@ -56,21 +57,24 @@ RSpec.describe Gitlab::SidekiqMiddleware do
     let(:middleware_expected_args) { [a_kind_of(worker_class), hash_including({ 'args' => job_args }), queue] }
     let(:all_sidekiq_middlewares) do
       [
+        ::Gitlab::SidekiqMiddleware::ShardAwarenessValidator,
         ::Gitlab::SidekiqMiddleware::Monitor,
         ::Labkit::Middleware::Sidekiq::Server,
+        ::Gitlab::SidekiqMiddleware::RequestStoreMiddleware,
         ::Gitlab::SidekiqMiddleware::ServerMetrics,
         ::Gitlab::SidekiqMiddleware::ArgumentsLogger,
-        ::Gitlab::SidekiqMiddleware::MemoryKiller,
-        ::Gitlab::SidekiqMiddleware::RequestStoreMiddleware,
         ::Gitlab::SidekiqMiddleware::ExtraDoneLogMetadata,
         ::Gitlab::SidekiqMiddleware::BatchLoader,
         ::Gitlab::SidekiqMiddleware::InstrumentationLogger,
+        ::Gitlab::SidekiqMiddleware::SetIpAddress,
         ::Gitlab::SidekiqMiddleware::AdminMode::Server,
         ::Gitlab::SidekiqVersioning::Middleware,
         ::Gitlab::SidekiqStatus::ServerMiddleware,
         ::Gitlab::SidekiqMiddleware::WorkerContext::Server,
+        ::ClickHouse::MigrationSupport::SidekiqMiddleware,
         ::Gitlab::SidekiqMiddleware::DuplicateJobs::Server,
-        ::Gitlab::Database::LoadBalancing::SidekiqServerMiddleware
+        ::Gitlab::Database::LoadBalancing::SidekiqServerMiddleware,
+        ::Gitlab::SidekiqMiddleware::SkipJobs
       ]
     end
 
@@ -80,12 +84,13 @@ RSpec.describe Gitlab::SidekiqMiddleware do
           described_class.server_configurator(
             metrics: true,
             arguments_logger: true,
-            memory_killer: true
+            skip_jobs: false
           ).call(chain)
 
           Sidekiq::Testing.inline! { example.run }
         end
       end
+
       let(:gitaly_histogram) { double(:gitaly_histogram) }
 
       before do
@@ -113,7 +118,7 @@ RSpec.describe Gitlab::SidekiqMiddleware do
         described_class.server_configurator(
           metrics: false,
           arguments_logger: false,
-          memory_killer: false
+          skip_jobs: false
         )
       end
 
@@ -121,7 +126,7 @@ RSpec.describe Gitlab::SidekiqMiddleware do
         [
           Gitlab::SidekiqMiddleware::ServerMetrics,
           Gitlab::SidekiqMiddleware::ArgumentsLogger,
-          Gitlab::SidekiqMiddleware::MemoryKiller
+          Gitlab::SidekiqMiddleware::SkipJobs
         ]
       end
 

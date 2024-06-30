@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Frontend FAQ
@@ -9,7 +9,7 @@ info: To determine the technical writer assigned to the Stage/Group associated w
 ## Rules of Frontend FAQ
 
 1. **You talk about Frontend FAQ.**
-   Please share links to it whenever applicable, so more eyes catch when content
+   Share links to it whenever applicable, so more eyes catch when content
    gets outdated.
 1. **Keep it short and simple.**
    Whenever an answer needs more than two sentences it does not belong here.
@@ -17,7 +17,7 @@ info: To determine the technical writer assigned to the Stage/Group associated w
    Linking to relevant source code, issue / epic, or other documentation helps
    to understand the answer.
 1. **If you see something, do something.**
-   Please remove or update any content that is outdated as soon as you see it.
+   Remove or update any content that is outdated as soon as you see it.
 
 ## FAQ
 
@@ -69,7 +69,7 @@ banner on top of the component examples indicates that:
 > component.
 
 For example, at the time of writing, this type of warning can be observed for
-[all form components](https://design.gitlab.com/components/form/). It, however,
+all form components, such as the [checkbox](https://design.gitlab.com/components/checkbox). It, however,
 doesn't imply that the component should not be used.
 
 GitLab always asks to use `<gl-*>` components whenever a suitable component exists.
@@ -84,9 +84,9 @@ follow up issue and attach it to the component implementation epic found in the
 
 A Submit button inside of a form attaches an `onSubmit` event listener on the form element. [This code](https://gitlab.com/gitlab-org/gitlab/-/blob/794c247a910e2759ce9b401356432a38a4535d49/app/assets/javascripts/main.js#L225) adds a `disabled` class selector to the submit button when the form is submitted. To avoid this behavior, add the class `js-no-auto-disable` to the button.
 
-### 5. Should one use a full URL (for example `gon.gitlab_url`) or a full path (for example `gon.relative_url_root`) when referencing backend endpoints?
+### 5. Should one use a full URL or a full path when referencing backend endpoints?
 
-It's preferred to use a **full path** over a **full URL**. This is because the URL uses the hostname configured with
+It's preferred to use a **full path** like `gon.relative_url_root` over a **full URL** (like `gon.gitlab_url`). This is because the URL uses the hostname configured with
 GitLab which may not match the request. This causes [cross-origin resource sharing issues like this Web IDE example](https://gitlab.com/gitlab-org/gitlab/-/issues/36810).
 
 Example:
@@ -101,7 +101,7 @@ axios.get(joinPaths(gon.gitlab_url, '-', 'foo'))
 axios.get(joinPaths(gon.relative_url_root, '-', 'foo'))
 ```
 
-Also, please try not to hardcode paths in the Frontend, but instead receive them from the Backend (see next section).
+Also, try not to hardcode paths in the Frontend, but instead receive them from the Backend (see next section).
 When referencing Backend rails paths, avoid using `*_url`, and use `*_path` instead.
 
 Example:
@@ -163,7 +163,7 @@ Sometimes it's necessary to test locally what the frontend production build woul
 The production build takes a few minutes to be completed. Any code changes at this point are
 displayed only after executing the item 3 above again.
 
-To return to the normal development mode:
+To return to the standard development mode:
 
 1. Open `gitlab.yaml` located in your `gitlab` installation folder, scroll down to the `webpack` section and change back `dev_server` to `enabled: true`.
 1. Run `yarn clean` to remove the production assets and free some space (optional).
@@ -172,10 +172,8 @@ To return to the normal development mode:
 
 ### 8. Babel polyfills
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/28837) in GitLab 12.8.
-
 GitLab has enabled the Babel `preset-env` option
-[`useBuiltIns: 'usage'`](https://babeljs.io/docs/en/babel-preset-env#usebuiltins-usage).
+[`useBuiltIns: 'usage'`](https://babeljs.io/docs/babel-preset-env#usebuiltins-usage).
 This adds the appropriate `core-js` polyfills once for each JavaScript feature
 we're using that our target browsers don't support. You don't need to add `core-js`
 polyfills manually.
@@ -186,13 +184,13 @@ Be sure to add these polyfills to `app/assets/javascripts/commons/polyfills.js`.
 
 To see what polyfills are being used:
 
-1. Navigate to your merge request.
-1. In the secondary menu below the title of the merge request, click **Pipelines**, then
-   click the pipeline you want to view, to display the jobs in that pipeline.
-1. Click the [`compile-production-assets`](https://gitlab.com/gitlab-org/gitlab/-/jobs/641770154) job.
-1. In the right-hand sidebar, scroll to **Job Artifacts**, and click **Browse**.
-1. Click the **webpack-report** folder to open it, and click **index.html**.
-1. In the upper left corner of the page, click the right arrow **{angle-right}**
+1. Go to your merge request.
+1. In the secondary menu below the title of the merge request, select **Pipelines**, then
+   select the pipeline you want to view, to display the jobs in that pipeline.
+1. Select the [`compile-production-assets`](https://gitlab.com/gitlab-org/gitlab/-/jobs/641770154) job.
+1. In the right-hand sidebar, scroll to **Job Artifacts**, and select **Browse**.
+1. Select the **webpack-report** folder to open it, and select **index.html**.
+1. In the upper-left corner of the page, select the right arrow (**{chevron-lg-right}**)
    to display the explorer.
 1. In the **Search modules** field, enter `gitlab/node_modules/core-js` to see
    which polyfills are being loaded and where:
@@ -202,3 +200,10 @@ To see what polyfills are being used:
 ### 9. Why is my page broken in dark mode?
 
 See [dark mode docs](dark_mode.md)
+
+### 10. How to render GitLab-flavored Markdown?
+
+If you need to render [GitLab-flavored Markdown](../gitlab_flavored_markdown/index.md), then there are two things that you require:
+
+- Pass the GLFM content with the `v-safe-html` directive to a `div` HTML element inside your Vue component
+- Add the `md` class to the root div, which will apply the appropriate CSS styling

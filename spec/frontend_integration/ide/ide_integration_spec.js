@@ -1,9 +1,10 @@
 import { nextTick } from 'vue';
-import { setTestTimeout } from 'helpers/timeout';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import waitForPromises from 'helpers/wait_for_promises';
 import { waitForText } from 'helpers/wait_for_text';
-import { createCommitId } from 'test_helpers/factories/commit_id';
 import { useOverclockTimers } from 'test_helpers/utils/overclock_timers';
+import { createCommitId } from 'test_helpers/factories/commit_id';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import * as ideHelper from './helpers/ide_helper';
 import startWebIDE from './helpers/start';
 
@@ -14,16 +15,14 @@ describe('WebIDE', () => {
   let container;
 
   beforeEach(() => {
-    // For some reason these tests were timing out in CI.
-    // We will investigate in https://gitlab.com/gitlab-org/gitlab/-/issues/298714
-    setTestTimeout(20000);
-    setFixtures('<div class="webide-container"></div>');
+    stubPerformanceWebAPI();
+    setHTMLFixture('<div class="webide-container"></div>');
     container = document.querySelector('.webide-container');
   });
 
   afterEach(() => {
     vm.$destroy();
-    vm = null;
+    resetHTMLFixture();
   });
 
   it('user commits changes', async () => {
@@ -112,16 +111,20 @@ describe('WebIDE', () => {
     });
 
     it('persists viewer', async () => {
+      const checkText = async (text) => {
+        const el = await waitForText(text);
+        expect(el).toHaveText(text);
+      };
+
       const markdownPreview = 'test preview_markdown result';
-      mockServer.post('/:namespace/:project/preview_markdown', () => ({
+      mockServer.post('/:namespace/:project/-/preview_markdown', () => ({
         body: markdownPreview,
       }));
 
       await ideHelper.openFile('README.md');
       ideHelper.clickPreviewMarkdown();
 
-      const el = await waitForText(markdownPreview);
-      expect(el).toHaveText(markdownPreview);
+      await checkText(markdownPreview);
 
       // Need to wait for monaco editor to load so it doesn't through errors on dispose
       await ideHelper.openFile('.gitignore');
@@ -129,7 +132,7 @@ describe('WebIDE', () => {
       await ideHelper.openFile('README.md');
       await ideHelper.waitForEditorModelChange(editor);
 
-      expect(el).toHaveText(markdownPreview);
+      await checkText(markdownPreview);
     });
 
     describe('when editor position changes', () => {

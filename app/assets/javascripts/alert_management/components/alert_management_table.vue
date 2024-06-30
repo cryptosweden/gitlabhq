@@ -12,14 +12,15 @@ import {
   GlTooltipDirective,
 } from '@gitlab/ui';
 import getAlertsQuery from '~/graphql_shared/queries/get_alerts.query.graphql';
+import { STATUS_CLOSED } from '~/issues/constants';
 import { sortObjectToString } from '~/lib/utils/table_utility';
 import { fetchPolicies } from '~/lib/graphql';
 import { joinPaths, visitUrl } from '~/lib/utils/url_utility';
 import { s__, __, n__ } from '~/locale';
 import AlertStatus from '~/vue_shared/alert_details/components/alert_status.vue';
+import { TOKEN_TYPE_ASSIGNEE } from '~/vue_shared/components/filtered_search_bar/constants';
 import {
   tdClass,
-  thClass,
   bodyTrClass,
   initialPaginationState,
 } from '~/vue_shared/components/paginated_table_with_search_and_tabs/constants';
@@ -51,7 +52,8 @@ export default {
     {
       key: 'severity',
       label: s__('AlertManagement|Severity'),
-      thClass: `${thClass} gl-w-eighth`,
+      variant: 'secondary',
+      thClass: `gl-w-1/8`,
       thAttr: TH_TEST_ID,
       tdClass: `${tdClass} rounded-top text-capitalize sortable-cell`,
       sortable: true,
@@ -59,7 +61,8 @@ export default {
     {
       key: 'startedAt',
       label: s__('AlertManagement|Start time'),
-      thClass: `${thClass} js-started-at w-15p`,
+      variant: 'secondary',
+      thClass: `js-started-at gl-w-3/20`,
       tdClass: `${tdClass} sortable-cell`,
       sortable: true,
     },
@@ -72,30 +75,32 @@ export default {
     {
       key: 'eventCount',
       label: s__('AlertManagement|Events'),
-      thClass: `${thClass} text-right gl-w-12`,
-      tdClass: `${tdClass} text-md-right sortable-cell`,
+      variant: 'secondary',
+      tdClass: `${tdClass} sortable-cell`,
       sortable: true,
     },
     {
       key: 'issue',
       label: s__('AlertManagement|Incident'),
-      thClass: 'gl-w-15p gl-pointer-events-none',
+      thClass: 'gl-w-3/20 gl-pointer-events-none',
       tdClass,
     },
     {
       key: 'assignees',
       label: s__('AlertManagement|Assignees'),
-      thClass: 'gl-w-eighth gl-pointer-events-none',
+      thClass: 'gl-w-1/8 gl-pointer-events-none',
       tdClass,
     },
     {
       key: 'status',
       label: s__('AlertManagement|Status'),
-      thClass: `${thClass} w-15p`,
+      variant: 'secondary',
+      thClass: `gl-w-3/20`,
       tdClass: `${tdClass} rounded-bottom sortable-cell`,
       sortable: true,
     },
   ],
+  filterSearchTokens: [TOKEN_TYPE_ASSIGNEE],
   severityLabels: SEVERITY_LEVELS,
   statusTabs: ALERTS_STATUS_TABS,
   components: {
@@ -178,8 +183,8 @@ export default {
       serverErrorMessage: '',
       isErrorAlertDismissed: false,
       sort: 'STARTED_AT_DESC',
-      statusFilter: [],
-      filteredByStatus: '',
+      statusFilter: ALERTS_STATUS_TABS[0].filters,
+      filteredByStatus: ALERTS_STATUS_TABS[0].status,
       alerts: {},
       alertsCount: {},
       sortBy: 'startedAt',
@@ -216,15 +221,18 @@ export default {
       this.pagination = initialPaginationState;
       this.sort = sortObjectToString({ sortBy, sortDesc });
     },
+    showAlertLink({ iid }) {
+      return joinPaths(window.location.pathname, iid, 'details');
+    },
     navigateToAlertDetails({ iid }, index, { metaKey }) {
-      return visitUrl(joinPaths(window.location.pathname, iid, 'details'), metaKey);
+      return visitUrl(this.showAlertLink({ iid }), metaKey);
     },
     hasAssignees(assignees) {
       return Boolean(assignees.nodes?.length);
     },
     getIssueMeta({ issue: { iid, state } }) {
       return {
-        state: state === 'closed' ? `(${this.$options.i18n.closed})` : '',
+        state: state === STATUS_CLOSED ? `(${this.$options.i18n.closed})` : '',
         link: joinPaths('/', this.projectPath, '-', 'issues/incident', iid),
       };
     },
@@ -283,14 +291,17 @@ export default {
     <paginated-table-with-search-and-tabs
       :show-error-msg="showErrorMsg"
       :i18n="$options.i18n"
-      :items="alerts.list || []"
+      :items="
+        alerts.list || [] /* eslint-disable-line @gitlab/vue-no-new-non-primitive-in-template */
+      "
       :page-info="alerts.pageInfo"
       :items-count="alertsCount"
       :status-tabs="$options.statusTabs"
       :track-views-options="$options.trackAlertListViewsOptions"
       :server-error-message="serverErrorMessage"
-      :filter-search-tokens="['assignee_username']"
+      :filter-search-tokens="$options.filterSearchTokens"
       filter-search-key="alerts"
+      class="incident-management-list"
       @page-changed="pageChanged"
       @tabs-changed="statusChanged"
       @filters-changed="filtersChanged"
@@ -305,7 +316,12 @@ export default {
       <template #table>
         <gl-table
           class="alert-management-table"
-          :items="alerts ? alerts.list : []"
+          data-testid="alert-table-container"
+          :items="
+            alerts
+              ? alerts.list
+              : [] /* eslint-disable-line @gitlab/vue-no-new-non-primitive-in-template */
+          "
           :fields="$options.fields"
           :show-empty="true"
           :busy="loading"
@@ -315,14 +331,16 @@ export default {
           :sort-direction="sortDirection"
           :sort-desc.sync="sortDesc"
           :sort-by.sync="sortBy"
-          sort-icon-left
           fixed
+          hover
+          selectable
+          selected-variant="primary"
           @row-clicked="navigateToAlertDetails"
           @sort-changed="fetchSortedData"
         >
           <template #cell(severity)="{ item }">
             <div
-              class="d-inline-flex align-items-center justify-content-between"
+              class="gl-inline-flex gl-align-items-center justify-content-between"
               data-testid="severityField"
             >
               <gl-icon
@@ -349,7 +367,7 @@ export default {
               :title="`${item.iid} - ${item.title}`"
               data-testid="idField"
             >
-              #{{ item.iid }} {{ item.title }}
+              <gl-link :href="showAlertLink(item)"> #{{ item.iid }} {{ item.title }} </gl-link>
             </div>
           </template>
 

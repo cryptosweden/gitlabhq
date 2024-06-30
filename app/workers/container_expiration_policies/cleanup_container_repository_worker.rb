@@ -27,7 +27,6 @@ module ContainerExpirationPolicies
     ].freeze
 
     def perform_work
-      return unless throttling_enabled?
       return unless container_repository
 
       log_extra_metadata_on_done(:container_repository_id, container_repository.id)
@@ -45,8 +44,6 @@ module ContainerExpirationPolicies
     end
 
     def max_running_jobs
-      return 0 unless throttling_enabled?
-
       ::Gitlab::CurrentSettings.container_registry_expiration_policies_worker_capacity
     end
 
@@ -71,7 +68,7 @@ module ContainerExpirationPolicies
               container_repository_id: repo.id
             )
 
-            repo.cleanup_ongoing!
+            repo.start_expiration_policy!
           end
         end
       end
@@ -81,6 +78,7 @@ module ContainerExpirationPolicies
       # rubocop: disable CodeReuse/ActiveRecord
       # We need a lock to prevent two workers from picking up the same row
       next_one_requiring = ContainerRepository.requiring_cleanup
+                                              .where(id: next_ten_requiring_ids_from_replica)
                                               .order(:expiration_policy_cleanup_status, :expiration_policy_started_at)
                                               .limit(1)
                                               .lock('FOR UPDATE SKIP LOCKED')
@@ -92,16 +90,24 @@ module ContainerExpirationPolicies
                          .limit(1)
                          .lock('FOR UPDATE SKIP LOCKED')
                          .first
+    end
+
+    def next_ten_requiring_ids_from_replica
+      use_replica_if_available do
+        ContainerRepository.requiring_cleanup
+                           .order(:expiration_policy_cleanup_status, :expiration_policy_started_at)
+                           .limit(10)
+                           .ids
+      end
       # rubocop: enable CodeReuse/ActiveRecord
     end
 
     def cleanup_scheduled_count
       strong_memoize(:cleanup_scheduled_count) do
         limit = max_running_jobs + 1
-        ContainerExpirationPolicy.with_container_repositories
-                                 .runnable_schedules
-                                 .limit(limit)
-                                 .count
+        ContainerRepository.requiring_cleanup
+                           .limit(limit)
+                           .count
       end
     end
 
@@ -120,10 +126,6 @@ module ContainerExpirationPolicies
       now = Time.zone.now
 
       policy.next_run_at < now || (now + max_cleanup_execution_time.seconds < policy.next_run_at)
-    end
-
-    def throttling_enabled?
-      Feature.enabled?(:container_registry_expiration_policies_throttling, default_enabled: :yaml)
     end
 
     def max_cleanup_execution_time
@@ -169,8 +171,8 @@ module ContainerExpirationPolicies
       before_truncate_size = result.payload[:cleanup_tags_service_before_truncate_size]
       after_truncate_size = result.payload[:cleanup_tags_service_after_truncate_size]
       truncated = before_truncate_size &&
-                    after_truncate_size &&
-                    before_truncate_size != after_truncate_size
+        after_truncate_size &&
+        before_truncate_size != after_truncate_size
       log_extra_metadata_on_done(:cleanup_tags_service_truncated, !!truncated)
     end
 
@@ -180,6 +182,10 @@ module ContainerExpirationPolicies
 
     def project
       container_repository.project
+    end
+
+    def use_replica_if_available(&blk)
+      ::Gitlab::Database::LoadBalancing::Session.current.use_replicas_for_read_queries(&blk)
     end
   end
 end

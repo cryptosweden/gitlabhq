@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Projections
@@ -20,16 +20,14 @@ Projections are a way to define relations between files. Every file can have a
 You can find a basic list of projection options in
 [projectionist.txt](https://github.com/tpope/vim-projectionist/blob/master/doc/projectionist.txt)
 
-## Which plugins can I use
+## Which plugins can you use
 
 - vim
   - [vim-projectionist](https://github.com/tpope/vim-projectionist)
-- VSCode
+- VS Code
   - [Alternate File](https://marketplace.visualstudio.com/items?itemName=will-wow.vscode-alternate-file)
   - [projectionist](https://github.com/jarsen/projectionist)
   - [`jumpto`](https://github.com/gmdayley/jumpto)
-- Atom
-  - [projectionist-atom](https://atom.io/packages/projectionist-atom)
 - Command-line
   - [projectionist](https://github.com/glittershark/projectionist)
 

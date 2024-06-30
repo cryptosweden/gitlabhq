@@ -3,21 +3,28 @@ import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { useMockLocationHelper } from 'helpers/mock_window_location_helper';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
-import createFlash from '~/flash';
+import { createAlert, VARIANT_DANGER } from '~/alert';
 import IntegrationView from '~/profile/preferences/components/integration_view.vue';
 import ProfilePreferences from '~/profile/preferences/components/profile_preferences.vue';
-import { i18n } from '~/profile/preferences/constants';
+import ExtensionsMarketplaceWarning from '~/profile/preferences/components/extensions_marketplace_warning.vue';
+import {
+  i18n,
+  INTEGRATION_EXTENSIONS_MARKETPLACE,
+  INTEGRATION_VIEW_CONFIGS,
+} from '~/profile/preferences/constants';
 import {
   integrationViews,
   userFields,
   bodyClasses,
+  colorModes,
+  lightColorModeId,
+  darkColorModeId,
+  autoColorModeId,
   themes,
-  lightModeThemeId1,
-  darkModeThemeId,
-  lightModeThemeId2,
+  themeId1,
 } from '../mock_data';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 const expectedUrl = '/foo';
 
 useMockLocationHelper();
@@ -28,15 +35,22 @@ describe('ProfilePreferences component', () => {
     integrationViews: [],
     userFields,
     bodyClasses,
+    colorModes,
     themes,
     profilePreferencesPath: '/update-profile',
     formEl: document.createElement('form'),
   };
+  const showToast = jest.fn();
 
   function createComponent(options = {}) {
     const { props = {}, provide = {}, attachTo } = options;
     return extendedWrapper(
       shallowMount(ProfilePreferences, {
+        mocks: {
+          $toast: {
+            show: showToast,
+          },
+        },
         provide: {
           ...defaultProvide,
           ...provide,
@@ -47,10 +61,6 @@ describe('ProfilePreferences component', () => {
     );
   }
 
-  function findIntegrationsDivider() {
-    return wrapper.findByTestId('profile-preferences-integrations-rule');
-  }
-
   function findIntegrationsHeading() {
     return wrapper.findByTestId('profile-preferences-integrations-heading');
   }
@@ -59,7 +69,16 @@ describe('ProfilePreferences component', () => {
     return wrapper.findComponent(GlButton);
   }
 
-  function createThemeInput(themeId = lightModeThemeId1) {
+  function createModeInput(modeId = lightColorModeId) {
+    const input = document.createElement('input');
+    input.setAttribute('name', 'user[color_mode_id]');
+    input.setAttribute('type', 'radio');
+    input.setAttribute('value', modeId.toString());
+    input.setAttribute('checked', 'checked');
+    return input;
+  }
+
+  function createThemeInput(themeId = themeId1) {
     const input = document.createElement('input');
     input.setAttribute('name', 'user[theme_id]');
     input.setAttribute('type', 'radio');
@@ -68,11 +87,13 @@ describe('ProfilePreferences component', () => {
     return input;
   }
 
-  function createForm(themeInput = createThemeInput()) {
+  function createForm(inputs = [createModeInput(), createThemeInput()]) {
     const form = document.createElement('form');
     form.setAttribute('url', expectedUrl);
     form.setAttribute('method', 'put');
-    form.appendChild(themeInput);
+    inputs.forEach((input) => {
+      form.appendChild(input);
+    });
     return form;
   }
 
@@ -83,29 +104,20 @@ describe('ProfilePreferences component', () => {
     document.body.classList.add('content-wrapper');
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   it('should not render Integrations section', () => {
     wrapper = createComponent();
-    const views = wrapper.findAll(IntegrationView);
-    const divider = findIntegrationsDivider();
+    const views = wrapper.findAllComponents(IntegrationView);
     const heading = findIntegrationsHeading();
 
-    expect(divider.exists()).toBe(false);
     expect(heading.exists()).toBe(false);
     expect(views).toHaveLength(0);
   });
 
   it('should render Integration section', () => {
     wrapper = createComponent({ provide: { integrationViews } });
-    const divider = findIntegrationsDivider();
     const heading = findIntegrationsHeading();
-    const views = wrapper.findAll(IntegrationView);
+    const views = wrapper.findAllComponents(IntegrationView);
 
-    expect(divider.exists()).toBe(true);
     expect(heading.exists()).toBe(true);
     expect(views).toHaveLength(integrationViews.length);
   });
@@ -149,7 +161,7 @@ describe('ProfilePreferences component', () => {
       const successEvent = new CustomEvent('ajax:success');
       form.dispatchEvent(successEvent);
 
-      expect(createFlash).toHaveBeenCalledWith({ message: i18n.defaultSuccess, type: 'notice' });
+      expect(showToast).toHaveBeenCalledWith(i18n.defaultSuccess);
     });
 
     it('displays the custom success message', () => {
@@ -157,14 +169,17 @@ describe('ProfilePreferences component', () => {
       const successEvent = new CustomEvent('ajax:success', { detail: [{ message }] });
       form.dispatchEvent(successEvent);
 
-      expect(createFlash).toHaveBeenCalledWith({ message, type: 'notice' });
+      expect(showToast).toHaveBeenCalledWith(message);
     });
 
     it('displays the default error message', () => {
       const errorEvent = new CustomEvent('ajax:error');
       form.dispatchEvent(errorEvent);
 
-      expect(createFlash).toHaveBeenCalledWith({ message: i18n.defaultError, type: 'alert' });
+      expect(createAlert).toHaveBeenCalledWith({
+        message: i18n.defaultError,
+        variant: VARIANT_DANGER,
+      });
     });
 
     it('displays the custom error message', () => {
@@ -172,11 +187,12 @@ describe('ProfilePreferences component', () => {
       const errorEvent = new CustomEvent('ajax:error', { detail: [{ message }] });
       form.dispatchEvent(errorEvent);
 
-      expect(createFlash).toHaveBeenCalledWith({ message, type: 'alert' });
+      expect(createAlert).toHaveBeenCalledWith({ message, variant: VARIANT_DANGER });
     });
   });
 
-  describe('theme changes', () => {
+  describe('color mode changes', () => {
+    let colorModeInput;
     let themeInput;
     let form;
 
@@ -184,8 +200,8 @@ describe('ProfilePreferences component', () => {
       wrapper = createComponent({ provide: { formEl: form }, attachTo: document.body });
     }
 
-    function selectThemeId(themeId) {
-      themeInput.setAttribute('value', themeId.toString());
+    function selectColorModeId(modeId) {
+      colorModeInput.setAttribute('value', modeId.toString());
     }
 
     function dispatchBeforeSendEvent() {
@@ -200,15 +216,16 @@ describe('ProfilePreferences component', () => {
 
     beforeEach(() => {
       setupBody();
+      colorModeInput = createModeInput();
       themeInput = createThemeInput();
-      form = createForm(themeInput);
+      form = createForm([colorModeInput, themeInput]);
     });
 
     it('reloads the page when switching from light to dark mode', async () => {
-      selectThemeId(lightModeThemeId1);
+      selectColorModeId(lightColorModeId);
       setupWrapper();
 
-      selectThemeId(darkModeThemeId);
+      selectColorModeId(darkColorModeId);
       dispatchBeforeSendEvent();
       await nextTick();
 
@@ -219,10 +236,10 @@ describe('ProfilePreferences component', () => {
     });
 
     it('reloads the page when switching from dark to light mode', async () => {
-      selectThemeId(darkModeThemeId);
+      selectColorModeId(darkColorModeId);
       setupWrapper();
 
-      selectThemeId(lightModeThemeId1);
+      selectColorModeId(lightColorModeId);
       dispatchBeforeSendEvent();
       await nextTick();
 
@@ -232,18 +249,61 @@ describe('ProfilePreferences component', () => {
       expect(window.location.reload).toHaveBeenCalledTimes(1);
     });
 
-    it('does not reload the page when switching between light mode themes', async () => {
-      selectThemeId(lightModeThemeId1);
+    it('reloads the page when switching from auto to light mode', async () => {
+      selectColorModeId(autoColorModeId);
       setupWrapper();
 
-      selectThemeId(lightModeThemeId2);
+      selectColorModeId(lightColorModeId);
       dispatchBeforeSendEvent();
       await nextTick();
 
       dispatchSuccessEvent();
       await nextTick();
 
-      expect(window.location.reload).not.toHaveBeenCalled();
+      expect(window.location.reload).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('with extensions marketplace integration view', () => {
+    beforeEach(() => {
+      wrapper = createComponent({
+        provide: {
+          integrationViews: [
+            {
+              name: INTEGRATION_EXTENSIONS_MARKETPLACE,
+              help_link: 'http://foo.com/help-extensions-marketplace',
+              message: 'Click %{linkStart}Foo%{linkEnd}!',
+              message_url: 'http://foo.com',
+            },
+          ],
+        },
+      });
+    });
+
+    it('renders view with 2-way-bound value', async () => {
+      const integrationView = wrapper.findComponent(IntegrationView);
+
+      expect(integrationView.props()).toMatchObject({
+        value: false,
+        config: INTEGRATION_VIEW_CONFIGS[INTEGRATION_EXTENSIONS_MARKETPLACE],
+      });
+
+      await integrationView.vm.$emit('input', true);
+
+      expect(integrationView.props('value')).toBe(true);
+    });
+
+    it('renders extensions marketplace warning with 2-way-bound value', async () => {
+      const warning = wrapper.findComponent(ExtensionsMarketplaceWarning);
+
+      expect(warning.props()).toEqual({
+        helpUrl: 'http://foo.com/help-extensions-marketplace',
+        value: false,
+      });
+
+      await warning.vm.$emit('input', true);
+
+      expect(warning.props('value')).toBe(true);
     });
   });
 });

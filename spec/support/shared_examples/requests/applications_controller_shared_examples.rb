@@ -7,34 +7,14 @@ RSpec.shared_examples 'applications controller - GET #show' do
 
       expect(response).to render_template :show
     end
-
-    context 'when application is viewed after being created' do
-      before do
-        create_application
-      end
-
-      it 'sets `@created` instance variable to `true`' do
-        get show_path
-
-        expect(assigns[:created]).to eq(true)
-      end
-    end
-
-    context 'when application is reviewed' do
-      it 'sets `@created` instance variable to `false`' do
-        get show_path
-
-        expect(assigns[:created]).to eq(false)
-      end
-    end
   end
 end
 
 RSpec.shared_examples 'applications controller - POST #create' do
-  it "sets `#{OauthApplications::CREATED_SESSION_KEY}` session key to `true`" do
+  it "sets `@created` instance variable to `true`" do
     create_application
 
-    expect(session[OauthApplications::CREATED_SESSION_KEY]).to eq(true)
+    expect(assigns[:created]).to eq(true)
   end
 end
 

@@ -1,9 +1,11 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters, mapActions } from 'vuex';
 import { __ } from '~/locale';
 import PlaceholderNote from '~/vue_shared/components/notes/placeholder_note.vue';
 import PlaceholderSystemNote from '~/vue_shared/components/notes/placeholder_system_note.vue';
 import SystemNote from '~/vue_shared/components/notes/system_note.vue';
+import { FILE_DIFF_POSITION_TYPE } from '~/diffs/constants';
 import { SYSTEM_NOTE } from '../constants';
 import DiscussionNotesRepliesWrapper from './discussion_notes_replies_wrapper.vue';
 import NoteEditedText from './note_edited_text.vue';
@@ -52,6 +54,11 @@ export default {
       required: false,
       default: false,
     },
+    shouldScrollToNote: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
   },
   computed: {
     ...mapGetters(['userCanReply']),
@@ -76,6 +83,12 @@ export default {
         id: this.discussion.commit_id,
         url: this.discussion.discussion_path,
       };
+    },
+    isDiscussionInternal() {
+      return this.discussion.notes[0]?.internal;
+    },
+    isFileDiscussion() {
+      return this.discussion.position?.position_type === FILE_DIFF_POSITION_TYPE;
     },
   },
   methods: {
@@ -133,6 +146,9 @@ export default {
           :discussion-root="true"
           :discussion-resolve-path="discussion.resolve_path"
           :is-overview-tab="isOverviewTab"
+          :should-scroll-to-note="shouldScrollToNote"
+          :internal-note="isDiscussionInternal"
+          :class="{ 'gl-border-top-0!': isFileDiscussion }"
           @handleDeleteNote="$emit('deleteNote')"
           @startReplying="$emit('startReplying')"
         >
@@ -142,7 +158,7 @@ export default {
               :edited-at="discussion.resolved_at"
               :edited-by="discussion.resolved_by"
               :action-text="resolvedText"
-              class-name="discussion-headline-light js-discussion-headline discussion-resolved-text"
+              class-name="discussion-headline-light js-discussion-headline discussion-resolved-text gl-mb-2 gl-ml-3"
             />
           </template>
           <template #avatar-badge>
@@ -154,7 +170,6 @@ export default {
             v-if="hasReplies"
             :collapsed="!isExpanded"
             :replies="replies"
-            :class="{ 'discussion-toggle-replies': discussion.diff_discussion }"
             @toggle="toggleDiscussion({ discussionId: discussion.id })"
           />
           <template v-if="isExpanded">
@@ -165,6 +180,7 @@ export default {
               :note="componentData(note)"
               :help-page-path="helpPagePath"
               :line="line"
+              :internal-note="isDiscussionInternal"
               @handleDeleteNote="$emit('deleteNote')"
             />
           </template>
@@ -183,6 +199,8 @@ export default {
           :discussion-root="index === 0"
           :discussion-resolve-path="discussion.resolve_path"
           :is-overview-tab="isOverviewTab"
+          :should-scroll-to-note="shouldScrollToNote"
+          :internal-note="isDiscussionInternal"
           @handleDeleteNote="$emit('deleteNote')"
         >
           <template #avatar-badge>

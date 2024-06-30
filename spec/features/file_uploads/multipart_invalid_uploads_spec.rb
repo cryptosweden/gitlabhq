@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Invalid uploads that must be rejected', :api, :js do
+RSpec.describe 'Invalid uploads that must be rejected', :api, :js, feature_category: :package_registry do
   include_context 'file upload requests helpers'
 
   let_it_be(:project) { create(:project) }
-  let_it_be(:user) { create(:user, :admin) }
+  let_it_be(:user) { project.owner }
   let_it_be(:personal_access_token) { create(:personal_access_token, user: user) }
 
   context 'invalid upload key', :capybara_ignore_server_errors do
@@ -44,7 +44,7 @@ RSpec.describe 'Invalid uploads that must be rejected', :api, :js do
 
     # These keys are rejected directly by rack itself.
     # The request will not be received by multipart.rb (can't use the 'handling file uploads' shared example)
-    it_behaves_like 'rejecting invalid keys', key_name: 'x' * 11000, message: 'Puma caught this error: exceeded available parameter key space (RangeError)'
+    it_behaves_like 'rejecting invalid keys', key_name: 'x' * 11000, status: 400, message: 'Bad Request'
     it_behaves_like 'rejecting invalid keys', key_name: 'package[]test', status: 400, message: 'Bad Request'
 
     it_behaves_like 'handling file uploads', 'by rejecting uploads with an invalid key'

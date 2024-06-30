@@ -10,12 +10,6 @@ export default {
   directives: {
     GlTooltip,
   },
-  props: {
-    issueBoardsContentSelector: {
-      type: String,
-      required: true,
-    },
-  },
   data() {
     return {
       isFullscreen: false,
@@ -25,8 +19,8 @@ export default {
     toggleFocusMode() {
       hide(this.$refs.toggleFocusModeButton);
 
-      const issueBoardsContent = document.querySelector(this.issueBoardsContentSelector);
-      issueBoardsContent.classList.toggle('is-focused');
+      const issueBoardsContent = document.querySelector('.content-wrapper > .js-focus-mode-board');
+      issueBoardsContent?.classList.toggle('is-focused');
 
       this.isFullscreen = !this.isFullscreen;
     },
@@ -38,14 +32,13 @@ export default {
 </script>
 
 <template>
-  <div class="gl-ml-3 gl-display-none gl-md-display-flex gl-align-items-center">
+  <div class="gl-hidden md:gl-flex gl-align-items-center">
     <gl-button
       ref="toggleFocusModeButton"
       v-gl-tooltip
       category="tertiary"
       :icon="isFullscreen ? 'minimize' : 'maximize'"
-      class="js-focus-mode-btn"
-      data-qa-selector="focus_mode_button"
+      data-testid="focus-mode-button"
       :title="$options.i18n.toggleFocusMode"
       :aria-label="$options.i18n.toggleFocusMode"
       @click="toggleFocusMode"

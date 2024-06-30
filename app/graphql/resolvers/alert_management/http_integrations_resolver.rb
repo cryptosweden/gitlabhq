@@ -8,8 +8,8 @@ module Resolvers
       alias_method :project, :object
 
       argument :id, Types::GlobalIDType[::AlertManagement::HttpIntegration],
-               required: false,
-               description: 'ID of the integration.'
+        required: false,
+        description: 'ID of the integration.'
 
       type Types::AlertManagement::HttpIntegrationType.connection_type, null: true
 
@@ -26,8 +26,7 @@ module Resolvers
       private
 
       def integrations_by(gid:)
-        id = Types::GlobalIDType[::AlertManagement::HttpIntegration].coerce_isolated_input(gid)
-        object = GitlabSchema.find_by_gid(id)
+        object = GitlabSchema.find_by_gid(gid)
 
         defer { object }.then do |integration|
           ret = integration if project == integration&.project
@@ -36,7 +35,7 @@ module Resolvers
       end
 
       def http_integrations
-        ::AlertManagement::HttpIntegrationsFinder.new(project, {}).execute
+        ::AlertManagement::HttpIntegrationsFinder.new(project, { type_identifier: :http }).execute
       end
     end
   end

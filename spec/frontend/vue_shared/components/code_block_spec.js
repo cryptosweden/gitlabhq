@@ -4,41 +4,71 @@ import CodeBlock from '~/vue_shared/components/code_block.vue';
 describe('Code Block', () => {
   let wrapper;
 
-  const defaultProps = {
-    code: 'test-code',
-  };
+  const code = 'test-code';
 
-  const createComponent = (props = {}) => {
+  const createComponent = (propsData, slots = {}) => {
     wrapper = shallowMount(CodeBlock, {
-      propsData: {
-        ...defaultProps,
-        ...props,
-      },
+      slots,
+      propsData,
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
+  it('overwrites the default slot', () => {
+    createComponent({}, { default: 'DEFAULT SLOT' });
+
+    expect(wrapper.element).toMatchInlineSnapshot(`
+      <pre
+        class="code code-block rounded"
+      >
+        DEFAULT SLOT
+      </pre>
+    `);
   });
 
-  describe('with default props', () => {
-    beforeEach(() => {
-      createComponent();
-    });
+  it('renders with empty code prop', () => {
+    createComponent({});
 
-    it('renders correctly', () => {
-      expect(wrapper.element).toMatchSnapshot();
-    });
+    expect(wrapper.element).toMatchInlineSnapshot(`
+      <pre
+        class="code code-block rounded"
+      >
+        <code
+          class="gl-block"
+        />
+      </pre>
+    `);
   });
 
-  describe('with maxHeight set to "200px"', () => {
-    beforeEach(() => {
-      createComponent({ maxHeight: '200px' });
-    });
+  it('renders code prop when provided', () => {
+    createComponent({ code });
 
-    it('renders correctly', () => {
-      expect(wrapper.element).toMatchSnapshot();
-    });
+    expect(wrapper.element).toMatchInlineSnapshot(`
+      <pre
+        class="code code-block rounded"
+      >
+        <code
+          class="gl-block"
+        >
+          test-code
+        </code>
+      </pre>
+    `);
+  });
+
+  it('sets maxHeight properly when provided', () => {
+    createComponent({ code, maxHeight: '200px' });
+
+    expect(wrapper.element).toMatchInlineSnapshot(`
+      <pre
+        class="code code-block rounded"
+        style="max-height: 200px; overflow-y: auto;"
+      >
+        <code
+          class="gl-block"
+        >
+          test-code
+        </code>
+      </pre>
+    `);
   });
 });

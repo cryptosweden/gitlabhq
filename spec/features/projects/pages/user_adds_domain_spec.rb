@@ -1,32 +1,30 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'User adds pages domain', :js do
+RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
   include LetsEncryptHelpers
+  include Spec::Support::Helpers::ModalHelpers
 
-  let_it_be(:project) { create(:project, pages_https_only: false) }
+  let_it_be(:project) { create(:project, :pages_published, pages_https_only: false) }
 
   let(:user) { create(:user) }
 
   before do
+    stub_feature_flags(new_pages_ui: false)
     allow(Gitlab.config.pages).to receive(:enabled).and_return(true)
 
     project.add_maintainer(user)
 
     sign_in(user)
-
-    stub_feature_flags(bootstrap_confirmation_modals: false)
   end
 
   context 'when pages are exposed on external HTTP address', :http_pages_enabled do
-    let(:project) { create(:project, pages_https_only: false) }
-
     shared_examples 'adds new domain' do
       it 'adds new domain' do
         visit new_project_pages_domain_path(project)
 
         fill_in 'Domain', with: 'my.test.domain.com'
-        click_button 'Create New Domain'
+        click_button 'Create new domain'
 
         expect(page).to have_content('my.test.domain.com')
       end
@@ -35,7 +33,7 @@ RSpec.describe 'User adds pages domain', :js do
     it 'allows to add new domain' do
       visit project_pages_path(project)
 
-      expect(page).to have_content('New Domain')
+      expect(page).to have_content('New domain')
     end
 
     it_behaves_like 'adds new domain'
@@ -43,7 +41,7 @@ RSpec.describe 'User adds pages domain', :js do
     context 'when project in group namespace' do
       it_behaves_like 'adds new domain' do
         let(:group) { create :group }
-        let(:project) { create(:project, namespace: group, pages_https_only: false) }
+        let(:project) { create(:project, :pages_published, namespace: group, pages_https_only: false) }
       end
     end
 
@@ -60,7 +58,7 @@ RSpec.describe 'User adds pages domain', :js do
 
       it 'does not adds new domain and renders error message' do
         fill_in 'Domain', with: 'my.test.domain.com'
-        click_button 'Create New Domain'
+        click_button 'Create new domain'
 
         expect(page).to have_content('Domain has already been taken')
       end
@@ -83,7 +81,7 @@ RSpec.describe 'User adds pages domain', :js do
 
       fill_in 'Certificate (PEM)', with: certificate_pem
       fill_in 'Key (PEM)', with: certificate_key
-      click_button 'Create New Domain'
+      click_button 'Create new domain'
 
       expect(page).to have_content('my.test.domain.com')
     end
@@ -95,11 +93,11 @@ RSpec.describe 'User adds pages domain', :js do
 
       fill_in 'Domain', with: 'my.test.domain.com'
 
-      find('.js-auto-ssl-toggle-container .js-project-feature-toggle').click
+      find('.js-auto-ssl-toggle-container .js-project-feature-toggle button').click
 
       fill_in 'Certificate (PEM)', with: certificate_pem
       fill_in 'Key (PEM)', with: certificate_key
-      click_button 'Create New Domain'
+      click_button 'Create new domain'
 
       expect(page).to have_content('my.test.domain.com')
     end
@@ -110,9 +108,18 @@ RSpec.describe 'User adds pages domain', :js do
       visit new_project_pages_domain_path(project)
 
       fill_in 'Domain', with: 'my.test.domain.com'
-      click_button 'Create New Domain'
+      click_button 'Create new domain'
 
       expect(page).to have_content('Domain has already been taken')
+    end
+
+    it 'shows warning message if auto ssl is failed' do
+      stub_lets_encrypt_settings
+      create(:pages_domain, project: project, auto_ssl_failed: true)
+
+      visit project_pages_path(project)
+
+      expect(page).to have_content("Something went wrong while obtaining the Let's Encrypt certificate")
     end
 
     describe 'with dns verification enabled' do
@@ -128,6 +135,14 @@ RSpec.describe 'User adds pages domain', :js do
         within('#content-body') { click_link 'Edit' }
         expect(page).to have_field :domain_verification, with: "#{domain.verification_domain} TXT #{domain.keyed_verification_code}"
       end
+
+      it 'shows verification warning if domain is not verified' do
+        create(:pages_domain, :unverified, project: project, domain: 'my.test.domain.com')
+
+        visit project_pages_path(project)
+
+        expect(page).to have_content('my.test.domain.com is not verified')
+      end
     end
 
     describe 'updating the certificate for an existing domain' do
@@ -139,7 +154,7 @@ RSpec.describe 'User adds pages domain', :js do
         visit project_pages_path(project)
 
         within('#content-body') { click_link 'Edit' }
-        click_button 'Save Changes'
+        click_button 'Save changes'
 
         expect(page).to have_content('Domain was updated')
       end
@@ -155,10 +170,9 @@ RSpec.describe 'User adds pages domain', :js do
           within('#content-body') { click_link 'Edit' }
 
           fill_in 'Certificate (PEM)', with: 'invalid data'
-          click_button 'Save Changes'
+          click_button 'Save changes'
 
           expect(page).to have_content('Certificate must be a valid PEM certificate')
-          expect(page).to have_content('Certificate misses intermediates')
           expect(page).to have_content("Key doesn't match the certificate")
         end
       end
@@ -168,7 +182,7 @@ RSpec.describe 'User adds pages domain', :js do
 
         within('#content-body') { click_link 'Edit' }
 
-        accept_confirm { click_link 'Remove' }
+        accept_gl_confirm(button_text: 'Remove certificate') { find_by_testid('remove-certificate').click }
 
         expect(page).to have_field('Certificate (PEM)', with: '')
         expect(page).to have_field('Key (PEM)', with: '')
@@ -181,7 +195,12 @@ RSpec.describe 'User adds pages domain', :js do
         visit project_pages_path(project)
 
         within('#content-body') { click_link 'Edit' }
-        expect(page).to have_field :domain_dns, with: "#{domain.domain} ALIAS #{domain.project.pages_subdomain}.#{Settings.pages.host}."
+        expect(page).to have_field :domain_dns, with: format(
+          "%{domain} ALIAS %{namespace}.%{pages_host}.",
+          domain: domain.domain,
+          namespace: domain.project.root_namespace.path,
+          pages_host: Settings.pages.host
+        )
       end
     end
   end

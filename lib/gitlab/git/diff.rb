@@ -10,7 +10,7 @@ module Gitlab
       attr_accessor :old_path, :new_path, :a_mode, :b_mode, :diff
 
       # Stats properties
-      attr_accessor :new_file, :renamed_file, :deleted_file
+      attr_accessor :new_file, :renamed_file, :deleted_file, :generated
 
       alias_method :new_file?, :new_file
       alias_method :deleted_file?, :deleted_file
@@ -20,6 +20,7 @@ module Gitlab
       attr_writer :too_large
 
       alias_method :expanded?, :expanded
+      alias_method :generated?, :generated
 
       # The default maximum content size to display a diff patch.
       #
@@ -31,9 +32,20 @@ module Gitlab
       # persisting limits over that.
       MAX_PATCH_BYTES_UPPER_BOUND = 500.kilobytes
 
-      SERIALIZE_KEYS = %i(diff new_path old_path a_mode b_mode new_file renamed_file deleted_file too_large).freeze
+      SERIALIZE_KEYS = %i[
+        diff
+        new_path
+        old_path
+        a_mode
+        b_mode
+        new_file
+        renamed_file
+        deleted_file
+        too_large
+        generated
+      ].freeze
 
-      BINARY_NOTICE_PATTERN = %r(Binary files a\/(.*) and b\/(.*) differ).freeze
+      BINARY_NOTICE_PATTERN = %r{Binary files (.*) and (.*) differ}
 
       class << self
         def between(repo, head, base, options = {}, *paths)
@@ -44,7 +56,7 @@ module Gitlab
                           else
                             # Only show what is new in the source branch
                             # compared to the target branch, not the other way
-                            # around. The linex below with merge_base is
+                            # around. The line below with merge_base is
                             # equivalent to diff with three dots (git diff
                             # branch1...branch2) From the git documentation:
                             # "git diff A...B" is equivalent to "git diff
@@ -79,9 +91,12 @@ module Gitlab
         #    If false, patch raw data will not be included in the diff after
         #    `max_files`, `max_lines` or any of the limits in `limits` are
         #    exceeded
+        #  :generated_files ::
+        #    If the list of generated files is given, those files will be marked
+        #    as generated.
         def filter_diff_options(options, default_options = {})
           allowed_options = [:ignore_whitespace_change, :max_files, :max_lines,
-                             :limits, :expanded]
+                             :limits, :expanded, :collect_all_paths, :generated_files]
 
           if default_options
             actual_defaults = default_options.dup
@@ -126,6 +141,10 @@ module Gitlab
           limit / 10
         end
 
+        def collect_patch_overage?
+          !!Feature.enabled?(:collect_all_diff_paths)
+        end
+
         # Returns the limit for a single diff file (patch).
         #
         # Patches surpassing this limit shouldn't be persisted in the database
@@ -140,8 +159,9 @@ module Gitlab
           text.start_with?(BINARY_NOTICE_PATTERN)
         end
       end
-      def initialize(raw_diff, expanded: true, replace_invalid_utf8_chars: true)
+      def initialize(raw_diff, expanded: true, replace_invalid_utf8_chars: true, generated: nil)
         @expanded = expanded
+        @generated = generated
 
         case raw_diff
         when Hash
@@ -179,6 +199,16 @@ module Gitlab
         a_mode == '160000' || b_mode == '160000'
       end
 
+      def unidiff
+        return diff if diff.blank?
+        return json_safe_diff if detect_binary?(@diff) || has_binary_notice?
+
+        old_path_header = new_file? ? '/dev/null' : "a/#{old_path}"
+        new_path_header = deleted_file? ? '/dev/null' : "b/#{new_path}"
+
+        "--- #{old_path_header}\n+++ #{new_path_header}\n" + diff
+      end
+
       def line_count
         @line_count ||= Util.count_lines(@diff)
       end
@@ -198,9 +228,13 @@ module Gitlab
       # This is used by `to_hash` and `init_from_hash`.
       alias_method :too_large, :too_large?
 
-      def too_large!
+      def prune!
         @diff = ''
         @line_count = 0
+      end
+
+      def too_large!
+        prune!
         @too_large = true
       end
 
@@ -211,9 +245,17 @@ module Gitlab
       end
 
       def collapse!
-        @diff = ''
-        @line_count = 0
+        prune!
         @collapsed = true
+      end
+
+      def overflow?
+        return @overflow if defined?(@overflow)
+
+        # If overflow is not defined, we're
+        # not recieveing a diff from Gitaly
+        # and overflow has no meaning
+        false
       end
 
       def json_safe_diff
@@ -229,11 +271,18 @@ module Gitlab
 
       private
 
+      def collapse_generated_file?
+        generated? && !expanded
+      end
+
       def encode_diff_to_utf8(replace_invalid_utf8_chars)
-        return unless Feature.enabled?(:convert_diff_to_utf8_with_replacement_symbol, default_enabled: :yaml)
-        return unless replace_invalid_utf8_chars && !detect_binary?(@diff)
+        return unless replace_invalid_utf8_chars && diff_should_be_converted?
 
         @diff = Gitlab::EncodingHelper.encode_utf8_with_replacement_character(@diff)
+      end
+
+      def diff_should_be_converted?
+        !detect_binary?(@diff) || !@diff&.valid_encoding?
       end
 
       def init_from_hash(hash)
@@ -245,25 +294,33 @@ module Gitlab
       end
 
       def init_from_gitaly(gitaly_diff)
-        @diff = gitaly_diff.respond_to?(:patch) ? encode!(gitaly_diff.patch) : ''
+        @diff = gitaly_diff.try(:patch).present? ? encode!(gitaly_diff.patch) : ''
         @new_path = encode!(gitaly_diff.to_path.dup)
         @old_path = encode!(gitaly_diff.from_path.dup)
         @a_mode = gitaly_diff.old_mode.to_s(8)
         @b_mode = gitaly_diff.new_mode.to_s(8)
-        @new_file = gitaly_diff.from_id == BLANK_SHA
+        @new_file = Gitlab::Git.blank_ref?(gitaly_diff.from_id)
         @renamed_file = gitaly_diff.from_path != gitaly_diff.to_path
-        @deleted_file = gitaly_diff.to_id == BLANK_SHA
+        @deleted_file = Gitlab::Git.blank_ref?(gitaly_diff.to_id)
         @too_large = gitaly_diff.too_large if gitaly_diff.respond_to?(:too_large)
+        gitaly_overflow = gitaly_diff.try(:overflow_marker)
+        @overflow = Diff.collect_patch_overage? && gitaly_overflow
 
         collapse! if gitaly_diff.respond_to?(:collapsed) && gitaly_diff.collapsed
+        # Diffs exceeding limits returned from gitaly when "collect_all_paths" are enabled
+        # are already pruned, but should be "collapsed" as they have no content
+        @collapsed = true if @overflow
       end
 
       def prune_diff_if_eligible
+        # If we have overflow, diffs are already pruned, retain line counts
+        return if overflow?
+
         if too_large?
           ::Gitlab::Metrics.add_event(:patch_hard_limit_bytes_hit)
 
           too_large!
-        elsif collapsed?
+        elsif collapsed? || collapse_generated_file?
           collapse!
         end
       end

@@ -15,7 +15,9 @@ export default {
     createdByPipelineText: s__(
       'PackageRegistry|Built by pipeline %{link} triggered %{datetime} by %{author}',
     ),
-    publishText: s__('PackageRegistry|Published to the %{project} Package Registry %{datetime}'),
+    publishText: s__(
+      'PackageRegistry|Published to the %{project} Terraform Module Registry %{datetime}',
+    ),
     combinedUpdateText: s__(
       'PackageRegistry|Package updated by commit %{link} on branch %{branch}, built by pipeline %{pipeline}, and published to the registry %{datetime}',
     ),
@@ -96,9 +98,9 @@ export default {
         <history-item icon="commit" data-testid="first-pipeline-commit">
           <gl-sprintf :message="$options.i18n.createdByCommitText">
             <template #link>
-              <gl-link :href="firstPipeline.project.commit_url"
-                >#{{ truncate(firstPipeline.sha) }}</gl-link
-              >
+              <gl-link :href="firstPipeline.project.commit_url">{{
+                truncate(firstPipeline.sha)
+              }}</gl-link>
             </template>
             <template #branch>
               <strong>{{ firstPipeline.ref }}</strong>
@@ -147,7 +149,7 @@ export default {
       >
         <gl-sprintf :message="$options.i18n.combinedUpdateText">
           <template #link>
-            <gl-link :href="pipeline.project.commit_url">#{{ truncate(pipeline.sha) }}</gl-link>
+            <gl-link :href="pipeline.project.commit_url">{{ truncate(pipeline.sha) }}</gl-link>
           </template>
           <template #branch>
             <strong>{{ pipeline.ref }}</strong>

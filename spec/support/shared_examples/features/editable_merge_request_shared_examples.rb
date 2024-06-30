@@ -20,14 +20,10 @@ RSpec.shared_examples 'an editable merge request' do
       expect(page).to have_content user.name
     end
 
-    click_button 'Milestone'
-    page.within '.issue-milestone' do
-      click_link milestone.title
-    end
+    click_button 'Select milestone'
+    click_button milestone.title
     expect(find('input[name="merge_request[milestone_id]"]', visible: false).value).to match(milestone.id.to_s)
-    page.within '.js-milestone-select' do
-      expect(page).to have_content milestone.title
-    end
+    expect(page).to have_button milestone.title
 
     click_button 'Labels'
     page.within '.dropdown-menu-labels' do
@@ -48,7 +44,7 @@ RSpec.shared_examples 'an editable merge request' do
       end
 
       page.within '.reviewer' do
-        expect(page).to have_content user.username
+        expect(page).to have_content user.name
       end
 
       page.within '.milestone' do
@@ -58,6 +54,8 @@ RSpec.shared_examples 'an editable merge request' do
       page.within '.labels' do
         expect(page).to have_content label.title
         expect(page).to have_content label2.title
+
+        expect(page).to have_selector("[data-testid='close-icon']", count: 1)
       end
     end
   end
@@ -81,15 +79,21 @@ RSpec.shared_examples 'an editable merge request' do
     expect(page).to have_selector('.js-quick-submit')
   end
 
-  it 'warns about version conflict' do
+  it 'warns about version conflict', :js do
     merge_request.update!(title: "New title")
 
     fill_in 'merge_request_title', with: 'bug 345'
     fill_in 'merge_request_description', with: 'bug description'
 
-    click_button 'Save changes'
+    click_button _('Save changes')
 
-    expect(page).to have_content 'Someone edited the merge request the same time you did'
+    expect(page).to have_content(
+      format(
+        _("Someone edited this %{model_name} at the same time you did. Please check out the %{link_to_model} and make sure your changes will not unintentionally remove theirs."), # rubocop:disable Layout/LineLength
+        model_name: _('merge request'),
+        link_to_model: _('merge request')
+      )
+    )
   end
 
   it 'preserves description textarea height', :js do
@@ -108,8 +112,8 @@ RSpec.shared_examples 'an editable merge request' do
     fill_in 'merge_request_description', with: long_description
 
     height = get_textarea_height
-    find('.js-md-preview-button').click
-    find('.js-md-write-button').click
+    click_button("Preview")
+    click_button("Continue editing")
     new_height = get_textarea_height
 
     expect(height).to eq(new_height)
@@ -123,7 +127,6 @@ RSpec.shared_examples 'an editable merge request' do
     it 'allows to unselect "Remove source branch"', :js do
       expect(merge_request.merge_params['force_remove_source_branch']).to be_truthy
 
-      visit edit_project_merge_request_path(target_project, merge_request)
       uncheck 'Delete source branch when merge request is accepted'
 
       click_button 'Save changes'

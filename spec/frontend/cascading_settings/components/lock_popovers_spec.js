@@ -8,6 +8,9 @@ describe('LockPopovers', () => {
     path: '/gitlab-org/gitlab/-/edit',
   };
 
+  const applicationSettingMessage =
+    'An administrator selected this setting for the instance and you cannot change it.';
+
   const createPopoverMountEl = ({
     lockedByApplicationSetting = false,
     lockedByAncestor = false,
@@ -21,12 +24,12 @@ describe('LockPopovers', () => {
     };
 
     if (lockedByApplicationSetting) {
-      popoverMountEl.setAttribute('data-popover-data', JSON.stringify(popoverData));
+      popoverMountEl.dataset.popoverData = JSON.stringify(popoverData);
     } else if (lockedByAncestor) {
-      popoverMountEl.setAttribute(
-        'data-popover-data',
-        JSON.stringify({ ...popoverData, ancestor_namespace: mockNamespace }),
-      );
+      popoverMountEl.dataset.popoverData = JSON.stringify({
+        ...popoverData,
+        ancestor_namespace: mockNamespace,
+      });
     }
 
     document.body.appendChild(popoverMountEl);
@@ -39,7 +42,7 @@ describe('LockPopovers', () => {
     wrapper = mountExtended(LockPopovers);
   };
 
-  const findPopover = () => extendedWrapper(wrapper.find(GlPopover));
+  const findPopover = () => extendedWrapper(wrapper.findComponent(GlPopover));
   const findByTextInPopover = (text, options) =>
     findPopover().findByText((_, element) => element.textContent === text, options);
 
@@ -63,7 +66,7 @@ describe('LockPopovers', () => {
     });
 
     it('displays correct popover message', () => {
-      expectPopoverMessageExists('This setting has been enforced by an instance admin.');
+      expectPopoverMessageExists(applicationSettingMessage);
     });
 
     it('sets `target` prop correctly', () => {
@@ -110,7 +113,7 @@ describe('LockPopovers', () => {
     });
 
     it('application setting takes precedence and correct message is shown', () => {
-      expectPopoverMessageExists('This setting has been enforced by an instance admin.');
+      expectPopoverMessageExists(applicationSettingMessage);
     });
 
     it('sets `target` prop correctly', () => {
@@ -143,7 +146,7 @@ describe('LockPopovers', () => {
     });
 
     it('mounts multiple popovers', () => {
-      const popovers = wrapper.findAll(GlPopover).wrappers;
+      const popovers = wrapper.findAllComponents(GlPopover).wrappers;
 
       expectCorrectPopoverTarget(popoverMountEl1, popovers[0]);
       expectCorrectPopoverTarget(popoverMountEl2, popovers[1]);

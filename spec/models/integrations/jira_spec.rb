@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::Jira do
+RSpec.describe Integrations::Jira, feature_category: :integrations do
   include AssetsHelpers
 
   let_it_be(:project) { create(:project, :repository) }
@@ -11,20 +11,138 @@ RSpec.describe Integrations::Jira do
   let(:url) { 'http://jira.example.com' }
   let(:api_url) { 'http://api-jira.example.com' }
   let(:username) { 'jira-username' }
+  let(:jira_auth_type) { 0 }
+  let(:jira_issue_prefix) { '' }
+  let(:jira_issue_regex) { '' }
   let(:password) { 'jira-password' }
+  let(:project_key) { 'TEST' }
+  let(:project_keys) { %w[TEST1 TEST2] }
   let(:transition_id) { 'test27' }
   let(:server_info_results) { { 'deploymentType' => 'Cloud' } }
+  let(:client_info_results) { { 'accountType' => 'atlassian' } }
   let(:jira_integration) do
     described_class.new(
       project: project,
       url: url,
       username: username,
-      password: password
+      password: password,
+      project_key: project_key,
+      project_keys: project_keys
     )
   end
 
   before do
-    WebMock.stub_request(:get, /serverInfo/).to_return(body: server_info_results.to_json )
+    WebMock.stub_request(:get, /serverInfo/).to_return(body: server_info_results.to_json)
+    WebMock.stub_request(:get, /myself/).to_return(body: client_info_results.to_json)
+  end
+
+  it_behaves_like Integrations::HasAvatar
+
+  it_behaves_like Integrations::ResetSecretFields do
+    let(:integration) { jira_integration }
+  end
+
+  describe 'validations' do
+    subject { jira_integration }
+
+    context 'when integration is active' do
+      before do
+        jira_integration.active = true
+
+        # Don't auto-fill URLs from gitlab.yml
+        stub_config(issues_tracker: {})
+      end
+
+      it { is_expected.to be_valid }
+      it { is_expected.to validate_presence_of(:url) }
+      it { is_expected.to validate_presence_of(:username) }
+      it { is_expected.to validate_presence_of(:password) }
+      it { is_expected.to validate_presence_of(:jira_auth_type) }
+      it { is_expected.to validate_length_of(:jira_issue_regex).is_at_most(255) }
+      it { is_expected.to validate_length_of(:jira_issue_prefix).is_at_most(255) }
+      it { is_expected.to validate_inclusion_of(:jira_auth_type).in_array([0, 1]) }
+
+      it_behaves_like 'issue tracker integration URL attribute', :url
+      it_behaves_like 'issue tracker integration URL attribute', :api_url
+
+      context 'with personal_access_token_authorization' do
+        before do
+          jira_integration.jira_auth_type = 1
+        end
+
+        it { is_expected.not_to validate_presence_of(:username) }
+      end
+
+      context 'when URL is for Jira Cloud' do
+        before do
+          jira_integration.url = 'https://test.atlassian.net'
+        end
+
+        it 'is valid when jira_auth_type is basic' do
+          jira_integration.jira_auth_type = 0
+
+          expect(jira_integration).to be_valid
+        end
+
+        it 'is invalid when jira_auth_type is PAT' do
+          jira_integration.jira_auth_type = 1
+
+          expect(jira_integration).not_to be_valid
+        end
+      end
+    end
+
+    context 'when integration is inactive' do
+      before do
+        jira_integration.active = false
+      end
+
+      it { is_expected.to be_valid }
+      it { is_expected.not_to validate_presence_of(:url) }
+      it { is_expected.not_to validate_presence_of(:username) }
+      it { is_expected.not_to validate_presence_of(:password) }
+      it { is_expected.not_to validate_presence_of(:jira_auth_type) }
+      it { is_expected.not_to validate_length_of(:jira_issue_regex).is_at_most(255) }
+      it { is_expected.not_to validate_length_of(:jira_issue_prefix).is_at_most(255) }
+      it { is_expected.not_to validate_inclusion_of(:jira_auth_type).in_array([0, 1]) }
+    end
+
+    describe 'jira_issue_transition_id' do
+      it 'accepts a blank value' do
+        jira_integration.jira_issue_transition_id = ' '
+
+        expect(jira_integration).to be_valid
+      end
+
+      it 'accepts any string containing numbers' do
+        jira_integration.jira_issue_transition_id = 'foo 23 bar'
+
+        expect(jira_integration).to be_valid
+      end
+
+      it 'does not accept a string without numbers' do
+        jira_integration.jira_issue_transition_id = 'foo bar'
+
+        expect(jira_integration).not_to be_valid
+        expect(jira_integration.errors.full_messages).to eq(
+          [
+            'Jira issue transition IDs must be a list of numbers that can be split with , or ;'
+          ])
+      end
+    end
+  end
+
+  describe 'callbacks' do
+    context 'before_save' do
+      context "when project_keys are changed" do
+        let(:project_keys) { [' GTL  ', 'JR ', '  GTL', ''] }
+
+        it "formats and removes duplicates from project_keys" do
+          jira_integration.save!
+          expect(jira_integration.project_keys).to contain_exactly('GTL', 'JR')
+        end
+      end
+    end
   end
 
   describe '#options' do
@@ -100,17 +218,17 @@ RSpec.describe Integrations::Jira do
   end
 
   describe '#fields' do
-    let(:integration) { create(:jira_integration) }
+    let(:integration) { jira_integration }
 
     subject(:fields) { integration.fields }
 
     it 'returns custom fields' do
-      expect(fields.pluck(:name)).to eq(%w[url api_url username password])
+      expect(fields.pluck(:name)).to eq(%w[url api_url jira_auth_type username password jira_issue_regex jira_issue_prefix jira_issue_transition_id issues_enabled project_keys])
     end
   end
 
   describe '#sections' do
-    let(:integration) { create(:jira_integration) }
+    let(:integration) { jira_integration }
 
     subject(:sections) { integration.sections.map { |s| s[:type] } }
 
@@ -122,20 +240,43 @@ RSpec.describe Integrations::Jira do
       it 'includes SECTION_TYPE_JIRA_ISSUES' do
         expect(sections).to include(described_class::SECTION_TYPE_JIRA_ISSUES)
       end
+
+      it 'section SECTION_TYPE_JIRA_ISSUES has `plan` attribute' do
+        jira_issues_section = integration.sections.find { |s| s[:type] == described_class::SECTION_TYPE_JIRA_ISSUES }
+        expect(jira_issues_section[:plan]).to eq('premium')
+      end
     end
 
-    context 'when project_level? is false' do
+    context 'when instance_level? is false' do
       before do
-        allow(integration).to receive(:project_level?).and_return(false)
+        allow(integration).to receive(:instance_level?).and_return(false)
+      end
+
+      it 'includes SECTION_TYPE_JIRA_ISSUES' do
+        expect(sections).to include(described_class::SECTION_TYPE_JIRA_ISSUES)
+      end
+
+      it 'includes SECTION_TYPE_JIRA_ISSUE_CREATION' do
+        expect(sections).to include(described_class::SECTION_TYPE_JIRA_ISSUE_CREATION)
+      end
+    end
+
+    context 'when instance_level? is true' do
+      before do
+        allow(integration).to receive(:instance_level?).and_return(true)
       end
 
       it 'does not include SECTION_TYPE_JIRA_ISSUES' do
         expect(sections).not_to include(described_class::SECTION_TYPE_JIRA_ISSUES)
       end
+
+      it 'does not include SECTION_TYPE_JIRA_ISSUE_CREATION' do
+        expect(sections).not_to include(described_class::SECTION_TYPE_JIRA_ISSUE_CREATION)
+      end
     end
   end
 
-  describe '.reference_pattern' do
+  describe '#reference_pattern' do
     using RSpec::Parameterized::TableSyntax
 
     where(:key, :result) do
@@ -147,11 +288,91 @@ RSpec.describe Integrations::Jira do
       'EXT_EXT-1234'       | 'EXT_EXT-1234'
       'EXT3_EXT-1234'      | 'EXT3_EXT-1234'
       '3EXT_EXT-1234'      | ''
+      'CVE-2022-123'       | 'CVE-2022'
+      'CVE-123'            | 'CVE-123'
+      'abc-JIRA-1234'      | 'JIRA-1234'
     end
 
     with_them do
       specify do
-        expect(described_class.reference_pattern.match(key).to_s).to eq(result)
+        expect(jira_integration.reference_pattern.match(key).to_s).to eq(result)
+      end
+    end
+
+    context 'with match prefix' do
+      before do
+        jira_integration.jira_issue_prefix = 'jira#'
+      end
+
+      where(:key, :result, :issue_key) do
+        'jira##123'                  | ''               | ''
+        'jira#1#23#12'               | ''               | ''
+        'jira#JIRA-1234A'            | 'jira#JIRA-1234' | 'JIRA-1234'
+        'jira#JIRA-1234-some_tag'    | 'jira#JIRA-1234' | 'JIRA-1234'
+        'JIRA-1234A'                 | ''               | ''
+        'JIRA-1234-some_tag'         | ''               | ''
+        'myjira#JIRA-1234-some_tag'  | ''               | ''
+        'MYjira#JIRA-1234-some_tag'  | ''               | ''
+        'my-jira#JIRA-1234-some_tag' | 'jira#JIRA-1234' | 'JIRA-1234'
+      end
+
+      with_them do
+        specify do
+          expect(jira_integration.reference_pattern.match(key).to_s).to eq(result)
+
+          expect(jira_integration.reference_pattern.match(key)[:issue]).to eq(issue_key) unless result.empty?
+        end
+      end
+    end
+
+    context 'with trailing space in jira_issue_prefix' do
+      before do
+        jira_integration.jira_issue_prefix = 'Jira# '
+      end
+
+      it 'leaves the trailing space' do
+        expect(jira_integration.jira_issue_prefix).to eq('Jira# ')
+      end
+
+      it 'pulls the issue ID without a prefix' do
+        expect(jira_integration.reference_pattern.match('Jira# FOO-123')[:issue]).to eq('FOO-123')
+      end
+    end
+
+    context 'with custom issue pattern' do
+      before do
+        jira_integration.jira_issue_regex = '[A-Z][0-9]-[0-9]+'
+      end
+
+      where(:key, :result) do
+        'J1-123'                | 'J1-123'
+        'AAbJ J1-123'           | 'J1-123'
+        '#A1-123'               | 'A1-123'
+        'J1-1234-some_tag'      | 'J1-1234'
+        'J1-1234A'              | 'J1-1234'
+        'J1-1234-some_tag'      | 'J1-1234'
+        'JI1-123'               | ''
+        'J1I-123'               | ''
+        'JI-123'                | ''
+        '#123'                  | ''
+      end
+
+      with_them do
+        specify do
+          expect(jira_integration.reference_pattern.match(key).to_s).to eq(result)
+        end
+      end
+    end
+
+    context 'with long running regex' do
+      let(:key) { "JIRAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1\nanother line\n" }
+
+      before do
+        jira_integration.jira_issue_regex = '((a|b)+|c)+$'
+      end
+
+      it 'handles long inputs' do
+        expect(jira_integration.reference_pattern.match(key).to_s).to eq('')
       end
     end
   end
@@ -161,9 +382,12 @@ RSpec.describe Integrations::Jira do
 
     where(:url, :result) do
       'https://abc.atlassian.net' | true
+      'http://abc.atlassian.net'  | false
       'abc.atlassian.net'         | false # This is how it behaves currently, but we may need to consider adding scheme if missing
       'https://somethingelse.com' | false
-      nil                         | false
+      'javascript://test.atlassian.net/%250dalert(document.domain)' | false
+      'https://example.com".atlassian.net' | false
+      nil | false
     end
 
     with_them do
@@ -179,24 +403,34 @@ RSpec.describe Integrations::Jira do
         project: project,
         url: url,
         api_url: api_url,
+        jira_auth_type: jira_auth_type,
         username: username, password: password,
-        jira_issue_transition_id: transition_id
+        jira_issue_regex: jira_issue_regex,
+        jira_issue_prefix: jira_issue_prefix,
+        jira_issue_transition_id: transition_id,
+        project_key: project_key,
+        project_keys: project_keys
       }
     end
 
     subject(:integration) { described_class.create!(params) }
 
     it 'does not store data into properties' do
-      expect(integration.properties).to be_nil
+      expect(integration.properties).to be_empty
     end
 
     it 'stores data in data_fields correctly' do
       expect(integration.jira_tracker_data.url).to eq(url)
       expect(integration.jira_tracker_data.api_url).to eq(api_url)
+      expect(integration.jira_tracker_data.jira_auth_type).to eq(jira_auth_type)
       expect(integration.jira_tracker_data.username).to eq(username)
       expect(integration.jira_tracker_data.password).to eq(password)
+      expect(integration.jira_tracker_data.jira_issue_regex).to eq(jira_issue_regex)
+      expect(integration.jira_tracker_data.jira_issue_prefix).to eq(jira_issue_prefix)
       expect(integration.jira_tracker_data.jira_issue_transition_id).to eq(transition_id)
       expect(integration.jira_tracker_data.deployment_cloud?).to be_truthy
+      expect(integration.jira_tracker_data.project_key).to eq(project_key)
+      expect(integration.jira_tracker_data.project_keys).to eq(project_keys)
     end
 
     context 'when loading serverInfo' do
@@ -220,7 +454,7 @@ RSpec.describe Integrations::Jira do
         let(:server_info_results) { { 'deploymentType' => 'FutureCloud' } }
 
         context 'and URL ends in .atlassian.net' do
-          let(:api_url) { 'http://example-api.atlassian.net' }
+          let(:api_url) { 'https://example-api.atlassian.net' }
 
           it 'deployment_type is set to cloud' do
             expect(integration.jira_tracker_data).to be_deployment_cloud
@@ -228,7 +462,7 @@ RSpec.describe Integrations::Jira do
         end
 
         context 'and URL is something else' do
-          let(:api_url) { 'http://my-jira-api.someserver.com' }
+          let(:api_url) { 'https://my-jira-api.someserver.com' }
 
           it 'deployment_type is set to server' do
             expect(integration.jira_tracker_data).to be_deployment_server
@@ -240,7 +474,7 @@ RSpec.describe Integrations::Jira do
         let(:server_info_results) { {} }
 
         context 'and URL ends in .atlassian.net' do
-          let(:api_url) { 'http://example-api.atlassian.net' }
+          let(:api_url) { 'https://example-api.atlassian.net' }
 
           it 'deployment_type is set to cloud' do
             expect(Gitlab::AppLogger).to receive(:warn).with(message: "Jira API returned no ServerInfo, setting deployment_type from URL", server_info: server_info_results, url: api_url)
@@ -249,7 +483,7 @@ RSpec.describe Integrations::Jira do
         end
 
         context 'and URL is something else' do
-          let(:api_url) { 'http://my-jira-api.someserver.com' }
+          let(:api_url) { 'https://my-jira-api.someserver.com' }
 
           it 'deployment_type is set to server' do
             expect(Gitlab::AppLogger).to receive(:warn).with(message: "Jira API returned no ServerInfo, setting deployment_type from URL", server_info: server_info_results, url: api_url)
@@ -263,28 +497,7 @@ RSpec.describe Integrations::Jira do
   # we need to make sure we are able to read both from properties and jira_tracker_data table
   # TODO: change this as part of https://gitlab.com/gitlab-org/gitlab/issues/29404
   context 'overriding properties' do
-    let(:access_params) do
-      { url: url, api_url: api_url, username: username, password: password,
-        jira_issue_transition_id: transition_id }
-    end
-
-    let(:data_params) do
-      {
-        url: url, api_url: api_url,
-        username: username, password: password,
-        jira_issue_transition_id: transition_id
-      }
-    end
-
     shared_examples 'handles jira fields' do
-      let(:data_params) do
-        {
-          url: url, api_url: api_url,
-          username: username, password: password,
-          jira_issue_transition_id: transition_id
-        }
-      end
-
       context 'reading data' do
         it 'reads data correctly' do
           expect(integration.url).to eq(url)
@@ -301,7 +514,7 @@ RSpec.describe Integrations::Jira do
           let_it_be(:new_url) { 'http://jira-new.example.com' }
 
           before do
-            integration.update!(username: new_username, url: new_url)
+            integration.update!(username: new_username, url: new_url, password: password)
           end
 
           it 'stores updated data in jira_tracker_data table' do
@@ -318,7 +531,7 @@ RSpec.describe Integrations::Jira do
         context 'when updating the url, api_url, username, or password' do
           context 'when updating the integration' do
             it 'updates deployment type' do
-              integration.update!(url: 'http://first.url')
+              integration.update!(url: 'http://first.url', password: password)
               integration.jira_tracker_data.update!(deployment_type: 'server')
 
               expect(integration.jira_tracker_data.deployment_server?).to be_truthy
@@ -376,177 +589,106 @@ RSpec.describe Integrations::Jira do
             expect(WebMock).not_to have_requested(:get, /serverInfo/)
           end
         end
-
-        context 'stored password invalidation' do
-          context 'when a password was previously set' do
-            context 'when only web url present' do
-              let(:data_params) do
-                {
-                  url: url, api_url: nil,
-                  username: username, password: password,
-                  jira_issue_transition_id: transition_id
-                }
-              end
-
-              it 'resets password if url changed' do
-                integration
-                integration.url = 'http://jira_edited.example.com'
-
-                expect(integration).not_to be_valid
-                expect(integration.url).to eq('http://jira_edited.example.com')
-                expect(integration.password).to be_nil
-              end
-
-              it 'does not reset password if url "changed" to the same url as before' do
-                integration.url = 'http://jira.example.com'
-
-                expect(integration).to be_valid
-                expect(integration.url).to eq('http://jira.example.com')
-                expect(integration.password).not_to be_nil
-              end
-
-              it 'resets password if url not changed but api url added' do
-                integration.api_url = 'http://jira_edited.example.com/rest/api/2'
-
-                expect(integration).not_to be_valid
-                expect(integration.api_url).to eq('http://jira_edited.example.com/rest/api/2')
-                expect(integration.password).to be_nil
-              end
-
-              it 'does not reset password if new url is set together with password, even if it\'s the same password' do
-                integration.url = 'http://jira_edited.example.com'
-                integration.password = password
-
-                expect(integration).to be_valid
-                expect(integration.password).to eq(password)
-                expect(integration.url).to eq('http://jira_edited.example.com')
-              end
-
-              it 'resets password if url changed, even if setter called multiple times' do
-                integration.url = 'http://jira1.example.com/rest/api/2'
-                integration.url = 'http://jira1.example.com/rest/api/2'
-
-                expect(integration).not_to be_valid
-                expect(integration.password).to be_nil
-              end
-
-              it 'does not reset password if username changed' do
-                integration.username = 'some_name'
-
-                expect(integration).to be_valid
-                expect(integration.password).to eq(password)
-              end
-
-              it 'does not reset password if password changed' do
-                integration.url = 'http://jira_edited.example.com'
-                integration.password = 'new_password'
-
-                expect(integration).to be_valid
-                expect(integration.password).to eq('new_password')
-              end
-
-              it 'does not reset password if the password is touched and same as before' do
-                integration.url = 'http://jira_edited.example.com'
-                integration.password = password
-
-                expect(integration).to be_valid
-                expect(integration.password).to eq(password)
-              end
-            end
-
-            context 'when both web and api url present' do
-              let(:data_params) do
-                {
-                  url: url, api_url: 'http://jira.example.com/rest/api/2',
-                  username: username, password: password,
-                  jira_issue_transition_id: transition_id
-                }
-              end
-
-              it 'resets password if api url changed' do
-                integration.api_url = 'http://jira_edited.example.com/rest/api/2'
-
-                expect(integration).not_to be_valid
-                expect(integration.password).to be_nil
-              end
-
-              it 'does not reset password if url changed' do
-                integration.url = 'http://jira_edited.example.com'
-
-                expect(integration).to be_valid
-                expect(integration.password).to eq(password)
-              end
-
-              it 'resets password if api url set to empty' do
-                integration.api_url = ''
-
-                expect(integration).not_to be_valid
-                expect(integration.password).to be_nil
-              end
-            end
-          end
-
-          context 'when no password was previously set' do
-            let(:data_params) do
-              {
-                url: url, username: username
-              }
-            end
-
-            it 'saves password if new url is set together with password' do
-              integration.url = 'http://jira_edited.example.com/rest/api/2'
-              integration.password = 'password'
-              integration.save!
-
-              expect(integration.reload).to have_attributes(
-                url: 'http://jira_edited.example.com/rest/api/2',
-                password: 'password'
-              )
-            end
-          end
-        end
       end
     end
 
     # this  will be removed as part of https://gitlab.com/gitlab-org/gitlab/issues/29404
-    context 'when data are stored in properties' do
-      let(:properties) { data_params }
-      let!(:integration) do
-        create(:jira_integration, :without_properties_callback, properties: properties.merge(additional: 'something'))
+    context 'with properties' do
+      let(:data_params) do
+        {
+          url: url, api_url: api_url,
+          username: username, password: password,
+          jira_issue_transition_id: transition_id
+        }
       end
 
-      it_behaves_like 'handles jira fields'
-    end
-
-    context 'when data are stored in separated fields' do
-      let(:integration) do
-        create(:jira_integration, data_params.merge(properties: {}))
-      end
-
-      it_behaves_like 'handles jira fields'
-    end
-
-    context 'when data are stored in both properties and separated fields' do
-      let(:properties) { data_params }
-      let(:integration) do
-        create(:jira_integration, :without_properties_callback, properties: properties).tap do |integration|
-          create(:jira_tracker_data, data_params.merge(integration: integration))
+      context 'when data are stored in properties' do
+        let(:integration) do
+          create(:jira_integration, :without_properties_callback, project: project, properties: data_params.merge(additional: 'something'))
         end
+
+        it_behaves_like 'handles jira fields'
       end
 
-      it_behaves_like 'handles jira fields'
+      context 'when data are stored in separated fields' do
+        let(:integration) do
+          create(:jira_integration, data_params.merge(properties: {}, project: project))
+        end
+
+        it_behaves_like 'handles jira fields'
+      end
+
+      context 'when data are stored in both properties and separated fields' do
+        let(:integration) do
+          create(:jira_integration, :without_properties_callback, properties: data_params, project: project).tap do |integration|
+            create(:jira_tracker_data, data_params.merge(integration: integration))
+          end
+        end
+
+        it_behaves_like 'handles jira fields'
+      end
     end
   end
 
   describe '#client' do
+    before do
+      stub_request(:get, 'http://jira.example.com/foo')
+    end
+
     it 'uses the default GitLab::HTTP timeouts' do
       timeouts = Gitlab::HTTP::DEFAULT_TIMEOUT_OPTIONS
-      stub_request(:get, 'http://jira.example.com/foo')
 
-      expect(Gitlab::HTTP).to receive(:httparty_perform_request)
+      expect(Gitlab::HTTP_V2::Client).to receive(:httparty_perform_request)
         .with(Net::HTTP::Get, '/foo', hash_including(timeouts)).and_call_original
 
       jira_integration.client.get('/foo')
+    end
+
+    context 'when a custom read_timeout option is passed as an argument' do
+      it 'uses the default GitLab::HTTP timeouts plus a custom read_timeout' do
+        expected_timeouts = Gitlab::HTTP::DEFAULT_TIMEOUT_OPTIONS.merge(read_timeout: 2.minutes, timeout: 2.minutes)
+
+        expect(Gitlab::HTTP_V2::Client).to receive(:httparty_perform_request)
+          .with(Net::HTTP::Get, '/foo', hash_including(expected_timeouts)).and_call_original
+
+        jira_integration.client(read_timeout: 2.minutes).get('/foo')
+      end
+    end
+
+    context 'with basic auth' do
+      before do
+        jira_integration.jira_auth_type = 0
+      end
+
+      it 'uses correct authorization options' do
+        expect_next_instance_of(JIRA::Client) do |instance|
+          expect(instance.request_client.options).to include(
+            additional_cookies: ['OBBasicAuth=fromDialog'],
+            auth_type: :basic,
+            use_cookies: true,
+            password: jira_integration.password,
+            username: jira_integration.username
+          )
+        end
+
+        jira_integration.client.get('/foo')
+      end
+    end
+
+    context 'with personal access token auth' do
+      before do
+        jira_integration.jira_auth_type = 1
+      end
+
+      it 'uses correct authorization options' do
+        expect_next_instance_of(JIRA::Client) do |instance|
+          expect(instance.request_client.options).to include(
+            default_headers: { "Authorization" => "Bearer #{password}" }
+          )
+        end
+
+        jira_integration.client.get('/foo')
+      end
     end
   end
 
@@ -571,6 +713,32 @@ RSpec.describe Integrations::Jira do
         jira_integration.find_issue(issue_key, rendered_fields: true, transitions: true)
 
         expect(WebMock).to have_requested(:get, issue_url)
+      end
+    end
+
+    context 'with restricted restrict_project_key option' do
+      subject(:find_issue) { jira_integration.find_issue(issue_key, restrict_project_key: true) }
+
+      it { is_expected.to eq(nil) }
+
+      context 'when project_keys includes issue_key' do
+        let(:project_keys) { ['JIRA'] }
+
+        it 'calls the Jira API to get the issue' do
+          find_issue
+
+          expect(WebMock).to have_requested(:get, issue_url)
+        end
+      end
+
+      context 'when project_keys are empty' do
+        let(:project_keys) { [] }
+
+        it 'calls the Jira API to get the issue' do
+          find_issue
+
+          expect(WebMock).to have_requested(:get, issue_url)
+        end
       end
     end
   end
@@ -613,10 +781,10 @@ RSpec.describe Integrations::Jira do
         allow_any_instance_of(JIRA::Resource::Issue).to receive(:key).and_return(issue_key)
         allow(JIRA::Resource::Remotelink).to receive(:all).and_return([])
 
-        WebMock.stub_request(:get, issue_url).with(basic_auth: %w(jira-username jira-password))
-        WebMock.stub_request(:post, transitions_url).with(basic_auth: %w(jira-username jira-password))
-        WebMock.stub_request(:post, comment_url).with(basic_auth: %w(jira-username jira-password))
-        WebMock.stub_request(:post, remote_link_url).with(basic_auth: %w(jira-username jira-password))
+        WebMock.stub_request(:get, issue_url).with(basic_auth: %w[jira-username jira-password])
+        WebMock.stub_request(:post, transitions_url).with(basic_auth: %w[jira-username jira-password])
+        WebMock.stub_request(:post, comment_url).with(basic_auth: %w[jira-username jira-password])
+        WebMock.stub_request(:post, remote_link_url).with(basic_auth: %w[jira-username jira-password])
       end
 
       let(:external_issue) { ExternalIssue.new('JIRA-123', project) }
@@ -639,6 +807,17 @@ RSpec.describe Integrations::Jira do
           .with('i_ecosystem_jira_service_close_issue', values: current_user.id)
 
         close_issue
+      end
+
+      it_behaves_like 'Snowplow event tracking with RedisHLL context' do
+        subject { close_issue }
+
+        let(:category) { 'Integrations::Jira' }
+        let(:action) { 'perform_integrations_action' }
+        let(:namespace) { project.namespace }
+        let(:user) { current_user }
+        let(:label) { 'redis_hll_counters.ecosystem.ecosystem_total_unique_counts_monthly' }
+        let(:property) { 'i_ecosystem_jira_service_close_issue' }
       end
 
       it 'does not fail if remote_link.all on issue returns nil' do
@@ -746,17 +925,16 @@ RSpec.describe Integrations::Jira do
       end
 
       it 'logs exception when transition id is not valid' do
-        allow(jira_integration).to receive(:log_error)
-        WebMock.stub_request(:post, transitions_url).with(basic_auth: %w(jira-username jira-password)).and_raise("Bad Request")
+        allow(jira_integration).to receive(:log_exception)
+        WebMock.stub_request(:post, transitions_url).with(basic_auth: %w[jira-username jira-password]).and_raise("Bad Request")
 
         close_issue
 
-        expect(jira_integration).to have_received(:log_error).with(
-          "Issue transition failed",
-          error: hash_including(
-            exception_class: 'StandardError',
-            exception_message: "Bad Request"
-          ),
+        expect(jira_integration).to have_received(:log_exception).with(
+          kind_of(StandardError),
+          message: 'Issue transition failed',
+          client_path: '/rest/api/2/issue/JIRA-123/transitions',
+          client_status: '400',
           client_url: "http://jira.example.com"
         )
       end
@@ -857,7 +1035,7 @@ RSpec.describe Integrations::Jira do
 
         context 'when a transition fails' do
           before do
-            WebMock.stub_request(:post, transitions_url).with(basic_auth: %w(jira-username jira-password)).to_return do |request|
+            WebMock.stub_request(:post, transitions_url).with(basic_auth: %w[jira-username jira-password]).to_return do |request|
               { status: request.body.include?('"id":"2"') ? 500 : 200 }
             end
           end
@@ -882,7 +1060,7 @@ RSpec.describe Integrations::Jira do
     end
 
     context 'when resource is a merge request' do
-      let(:resource) { create(:merge_request) }
+      let_it_be(:resource) { create(:merge_request, source_project: project) }
       let(:commit_id) { resource.diff_head_sha }
 
       it_behaves_like 'close_issue'
@@ -987,6 +1165,15 @@ RSpec.describe Integrations::Jira do
 
         subject
       end
+
+      it_behaves_like 'Snowplow event tracking with RedisHLL context' do
+        let(:category) { 'Integrations::Jira' }
+        let(:action) { 'perform_integrations_action' }
+        let(:namespace) { project.namespace }
+        let(:user) { current_user }
+        let(:label) { 'redis_hll_counters.ecosystem.ecosystem_total_unique_counts_monthly' }
+        let(:property) { 'i_ecosystem_jira_service_cross_reference' }
+      end
     end
 
     context 'for commits' do
@@ -1026,23 +1213,23 @@ RSpec.describe Integrations::Jira do
   end
 
   describe '#test' do
-    let(:server_info_results) { { 'url' => 'http://url', 'deploymentType' => 'Cloud' } }
+    let(:test_results) { { 'accountType' => 'atlassian', "deploymentType" => "Cloud" } }
 
-    def server_info
+    def test_info
       jira_integration.test(nil)
     end
 
     context 'when the test succeeds' do
       it 'gets Jira project with URL when API URL not set' do
-        expect(server_info).to eq(success: true, result: server_info_results)
-        expect(WebMock).to have_requested(:get, /jira.example.com/)
+        expect(test_info).to eq(success: true, result: test_results)
+        expect(WebMock).to have_requested(:get, /jira.example.com/).times(2)
       end
 
       it 'gets Jira project with API URL if set' do
         jira_integration.update!(api_url: 'http://jira.api.com')
 
-        expect(server_info).to eq(success: true, result: server_info_results)
-        expect(WebMock).to have_requested(:get, /jira.api.com/)
+        expect(test_info).to eq(success: true, result: test_results)
+        expect(WebMock).to have_requested(:get, /jira.api.com/).times(2)
       end
     end
 
@@ -1052,14 +1239,14 @@ RSpec.describe Integrations::Jira do
         error_message = 'Some specific failure.'
 
         WebMock.stub_request(:get, test_url).with(basic_auth: [username, password])
-          .to_raise(JIRA::HTTPError.new(double(message: error_message)))
+          .to_raise(JIRA::HTTPError.new(double(message: error_message, code: '403')))
 
-        expect(jira_integration).to receive(:log_error).with(
-          'Error sending message',
+        expect(jira_integration).to receive(:log_exception).with(
+          kind_of(JIRA::HTTPError),
+          message: 'Error sending message',
           client_url: 'http://jira.example.com',
-          'exception.class' => anything,
-          'exception.message' => error_message,
-          'exception.backtrace' => anything
+          client_path: '/rest/api/2/serverInfo',
+          client_status: '403'
         )
 
         expect(jira_integration.test(nil)).to eq(success: false, result: error_message)
@@ -1086,7 +1273,7 @@ RSpec.describe Integrations::Jira do
     end
 
     it 'removes trailing slashes from url' do
-      integration = described_class.new(url: 'http://jira.test.com/path/')
+      integration = described_class.new(url: 'http://jira.test.com/path/', project: project)
 
       expect(integration.url).to eq('http://jira.test.com/path')
     end
@@ -1107,7 +1294,7 @@ RSpec.describe Integrations::Jira do
   end
 
   context 'generating external URLs' do
-    let(:integration) { described_class.new(url: 'http://jira.test.com/path/') }
+    let(:integration) { described_class.new(url: 'http://jira.test.com/path/', project: project) }
 
     describe '#web_url' do
       it 'handles paths, slashes, and query string' do
@@ -1132,9 +1319,7 @@ RSpec.describe Integrations::Jira do
         expect(integration.web_url).to eq('')
       end
 
-      it 'includes Atlassian referrer for gitlab.com' do
-        allow(Gitlab).to receive(:com?).and_return(true)
-
+      it 'includes Atlassian referrer for SaaS', :saas do
         expect(integration.web_url).to eq("http://jira.test.com/path?#{described_class::ATLASSIAN_REFERRER_GITLAB_COM.to_query}")
 
         allow(Gitlab).to receive(:staging?).and_return(true)
@@ -1247,6 +1432,12 @@ RSpec.describe Integrations::Jira do
           expect(jira_integration).not_to be_configured
         end
       end
+    end
+  end
+
+  describe '#project_keys_as_string' do
+    it 'returns comma separated project_keys' do
+      expect(jira_integration.project_keys_as_string).to eq 'TEST1,TEST2'
     end
   end
 end

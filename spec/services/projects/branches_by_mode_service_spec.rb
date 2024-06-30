@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::BranchesByModeService do
+RSpec.describe Projects::BranchesByModeService, feature_category: :source_code_management do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :repository) }
 
@@ -50,7 +50,7 @@ RSpec.describe Projects::BranchesByModeService do
 
         branches, prev_page, next_page = subject
 
-        expect(branches.map(&:name)).to match_array(%w(feature feature_conflict))
+        expect(branches.map(&:name)).to match_array(%w[feature feature_conflict])
         expect(next_page).to be_nil
         expect(prev_page).to be_nil
       end

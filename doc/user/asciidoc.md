@@ -1,13 +1,23 @@
 ---
 stage: Create
 group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "Use AsciiDoc files in your GitLab project, and understand AsciiDoc syntax."
 ---
 
-# AsciiDoc **(FREE)**
+# AsciiDoc
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 GitLab uses the [Asciidoctor](https://asciidoctor.org) gem to convert AsciiDoc content to HTML5.
 Consult the [Asciidoctor User Manual](https://asciidoctor.org/docs/user-manual/) for a complete Asciidoctor reference.
+
+You can use AsciiDoc in the following areas:
+
+- Wiki pages
+- AsciiDoc documents (`.adoc` or `.asciidoc`) inside repositories
 
 ## Syntax
 
@@ -235,19 +245,30 @@ v1.0, 2019-01-01
 NOTE:
 [Wiki pages](project/wiki/index.md#create-a-new-wiki-page) created with the AsciiDoc
 format are saved with the file extension `.asciidoc`. When working with AsciiDoc wiki
-pages, change the file name from `.adoc` to `.asciidoc`.
+pages, change the filename from `.adoc` to `.asciidoc`.
 
 ```plaintext
 include::basics.adoc[]
-
-// define -a allow-uri-read to allow content to be read from URI
-include::https://example.org/installation.adoc[]
 ```
 
 To guarantee good system performance and prevent malicious documents from causing
 problems, GitLab enforces a maximum limit on the number of include directives
-processed in any one document. You can include up to 32 documents, which is
-inclusive of transitive dependencies.
+processed in any one document. By default, a document can have up to 32 include directives, which is
+inclusive of transitive dependencies. To customize the number of processed includes directives, change
+the application setting `asciidoc_max_includes` with the
+[application settings API](../api/settings.md#list-of-settings-that-can-be-accessed-via-api-calls).
+
+NOTE:
+The current maximum allowed value for`asciidoc_max_includes` is 64. If the value is
+too high might cause performance issues in some situations.
+
+To use includes from separate pages or external URLs, enable the `allow-uri-read`
+in [application settings](../administration/wikis/index.md#allow-uri-includes-for-asciidoc).
+
+```plaintext
+// define application setting allow-uri-read to true to allow content to be read from URI
+include::https://example.org/installation.adoc[]
+```
 
 ### Blocks
 
@@ -381,9 +402,9 @@ comment - content which is not included in the output document
 It's possible to have color written in `HEX`, `RGB`, or `HSL` format rendered with a color indicator.
 Supported formats (named colors are not supported):
 
-- HEX: `` `#RGB[A]` `` or `` `#RRGGBB[AA]` ``
-- RGB: `` `RGB[A](R, G, B[, A])` ``
-- HSL: `` `HSL[A](H, S, L[, A])` ``
+- `HEX`: `` `#RGB[A]` `` or `` `#RRGGBB[AA]` ``
+- `RGB`: `` `RGB[A](R, G, B[, A])` ``
+- `HSL`: `` `HSL[A](H, S, L[, A])` ``
 
 Color written inside backticks is followed by a color "chip":
 
@@ -399,10 +420,10 @@ Color written inside backticks is followed by a color "chip":
 - `HSLA(540,70%,50%,0.3)`
 ```
 
-### STEM
+### Equations and Formulas (STEM)
 
-To activate equation and formula support,
-set the `stem` attribute in the document's header to `latexmath`.
+If you need to include Science, Technology, Engineering, and Math (STEM)
+expressions, set the `stem` attribute in the document's header to `latexmath`.
 Equations and formulas are rendered using [KaTeX](https://katex.org/):
 
 ```plaintext
@@ -424,8 +445,6 @@ It's possible to generate diagrams and flowcharts from text in GitLab using
 [Mermaid](https://mermaidjs.github.io/) or [PlantUML](https://plantuml.com).
 
 #### Mermaid
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/31818) in GitLab 13.3.
 
 Visit the [official page](https://mermaidjs.github.io/) for more details.
 If you're new to using Mermaid or need help identifying issues in your Mermaid code,
@@ -477,8 +496,8 @@ digraph G {
 
 #### PlantUML
 
-To make PlantUML available in GitLab, a GitLab administrator needs to enable it first.
-Read more in [PlantUML & GitLab](../administration/integration/plantuml.md).
+PlantUML integration is enabled on GitLab.com. To make PlantUML available in self-managed
+installation of GitLab, a GitLab administrator [must enable it](../administration/integration/plantuml.md).
 
 After PlantUML is enabled, enter your text in a `plantuml` block:
 

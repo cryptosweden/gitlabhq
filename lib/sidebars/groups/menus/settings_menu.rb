@@ -6,7 +6,7 @@ module Sidebars
       class SettingsMenu < ::Sidebars::Menu
         override :configure_menu_items
         def configure_menu_items
-          return false unless can?(context.current_user, :admin_group, context.group)
+          return unless can?(context.current_user, :admin_group, context.group)
 
           add_item(general_menu_item)
           add_item(integrations_menu_item)
@@ -16,8 +16,7 @@ module Sidebars
           add_item(ci_cd_menu_item)
           add_item(applications_menu_item)
           add_item(packages_and_registries_menu_item)
-
-          true
+          add_item(usage_quotas_menu_item)
         end
 
         override :title
@@ -30,11 +29,14 @@ module Sidebars
           'settings'
         end
 
-        override :extra_nav_link_html_options
-        def extra_nav_link_html_options
-          {
-            class: 'shortcuts-settings'
-          }
+        override :pick_into_super_sidebar?
+        def pick_into_super_sidebar?
+          true
+        end
+
+        override :separated?
+        def separated?
+          true
         end
 
         private
@@ -89,16 +91,10 @@ module Sidebars
         end
 
         def ci_cd_menu_item
-          active_routes_path = if Feature.enabled?(:runner_list_group_view_vue_ui, context.group, default_enabled: :yaml)
-                                 'ci_cd#show'
-                               else
-                                 %w[ci_cd#show groups/runners#show groups/runners#edit]
-                               end
-
           ::Sidebars::MenuItem.new(
             title: _('CI/CD'),
             link: group_settings_ci_cd_path(context.group),
-            active_routes: { path: active_routes_path },
+            active_routes: { path: 'ci_cd#show' },
             item_id: :ci_cd
           )
         end
@@ -112,13 +108,24 @@ module Sidebars
           )
         end
 
+        def usage_quotas_menu_item
+          return ::Sidebars::NilMenuItem.new(item_id: :usage_quotas) unless context.group.usage_quotas_enabled?
+
+          ::Sidebars::MenuItem.new(
+            title: s_('UsageQuota|Usage Quotas'),
+            link: group_usage_quotas_path(context.group),
+            active_routes: { path: 'usage_quotas#index' },
+            item_id: :usage_quotas
+          )
+        end
+
         def packages_and_registries_menu_item
           unless context.group.packages_feature_enabled?
             return ::Sidebars::NilMenuItem.new(item_id: :packages_and_registries)
           end
 
           ::Sidebars::MenuItem.new(
-            title: _('Packages & Registries'),
+            title: _('Packages and registries'),
             link: group_settings_packages_and_registries_path(context.group),
             active_routes: { controller: :packages_and_registries },
             item_id: :packages_and_registries

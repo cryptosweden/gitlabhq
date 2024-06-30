@@ -9,7 +9,8 @@ RSpec.describe API::Support::GitAccessActor do
   subject { described_class.new(user: user, key: key) }
 
   describe '.from_params' do
-    let(:key) { create(:key) }
+    let_it_be(:user) { create(:user) }
+    let_it_be(:key) { create(:key, user: user) }
 
     context 'with params that are valid' do
       it 'returns an instance of API::Support::GitAccessActor' do
@@ -29,6 +30,55 @@ RSpec.describe API::Support::GitAccessActor do
       it 'finds the user based on an identifier' do
         expect(described_class).to receive(:identify).and_call_original
         expect(described_class.from_params(identifier: "key-#{key.id}").user).to eq(key.user)
+      end
+
+      context 'when identifier is for a deploy key' do
+        let_it_be(:key) { create(:deploy_key, user: user) }
+
+        it 'finds the deploy key based on an identifier' do
+          expect(described_class).to receive(:identify).and_call_original
+
+          actor = described_class.from_params(identifier: "key-#{key.id}")
+
+          expect(actor.key).to eq(key)
+          expect(actor.user).to eq(key.user)
+        end
+      end
+    end
+
+    context 'when passing a signing key' do
+      let_it_be(:key) { create(:key, usage_type: :signing, user: user) }
+
+      it 'does not identify the user' do
+        actor = described_class.from_params({ identifier: "key-#{key.id}" })
+
+        expect(actor).to be_instance_of(described_class)
+        expect(actor.user).to be_nil
+      end
+
+      it 'does not identify the key' do
+        actor = described_class.from_params({ key_id: key.id })
+
+        expect(actor).to be_instance_of(described_class)
+        expect(actor.key).to be_nil
+      end
+    end
+
+    context 'when passing an auth-only key' do
+      let_it_be(:key) { create(:key, usage_type: :auth, user: user) }
+
+      it 'identifies the user' do
+        actor = described_class.from_params({ identifier: "key-#{key.id}" })
+
+        expect(actor).to be_instance_of(described_class)
+        expect(actor.user).to eq(key.user)
+      end
+
+      it 'identifies the key' do
+        actor = described_class.from_params({ key_id: key.id })
+
+        expect(actor).to be_instance_of(described_class)
+        expect(actor.key).to eq(key)
       end
     end
   end
@@ -80,6 +130,36 @@ RSpec.describe API::Support::GitAccessActor do
 
         expect(described_class.from_params(params).key_or_user).to eq(user)
       end
+    end
+  end
+
+  describe '#deploy_key_or_user' do
+    it 'returns a deploy key when the params contains deploy key' do
+      key = create(:deploy_key)
+      params = { key_id: key.id }
+
+      expect(described_class.from_params(params).deploy_key_or_user).to eq(key)
+    end
+
+    it 'returns a user when the params contains personal key' do
+      key = create(:key)
+      params = { key_id: key.id }
+
+      expect(described_class.from_params(params).deploy_key_or_user).to eq(key.user)
+    end
+
+    it 'returns a user when the params contains user id' do
+      user = create(:user)
+      params = { user_id: user.id }
+
+      expect(described_class.from_params(params).deploy_key_or_user).to eq(user)
+    end
+
+    it 'returns a user when the params contains user name' do
+      user = create(:user)
+      params = { username: user.username }
+
+      expect(described_class.from_params(params).deploy_key_or_user).to eq(user)
     end
   end
 

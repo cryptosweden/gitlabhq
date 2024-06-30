@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::HandleAssigneesChangeService do
+RSpec.describe MergeRequests::HandleAssigneesChangeService, feature_category: :code_review_workflow do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) { create(:user) }
   let_it_be(:assignee) { create(:user) }
@@ -87,20 +87,6 @@ RSpec.describe MergeRequests::HandleAssigneesChangeService do
       expect(todo).to be_pending
     end
 
-    it 'removes attention requested state' do
-      expect(MergeRequests::RemoveAttentionRequestedService).to receive(:new)
-        .with(project: project, current_user: user, merge_request: merge_request)
-        .and_call_original
-
-      execute
-    end
-
-    it 'updates attention requested by of assignee' do
-      execute
-
-      expect(merge_request.find_assignee(assignee).updated_state_by).to eq(user)
-    end
-
     it 'tracks users assigned event' do
       expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
         .to receive(:track_users_assigned_to_mr).once.with(users: [assignee])
@@ -115,8 +101,20 @@ RSpec.describe MergeRequests::HandleAssigneesChangeService do
       execute
     end
 
+    context 'when merge_request_dashboard feature flag is enabled' do
+      before do
+        stub_feature_flags(merge_request_dashboard: true)
+      end
+
+      it 'invalidates cache counts' do
+        expect(merge_request.assignees).to all(receive(:invalidate_merge_request_cache_counts))
+
+        execute
+      end
+    end
+
     context 'when execute_hooks option is set to true' do
-      let(:options) { { execute_hooks: true } }
+      let(:options) { { 'execute_hooks' => true } }
 
       it 'executes hooks and integrations' do
         expect(merge_request.project).to receive(:execute_hooks).with(anything, :merge_request_hooks)

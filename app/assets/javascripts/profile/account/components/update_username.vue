@@ -1,7 +1,8 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml, GlButton, GlModal, GlModalDirective } from '@gitlab/ui';
+import { GlButton, GlModal, GlModalDirective } from '@gitlab/ui';
 import { escape } from 'lodash';
-import createFlash from '~/flash';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { createAlert, VARIANT_INFO } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { __, s__, sprintf } from '~/locale';
 
@@ -59,11 +60,7 @@ Please update your Git repository remotes as soon as possible.`),
     primaryProps() {
       return {
         text: __('Update username'),
-        attributes: [
-          { variant: 'warning' },
-          { category: 'primary' },
-          { disabled: this.isRequestPending },
-        ],
+        attributes: { variant: 'confirm', category: 'primary', disabled: this.isRequestPending },
       };
     },
     cancelProps() {
@@ -85,12 +82,12 @@ Please update your Git repository remotes as soon as possible.`),
       return axios
         .put(this.actionUrl, putData)
         .then((result) => {
-          createFlash({ message: result.data.message, type: 'notice' });
+          createAlert({ message: result.data.message, variant: VARIANT_INFO });
           this.username = username;
           this.isRequestPending = false;
         })
         .catch((error) => {
-          createFlash({
+          createAlert({
             message:
               error?.response?.data?.message ||
               s__('Profiles|An error occurred while updating your username, please try again.'),
@@ -116,8 +113,9 @@ Please update your Git repository remotes as soon as possible.`),
         <input
           :id="$options.inputId"
           v-model="newUsername"
+          data-testid="new-username-input"
           :disabled="isRequestPending"
-          class="form-control"
+          class="form-control gl-md-form-input-lg"
           required="required"
         />
       </div>
@@ -127,8 +125,7 @@ Please update your Git repository remotes as soon as possible.`),
       v-gl-modal-directive="$options.modalId"
       :disabled="newUsername === username"
       :loading="isRequestPending"
-      category="primary"
-      variant="warning"
+      variant="confirm"
       data-testid="username-change-confirmation-modal"
       >{{ $options.buttonText }}</gl-button
     >

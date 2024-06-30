@@ -1,4 +1,4 @@
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { addNumericSuffix } from '~/ide/utils';
 import { sprintf, __ } from '~/locale';
 import { leftSidebarViews } from '../../../constants';
@@ -143,7 +143,7 @@ export const commitChanges = ({ commit, state, getters, dispatch, rootState, roo
       commit(types.UPDATE_LOADING, false);
 
       if (!data.short_id) {
-        createFlash({
+        createAlert({
           message: data.message,
           fadeTransition: false,
           addBodyClass: true,
@@ -183,7 +183,11 @@ export const commitChanges = ({ commit, state, getters, dispatch, rootState, roo
 
             dispatch(
               'redirectToUrl',
-              createNewMergeRequestUrl(currentProject.web_url, branchName, targetBranch),
+              createNewMergeRequestUrl(
+                currentProject.web_url,
+                encodeURIComponent(branchName),
+                encodeURIComponent(targetBranch),
+              ),
               { root: true },
             );
           }

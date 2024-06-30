@@ -6,7 +6,7 @@ RSpec.describe Gitlab::JiraImport do
   let(:project_id) { 321 }
 
   describe '.validate_project_settings!' do
-    include JiraServiceHelper
+    include JiraIntegrationHelpers
 
     let_it_be(:project, reload: true) { create(:project) }
 
@@ -41,7 +41,7 @@ RSpec.describe Gitlab::JiraImport do
         context 'when Jira connection is not valid' do
           before do
             WebMock.stub_request(:get, 'https://jira.example.com/rest/api/2/serverInfo')
-              .to_raise(JIRA::HTTPError.new(double(message: 'Some failure.')))
+              .to_raise(JIRA::HTTPError.new(double(message: 'Some failure.', code: '400')))
           end
 
           it_behaves_like 'raise Jira import error', 'Unable to connect to the Jira instance. Please check your Jira integration configuration.'
@@ -103,12 +103,6 @@ RSpec.describe Gitlab::JiraImport do
 
         it_behaves_like 'raise Jira import error', 'You do not have permissions to run the import.'
       end
-    end
-  end
-
-  describe '.jira_issue_cache_key' do
-    it 'returns cache key for Jira issue imported to given project' do
-      expect(described_class.jira_item_cache_key(project_id, 'DEMO-123', :issues)).to eq("jira-import/items-mapper/#{project_id}/issues/DEMO-123")
     end
   end
 

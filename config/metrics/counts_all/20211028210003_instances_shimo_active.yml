@@ -1,13 +1,11 @@
 ---
 key_path: counts.instances_shimo_active
-name: count_all_instances_shimo_active
 description: Count of instances with active Shimo integrations
-product_section: dev
-product_stage: ecosystem
-product_group: group::integrations
-product_category: integrations
+product_group: import_and_integrate
 value_type: number
-status: active
+status: removed
+removed_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/136143
+milestone_removed: '16.7'
 milestone: "14.5"
 introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/issues/343386
 time_frame: all

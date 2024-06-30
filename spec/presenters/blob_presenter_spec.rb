@@ -7,31 +7,33 @@ RSpec.describe BlobPresenter do
   let_it_be(:user) { project.first_owner }
 
   let(:repository) { project.repository }
-  let(:blob) { repository.blob_at('HEAD', 'files/ruby/regex.rb') }
+  let(:blob) { repository.blob_at(ref, path) }
+  let(:ref) { 'HEAD' }
+  let(:path) { 'files/ruby/regex.rb' }
 
   subject(:presenter) { described_class.new(blob, current_user: user) }
 
   describe '#web_url' do
-    it { expect(presenter.web_url).to eq("http://localhost/#{project.full_path}/-/blob/#{blob.commit_id}/#{blob.path}") }
+    it { expect(presenter.web_url).to eq("http://localhost/#{project.full_path}/-/blob/#{ref}/#{path}") }
   end
 
   describe '#web_path' do
-    it { expect(presenter.web_path).to eq("/#{project.full_path}/-/blob/#{blob.commit_id}/#{blob.path}") }
+    it { expect(presenter.web_path).to eq("/#{project.full_path}/-/blob/#{ref}/#{path}") }
   end
 
   describe '#edit_blob_path' do
-    it { expect(presenter.edit_blob_path).to eq("/#{project.full_path}/-/edit/#{blob.commit_id}/#{blob.path}") }
+    it { expect(presenter.edit_blob_path).to eq("/#{project.full_path}/-/edit/#{ref}/#{path}") }
   end
 
   describe '#raw_path' do
-    it { expect(presenter.raw_path).to eq("/#{project.full_path}/-/raw/#{blob.commit_id}/#{blob.path}") }
+    it { expect(presenter.raw_path).to eq("/#{project.full_path}/-/raw/#{ref}/#{path}") }
   end
 
   describe '#replace_path' do
-    it { expect(presenter.replace_path).to eq("/#{project.full_path}/-/update/#{blob.commit_id}/#{blob.path}") }
+    it { expect(presenter.replace_path).to eq("/#{project.full_path}/-/update/#{ref}/#{path}") }
   end
 
-  describe '#can_current_user_push_to_branch' do
+  shared_examples_for '#can_current_user_push_to_branch?' do
     let(:branch_exists) { true }
 
     before do
@@ -53,21 +55,117 @@ RSpec.describe BlobPresenter do
     end
   end
 
+  context 'when blob has ref_type' do
+    %w[heads tags].each do |ref_type|
+      context "when ref_type is #{ref_type}" do
+        before do
+          blob.ref_type = ref_type
+        end
+
+        describe '#web_url' do
+          it { expect(presenter.web_url).to eq("http://localhost/#{project.full_path}/-/blob/#{ref}/#{path}?ref_type=#{ref_type}") }
+        end
+
+        describe '#web_path' do
+          it { expect(presenter.web_path).to eq("/#{project.full_path}/-/blob/#{ref}/#{path}?ref_type=#{ref_type}") }
+        end
+
+        describe '#edit_blob_path' do
+          it { expect(presenter.edit_blob_path).to eq("/#{project.full_path}/-/edit/#{ref}/#{path}?ref_type=#{ref_type}") }
+        end
+
+        describe '#raw_path' do
+          it { expect(presenter.raw_path).to eq("/#{project.full_path}/-/raw/#{ref}/#{path}?ref_type=#{ref_type}") }
+        end
+
+        describe '#replace_path' do
+          it { expect(presenter.replace_path).to eq("/#{project.full_path}/-/update/#{ref}/#{path}?ref_type=#{ref_type}") }
+        end
+
+        describe '#history_path' do
+          it { expect(presenter.history_path).to eq("/#{project.full_path}/-/commits/#{ref}/#{path}?ref_type=#{ref_type}") }
+        end
+
+        describe '#blame_path' do
+          it { expect(presenter.blame_path).to eq("/#{project.full_path}/-/blame/#{ref}/#{path}?ref_type=#{ref_type}") }
+        end
+
+        it_behaves_like '#can_current_user_push_to_branch?'
+      end
+    end
+  end
+
+  describe '#can_modify_blob?' do
+    context 'when blob is store externally' do
+      before do
+        allow(blob).to receive(:stored_externally?).and_return(true)
+      end
+
+      it { expect(presenter.can_modify_blob?).to be_falsey }
+    end
+
+    context 'when the user cannot edit the tree' do
+      before do
+        allow(presenter).to receive(:can_edit_tree?).with(project, ref).and_return(false)
+      end
+
+      it { expect(presenter.can_modify_blob?).to be_falsey }
+    end
+
+    context 'when ref is a branch' do
+      let(:ref) { 'feature' }
+
+      it { expect(presenter.can_modify_blob?).to be_truthy }
+    end
+  end
+
+  describe '#can_current_user_push_to_branch?' do
+    context 'when ref is a branch' do
+      let(:ref) { 'feature' }
+
+      it 'delegates to UserAccess' do
+        allow_next_instance_of(Gitlab::UserAccess) do |instance|
+          expect(instance).to receive(:can_push_to_branch?).with(ref).and_call_original
+        end
+        expect(presenter.can_current_user_push_to_branch?).to be_truthy
+      end
+    end
+
+    it_behaves_like '#can_current_user_push_to_branch?'
+
+    it { expect(presenter.can_current_user_push_to_branch?).to be_falsey }
+  end
+
   describe '#archived?' do
     it { expect(presenter.archived?).to eq(project.archived) }
   end
 
   describe '#pipeline_editor_path' do
     context 'when blob is .gitlab-ci.yml' do
-      before do
-        project.repository.create_file(user, '.gitlab-ci.yml', '',
-        message: 'Add a ci file',
-        branch_name: 'main')
+      before_all do
+        project.repository.create_file(
+          user,
+          '.gitlab-ci.yml',
+          '',
+          message: 'Add a ci file',
+          branch_name: 'main'
+        )
       end
 
-      let(:blob) { repository.blob_at('main', '.gitlab-ci.yml') }
+      let(:ref) { 'main' }
+      let(:path) { '.gitlab-ci.yml' }
 
-      it { expect(presenter.pipeline_editor_path).to eq("/#{project.full_path}/-/ci/editor?branch_name=#{blob.commit_id}") }
+      it { expect(presenter.pipeline_editor_path).to eq("/#{project.full_path}/-/ci/editor?branch_name=#{ref}") }
+
+      context 'when ref includes the qualifier' do
+        let(:ref) { 'refs/heads/main' }
+
+        it 'returns path to unqualified ref' do
+          allow(blob).to receive(:ref_type).and_return('heads')
+
+          expect(presenter.pipeline_editor_path).to eq("/#{project.full_path}/-/ci/editor?branch_name=main")
+        end
+      end
     end
   end
 
@@ -84,7 +182,7 @@ RSpec.describe BlobPresenter do
 
     context 'Gitpod enabled for application and user' do
       describe '#gitpod_blob_url' do
-        it { expect(presenter.gitpod_blob_url).to eq("#{gitpod_url}##{"http://localhost/#{project.full_path}/-/tree/#{blob.commit_id}/#{blob.path}"}") }
+        it { expect(presenter.gitpod_blob_url).to eq("#{gitpod_url}##{"http://localhost/#{project.full_path}/-/tree/#{ref}/#{path}"}") }
       end
     end
 
@@ -106,7 +204,7 @@ RSpec.describe BlobPresenter do
   end
 
   describe '#find_file_path' do
-    it { expect(presenter.find_file_path).to eq("/#{project.full_path}/-/find_file/HEAD/files/ruby/regex.rb") }
+    it { expect(presenter.find_file_path).to eq("/#{project.full_path}/-/find_file/HEAD") }
   end
 
   describe '#blame_path' do
@@ -118,7 +216,7 @@ RSpec.describe BlobPresenter do
   end
 
   describe '#permalink_path' do
-    it { expect(presenter.permalink_path).to eq("/#{project.full_path}/-/blob/#{project.repository.commit.sha}/files/ruby/regex.rb") }
+    it { expect(presenter.permalink_path).to eq("/#{project.full_path}/-/blob/#{project.repository.commit(blob.commit_id).sha}/files/ruby/regex.rb") }
   end
 
   context 'environment has been deployed' do
@@ -127,7 +225,7 @@ RSpec.describe BlobPresenter do
     let!(:deployment) { create(:deployment, :success, environment: environment, project: project, sha: blob.commit_id) }
 
     before do
-      allow(project).to receive(:public_path_for_source_path).with(blob.path, blob.commit_id).and_return(blob.path)
+      allow(project).to receive(:public_path_for_source_path).with(path, blob.commit_id).and_return(path)
     end
 
     describe '#environment_formatted_external_url' do
@@ -135,7 +233,7 @@ RSpec.describe BlobPresenter do
     end
 
     describe '#environment_external_url_for_route_map' do
-      it { expect(presenter.environment_external_url_for_route_map).to eq("#{external_url}/#{blob.path}") }
+      it { expect(presenter.environment_external_url_for_route_map).to eq("#{external_url}/#{path}") }
     end
 
     describe 'chooses the latest deployed environment for #environment_formatted_external_url and #environment_external_url_for_route_map' do
@@ -144,7 +242,7 @@ RSpec.describe BlobPresenter do
       let!(:another_deployment) { create(:deployment, :success, environment: another_environment, project: project, sha: blob.commit_id) }
 
       it { expect(presenter.environment_formatted_external_url).to eq("another.environment") }
-      it { expect(presenter.environment_external_url_for_route_map).to eq("#{another_external_url}/#{blob.path}") }
+      it { expect(presenter.environment_external_url_for_route_map).to eq("#{another_external_url}/#{path}") }
     end
   end
 
@@ -189,7 +287,7 @@ RSpec.describe BlobPresenter do
   end
 
   describe '#code_navigation_path' do
-    let(:code_navigation_path) { Gitlab::CodeNavigationPath.new(project, blob.commit_id).full_json_path_for(blob.path) }
+    let(:code_navigation_path) { Gitlab::CodeNavigationPath.new(project, blob.commit_id).full_json_path_for(path) }
 
     it { expect(presenter.code_navigation_path).to eq(code_navigation_path) }
   end
@@ -202,11 +300,11 @@ RSpec.describe BlobPresenter do
     let(:blob) { Gitlab::Graphql::Representation::TreeEntry.new(super(), repository) }
 
     describe '#web_url' do
-      it { expect(presenter.web_url).to eq("http://localhost/#{project.full_path}/-/blob/#{blob.commit_id}/#{blob.path}") }
+      it { expect(presenter.web_url).to eq("http://localhost/#{project.full_path}/-/blob/#{ref}/#{path}") }
     end
 
     describe '#web_path' do
-      it { expect(presenter.web_path).to eq("/#{project.full_path}/-/blob/#{blob.commit_id}/#{blob.path}") }
+      it { expect(presenter.web_path).to eq("/#{project.full_path}/-/blob/#{ref}/#{path}") }
     end
   end
 
@@ -214,13 +312,13 @@ RSpec.describe BlobPresenter do
     let(:git_blob) { blob.__getobj__ }
 
     it 'returns highlighted content' do
-      expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', git_blob.data, plain: nil, language: 'ruby')
+      expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', git_blob.data, plain: nil, language: 'ruby', used_on: :blob)
 
       presenter.highlight
     end
 
     it 'returns plain content when :plain is true' do
-      expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', git_blob.data, plain: true, language: 'ruby')
+      expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', git_blob.data, plain: true, language: 'ruby', used_on: :blob)
 
       presenter.highlight(plain: true)
     end
@@ -233,7 +331,7 @@ RSpec.describe BlobPresenter do
       end
 
       it 'returns limited highlighted content' do
-        expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', "line one\n", plain: nil, language: 'ruby')
+        expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', "line one\n", plain: nil, language: 'ruby', used_on: :blob)
 
         presenter.highlight(to: 1)
       end
@@ -245,49 +343,30 @@ RSpec.describe BlobPresenter do
       end
 
       it 'passes language to inner call' do
-        expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', git_blob.data, plain: nil, language: 'ruby')
+        expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', git_blob.data, plain: nil, language: 'ruby', used_on: :blob)
 
         presenter.highlight
       end
     end
 
-    context 'when blob is ipynb' do
-      let(:blob) { repository.blob_at('f6b7a707', 'files/ipython/markdown-table.ipynb') }
-      let(:git_blob) { blob.__getobj__ }
+    context 'when used_on param is present' do
+      it 'returns highlighted content' do
+        expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', git_blob.data, plain: nil, language: 'ruby', used_on: :diff)
 
-      before do
-        allow(Gitlab::Diff::CustomDiff).to receive(:transformed_for_diff?).and_return(true)
-      end
-
-      it 'uses md as the transformed language' do
-        expect(Gitlab::Highlight).to receive(:highlight).with('files/ipython/markdown-table.ipynb', anything, plain: nil, language: 'md')
-
-        presenter.highlight
-      end
-
-      it 'transforms the blob' do
-        expect(Gitlab::Highlight).to receive(:highlight).with('files/ipython/markdown-table.ipynb', include("%%"), plain: nil, language: 'md')
-
-        presenter.highlight
+        presenter.highlight(used_on: :diff)
       end
     end
+  end
 
-    context 'when blob is other file type' do
-      let(:git_blob) { blob.__getobj__ }
+  describe '#highlight_and_trim' do
+    let(:git_blob) { blob.__getobj__ }
 
-      before do
-        allow(git_blob)
-          .to receive(:data)
-                .and_return("line one\nline two\nline 3")
+    it 'returns trimmed content for longer line' do
+      trimmed_lines = git_blob.data.split("\n").map { |line| line[0, 55] }.join("\n")
 
-        allow(blob).to receive(:language_from_gitattributes).and_return('ruby')
-      end
+      expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', "#{trimmed_lines}\n", plain: nil, language: 'ruby', context: { ellipsis_svg: "svg_icon", ellipsis_indexes: [21, 26, 49] })
 
-      it 'does not transform the file' do
-        expect(Gitlab::Highlight).to receive(:highlight).with('files/ruby/regex.rb', git_blob.data, plain: nil, language: 'ruby')
-
-        presenter.highlight
-      end
+      presenter.highlight_and_trim(ellipsis_svg: "svg_icon", trim_length: 55)
     end
   end
 
@@ -304,20 +383,34 @@ RSpec.describe BlobPresenter do
       it { is_expected.to eq('cpp') }
     end
 
-    context 'when blob is ipynb' do
-      let(:blob) { repository.blob_at('f6b7a707', 'files/ipython/markdown-table.ipynb') }
-
-      before do
-        allow(Gitlab::Diff::CustomDiff).to receive(:transformed_for_diff?).and_return(true)
-      end
-
-      it { is_expected.to eq('md') }
-    end
-
     context 'when blob is binary' do
       let(:blob) { repository.blob_at('HEAD', 'Gemfile.zip') }
 
       it { is_expected.to be_nil }
+    end
+  end
+
+  describe '#base64_encoded_blob' do
+    let(:blob) { repository.blob_at('HEAD', file) }
+    let(:file) { 'files/ruby/popen.rb' }
+
+    it 'does not include html in the content' do
+      expect(presenter.base64_encoded_blob.include?('</span>')).to be_falsey
+    end
+
+    it 'encodes the raw blob base 64' do
+      expect(presenter.base64_encoded_blob).to include("cmVxdWlyZSAnZmlsZXV0")
+      expect(presenter.base64_encoded_blob).to include("R1cwogIGVuZAplbmQK\n")
+    end
+
+    context 'when ff unicode_escaped_blob is disabled' do
+      before do
+        stub_feature_flags(unicode_escaped_blob: false)
+      end
+
+      it 'returns nil' do
+        expect(presenter.base64_encoded_blob).to be_nil
+      end
     end
   end
 

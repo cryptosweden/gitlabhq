@@ -1,37 +1,44 @@
+- add_page_specific_style 'page_bundles/branches'
 - page_title _('Branches')
-- add_to_breadcrumbs(_('Repository'), project_tree_path(@project))
 
-.top-area.gl-border-0
+-# Possible values for variables passed down from the projects/branches_controller.rb
+-#
+-#   @mode   - overview|active|stale|all (default:overview)
+-#   @sort   - name_asc|updated_asc|updated_desc
+
+.top-area
   = gl_tabs_nav({ class: 'gl-flex-grow-1 gl-border-b-0' }) do
     = gl_tab_link_to s_('Branches|Overview'), project_branches_path(@project), { item_active: @mode == 'overview', title: s_('Branches|Show overview of the branches') }
     = gl_tab_link_to s_('Branches|Active'), project_branches_filtered_path(@project, state: 'active'), { title: s_('Branches|Show active branches') }
     = gl_tab_link_to s_('Branches|Stale'), project_branches_filtered_path(@project, state: 'stale'), { title: s_('Branches|Show stale branches') }
-    = gl_tab_link_to s_('Branches|All'), project_branches_filtered_path(@project, state: 'all'), { item_active: !%w[overview active stale].include?(@mode), title: s_('Branches|Show all branches') }
+    = gl_tab_link_to s_('Branches|All'), project_branches_filtered_path(@project, state: 'all'), { item_active: %w[overview active stale].exclude?(@mode), title: s_('Branches|Show all branches') }
 
   .nav-controls
-    #js-branches-sort-dropdown{ data: { project_branches_filtered_path: project_branches_path(@project, state: 'all'), sort_options: branches_sort_options_hash.to_json, mode: @mode } }
+    #js-branches-sort-dropdown{ data: {
+        project_branches_filtered_path: project_branches_path(@project, state: 'all'),
+        sort_options: branches_sort_options_hash.to_json,
+        show_dropdown: @mode == 'overview' ? 'false' : 'true',
+        sorted_by: @sort }
+    }
 
-    - if can? current_user, :push_code, @project
-      = link_to project_merged_branches_path(@project),
-        class: 'gl-button btn btn-danger btn-danger-secondary has-tooltip qa-delete-merged-branches',
-        title: s_("Branches|Delete all branches that are merged into '%{default_branch}'") % { default_branch: @project.repository.root_ref },
-        method: :delete,
-        aria: { label: s_('Branches|Delete merged branches') },
-        data: { confirm: s_('Branches|Deleting the merged branches cannot be undone. Are you sure?'),
-          confirm_btn_variant: 'danger',
-          container: 'body' } do
-        = s_('Branches|Delete merged branches')
-      = link_to new_project_branch_path(@project), class: 'gl-button btn btn-confirm' do
+    - if can_view_branch_rules?
+      = link_button_to project_settings_repository_path(@project, anchor: 'js-branch-rules') do
+        = s_('Branches|View branch rules')
+
+    - if can_push_code?
+      = link_button_to new_project_branch_path(@project), variant: :confirm do
         = s_('Branches|New branch')
+      .js-delete-merged-branches.gl-w-7{ data: {
+          default_branch: @project.repository.root_ref,
+          form_path: project_merged_branches_path(@project) }
+        }
 
 = render_if_exists 'projects/commits/mirror_status'
 
+- if can_view_branch_rules?
+  = render 'branch_rules_info'
+
 .js-branch-list{ data: { diverging_counts_endpoint: diverging_commit_counts_namespace_project_branches_path(@project.namespace, @project, format: :json), default_branch: @project.default_branch } }
-- if can?(current_user, :admin_project, @project)
-  - project_settings_link = link_to s_('Branches|project settings'), project_protected_branches_path(@project)
-  .row-content-block
-    %h5
-      = s_('Branches|Protected branches can be managed in %{project_settings_link}.').html_safe % { project_settings_link: project_settings_link }
 
 - if @gitaly_unavailable
   = render 'shared/errors/gitaly_unavailable', reason: s_('Branches|Unable to load branches')
@@ -44,7 +51,7 @@
   %ul.content-list.all-branches
     - @branches.each do |branch|
       = render "projects/branches/branch", branch: branch, merged: @merged_branch_names.include?(branch.name), commit_status: @branch_pipeline_statuses[branch.name], show_commit_status: @branch_pipeline_statuses.any?
-  - if Feature.enabled?(:branch_list_keyset_pagination, @project, default_enabled: :yaml)
+  - if Feature.enabled?(:branch_list_keyset_pagination, @project)
     = render('kaminari/gitlab/without_count', previous_path: @prev_path, next_path: @next_path)
   - else
     = paginate @branches, theme: 'gitlab'

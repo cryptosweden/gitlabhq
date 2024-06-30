@@ -1,7 +1,8 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import katex from 'katex';
-import marked from 'marked';
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+import { marked } from 'marked';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { sanitize } from '~/lib/dompurify';
 import { hasContent, markdownConfig } from '~/lib/utils/text_utility';
 import Prompt from './prompt.vue';
@@ -137,7 +138,7 @@ marked.setOptions({
 
 export default {
   components: {
-    prompt: Prompt,
+    Prompt,
   },
   directives: {
     SafeHtml,
@@ -148,13 +149,24 @@ export default {
       type: Object,
       required: true,
     },
+    hidePrompt: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   computed: {
     markdown() {
       renderer.attachments = this.cell.attachments;
       renderer.relativeRawPath = this.relativeRawPath;
 
-      return marked(this.cell.source.join('').replace(/\\/g, '\\\\'));
+      let { source } = this.cell;
+
+      if (Array.isArray(source)) {
+        source = source.join('');
+      }
+
+      return marked(source.replace(/\\/g, '\\\\'));
     },
   },
   markdownConfig,
@@ -163,7 +175,7 @@ export default {
 
 <template>
   <div class="cell text-cell">
-    <prompt />
+    <prompt v-if="!hidePrompt" />
     <div v-safe-html:[$options.markdownConfig]="markdown" class="markdown"></div>
   </div>
 </template>

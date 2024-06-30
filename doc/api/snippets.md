@@ -1,10 +1,14 @@
 ---
 stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Source Code
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Snippets API **(FREE)**
+# Snippets API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Snippets API operates on [snippets](../user/snippets.md). Related APIs exist for
 [project snippets](project_snippets.md) and
@@ -20,10 +24,10 @@ Valid values for snippet visibility levels are:
 | Visibility | Description                                         |
 |:-----------|:----------------------------------------------------|
 | `private`  | Snippet is visible only to the snippet creator.     |
-| `internal` | Snippet is visible for any logged in user except [external users](../user/permissions.md#external-users).          |
+| `internal` | Snippet is visible for any authenticated user except [external users](../administration/external_users.md).          |
 | `public`   | Snippet can be accessed without any authentication. |
 
-## List all snippets for a user
+## List all snippets for current user
 
 Get a list of the current user's snippets.
 
@@ -31,10 +35,20 @@ Get a list of the current user's snippets.
 GET /snippets
 ```
 
+Parameters:
+
+| Attribute        | Type     | Required | Description                                                                                         |
+|------------------|----------|----------|-----------------------------------------------------------------------------------------------------|
+| `per_page`       | integer  | no       | Number of snippets to return per page.                                                              |
+| `page`           | integer  | no       | Page to retrieve.                                                                                   |
+| `created_after`  | datetime | no       | Return snippets created after the given time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`)  |
+| `created_before` | datetime | no       | Return snippets created before the given time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
+
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/snippets"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/snippets"
 ```
 
 Example response:
@@ -47,6 +61,8 @@ Example response:
         "file_name": "mclaughlin.rb",
         "description": null,
         "visibility": "internal",
+        "imported": false,
+        "imported_from": "none",
         "author": {
             "id": 22,
             "name": "User 0",
@@ -67,6 +83,8 @@ Example response:
         "file_name": "ondrickaemard.rb",
         "description": null,
         "visibility": "internal",
+        "imported": false,
+        "imported_from": "none",
         "author": {
             "id": 22,
             "name": "User 0",
@@ -101,7 +119,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/snippets/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/snippets/1"
 ```
 
 Example response:
@@ -113,6 +132,8 @@ Example response:
   "file_name": "add.rb",
   "description": "Ruby test snippet",
   "visibility": "private",
+  "imported": false,
+  "imported_from": "none",
   "author": {
     "id": 1,
     "username": "john_smith",
@@ -147,7 +168,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/snippets/1/raw"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/snippets/1/raw"
 ```
 
 Example response:
@@ -175,7 +197,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/snippets/1/files/master/snippet%2Erb/raw"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/snippets/1/files/main/snippet%2Erb/raw"
 ```
 
 Example response:
@@ -241,6 +264,8 @@ Example response:
   "title": "This is a snippet",
   "description": "Hello World snippet",
   "visibility": "internal",
+  "imported": false,
+  "imported_from": "none",
   "author": {
     "id": 1,
     "username": "john_smith",
@@ -261,7 +286,7 @@ Example response:
   "files": [
     {
       "path": "text.txt",
-      "raw_url": "https://gitlab.example.com/-/snippets/1/raw/master/renamed.md"
+      "raw_url": "https://gitlab.example.com/-/snippets/1/raw/main/renamed.md"
     }
   ]
 }
@@ -326,6 +351,8 @@ Example response:
   "title": "test",
   "description": "description of snippet",
   "visibility": "internal",
+  "imported": false,
+  "imported_from": "none",
   "author": {
     "id": 1,
     "username": "john_smith",
@@ -346,7 +373,7 @@ Example response:
   "files": [
     {
       "path": "renamed.md",
-      "raw_url": "https://gitlab.example.com/-/snippets/1/raw/master/renamed.md"
+      "raw_url": "https://gitlab.example.com/-/snippets/1/raw/main/renamed.md"
     }
   ]
 }
@@ -369,7 +396,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/snippets/1"
+curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/snippets/1"
 ```
 
 The following are possible return codes:
@@ -389,15 +417,18 @@ GET /snippets/public
 
 Parameters:
 
-| Attribute  | Type    | Required | Description                            |
-|:-----------|:--------|:---------|:---------------------------------------|
-| `per_page` | integer | no       | Number of snippets to return per page. |
-| `page`     | integer | no       | Page to retrieve.                      |
+| Attribute        | Type     | Required | Description                                                                                         |
+|------------------|----------|----------|-----------------------------------------------------------------------------------------------------|
+| `per_page`       | integer  | no       | Number of snippets to return per page.                                                              |
+| `page`           | integer  | no       | Page to retrieve.                                                                                   |
+| `created_after`  | datetime | no       | Return snippets created after the given time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`)  |
+| `created_before` | datetime | no       | Return snippets created before the given time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/snippets/public?per_page=2&page=1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/snippets/public?per_page=2&page=1"
 ```
 
 Example response:
@@ -444,6 +475,114 @@ Example response:
 ]
 ```
 
+## List all snippets
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/419640) in GitLab 16.3.
+
+List all snippets the current user has access to.
+Users with the Administrator or Auditor access levels can see all snippets
+(both personal and project).
+
+```plaintext
+GET /snippets/all
+```
+
+Parameters:
+
+| Attribute        | Type     | Required | Description                            |
+|------------------|----------|----------|----------------------------------------|
+| `created_after`  | datetime | no       | Return snippets created after the given time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).  |
+| `created_before` | datetime | no       | Return snippets created before the given time. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
+| `page`           | integer  | no       | Page to retrieve.                      |
+| `per_page`       | integer  | no       | Number of snippets to return per page. |
+| `repository_storage` | string            | no       | Filter by repository storage used by the snippet _(administrators only)_. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/419640) in GitLab 16.3 |
+
+Example request:
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/snippets/all?per_page=2&page=1"
+```
+
+Example response:
+
+```json
+[
+  {
+    "id": 113,
+    "title": "Internal Project Snippet",
+    "description": null,
+    "visibility": "internal",
+    "imported": false,
+    "imported_from": "none",
+    "author": {
+      "id": 17,
+      "username": "tim_kreiger",
+      "name": "Tim Kreiger",
+      "state": "active",
+      "avatar_url": "http://www.gravatar.com/avatar/edaf55a9e363ea263e3b981d09e0f7f7?s=80&d=identicon",
+      "web_url": "http://example.com/tim_kreiger"
+    },
+    "created_at": "2023-08-03T10:21:02.480Z",
+    "updated_at": "2023-08-03T10:21:02.480Z",
+    "project_id": 35,
+    "web_url": "http://example.com/tim_kreiger/internal_project/-/snippets/113",
+    "raw_url": "http://example.com/tim_kreiger/internal_project/-/snippets/113/raw",
+    "file_name": "",
+    "files": [],
+    "repository_storage": "default"
+  },
+  {
+    "id": 112,
+    "title": "Private Personal Snippet",
+    "description": null,
+    "visibility": "private",
+    "imported": false,
+    "imported_from": "none",
+    "author": {
+      "id": 1,
+      "username": "root",
+      "name": "Administrator",
+      "state": "active",
+      "avatar_url": "http://www.gravatar.com/avatar/edaf55a9e363ea263e3b981d09e0f7f7?s=80&d=identicon",
+      "web_url": "http://example.com/root"
+    },
+    "created_at": "2023-08-03T10:20:59.994Z",
+    "updated_at": "2023-08-03T10:20:59.994Z",
+    "project_id": null,
+    "web_url": "http://example.com/-/snippets/112",
+    "raw_url": "http://example.com/-/snippets/112/raw",
+    "file_name": "",
+    "files": [],
+    "repository_storage": "default"
+  },
+  {
+    "id": 111,
+    "title": "Public Personal Snippet",
+    "description": null,
+    "visibility": "public",
+    "imported": false,
+    "imported_from": "none",
+    "author": {
+      "id": 17,
+      "username": "tim_kreiger",
+      "name": "Tim Kreiger",
+      "state": "active",
+      "avatar_url": "http://www.gravatar.com/avatar/edaf55a9e363ea263e3b981d09e0f7f7?s=80&d=identicon",
+      "web_url": "http://example.com/tim_kreiger"
+    },
+    "created_at": "2023-08-03T10:21:01.312Z",
+    "updated_at": "2023-08-03T10:21:01.312Z",
+    "project_id": null,
+    "web_url": "http://example.com/-/snippets/111",
+    "raw_url": "http://example.com/-/snippets/111/raw",
+    "file_name": "",
+    "files": [],
+    "repository_storage": "default"
+  },
+]
+```
+
 ## Get user agent details
 
 NOTE:
@@ -460,7 +599,8 @@ GET /snippets/:id/user_agent_detail
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/snippets/1/user_agent_detail"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/snippets/1/user_agent_detail"
 ```
 
 Example response:

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Files > User creates a directory', :js do
+RSpec.describe 'Projects > Files > User creates a directory', :js, feature_category: :source_code_management do
   let(:fork_message) do
     "You're not allowed to make changes to this project directly. "\
     "A fork of this project has been created that you can make changes in, so you can submit a merge request."
@@ -24,7 +24,7 @@ RSpec.describe 'Projects > Files > User creates a directory', :js do
   context 'with default target branch' do
     before do
       first('.add-to-tree').click
-      click_link('New directory')
+      click_button('New directory')
     end
 
     it 'creates the directory in the default branch' do
@@ -55,7 +55,7 @@ RSpec.describe 'Projects > Files > User creates a directory', :js do
       end
 
       first('.add-to-tree').click
-      click_link('New directory')
+      click_button('New directory')
 
       fill_in(:dir_name, with: 'new_directory')
       click_button('Create directory')
@@ -68,7 +68,7 @@ RSpec.describe 'Projects > Files > User creates a directory', :js do
   context 'with a new target branch' do
     before do
       first('.add-to-tree').click
-      click_link('New directory')
+      click_button('New directory')
       fill_in(:dir_name, with: 'new_directory')
       fill_in(:branch_name, with: 'new-feature')
       click_button('Create directory')
@@ -99,7 +99,7 @@ RSpec.describe 'Projects > Files > User creates a directory', :js do
 
       find('.add-to-tree').click
       wait_for_requests
-      click_link('New directory')
+      click_button('New directory')
       fill_in(:dir_name, with: 'new_directory')
       fill_in(:commit_message, with: 'New commit message', visible: true)
       click_button('Create directory')

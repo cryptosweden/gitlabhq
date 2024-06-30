@@ -1,7 +1,7 @@
 ---
 stage: Verify
-group: Pipeline Insights
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Pipeline Execution
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 author: Vincent Tunru
 author_gitlab: Vinnl
 description: 'Confidence checking your entire app every time a new feature is added can quickly become repetitive. Learn how to automate it with GitLab CI/CD.'
@@ -9,9 +9,13 @@ description: 'Confidence checking your entire app every time a new feature is ad
 
 <!-- vale off -->
 
-# End-to-end testing with GitLab CI/CD and WebdriverIO **(FREE)**
+# End-to-end testing with GitLab CI/CD and WebdriverIO
 
-[Review Apps](../../review_apps/index.md) are great: for every merge request
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+[Review apps](../../review_apps/index.md) are great: for every merge request
 (or branch, for that matter), the new code can be copied and deployed to a fresh production-like live
 environment, reducing the effort to assess the impact of changes. Thus, when we use a dependency manager like
 [Dependencies.io](https://www.dependencies.io/), it can submit a merge request with an updated dependency,
@@ -31,7 +35,7 @@ to write such end-to-end tests, and how to set up GitLab CI/CD to automatically 
 against your new code, on a branch-by-branch basis. For the scope of this article, we will walk you
 through the process of setting up GitLab CI/CD for end-to-end testing JavaScript-based applications
 with WebdriverIO, but the general strategy should carry over to other languages.
-We assume you are familiar with GitLab, [GitLab CI/CD](../../index.md), [Review Apps](../../review_apps/index.md), and running your app locally, e.g., on `localhost:8000`.
+We assume you are familiar with GitLab, [GitLab CI/CD](../../index.md), [review apps](../../review_apps/index.md), and running your app locally, for example, on `localhost:8000`.
 
 ## What to test
 
@@ -45,7 +49,7 @@ infrastructure is up and running, and that your units of code work well together
 
 ## Selenium and WebdriverIO
 
-[Selenium](https://www.selenium.dev/) is a piece of software that can control web browsers, e.g., to make them
+[Selenium](https://www.selenium.dev/) is a piece of software that can control web browsers, for example, to make them
 visit a specific URL or interact with elements on the page. It can be programmatically controlled
 from a variety of programming languages. In this article we're going to be using the
 [WebdriverIO](http://v4.webdriver.io/) JavaScript bindings, but the general concept should carry over
@@ -60,7 +64,7 @@ We will be using [Jasmine](https://jasmine.github.io/) here:
 
 ```javascript
 describe('A visitor without account', function(){
-    it('should be able to navigate to the homepage from the 404 page', function(){
+    it('should be able to go to the homepage from the 404 page', function(){
         browser.url('/page-that-does-not-exist');
 
         expect(browser.getUrl()).toMatch('page-that-does-not-exist');
@@ -86,9 +90,9 @@ steering the browser. In this case, we can use
 [`browser.url`](http://v4.webdriver.io/api/protocol/url.html) to visit `/page-that-does-not-exist` to
 hit our 404 page. We can then use [`browser.getUrl`](http://v4.webdriver.io/api/property/getUrl.html)
 to verify that the current page is indeed at the location we specified. To interact with the page,
-we can simply pass CSS selectors to
+we can pass CSS selectors to
 [`browser.element`](http://v4.webdriver.io/api/protocol/element.html) to get access to elements on the
-page and to interact with them - for example, to click on the link back to the home page.
+page and to interact with them - for example, to select the link back to the home page.
 
 The simple test shown above
 can already give us a lot of confidence if it passes: we know our deployment has succeeded, that the
@@ -115,7 +119,7 @@ easiest way to get started is to start with
 provides an overview of all available options. The two options that are going to be most relevant now are the
 `specs` option, which is an array of paths to your tests, and the `baseUrl` option, which points to where your app is
 running. And finally, we will need to tell WebdriverIO in which browsers we would like to run our
-tests. This can be configured through the `capabilities` option, which is an array of browser names (e.g.
+tests. This can be configured through the `capabilities` option, which is an array of browser names (for example,
 `firefox` or `chrome`). It is recommended to install
 [selenium-assistant](https://googlechromelabs.github.io/selenium-assistant/) to detect all installed
 browsers:
@@ -130,7 +134,7 @@ But of course, a simple configuration of `config.capabilities = ['firefox']` wou
 
 If you've installed WebdriverIO as a dependency
 (`npm install --save-dev webdriverio`), you can add a line to the `scripts` property in your
-`package.json` that runs `wdio` with the path to your configuration file as value, e.g.:
+`package.json` that runs `wdio` with the path to your configuration file as value, for example:
 
 ```javascript
   "confidence-check": "wdio wdio.conf.js",
@@ -144,7 +148,7 @@ new browser window interacting with your app as you specified.
 Which brings us to the exciting part: how do we run this in GitLab CI/CD? There are two things we
 need to do for this:
 
-1. Set up [CI/CD jobs](../../yaml/index.md) that actually have a browser available.
+1. Set up [CI/CD jobs](../../jobs/index.md) that actually have a browser available.
 1. Update our WebdriverIO configuration to use those browsers to visit the review apps.
 
 For the scope of this article, we've defined an additional [CI/CD stage](../../yaml/index.md#stages)
@@ -152,15 +156,18 @@ For the scope of this article, we've defined an additional [CI/CD stage](../../y
 [Docker image](../../docker/using_docker_images.md). However, WebdriverIO fires up actual browsers
 to interact with your application, so we need to install and run them.
 Furthermore, WebdriverIO uses Selenium as a common interface to control different browsers,
-so we need to install and run Selenium as well. Luckily, the Selenium project provides the Docker images
+so we need to install and run Selenium as well. Luckily, the Selenium project provides the Docker images for Firefox
 [standalone-firefox](https://hub.docker.com/r/selenium/standalone-firefox/) and
-[standalone-chrome](https://hub.docker.com/r/selenium/standalone-chrome/) that provide just that for
-Firefox and Chrome, respectively. (Since Safari and Internet Explorer/Edge are not open source and
+and for Chrome [standalone-chrome](https://hub.docker.com/r/selenium/standalone-chrome/).
+(Since Safari and Internet Explorer/Edge are not open source and
 not available for Linux, we are unfortunately unable to use those in GitLab CI/CD).
 
 GitLab CI/CD makes it a breeze to link these images to our `confidence-check` jobs using the
-`service` property, which makes the Selenium server available under a hostname based on the image
-name. Our job configuration then looks something like this:
+`services` property, which makes the Selenium server available under a hostname based on the image name.
+
+Hostnames with underscores are not RFC valid and may cause problems in third-party applications. For more information, see [Accessing the services](../../services/index.md#accessing-the-services).
+
+For example, our job configuration for Firefox looks something like this:
 
 ```yaml
 e2e:firefox:
@@ -219,21 +226,27 @@ on GitLab CI/CD!
 To recap, our `.gitlab-ci.yml` configuration file looks something like this:
 
 ```yaml
-image: node:8.10
+default:
+  image: node:8.10
+
 stages:
   - deploy
   - confidence-check
+
 deploy_terraform:
   stage: deploy
   script:
     # Your Review App deployment scripts - for a working example please check https://gitlab.com/Flockademic/Flockademic/blob/5a45f1c2412e93810fab50e2dab8949e2d0633c7/.gitlab-ci.yml#L315
     - echo
+  environment: production
+
 e2e:firefox:
   stage: confidence-check
   services:
     - selenium/standalone-firefox
   script:
     - npm run confidence-check --host=selenium__standalone-firefox
+
 e2e:chrome:
   stage: confidence-check
   services:

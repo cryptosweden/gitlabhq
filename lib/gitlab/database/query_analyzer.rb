@@ -11,7 +11,7 @@ module Gitlab
       include ::Singleton
 
       Parsed = Struct.new(
-        :sql, :connection, :pg
+        :sql, :connection, :pg, :event_name
       )
 
       attr_reader :all_analyzers
@@ -20,45 +20,70 @@ module Gitlab
         @all_analyzers = []
       end
 
+      # @info most common event names are:
+      #       Model Load, Model Create, Model Update, Model Pluck, Model Destroy, Model Insert, Model Delete All
+      #       Model Exists?, nil, TRANSACTION, SCHEMA
       def hook!
         @subscriber = ActiveSupport::Notifications.subscribe('sql.active_record') do |event|
           # In some cases analyzer code might trigger another SQL call
           # to avoid stack too deep this detects recursive call of subscriber
           with_ignored_recursive_calls do
-            process_sql(event.payload[:sql], event.payload[:connection])
+            process_sql(event.payload[:sql], event.payload[:connection], event.payload[:name].to_s)
           end
         end
       end
 
-      def within(user_analyzers = nil)
-        # Due to singleton nature of analyzers
-        # only an outer invocation of the `.within`
-        # is allowed to initialize them
-        if already_within?
-          raise 'Query analyzers are already defined, cannot re-define them.' if user_analyzers
-
-          return yield
-        end
-
-        begin!(user_analyzers || all_analyzers)
+      def within(analyzers = all_analyzers)
+        newly_enabled_analyzers = begin!(analyzers)
 
         begin
           yield
         ensure
-          end!
+          end!(newly_enabled_analyzers)
         end
       end
 
-      def already_within?
-        # If analyzers are set they are already configured
-        !enabled_analyzers.nil?
+      # Enable query analyzers (only the ones that were not yet enabled)
+      # Returns a list of newly enabled analyzers
+      def begin!(analyzers)
+        analyzers.select do |analyzer|
+          next if enabled_analyzers.include?(analyzer)
+
+          if analyzer.enabled?
+            analyzer.begin!
+            enabled_analyzers.append(analyzer)
+
+            true
+          end
+        rescue StandardError, ::Gitlab::Database::QueryAnalyzers::Base::QueryAnalyzerError => e
+          Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
+
+          false
+        end
       end
 
-      def process_sql(sql, connection)
+      # Disable enabled query analyzers (only the ones that were enabled previously)
+      def end!(analyzers)
+        analyzers.each do |analyzer|
+          next unless enabled_analyzers.delete(analyzer)
+
+          analyzer.end!
+        rescue StandardError, ::Gitlab::Database::QueryAnalyzers::Base::QueryAnalyzerError => e
+          Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
+        end
+      end
+
+      private
+
+      def enabled_analyzers
+        Thread.current[:query_analyzer_enabled_analyzers] ||= []
+      end
+
+      def process_sql(sql, connection, event_name)
         analyzers = enabled_analyzers
         return unless analyzers&.any?
 
-        parsed = parse(sql, connection)
+        parsed = parse(sql, connection, event_name)
         return unless parsed
 
         analyzers.each do |analyzer|
@@ -71,46 +96,12 @@ module Gitlab
         end
       end
 
-      # Enable query analyzers
-      def begin!(analyzers = all_analyzers)
-        analyzers = analyzers.select do |analyzer|
-          if analyzer.enabled?
-            analyzer.begin!
-
-            true
-          end
-        rescue StandardError, ::Gitlab::Database::QueryAnalyzers::Base::QueryAnalyzerError => e
-          Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
-
-          false
-        end
-
-        Thread.current[:query_analyzer_enabled_analyzers] = analyzers
-      end
-
-      # Disable enabled query analyzers
-      def end!
-        enabled_analyzers.select do |analyzer|
-          analyzer.end!
-        rescue StandardError, ::Gitlab::Database::QueryAnalyzers::Base::QueryAnalyzerError => e
-          Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
-        end
-
-        Thread.current[:query_analyzer_enabled_analyzers] = nil
-      end
-
-      private
-
-      def enabled_analyzers
-        Thread.current[:query_analyzer_enabled_analyzers]
-      end
-
-      def parse(sql, connection)
+      def parse(sql, connection, event_name)
         parsed = PgQuery.parse(sql)
         return unless parsed
 
         normalized = PgQuery.normalize(sql)
-        Parsed.new(normalized, connection, parsed)
+        Parsed.new(normalized, connection, parsed, normalize_event_name(event_name))
       rescue PgQuery::ParseError => e
         # Ignore PgQuery parse errors (due to depth limit or other reasons)
         Gitlab::ErrorTracking.track_exception(e)
@@ -127,6 +118,12 @@ module Gitlab
         ensure
           Thread.current[:query_analyzer_recursive] = nil
         end
+      end
+
+      def normalize_event_name(event_name)
+        split_event_name = event_name.to_s.downcase.split(' ')
+
+        split_event_name.size > 1 ? split_event_name.from(1).join('_') : split_event_name.join('_')
       end
     end
   end

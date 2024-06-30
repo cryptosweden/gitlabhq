@@ -1,24 +1,36 @@
 import { shallowMount } from '@vue/test-utils';
-import Vue from 'vue';
-import Vuex from 'vuex';
 import BoardFilteredSearch from '~/boards/components/board_filtered_search.vue';
-import * as urlUtility from '~/lib/utils/url_utility';
-import { __ } from '~/locale';
+import { updateHistory } from '~/lib/utils/url_utility';
+import {
+  TOKEN_TITLE_AUTHOR,
+  TOKEN_TITLE_LABEL,
+  TOKEN_TYPE_ASSIGNEE,
+  TOKEN_TYPE_AUTHOR,
+  TOKEN_TYPE_HEALTH,
+  TOKEN_TYPE_ITERATION,
+  TOKEN_TYPE_LABEL,
+  TOKEN_TYPE_MILESTONE,
+  TOKEN_TYPE_RELEASE,
+  TOKEN_TYPE_TYPE,
+  TOKEN_TYPE_WEIGHT,
+} from '~/vue_shared/components/filtered_search_bar/constants';
 import FilteredSearchBarRoot from '~/vue_shared/components/filtered_search_bar/filtered_search_bar_root.vue';
-import AuthorToken from '~/vue_shared/components/filtered_search_bar/tokens/author_token.vue';
+import UserToken from '~/vue_shared/components/filtered_search_bar/tokens/user_token.vue';
 import LabelToken from '~/vue_shared/components/filtered_search_bar/tokens/label_token.vue';
-import { createStore } from '~/boards/stores';
 
-Vue.use(Vuex);
+jest.mock('~/lib/utils/url_utility', () => ({
+  updateHistory: jest.fn(),
+  setUrlParams: jest.requireActual('~/lib/utils/url_utility').setUrlParams,
+  queryToObject: jest.requireActual('~/lib/utils/url_utility').queryToObject,
+}));
 
 describe('BoardFilteredSearch', () => {
   let wrapper;
-  let store;
   const tokens = [
     {
       icon: 'labels',
-      title: __('Label'),
-      type: 'label',
+      title: TOKEN_TITLE_LABEL,
+      type: TOKEN_TYPE_LABEL,
       operators: [
         { value: '=', description: 'is' },
         { value: '!=', description: 'is not' },
@@ -30,42 +42,39 @@ describe('BoardFilteredSearch', () => {
     },
     {
       icon: 'pencil',
-      title: __('Author'),
-      type: 'author',
+      title: TOKEN_TITLE_AUTHOR,
+      type: TOKEN_TYPE_AUTHOR,
       operators: [
         { value: '=', description: 'is' },
         { value: '!=', description: 'is not' },
       ],
       symbol: '@',
-      token: AuthorToken,
+      token: UserToken,
       unique: true,
-      fetchAuthors: () => new Promise(() => {}),
+      fetchUsers: () => new Promise(() => {}),
     },
   ];
 
-  const createComponent = ({ initialFilterParams = {}, props = {} } = {}) => {
-    store = createStore();
+  const createComponent = ({ initialFilterParams = {}, props = {}, provide = {} } = {}) => {
     wrapper = shallowMount(BoardFilteredSearch, {
-      provide: { initialFilterParams, fullPath: '' },
-      store,
+      provide: {
+        initialFilterParams,
+        fullPath: '',
+        ...provide,
+      },
       propsData: {
         ...props,
         tokens,
+        filters: {},
       },
     });
   };
 
   const findFilteredSearch = () => wrapper.findComponent(FilteredSearchBarRoot);
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('default', () => {
     beforeEach(() => {
       createComponent();
-
-      jest.spyOn(store, 'dispatch').mockImplementation();
     });
 
     it('passes the correct tokens to FilteredSearch', () => {
@@ -73,31 +82,36 @@ describe('BoardFilteredSearch', () => {
     });
 
     describe('when onFilter is emitted', () => {
-      it('calls performSearch', () => {
-        findFilteredSearch().vm.$emit('onFilter', [{ value: { data: '' } }]);
-
-        expect(store.dispatch).toHaveBeenCalledWith('performSearch');
-      });
-
       it('calls historyPushState', () => {
-        jest.spyOn(urlUtility, 'updateHistory');
         findFilteredSearch().vm.$emit('onFilter', [{ value: { data: 'searchQuery' } }]);
 
-        expect(urlUtility.updateHistory).toHaveBeenCalledWith({
+        expect(updateHistory).toHaveBeenCalledWith({
           replace: true,
           title: '',
           url: 'http://test.host/',
         });
       });
     });
+
+    it('emits setFilters and updates URL when onFilter is emitted', () => {
+      findFilteredSearch().vm.$emit('onFilter', [{ value: { data: '' } }]);
+
+      expect(updateHistory).toHaveBeenCalledWith({
+        title: '',
+        replace: true,
+        url: 'http://test.host/',
+      });
+
+      expect(wrapper.emitted('setFilters')).toHaveLength(1);
+    });
   });
 
   describe('when eeFilters is not empty', () => {
-    it('passes the correct initialFilterValue to FitleredSearchBarRoot', () => {
+    it('passes the correct initialFilterValue to FilteredSearchBarRoot', () => {
       createComponent({ props: { eeFilters: { labelName: ['label'] } } });
 
       expect(findFilteredSearch().props('initialFilterValue')).toEqual([
-        { type: 'label', value: { data: 'label', operator: '=' } },
+        { type: TOKEN_TYPE_LABEL, value: { data: 'label', operator: '=' } },
       ]);
     });
   });
@@ -111,30 +125,29 @@ describe('BoardFilteredSearch', () => {
   describe('when searching', () => {
     beforeEach(() => {
       createComponent();
-
-      jest.spyOn(wrapper.vm, 'performSearch').mockImplementation();
     });
 
-    it('sets the url params to the correct results', async () => {
+    it('sets the url params to the correct results', () => {
       const mockFilters = [
-        { type: 'author', value: { data: 'root', operator: '=' } },
-        { type: 'assignee', value: { data: 'root', operator: '=' } },
-        { type: 'label', value: { data: 'label', operator: '=' } },
-        { type: 'label', value: { data: 'label&2', operator: '=' } },
-        { type: 'milestone', value: { data: 'New Milestone', operator: '=' } },
-        { type: 'type', value: { data: 'INCIDENT', operator: '=' } },
-        { type: 'weight', value: { data: '2', operator: '=' } },
-        { type: 'iteration', value: { data: '3341', operator: '=' } },
-        { type: 'release', value: { data: 'v1.0.0', operator: '=' } },
+        { type: TOKEN_TYPE_AUTHOR, value: { data: 'root', operator: '=' } },
+        { type: TOKEN_TYPE_ASSIGNEE, value: { data: 'root', operator: '=' } },
+        { type: TOKEN_TYPE_LABEL, value: { data: 'label', operator: '=' } },
+        { type: TOKEN_TYPE_LABEL, value: { data: 'label&2', operator: '=' } },
+        { type: TOKEN_TYPE_MILESTONE, value: { data: 'New Milestone', operator: '=' } },
+        { type: TOKEN_TYPE_TYPE, value: { data: 'INCIDENT', operator: '=' } },
+        { type: TOKEN_TYPE_WEIGHT, value: { data: '2', operator: '=' } },
+        { type: TOKEN_TYPE_ITERATION, value: { data: 'Any&3', operator: '=' } },
+        { type: TOKEN_TYPE_RELEASE, value: { data: 'v1.0.0', operator: '=' } },
+        { type: TOKEN_TYPE_HEALTH, value: { data: 'onTrack', operator: '=' } },
+        { type: TOKEN_TYPE_HEALTH, value: { data: 'atRisk', operator: '!=' } },
       ];
-      jest.spyOn(urlUtility, 'updateHistory');
+
       findFilteredSearch().vm.$emit('onFilter', mockFilters);
 
-      expect(urlUtility.updateHistory).toHaveBeenCalledWith({
+      expect(updateHistory).toHaveBeenCalledWith({
         title: '',
         replace: true,
-        url:
-          'http://test.host/?author_username=root&label_name[]=label&label_name[]=label%262&assignee_username=root&milestone_title=New%20Milestone&iteration_id=3341&types=INCIDENT&weight=2&release_tag=v1.0.0',
+        url: 'http://test.host/?not[health_status]=atRisk&author_username=root&label_name[]=label&label_name[]=label%262&assignee_username=root&milestone_title=New%20Milestone&iteration_id=Any&iteration_cadence_id=3&types=INCIDENT&weight=2&release_tag=v1.0.0&health_status=onTrack',
       });
     });
 
@@ -145,11 +158,13 @@ describe('BoardFilteredSearch', () => {
         ['None', url('None')],
         ['Any', url('Any')],
       ])('sets the url param %s', (assigneeParam, expected) => {
-        const mockFilters = [{ type: 'assignee', value: { data: assigneeParam, operator: '=' } }];
-        jest.spyOn(urlUtility, 'updateHistory');
+        const mockFilters = [
+          { type: TOKEN_TYPE_ASSIGNEE, value: { data: assigneeParam, operator: '=' } },
+        ];
+
         findFilteredSearch().vm.$emit('onFilter', mockFilters);
 
-        expect(urlUtility.updateHistory).toHaveBeenCalledWith({
+        expect(updateHistory).toHaveBeenCalledWith({
           title: '',
           replace: true,
           url: expected,
@@ -160,15 +175,55 @@ describe('BoardFilteredSearch', () => {
 
   describe('when url params are already set', () => {
     beforeEach(() => {
-      createComponent({ initialFilterParams: { authorUsername: 'root', labelName: ['label'] } });
-
-      jest.spyOn(store, 'dispatch');
+      createComponent({
+        initialFilterParams: { authorUsername: 'root', labelName: ['label'], healthStatus: 'Any' },
+      });
     });
 
     it('passes the correct props to FilterSearchBar', () => {
       expect(findFilteredSearch().props('initialFilterValue')).toEqual([
-        { type: 'author', value: { data: 'root', operator: '=' } },
-        { type: 'label', value: { data: 'label', operator: '=' } },
+        { type: TOKEN_TYPE_AUTHOR, value: { data: 'root', operator: '=' } },
+        { type: TOKEN_TYPE_LABEL, value: { data: 'label', operator: '=' } },
+        { type: TOKEN_TYPE_HEALTH, value: { data: 'Any', operator: '=' } },
+      ]);
+    });
+  });
+
+  describe('when iteration is passed a wildcard value with a cadence id', () => {
+    const url = (arg) => `http://test.host/?iteration_id=${arg}&iteration_cadence_id=1349`;
+
+    beforeEach(() => {
+      createComponent();
+    });
+
+    it.each([
+      ['Current&1349', url('Current'), 'Current'],
+      ['Any&1349', url('Any'), 'Any'],
+    ])('sets the url param %s', (iterationParam, expected, wildCardId) => {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: new URL(expected),
+      });
+
+      const mockFilters = [
+        { type: TOKEN_TYPE_ITERATION, value: { data: iterationParam, operator: '=' } },
+      ];
+
+      findFilteredSearch().vm.$emit('onFilter', mockFilters);
+
+      expect(updateHistory).toHaveBeenCalledWith({
+        title: '',
+        replace: true,
+        url: expected,
+      });
+
+      expect(wrapper.emitted('setFilters')).toStrictEqual([
+        [
+          {
+            iterationCadenceId: '1349',
+            iterationId: wildCardId,
+          },
+        ],
       ]);
     });
   });

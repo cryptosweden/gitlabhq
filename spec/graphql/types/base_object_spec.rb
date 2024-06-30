@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Types::BaseObject do
+RSpec.describe Types::BaseObject, feature_category: :api do
   include GraphqlHelpers
 
   describe 'scoping items' do
@@ -12,14 +12,17 @@ RSpec.describe Types::BaseObject do
           true
         end
 
-        def ok?(object, _current_user)
+        def ok?(object, _current_user, scope_validator: nil)
           return false if object == { id: 100 }
           return false if object.try(:deactivated?)
+          raise "Missing scope_validator" unless scope_validator
 
           true
         end
       end
     end
+
+    let(:scope_validator) { instance_double(::Gitlab::Auth::ScopeValidator, valid_for?: true) }
 
     let_it_be(:test_schema) do
       auth = custom_auth.new(nil)
@@ -137,7 +140,6 @@ RSpec.describe Types::BaseObject do
 
       Class.new(GraphQL::Schema) do
         lazy_resolve ::Gitlab::Graphql::Lazy, :force
-        use ::GraphQL::Pagination::Connections
         use ::Gitlab::Graphql::Pagination::Connections
 
         query(Class.new(::Types::BaseObject) do
@@ -173,6 +175,7 @@ RSpec.describe Types::BaseObject do
 
     let(:data) do
       {
+        scope_validator: scope_validator,
         x: {
           title: 'Hey',
           ys: [{ id: 1 }, { id: 100 }, { id: 2 }]
@@ -217,6 +220,7 @@ RSpec.describe Types::BaseObject do
       n = 7
 
       data = {
+        scope_validator: scope_validator,
         x: {
           ys: (95..105).to_a.map { |id| { id: id } }
         }
@@ -263,7 +267,10 @@ RSpec.describe Types::BaseObject do
       active_users = create_list(:user, 3, state: :active)
       inactive = create(:user, state: :deactivated)
 
-      data = { user_ids: [inactive, *active_users].map(&:id) }
+      data = {
+        scope_validator: scope_validator,
+        user_ids: [inactive, *active_users].map(&:id)
+      }
 
       doc = GraphQL.parse(<<~GQL)
       query {
@@ -282,6 +289,7 @@ RSpec.describe Types::BaseObject do
     it 'filters polymorphic connections' do
       data = {
         current_user: :the_user,
+        scope_validator: scope_validator,
         x: {
           values: [{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]
         }
@@ -325,6 +333,7 @@ RSpec.describe Types::BaseObject do
     it 'filters interface connections' do
       data = {
         current_user: :the_user,
+        scope_validator: scope_validator,
         x: {
           values: [{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]
         }
@@ -369,6 +378,7 @@ RSpec.describe Types::BaseObject do
     it 'redacts polymorphic objects' do
       data = {
         current_user: :the_user,
+        scope_validator: scope_validator,
         x: {
           values: [{ value: 1 }]
         }
@@ -409,7 +419,10 @@ RSpec.describe Types::BaseObject do
       inactive = create_list(:user, n - 1, state: :deactivated)
       active_users = create_list(:user, 2, state: :active)
 
-      data = { user_ids: [*inactive, *active_users].map(&:id) }
+      data = {
+        scope_validator: scope_validator,
+        user_ids: [*inactive, *active_users].map(&:id)
+      }
 
       doc = GraphQL.parse(<<~GQL)
       query {
@@ -427,6 +440,26 @@ RSpec.describe Types::BaseObject do
       expect(result.dig('data', 'users', 'pageInfo', 'hasNextPage')).to be_truthy
       expect(result.dig('data', 'users', 'nodes'))
         .to contain_exactly({ 'name' => active_users.first.name })
+    end
+
+    describe '.authorize' do
+      let_it_be(:read_only_type) do
+        Class.new(described_class) do
+          authorize :read_only
+        end
+      end
+
+      let_it_be(:inherited_read_only_type) { Class.new(read_only_type) }
+
+      it 'keeps track of the specified value' do
+        expect(described_class.authorize).to be_nil
+        expect(read_only_type.authorize).to match_array [:read_only]
+        expect(inherited_read_only_type.authorize).to match_array [:read_only]
+      end
+
+      it 'can not redefine the authorize value' do
+        expect { read_only_type.authorize(:write_only) }.to raise_error('Cannot redefine authorize')
+      end
     end
   end
 end

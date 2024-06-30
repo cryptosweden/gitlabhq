@@ -59,7 +59,18 @@ export const steps = `
     bar: $BAR
 `;
 
+export const compiledScenario1 = `foo: fooVal
+`;
+
+export const compiledScenario2 = `bar: barVal
+`;
+
+export const compiledScenario3 = `foo: newFooVal
+bar: barVal
+`;
+
 export const fullTemplate = `
+id: test/full-template
 title: some title
 description: some description
 filename: foo.yml
@@ -73,6 +84,7 @@ steps:
 `;
 
 export const fullTemplateWithoutFilename = `
+id: test/full-template-no-filename
 title: some title
 description: some description
 steps:

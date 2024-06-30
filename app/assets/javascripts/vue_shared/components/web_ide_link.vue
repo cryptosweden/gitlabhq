@@ -1,34 +1,51 @@
 <script>
-import { GlModal, GlSprintf, GlLink } from '@gitlab/ui';
+import {
+  GlModal,
+  GlSprintf,
+  GlLink,
+  GlDisclosureDropdown,
+  GlDisclosureDropdownGroup,
+  GlDisclosureDropdownItem,
+} from '@gitlab/ui';
 import { s__, __ } from '~/locale';
-import ActionsButton from '~/vue_shared/components/actions_button.vue';
-import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
-import ConfirmForkModal from '~/vue_shared/components/confirm_fork_modal.vue';
+import { visitUrl } from '~/lib/utils/url_utility';
+import Tracking from '~/tracking';
+import ConfirmForkModal from '~/vue_shared/components/web_ide/confirm_fork_modal.vue';
+import { keysFor, GO_TO_PROJECT_WEBIDE } from '~/behaviors/shortcuts/keybindings';
+import { shouldDisableShortcuts } from '~/behaviors/shortcuts/shortcuts_toggle';
+import { KEY_EDIT, KEY_WEB_IDE, KEY_GITPOD, KEY_PIPELINE_EDITOR } from './constants';
 
-const KEY_EDIT = 'edit';
-const KEY_WEB_IDE = 'webide';
-const KEY_GITPOD = 'gitpod';
-const KEY_PIPELINE_EDITOR = 'pipeline_editor';
+export const i18n = {
+  modal: {
+    title: __('Enable Gitpod?'),
+    content: s__(
+      'Gitpod|To use Gitpod you must first enable the feature in the integrations section of your %{linkStart}user preferences%{linkEnd}.',
+    ),
+    actionCancelText: __('Cancel'),
+    actionPrimaryText: __('Enable Gitpod'),
+  },
+  webIdeText: s__('WebIDE|Quickly and easily edit multiple files in your project.'),
+  webIdeTooltip: s__(
+    'WebIDE|Quickly and easily edit multiple files in your project. Press . to open',
+  ),
+  toggleText: __('Edit'),
+};
+
+const TRACKING_ACTION_NAME = 'click_consolidated_edit';
 
 export default {
+  name: 'CEWebIdeLink',
   components: {
-    ActionsButton,
-    LocalStorageSync,
     GlModal,
     GlSprintf,
     GlLink,
+    GlDisclosureDropdown,
+    GlDisclosureDropdownGroup,
+    GlDisclosureDropdownItem,
     ConfirmForkModal,
   },
-  i18n: {
-    modal: {
-      title: __('Enable Gitpod?'),
-      content: s__(
-        'Gitpod|To use Gitpod you must first enable the feature in the integrations section of your %{linkStart}user preferences%{linkEnd}.',
-      ),
-      actionCancelText: __('Cancel'),
-      actionPrimaryText: __('Enable Gitpod'),
-    },
-  },
+  i18n,
+  mixins: [Tracking.mixin()],
   props: {
     isFork: {
       type: Boolean,
@@ -125,10 +142,19 @@ export default {
       required: false,
       default: '',
     },
+    webIdePromoPopoverImg: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    cssClasses: {
+      type: String,
+      required: false,
+      default: 'gl-sm-ml-3',
+    },
   },
   data() {
     return {
-      selection: this.showPipelineEditorButton ? KEY_PIPELINE_EDITOR : KEY_WEB_IDE,
       showEnableGitpodModal: false,
       showForkModal: false,
     };
@@ -142,10 +168,11 @@ export default {
         this.gitpodAction,
       ].filter((action) => action);
     },
+    hasActions() {
+      return this.actions.length > 0;
+    },
     editAction() {
-      if (!this.showEditButton) {
-        return null;
-      }
+      if (!this.showEditButton) return null;
 
       const handleOptions = this.needsToFork
         ? {
@@ -163,36 +190,39 @@ export default {
 
       return {
         key: KEY_EDIT,
-        text: __('Edit'),
+        text: __('Edit single file'),
         secondaryText: __('Edit this file only.'),
-        tooltip: '',
-        attrs: {
-          'data-qa-selector': 'edit_button',
-          'data-track-action': 'click_consolidated_edit',
-          'data-track-label': 'edit',
+        tracking: {
+          action: TRACKING_ACTION_NAME,
+          label: 'single_file',
         },
         ...handleOptions,
       };
     },
+    shortcutsDisabled() {
+      return shouldDisableShortcuts();
+    },
+    webIdeActionShortcutKey() {
+      return keysFor(GO_TO_PROJECT_WEBIDE)[0];
+    },
     webIdeActionText() {
       if (this.webIdeText) {
         return this.webIdeText;
-      } else if (this.isBlob) {
+      }
+      if (this.isBlob) {
         return __('Open in Web IDE');
-      } else if (this.isFork) {
+      }
+      if (this.isFork) {
         return __('Edit fork in Web IDE');
       }
 
       return __('Web IDE');
     },
     webIdeAction() {
-      if (!this.showWebIdeButton) {
-        return null;
-      }
+      if (!this.showWebIdeButton) return null;
 
       const handleOptions = this.needsToFork
         ? {
-            href: '#modal-confirm-fork-webide',
             handle: () => {
               if (this.disableForkModal) {
                 this.$emit('edit', 'ide');
@@ -202,17 +232,20 @@ export default {
               this.showModal('showForkModal');
             },
           }
-        : { href: this.webIdeUrl };
+        : {
+            handle: () => {
+              visitUrl(this.webIdeUrl, true);
+            },
+          };
 
       return {
         key: KEY_WEB_IDE,
         text: this.webIdeActionText,
-        secondaryText: __('Quickly and easily edit multiple files in your project.'),
-        tooltip: '',
-        attrs: {
-          'data-qa-selector': 'web_ide_button',
-          'data-track-action': 'click_consolidated_edit_ide',
-          'data-track-label': 'web_ide',
+        secondaryText: this.$options.i18n.webIdeText,
+        shortcut: this.webIdeActionShortcutKey,
+        tracking: {
+          action: TRACKING_ACTION_NAME,
+          label: 'web_ide',
         },
         ...handleOptions,
       };
@@ -239,11 +272,11 @@ export default {
         key: KEY_PIPELINE_EDITOR,
         text: __('Edit in pipeline editor'),
         secondaryText,
-        tooltip: secondaryText,
-        attrs: {
-          'data-qa-selector': 'pipeline_editor_button',
-        },
         href: this.pipelineEditorUrl,
+        tracking: {
+          action: TRACKING_ACTION_NAME,
+          label: 'pipeline_editor',
+        },
       };
     },
     gitpodAction() {
@@ -264,9 +297,9 @@ export default {
         key: KEY_GITPOD,
         text: this.gitpodActionText,
         secondaryText,
-        tooltip: secondaryText,
-        attrs: {
-          'data-qa-selector': 'gitpod_button',
+        tracking: {
+          action: TRACKING_ACTION_NAME,
+          label: 'gitpod',
         },
         ...handleOptions,
       };
@@ -290,32 +323,67 @@ export default {
         },
       };
     },
+    mountForkModal() {
+      const { disableForkModal, showWebIdeButton, showEditButton } = this;
+      if (disableForkModal) return false;
+
+      return showWebIdeButton || showEditButton;
+    },
   },
   methods: {
-    select(key) {
-      this.selection = key;
-    },
     showModal(dataKey) {
       this[dataKey] = true;
+    },
+    executeAction(action) {
+      this.track(action.tracking.action, { label: action.tracking.label });
+      action.handle?.();
     },
   },
 };
 </script>
 
 <template>
-  <div class="gl-sm-ml-3">
-    <actions-button
-      :actions="actions"
-      :selected-key="selection"
-      :variant="isBlob ? 'info' : 'default'"
+  <div v-if="hasActions" :class="cssClasses">
+    <gl-disclosure-dropdown
+      :variant="isBlob ? 'confirm' : 'default'"
       :category="isBlob ? 'primary' : 'secondary'"
-      @select="select"
-    />
-    <local-storage-sync
-      storage-key="gl-web-ide-button-selected"
-      :value="selection"
-      @input="select"
-    />
+      :toggle-text="$options.i18n.toggleText"
+      data-testid="action-dropdown"
+      fluid-width
+      block
+      @shown="$emit('shown')"
+      @hidden="$emit('hidden')"
+    >
+      <slot name="before-actions"></slot>
+      <gl-disclosure-dropdown-group class="edit-dropdown-group-width">
+        <gl-disclosure-dropdown-item
+          v-for="action in actions"
+          :key="action.key"
+          :item="action"
+          :data-testid="`${action.key}-menu-item`"
+          @action="executeAction(action)"
+        >
+          <template #list-item>
+            <div class="gl-display-flex gl-flex-direction-column">
+              <span
+                class="gl-display-flex gl-justify-content-space-between gl-align-items-center gl-mb-2"
+              >
+                <span data-testid="action-primary-text" class="gl-font-bold">{{
+                  action.text
+                }}</span>
+                <kbd v-if="action.shortcut && !shortcutsDisabled" class="flat">{{
+                  action.shortcut
+                }}</kbd>
+              </span>
+              <span data-testid="action-secondary-text" class="gl-font-sm gl-text-secondary">
+                {{ action.secondaryText }}
+              </span>
+            </div>
+          </template>
+        </gl-disclosure-dropdown-item>
+      </gl-disclosure-dropdown-group>
+      <slot name="after-actions"></slot>
+    </gl-disclosure-dropdown>
     <gl-modal
       v-if="computedShowGitpodButton && !gitpodEnabled"
       v-model="showEnableGitpodModal"
@@ -328,7 +396,7 @@ export default {
       </gl-sprintf>
     </gl-modal>
     <confirm-fork-modal
-      v-if="showWebIdeButton || showEditButton"
+      v-if="mountForkModal"
       v-model="showForkModal"
       :modal-id="forkModalId"
       :fork-path="forkPath"

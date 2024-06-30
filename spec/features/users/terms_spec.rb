@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Users > Terms', :js do
+RSpec.describe 'Users > Terms', :js, feature_category: :user_profile do
   include TermsHelper
 
   let!(:term) { create(:term, terms: 'By accepting, you promise to be nice!') }
@@ -38,6 +38,21 @@ RSpec.describe 'Users > Terms', :js do
 
       expect(page).not_to have_content('Accept terms')
       expect(project_bot.terms_accepted?).to be(true)
+    end
+  end
+
+  context 'when user is a service account' do
+    let(:service_account) { create(:user, :service_account) }
+
+    before do
+      enforce_terms
+    end
+
+    it 'auto accepts the terms' do
+      visit terms_path
+
+      expect(page).not_to have_content('Accept terms')
+      expect(service_account.terms_accepted?).to be(true)
     end
   end
 
@@ -100,7 +115,7 @@ RSpec.describe 'Users > Terms', :js do
 
         # Application settings are cached for a minute
         travel_to 2.minutes.from_now do
-          within('.nav-sidebar') do
+          within('.contextual-nav') do
             click_link 'Issues'
           end
 
@@ -142,8 +157,7 @@ RSpec.describe 'Users > Terms', :js do
         it 'allows the user to sign out without a response' do
           visit terms_path
 
-          find('.header-user-dropdown-toggle').click
-          click_link('Sign out')
+          click_button('Decline and sign out')
 
           expect(page).to have_content('Sign in')
           expect(page).to have_content('Register')

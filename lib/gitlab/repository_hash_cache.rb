@@ -19,7 +19,7 @@ module Gitlab
     # @param expires_in [Integer] expiry time for hash store keys
     def initialize(repository, extra_namespace: nil, expires_in: 1.day)
       @repository = repository
-      @namespace = "#{repository.full_path}"
+      @namespace = repository.full_path.to_s
       @namespace += ":#{repository.project.id}" if repository.project
       @namespace = "#{@namespace}:#{extra_namespace}" if extra_namespace
       @expires_in = expires_in
@@ -40,7 +40,11 @@ module Gitlab
         keys = keys.map { |key| cache_key(key) }
 
         Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
-          redis.unlink(*keys)
+          if Gitlab::Redis::ClusterUtil.cluster?(redis)
+            Gitlab::Redis::ClusterUtil.batch_unlink(keys, redis)
+          else
+            redis.unlink(*keys)
+          end
         end
       end
     end
@@ -82,15 +86,17 @@ module Gitlab
 
       full_key = cache_key(key)
 
+      hash = standardize_hash(hash)
+
       with do |redis|
-        results = redis.pipelined do
+        results = redis.pipelined do |pipeline|
           # Set each hash key to the provided value
           hash.each do |h_key, h_value|
-            redis.hset(full_key, h_key, h_value)
+            pipeline.hset(full_key, h_key, h_value)
           end
 
           # Update the expiry time for this hset
-          redis.expire(full_key, expires_in)
+          pipeline.expire(full_key, expires_in)
         end
 
         results.all?
@@ -139,8 +145,12 @@ module Gitlab
 
     private
 
+    def cache
+      Gitlab::Redis::RepositoryCache
+    end
+
     def with(&blk)
-      Gitlab::Redis::Cache.with(&blk) # rubocop:disable CodeReuse/ActiveRecord
+      cache.with(&blk) # rubocop:disable CodeReuse/ActiveRecord
     end
 
     # Take a hash and convert both keys and values to strings, for insertion into Redis.

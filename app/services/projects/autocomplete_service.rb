@@ -3,8 +3,13 @@
 module Projects
   class AutocompleteService < BaseService
     include LabelsAsHash
+    include Routing::WikiHelper
+
     def issues
-      IssuesFinder.new(current_user, project_id: project.id, state: 'opened').execute.select([:iid, :title])
+      IssuesFinder.new(current_user, project_id: project.id, state: 'opened')
+        .execute
+        .with_work_item_type
+        .select([:iid, :title, 'work_item_types.icon_name'])
     end
 
     def milestones
@@ -23,19 +28,41 @@ module Projects
       MergeRequestsFinder.new(current_user, project_id: project.id, state: 'opened').execute.select([:iid, :title])
     end
 
-    def commands(noteable, type)
-      return [] unless noteable
+    def commands(noteable)
+      return [] unless noteable && current_user
 
-      QuickActions::InterpretService.new(project, current_user).available_commands(noteable)
+      QuickActions::InterpretService.new(container: project, current_user: current_user).available_commands(noteable)
     end
 
     def snippets
       SnippetsFinder.new(current_user, project: project).execute.select([:id, :title])
     end
 
-    def contacts
-      Crm::ContactsFinder.new(current_user, group: project.group).execute
-        .select([:id, :email, :first_name, :last_name])
+    def wikis
+      wiki = Wiki.for_container(project, current_user)
+      return [] unless can?(current_user, :read_wiki, wiki.container)
+
+      wiki
+        .list_pages(limit: 5000)
+        .reject { |page| page.slug.start_with?('templates/') }
+        .map { |page| { path: wiki_page_path(page.wiki, page), slug: page.slug, title: page.title } }
+    end
+
+    def contacts(target)
+      available_contacts = Crm::ContactsFinder.new(current_user, group: project.group).execute
+        .select([:id, :email, :first_name, :last_name, :state])
+
+      contact_hashes = available_contacts.as_json
+
+      return contact_hashes unless target.is_a?(Issue)
+
+      ids = target.customer_relations_contacts.ids # rubocop:disable CodeReuse/ActiveRecord
+
+      contact_hashes.each do |hash|
+        hash[:set] = ids.include?(hash['id'])
+      end
+
+      contact_hashes
     end
 
     def labels_as_hash(target)

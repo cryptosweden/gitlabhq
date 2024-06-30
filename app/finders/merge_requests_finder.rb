@@ -21,6 +21,7 @@
 #     label_name: string
 #     sort: string
 #     non_archived: boolean
+#     merged_without_event_source: boolean
 #     my_reaction_emoji: string
 #     source_branch: string
 #     target_branch: string
@@ -30,22 +31,29 @@
 #     updated_before: datetime
 #
 class MergeRequestsFinder < IssuableFinder
+  extend ::Gitlab::Utils::Override
+
   include MergedAtFilter
+  include MergeUserFilter
 
   def self.scalar_params
     @scalar_params ||= super + [
+      :approved,
       :approved_by_ids,
       :deployed_after,
       :deployed_before,
       :draft,
       :environment,
+      :merge_user_id,
+      :merge_user_username,
       :merged_after,
       :merged_before,
       :reviewer_id,
       :reviewer_username,
+      :review_state,
+      :source_branch,
       :target_branch,
-      :wip,
-      :attention
+      :wip
     ]
   end
 
@@ -66,23 +74,37 @@ class MergeRequestsFinder < IssuableFinder
     items = by_source_branch(items)
     items = by_draft(items)
     items = by_target_branch(items)
+    items = by_merge_user(items)
     items = by_merged_at(items)
     items = by_approvals(items)
     items = by_deployments(items)
     items = by_reviewer(items)
-    items = by_attention(items)
+    items = by_review_state(items)
+    items = by_source_project_id(items)
+    items = by_resource_event_state(items)
 
-    by_source_project_id(items)
+    by_approved(items)
   end
 
   def filter_negated_items(items)
     items = super(items)
     items = by_negated_reviewer(items)
     items = by_negated_approved_by(items)
-    by_negated_target_branch(items)
+    items = by_negated_target_branch(items)
+    by_negated_source_branch(items)
   end
 
   private
+
+  override :sort
+  def sort(items)
+    items = super(items)
+
+    return items unless use_grouping_columns?
+
+    grouping_columns = klass.grouping_columns(params[:sort])
+    items.group(grouping_columns) # rubocop:disable CodeReuse/ActiveRecord
+  end
 
   def by_commit(items)
     return items unless params[:commit_sha].presence
@@ -120,6 +142,12 @@ class MergeRequestsFinder < IssuableFinder
 
     items.where.not(target_branch: not_params[:target_branch])
   end
+
+  def by_negated_source_branch(items)
+    return items unless not_params[:source_branch]
+
+    items.where.not(source_branch: not_params[:source_branch])
+  end
   # rubocop: enable CodeReuse/ActiveRecord
 
   def by_negated_approved_by(items)
@@ -140,25 +168,27 @@ class MergeRequestsFinder < IssuableFinder
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
+  def by_resource_event_state(items)
+    return items unless params[:merged_without_event_source].present?
+
+    items.merged_without_state_event_source
+  end
+
   # rubocop: disable CodeReuse/ActiveRecord
   def by_draft(items)
     draft_param = Gitlab::Utils.to_boolean(params.fetch(:draft) { params.fetch(:wip, nil) })
     return items if draft_param.nil?
 
     if draft_param
-      items.where(wip_match(items.arel_table))
+      items.where(draft_match(items.arel_table))
     else
-      items.where.not(wip_match(items.arel_table))
+      items.where.not(draft_match(items.arel_table))
     end
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
-  # WIP is deprecated in favor of Draft. Currently both options are supported
-  def wip_match(table)
-    table[:title].matches('WIP:%')
-      .or(table[:title].matches('WIP %'))
-      .or(table[:title].matches('[WIP]%'))
-      .or(table[:title].matches('Draft - %'))
+  def draft_match(table)
+    table[:title].matches('Draft - %')
       .or(table[:title].matches('Draft:%'))
       .or(table[:title].matches('[Draft]%'))
       .or(table[:title].matches('(Draft)%'))
@@ -172,6 +202,17 @@ class MergeRequestsFinder < IssuableFinder
       .execute(items)
   end
   # rubocop: enable CodeReuse/Finder
+
+  def by_approved(items)
+    approved_param = Gitlab::Utils.to_boolean(params.fetch(:approved, nil))
+    return items if approved_param.nil? || Feature.disabled?(:mr_approved_filter, type: :ops)
+
+    if approved_param
+      items.with_approvals
+    else
+      items.without_approvals
+    end
+  end
 
   def by_deployments(items)
     env = params[:environment]
@@ -204,10 +245,17 @@ class MergeRequestsFinder < IssuableFinder
     elsif params.filter_by_any_reviewer?
       items.review_requested
     elsif params.reviewer
-      items.review_requested_to(params.reviewer)
+      items.review_requested_to(params.reviewer, params.review_state)
     else # reviewer not found
       items.none
     end
+  end
+
+  def by_review_state(items)
+    return items unless params.review_state.present?
+    return items if params.reviewer_id? || params.reviewer_username?
+
+    items.review_states(params.review_state)
   end
 
   def by_negated_reviewer(items)
@@ -220,17 +268,21 @@ class MergeRequestsFinder < IssuableFinder
     end
   end
 
-  def by_attention(items)
-    return items unless params.attention?
-
-    items.attention(params.attention)
-  end
-
   def parse_datetime(input)
+    # NOTE: Input from GraphQL query is a Time object already.
+    #   Just return DateTime object for consistency instead of trying to parse it.
+    return input.to_datetime if input.is_a?(Time)
+
     # To work around http://www.ruby-lang.org/en/news/2021/11/15/date-parsing-method-regexp-dos-cve-2021-41817/
     DateTime.parse(input.byteslice(0, 128)) if input
   rescue Date::Error
     nil
+  end
+
+  def use_grouping_columns?
+    return false unless params[:sort].present?
+
+    params[:approved_by_usernames].present? || params[:approved_by_ids].present?
   end
 end
 

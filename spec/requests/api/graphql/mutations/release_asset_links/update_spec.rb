@@ -2,20 +2,22 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Updating an existing release asset link' do
+RSpec.describe 'Updating an existing release asset link', feature_category: :release_orchestration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :private, :repository) }
   let_it_be(:release) { create(:release, project: project) }
-  let_it_be(:developer) { create(:user).tap { |u| project.add_developer(u) } }
+  let_it_be(:developer) { create(:user, developer_of: project) }
 
   let_it_be(:release_link) do
-    create(:release_link,
-           release: release,
-           name: 'link name',
-           url: 'https://example.com/url',
-           filepath: '/permanent/path',
-           link_type: 'package')
+    create(
+      :release_link,
+      release: release,
+      name: 'link name',
+      url: 'https://example.com/url',
+      filepath: '/permanent/path',
+      link_type: 'package'
+    )
   end
 
   let(:current_user) { developer }
@@ -40,7 +42,6 @@ RSpec.describe 'Updating an existing release asset link' do
         url
         linkType
         directAssetUrl
-        external
       }
       errors
     FIELDS
@@ -57,8 +58,7 @@ RSpec.describe 'Updating an existing release asset link' do
       name: mutation_arguments[:name],
       url: mutation_arguments[:url],
       linkType: mutation_arguments[:linkType],
-      directAssetUrl: end_with(mutation_arguments[:directAssetPath]),
-      external: true
+      directAssetUrl: end_with(mutation_arguments[:directAssetPath])
     }.with_indifferent_access
 
     expect(mutation_response[:link]).to include(expected_response)

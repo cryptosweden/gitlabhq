@@ -2,14 +2,15 @@
 data_category: optional
 key_path: mattermost_enabled
 description: Whether Mattermost is enabled
-product_section: dev
-product_stage: ecosystem
-product_group: group::integrations
-product_category: integrations
+product_group: import_and_integrate
 value_type: boolean
 status: active
 time_frame: none
 data_source: system
+instrumentation_class: GitlabConfigMetric
+options:
+  config:
+    mattermost: enabled
 distribution:
 - ce
 - ee

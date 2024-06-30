@@ -8,39 +8,13 @@ const colorValidatorEl = document.createElement('div');
  * element’s color property. If the color expression is valid,
  * the DOM API will accept the value.
  *
- * @param {String} color color expression rgba, hex, hsla, etc.
+ * @param {String} colorExpression color expression rgba, hex, hsla, etc.
  */
 export const isValidColorExpression = (colorExpression) => {
   colorValidatorEl.style.color = '';
   colorValidatorEl.style.color = colorExpression;
 
   return colorValidatorEl.style.color.length > 0;
-};
-
-/**
- * Convert hex color to rgb array
- *
- * @param hex string
- * @returns array|null
- */
-export const hexToRgb = (hex) => {
-  // Expand shorthand form (e.g. "03F") to full form (e.g. "0033FF")
-  const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
-  const fullHex = hex.replace(shorthandRegex, (_m, r, g, b) => r + r + g + g + b + b);
-
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fullHex);
-  return result
-    ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
-    : null;
-};
-
-export const textColorForBackground = (backgroundColor) => {
-  const [r, g, b] = hexToRgb(backgroundColor);
-
-  if (r + g + b > 500) {
-    return '#333333';
-  }
-  return '#FFFFFF';
 };
 
 /**
@@ -67,10 +41,10 @@ export function darkModeEnabled() {
   const ideDarkThemes = ['dark', 'solarized-dark', 'monokai'];
 
   // eslint-disable-next-line @gitlab/require-i18n-strings
-  const isWebIde = document.body.dataset.page.startsWith('ide:');
+  const isWebIde = document.body.dataset.page?.startsWith('ide:');
 
   if (isWebIde) {
     return ideDarkThemes.includes(window.gon?.user_color_scheme);
   }
-  return document.body.classList.contains('gl-dark');
+  return document.documentElement.classList.contains('gl-dark');
 }

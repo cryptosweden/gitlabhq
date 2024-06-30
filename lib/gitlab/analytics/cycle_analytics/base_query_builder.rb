@@ -53,13 +53,19 @@ module Gitlab
 
             add_parent_model_params!(finder_params)
             add_time_range_params!(finder_params, params[:from], params[:to])
+            finder_params.merge!(params.slice(*::Gitlab::Analytics::CycleAnalytics::RequestParams::FINDER_PARAM_NAMES))
           end
         end
 
         def add_parent_model_params!(finder_params)
-          raise(ArgumentError, "unknown parent_class: #{parent_class}") unless parent_class.eql?(Project)
-
-          finder_params[:project_id] = stage.parent_id
+          case stage.parent
+          when Namespaces::ProjectNamespace
+            finder_params[:project_id] = stage.parent.project.id
+          when Project
+            finder_params[:project_id] = stage.parent_id
+          else
+            raise(ArgumentError, "unknown parent_class: #{parent_class}")
+          end
         end
 
         def add_time_range_params!(finder_params, from, to)

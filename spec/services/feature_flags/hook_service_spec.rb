@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe FeatureFlags::HookService do
+RSpec.describe FeatureFlags::HookService, feature_category: :feature_flags do
   describe '#execute_hooks' do
     let_it_be(:namespace) { create(:namespace) }
     let_it_be(:project) { create(:project, :repository, namespace: namespace) }
@@ -14,12 +14,12 @@ RSpec.describe FeatureFlags::HookService do
 
     subject(:service) { described_class.new(feature_flag, user) }
 
-    describe 'HOOK_NAME' do
-      specify { expect(described_class::HOOK_NAME).to eq(:feature_flag_hooks) }
-    end
-
     before do
       allow(Gitlab::DataBuilder::FeatureFlag).to receive(:build).with(feature_flag, user).once.and_return(hook_data)
+    end
+
+    describe 'HOOK_NAME' do
+      specify { expect(described_class::HOOK_NAME).to eq(:feature_flag_hooks) }
     end
 
     it 'calls feature_flag.project.execute_hooks' do

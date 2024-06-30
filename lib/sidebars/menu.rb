@@ -8,6 +8,7 @@ module Sidebars
     include Gitlab::Allowable
     include ::Sidebars::Concerns::HasPill
     include ::Sidebars::Concerns::HasIcon
+    include ::Sidebars::Concerns::HasAvatar
     include ::Sidebars::Concerns::PositionableList
     include ::Sidebars::Concerns::Renderable
     include ::Sidebars::Concerns::ContainerWithHtmlOptions
@@ -43,7 +44,7 @@ module Sidebars
     # Value from menus is something like: [{ path: 'foo', path: 'bar', controller: :foo }]
     # This method filters the information and returns: { path: ['foo', 'bar'], controller: :foo }
     def all_active_routes
-      @all_active_routes ||= begin
+      @all_active_routes ||=
         ([active_routes] + renderable_items.map(&:active_routes)).flatten.each_with_object({}) do |pairs, hash|
           pairs.each do |k, v|
             hash[k] ||= []
@@ -53,7 +54,6 @@ module Sidebars
 
           hash
         end
-      end
     end
 
     # Returns whether the menu has any menu item, no
@@ -65,6 +65,50 @@ module Sidebars
     # Returns all renderable menu items
     def renderable_items
       @renderable_items ||= @items.select(&:render?)
+    end
+
+    # Defines whether menu is separated from others with a top separator
+    def separated?
+      false
+    end
+
+    # Returns a tree-like representation of itself and all
+    # renderable menu entries, with additional information
+    # on whether the item(s) have an active route
+    def serialize_for_super_sidebar
+      items = serialize_items_for_super_sidebar
+      is_active = @context.route_is_active.call(active_routes) || items.any? { |item| item[:is_active] }
+
+      {
+        id: self.class.name.demodulize.underscore,
+        title: title,
+        icon: sprite_icon,
+        avatar: avatar,
+        avatar_shape: avatar_shape,
+        entity_id: entity_id,
+        link: link,
+        is_active: is_active,
+        pill_count: has_pill? ? pill_count : nil,
+        items: items,
+        separated: separated?
+      }
+    end
+
+    # Returns an array of renderable menu entries,
+    # with additional information on whether the item
+    # has an active route
+    def serialize_items_for_super_sidebar
+      # All renderable menu entries
+      renderable_items.map do |entry|
+        entry.serialize_for_super_sidebar.tap do |item|
+          active_routes = item.delete(:active_routes)
+          item[:is_active] = active_routes ? @context.route_is_active.call(active_routes) : false
+        end
+      end
+    end
+
+    def pick_into_super_sidebar?
+      false
     end
 
     # Returns whether the menu has any renderable menu item
@@ -84,6 +128,19 @@ module Sidebars
       insert_element_after(@items, after_item, new_item)
     end
 
+    def remove_item(item)
+      remove_element(@items, item.item_id)
+    end
+
+    def replace_placeholder(item)
+      idx = @items.index { |e| e.item_id == item.item_id && e.is_a?(::Sidebars::NilMenuItem) }
+      if idx.nil?
+        add_item(item)
+      else
+        replace_element(@items, item.item_id, item)
+      end
+    end
+
     override :container_html_options
     def container_html_options
       super.tap do |html_options|
@@ -92,6 +149,17 @@ module Sidebars
           html_options[:class] = [*html_options[:class], 'has-sub-items'].join(' ')
         end
       end
+    end
+
+    # Sometimes we want to convert a top-level Menu (e.g. Wiki/Snippets)
+    # to a MenuItem. This serializer is used in order to enable that conversion
+    def serialize_as_menu_item_args
+      {
+        title: title,
+        link: link,
+        active_routes: active_routes,
+        container_html_options: container_html_options
+      }
     end
 
     private

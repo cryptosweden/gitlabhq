@@ -1,8 +1,11 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlTooltipDirective, GlButton, GlIcon, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlTooltipDirective, GlButton, GlIcon } from '@gitlab/ui';
 import { throttle } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
-import { __ } from '../../../locale';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { __ } from '~/locale';
 import JobDescription from './detail/description.vue';
 import ScrollButton from './detail/scroll_button.vue';
 
@@ -14,7 +17,7 @@ const scrollPositions = {
 export default {
   directives: {
     GlTooltip: GlTooltipDirective,
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   components: {
     GlButton,
@@ -74,13 +77,13 @@ export default {
 </script>
 
 <template>
-  <div class="ide-pipeline build-page d-flex flex-column flex-fill">
-    <header class="ide-job-header d-flex align-items-center">
+  <div class="ide-pipeline build-page gl-flex flex-column flex-fill">
+    <header class="ide-job-header gl-flex gl-items-center">
       <gl-button category="secondary" icon="chevron-left" size="small" @click="setDetailJob(null)">
         {{ __('View jobs') }}
       </gl-button>
     </header>
-    <div class="top-bar d-flex border-left-0 mr-3">
+    <div class="top-bar gl-flex border-left-0 mr-3">
       <job-description :job="detailJob" />
       <div class="controllers ml-auto">
         <a
@@ -98,7 +101,7 @@ export default {
         <scroll-button :disabled="isScrolledToBottom" direction="down" @click="scrollDown" />
       </div>
     </div>
-    <pre ref="buildJobLog" class="build-log mb-0 h-100 mr-3" @scroll="scrollBuildLog">
+    <pre ref="buildJobLog" class="build-log mb-0 gl-h-full mr-3" @scroll="scrollBuildLog">
       <code
         v-show="!detailJob.isLoading"
         v-safe-html="jobOutput"

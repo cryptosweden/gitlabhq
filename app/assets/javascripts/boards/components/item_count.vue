@@ -26,11 +26,13 @@ export default {
 
 <template>
   <div class="item-count text-nowrap">
-    <span :class="{ 'text-danger': issuesExceedMax }" data-testid="board-items-count">
+    <span :class="{ 'gl-text-red-700': issuesExceedMax }" data-testid="board-items-count">
       {{ itemsSize }}
     </span>
-    <span v-if="isMaxLimitSet" class="js-max-issue-size">
-      {{ maxIssueCount }}
+    <span v-if="isMaxLimitSet" class="max-issue-size">
+      <!-- eslint-disable @gitlab/vue-require-i18n-strings -->
+      {{ `/ ${maxIssueCount}` }}
+      <!-- eslint-enable @gitlab/vue-require-i18n-strings -->
     </span>
   </div>
 </template>

@@ -1,4 +1,5 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapActions } from 'vuex';
 import { LIST_KEY_PACKAGE_TYPE } from '~/packages_and_registries/infrastructure_registry/list/constants';
 import { sortableFields } from '~/packages_and_registries/infrastructure_registry/list/utils';
@@ -7,9 +8,13 @@ import UrlSync from '~/vue_shared/components/url_sync.vue';
 
 export default {
   components: { RegistrySearch, UrlSync },
+  inject: {
+    isGroupPage: {
+      default: false,
+    },
+  },
   computed: {
     ...mapState({
-      isGroupPage: (state) => state.config.isGroupPage,
       sorting: (state) => state.sorting,
       filter: (state) => state.filter,
     }),
@@ -31,9 +36,9 @@ export default {
   <url-sync>
     <template #default="{ updateQuery }">
       <registry-search
-        :filter="filter"
+        :filters="filter"
         :sorting="sorting"
-        :tokens="[]"
+        :tokens="[] /* eslint-disable-line @gitlab/vue-no-new-non-primitive-in-template */"
         :sortable-fields="sortableFields"
         @sorting:changed="updateSorting"
         @filter:changed="setFilter"

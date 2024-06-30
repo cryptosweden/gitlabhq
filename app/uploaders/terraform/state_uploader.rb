@@ -4,7 +4,7 @@ module Terraform
   class StateUploader < GitlabUploader
     include ObjectStorage::Concern
 
-    storage_options Gitlab.config.terraform_state
+    storage_location :terraform_state
 
     # TODO: Remove this line
     # See https://gitlab.com/gitlab-org/gitlab/-/issues/232917
@@ -45,10 +45,6 @@ module Terraform
 
     class << self
       def direct_upload_enabled?
-        false
-      end
-
-      def background_upload_enabled?
         false
       end
 

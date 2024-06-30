@@ -4,7 +4,6 @@ module Resolvers
   class BaseResolver < GraphQL::Schema::Resolver
     extend ::Gitlab::Utils::Override
     include ::Gitlab::Utils::StrongMemoize
-    include ::Gitlab::Graphql::GlobalIDCompatibility
 
     argument_class ::Types::BaseArgument
 
@@ -12,17 +11,23 @@ module Resolvers
       @requires_argument = true
     end
 
+    def self.requires_argument?
+      !!@requires_argument
+    end
+
     def self.calls_gitaly!
       @calls_gitaly = true
     end
 
-    def self.field_options
-      extra_options = {
-        requires_argument: @requires_argument,
-        calls_gitaly: @calls_gitaly
-      }.compact
+    def self.calls_gitaly?
+      !!@calls_gitaly
+    end
 
-      super.merge(extra_options)
+    # This is a flag to allow us to use `complexity_multiplier` to compute complexity for connection
+    # fields(see BaseField#connection_complexity_multiplier) in resolvers that do external connection pagination,
+    # thus disabling the default `connection` option.
+    def self.calculate_ext_conn_complexity
+      false
     end
 
     def self.singular_type
@@ -57,8 +62,13 @@ module Resolvers
           type parent.singular_type, null: true
 
           def ready?(**args)
-            ready, early_return = super
-            [ready, select_result(early_return)]
+            value = super
+
+            if value.is_a?(Array)
+              [value[0], select_result(value[1])]
+            else
+              value
+            end
           end
 
           def resolve(**args)
@@ -117,7 +127,7 @@ module Resolvers
       # When fetching many items, additional complexity is added to the field
       # depending on how many items is fetched. For each item we add 1% of the
       # original complexity - this means that loading 100 items (our default
-      # maxp_age_size limit) doubles the original complexity.
+      # max_page_size limit) doubles the original complexity.
       #
       # Complexity is not increased when searching by specific ID(s), because
       # complexity difference is minimal in this case.
@@ -142,7 +152,7 @@ module Resolvers
     def object
       super.tap do |obj|
         # If the field this resolver is used in is wrapped in a presenter, unwrap its subject
-        break obj.subject if obj.is_a?(Gitlab::View::Presenter::Base)
+        break obj.__subject__ if obj.is_a?(Gitlab::View::Presenter::Base)
       end
     end
 
@@ -164,7 +174,7 @@ module Resolvers
     end
 
     def self.authorized?(object, context)
-      authorization.ok?(object, context[:current_user])
+      authorization.ok?(object, context[:current_user], scope_validator: context[:scope_validator])
     end
   end
 end

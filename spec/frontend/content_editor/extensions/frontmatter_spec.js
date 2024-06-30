@@ -22,13 +22,25 @@ describe('content_editor/extensions/frontmatter', () => {
     }));
   });
 
+  it('inherits from code block highlight extension', () => {
+    expect(Frontmatter.parent).toBe(CodeBlockHighlight);
+  });
+
   it('does not insert a frontmatter block when executing code block input rule', () => {
-    const expectedDoc = doc(codeBlock(''));
+    const expectedDoc = doc(codeBlock({ language: 'plaintext' }, ''));
     const inputRuleText = '``` ';
 
     triggerNodeInputRule({ tiptapEditor, inputRuleText });
 
     expect(tiptapEditor.getJSON()).toEqual(expectedDoc.toJSON());
+  });
+
+  it('sets isFrontmatter attribute to true by default', () => {
+    expect(Frontmatter.config.addAttributes()).toEqual(
+      expect.objectContaining({
+        isFrontmatter: { default: true },
+      }),
+    );
   });
 
   it.each`

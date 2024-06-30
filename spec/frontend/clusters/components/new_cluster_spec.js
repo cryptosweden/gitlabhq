@@ -2,28 +2,22 @@ import { GlLink, GlSprintf } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import NewCluster from '~/clusters/components/new_cluster.vue';
-import createClusterStore from '~/clusters/stores/new_cluster';
+import { helpPagePath } from '~/helpers/help_page_helper';
 
 describe('NewCluster', () => {
-  let store;
   let wrapper;
 
   const createWrapper = async () => {
-    store = createClusterStore({ clusterConnectHelpPath: '/some/help/path' });
-    wrapper = shallowMount(NewCluster, { store, stubs: { GlLink, GlSprintf } });
+    wrapper = shallowMount(NewCluster, { stubs: { GlLink, GlSprintf } });
     await nextTick();
   };
 
-  const findDescription = () => wrapper.find(GlSprintf);
+  const findDescription = () => wrapper.findComponent(GlSprintf);
 
-  const findLink = () => wrapper.find(GlLink);
+  const findLink = () => wrapper.findComponent(GlLink);
 
   beforeEach(() => {
     return createWrapper();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   it('renders the cluster component correctly', () => {
@@ -35,6 +29,8 @@ describe('NewCluster', () => {
   });
 
   it('renders a valid help link set by the backend', () => {
-    expect(findLink().attributes('href')).toBe('/some/help/path');
+    expect(findLink().attributes('href')).toBe(
+      helpPagePath('user/project/clusters/add_existing_cluster'),
+    );
   });
 });

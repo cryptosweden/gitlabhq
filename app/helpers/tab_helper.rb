@@ -9,15 +9,16 @@ module TabHelper
   # the <gl-tabs/> component. Can be populated by
   # gl_tab_link_to elements.
   #
-  # See more at: https://gitlab-org.gitlab.io/gitlab-ui/?path=/story/base-tabs-tab--default
+  # See more at: https://gitlab-org.gitlab.io/gitlab-ui/?path=/story/base-tabs--default
   def gl_tabs_nav(html_options = {}, &block)
     gl_tabs_classes = %w[nav gl-tabs-nav]
 
     html_options = html_options.merge(
+      role: 'tablist',
       class: [*html_options[:class], gl_tabs_classes].join(' ')
     )
 
-    content = capture(&block) if block_given?
+    content = capture(&block) if block
     content_tag(:ul, content, html_options)
   end
 
@@ -35,13 +36,14 @@ module TabHelper
     link_classes = %w[nav-link gl-tab-nav-item]
     active_link_classes = %w[active gl-tab-nav-item-active]
 
-    if block_given?
+    if block
       # Shift params to skip the omitted "name" param
       html_options = options
       options = name
     end
 
     html_options = html_options.merge(
+      role: 'tab',
       class: [*html_options[:class], link_classes].join(' ')
     )
 
@@ -53,8 +55,8 @@ module TabHelper
     extra_tab_classes = html_options.delete(:tab_class)
     tab_class = %w[nav-item].push(*extra_tab_classes)
 
-    content_tag(:li, class: tab_class) do
-      if block_given?
+    content_tag(:li, role: 'presentation', class: tab_class) do
+      if block
         link_to(options, html_options, &block)
       else
         link_to(name, options, html_options)
@@ -150,7 +152,7 @@ module TabHelper
     o[:class] = [*o[:class], klass].join(' ')
     o[:class].strip!
 
-    if block_given?
+    if block
       content_tag(:li, capture(&block), o)
     else
       content_tag(:li, nil, o)
@@ -169,14 +171,6 @@ module TabHelper
   def current_path?(path)
     c, a, _ = path.split('#')
     current_controller?(c) && current_action?(a)
-  end
-
-  def branches_tab_class
-    if current_controller?(:protected_branches) ||
-        current_controller?(:branches) ||
-        current_page?(project_repository_path(@project))
-      'active'
-    end
   end
 
   private

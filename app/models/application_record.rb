@@ -1,11 +1,15 @@
 # frozen_string_literal: true
 
 class ApplicationRecord < ActiveRecord::Base
+  include DisablesSti
   include DatabaseReflection
   include Transactions
   include LegacyBulkInsert
   include CrossDatabaseModification
-  include SensitiveSerializableHash
+  include Gitlab::SensitiveAttributes
+  include Gitlab::SensitiveSerializableHash
+  include ResetOnColumnErrors
+  include HasCheckConstraints
 
   self.abstract_class = true
 
@@ -36,7 +40,7 @@ class ApplicationRecord < ActiveRecord::Base
   end
 
   def self.pluck_primary_key
-    where(nil).pluck(self.primary_key)
+    where(nil).pluck(primary_key)
   end
 
   def self.safe_ensure_unique(retries: 0)
@@ -95,7 +99,7 @@ class ApplicationRecord < ActiveRecord::Base
   end
 
   def self.underscore
-    Gitlab::SafeRequestStore.fetch("model:#{self}:underscore") { self.to_s.underscore }
+    @underscore ||= to_s.underscore
   end
 
   def self.where_exists(query)
@@ -111,7 +115,7 @@ class ApplicationRecord < ActiveRecord::Base
   end
 
   def self.cached_column_list
-    self.column_names.map { |column_name| self.arel_table[column_name] }
+    column_names.map { |column_name| arel_table[column_name] }
   end
 
   def self.default_select_columns
@@ -120,6 +124,17 @@ class ApplicationRecord < ActiveRecord::Base
     else
       arel_table[Arel.star]
     end
+  end
+
+  # This method has been removed in Rails 7.1
+  # However, application relies on it in case-when usages with objects wrapped in presenters
+  def self.===(object)
+    object.is_a?(self)
+  end
+
+  def self.nullable_column?(column_name)
+    columns.find { |column| column.name == column_name }.null &&
+      !not_null_check?(column_name)
   end
 
   def readable_by?(user)

@@ -1,24 +1,31 @@
 <script>
-import { GlAlert, GlToggle, GlTooltip } from '@gitlab/ui';
+import { GlAlert, GlLink, GlToggle, GlSprintf } from '@gitlab/ui';
 import axios from '~/lib/utils/axios_utils';
 import { __, s__ } from '~/locale';
-import { CC_VALIDATION_REQUIRED_ERROR } from '../constants';
+import { CC_VALIDATION_REQUIRED_ERROR, IDENTITY_VERIFICATION_REQUIRED_ERROR } from '../constants';
 
 const DEFAULT_ERROR_MESSAGE = __('An error occurred while updating the configuration.');
 const REQUIRES_VALIDATION_TEXT = s__(
-  `Billings|Shared runners cannot be enabled until a valid credit card is on file.`,
+  `Billings|Instance runners cannot be enabled until a valid credit card is on file.`,
+);
+const REQUIRES_IDENTITY_VERIFICATION_TEXT = s__(
+  `IdentityVerification|Before you can use GitLab-hosted runners, we need to verify your account.`,
 );
 
 export default {
   i18n: {
     REQUIRES_VALIDATION_TEXT,
+    REQUIRES_IDENTITY_VERIFICATION_TEXT,
   },
   components: {
     GlAlert,
+    GlLink,
     GlToggle,
-    GlTooltip,
+    GlSprintf,
     CcValidationRequiredAlert: () =>
       import('ee_component/billings/components/cc_validation_required_alert.vue'),
+    IdentityVerificationRequiredAlert: () =>
+      import('ee_component/vue_shared/components/pipeline_account_verification_alert.vue'),
   },
   props: {
     isDisabledAndUnoverridable: {
@@ -37,6 +44,16 @@ export default {
       type: String,
       required: true,
     },
+    groupName: {
+      type: String,
+      required: false,
+      default: null,
+    },
+    groupSettingsPath: {
+      type: String,
+      required: false,
+      default: null,
+    },
   },
   data() {
     return {
@@ -51,12 +68,19 @@ export default {
     ccRequiredError() {
       return this.errorMessage === CC_VALIDATION_REQUIRED_ERROR && !this.ccAlertDismissed;
     },
+    identityVerificationRequiredError() {
+      return this.errorMessage === IDENTITY_VERIFICATION_REQUIRED_ERROR;
+    },
     genericError() {
       return (
         this.errorMessage &&
         this.errorMessage !== CC_VALIDATION_REQUIRED_ERROR &&
+        this.errorMessage !== IDENTITY_VERIFICATION_REQUIRED_ERROR &&
         !this.ccAlertDismissed
       );
+    },
+    isGroupSettingsAvailable() {
+      return this.groupSettingsPath && this.groupName;
     },
   },
   methods: {
@@ -94,7 +118,19 @@ export default {
         @dismiss="ccAlertDismissed = true"
       />
 
-      <gl-alert v-if="genericError" class="gl-mb-3" variant="danger" :dismissible="false">
+      <identity-verification-required-alert
+        v-if="identityVerificationRequiredError"
+        :title="$options.i18n.REQUIRES_IDENTITY_VERIFICATION_TEXT"
+        class="gl-mb-5"
+      />
+
+      <gl-alert
+        v-if="genericError"
+        data-testid="error-alert"
+        variant="danger"
+        :dismissible="false"
+        class="gl-mb-5"
+      >
         {{ errorMessage }}
       </gl-alert>
 
@@ -102,15 +138,23 @@ export default {
         ref="sharedRunnersToggle"
         :disabled="isDisabledAndUnoverridable"
         :is-loading="isLoading"
-        :label="__('Enable shared runners for this project')"
+        :label="__('Enable instance runners for this project')"
         :value="isSharedRunnerEnabled"
         data-testid="toggle-shared-runners"
         @change="toggleSharedRunners"
-      />
-
-      <gl-tooltip v-if="isDisabledAndUnoverridable" :target="() => $refs.sharedRunnersToggle">
-        {{ __('Shared runners are disabled on group level') }}
-      </gl-tooltip>
+      >
+        <template v-if="isDisabledAndUnoverridable" #help>
+          {{ s__('Runners|Instance runners are disabled in the group settings.') }}
+          <gl-sprintf
+            v-if="isGroupSettingsAvailable"
+            :message="s__('Runners|Go to %{groupLink} to enable them.')"
+          >
+            <template #groupLink>
+              <gl-link :href="groupSettingsPath">{{ groupName }}</gl-link>
+            </template>
+          </gl-sprintf>
+        </template>
+      </gl-toggle>
     </section>
   </div>
 </template>

@@ -4,8 +4,8 @@ RSpec.shared_examples 'it uploads and commits a new text file' do |drop: false|
   it 'uploads and commits a new text file', :js do
     find('.add-to-tree').click
 
-    page.within('.dropdown-menu') do
-      click_link('Upload file')
+    page.within('.repo-breadcrumb') do
+      click_button('Upload file')
 
       wait_for_requests
     end
@@ -40,8 +40,8 @@ RSpec.shared_examples 'it uploads and commits a new image file' do |drop: false|
   it 'uploads and commits a new image file', :js do
     find('.add-to-tree').click
 
-    page.within('.dropdown-menu') do
-      click_link('Upload file')
+    page.within('.repo-breadcrumb') do
+      click_button('Upload file')
 
       wait_for_requests
     end
@@ -70,16 +70,16 @@ RSpec.shared_examples 'it uploads and commits a new pdf file' do |drop: false|
   it 'uploads and commits a new pdf file', :js do
     find('.add-to-tree').click
 
-    page.within('.dropdown-menu') do
-      click_link('Upload file')
+    page.within('.repo-breadcrumb') do
+      click_button('Upload file')
 
       wait_for_requests
     end
 
     if drop
-      find(".upload-dropzone-card").drop(File.join(Rails.root, 'spec', 'fixtures', 'git-cheat-sheet.pdf'))
+      find(".upload-dropzone-card").drop(File.join(Rails.root, 'spec', 'fixtures', 'sample.pdf'))
     else
-      attach_file('upload_file', File.join(Rails.root, 'spec', 'fixtures', 'git-cheat-sheet.pdf'), make_visible: true)
+      attach_file('upload_file', File.join(Rails.root, 'spec', 'fixtures', 'sample.pdf'), make_visible: true)
     end
 
     page.within('#modal-upload-blob') do
@@ -90,7 +90,7 @@ RSpec.shared_examples 'it uploads and commits a new pdf file' do |drop: false|
 
     wait_for_all_requests
 
-    visit(project_blob_path(project, 'upload_image/git-cheat-sheet.pdf'))
+    visit(project_blob_path(project, 'upload_image/sample.pdf'))
 
     expect(page).to have_css('.js-pdf-viewer')
   end
@@ -111,7 +111,7 @@ RSpec.shared_examples 'it uploads and commits a new file to a forked project' do
     wait_for_all_requests
 
     find('.add-to-tree').click
-    click_link('Upload file')
+    click_button('Upload file')
 
     if drop
       find(".upload-dropzone-card").drop(File.join(Rails.root, 'spec', 'fixtures', 'doc_sample.txt'))
@@ -149,7 +149,7 @@ RSpec.shared_examples 'it uploads a file to a sub-directory' do |drop: false|
     end
 
     find('.add-to-tree').click
-    click_link('Upload file')
+    click_button('Upload file')
 
     if drop
       find(".upload-dropzone-card").drop(File.join(Rails.root, 'spec', 'fixtures', 'doc_sample.txt'))

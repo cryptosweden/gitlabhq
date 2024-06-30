@@ -5,25 +5,43 @@ module Mutations
     class Update < BaseMutation
       graphql_name 'UserPreferencesUpdate'
 
+      NON_NULLABLE_ARGS = [
+        :extensions_marketplace_opt_in_status,
+        :organization_groups_projects_display,
+        :use_web_ide_extension_marketplace,
+        :visibility_pipeline_id_type
+      ].freeze
+
+      argument :extensions_marketplace_opt_in_status, Types::ExtensionsMarketplaceOptInStatusEnum,
+        required: false,
+        description: 'Status of the Web IDE Extension Marketplace opt-in for the user.'
       argument :issues_sort, Types::IssueSortEnum,
-               required: false,
-               description: 'Sort order for issue lists.'
+        required: false,
+        description: 'Sort order for issue lists.'
+      argument :use_web_ide_extension_marketplace, GraphQL::Types::Boolean,
+        required: false,
+        description: 'Whether Web IDE Extension Marketplace is enabled for the user.'
+      argument :visibility_pipeline_id_type, Types::VisibilityPipelineIdTypeEnum,
+        required: false,
+        description: 'Determines whether the pipeline list shows ID or IID.'
+
+      argument :organization_groups_projects_sort, Types::Organizations::GroupsProjectsSortEnum,
+        required: false,
+        description: 'Sort order for organization groups and projects.',
+        alpha: { milestone: '17.2' }
+
+      argument :organization_groups_projects_display, Types::Organizations::GroupsProjectsDisplayEnum,
+        required: false,
+        description: 'Default list view for organization groups and projects.',
+        alpha: { milestone: '17.2' }
 
       field :user_preferences,
-            Types::UserPreferencesType,
-            null: true,
-            description: 'User preferences after mutation.'
-
-      def ready?(**args)
-        if disabled_sort_value?(args)
-          raise Gitlab::Graphql::Errors::ArgumentError,
-                'Feature flag `incident_escalations` must be enabled to use this sort order.'
-        end
-
-        super
-      end
+        Types::UserPreferencesType,
+        null: true,
+        description: 'User preferences after mutation.'
 
       def resolve(**attributes)
+        attributes.delete_if { |key, value| NON_NULLABLE_ARGS.include?(key) && value.nil? }
         user_preferences = current_user.user_preference
         user_preferences.update(attributes)
 
@@ -31,14 +49,6 @@ module Mutations
           user_preferences: user_preferences.valid? ? user_preferences : nil,
           errors: errors_on_object(user_preferences)
         }
-      end
-
-      private
-
-      def disabled_sort_value?(args)
-        return false unless [:escalation_status_asc, :escalation_status_desc].include?(args[:issues_sort])
-
-        Feature.disabled?(:incident_escalations)
       end
     end
   end

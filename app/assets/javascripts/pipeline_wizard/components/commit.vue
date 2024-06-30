@@ -177,7 +177,6 @@ export default {
       <gl-form-group
         :invalid-feedback="$options.i18n.fieldRequiredFeedback"
         :label="$options.i18n.commitMessageLabel"
-        data-testid="commit_message_group"
         label-for="commit_message"
       >
         <gl-form-textarea
@@ -185,6 +184,7 @@ export default {
           v-model="message"
           :placeholder="defaultMessage"
           data-testid="commit_message"
+          no-resize
           size="md"
           @input="(v) => $emit('update:message', v)"
         />
@@ -192,7 +192,6 @@ export default {
       <gl-form-group
         :invalid-feedback="$options.i18n.fieldRequiredFeedback"
         :label="$options.i18n.branchSelectorLabel"
-        data-testid="branch_selector_group"
         label-for="branch"
       >
         <ref-selector id="branch" v-model="branch" :project-id="projectPath" data-testid="branch" />

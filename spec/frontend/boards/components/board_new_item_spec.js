@@ -3,20 +3,17 @@ import { nextTick } from 'vue';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 
 import BoardNewItem from '~/boards/components/board_new_item.vue';
-import eventHub from '~/boards/eventhub';
 
 import { mockList } from '../mock_data';
 
 const createComponent = ({
   list = mockList,
-  formEventPrefix = 'toggle-issue-form-',
   disabledSubmit = false,
   submitButtonTitle = 'Create item',
 } = {}) =>
   mountExtended(BoardNewItem, {
     propsData: {
       list,
-      formEventPrefix,
       disabledSubmit,
       submitButtonTitle,
     },
@@ -35,16 +32,12 @@ describe('BoardNewItem', () => {
     wrapper = createComponent();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('template', () => {
     describe('when the user provides a valid input', () => {
       it('finds an enabled create button', async () => {
         expect(wrapper.findByTestId('create-button').props('disabled')).toBe(true);
 
-        wrapper.find(GlFormInput).vm.$emit('input', 'hello');
+        wrapper.findComponent(GlFormInput).vm.$emit('input', 'hello');
         await nextTick();
 
         expect(wrapper.findByTestId('create-button').props('disabled')).toBe(false);
@@ -53,7 +46,7 @@ describe('BoardNewItem', () => {
 
     describe('when the user types in a string with only spaces', () => {
       it('disables the Create Issue button', async () => {
-        wrapper.find(GlFormInput).vm.$emit('input', '    ');
+        wrapper.findComponent(GlFormInput).vm.$emit('input', '    ');
 
         await nextTick();
 
@@ -93,7 +86,7 @@ describe('BoardNewItem', () => {
         titleInput().setValue('Foo');
         await glForm().trigger('submit');
 
-        expect(wrapper.emitted('form-submit')).toBeTruthy();
+        expect(wrapper.emitted('form-submit')).toHaveLength(1);
         expect(wrapper.emitted('form-submit')[0]).toEqual([
           {
             title: 'Foo',
@@ -115,13 +108,6 @@ describe('BoardNewItem', () => {
         ]);
       });
 
-      it('emits `scroll-board-list-` event with list.id on eventHub when `submit` is triggered on gl-form', async () => {
-        jest.spyOn(eventHub, '$emit').mockImplementation();
-        await glForm().trigger('submit');
-
-        expect(eventHub.$emit).toHaveBeenCalledWith(`scroll-board-list-${mockList.id}`);
-      });
-
       it('emits `form-cancel` event and clears title value when `reset` is triggered on gl-form', async () => {
         titleInput().setValue('Foo');
 
@@ -131,7 +117,7 @@ describe('BoardNewItem', () => {
         await glForm().trigger('reset');
 
         expect(titleInput().element.value).toBe('');
-        expect(wrapper.emitted('form-cancel')).toBeTruthy();
+        expect(wrapper.emitted('form-cancel')).toHaveLength(1);
       });
     });
   });

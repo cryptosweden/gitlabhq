@@ -19,13 +19,16 @@ class AwardEmoji < ApplicationRecord
 
   participant :user
 
+  delegate :resource_parent, to: :awardable, allow_nil: true
+
   scope :downvotes, -> { named(DOWNVOTE_NAME) }
   scope :upvotes, -> { named(UPVOTE_NAME) }
-  scope :named, -> (names) { where(name: names) }
-  scope :awarded_by, -> (users) { where(user: users) }
+  scope :named, ->(names) { where(name: names) }
+  scope :awarded_by, ->(users) { where(user: users) }
 
-  after_save :expire_cache
   after_destroy :expire_cache
+  after_save :expire_cache
+  after_commit :broadcast_note_update, if: -> { !importing? && awardable.is_a?(Note) }
 
   class << self
     def votes_for_collection(ids, type)
@@ -53,16 +56,37 @@ class AwardEmoji < ApplicationRecord
   end
 
   def downvote?
-    self.name == DOWNVOTE_NAME
+    name == DOWNVOTE_NAME
   end
 
   def upvote?
-    self.name == UPVOTE_NAME
+    name == UPVOTE_NAME
+  end
+
+  def url
+    return if TanukiEmoji.find_by_alpha_code(name)
+
+    Groups::CustomEmojiFinder.new(resource_parent, { include_ancestor_groups: true }).execute
+      .by_name(name)&.select(:file)&.first&.url
   end
 
   def expire_cache
     awardable.try(:bump_updated_at)
-    awardable.try(:expire_etag_cache)
     awardable.try(:update_upvotes_count) if upvote?
   end
+
+  def broadcast_note_update
+    awardable.broadcast_noteable_notes_changed
+    awardable.trigger_note_subscription_update
+  end
+
+  def to_ability_name
+    'emoji'
+  end
+
+  def hook_attrs
+    Gitlab::HookData::EmojiBuilder.new(self).build
+  end
 end
+
+AwardEmoji.prepend_mod

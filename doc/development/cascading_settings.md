@@ -1,12 +1,10 @@
 ---
 stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Personal Productivity
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Cascading Settings
-
-> Introduced in [GitLab 13.11](https://gitlab.com/gitlab-org/gitlab/-/issues/321724).
 
 The cascading settings framework allows groups to essentially inherit settings
 values from ancestors (parent group on up the group hierarchy) and from
@@ -23,13 +21,13 @@ Settings are not cascading by default. To define a cascading setting, take the f
 1. In the `NamespaceSetting` model, define the new attribute using the `cascading_attr`
    helper method. You can use an array to define multiple attributes on a single line.
 
-    ```ruby
-    class NamespaceSetting
-      include CascadingNamespaceSettingAttribute
+   ```ruby
+   class NamespaceSetting
+     include CascadingNamespaceSettingAttribute
 
-      cascading_attr :delayed_project_removal
-    end
-    ```
+     cascading_attr :delayed_project_removal
+   end
+   ```
 
 1. Create the database columns.
 
@@ -37,33 +35,31 @@ Settings are not cascading by default. To define a cascading setting, take the f
    The helper creates four columns, two each in `namespace_settings` and
    `application_settings`.
 
-    ```ruby
-    class AddDelayedProjectRemovalCascadingSetting < Gitlab::Database::Migration[1.0]
-      include Gitlab::Database::MigrationHelpers::CascadingNamespaceSettings
+   ```ruby
+   class AddDelayedProjectRemovalCascadingSetting < Gitlab::Database::Migration[2.1]
+     include Gitlab::Database::MigrationHelpers::CascadingNamespaceSettings
 
-      enable_lock_retries!
+     def up
+       add_cascading_namespace_setting :delayed_project_removal, :boolean, default: false, null: false
+     end
 
-      def up
-        add_cascading_namespace_setting :delayed_project_removal, :boolean, default: false, null: false
-      end
-
-      def down
-       remove_cascading_namespace_setting :delayed_project_removal
-      end
-    end
-    ```
+     def down
+      remove_cascading_namespace_setting :delayed_project_removal
+     end
+   end
+   ```
 
    Existing settings being converted to a cascading setting will require individual
    migrations to add columns and change existing columns. Use the specifications
    below to create migrations as required:
 
-    1. Columns in `namespace_settings` table:
-        - `delayed_project_removal`: No default value. Null values allowed. Use any column type.
-        - `lock_delayed_project_removal`: Boolean column. Default value is false. Null values not allowed.
-    1. Columns in `application_settings` table:
-        - `delayed_project_removal`: Type matching for the column created in `namespace_settings`.
-          Set default value as desired. Null values not allowed.
-        - `lock_delayed_project_removal`: Boolean column. Default value is false. Null values not allowed.
+   1. Columns in `namespace_settings` table:
+      - `delayed_project_removal`: No default value. Null values allowed. Use any column type.
+      - `lock_delayed_project_removal`: Boolean column. Default value is false. Null values not allowed.
+   1. Columns in `application_settings` table:
+      - `delayed_project_removal`: Type matching for the column created in `namespace_settings`.
+        Set default value as desired. Null values not allowed.
+      - `lock_delayed_project_removal`: Boolean column. Default value is false. Null values not allowed.
 
 ## Convenience methods
 
@@ -138,7 +134,7 @@ Renders the enforcement checkbox.
 | `setting_locked` | If the setting is locked by an ancestor group or administrator setting. Can be calculated with [`cascading_namespace_setting_locked?`](https://gitlab.com/gitlab-org/gitlab/-/blob/c2736823b8e922e26fd35df4f0cd77019243c858/app/helpers/namespaces_helper.rb#L86). | `Boolean`                                                                                      | `true`                                          |
 | `help_text`      | Text shown below the checkbox.                                                                                                                                                                                                                             | `String`                                                                                       | `false` (Subgroups cannot change this setting.) |
 
-[`_setting_label_checkbox.html.haml`](https://gitlab.com/gitlab-org/gitlab/-/blob/c2736823b8e922e26fd35df4f0cd77019243c858/app/views/shared/namespaces/cascading_settings/_setting_label_checkbox.html.haml)
+[`_setting_checkbox.html.haml`](https://gitlab.com/gitlab-org/gitlab/-/blob/e915f204f9eb5930760722ce28b4db60b1159677/app/views/shared/namespaces/cascading_settings/_setting_checkbox.html.haml)
 
 Renders the label for a checkbox setting.
 
@@ -153,7 +149,7 @@ Renders the label for a checkbox setting.
 
 [`_setting_label_fieldset.html.haml`](https://gitlab.com/gitlab-org/gitlab/-/blob/c2736823b8e922e26fd35df4f0cd77019243c858/app/views/shared/namespaces/cascading_settings/_setting_label_fieldset.html.haml)
 
-Renders the label for a fieldset setting.
+Renders the label for a `fieldset` setting.
 
 | Local                  | Description                                                                                                                                                                                                          | Type                 | Required (default value) |
 |:-----------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------------|:-------------------------|
@@ -186,20 +182,18 @@ This function should be imported and called in the [page-specific JavaScript](fe
 
 = form_for @group do |f|
   .form-group{ data: { testid: 'delayed-project-removal-form-group' } }
-    .gl-form-checkbox.custom-control.custom-checkbox
-      = f.check_box :delayed_project_removal, checked: @group.namespace_settings.delayed_project_removal?, disabled: delayed_project_removal_locked, class: 'custom-control-input'
-      = render 'shared/namespaces/cascading_settings/setting_label_checkbox', attribute: :delayed_project_removal,
-          group: @group,
-          form: f,
-          setting_locked: delayed_project_removal_locked,
-          settings_path_helper: -> (locked_ancestor) { edit_group_path(locked_ancestor, anchor: 'js-permissions-settings') },
-          help_text: s_('Settings|Projects will be permanently deleted after a 7-day delay. Inherited by subgroups.') do
-        = s_('Settings|Enable delayed project deletion')
-      = render 'shared/namespaces/cascading_settings/enforcement_checkbox',
-          attribute: :delayed_project_removal,
-          group: @group,
-          form: f,
-          setting_locked: delayed_project_removal_locked
+    = render 'shared/namespaces/cascading_settings/setting_checkbox', attribute: :delayed_project_removal,
+        group: @group,
+        form: f,
+        setting_locked: delayed_project_removal_locked,
+        settings_path_helper: -> (locked_ancestor) { edit_group_path(locked_ancestor, anchor: 'js-permissions-settings') },
+        help_text: s_('Settings|Projects will be permanently deleted after a 7-day delay. Inherited by subgroups.') do
+      = s_('Settings|Enable delayed project deletion')
+    = render 'shared/namespaces/cascading_settings/enforcement_checkbox',
+        attribute: :delayed_project_removal,
+        group: @group,
+        form: f,
+        setting_locked: delayed_project_removal_locked
 
   %fieldset.form-group
     = render 'shared/namespaces/cascading_settings/setting_label_fieldset', attribute: :merge_method,
@@ -210,25 +204,13 @@ This function should be imported and called in the [page-specific JavaScript](fe
       = s_('Settings|Merge method')
 
     .gl-form-radio.custom-control.custom-radio
-      = f.radio_button :merge_method, :merge, class: "custom-control-input", disabled: merge_method_locked
-      = f.label :merge_method_merge, class: 'custom-control-label' do
-        = s_('Settings|Merge commit')
-        %p.help-text
-          = s_('Settings|Every merge creates a merge commit.')
+      = f.gitlab_ui_radio_component :merge_method, :merge, s_('Settings|Merge commit'), help_text: s_('Settings|Every merge creates a merge commit.'), radio_options: { disabled: merge_method_locked }
 
     .gl-form-radio.custom-control.custom-radio
-      = f.radio_button :merge_method, :rebase_merge, class: "custom-control-input", disabled: merge_method_locked
-      = f.label :merge_method_rebase_merge, class: 'custom-control-label' do
-        = s_('Settings|Merge commit with semi-linear history')
-        %p.help-text
-          = s_('Settings|Every merge creates a merge commit.')
+      = f.gitlab_ui_radio_component :merge_method, :rebase_merge, s_('Settings|Merge commit with semi-linear history'), help_text: s_('Settings|Every merge creates a merge commit.'), radio_options: { disabled: merge_method_locked }
 
     .gl-form-radio.custom-control.custom-radio
-      = f.radio_button :merge_method, :ff, class: "custom-control-input", disabled: merge_method_locked
-      = f.label :merge_method_ff, class: 'custom-control-label' do
-        = s_('Settings|Fast-forward merge')
-        %p.help-text
-          = s_('Settings|No merge commits are created.')
+      = f.gitlab_ui_radio_component :merge_method, :ff, s_('Settings|Fast-forward merge'), help_text: s_('Settings|No merge commits are created.'), radio_options: { disabled: merge_method_locked }
 
     = render 'shared/namespaces/cascading_settings/enforcement_checkbox',
       attribute: :merge_method,

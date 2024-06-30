@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Namespace::TraversalHierarchy, type: :model do
+RSpec.describe Namespace::TraversalHierarchy, type: :model, feature_category: :groups_and_projects do
   let!(:root) { create(:group, :with_hierarchy) }
 
   describe '.for_namespace' do
@@ -85,7 +85,11 @@ RSpec.describe Namespace::TraversalHierarchy, type: :model do
       it { expect { subject }.to raise_error(ActiveRecord::Deadlocked) }
 
       it 'increment db_deadlock counter' do
-        expect { subject rescue nil }.to change { db_deadlock_total('Namespace#sync_traversal_ids!') }.by(1)
+        expect do
+          subject
+        rescue StandardError
+          nil
+        end.to change { db_deadlock_total('Namespace#sync_traversal_ids!') }.by(1)
       end
     end
   end

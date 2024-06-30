@@ -1,62 +1,82 @@
 import $ from 'jquery';
-import Cookies from 'js-cookie';
+import htmlSnippetsShow from 'test_fixtures/snippets/show.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { initEmojiMock, clearEmojiMock } from 'helpers/emoji';
 import { useFakeRequestAnimationFrame } from 'helpers/fake_request_animation_frame';
 import loadAwardsHandler from '~/awards_handler';
 
 window.gl = window.gl || {};
-window.gon = window.gon || {};
 
 let awardsHandler = null;
-const urlRoot = gon.relative_url_root;
 
 describe('AwardsHandler', () => {
   useFakeRequestAnimationFrame();
 
-  const emojiData = {
-    '8ball': {
+  const emojiData = [
+    {
+      n: '8ball',
       c: 'activity',
       e: '🎱',
       d: 'billiards',
       u: '6.0',
     },
-    grinning: {
+    {
+      n: 'grinning',
       c: 'people',
       e: '😀',
       d: 'grinning face',
       u: '6.1',
     },
-    angel: {
+    {
+      n: 'angel',
       c: 'people',
       e: '👼',
       d: 'baby angel',
       u: '6.0',
     },
-    anger: {
+    {
+      n: 'anger',
       c: 'symbols',
       e: '💢',
       d: 'anger symbol',
       u: '6.0',
     },
-    alien: {
+    {
+      n: 'alien',
       c: 'people',
       e: '👽',
       d: 'extraterrestrial alien',
       u: '6.0',
     },
-    sunglasses: {
+    {
+      n: 'sunglasses',
       c: 'people',
       e: '😎',
       d: 'smiling face with sunglasses',
       u: '6.0',
     },
-    grey_question: {
+    {
+      n: 'grey_question',
       c: 'symbols',
       e: '❔',
       d: 'white question mark ornament',
       u: '6.0',
     },
-  };
+    {
+      n: 'thumbsup',
+      c: 'people',
+      e: '👍',
+      d: 'thumbs up sign',
+      u: '6.0',
+    },
+    {
+      n: 'thumbsdown',
+      c: 'people',
+      e: '👎',
+      d: 'thumbs down sign',
+      u: '6.0',
+    },
+  ];
 
   const openAndWaitForEmojiMenu = (sel = '.js-add-award') => {
     $(sel).eq(0).click();
@@ -75,22 +95,21 @@ describe('AwardsHandler', () => {
   beforeEach(async () => {
     await initEmojiMock(emojiData);
 
-    loadFixtures('snippets/show.html');
+    setHTMLFixture(htmlSnippetsShow);
 
     awardsHandler = await loadAwardsHandler(true);
     jest.spyOn(awardsHandler, 'postEmoji').mockImplementation((button, url, emoji, cb) => cb());
   });
 
   afterEach(() => {
-    // restore original url root value
-    gon.relative_url_root = urlRoot;
-
     clearEmojiMock();
 
     // Undo what we did to the shared <body>
     $('body').removeAttr('data-page');
 
     awardsHandler.destroy();
+
+    resetHTMLFixture();
   });
 
   describe('::showEmojiMenu', () => {
@@ -170,7 +189,9 @@ describe('AwardsHandler', () => {
 
   describe('::getAwardUrl', () => {
     it('returns the url for request', () => {
-      expect(awardsHandler.getAwardUrl()).toBe('http://test.host/-/snippets/1/toggle_award_emoji');
+      expect(awardsHandler.getAwardUrl()).toBe(
+        document.querySelector('.js-awards-block').dataset.awardUrl,
+      );
     });
   });
 
@@ -178,8 +199,8 @@ describe('AwardsHandler', () => {
     it('should handle :+1: and :-1: mutuality', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').parent();
-      const $thumbsDownEmoji = $votesBlock.find('[data-name=thumbsdown]').parent();
+      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
+      const $thumbsDownEmoji = $votesBlock.find('[data-name=thumbsdown]').closest('button');
       awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
 
       expect($thumbsUpEmoji.hasClass('active')).toBe(true);
@@ -208,7 +229,7 @@ describe('AwardsHandler', () => {
     it('should prepend "You" to the award tooltip', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').parent();
+      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
       $thumbsUpEmoji.attr('data-title', 'sam, jerry, max, and andy');
       awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
 
@@ -218,7 +239,7 @@ describe('AwardsHandler', () => {
     it('handles the special case where "You" is not cleanly comma separated', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').parent();
+      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
       $thumbsUpEmoji.attr('data-title', 'sam');
       awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
 
@@ -230,7 +251,7 @@ describe('AwardsHandler', () => {
     it('removes "You" from the front of the tooltip', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').parent();
+      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
       $thumbsUpEmoji.attr('data-title', 'You, sam, jerry, max, and andy');
       $thumbsUpEmoji.addClass('active');
       awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
@@ -241,7 +262,7 @@ describe('AwardsHandler', () => {
     it('handles the special case where "You" is not cleanly comma separated', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').parent();
+      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
       $thumbsUpEmoji.attr('data-title', 'You and sam');
       $thumbsUpEmoji.addClass('active');
       awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
@@ -293,6 +314,23 @@ describe('AwardsHandler', () => {
       awardsHandler.searchEmojis('👼');
       expect($('[data-name=angel]').is(':visible')).toBe(true);
     });
+
+    it('should show positive intent emoji first', async () => {
+      await openAndWaitForEmojiMenu();
+
+      awardsHandler.searchEmojis('thumb');
+
+      const $menu = $('.emoji-menu');
+      const $thumbsUpItem = $menu.find('[data-name=thumbsup]');
+      const $thumbsDownItem = $menu.find('[data-name=thumbsdown]');
+
+      expect($thumbsUpItem.is(':visible')).toBe(true);
+      expect($thumbsDownItem.is(':visible')).toBe(true);
+
+      expect($thumbsUpItem.parents('.emoji-menu-list-item').index()).toBeLessThan(
+        $thumbsDownItem.parents('.emoji-menu-list-item').index(),
+      );
+    });
   });
 
   describe('emoji menu', () => {
@@ -334,7 +372,7 @@ describe('AwardsHandler', () => {
   describe('frequently used emojis', () => {
     beforeEach(() => {
       // Clear it out
-      Cookies.set('frequently_used_emojis', '');
+      localStorage.setItem('frequently_used_emojis', '');
     });
 
     it('shouldn\'t have any "Frequently used" heading if no frequently used emojis', async () => {
@@ -369,7 +407,7 @@ describe('AwardsHandler', () => {
     });
 
     it('should disregard invalid frequently used emoji already set in cookie', () => {
-      Cookies.set('frequently_used_emojis', '8ball,invalid_emoji,grinning');
+      localStorage.setItem('frequently_used_emojis', '8ball,invalid_emoji,grinning');
 
       expect(awardsHandler.getFrequentlyUsedEmojis()).toEqual(['8ball', 'grinning']);
     });

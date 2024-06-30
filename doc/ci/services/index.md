@@ -1,16 +1,21 @@
 ---
 stage: Verify
 group: Runner
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
-type: index
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Services **(FREE)**
+# Services
 
-The `services` keyword defines a Docker image that runs during a `job`
-linked to the Docker image that the image keyword defines. This allows
-you to access the service image during build time.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+When you configure CI/CD, you specify an image, which is used to create the container
+where your jobs run. To specify this image, you use the `image` keyword.
+
+You can specify an additional image by using the `services` keyword. This additional
+image is used to create another container, which is available to the first container.
+The two containers have access to one another and can communicate when running the job.
 
 The service image can run any application, but the most common use
 case is to run a database container, for example:
@@ -24,8 +29,8 @@ It's easier and faster to use an existing image and run it as an additional cont
 than to install `mysql`, for example, every time the project is built.
 
 You're not limited to only database services. You can add as many
-services you need to `.gitlab-ci.yml` or manually modify `config.toml`.
-Any image found at [Docker Hub](https://hub.docker.com/) or your private Container Registry can be
+services you need to `.gitlab-ci.yml` or manually modify the [`config.toml`](https://docs.gitlab.com/runner/configuration/advanced-configuration.html).
+Any image found at [Docker Hub](https://hub.docker.com/) or your private container registry can be
 used as a service.
 
 Services inherit the same DNS servers, search domains, and additional hosts as
@@ -34,7 +39,7 @@ the CI container itself.
 ## How services are linked to the job
 
 To better understand how container linking works, read
-[Linking containers together](https://docs.docker.com/engine/userguide/networking/default_network/dockerlinks/).
+[Linking containers together](https://docs.docker.com/network/links/).
 
 If you add `mysql` as service to your application, the image is
 used to create a container that's linked to the job container.
@@ -46,7 +51,7 @@ socket or `localhost`. Read more in [accessing the services](#accessing-the-serv
 ## How the health check of services works
 
 Services are designed to provide additional features which are **network accessible**.
-They may be a database like MySQL, or Redis, and even `docker:stable-dind` which
+They may be a database like MySQL, or Redis, and even `docker:dind` which
 allows you to use Docker-in-Docker. It can be practically anything that's
 required for the CI/CD job to proceed, and is accessed by network.
 
@@ -74,13 +79,19 @@ still succeeds even if that warning was printed. For example:
   as a volume under `/builds`). In that case, the service does its job, and
   because the job is not trying to connect to it, it does not fail.
 
-## What services are not for
+If the services start successfully, they start before the
+[`before_script`](../../ci/yaml/index.md#before_script) runs. This means you can
+write a `before_script` that queries the service.
 
-As mentioned before, this feature is designed to provide **network accessible**
+Services stop at the end of the job, even if the job fails.
+
+## Using software provided by a service image
+
+When you specify the `service`, this provides **network accessible**
 services. A database is the simplest example of such a service.
 
-The services feature is not designed to, and does not, add any software from the
-defined `services` image(s) to the job's container.
+The services feature does not add any software from the
+defined `services` images to the job's container.
 
 For example, if you have the following `services` defined in your job, the `php`,
 `node` or `go` commands are **not** available for your script, and the job fails:
@@ -137,13 +148,11 @@ default:
   image:
     name: ruby:2.6
     entrypoint: ["/bin/bash"]
-
   services:
     - name: my-postgres:11.7
       alias: db-postgres
       entrypoint: ["/usr/local/bin/db-postgres"]
       command: ["start"]
-
   before_script:
     - bundle install
 
@@ -181,7 +190,7 @@ following these rules:
 - Slash (`/`) is replaced with double underscores (`__`) and the primary alias
   is created.
 - Slash (`/`) is replaced with a single dash (`-`) and the secondary alias is
-  created (requires GitLab Runner v1.1.0 or higher).
+  created (requires GitLab Runner v1.1.0 or later).
 
 To override the default behavior, you can
 [specify a service alias](#available-settings-for-services).
@@ -201,7 +210,7 @@ end-to-end-tests:
       alias: firefox
     - name: registry.gitlab.com/organization/private-api:latest
       alias: backend-api
-    - postgres:9.6.19
+    - postgres:14.3
   variables:
     FF_NETWORK_PER_BUILD: 1
     POSTGRES_PASSWORD: supersecretpassword
@@ -218,7 +227,7 @@ For this solution to work, you must use
 
 You can also pass custom CI/CD [variables](../variables/index.md)
 to fine tune your Docker `images` and `services` directly in the `.gitlab-ci.yml` file.
-For more information, read about [`.gitlab-ci.yml` defined variables](../variables/index.md#create-a-custom-cicd-variable-in-the-gitlab-ciyml-file).
+For more information, read about [`.gitlab-ci.yml` defined variables](../variables/index.md#define-a-cicd-variable-in-the-gitlab-ciyml-file).
 
 ```yaml
 # The following variables are automatically passed down to the Postgres container
@@ -232,18 +241,17 @@ variables:
   PGDATA: "/var/lib/postgresql/data"
   POSTGRES_INITDB_ARGS: "--encoding=UTF8 --data-checksums"
 
-services:
-  - name: postgres:11.7
-    alias: db
-    entrypoint: ["docker-entrypoint.sh"]
-    command: ["postgres"]
-
-image:
-  name: ruby:2.6
-  entrypoint: ["/bin/bash"]
-
-before_script:
-  - bundle install
+default:
+  services:
+    - name: postgres:11.7
+      alias: db
+      entrypoint: ["docker-entrypoint.sh"]
+      command: ["postgres"]
+  image:
+    name: ruby:2.6
+    entrypoint: ["/bin/bash"]
+  before_script:
+    - bundle install
 
 test:
   script:
@@ -252,15 +260,15 @@ test:
 
 ## Available settings for `services`
 
-> Introduced in GitLab and GitLab Runner 9.4.
+> - Introduced in GitLab and GitLab Runner 9.4.
 
-| Setting    | Required | GitLab version | Description |
-|------------|----------|----------------| ----------- |
-| `name`       | yes, when used with any other option  | 9.4 | Full name of the image to use. If the full image name includes a registry hostname, use the `alias` option to define a shorter service access name. For more information, see [Accessing the services](#accessing-the-services). |
-| `entrypoint` | no     | 9.4 |Command or script to execute as the container's entrypoint. It's translated to Docker's `--entrypoint` option while creating the container. The syntax is similar to [`Dockerfile`'s `ENTRYPOINT`](https://docs.docker.com/engine/reference/builder/#entrypoint) directive, where each shell token is a separate string in the array. |
-| `command`    | no       | 9.4 |Command or script that should be used as the container's command. It's translated to arguments passed to Docker after the image's name. The syntax is similar to [`Dockerfile`'s `CMD`](https://docs.docker.com/engine/reference/builder/#cmd) directive, where each shell token is a separate string in the array. |
-| `alias` (1)     | no       | 9.4 | Additional alias that can be used to access the service from the job's container. Read [Accessing the services](#accessing-the-services) for more information. |
-| `variables` (2)     | no       | 14.5 | Additional environment variables that are passed exclusively to the service. The syntax is the same as [Job Variables](../variables/index.md). |
+| Setting         | Required                             | GitLab version | Description |
+|-----------------|--------------------------------------|----------------|-------------|
+| `name`          | yes, when used with any other option | 9.4            | Full name of the image to use. If the full image name includes a registry hostname, use the `alias` option to define a shorter service access name. For more information, see [Accessing the services](#accessing-the-services). |
+| `entrypoint`    | no                                   | 9.4            | Command or script to execute as the container's entrypoint. It's translated to the Docker `--entrypoint` option while creating the container. The syntax is similar to [`Dockerfile`'s `ENTRYPOINT`](https://docs.docker.com/reference/dockerfile/#entrypoint) directive, where each shell token is a separate string in the array. |
+| `command`       | no                                   | 9.4            | Command or script that should be used as the container's command. It's translated to arguments passed to Docker after the image's name. The syntax is similar to [`Dockerfile`'s `CMD`](https://docs.docker.com/reference/dockerfile/#cmd) directive, where each shell token is a separate string in the array. |
+| `alias` (1)     | no                                   | 9.4            | Additional alias that can be used to access the service from the job's container. Read [Accessing the services](#accessing-the-services) for more information. |
+| `variables` (2) | no                                   | 14.5           | Additional environment variables that are passed exclusively to the service. The syntax is the same as [Job Variables](../variables/index.md). Service variables cannot reference themselves. |
 
 (1) Alias support for the Kubernetes executor was [introduced](https://gitlab.com/gitlab-org/gitlab-runner/-/issues/2229) in GitLab Runner 12.8, and is only available for Kubernetes version 1.7 or later.
 
@@ -268,7 +276,7 @@ test:
 
 ## Starting multiple services from the same image
 
-> Introduced in GitLab and GitLab Runner 9.4. Read more about the [extended configuration options](../docker/using_docker_images.md#extended-docker-configuration-options).
+> - Introduced in GitLab and GitLab Runner 9.4. Read more about the [extended configuration options](../docker/using_docker_images.md#extended-docker-configuration-options).
 
 Before the new extended Docker configuration options, the following configuration
 would not work properly:
@@ -301,7 +309,7 @@ in `.gitlab-ci.yml` file.
 
 ## Setting a command for the service
 
-> Introduced in GitLab and GitLab Runner 9.4. Read more about the [extended configuration options](../docker/using_docker_images.md#extended-docker-configuration-options).
+> - Introduced in GitLab and GitLab Runner 9.4. Read more about the [extended configuration options](../docker/using_docker_images.md#extended-docker-configuration-options).
 
 Let's assume you have a `super/sql:latest` image with some SQL database
 in it. You would like to use it as a service for your job. Let's also
@@ -313,34 +321,32 @@ Before the new extended Docker configuration options, you would need to:
 
 - Create your own image based on the `super/sql:latest` image.
 - Add the default command.
-- Use the image in the job's configuration:
+- Use the image in the job's configuration.
 
-  ```dockerfile
-  # my-super-sql:latest image's Dockerfile
+  - `my-super-sql:latest` image's Dockerfile:
 
-  FROM super/sql:latest
-  CMD ["/usr/bin/super-sql", "run"]
-  ```
+    ```dockerfile
+    FROM super/sql:latest
+    CMD ["/usr/bin/super-sql", "run"]
+    ```
 
-  ```yaml
-  # .gitlab-ci.yml
+  - In the job in the `.gitlab-ci.yml`:
 
-  services:
-    - my-super-sql:latest
-  ```
+    ```yaml
+    services:
+      - my-super-sql:latest
+    ```
 
 After the new extended Docker configuration options, you can
 set a `command` in the `.gitlab-ci.yml` file instead:
 
 ```yaml
-# .gitlab-ci.yml
-
 services:
   - name: super/sql:latest
     command: ["/usr/bin/super-sql", "run"]
 ```
 
-The syntax of `command` is similar to [Dockerfile's `CMD`](https://docs.docker.com/engine/reference/builder/#cmd).
+The syntax of `command` is similar to [Dockerfile `CMD`](https://docs.docker.com/reference/dockerfile/#cmd).
 
 ## Using `services` with `docker run` (Docker-in-Docker) side-by-side
 
@@ -353,7 +359,7 @@ while only booting up the tested service once.
 ```yaml
 access-service:
   stage: build
-  image: docker:19.03.1
+  image: docker:20.10.16
   services:
     - docker:dind                    # necessary for docker run
     - tutum/wordpress:latest
@@ -367,8 +373,11 @@ access-service:
       curlimages/curl:7.74.0 curl "http://tutum-wordpress"
 ```
 
-For this solution to work, you must use
-[the networking mode that creates a new network for each job](https://docs.gitlab.com/runner/executors/docker.html#create-a-network-for-each-job).
+For this solution to work, you must:
+
+- Use [the networking mode that creates a new network for each job](https://docs.gitlab.com/runner/executors/docker.html#create-a-network-for-each-job).
+- [Not use the Docker executor with Docker socket binding](../docker/using_docker_build.md#use-the-docker-executor-with-docker-socket-binding).
+  If you must, then in the above example, instead of `host`, use the dynamic network name created for this job.
 
 ## How Docker integration works
 
@@ -386,59 +395,103 @@ time.
 1. Check the exit status of build script.
 1. Remove the build container and all created service containers.
 
+## Capturing service container logs
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab-runner/-/merge_requests/3680) in GitLab Runner 15.6.
+
+Logs generated by applications running in service containers can be captured for subsequent examination and debugging.
+You might want to look at service container's logs when the service container has started successfully, but is not
+behaving as expected, leading to job failures. The logs can indicate missing or incorrect configuration of the service
+within the container.
+
+`CI_DEBUG_SERVICES` should only be enabled when service containers are being actively debugged as there are both storage
+and performance consequences to capturing service container logs.
+
+To enable service logging, add the `CI_DEBUG_SERVICES` variable to the project's
+`.gitlab-ci.yml` file:
+
+```yaml
+variables:
+  CI_DEBUG_SERVICES: "true"
+```
+
+Accepted values are:
+
+- Enabled: `TRUE`, `true`, `True`
+- Disabled: `FALSE`, `false`, `False`
+
+Any other values result in an error message and effectively disable the feature.
+
+When enabled, logs for _all_ service containers are captured and streamed into the jobs trace log concurrently with
+other logs. Logs from each container are prefixed with the container's aliases, and displayed in a different color.
+
+NOTE:
+You may want to adjust the logging level in the service container for which you want to capture logs since the default
+logging level may not provide sufficient details to diagnose job failures.
+
+WARNING:
+Enabling `CI_DEBUG_SERVICES` _may_ result in masked variables being revealed. When `CI_DEBUG_SERVICES` is enabled,
+service container logs and the CI job's logs are streamed to the job's trace log _concurrently_, which makes it possible
+for a service container log to be inserted _inside_ a job's masked log. This would thwart the variable masking mechanism
+and result in the masked variable being revealed.
+
+See [Mask a CI/CD Variable](../variables/index.md#mask-a-cicd-variable)
+
 ## Debug a job locally
 
-The following commands are run without root privileges. You should be
-able to run Docker with your user account.
+The following commands are run without root privileges. You should be able to run Docker with your user account.
 
-First start with creating a file named `build_script`:
+First start by creating a file named `build_script`:
 
 ```shell
 cat <<EOF > build_script
 git clone https://gitlab.com/gitlab-org/gitlab-runner.git /builds/gitlab-org/gitlab-runner
 cd /builds/gitlab-org/gitlab-runner
-make
+make runner-bin-host
 EOF
 ```
 
-Here we use as an example the GitLab Runner repository which contains a
-Makefile, so running `make` executes the commands defined in the Makefile.
-Instead of `make`, you could run the command which is specific to your project.
+Here we use as an example the GitLab Runner repository which contains a Makefile, so running `make` executes the target
+defined in the Makefile. Instead of `make runner-bin-host`, you could run the command which is specific to your project.
 
-Then create some service containers:
-
-```shell
-docker run -d --name service-mysql mysql:latest
-docker run -d --name service-postgres postgres:latest
-```
-
-This creates two service containers, named `service-mysql` and
-`service-postgres` which use the latest MySQL and PostgreSQL images
-respectively. They both run in the background (`-d`).
-
-Finally, create a build container by executing the `build_script` file we
-created earlier:
+Then create a service container:
 
 ```shell
-docker run --name build -i --link=service-mysql:mysql --link=service-postgres:postgres ruby:2.6 /bin/bash < build_script
+docker run -d --name service-redis redis:latest
 ```
 
-The above command creates a container named `build` that's spawned from
-the `ruby:2.6` image and has two services linked to it. The `build_script` is
-piped using `stdin` to the bash interpreter which in turn executes the
+The previous command creates a service container named `service-redis` using the latest Redis image. The service
+container runs in the background (`-d`).
+
+Finally, create a build container by executing the `build_script` file we created earlier:
+
+```shell
+docker run --name build -i --link=service-redis:redis golang:latest /bin/bash < build_script
+```
+
+The above command creates a container named `build` that is spawned from the `golang:latest` image and has one service
+linked to it. The `build_script` is piped using `stdin` to the bash interpreter which in turn executes the
 `build_script` in the `build` container.
 
-When you finish testing and no longer need the containers, you can remove them
-with:
+When you finish testing and no longer need the containers, you can remove them with:
 
 ```shell
-docker rm -f -v build service-mysql service-postgres
+docker rm -f -v build service-redis
 ```
 
-This forcefully (`-f`) removes the `build` container, the two service
-containers, and all volumes (`-v`) that were created with the container
-creation.
+This forcefully (`-f`) removes the `build` container, the service container, and all volumes (`-v`) that were created
+with the container creation.
 
 ## Security when using services containers
 
 Docker privileged mode applies to services. This means that the service image container can access the host system. You should use container images from trusted sources only.
+
+## Shared /builds directory
+
+The build directory is mounted as a volume under `/builds` and is shared
+between the job and services. The job checks the project out into
+`/builds/$CI_PROJECT_PATH` after the services are running. As a result, if your
+service needs files from the project or, for example, wants to put files there
+to serve as artifacts, it may need to wait for that directory to exist and
+have `$CI_COMMIT_SHA` checked out. Any changes made before the job finishes its
+checkout process are removed by the checkout process.

@@ -42,14 +42,14 @@ export default {
 };
 </script>
 <template>
-  <div class="file-header-content d-flex align-items-center lh-100">
+  <div class="file-header-content gl-flex gl-align-items-center gl-leading-1">
     <slot name="filepath-prepend"></slot>
 
     <template v-if="fileName">
-      <file-icon :file-name="fileName" :size="16" aria-hidden="true" css-classes="mr-2" />
+      <file-icon :file-name="fileName" :size="16" aria-hidden="true" css-classes="gl-mr-3" />
       <strong
         class="file-title-name mr-1 js-blob-header-filepath"
-        data-qa-selector="file_title_content"
+        data-testid="file-title-content"
         >{{ fileName }}</strong
       >
     </template>
@@ -59,10 +59,10 @@ export default {
       :gfm="gfmCopyText"
       :title="__('Copy file path')"
       category="tertiary"
-      css-class="btn-clipboard btn-transparent lh-100 position-static"
+      css-class="gl-mr-2"
     />
 
-    <small class="mr-2">{{ blobSize }}</small>
+    <small class="gl-mr-3">{{ blobSize }}</small>
 
     <gl-badge v-if="showLfsBadge">{{ __('LFS') }}</gl-badge>
   </div>

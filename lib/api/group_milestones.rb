@@ -8,6 +8,7 @@ module API
     before { authenticate! }
 
     feature_category :team_planning
+    urgency :low
 
     params do
       requires :id, type: String, desc: 'The ID of a group'
@@ -18,6 +19,8 @@ module API
       end
       params do
         use :list_params
+        optional :include_descendants, type: Grape::API::Boolean,
+          desc: 'Include milestones from all subgroups and subprojects'
       end
       get ":id/milestones" do
         list_milestones_for(user_group)

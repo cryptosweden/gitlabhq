@@ -1,4 +1,3 @@
-import { truncatePathMiddleToLength } from '~/lib/utils/text_utility';
 import { TREE_TYPE } from '../constants';
 
 export const getLowestSingleFolder = (folder) => {
@@ -28,7 +27,7 @@ export const getLowestSingleFolder = (folder) => {
   const { path, tree } = getFolder(folder, [folder.name]);
 
   return {
-    path: truncatePathMiddleToLength(path.join('/'), 40),
+    path: path.join('/'),
     treeAcc: tree.length ? tree[tree.length - 1].tree : null,
   };
 };
@@ -62,10 +61,15 @@ export const generateTreeList = (files) => {
       const split = file.new_path.split('/');
 
       split.forEach((name, i) => {
-        const parent = acc.treeEntries[split.slice(0, i).join('/')];
+        let parent = acc.treeEntries[split.slice(0, i).join('/')];
         const path = `${parent ? `${parent.path}/` : ''}${name}`;
+        const child = acc.treeEntries[path];
 
-        if (!acc.treeEntries[path]) {
+        if (parent && !parent.tree) {
+          parent = null;
+        }
+
+        if (!child || !child.tree) {
           const type = path === file.new_path ? 'blob' : 'tree';
           acc.treeEntries[path] = {
             key: path,
@@ -80,6 +84,12 @@ export const generateTreeList = (files) => {
           if (type === 'blob') {
             Object.assign(entry, {
               changed: true,
+              diffLoaded: false,
+              diffLoading: false,
+              filePaths: {
+                old: file.old_path,
+                new: file.new_path,
+              },
               tempFile: file.new_file,
               deleted: file.deleted_file,
               fileHash: file.file_hash,

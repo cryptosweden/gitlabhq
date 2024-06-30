@@ -12,6 +12,13 @@ class ProjectWiki < Wiki
     container.disk_path + '.wiki'
   end
 
+  override :create_wiki_repository
+  def create_wiki_repository
+    super
+
+    track_wiki_repository
+  end
+
   override :after_wiki_activity
   def after_wiki_activity
     # Update activity columns, this is done synchronously to avoid
@@ -28,8 +35,14 @@ class ProjectWiki < Wiki
     # the activity columns for Git pushes as well.
     after_wiki_activity
   end
-end
 
-# TODO: Remove this once we implement ES support for group wikis.
-# https://gitlab.com/gitlab-org/gitlab/-/issues/207889
-ProjectWiki.prepend_mod_with('ProjectWiki')
+  private
+
+  def track_wiki_repository
+    return unless ::Gitlab::Database.read_write?
+    return if container.wiki_repository
+
+    # This is the ActiveRecord auto-generated method for a Project's has_one :wiki_repository
+    container.create_wiki_repository!
+  end
+end

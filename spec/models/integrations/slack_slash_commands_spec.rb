@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::SlackSlashCommands do
+RSpec.describe Integrations::SlackSlashCommands, feature_category: :integrations do
   it_behaves_like Integrations::BaseSlashCommands
 
   describe '#trigger' do
     context 'when an auth url is generated' do
-      let(:project) { create(:project) }
+      let_it_be(:project) { create(:project) }
       let(:params) do
         {
           team_domain: 'http://domain.tld',
@@ -41,10 +41,26 @@ RSpec.describe Integrations::SlackSlashCommands do
     end
   end
 
-  describe '#chat_responder' do
-    it 'returns the responder to use for Slack' do
-      expect(described_class.new.chat_responder)
-        .to eq(Gitlab::Chat::Responder::Slack)
+  describe '#redirect_url' do
+    let(:integration) { build(:slack_slash_commands_integration) }
+
+    subject { integration.redirect_url('team', 'channel', 'www.example.com') }
+
+    it { is_expected.to eq('slack://channel?team=team&id=channel') }
+  end
+
+  describe '#confirmation_url' do
+    let(:integration) { build(:slack_slash_commands_integration) }
+    let(:params) do
+      {
+        team_id: 'T123456',
+        channel_id: 'C654321',
+        response_url: 'https://hooks.slack.com/services/T123456/C654321'
+      }
     end
+
+    subject { integration.confirmation_url('command-id', params) }
+
+    it { is_expected.to be_present }
   end
 end

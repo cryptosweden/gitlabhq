@@ -2,39 +2,40 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache do
-  let(:merge_request) { create(:merge_request_with_diffs) }
+RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache, feature_category: :source_code_management do
+  let_it_be(:merge_request) { create(:merge_request_with_diffs) }
+
   let(:diff_hash) do
     { ".gitignore-false-false-false" =>
       [{ line_code: nil, rich_text: nil, text: "@@ -17,3 +17,4 @@ rerun.txt", type: "match", index: 0, old_pos: 17, new_pos: 17 },
        { line_code: "a5cc2925ca8258af241be7e5b0381edf30266302_17_17",
-        rich_text: " <span id=\"LC17\" class=\"line\" lang=\"plaintext\">pickle-email-*.html</span>\n",
-        text: " pickle-email-*.html",
-        type: nil,
-        index: 1,
-        old_pos: 17,
-        new_pos: 17 },
+         rich_text: " <span id=\"LC17\" class=\"line\" lang=\"plaintext\">pickle-email-*.html</span>\n",
+         text: " pickle-email-*.html",
+         type: nil,
+         index: 1,
+         old_pos: 17,
+         new_pos: 17 },
        { line_code: "a5cc2925ca8258af241be7e5b0381edf30266302_18_18",
-        rich_text: " <span id=\"LC18\" class=\"line\" lang=\"plaintext\">.project</span>\n",
-        text: " .project",
-        type: nil,
-        index: 2,
-        old_pos: 18,
-        new_pos: 18 },
+         rich_text: " <span id=\"LC18\" class=\"line\" lang=\"plaintext\">.project</span>\n",
+         text: " .project",
+         type: nil,
+         index: 2,
+         old_pos: 18,
+         new_pos: 18 },
        { line_code: "a5cc2925ca8258af241be7e5b0381edf30266302_19_19",
-        rich_text: " <span id=\"LC19\" class=\"line\" lang=\"plaintext\">config/initializers/secret_token.rb</span>\n",
-        text: " config/initializers/secret_token.rb",
-        type: nil,
-        index: 3,
-        old_pos: 19,
-        new_pos: 19 },
+         rich_text: " <span id=\"LC19\" class=\"line\" lang=\"plaintext\">config/initializers/secret_token.rb</span>\n",
+         text: " config/initializers/secret_token.rb",
+         type: nil,
+         index: 3,
+         old_pos: 19,
+         new_pos: 19 },
        { line_code: "a5cc2925ca8258af241be7e5b0381edf30266302_20_20",
-        rich_text: "+<span id=\"LC20\" class=\"line\" lang=\"plaintext\">.DS_Store</span>",
-        text: "+.DS_Store",
-        type: "new",
-        index: 4,
-        old_pos: 20,
-        new_pos: 20 }] }
+         rich_text: "+<span id=\"LC20\" class=\"line\" lang=\"plaintext\">.DS_Store</span>",
+         text: "+.DS_Store",
+         type: "new",
+         index: 4,
+         old_pos: 20,
+         new_pos: 20 }] }
   end
 
   let(:cache_key) { cache.key }
@@ -48,10 +49,12 @@ RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache do
     let(:diff_file) do
       diffs = merge_request.diffs
       raw_diff = diffs.diffable.raw_diffs(diffs.diff_options.merge(paths: ['CHANGELOG'])).first
-      Gitlab::Diff::File.new(raw_diff,
-                             repository: diffs.project.repository,
-                             diff_refs: diffs.diff_refs,
-                             fallback_diff_refs: diffs.fallback_diff_refs)
+      Gitlab::Diff::File.new(
+        raw_diff,
+        repository: diffs.project.repository,
+        diff_refs: diffs.diff_refs,
+        fallback_diff_refs: diffs.fallback_diff_refs
+      )
     end
 
     before do
@@ -121,6 +124,24 @@ RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache do
       expect(cache).to receive(:read_cache).once.and_call_original
 
       cache.write_if_empty
+    end
+
+    it 'refreshes TTL of the key on read' do
+      cache.write_if_empty
+
+      time_until_expire = 30.minutes
+
+      Gitlab::Redis::Cache.with do |redis|
+        # Emulate that a key is going to expire soon
+        redis.expire(cache.key, time_until_expire)
+
+        expect(redis.ttl(cache.key)).to be <= time_until_expire
+
+        cache.send(:read_cache)
+
+        expect(redis.ttl(cache.key)).to be > time_until_expire
+        expect(redis.ttl(cache.key)).to be_within(1.minute).of(described_class::EXPIRATION)
+      end
     end
   end
 
@@ -198,7 +219,7 @@ RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache do
 
   describe '#clear' do
     it 'clears cache' do
-      expect_any_instance_of(Redis).to receive(:del).with(cache_key)
+      Gitlab::Redis::Cache.with { |r| expect(r).to receive(:del).with(cache_key) }
 
       cache.clear
     end
@@ -208,10 +229,12 @@ RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache do
     let(:diff_file) do
       diffs = merge_request.diffs
       raw_diff = diffs.diffable.raw_diffs(diffs.diff_options.merge(paths: ['CHANGELOG'])).first
-      Gitlab::Diff::File.new(raw_diff,
-                             repository: diffs.project.repository,
-                             diff_refs: diffs.diff_refs,
-                             fallback_diff_refs: diffs.fallback_diff_refs)
+      Gitlab::Diff::File.new(
+        raw_diff,
+        repository: diffs.project.repository,
+        diff_refs: diffs.diff_refs,
+        fallback_diff_refs: diffs.fallback_diff_refs
+      )
     end
 
     it "uses ActiveSupport::Gzip when reading from the cache" do
@@ -222,17 +245,18 @@ RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache do
     end
 
     it "uses ActiveSupport::Gzip to compress data when writing to cache" do
-      expect(ActiveSupport::Gzip).to receive(:compress).and_call_original
+      # at least once as Gitlab::Redis::Cache is a multistore
+      expect(ActiveSupport::Gzip).to receive(:compress).at_least(1).and_call_original
 
       cache.send(:write_to_redis_hash, diff_hash)
     end
   end
 
   describe 'metrics' do
-    let(:transaction) { Gitlab::Metrics::WebTransaction.new({} ) }
+    let(:transaction) { Gitlab::Metrics::WebTransaction.new({}) }
 
     before do
-      allow(cache).to receive(:current_transaction).and_return(transaction)
+      allow(::Gitlab::Metrics::WebTransaction).to receive(:current).and_return(transaction)
     end
 
     it 'observes :gitlab_redis_diff_caching_memory_usage_bytes' do
@@ -241,23 +265,29 @@ RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache do
 
       cache.write_if_empty
     end
+
+    it 'records hit ratio metrics' do
+      expect(transaction)
+        .to receive(:increment).with(:gitlab_redis_diff_caching_requests_total).exactly(5).times
+      expect(transaction)
+        .to receive(:increment).with(:gitlab_redis_diff_caching_hits_total).exactly(4).times
+
+      5.times do
+        cache = described_class.new(merge_request.diffs)
+        cache.write_if_empty
+      end
+    end
   end
 
   describe '#key' do
     subject { cache.key }
 
-    it 'returns cache key' do
-      is_expected.to eq("highlighted-diff-files:#{cache.diffable.cache_key}:2:#{cache.diff_options}:true:true")
+    def options_hash(options_array)
+      OpenSSL::Digest::SHA256.hexdigest(options_array.join)
     end
 
-    context 'when the `use_marker_ranges` feature flag is disabled' do
-      before do
-        stub_feature_flags(use_marker_ranges: false)
-      end
-
-      it 'returns the original version of the cache' do
-        is_expected.to eq("highlighted-diff-files:#{cache.diffable.cache_key}:2:#{cache.diff_options}:false:true")
-      end
+    it 'returns cache key' do
+      is_expected.to eq("highlighted-diff-files:#{cache.diffable.cache_key}:2:#{options_hash([cache.diff_options, true])}")
     end
 
     context 'when the `diff_line_syntax_highlighting` feature flag is disabled' do
@@ -266,7 +296,7 @@ RSpec.describe Gitlab::Diff::HighlightCache, :clean_gitlab_redis_cache do
       end
 
       it 'returns the original version of the cache' do
-        is_expected.to eq("highlighted-diff-files:#{cache.diffable.cache_key}:2:#{cache.diff_options}:true:false")
+        is_expected.to eq("highlighted-diff-files:#{cache.diffable.cache_key}:2:#{options_hash([cache.diff_options, false])}")
       end
     end
   end

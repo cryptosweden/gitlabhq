@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::MergeRequestsCountService, :use_clean_rails_memory_store_caching do
+RSpec.describe Groups::MergeRequestsCountService, :use_clean_rails_memory_store_caching, feature_category: :groups_and_projects do
   let_it_be(:user) { create(:user) }
-  let_it_be(:group) { create(:group, :public)}
+  let_it_be(:group) { create(:group, :public) }
   let_it_be(:project) { create(:project, :repository, namespace: group) }
   let_it_be(:merge_request) { create(:merge_request, source_project: project, target_project: project) }
 

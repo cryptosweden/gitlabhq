@@ -2,17 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe FeatureFlags::CreateService do
+RSpec.describe FeatureFlags::CreateService, feature_category: :feature_flags do
   let_it_be(:project) { create(:project) }
-  let_it_be(:developer) { create(:user) }
-  let_it_be(:reporter) { create(:user) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
 
   let(:user) { developer }
-
-  before_all do
-    project.add_developer(developer)
-    project.add_reporter(reporter)
-  end
 
   describe '#execute' do
     subject do
@@ -41,9 +36,13 @@ RSpec.describe FeatureFlags::CreateService do
 
         subject
       end
+
+      it_behaves_like 'does not update feature flag client'
     end
 
     context 'when feature flag is saved correctly' do
+      let(:audit_event_details) { AuditEvent.last.details }
+      let(:audit_event_message) { audit_event_details[:custom_message] }
       let(:params) do
         {
           name: 'feature_flag',
@@ -61,6 +60,8 @@ RSpec.describe FeatureFlags::CreateService do
       it 'creates feature flag' do
         expect { subject }.to change { Operations::FeatureFlag.count }.by(1)
       end
+
+      it_behaves_like 'update feature flag client'
 
       context 'when Jira Connect subscription does not exist' do
         it 'does not sync the feature flag to Jira' do
@@ -82,11 +83,11 @@ RSpec.describe FeatureFlags::CreateService do
         end
       end
 
-      it 'creates audit event' do
+      it 'creates audit event', :with_license do
         expect { subject }.to change { AuditEvent.count }.by(1)
-        expect(AuditEvent.last.details[:custom_message]).to start_with('Created feature flag feature_flag with description "description".')
-        expect(AuditEvent.last.details[:custom_message]).to include('Created strategy "default" with scopes "*".')
-        expect(AuditEvent.last.details[:custom_message]).to include('Created strategy "default" with scopes "production".')
+        expect(audit_event_message).to start_with('Created feature flag feature_flag with description "description".')
+        expect(audit_event_message).to include('Created strategy "default" with scopes "*".')
+        expect(audit_event_message).to include('Created strategy "default" with scopes "production".')
       end
 
       context 'when user is reporter' do

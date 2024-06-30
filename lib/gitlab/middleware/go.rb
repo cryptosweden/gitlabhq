@@ -8,7 +8,7 @@ module Gitlab
       include ActionView::Helpers::TagHelper
       include ActionController::HttpAuthentication::Basic
 
-      PROJECT_PATH_REGEX = %r{\A(#{Gitlab::PathRegex.full_namespace_route_regex}/#{Gitlab::PathRegex.project_route_regex})/}.freeze
+      PROJECT_PATH_REGEX = %r{\A(#{Gitlab::PathRegex.full_namespace_route_regex}/#{Gitlab::PathRegex.project_route_regex})/}
 
       def initialize(app)
         @app = app
@@ -18,15 +18,16 @@ module Gitlab
         request = ActionDispatch::Request.new(env)
 
         render_go_doc(request) || @app.call(env)
-      rescue Gitlab::Auth::IpBlacklisted
+      rescue Gitlab::Auth::IpBlocked => e
         Gitlab::AuthLogger.error(
           message: 'Rack_Attack',
+          status: 403,
           env: :blocklist,
           remote_ip: request.ip,
           request_method: request.request_method,
           path: request.fullpath
         )
-        Rack::Response.new('', 403).finish
+        Rack::Response.new(e.message, 403).finish
       rescue Gitlab::Auth::MissingPersonalAccessTokenError
         Rack::Response.new('', 401).finish
       end
@@ -71,8 +72,8 @@ module Gitlab
                            "#{project_url}.git"
                          end
 
-        meta_import_tag = tag :meta, name: 'go-import', content: "#{import_prefix} git #{repository_url}"
-        meta_source_tag = tag :meta, name: 'go-source', content: "#{import_prefix} #{project_url} #{project_url}/-/tree/#{branch}{/dir} #{project_url}/-/blob/#{branch}{/dir}/{file}#L{line}"
+        meta_import_tag = tag.meta(name: 'go-import', content: "#{import_prefix} git #{repository_url}")
+        meta_source_tag = tag.meta(name: 'go-source', content: "#{import_prefix} #{project_url} #{project_url}/-/tree/#{branch}{/dir} #{project_url}/-/blob/#{branch}{/dir}/{file}#L{line}")
         head_tag = content_tag :head, meta_import_tag + meta_source_tag
         html_tag = content_tag :html, head_tag + body_tag
         [html_tag, 200]
@@ -140,7 +141,7 @@ module Gitlab
         return empty_result unless has_basic_credentials?(request)
 
         login, password = user_name_and_password(request)
-        auth_result = Gitlab::Auth.find_for_git_client(login, password, project: project, ip: request.ip)
+        auth_result = Gitlab::Auth.find_for_git_client(login, password, project: project, request: request)
         return empty_result unless auth_result.success?
 
         return empty_result unless auth_result.can?(:access_git)

@@ -54,7 +54,7 @@ module Gitlab
             next if load_balancer.primary_only?
 
             load_balancer.host_list.hosts.each do |host|
-              stats << { labels: labels_for_replica_host(load_balancer, host), stats: host.connection.pool.stat }
+              stats << { labels: labels_for_replica_host(load_balancer, host), stats: host.pool.stat }
             end
           end
         end
@@ -72,8 +72,8 @@ module Gitlab
           {
             host: host.host,
             port: host.port,
-            class: load_balancer.configuration.primary_connection_specification_name,
-            db_config_name: Gitlab::Database.db_config_name(host.connection)
+            class: load_balancer.configuration.connection_specification_name,
+            db_config_name: host.pool.db_config.name
           }
         end
       end

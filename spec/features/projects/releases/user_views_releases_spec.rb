@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User views releases', :js do
+RSpec.describe 'User views releases', :js, feature_category: :continuous_delivery do
   let_it_be(:today) { Time.zone.now }
   let_it_be(:yesterday) { today - 1.day }
   let_it_be(:tomorrow) { today + 1.day }
@@ -15,13 +15,24 @@ RSpec.describe 'User views releases', :js do
   let_it_be(:guest) { create(:user) }
 
   let_it_be(:internal_link) { create(:release_link, release: release_v1, name: 'An internal link', url: "#{project.web_url}/-/jobs/1/artifacts/download", filepath: nil) }
-  let_it_be(:internal_link_with_redirect) { create(:release_link, release: release_v1, name: 'An internal link with a redirect', url: "#{project.web_url}/-/jobs/2/artifacts/download", filepath: '/binaries/linux-amd64' ) }
+  let_it_be(:internal_link_with_redirect) { create(:release_link, release: release_v1, name: 'An internal link with a redirect', url: "#{project.web_url}/-/jobs/2/artifacts/download", filepath: '/binaries/linux-amd64') }
   let_it_be(:external_link) { create(:release_link, release: release_v1, name: 'An external link', url: "https://example.com/an/external/link", filepath: nil) }
 
   before do
     project.add_maintainer(maintainer)
     project.add_guest(guest)
     stub_default_url_options(host: 'localhost')
+  end
+
+  shared_examples 'when the project does not have releases' do
+    before do
+      project.releases.delete_all(:delete_all)
+      visit project_releases_path(project)
+    end
+
+    it 'sees an empty state' do
+      expect(page).to have_selector('[data-testid="gl-empty-state-content"]')
+    end
   end
 
   context('when the user is a maintainer') do
@@ -46,10 +57,10 @@ RSpec.describe 'User views releases', :js do
         external_link_indicator_selector = '[data-testid="external-link-indicator"]'
 
         expect(page).to have_link internal_link.name, href: internal_link.url
-        expect(find_link(internal_link.name)).not_to have_css(external_link_indicator_selector)
+        expect(find_link(internal_link.name)).to have_css(external_link_indicator_selector)
 
         expect(page).to have_link internal_link_with_redirect.name, href: Gitlab::Routing.url_helpers.project_release_url(project, release_v1) << "/downloads#{internal_link_with_redirect.filepath}"
-        expect(find_link(internal_link_with_redirect.name)).not_to have_css(external_link_indicator_selector)
+        expect(find_link(internal_link_with_redirect.name)).to have_css(external_link_indicator_selector)
 
         expect(page).to have_link external_link.name, href: external_link.url
         expect(find_link(external_link.name)).to have_css(external_link_indicator_selector)
@@ -75,10 +86,10 @@ RSpec.describe 'User views releases', :js do
 
     context 'sorting' do
       def sort_page(by:, direction:)
-        within '[data-testid="releases-sort"]' do
-          find('.dropdown-toggle').click
+        within_testid 'releases-sort' do
+          find_by_testid('base-dropdown-toggle').click
 
-          click_button(by, class: 'dropdown-item')
+          find('li.gl-new-dropdown-item', text: by).click
 
           find('.sorting-direction-button').click if direction == :ascending
         end
@@ -86,7 +97,7 @@ RSpec.describe 'User views releases', :js do
 
       shared_examples 'releases sort order' do
         it "sorts the releases #{description}" do
-          card_titles = page.all('.release-block .card-title', minimum: expected_releases.count)
+          card_titles = page.all('[data-testid="release-block"] .gl-new-card-title', minimum: expected_releases.count)
 
           card_titles.each_with_index do |title, index|
             expect(title).to have_content(expected_releases[index].name)
@@ -110,6 +121,8 @@ RSpec.describe 'User views releases', :js do
         it_behaves_like 'releases sort order'
       end
     end
+
+    it_behaves_like 'when the project does not have releases'
   end
 
   context('when the user is a guest') do
@@ -120,7 +133,7 @@ RSpec.describe 'User views releases', :js do
     it 'renders release info except for Git-related data' do
       visit project_releases_path(project)
 
-      within('.release-block', match: :first) do
+      within_testid('release-block', match: :first) do
         expect(page).to have_content(release_v3.description)
         expect(page).to have_content(release_v3.tag)
         expect(page).to have_content(release_v3.name)
@@ -130,5 +143,7 @@ RSpec.describe 'User views releases', :js do
         expect(page).not_to have_content(release_v3.commit.short_id)
       end
     end
+
+    it_behaves_like 'when the project does not have releases'
   end
 end

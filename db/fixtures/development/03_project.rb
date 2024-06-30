@@ -4,6 +4,7 @@ class Gitlab::Seeder::Projects
   include ActionView::Helpers::NumberHelper
 
   PROJECT_URLS = %w[
+    https://gitlab.com/gitlab-com/support/toolbox/gitlab-smoke-tests.git
     https://gitlab.com/gitlab-org/gitlab-test.git
     https://gitlab.com/gitlab-org/gitlab-shell.git
     https://gitlab.com/gnuwget/wget2.git
@@ -53,12 +54,54 @@ class Gitlab::Seeder::Projects
     public: 1 # 1m projects = 5m total
   }
 
+  BATCH_SIZE = 100_000
+
   def seed!
     Sidekiq::Testing.inline! do
       create_real_projects!
       create_large_projects!
-      create_mass_projects!
     end
+  end
+
+  def self.insert_project_namespaces_sql(type:, range:)
+    <<~SQL
+          INSERT INTO namespaces (name, path, parent_id, owner_id, type, visibility_level, created_at, updated_at)
+          SELECT
+            'Seed project ' || seq || ' ' || ('{#{Gitlab::Seeder::Projects.visibility_per_user}}'::text[])[seq] AS project_name,
+            '#{Gitlab::Seeder::MASS_INSERT_PROJECT_START}' || ('{#{Gitlab::Seeder::Projects.visibility_per_user}}'::text[])[seq] || '_' || seq AS namespace_path,
+            n.id AS parent_id,
+            n.owner_id AS owner_id,
+            'Project' AS type,
+            ('{#{Gitlab::Seeder::Projects.visibility_level_per_user}}'::int[])[seq] AS visibility_level,
+            NOW() AS created_at,
+            NOW() AS updated_at
+          FROM namespaces n
+            CROSS JOIN generate_series(1, #{Gitlab::Seeder::Projects.projects_per_user_count}) AS seq
+            WHERE type='#{type}' AND path LIKE '#{Gitlab::Seeder::MASS_INSERT_PREFIX}%'
+            AND n.id BETWEEN #{range.first} AND #{range.last}
+          ON CONFLICT DO NOTHING;
+    SQL
+  end
+
+  def self.insert_projects_sql(type:, range:)
+    <<~SQL
+          INSERT INTO projects (name, path, creator_id, namespace_id, project_namespace_id, visibility_level, created_at, updated_at)
+          SELECT
+            n.name AS project_name,
+            n.path AS project_path,
+            n.owner_id AS creator_id,
+            n.parent_id AS namespace_id,
+            n.id AS project_namespace_id,
+            n.visibility_level AS visibility_level,
+            NOW() AS created_at,
+            NOW() AS updated_at
+          FROM namespaces n
+            WHERE type = 'Project' AND n.parent_id IN (
+              SELECT id FROM namespaces n1 WHERE type='#{type}'
+              AND path LIKE '#{Gitlab::Seeder::MASS_INSERT_PREFIX}%' AND n1.id BETWEEN #{range.first} AND #{range.last}
+            )
+          ON CONFLICT DO NOTHING;
+    SQL
   end
 
   private
@@ -85,7 +128,15 @@ class Gitlab::Seeder::Projects
       project = Project.find_by_full_path(project_name)
 
       User.offset(1).first(5).each do |user|
-        new_project = ::Projects::ForkService.new(project, user).execute
+        response = ::Projects::ForkService.new(project, user).execute
+
+        if response.error?
+          print 'F'
+          puts response.errors
+          next
+        end
+
+        new_project = response[:project]
 
         if new_project.valid? && (new_project.valid_repo? || new_project.import_state.scheduled?)
           print '.'
@@ -117,6 +168,12 @@ class Gitlab::Seeder::Projects
     end
 
     project_path.gsub!(".git", "")
+    project = Project.find_by_name(project_path.titleize)
+
+    if project
+      puts "Project #{project.full_path} already exists, skipping"
+      return
+    end
 
     params = {
       import_url: url,
@@ -131,21 +188,21 @@ class Gitlab::Seeder::Projects
       params[:storage_version] = Project::LATEST_STORAGE_VERSION
     end
 
-    project = nil
+    Gitlab::ExclusiveLease.skipping_transaction_check do
+      Sidekiq::Worker.skipping_transaction_check do
+        project = ::Projects::CreateService.new(User.first, params).execute
 
-    Sidekiq::Worker.skipping_transaction_check do
-      project = ::Projects::CreateService.new(User.first, params).execute
+        # Seed-Fu runs this entire fixture in a transaction, so the `after_commit`
+        # hook won't run until after the fixture is loaded. That is too late
+        # since the Sidekiq::Testing block has already exited. Force clearing
+        # the `after_commit` queue to ensure the job is run now.
+        project.send(:_run_after_commit_queue)
+        project.import_state.send(:_run_after_commit_queue)
 
-      # Seed-Fu runs this entire fixture in a transaction, so the `after_commit`
-      # hook won't run until after the fixture is loaded. That is too late
-      # since the Sidekiq::Testing block has already exited. Force clearing
-      # the `after_commit` queue to ensure the job is run now.
-      project.send(:_run_after_commit_queue)
-      project.import_state.send(:_run_after_commit_queue)
-
-      # Expire repository cache after import to ensure
-      # valid_repo? call below returns a correct answer
-      project.repository.expire_all_method_caches
+        # Expire repository cache after import to ensure
+        # valid_repo? call below returns a correct answer
+        project.repository.expire_all_method_caches
+      end
     end
 
     if project.valid? && project.valid_repo?
@@ -156,55 +213,26 @@ class Gitlab::Seeder::Projects
     end
   end
 
-  def create_mass_projects!
-    projects_per_user_count   = MASS_PROJECTS_COUNT_PER_USER.values.sum
-    visibility_per_user       = ['private'] * MASS_PROJECTS_COUNT_PER_USER.fetch(:private) +
-                                ['internal'] * MASS_PROJECTS_COUNT_PER_USER.fetch(:internal) +
-                                ['public'] * MASS_PROJECTS_COUNT_PER_USER.fetch(:public)
-    visibility_level_per_user = visibility_per_user.map { |visibility| Gitlab::VisibilityLevel.level_value(visibility) }
+  def self.projects_per_user_count
+    MASS_PROJECTS_COUNT_PER_USER.values.sum
+  end
 
-    visibility_per_user       = visibility_per_user.join(',')
-    visibility_level_per_user = visibility_level_per_user.join(',')
+  def self.visibility_per_user_array
+    ['private'] * MASS_PROJECTS_COUNT_PER_USER.fetch(:private) +
+      ['internal'] * MASS_PROJECTS_COUNT_PER_USER.fetch(:internal) +
+      ['public'] * MASS_PROJECTS_COUNT_PER_USER.fetch(:public)
+  end
 
-    Gitlab::Seeder.with_mass_insert(User.count * projects_per_user_count, "Projects and relations") do
-      ActiveRecord::Base.connection.execute <<~SQL
-        INSERT INTO projects (name, path, creator_id, namespace_id, visibility_level, created_at, updated_at)
-        SELECT
-          'Seed project ' || seq || ' ' || ('{#{visibility_per_user}}'::text[])[seq] AS project_name,
-          '#{Gitlab::Seeder::MASS_INSERT_PROJECT_START}' || ('{#{visibility_per_user}}'::text[])[seq] || '_' || seq AS project_path,
-          u.id AS user_id,
-          n.id AS namespace_id,
-          ('{#{visibility_level_per_user}}'::int[])[seq] AS visibility_level,
-          NOW() AS created_at,
-          NOW() AS updated_at
-        FROM users u
-          CROSS JOIN generate_series(1, #{projects_per_user_count}) AS seq
-          JOIN namespaces n ON n.owner_id=u.id
-      SQL
+  def self.visibility_level_per_user_map
+    visibility_per_user_array.map { |visibility| Gitlab::VisibilityLevel.level_value(visibility) }
+  end
 
-      ActiveRecord::Base.connection.execute <<~SQL
-        INSERT INTO project_features (project_id, merge_requests_access_level, issues_access_level, wiki_access_level,
-                                      pages_access_level)
-        SELECT
-          id,
-          #{ProjectFeature::ENABLED} AS merge_requests_access_level,
-          #{ProjectFeature::ENABLED} AS issues_access_level,
-          #{ProjectFeature::ENABLED} AS wiki_access_level,
-          #{ProjectFeature::ENABLED} AS pages_access_level
-        FROM projects ON CONFLICT (project_id) DO NOTHING;
-      SQL
+  def self.visibility_per_user
+    visibility_per_user_array.join(',')
+  end
 
-      ActiveRecord::Base.connection.execute <<~SQL
-        INSERT INTO routes (source_id, source_type, name, path)
-        SELECT
-          p.id,
-          'Project',
-          u.name || ' / ' || p.name,
-          u.username || '/' || p.path
-        FROM projects p JOIN users u ON u.id=p.creator_id
-        ON CONFLICT (source_type, source_id) DO NOTHING;
-      SQL
-    end
+  def self.visibility_level_per_user
+    visibility_level_per_user_map.join(',')
   end
 end
 

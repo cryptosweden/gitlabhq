@@ -5,7 +5,7 @@ import MockAdapter from 'axios-mock-adapter';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import IssuableByEmail from '~/issuable/components/issuable_by_email.vue';
-import httpStatus from '~/lib/utils/http_status';
+import { HTTP_STATUS_NOT_FOUND, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
 const initialEmail = 'user@gitlab.com';
 
@@ -16,7 +16,7 @@ describe('IssuableByEmail', () => {
   let mockAxios;
   let glModalDirective;
 
-  function createComponent(injectedProperties = {}) {
+  function createComponent(injectedProperties = {}, props = {}) {
     glModalDirective = jest.fn();
 
     return extendedWrapper(
@@ -39,6 +39,7 @@ describe('IssuableByEmail', () => {
             show: mockToastShow,
           },
         },
+        propsData: props,
         provide: {
           issuableType: 'issue',
           initialEmail,
@@ -53,8 +54,6 @@ describe('IssuableByEmail', () => {
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
     mockAxios.restore();
   });
 
@@ -86,6 +85,20 @@ describe('IssuableByEmail', () => {
       findButton().trigger('click');
 
       expect(glModalDirective).toHaveBeenCalled();
+    });
+
+    describe('when passing variant and button text', () => {
+      it('renders correct button', () => {
+        const variant = 'default';
+        const text = 'Email a new issue';
+
+        wrapper = createComponent({}, { variant, text });
+
+        const button = findButton();
+
+        expect(button.attributes('variant')).toBe(variant);
+        expect(button.text()).toBe(text);
+      });
     });
   });
 
@@ -130,7 +143,7 @@ describe('IssuableByEmail', () => {
       });
 
       it('should update the email when the request succeeds', async () => {
-        mockAxios.onPut(resetPath).reply(httpStatus.OK, { new_address: 'foo@bar.com' });
+        mockAxios.onPut(resetPath).reply(HTTP_STATUS_OK, { new_address: 'foo@bar.com' });
 
         wrapper = createComponent({
           issuableType: 'issue',
@@ -144,7 +157,7 @@ describe('IssuableByEmail', () => {
       });
 
       it('should show a toast message when the request fails', async () => {
-        mockAxios.onPut(resetPath).reply(httpStatus.NOT_FOUND, {});
+        mockAxios.onPut(resetPath).reply(HTTP_STATUS_NOT_FOUND, {});
 
         wrapper = createComponent({
           issuableType: 'issue',

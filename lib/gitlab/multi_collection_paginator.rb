@@ -9,6 +9,8 @@ module Gitlab
 
       @per_page = (per_page || Kaminari.config.default_per_page).to_i
       @first_collection, @second_collection = collections
+
+      raise ArgumentError, 'Page size must be at least 1' if @per_page < 1
     end
 
     def paginate(page)
@@ -19,8 +21,6 @@ module Gitlab
     def total_count
       @total_count ||= first_collection.size + second_collection.size
     end
-
-    private
 
     def paginated_first_collection(page)
       @first_collection_pages ||= Hash.new do |hash, page|
@@ -47,6 +47,8 @@ module Gitlab
 
       @second_collection_pages[page]
     end
+
+    private
 
     def first_collection_page_count
       return @first_collection_page_count if defined?(@first_collection_page_count)

@@ -3,7 +3,7 @@
 module Bitbucket
   module Representation
     class Issue < Representation::Base
-      CLOSED_STATUS = %w(resolved invalid duplicate wontfix closed).freeze
+      CLOSED_STATUS = %w[resolved invalid duplicate wontfix closed].freeze
 
       def iid
         raw['id']
@@ -14,6 +14,10 @@ module Bitbucket
       end
 
       def author
+        raw.dig('reporter', 'uuid')
+      end
+
+      def author_nickname
         raw.dig('reporter', 'nickname')
       end
 
@@ -43,6 +47,20 @@ module Bitbucket
 
       def to_s
         iid
+      end
+
+      def to_hash
+        {
+          iid: iid,
+          title: title,
+          description: description,
+          state: state,
+          author: author,
+          author_nickname: author_nickname,
+          milestone: milestone,
+          created_at: created_at,
+          updated_at: updated_at
+        }
       end
 
       private

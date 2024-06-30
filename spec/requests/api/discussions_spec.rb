@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Discussions do
+RSpec.describe API::Discussions, feature_category: :team_planning do
   let(:user) { create(:user) }
   let!(:project) { create(:project, :public, :repository, namespace: user.namespace) }
   let(:private_user) { create(:user) }
@@ -29,6 +29,72 @@ RSpec.describe API::Discussions do
     end
   end
 
+  context 'when noteable is a WorkItem' do
+    let!(:work_item) { create(:work_item, project: project, author: user) }
+    let!(:work_item_note) { create(:discussion_note_on_issue, noteable: work_item, project: project, author: user) }
+
+    let(:parent) { project }
+    let(:noteable) { work_item }
+    let(:note) { work_item_note }
+    let(:url) { "/projects/#{parent.id}/issues/#{noteable[:iid]}/discussions" }
+
+    it_behaves_like 'discussions API', 'projects', 'issues', 'iid', can_reply_to_individual_notes: true
+
+    context 'with work item without notes widget' do
+      before do
+        WorkItems::Type.default_by_type(:issue).widget_definitions.find_by_widget_type(:notes).update!(disabled: true)
+      end
+
+      context 'when fetching discussions' do
+        it "returns 404" do
+          get api(url, user)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when single fetching discussion by discussion_id' do
+        it "returns 404" do
+          get api("#{url}/#{work_item_note.discussion_id}", user)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when trying to create a new discussion' do
+        it "returns 404" do
+          post api(url, user), params: { body: 'hi!' }
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when trying to create a new comment on a discussion' do
+        it 'returns 404' do
+          post api("#{url}/#{note.discussion_id}/notes", user), params: { body: 'Hello!' }
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when trying to update a new comment on a discussion' do
+        it 'returns 404' do
+          put api("#{url}/notes/#{note.id}", user), params: { body: 'Update Hello!' }
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when deleting a note' do
+        it 'returns 404' do
+          delete api("#{url}/#{note.discussion_id}/notes/#{note.id}", user)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+    end
+  end
+
   context 'when noteable is a Snippet' do
     let!(:snippet) { create(:project_snippet, project: project, author: user) }
     let!(:snippet_note) { create(:discussion_note_on_project_snippet, noteable: snippet, project: project, author: user) }
@@ -49,6 +115,17 @@ RSpec.describe API::Discussions do
     it_behaves_like 'discussions API', 'projects', 'merge_requests', 'iid', can_reply_to_individual_notes: true
     it_behaves_like 'diff discussions API', 'projects', 'merge_requests', 'iid'
     it_behaves_like 'resolvable discussions API', 'projects', 'merge_requests', 'iid'
+
+    context "when position_type is file" do
+      it "creates a new diff note" do
+        position = diff_note.position.to_h.merge({ position_type: 'file' }).except(:ignore_whitespace_change)
+
+        post api("/projects/#{parent.id}/merge_requests/#{noteable['iid']}/discussions", user),
+          params: { body: 'hi!', position: position }
+
+        expect(response).to have_gitlab_http_status(:created)
+      end
+    end
 
     context "when position is for a previous commit on the merge request" do
       it "returns a 400 bad request error because the line_code is old" do

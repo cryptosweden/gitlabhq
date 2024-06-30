@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Frontend dependencies
@@ -29,7 +29,7 @@ See the main [Dependencies](../dependencies.md) page for general information abo
 ### Blocked dependencies
 
 We discourage installing some dependencies in [GitLab repository](https://gitlab.com/gitlab-org/gitlab) because they can create conflicts in the dependency tree.
-Blocked dependencies are declared in the `blockDependencies` property of the GitLab [`package.json`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/package.json).
+Blocked dependencies are declared in the `blockedDependencies` property of the GitLab [`package.json`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/package.json).
 
 ## Dependency notes
 

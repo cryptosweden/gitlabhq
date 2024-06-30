@@ -1,10 +1,14 @@
 ---
 stage: Create
 group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Project templates API **(FREE)**
+# Project templates API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This API is a project-specific version of these endpoints:
 
@@ -13,14 +17,13 @@ This API is a project-specific version of these endpoints:
 - [GitLab CI/CD Configuration templates](templates/gitlab_ci_ymls.md)
 - [Open source license templates](templates/licenses.md)
 - [Issue and merge request templates](../user/project/description_templates.md)
-  ([introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/37890) in GitLab 13.3)
 
 It deprecates these endpoints, which are scheduled for removal in API version 5.
 
 In addition to templates common to the entire instance, project-specific
 templates are also available from this API endpoint.
 
-Support is also available for [group-level file templates](../user/group/index.md#group-file-templates). **(PREMIUM)**
+Support is also available for [group-level file templates](../user/group/manage.md#group-file-templates).
 
 ## Get all templates of a particular type
 
@@ -30,8 +33,8 @@ GET /projects/:id/templates/:type
 
 | Attribute  | Type   | Required | Description |
 | ---------- | ------ | -------- | ----------- |
-| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) |
-| `type`     | string | yes | The type of the template. Accepted values are: `dockerfiles`, `gitignores`, `gitlab_ci_ymls`, `licenses`, `issues`, `merge_requests` |
+| `id`      | integer or string | Yes       | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `type`     | string | Yes  | The type of the template. Accepted values are: `dockerfiles`, `gitignores`, `gitlab_ci_ymls`, `licenses`, `issues`, or `merge_requests`. |
 
 Example response (licenses):
 
@@ -96,12 +99,12 @@ GET /projects/:id/templates/:type/:name
 
 | Attribute  | Type   | Required | Description |
 | ---------- | ------ | -------- | ----------- |
-| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) |
-| `type`     | string | yes| The type of the template. One of: `dockerfiles`, `gitignores`, `gitlab_ci_ymls`, `licenses`, `issues`, or `merge_requests`. |
-| `name`     | string | yes      | The key of the template, as obtained from the collection endpoint |
-| `source_template_project_id`   | integer | no      | The project ID where a given template is being stored. This is useful when multiple templates from different projects have the same name. If multiple templates have the same name, the match from `closest ancestor` is returned if `source_template_project_id` is not specified |
-| `project`  | string | no       | The project name to use when expanding placeholders in the template. Only affects licenses |
-| `fullname` | string | no       | The full name of the copyright holder to use when expanding placeholders in the template. Only affects licenses |
+| `id`      | integer or string | Yes       | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `name`     | string | Yes       | The key of the template, as obtained from the collection endpoint. |
+| `type`     | string | Yes | The type of the template. One of: `dockerfiles`, `gitignores`, `gitlab_ci_ymls`, `licenses`, `issues`, or `merge_requests`. |
+| `fullname` | string | No        | The full name of the copyright holder to use when expanding placeholders in the template. Affects only licenses. |
+| `project`  | string | No        | The project name to use when expanding placeholders in the template. Affects only licenses. |
+| `source_template_project_id`   | integer | No       | The project ID where a given template is being stored. Helpful when multiple templates from different projects have the same name. If multiple templates have the same name, the match from `closest ancestor` is returned if `source_template_project_id` is not specified, |
 
 Example response (Dockerfile):
 

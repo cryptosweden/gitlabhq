@@ -1,17 +1,19 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Upgrading from Community Edition to Enterprise Edition from source **(FREE SELF)**
+# Upgrading from Community Edition to Enterprise Edition for self-compiled installations
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 NOTE:
 In the past we used separate documents for upgrading from
 Community Edition to Enterprise Edition. These documents can be found in the
-[`doc/update` directory of Enterprise Edition's source
-code](https://gitlab.com/gitlab-org/gitlab/-/tree/11-8-stable-ee/doc/update).
+[`doc/update` directory of Enterprise Edition's source code](https://gitlab.com/gitlab-org/gitlab/-/tree/11-8-stable-ee/doc/update).
 
 If you want to upgrade the version only, for example 11.8 to 11.9, *without* changing the
 GitLab edition you are using (Community or Enterprise), see the
@@ -21,7 +23,7 @@ GitLab edition you are using (Community or Enterprise), see the
 
 This guide assumes you have a correctly configured and tested installation of
 GitLab Community Edition. If you run into any trouble or if you have any
-questions please contact us at `support@gitlab.com`.
+questions contact us at `support@gitlab.com`.
 
 In all examples, replace `EE_BRANCH` with the Enterprise Edition branch for the
 version you are using, and `CE_BRANCH` with the Community Edition branch.
@@ -40,9 +42,6 @@ Make a backup just in case something goes wrong:
 cd /home/git/gitlab
 sudo -u git -H bundle exec rake gitlab:backup:create RAILS_ENV=production
 ```
-
-For installations using MySQL, this may require granting "LOCK TABLES"
-privileges to the GitLab user on the database version.
 
 ### 1. Stop server
 
@@ -65,7 +64,7 @@ cd /home/git/gitlab
 
 # If you haven't done so during installation or a previous upgrade already
 sudo -u git -H bundle config set --local deployment 'true'
-sudo -u git -H bundle config set --local without 'development test mysql aws kerberos'
+sudo -u git -H bundle config set --local without 'development test kerberos'
 
 # Update gems
 sudo -u git -H bundle install
@@ -76,9 +75,6 @@ sudo -u git -H bundle clean
 # Run database migrations
 sudo -u git -H bundle exec rake db:migrate RAILS_ENV=production
 
-# Compile GetText PO files
-sudo -u git -H bundle exec rake gettext:compile RAILS_ENV=production
-
 # Update node dependencies and recompile assets
 sudo -u git -H bundle exec rake yarn:install gitlab:assets:clean gitlab:assets:compile RAILS_ENV=production NODE_ENV=production NODE_OPTIONS="--max_old_space_size=4096"
 
@@ -86,9 +82,13 @@ sudo -u git -H bundle exec rake yarn:install gitlab:assets:clean gitlab:assets:c
 sudo -u git -H bundle exec rake cache:clear RAILS_ENV=production
 ```
 
-### 4. Install `gitlab-elasticsearch-indexer` **(PREMIUM SELF)**
+### 4. Install `gitlab-elasticsearch-indexer`
 
-Please follow the [install instruction](../integration/elasticsearch.md#install-elasticsearch).
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
+
+Follow the [install instruction](../integration/advanced_search/elasticsearch.md#install-elasticsearch).
 
 ### 5. Start application
 

@@ -8,7 +8,12 @@ module Groups
       before_action :verify_container_registry_enabled!
       before_action :authorize_read_container_image!
 
-      feature_category :package_registry
+      before_action only: [:index, :show] do
+        push_frontend_feature_flag(:show_container_registry_tag_signatures, group)
+      end
+
+      feature_category :container_registry
+      urgency :low
 
       def index
         respond_to do |format|
@@ -41,7 +46,7 @@ module Groups
       end
 
       def authorize_read_container_image!
-        return render_404 unless can?(current_user, :read_container_image, group)
+        render_404 unless can?(current_user, :read_container_image, group)
       end
     end
   end

@@ -2,11 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User interacts with awards' do
+RSpec.describe 'User interacts with awards', feature_category: :team_planning do
+  include MobileHelpers
+
   let(:user) { create(:user) }
 
   describe 'User interacts with awards in an issue', :js do
-    let(:issue) { create(:issue, project: project)}
+    let(:issue) { create(:issue, project: project) }
     let(:project) { create(:project) }
 
     before do
@@ -55,7 +57,7 @@ RSpec.describe 'User interacts with awards' do
       end
 
       page.within('.emoji-picker') do
-        emoji_button = page.first('gl-emoji[data-name="8ball"]')
+        emoji_button = page.first('gl-emoji[data-name="grinning"]')
         emoji_button.hover
         emoji_button.click
       end
@@ -63,7 +65,7 @@ RSpec.describe 'User interacts with awards' do
       page.within('.awards') do
         expect(page).to have_selector('[data-testid="award-button"]')
         expect(page.find('[data-testid="award-button"].selected .js-counter')).to have_content('1')
-        expect(page).to have_css('[data-testid="award-button"].selected[title="You reacted with :8ball:"]')
+        expect(page).to have_css('[data-testid="award-button"].selected[title="You reacted with :grinning:"]')
 
         wait_for_requests
 
@@ -112,17 +114,17 @@ RSpec.describe 'User interacts with awards' do
 
     context 'User interacts with awards on a note' do
       let!(:note) { create(:note, noteable: issue, project: issue.project) }
-      let!(:award_emoji) { create(:award_emoji, awardable: note, name: '100') }
+      let!(:award_emoji) { create(:award_emoji, awardable: note, name: 'grinning') }
 
       it 'shows the award on the note' do
         page.within('.note-awards') do
-          expect(page).to have_emoji('100')
+          expect(page).to have_emoji('grinning')
         end
       end
 
       it 'allows adding a vote to an award' do
         page.within('.note-awards') do
-          find('gl-emoji[data-name="100"]').click
+          find('gl-emoji[data-name="grinning"]').click
         end
         wait_for_requests
 
@@ -130,16 +132,22 @@ RSpec.describe 'User interacts with awards' do
       end
 
       it 'allows adding a new emoji' do
+        resize_window(1200, 800)
         page.within('.note-actions') do
-          find('.note-emoji-button').click
+          find('.add-reaction-button').click
         end
-        find('gl-emoji[data-name="8ball"]').click
+
+        # make sure emoji popup is visible
+        execute_script("window.scrollBy(0, 200)")
+
+        find('gl-emoji[data-name="laughing"]').click
         wait_for_requests
 
         page.within('.note-awards') do
-          expect(page).to have_emoji('8ball')
+          expect(page).to have_emoji('laughing')
         end
         expect(note.reload.award_emoji.size).to eq(2)
+        restore_window_size
       end
 
       context 'when the project is archived' do
@@ -157,7 +165,7 @@ RSpec.describe 'User interacts with awards' do
 
         it 'does not allow toggling existing emoji' do
           page.within('.note-awards') do
-            find('gl-emoji[data-name="100"]').click
+            find('gl-emoji[data-name="grinning"]').click
           end
           wait_for_requests
 
@@ -205,22 +213,25 @@ RSpec.describe 'User interacts with awards' do
 
       it 'adds award to issue' do
         first('[data-testid="award-button"]').click
-
+        wait_for_requests
         expect(page).to have_selector('[data-testid="award-button"].selected')
         expect(first('[data-testid="award-button"]')).to have_content '1'
 
         visit project_issue_path(project, issue)
+        wait_for_requests
 
         expect(first('[data-testid="award-button"]')).to have_content '1'
       end
 
-      it 'removes award from issue' do
+      it 'removes award from issue', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/375241' do
         first('[data-testid="award-button"]').click
+        wait_for_requests
         find('[data-testid="award-button"].selected').click
-
+        wait_for_requests
         expect(first('[data-testid="award-button"]')).to have_content '0'
 
         visit project_issue_path(project, issue)
+        wait_for_requests
 
         expect(first('[data-testid="award-button"]')).to have_content '0'
       end
@@ -293,18 +304,6 @@ RSpec.describe 'User interacts with awards' do
 
           within('.note-body') do
             expect(page).not_to have_selector(emoji_counter)
-          end
-        end
-
-        context 'execute /award quick action' do
-          xit 'toggles the emoji award on noteable', :js do
-            execute_quick_action('/award :100:')
-
-            expect(find(noteable_award_counter)).to have_text("1")
-
-            execute_quick_action('/award :100:')
-
-            expect(page).not_to have_selector(noteable_award_counter)
           end
         end
       end

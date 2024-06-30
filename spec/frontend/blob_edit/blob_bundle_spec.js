@@ -1,34 +1,49 @@
 import $ from 'jquery';
-import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import waitForPromises from 'helpers/wait_for_promises';
 import blobBundle from '~/blob_edit/blob_bundle';
 
 import SourceEditor from '~/blob_edit/edit_blob';
+import { createAlert } from '~/alert';
 
 jest.mock('~/blob_edit/edit_blob');
+jest.mock('~/alert');
 
 describe('BlobBundle', () => {
+  beforeAll(() => {
+    // HACK: Workaround readonly property in Jest
+    Object.defineProperty(window, 'onbeforeunload', {
+      writable: true,
+    });
+  });
+
   it('does not load SourceEditor by default', () => {
     blobBundle();
     expect(SourceEditor).not.toHaveBeenCalled();
   });
 
   it('loads SourceEditor for the edit screen', async () => {
-    setFixtures(`<div class="js-edit-blob-form"></div>`);
+    setHTMLFixture(`<div class="js-edit-blob-form"></div>`);
     blobBundle();
     await waitForPromises();
     expect(SourceEditor).toHaveBeenCalled();
+
+    resetHTMLFixture();
   });
 
   describe('No Suggest Popover', () => {
     beforeEach(() => {
-      setFixtures(`
+      setHTMLFixture(`
       <div class="js-edit-blob-form" data-blob-filename="blah">
         <button class="js-commit-button"></button>
         <button id='cancel-changes'></button>
       </div>`);
 
       blobBundle();
+    });
+
+    afterEach(() => {
+      resetHTMLFixture();
     });
 
     it('sets the window beforeunload listener to a function returning a string', () => {
@@ -48,41 +63,44 @@ describe('BlobBundle', () => {
     });
   });
 
-  describe('Suggest Popover', () => {
-    let trackingSpy;
-
+  describe('Error handling', () => {
+    let message;
     beforeEach(() => {
-      setFixtures(`
-      <div class="js-edit-blob-form" data-blob-filename="blah" id="target">
-        <div class="js-suggest-gitlab-ci-yml"
-          data-target="#target"
-          data-track-label="suggest_gitlab_ci_yml"
-          data-dismiss-key="1"
-          data-human-access="owner"
-          data-merge-request-path="path/to/mr">
-          <button id='commit-changes' class="js-commit-button"></button>
-          <button id='cancel-changes'></button>
-        </div>
-      </div>`);
-
-      trackingSpy = mockTracking('_category_', $('#commit-changes').element, jest.spyOn);
-      document.body.dataset.page = 'projects:blob:new';
-
-      blobBundle();
+      setHTMLFixture(`<div class="js-edit-blob-form" data-blob-filename="blah"></div>`);
+      message = 'Foo';
+      SourceEditor.mockImplementation(() => {
+        throw new Error(message);
+      });
     });
 
     afterEach(() => {
-      unmockTracking();
+      resetHTMLFixture();
+      SourceEditor.mockClear();
     });
 
-    it('sends a tracking event when the commit button is clicked', () => {
-      $('#commit-changes').click();
+    it('correctly outputs error message when it occurs', async () => {
+      blobBundle();
+      await waitForPromises();
+      expect(createAlert).toHaveBeenCalledWith({ message });
+    });
+  });
 
-      expect(trackingSpy).toHaveBeenCalledTimes(1);
-      expect(trackingSpy).toHaveBeenCalledWith(undefined, undefined, {
-        label: 'suggest_gitlab_ci_yml',
-        property: 'owner',
-      });
+  describe('commit button', () => {
+    const findCommitButton = () => document.querySelector('.js-commit-button');
+    const findCommitLoadingButton = () => document.querySelector('.js-commit-button-loading');
+
+    it('hides the commit button and displays the loading button when clicked', () => {
+      setHTMLFixture(
+        `<div class="js-edit-blob-form">
+          <button class="js-commit-button"></button>
+          <button class="js-commit-button-loading gl-display-none"></button>
+        </div>`,
+      );
+      blobBundle();
+      findCommitButton().click();
+
+      expect(findCommitButton().classList).toContain('gl-display-none');
+      expect(findCommitLoadingButton().classList).not.toContain('gl-display-none');
     });
   });
 });

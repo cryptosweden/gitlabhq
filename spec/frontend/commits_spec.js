@@ -1,15 +1,17 @@
 import MockAdapter from 'axios-mock-adapter';
 import $ from 'jquery';
 import 'vendor/jquery.endless-scroll';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import CommitsList from '~/commits';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import Pager from '~/pager';
 
 describe('Commits List', () => {
   let commitsList;
 
   beforeEach(() => {
-    setFixtures(`
+    setHTMLFixture(`
       <form class="commits-search-form" action="/h5bp/html5-boilerplate/commits/main">
         <input id="commits-search">
       </form>
@@ -17,6 +19,10 @@ describe('Commits List', () => {
       `);
     jest.spyOn(Pager, 'init').mockImplementation(() => {});
     commitsList = new CommitsList(25);
+  });
+
+  afterEach(() => {
+    resetHTMLFixture();
   });
 
   it('should be defined', () => {
@@ -59,7 +65,7 @@ describe('Commits List', () => {
       jest.spyOn(window.history, 'replaceState').mockImplementation(() => {});
       mock = new MockAdapter(axios);
 
-      mock.onGet('/h5bp/html5-boilerplate/commits/main').reply(200, {
+      mock.onGet('/h5bp/html5-boilerplate/commits/main').reply(HTTP_STATUS_OK, {
         html: '<li>Result</li>',
       });
 
@@ -70,29 +76,17 @@ describe('Commits List', () => {
       mock.restore();
     });
 
-    it('should save the last search string', (done) => {
+    it('should save the last search string', async () => {
       commitsList.searchField.val('GitLab');
-      commitsList
-        .filterResults()
-        .then(() => {
-          expect(ajaxSpy).toHaveBeenCalled();
-          expect(commitsList.lastSearch).toEqual('GitLab');
-
-          done();
-        })
-        .catch(done.fail);
+      await commitsList.filterResults();
+      expect(ajaxSpy).toHaveBeenCalled();
+      expect(commitsList.lastSearch).toEqual('GitLab');
     });
 
-    it('should not make ajax call if the input does not change', (done) => {
-      commitsList
-        .filterResults()
-        .then(() => {
-          expect(ajaxSpy).not.toHaveBeenCalled();
-          expect(commitsList.lastSearch).toEqual('');
-
-          done();
-        })
-        .catch(done.fail);
+    it('should not make ajax call if the input does not change', async () => {
+      await commitsList.filterResults();
+      expect(ajaxSpy).not.toHaveBeenCalled();
+      expect(commitsList.lastSearch).toEqual('');
     });
   });
 });

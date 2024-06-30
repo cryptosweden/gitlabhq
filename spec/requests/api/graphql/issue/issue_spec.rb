@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query.issue(id)' do
+RSpec.describe 'Query.issue(id)', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
   let_it_be(:issue) { create(:issue, project: project) }
   let_it_be(:current_user) { create(:user) }
-  let_it_be(:issue_params) { { 'id' => issue.to_global_id.to_s } }
 
+  let(:issue_params) { { 'id' => global_id_of(issue) } }
   let(:issue_data) { graphql_data['issue'] }
   let(:issue_fields) { all_graphql_fields_for('Issue'.classify) }
 
@@ -100,7 +100,8 @@ RSpec.describe 'Query.issue(id)' do
       let_it_be(:issue_fields) { ['moved', 'movedTo { title }'] }
       let_it_be(:new_issue) { create(:issue) }
       let_it_be(:issue) { create(:issue, project: project, moved_to: new_issue) }
-      let_it_be(:issue_params) { { 'id' => issue.to_global_id.to_s } }
+
+      let(:issue_params) { { 'id' => global_id_of(issue) } }
 
       before_all do
         new_issue.project.add_developer(current_user)
@@ -126,6 +127,70 @@ RSpec.describe 'Query.issue(id)' do
 
         expect(graphql_errors).not_to be nil
         expect(graphql_errors.first['message']).to eq("\"#{gid}\" does not represent an instance of Issue")
+      end
+    end
+
+    context 'when selecting `closed_as_duplicate_of`' do
+      let(:issue_fields) { ['closedAsDuplicateOf { id }'] }
+      let(:duplicate_issue) { create(:issue, project: project) }
+
+      before do
+        issue.update!(duplicated_to_id: duplicate_issue.id)
+
+        post_graphql(query, current_user: current_user)
+      end
+
+      it 'returns the related issue' do
+        expect(issue_data['closedAsDuplicateOf']['id']).to eq(duplicate_issue.to_global_id.to_s)
+      end
+
+      context 'no permission to related issue' do
+        let(:duplicate_issue) { create(:issue) }
+
+        it 'does not return the related issue' do
+          expect(issue_data['closedAsDuplicateOf']).to eq(nil)
+        end
+      end
+    end
+  end
+
+  context 'when selecting `related_merge_requests`' do
+    let(:issue_fields) { ['relatedMergeRequests { nodes { id } }'] }
+    let_it_be(:user) { create(:user) }
+    let_it_be(:mr_project) { project }
+    let!(:merge_request) do
+      attributes = {
+        author: user,
+        source_project: mr_project,
+        target_project: mr_project,
+        source_branch: 'master',
+        target_branch: 'test',
+        description: "See #{issue.to_reference}"
+      }
+
+      create(:merge_request, attributes).tap do |merge_request|
+        create(:note, :system, project: issue.project, noteable: issue,
+          author: user, note: merge_request.to_reference(full: true))
+      end
+    end
+
+    before do
+      project.add_developer(current_user)
+
+      post_graphql(query, current_user: current_user)
+    end
+
+    it 'returns the related merge request' do
+      expect(issue_data['relatedMergeRequests']['nodes']).to include a_hash_including({
+        'id' => merge_request.to_global_id.to_s
+      })
+    end
+
+    context 'no permission to related merge request' do
+      let_it_be(:mr_project) { create(:project, :private) }
+
+      it 'does not return the related merge request' do
+        expect(issue_data['relatedMergeRequests']['nodes']).to be_empty
       end
     end
   end

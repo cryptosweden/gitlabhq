@@ -6,7 +6,7 @@
 # Build and publish a tag/branch to Gitlab Docker Registry using Kaniko and Gitlab Docker executor.
 # Kaniko can build Docker images without using Docker-In-Docker and it's permission
 # drawbacks. No additional configuration required.
-kaniko-build:
+.kaniko-build:
   variables:
     # Additional options for Kaniko executor.
     # For more details see https://github.com/GoogleContainerTools/kaniko/blob/master/README.md#additional-flags
@@ -32,11 +32,11 @@ kaniko-build:
             VERSION="latest"
           elif [ -n "$CI_COMMIT_TAG" ];then
             NOSLASH=$(echo "$CI_COMMIT_TAG" | tr -s / - )
-            SANITIZED="${NOSLASH//[^a-zA-Z0-9\-\.]/}"
+            SANITIZED="${NOSLASH//[^a-zA-Z0-9.-]/}"
             VERSION="$SANITIZED"
           else \
             NOSLASH=$(echo "$CI_COMMIT_REF_NAME" | tr -s / - )
-            SANITIZED="${NOSLASH//[^a-zA-Z0-9\-]/}"
+            SANITIZED="${NOSLASH//[^a-zA-Z0-9-]/}"
             VERSION="branch-$SANITIZED"
           fi
         export IMAGE_TAG=$CI_REGISTRY_IMAGE:$VERSION
@@ -46,13 +46,33 @@ kaniko-build:
     # Write credentials to access Gitlab Container Registry within the runner/ci
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n ${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD} | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
     # Build and push the container. To disable push add --no-push
-    - DOCKERFILE_PATH=${DOCKERFILE_PATH:-"$KANIKO_BUILD_CONTEXT/Dockerfile"}
+    # Both Dockerfile and Containerfile are supported. For retrocompatibility, if both files are present, Dockerfile will be used.
+    - |
+      if [ -z "$DOCKERFILE_PATH" ]; then
+        if [ -f "$KANIKO_BUILD_CONTEXT/Dockerfile" ]; then
+          DOCKERFILE_PATH="$KANIKO_BUILD_CONTEXT/Dockerfile"
+        elif [ -n "$CONTAINERFILE_PATH" ]; then
+          DOCKERFILE_PATH="$CONTAINERFILE_PATH"
+        elif [ -f "$KANIKO_BUILD_CONTEXT/Containerfile" ]; then
+          DOCKERFILE_PATH="$KANIKO_BUILD_CONTEXT/Containerfile"
+        else \
+          echo "No suitable configuration for the build context have been found. Please check your configuration."
+          exit 1
+        fi
+      fi
+    - echo $DOCKERFILE_PATH
     - /kaniko/executor --context $KANIKO_BUILD_CONTEXT --dockerfile $DOCKERFILE_PATH --destination $IMAGE_TAG $KANIKO_ARGS
-  # Run this job in a branch/tag where a Dockerfile exists
+  # Run this job in a branch/tag where a Containerfile/Dockerfile exists
   rules:
     - exists:
+        - Containerfile
         - Dockerfile
-    # custom Dockerfile path
+    # custom Containerfile/Dockerfile path
+    # If both variables are set, DOCKERFILE_PATH will be used
     - if: $DOCKERFILE_PATH
+    - if: $CONTAINERFILE_PATH
     # custom build context without an explicit Dockerfile path
     - if: $KANIKO_BUILD_CONTEXT != $CI_PROJECT_DIR
+
+kaniko-build:
+  extends: .kaniko-build

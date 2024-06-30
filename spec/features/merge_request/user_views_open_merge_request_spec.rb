@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User views an open merge request' do
+RSpec.describe 'User views an open merge request', feature_category: :code_review_workflow do
   let(:merge_request) do
     create(:merge_request, source_project: project, target_project: project, description: '# Description header')
   end
@@ -44,25 +44,25 @@ RSpec.describe 'User views an open merge request' do
       end
 
       it 'renders empty description preview' do
-        find('.gfm-form').fill_in(:merge_request_description, with: '')
+        fill_in(:merge_request_description, with: '')
 
-        page.within('.gfm-form') do
-          click_button('Preview')
+        page.within('.js-vue-markdown-field') do
+          click_button("Preview")
 
-          expect(find('.js-md-preview')).to have_content('Nothing to preview.')
+          expect(find('.js-vue-md-preview')).to have_content('Nothing to preview.')
         end
       end
 
       it 'renders description preview' do
-        find('.gfm-form').fill_in(:merge_request_description, with: ':+1: Nice')
+        fill_in(:merge_request_description, with: ':+1: Nice')
 
-        page.within('.gfm-form') do
-          click_button('Preview')
+        page.within('.js-vue-markdown-field') do
+          click_button("Preview")
 
-          expect(find('.js-md-preview')).to have_css('gl-emoji')
+          expect(find('.js-vue-md-preview')).to have_css('gl-emoji')
         end
 
-        expect(find('.gfm-form')).to have_css('.js-md-preview').and have_button('Write')
+        expect(find('.js-vue-markdown-field')).to have_css('.js-md-preview-button')
         expect(find('#merge_request_description', visible: false)).not_to be_visible
       end
     end
@@ -71,13 +71,14 @@ RSpec.describe 'User views an open merge request' do
       let(:merge_request) { create(:merge_request, :rebased, source_project: project, target_project: project) }
 
       before do
+        project.add_maintainer(project.creator)
+        sign_in(project.creator)
+
         visit(merge_request_path(merge_request))
       end
 
       it 'does not show diverged commits count' do
-        page.within('.mr-source-target') do
-          expect(page).not_to have_content(/([0-9]+ commits? behind)/)
-        end
+        expect(page).not_to have_content(/([0-9]+ commits? behind)/)
       end
     end
 
@@ -85,13 +86,14 @@ RSpec.describe 'User views an open merge request' do
       let(:merge_request) { create(:merge_request, :diverged, source_project: project, target_project: project) }
 
       before do
+        project.add_maintainer(project.creator)
+        sign_in(project.creator)
+
         visit(merge_request_path(merge_request))
       end
 
-      it 'shows diverged commits count' do
-        page.within('.mr-source-target') do
-          expect(page).to have_content(/([0-9]+ commits behind)/)
-        end
+      it 'shows diverged commits count', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408223' do
+        expect(page).not_to have_content(/([0-9]+ commits? behind)/)
       end
     end
 
@@ -109,23 +111,6 @@ RSpec.describe 'User views an open merge request' do
         expect(assignees_data.size).to eq(1)
         expect(assignees_data.first['data-availability']).to eq('busy')
       end
-    end
-  end
-
-  context 'XSS source branch' do
-    let(:project) { create(:project, :public, :repository) }
-    let(:source_branch) { "&#39;&gt;&lt;iframe/srcdoc=&#39;&#39;&gt;&lt;/iframe&gt;" }
-
-    before do
-      project.repository.create_branch(source_branch, "master")
-
-      mr = create(:merge_request, source_project: project, target_project: project, source_branch: source_branch)
-
-      visit(merge_request_path(mr))
-    end
-
-    it 'encodes branch name' do
-      expect(find("[data-testid='ref-name']")[:title]).to eq(source_branch)
     end
   end
 

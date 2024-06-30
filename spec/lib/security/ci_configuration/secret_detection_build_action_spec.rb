@@ -15,7 +15,7 @@ RSpec.describe Security::CiConfiguration::SecretDetectionBuildAction do
         <<-CI_YML.strip_heredoc
           # You can override the included template(s) by including variable overrides
           # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-          # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/#customizing-settings
+          # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
           # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
           # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
           # Note that environment variables can be set in several places
@@ -33,7 +33,7 @@ RSpec.describe Security::CiConfiguration::SecretDetectionBuildAction do
 
       context 'template includes are an array' do
         let(:gitlab_ci_content) do
-          { "stages" => %w(test security),
+          { "stages" => %w[test security],
             "variables" => { "RANDOM" => "make sure this persists" },
             "include" => [{ "template" => "existing.yml" }] }
         end
@@ -46,7 +46,7 @@ RSpec.describe Security::CiConfiguration::SecretDetectionBuildAction do
 
       context 'template include is not an array' do
         let(:gitlab_ci_content) do
-          { "stages" => %w(test security),
+          { "stages" => %w[test security],
             "variables" => { "RANDOM" => "make sure this persists" },
             "include" => { "template" => "existing.yml" } }
         end
@@ -63,7 +63,7 @@ RSpec.describe Security::CiConfiguration::SecretDetectionBuildAction do
         <<-CI_YML.strip_heredoc
           # You can override the included template(s) by including variable overrides
           # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-          # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/#customizing-settings
+          # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
           # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
           # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
           # Note that environment variables can be set in several places
@@ -79,7 +79,7 @@ RSpec.describe Security::CiConfiguration::SecretDetectionBuildAction do
 
       context 'secret_detection template include are an array' do
         let(:gitlab_ci_content) do
-          { "stages" => %w(test),
+          { "stages" => %w[test],
             "variables" => { "RANDOM" => "make sure this persists" },
             "include" => [{ "template" => "Security/Secret-Detection.gitlab-ci.yml" }] }
         end
@@ -92,7 +92,7 @@ RSpec.describe Security::CiConfiguration::SecretDetectionBuildAction do
 
       context 'secret_detection template include is not an array' do
         let(:gitlab_ci_content) do
-          { "stages" => %w(test),
+          { "stages" => %w[test],
             "variables" => { "RANDOM" => "make sure this persists" },
             "include" => { "template" => "Security/Secret-Detection.gitlab-ci.yml" } }
         end
@@ -114,7 +114,7 @@ RSpec.describe Security::CiConfiguration::SecretDetectionBuildAction do
         <<-CI_YML.strip_heredoc
           # You can override the included template(s) by including variable overrides
           # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-          # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/#customizing-settings
+          # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
           # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
           # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
           # Note that environment variables can be set in several places
@@ -136,7 +136,7 @@ RSpec.describe Security::CiConfiguration::SecretDetectionBuildAction do
         <<-CI_YML.strip_heredoc
           # You can override the included template(s) by including variable overrides
           # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-          # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/#customizing-settings
+          # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
           # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
           # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
           # Note that environment variables can be set in several places

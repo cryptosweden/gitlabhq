@@ -5,10 +5,12 @@ module Gitlab
     module Reports
       module Security
         class Report
-          attr_reader :created_at, :type, :pipeline, :findings, :scanners, :identifiers
-          attr_accessor :scan, :scanned_resources, :errors, :analyzer, :version, :schema_validation_status, :warnings
+          attr_reader :created_at, :type, :findings, :scanners, :identifiers
+          attr_accessor :scan, :pipeline, :scanned_resources, :errors,
+            :analyzer, :version, :schema_validation_status, :warnings
 
           delegate :project_id, to: :pipeline
+          delegate :project, to: :pipeline
 
           def initialize(type, pipeline, created_at)
             @type = type
@@ -38,6 +40,10 @@ module Gitlab
             errors.present?
           end
 
+          def warnings?
+            warnings.present?
+          end
+
           def add_scanner(scanner)
             scanners[scanner.key] ||= scanner
           end
@@ -62,6 +68,10 @@ module Gitlab
 
           def merge!(other)
             replace_with!(::Security::MergeReportsService.new(self, other).execute)
+          end
+
+          def primary_identifiers
+            scanners.values.flat_map(&:primary_identifiers).compact
           end
 
           def primary_scanner

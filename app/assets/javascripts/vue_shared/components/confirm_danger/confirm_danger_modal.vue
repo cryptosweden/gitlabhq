@@ -1,18 +1,12 @@
 <script>
-import {
-  GlAlert,
-  GlModal,
-  GlFormGroup,
-  GlFormInput,
-  GlSafeHtmlDirective as SafeHtml,
-  GlSprintf,
-} from '@gitlab/ui';
+import { GlAlert, GlModal, GlFormGroup, GlFormInput, GlSprintf } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import {
   CONFIRM_DANGER_MODAL_BUTTON,
   CONFIRM_DANGER_MODAL_TITLE,
   CONFIRM_DANGER_PHRASE_TEXT,
   CONFIRM_DANGER_WARNING,
-  CONFIRM_DANGER_MODAL_ERROR,
+  CONFIRM_DANGER_MODAL_CANCEL,
 } from './constants';
 
 export default {
@@ -40,8 +34,20 @@ export default {
     additionalInformation: {
       default: CONFIRM_DANGER_WARNING,
     },
+    cancelButtonText: {
+      default: CONFIRM_DANGER_MODAL_CANCEL,
+    },
+  },
+  model: {
+    prop: 'visible',
+    event: 'change',
   },
   props: {
+    visible: {
+      type: Boolean,
+      required: false,
+      default: null,
+    },
     modalId: {
       type: String,
       required: true,
@@ -49,6 +55,16 @@ export default {
     phrase: {
       type: String,
       required: true,
+    },
+    confirmLoading: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    modalTitle: {
+      type: String,
+      required: false,
+      default: CONFIRM_DANGER_MODAL_TITLE,
     },
   },
   data() {
@@ -63,13 +79,35 @@ export default {
     actionPrimary() {
       return {
         text: this.confirmButtonText,
-        attributes: [{ variant: 'danger', disabled: !this.isValid, class: 'qa-confirm-button' }],
+        attributes: {
+          variant: 'danger',
+          disabled: !this.isValid,
+          loading: this.confirmLoading,
+          'data-testid': 'confirm-danger-modal-button',
+        },
       };
+    },
+    actionCancel() {
+      return {
+        text: this.cancelButtonText,
+      };
+    },
+  },
+  watch: {
+    confirmLoading(isLoading, wasLoading) {
+      // If the button was loading and now no longer is
+      if (!isLoading && wasLoading) {
+        // Hide the modal
+        this.$emit('change', false);
+      }
     },
   },
   methods: {
     equalString(a, b) {
       return a.trim().toLowerCase() === b.trim().toLowerCase();
+    },
+    focusConfirmInput() {
+      this.$refs.confirmInput.$el.focus();
     },
   },
   i18n: {
@@ -77,18 +115,22 @@ export default {
     CONFIRM_DANGER_MODAL_TITLE,
     CONFIRM_DANGER_WARNING,
     CONFIRM_DANGER_PHRASE_TEXT,
-    CONFIRM_DANGER_MODAL_ERROR,
   },
 };
 </script>
 <template>
   <gl-modal
     ref="modal"
+    :visible="visible"
     :modal-id="modalId"
     :data-testid="modalId"
-    :title="$options.i18n.CONFIRM_DANGER_MODAL_TITLE"
+    :title="modalTitle"
     :action-primary="actionPrimary"
-    @primary="$emit('confirm')"
+    :action-cancel="actionCancel"
+    size="sm"
+    @primary="$emit('confirm', $event)"
+    @change="$emit('change', $event)"
+    @shown="focusConfirmInput()"
   >
     <gl-alert
       v-if="confirmDangerMessage"
@@ -102,22 +144,28 @@ export default {
         {{ confirmDangerMessage }}
       </span>
     </gl-alert>
-    <p data-testid="confirm-danger-warning">{{ additionalInformation }}</p>
-    <p data-testid="confirm-danger-phrase">
+    <slot name="modal-body">
+      <p data-testid="confirm-danger-warning">
+        {{ additionalInformation }}
+      </p>
+    </slot>
+    <p data-testid="confirm-danger-phrase" class="gl-mb-1">
       <gl-sprintf :message="$options.i18n.CONFIRM_DANGER_PHRASE_TEXT">
         <template #phrase_code>
           <code>{{ phrase }}</code>
         </template>
       </gl-sprintf>
     </p>
-    <gl-form-group :state="isValid" :invalid-feedback="$options.i18n.CONFIRM_DANGER_MODAL_ERROR">
+    <gl-form-group :state="isValid" class="gl-mb-0">
       <gl-form-input
         id="confirm_name_input"
+        ref="confirmInput"
         v-model="confirmationPhrase"
-        class="form-control qa-confirm-input"
-        data-testid="confirm-danger-input"
+        class="form-control"
+        data-testid="confirm-danger-field"
         type="text"
       />
     </gl-form-group>
+    <slot name="modal-footer"></slot>
   </gl-modal>
 </template>

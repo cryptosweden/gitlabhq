@@ -4,7 +4,7 @@ require 'spec_helper'
 
 RSpec.describe Mutations::CustomerRelations::Contacts::Update do
   let_it_be(:user) { create(:user) }
-  let_it_be(:group) { create(:group, :crm_enabled) }
+  let_it_be(:group) { create(:group) }
 
   let(:first_name) { 'Lionel' }
   let(:last_name) { 'Smith' }
@@ -56,17 +56,6 @@ RSpec.describe Mutations::CustomerRelations::Contacts::Update do
 
       it 'updates the organization with correct values' do
         expect(resolve_mutation[:contact]).to have_attributes(attributes)
-      end
-
-      context 'when the feature is disabled' do
-        before do
-          stub_feature_flags(customer_relations: false)
-        end
-
-        it 'raises an error' do
-          expect { resolve_mutation }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
-            .with_message("The resource that you are attempting to access does not exist or you don't have permission to perform this action")
-        end
       end
     end
   end

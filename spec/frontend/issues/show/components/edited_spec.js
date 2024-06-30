@@ -1,49 +1,93 @@
-import Vue from 'vue';
-import edited from '~/issues/show/components/edited.vue';
+import { GlLink } from '@gitlab/ui';
+import { mount } from '@vue/test-utils';
+import { getTimeago } from '~/lib/utils/datetime_utility';
+import Edited from '~/issues/show/components/edited.vue';
+import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 
-function formatText(text) {
-  return text.trim().replace(/\s\s+/g, ' ');
-}
+describe('Edited component', () => {
+  let wrapper;
 
-describe('edited', () => {
-  const EditedComponent = Vue.extend(edited);
+  const timeago = getTimeago();
+  const updatedAt = '2017-05-15T12:31:04.428Z';
 
-  it('should render an edited at+by string', () => {
-    const editedComponent = new EditedComponent({
-      propsData: {
-        updatedAt: '2017-05-15T12:31:04.428Z',
-        updatedByName: 'Some User',
-        updatedByPath: '/some_user',
-      },
-    }).$mount();
+  const findAuthorLink = () => wrapper.findComponent(GlLink);
+  const findTimeAgoTooltip = () => wrapper.findComponent(TimeAgoTooltip);
+  const formatText = (text) => text.trim().replace(/\s\s+/g, ' ');
 
-    expect(formatText(editedComponent.$el.innerText)).toMatch(/Edited[\s\S]+?by Some User/);
-    expect(editedComponent.$el.querySelector('.author-link').href).toMatch(/\/some_user$/);
-    expect(editedComponent.$el.querySelector('time')).toBeTruthy();
+  const mountComponent = (propsData) => mount(Edited, { propsData });
+
+  describe('task status section', () => {
+    describe('task status text', () => {
+      it('renders when there is a task status', () => {
+        wrapper = mountComponent({ taskCompletionStatus: { completed_count: 1, count: 3 } });
+
+        expect(wrapper.text()).toContain('1 of 3 checklist items completed');
+      });
+
+      it('does not render when task count is 0', () => {
+        wrapper = mountComponent({ taskCompletionStatus: { completed_count: 0, count: 0 } });
+
+        expect(wrapper.text()).not.toContain('0 of 0 checklist items completed');
+      });
+    });
+
+    describe('checkmark', () => {
+      it('renders when all tasks are completed', () => {
+        wrapper = mountComponent({ taskCompletionStatus: { completed_count: 3, count: 3 } });
+
+        expect(wrapper.text()).toContain('✓');
+      });
+
+      it('does not render when tasks are incomplete', () => {
+        wrapper = mountComponent({ taskCompletionStatus: { completed_count: 2, count: 3 } });
+
+        expect(wrapper.text()).not.toContain('✓');
+      });
+
+      it('does not render when task count is 0', () => {
+        wrapper = mountComponent({ taskCompletionStatus: { completed_count: 0, count: 0 } });
+
+        expect(wrapper.text()).not.toContain('✓');
+      });
+    });
+
+    describe('middot', () => {
+      it('renders when there is also "Edited by" text', () => {
+        wrapper = mountComponent({
+          taskCompletionStatus: { completed_count: 3, count: 3 },
+          updatedAt,
+        });
+
+        expect(wrapper.text()).toContain('·');
+      });
+
+      it('does not render when there is no "Edited by" text', () => {
+        wrapper = mountComponent({ taskCompletionStatus: { completed_count: 3, count: 3 } });
+
+        expect(wrapper.text()).not.toContain('·');
+      });
+    });
   });
 
-  it('if no updatedAt is provided, no time element will be rendered', () => {
-    const editedComponent = new EditedComponent({
-      propsData: {
-        updatedByName: 'Some User',
-        updatedByPath: '/some_user',
-      },
-    }).$mount();
+  it('renders an edited at+by string', () => {
+    wrapper = mountComponent({
+      updatedAt,
+      updatedByName: 'Some User',
+      updatedByPath: '/some_user',
+    });
 
-    expect(formatText(editedComponent.$el.innerText)).toMatch(/Edited by Some User/);
-    expect(editedComponent.$el.querySelector('.author-link').href).toMatch(/\/some_user$/);
-    expect(editedComponent.$el.querySelector('time')).toBeFalsy();
+    expect(formatText(wrapper.text())).toBe(`Edited ${timeago.format(updatedAt)} by Some User`);
+    expect(findAuthorLink().attributes('href')).toBe('/some_user');
+    expect(findTimeAgoTooltip().exists()).toBe(true);
   });
 
   it('if no updatedByName and updatedByPath is provided, no user element will be rendered', () => {
-    const editedComponent = new EditedComponent({
-      propsData: {
-        updatedAt: '2017-05-15T12:31:04.428Z',
-      },
-    }).$mount();
+    wrapper = mountComponent({
+      updatedAt,
+    });
 
-    expect(formatText(editedComponent.$el.innerText)).not.toMatch(/by Some User/);
-    expect(editedComponent.$el.querySelector('.author-link')).toBeFalsy();
-    expect(editedComponent.$el.querySelector('time')).toBeTruthy();
+    expect(formatText(wrapper.text())).toBe(`Edited ${timeago.format(updatedAt)}`);
+    expect(findAuthorLink().exists()).toBe(false);
+    expect(findTimeAgoTooltip().exists()).toBe(true);
   });
 });

@@ -11,15 +11,15 @@ import {
   GlIcon,
   GlEmptyState,
 } from '@gitlab/ui';
-import { isValidSlaDueAt } from 'ee_else_ce/vue_shared/components/incidents/utils';
+import { STATUS_CLOSED } from '~/issues/constants';
 import { visitUrl, mergeUrlParams, joinPaths } from '~/lib/utils/url_utility';
+import { isValidDateString } from '~/lib/utils/datetime_range';
 import { s__, n__ } from '~/locale';
-import { INCIDENT_SEVERITY } from '~/sidebar/components/severity/constants';
+import { INCIDENT_SEVERITY } from '~/sidebar/constants';
 import SeverityToken from '~/sidebar/components/severity/severity.vue';
 import Tracking from '~/tracking';
 import {
   tdClass,
-  thClass,
   bodyTrClass,
   initialPaginationState,
 } from '~/vue_shared/components/paginated_table_with_search_and_tabs/constants';
@@ -53,7 +53,8 @@ export default {
     {
       key: 'severity',
       label: s__('IncidentManagement|Severity'),
-      thClass: `${thClass} gl-w-15p`,
+      variant: 'secondary',
+      thClass: `gl-w-3/20`,
       tdClass: `${tdClass} sortable-cell`,
       actualSortKey: 'SEVERITY',
       sortable: true,
@@ -68,7 +69,8 @@ export default {
     {
       key: 'escalationStatus',
       label: s__('IncidentManagement|Status'),
-      thClass: `${thClass} gl-w-eighth`,
+      variant: 'secondary',
+      thClass: `gl-w-1/8`,
       tdClass: `${tdClass} sortable-cell`,
       actualSortKey: 'ESCALATION_STATUS',
       sortable: true,
@@ -77,7 +79,8 @@ export default {
     {
       key: 'createdAt',
       label: s__('IncidentManagement|Date created'),
-      thClass: `${thClass} gl-w-eighth`,
+      variant: 'secondary',
+      thClass: `gl-w-1/8`,
       tdClass: `${tdClass} sortable-cell`,
       actualSortKey: 'CREATED',
       sortable: true,
@@ -86,23 +89,24 @@ export default {
     {
       key: 'incidentSla',
       label: s__('IncidentManagement|Time to SLA'),
-      thClass: `gl-text-right gl-w-10p`,
+      variant: 'secondary',
+      thClass: `gl-text-right gl-w-2/20`,
       tdClass: `${tdClass} gl-text-right`,
       thAttr: TH_INCIDENT_SLA_TEST_ID,
       actualSortKey: 'SLA_DUE_AT',
       sortable: true,
-      sortDirection: 'asc',
     },
     {
       key: 'assignees',
       label: s__('IncidentManagement|Assignees'),
-      thClass: 'gl-pointer-events-none gl-w-15',
+      thClass: 'gl-pointer-events-none gl-w-3/20',
       tdClass,
     },
     {
       key: 'published',
       label: s__('IncidentManagement|Published'),
-      thClass: `${thClass} gl-w-15`,
+      variant: 'secondary',
+      thClass: `gl-w-15`,
       tdClass: `${tdClass} sortable-cell`,
       actualSortKey: 'PUBLISHED',
       sortable: true,
@@ -144,7 +148,6 @@ export default {
     'assigneeUsernameQuery',
     'slaFeatureAvailable',
     'canCreateIncident',
-    'incidentEscalationsAvailable',
   ],
   apollo: {
     incidents: {
@@ -238,7 +241,6 @@ export default {
       const isHidden = {
         published: !this.publishedAvailable,
         incidentSla: !this.slaFeatureAvailable,
-        escalationStatus: !this.incidentEscalationsAvailable,
       };
 
       return this.$options.fields.filter(({ key }) => !isHidden[key]);
@@ -303,6 +305,9 @@ export default {
     getEscalationStatus(escalationStatus) {
       return ESCALATION_STATUSES[escalationStatus] || this.$options.i18n.noEscalationStatus;
     },
+    isClosed(item) {
+      return item.state === STATUS_CLOSED;
+    },
     showIncidentLink({ iid }) {
       return joinPaths(this.issuePath, INCIDENT_DETAILS_PATH, iid);
     },
@@ -328,7 +333,7 @@ export default {
         item.assignees.nodes.length - MAX_VISIBLE_ASSIGNEES,
       );
     },
-    isValidSlaDueAt,
+    isValidDateString,
   },
 };
 </script>
@@ -338,12 +343,15 @@ export default {
       :show-items="showList"
       :show-error-msg="showErrorMsg"
       :i18n="$options.i18n"
-      :items="incidents.list || []"
+      :items="
+        incidents.list || [] /* eslint-disable-line @gitlab/vue-no-new-non-primitive-in-template */
+      "
       :page-info="incidents.pageInfo"
       :items-count="incidentsCount"
       :status-tabs="$options.statusTabs"
       :track-views-options="$options.trackIncidentListViewsOptions"
       filter-search-key="incidents"
+      class="incident-management-list"
       @page-changed="pageChanged"
       @tabs-changed="statusChanged"
       @filters-changed="filtersChanged"
@@ -353,12 +361,11 @@ export default {
         <gl-button
           v-if="isHeaderButtonVisible"
           class="gl-my-3 gl-mr-5 create-incident-button"
-          data-testid="createIncidentBtn"
-          data-qa-selector="create_incident_button"
+          data-testid="create-incident-button"
           :loading="redirecting"
           :disabled="redirecting"
           category="primary"
-          variant="success"
+          variant="confirm"
           :href="newIncidentPath"
           @click="navigateToCreateNewIncident"
         >
@@ -372,7 +379,10 @@ export default {
 
       <template #table>
         <gl-table
-          :items="incidents.list || []"
+          :items="
+            incidents.list ||
+            [] /* eslint-disable-line @gitlab/vue-no-new-non-primitive-in-template */
+          "
           :fields="availableFields"
           :busy="loading"
           stacked="md"
@@ -382,8 +392,10 @@ export default {
           sort-by="createdAt"
           show-empty
           no-local-sorting
-          sort-icon-left
           fixed
+          hover
+          selectable
+          selected-variant="primary"
           @row-clicked="navigateToIncidentDetails"
           @sort-changed="fetchSortedData"
         >
@@ -392,30 +404,35 @@ export default {
           </template>
 
           <template #cell(title)="{ item }">
-            <div :class="{ 'gl-display-flex gl-align-items-center': item.state === 'closed' }">
+            <div
+              :class="{
+                'gl-display-flex gl-align-items-center gl-max-w-full': isClosed(item),
+              }"
+            >
               <gl-link
-                v-gl-tooltip
-                :title="item.title"
                 data-testid="incident-link"
                 :href="showIncidentLink(item)"
+                class="gl-min-w-0"
               >
-                {{ item.title }}
+                <tooltip-on-truncate :title="item.title" class="gl-text-truncate gl-block">
+                  {{ item.title }}
+                </tooltip-on-truncate>
               </gl-link>
               <gl-icon
-                v-if="item.state === 'closed'"
+                v-if="isClosed(item)"
                 name="issue-close"
-                class="gl-mx-1 gl-fill-blue-500 gl-flex-shrink-0"
+                class="gl-ml-2 gl-fill-blue-500 gl-flex-shrink-0"
                 :size="16"
                 data-testid="incident-closed"
               />
             </div>
           </template>
 
-          <template v-if="incidentEscalationsAvailable" #cell(escalationStatus)="{ item }">
+          <template #cell(escalationStatus)="{ item }">
             <tooltip-on-truncate
               :title="getEscalationStatus(item.escalationStatus)"
               data-testid="incident-escalation-status"
-              class="gl-display-block gl-text-truncate"
+              class="gl-block gl-text-truncate"
             >
               {{ getEscalationStatus(item.escalationStatus) }}
             </tooltip-on-truncate>
@@ -424,18 +441,17 @@ export default {
           <template #cell(createdAt)="{ item }">
             <time-ago-tooltip
               :time="item.createdAt"
-              class="gl-display-block gl-max-w-full gl-text-truncate"
+              class="gl-block gl-max-w-full gl-text-truncate"
             />
           </template>
 
           <template v-if="slaFeatureAvailable" #cell(incidentSla)="{ item }">
             <service-level-agreement-cell
-              v-if="isValidSlaDueAt(item.slaDueAt)"
+              v-if="isValidDateString(item.slaDueAt)"
               :issue-iid="item.iid"
               :project-path="projectPath"
               :sla-due-at="item.slaDueAt"
-              data-testid="incident-sla"
-              class="gl-display-block gl-max-w-full gl-text-truncate"
+              class="gl-block gl-max-w-full gl-text-truncate"
             />
           </template>
 

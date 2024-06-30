@@ -2,17 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Restoring many Todos' do
+RSpec.describe 'Restoring many Todos', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
   let_it_be(:issue) { create(:issue, project: project) }
-  let_it_be(:current_user) { create(:user) }
+  let_it_be(:current_user) { create(:user, developer_of: project) }
   let_it_be(:author) { create(:user) }
   let_it_be(:other_user) { create(:user) }
 
-  let_it_be(:todo1) { create(:todo, user: current_user, author: author, state: :done, target: issue) }
-  let_it_be(:todo2) { create(:todo, user: current_user, author: author, state: :done, target: issue) }
+  let_it_be_with_reload(:todo1) { create(:todo, user: current_user, author: author, state: :done, target: issue) }
+  let_it_be_with_reload(:todo2) { create(:todo, user: current_user, author: author, state: :done, target: issue) }
 
   let_it_be(:other_user_todo) { create(:todo, user: other_user, author: author, state: :done) }
 
@@ -20,20 +20,18 @@ RSpec.describe 'Restoring many Todos' do
   let(:input) { { ids: input_ids } }
 
   let(:mutation) do
-    graphql_mutation(:todo_restore_many, input,
-                     <<-QL.strip_heredoc
-                       clientMutationId
-                       errors
-                       todos {
-                         id
-                         state
-                       }
-                     QL
+    graphql_mutation(
+      :todo_restore_many,
+      input,
+      <<-QL.strip_heredoc
+        clientMutationId
+        errors
+        todos {
+          id
+          state
+        }
+      QL
     )
-  end
-
-  before_all do
-    project.add_developer(current_user)
   end
 
   def mutation_response
@@ -50,8 +48,8 @@ RSpec.describe 'Restoring many Todos' do
     expect(mutation_response).to include(
       'errors' => be_empty,
       'todos' => contain_exactly(
-        { 'id' => global_id_of(todo1), 'state' => 'pending' },
-        { 'id' => global_id_of(todo2), 'state' => 'pending' }
+        a_graphql_entity_for(todo1, 'state' => 'pending'),
+        a_graphql_entity_for(todo2, 'state' => 'pending')
       )
     )
   end

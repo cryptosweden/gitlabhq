@@ -2,17 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Issue Boards new issue', :js do
+RSpec.describe 'Issue Boards new issue', :js, feature_category: :portfolio_management do
   let_it_be(:project)        { create(:project, :public) }
   let_it_be(:board)          { create(:board, project: project) }
-  let_it_be(:backlog_list)   { create(:backlog_list, board: board) }
   let_it_be(:label)          { create(:label, project: project, name: 'Label 1') }
   let_it_be(:list)           { create(:list, board: board, label: label, position: 0) }
   let_it_be(:user)           { create(:user) }
   let_it_be(:existing_issue) { create(:issue, project: project, title: 'other issue', relative_position: 50) }
 
   let(:board_list_header) { first('[data-testid="board-list-header"]') }
-  let(:project_select_dropdown) { find('[data-testid="project-select-dropdown"]') }
+  let(:project_select_dropdown) { find_by_testid('project-select-dropdown') }
 
   context 'authorized user' do
     before do
@@ -28,18 +27,18 @@ RSpec.describe 'Issue Boards new issue', :js do
     end
 
     it 'displays new issue button' do
-      expect(first('.board')).to have_button('New issue', count: 1)
+      expect(first('.board')).to have_button('Create new issue', count: 1)
     end
 
     it 'does not display new issue button in closed list' do
       page.within('.board:nth-child(3)') do
-        expect(page).not_to have_button('New issue')
+        expect(page).not_to have_button('Create new issue')
       end
     end
 
     it 'shows form when clicking button' do
       page.within(first('.board')) do
-        click_button 'New issue'
+        click_button 'Create new issue'
 
         expect(page).to have_selector('.board-new-issue-form')
       end
@@ -47,7 +46,7 @@ RSpec.describe 'Issue Boards new issue', :js do
 
     it 'hides form when clicking cancel' do
       page.within(first('.board')) do
-        click_button 'New issue'
+        click_button 'Create new issue'
 
         expect(page).to have_selector('.board-new-issue-form')
 
@@ -59,7 +58,7 @@ RSpec.describe 'Issue Boards new issue', :js do
 
     it 'creates new issue, places it on top of the list, and opens sidebar' do
       page.within(first('.board')) do
-        click_button 'New issue'
+        click_button 'Create new issue'
       end
 
       page.within(first('.board-new-issue-form')) do
@@ -85,9 +84,9 @@ RSpec.describe 'Issue Boards new issue', :js do
       expect(page).to have_selector('[data-testid="issue-boards-sidebar"]')
     end
 
-    it 'successfuly loads labels to be added to newly created issue' do
+    it 'successfully loads labels to be added to newly created issue' do
       page.within(first('.board')) do
-        click_button 'New issue'
+        click_button 'Create new issue'
       end
 
       page.within(first('.board-new-issue-form')) do
@@ -97,7 +96,7 @@ RSpec.describe 'Issue Boards new issue', :js do
 
       wait_for_requests
 
-      page.within('[data-testid="sidebar-labels"]') do
+      within_testid('sidebar-labels') do
         click_button 'Edit'
 
         wait_for_requests
@@ -107,7 +106,7 @@ RSpec.describe 'Issue Boards new issue', :js do
     end
 
     it 'allows creating an issue in newly created list' do
-      click_button 'Create list'
+      click_button 'New list'
       wait_for_all_requests
 
       click_button 'Select a label'
@@ -117,7 +116,7 @@ RSpec.describe 'Issue Boards new issue', :js do
       wait_for_all_requests
 
       page.within('.board:nth-child(2)') do
-        click_button('New issue')
+        click_button('Create new issue')
 
         page.within(first('.board-new-issue-form')) do
           find('.form-control').set('new issue')
@@ -140,12 +139,12 @@ RSpec.describe 'Issue Boards new issue', :js do
     end
 
     it 'does not display new issue button in open list' do
-      expect(first('.board')).not_to have_button('New issue')
+      expect(first('.board')).not_to have_button('Create new issue')
     end
 
     it 'does not display new issue button in label list' do
       page.within('.board:nth-child(2)') do
-        expect(page).not_to have_button('New issue')
+        expect(page).not_to have_button('Create new issue')
       end
     end
   end
@@ -169,21 +168,19 @@ RSpec.describe 'Issue Boards new issue', :js do
       context 'when backlog does not exist' do
         it 'does not display new issue button in label list' do
           page.within('.board.is-draggable') do
-            expect(page).not_to have_button('New issue')
+            expect(page).not_to have_button('Create new issue')
           end
         end
       end
 
       context 'when backlog list already exists' do
-        let_it_be(:backlog_list) { create(:backlog_list, board: group_board) }
-
         it 'does not display new issue button in open list' do
-          expect(first('.board')).not_to have_button('New issue')
+          expect(first('.board')).not_to have_button('Create new issue')
         end
 
         it 'does not display new issue button in label list' do
           page.within('.board.is-draggable') do
-            expect(page).not_to have_button('New issue')
+            expect(page).not_to have_button('Create new issue')
           end
         end
       end
@@ -200,17 +197,19 @@ RSpec.describe 'Issue Boards new issue', :js do
       end
 
       context 'when backlog does not exist' do
+        before do
+          group_board.lists.backlog.delete_all
+        end
+
         it 'display new issue button in label list' do
-          expect(board_list_header).to have_button('New issue')
+          expect(board_list_header).to have_button('Create new issue')
         end
       end
 
       context 'project select dropdown' do
-        let_it_be(:backlog_list) { create(:backlog_list, board: group_board) }
-
         before do
           page.within(board_list_header) do
-            click_button 'New issue'
+            click_button 'Create new issue'
           end
 
           project_select_dropdown.click
@@ -219,15 +218,15 @@ RSpec.describe 'Issue Boards new issue', :js do
         end
 
         it 'lists a project which is a direct descendant of the top-level group' do
-          expect(project_select_dropdown).to have_button("root project")
+          expect(project_select_dropdown).to have_selector("li", text: "root project")
         end
 
         it 'lists a project that belongs to a subgroup' do
-          expect(project_select_dropdown).to have_button("sub project1")
+          expect(project_select_dropdown).to have_selector("li", text: "sub project1")
         end
 
         it "does not list projects to which user doesn't have access" do
-          expect(project_select_dropdown).not_to have_button("sub project2")
+          expect(project_select_dropdown).not_to have_selector("li", text: "sub project2")
         end
       end
     end

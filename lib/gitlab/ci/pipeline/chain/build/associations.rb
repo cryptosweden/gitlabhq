@@ -31,7 +31,8 @@ module Gitlab
                 source_pipeline: @command.bridge.pipeline,
                 source_project: @command.bridge.project,
                 source_bridge: @command.bridge,
-                project: @command.project
+                project: @command.project,
+                source_partition_id: @command.bridge.partition_id
               )
             end
 
@@ -60,14 +61,14 @@ module Gitlab
 
             def validate_uniqueness(variables)
               duplicated_keys = variables
-                .map { |var| var[:key] }
+                .map { |var| var[:key] } # rubocop: disable Rails/Pluck -- Pluck raises error too
                 .tally
                 .filter_map { |key, count| key if count > 1 }
 
               if duplicated_keys.empty?
                 variables
               else
-                error(duplicate_variables_message(duplicated_keys), config_error: true)
+                error(duplicate_variables_message(duplicated_keys), failure_reason: :config_error)
                 []
               end
             end

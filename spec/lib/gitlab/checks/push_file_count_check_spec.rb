@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Checks::PushFileCountCheck do
+RSpec.describe Gitlab::Checks::PushFileCountCheck, feature_category: :source_code_management do
   let(:snippet) { create(:personal_snippet, :repository) }
   let(:changes) { { oldrev: oldrev, newrev: newrev, ref: ref } }
   let(:timeout) { Gitlab::GitAccess::INTERNAL_TIMEOUT }
@@ -20,7 +20,7 @@ RSpec.describe Gitlab::Checks::PushFileCountCheck do
     end
 
     context 'initial creation' do
-      let(:oldrev) { Gitlab::Git::EMPTY_TREE_ID }
+      let(:oldrev) { Gitlab::Git::SHA1_EMPTY_TREE_ID }
       let(:newrev) { TestEnv::BRANCH_SHA["snippet/single-file"] }
       let(:ref) { "refs/heads/snippet/single-file" }
 

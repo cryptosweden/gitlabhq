@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require 'rake_helper'
+require 'spec_helper'
 
-RSpec.describe Gitlab::ImportExport::Project::ImportTask, :request_store, :silence_stdout do
+RSpec.describe Gitlab::ImportExport::Project::ImportTask, :request_store, :silence_stdout, feature_category: :importers do
   let(:username) { 'root' }
   let(:namespace_path) { username }
   let!(:user) { create(:user, username: username) }

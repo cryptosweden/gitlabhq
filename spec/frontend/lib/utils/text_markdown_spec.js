@@ -1,18 +1,59 @@
 import $ from 'jquery';
-import { insertMarkdownText, keypressNoteText } from '~/lib/utils/text_markdown';
+import AxiosMockAdapter from 'axios-mock-adapter';
+import {
+  insertMarkdownText,
+  keypressNoteText,
+  compositionStartNoteText,
+  compositionEndNoteText,
+  updateTextForToolbarBtn,
+  resolveSelectedImage,
+} from '~/lib/utils/text_markdown';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import '~/lib/utils/jquery_at_who';
+import axios from '~/lib/utils/axios_utils';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 
 describe('init markdown', () => {
+  let mdArea;
   let textArea;
+  let indentButton;
+  let outdentButton;
+  let axiosMock;
+
+  let spyTextAreaInput;
 
   beforeAll(() => {
-    textArea = document.createElement('textarea');
-    document.querySelector('body').appendChild(textArea);
+    setHTMLFixture(
+      `<div class='md-area'>
+        <textarea></textarea>
+        <button data-md-command="indentLines" id="indentButton"></button>
+        <button data-md-command="outdentLines" id="outdentButton"></button>
+      </div>`,
+    );
+    mdArea = document.querySelector('.md-area');
+    textArea = mdArea.querySelector('textarea');
+    indentButton = mdArea.querySelector('#indentButton');
+    outdentButton = mdArea.querySelector('#outdentButton');
+
     textArea.focus();
+
+    spyTextAreaInput = jest.fn();
+    textArea.addEventListener('input', spyTextAreaInput);
+
+    // needed for the underlying insertText to work
+    document.execCommand = jest.fn(() => false);
+  });
+
+  beforeEach(() => {
+    axiosMock = new AxiosMockAdapter(axios);
+  });
+
+  afterEach(() => {
+    axiosMock.restore();
   });
 
   afterAll(() => {
-    textArea.parentNode.removeChild(textArea);
+    resetHTMLFixture();
   });
 
   describe('insertMarkdownText', () => {
@@ -21,14 +62,28 @@ describe('init markdown', () => {
 
       insertMarkdownText({
         textArea,
-        text: '',
-        tag: '',
+        text: '2',
+        tag: '*',
         blockTag: null,
         selected,
         wrap: false,
       });
 
-      expect(textArea.value).toBe(selected.toString());
+      expect(spyTextAreaInput).toHaveBeenCalled();
+      expect(textArea.value).toBe('*2');
+    });
+
+    it('will not do anything if tag, blockTag, and selected are falsey', () => {
+      insertMarkdownText({
+        textArea,
+        text: 'lorem ipsum',
+        tab: '',
+        blockTag: '',
+        selected: '',
+        wrap: false,
+      });
+
+      expect(spyTextAreaInput).not.toHaveBeenCalled();
     });
   });
 
@@ -169,21 +224,38 @@ describe('init markdown', () => {
       });
 
       describe('Continuing markdown lists', () => {
-        const enterEvent = new KeyboardEvent('keydown', { key: 'Enter' });
+        let enterEvent;
 
         beforeEach(() => {
-          gon.features = { markdownContinueLists: true };
+          enterEvent = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+          textArea.addEventListener('keydown', keypressNoteText);
+          textArea.addEventListener('compositionstart', compositionStartNoteText);
+          textArea.addEventListener('compositionend', compositionEndNoteText);
+          gon.markdown_automatic_lists = true;
         });
 
         it.each`
           text                           | expected
           ${'- item'}                    | ${'- item\n- '}
+          ${'* item'}                    | ${'* item\n* '}
+          ${'+ item'}                    | ${'+ item\n+ '}
           ${'- [ ] item'}                | ${'- [ ] item\n- [ ] '}
-          ${'- [x] item'}                | ${'- [x] item\n- [x] '}
+          ${'- [x] item'}                | ${'- [x] item\n- [ ] '}
+          ${'- [X] item'}                | ${'- [X] item\n- [ ] '}
+          ${'- [~] item'}                | ${'- [~] item\n- [ ] '}
+          ${'- [ ] nbsp (U+00A0)'}       | ${'- [ ] nbsp (U+00A0)\n- [ ] '}
           ${'- item\n  - second'}        | ${'- item\n  - second\n  - '}
+          ${'- - -'}                     | ${'- - -'}
+          ${'- --'}                      | ${'- --'}
+          ${'* **'}                      | ${'* **'}
+          ${' **  * ** * ** * **'}       | ${' **  * ** * ** * **'}
+          ${'- - -x'}                    | ${'- - -x\n- '}
+          ${'+ ++'}                      | ${'+ ++\n+ '}
           ${'1. item'}                   | ${'1. item\n2. '}
           ${'1. [ ] item'}               | ${'1. [ ] item\n2. [ ] '}
-          ${'1. [x] item'}               | ${'1. [x] item\n2. [x] '}
+          ${'1. [x] item'}               | ${'1. [x] item\n2. [ ] '}
+          ${'1. [X] item'}               | ${'1. [X] item\n2. [ ] '}
+          ${'1. [~] item'}               | ${'1. [~] item\n2. [ ] '}
           ${'108. item'}                 | ${'108. item\n109. '}
           ${'108. item\n     - second'}  | ${'108. item\n     - second\n     - '}
           ${'108. item\n     1. second'} | ${'108. item\n     1. second\n     2. '}
@@ -192,7 +264,6 @@ describe('init markdown', () => {
           textArea.value = text;
           textArea.setSelectionRange(text.length, text.length);
 
-          textArea.addEventListener('keydown', keypressNoteText);
           textArea.dispatchEvent(enterEvent);
 
           expect(textArea.value).toEqual(expected);
@@ -207,18 +278,21 @@ describe('init markdown', () => {
           ${'- item\n- '}                          | ${'- item\n'}
           ${'- [ ] item\n- [ ] '}                  | ${'- [ ] item\n'}
           ${'- [x] item\n- [x] '}                  | ${'- [x] item\n'}
+          ${'- [X] item\n- [X] '}                  | ${'- [X] item\n'}
+          ${'- [~] item\n- [~] '}                  | ${'- [~] item\n'}
           ${'- item\n  - second\n  - '}            | ${'- item\n  - second\n'}
           ${'1. item\n2. '}                        | ${'1. item\n'}
           ${'1. [ ] item\n2. [ ] '}                | ${'1. [ ] item\n'}
           ${'1. [x] item\n2. [x] '}                | ${'1. [x] item\n'}
+          ${'1. [X] item\n2. [X] '}                | ${'1. [X] item\n'}
+          ${'1. [~] item\n2. [~] '}                | ${'1. [~] item\n'}
           ${'108. item\n109. '}                    | ${'108. item\n'}
           ${'108. item\n     - second\n     - '}   | ${'108. item\n     - second\n'}
           ${'108. item\n     1. second\n     1. '} | ${'108. item\n     1. second\n'}
-        `('adds correct list continuation characters', ({ text, expected }) => {
+        `('remove list continuation characters', ({ text, expected }) => {
           textArea.value = text;
           textArea.setSelectionRange(text.length, text.length);
 
-          textArea.addEventListener('keydown', keypressNoteText);
           textArea.dispatchEvent(enterEvent);
 
           expect(textArea.value.substr(0, textArea.selectionStart)).toEqual(expected);
@@ -238,7 +312,6 @@ describe('init markdown', () => {
           textArea.value = text;
           textArea.setSelectionRange(text.length, text.length);
 
-          textArea.addEventListener('keydown', keypressNoteText);
           textArea.dispatchEvent(enterEvent);
 
           expect(textArea.value).toEqual(expected);
@@ -254,28 +327,187 @@ describe('init markdown', () => {
             textArea.value = text;
             textArea.setSelectionRange(add_at, add_at);
 
-            textArea.addEventListener('keydown', keypressNoteText);
             textArea.dispatchEvent(enterEvent);
 
             expect(textArea.value).toEqual(expected);
           },
         );
 
-        it('does nothing if feature flag disabled', () => {
-          gon.features = { markdownContinueLists: false };
+        // test that when pressing Enter in the prefix area of a list item,
+        // such as between `2.`, we simply propagate the Enter,
+        // adding a newline.  Since the event doesn't actually get propagated
+        // in the test, check that `defaultPrevented` is false
+        it.each`
+          text                                     | add_at | prevented
+          ${'- one\n- two\n- three'}               | ${6}   | ${false}
+          ${'- one\n- two\n- three'}               | ${7}   | ${false}
+          ${'- one\n- two\n- three'}               | ${8}   | ${true}
+          ${'- [ ] one\n- [ ] two\n- [ ] three'}   | ${10}  | ${false}
+          ${'- [ ] one\n- [ ] two\n- [ ] three'}   | ${15}  | ${false}
+          ${'- [ ] one\n- [ ] two\n- [ ] three'}   | ${16}  | ${true}
+          ${'- [ ] one\n  - [ ] two\n- [ ] three'} | ${10}  | ${false}
+          ${'- [ ] one\n  - [ ] two\n- [ ] three'} | ${11}  | ${false}
+          ${'- [ ] one\n  - [ ] two\n- [ ] three'} | ${17}  | ${false}
+          ${'- [ ] one\n  - [ ] two\n- [ ] three'} | ${18}  | ${true}
+          ${'1. one\n2. two\n3. three'}            | ${7}   | ${false}
+          ${'1. one\n2. two\n3. three'}            | ${9}   | ${false}
+          ${'1. one\n2. two\n3. three'}            | ${10}  | ${true}
+        `(
+          'allows a newline to be added if cursor is inside the list marker prefix area',
+          ({ text, add_at, prevented }) => {
+            textArea.value = text;
+            textArea.setSelectionRange(add_at, add_at);
 
-          const text = '- item';
-          const expected = '- item';
+            textArea.dispatchEvent(enterEvent);
 
+            expect(enterEvent.defaultPrevented).toBe(prevented);
+          },
+        );
+
+        it('does not duplicate a line item for IME characters', () => {
+          const text = '- 日本語';
+          const expected = '- 日本語\n- ';
+
+          textArea.dispatchEvent(new CompositionEvent('compositionstart'));
           textArea.value = text;
+
+          // Press enter to end composition
+          textArea.dispatchEvent(enterEvent);
+          textArea.dispatchEvent(new CompositionEvent('compositionend'));
           textArea.setSelectionRange(text.length, text.length);
 
-          textArea.addEventListener('keydown', keypressNoteText);
+          // Press enter to make new line
           textArea.dispatchEvent(enterEvent);
 
           expect(textArea.value).toEqual(expected);
           expect(textArea.selectionStart).toBe(expected.length);
         });
+
+        it('does nothing if user preference disabled', () => {
+          const text = '- test';
+
+          gon.markdown_automatic_lists = false;
+
+          textArea.value = text;
+          textArea.setSelectionRange(text.length, text.length);
+          textArea.dispatchEvent(enterEvent);
+
+          expect(textArea.value).toEqual(text);
+        });
+      });
+    });
+
+    describe('shifting selected lines left or right', () => {
+      it.each`
+        selectionStart | selectionEnd | expected                | expectedSelectionStart | expectedSelectionEnd
+        ${0}           | ${0}         | ${'  012\n456\n89'}     | ${2}                   | ${2}
+        ${5}           | ${5}         | ${'012\n  456\n89'}     | ${7}                   | ${7}
+        ${10}          | ${10}        | ${'012\n456\n  89'}     | ${12}                  | ${12}
+        ${0}           | ${2}         | ${'  012\n456\n89'}     | ${0}                   | ${4}
+        ${1}           | ${2}         | ${'  012\n456\n89'}     | ${3}                   | ${4}
+        ${5}           | ${7}         | ${'012\n  456\n89'}     | ${7}                   | ${9}
+        ${0}           | ${7}         | ${'  012\n  456\n89'}   | ${0}                   | ${11}
+        ${2}           | ${9}         | ${'  012\n  456\n  89'} | ${4}                   | ${15}
+      `(
+        'indents the selected lines two spaces to the right',
+        ({
+          selectionStart,
+          selectionEnd,
+          expected,
+          expectedSelectionStart,
+          expectedSelectionEnd,
+        }) => {
+          const text = '012\n456\n89';
+          textArea.value = text;
+          textArea.setSelectionRange(selectionStart, selectionEnd);
+
+          updateTextForToolbarBtn($(indentButton));
+
+          expect(textArea.value).toEqual(expected);
+          expect(textArea.selectionStart).toEqual(expectedSelectionStart);
+          expect(textArea.selectionEnd).toEqual(expectedSelectionEnd);
+        },
+      );
+
+      it('indents a blank line two spaces to the right', () => {
+        textArea.value = '012\n\n89';
+        textArea.setSelectionRange(4, 4);
+
+        updateTextForToolbarBtn($(indentButton));
+
+        expect(textArea.value).toEqual('012\n  \n89');
+        expect(textArea.selectionStart).toEqual(6);
+        expect(textArea.selectionEnd).toEqual(6);
+      });
+
+      it.each`
+        selectionStart | selectionEnd | expected              | expectedSelectionStart | expectedSelectionEnd
+        ${0}           | ${0}         | ${'234\n 789\n  34'}  | ${0}                   | ${0}
+        ${3}           | ${3}         | ${'234\n 789\n  34'}  | ${1}                   | ${1}
+        ${7}           | ${7}         | ${'  234\n789\n  34'} | ${6}                   | ${6}
+        ${0}           | ${3}         | ${'234\n 789\n  34'}  | ${0}                   | ${1}
+        ${8}           | ${10}        | ${'  234\n789\n  34'} | ${7}                   | ${9}
+        ${14}          | ${15}        | ${'  234\n 789\n34'}  | ${12}                  | ${13}
+        ${0}           | ${15}        | ${'234\n789\n34'}     | ${0}                   | ${10}
+        ${3}           | ${13}        | ${'234\n789\n34'}     | ${1}                   | ${8}
+        ${6}           | ${6}         | ${'  234\n789\n  34'} | ${6}                   | ${6}
+      `(
+        'outdents the selected lines two spaces to the left',
+        ({
+          selectionStart,
+          selectionEnd,
+          expected,
+          expectedSelectionStart,
+          expectedSelectionEnd,
+        }) => {
+          const text = '  234\n 789\n  34';
+          textArea.value = text;
+          textArea.setSelectionRange(selectionStart, selectionEnd);
+
+          updateTextForToolbarBtn($(outdentButton));
+
+          expect(textArea.value).toEqual(expected);
+          expect(textArea.selectionStart).toEqual(expectedSelectionStart);
+          expect(textArea.selectionEnd).toEqual(expectedSelectionEnd);
+        },
+      );
+
+      it('outdent a blank line has no effect', () => {
+        textArea.value = '012\n\n89';
+        textArea.setSelectionRange(4, 4);
+
+        updateTextForToolbarBtn($(outdentButton));
+
+        expect(textArea.value).toEqual('012\n\n89');
+        expect(textArea.selectionStart).toEqual(4);
+        expect(textArea.selectionEnd).toEqual(4);
+      });
+
+      it('does not indent if meta is not set', () => {
+        const indentNoMetaEvent = new KeyboardEvent('keydown', { key: ']' });
+        const text = '012\n456\n89';
+        textArea.value = text;
+        textArea.setSelectionRange(0, 0);
+
+        textArea.dispatchEvent(indentNoMetaEvent);
+
+        expect(textArea.value).toEqual(text);
+      });
+
+      it.each`
+        keyEvent
+        ${new KeyboardEvent('keydown', { key: ']', metaKey: false })}
+        ${new KeyboardEvent('keydown', { key: ']', metaKey: true, shiftKey: true })}
+        ${new KeyboardEvent('keydown', { key: ']', metaKey: true, altKey: true })}
+        ${new KeyboardEvent('keydown', { key: ']', metaKey: true, ctrlKey: true })}
+      `('does not indent if meta is not set', ({ keyEvent }) => {
+        const text = '012\n456\n89';
+        textArea.value = text;
+        textArea.setSelectionRange(0, 0);
+
+        textArea.dispatchEvent(keyEvent);
+
+        expect(textArea.value).toEqual(text);
       });
     });
 
@@ -355,6 +587,15 @@ describe('init markdown', () => {
 
           expect(textArea.value).toEqual(text);
         });
+
+        it('does nothing if meta is set', () => {
+          const event = new KeyboardEvent('keydown', { key: '[', metaKey: true });
+
+          textArea.addEventListener('keydown', keypressNoteText);
+          textArea.dispatchEvent(event);
+
+          expect(textArea.value).toEqual(text);
+        });
       });
 
       describe('and text to be selected', () => {
@@ -428,6 +669,33 @@ describe('init markdown', () => {
           );
         });
 
+        it('only converts valid URLs', () => {
+          const notValidUrl = 'group::label';
+          const expectedUrlValue = 'url';
+          const expectedText = `other [${notValidUrl}](${expectedUrlValue}) text`;
+          const initialValue = `other ${notValidUrl} text`;
+
+          textArea.value = initialValue;
+          selectedIndex = initialValue.indexOf(notValidUrl);
+          textArea.setSelectionRange(selectedIndex, selectedIndex + notValidUrl.length);
+
+          insertMarkdownText({
+            textArea,
+            text: textArea.value,
+            tag,
+            blockTag: null,
+            selected: notValidUrl,
+            wrap: false,
+            select,
+          });
+
+          expect(textArea.value).toEqual(expectedText);
+          expect(textArea.selectionStart).toEqual(expectedText.indexOf(expectedUrlValue, 1));
+          expect(textArea.selectionEnd).toEqual(
+            expectedText.indexOf(expectedUrlValue, 1) + expectedUrlValue.length,
+          );
+        });
+
         it('adds block tags on line above and below selection', () => {
           selected = 'this text\nis multiple\nlines';
           text = `before \n${selected}\nafter `;
@@ -467,6 +735,55 @@ describe('init markdown', () => {
 
           expect(textArea.value).toEqual(`before \n${selected}\nafter `);
         });
+      });
+    });
+  });
+
+  describe('resolveSelectedImage', () => {
+    const markdownPreviewPath = '/markdown/preview';
+    const imageMarkdown = '![image](/uploads/image.png)';
+    const imageAbsoluteUrl = '/abs/uploads/image.png';
+
+    describe('when textarea cursor is positioned on an image', () => {
+      beforeEach(() => {
+        axiosMock.onPost(markdownPreviewPath, { text: imageMarkdown }).reply(HTTP_STATUS_OK, {
+          body: `
+        <p><a href="${imageAbsoluteUrl}"><img src="${imageAbsoluteUrl}"></a></p>
+        `,
+        });
+      });
+
+      it('returns the image absolute URL, markdown, and filename', async () => {
+        textArea.value = `image ${imageMarkdown}`;
+        textArea.setSelectionRange(8, 8);
+        expect(await resolveSelectedImage(textArea, markdownPreviewPath)).toEqual({
+          imageURL: imageAbsoluteUrl,
+          imageMarkdown,
+          filename: 'image.png',
+        });
+      });
+    });
+
+    describe('when textarea cursor is not positioned on an image', () => {
+      it.each`
+        markdown                    | selectionRange
+        ${`image ${imageMarkdown}`} | ${[4, 4]}
+        ${`!2 (issue)`}             | ${[2, 2]}
+      `('returns null', async ({ markdown, selectionRange }) => {
+        textArea.value = markdown;
+        textArea.setSelectionRange(...selectionRange);
+        expect(await resolveSelectedImage(textArea, markdownPreviewPath)).toBe(null);
+      });
+    });
+
+    describe('when textarea cursor is positioned between images', () => {
+      it('returns null', async () => {
+        const position = imageMarkdown.length + 1;
+
+        textArea.value = `${imageMarkdown}\n\n${imageMarkdown}`;
+        textArea.setSelectionRange(position, position);
+
+        expect(await resolveSelectedImage(textArea, markdownPreviewPath)).toBe(null);
       });
     });
   });

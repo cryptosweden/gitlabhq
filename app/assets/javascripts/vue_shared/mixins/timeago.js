@@ -1,18 +1,18 @@
-import { formatDate, getTimeago } from '../../lib/utils/datetime_utility';
+import { getTimeago, localeDateFormat, timeagoLanguageCode } from '~/lib/utils/datetime_utility';
 
 /**
  * Mixin with time ago methods used in some vue components
  */
 export default {
   methods: {
-    timeFormatted(time) {
-      const timeago = getTimeago();
+    timeFormatted(time, format) {
+      const timeago = getTimeago(format);
 
-      return timeago.format(time);
+      return timeago.format(time, timeagoLanguageCode);
     },
 
     tooltipTitle(time) {
-      return formatDate(time);
+      return localeDateFormat.asDateTimeFull.format(time);
     },
   },
 };

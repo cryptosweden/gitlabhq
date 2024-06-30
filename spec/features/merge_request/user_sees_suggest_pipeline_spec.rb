@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User sees suggest pipeline', :js do
+RSpec.describe 'Merge request > User sees suggest pipeline', :js, feature_category: :continuous_integration do
   let(:merge_request) { create(:merge_request) }
   let(:project) { merge_request.source_project }
   let(:user) { project.creator }
@@ -20,7 +20,7 @@ RSpec.describe 'Merge request > User sees suggest pipeline', :js do
     expect(page).to have_content(content)
 
     page.within '.mr-pipeline-suggest' do
-      find('[data-testid="close"]').click
+      find_by_testid('close').click
     end
 
     wait_for_requests
@@ -37,7 +37,7 @@ RSpec.describe 'Merge request > User sees suggest pipeline', :js do
     expect(page).to have_content('GitLab CI/CD can automatically build, test, and deploy your application')
 
     page.within '.mr-pipeline-suggest' do
-      find('[data-testid="ok"]').click
+      find_by_testid('ok').click
     end
 
     wait_for_requests

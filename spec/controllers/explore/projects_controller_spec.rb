@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Explore::ProjectsController do
+RSpec.describe Explore::ProjectsController, feature_category: :groups_and_projects do
   shared_examples 'explore projects' do
     let(:expected_default_sort) { 'latest_activity_desc' }
 
@@ -75,9 +75,9 @@ RSpec.describe Explore::ProjectsController do
       end
 
       context 'projects aimed for deletion' do
-        let(:project1) { create(:project, :public, updated_at: 3.days.ago) }
-        let(:project2) { create(:project, :public, updated_at: 1.day.ago) }
-        let(:aimed_for_deletion_project) { create(:project, :public, :archived, updated_at: 2.days.ago, marked_for_deletion_at: 2.days.ago) }
+        let_it_be(:project1) { create(:project, :public, path: 'project-1') }
+        let_it_be(:project2) { create(:project, :public, path: 'project-2') }
+        let_it_be(:aimed_for_deletion_project) { create(:project, :public, :archived, marked_for_deletion_at: 2.days.ago) }
 
         before do
           create(:trending_project, project: project1)
@@ -101,6 +101,7 @@ RSpec.describe Explore::ProjectsController do
           expect(response).to have_gitlab_http_status(:not_found)
         end
       end
+
       context 'when topic exists' do
         before do
           create(:topic, name: 'topic1')
@@ -111,6 +112,66 @@ RSpec.describe Explore::ProjectsController do
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to render_template('topic')
+        end
+
+        it 'finds topic by case insensitive name' do
+          get :topic, params: { topic_name: 'TOPIC1' }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template('topic')
+        end
+      end
+    end
+
+    describe 'GET #topic.atom' do
+      context 'when topic does not exist' do
+        it 'renders a 404 error' do
+          get :topic, format: :atom, params: { topic_name: 'topic1' }
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when topic exists' do
+        let(:topic) { create(:topic, name: 'topic1') }
+        let_it_be(:older_project) { create(:project, :public, updated_at: 1.day.ago) }
+        let_it_be(:newer_project) { create(:project, :public, updated_at: 2.days.ago) }
+
+        before do
+          create(:project_topic, project: older_project, topic: topic)
+          create(:project_topic, project: newer_project, topic: topic)
+        end
+
+        it 'renders the template' do
+          get :topic, format: :atom, params: { topic_name: 'topic1' }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template('topic', layout: :xml)
+        end
+
+        it 'sorts repos by descending creation date' do
+          get :topic, format: :atom, params: { topic_name: 'topic1' }
+
+          expect(assigns(:projects)).to match_array [newer_project, older_project]
+        end
+
+        it 'finds topic by case insensitive name' do
+          get :topic, format: :atom, params: { topic_name: 'TOPIC1' }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template('topic', layout: :xml)
+        end
+
+        describe 'when topic contains more than 20 projects' do
+          before do
+            create_list(:project, 22, :public, topics: [topic])
+          end
+
+          it 'does not assigns more than 20 projects' do
+            get :topic, format: :atom, params: { topic_name: 'topic1' }
+
+            expect(assigns(:projects).count).to be(20)
+          end
         end
       end
     end
@@ -201,19 +262,26 @@ RSpec.describe Explore::ProjectsController do
         render_views
 
         # some N+1 queries still exist
-        it 'avoids N+1 queries' do
-          projects = create_list(:project, 3, :repository, :public)
-          projects.each do |project|
-            pipeline = create(:ci_pipeline, :success, project: project, sha: project.commit.id)
-            create(:commit_status, :success, pipeline: pipeline, ref: pipeline.ref)
+        it 'avoids N+1 queries', :request_store do
+          # Because we enable the request store for this spec, Gitaly may report too many invocations.
+          # Allow N+1s here and when creating additional objects below because we're just creating test objects.
+          Gitlab::GitalyClient.allow_n_plus_1_calls do
+            projects = create_list(:project, 3, :repository, :public)
+
+            projects.each do |project|
+              pipeline = create(:ci_pipeline, :success, project: project, sha: project.commit.id)
+              create(:commit_status, :success, pipeline: pipeline, ref: pipeline.ref)
+            end
           end
 
           control = ActiveRecord::QueryRecorder.new { get endpoint }
 
-          new_projects = create_list(:project, 2, :repository, :public)
-          new_projects.each do |project|
-            pipeline = create(:ci_pipeline, :success, project: project, sha: project.commit.id)
-            create(:commit_status, :success, pipeline: pipeline, ref: pipeline.ref)
+          Gitlab::GitalyClient.allow_n_plus_1_calls do
+            new_projects = create_list(:project, 2, :repository, :public)
+            new_projects.each do |project|
+              pipeline = create(:ci_pipeline, :success, project: project, sha: project.commit.id)
+              create(:commit_status, :success, pipeline: pipeline, ref: pipeline.ref)
+            end
           end
 
           expect { get endpoint }.not_to exceed_query_limit(control).with_threshold(8)
@@ -224,9 +292,14 @@ RSpec.describe Explore::ProjectsController do
 
   context 'when user is signed in' do
     let(:user) { create(:user) }
+    let_it_be(:project) { create(:project, name: 'Project 1') }
+    let_it_be(:project2) { create(:project, name: 'Project 2') }
 
     before do
       sign_in(user)
+      project.add_developer(user)
+      project2.add_developer(user)
+      user.toggle_star(project2)
     end
 
     include_examples 'explore projects'
@@ -244,6 +317,21 @@ RSpec.describe Explore::ProjectsController do
     describe 'GET #index' do
       let(:controller_action) { :index }
       let(:params_with_name) { { name: 'some project' } }
+
+      it 'assigns the correct all_user_projects' do
+        get :index
+        all_user_projects = assigns(:all_user_projects)
+
+        expect(all_user_projects.count).to eq(2)
+      end
+
+      it 'assigns the correct all_starred_projects' do
+        get :index
+        all_starred_projects = assigns(:all_starred_projects)
+
+        expect(all_starred_projects.count).to eq(1)
+        expect(all_starred_projects).to include(project2)
+      end
 
       context 'when disable_anonymous_project_search is enabled' do
         before do

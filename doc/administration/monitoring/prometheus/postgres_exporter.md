@@ -1,14 +1,18 @@
 ---
-stage: Monitor
-group: Respond
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Data Stores
+group: Database
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# PostgreSQL Server Exporter **(FREE SELF)**
+# PostgreSQL Server Exporter
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 The [PostgreSQL Server Exporter](https://github.com/prometheus-community/postgres_exporter) allows you to export various PostgreSQL metrics.
 
-For installations from source you must install and configure it yourself.
+For self-compiled installations, you must install and configure it yourself.
 
 To enable the PostgreSQL Server Exporter:
 
@@ -23,7 +27,7 @@ To enable the PostgreSQL Server Exporter:
    address is [listed in `trust_auth_cidr_addresses`](../../postgresql/replication_and_failover.md#network-information) or the
    exporter can't connect to the database.
 
-1. Save the file and [reconfigure GitLab](../../restart_gitlab.md#omnibus-gitlab-reconfigure) for the changes to
+1. Save the file and [reconfigure GitLab](../../restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes to
    take effect.
 
 Prometheus begins collecting performance data from
@@ -70,5 +74,5 @@ use the following configuration options:
    postgres_exporter['sslrootcert'] = 'ssl-root.crt'
    ```
 
-1. Save the file and [reconfigure GitLab](../../restart_gitlab.md#omnibus-gitlab-reconfigure)
+1. Save the file and [reconfigure GitLab](../../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.

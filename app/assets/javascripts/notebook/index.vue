@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { MarkdownCell, CodeCell } from './cells';
 
@@ -10,11 +11,6 @@ export default {
     notebook: {
       type: Object,
       required: true,
-    },
-    codeCssClass: {
-      type: String,
-      required: false,
-      default: '',
     },
   },
   computed: {
@@ -52,7 +48,6 @@ export default {
       v-for="(cell, index) in cells"
       :key="index"
       :cell="cell"
-      :code-css-class="codeCssClass"
     />
   </div>
 </template>
@@ -64,6 +59,10 @@ export default {
   display: flex;
   width: 100%;
   margin-bottom: 10px;
+}
+
+.output .text-cell {
+  overflow-x: auto;
 }
 
 .cell pre {

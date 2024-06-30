@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Issues::CloneService do
+RSpec.describe Issues::CloneService, feature_category: :team_planning do
   include DesignManagementTestHelpers
 
   let_it_be(:user) { create(:user) }
@@ -16,13 +16,13 @@ RSpec.describe Issues::CloneService do
   let_it_be(:new_project) { create(:project, namespace: sub_group_2) }
 
   let_it_be(:old_issue, reload: true) do
-    create(:issue, title: title, description: description, project: old_project, author: author)
+    create(:issue, title: title, description: description, project: old_project, author: author, imported_from: :gitlab_migration)
   end
 
   let(:with_notes) { false }
 
   subject(:clone_service) do
-    described_class.new(project: old_project, current_user: user)
+    described_class.new(container: old_project, current_user: user)
   end
 
   shared_context 'user can clone issue' do
@@ -35,6 +35,21 @@ RSpec.describe Issues::CloneService do
   describe '#execute' do
     context 'issue movable' do
       include_context 'user can clone issue'
+
+      context 'when issue creation fails' do
+        before do
+          allow_next_instance_of(Issues::CreateService) do |create_service|
+            allow(create_service).to receive(:execute).and_return(ServiceResponse.error(message: 'some error'))
+          end
+        end
+
+        it 'raises a clone error' do
+          expect { clone_service.execute(old_issue, new_project) }.to raise_error(
+            Issues::CloneService::CloneError,
+            'some error'
+          )
+        end
+      end
 
       context 'generic issue' do
         let!(:new_issue) { clone_service.execute(old_issue, new_project, with_notes: with_notes) }
@@ -53,12 +68,29 @@ RSpec.describe Issues::CloneService do
           expect(new_issue.description).to eq description
         end
 
+        it 'restores imported_from to none' do
+          expect(old_issue.reload.imported_from).to eq 'gitlab_migration'
+          expect(new_issue.imported_from).to eq 'none'
+        end
+
         it 'adds system note to old issue at the end' do
           expect(old_issue.notes.last.note).to start_with 'cloned to'
         end
 
-        it 'adds system note to new issue at the end' do
-          expect(new_issue.notes.last.note).to start_with 'cloned from'
+        it 'adds system note to new issue at the start' do
+          # We set an assignee so an assignee system note will be generated and
+          # we can assert that the "cloned from" note is the first one
+          assignee = create(:user)
+          new_project.add_developer(assignee)
+          old_issue.assignees = [assignee]
+
+          new_issue = clone_service.execute(old_issue, new_project)
+
+          expect(new_issue.notes.size).to eq(2)
+
+          cloned_from_note = new_issue.notes.last
+          expect(cloned_from_note.note).to start_with 'cloned from'
+          expect(new_issue.notes.fresh.first).to eq(cloned_from_note)
         end
 
         it 'keeps old issue open' do
@@ -82,12 +114,14 @@ RSpec.describe Issues::CloneService do
           expect(new_issue.iid).to be_present
         end
 
-        it 'preserves create time' do
-          expect(old_issue.created_at.strftime('%D')).to eq new_issue.created_at.strftime('%D')
-        end
+        it 'sets created_at of new issue to the time of clone' do
+          future_time = 5.days.from_now
 
-        it 'does not copy system notes' do
-          expect(new_issue.notes.count).to eq(1)
+          travel_to(future_time) do
+            new_issue = clone_service.execute(old_issue, new_project, with_notes: with_notes)
+
+            expect(new_issue.created_at).to be_like_time(future_time)
+          end
         end
 
         it 'does not set moved_issue' do
@@ -105,14 +139,32 @@ RSpec.describe Issues::CloneService do
         end
       end
 
+      context 'issue with system notes and resource events' do
+        before do
+          create(:note, :system, noteable: old_issue, project: old_project)
+          create(:resource_label_event, label: create(:label, project: old_project), issue: old_issue)
+          create(:resource_state_event, issue: old_issue, state: :reopened)
+          create(:resource_milestone_event, issue: old_issue, action: 'remove', milestone_id: nil)
+        end
+
+        it 'does not copy system notes and resource events' do
+          new_issue = clone_service.execute(old_issue, new_project)
+
+          # 1 here is for the "cloned from" system note
+          expect(new_issue.notes.count).to eq(1)
+          expect(new_issue.resource_state_events).to be_empty
+          expect(new_issue.resource_milestone_events).to be_empty
+        end
+      end
+
       context 'issue with award emoji' do
         let!(:award_emoji) { create(:award_emoji, awardable: old_issue) }
 
-        it 'copies the award emoji' do
+        it 'does not copy the award emoji' do
           old_issue.reload
           new_issue = clone_service.execute(old_issue, new_project)
 
-          expect(old_issue.award_emoji.first.name).to eq new_issue.reload.award_emoji.first.name
+          expect(new_issue.reload.award_emoji).to be_empty
         end
       end
 
@@ -124,32 +176,47 @@ RSpec.describe Issues::CloneService do
           create(:issue, title: title, description: description, project: old_project, author: author, milestone: milestone)
         end
 
-        before do
-          create(:resource_milestone_event, issue: old_issue, milestone: milestone, action: :add)
-        end
-
-        it 'does not create extra milestone events' do
+        it 'copies the milestone and creates a resource_milestone_event' do
           new_issue = clone_service.execute(old_issue, new_project)
 
-          expect(new_issue.resource_milestone_events.count).to eq(old_issue.resource_milestone_events.count)
+          expect(new_issue.milestone).to eq(milestone)
+          expect(new_issue.resource_milestone_events.count).to eq(1)
+        end
+      end
+
+      context 'issue with label' do
+        let(:label) { create(:group_label, group: sub_group_1) }
+        let(:new_project) { create(:project, namespace: sub_group_1) }
+
+        let(:old_issue) do
+          create(:issue, project: old_project, labels: [label])
+        end
+
+        it 'copies the label and creates a resource_label_event' do
+          new_issue = clone_service.execute(old_issue, new_project)
+
+          expect(new_issue.labels).to contain_exactly(label)
+          expect(new_issue.resource_label_events.count).to eq(1)
         end
       end
 
       context 'issue with due date' do
         let(:date) { Date.parse('2020-01-10') }
+        let(:new_date) { date + 1.week }
 
         let(:old_issue) do
           create(:issue, title: title, description: description, project: old_project, author: author, due_date: date)
         end
 
         before do
-          SystemNoteService.change_due_date(old_issue, old_project, author, old_issue.due_date)
+          old_issue.update!(due_date: new_date)
+          SystemNoteService.change_start_date_or_due_date(old_issue, old_project, author, old_issue.previous_changes.slice('due_date'))
         end
 
         it 'keeps the same due date' do
           new_issue = clone_service.execute(old_issue, new_project)
 
-          expect(new_issue.due_date).to eq(date)
+          expect(new_issue.due_date).to eq(old_issue.due_date)
         end
       end
 

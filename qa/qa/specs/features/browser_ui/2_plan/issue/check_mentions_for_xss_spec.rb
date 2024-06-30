@@ -1,20 +1,15 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan', :reliable do
+  RSpec.describe 'Plan', :smoke, :health_check, product_group: :project_management do
     let!(:user) do
-      Resource::User.fabricate_via_api! do |user|
-        user.name = "QA User <img src=x onerror=alert(2)&lt;img src=x onerror=alert(1)&gt;"
-        user.password = "test1234"
-        user.api_client = Runtime::API::Client.as_admin
-      end
+      create(:user,
+        name: "QA User <img src=x onerror=alert(2)&lt;img src=x onerror=alert(1)&gt;",
+        password: "pw_#{SecureRandom.hex(12)}",
+        api_client: Runtime::API::Client.as_admin)
     end
 
-    let!(:project) do
-      Resource::Project.fabricate_via_api! do |project|
-        project.name = 'xss-test-for-mentions-project'
-      end
-    end
+    let!(:project) { create(:project, name: 'xss-test-for-mentions-project') }
 
     describe 'check xss occurence in @mentions in issues', :requires_admin do
       before do
@@ -22,9 +17,7 @@ module QA
 
         project.add_member(user)
 
-        Resource::Issue.fabricate_via_api! do |issue|
-          issue.project = project
-        end.visit!
+        create(:issue, project: project).visit!
       end
 
       after do

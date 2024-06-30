@@ -2,29 +2,39 @@
 
 module Gitlab
   class SSHPublicKey
+    include Gitlab::Utils::StrongMemoize
+
     Technology = Struct.new(:name, :key_class, :supported_sizes, :supported_algorithms)
 
     # See https://man.openbsd.org/sshd#AUTHORIZED_KEYS_FILE_FORMAT for the list of
     # supported algorithms.
     TECHNOLOGIES = [
-      Technology.new(:rsa, SSHData::PublicKey::RSA, [1024, 2048, 3072, 4096], %w(ssh-rsa)),
-      Technology.new(:dsa, SSHData::PublicKey::DSA, [1024, 2048, 3072], %w(ssh-dss)),
-      Technology.new(:ecdsa, SSHData::PublicKey::ECDSA, [256, 384, 521], %w(ecdsa-sha2-nistp256 ecdsa-sha2-nistp384 ecdsa-sha2-nistp521)),
-      Technology.new(:ed25519, SSHData::PublicKey::ED25519, [256], %w(ssh-ed25519)),
-      Technology.new(:ecdsa_sk, SSHData::PublicKey::SKECDSA, [256], %w(sk-ecdsa-sha2-nistp256@openssh.com)),
-      Technology.new(:ed25519_sk, SSHData::PublicKey::SKED25519, [256], %w(sk-ssh-ed25519@openssh.com))
+      Technology.new(:rsa, SSHData::PublicKey::RSA, [1024, 2048, 3072, 4096], %w[ssh-rsa]),
+      Technology.new(:dsa, SSHData::PublicKey::DSA, [1024, 2048, 3072], %w[ssh-dss]),
+      Technology.new(:ecdsa, SSHData::PublicKey::ECDSA, [256, 384, 521], %w[ecdsa-sha2-nistp256 ecdsa-sha2-nistp384 ecdsa-sha2-nistp521]),
+      Technology.new(:ed25519, SSHData::PublicKey::ED25519, [256], %w[ssh-ed25519]),
+      Technology.new(:ecdsa_sk, SSHData::PublicKey::SKECDSA, [256], %w[sk-ecdsa-sha2-nistp256@openssh.com]),
+      Technology.new(:ed25519_sk, SSHData::PublicKey::SKED25519, [256], %w[sk-ssh-ed25519@openssh.com])
     ].freeze
 
+    def self.technologies
+      if Gitlab::FIPS.enabled?
+        Gitlab::FIPS::SSH_KEY_TECHNOLOGIES
+      else
+        TECHNOLOGIES
+      end
+    end
+
     def self.technology(name)
-      TECHNOLOGIES.find { |tech| tech.name.to_s == name.to_s }
+      technologies.find { |tech| tech.name.to_s == name.to_s }
     end
 
     def self.technology_for_key(key)
-      TECHNOLOGIES.find { |tech| key.instance_of?(tech.key_class) }
+      technologies.find { |tech| key.instance_of?(tech.key_class) }
     end
 
     def self.supported_types
-      TECHNOLOGIES.map(&:name)
+      technologies.map(&:name)
     end
 
     def self.supported_sizes(name)
@@ -32,7 +42,7 @@ module Gitlab
     end
 
     def self.supported_algorithms
-      TECHNOLOGIES.flat_map { |tech| tech.supported_algorithms }
+      technologies.flat_map { |tech| tech.supported_algorithms }
     end
 
     def self.supported_algorithms_for_name(name)
@@ -107,7 +117,21 @@ module Gitlab
       end
     end
 
+    def banned?
+      return false unless valid?
+
+      banned_ssh_keys.fetch(type.to_s, []).include?(fingerprint_sha256)
+    end
+
     private
+
+    def banned_ssh_keys
+      path = Rails.root.join('config/security/banned_ssh_keys.yml')
+      config = YAML.load_file(path) if File.exist?(path)
+
+      config || {}
+    end
+    strong_memoize_attr :banned_ssh_keys
 
     def technology
       @technology ||=

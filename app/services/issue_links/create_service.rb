@@ -5,16 +5,18 @@ module IssueLinks
     include IncidentManagement::UsageData
 
     def linkable_issuables(issues)
-      @linkable_issuables ||= begin
-        issues.select { |issue| can?(current_user, :admin_issue_link, issue) }
-      end
+      @linkable_issuables ||= issues.select { |issue| can?(current_user, :admin_issue_link, issue) }
     end
 
     def previous_related_issuables
-      @related_issues ||= issuable.related_issues(current_user).to_a
+      @related_issues ||= issuable.related_issues(authorize: false).to_a
     end
 
     private
+
+    def readonly_issuables(issuables)
+      @readonly_issuables ||= issuables.select { |issuable| issuable.readable_by?(current_user) }
+    end
 
     def track_event
       track_incident_action(current_user, issuable, :incident_relate)
@@ -22,6 +24,10 @@ module IssueLinks
 
     def link_class
       IssueLink
+    end
+
+    def issuables_no_permission_error_message
+      _("Couldn't link issues. You must have at least the Guest role in both projects.")
     end
   end
 end

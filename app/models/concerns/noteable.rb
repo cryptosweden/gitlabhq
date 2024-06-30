@@ -12,17 +12,17 @@ module Noteable
   class_methods do
     # `Noteable` class names that support replying to individual notes.
     def replyable_types
-      %w(Issue MergeRequest)
+      %w[Issue MergeRequest AbuseReport]
     end
 
     # `Noteable` class names that support resolvable notes.
     def resolvable_types
-      %w(MergeRequest DesignManagement::Design)
+      %w[Issue MergeRequest DesignManagement::Design AbuseReport]
     end
 
     # `Noteable` class names that support creating/forwarding individual notes.
     def email_creatable_types
-      %w(Issue)
+      %w[Issue]
     end
   end
 
@@ -88,7 +88,7 @@ module Noteable
 
   def discussions
     @discussions ||= discussion_notes
-      .inc_relations_for_view
+      .inc_relations_for_view(self)
       .discussions(self)
   end
 
@@ -106,9 +106,9 @@ module Noteable
 
     relations << discussion_notes.select(
       "'notes' AS table_name",
-      'discussion_id',
       'MIN(id) AS id',
-      'MIN(created_at) AS created_at'
+      'MIN(created_at) AS created_at',
+      'ARRAY_AGG(id) AS ids'
     ).with_notes_filter(notes_filter)
      .group(:discussion_id)
 
@@ -116,17 +116,19 @@ module Noteable
       relations += synthetic_note_ids_relations
     end
 
-    Note.from_union(relations, remove_duplicates: false).fresh
+    Note.from_union(relations, remove_duplicates: false)
+      .select(:table_name, :id, :created_at, :ids)
+      .fresh
   end
 
   def capped_notes_count(max)
     notes.limit(max).count
   end
 
-  def grouped_diff_discussions(*args)
+  def grouped_diff_discussions(...)
     # Doesn't use `discussion_notes`, because this may include commit diff notes
     # besides MR diff notes, that we do not want to display on the MR Changes tab.
-    notes.inc_relations_for_view.grouped_diff_discussions(*args)
+    notes.inc_relations_for_view(self).grouped_diff_discussions(...)
   end
 
   # rubocop:disable Gitlab/ModuleWithInstanceVariables
@@ -160,25 +162,15 @@ module Noteable
     [MergeRequest, Issue].include?(self.class)
   end
 
-  def etag_caching_enabled?
+  def real_time_notes_enabled?
     false
   end
 
-  def expire_note_etag_cache
+  def broadcast_notes_changed
     return unless discussions_rendered_on_frontend?
-    return unless etag_caching_enabled?
+    return unless real_time_notes_enabled?
 
-    Gitlab::EtagCaching::Store.new.touch(note_etag_key)
-  end
-
-  def note_etag_key
-    return Gitlab::Routing.url_helpers.designs_project_issue_path(project, issue, { vueroute: filename }) if self.is_a?(DesignManagement::Design)
-
-    Gitlab::Routing.url_helpers.project_noteable_notes_path(
-      project,
-      target_type: noteable_target_type_name,
-      target_id: id
-    )
+    Noteable::NotesChannel.broadcast_to(self, event: 'updated')
   end
 
   def after_note_created(_note)
@@ -195,7 +187,7 @@ module Noteable
   def creatable_note_email_address(author)
     return unless supports_creating_notes_by_email?
 
-    project_email = project.new_issuable_address(author, self.class.name.underscore)
+    project_email = project&.new_issuable_address(author, base_class_name.underscore)
     return unless project_email
 
     project_email.sub('@', "-#{iid}@")
@@ -205,16 +197,37 @@ module Noteable
     model_name.singular
   end
 
+  def commenters(user: nil)
+    eligable_notes = notes.user
+
+    eligable_notes = eligable_notes.not_internal unless user&.can?(:read_internal_note, self)
+
+    User.where(id: eligable_notes.select(:author_id).distinct)
+  end
+
   private
 
   # Synthetic system notes don't have discussion IDs because these are generated dynamically
   # in Ruby. These are always root notes anyway so we don't need to group by discussion ID.
   def synthetic_note_ids_relations
-    [
-      resource_label_events.select("'resource_label_events'", "'NULL'", :id, :created_at),
-      resource_milestone_events.select("'resource_milestone_events'", "'NULL'", :id, :created_at),
-      resource_state_events.select("'resource_state_events'", "'NULL'", :id, :created_at)
-    ]
+    relations = []
+
+    # currently multiple models include Noteable concern, but not all of them support
+    # all resource events, so we check if given model supports given resource event.
+    if respond_to?(:resource_label_events)
+      relations << resource_label_events.select("'resource_label_events'", 'MIN(id)', :created_at, 'ARRAY_AGG(id)')
+                     .group(:created_at, :user_id)
+    end
+
+    if respond_to?(:resource_state_events)
+      relations << resource_state_events.select("'resource_state_events'", :id, :created_at, 'ARRAY_FILL(id, ARRAY[1])')
+    end
+
+    if respond_to?(:resource_milestone_events)
+      relations << resource_milestone_events.select("'resource_milestone_events'", :id, :created_at, 'ARRAY_FILL(id, ARRAY[1])')
+    end
+
+    relations
   end
 end
 

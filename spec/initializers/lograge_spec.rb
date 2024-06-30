@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'lograge', type: :request do
+RSpec.describe 'lograge', type: :request, feature_category: :logging do
   let(:headers) { { 'X-Request-ID' => 'new-correlation-id' } }
 
   let(:large_params) do
@@ -93,7 +93,7 @@ RSpec.describe 'lograge', type: :request do
       include MemoryInstrumentationHelper
 
       before do
-        skip_memory_instrumentation!
+        verify_memory_instrumentation_available!
       end
 
       it 'logs memory usage metrics' do
@@ -150,7 +150,7 @@ RSpec.describe 'lograge', type: :request do
         event.payload[:exception_object] = exception
       end
 
-      it 'adds exception data to log' do
+      it 'adds exception data to log', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446202' do
         subscriber.process_action(event)
 
         expect(log_data['exception.class']).to eq('RuntimeError')

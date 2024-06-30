@@ -20,6 +20,8 @@ module Projects
 
       add_repository_to_project
 
+      validate_repository_size!
+
       download_lfs_objects
 
       import_data
@@ -27,7 +29,7 @@ module Projects
       after_execute_hook
 
       success
-    rescue Gitlab::UrlBlocker::BlockedUrlError, StandardError => e
+    rescue Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError, StandardError => e
       Gitlab::Import::ImportFailureService.track(
         project_id: project.id,
         error_source: self.class.name,
@@ -36,8 +38,11 @@ module Projects
       )
 
       message = Projects::ImportErrorFilter.filter_message(e.message)
-      error(s_("ImportProjects|Error importing repository %{project_safe_import_url} into %{project_full_path} - %{message}") %
-              { project_safe_import_url: project.safe_import_url, project_full_path: project.full_path, message: message })
+      error(
+        s_(
+          "ImportProjects|Error importing repository %{project_safe_import_url} into %{project_full_path} - %{message}"
+        ) % { project_safe_import_url: project.safe_import_url, project_full_path: project.full_path, message: message }
+      )
     end
 
     protected
@@ -53,6 +58,12 @@ module Projects
 
     private
 
+    attr_reader :resolved_address
+
+    def validate_repository_size!
+      # Defined in EE::Projects::ImportService
+    end
+
     def after_execute_hook
       # Defined in EE::Projects::ImportService
     end
@@ -64,8 +75,8 @@ module Projects
     def add_repository_to_project
       if project.external_import? && !unknown_url?
         begin
-          Gitlab::UrlBlocker.validate!(project.import_url, ports: Project::VALID_IMPORT_PORTS)
-        rescue Gitlab::UrlBlocker::BlockedUrlError => e
+          @resolved_address = get_resolved_address
+        rescue Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError => e
           raise e, s_("ImportProjects|Blocked import URL: %{message}") % { message: e.message }
         end
       end
@@ -93,9 +104,9 @@ module Projects
 
       if refmap
         project.ensure_repository
-        project.repository.fetch_as_mirror(project.import_url, refmap: refmap)
+        project.repository.fetch_as_mirror(project.import_url, refmap: refmap, resolved_address: resolved_address)
       else
-        project.repository.import_repository(project.import_url)
+        project.repository.import_repository(project.import_url, resolved_address: resolved_address)
       end
     rescue ::Gitlab::Git::CommandError => e
       # Expire cache to prevent scenarios such as:
@@ -153,10 +164,35 @@ module Projects
     def importer_imports_repository?
       has_importer? && importer_class.try(:imports_repository?)
     end
+
+    def get_resolved_address
+      Gitlab::HTTP_V2::UrlBlocker
+        .validate!(
+          project.import_url,
+          schemes: Project::VALID_IMPORT_PROTOCOLS,
+          ports: Project::VALID_IMPORT_PORTS,
+          allow_localhost: allow_local_requests?,
+          allow_local_network: allow_local_requests?,
+          dns_rebind_protection: dns_rebind_protection?,
+          deny_all_requests_except_allowed: Gitlab::CurrentSettings.deny_all_requests_except_allowed?,
+          outbound_local_requests_allowlist: Gitlab::CurrentSettings.outbound_local_requests_whitelist) # rubocop:disable Naming/InclusiveLanguage -- existing setting
+        .then do |(import_url, resolved_host)|
+          next '' if resolved_host.nil? || !import_url.scheme.in?(%w[http https])
+
+          import_url.hostname.to_s
+        end
+    end
+
+    def allow_local_requests?
+      Gitlab::CurrentSettings.allow_local_requests_from_web_hooks_and_services?
+    end
+
+    def dns_rebind_protection?
+      return false if Gitlab.http_proxy_env?
+
+      Gitlab::CurrentSettings.dns_rebinding_protection_enabled?
+    end
   end
 end
 
 Projects::ImportService.prepend_mod_with('Projects::ImportService')
-
-# Measurable should be at the bottom of the ancestor chain, so it will measure execution of EE::Projects::ImportService as well
-Projects::ImportService.prepend(Measurable)

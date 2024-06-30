@@ -44,7 +44,6 @@ describe('toggles/index.js', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     instance = null;
-    toggleWrapper = null;
   });
 
   describe('initToggle', () => {
@@ -53,7 +52,7 @@ describe('toggles/index.js', () => {
         initToggleWithOptions();
       });
 
-      it('attaches a GlToggle to the element', async () => {
+      it('attaches a GlToggle to the element', () => {
         expect(toggleWrapper).not.toBe(null);
         expect(toggleWrapper.querySelector(TOGGLE_LABEL_CLASS).textContent).toBe(toggleLabel);
       });
@@ -83,12 +82,12 @@ describe('toggles/index.js', () => {
 
         expect(listener).toHaveBeenCalledTimes(0);
 
-        wrapper.find(GlToggle).vm.$emit(event, true);
+        wrapper.findComponent(GlToggle).vm.$emit(event, true);
 
         expect(listener).toHaveBeenCalledTimes(1);
         expect(listener).toHaveBeenLastCalledWith(true);
 
-        wrapper.find(GlToggle).vm.$emit(event, false);
+        wrapper.findComponent(GlToggle).vm.$emit(event, false);
 
         expect(listener).toHaveBeenCalledTimes(2);
         expect(listener).toHaveBeenLastCalledWith(false);

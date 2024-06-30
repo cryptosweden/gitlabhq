@@ -1,16 +1,3 @@
-.commit-description,
-.commit-row-description {
-  padding: $gl-padding-8 0 $gl-padding-8 $gl-padding-8;
-  margin-top: $gl-padding-8;
-  border: 0;
-  border-radius: unset;
-  background: none;
-  word-break: normal;
-  overflow-x: auto;
-  border-left: 3px solid $white-dark;
-  color: $gl-text-color-secondary;
-}
-
 .commit-box {
   border-top: 1px solid $border-color;
   padding: $gl-padding 0;
@@ -33,20 +20,9 @@
       height: 22px;
     }
   }
-
-  .mr-widget-pipeline-graph {
-    display: inline-block;
-    vertical-align: middle;
-
-    .dropdown-menu {
-      margin-top: 11px;
-    }
-  }
 }
 
 .branch-info .commit-icon {
-  margin-right: 8px;
-
   svg {
     top: 3px;
   }
@@ -61,7 +37,7 @@
   position: relative;
   font-family: $monospace-font;
   $left: 12px;
-  overflow: hidden; // See https://gitlab.com/gitlab-org/gitlab-foss/issues/13987
+
   .max-width-marker {
     width: 72ch;
     color: $commit-max-width-marker-color;
@@ -82,18 +58,6 @@
   }
 }
 
-.commit-header {
-  padding: 5px 10px;
-  background-color: $gray-light;
-  border-bottom: 1px solid $gray-darker;
-  border-top: 1px solid $gray-darker;
-  font-size: 14px;
-
-  &:first-child {
-    border-top-width: 0;
-  }
-}
-
 .commit-row-title {
   .str-truncated {
     max-width: 70%;
@@ -106,20 +70,20 @@
   color: $gl-text-color-secondary;
   padding: 1px $gl-padding-4;
   cursor: pointer;
-  border: 1px solid $border-white-normal;
-  border-radius: $border-radius-default;
+  border: 1px solid $gray-100;
+  border-radius: $gl-border-radius-base;
   margin-left: 5px;
   font-size: 12px;
   line-height: $gl-font-size;
   outline: none;
 
   &.open {
-    background-color: darken($gray-light, 10%);
+    background-color: $gray-100;
     box-shadow: inset 0 0 2px rgba($black, 0.2);
   }
 
   &:hover {
-    background-color: darken($gray-light, 10%);
+    background-color: $gray-100;
     text-decoration: none;
   }
 }
@@ -134,18 +98,6 @@
   }
 }
 
-.commit-detail {
-  display: flex;
-  justify-content: space-between;
-  align-items: start;
-  flex-grow: 1;
-  min-width: 0;
-
-  .project-namespace {
-    color: $gl-text-color-tertiary;
-  }
-}
-
 .commit-content {
   padding-right: 10px;
   white-space: normal;
@@ -156,10 +108,18 @@
   }
 
   .committer {
-    color: $gl-text-color-tertiary;
+    color: $gl-text-color-secondary;
 
     .commit-author-link {
       color: $gl-text-color;
+    }
+
+    &.gl-inline-flex {
+      gap: 0.5ch;
+    }
+
+    .commit-author-link.gl-text-truncate {
+      max-width: 19ch;
     }
   }
 }
@@ -169,7 +129,6 @@
     vertical-align: text-bottom;
   }
 
-  > .ci-status-link,
   > .btn,
   > .commit-sha-group {
     margin-left: $gl-padding;
@@ -208,7 +167,7 @@
   .label-monospace {
     user-select: text;
     color: $gl-text-color;
-    background-color: $gray-light;
+    background-color: $gray-10;
   }
 
   .btn svg {
@@ -217,8 +176,8 @@
   }
 
   :first-child {
-    border-bottom-left-radius: $border-radius-default;
-    border-top-left-radius: $border-radius-default;
+    border-bottom-left-radius: $gl-border-radius-base;
+    border-top-left-radius: $gl-border-radius-base;
   }
 
   :not(:first-child) {
@@ -226,8 +185,8 @@
   }
 
   :last-child {
-    border-bottom-right-radius: $border-radius-default;
-    border-top-right-radius: $border-radius-default;
+    border-bottom-right-radius: $gl-border-radius-base;
+    border-top-right-radius: $gl-border-radius-base;
   }
 }
 
@@ -279,24 +238,13 @@
   }
 }
 
-.gpg-status-box {
-  padding: 2px 10px;
-
-  &:empty {
-    display: none;
+.signature-badge {
+  &:hover {
+    text-decoration: none;
   }
 
-  &.valid {
-    @include green-status-color;
-  }
-
-  &.invalid {
-    @include status-color($gray-dark, color('gray'), $gray-darkest);
-    border-color: $gray-darkest;
-
-    &:not(span):hover {
-      color: color('gray');
-    }
+  .header-main-content & {
+    margin-right: $gl-spacing-scale-2;
   }
 }
 
@@ -310,7 +258,7 @@
   }
 }
 
-.gpg-popover-status {
+.signature-popover {
   display: flex;
   align-items: center;
   font-weight: $gl-font-weight-normal;
@@ -330,8 +278,8 @@
 
   &.invalid {
     svg {
-      border: 1px solid $gray-darkest;
-      fill: $gray-darkest;
+      border: 1px solid $gray-200;
+      fill: $gray-200;
     }
   }
 
@@ -340,24 +288,5 @@
     height: 32px;
     border-radius: 50%;
     vertical-align: middle;
-  }
-}
-
-.gpg-popover-user-link {
-  display: flex;
-  align-items: center;
-  margin-bottom: $gl-padding / 2;
-  text-decoration: none;
-  color: $gl-text-color;
-}
-
-.commit .gpg-popover-help-link {
-  display: block;
-  color: $link-color;
-}
-
-.add-review-item {
-  .gl-tab-nav-item {
-    height: 100%;
   }
 }

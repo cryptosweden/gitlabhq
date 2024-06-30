@@ -1,15 +1,17 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
 import { modalTypes } from '../../constants';
 import ItemButton from './button.vue';
 import NewModal from './modal.vue';
-import upload from './upload.vue';
+import Upload from './upload.vue';
 
 export default {
   components: {
     GlIcon,
-    upload,
+    Upload,
     ItemButton,
     NewModal,
   },
@@ -58,33 +60,32 @@ export default {
       :class="{
         show: isOpen,
       }"
-      class="dropdown d-flex"
+      class="dropdown gl-flex"
     >
       <button
         :aria-label="__('Create new file or directory')"
         type="button"
-        class="rounded border-0 d-flex ide-entry-dropdown-toggle"
-        data-qa-selector="dropdown_button"
+        class="rounded border-0 gl-flex ide-entry-dropdown-toggle"
         @click.stop="openDropdown()"
       >
         <gl-icon name="ellipsis_v" />
       </button>
-      <ul ref="dropdownMenu" class="dropdown-menu dropdown-menu-right">
+      <ul ref="dropdownMenu" class="dropdown-menu dropdown-menu-right" data-testid="dropdown-menu">
         <template v-if="type === 'tree'">
           <li>
             <item-button
               :label="__('New file')"
-              class="d-flex"
+              class="gl-flex"
               icon="doc-new"
               icon-classes="mr-2"
               @click="createNewItem('blob')"
             />
           </li>
-          <li><upload :path="path" @create="createTempEntry" /></li>
+          <upload :path="path" @create="createTempEntry" />
           <li>
             <item-button
               :label="__('New directory')"
-              class="d-flex"
+              class="gl-flex"
               icon="folder-new"
               icon-classes="mr-2"
               @click="createNewItem($options.modalTypes.tree)"
@@ -95,20 +96,18 @@ export default {
         <li>
           <item-button
             :label="__('Rename/Move')"
-            class="d-flex"
+            class="gl-flex"
             icon="pencil"
             icon-classes="mr-2"
-            data-qa-selector="rename_move_button"
             @click="createNewItem($options.modalTypes.rename)"
           />
         </li>
         <li>
           <item-button
             :label="__('Delete')"
-            class="d-flex"
+            class="gl-flex"
             icon="remove"
             icon-classes="mr-2"
-            data-qa-selector="delete_button"
             @click="deleteEntry(path)"
           />
         </li>

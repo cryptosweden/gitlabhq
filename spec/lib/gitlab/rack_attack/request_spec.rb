@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::RackAttack::Request do
+RSpec.describe Gitlab::RackAttack::Request, feature_category: :rate_limiting do
   using RSpec::Parameterized::TableSyntax
 
   let(:path) { '/' }
@@ -38,8 +38,12 @@ RSpec.describe Gitlab::RackAttack::Request do
       '/groups'  | false
       '/foo/api' | false
 
-      '/api'             | true
+      '/api'             | false
+      '/api/'            | true
       '/api/v4/groups/1' | true
+
+      '/oauth/tokens'    | true
+      '/oauth/userinfo'  | true
     end
 
     with_them do
@@ -196,7 +200,8 @@ RSpec.describe Gitlab::RackAttack::Request do
       '/groups'  | true
       '/foo/api' | true
 
-      '/api'             | false
+      '/api'             | true
+      '/api/'            | false
       '/api/v4/groups/1' | false
     end
 
@@ -213,14 +218,80 @@ RSpec.describe Gitlab::RackAttack::Request do
     end
   end
 
+  describe '#throttle_unauthenticated_git_http?' do
+    let_it_be(:project) { create(:project) }
+
+    let(:git_clone_project_path_get_info_refs) { "/#{project.full_path}.git/info/refs?service=git-upload-pack" }
+    let(:git_clone_path_post_git_upload_pack) { "/#{project.full_path}.git/git-upload-pack" }
+
+    subject { request.throttle_unauthenticated_git_http? }
+
+    where(:path, :request_unauthenticated?, :application_setting_throttle_unauthenticated_git_http_enabled, :expected) do
+      ref(:git_clone_project_path_get_info_refs) | true  | true  | true
+      ref(:git_clone_project_path_get_info_refs) | false | true  | false
+      ref(:git_clone_project_path_get_info_refs) | true  | false | false
+      ref(:git_clone_project_path_get_info_refs) | false | false | false
+
+      ref(:git_clone_path_post_git_upload_pack)  | true  | true  | true
+      ref(:git_clone_path_post_git_upload_pack)  | false | false | false
+
+      '/users/sign_in'                           | true  | true  | false
+      '/users/sign_in'                           | false | false | false
+    end
+
+    with_them do
+      before do
+        stub_application_setting(throttle_unauthenticated_git_http_enabled: application_setting_throttle_unauthenticated_git_http_enabled)
+
+        allow(request).to receive(:unauthenticated?).and_return(request_unauthenticated?)
+      end
+
+      it { is_expected.to eq expected }
+    end
+  end
+
   describe '#protected_path?' do
     subject { request.protected_path? }
 
     before do
-      stub_application_setting(protected_paths: [
-        '/protected',
-        '/secure'
-      ])
+      stub_application_setting(
+        protected_paths: [
+          '/protected',
+          '/secure'
+        ])
+    end
+
+    where(:path, :expected) do
+      '/'              | false
+      '/groups'        | false
+      '/foo/protected' | false
+      '/foo/secure'    | false
+
+      '/protected'  | true
+      '/secure'     | true
+      '/secure/'    | true
+      '/secure/foo' | true
+    end
+
+    with_them do
+      it { is_expected.to eq(expected) }
+
+      context 'when the application is mounted at a relative URL' do
+        before do
+          stub_config_setting(relative_url_root: '/gitlab/root')
+        end
+
+        it { is_expected.to eq(expected) }
+      end
+    end
+  end
+
+  describe '#get_request_protected_path?' do
+    subject { request.get_request_protected_path? }
+
+    before do
+      stub_application_setting(
+        protected_paths_for_get_request: %w[/protected /secure])
     end
 
     where(:path, :expected) do
@@ -257,8 +328,13 @@ RSpec.describe Gitlab::RackAttack::Request do
     valid_token = SecureRandom.base64(ActionController::RequestForgeryProtection::AUTHENTICITY_TOKEN_LENGTH)
     other_token = SecureRandom.base64(ActionController::RequestForgeryProtection::AUTHENTICITY_TOKEN_LENGTH)
 
+    before do
+      allow(session).to receive(:enabled?).and_return(true)
+      allow(session).to receive(:loaded?).and_return(true)
+    end
+
     where(:session, :env, :expected) do
-      {}                           | {}                                     | false # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands
+      {}                           | {}                                     | false
       {}                           | { 'HTTP_X_CSRF_TOKEN' => valid_token } | false
       { _csrf_token: valid_token } | { 'HTTP_X_CSRF_TOKEN' => other_token } | false
       { _csrf_token: valid_token } | { 'HTTP_X_CSRF_TOKEN' => valid_token } | true

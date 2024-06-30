@@ -4,9 +4,12 @@ module API
   class DeployKeys < ::API::Base
     include PaginationParams
 
+    deploy_keys_tags = %w[deploy_keys]
+
     before { authenticate! }
 
     feature_category :continuous_delivery
+    urgency :low
 
     helpers do
       def add_deploy_keys_project(project, attrs = {})
@@ -20,7 +23,16 @@ module API
       # rubocop: enable CodeReuse/ActiveRecord
     end
 
-    desc 'Return all deploy keys'
+    desc 'List all deploy keys' do
+      detail 'Get a list of all deploy keys across all projects of the GitLab instance. This endpoint requires administrator access and is not available on GitLab.com.'
+      success Entities::DeployKey
+      failure [
+        { code: 401, message: 'Unauthorized' },
+        { code: 403, message: 'Forbidden' }
+      ]
+      is_array true
+      tags deploy_keys_tags
+    end
     params do
       use :pagination
       optional :public, type: Boolean, default: false, desc: "Only return deploy keys that are public"
@@ -29,18 +41,27 @@ module API
       authenticated_as_admin!
 
       deploy_keys = params[:public] ? DeployKey.are_public : DeployKey.all
+      deploy_keys = deploy_keys.including_projects_with_write_access.including_projects_with_readonly_access
 
-      present paginate(deploy_keys.including_projects_with_write_access), with: Entities::DeployKey, include_projects_with_write_access: true
+      present paginate(deploy_keys),
+        with: Entities::DeployKey, include_projects_with_write_access: true, include_projects_with_readonly_access: true
     end
 
     params do
-      requires :id, type: String, desc: 'The ID of the project'
+      requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project owned by the authenticated user'
     end
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
       before { authorize_admin_project }
 
-      desc "Get a specific project's deploy keys" do
+      desc 'List deploy keys for project' do
+        detail "Get a list of a project's deploy keys."
         success Entities::DeployKeysProject
+        failure [
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not found' }
+        ]
+        is_array true
+        tags deploy_keys_tags
       end
       params do
         use :pagination
@@ -53,8 +74,14 @@ module API
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
-      desc 'Get single deploy key' do
+      desc 'Get a single deploy key' do
+        detail 'Get a single key.'
         success Entities::DeployKeysProject
+        failure [
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags deploy_keys_tags
       end
       params do
         requires :key_id, type: Integer, desc: 'The ID of the deploy key'
@@ -65,13 +92,21 @@ module API
         present key, with: Entities::DeployKeysProject
       end
 
-      desc 'Add new deploy key to a project' do
+      desc 'Add deploy key' do
+        detail "Creates a new deploy key for a project. If the deploy key already exists in another project, it's joined to the current project only if the original one is accessible by the same user."
         success Entities::DeployKeysProject
+        failure [
+          { code: 400, message: 'Bad request' },
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags deploy_keys_tags
       end
       params do
-        requires :key, type: String, desc: 'The new deploy key'
-        requires :title, type: String, desc: 'The name of the deploy key'
+        requires :key, type: String, desc: 'New deploy key'
+        requires :title, type: String, desc: "New deploy key's title"
         optional :can_push, type: Boolean, desc: "Can deploy key push to the project's repository"
+        optional :expires_at, type: DateTime, desc: 'The expiration date of the SSH key in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)'
       end
       # rubocop: disable CodeReuse/ActiveRecord
       post ":id/deploy_keys" do
@@ -108,12 +143,20 @@ module API
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
-      desc 'Update an existing deploy key for a project' do
+      desc 'Update deploy key' do
+        detail 'Updates a deploy key for a project.'
         success Entities::DeployKey
+        failure [
+          { code: 400, message: 'Bad request' },
+          { code: 401, message: 'Unauthorized' },
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags deploy_keys_tags
       end
       params do
         requires :key_id, type: Integer, desc: 'The ID of the deploy key'
-        optional :title, type: String, desc: 'The name of the deploy key'
+        optional :title, type: String, desc: "New deploy key's title"
         optional :can_push, type: Boolean, desc: "Can deploy key push to the project's repository"
         at_least_one_of :title, :can_push
       end
@@ -129,7 +172,7 @@ module API
         update_params[:can_push] = params[:can_push] if params.key?(:can_push)
         update_params[:deploy_key_attributes] = { id: params[:key_id] }
 
-        if can?(current_user, :update_deploy_key, deploy_keys_project.deploy_key)
+        if can?(current_user, :update_deploy_key_title, deploy_keys_project.deploy_key)
           update_params[:deploy_key_attributes][:title] = params[:title] if params.key?(:title)
         end
 
@@ -142,16 +185,21 @@ module API
         end
       end
 
-      desc 'Enable a deploy key for a project' do
-        detail 'This feature was added in GitLab 8.11'
+      desc 'Enable a deploy key' do
+        detail 'Enables a deploy key for a project so this can be used. Returns the enabled key, with a status code 201 when successful. This feature was added in GitLab 8.11.'
         success Entities::DeployKey
+        failure [
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags deploy_keys_tags
       end
       params do
         requires :key_id, type: Integer, desc: 'The ID of the deploy key'
       end
       post ":id/deploy_keys/:key_id/enable" do
         key = ::Projects::EnableDeployKeyService.new(user_project,
-                                                      current_user, declared_params).execute
+          current_user, declared_params).execute
 
         if key
           present key, with: Entities::DeployKey
@@ -160,8 +208,13 @@ module API
         end
       end
 
-      desc 'Delete deploy key for a project' do
-        success Key
+      desc 'Delete deploy key' do
+        detail "Removes a deploy key from the project. If the deploy key is used only for this project, it's deleted from the system."
+        failure [
+          { code: 401, message: 'Unauthorized' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags deploy_keys_tags
       end
       params do
         requires :key_id, type: Integer, desc: 'The ID of the deploy key'

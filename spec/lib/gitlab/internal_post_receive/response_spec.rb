@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::InternalPostReceive::Response do
   subject { described_class.new }
@@ -76,7 +76,7 @@ RSpec.describe Gitlab::InternalPostReceive::Response do
 
   describe '#add_alert_message' do
     context 'when text is present' do
-      it 'adds a alert message' do
+      it 'adds an alert message' do
         subject.add_alert_message('hello')
 
         expect(subject.messages.first.message).to eq('hello')

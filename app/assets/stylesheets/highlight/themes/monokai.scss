@@ -1,6 +1,7 @@
 /* https://github.com/richleland/pygments-css/blob/master/monokai.css */
 
 @import '../common';
+@import 'highlight.js/styles/base16/monokai';
 
 /*
 * Monokai Colors
@@ -89,10 +90,47 @@ $monokai-gd: #f92672;
 $monokai-gi: #a6e22e;
 $monokai-gh: #75715e;
 
+:root {
+  --default-diff-color-deletion: #c87872;
+  --default-diff-color-addition: #678528;
+}
+
 .code.monokai {
+  // Highlight.js theme overrides (https://gitlab.com/gitlab-org/gitlab/-/issues/365167)
+  // We should be able to remove the overrides once the upstream issue is fixed (https://github.com/sourcegraph/sourcegraph/issues/23251)
+  @include hljs-override('string', $monokai-s);
+  @include hljs-override('attr', $monokai-na);
+  @include hljs-override('attribute', $monokai-n);
+  @include hljs-override('selector-tag', $monokai-nt);
+  @include hljs-override('keyword', $monokai-k);
+  @include hljs-override('variable', $monokai-nv);
+  @include hljs-override('variable\\.language_', $monokai-k);
+  @include hljs-override('title', $monokai-nf);
+  @include hljs-override('name', $monokai-k);
+  @include hljs-override('tag', $monokai-nt);
+  @include hljs-override('type', $monokai-nc);
+  @include hljs-override('number', $monokai-mf);
+  @include hljs-override('literal', $monokai-kc);
+  @include hljs-override('built_in', $monokai-n);
+  @include hljs-override('section', $monokai-gh);
+  @include hljs-override('bullet', $monokai-n);
+  @include hljs-override('subst', $monokai-p);
+  @include hljs-override('symbol', $monokai-ss);
+  @include hljs-override('title\\.class_\\.inherited__', $monokai-no);
+  @include hljs-override('title\\.class\\.inherited', $monokai-no);
+  @include hljs-override('title\\.class', $monokai-nc);
+  @include hljs-override('title\\.function', $monokai-nf);
+  @include hljs-override('variable\\.constant', $monokai-no);
+  @include hljs-override('variable\\.language', $monokai-nb);
+  @include hljs-override('params', $monokai-nb);
+
   // Line numbers
-  .file-line-num {
-    @include line-number-link($monokai-line-num-color);
+  .file-line-blame {
+    @include line-link($white, 'git');
+  }
+
+  .line-links {
+    @include line-hover-bg($monokai-bg);
   }
 
   .line-numbers,
@@ -104,6 +142,11 @@ $monokai-gh: #75715e;
   .diff-line-num,
   .diff-line-num a {
     color: $monokai-line-num-color;
+  }
+
+  .diff-grid-row.line_holder.diff-tr .diff-td.commented:not(.hll) {
+    --highlight-border-color: #{$blue-600};
+    background-color: $blue-900;
   }
 
   // Code itself
@@ -119,8 +162,8 @@ $monokai-gh: #75715e;
     color: $monokai-text-color;
   }
 
-  .line_expansion {
-    @include diff-expansion($monokai-bg, $monokai-border, $monokai-k);
+  .diff-line-expand-button {
+    @include diff-expansion($gray-600, $gray-200, $gray-300, $white);
   }
 
   // Diff line
@@ -131,15 +174,21 @@ $monokai-gh: #75715e;
       @include dark-diff-match-line;
     }
 
-    .diff-td.diff-line-num.hll:not(.empty-cell),
-    .diff-td.line-coverage.hll:not(.empty-cell),
-    .diff-td.line-codequality.hll:not(.empty-cell),
-    .diff-td.line_content.hll:not(.empty-cell),
-    td.diff-line-num.hll:not(.empty-cell),
-    td.line-coverage.hll:not(.empty-cell),
-    td.line_content.hll:not(.empty-cell) {
-      background-color: $monokai-line-empty-bg;
-      border-color: $monokai-line-empty-border;
+    &.diff-grid-row {
+      --diff-expansion-background-color: #{$gray-600};
+
+      @include dark-diff-expansion-line;
+    }
+
+    .diff-td.diff-line-num.hll,
+    .diff-td.line-coverage.hll,
+    .diff-td.line-inline-findings.hll,
+    .diff-td.line_content.hll,
+    td.diff-line-num.hll,
+    td.line-coverage.hll,
+    td.line_content.hll {
+      --highlight-border-color: #{$orange-500};
+      background-color: $orange-800;
     }
 
     .line-coverage {
@@ -148,8 +197,12 @@ $monokai-gh: #75715e;
 
     .diff-line-num.new,
     .line-coverage.new,
-    .line-codequality.new,
-    .line_content.new {
+    .line-inline-findings.new,
+    .line_content.new,
+    .diff-line-num.new-nomappinginraw,
+    .line-coverage.new-nomappinginraw,
+    .line-inline-findings.new-nomappinginraw,
+    .line_content.new-nomappinginraw {
       @include diff-background($monokai-new-bg, $monokai-new-idiff, $monokai-diff-border);
 
       &::before,
@@ -160,8 +213,12 @@ $monokai-gh: #75715e;
 
     .diff-line-num.old,
     .line-coverage.old,
-    .line-codequality.old,
-    .line_content.old {
+    .line-inline-findings.old,
+    .line_content.old,
+    .diff-line-num.old-nomappinginraw,
+    .line-coverage.old-nomappinginraw,
+    .line-inline-findings.old-nomappinginraw,
+    .line_content.old-nomappinginraw {
       @include diff-background($monokai-old-bg, $monokai-old-idiff, $monokai-diff-border);
 
       &::before,
@@ -174,14 +231,14 @@ $monokai-gh: #75715e;
     &:not(.match) .diff-grid-right:hover,
     &.code-search-line:hover {
       .diff-line-num:not(.empty-cell) {
-        @include line-number-hover;
+        @include line-number-hover-dark;
       }
     }
 
     .diff-line-num {
       &.is-over,
       &.hll:not(.empty-cell).is-over {
-        @include line-number-hover;
+        @include line-number-hover-dark;
       }
     }
 

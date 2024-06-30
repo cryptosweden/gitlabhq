@@ -7,7 +7,6 @@ package git
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -15,15 +14,16 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/golang/protobuf/proto" //lint:ignore SA1019 https://gitlab.com/gitlab-org/gitlab/-/issues/324868
+	"google.golang.org/protobuf/proto"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"gitlab.com/gitlab-org/gitaly/v14/proto/go/gitalypb"
+	"gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb"
 
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/gitaly"
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/log"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/senddata"
 )
@@ -33,7 +33,7 @@ type archiveParams struct {
 	ArchivePath       string
 	ArchivePrefix     string
 	CommitId          string
-	GitalyServer      gitaly.Server
+	GitalyServer      api.GitalyServer
 	GitalyRepository  gitalypb.Repository
 	DisableCache      bool
 	GetArchiveRequest []byte
@@ -53,14 +53,14 @@ var (
 func (a *archive) Inject(w http.ResponseWriter, r *http.Request, sendData string) {
 	var params archiveParams
 	if err := a.Unpack(&params, sendData); err != nil {
-		helper.Fail500(w, r, fmt.Errorf("SendArchive: unpack sendData: %v", err))
+		fail.Request(w, r, fmt.Errorf("SendArchive: unpack sendData: %v", err))
 		return
 	}
 
 	urlPath := r.URL.Path
 	format, ok := parseBasename(filepath.Base(urlPath))
 	if !ok {
-		helper.Fail500(w, r, fmt.Errorf("SendArchive: invalid format: %s", urlPath))
+		fail.Request(w, r, fmt.Errorf("SendArchive: invalid format: %s", urlPath))
 		return
 	}
 
@@ -93,7 +93,7 @@ func (a *archive) Inject(w http.ResponseWriter, r *http.Request, sendData string
 		// to finalize the cached archive.
 		tempFile, err = prepareArchiveTempfile(path.Dir(params.ArchivePath), archiveFilename)
 		if err != nil {
-			helper.Fail500(w, r, fmt.Errorf("SendArchive: create tempfile: %v", err))
+			fail.Request(w, r, fmt.Errorf("SendArchive: create tempfile: %v", err))
 			return
 		}
 		defer tempFile.Close()
@@ -104,7 +104,7 @@ func (a *archive) Inject(w http.ResponseWriter, r *http.Request, sendData string
 
 	archiveReader, err = handleArchiveWithGitaly(r, &params, format)
 	if err != nil {
-		helper.Fail500(w, r, fmt.Errorf("operations.GetArchive: %v", err))
+		fail.Request(w, r, fmt.Errorf("operations.GetArchive: %v", err))
 		return
 	}
 
@@ -133,6 +133,7 @@ func (a *archive) Inject(w http.ResponseWriter, r *http.Request, sendData string
 func handleArchiveWithGitaly(r *http.Request, params *archiveParams, format gitalypb.GetArchiveRequest_Format) (io.Reader, error) {
 	var request *gitalypb.GetArchiveRequest
 	ctx, c, err := gitaly.NewRepositoryClient(r.Context(), params.GitalyServer)
+
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +175,7 @@ func prepareArchiveTempfile(dir string, prefix string) (*os.File, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	return ioutil.TempFile(dir, prefix)
+	return os.CreateTemp(dir, prefix)
 }
 
 func finalizeCachedArchive(tempFile *os.File, archivePath string) error {

@@ -2,14 +2,18 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Session TTLs', :clean_gitlab_redis_shared_state do
+RSpec.describe 'Session TTLs', :clean_gitlab_redis_shared_state, feature_category: :system_access do
   include SessionHelpers
+
+  before do
+    expire_session
+  end
 
   it 'creates a session with a short TTL when login fails' do
     visit new_user_session_path
     # The session key only gets created after a post
     fill_in 'user_login', with: 'non-existant@gitlab.org'
-    fill_in 'user_password', with: Gitlab::Password.test_default
+    fill_in 'user_password', with: '12345678'
     click_button 'Sign in'
 
     expect(page).to have_content('Invalid login or password')
@@ -21,7 +25,7 @@ RSpec.describe 'Session TTLs', :clean_gitlab_redis_shared_state do
     user = create(:user)
     gitlab_sign_in(user)
 
-    expect(page).to have_content(user.name)
+    expect(find('.js-super-sidebar')['data-sidebar']).to include(user.name)
 
     expect_single_session_with_authenticated_ttl
   end

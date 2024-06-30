@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe DiffHelper do
+RSpec.describe DiffHelper, feature_category: :code_review_workflow do
   include RepoHelpers
 
   let(:project) { create(:project, :repository) }
@@ -56,21 +56,38 @@ RSpec.describe DiffHelper do
       expect(diff_options).to include(expanded: true)
     end
 
-    it 'returns no collapse true if action name diff_for_path' do
-      allow(controller).to receive(:action_name) { 'diff_for_path' }
-      expect(diff_options).to include(expanded: true)
-    end
+    context 'when action name is diff_for_path' do
+      before do
+        allow(controller).to receive(:action_name) { 'diff_for_path' }
+      end
 
-    it 'returns paths if action name diff_for_path and param old path' do
-      allow(controller).to receive(:params) { { old_path: 'lib/wadus.rb' } }
-      allow(controller).to receive(:action_name) { 'diff_for_path' }
-      expect(diff_options[:paths]).to include('lib/wadus.rb')
-    end
+      it 'returns expanded true' do
+        expect(diff_options).to include(expanded: true)
+      end
 
-    it 'returns paths if action name diff_for_path and param new path' do
-      allow(controller).to receive(:params) { { new_path: 'lib/wadus.rb' } }
-      allow(controller).to receive(:action_name) { 'diff_for_path' }
-      expect(diff_options[:paths]).to include('lib/wadus.rb')
+      it 'returns paths if param old path' do
+        allow(controller).to receive(:params) { { old_path: 'lib/wadus.rb' } }
+        expect(diff_options[:paths]).to include('lib/wadus.rb')
+      end
+
+      it 'returns paths if param new path' do
+        allow(controller).to receive(:params) { { new_path: 'lib/wadus.rb' } }
+        expect(diff_options[:paths]).to include('lib/wadus.rb')
+      end
+
+      it 'does not set max_patch_bytes_for_file_extension' do
+        expect(diff_options[:max_patch_bytes_for_file_extension]).to be_nil
+      end
+
+      context 'when file_identifier include .ipynb' do
+        before do
+          allow(controller).to receive(:params) { { file_identifier: 'something.ipynb' } }
+        end
+
+        it 'sets max_patch_bytes_for_file_extension' do
+          expect(diff_options[:max_patch_bytes_for_file_extension]).to eq({ '.ipynb' => 1.megabyte })
+        end
+      end
     end
   end
 
@@ -162,27 +179,51 @@ RSpec.describe DiffHelper do
     end
   end
 
+  describe '#parallel_diff_btn' do
+    let(:params) do
+      ActionController::Parameters.new({
+        controller: "projects/commit",
+        action: "show",
+        namespace_id: "foo",
+        project_id: "bar",
+        id: commit.sha,
+        view: 'parallel'
+      }).permit!
+    end
+
+    before do
+      allow(helper).to receive(:params).and_return(params)
+    end
+
+    subject(:diff_btn) { helper.parallel_diff_btn }
+
+    it 'renders button' do
+      expect(diff_btn).to include('Side-by-side')
+      expect(diff_btn).to include('gl-button btn btn-md btn-default selected')
+    end
+  end
+
   describe "#mark_inline_diffs" do
-    let(:old_line) { %{abc 'def'} }
-    let(:new_line) { %{abc "def"} }
+    let(:old_line) { %(abc 'def') }
+    let(:new_line) { %(abc "def") }
 
     it "returns strings with marked inline diffs" do
       marked_old_line, marked_new_line = mark_inline_diffs(old_line, new_line)
 
-      expect(marked_old_line).to eq(%q{abc <span class="idiff left deletion">&#39;</span>def<span class="idiff right deletion">&#39;</span>})
+      expect(marked_old_line).to eq(%q(abc <span class="idiff left deletion">&#39;</span>def<span class="idiff right deletion">&#39;</span>))
       expect(marked_old_line).to be_html_safe
-      expect(marked_new_line).to eq(%q{abc <span class="idiff left addition">&quot;</span>def<span class="idiff right addition">&quot;</span>})
+      expect(marked_new_line).to eq(%q(abc <span class="idiff left addition">&quot;</span>def<span class="idiff right addition">&quot;</span>))
       expect(marked_new_line).to be_html_safe
     end
 
     context 'when given HTML' do
       it 'sanitizes it' do
-        old_line = %{test.txt}
+        old_line = %(test.txt)
         new_line = %{<img src=x onerror=alert(document.domain)>}
 
         marked_old_line, marked_new_line = mark_inline_diffs(old_line, new_line)
 
-        expect(marked_old_line).to eq(%q{<span class="idiff left right deletion">test.txt</span>})
+        expect(marked_old_line).to eq(%q(<span class="idiff left right deletion">test.txt</span>))
         expect(marked_old_line).to be_html_safe
         expect(marked_new_line).to eq(%q{<span class="idiff left right addition">&lt;img src=x onerror=alert(document.domain)&gt;</span>})
         expect(marked_new_line).to be_html_safe
@@ -290,6 +331,53 @@ RSpec.describe DiffHelper do
     end
   end
 
+  describe "#diff_nomappinginraw_line" do
+    using RSpec::Parameterized::TableSyntax
+
+    let(:line) { double("line") }
+    let(:line_type) { 'line_type' }
+
+    before do
+      allow(line).to receive(:rich_text).and_return('line_text')
+      allow(line).to receive(:type).and_return(line_type)
+    end
+
+    it 'generates only single line num' do
+      output = diff_nomappinginraw_line(line, ['line_num_1'], nil, ['line_content'])
+
+      expect(output).to be_html_safe
+      expect(output).to have_css 'td:nth-child(1).line_num_1'
+      expect(output).to have_css 'td:nth-child(2).line_content', text: 'line_text'
+      expect(output).not_to have_css 'td:nth-child(3)'
+    end
+
+    it 'generates only both line nums' do
+      output = diff_nomappinginraw_line(line, ['line_num_1'], ['line_num_2'], ['line_content'])
+
+      expect(output).to be_html_safe
+      expect(output).to have_css 'td:nth-child(1).line_num_1'
+      expect(output).to have_css 'td:nth-child(2).line_num_2'
+      expect(output).to have_css 'td:nth-child(3).line_content', text: 'line_text'
+    end
+
+    where(:line_type, :added_class) do
+      'old-nomappinginraw'       | '.old'
+      'new-nomappinginraw'       | '.new'
+      'unchanged-nomappinginraw' | ''
+    end
+
+    with_them do
+      it "appends the correct class" do
+        output = diff_nomappinginraw_line(line, ['line_num_1'], ['line_num_2'], ['line_content'])
+
+        expect(output).to be_html_safe
+        expect(output).to have_css 'td:nth-child(1).line_num_1' + added_class
+        expect(output).to have_css 'td:nth-child(2).line_num_2' + added_class
+        expect(output).to have_css 'td:nth-child(3).line_content' + added_class, text: 'line_text'
+      end
+    end
+  end
+
   describe '#render_overflow_warning?' do
     using RSpec::Parameterized::TableSyntax
 
@@ -378,16 +466,6 @@ RSpec.describe DiffHelper do
     end
   end
 
-  describe '#diff_file_path_text' do
-    it 'returns full path by default' do
-      expect(diff_file_path_text(diff_file)).to eq(diff_file.new_path)
-    end
-
-    it 'returns truncated path' do
-      expect(diff_file_path_text(diff_file, max: 10)).to eq("...open.rb")
-    end
-  end
-
   describe "#collapsed_diff_url" do
     let(:params) do
       {
@@ -405,6 +483,19 @@ RSpec.describe DiffHelper do
       allow(helper).to receive(:safe_params).and_return(params)
 
       expect(subject).to match(%r{foo/bar/-/commit/#{commit.sha}/diff_for_path})
+    end
+  end
+
+  describe '#params_with_whitespace' do
+    before do
+      controller.params[:protocol] = 'HACKED!'
+      controller.params[:host] = 'HACKED!'
+    end
+
+    subject { helper.params_with_whitespace }
+
+    it "filters with safe_params" do
+      expect(subject).to eq({ 'w' => 1 })
     end
   end
 
@@ -429,6 +520,283 @@ RSpec.describe DiffHelper do
       let(:current_user) { nil }
 
       it { is_expected.to be_nil }
+    end
+  end
+
+  describe '#conflicts' do
+    let(:merge_request) do
+      instance_double(
+        MergeRequest,
+        cannot_be_merged?: cannot_be_merged?,
+        source_branch_exists?: source_branch_exists?,
+        target_branch_exists?: target_branch_exists?
+      )
+    end
+
+    let(:cannot_be_merged?) { true }
+    let(:source_branch_exists?) { true }
+    let(:target_branch_exists?) { true }
+    let(:can_be_resolved_in_ui?) { true }
+    let(:allow_tree_conflicts) { false }
+    let(:files) { [instance_double(Gitlab::Conflict::File, path: 'a')] }
+    let(:exception) { nil }
+
+    before do
+      allow(helper).to receive(:merge_request).and_return(merge_request)
+
+      allow_next_instance_of(MergeRequests::Conflicts::ListService, merge_request, allow_tree_conflicts: allow_tree_conflicts) do |svc|
+        allow(svc).to receive(:can_be_resolved_in_ui?).and_return(can_be_resolved_in_ui?)
+
+        if exception.present?
+          allow(svc).to receive_message_chain(:conflicts, :files).and_raise(exception)
+        else
+          allow(svc).to receive_message_chain(:conflicts, :files).and_return(files)
+        end
+      end
+    end
+
+    it 'returns list of conflicts indexed by path' do
+      expect(helper.conflicts).to eq('a' => files.first)
+    end
+
+    context 'when merge request can be merged' do
+      let(:cannot_be_merged?) { false }
+
+      it 'returns nil' do
+        expect(helper.conflicts).to be_nil
+      end
+    end
+
+    context 'when source branch does not exist' do
+      let(:source_branch_exists?) { false }
+
+      it 'returns nil' do
+        expect(helper.conflicts).to be_nil
+      end
+    end
+
+    context 'when target branch does not exist' do
+      let(:target_branch_exists?) { false }
+
+      it 'returns nil' do
+        expect(helper.conflicts).to be_nil
+      end
+    end
+
+    context 'when conflicts cannot be resolved in UI' do
+      let(:can_be_resolved_in_ui?) { false }
+
+      it 'returns nil' do
+        expect(helper.conflicts).to be_nil
+      end
+
+      context 'when allow_tree_conflicts is true' do
+        let(:allow_tree_conflicts) { true }
+
+        it 'returns list of conflicts' do
+          expect(helper.conflicts(allow_tree_conflicts: allow_tree_conflicts)).to eq('a' => files.first)
+        end
+      end
+    end
+
+    context 'when Gitlab::Git::Conflict::Resolver::ConflictSideMissing exception is raised' do
+      let(:exception) { Gitlab::Git::Conflict::Resolver::ConflictSideMissing }
+
+      it 'returns an empty hash' do
+        expect(helper.conflicts).to eq({})
+      end
+    end
+  end
+
+  describe '#show_only_context_commits?' do
+    let(:params) { {} }
+    let(:merge_request) { build_stubbed(:merge_request) }
+    let(:has_no_commits) { true }
+
+    subject(:result) { helper.show_only_context_commits? }
+
+    before do
+      assign(:merge_request, merge_request)
+      allow(helper).to receive(:params).and_return(params)
+      allow(merge_request).to receive(:has_no_commits?).and_return(has_no_commits)
+    end
+
+    context 'when only_context_commits param is set to true' do
+      let(:params) { { only_context_commits: true } }
+
+      it { is_expected.to be_truthy }
+
+      context 'when merge request has commits' do
+        let(:has_no_commits) { false }
+
+        it { is_expected.to be_truthy }
+      end
+    end
+
+    context 'when only_context_commits param is set to false' do
+      let(:params) { { only_context_commits: false } }
+
+      it { is_expected.to be_truthy }
+
+      context 'when merge request has commits' do
+        let(:has_no_commits) { false }
+
+        it { is_expected.to be_falsey }
+      end
+    end
+  end
+
+  describe '#submodule_diff_compare_link' do
+    context 'when the diff includes submodule changes' do
+      it 'generates a link to compare a diff for a submodule' do
+        allow(helper).to receive(:submodule_links).and_return(
+          Gitlab::SubmoduleLinks::Urls.new(nil, nil, '/comparison-path')
+        )
+
+        output = helper.submodule_diff_compare_link(diff_file)
+        expect(output).to match(%r{href="/comparison-path"})
+        expect(output).to match(
+          %r{Compare <span class="commit-sha">5b812ff1</span>...<span class="commit-sha">7e3e39eb</span>}
+        )
+      end
+    end
+
+    context 'when the diff does not include submodule changes' do
+      it 'returns an empty string' do
+        output = helper.submodule_diff_compare_link(diff_file)
+        expect(output).to eq('')
+      end
+    end
+  end
+
+  describe '#conflicts_with_types', :use_clean_rails_redis_caching do
+    let(:merge_request) do
+      create(
+        :merge_request,
+        :conflict,
+        merge_status: 'cannot_be_merged',
+        source_branch_sha: 'abc123',
+        target_branch_sha: 'def456'
+      )
+    end
+
+    let(:exception) { nil }
+    let(:conflict_file) { instance_double(Gitlab::Conflict::File, path: 'a') }
+    let(:files) { [conflict_file] }
+
+    before do
+      allow(helper).to receive(:merge_request).and_return(merge_request)
+
+      allow(conflict_file)
+        .to receive(:conflict_type)
+        .and_return(:removed_target_renamed_source)
+
+      allow(conflict_file)
+        .to receive(:conflict_type)
+        .with(when_renamed: true)
+        .and_return(:renamed_same_file)
+
+      allow_next_instance_of(MergeRequests::Conflicts::ListService, merge_request, allow_tree_conflicts: true) do |svc|
+        if exception.present?
+          allow(svc).to receive_message_chain(:conflicts, :files).and_raise(exception)
+        else
+          allow(svc).to receive_message_chain(:conflicts, :files).and_return(files)
+        end
+      end
+    end
+
+    it 'returns list of conflicts indexed by path' do
+      expect(helper.conflicts_with_types).to eq(
+        'a' => {
+          conflict_type: :removed_target_renamed_source,
+          conflict_type_when_renamed: :renamed_same_file
+        }
+      )
+    end
+
+    context 'when merge request can be merged' do
+      let(:merge_request) { create(:merge_request, merge_status: 'can_be_merged') }
+
+      it 'returns nil' do
+        expect(helper.conflicts_with_types).to be_nil
+      end
+    end
+
+    context 'when source branch does not exist' do
+      let(:merge_request) do
+        create(
+          :merge_request,
+          source_branch: 'i-do-no-exist',
+          merge_status: 'cannot_be_merged'
+        )
+      end
+
+      it 'returns nil' do
+        expect(helper.conflicts_with_types).to be_nil
+      end
+    end
+
+    context 'when target branch does not exist' do
+      let(:merge_request) do
+        create(
+          :merge_request,
+          target_branch: 'i-do-no-exist',
+          merge_status: 'cannot_be_merged'
+        )
+      end
+
+      it 'returns nil' do
+        expect(helper.conflicts_with_types).to be_nil
+      end
+    end
+
+    context 'when Gitlab::Git::Conflict::Resolver::ConflictSideMissing exception is raised' do
+      let(:exception) { Gitlab::Git::Conflict::Resolver::ConflictSideMissing }
+
+      it 'returns an empty hash' do
+        expect(helper.conflicts_with_types).to eq({})
+      end
+    end
+
+    context 'when cached' do
+      before do
+        helper.conflicts_with_types # Cache the result
+      end
+
+      it 'does not make a call to MergeRequests::Conflicts::ListService' do
+        expect(MergeRequests::Conflicts::ListService).not_to receive(:new)
+
+        expect(helper.conflicts_with_types).to eq(
+          'a' => {
+            conflict_type: :removed_target_renamed_source,
+            conflict_type_when_renamed: :renamed_same_file
+          }
+        )
+      end
+
+      context 'when source branch SHA changes' do
+        before do
+          allow(merge_request).to receive(:source_branch_sha).and_return('123abc')
+        end
+
+        it 'calls MergeRequests::Conflicts::ListService' do
+          expect(MergeRequests::Conflicts::ListService).to receive(:new)
+
+          helper.conflicts_with_types
+        end
+      end
+
+      context 'when target branch SHA changes' do
+        before do
+          allow(merge_request).to receive(:target_branch_sha).and_return('456def')
+        end
+
+        it 'calls MergeRequests::Conflicts::ListService' do
+          expect(MergeRequests::Conflicts::ListService).to receive(:new)
+
+          helper.conflicts_with_types
+        end
+      end
     end
   end
 end

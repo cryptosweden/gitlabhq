@@ -2,8 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe 'groups/edit.html.haml' do
+RSpec.describe 'groups/edit.html.haml', feature_category: :groups_and_projects do
   include Devise::Test::ControllerHelpers
+
+  before do
+    stub_template 'groups/settings/_code_suggestions' => ''
+  end
 
   describe '"Share with group lock" setting' do
     let(:root_owner) { create(:user) }
@@ -24,7 +28,7 @@ RSpec.describe 'groups/edit.html.haml' do
 
         render
 
-        expect(rendered).to have_content("Prevent sharing a project within #{test_group.name} with other groups")
+        expect(rendered).to have_content("Projects in #{test_group.name} cannot be shared with other groups")
         expect(rendered).to have_content('help text here')
         expect(rendered).to have_field('group_share_with_group_lock', **checkbox_options)
       end
@@ -127,13 +131,7 @@ RSpec.describe 'groups/edit.html.haml' do
       allow(view).to receive(:current_user) { user }
     end
 
-    context 'prompt user about registration features' do
-      before do
-        if Gitlab.ee?
-          allow(License).to receive(:current).and_return(nil)
-        end
-      end
-
+    context 'prompt user about registration features', :without_license do
       context 'with service ping disabled' do
         before do
           stub_application_setting(usage_ping_enabled: false)

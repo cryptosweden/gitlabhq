@@ -2,30 +2,26 @@
 
 require 'spec_helper'
 
-RSpec.describe 'CI Lint', :js do
-  include Spec::Support::Helpers::Features::SourceEditorSpecHelpers
+RSpec.describe 'CI Lint', :js, feature_category: :pipeline_composition do
+  include Features::SourceEditorSpecHelpers
 
-  let(:project) { create(:project, :repository) }
-  let(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :repository) }
+  let_it_be(:user) { create(:user, developer_of: project) }
 
   let(:content_selector) { '.content .view-lines' }
 
   before do
-    project.add_developer(user)
     sign_in(user)
 
     visit project_ci_lint_path(project)
     editor_set_value(yaml_content)
-
-    wait_for('YAML content') do
-      find(content_selector).text.present?
-    end
   end
 
   describe 'YAML parsing' do
     shared_examples 'validates the YAML' do
       before do
         click_on 'Validate'
+        scroll_to(find_by_testid('ci-lint-status'))
       end
 
       context 'YAML is correct' do

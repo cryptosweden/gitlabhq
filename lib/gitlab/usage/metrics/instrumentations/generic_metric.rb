@@ -28,19 +28,14 @@ module Gitlab
             end
           end
 
-          def initialize(time_frame: 'none', options: {})
-            @time_frame = time_frame
-            @options = options
+          def initialize(metric_definition)
+            super(metric_definition.reverse_merge(time_frame: 'none'))
           end
 
           def value
             alt_usage_data(fallback: self.class.fallback) do
-              self.class.metric_value.call
+              instance_eval(&self.class.metric_value)
             end
-          end
-
-          def suggested_name
-            Gitlab::Usage::Metrics::NameSuggestion.for(:alt)
           end
         end
       end

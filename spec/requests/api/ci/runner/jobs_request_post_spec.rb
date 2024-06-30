@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
+RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_category: :continuous_integration do
   include StubGitlabCalls
   include RedisHelpers
   include WorkhorseHelpers
@@ -17,19 +17,32 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
   end
 
   describe '/api/v4/jobs' do
-    let(:group) { create(:group, :nested) }
-    let(:project) { create(:project, namespace: group, shared_runners_enabled: false) }
-    let(:pipeline) { create(:ci_pipeline, project: project, ref: 'master') }
+    let_it_be(:group) { create(:group, :nested) }
+    let_it_be(:user) { create(:user) }
+
+    let(:project) do
+      create(:project, :empty_repo, namespace: group, shared_runners_enabled: false).tap(&:track_project_repository)
+    end
+
     let(:runner) { create(:ci_runner, :project, projects: [project]) }
-    let(:user) { create(:user) }
+    let(:pipeline) { create(:ci_pipeline, project: project, ref: 'master') }
     let(:job) do
-      create(:ci_build, :pending, :queued, :artifacts, :extended_options,
-             pipeline: pipeline, name: 'spinach', stage: 'test', stage_idx: 0)
+      create(
+        :ci_build,
+        :pending,
+        :queued,
+        :artifacts,
+        :extended_options,
+        pipeline: pipeline,
+        name: 'spinach',
+        stage: 'test',
+        stage_idx: 0
+      )
     end
 
     describe 'POST /api/v4/jobs/request' do
       let!(:last_update) {}
-      let!(:new_update) { }
+      let!(:new_update) {}
       let(:user_agent) { 'gitlab-runner 9.0.0 (9-0-stable; go1.7.4; linux/amd64)' }
 
       before do
@@ -89,6 +102,10 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
         end
       end
 
+      it_behaves_like 'runner migrations backoff' do
+        let(:request) { post api('/jobs/request') }
+      end
+
       context 'when no token is provided' do
         it 'returns 400 error' do
           post api('/jobs/request')
@@ -115,6 +132,40 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
 
             expect(response).to have_gitlab_http_status(:no_content)
             expect(response.header['X-GitLab-Last-Update']).to eq(update_value)
+          end
+        end
+
+        context 'when system_id parameter is specified' do
+          subject(:request) { request_job(**args) }
+
+          context 'when ci_runner_machines with same system_xid does not exist' do
+            let(:args) { { system_id: 's_some_system_id' } }
+
+            it 'creates respective ci_runner_machines record', :freeze_time do
+              expect { request }.to change { runner.runner_managers.reload.count }.from(0).to(1)
+
+              runner_manager = runner.runner_managers.last
+              expect(runner_manager.system_xid).to eq args[:system_id]
+              expect(runner_manager.runner).to eq runner
+              expect(runner_manager.contacted_at).to eq Time.current
+            end
+          end
+
+          context 'when ci_runner_machines with same system_xid already exists', :freeze_time do
+            let(:args) { { system_id: 's_existing_system_id' } }
+            let!(:runner_manager) do
+              create(:ci_runner_machine, runner: runner, system_xid: args[:system_id], contacted_at: 1.hour.ago)
+            end
+
+            it 'does not create new ci_runner_machines record' do
+              expect { request }.not_to change { Ci::RunnerManager.count }
+            end
+
+            it 'updates the contacted_at field' do
+              request
+
+              expect(runner_manager.reload.contacted_at).to eq Time.current
+            end
           end
         end
 
@@ -145,7 +196,7 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
           let(:expected_job_info) do
             { 'id' => job.id,
               'name' => job.name,
-              'stage' => job.stage,
+              'stage' => job.stage_name,
               'project_id' => job.project.id,
               'project_name' => job.project.name }
           end
@@ -158,20 +209,25 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
               'ref_type' => 'branch',
               'refspecs' => ["+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
                              "+refs/heads/#{job.ref}:refs/remotes/origin/#{job.ref}"],
-              'depth' => project.ci_default_git_depth }
+              'depth' => project.ci_default_git_depth,
+              'repo_object_format' => 'sha1' }
           end
 
           let(:expected_steps) do
             [{ 'name' => 'script',
-               'script' => %w(echo),
+               'script' => %w[echo],
                'timeout' => job.metadata_timeout,
                'when' => 'on_success',
                'allow_failure' => false },
              { 'name' => 'after_script',
-               'script' => %w(ls date),
+               'script' => %w[ls date],
                'timeout' => job.metadata_timeout,
                'when' => 'always',
                'allow_failure' => true }]
+          end
+
+          let(:expected_hooks) do
+            [{ 'name' => 'pre_get_sources_script', 'script' => ["echo 'hello pre_get_sources_script'"] }]
           end
 
           let(:expected_variables) do
@@ -183,7 +239,7 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
           let(:expected_artifacts) do
             [{ 'name' => 'artifacts_file',
                'untracked' => false,
-               'paths' => %w(out/),
+               'paths' => %w[out/],
                'when' => 'always',
                'expire_in' => '7d',
                "artifact_type" => "archive",
@@ -191,11 +247,14 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
           end
 
           let(:expected_cache) do
-            [{ 'key' => 'cache_key',
-               'untracked' => false,
-               'paths' => ['vendor/*'],
-               'policy' => 'pull-push',
-               'when' => 'on_success' }]
+            [{
+              'key' => a_string_matching(/^cache_key-(?>protected|non_protected)$/),
+              'untracked' => false,
+              'paths' => ['vendor/*'],
+              'policy' => 'pull-push',
+              'when' => 'on_success',
+              'fallback_keys' => []
+            }]
           end
 
           let(:expected_features) do
@@ -211,21 +270,30 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
             expect(response).to have_gitlab_http_status(:created)
             expect(response.headers['Content-Type']).to eq('application/json')
             expect(response.headers).not_to have_key('X-GitLab-Last-Update')
-            expect(runner.reload.platform).to eq('darwin')
+            expect(runner.reload.runner_managers.last.platform).to eq('darwin')
             expect(json_response['id']).to eq(job.id)
             expect(json_response['token']).to eq(job.token)
-            expect(json_response['job_info']).to eq(expected_job_info)
+            expect(json_response['job_info']).to include(expected_job_info)
             expect(json_response['git_info']).to eq(expected_git_info)
-            expect(json_response['image']).to eq({ 'name' => 'ruby:2.7', 'entrypoint' => '/bin/sh', 'ports' => [] })
-            expect(json_response['services']).to eq([{ 'name' => 'postgres', 'entrypoint' => nil,
-                                                       'alias' => nil, 'command' => nil, 'ports' => [], 'variables' => nil },
-                                                     { 'name' => 'docker:stable-dind', 'entrypoint' => '/bin/sh',
-                                                       'alias' => 'docker', 'command' => 'sleep 30', 'ports' => [], 'variables' => [] },
-                                                     { 'name' => 'mysql:latest', 'entrypoint' => nil,
-                                                       'alias' => nil, 'command' => nil, 'ports' => [], 'variables' => [{ 'key' => 'MYSQL_ROOT_PASSWORD', 'value' => 'root123.' }] }])
+            expect(json_response['image']).to eq(
+              { 'name' => 'image:1.0', 'entrypoint' => '/bin/sh', 'ports' => [], 'executor_opts' => {},
+                'pull_policy' => nil }
+            )
+            expect(json_response['services']).to eq(
+              [
+                { 'name' => 'postgres', 'entrypoint' => nil, 'alias' => nil, 'command' => nil, 'ports' => [],
+                  'variables' => nil, 'executor_opts' => {}, 'pull_policy' => nil },
+                { 'name' => 'docker:stable-dind', 'entrypoint' => '/bin/sh', 'alias' => 'docker',
+                  'command' => 'sleep 30', 'ports' => [], 'variables' => [], 'executor_opts' => {},
+                  'pull_policy' => nil },
+                { 'name' => 'mysql:latest', 'entrypoint' => nil, 'alias' => nil, 'command' => nil, 'ports' => [],
+                  'variables' => [{ 'key' => 'MYSQL_ROOT_PASSWORD', 'value' => 'root123.' }], 'executor_opts' => {},
+                  'pull_policy' => nil }
+              ])
             expect(json_response['steps']).to eq(expected_steps)
+            expect(json_response['hooks']).to eq(expected_hooks)
             expect(json_response['artifacts']).to eq(expected_artifacts)
-            expect(json_response['cache']).to eq(expected_cache)
+            expect(json_response['cache']).to match(expected_cache)
             expect(json_response['variables']).to include(*expected_variables)
             expect(json_response['features']).to match(expected_features)
           end
@@ -290,40 +358,11 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
                 request_job
 
                 expect(response).to have_gitlab_http_status(:created)
-                expect(json_response['git_info']['refspecs'])
-                  .to contain_exactly("+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
-                                      '+refs/tags/*:refs/tags/*',
-                                      '+refs/heads/*:refs/remotes/origin/*')
-              end
-            end
-          end
-
-          context 'when job filtered by job_age' do
-            let!(:job) do
-              create(:ci_build, :pending, :queued, :tag, pipeline: pipeline, name: 'spinach', stage: 'test', stage_idx: 0, queued_at: 60.seconds.ago)
-            end
-
-            before do
-              job.queuing_entry&.update!(created_at: 60.seconds.ago)
-            end
-
-            context 'job is queued less than job_age parameter' do
-              let(:job_age) { 120 }
-
-              it 'gives 204' do
-                request_job(job_age: job_age)
-
-                expect(response).to have_gitlab_http_status(:no_content)
-              end
-            end
-
-            context 'job is queued more than job_age parameter' do
-              let(:job_age) { 30 }
-
-              it 'picks a job' do
-                request_job(job_age: job_age)
-
-                expect(response).to have_gitlab_http_status(:created)
+                expect(json_response['git_info']['refspecs']).to contain_exactly(
+                  "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
+                  '+refs/tags/*:refs/tags/*',
+                  '+refs/heads/*:refs/remotes/origin/*'
+                )
               end
             end
           end
@@ -350,6 +389,9 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
             end
 
             context 'when GIT_DEPTH is not specified and there is no default git depth for the project' do
+              let(:project) { create(:project, namespace: group, shared_runners_enabled: false) }
+              let(:runner) { create(:ci_runner, :project, projects: [project]) }
+
               before do
                 project.update!(ci_default_git_depth: nil)
               end
@@ -358,10 +400,11 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
                 request_job
 
                 expect(response).to have_gitlab_http_status(:created)
-                expect(json_response['git_info']['refspecs'])
-                  .to contain_exactly("+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
-                                      '+refs/tags/*:refs/tags/*',
-                                      '+refs/heads/*:refs/remotes/origin/*')
+                expect(json_response['git_info']['refspecs']).to contain_exactly(
+                  "+refs/pipelines/#{pipeline.id}:refs/pipelines/#{pipeline.id}",
+                  '+refs/tags/*:refs/tags/*',
+                  '+refs/heads/*:refs/remotes/origin/*'
+                )
               end
             end
           end
@@ -375,23 +418,24 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
 
                 expect(response).to have_gitlab_http_status(:created)
                 expect(response.headers).not_to have_key('X-GitLab-Last-Update')
-                expect(json_response['steps']).to eq([
-                  {
-                    "name" => "script",
-                    "script" => ["make changelog | tee release_changelog.txt"],
-                    "timeout" => 3600,
-                    "when" => "on_success",
-                    "allow_failure" => false
-                  },
-                  {
-                    "name" => "release",
-                    "script" =>
-                    ["release-cli create --name \"Release $CI_COMMIT_SHA\" --description \"Created using the release-cli $EXTRA_DESCRIPTION\" --tag-name \"release-$CI_COMMIT_SHA\" --ref \"$CI_COMMIT_SHA\" --assets-link \"{\\\"url\\\":\\\"https://example.com/assets/1\\\",\\\"name\\\":\\\"asset1\\\"}\""],
-                    "timeout" => 3600,
-                    "when" => "on_success",
-                    "allow_failure" => false
-                  }
-                ])
+                expect(json_response['steps']).to eq(
+                  [
+                    {
+                      "name" => "script",
+                      "script" => ["make changelog | tee release_changelog.txt"],
+                      "timeout" => 3600,
+                      "when" => "on_success",
+                      "allow_failure" => false
+                    },
+                    {
+                      "name" => "release",
+                      "script" =>
+                      ["release-cli create --name \"Release $CI_COMMIT_SHA\" --description \"Created using the release-cli $EXTRA_DESCRIPTION\" --tag-name \"release-$CI_COMMIT_SHA\" --ref \"$CI_COMMIT_SHA\" --assets-link \"{\\\"url\\\":\\\"https://example.com/assets/1\\\",\\\"name\\\":\\\"asset1\\\"}\""],
+                      "timeout" => 3600,
+                      "when" => "on_success",
+                      "allow_failure" => false
+                    }
+                  ])
               end
             end
 
@@ -407,7 +451,8 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
           context 'when job is made for merge request' do
             let(:pipeline) { create(:ci_pipeline, source: :merge_request_event, project: project, ref: 'feature', merge_request: merge_request) }
             let!(:job) { create(:ci_build, :pending, :queued, pipeline: pipeline, name: 'spinach', ref: 'feature', stage: 'test', stage_idx: 0) }
-            let(:merge_request) { create(:merge_request) }
+
+            let_it_be(:merge_request) { create(:merge_request) }
 
             it 'sets branch as ref_type' do
               request_job
@@ -430,52 +475,52 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
             end
           end
 
-          it 'updates runner info' do
-            expect { request_job }.to change { runner.reload.contacted_at }
-          end
+          describe 'updates runner info' do
+            it { expect { request_job }.to change { runner.reload.contacted_at } }
 
-          %w(version revision platform architecture).each do |param|
-            context "when info parameter '#{param}' is present" do
-              let(:value) { "#{param}_value" }
+            %w[version revision platform architecture].each do |param|
+              context "when info parameter '#{param}' is present" do
+                let(:value) { "#{param}_value" }
 
-              it "updates provided Runner's parameter" do
-                request_job info: { param => value }
+                it "updates provided Runner's parameter" do
+                  request_job info: { param => value }
 
-                expect(response).to have_gitlab_http_status(:created)
-                expect(runner.reload.read_attribute(param.to_sym)).to eq(value)
+                  expect(response).to have_gitlab_http_status(:created)
+                  expect(job.runner_manager.reload.read_attribute(param.to_sym)).to eq(value)
+                end
               end
             end
-          end
 
-          it "sets the runner's config" do
-            request_job info: { 'config' => { 'gpus' => 'all', 'ignored' => 'hello' } }
+            it "sets the runner's config" do
+              request_job info: { 'config' => { 'gpus' => 'all', 'ignored' => 'hello' } }
 
-            expect(response).to have_gitlab_http_status(:created)
-            expect(runner.reload.config).to eq( { 'gpus' => 'all' } )
-          end
+              expect(response).to have_gitlab_http_status(:created)
+              expect(job.runner_manager.reload.config).to eq({ 'gpus' => 'all' })
+            end
 
-          it "sets the runner's ip_address" do
-            post api('/jobs/request'),
-              params: { token: runner.token },
-              headers: { 'User-Agent' => user_agent, 'X-Forwarded-For' => '123.222.123.222' }
+            it "sets the runner's ip_address" do
+              post api('/jobs/request'),
+                params: { token: runner.token },
+                headers: { 'User-Agent' => user_agent, 'X-Forwarded-For' => '123.222.123.222' }
 
-            expect(response).to have_gitlab_http_status(:created)
-            expect(runner.reload.ip_address).to eq('123.222.123.222')
-          end
+              expect(response).to have_gitlab_http_status(:created)
+              expect(job.runner_manager.reload.ip_address).to eq('123.222.123.222')
+            end
 
-          it "handles multiple X-Forwarded-For addresses" do
-            post api('/jobs/request'),
-              params: { token: runner.token },
-              headers: { 'User-Agent' => user_agent, 'X-Forwarded-For' => '123.222.123.222, 127.0.0.1' }
+            it "handles multiple X-Forwarded-For addresses" do
+              post api('/jobs/request'),
+                params: { token: runner.token },
+                headers: { 'User-Agent' => user_agent, 'X-Forwarded-For' => '123.222.123.222, 127.0.0.1' }
 
-            expect(response).to have_gitlab_http_status(:created)
-            expect(runner.reload.ip_address).to eq('123.222.123.222')
+              expect(response).to have_gitlab_http_status(:created)
+              expect(job.runner_manager.reload.ip_address).to eq('123.222.123.222')
+            end
           end
 
           context 'when concurrently updating a job' do
             before do
               expect_any_instance_of(::Ci::Build).to receive(:run!)
-                  .and_raise(ActiveRecord::StaleObjectError.new(nil, nil))
+                .and_raise(ActiveRecord::StaleObjectError.new(nil, nil))
             end
 
             it 'returns a conflict' do
@@ -496,15 +541,15 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
               job2.success
             end
 
-            it 'returns dependent jobs' do
+            it 'returns dependent jobs with the token of the test job' do
               request_job
 
               expect(response).to have_gitlab_http_status(:created)
               expect(json_response['id']).to eq(test_job.id)
               expect(json_response['dependencies'].count).to eq(2)
               expect(json_response['dependencies']).to include(
-                { 'id' => job.id, 'name' => job.name, 'token' => job.token },
-                { 'id' => job2.id, 'name' => job2.name, 'token' => job2.token })
+                { 'id' => job.id, 'name' => job.name, 'token' => test_job.token },
+                { 'id' => job2.id, 'name' => job2.name, 'token' => test_job.token })
             end
 
             describe 'preloading job_artifacts_archive' do
@@ -526,15 +571,15 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
               job.success
             end
 
-            it 'returns dependent jobs' do
+            it 'returns dependent jobs with the token of the test job' do
               request_job
 
               expect(response).to have_gitlab_http_status(:created)
               expect(json_response['id']).to eq(test_job.id)
               expect(json_response['dependencies'].count).to eq(1)
               expect(json_response['dependencies']).to include(
-                { 'id' => job.id, 'name' => job.name, 'token' => job.token,
-                  'artifacts_file' => { 'filename' => 'ci_build_artifacts.zip', 'size' => 107464 } })
+                { 'id' => job.id, 'name' => job.name, 'token' => test_job.token,
+                  'artifacts_file' => { 'filename' => 'ci_build_artifacts.zip', 'size' => ci_artifact_fixture_size } })
             end
           end
 
@@ -542,9 +587,12 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
             let!(:job) { create(:ci_build, :pending, :queued, :tag, pipeline: pipeline, name: 'spinach', stage: 'test', stage_idx: 0) }
             let!(:job2) { create(:ci_build, :pending, :queued, :tag, pipeline: pipeline, name: 'rubocop', stage: 'test', stage_idx: 0) }
             let!(:test_job) do
-              create(:ci_build, :pending, :queued, pipeline: pipeline, token: 'test-job-token', name: 'deploy',
-                                stage: 'deploy', stage_idx: 1,
-                                options: { script: ['bash'], dependencies: [job2.name] })
+              create(:ci_build, :pending, :queued,
+                pipeline: pipeline,
+                name: 'deploy',
+                stage: 'deploy',
+                stage_idx: 1,
+                options: { script: ['bash'], dependencies: [job2.name] })
             end
 
             before do
@@ -552,13 +600,13 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
               job2.success
             end
 
-            it 'returns dependent jobs' do
+            it 'returns dependent jobs with the token of the test job' do
               request_job
 
               expect(response).to have_gitlab_http_status(:created)
               expect(json_response['id']).to eq(test_job.id)
               expect(json_response['dependencies'].count).to eq(1)
-              expect(json_response['dependencies'][0]).to include('id' => job2.id, 'name' => job2.name, 'token' => job2.token)
+              expect(json_response['dependencies'][0]).to include('id' => job2.id, 'name' => job2.name, 'token' => test_job.token)
             end
           end
 
@@ -566,9 +614,12 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
             let!(:job) { create(:ci_build, :pending, :queued, :tag, pipeline: pipeline, name: 'spinach', stage: 'test', stage_idx: 0) }
             let!(:job2) { create(:ci_build, :pending, :queued, :tag, pipeline: pipeline, name: 'rubocop', stage: 'test', stage_idx: 0) }
             let!(:empty_dependencies_job) do
-              create(:ci_build, :pending, :queued, pipeline: pipeline, token: 'test-job-token', name: 'empty_dependencies_job',
-                                stage: 'deploy', stage_idx: 1,
-                                options: { script: ['bash'], dependencies: [] })
+              create(:ci_build, :pending, :queued,
+                pipeline: pipeline,
+                name: 'empty_dependencies_job',
+                stage: 'deploy',
+                stage_idx: 1,
+                options: { script: ['bash'], dependencies: [] })
             end
 
             before do
@@ -613,8 +664,16 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
 
           context 'when job has code coverage report' do
             let(:job) do
-              create(:ci_build, :pending, :queued, :coverage_report_cobertura,
-                     pipeline: pipeline, name: 'spinach', stage: 'test', stage_idx: 0)
+              create(
+                :ci_build,
+                :pending,
+                :queued,
+                :coverage_report_cobertura,
+                pipeline: pipeline,
+                name: 'spinach',
+                stage: 'test',
+                stage_idx: 0
+              )
             end
 
             let(:expected_artifacts) do
@@ -636,10 +695,10 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
               expect(response).to have_gitlab_http_status(:created)
               expect(response.headers['Content-Type']).to eq('application/json')
               expect(response.headers).not_to have_key('X-GitLab-Last-Update')
-              expect(runner.reload.platform).to eq('darwin')
+              expect(runner.reload.runner_managers.last.platform).to eq('darwin')
               expect(json_response['id']).to eq(job.id)
               expect(json_response['token']).to eq(job.token)
-              expect(json_response['job_info']).to eq(expected_job_info)
+              expect(json_response['job_info']).to include(expected_job_info)
               expect(json_response['git_info']).to eq(expected_git_info)
               expect(json_response['artifacts']).to eq(expected_artifacts)
             end
@@ -669,14 +728,6 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
                 expect(response).to have_gitlab_http_status(:created)
                 expect(json_response['variables']).to include(*expected_variables)
               end
-            end
-
-            context 'when variables are stored in trigger_request' do
-              before do
-                trigger_request.update_attribute(:variables, { TRIGGER_KEY_1: 'TRIGGER_VALUE_1' } )
-              end
-
-              it_behaves_like 'expected variables behavior'
             end
 
             context 'when variables are stored in pipeline_variables' do
@@ -726,7 +777,9 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
 
           describe 'timeout support' do
             context 'when project specifies job timeout' do
-              let(:project) { create(:project, shared_runners_enabled: false, build_timeout: 1234) }
+              let_it_be(:project) { create(:project, shared_runners_enabled: false, build_timeout: 1234) }
+
+              let(:runner) { create(:ci_runner, :project, projects: [project]) }
 
               it 'contains info about timeout taken from project' do
                 request_job
@@ -754,6 +807,70 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
 
                   expect(response).to have_gitlab_http_status(:created)
                   expect(json_response['runner_info']).to include({ 'timeout' => 1234 })
+                end
+              end
+            end
+          end
+
+          describe 'time_in_queue_seconds support' do
+            let(:job) do
+              create(
+                :ci_build,
+                :pending,
+                :queued,
+                pipeline: pipeline,
+                name: 'spinach',
+                stage: 'test',
+                stage_idx: 0,
+                queued_at: 60.seconds.ago
+              )
+            end
+
+            it 'presents the time_in_queue_seconds info in the payload' do
+              request_job
+
+              expect(response).to have_gitlab_http_status(:created)
+              expect(json_response['job_info']['time_in_queue_seconds']).to be >= 60.seconds
+            end
+          end
+
+          describe 'project_jobs_running_on_instance_runners_count support' do
+            context 'when runner is not instance_type' do
+              it 'presents the project_jobs_running_on_instance_runners_count info in the payload as +Inf' do
+                request_job
+
+                expect(response).to have_gitlab_http_status(:created)
+                expect(json_response['job_info']['project_jobs_running_on_instance_runners_count']).to eq('+Inf')
+              end
+            end
+
+            context 'when runner is instance_type' do
+              let(:project) { create(:project, namespace: group, shared_runners_enabled: true) }
+              let(:runner) { create(:ci_runner, :instance) }
+
+              context 'when less than Project::INSTANCE_RUNNER_RUNNING_JOBS_MAX_BUCKET running jobs assigned to an instance runner are on the list' do
+                it 'presents the project_jobs_running_on_instance_runners_count info in the payload as a correct number in a string format' do
+                  request_job
+
+                  expect(response).to have_gitlab_http_status(:created)
+                  expect(json_response['job_info']['project_jobs_running_on_instance_runners_count']).to eq('0')
+                end
+              end
+
+              context 'when at least Project::INSTANCE_RUNNER_RUNNING_JOBS_MAX_BUCKET running jobs assigned to an instance runner are on the list' do
+                let(:other_runner) { create(:ci_runner, :instance) }
+
+                before do
+                  stub_const('Project::INSTANCE_RUNNER_RUNNING_JOBS_MAX_BUCKET', 1)
+
+                  create(:ci_running_build, runner: other_runner, runner_type: other_runner.runner_type, project: project)
+                end
+
+                it 'presents the project_jobs_running_on_instance_runners_count info in the payload as Project::INSTANCE_RUNNER_RUNNING_JOBS_MAX_BUCKET+' do
+                  request_job
+
+                  expect(response).to have_gitlab_http_status(:created)
+                  expect(json_response['job_info']['project_jobs_running_on_instance_runners_count']).to eq('1+')
                 end
               end
             end
@@ -810,12 +927,104 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
           end
         end
 
+        context 'when image has docker options' do
+          let(:job) { create(:ci_build, :pending, :queued, pipeline: pipeline, options: options) }
+
+          let(:options) do
+            {
+              image: {
+                name: 'ruby',
+                executor_opts: {
+                  docker: {
+                    platform: 'amd64',
+                    user: 'dave'
+                  }
+                }
+              }
+            }
+          end
+
+          it 'returns the image with docker options' do
+            request_job
+
+            expect(response).to have_gitlab_http_status(:created)
+            expect(json_response).to include(
+              'id' => job.id,
+              'image' => { 'name' => 'ruby',
+                           'executor_opts' => {
+                             'docker' => {
+                               'platform' => 'amd64',
+                               'user' => 'dave'
+                             }
+                           },
+                           'pull_policy' => nil,
+                           'entrypoint' => nil,
+                           'ports' => [] }
+            )
+          end
+        end
+
+        context 'when image has pull_policy' do
+          let(:job) { create(:ci_build, :pending, :queued, pipeline: pipeline, options: options) }
+
+          let(:options) do
+            {
+              image: {
+                name: 'ruby',
+                pull_policy: ['if-not-present']
+              }
+            }
+          end
+
+          it 'returns the image with pull policy' do
+            request_job
+
+            expect(response).to have_gitlab_http_status(:created)
+            expect(json_response).to include(
+              'id' => job.id,
+              'image' => { 'name' => 'ruby',
+                           'executor_opts' => {},
+                           'pull_policy' => ['if-not-present'],
+                           'entrypoint' => nil,
+                           'ports' => [] }
+            )
+          end
+        end
+
+        context 'when service has pull_policy' do
+          let(:job) { create(:ci_build, :pending, :queued, pipeline: pipeline, options: options) }
+
+          let(:options) do
+            {
+              services: [{
+                name: 'postgres:11.9',
+                pull_policy: ['if-not-present']
+              }]
+            }
+          end
+
+          it 'returns the service with pull policy' do
+            request_job
+
+            expect(response).to have_gitlab_http_status(:created)
+            expect(json_response).to include(
+              'id' => job.id,
+              'services' => [{ 'alias' => nil, 'command' => nil, 'entrypoint' => nil, 'name' => 'postgres:11.9',
+                               'ports' => [], 'executor_opts' => {}, 'pull_policy' => ['if-not-present'],
+                               'variables' => [] }]
+            )
+          end
+        end
+
         describe 'a job with excluded artifacts' do
           context 'when excluded paths are defined' do
             let(:job) do
-              create(:ci_build, :pending, :queued, pipeline: pipeline, token: 'test-job-token', name: 'test',
-                                stage: 'deploy', stage_idx: 1,
-                                options: { artifacts: { paths: ['abc'], exclude: ['cde'] } })
+              create(:ci_build, :pending, :queued,
+                pipeline: pipeline,
+                name: 'test',
+                stage: 'deploy',
+                stage_idx: 1,
+                options: { artifacts: { paths: ['abc'], exclude: ['cde'] } })
             end
 
             context 'when a runner supports this feature' do
@@ -853,11 +1062,11 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
             subject { request_job(id: job.id) }
 
             it_behaves_like 'storing arguments in the application context for the API' do
-              let(:expected_params) { { user: user.username, project: project.full_path, client_id: "user/#{user.id}" } }
+              let(:expected_params) { { user: user.username, project: project.full_path, client_id: "runner/#{runner.id}", job_id: job.id, pipeline_id: job.pipeline_id } }
             end
 
-            it_behaves_like 'not executing any extra queries for the application context', 3 do
-              # Extra queries: User, Project, Route
+            it_behaves_like 'not executing any extra queries for the application context', 4 do
+              # Extra queries: User, Project, Route, Runner
               let(:subject_proc) { proc { request_job(id: job.id) } }
             end
           end
@@ -874,8 +1083,8 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
           end
 
           context 'when the runner is of group type' do
-            let(:group) { create(:group) }
-            let(:runner) { create(:ci_runner, :group, groups: [group]) }
+            let_it_be(:group) { create(:group) }
+            let_it_be(:runner) { create(:ci_runner, :group, groups: [group]) }
 
             it_behaves_like 'storing arguments in the application context for the API' do
               let(:expected_params) { { root_namespace: group.full_path_components.first, client_id: "runner/#{runner.id}" } }
@@ -884,6 +1093,41 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state do
             it_behaves_like 'not executing any extra queries for the application context', 2 do
               # Extra queries: Group, Route
               let(:subject_proc) { proc { request_job } }
+            end
+          end
+        end
+
+        context 'with session url set to local URL' do
+          let(:job_params) { { session: { url: 'https://127.0.0.1:7777' } } }
+
+          context 'with allow_local_requests_from_web_hooks_and_services? stubbed' do
+            before do
+              allow(ApplicationSetting).to receive(:current).and_return(ApplicationSetting.new)
+              stub_application_setting(allow_local_requests_from_web_hooks_and_services: allow_local_requests)
+              ci_build
+            end
+
+            let(:ci_build) { create(:ci_build, :pending, :queued, pipeline: pipeline) }
+
+            context 'as returning true' do
+              let(:allow_local_requests) { true }
+
+              it 'creates a new session' do
+                request_job(**job_params)
+
+                expect(response).to have_gitlab_http_status(:created)
+              end
+            end
+
+            context 'as returning false' do
+              let(:allow_local_requests) { false }
+
+              it 'returns :unprocessable_entity status code', :aggregate_failures do
+                request_job(**job_params)
+
+                expect(response).to have_gitlab_http_status(:conflict)
+                expect(response.body).to include('409 Conflict')
+              end
             end
           end
         end

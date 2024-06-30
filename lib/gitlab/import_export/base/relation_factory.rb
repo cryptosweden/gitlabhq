@@ -8,28 +8,30 @@ module Gitlab
 
         IMPORTED_OBJECT_MAX_RETRIES = 5
 
-        OVERRIDES = {}.freeze
+        OVERRIDES = { user_contributions: :user }.freeze
         EXISTING_OBJECT_RELATIONS = %i[].freeze
 
         # This represents all relations that have unique key on `project_id` or `group_id`
         UNIQUE_RELATIONS = %i[].freeze
 
         USER_REFERENCES = %w[
-           author_id
-           assignee_id
-           updated_by_id
-           merged_by_id
-           latest_closed_by_id
-           user_id
-           created_by_id
-           last_edited_by_id
-           merge_user_id
-           resolved_by_id
-           closed_by_id
-           owner_id
-         ].freeze
+          author_id
+          assignee_id
+          updated_by_id
+          merged_by_id
+          latest_closed_by_id
+          user_id
+          created_by_id
+          last_edited_by_id
+          merge_user_id
+          resolved_by_id
+          closed_by_id
+          owner_id
+        ].freeze
 
         TOKEN_RESET_MODELS = %i[Project Namespace Group Ci::Trigger Ci::Build Ci::Runner ProjectHook ErrorTracking::ProjectErrorTrackingSetting].freeze
+
+        attr_reader :relation_name, :importable
 
         def self.create(*args, **kwargs)
           new(*args, **kwargs).create
@@ -39,12 +41,16 @@ module Gitlab
           # There are scenarios where the model is pluralized (e.g.
           # MergeRequest::Metrics), and we don't want to force it to singular
           # with #classify.
+          overridden_relation = OVERRIDES.with_indifferent_access[relation_name]
+          relation_name = overridden_relation if overridden_relation
+
           relation_name.to_s.classify.constantize
         rescue NameError
           relation_name.to_s.constantize
         end
 
-        def initialize(relation_sym:, relation_index:, relation_hash:, members_mapper:, object_builder:, user:, importable:, excluded_keys: [])
+        # rubocop:disable Metrics/ParameterLists -- Keyword arguments are not adding complexity to initializer
+        def initialize(relation_sym:, relation_index:, relation_hash:, members_mapper:, object_builder:, user:, importable:, import_source:, excluded_keys: [])
           @relation_sym = relation_sym
           @relation_name = self.class.overrides[relation_sym]&.to_sym || relation_sym
           @relation_index = relation_index
@@ -53,6 +59,7 @@ module Gitlab
           @object_builder = object_builder
           @user = user
           @importable = importable
+          @import_source = import_source
           @imported_object_retries = 0
           @relation_hash[importable_column_name] = @importable.id
           @original_user = {}
@@ -65,6 +72,7 @@ module Gitlab
           # from the object attributes and the export will fail.
           @relation_hash.except!(*excluded_keys)
         end
+        # rubocop:enable Metrics/ParameterLists
 
         # Creates an object from an actual model with name "relation_sym" with params from
         # the relation_hash, updating references with new object IDs, mapping users using
@@ -126,12 +134,19 @@ module Gitlab
           end
         end
 
+        # When an assignee (or any other listed association) did not exist in the members mapper, the importer is
+        # assigned. We only need to assign each user once.
         def remove_duplicate_assignees
-          return unless @relation_hash['issue_assignees']
+          associations = %w[issue_assignees merge_request_assignees merge_request_reviewers approvals]
 
-          # When an assignee did not exist in the members mapper, the importer is
-          # assigned. We only need to assign each user once.
-          @relation_hash['issue_assignees'].uniq!(&:user_id)
+          associations.each do |association|
+            next unless @relation_hash.key?(association)
+            next unless @relation_hash[association].is_a?(Array)
+            next if @relation_hash[association].empty?
+
+            @relation_hash[association].select! { |record| record.respond_to?(:user_id) }
+            @relation_hash[association].uniq!(&:user_id)
+          end
         end
 
         def generate_imported_object
@@ -149,9 +164,9 @@ module Gitlab
         end
 
         def remove_encrypted_attributes!
-          return unless relation_class.respond_to?(:encrypted_attributes) && relation_class.encrypted_attributes.any?
+          return unless relation_class.respond_to?(:attr_encrypted_attributes) && relation_class.attr_encrypted_attributes.any?
 
-          relation_class.encrypted_attributes.each_key do |key|
+          relation_class.attr_encrypted_attributes.each_key do |key|
             @relation_hash[key.to_s] = nil
           end
         end
@@ -171,6 +186,10 @@ module Gitlab
         def imported_object
           if existing_or_new_object.respond_to?(:importing)
             existing_or_new_object.importing = true
+          end
+
+          if existing_or_new_object.respond_to?(:imported_from)
+            existing_or_new_object.imported_from = @import_source
           end
 
           existing_or_new_object
@@ -202,23 +221,21 @@ module Gitlab
         def existing_or_new_object
           # Only find existing records to avoid mapping tables such as milestones
           # Otherwise always create the record, skipping the extra SELECT clause.
-          @existing_or_new_object ||= begin
-            if existing_object?
-              attribute_hash = attribute_hash_for(['events'])
+          @existing_or_new_object ||= if existing_object?
+                                        attribute_hash = attribute_hash_for(['events'])
 
-              existing_object.assign_attributes(attribute_hash) if attribute_hash.any?
+                                        existing_object.assign_attributes(attribute_hash) if attribute_hash.any?
 
-              existing_object
-            else
-              # Because of single-type inheritance, we need to be careful to use the `type` field
-              # See https://gitlab.com/gitlab-org/gitlab/issues/34860#note_235321497
-              inheritance_column = relation_class.try(:inheritance_column)
-              inheritance_attributes = parsed_relation_hash.slice(inheritance_column)
-              object = relation_class.new(inheritance_attributes)
-              object.assign_attributes(parsed_relation_hash)
-              object
-            end
-          end
+                                        existing_object
+                                      else
+                                        # Because of single-type inheritance, we need to be careful to use the `type` field
+                                        # See https://gitlab.com/gitlab-org/gitlab/issues/34860#note_235321497
+                                        inheritance_column = relation_class.try(:inheritance_column)
+                                        inheritance_attributes = parsed_relation_hash.slice(inheritance_column)
+                                        object = relation_class.new(inheritance_attributes)
+                                        object.assign_attributes(parsed_relation_hash)
+                                        object
+                                      end
         end
 
         def attribute_hash_for(attributes)
@@ -258,6 +275,40 @@ module Gitlab
           set_note_author
           # attachment is deprecated and note uploads are handled by Markdown uploader
           @relation_hash['attachment'] = nil
+
+          setup_diff_note
+        end
+
+        def setup_diff_note
+          return unless @relation_hash['type'] == 'DiffNote'
+
+          update_diff_note_position('position')
+          update_diff_note_position('original_position')
+          update_diff_note_position('change_position')
+        end
+
+        def update_diff_note_position(position)
+          return unless @relation_hash[position]
+          return unless @relation_hash.dig(position, 'line_range', 'start_line_code')
+
+          line_range = @relation_hash[position].delete('line_range')
+          start_lines = line_range['start_line_code'].split('_').map(&:to_i)
+          end_lines = line_range['end_line_code'].split('_').map(&:to_i)
+
+          @relation_hash[position]['line_range'] = {
+            'start' => {
+              'line_code' => line_range['start_line_code'],
+              'type' => line_range['start_line_type'],
+              'old_line' => start_lines[1] == 0 ? nil : start_lines[1].to_i,
+              'new_line' => start_lines[2] == 0 ? nil : start_lines[2].to_i
+            },
+            'end' => {
+              'line_code' => line_range['end_line_code'],
+              'type' => line_range['end_line_type'],
+              'old_line' => end_lines[1] == 0 ? nil : end_lines[1].to_i,
+              'new_line' => end_lines[2] == 0 ? nil : end_lines[2].to_i
+            }
+          }
         end
 
         # Sets the author for a note. If the user importing the project
@@ -278,7 +329,7 @@ module Gitlab
 
         def missing_author_note(updated_at, author_name)
           timestamp = updated_at.split('.').first
-          "*By #{author_name} on #{timestamp} (imported from GitLab)*"
+          "*By #{author_name} on #{timestamp}*"
         end
 
         def existing_object?
@@ -288,6 +339,13 @@ module Gitlab
         end
 
         def unique_relation?
+          # this guard is necessary because
+          # when multiple approval_project_rules_protected_branch referenced the same protected branch
+          # or approval_project_rules_user referenced the same user
+          # the different instances were squashed into one
+          # because this method returned true for reason that needs investigation
+          return if @relation_sym == :approval_rules
+
           strong_memoize(:unique_relation) do
             importable_foreign_key.present? &&
               (has_unique_index_on_importable_fk? || uses_importable_fk_as_primary_key?)

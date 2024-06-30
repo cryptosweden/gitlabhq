@@ -8,6 +8,7 @@ import {
   GlLink,
   GlButton,
 } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 import { s__ } from '~/locale';
 
@@ -62,9 +63,9 @@ export default {
 </script>
 
 <template>
-  <div class="d-flex gl-flex-direction-column">
+  <div class="gl-flex gl-flex-direction-column">
     <gl-form-group>
-      <div class="gl-display-flex gl-align-items-center">
+      <div class="gl-flex gl-align-items-center">
         <h4 class="gl-pr-3 gl-m-0">{{ s__('ClusterIntegration|GitLab Integration') }}</h4>
 
         <div class="js-cluster-enable-toggle-area">
@@ -74,7 +75,6 @@ export default {
             v-gl-tooltip:tooltipcontainer
             name="cluster[enabled]"
             class="gl-mb-0 js-project-feature-toggle"
-            data-qa-selector="integration_status_toggle"
             aria-describedby="toggleCluster"
             :disabled="!editable"
             :label="$options.i18n.toggleLabel"
@@ -111,7 +111,6 @@ export default {
         id="cluster_base_domain"
         v-model="baseDomainField"
         name="cluster[base_domain]"
-        data-qa-selector="base_domain_field"
         class="col-md-6"
         type="text"
       />
@@ -137,14 +136,13 @@ export default {
         </gl-sprintf>
       </div>
     </gl-form-group>
-    <div v-if="editable" class="form group gl-display-flex gl-justify-content-end">
+    <div v-if="editable" class="form group gl-flex gl-justify-content-end">
       <gl-button
         category="primary"
-        variant="success"
+        variant="confirm"
         type="submit"
         :disabled="!canSubmit"
         :aria-disabled="!canSubmit"
-        data-qa-selector="save_changes_button"
         >{{ s__('ClusterIntegration|Save changes') }}</gl-button
       >
     </div>

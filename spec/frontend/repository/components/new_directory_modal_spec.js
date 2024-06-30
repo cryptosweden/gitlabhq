@@ -4,12 +4,12 @@ import { nextTick } from 'vue';
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import waitForPromises from 'helpers/wait_for_promises';
-import createFlash from '~/flash';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { createAlert } from '~/alert';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { visitUrl } from '~/lib/utils/url_utility';
 import NewDirectoryModal from '~/repository/components/new_directory_modal.vue';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 jest.mock('~/lib/utils/url_utility', () => ({
   visitUrl: jest.fn(),
 }));
@@ -67,7 +67,7 @@ describe('NewDirectoryModal', () => {
     await findBranchName().vm.$emit('input', branchName);
     await findCommitMessage().vm.$emit('input', commitMessage);
     await findMrToggle().vm.$emit('change', createNewMr);
-    await nextTick;
+    await nextTick();
   };
 
   const submitForm = async () => {
@@ -75,10 +75,6 @@ describe('NewDirectoryModal', () => {
     findModal().vm.$emit('primary', mockEvent);
     await waitForPromises();
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   it('renders modal component', () => {
     createComponent();
@@ -107,7 +103,7 @@ describe('NewDirectoryModal', () => {
       ${findMrToggle}      | ${'true'}                     | ${true}     | ${'new-target-branch'}       | ${'master'}                    | ${true}
       ${findMrToggle}      | ${'true'}                     | ${true}     | ${'master'}                  | ${'master'}                    | ${true}
     `(
-      'has the correct form fields ',
+      'has the correct form fields',
       ({ component, defaultValue, canPushCode, targetBranch, originalBranch, exist }) => {
         createComponent({
           canPushCode,
@@ -128,7 +124,7 @@ describe('NewDirectoryModal', () => {
   });
 
   describe('form submission', () => {
-    beforeEach(async () => {
+    beforeEach(() => {
       mock = new MockAdapter(axios);
     });
 
@@ -142,14 +138,9 @@ describe('NewDirectoryModal', () => {
       });
 
       it('passes the formData', async () => {
-        const {
-          dirName,
-          branchName,
-          commitMessage,
-          originalBranch,
-          createNewMr,
-        } = defaultFormValue;
-        mock.onPost(initialProps.path).reply(httpStatusCodes.OK, {});
+        const { dirName, branchName, commitMessage, originalBranch, createNewMr } =
+          defaultFormValue;
+        mock.onPost(initialProps.path).reply(HTTP_STATUS_OK, {});
         await fillForm();
         await submitForm();
 
@@ -161,7 +152,7 @@ describe('NewDirectoryModal', () => {
       });
 
       it('does not submit "create_merge_request" formData if createNewMr is not checked', async () => {
-        mock.onPost(initialProps.path).reply(httpStatusCodes.OK, {});
+        mock.onPost(initialProps.path).reply(HTTP_STATUS_OK, {});
         await fillForm({ createNewMr: false });
         await submitForm();
         expect(mock.history.post[0].data.get('create_merge_request')).toBeNull();
@@ -169,7 +160,7 @@ describe('NewDirectoryModal', () => {
 
       it('redirects to the new directory', async () => {
         const response = { filePath: 'new-dir-path' };
-        mock.onPost(initialProps.path).reply(httpStatusCodes.OK, response);
+        mock.onPost(initialProps.path).reply(HTTP_STATUS_OK, response);
 
         await fillForm({ dirName: 'foo', branchName: 'master', commitMessage: 'foo' });
         await submitForm();
@@ -185,16 +176,16 @@ describe('NewDirectoryModal', () => {
 
       it('disables submit button', async () => {
         await fillForm({ dirName: '', branchName: '', commitMessage: '' });
-        expect(findModal().props('actionPrimary').attributes[0].disabled).toBe(true);
+        expect(findModal().props('actionPrimary').attributes.disabled).toBe(true);
       });
 
-      it('creates a flash error', async () => {
+      it('creates an alert error', async () => {
         mock.onPost(initialProps.path).timeout();
 
         await fillForm({ dirName: 'foo', branchName: 'master', commitMessage: 'foo' });
         await submitForm();
 
-        expect(createFlash).toHaveBeenCalledWith({
+        expect(createAlert).toHaveBeenCalledWith({
           message: NewDirectoryModal.i18n.ERROR_MESSAGE,
         });
       });

@@ -1,27 +1,20 @@
 ---
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Knowledge
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 description: "GitLab's development guidelines for Wikis"
 ---
 
-# Wikis development guide **(FREE)**
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/227027) in GitLab 13.5.
-
-## Overview
+# Wikis development guidelines
 
 The wiki functionality in GitLab is based on [Gollum 4.x](https://github.com/gollum/gollum/).
-It's used in [Gitaly's](gitaly.md) Ruby service, and accessed from the Rails app through Gitaly RPC calls.
+It's used in the [Gitaly](gitaly.md) Ruby service, and accessed from the Rails app through Gitaly RPC calls.
 
 Wikis use Git repositories as storage backend, and can be accessed through:
 
 - The [Web UI](../user/project/wiki/index.md)
 - The [REST API](../api/wikis.md)
 - [Git itself](../user/project/wiki/index.md#create-or-edit-wiki-pages-locally)
-
-[Introduced](https://gitlab.com/groups/gitlab-org/-/epics/2214) in GitLab 13.5, wikis are also available
-for groups, in addition to projects.
 
 ## Involved Gems
 
@@ -30,9 +23,6 @@ Some notable gems that are used for wikis are:
 | Component     | Description                                    | Gem name                       | GitLab project                                                                                          | Upstream project                                                    |
 |:--------------|:-----------------------------------------------|:-------------------------------|:--------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------|
 | `gitlab`      | Markup renderer, depends on various other gems | `gitlab-markup`                | [`gitlab-org/gitlab-markup`](https://gitlab.com/gitlab-org/gitlab-markup)                               | [`github/markup`](https://github.com/github/markup)                 |
-| `gitaly-ruby` | Main Gollum library                            | `gitlab-gollum-lib`            | [`gitlab-org/gollum-lib`](https://gitlab.com/gitlab-org/gollum-lib)                                     | [`gollum/gollum-lib`](https://github.com/gollum/gollum-lib)         |
-|               | Gollum Git adapter for Rugged                  | `gitlab-gollum-rugged_adapter` | [`gitlab-org/gitlab-gollum-rugged_adapter`](https://gitlab.com/gitlab-org/gitlab-gollum-rugged_adapter) | [`gollum/rugged_adapter`](https://github.com/gollum/rugged_adapter) |
-|               | Rugged (also used in Gitaly itself)            | `rugged`                       | -                                                                                                       | [`libgit2/rugged`](https://github.com/libgit2/rugged)               |
 
 ### Notes on Gollum
 
@@ -40,9 +30,9 @@ We only use Gollum as a storage abstraction layer, to handle the mapping between
 
 When rendering wiki pages, we don't use Gollum at all and instead go through a
 [custom Banzai pipeline](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/banzai/pipeline/wiki_pipeline.rb).
-This adds some [wiki-specific markup](../user/markdown.md#wiki-specific-markdown), such as Gollum's `[[link]]` syntax.
+This adds some [wiki-specific markup](../user/markdown.md#wiki-specific-markdown), such as the Gollum `[[link]]` syntax.
 
-Because we do not make use of most of Gollum's features, we plan to move away from it entirely at some point.
+Because we do not make use of most of the Gollum features, we plan to move away from it entirely at some point.
 [See this epic](https://gitlab.com/groups/gitlab-org/-/epics/2381) for reference.
 
 ## Model classes

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'gitlab_edition'
 require 'active_support/hash_with_indifferent_access'
 require 'active_support/dependencies'
 
@@ -20,9 +21,21 @@ module StubConfiguration
     allow_any_instance_of(ApplicationSetting).to receive(:cached_html_up_to_date?).and_return(false)
   end
 
+  # For enums with `_prefix: true`, this allows us to stub the application setting properly
+  def stub_application_setting_enum(setting, value)
+    stub_application_setting(setting.to_sym => value)
+
+    ApplicationSetting.send(setting.pluralize.to_sym).each_key do |key|
+      stub_application_setting("#{setting}_#{key}".to_sym => key == value)
+    end
+
+    Gitlab::CurrentSettings.send(setting)
+  end
+
   def stub_not_protect_default_branch
     stub_application_setting(
       default_branch_protection: Gitlab::Access::PROTECTION_NONE)
+    stub_application_setting(default_branch_protection_defaults: Gitlab::Access::BranchProtection.protection_none)
   end
 
   def stub_config_setting(messages)
@@ -36,6 +49,10 @@ module StubConfiguration
   def stub_default_url_options(host: "localhost", protocol: "http", script_name: nil)
     url_options = { host: host, protocol: protocol, script_name: script_name }
     allow(Rails.application.routes).to receive(:default_url_options).and_return(url_options)
+  end
+
+  def stub_dependency_proxy_setting(messages)
+    allow(Gitlab.config.dependency_proxy).to receive_messages(to_settings(messages))
   end
 
   def stub_gravatar_setting(messages)
@@ -78,30 +95,36 @@ module StubConfiguration
     messages.deep_stringify_keys!
 
     # Default storage is always required
-    messages['default'] ||= Gitlab.config.repositories.storages.default
+    messages['default'] ||= Gitlab.config.repositories.storages[GitalySetup::REPOS_STORAGE]
     messages.each do |storage_name, storage_hash|
-      if !storage_hash.key?('path') || storage_hash['path'] == Gitlab::GitalyClient::StorageSettings::Deprecated
-        storage_hash['path'] = TestEnv.repos_path
+      # Default additional storages to connect to the default storage
+      unless storage_hash.key?('gitaly_address')
+        storage_hash['gitaly_address'] = Gitlab.config.repositories.storages[GitalySetup::REPOS_STORAGE].gitaly_address
       end
 
       messages[storage_name] = Gitlab::GitalyClient::StorageSettings.new(storage_hash.to_h)
     end
 
-    allow(Gitlab.config.repositories).to receive(:storages).and_return(Settingslogic.new(messages))
+    allow(Gitlab.config.repositories).to receive(:storages).and_return(::GitlabSettings::Options.build(messages))
   end
 
   def stub_sentry_settings(enabled: true)
-    allow(Gitlab.config.sentry).to receive(:enabled) { enabled }
     allow(Gitlab::CurrentSettings).to receive(:sentry_enabled?) { enabled }
 
     dsn = 'dummy://b44a0828b72421a6d8e99efd68d44fa8@example.com/42'
-    allow(Gitlab.config.sentry).to receive(:dsn) { dsn }
     allow(Gitlab::CurrentSettings).to receive(:sentry_dsn) { dsn }
 
     clientside_dsn = 'dummy://b44a0828b72421a6d8e99efd68d44fa8@example.com/43'
-    allow(Gitlab.config.sentry).to receive(:clientside_dsn) { clientside_dsn }
     allow(Gitlab::CurrentSettings)
       .to receive(:sentry_clientside_dsn) { clientside_dsn }
+  end
+
+  def clear_sentry_settings
+    Sentry.get_current_scope.clear
+  end
+
+  def stub_microsoft_graph_mailer_setting(messages)
+    allow(Gitlab.config.microsoft_graph_mailer).to receive_messages(to_settings(messages))
   end
 
   def stub_kerberos_setting(messages)
@@ -135,6 +158,11 @@ module StubConfiguration
     stub_application_setting(maintenance_mode: value)
   end
 
+  def stub_usage_ping_features(value)
+    stub_application_setting(usage_ping_enabled: value)
+    stub_application_setting(usage_ping_features_enabled: value)
+  end
+
   private
 
   # Modifies stubbed messages to also stub possible predicate versions
@@ -156,11 +184,11 @@ module StubConfiguration
     end
   end
 
-  # Support nested hashes by converting all values into Settingslogic objects
+  # Support nested hashes by converting all values into GitlabSettings::Objects objects
   def to_settings(hash)
     hash.transform_values do |value|
       if value.is_a? Hash
-        Settingslogic.new(value.deep_stringify_keys)
+        ::GitlabSettings::Options.build(value)
       else
         value
       end
@@ -169,6 +197,6 @@ module StubConfiguration
 end
 
 require_relative '../../../ee/spec/support/helpers/ee/stub_configuration' if
-  Dir.exist?("#{__dir__}/../../../ee")
+  GitlabEdition.ee?
 
 StubConfiguration.prepend_mod_with('StubConfiguration')

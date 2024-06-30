@@ -3,8 +3,10 @@ import { mount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
 import { removeBreakLine, removeWhitespace } from 'helpers/text_helper';
 import EnvironmentTable from '~/environments/components/environments_table.vue';
+import ConfirmRollbackModal from '~/environments/components/confirm_rollback_modal.vue';
 import EnvironmentsFolderViewComponent from '~/environments/folder/environments_folder_view.vue';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { environmentsList } from '../mock_data';
 
 describe('Environments Folder View', () => {
@@ -22,7 +24,7 @@ describe('Environments Folder View', () => {
 
   const mockEnvironments = (environmentList) => {
     mock.onGet(mockData.endpoint).reply(
-      200,
+      HTTP_STATUS_OK,
       {
         environments: environmentList,
         stopped_count: 1,
@@ -54,7 +56,6 @@ describe('Environments Folder View', () => {
 
   afterEach(() => {
     mock.restore();
-    wrapper.destroy();
   });
 
   describe('successful request', () => {
@@ -65,7 +66,7 @@ describe('Environments Folder View', () => {
     });
 
     it('should render a table with environments', () => {
-      const table = wrapper.find(EnvironmentTable);
+      const table = wrapper.findComponent(EnvironmentTable);
 
       expect(table.exists()).toBe(true);
       expect(table.find('.environment-name').text()).toEqual(environmentsList[0].name);
@@ -91,42 +92,26 @@ describe('Environments Folder View', () => {
       ).toContain('Environments / review');
     });
 
+    it('should render the confirm rollback modal', () => {
+      expect(wrapper.findComponent(ConfirmRollbackModal).exists()).toBe(true);
+    });
+
     describe('pagination', () => {
       it('should render pagination', () => {
-        expect(wrapper.find(GlPagination).exists()).toBe(true);
-      });
-
-      it('should make an API request when changing page', () => {
-        jest.spyOn(wrapper.vm, 'updateContent').mockImplementation(() => {});
-        wrapper.find('.gl-pagination .page-item:nth-last-of-type(2) .page-link').trigger('click');
-        expect(wrapper.vm.updateContent).toHaveBeenCalledWith({
-          scope: wrapper.vm.scope,
-          page: '10',
-          nested: true,
-        });
-      });
-
-      it('should make an API request when using tabs', () => {
-        jest.spyOn(wrapper.vm, 'updateContent').mockImplementation(() => {});
-        findEnvironmentsTabStopped().trigger('click');
-        expect(wrapper.vm.updateContent).toHaveBeenCalledWith({
-          scope: 'stopped',
-          page: '1',
-          nested: true,
-        });
+        expect(wrapper.findComponent(GlPagination).exists()).toBe(true);
       });
     });
   });
 
   describe('unsuccessfull request', () => {
     beforeEach(() => {
-      mock.onGet(mockData.endpoint).reply(500, { environments: [] });
+      mock.onGet(mockData.endpoint).reply(HTTP_STATUS_INTERNAL_SERVER_ERROR, { environments: [] });
       createWrapper();
       return axios.waitForAll();
     });
 
     it('should not render a table', () => {
-      expect(wrapper.find(EnvironmentTable).exists()).toBe(false);
+      expect(wrapper.findComponent(EnvironmentTable).exists()).toBe(false);
     });
 
     it('should render available tab with count 0', () => {
@@ -141,48 +126,6 @@ describe('Environments Folder View', () => {
 
       expect(tabTable.text()).toContain('Stopped');
       expect(tabTable.find('.badge').text()).toContain('0');
-    });
-  });
-
-  describe('methods', () => {
-    beforeEach(() => {
-      mockEnvironments([]);
-      createWrapper();
-      jest.spyOn(window.history, 'pushState').mockImplementation(() => {});
-      return axios.waitForAll();
-    });
-
-    describe('updateContent', () => {
-      it('should set given parameters', () =>
-        wrapper.vm.updateContent({ scope: 'stopped', page: '4' }).then(() => {
-          expect(wrapper.vm.page).toEqual('4');
-          expect(wrapper.vm.scope).toEqual('stopped');
-          expect(wrapper.vm.requestData.page).toEqual('4');
-        }));
-    });
-
-    describe('onChangeTab', () => {
-      it('should set page to 1', () => {
-        jest.spyOn(wrapper.vm, 'updateContent').mockImplementation(() => {});
-        wrapper.vm.onChangeTab('stopped');
-        expect(wrapper.vm.updateContent).toHaveBeenCalledWith({
-          scope: 'stopped',
-          page: '1',
-          nested: true,
-        });
-      });
-    });
-
-    describe('onChangePage', () => {
-      it('should update page and keep scope', () => {
-        jest.spyOn(wrapper.vm, 'updateContent').mockImplementation(() => {});
-        wrapper.vm.onChangePage(4);
-        expect(wrapper.vm.updateContent).toHaveBeenCalledWith({
-          scope: wrapper.vm.scope,
-          page: '4',
-          nested: true,
-        });
-      });
     });
   });
 });

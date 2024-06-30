@@ -1,17 +1,28 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# CI/CD analytics **(FREE)**
+# CI/CD analytics
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+Use the CI/CD analytics page to view pipeline success rates and duration, and the history of DORA metrics over time.
 
 ## Pipeline success and duration charts
 
-> [Renamed](https://gitlab.com/gitlab-org/gitlab/-/issues/38318) to CI/CD Analytics in GitLab 12.8.
-
 CI/CD analytics shows the history of your pipeline successes and failures, as well as how long each pipeline
 ran.
+
+Pipeline statistics are gathered by collecting all available pipelines for the
+project, regardless of status. The data available for each individual day is based
+on when the pipeline was created.
+
+The total pipeline calculation includes child
+pipelines and pipelines that failed with an invalid YAML. To filter pipelines based on other attributes, use the [Pipelines API](../../api/pipelines.md#list-project-pipelines).
 
 View successful pipelines:
 
@@ -21,71 +32,62 @@ View pipeline duration history:
 
 ![Pipeline duration](img/pipelines_duration_chart.png)
 
-Pipeline statistics are gathered by collecting all available pipelines for the
-project regardless of status. The data available for each individual day is based
-on when the pipeline was created. The total pipeline calculation includes child
-pipelines and pipelines that failed with invalid YAML. If you are interested in
-filtering pipelines based on other attributes, consider using the [Pipelines API](../../api/pipelines.md#list-project-pipelines).
-
 ## View CI/CD analytics
+
+You can view CI/CD analytics for a group or project.
+
+### For a group
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 To view CI/CD analytics:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Analytics > CI/CD Analytics**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Analyze > CI/CD analytics**.
 
-## DevOps Research and Assessment (DORA) key metrics **(ULTIMATE)**
+### For a project
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/275991) in GitLab 13.7.
-> - [Added support](https://gitlab.com/gitlab-org/gitlab/-/issues/291746) for lead time for changes in GitLab 13.10.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-The DevOps Research and Assessment ([DORA](https://cloud.google.com/blog/products/devops-sre/the-2019-accelerate-state-of-devops-elite-performance-productivity-and-scaling))
-team developed several key metrics that you can use as performance indicators for software development
-teams:
+To view CI/CD analytics:
 
-- Deployment frequency: How often an organization successfully releases to production.
-- Lead time for changes: The amount of time it takes for code to reach production.
-- Change failure rate: The percentage of deployments that cause a failure in production.
-- Time to restore service: How long it takes for an organization to recover from a failure in
-  production.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Analyze > CI/CD analytics**.
 
-### Supported metrics in GitLab
+## View DORA deployment frequency chart
 
-The following table shows the supported metrics, at which level they are supported, and which GitLab version (API and UI) they were introduced:
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-| Metric                    | Level               | API version                          | Chart (UI) version                    | Comments  |
-|---------------------------|---------------------|--------------------------------------|---------------------------------------|-----------|
-| `deployment_frequency`    | Project-level       | [13.7+](../../api/dora/metrics.md)   | [13.8+](#view-deployment-frequency-chart) | The [old API endpoint](../../api/dora4_project_analytics.md) was [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/323713) in 13.10. |
-| `deployment_frequency`    | Group-level         | [13.10+](../../api/dora/metrics.md)  | [13.12+](#view-deployment-frequency-chart)                    | |
-| `lead_time_for_changes`   | Project-level       | [13.10+](../../api/dora/metrics.md)  | [13.11+](#view-lead-time-for-changes-chart)           | Unit in seconds. Aggregation method is median. |
-| `lead_time_for_changes`   | Group-level         |  [13.10+](../../api/dora/metrics.md) | [14.0+](#view-lead-time-for-changes-chart)               | Unit in seconds. Aggregation method is median. |
-| `change_failure_rate`     | Project/Group-level |  To be supported                     | To be supported                       | |
-| `time_to_restore_service` | Project/Group-level |  To be supported                     | To be supported                       | |
-
-## View deployment frequency chart **(ULTIMATE)**
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/275991) in GitLab 13.8.
-
-The deployment frequency charts show information about the deployment
+The [deployment frequency](dora_metrics.md#deployment-frequency) charts show information about the deployment
 frequency to the `production` environment. The environment must be part of the
 [production deployment tier](../../ci/environments/index.md#deployment-tier-of-environments)
 for its deployment information to appear on the graphs.
+
+Deployment frequency is one of the four DORA metrics that DevOps teams use for measuring excellence in software delivery.
 
 The deployment frequency chart is available for groups and projects.
 
 To view the deployment frequency chart:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Analytics > CI/CD Analytics**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Analyze > CI/CD analytics**.
 1. Select the **Deployment frequency** tab.
 
 ![Deployment frequency](img/deployment_frequency_charts_v13_12.png)
 
-## View lead time for changes chart **(ULTIMATE)**
+## View DORA lead time for changes chart
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/250329) in GitLab 13.11.
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-The lead time for changes chart shows information about how long it takes for
+The [lead time for changes](dora_metrics.md#lead-time-for-changes) chart shows information about how long it takes for
 merge requests to be deployed to a production environment. This chart is available for groups and projects.
 
 - Small lead times indicate fast, efficient deployment
@@ -93,10 +95,50 @@ merge requests to be deployed to a production environment. This chart is availab
 - For time periods in which no merge requests were deployed, the charts render a
   red, dashed line.
 
+Lead time for changes is one of the four DORA metrics that DevOps teams use for measuring excellence in software delivery.
+
 To view the lead time for changes chart:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Analytics > CI/CD Analytics**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Analyze > CI/CD analytics**.
 1. Select the **Lead time** tab.
 
 ![Lead time](img/lead_time_chart_v13_11.png)
+
+## View DORA time to restore service chart
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356959) in GitLab 15.1
+
+The [time to restore service](dora_metrics.md#time-to-restore-service) chart shows information about the median time an incident was open in a production environment. This chart is available for groups and projects.
+
+Time to restore service is one of the four DORA metrics that DevOps teams use for measuring excellence in software delivery.
+
+To view the time to restore service chart:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Analyze > CI/CD analytics**.
+1. Select the **Time to restore service** tab.
+
+![Lead time](img/time_to_restore_service_charts_v15_1.png)
+
+## View DORA change failure rate chart
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/357072) in GitLab 15.2
+
+The [change failure rate](dora_metrics.md#change-failure-rate) chart shows information about the percentage of deployments that cause an incident in a production environment. This chart is available for groups and projects.
+
+Change failure rate is one of the four DORA metrics that DevOps teams use for measuring excellence in software delivery.
+
+To view the change failure rate chart:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Analyze > CI/CD analytics**.
+1. Select the **Change failure rate** tab.

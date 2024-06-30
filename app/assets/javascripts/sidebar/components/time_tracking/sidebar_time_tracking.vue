@@ -30,6 +30,16 @@ export default {
       required: false,
       default: false,
     },
+    canAddTimeEntries: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
+    canSetTimeEstimate: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   mounted() {
     this.listenForQuickActions();
@@ -61,12 +71,14 @@ export default {
 </script>
 
 <template>
-  <div class="block">
+  <div class="block time-tracking">
     <issuable-time-tracker
       :full-path="fullPath"
       :issuable-id="issuableId"
       :issuable-iid="issuableIid"
       :limit-to-hours="limitToHours"
+      :can-add-time-entries="canAddTimeEntries"
+      :can-set-time-estimate="canSetTimeEstimate"
     />
   </div>
 </template>

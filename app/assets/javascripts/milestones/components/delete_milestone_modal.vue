@@ -1,20 +1,23 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml, GlModal } from '@gitlab/ui';
-import createFlash from '~/flash';
+import { GlSprintf, GlModal } from '@gitlab/ui';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-
-import { redirectTo } from '~/lib/utils/url_utility';
+import { HTTP_STATUS_NOT_FOUND } from '~/lib/utils/http_status';
+import { visitUrl } from '~/lib/utils/url_utility';
 import { __, n__, s__, sprintf } from '~/locale';
 import eventHub from '../event_hub';
 
 export default {
   components: {
     GlModal,
-  },
-  directives: {
-    SafeHtml,
+    GlSprintf,
   },
   props: {
+    visible: {
+      type: Boolean,
+      default: false,
+      required: false,
+    },
     issueCount: {
       type: Number,
       required: true,
@@ -38,20 +41,10 @@ export default {
   },
   computed: {
     text() {
-      const milestoneTitle = sprintf('<strong>%{milestoneTitle}</strong>', {
-        milestoneTitle: this.milestoneTitle,
-      });
-
       if (this.issueCount === 0 && this.mergeRequestCount === 0) {
-        return sprintf(
-          s__(`Milestones|
+        return s__(`Milestones|
 You’re about to permanently delete the milestone %{milestoneTitle}.
-This milestone is not currently used in any issues or merge requests.`),
-          {
-            milestoneTitle,
-          },
-          false,
-        );
+This milestone is not currently used in any issues or merge requests.`);
       }
 
       return sprintf(
@@ -59,7 +52,6 @@ This milestone is not currently used in any issues or merge requests.`),
 You’re about to permanently delete the milestone %{milestoneTitle} and remove it from %{issuesWithCount} and %{mergeRequestsWithCount}.
 Once deleted, it cannot be undone or recovered.`),
         {
-          milestoneTitle,
           issuesWithCount: n__('%d issue', '%d issues', this.issueCount),
           mergeRequestsWithCount: n__(
             '%d merge request',
@@ -88,8 +80,8 @@ Once deleted, it cannot be undone or recovered.`),
             successful: true,
           });
 
-          // follow the rediect to milestones overview page
-          redirectTo(response.request.responseURL);
+          // follow the redirect to milestones overview page
+          visitUrl(response.request.responseURL);
         })
         .catch((error) => {
           eventHub.$emit('deleteMilestoneModal.requestFinished', {
@@ -97,26 +89,32 @@ Once deleted, it cannot be undone or recovered.`),
             successful: false,
           });
 
-          if (error.response && error.response.status === 404) {
-            createFlash({
+          if (error.response && error.response.status === HTTP_STATUS_NOT_FOUND) {
+            createAlert({
               message: sprintf(s__('Milestones|Milestone %{milestoneTitle} was not found'), {
                 milestoneTitle: this.milestoneTitle,
               }),
             });
           } else {
-            createFlash({
+            createAlert({
               message: sprintf(s__('Milestones|Failed to delete milestone %{milestoneTitle}'), {
                 milestoneTitle: this.milestoneTitle,
               }),
             });
           }
           throw error;
+        })
+        .finally(() => {
+          this.onClose();
         });
+    },
+    onClose() {
+      this.$emit('deleteModalVisible', false);
     },
   },
   primaryProps: {
     text: s__('Milestones|Delete milestone'),
-    attributes: [{ variant: 'danger' }, { category: 'primary' }],
+    attributes: { variant: 'danger', category: 'primary' },
   },
   cancelProps: {
     text: __('Cancel'),
@@ -126,12 +124,18 @@ Once deleted, it cannot be undone or recovered.`),
 
 <template>
   <gl-modal
+    :visible="visible"
     modal-id="delete-milestone-modal"
     :title="title"
     :action-primary="$options.primaryProps"
     :action-cancel="$options.cancelProps"
     @primary="onSubmit"
+    @hide="onClose"
   >
-    <p v-safe-html="text"></p>
+    <gl-sprintf :message="text">
+      <template #milestoneTitle>
+        <strong>{{ milestoneTitle }}</strong>
+      </template>
+    </gl-sprintf>
   </gl-modal>
 </template>

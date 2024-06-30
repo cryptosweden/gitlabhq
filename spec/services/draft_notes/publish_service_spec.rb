@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe DraftNotes::PublishService do
+RSpec.describe DraftNotes::PublishService, feature_category: :code_review_workflow do
   include RepoHelpers
 
-  let(:merge_request) { create(:merge_request) }
+  let_it_be(:merge_request) { create(:merge_request, reviewers: create_list(:user, 1)) }
   let(:project) { merge_request.target_project }
   let(:user) { merge_request.author }
   let(:commit) { project.commit(sample_commit.id) }
+  let(:internal) { false }
 
   let(:position) do
     Gitlab::Diff::Position.new(
@@ -25,7 +26,7 @@ RSpec.describe DraftNotes::PublishService do
 
   context 'single draft note' do
     let(:commit_id) { nil }
-    let!(:drafts) { create_list(:draft_note, 2, merge_request: merge_request, author: user, commit_id: commit_id, position: position) }
+    let!(:drafts) { create_list(:draft_note, 2, merge_request: merge_request, author: user, commit_id: commit_id, position: position, internal: internal) }
 
     it 'publishes' do
       expect { publish(draft: drafts.first) }.to change { DraftNote.count }.by(-1).and change { Note.count }.by(1)
@@ -61,6 +62,18 @@ RSpec.describe DraftNotes::PublishService do
         expect(merge_request.notes.first.commit_id).to eq(commit_id)
       end
     end
+
+    context 'internal is set' do
+      let(:position) { nil }
+      let(:internal) { true }
+
+      it 'creates internal note from draft' do
+        result = publish(draft: drafts.first)
+
+        expect(result[:status]).to eq(:success)
+        expect(merge_request.notes.first.internal).to eq(internal)
+      end
+    end
   end
 
   context 'multiple draft notes' do
@@ -76,6 +89,10 @@ RSpec.describe DraftNotes::PublishService do
         expect_next_instance_of(Review) do |review|
           allow(review).to receive(:save!).and_raise(ActiveRecord::RecordInvalid.new(review))
         end
+      end
+
+      it_behaves_like 'does not trigger GraphQL subscription mergeRequestMergeStatusUpdated' do
+        let(:action) { publish }
       end
 
       it 'does not publish any draft note' do
@@ -95,6 +112,10 @@ RSpec.describe DraftNotes::PublishService do
         expect(result[:status]).to eq(:error)
         expect(result[:message]).to match(/Unable to save Review/)
       end
+    end
+
+    it_behaves_like 'triggers GraphQL subscription mergeRequestMergeStatusUpdated' do
+      let(:action) { publish }
     end
 
     it 'returns success' do
@@ -164,11 +185,21 @@ RSpec.describe DraftNotes::PublishService do
         end
       end
 
-      it 'does not requests a lot from Gitaly', :request_store do
-        # NOTE: This should be reduced as we work on reducing Gitaly calls.
-        # Gitaly requests shouldn't go above this threshold as much as possible
-        # as it may add more to the Gitaly N+1 issue we are experiencing.
-        expect { publish }.to change { Gitlab::GitalyClient.get_request_count }.by(21)
+      context 'checking gitaly calls' do
+        # NOTE: This was added to avoid test flakiness.
+        let(:merge_request) { create(:merge_request) }
+
+        it 'does not request a lot from Gitaly', :request_store, :clean_gitlab_redis_cache do
+          merge_request
+          position
+
+          Gitlab::GitalyClient.reset_counts
+
+          # NOTE: This should be reduced as we work on reducing Gitaly calls.
+          # Gitaly requests shouldn't go above this threshold as much as possible
+          # as it may add more to the Gitaly N+1 issue we are experiencing.
+          expect { publish }.to change { Gitlab::GitalyClient.get_request_count }.by(19)
+        end
       end
     end
 
@@ -184,6 +215,26 @@ RSpec.describe DraftNotes::PublishService do
           expect(note.commit_id).to eq(commit_id)
         end
       end
+    end
+
+    it 'does not call UpdateReviewerStateService' do
+      publish
+
+      expect(MergeRequests::UpdateReviewerStateService).not_to receive(:new)
+    end
+  end
+
+  context 'with many draft notes', :use_sql_query_cache, :request_store do
+    let(:merge_request) { create(:merge_request) }
+
+    it 'reduce N+1 queries' do
+      5.times do
+        create(:draft_note_on_discussion, merge_request: merge_request, author: user, note: 'some note')
+      end
+
+      recorder = ActiveRecord::QueryRecorder.new(skip_cached: false) { publish }
+
+      expect(recorder.count).not_to be > 111
     end
   end
 
@@ -250,6 +301,7 @@ RSpec.describe DraftNotes::PublishService do
         refresh = MergeRequests::RefreshService.new(project: project, current_user: user)
         refresh.execute(oldrev, newrev, merge_request.source_branch_ref)
 
+        merge_request.reload
         expect { publish(draft: draft) }.to change { Suggestion.count }.by(1)
           .and change { DiffNote.count }.from(0).to(1)
 
@@ -279,9 +331,12 @@ RSpec.describe DraftNotes::PublishService do
       other_user = create(:user)
       project.add_developer(other_user)
 
-      create(:draft_note, merge_request: merge_request,
-                          author: user,
-                          note: "thanks\n/assign #{other_user.to_reference}")
+      create(
+        :draft_note,
+        merge_request: merge_request,
+        author: user,
+        note: "thanks\n/assign #{other_user.to_reference}"
+      )
 
       expect { publish }.to change { DraftNote.count }.by(-1).and change { Note.count }.by(2)
       expect(merge_request.reload.assignees).to match_array([other_user])

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -16,7 +17,9 @@ import (
 	"gitlab.com/gitlab-org/labkit/log"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/command"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/lsif_transformer/parser"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/upload/destination"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/zipartifacts"
 )
@@ -31,39 +34,34 @@ const (
 var zipSubcommandsErrorsCounter = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "gitlab_workhorse_zip_subcommand_errors_total",
-		Help: "Errors comming from subcommands used for processing ZIP archives",
+		Help: "Errors coming from subcommands used for processing ZIP archives",
 	}, []string{"error"})
 
 type artifactsUploadProcessor struct {
-	opts   *destination.UploadOpts
-	format string
+	format      string
+	processLSIF bool
+	tempDir     string
 
 	SavedFileTracker
 }
 
 // Artifacts is like a Multipart but specific for artifacts upload.
-func Artifacts(myAPI *api.API, h http.Handler, p Preparer) http.Handler {
+func Artifacts(myAPI *api.API, h http.Handler, p Preparer, cfg *config.Config) http.Handler {
 	return myAPI.PreAuthorizeHandler(func(w http.ResponseWriter, r *http.Request, a *api.Response) {
-		opts, _, err := p.Prepare(a)
-		if err != nil {
-			helper.Fail500(w, r, fmt.Errorf("UploadArtifacts: error preparing file storage options"))
-			return
-		}
-
 		format := r.URL.Query().Get(ArtifactFormatKey)
-
-		mg := &artifactsUploadProcessor{opts: opts, format: format, SavedFileTracker: SavedFileTracker{Request: r}}
-		interceptMultipartFiles(w, r, h, a, mg, opts)
+		mg := &artifactsUploadProcessor{
+			format:           format,
+			processLSIF:      a.ProcessLsif,
+			tempDir:          a.TempPath,
+			SavedFileTracker: SavedFileTracker{Request: r},
+		}
+		interceptMultipartFiles(w, r, h, mg, &eagerAuthorizer{a}, p, cfg)
 	}, "/authorize")
 }
 
-func (a *artifactsUploadProcessor) generateMetadataFromZip(ctx context.Context, file *destination.FileHandler) (*destination.FileHandler, error) {
-	metaReader, metaWriter := io.Pipe()
-	defer metaWriter.Close()
-
+func (a *artifactsUploadProcessor) generateMetadataFromZip(ctx context.Context, file *destination.FileHandler, readerLimit int64) (*destination.FileHandler, error) {
 	metaOpts := &destination.UploadOpts{
-		LocalTempPath:  a.opts.LocalTempPath,
-		TempFilePrefix: "metadata.gz",
+		LocalTempPath: a.tempDir,
 	}
 	if metaOpts.LocalTempPath == "" {
 		metaOpts.LocalTempPath = os.TempDir()
@@ -74,30 +72,43 @@ func (a *artifactsUploadProcessor) generateMetadataFromZip(ctx context.Context, 
 		fileName = file.RemoteURL
 	}
 
-	zipMd := exec.CommandContext(ctx, "gitlab-zip-metadata", fileName)
-	zipMd.Stderr = log.ContextLogger(ctx).Writer()
-	zipMd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	zipMd.Stdout = metaWriter
-
-	if err := zipMd.Start(); err != nil {
-		return nil, err
-	}
-	defer helper.CleanUpProcessGroup(zipMd)
-
-	type saveResult struct {
-		error
-		*destination.FileHandler
-	}
-	done := make(chan saveResult)
-	go func() {
-		var result saveResult
-		result.FileHandler, result.error = destination.Upload(ctx, metaReader, -1, metaOpts)
-
-		done <- result
+	logWriter := log.ContextLogger(ctx).Writer()
+	defer func() {
+		if closeErr := logWriter.Close(); closeErr != nil {
+			log.ContextLogger(ctx).WithError(closeErr).Error("failed to close gitlab-zip-metadata log writer")
+		}
 	}()
 
+	zipMd := exec.CommandContext(ctx, "gitlab-zip-metadata", "-zip-reader-limit", strconv.FormatInt(readerLimit, 10), fileName)
+	zipMd.Stderr = logWriter
+	zipMd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	zipMdOut, err := zipMd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err = zipMdOut.Close(); err != nil {
+			log.ContextLogger(ctx).WithError(err).Error("Failed to close zip-metadata stdout")
+		}
+	}()
+
+	if err = zipMd.Start(); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err = command.KillProcessGroup(zipMd); err != nil {
+			log.ContextLogger(ctx).WithError(err).Error("Failed to kill zip-metadata process group")
+		}
+	}()
+
+	fh, err := destination.Upload(ctx, zipMdOut, -1, "metadata.gz", metaOpts)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := zipMd.Wait(); err != nil {
-		st, ok := helper.ExitStatus(err)
+		st, ok := command.ExitStatus(err)
 
 		if !ok {
 			return nil, err
@@ -114,17 +125,15 @@ func (a *artifactsUploadProcessor) generateMetadataFromZip(ctx context.Context, 
 		}
 	}
 
-	metaWriter.Close()
-	result := <-done
-	return result.FileHandler, result.error
+	return fh, nil
 }
 
-func (a *artifactsUploadProcessor) ProcessFile(ctx context.Context, formName string, file *destination.FileHandler, writer *multipart.Writer) error {
+func (a *artifactsUploadProcessor) ProcessFile(ctx context.Context, formName string, file *destination.FileHandler, writer *multipart.Writer, cfg *config.Config) error {
 	//  ProcessFile for artifacts requires file form-data field name to eq `file`
-
 	if formName != "file" {
 		return fmt.Errorf("invalid form field: %q", formName)
 	}
+
 	if a.Count() > 0 {
 		return fmt.Errorf("artifacts request contains more than one file")
 	}
@@ -140,8 +149,7 @@ func (a *artifactsUploadProcessor) ProcessFile(ctx context.Context, formName str
 		return nil
 	}
 
-	// TODO: can we rely on disk for shipping metadata? Not if we split workhorse and rails in 2 different PODs
-	metadata, err := a.generateMetadataFromZip(ctx, file)
+	metadata, err := a.generateMetadataFromZip(ctx, file, cfg.MetadataConfig.ZipReaderLimitBytes)
 	if err != nil {
 		return err
 	}
@@ -153,7 +161,9 @@ func (a *artifactsUploadProcessor) ProcessFile(ctx context.Context, formName str
 		}
 
 		for k, v := range fields {
-			writer.WriteField(k, v)
+			if err := writer.WriteField(k, v); err != nil {
+				return fmt.Errorf("write metadata field error: %v", err)
+			}
 		}
 
 		a.Track("metadata", metadata.LocalPath)
@@ -162,6 +172,12 @@ func (a *artifactsUploadProcessor) ProcessFile(ctx context.Context, formName str
 	return nil
 }
 
-func (a *artifactsUploadProcessor) Name() string {
-	return "artifacts"
+func (a *artifactsUploadProcessor) Name() string { return "artifacts" }
+
+func (a *artifactsUploadProcessor) TransformContents(ctx context.Context, filename string, r io.Reader) (io.ReadCloser, error) {
+	if a.processLSIF {
+		return parser.NewParser(ctx, r)
+	}
+
+	return a.SavedFileTracker.TransformContents(ctx, filename, r)
 }

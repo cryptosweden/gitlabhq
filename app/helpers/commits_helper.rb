@@ -22,17 +22,16 @@ module CommitsHelper
       user: committer,
       user_name: committer.name,
       user_email: committer.email,
-      css_class: 'd-none d-sm-inline-block float-none gl-mr-0! gl-vertical-align-text-bottom'
+      css_class: 'gl-hidden sm:gl-inline-block float-none gl-mr-0! gl-vertical-align-text-bottom'
     }))
   end
 
   def commit_to_html(commit, ref, project)
-    render partial: 'projects/commits/commit', formats: :html,
-      locals: {
-        commit: commit,
-        ref: ref,
-        project: project
-      }
+    render partial: 'projects/commits/commit', formats: :html, locals: {
+      commit: commit,
+      ref: ref,
+      project: project
+    }
   end
 
   # Breadcrumb links for a Project and, if applicable, a tree path
@@ -43,7 +42,7 @@ module CommitsHelper
     crumbs = content_tag(:li, class: 'breadcrumb-item') do
       link_to(
         @project.path,
-        project_commits_path(@project, @ref)
+        project_commits_path(@project, @ref, ref_type: @ref_type)
       )
     end
 
@@ -57,7 +56,8 @@ module CommitsHelper
             part,
             project_commits_path(
               @project,
-              tree_join(@ref, parts[0..i].join('/'))
+              tree_join(@ref, parts[0..i].join('/')),
+              ref_type: @ref_type
             )
           )
         end
@@ -112,7 +112,7 @@ module CommitsHelper
       tooltip = _("Browse Directory")
     end
 
-    link_to url, class: "btn gl-button btn-default btn-icon has-tooltip", title: tooltip, data: { container: "body" } do
+    render Pajamas::ButtonComponent.new(href: url, button_options: { title: tooltip, class: 'has-tooltip btn-icon', data: { container: 'body' } }) do
       sprite_icon('folder-open')
     end
   end
@@ -124,23 +124,40 @@ module CommitsHelper
       new_project_tag_path: new_project_tag_path(project, ref: commit),
       email_patches_path: project_commit_path(project, commit, format: :patch),
       plain_diff_path: project_commit_path(project, commit, format: :diff),
-      can_revert: "#{can_collaborate && !commit.has_been_reverted?(current_user)}",
+      can_revert: (can_collaborate && !commit.has_been_reverted?(current_user)).to_s,
       can_cherry_pick: can_collaborate.to_s,
       can_tag: can?(current_user, :push_code, project).to_s,
       can_email_patches: (commit.parents.length < 2).to_s
     }
   end
 
-  def commit_signature_badge_classes(additional_classes)
-    %w(btn gpg-status-box) + Array(additional_classes)
-  end
-
-  def conditionally_paginate_diff_files(diffs, paginate:, per:)
+  def conditionally_paginate_diff_files(diffs, paginate:, page:, per:)
     if paginate
-      Kaminari.paginate_array(diffs.diff_files.to_a).page(params[:page]).per(per)
+      diff_files = diffs.diff_files.to_a
+      project = diffs.project
+      repo = project.repository
+
+      # While Feature flag increase_diff_file_performance exists, we clear both
+      Gitlab::Utils::BatchLoader.clear_key([:repository_blobs, repo, Gitlab::Diff::FileCollection::MergeRequestDiffBase.max_blob_size(project)])
+      Gitlab::Utils::BatchLoader.clear_key([:repository_blobs, repo, Gitlab::Git::Blob::MAX_DATA_DISPLAY_SIZE])
+      Gitlab::Utils::BatchLoader.clear_key([:repository_blobs, repo])
+
+      Kaminari.paginate_array(diff_files).page(page).per(per).tap do |diff_files|
+        diff_files.each(&:add_blobs_to_batch_loader)
+      end
     else
       diffs.diff_files
     end
+  end
+
+  def local_committed_date(commit, user)
+    server_timezone = Time.zone
+    user_timezone = user.timezone if user
+    user_timezone = ActiveSupport::TimeZone.new(user_timezone) if user_timezone
+
+    timezone = user_timezone || server_timezone
+
+    commit.committed_date.in_time_zone(timezone).to_date
   end
 
   def cherry_pick_projects_data(project)
@@ -166,10 +183,11 @@ module CommitsHelper
       ref,
       {
         merge_request: merge_request&.cache_key,
-        pipeline_status: commit.status_for(ref)&.cache_key,
+        pipeline_status: commit.detailed_status_for(ref)&.cache_key,
         xhr: request.xhr?,
         controller: controller.controller_path,
-        path: @path # referred to in #link_to_browse_code
+        path: @path, # referred to in #link_to_browse_code
+        referenced_by: tag_checksum(commit.referenced_by)
       }
     ]
   end
@@ -184,18 +202,23 @@ module CommitsHelper
 
   def diff_mode_swap_button(mode, file_hash)
     icon = mode == 'raw' ? 'doc-code' : 'doc-text'
-    entity = mode == 'raw' ? 'toHideBtn' : 'toShowBtn'
+    entity = mode == 'raw' ? 'rawButton' : 'renderedButton'
     title = "Display #{mode} diff"
 
-    link_to("##{mode}-diff-#{file_hash}",
-            class: "btn gl-button btn-default btn-file-option has-tooltip btn-show-#{mode}-diff",
-            title: title,
-            data: { file_hash: file_hash, diff_toggle_entity: entity }) do
+    render Pajamas::ButtonComponent.new(
+      href: "##{mode}-diff-#{file_hash}",
+      button_options: { title: title,
+                        class: "btn-file-option has-tooltip btn-show-#{mode}-diff",
+                        data: { file_hash: file_hash, diff_toggle_entity: entity } }) do
       sprite_icon(icon)
     end
   end
 
   protected
+
+  def tag_checksum(tags_array)
+    ::Zlib.crc32(tags_array.sort.join)
+  end
 
   # Private: Returns a link to a person. If the person has a matching user and
   # is a member of the current @project it will link to the team member page.
@@ -235,7 +258,7 @@ module CommitsHelper
     path = project_blob_path(project, tree_join(commit_sha, diff_new_path))
     title = replaced ? _('View replaced file @ ') : _('View file @ ')
 
-    link_to(path, class: 'btn gl-button btn-default gl-ml-3') do
+    render Pajamas::ButtonComponent.new(href: path, button_options: { class: 'gl-ml-3' }) do
       raw(title) + content_tag(:span, truncate_sha(commit_sha), class: 'commit-sha')
     end
   end
@@ -246,7 +269,7 @@ module CommitsHelper
     external_url = environment.external_url_for(diff_new_path, commit_sha)
     return unless external_url
 
-    link_to(external_url, class: 'btn gl-button btn-default btn-file-option has-tooltip', target: '_blank', rel: 'noopener noreferrer', title: "View on #{environment.formatted_external_url}", data: { container: 'body' }) do
+    render Pajamas::ButtonComponent.new(href: external_url, target: '_blank', button_options: { rel: 'noopener noreferrer', title: "View on #{environment.formatted_external_url}", data: { container: 'body' } }) do
       sprite_icon('external-link')
     end
   end

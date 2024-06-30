@@ -1,10 +1,25 @@
-import { VueNodeViewRenderer } from '@tiptap/vue-2';
+import { lowlight } from 'lowlight/lib/core';
 import { PARSE_HTML_PRIORITY_HIGHEST } from '../constants';
-import FrontmatterWrapper from '../components/wrappers/frontmatter.vue';
 import CodeBlockHighlight from './code_block_highlight';
 
 export default CodeBlockHighlight.extend({
   name: 'frontmatter',
+
+  addOptions() {
+    return {
+      lowlight,
+    };
+  },
+
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      isFrontmatter: {
+        default: true,
+      },
+    };
+  },
+
   parseHTML() {
     return [
       {
@@ -16,16 +31,17 @@ export default CodeBlockHighlight.extend({
   },
   addCommands() {
     return {
-      setFrontmatter: (attributes) => ({ commands }) => {
-        return commands.setNode(this.name, attributes);
-      },
-      toggleFrontmatter: (attributes) => ({ commands }) => {
-        return commands.toggleNode(this.name, 'paragraph', attributes);
-      },
+      setFrontmatter:
+        (attributes) =>
+        ({ commands }) => {
+          return commands.setNode(this.name, attributes);
+        },
+      toggleFrontmatter:
+        (attributes) =>
+        ({ commands }) => {
+          return commands.toggleNode(this.name, 'paragraph', attributes);
+        },
     };
-  },
-  addNodeView() {
-    return new VueNodeViewRenderer(FrontmatterWrapper);
   },
 
   addInputRules() {

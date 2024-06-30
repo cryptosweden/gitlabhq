@@ -8,7 +8,7 @@ RSpec.describe Gitlab::ProcessManagement do
       expect(described_class).to receive(:trap).ordered.with(:INT)
       expect(described_class).to receive(:trap).ordered.with(:HUP)
 
-      described_class.trap_signals(%i(INT HUP))
+      described_class.trap_signals(%i[INT HUP])
     end
   end
 
@@ -17,7 +17,7 @@ RSpec.describe Gitlab::ProcessManagement do
       expect(described_class).to receive(:trap).ordered.with(:INT, 'DEFAULT')
       expect(described_class).to receive(:trap).ordered.with(:HUP, 'DEFAULT')
 
-      described_class.modify_signals(%i(INT HUP), 'DEFAULT')
+      described_class.modify_signals(%i[INT HUP], 'DEFAULT')
     end
   end
 
@@ -38,15 +38,6 @@ RSpec.describe Gitlab::ProcessManagement do
     it 'returns false when the process does not exist' do
       allow(Process).to receive(:kill).with(:INT, 4).and_raise(Errno::ESRCH)
       expect(described_class.signal(4, :INT)).to eq(false)
-    end
-  end
-
-  describe '.wait_async' do
-    it 'waits for a process in a separate thread' do
-      thread = described_class.wait_async(Process.spawn('true'))
-
-      # Upon success Process.wait just returns the PID.
-      expect(thread.value).to be_a_kind_of(Numeric)
     end
   end
 

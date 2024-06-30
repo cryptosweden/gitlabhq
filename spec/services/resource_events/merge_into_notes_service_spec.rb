@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ResourceEvents::MergeIntoNotesService do
+RSpec.describe ResourceEvents::MergeIntoNotesService, feature_category: :team_planning do
   def create_event(params)
     event_params = { action: :add, label: label, issue: resource,
                      user: user }
@@ -33,7 +33,7 @@ RSpec.describe ResourceEvents::MergeIntoNotesService do
 
       notes = described_class.new(resource, user).execute([note1, note2])
 
-      expected = [note1, event1, note2, event2].map(&:discussion_id)
+      expected = [note1, event1, note2, event2].map(&:reload).map(&:discussion_id)
       expect(notes.map(&:discussion_id)).to eq expected
     end
 
@@ -61,11 +61,10 @@ RSpec.describe ResourceEvents::MergeIntoNotesService do
       create_event(created_at: 4.days.ago)
       event = create_event(created_at: 1.day.ago)
 
-      notes = described_class.new(resource, user,
-                                  last_fetched_at: 2.days.ago).execute
+      notes = described_class.new(resource, user, last_fetched_at: 2.days.ago).execute
 
       expect(notes.count).to eq 1
-      expect(notes.first.discussion_id).to eq event.discussion_id
+      expect(notes.first.discussion_id).to eq event.reload.discussion_id
     end
 
     it "preloads the note author's status" do

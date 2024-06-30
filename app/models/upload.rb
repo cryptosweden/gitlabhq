@@ -2,6 +2,7 @@
 
 class Upload < ApplicationRecord
   include Checksummable
+  include EachBatch
 
   # Upper limit for foreground checksum processing
   CHECKSUM_THRESHOLD = 100.megabytes
@@ -15,15 +16,15 @@ class Upload < ApplicationRecord
 
   scope :with_files_stored_locally, -> { where(store: ObjectStorage::Store::LOCAL) }
   scope :with_files_stored_remotely, -> { where(store: ObjectStorage::Store::REMOTE) }
+  scope :for_model_type_and_id, ->(type, id) { where(model_type: type, model_id: id) }
 
-  before_save  :calculate_checksum!, if: :foreground_checksummable?
-  after_commit :schedule_checksum,   if: :needs_checksum?
-
-  after_commit :update_project_statistics, on: [:create, :destroy], if: :project?
-
+  before_save :calculate_checksum!, if: :foreground_checksummable?
   # as the FileUploader is not mounted, the default CarrierWave ActiveRecord
   # hooks are not executed and the file will not be deleted
   after_destroy :delete_file!, if: -> { uploader_class <= FileUploader }
+  after_commit :schedule_checksum, if: :needs_checksum?
+
+  after_commit :update_project_statistics, on: [:create, :destroy], if: :project?
 
   class << self
     def inner_join_local_uploads_projects
@@ -174,7 +175,7 @@ class Upload < ApplicationRecord
   end
 
   def update_project_statistics
-    ProjectCacheWorker.perform_async(model_id, [], [:uploads_size])
+    ProjectCacheWorker.perform_async(model_id, [], ['uploads_size'])
   end
 end
 

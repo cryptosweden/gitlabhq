@@ -1,5 +1,6 @@
 <script>
-import { GlIcon, GlTooltipDirective } from '@gitlab/ui';
+import { GlButton, GlIcon, GlTooltipDirective } from '@gitlab/ui';
+import { TYPE_ISSUE, TYPE_MERGE_REQUEST } from '~/issues/constants';
 import { __, sprintf } from '~/locale';
 import { isUserBusy } from '~/set_status_modal/utils';
 import CollapsedAssignee from './collapsed_assignee.vue';
@@ -16,7 +17,7 @@ const generateCollapsedAssigneeTooltip = ({ renderUsers, allUsers, tooltipTitleM
   });
 
   if (!allUsers.length) {
-    return __('Assignee(s)');
+    return __('Assignees');
   }
   if (allUsers.length > names.length) {
     names.push(sprintf(__('+ %{amount} more'), { amount: allUsers.length - names.length }));
@@ -30,6 +31,7 @@ export default {
     GlTooltip: GlTooltipDirective,
   },
   components: {
+    GlButton,
     CollapsedAssignee,
     GlIcon,
   },
@@ -41,12 +43,12 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: 'issue',
+      default: TYPE_ISSUE,
     },
   },
   computed: {
     isMergeRequest() {
-      return this.issuableType === 'merge_request';
+      return this.issuableType === TYPE_MERGE_REQUEST;
     },
     hasNoUsers() {
       return !this.users.length;
@@ -83,7 +85,8 @@ export default {
 
       if (mergeLength === this.users.length) {
         return '';
-      } else if (mergeLength > 0) {
+      }
+      if (mergeLength > 0) {
         return sprintf(__('%{mergeLength}/%{usersLength} can merge'), {
           mergeLength,
           usersLength: this.users.length,
@@ -123,14 +126,18 @@ export default {
       :user="user"
       :issuable-type="issuableType"
     />
-    <button v-if="hasMoreThanTwoAssignees" class="btn-link" type="button">
-      <span class="avatar-counter sidebar-avatar-counter"> {{ sidebarAvatarCounter }} </span>
+    <gl-button v-if="hasMoreThanTwoAssignees" variant="link" class="gl-bg-transparent!">
+      <span
+        class="avatar-counter sidebar-avatar-counter gl-display-flex gl-align-items-center gl-pl-3"
+      >
+        {{ sidebarAvatarCounter }}
+      </span>
       <gl-icon
         v-if="isMergeRequest && !allAssigneesCanMerge"
         name="warning-solid"
         aria-hidden="true"
         class="merge-icon"
       />
-    </button>
+    </gl-button>
   </div>
 </template>

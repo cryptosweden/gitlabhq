@@ -4,7 +4,7 @@ require 'spec_helper'
 
 # Based on ee/spec/requests/api/epics_spec.rb
 # Should follow closely in order to ensure all situations are covered
-RSpec.describe 'Query.group.mergeRequests' do
+RSpec.describe 'Query.group.mergeRequests', feature_category: :code_review_workflow do
   include GraphqlHelpers
 
   let_it_be(:group)     { create(:group) }
@@ -14,7 +14,7 @@ RSpec.describe 'Query.group.mergeRequests' do
   let_it_be(:project_b) { create(:project, :repository, group: group) }
   let_it_be(:project_c) { create(:project, :repository, group: sub_group) }
   let_it_be(:project_x) { create(:project, :repository) }
-  let_it_be(:user)      { create(:user, developer_projects: [project_x]) }
+  let_it_be(:user)      { create(:user, developer_of: [project_x, group]) }
 
   let_it_be(:archived_project) { create(:project, :archived, :repository, group: group) }
   let_it_be(:archived_mr) { create(:merge_request, source_project: archived_project) }
@@ -34,12 +34,8 @@ RSpec.describe 'Query.group.mergeRequests' do
 
   let(:mrs_data) { graphql_data_at(:group, :merge_requests, :nodes) }
 
-  before do
-    group.add_developer(user)
-  end
-
   def expected_mrs(mrs)
-    mrs.map { |mr| a_hash_including('id' => global_id_of(mr)) }
+    mrs.map { |mr| a_graphql_entity_for(mr) }
   end
 
   describe 'not passing any arguments' do

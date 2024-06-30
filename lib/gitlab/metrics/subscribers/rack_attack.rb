@@ -15,32 +15,11 @@ module Gitlab
 
         INSTRUMENTATION_STORE_KEY = :rack_attack_instrumentation
 
-        THROTTLES_WITH_USER_INFORMATION = [
-          :throttle_authenticated_api,
-          :throttle_authenticated_web,
-          :throttle_authenticated_protected_paths_api,
-          :throttle_authenticated_protected_paths_web,
-          :throttle_authenticated_packages_api,
-          :throttle_authenticated_git_lfs,
-          :throttle_authenticated_files_api,
-          :throttle_authenticated_deprecated_api
-        ].freeze
-
-        PAYLOAD_KEYS = [
-          :rack_attack_redis_count,
-          :rack_attack_redis_duration_s
-        ].freeze
-
         def self.payload
           Gitlab::SafeRequestStore[INSTRUMENTATION_STORE_KEY] ||= {
             rack_attack_redis_count: 0,
             rack_attack_redis_duration_s: 0.0
           }
-        end
-
-        def redis(event)
-          self.class.payload[:rack_attack_redis_count] += 1
-          self.class.payload[:rack_attack_redis_duration_s] += event.duration.to_f / 1000
         end
 
         def safelist(event)
@@ -49,20 +28,20 @@ module Gitlab
         end
 
         def throttle(event)
-          log_into_auth_logger(event)
+          log_into_auth_logger(event, status: 429)
         end
 
         def blocklist(event)
-          log_into_auth_logger(event)
+          log_into_auth_logger(event, status: 403)
         end
 
         def track(event)
-          log_into_auth_logger(event)
+          log_into_auth_logger(event, status: nil)
         end
 
         private
 
-        def log_into_auth_logger(event)
+        def log_into_auth_logger(event, status:)
           req = event.payload[:request]
           rack_attack_info = {
             message: 'Rack_Attack',
@@ -73,12 +52,20 @@ module Gitlab
             matched: req.env['rack.attack.matched']
           }
 
-          if THROTTLES_WITH_USER_INFORMATION.include? req.env['rack.attack.matched'].to_sym
-            user_id = req.env['rack.attack.match_discriminator']
-            user = User.find_by(id: user_id) # rubocop:disable CodeReuse/ActiveRecord
+          if status
+            rack_attack_info[:status] = status
+          end
 
-            rack_attack_info[:user_id] = user_id
+          discriminator = req.env['rack.attack.match_discriminator'].to_s
+          discriminator_id = discriminator.split(':').last
+
+          if discriminator.starts_with?('user:')
+            user = User.find_by(id: discriminator_id) # rubocop:disable CodeReuse/ActiveRecord
+
+            rack_attack_info[:user_id] = discriminator_id.to_i
             rack_attack_info['meta.user'] = user.username unless user.nil?
+          elsif discriminator.starts_with?('deploy_token:')
+            rack_attack_info[:deploy_token_id] = discriminator_id.to_i
           end
 
           Gitlab::InstrumentationHelper.add_instrumentation_data(rack_attack_info)

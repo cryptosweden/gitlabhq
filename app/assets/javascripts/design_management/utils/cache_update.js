@@ -1,8 +1,7 @@
-/* eslint-disable @gitlab/require-i18n-strings */
-
 import produce from 'immer';
 import { differenceBy } from 'lodash';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import { TYPENAME_DISCUSSION, TYPENAME_TODO, TYPENAME_USER } from '~/graphql_shared/constants';
 import { extractCurrentDiscussion, extractDesign, extractDesigns } from './design_management_utils';
 import {
   ADD_IMAGE_DIFF_NOTE_ERROR,
@@ -60,7 +59,7 @@ const addImageDiffNoteToStore = (store, createImageDiffNote, query, variables) =
   });
 
   const newDiscussion = {
-    __typename: 'Discussion',
+    __typename: TYPENAME_DISCUSSION,
     id: createImageDiffNote.note.discussion.id,
     replyId: createImageDiffNote.note.discussion.replyId,
     resolvable: true,
@@ -86,7 +85,7 @@ const addImageDiffNoteToStore = (store, createImageDiffNote, query, variables) =
       design.issue.participants.nodes = [
         ...design.issue.participants.nodes,
         {
-          __typename: 'User',
+          __typename: TYPENAME_USER,
           ...createImageDiffNote.note.author,
         },
       ];
@@ -199,7 +198,7 @@ export const addPendingTodoToStore = (store, pendingTodo, query, queryVariables)
   const data = produce(sourceData, (draftData) => {
     const design = extractDesign(draftData);
     const existingTodos = design.currentUserTodos?.nodes || [];
-    const newTodoNodes = [...existingTodos, { ...pendingTodo, __typename: 'Todo' }];
+    const newTodoNodes = [...existingTodos, { ...pendingTodo, __typename: TYPENAME_TODO }];
 
     if (!design.currentUserTodos) {
       design.currentUserTodos = {
@@ -234,7 +233,7 @@ export const deletePendingTodoFromStore = (store, todoMarkDone, query, queryVari
 };
 
 const onError = (data, message) => {
-  createFlash({ message });
+  createAlert({ message });
   throw new Error(data.errors);
 };
 
@@ -283,7 +282,7 @@ export const updateStoreAfterUploadDesign = (store, data, query) => {
 
 export const updateDesignsOnStoreAfterReorder = (store, data, query) => {
   if (hasErrors(data)) {
-    createFlash({ message: data.errors[0] });
+    createAlert({ message: data.errors[0] });
   } else {
     moveDesignInStore(store, data, query);
   }

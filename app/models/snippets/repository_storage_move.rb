@@ -12,14 +12,11 @@ module Snippets
 
     belongs_to :container, class_name: 'Snippet', inverse_of: :repository_storage_moves, foreign_key: :snippet_id
     alias_attribute :snippet, :container
+    alias_attribute :container_id, :snippet_id
 
     override :schedule_repository_storage_update_worker
     def schedule_repository_storage_update_worker
-      Snippets::UpdateRepositoryStorageWorker.perform_async(
-        snippet_id,
-        destination_storage_name,
-        id
-      )
+      Snippets::UpdateRepositoryStorageWorker.perform_async(id)
     end
 
     private

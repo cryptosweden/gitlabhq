@@ -1,21 +1,24 @@
-import { GlAlert, GlToggle, GlTooltip } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
+import { GlLink, GlSprintf, GlToggle } from '@gitlab/ui';
 import MockAxiosAdapter from 'axios-mock-adapter';
 import { nextTick } from 'vue';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK, HTTP_STATUS_UNAUTHORIZED } from '~/lib/utils/http_status';
 import SharedRunnersToggleComponent from '~/projects/settings/components/shared_runners_toggle.vue';
 
 const TEST_UPDATE_PATH = '/test/update_shared_runners';
+const mockParentName = 'My group';
+const mockGroupSettingsPath = '/groups/my-group/-/settings/ci_cd';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('projects/settings/components/shared_runners', () => {
   let wrapper;
   let mockAxios;
 
   const createComponent = (props = {}) => {
-    wrapper = shallowMount(SharedRunnersToggleComponent, {
+    wrapper = shallowMountExtended(SharedRunnersToggleComponent, {
       propsData: {
         isEnabled: false,
         isDisabledAndUnoverridable: false,
@@ -24,24 +27,25 @@ describe('projects/settings/components/shared_runners', () => {
         isCreditCardValidationRequired: false,
         ...props,
       },
+      stubs: {
+        GlSprintf,
+      },
     });
   };
 
-  const findErrorAlert = () => wrapper.find(GlAlert);
-  const findSharedRunnersToggle = () => wrapper.find(GlToggle);
-  const findToggleTooltip = () => wrapper.find(GlTooltip);
+  const findErrorAlert = () => wrapper.findByTestId('error-alert');
+  const findUnoverridableAlert = () => wrapper.findByTestId('unoverridable-alert');
+  const findSharedRunnersToggle = () => wrapper.findComponent(GlToggle);
   const getToggleValue = () => findSharedRunnersToggle().props('value');
   const isToggleLoading = () => findSharedRunnersToggle().props('isLoading');
   const isToggleDisabled = () => findSharedRunnersToggle().props('disabled');
 
   beforeEach(() => {
     mockAxios = new MockAxiosAdapter(axios);
-    mockAxios.onPost(TEST_UPDATE_PATH).reply(200);
+    mockAxios.onPost(TEST_UPDATE_PATH).reply(HTTP_STATUS_OK);
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
     mockAxios.restore();
   });
 
@@ -56,8 +60,30 @@ describe('projects/settings/components/shared_runners', () => {
       expect(isToggleDisabled()).toBe(true);
     });
 
-    it('tooltip should exist explaining why the toggle is disabled', () => {
-      expect(findToggleTooltip().exists()).toBe(true);
+    it('renders text explaining why the toggle is disabled', () => {
+      expect(findSharedRunnersToggle().text()).toEqual(
+        'Instance runners are disabled in the group settings.',
+      );
+    });
+
+    describe('when user can configure group', () => {
+      beforeEach(() => {
+        createComponent({
+          isDisabledAndUnoverridable: true,
+          groupName: mockParentName,
+          groupSettingsPath: mockGroupSettingsPath,
+        });
+      });
+
+      it('renders link to enable', () => {
+        expect(findSharedRunnersToggle().text()).toContain(
+          `Go to ${mockParentName} to enable them.`,
+        );
+
+        const link = findSharedRunnersToggle().findComponent(GlLink);
+        expect(link.text()).toBe(mockParentName);
+        expect(link.attributes('href')).toBe(mockGroupSettingsPath);
+      });
     });
   });
 
@@ -73,7 +99,7 @@ describe('projects/settings/components/shared_runners', () => {
     it('loading icon, error message, and tooltip should not exist', () => {
       expect(isToggleLoading()).toBe(false);
       expect(findErrorAlert().exists()).toBe(false);
-      expect(findToggleTooltip().exists()).toBe(false);
+      expect(findUnoverridableAlert().exists()).toBe(false);
     });
 
     describe('with shared runners DISABLED', () => {
@@ -132,7 +158,9 @@ describe('projects/settings/components/shared_runners', () => {
 
     describe('when request encounters an error', () => {
       it('should show custom error message from API if it exists', async () => {
-        mockAxios.onPost(TEST_UPDATE_PATH).reply(401, { error: 'Custom API Error message' });
+        mockAxios
+          .onPost(TEST_UPDATE_PATH)
+          .reply(HTTP_STATUS_UNAUTHORIZED, { error: 'Custom API Error message' });
         createComponent();
         expect(getToggleValue()).toBe(false);
 
@@ -144,7 +172,7 @@ describe('projects/settings/components/shared_runners', () => {
       });
 
       it('should show default error message if API does not return a custom error message', async () => {
-        mockAxios.onPost(TEST_UPDATE_PATH).reply(401);
+        mockAxios.onPost(TEST_UPDATE_PATH).reply(HTTP_STATUS_UNAUTHORIZED);
         createComponent();
         expect(getToggleValue()).toBe(false);
 

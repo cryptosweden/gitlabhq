@@ -4,7 +4,7 @@
 # compatible with the old value stream controller actions.
 module CycleAnalytics
   class ProjectLevelStageAdapter
-    ProjectLevelStage = Struct.new(:title, :description, :legend, :name, :project_median, keyword_init: true )
+    ProjectLevelStage = Struct.new(:title, :description, :legend, :name, :project_median, keyword_init: true)
 
     def initialize(stage, options)
       @stage = stage
@@ -16,12 +16,12 @@ module CycleAnalytics
       presenter = Analytics::CycleAnalytics::StagePresenter.new(stage)
 
       serializer.new.represent(ProjectLevelStage.new(
-                                 title: presenter.title,
-                                 description: presenter.description,
-                                 legend: presenter.legend,
-                                 name: stage.name,
-                                 project_median: median
-                               ))
+        title: presenter.title,
+        description: presenter.description,
+        legend: presenter.legend,
+        name: stage.name,
+        project_median: median
+      ))
     end
     # rubocop: enable CodeReuse/Presenter
 

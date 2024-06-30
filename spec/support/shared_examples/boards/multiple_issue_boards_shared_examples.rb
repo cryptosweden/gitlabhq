@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 RSpec.shared_examples 'multiple issue boards' do
+  include ListboxHelpers
+
   context 'authorized user' do
     before do
       parent.add_maintainer(user)
@@ -26,7 +28,7 @@ RSpec.shared_examples 'multiple issue boards' do
 
     it 'switches current board' do
       in_boards_switcher_dropdown do
-        click_link board2.name
+        select_listbox_item(board2.name)
       end
 
       wait_for_requests
@@ -66,7 +68,7 @@ RSpec.shared_examples 'multiple issue boards' do
 
     it 'adds a list to the none default board' do
       in_boards_switcher_dropdown do
-        click_link board2.name
+        select_listbox_item(board2.name)
       end
 
       wait_for_requests
@@ -75,11 +77,11 @@ RSpec.shared_examples 'multiple issue boards' do
         expect(page).to have_content(board2.name)
       end
 
-      click_button 'Create list'
+      click_button 'New list'
 
       click_button 'Select a label'
 
-      page.choose(planning.title)
+      find('label', text: planning.title).click
 
       click_button 'Add to board'
 
@@ -88,7 +90,7 @@ RSpec.shared_examples 'multiple issue boards' do
       expect(page).to have_selector('.board', count: 3)
 
       in_boards_switcher_dropdown do
-        click_link board.name
+        select_listbox_item(board.name)
       end
 
       wait_for_requests
@@ -100,7 +102,7 @@ RSpec.shared_examples 'multiple issue boards' do
       assert_boards_nav_active
 
       in_boards_switcher_dropdown do
-        click_link board2.name
+        select_listbox_item(board2.name)
       end
 
       assert_boards_nav_active
@@ -108,7 +110,7 @@ RSpec.shared_examples 'multiple issue boards' do
 
     it 'switches current board back' do
       in_boards_switcher_dropdown do
-        click_link board.name
+        select_listbox_item(board.name)
       end
 
       wait_for_requests
@@ -125,6 +127,31 @@ RSpec.shared_examples 'multiple issue boards' do
       wait_for_requests
     end
 
+    it 'shows current board name' do
+      page.within('.boards-switcher') do
+        expect(page).to have_content(board.name)
+      end
+    end
+
+    it 'shows a list of boards' do
+      in_boards_switcher_dropdown do
+        expect(page).to have_content(board.name)
+        expect(page).to have_content(board2.name)
+      end
+    end
+
+    it 'switches current board' do
+      in_boards_switcher_dropdown do
+        select_listbox_item(board2.name)
+      end
+
+      wait_for_requests
+
+      page.within('.boards-switcher') do
+        expect(page).to have_content(board2.name)
+      end
+    end
+
     it 'does not show action links' do
       in_boards_switcher_dropdown do
         expect(page).not_to have_content('Create new board')
@@ -138,13 +165,15 @@ RSpec.shared_examples 'multiple issue boards' do
 
     wait_for_requests
 
-    dropdown_selector = '.js-boards-selector .dropdown-menu'
+    dropdown_selector = '[data-testid="boards-selector"] .gl-new-dropdown'
     page.within(dropdown_selector) do
       yield
     end
   end
 
   def assert_boards_nav_active
-    expect(find('.nav-sidebar .active .active')).to have_selector('a', text: 'Boards')
+    within_testid('super-sidebar') do
+      expect(page).to have_selector('[aria-current="page"]', text: 'Issue boards')
+    end
   end
 end

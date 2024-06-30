@@ -1,12 +1,20 @@
 ---
-stage: Secure
+stage: Govern
 group: Threat Insights
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Vulnerabilities API **(ULTIMATE)**
+# Vulnerabilities API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/10242) in GitLab 12.6.
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+> - `last_edited_at` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
+> - `start_date` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
+> - `updated_by_id` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
+> - `last_edited_by_id` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
+> - `due_date` [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/268154) in GitLab 16.7.
 
 NOTE:
 The former Vulnerabilities API was renamed to Vulnerability Findings API
@@ -17,15 +25,14 @@ This document now describes the new Vulnerabilities API that provides access to
 WARNING:
 This API is in the process of being deprecated and considered unstable.
 The response payload may be subject to change or breakage
-across GitLab releases. Please use the
-[GraphQL API](graphql/reference/index.md#queryvulnerabilities)
-instead. See the [GraphQL examples](#replace-vulnerability-rest-api-with-graphql) to get started.
+across GitLab releases. Use the
+[GraphQL API](graphql/reference/index.md#queryvulnerabilities) instead. For more information, see [GraphQL examples](#replace-vulnerability-rest-api-with-graphql).
 
-Every API call to vulnerabilities must be [authenticated](index.md#authentication).
+Every API call to vulnerabilities must be [authenticated](rest/index.md#authentication).
 
-Vulnerability permissions inherit permissions from their project. If a project is
-private, and a user isn't a member of the project to which the vulnerability
-belongs, requests to that project returns a `404 Not Found` status code.
+If an authenticated user does not have permission to
+[view vulnerabilities](../user/permissions.md#project-members-permissions),
+this request returns a `403 Forbidden` status code.
 
 ## Single vulnerability
 
@@ -61,14 +68,9 @@ Example response:
     "full_name": "gitlab-examples / security / security-reports"
   },
   "author_id": 1,
-  "updated_by_id": null,
-  "last_edited_by_id": null,
   "closed_by_id": null,
-  "start_date": null,
-  "due_date": null,
   "created_at": "2019-10-13T15:08:40.219Z",
   "updated_at": "2019-10-13T15:09:40.382Z",
-  "last_edited_at": null,
   "closed_at": null
 }
 ```
@@ -111,14 +113,9 @@ Example response:
     "full_name": "gitlab-examples / security / security-reports"
   },
   "author_id": 1,
-  "updated_by_id": null,
-  "last_edited_by_id": null,
   "closed_by_id": null,
-  "start_date": null,
-  "due_date": null,
   "created_at": "2019-10-13T15:08:40.219Z",
   "updated_at": "2019-10-13T15:09:40.382Z",
-  "last_edited_at": null,
   "closed_at": null
 }
 ```
@@ -161,14 +158,9 @@ Example response:
     "full_name": "gitlab-examples / security / security-reports"
   },
   "author_id": 1,
-  "updated_by_id": null,
-  "last_edited_by_id": null,
   "closed_by_id": null,
-  "start_date": null,
-  "due_date": null,
   "created_at": "2019-10-13T15:08:40.219Z",
   "updated_at": "2019-10-13T15:09:40.382Z",
-  "last_edited_at": null,
   "closed_at": null
 }
 ```
@@ -211,14 +203,9 @@ Example response:
     "full_name": "gitlab-examples / security / security-reports"
   },
   "author_id": 1,
-  "updated_by_id": null,
-  "last_edited_by_id": null,
   "closed_by_id": null,
-  "start_date": null,
-  "due_date": null,
   "created_at": "2019-10-13T15:08:40.219Z",
   "updated_at": "2019-10-13T15:09:40.382Z",
-  "last_edited_at": null,
   "closed_at": null
 }
 ```
@@ -240,7 +227,7 @@ POST /vulnerabilities/:id/revert
 | `id` | integer or string | yes | The ID of a vulnerability to revert to detected state |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/vulnerabilities/5/dismiss"
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/vulnerabilities/5/revert"
 ```
 
 Example response:
@@ -261,14 +248,9 @@ Example response:
     "full_name": "gitlab-examples / security / security-reports"
   },
   "author_id": 1,
-  "updated_by_id": null,
-  "last_edited_by_id": null,
   "closed_by_id": null,
-  "start_date": null,
-  "due_date": null,
   "created_at": "2019-10-13T15:08:40.219Z",
   "updated_at": "2019-10-13T15:09:40.382Z",
-  "last_edited_at": null,
   "closed_at": null
 }
 ```
@@ -281,7 +263,7 @@ with the GraphQL API.
 
 ### GraphQL - Single vulnerability
 
-Use [`Query.vulnerability`](graphql/reference/#queryvulnerability).
+Use [`Query.vulnerability`](graphql/reference/index.md#queryvulnerability).
 
 ```graphql
 {
@@ -337,7 +319,7 @@ Example response:
 
 ### GraphQL - Confirm vulnerability
 
-Use [`Mutation.vulnerabilityConfirm`](graphql/reference/#mutationvulnerabilityconfirm).
+Use [`Mutation.vulnerabilityConfirm`](graphql/reference/index.md#mutationvulnerabilityconfirm).
 
 ```graphql
 mutation {
@@ -367,7 +349,7 @@ Example response:
 
 ### GraphQL - Resolve vulnerability
 
-Use [`Mutation.vulnerabilityResolve`](graphql/reference/#mutationvulnerabilityresolve).
+Use [`Mutation.vulnerabilityResolve`](graphql/reference/index.md#mutationvulnerabilityresolve).
 
 ```graphql
 mutation {
@@ -397,7 +379,7 @@ Example response:
 
 ### GraphQL - Dismiss vulnerability
 
-Use [`Mutation.vulnerabilityDismiss`](graphql/reference/#mutationvulnerabilitydismiss).
+Use [`Mutation.vulnerabilityDismiss`](graphql/reference/index.md#mutationvulnerabilitydismiss).
 
 ```graphql
 mutation {
@@ -427,7 +409,7 @@ Example response:
 
 ### GraphQL - Revert vulnerability to detected state
 
-Use [`Mutation.vulnerabilityRevertToDetected`](graphql/reference/#mutationvulnerabilityreverttodetected).
+Use [`Mutation.vulnerabilityRevertToDetected`](graphql/reference/index.md#mutationvulnerabilityreverttodetected).
 
 ```graphql
 mutation {

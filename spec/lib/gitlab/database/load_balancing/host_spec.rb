@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::LoadBalancing::Host do
+RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :database do
   let(:load_balancer) do
     Gitlab::Database::LoadBalancing::LoadBalancer
       .new(Gitlab::Database::LoadBalancing::Configuration.new(ActiveRecord::Base))
   end
 
   let(:host) do
-    Gitlab::Database::LoadBalancing::Host.new('localhost', load_balancer)
+    described_class.new('localhost', load_balancer)
   end
 
   before do
@@ -124,11 +124,34 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host do
       end
 
       it 'refreshes the status' do
-        expect(Gitlab::Database::LoadBalancing::Logger).to receive(:info)
-          .with(hash_including(event: :host_online))
-          .and_call_original
-
         expect(host).to be_online
+      end
+
+      context 'and the host was previously online' do
+        # Hosts are online by default
+
+        it 'does not log the online event' do
+          expect(Gitlab::Database::LoadBalancing::Logger)
+            .not_to receive(:info)
+            .with(hash_including(event: :host_online))
+
+          expect(host).to be_online
+        end
+      end
+
+      context 'and the host was previously offline' do
+        before do
+          host.offline!
+        end
+
+        it 'logs the online event' do
+          expect(Gitlab::Database::LoadBalancing::Logger)
+            .to receive(:info)
+            .with(hash_including(event: :host_online))
+            .and_call_original
+
+          expect(host).to be_online
+        end
       end
 
       context 'and replica is not up to date' do
@@ -195,6 +218,40 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host do
 
       expect(host).to be_online
     end
+
+    it 'clears the cache for latest_lsn_query' do
+      allow(host).to receive(:replica_is_up_to_date?).and_return(true)
+
+      expect(host)
+        .to receive(:query_and_release)
+        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
+        .twice
+        .and_return({ 'allowed' => 't' }, { 'allowed' => 'f' })
+
+      # Should receive LATEST_LSN_WITH_LOGICAL_QUERY twice even though we only
+      # return 't' once above
+      expect(host)
+        .to receive(:query_and_release)
+        .with(a_string_including(described_class::LATEST_LSN_WITH_LOGICAL_QUERY))
+        .twice
+        .and_call_original
+
+      host.replication_lag_size
+      host.replication_lag_size
+
+      # Clear the cache for latest_lsn_query
+      host.refresh_status
+
+      # Should recieve LATEST_LSN_WITHOUT_LOGICAL_QUERY since we received 'f'
+      # after clearing the cache
+      expect(host)
+        .to receive(:query_and_release)
+        .with(a_string_including(described_class::LATEST_LSN_WITHOUT_LOGICAL_QUERY))
+        .once
+        .and_call_original
+
+      host.replication_lag_size
+    end
   end
 
   describe '#check_replica_status?' do
@@ -254,6 +311,16 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host do
   end
 
   describe '#replication_lag_below_threshold' do
+    let(:load_balancer_double_replication_lag_time) { false }
+    let(:load_balancer_ignore_replication_lag_time) { false }
+
+    before do
+      # Enable feature flags in the load balancer. They are enabled in production and relate to behavior in these specs
+      stub_env(Feature::BypassLoadBalancer::FLAG, 'true')
+      stub_feature_flags(load_balancer_double_replication_lag_time: load_balancer_double_replication_lag_time)
+      stub_feature_flags(load_balancer_ignore_replication_lag_time: load_balancer_ignore_replication_lag_time)
+    end
+
     it 'returns true when the lag time is below the threshold' do
       expect(host)
         .to receive(:replication_lag_time)
@@ -277,6 +344,38 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host do
 
       expect(host.replication_lag_below_threshold?).to eq(false)
     end
+
+    context 'with the load_balancer_double_replication_lag_time feature flag enabled' do
+      let(:load_balancer_double_replication_lag_time) { true }
+
+      it 'returns false when lag time is above the higher threshold' do
+        expect(host)
+          .to receive(:replication_lag_time)
+          .and_return(121)
+
+        expect(host.replication_lag_below_threshold?).to eq(false)
+      end
+
+      it 'returns true when lag time is below the higher threshold' do
+        expect(host)
+          .to receive(:replication_lag_time)
+          .and_return(119)
+
+        expect(host.replication_lag_below_threshold?).to eq(true)
+      end
+    end
+
+    context 'with the load_balancer_ignore_replication_lag_time feature flag enabled' do
+      let(:load_balancer_ignore_replication_lag_time) { true }
+
+      it 'returns true no matter how high the lag time is' do
+        expect(host)
+         .to receive(:replication_lag_time)
+         .and_return(3600)
+
+        expect(host.replication_lag_below_threshold?).to eq(true)
+      end
+    end
   end
 
   describe '#data_is_recent_enough?' do
@@ -286,6 +385,11 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host do
 
     it 'returns false when the data is not recent enough' do
       diff = load_balancer.configuration.max_replication_difference * 2
+
+      expect(host)
+        .to receive(:query_and_release)
+        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
+        .and_call_original
 
       expect(host)
         .to receive(:query_and_release)
@@ -325,6 +429,11 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host do
     it 'returns nil when the database query returned no rows' do
       expect(host)
         .to receive(:query_and_release)
+        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
+        .and_call_original
+
+      expect(host)
+        .to receive(:query_and_release)
         .and_return({})
 
       expect(host.replication_lag_size).to be_nil
@@ -338,6 +447,54 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host do
         .and_raise(wrapped_error)
 
       expect(host.replication_lag_size).to be_nil
+    end
+
+    context 'when can_track_logical_lsn? is false' do
+      before do
+        allow(host).to receive(:can_track_logical_lsn?).and_return(false)
+      end
+
+      it 'uses LATEST_LSN_WITHOUT_LOGICAL_QUERY' do
+        expect(host)
+          .to receive(:query_and_release)
+          .with(a_string_including(described_class::LATEST_LSN_WITHOUT_LOGICAL_QUERY))
+          .and_call_original
+
+        expect(host.replication_lag_size('0/00000000')).to be_an_instance_of(Integer)
+      end
+    end
+
+    context 'when can_track_logical_lsn? is true' do
+      before do
+        allow(host).to receive(:can_track_logical_lsn?).and_return(true)
+      end
+
+      it 'uses LATEST_LSN_WITH_LOGICAL_QUERY' do
+        expect(host)
+          .to receive(:query_and_release)
+          .with(a_string_including(described_class::LATEST_LSN_WITH_LOGICAL_QUERY))
+          .and_call_original
+
+        expect(host.replication_lag_size('0/00000000')).to be_an_instance_of(Integer)
+      end
+    end
+
+    context 'when CAN_TRACK_LOGICAL_LSN_QUERY raises connection errors' do
+      before do
+        expect(host)
+          .to receive(:query_and_release)
+          .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
+          .and_raise(ActiveRecord::ConnectionNotEstablished)
+      end
+
+      it 'uses LATEST_LSN_WITHOUT_LOGICAL_QUERY' do
+        expect(host)
+          .to receive(:query_and_release)
+          .with(a_string_including(described_class::LATEST_LSN_WITHOUT_LOGICAL_QUERY))
+          .and_call_original
+
+        expect(host.replication_lag_size('0/00000000')).to be_an_instance_of(Integer)
+      end
     end
   end
 
@@ -357,28 +514,41 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host do
 
     it 'returns true when a host has caught up' do
       allow(host).to receive(:connection).and_return(connection)
-      expect(connection).to receive(:select_all).and_return([{ 'result' => 't' }])
+
+      expect(connection)
+        .to receive(:select_all)
+        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
+        .and_return([{ 'has_table_privilege' => 't' }])
+
+      expect(connection)
+        .to receive(:select_all)
+        .and_return([{ 'diff' => -1 }])
 
       expect(host.caught_up?('foo')).to eq(true)
     end
 
-    it 'returns true when a host has caught up' do
+    it 'returns false when diff query returns nothing' do
       allow(host).to receive(:connection).and_return(connection)
-      expect(connection).to receive(:select_all).and_return([{ 'result' => true }])
 
-      expect(host.caught_up?('foo')).to eq(true)
-    end
+      expect(connection)
+        .to receive(:select_all)
+        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
+        .and_return([{ 'has_table_privilege' => 't' }])
 
-    it 'returns false when a host has not caught up' do
-      allow(host).to receive(:connection).and_return(connection)
-      expect(connection).to receive(:select_all).and_return([{ 'result' => 'f' }])
+      expect(connection).to receive(:select_all).and_return([])
 
       expect(host.caught_up?('foo')).to eq(false)
     end
 
     it 'returns false when a host has not caught up' do
       allow(host).to receive(:connection).and_return(connection)
-      expect(connection).to receive(:select_all).and_return([{ 'result' => false }])
+
+      expect(connection)
+        .to receive(:select_all)
+        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
+        .and_return([{ 'has_table_privilege' => 't' }])
+
+      expect(connection).to receive(:select_all).and_return([{ 'diff' => 123 }])
 
       expect(host.caught_up?('foo')).to eq(false)
     end

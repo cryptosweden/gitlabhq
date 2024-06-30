@@ -30,17 +30,15 @@ if (STATIC_MODE) {
 
 // run webpack through webpack-dev-server, optionally compiling a DLL to reduce memory
 else {
-  const watch = ['config/webpack.config.js'];
+  const watch = [
+    'config/webpack.config.js',
+    // ensure we refresh when running yarn install
+    'node_modules/.yarn-integrity',
+  ];
 
   // if utilizing the vendor DLL, we need to restart the process when dependency changes occur
   if (DLL_MODE) {
-    watch.push(
-      'config/webpack.vendor.config.js',
-      // ensure we refresh when running yarn install
-      'node_modules/.yarn-integrity',
-      'package.json',
-      'yarn.lock',
-    );
+    watch.push('config/webpack.vendor.config.js', 'package.json', 'yarn.lock');
   }
   nodemon({
     exec: 'webpack-dev-server --config config/webpack.config.js',
@@ -48,6 +46,8 @@ else {
     ...baseConfig,
   });
 }
+
+let plugin = false;
 
 // print useful messages for nodemon events
 nodemon
@@ -58,11 +58,24 @@ nodemon
       console.log('The JavaScript assets are recompiled only if they change');
       console.log('If you change them often, you might want to unset DEV_SERVER_STATIC');
     }
+    /* eslint-disable import/extensions, promise/catch-or-return */
+    import('./lib/compile_css.mjs').then(({ simplePluginForNodemon }) => {
+      plugin = simplePluginForNodemon({ shouldWatch: !STATIC_MODE });
+      return plugin?.start();
+    });
+    import('./tailwindcss.mjs').then(({ webpackTailwindCompilerPlugin }) => {
+      plugin = webpackTailwindCompilerPlugin({ shouldWatch: !STATIC_MODE });
+      return plugin?.start();
+    });
+    /* eslint-enable import/extensions, promise/catch-or-return */
   })
   .on('quit', () => {
+    console.log('Shutting down CSS compilation process');
+    plugin?.stop();
     console.log('Shutting down webpack process');
     process.exit();
   })
   .on('restart', (files) => {
     console.log('Restarting webpack process due to: ', files);
+    plugin?.start();
   });

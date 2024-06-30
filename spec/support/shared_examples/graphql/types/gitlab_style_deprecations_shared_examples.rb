@@ -5,8 +5,7 @@ RSpec.shared_examples 'Gitlab-style deprecations' do
     it 'raises an informative error if `deprecation_reason` is used' do
       expect { subject(deprecation_reason: 'foo') }.to raise_error(
         ArgumentError,
-        'Use `deprecated` property instead of `deprecation_reason`. ' \
-        'See https://docs.gitlab.com/ee/development/api_graphql_styleguide.html#deprecating-fields-arguments-and-enum-values'
+        start_with('Use `deprecated` property instead of `deprecation_reason`.')
       )
     end
 
@@ -32,7 +31,7 @@ RSpec.shared_examples 'Gitlab-style deprecations' do
   it 'adds a formatted `deprecated_reason` to the subject' do
     deprecable = subject(deprecated: { milestone: '1.10', reason: 'Deprecation reason' })
 
-    expect(deprecable.deprecation_reason).to eq('Deprecation reason. Deprecated in 1.10.')
+    expect(deprecable.deprecation_reason).to eq('Deprecation reason. Deprecated in GitLab 1.10.')
   end
 
   it 'appends to the description if given' do
@@ -41,7 +40,7 @@ RSpec.shared_examples 'Gitlab-style deprecations' do
       description: 'Deprecable description.'
     )
 
-    expect(deprecable.description).to eq('Deprecable description. Deprecated in 1.10: Deprecation reason.')
+    expect(deprecable.description).to eq('Deprecable description. Deprecated in GitLab 1.10: Deprecation reason.')
   end
 
   it 'does not append to the description if it is absent' do
@@ -53,18 +52,50 @@ RSpec.shared_examples 'Gitlab-style deprecations' do
   it 'adds information about the replacement if provided' do
     deprecable = subject(deprecated: { milestone: '1.10', reason: :renamed, replacement: 'Foo.bar' })
 
-    expect(deprecable.deprecation_reason).to include 'Please use `Foo.bar`'
+    expect(deprecable.deprecation_reason).to include('Please use `Foo.bar`')
   end
 
   it 'supports named reasons: renamed' do
     deprecable = subject(deprecated: { milestone: '1.10', reason: :renamed })
 
-    expect(deprecable.deprecation_reason).to include 'This was renamed.'
+    expect(deprecable.deprecation_reason).to eq('This was renamed. Deprecated in GitLab 1.10.')
   end
 
-  it 'supports named reasons: discouraged' do
-    deprecable = subject(deprecated: { milestone: '1.10', reason: :discouraged })
+  it 'supports :alpha' do
+    deprecable = subject(alpha: { milestone: '1.10' })
 
-    expect(deprecable.deprecation_reason).to include 'Use of this is not recommended.'
+    expect(deprecable.deprecation_reason).to eq(
+      '**Status**: Experiment. Introduced in GitLab 1.10.'
+    )
+  end
+
+  it 'does not allow :alpha and :deprecated together' do
+    expect do
+      subject(alpha: { milestone: '1.10' }, deprecated: { milestone: '1.10', reason: 'my reason' } )
+    end.to raise_error(
+      ArgumentError,
+      eq("`alpha` and `deprecated` arguments cannot be passed at the same time")
+    )
+  end
+
+  describe 'visible?' do
+    let(:ctx) { {} }
+
+    it 'defaults to true' do
+      expect(subject).to be_visible(ctx)
+    end
+
+    context 'when subject is deprecated' do
+      let(:arguments) { { deprecated: { milestone: '1.10', reason: :renamed } } }
+
+      it 'defaults to true' do
+        expect(subject(arguments)).to be_visible(ctx)
+      end
+
+      it 'returns false if `remove_deprecated` is true in context' do
+        ctx = { remove_deprecated: true }
+        expect(subject(arguments)).not_to be_visible(ctx)
+      end
+    end
   end
 end

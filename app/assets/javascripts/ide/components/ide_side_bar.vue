@@ -1,5 +1,6 @@
 <script>
-import { GlDeprecatedSkeletonLoading as GlSkeletonLoading } from '@gitlab/ui';
+import { GlSkeletonLoader } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters } from 'vuex';
 import { SIDEBAR_INIT_WIDTH, leftSidebarViews } from '../constants';
 import ActivityBar from './activity_bar.vue';
@@ -10,7 +11,7 @@ import ResizablePanel from './resizable_panel.vue';
 
 export default {
   components: {
-    GlSkeletonLoading,
+    GlSkeletonLoader,
     ResizablePanel,
     ActivityBar,
     IdeTree,
@@ -38,13 +39,13 @@ export default {
     <template v-if="loading">
       <div class="multi-file-commit-panel-inner" data-testid="ide-side-bar-inner">
         <div v-for="n in 3" :key="n" class="multi-file-loading-container">
-          <gl-skeleton-loading />
+          <gl-skeleton-loader />
         </div>
       </div>
     </template>
     <template v-else>
       <ide-project-header :project="currentProject" />
-      <div class="ide-context-body d-flex flex-fill">
+      <div class="ide-context-body gl-flex flex-fill">
         <activity-bar />
         <div class="multi-file-commit-panel-inner" data-testid="ide-side-bar-inner">
           <div class="multi-file-commit-panel-inner-content">

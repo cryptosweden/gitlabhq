@@ -36,10 +36,6 @@ describe('Diffs image diff overlay component', () => {
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('renders comment badges', () => {
     createComponent();
 
@@ -57,7 +53,7 @@ describe('Diffs image diff overlay component', () => {
   it('renders icon when showCommentIcon is true', () => {
     createComponent({ showCommentIcon: true });
 
-    expect(wrapper.find(GlIcon).exists()).toBe(true);
+    expect(wrapper.findComponent(GlIcon).exists()).toBe(true);
   });
 
   it('sets badge comment positions', () => {

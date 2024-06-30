@@ -1,12 +1,24 @@
 <script>
-import { GlLink, GlSprintf } from '@gitlab/ui';
+import { GlAlert, GlLink, GlSprintf } from '@gitlab/ui';
 import { first } from 'lodash';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import { truncateSha } from '~/lib/utils/text_utility';
 import { s__, n__ } from '~/locale';
+import Tracking from '~/tracking';
+import { packageTypeToTrackCategory } from '~/packages_and_registries/package_registry/utils';
 import { HISTORY_PIPELINES_LIMIT } from '~/packages_and_registries/shared/constants';
 import HistoryItem from '~/vue_shared/components/registry/history_item.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
+import {
+  GRAPHQL_PACKAGE_PIPELINES_PAGE_SIZE,
+  FETCH_PACKAGE_PIPELINES_ERROR_MESSAGE,
+  TRACKING_ACTION_CLICK_PIPELINE_LINK,
+  TRACKING_ACTION_CLICK_COMMIT_LINK,
+  TRACKING_LABEL_PACKAGE_HISTORY,
+} from '../../constants';
+import getPackagePipelinesQuery from '../../graphql/queries/get_package_pipelines.query.graphql';
+import PackageHistoryLoader from './package_history_loader.vue';
 
 export default {
   name: 'PackageHistory',
@@ -20,13 +32,19 @@ export default {
     combinedUpdateText: s__(
       'PackageRegistry|Package updated by commit %{link} on branch %{branch}, built by pipeline %{pipeline}, and published to the registry %{datetime}',
     ),
+    fetchPackagePipelinesErrorMessage: FETCH_PACKAGE_PIPELINES_ERROR_MESSAGE,
   },
   components: {
+    GlAlert,
     GlLink,
     GlSprintf,
     HistoryItem,
+    PackageHistoryLoader,
     TimeAgoTooltip,
   },
+  mixins: [Tracking.mixin()],
+  TRACKING_ACTION_CLICK_PIPELINE_LINK,
+  TRACKING_ACTION_CLICK_COMMIT_LINK,
   props: {
     packageEntity: {
       type: Object,
@@ -37,15 +55,28 @@ export default {
       required: true,
     },
   },
+  apollo: {
+    pipelines: {
+      query: getPackagePipelinesQuery,
+      variables() {
+        return this.queryVariables;
+      },
+      update(data) {
+        return data.package?.pipelines?.nodes || [];
+      },
+      error(error) {
+        this.fetchPackagePipelinesError = true;
+        Sentry.captureException(error);
+      },
+    },
+  },
   data() {
     return {
-      showDescription: false,
+      pipelines: [],
+      fetchPackagePipelinesError: false,
     };
   },
   computed: {
-    pipelines() {
-      return this.packageEntity?.pipelines?.nodes || [];
-    },
     firstPipeline() {
       return first(this.pipelines);
     },
@@ -65,6 +96,20 @@ export default {
         this.archivedLines,
       );
     },
+    isLoading() {
+      return this.$apollo.queries.pipelines.loading;
+    },
+    queryVariables() {
+      return {
+        id: this.packageEntity.id,
+        first: GRAPHQL_PACKAGE_PIPELINES_PAGE_SIZE,
+      };
+    },
+    tracking() {
+      return {
+        category: packageTypeToTrackCategory(this.packageType),
+      };
+    },
   },
   methods: {
     truncate(value) {
@@ -73,6 +118,12 @@ export default {
     convertToBaseId(value) {
       return getIdFromGraphQLId(value);
     },
+    trackPipelineClick() {
+      this.track(TRACKING_ACTION_CLICK_PIPELINE_LINK, { label: TRACKING_LABEL_PACKAGE_HISTORY });
+    },
+    trackCommitClick() {
+      this.track(TRACKING_ACTION_CLICK_COMMIT_LINK, { label: TRACKING_LABEL_PACKAGE_HISTORY });
+    },
   },
 };
 </script>
@@ -80,7 +131,15 @@ export default {
 <template>
   <div class="issuable-discussion">
     <h3 class="gl-font-lg" data-testid="title">{{ __('History') }}</h3>
-    <ul class="timeline main-notes-list notes gl-mb-4" data-testid="timeline">
+    <gl-alert
+      v-if="fetchPackagePipelinesError"
+      variant="danger"
+      @dismiss="fetchPackagePipelinesError = false"
+    >
+      {{ $options.i18n.fetchPackagePipelinesErrorMessage }}
+    </gl-alert>
+    <package-history-loader v-if="isLoading" />
+    <ul v-else class="timeline main-notes-list notes gl-mb-4" data-testid="timeline">
       <history-item icon="clock" data-testid="created-on">
         <gl-sprintf :message="$options.i18n.createdOn">
           <template #name>
@@ -100,7 +159,9 @@ export default {
         <history-item icon="commit" data-testid="first-pipeline-commit">
           <gl-sprintf :message="$options.i18n.createdByCommitText">
             <template #link>
-              <gl-link :href="firstPipeline.commitPath">#{{ truncate(firstPipeline.sha) }}</gl-link>
+              <gl-link :href="firstPipeline.commitPath" @click="trackCommitClick">{{
+                truncate(firstPipeline.sha)
+              }}</gl-link>
             </template>
             <template #branch>
               <strong>{{ firstPipeline.ref }}</strong>
@@ -110,7 +171,9 @@ export default {
         <history-item icon="pipeline" data-testid="first-pipeline-pipeline">
           <gl-sprintf :message="$options.i18n.createdByPipelineText">
             <template #link>
-              <gl-link :href="firstPipeline.path">#{{ convertToBaseId(firstPipeline.id) }}</gl-link>
+              <gl-link :href="firstPipeline.path" @click="trackPipelineClick"
+                >#{{ convertToBaseId(firstPipeline.id) }}</gl-link
+              >
             </template>
             <template #datetime>
               <time-ago-tooltip :time="firstPipeline.createdAt" />
@@ -149,13 +212,17 @@ export default {
       >
         <gl-sprintf :message="$options.i18n.combinedUpdateText">
           <template #link>
-            <gl-link :href="pipeline.commitPath">#{{ truncate(pipeline.sha) }}</gl-link>
+            <gl-link :href="pipeline.commitPath" @click="trackCommitClick">{{
+              truncate(pipeline.sha)
+            }}</gl-link>
           </template>
           <template #branch>
             <strong>{{ pipeline.ref }}</strong>
           </template>
           <template #pipeline>
-            <gl-link :href="pipeline.path">#{{ convertToBaseId(pipeline.id) }}</gl-link>
+            <gl-link :href="pipeline.path" @click="trackPipelineClick"
+              >#{{ convertToBaseId(pipeline.id) }}</gl-link
+            >
           </template>
           <template #datetime>
             <time-ago-tooltip :time="pipeline.createdAt" />

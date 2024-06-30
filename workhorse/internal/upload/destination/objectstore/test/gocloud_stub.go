@@ -2,9 +2,7 @@ package test
 
 import (
 	"context"
-	"io/ioutil"
 	"net/url"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,24 +14,22 @@ type dirOpener struct {
 	tmpDir string
 }
 
-func (o *dirOpener) OpenBucketURL(ctx context.Context, u *url.URL) (*blob.Bucket, error) {
+func (o *dirOpener) OpenBucketURL(_ context.Context, _ *url.URL) (*blob.Bucket, error) {
 	return fileblob.OpenBucket(o.tmpDir, nil)
 }
 
-func SetupGoCloudFileBucket(t *testing.T, scheme string) (m *blob.URLMux, bucketDir string, cleanup func()) {
-	tmpDir, err := ioutil.TempDir("", "")
-	require.NoError(t, err)
+// SetupGoCloudFileBucket sets up a local GoCloud bucket for testing purposes and returns the URL mux and bucket directory.
+func SetupGoCloudFileBucket(t *testing.T, scheme string) (m *blob.URLMux, bucketDir string) {
+	tmpDir := t.TempDir()
 
 	mux := new(blob.URLMux)
 	fake := &dirOpener{tmpDir: tmpDir}
 	mux.RegisterBucket(scheme, fake)
-	cleanup = func() {
-		os.RemoveAll(tmpDir)
-	}
 
-	return mux, tmpDir, cleanup
+	return mux, tmpDir
 }
 
+// GoCloudObjectExists is a helper function for checking if a GoCloud object exists.
 func GoCloudObjectExists(t *testing.T, bucketDir string, objectName string) {
 	bucket, err := fileblob.OpenBucket(bucketDir, nil)
 	require.NoError(t, err)
@@ -44,4 +40,8 @@ func GoCloudObjectExists(t *testing.T, bucketDir string, objectName string) {
 	exists, err := bucket.Exists(ctx, objectName)
 	require.NoError(t, err)
 	require.True(t, exists)
+
+	attr, err := bucket.Attributes(ctx, objectName)
+	require.NoError(t, err)
+	require.Equal(t, "", attr.ContentType)
 }

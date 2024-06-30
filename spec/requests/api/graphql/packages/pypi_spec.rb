@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'pypi package details' do
+RSpec.describe 'pypi package details', feature_category: :package_registry do
   include GraphqlHelpers
   include_context 'package details setup'
 
-  let_it_be(:package) { create(:pypi_package, project: project) }
+  let_it_be(:package) { create(:pypi_package, :last_downloaded_at, project: project) }
 
   let(:metadata) { query_graphql_fragment('PypiMetadata') }
 
@@ -19,9 +19,8 @@ RSpec.describe 'pypi package details' do
   it_behaves_like 'a package with files'
 
   it 'has the correct metadata' do
-    expect(metadata_response).to include(
-      'id' => global_id_of(package.pypi_metadatum),
-      'requiredPython' => package.pypi_metadatum.required_python
+    expect(metadata_response).to match a_graphql_entity_for(
+      package.pypi_metadatum, :required_python
     )
   end
 end

@@ -1,12 +1,12 @@
 <script>
 import { GlIcon, GlTooltipDirective } from '@gitlab/ui';
-import { escalationStatusQuery, escalationStatusMutation } from '~/sidebar/constants';
-import { createAlert } from '~/flash';
+import { createAlert } from '~/alert';
 import { logError } from '~/lib/logger';
 import EscalationStatus from 'ee_else_ce/sidebar/components/incidents/escalation_status.vue';
+import { INCIDENTS_I18N as i18n } from '../../constants';
+import { escalationStatusQuery, escalationStatusMutation } from '../../queries/constants';
+import { getStatusLabel } from '../../utils';
 import SidebarEditableItem from '../sidebar_editable_item.vue';
-import { i18n } from './constants';
-import { getStatusLabel } from './utils';
 
 export default {
   i18n,

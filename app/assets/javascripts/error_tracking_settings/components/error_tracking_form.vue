@@ -1,5 +1,6 @@
 <script>
 import { GlFormInput, GlIcon, GlButton } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 
 export default {
@@ -57,7 +58,7 @@ export default {
         </div>
         <div class="col-4 col-md-3 gl-pl-0">
           <gl-button
-            class="js-error-tracking-connect gl-ml-2 d-inline-flex"
+            class="js-error-tracking-connect gl-ml-2 gl-inline-flex"
             category="secondary"
             variant="default"
             :loading="isLoadingProjects"

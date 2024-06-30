@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Variables::Collection::Item do
+RSpec.describe Gitlab::Ci::Variables::Collection::Item, feature_category: :secrets_management do
   let(:variable_key) { 'VAR' }
   let(:variable_value) { 'something' }
   let(:expected_value) { variable_value }
@@ -123,11 +123,11 @@ RSpec.describe Gitlab::Ci::Variables::Collection::Item do
           },
           "simple variable reference": {
             variable: { key: 'VAR', value: 'something_$VAR2' },
-            expected_depends_on: %w(VAR2)
+            expected_depends_on: %w[VAR2]
           },
           "complex expansion": {
             variable: { key: 'VAR', value: 'something_${VAR2}_$VAR3' },
-            expected_depends_on: %w(VAR2 VAR3)
+            expected_depends_on: %w[VAR2 VAR3]
           },
           "complex expansion in raw variable": {
             variable: { key: 'VAR', value: 'something_${VAR2}_$VAR3', raw: true },
@@ -135,7 +135,7 @@ RSpec.describe Gitlab::Ci::Variables::Collection::Item do
           },
           "complex expansions for Windows": {
             variable: { key: 'variable3', value: 'key%variable%%variable2%' },
-            expected_depends_on: %w(variable variable2)
+            expected_depends_on: %w[variable variable2]
           }
         }
       end
@@ -197,11 +197,11 @@ RSpec.describe Gitlab::Ci::Variables::Collection::Item do
     end
   end
 
-  describe '#raw' do
+  describe '#raw?' do
     it 'returns false when :raw is not specified' do
       item = described_class.new(**variable)
 
-      expect(item.raw).to eq false
+      expect(item.raw?).to eq false
     end
 
     context 'when :raw is specified as true' do
@@ -212,7 +212,26 @@ RSpec.describe Gitlab::Ci::Variables::Collection::Item do
       it 'returns true' do
         item = described_class.new(**variable)
 
-        expect(item.raw).to eq true
+        expect(item.raw?).to eq true
+      end
+    end
+  end
+
+  describe '#masked?' do
+    let(:variable_hash) { { key: variable_key, value: variable_value } }
+    let(:item) { described_class.new(**variable_hash) }
+
+    context 'when :masked is not specified' do
+      it 'returns false' do
+        expect(item.masked?).to eq(false)
+      end
+    end
+
+    context 'when :masked is specified as true' do
+      let(:variable_hash) { { key: variable_key, value: variable_value, masked: true } }
+
+      it 'returns true' do
+        expect(item.masked?).to eq(true)
       end
     end
   end
@@ -263,7 +282,7 @@ RSpec.describe Gitlab::Ci::Variables::Collection::Item do
       it '#depends_on contains names of dependencies' do
         runner_variable = described_class.new(key: 'CI_VAR', value: '${CI_VAR_2}-123-$CI_VAR_3')
 
-        expect(runner_variable.depends_on).to eq(%w(CI_VAR_2 CI_VAR_3))
+        expect(runner_variable.depends_on).to eq(%w[CI_VAR_2 CI_VAR_3])
       end
     end
 

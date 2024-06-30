@@ -37,10 +37,10 @@ module API
 
       def get_labels(parent, entity, params = {})
         present paginate(available_labels_for(parent, params)),
-                with: entity,
-                current_user: current_user,
-                parent: parent,
-                with_counts: params[:with_counts]
+          with: entity,
+          current_user: current_user,
+          parent: parent,
+          with_counts: params[:with_counts]
       end
 
       def get_label(parent, entity, params = {})
@@ -82,8 +82,14 @@ module API
         params.delete(:label_id)
         params.delete(:name)
 
-        label = ::Labels::UpdateService.new(declared_params(include_missing: false)).execute(label)
-        render_validation_error!(label) unless label.valid?
+        update_params = declared_params(include_missing: false)
+
+        if update_params.present?
+          authorize! :admin_label, label
+
+          label = ::Labels::UpdateService.new(update_params).execute(label)
+          render_validation_error!(label) unless label.valid?
+        end
 
         if parent.is_a?(Project) && update_priority
           if priority.nil?
@@ -97,11 +103,13 @@ module API
       end
 
       def delete_label(parent)
-        authorize! :admin_label, parent
-
         label = find_label(parent, params_id_or_title, include_ancestor_groups: false)
 
-        destroy_conditionally!(label)
+        authorize! :admin_label, label
+
+        return if destroy_conditionally!(label)
+
+        render_api_error!('Label is locked and was not removed', 400)
       end
 
       def promote_label(parent)
@@ -131,9 +139,10 @@ module API
       end
 
       def create_service_params(parent)
-        if parent.is_a?(Project)
+        case parent
+        when Project
           { project: parent }
-        elsif parent.is_a?(Group)
+        when Group
           { group: parent }
         else
           raise TypeError, 'Parent type is not supported'

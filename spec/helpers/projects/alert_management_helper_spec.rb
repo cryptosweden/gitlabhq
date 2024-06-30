@@ -31,7 +31,7 @@ RSpec.describe Projects::AlertManagementHelper do
           'enable-alert-management-path' => setting_path,
           'alerts-help-url' => 'http://test.host/help/operations/incident_management/alerts.md',
           'populating-alerts-help-url' => 'http://test.host/help/operations/incident_management/integrations.md#configuration',
-          'empty-alert-svg-path' => match_asset_path('/assets/illustrations/alert-management-empty-state.svg'),
+          'empty-alert-svg-path' => match_asset_path('/assets/illustrations/empty-state/empty-scan-alert-md.svg'),
           'user-can-enable-alert-management' => 'true',
           'alert-management-enabled' => 'false',
           'text-query': nil,
@@ -110,15 +110,36 @@ RSpec.describe Projects::AlertManagementHelper do
   describe '#alert_management_detail_data' do
     let(:alert_id) { 1 }
     let(:issues_path) { project_issues_path(project) }
+    let(:details_alert_management_path) { details_project_alert_management_path(project, alert_id) }
+    let(:can_update_alert) { true }
+
+    before do
+      allow(helper)
+        .to receive(:can?)
+        .with(current_user, :update_alert_management_alert, project)
+        .and_return(can_update_alert)
+    end
 
     it 'returns detail page configuration' do
-      expect(helper.alert_management_detail_data(project, alert_id)).to eq(
+      expect(helper.alert_management_detail_data(current_user, project, alert_id)).to eq(
         'alert-id' => alert_id,
         'project-path' => project_path,
         'project-id' => project_id,
         'project-issues-path' => issues_path,
-        'page' => 'OPERATIONS'
+        'project-alert-management-details-path' => details_alert_management_path,
+        'page' => 'OPERATIONS',
+        'can-update' => 'true'
       )
+    end
+
+    context 'when user cannot update alert' do
+      let(:can_update_alert) { false }
+
+      it 'shows error tracking enablement as disabled' do
+        expect(helper.alert_management_detail_data(current_user, project, alert_id)).to include(
+          'can-update' => 'false'
+        )
+      end
     end
   end
 end

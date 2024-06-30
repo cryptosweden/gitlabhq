@@ -1,33 +1,54 @@
 <script>
 import {
+  GlBadge,
   GlPopover,
   GlLink,
   GlSkeletonLoader,
   GlIcon,
-  GlSafeHtmlDirective,
   GlSprintf,
+  GlButton,
+  GlAvatarLabeled,
 } from '@gitlab/ui';
-import UserNameWithStatus from '~/sidebar/components/assignees/user_name_with_status.vue';
-import { glEmojiTag } from '../../../emoji';
-import UserAvatarImage from '../user_avatar/user_avatar_image.vue';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { glEmojiTag } from '~/emoji';
+import { createAlert } from '~/alert';
+import { followUser, unfollowUser } from '~/rest_api';
+import { isUserBusy } from '~/set_status_modal/utils';
+import Tracking from '~/tracking';
+import {
+  I18N_ERROR_FOLLOW,
+  I18N_ERROR_UNFOLLOW,
+  I18N_USER_BLOCKED,
+  I18N_USER_BUSY,
+  I18N_USER_LEARN,
+  I18N_USER_FOLLOW,
+  I18N_USER_UNFOLLOW,
+  USER_POPOVER_DELAY,
+} from './constants';
 
 const MAX_SKELETON_LINES = 4;
 
 export default {
   name: 'UserPopover',
   maxSkeletonLines: MAX_SKELETON_LINES,
+  I18N_USER_BLOCKED,
+  I18N_USER_BUSY,
+  I18N_USER_LEARN,
+  USER_POPOVER_DELAY,
   components: {
+    GlBadge,
     GlIcon,
     GlLink,
     GlPopover,
     GlSkeletonLoader,
-    UserAvatarImage,
-    UserNameWithStatus,
     GlSprintf,
+    GlButton,
+    GlAvatarLabeled,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
+  mixins: [Tracking.mixin()],
   props: {
     target: {
       type: HTMLElement,
@@ -38,6 +59,21 @@ export default {
       required: true,
       default: null,
     },
+    placement: {
+      type: String,
+      required: false,
+      default: 'top',
+    },
+    show: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+  },
+  data() {
+    return {
+      toggleFollowLoading: false,
+    };
   },
   computed: {
     statusHtml() {
@@ -47,11 +83,18 @@ export default {
 
       if (this.user.status.emoji && this.user.status.message_html) {
         return `${glEmojiTag(this.user.status.emoji)} ${this.user.status.message_html}`;
-      } else if (this.user.status.message_html) {
+      }
+      if (this.user.status.message_html) {
         return this.user.status.message_html;
+      }
+      if (this.user.status.emoji) {
+        return glEmojiTag(this.user.status.emoji);
       }
 
       return '';
+    },
+    userCannotMerge() {
+      return this.target.dataset.cannotMerge;
     },
     userIsLoading() {
       return !this.user?.loaded;
@@ -59,42 +102,178 @@ export default {
     availabilityStatus() {
       return this.user?.status?.availability || '';
     },
+    isNotCurrentUser() {
+      return !this.userIsLoading && this.user.username !== gon.current_username;
+    },
+    shouldRenderToggleFollowButton() {
+      return this.isNotCurrentUser && typeof this.user?.isFollowed !== 'undefined';
+    },
+    toggleFollowButtonText() {
+      if (this.toggleFollowLoading) return null;
+
+      return this.user?.isFollowed ? I18N_USER_UNFOLLOW : I18N_USER_FOLLOW;
+    },
+    toggleFollowButtonVariant() {
+      return this.user?.isFollowed ? 'default' : 'confirm';
+    },
+    hasPronouns() {
+      return Boolean(this.user?.pronouns?.trim());
+    },
+    isBlocked() {
+      return this.user?.state === 'blocked';
+    },
+    isBusy() {
+      return isUserBusy(this.availabilityStatus);
+    },
+    username() {
+      return `@${this.user?.username}`;
+    },
+    cssClasses() {
+      const classList = ['user-popover', 'gl-max-w-48', 'gl-overflow-hidden'];
+
+      if (this.userCannotMerge) {
+        classList.push('user-popover-cannot-merge');
+      }
+
+      return classList;
+    },
+  },
+  methods: {
+    async toggleFollow() {
+      if (this.user.isFollowed) {
+        this.unfollow();
+      } else {
+        this.follow();
+      }
+    },
+    async follow() {
+      this.toggleFollowLoading = true;
+
+      this.track('click_button', {
+        label: 'follow_from_user_popover',
+      });
+
+      try {
+        await followUser(this.user.id);
+        this.$emit('follow');
+      } catch (error) {
+        const message = error.response?.data?.message || I18N_ERROR_FOLLOW;
+        createAlert({
+          message,
+          error,
+          captureError: true,
+        });
+      } finally {
+        this.toggleFollowLoading = false;
+      }
+    },
+    async unfollow() {
+      this.toggleFollowLoading = true;
+
+      this.track('click_button', {
+        label: 'unfollow_from_user_popover',
+      });
+
+      try {
+        await unfollowUser(this.user.id);
+        this.$emit('unfollow');
+      } catch (error) {
+        createAlert({
+          message: I18N_ERROR_UNFOLLOW,
+          error,
+          captureError: true,
+        });
+      } finally {
+        this.toggleFollowLoading = false;
+      }
+    },
   },
   safeHtmlConfig: { ADD_TAGS: ['gl-emoji'] },
 };
 </script>
 
 <template>
-  <!-- 200ms delay so not every mouseover triggers Popover -->
-  <gl-popover :target="target" :delay="200" boundary="viewport" placement="top">
-    <div class="gl-p-3 gl-line-height-normal gl-display-flex" data-testid="user-popover">
-      <div class="gl-p-2 flex-shrink-1">
-        <user-avatar-image :img-src="user.avatarUrl" :size="60" css-classes="gl-mr-3!" />
+  <!-- Delayed so not every mouseover triggers Popover -->
+  <gl-popover
+    :css-classes="cssClasses"
+    :show="show"
+    :target="target"
+    :delay="$options.USER_POPOVER_DELAY"
+    :placement="placement"
+    boundary="viewport"
+    triggers="hover focus manual"
+    data-testid="user-popover"
+  >
+    <template v-if="userCannotMerge" #title>
+      <div class="gl-pb-3 gl-display-flex gl-align-items-center" data-testid="cannot-merge">
+        <gl-icon name="warning-solid" class="gl-mr-2 gl-text-orange-400" />
+        <span class="gl-font-normal">{{ __('Cannot merge') }}</span>
       </div>
-      <div class="gl-p-2 gl-w-full gl-min-w-0">
-        <template v-if="userIsLoading">
-          <gl-skeleton-loader
-            :lines="$options.maxSkeletonLines"
-            preserve-aspect-ratio="none"
-            equal-width-lines
-            :height="52"
-          />
+    </template>
+    <div class="gl-mb-3">
+      <div v-if="userIsLoading" class="gl-w-20">
+        <gl-skeleton-loader :width="160" :height="64">
+          <rect x="70" y="19" rx="3" ry="3" width="88" height="9" />
+          <rect x="70" y="36" rx="3" ry="3" width="64" height="8" />
+          <circle cx="32" cy="32" r="32" />
+        </gl-skeleton-loader>
+      </div>
+      <gl-avatar-labeled
+        v-else
+        :size="64"
+        :src="user.avatarUrl"
+        :label="user.name"
+        :sub-label="username"
+        class="gl-w-full"
+      >
+        <template v-if="isBlocked">
+          <span class="gl-mt-4 gl-italic">{{ $options.I18N_USER_BLOCKED }}</span>
         </template>
         <template v-else>
-          <div class="gl-mb-3">
-            <h5 class="gl-m-0">
-              <user-name-with-status
-                :name="user.name"
-                :availability="availabilityStatus"
-                :pronouns="user.pronouns"
-              />
-            </h5>
-            <span class="gl-text-gray-500">@{{ user.username }}</span>
-          </div>
+          <gl-button
+            v-if="shouldRenderToggleFollowButton"
+            class="gl-mt-3 gl-align-self-start"
+            :variant="toggleFollowButtonVariant"
+            :loading="toggleFollowLoading"
+            size="small"
+            data-testid="toggle-follow-button"
+            @click="toggleFollow"
+            >{{ toggleFollowButtonText }}</gl-button
+          >
+        </template>
+
+        <template #meta>
+          <span
+            v-if="hasPronouns"
+            class="gl-text-gray-500 gl-font-sm gl-font-normal gl-p-1"
+            data-testid="user-popover-pronouns"
+            >({{ user.pronouns }})</span
+          >
+          <gl-badge v-if="isBusy" variant="warning" class="gl-ml-1">
+            {{ $options.I18N_USER_BUSY }}
+          </gl-badge>
+        </template>
+      </gl-avatar-labeled>
+    </div>
+    <div class="gl-mt-2 gl-w-full gl-break-anywhere">
+      <template v-if="userIsLoading">
+        <gl-skeleton-loader
+          :lines="$options.maxSkeletonLines"
+          preserve-aspect-ratio="none"
+          equal-width-lines
+          :height="24"
+        />
+      </template>
+      <template v-else>
+        <template v-if="!isBlocked">
           <div class="gl-text-gray-500">
+            <div v-if="user.email" class="gl-display-flex gl-mb-2">
+              <gl-icon name="mail" class="gl-flex-shrink-0" />
+              <span ref="email" class="gl-ml-2">{{ user.email }}</span>
+            </div>
             <div v-if="user.bio" class="gl-display-flex gl-mb-2">
               <gl-icon name="profile" class="gl-flex-shrink-0" />
-              <span ref="bio" class="gl-ml-2 gl-overflow-hidden">{{ user.bio }}</span>
+              <span ref="bio" class="gl-ml-2">{{ user.bio }}</span>
             </div>
             <div v-if="user.workInformation" class="gl-display-flex gl-mb-2">
               <gl-icon name="work" class="gl-flex-shrink-0" />
@@ -117,15 +296,15 @@ export default {
             <span v-safe-html:[$options.safeHtmlConfig]="statusHtml"></span>
           </div>
           <div v-if="user.bot && user.websiteUrl" class="gl-text-blue-500">
-            <gl-icon name="question" />
+            <gl-icon name="question-o" />
             <gl-link data-testid="user-popover-bot-docs-link" :href="user.websiteUrl">
-              <gl-sprintf :message="__('Learn more about %{username}')">
-                <template #username>{{ user.name }}</template>
+              <gl-sprintf :message="$options.I18N_USER_LEARN">
+                <template #name>{{ user.name }}</template>
               </gl-sprintf>
             </gl-link>
           </div>
         </template>
-      </div>
+      </template>
     </div>
   </gl-popover>
 </template>

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Setting Due Date of an issue' do
+RSpec.describe 'Setting Due Date of an issue', feature_category: :team_planning do
   include GraphqlHelpers
 
   let(:current_user) { create(:user) }
@@ -15,15 +15,17 @@ RSpec.describe 'Setting Due Date of an issue' do
       project_path: project.full_path,
       iid: issue.iid.to_s
     }
-    graphql_mutation(:issue_set_due_date, variables.merge(input),
-                     <<-QL.strip_heredoc
-                       clientMutationId
-                       errors
-                       issue {
-                         iid
-                         dueDate
-                       }
-                     QL
+    graphql_mutation(
+      :issue_set_due_date,
+      variables.merge(input),
+      <<-QL.strip_heredoc
+        clientMutationId
+        errors
+        issue {
+          iid
+          dueDate
+        }
+      QL
     )
   end
 
@@ -68,7 +70,7 @@ RSpec.describe 'Setting Due Date of an issue' do
     it 'returns an error' do
       post_graphql_mutation(mutation, current_user: current_user)
 
-      expect(graphql_errors).to include(a_hash_including('message' => /Arguments must be provided: dueDate/))
+      expect(graphql_errors).to include(a_hash_including('message' => 'issueSetDueDate has the wrong arguments'))
     end
   end
 

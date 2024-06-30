@@ -22,21 +22,25 @@ module Gitlab
         keys_to_expire = keys.map { |key| cache_key(key) }
 
         Gitlab::Instrumentation::RedisClusterValidator.allow_cross_slot_commands do
-          redis.unlink(*keys_to_expire)
+          if Gitlab::Redis::ClusterUtil.cluster?(redis)
+            Gitlab::Redis::ClusterUtil.batch_unlink(keys_to_expire, redis)
+          else
+            redis.unlink(*keys_to_expire)
+          end
         end
       end
     end
 
     def exist?(key)
-      with { |redis| redis.exists(cache_key(key)) }
+      with { |redis| redis.exists?(cache_key(key)) } # rubocop:disable CodeReuse/ActiveRecord
     end
 
     def write(key, value)
       with do |redis|
-        redis.pipelined do
-          redis.sadd(cache_key(key), value)
+        redis.pipelined do |pipeline|
+          pipeline.sadd?(cache_key(key), value)
 
-          redis.expire(cache_key(key), expires_in)
+          pipeline.expire(cache_key(key), expires_in)
         end
       end
 
@@ -57,15 +61,19 @@ module Gitlab
       full_key = cache_key(key)
 
       with do |redis|
-        redis.multi do
-          redis.sismember(full_key, value)
-          redis.exists(full_key)
+        redis.multi do |multi|
+          multi.sismember(full_key, value.to_s)
+          multi.exists?(full_key) # rubocop:disable CodeReuse/ActiveRecord
         end
       end
     end
 
     def ttl(key)
       with { |redis| redis.ttl(cache_key(key)) }
+    end
+
+    def count(key)
+      with { |redis| redis.scard(cache_key(key)) }
     end
 
     private

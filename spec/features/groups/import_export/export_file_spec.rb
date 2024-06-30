@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group Export', :js do
+RSpec.describe 'Group Export', :js, feature_category: :importers do
   include ExportFileHelper
 
   let_it_be(:user) { create(:user) }
@@ -23,22 +23,6 @@ RSpec.describe 'Group Export', :js do
       expect(page).to have_content('Group export started')
 
       expect(page).to have_content('Download export')
-    end
-  end
-
-  context 'when the group import/export FF is disabled' do
-    before do
-      stub_feature_flags(group_import_export: false)
-
-      group.add_owner(user)
-      sign_in(user)
-    end
-
-    it 'does not show the group export options' do
-      visit edit_group_path(group)
-
-      expect(page).to have_content('Advanced')
-      expect(page).not_to have_content('Export group')
     end
   end
 

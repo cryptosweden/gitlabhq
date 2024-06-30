@@ -9,6 +9,15 @@ production:
     username: git
     password: "secure password"
     host: localhost
+    # load_balancing:
+    #   hosts:
+    #     - host1.example.com
+    #     - host2.example.com
+    #   discover:
+    #     nameserver: 1.2.3.4
+    #     port: 8600
+    #     record: secondary.postgresql.service.consul
+    #     interval: 300
   ci:
     adapter: postgresql
     encoding: unicode
@@ -16,6 +25,23 @@ production:
     username: git
     password: "secure password"
     host: localhost
+    # load_balancing:
+    #   hosts:
+    #     - host1.example.com
+    #     - host2.example.com
+    #   discover:
+    #     nameserver: 1.2.3.4
+    #     port: 8600
+    #     record: secondary-ci.postgresql.service.consul
+    #     interval: 300
+  geo:
+    adapter: postgresql
+    encoding: unicode
+    database: gitlabhq_geo_production
+    username: git
+    password: "secure password"
+    host: localhost
+
 #
 # Development specific
 #
@@ -38,6 +64,13 @@ development:
     host: localhost
     variables:
       statement_timeout: 15s
+  geo:
+    adapter: postgresql
+    encoding: unicode
+    database: gitlabhq_geo_development
+    username: postgres
+    password: "secure password"
+    host: localhost
 
 # Warning: The database defined as "test" will be erased and
 # re-generated from your development database when you run "rake".
@@ -51,6 +84,7 @@ test: &test
     password:
     host: localhost
     prepared_statements: false
+    reaping_frequency: nil
     variables:
       statement_timeout: 15s
   ci:
@@ -61,5 +95,22 @@ test: &test
     password:
     host: localhost
     prepared_statements: false
+    reaping_frequency: nil
     variables:
       statement_timeout: 15s
+  geo:
+    adapter: postgresql
+    encoding: unicode
+    database: gitlabhq_geo_test
+    username: postgres
+    password:
+    host: localhost
+    reaping_frequency: nil
+  embedding:
+    adapter: postgresql
+    encoding: unicode
+    database: gitlabhq_embedding_test
+    username: postgres
+    password:
+    host: localhost
+    reaping_frequency: nil

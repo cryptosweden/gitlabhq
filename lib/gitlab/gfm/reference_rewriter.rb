@@ -31,29 +31,45 @@ module Gitlab
     #  http://gitlab.com/some/link/#1234, and code `puts #1234`'
     #
     class ReferenceRewriter
+      include Gitlab::Utils::StrongMemoize
+
       RewriteError = Class.new(StandardError)
 
-      def initialize(text, source_parent, current_user)
+      def initialize(text, text_html, source_parent, current_user)
         @text = text
+
+        # If for some reason cached html is not present it gets rendered here
+        @text_html = text_html || original_html
+
         @source_parent = source_parent
         @current_user = current_user
-        @original_html = markdown(text)
         @pattern = Gitlab::ReferenceExtractor.references_pattern
       end
 
       def rewrite(target_parent)
         return @text unless needs_rewrite?
 
-        @text.gsub(@pattern) do |reference|
+        @text.gsub!(@pattern) do |reference|
           unfold_reference(reference, Regexp.last_match, target_parent)
         end
       end
 
       def needs_rewrite?
-        @text =~ @pattern
+        strong_memoize(:needs_rewrite) do
+          reference_type_attribute =
+            Banzai::Filter::References::ReferenceFilter::REFERENCE_TYPE_DATA_ATTRIBUTE
+
+          @text_html.include?(reference_type_attribute)
+        end
       end
 
       private
+
+      def original_html
+        strong_memoize(:original_html) do
+          markdown(@text)
+        end
+      end
 
       def unfold_reference(reference, match, target_parent)
         before = @text[0...match.begin(0)]
@@ -75,7 +91,7 @@ module Gitlab
 
       def find_referable(reference)
         extractor = Gitlab::ReferenceExtractor.new(@source_parent,
-                                                   @current_user)
+          @current_user)
         extractor.analyze(reference)
         extractor.all.first
       end
@@ -89,7 +105,7 @@ module Gitlab
       end
 
       def substitution_valid?(substituted)
-        @original_html == markdown(substituted)
+        original_html == markdown(substituted)
       end
 
       def markdown(text)

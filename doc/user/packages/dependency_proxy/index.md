@@ -1,15 +1,14 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Container Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Dependency Proxy **(FREE)**
+# Dependency Proxy
 
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/273655) from GitLab Premium to GitLab Free in 13.6.
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/11582) support for private groups in GitLab 13.7.
-> - Anonymous access to images in public groups is no longer available starting in GitLab 13.7.
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/290944) support for pull-by-digest and Docker version 20.x in GitLab 13.10.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 The GitLab Dependency Proxy is a local proxy you can use for your frequently-accessed
 upstream images.
@@ -28,16 +27,20 @@ The following images and packages are supported.
 
 | Image/Package    | GitLab version |
 | ---------------- | -------------- |
-| Docker           | 11.11+         |
+| Docker           | 14.0+         |
 
 For a list of planned additions, view the
 [direction page](https://about.gitlab.com/direction/package/#dependency-proxy).
 
 ## Enable or turn off the Dependency Proxy for a group
 
+> - Required role [changed](https://gitlab.com/gitlab-org/gitlab/-/issues/350682) from Developer to Maintainer in GitLab 15.0.
+> - Required role [changed](https://gitlab.com/gitlab-org/gitlab/-/issues/370471) from Maintainer to Owner in GitLab 17.0.
+
 To enable or turn off the Dependency Proxy for a group:
 
-1. Go to your group's **Settings > Packages & Registries**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Settings > Packages and registries**.
 1. Expand the **Dependency Proxy** section.
 1. To enable the proxy, turn on **Enable Proxy**. To turn it off, turn the toggle off.
 
@@ -49,7 +52,8 @@ for the entire GitLab instance.
 
 To view the Dependency Proxy:
 
-- Go to your group's **Packages & Registries > Dependency Proxy**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Operate > Dependency Proxy**.
 
 The Dependency Proxy is not available for projects.
 
@@ -63,17 +67,8 @@ Prerequisites:
 
 ### Authenticate with the Dependency Proxy
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/11582) in GitLab 13.7.
-> - It's [deployed behind a feature flag](../../feature_flags.md), enabled by default.
-> - It's enabled on GitLab.com.
-> - It's recommended for production use.
-> - For GitLab self-managed instances, GitLab administrators can opt to [disable it](../../../administration/packages/dependency_proxy.md#disabling-authentication). **(FREE SELF)**
-
-WARNING:
-This feature might not be available to you. Check the **version history** note above for details.
-The requirement to authenticate is a breaking change added in 13.7. An [administrator can temporarily
-disable it](../../../administration/packages/dependency_proxy.md#disabling-authentication) if it
-has disrupted your existing Dependency Proxy usage.
+> - [Removed](https://gitlab.com/gitlab-org/gitlab/-/issues/276777) the feature flag `dependency_proxy_for_private_groups` in GitLab 15.0.
+> - Support for group access tokens [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/362991) in GitLab 16.3.
 
 Because the Dependency Proxy is storing Docker images in a space associated with your group,
 you must authenticate against the Dependency Proxy.
@@ -81,7 +76,7 @@ you must authenticate against the Dependency Proxy.
 Follow the [instructions for using images from a private registry](../../../ci/docker/using_docker_images.md#access-an-image-from-a-private-container-registry),
 but instead of using `registry.example.com:5000`, use your GitLab domain with no port `gitlab.example.com`.
 
-For example, to manually log in:
+For example, to manually sign in:
 
 ```shell
 docker login gitlab.example.com --username my_username --password my_password
@@ -90,11 +85,20 @@ docker login gitlab.example.com --username my_username --password my_password
 You can authenticate using:
 
 - Your GitLab username and password.
-- A [personal access token](../../../user/profile/personal_access_tokens.md) with the scope set to `read_registry` and `write_registry`.
-- A [group deploy token](../../../user/project/deploy_tokens/index.md#group-deploy-token) with the scope set to `read_registry` and `write_registry`.
+- A [personal access token](../../../user/profile/personal_access_tokens.md) with the scope set to `read_registry` and `write_registry`, or to `api`.
+- A [group deploy token](../../../user/project/deploy_tokens/index.md) with the scope set to `read_registry` and `write_registry`.
+- A [group access token](../../../user/group/settings/group_access_tokens.md) for the group, with the scope set to `read_registry` and `write_registry`, or to `api`.
 
 Users accessing the Dependency Proxy with a personal access token or username and password must
 have at least the Guest role for the group they pull images from.
+
+The Dependency Proxy follows the [Docker v2 token authentication flow](https://distribution.github.io/distribution/spec/auth/token/),
+issuing the client a JWT to use for the pull requests. The JWT issued as a result of authenticating
+expires after some time. When the token expires, most Docker clients store your credentials and
+automatically request a new token without further action.
+
+The token expiration time is a [configurable setting](../../../administration/packages/dependency_proxy.md#changing-the-jwt-expiration).
+On GitLab.com, the expiration time is 15 minutes.
 
 #### SAML SSO
 
@@ -104,11 +108,7 @@ Proxy.
 
 #### Authenticate within CI/CD
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/280582) in GitLab 13.7.
-> - Automatic runner authentication, when using the Dependency Proxy to pull the image for the job, was [added](https://gitlab.com/gitlab-org/gitlab-runner/-/issues/27302) in GitLab 13.9.
-> - The prefix for group names containing uppercase letters was [fixed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/54559) in GitLab 13.10.
-
-Runners log in to the Dependency Proxy automatically. To pull through
+Runners sign in to the Dependency Proxy automatically. To pull through
 the Dependency Proxy, use one of the [predefined variables](../../../ci/variables/predefined_variables.md):
 
 - `CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX` pulls through the top-level group.
@@ -151,31 +151,32 @@ FROM gitlab.example.com:443/my-group/dependency_proxy/containers/alpine:latest
 
 ```yaml
 # .gitlab-ci.yml
-image: docker:19.03.12
+image: docker:20.10.16
 
 variables:
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
 
 services:
-  - docker:19.03.12-dind
+  - docker:20.10.16-dind
 
 build:
-  image: docker:19.03.12
+  image: docker:20.10.16
   before_script:
     - docker login -u $CI_DEPENDENCY_PROXY_USER -p $CI_DEPENDENCY_PROXY_PASSWORD $CI_DEPENDENCY_PROXY_SERVER
   script:
-    -  docker build -t test .
+    - docker build -t test .
 ```
 
-You can also use [custom CI/CD variables](../../../ci/variables/index.md#custom-cicd-variables) to store and access your personal access token or deploy token.
+You can also use [custom CI/CD variables](../../../ci/variables/index.md#for-a-project) to store and access your personal access token or deploy token.
 
 ### Store a Docker image in Dependency Proxy cache
 
 To store a Docker image in Dependency Proxy storage:
 
-1. Go to your group's **Packages & Registries > Dependency Proxy**.
-1. Copy the **Dependency Proxy URL**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Operate > Dependency Proxy**.
+1. Copy the **Dependency Proxy image prefix**.
 1. Use one of these commands. In these examples, the image is `alpine:latest`.
 1. You can also pull images by digest to specify exactly which version of an image to pull.
 
@@ -214,8 +215,6 @@ For information on reducing your storage use on the Dependency Proxy, see
 [Reduce Dependency Proxy storage use](reduce_dependency_proxy_storage.md).
 
 ## Docker Hub rate limits and the Dependency Proxy
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/241639) in GitLab 13.7.
 
 <i class="fa fa-youtube-play youtube" aria-hidden="true"></i>
 Watch how to [use the Dependency Proxy to help avoid Docker Hub rate limits](https://youtu.be/Nc4nUo7Pq08).
@@ -297,9 +296,13 @@ hub_docker_quota_check:
 
 ## Troubleshooting
 
+### Authentication error: "HTTP Basic: Access Denied"
+
+If you receive an `HTTP Basic: Access denied` error when authenticating against the Dependency Proxy, refer to the [two-factor authentication troubleshooting guide](../../profile/account/two_factor_authentication.md#troubleshooting).
+
 ### Dependency Proxy Connection Failure
 
-If a service alias is not set the `docker:19.03.12` image is unable to find the
+If a service alias is not set the `docker:20.10.16` image is unable to find the
 `dind` service, and an error like the following is thrown:
 
 ```plaintext
@@ -314,13 +317,79 @@ services:
       alias: docker
 ```
 
-### "Not Found" error when pulling image
+### Issues when authenticating to the Dependency Proxy from CI/CD jobs
 
-Docker errors similar to the following may indicate that the user running the build job doesn't have
-a minimum of the Guest role in the specified Dependency Proxy group:
+GitLab Runner authenticates automatically to the Dependency Proxy. However, the underlying Docker engine is still subject to its [authorization resolving process](https://docs.gitlab.com/runner/configuration/advanced-configuration.html#precedence-of-docker-authorization-resolving).
+
+Misconfigurations in the authentication mechanism may cause `HTTP Basic: Access denied` and `403: Access forbidden` errors.
+
+You can use the job logs to view the authentication mechanism used to authenticate against the Dependency Proxy:
 
 ```plaintext
-ERROR: gitlab.example.com:443/group1/dependency_proxy/containers/alpine:latest: not found
+Authenticating with credentials from $DOCKER_AUTH_CONFIG
+```
 
-failed to solve with frontend dockerfile.v0: failed to create LLB definition: gitlab.example.com:443/group1/dependency_proxy/containers/alpine:latest: not found
+```plaintext
+Authenticating with credentials from /root/.docker/config.json
+```
+
+```plaintext
+Authenticating with credentials from job payload (GitLab Registry)
+```
+
+Make sure you are using the expected authentication mechanism.
+
+### `Not Found` or `404` error when pulling image
+
+Errors like these might indicate that the user running the job doesn't have
+a minimum of the Guest role in the Dependency Proxy group:
+
+- ```plaintext
+  ERROR: gitlab.example.com:443/group1/dependency_proxy/containers/alpine:latest: not found
+
+  failed to solve with frontend dockerfile.v0: failed to create LLB definition: gitlab.example.com:443/group1/dependency_proxy/containers/alpine:latest: not found
+  ```
+
+- ```plaintext
+  ERROR: Job failed: failed to pull image "gitlab.example.com:443/group1/dependency_proxy/containers/alpine:latest" with specified policies [always]:
+  Error response from daemon: error parsing HTTP 404 response body: unexpected end of JSON input: "" (manager.go:237:1s)
+  ```
+
+For more information about the work to improve the error messages in similar cases to `Access denied`,
+see [issue 354826](https://gitlab.com/gitlab-org/gitlab/-/issues/354826).
+
+### `exec format error` when running images from the dependency proxy
+
+NOTE:
+This issue was [resolved](https://gitlab.com/gitlab-org/gitlab/-/issues/325669) in GitLab 16.3.
+For self managed instances that are 16.2 or earlier, you can update your instance to 16.3
+or use the workaround documented below.
+
+This error occurs if you try to use the dependency proxy on an ARM-based Docker install in GitLab 16.2 or earlier.
+The dependency proxy only supports the x86_64 architecture when pulling an image with a specific tag.
+
+As a workaround, you can specify the SHA256 of the image to force the dependency proxy
+to pull a different architecture:
+
+```shell
+docker pull ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/library/docker:20.10.3@sha256:bc9dcf5c8e5908845acc6d34ab8824bca496d6d47d1b08af3baf4b3adb1bd8fe
+```
+
+In this example, `bc9dcf5c8e5908845acc6d34ab8824bca496d6d47d1b08af3baf4b3adb1bd8fe` is the SHA256 of the ARM based image.
+
+### `MissingFile` errors after restoring a backup
+
+If you encounter `MissingFile` or `Cannot read file` errors, it might be because
+[backup archives](../../../administration/backup_restore/backup_gitlab.md)
+do not include the contents of `gitlab-rails/shared/dependency_proxy/`.
+
+To resolve this [known issue](https://gitlab.com/gitlab-org/gitlab/-/issues/354574),
+you can use `rsync`, `scp`, or a similar tool to copy the affected files or the whole
+`gitlab-rails/shared/dependency_proxy/` folder structure from the GitLab instance
+that was the source of the backup.
+
+If the data is not needed, you can delete the database entries with:
+
+```shell
+gitlab-psql -c "DELETE FROM dependency_proxy_blobs; DELETE FROM dependency_proxy_blob_states; DELETE FROM dependency_proxy_manifest_states; DELETE FROM dependency_proxy_manifests;"
 ```

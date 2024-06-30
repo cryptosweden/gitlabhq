@@ -48,17 +48,16 @@ module API
       include Gitlab::Auth::AuthFinders
 
       def access_token
-        super || find_personal_access_token_from_http_basic_auth
+        strong_memoize(:api_guard_access_token) do
+          super || find_personal_access_token_from_http_basic_auth
+        end
       end
 
       def find_current_user!
         user = find_user_from_sources
         return unless user
 
-        if user.is_a?(User) && Gitlab::CurrentSettings.admin_mode
-          # Sessions are enforced to be unavailable for API calls, so ignore them for admin mode
-          Gitlab::Auth::CurrentUserMode.bypass_session!(user.id)
-        end
+        Gitlab::Auth::CurrentUserMode.bypass_session!(user.id) if bypass_session_for_admin_mode?(user)
 
         unless api_access_allowed?(user)
           forbidden!(api_access_denied_message(user))
@@ -82,6 +81,13 @@ module API
       end
 
       private
+
+      def bypass_session_for_admin_mode?(user)
+        return false unless user.is_a?(User) && Gitlab::CurrentSettings.admin_mode
+
+        Gitlab::Session.with_session(current_request.session) { Gitlab::Auth::CurrentUserMode.new(user).admin_mode? } ||
+          Gitlab::Auth::RequestAuthenticator.new(current_request).valid_access_token?(scopes: [:admin_mode])
+      end
 
       # An array of scopes that were registered (using `allow_access_with_scope`)
       # for the current endpoint class. It also returns scopes registered on
@@ -122,7 +128,7 @@ module API
       end
 
       def two_factor_required_but_not_setup?(user)
-        verifier = Gitlab::Auth::TwoFactorAuthVerifier.new(user)
+        verifier = Gitlab::Auth::TwoFactorAuthVerifier.new(user, request)
 
         if verifier.two_factor_authentication_required? && verifier.current_user_needs_to_setup_two_factor?
           verifier.two_factor_grace_period_expired?

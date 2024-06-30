@@ -1,10 +1,13 @@
 <script>
-import { GlLoadingIcon, GlFormInput, GlFormGroup, GlButton, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlLoadingIcon, GlFormInput, GlFormGroup, GlButton } from '@gitlab/ui';
 import { escape, debounce } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
-import createFlash from '~/flash';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { createAlert, VARIANT_INFO } from '~/alert';
 import { s__, sprintf } from '~/locale';
 import createEmptyBadge from '../empty_badge';
+import { PLACEHOLDERS } from '../constants';
 import Badge from './badge.vue';
 
 const badgePreviewDelayInMilliseconds = 1500;
@@ -19,12 +22,17 @@ export default {
     GlFormGroup,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   props: {
     isEditing: {
       type: Boolean,
       required: true,
+    },
+    inModal: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
   },
   data() {
@@ -49,9 +57,9 @@ export default {
       return this.badgeInAddForm;
     },
     helpText() {
-      const placeholders = ['project_path', 'project_id', 'default_branch', 'commit_sha']
-        .map((placeholder) => `<code>%{${placeholder}}</code>`)
-        .join(', ');
+      const placeholders = PLACEHOLDERS.map((placeholder) => `<code>%{${placeholder}}</code>`).join(
+        ', ',
+      );
       return sprintf(
         s__('Badges|Supported %{docsLinkStart}variables%{docsLinkEnd}: %{placeholders}'),
         {
@@ -117,16 +125,28 @@ export default {
         exampleUrl,
       });
     },
+    cancelButtonType() {
+      return this.isEditing ? 'button' : 'reset';
+    },
+    saveText() {
+      return this.isEditing ? s__('Badges|Save changes') : s__('Badges|Add badge');
+    },
+  },
+  mounted() {
+    // declared here to make it cancel-able
+    this.debouncedPreview = debounce(function search() {
+      this.renderBadge();
+    }, badgePreviewDelayInMilliseconds);
   },
   methods: {
     ...mapActions(['addBadge', 'renderBadge', 'saveBadge', 'stopEditing', 'updateBadgeInForm']),
-    debouncedPreview: debounce(function preview() {
-      this.renderBadge();
-    }, badgePreviewDelayInMilliseconds),
-    onCancel() {
-      this.stopEditing();
+    updatePreview() {
+      this.debouncedPreview();
     },
     onSubmit() {
+      this.debouncedPreview.cancel();
+      this.renderBadge();
+
       const form = this.$el;
       if (!form.checkValidity()) {
         this.wasValidated = true;
@@ -136,14 +156,14 @@ export default {
       if (this.isEditing) {
         return this.saveBadge()
           .then(() => {
-            createFlash({
+            createAlert({
               message: s__('Badges|Badge saved.'),
-              type: 'notice',
+              variant: VARIANT_INFO,
             });
             this.wasValidated = false;
           })
           .catch((error) => {
-            createFlash({
+            createAlert({
               message: s__(
                 'Badges|Saving the badge failed, please check the entered URLs and try again.',
               ),
@@ -154,20 +174,30 @@ export default {
 
       return this.addBadge()
         .then(() => {
-          createFlash({
+          createAlert({
             message: s__('Badges|New badge added.'),
-            type: 'notice',
+            variant: VARIANT_INFO,
           });
           this.wasValidated = false;
+          this.$emit('close-add-form');
         })
         .catch((error) => {
-          createFlash({
-            message: s__(
-              'Badges|Adding the badge failed, please check the entered URLs and try again.',
-            ),
+          createAlert({
+            message: s__('Badges|Failed to add new badge. Check the URLs, then try again.'),
           });
           throw error;
         });
+    },
+    closeForm() {
+      this.$refs.form.reset();
+      this.$emit('close-add-form');
+    },
+    handleCancel() {
+      if (this.isEditing) {
+        this.stopEditing();
+      } else {
+        this.closeForm();
+      }
     },
   },
   safeHtmlConfig: { ALLOW_TAGS: ['a', 'code'] },
@@ -176,13 +206,14 @@ export default {
 
 <template>
   <form
+    ref="form"
     :class="{ 'was-validated': wasValidated }"
     class="gl-mt-3 gl-mb-3 needs-validation"
     novalidate
     @submit.prevent.stop="onSubmit"
   >
-    <gl-form-group :label="s__('Badges|Name')" label-for="badge-name">
-      <gl-form-input id="badge-name" v-model="name" data-qa-selector="badge_name_field" />
+    <gl-form-group :label="s__('Badges|Name')" label-for="badge-name" class="gl-max-w-48">
+      <gl-form-input id="badge-name" v-model="name" data-testid="badge-name-field" />
     </gl-form-group>
 
     <div class="form-group">
@@ -191,11 +222,11 @@ export default {
       <input
         id="badge-link-url"
         v-model="linkUrl"
-        data-qa-selector="badge_link_url_field"
+        data-testid="badge-link-url-field"
         type="URL"
-        class="form-control gl-form-input"
+        class="form-control gl-form-input gl-max-w-80"
         required
-        @input="debouncedPreview"
+        @input="updatePreview"
       />
       <div class="invalid-feedback">{{ s__('Badges|Enter a valid URL') }}</div>
       <span class="form-text text-muted">{{ badgeLinkUrlExample }}</span>
@@ -207,11 +238,11 @@ export default {
       <input
         id="badge-image-url"
         v-model="imageUrl"
-        data-qa-selector="badge_image_url_field"
+        data-testid="badge-image-url-field"
         type="URL"
-        class="form-control gl-form-input"
+        class="form-control gl-form-input gl-max-w-80"
         required
-        @input="debouncedPreview"
+        @input="updatePreview"
       />
       <div class="invalid-feedback">{{ s__('Badges|Enter a valid URL') }}</div>
       <span class="form-text text-muted">{{ badgeImageUrlExample }}</span>
@@ -228,34 +259,24 @@ export default {
       <p v-show="isRendering">
         <gl-loading-icon size="sm" :inline="true" />
       </p>
-      <p v-show="!renderedBadge && !isRendering" class="disabled-content">
+      <p v-show="!renderedBadge && !isRendering" class="gl-text-subtle">
         {{ s__('Badges|No image to preview') }}
       </p>
     </div>
 
-    <div v-if="isEditing" class="row-content-block">
-      <gl-button class="btn-cancel gl-mr-4" data-testid="cancelEditing" @click="onCancel">
+    <div v-if="!inModal" class="form-group" data-testid="action-buttons">
+      <gl-button
+        :loading="isSaving"
+        type="submit"
+        variant="confirm"
+        category="primary"
+        data-testid="add-badge-button"
+        class="gl-mr-3"
+      >
+        {{ saveText }}
+      </gl-button>
+      <gl-button :type="cancelButtonType" @click="handleCancel">
         {{ __('Cancel') }}
-      </gl-button>
-      <gl-button
-        :loading="isSaving"
-        type="submit"
-        variant="confirm"
-        category="primary"
-        data-testid="saveEditing"
-      >
-        {{ s__('Badges|Save changes') }}
-      </gl-button>
-    </div>
-    <div v-else class="form-group">
-      <gl-button
-        :loading="isSaving"
-        type="submit"
-        variant="confirm"
-        category="primary"
-        data-qa-selector="add_badge_button"
-      >
-        {{ s__('Badges|Add badge') }}
       </gl-button>
     </div>
   </form>

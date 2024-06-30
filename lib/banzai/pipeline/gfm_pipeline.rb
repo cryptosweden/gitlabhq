@@ -11,41 +11,38 @@ module Banzai
       # The GFM-to-HTML-to-GFM cycle is tested in spec/features/copy_as_gfm_spec.rb.
       def self.filters
         @filters ||= FilterArray[
+          Filter::CodeLanguageFilter,
           Filter::PlantumlFilter,
           # Must always be before the SanitizationFilter to prevent XSS attacks
           Filter::SpacedLinkFilter,
           Filter::SanitizationFilter,
+          Filter::EscapedCharFilter,
+          Filter::KrokiFilter,
+          Filter::GollumTagsFilter,
+          Filter::WikiLinkGollumFilter,
           Filter::AssetProxyFilter,
-          Filter::SyntaxHighlightFilter,
           Filter::MathFilter,
           Filter::ColorFilter,
-          Filter::KrokiFilter,
           Filter::MermaidFilter,
+          Filter::AttributesFilter,
           Filter::VideoLinkFilter,
           Filter::AudioLinkFilter,
           Filter::ImageLazyLoadFilter,
           Filter::ImageLinkFilter,
-          *metrics_filters,
-          Filter::TableOfContentsFilter,
+          Filter::TableOfContentsLegacyFilter,
+          Filter::TableOfContentsTagLegacyFilter,
           Filter::TableOfContentsTagFilter,
-          Filter::AutolinkFilter,
+          Filter::AutolinkLegacyFilter,
           Filter::ExternalLinkFilter,
           Filter::SuggestionFilter,
           Filter::FootnoteFilter,
+          Filter::InlineDiffFilter,
           *reference_filters,
           Filter::EmojiFilter,
           Filter::CustomEmojiFilter,
           Filter::TaskListFilter,
-          Filter::InlineDiffFilter,
-          Filter::SetDirectionFilter
-        ]
-      end
-
-      def self.metrics_filters
-        [
-          Filter::InlineMetricsFilter,
-          Filter::InlineGrafanaMetricsFilter,
-          Filter::InlineClusterMetricsFilter
+          Filter::SetDirectionFilter,
+          Filter::SyntaxHighlightFilter # this filter should remain at the end
         ]
       end
 
@@ -55,15 +52,16 @@ module Banzai
           Filter::References::ProjectReferenceFilter,
           Filter::References::DesignReferenceFilter,
           Filter::References::IssueReferenceFilter,
+          Filter::References::WorkItemReferenceFilter,
           Filter::References::ExternalIssueReferenceFilter,
           Filter::References::MergeRequestReferenceFilter,
           Filter::References::SnippetReferenceFilter,
           Filter::References::CommitRangeReferenceFilter,
-          Filter::References::CommitReferenceFilter,
           Filter::References::LabelReferenceFilter,
           Filter::References::MilestoneReferenceFilter,
           Filter::References::AlertReferenceFilter,
-          Filter::References::FeatureFlagReferenceFilter
+          Filter::References::FeatureFlagReferenceFilter,
+          Filter::References::CommitReferenceFilter
         ]
       end
 

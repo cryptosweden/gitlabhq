@@ -6,40 +6,35 @@ module Gitlab
       module Security
         module Validators
           class SchemaValidator
-            # https://docs.gitlab.com/ee/update/deprecations.html#147
             SUPPORTED_VERSIONS = {
-              cluster_image_scanning: %w[14.0.4 14.0.5 14.0.6 14.1.0],
-              container_scanning: %w[14.0.0 14.0.1 14.0.2 14.0.3 14.0.4 14.0.5 14.0.6 14.1.0],
-              coverage_fuzzing: %w[14.0.0 14.0.1 14.0.2 14.0.3 14.0.4 14.0.5 14.0.6 14.1.0],
-              dast: %w[14.0.0 14.0.1 14.0.2 14.0.3 14.0.4 14.0.5 14.0.6 14.1.0],
-              api_fuzzing: %w[14.0.0 14.0.1 14.0.2 14.0.3 14.0.4 14.0.5 14.0.6 14.1.0],
-              dependency_scanning: %w[14.0.0 14.0.1 14.0.2 14.0.3 14.0.4 14.0.5 14.0.6 14.1.0],
-              sast: %w[14.0.0 14.0.1 14.0.2 14.0.3 14.0.4 14.0.5 14.0.6 14.1.0],
-              secret_detection: %w[14.0.0 14.0.1 14.0.2 14.0.3 14.0.4 14.0.5 14.0.6 14.1.0]
+              cluster_image_scanning: %w[15.0.0 15.0.1 15.0.2 15.0.4 15.0.5 15.0.6 15.0.7 15.1.0 15.1.1 15.1.2 15.1.3 15.1.4],
+              container_scanning: %w[15.0.0 15.0.1 15.0.2 15.0.4 15.0.5 15.0.6 15.0.7 15.1.0 15.1.1 15.1.2 15.1.3 15.1.4],
+              coverage_fuzzing: %w[15.0.0 15.0.1 15.0.2 15.0.4 15.0.5 15.0.6 15.0.7 15.1.0 15.1.1 15.1.2 15.1.3 15.1.4],
+              dast: %w[15.0.0 15.0.1 15.0.2 15.0.4 15.0.5 15.0.6 15.0.7 15.1.0 15.1.1 15.1.2 15.1.3 15.1.4],
+              api_fuzzing: %w[15.0.0 15.0.1 15.0.2 15.0.4 15.0.5 15.0.6 15.0.7 15.1.0 15.1.1 15.1.2 15.1.3 15.1.4],
+              dependency_scanning: %w[15.0.0 15.0.1 15.0.2 15.0.4 15.0.5 15.0.6 15.0.7 15.1.0 15.1.1 15.1.2 15.1.3 15.1.4],
+              sast: %w[15.0.0 15.0.1 15.0.2 15.0.4 15.0.5 15.0.6 15.0.7 15.1.0 15.1.1 15.1.2 15.1.3 15.1.4],
+              secret_detection: %w[15.0.0 15.0.1 15.0.2 15.0.4 15.0.5 15.0.6 15.0.7 15.1.0 15.1.1 15.1.2 15.1.3 15.1.4]
             }.freeze
 
-            # https://gitlab.com/gitlab-org/security-products/security-report-schemas/-/tags
-            PREVIOUS_RELEASES = %w[10.0.0 12.0.0 12.1.0 13.0.0
-                                   13.1.0 2.3.0-rc1 2.3.0-rc1 2.3.1-rc1 2.3.2-rc1 2.3.3-rc1
-                                   2.4.0-rc1 3.0.0 3.0.0-rc1 3.1.0-rc1 4.0.0-rc1 5.0.0-rc1
-                                   5.0.1-rc1 6.0.0-rc1 6.0.1-rc1 6.1.0-rc1 7.0.0-rc1 7.0.1-rc1
-                                   8.0.0-rc1 8.0.1-rc1 8.1.0-rc1 9.0.0-rc1].freeze
-
-            # These come from https://app.periscopedata.com/app/gitlab/895813/Secure-Scan-metrics?widget=12248944&udv=1385516
-            KNOWN_VERSIONS_TO_DEPRECATE = %w[0.1 1.0 1.0.0 1.2 1.3 10.0.0 12.1.0 13.1.0 2.0 2.1 2.1.0 2.3 2.3.0 2.4 3.0 3.0.0 3.0.6 3.13.2 V2.7.0].freeze
-
-            VERSIONS_TO_DEPRECATE_IN_15_0 = (PREVIOUS_RELEASES + KNOWN_VERSIONS_TO_DEPRECATE).freeze
+            VERSIONS_TO_REMOVE_IN_18_0 = %w[].freeze
 
             DEPRECATED_VERSIONS = {
-              cluster_image_scanning: VERSIONS_TO_DEPRECATE_IN_15_0,
-              container_scanning: VERSIONS_TO_DEPRECATE_IN_15_0,
-              coverage_fuzzing: VERSIONS_TO_DEPRECATE_IN_15_0,
-              dast: VERSIONS_TO_DEPRECATE_IN_15_0,
-              api_fuzzing: VERSIONS_TO_DEPRECATE_IN_15_0,
-              dependency_scanning: VERSIONS_TO_DEPRECATE_IN_15_0,
-              sast: VERSIONS_TO_DEPRECATE_IN_15_0,
-              secret_detection: VERSIONS_TO_DEPRECATE_IN_15_0
+              cluster_image_scanning: VERSIONS_TO_REMOVE_IN_18_0,
+              container_scanning: VERSIONS_TO_REMOVE_IN_18_0,
+              coverage_fuzzing: VERSIONS_TO_REMOVE_IN_18_0,
+              dast: VERSIONS_TO_REMOVE_IN_18_0,
+              api_fuzzing: VERSIONS_TO_REMOVE_IN_18_0,
+              dependency_scanning: VERSIONS_TO_REMOVE_IN_18_0,
+              sast: VERSIONS_TO_REMOVE_IN_18_0,
+              secret_detection: VERSIONS_TO_REMOVE_IN_18_0
             }.freeze
+
+            CURRENT_VERSIONS = SUPPORTED_VERSIONS.to_h { |k, v| [k, v - DEPRECATED_VERSIONS[k]] }
+
+            # Matches schema-defined pattern
+            # https://gitlab.com/gitlab-org/security-products/security-report-schemas/-/blob/e3d280d7f0862ca66a1555ea8b24016a004bb914/src/security-report-format.json#L151
+            SCHEMA_VERSION_REGEX = /^[0-9]+\.[0-9]+\.[0-9]+$/
 
             class Schema
               def root_path
@@ -49,13 +44,14 @@ module Gitlab
               def initialize(report_type, report_version)
                 @report_type = report_type.to_sym
                 @report_version = report_version.to_s
+                @supported_versions = SUPPORTED_VERSIONS[@report_type]
               end
 
               delegate :validate, to: :schemer
 
               private
 
-              attr_reader :report_type, :report_version
+              attr_reader :report_type, :report_version, :supported_versions
 
               def schemer
                 JSONSchemer.schema(pathname)
@@ -66,19 +62,27 @@ module Gitlab
               end
 
               def schema_path
-                # We can't exactly error out here pre-15.0.
-                # If the report itself doesn't specify the schema version,
-                # it will be considered invalid post-15.0 but for now we will
-                # validate against earliest supported version.
-                # https://gitlab.com/gitlab-org/gitlab/-/issues/335789#note_801479803
-                # describes the indended behavior in detail
-                # TODO: After 15.0 - pass report_type and report_data here and
-                # error out if no version.
+                # The schema version selection logic here is described in the user documentation:
+                # https://docs.gitlab.com/ee/user/application_security/#security-report-validation
                 report_declared_version = File.join(root_path, report_version, file_name)
                 return report_declared_version if File.file?(report_declared_version)
 
+                if latest_vendored_patch_version
+                  latest_vendored_patch_version_file = File.join(root_path, latest_vendored_patch_version, file_name)
+                  return latest_vendored_patch_version_file if File.file?(latest_vendored_patch_version_file)
+                end
+
                 earliest_supported_version = SUPPORTED_VERSIONS[report_type].min
                 File.join(root_path, earliest_supported_version, file_name)
+              end
+
+              def latest_vendored_patch_version
+                ::Security::ReportSchemaVersionMatcher.new(
+                  report_declared_version: report_version,
+                  supported_versions: supported_versions
+                ).call
+              rescue ArgumentError
+                nil
               end
 
               def file_name
@@ -86,19 +90,157 @@ module Gitlab
               end
             end
 
-            def initialize(report_type, report_data, report_version = nil)
-              @report_type = report_type
+            def initialize(report_type, report_data, report_version = nil, project: nil, scanner: nil)
+              @report_type = report_type&.to_sym
               @report_data = report_data
               @report_version = report_version
+              @project = project
+              @scanner = scanner
+              @errors = []
+              @warnings = []
+              @deprecation_warnings = []
+
+              populate_schema_version_errors
+              populate_validation_errors if report_version_matches_schema?
+              populate_deprecation_warnings
+            end
+
+            def populate_schema_version_errors
+              add_schema_version_errors if add_schema_version_error?
+            end
+
+            def add_schema_version_errors
+              if report_version.nil?
+                template = _("Report version not provided, "\
+                "%{report_type} report type supports versions: %{supported_schema_versions}. "\
+                "GitLab will attempt to validate this report against the earliest supported versions of this report "\
+                "type, to show all the errors but will not ingest the report")
+                message = format(template, report_type: report_type, supported_schema_versions: supported_schema_versions)
+              else
+                template = _("Version %{report_version} for report type %{report_type} is unsupported, supported versions "\
+                "for this report type are: %{supported_schema_versions}. "\
+                "GitLab will attempt to validate this report against the earliest supported versions of this report "\
+                "type, to show all the errors but will not ingest the report")
+                message = format(template, report_version: report_version, report_type: report_type, supported_schema_versions: supported_schema_versions)
+              end
+
+              log_warnings(problem_type: 'using_unsupported_schema_version')
+              add_message_as(level: :error, message: message)
+            end
+
+            def add_schema_version_error?
+              !report_uses_supported_schema_version? &&
+                !report_uses_deprecated_schema_version? &&
+                !report_uses_supported_major_and_minor_schema_version?
+            end
+
+            def report_uses_deprecated_schema_version?
+              DEPRECATED_VERSIONS[report_type].include?(report_version)
+            end
+
+            def report_uses_supported_schema_version?
+              SUPPORTED_VERSIONS[report_type].include?(report_version)
+            end
+
+            def report_uses_supported_major_and_minor_schema_version?
+              if !find_latest_patch_version.nil?
+                add_supported_major_minor_behavior_warning
+                true
+              else
+                false
+              end
+            end
+
+            def report_version_matches_schema?
+              report_version && report_version.match(SCHEMA_VERSION_REGEX)
+            end
+
+            def find_latest_patch_version
+              ::Security::ReportSchemaVersionMatcher.new(
+                report_declared_version: report_version,
+                supported_versions: SUPPORTED_VERSIONS[report_type]
+              ).call
+            rescue ArgumentError
+              nil
+            end
+
+            def add_supported_major_minor_behavior_warning
+              template = _("This report uses a supported MAJOR.MINOR schema version but the PATCH version doesn't match "\
+                "any vendored schema version. Validation will be attempted against version "\
+                "%{find_latest_patch_version}")
+
+              message = format(template, find_latest_patch_version: find_latest_patch_version)
+
+              add_message_as(
+                level: :warning,
+                message: message
+              )
+            end
+
+            def populate_validation_errors
+              schema_validation_errors = schema.validate(report_data).map { |error| JSONSchemer::Errors.pretty(error) }
+
+              log_warnings(problem_type: 'schema_validation_fails') unless schema_validation_errors.empty?
+
+              @errors += schema_validation_errors
+            end
+
+            def populate_deprecation_warnings
+              add_deprecated_report_version_message if report_uses_deprecated_schema_version?
+            end
+
+            def add_deprecated_report_version_message
+              log_warnings(problem_type: 'using_deprecated_schema_version')
+
+              template = _("version %{report_version} for report type %{report_type} is deprecated. "\
+              "However, GitLab will still attempt to parse and ingest this report. "\
+              "Upgrade the security report to one of the following versions: %{current_schema_versions}.")
+
+              message = format(
+                template,
+                report_version: report_version,
+                report_type: report_type,
+                current_schema_versions: current_schema_versions)
+
+              add_message_as(level: :deprecation_warning, message: message)
             end
 
             def valid?
               errors.empty?
             end
 
-            def errors
-              @errors ||= schema.validate(report_data).map { |error| JSONSchemer::Errors.pretty(error) }
+            def log_warnings(problem_type:)
+              Gitlab::AppLogger.info(
+                message: 'security report schema validation problem',
+                security_report_type: report_type,
+                security_report_version: report_version,
+                project_id: @project.id,
+                security_report_failure: problem_type,
+                security_report_scanner_id: @scanner&.dig('id'),
+                security_report_scanner_version: @scanner&.dig('version')
+              )
             end
+
+            def current_schema_versions
+              CURRENT_VERSIONS[report_type].join(", ")
+            end
+
+            def supported_schema_versions
+              SUPPORTED_VERSIONS[report_type].join(", ")
+            end
+
+            def add_message_as(level:, message:)
+              case level
+              when :deprecation_warning
+                @deprecation_warnings << message
+              when :error
+                @errors << message
+              when :warning
+                @warnings << message
+              end
+            end
+
+            attr_reader :errors, :warnings, :deprecation_warnings
 
             private
 

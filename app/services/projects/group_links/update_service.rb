@@ -10,14 +10,34 @@ module Projects
       end
 
       def execute(group_link_params)
+        if group_link.blank? || !allowed_to_update?
+          return ServiceResponse.error(message: 'Not found', reason: :not_found)
+        end
+
+        unless allowed_to_update_to_or_from_owner?(group_link_params)
+          return ServiceResponse.error(message: 'Forbidden', reason: :forbidden)
+        end
+
         group_link.update!(group_link_params)
 
         refresh_authorizations if requires_authorization_refresh?(group_link_params)
+
+        ServiceResponse.success
       end
 
       private
 
       attr_reader :group_link
+
+      def allowed_to_update?
+        current_user.can?(:admin_project_member, group_link.project)
+      end
+
+      def allowed_to_update_to_or_from_owner?(params)
+        return current_user.can?(:manage_owners, group_link) if upgrading_to_owner?(params) || touching_an_owner?
+
+        true
+      end
 
       def refresh_authorizations
         AuthorizedProjectUpdate::ProjectRecalculateWorker.perform_async(project.id)
@@ -26,7 +46,6 @@ module Projects
         # the old approach, we still run AuthorizedProjectsWorker
         # but with some delay and lower urgency as a safety net.
         group_link.group.refresh_members_authorized_projects(
-          blocking: false,
           priority: UserProjectAccessChangedService::LOW_PRIORITY
         )
       end
@@ -34,6 +53,16 @@ module Projects
       def requires_authorization_refresh?(params)
         params.include?(:group_access)
       end
+
+      def upgrading_to_owner?(params)
+        params[:group_access].to_i == Gitlab::Access::OWNER
+      end
+
+      def touching_an_owner?
+        group_link.owner_access?
+      end
     end
   end
 end
+
+Projects::GroupLinks::UpdateService.prepend_mod

@@ -56,7 +56,7 @@ export default {
   },
   computed: {
     hasPipeline() {
-      return Boolean(this.packageEntity.pipeline);
+      return Boolean(this.packageEntity.pipeline?.user?.name);
     },
     hasProjectLink() {
       return Boolean(this.packageEntity.project_path);
@@ -78,13 +78,13 @@ export default {
 </script>
 
 <template>
-  <list-item data-qa-selector="package_row" :disabled="disabledRow">
+  <list-item data-testid="package-row" :disabled="disabledRow">
     <template #left-primary>
       <div class="gl-display-flex gl-align-items-center gl-mr-3 gl-min-w-0">
         <gl-link
           :href="packageLink"
           class="gl-text-body gl-min-w-0"
-          data-qa-selector="package_link"
+          data-testid="details-link"
           :disabled="disabledRow"
         >
           <gl-truncate :text="packageEntity.name" />
@@ -113,7 +113,7 @@ export default {
       <div class="gl-display-flex">
         <span>{{ packageEntity.version }}</span>
 
-        <div v-if="hasPipeline" class="gl-display-none gl-sm-display-flex gl-ml-2">
+        <div v-if="hasPipeline" class="gl-hidden sm:g-flex gl-ml-2">
           <gl-sprintf :message="s__('PackageRegistry|published by %{author}')">
             <template #author>{{ packageEntity.pipeline.user.name }}</template>
           </gl-sprintf>

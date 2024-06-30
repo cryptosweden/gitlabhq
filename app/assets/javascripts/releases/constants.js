@@ -1,4 +1,4 @@
-import { __ } from '~/locale';
+import { __, s__ } from '~/locale';
 
 export const MAX_MILESTONES_TO_DISPLAY = 5;
 
@@ -22,12 +22,12 @@ export const CREATED_AT = 'created_at';
 
 export const SORT_OPTIONS = [
   {
-    orderBy: RELEASED_AT,
-    label: __('Released date'),
+    value: RELEASED_AT,
+    text: __('Released date'),
   },
   {
-    orderBy: CREATED_AT,
-    label: __('Created date'),
+    value: CREATED_AT,
+    text: __('Created date'),
   },
 ];
 
@@ -49,3 +49,23 @@ export const SORT_MAP = {
 };
 
 export const DEFAULT_SORT = RELEASED_AT_DESC;
+
+export const i18n = {
+  alertInfoMessage: s__(
+    'CiCatalog|To publish CI/CD components to the Catalog, you must use the %{linkStart}release%{linkEnd} keyword in a CI/CD job.',
+  ),
+  alertInfoPublishMessage: s__('CiCatalog|How do I publish a component?'),
+  alertTitle: s__('CiCatalog|Publish the CI/CD components in this project to the CI/CD Catalog'),
+  atomFeedBtnTitle: __('Subscribe to releases RSS feed'),
+  catalogResourceReleaseBtnTitle: s__(
+    "CiCatalog|Use the 'release' keyword in a CI/CD job to publish to the CI/CD Catalog.",
+  ),
+  defaultReleaseBtnTitle: __('Create a new release'),
+  catalogResourceQueryError: s__(
+    'CiCatalog|There was a problem fetching the CI/CD Catalog setting.',
+  ),
+  errorMessage: __('An error occurred while fetching the releases. Please try again.'),
+  newRelease: __('New release'),
+  tagNameIsRequiredMessage: __('Tag name is required.'),
+  tagIsAlredyInUseMessage: __('Selected tag is already in use. Choose another option.'),
+};

@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::DeleteNonLatestDiffsService, :clean_gitlab_redis_shared_state do
+RSpec.describe MergeRequests::DeleteNonLatestDiffsService, :clean_gitlab_redis_shared_state,
+  feature_category: :code_review_workflow do
   let(:merge_request) { create(:merge_request) }
 
   let!(:subject) { described_class.new(merge_request) }
@@ -16,7 +17,8 @@ RSpec.describe MergeRequests::DeleteNonLatestDiffsService, :clean_gitlab_redis_s
       merge_request.reset
     end
 
-    it 'schedules non-latest merge request diffs removal' do
+    it 'schedules non-latest merge request diffs removal',
+      quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/426807' do
       diffs = merge_request.merge_request_diffs
 
       expect(diffs.count).to eq(4)

@@ -18,7 +18,7 @@ module Gitlab
           keys = tags.map(&method(:cache_key))
           cached_tags_count = 0
 
-          ::Gitlab::Redis::Cache.with do |redis|
+          with_redis do |redis|
             tags.zip(redis.mget(keys)).each do |tag, created_at|
               next unless created_at
 
@@ -45,17 +45,17 @@ module Gitlab
 
           now = Time.zone.now
 
-          ::Gitlab::Redis::Cache.with do |redis|
+          with_redis do |redis|
             # we use a pipeline instead of a MSET because each tag has
             # a specific ttl
-            redis.pipelined do
+            redis.pipelined do |pipeline|
               cacheable_tags.each do |tag|
                 created_at = tag.created_at
                 # ttl is the max_ttl_in_seconds reduced by the number
                 # of seconds that the tag has already existed
                 ttl = max_ttl_in_seconds - (now - created_at).seconds
                 ttl = ttl.to_i
-                redis.set(cache_key(tag), created_at.rfc3339, ex: ttl) if ttl > 0
+                pipeline.set(cache_key(tag), created_at.rfc3339, ex: ttl) if ttl > 0
               end
             end
           end
@@ -65,6 +65,10 @@ module Gitlab
 
         def cache_key(tag)
           "container_repository:{#{@container_repository.id}}:tag:#{tag.name}:created_at"
+        end
+
+        def with_redis(&block)
+          ::Gitlab::Redis::Cache.with(&block) # rubocop:disable CodeReuse/ActiveRecord
         end
       end
     end

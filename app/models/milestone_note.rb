@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class MilestoneNote < SyntheticNote
+  self.allow_legacy_sti_class = true
+
   attr_accessor :milestone
 
   def self.from_event(event, resource: nil, resource_parent: nil)
@@ -17,6 +19,7 @@ class MilestoneNote < SyntheticNote
 
   def note_text(html: false)
     format = milestone&.group_milestone? ? :name : :iid
-    event.remove? ? 'removed milestone' : "changed milestone to #{milestone.to_reference(project, format: format)}"
+    reference = milestone&.to_reference(project, format: format, full: true, absolute_path: true)
+    event.remove? ? "removed milestone #{reference}" : "changed milestone to #{reference}"
   end
 end

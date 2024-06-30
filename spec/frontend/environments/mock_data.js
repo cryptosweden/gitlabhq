@@ -172,8 +172,8 @@ const environment = {
         details_path: '/root/environment-test/-/jobs/892',
         illustration: {
           image:
-            '/assets/illustrations/skipped-job_empty-29a8a37d8a61d1b6f68cf3484f9024e53cd6eb95e28eae3554f8011a1146bf27.svg',
-          size: 'svg-430',
+            '/assets/illustrations/empty-state/empty-job-skipped-md-29a8a37d8a61d1b6f68cf3484f9024e53cd6eb95e28eae3554f8011a1146bf27.svg',
+          size: '',
           title: 'This job does not have a trace.',
         },
         favicon:
@@ -313,6 +313,40 @@ const createEnvironment = (data = {}) => ({
   ...data,
 });
 
+const mockKasTunnelUrl = 'https://kas.gitlab.com/k8s-proxy';
+
+const fluxResourceStatus = [{ status: 'True', type: 'Ready', message: '', reason: '' }];
+const fluxKustomization = {
+  kind: 'Kustomization',
+  metadata: { name: 'my-kustomization' },
+  conditions: fluxResourceStatus,
+  inventory: [
+    { id: 'flux-system_notification-controller_apps_Deployment' },
+    { id: 'flux-system_source-controller_apps_Deployment' },
+  ],
+};
+
+const k8sDeploymentsMock = [
+  {
+    metadata: { name: 'notification-controller' },
+    status: {
+      conditions: [
+        { type: 'Available', status: 'True' },
+        { type: 'Progressing', status: 'False' },
+      ],
+    },
+  },
+  {
+    metadata: { name: 'source-controller' },
+    status: {
+      conditions: [
+        { type: 'Available', status: 'False' },
+        { type: 'Progressing', status: 'True' },
+      ],
+    },
+  },
+];
+
 export {
   environment,
   environmentsList,
@@ -321,4 +355,8 @@ export {
   tableData,
   deployBoardMockData,
   createEnvironment,
+  mockKasTunnelUrl,
+  fluxResourceStatus,
+  fluxKustomization,
+  k8sDeploymentsMock,
 };

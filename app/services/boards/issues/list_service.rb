@@ -20,7 +20,7 @@ module Boards
       private
 
       def order(items)
-        return items.order_closed_date_desc if list&.closed?
+        return items.order_closed_at_desc if list&.closed?
 
         items.order_by_relative_position
       end
@@ -50,7 +50,7 @@ module Boards
       end
 
       def set_issue_types
-        params[:issue_types] ||= Issue::TYPES_FOR_LIST
+        params[:issue_types] ||= Issue::TYPES_FOR_BOARD_LIST
       end
 
       def item_model

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::MicrosoftTeams do
+RSpec.describe Integrations::MicrosoftTeams, feature_category: :integrations do
   it_behaves_like "chat integration", "Microsoft Teams" do
     let(:client) { ::MicrosoftTeams::Notifier }
     let(:client_arguments) { webhook_url }
@@ -17,34 +17,8 @@ RSpec.describe Integrations::MicrosoftTeams do
   let(:chat_integration) { described_class.new }
   let(:webhook_url) { 'https://example.gitlab.com/' }
 
-  describe 'Validations' do
-    context 'when integration is active' do
-      before do
-        subject.active = true
-      end
-
-      it { is_expected.to validate_presence_of(:webhook) }
-      it_behaves_like 'issue tracker integration URL attribute', :webhook
-    end
-
-    context 'when integration is inactive' do
-      before do
-        subject.active = false
-      end
-
-      it { is_expected.not_to validate_presence_of(:webhook) }
-    end
-  end
-
-  describe '.supported_events' do
-    it 'does not support deployment_events' do
-      expect(described_class.supported_events).not_to include('deployment')
-    end
-  end
-
   describe "#execute" do
-    let(:user) { create(:user) }
-
+    let_it_be(:user) { create(:user) }
     let_it_be(:project) { create(:project, :repository, :wiki_repo) }
 
     before do
@@ -79,9 +53,13 @@ RSpec.describe Integrations::MicrosoftTeams do
     context 'with issue events' do
       let(:opts) { { title: 'Awesome issue', description: 'please fix' } }
       let(:issues_sample_data) do
-        service = Issues::CreateService.new(project: project, current_user: user, params: opts, spam_params: nil)
-        issue = service.execute
+        service = Issues::CreateService.new(container: project, current_user: user, params: opts)
+        issue = service.execute[:issue]
         service.hook_data(issue, 'open')
+      end
+
+      before do
+        project.add_developer(user)
       end
 
       it "calls Microsoft Teams API" do
@@ -123,7 +101,7 @@ RSpec.describe Integrations::MicrosoftTeams do
         {
           title: "Awesome wiki_page",
           content: "Some text describing some thing or another",
-          format: "md",
+          format: :markdown,
           message: "user created page: Awesome wiki_page"
         }
       end
@@ -140,8 +118,8 @@ RSpec.describe Integrations::MicrosoftTeams do
   end
 
   describe "Note events" do
-    let(:user) { create(:user) }
-    let(:project) { create(:project, :repository, creator: user) }
+    let_it_be(:user) { create(:user) }
+    let_it_be(:project) { create(:project, :repository, creator: user) }
 
     before do
       allow(chat_integration).to receive_messages(
@@ -155,14 +133,17 @@ RSpec.describe Integrations::MicrosoftTeams do
 
     context 'when commit comment event executed' do
       let(:commit_note) do
-        create(:note_on_commit, author: user,
-                                project: project,
-                                commit_id: project.repository.commit.id,
-                                note: 'a comment on a commit')
+        create(
+          :note_on_commit,
+          author: user,
+          project: project,
+          commit_id: project.repository.commit.id,
+          note: 'a comment on a commit'
+        )
       end
 
       it "calls Microsoft Teams API for commit comment events" do
-        data = Gitlab::DataBuilder::Note.build(commit_note, user)
+        data = Gitlab::DataBuilder::Note.build(commit_note, user, :create)
 
         chat_integration.execute(data)
 
@@ -172,12 +153,11 @@ RSpec.describe Integrations::MicrosoftTeams do
 
     context 'when merge request comment event executed' do
       let(:merge_request_note) do
-        create(:note_on_merge_request, project: project,
-                                       note: "merge request note")
+        create(:note_on_merge_request, project: project, note: "merge request note")
       end
 
       it "calls Microsoft Teams API for merge request comment events" do
-        data = Gitlab::DataBuilder::Note.build(merge_request_note, user)
+        data = Gitlab::DataBuilder::Note.build(merge_request_note, user, :create)
 
         chat_integration.execute(data)
 
@@ -191,7 +171,7 @@ RSpec.describe Integrations::MicrosoftTeams do
       end
 
       it "calls Microsoft Teams API for issue comment events" do
-        data = Gitlab::DataBuilder::Note.build(issue_note, user)
+        data = Gitlab::DataBuilder::Note.build(issue_note, user, :create)
 
         chat_integration.execute(data)
 
@@ -201,12 +181,11 @@ RSpec.describe Integrations::MicrosoftTeams do
 
     context 'when snippet comment event executed' do
       let(:snippet_note) do
-        create(:note_on_project_snippet, project: project,
-                                         note: "snippet note")
+        create(:note_on_project_snippet, project: project, note: "snippet note")
       end
 
       it "calls Microsoft Teams API for snippet comment events" do
-        data = Gitlab::DataBuilder::Note.build(snippet_note, user)
+        data = Gitlab::DataBuilder::Note.build(snippet_note, user, :create)
 
         chat_integration.execute(data)
 
@@ -216,13 +195,14 @@ RSpec.describe Integrations::MicrosoftTeams do
   end
 
   describe 'Pipeline events' do
-    let(:user) { create(:user) }
-    let(:project) { create(:project, :repository) }
+    let_it_be_with_refind(:project) { create(:project, :repository) }
 
     let(:pipeline) do
-      create(:ci_pipeline,
-             project: project, status: status,
-             sha: project.commit.sha, ref: project.default_branch)
+      create(
+        :ci_pipeline,
+        project: project, status: status,
+        sha: project.commit.sha, ref: project.default_branch
+      )
     end
 
     before do
@@ -256,6 +236,7 @@ RSpec.describe Integrations::MicrosoftTeams do
       before do
         chat_integration.branches_to_be_notified = branches_to_be_notified if branches_to_be_notified
       end
+
       it 'does not call Microsoft Teams API for pipeline events' do
         data = Gitlab::DataBuilder::Pipeline.build(pipeline)
         result = chat_integration.execute(data)

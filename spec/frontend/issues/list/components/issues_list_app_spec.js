@@ -1,56 +1,100 @@
-import { GlButton, GlEmptyState, GlLink } from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
+import { GlButton, GlDisclosureDropdown } from '@gitlab/ui';
 import { mount, shallowMount } from '@vue/test-utils';
 import AxiosMockAdapter from 'axios-mock-adapter';
 import { cloneDeep } from 'lodash';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
+import VueRouter from 'vue-router';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import getIssuesQuery from 'ee_else_ce/issues/list/queries/get_issues.query.graphql';
 import getIssuesCountsQuery from 'ee_else_ce/issues/list/queries/get_issues_counts.query.graphql';
+import IssueCardStatistics from 'ee_else_ce/issues/list/components/issue_card_statistics.vue';
+import IssueCardTimeInfo from 'ee_else_ce/issues/list/components/issue_card_time_info.vue';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import setWindowLocation from 'helpers/set_window_location_helper';
 import { TEST_HOST } from 'helpers/test_constants';
+import { mountExtended, shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { stubComponent } from 'helpers/stub_component';
 import waitForPromises from 'helpers/wait_for_promises';
 import {
-  getIssuesCountsQueryResponse,
-  getIssuesQueryResponse,
   filteredTokens,
+  getIssuesCountsQueryResponse,
+  getIssuesQueryEmptyResponse,
+  getIssuesQueryResponse,
+  groupedFilteredTokens,
   locationSearch,
   setSortPreferenceMutationResponse,
   setSortPreferenceMutationResponseWithErrors,
   urlParams,
 } from 'jest/issues/list/mock_data';
-import createFlash, { FLASH_TYPES } from '~/flash';
+import { createAlert, VARIANT_INFO } from '~/alert';
+import { TYPENAME_USER } from '~/graphql_shared/constants';
 import { convertToGraphQLId, getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { STATUS_ALL, STATUS_CLOSED, STATUS_OPEN } from '~/issues/constants';
 import CsvImportExportButtons from '~/issuable/components/csv_import_export_buttons.vue';
 import IssuableByEmail from '~/issuable/components/issuable_by_email.vue';
 import IssuableList from '~/vue_shared/issuable/list/components/issuable_list_root.vue';
-import { IssuableListTabs, IssuableStates } from '~/vue_shared/issuable/list/constants';
+import { issuableListTabs } from '~/vue_shared/issuable/list/constants';
+import EmptyStateWithAnyIssues from '~/issues/list/components/empty_state_with_any_issues.vue';
+import EmptyStateWithoutAnyIssues from '~/issues/list/components/empty_state_without_any_issues.vue';
 import IssuesListApp from '~/issues/list/components/issues_list_app.vue';
-import NewIssueDropdown from '~/issues/list/components/new_issue_dropdown.vue';
+import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
+import NewResourceDropdown from '~/vue_shared/components/new_resource_dropdown/new_resource_dropdown.vue';
+import WorkItemDrawer from '~/work_items/components/work_item_drawer.vue';
 import {
   CREATED_DESC,
   RELATIVE_POSITION,
   RELATIVE_POSITION_ASC,
-  TOKEN_TYPE_ASSIGNEE,
-  TOKEN_TYPE_AUTHOR,
-  TOKEN_TYPE_CONFIDENTIAL,
-  TOKEN_TYPE_LABEL,
-  TOKEN_TYPE_MILESTONE,
-  TOKEN_TYPE_MY_REACTION,
-  TOKEN_TYPE_RELEASE,
-  TOKEN_TYPE_TYPE,
+  UPDATED_DESC,
   urlSortParams,
 } from '~/issues/list/constants';
 import eventHub from '~/issues/list/eventhub';
 import setSortPreferenceMutation from '~/issues/list/queries/set_sort_preference.mutation.graphql';
 import { getSortKey, getSortOptions } from '~/issues/list/utils';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR } from '~/lib/utils/http_status';
 import { scrollUp } from '~/lib/utils/scroll_utils';
 import { joinPaths } from '~/lib/utils/url_utility';
+import {
+  WORK_ITEM_TYPE_ENUM_INCIDENT,
+  WORK_ITEM_TYPE_ENUM_ISSUE,
+  WORK_ITEM_TYPE_ENUM_TASK,
+  WORK_ITEM_TYPE_ENUM_TEST_CASE,
+} from '~/work_items/constants';
+import {
+  TOKEN_TYPE_ASSIGNEE,
+  TOKEN_TYPE_AUTHOR,
+  TOKEN_TYPE_CONFIDENTIAL,
+  TOKEN_TYPE_CONTACT,
+  TOKEN_TYPE_LABEL,
+  TOKEN_TYPE_MILESTONE,
+  TOKEN_TYPE_MY_REACTION,
+  TOKEN_TYPE_ORGANIZATION,
+  TOKEN_TYPE_RELEASE,
+  TOKEN_TYPE_SEARCH_WITHIN,
+  TOKEN_TYPE_TYPE,
+  TOKEN_TYPE_CREATED,
+  TOKEN_TYPE_CLOSED,
+} from '~/vue_shared/components/filtered_search_bar/constants';
+import deleteWorkItemMutation from '~/work_items/graphql/delete_work_item.mutation.graphql';
+import {
+  workItemResponseFactory,
+  workItemByIidResponseFactory,
+  mockAwardEmojiThumbsUp,
+  mockAwardsWidget,
+  mockAssignees,
+  mockLabels,
+  mockMilestone,
+} from 'jest/work_items/mock_data';
 
-jest.mock('@sentry/browser');
-jest.mock('~/flash');
+import { stubExperiments } from 'helpers/experimentation_helper';
+import GitlabExperiment from '~/experimentation/components/gitlab_experiment.vue';
+
+import('~/issuable');
+import('~/users_select');
+
+jest.mock('~/sentry/sentry_browser_wrapper');
+jest.mock('~/alert');
 jest.mock('~/lib/utils/scroll_utils', () => ({ scrollUp: jest.fn() }));
 
 describe('CE IssuesListApp component', () => {
@@ -58,73 +102,128 @@ describe('CE IssuesListApp component', () => {
   let wrapper;
 
   Vue.use(VueApollo);
+  Vue.use(VueRouter);
 
   const defaultProvide = {
     autocompleteAwardEmojisPath: 'autocomplete/award/emojis/path',
     calendarPath: 'calendar/path',
     canBulkUpdate: false,
-    emptyStateSvgPath: 'empty-state.svg',
+    canCreateIssue: false,
+    canCreateProjects: false,
+    canReadCrmContact: false,
+    canReadCrmOrganization: false,
     exportCsvPath: 'export/csv/path',
     fullPath: 'path/to/project',
     hasAnyIssues: true,
     hasAnyProjects: true,
     hasBlockedIssuesFeature: true,
+    hasIssueDateFilterFeature: true,
     hasIssuableHealthStatusFeature: true,
     hasIssueWeightsFeature: true,
     hasIterationsFeature: true,
-    hasMultipleIssueAssigneesFeature: true,
+    hasScopedLabelsFeature: true,
     initialEmail: 'email@example.com',
     initialSort: CREATED_DESC,
-    isAnonymousSearchDisabled: false,
     isIssueRepositioningDisabled: false,
     isProject: true,
+    isPublicVisibilityRestricted: false,
     isSignedIn: true,
-    jiraIntegrationPath: 'jira/integration/path',
     newIssuePath: 'new/issue/path',
+    newProjectPath: 'new/project/path',
     releasesPath: 'releases/path',
     rssPath: 'rss/path',
     showNewIssueLink: true,
     signInPath: 'sign/in/path',
+    groupId: '',
   };
 
   let defaultQueryResponse = getIssuesQueryResponse;
+  let router;
   if (IS_EE) {
     defaultQueryResponse = cloneDeep(getIssuesQueryResponse);
     defaultQueryResponse.data.project.issues.nodes[0].blockingCount = 1;
     defaultQueryResponse.data.project.issues.nodes[0].healthStatus = null;
     defaultQueryResponse.data.project.issues.nodes[0].weight = 5;
+    defaultQueryResponse.data.project.issues.nodes[0].epic = {
+      id: 'gid://gitlab/Epic/1',
+    };
   }
 
+  const mockIssuesQueryResponse = jest.fn().mockResolvedValue(defaultQueryResponse);
+  const mockIssuesCountsQueryResponse = jest.fn().mockResolvedValue(getIssuesCountsQueryResponse);
+
+  const deleteWorkItemMutationHandler = jest
+    .fn()
+    .mockResolvedValue({ data: { workItemDelete: { errors: [] } } });
+
   const findCsvImportExportButtons = () => wrapper.findComponent(CsvImportExportButtons);
+  const findDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
   const findIssuableByEmail = () => wrapper.findComponent(IssuableByEmail);
   const findGlButton = () => wrapper.findComponent(GlButton);
   const findGlButtons = () => wrapper.findAllComponents(GlButton);
-  const findGlButtonAt = (index) => findGlButtons().at(index);
-  const findGlEmptyState = () => wrapper.findComponent(GlEmptyState);
-  const findGlLink = () => wrapper.findComponent(GlLink);
   const findIssuableList = () => wrapper.findComponent(IssuableList);
-  const findNewIssueDropdown = () => wrapper.findComponent(NewIssueDropdown);
+  const findListViewTypeBtn = () => wrapper.findByTestId('list-view-type');
+  const findGridtViewTypeBtn = () => wrapper.findByTestId('grid-view-type');
+  const findViewTypeLocalStorageSync = () => wrapper.findAllComponents(LocalStorageSync).at(0);
+  const findNewResourceDropdown = () => wrapper.findComponent(NewResourceDropdown);
+  const findCalendarButton = () => wrapper.findByTestId('subscribe-calendar');
+  const findRssButton = () => wrapper.findByTestId('subscribe-rss');
+  const findWorkItemDrawer = () => wrapper.findComponent(WorkItemDrawer);
+  const findIssueCardTimeInfo = () => wrapper.findComponent(IssueCardTimeInfo);
+  const findIssueCardStatistics = () => wrapper.findComponent(IssueCardStatistics);
+
+  const findLabelsToken = () =>
+    findIssuableList()
+      .props('searchTokens')
+      .find((token) => token.type === TOKEN_TYPE_LABEL);
 
   const mountComponent = ({
     provide = {},
-    issuesQueryResponse = jest.fn().mockResolvedValue(defaultQueryResponse),
-    issuesCountsQueryResponse = jest.fn().mockResolvedValue(getIssuesCountsQueryResponse),
+    data = {},
+    issuesQueryResponse = mockIssuesQueryResponse,
+    issuesCountsQueryResponse = mockIssuesCountsQueryResponse,
     sortPreferenceMutationResponse = jest.fn().mockResolvedValue(setSortPreferenceMutationResponse),
+    stubs = {},
     mountFn = shallowMount,
+    deleteMutationHandler = deleteWorkItemMutationHandler,
   } = {}) => {
     const requestHandlers = [
       [getIssuesQuery, issuesQueryResponse],
       [getIssuesCountsQuery, issuesCountsQueryResponse],
       [setSortPreferenceMutation, sortPreferenceMutationResponse],
+      [deleteWorkItemMutation, deleteMutationHandler],
     ];
-    const apolloProvider = createMockApollo(requestHandlers);
+
+    router = new VueRouter({ mode: 'history' });
 
     return mountFn(IssuesListApp, {
-      apolloProvider,
+      apolloProvider: createMockApollo(
+        requestHandlers,
+        {},
+        {
+          typePolicies: {
+            Query: {
+              fields: {
+                project: {
+                  merge: true,
+                },
+                group: {
+                  merge: true,
+                },
+              },
+            },
+          },
+        },
+      ),
+      router,
       provide: {
         ...defaultProvide,
         ...provide,
       },
+      data() {
+        return data;
+      },
+      stubs,
     });
   };
 
@@ -135,26 +234,27 @@ describe('CE IssuesListApp component', () => {
 
   afterEach(() => {
     axiosMock.reset();
-    wrapper.destroy();
   });
 
   describe('IssuableList', () => {
-    beforeEach(async () => {
+    beforeEach(() => {
       wrapper = mountComponent();
-      jest.runOnlyPendingTimers();
-      await waitForPromises();
+      return waitForPromises();
     });
 
     it('renders', () => {
       expect(findIssuableList().props()).toMatchObject({
         namespace: defaultProvide.fullPath,
         recentSearchesStorageKey: 'issues',
-        searchInputPlaceholder: IssuesListApp.i18n.searchPlaceholder,
-        sortOptions: getSortOptions(true, true),
+        sortOptions: getSortOptions({
+          hasBlockedIssuesFeature: defaultProvide.hasBlockedIssuesFeature,
+          hasIssuableHealthStatusFeature: defaultProvide.hasIssuableHealthStatusFeature,
+          hasIssueWeightsFeature: defaultProvide.hasIssueWeightsFeature,
+        }),
         initialSortBy: CREATED_DESC,
         issuables: getIssuesQueryResponse.data.project.issues.nodes,
-        tabs: IssuableListTabs,
-        currentTab: IssuableStates.Opened,
+        tabs: issuableListTabs,
+        currentTab: STATUS_OPEN,
         tabCounts: {
           opened: 1,
           closed: 1,
@@ -167,73 +267,72 @@ describe('CE IssuesListApp component', () => {
         useKeysetPagination: true,
         hasPreviousPage: getIssuesQueryResponse.data.project.issues.pageInfo.hasPreviousPage,
         hasNextPage: getIssuesQueryResponse.data.project.issues.pageInfo.hasNextPage,
-        urlParams: {
-          sort: urlSortParams[CREATED_DESC],
-          state: IssuableStates.Opened,
-        },
       });
+      expect(findIssuableList().props('isGridView')).toBe(false);
     });
   });
 
   describe('header action buttons', () => {
-    it('renders rss button', async () => {
-      wrapper = mountComponent({ mountFn: mount });
-      await waitForPromises();
+    describe('actions dropdown', () => {
+      it('renders', () => {
+        wrapper = mountComponent({ mountFn: mount });
 
-      expect(findGlButtonAt(0).props('icon')).toBe('rss');
-      expect(findGlButtonAt(0).attributes()).toMatchObject({
-        href: defaultProvide.rssPath,
-        'aria-label': IssuesListApp.i18n.rssLabel,
+        expect(findDropdown().props()).toMatchObject({
+          category: 'tertiary',
+          icon: 'ellipsis_v',
+          toggleText: 'Actions',
+          textSrOnly: true,
+        });
       });
-    });
 
-    it('renders calendar button', async () => {
-      wrapper = mountComponent({ mountFn: mount });
-      await waitForPromises();
+      describe('csv import/export buttons', () => {
+        describe('when user is signed in', () => {
+          beforeEach(() => {
+            setWindowLocation('?search=refactor&state=opened');
 
-      expect(findGlButtonAt(1).props('icon')).toBe('calendar');
-      expect(findGlButtonAt(1).attributes()).toMatchObject({
-        href: defaultProvide.calendarPath,
-        'aria-label': IssuesListApp.i18n.calendarLabel,
-      });
-    });
+            wrapper = mountComponent({
+              provide: { initialSortBy: CREATED_DESC, isSignedIn: true },
+              mountFn: mount,
+            });
 
-    describe('csv import/export component', () => {
-      describe('when user is signed in', () => {
-        beforeEach(async () => {
-          setWindowLocation('?search=refactor&state=opened');
-
-          wrapper = mountComponent({
-            provide: { initialSortBy: CREATED_DESC, isSignedIn: true },
-            mountFn: mount,
+            return waitForPromises();
           });
 
-          jest.runOnlyPendingTimers();
-          await waitForPromises();
+          it('renders', () => {
+            expect(findCsvImportExportButtons().props()).toMatchObject({
+              exportCsvPath: `${defaultProvide.exportCsvPath}?search=refactor&state=opened`,
+              issuableCount: 1,
+            });
+          });
         });
 
-        it('renders', () => {
-          expect(findCsvImportExportButtons().props()).toMatchObject({
-            exportCsvPath: `${defaultProvide.exportCsvPath}?search=refactor&sort=created_date&state=opened`,
-            issuableCount: 1,
+        describe('when user is not signed in', () => {
+          it('does not render', () => {
+            wrapper = mountComponent({ provide: { isSignedIn: false }, mountFn: mount });
+
+            expect(findCsvImportExportButtons().exists()).toBe(false);
+          });
+        });
+
+        describe('when in a group context', () => {
+          it('does not render', () => {
+            wrapper = mountComponent({ provide: { isProject: false }, mountFn: mount });
+
+            expect(findCsvImportExportButtons().exists()).toBe(false);
           });
         });
       });
 
-      describe('when user is not signed in', () => {
-        it('does not render', () => {
-          wrapper = mountComponent({ provide: { isSignedIn: false }, mountFn: mount });
+      it('renders RSS button link', () => {
+        wrapper = mountComponent({ mountFn: mountExtended });
 
-          expect(findCsvImportExportButtons().exists()).toBe(false);
-        });
+        expect(findRssButton().attributes('href')).toBe(defaultProvide.rssPath);
       });
 
-      describe('when in a group context', () => {
-        it('does not render', () => {
-          wrapper = mountComponent({ provide: { isProject: false }, mountFn: mount });
+      it('renders calendar button link', () => {
+        wrapper = mountComponent({ mountFn: mountExtended });
 
-          expect(findCsvImportExportButtons().exists()).toBe(false);
-        });
+        expect(findCalendarButton().attributes('href')).toBe(defaultProvide.calendarPath);
       });
     });
 
@@ -241,22 +340,20 @@ describe('CE IssuesListApp component', () => {
       it('renders when user has permissions', () => {
         wrapper = mountComponent({ provide: { canBulkUpdate: true }, mountFn: mount });
 
-        expect(findGlButtonAt(2).text()).toBe('Edit issues');
+        expect(findGlButton().text()).toBe('Bulk edit');
       });
 
       it('does not render when user does not have permissions', () => {
         wrapper = mountComponent({ provide: { canBulkUpdate: false }, mountFn: mount });
 
-        expect(findGlButtons().filter((button) => button.text() === 'Edit issues')).toHaveLength(0);
+        expect(findGlButtons().filter((button) => button.text() === 'Bulk edit')).toHaveLength(0);
       });
 
       it('emits "issuables:enableBulkEdit" event to legacy bulk edit class', async () => {
         wrapper = mountComponent({ provide: { canBulkUpdate: true }, mountFn: mount });
-
         jest.spyOn(eventHub, '$emit');
 
-        findGlButtonAt(2).vm.$emit('click');
-
+        findGlButton().vm.$emit('click');
         await waitForPromises();
 
         expect(eventHub.$emit).toHaveBeenCalledWith('issuables:enableBulkEdit');
@@ -267,8 +364,8 @@ describe('CE IssuesListApp component', () => {
       it('renders when user has permissions', () => {
         wrapper = mountComponent({ provide: { showNewIssueLink: true }, mountFn: mount });
 
-        expect(findGlButtonAt(2).text()).toBe('New issue');
-        expect(findGlButtonAt(2).attributes('href')).toBe(defaultProvide.newIssuePath);
+        expect(findGlButton().text()).toBe('New issue');
+        expect(findGlButton().attributes('href')).toBe(defaultProvide.newIssuePath);
       });
 
       it('does not render when user does not have permissions', () => {
@@ -282,36 +379,67 @@ describe('CE IssuesListApp component', () => {
       it('does not render in a project context', () => {
         wrapper = mountComponent({ provide: { isProject: true }, mountFn: mount });
 
-        expect(findNewIssueDropdown().exists()).toBe(false);
+        expect(findNewResourceDropdown().exists()).toBe(false);
       });
 
       it('renders in a group context', () => {
         wrapper = mountComponent({ provide: { isProject: false }, mountFn: mount });
 
-        expect(findNewIssueDropdown().exists()).toBe(true);
+        expect(findNewResourceDropdown().exists()).toBe(true);
       });
+    });
+  });
+
+  describe('header action buttons with the grid view enabled', () => {
+    beforeEach(() => {
+      wrapper = mountComponent({
+        mountFn: shallowMountExtended,
+        provide: {
+          glFeatures: {
+            issuesGridView: true,
+          },
+        },
+        stubs: {
+          IssuableList: stubComponent(IssuableList, {
+            template: `<div><slot name="nav-actions" /></div>`,
+          }),
+        },
+      });
+    });
+
+    it('switch between list and grid', async () => {
+      findGridtViewTypeBtn().vm.$emit('click');
+      await nextTick();
+
+      expect(findIssuableList().props('isGridView')).toBe(true);
+      expect(findViewTypeLocalStorageSync().props('value')).toBe('Grid');
+
+      findListViewTypeBtn().vm.$emit('click');
+      await nextTick();
+      expect(findIssuableList().props('isGridView')).toBe(false);
+      expect(findViewTypeLocalStorageSync().props('value')).toBe('List');
     });
   });
 
   describe('initial url params', () => {
     describe('page', () => {
       it('page_after is set from the url params', () => {
-        setWindowLocation('?page_after=randomCursorString');
-
+        setWindowLocation('?page_after=randomCursorString&first_page_size=20');
         wrapper = mountComponent();
 
-        expect(findIssuableList().props('urlParams')).toMatchObject({
+        expect(wrapper.vm.$route.query).toMatchObject({
           page_after: 'randomCursorString',
+          first_page_size: '20',
         });
       });
 
       it('page_before is set from the url params', () => {
-        setWindowLocation('?page_before=anotherRandomCursorString');
-
+        setWindowLocation('?page_before=anotherRandomCursorString&last_page_size=20');
         wrapper = mountComponent();
 
-        expect(findIssuableList().props('urlParams')).toMatchObject({
+        expect(wrapper.vm.$route.query).toMatchObject({
           page_before: 'anotherRandomCursorString',
+          last_page_size: '20',
         });
       });
     });
@@ -319,10 +447,9 @@ describe('CE IssuesListApp component', () => {
     describe('search', () => {
       it('is set from the url params', () => {
         setWindowLocation(locationSearch);
-
         wrapper = mountComponent();
 
-        expect(findIssuableList().props('urlParams')).toMatchObject({ search: 'find issues' });
+        expect(wrapper.vm.$route.query).toMatchObject({ search: 'find issues' });
       });
     });
 
@@ -333,10 +460,7 @@ describe('CE IssuesListApp component', () => {
         it.each(oldEnumSortValues)('initial sort is set with value %s', (sort) => {
           wrapper = mountComponent({ provide: { initialSort: sort } });
 
-          expect(findIssuableList().props()).toMatchObject({
-            initialSortBy: getSortKey(sort),
-            urlParams: { sort },
-          });
+          expect(findIssuableList().props('initialSortBy')).toBe(getSortKey(sort));
         });
       });
 
@@ -346,10 +470,7 @@ describe('CE IssuesListApp component', () => {
         it.each(graphQLEnumSortValues)('initial sort is set with value %s', (sort) => {
           wrapper = mountComponent({ provide: { initialSort: sort.toLowerCase() } });
 
-          expect(findIssuableList().props()).toMatchObject({
-            initialSortBy: sort,
-            urlParams: { sort: urlSortParams[sort] },
-          });
+          expect(findIssuableList().props('initialSortBy')).toBe(sort);
         });
       });
 
@@ -359,10 +480,7 @@ describe('CE IssuesListApp component', () => {
           (sort) => {
             wrapper = mountComponent({ provide: { initialSort: sort } });
 
-            expect(findIssuableList().props()).toMatchObject({
-              initialSortBy: CREATED_DESC,
-              urlParams: { sort: urlSortParams[CREATED_DESC] },
-            });
+            expect(findIssuableList().props('initialSortBy')).toBe(CREATED_DESC);
           },
         );
       });
@@ -375,16 +493,13 @@ describe('CE IssuesListApp component', () => {
         });
 
         it('changes the sort to the default of created descending', () => {
-          expect(findIssuableList().props()).toMatchObject({
-            initialSortBy: CREATED_DESC,
-            urlParams: { sort: urlSortParams[CREATED_DESC] },
-          });
+          expect(findIssuableList().props('initialSortBy')).toBe(CREATED_DESC);
         });
 
         it('shows an alert to tell the user that manual reordering is disabled', () => {
-          expect(createFlash).toHaveBeenCalledWith({
-            message: IssuesListApp.i18n.issueRepositioningMessage,
-            type: FLASH_TYPES.NOTICE,
+          expect(createAlert).toHaveBeenCalledWith({
+            message: 'Issues are being rebalanced at the moment, so manual reordering is disabled.',
+            variant: VARIANT_INFO,
           });
         });
       });
@@ -392,10 +507,8 @@ describe('CE IssuesListApp component', () => {
 
     describe('state', () => {
       it('is set from the url params', () => {
-        const initialState = IssuableStates.All;
-
+        const initialState = STATUS_ALL;
         setWindowLocation(`?state=${initialState}`);
-
         wrapper = mountComponent();
 
         expect(findIssuableList().props('currentTab')).toBe(initialState);
@@ -403,33 +516,18 @@ describe('CE IssuesListApp component', () => {
     });
 
     describe('filter tokens', () => {
+      it('groups url params of assignee and author', () => {
+        setWindowLocation(locationSearch);
+        wrapper = mountComponent({ provide: { glFeatures: { groupMultiSelectTokens: true } } });
+
+        expect(findIssuableList().props('initialFilterValue')).toEqual(groupedFilteredTokens);
+      });
+
       it('is set from the url params', () => {
         setWindowLocation(locationSearch);
-
         wrapper = mountComponent();
 
         expect(findIssuableList().props('initialFilterValue')).toEqual(filteredTokens);
-      });
-
-      describe('when anonymous searching is performed', () => {
-        beforeEach(() => {
-          setWindowLocation(locationSearch);
-
-          wrapper = mountComponent({
-            provide: { isAnonymousSearchDisabled: true, isSignedIn: false },
-          });
-        });
-
-        it('is not set from url params', () => {
-          expect(findIssuableList().props('initialFilterValue')).toEqual([]);
-        });
-
-        it('shows an alert to tell the user they must be signed in to search', () => {
-          expect(createFlash).toHaveBeenCalledWith({
-            message: IssuesListApp.i18n.anonymousSearchingMessage,
-            type: FLASH_TYPES.NOTICE,
-          });
-        });
       });
     });
   });
@@ -453,132 +551,111 @@ describe('CE IssuesListApp component', () => {
 
   describe('IssuableByEmail component', () => {
     describe.each`
-      initialEmail | hasAnyIssues | isSignedIn | exists
-      ${false}     | ${false}     | ${false}   | ${false}
-      ${false}     | ${true}      | ${false}   | ${false}
-      ${false}     | ${false}     | ${true}    | ${false}
-      ${false}     | ${true}      | ${true}    | ${false}
-      ${true}      | ${false}     | ${false}   | ${false}
-      ${true}      | ${true}      | ${false}   | ${false}
-      ${true}      | ${false}     | ${true}    | ${true}
-      ${true}      | ${true}      | ${true}    | ${true}
+      initialEmail | canCreateIssue | exists
+      ${false}     | ${false}       | ${false}
+      ${false}     | ${true}        | ${false}
+      ${true}      | ${false}       | ${false}
+      ${true}      | ${true}        | ${true}
     `(
       `when issue creation by email is enabled=$initialEmail`,
-      ({ initialEmail, hasAnyIssues, isSignedIn, exists }) => {
+      ({ initialEmail, canCreateIssue, exists }) => {
         it(`${initialEmail ? 'renders' : 'does not render'}`, () => {
-          wrapper = mountComponent({ provide: { initialEmail, hasAnyIssues, isSignedIn } });
+          wrapper = mountComponent({ provide: { initialEmail, canCreateIssue } });
 
           expect(findIssuableByEmail().exists()).toBe(exists);
         });
       },
     );
+
+    it('tracks IssuableByEmail', () => {
+      wrapper = mountComponent({ provide: { initialEmail: true, canCreateIssue: true } });
+
+      expect(findIssuableByEmail().attributes()).toMatchObject({
+        'data-track-action': 'click_email_issue_project_issues_empty_list_page',
+        'data-track-label': 'email_issue_project_issues_empty_list',
+        'data-track-experiment': 'issues_mrs_empty_state',
+      });
+    });
+
+    describe('when issues_mrs_empty_state candidate experiment', () => {
+      beforeEach(() => {
+        stubExperiments({ issues_mrs_empty_state: 'candidate' });
+      });
+
+      it('does not render IssuableByEmail', () => {
+        wrapper = mountComponent({
+          provide: { initialEmail: true, canCreateIssue: true },
+          stubs: { GitlabExperiment },
+        });
+
+        expect(findIssuableByEmail().exists()).toBe(false);
+      });
+    });
   });
 
-  describe('empty states', () => {
-    describe('when there are issues', () => {
-      describe('when search returns no results', () => {
+  describe('slots', () => {
+    describe('empty states', () => {
+      describe('when there are issues', () => {
         beforeEach(() => {
-          setWindowLocation(`?search=no+results`);
-
-          wrapper = mountComponent({ provide: { hasAnyIssues: true }, mountFn: mount });
+          wrapper = mountComponent({
+            provide: { hasAnyIssues: true },
+            mountFn: mount,
+            issuesQueryResponse: jest.fn().mockResolvedValue(getIssuesQueryEmptyResponse),
+          });
+          return waitForPromises();
         });
 
-        it('shows empty state', () => {
-          expect(findGlEmptyState().props()).toMatchObject({
-            description: IssuesListApp.i18n.noSearchResultsDescription,
-            title: IssuesListApp.i18n.noSearchResultsTitle,
-            svgPath: defaultProvide.emptyStateSvgPath,
+        it('shows EmptyStateWithAnyIssues empty state', () => {
+          expect(wrapper.findComponent(EmptyStateWithAnyIssues).props()).toEqual({
+            hasSearch: false,
+            isEpic: false,
+            isOpenTab: true,
           });
         });
       });
 
-      describe('when "Open" tab has no issues', () => {
+      describe('when there are no issues', () => {
         beforeEach(() => {
-          wrapper = mountComponent({ provide: { hasAnyIssues: true }, mountFn: mount });
+          wrapper = mountComponent({ provide: { hasAnyIssues: false } });
         });
 
-        it('shows empty state', () => {
-          expect(findGlEmptyState().props()).toMatchObject({
-            description: IssuesListApp.i18n.noOpenIssuesDescription,
-            title: IssuesListApp.i18n.noOpenIssuesTitle,
-            svgPath: defaultProvide.emptyStateSvgPath,
+        it('shows EmptyStateWithoutAnyIssues empty state', () => {
+          expect(wrapper.findComponent(EmptyStateWithoutAnyIssues).props()).toEqual({
+            currentTabCount: 0,
+            exportCsvPathWithQuery: defaultProvide.exportCsvPath,
+            showCsvButtons: true,
+            showIssuableByEmail: false,
+            showNewIssueDropdown: false,
           });
         });
       });
 
-      describe('when "Closed" tab has no issues', () => {
+      describe('when there are errors', () => {
         beforeEach(() => {
-          setWindowLocation(`?state=${IssuableStates.Closed}`);
-
-          wrapper = mountComponent({ provide: { hasAnyIssues: true }, mountFn: mount });
+          wrapper = mountComponent({
+            provide: { hasAnyIssues: true },
+            mountFn: mount,
+            issuesQueryResponse: jest.fn().mockRejectedValue(getIssuesQueryEmptyResponse),
+          });
+          return waitForPromises();
         });
 
-        it('shows empty state', () => {
-          expect(findGlEmptyState().props()).toMatchObject({
-            title: IssuesListApp.i18n.noClosedIssuesTitle,
-            svgPath: defaultProvide.emptyStateSvgPath,
-          });
+        it('does not show empty state', () => {
+          expect(wrapper.findComponent(EmptyStateWithAnyIssues).exists()).toBe(false);
         });
       });
     });
 
-    describe('when there are no issues', () => {
-      describe('when user is logged in', () => {
-        beforeEach(() => {
-          wrapper = mountComponent({
-            provide: { hasAnyIssues: false, isSignedIn: true },
-            mountFn: mount,
-          });
-        });
+    it('includes IssueCardStatistics component', async () => {
+      wrapper = mountComponent();
+      await nextTick();
+      expect(findIssueCardStatistics().exists()).toBe(true);
+    });
 
-        it('shows empty state', () => {
-          expect(findGlEmptyState().props()).toMatchObject({
-            description: IssuesListApp.i18n.noIssuesSignedInDescription,
-            title: IssuesListApp.i18n.noIssuesSignedInTitle,
-            svgPath: defaultProvide.emptyStateSvgPath,
-          });
-        });
-
-        it('shows "New issue" and import/export buttons', () => {
-          expect(findGlButton().text()).toBe(IssuesListApp.i18n.newIssueLabel);
-          expect(findGlButton().attributes('href')).toBe(defaultProvide.newIssuePath);
-          expect(findCsvImportExportButtons().props()).toMatchObject({
-            exportCsvPath: defaultProvide.exportCsvPath,
-            issuableCount: 0,
-          });
-        });
-
-        it('shows Jira integration information', () => {
-          const paragraphs = wrapper.findAll('p');
-          expect(paragraphs.at(1).text()).toContain(IssuesListApp.i18n.jiraIntegrationTitle);
-          expect(paragraphs.at(2).text()).toContain(
-            'Enable the Jira integration to view your Jira issues in GitLab.',
-          );
-          expect(paragraphs.at(3).text()).toContain(
-            IssuesListApp.i18n.jiraIntegrationSecondaryMessage,
-          );
-          expect(findGlLink().text()).toBe('Enable the Jira integration');
-          expect(findGlLink().attributes('href')).toBe(defaultProvide.jiraIntegrationPath);
-        });
-      });
-
-      describe('when user is logged out', () => {
-        beforeEach(() => {
-          wrapper = mountComponent({
-            provide: { hasAnyIssues: false, isSignedIn: false },
-          });
-        });
-
-        it('shows empty state', () => {
-          expect(findGlEmptyState().props()).toMatchObject({
-            description: IssuesListApp.i18n.noIssuesSignedOutDescription,
-            title: IssuesListApp.i18n.noIssuesSignedOutTitle,
-            svgPath: defaultProvide.emptyStateSvgPath,
-            primaryButtonText: IssuesListApp.i18n.noIssuesSignedOutButtonText,
-            primaryButtonLink: defaultProvide.signInPath,
-          });
-        });
-      });
+    it('includes IssuseCardTimeInfo component', async () => {
+      wrapper = mountComponent();
+      await nextTick();
+      expect(findIssueCardTimeInfo().exists()).toBe(true);
     });
   });
 
@@ -597,46 +674,65 @@ describe('CE IssuesListApp component', () => {
 
       it('does not render My-Reaction or Confidential tokens', () => {
         expect(findIssuableList().props('searchTokens')).not.toMatchObject([
-          { type: TOKEN_TYPE_AUTHOR, preloadedAuthors: [mockCurrentUser] },
-          { type: TOKEN_TYPE_ASSIGNEE, preloadedAuthors: [mockCurrentUser] },
+          { type: TOKEN_TYPE_AUTHOR, preloadedUsers: [mockCurrentUser] },
+          { type: TOKEN_TYPE_ASSIGNEE, preloadedUsers: [mockCurrentUser] },
           { type: TOKEN_TYPE_MY_REACTION },
           { type: TOKEN_TYPE_CONFIDENTIAL },
         ]);
       });
     });
 
-    describe('when all tokens are available', () => {
-      const originalGon = window.gon;
+    describe('when user does not have CRM enabled', () => {
+      beforeEach(() => {
+        wrapper = mountComponent({
+          provide: { canReadCrmContact: false, canReadCrmOrganization: false },
+        });
+      });
 
+      it('does not render Contact or Organization tokens', () => {
+        expect(findIssuableList().props('searchTokens')).not.toMatchObject([
+          { type: TOKEN_TYPE_CONTACT },
+          { type: TOKEN_TYPE_ORGANIZATION },
+        ]);
+      });
+    });
+
+    describe('when all tokens are available', () => {
       beforeEach(() => {
         window.gon = {
-          ...originalGon,
           current_user_id: mockCurrentUser.id,
           current_user_fullname: mockCurrentUser.name,
           current_username: mockCurrentUser.username,
           current_user_avatar_url: mockCurrentUser.avatar_url,
         };
 
-        wrapper = mountComponent({ provide: { isSignedIn: true } });
-      });
-
-      afterEach(() => {
-        window.gon = originalGon;
+        wrapper = mountComponent({
+          provide: {
+            canReadCrmContact: true,
+            canReadCrmOrganization: true,
+            isSignedIn: true,
+          },
+        });
       });
 
       it('renders all tokens alphabetically', () => {
-        const preloadedAuthors = [
-          { ...mockCurrentUser, id: convertToGraphQLId('User', mockCurrentUser.id) },
+        const preloadedUsers = [
+          { ...mockCurrentUser, id: convertToGraphQLId(TYPENAME_USER, mockCurrentUser.id) },
         ];
 
         expect(findIssuableList().props('searchTokens')).toMatchObject([
-          { type: TOKEN_TYPE_ASSIGNEE, preloadedAuthors },
-          { type: TOKEN_TYPE_AUTHOR, preloadedAuthors },
+          { type: TOKEN_TYPE_ASSIGNEE, preloadedUsers },
+          { type: TOKEN_TYPE_AUTHOR, preloadedUsers },
+          { type: TOKEN_TYPE_CLOSED },
           { type: TOKEN_TYPE_CONFIDENTIAL },
+          { type: TOKEN_TYPE_CONTACT },
+          { type: TOKEN_TYPE_CREATED },
           { type: TOKEN_TYPE_LABEL },
           { type: TOKEN_TYPE_MILESTONE },
           { type: TOKEN_TYPE_MY_REACTION },
+          { type: TOKEN_TYPE_ORGANIZATION },
           { type: TOKEN_TYPE_RELEASE },
+          { type: TOKEN_TYPE_SEARCH_WITHIN },
           { type: TOKEN_TYPE_TYPE },
         ]);
       });
@@ -646,15 +742,14 @@ describe('CE IssuesListApp component', () => {
   describe('errors', () => {
     describe.each`
       error                      | mountOption                    | message
-      ${'fetching issues'}       | ${'issuesQueryResponse'}       | ${IssuesListApp.i18n.errorFetchingIssues}
-      ${'fetching issue counts'} | ${'issuesCountsQueryResponse'} | ${IssuesListApp.i18n.errorFetchingCounts}
+      ${'fetching issues'}       | ${'issuesQueryResponse'}       | ${'An error occurred while loading issues'}
+      ${'fetching issue counts'} | ${'issuesCountsQueryResponse'} | ${'An error occurred while getting issue counts'}
     `('when there is an error $error', ({ mountOption, message }) => {
-      beforeEach(async () => {
+      beforeEach(() => {
         wrapper = mountComponent({
           [mountOption]: jest.fn().mockRejectedValue(new Error('ERROR')),
         });
-        jest.runOnlyPendingTimers();
-        await waitForPromises();
+        return waitForPromises();
       });
 
       it('shows an error message', () => {
@@ -674,31 +769,55 @@ describe('CE IssuesListApp component', () => {
 
   describe('events', () => {
     describe('when "click-tab" event is emitted by IssuableList', () => {
-      beforeEach(() => {
+      beforeEach(async () => {
         wrapper = mountComponent();
+        await waitForPromises();
+        router.push = jest.fn();
 
-        findIssuableList().vm.$emit('click-tab', IssuableStates.Closed);
+        findIssuableList().vm.$emit('click-tab', STATUS_CLOSED);
       });
 
-      it('updates to the new tab', () => {
-        expect(findIssuableList().props('currentTab')).toBe(IssuableStates.Closed);
+      it('updates ui to the new tab', () => {
+        expect(findIssuableList().props('currentTab')).toBe(STATUS_CLOSED);
+      });
+
+      it('updates url to the new tab', () => {
+        expect(router.push).toHaveBeenCalledWith({
+          query: expect.objectContaining({ state: STATUS_CLOSED }),
+        });
       });
     });
 
-    describe.each(['next-page', 'previous-page'])(
-      'when "%s" event is emitted by IssuableList',
-      (event) => {
-        beforeEach(() => {
-          wrapper = mountComponent();
-
-          findIssuableList().vm.$emit(event);
+    describe.each`
+      event              | params
+      ${'next-page'}     | ${{ page_after: 'endcursor', page_before: undefined, first_page_size: 20, last_page_size: undefined }}
+      ${'previous-page'} | ${{ page_after: undefined, page_before: 'startcursor', first_page_size: undefined, last_page_size: 20 }}
+    `('when "$event" event is emitted by IssuableList', ({ event, params }) => {
+      beforeEach(async () => {
+        wrapper = mountComponent({
+          data: {
+            pageInfo: {
+              endCursor: 'endCursor',
+              startCursor: 'startCursor',
+            },
+          },
         });
+        await waitForPromises();
+        router.push = jest.fn();
 
-        it('scrolls to the top', () => {
-          expect(scrollUp).toHaveBeenCalled();
+        findIssuableList().vm.$emit(event);
+      });
+
+      it('scrolls to the top', () => {
+        expect(scrollUp).toHaveBeenCalled();
+      });
+
+      it(`updates url`, () => {
+        expect(router.push).toHaveBeenCalledWith({
+          query: expect.objectContaining(params),
         });
-      },
-    );
+      });
+    });
 
     describe('when "reorder" event is emitted by IssuableList', () => {
       const issueOne = {
@@ -752,18 +871,16 @@ describe('CE IssuesListApp component', () => {
           `(
             'when moving issue $description',
             ({ issueToMove, oldIndex, newIndex, moveBeforeId, moveAfterId }) => {
-              beforeEach(async () => {
+              beforeEach(() => {
                 wrapper = mountComponent({
                   provide: { isProject },
                   issuesQueryResponse: jest.fn().mockResolvedValue(response(isProject)),
                 });
-                jest.runOnlyPendingTimers();
-                await waitForPromises();
+                return waitForPromises();
               });
 
               it('makes API call to reorder the issue', async () => {
                 findIssuableList().vm.$emit('reorder', { oldIndex, newIndex });
-
                 await waitForPromises();
 
                 expect(axiosMock.history.put[0]).toMatchObject({
@@ -780,22 +897,24 @@ describe('CE IssuesListApp component', () => {
       });
 
       describe('when unsuccessful', () => {
-        beforeEach(async () => {
+        beforeEach(() => {
           wrapper = mountComponent({
             issuesQueryResponse: jest.fn().mockResolvedValue(response()),
           });
-          jest.runOnlyPendingTimers();
-          await waitForPromises();
+          return waitForPromises();
         });
 
         it('displays an error message', async () => {
-          axiosMock.onPut(joinPaths(issueOne.webPath, 'reorder')).reply(500);
+          axiosMock
+            .onPut(joinPaths(issueOne.webPath, 'reorder'))
+            .reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
 
           findIssuableList().vm.$emit('reorder', { oldIndex: 0, newIndex: 1 });
-
           await waitForPromises();
 
-          expect(findIssuableList().props('error')).toBe(IssuesListApp.i18n.reorderError);
+          expect(findIssuableList().props('error')).toBe(
+            'An error occurred while reordering issues.',
+          );
           expect(Sentry.captureException).toHaveBeenCalledWith(
             new Error('Request failed with status code 500'),
           );
@@ -806,16 +925,18 @@ describe('CE IssuesListApp component', () => {
     describe('when "sort" event is emitted by IssuableList', () => {
       it.each(Object.keys(urlSortParams))(
         'updates to the new sort when payload is `%s`',
-        async (sortKey) => {
-          wrapper = mountComponent();
+        (sortKey) => {
+          // Ensure initial sort key is different so we can trigger an update when emitting a sort key
+          wrapper =
+            sortKey === CREATED_DESC
+              ? mountComponent({ provide: { initialSort: UPDATED_DESC } })
+              : mountComponent();
+          router.push = jest.fn();
 
           findIssuableList().vm.$emit('sort', sortKey);
 
-          jest.runOnlyPendingTimers();
-          await nextTick();
-
-          expect(findIssuableList().props('urlParams')).toMatchObject({
-            sort: urlSortParams[sortKey],
+          expect(router.push).toHaveBeenCalledWith({
+            query: expect.objectContaining({ sort: urlSortParams[sortKey] }),
           });
         },
       );
@@ -827,20 +948,19 @@ describe('CE IssuesListApp component', () => {
           wrapper = mountComponent({
             provide: { initialSort, isIssueRepositioningDisabled: true },
           });
+          router.push = jest.fn();
 
           findIssuableList().vm.$emit('sort', RELATIVE_POSITION_ASC);
         });
 
         it('does not update the sort to manual', () => {
-          expect(findIssuableList().props('urlParams')).toMatchObject({
-            sort: urlSortParams[initialSort],
-          });
+          expect(router.push).not.toHaveBeenCalled();
         });
 
         it('shows an alert to tell the user that manual reordering is disabled', () => {
-          expect(createFlash).toHaveBeenCalledWith({
-            message: IssuesListApp.i18n.issueRepositioningMessage,
-            type: FLASH_TYPES.NOTICE,
+          expect(createAlert).toHaveBeenCalledWith({
+            message: 'Issues are being rebalanced at the moment, so manual reordering is disabled.',
+            variant: VARIANT_INFO,
           });
         });
       });
@@ -850,9 +970,9 @@ describe('CE IssuesListApp component', () => {
           const mutationMock = jest.fn().mockResolvedValue(setSortPreferenceMutationResponse);
           wrapper = mountComponent({ sortPreferenceMutationResponse: mutationMock });
 
-          findIssuableList().vm.$emit('sort', CREATED_DESC);
+          findIssuableList().vm.$emit('sort', UPDATED_DESC);
 
-          expect(mutationMock).toHaveBeenCalledWith({ input: { issuesSort: CREATED_DESC } });
+          expect(mutationMock).toHaveBeenCalledWith({ input: { issuesSort: UPDATED_DESC } });
         });
 
         it('captures error when mutation response has errors', async () => {
@@ -861,7 +981,7 @@ describe('CE IssuesListApp component', () => {
             .mockResolvedValue(setSortPreferenceMutationResponseWithErrors);
           wrapper = mountComponent({ sortPreferenceMutationResponse: mutationMock });
 
-          findIssuableList().vm.$emit('sort', CREATED_DESC);
+          findIssuableList().vm.$emit('sort', UPDATED_DESC);
           await waitForPromises();
 
           expect(Sentry.captureException).toHaveBeenCalledWith(new Error('oh no!'));
@@ -899,40 +1019,310 @@ describe('CE IssuesListApp component', () => {
     describe('when "filter" event is emitted by IssuableList', () => {
       it('updates IssuableList with url params', async () => {
         wrapper = mountComponent();
+        router.push = jest.fn();
 
         findIssuableList().vm.$emit('filter', filteredTokens);
         await nextTick();
 
-        expect(findIssuableList().props('urlParams')).toMatchObject(urlParams);
-      });
-
-      describe('when anonymous searching is performed', () => {
-        beforeEach(() => {
-          wrapper = mountComponent({
-            provide: { isAnonymousSearchDisabled: true, isSignedIn: false },
-          });
-
-          findIssuableList().vm.$emit('filter', filteredTokens);
-        });
-
-        it('does not update IssuableList with url params ', async () => {
-          const defaultParams = {
-            page_after: null,
-            page_before: null,
-            sort: 'created_date',
-            state: 'opened',
-          };
-
-          expect(findIssuableList().props('urlParams')).toEqual(defaultParams);
-        });
-
-        it('shows an alert to tell the user they must be signed in to search', () => {
-          expect(createFlash).toHaveBeenCalledWith({
-            message: IssuesListApp.i18n.anonymousSearchingMessage,
-            type: FLASH_TYPES.NOTICE,
-          });
+        expect(router.push).toHaveBeenCalledWith({
+          query: expect.objectContaining(urlParams),
         });
       });
     });
+
+    describe('when "page-size-change" event is emitted by IssuableList', () => {
+      it('updates url params with new page size', async () => {
+        wrapper = mountComponent();
+        router.push = jest.fn();
+
+        findIssuableList().vm.$emit('page-size-change', 50);
+        await nextTick();
+
+        expect(router.push).toHaveBeenCalledTimes(1);
+        expect(router.push).toHaveBeenCalledWith({
+          query: expect.objectContaining({ first_page_size: 50 }),
+        });
+      });
+    });
+  });
+
+  describe('public visibility', () => {
+    it.each`
+      description                                                                    | isPublicVisibilityRestricted | isSignedIn | hideUsers
+      ${'shows users when public visibility is not restricted and is not signed in'} | ${false}                     | ${false}   | ${false}
+      ${'shows users when public visibility is not restricted and is signed in'}     | ${false}                     | ${true}    | ${false}
+      ${'hides users when public visibility is restricted and is not signed in'}     | ${true}                      | ${false}   | ${true}
+      ${'shows users when public visibility is restricted and is signed in'}         | ${true}                      | ${true}    | ${false}
+    `('$description', async ({ isPublicVisibilityRestricted, isSignedIn, hideUsers }) => {
+      const mockQuery = jest.fn().mockResolvedValue(defaultQueryResponse);
+      wrapper = mountComponent({
+        provide: { isPublicVisibilityRestricted, isSignedIn },
+        issuesQueryResponse: mockQuery,
+      });
+      await waitForPromises();
+
+      expect(mockQuery).toHaveBeenCalledWith(expect.objectContaining({ hideUsers }));
+    });
+  });
+
+  describe('fetching issues', () => {
+    beforeEach(() => {
+      wrapper = mountComponent();
+    });
+
+    it('fetches issue, incident, test case, and task types', () => {
+      const types = [
+        WORK_ITEM_TYPE_ENUM_ISSUE,
+        WORK_ITEM_TYPE_ENUM_INCIDENT,
+        WORK_ITEM_TYPE_ENUM_TEST_CASE,
+        WORK_ITEM_TYPE_ENUM_TASK,
+      ];
+
+      expect(mockIssuesQueryResponse).toHaveBeenCalledWith(expect.objectContaining({ types }));
+      expect(mockIssuesCountsQueryResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ types }),
+      );
+    });
+  });
+
+  describe('when providing token for labels', () => {
+    it('passes function to fetchLatestLabels property if frontend caching is enabled', () => {
+      wrapper = mountComponent({
+        provide: {
+          glFeatures: {
+            frontendCaching: true,
+          },
+        },
+      });
+
+      expect(typeof findLabelsToken().fetchLatestLabels).toBe('function');
+    });
+
+    it('passes null to fetchLatestLabels property if frontend caching is disabled', () => {
+      wrapper = mountComponent({
+        provide: {
+          glFeatures: {
+            frontendCaching: false,
+          },
+        },
+      });
+
+      expect(findLabelsToken().fetchLatestLabels).toBe(null);
+    });
+  });
+
+  describe('when issue drawer is enabled', () => {
+    beforeEach(() => {
+      wrapper = mountComponent({
+        provide: {
+          glFeatures: {
+            issuesListDrawer: true,
+          },
+        },
+      });
+    });
+
+    it('renders issuable drawer component', () => {
+      expect(findWorkItemDrawer().exists()).toBe(true);
+    });
+
+    it('renders issuable drawer closed by default', () => {
+      expect(findWorkItemDrawer().props('open')).toBe(false);
+    });
+
+    describe('on selecting an issuable', () => {
+      beforeEach(() => {
+        findIssuableList().vm.$emit(
+          'select-issuable',
+          getIssuesQueryResponse.data.project.issues.nodes[0],
+        );
+        return nextTick();
+      });
+
+      it('opens issuable drawer', () => {
+        expect(findWorkItemDrawer().props('open')).toBe(true);
+      });
+
+      it('selects active issuable', () => {
+        expect(findIssuableList().props('activeIssuable')).toEqual(
+          getIssuesQueryResponse.data.project.issues.nodes[0],
+        );
+      });
+
+      describe('when closing the drawer', () => {
+        it('closes the drawer on drawer `close` event', async () => {
+          findWorkItemDrawer().vm.$emit('close');
+          await nextTick();
+
+          expect(findWorkItemDrawer().props('open')).toBe(false);
+        });
+
+        it('removes active issuable', async () => {
+          findWorkItemDrawer().vm.$emit('close');
+          await nextTick();
+
+          expect(findIssuableList().props('activeIssuable')).toBe(null);
+        });
+      });
+
+      describe('when updating an issuable', () => {
+        it('refetches the list if the issuable changed state', async () => {
+          const {
+            data: { workItem },
+          } = workItemResponseFactory({ iid: '789', state: 'CLOSED' });
+          findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
+
+          await waitForPromises();
+
+          expect(mockIssuesQueryResponse).toHaveBeenCalledTimes(2);
+          expect(mockIssuesCountsQueryResponse).toHaveBeenCalledTimes(2);
+        });
+
+        it('updates the assignees field of active issuable', async () => {
+          const {
+            data: { workItem },
+          } = workItemResponseFactory({ iid: '789' });
+          findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
+
+          await waitForPromises();
+
+          expect(findIssuableList().props('issuables')[0].assignees.nodes).toEqual(
+            mockAssignees.map((assignee) => ({
+              ...assignee,
+              __persist: true,
+            })),
+          );
+        });
+
+        it('updates the labels field of active issuable', async () => {
+          const {
+            data: { workItem },
+          } = workItemResponseFactory({ iid: '789' });
+          findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
+
+          await waitForPromises();
+
+          expect(findIssuableList().props('issuables')[0].labels.nodes).toEqual(
+            mockLabels.map((label) => ({
+              ...label,
+              __persist: true,
+              textColor: undefined,
+            })),
+          );
+        });
+
+        it('updates the upvotes count of active issuable', async () => {
+          const { workItem } = workItemByIidResponseFactory({
+            iid: '789',
+            awardEmoji: {
+              ...mockAwardsWidget,
+              nodes: [mockAwardEmojiThumbsUp],
+            },
+          }).data.workspace;
+
+          findWorkItemDrawer().vm.$emit('work-item-emoji-updated', workItem);
+
+          await waitForPromises();
+
+          expect(findIssuableList().props('issuables')[0].upvotes).toBe(1);
+        });
+
+        it('updates the milestone field of active issuable', async () => {
+          const {
+            data: { workItem },
+          } = workItemResponseFactory({ iid: '789' });
+          findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
+
+          await waitForPromises();
+
+          expect(findIssuableList().props('issuables')[0].milestone).toEqual({
+            ...mockMilestone,
+            __persist: true,
+            expired: undefined,
+            state: undefined,
+          });
+        });
+
+        it('updates the title and confidential state of active issuable', async () => {
+          const {
+            data: { workItem },
+          } = workItemResponseFactory({ iid: '789', confidential: true });
+          findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
+
+          await waitForPromises();
+
+          expect(findIssuableList().props('issuables')[0].title).toBe('Updated title');
+          expect(findIssuableList().props('issuables')[0].confidential).toBe(true);
+        });
+
+        it('refetches the list if new child was added to active issuable', async () => {
+          findWorkItemDrawer().vm.$emit('addChild');
+
+          await waitForPromises();
+
+          expect(mockIssuesQueryResponse).toHaveBeenCalledTimes(2);
+          expect(mockIssuesCountsQueryResponse).toHaveBeenCalledTimes(2);
+        });
+
+        it('updates issuable type to objective if promoted to objective', async () => {
+          findWorkItemDrawer().vm.$emit('promotedToObjective', '789');
+
+          await waitForPromises();
+          // required for cache updates
+          jest.runOnlyPendingTimers();
+          await nextTick();
+
+          expect(findIssuableList().props('issuables')[0].type).toBe('OBJECTIVE');
+        });
+      });
+
+      describe('when deleting an issuable from the drawer', () => {
+        beforeEach(async () => {
+          const {
+            data: { workItem },
+          } = workItemResponseFactory({ iid: '789' });
+          findWorkItemDrawer().vm.$emit('deleteWorkItem', workItem);
+
+          await waitForPromises();
+        });
+
+        it('should refetch issues and issues count', () => {
+          expect(mockIssuesQueryResponse).toHaveBeenCalledTimes(2);
+          expect(mockIssuesCountsQueryResponse).toHaveBeenCalledTimes(2);
+        });
+
+        it('should close the issue drawer', () => {
+          expect(findWorkItemDrawer().props('open')).toBe(false);
+        });
+      });
+    });
+  });
+
+  it('shows an error when deleting from the drawer fails', async () => {
+    const errorHandler = jest.fn().mockRejectedValue('Houston, we have a problem');
+    const {
+      data: { workItem },
+    } = workItemResponseFactory({ iid: '789' });
+
+    wrapper = mountComponent({
+      provide: {
+        glFeatures: {
+          issuesListDrawer: true,
+        },
+      },
+      deleteMutationHandler: errorHandler,
+    });
+
+    findIssuableList().vm.$emit(
+      'select-issuable',
+      getIssuesQueryResponse.data.project.issues.nodes[0],
+    );
+    await nextTick();
+
+    findWorkItemDrawer().vm.$emit('deleteWorkItem', workItem);
+    await waitForPromises();
+
+    expect(Sentry.captureException).toHaveBeenCalled();
+    expect(findIssuableList().props('error')).toBe('An error occurred while deleting an issuable.');
   });
 });

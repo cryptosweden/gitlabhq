@@ -1,57 +1,80 @@
 <script>
-import { GlTable, GlBadge, GlPagination } from '@gitlab/ui';
+import { GlTable, GlBadge, GlTooltipDirective, GlButton } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 import MembersTableCell from 'ee_else_ce/members/components/table/members_table_cell.vue';
-import { canOverride, canRemove, canResend, canUpdate } from 'ee_else_ce/members/utils';
-import { mergeUrlParams } from '~/lib/utils/url_utility';
-import initUserPopovers from '~/user_popovers';
-import UserDate from '~/vue_shared/components/user_date.vue';
+import {
+  canDisableTwoFactor,
+  canUnban,
+  canOverride,
+  canRemove,
+  canRemoveBlockedByLastOwner,
+  canResend,
+  canUpdate,
+} from 'ee_else_ce/members/utils';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import {
   FIELD_KEY_ACTIONS,
   FIELDS,
-  ACTIVE_TAB_QUERY_PARAM_NAME,
-  TAB_QUERY_PARAM_VALUES,
   MEMBER_STATE_AWAITING,
   MEMBER_STATE_ACTIVE,
-  USER_STATE_BLOCKED_PENDING_APPROVAL,
-  BADGE_LABELS_AWAITING_USER_SIGNUP,
-  BADGE_LABELS_PENDING_OWNER_APPROVAL,
+  USER_STATE_BLOCKED,
+  BADGE_LABELS_AWAITING_SIGNUP,
+  BADGE_LABELS_PENDING,
+  TAB_QUERY_PARAM_VALUES,
 } from '../../constants';
 import RemoveGroupLinkModal from '../modals/remove_group_link_modal.vue';
 import RemoveMemberModal from '../modals/remove_member_modal.vue';
 import CreatedAt from './created_at.vue';
 import ExpirationDatepicker from './expiration_datepicker.vue';
-import MemberActionButtons from './member_action_buttons.vue';
+import MemberActions from './member_actions.vue';
 import MemberAvatar from './member_avatar.vue';
 import MemberSource from './member_source.vue';
-import RoleDropdown from './role_dropdown.vue';
+import MemberActivity from './member_activity.vue';
+import MaxRole from './max_role.vue';
+import MembersPagination from './members_pagination.vue';
+import RoleDetailsDrawer from './drawer/role_details_drawer.vue';
 
 export default {
-  name: 'MembersTable',
   components: {
     GlTable,
     GlBadge,
-    GlPagination,
+    GlButton,
     MemberAvatar,
     CreatedAt,
     MembersTableCell,
     MemberSource,
-    MemberActionButtons,
-    RoleDropdown,
+    MemberActions,
+    MaxRole,
     RemoveGroupLinkModal,
     RemoveMemberModal,
     ExpirationDatepicker,
-    UserDate,
+    MemberActivity,
+    MembersPagination,
+    RoleDetailsDrawer,
+    DisableTwoFactorModal: () =>
+      import('ee_component/members/components/modals/disable_two_factor_modal.vue'),
     LdapOverrideConfirmationModal: () =>
-      import('ee_component/members/components/ldap/ldap_override_confirmation_modal.vue'),
+      import('ee_component/members/components/modals/ldap_override_confirmation_modal.vue'),
+    UserLimitReachedAlert: () =>
+      import('ee_component/members/components/table/user_limit_reached_alert.vue'),
+    RoleBadges: () => import('ee_component/members/components/table/role_badges.vue'),
   },
-  inject: ['namespace', 'currentUserId'],
+  directives: { GlTooltip: GlTooltipDirective },
+  mixins: [glFeatureFlagsMixin()],
+  inject: ['namespace', 'currentUserId', 'canManageMembers'],
   props: {
     tabQueryParamValue: {
       type: String,
       required: false,
       default: '',
     },
+  },
+  data() {
+    return {
+      selectedMember: null,
+      isRoleDrawerBusy: false,
+    };
   },
   computed: {
     ...mapState({
@@ -67,34 +90,32 @@ export default {
       pagination(state) {
         return state[this.namespace].pagination;
       },
+      memberPath(state) {
+        return state[this.namespace].memberPath;
+      },
     }),
     filteredAndModifiedFields() {
       return FIELDS.filter(
         (field) => this.tableFields.includes(field.key) && this.showField(field),
-      ).map(this.modifyFieldDefinition);
+      ).map((item) => this.modifyFieldDefinition(item));
     },
     userIsLoggedIn() {
       return this.currentUserId !== null;
     },
-    showPagination() {
-      const { paramName, currentPage, perPage, totalItems } = this.pagination;
-
-      return paramName && currentPage && perPage && totalItems;
+    onAccessRequestTab() {
+      return this.tabQueryParamValue === TAB_QUERY_PARAM_VALUES.accessRequest;
     },
-    isInvitedUser() {
-      return this.tabQueryParamValue === TAB_QUERY_PARAM_VALUES.invite;
-    },
-  },
-  mounted() {
-    initUserPopovers(this.$el.querySelectorAll('.js-user-link'));
   },
   methods: {
     hasActionButtons(member) {
       return (
         canRemove(member) ||
+        canRemoveBlockedByLastOwner(member, this.canManageMembers) ||
         canResend(member) ||
         canUpdate(member, this.currentUserId) ||
-        canOverride(member)
+        canOverride(member) ||
+        canUnban(member) ||
+        canDisableTwoFactor(member)
       );
     },
     showField(field) {
@@ -122,29 +143,18 @@ export default {
     },
     actionsFieldTdClass(value, key, member) {
       if (this.hasActionButtons(member)) {
-        return 'col-actions';
+        return ['col-actions', '!gl-align-middle'];
       }
 
-      return ['col-actions', 'gl-display-none!', 'gl-lg-display-table-cell!'];
+      return ['col-actions', '!gl-hidden', 'lg:!gl-table-cell', '!gl-align-middle'];
     },
     tbodyTrAttr(member) {
       return {
         ...this.tableAttrs.tr,
-        ...(member?.id && { 'data-testid': `members-table-row-${member.id}` }),
+        ...(member?.id && {
+          'data-testid': `members-table-row-${member.id}`,
+        }),
       };
-    },
-    paginationLinkGenerator(page) {
-      const { params = {}, paramName } = this.pagination;
-
-      return mergeUrlParams(
-        {
-          ...params,
-          [ACTIVE_TAB_QUERY_PARAM_NAME]:
-            this.tabQueryParamValue !== '' ? this.tabQueryParamValue : null,
-          [paramName]: page,
-        },
-        window.location.href,
-      );
     },
     /**
      * Returns whether it's a new or existing user
@@ -166,7 +176,7 @@ export default {
       );
     },
     /**
-     * Returns whether the user is awaiting root approval
+     * Returns whether the user is blocked awaiting root approval
      *
      * This checks User.state exposed via MemberEntity
      *
@@ -174,11 +184,11 @@ export default {
      * @see {@link ~/app/serializers/member_entity.rb}
      * @returns {boolean}
      */
-    isUserPendingRootApproval(memberInviteMetadata) {
-      return memberInviteMetadata?.userState === USER_STATE_BLOCKED_PENDING_APPROVAL;
+    isUserBlocked(memberInviteMetadata) {
+      return memberInviteMetadata?.userState === USER_STATE_BLOCKED;
     },
     /**
-     * Returns whether the member is awaiting owner approval
+     * Returns whether the member is awaiting state
      *
      * This checks Member.state exposed via MemberEntity
      *
@@ -187,16 +197,13 @@ export default {
      * @see {@link ~/app/serializers/member_entity.rb}
      * @returns {boolean}
      */
-    isMemberPendingOwnerApproval(memberState) {
+    isMemberAwaiting(memberState) {
       return memberState === MEMBER_STATE_AWAITING;
     },
     isUserAwaiting(memberInviteMetadata, memberState) {
-      return (
-        this.isUserPendingRootApproval(memberInviteMetadata) ||
-        this.isMemberPendingOwnerApproval(memberState)
-      );
+      return this.isUserBlocked(memberInviteMetadata) || this.isMemberAwaiting(memberState);
     },
-    shouldAddPendingOwnerApprovalBadge(memberInviteMetadata, memberState) {
+    shouldAddPendingBadge(memberInviteMetadata, memberState) {
       return (
         this.isUserAwaiting(memberInviteMetadata, memberState) &&
         !this.isNewUser(memberInviteMetadata)
@@ -213,11 +220,11 @@ export default {
      */
     inviteBadge(memberInviteMetadata, memberState) {
       if (this.isNewUser(memberInviteMetadata, memberState)) {
-        return BADGE_LABELS_AWAITING_USER_SIGNUP;
+        return BADGE_LABELS_AWAITING_SIGNUP;
       }
 
-      if (this.shouldAddPendingOwnerApprovalBadge(memberInviteMetadata, memberState)) {
-        return BADGE_LABELS_PENDING_OWNER_APPROVAL;
+      if (this.shouldAddPendingBadge(memberInviteMetadata, memberState)) {
+        return BADGE_LABELS_PENDING;
       }
 
       return '';
@@ -228,23 +235,19 @@ export default {
 
 <template>
   <div>
+    <user-limit-reached-alert v-if="onAccessRequestTab" />
     <gl-table
       v-bind="tableAttrs.table"
       class="members-table"
       data-testid="members-table"
-      head-variant="white"
       stacked="lg"
       :fields="filteredAndModifiedFields"
       :items="members"
       primary-key="id"
-      thead-class="border-bottom"
       :empty-text="__('No members found')"
       show-empty
       :tbody-tr-attr="tbodyTrAttr"
     >
-      <template #head()="{ label }">
-        {{ label }}
-      </template>
       <template #cell(account)="{ item: member }">
         <members-table-cell #default="{ memberType, isCurrentUser }" :member="member">
           <member-avatar
@@ -257,7 +260,12 @@ export default {
 
       <template #cell(source)="{ item: member }">
         <members-table-cell #default="{ isDirectMember }" :member="member">
-          <member-source :is-direct-member="isDirectMember" :member-source="member.source" />
+          <member-source
+            :is-direct-member="isDirectMember"
+            :member-source="member.source"
+            :created-by="member.createdBy"
+            :is-shared-with-group-private="member.isSharedWithGroupPrivate"
+          />
         </members-table-cell>
       </template>
 
@@ -266,10 +274,14 @@ export default {
       </template>
 
       <template #cell(invited)="{ item: { createdAt, createdBy, invite, state } }">
-        <created-at :date="createdAt" :created-by="createdBy" />
-        <gl-badge v-if="inviteBadge(invite, state)" data-testid="invited-badge">{{
-          inviteBadge(invite, state)
-        }}</gl-badge>
+        <div
+          class="gl-display-flex gl-align-items-center gl-justify-content-end gl-lg-justify-content-start gl-flex-wrap gl-gap-3"
+        >
+          <created-at :date="createdAt" :created-by="createdBy" />
+          <gl-badge v-if="inviteBadge(invite, state)" data-testid="invited-badge"
+            >{{ inviteBadge(invite, state) }}
+          </gl-badge>
+        </div>
       </template>
 
       <template #cell(requested)="{ item: { createdAt } }">
@@ -277,9 +289,20 @@ export default {
       </template>
 
       <template #cell(maxRole)="{ item: member }">
-        <members-table-cell #default="{ permissions }" :member="member">
-          <role-dropdown v-if="permissions.canUpdate" :permissions="permissions" :member="member" />
-          <gl-badge v-else>{{ member.accessLevel.stringValue }}</gl-badge>
+        <members-table-cell #default="{ permissions }" :member="member" data-testid="max-role">
+          <div v-if="glFeatures.showRoleDetailsInDrawer">
+            <gl-button
+              v-gl-tooltip.d0.hover="member.accessLevel.description"
+              variant="link"
+              :disabled="isRoleDrawerBusy"
+              class="gl-block"
+              @click="selectedMember = member"
+            >
+              {{ member.accessLevel.stringValue }}
+            </gl-button>
+            <role-badges :member="member" :role="member.accessLevel" class="gl-mt-3" />
+          </div>
+          <max-role v-else :permissions="permissions" :member="member" />
         </members-table-cell>
       </template>
 
@@ -289,20 +312,15 @@ export default {
         </members-table-cell>
       </template>
 
-      <template #cell(userCreatedAt)="{ item: member }">
-        <user-date :date="member.user.createdAt" />
-      </template>
-
-      <template #cell(lastActivityOn)="{ item: member }">
-        <user-date :date="member.user.lastActivityOn" />
+      <template #cell(activity)="{ item: member }">
+        <member-activity :member="member" />
       </template>
 
       <template #cell(actions)="{ item: member }">
         <members-table-cell #default="{ memberType, isCurrentUser, permissions }" :member="member">
-          <member-action-buttons
+          <member-actions
             :member-type="memberType"
             :is-current-user="isCurrentUser"
-            :is-invited-user="isInvitedUser"
             :permissions="permissions"
             :member="member"
           />
@@ -313,20 +331,18 @@ export default {
         <span data-testid="col-actions" class="gl-sr-only">{{ label }}</span>
       </template>
     </gl-table>
-    <gl-pagination
-      v-if="showPagination"
-      :value="pagination.currentPage"
-      :per-page="pagination.perPage"
-      :total-items="pagination.totalItems"
-      :link-gen="paginationLinkGenerator"
-      :prev-text="__('Prev')"
-      :next-text="__('Next')"
-      :label-next-page="__('Go to next page')"
-      :label-prev-page="__('Go to previous page')"
-      align="center"
-    />
+    <members-pagination :pagination="pagination" :tab-query-param-value="tabQueryParamValue" />
+    <disable-two-factor-modal />
     <remove-group-link-modal />
     <remove-member-modal />
     <ldap-override-confirmation-modal />
+
+    <role-details-drawer
+      v-if="glFeatures.showRoleDetailsInDrawer"
+      :member="selectedMember"
+      :member-path="memberPath"
+      @busy="isRoleDrawerBusy = $event"
+      @close="selectedMember = null"
+    />
   </div>
 </template>

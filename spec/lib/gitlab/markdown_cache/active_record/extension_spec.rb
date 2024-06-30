@@ -2,6 +2,8 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::MarkdownCache::ActiveRecord::Extension do
+  let_it_be(:project) { create(:project) }
+
   let(:klass) do
     Class.new(ActiveRecord::Base) do
       self.table_name = 'issues'
@@ -11,20 +13,31 @@ RSpec.describe Gitlab::MarkdownCache::ActiveRecord::Extension do
 
       attribute :author
       attribute :project
+
+      before_validation -> { self.work_item_type_id = ::WorkItems::Type.default_issue_type.id }
     end
   end
 
   let(:cache_version) { Gitlab::MarkdownCache::CACHE_COMMONMARK_VERSION << 16 }
-  let(:thing) { klass.create!(title: markdown, title_html: html, cached_markdown_version: cache_version) }
+  let(:thing) do
+    klass.create!(
+      project_id: project.id, namespace_id: project.project_namespace_id,
+      title: markdown, title_html: html, cached_markdown_version: cache_version
+    )
+  end
 
   let(:markdown) { '`Foo`' }
-  let(:html) { '<p data-sourcepos="1:1-1:5" dir="auto"><code>Foo</code></p>' }
+  let(:html) { '<p dir="auto"><code>Foo</code></p>' }
 
   let(:updated_markdown) { '`Bar`' }
-  let(:updated_html) { '<p data-sourcepos="1:1-1:5" dir="auto"><code>Bar</code></p>' }
+  let(:updated_html) { '<p dir="auto"><code>Bar</code></p>' }
+
+  before do
+    stub_commonmark_sourcepos_disabled
+  end
 
   context 'an unchanged markdown field' do
-    let(:thing) { klass.new(title: markdown) }
+    let(:thing) { klass.new(project_id: project.id, namespace_id: project.project_namespace_id, title: markdown) }
 
     before do
       thing.title = thing.title
@@ -38,7 +51,12 @@ RSpec.describe Gitlab::MarkdownCache::ActiveRecord::Extension do
   end
 
   context 'a changed markdown field' do
-    let(:thing) { klass.create!(title: markdown, title_html: html, cached_markdown_version: cache_version) }
+    let(:thing) do
+      klass.create!(
+        project_id: project.id, namespace_id: project.project_namespace_id,
+        title: markdown, title_html: html, cached_markdown_version: cache_version
+      )
+    end
 
     before do
       thing.title = updated_markdown
@@ -70,7 +88,12 @@ RSpec.describe Gitlab::MarkdownCache::ActiveRecord::Extension do
   end
 
   context 'a non-markdown field changed' do
-    let(:thing) { klass.new(title: markdown, title_html: html, cached_markdown_version: cache_version) }
+    let(:thing) do
+      klass.new(
+        project_id: project.id, namespace_id: project.project_namespace_id, title: markdown,
+        title_html: html, cached_markdown_version: cache_version
+      )
+    end
 
     before do
       thing.state_id = 2
@@ -84,7 +107,12 @@ RSpec.describe Gitlab::MarkdownCache::ActiveRecord::Extension do
   end
 
   context 'version is out of date' do
-    let(:thing) { klass.new(title: updated_markdown, title_html: html, cached_markdown_version: nil) }
+    let(:thing) do
+      klass.new(
+        project_id: project.id, namespace_id: project.project_namespace_id,
+        title: updated_markdown, title_html: html, cached_markdown_version: nil
+      )
+    end
 
     before do
       thing.save!
@@ -119,13 +147,18 @@ RSpec.describe Gitlab::MarkdownCache::ActiveRecord::Extension do
   end
 
   describe '.attributes' do
-    it 'excludes cache attributes that is blacklisted by default' do
+    it 'excludes cache attributes that are denylisted by default' do
       expect(thing.attributes.keys.sort).not_to include(%w[description_html])
     end
   end
 
   describe '#cached_html_up_to_date?' do
-    let(:thing) { klass.create!(title: updated_markdown, title_html: html, cached_markdown_version: nil) }
+    let(:thing) do
+      klass.create!(
+        project_id: project.id, namespace_id: project.project_namespace_id,
+        title: updated_markdown, title_html: html, cached_markdown_version: nil
+      )
+    end
 
     subject { thing.cached_html_up_to_date?(:title) }
 
@@ -171,9 +204,9 @@ RSpec.describe Gitlab::MarkdownCache::ActiveRecord::Extension do
       expect(thing).to receive(:persisted?).and_return(true)
 
       expect(thing).to receive(:update_columns)
-                         .with("title_html" => updated_html,
-                               "description_html" => "",
-                               "cached_markdown_version" => cache_version)
+                         .with({ "title_html" => updated_html,
+                                 "description_html" => "",
+                                 "cached_markdown_version" => cache_version })
 
       thing.refresh_markdown_cache!
     end
@@ -196,6 +229,7 @@ RSpec.describe Gitlab::MarkdownCache::ActiveRecord::Extension do
 
     before do
       thing.note = "hello world"
+      thing.noteable_type = "Issue"
     end
 
     it 'calls store_mentions!' do

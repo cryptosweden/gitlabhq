@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PipelineArtifact, type: :model do
+RSpec.describe Ci::PipelineArtifact, type: :model, feature_category: :build_artifacts do
   let(:coverage_report) { create(:ci_pipeline_artifact, :with_coverage_report) }
 
   describe 'associations' do
@@ -101,7 +101,7 @@ RSpec.describe Ci::PipelineArtifact, type: :model do
   end
 
   describe '.report_exists?' do
-    subject(:pipeline_artifact) { Ci::PipelineArtifact.report_exists?(file_type) }
+    subject(:pipeline_artifact) { described_class.report_exists?(file_type) }
 
     context 'when file_type is code_coverage' do
       let(:file_type) { :code_coverage }
@@ -149,7 +149,7 @@ RSpec.describe Ci::PipelineArtifact, type: :model do
   end
 
   describe '.find_by_file_type' do
-    subject(:pipeline_artifact) { Ci::PipelineArtifact.find_by_file_type(file_type) }
+    subject(:pipeline_artifact) { described_class.find_by_file_type(file_type) }
 
     context 'when file_type is code_coverage' do
       let(:file_type) { :code_coverage }
@@ -196,6 +196,93 @@ RSpec.describe Ci::PipelineArtifact, type: :model do
     end
   end
 
+  describe '.create_or_replace_for_pipeline!' do
+    let_it_be(:pipeline) { create(:ci_empty_pipeline) }
+
+    let(:file_type) { :code_coverage }
+    let(:file) { CarrierWaveStringFile.new_file(file_content: 'content', filename: 'file.json', content_type: 'json') }
+    let(:size) { file['tempfile'].size }
+
+    subject do
+      described_class.create_or_replace_for_pipeline!(
+        pipeline: pipeline,
+        file_type: file_type,
+        file: file,
+        size: size
+      )
+    end
+
+    around do |example|
+      freeze_time { example.run }
+    end
+
+    context 'when there is no existing record' do
+      it 'creates a new pipeline artifact for the given parameters' do
+        expect { subject }.to change { Ci::PipelineArtifact.count }.from(0).to(1)
+
+        expect(subject.code_coverage?).to be(true)
+        expect(subject.pipeline).to eq(pipeline)
+        expect(subject.project_id).to eq(pipeline.project_id)
+        expect(subject.file.filename).to eq(file['filename'])
+        expect(subject.size).to eq(size)
+        expect(subject.file_format).to eq(Ci::PipelineArtifact::REPORT_TYPES[file_type].to_s)
+        expect(subject.expire_at).to eq(Ci::PipelineArtifact::EXPIRATION_DATE.from_now)
+        expect(subject.locked).to eq('unknown')
+      end
+
+      it "creates a new pipeline artifact with pipeline's locked state" do
+        artifact = described_class.create_or_replace_for_pipeline!(
+          pipeline: pipeline,
+          file_type: file_type,
+          file: file,
+          size: size,
+          locked: pipeline.locked
+        )
+
+        expect(artifact.locked).to eq(pipeline.locked)
+      end
+    end
+
+    context 'when there are existing records with different types' do
+      let!(:existing_artifact) do
+        create(:ci_pipeline_artifact, pipeline: pipeline, file_type: file_type, expire_at: 1.day.from_now)
+      end
+
+      let!(:other_artifact) { create(:ci_pipeline_artifact, pipeline: pipeline, file_type: :code_quality_mr_diff) }
+
+      it 'replaces the existing pipeline artifact record with the given file type' do
+        expect { subject }.not_to change { Ci::PipelineArtifact.count }
+
+        expect(subject.id).not_to eq(existing_artifact.id)
+
+        expect(subject.code_coverage?).to be(true)
+        expect(subject.pipeline).to eq(pipeline)
+        expect(subject.project_id).to eq(pipeline.project_id)
+        expect(subject.file.filename).to eq(file['filename'])
+        expect(subject.size).to eq(size)
+        expect(subject.file_format).to eq(Ci::PipelineArtifact::REPORT_TYPES[file_type].to_s)
+        expect(subject.expire_at).to eq(Ci::PipelineArtifact::EXPIRATION_DATE.from_now)
+      end
+    end
+
+    context 'when ActiveRecordError is raised' do
+      let(:pipeline) { instance_double(Ci::Pipeline, id: 1) }
+      let(:file_type) { :code_coverage }
+      let(:error) { ActiveRecord::ActiveRecordError.new('something went wrong') }
+
+      before do
+        allow(pipeline).to receive(:pipeline_artifacts).and_raise(error)
+      end
+
+      it 'tracks and raise the exception' do
+        expect(Gitlab::ErrorTracking).to receive(:track_and_raise_exception)
+          .with(error, { pipeline_id: pipeline.id, file_type: file_type }).and_call_original
+
+        expect { subject }.to raise_error(ActiveRecord::ActiveRecordError, 'something went wrong')
+      end
+    end
+  end
+
   describe '#present' do
     subject(:presenter) { report.present }
 
@@ -220,6 +307,21 @@ RSpec.describe Ci::PipelineArtifact, type: :model do
     it_behaves_like 'cleanup by a loose foreign key' do
       let!(:parent) { create(:project) }
       let!(:model) { create(:ci_pipeline_artifact, project: parent) }
+    end
+  end
+
+  describe 'partitioning', :ci_partitionable do
+    include Ci::PartitioningHelpers
+
+    let(:pipeline) { create(:ci_pipeline) }
+    let(:pipeline_artifact) { create(:ci_pipeline_artifact, pipeline: pipeline) }
+
+    before do
+      stub_current_partition_id
+    end
+
+    it 'assigns the same partition id as the one that pipeline has' do
+      expect(pipeline_artifact.partition_id).to eq(ci_testing_partition_id)
     end
   end
 end

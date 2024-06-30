@@ -1,8 +1,11 @@
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import FilteredSearchSpecHelper from 'helpers/filtered_search_spec_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import FilteredSearchVisualTokens from '~/filtered_search/filtered_search_visual_tokens';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { FILTERED_SEARCH_TERM } from '~/vue_shared/components/filtered_search_bar/constants';
 
 describe('Filtered Search Visual Tokens', () => {
   let mock;
@@ -22,9 +25,9 @@ describe('Filtered Search Visual Tokens', () => {
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
-    mock.onGet().reply(200);
+    mock.onGet().reply(HTTP_STATUS_OK);
 
-    setFixtures(`
+    setHTMLFixture(`
       <ul class="tokens-container">
         ${FilteredSearchSpecHelper.createInputHTML()}
       </ul>
@@ -33,6 +36,10 @@ describe('Filtered Search Visual Tokens', () => {
 
     authorToken = FilteredSearchSpecHelper.createFilterVisualToken('author', '=', '@user');
     bugLabelToken = FilteredSearchSpecHelper.createFilterVisualToken('label', '=', '~bug');
+  });
+
+  afterEach(() => {
+    resetHTMLFixture();
   });
 
   describe('getLastVisualTokenBeforeInput', () => {
@@ -241,7 +248,7 @@ describe('Filtered Search Visual Tokens', () => {
     let tokenElement;
 
     beforeEach(() => {
-      setFixtures(`
+      setHTMLFixture(`
         <div class="test-area">
         ${subject.createVisualTokenElementHTML('custom-token')}
         </div>
@@ -297,7 +304,7 @@ describe('Filtered Search Visual Tokens', () => {
       });
       const token = tokensContainer.querySelector('.js-visual-token');
 
-      expect(token.classList.contains('filtered-search-term')).toEqual(true);
+      expect(token.classList.contains(FILTERED_SEARCH_TERM)).toEqual(true);
       expect(token.querySelector('.name').innerText).toEqual('search term');
       expect(token.querySelector('.operator').innerText).toEqual('=');
       expect(token.querySelector('.value')).toEqual(null);
@@ -425,7 +432,7 @@ describe('Filtered Search Visual Tokens', () => {
       subject.addSearchVisualToken('search term');
       const token = tokensContainer.querySelector('.js-visual-token');
 
-      expect(token.classList.contains('filtered-search-term')).toEqual(true);
+      expect(token.classList.contains(FILTERED_SEARCH_TERM)).toEqual(true);
       expect(token.querySelector('.name').innerText).toEqual('search term');
       expect(token.querySelector('.value')).toEqual(null);
     });

@@ -1,5 +1,6 @@
 <script>
 import { GlAlert, GlLoadingIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 import { s__, sprintf } from '~/locale';
 import statuses from '../constants/edit';
@@ -58,7 +59,7 @@ export default {
     <template v-else-if="hasUserList">
       <h3
         data-testid="user-list-title"
-        class="gl-font-weight-bold gl-pb-5 gl-border-b-solid gl-border-gray-100 gl-border-1"
+        class="gl-font-bold gl-pb-5 gl-border-b-solid gl-border-gray-100 gl-border-1"
       >
         {{ title }}
       </h3>

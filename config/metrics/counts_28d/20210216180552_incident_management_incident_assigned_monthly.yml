@@ -2,10 +2,7 @@
 data_category: optional
 key_path: redis_hll_counters.incident_management.incident_management_incident_assigned_monthly
 description: Count of users assigning incidents per month
-product_section: ops
-product_stage: monitor
-product_group: group::monitor
-product_category:
+product_group: respond
 value_type: number
 status: active
 time_frame: 28d

@@ -1,10 +1,14 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Get started with GitLab GraphQL API **(FREE)**
+# Run GraphQL API queries and mutations
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This guide demonstrates basic usage of the GitLab GraphQL API.
 
@@ -16,16 +20,33 @@ the API itself.
 
 The examples documented here can be run using:
 
-- The command line.
-- GraphiQL.
+- [GraphiQL](#graphiql).
+- [Command line](#command-line).
+- [Rails console](#rails-console).
+
+### GraphiQL
+
+GraphiQL (pronounced "graphical") allows you to run real GraphQL queries against the API interactively.
+It makes exploring the schema easier by providing a UI with syntax highlighting and autocompletion.
+
+For most people, using GraphiQL will be the easiest way to explore the GitLab GraphQL API.
+
+You can either use GraphiQL:
+
+- [On GitLab.com](https://gitlab.com/-/graphql-explorer).
+- On your self-managed GitLab instance on `https://<your-gitlab-site.com>/-/graphql-explorer`.
+
+Sign in to GitLab first to authenticate the requests with your GitLab account.
+
+To get started, refer to the [example queries and mutations](#queries-and-mutations).
 
 ### Command line
 
 You can run GraphQL queries in a `curl` request on the command line on your
-local computer. A GraphQL request can be made as a `POST` request to `/api/graphql`
+local computer. The requests `POST` to `/api/graphql`
 with the query as the payload. You can authorize your request by generating a
 [personal access token](../../user/profile/personal_access_tokens.md) to use as
-a bearer token.
+a bearer token. Read more about [GraphQL Authentication](index.md#authentication).
 
 Example:
 
@@ -36,31 +57,41 @@ curl "https://gitlab.com/api/graphql" --header "Authorization: Bearer $GRAPHQL_T
      --data "{\"query\": \"query {currentUser {name}}\"}"
 ```
 
-### GraphiQL
+To nest strings in the query string,
+wrap the data in single quotes or escape the strings with `\\`:
 
-GraphiQL (pronounced "graphical") allows you to run queries directly against
-the server endpoint with syntax highlighting and autocomplete. It also allows
-you to explore the schema and types.
+```shell
+curl "https://gitlab.com/api/graphql" --header "Authorization: Bearer $GRAPHQL_TOKEN" \
+    --header "Content-Type: application/json" --request POST \
+    --data '{"query": "query {project(fullPath: \"<group>/<subgroup>/<project>\") {jobs {nodes {id duration}}}}"}'
+      # or "{\"query\": \"query {project(fullPath: \\\"<group>/<subgroup>/<project>\\\") {jobs {nodes {id duration}}}}\"}"
+```
 
-The examples below:
+### Rails console
 
-- Can be run directly against GitLab.
-- Works against GitLab.com without any further setup. Make sure you are signed
-  in and navigate to the [GraphiQL Explorer](https://gitlab.com/-/graphql-explorer).
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
-If you want to run the queries locally, or on a self-managed instance, you must
-either:
+GraphQL queries can be run in a [Rails console session](../../administration/operations/rails_console.md#starting-a-rails-console-session). For example, to search projects:
 
-- Create the `gitlab-org` group with a project called `graphql-sandbox` under
-  it. Create several issues in the project.
-- Edit the queries to replace `gitlab-org/graphql-sandbox` with your own group
-  and project.
+```ruby
+current_user = User.find_by_id(1)
+query = <<~EOQ
+query securityGetProjects($search: String!) {
+  projects(search: $search) {
+    nodes {
+      path
+    }
+  }
+}
+EOQ
 
-Refer to [running GraphiQL](index.md#graphiql) for more information.
+variables = { "search": "gitlab" }
 
-NOTE:
-If you are running GitLab 12.0, enable the `graphql`
-[feature flag](../features.md#set-or-create-a-feature).
+result = GitlabSchema.execute(query, variables: variables, context: { current_user: current_user })
+result.to_h
+```
 
 ## Queries and mutations
 
@@ -73,11 +104,12 @@ NOTE:
 In the GitLab GraphQL API, `id` refers to a
 [Global ID](https://graphql.org/learn/global-object-identification/),
 which is an object identifier in the format of `"gid://gitlab/Issue/123"`.
+For more information, see [Global IDs](index.md#global-ids).
 
 [GitLab GraphQL Schema](reference/index.md) outlines which objects and fields are
 available for clients to query and their corresponding data types.
 
-Example: Get only the names of all the projects the currently logged in user can
+Example: Get only the names of all the projects the currently authenticated user can
 access (up to a limit) in the group `gitlab-org`.
 
 ```graphql
@@ -137,10 +169,9 @@ More about queries:
 
 ### Authorization
 
-Authorization uses the same engine as the GitLab application (and GitLab.com).
-If you've signed in to GitLab and use GraphiQL, all queries are performed as
-you, the signed in user. For more information, read the
-[GitLab API documentation](../index.md#authentication).
+If you've signed in to GitLab and use [GraphiQL](#graphiql), all queries are performed as
+you, the authenticated user. For more information, read about
+[GraphQL Authentication](index.md#authentication).
 
 ### Mutations
 
@@ -149,7 +180,7 @@ Mutations generally use InputTypes and variables, neither of which appear here.
 
 Mutations have:
 
-- Inputs. For example, arguments, such as which emoji you'd like to award,
+- Inputs. For example, arguments, such as which emoji reaction you'd like to add,
   and to which object.
 - Return statements. That is, what you'd like to get back when it's successful.
 - Errors. Always ask for what went wrong, just in case.
@@ -252,14 +283,32 @@ We've asked for the note details, but it doesn't exist anymore, so we get `null`
 More about mutations:
 [GraphQL Documentation](https://graphql.org/learn/queries/#mutations).
 
-### Introspective queries
+### Update project settings
 
-Clients can query the GraphQL endpoint for information about its own schema.
-by making an [introspective query](https://graphql.org/learn/introspection/).
-The [GraphiQL Query Explorer](https://gitlab.com/-/graphql-explorer) uses an
+You can update multiple project settings in a single GraphQL mutation.
+This example is a workaround for [the major change](../../update/deprecations.md#default-cicd-job-token-ci_job_token-scope-changed)
+in `CI_JOB_TOKEN` scoping behavior.
+
+```graphql
+mutation DisableCI_JOB_TOKENscope {
+  projectCiCdSettingsUpdate(input:{fullPath: "<namespace>/<project-name>", inboundJobTokenScopeEnabled: false}) {
+    ciCdSettings {
+      inboundJobTokenScopeEnabled
+    }
+    errors
+  }
+}
+```
+
+### Introspection queries
+
+Clients can query the GraphQL endpoint for information about its schema
+by making an [introspection query](https://graphql.org/learn/introspection/).
+
+The [GraphiQL Query Explorer](#graphiql) uses an
 introspection query to:
 
-- Gain knowledge about our GraphQL schema.
+- Gain knowledge about the GitLab GraphQL schema.
 - Do autocompletion.
 - Provide its interactive `Docs` tab.
 
@@ -299,7 +348,7 @@ More about introspection:
 
 ### Query complexity
 
-The calculated [complexity score and limit](index.md#max-query-complexity) for a query can be revealed to clients by
+The calculated [complexity score and limit](index.md#maximum-query-complexity) for a query can be revealed to clients by
 querying for `queryComplexity`.
 
 ```graphql

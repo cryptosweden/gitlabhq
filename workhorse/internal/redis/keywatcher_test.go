@@ -1,201 +1,290 @@
 package redis
 
 import (
+	"context"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/rafaeljusto/redigomock"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
 )
+
+var ctx = context.Background()
 
 const (
 	runnerKey = "runner:build_queue:10"
 )
 
-func createSubscriptionMessage(key, data string) []interface{} {
-	return []interface{}{
-		[]byte("message"),
-		[]byte(key),
-		[]byte(data),
-	}
+func initRdb(t *testing.T) *redis.Client {
+	buf, err := os.ReadFile("../../config.toml")
+	require.NoError(t, err)
+	cfg, err := config.LoadConfig(string(buf))
+	require.NoError(t, err)
+	rdb, err := Configure(cfg.Redis)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, rdb.Close())
+	})
+	return rdb
 }
 
-func createSubscribeMessage(key string) []interface{} {
-	return []interface{}{
-		[]byte("subscribe"),
-		[]byte(key),
-		[]byte("1"),
-	}
-}
-func createUnsubscribeMessage(key string) []interface{} {
-	return []interface{}{
-		[]byte("unsubscribe"),
-		[]byte(key),
-		[]byte("1"),
-	}
-}
-
-func countWatchers(key string) int {
-	keyWatcherMutex.Lock()
-	defer keyWatcherMutex.Unlock()
-	return len(keyWatcher[key])
-}
-
-func deleteWatchers(key string) {
-	keyWatcherMutex.Lock()
-	defer keyWatcherMutex.Unlock()
-	delete(keyWatcher, key)
+func countSubscribers(kw *KeyWatcher, key string) int {
+	kw.mu.Lock()
+	defer kw.mu.Unlock()
+	return len(kw.subscribers[key])
 }
 
 // Forces a run of the `Process` loop against a mock PubSubConn.
-func processMessages(numWatchers int, value string) {
-	psc := redigomock.NewConn()
+func processMessages(t *testing.T, kw *KeyWatcher, numWatchers int, value string, ready chan<- struct{}, wg *sync.WaitGroup) {
+	psc := kw.redisConn.Subscribe(ctx, []string{}...)
 
-	// Setup the initial subscription message
-	psc.Command("SUBSCRIBE", keySubChannel).Expect(createSubscribeMessage(keySubChannel))
-	psc.Command("UNSUBSCRIBE", keySubChannel).Expect(createUnsubscribeMessage(keySubChannel))
-	psc.AddSubscriptionMessage(createSubscriptionMessage(keySubChannel, runnerKey+"="+value))
+	errC := make(chan error)
+	go func() { errC <- kw.receivePubSubStream(ctx, psc) }()
 
-	// Wait for all the `WatchKey` calls to be registered
-	for countWatchers(runnerKey) != numWatchers {
-		time.Sleep(time.Millisecond)
+	require.Eventually(t, func() bool {
+		kw.mu.Lock()
+		defer kw.mu.Unlock()
+		return kw.conn != nil
+	}, time.Second, time.Millisecond)
+	close(ready)
+
+	require.Eventually(t, func() bool {
+		return countSubscribers(kw, runnerKey) == numWatchers
+	}, time.Second, time.Millisecond)
+
+	// send message after listeners are ready
+	kw.redisConn.Publish(ctx, channelPrefix+runnerKey, value)
+
+	// close subscription after all workers are done
+	wg.Wait()
+	kw.mu.Lock()
+	kw.conn.Close()
+	kw.mu.Unlock()
+
+	require.NoError(t, <-errC)
+}
+
+type keyChangeTestCase struct {
+	desc           string
+	returnValue    string
+	isKeyMissing   bool
+	watchValue     string
+	processedValue string
+	expectedStatus WatchKeyStatus
+	timeout        time.Duration
+}
+
+func TestKeyChangesInstantReturn(t *testing.T) {
+	rdb := initRdb(t)
+
+	testCases := []keyChangeTestCase{
+		// WatchKeyStatusAlreadyChanged
+		{
+			desc:           "sees change with key existing and changed",
+			returnValue:    "somethingelse",
+			watchValue:     "something",
+			expectedStatus: WatchKeyStatusAlreadyChanged,
+			timeout:        time.Second,
+		},
+		{
+			desc:           "sees change with key non-existing",
+			isKeyMissing:   true,
+			watchValue:     "something",
+			processedValue: "somethingelse",
+			expectedStatus: WatchKeyStatusAlreadyChanged,
+			timeout:        time.Second,
+		},
+		// WatchKeyStatusTimeout
+		{
+			desc:           "sees timeout with key existing and unchanged",
+			returnValue:    "something",
+			watchValue:     "something",
+			expectedStatus: WatchKeyStatusTimeout,
+			timeout:        time.Millisecond,
+		},
+		{
+			desc:           "sees timeout with key non-existing and unchanged",
+			isKeyMissing:   true,
+			watchValue:     "",
+			expectedStatus: WatchKeyStatusTimeout,
+			timeout:        time.Millisecond,
+		},
 	}
 
-	processInner(psc)
-}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
 
-func TestWatchKeySeenChange(t *testing.T) {
-	conn, td := setupMockPool()
-	defer td()
+			// setup
+			if !tc.isKeyMissing {
+				rdb.Set(ctx, runnerKey, tc.returnValue, 0)
+			}
 
-	conn.Command("GET", runnerKey).Expect("something")
+			defer rdb.FlushDB(ctx)
 
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
+			kw := NewKeyWatcher(rdb)
+			defer kw.Shutdown()
+			kw.conn = kw.redisConn.Subscribe(ctx, []string{}...)
 
-	go func() {
-		val, err := WatchKey(runnerKey, "something", time.Second)
-		require.NoError(t, err, "Expected no error")
-		require.Equal(t, WatchKeyStatusSeenChange, val, "Expected value to change")
-		wg.Done()
-	}()
+			val, err := kw.WatchKey(ctx, runnerKey, tc.watchValue, tc.timeout)
 
-	processMessages(1, "somethingelse")
-	wg.Wait()
-}
-
-func TestWatchKeyNoChange(t *testing.T) {
-	conn, td := setupMockPool()
-	defer td()
-
-	conn.Command("GET", runnerKey).Expect("something")
-
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-
-	go func() {
-		val, err := WatchKey(runnerKey, "something", time.Second)
-		require.NoError(t, err, "Expected no error")
-		require.Equal(t, WatchKeyStatusNoChange, val, "Expected notification without change to value")
-		wg.Done()
-	}()
-
-	processMessages(1, "something")
-	wg.Wait()
-}
-
-func TestWatchKeyTimeout(t *testing.T) {
-	conn, td := setupMockPool()
-	defer td()
-
-	conn.Command("GET", runnerKey).Expect("something")
-
-	val, err := WatchKey(runnerKey, "something", time.Millisecond)
-	require.NoError(t, err, "Expected no error")
-	require.Equal(t, WatchKeyStatusTimeout, val, "Expected value to not change")
-
-	// Clean up watchers since Process isn't doing that for us (not running)
-	deleteWatchers(runnerKey)
-}
-
-func TestWatchKeyAlreadyChanged(t *testing.T) {
-	conn, td := setupMockPool()
-	defer td()
-
-	conn.Command("GET", runnerKey).Expect("somethingelse")
-
-	val, err := WatchKey(runnerKey, "something", time.Second)
-	require.NoError(t, err, "Expected no error")
-	require.Equal(t, WatchKeyStatusAlreadyChanged, val, "Expected value to have already changed")
-
-	// Clean up watchers since Process isn't doing that for us (not running)
-	deleteWatchers(runnerKey)
-}
-
-func TestWatchKeyMassivelyParallel(t *testing.T) {
-	runTimes := 100 // 100 parallel watchers
-
-	conn, td := setupMockPool()
-	defer td()
-
-	wg := &sync.WaitGroup{}
-	wg.Add(runTimes)
-
-	getCmd := conn.Command("GET", runnerKey)
-
-	for i := 0; i < runTimes; i++ {
-		getCmd = getCmd.Expect("something")
-	}
-
-	for i := 0; i < runTimes; i++ {
-		go func() {
-			val, err := WatchKey(runnerKey, "something", time.Second)
 			require.NoError(t, err, "Expected no error")
-			require.Equal(t, WatchKeyStatusSeenChange, val, "Expected value to change")
-			wg.Done()
-		}()
+			require.Equal(t, tc.expectedStatus, val, "Expected value")
+		})
+	}
+}
+
+func TestKeyChangesWhenWatching(t *testing.T) {
+	rdb := initRdb(t)
+
+	testCases := []keyChangeTestCase{
+		// WatchKeyStatusSeenChange
+		{
+			desc:           "sees change with key existing",
+			returnValue:    "something",
+			watchValue:     "something",
+			processedValue: "somethingelse",
+			expectedStatus: WatchKeyStatusSeenChange,
+		},
+		{
+			desc:           "sees change with key non-existing, when watching empty value",
+			isKeyMissing:   true,
+			watchValue:     "",
+			processedValue: "something",
+			expectedStatus: WatchKeyStatusSeenChange,
+		},
+		// WatchKeyStatusNoChange
+		{
+			desc:           "sees no change with key existing",
+			returnValue:    "something",
+			watchValue:     "something",
+			processedValue: "something",
+			expectedStatus: WatchKeyStatusNoChange,
+		},
 	}
 
-	processMessages(runTimes, "somethingelse")
-	wg.Wait()
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			if !tc.isKeyMissing {
+				rdb.Set(ctx, runnerKey, tc.returnValue, 0)
+			}
+
+			kw := NewKeyWatcher(rdb)
+			defer kw.Shutdown()
+			defer rdb.FlushDB(ctx)
+
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			ready := make(chan struct{})
+
+			go func() {
+				defer wg.Done()
+				<-ready
+				val, err := kw.WatchKey(ctx, runnerKey, tc.watchValue, time.Second)
+
+				require.NoError(t, err, "Expected no error")
+				require.Equal(t, tc.expectedStatus, val, "Expected value")
+			}()
+
+			processMessages(t, kw, 1, tc.processedValue, ready, wg)
+		})
+	}
+}
+
+func TestKeyChangesParallel(t *testing.T) {
+	rdb := initRdb(t)
+
+	testCases := []keyChangeTestCase{
+		{
+			desc:           "massively parallel, sees change with key existing",
+			returnValue:    "something",
+			watchValue:     "something",
+			processedValue: "somethingelse",
+			expectedStatus: WatchKeyStatusSeenChange,
+		},
+		{
+			desc:           "massively parallel, sees change with key existing, watching missing keys",
+			isKeyMissing:   true,
+			watchValue:     "",
+			processedValue: "somethingelse",
+			expectedStatus: WatchKeyStatusSeenChange,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			runTimes := 100
+
+			if !tc.isKeyMissing {
+				rdb.Set(ctx, runnerKey, tc.returnValue, 0)
+			}
+
+			defer rdb.FlushDB(ctx)
+
+			wg := &sync.WaitGroup{}
+			wg.Add(runTimes)
+			ready := make(chan struct{})
+
+			kw := NewKeyWatcher(rdb)
+			defer kw.Shutdown()
+
+			for i := 0; i < runTimes; i++ {
+				go func() {
+					defer wg.Done()
+					<-ready
+					val, err := kw.WatchKey(ctx, runnerKey, tc.watchValue, time.Second)
+
+					require.NoError(t, err, "Expected no error")
+					require.Equal(t, tc.expectedStatus, val, "Expected value")
+				}()
+			}
+
+			processMessages(t, kw, runTimes, tc.processedValue, ready, wg)
+		})
+	}
 }
 
 func TestShutdown(t *testing.T) {
-	conn, td := setupMockPool()
-	defer td()
-	defer func() { shutdown = make(chan struct{}) }()
+	rdb := initRdb(t)
 
-	conn.Command("GET", runnerKey).Expect("something")
+	kw := NewKeyWatcher(rdb)
+	kw.conn = kw.redisConn.Subscribe(ctx, []string{}...)
+	defer kw.Shutdown()
+
+	rdb.Set(ctx, runnerKey, "something", 0)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 
 	go func() {
-		val, err := WatchKey(runnerKey, "something", 10*time.Second)
+		defer wg.Done()
+		val, err := kw.WatchKey(ctx, runnerKey, "something", 10*time.Second)
 
 		require.NoError(t, err, "Expected no error")
 		require.Equal(t, WatchKeyStatusNoChange, val, "Expected value not to change")
-		wg.Done()
 	}()
 
 	go func() {
-		require.Eventually(t, func() bool { return countWatchers(runnerKey) == 1 }, 10*time.Second, time.Millisecond)
+		defer wg.Done()
+		require.Eventually(t, func() bool { return countSubscribers(kw, runnerKey) == 1 }, 10*time.Second, time.Millisecond)
 
-		Shutdown()
-		wg.Done()
+		kw.Shutdown()
 	}()
 
 	wg.Wait()
 
-	require.Eventually(t, func() bool { return countWatchers(runnerKey) == 0 }, 10*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return countSubscribers(kw, runnerKey) == 0 }, 10*time.Second, time.Millisecond)
 
 	// Adding a key after the shutdown should result in an immediate response
 	var val WatchKeyStatus
 	var err error
 	done := make(chan struct{})
 	go func() {
-		val, err = WatchKey(runnerKey, "something", 10*time.Second)
+		val, err = kw.WatchKey(ctx, runnerKey, "something", 10*time.Second)
 		close(done)
 	}()
 

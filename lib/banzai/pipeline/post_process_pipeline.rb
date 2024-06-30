@@ -5,6 +5,7 @@ module Banzai
     class PostProcessPipeline < BasePipeline
       def self.filters
         @filters ||= FilterArray[
+          Filter::TruncateVisibleFilter,
           *internal_link_filters,
           Filter::AbsoluteLinkFilter,
           Filter::BroadcastMessagePlaceholdersFilter
@@ -14,7 +15,6 @@ module Banzai
       def self.internal_link_filters
         [
           Filter::ReferenceRedactorFilter,
-          Filter::InlineMetricsRedactorFilter,
           # UploadLinkFilter must come before RepositoryLinkFilter to
           # prevent unnecessary Gitaly calls from being made.
           Filter::UploadLinkFilter,

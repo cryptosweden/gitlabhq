@@ -1,5 +1,5 @@
-import { GlDaterangePicker, GlSprintf } from '@gitlab/ui';
-import { shallowMount, mount } from '@vue/test-utils';
+import { GlDaterangePicker } from '@gitlab/ui';
+import { shallowMountExtended, mountExtended } from 'helpers/vue_test_utils_helper';
 import { useFakeDate } from 'helpers/fake_date';
 import Daterange from '~/analytics/shared/components/daterange.vue';
 
@@ -13,22 +13,17 @@ describe('Daterange component', () => {
 
   let wrapper;
 
-  const factory = (props = defaultProps, mountFn = shallowMount) => {
+  const factory = (props = defaultProps, mountFn = shallowMountExtended) => {
     wrapper = mountFn(Daterange, {
       propsData: {
         ...defaultProps,
         ...props,
       },
-      stubs: { GlSprintf },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findDaterangePicker = () => wrapper.findComponent(GlDaterangePicker);
-  const findDateRangeIndicator = () => wrapper.findComponent(GlSprintf);
+  const findDateRangeIndicator = () => wrapper.findByTestId('daterange-picker-indicator');
 
   describe('template', () => {
     describe('when show is false', () => {
@@ -52,7 +47,7 @@ describe('Daterange component', () => {
         const endDate = new Date('2019-09-30');
         const minDate = new Date('2019-06-01');
 
-        factory({ show: true, startDate, endDate, minDate }, mount);
+        factory({ show: true, startDate, endDate, minDate }, mountExtended);
         const input = findDaterangePicker().find('input');
 
         input.setValue('2019-01-01');
@@ -64,7 +59,7 @@ describe('Daterange component', () => {
 
     describe('with a maxDateRange being set', () => {
       beforeEach(() => {
-        factory({ maxDateRange: 30 });
+        factory({ maxDateRange: 30 }, mountExtended);
       });
 
       it('displays the max date range indicator', () => {
@@ -72,13 +67,13 @@ describe('Daterange component', () => {
       });
 
       it('displays the correct number of selected days in the indicator', () => {
-        expect(findDateRangeIndicator().text()).toMatchInterpolatedText('10 days selected');
+        expect(findDateRangeIndicator().text()).toBe('10 days selected');
       });
 
       it('sets the tooltip', () => {
         const tooltip = findDaterangePicker().props('tooltip');
         expect(tooltip).toBe(
-          'Showing data for workflow items created in this date range. Date range limited to 30 days.',
+          'Showing data for workflow items completed in this date range. Date range limited to 30 days.',
         );
       });
     });
@@ -91,18 +86,19 @@ describe('Daterange component', () => {
       });
 
       describe('set', () => {
-        it('emits the change event with an object containing startDate and endDate', () => {
+        it('emits the change event with an object containing startDate and endDate', async () => {
           const startDate = new Date('2019-10-01');
           const endDate = new Date('2019-10-05');
-          wrapper.vm.dateRange = { startDate, endDate };
 
-          expect(wrapper.emitted().change).toEqual([[{ startDate, endDate }]]);
+          await findDaterangePicker().vm.$emit('input', { startDate, endDate });
+
+          expect(wrapper.emitted('change')).toEqual([[{ startDate, endDate }]]);
         });
       });
 
       describe('get', () => {
-        it("returns value of dateRange from state's startDate and endDate", () => {
-          expect(wrapper.vm.dateRange).toEqual({
+        it("datepicker to have default of dateRange from state's startDate and endDate", () => {
+          expect(findDaterangePicker().props('value')).toEqual({
             startDate: defaultProps.startDate,
             endDate: defaultProps.endDate,
           });

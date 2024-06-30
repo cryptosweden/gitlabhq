@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::AsyncIndexes::MigrationHelpers do
+RSpec.describe Gitlab::Database::AsyncIndexes::MigrationHelpers, feature_category: :database do
   let(:migration) { ActiveRecord::Migration.new.extend(described_class) }
   let(:index_model) { Gitlab::Database::AsyncIndexes::PostgresAsyncIndex }
   let(:connection) { ApplicationRecord.connection }
@@ -139,6 +139,153 @@ RSpec.describe Gitlab::Database::AsyncIndexes::MigrationHelpers do
         expect(index_model).not_to receive(:safe_find_or_create_by!)
 
         expect { migration.prepare_async_index(table_name, 'id') }.not_to raise_error
+      end
+    end
+
+    context 'when the target table does not exist' do
+      it 'raises an error' do
+        expect { migration.prepare_async_index(:non_existent_table, 'id') }.to(
+          raise_error("Table non_existent_table does not exist")
+        )
+      end
+    end
+  end
+
+  describe '#prepare_async_index_from_sql' do
+    let(:index_definition) { "CREATE INDEX CONCURRENTLY #{index_name} ON #{table_name} USING btree(id)" }
+
+    subject(:prepare_async_index_from_sql) do
+      migration.prepare_async_index_from_sql(index_definition)
+    end
+
+    before do
+      connection.create_table(table_name)
+
+      allow(Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas).to receive(:require_ddl_mode!).and_call_original
+    end
+
+    it 'requires ddl mode' do
+      prepare_async_index_from_sql
+
+      expect(Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas).to have_received(:require_ddl_mode!)
+    end
+
+    context 'when the given index is invalid' do
+      let(:index_definition) { "SELECT FROM users" }
+
+      it 'raises a RuntimeError' do
+        expect { prepare_async_index_from_sql }.to raise_error(RuntimeError, 'Index statement not found!')
+      end
+    end
+
+    context 'when the given index is valid' do
+      context 'when the index algorithm is not concurrent' do
+        let(:index_definition) { "CREATE INDEX #{index_name} ON #{table_name} USING btree(id)" }
+
+        it 'raises a RuntimeError' do
+          expect { prepare_async_index_from_sql }.to raise_error(RuntimeError, 'Index must be created concurrently!')
+        end
+      end
+
+      context 'when the index algorithm is concurrent' do
+        context 'when the statement tries to create an index for non-existing table' do
+          let(:index_definition) { "CREATE INDEX CONCURRENTLY #{index_name} ON foo_table USING btree(id)" }
+
+          it 'raises a RuntimeError' do
+            expect { prepare_async_index_from_sql }.to raise_error(RuntimeError, 'Table does not exist!')
+          end
+        end
+
+        context 'when the statement tries to create an index for an existing table' do
+          context 'when the async index creation is not available' do
+            before do
+              connection.drop_table(:postgres_async_indexes)
+            end
+
+            it 'does not raise an error' do
+              expect { prepare_async_index_from_sql }.not_to raise_error
+            end
+          end
+
+          context 'when the async index creation is available' do
+            context 'when there is already an index with the given name' do
+              before do
+                connection.add_index(table_name, 'id', name: index_name)
+              end
+
+              it 'does not create the async index record' do
+                expect { prepare_async_index_from_sql }.not_to change { index_model.where(name: index_name).count }
+              end
+            end
+
+            context 'when there is no index with the given name' do
+              let(:async_index) { index_model.find_by(name: index_name) }
+
+              it 'creates the async index record' do
+                expect { prepare_async_index_from_sql }.to change { index_model.where(name: index_name).count }.by(1)
+              end
+
+              it 'sets the async index attributes correctly' do
+                prepare_async_index_from_sql
+
+                expect(async_index).to have_attributes(table_name: table_name, definition: index_definition)
+              end
+            end
+
+            context 'when the given SQL has whitespace' do
+              let(:index_definition) { "    #{super()}" }
+              let(:async_index) { index_model.find_by(name: index_name) }
+
+              it 'creates the async index record' do
+                expect { prepare_async_index_from_sql }.to change { index_model.where(name: index_name).count }.by(1)
+              end
+
+              it 'sets the async index attributes correctly' do
+                prepare_async_index_from_sql
+
+                expect(async_index).to have_attributes(table_name: table_name, definition: index_definition.strip)
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  describe '#prepare_async_index_removal' do
+    before do
+      connection.create_table(table_name)
+      connection.add_index(table_name, 'id', name: index_name)
+    end
+
+    it 'creates the record for the async index removal' do
+      expect do
+        migration.prepare_async_index_removal(table_name, 'id', name: index_name)
+      end.to change { index_model.where(name: index_name).count }.by(1)
+
+      record = index_model.find_by(name: index_name)
+
+      expect(record.table_name).to eq(table_name)
+      expect(record.definition).to match(/DROP INDEX CONCURRENTLY "#{index_name}"/)
+    end
+
+    context 'when the index does not exist' do
+      it 'does not create the record' do
+        connection.remove_index(table_name, 'id', name: index_name)
+
+        expect do
+          migration.prepare_async_index_removal(table_name, 'id', name: index_name)
+        end.not_to change { index_model.where(name: index_name).count }
+      end
+    end
+
+    context 'when the record already exists' do
+      it 'does attempt to create the record' do
+        create(:postgres_async_index, table_name: table_name, name: index_name)
+
+        expect do
+          migration.prepare_async_index_removal(table_name, 'id', name: index_name)
+        end.not_to change { index_model.where(name: index_name).count }
       end
     end
   end

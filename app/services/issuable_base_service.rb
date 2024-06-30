@@ -1,7 +1,33 @@
 # frozen_string_literal: true
 
-class IssuableBaseService < ::BaseProjectService
+class IssuableBaseService < ::BaseContainerService
   private
+
+  def available_callbacks
+    [
+      Issuable::Callbacks::Milestone,
+      Issuable::Callbacks::TimeTracking
+    ].freeze
+  end
+
+  def initialize_callbacks!(issuable)
+    @callbacks = available_callbacks.filter_map do |callback_class|
+      callback_params = params.slice(*callback_class::ALLOWED_PARAMS)
+
+      next if callback_params.empty?
+
+      callback_class.new(issuable: issuable, current_user: current_user, params: callback_params)
+    end
+
+    remove_callback_params
+    @callbacks.each(&:after_initialize)
+  end
+
+  def remove_callback_params
+    available_callbacks.each do |callback_class|
+      callback_class::ALLOWED_PARAMS.each { |p| params.delete(p) }
+    end
+  end
 
   def self.constructor_container_arg(value)
     # TODO: Dynamically determining the type of a constructor arg based on the class is an antipattern,
@@ -10,15 +36,15 @@ class IssuableBaseService < ::BaseProjectService
     # Follow on issue to address this:
     # https://gitlab.com/gitlab-org/gitlab/-/issues/328438
 
-    { project: value }
+    { container: value }
   end
 
-  attr_accessor :params, :skip_milestone_email
+  attr_accessor :params
 
-  def initialize(project:, current_user: nil, params: {})
-    super
-
-    @skip_milestone_email = @params.delete(:skip_milestone_email)
+  def initialize(container:, current_user: nil, params: {})
+    # we need to exclude project params since they may come from external requests. project should always
+    # be passed as part of the service's initializer
+    super(container: container, current_user: current_user, params: params.except(:project, :project_id))
   end
 
   def can_admin_issuable?(issuable)
@@ -33,10 +59,12 @@ class IssuableBaseService < ::BaseProjectService
     can?(current_user, ability_name, issuable)
   end
 
+  def can_set_confidentiality?(issuable)
+    can?(current_user, :set_confidentiality, issuable)
+  end
+
   def filter_params(issuable)
     unless can_set_issuable_metadata?(issuable)
-      params.delete(:milestone)
-      params.delete(:milestone_id)
       params.delete(:labels)
       params.delete(:add_label_ids)
       params.delete(:add_labels)
@@ -55,34 +83,23 @@ class IssuableBaseService < ::BaseProjectService
 
     # confidential attribute is a special type of metadata and needs to be allowed to be set
     # by non-members on issues in public projects so that security issues can be reported as confidential.
-    params.delete(:confidential) unless can?(current_user, :set_confidentiality, issuable)
-    params.delete(:add_contacts) unless can?(current_user, :set_issue_crm_contacts, issuable)
-    params.delete(:remove_contacts) unless can?(current_user, :set_issue_crm_contacts, issuable)
-
+    params.delete(:confidential) unless can_set_confidentiality?(issuable)
+    filter_contact_params(issuable)
     filter_assignees(issuable)
-    filter_milestone
     filter_labels
     filter_severity(issuable)
     filter_escalation_status(issuable)
   end
 
   def filter_assignees(issuable)
-    filter_assignees_with_key(issuable, :assignee_ids, :assignees)
-    filter_assignees_with_key(issuable, :add_assignee_ids, :add_assignees)
-    filter_assignees_with_key(issuable, :remove_assignee_ids, :remove_assignees)
-  end
-
-  def filter_assignees_with_key(issuable, id_key, key)
-    if params[key] && params[id_key].blank?
-      params[id_key] = params[key].map(&:id)
-    end
-
-    return if params[id_key].blank?
-
-    filter_assignees_using_checks(issuable, id_key)
+    filter_assignees_using_checks(issuable, :assignee_ids)
+    filter_assignees_using_checks(issuable, :add_assignee_ids)
+    filter_assignees_using_checks(issuable, :remove_assignee_ids)
   end
 
   def filter_assignees_using_checks(issuable, id_key)
+    return if params[id_key].blank?
+
     unless issuable.allows_multiple_assignees?
       params[id_key] = params[id_key].first(1)
     end
@@ -104,22 +121,8 @@ class IssuableBaseService < ::BaseProjectService
     return false unless user
 
     ability_name = :"read_#{issuable.to_ability_name}"
-    resource     = issuable.persisted? ? issuable : project
 
-    can?(user, ability_name, resource)
-  end
-
-  def filter_milestone
-    milestone_id = params[:milestone_id]
-    return unless milestone_id
-
-    params[:milestone_id] = '' if milestone_id == IssuableFinder::Params::NONE
-    groups = project.group&.self_and_ancestors&.select(:id)
-
-    milestone =
-      Milestone.for_projects_and_groups([project.id], groups).find_by_id(milestone_id)
-
-    params[:milestone_id] = '' unless milestone
+    can?(user, ability_name, issuable.resource_parent)
   end
 
   def filter_labels
@@ -154,20 +157,21 @@ class IssuableBaseService < ::BaseProjectService
   end
 
   def filter_escalation_status(issuable)
+    status_params = params.delete(:escalation_status) || {}
+    status_params.permit! if status_params.respond_to?(:permit!)
+
     result = ::IncidentManagement::IssuableEscalationStatuses::PrepareUpdateService.new(
       issuable,
       current_user,
-      params.delete(:escalation_status)
+      status_params
     ).execute
 
     return unless result.success? && result[:escalation_status].present?
 
-    @escalation_status_change_reason = result[:escalation_status].delete(:status_change_reason)
-
     params[:incident_management_issuable_escalation_status_attributes] = result[:escalation_status]
   end
 
-  def process_label_ids(attributes, existing_label_ids: nil, extra_label_ids: [])
+  def process_label_ids(attributes, issuable:, existing_label_ids: nil, extra_label_ids: []) # rubocop:disable Lint/UnusedMethodArgument
     label_ids = attributes.delete(:label_ids)
     add_label_ids = attributes.delete(:add_label_ids)
     remove_label_ids = attributes.delete(:remove_label_ids)
@@ -178,15 +182,29 @@ class IssuableBaseService < ::BaseProjectService
     new_label_ids |= add_label_ids if add_label_ids
     new_label_ids -= remove_label_ids if remove_label_ids
 
-    new_label_ids.uniq
+    filter_locked_labels(issuable, new_label_ids.uniq, existing_label_ids)
+  end
+
+  # Filter out any locked labels that are attempting to be removed
+  def filter_locked_labels(issuable, ids, existing_label_ids)
+    return ids unless issuable.supports_lock_on_merge?
+    return ids unless existing_label_ids.present?
+
+    removed_label_ids = existing_label_ids - ids
+    removed_locked_label_ids = labels_service.filter_locked_label_ids(removed_label_ids)
+
+    ids + removed_locked_label_ids
   end
 
   def process_assignee_ids(attributes, existing_assignee_ids: nil, extra_assignee_ids: [])
-    process = Issuable::ProcessAssignees.new(assignee_ids: attributes.delete(:assignee_ids),
-                                             add_assignee_ids: attributes.delete(:add_assignee_ids),
-                                             remove_assignee_ids: attributes.delete(:remove_assignee_ids),
-                                             existing_assignee_ids: existing_assignee_ids,
-                                             extra_assignee_ids: extra_assignee_ids)
+    process = Issuable::ProcessAssignees.new(
+      assignee_ids: attributes.delete(:assignee_ids),
+      add_assignee_ids: attributes.delete(:add_assignee_ids),
+      remove_assignee_ids: attributes.delete(:remove_assignee_ids),
+      existing_assignee_ids: existing_assignee_ids,
+      extra_assignee_ids: extra_assignee_ids
+    )
+
     process.execute
   end
 
@@ -197,9 +215,11 @@ class IssuableBaseService < ::BaseProjectService
   def merge_quick_actions_into_params!(issuable, only: nil)
     original_description = params.fetch(:description, issuable.description)
 
-    description, command_params =
-      QuickActions::InterpretService.new(project, current_user, quick_action_options)
-        .execute(original_description, issuable, only: only)
+    description, command_params = QuickActions::InterpretService.new(
+      container: container,
+      current_user: current_user,
+      params: quick_action_options
+    ).execute(original_description, issuable, only: only)
 
     # Avoid a description already set on an issuable to be overwritten by a nil
     params[:description] = description if description && description != original_description
@@ -212,12 +232,15 @@ class IssuableBaseService < ::BaseProjectService
   end
 
   def create(issuable, skip_system_notes: false)
+    initialize_callbacks!(issuable)
+
+    prepare_create_params(issuable)
     handle_quick_actions(issuable)
     filter_params(issuable)
 
     params.delete(:state_event)
     params[:author] ||= current_user
-    params[:label_ids] = process_label_ids(params, extra_label_ids: issuable.label_ids.to_a)
+    params[:label_ids] = process_label_ids(params, issuable: issuable, extra_label_ids: issuable.label_ids.to_a)
 
     if issuable.respond_to?(:assignee_ids)
       params[:assignee_ids] = process_assignee_ids(params, extra_assignee_ids: issuable.assignee_ids.to_a)
@@ -231,10 +254,13 @@ class IssuableBaseService < ::BaseProjectService
     before_create(issuable)
 
     issuable_saved = issuable.with_transaction_returning_status do
-      issuable.save
+      @callbacks.each(&:before_create)
+      transaction_create(issuable)
     end
 
     if issuable_saved
+      @callbacks.each(&:after_save_commit)
+
       create_system_notes(issuable, is_update: false) unless skip_system_notes
       handle_changes(issuable, { params: params })
 
@@ -268,45 +294,70 @@ class IssuableBaseService < ::BaseProjectService
     # To be overridden by subclasses
   end
 
-  def after_update(issuable)
+  def prepare_update_params(issuable)
     # To be overridden by subclasses
   end
 
+  def prepare_create_params(issuable)
+    # To be overridden by subclasses
+  end
+
+  def after_update(issuable, old_associations)
+    handle_description_updated(issuable)
+    handle_label_changes(issuable, old_associations[:labels])
+  end
+
+  def handle_description_updated(issuable)
+    return unless issuable.previous_changes.include?('description')
+
+    GraphqlTriggers.issuable_description_updated(issuable)
+  end
+
   def update(issuable)
+    ::Gitlab::Database::LoadBalancing::Session.current.use_primary!
+
+    old_associations = associations_before_update(issuable)
+
+    initialize_callbacks!(issuable)
+
+    prepare_update_params(issuable)
     handle_quick_actions(issuable)
     filter_params(issuable)
 
     change_additional_attributes(issuable)
-    old_associations = associations_before_update(issuable)
 
     assign_requested_labels(issuable)
     assign_requested_assignees(issuable)
     assign_requested_crm_contacts(issuable)
+    widget_params = filter_widget_params
 
-    if issuable.changed? || params.present?
+    if issuable.changed? || params.present? || widget_params.present? || @callbacks.present?
       issuable.assign_attributes(allowed_update_params(params))
 
-      if has_title_or_description_changed?(issuable)
-        issuable.assign_attributes(last_edited_at: Time.current, last_edited_by: current_user)
-      end
+      assign_last_edited(issuable)
 
       before_update(issuable)
 
-      # Do not touch when saving the issuable if only changes position within a list. We should call
-      # this method at this point to capture all possible changes.
-      should_touch = update_timestamp?(issuable)
-
-      issuable.updated_by = current_user if should_touch
       # We have to perform this check before saving the issuable as Rails resets
       # the changed fields upon calling #save.
       update_project_counters = issuable.project && update_project_counter_caches?(issuable)
-      ensure_milestone_available(issuable)
 
       issuable_saved = issuable.with_transaction_returning_status do
-        issuable.save(touch: should_touch)
+        @callbacks.each(&:before_update)
+
+        # Do not touch when saving the issuable if only changes position within a list. We should call
+        # this method at this point to capture all possible changes.
+        should_touch = update_timestamp?(issuable)
+
+        issuable.updated_by = current_user if should_touch
+
+        transaction_update(issuable, { save_with_touch: should_touch })
       end
 
       if issuable_saved
+        @callbacks.each(&:after_update_commit)
+        @callbacks.each(&:after_save_commit)
+
         create_system_notes(
           issuable, old_labels: old_associations[:labels], old_milestone: old_associations[:milestone]
         )
@@ -317,7 +368,7 @@ class IssuableBaseService < ::BaseProjectService
         affected_assignees = (old_associations[:assignees] + new_assignees) - (old_associations[:assignees] & new_assignees)
 
         invalidate_cache_counts(issuable, users: affected_assignees.compact)
-        after_update(issuable)
+        after_update(issuable, old_associations)
         issuable.create_new_cross_references!(current_user)
         execute_hooks(
           issuable,
@@ -332,22 +383,35 @@ class IssuableBaseService < ::BaseProjectService
     issuable
   end
 
+  def transaction_update(issuable, opts = {})
+    touch = opts[:save_with_touch] || false
+
+    issuable.save(touch: touch)
+  end
+
+  def transaction_create(issuable)
+    issuable.save
+  end
+
   def update_task(issuable)
     filter_params(issuable)
 
     if issuable.changed? || params.present?
-      issuable.assign_attributes(params.merge(updated_by: current_user,
-                                              last_edited_at: Time.current,
-                                              last_edited_by: current_user))
+      issuable.assign_attributes(params.merge(
+        updated_by: current_user,
+        last_edited_at: Time.current,
+        last_edited_by: current_user
+      ))
 
       before_update(issuable, skip_spam_check: true)
 
-      if issuable.with_transaction_returning_status { issuable.save }
+      if issuable.with_transaction_returning_status { transaction_update_task(issuable) }
         create_system_notes(issuable, old_labels: nil)
 
         handle_task_changes(issuable)
         invalidate_cache_counts(issuable, users: issuable.assignees.to_a)
-        after_update(issuable)
+        # not passing old_associations here to keep `update_task` as fast as possible
+        after_update(issuable, {})
         execute_hooks(issuable, 'update', old_associations: nil)
 
         if issuable.is_a?(MergeRequest)
@@ -360,16 +424,23 @@ class IssuableBaseService < ::BaseProjectService
     issuable
   end
 
+  def transaction_update_task(issuable)
+    issuable.save
+  end
+
   # Handle the `update_task` event sent from UI.  Attempts to update a specific
   # line in the markdown and cached html, bypassing any unnecessary updates or checks.
   def update_task_event(issuable)
     update_task_params = params.delete(:update_task)
     return unless update_task_params
 
-    tasklist_toggler = TaskListToggleService.new(issuable.description, issuable.description_html,
-                                                 line_source: update_task_params[:line_source],
-                                                 line_number: update_task_params[:line_number].to_i,
-                                                 toggle_as_checked: update_task_params[:checked])
+    tasklist_toggler = TaskListToggleService.new(
+      issuable.description,
+      issuable.description_html,
+      line_source: update_task_params[:line_source],
+      line_number: update_task_params[:line_number].to_i,
+      toggle_as_checked: update_task_params[:checked]
+    )
 
     unless tasklist_toggler.execute
       # if we make it here, the data is much newer than we thought it was - fail fast
@@ -387,10 +458,6 @@ class IssuableBaseService < ::BaseProjectService
     params[:lock_version]     = issuable.lock_version
 
     update_task(issuable)
-  end
-
-  def has_title_or_description_changed?(issuable)
-    issuable.title_changed? || issuable.description_changed?
   end
 
   def change_additional_attributes(issuable)
@@ -435,7 +502,7 @@ class IssuableBaseService < ::BaseProjectService
   # rubocop: enable CodeReuse/ActiveRecord
 
   def assign_requested_labels(issuable)
-    label_ids = process_label_ids(params, existing_label_ids: issuable.label_ids)
+    label_ids = process_label_ids(params, issuable: issuable, existing_label_ids: issuable.label_ids)
     return unless ids_changing?(issuable.label_ids, label_ids)
 
     params[:label_ids] = label_ids
@@ -456,6 +523,12 @@ class IssuableBaseService < ::BaseProjectService
       params[:assignee_ids] = assignee_ids
       issuable.touch
     end
+  end
+
+  def assign_last_edited(issuable)
+    return unless issuable.description_changed?
+
+    issuable.assign_attributes(last_edited_at: Time.current, last_edited_by: current_user)
   end
 
   # Arrays of ids are used, but we should really use sets of ids, so
@@ -486,6 +559,7 @@ class IssuableBaseService < ::BaseProjectService
     associations[:description] = issuable.description
     associations[:reviewers] = issuable.reviewers.to_a if issuable.allows_reviewers?
     associations[:severity] = issuable.severity if issuable.supports_severity?
+    associations[:target_branch] = issuable.target_branch if issuable.is_a?(MergeRequest)
 
     if issuable.supports_escalation? && issuable.escalation_status
       associations[:escalation_status] = issuable.escalation_status.status_name
@@ -525,10 +599,29 @@ class IssuableBaseService < ::BaseProjectService
     attrs_changed || labels_changed || assignees_changed || reviewers_changed
   end
 
+  def has_label_changes?(issuable, old_labels)
+    return false if old_labels.nil?
+
+    Set.new(issuable.labels) != Set.new(old_labels)
+  end
+
   def invalidate_cache_counts(issuable, users: [])
     users.each do |user|
       user.public_send("invalidate_#{issuable.noteable_target_type_name}_cache_counts") # rubocop:disable GitlabSecurity/PublicSend
     end
+  end
+
+  # override if needed
+  def handle_label_changes(issuable, old_labels)
+    return false unless has_label_changes?(issuable, old_labels)
+
+    # reset to preserve the label sort order (title ASC)
+    issuable.labels.reset
+
+    GraphqlTriggers.issuable_labels_updated(issuable)
+
+    # return true here to avoid checking for label changes in sub classes
+    true
   end
 
   # override if needed
@@ -551,14 +644,6 @@ class IssuableBaseService < ::BaseProjectService
     project
   end
 
-  # we need to check this because milestone from milestone_id param is displayed on "new" page
-  # where private project milestone could leak without this check
-  def ensure_milestone_available(issuable)
-    return unless issuable.supports_milestone? && issuable.milestone_id.present?
-
-    issuable.milestone_id = nil unless issuable.milestone_available?
-  end
-
   def update_timestamp?(issuable)
     issuable.changes.keys != ["relative_position"]
   end
@@ -575,6 +660,17 @@ class IssuableBaseService < ::BaseProjectService
     return unless issuable_sla = issuable.issuable_sla
 
     issuable_sla.update(issuable_closed: issuable.closed?)
+  end
+
+  def filter_widget_params
+    params.delete(:widget_params)
+  end
+
+  def filter_contact_params(issuable)
+    return if params.slice(:add_contacts, :remove_contacts).empty?
+    return if can?(current_user, :set_issue_crm_contacts, issuable)
+
+    params.extract!(:add_contacts, :remove_contacts)
   end
 end
 

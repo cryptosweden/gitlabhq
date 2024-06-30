@@ -41,6 +41,8 @@
 class SnippetsFinder < UnionFinder
   include FinderMethods
   include Gitlab::Utils::StrongMemoize
+  include CreatedAtFilter
+  include Gitlab::Allowable
 
   attr_reader :current_user, :params
 
@@ -66,16 +68,31 @@ class SnippetsFinder < UnionFinder
     return Snippet.none if project.nil? && params[:project].present?
     return Snippet.none if project && !project.feature_available?(:snippets, current_user)
 
-    items = init_collection
-    items = by_ids(items)
-    items = items.with_optional_visibility(visibility_from_scope)
-
-    items.order_by(sort_param)
+    filter_snippets.order_by(sort_param)
   end
 
   private
 
-  def init_collection
+  def filter_snippets
+    if return_all_available_and_permited?
+      snippets = all_snippets_for_admin
+    else
+      snippets = all_snippets
+      snippets = by_ids(snippets)
+      snippets = snippets.with_optional_visibility(visibility_from_scope)
+      snippets = hide_created_by_banned_user(snippets)
+    end
+
+    by_created_at(snippets)
+  end
+
+  def return_all_available_and_permited?
+    # Currently limited to access_levels `admin` and `auditor`
+    # See policies/base_policy.rb files for specifics.
+    params[:all_available] && can?(current_user, :read_all_resources)
+  end
+
+  def all_snippets
     if explore?
       snippets_for_explore
     elsif only_personal?
@@ -111,12 +128,18 @@ class SnippetsFinder < UnionFinder
     queries = []
     queries << personal_snippets unless only_project?
 
-    if Ability.allowed?(current_user, :read_cross_project)
+    if can?(current_user, :read_cross_project)
       queries << snippets_of_visible_projects
       queries << snippets_of_authorized_projects if current_user
     end
 
     prepared_union(queries)
+  end
+
+  def all_snippets_for_admin
+    return Snippet.only_project_snippets if only_project?
+
+    Snippet.all
   end
 
   def snippets_for_a_single_project
@@ -177,15 +200,21 @@ class SnippetsFinder < UnionFinder
       Snippet::INTERNAL
     when 'are_public'
       Snippet::PUBLIC
-    else
-      nil
     end
   end
 
-  def by_ids(items)
-    return items unless params[:ids].present?
+  def by_ids(snippets)
+    return snippets unless params[:ids].present?
 
-    items.id_in(params[:ids])
+    snippets.id_in(params[:ids])
+  end
+
+  def hide_created_by_banned_user(snippets)
+    # if admin -> return all snippets, if not-admin -> filter out snippets by banned user
+    return snippets if can?(current_user, :read_all_resources)
+    return snippets unless Feature.enabled?(:hide_snippets_of_banned_users)
+
+    snippets.without_created_by_banned_user
   end
 
   def author

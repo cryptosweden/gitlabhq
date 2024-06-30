@@ -1,10 +1,14 @@
 # frozen_string_literal: true
 
 class ResourceStateEvent < ResourceEvent
-  include IssueResourceEvent
   include MergeRequestResourceEvent
+  include Importable
+  include Import::HasImportSource
+  include IgnorableColumns
 
-  validate :exactly_one_issuable
+  ignore_column :imported, remove_with: '17.2', remove_after: '2024-07-22'
+
+  validate :exactly_one_issuable, unless: :importing?
 
   belongs_to :source_merge_request, class_name: 'MergeRequest', foreign_key: :source_merge_request_id
 
@@ -13,8 +17,12 @@ class ResourceStateEvent < ResourceEvent
 
   after_create :issue_usage_metrics
 
+  scope :merged_with_no_event_source, -> do
+    where(state: :merged, source_merge_request: nil, source_commit: nil)
+  end
+
   def self.issuable_attrs
-    %i(issue merge_request).freeze
+    %i[issue merge_request].freeze
   end
 
   def issuable
@@ -25,6 +33,10 @@ class ResourceStateEvent < ResourceEvent
     issue_id.present?
   end
 
+  def synthetic_note_class
+    StateNote
+  end
+
   private
 
   def issue_usage_metrics
@@ -32,9 +44,9 @@ class ResourceStateEvent < ResourceEvent
 
     case state
     when 'closed'
-      issue_usage_counter.track_issue_closed_action(author: user)
+      issue_usage_counter.track_issue_closed_action(author: user, project: issue.project)
     when 'reopened'
-      issue_usage_counter.track_issue_reopened_action(author: user)
+      issue_usage_counter.track_issue_reopened_action(author: user, project: issue.project)
     else
       # no-op, nothing to do, not a state we're tracking
     end

@@ -1,12 +1,17 @@
 <script>
-import { GlAvatarLabeled, GlAvatarLink, GlIcon } from '@gitlab/ui';
-import { IssuableType } from '~/issues/constants';
-import { s__, sprintf } from '~/locale';
+import { GlAvatarLabeled, GlBadge, GlIcon } from '@gitlab/ui';
+import { TYPE_ISSUE, TYPE_MERGE_REQUEST } from '~/issues/constants';
+import { __ } from '~/locale';
+
+const AVAILABILITY_STATUS = {
+  NOT_SET: 'NOT_SET',
+  BUSY: 'BUSY',
+};
 
 export default {
   components: {
     GlAvatarLabeled,
-    GlAvatarLink,
+    GlBadge,
     GlIcon,
   },
   props: {
@@ -17,43 +22,48 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: IssuableType.Issue,
+      default: TYPE_ISSUE,
+    },
+    selected: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
   },
   computed: {
-    userLabel() {
-      if (!this.user.status) {
-        return this.user.name;
-      }
-      return sprintf(s__('UserAvailability|%{author} (Busy)'), {
-        author: this.user.name,
-      });
+    isBusy() {
+      return this.user?.status?.availability === AVAILABILITY_STATUS.BUSY;
     },
     hasCannotMergeIcon() {
-      return this.issuableType === IssuableType.MergeRequest && !this.user.canMerge;
+      return this.issuableType === TYPE_MERGE_REQUEST && !this.user.canMerge;
     },
+  },
+  i18n: {
+    busy: __('Busy'),
   },
 };
 </script>
 
 <template>
-  <gl-avatar-link>
-    <gl-avatar-labeled
-      :size="32"
-      :label="userLabel"
-      :sub-label="`@${user.username}`"
-      :src="user.avatarUrl || user.avatar || user.avatar_url"
-      class="gl-align-items-center gl-relative"
-    >
-      <template #meta>
-        <gl-icon
-          v-if="hasCannotMergeIcon"
-          name="warning-solid"
-          aria-hidden="true"
-          class="merge-icon"
-          :size="12"
-        />
-      </template>
-    </gl-avatar-labeled>
-  </gl-avatar-link>
+  <gl-avatar-labeled
+    :size="32"
+    :label="user.name"
+    :sub-label="`@${user.username}`"
+    :src="user.avatarUrl || user.avatar || user.avatar_url"
+    class="gl-align-items-center gl-relative sidebar-participant"
+  >
+    <template #meta>
+      <gl-icon
+        v-if="hasCannotMergeIcon"
+        name="warning-solid"
+        aria-hidden="true"
+        class="merge-icon"
+        :class="{ '!gl-left-6': selected }"
+        :size="12"
+      />
+      <gl-badge v-if="isBusy" variant="warning" class="gl-ml-2">
+        {{ $options.i18n.busy }}
+      </gl-badge>
+    </template>
+  </gl-avatar-labeled>
 </template>

@@ -1,19 +1,19 @@
+import newWithInternalUserRegex from 'test_fixtures/admin/users/new_with_internal_user_regex.html';
 import {
   setupInternalUserRegexHandler,
   ID_USER_EMAIL,
   ID_USER_EXTERNAL,
   ID_WARNING,
 } from '~/admin/users/new';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 
 describe('admin/users/new', () => {
-  const FIXTURE = 'admin/users/new_with_internal_user_regex.html';
-
   let elExternal;
   let elUserEmail;
   let elWarningMessage;
 
   beforeEach(() => {
-    loadFixtures(FIXTURE);
+    setHTMLFixture(newWithInternalUserRegex);
     setupInternalUserRegexHandler();
 
     elExternal = document.getElementById(ID_USER_EXTERNAL);
@@ -21,6 +21,10 @@ describe('admin/users/new', () => {
     elWarningMessage = document.getElementById(ID_WARNING);
 
     elExternal.checked = true;
+  });
+
+  afterEach(() => {
+    resetHTMLFixture();
   });
 
   const changeEmail = (val) => {

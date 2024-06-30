@@ -4,11 +4,28 @@ module Integrations
   class Teamcity < BaseCi
     include PushDataValidations
     include ReactivelyCached
+    include HasAvatar
     prepend EnableSslVerification
 
-    TEAMCITY_SAAS_HOSTNAME = /\A[^\.]+\.teamcity\.com\z/i.freeze
+    TEAMCITY_SAAS_HOSTNAME = /\A[^\.]+\.teamcity\.com\z/i
 
-    prop_accessor :teamcity_url, :build_type, :username, :password
+    field :teamcity_url,
+      title: -> { s_('ProjectService|TeamCity server URL') },
+      placeholder: 'https://teamcity.example.com',
+      exposes_secrets: true,
+      required: true
+
+    field :build_type,
+      help: -> { s_('ProjectService|The build configuration ID of the TeamCity project.') },
+      required: true
+
+    field :username,
+      help: -> { s_('ProjectService|Must have permission to trigger a manual build in TeamCity.') }
+
+    field :password,
+      type: :password,
+      non_empty_password_title: -> { s_('ProjectService|Enter new password') },
+      non_empty_password_help: -> { s_('ProjectService|Leave blank to use your current password') }
 
     validates :teamcity_url, presence: true, public_url: true, if: :activated?
     validates :build_type, presence: true, if: :activated?
@@ -21,71 +38,34 @@ module Integrations
 
     attr_accessor :response
 
-    before_validation :reset_password
-
     class << self
       def to_param
         'teamcity'
       end
 
       def supported_events
-        %w(push merge_request)
+        %w[push merge_request]
       end
     end
 
-    def reset_password
-      if teamcity_url_changed? && !password_touched?
-        self.password = nil
-      end
-    end
-
-    def title
+    def self.title
       'JetBrains TeamCity'
     end
 
-    def description
+    def self.description
       s_('ProjectService|Run CI/CD pipelines with JetBrains TeamCity.')
     end
 
-    def help
+    def self.help
       s_('To run CI/CD pipelines with JetBrains TeamCity, input the GitLab project details in the TeamCity project Version Control Settings.')
     end
 
-    def fields
-      [
-        {
-          type: 'text',
-          name: 'teamcity_url',
-          title: s_('ProjectService|TeamCity server URL'),
-          placeholder: 'https://teamcity.example.com',
-          required: true
-        },
-        {
-          type: 'text',
-          name: 'build_type',
-          help: s_('ProjectService|The build configuration ID of the TeamCity project.'),
-          required: true
-        },
-        {
-          type: 'text',
-          name: 'username',
-          help: s_('ProjectService|Must have permission to trigger a manual build in TeamCity.')
-        },
-        {
-          type: 'password',
-          name: 'password',
-          non_empty_password_title: s_('ProjectService|Enter new password'),
-          non_empty_password_help: s_('ProjectService|Leave blank to use your current password')
-        }
-      ]
-    end
-
     def build_page(sha, ref)
-      with_reactive_cache(sha, ref) {|cached| cached[:build_page] }
+      with_reactive_cache(sha, ref) { |cached| cached[:build_page] }
     end
 
     def commit_status(sha, ref)
-      with_reactive_cache(sha, ref) {|cached| cached[:commit_status] }
+      with_reactive_cache(sha, ref) { |cached| cached[:commit_status] }
     end
 
     def calculate_reactive_cache(sha, ref)
@@ -110,6 +90,10 @@ module Integrations
     def enable_ssl_verification
       original_value = Gitlab::Utils.to_boolean(properties['enable_ssl_verification'])
       original_value.nil? ? (new_record? || url_is_saas?) : original_value
+    end
+
+    def self.attribution_notice
+      'Copyright © 2024 JetBrains s.r.o. JetBrains TeamCity and the JetBrains TeamCity logo are registered trademarks of JetBrains s.r.o.'
     end
 
     private
@@ -170,7 +154,7 @@ module Integrations
     end
 
     def get_path(path)
-      Gitlab::HTTP.try_get(build_url(path), verify: enable_ssl_verification, basic_auth: basic_auth, extra_log_info: { project_id: project_id }, use_read_total_timeout: true)
+      Gitlab::HTTP.try_get(build_url(path), verify: enable_ssl_verification, basic_auth: basic_auth, extra_log_info: { project_id: project_id })
     end
 
     def post_to_build_queue(data, branch)
@@ -181,8 +165,7 @@ module Integrations
               '</build>',
         headers: { 'Content-type' => 'application/xml' },
         verify: enable_ssl_verification,
-        basic_auth: basic_auth,
-        use_read_total_timeout: true
+        basic_auth: basic_auth
       )
     end
 

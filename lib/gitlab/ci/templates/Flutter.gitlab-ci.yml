@@ -1,3 +1,6 @@
+# You can copy and paste this template into a new `.gitlab-ci.yml` file.
+# You should not add this template to an existing `.gitlab-ci.yml` file by using the `include:` keyword.
+#
 # To contribute improvements to CI/CD templates, please follow the Development guide at:
 # https://docs.gitlab.com/ee/development/cicd/templates.html
 # This specific template is located at:
@@ -5,9 +8,9 @@
 
 code_quality:
   stage: test
-  image: "cirrusci/flutter:1.22.5"
+  image: "ghcr.io/cirruslabs/flutter:3.10.3"
   before_script:
-    - pub global activate dart_code_metrics
+    - flutter pub global activate dart_code_metrics
     - export PATH="$PATH:$HOME/.pub-cache/bin"
   script:
     - metrics lib -r codeclimate  > gl-code-quality-report.json
@@ -17,9 +20,9 @@ code_quality:
 
 test:
   stage: test
-  image: "cirrusci/flutter:1.22.5"
+  image: "ghcr.io/cirruslabs/flutter:3.10.3"
   before_script:
-    - pub global activate junitreport
+    - flutter pub global activate junitreport
     - export PATH="$PATH:$HOME/.pub-cache/bin"
   script:
     - flutter test --machine --coverage | tojunit -o report.xml
@@ -32,3 +35,8 @@ test:
       - $CI_PROJECT_DIR/coverage
     reports:
       junit: report.xml
+
+deploy:
+  stage: deploy
+  script: echo "Define your deployment script!"
+  environment: production

@@ -2,14 +2,15 @@
 data_category: operational
 key_path: gitlab_shared_runners_enabled
 description: Whether shared runners is enabled
-product_section: ops
-product_stage: verify
-product_group: group::runner
-product_category: runner
+product_group: runner
 value_type: boolean
 status: active
 time_frame: none
 data_source: system
+instrumentation_class: GitlabConfigMetric
+options:
+  config:
+    gitlab_ci: shared_runners_enabled
 distribution:
 - ce
 - ee
@@ -17,5 +18,6 @@ tier:
 - free
 - premium
 - ultimate
-performance_indicator_type: []
+performance_indicator_type:
+- customer_health_score
 milestone: "<13.9"

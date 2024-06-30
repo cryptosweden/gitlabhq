@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User searches for comments' do
-  let(:project) { create(:project, :repository) }
-  let(:user) { create(:user) }
+RSpec.describe 'User searches for comments', :js, :disable_rate_limiter, feature_category: :global_search do
+  let_it_be(:project) { create(:project, :repository) }
+  let_it_be(:user) { create(:user) }
 
   before do
     project.add_reporter(user)
@@ -13,7 +13,9 @@ RSpec.describe 'User searches for comments' do
     visit(project_path(project))
   end
 
-  include_examples 'search timeouts', 'notes'
+  include_examples 'search timeouts', 'notes' do
+    let(:additional_params) { { project_id: project.id } }
+  end
 
   context 'when a comment is in commits' do
     context 'when comment belongs to an invalid commit' do
@@ -28,6 +30,14 @@ RSpec.describe 'User searches for comments' do
           expect(page).to have_content('12345678')
         end
       end
+    end
+  end
+
+  it 'shows scopes when there is no search term' do
+    submit_dashboard_search('')
+
+    within_testid('search-filter') do
+      expect(page).to have_selector('[data-testid="nav-item"]', minimum: 5)
     end
   end
 

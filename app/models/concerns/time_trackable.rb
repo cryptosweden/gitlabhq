@@ -10,17 +10,37 @@
 module TimeTrackable
   extend ActiveSupport::Concern
 
+  include Gitlab::Utils::StrongMemoize
+
   included do
     attr_reader :time_spent, :time_spent_user, :spent_at, :summary
 
     alias_method :time_spent?, :time_spent
 
-    default_value_for :time_estimate, value: 0, allows_nil: false
+    attribute :time_estimate, default: 0
 
-    validates :time_estimate, numericality: { message: 'has an invalid format' }, allow_nil: false
-    validate  :check_negative_time_spent
+    validate :check_time_estimate
+    validate :check_negative_time_spent
 
     has_many :timelogs, dependent: :destroy, autosave: true # rubocop:disable Cop/ActiveRecordDependent
+    after_initialize :set_time_estimate_default_value
+    after_save :clear_memoized_total_time_spent
+  end
+
+  def clear_memoized_total_time_spent
+    clear_memoization(:total_time_spent)
+  end
+
+  def reset
+    clear_memoized_total_time_spent
+
+    super
+  end
+
+  def reload(*args)
+    clear_memoized_total_time_spent
+
+    super(*args)
   end
 
   # rubocop:disable Gitlab/ModuleWithInstanceVariables
@@ -31,6 +51,7 @@ module TimeTrackable
     @spent_at = options[:spent_at]
     @summary = options[:summary]
     @original_total_time_spent = nil
+    @category_id = category_id(options[:category])
 
     return if @time_spent == 0
 
@@ -44,8 +65,15 @@ module TimeTrackable
   # rubocop:enable Gitlab/ModuleWithInstanceVariables
 
   def total_time_spent
-    timelogs.sum(:time_spent)
+    sum = timelogs.sum(:time_spent)
+
+    # A new restriction has been introduced to limit total time spent to -
+    # Timelog::MAX_TOTAL_TIME_SPENT or 3.154e+7 seconds (approximately a year, a generous limit)
+    # Since there could be existing records that breach the limit, check and return the maximum/minimum allowed value.
+    # (some issuable might have total time spent that's negative because a validation was missing.)
+    sum.clamp(-Timelog::MAX_TOTAL_TIME_SPENT, Timelog::MAX_TOTAL_TIME_SPENT)
   end
+  strong_memoize_attr :total_time_spent
 
   def human_total_time_spent
     Gitlab::TimeTrackingFormatter.output(total_time_spent)
@@ -67,6 +95,13 @@ module TimeTrackable
     val.is_a?(Integer) ? super([val, Gitlab::Database::MAX_INT_VALUE].min) : super(val)
   end
 
+  def set_time_estimate_default_value
+    return if new_record?
+    return unless has_attribute?(:time_estimate)
+
+    self.time_estimate ||= self.class.column_defaults['time_estimate']
+  end
+
   private
 
   def reset_spent_time
@@ -80,7 +115,8 @@ module TimeTrackable
       note_id: @time_spent_note_id,
       user: @time_spent_user,
       spent_at: @spent_at,
-      summary: @summary
+      summary: @summary,
+      timelog_category_id: @category_id
     )
   end
   # rubocop:enable Gitlab/ModuleWithInstanceVariables
@@ -97,5 +133,16 @@ module TimeTrackable
   # doesn't give a false error
   def original_total_time_spent
     @original_total_time_spent ||= total_time_spent
+  end
+
+  def check_time_estimate
+    return unless new_record? || time_estimate_changed?
+    return if time_estimate.is_a?(Numeric) && time_estimate >= 0
+
+    errors.add(:time_estimate, _('must have a valid format and be greater than or equal to zero.'))
+  end
+
+  def category_id(category)
+    TimeTracking::TimelogCategory.find_by_name(project&.root_namespace, category).first&.id
   end
 end

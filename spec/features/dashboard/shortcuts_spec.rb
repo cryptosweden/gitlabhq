@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Dashboard shortcuts', :js do
+RSpec.describe 'Dashboard shortcuts', :js, feature_category: :shared do
   context 'logged in' do
     let(:user) { create(:user) }
     let(:project) { create(:project) }
@@ -16,15 +16,19 @@ RSpec.describe 'Dashboard shortcuts', :js do
     it 'navigate to tabs' do
       find('body').send_keys([:shift, 'I'])
 
-      check_page_title('Issues')
+      check_page_title('Assigned issues')
 
       find('body').send_keys([:shift, 'M'])
 
-      check_page_title('Merge requests')
+      check_page_title('Assigned merge requests')
+
+      find('body').send_keys([:shift, 'R'])
+
+      check_page_title('Review requests')
 
       find('body').send_keys([:shift, 'T'])
 
-      check_page_title('To-Do List')
+      expect(page).to have_selector('.js-todos-all')
 
       find('body').send_keys([:shift, 'G'])
 
@@ -52,22 +56,20 @@ RSpec.describe 'Dashboard shortcuts', :js do
     it 'navigate to tabs' do
       find('body').send_keys([:shift, 'G'])
 
-      find('.nothing-here-block')
-      expect(page).to have_content('No public groups')
+      expect(page).to have_content('No public or internal groups')
 
       find('body').send_keys([:shift, 'S'])
 
-      find('.nothing-here-block')
-      expect(page).to have_content('No snippets found')
+      expect(page).to have_content('There are no snippets found')
 
       find('body').send_keys([:shift, 'P'])
 
       find('.nothing-here-block')
-      expect(page).to have_content('Explore public groups to find projects to contribute to.')
+      expect(page).to have_content('Explore public groups to find projects to contribute to')
     end
   end
 
   def check_page_title(title)
-    expect(find('.page-title')).to have_content(title)
+    expect(find_by_testid('page-heading')).to have_content(title)
   end
 end

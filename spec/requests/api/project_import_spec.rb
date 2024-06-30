@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::ProjectImport, :aggregate_failures do
+RSpec.describe API::ProjectImport, :aggregate_failures, feature_category: :importers do
   include WorkhorseHelpers
   include AfterNextHelpers
 
@@ -14,6 +14,8 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
 
   before do
     namespace.add_owner(user) if user
+
+    stub_application_setting(import_sources: ['gitlab_project'])
   end
 
   shared_examples 'requires authentication' do
@@ -26,8 +28,22 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
     end
   end
 
+  shared_examples 'requires import source to be enabled' do
+    context 'when gitlab_project import_sources is disabled' do
+      before do
+        stub_application_setting(import_sources: [])
+      end
+
+      it 'returns 403' do
+        subject
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+  end
+
   describe 'POST /projects/import' do
-    subject { upload_archive(file_upload, workhorse_headers, params) }
+    subject(:perform_archive_upload) { upload_archive(file_upload, workhorse_headers, params) }
 
     let(:file_upload) { fixture_file_upload(file) }
 
@@ -43,18 +59,19 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
     end
 
     it_behaves_like 'requires authentication'
+    it_behaves_like 'requires import source to be enabled'
 
-    it 'executes a limited number of queries' do
-      control_count = ActiveRecord::QueryRecorder.new { subject }.count
+    it 'executes a limited number of queries', :use_clean_rails_redis_caching do
+      control = ActiveRecord::QueryRecorder.new { perform_archive_upload }
 
-      expect(control_count).to be <= 105
+      expect(control.count).to be <= 114
     end
 
     it 'schedules an import using a namespace' do
       stub_import(namespace)
       params[:namespace] = namespace.id
 
-      subject
+      perform_archive_upload
 
       expect(response).to have_gitlab_http_status(:created)
     end
@@ -63,7 +80,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
       stub_import(namespace)
       params[:namespace] = namespace.full_path
 
-      subject
+      perform_archive_upload
 
       expect(response).to have_gitlab_http_status(:created)
     end
@@ -76,7 +93,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
         params[:name] = expected_name
         params[:namespace] = namespace.id
 
-        subject
+        perform_archive_upload
 
         expect(response).to have_gitlab_http_status(:created)
       end
@@ -86,7 +103,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
         params[:name] = expected_name
         params[:namespace] = namespace.full_path
 
-        subject
+        perform_archive_upload
 
         expect(response).to have_gitlab_http_status(:created)
       end
@@ -96,7 +113,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
         params[:name] = expected_name
         params[:namespace] = namespace.full_path
 
-        subject
+        perform_archive_upload
 
         project = Project.find(json_response['id'])
         expect(project.name).to eq(expected_name)
@@ -108,7 +125,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
         params[:namespace] = namespace.full_path
         params[:overwrite] = true
 
-        subject
+        perform_archive_upload
 
         project = Project.find(json_response['id'])
         expect(project.name).to eq('new project name')
@@ -119,20 +136,38 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
         params[:name] = nil
         params[:namespace] = namespace.full_path
 
-        subject
+        perform_archive_upload
 
         project = Project.find(json_response['id'])
         expect(project.name).to eq('test-import')
       end
     end
 
-    it 'schedules an import at the user namespace level' do
-      stub_import(user.namespace)
-      params[:path] = 'test-import2'
+    context 'when namespace not set' do
+      it 'schedules an import at the user namespace level' do
+        stub_import(user.namespace)
+        params[:path] = 'test-import2'
 
-      subject
+        perform_archive_upload
 
-      expect(response).to have_gitlab_http_status(:created)
+        expect(response).to have_gitlab_http_status(:created)
+      end
+
+      context 'when current user is a bot user' do
+        let(:user) { create(:user, :project_bot) }
+
+        it 'does not schedule an import' do
+          expect_any_instance_of(ProjectImportState).not_to receive(:schedule)
+
+          params[:namespace] = nil
+          params[:path] = 'test-import3'
+
+          perform_archive_upload
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+          expect(json_response['message']).to eq("Namespace is not valid")
+        end
+      end
     end
 
     it 'does not schedule an import for a namespace that does not exist' do
@@ -142,7 +177,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
       params[:namespace] = 'nonexistent'
       params[:path] = 'test-import2'
 
-      subject
+      perform_archive_upload
 
       expect(response).to have_gitlab_http_status(:not_found)
       expect(json_response['message']).to eq('404 Namespace Not Found')
@@ -155,10 +190,24 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
       params[:path] = 'test-import3'
       params[:namespace] = new_namespace.full_path
 
-      subject
+      perform_archive_upload
 
       expect(response).to have_gitlab_http_status(:not_found)
       expect(json_response['message']).to eq('404 Namespace Not Found')
+    end
+
+    context 'when passed in namespace is a bot user namespace' do
+      let(:user) { create(:user, :project_bot) }
+
+      it 'does not schedule an import' do
+        expect_any_instance_of(ProjectImportState).not_to receive(:schedule)
+        params[:namespace] = user.namespace.full_path
+
+        perform_archive_upload
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']).to eq("Namespace is not valid")
+      end
     end
 
     context 'if user uploads no valid file' do
@@ -169,7 +218,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
 
         params[:path] = 'test-import3'
 
-        subject
+        perform_archive_upload
 
         expect(response).to have_gitlab_http_status(:unprocessable_entity)
         expect(json_response['message']['error']).to eq('You need to upload a GitLab project export archive (ending in .gz).')
@@ -183,7 +232,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
       params[:namespace] = namespace.id
       params[:override_params] = override_params
 
-      subject
+      perform_archive_upload
 
       import_project = Project.find(json_response['id'])
 
@@ -197,7 +246,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
       params[:namespace] = namespace.id
       params[:override_params] = override_params
 
-      subject
+      perform_archive_upload
 
       import_project = Project.find(json_response['id'])
 
@@ -212,10 +261,10 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
 
         params[:path] = existing_project.path
 
-        subject
+        perform_archive_upload
 
         expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['message']).to eq('Name has already been taken')
+        expect(json_response['message']).to eq('Path has already been taken')
       end
 
       context 'when param overwrite is true' do
@@ -225,7 +274,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
           params[:path] = existing_project.path
           params[:overwrite] = true
 
-          subject
+          perform_archive_upload
 
           expect(response).to have_gitlab_http_status(:created)
         end
@@ -240,7 +289,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
       it 'prevents users from importing projects' do
         params[:namespace] = namespace.id
 
-        subject
+        perform_archive_upload
 
         expect(response).to have_gitlab_http_status(:too_many_requests)
         expect(json_response['message']['error']).to eq('This endpoint has been requested too many times. Try again later.')
@@ -269,7 +318,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
         stub_import(namespace)
         params[:namespace] = namespace.id
 
-        subject
+        perform_archive_upload
 
         expect(response).to have_gitlab_http_status(:created)
       end
@@ -293,7 +342,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
   end
 
   describe 'POST /projects/remote-import' do
-    subject do
+    subject(:perform_remote_import) do
       post api('/projects/remote-import', user), params: params
     end
 
@@ -305,70 +354,57 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
     end
 
     it_behaves_like 'requires authentication'
+    it_behaves_like 'requires import source to be enabled'
 
-    it 'returns NOT FOUND when the feature is disabled' do
-      stub_feature_flags(import_project_from_remote_file: false)
+    context 'when the response is successful' do
+      it 'schedules the import successfully' do
+        project = create(
+          :project,
+          namespace: user.namespace,
+          name: 'test-import',
+          path: 'test-import'
+        )
 
-      subject
+        service_response = ServiceResponse.success(payload: project)
+        expect_next(::Import::GitlabProjects::CreateProjectService)
+          .to receive(:execute)
+          .and_return(service_response)
 
-      expect(response).to have_gitlab_http_status(:not_found)
+        perform_remote_import
+
+        expect(response).to have_gitlab_http_status(:created)
+        expect(json_response).to include({
+          'id' => project.id,
+          'name' => 'test-import',
+          'name_with_namespace' => "#{user.namespace.name} / test-import",
+          'path' => 'test-import',
+          'path_with_namespace' => "#{user.namespace.path}/test-import"
+        })
+      end
     end
 
-    context 'when the feature flag is enabled' do
-      before do
-        stub_feature_flags(import_project_from_remote_file: true)
-      end
+    context 'when the service returns an error' do
+      it 'fails to schedule the import' do
+        service_response = ServiceResponse.error(
+          message: 'Failed to import',
+          http_status: :bad_request
+        )
+        expect_next(::Import::GitlabProjects::CreateProjectService)
+          .to receive(:execute)
+          .and_return(service_response)
 
-      context 'when the response is successful' do
-        it 'schedules the import successfully' do
-          project = create(
-            :project,
-            namespace: user.namespace,
-            name: 'test-import',
-            path: 'test-import'
-          )
+        perform_remote_import
 
-          service_response = ServiceResponse.success(payload: project)
-          expect_next(::Import::GitlabProjects::CreateProjectService)
-            .to receive(:execute)
-            .and_return(service_response)
-
-          subject
-
-          expect(response).to have_gitlab_http_status(:created)
-          expect(json_response).to include({
-            'id' => project.id,
-            'name' => 'test-import',
-            'name_with_namespace' => "#{user.namespace.name} / test-import",
-            'path' => 'test-import',
-            'path_with_namespace' => "#{user.namespace.path}/test-import"
-          })
-        end
-      end
-
-      context 'when the service returns an error' do
-        it 'fails to schedule the import' do
-          service_response = ServiceResponse.error(
-            message: 'Failed to import',
-            http_status: :bad_request
-          )
-          expect_next(::Import::GitlabProjects::CreateProjectService)
-            .to receive(:execute)
-            .and_return(service_response)
-
-          subject
-
-          expect(response).to have_gitlab_http_status(:bad_request)
-          expect(json_response).to eq({
-            'message' => 'Failed to import'
-          })
-        end
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response).to eq({
+          'message' => 'Failed to import'
+        })
       end
     end
   end
 
   describe 'POST /projects/remote-import-s3' do
-    subject do
+    subject(:perform_import_from_s3) do
       post api('/projects/remote-import-s3', user), params: params
     end
 
@@ -384,75 +420,64 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
     end
 
     it_behaves_like 'requires authentication'
+    it_behaves_like 'requires import source to be enabled'
 
-    it 'returns NOT FOUND when the feature is disabled' do
-      stub_feature_flags(import_project_from_remote_file_s3: false)
+    context 'when the response is successful' do
+      it 'schedules the import successfully' do
+        project = create(
+          :project,
+          namespace: user.namespace,
+          name: 'test-import',
+          path: 'test-import'
+        )
 
-      subject
+        service_response = ServiceResponse.success(payload: project)
+        expect_next(::Import::GitlabProjects::CreateProjectService)
+          .to receive(:execute)
+          .and_return(service_response)
 
-      expect(response).to have_gitlab_http_status(:not_found)
+        perform_import_from_s3
+
+        expect(response).to have_gitlab_http_status(:created)
+        expect(json_response).to include({
+          'id' => project.id,
+          'name' => 'test-import',
+          'name_with_namespace' => "#{user.namespace.name} / test-import",
+          'path' => 'test-import',
+          'path_with_namespace' => "#{user.namespace.path}/test-import"
+        })
+      end
     end
 
-    context 'when the feature flag is enabled' do
-      before do
-        stub_feature_flags(import_project_from_remote_file_s3: true)
-      end
+    context 'when the service returns an error' do
+      it 'fails to schedule the import' do
+        service_response = ServiceResponse.error(
+          message: 'Failed to import',
+          http_status: :bad_request
+        )
+        expect_next(::Import::GitlabProjects::CreateProjectService)
+          .to receive(:execute)
+          .and_return(service_response)
 
-      context 'when the response is successful' do
-        it 'schedules the import successfully' do
-          project = create(
-            :project,
-            namespace: user.namespace,
-            name: 'test-import',
-            path: 'test-import'
-          )
+        perform_import_from_s3
 
-          service_response = ServiceResponse.success(payload: project)
-          expect_next(::Import::GitlabProjects::CreateProjectService)
-            .to receive(:execute)
-            .and_return(service_response)
-
-          subject
-
-          expect(response).to have_gitlab_http_status(:created)
-          expect(json_response).to include({
-            'id' => project.id,
-            'name' => 'test-import',
-            'name_with_namespace' => "#{user.namespace.name} / test-import",
-            'path' => 'test-import',
-            'path_with_namespace' => "#{user.namespace.path}/test-import"
-          })
-        end
-      end
-
-      context 'when the service returns an error' do
-        it 'fails to schedule the import' do
-          service_response = ServiceResponse.error(
-            message: 'Failed to import',
-            http_status: :bad_request
-          )
-          expect_next(::Import::GitlabProjects::CreateProjectService)
-            .to receive(:execute)
-            .and_return(service_response)
-
-          subject
-
-          expect(response).to have_gitlab_http_status(:bad_request)
-          expect(json_response).to eq({
-            'message' => 'Failed to import'
-          })
-        end
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response).to eq({
+          'message' => 'Failed to import'
+        })
       end
     end
   end
 
   describe 'GET /projects/:id/import' do
-    it 'public project accessible for an unauthenticated user' do
-      project = create(:project, :public)
+    context 'with an unauthenticated user' do
+      it 'returns unauthorized response for public project import status' do
+        project = create(:project, :public)
 
-      get api("/projects/#{project.id}/import", nil)
+        get api("/projects/#{project.id}/import", nil)
 
-      expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
     end
 
     it 'returns the import status' do
@@ -473,18 +498,192 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
       get api("/projects/#{project.id}/import", user)
 
       expect(response).to have_gitlab_http_status(:ok)
-      expect(json_response).to include('import_status' => 'failed',
-                                       'import_error' => 'error')
+      expect(json_response).to include('import_status' => 'failed', 'import_error' => 'error')
+    end
+
+    it 'returns the import status if canceled' do
+      project = create(:project, :import_canceled)
+      project.add_maintainer(user)
+
+      get api("/projects/#{project.id}/import", user)
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(json_response).to include('import_status' => 'canceled')
+    end
+  end
+
+  describe 'POST /projects/:id/import-relation' do
+    subject(:perform_relation_import) { upload_relation_archive(file_upload, workhorse_headers, params) }
+
+    let(:file_upload) { fixture_file_upload(file) }
+
+    let(:params) do
+      {
+        path: 'test-import',
+        relation: 'issues',
+        'file.size' => file_upload.size
+      }
+    end
+
+    before do
+      allow(ImportExportUploader).to receive(:workhorse_upload_path).and_return('/')
+    end
+
+    it_behaves_like 'requires authentication'
+    it_behaves_like 'requires import source to be enabled'
+
+    it 'executes a limited number of queries', :use_clean_rails_redis_caching do
+      control = ActiveRecord::QueryRecorder.new { perform_relation_import }
+
+      expect(control.count).to be <= 111
+    end
+
+    context 'when the project is valid' do
+      context 'and the user is a maintainer' do
+        it 'allows the import' do
+          project = create(
+            :project,
+            name: 'test-import',
+            path: 'test-import'
+          )
+
+          project.add_maintainer(user)
+
+          params[:path] = project.full_path
+
+          perform_relation_import
+
+          expect(response).to have_gitlab_http_status(:created)
+        end
+      end
+    end
+
+    it 'does not schedule a relation import for a project that does not exist' do
+      params[:path] = 'missing/test-import'
+
+      perform_relation_import
+
+      expect(response).to have_gitlab_http_status(:not_found)
+      expect(json_response['message']).to eq('Project not found')
+    end
+
+    it 'does not schedule a relation import if the user has no permission to the project' do
+      project = create(
+        :project,
+        name: 'test-import',
+        path: 'test-import'
+      )
+
+      params[:path] = project.full_path
+
+      perform_relation_import
+
+      expect(response).to have_gitlab_http_status(:forbidden)
+      expect(json_response['message']).to eq('You are not authorized to perform this action')
+    end
+
+    context 'if user uploads no valid file' do
+      let(:file) { 'README.md' }
+
+      it 'does not schedule a relation import' do
+        params[:path] = 'test-import'
+
+        perform_relation_import
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+        expect(json_response['message']['error']).to eq('You need to upload a GitLab project export archive (ending in .gz).')
+      end
+    end
+
+    context 'when request exceeds the rate limit' do
+      before do
+        allow(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).and_return(true)
+      end
+
+      it 'prevents users from importing relations' do
+        perform_relation_import
+
+        expect(response).to have_gitlab_http_status(:too_many_requests)
+        expect(json_response['message']['error']).to eq('This endpoint has been requested too many times. Try again later.')
+      end
+    end
+
+    def upload_relation_archive(file, headers = {}, params = {})
+      workhorse_finalize(
+        api("/projects/import-relation", user),
+        method: :post,
+        file_key: :file,
+        params: params.merge(file: file),
+        headers: headers,
+        send_rewritten_field: true
+      )
+    end
+  end
+
+  describe 'GET /projects/:id/relation-imports' do
+    context 'when the user is unauthorized' do
+      let_it_be(:project) { create(:project, :public) }
+
+      it 'returns unauthorized response' do
+        get api("/projects/#{project.id}/relation-imports", nil)
+
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+    end
+
+    context 'when the user is not associated with the project' do
+      let_it_be(:project) { create(:project, :public) }
+
+      it 'returns unauthorized response' do
+        get api("/projects/#{project.id}/relation-imports", user)
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
+    context 'when the user is a maintainer on the project' do
+      let_it_be_with_reload(:project) do
+        project = create(:project)
+
+        project.relation_import_trackers.create!(relation: 'issues')
+        project.relation_import_trackers.create!(relation: 'merge_requests')
+
+        project
+      end
+
+      let_it_be(:user) { create(:user) }
+
+      before_all do
+        project.add_maintainer(user)
+      end
+
+      it 'returns an array of import statuses' do
+        get api("/projects/#{project.id}/relation-imports", user)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response).to be_an(Array)
+        expect(json_response.count).to eq(2)
+      end
+
+      it 'includes the import status information' do
+        get api("/projects/#{project.id}/relation-imports", user)
+
+        expect(json_response.first).to include(
+          'relation' => 'issues',
+          'status' => 'created'
+        )
+      end
     end
   end
 
   describe 'POST /projects/import/authorize' do
-    subject { post api('/projects/import/authorize', user), headers: workhorse_headers }
+    subject(:authorize_import) { post api('/projects/import/authorize', user), headers: workhorse_headers }
 
     it_behaves_like 'requires authentication'
+    it_behaves_like 'requires import source to be enabled'
 
     it 'authorizes importing project with workhorse header' do
-      subject
+      authorize_import
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(response.media_type.to_s).to eq(Gitlab::Workhorse::INTERNAL_API_CONTENT_TYPE)
@@ -494,7 +693,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
     it 'rejects requests that bypassed gitlab-workhorse' do
       workhorse_headers.delete(Gitlab::Workhorse::INTERNAL_API_REQUEST_HEADER)
 
-      subject
+      authorize_import
 
       expect(response).to have_gitlab_http_status(:forbidden)
     end
@@ -506,7 +705,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
         end
 
         it 'responds with status 200, location of file remote store and object details' do
-          subject
+          authorize_import
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response.media_type.to_s).to eq(Gitlab::Workhorse::INTERNAL_API_CONTENT_TYPE)
@@ -525,7 +724,7 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
         end
 
         it 'handles as a local file' do
-          subject
+          authorize_import
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response.media_type.to_s).to eq(Gitlab::Workhorse::INTERNAL_API_CONTENT_TYPE)
@@ -533,6 +732,29 @@ RSpec.describe API::ProjectImport, :aggregate_failures do
           expect(json_response['RemoteObject']).to be_nil
         end
       end
+    end
+  end
+
+  describe 'POST /projects/import-relation/authorize' do
+    subject(:authorize_import) { post api('/projects/import-relation/authorize', user), headers: workhorse_headers }
+
+    it_behaves_like 'requires authentication'
+    it_behaves_like 'requires import source to be enabled'
+
+    it 'authorizes importing project with workhorse header' do
+      authorize_import
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(response.media_type.to_s).to eq(Gitlab::Workhorse::INTERNAL_API_CONTENT_TYPE)
+      expect(json_response['TempPath']).to eq(ImportExportUploader.workhorse_local_upload_path)
+    end
+
+    it 'rejects requests that bypassed gitlab-workhorse' do
+      workhorse_headers.delete(Gitlab::Workhorse::INTERNAL_API_REQUEST_HEADER)
+
+      authorize_import
+
+      expect(response).to have_gitlab_http_status(:forbidden)
     end
   end
 end

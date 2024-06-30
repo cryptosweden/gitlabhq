@@ -9,14 +9,15 @@ module HamlLint
     class DocumentationLinks < Linter
       include ::HamlLint::LinterRegistry
       include ::Gitlab::Utils::Markdown
+      extend ::RuboCop::AST::NodePattern::Macros
 
       DOCS_DIRECTORY = File.join(File.expand_path('../..', __dir__), 'doc')
 
-      HELP_PATH_LINK_PATTERN = <<~PATTERN
-      (send nil? {:help_page_url :help_page_path} $...)
+      def_node_matcher :help_link, <<~PATTERN
+        (send _ {:help_page_url :help_page_path} $...)
       PATTERN
 
-      MARKDOWN_HEADER = %r{\A\#{1,6}\s+(?<header>.+)\Z}.freeze
+      MARKDOWN_HEADER = %r{\A\#{1,6}\s+(?<header>.+)\Z}
 
       def visit_script(node)
         check(node)
@@ -46,7 +47,9 @@ module HamlLint
       def validate_node(node, match)
         return if match.empty?
 
-        path_to_file = detect_path_to_file(match[:link])
+        link = match[:link]
+
+        path_to_file = detect_path_to_file(link)
 
         unless File.file?(path_to_file)
           record_lint(node, "help_page_path points to the unknown location: #{path_to_file}")
@@ -56,10 +59,12 @@ module HamlLint
         unless correct_anchor?(path_to_file, match[:anchor])
           record_lint(node, "anchor (#{match[:anchor]}) is missing in: #{path_to_file}")
         end
+
+        record_lint(node, "remove .md extension from the link: #{link}") if link.end_with?('.md')
       end
 
       def extract_link_and_anchor(ast_tree)
-        link_match, attributes_match = ::RuboCop::NodePattern.new(HELP_PATH_LINK_PATTERN).match(ast_tree)
+        link_match, attributes_match = help_link(ast_tree)
 
         { link: fetch_link(link_match), anchor: fetch_anchor(attributes_match) }.compact
       end
@@ -68,7 +73,15 @@ module HamlLint
         # Sometimes links are provided via data attributes in html tag
         return node.parsed_attributes.syntax_tree if node.type == :tag
 
-        node.parsed_script.syntax_tree
+        parse_script(node).syntax_tree
+      end
+
+      def parse_script(node)
+        # It's a workaround for cases for scripts ending with "do"
+        # For some reason they don't parse correctly
+        code = node.script.delete_suffix(' do')
+
+        HamlLint::ParsedRuby.new(HamlLint::RubyParser.new.parse(code))
       end
 
       def detect_path_to_file(link)

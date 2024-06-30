@@ -4,10 +4,10 @@ module Ci
   class RetryJobService < ::BaseService
     include Gitlab::Utils::StrongMemoize
 
-    def execute(job)
+    def execute(job, variables: [])
       if job.retryable?
         job.ensure_scheduling_type!
-        new_job = retry_job(job)
+        new_job = retry_job(job, variables: variables)
 
         ServiceResponse.success(payload: { job: new_job })
       else
@@ -19,29 +19,40 @@ module Ci
     end
 
     # rubocop: disable CodeReuse/ActiveRecord
-    def clone!(job)
+    def clone!(job, variables: [], enqueue_if_actionable: false, start_pipeline: false)
       # Cloning a job requires a strict type check to ensure
       # the attributes being used for the clone are taken straight
       # from the model and not overridden by other abstractions.
-      raise TypeError unless job.instance_of?(Ci::Build)
+      raise TypeError unless job.instance_of?(Ci::Build) || job.instance_of?(Ci::Bridge)
 
       check_access!(job)
 
-      new_job = clone_job(job)
+      new_job = job.clone(current_user: current_user, new_job_variables_attributes: variables)
+      if enqueue_if_actionable && new_job.action?
+        new_job.set_enqueue_immediately!
+      end
+
+      start_pipeline_proc = -> { start_pipeline(job, new_job) } if start_pipeline
 
       new_job.run_after_commit do
-        ::Ci::CopyCrossDatabaseAssociationsService.new.execute(job, new_job)
+        start_pipeline_proc&.call
 
-        ::Deployments::CreateForBuildService.new.execute(new_job)
+        ::Ci::CopyCrossDatabaseAssociationsService.new.execute(job, new_job)
 
         ::MergeRequests::AddTodoWhenBuildFailsService
           .new(project: project)
           .close(new_job)
       end
 
-      ::Ci::Pipelines::AddJobService.new(job.pipeline).execute!(new_job) do |processable|
-        BulkInsertableAssociations.with_bulk_insert do
-          processable.save!
+      # This method is called on the `drop!` state transition for Ci::Build which runs the retry in the
+      # `after_transition` block within a transaction.
+      # Ci::Pipelines::AddJobService then obtains the exclusive lease inside the same transaction.
+      # See issue: https://gitlab.com/gitlab-org/gitlab/-/issues/441525
+      Gitlab::ExclusiveLease.skipping_transaction_check do
+        ::Ci::Pipelines::AddJobService.new(job.pipeline).execute!(new_job) do |processable|
+          BulkInsertableAssociations.with_bulk_insert do
+            processable.save!
+          end
         end
       end
 
@@ -53,13 +64,15 @@ module Ci
 
     private
 
-    def retry_job(job)
-      clone!(job).tap do |new_job|
-        check_assignable_runners!(new_job)
+    def check_assignable_runners!(job); end
+
+    def retry_job(job, variables: [])
+      clone!(job, variables: variables, enqueue_if_actionable: true, start_pipeline: true).tap do |new_job|
+        check_assignable_runners!(new_job) if new_job.is_a?(Ci::Build)
+
         next if new_job.failed?
 
-        Gitlab::OptimisticLocking.retry_lock(new_job, name: 'retry_build', &:enqueue)
-        AfterRequeueJobService.new(project, current_user).execute(job)
+        ResetSkippedJobsService.new(project, current_user).execute(job)
       end
     end
 
@@ -69,24 +82,9 @@ module Ci
       end
     end
 
-    def check_assignable_runners!(job); end
-
-    def clone_job(job)
-      project.builds.new(job_attributes(job))
-    end
-
-    def job_attributes(job)
-      attributes = job.class.clone_accessors.to_h do |attribute|
-        [attribute, job.public_send(attribute)] # rubocop:disable GitlabSecurity/PublicSend
-      end
-
-      if job.persisted_environment.present?
-        attributes[:metadata_attributes] ||= {}
-        attributes[:metadata_attributes][:expanded_environment_name] = job.expanded_environment_name
-      end
-
-      attributes[:user] = current_user
-      attributes
+    def start_pipeline(job, new_job)
+      Ci::PipelineCreation::StartPipelineService.new(job.pipeline).execute
+      new_job.reset
     end
   end
 end

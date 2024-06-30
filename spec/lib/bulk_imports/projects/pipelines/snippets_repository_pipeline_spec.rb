@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Projects::Pipelines::SnippetsRepositoryPipeline do
+RSpec.describe BulkImports::Projects::Pipelines::SnippetsRepositoryPipeline, feature_category: :importers do
   let(:user) { create(:user) }
   let(:project) { create(:project) }
   let(:bulk_import) { create(:bulk_import, user: user) }
   let(:bulk_import_configuration) { create(:bulk_import_configuration, bulk_import: bulk_import) }
-  let!(:matched_snippet) { create(:snippet, project: project, created_at: "1981-12-13T23:59:59Z")}
+  let!(:matched_snippet) { create(:snippet, project: project, created_at: "1981-12-13T23:59:59Z") }
   let(:entity) do
     create(
       :bulk_import_entity,
@@ -15,7 +15,7 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsRepositoryPipeline do
       project: project,
       bulk_import: bulk_import_configuration.bulk_import,
       source_full_path: 'source/full/path',
-      destination_name: 'My Destination Project',
+      destination_slug: 'My-Destination-Project',
       destination_namespace: project.full_path
     )
   end
@@ -45,6 +45,10 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsRepositoryPipeline do
 
   let(:extracted_data) { BulkImports::Pipeline::ExtractedData.new(data: data, page_info: page_info) }
 
+  before do
+    allow(pipeline).to receive(:set_source_objects_counter)
+  end
+
   describe 'extractor' do
     it 'is a GraphqlExtractor with Graphql::GetSnippetRepositoryQuery' do
       expect(described_class.get_extractor).to eq(
@@ -55,8 +59,8 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsRepositoryPipeline do
     end
   end
 
-  describe '#run' do
-    let(:validation_response) { double(Hash, 'error?': false) }
+  describe '#run', :clean_gitlab_redis_shared_state do
+    let(:validation_response) { double(Hash, error?: false) }
 
     before do
       allow_next_instance_of(BulkImports::Common::Extractors::GraphqlExtractor) do |extractor|
@@ -110,6 +114,18 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsRepositoryPipeline do
             .to change { Gitlab::GlRepository::SNIPPET.repository_for(matched_snippet).exists? }.to true
         end
 
+        it 'skips already cached snippets' do
+          pipeline.run
+
+          data.first.tap { |d| d['createdAt'] = matched_snippet.created_at.to_s } # Reset data to original state
+
+          expect(pipeline).not_to receive(:load)
+
+          pipeline.run
+
+          expect(Gitlab::GlRepository::SNIPPET.repository_for(matched_snippet).exists?).to be true
+        end
+
         it 'updates snippets statistics' do
           allow_next_instance_of(Repository) do |repository|
             allow(repository).to receive(:fetch_as_mirror)
@@ -135,13 +151,28 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsRepositoryPipeline do
       end
 
       context 'when url is invalid' do
-        let(:http_url_to_repo) { 'http://0.0.0.0' }
+        context 'when not a real URL' do
+          let(:http_url_to_repo) { 'http://0.0.0.0' }
 
-        it_behaves_like 'skippable snippet'
+          it_behaves_like 'skippable snippet'
+        end
+
+        context 'when scheme is blocked' do
+          let(:http_url_to_repo) { 'file://example.com/foo/bar/snippets/42.git' }
+
+          it_behaves_like 'skippable snippet'
+
+          it 'logs the failure' do
+            pipeline.run
+
+            expect(tracker.entity.failures.first).to be_present
+            expect(tracker.entity.failures.first.exception_message).to eq('Only allowed schemes are http, https')
+          end
+        end
       end
 
       context 'when snippet is invalid' do
-        let(:validation_response) { double(Hash, 'error?': true) }
+        let(:validation_response) { double(Hash, error?: true) }
 
         before do
           allow_next_instance_of(Repository) do |repository|

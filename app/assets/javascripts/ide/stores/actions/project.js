@@ -1,8 +1,8 @@
 import { escape } from 'lodash';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { __, sprintf } from '~/locale';
 import { logError } from '~/lib/logger';
-import api from '../../../api';
+import api from '~/api';
 import service from '../../services';
 import * as types from '../mutation_types';
 
@@ -11,7 +11,7 @@ const ERROR_LOADING_PROJECT = __('Error loading project data. Please try again.'
 const errorFetchingData = (e) => {
   logError(ERROR_LOADING_PROJECT, e);
 
-  createFlash({
+  createAlert({
     message: ERROR_LOADING_PROJECT,
     fadeTransition: false,
     addBodyClass: true,
@@ -51,7 +51,7 @@ export const refreshLastCommitData = ({ commit }, { projectId, branchId } = {}) 
       });
     })
     .catch((e) => {
-      createFlash({
+      createAlert({
         message: __('Error loading last commit.'),
         fadeTransition: false,
         addBodyClass: true,
@@ -133,7 +133,8 @@ export const loadBranch = ({ dispatch, getters, state }, { projectId, branchId }
 
   if (currentProject?.branches?.[branchId]) {
     return Promise.resolve();
-  } else if (getters.emptyRepo) {
+  }
+  if (getters.emptyRepo) {
     return dispatch('loadEmptyBranch', { projectId, branchId });
   }
 

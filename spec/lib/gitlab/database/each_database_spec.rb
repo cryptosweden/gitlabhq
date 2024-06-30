@@ -3,10 +3,11 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::Database::EachDatabase do
-  describe '.each_database_connection', :add_ci_connection do
+  describe '.each_connection', :add_ci_connection do
+    let(:database_base_models) { { main: ActiveRecord::Base, ci: Ci::ApplicationRecord }.with_indifferent_access }
+
     before do
-      allow(Gitlab::Database).to receive(:database_base_models)
-        .and_return({ main: ActiveRecord::Base, ci: Ci::ApplicationRecord }.with_indifferent_access)
+      allow(Gitlab::Database).to receive(:database_base_models_with_gitlab_shared).and_return(database_base_models)
     end
 
     it 'yields each connection after connecting SharedModel' do
@@ -16,7 +17,7 @@ RSpec.describe Gitlab::Database::EachDatabase do
       expect(Gitlab::Database::SharedModel).to receive(:using_connection)
         .with(Ci::ApplicationRecord.connection).ordered.and_yield
 
-      expect { |b| described_class.each_database_connection(&b) }
+      expect { |b| described_class.each_connection(&b) }
         .to yield_successive_args(
           [ActiveRecord::Base.connection, 'main'],
           [Ci::ApplicationRecord.connection, 'ci']
@@ -28,7 +29,7 @@ RSpec.describe Gitlab::Database::EachDatabase do
         expect(Gitlab::Database::SharedModel).to receive(:using_connection)
           .with(Ci::ApplicationRecord.connection).ordered.and_yield
 
-        expect { |b| described_class.each_database_connection(only: 'ci', &b) }
+        expect { |b| described_class.each_connection(only: 'ci', &b) }
           .to yield_successive_args([Ci::ApplicationRecord.connection, 'ci'])
       end
 
@@ -37,7 +38,7 @@ RSpec.describe Gitlab::Database::EachDatabase do
           expect(Gitlab::Database::SharedModel).to receive(:using_connection)
             .with(Ci::ApplicationRecord.connection).ordered.and_yield
 
-          expect { |b| described_class.each_database_connection(only: :ci, &b) }
+          expect { |b| described_class.each_connection(only: :ci, &b) }
             .to yield_successive_args([Ci::ApplicationRecord.connection, 'ci'])
         end
       end
@@ -45,7 +46,7 @@ RSpec.describe Gitlab::Database::EachDatabase do
       context 'when the selected names are invalid' do
         it 'does not yield any connections' do
           expect do |b|
-            described_class.each_database_connection(only: :notvalid, &b)
+            described_class.each_connection(only: :notvalid, &b)
           rescue ArgumentError => e
             expect(e.message).to match(/notvalid is not a valid database name/)
           end.not_to yield_control
@@ -53,9 +54,32 @@ RSpec.describe Gitlab::Database::EachDatabase do
 
         it 'raises an error' do
           expect do
-            described_class.each_database_connection(only: :notvalid) {}
+            described_class.each_connection(only: :notvalid) {}
           end.to raise_error(ArgumentError, /notvalid is not a valid database name/)
         end
+      end
+    end
+
+    context 'when shared connections are not included' do
+      def clear_memoization(key)
+        Gitlab::Database.remove_instance_variable(key) if Gitlab::Database.instance_variable_defined?(key)
+      end
+
+      before do
+        allow(Gitlab::Database).to receive(:database_base_models).and_return(database_base_models)
+
+        # Clear the memoization because the return of Gitlab::Database#schemas_to_base_models depends stubbed value
+        clear_memoization(:@schemas_to_base_models)
+      end
+
+      it 'only yields the unshared connections' do
+        # if this is `non-main` connection make it shared with `main`
+        allow(Gitlab::Database).to receive(:db_config_share_with) do |db_config|
+          db_config.name != 'main' ? 'main' : nil
+        end
+
+        expect { |b| described_class.each_connection(include_shared: false, &b) }
+          .to yield_successive_args([ActiveRecord::Base.connection, 'main'])
       end
     end
   end
@@ -66,17 +90,18 @@ RSpec.describe Gitlab::Database::EachDatabase do
       let(:model2) { Class.new(Gitlab::Database::SharedModel) }
 
       before do
-        allow(Gitlab::Database).to receive(:database_base_models)
+        allow(Gitlab::Database).to receive(:database_base_models_with_gitlab_shared)
           .and_return({ main: ActiveRecord::Base, ci: Ci::ApplicationRecord }.with_indifferent_access)
       end
 
       it 'yields each model with SharedModel connected to each database connection' do
-        expect_yielded_models([model1, model2], [
-          { model: model1, connection: ActiveRecord::Base.connection, name: 'main' },
-          { model: model1, connection: Ci::ApplicationRecord.connection, name: 'ci' },
-          { model: model2, connection: ActiveRecord::Base.connection, name: 'main' },
-          { model: model2, connection: Ci::ApplicationRecord.connection, name: 'ci' }
-        ])
+        expect_yielded_models([model1, model2],
+          [
+            { model: model1, connection: ActiveRecord::Base.connection, name: 'main' },
+            { model: model1, connection: Ci::ApplicationRecord.connection, name: 'ci' },
+            { model: model2, connection: ActiveRecord::Base.connection, name: 'main' },
+            { model: model2, connection: Ci::ApplicationRecord.connection, name: 'ci' }
+          ])
       end
 
       context 'when the model limits connection names' do
@@ -86,10 +111,11 @@ RSpec.describe Gitlab::Database::EachDatabase do
         end
 
         it 'only yields the model with SharedModel connected to the limited connections' do
-          expect_yielded_models([model1, model2], [
-            { model: model1, connection: ActiveRecord::Base.connection, name: 'main' },
-            { model: model2, connection: Ci::ApplicationRecord.connection, name: 'ci' }
-          ])
+          expect_yielded_models([model1, model2],
+            [
+              { model: model1, connection: ActiveRecord::Base.connection, name: 'main' },
+              { model: model2, connection: Ci::ApplicationRecord.connection, name: 'ci' }
+            ])
         end
       end
     end
@@ -110,10 +136,11 @@ RSpec.describe Gitlab::Database::EachDatabase do
       end
 
       it 'yields each model after connecting SharedModel' do
-        expect_yielded_models([main_model, ci_model], [
-          { model: main_model, connection: main_connection, name: 'main' },
-          { model: ci_model, connection: ci_connection, name: 'ci' }
-        ])
+        expect_yielded_models([main_model, ci_model],
+          [
+            { model: main_model, connection: main_connection, name: 'main' },
+            { model: ci_model, connection: ci_connection, name: 'ci' }
+          ])
       end
     end
 
@@ -123,7 +150,7 @@ RSpec.describe Gitlab::Database::EachDatabase do
       let(:ci_model) { Class.new(Ci::ApplicationRecord) }
 
       before do
-        allow(Gitlab::Database).to receive(:database_base_models)
+        allow(Gitlab::Database).to receive(:database_base_models_with_gitlab_shared)
           .and_return({ main: ActiveRecord::Base, ci: Ci::ApplicationRecord }.with_indifferent_access)
 
         allow(main_model).to receive_message_chain('connection_db_config.name').and_return('main')
@@ -132,21 +159,23 @@ RSpec.describe Gitlab::Database::EachDatabase do
 
       context 'when a single name is passed in' do
         it 'yields models only connected to the given database' do
-          expect_yielded_models([main_model, ci_model, shared_model], [
-            { model: ci_model, connection: Ci::ApplicationRecord.connection, name: 'ci' },
-            { model: shared_model, connection: Ci::ApplicationRecord.connection, name: 'ci' }
-          ], only_on: 'ci')
+          expect_yielded_models([main_model, ci_model, shared_model],
+            [
+              { model: ci_model, connection: Ci::ApplicationRecord.connection, name: 'ci' },
+              { model: shared_model, connection: Ci::ApplicationRecord.connection, name: 'ci' }
+            ], only_on: 'ci')
         end
       end
 
       context 'when a list of names are passed in' do
         it 'yields models only connected to the given databases' do
-          expect_yielded_models([main_model, ci_model, shared_model], [
-            { model: main_model, connection: ActiveRecord::Base.connection, name: 'main' },
-            { model: ci_model, connection: Ci::ApplicationRecord.connection, name: 'ci' },
-            { model: shared_model, connection: ActiveRecord::Base.connection, name: 'main' },
-            { model: shared_model, connection: Ci::ApplicationRecord.connection, name: 'ci' }
-          ], only_on: %i[main ci])
+          expect_yielded_models([main_model, ci_model, shared_model],
+            [
+              { model: main_model, connection: ActiveRecord::Base.connection, name: 'main' },
+              { model: ci_model, connection: Ci::ApplicationRecord.connection, name: 'ci' },
+              { model: shared_model, connection: ActiveRecord::Base.connection, name: 'main' },
+              { model: shared_model, connection: Ci::ApplicationRecord.connection, name: 'ci' }
+            ], only_on: %i[main ci])
         end
       end
     end

@@ -3,54 +3,97 @@
 class SearchController < ApplicationController
   include ControllerWithCrossProjectAccessCheck
   include SearchHelper
-  include RedisTracking
+  include ProductAnalyticsTracking
+  include Gitlab::InternalEventsTracking
   include SearchRateLimitable
 
-  RESCUE_FROM_TIMEOUT_ACTIONS = [:count, :show, :autocomplete].freeze
+  RESCUE_FROM_TIMEOUT_ACTIONS = [:count, :show, :autocomplete, :aggregations].freeze
+  CODE_SEARCH_LITERALS = %w[blob: extension: path: filename:].freeze
 
-  track_redis_hll_event :show, name: 'i_search_total'
+  track_event :show,
+    name: 'i_search_total',
+    label: 'redis_hll_counters.search.search_total_unique_counts_monthly',
+    action: 'executed',
+    destinations: [:redis_hll, :snowplow]
+
+  track_event :autocomplete,
+    name: 'i_search_total',
+    label: 'redis_hll_counters.search.search_total_unique_counts_monthly',
+    action: 'autocomplete',
+    destinations: [:redis_hll, :snowplow]
+
+  def self.search_rate_limited_endpoints
+    %i[show count autocomplete]
+  end
 
   around_action :allow_gitaly_ref_name_caching
 
-  before_action :block_anonymous_global_searches, :check_scope_global_search_enabled, except: :opensearch
+  before_action :block_all_anonymous_searches,
+    :block_anonymous_global_searches,
+    :check_scope_global_search_enabled,
+    except: :opensearch
   skip_before_action :authenticate_user!
+
   requires_cross_project_access if: -> do
     search_term_present = params[:search].present? || params[:term].present?
     search_term_present && !params[:project_id].present?
   end
-  before_action :check_search_rate_limit!, only: [:show, :count, :autocomplete]
+  before_action :check_search_rate_limit!, only: search_rate_limited_endpoints
+
+  before_action only: :show do
+    update_scope_for_code_search
+  end
 
   rescue_from ActiveRecord::QueryCanceled, with: :render_timeout
 
   layout 'search'
 
   feature_category :global_search
-  urgency :high, [:opensearch]
-  urgency :low, [:count]
+  urgency :low
 
   def show
     @project = search_service.project
     @group = search_service.group
+    @search_service_presenter = Gitlab::View::Presenter::Factory.new(search_service, current_user: current_user).fabricate!
 
-    return if params[:search].blank?
-
-    return unless search_term_valid?
+    return unless search_term_valid? && search_type_valid?
 
     return if check_single_commit_result?
 
     @search_term = params[:search]
     @sort = params[:sort] || default_sort
 
-    @search_service = Gitlab::View::Presenter::Factory.new(search_service, current_user: current_user).fabricate!
-    @scope = @search_service.scope
-    @without_count = @search_service.without_count?
-    @show_snippets = @search_service.show_snippets?
-    @search_results = @search_service.search_results
-    @search_objects = @search_service.search_objects
-    @search_highlight = @search_service.search_highlight
-    @aggregations = @search_service.search_aggregations
+    @search_level = @search_service_presenter.level
+    @search_type = search_type
+
+    @global_search_duration_s = Benchmark.realtime do
+      @scope = @search_service_presenter.scope
+      @search_results = @search_service_presenter.search_results
+      @search_objects = @search_service_presenter.search_objects
+      @search_highlight = @search_service_presenter.search_highlight
+    end
+
+    return if @search_results.respond_to?(:failed?) && @search_results.failed?(@scope)
+
+    Gitlab::Metrics::GlobalSearchSlis.record_apdex(
+      elapsed: @global_search_duration_s,
+      search_type: @search_type,
+      search_level: @search_level,
+      search_scope: @scope
+    )
 
     increment_search_counters
+  ensure
+    if @search_type
+      # If we raise an error somewhere in the @global_search_duration_s benchmark block, we will end up here
+      # with a 200 status code, but an empty @global_search_duration_s.
+      Gitlab::Metrics::GlobalSearchSlis.record_error_rate(
+        error: @global_search_duration_s.nil? || (status < 200 || status >= 400),
+        search_type: @search_type,
+        search_level: @search_level,
+        search_scope: @scope
+      )
+    end
   end
 
   def count
@@ -58,35 +101,69 @@ class SearchController < ApplicationController
 
     scope = search_service.scope
 
+    @search_level = search_service.level
+    @search_type = search_type
+
     count = 0
-    ApplicationRecord.with_fast_read_statement_timeout do
-      count = search_service.search_results.formatted_count(scope)
+    @global_search_duration_s = Benchmark.realtime do
+      count = if @search_type == 'basic'
+                ApplicationRecord.with_fast_read_statement_timeout do
+                  search_service.search_results.formatted_count(scope)
+                end
+              else
+                search_service.search_results.formatted_count(scope)
+              end
+
+      # Users switching tabs will keep fetching the same tab counts so it's a
+      # good idea to cache in their browser just for a short time. They can still
+      # clear cache if they are seeing an incorrect count but inaccurate count is
+      # not such a bad thing.
+      expires_in 1.minute
+
+      render json: { count: count }
     end
-
-    # Users switching tabs will keep fetching the same tab counts so it's a
-    # good idea to cache in their browser just for a short time. They can still
-    # clear cache if they are seeing an incorrect count but inaccurate count is
-    # not such a bad thing.
-    expires_in 1.minute
-
-    render json: { count: count }
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
+  def settings
+    return render(json: []) unless current_user
+
+    project_id = params.require(:project_id)
+    project = Project.find_by(id: project_id) # rubocop: disable CodeReuse/ActiveRecord -- Using `find_by` as `find` would raise 404s
+
+    if project && current_user.can?(:admin_project, project)
+      render json: Search::Settings.new.for_project(project)
+    else
+      render json: []
+    end
+  end
+
   def autocomplete
-    term = params[:term]
+    term = params.require(:term)
 
     @project = search_service.project
     @ref = params[:project_ref] if params[:project_ref].present?
+    @filter = params[:filter]
+    @scope = params[:scope]
 
-    render json: search_autocomplete_opts(term).to_json
+    # Cache the response on the frontend
+    expires_in 1.minute
+
+    render json: Gitlab::Json.dump(search_autocomplete_opts(term, filter: @filter, scope: @scope))
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def opensearch
   end
 
   private
+
+  def update_scope_for_code_search
+    return if params[:scope] == 'blobs'
+    return unless params[:search].present?
+
+    if CODE_SEARCH_LITERALS.any? { |literal| literal.in? params[:search] }
+      redirect_to search_path(safe_params.except(:controller, :action).merge(scope: 'blobs'))
+    end
+  end
 
   # overridden in EE
   def default_sort
@@ -94,6 +171,8 @@ class SearchController < ApplicationController
   end
 
   def search_term_valid?
+    return false if params[:search].blank?
+
     unless search_service.valid_query_length?
       flash[:alert] = t('errors.messages.search_chars_too_long', count: Gitlab::Search::Params::SEARCH_CHAR_LIMIT)
       return false
@@ -107,11 +186,21 @@ class SearchController < ApplicationController
     true
   end
 
+  def search_type_valid?
+    search_type_errors = search_service.search_type_errors
+
+    if search_type_errors
+      flash[:alert] = search_type_errors
+      return false
+    end
+
+    true
+  end
+
   def check_single_commit_result?
     return false if params[:force_search_results]
     return false unless @project.present?
-    # download_code project policy grants user the read_commit ability
-    return false unless Ability.allowed?(current_user, :download_code, @project)
+    return false unless Ability.allowed?(current_user, :read_code, @project)
 
     query = params[:search].strip.downcase
     return false unless Commit.valid_hash?(query)
@@ -120,18 +209,18 @@ class SearchController < ApplicationController
     return false unless commit.present?
 
     link = search_path(safe_params.merge(force_search_results: true))
-    flash[:notice] = html_escape(_("You have been redirected to the only result; see the %{a_start}search results%{a_end} instead.")) % { a_start: "<a href=\"#{link}\"><u>".html_safe, a_end: '</u></a>'.html_safe }
+    flash[:notice] = ERB::Util.html_escape(_("You have been redirected to the only result; see the %{a_start}search results%{a_end} instead.")) % { a_start: "<a href=\"#{link}\"><u>".html_safe, a_end: '</u></a>'.html_safe }
     redirect_to project_commit_path(@project, commit)
 
     true
   end
 
   def increment_search_counters
-    Gitlab::UsageDataCounters::SearchCounter.count(:all_searches)
+    track_internal_event('perform_search', user: current_user)
 
     return if params[:nav_source] != 'navbar'
 
-    Gitlab::UsageDataCounters::SearchCounter.count(:navbar_searches)
+    track_internal_event('perform_navbar_search', user: current_user)
   end
 
   def append_info_to_payload(payload)
@@ -139,18 +228,28 @@ class SearchController < ApplicationController
 
     # Merging to :metadata will ensure these are logged as top level keys
     payload[:metadata] ||= {}
-    payload[:metadata]['meta.search.group_id'] = params[:group_id]
-    payload[:metadata]['meta.search.project_id'] = params[:project_id]
-    payload[:metadata]['meta.search.scope'] = params[:scope] || @scope
-    payload[:metadata]['meta.search.filters.confidential'] = params[:confidential]
-    payload[:metadata]['meta.search.filters.state'] = params[:state]
-    payload[:metadata]['meta.search.force_search_results'] = params[:force_search_results]
-    payload[:metadata]['meta.search.project_ids'] = params[:project_ids]
-    payload[:metadata]['meta.search.search_level'] = params[:search_level]
+    payload[:metadata].merge!(payload_metadata)
 
     if search_service.abuse_detected?
       payload[:metadata]['abuse.confidence'] = Gitlab::Abuse.confidence(:certain)
       payload[:metadata]['abuse.messages'] = search_service.abuse_messages
+    end
+  end
+
+  def payload_metadata
+    {}.tap do |metadata|
+      metadata['meta.search.group_id'] = params[:group_id]
+      metadata['meta.search.project_id'] = params[:project_id]
+      metadata['meta.search.scope'] = params[:scope] || @scope
+      metadata['meta.search.page'] = params[:page] || '1'
+      metadata['meta.search.filters.confidential'] = params[:confidential]
+      metadata['meta.search.filters.state'] = params[:state]
+      metadata['meta.search.force_search_results'] = params[:force_search_results]
+      metadata['meta.search.project_ids'] = params[:project_ids]
+      metadata['meta.search.filters.language'] = params[:language]
+      metadata['meta.search.type'] = @search_type if @search_type.present?
+      metadata['meta.search.level'] = @search_level if @search_level.present?
+      metadata[:global_search_duration_s] = @global_search_duration_s if @global_search_duration_s.present?
     end
   end
 
@@ -164,25 +263,18 @@ class SearchController < ApplicationController
     redirect_to new_user_session_path, alert: _('You must be logged in to search across all of GitLab')
   end
 
+  def block_all_anonymous_searches
+    return if current_user || ::Feature.enabled?(:allow_anonymous_searches, type: :ops)
+
+    store_location_for(:user, request.fullpath)
+
+    redirect_to new_user_session_path, alert: _('You must be logged in to search')
+  end
+
   def check_scope_global_search_enabled
     return unless search_service.global_search?
 
-    search_allowed = case params[:scope]
-                     when 'blobs'
-                       Feature.enabled?(:global_search_code_tab, current_user, type: :ops, default_enabled: true)
-                     when 'commits'
-                       Feature.enabled?(:global_search_commits_tab, current_user, type: :ops, default_enabled: true)
-                     when 'issues'
-                       Feature.enabled?(:global_search_issues_tab, current_user, type: :ops, default_enabled: true)
-                     when 'merge_requests'
-                       Feature.enabled?(:global_search_merge_requests_tab, current_user, type: :ops, default_enabled: true)
-                     when 'wiki_blobs'
-                       Feature.enabled?(:global_search_wiki_tab, current_user, type: :ops, default_enabled: true)
-                     else
-                       true
-                     end
-
-    return if search_allowed
+    return if search_service.global_search_enabled_for_scope?
 
     redirect_to search_path, alert: _('Global Search is disabled for this scope')
   end
@@ -197,11 +289,23 @@ class SearchController < ApplicationController
     case action_name.to_sym
     when :count
       render json: {}, status: :request_timeout
-    when :autocomplete
+    when :autocomplete, :aggregations
       render json: [], status: :request_timeout
     else
       render status: :request_timeout
     end
+  end
+
+  def tracking_namespace_source
+    search_service.project&.namespace || search_service.group
+  end
+
+  def tracking_project_source
+    search_service.project
+  end
+
+  def search_type
+    search_service.search_type
   end
 end
 

@@ -1,10 +1,10 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# Guidelines for shell commands in the GitLab codebase
+# Shell command development guidelines
 
 This document contains guidelines for working with processes and files in the GitLab codebase.
 These guidelines are meant to make your code more reliable _and_ secure.
@@ -17,7 +17,7 @@ These guidelines are meant to make your code more reliable _and_ secure.
 
 ## Use File and FileUtils instead of shell commands
 
-Sometimes we invoke basic Unix commands via the shell when there is also a Ruby API for doing it. Use the Ruby API if it exists. <http://www.ruby-doc.org/stdlib-2.0.0/libdoc/fileutils/rdoc/FileUtils.html#module-FileUtils-label-Module+Functions>
+Sometimes we invoke basic Unix commands via the shell when there is also a Ruby API for doing it. Use [the Ruby API](https://ruby-doc.org/stdlib-2.0.0/libdoc/fileutils/rdoc/FileUtils.html#module-FileUtils-label-Module+Functions) if it exists.
 
 ```ruby
 # Wrong
@@ -71,6 +71,8 @@ FileUtils.touch myfile
 
 This coding style could have prevented CVE-2013-4546.
 
+See also <https://gitlab.com/gitlab-org/gitlab/-/merge_requests/93030>, and <https://starlabs.sg/blog/2022/07-gitlab-project-import-rce-analysis-cve-2022-2185/> for another example.
+
 ## Separate options from arguments with --
 
 Make the difference between options and arguments clear to the argument parsers of system commands with `--`. This is supported by many but not all Unix commands.
@@ -86,7 +88,7 @@ cat: illegal option -- l
 usage: cat [-benstuv] [file ...]
 ```
 
-In the example above, the argument parser of `cat` assumes that `-l` is an option. The solution in the example above is to make it clear to `cat` that `-l` is really an argument, not an option. Many Unix command line tools follow the convention of separating options from arguments with `--`.
+In the example above, the argument parser of `cat` assumes that `-l` is an option. The solution in the example above is to make it clear to `cat` that `-l` is really an argument, not an option. Many Unix command-line tools follow the convention of separating options from arguments with `--`.
 
 ```shell
 # Example (continued)

@@ -1,4 +1,5 @@
 import { languages } from 'monaco-editor';
+import { setDiagnosticsOptions as yamlDiagnosticsOptions } from 'monaco-yaml';
 import {
   isTextFile,
   registerLanguages,
@@ -7,7 +8,6 @@ import {
   trimTrailingWhitespace,
   getPathParents,
   getPathParent,
-  readFileAsDataURL,
   addNumericSuffix,
 } from '~/ide/utils';
 
@@ -46,7 +46,7 @@ describe('WebIDE utils', () => {
           content: 'SELECT "éêė" from tablename',
           mimeType: 'application/sql',
         }),
-      ).toBeFalsy();
+      ).toBe(false);
     });
 
     it('returns true for ASCII only content for unknown types', () => {
@@ -56,7 +56,7 @@ describe('WebIDE utils', () => {
           content: 'plain text',
           mimeType: 'application/x-new-type',
         }),
-      ).toBeTruthy();
+      ).toBe(true);
     });
 
     it('returns false for non-ASCII content for unknown types', () => {
@@ -66,7 +66,7 @@ describe('WebIDE utils', () => {
           content: '{"éêė":"value"}',
           mimeType: 'application/octet-stream',
         }),
-      ).toBeFalsy();
+      ).toBe(false);
     });
 
     it.each`
@@ -203,7 +203,6 @@ describe('WebIDE utils', () => {
       };
 
       jest.spyOn(languages.json.jsonDefaults, 'setDiagnosticsOptions');
-      jest.spyOn(languages.yaml.yamlDefaults, 'setDiagnosticsOptions');
     });
 
     it('registers the given schemas with monaco for both json and yaml languages', () => {
@@ -212,7 +211,7 @@ describe('WebIDE utils', () => {
       expect(languages.json.jsonDefaults.setDiagnosticsOptions).toHaveBeenCalledWith(
         expect.objectContaining({ schemas: [schema] }),
       );
-      expect(languages.yaml.yamlDefaults.setDiagnosticsOptions).toHaveBeenCalledWith(
+      expect(yamlDiagnosticsOptions).toHaveBeenCalledWith(
         expect.objectContaining({ schemas: [schema] }),
       );
     });
@@ -264,16 +263,6 @@ describe('WebIDE utils', () => {
       ${'path with/spaces to/something.md'} | ${'path with/spaces to'}
     `('gets the immediate parent for path: $path', ({ path, parents }) => {
       expect(getPathParent(path)).toEqual(parents);
-    });
-  });
-
-  describe('readFileAsDataURL', () => {
-    it('reads a file and returns its output as a data url', () => {
-      const file = new File(['foo'], 'foo.png', { type: 'image/png' });
-
-      return readFileAsDataURL(file).then((contents) => {
-        expect(contents).toBe('data:image/png;base64,Zm9v');
-      });
     });
   });
 

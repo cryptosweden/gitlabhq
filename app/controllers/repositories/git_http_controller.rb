@@ -8,6 +8,7 @@ module Repositories
     prepend_before_action :deny_head_requests, only: [:info_refs]
 
     rescue_from Gitlab::GitAccess::ForbiddenError, with: :render_403_with_exception
+    rescue_from JWT::DecodeError, with: :render_403_with_exception
     rescue_from Gitlab::GitAccess::NotFoundError, with: :render_404_with_exception
     rescue_from Gitlab::GitAccessProject::CreationError, with: :render_422_with_exception
     rescue_from Gitlab::GitAccess::TimeoutError, with: :render_503_with_exception
@@ -19,6 +20,7 @@ module Repositories
     # GET /foo/bar.git/info/refs?service=git-receive-pack (git push)
     def info_refs
       log_user_activity if upload_pack?
+      log_user_activity if receive_pack? && Feature.enabled?(:log_user_git_push_activity)
 
       render_ok
     end
@@ -35,6 +37,11 @@ module Repositories
       render_ok
     end
 
+    # POST /foo/bar.git/ssh-upload-pack" (git pull via SSH)
+    def ssh_upload_pack
+      render plain: "Not found", status: :not_found
+    end
+
     private
 
     def deny_head_requests
@@ -49,9 +56,15 @@ module Repositories
       git_command == 'git-upload-pack'
     end
 
+    def receive_pack?
+      git_command == 'git-receive-pack'
+    end
+
     def git_command
       if action_name == 'info_refs'
         params[:service]
+      elsif action_name == 'ssh_upload_pack'
+        'git-upload-pack'
       else
         action_name.dasherize
       end
@@ -83,7 +96,7 @@ module Repositories
       return if Gitlab::Database.read_only?
       return unless repo_type.project?
 
-      OnboardingProgressService.async(project.namespace_id).execute(action: :git_pull)
+      Onboarding::ProgressService.async(project.namespace_id).execute(action: :git_pull)
 
       return if Feature.enabled?(:disable_git_http_fetch_writes)
 
@@ -100,15 +113,14 @@ module Repositories
 
     def access_actor
       return user if user
-      return :ci if ci?
+
+      :ci if ci?
     end
 
     def access_check
       access.check(git_command, Gitlab::GitAccess::ANY)
 
-      if repo_type.project? && !container
-        @project = @container = access.container
-      end
+      @project = @container = access.container if repo_type.project? && !container
     end
 
     def access_klass
@@ -116,7 +128,14 @@ module Repositories
     end
 
     def log_user_activity
-      Users::ActivityService.new(user).execute
+      Users::ActivityService.new(author: user, project: project, namespace: project&.namespace).execute
+    end
+
+    def append_info_to_payload(payload)
+      super
+
+      payload[:metadata] ||= {}
+      payload[:metadata][:repository_storage] = project&.repository_storage
     end
   end
 end

@@ -1,9 +1,10 @@
 <script>
 import { GlTabs, GlTab, GlBadge, GlButton } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 import { queryToObject } from '~/lib/utils/url_utility';
-import { __ } from '~/locale';
-import { MEMBER_TYPES, TAB_QUERY_PARAM_VALUES, ACTIVE_TAB_QUERY_PARAM_NAME } from '../constants';
+import { MEMBERS_TAB_TYPES, ACTIVE_TAB_QUERY_PARAM_NAME } from 'ee_else_ce/members/constants';
+import { TABS } from 'ee_else_ce/members/tabs_metadata';
 import MembersApp from './app.vue';
 
 const countComputed = (state, namespace) => state[namespace]?.pagination?.totalItems || 0;
@@ -11,52 +12,26 @@ const countComputed = (state, namespace) => state[namespace]?.pagination?.totalI
 export default {
   name: 'MembersTabs',
   ACTIVE_TAB_QUERY_PARAM_NAME,
-  TABS: [
-    {
-      namespace: MEMBER_TYPES.user,
-      title: __('Members'),
-    },
-    {
-      namespace: MEMBER_TYPES.group,
-      title: __('Groups'),
-      attrs: { 'data-qa-selector': 'groups_list_tab' },
-      queryParamValue: TAB_QUERY_PARAM_VALUES.group,
-    },
-    {
-      namespace: MEMBER_TYPES.invite,
-      title: __('Invited'),
-      canManageMembersPermissionsRequired: true,
-      queryParamValue: TAB_QUERY_PARAM_VALUES.invite,
-    },
-    {
-      namespace: MEMBER_TYPES.accessRequest,
-      title: __('Access requests'),
-      canManageMembersPermissionsRequired: true,
-      queryParamValue: TAB_QUERY_PARAM_VALUES.accessRequest,
-    },
-  ],
+  TABS,
   components: { MembersApp, GlTabs, GlTab, GlBadge, GlButton },
-  inject: ['canManageMembers', 'canExportMembers', 'exportCsvPath'],
+  inject: ['canManageMembers', 'canManageAccessRequests', 'canExportMembers', 'exportCsvPath'],
   data() {
     return {
       selectedTabIndex: 0,
     };
   },
   computed: {
-    ...mapState({
-      userCount(state) {
-        return countComputed(state, MEMBER_TYPES.user);
-      },
-      groupCount(state) {
-        return countComputed(state, MEMBER_TYPES.group);
-      },
-      inviteCount(state) {
-        return countComputed(state, MEMBER_TYPES.invite);
-      },
-      accessRequestCount(state) {
-        return countComputed(state, MEMBER_TYPES.accessRequest);
-      },
-    }),
+    ...mapState(
+      Object.values(MEMBERS_TAB_TYPES).reduce((getters, memberType) => {
+        return {
+          ...getters,
+          // eslint-disable-next-line @gitlab/require-i18n-strings
+          [`${memberType}Count`](state) {
+            return countComputed(state, memberType);
+          },
+        };
+      }, {}),
+    ),
     urlParams() {
       return Object.keys(queryToObject(window.location.search, { gatherArrays: true }));
     },
@@ -66,6 +41,12 @@ export default {
           this.urlParams.includes(urlParam),
         );
       });
+    },
+    shouldShowExportButton() {
+      return this.canExportMembers && !this.tabs[this.selectedTabIndex].hideExportButton;
+    },
+    tabs() {
+      return this.$options.TABS.filter(this.showTab);
     },
   },
   methods: {
@@ -77,25 +58,27 @@ export default {
         urlParams.push(state.filteredSearchBar.searchParam);
       }
 
+      if (state?.filteredSearchBar?.tokens) {
+        urlParams.push(...state.filteredSearchBar.tokens);
+      }
+
       return urlParams;
     },
     getTabCount({ namespace }) {
       return this[`${namespace}Count`];
     },
     showTab(tab, index) {
-      if (tab.namespace === MEMBER_TYPES.user) {
+      if (tab.namespace === MEMBERS_TAB_TYPES.user) {
         return true;
       }
 
-      const { canManageMembersPermissionsRequired = false } = tab;
+      const { requiredPermissions = [] } = tab;
       const tabCanBeShown =
         this.getTabCount(tab) > 0 || this.activeTabIndexCalculatedFromUrlParams === index;
 
-      if (canManageMembersPermissionsRequired) {
-        return this.canManageMembers && tabCanBeShown;
-      }
-
-      return tabCanBeShown;
+      return (
+        tabCanBeShown && requiredPermissions.every((requiredPermission) => this[requiredPermission])
+      );
     },
   },
 };
@@ -104,26 +87,31 @@ export default {
 <template>
   <gl-tabs
     v-model="selectedTabIndex"
+    content-class="gl-py-0"
     sync-active-tab-with-query-params
     :query-param-name="$options.ACTIVE_TAB_QUERY_PARAM_NAME"
   >
-    <template v-for="(tab, index) in $options.TABS">
-      <gl-tab
-        v-if="showTab(tab, index)"
-        :key="tab.namespace"
-        :title-link-attributes="tab.attrs"
-        :query-param-value="tab.queryParamValue"
-      >
-        <template #title>
-          <span>{{ tab.title }}</span>
-          <gl-badge size="sm" class="gl-tab-counter-badge">{{ getTabCount(tab) }}</gl-badge>
-        </template>
-        <members-app :namespace="tab.namespace" :tab-query-param-value="tab.queryParamValue" />
-      </gl-tab>
-    </template>
+    <gl-tab
+      v-for="tab in tabs"
+      :key="tab.namespace"
+      :title-link-attributes="tab.attrs"
+      :query-param-value="tab.queryParamValue"
+    >
+      <template #title>
+        <span>{{ tab.title }}</span>
+        <gl-badge class="gl-tab-counter-badge">{{ getTabCount(tab) }}</gl-badge>
+      </template>
+      <component
+        :is="tab.component"
+        v-if="tab.component"
+        :namespace="tab.namespace"
+        :tab-query-param-value="tab.queryParamValue"
+      />
+      <members-app v-else :namespace="tab.namespace" :tab-query-param-value="tab.queryParamValue" />
+    </gl-tab>
     <template #tabs-end>
       <gl-button
-        v-if="canExportMembers"
+        v-if="shouldShowExportButton"
         class="gl-align-self-center gl-ml-auto"
         icon="export"
         :href="exportCsvPath"

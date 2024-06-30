@@ -1,89 +1,130 @@
 ---
-stage: Manage
-group: Workspace
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+stage: Data Stores
+group: Tenant Scale
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Project and group visibility **(FREE)**
+# Project and group visibility
 
-GitLab allows users with the Owner role to set a project's or group's visibility as:
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-- **Public**
-- **Internal**
-- **Private**
+Projects and groups in GitLab can be private, internal, or public.
 
-These visibility levels affect who can see the project in the public access directory (`/public`
-for your GitLab instance). For example, <https://gitlab.com/public>.
-You can control the visibility of individual features with
-[project feature settings](permissions.md#project-features).
+The visibility level of the project or group does not affect whether members of the project or group can see each other.
+Projects and groups are intended for collaborative work. This work is only possible if all members know about each other.
 
-## Public projects and groups
-
-Public projects can be cloned **without any** authentication over HTTPS.
-
-They are listed in the public access directory (`/public`) for all users.
-
-**Any signed-in user** has the Guest role on the repository.
-
-NOTE:
-By default, `/public` is visible to unauthenticated users. However, if the
-[**Public** visibility level](admin_area/settings/visibility_and_access_controls.md#restrict-visibility-levels)
-is restricted, `/public` is visible only to signed-in users.
-
-## Internal projects and groups
-
-Internal projects can be cloned by any signed-in user except
-[external users](permissions.md#external-users).
-
-They are also listed in the public access directory (`/public`), but only for signed-in users.
-
-Any signed-in users except [external users](permissions.md#external-users) have the
-Guest role on the repository.
-
-NOTE:
-From July 2019, the `Internal` visibility setting is disabled for new projects, groups,
-and snippets on GitLab.com. Existing projects, groups, and snippets using the `Internal`
-visibility setting keep this setting. You can read more about the change in the
-[relevant issue](https://gitlab.com/gitlab-org/gitlab/-/issues/12388).
+Project or group members can see all members of the project or group they belong to.
+Project or group members can see the origin of membership (the original project or group) of all members for the projects and groups they have access to.
 
 ## Private projects and groups
 
-Private projects can only be cloned and viewed by project members (except for guests).
+For private projects, only members of the private project or group can:
 
-They appear in the public access directory (`/public`) for project members only.
+- Clone the project.
+- View the public access directory (`/public`).
+
+Users with the Guest role cannot clone the project.
+
+Private groups can have only private subgroups and projects.
+
+NOTE:
+When you [share a private group with another group](group/manage.md#share-a-group-with-another-group),
+users who don't have access to the private group can view a list of users who have access to the inviting group
+through the endpoint `https://gitlab.com/groups/<inviting-group-name>/-/autocomplete_sources/members`.
+However, the name and path of the private group are masked, and the users' membership source is not displayed.
+
+## Internal projects and groups
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+For internal projects, **any authenticated user**, including users with the Guest role, can:
+
+- Clone the project.
+- View the public access directory (`/public`).
+
+Only internal members can view internal content.
+
+[External users](../administration/external_users.md) cannot clone the project.
+
+Internal groups can have internal or private subgroups and projects.
+
+## Public projects and groups
+
+For public projects, **unauthenticated users**, including users with the Guest role, can:
+
+- Clone the project.
+- View the public access directory (`/public`).
+
+Public groups can have public, internal, or private subgroups and projects.
+
+NOTE:
+If an administrator restricts the
+[**Public** visibility level](../administration/settings/visibility_and_access_controls.md#restrict-visibility-levels),
+then the public access directory (`/public`) is visible only to authenticated users.
 
 ## Change project visibility
 
-Prerequisite:
+You can change the visibility of a project.
+
+Prerequisites:
 
 - You must have the Owner role for a project.
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > General**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > General**.
 1. Expand **Visibility, project features, permissions**.
-1. Change **Project visibility** to either **Private**, **Internal**, or **Public**.
+1. From the **Project visibility** dropdown list, select an option.
+   The visibility setting for a project must be at least as restrictive
+   as the visibility of its parent group.
+1. Select **Save changes**.
+
+## Change the visibility of individual features in a project
+
+You can change the visibility of individual features in a project.
+
+Prerequisites:
+
+- You must have the Owner role for the project.
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > General**.
+1. Expand **Visibility, project features, permissions**.
+1. To enable or disable a feature, turn on or turn off the feature toggle.
 1. Select **Save changes**.
 
 ## Change group visibility
 
-Prerequisite:
+You can change the visibility of all projects in a group.
+
+Prerequisites:
 
 - You must have the Owner role for a group.
+- Projects and subgroups must already have visibility settings that are at least as
+  restrictive as the new setting of the parent group. For example, you cannot set a group
+  to private if a project or subgroup in that group is public.
 
-1. On the top bar, select **Menu > Groups** and find your project.
-1. On the left sidebar, select **Settings > General**.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Settings > General**.
 1. Expand **Naming, visibility**.
-1. Under **Visibility level** select either **Private**, **Internal**, or **Public**.
+1. For **Visibility level**, select an option.
+   The visibility setting for a project must be at least as restrictive
+   as the visibility of its parent group.
 1. Select **Save changes**.
 
-## Restrict use of public or internal projects **(FREE SELF)**
+## Restrict use of public or internal projects
 
-You can restrict the use of visibility levels for users when they create a project or a snippet.
-This is useful to prevent users from publicly exposing their repositories by accident. The
-restricted visibility settings do not apply to administrators.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
-For details, see [Restricted visibility levels](admin_area/settings/visibility_and_access_controls.md#restrict-visibility-levels).
+Administrators can restrict which visibility levels users can choose when they create a project or a snippet.
+This setting can help prevent users from publicly exposing their repositories by accident.
+
+For more information, see [Restrict visibility levels](../administration/settings/visibility_and_access_controls.md#restrict-visibility-levels).
 
 <!-- ## Troubleshooting
 
@@ -93,6 +134,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

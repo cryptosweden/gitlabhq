@@ -1,7 +1,7 @@
 ---
 stage: Platforms
 group: Scalability
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Observability for stage groups
@@ -11,7 +11,7 @@ understand the state of each component, with context, to support
 performance tuning and debugging. To run a SaaS platform at scale, a
 rich and detailed observability platform is needed.
 
-To make information available to [stage groups](https://about.gitlab.com/handbook/product/categories/#hierarchy),
+To make information available to [stage groups](https://handbook.gitlab.com/handbook/product/categories/#hierarchy),
 we are aggregating metrics by feature category and then show
 this information on [dashboards](dashboards/index.md) tailored to the groups. Only metrics
 for the features built by the group are visible on their
@@ -32,16 +32,16 @@ For more specific information on dashboards, see:
 The error budget is calculated from the same [Service Level Indicators](https://en.wikipedia.org/wiki/Service_level_indicator) (SLIs)
 that we use to monitor GitLab.com. The 28-day availability number for a
 stage group is comparable to the
-[monthly availability](https://about.gitlab.com/handbook/engineering/infrastructure/performance-indicators/#gitlabcom-availability)
+[monthly availability](https://handbook.gitlab.com/handbook/engineering/infrastructure/performance-indicators/#gitlabcom-availability)
 we calculate for GitLab.com, except it's scoped to the features of a group.
 
-To learn more about how we use error budgets, see the
-[Engineering Error Budgets](https://about.gitlab.com/handbook/engineering/error-budgets/) handbook page.
+For more information about how we use error budgets, see the
+[Engineering Error Budgets](https://handbook.gitlab.com/handbook/engineering/error-budgets/) handbook page.
 
 By default, the first row of panels on both dashboards shows the
-[error budget for the stage group](https://about.gitlab.com/handbook/engineering/error-budgets/#budget-spend-by-stage-group).
+[error budget for the stage group](https://handbook.gitlab.com/handbook/engineering/error-budgets/#budget-spend-by-stage-group).
 This row shows how features owned by the group contribute to our
-[overall availability](https://about.gitlab.com/handbook/engineering/infrastructure/performance-indicators/#gitlabcom-availability).
+[overall availability](https://handbook.gitlab.com/handbook/engineering/infrastructure/performance-indicators/#gitlabcom-availability).
 
 The official budget is aggregated over the 28 days. You can see it on the
 [stage group dashboard](dashboards/stage_group_dashboard.md).
@@ -68,11 +68,11 @@ component can have two indicators:
   and
   [Web](https://gitlab.com/gitlab-com/runbooks/-/blob/f22f40b2c2eab37d85e23ccac45e658b2c914445/metrics-catalog/services/web.jsonnet#L154)
   services, that threshold is **5 seconds** when not opted in to the
-  [`rails_requests` SLI](../application_slis/rails_request_apdex.md).
+  [`rails_request` SLI](../application_slis/rails_request.md).
 
   We've made this target configurable in [this project](https://gitlab.com/groups/gitlab-com/gl-infra/-/epics/525).
-  To learn how to customize the request Apdex, see
-  [Rails request Apdex SLI](../application_slis/rails_request_apdex.md).
+  To customize the request Apdex, see
+  [Rails request SLIs](../application_slis/rails_request.md).
   This new Apdex measurement is not part of the error budget until you
   [opt in](https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/1451).
 
@@ -136,3 +136,45 @@ For example, see the `server` component of the `web-pages` service:
 ![web-pages-server-component SLI](img/stage_group_dashboards_service_sli_detail.png)
 
 To add more SLIs tailored to specific features, you can use an [Application SLI](../application_slis/index.md).
+
+## Kibana dashboard for error budgets
+
+For a detailed analysis you can use [a specialized Kibana dashboard](https://log.gprd.gitlab.net/goto/771b5c10-c0ec-11ed-85ed-e7557b0a598c), like this:
+
+![Kibana dashboard](img/error_budgets_kibana_dashboard_v15_10.png)
+
+Description:
+
+- **Apdex requests over limit (graph)** - Displays only requests that exceeded their
+  target duration.
+- **Apdex operations over-limit duration (graph)** - Displays the distribution of duration
+  components (database, Redis, Gitaly, and Rails app).
+- **Apdex requests** (pie chart) - Displays the percentage of `2xx`, `3xx`, `4xx` and
+  `5xx` requests.
+- **Slow request component distribution** - Highlights the component responsible
+  for Apdex violation.
+- **Apdex operations over limit** (table) - Displays a number of operations over
+  limit for each endpoint.
+- **Apdex requests over limit** - Displays a list of individual requests responsible
+  for Apdex violation.
+
+### Use the dashboard
+
+1. Select the feature category you want to investigate.
+   1. Scroll to the **Feature Category** section. Enter the feature name.
+   1. Select **Apply changes**. Selected results contain only requests related to this feature category.
+1. Select the time frame for the investigation.
+1. Review dashboard and pay attention to the type of failures.
+
+Questions to answer:
+
+1. Does the failure pattern look like a spike? Or does it persist?
+1. Does the failure look related to a particular component? (database, Redis, ...)
+1. Does the failure affect a specific endpoint? Or is it system-wide?
+1. Does the failure appear caused by infrastructure incidents?
+
+## GitLab instrumentation for OpenTelemetry
+
+There is an ongoing effort to instrument the GitLab codebase for OpenTelemetry.
+
+For more specific information on this effort, see [GitLab instrumentation for OpenTelemetry](gitlab_instrumentation_for_opentelemetry.md).

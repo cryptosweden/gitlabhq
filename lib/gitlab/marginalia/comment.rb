@@ -31,7 +31,7 @@ module Gitlab
         if job.is_a?(ActionMailer::MailDeliveryJob)
           {
             "class" => job.arguments.first,
-            "jid"   => job.job_id
+            "jid" => job.job_id
           }
         else
           job
@@ -44,6 +44,18 @@ module Gitlab
 
       def db_config_name
         ::Gitlab::Database.db_config_name(marginalia_adapter)
+      end
+
+      def console_hostname
+        return unless ::Gitlab::Runtime.console?
+
+        @cached_console_hostname ||= Socket.gethostname # rubocop:disable Gitlab/ModuleWithInstanceVariables
+      end
+
+      def console_username
+        return unless ::Gitlab::Runtime.console?
+
+        ENV['SUDO_USER'] || ENV['USER']
       end
     end
   end

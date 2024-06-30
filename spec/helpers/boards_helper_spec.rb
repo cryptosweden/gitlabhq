@@ -102,10 +102,7 @@ RSpec.describe BoardsHelper do
         allow(helper).to receive(:can?).with(user, :create_non_backlog_issues, project_board).and_return(true)
         allow(helper).to receive(:can?).with(user, :admin_issue, project_board).and_return(true)
         allow(helper).to receive(:can?).with(user, :admin_issue_board_list, project).and_return(false)
-      end
-
-      it 'returns a board_lists_path as lists_endpoint' do
-        expect(helper.board_data[:lists_endpoint]).to eq(board_lists_path(project_board))
+        allow(helper).to receive(:can?).with(user, :admin_issue_board, project).and_return(false)
       end
 
       it 'returns board type as parent' do
@@ -129,10 +126,23 @@ RSpec.describe BoardsHelper do
         it 'returns can_admin_list as false by default' do
           expect(helper.board_data[:can_admin_list]).to eq('false')
         end
-        it 'returns can_admin_list as true when user can admin the board' do
+
+        it 'returns can_admin_list as true when user can admin the board lists' do
           allow(helper).to receive(:can?).with(user, :admin_issue_board_list, project).and_return(true)
 
           expect(helper.board_data[:can_admin_list]).to eq('true')
+        end
+      end
+
+      context 'can_admin_board' do
+        it 'returns can_admin_board as false by default' do
+          expect(helper.board_data[:can_admin_board]).to eq('false')
+        end
+
+        it 'returns can_admin_board as true when user can admin the board' do
+          allow(helper).to receive(:can?).with(user, :admin_issue_board, project).and_return(true)
+
+          expect(helper.board_data[:can_admin_board]).to eq('true')
         end
       end
     end
@@ -146,6 +156,7 @@ RSpec.describe BoardsHelper do
         allow(helper).to receive(:can?).with(user, :create_non_backlog_issues, group_board).and_return(true)
         allow(helper).to receive(:can?).with(user, :admin_issue, group_board).and_return(true)
         allow(helper).to receive(:can?).with(user, :admin_issue_board_list, base_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :admin_issue_board, base_group).and_return(false)
       end
 
       it 'returns correct path for base group' do
@@ -165,22 +176,13 @@ RSpec.describe BoardsHelper do
         it 'returns can_admin_list as false by default' do
           expect(helper.board_data[:can_admin_list]).to eq('false')
         end
-        it 'returns can_admin_list as true when user can admin the board' do
+
+        it 'returns can_admin_list as true when user can admin the board lists' do
           allow(helper).to receive(:can?).with(user, :admin_issue_board_list, base_group).and_return(true)
 
           expect(helper.board_data[:can_admin_list]).to eq('true')
         end
       end
-    end
-  end
-
-  describe '#current_board_json' do
-    let(:board_json) { helper.current_board_json }
-
-    it 'can serialise with a basic set of attributes' do
-      assign(:board, project_board)
-
-      expect(board_json).to match_schema('current-board')
     end
   end
 end

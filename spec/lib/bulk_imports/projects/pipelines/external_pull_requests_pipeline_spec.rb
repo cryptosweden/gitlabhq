@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Projects::Pipelines::ExternalPullRequestsPipeline do
+RSpec.describe BulkImports::Projects::Pipelines::ExternalPullRequestsPipeline, feature_category: :importers do
   let_it_be(:project) { create(:project) }
   let_it_be(:bulk_import) { create(:bulk_import) }
   let_it_be(:entity) { create(:bulk_import_entity, :project_entity, project: project, bulk_import: bulk_import) }
-  let_it_be(:tracker) { create(:bulk_import_tracker, entity: entity) }
+  let_it_be(:tracker) { create(:bulk_import_tracker, entity: entity, pipeline_name: described_class) }
   let_it_be(:context) { BulkImports::Pipeline::Context.new(tracker) }
 
   let(:attributes) { {} }
@@ -28,12 +28,14 @@ RSpec.describe BulkImports::Projects::Pipelines::ExternalPullRequestsPipeline do
 
   subject(:pipeline) { described_class.new(context) }
 
-  describe '#run' do
+  describe '#run', :clean_gitlab_redis_shared_state do
     before do
       allow_next_instance_of(BulkImports::Common::Extractors::NdjsonExtractor) do |extractor|
         allow(extractor).to receive(:remove_tmp_dir)
         allow(extractor).to receive(:extract).and_return(BulkImports::Pipeline::ExtractedData.new(data: [[external_pull_request, 0]]))
       end
+
+      allow(pipeline).to receive(:set_source_objects_counter)
 
       pipeline.run
     end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Snippets::CreateService do
+RSpec.describe Snippets::CreateService, feature_category: :source_code_management do
   describe '#execute' do
     let_it_be(:user) { create(:user) }
     let_it_be(:admin) { create(:user, :admin) }
@@ -20,9 +20,8 @@ RSpec.describe Snippets::CreateService do
 
     let(:extra_opts) { {} }
     let(:creator) { admin }
-    let(:spam_params) { double }
 
-    subject { described_class.new(project: project, current_user: creator, params: opts, spam_params: spam_params).execute }
+    subject { described_class.new(project: project, current_user: creator, params: opts).execute }
 
     let(:snippet) { subject.payload[:snippet] }
 
@@ -79,18 +78,16 @@ RSpec.describe Snippets::CreateService do
     end
 
     shared_examples 'snippet create data is tracked' do
-      let(:counter) { Gitlab::UsageDataCounters::SnippetCounter }
+      let(:event) { 'create_snippet' }
+      let(:category) { 'Snippets::CreateService' }
+      let(:user) { admin }
 
-      it 'increments count when create succeeds' do
-        expect { subject }.to change { counter.read(:create) }.by 1
-      end
+      it_behaves_like 'internal event tracking'
 
       context 'when create fails' do
         let(:opts) { {} }
 
-        it 'does not increment count' do
-          expect { subject }.not_to change { counter.read(:create) }
-        end
+        it_behaves_like 'internal event not tracked'
       end
     end
 
@@ -301,10 +298,6 @@ RSpec.describe Snippets::CreateService do
           expect(snippet.repository.blob_at('master', 'snippetfile2.txt').data).to eq content
         end
       end
-    end
-
-    before do
-      stub_spam_services
     end
 
     context 'when ProjectSnippet' do

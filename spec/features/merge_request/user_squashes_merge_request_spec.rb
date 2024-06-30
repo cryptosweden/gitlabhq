@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User squashes a merge request', :js do
+RSpec.describe 'User squashes a merge request', :js, feature_category: :code_review_workflow do
   let(:user) { create(:user) }
   let(:project) { create(:project, :repository) }
   let(:source_branch) { 'csv' }
@@ -16,15 +16,19 @@ RSpec.describe 'User squashes a merge request', :js do
 
       latest_master_commits = project.repository.commits_between(original_head.sha, 'master').map(&:raw)
 
-      squash_commit = an_object_having_attributes(sha: a_string_matching(/\h{40}/),
-                                                  message: a_string_starting_with(project.merge_requests.first.default_squash_commit_message),
-                                                  author_name: user.name,
-                                                  committer_name: user.name)
+      squash_commit = an_object_having_attributes(
+        sha: a_string_matching(/\h{40}/),
+        message: a_string_starting_with(project.merge_requests.first.default_squash_commit_message),
+        author_name: user.name,
+        committer_name: user.name
+      )
 
-      merge_commit = an_object_having_attributes(sha: a_string_matching(/\h{40}/),
-                                                 message: a_string_starting_with("Merge branch '#{source_branch}' into 'master'"),
-                                                 author_name: user.name,
-                                                 committer_name: user.name)
+      merge_commit = an_object_having_attributes(
+        sha: a_string_matching(/\h{40}/),
+        message: a_string_starting_with("Merge branch '#{source_branch}' into 'master'"),
+        author_name: user.name,
+        committer_name: user.name
+      )
 
       expect(project.repository).not_to be_merged_to_root_ref(source_branch)
       expect(latest_master_commits).to match([squash_commit, merge_commit])
@@ -79,7 +83,7 @@ RSpec.describe 'User squashes a merge request', :js do
 
     context 'when squash message is the same as existing commit message' do
       before do
-        click_button("Modify commit messages")
+        find_by_testid('widget_edit_commit_message').click
         fill_in('Squash commit message', with: project.commit(source_branch).safe_message)
         accept_mr
       end

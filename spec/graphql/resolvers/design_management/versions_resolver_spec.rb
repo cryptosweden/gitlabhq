@@ -18,8 +18,7 @@ RSpec.describe Resolvers::DesignManagement::VersionsResolver do
     let(:project) { issue.project }
     let(:params) { {} }
     let(:current_user) { authorized_user }
-    let(:parent_args) { { irrelevant: 1.2 } }
-    let(:parent) { double('Parent', parent: nil, irep_node: double(arguments: parent_args)) }
+    let(:query_context) { { current_user: current_user } }
 
     before do
       enable_design_management
@@ -44,15 +43,15 @@ RSpec.describe Resolvers::DesignManagement::VersionsResolver do
 
         context 'loading associations' do
           it 'prevents N+1 queries when loading author' do
-            control_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+            control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
               resolve_versions(object).items.map(&:author)
-            end.count
+            end
 
             create_list(:design_version, 3, issue: issue)
 
             expect do
               resolve_versions(object).items.map(&:author)
-            end.not_to exceed_all_query_limit(control_count)
+            end.not_to exceed_all_query_limit(control)
           end
         end
       end
@@ -83,7 +82,7 @@ RSpec.describe Resolvers::DesignManagement::VersionsResolver do
             let(:params) do
               {
                 earlier_or_equal_to_sha: first_version.sha,
-                earlier_or_equal_to_id:  global_id_of(first_version)
+                earlier_or_equal_to_id: global_id_of(first_version)
               }
             end
 
@@ -91,10 +90,12 @@ RSpec.describe Resolvers::DesignManagement::VersionsResolver do
           end
 
           context 'and they do not match' do
+            subject(:result) { resolve_versions(object) }
+
             let(:params) do
               {
                 earlier_or_equal_to_sha: first_version.sha,
-                earlier_or_equal_to_id:  global_id_of(other_version)
+                earlier_or_equal_to_id: global_id_of(other_version)
               }
             end
 
@@ -104,12 +105,6 @@ RSpec.describe Resolvers::DesignManagement::VersionsResolver do
               end
             end
           end
-        end
-
-        context 'by at_version in parent' do
-          let(:parent_args) { { atVersion: global_id_of(first_version) } }
-
-          it_behaves_like 'a query for all_versions up to the first_version'
         end
       end
     end
@@ -126,8 +121,8 @@ RSpec.describe Resolvers::DesignManagement::VersionsResolver do
       it_behaves_like 'a source of versions'
     end
 
-    def resolve_versions(obj, context = { current_user: current_user })
-      eager_resolve(resolver, obj: obj, parent: parent, args: params, ctx: context)
+    def resolve_versions(obj)
+      eager_resolve(resolver, obj: obj, args: params, ctx: query_context)
     end
   end
 end

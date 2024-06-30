@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::Ci::Runner::Delete do
+RSpec.describe Mutations::Ci::Runner::Delete, feature_category: :runner do
   include GraphqlHelpers
 
   let_it_be(:runner) { create(:ci_runner) }
@@ -37,16 +37,10 @@ RSpec.describe Mutations::Ci::Runner::Delete do
         it 'raises an error' do
           mutation_params[:id] = two_projects_runner.to_global_id
 
-          expect { subject }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
+          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ResourceNotAvailable) do
+            subject
+          end
         end
-      end
-    end
-
-    context 'with invalid params' do
-      let(:mutation_params) { { id: "invalid-id" } }
-
-      it 'raises an error' do
-        expect { subject }.to raise_error(::GraphQL::CoercionError)
       end
     end
 
@@ -54,7 +48,7 @@ RSpec.describe Mutations::Ci::Runner::Delete do
       let(:mutation_params) { {} }
 
       it 'raises an error' do
-        expect { subject }.to raise_error(ArgumentError, "Arguments must be provided: id")
+        expect { subject }.to raise_error(ArgumentError, "missing keyword: :id")
       end
     end
 
@@ -115,7 +109,10 @@ RSpec.describe Mutations::Ci::Runner::Delete do
             allow_next_instance_of(::Ci::Runners::UnregisterRunnerService) do |service|
               expect(service).not_to receive(:execute)
             end
-            expect { subject }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
+
+            expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ResourceNotAvailable) do
+              subject
+            end
           end
         end
       end

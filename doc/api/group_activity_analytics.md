@@ -1,12 +1,14 @@
 ---
-stage: Manage
+stage: Plan
 group: Optimize
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Group Activity Analytics API **(PREMIUM)**
+# Group Activity Analytics API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/26460) in GitLab 12.9.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 ## Get count of recently created issues for group
 

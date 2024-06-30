@@ -34,12 +34,33 @@ module Gitlab
         link(:review_your_order) { payment_form_element.link(text: /Review your order/) }
         # ENDTODO
 
+        # ToS Acceptance
+        div :privacy_and_terms_confirm
+
         # Confirmation
         button :confirm_purchase, text: /Confirm purchase/
 
         # Order Summary
-        div :selected_plan, 'data-testid': 'selected-plan'
-        div :order_total, 'data-testid': 'total-amount'
+        div :selected_plan
+        div :total_amount
+
+        # Alerts
+        div :lock_competition_error, text: /Operation failed due to a lock competition, please retry later./
+
+        def purchase
+          ::QA::Support::Retrier.retry_until(
+            max_duration: 80,
+            sleep_interval: 10,
+            message: 'Expected no Zuora lock competition error'
+          ) do
+            ::QA::Runtime::Logger.debug('Attempting to purchase subscription')
+
+            privacy_and_terms_confirm_element.click
+            confirm_purchase
+            ::QA::Support::WaitForRequests.wait_for_requests
+            !lock_competition_error?
+          end
+        end
       end
     end
   end

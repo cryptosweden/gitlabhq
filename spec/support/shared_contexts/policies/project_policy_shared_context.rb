@@ -6,16 +6,25 @@ RSpec.shared_context 'ProjectPolicy context' do
   let_it_be(:reporter) { create(:user) }
   let_it_be(:developer) { create(:user) }
   let_it_be(:maintainer) { create(:user) }
-  let_it_be(:owner) { create(:user) }
+  let_it_be(:inherited_guest) { create(:user) }
+  let_it_be(:inherited_reporter) { create(:user) }
+  let_it_be(:inherited_developer) { create(:user) }
+  let_it_be(:inherited_maintainer) { create(:user) }
+  let_it_be(:organization) { create(:organization, :default) }
+  let_it_be(:owner) { create(:user, namespace: create(:user_namespace, organization: organization)) }
+  let_it_be(:organization_owner) { create(:user, :organization_owner) }
   let_it_be(:admin) { create(:admin) }
   let_it_be(:non_member) { create(:user) }
+  let_it_be_with_refind(:group) { create(:group, :public) }
   let_it_be_with_refind(:private_project) { create(:project, :private, namespace: owner.namespace) }
   let_it_be_with_refind(:internal_project) { create(:project, :internal, namespace: owner.namespace) }
   let_it_be_with_refind(:public_project) { create(:project, :public, namespace: owner.namespace) }
+  let_it_be_with_refind(:public_project_in_group) { create(:project, :public, namespace: group) }
+  let_it_be_with_refind(:private_project_in_group) { create(:project, :private, namespace: group) }
 
   let(:base_guest_permissions) do
     %i[
-      award_emoji create_issue create_merge_request_in create_note
+      award_emoji create_issue create_note
       create_project read_issue_board read_issue read_issue_iid read_issue_link
       read_label read_planning_hierarchy read_issue_board_list read_milestone read_note read_project
       read_project_for_iids read_project_member read_release read_snippet
@@ -25,13 +34,14 @@ RSpec.shared_context 'ProjectPolicy context' do
 
   let(:base_reporter_permissions) do
     %i[
-      admin_issue admin_issue_link admin_label admin_issue_board_list
-      create_snippet create_incident daily_statistics download_code
+      admin_issue admin_label admin_milestone admin_issue_board_list
+      create_snippet create_incident daily_statistics create_merge_request_in download_code
       download_wiki_code fork_project metrics_dashboard read_build
       read_commit_status read_confidential_issues read_container_image
-      read_deployment read_environment read_merge_request
+      read_harbor_registry read_deployment read_environment read_merge_request
       read_metrics_dashboard_annotation read_pipeline read_prometheus
-      read_sentry_issue update_issue
+      read_sentry_issue update_issue create_merge_request_in
+      read_external_emails read_internal_note export_work_items
     ]
   end
 
@@ -41,15 +51,14 @@ RSpec.shared_context 'ProjectPolicy context' do
 
   let(:developer_permissions) do
     %i[
-      admin_merge_request admin_milestone admin_tag create_build
+      admin_merge_request admin_tag create_build
       create_commit_status create_container_image create_deployment
       create_environment create_merge_request_from
-      create_metrics_dashboard_annotation create_pipeline create_release
-      create_wiki delete_metrics_dashboard_annotation
-      destroy_container_image push_code read_pod_logs read_terraform_state
-      resolve_note update_build update_commit_status update_container_image
-      update_deployment update_environment update_merge_request
-      update_metrics_dashboard_annotation update_pipeline update_release destroy_release
+      admin_metrics_dashboard_annotation create_pipeline create_release
+      create_wiki destroy_container_image push_code read_pod_logs
+      read_terraform_state resolve_note update_build cancel_build update_commit_status
+      update_container_image update_deployment update_environment
+      update_merge_request update_pipeline update_release destroy_release
       read_resource_group update_resource_group update_escalation_status
     ]
   end
@@ -57,16 +66,18 @@ RSpec.shared_context 'ProjectPolicy context' do
   let(:base_maintainer_permissions) do
     %i[
       add_cluster admin_build admin_commit_status admin_container_image
-      admin_deployment admin_environment admin_note admin_pipeline
-      admin_project admin_project_member admin_snippet admin_terraform_state
-      admin_wiki create_deploy_token destroy_deploy_token
+      admin_cicd_variables admin_deployment admin_environment admin_note admin_pipeline
+      admin_project admin_project_member admin_push_rules admin_runner admin_snippet admin_terraform_state
+      admin_wiki create_deploy_token destroy_deploy_token manage_deploy_tokens
       push_to_delete_protected_branch read_deploy_token update_snippet
+      destroy_upload admin_member_access_request rename_project manage_merge_request_settings
+      admin_integrations
     ]
   end
 
   let(:public_permissions) do
     %i[
-      build_download_code build_read_container_image download_code
+      build_download_code build_read_container_image create_merge_request_in download_code
       download_wiki_code fork_project read_commit_status read_container_image
       read_pipeline read_release
     ]
@@ -75,9 +86,22 @@ RSpec.shared_context 'ProjectPolicy context' do
   let(:base_owner_permissions) do
     %i[
       archive_project change_namespace change_visibility_level destroy_issue
-      destroy_merge_request remove_fork_project remove_project rename_project
+      destroy_merge_request manage_owners remove_fork_project remove_project
       set_issue_created_at set_issue_iid set_issue_updated_at
       set_note_created_at
+    ]
+  end
+
+  let(:admin_permissions) do
+    %i[
+      read_project_for_iids update_max_artifacts_size read_storage_disk_path
+      owner_access admin_remote_mirror read_internal_note
+    ]
+  end
+
+  let(:organization_owner_permissions) do
+    %i[
+      owner_access admin_remote_mirror
     ]
   end
 
@@ -93,7 +117,12 @@ RSpec.shared_context 'ProjectPolicy context' do
   let(:owner_permissions) { base_owner_permissions + additional_owner_permissions }
 
   before_all do
-    [private_project, internal_project, public_project].each do |project|
+    group.add_guest(inherited_guest)
+    group.add_reporter(inherited_reporter)
+    group.add_developer(inherited_developer)
+    group.add_maintainer(inherited_maintainer)
+
+    [private_project, internal_project, public_project, public_project_in_group].each do |project|
       project.add_guest(guest)
       project.add_reporter(reporter)
       project.add_developer(developer)

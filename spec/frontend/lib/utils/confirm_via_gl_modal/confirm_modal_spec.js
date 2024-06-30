@@ -5,21 +5,30 @@ import ConfirmModal from '~/lib/utils/confirm_via_gl_modal/confirm_modal.vue';
 describe('Confirm Modal', () => {
   let wrapper;
   let modal;
+  const SECONDARY_TEXT = 'secondaryText';
+  const SECONDARY_VARIANT = 'danger';
 
-  const createComponent = ({ primaryText, primaryVariant, title, hideCancel = false } = {}) => {
+  const createComponent = ({
+    primaryText,
+    primaryVariant,
+    secondaryText,
+    secondaryVariant,
+    title,
+    size,
+    hideCancel = false,
+  } = {}) => {
     wrapper = mount(ConfirmModal, {
       propsData: {
         primaryText,
         primaryVariant,
+        secondaryText,
+        secondaryVariant,
         hideCancel,
         title,
+        size,
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   const findGlModal = () => wrapper.findComponent(GlModal);
 
@@ -31,12 +40,12 @@ describe('Confirm Modal', () => {
 
     it('should emit `confirmed` event on `primary` modal event', () => {
       findGlModal().vm.$emit('primary');
-      expect(wrapper.emitted('confirmed')).toBeTruthy();
+      expect(wrapper.emitted('confirmed')).toHaveLength(1);
     });
 
     it('should emit closed` event on `hidden` modal event', () => {
       modal.vm.$emit('hidden');
-      expect(wrapper.emitted('closed')).toBeTruthy();
+      expect(wrapper.emitted('closed')).toHaveLength(1);
     });
   });
 
@@ -65,11 +74,36 @@ describe('Confirm Modal', () => {
       expect(props.actionCancel).toBeNull();
     });
 
+    it('should not show secondary Button when secondary Text is not set', () => {
+      createComponent();
+      const props = findGlModal().props();
+      expect(props.actionSecondary).toBeNull();
+    });
+
+    it('should show secondary Button when secondaryText is set', () => {
+      createComponent({ secondaryText: SECONDARY_TEXT, secondaryVariant: SECONDARY_VARIANT });
+      const actionSecondary = findGlModal().props('actionSecondary');
+      expect(actionSecondary.text).toEqual(SECONDARY_TEXT);
+      expect(actionSecondary.attributes.variant).toEqual(SECONDARY_VARIANT);
+    });
+
     it('should set the modal title when the `title` prop is set', () => {
       const title = 'Modal title';
       createComponent({ title });
 
       expect(findGlModal().props().title).toBe(title);
+    });
+
+    it('should set modal size to `sm` by default', () => {
+      createComponent();
+
+      expect(findGlModal().props('size')).toBe('sm');
+    });
+
+    it('should set modal size when `size` prop is set', () => {
+      createComponent({ size: 'md' });
+
+      expect(findGlModal().props('size')).toBe('md');
     });
   });
 });

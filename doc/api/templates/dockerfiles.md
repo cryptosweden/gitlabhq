@@ -1,22 +1,29 @@
 ---
 stage: Create
 group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Dockerfiles API **(FREE)**
+# Dockerfiles API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 GitLab provides an API endpoint for instance-level Dockerfile templates.
 Default templates are defined at
 [`vendor/Dockerfile`](https://gitlab.com/gitlab-org/gitlab-foss/-/tree/master/vendor/Dockerfile)
 in the GitLab repository.
 
-## Override Dockerfile API templates **(PREMIUM SELF)**
+## Override Dockerfile API templates
 
-In [GitLab Premium and higher](https://about.gitlab.com/pricing/) tiers, GitLab instance
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+In [GitLab Premium and Ultimate](https://about.gitlab.com/pricing/) tiers, GitLab instance
 administrators can override templates in the
-[Admin Area](../../user/admin_area/settings/instance_template_repository.md).
+[Admin Area](../../administration/settings/instance_template_repository.md).
 
 ## List Dockerfile templates
 
@@ -142,6 +149,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

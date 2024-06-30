@@ -1,5 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlBadge, GlIcon, GlLink, GlSafeHtmlDirective, GlButton } from '@gitlab/ui';
+import { GlBadge, GlIcon, GlLink, GlButton } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { dateInWords, isValidDate } from '~/lib/utils/datetime_utility';
 
 export default {
@@ -10,7 +12,7 @@ export default {
     GlButton,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   props: {
     feature: {
@@ -21,7 +23,7 @@ export default {
   computed: {
     releaseDate() {
       const { published_at } = this.feature;
-      const date = new Date(published_at);
+      const date = new Date(`${published_at}T00:00:00`); // eslint-disable-line camelcase
 
       if (!isValidDate(date) || date.getTime() === 0) {
         return '';
@@ -30,58 +32,60 @@ export default {
       return dateInWords(date);
     },
   },
-  safeHtmlConfig: { ADD_ATTR: ['target'] },
 };
 </script>
 
 <template>
   <div class="gl-py-6 gl-px-6 gl-border-b-1 gl-border-b-solid gl-border-b-gray-100">
     <gl-link
-      :href="feature.url"
+      v-if="feature.image_url"
+      :href="feature.documentation_link"
       target="_blank"
-      class="gl-display-block"
+      class="gl-block"
+      data-testid="whats-new-image-link"
       data-track-action="click_whats_new_item"
-      :data-track-label="feature.title"
-      :data-track-property="feature.url"
+      :data-track-label="feature.name"
+      :data-track-property="feature.documentation_link"
     >
       <div
         class="whats-new-item-image gl-bg-size-cover"
         :style="`background-image: url(${feature.image_url});`"
       >
-        <span class="gl-sr-only">{{ feature.title }}</span>
+        <span class="gl-sr-only">{{ feature.name }}</span>
       </div>
     </gl-link>
     <gl-link
-      :href="feature.url"
+      :href="feature.documentation_link"
       target="_blank"
-      class="whats-new-item-title-link gl-display-block gl-mt-4 gl-mb-1"
+      class="whats-new-item-title-link gl-block gl-mt-4 gl-mb-1"
       data-track-action="click_whats_new_item"
-      :data-track-label="feature.title"
-      :data-track-property="feature.url"
+      :data-track-label="feature.name"
+      :data-track-property="feature.documentation_link"
     >
-      <h5 class="gl-font-lg gl-my-0" data-test-id="feature-title">{{ feature.title }}</h5>
+      <h5 class="gl-font-lg gl-my-0" data-test-id="feature-name">{{ feature.name }}</h5>
     </gl-link>
     <div v-if="releaseDate" class="gl-mb-3" data-testid="release-date">{{ releaseDate }}</div>
-    <div v-if="feature.packages" class="gl-mb-3">
+    <div v-if="feature.available_in" class="gl-mb-3">
       <gl-badge
-        v-for="packageName in feature.packages"
+        v-for="packageName in feature.available_in"
         :key="packageName"
-        size="md"
-        class="whats-new-item-badge gl-mr-2"
+        variant="tier"
+        icon="license"
+        class="gl-mr-2"
       >
-        <gl-icon name="license" />{{ packageName }}
+        {{ packageName }}
       </gl-badge>
     </div>
     <div
-      v-safe-html:[$options.safeHtmlConfig]="feature.body"
-      class="gl-pt-3 gl-line-height-20"
+      v-safe-html:[$options.safeHtmlConfig]="feature.description"
+      class="gl-pt-3 gl-leading-20"
     ></div>
     <gl-button
-      :href="feature.url"
+      :href="feature.documentation_link"
       target="_blank"
       data-track-action="click_whats_new_item"
-      :data-track-label="feature.title"
-      :data-track-property="feature.url"
+      :data-track-label="feature.name"
+      :data-track-property="feature.documentation_link"
     >
       {{ __('Learn more') }} <gl-icon name="arrow-right" />
     </gl-button>

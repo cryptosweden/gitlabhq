@@ -1,5 +1,3 @@
-import '../webpack';
-
 import { isEmpty } from 'lodash';
 import Vue from 'vue';
 import axios from '~/lib/utils/axios_utils';
@@ -32,15 +30,21 @@ const initPerformanceBar = (el) => {
         store,
         env: performanceBarData.env,
         requestId: performanceBarData.requestId,
+        requestMethod: performanceBarData.requestMethod,
         peekUrl: performanceBarData.peekUrl,
-        profileUrl: performanceBarData.profileUrl,
         statsUrl: performanceBarData.statsUrl,
       };
     },
     mounted() {
       PerformanceBarService.registerInterceptor(this.peekUrl, this.addRequest);
 
-      this.addRequest(this.requestId, window.location.href);
+      this.addRequest(
+        this.requestId,
+        window.location.href,
+        undefined,
+        undefined,
+        this.requestMethod,
+      );
       this.loadRequestDetails(this.requestId);
     },
     beforeDestroy() {
@@ -56,12 +60,12 @@ const initPerformanceBar = (el) => {
           this.addRequest(urlOrRequestId, urlOrRequestId);
         }
       },
-      addRequest(requestId, requestUrl) {
+      addRequest(requestId, requestUrl, operationName, requestParams, methodVerb) {
         if (!this.store.canTrackRequest(requestUrl)) {
           return;
         }
 
-        this.store.addRequest(requestId, requestUrl);
+        this.store.addRequest(requestId, requestUrl, operationName, requestParams, methodVerb);
       },
       loadRequestDetails(requestId) {
         const request = this.store.findRequest(requestId);
@@ -145,8 +149,8 @@ const initPerformanceBar = (el) => {
           store: this.store,
           env: this.env,
           requestId: this.requestId,
+          requestMethod: this.requestMethod,
           peekUrl: this.peekUrl,
-          profileUrl: this.profileUrl,
           statsUrl: this.statsUrl,
         },
         on: {

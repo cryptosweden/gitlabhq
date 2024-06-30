@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'admin deploy keys', :js do
+RSpec.describe 'admin deploy keys', :js, feature_category: :system_access do
   include Spec::Support::Helpers::ModalHelpers
 
   let_it_be(:admin) { create(:admin) }
@@ -10,17 +10,35 @@ RSpec.describe 'admin deploy keys', :js do
   let!(:deploy_key) { create(:deploy_key, public: true) }
   let!(:another_deploy_key) { create(:another_deploy_key, public: true) }
 
-  before do
-    sign_in(admin)
-    gitlab_enable_admin_mode_sign_in(admin)
+  def page_breadcrumbs
+    all('[data-testid=breadcrumb-links] a').map do |a|
+      # We use `.dom_attribute` because Selenium transforms `.attribute('href')` to include the full URL.
+      { text: a.text, href: a.native.dom_attribute('href') }
+    end
   end
 
-  it 'show all public deploy keys' do
-    visit admin_deploy_keys_path
+  before do
+    sign_in(admin)
+    enable_admin_mode!(admin)
+  end
 
-    page.within(find('[data-testid="deploy-keys-list"]', match: :first)) do
-      expect(page).to have_content(deploy_key.title)
-      expect(page).to have_content(another_deploy_key.title)
+  describe 'index page' do
+    before do
+      visit admin_deploy_keys_path
+    end
+
+    it 'show all public deploy keys' do
+      within_testid('deploy-keys-list', match: :first) do
+        expect(page).to have_content(deploy_key.title)
+        expect(page).to have_content(another_deploy_key.title)
+      end
+    end
+
+    it 'shows breadcrumbs' do
+      expect(page_breadcrumbs).to eq([
+        { text: 'Admin Area', href: admin_root_path },
+        { text: 'Deploy Keys', href: admin_deploy_keys_path }
+      ])
     end
   end
 
@@ -29,7 +47,7 @@ RSpec.describe 'admin deploy keys', :js do
 
     visit admin_deploy_keys_path
 
-    page.within(find('[data-testid="deploy-keys-list"]', match: :first)) do
+    within_testid('deploy-keys-list', match: :first) do
       expect(page).to have_content(write_key.project.full_name)
     end
   end
@@ -49,9 +67,17 @@ RSpec.describe 'admin deploy keys', :js do
 
       expect(page).to have_current_path admin_deploy_keys_path, ignore_query: true
 
-      page.within(find('[data-testid="deploy-keys-list"]', match: :first)) do
+      within_testid('deploy-keys-list', match: :first) do
         expect(page).to have_content('laptop')
       end
+    end
+
+    it 'shows breadcrumbs' do
+      expect(page_breadcrumbs).to eq([
+        { text: 'Admin Area', href: admin_root_path },
+        { text: 'Deploy Keys', href: admin_deploy_keys_path },
+        { text: 'New Deploy Key', href: new_admin_deploy_key_path }
+      ])
     end
   end
 
@@ -69,9 +95,17 @@ RSpec.describe 'admin deploy keys', :js do
 
       expect(page).to have_current_path admin_deploy_keys_path, ignore_query: true
 
-      page.within(find('[data-testid="deploy-keys-list"]', match: :first)) do
+      within_testid('deploy-keys-list', match: :first) do
         expect(page).to have_content('new-title')
       end
+    end
+
+    it 'shows breadcrumbs' do
+      expect(page_breadcrumbs).to eq([
+        { text: 'Admin Area', href: admin_root_path },
+        { text: 'Deploy Keys', href: admin_deploy_keys_path },
+        { text: 'Edit Deploy Key', href: edit_admin_deploy_key_path(deploy_key) }
+      ])
     end
   end
 
@@ -88,7 +122,7 @@ RSpec.describe 'admin deploy keys', :js do
       end
 
       expect(page).to have_current_path admin_deploy_keys_path, ignore_query: true
-      page.within(find('[data-testid="deploy-keys-list"]', match: :first)) do
+      within_testid('deploy-keys-list', match: :first) do
         expect(page).not_to have_content(deploy_key.title)
       end
     end

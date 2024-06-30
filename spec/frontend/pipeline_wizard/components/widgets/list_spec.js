@@ -22,6 +22,9 @@ describe('Pipeline Wizard - List Widget', () => {
   const setValueOnInputField = (value, atIndex = 0) => {
     return findGlFormInputGroupByIndex(atIndex).vm.$emit('input', value);
   };
+  const getValueOfInputField = (atIndex = 0) => {
+    return findGlFormInputGroupByIndex(atIndex).get('input').element.value;
+  };
   const findAddStepButton = () => wrapper.findByTestId('add-step-button');
   const addStep = () => findAddStepButton().vm.$emit('click');
 
@@ -36,10 +39,6 @@ describe('Pipeline Wizard - List Widget', () => {
   };
 
   describe('component setup and interface', () => {
-    afterEach(() => {
-      wrapper.destroy();
-    });
-
     it('prints the label inside the legend', () => {
       createComponent();
 
@@ -52,7 +51,7 @@ describe('Pipeline Wizard - List Widget', () => {
       expect(findGlFormGroup().attributes('labeldescription')).toBe(defaultProps.description);
     });
 
-    it('sets the input field type attribute to "text"', async () => {
+    it('sets the input field type attribute to "text"', () => {
       createComponent();
 
       expect(findFirstGlFormInputGroup().attributes('type')).toBe('text');
@@ -103,6 +102,24 @@ describe('Pipeline Wizard - List Widget', () => {
       expect(addStepBtn.text()).toBe('add another step');
     });
 
+    it('deletes the correct input item', async () => {
+      createComponent({}, mountExtended);
+
+      await addStep();
+      await addStep();
+      setValueOnInputField('foo', 0);
+      setValueOnInputField('bar', 1);
+      setValueOnInputField('baz', 2);
+
+      const button = findAllGlFormInputGroups().at(1).find('[data-testid="remove-step-button"]');
+
+      button.vm.$emit('click');
+      await nextTick();
+
+      expect(getValueOfInputField(0)).toBe('foo');
+      expect(getValueOfInputField(1)).toBe('baz');
+    });
+
     it('the "add step" button increases the number of input fields', async () => {
       createComponent();
 
@@ -147,11 +164,7 @@ describe('Pipeline Wizard - List Widget', () => {
   });
 
   describe('form validation', () => {
-    afterEach(() => {
-      wrapper.destroy();
-    });
-
-    it('does not show validation state when untouched', async () => {
+    it('does not show validation state when untouched', () => {
       createComponent({}, mountExtended);
       expect(findGlFormGroup().classes()).not.toContain('is-valid');
       expect(findGlFormGroup().classes()).not.toContain('is-invalid');

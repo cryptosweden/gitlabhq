@@ -5,6 +5,8 @@ module API
     module InternalHelpers
       attr_reader :redirected_path
 
+      UNKNOWN_CHECK_RESULT_ERROR = 'Unknown check result'
+
       delegate :wiki?, to: :repo_type
 
       def actor
@@ -28,11 +30,43 @@ module API
       end
       # rubocop:enable Gitlab/ModuleWithInstanceVariables
 
+      def access_check_result
+        with_admin_mode_bypass!(actor.user&.id) do
+          access_check!(actor, params)
+        end
+      rescue Gitlab::GitAccess::ForbiddenError => e
+        # The return code needs to be 401. If we return 403
+        # the custom message we return won't be shown to the user
+        # and, instead, the default message 'GitLab: API is not accessible'
+        # will be displayed
+        response_with_status(code: 401, success: false, message: e.message)
+      rescue Gitlab::GitAccess::TimeoutError => e
+        response_with_status(code: 503, success: false, message: e.message)
+      rescue Gitlab::GitAccess::NotFoundError => e
+        response_with_status(code: 404, success: false, message: e.message)
+      rescue Gitlab::GitAccessProject::CreationError => e
+        response_with_status(code: 422, success: false, message: e.message)
+      end
+
+      # rubocop:disable Gitlab/ModuleWithInstanceVariables
+      def access_check!(actor, params)
+        access_checker = access_checker_for(actor, params[:protocol])
+        access_checker.check(params[:action], params[:changes]).tap do |result|
+          break result if @project || !repo_type.project?
+
+          # If we have created a project directly from a git push
+          # we have to assign its value to both @project and @container
+          @project = @container = access_checker.container
+        end
+      end
+      # rubocop:enable Gitlab/ModuleWithInstanceVariables
+
       def access_checker_for(actor, protocol)
         access_checker_klass.new(actor.key_or_user, container, protocol,
           authentication_abilities: ssh_authentication_abilities,
           repository_path: repository_path,
-          redirected_path: redirected_path)
+          redirected_path: redirected_path,
+          push_options: params[:push_options])
       end
 
       def access_checker_klass
@@ -57,8 +91,11 @@ module API
 
       def log_user_activity(actor)
         commands = Gitlab::GitAccess::DOWNLOAD_COMMANDS
+        commands += Gitlab::GitAccess::PUSH_COMMANDS if Feature.enabled?(:log_user_git_push_activity)
 
-        ::Users::ActivityService.new(actor).execute if commands.include?(params[:action])
+        return unless commands.include?(params[:action])
+
+        ::Users::ActivityService.new(author: actor, namespace: project&.namespace, project: project).execute
       end
 
       def redis_ping
@@ -67,6 +104,29 @@ module API
         result == 'PONG'
       rescue StandardError => e
         Gitlab::AppLogger.warn("GitLab: An unexpected error occurred in pinging to Redis: #{e}")
+        false
+      end
+
+      def response_with_status(code: 200, success: true, message: nil, **extra_options)
+        status code
+        { status: success, message: message }.merge(extra_options).compact
+      end
+
+      def unsuccessful_response?(response)
+        response.is_a?(Hash) && response[:status] == false
+      end
+
+      def with_admin_mode_bypass!(actor_id, &block)
+        return yield unless Gitlab::CurrentSettings.admin_mode
+
+        Gitlab::Auth::CurrentUserMode.bypass_session!(actor_id, &block)
+      end
+
+      def send_git_audit_streaming_event(msg)
+        # Defined in EE
+      end
+
+      def need_git_audit_event?
         false
       end
 
@@ -124,10 +184,16 @@ module API
           repository: repository.gitaly_repository.to_h,
           address: Gitlab::GitalyClient.address(repository.shard),
           token: Gitlab::GitalyClient.token(repository.shard),
-          features: Feature::Gitaly.server_feature_flags(repository.project),
-          use_sidechannel: Feature.enabled?(:gitlab_shell_upload_pack_sidechannel, repository.project, default_enabled: :yaml)
+          features: Feature::Gitaly.server_feature_flags(
+            user: ::Feature::Gitaly.user_actor(actor.user),
+            repository: repository,
+            project: ::Feature::Gitaly.project_actor(repository.container),
+            group: ::Feature::Gitaly.group_actor(repository.container)
+          )
         }
       end
     end
   end
 end
+
+API::Helpers::InternalHelpers.prepend_mod

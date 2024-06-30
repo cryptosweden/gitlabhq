@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 # Emulates paginator. It returns 2 pages with results
 class TestPaginator
@@ -21,6 +21,6 @@ RSpec.describe Bitbucket::Collection do
   it "iterates paginator" do
     collection = described_class.new(TestPaginator.new)
 
-    expect(collection.to_a).to match(%w(result_1_page_1 result_2_page_1 result_1_page_2 result_2_page_2))
+    expect(collection.to_a).to match(%w[result_1_page_1 result_2_page_1 result_1_page_2 result_2_page_2])
   end
 end

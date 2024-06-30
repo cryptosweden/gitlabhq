@@ -13,7 +13,7 @@ module Gitlab
             raise ArgumentError, 'missing workflow rules result' unless @command.workflow_rules_result
 
             # Allocate next IID. This operation must be outside of transactions of pipeline creations.
-            logger.instrument(:pipeline_allocate_seed_attributes) do
+            logger.instrument(:pipeline_allocate_seed_attributes, once: true) do
               pipeline.ensure_project_iid!
               pipeline.ensure_ci_ref!
             end
@@ -25,13 +25,11 @@ module Gitlab
             ##
             # Gather all runtime build/stage errors
             #
-            seed_errors = logger.instrument(:pipeline_seed_evaluation) do
+            seed_errors = logger.instrument(:pipeline_seed_evaluation, once: true) do
               pipeline_seed.errors
             end
 
-            if seed_errors
-              return error(seed_errors.join("\n"), config_error: true)
-            end
+            return error(seed_errors.join("\n"), failure_reason: :config_error) if seed_errors
 
             @command.pipeline_seed = pipeline_seed
           end
@@ -43,14 +41,13 @@ module Gitlab
           private
 
           def pipeline_seed
-            strong_memoize(:pipeline_seed) do
-              logger.instrument(:pipeline_seed_initialization) do
-                stages_attributes = @command.yaml_processor_result.stages_attributes
+            logger.instrument(:pipeline_seed_initialization, once: true) do
+              stages_attributes = @command.yaml_processor_result.stages_attributes
 
-                Gitlab::Ci::Pipeline::Seed::Pipeline.new(context, stages_attributes)
-              end
+              Gitlab::Ci::Pipeline::Seed::Pipeline.new(context, stages_attributes)
             end
           end
+          strong_memoize_attr :pipeline_seed
 
           def context
             Gitlab::Ci::Pipeline::Seed::Context.new(
@@ -61,13 +58,11 @@ module Gitlab
           end
 
           def root_variables
-            logger.instrument(:pipeline_seed_merge_variables) do
-              ::Gitlab::Ci::Variables::Helpers.merge_variables(
-                @command.yaml_processor_result.root_variables,
-                @command.workflow_rules_result.variables
-              )
-            end
+            ::Gitlab::Ci::Variables::Helpers.merge_variables(
+              @command.yaml_processor_result.root_variables,
+              @command.workflow_rules_result.variables)
           end
+          strong_memoize_attr :root_variables
         end
       end
     end

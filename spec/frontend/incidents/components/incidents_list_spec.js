@@ -40,16 +40,16 @@ describe('Incidents List', () => {
     all: 26,
   };
 
-  const findTable = () => wrapper.find(GlTable);
+  const findTable = () => wrapper.findComponent(GlTable);
   const findTableRows = () => wrapper.findAll('table tbody tr');
-  const findAlert = () => wrapper.find(GlAlert);
-  const findLoader = () => wrapper.find(GlLoadingIcon);
-  const findTimeAgo = () => wrapper.findAll(TimeAgoTooltip);
+  const findAlert = () => wrapper.findComponent(GlAlert);
+  const findLoader = () => wrapper.findComponent(GlLoadingIcon);
+  const findTimeAgo = () => wrapper.findAllComponents(TimeAgoTooltip);
   const findAssignees = () => wrapper.findAll('[data-testid="incident-assignees"]');
-  const findCreateIncidentBtn = () => wrapper.find('[data-testid="createIncidentBtn"]');
+  const findCreateIncidentBtn = () => wrapper.find('[data-testid="create-incident-button"]');
   const findClosedIcon = () => wrapper.findAll("[data-testid='incident-closed']");
-  const findEmptyState = () => wrapper.find(GlEmptyState);
-  const findSeverity = () => wrapper.findAll(SeverityToken);
+  const findEmptyState = () => wrapper.findComponent(GlEmptyState);
+  const findSeverity = () => wrapper.findAllComponents(SeverityToken);
   const findEscalationStatus = () => wrapper.findAll('[data-testid="incident-escalation-status"]');
   const findIncidentLink = () => wrapper.findByTestId('incident-link');
 
@@ -85,7 +85,6 @@ describe('Incidents List', () => {
           assigneeUsernameQuery: '',
           slaFeatureAvailable: true,
           canCreateIncident: true,
-          incidentEscalationsAvailable: true,
           ...provide,
         },
         stubs: {
@@ -97,13 +96,6 @@ describe('Incidents List', () => {
       }),
     );
   }
-
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
-  });
 
   it('shows the loading state', () => {
     mountComponent({
@@ -171,6 +163,7 @@ describe('Incidents List', () => {
 
       expect(link.text()).toBe(title);
       expect(link.attributes('href')).toContain(`issues/incident/${iid}`);
+      expect(link.find('.gl-text-truncate').exists()).toBe(true);
     });
 
     describe('Assignees', () => {
@@ -179,7 +172,7 @@ describe('Incidents List', () => {
       });
 
       it('renders an avatar component when there is an assignee', () => {
-        const avatar = findAssignees().at(1).find(GlAvatar);
+        const avatar = findAssignees().at(1).findComponent(GlAvatar);
         const { src, label } = avatar.attributes();
         const { name, avatarUrl } = mockIncidents[1].assignees.nodes[0];
 
@@ -201,33 +194,18 @@ describe('Incidents List', () => {
 
     describe('Escalation status', () => {
       it('renders escalation status per row', () => {
-        expect(findEscalationStatus().length).toBe(mockIncidents.length);
+        const statuses = findEscalationStatus().wrappers;
+        const expectedStatuses = ['Triggered', 'Acknowledged', 'Resolved', I18N.noEscalationStatus];
 
-        const actualStatuses = findEscalationStatus().wrappers.map((status) => status.text());
-        expect(actualStatuses).toEqual([
-          'Triggered',
-          'Acknowledged',
-          'Resolved',
-          I18N.noEscalationStatus,
-        ]);
-      });
-
-      describe('when feature is disabled', () => {
-        beforeEach(() => {
-          mountComponent({
-            data: { incidents: { list: mockIncidents }, incidentsCount },
-            provide: { incidentEscalationsAvailable: false },
-            loading: false,
-          });
-        });
-
-        it('is absent if feature flag is disabled', () => {
-          expect(findEscalationStatus().length).toBe(0);
+        expect(statuses.length).toBe(mockIncidents.length);
+        statuses.forEach((status, index) => {
+          expect(status.text()).toEqual(expectedStatuses[index]);
+          expect(status.classes('gl-text-truncate')).toBe(true);
         });
       });
     });
 
-    it('contains a link to the incident details page', async () => {
+    it('contains a link to the incident details page', () => {
       findTableRows().at(0).trigger('click');
       expect(visitUrl).toHaveBeenCalledWith(
         joinPaths(`/project/issues/incident`, mockIncidents[0].iid),
@@ -300,7 +278,7 @@ describe('Incidents List', () => {
       ${'severity'}      | ${TH_SEVERITY_TEST_ID}          | ${noneSort} | ${descSort} | ${ascSort}
       ${'status'}        | ${TH_ESCALATION_STATUS_TEST_ID} | ${noneSort} | ${descSort} | ${ascSort}
       ${'publish date'}  | ${TH_PUBLISHED_TEST_ID}         | ${noneSort} | ${descSort} | ${ascSort}
-      ${'due date'}      | ${TH_INCIDENT_SLA_TEST_ID}      | ${noneSort} | ${ascSort}  | ${descSort}
+      ${'due date'}      | ${TH_INCIDENT_SLA_TEST_ID}      | ${noneSort} | ${descSort} | ${ascSort}
     `(
       'updates sort with new direction when sorting by $description',
       async ({ selector, initialSort, firstSort, nextSort }) => {

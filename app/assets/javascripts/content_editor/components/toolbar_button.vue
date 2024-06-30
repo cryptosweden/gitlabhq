@@ -29,6 +29,11 @@ export default {
       required: false,
       default: '',
     },
+    editorCommandParams: {
+      type: Object,
+      required: false,
+      default: undefined,
+    },
     variant: {
       type: String,
       required: false,
@@ -44,6 +49,11 @@ export default {
       required: false,
       default: 'small',
     },
+    showActiveState: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
   },
   data() {
     return {
@@ -58,7 +68,7 @@ export default {
       const { contentType } = this;
 
       if (this.editorCommand) {
-        this.tiptapEditor.chain()[this.editorCommand]().focus().run();
+        this.tiptapEditor.chain()[this.editorCommand](this.editorCommandParams).focus().run();
       }
 
       this.$emit('execute', { contentType });
@@ -73,10 +83,11 @@ export default {
       :variant="variant"
       :category="category"
       :size="size"
-      :class="{ active: isActive }"
+      :class="{ 'gl-bg-gray-100!': showActiveState && isActive }"
       :aria-label="label"
       :title="label"
       :icon="iconName"
+      class="gl-mr-2"
       @click="execute"
     />
   </editor-state-observer>

@@ -28,7 +28,7 @@ RSpec.describe Gitlab::ErrorTracking::StackTraceHighlightDecorator do
               [11, '<span id="LC1" class="line" lang="ruby"><span class="k">class</span> <span class="nc">HelloWorld</span></span>'],
               [12, '<span id="LC1" class="line" lang="ruby">  <span class="k">def</span> <span class="nc">self</span><span class="o">.</span><span class="nf">message</span></span>'],
               [13, '<span id="LC1" class="line" lang="ruby">    <span class="vi">@name</span> <span class="o">=</span> <span class="s1">\'World\'</span></span>'],
-              [14, %Q[<span id="LC1" class="line" lang="ruby">    <span class="nb">puts</span> <span class="s2">"Hello </span><span class="si">\#{</span><span class="vi">@name</span><span class="si">}</span><span class="s2">"</span></span>]],
+              [14, %(<span id="LC1" class="line" lang="ruby">    <span class="nb">puts</span> <span class="s2">"Hello </span><span class="si">\#{</span><span class="vi">@name</span><span class="si">}</span><span class="s2">"</span></span>)],
               [15, '<span id="LC1" class="line" lang="ruby">  <span class="k">end</span></span>'],
               [16, '<span id="LC1" class="line" lang="ruby"><span class="k">end</span></span>']
             ]
@@ -52,10 +52,10 @@ RSpec.describe Gitlab::ErrorTracking::StackTraceHighlightDecorator do
             'function' => 'print',
             'lineNo' => 3,
             'filename' => 'hello_world.php',
-              'context' => [
-                [1, '<span id="LC1" class="line" lang="hack"><span class="c1">// PHP/Hack example</span></span>'],
-                [2, '<span id="LC1" class="line" lang="hack"><span class="cp">&lt;?php</span></span>'],
-                [3, '<span id="LC1" class="line" lang="hack"><span class="k">echo</span> <span class="s1">\'Hello, World!\'</span><span class="p">;</span></span>']
+            'context' => [
+              [1, '<span id="LC1" class="line" lang="hack"><span class="c1">// PHP/Hack example</span></span>'],
+              [2, '<span id="LC1" class="line" lang="hack"><span class="cp">&lt;?php</span></span>'],
+              [3, '<span id="LC1" class="line" lang="hack"><span class="k">echo</span> <span class="s1">\'Hello, World!\'</span><span class="p">;</span></span>']
             ]
           },
           {

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group navbar' do
+RSpec.describe 'Group navbar', :with_license, :js, feature_category: :navigation do
   include NavbarStructureHelper
   include WikiHelpers
 
@@ -13,12 +13,16 @@ RSpec.describe 'Group navbar' do
   let(:group) { create(:group) }
 
   before do
-    insert_package_nav(_('Kubernetes'))
+    create_package_nav(_('Operate'))
+    insert_after_nav_item(_('Analyze'), new_nav_item: settings_for_maintainer_nav_item) if Gitlab.ee?
+    insert_infrastructure_registry_nav(_('Kubernetes'))
 
-    stub_feature_flags(customer_relations: false)
+    if group.crm_enabled? && group.parent.nil?
+      insert_customer_relations_nav(Gitlab.ee? ? _('Iterations') : _('Milestones'))
+    end
+
     stub_config(dependency_proxy: { enabled: false })
     stub_config(registry: { enabled: false })
-    stub_feature_flags(harbor_registry_integration: false)
     stub_group_wikis(false)
     group.add_maintainer(user)
     sign_in(user)
@@ -42,30 +46,20 @@ RSpec.describe 'Group navbar' do
     it_behaves_like 'verified navigation bar'
   end
 
-  context 'when customer_relations feature and flag is enabled' do
-    let(:group) { create(:group, :crm_enabled) }
+  context 'when crm feature is disabled' do
+    let(:group) { create(:group, :crm_disabled) }
 
     before do
-      stub_feature_flags(customer_relations: true)
-
-      if Gitlab.ee?
-        insert_customer_relations_nav(_('Analytics'))
-      else
-        insert_customer_relations_nav(_('Packages & Registries'))
-      end
-
       visit group_path(group)
     end
 
     it_behaves_like 'verified navigation bar'
   end
 
-  context 'when customer_relations feature and flag is enabled but subgroup' do
-    let(:group) { create(:group, :crm_enabled, parent: create(:group)) }
+  context 'when crm feature is enabled but subgroup' do
+    let(:group) { create(:group, parent: create(:group)) }
 
     before do
-      stub_feature_flags(customer_relations: true)
-
       visit group_path(group)
     end
 
@@ -85,10 +79,12 @@ RSpec.describe 'Group navbar' do
   end
 
   context 'when harbor registry is available' do
-    before do
-      stub_feature_flags(harbor_registry_integration: true)
+    let(:harbor_integration) { create(:harbor_integration, group: group, project: nil) }
 
-      insert_harbor_registry_nav(_('Package Registry'))
+    before do
+      group.update!(harbor_integration: harbor_integration)
+
+      insert_harbor_registry_nav
 
       visit group_path(group)
     end

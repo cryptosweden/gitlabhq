@@ -2,22 +2,17 @@
 
 module QA
   RSpec.describe 'Create' do
-    describe 'PostReceive idempotent' do
+    describe 'PostReceive idempotent', product_group: :source_code do
       # Tests that a push does not result in multiple changes from repeated PostReceive executions.
       # One of the consequences would be duplicate push events
 
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'push-postreceive-idempotent'
-          project.initialize_with_readme = true
-        end
-      end
+      let(:project) { create(:project, :with_readme, name: 'push-postreceive-idempotent') }
 
       after do
         project&.remove_via_api!
       end
 
-      it 'pushes and creates a single push event three times', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347680' do
+      it 'pushes and creates a single push event three times', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347680' do
         verify_single_event_per_push(repeat: 3)
       end
 

@@ -3,11 +3,9 @@
 class MergeRequestPollCachedWidgetEntity < IssuableEntity
   include MergeRequestMetricsHelper
 
-  expose :auto_merge_enabled
   expose :state
   expose :merged_commit_sha
   expose :short_merged_commit_sha
-  expose :merge_error
   expose :merge_user_id
   expose :source_branch
   expose :source_project_id
@@ -16,14 +14,10 @@ class MergeRequestPollCachedWidgetEntity < IssuableEntity
   expose :target_project_id
   expose :squash
   expose :rebase_in_progress?, as: :rebase_in_progress
-  expose :commits_count
+  expose :default_squash_commit_message
   expose :merge_ongoing?, as: :merge_ongoing
-  expose :work_in_progress?, as: :work_in_progress
-  expose :cannot_be_merged?, as: :has_conflicts
-  expose :can_be_merged?, as: :can_be_merged
   expose :remove_source_branch?, as: :remove_source_branch
   expose :source_branch_exists?, as: :source_branch_exists
-  expose :branch_missing?, as: :branch_missing
 
   expose :merge_status do |merge_request|
     merge_request.check_mergeability(async: true)
@@ -55,8 +49,8 @@ class MergeRequestPollCachedWidgetEntity < IssuableEntity
     end
   end
 
-  expose :actual_head_pipeline, as: :pipeline, if: -> (mr, _) { presenter(mr).can_read_pipeline? } do |merge_request, options|
-    MergeRequests::PipelineEntity.represent(merge_request.actual_head_pipeline, options)
+  expose :actual_head_pipeline, as: :pipeline, if: ->(mr, _) { presenter(mr).can_read_pipeline? } do |merge_request, options|
+    MergeRequests::PipelineEntity.represent(merge_request.diff_head_pipeline, options)
   end
 
   expose :merge_pipeline, if: ->(mr, _) { mr.merged? && can?(request.current_user, :read_pipeline, mr.target_project) } do |merge_request, options|
@@ -150,12 +144,25 @@ class MergeRequestPollCachedWidgetEntity < IssuableEntity
   end
 
   expose :blob_path do
-    expose :head_path, if: -> (mr, _) { mr.source_branch_sha } do |merge_request|
+    expose :head_path, if: ->(mr, _) { mr.source_branch_sha } do |merge_request|
       project_blob_path(merge_request.project, merge_request.source_branch_sha)
     end
 
-    expose :base_path, if: -> (mr, _) { mr.diff_base_sha } do |merge_request|
+    expose :base_path, if: ->(mr, _) { mr.diff_base_sha } do |merge_request|
       project_blob_path(merge_request.project, merge_request.diff_base_sha)
+    end
+  end
+
+  expose :favicon_overlay_path,
+    documentation: { type: 'string',
+                     example: '/assets/ci_favicons/favicon_status_success.png' } do |merge_request|
+    if merge_request.state == 'merged'
+      status_name = "favicon_status_#{merge_request.state}"
+      Gitlab::Favicon.mr_status_overlay(status_name)
+    else
+      pipeline = merge_request.diff_head_pipeline
+      status = pipeline&.detailed_status(request.current_user)
+      Gitlab::Favicon.ci_status_overlay(status.favicon) if status
     end
   end
 

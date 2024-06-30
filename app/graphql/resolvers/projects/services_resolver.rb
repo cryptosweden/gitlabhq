@@ -2,6 +2,7 @@
 
 module Resolvers
   module Projects
+    # TODO: Remove in 17.0, see https://gitlab.com/gitlab-org/gitlab/-/merge_requests/108418
     class ServicesResolver < BaseResolver
       include Gitlab::Graphql::Authorize::AuthorizeResource
 
@@ -10,13 +11,13 @@ module Resolvers
       authorizes_object!
 
       argument :active,
-               GraphQL::Types::Boolean,
-               required: false,
-               description: 'Indicates if the integration is active.'
+        GraphQL::Types::Boolean,
+        required: false,
+        description: 'Indicates if the integration is active.'
       argument :type,
-               Types::Projects::ServiceTypeEnum,
-               required: false,
-               description: 'Type of integration.'
+        Types::Projects::ServiceTypeEnum,
+        required: false,
+        description: 'Type of integration.'
 
       alias_method :project, :object
 

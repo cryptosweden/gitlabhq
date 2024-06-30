@@ -1,10 +1,13 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
+import { mapState } from 'vuex';
 import { GlLoadingIcon, GlPagination, GlAlert, GlSearchBoxByType } from '@gitlab/ui';
 import { fetchGroups } from '~/jira_connect/subscriptions/api';
 import {
   DEFAULT_GROUPS_PER_PAGE,
   MINIMUM_SEARCH_TERM_LENGTH,
 } from '~/jira_connect/subscriptions/constants';
+import { ACCESS_LEVEL_MAINTAINER_INTEGER } from '~/access_level/constants';
 import { parseIntPagination, normalizeHeaders } from '~/lib/utils/common_utils';
 import { s__ } from '~/locale';
 import GroupsListItem from './groups_list_item.vue';
@@ -35,8 +38,12 @@ export default {
     };
   },
   computed: {
+    ...mapState(['accessToken', 'currentUser']),
     showPagination() {
       return this.totalItems > this.$options.DEFAULT_GROUPS_PER_PAGE && this.groups.length > 0;
+    },
+    isAdmin() {
+      return Boolean(this.currentUser.is_admin);
     },
   },
   mounted() {
@@ -47,11 +54,16 @@ export default {
   methods: {
     loadGroups() {
       this.isLoadingMore = true;
-      return fetchGroups(this.groupsPath, {
-        page: this.page,
-        perPage: this.$options.DEFAULT_GROUPS_PER_PAGE,
-        search: this.searchValue,
-      })
+      return fetchGroups(
+        this.groupsPath,
+        {
+          minAccessLevel: this.isAdmin ? undefined : ACCESS_LEVEL_MAINTAINER_INTEGER,
+          page: this.page,
+          perPage: this.$options.DEFAULT_GROUPS_PER_PAGE,
+          search: this.searchValue,
+        },
+        this.accessToken,
+      )
         .then((response) => {
           const { page, total } = parseIntPagination(normalizeHeaders(response.headers));
           this.page = page;
@@ -59,7 +71,7 @@ export default {
           this.groups = response.data;
         })
         .catch(() => {
-          this.errorMessage = s__('Integrations|Failed to load namespaces. Please try again.');
+          this.errorMessage = s__('JiraConnect|Failed to load groups. Please try again.');
         })
         .finally(() => {
           this.isLoadingMore = false;
@@ -96,24 +108,32 @@ export default {
     </gl-alert>
 
     <gl-search-box-by-type
-      class="gl-mb-5"
+      class="gl-mb-3"
       debounce="500"
-      :placeholder="__('Search by name')"
+      :placeholder="__('Search groups')"
       :is-loading="isLoadingMore"
       :value="userSearchTerm"
       @input="onGroupSearch"
     />
 
-    <gl-loading-icon v-if="isLoadingInitial" size="md" />
+    <p v-if="isAdmin" class="gl-mb-3">
+      {{ s__('JiraConnect|Not seeing your groups? Only groups you have access to appear here.') }}
+    </p>
+    <p v-else class="gl-mb-3">
+      {{
+        s__(
+          'JiraConnect|Not seeing your groups? Only groups you have at least the Maintainer role for appear here.',
+        )
+      }}
+    </p>
+
+    <gl-loading-icon v-if="isLoadingInitial" size="lg" />
     <div v-else-if="groups.length === 0" class="gl-text-center">
-      <h5>{{ s__('Integrations|No available namespaces.') }}</h5>
-      <p class="gl-mt-5">
-        {{ s__('Integrations|You must have owner or maintainer permissions to link namespaces.') }}
-      </p>
+      <h5 class="gl-mt-5">{{ s__('JiraConnect|No groups found.') }}</h5>
     </div>
     <ul
       v-else
-      class="gl-list-style-none gl-pl-0 gl-border-t-1 gl-border-t-solid gl-border-t-gray-100"
+      class="gl-list-none gl-pl-0 gl-border-t-1 gl-border-t-solid gl-border-t-gray-100"
       :class="{ 'gl-opacity-5': isLoadingMore }"
       data-testid="groups-list"
     >

@@ -26,7 +26,7 @@ RSpec.describe Gitlab::HookData::GroupMemberBuilder do
           expect(data[:group_id]).to eq(group.id)
           expect(data[:user_username]).to eq(group_member.user.username)
           expect(data[:user_name]).to eq(group_member.user.name)
-          expect(data[:user_email]).to eq(group_member.user.email)
+          expect(data[:user_email]).to eq(group_member.user.webhook_email)
           expect(data[:user_id]).to eq(group_member.user.id)
           expect(data[:group_access]).to eq('Developer')
           expect(data[:created_at]).to eq(group_member.created_at&.xmlschema)
@@ -39,6 +39,7 @@ RSpec.describe Gitlab::HookData::GroupMemberBuilder do
         let(:event) { :create }
 
         it { expect(event_name).to eq('user_add_to_group') }
+
         it_behaves_like 'includes the required attributes'
       end
 
@@ -46,6 +47,7 @@ RSpec.describe Gitlab::HookData::GroupMemberBuilder do
         let(:event) { :update }
 
         it { expect(event_name).to eq('user_update_for_group') }
+
         it_behaves_like 'includes the required attributes'
       end
 
@@ -53,6 +55,7 @@ RSpec.describe Gitlab::HookData::GroupMemberBuilder do
         let(:event) { :destroy }
 
         it { expect(event_name).to eq('user_remove_from_group') }
+
         it_behaves_like 'includes the required attributes'
       end
     end

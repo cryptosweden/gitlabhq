@@ -7,10 +7,10 @@ RSpec.describe TemplateFinder do
 
   let_it_be(:template_files) do
     {
-      "Dockerfile/project_dockerfiles_template.dockerfile"                 => "project_dockerfiles_template content",
-      "gitignore/project_gitignores_template.gitignore"                    => "project_gitignores_template content",
-      "gitlab-ci/project_gitlab_ci_ymls_template.yml"                      => "project_gitlab_ci_ymls_template content",
-      ".gitlab/issue_templates/project_issues_template.md"                 => "project_issues_template content",
+      "Dockerfile/project_dockerfiles_template.dockerfile" => "project_dockerfiles_template content",
+      "gitignore/project_gitignores_template.gitignore" => "project_gitignores_template content",
+      "gitlab-ci/project_gitlab_ci_ymls_template.yml" => "project_gitlab_ci_ymls_template content",
+      ".gitlab/issue_templates/project_issues_template.md" => "project_issues_template content",
       ".gitlab/merge_request_templates/project_merge_requests_template.md" => "project_merge_requests_template content"
     }
   end
@@ -20,7 +20,6 @@ RSpec.describe TemplateFinder do
       :dockerfiles    | 'Binary'
       :gitignores     | 'Actionscript'
       :gitlab_ci_ymls | 'Android'
-      :metrics_dashboard_ymls | 'Default'
     end
 
     with_them do
@@ -108,7 +107,6 @@ RSpec.describe TemplateFinder do
       :gitignores     | described_class
       :gitlab_ci_ymls | described_class
       :licenses | ::LicenseTemplateFinder
-      :metrics_dashboard_ymls | described_class
       :issues | described_class
       :merge_requests | described_class
     end
@@ -164,7 +162,6 @@ RSpec.describe TemplateFinder do
       :dockerfiles    | 'Binary'
       :gitignores     | 'Actionscript'
       :gitlab_ci_ymls | 'Android'
-      :metrics_dashboard_ymls | 'Default'
     end
 
     with_them do
@@ -192,7 +189,7 @@ RSpec.describe TemplateFinder do
 
       context 'template names hash keys' do
         it 'has all the expected keys' do
-          expect(result.first.to_h.keys).to match_array(%i(id key name project_id))
+          expect(result.first.to_h.keys).to match_array(%i[id key name project_id])
         end
       end
     end
@@ -226,7 +223,7 @@ RSpec.describe TemplateFinder do
 
         context 'template names hash keys' do
           it 'has all the expected keys' do
-            expect(result.first.to_h.keys).to match_array(%i(id key name project_id))
+            expect(result.first.to_h.keys).to match_array(%i[id key name project_id])
           end
         end
       end

@@ -2,12 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe SshKeys::ExpiringSoonNotificationWorker, type: :worker do
+RSpec.describe SshKeys::ExpiringSoonNotificationWorker, type: :worker, feature_category: :compliance_management do
   subject(:worker) { described_class.new }
 
   it 'uses a cronjob queue' do
     expect(worker.sidekiq_options_hash).to include(
-      'queue' => 'cronjob:ssh_keys_expiring_soon_notification',
       'queue_namespace' => :cronjob
     )
   end
@@ -30,7 +29,7 @@ RSpec.describe SshKeys::ExpiringSoonNotificationWorker, type: :worker do
         expect { worker.perform }.to change { expiring_soon.reload.before_expiry_notification_delivered_at }
       end
 
-      include_examples 'an idempotent worker' do
+      it_behaves_like 'an idempotent worker' do
         subject do
           perform_multiple(worker: worker)
         end
@@ -38,7 +37,7 @@ RSpec.describe SshKeys::ExpiringSoonNotificationWorker, type: :worker do
     end
 
     context 'when key has expired in the past' do
-      let_it_be(:expired_past) { create(:key, expires_at: 1.day.ago, user: user) }
+      let_it_be(:expired_past) { create(:key, :expired, user: user) }
 
       it 'does not update notified column' do
         expect { worker.perform }.not_to change { expired_past.reload.before_expiry_notification_delivered_at }

@@ -29,9 +29,11 @@ module Types
           object.conan_file_metadatum
         when 'helm'
           object.helm_file_metadatum
-        else
-          nil
         end
+      end
+
+      def file_name
+        URI.decode_uri_component(object.file_name)
       end
     end
   end

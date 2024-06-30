@@ -2,17 +2,29 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::Partitioning::SlidingListStrategy do
+RSpec.describe Gitlab::Database::Partitioning::SlidingListStrategy, feature_category: :database do
+  include Gitlab::Database::DynamicModelHelpers
+
   let(:connection) { ActiveRecord::Base.connection }
-  let(:table_name) { :_test_partitioned_test }
-  let(:model) { double('model', table_name: table_name, ignored_columns: %w[partition], connection: connection) }
+  let(:table_name) { '_test_partitioned_test' }
+  let(:model) do
+    define_batchable_model(table_name, connection: connection).tap { |m| m.ignored_columns = %w[partition] }
+  end
+
   let(:next_partition_if) { double('next_partition_if') }
   let(:detach_partition_if) { double('detach_partition_if') }
 
+  after do
+    model.reset_column_information
+  end
+
   subject(:strategy) do
-    described_class.new(model, :partition,
-                        next_partition_if: next_partition_if,
-                        detach_partition_if: detach_partition_if)
+    described_class.new(
+      model,
+      :partition,
+      next_partition_if: next_partition_if,
+      detach_partition_if: detach_partition_if
+    )
   end
 
   before do
@@ -36,10 +48,81 @@ RSpec.describe Gitlab::Database::Partitioning::SlidingListStrategy do
 
   describe '#current_partitions' do
     it 'detects both partitions' do
-      expect(strategy.current_partitions).to eq([
-        Gitlab::Database::Partitioning::SingleNumericListPartition.new(table_name, 1, partition_name: '_test_partitioned_test_1'),
-        Gitlab::Database::Partitioning::SingleNumericListPartition.new(table_name, 2, partition_name: '_test_partitioned_test_2')
-      ])
+      expect(strategy.current_partitions).to eq(
+        [
+          Gitlab::Database::Partitioning::SingleNumericListPartition.new(
+            table_name, 1, partition_name: '_test_partitioned_test_1'
+          ),
+          Gitlab::Database::Partitioning::SingleNumericListPartition.new(
+            table_name, 2, partition_name: '_test_partitioned_test_2'
+          )
+        ])
+    end
+  end
+
+  describe '#validate_and_fix' do
+    it 'does not call change_column_default if the partitioning in a valid state' do
+      expect(strategy.model.connection).not_to receive(:change_column_default)
+
+      strategy.validate_and_fix
+    end
+
+    it 'calls change_column_default on partition_key with the most default partition number' do
+      connection.change_column_default(model.table_name, strategy.partitioning_key, 1)
+
+      expect(Gitlab::AppLogger).to receive(:warn).with(
+        message: 'Fixed default value of sliding_list_strategy partitioning_key',
+        connection_name: 'main',
+        old_value: 1,
+        new_value: 2,
+        table_name: table_name,
+        column: strategy.partitioning_key
+      )
+
+      expect(strategy.model.connection).to receive(:change_column_default).with(
+        model.table_name, strategy.partitioning_key, 2
+      ).and_call_original
+
+      strategy.validate_and_fix
+    end
+
+    it 'does not change the default column if it has been changed in the meanwhile by another process' do
+      expect(strategy).to receive(:current_default_value).and_return(1, 2)
+
+      expect(strategy.model.connection).not_to receive(:change_column_default)
+
+      expect(Gitlab::AppLogger).to receive(:warn).with(
+        message: 'Table partitions or partition key default value have been changed by another process',
+        table_name: table_name,
+        default_value: 2
+      )
+
+      strategy.validate_and_fix
+    end
+
+    context 'when the shared connection is for the wrong database' do
+      it 'does not attempt to fix connections' do
+        skip_if_shared_database(:ci)
+        expect(strategy.model.connection).not_to receive(:change_column_default)
+
+        Ci::ApplicationRecord.connection.execute(<<~SQL)
+          create table #{table_name}
+          (
+              id serial not null,
+              partition bigint not null default 1,
+              created_at timestamptz not null,
+              primary key (id, partition)
+          )
+          partition by list(partition);
+
+          create table #{table_name}_1
+          partition of #{table_name} for values in (1);
+        SQL
+
+        Gitlab::Database::SharedModel.using_connection(Ci::ApplicationRecord.connection) do
+          strategy.validate_and_fix
+        end
+      end
     end
   end
 
@@ -91,7 +174,7 @@ RSpec.describe Gitlab::Database::Partitioning::SlidingListStrategy do
     end
 
     context 'when some partitions are true for detach_partition_if' do
-      let(:detach_partition_if) { ->(p) { p != 5 } }
+      let(:detach_partition_if) { ->(p) { p.value != 5 } }
 
       it 'is the leading set of partitions before that value' do
         # should not contain partition 2 since it's the default value for the partition column
@@ -136,9 +219,10 @@ RSpec.describe Gitlab::Database::Partitioning::SlidingListStrategy do
         Class.new(ApplicationRecord) do
           include PartitionedTable
 
-          partitioned_by :partition, strategy: :sliding_list,
-                       next_partition_if: proc { false },
-                       detach_partition_if: proc { false }
+          partitioned_by :partition,
+            strategy: :sliding_list,
+            next_partition_if: proc { false },
+            detach_partition_if: proc { false }
         end
       end.to raise_error(/ignored_columns/)
     end
@@ -150,13 +234,15 @@ RSpec.describe Gitlab::Database::Partitioning::SlidingListStrategy do
 
           self.ignored_columns = [:partition]
 
-          partitioned_by :partition, strategy: :sliding_list,
-                         next_partition_if: proc { false },
-                         detach_partition_if: proc { false }
+          partitioned_by :partition,
+            strategy: :sliding_list,
+            next_partition_if: proc { false },
+            detach_partition_if: proc { false }
         end
       end.not_to raise_error
     end
   end
+
   context 'redirecting inserts as the active partition changes' do
     let(:model) do
       Class.new(ApplicationRecord) do
@@ -175,15 +261,14 @@ RSpec.describe Gitlab::Database::Partitioning::SlidingListStrategy do
         def self.detach_partition_if_wrapper(...)
           detach_partition?(...)
         end
-        partitioned_by :partition, strategy: :sliding_list,
-                       next_partition_if: method(:next_partition_if_wrapper),
-                       detach_partition_if: method(:detach_partition_if_wrapper)
+        partitioned_by :partition,
+          strategy: :sliding_list,
+          next_partition_if: method(:next_partition_if_wrapper),
+          detach_partition_if: method(:detach_partition_if_wrapper)
 
-        def self.next_partition?(current_partition)
-        end
+        def self.next_partition?(current_partition); end
 
-        def self.detach_partition?(partition)
-        end
+        def self.detach_partition?(partition); end
       end
     end
 
@@ -210,6 +295,67 @@ RSpec.describe Gitlab::Database::Partitioning::SlidingListStrategy do
 
       expect(partition_2_model.partition).to eq(2)
       expect(partition_3_model.partition).to eq(3)
+    end
+  end
+
+  describe '#after_adding_partitions' do
+    context 'when the shared connection is for the same database' do
+      it 'changes column default' do
+        expect(strategy.model.connection)
+          .to receive(:change_column_default)
+          .and_call_original
+
+        expect(Gitlab::AppLogger).not_to receive(:warn)
+
+        Gitlab::Database::SharedModel.using_connection(ApplicationRecord.connection) do
+          strategy.after_adding_partitions
+        end
+      end
+    end
+
+    context 'when the shared connection is for the wrong database' do
+      it 'does not attempt to change column default' do
+        skip_if_shared_database(:ci)
+        expect(strategy.model.connection).not_to receive(:change_column_default)
+
+        expect(Gitlab::AppLogger).to receive(:warn).with(
+          message: 'Skipping changing column default because connections mismatch',
+          model_connection_name: 'main',
+          shared_connection_name: 'ci',
+          table_name: table_name,
+          event: :partition_manager_after_adding_partitions_connection_mismatch
+        )
+
+        Gitlab::Database::SharedModel.using_connection(Ci::ApplicationRecord.connection) do
+          strategy.after_adding_partitions
+        end
+      end
+    end
+  end
+
+  describe 'attributes' do
+    let(:partitioning_key) { :partition }
+    let(:next_partition_if) { -> { puts "next_partition_if" } }
+    let(:detach_partition_if) { -> { puts "detach_partition_if" } }
+    let(:analyze_interval) { 1.week }
+
+    subject(:strategy) do
+      described_class.new(
+        model, partitioning_key,
+        next_partition_if: next_partition_if,
+        detach_partition_if: detach_partition_if,
+        analyze_interval: analyze_interval
+      )
+    end
+
+    specify do
+      expect(strategy).to have_attributes({
+        model: model,
+        partitioning_key: partitioning_key,
+        next_partition_if: next_partition_if,
+        detach_partition_if: detach_partition_if,
+        analyze_interval: analyze_interval
+      })
     end
   end
 end

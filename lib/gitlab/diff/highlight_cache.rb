@@ -6,7 +6,7 @@ module Gitlab
       include Gitlab::Utils::Gzip
       include Gitlab::Utils::StrongMemoize
 
-      EXPIRATION = 1.week
+      EXPIRATION = 1.hour
       VERSION = 2
 
       delegate :diffable,     to: :@diff_collection
@@ -62,21 +62,20 @@ module Gitlab
       end
 
       def clear
-        Gitlab::Redis::Cache.with do |redis|
+        with_redis do |redis|
           redis.del(key)
         end
       end
 
       def key
         strong_memoize(:redis_key) do
-          [
-            'highlighted-diff-files',
-            diffable.cache_key,
-            VERSION,
+          options = [
             diff_options,
-            Feature.enabled?(:use_marker_ranges, diffable.project, default_enabled: :yaml),
-            Feature.enabled?(:diff_line_syntax_highlighting, diffable.project, default_enabled: :yaml)
-          ].join(":")
+            Feature.enabled?(:diff_line_syntax_highlighting, diffable.project)
+          ]
+          options_for_key = OpenSSL::Digest::SHA256.hexdigest(options.join)
+
+          ['highlighted-diff-files', diffable.cache_key, VERSION, options_for_key].join(":")
         end
       end
 
@@ -124,21 +123,20 @@ module Gitlab
       #   ...it will write/update a Gitlab::Redis hash (HSET)
       #
       def write_to_redis_hash(hash)
-        Gitlab::Redis::Cache.with do |redis|
-          redis.pipelined do
+        with_redis do |redis|
+          redis.pipelined do |pipeline|
             hash.each do |diff_file_id, highlighted_diff_lines_hash|
-              redis.hset(
+              pipeline.hset(
                 key,
                 diff_file_id,
                 gzip_compress(highlighted_diff_lines_hash.to_json)
               )
-            rescue Encoding::UndefinedConversionError
+            rescue Encoding::UndefinedConversionError, EncodingError, JSON::GeneratorError
               nil
             end
 
             # HSETs have to have their expiration date manually updated
-            #
-            redis.expire(key, EXPIRATION)
+            pipeline.expire(key, EXPIRATION)
           end
 
           record_memory_usage(fetch_memory_usage(redis, key))
@@ -187,14 +185,21 @@ module Gitlab
       def read_cache
         return {} unless file_paths.any?
 
-        results = []
+        cache_key = key # Moving out redis calls for feature flags out of redis.pipelined
 
-        Gitlab::Redis::Cache.with do |redis|
-          results = redis.hmget(key, file_paths)
+        results, _ = with_redis do |redis|
+          redis.pipelined do |pipeline|
+            pipeline.hmget(cache_key, file_paths)
+            pipeline.expire(key, EXPIRATION)
+          end
         end
 
+        record_hit_ratio(results)
+
         results.map! do |result|
-          Gitlab::Json.parse(gzip_decompress(result), symbolize_names: true) unless result.nil?
+          unless result.nil?
+            Gitlab::Json.parse(gzip_decompress(result.force_encoding(Encoding::UTF_8)), symbolize_names: true)
+          end
         end
 
         file_paths.zip(results).to_h
@@ -214,6 +219,15 @@ module Gitlab
 
       def current_transaction
         ::Gitlab::Metrics::WebTransaction.current
+      end
+
+      def with_redis(&block)
+        Gitlab::Redis::Cache.with(&block) # rubocop:disable CodeReuse/ActiveRecord
+      end
+
+      def record_hit_ratio(results)
+        current_transaction&.increment(:gitlab_redis_diff_caching_requests_total)
+        current_transaction&.increment(:gitlab_redis_diff_caching_hits_total) if results.any?(&:present?)
       end
     end
   end

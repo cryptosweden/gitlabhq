@@ -1,11 +1,14 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Pipeline efficiency **(FREE)**
+# Pipeline efficiency
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 [CI/CD Pipelines](index.md) are the fundamental building blocks for [GitLab CI/CD](../index.md).
 Making pipelines more efficient helps you save developer time, which:
@@ -19,7 +22,7 @@ and improve their configuration over time through trial and error. A better proc
 to use pipeline features that improve efficiency right away, and get a faster software
 development lifecycle earlier.
 
-First ensure you are familiar with [GitLab CI/CD fundamentals](../introduction/index.md)
+First ensure you are familiar with [GitLab CI/CD fundamentals](../index.md)
 and understand the [quick start guide](../quick_start/index.md).
 
 ## Identify bottlenecks and common failures
@@ -28,7 +31,7 @@ The easiest indicators to check for inefficient pipelines are the runtimes of th
 stages, and the total runtime of the pipeline itself. The total pipeline duration is
 heavily influenced by the:
 
-- [Size of the repository](../large_repositories/index.md)
+- [Size of the repository](../../user/project/repository/monorepos/index.md)
 - Total number of stages and jobs.
 - Dependencies between jobs.
 - The ["critical path"](#directed-acyclic-graphs-dag-visualization), which represents
@@ -37,7 +40,7 @@ heavily influenced by the:
 Additional points to pay attention relate to [GitLab Runners](../runners/index.md):
 
 - Availability of the runners and the resources they are provisioned with.
-- Build dependencies and their installation time.
+- Build dependencies, their installation time, and storage space requirements.
 - [Container image size](#docker-images).
 - Network latency and slow connections.
 
@@ -74,8 +77,8 @@ hosted with a paid cloud service may be provisioned with:
 The [Pipeline success and duration charts](index.md#pipeline-success-and-duration-charts)
 give information about pipeline runtime and failed job counts.
 
-Tests like [unit tests](../unit_test_reports.md), integration tests, end-to-end tests,
-[code quality](../../user/project/merge_requests/code_quality.md) tests, and others
+Tests like [unit tests](../testing/unit_test_reports.md), integration tests, end-to-end tests,
+[code quality](../testing/code_quality.md) tests, and others
 ensure that problems are automatically found by the CI/CD pipeline. There could be many
 pipeline stages involved causing long runtimes.
 
@@ -101,7 +104,7 @@ representation of pipeline health.
 
 Instance administrators have access to additional [performance metrics and self-monitoring](../../administration/monitoring/index.md).
 
-You can fetch specific pipeline health metrics from the [API](../../api/index.md).
+You can fetch specific pipeline health metrics from the [API](../../api/rest/index.md).
 External monitoring tools can poll the API and verify pipeline health or collect
 metrics for long term SLA analytics.
 
@@ -147,7 +150,7 @@ with embedded metric charts and all valuable details to analyze the problem.
 
 Review the storage use of the following to help analyze costs and efficiency:
 
-- [Job artifacts](job_artifacts.md) and their [`expire_in`](../yaml/index.md#artifactsexpire_in)
+- [Job artifacts](../jobs/job_artifacts.md) and their [`expire_in`](../yaml/index.md#artifactsexpire_in)
   configuration. If kept for too long, storage usage grows and could slow pipelines down.
 - [Container registry](../../user/packages/container_registry/index.md) usage.
 - [Package registry](../../user/packages/package_registry/index.md) usage.
@@ -174,7 +177,7 @@ to stop them from running:
 Ensure that errors are detected early in the CI/CD pipeline. A job that takes a very long
 time to complete keeps a pipeline from returning a failed status until the job completes.
 
-Design pipelines so that jobs that can [fail fast](../../user/project/merge_requests/fail_fast_testing.md)
+Design pipelines so that jobs that can [fail fast](../testing/fail_fast_testing.md)
 run earlier. For example, add an early stage and move the syntax, style linting,
 Git commit message verification, and similar jobs in there.
 
@@ -187,7 +190,7 @@ shouldn't run, saving pipeline resources.
 In a basic configuration, jobs always wait for all other jobs in earlier stages to complete
 before running. This is the simplest configuration, but it's also the slowest in most
 cases. [Directed Acyclic Graphs](../directed_acyclic_graph/index.md) and
-[parent/child pipelines](parent_child_pipelines.md) are more flexible and can
+[parent/child pipelines](downstream_pipelines.md#parent-child-pipelines) are more flexible and can
 be more efficient, but can also make pipelines harder to understand and analyze.
 
 ### Caching
@@ -219,15 +222,15 @@ that download and run faster.
 
 Try to use custom Docker images with the software pre-installed. It's usually much
 faster to download a larger pre-configured image than to use a common image and install
-software on it each time. Docker's [Best practices for writing Dockerfiles](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
+software on it each time. The Docker [Best practices for writing Dockerfiles article](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
 has more information about building efficient Docker images.
 
 Methods to reduce Docker image size:
 
 - Use a small base image, for example `debian-slim`.
-- Do not install convenience tools like vim, curl, and so on, if they aren't strictly needed.
+- Do not install convenience tools such as vim or curl if they aren't strictly needed.
 - Create a dedicated development image.
-- Disable man pages and docs installed by packages to save space.
+- Disable man pages and documentation installed by packages to save space.
 - Reduce the `RUN` layers and combine software installation steps.
 - Use [multi-stage builds](https://blog.alexellis.io/mutli-stage-docker-builds/)
   to merge multiple Dockerfiles that use the builder pattern into one Dockerfile, which can reduce image size.
@@ -254,8 +257,8 @@ Document CI/CD pipeline problems and incidents in issues, including research don
 and solutions found. This helps onboarding new team members, and also helps
 identify recurring problems with CI pipeline efficiency.
 
-### Learn More
+### Related topics
 
 - [CI Monitoring Webcast Slides](https://docs.google.com/presentation/d/1ONwIIzRB7GWX-WOSziIIv8fz1ngqv77HO1yVfRooOHM/edit?usp=sharing)
-- [GitLab.com Monitoring Handbook](https://about.gitlab.com/handbook/engineering/monitoring/)
+- [GitLab.com Monitoring Handbook](https://handbook.gitlab.com/handbook/engineering/monitoring/)
 - [Buildings dashboards for operational visibility](https://aws.amazon.com/builders-library/building-dashboards-for-operational-visibility/)

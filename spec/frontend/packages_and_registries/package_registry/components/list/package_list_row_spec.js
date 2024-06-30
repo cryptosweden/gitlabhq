@@ -1,21 +1,24 @@
-import { GlSprintf } from '@gitlab/ui';
-import Vue, { nextTick } from 'vue';
+import { GlFormCheckbox, GlSprintf, GlTruncate, GlBadge } from '@gitlab/ui';
+import Vue from 'vue';
 import VueRouter from 'vue-router';
+import { RouterLinkStub } from '@vue/test-utils';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
-
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
-
 import PackagesListRow from '~/packages_and_registries/package_registry/components/list/package_list_row.vue';
-import PackagePath from '~/packages_and_registries/shared/components/package_path.vue';
 import PackageTags from '~/packages_and_registries/shared/components/package_tags.vue';
-import PackageIconAndName from '~/packages_and_registries/shared/components/package_icon_and_name.vue';
+import PublishMessage from '~/packages_and_registries/shared/components/publish_message.vue';
 import PublishMethod from '~/packages_and_registries/package_registry/components/list/publish_method.vue';
-import TimeagoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import { PACKAGE_ERROR_STATUS } from '~/packages_and_registries/package_registry/constants';
 
 import ListItem from '~/vue_shared/components/registry/list_item.vue';
-import { packageData, packagePipelines, packageProject, packageTags } from '../../mock_data';
+import {
+  linksData,
+  packageData,
+  packagePipelines,
+  packageProject,
+  packageTags,
+} from '../../mock_data';
 
 Vue.use(VueRouter);
 
@@ -24,25 +27,30 @@ describe('packages_list_row', () => {
 
   const defaultProvide = {
     isGroupPage: false,
+    canDeletePackages: true,
   };
 
-  const packageWithoutTags = { ...packageData(), project: packageProject() };
+  const packageWithoutTags = { ...packageData(), project: packageProject(), ...linksData };
   const packageWithTags = { ...packageWithoutTags, tags: { nodes: packageTags() } };
 
-  const findPackageTags = () => wrapper.find(PackageTags);
-  const findPackagePath = () => wrapper.find(PackagePath);
+  const findPackageTags = () => wrapper.findComponent(PackageTags);
+  const findDeleteDropdown = () => wrapper.findByTestId('delete-dropdown');
   const findDeleteButton = () => wrapper.findByTestId('action-delete');
-  const findPackageIconAndName = () => wrapper.find(PackageIconAndName);
-  const findListItem = () => wrapper.findComponent(ListItem);
+  const findErrorMessage = () => wrapper.findByTestId('error-message');
+  const findPackageType = () => wrapper.findByTestId('package-type');
   const findPackageLink = () => wrapper.findByTestId('details-link');
   const findWarningIcon = () => wrapper.findByTestId('warning-icon');
   const findLeftSecondaryInfos = () => wrapper.findByTestId('left-secondary-infos');
+  const findPackageVersion = () => findLeftSecondaryInfos().findComponent(GlTruncate);
+  const findPublishMessage = () => wrapper.findComponent(PublishMessage);
   const findPublishMethod = () => wrapper.findComponent(PublishMethod);
-  const findCreatedDateText = () => wrapper.findByTestId('created-date');
-  const findTimeAgoTooltip = () => wrapper.findComponent(TimeagoTooltip);
+  const findListItem = () => wrapper.findComponent(ListItem);
+  const findBulkDeleteAction = () => wrapper.findComponent(GlFormCheckbox);
+  const findPackageName = () => wrapper.findByTestId('package-name');
 
   const mountComponent = ({
     packageEntity = packageWithoutTags,
+    selected = false,
     provide = defaultProvide,
   } = {}) => {
     wrapper = shallowMountExtended(PackagesListRow, {
@@ -50,19 +58,18 @@ describe('packages_list_row', () => {
       stubs: {
         ListItem,
         GlSprintf,
+        RouterLink: RouterLinkStub,
+        GlBadge,
       },
       propsData: {
         packageEntity,
+        selected,
       },
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   it('renders', () => {
     mountComponent();
@@ -73,9 +80,14 @@ describe('packages_list_row', () => {
     mountComponent();
 
     expect(findPackageLink().props()).toMatchObject({
-      event: 'click',
       to: { name: 'details', params: { id: getIdFromGraphQLId(packageWithoutTags.id) } },
     });
+  });
+
+  it('lists the package name', () => {
+    mountComponent();
+
+    expect(findPackageName().text()).toBe('@gitlab-org/package-15');
   });
 
   describe('tags', () => {
@@ -92,63 +104,151 @@ describe('packages_list_row', () => {
     });
   });
 
-  describe('when it is group', () => {
-    it('has a package path component', () => {
-      mountComponent({ provide: { isGroupPage: true } });
+  describe('delete dropdown', () => {
+    it('does not exist when package cannot be destroyed', () => {
+      mountComponent({
+        packageEntity: { ...packageWithoutTags, userPermissions: { destroyPackage: false } },
+      });
 
-      expect(findPackagePath().exists()).toBe(true);
-      expect(findPackagePath().props()).toMatchObject({ path: 'gitlab-org/gitlab-test' });
+      expect(findDeleteDropdown().exists()).toBe(false);
+    });
+
+    it('exists when package can be destroyed', () => {
+      mountComponent();
+
+      expect(findDeleteDropdown().props()).toMatchObject({
+        category: 'tertiary',
+        icon: 'ellipsis_v',
+        textSrOnly: true,
+        noCaret: true,
+        toggleText: 'More actions',
+      });
     });
   });
 
   describe('delete button', () => {
-    it('exists and has the correct props', () => {
+    it('does not exist when package cannot be destroyed', () => {
+      mountComponent({
+        packageEntity: { ...packageWithoutTags, userPermissions: { destroyPackage: false } },
+      });
+
+      expect(findDeleteButton().exists()).toBe(false);
+    });
+
+    it('exists and has the correct text', () => {
       mountComponent({ packageEntity: packageWithoutTags });
 
       expect(findDeleteButton().exists()).toBe(true);
-      expect(findDeleteButton().attributes()).toMatchObject({
-        icon: 'remove',
-        category: 'secondary',
-        variant: 'danger',
-        title: 'Remove package',
-      });
+      expect(findDeleteButton().text()).toBe('Delete package');
     });
 
-    it('emits the packageToDelete event when the delete button is clicked', async () => {
+    it('emits the delete event when the delete button is clicked', () => {
       mountComponent({ packageEntity: packageWithoutTags });
 
-      findDeleteButton().vm.$emit('click');
+      findDeleteButton().vm.$emit('action');
 
-      await nextTick();
-      expect(wrapper.emitted('packageToDelete')).toBeTruthy();
-      expect(wrapper.emitted('packageToDelete')[0]).toEqual([packageWithoutTags]);
+      expect(wrapper.emitted('delete')).toHaveLength(1);
     });
   });
 
   describe(`when the package is in ${PACKAGE_ERROR_STATUS} status`, () => {
     beforeEach(() => {
-      mountComponent({ packageEntity: { ...packageWithoutTags, status: PACKAGE_ERROR_STATUS } });
+      mountComponent({
+        packageEntity: {
+          ...packageWithoutTags,
+          status: PACKAGE_ERROR_STATUS,
+          _links: {
+            webPath: null,
+          },
+        },
+      });
     });
 
-    it('list item has a disabled prop', () => {
-      expect(findListItem().props('disabled')).toBe(true);
+    it('lists the package name', () => {
+      expect(findPackageName().text()).toBe('@gitlab-org/package-15');
     });
 
-    it('details link is disabled', () => {
-      expect(findPackageLink().props('event')).toBe('');
+    it('does not show the publish method', () => {
+      expect(findPublishMethod().exists()).toBe(false);
+    });
+
+    it('does not show published message', () => {
+      expect(findPublishMessage().exists()).toBe(false);
+    });
+
+    it('does not have a link to navigate to the details page', () => {
+      expect(findPackageLink().exists()).toBe(false);
     });
 
     it('has a warning icon', () => {
       const icon = findWarningIcon();
-      const tooltip = getBinding(icon.element, 'gl-tooltip');
-      expect(icon.props('icon')).toBe('warning');
-      expect(tooltip.value).toMatchObject({
-        title: 'Invalid Package: failed metadata extraction',
+      expect(icon.props('name')).toBe('warning');
+    });
+
+    it('renders error message text', () => {
+      expect(findErrorMessage().text()).toEqual(
+        'Error publishing · Invalid Package: failed metadata extraction',
+      );
+    });
+
+    describe('with custom error message', () => {
+      it('renders error message text', () => {
+        mountComponent({
+          packageEntity: {
+            ...packageWithoutTags,
+            status: PACKAGE_ERROR_STATUS,
+            statusMessage: 'custom error message',
+            _links: {
+              webPath: null,
+            },
+          },
+        });
+
+        expect(findErrorMessage().text()).toEqual('Error publishing · custom error message');
       });
     });
 
-    it('delete button does not exist', () => {
-      expect(findDeleteButton().exists()).toBe(false);
+    it('has a delete dropdown', () => {
+      expect(findDeleteDropdown().exists()).toBe(true);
+    });
+  });
+
+  describe('left action template', () => {
+    it('does not render checkbox if not permitted', () => {
+      mountComponent({
+        provide: {
+          ...defaultProvide,
+          canDeletePackages: false,
+        },
+      });
+
+      expect(findBulkDeleteAction().exists()).toBe(false);
+    });
+
+    it('renders checkbox', () => {
+      mountComponent();
+
+      expect(findBulkDeleteAction().exists()).toBe(true);
+      expect(findBulkDeleteAction().attributes('checked')).toBeUndefined();
+    });
+
+    it('emits select when checked', () => {
+      mountComponent();
+
+      findBulkDeleteAction().vm.$emit('change');
+
+      expect(wrapper.emitted('select')).toHaveLength(1);
+    });
+
+    it('renders checkbox in selected state if selected', () => {
+      mountComponent({
+        selected: true,
+      });
+
+      expect(findBulkDeleteAction().attributes('checked')).toBe('true');
+      expect(findListItem().props()).toMatchObject({
+        selected: true,
+      });
     });
   });
 
@@ -156,25 +256,26 @@ describe('packages_list_row', () => {
     it('has the package version', () => {
       mountComponent();
 
-      expect(findLeftSecondaryInfos().text()).toContain(packageWithoutTags.version);
-    });
-
-    it('if the pipeline exists show the author message', () => {
-      mountComponent({
-        packageEntity: { ...packageWithoutTags, pipelines: { nodes: packagePipelines() } },
+      expect(findPackageVersion().props()).toMatchObject({
+        text: packageWithoutTags.version,
+        withTooltip: true,
       });
-
-      expect(findLeftSecondaryInfos().text()).toContain('published by Administrator');
     });
 
-    it('has icon and name component', () => {
+    it('has package type with middot', () => {
       mountComponent();
 
-      expect(findPackageIconAndName().text()).toBe(packageWithoutTags.packageType.toLowerCase());
+      expect(findPackageType().text()).toBe(`· ${packageWithoutTags.packageType.toLowerCase()}`);
     });
   });
 
   describe('right info', () => {
+    const projectPageProps = {
+      projectName: '',
+      projectUrl: '',
+      publishDate: packageWithoutTags.createdAt,
+    };
+
     it('has publish method component', () => {
       mountComponent({
         packageEntity: { ...packageWithoutTags, pipelines: { nodes: packagePipelines() } },
@@ -183,12 +284,115 @@ describe('packages_list_row', () => {
       expect(findPublishMethod().props('pipeline')).toEqual(packagePipelines()[0]);
     });
 
-    it('has the created date', () => {
-      mountComponent();
+    it('if the package is published through CI sets author on PublishMessage component', () => {
+      mountComponent({
+        packageEntity: { ...packageWithoutTags, pipelines: { nodes: packagePipelines() } },
+      });
 
-      expect(findCreatedDateText().text()).toMatchInterpolatedText(PackagesListRow.i18n.createdAt);
-      expect(findTimeAgoTooltip().props()).toMatchObject({
-        time: packageData().createdAt,
+      expect(findPublishMessage().props()).toStrictEqual({
+        author: 'Administrator',
+        ...projectPageProps,
+      });
+    });
+
+    it('if the package is published manually then does not set author on PublishMessage component', () => {
+      mountComponent({
+        packageEntity: { ...packageWithoutTags },
+      });
+
+      expect(findPublishMessage().props()).toStrictEqual({
+        author: '',
+        ...projectPageProps,
+      });
+    });
+
+    describe('PublishMessage component for group page', () => {
+      const groupPageProps = {
+        projectName: packageWithoutTags.project.name,
+        projectUrl: packageWithoutTags.project.webUrl,
+        publishDate: packageWithoutTags.createdAt,
+      };
+
+      it('if the package is published through CI sets project name, url and author', () => {
+        mountComponent({
+          provide: {
+            ...defaultProvide,
+            isGroupPage: true,
+          },
+          packageEntity: { ...packageWithoutTags, pipelines: { nodes: packagePipelines() } },
+        });
+
+        expect(findPublishMessage().props()).toStrictEqual({
+          author: 'Administrator',
+          ...groupPageProps,
+        });
+      });
+
+      it('if the package is published manually passes show project name, url and does not set author', () => {
+        mountComponent({
+          provide: {
+            ...defaultProvide,
+            isGroupPage: true,
+          },
+          packageEntity: { ...packageWithoutTags },
+        });
+
+        expect(findPublishMessage().props()).toStrictEqual({
+          author: '',
+          ...groupPageProps,
+        });
+      });
+    });
+  });
+
+  describe('badge "protected"', () => {
+    const mountComponentForBadgeProtected = ({
+      packageEntityProtectionRuleExists = true,
+      glFeaturesPackagesProtectedPackages = true,
+    } = {}) =>
+      mountComponent({
+        packageEntity: {
+          ...packageWithoutTags,
+          protectionRuleExists: packageEntityProtectionRuleExists,
+        },
+        provide: {
+          ...defaultProvide,
+          glFeatures: { packagesProtectedPackages: glFeaturesPackagesProtectedPackages },
+        },
+      });
+
+    const findBadgeProtected = () => wrapper.findComponent(GlBadge);
+
+    describe('when package is protected', () => {
+      it('shows badge', () => {
+        mountComponentForBadgeProtected();
+
+        expect(findBadgeProtected().text()).toBe('protected');
+      });
+
+      it('binds tooltip directive', () => {
+        mountComponentForBadgeProtected();
+
+        const badgeProtectedTooltipBinding = getBinding(findBadgeProtected().element, 'gl-tooltip');
+        expect(badgeProtectedTooltipBinding.value).toMatchObject({
+          title: 'A protection rule exists for this package.',
+        });
+      });
+    });
+
+    describe('when package is not protected', () => {
+      it('does not show badge', () => {
+        mountComponentForBadgeProtected({ packageEntityProtectionRuleExists: false });
+
+        expect(findBadgeProtected().exists()).toBe(false);
+      });
+    });
+
+    describe('when feature flag ":packages_protected_packages" disabled', () => {
+      it('does not show badge', () => {
+        mountComponentForBadgeProtected({ glFeaturesPackagesProtectedPackages: false });
+
+        expect(findBadgeProtected().exists()).toBe(false);
       });
     });
   });

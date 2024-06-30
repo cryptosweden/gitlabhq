@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe IssuablesHelper do
+RSpec.describe IssuablesHelper, feature_category: :team_planning do
   let(:label)  { build_stubbed(:label) }
   let(:label2) { build_stubbed(:label) }
 
@@ -98,26 +98,25 @@ RSpec.describe IssuablesHelper do
     end
   end
 
-  describe '#issuable_meta' do
-    let(:user) { create(:user) }
+  describe '#assigned_issuables_count', feature_category: :team_planning do
+    context 'when issuable is issues' do
+      let_it_be(:user) { create(:user) }
+      let_it_be(:project) { create(:project, developers: user) }
 
-    let_it_be(:project) { create(:project) }
+      subject { helper.assigned_issuables_count(:issues) }
 
-    describe 'author status' do
-      let(:issuable) { build(:merge_request, source_project: project, author: user, created_at: '2020-01-30') }
-
-      it 'displays an emoji if the user status is set' do
-        user.status = UserStatus.new(message: 'lol')
-        content = helper.issuable_meta(issuable, project)
-        expect(content).to match('<span class="user-status-emoji has-tooltip" title="lol" data-html="true" data-placement="top">')
-        expect(content).to match('<gl-emoji title="speech balloon" data-name="speech_balloon" data-unicode-version="6.0">')
+      before do
+        allow(helper).to receive(:current_user).and_return(user)
       end
 
-      it 'does not displays an emoji if the user status is not set' do
-        user.status = UserStatus.new
-        content = helper.issuable_meta(issuable, project)
-        expect(content).not_to match('class="user-status-emoji has-tooltip"')
-        expect(content).not_to match('gl-emoji')
+      context 'when assigned issues count is over MAX_LIMIT_FOR_ASSIGNEED_ISSUES_COUNT' do
+        before do
+          stub_const('User::MAX_LIMIT_FOR_ASSIGNEED_ISSUES_COUNT', 2)
+        end
+
+        let_it_be(:issues) { create_list(:issue, 3, project: project, assignees: [user]) }
+
+        it { is_expected.to eq 2 }
       end
     end
   end
@@ -133,13 +132,13 @@ RSpec.describe IssuablesHelper do
 
         it 'returns navigation with badges' do
           expect(helper.issuables_state_counter_text(:issues, :opened, true))
-            .to eq('<span>Open</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-display-none gl-sm-display-inline-flex">42</span>')
+            .to eq('<span>Open</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-hidden sm:gl-inline-flex">42</span>')
           expect(helper.issuables_state_counter_text(:issues, :closed, true))
-            .to eq('<span>Closed</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-display-none gl-sm-display-inline-flex">42</span>')
+            .to eq('<span>Closed</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-hidden sm:gl-inline-flex">42</span>')
           expect(helper.issuables_state_counter_text(:merge_requests, :merged, true))
-            .to eq('<span>Merged</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-display-none gl-sm-display-inline-flex">42</span>')
+            .to eq('<span>Merged</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-hidden sm:gl-inline-flex">42</span>')
           expect(helper.issuables_state_counter_text(:merge_requests, :all, true))
-            .to eq('<span>All</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-display-none gl-sm-display-inline-flex">42</span>')
+            .to eq('<span>All</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-hidden sm:gl-inline-flex">42</span>')
         end
       end
 
@@ -148,7 +147,7 @@ RSpec.describe IssuablesHelper do
           allow(helper).to receive(:issuables_count_for_state).and_return(-1)
         end
 
-        it 'returns avigation without badges' do
+        it 'returns navigation without badges' do
           expect(helper.issuables_state_counter_text(:issues, :opened, true))
             .to eq('<span>Open</span>')
           expect(helper.issuables_state_counter_text(:issues, :closed, true))
@@ -171,17 +170,20 @@ RSpec.describe IssuablesHelper do
 
         it 'returns truncated count' do
           expect(helper.issuables_state_counter_text(:issues, :opened, true))
-            .to eq('<span>Open</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-display-none gl-sm-display-inline-flex">1.1k</span>')
+            .to eq('<span>Open</span> <span class="gl-badge badge badge-pill badge-muted sm gl-tab-counter-badge gl-hidden sm:gl-inline-flex">1.1k</span>')
         end
       end
     end
   end
 
   describe '#issuable_reference' do
+    let(:project_namespace) { build_stubbed(:project_namespace) }
+    let(:project) { build_stubbed(:project, project_namespace: project_namespace) }
+
     context 'when show_full_reference truthy' do
       it 'display issuable full reference' do
         assign(:show_full_reference, true)
-        issue = build_stubbed(:issue)
+        issue = build_stubbed(:issue, project: project)
 
         expect(helper.issuable_reference(issue)).to eql(issue.to_reference(full: true))
       end
@@ -190,12 +192,10 @@ RSpec.describe IssuablesHelper do
     context 'when show_full_reference falsey' do
       context 'when @group present' do
         it 'display issuable reference to @group' do
-          project = build_stubbed(:project)
-
           assign(:show_full_reference, nil)
           assign(:group, project.namespace)
 
-          issue = build_stubbed(:issue)
+          issue = build_stubbed(:issue, project: project)
 
           expect(helper.issuable_reference(issue)).to eql(issue.to_reference(project.namespace))
         end
@@ -203,13 +203,11 @@ RSpec.describe IssuablesHelper do
 
       context 'when @project present' do
         it 'display issuable reference to @project' do
-          project = build_stubbed(:project)
-
           assign(:show_full_reference, nil)
           assign(:group, nil)
           assign(:project, project)
 
-          issue = build_stubbed(:issue)
+          issue = build_stubbed(:issue, project: project)
 
           expect(helper.issuable_reference(issue)).to eql(issue.to_reference(project))
         end
@@ -218,8 +216,11 @@ RSpec.describe IssuablesHelper do
   end
 
   describe '#issuable_project_reference' do
+    let(:project_namespace) { build_stubbed(:project_namespace) }
+    let(:project) { build_stubbed(:project, project_namespace: project_namespace) }
+
     it 'display project name and simple reference with `#` to an issue' do
-      issue = build_stubbed(:issue)
+      issue = build_stubbed(:issue, project: project)
 
       expect(helper.issuable_project_reference(issue)).to eq("#{issue.project.full_name} ##{issue.iid}")
     end
@@ -228,44 +229,6 @@ RSpec.describe IssuablesHelper do
       merge_request = build_stubbed(:merge_request)
 
       expect(helper.issuable_project_reference(merge_request)).to eq("#{merge_request.project.full_name} !#{merge_request.iid}")
-    end
-  end
-
-  describe '#updated_at_by' do
-    let(:user) { create(:user) }
-    let(:unedited_issuable) { create(:issue) }
-    let(:edited_issuable) { create(:issue, last_edited_by: user, created_at: 3.days.ago, updated_at: 1.day.ago, last_edited_at: 2.days.ago) }
-    let(:edited_updated_at_by) do
-      {
-        updatedAt: edited_issuable.last_edited_at.to_time.iso8601,
-        updatedBy: {
-          name: user.name,
-          path: user_path(user)
-        }
-      }
-    end
-
-    it { expect(helper.updated_at_by(unedited_issuable)).to eq({}) }
-    it { expect(helper.updated_at_by(edited_issuable)).to eq(edited_updated_at_by) }
-
-    context 'when updated by a deleted user' do
-      let(:edited_updated_at_by) do
-        {
-          updatedAt: edited_issuable.last_edited_at.to_time.iso8601,
-          updatedBy: {
-            name: User.ghost.name,
-            path: user_path(User.ghost)
-          }
-        }
-      end
-
-      before do
-        user.destroy!
-      end
-
-      it 'returns "Ghost user" as edited_by' do
-        expect(helper.updated_at_by(edited_issuable.reload)).to eq(edited_updated_at_by)
-      end
     end
   end
 
@@ -278,51 +241,132 @@ RSpec.describe IssuablesHelper do
       stub_commonmark_sourcepos_disabled
     end
 
-    it 'returns the correct data for an issue' do
-      issue = create(:issue, author: user, description: 'issue text')
-      @project = issue.project
+    context 'when issue' do
+      it 'returns the correct data for an issue' do
+        issue = create(:issue, author: user, description: 'issue text')
+        @project = issue.project
 
-      expected_data = {
-        endpoint: "/#{@project.full_path}/-/issues/#{issue.iid}",
-        updateEndpoint: "/#{@project.full_path}/-/issues/#{issue.iid}.json",
-        canUpdate: true,
-        canDestroy: true,
-        issuableRef: "##{issue.iid}",
-        markdownPreviewPath: "/#{@project.full_path}/preview_markdown",
-        markdownDocsPath: '/help/user/markdown',
-        lockVersion: issue.lock_version,
-        projectPath: @project.path,
-        projectId: @project.id,
-        projectNamespace: @project.namespace.path,
-        initialTitleHtml: issue.title,
-        initialTitleText: issue.title,
-        initialDescriptionHtml: '<p dir="auto">issue text</p>',
-        initialDescriptionText: 'issue text',
-        initialTaskStatus: '0 of 0 tasks completed',
-        issueType: 'issue',
-        iid: issue.iid.to_s,
-        isHidden: false
-      }
-      expect(helper.issuable_initial_data(issue)).to match(hash_including(expected_data))
+        base_data = {
+          endpoint: "/#{@project.full_path}/-/issues/#{issue.iid}",
+          updateEndpoint: "/#{@project.full_path}/-/issues/#{issue.iid}.json",
+          canUpdate: true,
+          canDestroy: true,
+          issuableRef: "##{issue.iid}",
+          imported: issue.imported?,
+          markdownPreviewPath: "/#{@project.full_path}/-/preview_markdown?target_id=#{issue.iid}&target_type=Issue",
+          markdownDocsPath: '/help/user/markdown',
+          lockVersion: issue.lock_version,
+          issuableTemplateNamesPath: template_names_path(@project, issue),
+          initialTitleHtml: issue.title,
+          initialTitleText: issue.title,
+          initialDescriptionHtml: '<p dir="auto">issue text</p>',
+          initialDescriptionText: 'issue text',
+          initialTaskCompletionStatus: { completed_count: 0, count: 0 }
+        }
+
+        issue_only_data = {
+          canCreateIncident: true,
+          fullPath: issue.project.full_path,
+          iid: issue.iid,
+          issuableId: issue.id,
+          issueType: 'issue',
+          isHidden: false,
+          zoomMeetingUrl: nil
+        }
+
+        issue_header_data = {
+          authorId: issue.author.id,
+          authorName: issue.author.name,
+          authorUsername: issue.author.username,
+          authorWebUrl: url_for(user_path(issue.author)),
+          createdAt: issue.created_at.to_time.iso8601,
+          isFirstContribution: issue.first_contribution?,
+          serviceDeskReplyTo: nil
+        }
+
+        work_items_data = {
+          registerPath: '/users/sign_up?redirect_to_referer=yes',
+          signInPath: '/users/sign_in?redirect_to_referer=yes'
+        }
+
+        path_data = {
+          projectPath: @project.path,
+          projectId: @project.id,
+          projectNamespace: @project.namespace.path
+        }
+
+        expected = base_data.merge(issue_only_data, issue_header_data, work_items_data, path_data)
+
+        expect(helper.issuable_initial_data(issue)).to include(expected)
+      end
     end
 
-    describe '#sentryIssueIdentifier' do
-      let(:issue) { create(:issue, author: user) }
-
-      before do
-        assign(:project, issue.project)
+    context 'for incident tab' do
+      let(:incident) { create(:incident) }
+      let(:params) do
+        ActionController::Parameters.new({
+          controller: "projects/incidents",
+          action: "show",
+          namespace_id: "foo",
+          project_id: "bar",
+          id: incident.iid,
+          incident_tab: 'timeline'
+        }).permit!
       end
 
-      it 'sets sentryIssueIdentifier to nil with no sentry issue' do
-        expect(helper.issuable_initial_data(issue)[:sentryIssueIdentifier])
-          .to be_nil
+      it 'includes incident attributes' do
+        @project = incident.project
+        allow(helper).to receive(:safe_params).and_return(params)
+
+        expected_data = {
+          issueType: 'incident',
+          hasLinkedAlerts: false,
+          canUpdateTimelineEvent: true,
+          currentPath: "/foo/bar/-/issues/incident/#{incident.iid}/timeline",
+          currentTab: 'timeline'
+        }
+
+        expect(helper.issuable_initial_data(incident)).to match(hash_including(expected_data))
+      end
+    end
+
+    context 'when edited' do
+      it 'contains edited metadata' do
+        edited_issuable = create(:issue, author: user, description: 'issue text', last_edited_by: user, created_at: 3.days.ago, updated_at: 1.day.ago, last_edited_at: 2.days.ago)
+        @project = edited_issuable.project
+
+        expected = {
+          updatedAt: edited_issuable.last_edited_at.to_time.iso8601,
+          updatedBy: {
+            name: user.name,
+            path: user_path(user)
+          }
+        }
+
+        expect(helper.issuable_initial_data(edited_issuable)).to include(expected)
       end
 
-      it 'sets sentryIssueIdentifier to sentry_issue_identifier' do
-        sentry_issue = create(:sentry_issue, issue: issue)
+      context 'when updated by a deleted user' do
+        let(:destroyed_user) { create(:user) }
 
-        expect(helper.issuable_initial_data(issue)[:sentryIssueIdentifier])
-          .to eq(sentry_issue.sentry_issue_identifier)
+        before do
+          destroyed_user.destroy!
+        end
+
+        it 'returns "Ghost user" for updated by data' do
+          edited_issuable = create(:issue, author: user, description: 'issue text', last_edited_by: destroyed_user, created_at: 3.days.ago, updated_at: 1.day.ago, last_edited_at: 2.days.ago)
+          @project = edited_issuable.project
+
+          expected = {
+            updatedAt: edited_issuable.last_edited_at.to_time.iso8601,
+            updatedBy: {
+              name: Users::Internal.ghost.name,
+              path: user_path(Users::Internal.ghost)
+            }
+          }
+
+          expect(helper.issuable_initial_data(edited_issuable.reload)).to include(expected)
+        end
       end
     end
 
@@ -377,6 +421,64 @@ RSpec.describe IssuablesHelper do
         end
       end
     end
+
+    describe '#duplicatedToIssueUrl' do
+      let(:issue) { create(:issue, author: user) }
+
+      before do
+        assign(:project, issue.project)
+      end
+
+      context 'when issue is duplicated' do
+        before do
+          allow(issue).to receive(:duplicated?).and_return(true)
+          allow(issue).to receive(:duplicated_to).and_return(issue)
+        end
+
+        it 'returns url' do
+          expect(helper.issuable_initial_data(issue)[:duplicatedToIssueUrl]).to be_truthy
+        end
+      end
+
+      context 'when issue is not duplicated' do
+        before do
+          allow(issue).to receive(:duplicated?).and_return(false)
+        end
+
+        it 'returns nil' do
+          expect(helper.issuable_initial_data(issue)[:duplicatedToIssueUrl]).to be_nil
+        end
+      end
+    end
+
+    describe '#movedToIssueUrl' do
+      let(:issue) { create(:issue, author: user) }
+
+      before do
+        assign(:project, issue.project)
+      end
+
+      context 'when issue is moved' do
+        before do
+          allow(issue).to receive(:moved?).and_return(true)
+          allow(issue).to receive(:moved_to).and_return(issue)
+        end
+
+        it 'returns url' do
+          expect(helper.issuable_initial_data(issue)[:movedToIssueUrl]).to be_truthy
+        end
+      end
+
+      context 'when issue is not moved' do
+        before do
+          allow(issue).to receive(:moved?).and_return(false)
+        end
+
+        it 'returns nil' do
+          expect(helper.issuable_initial_data(issue)[:movedToIssueUrl]).to be_nil
+        end
+      end
+    end
   end
 
   describe '#assignee_sidebar_data' do
@@ -403,39 +505,7 @@ RSpec.describe IssuablesHelper do
           allow(merge_request).to receive(:can_be_merged_by?).and_return(can_merge)
         end
 
-        it { is_expected.to include({ can_merge: can_merge })}
-      end
-    end
-  end
-
-  describe '#reviewer_sidebar_data' do
-    let(:user) { create(:user) }
-
-    subject { helper.reviewer_sidebar_data(user, merge_request: merge_request) }
-
-    context 'without merge_request' do
-      let(:merge_request) { nil }
-
-      it 'returns hash of reviewer data' do
-        is_expected.to eql({
-          avatar_url: user.avatar_url,
-          name: user.name,
-          username: user.username
-        })
-      end
-    end
-
-    context 'with merge_request' do
-      let(:merge_request) { build(:merge_request) }
-
-      where(can_merge: [true, false])
-
-      with_them do
-        before do
-          allow(merge_request).to receive(:can_be_merged_by?).and_return(can_merge)
-        end
-
-        it { is_expected.to include({ can_merge: can_merge })}
+        it { is_expected.to include({ can_merge: can_merge }) }
       end
     end
   end
@@ -464,29 +534,97 @@ RSpec.describe IssuablesHelper do
     end
   end
 
-  describe '#issuable_display_type' do
+  describe '#issuable_type_selector_data' do
     using RSpec::Parameterized::TableSyntax
 
-    where(:issuable_type, :issuable_display_type) do
-      :issue         | 'issue'
-      :incident      | 'incident'
-      :merge_request | 'merge request'
+    let_it_be(:project) { create(:project) }
+
+    where(:issuable_type, :issuable_display_type, :is_issue_allowed, :is_incident_allowed) do
+      :issue         | 'issue'    | true  | false
+      :incident      | 'incident' | false | true
     end
 
     with_them do
       let(:issuable) { build_stubbed(issuable_type) }
 
-      subject { helper.issuable_display_type(issuable) }
+      before do
+        allow(helper).to receive(:create_issue_type_allowed?).with(project, :issue).and_return(is_issue_allowed)
+        allow(helper).to receive(:create_issue_type_allowed?).with(project, :incident).and_return(is_incident_allowed)
+        assign(:project, project)
+      end
 
-      it { is_expected.to eq(issuable_display_type) }
+      it 'returns the correct data for the issuable type selector' do
+        expected_data = {
+          selected_type: issuable_display_type,
+          is_issue_allowed: is_issue_allowed.to_s,
+          is_incident_allowed: is_incident_allowed.to_s,
+          issue_path: new_project_issue_path(project),
+          incident_path: new_project_issue_path(project, { issuable_template: 'incident', issue: { issue_type: 'incident' } })
+        }
+
+        expect(helper.issuable_type_selector_data(issuable)).to match(expected_data)
+      end
     end
   end
 
-  describe '#sidebar_milestone_tooltip_label' do
-    it 'escapes HTML in the milestone title' do
-      milestone = build(:milestone, title: '&lt;img onerror=alert(1)&gt;')
+  describe '#issuable_label_selector_data' do
+    let_it_be(:project) { create(:project, :repository) }
 
-      expect(helper.sidebar_milestone_tooltip_label(milestone)).to eq('&lt;img onerror=alert(1)&gt;<br/>Milestone')
+    context 'with a new issuable' do
+      let_it_be(:issuable) { build(:issue, project: project) }
+
+      it 'returns the expected data' do
+        expect(helper.issuable_label_selector_data(project, issuable)).to match({
+          field_name: "#{issuable.class.model_name.param_key}[label_ids][]",
+          full_path: project.full_path,
+          initial_labels: '[]',
+          issuable_type: issuable.issuable_type,
+          labels_filter_base_path: project_issues_path(project),
+          labels_manage_path: project_labels_path(project),
+          supports_lock_on_merge: issuable.supports_lock_on_merge?.to_s
+        })
+      end
+    end
+
+    context 'with an existing issuable' do
+      let_it_be(:label) { create(:label, name: 'Bug') }
+      let_it_be(:label2) { create(:label, name: 'Community contribution') }
+      let_it_be(:issuable) do
+        create(:merge_request, source_project: project, target_project: project, labels: [label, label2])
+      end
+
+      it 'returns the expected data' do
+        initial_labels = [
+          {
+            __typename: "Label",
+            id: label.id,
+            title: label.title,
+            description: label.description,
+            color: label.color,
+            text_color: label.text_color,
+            lock_on_merge: label.lock_on_merge
+          },
+          {
+            __typename: "Label",
+            id: label2.id,
+            title: label2.title,
+            description: label2.description,
+            color: label2.color,
+            text_color: label2.text_color,
+            lock_on_merge: label.lock_on_merge
+          }
+        ]
+
+        expect(helper.issuable_label_selector_data(project, issuable)).to match({
+          field_name: "#{issuable.class.model_name.param_key}[label_ids][]",
+          full_path: project.full_path,
+          initial_labels: initial_labels.to_json,
+          issuable_type: issuable.issuable_type,
+          labels_filter_base_path: project_merge_requests_path(project),
+          labels_manage_path: project_labels_path(project),
+          supports_lock_on_merge: issuable.supports_lock_on_merge?.to_s
+        })
+      end
     end
   end
 end

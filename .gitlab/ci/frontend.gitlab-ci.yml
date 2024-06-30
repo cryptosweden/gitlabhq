@@ -1,37 +1,45 @@
-.yarn-install: &yarn-install
-  - source scripts/utils.sh
-  - run_timed_command "retry yarn install --frozen-lockfile"
-
-.storybook-yarn-install: &storybook-yarn-install
-  - source scripts/utils.sh
-  - run_timed_command "retry yarn run storybook:install --frozen-lockfile"
-
 .compile-assets-base:
   extends:
     - .default-retry
     - .default-before_script
     - .assets-compile-cache
-  image: ${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images:debian-${DEBIAN_VERSION}-ruby-2.7-git-2.33-lfs-2.9-node-16.14-yarn-1.22-graphicsmagick-1.3.36
+  image: ${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images/${BUILD_OS}-${OS_VERSION}-ruby-${RUBY_VERSION}-node-${NODE_VERSION}:rubygems-${RUBYGEMS_VERSION}-git-2.33-lfs-2.9-yarn-1.22-graphicsmagick-1.3.36
   variables:
     SETUP_DB: "false"
     WEBPACK_VENDOR_DLL: "true"
     # Disable warnings in browserslist which can break on backports
     # https://github.com/browserslist/browserslist/blob/a287ec6/node.js#L367-L384
     BROWSERSLIST_IGNORE_OLD_DATA: "true"
+    WEBPACK_COMPILE_LOG_PATH: "tmp/webpack-output.log"
   stage: prepare
+  needs: []
   script:
-    - *yarn-install
-    - run_timed_command "bin/rake gitlab:assets:compile"
-    - run_timed_command "scripts/clean-old-cached-assets"
+    - yarn_install_script
+    - export GITLAB_ASSETS_HASH=$(bin/rake gitlab:assets:hash_sum)
+    - 'echo "CACHE_ASSETS_AS_PACKAGE: ${CACHE_ASSETS_AS_PACKAGE}"'
+    # The new strategy to cache assets as generic packages is experimental and can be disabled by removing the `CACHE_ASSETS_AS_PACKAGE` variable
+    - |
+      if [[ "${CACHE_ASSETS_AS_PACKAGE}" == "true" ]]; then
+        source scripts/gitlab_component_helpers.sh
+
+        if ! gitlab_assets_archive_doesnt_exist; then
+          # We remove all assets from the native cache as they could pollute the fresh assets from the package
+          rm -rf public/assets/ app/assets/javascripts/locale/**/app.js
+          run_timed_command "download_and_extract_gitlab_assets"
+        fi
+      fi
+    - assets_compile_script
+    - echo -n "${GITLAB_ASSETS_HASH}" > "cached-assets-hash.txt"
+
+.update-cache-base:
+  after_script:
+    - yarn patch-package --reverse  # To avoid caching patched modules
 
 compile-production-assets:
   extends:
     - .compile-assets-base
+    - .production
     - .frontend:rules:compile-production-assets
-  variables:
-    NODE_ENV: "production"
-    RAILS_ENV: "production"
-    WEBPACK_REPORT: "true"
   artifacts:
     name: webpack-report
     expire_in: 31d
@@ -39,20 +47,23 @@ compile-production-assets:
       # These assets are used in multiple locations:
       # - in `build-assets-image` job to create assets image for packaging systems
       # - GitLab UI for integration tests: https://gitlab.com/gitlab-org/gitlab-ui/-/blob/e88493b3c855aea30bf60baee692a64606b0eb1e/.storybook/preview-head.pug#L1
+      - cached-assets-hash.txt
       - public/assets/
-      - webpack-report/
+      - "${WEBPACK_COMPILE_LOG_PATH}"
     when: always
-  before_script:
-    - if [ -n "$CI_MERGE_REQUEST_SOURCE_BRANCH_SHA" ]; then
-        echo "Checking out \$CI_MERGE_REQUEST_SOURCE_BRANCH_SHA ($CI_MERGE_REQUEST_SOURCE_BRANCH_SHA) instead of \$CI_COMMIT_SHA (merge result commit $CI_COMMIT_SHA) so that GitLab assets image tag actually reflect the commit for which assets were compiled.";
-        git checkout -f ${CI_MERGE_REQUEST_SOURCE_BRANCH_SHA};
-      else
-        echo "Building the image from \$CI_COMMIT_SHA ($CI_COMMIT_SHA) for this non-merge result pipeline.";
-      fi;
-    - echo "See https://docs.gitlab.com/ee/development/testing_guide/end_to_end/index.html#with-pipeline-for-merged-results for more details.";
-    - !reference [.default-before_script, before_script]
-  after_script:
-    - rm -f /etc/apt/sources.list.d/google*.list  # We don't need to update Chrome here
+
+compile-production-assets as-if-foss:
+  extends:
+    - compile-production-assets
+    - .as-if-foss
+    - .frontend:rules:compile-production-assets-as-if-foss
+
+follow-up:compile-production-assets:
+  extends:
+    - compile-production-assets
+    - .qa:rules:follow-up-e2e
+  needs:
+    - manual:e2e-test-pipeline-generate
 
 compile-test-assets:
   extends:
@@ -62,24 +73,14 @@ compile-test-assets:
     expire_in: 7d
     paths:
       - public/assets/
-      - node_modules/@gitlab/svgs/dist/icons.json  # app/helpers/icons_helper.rb uses this file
+      - config/helpers/tailwind/  # Assets created during tailwind compilation
+      - "${WEBPACK_COMPILE_LOG_PATH}"
     when: always
-
-compile-test-assets as-if-foss:
-  extends:
-    - compile-test-assets
-    - .frontend:rules:compile-test-assets-as-if-foss
-    - .as-if-foss
-
-compile-test-assets as-if-jh:
-  extends:
-    - compile-test-assets
-    - .frontend:rules:compile-test-assets-as-if-jh
-  needs: ["add-jh-folder"]
 
 update-assets-compile-production-cache:
   extends:
     - compile-production-assets
+    - .update-cache-base
     - .assets-compile-cache-push
     - .shared:rules:update-cache
   stage: prepare
@@ -88,44 +89,71 @@ update-assets-compile-production-cache:
 update-assets-compile-test-cache:
   extends:
     - compile-test-assets
+    - .update-cache-base
     - .assets-compile-cache-push
     - .shared:rules:update-cache
   stage: prepare
   artifacts: {}  # This job's purpose is only to update the cache.
 
-update-yarn-cache:
-  extends:
-    - .default-retry
-    - .yarn-cache-push
-    - .shared:rules:update-cache
-  stage: prepare
-  script:
-    - *yarn-install
-
 update-storybook-yarn-cache:
   extends:
     - .default-retry
+    - .default-utils-before_script
+    - .update-cache-base
     - .storybook-yarn-cache-push
     - .shared:rules:update-cache
   stage: prepare
   script:
-    - *storybook-yarn-install
+    - yarn_install_script_storybook
 
+retrieve-frontend-fixtures:
+  variables:
+    SETUP_DB: "false"
+  extends:
+    - .default-retry
+    - .frontend:rules:default-frontend-jobs
+  stage: prepare
+  needs: []
+  script:
+    - source scripts/utils.sh
+    - source scripts/gitlab_component_helpers.sh
+    - install_gitlab_gem
+    - export_fixtures_sha_for_download
+    - |
+      if check_fixtures_download; then
+        run_timed_command "download_and_extract_fixtures"
+      fi
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - tmp/tests/frontend/
+
+# Download fixtures only when a merge request contains changes to only JS files
+# and fixtures are present in the package registry.
 .frontend-fixtures-base:
   extends:
     - .default-retry
     - .default-before_script
-    - .rails-cache
-    - .use-pg12
+    - .ruby-cache
+    - .use-pg14
   stage: fixtures
-  needs: ["setup-test-env", "retrieve-tests-metadata"]
+  needs: ["setup-test-env", "retrieve-tests-metadata", "retrieve-frontend-fixtures"]
   variables:
+    # Don't add `CRYSTALBALL: "false"` here as we're enabling Crystalball for scheduled pipelines (in `.gitlab-ci.yml`), so that we get coverage data
+    # for the `frontend fixture RSpec files` that will be added to the Crystalball mapping in `update-tests-metadata`.
+    # More information in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/74003.
     WEBPACK_VENDOR_DLL: "true"
   script:
+    - source scripts/gitlab_component_helpers.sh
+    - |
+      if check_fixtures_reuse; then
+        echoinfo "INFO: Reusing frontend fixtures from 'retrieve-frontend-fixtures'."
+        exit 0
+      fi
     - run_timed_command "gem install knapsack --no-document"
-    - run_timed_command "scripts/gitaly-test-spawn"
+    - section_start "gitaly-test-spawn" "Spawning Gitaly"; scripts/gitaly-test-spawn; section_end "gitaly-test-spawn";  # Do not use 'bundle exec' here
     - source ./scripts/rspec_helpers.sh
-    - rspec_paralellized_job
+    - rspec_parallelized_job
   artifacts:
     name: frontend-fixtures
     expire_in: 31d
@@ -140,40 +168,35 @@ update-storybook-yarn-cache:
 rspec-all frontend_fixture:
   extends:
     - .frontend-fixtures-base
-    - .frontend:rules:default-frontend-jobs
+    - .frontend:rules:frontend_fixture
   needs:
     - !reference [.frontend-fixtures-base, needs]
     - "compile-test-assets"
-  parallel: 5
+  parallel: 7
 
-# Builds FOSS fixtures in the EE project, with the `ee/` folder removed (due to `as-if-foss`).
-rspec-all frontend_fixture as-if-foss:
+# Uploads EE fixtures in the EE project.
+# Uploads FOSS fixtures in the FOSS project.
+upload-frontend-fixtures:
   extends:
     - .frontend-fixtures-base
-    - .frontend:rules:default-frontend-jobs-as-if-foss
-    - .as-if-foss
-  needs:
-    - !reference [.frontend-fixtures-base, needs]
-    - "compile-test-assets as-if-foss"
-
-# Builds FOSS, EE, and JH fixtures in the EE project, with the `jh/` folder added (due to `as-if-jh`).
-rspec-all frontend_fixture as-if-jh:
-  extends:
-    - .frontend-fixtures-base
-    - .frontend:rules:default-frontend-jobs-as-if-jh
-  needs:
-    - !reference [.frontend-fixtures-base, needs]
-    - "compile-test-assets as-if-jh"
-    - "add-jh-folder"
+    - .frontend:rules:upload-frontend-fixtures
+  stage: fixtures
+  needs: ["rspec-all frontend_fixture"]
   script:
-    - echo "This job is currently doing nothing since there's no specific JH fixtures yet. To enable this job, remove this line."
+    - source scripts/utils.sh
+    - source scripts/gitlab_component_helpers.sh
+    - export_fixtures_sha_for_upload
+    - 'fixtures_archive_doesnt_exist || { echoinfo "INFO: Exiting early as package exists."; exit 0; }'
+    - run_timed_command "create_fixtures_package"
+    - run_timed_command "upload_fixtures_package"
+  artifacts: {}
 
 graphql-schema-dump:
   variables:
     SETUP_DB: "false"
   extends:
     - .default-retry
-    - .rails-cache
+    - .ruby-cache
     - .default-before_script
     - .frontend:rules:default-frontend-jobs
   stage: fixtures
@@ -181,6 +204,7 @@ graphql-schema-dump:
   script:
     - bundle exec rake gitlab:graphql:schema:dump
   artifacts:
+    expire_in: 30 days
     name: graphql-schema
     paths:
       - tmp/tests/graphql/gitlab_schema.graphql
@@ -194,20 +218,60 @@ graphql-schema-dump:
     # Disable warnings in browserslist which can break on backports
     # https://github.com/browserslist/browserslist/blob/a287ec6/node.js#L367-L384
     BROWSERSLIST_IGNORE_OLD_DATA: "true"
+    USE_BUNDLE_INSTALL: "false"
+    SETUP_DB: "false"
   before_script:
-    - *yarn-install
+    - !reference [.default-before_script, before_script]
+    - yarn_install_script
   stage: test
+
+.vue3:
+  variables:
+    VUE_VERSION: 3
+    NODE_OPTIONS: --max-old-space-size=7680
+  allow_failure: true
 
 .jest-base:
   extends: .frontend-test-base
   script:
-    - run_timed_command "yarn jest:ci"
+    - run_timed_command "yarn jest:ci:without-fixtures"
 
-jest:
+jest-build-cache:
+  extends:
+    - .frontend-test-base
+    - .frontend:rules:jest
+  needs: []
+  artifacts:
+    name: jest-cache
+    expire_in: 12h
+    when: always
+    paths:
+      - tmp/cache/jest/
+  script:
+    - run_timed_command "yarn jest:ci:build-cache"
+  variables:
+    # Propagate exit code correctly. See https://gitlab.com/groups/gitlab-org/-/epics/6074.
+    FF_USE_NEW_BASH_EVAL_STRATEGY: 'true'
+    FORCE_COLOR: '1'
+  allow_failure:
+    # In merge requests, failures exit with 2, so fail the pipeline. Otherwise,
+    # they exit with 1, so as not to break master and other pipelines.
+    exit_codes: 1
+
+jest-build-cache-vue3:
+  extends:
+    - jest-build-cache
+    - .frontend:rules:jest-vue3
+    - .vue3
+
+jest-with-fixtures:
   extends:
     - .jest-base
     - .frontend:rules:jest
-  needs: ["rspec-all frontend_fixture"]
+  needs:
+    - "rspec-all frontend_fixture"
+    - job: jest-build-cache
+      optional: true
   artifacts:
     name: coverage-frontend
     expire_in: 31d
@@ -218,61 +282,133 @@ jest:
       - tmp/tests/frontend/
     reports:
       junit: junit_jest.xml
-  parallel: 5
+  parallel: 2
+  script:
+    - run_timed_command "yarn jest:ci:with-fixtures"
 
-jest minimal:
+jest:
+  extends:
+    - .jest-base
+    - .frontend:rules:jest
+  needs:
+    - job: jest-build-cache
+      optional: true
+  artifacts:
+    name: coverage-frontend
+    expire_in: 31d
+    when: always
+    paths:
+      - coverage-frontend/
+      - junit_jest.xml
+      - tmp/tests/frontend/
+    reports:
+      junit: junit_jest.xml
+  parallel: 11
+
+jest-with-fixtures vue3:
+  extends:
+    - jest-with-fixtures
+    - .frontend:rules:jest-vue3
+    - .vue3
+  needs:
+    - "rspec-all frontend_fixture"
+    - job: jest-build-cache-vue3
+      optional: true
+
+jest vue3:
   extends:
     - jest
-    - .frontend:rules:jest:minimal
+    - .frontend:rules:jest-vue3
+    - .vue3
+  needs:
+    - job: jest-build-cache-vue3
+      optional: true
+
+jest predictive:
+  extends:
+    - jest
+    - .frontend:rules:jest:predictive
   needs:
     - !reference [jest, needs]
     - "detect-tests"
   script:
-    - run_timed_command "yarn jest:ci:minimal"
+    - if [[ -s "$RSPEC_CHANGED_FILES_PATH" ]] || [[ -s "$RSPEC_MATCHING_JS_FILES_PATH" ]]; then run_timed_command "yarn jest:ci:predictive-without-fixtures"; fi
+
+jest-with-fixtures predictive:
+  extends:
+    - jest-with-fixtures
+    - .frontend:rules:jest:predictive
+  needs:
+    - !reference [jest-with-fixtures, needs]
+    - "detect-tests"
+  script:
+    - if [[ -s "$RSPEC_CHANGED_FILES_PATH" ]] || [[ -s "$RSPEC_MATCHING_JS_FILES_PATH" ]]; then run_timed_command "yarn jest:ci:predictive-with-fixtures"; fi
 
 jest-integration:
   extends:
     - .frontend-test-base
-    - .frontend:rules:default-frontend-jobs
+    - .frontend:rules:jest-integration
   script:
     - run_timed_command "yarn jest:integration --ci"
-  needs:
-    - job: "rspec-all frontend_fixture"
-    - job: "graphql-schema-dump"
+  needs: ["rspec-all frontend_fixture", "graphql-schema-dump"]
 
-jest-as-if-foss:
+jest-snapshot-vue3:
   extends:
     - .jest-base
-    - .frontend:rules:default-frontend-jobs-as-if-foss
-    - .as-if-foss
-  needs: ["rspec-all frontend_fixture as-if-foss"]
-  parallel: 2
-
-jest-as-if-jh:
-  extends:
-    - .jest-base
-    - .frontend:rules:default-frontend-jobs-as-if-jh
-  needs: ["rspec-all frontend_fixture as-if-jh", "add-jh-folder"]
+    - .frontend:rules:jest-snapshot-vue3
+  needs: ["rspec-all frontend_fixture"]
+  variables:
+    VUE_VERSION: 3
+    JEST_REPORT: jest-test-report.json
+    SNAPSHOT_TEST_REPORT: jest-snapshot-test-report.json
   script:
-    - echo "This job is currently doing nothing since there's no specific JH Jest tests yet. To enable this job, remove this line."
+    - |
+      yarn jest:snapshots --ci --json --outputFile="${JEST_REPORT}" || echo 'Proceed to parsing test report...'
+      echo $(ruby -rjson -e 'puts JSON.generate(JSON.parse(File.read(ENV["JEST_REPORT"])).dig("snapshot"))') > "${SNAPSHOT_TEST_REPORT}"
+
+      echo " ============= snapshot test report start =============="
+      cat "${SNAPSHOT_TEST_REPORT}"
+      echo " ============= snapshot test report end ================"
+
+      snapshot_test_failed=$(ruby -rjson -e 'puts JSON.parse(File.read(ENV["SNAPSHOT_TEST_REPORT"])).dig("failure")')
+      if [[ "${snapshot_test_failed}" == "true" ]]
+      then
+        echo "You have failed snapshot tests! Exiting 1..."
+        exit 1
+      else
+        echo 'All snapshot tests passed! Exiting 0...'
+        exit 0
+      fi
+
+  artifacts:
+    name: snapshot_tests
+    expire_in: 31d
+    when: always
+    paths:
+      - jest-snapshot-test-match.json
+      - jest-snapshot-test-report.json
 
 coverage-frontend:
   extends:
     - .default-retry
+    - .default-utils-before_script
     - .yarn-cache
-    - .frontend:rules:ee-mr-and-default-branch-only
+    - .frontend:rules:coverage-frontend
   needs:
     - job: "jest"
       optional: true
-    - job: "jest minimal"
+    - job: "jest-with-fixtures"
+      optional: true
+    - job: "jest predictive"
       optional: true
   stage: post-test
-  before_script:
-    - *yarn-install
   script:
+    - yarn_install_script
     - run_timed_command "yarn node scripts/frontend/merge_coverage_frontend.js"
     # Removing the individual coverage results, as we just merged them.
-    - rm -r coverage-frontend/jest-*
+    - if ls coverage-frontend/jest-* > /dev/null 2>&1; then
+        rm -r coverage-frontend/jest-*;
+      fi
   coverage: '/^Statements\s*:\s*?(\d+(?:\.\d+)?)%/'
   artifacts:
     name: coverage-frontend
@@ -280,36 +416,14 @@ coverage-frontend:
     paths:
       - coverage-frontend/
     reports:
-      cobertura: coverage-frontend/cobertura-coverage.xml
-
-.qa-frontend-node:
-  extends:
-    - .default-retry
-    - .yarn-cache
-    - .frontend:rules:qa-frontend-node
-  stage: test
-  dependencies: []
-  script:
-    - *yarn-install
-    - run_timed_command "retry yarn run webpack-prod"
-
-qa-frontend-node:12:
-  extends: .qa-frontend-node
-  image: ${GITLAB_DEPENDENCY_PROXY}node:12
-
-qa-frontend-node:14:
-  extends: .qa-frontend-node
-  image: ${GITLAB_DEPENDENCY_PROXY}node:14
-
-qa-frontend-node:latest:
-  extends:
-    - .qa-frontend-node
-    - .frontend:rules:qa-frontend-node-latest
-  image: ${GITLAB_DEPENDENCY_PROXY}node:latest
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage-frontend/cobertura-coverage.xml
 
 webpack-dev-server:
   extends:
     - .default-retry
+    - .default-utils-before_script
     - .yarn-cache
     - .frontend:rules:default-frontend-jobs
   stage: test
@@ -318,7 +432,7 @@ webpack-dev-server:
     WEBPACK_MEMORY_TEST: "true"
     WEBPACK_VENDOR_DLL: "true"
   script:
-    - *yarn-install
+    - yarn_install_script
     - run_timed_command "retry yarn webpack-vendor"
     - run_timed_command "node --expose-gc node_modules/.bin/webpack-dev-server --config config/webpack.config.js"
   artifacts:
@@ -330,62 +444,35 @@ webpack-dev-server:
 bundle-size-review:
   extends:
     - .default-retry
+    - .default-utils-before_script
+    - .assets-compile-cache
     - .frontend:rules:bundle-size-review
   image: ${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images:danger
   stage: test
-  needs: ["compile-production-assets"]
+  needs: []
   script:
-    - source scripts/utils.sh
-    - mkdir -p bundle-size-review
-    - cp webpack-report/index.html bundle-size-review/bundle-report.html
-    - yarn global add https://gitlab.com/gitlab-org/frontend/playground/webpack-memory-metrics.git
-    - |
-      danger_id=$(echo -n ${DANGER_GITLAB_API_TOKEN} | md5sum | awk '{print $1}' | cut -c5-10)
-      run_timed_command "danger --dangerfile=danger/Dangerfile-bundle_size --fail-on-errors=true --verbose --danger_id=bundle-size-review-${danger_id}"
+    - yarn_install_script
+    - scripts/bundle_size_review
   artifacts:
     when: always
     name: bundle-size-review
     expire_in: 31d
     paths:
-      - bundle-size-review
-
-.startup-css-check-base:
-  extends:
-    - .frontend-test-base
-  script:
-    - run_timed_command "yarn generate:startup_css"
-    - yarn check:startup_css
-
-startup-css-check:
-  extends:
-    - .startup-css-check-base
-    - .frontend:rules:default-frontend-jobs
-  needs:
-    - job: "compile-test-assets"
-    - job: "rspec-all frontend_fixture"
-
-startup-css-check as-if-foss:
-  extends:
-    - .startup-css-check-base
-    - .as-if-foss
-    - .frontend:rules:default-frontend-jobs-as-if-foss
-  needs:
-    - job: "compile-test-assets as-if-foss"
-    - job: "rspec-all frontend_fixture as-if-foss"
+      - bundle-size-review/
 
 .compile-storybook-base:
   extends:
     - .frontend-test-base
     - .storybook-yarn-cache
   script:
-    - *storybook-yarn-install
-    - yarn run storybook:build
+    - yarn_install_script_storybook
+    - run_timed_command "yarn run storybook:build"
   needs: ["graphql-schema-dump"]
 
 compile-storybook:
   extends:
     - .compile-storybook-base
-    - .frontend:rules:default-frontend-jobs
+    - .frontend:rules:compile-storybook
   needs:
     - !reference [.compile-storybook-base, needs]
     - job: "rspec-all frontend_fixture"
@@ -395,12 +482,3 @@ compile-storybook:
     when: always
     paths:
       - storybook/public
-
-compile-storybook as-if-foss:
-  extends:
-    - .compile-storybook-base
-    - .as-if-foss
-    - .frontend:rules:default-frontend-jobs-as-if-foss
-  needs:
-    - !reference [.compile-storybook-base, needs]
-    - job: "rspec-all frontend_fixture as-if-foss"

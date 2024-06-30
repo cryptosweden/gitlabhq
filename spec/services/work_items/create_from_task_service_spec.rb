@@ -2,13 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe WorkItems::CreateFromTaskService do
+RSpec.describe WorkItems::CreateFromTaskService, feature_category: :team_planning do
   let_it_be(:project) { create(:project) }
-  let_it_be(:developer) { create(:user) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
   let_it_be(:list_work_item, refind: true) { create(:work_item, project: project, description: "- [ ] Item to be converted\n    second line\n    third line") }
 
   let(:work_item_to_update) { list_work_item }
-  let(:spam_params) { double }
   let(:link_params) { {} }
   let(:current_user) { developer }
   let(:params) do
@@ -21,10 +20,6 @@ RSpec.describe WorkItems::CreateFromTaskService do
     }
   end
 
-  before_all do
-    project.add_developer(developer)
-  end
-
   shared_examples 'CreateFromTask service with invalid params' do
     it { is_expected.to be_error }
 
@@ -32,27 +27,25 @@ RSpec.describe WorkItems::CreateFromTaskService do
       expect do
         service_result
       end.to not_change(WorkItem, :count).and(
-        not_change(IssueLink, :count)
+        not_change(WorkItems::ParentLink, :count)
       )
     end
   end
 
   describe '#execute' do
-    subject(:service_result) { described_class.new(work_item: work_item_to_update, current_user: current_user, work_item_params: params, spam_params: spam_params).execute }
-
-    before do
-      stub_spam_services
-    end
+    subject(:service_result) { described_class.new(work_item: work_item_to_update, current_user: current_user, work_item_params: params).execute }
 
     context 'when work item params are valid' do
       it { is_expected.to be_success }
 
-      it 'creates a work item and links it to the original work item successfully' do
+      it 'creates a work item and creates parent link to the original work item' do
         expect do
           service_result
         end.to change(WorkItem, :count).by(1).and(
-          change(IssueLink, :count)
+          change(WorkItems::ParentLink, :count).by(1)
         )
+
+        expect(work_item_to_update.reload.work_item_children).not_to be_empty
       end
 
       it 'replaces the original issue markdown description with new work item reference' do
@@ -62,6 +55,8 @@ RSpec.describe WorkItems::CreateFromTaskService do
 
         expect(list_work_item.description).to eq("- [ ] #{created_work_item.to_reference}+")
       end
+
+      it_behaves_like 'title with extra spaces'
     end
 
     context 'when last operation fails' do
@@ -73,7 +68,7 @@ RSpec.describe WorkItems::CreateFromTaskService do
         expect do
           service_result
         end.to not_change(WorkItem, :count).and(
-          not_change(IssueLink, :count)
+          not_change(WorkItems::ParentLink, :count)
         )
       end
 

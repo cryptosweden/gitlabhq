@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Cache::Ci::ProjectPipelineStatus, :clean_gitlab_redis_cache do
+RSpec.describe Gitlab::Cache::Ci::ProjectPipelineStatus, :clean_gitlab_redis_cache, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project, :repository) }
 
   let(:pipeline_status) { described_class.new(project) }
@@ -24,7 +24,7 @@ RSpec.describe Gitlab::Cache::Ci::ProjectPipelineStatus, :clean_gitlab_redis_cac
         described_class.load_in_batch_for_projects([project])
 
         # Don't call the accessor that would lazy load the variable
-        project_pipeline_status = project.instance_variable_get('@pipeline_status')
+        project_pipeline_status = project.instance_variable_get(:@pipeline_status)
 
         expect(project_pipeline_status).to be_a(described_class)
         expect(project_pipeline_status).to be_loaded
@@ -43,15 +43,13 @@ RSpec.describe Gitlab::Cache::Ci::ProjectPipelineStatus, :clean_gitlab_redis_cac
 
   describe '.update_for_pipeline' do
     it 'refreshes the cache if nescessary' do
-      pipeline = build_stubbed(:ci_pipeline,
-                               sha: '123456', status: 'success', ref: 'master')
+      pipeline = build_stubbed(:ci_pipeline, sha: '123456', status: 'success', ref: 'master')
       fake_status = double
       expect(described_class).to receive(:new)
-                                   .with(pipeline.project,
-                                        pipeline_info: {
-                                          sha: '123456', status: 'success', ref: 'master'
-                                        })
-                                   .and_return(fake_status)
+        .with(pipeline.project,
+          pipeline_info: { sha: '123456', status: 'success', ref: 'master' }
+        )
+        .and_return(fake_status)
 
       expect(fake_status).to receive(:store_in_cache_if_needed)
 
@@ -188,9 +186,11 @@ RSpec.describe Gitlab::Cache::Ci::ProjectPipelineStatus, :clean_gitlab_redis_cac
 
       pipeline_status.store_in_cache
       read_sha, read_status = Gitlab::Redis::Cache.with { |redis| redis.hmget(cache_key, :sha, :status) }
+      ttl = Gitlab::Redis::Cache.with { |redis| redis.ttl(cache_key) }
 
       expect(read_sha).to eq('123456')
       expect(read_status).to eq('failed')
+      expect(ttl).to be > 0
     end
   end
 
@@ -223,14 +223,10 @@ RSpec.describe Gitlab::Cache::Ci::ProjectPipelineStatus, :clean_gitlab_redis_cac
     it "deletes the cache if the repository doesn't have a head commit" do
       empty_project = create(:project)
       Gitlab::Redis::Cache.with do |redis|
-        redis.mapped_hmset(cache_key,
-                           { sha: 'sha', status: 'pending', ref: 'master' })
+        redis.mapped_hmset(cache_key, { sha: 'sha', status: 'pending', ref: 'master' })
       end
 
-      other_status = described_class.new(empty_project,
-                                         pipeline_info: {
-                                           sha: "123456", status: "failed"
-                                         })
+      other_status = described_class.new(empty_project, pipeline_info: { sha: "123456", status: "failed" })
 
       other_status.store_in_cache_if_needed
       sha, status, ref = Gitlab::Redis::Cache.with { |redis| redis.hmget("projects/#{empty_project.id}/pipeline_status", :sha, :status, :ref) }
@@ -248,30 +244,38 @@ RSpec.describe Gitlab::Cache::Ci::ProjectPipelineStatus, :clean_gitlab_redis_cac
 
     before do
       Gitlab::Redis::Cache.with do |redis|
-        redis.mapped_hmset(cache_key,
-                           { sha: sha, status: status, ref: ref })
+        redis.mapped_hmset(cache_key, { sha: sha, status: status, ref: ref })
       end
     end
 
     describe '#load_from_cache' do
+      subject { pipeline_status.load_from_cache }
+
       it 'reads the status from redis_cache' do
-        pipeline_status.load_from_cache
+        subject
 
         expect(pipeline_status.sha).to eq(sha)
         expect(pipeline_status.status).to eq(status)
         expect(pipeline_status.ref).to eq(ref)
       end
 
+      it 'refreshes ttl' do
+        subject
+
+        ttl = Gitlab::Redis::Cache.with { |redis| redis.ttl(cache_key) }
+
+        expect(ttl).to be > 0
+      end
+
       context 'when status is empty string' do
         before do
           Gitlab::Redis::Cache.with do |redis|
-            redis.mapped_hmset(cache_key,
-                               { sha: sha, status: '', ref: ref })
+            redis.mapped_hmset(cache_key, { sha: sha, status: '', ref: ref })
           end
         end
 
         it 'reads the status as nil' do
-          pipeline_status.load_from_cache
+          subject
 
           expect(pipeline_status.status).to eq(nil)
         end
@@ -288,7 +292,7 @@ RSpec.describe Gitlab::Cache::Ci::ProjectPipelineStatus, :clean_gitlab_redis_cac
       it 'deletes values from redis_cache' do
         pipeline_status.delete_from_cache
 
-        key_exists = Gitlab::Redis::Cache.with { |redis| redis.exists(cache_key) }
+        key_exists = Gitlab::Redis::Cache.with { |redis| redis.exists?(cache_key) }
 
         expect(key_exists).to be_falsy
       end

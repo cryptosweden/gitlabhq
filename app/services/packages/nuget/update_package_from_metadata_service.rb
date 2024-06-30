@@ -9,15 +9,22 @@ module Packages
       # used by ExclusiveLeaseGuard
       DEFAULT_LEASE_TIMEOUT = 1.hour.to_i.freeze
       SYMBOL_PACKAGE_IDENTIFIER = 'SymbolsPackage'
+      INVALID_METADATA_ERROR_MESSAGE = 'package name, version, authors and/or description not found in metadata'
+      INVALID_METADATA_ERROR_SYMBOL_MESSAGE = 'package name, version and/or description not found in metadata'
+      MISSING_MATCHING_PACKAGE_ERROR_MESSAGE = 'symbol package is invalid, matching package does not exist'
 
-      InvalidMetadataError = Class.new(StandardError)
+      InvalidMetadataError = ZipError = Class.new(StandardError)
 
-      def initialize(package_file)
+      def initialize(package_file, package_zip_file)
         @package_file = package_file
+        @package_zip_file = package_zip_file
       end
 
       def execute
-        raise InvalidMetadataError, 'package name and/or package version not found in metadata' unless valid_metadata?
+        unless valid_metadata?
+          error_message = symbol_package? ? INVALID_METADATA_ERROR_SYMBOL_MESSAGE : INVALID_METADATA_ERROR_MESSAGE
+          raise InvalidMetadataError, error_message
+        end
 
         try_obtain_lease do
           @package_file.transaction do
@@ -26,6 +33,8 @@ module Packages
         end
       rescue ActiveRecord::RecordInvalid => e
         raise InvalidMetadataError, e.message
+      rescue Zip::Error
+        raise ZipError, 'Could not open the .nupkg file'
       end
 
       private
@@ -39,45 +48,49 @@ module Packages
           target_package = existing_package
         else
           if symbol_package?
-            raise InvalidMetadataError, 'symbol package is invalid, matching package does not exist'
+            raise InvalidMetadataError, MISSING_MATCHING_PACKAGE_ERROR_MESSAGE
           end
 
           update_linked_package
         end
 
-        update_package(target_package)
+        build_infos = package_to_destroy&.build_infos || []
+
+        update_package(target_package, build_infos)
+        create_symbol_files
         ::Packages::UpdatePackageFileService.new(@package_file, package_id: target_package.id, file_name: package_filename)
                                             .execute
         package_to_destroy&.destroy!
       end
 
-      def update_package(package)
+      def update_package(package, build_infos)
         return if symbol_package?
 
         ::Packages::Nuget::SyncMetadatumService
-          .new(package, metadata.slice(:project_url, :license_url, :icon_url))
+          .new(package, metadata.slice(:authors, :description, :project_url, :license_url, :icon_url))
           .execute
+
         ::Packages::UpdateTagsService
           .new(package, package_tags)
           .execute
+
+        package.build_infos << build_infos if build_infos.any?
       rescue StandardError => e
         raise InvalidMetadataError, e.message
       end
 
-      def valid_metadata?
-        package_name.present? && package_version.present?
+      def create_symbol_files
+        return unless symbol_package?
+
+        ::Packages::Nuget::Symbols::CreateSymbolFilesService
+          .new(existing_package, @package_zip_file)
+          .execute
       end
 
-      def link_to_existing_package
-        package_to_destroy = @package_file.package
-        # Updating package_id updates the path where the file is stored.
-        # We must pass the file again so that CarrierWave can handle the update
-        @package_file.update!(
-          package_id: existing_package.id,
-          file: @package_file.file
-        )
-        package_to_destroy.destroy!
-        existing_package
+      def valid_metadata?
+        fields = [package_name, package_version, package_description]
+        fields << package_authors unless symbol_package?
+        fields.all?(&:present?)
       end
 
       def update_linked_package
@@ -93,15 +106,17 @@ module Packages
       end
 
       def existing_package
-        strong_memoize(:existing_package) do
-          @package_file.project.packages
-                               .nuget
-                               .with_name(package_name)
-                               .with_version(package_version)
-                               .not_pending_destruction
-                               .first
-        end
+        ::Packages::Nuget::PackageFinder
+          .new(
+            nil,
+            @package_file.project,
+            package_name: package_name,
+            package_version: package_version
+          )
+          .execute
+          .first
       end
+      strong_memoize_attr :existing_package
 
       def package_name
         metadata[:package_name]
@@ -123,15 +138,23 @@ module Packages
         metadata.fetch(:package_types, [])
       end
 
+      def package_authors
+        metadata[:authors]
+      end
+
+      def package_description
+        metadata[:description]
+      end
+
       def symbol_package?
         package_types.include?(SYMBOL_PACKAGE_IDENTIFIER)
       end
+      strong_memoize_attr :symbol_package?
 
       def metadata
-        strong_memoize(:metadata) do
-          ::Packages::Nuget::MetadataExtractionService.new(@package_file.id).execute
-        end
+        ::Packages::Nuget::MetadataExtractionService.new(@package_zip_file).execute.payload
       end
+      strong_memoize_attr :metadata
 
       def package_filename
         "#{package_name.downcase}.#{package_version.downcase}.#{symbol_package? ? 'snupkg' : 'nupkg'}"

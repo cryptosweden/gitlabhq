@@ -1,6 +1,6 @@
 <script>
 import { GlLink, GlLoadingIcon, GlPagination, GlTable, GlAlert } from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 
 import { DEFAULT_PER_PAGE } from '~/api';
 import { fetchOverrides } from '~/integrations/overrides/api';
@@ -120,11 +120,12 @@ export default {
     >
       <template #cell(name)="{ item }">
         <gl-link
-          class="gl-display-inline-flex gl-align-items-center gl-hover-text-decoration-none gl-text-body!"
+          class="gl-inline-flex gl-align-items-center gl-hover-text-decoration-none gl-text-body!"
           :href="item.full_path"
         >
           <project-avatar
             class="gl-mr-3"
+            :project-id="item.id"
             :project-avatar-url="item.avatar_url"
             :project-name="item.name"
             aria-hidden="true"
@@ -136,7 +137,7 @@ export default {
       </template>
 
       <template #table-busy>
-        <gl-loading-icon size="md" class="gl-my-2" />
+        <gl-loading-icon size="lg" class="gl-my-2" />
       </template>
     </gl-table>
     <div class="gl-display-flex gl-justify-content-center gl-mt-5">

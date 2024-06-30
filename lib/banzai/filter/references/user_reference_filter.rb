@@ -45,7 +45,7 @@ module Banzai
         # have `gfm` and `gfm-project_member` class names attached for styling.
         def object_link_filter(text, pattern, link_content: nil, link_reference: false)
           references_in(text, pattern) do |match, username|
-            if username == 'all' && !skip_project_check?
+            if Feature.disabled?(:disable_all_mention) && username == 'all' && !skip_project_check?
               link_to_all(link_content: link_content)
             else
               cached_call(:banzai_url_for_object, match, path: [User, username.downcase]) do
@@ -65,10 +65,10 @@ module Banzai
         # The keys of this Hash are the namespace paths, the values the
         # corresponding Namespace objects.
         def namespaces
-          @namespaces ||= Namespace.eager_load(:owner, :route)
-                                   .where_full_path_in(usernames)
-                                   .index_by(&:full_path)
-                                   .transform_keys(&:downcase)
+          @namespaces ||= Namespace.preload(:owner, :route)
+                          .where_full_path_in(usernames)
+                          .index_by(&:full_path)
+                          .transform_keys(&:downcase)
         end
 
         # Returns all usernames referenced in the current document.
@@ -113,7 +113,7 @@ module Banzai
         def link_to_group(group, namespace, link_content: nil)
           url = urls.group_url(group, only_path: context[:only_path])
           data = data_attribute(group: namespace.id)
-          content = link_content || Group.reference_prefix + group
+          content = link_content || (Group.reference_prefix + group)
 
           link_tag(url, data, content, namespace.full_name)
         end
@@ -121,7 +121,7 @@ module Banzai
         def link_to_user(user, namespace, link_content: nil)
           url = urls.user_url(user, only_path: context[:only_path])
           data = data_attribute(user: namespace.owner_id)
-          content = link_content || User.reference_prefix + user
+          content = link_content || (User.reference_prefix + user)
 
           link_tag(url, data, content, namespace.owner_name)
         end
@@ -139,11 +139,7 @@ module Banzai
         end
 
         def team_member?(user)
-          if parent_group?
-            parent.member?(user)
-          else
-            parent.team.member?(user)
-          end
+          parent.member?(user)
         end
 
         def parent_url(link_content, author)
@@ -155,7 +151,7 @@ module Banzai
             data = data_attribute(project: project.id, author: author.try(:id))
           end
 
-          content = link_content || User.reference_prefix + 'all'
+          content = link_content || (User.reference_prefix + 'all')
           link_tag(url, data, content, 'All Project and Group Members')
         end
       end

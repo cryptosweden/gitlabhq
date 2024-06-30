@@ -1,7 +1,7 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Application limits development
@@ -12,12 +12,10 @@ limits to GitLab.
 ## Documentation
 
 First of all, you have to gather information and decide which are the different
-limits that are set for the different GitLab tiers. You also need to
-coordinate with others to [document](../administration/instance_limits.md)
+limits that are set for the different GitLab tiers. Coordinate with others to [document](../administration/instance_limits.md)
 and communicate those limits.
 
-There is a guide about [introducing application
-limits](https://about.gitlab.com/handbook/product/product-processes/#introducing-application-limits).
+There is a guide about [introducing application limits](https://handbook.gitlab.com/handbook/product/product-processes/#introducing-application-limits).
 
 ## Implement plan limits
 
@@ -40,7 +38,7 @@ It's recommended to create two separate migration script files.
    desired limit using `create_or_update_plan_limit` migration helper, such as:
 
    ```ruby
-   class InsertProjectHooksPlanLimits < Gitlab::Database::Migration[1.0]
+   class InsertProjectHooksPlanLimits < Gitlab::Database::Migration[2.1]
      def up
        create_or_update_plan_limit('project_hooks', 'default', 0)
        create_or_update_plan_limit('project_hooks', 'free', 10)
@@ -141,8 +139,6 @@ end
 
 ### Subscription Plans
 
-> The `opensource` plan was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/346399) in GitLab 14.7.
-
 Self-managed:
 
 - `default`: Everyone.
@@ -169,11 +165,13 @@ This applies to Rails controllers, Grape endpoints, and any other Rack requests.
 
 The process for adding a new throttle is loosely:
 
-1. Add new columns to the `ApplicationSetting` model (`*_enabled`, `*_requests_per_period`, `*_period_in_seconds`).
+1. Add new fields to the [rate_limits JSONB column](https://gitlab.com/gitlab-org/gitlab/-/blob/63b37287ae028842fcdcf56d311e6bb0c7e09e79/app/models/application_setting.rb#L603)
+   in the `ApplicationSetting` model.
+1. Update the JSON schema validator for the [rate_limits column](https://gitlab.com/gitlab-org/gitlab/-/blob/63b37287ae028842fcdcf56d311e6bb0c7e09e79/app/validators/json_schemas/application_setting_rate_limits.json).
 1. Extend `Gitlab::RackAttack` and `Gitlab::RackAttack::Request` to configure the new rate limit,
-  and apply it to the desired requests.
+   and apply it to the desired requests.
 1. Add the new settings to the Admin Area form in `app/views/admin/application_settings/_ip_limits.html.haml`.
-1. Document the new settings in [User and IP rate limits](../user/admin_area/settings/user_and_ip_rate_limits.md) and [Application settings API](../api/settings.md).
+1. Document the new settings in [User and IP rate limits](../administration/settings/user_and_ip_rate_limits.md) and [Application settings API](../api/settings.md).
 1. Configure the rate limit for GitLab.com and document it in [GitLab.com-specific rate limits](../user/gitlab_com/index.md#gitlabcom-specific-rate-limits).
 
 Refer to these past issues for implementation details:
@@ -189,3 +187,23 @@ the middleware level, this can be used at the controller or API level.
 
 See the `CheckRateLimit` concern for use in controllers. In other parts of the code
 the `Gitlab::ApplicationRateLimiter` module can be called directly.
+
+## Next rate limiting architecture
+
+In May 2022 we've started working on the next iteration of our application
+limits framework using a forward looking rate limiting architecture.
+
+We are working on defining new requirements and designing the next
+architecture, so if you need new functionalities to add new limits, instead of
+building them right now, consider contributing to the
+[Rate Limiting Architecture Working Group](https://handbook.gitlab.com/handbook/company/working-groups/rate-limit-architecture/)
+
+Examples of what features we might want to build into the next iteration of
+rate limiting architecture:
+
+1. Making it possible to define and override limits per namespace / per plan.
+1. Automatically generating documentation about what limits are implemented and
+   what the defaults are.
+1. Defining limits in a single place that can be found and explored.
+1. Soft and hard limits, with support for notifying users when a limit is
+   approaching.

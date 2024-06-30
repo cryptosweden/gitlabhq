@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::GithubImport::Representation::User do
   shared_examples 'a User' do
@@ -21,7 +21,7 @@ RSpec.describe Gitlab::GithubImport::Representation::User do
 
   describe '.from_api_response' do
     it_behaves_like 'a User' do
-      let(:response) { double(:response, id: 42, login: 'alice') }
+      let(:response) { { id: 42, login: 'alice' } }
       let(:user) { described_class.from_api_response(response) }
     end
   end

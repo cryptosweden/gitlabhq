@@ -9,11 +9,28 @@ export default Node.create({
 
   isolating: true,
 
+  addOptions() {
+    return {
+      HTMLAttributes: {
+        dir: 'auto',
+      },
+    };
+  },
+
   parseHTML() {
-    return [{ tag: 'section.footnotes > ol' }];
+    return [
+      { tag: 'section.footnotes', skip: true },
+      { tag: 'section.footnotes > ol', skip: true },
+    ];
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['ol', mergeAttributes(HTMLAttributes, { class: 'footnotes gl-font-sm' }), 0];
+    return [
+      'ol',
+      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
+        class: 'footnotes gl-font-sm',
+      }),
+      0,
+    ];
   },
 });

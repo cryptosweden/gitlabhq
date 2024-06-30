@@ -1,47 +1,60 @@
 ---
 stage: Platforms
 group: Scalability
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # GitLab Application Service Level Indicators (SLIs)
 
-> [Introduced](https://gitlab.com/groups/gitlab-com/gl-infra/-/epics/525) in GitLab 14.4
-
-It is possible to define [Service Level Indicators
-(SLIs)](https://en.wikipedia.org/wiki/Service_level_indicator)
+It is possible to define [Service Level Indicators(SLIs)](https://en.wikipedia.org/wiki/Service_level_indicator)
 directly in the Ruby codebase. This keeps the definition of operations
 and their success close to the implementation and allows the people
 building features to easily define how these features should be
 monitored.
 
-Defining an SLI causes 2
-[Prometheus
-counters](https://prometheus.io/docs/concepts/metric_types/#counter)
-to be emitted from the rails application:
-
-- `gitlab_sli:<sli name>:total`: incremented for each operation.
-- `gitlab_sli:<sli_name>:success_total`: incremented for successful
-  operations.
-
 ## Existing SLIs
 
-1. [`rails_request_apdex`](rails_request_apdex.md)
+1. [`rails_request`](rails_request.md)
+1. `global_search_apdex`
+1. `global_search_error_rate`
+1. `global_search_indexing_apdex`
+1. [`sidekiq_execution`](sidekiq_execution.md)
 
 ## Defining a new SLI
 
-An SLI can be defined using the `Gitlab::Metrics::Sli` class.
+An SLI can be defined with the `Gitlab::Metrics::Sli::Apdex` or
+`Gitlab::Metrics::Sli::ErrorRate` class. When you define an SLI, two
+[Prometheus counters](https://prometheus.io/docs/concepts/metric_types/#counter)
+are emitted from the Rails application. Both counters work in broadly the same way and contain a total operation count. `Apdex` uses a success rate to calculate a success ratio, and `ErrorRate` uses an error rate to calculate an error ratio.
 
-Before the first scrape, it is important to have [initialized the SLI
-with all possible
-label-combinations](https://prometheus.io/docs/practices/instrumentation/#avoid-missing-metrics). This
-avoid confusing results when using these counters in calculations.
+The following metrics are defined:
 
-To initialize an SLI, use the `.inilialize_sli` class method, for
+- `Gitlab::Metrics::Sli::Apdex.new('foo')` defines:
+  - `gitlab_sli_foo_apdex_total` for the total number of measurements.
+  - `gitlab_sli_foo_apdex_success_total` for the number of successful
+    measurements.
+- `Gitlab::Metrics::Sli::ErrorRate.new('foo')` defines:
+  - `gitlab_sli_foo_total` for the total number of measurements.
+  - `gitlab_sli_foo_error_total` for the number of error
+    measurements. Because this metric is an error rate,
+    errors are divided by the total number.
+
+As shown in this example, they can share a base name (`foo` in this example). We
+recommend this when they refer to the same operation.
+
+You should use `Apdex` to measure the performance of successful operations. You don't have to measure the performance of a failing request because that performance should be tracked with `ErrorRate`. For example, you can measure whether a request is performing within a specified latency threshold.
+
+You should use `ErrorRate` to measure the rate of unsuccessful operations. For example, you can measure whether a failed request returns an HTTP status greater than or equal to `500`.
+
+Before the first scrape, it is important to have
+[initialized the SLI with all possible label-combinations](https://prometheus.io/docs/practices/instrumentation/#avoid-missing-metrics).
+This avoid confusing results when using these counters in calculations.
+
+To initialize an SLI, use the `.initialize_sli` class method, for
 example:
 
 ```ruby
-Gitlab::Metrics::Sli.initialize_sli(:received_email, [
+Gitlab::Metrics::Sli::Apdex.initialize_sli(:received_email, [
   {
     feature_category: :team_planning,
     email_type: :create_issue
@@ -51,7 +64,7 @@ Gitlab::Metrics::Sli.initialize_sli(:received_email, [
     email_type: :service_desk
   },
   {
-    feature_category: :code_review,
+    feature_category: :code_review_workflow,
     email_type: :create_merge_request
   }
 ])
@@ -67,7 +80,7 @@ this adds is understood and acceptable.
 Tracking an operation in the newly defined SLI can be done like this:
 
 ```ruby
-Gitlab::Metrics::Sli[:received_email].increment(
+Gitlab::Metrics::Sli::Apdex[:received_email].increment(
   labels: {
     feature_category: :service_desk,
     email_type: :service_desk
@@ -79,20 +92,26 @@ Gitlab::Metrics::Sli[:received_email].increment(
 Calling `#increment` on this SLI will increment the total Prometheus counter
 
 ```prometheus
-gitlab_sli:received_email:total{ feature_category='service_desk', email_type='service_desk' }
+gitlab_sli:received_email_apdex:total{ feature_category='service_desk', email_type='service_desk' }
 ```
 
-If the `success:` argument passed is truthy, then the success counter
-will also be incremented:
+If the `success:` argument passed is truthy, then the success counter will also
+be incremented:
 
 ```prometheus
-gitlab_sli:received_email:success_total{ feature_category='service_desk', email_type='service_desk' }
+gitlab_sli:received_email_apdex:success_total{ feature_category='service_desk', email_type='service_desk' }
 ```
 
-So far, only tracking `apdex` using a success rate is supported. If you
-need to track errors this way, please upvote
-[this issue](https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/1395)
-and leave a comment so we can prioritize this.
+For error rate SLIs, the equivalent argument is called `error:`:
+
+```ruby
+Gitlab::Metrics::Sli::ErrorRate[:merge].increment(
+  labels: {
+    merge_type: :fast_forward
+  },
+  error: !merge_success?
+)
+```
 
 ## Using the SLI in service monitoring and alerts
 
@@ -117,10 +136,7 @@ After that, add the following information:
   into the error budgets for stage groups.
 - `description`: a Markdown string explaining the SLI. It will
   be shown on dashboards and alerts.
-- `kind`: the kind of indicator. Only `sliDefinition.apdexKind` is supported at the moment.
-  Reach out in
-  [this issue](https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/1395)
-  if you want to implement an SLI for success or error rates.
+- `kind`: the kind of indicator. For example `sliDefinition.apdexKind`.
 
 When done, run `make generate` to generate recording rules for
 the new SLI. This command creates recordings for all services
@@ -134,9 +150,9 @@ When these changes are merged, and the aggregations in
 the success ratio of the new aggregated metrics. For example:
 
 ```prometheus
-sum by (environment, stage, type)(gitlab_sli_aggregation:rails_request_apdex:apdex:success:rate_1h)
+sum by (environment, stage, type)(application_sli_aggregation:rails_request:apdex:success:rate_1h)
 /
-sum by (environment, stage, type)(gitlab_sli_aggregation:rails_request_apdex:apdex:weight:rate_1h)
+sum by (environment, stage, type)(application_sli_aggregation:rails_request:apdex:weight:score_1h)
 ```
 
 This shows the success ratio, which can guide you to set an
@@ -161,7 +177,7 @@ In [this project](https://gitlab.com/groups/gitlab-com/gl-infra/-/epics/614)
 we are extending this so alerts for SLIs with a `feature_category`
 label in the source metrics can also be routed.
 
-For any question, please don't hesitate to create an issue in
+For any question, don't hesitate to create an issue in
 [the Scalability issue tracker](https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues)
 or come find us in
 [#g_scalability](https://gitlab.slack.com/archives/CMMF8TKR9) on Slack.

@@ -2,26 +2,17 @@
 
 module QA
   RSpec.describe 'Create' do
-    describe 'Cherry picking a commit' do
+    describe 'Cherry picking a commit', :smoke, product_group: :code_review do
       let(:file_name) { "secret_file.md" }
-
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'project'
-          project.initialize_with_readme = true
-        end
-      end
-
+      let(:project) { create(:project, :with_readme) }
       let(:commit) do
-        Resource::Repository::Commit.fabricate_via_api! do |commit|
-          commit.project = project
-          commit.branch = "development"
-          commit.start_branch = project.default_branch
-          commit.commit_message = 'Add new file'
-          commit.add_files([
-            { file_path: file_name, content: 'pssst!' }
+        create(:commit,
+          project: project,
+          branch: 'development',
+          start_branch: project.default_branch,
+          commit_message: 'Add new file', actions: [
+            { action: 'create', file_path: file_name, content: 'pssst!' }
           ])
-        end
       end
 
       before do

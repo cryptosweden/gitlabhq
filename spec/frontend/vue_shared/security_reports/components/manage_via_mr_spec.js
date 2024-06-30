@@ -2,13 +2,15 @@ import { GlButton } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
-import { featureToMutationMap } from 'ee_else_ce/security_configuration/components/constants';
+import { featureToMutationMap } from 'ee_else_ce/security_configuration/constants';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { humanize } from '~/lib/utils/text_utility';
-import { redirectTo } from '~/lib/utils/url_utility';
-import ManageViaMr from '~/vue_shared/security_configuration/components/manage_via_mr.vue';
+import { visitUrl } from '~/lib/utils/url_utility';
+import ManageViaMr, {
+  i18n,
+} from '~/vue_shared/security_configuration/components/manage_via_mr.vue';
 import { REPORT_TYPE_SAST } from '~/vue_shared/security_reports/constants';
 import { buildConfigureSecurityFeatureMockFactory } from './apollo_mocks';
 
@@ -17,6 +19,7 @@ jest.mock('~/lib/utils/url_utility');
 Vue.use(VueApollo);
 
 const projectFullPath = 'namespace/project';
+const ufErrorPrefix = 'Foo:';
 
 describe('ManageViaMr component', () => {
   let wrapper;
@@ -56,8 +59,8 @@ describe('ManageViaMr component', () => {
     );
   }
 
-  afterEach(() => {
-    wrapper.destroy();
+  beforeEach(() => {
+    gon.uf_error_prefix = ufErrorPrefix;
   });
 
   // This component supports different report types/mutations depending on
@@ -73,18 +76,21 @@ describe('ManageViaMr component', () => {
   describe.each(supportedReportTypes)(
     '%s',
     (featureName, featureType, mutation, mutationId, mutationVariables) => {
-      const buildConfigureSecurityFeatureMock = buildConfigureSecurityFeatureMockFactory(
-        mutationId,
-      );
-      const successHandler = jest.fn(async () => buildConfigureSecurityFeatureMock());
-      const noSuccessPathHandler = async () =>
+      const buildConfigureSecurityFeatureMock =
+        buildConfigureSecurityFeatureMockFactory(mutationId);
+      const successHandler = jest.fn().mockResolvedValue(buildConfigureSecurityFeatureMock());
+      const noSuccessPathHandler = jest.fn().mockResolvedValue(
         buildConfigureSecurityFeatureMock({
           successPath: '',
-        });
-      const errorHandler = async () =>
-        buildConfigureSecurityFeatureMock({
-          errors: ['foo'],
-        });
+        }),
+      );
+      const errorHandler = (message = 'foo') => {
+        return Promise.resolve(
+          buildConfigureSecurityFeatureMock({
+            errors: [message],
+          }),
+        );
+      };
       const pendingHandler = () => new Promise(() => {});
 
       describe('when feature is configured', () => {
@@ -93,7 +99,7 @@ describe('ManageViaMr component', () => {
           createComponent({ apolloProvider, featureName, featureType, isFeatureConfigured: true });
         });
 
-        it('it does not render a button', () => {
+        it('does not render a button', () => {
           expect(findButton().exists()).toBe(false);
         });
       });
@@ -104,7 +110,7 @@ describe('ManageViaMr component', () => {
           createComponent({ apolloProvider, featureName, featureType, isFeatureConfigured: false });
         });
 
-        it('it does render a button', () => {
+        it('does render a button', () => {
           expect(findButton().exists()).toBe(true);
         });
 
@@ -139,8 +145,8 @@ describe('ManageViaMr component', () => {
         it('should call redirect helper with correct value', async () => {
           await wrapper.trigger('click');
           await waitForPromises();
-          expect(redirectTo).toHaveBeenCalledTimes(1);
-          expect(redirectTo).toHaveBeenCalledWith('testSuccessPath');
+          expect(visitUrl).toHaveBeenCalledTimes(1);
+          expect(visitUrl).toHaveBeenCalledWith('testSuccessPath');
           // This is done for UX reasons. If the loading prop is set to false
           // on success, then there's a period where the button is clickable
           // again. Instead, we want the button to display a loading indicator
@@ -151,9 +157,12 @@ describe('ManageViaMr component', () => {
       });
 
       describe.each`
-        handler                 | message
-        ${noSuccessPathHandler} | ${`${featureName} merge request creation mutation failed`}
-        ${errorHandler}         | ${'foo'}
+        handler                                                | message
+        ${noSuccessPathHandler}                                | ${`${featureName} merge request creation mutation failed`}
+        ${errorHandler.bind(null, `${ufErrorPrefix} message`)} | ${'message'}
+        ${errorHandler.bind(null, 'Blah: message')}            | ${i18n.genericErrorText}
+        ${errorHandler.bind(null, 'message')}                  | ${i18n.genericErrorText}
+        ${errorHandler}                                        | ${i18n.genericErrorText}
       `('given an error response', ({ handler, message }) => {
         beforeEach(() => {
           const apolloProvider = createMockApolloProvider(mutation, handler);

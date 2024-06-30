@@ -4,9 +4,9 @@ require 'spec_helper'
 
 RSpec.describe Gitlab::Ci::Pipeline::Chain::Seed do
   let_it_be(:project) { create(:project, :repository) }
-  let_it_be(:user) { create(:user, developer_projects: [project]) }
+  let_it_be(:user) { create(:user, developer_of: project) }
 
-  let(:seeds_block) { }
+  let(:seeds_block) {}
   let(:command) { initialize_command }
   let(:pipeline) { build(:ci_pipeline, project: project) }
 
@@ -68,8 +68,10 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Seed do
     end
 
     context 'when refs policy is specified' do
+      let(:tag_name) { project.repository.tags.first.name }
+
       let(:pipeline) do
-        build(:ci_pipeline, project: project, ref: 'feature', tag: true)
+        build(:ci_pipeline, project: project, ref: tag_name, tag: true)
       end
 
       let(:config) do
@@ -205,6 +207,30 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Seed do
       end
     end
 
+    describe '#rule_variables' do
+      let(:config) do
+        {
+          variables: { VAR1: 11 },
+          workflow: {
+            rules: [{ if: '$CI_PIPELINE_SOURCE',
+                      variables: { SYMBOL: :symbol, STRING: "string", INTEGER: 1 } },
+                    { when: 'always' }]
+          },
+          rspec: { script: 'rake' }
+        }
+      end
+
+      let(:rspec_variables) { command.pipeline_seed.stages[0].statuses[0].variables.to_hash }
+
+      it 'correctly parses rule variables' do
+        run_chain
+
+        expect(rspec_variables['SYMBOL']).to eq("symbol")
+        expect(rspec_variables['STRING']).to eq("string")
+        expect(rspec_variables['INTEGER']).to eq("1")
+      end
+    end
+
     context 'N+1 queries' do
       it 'avoids N+1 queries when calculating variables of jobs', :use_sql_query_cache do
         warm_up_pipeline, warm_up_command = prepare_pipeline1
@@ -253,7 +279,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Seed do
         non_handled_sql_queries = 2
 
         # 1. Ci::InstanceVariable Load => `Ci::InstanceVariable#cached_data` => already cached with `fetch_memory_cache`
-        # 2. Ci::Variable Load => `Project#ci_variables_for` => already cached with `Gitlab::SafeRequestStore`
 
         extra_jobs * non_handled_sql_queries
       end

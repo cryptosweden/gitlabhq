@@ -1,259 +1,282 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Merge trains **(PREMIUM)**
+# Merge trains
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/9186) in GitLab 12.0.
-> - [Squash and merge](../../user/project/merge_requests/squash_and_merge.md) support [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/13001) in GitLab 12.6.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-For more information about why you might want to use merge trains, read [How merge trains keep your master green](https://about.gitlab.com/blog/2020/01/30/all-aboard-merge-trains/).
+> - [In GitLab 16.0 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/359057), the **Start merge train** and **Start merge train when pipeline succeeds** buttons became **Set to auto-merge**. **Remove from merge train** became **Cancel auto-merge**.
+> - Support for [fast-forward](../../user/project/merge_requests/methods/index.md#fast-forward-merge) and [semi-linear](../../user/project/merge_requests/methods/index.md#merge-commit-with-semi-linear-history) merge methods [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/282442) in GitLab 16.5 [with a flag](../../administration/feature_flags.md) named `fast_forward_merge_trains_support`. Enabled by default.
+> - [Feature flag `fast_forward_merge_trains_support` removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/148964#note_1855981445) in GitLab 16.11.
 
-When [merged results pipelines](merged_results_pipelines.md) are
-enabled, the pipeline jobs run as if the changes from your source branch have already
-been merged into the target branch.
+In projects with frequent merges to the default branch, changes in different merge requests
+might conflict with each other. Use merge trains to put merge requests in a queue.
+Each merge request is compared to the other, earlier merge requests, to ensure they all work together.
 
-However, the target branch may be changing rapidly. When you're ready to merge,
-if you haven't run the pipeline in a while, the target branch may have already changed.
-Merging now could introduce breaking changes.
+For more information about:
 
-*Merge trains* can prevent this from happening. A merge train is a queued list of merge
-requests, each waiting to be merged into the target branch.
+- How merge trains work, review the [merge train workflow](#merge-train-workflow).
+- Why you might want to use merge trains, read [How starting merge trains improve efficiency for DevOps](https://about.gitlab.com/blog/2020/01/30/all-aboard-merge-trains/).
 
-Many merge requests can be added to the train. Each merge request runs its own merged results pipeline,
-which includes the changes from all of the other merge requests in *front* of it on the train.
-All the pipelines run in parallel, to save time.
+## Merge train workflow
 
-If the pipeline for a merge request fails, the breaking changes are not merged, and the target
-branch is unaffected. The merge request is removed from the train, and all pipelines behind it restart.
+A merge train starts when there are no merge requests waiting to merge and you
+select [**Merge** or **Set to auto-merge**](#start-a-merge-train). GitLab starts a merge
+train pipeline that verifies that the changes can merge into the default branch.
+This first pipeline is the same as a [merged results pipeline](merged_results_pipelines.md),
+which runs on the changes of the source and target branches combined together.
+The author of the internal merged result commit is the user that initiated the
+merge.
 
-If the pipeline for the merge request at the front of the train completes successfully,
-the changes are merged into the target branch, and the other pipelines continue to
-run.
+To queue a second merge request to merge immediately after the first pipeline
+completes, select [**Merge** or **Set to auto-merge**](#add-a-merge-request-to-a-merge-train)
+to add it to the train. This second merge train pipeline runs on the changes of
+_both_ merge requests combined with the target branch. Similarly, if you add a
+third merge request, that pipeline runs on the changes of all three merge
+requests merged with the target branch. The pipelines all run in parallel.
 
-To add a merge request to a merge train, you need [permissions](../../user/permissions.md) to merge or push to the
-target branch.
+Each merge request merges into the target branch only after:
 
-Each merge train can run a maximum of **twenty** pipelines in parallel.
-If more than twenty merge requests are added to the merge train, the merge requests
-are queued until a slot in the merge train is free. There is no limit to the
-number of merge requests that can be queued.
+- The merge request's pipeline completes successfully.
+- All other merge requests queued before it are merged.
 
-## Merge train example
+If a merge train pipeline fails, the merge request is not merged. GitLab
+removes that merge request from the merge train, and starts new pipelines for all
+the merge requests that were queued after it.
 
-Three merge requests (`A`, `B` and `C`) are added to a merge train in order, which
+For example:
+
+Three merge requests (`A`, `B`, and `C`) are added to a merge train in order, which
 creates three merged results pipelines that run in parallel:
 
 1. The first pipeline runs on the changes from `A` combined with the target branch.
 1. The second pipeline runs on the changes from `A` and `B` combined with the target branch.
 1. The third pipeline runs on the changes from `A`, `B`, and `C` combined with the target branch.
 
-If the pipeline for `B` fails, it is removed from the train. The pipeline for
-`C` restarts with the `A` and `C` changes, but without the `B` changes.
+If the pipeline for `B` fails:
+
+- The first pipeline (`A`) continues to run.
+- `B` is removed from the train.
+- The pipeline for `C` [is cancelled](#automatic-pipeline-cancellation), and a new pipeline
+  starts for the changes from `A` and `C` combined with the target branch (without the `B` changes).
 
 If `A` then completes successfully, it merges into the target branch, and `C` continues
-to run. If more merge requests are added to the train, they now include the `A`
-changes that are included in the target branch, and the `C` changes that are from
-the merge request already in the train.
+to run. Any new merge requests added to the train include the `A` changes now in
+the target branch, and the `C` changes from the merge train.
 
 <i class="fa fa-youtube-play youtube" aria-hidden="true"></i>
-Watch this video for a demonstration on [how parallel execution
-of merge trains can prevent commits from breaking the default
-branch](https://www.youtube.com/watch?v=D4qCqXgZkHQ).
+Watch this video for a demonstration on [how parallel execution of merge trains can prevent commits from breaking the default branch](https://www.youtube.com/watch?v=D4qCqXgZkHQ).
 
-## Prerequisites
+### Automatic pipeline cancellation
 
-To enable merge trains:
+GitLab CI/CD detects redundant pipelines, and cancels them to conserve resources.
 
-- You must have the Maintainer role.
-- You must be using [GitLab Runner](https://gitlab.com/gitlab-org/gitlab-runner) 11.9 or later.
-- In GitLab 13.0 and later, you need [Redis](https://redis.io/) 5.0 or later.
-- Your repository must be a GitLab repository, not an
-  [external repository](../ci_cd_for_external_repos/index.md).
+Redundant merge train pipelines happen when:
+
+- The pipeline fails for one of the merge requests in the merge train.
+- You [skip the merge train and merge immediately](#skip-the-merge-train-and-merge-immediately).
+- You [remove a merge request from a merge train](#remove-a-merge-request-from-a-merge-train).
+
+In these cases, GitLab must create new merge train pipelines for some or all of the
+merge requests on the train. The old pipelines were comparing against the previous
+combined changes in the merge train, which are no longer valid, so these old pipelines
+are cancelled.
 
 ## Enable merge trains
 
-To enable merge trains for your project:
+> - `disable_merge_trains` feature flag [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/282477) in GitLab 16.5.
 
-1. If you are on a self-managed GitLab instance, ensure the [feature flag](#merge-trains-feature-flag) is set correctly.
-1. [Configure your CI/CD configuration file](merge_request_pipelines.md#prerequisites)
-   so that the pipeline or individual jobs run for merge requests.
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings > General**.
-1. Expand **Merge requests**.
-1. In the **Merge method** section, verify that **Merge commit** is selected.
-   You cannot use **Merge commit with semi-linear history** or **Fast-forward merge** with merge trains.
-1. In the **Merge options** section, select **Enable merged results pipelines** (if not already selected) and **Enable merge trains**.
+Prerequisites:
+
+- You must have the Maintainer role.
+- Your repository must be a GitLab repository, not an [external repository](../ci_cd_for_external_repos/index.md).
+- Your pipeline must be [configured to use merge request pipelines](merge_request_pipelines.md#prerequisites).
+  Otherwise your merge requests may become stuck in an unresolved state or your pipelines
+  might be dropped.
+- You must have [merged results pipelines enabled](merged_results_pipelines.md#enable-merged-results-pipelines).
+
+To enable merge trains:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Merge requests**.
+1. In GitLab 16.4 and earlier, in the **Merge method** section, verify that **Merge commit** is selected.
+   In GitLab 16.5 and later, you can use any merge method.
+1. In the **Merge options** section, ensure **Enable merged results pipelines** is enabled
+   and select **Enable merge trains**.
 1. Select **Save changes**.
 
-In GitLab 13.5 and earlier, there is only one checkbox, named
-**Enable merge trains and pipelines for merged results**.
-
-WARNING:
-If you select the check box but don't configure your CI/CD to use
-merge request pipelines, your merge requests may become stuck in an
-unresolved state or your pipelines may be dropped.
-
 ## Start a merge train
+
+Prerequisites:
+
+- You must have [permissions](../../user/permissions.md) to merge or push to the target branch.
 
 To start a merge train:
 
 1. Visit a merge request.
-1. Select **Start merge train**.
+1. Select:
+   - When no pipeline is running, **Merge**.
+   - When a pipeline is running, [**Set to auto-merge**](../../user/project/merge_requests/auto_merge.md).
 
-![Start merge train](img/merge_train_start_v12_0.png)
+The merge request's merge train status displays under the pipeline widget with a
+message similar to `A new merge train has started and this merge request is the first of the queue.`
 
 Other merge requests can now be added to the train.
 
 ## Add a merge request to a merge train
 
+Prerequisites:
+
+- You must have [permissions](../../user/permissions.md) to merge or push to the target branch.
+
 To add a merge request to a merge train:
 
 1. Visit a merge request.
-1. Select **Add to merge train**.
+1. Select:
+   - When no pipeline is running, **Merge**.
+   - When a pipeline is running, [**Set to auto-merge**](../../user/project/merge_requests/auto_merge.md).
 
-If pipelines are already running for the merge request, you cannot add the merge request
-to the train. Instead, you can schedule to add the merge request to a merge train **when the latest
-pipeline succeeds**.
+The merge request's merge train status displays under the pipeline widget with a
+message similar to `Added to the merge train. There are 2 merge requests waiting to be merged.`
 
-![Add to merge train when pipeline succeeds](img/merge_train_start_when_pipeline_succeeds_v12_0.png)
+Each merge train can run a maximum of twenty pipelines in parallel. If you add more than
+twenty merge requests to the merge train, the extra merge requests are queued, waiting
+for pipelines to complete. There is no limit to the number of queued merge requests
+waiting to join the merge train.
 
 ## Remove a merge request from a merge train
 
-1. Visit a merge request.
-1. Select **Remove from merge train**.
+To remove a merge request from a merge train, select **Cancel auto-merge**.
+You can add the merge request to a merge train again later.
 
-![Cancel merge train](img/merge_train_cancel_v12_0.png)
+When you remove a merge request from a merge train:
 
-If you want to add the merge request to a merge train again later, you can.
+- All pipelines for merge requests queued after the removed merge request restart.
+- Redundant pipelines [are cancelled](#automatic-pipeline-cancellation).
 
-## View a merge request's current position on the merge train
+## Skip the merge train and merge immediately
 
-After a merge request has been added to the merge train, the merge request's
-current position is displayed under the pipeline widget:
+If you have a high-priority merge request, like a critical patch that must
+be merged urgently, you can select **Merge Immediately**.
 
-![Merge train position indicator](img/merge_train_position_v12_0.png)
+When you merge a merge request immediately:
 
-## Immediately merge a merge request with a merge train
-
-If you have a high-priority merge request (for example, a critical patch) that must
-be merged urgently, you can bypass the merge train by using the **Merge Immediately** option.
-This is the fastest option to get the change merged into the target branch.
-
-![Merge Immediately](img/merge_train_immediate_merge_v12_6.png)
+- The commits from the merge request are merged, ignoring the status of the merge train.
+- The merge train pipelines for all other merge requests on the train [are cancelled](#automatic-pipeline-cancellation).
+- A new merge train starts and all the merge requests from the original merge train are added to this new merge train,
+  with a new merge train pipeline for each. These new merge train pipelines now contain
+  the commits added by the merge request that was merged immediately.
 
 WARNING:
-Each time you merge a merge request immediately, the current merge train is recreated,
-all pipelines restart, and [redundant pipelines are cancelled](#automatic-pipeline-cancellation).
+Merging immediately can use a lot of CI/CD resources. Use this option
+only in critical situations.
 
-### Automatic pipeline cancellation
+NOTE:
+The **merge immediately** option may not be available if your project uses the [fast-forward](../../user/project/merge_requests/methods/index.md#fast-forward-merge)
+merge method and the source branch is behind the target branch. See [issue 434070](https://gitlab.com/gitlab-org/gitlab/-/issues/434070) for more details.
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/12996) in GitLab 12.3.
+### Allow merge trains to be skipped to merge immediately without restarting merge train pipelines
 
-GitLab CI/CD can detect the presence of redundant pipelines, and cancels them
-to conserve CI resources.
+DETAILS:
+**Status:** Experiment
 
-When a user merges a merge request immediately in an ongoing merge
-train, the train is reconstructed, because it recreates the expected
-post-merge commit and pipeline. In this case, the merge train may already
-have pipelines running against the previous expected post-merge commit.
-These pipelines are considered redundant and are automatically
-canceled.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/414505) in GitLab 16.5 [with a flag](../../administration/feature_flags.md) named `merge_trains_skip_train`. Disabled by default.
+> - [Enabled](https://gitlab.com/gitlab-org/gitlab/-/issues/422111) as an [experiment feature](../../policy/experiment-beta-support.md) in GitLab 16.10.
+
+FLAG:
+On self-managed GitLab, by default this feature is available. To hide the feature,
+an administrator can [disable the feature flag](../../administration/feature_flags.md)
+named `merge_trains_skip_train`. On GitLab.com and GitLab Dedicated, this feature is available.
+
+You can allow merge requests to be merged without completely restarting a running merge train.
+Use this feature to quickly merge changes that can safely skip the pipeline, for example
+minor documentation updates.
+
+You cannot skip merge trains for fast-forward or semi-linear merge methods. For more information, see [issue 429009](https://gitlab.com/gitlab-org/gitlab/-/issues/429009).
+
+Skipping merge trains is an experimental feature. It may change or be removed completely in future releases.
+
+WARNING:
+You can use this feature to quickly merge security or bug fixes, but the changes
+in the merge request that skipped the train are not verified against
+any of the other merge requests in the train. If these other merge train pipelines
+complete successfully and merge, there is a risk that the combined changes are incompatible.
+The target branch could then require additional work to resolve the new failures.
+
+Prerequisites:
+
+- You must have the Maintainer role.
+- You must have [Merge trains enabled](#enable-merge-trains).
+
+To enable skipping the train without pipeline restarts:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Merge requests**.
+1. In the **Merge options** section, ensure the **Enable merged results pipelines**
+   and **Enable merge trains** options are enabled.
+1. Select **Allow skipping the merge train**.
+1. Select **Save changes**.
+
+To merge a merge request by skipping the merge train, use the [merge requests merge API endpoint](../../api/merge_requests.md#merge-a-merge-request)
+to merge with the attribute `skip_merge_train` set to `true`.
+
+The merge request merges, and the existing merge train pipelines are not cancelled
+or restarted.
 
 ## Troubleshooting
 
-### Merge request dropped from the merge train immediately
+### Merge request dropped from the merge train
 
-If a merge request is not mergeable (for example, it's a draft merge request or it has a merge
-conflict), the merge train drops your merge request automatically.
+If a merge request becomes unmergeable while a merge train pipeline is running,
+the merge train drops your merge request automatically. For example, this could be caused by:
 
-In these cases, the reason for dropping the merge request is in the **system notes**.
+- Changing the merge request to a [draft](../../user/project/merge_requests/drafts.md).
+- A merge conflict.
+- A new conversation thread that is unresolved, when [all threads must be resolved](../../user/project/merge_requests/index.md#prevent-merge-unless-all-threads-are-resolved)
+  is enabled.
 
-To check the reason:
+You can find reason the merge request was dropped from the merge train in the system
+notes. Check the **Activity** section in the **Overview** tab for a message similar to:
+`User removed this merge request from the merge train because ...`
 
-1. Open the merge request that was dropped from the merge train.
-1. Select the **Discussion** tab.
-1. Find a system note that includes either:
-   - **... removed this merge request from the merge train because ...**
-   - **... aborted this merge request from the merge train because ...**
+### Cannot use auto-merge
 
-The reason is given in the text after the **because ...** phrase.
+You cannot use [auto-merge](../../user/project/merge_requests/auto_merge.md)
+(formerly **Merge when pipeline succeeds**) to skip the merge train, when merge trains are enabled.
+See [issue 12267](https://gitlab.com/gitlab-org/gitlab/-/issues/12267) for more information.
 
-![Merge train failure](img/merge_train_failure.png)
+### Cannot retry merge train pipeline
 
-### Merge When Pipeline Succeeds cannot be chosen
-
-[Merge When Pipeline Succeeds](../../user/project/merge_requests/merge_when_pipeline_succeeds.md)
-is currently unavailable when merge trains are enabled.
-
-See [the related issue](https://gitlab.com/gitlab-org/gitlab/-/issues/12267)
-for more information.
-
-### Merge train pipeline cannot be retried
-
-When a merge train pipeline fails, the merge request is dropped from the train and the pipeline can't be retried.
+When a merge train pipeline fails, the merge request is dropped from the train so the pipeline can't be retried after it fails.
 Merge train pipelines run on the merged result of the changes in the merge request and
-the changes from other merge requests already on the train. If the merge request is dropped from the train,
+changes from other merge requests already on the train. If the merge request is dropped from the train,
 the merged result is out of date and the pipeline can't be retried.
 
-Instead, you should [add the merge request to the train](#add-a-merge-request-to-a-merge-train)
-again, which triggers a new pipeline.
+You can:
 
-If a job only fails intermittently, you can try using the [`retry`](../yaml/index.md#retry)
-keyword in the `.gitlab-ci.yml` file to have the job retried before the pipeline completes.
-If it succeeds after a retry, the merge request is not removed from the merge train.
+- [Add the merge request to the train](#add-a-merge-request-to-a-merge-train) again,
+  which triggers a new pipeline.
+- Add the [`retry`](../yaml/index.md#retry) keyword to the job if it fails intermittently.
+  If it succeeds after a retry, the merge request is not removed from the merge train.
 
-### Unable to add to merge train with message "The pipeline for this merge request failed."
+### Unable to add to the merge train
 
-Sometimes the **Start/Add to merge train** button is not available and the merge request says,
-"The pipeline for this merge request failed. Please retry the job or push a new commit to fix the failure."
+When [**Pipelines must succeed**](../../user/project/merge_requests/auto_merge.md#require-a-successful-pipeline-for-merge)
+is enabled, but the latest pipeline failed:
 
-This issue occurs when [**Pipelines must succeed**](../../user/project/merge_requests/merge_when_pipeline_succeeds.md#only-allow-merge-requests-to-be-merged-if-the-pipeline-succeeds)
-is enabled in **Settings > General > Merge requests**. This option requires that you
-run a new successful pipeline before you can re-add a merge request to a merge train.
+- The **Set to auto-merge** or **Merge** options are not available.
+- The merge request displays `The pipeline for this merge request failed. Please retry the job or push a new commit to fix the failure.`
 
-Merge trains ensure that each pipeline has succeeded before a merge happens, so
-you can:
+Before you can re-add a merge request to a merge train, you can try to:
 
-- Clear the **Pipelines must succeed** checkbox.
-- Select the **Enable merged results pipelines** and **Enable merge trains** checkboxes.
-
-  In GitLab 13.5 and earlier, there is only one checkbox, named
-  **Enable merge trains and pipelines for merged results**.
-
-If you want to keep the **Pipelines must succeed** option selected along with merge
-trains, create a new merged results pipeline when this error occurs:
-
-1. On the **Pipelines** tab, select **Run pipeline**.
-1. Select **Start/Add to merge train when pipeline succeeds**.
+- Retry the failed job. If it passes, and no other jobs failed, the pipeline is marked as successful.
+- Rerun the whole pipeline. On the **Pipelines** tab, select **Run pipeline**.
+- Push a new commit that fixes the issue, which also triggers a new pipeline.
 
 See [the related issue](https://gitlab.com/gitlab-org/gitlab/-/issues/35135)
 for more information.
-
-### Merge trains feature flag **(PREMIUM SELF)**
-
-In [GitLab 13.6 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/244831),
-you can [enable or disable merge trains in the project settings](#enable-merge-trains).
-
-In GitLab 13.5 and earlier, merge trains are automatically enabled when
-[merged results pipelines](merged_results_pipelines.md) are enabled.
-To use merged results pipelines without using merge trains, you can enable a
-[feature flag](../../user/feature_flags.md) that blocks the merge trains feature.
-
-[GitLab administrators with access to the GitLab Rails console](../../administration/feature_flags.md)
-can enable the feature flag to disable merge trains:
-
-```ruby
-Feature.enable(:disable_merge_trains)
-```
-
-After you enable this feature flag, all existing merge trains are cancelled and
-the **Start/Add to merge train** button no longer appears in merge requests.
-
-To disable the feature flag, and enable merge trains again:
-
-```ruby
-Feature.disable(:disable_merge_trains)
-```

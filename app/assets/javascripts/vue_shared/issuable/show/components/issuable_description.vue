@@ -1,7 +1,6 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
-import $ from 'jquery';
-import '~/behaviors/markdown/render_gfm';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 
 export default {
   directives: {
@@ -26,18 +25,17 @@ export default {
     },
   },
   mounted() {
-    this.renderGFM();
-  },
-  methods: {
-    renderGFM() {
-      $(this.$refs.gfmContainer).renderGFM();
-    },
+    renderGFM(this.$refs.gfmContainer);
   },
 };
 </script>
 
 <template>
-  <div class="description" :class="{ 'js-task-list-container': canEdit && enableTaskList }">
+  <div
+    class="description"
+    :class="{ 'js-task-list-container': canEdit && enableTaskList }"
+    data-testid="description-content"
+  >
     <div ref="gfmContainer" v-safe-html="issuable.descriptionHtml" class="md"></div>
     <textarea
       v-if="issuable.description && enableTaskList"

@@ -2,18 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe GitlabPerformanceBarStatsWorker do
+RSpec.describe GitlabPerformanceBarStatsWorker, feature_category: :metrics do
   include ExclusiveLeaseHelpers
 
   subject(:worker) { described_class.new }
 
   describe '#perform' do
     let(:redis) { double(Gitlab::Redis::SharedState) }
-    let(:uuid) { 1 }
 
     before do
       expect(Gitlab::Redis::Cache).to receive(:with).and_yield(redis)
-      expect_to_cancel_exclusive_lease(GitlabPerformanceBarStatsWorker::LEASE_KEY, uuid)
     end
 
     it 'fetches list of request ids and processes them' do
@@ -24,7 +22,7 @@ RSpec.describe GitlabPerformanceBarStatsWorker do
         expect(stats).to receive(:process).with(2)
       end
 
-      worker.perform(uuid)
+      worker.perform
     end
   end
 end

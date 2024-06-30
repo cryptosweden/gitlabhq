@@ -12,17 +12,21 @@ module ResourceEvents
     def execute
       create_event
 
-      resource.expire_note_etag_cache
+      track_event
+
+      resource.broadcast_notes_changed
     end
 
     private
+
+    def track_event; end
 
     def create_event
       raise NotImplementedError
     end
 
     def build_resource_args
-      key = resource.class.name.foreign_key
+      key = resource.class.base_class.name.foreign_key
 
       {
         user_id: user.id,

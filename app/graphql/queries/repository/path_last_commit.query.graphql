@@ -1,46 +1,72 @@
-query pathLastCommit($projectPath: ID!, $path: String, $ref: String!) {
+query pathLastCommit($projectPath: ID!, $path: String, $ref: String!, $refType: RefType) {
   project(fullPath: $projectPath) {
     __typename
     id
     repository {
       __typename
-      tree(path: $path, ref: $ref) {
+      paginatedTree(path: $path, ref: $ref, refType: $refType) {
         __typename
-        lastCommit {
+        nodes {
           __typename
-          id
-          sha
-          title
-          titleHtml
-          descriptionHtml
-          message
-          webPath
-          authoredDate
-          authorName
-          authorGravatar
-          author {
+          lastCommit {
             __typename
             id
-            name
-            avatarUrl
+            sha
+            title
+            titleHtml
+            descriptionHtml
+            message
             webPath
-          }
-          signatureHtml
-          pipelines(ref: $ref, first: 1) {
-            __typename
-            edges {
+            authoredDate
+            authorName
+            authorGravatar
+            author {
               __typename
-              node {
+              id
+              name
+              avatarUrl
+              webPath
+            }
+            signature {
+              __typename
+              ... on GpgSignature {
+                gpgKeyPrimaryKeyid
+                verificationStatus
+              }
+              ... on X509Signature {
+                verificationStatus
+                x509Certificate {
+                  id
+                  subject
+                  subjectKeyIdentifier
+                  x509Issuer {
+                    id
+                    subject
+                    subjectKeyIdentifier
+                  }
+                }
+              }
+              ... on SshSignature {
+                verificationStatus
+                keyFingerprintSha256
+              }
+            }
+            pipelines(ref: $ref, first: 1) {
+              __typename
+              edges {
                 __typename
-                id
-                detailedStatus {
+                node {
                   __typename
                   id
-                  detailsPath
-                  icon
-                  tooltip
-                  text
-                  group
+                  detailedStatus {
+                    __typename
+                    id
+                    detailsPath
+                    icon
+                    tooltip
+                    text
+                    group
+                  }
                 }
               }
             }

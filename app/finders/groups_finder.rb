@@ -13,8 +13,14 @@
 #     min_access_level: integer
 #     search: string
 #     exclude_group_ids: array of integers
+#     filter_group_ids: array of integers - only include groups from the specified list of ids
 #     include_parent_descendants: boolean (defaults to false) - includes descendant groups when
 #                                 filtering by parent. The parent param must be present.
+#     include_parent_shared_groups: boolean (defaults to false) - includes shared groups of a parent group
+#                                 when filtering by parent.
+#                                 Both parent and include_parent_descendants params must be present.
+#     include_ancestors: boolean (defaults to true)
+#     organization: Scope the groups to the Organizations::Organization
 #
 # Users with full private access can see all groups. The `owned` and `parent`
 # params can be used to restrict the groups that are returned.
@@ -24,72 +30,124 @@
 class GroupsFinder < UnionFinder
   include CustomAttributesFilter
 
+  attr_reader :current_user, :params
+
   def initialize(current_user = nil, params = {})
     @current_user = current_user
     @params = params
   end
 
   def execute
-    items = all_groups.map do |item|
-      item = by_parent(item)
-      item = by_custom_attributes(item)
-      item = exclude_group_ids(item)
-      item = by_search(item)
-
-      item
-    end
-
-    find_union(items, Group).with_route.order_id_desc
+    # filtered_groups can contain an array of scopes, so these
+    # are combined into a single query using UNION.
+    groups = find_union(filtered_groups, Group)
+    sort(groups).with_route
   end
 
   private
 
-  attr_reader :current_user, :params
+  def filtered_groups
+    all_groups.map do |groups|
+      filter_groups(groups)
+    end
+  end
 
   def all_groups
     return [owned_groups] if params[:owned]
     return [groups_with_min_access_level] if min_access_level?
     return [Group.all] if current_user&.can_read_all_resources? && all_available?
 
-    groups = []
+    groups = [
+      authorized_groups,
+      public_groups
+    ].compact
 
-    if current_user
-      if Feature.enabled?(:use_traversal_ids_groups_finder, current_user, default_enabled: :yaml)
-        groups << current_user.authorized_groups.self_and_ancestors
-        groups << current_user.groups.self_and_descendants
-      else
-        groups << Gitlab::ObjectHierarchy.new(groups_for_ancestors, groups_for_descendants).all_objects
-      end
-    end
-
-    groups << Group.unscoped.public_to_user(current_user) if include_public_groups?
     groups << Group.none if groups.empty?
+
     groups
   end
 
-  def groups_for_ancestors
-    current_user.authorized_groups
-  end
-
-  def groups_for_descendants
-    current_user.groups
+  def owned_groups
+    current_user&.owned_groups || Group.none
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
   def groups_with_min_access_level
-    groups = current_user
+    current_user
       .groups
       .where('members.access_level >= ?', params[:min_access_level])
-
-    if Feature.enabled?(:use_traversal_ids_groups_finder, current_user, default_enabled: :yaml)
-      groups.self_and_descendants
-    else
-      Gitlab::ObjectHierarchy
-        .new(groups)
-        .base_and_descendants
-    end
+      .self_and_descendants
   end
   # rubocop: enable CodeReuse/ActiveRecord
+
+  def authorized_groups
+    return unless current_user
+
+    if params.fetch(:include_ancestors, true)
+      current_user.authorized_groups.self_and_ancestors
+    else
+      current_user.authorized_groups
+    end
+  end
+
+  def public_groups
+    # By default, all groups public to the user are included. This is controlled by
+    # the :all_available argument, which defaults to true
+    return unless include_public_groups?
+
+    Group.unscoped.public_to_user(current_user)
+  end
+
+  def filter_groups(groups)
+    groups = by_organization(groups)
+    groups = by_parent(groups)
+    groups = by_custom_attributes(groups)
+    groups = filter_group_ids(groups)
+    groups = exclude_group_ids(groups)
+    groups = by_visibility(groups)
+    by_search(groups)
+  end
+
+  def by_organization(groups)
+    organization = params[:organization]
+    return groups unless organization
+
+    groups.in_organization(organization)
+  end
+
+  def by_visibility(groups)
+    return groups unless params[:visibility]
+
+    groups.by_visibility_level(params[:visibility])
+  end
+
+  def by_parent(groups)
+    return groups unless params[:parent]
+
+    if include_parent_descendants?
+      by_parent_descendants(groups, params[:parent])
+    else
+      by_parent_children(groups, params[:parent])
+    end
+  end
+
+  def by_parent_descendants(groups, parent)
+    if include_parent_shared_groups?
+      groups.descendants_with_shared_with_groups(parent)
+    else
+      groups.id_in(parent.descendants)
+    end
+  end
+
+  def by_parent_children(groups, parent)
+    groups.by_parent(parent)
+  end
+
+  def filter_group_ids(groups)
+    return groups unless params[:filter_group_ids]
+
+    groups.id_in(params[:filter_group_ids])
+  end
 
   def exclude_group_ids(groups)
     return groups unless params[:exclude_group_ids]
@@ -97,36 +155,20 @@ class GroupsFinder < UnionFinder
     groups.id_not_in(params[:exclude_group_ids])
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
-  def by_parent(groups)
-    return groups unless params[:parent]
-
-    if include_parent_descendants?
-      groups.id_in(params[:parent].descendants)
-    else
-      groups.where(parent: params[:parent])
-    end
-  end
-  # rubocop: enable CodeReuse/ActiveRecord
-
-  # rubocop: disable CodeReuse/ActiveRecord
   def by_search(groups)
     return groups unless params[:search].present?
 
     groups.search(params[:search], include_parents: params[:parent].blank?)
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
-  def owned_groups
-    current_user&.owned_groups || Group.none
+  def sort(groups)
+    return groups.order_id_desc unless params[:sort]
+
+    groups.sort_by_attribute(params[:sort])
   end
 
-  def include_public_groups?
-    current_user.nil? || all_available?
-  end
-
-  def all_available?
-    params.fetch(:all_available, true)
+  def include_parent_shared_groups?
+    params.fetch(:include_parent_shared_groups, false)
   end
 
   def include_parent_descendants?
@@ -136,4 +178,14 @@ class GroupsFinder < UnionFinder
   def min_access_level?
     current_user && params[:min_access_level].present?
   end
+
+  def include_public_groups?
+    current_user.nil? || all_available?
+  end
+
+  def all_available?
+    params.fetch(:all_available, true)
+  end
 end
+
+GroupsFinder.prepend_mod_with('GroupsFinder')

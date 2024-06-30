@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User expands diff', :js do
+RSpec.describe 'User expands diff', :js, feature_category: :code_review_workflow do
   let(:project) { create(:project, :public, :repository) }
   let(:merge_request) { create(:merge_request, source_branch: 'expand-collapse-files', source_project: project, target_project: project) }
 
@@ -16,7 +16,7 @@ RSpec.describe 'User expands diff', :js do
 
   it 'allows user to expand diff' do
     page.within find("[id='4c76a1271e41072d7da9fe40bf0f79f7384d472a']") do
-      find('[data-testid="expand-button"]').click
+      find_by_testid('expand-button').click
 
       wait_for_requests
 

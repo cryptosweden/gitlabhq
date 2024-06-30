@@ -1,19 +1,32 @@
-import { mount } from '@vue/test-utils';
+import { GlPopover } from '@gitlab/ui';
 import waitForPromises from 'helpers/wait_for_promises';
 import GroupFolder from '~/groups/components/group_folder.vue';
-import GroupItem from '~/groups/components/group_item.vue';
+import GroupItem from 'jh_else_ce/groups/components/group_item.vue';
 import ItemActions from '~/groups/components/item_actions.vue';
+import VisibilityIcon from '~/vue_shared/components/visibility_icon.vue';
 import eventHub from '~/groups/event_hub';
 import { getGroupItemMicrodata } from '~/groups/store/utils';
 import * as urlUtilities from '~/lib/utils/url_utility';
+import { ITEM_TYPE } from '~/groups/constants';
+import {
+  VISIBILITY_LEVEL_PRIVATE_STRING,
+  VISIBILITY_LEVEL_INTERNAL_STRING,
+  VISIBILITY_LEVEL_PUBLIC_STRING,
+} from '~/visibility_level/constants';
+import { helpPagePath } from '~/helpers/help_page_helper';
+import { mountExtended, extendedWrapper } from 'helpers/vue_test_utils_helper';
 import { mockParentGroupItem, mockChildren } from '../mock_data';
 
 const createComponent = (
   propsData = { group: mockParentGroupItem, parentGroup: mockChildren[0] },
+  provide = {
+    currentGroupVisibility: VISIBILITY_LEVEL_PRIVATE_STRING,
+  },
 ) => {
-  return mount(GroupItem, {
+  return mountExtended(GroupItem, {
     propsData,
-    components: { GroupFolder },
+    components: { GroupFolder, GroupItem },
+    provide,
   });
 };
 
@@ -23,10 +36,6 @@ describe('GroupItemComponent', () => {
   beforeEach(() => {
     wrapper = createComponent();
     return waitForPromises();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   const withMicrodata = (group) => ({
@@ -109,6 +118,41 @@ describe('GroupItemComponent', () => {
     });
   });
 
+  describe('visibilityIcon', () => {
+    describe('if item represents a group', () => {
+      it('should display the visibility icon with appropriate props', () => {
+        const group = { ...mockParentGroupItem };
+
+        group.type = 'group';
+        group.visibility = VISIBILITY_LEVEL_PRIVATE_STRING;
+        wrapper = createComponent({ group });
+
+        expect(wrapper.findComponent(VisibilityIcon).props()).toEqual({
+          isGroup: true,
+          tooltipPlacement: 'bottom',
+          visibilityLevel: VISIBILITY_LEVEL_PRIVATE_STRING,
+        });
+      });
+    });
+
+    describe('if item represents a project', () => {
+      it('should display the visibility icon with appropriate props', () => {
+        const group = { ...mockParentGroupItem };
+
+        group.type = 'project';
+        group.lastActivityAt = '2017-04-09T18:40:39.101Z';
+        group.visibility = VISIBILITY_LEVEL_PRIVATE_STRING;
+        wrapper = createComponent({ group });
+
+        expect(wrapper.findComponent(VisibilityIcon).props()).toEqual({
+          isGroup: false,
+          tooltipPlacement: 'bottom',
+          visibilityLevel: VISIBILITY_LEVEL_PRIVATE_STRING,
+        });
+      });
+    });
+  });
+
   describe('methods', () => {
     describe('onClickRowGroup', () => {
       let event;
@@ -166,7 +210,7 @@ describe('GroupItemComponent', () => {
         const badgeEl = wrapper.vm.$el.querySelector('.badge-warning');
 
         expect(badgeEl).toBeDefined();
-        expect(badgeEl.innerHTML).toContain('pending deletion');
+        expect(badgeEl.innerHTML).toContain('Pending deletion');
       });
     });
 
@@ -179,7 +223,7 @@ describe('GroupItemComponent', () => {
       it('does not render the group pending deletion badge', () => {
         const groupTextContainer = wrapper.vm.$el.querySelector('.group-text-container');
 
-        expect(groupTextContainer).not.toContain('pending deletion');
+        expect(groupTextContainer).not.toContain('Pending deletion');
       });
 
       it('renders `item-actions` component and passes correct props to it', () => {
@@ -214,7 +258,6 @@ describe('GroupItemComponent', () => {
       expect(vm.$el.querySelector('.group-row-contents .stats')).toBeDefined();
 
       expect(vm.$el.querySelector('.folder-toggle-wrap')).toBeDefined();
-      expect(vm.$el.querySelector('.folder-toggle-wrap .folder-caret')).toBeDefined();
       expect(vm.$el.querySelector('.folder-toggle-wrap .item-type-icon')).toBeDefined();
 
       expect(vm.$el.querySelector('.avatar-container')).toBeDefined();
@@ -225,7 +268,6 @@ describe('GroupItemComponent', () => {
       expect(vm.$el.querySelector('.title a.no-expand')).toBeDefined();
 
       expect(visibilityIconEl).not.toBe(null);
-      expect(visibilityIconEl.getAttribute('title')).toBe(vm.visibilityTooltip);
 
       expect(vm.$el.querySelector('.access-type')).toBeDefined();
       expect(vm.$el.querySelector('.description')).toBeDefined();
@@ -233,19 +275,14 @@ describe('GroupItemComponent', () => {
       expect(vm.$el.querySelector('.group-list-tree')).toBeDefined();
     });
   });
+
   describe('schema.org props', () => {
     describe('when showSchemaMarkup is disabled on the group', () => {
-      it.each(['itemprop', 'itemtype', 'itemscope'], 'it does not set %s', (attr) => {
+      it.each(['itemprop', 'itemtype', 'itemscope'])('does not set %s', (attr) => {
         expect(wrapper.attributes(attr)).toBeUndefined();
       });
-      it.each(
-        ['.js-group-avatar', '.js-group-name', '.js-group-description'],
-        'it does not set `itemprop` on sub-nodes',
-        (selector) => {
-          expect(wrapper.find(selector).attributes('itemprop')).toBeUndefined();
-        },
-      );
     });
+
     describe('when group has microdata', () => {
       beforeEach(() => {
         const group = withMicrodata({
@@ -258,11 +295,10 @@ describe('GroupItemComponent', () => {
       });
 
       it.each`
-        attr           | value
-        ${'itemscope'} | ${'itemscope'}
-        ${'itemtype'}  | ${'https://schema.org/Organization'}
-        ${'itemprop'}  | ${'subOrganization'}
-      `('it does set correct $attr', ({ attr, value } = {}) => {
+        attr          | value
+        ${'itemtype'} | ${'https://schema.org/Organization'}
+        ${'itemprop'} | ${'subOrganization'}
+      `('does set correct $attr', ({ attr, value } = {}) => {
         expect(wrapper.attributes(attr)).toBe(value);
       });
 
@@ -271,9 +307,108 @@ describe('GroupItemComponent', () => {
         ${'img'}                               | ${'logo'}
         ${'[data-testid="group-name"]'}        | ${'name'}
         ${'[data-testid="group-description"]'} | ${'description'}
-      `('it does set correct $selector', ({ selector, propValue } = {}) => {
+      `('does set correct $selector', ({ selector, propValue } = {}) => {
         expect(wrapper.find(selector).attributes('itemprop')).toBe(propValue);
       });
+    });
+  });
+
+  describe('visibility warning popover', () => {
+    const findPopover = () => wrapper.findComponent(GlPopover);
+
+    const itDoesNotRenderVisibilityWarningPopover = () => {
+      it('does not render visibility warning popover', () => {
+        expect(findPopover().exists()).toBe(false);
+      });
+    };
+
+    describe('when showing groups', () => {
+      beforeEach(() => {
+        wrapper = createComponent();
+      });
+
+      itDoesNotRenderVisibilityWarningPopover();
+    });
+
+    describe('when `action` prop is not `shared`', () => {
+      beforeEach(() => {
+        wrapper = createComponent({
+          group: mockParentGroupItem,
+          parentGroup: mockChildren[0],
+          action: 'subgroups_and_projects',
+        });
+      });
+
+      itDoesNotRenderVisibilityWarningPopover();
+    });
+
+    describe('when showing projects', () => {
+      describe.each`
+        itemVisibility                      | currentGroupVisibility              | isPopoverShown
+        ${VISIBILITY_LEVEL_PRIVATE_STRING}  | ${VISIBILITY_LEVEL_PUBLIC_STRING}   | ${false}
+        ${VISIBILITY_LEVEL_INTERNAL_STRING} | ${VISIBILITY_LEVEL_PUBLIC_STRING}   | ${false}
+        ${VISIBILITY_LEVEL_PUBLIC_STRING}   | ${VISIBILITY_LEVEL_PUBLIC_STRING}   | ${false}
+        ${VISIBILITY_LEVEL_PRIVATE_STRING}  | ${VISIBILITY_LEVEL_PRIVATE_STRING}  | ${false}
+        ${VISIBILITY_LEVEL_INTERNAL_STRING} | ${VISIBILITY_LEVEL_PRIVATE_STRING}  | ${true}
+        ${VISIBILITY_LEVEL_PUBLIC_STRING}   | ${VISIBILITY_LEVEL_PRIVATE_STRING}  | ${true}
+        ${VISIBILITY_LEVEL_PRIVATE_STRING}  | ${VISIBILITY_LEVEL_INTERNAL_STRING} | ${false}
+        ${VISIBILITY_LEVEL_INTERNAL_STRING} | ${VISIBILITY_LEVEL_INTERNAL_STRING} | ${false}
+        ${VISIBILITY_LEVEL_PUBLIC_STRING}   | ${VISIBILITY_LEVEL_INTERNAL_STRING} | ${true}
+      `(
+        'when item visibility is $itemVisibility and parent group visibility is $currentGroupVisibility',
+        ({ itemVisibility, currentGroupVisibility, isPopoverShown }) => {
+          beforeEach(() => {
+            wrapper = createComponent(
+              {
+                group: {
+                  ...mockParentGroupItem,
+                  visibility: itemVisibility,
+                  type: ITEM_TYPE.PROJECT,
+                },
+                parentGroup: mockChildren[0],
+                action: 'shared',
+              },
+              {
+                currentGroupVisibility,
+              },
+            );
+          });
+
+          if (isPopoverShown) {
+            it('renders visibility warning popover with `Learn more` link', () => {
+              const popover = extendedWrapper(findPopover());
+
+              expect(popover.exists()).toBe(true);
+
+              expect(
+                popover.findByRole('link', { name: GroupItem.i18n.learnMore }).attributes('href'),
+              ).toBe(
+                helpPagePath('user/project/members/share_project_with_groups', {
+                  anchor: 'sharing-projects-with-groups-of-a-higher-restrictive-visibility-level',
+                }),
+              );
+            });
+          } else {
+            itDoesNotRenderVisibilityWarningPopover();
+          }
+        },
+      );
+    });
+
+    it('sets up popover `target` prop correctly', () => {
+      wrapper = createComponent({
+        group: {
+          ...mockParentGroupItem,
+          visibility: VISIBILITY_LEVEL_PUBLIC_STRING,
+          type: ITEM_TYPE.PROJECT,
+        },
+        parentGroup: mockChildren[0],
+        action: 'shared',
+      });
+
+      expect(findPopover().props('target')()).toEqual(
+        wrapper.findByRole('button', { name: GroupItem.i18n.popoverTitle }).element,
+      );
     });
   });
 });

@@ -18,11 +18,17 @@ class NotePolicy < BasePolicy
 
   condition(:is_visible) { @subject.system_note_visible_for?(@user) }
 
-  condition(:confidential, scope: :subject) { @subject.confidential? }
+  condition(:internal, scope: :subject) { @subject.confidential? }
 
-  condition(:can_read_confidential) do
-    access_level >= Gitlab::Access::REPORTER || @subject.noteable_assignee_or_author?(@user) || admin?
+  # if noteable is a work item it needs to check the notes widget availability
+  condition(:notes_widget_enabled, scope: :subject) do
+    noteable = @subject.noteable
+    next true unless noteable
+
+    !noteable.respond_to?(:has_widget?) || noteable.has_widget?(:notes)
   end
+
+  rule { ~notes_widget_enabled }.prevent_all
 
   rule { ~editable }.prevent :admin_note
 
@@ -57,11 +63,11 @@ class NotePolicy < BasePolicy
     enable :resolve_note
   end
 
-  rule { can_read_confidential }.policy do
-    enable :mark_note_as_confidential
+  rule { can?(:read_internal_note) }.policy do
+    enable :mark_note_as_internal
   end
 
-  rule { confidential & ~can_read_confidential }.policy do
+  rule { internal & ~can?(:read_internal_note) }.policy do
     prevent :read_note
     prevent :admin_note
     prevent :resolve_note

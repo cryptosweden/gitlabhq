@@ -13,20 +13,51 @@ class CommitCollection
   # container - The object the commits belong to.
   # commits - The Commit instances to store.
   # ref - The name of the ref (e.g. "master").
-  def initialize(container, commits, ref = nil)
+  def initialize(container, commits, ref = nil, page: nil, per_page: nil, count: nil)
     @container = container
     @commits = commits
     @ref = ref
+    @pagination = Gitlab::PaginationDelegate.new(page: page, per_page: per_page, count: count)
   end
 
   def each(&block)
     commits.each(&block)
   end
 
-  def committers
-    emails = without_merge_commits.map(&:committer_email).uniq
+  def committers(with_merge_commits: false, lazy: false, include_author_when_signed: false)
+    if lazy
+      return committers_lazy(
+        with_merge_commits: with_merge_commits,
+        include_author_when_signed: include_author_when_signed
+      ).flatten
+    end
 
-    User.by_any_email(emails)
+    User.by_any_email(
+      committers_emails(
+        with_merge_commits: with_merge_commits,
+        include_author_when_signed: include_author_when_signed
+      )
+    )
+  end
+
+  def committers_lazy(with_merge_commits: false, include_author_when_signed: false)
+    emails = committers_emails(
+      with_merge_commits: with_merge_commits,
+      include_author_when_signed: include_author_when_signed
+    )
+
+    emails.map do |email|
+      BatchLoader.for(email.downcase).batch(default_value: []) do |committer_emails, loader|
+        User.by_any_email(committer_emails).each do |user|
+          loader.call(user.email) { |memo| memo << user }
+        end
+      end
+    end
+  end
+  alias_method :add_committers_to_batch_loader, :committers_lazy
+
+  def committer_user_ids
+    committers.pluck(:id)
   end
 
   def without_merge_commits
@@ -112,5 +143,50 @@ class CommitCollection
   # rubocop:disable GitlabSecurity/PublicSend
   def method_missing(message, *args, &block)
     commits.public_send(message, *args, &block)
+  end
+
+  def next_page
+    @pagination.next_page
+  end
+
+  def load_tags
+    oids = commits.map(&:id)
+    references = repository.list_refs([Gitlab::Git::TAG_REF_PREFIX], pointing_at_oids: oids, peel_tags: true)
+    oid_to_references = references.group_by { |reference| reference.peeled_target.presence || reference.target }
+
+    return self if oid_to_references.empty?
+
+    commits.each do |commit|
+      grouped_references = oid_to_references[commit.id]
+      next unless grouped_references
+
+      commit.referenced_by = grouped_references.map(&:name)
+    end
+
+    self
+  end
+
+  private
+
+  def committers_emails(with_merge_commits: false, include_author_when_signed: false)
+    return committer_emails_for(commits, include_author_when_signed: include_author_when_signed) if with_merge_commits
+
+    committer_emails_for(without_merge_commits, include_author_when_signed: include_author_when_signed)
+  end
+
+  def committer_emails_for(commits, include_author_when_signed: false)
+    commit_author_change_enabled = ::Feature.enabled?(:web_ui_commit_author_change, project)
+
+    if include_author_when_signed && commit_author_change_enabled
+      commits.each(&:signature) # preload signatures
+    end
+
+    commits.filter_map do |commit|
+      if include_author_when_signed && commit_author_change_enabled && commit.signature&.verified_system?
+        commit.author_email
+      else
+        commit.committer_email
+      end
+    end.uniq
   end
 end

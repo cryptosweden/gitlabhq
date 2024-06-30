@@ -2,10 +2,7 @@
 data_category: optional
 key_path: counts.ci_pipeline_schedules
 description: Pipeline schedules in GitLab
-product_section: ops
-product_stage: verify
-product_group: group::pipeline execution
-product_category: continuous_integration
+product_group: pipeline_execution
 value_type: number
 status: active
 time_frame: all
@@ -17,5 +14,6 @@ tier:
 - free
 - premium
 - ultimate
-performance_indicator_type: []
+performance_indicator_type:
+- customer_health_score
 milestone: "<13.9"

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User browses commits' do
+RSpec.describe 'User browses commits', feature_category: :source_code_management do
   include RepoHelpers
 
   let(:user) { create(:user) }
@@ -42,8 +42,8 @@ RSpec.describe 'User browses commits' do
   it 'renders breadcrumbs on specific commit path' do
     visit project_commits_path(project, project.repository.root_ref + '/files/ruby/regex.rb', limit: 5)
 
-    expect(page).to have_selector('ul.breadcrumb')
-      .and have_selector('ul.breadcrumb a', count: 4)
+    expect(page).to have_selector('#content-body ul.breadcrumb')
+      .and have_selector('#content-body ul.breadcrumb a', count: 4)
   end
 
   it 'renders diff links to both the previous and current image', :js do
@@ -115,7 +115,7 @@ RSpec.describe 'User browses commits' do
 
       click_button '2 changed files'
 
-      expect(find('[data-testid="diff-stats-dropdown"]')).to have_content('files/ruby/popen.rb')
+      expect(find_by_testid('diff-stats-dropdown')).to have_content('files/ruby/popen.rb')
     end
   end
 
@@ -150,7 +150,7 @@ RSpec.describe 'User browses commits' do
       let(:ref) { project.repository.root_ref }
       let(:newrev) { project.repository.commit('master').sha }
       let(:short_newrev) { project.repository.commit('master').short_id }
-      let(:message) { 'Glob characters'}
+      let(:message) { 'Glob characters' }
 
       before do
         create_file_in_repo(project, ref, ref, filename, 'Test file', commit_message: message)
@@ -175,9 +175,13 @@ RSpec.describe 'User browses commits' do
       let(:confidential_issue) { create(:issue, confidential: true, title: 'Secret issue!', project: project) }
 
       before do
-        project.repository.create_file(user, 'dummy-file', 'dummy content',
-                                       branch_name: 'feature',
-                                       message: "Linking #{confidential_issue.to_reference}")
+        project.repository.create_file(
+          user,
+          'dummy-file',
+          'dummy content',
+          branch_name: 'feature',
+          message: "Linking #{confidential_issue.to_reference}"
+        )
       end
 
       context 'when the user cannot see confidential issues but was cached with a link', :use_clean_rails_memory_store_fragment_caching do
@@ -191,7 +195,7 @@ RSpec.describe 'User browses commits' do
       end
     end
 
-    context 'master branch' do
+    context 'master branch', :js do
       before do
         visit_commits_page
       end
@@ -208,6 +212,10 @@ RSpec.describe 'User browses commits' do
         expect(page).not_to have_link 'Create merge request'
       end
 
+      it 'shows ref switcher with correct text', :js do
+        expect(find('.ref-selector')).to have_text('master')
+      end
+
       context 'when click the compare tab' do
         before do
           wait_for_requests
@@ -220,14 +228,27 @@ RSpec.describe 'User browses commits' do
       end
     end
 
-    context 'feature branch' do
+    context 'feature branch', :js do
       let(:visit_commits_page) do
-        visit project_commits_path(project, 'feature')
+        visit project_commits_path(project)
+
+        find('.ref-selector').click
+        wait_for_requests
+
+        page.within('.ref-selector') do
+          fill_in 'Search by Git revision', with: 'feature'
+          wait_for_requests
+          find('li', text: 'feature', match: :prefer_exact).click
+        end
       end
 
       context 'when project does not have open merge requests' do
         before do
           visit_commits_page
+        end
+
+        it 'shows ref switcher with correct text' do
+          expect(find('.ref-selector')).to have_text('feature')
         end
 
         it 'renders project commits' do

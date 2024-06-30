@@ -4,8 +4,6 @@ module Ci
   class ArtifactBlob
     include BlobLike
 
-    EXTENSIONS_SERVED_BY_PAGES = %w[.html .htm .txt .json .xml .log].freeze
-
     attr_reader :entry
 
     def initialize(entry)
@@ -19,7 +17,8 @@ module Ci
     end
 
     def size
-      entry.metadata[:size]
+      # Old versions of Workhorse omit the size if the file is 0 bytes
+      entry.metadata.fetch(:size, 0)
     end
     alias_method :external_size, :size
 
@@ -35,31 +34,18 @@ module Ci
       :build_artifact
     end
 
-    def external_url(project, job)
-      return unless external_link?(job)
-
-      url_project_path = project.full_path.partition('/').last
-
-      artifact_path = [
-        '-', url_project_path, '-',
-        'jobs', job.id,
-        'artifacts', path
-      ].join('/')
-
-      "#{project.pages_group_url}/#{artifact_path}"
+    def external_url(job)
+      pages_url_builder(job.project).artifact_url(entry, job)
     end
 
     def external_link?(job)
-      pages_config.enabled &&
-        pages_config.artifacts_server &&
-        EXTENSIONS_SERVED_BY_PAGES.include?(File.extname(name)) &&
-        (pages_config.access_control || job.project.public?)
+      pages_url_builder(job.project).artifact_url_available?(entry, job)
     end
 
     private
 
-    def pages_config
-      Gitlab.config.pages
+    def pages_url_builder(project)
+      @pages_url_builder ||= Gitlab::Pages::UrlBuilder.new(project)
     end
   end
 end

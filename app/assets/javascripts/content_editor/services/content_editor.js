@@ -1,16 +1,28 @@
-import { TextSelection } from 'prosemirror-state';
-import { LOADING_CONTENT_EVENT, LOADING_SUCCESS_EVENT, LOADING_ERROR_EVENT } from '../constants';
-
 /* eslint-disable no-underscore-dangle */
 export class ContentEditor {
-  constructor({ tiptapEditor, serializer, deserializer, eventHub, languageLoader }) {
+  constructor({
+    tiptapEditor,
+    serializer,
+    deserializer,
+    assetResolver,
+    eventHub,
+    drawioEnabled,
+    codeSuggestionsConfig,
+  }) {
     this._tiptapEditor = tiptapEditor;
     this._serializer = serializer;
     this._deserializer = deserializer;
     this._eventHub = eventHub;
-    this._languageLoader = languageLoader;
+    this._assetResolver = assetResolver;
+    this._pristineDoc = null;
+
+    this.codeSuggestionsConfig = codeSuggestionsConfig;
+    this.drawioEnabled = drawioEnabled;
   }
 
+  /**
+   * @type {import('@tiptap/core').Editor}
+   */
   get tiptapEditor() {
     return this._tiptapEditor;
   }
@@ -19,11 +31,20 @@ export class ContentEditor {
     return this._eventHub;
   }
 
-  get empty() {
-    const doc = this.tiptapEditor?.state.doc;
+  get changed() {
+    if (!this._pristineDoc) {
+      return !this.empty;
+    }
 
-    // Makes sure the document has more than one empty paragraph
-    return doc.childCount === 0 || (doc.childCount === 1 && doc.child(0).childCount === 0);
+    return !this._pristineDoc.eq(this.tiptapEditor.state.doc);
+  }
+
+  get empty() {
+    return this.tiptapEditor.isEmpty;
+  }
+
+  get editable() {
+    return this.tiptapEditor.isEditable;
   }
 
   dispose() {
@@ -34,44 +55,50 @@ export class ContentEditor {
     this._eventHub.dispose();
   }
 
+  deserialize(markdown) {
+    const { _tiptapEditor: editor, _deserializer: deserializer } = this;
+
+    return deserializer.deserialize({
+      schema: editor.schema,
+      markdown,
+    });
+  }
+
+  resolveUrl(canonicalSrc) {
+    return this._assetResolver.resolveUrl(canonicalSrc);
+  }
+
+  resolveReference(originalText) {
+    return this._assetResolver.resolveReference(originalText);
+  }
+
+  renderDiagram(code, language) {
+    return this._assetResolver.renderDiagram(code, language);
+  }
+
+  setEditable(editable = true) {
+    this._tiptapEditor.setOptions({
+      editable,
+    });
+  }
+
   async setSerializedContent(serializedContent) {
-    const {
-      _tiptapEditor: editor,
-      _deserializer: deserializer,
-      _eventHub: eventHub,
-      _languageLoader: languageLoader,
-    } = this;
+    const { _tiptapEditor: editor } = this;
+
+    const { document } = await this.deserialize(serializedContent);
     const { doc, tr } = editor.state;
-    const selection = TextSelection.create(doc, 0, doc.content.size);
 
-    try {
-      eventHub.$emit(LOADING_CONTENT_EVENT);
-      const result = await deserializer.deserialize({
-        schema: editor.schema,
-        content: serializedContent,
-      });
-
-      if (Object.keys(result).length !== 0) {
-        const { document, dom } = result;
-
-        await languageLoader.loadLanguagesFromDOM(dom);
-
-        tr.setSelection(selection)
-          .replaceSelectionWith(document, false)
-          .setMeta('preventUpdate', true);
-        editor.view.dispatch(tr);
-      }
-
-      eventHub.$emit(LOADING_SUCCESS_EVENT);
-    } catch (e) {
-      eventHub.$emit(LOADING_ERROR_EVENT, e);
-      throw e;
+    if (document) {
+      this._pristineDoc = document;
+      tr.replaceWith(0, doc.content.size, document).setMeta('preventUpdate', true);
+      editor.view.dispatch(tr);
     }
   }
 
   getSerializedContent() {
-    const { _tiptapEditor: editor, _serializer: serializer } = this;
+    const { _tiptapEditor: editor, _serializer: serializer, _pristineDoc: pristineDoc } = this;
+    const { doc } = editor.state;
 
-    return serializer.serialize({ schema: editor.schema, content: editor.getJSON() });
+    return serializer.serialize({ doc, pristineDoc });
   }
 }

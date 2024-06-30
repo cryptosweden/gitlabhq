@@ -28,7 +28,7 @@ RSpec.describe EnvironmentPolicy do
 
         with_them do
           before do
-            project.add_user(user, access_level) unless access_level.nil?
+            project.add_member(user, access_level) unless access_level.nil?
           end
 
           it { expect(policy.allowed?(:stop_environment)).to be allowed? }
@@ -49,9 +49,8 @@ RSpec.describe EnvironmentPolicy do
         context 'with protected branch' do
           with_them do
             before do
-              project.add_user(user, access_level) unless access_level.nil?
-              create(:protected_branch, :no_one_can_push,
-                     name: 'master', project: project)
+              project.add_member(user, access_level) unless access_level.nil?
+              create(:protected_branch, :no_one_can_push, name: 'master', project: project)
             end
 
             it { expect(policy).to be_disallowed :stop_environment }
@@ -86,7 +85,7 @@ RSpec.describe EnvironmentPolicy do
 
         with_them do
           before do
-            project.add_user(user, access_level) unless access_level.nil?
+            project.add_member(user, access_level) unless access_level.nil?
           end
 
           it { expect(policy.allowed?(:stop_environment)).to be allowed? }
@@ -120,7 +119,7 @@ RSpec.describe EnvironmentPolicy do
 
         with_them do
           before do
-            project.add_user(user, access_level) unless access_level.nil?
+            project.add_member(user, access_level) unless access_level.nil?
           end
 
           it { expect(policy).to be_disallowed :destroy_environment }

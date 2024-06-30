@@ -4,10 +4,11 @@ import {
   GlTooltipDirective,
   GlSprintf,
   GlIcon,
-  GlDropdown,
-  GlDropdownItem,
+  GlDisclosureDropdown,
+  GlBadge,
+  GlLink,
 } from '@gitlab/ui';
-import { formatDate } from '~/lib/utils/datetime_utility';
+import { localeDateFormat } from '~/lib/utils/datetime_utility';
 import { numberToHumanSize } from '~/lib/utils/number_utils';
 import { n__ } from '~/locale';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
@@ -25,19 +26,24 @@ import {
   NOT_AVAILABLE_TEXT,
   NOT_AVAILABLE_SIZE,
   MORE_ACTIONS_TEXT,
+  COPY_IMAGE_PATH_TITLE,
+  SIGNATURE_BADGE_TOOLTIP,
 } from '../../constants/index';
+import SignatureDetailsModal from './signature_details_modal.vue';
 
 export default {
   components: {
     GlSprintf,
     GlFormCheckbox,
     GlIcon,
-    GlDropdown,
-    GlDropdownItem,
+    GlDisclosureDropdown,
+    GlBadge,
+    GlLink,
     ListItem,
     ClipboardButton,
     TimeAgoTooltip,
     DetailsRow,
+    SignatureDetailsModal,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -72,8 +78,29 @@ export default {
     CONFIGURATION_DETAILS_ROW_TEST,
     MISSING_MANIFEST_WARNING_TOOLTIP,
     MORE_ACTIONS_TEXT,
+    COPY_IMAGE_PATH_TITLE,
+    SIGNATURE_BADGE_TOOLTIP,
+  },
+  data() {
+    return {
+      selectedDigest: null,
+    };
   },
   computed: {
+    items() {
+      return [
+        {
+          text: this.$options.i18n.REMOVE_TAG_BUTTON_TITLE,
+          extraAttrs: {
+            class: 'gl-text-red-500!',
+            'data-testid': 'single-delete-button',
+          },
+          action: () => {
+            this.$emit('delete');
+          },
+        },
+      ];
+    },
     formattedSize() {
       return this.tag.totalSize
         ? numberToHumanSize(Number(this.tag.totalSize))
@@ -89,11 +116,11 @@ export default {
       // remove sha256: from the string, and show only the first 7 char
       return this.tag.digest?.substring(7, 14) ?? NOT_AVAILABLE_TEXT;
     },
-    publishedDate() {
-      return formatDate(this.tag.createdAt, 'isoDate');
+    publishDateTime() {
+      return this.tag.publishedAt || this.tag.createdAt;
     },
-    publishedTime() {
-      return formatDate(this.tag.createdAt, 'hh:MM Z');
+    publishedDateTime() {
+      return localeDateFormat.asDateTimeFull.format(this.publishDateTime);
     },
     formattedRevision() {
       // to be removed when API response is adjusted
@@ -104,11 +131,21 @@ export default {
     tagLocation() {
       return this.tag.path?.replace(`:${this.tag.name}`, '');
     },
+    isEmptyRevision() {
+      return this.tag.revision === '';
+    },
     isInvalidTag() {
       return !this.tag.digest;
     },
-    isDeleteDisabled() {
-      return this.disabled || !this.tag.canDelete;
+    showConfigDigest() {
+      return !this.isInvalidTag && !this.isEmptyRevision;
+    },
+    signatures() {
+      const referrers = this.tag.referrers || [];
+      // All referrers should be signatures, but we'll filter by signature artifact types as a sanity check.
+      return referrers.filter(
+        ({ artifactType }) => artifactType === 'application/vnd.dev.cosign.artifact.sig.v1+json',
+      );
     },
   },
 };
@@ -118,7 +155,7 @@ export default {
   <list-item v-bind="$attrs" :selected="selected" :disabled="disabled">
     <template #left-action>
       <gl-form-checkbox
-        v-if="tag.canDelete"
+        v-if="tag.userPermissions.destroyContainerRepositoryTag"
         :disabled="disabled"
         class="gl-m-0"
         :checked="selected"
@@ -128,9 +165,9 @@ export default {
     <template #left-primary>
       <div class="gl-display-flex gl-align-items-center">
         <div
-          v-gl-tooltip="{ title: tag.name }"
+          v-gl-tooltip="tag.name"
           data-testid="name"
-          class="gl-text-overflow-ellipsis gl-overflow-hidden gl-white-space-nowrap"
+          class="gl-text-overflow-ellipsis gl-overflow-hidden gl-whitespace-nowrap"
           :class="mobileClasses"
         >
           {{ tag.name }}
@@ -138,7 +175,7 @@ export default {
 
         <clipboard-button
           v-if="tag.location"
-          :title="tag.location"
+          :title="$options.i18n.COPY_IMAGE_PATH_TITLE"
           :text="tag.location"
           category="tertiary"
           :disabled="disabled"
@@ -146,11 +183,17 @@ export default {
 
         <gl-icon
           v-if="isInvalidTag"
-          v-gl-tooltip="{ title: $options.i18n.MISSING_MANIFEST_WARNING_TOOLTIP }"
+          v-gl-tooltip.d0="$options.i18n.MISSING_MANIFEST_WARNING_TOOLTIP"
           name="warning"
-          class="gl-text-orange-500 gl-mb-2 gl-ml-2"
+          class="gl-text-orange-500 gl-mr-2"
         />
       </div>
+    </template>
+
+    <template v-if="signatures.length" #left-after-toggle>
+      <gl-badge v-gl-tooltip.d0="$options.i18n.SIGNATURE_BADGE_TOOLTIP" class="gl-ml-4">
+        {{ s__('ContainerRegistry|Signed') }}
+      </gl-badge>
     </template>
 
     <template #left-secondary>
@@ -164,7 +207,7 @@ export default {
       <span data-testid="time">
         <gl-sprintf :message="$options.i18n.CREATED_AT_LABEL">
           <template #timeInfo>
-            <time-ago-tooltip :time="tag.createdAt" />
+            <time-ago-tooltip :time="publishDateTime" />
           </template>
         </gl-sprintf>
       </span>
@@ -176,41 +219,29 @@ export default {
         </gl-sprintf>
       </span>
     </template>
-    <template #right-action>
-      <gl-dropdown
-        :disabled="isDeleteDisabled"
+    <template v-if="tag.userPermissions.destroyContainerRepositoryTag" #right-action>
+      <gl-disclosure-dropdown
+        :disabled="disabled"
         icon="ellipsis_v"
-        :text="$options.i18n.MORE_ACTIONS_TEXT"
+        :toggle-text="$options.i18n.MORE_ACTIONS_TEXT"
         :text-sr-only="true"
         category="tertiary"
         no-caret
-        right
-        :class="{ 'gl-opacity-0 gl-pointer-events-none': isDeleteDisabled }"
+        placement="bottom-end"
+        :class="{ 'gl-opacity-0 gl-pointer-events-none': disabled }"
         data-testid="additional-actions"
-        data-qa-selector="more_actions_menu"
-      >
-        <gl-dropdown-item
-          variant="danger"
-          data-testid="single-delete-button"
-          data-qa-selector="tag_delete_button"
-          @click="$emit('delete')"
-        >
-          {{ $options.i18n.REMOVE_TAG_BUTTON_TITLE }}
-        </gl-dropdown-item>
-      </gl-dropdown>
+        :items="items"
+      />
     </template>
 
     <template v-if="!isInvalidTag" #details-published>
-      <details-row icon="clock" data-testid="published-date-detail">
+      <details-row icon="clock" padding="gl-py-3" data-testid="published-date-detail">
         <gl-sprintf :message="$options.i18n.PUBLISHED_DETAILS_ROW_TEXT">
           <template #repositoryPath>
             <i>{{ tagLocation }}</i>
           </template>
-          <template #time>
-            {{ publishedTime }}
-          </template>
-          <template #date>
-            {{ publishedDate }}
+          <template #dateTime>
+            {{ publishedDateTime }}
           </template>
         </gl-sprintf>
       </details-row>
@@ -232,7 +263,7 @@ export default {
         />
       </details-row>
     </template>
-    <template v-if="!isInvalidTag" #details-configuration-digest>
+    <template v-if="showConfigDigest" #details-configuration-digest>
       <details-row icon="cloud-gear" data-testid="configuration-detail">
         <gl-sprintf :message="$options.i18n.CONFIGURATION_DETAILS_ROW_TEST">
           <template #digest>
@@ -248,6 +279,33 @@ export default {
           :disabled="disabled"
         />
       </details-row>
+    </template>
+
+    <template v-if="signatures.length" #details-signatures>
+      <details-row
+        v-for="({ digest }, index) in signatures"
+        :key="index"
+        icon="pencil"
+        data-testid="signatures-detail"
+      >
+        <div class="gl-display-flex">
+          <span class="gl-text-truncate gl-mr-3 gl-flex-basis-0 gl-flex-grow-1">
+            <gl-sprintf :message="s__('ContainerRegistry|Signature digest: %{digest}')">
+              <template #digest>{{ digest }}</template>
+            </gl-sprintf>
+          </span>
+
+          <gl-link @click="selectedDigest = digest">
+            {{ __('View details') }}
+          </gl-link>
+        </div>
+      </details-row>
+
+      <signature-details-modal
+        :visible="Boolean(selectedDigest)"
+        :digest="selectedDigest"
+        @close="selectedDigest = null"
+      />
     </template>
   </list-item>
 </template>

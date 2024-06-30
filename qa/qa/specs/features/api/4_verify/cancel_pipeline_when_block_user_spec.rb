@@ -1,29 +1,25 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Verify', :requires_admin do
+  RSpec.describe 'Verify', :requires_admin, :blocking, product_group: :pipeline_execution do
     describe 'When user is blocked' do
       let!(:admin_api_client) { Runtime::API::Client.as_admin }
       let!(:user_api_client) { Runtime::API::Client.new(:gitlab, user: user) }
 
-      let(:user) do
-        Resource::User.fabricate_via_api! do |resource|
-          resource.api_client = admin_api_client
-        end
-      end
+      let(:user) { create(:user, api_client: admin_api_client) }
 
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'project-for-canceled-schedule'
-        end
-      end
+      let(:project) { create(:project, name: 'project-for-canceled-schedule') }
+      let(:ref) { 'master' }
 
       before do
         project.add_member(user, Resource::Members::AccessLevel::MAINTAINER)
+        project.create_repository_branch(ref)
 
-        Resource::PipelineSchedules.fabricate_via_api! do |schedule|
-          schedule.api_client = user_api_client
-          schedule.project = project
+        # Retry is needed due to delays with project authorization updates
+        # Long term solution to accessing the status of a project authorization update
+        # has been proposed in https://gitlab.com/gitlab-org/gitlab/-/issues/393369
+        Support::Retrier.retry_on_exception(max_attempts: 60, sleep_interval: 1) do
+          create(:pipeline_schedule, ref: ref, api_client: user_api_client, project: project)
         end
 
         Support::Waiter.wait_until { !pipeline_schedule[:id].nil? && pipeline_schedule[:active] == true }

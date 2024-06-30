@@ -3,8 +3,6 @@
 module Projects
   module ImportExport
     class ExportService < BaseService
-      prepend Measurable
-
       def initialize(*args)
         super
 
@@ -21,6 +19,13 @@ module Projects
         execute_after_export_action(after_export_strategy)
       ensure
         cleanup
+      end
+
+      def exporters
+        [
+          version_saver, avatar_saver, project_tree_saver, uploads_saver,
+          repo_saver, wiki_repo_saver, lfs_saver, snippets_repo_saver, design_repo_saver
+        ]
       end
 
       protected
@@ -47,42 +52,42 @@ module Projects
       end
 
       def save_all!
+        log_info('Project export started')
+
         if save_exporters && save_export_archive
-          notify_success
+          log_info('Project successfully exported')
         else
           notify_error!
         end
       end
 
       def save_exporters
-        exporters.all?(&:save)
+        exporters.all? do |exporter|
+          log_info("#{exporter.class.name} saver started")
+
+          exporter.save
+        end
       end
 
       def save_export_archive
-        Gitlab::ImportExport::Saver.save(exportable: project, shared: shared)
-      end
-
-      def exporters
-        [
-          version_saver, avatar_saver, project_tree_saver, uploads_saver,
-          repo_saver, wiki_repo_saver, lfs_saver, snippets_repo_saver, design_repo_saver
-        ]
+        @export_saver ||= Gitlab::ImportExport::Saver.save(exportable: project, shared: shared)
       end
 
       def version_saver
-        Gitlab::ImportExport::VersionSaver.new(shared: shared)
+        @version_saver ||= Gitlab::ImportExport::VersionSaver.new(shared: shared)
       end
 
       def avatar_saver
-        Gitlab::ImportExport::AvatarSaver.new(project: project, shared: shared)
+        @avatar_saver ||= Gitlab::ImportExport::AvatarSaver.new(project: project, shared: shared)
       end
 
       def project_tree_saver
-        tree_saver_class.new(project: project,
-                             current_user: current_user,
-                             shared: shared,
-                             params: params,
-                             logger: logger)
+        @project_tree_saver ||= tree_saver_class.new(
+          project: project,
+          current_user: current_user,
+          shared: shared,
+          params: params,
+          logger: logger)
       end
 
       def tree_saver_class
@@ -90,27 +95,31 @@ module Projects
       end
 
       def uploads_saver
-        Gitlab::ImportExport::UploadsSaver.new(project: project, shared: shared)
+        @uploads_saver ||= Gitlab::ImportExport::UploadsSaver.new(project: project, shared: shared)
       end
 
       def repo_saver
-        Gitlab::ImportExport::RepoSaver.new(exportable: project, shared: shared)
+        @repo_saver ||= Gitlab::ImportExport::RepoSaver.new(exportable: project, shared: shared)
       end
 
       def wiki_repo_saver
-        Gitlab::ImportExport::WikiRepoSaver.new(exportable: project, shared: shared)
+        @wiki_repo_saver ||= Gitlab::ImportExport::WikiRepoSaver.new(exportable: project, shared: shared)
       end
 
       def lfs_saver
-        Gitlab::ImportExport::LfsSaver.new(project: project, shared: shared)
+        @lfs_saver ||= Gitlab::ImportExport::LfsSaver.new(project: project, shared: shared)
       end
 
       def snippets_repo_saver
-        Gitlab::ImportExport::SnippetsRepoSaver.new(current_user: current_user, project: project, shared: shared)
+        @snippets_repo_saver ||= Gitlab::ImportExport::SnippetsRepoSaver.new(
+          current_user: current_user,
+          project: project,
+          shared: shared
+        )
       end
 
       def design_repo_saver
-        Gitlab::ImportExport::DesignRepoSaver.new(exportable: project, shared: shared)
+        @design_repo_saver ||= Gitlab::ImportExport::DesignRepoSaver.new(exportable: project, shared: shared)
       end
 
       def cleanup
@@ -123,11 +132,10 @@ module Projects
         raise Gitlab::ImportExport::Error, shared.errors.to_sentence
       end
 
-      def notify_success
+      def log_info(message)
         logger.info(
-          message: 'Project successfully exported',
-          project_name: project.name,
-          project_id: project.id
+          message: message,
+          **log_base_data
         )
       end
 
@@ -135,11 +143,19 @@ module Projects
         logger.error(
           message: 'Project export error',
           export_errors: shared.errors.join(', '),
-          project_name: project.name,
-          project_id: project.id
+          **log_base_data
         )
 
-        notification_service.project_not_exported(project, current_user, shared.errors)
+        user = current_user
+        errors = shared.errors
+
+        project.run_after_commit_or_now do |project|
+          NotificationService.new.project_not_exported(project, user, errors)
+        end
+      end
+
+      def log_base_data
+        @log_base_data ||= Gitlab::ImportExport::LogUtil.exportable_to_log_payload(project)
       end
     end
   end

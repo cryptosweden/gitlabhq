@@ -1,29 +1,41 @@
 import Vue from 'vue';
+import { apolloProvider } from '~/graphql_shared/issuable_client';
 import { parseBoolean } from '~/lib/utils/common_utils';
 import RelatedIssuesRoot from './components/related_issues_root.vue';
 
-export default function initRelatedIssues() {
-  const relatedIssuesRootElement = document.querySelector('.js-related-issues-root');
-  if (relatedIssuesRootElement) {
-    // eslint-disable-next-line no-new
-    new Vue({
-      el: relatedIssuesRootElement,
-      name: 'RelatedIssuesRoot',
-      components: {
-        relatedIssuesRoot: RelatedIssuesRoot,
-      },
-      render: (createElement) =>
-        createElement('related-issues-root', {
-          props: {
-            endpoint: relatedIssuesRootElement.dataset.endpoint,
-            canAdmin: parseBoolean(relatedIssuesRootElement.dataset.canAddRelatedIssues),
-            helpPath: relatedIssuesRootElement.dataset.helpPath,
-            showCategorizedIssues: parseBoolean(
-              relatedIssuesRootElement.dataset.showCategorizedIssues,
-            ),
-            autoCompleteEpics: false,
-          },
-        }),
-    });
+export function initRelatedIssues() {
+  const el = document.querySelector('.js-related-issues-root');
+
+  if (!el) {
+    return null;
   }
+
+  return new Vue({
+    el,
+    name: 'RelatedIssuesRoot',
+    apolloProvider,
+    provide: {
+      fullPath: el.dataset.fullPath,
+      hasIssueWeightsFeature: parseBoolean(el.dataset.hasIssueWeightsFeature),
+      hasIterationsFeature: parseBoolean(el.dataset.hasIterationsFeature),
+      isGroup: parseBoolean(el.dataset.isGroup),
+      // for work item modal
+      canAdminLabel: el.dataset.wiCanAdminLabel,
+      groupPath: el.dataset.wiGroupPath,
+      issuesListPath: el.dataset.wiIssuesListPath,
+      labelsManagePath: el.dataset.wiLabelsManagePath,
+      reportAbusePath: el.dataset.wiReportAbusePath,
+    },
+    render: (createElement) =>
+      createElement(RelatedIssuesRoot, {
+        props: {
+          endpoint: el.dataset.endpoint,
+          canAdmin: parseBoolean(el.dataset.canAddRelatedIssues),
+          helpPath: el.dataset.helpPath,
+          showCategorizedIssues: parseBoolean(el.dataset.showCategorizedIssues),
+          issuableType: el.dataset.issuableType,
+          autoCompleteEpics: false,
+        },
+      }),
+  });
 }

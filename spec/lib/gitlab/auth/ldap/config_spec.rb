@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Auth::Ldap::Config do
+RSpec.describe Gitlab::Auth::Ldap::Config, feature_category: :system_access do
   include LdapHelpers
 
   before do
@@ -90,7 +90,7 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     end
 
     it 'returns one provider' do
-      expect(described_class.available_providers).to match_array(%w(ldapmain))
+      expect(described_class.available_providers).to match_array(%w[ldapmain])
     end
   end
 
@@ -99,7 +99,7 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       expect { described_class.new }.to raise_error ArgumentError
     end
 
-    it 'works' do
+    it 'returns an instance of Gitlab::Auth::Ldap::Config' do
       expect(config).to be_a described_class
     end
 
@@ -112,8 +112,8 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'constructs basic options' do
       stub_ldap_config(
         options: {
-          'host'       => 'ldap.example.com',
-          'port'       => 386,
+          'host' => 'ldap.example.com',
+          'port' => 386,
           'encryption' => 'plain'
         }
       )
@@ -122,23 +122,24 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
         host: 'ldap.example.com',
         port: 386,
         hosts: nil,
-        encryption: nil
+        encryption: nil,
+        instrumentation_service: ActiveSupport::Notifications
       )
     end
 
     it 'includes failover hosts when set' do
       stub_ldap_config(
         options: {
-          'host'                => 'ldap.example.com',
-          'port'                => 686,
-          'hosts'               => [
+          'host' => 'ldap.example.com',
+          'port' => 686,
+          'hosts' => [
             ['ldap1.example.com', 636],
             ['ldap2.example.com', 636]
           ],
-          'encryption'          => 'simple_tls',
+          'encryption' => 'simple_tls',
           'verify_certificates' => true,
-          'bind_dn'             => 'uid=admin,dc=example,dc=com',
-          'password'            => 'super_secret'
+          'bind_dn' => 'uid=admin,dc=example,dc=com',
+          'password' => 'super_secret'
         }
       )
 
@@ -158,12 +159,12 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'includes authentication options when auth is configured' do
       stub_ldap_config(
         options: {
-          'host'                => 'ldap.example.com',
-          'port'                => 686,
-          'encryption'          => 'simple_tls',
+          'host' => 'ldap.example.com',
+          'port' => 686,
+          'encryption' => 'simple_tls',
           'verify_certificates' => true,
-          'bind_dn'             => 'uid=admin,dc=example,dc=com',
-          'password'            => 'super_secret'
+          'bind_dn' => 'uid=admin,dc=example,dc=com',
+          'password' => 'super_secret'
         }
       )
 
@@ -179,9 +180,9 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'sets encryption method to simple_tls when configured as simple_tls' do
       stub_ldap_config(
         options: {
-          'host'                => 'ldap.example.com',
-          'port'                => 686,
-          'encryption'          => 'simple_tls'
+          'host' => 'ldap.example.com',
+          'port' => 686,
+          'encryption' => 'simple_tls'
         }
       )
 
@@ -191,9 +192,9 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'sets encryption method to start_tls when configured as start_tls' do
       stub_ldap_config(
         options: {
-          'host'                => 'ldap.example.com',
-          'port'                => 686,
-          'encryption'          => 'start_tls'
+          'host' => 'ldap.example.com',
+          'port' => 686,
+          'encryption' => 'start_tls'
         }
       )
 
@@ -203,12 +204,12 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'transforms SSL cert and key to OpenSSL objects' do
       stub_ldap_config(
         options: {
-          'host'                => 'ldap.example.com',
-          'port'                => 686,
-          'encryption'          => 'start_tls',
-          'tls_options'         => {
-            'cert'              => raw_cert,
-            'key'               => raw_key
+          'host' => 'ldap.example.com',
+          'port' => 686,
+          'encryption' => 'start_tls',
+          'tls_options' => {
+            'cert' => raw_cert,
+            'key' => raw_key
           }
         }
       )
@@ -221,12 +222,12 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       allow(Gitlab::AppLogger).to receive(:error)
       stub_ldap_config(
         options: {
-          'host'                => 'ldap.example.com',
-          'port'                => 686,
-          'encryption'          => 'start_tls',
-          'tls_options'         => {
-            'cert'              => 'invalid cert',
-            'key'               => 'invalid_key'
+          'host' => 'ldap.example.com',
+          'port' => 686,
+          'encryption' => 'start_tls',
+          'tls_options' => {
+            'cert' => 'invalid cert',
+            'key' => 'invalid_key'
           }
         }
       )
@@ -240,9 +241,9 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'sets tls_options to OpenSSL defaults' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
             'verify_certificates' => true
           }
         )
@@ -255,9 +256,9 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'sets verify_mode to OpenSSL VERIFY_NONE' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
             'verify_certificates' => false
           }
         )
@@ -274,11 +275,11 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'passes it through in tls_options' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
-            'tls_options'         => {
-              'ca_file'           => '/etc/ca.pem'
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
+            'tls_options' => {
+              'ca_file' => '/etc/ca.pem'
             }
           }
         )
@@ -291,11 +292,11 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'does not add the ca_file key to tls_options' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
-            'tls_options'         => {
-              'ca_file'           => ' '
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
+            'tls_options' => {
+              'ca_file' => ' '
             }
           }
         )
@@ -308,11 +309,11 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'passes it through in tls_options' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
-            'tls_options'         => {
-              'ssl_version'       => 'TLSv1_2'
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
+            'tls_options' => {
+              'ssl_version' => 'TLSv1_2'
             }
           }
         )
@@ -325,11 +326,11 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'does not add the ssl_version key to tls_options' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
-            'tls_options'         => {
-              'ssl_version'       => ' '
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
+            'tls_options' => {
+              'ssl_version' => ' '
             }
           }
         )
@@ -343,11 +344,11 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'constructs basic options' do
       stub_ldap_config(
         options: {
-          'host'       => 'ldap.example.com',
-          'port'       => 386,
-          'base'       => 'ou=users,dc=example,dc=com',
+          'host' => 'ldap.example.com',
+          'port' => 386,
+          'base' => 'ou=users,dc=example,dc=com',
           'encryption' => 'plain',
-          'uid'        => 'uid'
+          'uid' => 'uid'
         }
       )
 
@@ -361,13 +362,26 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       expect(config.omniauth_options.keys).not_to include(:bind_dn, :password)
     end
 
+    it 'defaults to plain encryption when not configured' do
+      stub_ldap_config(
+        options: {
+          'host' => 'ldap.example.com',
+          'port' => 386,
+          'base' => 'ou=users,dc=example,dc=com',
+          'uid' => 'uid'
+        }
+      )
+
+      expect(config.omniauth_options).to include(encryption: 'plain')
+    end
+
     it 'includes authentication options when auth is configured' do
       stub_ldap_config(
         options: {
-          'uid'         => 'sAMAccountName',
+          'uid' => 'sAMAccountName',
           'user_filter' => '(memberOf=cn=group1,ou=groups,dc=example,dc=com)',
-          'bind_dn'     => 'uid=admin,dc=example,dc=com',
-          'password'    => 'super_secret'
+          'bind_dn' => 'uid=admin,dc=example,dc=com',
+          'password' => 'super_secret'
         }
       )
 
@@ -381,12 +395,12 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'transforms SSL cert and key to OpenSSL objects' do
       stub_ldap_config(
         options: {
-          'host'                => 'ldap.example.com',
-          'port'                => 686,
-          'encryption'          => 'start_tls',
-          'tls_options'         => {
-            'cert'              => raw_cert,
-            'key'               => raw_key
+          'host' => 'ldap.example.com',
+          'port' => 686,
+          'encryption' => 'start_tls',
+          'tls_options' => {
+            'cert' => raw_cert,
+            'key' => raw_key
           }
         }
       )
@@ -399,9 +413,9 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'specifies disable_verify_certificates as false' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
             'verify_certificates' => true
           }
         )
@@ -414,9 +428,9 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'specifies disable_verify_certificates as true' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
             'verify_certificates' => false
           }
         )
@@ -429,12 +443,12 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'passes it through' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
             'verify_certificates' => true,
-            'tls_options'         => {
-              'ca_file'           => '/etc/ca.pem'
+            'tls_options' => {
+              'ca_file' => '/etc/ca.pem'
             }
           }
         )
@@ -447,12 +461,12 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'does not include the ca_file option' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
             'verify_certificates' => true,
-            'tls_options'         => {
-              'ca_file'           => ' '
+            'tls_options' => {
+              'ca_file' => ' '
             }
           }
         )
@@ -465,12 +479,12 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'passes it through' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
             'verify_certificates' => true,
-            'tls_options'         => {
-              'ssl_version'       => 'TLSv1_2'
+            'tls_options' => {
+              'ssl_version' => 'TLSv1_2'
             }
           }
         )
@@ -483,12 +497,12 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       it 'does not include the ssl_version option' do
         stub_ldap_config(
           options: {
-            'host'                => 'ldap.example.com',
-            'port'                => 686,
-            'encryption'          => 'simple_tls',
+            'host' => 'ldap.example.com',
+            'port' => 686,
+            'encryption' => 'simple_tls',
             'verify_certificates' => true,
-            'tls_options'         => {
-              'ssl_version'       => ' '
+            'tls_options' => {
+              'ssl_version' => ' '
             }
           }
         )
@@ -503,7 +517,7 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'is true when password is set' do
       stub_ldap_config(
         options: {
-          'bind_dn'  => 'uid=admin,dc=example,dc=com',
+          'bind_dn' => 'uid=admin,dc=example,dc=com',
           'password' => 'super_secret'
         }
       )
@@ -514,7 +528,7 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
     it 'is true when bind_dn is set and password is empty' do
       stub_ldap_config(
         options: {
-          'bind_dn'  => 'uid=admin,dc=example,dc=com',
+          'bind_dn' => 'uid=admin,dc=example,dc=com',
           'password' => ''
         }
       )
@@ -538,16 +552,16 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
       stub_ldap_config(
         options: {
           'attributes' => {
-            'username' => %w(sAMAccountName),
-            'email'    => %w(userPrincipalName)
+            'username' => %w[sAMAccountName],
+            'email' => %w[userPrincipalName]
           }
         }
       )
 
       expect(config.attributes).to include({
-        'username' => %w(sAMAccountName),
-        'email'    => %w(userPrincipalName),
-        'name'     => 'cn'
+        'username' => %w[sAMAccountName],
+        'email' => %w[userPrincipalName],
+        'name' => 'cn'
       })
     end
   end
@@ -616,6 +630,27 @@ AtlErSqafbECNDSwS5BX8yDpu5yRBJ4xegO/rNlmb8ICRYkuJapD1xXicFOsmfUK
 
         expect(described_class.sign_in_enabled?).to eq(result)
       end
+    end
+  end
+
+  describe 'smartcard_ad_cert_format' do
+    it 'returns the value contained in options' do
+      stub_ldap_config(options: { 'smartcard_ad_cert_format' => 'issuer_and_serial_number' })
+      expect(config.smartcard_ad_cert_format).to eq('issuer_and_serial_number')
+    end
+  end
+
+  describe 'smartcard_ad_cert_field' do
+    subject(:smartcard_ad_cert_field) { config.smartcard_ad_cert_field }
+
+    it { is_expected.to eq('altSecurityIdentities') }
+
+    context 'when config value is set' do
+      before do
+        stub_ldap_config(options: { 'smartcard_ad_cert_field' => 'extensionAttribute1' })
+      end
+
+      it { is_expected.to eq('extensionAttribute1') }
     end
   end
 end

@@ -1,5 +1,7 @@
 import { spriteIcon } from '~/lib/utils/common_utils';
 import { objectToQuery } from '~/lib/utils/url_utility';
+import { FILTERED_SEARCH_TERM } from '~/vue_shared/components/filtered_search_bar/constants';
+import { __ } from '~/locale';
 import FilteredSearchContainer from './container';
 import VisualTokenValue from './visual_token_value';
 
@@ -38,7 +40,7 @@ export default class FilteredSearchVisualTokens {
       lastVisualToken,
       isLastVisualTokenValid:
         lastVisualToken === null ||
-        lastVisualToken.className.indexOf('filtered-search-term') !== -1 ||
+        lastVisualToken.className.indexOf(FILTERED_SEARCH_TERM) !== -1 ||
         (lastVisualToken &&
           lastVisualToken.querySelector('.operator') !== null &&
           lastVisualToken.querySelector('.value') !== null),
@@ -84,7 +86,7 @@ export default class FilteredSearchVisualTokens {
         ${hasOperator ? '<div class="operator"></div>' : ''}
         <div class="value-container">
           <div class="${capitalizeTokenValue ? 'text-capitalize' : ''} value"></div>
-          <div class="remove-token" role="button">
+          <div class="remove-token" role="button" aria-label="${__('Remove search filter')}">
             ${spriteIcon('close', 's16 close-icon')}
           </div>
         </div>
@@ -113,7 +115,7 @@ export default class FilteredSearchVisualTokens {
     } = options;
     const li = document.createElement('li');
     li.classList.add('js-visual-token');
-    li.classList.add(isSearchTerm ? 'filtered-search-term' : 'filtered-search-token');
+    li.classList.add(isSearchTerm ? FILTERED_SEARCH_TERM : 'filtered-search-token');
 
     if (!isSearchTerm) {
       li.classList.add(tokenClass);
@@ -122,6 +124,7 @@ export default class FilteredSearchVisualTokens {
     const hasOperator = Boolean(operator);
 
     if (value) {
+      // eslint-disable-next-line no-unsanitized/property
       li.innerHTML = FilteredSearchVisualTokens.createVisualTokenElementHTML({
         canEdit,
         uppercaseTokenName,
@@ -138,6 +141,7 @@ export default class FilteredSearchVisualTokens {
         operatorHTML = '<div class="operator"></div>';
       }
 
+      // eslint-disable-next-line no-unsanitized/property
       li.innerHTML = nameHTML + operatorHTML;
     }
 
@@ -152,14 +156,14 @@ export default class FilteredSearchVisualTokens {
   }
 
   static addValueToPreviousVisualTokenElement(value) {
-    const {
-      lastVisualToken,
-      isLastVisualTokenValid,
-    } = FilteredSearchVisualTokens.getLastVisualTokenBeforeInput();
+    const { lastVisualToken, isLastVisualTokenValid } =
+      FilteredSearchVisualTokens.getLastVisualTokenBeforeInput();
 
     if (!isLastVisualTokenValid && lastVisualToken.classList.contains('filtered-search-token')) {
       const name = FilteredSearchVisualTokens.getLastTokenPartial();
       const operator = FilteredSearchVisualTokens.getLastTokenOperator();
+
+      // eslint-disable-next-line no-unsanitized/property
       lastVisualToken.innerHTML = FilteredSearchVisualTokens.createVisualTokenElementHTML({
         hasOperator: Boolean(operator),
       });
@@ -175,10 +179,8 @@ export default class FilteredSearchVisualTokens {
     tokenValue,
     { canEdit, uppercaseTokenName = false, capitalizeTokenValue = false } = {},
   ) {
-    const {
-      lastVisualToken,
-      isLastVisualTokenValid,
-    } = FilteredSearchVisualTokens.getLastVisualTokenBeforeInput();
+    const { lastVisualToken, isLastVisualTokenValid } =
+      FilteredSearchVisualTokens.getLastVisualTokenBeforeInput();
     const { addVisualTokenElement } = FilteredSearchVisualTokens;
 
     if (isLastVisualTokenValid) {
@@ -235,7 +237,7 @@ export default class FilteredSearchVisualTokens {
   static addSearchVisualToken(searchTerm) {
     const { lastVisualToken } = FilteredSearchVisualTokens.getLastVisualTokenBeforeInput();
 
-    if (lastVisualToken && lastVisualToken.classList.contains('filtered-search-term')) {
+    if (lastVisualToken && lastVisualToken.classList.contains(FILTERED_SEARCH_TERM)) {
       lastVisualToken.querySelector('.name').textContent += ` ${searchTerm}`;
     } else {
       FilteredSearchVisualTokens.addVisualTokenElement({
@@ -293,6 +295,7 @@ export default class FilteredSearchVisualTokens {
         const button = lastVisualToken.querySelector('.selectable');
         const valueContainer = lastVisualToken.querySelector('.value-container');
         button.removeChild(valueContainer);
+        // eslint-disable-next-line no-unsanitized/property
         lastVisualToken.innerHTML = button.innerHTML;
       } else if (operator) {
         lastVisualToken.removeChild(operator);

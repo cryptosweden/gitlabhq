@@ -2,11 +2,25 @@
 
 require 'spec_helper'
 
-RSpec.describe Admin::IntegrationsController, :enable_admin_mode do
+RSpec.describe Admin::IntegrationsController, :enable_admin_mode, feature_category: :integrations do
   let_it_be(:admin) { create(:admin) }
 
   before do
     sign_in(admin)
+  end
+
+  describe 'GET #edit' do
+    context 'when remove_monitor_metrics is true' do
+      before do
+        stub_feature_flags(remove_monitor_metrics: true)
+      end
+
+      it 'renders a 404 for the prometheus integration' do
+        get edit_admin_application_settings_integration_path(:prometheus)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
   end
 
   describe 'GET #overrides' do
@@ -38,6 +52,7 @@ RSpec.describe Admin::IntegrationsController, :enable_admin_mode do
         expect(response).to include_pagination_headers
         expect(json_response).to contain_exactly(
           {
+            'id' => project.id,
             'avatar_url' => project.avatar_url,
             'full_name' => project.full_name,
             'name' => project.name,

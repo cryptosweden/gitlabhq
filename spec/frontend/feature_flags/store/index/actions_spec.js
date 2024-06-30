@@ -20,6 +20,7 @@ import {
 import * as types from '~/feature_flags/store/index/mutation_types';
 import state from '~/feature_flags/store/index/state';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { getRequestData, rotateData, featureFlag } from '../../mock_data';
 
 jest.mock('~/api.js');
@@ -32,14 +33,13 @@ describe('Feature flags actions', () => {
   });
 
   describe('setFeatureFlagsOptions', () => {
-    it('should commit SET_FEATURE_FLAGS_OPTIONS mutation', (done) => {
-      testAction(
+    it('should commit SET_FEATURE_FLAGS_OPTIONS mutation', () => {
+      return testAction(
         setFeatureFlagsOptions,
         { page: '1', scope: 'all' },
         mockedState,
         [{ type: types.SET_FEATURE_FLAGS_OPTIONS, payload: { page: '1', scope: 'all' } }],
         [],
-        done,
       );
     });
   });
@@ -57,10 +57,10 @@ describe('Feature flags actions', () => {
     });
 
     describe('success', () => {
-      it('dispatches requestFeatureFlags and receiveFeatureFlagsSuccess ', (done) => {
-        mock.onGet(`${TEST_HOST}/endpoint.json`).replyOnce(200, getRequestData, {});
+      it('dispatches requestFeatureFlags and receiveFeatureFlagsSuccess', () => {
+        mock.onGet(`${TEST_HOST}/endpoint.json`).replyOnce(HTTP_STATUS_OK, getRequestData, {});
 
-        testAction(
+        return testAction(
           fetchFeatureFlags,
           null,
           mockedState,
@@ -74,16 +74,17 @@ describe('Feature flags actions', () => {
               type: 'receiveFeatureFlagsSuccess',
             },
           ],
-          done,
         );
       });
     });
 
     describe('error', () => {
-      it('dispatches requestFeatureFlags and receiveFeatureFlagsError ', (done) => {
-        mock.onGet(`${TEST_HOST}/endpoint.json`, {}).replyOnce(500, {});
+      it('dispatches requestFeatureFlags and receiveFeatureFlagsError', () => {
+        mock
+          .onGet(`${TEST_HOST}/endpoint.json`, {})
+          .replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR, {});
 
-        testAction(
+        return testAction(
           fetchFeatureFlags,
           null,
           mockedState,
@@ -96,28 +97,26 @@ describe('Feature flags actions', () => {
               type: 'receiveFeatureFlagsError',
             },
           ],
-          done,
         );
       });
     });
   });
 
   describe('requestFeatureFlags', () => {
-    it('should commit RECEIVE_FEATURE_FLAGS_SUCCESS mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_FEATURE_FLAGS_SUCCESS mutation', () => {
+      return testAction(
         requestFeatureFlags,
         null,
         mockedState,
         [{ type: types.REQUEST_FEATURE_FLAGS }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveFeatureFlagsSuccess', () => {
-    it('should commit RECEIVE_FEATURE_FLAGS_SUCCESS mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_FEATURE_FLAGS_SUCCESS mutation', () => {
+      return testAction(
         receiveFeatureFlagsSuccess,
         { data: getRequestData, headers: {} },
         mockedState,
@@ -128,20 +127,18 @@ describe('Feature flags actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
 
   describe('receiveFeatureFlagsError', () => {
-    it('should commit RECEIVE_FEATURE_FLAGS_ERROR mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_FEATURE_FLAGS_ERROR mutation', () => {
+      return testAction(
         receiveFeatureFlagsError,
         null,
         mockedState,
         [{ type: types.RECEIVE_FEATURE_FLAGS_ERROR }],
         [],
-        done,
       );
     });
   });
@@ -159,10 +156,10 @@ describe('Feature flags actions', () => {
     });
 
     describe('success', () => {
-      it('dispatches requestRotateInstanceId and receiveRotateInstanceIdSuccess ', (done) => {
-        mock.onPost(`${TEST_HOST}/endpoint.json`).replyOnce(200, rotateData, {});
+      it('dispatches requestRotateInstanceId and receiveRotateInstanceIdSuccess', () => {
+        mock.onPost(`${TEST_HOST}/endpoint.json`).replyOnce(HTTP_STATUS_OK, rotateData, {});
 
-        testAction(
+        return testAction(
           rotateInstanceId,
           null,
           mockedState,
@@ -176,16 +173,17 @@ describe('Feature flags actions', () => {
               type: 'receiveRotateInstanceIdSuccess',
             },
           ],
-          done,
         );
       });
     });
 
     describe('error', () => {
-      it('dispatches requestRotateInstanceId and receiveRotateInstanceIdError ', (done) => {
-        mock.onGet(`${TEST_HOST}/endpoint.json`, {}).replyOnce(500, {});
+      it('dispatches requestRotateInstanceId and receiveRotateInstanceIdError', () => {
+        mock
+          .onGet(`${TEST_HOST}/endpoint.json`, {})
+          .replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR, {});
 
-        testAction(
+        return testAction(
           rotateInstanceId,
           null,
           mockedState,
@@ -198,28 +196,26 @@ describe('Feature flags actions', () => {
               type: 'receiveRotateInstanceIdError',
             },
           ],
-          done,
         );
       });
     });
   });
 
   describe('requestRotateInstanceId', () => {
-    it('should commit REQUEST_ROTATE_INSTANCE_ID mutation', (done) => {
-      testAction(
+    it('should commit REQUEST_ROTATE_INSTANCE_ID mutation', () => {
+      return testAction(
         requestRotateInstanceId,
         null,
         mockedState,
         [{ type: types.REQUEST_ROTATE_INSTANCE_ID }],
         [],
-        done,
       );
     });
   });
 
   describe('receiveRotateInstanceIdSuccess', () => {
-    it('should commit RECEIVE_ROTATE_INSTANCE_ID_SUCCESS mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_ROTATE_INSTANCE_ID_SUCCESS mutation', () => {
+      return testAction(
         receiveRotateInstanceIdSuccess,
         { data: rotateData, headers: {} },
         mockedState,
@@ -230,20 +226,18 @@ describe('Feature flags actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
 
   describe('receiveRotateInstanceIdError', () => {
-    it('should commit RECEIVE_ROTATE_INSTANCE_ID_ERROR mutation', (done) => {
-      testAction(
+    it('should commit RECEIVE_ROTATE_INSTANCE_ID_ERROR mutation', () => {
+      return testAction(
         receiveRotateInstanceIdError,
         null,
         mockedState,
         [{ type: types.RECEIVE_ROTATE_INSTANCE_ID_ERROR }],
         [],
-        done,
       );
     });
   });
@@ -262,10 +256,10 @@ describe('Feature flags actions', () => {
       mock.restore();
     });
     describe('success', () => {
-      it('dispatches updateFeatureFlag and receiveUpdateFeatureFlagSuccess', (done) => {
-        mock.onPut(featureFlag.update_path).replyOnce(200, featureFlag, {});
+      it('dispatches updateFeatureFlag and receiveUpdateFeatureFlagSuccess', () => {
+        mock.onPut(featureFlag.update_path).replyOnce(HTTP_STATUS_OK, featureFlag, {});
 
-        testAction(
+        return testAction(
           toggleFeatureFlag,
           featureFlag,
           mockedState,
@@ -280,15 +274,15 @@ describe('Feature flags actions', () => {
               type: 'receiveUpdateFeatureFlagSuccess',
             },
           ],
-          done,
         );
       });
     });
-    describe('error', () => {
-      it('dispatches updateFeatureFlag and receiveUpdateFeatureFlagSuccess', (done) => {
-        mock.onPut(featureFlag.update_path).replyOnce(500);
 
-        testAction(
+    describe('error', () => {
+      it('dispatches updateFeatureFlag and receiveUpdateFeatureFlagSuccess', () => {
+        mock.onPut(featureFlag.update_path).replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR);
+
+        return testAction(
           toggleFeatureFlag,
           featureFlag,
           mockedState,
@@ -303,7 +297,6 @@ describe('Feature flags actions', () => {
               type: 'receiveUpdateFeatureFlagError',
             },
           ],
-          done,
         );
       });
     });
@@ -315,8 +308,8 @@ describe('Feature flags actions', () => {
       }));
     });
 
-    it('commits UPDATE_FEATURE_FLAG with the given flag', (done) => {
-      testAction(
+    it('commits UPDATE_FEATURE_FLAG with the given flag', () => {
+      return testAction(
         updateFeatureFlag,
         featureFlag,
         mockedState,
@@ -327,7 +320,6 @@ describe('Feature flags actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
@@ -338,8 +330,8 @@ describe('Feature flags actions', () => {
       }));
     });
 
-    it('commits RECEIVE_UPDATE_FEATURE_FLAG_SUCCESS with the given flag', (done) => {
-      testAction(
+    it('commits RECEIVE_UPDATE_FEATURE_FLAG_SUCCESS with the given flag', () => {
+      return testAction(
         receiveUpdateFeatureFlagSuccess,
         featureFlag,
         mockedState,
@@ -350,7 +342,6 @@ describe('Feature flags actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
@@ -361,8 +352,8 @@ describe('Feature flags actions', () => {
       }));
     });
 
-    it('commits RECEIVE_UPDATE_FEATURE_FLAG_ERROR with the given flag id', (done) => {
-      testAction(
+    it('commits RECEIVE_UPDATE_FEATURE_FLAG_ERROR with the given flag id', () => {
+      return testAction(
         receiveUpdateFeatureFlagError,
         featureFlag.id,
         mockedState,
@@ -373,22 +364,20 @@ describe('Feature flags actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });
 
   describe('clearAlert', () => {
-    it('should commit RECEIVE_CLEAR_ALERT', (done) => {
+    it('should commit RECEIVE_CLEAR_ALERT', () => {
       const alertIndex = 3;
 
-      testAction(
+      return testAction(
         clearAlert,
         alertIndex,
         mockedState,
         [{ type: 'RECEIVE_CLEAR_ALERT', payload: alertIndex }],
         [],
-        done,
       );
     });
   });

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Groups::Pipelines::ProjectEntitiesPipeline do
+RSpec.describe BulkImports::Groups::Pipelines::ProjectEntitiesPipeline, feature_category: :importers do
   let_it_be(:user) { create(:user) }
   let_it_be(:destination_group) { create(:group) }
 
@@ -17,20 +17,24 @@ RSpec.describe BulkImports::Groups::Pipelines::ProjectEntitiesPipeline do
   let_it_be(:tracker) { create(:bulk_import_tracker, entity: entity) }
   let_it_be(:context) { BulkImports::Pipeline::Context.new(tracker) }
 
-  let(:extracted_data) do
-    BulkImports::Pipeline::ExtractedData.new(data: {
-      'name' => 'project',
-      'full_path' => 'group/project'
-    })
-  end
-
   subject { described_class.new(context) }
 
-  describe '#run' do
+  describe '#run', :clean_gitlab_redis_shared_state do
+    let(:extracted_data) do
+      BulkImports::Pipeline::ExtractedData.new(data: {
+        'id' => 'gid://gitlab/Project/1234567',
+        'name' => 'My Project',
+        'path' => 'my-project',
+        'full_path' => 'group/my-project'
+      })
+    end
+
     before do
       allow_next_instance_of(BulkImports::Common::Extractors::GraphqlExtractor) do |extractor|
         allow(extractor).to receive(:extract).and_return(extracted_data)
       end
+
+      allow(subject).to receive(:set_source_objects_counter)
 
       destination_group.add_owner(user)
     end
@@ -41,9 +45,16 @@ RSpec.describe BulkImports::Groups::Pipelines::ProjectEntitiesPipeline do
       project_entity = BulkImports::Entity.last
 
       expect(project_entity.source_type).to eq('project_entity')
-      expect(project_entity.source_full_path).to eq('group/project')
-      expect(project_entity.destination_name).to eq('project')
+      expect(project_entity.source_full_path).to eq('group/my-project')
+      expect(project_entity.destination_slug).to eq('my-project')
+      expect(project_entity.destination_name).to eq('my-project')
       expect(project_entity.destination_namespace).to eq(destination_group.full_path)
+      expect(project_entity.source_xid).to eq(1234567)
+    end
+
+    it 'does not create duplicate entities on rerun' do
+      expect { subject.run }.to change(BulkImports::Entity, :count).by(1)
+      expect { subject.run }.not_to change(BulkImports::Entity, :count)
     end
   end
 

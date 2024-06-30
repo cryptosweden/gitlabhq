@@ -2,6 +2,7 @@
 
 module EachBatch
   extend ActiveSupport::Concern
+  include LooseIndexScan
 
   class_methods do
     # Iterates over the rows in a relation in batches, similar to Rails'
@@ -53,7 +54,7 @@ module EachBatch
           'the column: argument must be set to a column name to use for ordering rows'
       end
 
-      start = except(:select)
+      start = except(:select, :includes, :preload)
         .select(column)
         .reorder(column => order)
 
@@ -68,7 +69,7 @@ module EachBatch
       1.step do |index|
         start_cond = arel_table[column].gteq(start_id)
         start_cond = arel_table[column].lteq(start_id) if order == :desc
-        stop = except(:select)
+        stop = except(:select, :includes, :preload)
           .select(column)
           .where(start_cond)
           .reorder(column => order)
@@ -99,6 +100,143 @@ module EachBatch
 
         break unless stop
       end
+    end
+
+    # Iterates over the rows in a relation in batches by skipping duplicated values in the column.
+    # Example: counting the number of distinct authors in `issues`
+    #
+    #  - Table size: 100_000
+    #  - Column: author_id
+    #  - Distinct author_ids in the table: 1000
+    #
+    #  The query will read maximum 1000 rows if we have index coverage on user_id.
+    #
+    #  > count = 0
+    #  > Issue.distinct_each_batch(column: 'author_id', of: 1000) { |r| count += r.count(:author_id) }
+    def distinct_each_batch(column:, order: :asc, of: 1000)
+      start = except(:select)
+        .select(column)
+        .reorder(column => order)
+
+      start = start.take
+
+      return unless start
+
+      start_id = start[column]
+      arel_table = self.arel_table
+      arel_column = arel_table[column.to_s]
+
+      1.step do |index|
+        stop = loose_index_scan(column: column, order: order) do |cte_query, inner_query|
+          if order == :asc
+            [cte_query.where(arel_column.gteq(start_id)), inner_query]
+          else
+            [cte_query.where(arel_column.lteq(start_id)), inner_query]
+          end
+        end.offset(of).take
+
+        if stop
+          stop_id = stop[column]
+
+          relation = loose_index_scan(column: column, order: order) do |cte_query, inner_query|
+            if order == :asc
+              [cte_query.where(arel_column.gteq(start_id)), inner_query.where(arel_column.lt(stop_id))]
+            else
+              [cte_query.where(arel_column.lteq(start_id)), inner_query.where(arel_column.gt(stop_id))]
+            end
+          end
+          start_id = stop_id
+        else
+          relation = loose_index_scan(column: column, order: order) do |cte_query, inner_query|
+            if order == :asc
+              [cte_query.where(arel_column.gteq(start_id)), inner_query]
+            else
+              [cte_query.where(arel_column.lteq(start_id)), inner_query]
+            end
+          end
+        end
+
+        unscoped { yield relation, index }
+
+        break unless stop
+      end
+    end
+
+    # Iterates over the relation and counts the rows. The counting
+    # logic is combined with the iteration query which saves one query
+    # compared to a standard each_batch approach.
+    #
+    # Basic usage:
+    # count, _last_value = Project.each_batch_count
+    #
+    # The counting can be stopped by passing a block and making the last statement true.
+    # Example:
+    #
+    # query_count = 0
+    # count, last_value = Project.each_batch_count do
+    #   query_count += 1
+    #   query_count == 5 # stop counting after 5 loops
+    # end
+    #
+    # Resume where the previous counting has stopped:
+    #
+    # count, last_value = Project.each_batch_count(last_count: count, last_value: last_value)
+    #
+    # Another example, counting issues in project:
+    #
+    # project = Project.find(1)
+    # count, _ = project.issues.each_batch_count(column: :iid)
+    def each_batch_count(of: 1000, column: :id, last_count: 0, last_value: nil)
+      arel_table = self.arel_table
+      window = Arel::Nodes::Window.new.order(arel_table[column])
+      last_value_column = Arel::Nodes::NamedFunction
+        .new('LAST_VALUE', [arel_table[column]])
+        .over(window)
+        .as(column.to_s)
+
+      loop do
+        count_column = Arel::Nodes::Addition
+          .new(Arel::Nodes::NamedFunction.new('ROW_NUMBER', []).over(window), last_count)
+          .as('count')
+
+        projections = [count_column, last_value_column]
+        scope = limit(1).offset(of - 1)
+        scope = scope.where(arel_table[column].gt(last_value)) if last_value
+        new_count, last_value = scope.pick(*projections)
+
+        # When reaching the last batch the offset query might return no data, to address this
+        # problem, we invoke a specialized query that takes the last row out of the resultset.
+        # We could do this for each batch, however it would add unnecessary overhead to all
+        # queries.
+        if new_count.nil?
+          inner_query = scope
+            .select(*projections)
+            .limit(nil)
+            .offset(nil)
+            .arel
+            .as(quoted_table_name)
+
+          new_count, last_value =
+            unscoped
+            .from(inner_query)
+            .unscope(where: :type)
+            .order(count: :desc)
+            .limit(1)
+            .pick(:count, column)
+
+          last_count = new_count if new_count
+          last_value = nil
+          break
+        end
+
+        last_count = new_count
+
+        if block_given?
+          should_break = yield(last_count, last_value)
+          break if should_break
+        end
+      end
+      [last_count, last_value]
     end
   end
 end

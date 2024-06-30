@@ -2,9 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Stage::FinishImportWorker do
-  let(:project) { create(:project) }
-  let(:worker) { described_class.new }
+RSpec.describe Gitlab::GithubImport::Stage::FinishImportWorker, feature_category: :importers do
+  let_it_be(:project) { create(:project) }
+
+  subject(:worker) { described_class.new }
+
+  it_behaves_like Gitlab::GithubImport::StageMethods
 
   describe '#perform' do
     it 'marks the import as finished and reports import statistics' do
@@ -17,14 +20,16 @@ RSpec.describe Gitlab::GithubImport::Stage::FinishImportWorker do
       expect(Gitlab::GithubImport::Logger)
         .to receive(:info)
               .with(
-                message: 'GitHub project import finished',
-                import_stage: 'Gitlab::GithubImport::Stage::FinishImportWorker',
-                object_counts: {
-                  'fetched' => {},
-                  'imported' => {}
-                },
-                project_id: project.id,
-                duration_s: 3.01
+                {
+                  message: 'GitHub project import finished',
+                  import_stage: 'Gitlab::GithubImport::Stage::FinishImportWorker',
+                  object_counts: {
+                    'fetched' => {},
+                    'imported' => {}
+                  },
+                  project_id: project.id,
+                  duration_s: 3.01
+                }
               )
 
       worker.import(double(:client), project)

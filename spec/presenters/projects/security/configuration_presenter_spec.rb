@@ -2,26 +2,26 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::Security::ConfigurationPresenter do
+RSpec.describe Projects::Security::ConfigurationPresenter, feature_category: :software_composition_analysis do
   include Gitlab::Routing.url_helpers
   using RSpec::Parameterized::TableSyntax
 
-  let(:project_with_repo) { create(:project, :repository) }
-  let(:project_with_no_repo) { create(:project) }
-  let(:current_user) { create(:user) }
+  let_it_be(:current_user) { build_stubbed(:user) }
+
   let(:presenter) { described_class.new(project, current_user: current_user) }
 
   before do
-    stub_licensed_features(licensed_scan_types.to_h { |type| [type, true] })
+    stub_licensed_features(licensed_scan_types.index_with { true })
+    stub_licensed_features(pre_receive_secret_detection: true)
   end
 
   describe '#to_html_data_attribute' do
     subject(:html_data) { presenter.to_html_data_attribute }
 
     context 'when latest default branch pipeline`s source is not auto devops' do
-      let(:project) { project_with_repo }
+      let_it_be(:project) { create(:project, :repository) }
 
-      let(:pipeline) do
+      let_it_be(:pipeline) do
         create(
           :ci_pipeline,
           project: project,
@@ -46,10 +46,6 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
 
       it 'includes a link to the latest pipeline' do
         expect(html_data[:latest_pipeline_path]).to eq(project_pipeline_path(project, pipeline))
-      end
-
-      it 'has stubs for autofix' do
-        expect(html_data.keys).to include(:can_toggle_auto_fix_settings, :auto_fix_enabled, :auto_fix_user_path)
       end
 
       context "while retrieving information about user's ability to enable auto_devops" do
@@ -87,6 +83,9 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
         expect(feature['configuration_path']).to be_nil
         expect(feature['available']).to eq(true)
         expect(feature['can_enable_by_merge_request']).to eq(true)
+        expect(feature['meta_info_path']).to be_nil
+        expect(feature['on_demand_available']).to eq(false)
+        expect(feature['security_features']).not_to be_empty
       end
 
       context 'when checking features configured status' do
@@ -96,6 +95,7 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
           :dast | true
           :dast_profiles | true
           :sast | true
+          :sast_advanced | false
           :sast_iac | false
           :container_scanning | false
           :cluster_image_scanning | false
@@ -118,6 +118,16 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
 
       context 'when the job has more than one report' do
         let(:features) { Gitlab::Json.parse(html_data[:features]) }
+        let(:project) { create(:project, :repository) }
+
+        let(:pipeline) do
+          create(
+            :ci_pipeline,
+            project: project,
+            ref: project.default_branch,
+            sha: project.commit.sha
+          )
+        end
 
         let!(:artifacts) do
           { artifacts: { reports: { other_job: ['gl-other-report.json'], sast: ['gl-sast-report.json'] } } }
@@ -160,11 +170,13 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
       end
 
       context "while retrieving information about gitlab ci file" do
+        let(:project) { create(:project, :repository) }
+
         context 'when a .gitlab-ci.yml file exists' do
           let!(:ci_config) do
             project.repository.create_file(
               project.creator,
-              Gitlab::FileDetector::PATTERNS[:gitlab_ci],
+              project.ci_config_path_or_default,
               'contents go here',
               message: 'test',
               branch_name: 'master')
@@ -188,7 +200,7 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
     end
 
     context 'when the project is empty' do
-      let(:project) { project_with_no_repo }
+      let(:project) { create(:project) }
 
       it 'includes a blank gitlab_ci history path' do
         expect(html_data[:gitlab_ci_history_path]).to eq('')
@@ -196,7 +208,7 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
     end
 
     context 'when the project has no default branch set' do
-      let(:project) { project_with_repo }
+      let(:project) { create(:project, :repository) }
 
       it 'includes the path to gitlab_ci history' do
         allow(project).to receive(:default_branch).and_return(nil)
@@ -206,9 +218,9 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
     end
 
     context "when the latest default branch pipeline's source is auto devops" do
-      let(:project) { project_with_repo }
+      let_it_be(:project) { create(:project, :repository) }
 
-      let(:pipeline) do
+      let_it_be(:pipeline) do
         create(
           :ci_pipeline,
           :auto_devops_source,
@@ -255,14 +267,14 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
     end
 
     context 'when the project has no default branch pipeline' do
-      let(:project) { project_with_repo }
+      let_it_be(:project) { create(:project, :repository) }
 
       it 'reports that auto devops is disabled' do
         expect(html_data[:auto_devops_enabled]).to be_falsy
       end
 
       it 'includes a link to CI pipeline docs' do
-        expect(html_data[:latest_pipeline_path]).to eq(help_page_path('ci/pipelines'))
+        expect(html_data[:latest_pipeline_path]).to eq(help_page_path('ci/pipelines/index'))
       end
 
       context 'when gathering feature data' do
@@ -289,6 +301,47 @@ RSpec.describe Projects::Security::ConfigurationPresenter do
 
             expect(feature['configured']).to eq(configured)
           end
+        end
+      end
+    end
+
+    describe 'pre_receive_secret_detection' do
+      let_it_be(:project) { create(:project, :repository) }
+      let(:features) { Gitlab::Json.parse(html_data[:features]) }
+
+      context 'when the feature flag is disabled' do
+        before do
+          stub_feature_flags(pre_receive_secret_detection_beta_release: false)
+        end
+
+        it 'feature does not include pre_receive_secret_detection' do
+          feature = features.find { |scan| scan["type"] == 'pre_receive_secret_detection' }
+          expect(feature).to be_nil
+        end
+      end
+
+      context 'when the feature flags are enabled' do
+        before do
+          stub_feature_flags(pre_receive_secret_detection_beta_release: true)
+          stub_feature_flags(pre_receive_secret_detection_push_check: true)
+        end
+
+        it 'feature includes pre_receive_secret_detection' do
+          skip unless Gitlab.ee?
+
+          feature = features.find { |scan| scan["type"] == 'pre_receive_secret_detection' }
+          expect(feature).not_to be_nil
+        end
+      end
+
+      context 'when it is a dedicated instance' do
+        before do
+          stub_application_setting(gitlab_dedicated_instance: true)
+        end
+
+        it 'feature includes pre_receive_secret_detection' do
+          feature = features.find { |scan| scan["type"] == 'pre_receive_secret_detection' }
+          expect(feature).not_to be_nil
         end
       end
     end

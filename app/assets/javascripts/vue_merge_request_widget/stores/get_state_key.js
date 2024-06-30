@@ -1,35 +1,30 @@
+import { DETAILED_MERGE_STATUS, MWCP_MERGE_STRATEGY } from '../constants';
 import { stateKey } from './state_maps';
 
 export default function deviseState() {
+  if (this.detailedMergeStatus === DETAILED_MERGE_STATUS.PREPARING) {
+    return stateKey.preparing;
+  }
   if (!this.commitsCount) {
     return stateKey.nothingToMerge;
-  } else if (this.hasMergeChecksFailed && !this.autoMergeEnabled) {
-    return stateKey.mergeChecksFailed;
-  } else if (this.projectArchived) {
+  }
+  if (this.projectArchived) {
     return stateKey.archived;
-  } else if (this.branchMissing) {
+  }
+  if (this.branchMissing) {
     return stateKey.missingBranch;
-  } else if (this.mergeStatus === 'unchecked' || this.mergeStatus === 'checking') {
+  }
+  if (this.detailedMergeStatus === DETAILED_MERGE_STATUS.CHECKING) {
     return stateKey.checking;
-  } else if (this.hasConflicts) {
-    return stateKey.conflicts;
-  } else if (this.shouldBeRebased) {
-    return stateKey.rebase;
-  } else if (this.onlyAllowMergeIfPipelineSucceeds && this.isPipelineFailed) {
-    return stateKey.pipelineFailed;
-  } else if (this.draft) {
-    return stateKey.draft;
-  } else if (this.hasMergeableDiscussionsState && !this.autoMergeEnabled) {
-    return stateKey.unresolvedDiscussions;
-  } else if (this.isPipelineBlocked) {
-    return stateKey.pipelineBlocked;
-  } else if (this.canMerge && this.isSHAMismatch) {
+  }
+  if (this.canMerge && this.isSHAMismatch) {
     return stateKey.shaMismatch;
-  } else if (this.autoMergeEnabled && !this.mergeError) {
-    return stateKey.autoMergeEnabled;
-  } else if (!this.canMerge && !window.gon?.features?.restructuredMrWidget) {
-    return stateKey.notAllowedToMerge;
-  } else if (this.canBeMerged) {
+  }
+  if (
+    this.detailedMergeStatus === DETAILED_MERGE_STATUS.MERGEABLE ||
+    this.detailedMergeStatus === DETAILED_MERGE_STATUS.CI_STILL_RUNNING ||
+    (!this.autoMergeEnabled && this.preferredAutoMergeStrategy === MWCP_MERGE_STRATEGY)
+  ) {
     return stateKey.readyToMerge;
   }
   return null;

@@ -1,12 +1,13 @@
 import MockAdapter from 'axios-mock-adapter';
 import { mount } from '@vue/test-utils';
 import waitForPromises from 'helpers/wait_for_promises';
-import initMRPopovers from '~/mr_popover/index';
 import createStore from '~/notes/stores';
 import IssueSystemNote from '~/vue_shared/components/notes/system_note.vue';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 
-jest.mock('~/mr_popover/index', () => jest.fn());
+jest.mock('~/behaviors/markdown/render_gfm');
 
 describe('system note component', () => {
   let vm;
@@ -45,7 +46,6 @@ describe('system note component', () => {
   });
 
   afterEach(() => {
-    vm.destroy();
     mock.restore();
   });
 
@@ -61,10 +61,16 @@ describe('system note component', () => {
     expect(vm.classes()).toContain('target');
   });
 
-  it('should render svg icon', () => {
+  it('should render svg icon only for certain icons', () => {
+    const ALLOWED_ICONS = ['check', 'merge', 'merge-request-close', 'issue-close'];
     createComponent(props);
 
-    expect(vm.find('.timeline-icon svg').exists()).toBe(true);
+    expect(vm.find('[data-testid="timeline-icon"]').exists()).toBe(false);
+
+    ALLOWED_ICONS.forEach((icon) => {
+      createComponent({ note: { ...props.note, system_note_icon_name: icon } });
+      expect(vm.find('[data-testid="timeline-icon"]').exists()).toBe(true);
+    });
   });
 
   // Redcarpet Markdown renderer wraps text in `<p>` tags
@@ -76,16 +82,16 @@ describe('system note component', () => {
     expect(vm.find('.system-note-message').html()).toContain('<span>closed</span>');
   });
 
-  it('should initMRPopovers onMount', () => {
+  it('should renderGFM onMount', () => {
     createComponent(props);
 
-    expect(initMRPopovers).toHaveBeenCalled();
+    expect(renderGFM).toHaveBeenCalled();
   });
 
   it('renders outdated code lines', async () => {
     mock
       .onGet('/outdated_line_change_path')
-      .reply(200, [
+      .reply(HTTP_STATUS_OK, [
         { rich_text: 'console.log', type: 'new', line_code: '123', old_line: null, new_line: 1 },
       ]);
 

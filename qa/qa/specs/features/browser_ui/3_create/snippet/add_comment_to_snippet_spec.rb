@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    describe 'Adding comments on snippets' do
+  RSpec.describe 'Create', product_group: :source_code do
+    describe 'Adding comments on snippets', :blocking do
       let(:comment_author) { Resource::User.fabricate_or_use(Runtime::Env.gitlab_qa_username_1, Runtime::Env.gitlab_qa_password_1) }
       let(:comment_content) { 'Comment 123' }
       let(:edited_comment_content) { 'Nice snippet!' }
@@ -21,11 +21,6 @@ module QA
 
       before do
         Flow::Login.sign_in
-      end
-
-      after do
-        personal_snippet&.remove_via_api!
-        project_snippet&.remove_via_api!
       end
 
       shared_examples 'comments on snippets' do |snippet_type, testcase|
@@ -71,15 +66,19 @@ module QA
       end
 
       def verify_comment_content(author, comment_content)
-        Page::Dashboard::Snippet::Show.perform do |comment|
-          expect(comment).to have_comment_author(author)
-          expect(comment).to have_comment_content(comment_content)
+        Page::Dashboard::Snippet::Show.perform do |snippet|
+          expect(snippet).to have_comment_author(author)
+          expect(snippet).to have_comment_content(comment_content)
         end
       end
 
       def verify_comment_deleted
-        expect(page).not_to have_content(comment_author.username)
-        expect(page).not_to have_content(edited_comment_content)
+        Page::Dashboard::Snippet::Show.perform do |snippet|
+          snippet.within_notes_list do
+            expect(snippet).not_to have_content(comment_author.username)
+            expect(snippet).not_to have_content(edited_comment_content)
+          end
+        end
       end
     end
   end

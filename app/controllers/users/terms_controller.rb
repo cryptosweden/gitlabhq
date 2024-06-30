@@ -15,7 +15,7 @@ module Users
 
     layout 'terms'
 
-    feature_category :users
+    feature_category :user_management
 
     def index
       @redirect = redirect_path
@@ -57,9 +57,7 @@ module Users
     end
 
     def terms
-      unless @term = Gitlab::CurrentSettings.current_application_settings.latest_terms
-        redirect_to redirect_path
-      end
+      redirect_to redirect_path unless @term = Gitlab::CurrentSettings.current_application_settings.latest_terms
     end
 
     def redirect_path

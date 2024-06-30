@@ -4,14 +4,21 @@ module MergeRequests
   class BaseService < ::IssuableBaseService
     extend ::Gitlab::Utils::Override
     include MergeRequests::AssignsMergeParams
+    include MergeRequests::ErrorLogger
+
+    delegate :repository, to: :project
+
+    def initialize(project:, current_user: nil, params: {})
+      super(container: project, current_user: current_user, params: params)
+    end
 
     def create_note(merge_request, state = merge_request.state)
       SystemNoteService.change_status(merge_request, merge_request.target_project, current_user, state, nil)
     end
 
     def hook_data(merge_request, action, old_rev: nil, old_associations: {})
-      hook_data = merge_request.to_hook_data(current_user, old_associations: old_associations)
-      hook_data[:object_attributes][:action] = action
+      hook_data = merge_request.to_hook_data(current_user, old_associations: old_associations, action: action)
+
       if old_rev && !Gitlab::Git.blank_ref?(old_rev)
         hook_data[:object_attributes][:oldrev] = old_rev
       end
@@ -20,17 +27,37 @@ module MergeRequests
     end
 
     def execute_hooks(merge_request, action = 'open', old_rev: nil, old_associations: {})
-      merge_data = hook_data(merge_request, action, old_rev: old_rev, old_associations: old_associations)
+      # NOTE: Due to the async merge request diffs generation, we need to skip this for CreateService and execute it in
+      #   AfterCreateService instead so that the webhook consumers receive the update when diffs are ready.
+      return if merge_request.skip_ensure_merge_request_diff
+
+      merge_data = Gitlab::Lazy.new { hook_data(merge_request, action, old_rev: old_rev, old_associations: old_associations) }
       merge_request.project.execute_hooks(merge_data, :merge_request_hooks)
       merge_request.project.execute_integrations(merge_data, :merge_request_hooks)
 
       execute_external_hooks(merge_request, merge_data)
+      execute_group_mention_hooks(merge_request, merge_data) if action == 'open'
 
       enqueue_jira_connect_messages_for(merge_request)
     end
 
     def execute_external_hooks(merge_request, merge_data)
       # Implemented in EE
+    end
+
+    def execute_group_mention_hooks(merge_request, merge_data)
+      return unless merge_request.instance_of?(MergeRequest)
+
+      args = {
+        mentionable_type: 'MergeRequest',
+        mentionable_id: merge_request.id,
+        hook_data: merge_data,
+        is_confidential: false
+      }
+
+      merge_request.run_after_commit_or_now do
+        Integrations::GroupMentionWorker.perform_async(args)
+      end
     end
 
     def handle_changes(merge_request, options)
@@ -58,21 +85,18 @@ module MergeRequests
       new_reviewers = merge_request.reviewers - old_reviewers
       merge_request_activity_counter.track_users_review_requested(users: new_reviewers)
       merge_request_activity_counter.track_reviewers_changed_action(user: current_user)
+      trigger_merge_request_reviewers_updated(merge_request)
 
-      unless new_reviewers.include?(current_user)
-        remove_attention_requested(merge_request)
-
-        merge_request.merge_request_reviewers_with(new_reviewers).update_all(updated_state_by_user_id: current_user.id)
-      end
+      capture_suggested_reviewers_accepted(merge_request)
     end
 
     def cleanup_environments(merge_request)
       Environments::StopService.new(merge_request.source_project, current_user)
-                               .execute_for_merge_request(merge_request)
+                               .execute_for_merge_request_pipeline(merge_request)
     end
 
     def cancel_review_app_jobs!(merge_request)
-      environments = merge_request.environments.in_review_folder.available
+      environments = merge_request.environments_in_head_pipeline.in_review_folder.available
       environments.each { |environment| environment.cancel_deployment_jobs! }
     end
 
@@ -86,7 +110,7 @@ module MergeRequests
 
     # Don't try to print expensive instance variables.
     def inspect
-      return "#<#{self.class}>" unless respond_to?(:merge_request)
+      return "#<#{self.class}>" unless respond_to?(:merge_request) && merge_request
 
       "#<#{self.class} #{merge_request.to_reference(full: true)}>"
     end
@@ -95,7 +119,19 @@ module MergeRequests
       Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter
     end
 
+    def deactivate_pages_deployments(merge_request)
+      Pages::DeactivateMrDeploymentsWorker.perform_async(merge_request.id)
+    end
+
     private
+
+    def self.constructor_container_arg(value)
+      { project: value }
+    end
+
+    def refresh_pipelines_on_merge_requests(merge_request, allow_duplicate: false)
+      create_pipeline_for(merge_request, current_user, async: true, allow_duplicate: allow_duplicate)
+    end
 
     def enqueue_jira_connect_messages_for(merge_request)
       return unless project.jira_subscription_exists?
@@ -120,16 +156,16 @@ module MergeRequests
     override :handle_quick_actions
     def handle_quick_actions(merge_request)
       super
-      handle_wip_event(merge_request)
+      handle_draft_event(merge_request)
     end
 
-    def handle_wip_event(merge_request)
-      if wip_event = params.delete(:wip_event)
+    def handle_draft_event(merge_request)
+      if draft_event = params.delete(:wip_event)
         # We update the title that is provided in the params or we use the mr title
         title = params[:title] || merge_request.title
-        params[:title] = case wip_event
-                         when 'wip' then MergeRequest.wip_title(title)
-                         when 'unwip' then MergeRequest.wipless_title(title)
+        params[:title] = case draft_event
+                         when 'draft' then MergeRequest.draft_title(title)
+                         when 'ready' then MergeRequest.draftless_title(title)
                          end
       end
     end
@@ -142,6 +178,7 @@ module MergeRequests
       end
 
       filter_reviewer(merge_request)
+      filter_suggested_reviewers
     end
 
     def filter_reviewer(merge_request)
@@ -168,6 +205,10 @@ module MergeRequests
       end
     end
 
+    def filter_suggested_reviewers
+      # Implemented in EE
+    end
+
     def merge_request_metrics_service(merge_request)
       MergeRequestMetricsService.new(merge_request.metrics)
     end
@@ -182,11 +223,19 @@ module MergeRequests
         merge_request, merge_request.project, current_user, old_reviewers)
     end
 
-    def create_pipeline_for(merge_request, user, async: false)
+    def create_pipeline_for(merge_request, user, async: false, allow_duplicate: false)
+      create_pipeline_params = params.slice(:push_options).merge(allow_duplicate: allow_duplicate)
+
       if async
-        MergeRequests::CreatePipelineWorker.perform_async(project.id, user.id, merge_request.id)
+        MergeRequests::CreatePipelineWorker.perform_async(
+          project.id,
+          user.id,
+          merge_request.id,
+          create_pipeline_params.deep_stringify_keys)
       else
-        MergeRequests::CreatePipelineService.new(project: project, current_user: user).execute(merge_request)
+        MergeRequests::CreatePipelineService
+          .new(project: project, current_user: user, params: create_pipeline_params)
+          .execute(merge_request)
       end
     end
 
@@ -213,50 +262,39 @@ module MergeRequests
       end
     end
 
-    def log_error(exception:, message:, save_message_on_model: false)
-      reference = merge_request.to_reference(full: true)
-      data = {
-        class: self.class.name,
-        message: message,
-        merge_request_id: merge_request.id,
-        merge_request: reference,
-        save_message_on_model: save_message_on_model
-      }
-
-      if exception
-        Gitlab::ApplicationContext.with_context(user: current_user) do
-          Gitlab::ErrorTracking.track_exception(exception, data)
-        end
-
-        data[:"exception.message"] = exception.message
-      end
-
-      # TODO: Deprecate Gitlab::GitLogger since ErrorTracking should suffice:
-      # https://gitlab.com/gitlab-org/gitlab/-/issues/216379
-      data[:message] = "#{self.class.name} error (#{reference}): #{message}"
-      Gitlab::GitLogger.error(data)
-
-      merge_request.update(merge_error: message) if save_message_on_model
+    def trigger_merge_request_reviewers_updated(merge_request)
+      GraphqlTriggers.merge_request_reviewers_updated(merge_request)
     end
 
-    def delete_milestone_total_merge_requests_counter_cache(milestone)
-      return unless milestone
-
-      Milestones::MergeRequestsCountService.new(milestone).delete_cache
+    def trigger_merge_request_merge_status_updated(merge_request)
+      GraphqlTriggers.merge_request_merge_status_updated(merge_request)
     end
 
-    def remove_all_attention_requests(merge_request)
-      return unless merge_request.attention_requested_enabled?
-
-      users = merge_request.reviewers + merge_request.assignees
-
-      ::MergeRequests::BulkRemoveAttentionRequestedService.new(project: merge_request.project, current_user: current_user, merge_request: merge_request, users: users.uniq).execute
+    def trigger_merge_request_approval_state_updated(merge_request)
+      GraphqlTriggers.merge_request_approval_state_updated(merge_request)
     end
 
-    def remove_attention_requested(merge_request)
-      return unless merge_request.attention_requested_enabled?
+    def capture_suggested_reviewers_accepted(merge_request)
+      # Implemented in EE
+    end
 
-      ::MergeRequests::RemoveAttentionRequestedService.new(project: merge_request.project, current_user: current_user, merge_request: merge_request).execute
+    def remove_approval(merge_request, user)
+      MergeRequests::RemoveApprovalService.new(project: project, current_user: user)
+        .execute(merge_request, skip_system_note: true, skip_notification: true, skip_updating_state: true)
+    end
+
+    def update_reviewer_state(merge_request, user, state)
+      ::MergeRequests::UpdateReviewerStateService
+            .new(project: merge_request.project, current_user: user)
+            .execute(merge_request, state)
+    end
+
+    def abort_auto_merge_with_todo(merge_request, reason)
+      response = abort_auto_merge(merge_request, reason)
+      response = ServiceResponse.new(**response)
+      return unless response.success?
+
+      todo_service.merge_request_became_unmergeable(merge_request)
     end
   end
 end

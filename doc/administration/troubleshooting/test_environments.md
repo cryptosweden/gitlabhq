@@ -1,11 +1,14 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Apps for a testing environment **(FREE SELF)**
+# Apps for a testing environment
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 This is the GitLab Support Team's collection of information regarding testing environments,
 for use while troubleshooting. It is listed here for transparency, and it may be useful
@@ -20,37 +23,20 @@ are only available internally at GitLab.
 ## Docker
 
 The following were tested on Docker containers running in the cloud. Support Engineers,
-please see [these docs](https://gitlab.com/gitlab-com/dev-resources/tree/master/dev-resources#running-docker-containers)
+see [these docs](https://gitlab.com/gitlab-com/dev-resources/tree/master/dev-resources#running-docker-containers)
 on how to run Docker containers on `dev-resources`. Other setups haven't been tested,
 but contributions are welcome.
 
 ### GitLab
 
-Please see [our Docker test environment docs](../../install/digitaloceandocker.md#create-new-gitlab-container)
-for how to run GitLab on Docker. When spinning this up with `docker-machine`, ensure
-you change a few things:
-
-1. Update the name of the `docker-machine` host. You can see a list of hosts
-   with `docker-machine ls`.
-1. Expose the necessary ports using the `-p` flag. Docker normally doesn't
-   allow access to any ports it uses outside of the container, so they must be
-   explicitly exposed.
-1. Add any necessary `gitlab.rb` configuration to the
-   `GITLAB_OMNIBUS_CONFIG` variable.
-
-For example, when the `docker-machine` host we want to use is `do-docker`:
-
-```shell
-docker run --detach --name gitlab \
---env GITLAB_OMNIBUS_CONFIG="external_url 'http://$(docker-machine ip do-docker)'; gitlab_rails['gitlab_shell_ssh_port'] = 2222;" \
---hostname $(docker-machine ip do-docker) \
--p 80:80 -p 2222:22 \
-gitlab/gitlab-ee:11.5.3-ee.0
-```
+See [our official Docker installation method](../../install/docker.md)
+for how to run GitLab on Docker.
 
 ### SAML
 
 #### SAML for Authentication
+
+In the following examples, when replacing `<GITLAB_IP_OR_DOMAIN>` and `<SAML_IP_OR_DOMAIN>` it is important to prepend your IP or domain name, with the protocol (`http://` or `https://`) being used.
 
 We can use the [`test-saml-idp` Docker image](https://hub.docker.com/r/jamedjo/test-saml-idp)
 to do the work for us:
@@ -62,7 +48,7 @@ docker run --name gitlab_saml -p 8080:8080 -p 8443:8443 \
 -d jamedjo/test-saml-idp
 ```
 
-The following will also need to go in your `/etc/gitlab/gitlab.rb`. See [our SAML docs](../../integration/saml.md)
+The following must also go in your `/etc/gitlab/gitlab.rb`. See [our SAML docs](../../integration/saml.md)
 for more, as well as the list of [default usernames, passwords, and emails](https://hub.docker.com/r/jamedjo/test-saml-idp/#usage).
 
 ```ruby
@@ -104,7 +90,7 @@ docker.elastic.co/elasticsearch/elasticsearch:5.5.1
 ```
 
 Then confirm it works in the browser at `curl "http://<IP_ADDRESS>:9200/_cat/health"`.
-Elasticsearch's default username is `elastic` and password is `changeme`.
+In Elasticsearch, the default username is `elastic`, and the default password is `changeme`.
 
 ### Kroki
 

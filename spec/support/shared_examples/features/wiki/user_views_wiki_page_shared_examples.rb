@@ -9,9 +9,15 @@ RSpec.shared_examples 'User views a wiki page' do
 
   let(:path) { 'image.png' }
   let(:wiki_page) do
-    create(:wiki_page,
-           wiki: wiki,
-           title: 'home', content: "Look at this [image](#{path})\n\n ![alt text](#{path})")
+    create(
+      :wiki_page,
+      wiki: wiki,
+      title: 'home', content: "Look at this [image](#{path})\n\n ![alt text](#{path})"
+    )
+  end
+
+  let(:more_actions_dropdown) do
+    find('[data-testid="wiki-more-dropdown"] button')
   end
 
   before do
@@ -21,8 +27,6 @@ RSpec.shared_examples 'User views a wiki page' do
   context 'when wiki is empty', :js do
     before do
       visit wiki_path(wiki)
-
-      wait_for_svg_to_be_loaded
 
       click_link "Create your first page"
 
@@ -36,13 +40,15 @@ RSpec.shared_examples 'User views a wiki page' do
       expect(page).to have_content('Wiki page was successfully created.')
     end
 
-    it 'shows the history of a page that has a path' do
-      expect(page).to have_current_path(%r(one/two/three-test))
+    it 'shows the history of a page that has a path', :js do
+      expect(page).to have_current_path(%r{one/two/three-test})
 
       first(:link, text: 'three').click
+
+      more_actions_dropdown.click
       click_on('Page history')
 
-      expect(page).to have_current_path(%r(one/two/three-test))
+      expect(page).to have_current_path(%r{one/two/three-test})
 
       page.within(:css, '.wiki-page-header') do
         expect(page).to have_content('History')
@@ -50,23 +56,24 @@ RSpec.shared_examples 'User views a wiki page' do
     end
 
     it 'shows an old version of a page', :js do
-      expect(page).to have_current_path(%r(one/two/three-test))
+      expect(page).to have_current_path(%r{one/two/three-test})
       expect(find('.wiki-pages')).to have_content('three')
 
       first(:link, text: 'three').click
 
-      expect(find('[data-testid="wiki_page_title"]')).to have_content('three')
+      expect(find('[data-testid="page-heading"]')).to have_content('three')
 
       click_on('Edit')
 
-      expect(page).to have_current_path(%r(one/two/three-test))
-      expect(page).to have_content('Edit Page')
+      expect(page).to have_current_path(%r{one/two/three-test})
+      expect(page).to have_css('#wiki_title')
 
       fill_in('Content', with: 'Updated Wiki Content')
       click_on('Save changes')
 
       expect(page).to have_content('Wiki page was successfully updated.')
 
+      more_actions_dropdown.click
       click_on('Page history')
 
       within('.wiki-page-header') do
@@ -98,7 +105,7 @@ RSpec.shared_examples 'User views a wiki page' do
 
         click_on('image')
 
-        expect(page).to have_current_path(%r(wikis/#{path}))
+        expect(page).to have_current_path(%r{wikis/#{path}})
       end
     end
 
@@ -107,8 +114,8 @@ RSpec.shared_examples 'User views a wiki page' do
 
       click_on('image')
 
-      expect(page).to have_current_path(%r(wikis/#{path}))
-      expect(page).to have_content('Create New Page')
+      expect(page).to have_current_path(%r{wikis/#{path}})
+      expect(page).to have_content('New page')
     end
   end
 
@@ -117,11 +124,12 @@ RSpec.shared_examples 'User views a wiki page' do
       wiki_page.update(message: 'updated home', content: 'updated [some link](other-page)') # rubocop:disable Rails/SaveBang
     end
 
-    it 'shows the page history' do
+    it 'shows the page history', :js do
       visit(wiki_page_path(wiki, wiki_page))
 
-      expect(page).to have_selector('[data-testid="wiki_edit_button"]')
+      expect(page).to have_selector('[data-testid="wiki-edit-button"]')
 
+      more_actions_dropdown.click
       click_on('Page history')
 
       expect(page).to have_content(user.name)
@@ -132,7 +140,7 @@ RSpec.shared_examples 'User views a wiki page' do
     it 'does not show the "Edit" button' do
       visit(wiki_page_path(wiki, wiki_page, version_id: wiki_page.versions.last.id))
 
-      expect(page).not_to have_selector('[data-testid="wiki_edit_button"]')
+      expect(page).not_to have_selector('[data-testid="wiki-edit-button"]')
     end
 
     context 'show the diff' do
@@ -207,7 +215,7 @@ RSpec.shared_examples 'User views a wiki page' do
     it 'preserves the special characters' do
       visit(wiki_page_path(wiki, wiki_page))
 
-      expect(page).to have_css('[data-testid="wiki_page_title"]', text: title)
+      expect(page).to have_css('[data-testid="page-heading"]', text: title)
       expect(page).to have_css('.wiki-pages li', text: title)
     end
   end
@@ -222,7 +230,7 @@ RSpec.shared_examples 'User views a wiki page' do
     it 'safely displays the page' do
       visit(wiki_page_path(wiki, wiki_page))
 
-      expect(page).to have_selector('[data-testid="wiki_page_title"]', text: title)
+      expect(page).to have_selector('[data-testid="page-heading"]', text: title)
       expect(page).to have_content('foo bar')
     end
   end
@@ -249,7 +257,7 @@ RSpec.shared_examples 'User views a wiki page' do
     end
 
     it 'does not show "Edit" button' do
-      expect(page).not_to have_selector('[data-testid="wiki_edit_button"]')
+      expect(page).not_to have_selector('[data-testid="wiki-edit-button"]')
     end
 
     it 'shows error' do
@@ -262,12 +270,13 @@ RSpec.shared_examples 'User views a wiki page' do
   it 'opens a default wiki page', :js do
     visit wiki.container.web_url
 
-    find('.shortcuts-wiki').click
-
-    wait_for_svg_to_be_loaded
+    within_testid('super-sidebar') do
+      click_button 'Plan'
+      click_link 'Wiki'
+    end
 
     click_link "Create your first page"
 
-    expect(page).to have_content('Create New Page')
+    expect(page).to have_content('New page')
   end
 end

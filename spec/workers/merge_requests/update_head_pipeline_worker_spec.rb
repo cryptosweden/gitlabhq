@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::UpdateHeadPipelineWorker do
+RSpec.describe MergeRequests::UpdateHeadPipelineWorker, feature_category: :code_review_workflow do
   include ProjectForksHelper
 
   let_it_be(:project) { create(:project, :repository) }
@@ -24,18 +24,6 @@ RSpec.describe MergeRequests::UpdateHeadPipelineWorker do
       create(:merge_request, source_branch: 'feature', target_branch: "v1.1.0", source_project: project)
     end
 
-    context 'when related merge request is already merged' do
-      let!(:merged_merge_request) do
-        create(:merge_request, source_branch: 'master', target_branch: "branch_2", source_project: project, state: 'merged')
-      end
-
-      it 'does not schedule update head pipeline job' do
-        expect(UpdateHeadPipelineForMergeRequestWorker).not_to receive(:perform_async).with(merged_merge_request.id)
-
-        subject
-      end
-    end
-
     context 'when the head pipeline sha equals merge request sha' do
       let(:ref) { 'feature' }
 
@@ -51,6 +39,22 @@ RSpec.describe MergeRequests::UpdateHeadPipelineWorker do
 
         expect(merge_request_1.reload.head_pipeline).to eq(pipeline)
         expect(merge_request_2.reload.head_pipeline).to eq(pipeline)
+      end
+
+      context 'when the merge request is not open' do
+        before do
+          merge_request_1.close!
+        end
+
+        it 'only updates the open merge requests' do
+          merge_request_1
+          merge_request_2
+
+          subject
+
+          expect(merge_request_1.reload.head_pipeline).not_to eq(pipeline)
+          expect(merge_request_2.reload.head_pipeline).to eq(pipeline)
+        end
       end
     end
 
@@ -70,9 +74,12 @@ RSpec.describe MergeRequests::UpdateHeadPipelineWorker do
 
     context 'when there is no pipeline for source branch' do
       it "does not update merge request head pipeline" do
-        merge_request = create(:merge_request, source_branch: 'feature',
-                                               target_branch: "branch_1",
-                                               source_project: project)
+        merge_request = create(
+          :merge_request,
+          source_branch: 'feature',
+          target_branch: "branch_1",
+          source_project: project
+        )
 
         subject
 
@@ -92,10 +99,13 @@ RSpec.describe MergeRequests::UpdateHeadPipelineWorker do
       end
 
       it 'updates head pipeline for merge request' do
-        merge_request = create(:merge_request, source_branch: 'feature',
-                                               target_branch: "master",
-                                               source_project: project,
-                                               target_project: target_project)
+        merge_request = create(
+          :merge_request,
+          source_branch: 'feature',
+          target_branch: "master",
+          source_project: project,
+          target_project: target_project
+        )
 
         subject
 
@@ -105,9 +115,12 @@ RSpec.describe MergeRequests::UpdateHeadPipelineWorker do
 
     context 'when the pipeline is not the latest for the branch' do
       it 'does not update merge request head pipeline' do
-        merge_request = create(:merge_request, source_branch: 'master',
-                                               target_branch: "branch_1",
-                                               source_project: project)
+        merge_request = create(
+          :merge_request,
+          source_branch: 'master',
+          target_branch: "branch_1",
+          source_project: project
+        )
 
         create(:ci_pipeline, project: pipeline.project, ref: pipeline.ref)
 
@@ -123,9 +136,12 @@ RSpec.describe MergeRequests::UpdateHeadPipelineWorker do
       end
 
       it 'updates merge request head pipeline reference' do
-        merge_request = create(:merge_request, source_branch: 'master',
-                                               target_branch: 'feature',
-                                               source_project: project)
+        merge_request = create(
+          :merge_request,
+          source_branch: 'master',
+          target_branch: 'feature',
+          source_project: project
+        )
 
         subject
 

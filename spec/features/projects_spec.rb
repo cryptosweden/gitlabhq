@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Project' do
+RSpec.describe 'Project', feature_category: :source_code_management do
   include ProjectForksHelper
   include MobileHelpers
 
@@ -15,6 +15,12 @@ RSpec.describe 'Project' do
     end
 
     shared_examples 'creates from template' do |template, sub_template_tab = nil|
+      let(:selected_template) { page.find('.project-fields-form .selected-template') }
+
+      choose_template_selector = '.choose-template'
+      template_option_selector = '.template-option'
+      template_name_selector = '.description strong'
+
       it "is created from template", :js do
         click_link 'Create from template'
         find(".project-template #{sub_template_tab}").click if sub_template_tab
@@ -26,6 +32,39 @@ RSpec.describe 'Project' do
         end
 
         expect(page).to have_content template.name
+      end
+
+      it 'is created using keyboard navigation', :js do
+        click_link 'Create from template'
+
+        first_template = first(template_option_selector)
+        first_template_name = first_template.find(template_name_selector).text
+        first_template.find(choose_template_selector).click
+
+        expect(selected_template).to have_text(first_template_name)
+
+        click_button "Change template"
+        find("#built-in").click
+
+        # Jumps down 1 template, skipping the `preview` buttons
+        2.times do
+          page.send_keys :tab
+        end
+
+        # Ensure the template with focus is selected
+        project_name = "project from template"
+        focused_template = page.find(':focus').ancestor(template_option_selector)
+        focused_template_name = focused_template.find(template_name_selector).text
+        focused_template.find(choose_template_selector).send_keys :enter
+        fill_in "project_name", with: project_name
+
+        expect(selected_template).to have_text(focused_template_name)
+
+        page.within '#content-body' do
+          click_button "Create project"
+        end
+
+        expect(page).to have_content project_name
       end
     end
 
@@ -65,13 +104,13 @@ RSpec.describe 'Project' do
     it 'parses Markdown' do
       project.update_attribute(:description, 'This is **my** project')
       visit path
-      expect(page).to have_css('.home-panel-description > .home-panel-description-markdown > p > strong')
+      expect(page).to have_css('.home-panel-description .home-panel-description-markdown p > strong')
     end
 
     it 'passes through html-pipeline' do
       project.update_attribute(:description, 'This project is the :poop:')
       visit path
-      expect(page).to have_css('.home-panel-description > .home-panel-description-markdown > p > gl-emoji')
+      expect(page).to have_css('.home-panel-description .home-panel-description-markdown p > gl-emoji')
     end
 
     it 'sanitizes unwanted tags' do
@@ -87,24 +126,11 @@ RSpec.describe 'Project' do
     end
 
     context 'read more', :js do
-      let(:read_more_selector)         { '.read-more-container' }
-      let(:read_more_trigger_selector) { '.home-panel-home-desc .js-read-more-trigger' }
-
-      it 'does not display "read more" link on desktop breakpoint' do
-        project.update_attribute(:description, 'This is **my** project')
+      it 'displays "read more" link', :js do
+        project.update_attribute(:description, "This is **my** project\n\nA\n\nB\n\nC\n\nD\n\nE\n\nF\n\nG\n\nH\n\nI\n\nJ\nK\n\nL\n\nM\n\nN\n\nEnd test.")
         visit path
 
-        expect(find(read_more_trigger_selector, visible: false)).not_to be_visible
-      end
-
-      it 'displays "read more" link on mobile breakpoint' do
-        project.update_attribute(:description, 'This is **my** project')
-        visit path
-        resize_screen_xs
-
-        find(read_more_trigger_selector).click
-
-        expect(page).to have_css('.home-panel-description .is-expanded')
+        expect(page).to have_css('.home-panel-description .js-read-more-trigger')
       end
     end
 
@@ -174,7 +200,7 @@ RSpec.describe 'Project' do
     end
   end
 
-  describe 'showing information about source of a project fork' do
+  describe 'showing information about source of a project fork', :js do
     let(:user) { create(:user) }
     let(:base_project) { create(:project, :public, :repository) }
     let(:forked_project) { fork_project(base_project, user, repository: true) }
@@ -185,6 +211,7 @@ RSpec.describe 'Project' do
 
     it 'shows a link to the source project when it is available', :sidekiq_might_not_need_inline do
       visit project_path(forked_project)
+      wait_for_requests
 
       expect(page).to have_content('Forked from')
       expect(page).to have_link(base_project.full_name)
@@ -194,6 +221,7 @@ RSpec.describe 'Project' do
       forked_project
 
       visit project_path(base_project)
+      wait_for_requests
 
       expect(page).not_to have_content('In fork network of')
       expect(page).not_to have_content('Forked from')
@@ -204,7 +232,7 @@ RSpec.describe 'Project' do
       Projects::DestroyService.new(base_project, base_project.first_owner).execute
 
       visit project_path(forked_project)
-
+      wait_for_requests
       expect(page).to have_content('Forked from an inaccessible project')
     end
 
@@ -216,7 +244,7 @@ RSpec.describe 'Project' do
         Projects::DestroyService.new(forked_project, user).execute
 
         visit project_path(fork_of_fork)
-
+        wait_for_requests
         expect(page).to have_content("Forked from")
         expect(page).to have_link(base_project.full_name)
       end
@@ -258,7 +286,7 @@ RSpec.describe 'Project' do
 
     it 'deletes a project', :sidekiq_inline do
       expect { remove_with_confirm('Delete project', project.path_with_namespace, 'Yes, delete project') }.to change { Project.count }.by(-1)
-      expect(page).to have_content "Project '#{project.full_name}' is in the process of being deleted."
+      expect(page).to have_content "Project '#{project.full_name}' is being deleted."
       expect(Project.all.count).to be_zero
       expect(project.issues).to be_empty
       expect(project.merge_requests).to be_empty
@@ -288,9 +316,9 @@ RSpec.describe 'Project' do
     end
 
     it 'has working links to submodules' do
-      click_link('645f6c4c')
+      submodule = find_link('645f6c4c')
 
-      expect(page).to have_selector('.qa-branches-select', text: '645f6c4c82fd3f5e06f67134450a570b795e55a6') # rubocop:disable QA/SelectorUsage
+      expect(submodule[:href]).to eq('https://gitlab.com/gitlab-org/gitlab-grack/-/tree/645f6c4c82fd3f5e06f67134450a570b795e55a6')
     end
 
     context 'for signed commit on default branch', :js do
@@ -302,8 +330,8 @@ RSpec.describe 'Project' do
         visit project_path(project)
         wait_for_requests
 
-        expect(page).not_to have_selector '.gpg-status-box.js-loading-gpg-badge'
-        expect(page).to have_selector '.gpg-status-box.invalid'
+        expect(page).not_to have_selector '.js-loading-signature-badge'
+        expect(page).to have_selector '.gl-badge.badge-muted'
       end
     end
 
@@ -330,8 +358,8 @@ RSpec.describe 'Project' do
           visit project_path(project)
           wait_for_requests
 
-          expect(page).not_to have_selector '.gpg-status-box.js-loading-gpg-badge'
-          expect(page).to have_selector '.gpg-status-box.invalid'
+          expect(page).not_to have_selector '.gl-badge.js-loading-signature-badge'
+          expect(page).to have_selector '.gl-badge.badge-muted'
         end
       end
     end
@@ -379,15 +407,14 @@ RSpec.describe 'Project' do
       visit path
     end
 
-    it_behaves_like 'dirty submit form', [{ form: '.js-general-settings-form', input: 'input[name="project[name]"]' },
-                                          { form: '.rspec-merge-request-settings', input: '#project_printing_merge_request_link_enabled' }]
+    it_behaves_like 'dirty submit form', [{ form: '.js-general-settings-form', input: 'input[name="project[name]"]', submit: 'button[type="submit"]' }]
   end
 
   describe 'view for a user without an access to a repo' do
     let(:project) { create(:project, :repository) }
     let(:user) { create(:user) }
 
-    it 'does not contain default branch information in its content' do
+    it 'does not contain default branch information in its content', :js do
       default_branch = 'merge-commit-analyze-side-branch'
 
       project.add_guest(user)
@@ -396,8 +423,84 @@ RSpec.describe 'Project' do
       sign_in(user)
       visit project_path(project)
 
-      lines_with_default_branch = page.html.lines.select { |line| line.include?(default_branch) }
-      expect(lines_with_default_branch).to eq([])
+      page.within('#content-body') do
+        lines_with_default_branch = page.html.lines.select { |line| line.include?(default_branch) }
+        expect(lines_with_default_branch).to eq([])
+      end
+    end
+  end
+
+  context 'badges' do
+    shared_examples 'show badges' do
+      it 'renders the all badges' do
+        expect(page).to have_selector('.project-badges a')
+
+        badges.each do |badge|
+          expect(page).to have_link(href: badge.rendered_link_url)
+        end
+      end
+    end
+
+    let(:user) { create(:user) }
+    let(:badges) { project.badges }
+
+    context 'has no badges' do
+      let(:project) { create(:project, :repository) }
+
+      before do
+        sign_in(user)
+        project.add_maintainer(user)
+        visit project_path(project)
+      end
+
+      it 'does not render any badge' do
+        expect(page).not_to have_selector('.project-badges')
+      end
+    end
+
+    context 'only has group badges' do
+      let(:group) { create(:group) }
+      let(:project) { create(:project, :repository, namespace: group) }
+
+      before do
+        create(:group_badge, group: project.group)
+
+        sign_in(user)
+        project.add_maintainer(user)
+        visit project_path(project)
+      end
+
+      it_behaves_like 'show badges'
+    end
+
+    context 'only has project badges' do
+      let(:project) { create(:project, :repository) }
+
+      before do
+        create(:project_badge, project: project)
+
+        sign_in(user)
+        project.add_maintainer(user)
+        visit project_path(project)
+      end
+
+      it_behaves_like 'show badges'
+    end
+
+    context 'has both group and project badges' do
+      let(:group) { create(:group) }
+      let(:project) { create(:project, :repository, namespace: group) }
+
+      before do
+        create(:project_badge, project: project)
+        create(:group_badge, group: project.group)
+
+        sign_in(user)
+        project.add_maintainer(user)
+        visit project_path(project)
+      end
+
+      it_behaves_like 'show badges'
     end
   end
 

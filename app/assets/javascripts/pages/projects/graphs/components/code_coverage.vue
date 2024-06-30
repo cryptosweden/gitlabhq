@@ -1,8 +1,8 @@
 <script>
-import { GlAlert, GlDropdown, GlDropdownItem, GlSprintf } from '@gitlab/ui';
+import { GlAlert, GlButton, GlCollapsibleListbox, GlSprintf } from '@gitlab/ui';
 import { GlAreaChart } from '@gitlab/ui/dist/charts';
-import dateFormat from 'dateformat';
 import { get } from 'lodash';
+import { formatDate } from '~/lib/utils/datetime_utility';
 import axios from '~/lib/utils/axios_utils';
 
 import { __ } from '~/locale';
@@ -11,12 +11,28 @@ export default {
   components: {
     GlAlert,
     GlAreaChart,
-    GlDropdown,
-    GlDropdownItem,
+    GlButton,
+    GlCollapsibleListbox,
     GlSprintf,
   },
   props: {
     graphEndpoint: {
+      type: String,
+      required: true,
+    },
+    graphEndDate: {
+      type: String,
+      required: true,
+    },
+    graphStartDate: {
+      type: String,
+      required: true,
+    },
+    graphRef: {
+      type: String,
+      required: true,
+    },
+    graphCsvPath: {
       type: String,
       required: true,
     },
@@ -38,7 +54,10 @@ export default {
         },
         xAxis: {
           name: '',
-          type: 'category',
+          type: 'time',
+          axisLabel: {
+            formatter: (value) => formatDate(value, 'mmm dd'),
+          },
         },
       },
     };
@@ -74,7 +93,15 @@ export default {
       );
     },
     formattedData() {
-      return this.sortedData.map((value) => [dateFormat(value.date, 'mmm dd'), value.coverage]);
+      return this.sortedData.map((value) => [value.date, value.coverage]);
+    },
+    mappedCoverages() {
+      return this.dailyCoverageData?.map((item, index) => ({
+        // A numerical index makes an item into a group header, so
+        // convert these to strings to get non-header GlCollapsibleListbox items
+        value: index.toString(),
+        text: item.group_name,
+      }));
     },
     chartData() {
       return [
@@ -106,7 +133,7 @@ export default {
       this.selectedCoverageIndex = index;
     },
     formatTooltipText(params) {
-      this.tooltipTitle = params.value;
+      this.tooltipTitle = formatDate(params.value, 'mmm dd');
       this.coveragePercentage = get(params, 'seriesData[0].data[1]', '');
     },
   },
@@ -116,6 +143,28 @@ export default {
 
 <template>
   <div>
+    <div
+      class="gl-display-flex gl-justify-content-space-between gl-align-items-center gl-border-t gl-pt-4 gl-mb-3"
+    >
+      <h4 class="gl-m-0" sub-header>
+        <gl-sprintf
+          :message="__('Code coverage statistics for %{ref} %{start_date} - %{end_date}')"
+        >
+          <template #ref>
+            <strong> {{ graphRef }} </strong>
+          </template>
+          <template #start_date>
+            <strong> {{ graphStartDate }} </strong>
+          </template>
+          <template #end_date>
+            <strong> {{ graphEndDate }} </strong>
+          </template>
+        </gl-sprintf>
+      </h4>
+      <gl-button v-if="canShowData" size="small" data-testid="download-button" :href="graphCsvPath">
+        {{ __('Download raw data (.csv)') }}
+      </gl-button>
+    </div>
     <div class="gl-mt-3 gl-mb-3">
       <gl-alert
         v-if="hasFetchError"
@@ -133,18 +182,13 @@ export default {
           {{ __('It seems that there is currently no available data for code coverage') }}
         </span>
       </gl-alert>
-      <gl-dropdown v-if="canShowData" :text="selectedDailyCoverageName">
-        <gl-dropdown-item
-          v-for="({ group_name }, index) in dailyCoverageData"
-          :key="index"
-          :value="group_name"
-          :is-check-item="true"
-          :is-checked="index === selectedCoverageIndex"
-          @click="setSelectedCoverage(index)"
-        >
-          {{ group_name }}
-        </gl-dropdown-item>
-      </gl-dropdown>
+      <gl-collapsible-listbox
+        v-if="canShowData"
+        :items="mappedCoverages"
+        :selected="selectedCoverageIndex.toString()"
+        :toggle-text="selectedDailyCoverageName"
+        @select="setSelectedCoverage"
+      />
     </div>
     <gl-area-chart
       v-if="!isLoading"
@@ -152,6 +196,7 @@ export default {
       :data="chartData"
       :option="chartOptions"
       :format-tooltip-text="formatTooltipText"
+      responsive
     >
       <template v-if="canShowData" #tooltip-title>
         {{ tooltipTitle }}

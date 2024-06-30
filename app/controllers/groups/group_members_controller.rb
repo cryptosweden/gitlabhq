@@ -14,20 +14,32 @@ class Groups::GroupMembersController < Groups::ApplicationController
 
   # Authorize
   before_action :authorize_admin_group_member!, except: admin_not_required_endpoints
+  before_action :authorize_read_group_member!, only: :index
+
+  before_action only: [:index] do
+    push_frontend_feature_flag(:bulk_import_user_mapping, @group)
+    push_frontend_feature_flag(:service_accounts_crud, @group)
+    push_frontend_feature_flag(:webui_members_inherited_users, current_user)
+  end
 
   skip_before_action :check_two_factor_requirement, only: :leave
   skip_cross_project_access_check :index, :update, :destroy, :request_access,
-                                  :approve_access_request, :leave, :resend_invite,
-                                  :override
+    :approve_access_request, :leave, :resend_invite, :override
 
-  feature_category :authentication_and_authorization
+  feature_category :groups_and_projects
+  urgency :low
 
   def index
     @sort = params[:sort].presence || sort_value_name
+    @include_relations ||= requested_relations(:groups_with_inherited_permissions)
 
     if can?(current_user, :admin_group_member, @group)
       @invited_members = invited_members
-      @invited_members = @invited_members.search_invite_email(params[:search_invited]) if params[:search_invited].present?
+
+      if params[:search_invited].present?
+        @invited_members = @invited_members.search_invite_email(params[:search_invited])
+      end
+
       @invited_members = present_invited_members(@invited_members)
     end
 
@@ -70,7 +82,7 @@ class Groups::GroupMembersController < Groups::ApplicationController
   end
 
   def filter_params
-    params.permit(:two_factor, :search).merge(sort: @sort)
+    params.permit(:two_factor, :search, :user_type).merge(sort: @sort)
   end
 
   def membershipable_members

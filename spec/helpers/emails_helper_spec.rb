@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe EmailsHelper do
+  include EmailsHelperTestHelper
+
   describe 'closure_reason_text' do
     context 'when given a MergeRequest' do
       let(:merge_request) { create(:merge_request) }
@@ -19,26 +21,26 @@ RSpec.describe EmailsHelper do
 
         context "and format is text" do
           it "returns plain text" do
-            expect(helper.closure_reason_text(merge_request, format: :text)).to eq("via merge request #{merge_request.to_reference} (#{merge_request_presenter.web_url})")
+            expect(helper.closure_reason_text(merge_request, format: :text, name: user.name)).to include("with merge request #{merge_request.to_reference} (#{merge_request_presenter.web_url})")
           end
         end
 
         context "and format is HTML" do
           it "returns HTML" do
-            expect(helper.closure_reason_text(merge_request, format: :html)).to eq("via merge request #{link_to(merge_request.to_reference, merge_request_presenter.web_url)}")
+            expect(helper.closure_reason_text(merge_request, format: :html, name: user.name)).to include("with merge request #{link_to(merge_request.to_reference, merge_request_presenter.web_url)}")
           end
         end
 
         context "and format is unknown" do
           it "returns plain text" do
-            expect(helper.closure_reason_text(merge_request, format: 'unknown')).to eq("via merge request #{merge_request.to_reference} (#{merge_request_presenter.web_url})")
+            expect(helper.closure_reason_text(merge_request, format: 'unknown', name: user.name)).to include("with merge request #{merge_request.to_reference} (#{merge_request_presenter.web_url})")
           end
         end
       end
 
       context 'when user cannot read merge request' do
         it "does not have link to merge request" do
-          expect(helper.closure_reason_text(merge_request)).to be_empty
+          expect(helper.closure_reason_text(merge_request, format: nil, name: nil)).to be_empty
         end
       end
     end
@@ -56,26 +58,34 @@ RSpec.describe EmailsHelper do
         end
 
         it "returns plain text" do
-          expect(closure_reason_text(closed_via)).to eq("via #{closed_via}")
+          expect(closure_reason_text(closed_via, format: nil, name: nil)).to include("with #{closed_via}")
         end
       end
 
       context 'when user cannot read commits' do
         it "returns plain text" do
-          expect(closure_reason_text(closed_via)).to be_empty
+          expect(closure_reason_text(closed_via, format: nil, name: nil)).to be_empty
         end
       end
     end
 
     context 'when not given anything' do
       it "returns empty string" do
-        expect(closure_reason_text(nil)).to eq("")
+        expect(closure_reason_text(nil, format: nil, name: nil)).to eq("")
+      end
+    end
+
+    context 'when only given a name' do
+      let(:user) { build_stubbed(:user) }
+
+      it "returns plain text" do
+        expect(closure_reason_text(nil, format: nil, name: user.name)).to eq("Issue was closed by #{user.name}")
       end
     end
   end
 
   describe 'notification_reason_text' do
-    subject { helper.notification_reason_text(reason_code) }
+    subject { helper.notification_reason_text(reason: reason_code) }
 
     using RSpec::Parameterized::TableSyntax
 
@@ -225,12 +235,26 @@ RSpec.describe EmailsHelper do
 
   describe '#header_logo' do
     context 'there is a brand item with a logo' do
-      it 'returns the brand header logo' do
-        appearance = create :appearance, header_logo: fixture_file_upload('spec/fixtures/dk.png')
+      let_it_be(:appearance) { create(:appearance) }
 
+      let(:logo_path) { 'spec/fixtures/dk.png' }
+
+      before do
+        appearance.update!(header_logo: fixture_file_upload(logo_path))
+      end
+
+      it 'returns the brand header logo' do
         expect(header_logo).to eq(
-          %{<img style="height: 50px" src="/uploads/-/system/appearance/header_logo/#{appearance.id}/dk.png" />}
+          %(<img style="height: 50px" src="/uploads/-/system/appearance/header_logo/#{appearance.id}/dk.png" />)
         )
+      end
+
+      context 'that is a SVG file' do
+        let(:logo_path) { 'spec/fixtures/logo_sample.svg' }
+
+        it 'returns the default header logo' do
+          expect(header_logo).to match(default_header_logo)
+        end
       end
     end
 
@@ -238,17 +262,13 @@ RSpec.describe EmailsHelper do
       it 'returns the default header logo' do
         create :appearance, header_logo: nil
 
-        expect(header_logo).to match(
-          %r{<img alt="GitLab" src="/images/mailers/gitlab_header_logo\.(?:gif|png)" width="\d+" height="\d+" />}
-        )
+        expect(header_logo).to match(default_header_logo)
       end
     end
 
     context 'there is no brand item' do
       it 'returns the default header logo' do
-        expect(header_logo).to match(
-          %r{<img alt="GitLab" src="/images/mailers/gitlab_header_logo\.(?:gif|png)" width="\d+" height="\d+" />}
-        )
+        expect(header_logo).to match(default_header_logo)
       end
     end
   end
@@ -314,8 +334,8 @@ RSpec.describe EmailsHelper do
         create :appearance, header_message: 'Foo', footer_message: 'Bar', email_header_and_footer_enabled: true
 
         aggregate_failures do
-          expect(html_header_message).to eq(%{<div class="header-message" style=""><p>Foo</p></div>})
-          expect(html_footer_message).to eq(%{<div class="footer-message" style=""><p>Bar</p></div>})
+          expect(html_header_message).to eq(%(<div class="header-message" style=""><p>Foo</p></div>))
+          expect(html_footer_message).to eq(%(<div class="footer-message" style=""><p>Bar</p></div>))
           expect(text_header_message).to eq('Foo')
           expect(text_footer_message).to eq('Bar')
         end
@@ -373,7 +393,7 @@ RSpec.describe EmailsHelper do
 
       context 'with no html tag' do
         let(:expected_output) do
-          'Reviewer changed to John'
+          'John was added as a reviewer.'
         end
 
         it 'returns the expected output' do
@@ -383,7 +403,7 @@ RSpec.describe EmailsHelper do
 
       context 'with <strong> tag' do
         let(:expected_output) do
-          'Reviewer changed to <strong>John</strong>'
+          '<strong>John</strong> was added as a reviewer.'
         end
 
         it 'returns the expected output' do
@@ -398,7 +418,7 @@ RSpec.describe EmailsHelper do
 
       context 'with no html tag' do
         let(:expected_output) do
-          'Reviewer changed from John and Mary to Ted'
+          "Ted was added as a reviewer.\nJohn and Mary were removed from reviewers."
         end
 
         it 'returns the expected output' do
@@ -408,7 +428,7 @@ RSpec.describe EmailsHelper do
 
       context 'with <strong> tag' do
         let(:expected_output) do
-          'Reviewer changed from <strong>John and Mary</strong> to <strong>Ted</strong>'
+          '<strong>Ted</strong> was added as a reviewer.<br><strong>John and Mary</strong> were removed from reviewers.'
         end
 
         it 'returns the expected output' do
@@ -423,7 +443,7 @@ RSpec.describe EmailsHelper do
 
       context 'with no html tag' do
         let(:expected_output) do
-          'Reviewer changed from John and Mary to Unassigned'
+          'All reviewers were removed.'
         end
 
         it 'returns the expected output' do
@@ -433,7 +453,7 @@ RSpec.describe EmailsHelper do
 
       context 'with <strong> tag' do
         let(:expected_output) do
-          'Reviewer changed from <strong>John and Mary</strong> to <strong>Unassigned</strong>'
+          'All reviewers were removed.'
         end
 
         it 'returns the expected output' do
@@ -448,7 +468,7 @@ RSpec.describe EmailsHelper do
       let(:fishy_user) { build(:user, name: "<script>alert('hi')</script>") }
 
       let(:expected_output) do
-        'Reviewer changed to <strong>&lt;script&gt;alert(&#39;hi&#39;)&lt;/script&gt;</strong>'
+        '<strong>&lt;script&gt;alert(&#39;hi&#39;)&lt;/script&gt;</strong> was added as a reviewer.'
       end
 
       it 'escapes the html tag' do
@@ -464,7 +484,7 @@ RSpec.describe EmailsHelper do
       let(:fishy_user) { build(:user, name: "example.com") }
 
       let(:expected_output) do
-        'Reviewer changed to example_com'
+        'example_com was added as a reviewer.'
       end
 
       it "sanitizes user's name" do

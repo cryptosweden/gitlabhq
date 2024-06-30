@@ -40,8 +40,7 @@ module Gitlab
           path: blob_data[:path],
           size: blob_data[:size],
           commit_id: blob_data[:revision],
-          data: data,
-          binary: Gitlab::Git::Blob.binary?(data, cache_key: blob_data[:oid])
+          data: data
         )
       end
     end

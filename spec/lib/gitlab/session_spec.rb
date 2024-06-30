@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::Session do
   it 'uses the current thread as a data store' do
@@ -19,7 +19,7 @@ RSpec.describe Gitlab::Session do
     end
 
     it 'restores current store after' do
-      described_class.with_session(two: 2) { }
+      described_class.with_session(two: 2) {}
 
       expect(described_class.current).to eq nil
     end

@@ -1,15 +1,14 @@
 ---
 stage: Verify
-group: Pipeline Authoring
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: concepts, howto
+group: Pipeline Security
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Using external secrets in CI **(FREE)**
+# Using external secrets in CI
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/218746) in GitLab 13.4 and GitLab Runner 13.4.
-> - `file` setting [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/250695) in GitLab 14.1 and GitLab Runner 14.1.
-> - `VAULT_NAMESPACE` setting [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/255619) in GitLab 14.9 and GitLab Runner 14.9.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Secrets represent sensitive information your CI job needs to complete work. This
 sensitive information can be items like API tokens, database credentials, or private keys.
@@ -19,22 +18,27 @@ Unlike CI/CD variables, which are always presented to a job, secrets must be exp
 required by a job. Read [GitLab CI/CD pipeline configuration reference](../yaml/index.md#secrets)
 for more information about the syntax.
 
+GitLab provides support for the following secret management providers:
+
+1. [Vault by HashiCorp](#use-vault-secrets-in-a-ci-job)
+1. [Google Cloud Secret Manager](gcp_secret_manager.md)
+1. [Azure Key Vault](azure_key_vault.md)
+
 GitLab has selected [Vault by HashiCorp](https://www.vaultproject.io) as the
-first supported provider, and [KV-V2](https://www.vaultproject.io/docs/secrets/kv/kv-v2)
+first supported provider, and [KV-V2](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2)
 as the first supported secrets engine.
 
-GitLab authenticates using Vault's
-[JSON Web Token (JWT) authentication method](https://www.vaultproject.io/docs/auth/jwt#jwt-authentication), using
-the [JSON Web Token](https://gitlab.com/gitlab-org/gitlab/-/issues/207125) (`CI_JOB_JWT`)
-introduced in GitLab 12.10.
+Use [ID tokens](../yaml/index.md#id_tokens) to [authenticate with Vault](https://developer.hashicorp.com/vault/docs/auth/jwt#jwt-authentication).
+The [Authenticating and Reading Secrets With HashiCorp Vault](../examples/authenticating-with-hashicorp-vault/index.md)
+tutorial has more details about authenticating with ID tokens.
 
 You must [configure your Vault server](#configure-your-vault-server) before you
-can use [use Vault secrets in a CI job](#use-vault-secrets-in-a-ci-job).
+can [use Vault secrets in a CI job](#use-vault-secrets-in-a-ci-job).
 
 The flow for using GitLab with HashiCorp Vault
 is summarized by this diagram:
 
-![Flow between GitLab and HashiCorp](../img/gitlab_vault_workflow_v13_4.png "How GitLab CI_JOB_JWT works with HashiCorp Vault")
+![Flow between GitLab and HashiCorp](../img/gitlab_vault_workflow_v13_4.png "How GitLab authenticates with HashiCorp Vault")
 
 1. Configure your vault and secrets.
 1. Generate your JWT and provide it to your CI job.
@@ -50,20 +54,33 @@ tutorial for a version of this feature. It's available to all
 subscription levels, supports writing secrets to and deleting secrets from Vault,
 and supports multiple secrets engines.
 
+## Vault Secrets Engines
+
+> - `generic` option [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/366492) in GitLab Runner 16.11.
+
+The Vault Secrets Engines supported by GitLab Runner are:
+
+| Secrets engine                                                                                                                                     | [`secrets:engine:name`](../yaml/index.md#secretsvault) value | Runner version | Details |
+|----------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------|----------------|---------|
+| [KV secrets engine - version 2](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2)                                                       | `kv-v2`                                                      | 13.4           | `kv-v2` is the default engine GitLab Runner uses when no engine type is explicitly specified. |
+| [KV secrets engine - version 1](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v1)                                                       | `kv-v1` or `generic`                                         | 13.4           | Support for the `generic` keyword [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/366492) in GitLab 15.11. |
+| [The AWS secrets engine](https://developer.hashicorp.com/vault/docs/secrets/aws)                                                                   | `generic`                                                    | 16.11          |         |
+| [Hashicorp Vault Artifactory Secrets Plugin](https://jfrog.com/help/r/jfrog-integrations-documentation/hashicorp-vault-artifactory-secrets-plugin) | `generic`                                                    | 16.11          | This secrets backend talks to JFrog Artifactory server (5.0.0 or later) and dynamically provisions access tokens with specified scopes. |
+
 ## Configure your Vault server
 
 To configure your Vault server:
 
-1. Ensure your Vault server is running on version 1.2.0 or higher.
+1. Ensure your Vault server is running on version 1.2.0 or later.
 1. Enable the authentication method by running these commands. They provide your Vault
-   server the [JSON Web Key Set](https://tools.ietf.org/html/rfc7517) (JWKS) endpoint for your GitLab instance, so Vault
+   server the [OIDC Discovery URL](https://openid.net/specs/openid-connect-discovery-1_0.html) for your GitLab instance, so Vault
    can fetch the public signing key and verify the JSON Web Token (JWT) when authenticating:
 
    ```shell
    $ vault auth enable jwt
 
    $ vault write auth/jwt/config \
-     jwks_url="https://gitlab.example.com/-/jwks" \
+     oidc_discovery_url="https://gitlab.example.com" \
      bound_issuer="gitlab.example.com"
    ```
 
@@ -83,32 +100,39 @@ To configure your Vault server:
 
 1. Configure roles on your Vault server, restricting roles to a project or namespace,
    as described in [Configure Vault server roles](#configure-vault-server-roles) on this page.
-1. [Create the following CI/CD variables](../variables/index.md#custom-cicd-variables)
+1. [Create the following CI/CD variables](../variables/index.md#for-a-project)
    to provide details about your Vault server:
    - `VAULT_SERVER_URL` - The URL of your Vault server, such as `https://vault.example.com:8200`.
      Required.
    - `VAULT_AUTH_ROLE` - Optional. The role to use when attempting to authenticate.
-     If no role is specified, Vault uses the [default role](https://www.vaultproject.io/api/auth/jwt#default_role)
+     If no role is specified, Vault uses the [default role](https://developer.hashicorp.com/vault/api-docs/auth/jwt#default_role)
      specified when the authentication method was configured.
    - `VAULT_AUTH_PATH` - Optional. The path where the authentication method is mounted, default is `jwt`.
-   - `VAULT_NAMESPACE` - Optional. The [Vault Enterprise namespace](https://www.vaultproject.io/docs/enterprise/namespaces) to use for reading secrets and authentication.
+   - `VAULT_NAMESPACE` - Optional. The [Vault Enterprise namespace](https://developer.hashicorp.com/vault/docs/enterprise/namespaces) to use for reading secrets and authentication.
      If no namespace is specified, Vault uses the `root` ("`/`") namespace.
      The setting is ignored by Vault Open Source.
 
    NOTE:
    Support for providing these values in the user interface [is tracked in this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/218677).
 
-## Use Vault secrets in a CI job **(PREMIUM)**
+## Use Vault secrets in a CI job
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/28321) in GitLab 13.4 and GitLab Runner 13.4.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 After [configuring your Vault server](#configure-your-vault-server), you can use
-the secrets stored in Vault by defining them with the `vault` keyword:
+the secrets stored in Vault by defining them with the [`vault` keyword](../yaml/index.md#secretsvault):
 
 ```yaml
-secrets:
-  DATABASE_PASSWORD:
-    vault: production/db/password@ops  # translates to secret `ops/data/production/db`, field `password`
+job_using_vault:
+  id_tokens:
+    VAULT_ID_TOKEN:
+      aud: https://gitlab.com
+  secrets:
+    DATABASE_PASSWORD:
+      vault: production/db/password@ops  # translates to secret `ops/data/production/db`, field `password`
+      token: $VAULT_ID_TOKEN
 ```
 
 In this example:
@@ -119,22 +143,49 @@ In this example:
 
 After GitLab fetches the secret from Vault, the value is saved in a temporary file.
 The path to this file is stored in a CI/CD variable named `DATABASE_PASSWORD`,
-similar to [variables of type `file`](../variables/index.md#cicd-variable-types).
+similar to [variables of type `file`](../variables/index.md#use-file-type-cicd-variables).
 
 To overwrite the default behavior, set the `file` option explicitly:
 
 ```yaml
 secrets:
+  id_tokens:
+    VAULT_ID_TOKEN:
+      aud: https://gitlab.com
   DATABASE_PASSWORD:
     vault: production/db/password@ops
     file: false
+    token: $VAULT_ID_TOKEN
 ```
 
 In this example, the secret value is put directly in the `DATABASE_PASSWORD` variable
 instead of pointing to a file that holds it.
 
-For more information about the supported syntax, read the
-[`.gitlab-ci.yml` reference](../yaml/index.md#secretsvault).
+## Use a different secrets engine
+
+The `kv-v2` secrets engine is used by default. To use [a different engine](#vault-secrets-engines), add an `engine` section
+under `vault` in the configuration.
+
+For example, to set the secret engine and path for Artifactory:
+
+```yaml
+job_using_vault:
+  id_tokens:
+    VAULT_ID_TOKEN:
+      aud: https://gitlab.com
+  secrets:
+    JFROG_TOKEN:
+      vault:
+        engine:
+          name: generic
+          path: artifactory
+        path: production/jfrog
+        field: access_token
+      file: false
+```
+
+In this example, the secret value is obtained from `artifactory/production/jfrog` with a field of `access_token`.
+The `generic` secrets engine can be used for [`kv-v1`, AWS, Artifactory and other similar vault secret engines](#vault-secrets-engines).
 
 ## Configure Vault server roles
 
@@ -142,8 +193,8 @@ When a CI job attempts to authenticate, it specifies a role. You can use roles t
 different policies together. If authentication is successful, these policies are
 attached to the resulting Vault token.
 
-[Bound claims](https://www.vaultproject.io/docs/auth/jwt#bound-claims) are predefined
-values that are matched to the JWT's claims. With bounded claims, you can restrict access
+[Bound claims](https://developer.hashicorp.com/vault/docs/auth/jwt#bound-claims) are predefined
+values that are matched to the JWT claims. With bounded claims, you can restrict access
 to specific GitLab users, specific projects, or even jobs running for specific Git
 references. You can have as many bounded claims you need, but they must *all* match
 for authentication to be successful.
@@ -177,18 +228,18 @@ Always restrict your roles to a project or namespace by using one of the provide
 claims like `project_id` or `namespace_id`. Without these restrictions, any JWT
 generated by this GitLab instance may be allowed to authenticate using this role.
 
-For a full list of `CI_JOB_JWT` claims, read the
-[How it works](../examples/authenticating-with-hashicorp-vault/index.md#how-it-works) section of the
+For a full list of ID token JWT claims, read the
+[How It Works](../examples/authenticating-with-hashicorp-vault/index.md#how-it-works) section of the
 [Authenticating and Reading Secrets With HashiCorp Vault](../examples/authenticating-with-hashicorp-vault/index.md) tutorial.
 
 You can also specify some attributes for the resulting Vault tokens, such as time-to-live,
 IP address range, and number of uses. The full list of options is available in
-[Vault's documentation on creating roles](https://www.vaultproject.io/api/auth/jwt#create-role)
+[Vault's documentation on creating roles](https://developer.hashicorp.com/vault/api-docs/auth/jwt#create-role)
 for the JSON web token method.
 
 ## Using a self-signed Vault server
 
-When the Vault server is using a self-signed certificate, you will see the following error in the job logs:
+When the Vault server is using a self-signed certificate, you see the following error in the job logs:
 
 ```plaintext
 ERROR: Job failed (system failure): resolving secrets: initializing Vault service: preparing authenticated client: checking Vault server health: Get https://vault.example.com:8000/v1/sys/health?drsecondarycode=299&performancestandbycode=299&sealedcode=299&standbycode=299&uninitcode=299: x509: certificate signed by unknown authority
@@ -197,7 +248,7 @@ ERROR: Job failed (system failure): resolving secrets: initializing Vault servic
 You have two options to solve this error:
 
 - Add the self-signed certificate to the GitLab Runner server's CA store.
-  If you deployed GitLab Runner using the [Helm chart](https://docs.gitlab.com/runner/install/kubernetes.html), you will have to create your own GitLab Runner image.
+  If you deployed GitLab Runner using the [Helm chart](https://docs.gitlab.com/runner/install/kubernetes.html), you have to create your own GitLab Runner image.
 - Use the `VAULT_CACERT` environment variable to configure GitLab Runner to trust the certificate:
   - If you are using systemd to manage GitLab Runner, see [how to add an environment variable for GitLab Runner](https://docs.gitlab.com/runner/configuration/init.html#setting-custom-environment-variables).
   - If you deployed GitLab Runner using the [Helm chart](https://docs.gitlab.com/runner/install/kubernetes.html):
@@ -214,3 +265,24 @@ You have two options to solve this error:
          - name: VAULT_CACERT
            value: "/home/gitlab-runner/.gitlab-runner/certs/<VAULT_CERTIFICATE>"
        ```
+
+## Troubleshooting
+
+### `resolving secrets: secret not found: MY_SECRET` error
+
+When GitLab is unable to find the secret in the vault, you might receive this error:
+
+```plaintext
+ERROR: Job failed (system failure): resolving secrets: secret not found: MY_SECRET
+```
+
+Check that the `vault` value is [correctly configured in the CI/CD job](#use-vault-secrets-in-a-ci-job).
+
+You can use the [`kv` command with the Vault CLI](https://developer.hashicorp.com/vault/docs/commands/kv)
+to check if the secret is retrievable to help determine the syntax for the `vault`
+value in your CI/CD configuration. For example, to retrieve the secret:
+
+```shell
+$ vault kv get -field=password -namespace=admin -mount=ops "production/db"
+this-is-a-password
+```

@@ -12,7 +12,7 @@ module Gitlab
       InvalidConfigurationError = Class.new(StandardError)
 
       INVALID_STORAGE_MESSAGE = <<~MSG
-        Storage is invalid because it has no `path` key.
+        Storage is invalid because it has no `gitaly_address` key.
 
         For source installations, update your config/gitlab.yml Refer to gitlab.yml.example for an updated example.
         If you're using the GitLab Development Kit, you can update your configuration running `gdk reconfigure`.
@@ -31,28 +31,22 @@ module Gitlab
       end
 
       def self.disk_access_denied?
-        return false if rugged_enabled?
-
         !temporarily_allowed?(ALLOW_KEY)
       rescue StandardError
         false # Err on the side of caution, don't break gitlab for people
       end
 
-      def self.rugged_enabled?
-        Gitlab::Git::RuggedImpl::Repository::FEATURE_FLAGS.any? do |flag|
-          Feature.enabled?(flag)
-        end
-      end
-
       def initialize(storage)
         raise InvalidConfigurationError, "expected a Hash, got a #{storage.class.name}" unless storage.is_a?(Hash)
-        raise InvalidConfigurationError, INVALID_STORAGE_MESSAGE unless storage.has_key?('path')
+
+        @hash = ActiveSupport::HashWithIndifferentAccess.new(storage)
+
+        raise InvalidConfigurationError, INVALID_STORAGE_MESSAGE unless @hash.has_key?('gitaly_address')
 
         # Support a nil 'path' field because some of the circuit breaker tests use it.
-        @legacy_disk_path = File.expand_path(storage['path'], Rails.root) if storage['path']
+        @legacy_disk_path = File.expand_path(@hash['path'], Rails.root) if @hash['path'] && @hash['path'] != Deprecated
 
-        storage['path'] = Deprecated
-        @hash = ActiveSupport::HashWithIndifferentAccess.new(storage)
+        @hash['path'] = Deprecated
       end
 
       def gitaly_address

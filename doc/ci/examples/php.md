@@ -1,11 +1,14 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: tutorial
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Testing PHP projects **(FREE)**
+# Testing PHP projects
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This guide covers basic building instructions for PHP projects.
 
@@ -90,12 +93,12 @@ Finally, commit your files and push them to GitLab to see your build succeeding
 The final `.gitlab-ci.yml` should look similar to this:
 
 ```yaml
-# Select image from https://hub.docker.com/_/php
-image: php:5.6
-
-before_script:
-  # Install dependencies
-  - bash ci/docker_install.sh > /dev/null
+default:
+  # Select image from https://hub.docker.com/_/php
+  image: php:5.6
+  before_script:
+    # Install dependencies
+    - bash ci/docker_install.sh > /dev/null
 
 test:app:
   script:
@@ -108,9 +111,10 @@ Testing against multiple versions of PHP is super easy. Just add another job
 with a different Docker image version and the runner does the rest:
 
 ```yaml
-before_script:
-  # Install dependencies
-  - bash ci/docker_install.sh > /dev/null
+default:
+  before_script:
+    # Install dependencies
+    - bash ci/docker_install.sh > /dev/null
 
 # We test PHP5.6
 test:5.6:
@@ -176,7 +180,7 @@ Using phpenv also allows to easily configure the PHP environment with:
 phpenv config-add my_config.ini
 ```
 
-*__Important note:__ It seems `phpenv/phpenv`
+**Important note:** It seems `phpenv/phpenv`
  [is abandoned](https://github.com/phpenv/phpenv/issues/57). There is a fork
  at [`madumlao/phpenv`](https://github.com/madumlao/phpenv) that tries to bring
  the project back to life. [`CHH/phpenv`](https://github.com/CHH/phpenv) also
@@ -189,7 +193,7 @@ phpenv config-add my_config.ini
 Since this is a pretty bare installation of the PHP environment, you may need
 some extensions that are not currently present on the build machine.
 
-To install additional extensions simply execute:
+To install additional extensions, execute:
 
 ```shell
 pecl install <extension>
@@ -206,10 +210,9 @@ Instead of PHPUnit, you can use any other tool to run unit tests. For example
 you can use [`atoum`](https://github.com/atoum/atoum):
 
 ```yaml
-before_script:
-  - wget http://downloads.atoum.org/nightly/mageekguy.atoum.phar
-
 test:atoum:
+  before_script:
+    - wget http://downloads.atoum.org/nightly/mageekguy.atoum.phar
   script:
     - php mageekguy.atoum.phar
 ```
@@ -224,18 +227,18 @@ To execute Composer before running your tests, add the following to your
 # Composer stores all downloaded packages in the vendor/ directory.
 # Do not use the following if the vendor/ directory is committed to
 # your git repository.
-cache:
-  paths:
-    - vendor/
-
-before_script:
-  # Install composer dependencies
-  - wget https://composer.github.io/installer.sig -O - -q | tr -d '\n' > installer.sig
-  - php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-  - php -r "if (hash_file('SHA384', 'composer-setup.php') === file_get_contents('installer.sig')) { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
-  - php composer-setup.php
-  - php -r "unlink('composer-setup.php'); unlink('installer.sig');"
-  - php composer.phar install
+default:
+  cache:
+    paths:
+      - vendor/
+  before_script:
+    # Install composer dependencies
+    - wget https://composer.github.io/installer.sig -O - -q | tr -d '\n' > installer.sig
+    - php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+    - php -r "if (hash_file('SHA384', 'composer-setup.php') === file_get_contents('installer.sig')) { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
+    - php composer-setup.php
+    - php -r "unlink('composer-setup.php'); unlink('installer.sig');"
+    - php composer.phar install
 ```
 
 ## Access private packages or dependencies
@@ -246,7 +249,7 @@ the [SSH keys](../ssh_keys/index.md) to be able to clone it.
 ## Use databases or other services
 
 Most of the time, you need a running database for your tests to be able to
-run. If you're using the Docker executor, you can leverage Docker's ability to
+run. If you're using the Docker executor, you can leverage Docker to
 link to other containers. With GitLab Runner, this can be achieved by defining
 a `service`.
 
@@ -270,7 +273,7 @@ gitlab-runner exec shell test:app
 
 We have set up an [Example PHP Project](https://gitlab.com/gitlab-examples/php) for your convenience
 that runs on [GitLab.com](https://gitlab.com) using our publicly available
-[shared runners](../runners/index.md).
+[instance runners](../runners/index.md).
 
-Want to hack on it? Simply fork it, commit, and push your changes. Within a few
+Want to hack on it? Fork it, commit, and push your changes. Within a few
 moments the changes are picked by a public runner and the job begins.

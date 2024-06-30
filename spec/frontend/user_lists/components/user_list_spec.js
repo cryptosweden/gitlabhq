@@ -2,12 +2,13 @@ import { GlAlert, GlEmptyState, GlLoadingIcon } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import { uniq } from 'lodash';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import Api from '~/api';
 import UserList from '~/user_lists/components/user_list.vue';
 import createStore from '~/user_lists/store/show';
 import { parseUserIds, stringifyUserIds } from '~/user_lists/store/utils';
-import { userList } from '../../feature_flags/mock_data';
+import { userList } from 'jest/feature_flags/mock_data';
 
 jest.mock('~/api');
 
@@ -50,7 +51,7 @@ describe('User List', () => {
     });
 
     it('shows a loading icon', () => {
-      expect(wrapper.find(GlLoadingIcon).exists()).toBe(true);
+      expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
     });
   });
 
@@ -157,7 +158,7 @@ describe('User List', () => {
   });
 
   describe('error', () => {
-    const findAlert = () => wrapper.find(GlAlert);
+    const findAlert = () => wrapper.findComponent(GlAlert);
 
     beforeEach(async () => {
       Api.fetchFeatureFlagUserList.mockRejectedValue();
@@ -168,7 +169,7 @@ describe('User List', () => {
 
     it('displays the alert message', () => {
       const alert = findAlert();
-      expect(alert.text()).toBe('Something went wrong on our end. Please try again!');
+      expect(alert.text()).toBe('Unable to load user list. Reload the page and try again.');
     });
 
     it('can dismiss the alert', async () => {
@@ -190,7 +191,7 @@ describe('User List', () => {
     });
 
     it('displays an empty state', () => {
-      expect(wrapper.find(GlEmptyState).exists()).toBe(true);
+      expect(wrapper.findComponent(GlEmptyState).exists()).toBe(true);
     });
   });
 });

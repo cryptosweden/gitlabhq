@@ -3,86 +3,117 @@
 module ServicePing
   class SubmitService
     PRODUCTION_BASE_URL = 'https://version.gitlab.com'
-    STAGING_BASE_URL = 'https://gitlab-services-version-gitlab-com-staging.gs-staging.gitlab.org'
+    STAGING_BASE_URL = 'https://gitlab-org-gitlab-services-version-gitlab-com-staging.version-staging.gitlab.org'
     USAGE_DATA_PATH = 'usage_data'
     ERROR_PATH = 'usage_ping_errors'
+    METADATA_PATH = 'usage_ping_metadata'
 
     SubmissionError = Class.new(StandardError)
 
-    def initialize(skip_db_write: false)
-      @skip_db_write = skip_db_write
+    def initialize(payload: nil)
+      @payload = payload
     end
 
     def execute
-      return unless ServicePing::ServicePingSettings.product_intelligence_enabled?
+      return unless ServicePing::ServicePingSettings.enabled_and_consented?
 
-      start = Time.current
+      start_time = Time.current
+
       begin
-        usage_data = BuildPayloadService.new.execute
-        response = submit_usage_data_payload(usage_data)
+        response = submit_usage_data_payload
+
+        raise SubmissionError, "Unsuccessful response code: #{response.code}" unless response.success?
+
+        handle_response(response)
+        submit_metadata_payload
       rescue StandardError => e
-        return unless Gitlab::CurrentSettings.usage_ping_enabled?
+        submit_error_payload(e, start_time)
 
-        error_payload = {
-          time: Time.current,
-          uuid: Gitlab::UsageData.add_metric('UuidMetric'),
-          hostname: Gitlab::UsageData.add_metric('HostnameMetric'),
-          version: Gitlab::UsageData.alt_usage_data { Gitlab::VERSION },
-          message: e.message,
-          elapsed: (Time.current - start).round(1)
-        }
-        submit_payload({ error: error_payload }, url: error_url)
-
-        usage_data = Gitlab::Usage::ServicePingReport.for(output: :all_metrics_values)
-        response = submit_usage_data_payload(usage_data)
+        raise
       end
-
-      version_usage_data_id = response.dig('conv_index', 'usage_data_id') || response.dig('dev_ops_score', 'usage_data_id')
-
-      unless version_usage_data_id.is_a?(Integer) && version_usage_data_id > 0
-        raise SubmissionError, "Invalid usage_data_id in response: #{version_usage_data_id}"
-      end
-
-      unless @skip_db_write
-        raw_usage_data = save_raw_usage_data(usage_data)
-        raw_usage_data.update_version_metadata!(usage_data_id: version_usage_data_id)
-        DevopsReportService.new(response).execute
-      end
-    end
-
-    def url
-      URI.join(base_url, USAGE_DATA_PATH)
-    end
-
-    def error_url
-      URI.join(base_url, ERROR_PATH)
     end
 
     private
 
-    def submit_payload(payload, url: self.url)
+    attr_reader :payload
+
+    def metadata(service_ping_payload)
+      {
+        metadata: {
+          uuid: service_ping_payload[:uuid],
+          metrics: metrics_collection_metadata(service_ping_payload)
+        }
+      }
+    end
+
+    def metrics_collection_metadata(payload, parents = [])
+      return [] unless payload.is_a?(Hash)
+
+      payload.flat_map do |key, metric_value|
+        key_path = parents.dup.append(key)
+        if metric_value.respond_to?(:duration)
+          { name: key_path.join('.'), time_elapsed: metric_value.duration, error: metric_value.error }.compact
+        else
+          metrics_collection_metadata(metric_value, key_path)
+        end
+      end
+    end
+
+    def submit_payload(payload, path: USAGE_DATA_PATH)
       Gitlab::HTTP.post(
-        url,
-        body: payload.to_json,
+        URI.join(base_url, path),
+        body: Gitlab::Json.dump(payload),
         allow_local_requests: true,
         headers: { 'Content-type' => 'application/json' }
       )
     end
 
-    def submit_usage_data_payload(usage_data)
-      raise SubmissionError, 'Usage data is blank' if usage_data.blank?
+    def submit_usage_data_payload
+      raise SubmissionError, 'Usage data payload is blank' if payload.blank?
 
-      response = submit_payload(usage_data)
+      submit_payload(payload)
+    end
 
-      raise SubmissionError, "Unsuccessful response code: #{response.code}" unless response.success?
+    def handle_response(response)
+      version_usage_data_id =
+        response.dig('conv_index', 'usage_data_id') || response.dig('dev_ops_score', 'usage_data_id')
 
-      response
+      unless version_usage_data_id.is_a?(Integer) && version_usage_data_id > 0
+        raise SubmissionError, "Invalid usage_data_id in response: #{version_usage_data_id}"
+      end
+
+      raw_usage_data = save_raw_usage_data(payload)
+      raw_usage_data.update_version_metadata!(usage_data_id: version_usage_data_id)
+      ServicePing::DevopsReport.new(response).execute
+    end
+
+    def submit_error_payload(error, start_time)
+      current_time = Time.current
+      error_payload = {
+        time: current_time,
+        uuid: Gitlab::CurrentSettings.uuid,
+        hostname: Gitlab.config.gitlab.host,
+        version: Gitlab.version_info.to_s,
+        message: "#{error.message.presence || error.class} at #{error.backtrace[0]}",
+        elapsed: (current_time - start_time).round(1)
+      }
+
+      submit_payload({ error: error_payload }, path: ERROR_PATH)
+    end
+
+    def submit_metadata_payload
+      submit_payload(metadata(payload), path: METADATA_PATH)
     end
 
     def save_raw_usage_data(usage_data)
-      RawUsageData.safe_find_or_create_by(recorded_at: usage_data[:recorded_at]) do |record|
+      # safe_find_or_create_by! was originally called here.
+      # We merely switched to `find_or_create_by!`
+      # rubocop: disable CodeReuse/ActiveRecord
+      RawUsageData.find_or_create_by(recorded_at: usage_data[:recorded_at]) do |record|
         record.payload = usage_data
+        record.organization_id = Organizations::Organization::DEFAULT_ORGANIZATION_ID
       end
+      # rubocop: enable CodeReuse/ActiveRecord
     end
 
     # See https://gitlab.com/gitlab-org/gitlab/-/issues/233615 for details

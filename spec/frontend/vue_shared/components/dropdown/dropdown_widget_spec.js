@@ -1,14 +1,14 @@
 import { GlDropdown, GlSearchBoxByType, GlDropdownItem } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
-
 import { nextTick } from 'vue';
 import DropdownWidget from '~/vue_shared/components/dropdown/dropdown_widget/dropdown_widget.vue';
+import { stubComponent, RENDER_ALL_SLOTS_TEMPLATE } from 'helpers/stub_component';
 
 describe('DropdownWidget component', () => {
   let wrapper;
 
   const findDropdown = () => wrapper.findComponent(GlDropdown);
-  const findDropdownItems = () => wrapper.findAll(GlDropdownItem);
+  const findDropdownItems = () => wrapper.findAllComponents(GlDropdownItem);
   const findSearch = () => wrapper.findComponent(GlSearchBoxByType);
 
   const createComponent = ({ props = {} } = {}) => {
@@ -27,24 +27,18 @@ describe('DropdownWidget component', () => {
         ...props,
       },
       stubs: {
-        GlDropdown,
+        GlDropdown: stubComponent(GlDropdown, {
+          methods: {
+            hide: jest.fn(),
+          },
+          template: RENDER_ALL_SLOTS_TEMPLATE,
+        }),
       },
     });
-
-    // We need to mock out `showDropdown` which
-    // invokes `show` method of BDropdown used inside GlDropdown.
-    // Context: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/54895#note_524281679
-    jest.spyOn(wrapper.vm, 'showDropdown').mockImplementation();
-    jest.spyOn(findDropdown().vm, 'hide').mockImplementation();
   };
 
   beforeEach(() => {
     createComponent();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
   });
 
   it('passes default selectText prop to dropdown', () => {
@@ -64,7 +58,7 @@ describe('DropdownWidget component', () => {
       expect(wrapper.emitted('set-search')).toEqual([[searchTerm]]);
     });
 
-    it('renders one selectable item per passed option', async () => {
+    it('renders one selectable item per passed option', () => {
       expect(findDropdownItems()).toHaveLength(2);
     });
 

@@ -1,5 +1,6 @@
 <script>
 import { GlAlert, GlButton } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 
 import { EVT_EXPAND_ALL_FILES } from '../constants';
@@ -55,7 +56,7 @@ export default {
         {{ __('For a faster browsing experience, some files are collapsed by default.') }}
       </p>
       <template #actions>
-        <gl-button category="secondary" variant="warning" class="gl-alert-action" @click="expand">
+        <gl-button class="gl-alert-action" @click="expand">
           {{ __('Expand all files') }}
         </gl-button>
       </template>

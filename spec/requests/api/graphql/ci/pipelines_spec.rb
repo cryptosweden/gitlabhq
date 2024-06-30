@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query.project(fullPath).pipelines' do
+RSpec.describe 'Query.project(fullPath).pipelines', feature_category: :continuous_integration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :repository, :public) }
@@ -66,10 +66,7 @@ RSpec.describe 'Query.project(fullPath).pipelines' do
         created_at: 1.minute.ago,
         started_at: 55.seconds.ago
       )
-      create(:ci_build, :success,
-             pipeline: pipeline,
-             started_at: 55.seconds.ago,
-             finished_at: 10.seconds.ago)
+      create(:ci_build, :success, pipeline: pipeline, started_at: 55.seconds.ago, finished_at: 10.seconds.ago)
       pipeline.update_duration
       pipeline.save!
 
@@ -86,8 +83,8 @@ RSpec.describe 'Query.project(fullPath).pipelines' do
   describe '.stages' do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:pipeline) { create(:ci_empty_pipeline, project: project) }
-    let_it_be(:stage) { create(:ci_stage_entity, pipeline: pipeline, project: project) }
-    let_it_be(:other_stage) { create(:ci_stage_entity, pipeline: pipeline, project: project, name: 'other') }
+    let_it_be(:stage) { create(:ci_stage, pipeline: pipeline, project: project) }
+    let_it_be(:other_stage) { create(:ci_stage, pipeline: pipeline, project: project, name: 'other') }
 
     let(:first_n) { var('Int') }
     let(:query_path) do
@@ -163,6 +160,35 @@ RSpec.describe 'Query.project(fullPath).pipelines' do
         expect(graphql_data_at(:project, :pipelines, :nodes, :stages, :nodes, :groups, :nodes, :name))
           .to contain_exactly('linux', 'linux')
       end
+    end
+  end
+
+  describe '.job' do
+    let(:first_n) { var('Int') }
+    let(:query_path) do
+      [
+        [:project, { full_path: project.full_path }],
+        [:pipelines],
+        [:nodes],
+        [:job, { name: 'Job 1' }]
+      ]
+    end
+
+    let(:query) do
+      wrap_fields(query_graphql_path(query_path, :status))
+    end
+
+    before_all do
+      pipeline = create(:ci_pipeline, project: project)
+      create(:ci_build, pipeline: pipeline, name: 'Job 1', status: :failed, retried: true)
+      create(:ci_build, pipeline: pipeline, name: 'Job 1', status: :success)
+    end
+
+    it 'fetches the latest job with the given name' do
+      post_graphql(query, current_user: user)
+      expect(graphql_data_at(*query_path.map(&:first))).to contain_exactly a_hash_including(
+        'status' => 'SUCCESS'
+      )
     end
   end
 
@@ -390,7 +416,7 @@ RSpec.describe 'Query.project(fullPath).pipelines' do
     end
 
     before do
-      create(:ci_sources_pipeline, source_pipeline: upstream_pipeline, pipeline: pipeline )
+      create(:ci_sources_pipeline, source_pipeline: upstream_pipeline, pipeline: pipeline)
 
       post_graphql(query, current_user: user)
     end
@@ -412,10 +438,10 @@ RSpec.describe 'Query.project(fullPath).pipelines' do
 
         pipeline_2 = create(:ci_pipeline, project: project, user: user)
         upstream_pipeline_2 = create(:ci_pipeline, project: upstream_project, user: user)
-        create(:ci_sources_pipeline, source_pipeline: upstream_pipeline_2, pipeline: pipeline_2 )
+        create(:ci_sources_pipeline, source_pipeline: upstream_pipeline_2, pipeline: pipeline_2)
         pipeline_3 = create(:ci_pipeline, project: project, user: user)
         upstream_pipeline_3 = create(:ci_pipeline, project: upstream_project, user: user)
-        create(:ci_sources_pipeline, source_pipeline: upstream_pipeline_3, pipeline: pipeline_3 )
+        create(:ci_sources_pipeline, source_pipeline: upstream_pipeline_3, pipeline: pipeline_3)
 
         expect do
           post_graphql(query, current_user: second_user)

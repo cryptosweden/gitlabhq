@@ -28,9 +28,7 @@ RSpec.describe LfsObject do
     lfs_object = create(:lfs_object)
     project = create(:project)
     [:project, :design].each do |repository_type|
-      create(:lfs_objects_project, project: project,
-                                   lfs_object: lfs_object,
-                                   repository_type: repository_type)
+      create(:lfs_objects_project, project: project, lfs_object: lfs_object, repository_type: repository_type)
     end
 
     expect(lfs_object.lfs_objects_projects.size).to eq(2)
@@ -92,64 +90,12 @@ RSpec.describe LfsObject do
     end
   end
 
-  describe '#schedule_background_upload' do
+  describe 'storage types' do
     before do
       stub_lfs_setting(enabled: true)
     end
 
     subject { create(:lfs_object, :with_file) }
-
-    context 'when object storage is disabled' do
-      before do
-        stub_lfs_object_storage(enabled: false)
-      end
-
-      it 'does not schedule the migration' do
-        expect(ObjectStorage::BackgroundMoveWorker).not_to receive(:perform_async)
-
-        subject
-      end
-    end
-
-    context 'when object storage is enabled' do
-      context 'when background upload is enabled' do
-        context 'when is licensed' do
-          before do
-            stub_lfs_object_storage(background_upload: true)
-          end
-
-          it 'schedules the model for migration' do
-            expect(ObjectStorage::BackgroundMoveWorker)
-              .to receive(:perform_async)
-              .with('LfsObjectUploader', described_class.name, :file, kind_of(Numeric))
-              .once
-
-            subject
-          end
-
-          it 'schedules the model for migration once' do
-            expect(ObjectStorage::BackgroundMoveWorker)
-              .to receive(:perform_async)
-              .with('LfsObjectUploader', described_class.name, :file, kind_of(Numeric))
-              .once
-
-            create(:lfs_object, :with_file)
-          end
-        end
-      end
-
-      context 'when background upload is disabled' do
-        before do
-          stub_lfs_object_storage(background_upload: false)
-        end
-
-        it 'schedules the model for migration' do
-          expect(ObjectStorage::BackgroundMoveWorker).not_to receive(:perform_async)
-
-          subject
-        end
-      end
-    end
 
     describe 'file is being stored' do
       subject { create(:lfs_object, :with_file) }
@@ -193,9 +139,9 @@ RSpec.describe LfsObject do
   end
 
   describe '.unreferenced_in_batches' do
-    let!(:unreferenced_lfs_object1) { create(:lfs_object, oid: '1') }
+    let!(:unreferenced_lfs_object1) { create(:lfs_object, oid: '1' * 64) }
     let!(:referenced_lfs_object) { create(:lfs_objects_project).lfs_object }
-    let!(:unreferenced_lfs_object2) { create(:lfs_object, oid: '2') }
+    let!(:unreferenced_lfs_object2) { create(:lfs_object, oid: '2' * 64) }
 
     it 'returns lfs objects in batches' do
       stub_const('LfsObject::BATCH_SIZE', 1)

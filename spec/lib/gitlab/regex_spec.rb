@@ -1,8 +1,13 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
-RSpec.describe Gitlab::Regex do
+require_relative '../../../lib/gitlab/regex'
+require_relative '../../support/shared_examples/lib/gitlab/regex_shared_examples'
+
+# All specs that can be run with fast_spec_helper only
+# See regex_requires_app_spec for tests that require the full spec_helper
+RSpec.describe Gitlab::Regex, feature_category: :tooling do
   shared_examples_for 'project/group name chars regex' do
     it { is_expected.to match('gitlab-ce') }
     it { is_expected.to match('GitLab CE') }
@@ -16,6 +21,7 @@ RSpec.describe Gitlab::Regex do
     it_behaves_like 'project/group name chars regex'
     it { is_expected.not_to match('?gitlab') }
     it { is_expected.not_to match("Users's something") }
+    it { is_expected.not_to match('users/something') }
   end
 
   shared_examples_for 'project name regex' do
@@ -23,6 +29,7 @@ RSpec.describe Gitlab::Regex do
     it { is_expected.to match("Gitlab++") }
     it { is_expected.not_to match('?gitlab') }
     it { is_expected.not_to match("Users's something") }
+    it { is_expected.not_to match('users/something') }
   end
 
   describe '.project_name_regex' do
@@ -58,13 +65,27 @@ RSpec.describe Gitlab::Regex do
   describe '.project_name_regex_message' do
     subject { described_class.project_name_regex_message }
 
-    it { is_expected.to eq("can contain only letters, digits, emojis, '_', '.', '+', dashes, or spaces. It must start with a letter, digit, emoji, or '_'.") }
+    it { is_expected.to eq("can contain only letters, digits, emoji, '_', '.', '+', dashes, or spaces. It must start with a letter, digit, emoji, or '_'.") }
   end
 
   describe '.group_name_regex_message' do
     subject { described_class.group_name_regex_message }
 
-    it { is_expected.to eq("can contain only letters, digits, emojis, '_', '.', dash, space, parenthesis. It must start with letter, digit, emoji or '_'.") }
+    it { is_expected.to eq("can contain only letters, digits, emoji, '_', '.', dash, space, parenthesis. It must start with letter, digit, emoji or '_'.") }
+  end
+
+  describe '.slack_link_regex' do
+    subject { described_class.slack_link_regex }
+
+    it { is_expected.not_to match('http://custom-url.com|click here') }
+    it { is_expected.not_to match('custom-url.com|any-Charact3r$') }
+    it { is_expected.not_to match("&lt;custom-url.com|any-Charact3r$&gt;") }
+    it { is_expected.not_to match('<<|' * 1000) }
+
+    it { is_expected.to match('<http://custom-url.com|click here>') }
+    it { is_expected.to match('<custom-url.com|any-Charact3r$>') }
+    it { is_expected.to match('<any-Charact3r$|any-Charact3r$>') }
+    it { is_expected.to match(('<<|' * 1000) + '<https://gitlab.example|click here>') }
   end
 
   describe '.environment_name_regex' do
@@ -139,23 +160,7 @@ RSpec.describe Gitlab::Regex do
   describe '.container_repository_name_regex' do
     subject { described_class.container_repository_name_regex }
 
-    it { is_expected.to match('image') }
-    it { is_expected.to match('my/image') }
-    it { is_expected.to match('my/awesome/image-1') }
-    it { is_expected.to match('my/awesome/image.test') }
-    it { is_expected.to match('my/awesome/image--test') }
-    it { is_expected.to match('my/image__test') }
-    # this example tests for catastrophic backtracking
-    it { is_expected.to match('user1/project/a_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb------------x') }
-    it { is_expected.not_to match('user1/project/a_bbbbb-------------') }
-    it { is_expected.not_to match('my/image-.test') }
-    it { is_expected.not_to match('my/image___test') }
-    it { is_expected.not_to match('my/image_.test') }
-    it { is_expected.not_to match('my/image_-test') }
-    it { is_expected.not_to match('my/image..test') }
-    it { is_expected.not_to match('my/image\ntest') }
-    it { is_expected.not_to match('.my/image') }
-    it { is_expected.not_to match('my/image.') }
+    it_behaves_like 'container repository name regex'
   end
 
   describe '.aws_account_id_regex' do
@@ -266,7 +271,7 @@ RSpec.describe Gitlab::Regex do
 
   context 'conan recipe components' do
     shared_examples 'accepting valid recipe components values' do
-      let(:fifty_one_characters) { 'f_a' * 17}
+      let(:fifty_one_characters) { 'f_a' * 17 }
 
       it { is_expected.to match('foobar') }
       it { is_expected.to match('foo_bar') }
@@ -316,7 +321,7 @@ RSpec.describe Gitlab::Regex do
 
     it 'has no backtracking issue' do
       Timeout.timeout(1) do
-        expect(subject).not_to match("-" * 50000 + ";")
+        expect(subject).not_to match(("-" * 50000) + ";")
       end
     end
   end
@@ -366,16 +371,16 @@ RSpec.describe Gitlab::Regex do
 
     it 'has no ReDos issues with long strings ending with an exclamation mark' do
       Timeout.timeout(5) do
-        expect(subject).not_to match('a' * 50000 + '!')
+        expect(subject).not_to match(('a' * 50000) + '!')
       end
     end
 
-    it { is_expected.to match('0')}
+    it { is_expected.to match('0') }
     it { is_expected.to match('1') }
     it { is_expected.to match('03') }
     it { is_expected.to match('2.0') }
     it { is_expected.to match('01.2') }
-    it { is_expected.to match('10.2.3-beta')}
+    it { is_expected.to match('10.2.3-beta') }
     it { is_expected.to match('1.2-SNAPSHOT') }
     it { is_expected.to match('20') }
     it { is_expected.to match('20.3') }
@@ -399,35 +404,6 @@ RSpec.describe Gitlab::Regex do
     it { is_expected.not_to match('1.2.3-4%2e%2e%') }
     it { is_expected.not_to match('../../../../../1.2.3') }
     it { is_expected.not_to match('%2e%2e%2f1.2.3') }
-  end
-
-  describe '.npm_package_name_regex' do
-    subject { described_class.npm_package_name_regex }
-
-    it { is_expected.to match('@scope/package') }
-    it { is_expected.to match('unscoped-package') }
-    it { is_expected.not_to match('@first-scope@second-scope/package') }
-    it { is_expected.not_to match('scope-without-at-symbol/package') }
-    it { is_expected.not_to match('@not-a-scoped-package') }
-    it { is_expected.not_to match('@scope/sub/package') }
-    it { is_expected.not_to match('@scope/../../package') }
-    it { is_expected.not_to match('@scope%2e%2e%2fpackage') }
-    it { is_expected.not_to match('@%2e%2e%2f/package') }
-
-    context 'capturing group' do
-      [
-        ['@scope/package', 'scope'],
-        ['unscoped-package', nil],
-        ['@not-a-scoped-package', nil],
-        ['@scope/sub/package', nil],
-        ['@inv@lid-scope/package', nil]
-      ].each do |package_name, extracted_scope_name|
-        it "extracts the scope name for #{package_name}" do
-          match = package_name.match(described_class.npm_package_name_regex)
-          expect(match&.captures&.first).to eq(extracted_scope_name)
-        end
-      end
-    end
   end
 
   describe '.nuget_version_regex' do
@@ -479,7 +455,7 @@ RSpec.describe Gitlab::Regex do
 
     it { is_expected.to match('0.1') }
     it { is_expected.to match('2.0') }
-    it { is_expected.to match('1.2.0')}
+    it { is_expected.to match('1.2.0') }
     it { is_expected.to match('0100!0.0') }
     it { is_expected.to match('00!1.2') }
     it { is_expected.to match('1.0a') }
@@ -568,6 +544,8 @@ RSpec.describe Gitlab::Regex do
     it { is_expected.not_to match('aA') }
     # No underscore
     it { is_expected.not_to match('a_b') }
+
+    it_behaves_like 'regex rejecting path traversal'
   end
 
   describe '.debian_version_regex' do
@@ -577,6 +555,7 @@ RSpec.describe Gitlab::Regex do
       it { is_expected.to match('1.0') }
       it { is_expected.to match('1.0~alpha1') }
       it { is_expected.to match('2:4.9.5+dfsg-5+deb10u1') }
+      it { is_expected.to match('0.0.0-806aa143-f0bf-4f27-be65-8e4fcb745f37') }
     end
 
     context 'dpkg errors' do
@@ -595,8 +574,7 @@ RSpec.describe Gitlab::Regex do
       # nothing after colon in version number
       it { is_expected.not_to match('2:') }
       # revision number is empty
-      # Note: we are less strict here
-      # it { is_expected.not_to match('1.0-') }
+      it { is_expected.not_to match('1.0-') }
       # version number is empty
       it { is_expected.not_to match('-1') }
       it { is_expected.not_to match('2:-1') }
@@ -618,61 +596,34 @@ RSpec.describe Gitlab::Regex do
       it { is_expected.not_to match('1.0 ') }
       # dpkg accepts multiple colons
       it { is_expected.not_to match('1:2:3') }
+      # we limit the number of dashes
+      it { is_expected.to match('1-2-3-4-5-6-7-8-9-10-11-12-13-14-15') }
+      it { is_expected.not_to match('1-2-3-4-5-6-7-8-9-10-11-12-13-14-15-16') }
+    end
+
+    context 'path traversals' do
+      it { is_expected.not_to match('1../0') }
+      it { is_expected.not_to match('1..%2f0') }
+      it { is_expected.not_to match('1%2e%2e%2f0') }
+      it { is_expected.not_to match('1%2e%2e/0') }
     end
   end
 
-  describe '.debian_architecture_regex' do
-    subject { described_class.debian_architecture_regex }
+  describe '.debian_direct_upload_filename_regex' do
+    subject { described_class.debian_direct_upload_filename_regex }
 
-    it { is_expected.to match('amd64') }
-    it { is_expected.to match('kfreebsd-i386') }
+    it { is_expected.to match('libsample0_1.2.3~alpha2_amd64.deb') }
+    it { is_expected.to match('sample-dev_1.2.3~binary_amd64.deb') }
+    it { is_expected.to match('sample-udeb_1.2.3~alpha2_amd64.udeb') }
+    it { is_expected.to match('sample-ddeb_1.2.3~alpha2_amd64.ddeb') }
 
-    # may not be empty string
-    it { is_expected.not_to match('') }
-    # must start with an alphanumeric
-    it { is_expected.not_to match('-a') }
-    it { is_expected.not_to match('+a') }
-    it { is_expected.not_to match('.a') }
-    it { is_expected.not_to match('_a') }
-    # only letters, digits and characters '-'
-    it { is_expected.not_to match('a+b') }
-    it { is_expected.not_to match('a.b') }
-    it { is_expected.not_to match('a_b') }
-    it { is_expected.not_to match('a~') }
-    it { is_expected.not_to match('aé') }
+    it { is_expected.not_to match('sample_1.2.3~alpha2_amd64.buildinfo') }
+    it { is_expected.not_to match('sample_1.2.3~alpha2_amd64.changes') }
+    it { is_expected.not_to match('sample_1.2.3~alpha2.dsc') }
+    it { is_expected.not_to match('sample_1.2.3~alpha2.tar.xz') }
 
-    # More strict
-    # Enforce lowercase
-    it { is_expected.not_to match('AMD64') }
-    it { is_expected.not_to match('Amd64') }
-    it { is_expected.not_to match('aMD64') }
-  end
-
-  describe '.debian_distribution_regex' do
-    subject { described_class.debian_distribution_regex }
-
-    it { is_expected.to match('buster') }
-    it { is_expected.to match('buster-updates') }
-    it { is_expected.to match('Debian10.5') }
-
-    # Do not allow slash, even if this exists in the wild
-    it { is_expected.not_to match('jessie/updates') }
-
-    # Do not allow Unicode
-    it { is_expected.not_to match('hé') }
-  end
-
-  describe '.debian_component_regex' do
-    subject { described_class.debian_component_regex }
-
-    it { is_expected.to match('main') }
-    it { is_expected.to match('non-free') }
-
-    # Do not allow slash
-    it { is_expected.not_to match('non/free') }
-
-    # Do not allow Unicode
-    it { is_expected.not_to match('hé') }
+    # ensure right anchor
+    it { is_expected.not_to match('libsample0_1.2.3~alpha2_amd64.debu') }
   end
 
   describe '.helm_channel_regex' do
@@ -747,6 +698,7 @@ RSpec.describe Gitlab::Regex do
     it { is_expected.to match('1.2.3') }
     it { is_expected.to match('1.2.3-beta') }
     it { is_expected.to match('1.2.3-alpha.3') }
+    it { is_expected.to match('1.2.3-alpha.3+abcd') }
     it { is_expected.not_to match('1') }
     it { is_expected.not_to match('1.2') }
     it { is_expected.not_to match('1./2.3') }
@@ -757,11 +709,27 @@ RSpec.describe Gitlab::Regex do
   describe '.go_package_regex' do
     subject { described_class.go_package_regex }
 
+    let(:fifty_segment_tld) { "#{Array.new(50, 'segment').join('.')}.com/path" }
+    let(:fifty_one_segment_tld) { "#{Array.new(51, 'segment').join('.')}.com/path" }
+    let(:one_thousand_character_path) { "example.com/#{'a' * 1000}" }
+    let(:one_thousand_and_one_character_path) { "example.com/#{'a' * 1001}" }
+
     it { is_expected.to match('example.com') }
     it { is_expected.to match('example.com/foo') }
+    it { is_expected.to match('example.com/foo%2Fbar') }
     it { is_expected.to match('example.com/foo/bar') }
     it { is_expected.to match('example.com/foo/bar/baz') }
     it { is_expected.to match('tl.dr.foo.bar.baz') }
+    it { is_expected.to match('(tl.dr.foo.bar.baz)') }
+    it { is_expected.to match(' tl.dr.foo.bar.baz ') }
+    it { is_expected.to match(fifty_segment_tld) }
+    it { is_expected.to match(one_thousand_character_path) }
+
+    it { is_expected.not_to match('.tl.dr.foo.bar.baz') }
+    it { is_expected.not_to match('-tl.dr.foo.bar.baz') }
+    it { is_expected.not_to match('tl.dr.foo.bar.baz.') }
+    it { is_expected.not_to match(fifty_one_segment_tld) }
+    it { is_expected.not_to match(one_thousand_and_one_character_path) }
   end
 
   describe '.unbounded_semver_regex' do
@@ -970,6 +938,34 @@ RSpec.describe Gitlab::Regex do
     it { is_expected.not_to match('/api/v4/groups/1234/packages/debian/pool/compon/a/pkg/file.name') }
   end
 
+  describe 'Packages::MAVEN_SNAPSHOT_DYNAMIC_PARTS' do
+    subject { described_class::Packages::MAVEN_SNAPSHOT_DYNAMIC_PARTS }
+
+    it { is_expected.to match('test-2.11-20230303.163304-1.jar') }
+    it { is_expected.to match('test-2.11-20230303.163304-1-javadoc.jar') }
+    it { is_expected.to match('test-2.11-20230303.163304-1-sources.jar') }
+    it { is_expected.to match('test-2.11-20230303.163304-1-20230303.163304-1.jar') }
+    it { is_expected.to match('test-2.11-20230303.163304-1-20230303.163304-1-javadoc.jar') }
+    it { is_expected.to match('test-2.11-20230303.163304-1-20230303.163304-1-sources.jar') }
+    it { is_expected.to match("#{'a' * 500}-20230303.163304-1-sources.jar") }
+    it { is_expected.to match("test-2.11-20230303.163304-1-#{'a' * 500}.jar") }
+    it { is_expected.to match("#{'a' * 500}-20230303.163304-1-#{'a' * 500}.jar") }
+
+    it { is_expected.not_to match('') }
+    it { is_expected.not_to match(nil) }
+    it { is_expected.not_to match('test') }
+    it { is_expected.not_to match('1.2.3') }
+    it { is_expected.not_to match('1.2.3-javadoc.jar') }
+    it { is_expected.not_to match('-202303039.163304-1.jar') }
+    it { is_expected.not_to match('test-2.11-202303039.163304-1.jar') }
+    it { is_expected.not_to match('test-2.11-20230303.16330-1.jar') }
+    it { is_expected.not_to match('test-2.11-202303039.163304.jar') }
+    it { is_expected.not_to match('test-2.11-202303039.163304-.jar') }
+    it { is_expected.not_to match("#{'a' * 2000}-20230303.163304-1-sources.jar") }
+    it { is_expected.not_to match("test-2.11-20230303.163304-1-#{'a' * 2000}.jar") }
+    it { is_expected.not_to match("#{'a' * 2000}-20230303.163304-1-#{'a' * 2000}.jar") }
+  end
+
   describe '.composer_package_version_regex' do
     subject { described_class.composer_package_version_regex }
 
@@ -991,18 +987,150 @@ RSpec.describe Gitlab::Regex do
     it { is_expected.not_to match('%2e%2e%2f1.2.3') }
   end
 
-  describe '.saved_reply_name_regex' do
-    subject { described_class.saved_reply_name_regex }
+  describe '.sha256_regex' do
+    subject { described_class.sha256_regex }
 
-    it { is_expected.to match('test') }
-    it { is_expected.to match('test123') }
-    it { is_expected.to match('test-test') }
-    it { is_expected.to match('test-test_0123') }
-    it { is_expected.not_to match('test test') }
-    it { is_expected.not_to match('test-') }
-    it { is_expected.not_to match('/z/test_') }
-    it { is_expected.not_to match('.xtest_') }
-    it { is_expected.not_to match('.xt.est_') }
-    it { is_expected.not_to match('0test1') }
+    it { is_expected.to match('a' * 64) }
+    it { is_expected.to match('abcdefABCDEF1234567890abcdefABCDEF1234567890abcdefABCDEF12345678') }
+    it { is_expected.not_to match('a' * 63) }
+    it { is_expected.not_to match('a' * 65) }
+    it { is_expected.not_to match(('a' * 63) + 'g') }
+    it { is_expected.not_to match(('a' * 63) + '{') }
+    it { is_expected.not_to match(('a' * 63) + '%') }
+    it { is_expected.not_to match(('a' * 63) + '*') }
+    it { is_expected.not_to match(('a' * 63) + '#') }
+    it { is_expected.not_to match('') }
+  end
+
+  describe '.sep_by_1' do
+    subject { %r{\A #{described_class.sep_by_1(/\.+/, /[abcdef]{3}/)} \z}x }
+
+    it { is_expected.to match('abc') }
+    it { is_expected.to match('abc.def') }
+    it { is_expected.to match('abc.def.caf') }
+    it { is_expected.to match('abc..def') }
+    it { is_expected.to match('abc..def..caf') }
+    it { is_expected.to match('abc...def') }
+    it { is_expected.to match('abc....def........caf') }
+    it { is_expected.to match((['abc'] * 100).join('.')) }
+
+    it { is_expected.not_to match('') }
+    it { is_expected.not_to match('a') }
+    it { is_expected.not_to match('aaaa') }
+    it { is_expected.not_to match('foo') }
+    it { is_expected.not_to match('.abc') }
+    it { is_expected.not_to match('abc.') }
+    it { is_expected.not_to match('.abc.def') }
+    it { is_expected.not_to match('abc.def.') }
+    it { is_expected.not_to match('abc.defe.caf') }
+    it { is_expected.not_to match('abc!abc') }
+    it { is_expected.not_to match((['abc'] * 100).join('.') + '!') }
+  end
+
+  describe '.x509_subject_key_identifier_regex' do
+    subject { described_class.x509_subject_key_identifier_regex }
+
+    it { is_expected.to match('AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB') }
+    it { is_expected.to match('CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD') }
+    it { is_expected.to match('79:FB:C1:E5:6B:53:8B:0A') }
+    it { is_expected.to match('79:fb:c1:e5:6b:53:8b:0a') }
+
+    it { is_expected.not_to match('') }
+    it { is_expected.not_to match('CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:GG') }
+    it { is_expected.not_to match('random string') }
+    it { is_expected.not_to match('12321342545356434523412341245452345623453542345234523453245') }
+  end
+
+  describe 'code, html blocks, or html comment blocks regex' do
+    context 'code blocks' do
+      subject { Gitlab::UntrustedRegexp.new(described_class::MARKDOWN_CODE_BLOCK_REGEX_UNTRUSTED, multiline: true) }
+
+      let(:expected) { %(```code\nsome code\n\n>>>\nthat includes a multiline-blockquote\n>>>\n```) }
+      let(:markdown) do
+        <<~MARKDOWN
+        Regular text
+
+        ```code
+        some code
+
+        >>>
+        that includes a multiline-blockquote
+        >>>
+        ```
+        MARKDOWN
+      end
+
+      it { is_expected.to match(%(```ruby\nsomething\n```)) }
+      it { is_expected.not_to match(%(must start in first column ```ruby\nsomething\n```)) }
+      it { is_expected.not_to match(%(```ruby must be multi-line ```)) }
+      it { expect(subject.match(markdown)[:code]).to eq expected }
+    end
+
+    context 'HTML blocks' do
+      subject { Gitlab::UntrustedRegexp.new(described_class::MARKDOWN_HTML_BLOCK_REGEX_UNTRUSTED, multiline: true) }
+
+      let(:expected) { %(<section>\n<p>paragraph</p>\n\n>>>\nthat includes a multiline-blockquote\n>>>\n</section>) }
+      let(:markdown) do
+        <<~MARKDOWN
+        Regular text
+
+        <section>
+        <p>paragraph</p>
+
+        >>>
+        that includes a multiline-blockquote
+        >>>
+        </section>
+        MARKDOWN
+      end
+
+      describe 'untrusted regular expression' do
+        it { is_expected.to match(%(<section>\nsomething\n</section>)) }
+        it { is_expected.not_to match(%(must start in first column <section>\nsomething\n</section>)) }
+        it { is_expected.not_to match(%(<section>must be multi-line</section>)) }
+        it { expect(subject.match(markdown)[:html]).to eq expected }
+      end
+    end
+
+    context 'HTML comment lines' do
+      subject { Gitlab::UntrustedRegexp.new(described_class::MARKDOWN_HTML_COMMENT_LINE_REGEX_UNTRUSTED, multiline: true) }
+
+      let(:expected) { [['<!-- an HTML comment -->'], ['<!-- another HTML comment -->']] }
+      let(:markdown) do
+        <<~MARKDOWN
+        Regular text
+
+        <!-- an HTML comment -->
+
+        more text
+
+        <!-- another HTML comment -->
+        MARKDOWN
+      end
+
+      it { is_expected.to match(%(<!-- single line comment -->)) }
+      it { is_expected.not_to match(%(<!--\nblock comment\n-->)) }
+      it { is_expected.not_to match(%(must start in first column <!-- comment -->)) }
+      it { expect(subject.scan(markdown)).to eq expected }
+    end
+
+    context 'HTML comment blocks' do
+      subject { Gitlab::UntrustedRegexp.new(described_class::MARKDOWN_HTML_COMMENT_BLOCK_REGEX_UNTRUSTED, multiline: true) }
+
+      let(:expected) { %(<!-- the start of an HTML comment\n- [ ] list item commented out\nmore text -->) }
+      let(:markdown) do
+        <<~MARKDOWN
+        Regular text
+
+        <!-- the start of an HTML comment
+        - [ ] list item commented out
+        more text -->
+        MARKDOWN
+      end
+
+      it { is_expected.to match(%(<!--\ncomment\n-->)) }
+      it { is_expected.not_to match(%(must start in first column <!--\ncomment\n-->)) }
+      it { expect(subject.match(markdown)[:html_comment_block]).to eq expected }
+    end
   end
 end

@@ -11,6 +11,12 @@ RSpec.describe Gitlab::UsageDataQueries do
     end
   end
 
+  describe '.with_metadata' do
+    it 'yields passed block' do
+      expect { |block| described_class.with_metadata(&block) }.to yield_with_no_args
+    end
+  end
+
   describe '.count' do
     it 'returns the raw SQL' do
       expect(described_class.count(User)).to start_with('SELECT COUNT("users"."id") FROM "users"')
@@ -34,14 +40,9 @@ RSpec.describe Gitlab::UsageDataQueries do
   describe '.redis_usage_data' do
     subject(:redis_usage_data) { described_class.redis_usage_data { 42 } }
 
-    it 'returns a class for redis_usage_data with a counter call' do
-      expect(described_class.redis_usage_data(Gitlab::UsageDataCounters::WikiPageCounter))
-        .to eq(redis_usage_data_counter: Gitlab::UsageDataCounters::WikiPageCounter)
-    end
-
-    it 'returns a stringified block for redis_usage_data with a block' do
+    it 'returns a placeholder string for redis_usage_data with a block' do
       is_expected.to include(:redis_usage_data_block)
-      expect(redis_usage_data[:redis_usage_data_block]).to start_with('#<Proc:')
+      expect(redis_usage_data[:redis_usage_data_block]).to eq('non-SQL usage data block')
     end
   end
 
@@ -53,8 +54,8 @@ RSpec.describe Gitlab::UsageDataQueries do
         .to eq(alt_usage_data_value: 1)
     end
 
-    it 'returns a stringified block for alt_usage_data with a block' do
-      expect(alt_usage_data[:alt_usage_data_block]).to start_with('#<Proc:')
+    it 'returns a placeholder string for alt_usage_data with a block' do
+      expect(alt_usage_data[:alt_usage_data_block]).to eq('non-SQL usage data block')
     end
   end
 
@@ -66,17 +67,18 @@ RSpec.describe Gitlab::UsageDataQueries do
 
   describe '.add' do
     it 'returns the combined raw SQL with an inner query' do
-      expect(described_class.add('SELECT COUNT("users"."id") FROM "users"',
-                                 'SELECT COUNT("issues"."id") FROM "issues"'))
-        .to eq('SELECT (SELECT COUNT("users"."id") FROM "users") + (SELECT COUNT("issues"."id") FROM "issues")')
+      expect(described_class.add(
+        'SELECT COUNT("users"."id") FROM "users"',
+        'SELECT COUNT("issues"."id") FROM "issues"'
+      )).to eq('SELECT (SELECT COUNT("users"."id") FROM "users") + (SELECT COUNT("issues"."id") FROM "issues")')
     end
   end
 
   describe '.histogram' do
     it 'returns the histogram sql' do
-      expect(described_class.histogram(AlertManagement::HttpIntegration.active,
-            :project_id, buckets: 1..2, bucket_size: 101))
-        .to match(/^WITH "count_cte" AS #{Gitlab::Database::AsWithMaterialized.materialized_if_supported}/)
+      expect(described_class.histogram(
+        AlertManagement::HttpIntegration.active, :project_id, buckets: 1..2, bucket_size: 101
+      )).to match(/^WITH "count_cte" AS MATERIALIZED/)
     end
   end
 

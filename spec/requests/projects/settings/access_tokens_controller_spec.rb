@@ -2,16 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::Settings::AccessTokensController do
+RSpec.describe Projects::Settings::AccessTokensController, feature_category: :system_access do
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group) }
-  let_it_be(:resource) { create(:project, group: group) }
-  let_it_be(:bot_user) { create(:user, :project_bot) }
-
-  before_all do
-    resource.add_maintainer(user)
-    resource.add_maintainer(bot_user)
-  end
+  let_it_be(:resource) { create(:project, group: group, maintainers: user) }
+  let_it_be(:access_token_user) { create(:user, :project_bot, maintainer_of: resource) }
 
   before do
     sign_in(user)
@@ -28,13 +23,24 @@ RSpec.describe Projects::Settings::AccessTokensController do
   end
 
   describe 'GET /:namespace/:project/-/settings/access_tokens' do
-    subject do
+    let(:get_access_tokens) do
       get project_settings_access_tokens_path(resource)
+      response
+    end
+
+    let(:get_access_tokens_json) do
+      get project_settings_access_tokens_path(resource), params: { format: :json }
+      response
+    end
+
+    subject(:get_access_tokens_with_page) do
+      get project_settings_access_tokens_path(resource), params: { page: 1 }
       response
     end
 
     it_behaves_like 'feature unavailable'
     it_behaves_like 'GET resource access tokens available'
+    it_behaves_like 'GET access tokens are paginated and ordered'
   end
 
   describe 'POST /:namespace/:project/-/settings/access_tokens' do
@@ -78,7 +84,7 @@ RSpec.describe Projects::Settings::AccessTokensController do
   end
 
   describe 'PUT /:namespace/:project/-/settings/access_tokens/:id', :sidekiq_inline do
-    let(:resource_access_token) { create(:personal_access_token, user: bot_user) }
+    let(:resource_access_token) { create(:personal_access_token, user: access_token_user) }
 
     subject do
       put revoke_project_settings_access_token_path(resource, resource_access_token)
@@ -87,5 +93,24 @@ RSpec.describe Projects::Settings::AccessTokensController do
 
     it_behaves_like 'feature unavailable'
     it_behaves_like 'PUT resource access tokens available'
+  end
+
+  describe '#index' do
+    let_it_be(:resource_access_tokens) { create_list(:personal_access_token, 3, user: access_token_user) }
+
+    before do
+      get project_settings_access_tokens_path(resource)
+    end
+
+    it 'includes details of the active project access tokens' do
+      active_access_tokens =
+        ::ProjectAccessTokenSerializer.new.represent(resource_access_tokens.reverse, project: resource)
+
+      expect(assigns(:active_access_tokens).to_json).to eq(active_access_tokens.to_json)
+    end
+
+    it 'sets available scopes' do
+      expect(assigns(:scopes)).to include(Gitlab::Auth::K8S_PROXY_SCOPE)
+    end
   end
 end

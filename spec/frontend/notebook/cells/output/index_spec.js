@@ -1,36 +1,40 @@
-import Vue, { nextTick } from 'vue';
+import { mount } from '@vue/test-utils';
 import json from 'test_fixtures/blob/notebook/basic.json';
-import CodeComponent from '~/notebook/cells/output/index.vue';
-
-const Component = Vue.extend(CodeComponent);
+import Output from '~/notebook/cells/output/index.vue';
+import MarkdownOutput from '~/notebook/cells/output/markdown.vue';
+import DataframeOutput from '~/notebook/cells/output/dataframe.vue';
+import {
+  relativeRawPath,
+  markdownCellContent,
+  outputWithDataframe,
+  outputWithDataframeContent,
+} from '../../mock_data';
 
 describe('Output component', () => {
-  let vm;
+  let wrapper;
 
   const createComponent = (output) => {
-    vm = new Component({
+    wrapper = mount(Output, {
+      provide: { relativeRawPath },
       propsData: {
         outputs: [].concat(output),
         count: 1,
       },
     });
-    vm.$mount();
   };
 
   describe('text output', () => {
     beforeEach(() => {
       const textType = json.cells[2];
       createComponent(textType.outputs[0]);
-
-      return nextTick();
     });
 
     it('renders as plain text', () => {
-      expect(vm.$el.querySelector('pre')).not.toBeNull();
+      expect(wrapper.find('pre').exists()).toBe(true);
     });
 
     it('renders prompt', () => {
-      expect(vm.$el.querySelector('.prompt span')).not.toBeNull();
+      expect(wrapper.find('.prompt span').exists()).toBe(true);
     });
   });
 
@@ -38,12 +42,10 @@ describe('Output component', () => {
     beforeEach(() => {
       const imageType = json.cells[3];
       createComponent(imageType.outputs[0]);
-
-      return nextTick();
     });
 
     it('renders as an image', () => {
-      expect(vm.$el.querySelector('img')).not.toBeNull();
+      expect(wrapper.find('img').exists()).toBe(true);
     });
   });
 
@@ -52,16 +54,18 @@ describe('Output component', () => {
       const htmlType = json.cells[4];
       createComponent(htmlType.outputs[0]);
 
-      expect(vm.$el.querySelector('p')).not.toBeNull();
-      expect(vm.$el.querySelectorAll('p')).toHaveLength(1);
-      expect(vm.$el.textContent.trim()).toContain('test');
+      const iframe = wrapper.find('iframe');
+      expect(iframe.exists()).toBe(true);
+      expect(iframe.element.getAttribute('sandbox')).toBe('');
+      expect(iframe.element.getAttribute('srcdoc')).toBe('<p>test</p>');
+      expect(iframe.element.getAttribute('scrolling')).toBe('auto');
     });
 
     it('renders multiple raw HTML outputs', () => {
       const htmlType = json.cells[4];
       createComponent([htmlType.outputs[0], htmlType.outputs[0]]);
 
-      expect(vm.$el.querySelectorAll('p')).toHaveLength(2);
+      expect(wrapper.findAll('iframe')).toHaveLength(2);
     });
   });
 
@@ -77,7 +81,7 @@ describe('Output component', () => {
       };
       createComponent(output);
 
-      expect(vm.$el.querySelector('.MathJax')).not.toBeNull();
+      expect(wrapper.find('.MathJax').exists()).toBe(true);
     });
   });
 
@@ -85,12 +89,35 @@ describe('Output component', () => {
     beforeEach(() => {
       const svgType = json.cells[5];
       createComponent(svgType.outputs[0]);
-
-      return nextTick();
     });
 
     it('renders as an svg', () => {
-      expect(vm.$el.querySelector('svg')).not.toBeNull();
+      const iframe = wrapper.find('iframe');
+
+      expect(iframe.exists()).toBe(true);
+      expect(iframe.element.getAttribute('sandbox')).toBe('');
+      expect(iframe.element.getAttribute('srcdoc')).toBe('<svg></svg>');
+    });
+  });
+
+  describe('Markdown output', () => {
+    beforeEach(() => {
+      const markdownType = { data: { 'text/markdown': markdownCellContent } };
+      createComponent(markdownType);
+    });
+
+    it('renders a markdown component', () => {
+      expect(wrapper.findComponent(MarkdownOutput).props('rawCode')).toBe(markdownCellContent);
+    });
+  });
+
+  describe('Dataframe output', () => {
+    it('renders DataframeOutput component', () => {
+      createComponent(outputWithDataframe);
+
+      expect(wrapper.findComponent(DataframeOutput).props('rawCode')).toBe(
+        outputWithDataframeContent.join(''),
+      );
     });
   });
 
@@ -98,27 +125,23 @@ describe('Output component', () => {
     beforeEach(() => {
       const unknownType = json.cells[6];
       createComponent(unknownType.outputs[0]);
-
-      return nextTick();
     });
 
     it('renders as plain text', () => {
-      expect(vm.$el.querySelector('pre')).not.toBeNull();
-      expect(vm.$el.textContent.trim()).toContain('testing');
+      expect(wrapper.find('pre').exists()).toBe(true);
+      expect(wrapper.text()).toContain('testing');
     });
 
-    it('renders promot', () => {
-      expect(vm.$el.querySelector('.prompt span')).not.toBeNull();
+    it('renders prompt', () => {
+      expect(wrapper.find('.prompt span').exists()).toBe(true);
     });
 
-    it("renders as plain text when doesn't recognise other types", async () => {
+    it("renders as plain text when doesn't recognise other types", () => {
       const unknownType = json.cells[7];
       createComponent(unknownType.outputs[0]);
 
-      await nextTick();
-
-      expect(vm.$el.querySelector('pre')).not.toBeNull();
-      expect(vm.$el.textContent.trim()).toContain('testing');
+      expect(wrapper.find('pre').exists()).toBe(true);
+      expect(wrapper.text()).toContain('testing');
     });
   });
 });

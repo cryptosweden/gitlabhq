@@ -1,85 +1,106 @@
-import { shallowMount } from '@vue/test-utils';
-import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 
 import { suggestionCommitMessage } from '~/diffs/store/getters';
-import noteBody from '~/notes/components/note_body.vue';
+import NoteBody from '~/notes/components/note_body.vue';
+import NoteAwardsList from '~/notes/components/note_awards_list.vue';
+import NoteForm from '~/notes/components/note_form.vue';
 import createStore from '~/notes/stores';
 import notes from '~/notes/stores/modules/index';
-
 import Suggestions from '~/vue_shared/components/markdown/suggestions.vue';
-
 import { noteableDataMock, notesDataMock, note } from '../mock_data';
 
+jest.mock('~/autosave');
+
+const createComponent = ({
+  props = {},
+  noteableData = noteableDataMock,
+  notesData = notesDataMock,
+  store = null,
+} = {}) => {
+  let mockStore;
+
+  if (!store) {
+    mockStore = createStore();
+
+    mockStore.dispatch('setNoteableData', noteableData);
+    mockStore.dispatch('setNotesData', notesData);
+  }
+
+  return shallowMountExtended(NoteBody, {
+    store: mockStore || store,
+    propsData: {
+      note,
+      canEdit: true,
+      canAwardEmoji: true,
+      isEditing: false,
+      ...props,
+    },
+  });
+};
+
 describe('issue_note_body component', () => {
-  let store;
-  let vm;
+  let wrapper;
 
   beforeEach(() => {
-    const Component = Vue.extend(noteBody);
-
-    store = createStore();
-    store.dispatch('setNoteableData', noteableDataMock);
-    store.dispatch('setNotesData', notesDataMock);
-
-    vm = new Component({
-      store,
-      propsData: {
-        note,
-        canEdit: true,
-        canAwardEmoji: true,
-      },
-    }).$mount();
-  });
-
-  afterEach(() => {
-    vm.$destroy();
+    wrapper = createComponent();
   });
 
   it('should render the note', () => {
-    expect(vm.$el.querySelector('.note-text').innerHTML).toEqual(note.note_html);
+    expect(wrapper.find('.note-text').html()).toContain(note.note_html);
   });
 
   it('should render awards list', () => {
-    expect(vm.$el.querySelector('.js-awards-block button [data-name="baseball"]')).not.toBeNull();
-    expect(vm.$el.querySelector('.js-awards-block button [data-name="bath_tone3"]')).not.toBeNull();
+    expect(wrapper.findComponent(NoteAwardsList).exists()).toBe(true);
+  });
+
+  describe('isInternalNote', () => {
+    beforeEach(() => {
+      wrapper = createComponent({ props: { isInternalNote: true } });
+    });
   });
 
   describe('isEditing', () => {
-    beforeEach(async () => {
-      vm.isEditing = true;
-      await nextTick();
+    beforeEach(() => {
+      wrapper = createComponent({ props: { isEditing: true } });
     });
 
     it('renders edit form', () => {
-      expect(vm.$el.querySelector('textarea.js-task-list-field')).not.toBeNull();
+      expect(wrapper.findComponent(NoteForm).exists()).toBe(true);
     });
 
-    it('adds autosave', () => {
-      const autosaveKey = `autosave/Note/${note.noteable_type}/${note.id}`;
+    it.each`
+      internal | buttonText
+      ${false} | ${'Save comment'}
+      ${true}  | ${'Save internal note'}
+    `('renders save button with text "$buttonText"', ({ internal, buttonText }) => {
+      wrapper = createComponent({ props: { note: { ...note, internal }, isEditing: true } });
 
-      expect(vm.autosave.key).toEqual(autosaveKey);
+      expect(wrapper.findComponent(NoteForm).props('saveButtonTitle')).toBe(buttonText);
+    });
+
+    describe('isInternalNote', () => {
+      beforeEach(() => {
+        wrapper.setProps({ isInternalNote: true });
+      });
     });
   });
 
   describe('commitMessage', () => {
-    let wrapper;
-
-    Vue.use(Vuex);
-
     beforeEach(() => {
       const notesStore = notes();
 
       notesStore.state.notes = {};
 
-      store = new Vuex.Store({
+      const store = new Vuex.Store({
         modules: {
           notes: notesStore,
           diffs: {
             namespaced: true,
             state: {
               defaultSuggestionCommitMessage:
-                '%{branch_name}%{project_path}%{project_name}%{username}%{user_full_name}%{file_paths}%{suggestions_count}%{files_count}',
+                '*** %{branch_name} %{project_path} %{project_name} %{username} %{user_full_name} %{file_paths} %{suggestions_count} %{files_count} %{co_authored_by}',
             },
             getters: { suggestionCommitMessage },
           },
@@ -98,9 +119,9 @@ describe('issue_note_body component', () => {
         },
       });
 
-      wrapper = shallowMount(noteBody, {
+      wrapper = createComponent({
         store,
-        propsData: {
+        props: {
           note: { ...note, suggestions: [12345] },
           canEdit: true,
           file: { file_path: 'abc' },
@@ -109,9 +130,11 @@ describe('issue_note_body component', () => {
     });
 
     it('passes the correct default placeholder commit message for a suggestion to the suggestions component', () => {
-      const commitMessage = wrapper.find(Suggestions).attributes('defaultcommitmessage');
+      const commitMessage = wrapper.findComponent(Suggestions).attributes('defaultcommitmessage');
 
-      expect(commitMessage).toBe('branch/pathnameuseruser usertonabc11');
+      expect(commitMessage).toBe(
+        '*** branch /path name user user userton abc 1 1 Co-authored-by: ...',
+      );
     });
   });
 });

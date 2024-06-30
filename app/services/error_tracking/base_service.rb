@@ -17,15 +17,14 @@ module ErrorTracking
     private
 
     def perform
-      raise NotImplementedError,
-          "#{self.class} does not implement #{__method__}"
+      raise NotImplementedError, "#{self.class} does not implement #{__method__}"
     end
 
     def compose_response(response, &block)
       errors = parse_errors(response)
       return errors if errors
 
-      yield if block_given?
+      yield if block
 
       track_usage_event(params[:tracking_event], current_user.id) if params[:tracking_event]
 
@@ -33,8 +32,7 @@ module ErrorTracking
     end
 
     def parse_response(response)
-      raise NotImplementedError,
-          "#{self.class} does not implement #{__method__}"
+      raise NotImplementedError, "#{self.class} does not implement #{__method__}"
     end
 
     def unauthorized
@@ -70,6 +68,16 @@ module ErrorTracking
 
     def can_update?
       can?(current_user, :update_sentry_issue, project)
+    end
+
+    def error_repository
+      Gitlab::ErrorTracking::ErrorRepository.build(project)
+    end
+
+    def handle_error_repository_exceptions
+      yield
+    rescue Gitlab::ErrorTracking::ErrorRepository::DatabaseError => e
+      { error: e.message }
     end
   end
 end

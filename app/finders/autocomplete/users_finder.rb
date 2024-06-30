@@ -10,20 +10,21 @@ module Autocomplete
     # ensure good performance.
     LIMIT = 20
 
-    attr_reader :current_user, :project, :group, :search, :skip_users,
-                :author_id, :todo_filter, :todo_state_filter,
-                :filter_by_current_user
+    attr_reader :current_user, :project, :group, :search,
+      :author_id, :todo_filter, :todo_state_filter,
+      :filter_by_current_user, :states, :push_code
 
     def initialize(params:, current_user:, project:, group:)
       @current_user = current_user
       @project = project
       @group = group
       @search = params[:search]
-      @skip_users = params[:skip_users]
       @author_id = params[:author_id]
       @todo_filter = params[:todo_filter]
       @todo_state_filter = params[:todo_state_filter]
       @filter_by_current_user = params[:current_user]
+      @states = params[:states] || ['active']
+      @push_code = params[:push_code]
     end
 
     def execute
@@ -33,10 +34,10 @@ module Autocomplete
         # Include current user if available to filter by "Me"
         items.unshift(current_user) if prepend_current_user?
 
-        if prepend_author? && author&.active?
-          items.unshift(author)
-        end
+        items.unshift(author) if prepend_author? && author&.active?
       end
+
+      items = filter_users_by_push_ability(items)
 
       items.uniq.tap do |unique_items|
         preload_associations(unique_items)
@@ -60,10 +61,10 @@ module Autocomplete
       # reorder_by_name() is called _before_ optionally_search(), otherwise
       # reorder_by_name will break the ORDER BY applied in optionally_search().
       find_users
-        .active
+        .where(state: states)
+        .non_internal
         .reorder_by_name
         .optionally_search(search, use_minimum_char_limit: use_minimum_char_limit)
-        .where_not_in(skip_users)
         .limit_to_todo_authors(
           user: current_user,
           with_todos: todo_filter,
@@ -86,7 +87,7 @@ module Autocomplete
       if project
         project.authorized_users.union_with_user(author_id)
       elsif group
-        group.users_with_parents
+        ::Autocomplete::GroupUsersFinder.new(group: group).execute # rubocop: disable CodeReuse/Finder
       elsif current_user
         User.all
       else
@@ -94,9 +95,15 @@ module Autocomplete
       end
     end
 
+    def filter_users_by_push_ability(items)
+      return items unless project && push_code.present?
+
+      items.select { |user| user.can?(:push_code, project) }
+    end
+
     # rubocop: disable CodeReuse/ActiveRecord
     def preload_associations(items)
-      ActiveRecord::Associations::Preloader.new.preload(items, :status)
+      ActiveRecord::Associations::Preloader.new(records: items, associations: :status).call
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
@@ -107,5 +114,3 @@ module Autocomplete
     end
   end
 end
-
-Autocomplete::UsersFinder.prepend_mod_with('Autocomplete::UsersFinder')

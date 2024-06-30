@@ -1,6 +1,5 @@
 <script>
-import { GlSafeHtmlDirective } from '@gitlab/ui';
-import { glEmojiTag } from '~/emoji';
+import { GlLink, GlTooltipDirective } from '@gitlab/ui';
 import { mergeUrlParams } from '~/lib/utils/url_utility';
 
 import { s__ } from '~/locale';
@@ -12,10 +11,11 @@ export default {
   components: {
     AddRequest,
     DetailedMetric,
+    GlLink,
     RequestSelector,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    GlTooltip: GlTooltipDirective,
   },
   props: {
     store: {
@@ -27,6 +27,10 @@ export default {
       required: true,
     },
     requestId: {
+      type: String,
+      required: true,
+    },
+    requestMethod: {
       type: String,
       required: true,
     },
@@ -57,11 +61,6 @@ export default {
       keys: ['feature', 'request'],
     },
     {
-      metric: 'rugged',
-      header: s__('PerformanceBar|Rugged calls'),
-      keys: ['feature', 'args'],
-    },
-    {
       metric: 'redis',
       header: s__('PerformanceBar|Redis calls'),
       keys: ['cmd', 'instance'],
@@ -70,6 +69,16 @@ export default {
       metric: 'es',
       header: s__('PerformanceBar|Elasticsearch calls'),
       keys: ['request', 'body'],
+    },
+    {
+      metric: 'zkt',
+      header: s__('PerformanceBar|Zoekt calls'),
+      keys: ['request', 'body'],
+    },
+    {
+      metric: 'ch',
+      header: s__('PerformanceBar|ClickHouse queries'),
+      keys: ['sql', 'database', 'statistics'],
     },
     {
       metric: 'external-http',
@@ -103,17 +112,11 @@ export default {
         this.currentRequestId = requestId;
       },
     },
-    initialRequest() {
-      return this.currentRequestId === this.requestId;
-    },
     hasHost() {
       return this.currentRequest && this.currentRequest.details && this.currentRequest.details.host;
     },
-    birdEmoji() {
-      if (this.hasHost && this.currentRequest.details.host.canary) {
-        return glEmojiTag('baby_chick');
-      }
-      return '';
+    isCanary() {
+      return Boolean(this.currentRequest.details.host.canary);
     },
     downloadPath() {
       const data = JSON.stringify(this.requests);
@@ -121,12 +124,31 @@ export default {
       return window.URL.createObjectURL(blob);
     },
     downloadName() {
-      const fileName = this.requests[0].truncatedUrl;
+      const fileName = this.requests[0].displayName;
       return `${fileName}_perf_bar_${Date.now()}.json`;
     },
-    memoryReportPath() {
-      return mergeUrlParams({ performance_bar: 'memory' }, window.location.href);
+    showZoekt() {
+      return document.body.dataset.page === 'search:show';
     },
+    showFlamegraphButtons() {
+      return this.isGetRequest(this.currentRequestId);
+    },
+    showMemoryReportButton() {
+      return this.isGetRequest(this.currentRequestId) && this.env === 'development';
+    },
+    memoryReportPath() {
+      return mergeUrlParams(
+        { performance_bar: 'memory' },
+        this.store.findRequest(this.currentRequestId).fullUrl,
+      );
+    },
+  },
+  created() {
+    if (!this.showZoekt) {
+      this.$options.detailedMetrics = this.$options.detailedMetrics.filter(
+        (item) => item.metric !== 'zkt',
+      );
+    }
   },
   mounted() {
     this.currentRequest = this.requestId;
@@ -136,90 +158,125 @@ export default {
       this.currentRequest = newRequestId;
       this.$emit('change-request', newRequestId);
     },
-    flamegraphPath(mode) {
+    flamegraphPath(mode, requestId) {
       return mergeUrlParams(
         { performance_bar: 'flamegraph', stackprof_mode: mode },
-        window.location.href,
+        this.store.findRequest(requestId).fullUrl,
       );
     },
+    isGetRequest(requestId) {
+      return this.store.findRequest(requestId)?.method?.toUpperCase() === 'GET';
+    },
   },
-  safeHtmlConfig: { ADD_TAGS: ['gl-emoji'] },
 };
 </script>
 <template>
   <div id="js-peek" :class="env">
     <div
       v-if="currentRequest"
-      class="d-flex container-fluid container-limited justify-content-center"
-      data-qa-selector="performance_bar"
+      class="gl-display-flex container-fluid gl-overflow-x-auto"
+      data-testid="performance-bar"
     >
-      <div id="peek-view-host" class="view">
-        <span
-          v-if="hasHost"
-          class="current-host"
-          :class="{ canary: currentRequest.details.host.canary }"
+      <div class="gl-display-flex gl-flex-shrink-0 view-performance-container">
+        <div v-if="hasHost" id="peek-view-host" class="gl-display-flex gl-gap-2 view">
+          <span class="current-host" :class="{ canary: isCanary }">
+            <gl-emoji
+              v-if="isCanary"
+              id="canary-emoji"
+              v-gl-tooltip.viewport="'Canary'"
+              data-name="baby_chick"
+            />
+            <gl-emoji
+              id="host-emoji"
+              v-gl-tooltip.viewport="currentRequest.details.host.hostname"
+              data-name="computer"
+            />
+          </span>
+        </div>
+        <detailed-metric
+          v-for="metric in $options.detailedMetrics"
+          :key="metric.metric"
+          :current-request="currentRequest"
+          :metric="metric.metric"
+          :title="metric.title"
+          :header="metric.header"
+          :keys="metric.keys"
+        />
+        <div
+          v-if="currentRequest.details && currentRequest.details.tracing"
+          id="peek-view-trace"
+          class="view"
         >
-          <span v-safe-html:[$options.safeHtmlConfig]="birdEmoji"></span>
-          {{ currentRequest.details.host.hostname }}
-        </span>
+          <gl-link class="gl-underline" :href="currentRequest.details.tracing.tracing_url">{{
+            s__('PerformanceBar|Trace')
+          }}</gl-link>
+        </div>
+        <div v-if="showFlamegraphButtons" id="peek-flamegraph" class="view">
+          <gl-link
+            v-gl-tooltip.viewport
+            class="gl-font-sm"
+            :href="flamegraphPath('wall', currentRequestId)"
+            :title="s__('PerformanceBar|Wall flamegraph')"
+            >{{ s__('PerformanceBar|Wall') }}</gl-link
+          >
+          /
+          <gl-link
+            v-gl-tooltip.viewport
+            class="gl-font-sm"
+            :href="flamegraphPath('cpu', currentRequestId)"
+            :title="s__('PerformanceBar|CPU flamegraph')"
+            >{{ s__('PerformanceBar|CPU') }}</gl-link
+          >
+          /
+          <gl-link
+            v-gl-tooltip.viewport
+            class="gl-font-sm"
+            :href="flamegraphPath('object', currentRequestId)"
+            :title="s__('PerformanceBar|Object flamegraph')"
+            >{{ s__('PerformanceBar|Object') }}</gl-link
+          >
+          <span class="gl-opacity-7">{{ s__('PerformanceBar|flamegraph') }}</span>
+        </div>
       </div>
-      <detailed-metric
-        v-for="metric in $options.detailedMetrics"
-        :key="metric.metric"
-        :current-request="currentRequest"
-        :metric="metric.metric"
-        :title="metric.title"
-        :header="metric.header"
-        :keys="metric.keys"
-      />
-      <div
-        v-if="currentRequest.details && currentRequest.details.tracing"
-        id="peek-view-trace"
-        class="view"
-      >
-        <a class="gl-text-blue-200" :href="currentRequest.details.tracing.tracing_url">{{
-          s__('PerformanceBar|Trace')
-        }}</a>
+      <div class="gl-display-flex gl-flex-shrink-0 gl-ml-auto">
+        <div class="gl-display-flex view-reports-container">
+          <gl-link
+            v-if="currentRequest.details"
+            id="peek-download"
+            v-gl-tooltip.viewport
+            class="view gl-font-sm"
+            is-unsafe-link
+            :download="downloadName"
+            :href="downloadPath"
+            :title="s__('PerformanceBar|Download report')"
+            >{{ s__('PerformanceBar|Download') }}</gl-link
+          >
+          <gl-link
+            v-if="showMemoryReportButton"
+            id="peek-memory-report"
+            v-gl-tooltip.viewport
+            class="view gl-font-sm"
+            :href="memoryReportPath"
+            :title="s__('PerformanceBar|Download memory report')"
+            >{{ s__('PerformanceBar|Memory report') }}</gl-link
+          >
+          <gl-link
+            v-if="statsUrl"
+            v-gl-tooltip.viewport
+            class="view gl-font-sm"
+            :href="statsUrl"
+            :title="s__('PerformanceBar|Show stats')"
+            >{{ s__('PerformanceBar|Stats') }}</gl-link
+          >
+        </div>
+        <request-selector
+          v-if="currentRequest"
+          :current-request="currentRequest"
+          :requests="requests"
+          @change-current-request="changeCurrentRequest"
+        />
+        <add-request v-on="$listeners" />
       </div>
-      <div v-if="currentRequest.details" id="peek-download" class="view">
-        <a class="gl-text-blue-200" :download="downloadName" :href="downloadPath">{{
-          s__('PerformanceBar|Download')
-        }}</a>
-      </div>
-      <div
-        v-if="currentRequest.details && env === 'development'"
-        id="peek-memory-report"
-        class="view"
-      >
-        <a class="gl-text-blue-200" :href="memoryReportPath">{{
-          s__('PerformanceBar|Memory report')
-        }}</a>
-      </div>
-      <div v-if="currentRequest.details" id="peek-flamegraph" class="view">
-        <span class="gl-text-white-200">{{ s__('PerformanceBar|Flamegraph with mode:') }}</span>
-        <a class="gl-text-blue-200" :href="flamegraphPath('wall')">{{
-          s__('PerformanceBar|wall')
-        }}</a>
-        /
-        <a class="gl-text-blue-200" :href="flamegraphPath('cpu')">{{
-          s__('PerformanceBar|cpu')
-        }}</a>
-        /
-        <a class="gl-text-blue-200" :href="flamegraphPath('object')">{{
-          s__('PerformanceBar|object')
-        }}</a>
-      </div>
-      <a v-if="statsUrl" class="gl-text-blue-200 view" :href="statsUrl">{{
-        s__('PerformanceBar|Stats')
-      }}</a>
-      <request-selector
-        v-if="currentRequest"
-        :current-request="currentRequest"
-        :requests="requests"
-        class="ml-auto"
-        @change-current-request="changeCurrentRequest"
-      />
-      <add-request v-on="$listeners" />
     </div>
   </div>
 </template>

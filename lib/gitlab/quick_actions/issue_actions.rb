@@ -8,7 +8,7 @@ module Gitlab
 
       included do
         # Issue only quick actions definition
-        desc _('Set due date')
+        desc { _('Set due date') }
         explanation do |due_date|
           _("Sets the due date to %{due_date}.") % { due_date: due_date.strftime('%b %-d, %Y') } if due_date
         end
@@ -32,9 +32,9 @@ module Gitlab
           end
         end
 
-        desc _('Remove due date')
-        explanation _('Removes the due date.')
-        execution_message _('Removed the due date.')
+        desc { _('Remove due date') }
+        explanation { _('Removes the due date.') }
+        execution_message { _('Removed the due date.') }
         types Issue
         condition do
           quick_action_target.persisted? &&
@@ -46,7 +46,7 @@ module Gitlab
           @updates[:due_date] = nil
         end
 
-        desc _('Move issue from one column of the board to another')
+        desc { _('Move issue from one column of the board to another') }
         explanation do |target_list_name|
           label = find_label_references(target_list_name).first
           _("Moves issue to %{label} column in the board.") % { label: label } if label
@@ -78,9 +78,9 @@ module Gitlab
           @execution_message[:board_move] = message
         end
 
-        desc _('Mark this issue as a duplicate of another issue')
+        desc { _('Mark this issue as a duplicate of another issue') }
         explanation do |duplicate_reference|
-          _("Marks this issue as a duplicate of %{duplicate_reference}.") % { duplicate_reference: duplicate_reference }
+          _("Closes this issue. Marks as related to, and a duplicate of, %{duplicate_reference}.") % { duplicate_reference: duplicate_reference }
         end
         params '#issue'
         types Issue
@@ -94,7 +94,7 @@ module Gitlab
           if canonical_issue.present?
             @updates[:canonical_issue_id] = canonical_issue.id
 
-            message = _("Marked this issue as a duplicate of %{duplicate_param}.") % { duplicate_param: duplicate_param }
+            message = _("Closed this issue. Marked as related to, and a duplicate of, %{duplicate_param}.") % { duplicate_param: duplicate_param }
           else
             message = _('Failed to mark this issue as a duplicate because referenced issue was not found.')
           end
@@ -102,7 +102,7 @@ module Gitlab
           @execution_message[:duplicate] = message
         end
 
-        desc _('Clone this issue')
+        desc { _('Clone this issue') }
         explanation do |project = quick_action_target.project.full_path|
           _("Clones this issue, without comments, to %{project}.") % { project: project }
         end
@@ -137,7 +137,7 @@ module Gitlab
           @execution_message[:clone] = message
         end
 
-        desc _('Move this issue to another project.')
+        desc { _('Move this issue to another project') }
         explanation do |path_to_project|
           _("Moves this issue to %{path_to_project}.") % { path_to_project: path_to_project }
         end
@@ -161,24 +161,7 @@ module Gitlab
           @execution_message[:move] = message
         end
 
-        desc _('Make issue confidential')
-        explanation do
-          _('Makes this issue confidential.')
-        end
-        execution_message do
-          _('Made this issue confidential.')
-        end
-        types Issue
-        condition do
-          quick_action_target.issue_type_supports?(:confidentiality) &&
-            !quick_action_target.confidential? &&
-            current_user.can?(:set_confidentiality, quick_action_target)
-        end
-        command :confidential do
-          @updates[:confidential] = true
-        end
-
-        desc _('Create a merge request')
+        desc { _('Create a merge request') }
         explanation do |branch_name = nil|
           if branch_name
             _("Creates branch '%{branch_name}' and a merge request to resolve this issue.") % { branch_name: branch_name }
@@ -205,26 +188,29 @@ module Gitlab
           }
         end
 
-        desc _('Add Zoom meeting')
-        explanation _('Adds a Zoom meeting.')
-        params '<Zoom URL>'
+        desc { _('Add Zoom meeting') }
+        explanation { _('Adds a Zoom meeting.') }
+        params do
+          zoom_link_params
+        end
         types Issue
         condition do
           @zoom_service = zoom_link_service
+
           @zoom_service.can_add_link?
         end
-        parse_params do |link|
-          @zoom_service.parse_link(link)
+        parse_params do |link_params|
+          @zoom_service.parse_link(link_params)
         end
-        command :zoom do |link|
-          result = @zoom_service.add_link(link)
+        command :zoom do |link, link_text = nil|
+          result = add_zoom_link(link, link_text)
           @execution_message[:zoom] = result.message
-          @updates.merge!(result.payload) if result.payload
+          merge_updates(result, @updates)
         end
 
-        desc _('Remove Zoom meeting')
-        explanation _('Remove Zoom meeting.')
-        execution_message _('Zoom meeting removed')
+        desc { _('Remove Zoom meeting') }
+        explanation { _('Remove Zoom meeting.') }
+        execution_message { _('Zoom meeting removed') }
         types Issue
         condition do
           @zoom_service = zoom_link_service
@@ -235,58 +221,79 @@ module Gitlab
           @execution_message[:remove_zoom] = result.message
         end
 
-        desc _('Add email participant(s)')
-        explanation _('Adds email participant(s).')
+        desc { _("Add email participants that don't have a GitLab account.") }
+        explanation { _("Adds email participants that don't have a GitLab account.") }
         params 'email1@example.com email2@example.com (up to 6 emails)'
         types Issue
         condition do
-          Feature.enabled?(:issue_email_participants, parent) &&
+          quick_action_target.persisted? &&
+            Feature.enabled?(:issue_email_participants, parent) &&
             current_user.can?(:"admin_#{quick_action_target.to_ability_name}", quick_action_target)
         end
-        command :invite_email do |emails = ""|
-          MAX_NUMBER_OF_EMAILS = 6
+        command :add_email do |emails = ""|
+          response = ::IssueEmailParticipants::CreateService.new(
+            target: quick_action_target,
+            current_user: current_user,
+            emails: emails.split(' ')
+          ).execute
 
-          existing_emails = quick_action_target.email_participants_emails_downcase
-          emails_to_add = emails.split(' ').index_by { |email| [email.downcase, email] }.except(*existing_emails).each_value.first(MAX_NUMBER_OF_EMAILS)
-          added_emails = []
-
-          emails_to_add.each do |email|
-            new_participant = quick_action_target.issue_email_participants.create(email: email)
-            added_emails << email if new_participant.persisted?
-          end
-
-          if added_emails.any?
-            message = _("added %{emails}") % { emails: added_emails.to_sentence }
-            SystemNoteService.add_email_participants(quick_action_target, quick_action_target.project, current_user, message)
-            @execution_message[:invite_email] = message.upcase_first << "."
-          else
-            @execution_message[:invite_email] = _("No email participants were added. Either none were provided, or they already exist.")
-          end
+          @execution_message[:add_email] = response.message
         end
 
-        desc _('Promote issue to incident')
-        explanation _('Promotes issue to incident')
+        desc { _('Remove email participants') }
+        explanation { _('Removes email participants.') }
+        params 'email1@example.com email2@example.com (up to 6 emails)'
         types Issue
         condition do
           quick_action_target.persisted? &&
-            !quick_action_target.incident? &&
-            current_user.can?(:update_issue, quick_action_target)
+            Feature.enabled?(:issue_email_participants, parent) &&
+            current_user.can?(:"admin_#{quick_action_target.to_ability_name}", quick_action_target) &&
+            quick_action_target.issue_email_participants.any?
+        end
+        command :remove_email do |emails = ""|
+          response = ::IssueEmailParticipants::DestroyService.new(
+            target: quick_action_target,
+            current_user: current_user,
+            emails: emails.split(' ')
+          ).execute
+
+          @execution_message[:remove_email] = response.message
+        end
+
+        desc { s_('ServiceDesk|Convert issue to Service Desk ticket') }
+        explanation { s_('ServiceDesk|Converts this issue to a Service Desk ticket.') }
+        params 'external-issue-author@example.com'
+        types Issue
+        condition do
+          quick_action_target.persisted? &&
+            current_user.can?(:"admin_#{quick_action_target.to_ability_name}", quick_action_target) &&
+            quick_action_target.respond_to?(:from_service_desk?) &&
+            !quick_action_target.from_service_desk?
+        end
+        command :convert_to_ticket do |email = ""|
+          response = ::Issues::ConvertToTicketService.new(
+            target: quick_action_target,
+            current_user: current_user,
+            email: email
+          ).execute
+
+          @execution_message[:convert_to_ticket] = response.message
+        end
+
+        desc { _('Promote issue to incident') }
+        explanation { _('Promotes issue to incident') }
+        execution_message { _('Issue has been promoted to incident') }
+        types Issue
+        condition do
+          !quick_action_target.work_item_type&.incident? &&
+            current_user.can?(:"set_#{quick_action_target.issue_type}_metadata", quick_action_target)
         end
         command :promote_to_incident do
-          issue = ::Issues::UpdateService
-            .new(project: quick_action_target.project, current_user: current_user, params: { issue_type: 'incident' })
-            .execute(quick_action_target)
-
-          @execution_message[:promote_to_incident] =
-            if issue.incident?
-              _('Issue has been promoted to incident')
-            else
-              _('Failed to promote issue to incident')
-            end
+          @updates[:work_item_type] = ::WorkItems::Type.default_by_type(:incident)
         end
 
-        desc _('Add customer relation contacts')
-        explanation _('Add customer relation contact(s).')
+        desc { _('Add customer relation contacts') }
+        explanation { _('Add customer relation contacts.') }
         params '[contact:contact@example.com] [contact:person@example.org]'
         types Issue
         condition do
@@ -297,29 +304,71 @@ module Gitlab
           _('One or more contacts were successfully added.')
         end
         command :add_contacts do |contact_emails|
-          @updates[:add_contacts] = contact_emails.split(' ')
+          @updates[:add_contacts] ||= []
+          @updates[:add_contacts] += contact_emails.split(' ')
         end
 
-        desc _('Remove customer relation contacts')
-        explanation _('Remove customer relation contact(s).')
+        desc { _('Remove customer relation contacts') }
+        explanation { _('Remove customer relation contacts.') }
         params '[contact:contact@example.com] [contact:person@example.org]'
         types Issue
         condition do
           current_user.can?(:set_issue_crm_contacts, quick_action_target) &&
-            CustomerRelations::Contact.exists_for_group?(quick_action_target.project.root_ancestor)
+            quick_action_target.customer_relations_contacts.exists?
         end
         execution_message do
           _('One or more contacts were successfully removed.')
         end
         command :remove_contacts do |contact_emails|
-          @updates[:remove_contacts] = contact_emails.split(' ')
+          @updates[:remove_contacts] ||= []
+          @updates[:remove_contacts] += contact_emails.split(' ')
         end
 
-        private
-
-        def zoom_link_service
-          ::Issues::ZoomLinkService.new(project: quick_action_target.project, current_user: current_user, params: { issue: quick_action_target })
+        desc { _('Add a timeline event to incident') }
+        explanation { _('Adds a timeline event to incident.') }
+        params '<timeline comment> | <date(YYYY-MM-DD)> <time(HH:MM)>'
+        types Issue
+        condition do
+          quick_action_target.work_item_type&.incident? &&
+            current_user.can?(:admin_incident_management_timeline_event, quick_action_target)
         end
+        parse_params do |event_params|
+          Gitlab::QuickActions::TimelineTextAndDateTimeSeparator.new(event_params).execute
+        end
+        command :timeline do |event_text, date_time|
+          if event_text && date_time
+            timeline_event = timeline_event_create_service(event_text, date_time).execute
+
+            @execution_message[:timeline] =
+              if timeline_event.success?
+                _('Timeline event added successfully.')
+              else
+                _('Something went wrong while adding timeline event.')
+              end
+          end
+        end
+      end
+
+      private
+
+      def zoom_link_service
+        ::Issues::ZoomLinkService.new(container: quick_action_target.project, current_user: current_user, params: { issue: quick_action_target })
+      end
+
+      def zoom_link_params
+        '<Zoom URL>'
+      end
+
+      def add_zoom_link(link, _link_text)
+        zoom_link_service.add_link(link)
+      end
+
+      def merge_updates(result, update_hash)
+        update_hash.merge!(result.payload) if result.payload
+      end
+
+      def timeline_event_create_service(event_text, event_date_time)
+        ::IncidentManagement::TimelineEvents::CreateService.new(quick_action_target, current_user, { note: event_text, occurred_at: event_date_time, editable: true })
       end
     end
   end

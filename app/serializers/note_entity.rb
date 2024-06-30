@@ -12,15 +12,21 @@ class NoteEntity < API::Entities::Note
 
   expose :type
 
+  expose :external_author
+
   expose :author, using: NoteUserEntity
 
-  unexpose :note, as: :body
-  expose :note
+  unexpose :body
+  expose :note do |note|
+    note_presenter(note).note
+  end
 
-  expose :redacted_note_html, as: :note_html
+  expose :note_html do |note|
+    note_presenter(note).note_html
+  end
 
-  expose :last_edited_at, if: -> (note, _) { note.edited? }
-  expose :last_edited_by, using: NoteUserEntity, if: -> (note, _) { note.edited? }
+  expose :last_edited_at, if: ->(note, _) { note.edited? }
+  expose :last_edited_by, using: NoteUserEntity, if: ->(note, _) { note.edited? }
 
   expose :current_user do
     expose :can_edit do |note|
@@ -46,12 +52,13 @@ class NoteEntity < API::Entities::Note
   expose :resolvable?, as: :resolvable
 
   expose :resolved_by, using: NoteUserEntity
+  expose :resolved_by_push?, as: :resolved_by_push
 
-  expose :system_note_icon_name, if: -> (note, _) { note.system? } do |note|
+  expose :system_note_icon_name, if: ->(note, _) { note.system? } do |note|
     SystemNoteHelper.system_note_icon_name(note)
   end
 
-  expose :outdated_line_change_path, if: -> (note, _) { note.show_outdated_changes? } do |note|
+  expose :outdated_line_change_path, if: ->(note, _) { note.show_outdated_changes? } do |note|
     outdated_line_change_namespace_project_note_path(namespace_id: note.project.namespace, project_id: note.project, id: note)
   end
 
@@ -64,25 +71,25 @@ class NoteEntity < API::Entities::Note
   end
 
   expose :emoji_awardable?, as: :emoji_awardable
-  expose :award_emoji, if: -> (note, _) { note.emoji_awardable? }, using: AwardEmojiEntity
+  expose :award_emoji, if: ->(note, _) { note.emoji_awardable? }, using: AwardEmojiEntity
 
-  expose :report_abuse_path, if: -> (note, _) { note.author_id } do |note|
-    new_abuse_report_path(user_id: note.author_id, ref_url: Gitlab::UrlBuilder.build(note))
+  expose :report_abuse_path do |note| # @deprecated To be removed in API version 5
+    add_category_abuse_reports_path
   end
 
   expose :noteable_note_url do |note|
     noteable_note_url(note)
   end
 
-  expose :resolve_path, if: -> (note, _) { note.part_of_discussion? && note.resolvable? } do |note|
-    resolve_project_merge_request_discussion_path(note.project, note.noteable, note.discussion_id)
+  expose :resolve_path, if: ->(note, _) { note.part_of_discussion? && note.resolvable? } do |note|
+    resolve_project_discussion_path(discussion.project, discussion.noteable_collection_name, discussion.noteable, discussion.id)
   end
 
-  expose :resolve_with_issue_path, if: -> (note, _) { note.part_of_discussion? && note.resolvable? } do |note|
+  expose :resolve_with_issue_path, if: ->(note, _) { note.part_of_discussion? && note.resolvable? && note.noteable.is_a?(MergeRequest) } do |note|
     new_project_issue_path(note.project, merge_request_to_resolve_discussions_of: note.noteable.iid, discussion_to_resolve: note.discussion_id)
   end
 
-  expose :attachment, using: NoteAttachmentEntity, if: -> (note, _) { note.attachment? }
+  expose :attachment, using: NoteAttachmentEntity, if: ->(note, _) { note.attachment? }
 
   expose :cached_markdown_version
 
@@ -90,7 +97,7 @@ class NoteEntity < API::Entities::Note
   # discussion it is part of. This is essential for the notes endpoint, but
   # optional for the discussions endpoint, which will include the discussion
   # along with the note
-  expose :discussion, as: :base_discussion, using: BaseDiscussionEntity, if: -> (_, _) { with_base_discussion? }
+  expose :discussion, as: :base_discussion, using: BaseDiscussionEntity, if: ->(_, _) { with_base_discussion? }
 
   private
 
@@ -104,6 +111,20 @@ class NoteEntity < API::Entities::Note
 
   def with_base_discussion?
     options.fetch(:with_base_discussion, true)
+  end
+
+  def external_author
+    return unless object.note_metadata&.external_author
+
+    if can?(current_user, :read_external_emails, object.project)
+      object.note_metadata.external_author
+    else
+      Gitlab::Utils::Email.obfuscated_email(object.note_metadata.external_author, deform: true)
+    end
+  end
+
+  def note_presenter(note)
+    NotePresenter.new(note, current_user: current_user) # rubocop: disable CodeReuse/Presenter -- Directly instantiate NotePresenter because we don't have presenters for all subclasses of Note
   end
 end
 

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 require 'parser/current'
 require_relative '../../rubocop/code_reuse_helpers'
 
@@ -152,28 +152,23 @@ RSpec.describe RuboCop::CodeReuseHelpers do
     end
   end
 
-  describe '#in_graphql_types?' do
-    %w[
-      app/graphql/types
-      ee/app/graphql/ee/types
-      ee/app/graphql/types
-    ].each do |path|
-      it "returns true for a node in #{path}" do
-        node = build_and_parse_source('10', rails_root_join(path, 'foo.rb'))
+  describe '#in_graphql?' do
+    it 'returns true for a node in the FOSS GraphQL directory' do
+      node = build_and_parse_source('10', rails_root_join('app', 'graphql', 'foo.rb'))
 
-        expect(cop.in_graphql_types?(node)).to eq(true)
-      end
+      expect(cop.in_graphql?(node)).to eq(true)
     end
 
-    %w[
-      app/graphql/resolvers
-      app/foo
-    ].each do |path|
-      it "returns true for a node in #{path}" do
-        node = build_and_parse_source('10', rails_root_join(path, 'foo.rb'))
+    it 'returns true for a node in the EE GraphQL directory' do
+      node = build_and_parse_source('10', rails_root_join('ee', 'app', 'graphql', 'foo.rb'))
 
-        expect(cop.in_graphql_types?(node)).to eq(false)
-      end
+      expect(cop.in_graphql?(node)).to eq(true)
+    end
+
+    it 'returns false for a node outside the GraphQL directory' do
+      node = build_and_parse_source('10', rails_root_join('app', 'foo', 'foo.rb'))
+
+      expect(cop.in_graphql?(node)).to eq(false)
     end
   end
 
@@ -255,6 +250,44 @@ RSpec.describe RuboCop::CodeReuseHelpers do
     end
   end
 
+  describe '#in_graphql_directory?' do
+    it 'returns true for a directory in the FOSS app/graphql directory' do
+      node = build_and_parse_source('10', rails_root_join('app', 'graphql', 'subdir', 'foo.rb'))
+
+      expect(cop.in_graphql_directory?(node, 'subdir')).to eq(true)
+    end
+
+    it 'returns true for a directory in the EE app/graphql directory' do
+      node = build_and_parse_source('10', rails_root_join('ee', 'app', 'graphql', 'subdir', 'foo.rb'))
+
+      expect(cop.in_graphql_directory?(node, 'subdir')).to eq(true)
+    end
+
+    it 'returns true for a directory in the EE app/graphql/ee directory' do
+      node = build_and_parse_source('10', rails_root_join('ee', 'app', 'graphql', 'ee', 'subdir', 'foo.rb'))
+
+      expect(cop.in_graphql_directory?(node, 'subdir')).to eq(true)
+    end
+
+    it 'returns false for a directory in the FOSS app/graphql directory' do
+      node = build_and_parse_source('10', rails_root_join('app', 'graphql', 'anotherdir', 'foo.rb'))
+
+      expect(cop.in_graphql_directory?(node, 'subdir')).to eq(false)
+    end
+
+    it 'returns false for a directory in the EE app/graphql directory' do
+      node = build_and_parse_source('10', rails_root_join('ee', 'app', 'graphql', 'anotherdir', 'foo.rb'))
+
+      expect(cop.in_graphql_directory?(node, 'subdir')).to eq(false)
+    end
+
+    it 'returns false for a directory in the EE app/graphql/ee directory' do
+      node = build_and_parse_source('10', rails_root_join('ee', 'app', 'graphql', 'ee', 'anotherdir', 'foo.rb'))
+
+      expect(cop.in_graphql_directory?(node, 'subdir')).to eq(false)
+    end
+  end
+
   describe '#name_of_receiver' do
     it 'returns the name of a send receiver' do
       node = build_and_parse_source('Foo.bar')
@@ -309,7 +342,7 @@ RSpec.describe RuboCop::CodeReuseHelpers do
 
       expect(cop)
         .to receive(:add_offense)
-        .with(send_node, location: :expression, message: 'oops')
+        .with(send_node, message: 'oops')
 
       cop.disallow_send_to(def_node, 'Finder', 'oops')
     end

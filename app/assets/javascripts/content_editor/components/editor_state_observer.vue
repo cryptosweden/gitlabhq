@@ -1,11 +1,6 @@
 <script>
 import { debounce } from 'lodash';
-import {
-  LOADING_CONTENT_EVENT,
-  LOADING_SUCCESS_EVENT,
-  LOADING_ERROR_EVENT,
-  ALERT_EVENT,
-} from '../constants';
+import { ALERT_EVENT, KEYDOWN_EVENT } from '../constants';
 
 export const tiptapToComponentMap = {
   update: 'docUpdate',
@@ -15,25 +10,27 @@ export const tiptapToComponentMap = {
   blur: 'blur',
 };
 
-export const eventHubEvents = [
-  ALERT_EVENT,
-  LOADING_CONTENT_EVENT,
-  LOADING_SUCCESS_EVENT,
-  LOADING_ERROR_EVENT,
-];
+export const eventHubEvents = [ALERT_EVENT, KEYDOWN_EVENT];
 
 const getComponentEventName = (tiptapEventName) => tiptapToComponentMap[tiptapEventName];
 
 export default {
   inject: ['tiptapEditor', 'eventHub'],
+  props: {
+    debounce: {
+      type: Number,
+      required: false,
+      default: 100,
+    },
+  },
   created() {
     this.disposables = [];
 
     Object.keys(tiptapToComponentMap).forEach((tiptapEvent) => {
-      const eventHandler = debounce(
-        (params) => this.bubbleEvent(getComponentEventName(tiptapEvent), params),
-        100,
-      );
+      let eventHandler = (params) => this.bubbleEvent(getComponentEventName(tiptapEvent), params);
+      if (this.debounce) {
+        eventHandler = debounce(eventHandler, this.debounce);
+      }
 
       this.tiptapEditor?.on(tiptapEvent, eventHandler);
 
@@ -58,7 +55,7 @@ export default {
     },
   },
   render() {
-    return this.$slots.default;
+    return this.$scopedSlots.default?.();
   },
 };
 </script>

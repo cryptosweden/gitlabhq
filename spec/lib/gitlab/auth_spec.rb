@@ -2,23 +2,29 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
+RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching, feature_category: :system_access do
   let_it_be(:project) { create(:project) }
 
   let(:auth_failure) { { actor: nil, project: nil, type: nil, authentication_abilities: nil } }
   let(:gl_auth) { described_class }
 
+  let(:request) { instance_double(ActionDispatch::Request, ip: 'ip') }
+
   describe 'constants' do
     it 'API_SCOPES contains all scopes for API access' do
-      expect(subject::API_SCOPES).to match_array %i[api read_user read_api]
+      expect(subject::API_SCOPES).to match_array %i[api read_user read_api create_runner manage_runner k8s_proxy]
     end
 
     it 'ADMIN_SCOPES contains all scopes for ADMIN access' do
-      expect(subject::ADMIN_SCOPES).to match_array %i[sudo]
+      expect(subject::ADMIN_SCOPES).to match_array %i[sudo admin_mode read_service_ping]
     end
 
     it 'REPOSITORY_SCOPES contains all scopes for REPOSITORY access' do
       expect(subject::REPOSITORY_SCOPES).to match_array %i[read_repository write_repository]
+    end
+
+    it 'OBSERVABILITY_SCOPES contains all scopes for Observability access' do
+      expect(subject::OBSERVABILITY_SCOPES).to match_array %i[read_observability write_observability]
     end
 
     it 'OPENID_SCOPES contains all scopes for OpenID Connect' do
@@ -28,33 +34,164 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
     it 'DEFAULT_SCOPES contains all default scopes' do
       expect(subject::DEFAULT_SCOPES).to match_array [:api]
     end
-
-    it 'optional_scopes contains all non-default scopes' do
-      stub_container_registry_config(enabled: true)
-
-      expect(subject.optional_scopes).to match_array %i[read_user read_api read_repository write_repository read_registry write_registry sudo openid profile email]
-    end
   end
 
-  context 'available_scopes' do
+  describe 'available_scopes' do
+    before do
+      stub_container_registry_config(enabled: true)
+    end
+
     it 'contains all non-default scopes' do
-      stub_container_registry_config(enabled: true)
-
-      expect(subject.all_available_scopes).to match_array %i[api read_user read_api read_repository write_repository read_registry write_registry sudo]
+      expect(subject.all_available_scopes).to match_array %i[
+        api read_user read_api read_repository read_service_ping write_repository read_registry write_registry
+        sudo admin_mode read_observability write_observability create_runner manage_runner k8s_proxy ai_features
+      ]
     end
 
-    it 'contains for non-admin user all non-default scopes without ADMIN access' do
-      stub_container_registry_config(enabled: true)
-      user = create(:user, admin: false)
+    it 'contains for non-admin user all non-default scopes without ADMIN access and without observability scopes' do
+      user = build_stubbed(:user, admin: false)
 
-      expect(subject.available_scopes_for(user)).to match_array %i[api read_user read_api read_repository write_repository read_registry write_registry]
+      expect(subject.available_scopes_for(user)).to match_array %i[
+        api read_user read_api read_repository write_repository read_registry write_registry
+        create_runner manage_runner k8s_proxy ai_features
+      ]
     end
 
-    it 'contains for admin user all non-default scopes with ADMIN access' do
-      stub_container_registry_config(enabled: true)
-      user = create(:user, admin: true)
+    it 'contains for admin user all non-default scopes with ADMIN access and without observability scopes' do
+      user = build_stubbed(:user, admin: true)
 
-      expect(subject.available_scopes_for(user)).to match_array %i[api read_user read_api read_repository write_repository read_registry write_registry sudo]
+      expect(subject.available_scopes_for(user)).to match_array %i[
+        api read_user read_api read_repository read_service_ping write_repository read_registry write_registry
+        sudo admin_mode create_runner manage_runner k8s_proxy ai_features
+      ]
+    end
+
+    it 'contains for project all resource bot scopes' do
+      expect(subject.available_scopes_for(project)).to match_array %i[
+        api read_api read_repository write_repository read_registry write_registry
+        read_observability write_observability create_runner manage_runner k8s_proxy ai_features
+      ]
+    end
+
+    it 'contains for group all resource bot scopes' do
+      group = build_stubbed(:group).tap { |g| g.namespace_settings = build_stubbed(:namespace_settings, namespace: g) }
+
+      expect(subject.available_scopes_for(group)).to match_array %i[
+        api read_api read_repository write_repository read_registry write_registry
+        read_observability write_observability create_runner manage_runner k8s_proxy ai_features
+      ]
+    end
+
+    it 'contains for unsupported type no scopes' do
+      expect(subject.available_scopes_for(:something)).to be_empty
+    end
+
+    it 'optional_scopes contains all non-default scopes' do
+      expect(subject.optional_scopes).to match_array %i[
+        read_user read_api read_repository write_repository read_registry read_service_ping
+        write_registry sudo admin_mode openid profile email read_observability write_observability
+        create_runner manage_runner k8s_proxy ai_features
+      ]
+    end
+
+    context 'with observability feature flags' do
+      feature_flags = [:observability_tracing, :observability_metrics, :observability_logs]
+
+      context 'when all disabled' do
+        before do
+          stub_feature_flags(feature_flags.index_with { false })
+        end
+
+        it 'contains for group all resource bot scopes without observability scopes' do
+          group = build_stubbed(:group).tap do |g|
+            g.namespace_settings = build_stubbed(:namespace_settings, namespace: g)
+          end
+
+          expect(subject.available_scopes_for(group)).to match_array %i[
+            api read_api read_repository write_repository read_registry write_registry create_runner manage_runner
+            k8s_proxy ai_features
+          ]
+        end
+
+        it 'contains for project all resource bot scopes without observability scopes' do
+          group = build_stubbed(:group).tap do |g|
+            g.namespace_settings = build_stubbed(:namespace_settings, namespace: g)
+          end
+          project = build_stubbed(:project, namespace: group)
+
+          expect(subject.available_scopes_for(project)).to match_array %i[
+            api read_api read_repository write_repository read_registry write_registry create_runner manage_runner
+            k8s_proxy ai_features
+          ]
+        end
+      end
+
+      flag_states = [true, false].repeated_permutation(feature_flags.length)
+      flag_tests = flag_states.filter(&:any?).map { |flags| Hash[feature_flags.zip(flags)] }
+
+      flag_tests.each do |flags|
+        context "with flags #{flags} enabled for specific root group" do
+          let(:parent) { build_stubbed(:group) }
+          let(:group) do
+            build_stubbed(:group, parent: parent).tap { |g| g.namespace_settings = build_stubbed(:namespace_settings, namespace: g) }
+          end
+
+          let(:project) { build_stubbed(:project, namespace: group) }
+
+          before do
+            flags.transform_values! { |v| v ? parent : false }
+            stub_feature_flags(flags)
+          end
+
+          it 'contains for group all resource bot scopes including observability scopes' do
+            expect(subject.available_scopes_for(group)).to match_array %i[
+              api read_api read_repository write_repository read_registry write_registry
+              read_observability write_observability create_runner manage_runner k8s_proxy ai_features
+            ]
+          end
+
+          it 'contains for admin user all non-default scopes with ADMIN access and without observability scopes' do
+            user = build_stubbed(:user, admin: true)
+
+            expect(subject.available_scopes_for(user)).to match_array %i[
+              api read_user read_api read_repository write_repository read_registry write_registry read_service_ping
+              sudo admin_mode create_runner manage_runner k8s_proxy ai_features
+            ]
+          end
+
+          it 'contains for project all resource bot scopes including observability scopes' do
+            expect(subject.available_scopes_for(project)).to match_array %i[
+              api read_api read_repository write_repository read_registry write_registry
+              read_observability write_observability create_runner manage_runner k8s_proxy ai_features
+            ]
+          end
+
+          it 'contains for other group all resource bot scopes without observability scopes' do
+            other_parent = build_stubbed(:group)
+            other_group = build_stubbed(:group, parent: other_parent).tap do |g|
+              g.namespace_settings = build_stubbed(:namespace_settings, namespace: g)
+            end
+
+            expect(subject.available_scopes_for(other_group)).to match_array %i[
+              api read_api read_repository write_repository read_registry write_registry
+              create_runner manage_runner k8s_proxy ai_features
+            ]
+          end
+
+          it 'contains for other project all resource bot scopes without observability scopes' do
+            other_parent = build_stubbed(:group)
+            other_group = build_stubbed(:group, parent: other_parent).tap do |g|
+              g.namespace_settings = build_stubbed(:namespace_settings, namespace: g)
+            end
+            other_project = build_stubbed(:project, namespace: other_group)
+
+            expect(subject.available_scopes_for(other_project)).to match_array %i[
+              api read_api read_repository write_repository read_registry write_registry
+              create_runner manage_runner k8s_proxy ai_features
+            ]
+          end
+        end
+      end
     end
 
     context 'registry_scopes' do
@@ -87,7 +224,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
       end
 
       context 'when IP is already banned' do
-        subject { gl_auth.find_for_git_client('username', Gitlab::Password.test_default, project: nil, ip: 'ip') }
+        subject { gl_auth.find_for_git_client('username-does-not-matter', 'password-does-not-matter', project: nil, request: request) }
 
         before do
           expect_next_instance_of(Gitlab::Auth::IpRateLimiter) do |rate_limiter|
@@ -95,8 +232,8 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           end
         end
 
-        it 'raises an IpBlacklisted exception' do
-          expect { subject }.to raise_error(Gitlab::Auth::IpBlacklisted)
+        it 'raises an IpBlocked exception' do
+          expect { subject }.to raise_error(Gitlab::Auth::IpBlocked)
         end
       end
 
@@ -108,7 +245,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
             expect(rate_limiter).not_to receive(:reset!)
           end
 
-          gl_auth.find_for_git_client('gitlab-ci-token', build.token, project: build.project, ip: 'ip')
+          gl_auth.find_for_git_client('gitlab-ci-token', build.token, project: build.project, request: request)
         end
 
         it 'skips rate limiting for failed auth' do
@@ -116,7 +253,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
             expect(rate_limiter).not_to receive(:register_fail!)
           end
 
-          gl_auth.find_for_git_client('gitlab-ci-token', 'wrong_token', project: build.project, ip: 'ip')
+          gl_auth.find_for_git_client('gitlab-ci-token', 'wrong_token', project: build.project, request: request)
         end
       end
 
@@ -128,7 +265,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
             expect(rate_limiter).to receive(:reset!)
           end
 
-          gl_auth.find_for_git_client(user.username, user.password, project: nil, ip: 'ip')
+          gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request)
         end
 
         it 'rate limits a user by unique IPs' do
@@ -137,7 +274,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           end
           expect(Gitlab::Auth::UniqueIpsLimiter).to receive(:limit_user!).twice.and_call_original
 
-          gl_auth.find_for_git_client(user.username, user.password, project: nil, ip: 'ip')
+          gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request)
         end
 
         it 'registers failure for failed auth' do
@@ -145,13 +282,36 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
             expect(rate_limiter).to receive(:register_fail!)
           end
 
-          gl_auth.find_for_git_client(user.username, 'wrong_password', project: nil, ip: 'ip')
+          gl_auth.find_for_git_client(user.username, 'wrong_password', project: nil, request: request)
+        end
+
+        context 'when failure goes over threshold' do
+          let(:request) { instance_double(ActionDispatch::Request, fullpath: '/some/project.git/info/refs', request_method: 'GET', ip: 'ip') }
+
+          before do
+            expect_next_instance_of(Gitlab::Auth::IpRateLimiter) do |rate_limiter|
+              expect(rate_limiter).to receive(:register_fail!).and_return(true)
+            end
+          end
+
+          it 'logs a message' do
+            expect(Gitlab::AuthLogger).to receive(:error).with(
+              message: include('IP has been temporarily banned from Git auth'),
+              env: :blocklist,
+              remote_ip: request.ip,
+              request_method: request.request_method,
+              path: request.fullpath,
+              login: user.username
+            )
+
+            gl_auth.find_for_git_client(user.username, 'wrong_password', project: nil, request: request)
+          end
         end
       end
     end
 
     context 'build token' do
-      subject { gl_auth.find_for_git_client(username, build.token, project: project, ip: 'ip') }
+      subject { gl_auth.find_for_git_client(username, build.token, project: project, request: request) }
 
       let(:username) { 'gitlab-ci-token' }
 
@@ -180,6 +340,20 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         it 'recognises group level bot access token' do
           build.update!(user: create(:user, :project_bot))
           group.add_maintainer(build.user)
+
+          expect(subject).to have_attributes(actor: build.user, project: build.project, type: :build, authentication_abilities: described_class.build_authentication_abilities)
+        end
+
+        it 'recognises project level security_policy_bot access token' do
+          build.update!(user: create(:user, :security_policy_bot))
+          project.add_guest(build.user)
+
+          expect(subject).to have_attributes(actor: build.user, project: build.project, type: :build, authentication_abilities: described_class.build_authentication_abilities)
+        end
+
+        it 'recognises group level security_policy_bot access token' do
+          build.update!(user: create(:user, :security_policy_bot))
+          group.add_guest(build.user)
 
           expect(subject).to have_attributes(actor: build.user, project: build.project, type: :build, authentication_abilities: described_class.build_authentication_abilities)
         end
@@ -215,20 +389,20 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
       project.create_drone_ci_integration(active: true)
       project.drone_ci_integration.update!(token: 'token', drone_url: generate(:url))
 
-      expect(gl_auth.find_for_git_client('drone-ci-token', 'token', project: project, ip: 'ip')).to have_attributes(actor: nil, project: project, type: :ci, authentication_abilities: described_class.build_authentication_abilities)
+      expect(gl_auth.find_for_git_client('drone-ci-token', 'token', project: project, request: request)).to have_attributes(actor: nil, project: project, type: :ci, authentication_abilities: described_class.build_authentication_abilities)
     end
 
     it 'recognizes master passwords' do
-      user = create(:user, password: Gitlab::Password.test_default)
+      user = create(:user)
 
-      expect(gl_auth.find_for_git_client(user.username, Gitlab::Password.test_default, project: nil, ip: 'ip')).to have_attributes(actor: user, project: nil, type: :gitlab_or_ldap, authentication_abilities: described_class.full_authentication_abilities)
+      expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request)).to have_attributes(actor: user, project: nil, type: :gitlab_or_ldap, authentication_abilities: described_class.full_authentication_abilities)
     end
 
     include_examples 'user login operation with unique ip limit' do
-      let(:user) { create(:user, password: Gitlab::Password.test_default) }
+      let(:user) { create(:user) }
 
       def operation
-        expect(gl_auth.find_for_git_client(user.username, Gitlab::Password.test_default, project: nil, ip: 'ip')).to have_attributes(actor: user, project: nil, type: :gitlab_or_ldap, authentication_abilities: described_class.full_authentication_abilities)
+        expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request)).to have_attributes(actor: user, project: nil, type: :gitlab_or_ldap, authentication_abilities: described_class.full_authentication_abilities)
       end
     end
 
@@ -237,14 +411,14 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         user = create(:user)
         token = Gitlab::LfsToken.new(user).token
 
-        expect(gl_auth.find_for_git_client(user.username, token, project: nil, ip: 'ip')).to have_attributes(actor: user, project: nil, type: :lfs_token, authentication_abilities: described_class.read_write_project_authentication_abilities)
+        expect(gl_auth.find_for_git_client(user.username, token, project: nil, request: request)).to have_attributes(actor: user, project: nil, type: :lfs_token, authentication_abilities: described_class.read_write_project_authentication_abilities)
       end
 
       it 'recognizes deploy key lfs tokens' do
         key = create(:deploy_key)
         token = Gitlab::LfsToken.new(key).token
 
-        expect(gl_auth.find_for_git_client("lfs+deploy-key-#{key.id}", token, project: nil, ip: 'ip')).to have_attributes(actor: key, project: nil, type: :lfs_deploy_token, authentication_abilities: described_class.read_only_authentication_abilities)
+        expect(gl_auth.find_for_git_client("lfs+deploy-key-#{key.id}", token, project: nil, request: request)).to have_attributes(actor: key, project: nil, type: :lfs_deploy_token, authentication_abilities: described_class.read_only_authentication_abilities)
       end
 
       it 'does not try password auth before oauth' do
@@ -253,7 +427,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
 
         expect(gl_auth).not_to receive(:find_with_user_password)
 
-        gl_auth.find_for_git_client(user.username, token, project: nil, ip: 'ip')
+        gl_auth.find_for_git_client(user.username, token, project: nil, request: request)
       end
 
       it 'grants deploy key write permissions' do
@@ -261,14 +435,18 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         create(:deploy_keys_project, :write_access, deploy_key: key, project: project)
         token = Gitlab::LfsToken.new(key).token
 
-        expect(gl_auth.find_for_git_client("lfs+deploy-key-#{key.id}", token, project: project, ip: 'ip')).to have_attributes(actor: key, project: nil, type: :lfs_deploy_token, authentication_abilities: described_class.read_write_authentication_abilities)
+        expect(gl_auth.find_for_git_client("lfs+deploy-key-#{key.id}", token, project: project, request: request)).to have_attributes(actor: key, project: nil, type: :lfs_deploy_token, authentication_abilities: described_class.read_write_authentication_abilities)
       end
 
       it 'does not grant deploy key write permissions' do
         key = create(:deploy_key)
         token = Gitlab::LfsToken.new(key).token
 
-        expect(gl_auth.find_for_git_client("lfs+deploy-key-#{key.id}", token, project: project, ip: 'ip')).to have_attributes(actor: key, project: nil, type: :lfs_deploy_token, authentication_abilities: described_class.read_only_authentication_abilities)
+        expect(gl_auth.find_for_git_client("lfs+deploy-key-#{key.id}", token, project: project, request: request)).to have_attributes(actor: key, project: nil, type: :lfs_deploy_token, authentication_abilities: described_class.read_only_authentication_abilities)
+      end
+
+      it 'does fail if the user and token are nil' do
+        expect(gl_auth.find_for_git_client(nil, nil, project: project, request: request)).to have_attributes(auth_failure)
       end
     end
 
@@ -280,7 +458,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         it 'fails' do
           access_token = Doorkeeper::AccessToken.create!(application_id: application.id, resource_owner_id: user.id, scopes: 'api')
 
-          expect(gl_auth.find_for_git_client("oauth2", access_token.token, project: nil, ip: 'ip'))
+          expect(gl_auth.find_for_git_client("oauth2", access_token.token, project: nil, request: request))
             .to have_attributes(auth_failure)
         end
       end
@@ -289,22 +467,33 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         using RSpec::Parameterized::TableSyntax
 
         where(:scopes, :abilities) do
-          'api' | described_class.full_authentication_abilities
-          'read_api' | described_class.read_only_authentication_abilities
-          'read_repository' | [:download_code]
-          'write_repository' | [:download_code, :push_code]
-          'read_user' | []
-          'sudo' | []
-          'openid' | []
-          'profile' | []
-          'email' | []
+          'api'                 | described_class.full_authentication_abilities
+          'read_api'            | described_class.read_only_authentication_abilities
+          'read_repository'     | %i[download_code]
+          'write_repository'    | %i[download_code push_code]
+          'create_runner'       | %i[create_instance_runner create_runner]
+          'manage_runner'       | %i[assign_runner update_runner delete_runner]
+          'read_user'           | []
+          'sudo'                | []
+          'openid'              | []
+          'profile'             | []
+          'email'               | []
+          'read_observability'  | []
+          'write_observability' | []
         end
 
         with_them do
           it 'authenticates with correct abilities' do
             access_token = Doorkeeper::AccessToken.create!(application_id: application.id, resource_owner_id: user.id, scopes: scopes)
 
-            expect(gl_auth.find_for_git_client("oauth2", access_token.token, project: nil, ip: 'ip'))
+            expect(gl_auth.find_for_git_client("oauth2", access_token.token, project: nil, request: request))
+              .to have_attributes(actor: user, project: nil, type: :oauth, authentication_abilities: abilities)
+          end
+
+          it 'authenticates with correct abilities without special username' do
+            access_token = Doorkeeper::AccessToken.create!(application_id: application.id, resource_owner_id: user.id, scopes: scopes)
+
+            expect(gl_auth.find_for_git_client(user.username, access_token.token, project: nil, request: request))
               .to have_attributes(actor: user, project: nil, type: :oauth, authentication_abilities: abilities)
           end
         end
@@ -315,7 +504,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
 
         expect(gl_auth).not_to receive(:find_with_user_password)
 
-        gl_auth.find_for_git_client("oauth2", access_token.token, project: nil, ip: 'ip')
+        gl_auth.find_for_git_client("oauth2", access_token.token, project: nil, request: request)
       end
 
       context 'blocked user' do
@@ -352,6 +541,18 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         expect_results_with_abilities(personal_access_token, [:download_code, :push_code])
       end
 
+      it 'succeeds for personal access tokens with the `create_runner` scope' do
+        personal_access_token = create(:personal_access_token, scopes: ['create_runner'])
+
+        expect_results_with_abilities(personal_access_token, %i[create_instance_runner create_runner])
+      end
+
+      it 'succeeds for personal access tokens with the `manage_runner` scope' do
+        personal_access_token = create(:personal_access_token, scopes: ['manage_runner'])
+
+        expect_results_with_abilities(personal_access_token, %i[assign_runner update_runner delete_runner])
+      end
+
       context 'when registry is enabled' do
         before do
           stub_container_registry_config(enabled: true)
@@ -375,7 +576,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
 
         impersonation_token = create(:personal_access_token, :impersonation, scopes: ['api'])
 
-        expect(gl_auth.find_for_git_client('', impersonation_token.token, project: nil, ip: 'ip'))
+        expect(gl_auth.find_for_git_client('', impersonation_token.token, project: nil, request: request))
           .to have_attributes(auth_failure)
       end
 
@@ -398,7 +599,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         end
 
         it 'fails if user is blocked' do
-          expect(gl_auth.find_for_git_client('', personal_access_token.token, project: nil, ip: 'ip'))
+          expect(gl_auth.find_for_git_client('', personal_access_token.token, project: nil, request: request))
             .to have_attributes(auth_failure)
         end
       end
@@ -406,19 +607,19 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
       context 'when using a resource access token' do
         shared_examples 'with a valid access token' do
           it 'successfully authenticates the project bot' do
-            expect(gl_auth.find_for_git_client(project_bot_user.username, access_token.token, project: project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client(project_bot_user.username, access_token.token, project: project, request: request))
               .to have_attributes(actor: project_bot_user, project: nil, type: :personal_access_token, authentication_abilities: described_class.full_authentication_abilities)
           end
 
           it 'successfully authenticates the project bot with a nil project' do
-            expect(gl_auth.find_for_git_client(project_bot_user.username, access_token.token, project: nil, ip: 'ip'))
+            expect(gl_auth.find_for_git_client(project_bot_user.username, access_token.token, project: nil, request: request))
               .to have_attributes(actor: project_bot_user, project: nil, type: :personal_access_token, authentication_abilities: described_class.full_authentication_abilities)
           end
         end
 
         shared_examples 'with an invalid access token' do
           it 'fails for a non-member' do
-            expect(gl_auth.find_for_git_client(project_bot_user.username, access_token.token, project: project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client(project_bot_user.username, access_token.token, project: project, request: request))
               .to have_attributes(auth_failure)
           end
 
@@ -428,7 +629,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
             end
 
             it 'fails for a blocked project bot' do
-              expect(gl_auth.find_for_git_client(project_bot_user.username, access_token.token, project: project, ip: 'ip'))
+              expect(gl_auth.find_for_git_client(project_bot_user.username, access_token.token, project: project, request: request))
                 .to have_attributes(auth_failure)
             end
           end
@@ -481,8 +682,25 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
             end
 
             it_behaves_like 'with an invalid access token'
+
+            context 'when the token belongs to a group via project share' do
+              let_it_be(:invited_group) { create(:group) }
+
+              before do
+                invited_group.add_maintainer(project_bot_user)
+                create(:project_group_link, group: invited_group, project: project)
+              end
+
+              it_behaves_like 'with a valid access token'
+            end
           end
         end
+      end
+
+      it 'updates last_used_at column if token is valid' do
+        personal_access_token = create(:personal_access_token, scopes: ['write_repository'])
+
+        expect { gl_auth.find_for_git_client('', personal_access_token.token, project: nil, request: request) }.to change { personal_access_token.reload.last_used_at }
       end
     end
 
@@ -491,17 +709,16 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         user = create(
           :user,
           :blocked,
-          username: 'normal_user',
-          password: Gitlab::Password.test_default
+          username: 'normal_user'
         )
 
-        expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, ip: 'ip'))
+        expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request))
           .to have_attributes(auth_failure)
       end
 
       context 'when 2fa is enabled globally' do
         let_it_be(:user) do
-          create(:user, username: 'normal_user', password: Gitlab::Password.test_default, otp_grace_period_started_at: 1.day.ago)
+          create(:user, username: 'normal_user', otp_grace_period_started_at: 1.day.ago)
         end
 
         before do
@@ -511,25 +728,25 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         it 'fails if grace period expired' do
           stub_application_setting(two_factor_grace_period: 0)
 
-          expect { gl_auth.find_for_git_client(user.username, user.password, project: nil, ip: 'ip') }
+          expect { gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request) }
             .to raise_error(Gitlab::Auth::MissingPersonalAccessTokenError)
         end
 
         it 'goes through if grace period is not expired yet' do
           stub_application_setting(two_factor_grace_period: 72)
 
-          expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request))
             .to have_attributes(actor: user, project: nil, type: :gitlab_or_ldap, authentication_abilities: described_class.full_authentication_abilities)
         end
       end
 
       context 'when 2fa is enabled personally' do
         let(:user) do
-          create(:user, :two_factor, username: 'normal_user', password: Gitlab::Password.test_default, otp_grace_period_started_at: 1.day.ago)
+          create(:user, :two_factor, username: 'normal_user', otp_grace_period_started_at: 1.day.ago)
         end
 
         it 'fails' do
-          expect { gl_auth.find_for_git_client(user.username, user.password, project: nil, ip: 'ip') }
+          expect { gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request) }
             .to raise_error(Gitlab::Auth::MissingPersonalAccessTokenError)
         end
       end
@@ -537,22 +754,20 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
       it 'goes through lfs authentication' do
         user = create(
           :user,
-          username: 'normal_user',
-          password: Gitlab::Password.test_default
+          username: 'normal_user'
         )
 
-        expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, ip: 'ip'))
+        expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request))
           .to have_attributes(actor: user, project: nil, type: :gitlab_or_ldap, authentication_abilities: described_class.full_authentication_abilities)
       end
 
       it 'goes through oauth authentication when the username is oauth2' do
         user = create(
           :user,
-          username: 'oauth2',
-          password: Gitlab::Password.test_default
+          username: 'oauth2'
         )
 
-        expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, ip: 'ip'))
+        expect(gl_auth.find_for_git_client(user.username, user.password, project: nil, request: request))
           .to have_attributes(actor: user, project: nil, type: :gitlab_or_ldap, authentication_abilities: described_class.full_authentication_abilities)
       end
     end
@@ -560,34 +775,34 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
     it 'returns double nil for invalid credentials' do
       login = 'foo'
 
-      expect(gl_auth.find_for_git_client(login, 'bar', project: nil, ip: 'ip')).to have_attributes(auth_failure)
+      expect(gl_auth.find_for_git_client(login, 'bar', project: nil, request: request)).to have_attributes(auth_failure)
     end
 
     it 'throws an error suggesting user create a PAT when internal auth is disabled' do
       allow_any_instance_of(ApplicationSetting).to receive(:password_authentication_enabled_for_git?) { false }
 
-      expect { gl_auth.find_for_git_client('foo', 'bar', project: nil, ip: 'ip') }.to raise_error(Gitlab::Auth::MissingPersonalAccessTokenError)
+      expect { gl_auth.find_for_git_client('foo', 'bar', project: nil, request: request) }.to raise_error(Gitlab::Auth::MissingPersonalAccessTokenError)
     end
 
     context 'while using deploy tokens' do
       shared_examples 'registry token scope' do
         it 'fails when login is not valid' do
-          expect(gl_auth.find_for_git_client('random_login', deploy_token.token, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client('random_login', deploy_token.token, project: project, request: request))
             .to have_attributes(auth_failure)
         end
 
         it 'fails when token is not valid' do
-          expect(gl_auth.find_for_git_client(login, '123123', project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(login, '123123', project: project, request: request))
             .to have_attributes(auth_failure)
         end
 
         it 'fails if token is nil' do
-          expect(gl_auth.find_for_git_client(login, nil, project: nil, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(login, nil, project: nil, request: request))
             .to have_attributes(auth_failure)
         end
 
         it 'fails if token is not related to project' do
-          expect(gl_auth.find_for_git_client(login, 'abcdef', project: nil, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(login, 'abcdef', project: nil, request: request))
             .to have_attributes(auth_failure)
         end
 
@@ -595,7 +810,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           deploy_token.revoke!
 
           expect(deploy_token.revoked?).to be_truthy
-          expect(gl_auth.find_for_git_client('deploy-token', deploy_token.token, project: nil, ip: 'ip'))
+          expect(gl_auth.find_for_git_client('deploy-token', deploy_token.token, project: nil, request: request))
             .to have_attributes(auth_failure)
         end
       end
@@ -607,7 +822,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           end
 
           it 'fails when login and token are valid' do
-            expect(gl_auth.find_for_git_client(login, deploy_token.token, project: nil, ip: 'ip'))
+            expect(gl_auth.find_for_git_client(login, deploy_token.token, project: nil, request: request))
               .to have_attributes(auth_failure)
           end
         end
@@ -616,7 +831,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           let(:project) { create(:project, :repository_disabled) }
 
           it 'fails when login and token are valid' do
-            expect(gl_auth.find_for_git_client(login, deploy_token.token, project: project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client(login, deploy_token.token, project: project, request: request))
               .to have_attributes(auth_failure)
           end
         end
@@ -624,20 +839,20 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
 
       context 'when deploy token and user have the same username' do
         let(:username) { 'normal_user' }
-        let(:user) { create(:user, username: username, password: Gitlab::Password.test_default) }
+        let(:user) { create(:user, username: username) }
         let(:deploy_token) { create(:deploy_token, username: username, read_registry: false, projects: [project]) }
 
         it 'succeeds for the token' do
           auth_success = { actor: deploy_token, project: project, type: :deploy_token, authentication_abilities: [:download_code] }
 
-          expect(gl_auth.find_for_git_client(username, deploy_token.token, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(username, deploy_token.token, project: project, request: request))
             .to have_attributes(auth_success)
         end
 
         it 'succeeds for the user' do
           auth_success = { actor: user, project: nil, type: :gitlab_or_ldap, authentication_abilities: described_class.full_authentication_abilities }
 
-          expect(gl_auth.find_for_git_client(username, Gitlab::Password.test_default, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(username, user.password, project: project, request: request))
             .to have_attributes(auth_success)
         end
       end
@@ -649,12 +864,12 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           let(:auth_success) { { actor: read_repository, project: project, type: :deploy_token, authentication_abilities: [:download_code] } }
 
           it 'succeeds for the right token' do
-            expect(gl_auth.find_for_git_client('deployer', read_repository.token, project: project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client('deployer', read_repository.token, project: project, request: request))
               .to have_attributes(auth_success)
           end
 
           it 'fails for the wrong token' do
-            expect(gl_auth.find_for_git_client('deployer', read_registry.token, project: project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client('deployer', read_registry.token, project: project, request: request))
               .not_to have_attributes(auth_success)
           end
         end
@@ -667,12 +882,12 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           let(:auth_success) { { actor: read_repository, project: other_project, type: :deploy_token, authentication_abilities: [:download_code] } }
 
           it 'succeeds for the right token' do
-            expect(gl_auth.find_for_git_client('deployer', read_repository.token, project: other_project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client('deployer', read_repository.token, project: other_project, request: request))
               .to have_attributes(auth_success)
           end
 
           it 'fails for the wrong token' do
-            expect(gl_auth.find_for_git_client('deployer', read_registry.token, project: other_project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client('deployer', read_registry.token, project: other_project, request: request))
               .not_to have_attributes(auth_success)
           end
         end
@@ -685,7 +900,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         it 'succeeds when login and token are valid' do
           auth_success = { actor: deploy_token, project: project, type: :deploy_token, authentication_abilities: [:download_code] }
 
-          expect(gl_auth.find_for_git_client(login, deploy_token.token, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(login, deploy_token.token, project: project, request: request))
             .to have_attributes(auth_success)
         end
 
@@ -693,34 +908,34 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           deploy_token = create(:deploy_token, username: 'deployer', read_registry: false, projects: [project])
           auth_success = { actor: deploy_token, project: project, type: :deploy_token, authentication_abilities: [:download_code] }
 
-          expect(gl_auth.find_for_git_client('deployer', deploy_token.token, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client('deployer', deploy_token.token, project: project, request: request))
             .to have_attributes(auth_success)
         end
 
         it 'does not attempt to rate limit unique IPs for a deploy token' do
           expect(Gitlab::Auth::UniqueIpsLimiter).not_to receive(:limit_user!)
 
-          gl_auth.find_for_git_client(login, deploy_token.token, project: project, ip: 'ip')
+          gl_auth.find_for_git_client(login, deploy_token.token, project: project, request: request)
         end
 
         it 'fails when login is not valid' do
-          expect(gl_auth.find_for_git_client('random_login', deploy_token.token, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client('random_login', deploy_token.token, project: project, request: request))
             .to have_attributes(auth_failure)
         end
 
         it 'fails when token is not valid' do
-          expect(gl_auth.find_for_git_client(login, '123123', project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(login, '123123', project: project, request: request))
             .to have_attributes(auth_failure)
         end
 
         it 'fails if token is nil' do
-          expect(gl_auth.find_for_git_client(login, nil, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(login, nil, project: project, request: request))
             .to have_attributes(auth_failure)
         end
 
         it 'fails if token is not related to project' do
           another_deploy_token = create(:deploy_token)
-          expect(gl_auth.find_for_git_client(another_deploy_token.username, another_deploy_token.token, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(another_deploy_token.username, another_deploy_token.token, project: project, request: request))
             .to have_attributes(auth_failure)
         end
 
@@ -728,7 +943,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           deploy_token.revoke!
 
           expect(deploy_token.revoked?).to be_truthy
-          expect(gl_auth.find_for_git_client('deploy-token', deploy_token.token, project: project, ip: 'ip'))
+          expect(gl_auth.find_for_git_client('deploy-token', deploy_token.token, project: project, request: request))
             .to have_attributes(auth_failure)
         end
       end
@@ -738,7 +953,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         let(:deploy_token) { create(:deploy_token, :group, read_repository: true, groups: [project_with_group.group]) }
         let(:login) { deploy_token.username }
 
-        subject { gl_auth.find_for_git_client(login, deploy_token.token, project: project_with_group, ip: 'ip') }
+        subject { gl_auth.find_for_git_client(login, deploy_token.token, project: project_with_group, request: request) }
 
         it 'succeeds when login and a group deploy token are valid' do
           auth_success = { actor: deploy_token, project: project_with_group, type: :deploy_token, authentication_abilities: [:download_code, :read_container_image] }
@@ -749,7 +964,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         it 'fails if token is not related to group' do
           another_deploy_token = create(:deploy_token, :group, read_repository: true)
 
-          expect(gl_auth.find_for_git_client(another_deploy_token.username, another_deploy_token.token, project: project_with_group, ip: 'ip'))
+          expect(gl_auth.find_for_git_client(another_deploy_token.username, another_deploy_token.token, project: project_with_group, request: request))
             .to have_attributes(auth_failure)
         end
       end
@@ -766,7 +981,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           it 'succeeds when login and a project token are valid' do
             auth_success = { actor: deploy_token, project: project, type: :deploy_token, authentication_abilities: [:read_container_image] }
 
-            expect(gl_auth.find_for_git_client(login, deploy_token.token, project: project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client(login, deploy_token.token, project: project, request: request))
               .to have_attributes(auth_success)
           end
 
@@ -788,7 +1003,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           it 'succeeds when login and a project token are valid' do
             auth_success = { actor: deploy_token, project: project, type: :deploy_token, authentication_abilities: [:create_container_image] }
 
-            expect(gl_auth.find_for_git_client(login, deploy_token.token, project: project, ip: 'ip'))
+            expect(gl_auth.find_for_git_client(login, deploy_token.token, project: project, request: request))
               .to have_attributes(auth_success)
           end
 
@@ -801,7 +1016,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
   end
 
   describe '#build_access_token_check' do
-    subject { gl_auth.find_for_git_client('gitlab-ci-token', build.token, project: build.project, ip: '1.2.3.4') }
+    subject { gl_auth.find_for_git_client('gitlab-ci-token', build.token, project: build.project, request: request) }
 
     let_it_be(:user) { create(:user) }
 
@@ -823,72 +1038,64 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
   end
 
   describe 'find_with_user_password' do
-    let!(:user) do
-      create(:user,
-             username: username,
-             password: password,
-             password_confirmation: password)
-    end
-
+    let!(:user) { create(:user, username: username) }
     let(:username) { 'John' } # username isn't lowercase, test this
-    let(:password) { Gitlab::Password.test_default }
 
     it "finds user by valid login/password" do
-      expect(gl_auth.find_with_user_password(username, password)).to eql user
+      expect(gl_auth.find_with_user_password(username, user.password)).to eql user
     end
 
     it 'finds user by valid email/password with case-insensitive email' do
-      expect(gl_auth.find_with_user_password(user.email.upcase, password)).to eql user
+      expect(gl_auth.find_with_user_password(user.email.upcase, user.password)).to eql user
     end
 
     it 'finds user by valid username/password with case-insensitive username' do
-      expect(gl_auth.find_with_user_password(username.upcase, password)).to eql user
+      expect(gl_auth.find_with_user_password(username.upcase, user.password)).to eql user
     end
 
     it "does not find user with invalid password" do
-      password = 'wrong'
-      expect(gl_auth.find_with_user_password(username, password)).not_to eql user
+      expect(gl_auth.find_with_user_password(username, 'incorrect_password')).not_to eql user
     end
 
     it "does not find user with invalid login" do
-      user = 'wrong'
-      expect(gl_auth.find_with_user_password(username, password)).not_to eql user
+      username = 'wrong'
+      expect(gl_auth.find_with_user_password(username, user.password)).not_to eql user
     end
 
     include_examples 'user login operation with unique ip limit' do
       def operation
-        expect(gl_auth.find_with_user_password(username, password)).to eq(user)
+        expect(gl_auth.find_with_user_password(username, user.password)).to eq(user)
       end
     end
 
     it 'finds the user in deactivated state' do
       user.deactivate!
 
-      expect(gl_auth.find_with_user_password(username, password)).to eql user
+      expect(gl_auth.find_with_user_password(username, user.password)).to eql user
     end
 
     it "does not find user in blocked state" do
       user.block
 
-      expect(gl_auth.find_with_user_password(username, password)).not_to eql user
+      expect(gl_auth.find_with_user_password(username, user.password)).not_to eql user
     end
 
     it 'does not find user in locked state' do
       user.lock_access!
 
-      expect(gl_auth.find_with_user_password(username, password)).not_to eql user
+      expect(gl_auth.find_with_user_password(username, user.password)).not_to eql user
     end
 
     it "does not find user in ldap_blocked state" do
       user.ldap_block
 
-      expect(gl_auth.find_with_user_password(username, password)).not_to eql user
+      expect(gl_auth.find_with_user_password(username, user.password)).not_to eql user
     end
 
     it 'does not find user in blocked_pending_approval state' do
       user.block_pending_approval
 
-      expect(gl_auth.find_with_user_password(username, password)).not_to eql user
+      expect(gl_auth.find_with_user_password(username, user.password)).not_to eql user
     end
 
     context 'with increment_failed_attempts' do
@@ -906,7 +1113,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         user.save!
 
         expect do
-          gl_auth.find_with_user_password(username, password, increment_failed_attempts: true)
+          gl_auth.find_with_user_password(username, user.password, increment_failed_attempts: true)
           user.reload
         end.to change(user, :failed_attempts).from(2).to(0)
       end
@@ -935,7 +1142,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
           user.save!
 
           expect do
-            gl_auth.find_with_user_password(username, password, increment_failed_attempts: true)
+            gl_auth.find_with_user_password(username, user.password, increment_failed_attempts: true)
             user.reload
           end.not_to change(user, :failed_attempts)
         end
@@ -950,19 +1157,19 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
       it "tries to autheticate with db before ldap" do
         expect(Gitlab::Auth::Ldap::Authentication).not_to receive(:login)
 
-        expect(gl_auth.find_with_user_password(username, password)).to eq(user)
+        expect(gl_auth.find_with_user_password(username, user.password)).to eq(user)
       end
 
       it "does not find user by using ldap as fallback to for authentication" do
         expect(Gitlab::Auth::Ldap::Authentication).to receive(:login).and_return(nil)
 
-        expect(gl_auth.find_with_user_password('ldap_user', Gitlab::Password.test_default)).to be_nil
+        expect(gl_auth.find_with_user_password('ldap_user', 'password')).to be_nil
       end
 
       it "find new user by using ldap as fallback to for authentication" do
         expect(Gitlab::Auth::Ldap::Authentication).to receive(:login).and_return(user)
 
-        expect(gl_auth.find_with_user_password('ldap_user', Gitlab::Password.test_default)).to eq(user)
+        expect(gl_auth.find_with_user_password('ldap_user', 'password')).to eq(user)
       end
     end
 
@@ -972,7 +1179,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
       end
 
       it "does not find user by valid login/password" do
-        expect(gl_auth.find_with_user_password(username, password)).to be_nil
+        expect(gl_auth.find_with_user_password(username, user.password)).to be_nil
       end
 
       context "with ldap enabled" do
@@ -981,7 +1188,7 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
         end
 
         it "does not find non-ldap user by valid login/password" do
-          expect(gl_auth.find_with_user_password(username, password)).to be_nil
+          expect(gl_auth.find_with_user_password(username, user.password)).to be_nil
         end
       end
     end
@@ -993,12 +1200,13 @@ RSpec.describe Gitlab::Auth, :use_clean_rails_memory_store_caching do
     it { is_expected.to include(*described_class::API_SCOPES - [:read_user]) }
     it { is_expected.to include(*described_class::REPOSITORY_SCOPES) }
     it { is_expected.to include(*described_class.registry_scopes) }
+    it { is_expected.to include(*described_class::OBSERVABILITY_SCOPES) }
   end
 
   private
 
   def expect_results_with_abilities(personal_access_token, abilities, success = true)
-    expect(gl_auth.find_for_git_client('', personal_access_token&.token, project: nil, ip: 'ip'))
+    expect(gl_auth.find_for_git_client('', personal_access_token&.token, project: nil, request: request))
       .to have_attributes(actor: personal_access_token&.user, project: nil, type: personal_access_token.nil? ? nil : :personal_access_token, authentication_abilities: abilities)
   end
 end

@@ -11,11 +11,7 @@ describe('NodeErrorHelpText', () => {
     await nextTick();
   };
 
-  const findPopover = () => wrapper.find(GlPopover);
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findPopover = () => wrapper.findComponent(GlPopover);
 
   it.each`
     errorType                 | wrapperText                 | popoverText

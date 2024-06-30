@@ -1,5 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlButton, GlDropdown, GlDropdownItem, GlLoadingIcon, GlSearchBoxByType } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters, mapState } from 'vuex';
 import { __ } from '~/locale';
 
@@ -80,7 +82,8 @@ export default {
 
 <template>
   <div
-    class="gl-display-flex gl-align-items-center ide-file-templates qa-file-templates-bar gl-relative gl-z-index-1"
+    class="gl-display-flex gl-align-items-center ide-file-templates gl-relative gl-z-1"
+    data-testid="file-templates-bar"
   >
     <strong class="gl-mr-3"> {{ $options.i18n.barLabel }} </strong>
     <gl-dropdown
@@ -97,12 +100,12 @@ export default {
     </gl-dropdown>
     <gl-dropdown
       v-if="showTemplatesDropdown"
-      class="gl-mr-6 qa-file-template-dropdown"
+      class="gl-mr-6"
       :text="$options.i18n.templateListDropdownLabel"
       @show="fetchTemplateTypes"
     >
       <template #header>
-        <gl-search-box-by-type v-model.trim="search" data-qa-selector="dropdown_filter_input" />
+        <gl-search-box-by-type v-model.trim="search" />
       </template>
       <div>
         <gl-loading-icon v-if="isLoading" />

@@ -1,123 +1,260 @@
 # frozen_string_literal: true
 
 module BulkImports
-  class PipelineWorker # rubocop:disable Scalability/IdempotentWorker
+  class PipelineWorker
     include ApplicationWorker
+    include ExclusiveLeaseGuard
+    include Gitlab::Utils::StrongMemoize
+
+    FILE_EXTRACTION_PIPELINE_PERFORM_DELAY = 10.seconds
+
+    LimitedBatches = Struct.new(:numbers, :final?, keyword_init: true).freeze
+
+    DEFER_ON_HEALTH_DELAY = 5.minutes
 
     data_consistency :always
-
-    NDJSON_PIPELINE_PERFORM_DELAY = 1.minute
-
     feature_category :importers
-
-    sidekiq_options retry: false, dead: false
-
+    sidekiq_options dead: false, retry: 6
     worker_has_external_dependencies!
+    deduplicate :until_executing
+    worker_resource_boundary :memory
+    idempotent!
 
-    def perform(pipeline_tracker_id, stage, entity_id)
-      pipeline_tracker = ::BulkImports::Tracker
-        .with_status(:enqueued)
-        .find_by_id(pipeline_tracker_id)
+    version 2
 
-      if pipeline_tracker.present?
-        logger.info(
-          worker: self.class.name,
-          entity_id: pipeline_tracker.entity.id,
-          pipeline_name: pipeline_tracker.pipeline_name
-        )
+    sidekiq_retries_exhausted do |msg, exception|
+      new.perform_failure(msg['args'][0], msg['args'][2], exception)
+    end
 
-        run(pipeline_tracker)
-      else
-        logger.error(
-          worker: self.class.name,
-          entity_id: entity_id,
-          pipeline_tracker_id: pipeline_tracker_id,
-          message: 'Unstarted pipeline not found'
-        )
+    defer_on_database_health_signal(:gitlab_main, [], DEFER_ON_HEALTH_DELAY) do |job_args, schema, tables|
+      pipeline_tracker = ::BulkImports::Tracker.find(job_args.first)
+      pipeline_schema = ::BulkImports::PipelineSchemaInfo.new(
+        pipeline_tracker.pipeline_class,
+        pipeline_tracker.entity.portable_class
+      )
+
+      if pipeline_schema.db_schema && pipeline_schema.db_table
+        schema = pipeline_schema.db_schema
+        tables = [pipeline_schema.db_table]
       end
 
-    ensure
-      ::BulkImports::EntityWorker.perform_async(entity_id, stage)
+      [schema, tables]
+    end
+
+    def self.defer_on_database_health_signal?
+      Feature.enabled?(:bulk_import_deferred_workers)
+    end
+
+    # Keep _stage parameter for backwards compatibility.
+    def perform(pipeline_tracker_id, _stage, entity_id)
+      @entity = ::BulkImports::Entity.find(entity_id)
+      @pipeline_tracker = ::BulkImports::Tracker.find(pipeline_tracker_id)
+
+      log_extra_metadata_on_done(:pipeline_class, @pipeline_tracker.pipeline_name)
+
+      try_obtain_lease do
+        if pipeline_tracker.enqueued? || pipeline_tracker.started?
+          logger.info(log_attributes(message: 'Pipeline starting'))
+          run
+        end
+      end
+    end
+
+    def perform_failure(pipeline_tracker_id, entity_id, exception)
+      @entity = ::BulkImports::Entity.find(entity_id)
+      @pipeline_tracker = ::BulkImports::Tracker.find(pipeline_tracker_id)
+
+      fail_pipeline(exception)
     end
 
     private
 
-    def run(pipeline_tracker)
-      if pipeline_tracker.entity.failed?
-        raise(Entity::FailedError, 'Failed entity status')
-      end
+    attr_reader :pipeline_tracker, :entity
 
-      if ndjson_pipeline?(pipeline_tracker)
-        status = ExportStatus.new(pipeline_tracker, pipeline_tracker.pipeline_class.relation)
+    def run
+      return if pipeline_tracker.canceled?
+      return skip_tracker if entity.failed?
+      return cancel_tracker if entity.canceled?
 
-        raise(Pipeline::ExpiredError, 'Pipeline timeout') if job_timeout?(pipeline_tracker)
-        raise(Pipeline::FailedError, status.error) if status.failed?
+      raise(Pipeline::FailedError, "Export from source instance failed: #{export_status.error}") if export_failed?
+      raise(Pipeline::ExpiredError, 'Empty export status on source instance') if empty_export_timeout?
 
-        return reenqueue(pipeline_tracker) if status.started?
-      end
+      return re_enqueue if export_empty? || export_started?
 
-      pipeline_tracker.update!(status_event: 'start', jid: jid)
+      if file_extraction_pipeline? && export_status.batched?
+        log_extra_metadata_on_done(:batched, true)
 
-      context = ::BulkImports::Pipeline::Context.new(pipeline_tracker)
+        pipeline_tracker.update!(status_event: 'start', jid: jid, batched: true)
 
-      pipeline_tracker.pipeline_class.new(context).run
+        return pipeline_tracker.finish! if export_status.batches_count < 1
 
-      pipeline_tracker.finish!
-    rescue BulkImports::NetworkError => e
-      if e.retriable?(pipeline_tracker)
-        logger.error(
-          worker: self.class.name,
-          entity_id: pipeline_tracker.entity.id,
-          pipeline_name: pipeline_tracker.pipeline_name,
-          message: "Retrying error: #{e.message}"
-        )
-
-        pipeline_tracker.update!(status_event: 'retry', jid: jid)
-
-        reenqueue(pipeline_tracker, delay: e.retry_delay)
+        enqueue_limited_batches
+        re_enqueue unless all_batches_enqueued?
       else
-        fail_tracker(pipeline_tracker, e)
+        log_extra_metadata_on_done(:batched, false)
+
+        pipeline_tracker.update!(status_event: 'start', jid: jid)
+        pipeline_tracker.pipeline_class.new(context).run
+        pipeline_tracker.finish!
       end
-    rescue StandardError => e
-      fail_tracker(pipeline_tracker, e)
+    rescue BulkImports::RetryPipelineError => e
+      retry_tracker(e)
     end
 
-    def fail_tracker(pipeline_tracker, exception)
+    def fail_pipeline(exception)
       pipeline_tracker.update!(status_event: 'fail_op', jid: jid)
 
-      logger.error(
-        worker: self.class.name,
-        entity_id: pipeline_tracker.entity.id,
-        pipeline_name: pipeline_tracker.pipeline_name,
-        message: exception.message
-      )
+      entity.fail_op! if pipeline_tracker.abort_on_failure?
 
-      Gitlab::ErrorTracking.track_exception(
-        exception,
-        entity_id: pipeline_tracker.entity.id,
-        pipeline_name: pipeline_tracker.pipeline_name
+      log_exception(exception, log_attributes(message: 'Pipeline failed'))
+
+      Gitlab::ErrorTracking.track_exception(exception, log_attributes)
+
+      BulkImports::Failure.create(
+        bulk_import_entity_id: entity.id,
+        pipeline_class: pipeline_tracker.pipeline_name,
+        pipeline_step: 'pipeline_worker_run',
+        exception_class: exception.class.to_s,
+        exception_message: exception.message,
+        correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id
       )
     end
 
     def logger
-      @logger ||= Gitlab::Import::Logger.build
+      @logger ||= Logger.build.with_tracker(pipeline_tracker)
     end
 
-    def ndjson_pipeline?(pipeline_tracker)
-      pipeline_tracker.pipeline_class.ndjson_pipeline?
+    def re_enqueue(delay = FILE_EXTRACTION_PIPELINE_PERFORM_DELAY)
+      log_extra_metadata_on_done(:re_enqueue, true)
+
+      with_context(bulk_import_entity_id: entity.id) do
+        self.class.perform_in(
+          delay,
+          pipeline_tracker.id,
+          pipeline_tracker.stage,
+          entity.id
+        )
+      end
     end
 
-    def job_timeout?(pipeline_tracker)
-      (Time.zone.now - pipeline_tracker.entity.created_at) > Pipeline::NDJSON_EXPORT_TIMEOUT
+    def context
+      @context ||= ::BulkImports::Pipeline::Context.new(pipeline_tracker)
     end
 
-    def reenqueue(pipeline_tracker, delay: NDJSON_PIPELINE_PERFORM_DELAY)
-      self.class.perform_in(
-        delay,
-        pipeline_tracker.id,
-        pipeline_tracker.stage,
-        pipeline_tracker.entity.id
+    def export_status
+      @export_status ||= ExportStatus.new(pipeline_tracker, pipeline_tracker.pipeline_class.relation)
+    end
+
+    def file_extraction_pipeline?
+      pipeline_tracker.file_extraction_pipeline?
+    end
+
+    def empty_export_timeout?
+      export_empty? && time_since_tracker_created > Pipeline::EMPTY_EXPORT_STATUS_TIMEOUT
+    end
+
+    def export_failed?
+      return false unless file_extraction_pipeline?
+
+      export_status.failed?
+    end
+
+    def export_started?
+      return false unless file_extraction_pipeline?
+
+      export_status.started?
+    end
+
+    def export_empty?
+      return false unless file_extraction_pipeline?
+
+      export_status.empty?
+    end
+
+    def retry_tracker(exception)
+      log_exception(exception, log_attributes(message: "Retrying pipeline"))
+
+      pipeline_tracker.update!(status_event: 'retry', jid: jid)
+
+      re_enqueue(exception.retry_delay)
+    end
+
+    def skip_tracker
+      logger.info(log_attributes(message: 'Skipping pipeline due to failed entity'))
+
+      pipeline_tracker.update!(status_event: 'skip', jid: jid)
+    end
+
+    def cancel_tracker
+      logger.info(log_attributes(message: 'Canceling pipeline due to canceled entity'))
+
+      pipeline_tracker.update!(status_event: 'cancel', jid: jid)
+    end
+
+    def log_attributes(extra = {})
+      logger.default_attributes.merge(extra)
+    end
+
+    def log_exception(exception, payload)
+      Gitlab::ExceptionLogFormatter.format!(exception, payload)
+
+      logger.error(structured_payload(payload))
+    end
+
+    def time_since_tracker_created
+      Time.zone.now - (pipeline_tracker.created_at || entity.created_at)
+    end
+
+    def enqueue_limited_batches
+      next_batch.numbers.each do |batch_number|
+        batch = pipeline_tracker.batches.create!(batch_number: batch_number)
+
+        with_context(bulk_import_entity_id: entity.id) do
+          ::BulkImports::PipelineBatchWorker.perform_async(batch.id)
+        end
+      end
+
+      log_extra_metadata_on_done(:tracker_batch_numbers_enqueued, next_batch.numbers)
+      log_extra_metadata_on_done(:tracker_final_batch_was_enqueued, next_batch.final?)
+    end
+
+    def all_batches_enqueued?
+      next_batch.final?
+    end
+
+    def next_batch
+      all_batch_numbers = (1..export_status.batches_count).to_a
+
+      created_batch_numbers = pipeline_tracker.batches.pluck_batch_numbers
+
+      remaining_batch_numbers = all_batch_numbers - created_batch_numbers
+
+      limit = next_batch_count
+
+      LimitedBatches.new(
+        numbers: remaining_batch_numbers.first(limit),
+        final?: remaining_batch_numbers.count <= limit
       )
+    end
+    strong_memoize_attr :next_batch
+
+    # Calculate the number of batches, up to `batch_limit`, to process in the
+    # next round.
+    def next_batch_count
+      limit = batch_limit - pipeline_tracker.batches.in_progress.limit(batch_limit).count
+      [limit, 0].max
+    end
+
+    def batch_limit
+      ::Gitlab::CurrentSettings.bulk_import_concurrent_pipeline_batch_limit
+    end
+
+    def lease_timeout
+      30
+    end
+
+    def lease_key
+      "gitlab:bulk_imports:pipeline_worker:#{pipeline_tracker.id}"
     end
   end
 end

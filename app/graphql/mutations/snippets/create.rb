@@ -7,37 +7,38 @@ module Mutations
 
       include ServiceCompatibility
       include Mutations::SpamProtection
+      include Gitlab::InternalEventsTracking
 
       authorize :create_snippet
 
       field :snippet,
-            Types::SnippetType,
-            null: true,
-            description: 'Snippet after mutation.'
+        Types::SnippetType,
+        null: true,
+        description: 'Snippet after mutation.'
 
       argument :title, GraphQL::Types::String,
-               required: true,
-               description: 'Title of the snippet.'
+        required: true,
+        description: 'Title of the snippet.'
 
       argument :description, GraphQL::Types::String,
-               required: false,
-               description: 'Description of the snippet.'
+        required: false,
+        description: 'Description of the snippet.'
 
       argument :visibility_level, Types::VisibilityLevelsEnum,
-               description: 'Visibility level of the snippet.',
-               required: true
+        description: 'Visibility level of the snippet.',
+        required: true
 
       argument :project_path, GraphQL::Types::ID,
-               required: false,
-               description: 'Full path of the project the snippet is associated with.'
+        required: false,
+        description: 'Full path of the project the snippet is associated with.'
 
       argument :uploaded_files, [GraphQL::Types::String],
-               required: false,
-               description: 'Paths to files uploaded in the snippet description.'
+        required: false,
+        description: 'Paths to files uploaded in the snippet description.'
 
       argument :blob_actions, [Types::Snippets::BlobActionInputType],
-               description: 'Actions to perform over the snippet repository and blobs.',
-               required: false
+        description: 'Actions to perform over the snippet repository and blobs.',
+        required: false
 
       def resolve(project_path: nil, **args)
         if project_path.present?
@@ -48,13 +49,16 @@ module Mutations
 
         process_args_for_params!(args)
 
-        spam_params = ::Spam::SpamParams.new_from_request(request: context[:request])
-        service = ::Snippets::CreateService.new(project: project, current_user: current_user, params: args, spam_params: spam_params)
+        service = ::Snippets::CreateService.new(project: project, current_user: current_user, params: args)
         service_response = service.execute
 
         # Only when the user is not an api user and the operation was successful
         if !api_user? && service_response.success?
-          ::Gitlab::UsageDataCounters::EditorUniqueCounter.track_snippet_editor_edit_action(author: current_user)
+          track_internal_event(
+            'g_edit_by_snippet_ide',
+            user: current_user,
+            project: project
+          )
         end
 
         snippet = service_response.payload[:snippet]

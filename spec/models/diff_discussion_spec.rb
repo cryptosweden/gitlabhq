@@ -14,8 +14,8 @@ RSpec.describe DiffDiscussion do
   describe '#reply_attributes' do
     it 'includes position and original_position' do
       attributes = subject.reply_attributes
-      expect(attributes[:position]).to eq(diff_note.position.to_json)
-      expect(attributes[:original_position]).to eq(diff_note.original_position.to_json)
+      expect(attributes[:position]).to eq(Gitlab::Json.dump(diff_note.position.to_h))
+      expect(attributes[:original_position]).to eq(Gitlab::Json.dump(diff_note.original_position.to_h))
     end
   end
 
@@ -128,7 +128,7 @@ RSpec.describe DiffDiscussion do
   end
 
   describe '#cache_key' do
-    let(:notes_sha) { Digest::SHA1.hexdigest("#{diff_note.post_processed_cache_key}") }
+    let(:notes_sha) { Digest::SHA1.hexdigest(diff_note.post_processed_cache_key.to_s) }
     let(:position_sha) { Digest::SHA1.hexdigest(diff_note.position.to_json) }
 
     it 'returns the cache key with the position sha' do

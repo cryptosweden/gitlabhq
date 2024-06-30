@@ -16,12 +16,8 @@ describe('InviteActionButtons', () => {
     });
   };
 
-  const findRemoveMemberButton = () => wrapper.find(RemoveMemberButton);
-  const findResendInviteButton = () => wrapper.find(ResendInviteButton);
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findRemoveMemberButton = () => wrapper.findComponent(RemoveMemberButton);
+  const findResendInviteButton = () => wrapper.findComponent(ResendInviteButton);
 
   describe('when user has `canRemove` permissions', () => {
     beforeEach(() => {
@@ -39,12 +35,10 @@ describe('InviteActionButtons', () => {
     it('sets props correctly', () => {
       expect(findRemoveMemberButton().props()).toMatchObject({
         memberId: member.id,
-        memberType: null,
         message: `Are you sure you want to revoke the invitation for ${member.invite.email} to join "${member.source.fullName}"`,
         title: 'Revoke invite',
         isAccessRequest: false,
         isInvite: true,
-        icon: 'remove',
       });
     });
   });

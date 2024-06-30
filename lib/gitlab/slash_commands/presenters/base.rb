@@ -87,16 +87,16 @@ module Gitlab
           {
             attachments: [
               {
-                title:        "#{issue.title} · #{issue.to_reference}",
-                title_link:   resource_url,
-                author_name:  author.name,
-                author_icon:  author.avatar_url(only_path: false),
-                fallback:     fallback_message,
-                pretext:      custom_pretext,
-                text:         text,
-                color:        color(resource),
-                fields:       fields,
-                mrkdwn_in:    fields_with_markdown
+                title: "#{issue.title} · #{issue.to_reference}",
+                title_link: resource_url,
+                author_name: author.name,
+                author_icon: author.avatar_url(only_path: false),
+                fallback: fallback_message,
+                pretext: custom_pretext,
+                text: text,
+                color: color(resource),
+                fields: fields,
+                mrkdwn_in: fields_with_markdown
               }
             ]
           }
@@ -111,7 +111,7 @@ module Gitlab
         end
 
         def fields_with_markdown
-          %i(title pretext fields)
+          %i[title pretext fields]
         end
       end
     end

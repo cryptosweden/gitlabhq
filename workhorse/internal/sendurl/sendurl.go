@@ -1,28 +1,50 @@
+// Package sendurl provides functionality for sending URLs.
 package sendurl
 
 import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"gitlab.com/gitlab-org/labkit/mask"
 
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/httptransport"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/log"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/senddata"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/transport"
 )
 
 type entry struct{ senddata.Prefix }
 
 type entryParams struct {
-	URL            string
-	AllowRedirects bool
+	URL                   string
+	AllowRedirects        bool
+	DialTimeout           config.TomlDuration
+	ResponseHeaderTimeout config.TomlDuration
+	ErrorResponseStatus   int
+	TimeoutResponseStatus int
+	Body                  string
+	Header                http.Header
+	Method                string
 }
 
+type cacheKey struct {
+	requestTimeout  time.Duration
+	responseTimeout time.Duration
+	allowRedirects  bool
+}
+
+var httpClients sync.Map
+
+// SendURL represents the entry for sending a URL.
 var SendURL = &entry{"send-url:"}
 
 var rangeHeaderKeys = []string{
@@ -44,10 +66,8 @@ var preserveHeaderKeys = map[string]bool{
 	"Pragma":        true, // Support for HTTP 1.0 proxies
 }
 
-var httpTransport = httptransport.New()
-
-var httpClient = &http.Client{
-	Transport: httpTransport,
+var httpClientNoRedirect = func(req *http.Request, via []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 var (
@@ -83,8 +103,11 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 	defer sendURLOpenRequests.Dec()
 
 	if err := e.Unpack(&params, sendData); err != nil {
-		helper.Fail500(w, r, fmt.Errorf("SendURL: unpack sendData: %v", err))
+		fail.Request(w, r, fmt.Errorf("SendURL: unpack sendData: %v", err))
 		return
+	}
+	if params.Method == "" {
+		params.Method = http.MethodGet
 	}
 
 	log.WithContextFields(r.Context(), log.Fields{
@@ -94,15 +117,15 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 
 	if params.URL == "" {
 		sendURLRequestsInvalidData.Inc()
-		helper.Fail500(w, r, fmt.Errorf("SendURL: URL is empty"))
+		fail.Request(w, r, fmt.Errorf("SendURL: URL is empty"))
 		return
 	}
 
 	// create new request and copy range headers
-	newReq, err := http.NewRequest("GET", params.URL, nil)
+	newReq, err := http.NewRequest(params.Method, params.URL, strings.NewReader(params.Body))
 	if err != nil {
 		sendURLRequestsInvalidData.Inc()
-		helper.Fail500(w, r, fmt.Errorf("SendURL: NewRequest: %v", err))
+		fail.Request(w, r, fmt.Errorf("SendURL: NewRequest: %v", err))
 		return
 	}
 	newReq = newReq.WithContext(r.Context())
@@ -111,16 +134,25 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 		newReq.Header[header] = r.Header[header]
 	}
 
-	// execute new request
-	var resp *http.Response
-	if params.AllowRedirects {
-		resp, err = httpClient.Do(newReq)
-	} else {
-		resp, err = httpTransport.RoundTrip(newReq)
+	for key, values := range params.Header {
+		for _, value := range values {
+			newReq.Header.Add(key, value)
+		}
 	}
+
+	// execute new request
+	resp, err := cachedClient(params).Do(newReq)
 	if err != nil {
+		status := http.StatusInternalServerError
+
+		if params.TimeoutResponseStatus != 0 && os.IsTimeout(err) {
+			status = params.TimeoutResponseStatus
+		} else if params.ErrorResponseStatus != 0 {
+			status = params.ErrorResponseStatus
+		}
+
 		sendURLRequestsRequestFailed.Inc()
-		helper.Fail500(w, r, fmt.Errorf("SendURL: Do request: %v", err))
+		fail.Request(w, r, fmt.Errorf("SendURL: Do request: %v", err), fail.WithStatus(status))
 		return
 	}
 
@@ -135,8 +167,16 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	defer resp.Body.Close()
-	n, err := io.Copy(w, resp.Body)
+	defer func() {
+		if err = resp.Body.Close(); err != nil {
+			fmt.Printf("Error closing response body: %v\n", err)
+		}
+	}()
+
+	// Flushes the response right after it received.
+	// Important for streaming responses, where content delivered in chunks.
+	// Without flushing the body gets buffered by the HTTP server's internal buffer.
+	n, err := io.Copy(newFlushingResponseWriter(w), resp.Body)
 	sendURLBytes.Add(float64(n))
 
 	if err != nil {
@@ -146,4 +186,58 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 	}
 
 	sendURLRequestsSucceeded.Inc()
+}
+
+func cachedClient(params entryParams) *http.Client {
+	key := cacheKey{
+		requestTimeout:  params.DialTimeout.Duration,
+		responseTimeout: params.ResponseHeaderTimeout.Duration,
+		allowRedirects:  params.AllowRedirects,
+	}
+	cachedClient, found := httpClients.Load(key)
+	if found {
+		return cachedClient.(*http.Client)
+	}
+
+	var options []transport.Option
+
+	if params.DialTimeout.Duration != 0 {
+		options = append(options, transport.WithDialTimeout(params.DialTimeout.Duration))
+	}
+	if params.ResponseHeaderTimeout.Duration != 0 {
+		options = append(options, transport.WithResponseHeaderTimeout(params.ResponseHeaderTimeout.Duration))
+	}
+
+	client := &http.Client{
+		Transport: transport.NewRestrictedTransport(options...),
+	}
+	if !params.AllowRedirects {
+		client.CheckRedirect = httpClientNoRedirect
+	}
+
+	httpClients.Store(key, client)
+
+	return client
+}
+
+func newFlushingResponseWriter(w http.ResponseWriter) *httpFlushingResponseWriter {
+	return &httpFlushingResponseWriter{
+		ResponseWriter: w,
+		controller:     http.NewResponseController(w),
+	}
+}
+
+type httpFlushingResponseWriter struct {
+	http.ResponseWriter
+	controller *http.ResponseController
+}
+
+// Write flushes the response once its written
+func (h *httpFlushingResponseWriter) Write(data []byte) (int, error) {
+	n, err := h.ResponseWriter.Write(data)
+	if err != nil {
+		return n, err
+	}
+
+	return n, h.controller.Flush()
 }

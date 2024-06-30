@@ -1,18 +1,23 @@
 ---
 stage: Plan
 group: Product Planning
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Epics **(PREMIUM)**
+# Epics
 
-> Single-level epics were [moved](https://gitlab.com/gitlab-org/gitlab/-/issues/37081) from GitLab Ultimate to GitLab Premium in 12.8.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-When [issues](../../project/issues/index.md) share a theme across projects and milestones,
-you can manage them by using epics.
+An epic in GitLab describes a large body of work that can be broken down into smaller parts.
+Epics organize issues and features into a high-level theme or goal.
 
-You can also create child epics, and assign start and end dates,
-which creates a visual roadmap for you to view progress.
+When [issues](../../project/issues/index.md) share a theme across projects and
+milestones, you can group them by using epics.
+
+You can also create child epics and assign start and end dates, which creates
+a visual roadmap for you to view progress.
 
 Use epics:
 
@@ -21,15 +26,25 @@ Use epics:
 - To track when the work for the group of issues is targeted to begin and end.
 - To discuss and collaborate on feature ideas and scope at a high level.
 
+<div class="video-fallback">
+  See the video: <a href="https://www.youtube.com/watch?v=c0EwYYUZppw">GitLab Epics - Setting up your Organization with GitLab</a>.
+</div>
+<figure class="video-container">
+  <iframe src="https://www.youtube-nocookie.com/embed/c0EwYYUZppw" frameborder="0" allowfullscreen> </iframe>
+</figure>
+
 ## Relationships between epics and issues
 
 The possible relationships between epics and issues are:
 
 - An epic is the parent of one or more issues.
-- An epic is the parent of one or more child epics. For details see [Multi-level child epics](manage_epics.md#multi-level-child-epics).
+- An epic is the parent of one or more [child epics](manage_epics.md#multi-level-child-epics). Ultimate only.
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 graph TD
+accTitle: Epics and issues
+accDescr: How issues and child epics relate to parent epics
     Parent_epic --> Issue1
     Parent_epic --> Child_epic
     Child_epic --> Issue2
@@ -37,7 +52,21 @@ graph TD
 
 Also, read more about possible [planning hierarchies](../planning_hierarchy/index.md).
 
-## Roadmap in epics **(ULTIMATE)**
+### Child issues from different group hierarchies
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/371081) in GitLab 15.5 [with a flag](../../../administration/feature_flags.md) named `epic_issues_from_different_hierarchies`. Disabled by default.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/373304) in GitLab 15.5.
+> - Feature flag `epic_issues_from_different_hierarchies` removed in GitLab 15.6.
+
+You can add issues from a different group hierarchy to an epic.
+To do it, paste the issue URL when
+[adding an existing issue](manage_epics.md#add-an-existing-issue-to-an-epic).
+
+## Roadmap in epics
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 If your epic contains one or more [child epics](manage_epics.md#multi-level-child-epics) that
 have a start or due date, a visual
@@ -45,27 +74,13 @@ have a start or due date, a visual
 
 ![Child epics roadmap](img/epic_view_roadmap_v12_9.png)
 
-## Permissions
-
-If you have access to view an epic and an issue added to that epic, you can view the issue in the
-epic's issue list.
-
-If you have access to edit an epic and an issue added to that epic, you can add the issue to or
-remove it from the epic.
-
-For a given group, the visibility of all projects must be the same as
-the group, or less restrictive. That means if you have access to a group's epic,
-then you already have access to its projects' issues.
-
-You can also consult the [group permissions table](../../permissions.md#group-members-permissions).
-
 ## Related topics
 
 - [Manage epics](manage_epics.md) and multi-level child epics.
 - Link [related epics](linked_epics.md) based on a type of relationship.
 - Create workflows with [epic boards](epic_boards.md).
 - [Turn on notifications](../../profile/notifications.md) for about epic events.
-- [Award an emoji](../../award_emojis.md) to an epic or its comments.
+- [Add an emoji reaction](../../emoji_reactions.md) to an epic or its comments.
 - Collaborate on an epic by posting comments in a [thread](../../discussions/index.md).
 - Use [health status](../../project/issues/managing_issues.md#health-status) to track your progress.
 
@@ -77,6 +92,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

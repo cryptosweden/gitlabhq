@@ -1,24 +1,20 @@
-- project_tab_filter = local_assigns.fetch(:project_tab_filter, "")
-- feature_project_list_filter_bar = Feature.enabled?(:project_list_filter_bar)
+- if params[:personal]
+  = content_for :flash_message do
+    = render 'shared/project_limit'
 
-= content_for :flash_message do
-  = render 'shared/project_limit'
+= render ::Layouts::PageHeadingComponent.new(_('Projects')) do |c|
+  - c.with_actions do
+    = link_to _("Explore projects"), starred_explore_projects_path
+    - if current_user.can_create_project?
+      = render Pajamas::ButtonComponent.new(href: new_project_path, variant: :confirm, button_options: { data: { testid: 'new-project-button' } }) do
+        = _("New project")
 
-.page-title-holder.d-flex.align-items-center
-  %h1.page-title= _('Projects')
-
-  - if current_user.can_create_project?
-    .page-title-controls
-      = link_to _("New project"), new_project_path, class: "gl-button btn btn-confirm", data: { qa_selector: 'new_project_button' }
-
-.top-area.scrolling-tabs-container.inner-page-scroll-tabs
-  .fade-left= sprite_icon('chevron-lg-left', size: 12)
-  .fade-right= sprite_icon('chevron-lg-right', size: 12)
-  = render 'dashboard/projects_nav'
-  - unless feature_project_list_filter_bar
-    .nav-controls
-      = render 'shared/projects/search_form'
-      = render 'shared/projects/dropdown'
-- if feature_project_list_filter_bar
-  .project-filters
-    = render 'shared/projects/search_bar', project_tab_filter: project_tab_filter
+.top-area
+  .scrolling-tabs-container.inner-page-scroll-tabs.gl-grow.gl-basis-0.gl-min-w-0
+    %button.fade-left{ type: 'button', title: _('Scroll left'), 'aria-label': _('Scroll left') }
+      = sprite_icon('chevron-lg-left', size: 12)
+    %button.fade-right{ type: 'button', title: _('Scroll right'), 'aria-label': _('Scroll right') }
+      = sprite_icon('chevron-lg-right', size: 12)
+    = render 'dashboard/projects_nav'
+  .nav-controls
+    = render 'shared/projects/search_form'

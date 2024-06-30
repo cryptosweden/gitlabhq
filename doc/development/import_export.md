@@ -1,127 +1,24 @@
 ---
 stage: Manage
-group: Import
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Import and Integrate
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Import/Export development documentation
 
-Troubleshooting and general development guidelines and tips for the [Import/Export feature](../user/project/settings/import_export.md).
+General development guidelines and tips for the [Import/Export feature](../user/project/settings/import_export.md).
 
 <i class="fa fa-youtube-play youtube" aria-hidden="true"></i> This document is originally based on the [Import/Export 201 presentation available on YouTube](https://www.youtube.com/watch?v=V3i1OfExotE).
 
-## Troubleshooting commands
-
-Finds information about the status of the import and further logs using the JID:
-
-```ruby
-# Rails console
-Project.find_by_full_path('group/project').import_state.slice(:jid, :status, :last_error)
-> {"jid"=>"414dec93f941a593ea1a6894", "status"=>"finished", "last_error"=>nil}
-```
-
-```shell
-# Logs
-grep JID /var/log/gitlab/sidekiq/current
-grep "Import/Export error" /var/log/gitlab/sidekiq/current
-grep "Import/Export backtrace" /var/log/gitlab/sidekiq/current
-tail /var/log/gitlab/gitlab-rails/importer.log
-```
-
-## Troubleshooting performance issues
-
-Read through the current performance problems using the Import/Export below.
-
-### OOM errors
-
-Out of memory (OOM) errors are normally caused by the [Sidekiq Memory Killer](../administration/operations/sidekiq_memory_killer.md):
-
-```shell
-SIDEKIQ_MEMORY_KILLER_MAX_RSS = 2000000
-SIDEKIQ_MEMORY_KILLER_HARD_LIMIT_RSS = 3000000
-SIDEKIQ_MEMORY_KILLER_GRACE_TIME = 900
-```
-
-An import status `started`, and the following Sidekiq logs signal a memory issue:
-
-```shell
-WARN: Work still in progress <struct with JID>
-```
-
-### Timeouts
-
-Timeout errors occur due to the `Gitlab::Import::StuckProjectImportJobsWorker` marking the process as failed:
-
-```ruby
-module Gitlab
-  module Import
-    class StuckProjectImportJobsWorker
-      include Gitlab::Import::StuckImportJob
-      # ...
-    end
-  end
-end
-
-module Gitlab
-  module Import
-    module StuckImportJob
-      # ...
-      IMPORT_JOBS_EXPIRATION = 15.hours.to_i
-      # ...
-      def perform
-        stuck_imports_without_jid_count = mark_imports_without_jid_as_failed!
-        stuck_imports_with_jid_count = mark_imports_with_jid_as_failed!
-
-        track_metrics(stuck_imports_with_jid_count, stuck_imports_without_jid_count)
-      end
-      # ...
-    end
-  end
-end
-```
-
-```shell
-Marked stuck import jobs as failed. JIDs: xyz
-```
-
-```plaintext
-  +-----------+    +-----------------------------------+
-  |Export Job |--->| Calls ActiveRecord `as_json` and  |
-  +-----------+    | `to_json` on all project models   |
-                   +-----------------------------------+
-
-  +-----------+    +-----------------------------------+
-  |Import Job |--->| Loads all JSON in memory, then    |
-  +-----------+    | inserts into the DB in batches    |
-                   +-----------------------------------+
-```
-
-### Problems and solutions
-
-| Problem | Possible solutions |
-| -------- | -------- |
-| [Slow JSON](https://gitlab.com/gitlab-org/gitlab/-/issues/25251) loading/dumping models from the database | [split the worker](https://gitlab.com/gitlab-org/gitlab/-/issues/25252) |
-| | Batch export
-| | Optimize SQL
-| | Move away from `ActiveRecord` callbacks (difficult)
-| High memory usage (see also some [analysis](https://gitlab.com/gitlab-org/gitlab/-/issues/18857) | DB Commit sweet spot that uses less memory |
-| | [Netflix Fast JSON API](https://github.com/Netflix/fast_jsonapi) may help |
-| | Batch reading/writing to disk and any SQL
-
-### Temporary solutions
-
-While the performance problems are not tackled, there is a process to workaround
-importing big projects, using a foreground import:
-
-[Foreground import](https://gitlab.com/gitlab-com/gl-infra/infrastructure/-/issues/5384) of big projects for customers.
-(Using the import template in the [infrastructure tracker](https://gitlab.com/gitlab-com/gl-infra/infrastructure/))
+<i class="fa fa-youtube-play youtube" aria-hidden="true"></i> For more context you can watch this [Deep dive on Import / Export Development on YouTube](https://www.youtube.com/watch?v=IYD39JMGK78).
 
 ## Security
 
-The Import/Export feature is constantly updated (adding new things to export), however
-the code hasn't been refactored in a long time. We should perform a code audit (see
-[confidential issue](../user/project/issues/confidential_issues.md) `https://gitlab.com/gitlab-org/gitlab/-/issues/20720`).
+The Import/Export feature is constantly updated (adding new things to export). However,
+the code hasn't been refactored in a long time. We should perform a code audit
 to make sure its dynamic nature does not increase the number of security concerns.
+GitLab team members can view more information in this confidential issue:
+`https://gitlab.com/gitlab-org/gitlab/-/issues/20720`.
 
 ### Security in the code
 
@@ -152,8 +49,9 @@ The `AttributeConfigurationSpec` checks and confirms the addition of new columns
 <<-MSG
   It looks like #{relation_class}, which is exported using the project Import/Export, has new attributes:
 
-  Please add the attribute(s) to SAFE_MODEL_ATTRIBUTES if you consider this can be exported.
-  Otherwise, please blacklist the attribute(s) in IMPORT_EXPORT_CONFIG by adding it to its correspondent
+  Please add the attribute(s) to SAFE_MODEL_ATTRIBUTES if they can be exported.
+
+  Please denylist the attribute(s) in IMPORT_EXPORT_CONFIG by adding it to its corresponding
   model in the +excluded_attributes+ section.
 
   SAFE_MODEL_ATTRIBUTES: #{File.expand_path(safe_attributes_file)}
@@ -207,14 +105,13 @@ module Gitlab
   module ImportExport
     extend self
 
-    # For every version update, the version history in import_export.md has to be kept up to date.
+    # For every version update, the history in import_export.md has to be kept up to date.
     VERSION = '0.2.4'
 ```
 
-## Version history
+## Compatibility
 
-Check the [version history](../user/project/settings/import_export.md#version-history)
-for compatibility when importing and exporting projects.
+Check for [compatibility](../user/project/settings/import_export.md#compatibility) when importing and exporting projects.
 
 ### When to bump the version up
 
@@ -305,6 +202,29 @@ export_reorders:
       nulls_position: :nulls_last
 ```
 
+### Conditional export
+
+When associated resources are from outside the project, you might need to
+validate that a user who is exporting the project or group can access these
+associations. `include_if_exportable` accepts an array of associations for a
+resource. During export, the `exportable_association?` method on the resource
+is called with the association's name and user to validate if associated
+resource can be included in the export.
+
+For example:
+
+```yaml
+include_if_exportable:
+  project:
+    issues:
+      - epic_issue
+```
+
+This definition:
+
+1. Calls the issue's `exportable_association?(:epic_issue, current_user: current_user)` method.
+1. If the method returns true, includes the issue's `epic_issue` association for the issue.
+
 ### Import
 
 The import job status moves from `none` to `finished` or `failed` into different states:
@@ -368,13 +288,13 @@ Fixtures used in Import/Export specs live in `spec/fixtures/lib/gitlab/import_ex
 There are two versions of each of these fixtures:
 
 - A human readable single JSON file with all objects, called either `project.json` or `group.json`.
-- A folder named `tree`, containing a tree of files in `ndjson` format. **Please do not edit files under this folder manually unless strictly necessary.**
+- A folder named `tree`, containing a tree of files in `ndjson` format. **Do not edit files under this folder manually unless strictly necessary.**
 
-The tools to generate the NDJSON tree from the human-readable JSON files live in the [`gitlab-org/memory-team/team-tools`](https://gitlab.com/gitlab-org/memory-team/team-tools/-/blob/master/import-export/) project.
+The tools to generate the NDJSON tree from the human-readable JSON files live in the [`gitlab-org/cloud-connector-team/team-tools`](https://gitlab.com/gitlab-org/cloud-connector-team/team-tools/-/tree/master/import-export) project.
 
 ### Project
 
-**Please use `legacy-project-json-to-ndjson.sh` to generate the NDJSON tree.**
+**Use `legacy-project-json-to-ndjson.sh` to generate the NDJSON tree.**
 
 The NDJSON tree looks like:
 
@@ -408,7 +328,7 @@ tree
 
 ### Group
 
-**Please use `legacy-group-json-to-ndjson.rb` to generate the NDJSON tree.**
+**Use `legacy-group-json-to-ndjson.rb` to generate the NDJSON tree.**
 
 The NDJSON tree looks like this:
 
@@ -435,4 +355,4 @@ tree
 ```
 
 WARNING:
-When updating these fixtures, please ensure you update both `json` files and `tree` folder, as the tests apply to both.
+When updating these fixtures, ensure you update both `json` files and `tree` folder, as the tests apply to both.

@@ -1,44 +1,36 @@
 # frozen_string_literal: true
 
 RSpec.shared_examples 'issuable invite members' do
-  context 'when a privileged user can invite' do
-    before do
-      project.add_maintainer(user)
-    end
+  include Features::InviteMembersModalHelpers
 
+  context 'when a privileged user can invite' do
     it 'shows a link for inviting members and launches invite modal' do
+      project.add_maintainer(user)
       visit issuable_path
 
-      find('.block.assignee .edit-link').click
-
-      wait_for_requests
+      open_assignees_dropdown
 
       page.within '.dropdown-menu-user' do
-        expect(page).to have_link('Invite Members')
-        expect(page).to have_selector('[data-track-action="click_invite_members"]')
-        expect(page).to have_selector('[data-track-label="edit_assignee"]')
+        expect(page).to have_link('Invite members')
+
+        click_link 'Invite members'
       end
 
-      click_link 'Invite Members'
-
-      expect(page).to have_content("You're inviting members to the")
+      page.within invite_modal_selector do
+        expect(page).to have_content("You're inviting members to the #{project.name} project")
+      end
     end
   end
 
   context 'when user cannot invite members in assignee dropdown' do
-    before do
-      project.add_developer(user)
-    end
-
     it 'shows author in assignee dropdown and no invite link' do
+      project.add_developer(user)
       visit issuable_path
 
-      find('.block.assignee .edit-link').click
-
-      wait_for_requests
+      open_assignees_dropdown
 
       page.within '.dropdown-menu-user' do
-        expect(page).not_to have_link('Invite Members')
+        expect(page).not_to have_link('Invite members')
       end
     end
   end

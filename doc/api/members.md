@@ -1,33 +1,33 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Group and project members API **(FREE)**
+# Group and project members API
 
-## Valid access levels
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-The access levels are defined in the `Gitlab::Access` module. Currently, these levels are recognized:
+## Roles
+
+The [role](../user/permissions.md) assigned to a user or group is defined
+in the `Gitlab::Access` module as `access_level`.
 
 - No access (`0`)
-- Minimal access (`5`) ([Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/220203) in GitLab 13.5.)
+- Minimal access (`5`)
 - Guest (`10`)
 - Reporter (`20`)
 - Developer (`30`)
 - Maintainer (`40`)
-- Owner (`50`) - Only valid to set for groups
-
-WARNING:
-Due to [an issue](https://gitlab.com/gitlab-org/gitlab/-/issues/219299),
-projects in personal namespaces don't show owner (`50`) permission
-for owner.
+- Owner (`50`)
 
 ## Limitations
 
-The `group_saml_identity` attribute is only visible to a group owner for [SSO enabled groups](../user/group/saml_sso/index.md).
+The `group_saml_identity` attribute is only visible to group owners for [SSO-enabled groups](../user/group/saml_sso/index.md).
 
-The `email` attribute is only visible for users with public emails.
+The `email` attribute is only visible to group owners for [enterprise users](../user/enterprise_user/index.md) of the group when an API request is sent to the group itself, or that group's subgroups or projects.
 
 ## List all members of a group or project
 
@@ -43,9 +43,11 @@ GET /projects/:id/members
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `query`   | string | no     | A query string to search for members |
 | `user_ids`   | array of integers | no     | Filter the results on the given user IDs |
+| `skip_users`   | array of integers | no     | Filter skipped users out of the results |
+| `show_seat_info`   | boolean | no     | Show seat information for users |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members"
@@ -63,10 +65,18 @@ Example response:
     "state": "active",
     "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
     "web_url": "http://192.168.1.8:3000/root",
-    "expires_at": "2012-10-22T14:13:35Z",
+    "created_at": "2012-09-22T14:13:35Z",
+    "created_by": {
+      "id": 2,
+      "username": "john_doe",
+      "name": "John Doe",
+      "state": "active",
+      "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+      "web_url": "http://192.168.1.8:3000/root"
+    },
+    "expires_at": "2012-10-22",
     "access_level": 30,
-    "group_saml_identity": null,
-    "membership_state": "active"
+    "group_saml_identity": null
   },
   {
     "id": 2,
@@ -75,32 +85,52 @@ Example response:
     "state": "active",
     "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
     "web_url": "http://192.168.1.8:3000/root",
-    "expires_at": "2012-10-22T14:13:35Z",
+    "created_at": "2012-09-22T14:13:35Z",
+    "created_by": {
+      "id": 1,
+      "username": "raymond_smith",
+      "name": "Raymond Smith",
+      "state": "active",
+      "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+      "web_url": "http://192.168.1.8:3000/root"
+    },
+    "expires_at": "2012-10-22",
     "access_level": 30,
     "email": "john@example.com",
     "group_saml_identity": {
       "extern_uid":"ABC-1234567890",
       "provider": "group_saml",
       "saml_provider_id": 10
-    },
-    "membership_state": "active"
+    }
   }
 ]
 ```
 
 ## List all members of a group or project including inherited and invited members
 
+> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) to return members of the invited private group if the current user is a member of the shared group or project in GitLab 16.10 [with a flag](../administration/feature_flags.md) named `webui_members_inherited_users`. Disabled by default.
+> - Feature flag `webui_members_inherited_users` was [enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) in GitLab 17.0.
+
+FLAG:
+On self-managed GitLab, by default this feature is available. To hide the feature per user, an administrator can [disable the feature flag](../administration/feature_flags.md) named `webui_members_inherited_users`.
+On GitLab.com and GitLab Dedicated, this feature is available.
+
 Gets a list of group or project members viewable by the authenticated user, including inherited members, invited users, and permissions through ancestor groups.
 
 If a user is a member of this group or project and also of one or more ancestor groups,
 only its membership with the highest `access_level` is returned.
-([Improved](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/56677) in GitLab 13.11.)
 This represents the effective permission of the user.
 
 Members from an invited group are returned if either:
 
 - The invited group is public.
 - The requester is also a member of the invited group.
+- The requester is a member of the shared group or project.
+
+NOTE:
+The invited group members have shared membership in the shared group or project.
+This means that if the requester is a member of a shared group or project, but not a member of an invited private group,
+then using this endpoint the requester can get all the shared group or project members, including the invited private group members.
 
 This function takes pagination parameters `page` and `per_page` to restrict the list of users.
 
@@ -111,10 +141,11 @@ GET /projects/:id/members/all
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `query`   | string | no     | A query string to search for members |
-| `user_ids`   | array of integers | no     | Filter the results on the given user IDs |
-| `state`   | string | no | Filter results by member state, one of `awaiting` or `active` **(PREMIUM)** |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `query`   | string | no     | A query string to search for members. |
+| `user_ids`   | array of integers | no     | Filter the results on the given user IDs. |
+| `show_seat_info`   | boolean | no     | Show seat information for users. |
+| `state`   | string | no | Filter results by member state, one of `awaiting` or `active`. Premium and Ultimate only. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/all"
@@ -132,10 +163,18 @@ Example response:
     "state": "active",
     "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
     "web_url": "http://192.168.1.8:3000/root",
-    "expires_at": "2012-10-22T14:13:35Z",
+    "created_at": "2012-09-22T14:13:35Z",
+    "created_by": {
+      "id": 2,
+      "username": "john_doe",
+      "name": "John Doe",
+      "state": "active",
+      "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+      "web_url": "http://192.168.1.8:3000/root"
+    },
+    "expires_at": "2012-10-22",
     "access_level": 30,
-    "group_saml_identity": null,
-    "membership_state": "active"
+    "group_saml_identity": null
   },
   {
     "id": 2,
@@ -144,15 +183,23 @@ Example response:
     "state": "active",
     "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
     "web_url": "http://192.168.1.8:3000/root",
-    "expires_at": "2012-10-22T14:13:35Z",
+    "created_at": "2012-09-22T14:13:35Z",
+    "created_by": {
+      "id": 1,
+      "username": "raymond_smith",
+      "name": "Raymond Smith",
+      "state": "active",
+      "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+      "web_url": "http://192.168.1.8:3000/root"
+    },
+    "expires_at": "2012-10-22",
     "access_level": 30,
     "email": "john@example.com",
     "group_saml_identity": {
       "extern_uid":"ABC-1234567890",
       "provider": "group_saml",
       "saml_provider_id": 10
-    },
-    "membership_state": "active"
+    }
   },
   {
     "id": 3,
@@ -161,10 +208,18 @@ Example response:
     "state": "active",
     "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
     "web_url": "http://192.168.1.8:3000/root",
-    "expires_at": "2012-11-22T14:13:35Z",
+    "created_at": "2012-10-22T14:13:35Z",
+    "created_by": {
+      "id": 2,
+      "username": "john_doe",
+      "name": "John Doe",
+      "state": "active",
+      "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+      "web_url": "http://192.168.1.8:3000/root"
+    },
+    "expires_at": "2012-11-22",
     "access_level": 30,
-    "group_saml_identity": null,
-    "membership_state": "active"
+    "group_saml_identity": null
   }
 ]
 ```
@@ -180,7 +235,7 @@ GET /projects/:id/members/:user_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer | yes   | The user ID of the member |
 
 ```shell
@@ -201,17 +256,35 @@ Example response:
   "access_level": 30,
   "email": "john@example.com",
   "created_at": "2012-10-22T14:13:35Z",
+  "created_by": {
+    "id": 2,
+    "username": "john_doe",
+    "name": "John Doe",
+    "state": "active",
+    "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+    "web_url": "http://192.168.1.8:3000/root"
+  },
   "expires_at": null,
-  "group_saml_identity": null,
-  "membership_state": "active"
+  "group_saml_identity": null
 }
 ```
 
 ## Get a member of a group or project, including inherited and invited members
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/17744) in GitLab 12.4.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/17744) in GitLab 12.4.
+> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) to return members of the invited private group if the current user is a member of the shared group or project in GitLab 16.10 [with a flag](../administration/feature_flags.md) named `webui_members_inherited_users`. Disabled by default.
+> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) in GitLab 17.0.
+
+FLAG:
+On self-managed GitLab, by default this feature is available. To hide the feature per user, an administrator can [disable the feature flag](../administration/feature_flags.md) named `webui_members_inherited_users`.
+On GitLab.com and GitLab Dedicated, this feature is available.
 
 Gets a member of a group or project, including members inherited or invited through ancestor groups. See the corresponding [endpoint to list all inherited members](#list-all-members-of-a-group-or-project-including-inherited-and-invited-members) for details.
+
+NOTE:
+The invited group members have shared membership in the shared group or project.
+This means that if the requester is a member of a shared group or project, but not a member of an invited private group,
+then using this endpoint the requester can get all the shared group or project members, including the invited private group members.
 
 ```plaintext
 GET /groups/:id/members/all/:user_id
@@ -220,7 +293,7 @@ GET /projects/:id/members/all/:user_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer | yes   | The user ID of the member |
 
 ```shell
@@ -239,39 +312,44 @@ Example response:
   "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
   "web_url": "http://192.168.1.8:3000/root",
   "access_level": 30,
+  "created_at": "2012-10-22T14:13:35Z",
+  "created_by": {
+    "id": 2,
+    "username": "john_doe",
+    "name": "John Doe",
+    "state": "active",
+    "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+    "web_url": "http://192.168.1.8:3000/root"
+  },
   "email": "john@example.com",
   "expires_at": null,
-  "group_saml_identity": null,
-  "membership_state": "active"
+  "group_saml_identity": null
 }
 ```
 
 ## List all billable members of a group
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/217384) in GitLab 13.5.
+Prerequisites:
 
-Gets a list of group members that count as billable. The list includes members in the subgroup or subproject.
+- You must have the Owner role to access the API endpoint for billing permissions, as shown in [billing permissions](../user/free_user_limit.md).
+
+Gets a list of group members that count as billable. The list includes members in subgroups and projects.
 
 This API endpoint works on top-level groups only. It does not work on subgroups.
 
-NOTE:
-Unlike other API endpoints, billable members is updated once per day at 12:00 UTC.
+This function takes [pagination](rest/index.md#pagination) parameters `page` and `per_page` to restrict the list of users.
 
-This function takes [pagination](index.md#pagination) parameters `page` and `per_page` to restrict the list of users.
-
-[Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/262875) in GitLab 13.7, the `search` and
-`sort` parameters allow you to search for billable group members by name and sort the results,
-respectively.
+Use the `search` parameter to search for billable group members by name and `sort` to sort the results.
 
 ```plaintext
 GET /groups/:id/billable_members
 ```
 
-| Attribute | Type | Required | Description                                                                                                  |
-| --------- | ---- | -------- |--------------------------------------------------------------------------------------------------------------|
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `search`  | string         | no  | A query string to search for group members by name, username, or public email.                               |
-| `sort`    | string         | no  | A query string containing parameters that specify the sort attribute and order. See supported values below.  |
+| Attribute                     | Type            | Required  | Description                                                                                                   |
+| ----------------------------- | --------------- | --------- |-------------------------------------------------------------------------------------------------------------- |
+| `id`                          | integer/string  | yes       | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user  |
+| `search`                      | string          | no        | A query string to search for group members by name, username, or public email.                                |
+| `sort`                        | string          | no        | A query string containing parameters that specify the sort attribute and order. See supported values below.   |
 
 The supported values for the `sort` attribute are:
 
@@ -306,7 +384,8 @@ Example response:
     "last_activity_on": "2021-01-27",
     "membership_type": "group_member",
     "removable": true,
-    "created_at": "2021-01-03T12:16:02.000Z"
+    "created_at": "2021-01-03T12:16:02.000Z",
+    "last_login_at": "2022-10-09T01:33:06.000Z"
   },
   {
     "id": 2,
@@ -319,7 +398,8 @@ Example response:
     "last_activity_on": "2021-01-25",
     "membership_type": "group_member",
     "removable": true,
-    "created_at": "2021-01-04T18:46:42.000Z"
+    "created_at": "2021-01-04T18:46:42.000Z",
+    "last_login_at": "2022-09-29T22:18:46.000Z"
   },
   {
     "id": 3,
@@ -331,14 +411,13 @@ Example response:
     "last_activity_on": "2021-01-20",
     "membership_type": "group_invite",
     "removable": false,
-    "created_at": "2021-01-09T07:12:31.000Z"
+    "created_at": "2021-01-09T07:12:31.000Z",
+    "last_login_at": "2022-10-10T07:28:56.000Z"
   }
 ]
 ```
 
 ## List memberships for a billable member of a group
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/321560) in GitLab 13.11.
 
 Gets a list of memberships for a billable member of a group.
 
@@ -351,7 +430,7 @@ This API endpoint works on top-level groups only. It does not work on subgroups.
 
 This API endpoint requires permission to administer memberships for the group.
 
-This API endpoint takes [pagination](index.md#pagination) parameters `page` and `per_page` to restrict the list of memberships.
+This API endpoint takes [pagination](rest/index.md#pagination) parameters `page` and `per_page` to restrict the list of memberships.
 
 ```plaintext
 GET /groups/:id/billable_members/:user_id/memberships
@@ -359,7 +438,7 @@ GET /groups/:id/billable_members/:user_id/memberships
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer        | yes | The user ID of the billable member |
 
 ```shell
@@ -397,6 +476,58 @@ Example response:
 ]
 ```
 
+## List indirect memberships for a billable member of a group
+
+DETAILS:
+**Status:** Experiment
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/386583) in GitLab 16.11.
+
+Gets a list of indirect memberships for a billable member of a group.
+
+Lists all projects and groups that a user is a member of, that have been invited to the requested root group.
+For instance, if the requested group is `Root Group`, and the requested user is a direct member of `Other Group / Sub Group Two`, which was invited to `Root Group`, then only `Other Group / Sub Group Two` is returned.
+
+The response lists only indirect memberships. Direct memberships are not included.
+
+This API endpoint works on top-level groups only. It does not work on subgroups.
+
+This API endpoint requires permission to administer memberships for the group.
+
+This API endpoint takes [pagination](rest/index.md#pagination) parameters `page` and `per_page` to restrict the list of memberships.
+
+```plaintext
+GET /groups/:id/billable_members/:user_id/indirect
+```
+
+| Attribute | Type | Required | Description |
+| --------- | ---- | -------- | ----------- |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `user_id` | integer        | yes | The user ID of the billable member |
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/billable_members/:user_id/indirect"
+```
+
+Example response:
+
+```json
+[
+  {
+    "id": 168,
+    "source_id": 132,
+    "source_full_name": "Invited Group / Sub Group One",
+    "source_members_url": "https://gitlab.example.com/groups/invited-group/sub-group-one/-/group_members",
+    "created_at": "2021-03-31T17:28:44.812Z",
+    "expires_at": "2022-03-21",
+    "access_level": {
+      "string_value": "Developer",
+      "integer_value": 30
+    }
+  }
+]
+```
+
 ## Remove a billable member from a group
 
 Removes a billable member from a group and its subgroups and projects.
@@ -411,11 +542,41 @@ DELETE /groups/:id/billable_members/:user_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer | yes   | The user ID of the member |
 
 ```shell
 curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/billable_members/:user_id"
+```
+
+## Change membership state of a user in a group
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/86705) in GitLab 15.0.
+
+Changes the membership state of a user in a group.
+When a user is over [the free user limit](../user/free_user_limit.md), changing their membership state for a group or project to `awaiting` or `active` can allow them to
+access that group or project. The change is applied to applied to all subgroups and projects.
+
+```plaintext
+PUT /groups/:id/members/:user_id/state
+```
+
+| Attribute | Type | Required | Description |
+| --------- | ---- | -------- | ----------- |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `user_id` | integer | yes   | The user ID of the member. |
+| `state`   | string | yes   | The new state for the user. State is either `awaiting` or `active`. |
+
+```shell
+curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/state?state=active"
+```
+
+Example response:
+
+```json
+{
+  "success":true
+}
 ```
 
 ## Add a member to a group or project
@@ -429,13 +590,13 @@ POST /projects/:id/members
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer/string | yes | The user ID of the new member or multiple IDs separated by commas |
-| `access_level` | integer | yes | A valid access level |
-| `expires_at` | string | no | A date string in the format `YEAR-MONTH-DAY` |
-| `invite_source` | string | no | The source of the invitation that starts the member creation process. See [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/327120). |
-| `tasks_to_be_done` | array of strings | no | Tasks the inviter wants the member to focus on. The tasks are added as issues to a specified project. The possible values are: `ci`, `code` and `issues`. If specified, requires `tasks_project_id`. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/69299) in GitLab 14.5 [with a flag](../administration/feature_flags.md) named `invite_members_for_task`. Disabled by default. |
-| `tasks_project_id` | integer | no | The project ID in which to create the task issues. If specified, requires `tasks_to_be_done`. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/69299) in GitLab 14.5 [with a flag](../administration/feature_flags.md) named `invite_members_for_task`. Disabled by default. |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `user_id` | integer/string | yes, if `username` is not provided | The user ID of the new member or multiple IDs separated by commas. |
+| `username` | string | yes, if `user_id` is not provided | The username of the new member or multiple usernames separated by commas. |
+| `access_level` | integer | yes | [A valid access level](access_requests.md#valid-access-levels). |
+| `expires_at` | string | no | A date string in the format `YEAR-MONTH-DAY`. |
+| `invite_source` | string | no | The source of the invitation that starts the member creation process. GitLab team members can view more information in this confidential issue: `https://gitlab.com/gitlab-org/gitlab/-/issues/327120>`. |
+| `member_role_id` | integer | no | The ID of a member role. Ultimate only. |
 
 ```shell
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
@@ -454,7 +615,16 @@ Example response:
   "state": "active",
   "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
   "web_url": "http://192.168.1.8:3000/root",
-  "expires_at": "2012-10-22T14:13:35Z",
+  "created_at": "2012-10-22T14:13:35Z",
+  "created_by": {
+    "id": 2,
+    "username": "john_doe",
+    "name": "John Doe",
+    "state": "active",
+    "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+    "web_url": "http://192.168.1.8:3000/root"
+  },
+  "expires_at": "2012-10-22",
   "access_level": 30,
   "email": "john@example.com",
   "group_saml_identity": null
@@ -472,10 +642,11 @@ PUT /projects/:id/members/:user_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer | yes   | The user ID of the member |
-| `access_level` | integer | yes | A valid access level |
+| `access_level` | integer | yes | A [valid access level](access_requests.md#valid-access-levels) |
 | `expires_at` | string | no | A date string in the format `YEAR-MONTH-DAY` |
+| `member_role_id` | integer | no | The ID of a member role. Ultimate only. |
 
 ```shell
 curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id?access_level=40"
@@ -492,7 +663,16 @@ Example response:
   "state": "active",
   "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
   "web_url": "http://192.168.1.8:3000/root",
-  "expires_at": "2012-10-22T14:13:35Z",
+  "created_at": "2012-10-22T14:13:35Z",
+  "created_by": {
+    "id": 2,
+    "username": "john_doe",
+    "name": "John Doe",
+    "state": "active",
+    "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+    "web_url": "http://192.168.1.8:3000/root"
+  },
+  "expires_at": "2012-10-22",
   "access_level": 40,
   "email": "john@example.com",
   "group_saml_identity": null
@@ -500,8 +680,6 @@ Example response:
 ```
 
 ### Set override flag for a member of a group
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/4875) in GitLab 13.0.
 
 By default, the access level of LDAP group members is set to the value specified
 by LDAP through Group Sync. You can allow access level overrides by calling this endpoint.
@@ -512,11 +690,11 @@ POST /groups/:id/members/:user_id/override
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer | yes   | The user ID of the member |
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/override"
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/override"
 ```
 
 Example response:
@@ -529,7 +707,16 @@ Example response:
   "state": "active",
   "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
   "web_url": "http://192.168.1.8:3000/root",
-  "expires_at": "2012-10-22T14:13:35Z",
+  "created_at": "2012-10-22T14:13:35Z",
+  "created_by": {
+    "id": 2,
+    "username": "john_doe",
+    "name": "John Doe",
+    "state": "active",
+    "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+    "web_url": "http://192.168.1.8:3000/root"
+  },
+  "expires_at": "2012-10-22",
   "access_level": 40,
   "email": "john@example.com",
   "override": true
@@ -537,8 +724,6 @@ Example response:
 ```
 
 ### Remove override for a member of a group
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/4875) in GitLab 13.0.
 
 Sets the override flag to false and allows LDAP Group Sync to reset the access
 level to the LDAP-prescribed value.
@@ -549,7 +734,7 @@ DELETE /groups/:id/members/:user_id/override
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer | yes   | The user ID of the member |
 
 ```shell
@@ -566,6 +751,15 @@ Example response:
   "state": "active",
   "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
   "web_url": "http://192.168.1.8:3000/root",
+  "created_at": "2012-10-22T14:13:35Z",
+  "created_by": {
+    "id": 2,
+    "username": "john_doe",
+    "name": "John Doe",
+    "state": "active",
+    "avatar_url": "https://www.gravatar.com/avatar/c2525a7f58ae3776070e44c106c48e15?s=80&d=identicon",
+    "web_url": "http://192.168.1.8:3000/root"
+  },
   "expires_at": "2012-10-22",
   "access_level": 40,
   "email": "john@example.com",
@@ -589,7 +783,7 @@ DELETE /projects/:id/members/:user_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer | yes   | The user ID of the member |
 | `skip_subresources` | boolean | false   | Whether the deletion of direct memberships of the removed member in subgroups and projects should be skipped. Default is `false`. |
 | `unassign_issuables` | boolean | false   | Whether the removed member should be unassigned from any issues or merge requests inside a given group or project. Default is `false`. |
@@ -611,7 +805,7 @@ PUT /groups/:id/members/:member_id/approve
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the root group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the root group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `member_id` | integer | yes   | The ID of the member |
 
 Example request:
@@ -630,7 +824,7 @@ POST /groups/:id/members/approve_all
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the root group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the root group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 
 Example request:
 
@@ -639,8 +833,6 @@ curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitla
 ```
 
 ## List pending members of a group and its subgroups and projects
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/332596) in GitLab 14.6.
 
 For a group and its subgroups and projects, get a list of all members in an `awaiting` state and those who are invited but do not have a GitLab account.
 
@@ -652,7 +844,7 @@ This API endpoint works on top-level groups only. It does not work on subgroups.
 
 This API endpoint requires permission to administer members for the group.
 
-This API endpoint takes [pagination](index.md#pagination) parameters `page` and `per_page` to restrict the list of members.
+This API endpoint takes [pagination](rest/index.md#pagination) parameters `page` and `per_page` to restrict the list of members.
 
 ```plaintext
 GET /groups/:id/pending_members
@@ -660,7 +852,7 @@ GET /groups/:id/pending_members
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/pending_members"

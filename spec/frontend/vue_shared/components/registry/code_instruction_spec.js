@@ -1,5 +1,5 @@
-import { mount } from '@vue/test-utils';
-import Tracking from '~/tracking';
+import { shallowMount } from '@vue/test-utils';
+import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import CodeInstruction from '~/vue_shared/components/registry/code_instruction.vue';
 
@@ -14,7 +14,7 @@ describe('Package code instruction', () => {
   };
 
   function createComponent(props = {}) {
-    wrapper = mount(CodeInstruction, {
+    wrapper = shallowMount(CodeInstruction, {
       propsData: {
         ...defaultProps,
         ...props,
@@ -22,13 +22,9 @@ describe('Package code instruction', () => {
     });
   }
 
-  const findCopyButton = () => wrapper.find(ClipboardButton);
+  const findCopyButton = () => wrapper.findComponent(ClipboardButton);
   const findInputElement = () => wrapper.find('[data-testid="instruction-input"]');
   const findMultilineInstruction = () => wrapper.find('[data-testid="multiline-instruction"]');
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('single line', () => {
     beforeEach(() =>
@@ -63,7 +59,11 @@ describe('Package code instruction', () => {
     const trackingLabel = 'foo_label';
 
     beforeEach(() => {
-      eventSpy = jest.spyOn(Tracking, 'event');
+      eventSpy = mockTracking(undefined, undefined, jest.spyOn);
+    });
+
+    afterEach(() => {
+      unmockTracking();
     });
 
     it('should not track when no trackingAction is provided', () => {

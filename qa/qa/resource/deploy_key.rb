@@ -7,10 +7,10 @@ module QA
 
       attribute :id
 
-      attribute :md5_fingerprint do
+      attribute :sha256_fingerprint do
         Page::Project::Settings::Repository.perform do |setting|
           setting.expand_deploy_keys do |key|
-            key.find_md5_fingerprint(title)
+            key.find_sha256_fingerprint(title)
           end
         end
       end
@@ -29,6 +29,7 @@ module QA
 
         Page::Project::Settings::Repository.perform do |setting|
           setting.expand_deploy_keys do |page|
+            page.add_new_key
             page.fill_key_title(title)
             page.fill_key_value(key)
 

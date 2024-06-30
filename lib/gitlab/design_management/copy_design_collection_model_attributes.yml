@@ -16,6 +16,7 @@
 design_attributes:
   - filename
   - relative_position
+  - description
 
 version_attributes:
   - author_id
@@ -30,11 +31,16 @@ ignore_design_attributes:
   - issue_id
   - project_id
   - iid
+  - description_html
+  - cached_markdown_version
+  - namespace_id
+  - imported_from
 
 ignore_version_attributes:
   - id
   - issue_id
   - sha
+  - namespace_id
 
 ignore_action_attributes:
   - id

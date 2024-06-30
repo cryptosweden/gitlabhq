@@ -1,4 +1,6 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
+import { getModifierKey } from '~/constants';
 import { __, s__ } from '~/locale';
 
 // Map some keys to their proper representation depending on the system
@@ -22,7 +24,7 @@ const getKeyMap = () => {
   keyMap.alt = keyMap.option;
 
   // Mod is Command on Mac, and Ctrl on Windows/Linux
-  keyMap.mod = window.gl?.client?.isMac ? keyMap.command : keyMap.ctrl;
+  keyMap.mod = getModifierKey(true);
 
   return keyMap;
 };

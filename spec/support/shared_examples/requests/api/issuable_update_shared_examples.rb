@@ -20,7 +20,7 @@ RSpec.shared_examples 'issuable update endpoint' do
     end
 
     it 'updates the issuable with labels param as array' do
-      stub_const("Gitlab::QueryLimiting::Transaction::THRESHOLD", 110)
+      allow(Gitlab::QueryLimiting::Transaction).to receive(:threshold).and_return(110)
 
       params = { labels: ['label1', 'label2', 'foo, bar', '&,?'] }
 
@@ -33,6 +33,15 @@ RSpec.shared_examples 'issuable update endpoint' do
       expect(json_response['labels']).to include 'bar'
       expect(json_response['labels']).to include '&'
       expect(json_response['labels']).to include '?'
+    end
+
+    it 'clears milestone when milestone_id=0' do
+      entity.update!(milestone: milestone)
+
+      put api(url, user), params: { milestone_id: 0 }
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(json_response['milestone']).to be_nil
     end
   end
 end

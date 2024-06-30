@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { isTextFile } from '~/ide/utils';
 import ItemButton from './button.vue';
@@ -65,13 +66,13 @@ export default {
 </script>
 
 <template>
-  <div>
+  <li>
     <item-button
       :class="buttonCssClasses"
       :show-label="showLabel"
       :icon-classes="showLabel ? 'mr-2' : ''"
       :label="__('Upload file')"
-      class="d-flex"
+      class="gl-flex"
       icon="upload"
       @click="startFileUpload"
     />
@@ -81,8 +82,7 @@ export default {
       type="file"
       class="hidden"
       multiple
-      data-qa-selector="file_upload_field"
       @change="openFile"
     />
-  </div>
+  </li>
 </template>

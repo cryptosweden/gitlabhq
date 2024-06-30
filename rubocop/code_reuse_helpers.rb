@@ -76,10 +76,9 @@ module RuboCop
       in_app_directory?(node, 'controllers')
     end
 
-    # Returns true if the given node resides in app/graphql/types,
-    # ee/app/graphql/types, or ee/app/graphql/ee/types.
-    def in_graphql_types?(node)
-      in_app_directory?(node, 'graphql/types') || in_app_directory?(node, 'graphql/ee/types')
+    # Returns true if the given node resides in app/graphql or ee/app/graphql.
+    def in_graphql?(node)
+      in_app_directory?(node, 'graphql')
     end
 
     # Returns true if the given node resides in lib/api or ee/lib/api.
@@ -111,6 +110,13 @@ module RuboCop
         File.join(ce_lib_directory, directory),
         File.join(ee_lib_directory, directory)
       )
+    end
+
+    # Returns true if the given node resides in app/graphql/{directory},
+    # ee/app/graphql/{directory}, or ee/app/graphql/ee/{directory}.
+    def in_graphql_directory?(node, directory)
+      in_app_directory?(node, "graphql/#{directory}") ||
+        in_app_directory?(node, "graphql/ee/#{directory}")
     end
 
     # Returns the receiver name of a send node.
@@ -157,7 +163,7 @@ module RuboCop
       each_send_node(node) do |send_node|
         next unless send_receiver_name_ends_with?(send_node, suffix)
 
-        add_offense(send_node, location: :expression, message: message)
+        add_offense(send_node, message: message)
       end
     end
 

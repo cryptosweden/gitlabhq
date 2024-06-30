@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe ApplicationSettings::UpdateService do
+RSpec.describe ApplicationSettings::UpdateService, feature_category: :shared do
   include ExternalAuthorizationServiceHelpers
 
-  let(:application_settings) { create(:application_setting) }
+  let(:application_settings) { ::Gitlab::CurrentSettings.current_application_settings }
   let(:admin) { create(:user, :admin) }
   let(:params) { {} }
 
@@ -110,7 +110,7 @@ RSpec.describe ApplicationSettings::UpdateService do
     end
   end
 
-  describe 'markdown cache invalidators' do
+  describe 'markdown cache invalidators', feature_category: :team_planning do
     shared_examples 'invalidates markdown cache' do |attribute|
       let(:params) { attribute }
 
@@ -144,14 +144,16 @@ RSpec.describe ApplicationSettings::UpdateService do
     end
   end
 
-  describe 'performance bar settings' do
+  describe 'performance bar settings', feature_category: :cloud_connector do
     using RSpec::Parameterized::TableSyntax
 
-    where(:params_performance_bar_enabled,
-          :params_performance_bar_allowed_group_path,
-          :previous_performance_bar_allowed_group_id,
-          :expected_performance_bar_allowed_group_id,
-          :expected_valid) do
+    where(
+      :params_performance_bar_enabled,
+      :params_performance_bar_allowed_group_path,
+      :previous_performance_bar_allowed_group_id,
+      :expected_performance_bar_allowed_group_id,
+      :expected_valid
+    ) do
       true | '' | nil | nil | true
       true | '' | 42_000_000 | nil | true
       true | nil | nil | nil | true
@@ -247,7 +249,7 @@ RSpec.describe ApplicationSettings::UpdateService do
     end
   end
 
-  context 'when external authorization is enabled' do
+  context 'when external authorization is enabled', feature_category: :system_access do
     before do
       enable_external_authorization_service_check
     end
@@ -314,13 +316,36 @@ RSpec.describe ApplicationSettings::UpdateService do
     end
   end
 
+  context 'when default_branch_protection is updated' do
+    let(:expected) { ::Gitlab::Access::BranchProtection.protected_against_developer_pushes.stringify_keys }
+    let(:params) { { default_branch_protection: ::Gitlab::Access::PROTECTION_DEV_CAN_MERGE } }
+
+    it "updates default_branch_protection_defaults from the default_branch_protection param" do
+      default_value = ::Gitlab::Access::BranchProtection.protected_fully.deep_stringify_keys
+
+      expect { subject.execute }.to change { application_settings.default_branch_protection_defaults }.from(default_value).to(expected)
+    end
+  end
+
+  context 'when default_branch_protection_defaults is updated' do
+    let(:expected) { ::Gitlab::Access::BranchProtection.protected_against_developer_pushes.stringify_keys }
+    let(:params) { { default_branch_protection_defaults: expected.deep_stringify_keys } }
+
+    it "updates default_branch_protection_defaults from the default_branch_protection_defaults param" do
+      default_value = ::Gitlab::Access::BranchProtection.protected_fully.deep_stringify_keys
+
+      expect { subject.execute }.to change { application_settings.default_branch_protection_defaults }.from(default_value).to(expected)
+    end
+  end
+
   context 'when protected path settings are passed' do
     let(:params) do
       {
         throttle_protected_paths_enabled: 1,
         throttle_protected_paths_period_in_seconds: 600,
         throttle_protected_paths_requests_per_period: 100,
-        protected_paths_raw: "/users/password\r\n/users/sign_in\r\n"
+        protected_paths_raw: "/users/password\r\n/users/sign_in\r\n",
+        protected_paths_for_get_request_raw: "/users/password\r\n/users/sign_up\r\n"
       }
     end
 
@@ -333,6 +358,7 @@ RSpec.describe ApplicationSettings::UpdateService do
       expect(application_settings.throttle_protected_paths_period_in_seconds).to eq(600)
       expect(application_settings.throttle_protected_paths_requests_per_period).to eq(100)
       expect(application_settings.protected_paths).to eq(['/users/password', '/users/sign_in'])
+      expect(application_settings.protected_paths_for_get_request).to match_array(['/users/password', '/users/sign_up'])
     end
   end
 

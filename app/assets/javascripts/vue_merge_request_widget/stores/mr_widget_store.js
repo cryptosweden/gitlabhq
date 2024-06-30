@@ -1,10 +1,12 @@
 import getStateKey from 'ee_else_ce/vue_merge_request_widget/stores/get_state_key';
-import { statusBoxState } from '~/issuable/components/status_box.vue';
-import { formatDate, getTimeago } from '~/lib/utils/datetime_utility';
+import { STATUS_CLOSED, STATUS_MERGED, STATUS_OPEN } from '~/issues/constants';
+import { formatDate, getTimeago, timeagoLanguageCode } from '~/lib/utils/datetime_utility';
 import { machine } from '~/lib/utils/finite_state_machine';
+import { badgeState } from '~/merge_requests/components/merge_request_header.vue';
 import {
   MTWPS_MERGE_STRATEGY,
   MT_MERGE_STRATEGY,
+  MWCP_MERGE_STRATEGY,
   MWPS_MERGE_STRATEGY,
   STATE_MACHINE,
   stateToTransitionMap,
@@ -28,6 +30,10 @@ export default class MergeRequestStore {
 
     this.stateMachine = machine(STATE_MACHINE.definition);
     this.machineValue = this.stateMachine.value;
+    this.mergeError = data.mergeError;
+    this.multipleApprovalRulesAvailable = data.multiple_approval_rules_available || false;
+    this.id = data.id;
+    this.autoMergeEnabled = false;
 
     this.setPaths(data);
 
@@ -115,9 +121,10 @@ export default class MergeRequestStore {
       this.availableAutoMergeStrategies,
     );
     this.ffOnlyEnabled = data.ff_only_enabled;
+    this.ffMergePossible = data.ff_merge_possible;
     this.isRemovingSourceBranch = this.isRemovingSourceBranch || false;
     this.mergeRequestState = data.state;
-    this.isOpen = this.mergeRequestState === 'opened';
+    this.isOpen = this.mergeRequestState === STATUS_OPEN;
     this.latestSHA = data.diff_head_sha;
     this.isMergeAllowed = data.mergeable || false;
     this.mergeOngoing = data.merge_ongoing;
@@ -135,13 +142,15 @@ export default class MergeRequestStore {
     this.isPipelineActive = data.pipeline ? data.pipeline.active : false;
     this.isPipelineBlocked =
       data.only_allow_merge_if_pipeline_succeeds && pipelineStatus?.group === 'manual';
-    this.ciStatusFaviconPath = pipelineStatus ? pipelineStatus.favicon : null;
+    this.faviconOverlayPath = data.favicon_overlay_path;
     this.terraformReportsPath = data.terraform_reports_path;
     this.testResultsPath = data.test_reports_path;
     this.accessibilityReportPath = data.accessibility_report_path;
     this.exposedArtifactsPath = data.exposed_artifacts_path;
     this.cancelAutoMergePath = data.cancel_auto_merge_path;
     this.canCancelAutomaticMerge = Boolean(data.cancel_auto_merge_path);
+    this.ciIntegrationJenkins = data.jenkins_integration_active;
+    this.retargeted = data.retargeted;
 
     this.newBlobPath = data.new_blob_path;
     this.sourceBranchPath = data.source_branch_path;
@@ -155,24 +164,6 @@ export default class MergeRequestStore {
     this.mergePath = data.merge_path;
     this.mergeCommitPath = data.merged_commit_path;
     this.canPushToSourceBranch = data.can_push_to_source_branch;
-
-    if (!window.gon?.features?.mergeRequestWidgetGraphql) {
-      this.autoMergeEnabled = Boolean(data.auto_merge_enabled);
-      this.canBeMerged = data.can_be_merged || false;
-      this.canMerge = Boolean(data.merge_path);
-      this.commitsCount = data.commits_count;
-      this.branchMissing = data.branch_missing;
-      this.hasConflicts = data.has_conflicts;
-      this.hasMergeableDiscussionsState = data.mergeable_discussions_state === false;
-      this.isPipelineFailed = this.ciStatus === 'failed' || this.ciStatus === 'canceled';
-      this.mergeError = data.merge_error;
-      this.mergeStatus = data.merge_status;
-      this.onlyAllowMergeIfPipelineSucceeds = data.only_allow_merge_if_pipeline_succeeds || false;
-      this.projectArchived = data.project_archived;
-      this.isSHAMismatch = this.sha !== data.diff_head_sha;
-      this.shouldBeRebased = Boolean(data.should_be_rebased);
-      this.draft = data.draft;
-    }
 
     const currentUser = data.current_user;
 
@@ -190,11 +181,14 @@ export default class MergeRequestStore {
   setGraphqlData(project) {
     const { mergeRequest } = project;
     const pipeline = mergeRequest.headPipeline;
+    const pipelines = mergeRequest.pipelines?.nodes;
 
     this.updateStatusState(mergeRequest.state);
 
+    this.issuableId = mergeRequest.id;
     this.projectArchived = project.archived;
     this.onlyAllowMergeIfPipelineSucceeds = project.onlyAllowMergeIfPipelineSucceeds;
+    this.allowMergeOnSkippedPipeline = project.allowMergeOnSkippedPipeline;
 
     this.autoMergeEnabled = mergeRequest.autoMergeEnabled;
     this.canBeMerged = mergeRequest.mergeStatus === 'can_be_merged';
@@ -205,8 +199,11 @@ export default class MergeRequestStore {
       this.ciStatus = `${this.ciStatus}-with-warnings`;
     }
 
+    this.detatchedPipeline = pipelines.length ? pipelines[0].mergeRequestEventType : null;
     this.commitsCount = mergeRequest.commitCount;
-    this.branchMissing = !mergeRequest.sourceBranchExists || !mergeRequest.targetBranchExists;
+    this.branchMissing =
+      mergeRequest.detailedMergeStatus !== 'NOT_OPEN' &&
+      (!mergeRequest.sourceBranchExists || !mergeRequest.targetBranchExists);
     this.hasConflicts = mergeRequest.conflicts;
     this.hasMergeableDiscussionsState = mergeRequest.mergeableDiscussionsState === false;
     this.mergeError = mergeRequest.mergeError;
@@ -216,13 +213,21 @@ export default class MergeRequestStore {
     this.shouldBeRebased = mergeRequest.shouldBeRebased;
     this.draft = mergeRequest.draft;
     this.mergeRequestState = mergeRequest.state;
+    this.detailedMergeStatus = mergeRequest.detailedMergeStatus;
+
+    this.setState();
+  }
+
+  setGraphqlSubscriptionData(data) {
+    this.detailedMergeStatus = data.detailedMergeStatus;
+    this.commitsCount = data.commitCount;
 
     this.setState();
   }
 
   updateStatusState(state) {
-    if (this.mergeRequestState !== state && statusBoxState.updateStatus) {
-      statusBoxState.updateStatus();
+    if (this.mergeRequestState !== state && badgeState.updateStatus) {
+      badgeState.updateStatus();
     }
   }
 
@@ -241,11 +246,11 @@ export default class MergeRequestStore {
       this.state = getStateKey.call(this);
     } else {
       switch (this.mergeRequestState) {
-        case 'merged':
-          this.state = 'merged';
+        case STATUS_MERGED:
+          this.state = STATUS_MERGED;
           break;
-        case 'closed':
-          this.state = 'closed';
+        case STATUS_CLOSED:
+          this.state = STATUS_CLOSED;
           break;
         default:
           this.state = null;
@@ -274,7 +279,7 @@ export default class MergeRequestStore {
     this.conflictsDocsPath = data.conflicts_docs_path;
     this.reviewingDocsPath = data.reviewing_and_managing_merge_requests_docs_path;
     this.ciEnvironmentsStatusPath = data.ci_environments_status_path;
-    this.securityApprovalsHelpPagePath = data.security_approvals_help_page_path;
+    this.codeCoverageCheckHelpPagePath = data.code_coverage_check_help_page_path;
     this.licenseComplianceDocsPath = data.license_compliance_docs_path;
     this.eligibleApproversDocsPath = data.eligible_approvers_docs_path;
     this.mergeImmediatelyDocsPath = data.merge_immediately_docs_path;
@@ -288,17 +293,21 @@ export default class MergeRequestStore {
     this.suggestPipelineFeatureId = data.suggest_pipeline_feature_id;
     this.isDismissedSuggestPipeline = data.is_dismissed_suggest_pipeline;
     this.securityReportsDocsPath = data.security_reports_docs_path;
+    this.securityConfigurationPath = data.security_configuration_path;
+    this.isIntegrationJenkinsDismissed = false;
 
     // code quality
     const blobPath = data.blob_path || {};
     this.headBlobPath = blobPath.head_path || '';
     this.baseBlobPath = blobPath.base_path || '';
     this.codequalityReportsPath = data.codequality_reports_path;
-    this.codequalityHelpPath = data.codequality_help_path;
 
     // Security reports
     this.sastComparisonPath = data.sast_comparison_path;
     this.secretDetectionComparisonPath = data.secret_detection_comparison_path;
+
+    this.sastComparisonPathV2 = data.new_sast_comparison_path;
+    this.secretDetectionComparisonPathV2 = data.new_secret_detection_comparison_path;
   }
 
   get isNothingToMergeState() {
@@ -342,7 +351,7 @@ export default class MergeRequestStore {
       return '';
     }
 
-    return format(date);
+    return format(date, timeagoLanguageCode);
   }
 
   static getPreferredAutoMergeStrategy(availableAutoMergeStrategies) {
@@ -350,9 +359,14 @@ export default class MergeRequestStore {
 
     if (availableAutoMergeStrategies.includes(MTWPS_MERGE_STRATEGY)) {
       return MTWPS_MERGE_STRATEGY;
-    } else if (availableAutoMergeStrategies.includes(MT_MERGE_STRATEGY)) {
+    }
+    if (availableAutoMergeStrategies.includes(MT_MERGE_STRATEGY)) {
       return MT_MERGE_STRATEGY;
-    } else if (availableAutoMergeStrategies.includes(MWPS_MERGE_STRATEGY)) {
+    }
+    if (availableAutoMergeStrategies.includes(MWCP_MERGE_STRATEGY)) {
+      return MWCP_MERGE_STRATEGY;
+    }
+    if (availableAutoMergeStrategies.includes(MWPS_MERGE_STRATEGY)) {
       return MWPS_MERGE_STRATEGY;
     }
 
@@ -361,12 +375,11 @@ export default class MergeRequestStore {
 
   initApprovals() {
     this.isApproved = this.isApproved || false;
-    this.approvals = this.approvals || null;
   }
 
   setApprovals(data) {
-    this.approvals = data;
     this.isApproved = data.approved || false;
+    this.approvals = true;
 
     this.setState();
   }
@@ -374,6 +387,14 @@ export default class MergeRequestStore {
   // eslint-disable-next-line class-methods-use-this
   get hasMergeChecksFailed() {
     return false;
+  }
+
+  get isApprovalNeeded() {
+    return this.hasApprovalsAvailable ? !this.isApproved : false;
+  }
+
+  get preventMerge() {
+    return this.isApprovalNeeded && this.preferredAutoMergeStrategy !== MWCP_MERGE_STRATEGY;
   }
 
   // Because the state machine doesn't yet handle every state and transition,

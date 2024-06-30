@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::ImportExport::ImportFailureService do
+RSpec.describe Gitlab::ImportExport::ImportFailureService, feature_category: :importers do
   let(:importable) { create(:project, :builds_enabled, :issues_disabled, name: 'project', path: 'project') }
   let(:label) { create(:label) }
   let(:subject) { described_class.new(importable) }
@@ -21,7 +21,8 @@ RSpec.describe Gitlab::ImportExport::ImportFailureService do
         relation_key: relation_key,
         relation_index: relation_index,
         exception: exception,
-        retry_count: retry_count)
+        retry_count: retry_count,
+        external_identifiers: { iid: 1234 })
     end
 
     before do

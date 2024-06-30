@@ -14,6 +14,7 @@ module API
     include ::API::Helpers::Packages::BasicAuthHelpers::Constants
 
     feature_category :package_registry
+    urgency :low
 
     default_format :json
 
@@ -31,88 +32,175 @@ module API
 
     helpers do
       params :package_download do
-        requires :file_identifier, type: String, desc: 'The PyPi package file identifier', file_path: true
-        requires :sha256, type: String, desc: 'The PyPi package sha256 check sum'
+        requires :file_identifier, type: String, desc: 'The PyPi package file identifier', file_path: true, documentation: { example: 'my.pypi.package-0.0.1.tar.gz' }
+        requires :sha256, type: String, desc: 'The PyPi package sha256 check sum', documentation: { example: '5y57017232013c8ac80647f4ca153k3726f6cba62d055cd747844ed95b3c65ff' }
       end
 
       params :package_name do
-        requires :package_name, type: String, file_path: true, desc: 'The PyPi package name'
+        requires :package_name, type: String, file_path: true, desc: 'The PyPi package name', documentation: { example: 'my.pypi.package' }
+      end
+
+      def present_simple_index(group_or_project)
+        authorize_read_package!(group_or_project)
+
+        packages = Packages::Pypi::PackagesFinder.new(current_user, group_or_project).execute
+        presenter = ::Packages::Pypi::SimpleIndexPresenter.new(packages, group_or_project)
+
+        present_html(presenter.body)
+      end
+
+      def present_simple_package(group_or_project)
+        authorize_read_package!(group_or_project)
+        track_simple_event(group_or_project, 'list_package')
+
+        packages = Packages::Pypi::PackagesFinder.new(current_user, group_or_project, { package_name: params[:package_name] }).execute
+        empty_packages = packages.empty?
+
+        redirect_registry_request(
+          forward_to_registry: empty_packages,
+          package_type: :pypi,
+          target: group_or_project,
+          package_name: params[:package_name]
+        ) do
+          not_found!('Package') if empty_packages
+          presenter = ::Packages::Pypi::SimplePackageVersionsPresenter.new(packages, group_or_project)
+
+          present_html(presenter.body)
+        end
+      end
+
+      def track_simple_event(group_or_project, event_name)
+        if group_or_project.is_a?(Project)
+          project = group_or_project
+          namespace = group_or_project.namespace
+        else
+          project = nil
+          namespace = group_or_project
+        end
+
+        track_package_event(event_name, :pypi, project: project, namespace: namespace)
+      end
+
+      def present_html(content)
+        # Adjusts grape output format
+        # to be HTML
+        content_type 'text/html; charset=utf-8'
+        env['api.format'] = :binary
+
+        body content
+      end
+
+      def ensure_group!
+        find_group(params[:id]) || not_found!
+        find_authorized_group!
+      end
+
+      def project!(action: :read_package)
+        find_project(params[:id]) || not_found!
+        authorized_user_project(action: action)
+      end
+
+      def validate_fips!
+        unprocessable_entity! if declared_params[:sha256_digest].blank?
+
+        true
       end
     end
 
     params do
-      requires :id, type: String, desc: 'The ID of a group'
+      requires :id, types: [Integer, String], desc: 'The ID or full path of the group.'
     end
     resource :groups, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
       after_validation do
-        unauthorized_user_group!
+        ensure_group!
       end
 
       namespace ':id/-/packages/pypi' do
+        desc 'Download a package file from a group' do
+          detail 'This feature was introduced in GitLab 13.12'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[pypi_packages]
+        end
         params do
           use :package_download
         end
 
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
         get 'files/:sha256/*file_identifier' do
-          group = unauthorized_user_group!
+          group = find_authorized_group!
+          authorize_read_package!(group)
 
           filename = "#{params[:file_identifier]}.#{params[:format]}"
           package = Packages::Pypi::PackageFinder.new(current_user, group, { filename: filename, sha256: params[:sha256] }).execute
           package_file = ::Packages::PackageFileFinder.new(package, filename, with_file_name_like: false).execute
 
-          track_package_event('pull_package', :pypi)
+          track_package_event('pull_package', :pypi, namespace: group, project: package.project)
 
-          present_carrierwave_file!(package_file.file, supports_direct_download: true)
+          present_package_file!(package_file, supports_direct_download: true)
         end
 
-        desc 'The PyPi Simple Endpoint' do
+        desc 'The PyPi Simple Group Index Endpoint' do
+          detail 'This feature was introduced in GitLab 15.1'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[pypi_packages]
+        end
+
+        # An API entry point but returns an HTML file instead of JSON.
+        # PyPi simple API returns a list of packages as a simple HTML file.
+        route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        get 'simple', format: :txt do
+          present_simple_index(find_authorized_group!)
+        end
+
+        desc 'The PyPi Simple Group Package Endpoint' do
           detail 'This feature was introduced in GitLab 12.10'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[pypi_packages]
         end
 
         params do
           use :package_name
         end
 
-        # An Api entry point but returns an HTML file instead of JSON.
+        # An API entry point but returns an HTML file instead of JSON.
         # PyPi simple API returns the package descriptor as a simple HTML file.
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
         get 'simple/*package_name', format: :txt do
-          group = find_authorized_group!
-          authorize_read_package!(group)
-
-          track_package_event('list_package', :pypi)
-
-          packages = Packages::Pypi::PackagesFinder.new(current_user, group, { package_name: params[:package_name] }).execute
-          empty_packages = packages.empty?
-
-          redirect_registry_request(empty_packages, :pypi, package_name: params[:package_name]) do
-            not_found!('Package') if empty_packages
-            presenter = ::Packages::Pypi::PackagePresenter.new(packages, group)
-
-            # Adjusts grape output format
-            # to be HTML
-            content_type "text/html; charset=utf-8"
-            env['api.format'] = :binary
-
-            body presenter.body
-          end
+          present_simple_package(find_authorized_group!)
         end
       end
     end
 
     params do
-      requires :id, type: String, desc: 'The ID of a project'
+      requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
     end
 
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
-      before do
-        unauthorized_user_project!
-      end
-
       namespace ':id/packages/pypi' do
         desc 'The PyPi package download endpoint' do
           detail 'This feature was introduced in GitLab 12.10'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[pypi_packages]
         end
 
         params do
@@ -121,7 +209,7 @@ module API
 
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
         get 'files/:sha256/*file_identifier' do
-          project = unauthorized_user_project!
+          project = project!
 
           filename = "#{params[:file_identifier]}.#{params[:format]}"
           package = Packages::Pypi::PackageFinder.new(current_user, project, { filename: filename, sha256: params[:sha256] }).execute
@@ -129,64 +217,96 @@ module API
 
           track_package_event('pull_package', :pypi, project: project, namespace: project.namespace)
 
-          present_carrierwave_file!(package_file.file, supports_direct_download: true)
+          present_package_file!(package_file, supports_direct_download: true)
         end
 
-        desc 'The PyPi Simple Endpoint' do
+        desc 'The PyPi Simple Project Index Endpoint' do
+          detail 'This feature was introduced in GitLab 15.1'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[pypi_packages]
+        end
+
+        # An API entry point but returns an HTML file instead of JSON.
+        # PyPi simple API returns a list of packages as a simple HTML file.
+        route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        get 'simple', format: :txt do
+          present_simple_index(project!)
+        end
+
+        desc 'The PyPi Simple Project Package Endpoint' do
           detail 'This feature was introduced in GitLab 12.10'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[pypi_packages]
         end
 
         params do
           use :package_name
         end
 
-        # An Api entry point but returns an HTML file instead of JSON.
+        # An API entry point but returns an HTML file instead of JSON.
         # PyPi simple API returns the package descriptor as a simple HTML file.
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
         get 'simple/*package_name', format: :txt do
-          authorize_read_package!(authorized_user_project)
-
-          track_package_event('list_package', :pypi, project: authorized_user_project, namespace: authorized_user_project.namespace)
-
-          packages = Packages::Pypi::PackagesFinder.new(current_user, authorized_user_project, { package_name: params[:package_name] }).execute
-          empty_packages = packages.empty?
-
-          redirect_registry_request(empty_packages, :pypi, package_name: params[:package_name]) do
-            not_found!('Package') if empty_packages
-            presenter = ::Packages::Pypi::PackagePresenter.new(packages, authorized_user_project)
-
-            # Adjusts grape output format
-            # to be HTML
-            content_type "text/html; charset=utf-8"
-            env['api.format'] = :binary
-
-            body presenter.body
-          end
+          present_simple_package(project!)
         end
 
         desc 'The PyPi Package upload endpoint' do
           detail 'This feature was introduced in GitLab 12.10'
+          success code: 201
+          failure [
+            { code: 400, message: 'Bad Request' },
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' },
+            { code: 422, message: 'Unprocessable Entity' }
+          ]
+          tags %w[pypi_packages]
         end
 
         params do
-          requires :content, type: ::API::Validations::Types::WorkhorseFile, desc: 'The package file to be published (generated by Multipart middleware)'
-          requires :name, type: String
-          requires :version, type: String
-          optional :requires_python, type: String
-          optional :md5_digest, type: String
-          optional :sha256_digest, type: String
+          requires :content, type: ::API::Validations::Types::WorkhorseFile, desc: 'The package file to be published (generated by Multipart middleware)', documentation: { type: 'file' }
+          requires :name, type: String, documentation: { example: 'my.pypi.package' }
+          requires :version, type: String, documentation: { example: '1.3.7' }
+          optional :requires_python, type: String, documentation: { example: '>=3.7' }
+          optional :md5_digest, type: String, documentation: { example: '900150983cd24fb0d6963f7d28e17f72' }
+          optional :sha256_digest, type: String, regexp: Gitlab::Regex.sha256_regex, documentation: { example: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' }
+          optional :metadata_version, type: String, documentation: { example: '2.3' }
+          optional :author_email, type: String, documentation: { example: 'cschultz@example.com, snoopy@peanuts.com' }
+          optional :description, type: String
+          optional :description_content_type, type: String,
+            documentation: { example: 'text/markdown; charset=UTF-8; variant=GFM' }
+          optional :summary, type: String, documentation: { example: 'A module for collecting votes from beagles.' }
+          optional :keywords, type: String, documentation: { example: 'dog,puppy,voting,election' }
         end
 
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
         post do
-          authorize_upload!(authorized_user_project)
-          bad_request!('File is too large') if authorized_user_project.actual_limits.exceeded?(:pypi_max_file_size, params[:content].size)
+          project = project!(action: :read_project)
+          authorize_upload!(project)
 
-          track_package_event('push_package', :pypi, project: authorized_user_project, user: current_user, namespace: authorized_user_project.namespace)
+          if project.actual_limits.exceeded?(:pypi_max_file_size, params[:content].size)
+            bad_request!('File is too large')
+          end
 
-          ::Packages::Pypi::CreatePackageService
-            .new(authorized_user_project, current_user, declared_params.merge(build: current_authenticated_job))
+          track_package_event('push_package', :pypi, project: project, namespace: project.namespace)
+
+          validate_fips! if Gitlab::FIPS.enabled?
+
+          service_response = ::Packages::Pypi::CreatePackageService
+            .new(project, current_user, declared_params.merge(build: current_authenticated_job))
             .execute
+
+          bad_request!(service_response.message) if service_response.error?
 
           created!
         rescue ObjectStorage::RemoteStoreError => e
@@ -195,12 +315,24 @@ module API
           forbidden!
         end
 
+        desc 'Authorize the PyPi package upload from workhorse' do
+          detail 'This feature was introduced in GitLab 12.10'
+          success code: 200
+          failure [
+            { code: 401, message: 'Unauthorized' },
+            { code: 403, message: 'Forbidden' },
+            { code: 404, message: 'Not Found' }
+          ]
+          tags %w[pypi_packages]
+        end
+
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
         post 'authorize' do
+          project = project!(action: :read_project)
           authorize_workhorse!(
-            subject: authorized_user_project,
+            subject: project,
             has_length: false,
-            maximum_size: authorized_user_project.actual_limits.pypi_max_file_size
+            maximum_size: project.actual_limits.pypi_max_file_size
           )
         end
       end

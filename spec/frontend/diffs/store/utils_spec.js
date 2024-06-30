@@ -1,4 +1,3 @@
-import { clone } from 'lodash';
 import {
   LINE_POSITION_LEFT,
   LINE_POSITION_RIGHT,
@@ -13,11 +12,10 @@ import {
 } from '~/diffs/constants';
 import * as utils from '~/diffs/store/utils';
 import { MERGE_REQUEST_NOTEABLE_TYPE } from '~/notes/constants';
-import { noteableDataMock } from '../../notes/mock_data';
-import diffFileMockData from '../mock_data/diff_file';
+import { noteableDataMock } from 'jest/notes/mock_data';
+import { getDiffFileMock } from '../mock_data/diff_file';
 import { diffMetadata } from '../mock_data/diff_metadata';
 
-const getDiffFileMock = () => JSON.parse(JSON.stringify(diffFileMockData));
 const getDiffMetadataMock = () => JSON.parse(JSON.stringify(diffMetadata));
 
 describe('DiffsStoreUtils', () => {
@@ -27,13 +25,6 @@ describe('DiffsStoreUtils', () => {
     it('should return correct file', () => {
       expect(utils.findDiffFile(files, 1).name).toEqual('one');
       expect(utils.findDiffFile(files, 2)).toBeUndefined();
-    });
-  });
-
-  describe('getReversePosition', () => {
-    it('should return correct line position name', () => {
-      expect(utils.getReversePosition(LINE_POSITION_RIGHT)).toEqual(LINE_POSITION_LEFT);
-      expect(utils.getReversePosition(LINE_POSITION_LEFT)).toEqual(LINE_POSITION_RIGHT);
     });
   });
 
@@ -51,21 +42,19 @@ describe('DiffsStoreUtils', () => {
   });
 
   describe('getPreviousLineIndex', () => {
-    describe(`with diffViewType (inline) in split diffs`, () => {
-      let diffFile;
+    let diffFile;
 
-      beforeEach(() => {
-        diffFile = { ...clone(diffFileMockData) };
-      });
+    beforeEach(() => {
+      diffFile = getDiffFileMock();
+    });
 
-      it('should return the correct previous line number', () => {
-        expect(
-          utils.getPreviousLineIndex(INLINE_DIFF_VIEW_TYPE, diffFile, {
-            oldLineNumber: 3,
-            newLineNumber: 5,
-          }),
-        ).toBe(4);
-      });
+    it('should return the correct previous line number', () => {
+      expect(
+        utils.getPreviousLineIndex(diffFile, {
+          oldLineNumber: 3,
+          newLineNumber: 5,
+        }),
+      ).toBe(4);
     });
   });
 
@@ -151,6 +140,7 @@ describe('DiffsStoreUtils', () => {
         old_line: options.noteTargetLine.old_line,
         new_line: options.noteTargetLine.new_line,
         line_range: options.lineRange,
+        ignore_whitespace_change: true,
       });
 
       const postData = {
@@ -209,6 +199,7 @@ describe('DiffsStoreUtils', () => {
         position_type: TEXT_DIFF_POSITION_TYPE,
         old_line: options.noteTargetLine.old_line,
         new_line: options.noteTargetLine.new_line,
+        ignore_whitespace_change: true,
       });
 
       const postData = {
@@ -322,9 +313,14 @@ describe('DiffsStoreUtils', () => {
   describe('prepareLineForRenamedFile', () => {
     const diffFile = {
       file_hash: 'file-hash',
+      brokenSymlink: false,
+      renamed_file: false,
+      added_lines: 1,
+      removed_lines: 1,
     };
     const lineIndex = 4;
     const sourceLine = {
+      line_code: 'abc',
       foo: 'test',
       rich_text: ' <p>rich</p>', // Note the leading space
     };
@@ -334,11 +330,17 @@ describe('DiffsStoreUtils', () => {
       old_line: 5,
       new_line: 5,
       rich_text: '<p>rich</p>', // Note no leading space
-      discussionsExpanded: true,
+      discussionsExpanded: false,
       discussions: [],
       hasForm: false,
       text: undefined,
       alreadyPrepared: true,
+      commentsDisabled: false,
+      problems: {
+        brokenLineCode: false,
+        brokenSymlink: false,
+        fileOnlyMoved: false,
+      },
     };
     let preppedLine;
 
@@ -371,24 +373,35 @@ describe('DiffsStoreUtils', () => {
     });
 
     it.each`
-      brokenSymlink
-      ${false}
-      ${{}}
-      ${'anything except `false`'}
+      brokenSymlink | renamed  | added | removed | lineCode | commentsDisabled
+      ${false}      | ${false} | ${0}  | ${0}    | ${'a'}   | ${false}
+      ${{}}         | ${false} | ${1}  | ${1}    | ${'a'}   | ${true}
+      ${'truthy'}   | ${false} | ${1}  | ${1}    | ${'a'}   | ${true}
+      ${false}      | ${true}  | ${1}  | ${1}    | ${'a'}   | ${false}
+      ${false}      | ${true}  | ${1}  | ${0}    | ${'a'}   | ${false}
+      ${false}      | ${true}  | ${0}  | ${1}    | ${'a'}   | ${false}
+      ${false}      | ${true}  | ${0}  | ${0}    | ${'a'}   | ${true}
     `(
-      "properly assigns each line's `commentsDisabled` as the same value as the parent file's `brokenSymlink` value (`$brokenSymlink`)",
-      ({ brokenSymlink }) => {
-        preppedLine = utils.prepareLineForRenamedFile({
-          diffViewType: INLINE_DIFF_VIEW_TYPE,
-          line: sourceLine,
+      "properly sets a line's `commentsDisabled` to '$commentsDisabled' for file and line settings { brokenSymlink: $brokenSymlink, renamed: $renamed, added: $added, removed: $removed, line_code: $lineCode }",
+      ({ brokenSymlink, renamed, added, removed, lineCode, commentsDisabled }) => {
+        const line = {
+          ...sourceLine,
+          line_code: lineCode,
+        };
+        const file = {
+          ...diffFile,
+          brokenSymlink,
+          renamed_file: renamed,
+          added_lines: added,
+          removed_lines: removed,
+        };
+        const preparedLine = utils.prepareLineForRenamedFile({
           index: lineIndex,
-          diffFile: {
-            ...diffFile,
-            brokenSymlink,
-          },
+          diffFile: file,
+          line,
         });
 
-        expect(preppedLine.commentsDisabled).toStrictEqual(brokenSymlink);
+        expect(preparedLine.commentsDisabled).toBe(commentsDisabled);
       },
     );
   });
@@ -424,7 +437,7 @@ describe('DiffsStoreUtils', () => {
         });
       });
 
-      it('sets the renderIt and collapsed attribute on files', () => {
+      it('sets the collapsed attribute on files', () => {
         const checkLine = preparedDiff.diff_files[0][INLINE_DIFF_LINES_KEY][0];
 
         expect(checkLine.discussions.length).toBe(0);
@@ -435,8 +448,7 @@ describe('DiffsStoreUtils', () => {
         expect(firstChar).not.toBe('+');
         expect(firstChar).not.toBe('-');
 
-        expect(preparedDiff.diff_files[0].renderIt).toBeTruthy();
-        expect(preparedDiff.diff_files[0].collapsed).toBeFalsy();
+        expect(preparedDiff.diff_files[0].collapsed).toBe(false);
       });
 
       it('guarantees an empty array for both diff styles', () => {
@@ -464,6 +476,17 @@ describe('DiffsStoreUtils', () => {
         expect(updatedFilesList).toEqual([mock, fakeNewFile]);
       });
 
+      it('updates diff position', () => {
+        const priorFiles = [mock, { ...mock, file_hash: 'foo', file_path: 'foo' }];
+        const updatedFilesList = utils.prepareDiffData({
+          diff: { diff_files: [mock] },
+          priorFiles,
+          updatePosition: true,
+        });
+
+        expect(updatedFilesList[1].file_hash).toEqual(mock.file_hash);
+      });
+
       it('completes an existing split diff without overwriting existing diffs', () => {
         // The current state has a file that has only loaded inline lines
         const priorFiles = [{ ...mock }];
@@ -488,7 +511,7 @@ describe('DiffsStoreUtils', () => {
 
       it('adds the `.brokenSymlink` property to each diff file', () => {
         preparedDiff.diff_files.forEach((file) => {
-          expect(file).toEqual(expect.objectContaining({ brokenSymlink: false }));
+          expect(file).toHaveProperty('brokenSymlink', false);
         });
       });
 
@@ -501,7 +524,7 @@ describe('DiffsStoreUtils', () => {
         ].flatMap((file) => [...file[INLINE_DIFF_LINES_KEY]]);
 
         lines.forEach((line) => {
-          expect(line.commentsDisabled).toBe(false);
+          expect(line.problems.brokenSymlink).toBe(false);
         });
       });
     });
@@ -516,9 +539,8 @@ describe('DiffsStoreUtils', () => {
         preparedDiffFiles = utils.prepareDiffData({ diff: mock, meta: true });
       });
 
-      it('sets the renderIt and collapsed attribute on files', () => {
-        expect(preparedDiffFiles[0].renderIt).toBeTruthy();
-        expect(preparedDiffFiles[0].collapsed).toBeFalsy();
+      it('sets the collapsed attribute on files', () => {
+        expect(preparedDiffFiles[0].collapsed).toBeUndefined();
       });
 
       it('guarantees an empty array of lines for both diff styles', () => {
@@ -702,6 +724,14 @@ describe('DiffsStoreUtils', () => {
       ).toBe('mode_changed');
     });
 
+    it('returns no_preview if key has no match', () => {
+      expect(
+        utils.getDiffMode({
+          viewer: { name: 'no_preview' },
+        }),
+      ).toBe('no_preview');
+    });
+
     it('defaults to replaced', () => {
       expect(utils.getDiffMode({})).toBe('replaced');
     });
@@ -879,6 +909,65 @@ describe('DiffsStoreUtils', () => {
       expect(files[5].right).toBeNull();
       expect(files[6].left).toMatchObject(file.parallel_diff_lines[5].right);
       expect(files[6].right).toBeNull();
+    });
+  });
+
+  describe('isUrlHashNoteLink', () => {
+    it.each`
+      input            | bool
+      ${'#note_12345'} | ${true}
+      ${'#12345'}      | ${false}
+      ${'note_12345'}  | ${true}
+      ${'12345'}       | ${false}
+    `('returns $bool for $input', ({ bool, input }) => {
+      expect(utils.isUrlHashNoteLink(input)).toBe(bool);
+    });
+  });
+
+  describe('isUrlHashFileHeader', () => {
+    it.each`
+      input                    | bool
+      ${'#diff-content-12345'} | ${true}
+      ${'#12345'}              | ${false}
+      ${'diff-content-12345'}  | ${true}
+      ${'12345'}               | ${false}
+    `('returns $bool for $input', ({ bool, input }) => {
+      expect(utils.isUrlHashFileHeader(input)).toBe(bool);
+    });
+  });
+
+  describe('parseUrlHashAsFileHash', () => {
+    it.each`
+      input                                               | currentDiffId | resultId
+      ${'#note_12345'}                                    | ${'1A2B3C'}   | ${'1A2B3C'}
+      ${'note_12345'}                                     | ${'1A2B3C'}   | ${'1A2B3C'}
+      ${'#note_12345'}                                    | ${undefined}  | ${null}
+      ${'note_12345'}                                     | ${undefined}  | ${null}
+      ${'#diff-content-12345'}                            | ${undefined}  | ${'12345'}
+      ${'diff-content-12345'}                             | ${undefined}  | ${'12345'}
+      ${'#diff-content-12345'}                            | ${'98765'}    | ${'12345'}
+      ${'diff-content-12345'}                             | ${'98765'}    | ${'12345'}
+      ${'#e334a2a10f036c00151a04cea7938a5d4213a818'}      | ${undefined}  | ${'e334a2a10f036c00151a04cea7938a5d4213a818'}
+      ${'e334a2a10f036c00151a04cea7938a5d4213a818'}       | ${undefined}  | ${'e334a2a10f036c00151a04cea7938a5d4213a818'}
+      ${'#Z334a2a10f036c00151a04cea7938a5d4213a818'}      | ${undefined}  | ${null}
+      ${'Z334a2a10f036c00151a04cea7938a5d4213a818'}       | ${undefined}  | ${null}
+      ${'#e334a2a10f036c00151a04cea7938a5d4213a818_0_42'} | ${undefined}  | ${'e334a2a10f036c00151a04cea7938a5d4213a818'}
+      ${'e334a2a10f036c00151a04cea7938a5d4213a818_0_42'}  | ${undefined}  | ${'e334a2a10f036c00151a04cea7938a5d4213a818'}
+    `('returns $resultId for $input and $currentDiffId', ({ input, currentDiffId, resultId }) => {
+      expect(utils.parseUrlHashAsFileHash(input, currentDiffId)).toBe(resultId);
+    });
+  });
+
+  describe('markTreeEntriesLoaded', () => {
+    it.each`
+      desc                                                               | entries                                            | loaded                   | outcome
+      ${'marks an existing entry as loaded'}                             | ${{ abc: {} }}                                     | ${[{ new_path: 'abc' }]} | ${{ abc: { diffLoaded: true, diffLoading: false } }}
+      ${'does nothing if the new file is not found in the tree entries'} | ${{ abc: {} }}                                     | ${[{ new_path: 'def' }]} | ${{ abc: {} }}
+      ${'leaves entries unmodified if they are not in the loaded files'} | ${{ abc: {}, def: { diffLoaded: true }, ghi: {} }} | ${[{ new_path: 'ghi' }]} | ${{ abc: {}, def: { diffLoaded: true }, ghi: { diffLoaded: true, diffLoading: false } }}
+    `('$desc', ({ entries, loaded, outcome }) => {
+      expect(utils.markTreeEntriesLoaded({ priorEntries: entries, loadedFiles: loaded })).toEqual(
+        outcome,
+      );
     });
   });
 });

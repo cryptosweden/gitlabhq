@@ -1,36 +1,54 @@
 <script>
-import { GlSprintf, GlLink } from '@gitlab/ui';
-import DuplicatesSettings from '~/packages_and_registries/settings/group/components/duplicates_settings.vue';
-import GenericSettings from '~/packages_and_registries/settings/group/components/generic_settings.vue';
-import MavenSettings from '~/packages_and_registries/settings/group/components/maven_settings.vue';
+import { GlTableLite, GlToggle } from '@gitlab/ui';
 import {
+  GENERIC_PACKAGE_FORMAT,
+  MAVEN_PACKAGE_FORMAT,
+  NUGET_PACKAGE_FORMAT,
+  TERRAFORM_MODULE_PACKAGE_FORMAT,
+  PACKAGE_FORMATS_TABLE_HEADER,
   PACKAGE_SETTINGS_HEADER,
   PACKAGE_SETTINGS_DESCRIPTION,
-  PACKAGES_DOCS_PATH,
+  DUPLICATES_SETTING_EXCEPTION_TITLE,
+  DUPLICATES_TOGGLE_LABEL,
 } from '~/packages_and_registries/settings/group/constants';
 import updateNamespacePackageSettings from '~/packages_and_registries/settings/group/graphql/mutations/update_group_packages_settings.mutation.graphql';
 import { updateGroupPackageSettings } from '~/packages_and_registries/settings/group/graphql/utils/cache_update';
 import { updateGroupPackagesSettingsOptimisticResponse } from '~/packages_and_registries/settings/group/graphql/utils/optimistic_responses';
-import SettingsBlock from '~/vue_shared/components/settings/settings_block.vue';
+import SettingsBlock from '~/packages_and_registries/shared/components/settings_block.vue';
+import ExceptionsInput from '~/packages_and_registries/settings/group/components/exceptions_input.vue';
 
 export default {
   name: 'PackageSettings',
   i18n: {
     PACKAGE_SETTINGS_HEADER,
     PACKAGE_SETTINGS_DESCRIPTION,
+    DUPLICATES_SETTING_EXCEPTION_TITLE,
+    DUPLICATES_TOGGLE_LABEL,
   },
-  links: {
-    PACKAGES_DOCS_PATH,
-  },
+  tableHeaderFields: [
+    {
+      key: 'packageFormat',
+      label: PACKAGE_FORMATS_TABLE_HEADER,
+      thClass: 'gl-bg-gray-10!',
+    },
+    {
+      key: 'allowDuplicates',
+      label: DUPLICATES_TOGGLE_LABEL,
+      thClass: 'gl-bg-gray-10!',
+    },
+    {
+      key: 'exceptions',
+      label: DUPLICATES_SETTING_EXCEPTION_TITLE,
+      thClass: 'gl-bg-gray-10!',
+    },
+  ],
   components: {
-    GlSprintf,
-    GlLink,
     SettingsBlock,
-    MavenSettings,
-    GenericSettings,
-    DuplicatesSettings,
+    GlTableLite,
+    GlToggle,
+    ExceptionsInput,
   },
-  inject: ['defaultExpanded', 'groupPath'],
+  inject: ['groupPath'],
   props: {
     packageSettings: {
       type: Object,
@@ -46,6 +64,60 @@ export default {
     return {
       errors: {},
     };
+  },
+  computed: {
+    tableRows() {
+      return [
+        {
+          id: 'maven-duplicated-settings-regex-input',
+          format: MAVEN_PACKAGE_FORMAT,
+          duplicatesAllowed: this.packageSettings.mavenDuplicatesAllowed,
+          duplicateExceptionRegex: this.packageSettings.mavenDuplicateExceptionRegex,
+          duplicateExceptionRegexError: this.errors.mavenDuplicateExceptionRegex,
+          modelNames: {
+            allowed: 'mavenDuplicatesAllowed',
+            exception: 'mavenDuplicateExceptionRegex',
+          },
+          testid: 'maven-settings',
+        },
+        {
+          id: 'generic-duplicated-settings-regex-input',
+          format: GENERIC_PACKAGE_FORMAT,
+          duplicatesAllowed: this.packageSettings.genericDuplicatesAllowed,
+          duplicateExceptionRegex: this.packageSettings.genericDuplicateExceptionRegex,
+          duplicateExceptionRegexError: this.errors.genericDuplicateExceptionRegex,
+          modelNames: {
+            allowed: 'genericDuplicatesAllowed',
+            exception: 'genericDuplicateExceptionRegex',
+          },
+          testid: 'generic-settings',
+        },
+        {
+          id: 'nuget-duplicated-settings-regex-input',
+          format: NUGET_PACKAGE_FORMAT,
+          duplicatesAllowed: this.packageSettings.nugetDuplicatesAllowed,
+          duplicateExceptionRegex: this.packageSettings.nugetDuplicateExceptionRegex,
+          duplicateExceptionRegexError: this.errors.nugetDuplicateExceptionRegex,
+          modelNames: {
+            allowed: 'nugetDuplicatesAllowed',
+            exception: 'nugetDuplicateExceptionRegex',
+          },
+          testid: 'nuget-settings',
+        },
+        {
+          id: 'terraform-module-duplicated-settings-regex-input',
+          format: TERRAFORM_MODULE_PACKAGE_FORMAT,
+          duplicatesAllowed: this.packageSettings.terraformModuleDuplicatesAllowed,
+          duplicateExceptionRegex: this.packageSettings.terraformModuleDuplicateExceptionRegex,
+          duplicateExceptionRegexError: this.errors.terraformModuleDuplicateExceptionRegex,
+          modelNames: {
+            allowed: 'terraformModuleDuplicatesAllowed',
+            exception: 'terraformModuleDuplicateExceptionRegex',
+          },
+          testid: 'terraform-module-settings',
+        },
+      ];
+    },
   },
   methods: {
     async updateSettings(payload) {
@@ -86,54 +158,56 @@ export default {
         this.$emit('error');
       }
     },
+    update(type, value) {
+      this.updateSettings({ [type]: value });
+    },
   },
 };
 </script>
 
 <template>
-  <settings-block
-    :default-expanded="defaultExpanded"
-    data-qa-selector="package_registry_settings_content"
-  >
+  <settings-block data-testid="package-registry-settings-content">
     <template #title> {{ $options.i18n.PACKAGE_SETTINGS_HEADER }}</template>
     <template #description>
       <span data-testid="description">
-        <gl-sprintf :message="$options.i18n.PACKAGE_SETTINGS_DESCRIPTION">
-          <template #link="{ content }">
-            <gl-link :href="$options.links.PACKAGES_DOCS_PATH" target="_blank">{{
-              content
-            }}</gl-link>
-          </template>
-        </gl-sprintf>
+        {{ $options.i18n.PACKAGE_SETTINGS_DESCRIPTION }}
       </span>
     </template>
     <template #default>
-      <maven-settings data-testid="maven-settings">
-        <template #default="{ modelNames }">
-          <duplicates-settings
-            :duplicates-allowed="packageSettings.mavenDuplicatesAllowed"
-            :duplicate-exception-regex="packageSettings.mavenDuplicateExceptionRegex"
-            :duplicate-exception-regex-error="errors.mavenDuplicateExceptionRegex"
-            :model-names="modelNames"
-            :loading="isLoading"
-            toggle-qa-selector="allow_duplicates_toggle"
-            label-qa-selector="allow_duplicates_label"
-            @update="updateSettings"
-          />
-        </template>
-      </maven-settings>
-      <generic-settings class="gl-mt-6" data-testid="generic-settings">
-        <template #default="{ modelNames }">
-          <duplicates-settings
-            :duplicates-allowed="packageSettings.genericDuplicatesAllowed"
-            :duplicate-exception-regex="packageSettings.genericDuplicateExceptionRegex"
-            :duplicate-exception-regex-error="errors.genericDuplicateExceptionRegex"
-            :model-names="modelNames"
-            :loading="isLoading"
-            @update="updateSettings"
-          />
-        </template>
-      </generic-settings>
+      <form>
+        <gl-table-lite
+          :fields="$options.tableHeaderFields"
+          :items="tableRows"
+          stacked="sm"
+          :tbody-tr-attr="(item) => ({ 'data-testid': item.testid })"
+        >
+          <template #cell(packageFormat)="{ item }">
+            <span class="gl-md-pt-3">{{ item.format }}</span>
+          </template>
+          <template #cell(allowDuplicates)="{ item }">
+            <gl-toggle
+              :data-testid="item.dataTestid"
+              :label="$options.i18n.DUPLICATES_TOGGLE_LABEL"
+              :value="item.duplicatesAllowed"
+              :disabled="isLoading"
+              label-position="hidden"
+              class="gl-align-items-flex-end gl-sm-align-items-flex-start"
+              @change="update(item.modelNames.allowed, $event)"
+            />
+          </template>
+          <template #cell(exceptions)="{ item }">
+            <exceptions-input
+              :id="item.id"
+              :duplicates-allowed="item.duplicatesAllowed"
+              :duplicate-exception-regex="item.duplicateExceptionRegex"
+              :duplicate-exception-regex-error="item.duplicateExceptionRegexError"
+              :name="item.modelNames.exception"
+              :loading="isLoading"
+              @update="updateSettings"
+            />
+          </template>
+        </gl-table-lite>
+      </form>
     </template>
   </settings-block>
 </template>

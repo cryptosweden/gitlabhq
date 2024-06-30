@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlSprintf } from '@gitlab/ui';
 import { s__ } from '~/locale';
@@ -14,7 +15,7 @@ export default {
     GlSprintf,
   },
   props: {
-    packageEntity: {
+    packageMetadata: {
       type: Object,
       required: true,
     },
@@ -27,14 +28,14 @@ export default {
     <details-row icon="information-o" padding="gl-p-4" dashed data-testid="maven-app">
       <gl-sprintf :message="$options.i18n.appName">
         <template #name>
-          <strong>{{ packageEntity.metadata.appName }}</strong>
+          <strong>{{ packageMetadata.appName }}</strong>
         </template>
       </gl-sprintf>
     </details-row>
     <details-row icon="information-o" padding="gl-p-4" data-testid="maven-group">
       <gl-sprintf :message="$options.i18n.appGroup">
         <template #group>
-          <strong>{{ packageEntity.metadata.appGroup }}</strong>
+          <strong>{{ packageMetadata.appGroup }}</strong>
         </template>
       </gl-sprintf>
     </details-row>

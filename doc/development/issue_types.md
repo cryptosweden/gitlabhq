@@ -1,22 +1,20 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# Issue Types (DEPRECATED)
+# Issue Types (deprecated)
 
 WARNING:
-We are deprecating Issue Types as of GitLab 14.2 in favor of [Work Items and Work Item Types](work_items.md).
+We have deprecated Issue Types in favor of [Work Items and Work Item Types](work_items.md).
 
 Sometimes when a new resource type is added it's not clear if it should be only an
 "extension" of Issue (Issue Type) or if it should be a new first-class resource type
 (similar to issue, epic, merge request, snippet).
 
-The idea of Issue Types was first proposed in [this
-issue](https://gitlab.com/gitlab-org/gitlab/-/issues/8767) and its usage was
-discussed few times since then, for example in [incident
-management](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/55532).
+The idea of Issue Types was first proposed in [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/8767) and its usage was
+discussed few times since then, for example in [incident management](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/55532).
 
 ## What is an Issue Type
 
@@ -44,7 +42,7 @@ issues or when linking objects of the type from Epics. It should use the same
   - You can't close it from a commit or a merge request.
   - You can't mark it as related to another issue.
 
-If an Issue type can not be used you can still define a first-class type and
+If an Issue type cannot be used you can still define a first-class type and
 then include concerns such as `Issuable` or `Noteable` to reuse functionality
 which is common for all our issue-related resources. But you still need to
 define the interface for working with the new resource and update some other

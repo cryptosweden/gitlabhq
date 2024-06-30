@@ -4,6 +4,7 @@ import MockAdapter from 'axios-mock-adapter';
 import waitForPromises from 'helpers/wait_for_promises';
 import component from '~/blob/notebook/notebook_viewer.vue';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import NotebookLab from '~/notebook/index.vue';
 
 describe('iPython notebook renderer', () => {
@@ -31,18 +32,16 @@ describe('iPython notebook renderer', () => {
     wrapper = shallowMount(component, { propsData: { endpoint, relativeRawPath } });
   };
 
-  const findLoading = () => wrapper.find(GlLoadingIcon);
-  const findNotebookLab = () => wrapper.find(NotebookLab);
-  const findLoadErrorMessage = () => wrapper.find({ ref: 'loadErrorMessage' });
-  const findParseErrorMessage = () => wrapper.find({ ref: 'parsingErrorMessage' });
+  const findLoading = () => wrapper.findComponent(GlLoadingIcon);
+  const findNotebookLab = () => wrapper.findComponent(NotebookLab);
+  const findLoadErrorMessage = () => wrapper.findComponent({ ref: 'loadErrorMessage' });
+  const findParseErrorMessage = () => wrapper.findComponent({ ref: 'parsingErrorMessage' });
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
     mock.restore();
   });
 
@@ -54,7 +53,7 @@ describe('iPython notebook renderer', () => {
 
   describe('successful response', () => {
     beforeEach(() => {
-      mock.onGet(endpoint).reply(200, mockNotebook);
+      mock.onGet(endpoint).reply(HTTP_STATUS_OK, mockNotebook);
       mountComponent();
       return waitForPromises();
     });
@@ -72,7 +71,7 @@ describe('iPython notebook renderer', () => {
     beforeEach(() => {
       mock.onGet(endpoint).reply(() =>
         // eslint-disable-next-line prefer-promise-reject-errors
-        Promise.reject({ status: 200 }),
+        Promise.reject({ status: HTTP_STATUS_OK }),
       );
 
       mountComponent();
@@ -90,7 +89,7 @@ describe('iPython notebook renderer', () => {
 
   describe('error getting file', () => {
     beforeEach(() => {
-      mock.onGet(endpoint).reply(500, '');
+      mock.onGet(endpoint).reply(HTTP_STATUS_INTERNAL_SERVER_ERROR, '');
 
       mountComponent();
       return waitForPromises();

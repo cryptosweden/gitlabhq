@@ -1,10 +1,10 @@
 import testAction from 'helpers/vuex_action_helper';
 import Api from '~/api';
-import { redirectTo } from '~/lib/utils/url_utility';
+import { visitUrl } from '~/lib/utils/url_utility';
 import * as actions from '~/user_lists/store/edit/actions';
 import * as types from '~/user_lists/store/edit/mutation_types';
 import createState from '~/user_lists/store/edit/state';
-import { userList } from '../../../feature_flags/mock_data';
+import { userList } from 'jest/feature_flags/mock_data';
 
 jest.mock('~/api');
 jest.mock('~/lib/utils/url_utility');
@@ -22,8 +22,8 @@ describe('User Lists Edit Actions', () => {
         Api.fetchFeatureFlagUserList.mockResolvedValue({ data: userList });
       });
 
-      it('should commit RECEIVE_USER_LIST_SUCCESS', () => {
-        return testAction(
+      it('should commit RECEIVE_USER_LIST_SUCCESS', async () => {
+        await testAction(
           actions.fetchUserList,
           undefined,
           state,
@@ -32,8 +32,8 @@ describe('User Lists Edit Actions', () => {
             { type: types.RECEIVE_USER_LIST_SUCCESS, payload: userList },
           ],
           [],
-          () => expect(Api.fetchFeatureFlagUserList).toHaveBeenCalledWith('1', '2'),
         );
+        expect(Api.fetchFeatureFlagUserList).toHaveBeenCalledWith('1', '2');
       });
     });
 
@@ -44,8 +44,8 @@ describe('User Lists Edit Actions', () => {
         Api.fetchFeatureFlagUserList.mockRejectedValue(error);
       });
 
-      it('should commit RECEIVE_USER_LIST_ERROR', () => {
-        return testAction(
+      it('should commit RECEIVE_USER_LIST_ERROR', async () => {
+        await testAction(
           actions.fetchUserList,
           undefined,
           state,
@@ -54,8 +54,8 @@ describe('User Lists Edit Actions', () => {
             { type: types.RECEIVE_USER_LIST_ERROR, payload: ['error'] },
           ],
           [],
-          () => expect(Api.fetchFeatureFlagUserList).toHaveBeenCalledWith('1', '2'),
         );
+        expect(Api.fetchFeatureFlagUserList).toHaveBeenCalledWith('1', '2');
       });
     });
   });
@@ -83,14 +83,13 @@ describe('User Lists Edit Actions', () => {
         state.userList = userList;
       });
 
-      it('should commit RECEIVE_USER_LIST_SUCCESS', () => {
-        return testAction(actions.updateUserList, updatedList, state, [], [], () => {
-          expect(Api.updateFeatureFlagUserList).toHaveBeenCalledWith('1', {
-            name: updatedList.name,
-            iid: updatedList.iid,
-          });
-          expect(redirectTo).toHaveBeenCalledWith(userList.path);
+      it('should commit RECEIVE_USER_LIST_SUCCESS', async () => {
+        await testAction(actions.updateUserList, updatedList, state, [], []);
+        expect(Api.updateFeatureFlagUserList).toHaveBeenCalledWith('1', {
+          name: updatedList.name,
+          iid: updatedList.iid,
         });
+        expect(visitUrl).toHaveBeenCalledWith(userList.path);
       });
     });
 
@@ -102,19 +101,18 @@ describe('User Lists Edit Actions', () => {
         Api.updateFeatureFlagUserList.mockRejectedValue(error);
       });
 
-      it('should commit RECEIVE_USER_LIST_ERROR', () => {
-        return testAction(
+      it('should commit RECEIVE_USER_LIST_ERROR', async () => {
+        await testAction(
           actions.updateUserList,
           updatedList,
           state,
           [{ type: types.RECEIVE_USER_LIST_ERROR, payload: ['error'] }],
           [],
-          () =>
-            expect(Api.updateFeatureFlagUserList).toHaveBeenCalledWith('1', {
-              name: updatedList.name,
-              iid: updatedList.iid,
-            }),
         );
+        expect(Api.updateFeatureFlagUserList).toHaveBeenCalledWith('1', {
+          name: updatedList.name,
+          iid: updatedList.iid,
+        });
       });
     });
   });

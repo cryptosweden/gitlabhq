@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::DesignReferenceFilter do
+RSpec.describe Banzai::Filter::References::DesignReferenceFilter, feature_category: :design_management do
   include FilterSpecHelper
   include DesignManagementTestHelpers
 
   let_it_be(:issue)         { create(:issue, iid: 10) }
   let_it_be(:issue_proj_2)  { create(:issue, iid: 20) }
   let_it_be(:issue_b)       { create(:issue, project: issue.project) }
-  let_it_be(:developer)     { create(:user, developer_projects: [issue.project, issue_proj_2.project]) }
+  let_it_be(:developer)     { create(:user, developer_of: [issue.project, issue_proj_2.project]) }
   let_it_be(:design_a)      { create(:design, :with_versions, issue: issue) }
   let_it_be(:design_b)      { create(:design, :with_versions, issue: issue_b) }
   let_it_be(:design_proj_2) { create(:design, :with_versions, issue: issue_proj_2) }
@@ -77,12 +77,16 @@ RSpec.describe Banzai::Filter::References::DesignReferenceFilter do
     end
   end
 
-  %w(pre code a style).each do |elem|
-    context "wrapped in a <#{elem}/>" do
+  %w[pre style].each do |elem|
+    context "wrapped in a block <#{elem}/>" do
       let(:input_text) { "<#{elem}>Design #{url_for_design(design)}</#{elem}>" }
 
       it_behaves_like 'a no-op filter'
     end
+  end
+
+  it_behaves_like 'a no-op filter' do
+    let(:input_text) { "`Design #{url_for_design(design)}`" }
   end
 
   describe '.identifier' do
@@ -128,10 +132,12 @@ RSpec.describe Banzai::Filter::References::DesignReferenceFilter do
     let(:subject) { filter_instance.data_attributes_for(input_text, project, design) }
 
     specify do
-      is_expected.to include(issue: design.issue_id,
-                             original: input_text,
-                             project: project.id,
-                             design: design.id)
+      is_expected.to include(
+        issue: design.issue_id,
+        original: input_text,
+        project: project.id,
+        design: design.id
+      )
     end
   end
 
@@ -238,7 +244,7 @@ RSpec.describe Banzai::Filter::References::DesignReferenceFilter do
        * #1[not a valid reference.gif]
       MD
 
-      baseline = ActiveRecord::QueryRecorder.new { process(one_ref_per_project) }
+      control = ActiveRecord::QueryRecorder.new { process(one_ref_per_project) }
 
       # each project mentioned requires 2 queries:
       #
@@ -251,7 +257,7 @@ RSpec.describe Banzai::Filter::References::DesignReferenceFilter do
       # In addition there is a 1 query overhead for all the projects at the
       # start. Currently, the baseline for 2 projects is `2 * 2 + 1 = 5` queries
       #
-      expect { process(multiple_references) }.not_to exceed_query_limit(baseline.count)
+      expect { process(multiple_references) }.not_to exceed_query_limit(control)
     end
   end
 

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe PipelineDetailsEntity do
+RSpec.describe PipelineDetailsEntity, feature_category: :continuous_integration do
   let_it_be(:user) { create(:user) }
 
   let(:request) { double('request') }
@@ -11,14 +11,14 @@ RSpec.describe PipelineDetailsEntity do
     described_class.represent(pipeline, request: request)
   end
 
-  it 'inherits from PipelineEntity' do
-    expect(described_class).to be < Ci::PipelineEntity
-  end
-
   before do
     stub_not_protect_default_branch
 
     allow(request).to receive(:current_user).and_return(user)
+  end
+
+  it 'inherits from PipelineEntity' do
+    expect(described_class).to be < Ci::PipelineEntity
   end
 
   describe '#as_json' do
@@ -32,15 +32,37 @@ RSpec.describe PipelineDetailsEntity do
         expect(subject[:details])
           .to include :duration, :finished_at
         expect(subject[:details])
-          .to include :stages, :manual_actions, :scheduled_actions
+          .to include :stages, :manual_actions, :has_manual_actions, :scheduled_actions, :has_scheduled_actions
         expect(subject[:details][:status]).to include :icon, :favicon, :text, :label
       end
 
       it 'contains flags' do
-        expect(subject).to include :flags
-        expect(subject[:flags])
-          .to include :latest, :stuck,
-                      :yaml_errors, :retryable, :cancelable
+        expect(subject).to include(:flags)
+        expect(subject[:flags]).to include(:latest, :stuck, :yaml_errors, :retryable, :cancelable)
+      end
+    end
+
+    context 'when disable_manual_and_scheduled_actions is true' do
+      let(:pipeline) { create(:ci_pipeline, status: :success) }
+      let(:subject) do
+        described_class.represent(pipeline, request: request, disable_manual_and_scheduled_actions: true).as_json
+      end
+
+      it 'does not contain manual and scheduled actions' do
+        expect(subject[:details])
+          .not_to include :manual_actions, :scheduled_actions
+      end
+    end
+
+    context 'when pipeline has manual builds' do
+      let(:pipeline) { create(:ci_pipeline, status: :success) }
+
+      before do
+        create(:ci_build, :manual, pipeline: pipeline)
+      end
+
+      it 'sets :has_manual_actions to true' do
+        expect(subject[:details][:has_manual_actions]).to eq true
       end
     end
 
@@ -104,7 +126,7 @@ RSpec.describe PipelineDetailsEntity do
       let(:pipeline) { create(:ci_empty_pipeline) }
 
       before do
-        create(:generic_commit_status, pipeline: pipeline)
+        create(:ci_build, pipeline: pipeline)
       end
 
       it 'contains stages' do
@@ -182,6 +204,7 @@ RSpec.describe PipelineDetailsEntity do
 
         expect(source_jobs[cross_project_pipeline.id][:name]).to eq('cross-project')
         expect(source_jobs[child_pipeline.id][:name]).to eq('child')
+        expect(source_jobs[child_pipeline.id][:retried]).to eq false
       end
     end
   end

@@ -3,20 +3,24 @@
 class SessionsController < Devise::SessionsController
   include InternalRedirect
   include AuthenticatesWithTwoFactor
+  include CheckInitialSetup
   include Devise::Controllers::Rememberable
-  include Recaptcha::ClientHelper
-  include Recaptcha::Verify
+  include Recaptcha::Adapters::ViewMethods
+  include Recaptcha::Adapters::ControllerMethods
   include RendersLdapServers
   include KnownSignIn
   include Gitlab::Utils::StrongMemoize
   include OneTrustCSP
   include BizibleCSP
+  include VerifiesWithEmail
+  include PreferredLanguageSwitcher
+  include SkipsAlreadySignedInMessage
+  include AcceptsPendingInvitations
+  include SynchronizeBroadcastMessageDismissals
+  extend ::Gitlab::Utils::Override
 
   skip_before_action :check_two_factor_requirement, only: [:destroy]
   skip_before_action :check_password_expiration, only: [:destroy]
-
-  # replaced with :require_no_authentication_without_flash
-  skip_before_action :require_no_authentication, only: [:new, :create]
 
   prepend_before_action :check_initial_setup, only: [:new]
   prepend_before_action :authenticate_with_two_factor,
@@ -24,22 +28,19 @@ class SessionsController < Devise::SessionsController
   prepend_before_action :check_captcha, only: [:create]
   prepend_before_action :store_redirect_uri, only: [:new]
   prepend_before_action :require_no_authentication_without_flash, only: [:new, :create]
-  prepend_before_action :check_forbidden_password_based_login, if: -> { action_name == 'create' && password_based_login? }
-  prepend_before_action :ensure_password_authentication_enabled!, if: -> { action_name == 'create' && password_based_login? }
-
+  prepend_before_action :ensure_password_authentication_enabled!,
+    if: -> { action_name == 'create' && password_based_login? }
   before_action :auto_sign_in_with_provider, only: [:new]
+  before_action :init_preferred_language, only: :new
   before_action :store_unauthenticated_sessions, only: [:new]
   before_action :save_failed_login, if: :action_new_and_failed_login?
   before_action :load_recaptcha
   before_action :set_invite_params, only: [:new]
-  before_action do
-    push_frontend_feature_flag(:webauthn, default_enabled: :yaml)
-  end
 
   after_action :log_failed_login, if: :action_new_and_failed_login?
   after_action :verify_known_sign_in, only: [:create]
 
-  helper_method :captcha_enabled?, :captcha_on_login_required?
+  helper_method :captcha_enabled?, :captcha_on_login_required?, :onboarding_status_tracking_label
 
   # protect_from_forgery is already prepended in ApplicationController but
   # authenticate_with_two_factor which signs in the user is prepended before
@@ -52,7 +53,8 @@ class SessionsController < Devise::SessionsController
   # token mismatch.
   protect_from_forgery with: :exception, prepend: true, except: :destroy
 
-  feature_category :authentication_and_authorization
+  feature_category :system_access
+  urgency :low
 
   CAPTCHA_HEADER = 'X-GitLab-Show-Login-Captcha'
   MAX_FAILED_LOGIN_ATTEMPTS = 5
@@ -66,10 +68,7 @@ class SessionsController < Devise::SessionsController
   def create
     super do |resource|
       # User has successfully signed in, so clear any unused reset token
-      if resource.reset_password_token.present?
-        resource.update(reset_password_token: nil,
-                        reset_password_sent_at: nil)
-      end
+      resource.update(reset_password_token: nil, reset_password_sent_at: nil) if resource.reset_password_token.present?
 
       if resource.deactivated?
         resource.activate
@@ -77,6 +76,12 @@ class SessionsController < Devise::SessionsController
       else
         # hide the default signed-in notification
         flash[:notice] = nil
+      end
+
+      accept_pending_invitations
+
+      if Feature.enabled?(:new_broadcast_message_dismissal, current_user, type: :gitlab_com_derisk)
+        synchronize_broadcast_message_dismissals
       end
 
       log_audit_event(current_user, resource, with: authentication_method)
@@ -95,20 +100,19 @@ class SessionsController < Devise::SessionsController
 
   private
 
-  def require_no_authentication_without_flash
-    require_no_authentication
+  override :after_pending_invitations_hook
+  def after_pending_invitations_hook
+    member = resource.members.last
 
-    if flash[:alert] == I18n.t('devise.failure.already_authenticated')
-      flash[:alert] = nil
-    end
+    store_location_for(:user, polymorphic_path(member.source)) if member
   end
 
   def captcha_enabled?
-    request.headers[CAPTCHA_HEADER] && Gitlab::Recaptcha.enabled?
+    request.headers[CAPTCHA_HEADER] && helpers.recaptcha_enabled?
   end
 
   def captcha_on_login_required?
-    Gitlab::Recaptcha.enabled_on_login? && unverified_anonymous_user?
+    helpers.recaptcha_enabled_on_login? && unverified_anonymous_user?
   end
 
   # From https://github.com/plataformatec/devise/wiki/How-To:-Use-Recaptcha-with-Devise#devisepasswordscontroller
@@ -125,6 +129,8 @@ class SessionsController < Devise::SessionsController
       self.resource = resource_class.new
       flash[:alert] = _('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.')
       flash.delete :recaptcha_error
+
+      add_gon_variables
 
       respond_with_navigational(resource) { render :new }
     end
@@ -180,22 +186,11 @@ class SessionsController < Devise::SessionsController
 
   # Handle an "initial setup" state, where there's only one user, it's an admin,
   # and they require a password change.
-  # rubocop: disable CodeReuse/ActiveRecord
   def check_initial_setup
-    return unless User.limit(2).count == 1 # Count as much 2 to know if we have exactly one
+    return unless in_initial_setup_state?
 
-    user = User.admins.last
-
-    return unless user && user.require_password_creation_for_web?
-
-    Users::UpdateService.new(current_user, user: user).execute do |user|
-      @token = user.generate_reset_token
-    end
-
-    redirect_to edit_user_password_path(reset_password_token: @token),
-      notice: _("Please create a password for your new account.")
+    redirect_to new_admin_initial_setup_path
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def ensure_password_authentication_enabled!
     render_403 unless Gitlab::CurrentSettings.password_authentication_enabled_for_web?
@@ -212,11 +207,11 @@ class SessionsController < Devise::SessionsController
   def find_user
     strong_memoize(:find_user) do
       if session[:otp_user_id] && user_params[:login]
-        User.by_id_and_login(session[:otp_user_id], user_params[:login]).first
+        User.by_login(user_params[:login]).find_by_id(session[:otp_user_id])
       elsif session[:otp_user_id]
         User.find(session[:otp_user_id])
       elsif user_params[:login]
-        User.by_login(user_params[:login])
+        User.find_by_login(user_params[:login])
       end
     end
   end
@@ -270,7 +265,7 @@ class SessionsController < Devise::SessionsController
 
   def valid_otp_attempt?(user)
     otp_validation_result =
-      ::Users::ValidateOtpService.new(user).execute(user_params[:otp_attempt])
+      ::Users::ValidateManualOtpService.new(user).execute(user_params[:otp_attempt])
     return true if otp_validation_result[:status] == :success
 
     user.invalidate_otp_backup_code!(user_params[:otp_attempt])
@@ -284,7 +279,7 @@ class SessionsController < Devise::SessionsController
 
   def log_user_activity(user)
     login_counter.increment
-    Users::ActivityService.new(user).execute
+    Users::ActivityService.new(author: user).execute
   end
 
   def load_recaptcha
@@ -306,10 +301,8 @@ class SessionsController < Devise::SessionsController
   def authentication_method
     if user_params[:otp_attempt]
       AuthenticationEvent::TWO_FACTOR
-    elsif user_params[:device_response] && Feature.enabled?(:webauthn, default_enabled: :yaml)
+    elsif user_params[:device_response]
       AuthenticationEvent::TWO_FACTOR_WEBAUTHN
-    elsif user_params[:device_response] && !Feature.enabled?(:webauthn, default_enabled: :yaml)
-      AuthenticationEvent::TWO_FACTOR_U2F
     else
       AuthenticationEvent::STANDARD
     end
@@ -319,12 +312,8 @@ class SessionsController < Devise::SessionsController
     @invite_email = ActionController::Base.helpers.sanitize(params[:invite_email])
   end
 
-  def check_forbidden_password_based_login
-    if find_user&.password_based_login_forbidden?
-      flash[:alert] = _('You are not allowed to log in using password')
-      redirect_to new_user_session_path
-    end
-  end
+  # overridden by EE module
+  def onboarding_status_tracking_label; end
 end
 
 SessionsController.prepend_mod_with('SessionsController')

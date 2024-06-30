@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::UserAccess do
+RSpec.describe Gitlab::UserAccess, feature_category: :system_access do
   include ProjectForksHelper
 
   let(:access) { described_class.new(user, container: project) }
@@ -27,17 +27,6 @@ RSpec.describe Gitlab::UserAccess do
         project.add_reporter(user)
 
         expect(access.can_push_to_branch?('random_branch')).to be_falsey
-      end
-    end
-
-    describe 'push to branch in an internal project' do
-      it 'will not infinitely loop when a project is internal' do
-        project.visibility_level = Gitlab::VisibilityLevel::INTERNAL
-        project.save!
-
-        expect(project).not_to receive(:branch_allows_collaboration?)
-
-        access.can_push_to_branch?('master')
       end
     end
 
@@ -75,15 +64,15 @@ RSpec.describe Gitlab::UserAccess do
         end
 
         where(:default_branch_protection_level, :result) do
-          Gitlab::Access::PROTECTION_NONE          | true
-          Gitlab::Access::PROTECTION_DEV_CAN_PUSH  | true
-          Gitlab::Access::PROTECTION_DEV_CAN_MERGE | false
-          Gitlab::Access::PROTECTION_FULL          | false
+          Gitlab::Access::BranchProtection.protection_none                    | true
+          Gitlab::Access::BranchProtection.protection_partial                 | true
+          Gitlab::Access::BranchProtection.protected_against_developer_pushes | false
+          Gitlab::Access::BranchProtection.protected_fully                    | false
         end
 
         with_them do
           it do
-            expect(empty_project.namespace).to receive(:default_branch_protection).and_return(default_branch_protection_level).at_least(:once)
+            expect(empty_project.namespace).to receive(:default_branch_protection_settings).and_return(default_branch_protection_level).at_least(:once)
 
             expect(project_access.can_push_to_branch?('master')).to eq(result)
           end
@@ -96,10 +85,10 @@ RSpec.describe Gitlab::UserAccess do
       let(:not_existing_branch) { create :protected_branch, :developers_can_merge, project: project }
 
       context 'when admin mode is enabled', :enable_admin_mode do
-        it 'returns true for admins' do
+        it 'returns false for admins' do
           user.update!(admin: true)
 
-          expect(access.can_push_to_branch?(branch.name)).to be_truthy
+          expect(access.can_push_to_branch?(branch.name)).to be_falsey
         end
       end
 
@@ -230,19 +219,19 @@ RSpec.describe Gitlab::UserAccess do
   describe '#can_create_tag?' do
     describe 'push to none protected tag' do
       it 'returns true if user is a maintainer' do
-        project.add_user(user, :maintainer)
+        project.add_member(user, :maintainer)
 
         expect(access.can_create_tag?('random_tag')).to be_truthy
       end
 
       it 'returns true if user is a developer' do
-        project.add_user(user, :developer)
+        project.add_member(user, :developer)
 
         expect(access.can_create_tag?('random_tag')).to be_truthy
       end
 
       it 'returns false if user is a reporter' do
-        project.add_user(user, :reporter)
+        project.add_member(user, :reporter)
 
         expect(access.can_create_tag?('random_tag')).to be_falsey
       end
@@ -253,19 +242,19 @@ RSpec.describe Gitlab::UserAccess do
       let(:not_existing_tag) { create :protected_tag, project: project }
 
       it 'returns true if user is a maintainer' do
-        project.add_user(user, :maintainer)
+        project.add_member(user, :maintainer)
 
         expect(access.can_create_tag?(tag.name)).to be_truthy
       end
 
       it 'returns false if user is a developer' do
-        project.add_user(user, :developer)
+        project.add_member(user, :developer)
 
         expect(access.can_create_tag?(tag.name)).to be_falsey
       end
 
       it 'returns false if user is a reporter' do
-        project.add_user(user, :reporter)
+        project.add_member(user, :reporter)
 
         expect(access.can_create_tag?(tag.name)).to be_falsey
       end
@@ -277,19 +266,19 @@ RSpec.describe Gitlab::UserAccess do
       end
 
       it 'returns true if user is a maintainer' do
-        project.add_user(user, :maintainer)
+        project.add_member(user, :maintainer)
 
         expect(access.can_create_tag?(@tag.name)).to be_truthy
       end
 
       it 'returns true if user is a developer' do
-        project.add_user(user, :developer)
+        project.add_member(user, :developer)
 
         expect(access.can_create_tag?(@tag.name)).to be_truthy
       end
 
       it 'returns false if user is a reporter' do
-        project.add_user(user, :reporter)
+        project.add_member(user, :reporter)
 
         expect(access.can_create_tag?(@tag.name)).to be_falsey
       end
@@ -299,19 +288,19 @@ RSpec.describe Gitlab::UserAccess do
   describe '#can_delete_branch?' do
     describe 'delete unprotected branch' do
       it 'returns true if user is a maintainer' do
-        project.add_user(user, :maintainer)
+        project.add_member(user, :maintainer)
 
         expect(access.can_delete_branch?('random_branch')).to be_truthy
       end
 
       it 'returns true if user is a developer' do
-        project.add_user(user, :developer)
+        project.add_member(user, :developer)
 
         expect(access.can_delete_branch?('random_branch')).to be_truthy
       end
 
       it 'returns false if user is a reporter' do
-        project.add_user(user, :reporter)
+        project.add_member(user, :reporter)
 
         expect(access.can_delete_branch?('random_branch')).to be_falsey
       end
@@ -321,19 +310,19 @@ RSpec.describe Gitlab::UserAccess do
       let(:branch) { create(:protected_branch, project: project, name: "test") }
 
       it 'returns true if user is a maintainer' do
-        project.add_user(user, :maintainer)
+        project.add_member(user, :maintainer)
 
         expect(access.can_delete_branch?(branch.name)).to be_truthy
       end
 
       it 'returns false if user is a developer' do
-        project.add_user(user, :developer)
+        project.add_member(user, :developer)
 
         expect(access.can_delete_branch?(branch.name)).to be_falsey
       end
 
       it 'returns false if user is a reporter' do
-        project.add_user(user, :reporter)
+        project.add_member(user, :reporter)
 
         expect(access.can_delete_branch?(branch.name)).to be_falsey
       end
@@ -345,7 +334,7 @@ RSpec.describe Gitlab::UserAccess do
 
     context 'when user cannot push_code to a project repository (eg. as a guest)' do
       it 'is false' do
-        project.add_user(user, :guest)
+        project.add_member(user, :guest)
 
         expect(access.can_push_for_ref?(ref)).to be_falsey
       end
@@ -353,7 +342,7 @@ RSpec.describe Gitlab::UserAccess do
 
     context 'when user can push_code to a project repository (eg. as a developer)' do
       it 'is true' do
-        project.add_user(user, :developer)
+        project.add_member(user, :developer)
 
         expect(access.can_push_for_ref?(ref)).to be_truthy
       end

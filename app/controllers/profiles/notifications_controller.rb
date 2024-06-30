@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 class Profiles::NotificationsController < Profiles::ApplicationController
-  feature_category :users
+  feature_category :team_planning
+  urgency :low
 
   def show
     @user = current_user
@@ -24,13 +25,13 @@ class Profiles::NotificationsController < Profiles::ApplicationController
   end
 
   def user_params
-    params.require(:user).permit(:notification_email, :email_opted_in, :notified_of_own_activity)
+    params.require(:user).permit(:notification_email, :notified_of_own_activity)
   end
 
   private
 
   def user_groups
-    GroupsFinder.new(current_user, all_available: false).execute.order_name_asc.page(params[:page])
+    GroupsFinder.new(current_user, all_available: false).execute.order_name_asc.page(pagination_params[:page])
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
@@ -42,10 +43,19 @@ class Profiles::NotificationsController < Profiles::ApplicationController
       .preload_source_route
 
     projects = project_notifications.map(&:source)
-    ActiveRecord::Associations::Preloader.new.preload(projects, { namespace: [:route, :owner], group: [] })
+    ActiveRecord::Associations::Preloader.new(
+      records: projects,
+      associations: project_associations
+    ).call
     Preloaders::UserMaxAccessLevelInProjectsPreloader.new(projects, current_user).execute
 
     project_notifications.select { |notification| current_user.can?(:read_project, notification.source) }
   end
   # rubocop: enable CodeReuse/ActiveRecord
+
+  def project_associations
+    { namespace: [:route, :owner], group: [], creator: [], project_setting: [] }
+  end
 end
+
+Profiles::NotificationsController.prepend_mod

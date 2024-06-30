@@ -73,13 +73,14 @@ class WikiPage
 
   # The escaped URL path of this page.
   def slug
-    attributes[:slug].presence || wiki.wiki.preview_slug(title, format)
+    attributes[:slug].presence || ::Wiki.preview_slug(title, format)
   end
   alias_method :id, :slug # required to use build_stubbed
 
   alias_method :to_param, :slug
 
   def human_title
+    return front_matter_title if Feature.enabled?(:wiki_front_matter_title, container) && front_matter_title.present?
     return 'Home' if title == Wiki::HOMEPAGE
 
     title
@@ -95,8 +96,19 @@ class WikiPage
     attributes[:title] = new_title
   end
 
+  def front_matter_title
+    front_matter[:title]
+  end
+
   def raw_content
     attributes[:content] ||= page&.text_data
+  end
+
+  def raw_content=(content)
+    return if page.nil?
+
+    page.raw_data = content
+    attributes[:content] = page.text_data
   end
 
   # The hierarchy of the directory this page is contained in.
@@ -118,7 +130,7 @@ class WikiPage
   def version
     return unless persisted?
 
-    @version ||= @page.version
+    @version ||= @page.version || last_version
   end
 
   def path
@@ -138,24 +150,30 @@ class WikiPage
     default_per_page = Kaminari.config.default_per_page
     offset = [options[:page].to_i - 1, 0].max * options.fetch(:per_page, default_per_page)
 
-    wiki.repository.commits('HEAD',
-                            path: page.path,
-                            limit: options.fetch(:limit, default_per_page),
-                            offset: offset)
+    wiki.repository.commits(
+      wiki.default_branch,
+      path: page.path,
+      limit: options.fetch(:limit, default_per_page),
+      offset: offset
+    )
   end
 
   def count_versions
     return [] unless persisted?
 
-    wiki.wiki.count_page_versions(page.path)
+    wiki.repository.count_commits(ref: wiki.default_branch, path: page.path)
   end
 
   def last_version
-    @last_version ||= versions(limit: 1).first
+    @last_version ||= wiki.repository.last_commit_for_path(wiki.default_branch, page.path) if page
   end
 
   def last_commit_sha
     last_version&.sha
+  end
+
+  def template?
+    slug.start_with?(Wiki::TEMPLATES_DIR)
   end
 
   # Returns boolean True or False if this instance
@@ -185,7 +203,7 @@ class WikiPage
   #       :content - The raw markup content.
   #       :format  - Optional symbol representing the
   #                  content format. Can be any type
-  #                  listed in the Wiki::MARKUPS
+  #                  listed in the Wiki::VALID_USER_MARKUPS
   #                  Hash.
   #       :message - Optional commit message to set on
   #                  the new page.
@@ -196,7 +214,7 @@ class WikiPage
     update_attributes(attrs)
 
     save do
-      wiki.create_page(title, content, format, attrs[:message])
+      wiki.create_page(title, raw_content, format, attrs[:message])
     end
   end
 
@@ -205,7 +223,7 @@ class WikiPage
   # attrs - Hash of attributes to be updated on the page.
   #        :content         - The raw markup content to replace the existing.
   #        :format          - Optional symbol representing the content format.
-  #                           See Wiki::MARKUPS Hash for available formats.
+  #                           See Wiki::VALID_USER_MARKUPS Hash for available formats.
   #        :message         - Optional commit message to set on the new version.
   #        :last_commit_sha - Optional last commit sha to validate the page unchanged.
   #        :title           - The Title (optionally including dir) to replace existing title
@@ -222,7 +240,7 @@ class WikiPage
 
     update_attributes(attrs)
 
-    if title.present? && title_changed? && wiki.find_page(title).present?
+    if title.present? && title_changed? && wiki.find_page(title, load_content: false).present?
       attributes[:title] = page.title
       raise PageRenameError, s_('WikiEdit|There is already a page with the same title in that path.')
     end
@@ -252,7 +270,7 @@ class WikiPage
   # Relative path to the partial to be used when rendering collections
   # of this object.
   def to_partial_path
-    '../shared/wikis/wiki_page'
+    'shared/wikis/wiki_page'
   end
 
   def sha
@@ -275,10 +293,9 @@ class WikiPage
 
   def content_changed?
     if persisted?
-      # gollum-lib always converts CRLFs to LFs in Gollum::Wiki#normalize,
-      # so we need to do the same here.
-      # Also see https://gitlab.com/gitlab-org/gitlab/-/issues/21431
-      raw_content.delete("\r") != page&.text_data
+      # To avoid end-of-line differences depending if Git is enforcing CRLF or not,
+      # we compare just the Wiki Content.
+      raw_content.lines(chomp: true) != page&.text_data&.lines(chomp: true)
     else
       raw_content.present?
     end
@@ -312,10 +329,11 @@ class WikiPage
   def serialize_front_matter(hash)
     return '' unless hash.present?
 
-    YAML.dump(hash.transform_keys(&:to_s)) + "---\n"
+    YAML.dump(hash.to_h.transform_keys(&:to_s)) + "---\n"
   end
 
   def update_front_matter(attrs)
+    return unless Gitlab::WikiPages::FrontMatterParser.enabled?(container)
     return unless attrs.has_key?(:front_matter)
 
     fm_yaml = serialize_front_matter(attrs[:front_matter])
@@ -326,7 +344,7 @@ class WikiPage
 
   def parsed_content
     strong_memoize(:parsed_content) do
-      Gitlab::WikiPages::FrontMatterParser.new(raw_content).parse
+      Gitlab::WikiPages::FrontMatterParser.new(raw_content, container).parse
     end
   end
 
@@ -367,7 +385,7 @@ class WikiPage
       return false
     end
 
-    @page = wiki.find_page(title).page
+    @page = wiki.find_page(::Wiki.sluggified_title(title)).page
     set_attributes
 
     true

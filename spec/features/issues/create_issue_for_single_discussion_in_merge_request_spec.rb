@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Resolve an open thread in a merge request by creating an issue', :js do
+RSpec.describe 'Resolve an open thread in a merge request by creating an issue', :js, feature_category: :team_planning do
   let(:user) { create(:user) }
   let(:project) { create(:project, :repository, only_allow_merge_if_all_discussions_are_resolved: true) }
   let(:merge_request) { create(:merge_request, source_project: project) }
@@ -35,7 +35,7 @@ RSpec.describe 'Resolve an open thread in a merge request by creating an issue',
 
     context 'resolving the thread' do
       before do
-        find('button[data-qa-selector="resolve_discussion_button"]').click # rubocop:disable QA/SelectorUsage
+        find('button[data-testid="resolve-discussion-button"]').click
       end
 
       it 'hides the link for creating a new issue' do
@@ -74,14 +74,17 @@ RSpec.describe 'Resolve an open thread in a merge request by creating an issue',
     before do
       project.add_reporter(user)
       sign_in user
-      visit new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid,
-                                            discussion_to_resolve: discussion.id)
+      visit new_project_issue_path(
+        project,
+        merge_request_to_resolve_discussions_of: merge_request.iid,
+        discussion_to_resolve: discussion.id
+      )
     end
 
     it 'shows a notice to ask someone else to resolve the threads' do
-      expect(page).to have_content("The thread at #{merge_request.to_reference}"\
-                                   " (discussion #{discussion.first_note.id}) will stay unresolved."\
-                                   " Ask someone with permission to resolve it.")
+      expect(page).to have_content("The thread at #{merge_request.to_reference} "\
+                                   "(discussion #{discussion.first_note.id}) will stay unresolved. "\
+                                   "Ask someone with permission to resolve it.")
     end
   end
 end

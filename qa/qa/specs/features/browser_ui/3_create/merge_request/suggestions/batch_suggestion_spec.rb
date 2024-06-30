@@ -1,25 +1,17 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    context 'Add batch suggestions to a Merge Request' do
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'suggestions_project'
-        end
-      end
-
+  RSpec.describe 'Create', :blocking, product_group: :code_review do
+    describe 'Merge request batch suggestions' do
+      let(:project) { create(:project, name: 'batch-suggestions-project') }
       let(:merge_request) do
-        Resource::MergeRequest.fabricate_via_api! do |merge_request|
-          merge_request.project = project
-          merge_request.title = 'Needs some suggestions'
-          merge_request.description = '... so please add them.'
-          merge_request.file_content = File.read(
-            Pathname
-              .new(__dir__)
-              .join('../../../../../../fixtures/metrics_dashboards/templating.yml')
-          )
-        end
+        create(:merge_request,
+          project: project,
+          title: 'Needs some suggestions',
+          description: '... so please add them.',
+          file_content: File.read(
+            Runtime::Path.fixture('metrics_dashboards', 'templating.yml')
+          ))
       end
 
       let(:dev_user) do

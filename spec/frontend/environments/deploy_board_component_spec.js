@@ -1,35 +1,34 @@
 import { GlTooltip, GlIcon, GlLoadingIcon } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
-import Vue, { nextTick } from 'vue';
+import { nextTick } from 'vue';
 import CanaryIngress from '~/environments/components/canary_ingress.vue';
 import DeployBoard from '~/environments/components/deploy_board.vue';
-import { deployBoardMockData, environment } from './mock_data';
+import { deployBoardMockData } from './mock_data';
 import { rolloutStatus } from './graphql/mock_data';
-
-const logsPath = `gitlab-org/gitlab-test/-/logs?environment_name=${environment.name}`;
 
 describe('Deploy Board', () => {
   let wrapper;
 
   const createComponent = (props = {}) =>
-    mount(Vue.extend(DeployBoard), {
+    mount(DeployBoard, {
       propsData: {
         deployBoardData: deployBoardMockData,
         isLoading: false,
         isEmpty: false,
-        logsPath,
         ...props,
       },
     });
 
   describe('with valid data', () => {
-    beforeEach((done) => {
+    beforeEach(() => {
       wrapper = createComponent();
-      nextTick(done);
+      return nextTick();
     });
 
     it('should render percentage with completion value provided', () => {
-      expect(wrapper.find({ ref: 'percentage' }).text()).toBe(`${deployBoardMockData.completion}%`);
+      expect(wrapper.findComponent({ ref: 'percentage' }).text()).toBe(
+        `${deployBoardMockData.completion}%`,
+      );
     });
 
     it('should render total instance count', () => {
@@ -62,7 +61,7 @@ describe('Deploy Board', () => {
       const icon = iconSpan.findComponent(GlIcon);
 
       expect(tooltip.props('target')()).toBe(iconSpan.element);
-      expect(icon.props('name')).toBe('question');
+      expect(icon.props('name')).toBe('question-o');
     });
 
     it('renders the canary weight selector', () => {
@@ -82,7 +81,9 @@ describe('Deploy Board', () => {
     });
 
     it('should render percentage with completion value provided', () => {
-      expect(wrapper.find({ ref: 'percentage' }).text()).toBe(`${rolloutStatus.completion}%`);
+      expect(wrapper.findComponent({ ref: 'percentage' }).text()).toBe(
+        `${rolloutStatus.completion}%`,
+      );
     });
 
     it('should render total instance count', () => {
@@ -115,7 +116,7 @@ describe('Deploy Board', () => {
       const icon = iconSpan.findComponent(GlIcon);
 
       expect(tooltip.props('target')()).toBe(iconSpan.element);
-      expect(icon.props('name')).toBe('question');
+      expect(icon.props('name')).toBe('question-o');
     });
 
     it('renders the canary weight selector', () => {
@@ -127,14 +128,13 @@ describe('Deploy Board', () => {
   });
 
   describe('with empty state', () => {
-    beforeEach((done) => {
+    beforeEach(() => {
       wrapper = createComponent({
         deployBoardData: {},
         isLoading: false,
         isEmpty: true,
-        logsPath,
       });
-      nextTick(done);
+      return nextTick();
     });
 
     it('should render the empty state', () => {
@@ -146,14 +146,13 @@ describe('Deploy Board', () => {
   });
 
   describe('with loading state', () => {
-    beforeEach((done) => {
+    beforeEach(() => {
       wrapper = createComponent({
         deployBoardData: {},
         isLoading: true,
         isEmpty: false,
-        logsPath,
       });
-      nextTick(done);
+      return nextTick();
     });
 
     it('should render loading spinner', () => {
@@ -163,15 +162,14 @@ describe('Deploy Board', () => {
 
   describe('has legend component', () => {
     let statuses = [];
-    beforeEach((done) => {
+    beforeEach(() => {
       wrapper = createComponent({
         isLoading: false,
         isEmpty: false,
-        logsPath: environment.log_path,
         deployBoardData: deployBoardMockData,
       });
       ({ statuses } = wrapper.vm);
-      nextTick(done);
+      return nextTick();
     });
 
     it('with all the possible statuses', () => {

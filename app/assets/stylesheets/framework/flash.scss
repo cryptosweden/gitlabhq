@@ -9,14 +9,14 @@ $notification-box-shadow-color: rgba(0, 0, 0, 0.25);
 
   &.sticky {
     position: sticky;
-    top: $flash-container-top;
+    top: $calc-application-header-height;
     z-index: 251;
 
     .flash-alert,
     .flash-notice,
     .flash-success,
     .flash-warning {
-      @include gl-mb-4;
+      margin-bottom: $gl-spacing-scale-4;
     }
   }
 
@@ -46,12 +46,14 @@ $notification-box-shadow-color: rgba(0, 0, 0, 0.25);
   .flash-notice,
   .flash-success,
   .flash-warning {
-    padding: $gl-padding $gl-padding-32 $gl-padding ($gl-padding + $gl-padding-4);
-    margin-top: 10px;
+    &:not(.gl-alert) {
+      padding: $gl-padding $gl-padding-32 $gl-padding ($gl-padding + $gl-padding-4);
+      margin-top: 10px;
 
-    .container-fluid,
-    .container-fluid.container-limited {
-      background: transparent;
+      .container-fluid,
+      .container-fluid.container-limited {
+        background: transparent;
+      }
     }
   }
 
@@ -77,14 +79,21 @@ $notification-box-shadow-color: rgba(0, 0, 0, 0.25);
   }
 
   .gl-alert {
-    @include gl-my-4;
+    margin-top: $gl-spacing-scale-4;
+    margin-bottom: $gl-spacing-scale-4;
   }
-}
 
-@include media-breakpoint-down(sm) {
-  ul.notes {
-    .flash-container.timeline-content {
-      margin-left: 0;
+  &.flash-container-no-margin {
+    .gl-alert {
+      margin-top:0;
+      margin-bottom: 0;
+    }
+
+    .flash-alert,
+    .flash-notice,
+    .flash-success,
+    .flash-warning {
+      margin-top: 0;
     }
   }
 }
@@ -97,19 +106,5 @@ $notification-box-shadow-color: rgba(0, 0, 0, 0.25);
   .flash-alert {
     position: relative;
     left: -50%;
-  }
-}
-
-.with-system-header .flash-container.sticky {
-  top: $flash-container-top + $system-header-height;
-}
-
-.with-performance-bar {
-  .flash-container.sticky {
-    top: $flash-container-top + $performance-bar-height;
-  }
-
-  &.with-system-header .flash-container.sticky {
-    top: $flash-container-top + $performance-bar-height + $system-header-height;
   }
 }

@@ -1,23 +1,27 @@
 <script>
-import { GlIcon, GlButton, GlTooltipDirective, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlButton, GlTooltipDirective } from '@gitlab/ui';
 import { groupBy } from 'lodash';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import EmojiPicker from '~/emoji/components/picker.vue';
 import { __, sprintf } from '~/locale';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import { glEmojiTag } from '../../emoji';
+import { glEmojiTag } from '~/emoji';
 
 // Internal constant, specific to this component, used when no `currentUserId` is given
 const NO_USER_ID = -1;
+const TOOLTIP_NAME_COUNT = 10;
+
+// Make sure the right capizalization is used depending on where you appear in the list
+const insertYou = (index) => (index === 0 ? __('You') : __('you'));
 
 export default {
   components: {
     GlButton,
-    GlIcon,
     EmojiPicker,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   mixins: [glFeatureFlagsMixin()],
   props: {
@@ -33,11 +37,6 @@ export default {
       type: Number,
       required: false,
       default: NO_USER_ID,
-    },
-    addButtonClass: {
-      type: String,
-      required: false,
-      default: '',
     },
     defaultAwards: {
       type: Array,
@@ -106,25 +105,27 @@ export default {
         return '';
       }
 
-      const hasReactionByCurrentUser = this.hasReactionByCurrentUser(awardsList);
-      const TOOLTIP_NAME_COUNT = hasReactionByCurrentUser ? 9 : 10;
-      let awardList = awardsList;
+      const awardList = awardsList;
 
-      // Filter myself from list if I am awarded.
-      if (hasReactionByCurrentUser) {
-        awardList = awardList.filter((award) => award.user.id !== this.currentUserId);
+      // Make sure current user shows in the list if there are too many reactions to list all users
+      if (awardList.length > TOOLTIP_NAME_COUNT && this.hasReactionByCurrentUser(awardList)) {
+        const currentUserIndex = awardList.findIndex(
+          (award) => award.user.id === this.currentUserId,
+        );
+        if (currentUserIndex > TOOLTIP_NAME_COUNT - 1) {
+          const currentUser = awardList[currentUserIndex];
+          awardList.splice(currentUserIndex, 1);
+          awardList.splice(TOOLTIP_NAME_COUNT - 1, 0, currentUser);
+        }
       }
 
-      // Get only 9-10 usernames to show in tooltip text.
-      const namesToShow = awardList.slice(0, TOOLTIP_NAME_COUNT).map((award) => award.user.name);
+      // Get only TOOLTIP_NAME_COUNT usernames to show in tooltip text.
+      const namesToShow = awardList
+        .map(({ user }, index) => (user.id === this.currentUserId ? insertYou(index) : user.name)) // Replace your own username with "You" or "you"
+        .slice(0, TOOLTIP_NAME_COUNT); // Only take the first TOOLTIP_NAME_COUNT items
 
       // Get the remaining list to use in `and x more` text.
       const remainingAwardList = awardList.slice(TOOLTIP_NAME_COUNT, awardList.length);
-
-      // Add myself to the beginning of the list so title will start with You.
-      if (hasReactionByCurrentUser) {
-        namesToShow.unshift(__('You'));
-      }
 
       let title = '';
 
@@ -156,10 +157,7 @@ export default {
         return;
       }
 
-      // 100 and 1234 emoji are a number. Callback for v-for click sends it as a string
-      const parsedName = /^[0-9]+$/.test(awardName) ? Number(awardName) : awardName;
-
-      this.$emit('award', parsedName);
+      this.$emit('award', awardName);
 
       if (document.activeElement) document.activeElement.blur();
     },
@@ -184,6 +182,7 @@ export default {
       class="gl-mr-3 gl-my-2"
       :class="awardList.classes"
       :title="awardList.title"
+      :data-emoji-name="awardList.name"
       data-testid="award-button"
       @click="handleAward(awardList.name)"
     >
@@ -198,27 +197,12 @@ export default {
     </gl-button>
     <div v-if="canAwardEmoji" class="award-menu-holder gl-my-2">
       <emoji-picker
-        v-gl-tooltip.viewport
-        :title="__('Add reaction')"
-        :toggle-class="['add-reaction-button btn-icon gl-relative!', { 'is-active': isMenuOpen }]"
+        :right="false"
         data-testid="emoji-picker"
         @click="handleAward"
         @shown="setIsMenuOpen(true)"
         @hidden="setIsMenuOpen(false)"
-      >
-        <template #button-content>
-          <span class="gl-sr-only">{{ __('Add reaction') }}</span>
-          <span class="reaction-control-icon reaction-control-icon-neutral">
-            <gl-icon name="slight-smile" />
-          </span>
-          <span class="reaction-control-icon reaction-control-icon-positive">
-            <gl-icon name="smiley" />
-          </span>
-          <span class="reaction-control-icon reaction-control-icon-super-positive">
-            <gl-icon name="smile" />
-          </span>
-        </template>
-      </emoji-picker>
+      />
     </div>
   </div>
 </template>

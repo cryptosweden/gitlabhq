@@ -5,13 +5,13 @@ module IncidentManagement
     class PrepareUpdateService < ::BaseProjectService
       include Gitlab::Utils::StrongMemoize
 
-      SUPPORTED_PARAMS = %i[status status_change_reason].freeze
+      SUPPORTED_PARAMS = %i[status].freeze
 
       def initialize(issuable, current_user, params)
         @issuable = issuable
         @param_errors = []
 
-        super(project: issuable.project, current_user: current_user, params: Hash(params))
+        super(project: issuable.project, current_user: current_user, params: params)
       end
 
       def execute
@@ -31,9 +31,7 @@ module IncidentManagement
       attr_reader :issuable, :param_errors
 
       def available?
-        issuable.supports_escalation? &&
-          user_has_permissions? &&
-          escalation_status.present?
+        issuable.supports_escalation? && user_has_permissions?
       end
 
       def user_has_permissions?
@@ -42,7 +40,7 @@ module IncidentManagement
 
       def escalation_status
         strong_memoize(:escalation_status) do
-          issuable.escalation_status
+          issuable.escalation_status || BuildService.new(issuable).execute
         end
       end
 

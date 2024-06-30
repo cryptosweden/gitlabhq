@@ -1,13 +1,22 @@
 # frozen_string_literal: true
-# rubocop:disable Graphql/ResolverType (inherited from BaseIssuesResolver)
 
+# rubocop:disable Graphql/ResolverType -- inherited from Issues::BaseParentResolver
 module Resolvers
-  class GroupIssuesResolver < BaseIssuesResolver
+  class GroupIssuesResolver < Issues::BaseParentResolver
     def self.issuable_collection_name
       'issues'
     end
 
     include GroupIssuableResolver
+
+    before_connection_authorization do |nodes, _|
+      projects = nodes.filter_map(&:project)
+      ActiveRecord::Associations::Preloader.new(records: projects, associations: project_associations).call
+    end
+
+    def self.project_associations
+      [:namespace]
+    end
 
     def ready?(**args)
       if args.dig(:not, :release_tag).present?
@@ -18,3 +27,6 @@ module Resolvers
     end
   end
 end
+# rubocop:enable Graphql/ResolverType
+
+Resolvers::GroupIssuesResolver.prepend_mod

@@ -12,7 +12,7 @@ module Gitlab
           include ::Gitlab::Config::Entry::Configurable
 
           ALLOWED_KEYS = %i[default include before_script image services
-                            after_script variables stages types cache workflow].freeze
+                            after_script variables stages cache workflow].freeze
 
           validations do
             validates :config, allowed_keys: ALLOWED_KEYS
@@ -50,17 +50,12 @@ module Gitlab
 
           entry :variables, Entry::Variables,
             description: 'Environment variables that will be used.',
-            metadata: { use_value_data: true },
+            metadata: { allowed_value_data: %i[value description expand options] },
             reserved: true
 
           entry :stages, Entry::Stages,
             description: 'Configuration of stages for this pipeline.',
             reserved: true
-
-          entry :types, Entry::Stages,
-            description: 'Deprecated: stages for this pipeline.',
-            reserved: true,
-            deprecation: { deprecated: '9.0', warning: '14.8', removed: '15.0' }
 
           entry :cache, Entry::Caches,
             description: 'Configure caching between build jobs.',
@@ -73,10 +68,10 @@ module Gitlab
           dynamic_helpers :jobs
 
           delegate :before_script_value,
-                   :image_value,
-                   :services_value,
-                   :after_script_value,
-                   :cache_value, to: :default_entry
+            :image_value,
+            :services_value,
+            :after_script_value,
+            :cache_value, to: :default_entry
 
           attr_reader :jobs_config
 
@@ -100,7 +95,6 @@ module Gitlab
 
           def compose!(_deps = nil)
             super(self) do
-              compose_deprecated_entries!
               compose_jobs!
             end
           end
@@ -109,29 +103,18 @@ module Gitlab
 
           # rubocop: disable CodeReuse/ActiveRecord
           def compose_jobs!
-            factory = ::Gitlab::Config::Entry::Factory.new(Entry::Jobs)
-              .value(jobs_config)
-              .with(key: :jobs, parent: self,
-                    description: 'Jobs definition for this pipeline')
-
-            @entries[:jobs] = factory.create!
-          end
-          # rubocop: enable CodeReuse/ActiveRecord
-
-          def compose_deprecated_entries!
-            ##
-            # Deprecated `:types` key workaround - if types are defined and
-            # stages are not defined we use types definition as stages.
-            # This keyword will be removed in 15.0:
-            # https://gitlab.com/gitlab-org/gitlab/-/issues/346823
-            #
-            if types_defined?
-              @entries[:stages] = @entries[:types] unless stages_defined?
-              log_and_warn_deprecated_entry(@entries[:types])
+            factory = logger.instrument(:config_root_compose_jobs_factory, once: true) do
+              ::Gitlab::Config::Entry::Factory.new(Entry::Jobs)
+                .value(jobs_config)
+                .with(key: :jobs, parent: self,
+                  description: 'Jobs definition for this pipeline')
             end
 
-            @entries.delete(:types)
+            @entries[:jobs] = logger.instrument(:config_root_compose_jobs_create, once: true) do
+              factory.create!
+            end
           end
+          # rubocop: enable CodeReuse/ActiveRecord
 
           def filter_jobs!
             return unless @config.is_a?(Hash)
@@ -143,6 +126,10 @@ module Gitlab
             end
 
             @config = @config.except(*@jobs_config.keys)
+          end
+
+          def logger
+            metadata[:logger]
           end
         end
       end

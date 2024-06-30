@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
-RSpec.describe Banzai::ColorParser do
+RSpec.describe Banzai::ColorParser, feature_category: :team_planning do
   describe '.parse' do
     context 'HEX format' do
       [

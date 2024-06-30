@@ -1,24 +1,21 @@
 <script>
-import { GlSkeletonLoader, GlIcon, GlButton, GlSprintf } from '@gitlab/ui';
+import { GlSkeletonLoader, GlSprintf } from '@gitlab/ui';
 import autoMergeMixin from 'ee_else_ce/vue_merge_request_widget/mixins/auto_merge';
 import autoMergeEnabledQuery from 'ee_else_ce/vue_merge_request_widget/queries/states/auto_merge_enabled.query.graphql';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import { __ } from '~/locale';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { AUTO_MERGE_STRATEGIES } from '../../constants';
 import eventHub from '../../event_hub';
 import mergeRequestQueryVariablesMixin from '../../mixins/merge_request_query_variables';
 import MrWidgetAuthor from '../mr_widget_author.vue';
+import StateContainer from '../state_container.vue';
 
 export default {
   name: 'MRWidgetAutoMergeEnabled',
   apollo: {
     state: {
       query: autoMergeEnabledQuery,
-      skip() {
-        return !this.glFeatures.mergeRequestWidgetGraphql;
-      },
       variables() {
         return this.mergeRequestQueryVariables;
       },
@@ -28,11 +25,10 @@ export default {
   components: {
     MrWidgetAuthor,
     GlSkeletonLoader,
-    GlIcon,
-    GlButton,
     GlSprintf,
+    StateContainer,
   },
-  mixins: [autoMergeMixin, glFeatureFlagMixin(), mergeRequestQueryVariablesMixin],
+  mixins: [autoMergeMixin, mergeRequestQueryVariablesMixin],
   props: {
     mr: {
       type: Object,
@@ -52,44 +48,40 @@ export default {
   },
   computed: {
     loading() {
-      return (
-        this.glFeatures.mergeRequestWidgetGraphql &&
-        this.$apollo.queries.state.loading &&
-        Object.keys(this.state).length === 0
-      );
+      return this.$apollo.queries.state.loading && Object.keys(this.state).length === 0;
     },
-    mergeUser() {
-      if (this.glFeatures.mergeRequestWidgetGraphql) {
-        return this.state.mergeUser;
-      }
-
-      return this.mr.setToAutoMergeBy;
-    },
-    targetBranch() {
-      return (this.glFeatures.mergeRequestWidgetGraphql ? this.state : this.mr).targetBranch;
-    },
-    shouldRemoveSourceBranch() {
-      if (!this.glFeatures.mergeRequestWidgetGraphql) return this.mr.shouldRemoveSourceBranch;
-
+    stateRemoveSourceBranch() {
       if (!this.state.shouldRemoveSourceBranch) return false;
 
       return this.state.shouldRemoveSourceBranch || this.state.forceRemoveSourceBranch;
     },
-    autoMergeStrategy() {
-      return (this.glFeatures.mergeRequestWidgetGraphql ? this.state : this.mr).autoMergeStrategy;
-    },
     canRemoveSourceBranch() {
       const { currentUserId } = this.mr;
-      const mergeUserId = this.glFeatures.mergeRequestWidgetGraphql
-        ? getIdFromGraphQLId(this.state.mergeUser?.id)
-        : this.mr.mergeUserId;
-      const canRemoveSourceBranch = this.glFeatures.mergeRequestWidgetGraphql
-        ? this.state.userPermissions.removeSourceBranch
-        : this.mr.canRemoveSourceBranch;
+      const mergeUserId = getIdFromGraphQLId(this.state.mergeUser?.id);
+      const canRemoveSourceBranch = this.state.userPermissions.removeSourceBranch;
 
       return (
-        !this.shouldRemoveSourceBranch && canRemoveSourceBranch && mergeUserId === currentUserId
+        !this.stateRemoveSourceBranch && canRemoveSourceBranch && mergeUserId === currentUserId
       );
+    },
+    actions() {
+      const actions = [];
+
+      if (this.loading) {
+        return actions;
+      }
+
+      if (this.mr.canCancelAutomaticMerge) {
+        actions.push({
+          text: this.cancelButtonText,
+          loading: this.isCancellingAutoMerge,
+          class: 'js-cancel-auto-merge',
+          testId: 'cancelAutomaticMergeButton',
+          onClick: () => this.cancelAutomaticMerge(),
+        });
+      }
+
+      return actions;
     },
   },
   methods: {
@@ -98,16 +90,12 @@ export default {
       this.service
         .cancelAutomaticMerge()
         .then((res) => res.data)
-        .then((data) => {
-          if (this.glFeatures.mergeRequestWidgetGraphql) {
-            eventHub.$emit('MRWidgetUpdateRequested');
-          } else {
-            eventHub.$emit('UpdateWidgetData', data);
-          }
+        .then(() => {
+          eventHub.$emit('MRWidgetUpdateRequested');
         })
         .catch(() => {
           this.isCancellingAutoMerge = false;
-          createFlash({
+          createAlert({
             message: __('Something went wrong. Please try again.'),
           });
         });
@@ -115,7 +103,7 @@ export default {
     removeSourceBranch() {
       const options = {
         sha: this.mr.sha,
-        auto_merge_strategy: this.autoMergeStrategy,
+        auto_merge_strategy: this.state.autoMergeStrategy,
         should_remove_source_branch: true,
       };
 
@@ -129,13 +117,11 @@ export default {
           }
         })
         .then(() => {
-          if (this.glFeatures.mergeRequestWidgetGraphql) {
-            this.$apollo.queries.state.refetch();
-          }
+          this.$apollo.queries.state.refetch();
         })
         .catch(() => {
           this.isRemovingSourceBranch = false;
-          createFlash({
+          createAlert({
             message: __('Something went wrong. Please try again.'),
           });
         });
@@ -144,56 +130,22 @@ export default {
 };
 </script>
 <template>
-  <div class="mr-widget-body media">
-    <div v-if="loading" class="gl-w-full mr-conflict-loader">
-      <gl-skeleton-loader :width="334" :height="30">
-        <rect x="0" y="3" width="24" height="24" rx="4" />
-        <rect x="32" y="7" width="150" height="16" rx="4" />
-        <rect x="190" y="7" width="144" height="16" rx="4" />
+  <state-container status="scheduled" :is-loading="loading" :actions="actions" is-collapsible>
+    <template #loading>
+      <gl-skeleton-loader :width="334" :height="24">
+        <rect x="0" y="0" width="24" height="24" rx="4" />
+        <rect x="32" y="2" width="150" height="20" rx="4" />
+        <rect x="190" y="2" width="144" height="20" rx="4" />
       </gl-skeleton-loader>
-    </div>
-    <template v-else>
-      <gl-icon name="status_scheduled" :size="24" class="gl-text-blue-500 gl-mr-3 gl-mt-1" />
-      <div class="media-body">
-        <h4 class="gl-display-flex">
-          <span class="gl-mr-3">
-            <gl-sprintf :message="statusText" data-testid="statusText">
-              <template #merge_author>
-                <mr-widget-author :author="mergeUser" />
-              </template>
-            </gl-sprintf>
-          </span>
-          <gl-button
-            v-if="mr.canCancelAutomaticMerge"
-            :loading="isCancellingAutoMerge"
-            size="small"
-            class="js-cancel-auto-merge"
-            data-qa-selector="cancel_auto_merge_button"
-            data-testid="cancelAutomaticMergeButton"
-            @click="cancelAutomaticMerge"
-          >
-            {{ cancelButtonText }}
-          </gl-button>
-        </h4>
-        <section class="mr-info-list">
-          <p v-if="shouldRemoveSourceBranch">
-            {{ s__('mrWidget|Deletes the source branch') }}
-          </p>
-          <p v-else class="gl-display-flex">
-            <span class="gl-mr-3">{{ s__('mrWidget|Does not delete the source branch') }}</span>
-            <gl-button
-              v-if="canRemoveSourceBranch"
-              :loading="isRemovingSourceBranch"
-              size="small"
-              class="js-remove-source-branch"
-              data-testid="removeSourceBranchButton"
-              @click="removeSourceBranch"
-            >
-              {{ s__('mrWidget|Delete source branch') }}
-            </gl-button>
-          </p>
-        </section>
-      </div>
     </template>
-  </div>
+    <template v-if="!loading">
+      <h4 class="gl-mr-3 gl-flex-grow-1" data-testid="statusText">
+        <gl-sprintf :message="statusText" data-testid="statusText">
+          <template #merge_author>
+            <mr-widget-author v-if="state.mergeUser" :author="state.mergeUser" />
+          </template>
+        </gl-sprintf>
+      </h4>
+    </template>
+  </state-container>
 </template>

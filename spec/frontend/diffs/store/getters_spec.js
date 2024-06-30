@@ -1,6 +1,11 @@
-import { PARALLEL_DIFF_VIEW_TYPE, INLINE_DIFF_VIEW_TYPE } from '~/diffs/constants';
+import {
+  PARALLEL_DIFF_VIEW_TYPE,
+  INLINE_DIFF_VIEW_TYPE,
+  INLINE_DIFF_LINES_KEY,
+} from '~/diffs/constants';
 import * as getters from '~/diffs/store/getters';
 import state from '~/diffs/store/modules/diff_state';
+import { getDiffFileMock } from 'jest/diffs/mock_data/diff_file';
 import discussion from '../mock_data/diff_discussions';
 
 describe('Diffs Module Getters', () => {
@@ -188,6 +193,24 @@ describe('Diffs Module Getters', () => {
       expect(getters.diffHasExpandedDiscussions(localState)(diffFile)).toEqual(true);
     });
 
+    it('returns true when file discussion is expanded', () => {
+      const diffFile = {
+        discussions: [{ ...discussionMock, expanded: true }],
+        highlighted_diff_lines: [],
+      };
+
+      expect(getters.diffHasExpandedDiscussions(localState)(diffFile)).toEqual(true);
+    });
+
+    it('returns false when file discussion is expanded', () => {
+      const diffFile = {
+        discussions: [{ ...discussionMock, expanded: false }],
+        highlighted_diff_lines: [],
+      };
+
+      expect(getters.diffHasExpandedDiscussions(localState)(diffFile)).toEqual(false);
+    });
+
     it('returns false when there are no discussions', () => {
       const diffFile = {
         parallel_diff_lines: [],
@@ -226,6 +249,15 @@ describe('Diffs Module Getters', () => {
             discussionsExpanded: false,
           },
         ],
+      };
+
+      expect(getters.diffHasDiscussions(localState)(diffFile)).toEqual(true);
+    });
+
+    it('returns true when file has discussions', () => {
+      const diffFile = {
+        discussions: [discussionMock, discussionMock],
+        highlighted_diff_lines: [],
       };
 
       expect(getters.diffHasDiscussions(localState)(diffFile)).toEqual(true);
@@ -288,6 +320,19 @@ describe('Diffs Module Getters', () => {
     });
   });
 
+  describe('isTreePathLoaded', () => {
+    it.each`
+      desc                                         | loaded   | path             | bool
+      ${'the file exists and has been loaded'}     | ${true}  | ${'path/tofile'} | ${true}
+      ${'the file exists and has not been loaded'} | ${false} | ${'path/tofile'} | ${false}
+      ${'the file does not exist'}                 | ${false} | ${'tofile/path'} | ${false}
+    `('returns $bool when $desc', ({ loaded, path, bool }) => {
+      localState.treeEntries['path/tofile'] = { diffLoaded: loaded };
+
+      expect(getters.isTreePathLoaded(localState)(path)).toBe(bool);
+    });
+  });
+
   describe('allBlobs', () => {
     it('returns an array of blobs', () => {
       localState.treeEntries = {
@@ -328,7 +373,11 @@ describe('Diffs Module Getters', () => {
 
   describe('currentDiffIndex', () => {
     it('returns index of currently selected diff in diffList', () => {
-      localState.diffFiles = [{ file_hash: '111' }, { file_hash: '222' }, { file_hash: '333' }];
+      localState.treeEntries = [
+        { type: 'blob', fileHash: '111' },
+        { type: 'blob', fileHash: '222' },
+        { type: 'blob', fileHash: '333' },
+      ];
       localState.currentDiffFileId = '222';
 
       expect(getters.currentDiffIndex(localState)).toEqual(1);
@@ -339,7 +388,11 @@ describe('Diffs Module Getters', () => {
     });
 
     it('returns 0 if no diff is selected yet or diff is not found', () => {
-      localState.diffFiles = [{ file_hash: '111' }, { file_hash: '222' }, { file_hash: '333' }];
+      localState.treeEntries = [
+        { type: 'blob', fileHash: '111' },
+        { type: 'blob', fileHash: '222' },
+        { type: 'blob', fileHash: '333' },
+      ];
       localState.currentDiffFileId = '';
 
       expect(getters.currentDiffIndex(localState)).toEqual(0);
@@ -446,5 +499,95 @@ describe('Diffs Module Getters', () => {
         );
       },
     );
+  });
+
+  describe('diffFiles', () => {
+    it('proxies diffFiles state', () => {
+      const diffFiles = [getDiffFileMock()];
+      expect(getters.diffFiles({ diffFiles }, {})).toBe(diffFiles);
+    });
+
+    it('pins the file', () => {
+      const pinnedFile = getDiffFileMock();
+      const regularFile = getDiffFileMock();
+      const diffFiles = [regularFile, pinnedFile];
+      expect(getters.diffFiles({ diffFiles }, { pinnedFile })).toStrictEqual([
+        pinnedFile,
+        regularFile,
+      ]);
+    });
+  });
+
+  describe('pinnedFile', () => {
+    it('returns pinnedFile', () => {
+      const pinnedFile = getDiffFileMock();
+      const diffFiles = [pinnedFile];
+      expect(getters.pinnedFile({ diffFiles, pinnedFileHash: pinnedFile.file_hash }, {})).toBe(
+        pinnedFile,
+      );
+    });
+
+    it('returns null if no pinned file is set', () => {
+      expect(getters.pinnedFile({}, {})).toBe(null);
+    });
+  });
+
+  describe('allDiffDiscussionsExpanded', () => {
+    it('returns true when all line discussions are expanded', () => {
+      localState.diffFiles = [
+        {
+          [INLINE_DIFF_LINES_KEY]: [
+            { discussionsExpanded: true, discussions: [{}] },
+            { discussionsExpanded: true, discussions: [{}] },
+          ],
+        },
+      ];
+      expect(getters.allDiffDiscussionsExpanded(localState)).toBe(true);
+    });
+
+    it('returns false if at least one line discussion is collapsed', () => {
+      localState.diffFiles = [
+        {
+          [INLINE_DIFF_LINES_KEY]: [
+            { discussionsExpanded: true, discussions: [{}] },
+            { discussionsExpanded: false, discussions: [{}] },
+          ],
+        },
+      ];
+      expect(getters.allDiffDiscussionsExpanded(localState)).toBe(false);
+    });
+
+    it('returns false if at least one image discussion is collapsed', () => {
+      localState.diffFiles = [
+        {
+          [INLINE_DIFF_LINES_KEY]: [
+            { discussionsExpanded: true, discussions: [{}] },
+            { discussionsExpanded: true, discussions: [{}] },
+          ],
+        },
+        {
+          [INLINE_DIFF_LINES_KEY]: [],
+          viewer: { name: 'image' },
+          discussions: [{ expandedOnDiff: false }],
+        },
+      ];
+      expect(getters.allDiffDiscussionsExpanded(localState)).toBe(false);
+    });
+
+    it('returns true if all image discussions are expanded', () => {
+      localState.diffFiles = [
+        {
+          viewer: { name: 'text' },
+          [INLINE_DIFF_LINES_KEY]: [],
+          discussions: [],
+        },
+        {
+          viewer: { name: 'image' },
+          [INLINE_DIFF_LINES_KEY]: [],
+          discussions: [{ expandedOnDiff: true }, { expandedOnDiff: true }],
+        },
+      ];
+      expect(getters.allDiffDiscussionsExpanded(localState)).toBe(true);
+    });
   });
 });

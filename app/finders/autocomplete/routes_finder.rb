@@ -13,12 +13,13 @@ module Autocomplete
     end
 
     def execute
-      return [] if @search.blank?
+      return Route.none if @search.blank?
 
       Route
         .for_routable(routables)
         .sort_by_path_length
         .fuzzy_search(@search, [:path])
+        .allow_cross_joins_across_databases(url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/421843')
         .limit(LIMIT) # rubocop: disable CodeReuse/ActiveRecord
     end
 
@@ -30,15 +31,17 @@ module Autocomplete
 
     class NamespacesOnly < self
       def routables
-        return Namespace.without_project_namespaces if current_user.admin?
-
-        current_user.namespaces
+        if current_user.can_admin_all_resources?
+          Namespace.without_project_namespaces
+        else
+          current_user.namespaces
+        end.allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/420046")
       end
     end
 
     class ProjectsOnly < self
       def routables
-        return Project.all if current_user.admin?
+        return Project.all if current_user.can_admin_all_resources?
 
         current_user.projects
       end

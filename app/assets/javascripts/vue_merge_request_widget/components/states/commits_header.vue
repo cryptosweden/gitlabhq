@@ -38,7 +38,7 @@ export default {
     },
     modifyLinkMessage() {
       if (this.isFastForwardEnabled) return __('Modify commit message');
-      else if (this.isSquashEnabled) return __('Modify commit messages');
+      if (this.isSquashEnabled) return __('Modify commit messages');
       return __('Modify merge commit');
     },
     ariaLabel() {
@@ -56,7 +56,7 @@ export default {
 <template>
   <div>
     <div
-      class="js-mr-widget-commits-count mr-widget-extension clickable d-flex align-items-center px-3 py-2"
+      class="js-mr-widget-commits-count mr-widget-extension clickable gl-flex gl-items-center px-3 py-2"
       @click="toggle()"
     >
       <gl-button

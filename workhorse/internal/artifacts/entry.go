@@ -1,3 +1,4 @@
+// Package artifacts provides functionality for managing artifacts.
 package artifacts
 
 import (
@@ -16,7 +17,8 @@ import (
 	"gitlab.com/gitlab-org/labkit/log"
 	"gitlab.com/gitlab-org/labkit/mask"
 
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/command"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/senddata"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/zipartifacts"
 )
@@ -24,13 +26,14 @@ import (
 type entry struct{ senddata.Prefix }
 type entryParams struct{ Archive, Entry string }
 
+// SendEntry is a predefined entry used for sending artifacts.
 var SendEntry = &entry{"artifacts-entry:"}
 
 // Artifacts downloader doesn't support ranges when downloading a single file
 func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) {
 	var params entryParams
 	if err := e.Unpack(&params, sendData); err != nil {
-		helper.Fail500(w, r, fmt.Errorf("SendEntry: unpack sendData: %v", err))
+		fail.Request(w, r, fmt.Errorf("SendEntry: unpack sendData: %v", err))
 		return
 	}
 
@@ -41,7 +44,7 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 	}).Print("SendEntry: sending")
 
 	if params.Archive == "" || params.Entry == "" {
-		helper.Fail500(w, r, fmt.Errorf("SendEntry: Archive or Entry is empty"))
+		fail.Request(w, r, fmt.Errorf("SendEntry: Archive or Entry is empty"))
 		return
 	}
 
@@ -50,7 +53,7 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 	if os.IsNotExist(err) {
 		http.NotFound(w, r)
 	} else if err != nil {
-		helper.Fail500(w, r, fmt.Errorf("SendEntry: %v", err))
+		fail.Request(w, r, fmt.Errorf("SendEntry: %v", err))
 	}
 }
 
@@ -68,22 +71,33 @@ func unpackFileFromZip(ctx context.Context, archivePath, encodedFilename string,
 		return err
 	}
 
+	logWriter := log.ContextLogger(ctx).Writer()
+	defer func() {
+		if closeErr := logWriter.Close(); closeErr != nil {
+			log.ContextLogger(ctx).WithError(closeErr).Error("failed to close gitlab-zip-cat log writer")
+		}
+	}()
+
 	catFile := exec.Command("gitlab-zip-cat")
 	catFile.Env = append(os.Environ(),
 		"ARCHIVE_PATH="+archivePath,
 		"ENCODED_FILE_NAME="+encodedFilename,
 	)
-	catFile.Stderr = log.ContextLogger(ctx).Writer()
+	catFile.Stderr = logWriter
 	catFile.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := catFile.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("create gitlab-zip-cat stdout pipe: %v", err)
 	}
 
-	if err := catFile.Start(); err != nil {
+	if err = catFile.Start(); err != nil {
 		return fmt.Errorf("start %v: %v", catFile.Args, err)
 	}
-	defer helper.CleanUpProcessGroup(catFile)
+	defer func() {
+		if err = command.KillProcessGroup(catFile); err != nil {
+			fmt.Printf("failed to kill process group: %v\n", err)
+		}
+	}()
 
 	basename := filepath.Base(fileName)
 	reader := bufio.NewReader(stdout)
@@ -114,11 +128,9 @@ func waitCatFile(cmd *exec.Cmd) error {
 		return nil
 	}
 
-	st, ok := helper.ExitStatus(err)
-
+	st, ok := command.ExitStatus(err)
 	if ok && (st == zipartifacts.CodeArchiveNotFound || st == zipartifacts.CodeEntryNotFound) {
 		return os.ErrNotExist
 	}
 	return fmt.Errorf("wait for %v to finish: %v", cmd.Args, err)
-
 }

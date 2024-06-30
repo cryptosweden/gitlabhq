@@ -16,6 +16,7 @@ RSpec.describe Emails::Releases do
     subject { Notify.new_release_email(user.id, release) }
 
     it_behaves_like 'an email sent from GitLab'
+    it_behaves_like 'an email with X-GitLab headers containing project details'
 
     context 'when the release has a name' do
       it 'shows the correct subject' do
@@ -56,7 +57,7 @@ RSpec.describe Emails::Releases do
       let(:release) { create(:release, project: project, description: "Attachment: [Test file](#{upload_path})") }
 
       it 'renders absolute links' do
-        is_expected.to have_body_text(%Q(<a href="#{project.web_url}#{upload_path}" data-canonical-src="#{upload_path}" data-link="true" class="gfm">Test file</a>))
+        is_expected.to have_body_text(%(<a href="#{root_url}-/project/#{project.id}#{upload_path}" data-canonical-src="#{upload_path}" data-link="true" class="gfm">Test file</a>))
       end
     end
   end

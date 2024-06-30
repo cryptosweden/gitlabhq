@@ -1,12 +1,14 @@
 import { cloneDeep } from 'lodash';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
+import { GlAlert } from '@gitlab/ui';
 import originalAllReleasesQueryResponse from 'test_fixtures/graphql/releases/graphql/queries/all_releases.query.graphql.json';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import allReleasesQuery from '~/releases/graphql/queries/all_releases.query.graphql';
-import createFlash from '~/flash';
+import getCiCatalogSettingsQuery from '~/ci/catalog/graphql/queries/get_ci_catalog_settings.query.graphql';
+import { createAlert, VARIANT_SUCCESS } from '~/alert';
 import { historyPushState } from '~/lib/utils/common_utils';
 import ReleasesIndexApp from '~/releases/components/app_index.vue';
 import ReleaseBlock from '~/releases/components/release_block.vue';
@@ -14,11 +16,13 @@ import ReleaseSkeletonLoader from '~/releases/components/release_skeleton_loader
 import ReleasesEmptyState from '~/releases/components/releases_empty_state.vue';
 import ReleasesPagination from '~/releases/components/releases_pagination.vue';
 import ReleasesSort from '~/releases/components/releases_sort.vue';
-import { PAGE_SIZE, CREATED_ASC, DEFAULT_SORT } from '~/releases/constants';
+import { i18n, PAGE_SIZE, CREATED_ASC, DEFAULT_SORT } from '~/releases/constants';
+import { deleteReleaseSessionKey } from '~/releases/release_notification_service';
+import { generateCatalogSettingsResponse } from '../mock_data';
 
 Vue.use(VueApollo);
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 let mockQueryParams;
 jest.mock('~/lib/utils/common_utils', () => ({
@@ -35,6 +39,7 @@ jest.mock('~/lib/utils/url_utility', () => ({
 
 describe('app_index.vue', () => {
   const projectPath = 'project/path';
+  const atomFeedPath = 'project/path.atom';
   const newReleasePath = 'path/to/new/release/page';
   const before = 'beforeCursor';
   const after = 'afterCursor';
@@ -44,25 +49,35 @@ describe('app_index.vue', () => {
   let singleRelease;
   let noReleases;
   let queryMock;
+  let toast;
+  let ciCatalogSettingsResponse;
 
   const createComponent = ({
     singleResponse = Promise.resolve(singleRelease),
     fullResponse = Promise.resolve(allReleases),
   } = {}) => {
-    const apolloProvider = createMockApollo([
+    const handlers = [
       [
         allReleasesQuery,
         queryMock.mockImplementation((vars) => {
           return vars.first === 1 ? singleResponse : fullResponse;
         }),
       ],
-    ]);
+      [getCiCatalogSettingsQuery, ciCatalogSettingsResponse],
+    ];
+    const apolloProvider = createMockApollo(handlers);
+
+    toast = jest.fn();
 
     wrapper = shallowMountExtended(ReleasesIndexApp, {
       apolloProvider,
       provide: {
         newReleasePath,
         projectPath,
+        atomFeedPath,
+      },
+      mocks: {
+        $toast: { show: toast },
       },
     });
   };
@@ -84,17 +99,16 @@ describe('app_index.vue', () => {
     queryMock = jest.fn();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   // Finders
   const findLoadingIndicator = () => wrapper.findComponent(ReleaseSkeletonLoader);
   const findEmptyState = () => wrapper.findComponent(ReleasesEmptyState);
+  const findAtomFeedButton = () => wrapper.findByTestId('atom-feed-btn');
   const findNewReleaseButton = () => wrapper.findByText(ReleasesIndexApp.i18n.newRelease);
   const findAllReleaseBlocks = () => wrapper.findAllComponents(ReleaseBlock);
   const findPagination = () => wrapper.findComponent(ReleasesPagination);
   const findSort = () => wrapper.findComponent(ReleasesSort);
+  const findCatalogAlert = () => wrapper.findComponent(GlAlert);
+  const findNewReleaseTooltip = () => wrapper.findByTestId('new-release-btn-tooltip');
 
   // Tests
   describe('component states', () => {
@@ -110,7 +124,7 @@ describe('app_index.vue', () => {
     const toDescription = (bool) => (bool ? 'does' : 'does not');
 
     describe.each`
-      description                                                       | singleResponseFn                  | fullResponseFn                  | loadingIndicator | emptyState | flashMessage | releaseCount | pagination
+      description                                                       | singleResponseFn                  | fullResponseFn                  | loadingIndicator | emptyState | alertMessage | releaseCount | pagination
       ${'both requests loading'}                                        | ${getInProgressResponse}          | ${getInProgressResponse}        | ${true}          | ${false}   | ${false}     | ${0}         | ${false}
       ${'both requests failed'}                                         | ${getErrorResponse}               | ${getErrorResponse}             | ${false}         | ${false}   | ${true}      | ${0}         | ${false}
       ${'both requests loaded'}                                         | ${getSingleRequestLoadedResponse} | ${getFullRequestLoadedResponse} | ${false}         | ${false}   | ${false}     | ${2}         | ${true}
@@ -130,7 +144,7 @@ describe('app_index.vue', () => {
         fullResponseFn,
         loadingIndicator,
         emptyState,
-        flashMessage,
+        alertMessage,
         releaseCount,
         pagination,
       }) => {
@@ -150,15 +164,18 @@ describe('app_index.vue', () => {
           expect(findEmptyState().exists()).toBe(emptyState);
         });
 
-        it(`${toDescription(flashMessage)} show a flash message`, () => {
-          if (flashMessage) {
-            expect(createFlash).toHaveBeenCalledWith({
+        it(`${toDescription(alertMessage)} show a flash message`, async () => {
+          await waitForPromises();
+          if (alertMessage) {
+            expect(createAlert).toHaveBeenCalledWith({
               message: ReleasesIndexApp.i18n.errorMessage,
               captureError: true,
               error: expect.any(Error),
             });
           } else {
-            expect(createFlash).not.toHaveBeenCalled();
+            expect(createAlert).not.toHaveBeenCalledWith({
+              error: expect.any(Error),
+            });
           }
         });
 
@@ -170,12 +187,14 @@ describe('app_index.vue', () => {
           expect(findPagination().exists()).toBe(pagination);
         });
 
-        it('does render the "New release" button', () => {
-          expect(findNewReleaseButton().exists()).toBe(true);
+        it('does render the "New release" button only for non-empty state', () => {
+          const shouldRenderNewReleaseButton = !emptyState;
+          expect(findNewReleaseButton().exists()).toBe(shouldRenderNewReleaseButton);
         });
 
-        it('does render the sort controls', () => {
-          expect(findSort().exists()).toBe(true);
+        it('does render the sort controls only for non-empty state', () => {
+          const shouldRenderControls = !emptyState;
+          expect(findSort().exists()).toBe(shouldRenderControls);
         });
       },
     );
@@ -280,6 +299,21 @@ describe('app_index.vue', () => {
 
     it('renders the new release button with the correct href', () => {
       expect(findNewReleaseButton().attributes().href).toBe(newReleasePath);
+    });
+  });
+
+  describe('RSS feed button', () => {
+    beforeEach(() => {
+      createComponent();
+    });
+
+    it('renders the RSS feed button with the correct href', () => {
+      expect(findAtomFeedButton().attributes().href).toBe(atomFeedPath);
+    });
+
+    it('sets the correct tooltip text', () => {
+      expect(findAtomFeedButton().exists()).toBe(true);
+      expect(findAtomFeedButton().attributes('title')).toBe(i18n.atomFeedBtnTitle);
     });
   });
 
@@ -393,5 +427,75 @@ describe('app_index.vue', () => {
         });
       },
     );
+  });
+
+  describe('after deleting', () => {
+    const release = 'fake release';
+    const key = deleteReleaseSessionKey(projectPath);
+
+    beforeEach(async () => {
+      window.sessionStorage.setItem(key, release);
+
+      await createComponent();
+    });
+
+    it('shows a toast', () => {
+      expect(createAlert).toHaveBeenCalledWith({
+        message: `Release ${release} has been successfully deleted.`,
+        variant: VARIANT_SUCCESS,
+      });
+    });
+
+    it('clears session storage', () => {
+      expect(window.sessionStorage.getItem(key)).toBe(null);
+    });
+  });
+
+  describe('CI/CD Catalog Alert', () => {
+    beforeEach(() => {
+      ciCatalogSettingsResponse = jest.fn();
+    });
+
+    describe('when the project is a catalog resource', () => {
+      beforeEach(async () => {
+        ciCatalogSettingsResponse.mockResolvedValue(generateCatalogSettingsResponse(true));
+        await createComponent();
+      });
+
+      it('renders the CI/CD Catalog alert', () => {
+        expect(findCatalogAlert().exists()).toBe(true);
+      });
+
+      it('disables the new release button', () => {
+        expect(findNewReleaseButton().attributes('disabled')).toBe('true');
+      });
+
+      it('sets the correct tooltip text', () => {
+        expect(findNewReleaseTooltip().exists()).toBe(true);
+        expect(findNewReleaseTooltip().attributes('title')).toBe(
+          i18n.catalogResourceReleaseBtnTitle,
+        );
+      });
+    });
+
+    describe('when the project is not a catalog resource', () => {
+      beforeEach(async () => {
+        ciCatalogSettingsResponse.mockResolvedValue(generateCatalogSettingsResponse(false));
+        await createComponent();
+      });
+
+      it('does not render the CI/CD Catalog alert', () => {
+        expect(findCatalogAlert().exists()).toBe(false);
+      });
+
+      it('enables the new release button', () => {
+        expect(findNewReleaseButton().attributes('disabled')).toBe(undefined);
+      });
+
+      it('sets the correct tooltip text', () => {
+        expect(findNewReleaseTooltip().exists()).toBe(true);
+        expect(findNewReleaseTooltip().attributes('title')).toBe(i18n.defaultReleaseBtnTitle);
+      });
+    });
   });
 });

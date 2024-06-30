@@ -12,20 +12,12 @@ module Projects
 
     belongs_to :container, class_name: 'Project', inverse_of: :repository_storage_moves, foreign_key: :project_id
     alias_attribute :project, :container
+    alias_attribute :container_id, :project_id
     scope :with_projects, -> { includes(container: :route) }
-
-    override :update_repository_storage
-    def update_repository_storage(new_storage)
-      container.update_column(:repository_storage, new_storage)
-    end
 
     override :schedule_repository_storage_update_worker
     def schedule_repository_storage_update_worker
-      Projects::UpdateRepositoryStorageWorker.perform_async(
-        project_id,
-        destination_storage_name,
-        id
-      )
+      Projects::UpdateRepositoryStorageWorker.perform_async(id)
     end
 
     private

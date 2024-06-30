@@ -2,33 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'devise/sessions/new' do
-  describe 'marketing text' do
-    subject { render(template: 'devise/sessions/new', layout: 'layouts/devise') }
-
-    before do
-      stub_devise
-      disable_captcha
-      allow(Gitlab).to receive(:com?).and_return(true)
-    end
-
-    it 'when flash is anything it renders marketing text' do
-      flash[:notice] = "You can't do that"
-
-      subject
-
-      expect(rendered).to have_content('A complete DevOps platform')
-    end
-
-    it 'when flash notice is devise confirmed message it hides marketing text' do
-      flash[:notice] = t(:confirmed, scope: [:devise, :confirmations])
-
-      subject
-
-      expect(rendered).not_to have_content('A complete DevOps platform')
-    end
-  end
-
+RSpec.describe 'devise/sessions/new', feature_category: :system_access do
   describe 'ldap' do
     include LdapHelpers
 
@@ -40,16 +14,14 @@ RSpec.describe 'devise/sessions/new' do
       disable_captcha
       disable_sign_up
       disable_other_signin_methods
-
-      allow(view).to receive(:experiment_enabled?).and_return(false)
     end
 
     it 'is shown when enabled' do
       render
 
-      expect(rendered).to have_selector('.new-session-tabs')
-      expect(rendered).to have_selector('[data-qa-selector="ldap_tab"]') # rubocop:disable QA/SelectorUsage
-      expect(rendered).to have_field('LDAP Username')
+      expect(rendered).to have_selector('#js-signin-tabs')
+      expect(rendered).to have_selector('[data-testid="ldap-tab"]')
+      expect(rendered).to have_field(_('Username'))
     end
 
     it 'is not shown when LDAP sign in is disabled' do
@@ -58,8 +30,8 @@ RSpec.describe 'devise/sessions/new' do
       render
 
       expect(rendered).to have_content('No authentication methods configured')
-      expect(rendered).not_to have_selector('[data-qa-selector="ldap_tab"]') # rubocop:disable QA/SelectorUsage
-      expect(rendered).not_to have_field('LDAP Username')
+      expect(rendered).not_to have_selector('[data-testid="ldap-tab"]')
+      expect(rendered).not_to have_field(_('Username'))
     end
   end
 

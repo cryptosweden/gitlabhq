@@ -6,6 +6,10 @@ module Repositories
     include Gitlab::Utils::StrongMemoize
 
     LFS_TRANSFER_CONTENT_TYPE = 'application/octet-stream'
+    # Downloading directly with presigned URLs via batch requests
+    # require longer expire time.
+    # The 1h should be enough to download 100 objects.
+    LFS_DIRECT_BATCH_EXPIRE_IN = 3600.seconds
 
     skip_before_action :lfs_check_access!, only: [:deprecated]
     before_action :lfs_check_batch_operation!, only: [:batch]
@@ -52,15 +56,36 @@ module Repositories
     end
 
     def download_objects!
+      existing_oids = project.lfs_objects
+        .for_oids(objects_oids)
+        .index_by(&:oid)
+
+      guest_can_download = ::Users::Anonymous.can?(:download_code, project)
+
+      objects.each do |object|
+        if lfs_object = existing_oids[object[:oid]]
+          object[:actions] = download_actions(object, lfs_object)
+
+          object[:authenticated] = true if guest_can_download
+        else
+          object[:error] = {
+            code: 404,
+            message: _("Object does not exist on the server or you don't have permissions to access it")
+          }
+        end
+      end
+
+      objects
+    end
+
+    def legacy_download_objects!
       existing_oids = project.lfs_objects_oids(oids: objects_oids)
 
       objects.each do |object|
         if existing_oids.include?(object[:oid])
-          object[:actions] = download_actions(object)
+          object[:actions] = proxy_download_actions(object)
 
-          if Guest.can?(:download_code, project)
-            object[:authenticated] = true
-          end
+          object[:authenticated] = true if ::Users::Anonymous.can?(:download_code, project)
         else
           object[:error] = {
             code: 404,
@@ -85,7 +110,26 @@ module Repositories
       objects
     end
 
-    def download_actions(object)
+    def download_actions(object, lfs_object)
+      if lfs_object.file.file_storage? || lfs_object.file.class.proxy_download_enabled?
+        proxy_download_actions(object)
+      else
+        direct_download_actions(lfs_object)
+      end
+    end
+
+    def direct_download_actions(lfs_object)
+      {
+        download: {
+          href: lfs_object.file.url(
+            content_type: "application/octet-stream",
+            expire_at: LFS_DIRECT_BATCH_EXPIRE_IN.since
+          )
+        }
+      }
+    end
+
+    def proxy_download_actions(object)
       {
         download: {
           href: "#{project.http_url_to_repo}/gitlab-lfs/objects/#{object[:oid]}",
@@ -172,13 +216,15 @@ module Repositories
 
       LfsObjectsProject.link_to_project!(lfs_object, project)
 
-      Gitlab::AppJsonLogger.info(message: "LFS object auto-linked to forked project",
+      Gitlab::AppJsonLogger.info(
+        message: "LFS object auto-linked to forked project",
         lfs_object_oid: lfs_object.oid,
         lfs_object_size: lfs_object.size,
         source_project_id: project.fork_source.id,
         source_project_path: project.fork_source.full_path,
         target_project_id: project.project_id,
-        target_project_path: project.full_path)
+        target_project_path: project.full_path
+      )
     end
   end
 end

@@ -1,6 +1,7 @@
 import { GlButton } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import component from '~/vue_shared/components/registry/list_item.vue';
 
 describe('list item', () => {
@@ -9,11 +10,12 @@ describe('list item', () => {
   const findLeftActionSlot = () => wrapper.find('[data-testid="left-action"]');
   const findLeftPrimarySlot = () => wrapper.find('[data-testid="left-primary"]');
   const findLeftSecondarySlot = () => wrapper.find('[data-testid="left-secondary"]');
+  const findLeftAfterToggleSlot = () => wrapper.find('[data-testid="left-after-toggle"]');
   const findRightPrimarySlot = () => wrapper.find('[data-testid="right-primary"]');
   const findRightSecondarySlot = () => wrapper.find('[data-testid="right-secondary"]');
   const findRightActionSlot = () => wrapper.find('[data-testid="right-action"]');
   const findDetailsSlot = (name) => wrapper.find(`[data-testid="${name}"]`);
-  const findToggleDetailsButton = () => wrapper.find(GlButton);
+  const findToggleDetailsButton = () => wrapper.findComponent(GlButton);
 
   const mountComponent = (propsData, slots) => {
     wrapper = shallowMount(component, {
@@ -22,27 +24,27 @@ describe('list item', () => {
         'left-action': '<div data-testid="left-action" />',
         'left-primary': '<div data-testid="left-primary" />',
         'left-secondary': '<div data-testid="left-secondary" />',
+        'left-after-toggle': '<div data-testid="left-after-toggle" />',
         'right-primary': '<div data-testid="right-primary" />',
         'right-secondary': '<div data-testid="right-secondary" />',
         'right-action': '<div data-testid="right-action" />',
         ...slots,
       },
+      directives: {
+        GlTooltip: createMockDirective('gl-tooltip'),
+      },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe.each`
-    slotName             | finderFunction
-    ${'left-primary'}    | ${findLeftPrimarySlot}
-    ${'left-secondary'}  | ${findLeftSecondarySlot}
-    ${'right-primary'}   | ${findRightPrimarySlot}
-    ${'right-secondary'} | ${findRightSecondarySlot}
-    ${'left-action'}     | ${findLeftActionSlot}
-    ${'right-action'}    | ${findRightActionSlot}
+    slotName               | finderFunction
+    ${'left-primary'}      | ${findLeftPrimarySlot}
+    ${'left-secondary'}    | ${findLeftSecondarySlot}
+    ${'left-after-toggle'} | ${findLeftAfterToggleSlot}
+    ${'right-primary'}     | ${findRightPrimarySlot}
+    ${'right-secondary'}   | ${findRightSecondarySlot}
+    ${'left-action'}       | ${findLeftActionSlot}
+    ${'right-action'}      | ${findRightActionSlot}
   `('$slotName slot', ({ finderFunction, slotName }) => {
     it('exist when the slot is filled', () => {
       mountComponent();
@@ -95,23 +97,51 @@ describe('list item', () => {
       expect(findToggleDetailsButton().exists()).toBe(true);
     });
 
+    describe('when visible', () => {
+      beforeEach(async () => {
+        mountComponent({}, { 'details-foo': '<span></span>' });
+        await nextTick();
+      });
+
+      it('has tooltip', () => {
+        const tooltip = getBinding(findToggleDetailsButton().element, 'gl-tooltip');
+
+        expect(tooltip).toBeDefined();
+        expect(findToggleDetailsButton().attributes('title')).toBe(
+          component.i18n.toggleDetailsLabel,
+        );
+      });
+
+      it('has correct attributes and props', () => {
+        expect(findToggleDetailsButton().props()).toMatchObject({
+          selected: false,
+        });
+
+        expect(findToggleDetailsButton().attributes()).toMatchObject({
+          title: component.i18n.toggleDetailsLabel,
+          'aria-label': component.i18n.toggleDetailsLabel,
+        });
+      });
+
+      it('has correct attributes and props when clicked', async () => {
+        findToggleDetailsButton().vm.$emit('click');
+        await nextTick();
+
+        expect(findToggleDetailsButton().props()).toMatchObject({
+          selected: true,
+        });
+
+        expect(findToggleDetailsButton().attributes()).toMatchObject({
+          title: component.i18n.toggleDetailsLabel,
+          'aria-label': component.i18n.toggleDetailsLabel,
+          'aria-expanded': 'true',
+        });
+      });
+    });
+
     it('is hidden without details slot', () => {
       mountComponent();
       expect(findToggleDetailsButton().exists()).toBe(false);
-    });
-  });
-
-  describe('disabled prop', () => {
-    it('when true applies gl-opacity-5 class', () => {
-      mountComponent({ disabled: true });
-
-      expect(wrapper.classes('gl-opacity-5')).toBe(true);
-    });
-
-    it('when false does not apply gl-opacity-5 class', () => {
-      mountComponent({ disabled: false });
-
-      expect(wrapper.classes('gl-opacity-5')).toBe(false);
     });
   });
 

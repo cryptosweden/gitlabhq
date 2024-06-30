@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Deployments do
+RSpec.describe API::Deployments, feature_category: :continuous_delivery do
   let_it_be(:user)        { create(:user) }
   let_it_be(:non_member)  { create(:user) }
 
@@ -14,9 +14,10 @@ RSpec.describe API::Deployments do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:production) { create(:environment, :production, project: project) }
     let_it_be(:staging) { create(:environment, :staging, project: project) }
-    let_it_be(:deployment_1) { create(:deployment, :success, project: project, environment: production, ref: 'master', created_at: Time.now, updated_at: Time.now) }
-    let_it_be(:deployment_2) { create(:deployment, :success, project: project, environment: staging, ref: 'master', created_at: 1.day.ago, updated_at: 2.hours.ago) }
-    let_it_be(:deployment_3) { create(:deployment, :success, project: project, environment: staging, ref: 'master', created_at: 2.days.ago, updated_at: 1.hour.ago) }
+    let_it_be(:build) { create(:ci_build, :success, project: project) }
+    let_it_be(:deployment_1) { create(:deployment, :success, project: project, environment: production, deployable: build, ref: 'master', created_at: Time.now, updated_at: Time.now) }
+    let_it_be(:deployment_2) { create(:deployment, :success, project: project, environment: staging, deployable: build, ref: 'master', created_at: 1.day.ago, finished_at: 2.hours.ago, updated_at: 2.hours.ago) }
+    let_it_be(:deployment_3) { create(:deployment, :success, project: project, environment: staging, deployable: build, ref: 'master', created_at: 2.days.ago, finished_at: 1.hour.ago, updated_at: 1.hour.ago) }
 
     def perform_request(params = {})
       get api("/projects/#{project.id}/deployments", user), params: params
@@ -31,26 +32,66 @@ RSpec.describe API::Deployments do
         expect(json_response).to be_an Array
         expect(json_response.size).to eq(3)
         expect(json_response.first['iid']).to eq(deployment_1.iid)
-        expect(json_response.first['sha']).to match /\A\h{40}\z/
+        expect(json_response.first['sha']).to match(/\A\h{40}\z/)
         expect(json_response.second['iid']).to eq(deployment_2.iid)
         expect(json_response.last['iid']).to eq(deployment_3.iid)
       end
 
       context 'with updated_at filters specified' do
-        it 'returns projects deployments with last update in specified datetime range' do
-          perform_request({ updated_before: 30.minutes.ago, updated_after: 90.minutes.ago, order_by: :updated_at })
+        context 'when using `order_by=updated_at`' do
+          it 'returns projects deployments with last update in specified datetime range' do
+            perform_request({ updated_before: 30.minutes.ago, updated_after: 90.minutes.ago, order_by: :updated_at })
 
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(response).to include_pagination_headers
-          expect(json_response.first['id']).to eq(deployment_3.id)
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to include_pagination_headers
+            expect(json_response.first['id']).to eq(deployment_3.id)
+          end
         end
 
-        context 'when forbidden order_by is specified' do
-          it 'returns projects deployments with last update in specified datetime range' do
+        context 'when not using `order_by=updated_at`' do
+          it 'returns an error' do
             perform_request({ updated_before: 30.minutes.ago, updated_after: 90.minutes.ago, order_by: :id })
 
             expect(response).to have_gitlab_http_status(:bad_request)
-            expect(json_response['message']).to include('`updated_at` filter and `updated_at` sorting must be paired')
+            expect(json_response['message']).to include('`updated_at` filter requires `updated_at` sort')
+          end
+        end
+      end
+
+      context 'with finished after and before filters specified' do
+        context 'for successful deployments' do
+          it 'returns projects deployments finished before the specified datetime range' do
+            perform_request({ status: :success, finished_before: 90.minutes.ago, order_by: :finished_at, environment: 'staging' })
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to include_pagination_headers
+            expect(json_response.first['id']).to eq(deployment_2.id)
+          end
+
+          it 'returns projects deployments finished after the specified datetime range' do
+            perform_request({ status: :success, finished_after: 90.minutes.ago, order_by: :finished_at, environment: 'staging' })
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to include_pagination_headers
+            expect(json_response.first['id']).to eq(deployment_3.id)
+          end
+        end
+
+        context 'for unsuccessful deployments' do
+          it 'returns an error' do
+            perform_request({ status: :failed, finished_before: 30.minutes.ago, order_by: :finished_at })
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(json_response['message']).to include('`finished_at` filter must be combined with `success` status filter.')
+          end
+        end
+
+        context 'when a forbidden order_by is specified' do
+          it 'returns an error' do
+            perform_request({ status: :success, finished_before: 30.minutes.ago, order_by: :id })
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(json_response['message']).to include('`finished_at` filter requires `finished_at` sort.')
           end
         end
       end
@@ -102,11 +143,11 @@ RSpec.describe API::Deployments do
       it 'returns multiple deployments without N + 1' do
         perform_request # warm up the cache
 
-        control_count = ActiveRecord::QueryRecorder.new { perform_request }.count
+        control = ActiveRecord::QueryRecorder.new { perform_request }
 
-        create(:deployment, :success, project: project, iid: 21, ref: 'master')
+        create(:deployment, :success, project: project, deployable: build, iid: 21, ref: 'master')
 
-        expect { perform_request }.not_to exceed_query_limit(control_count)
+        expect { perform_request }.not_to exceed_query_limit(control)
       end
     end
 
@@ -120,24 +161,56 @@ RSpec.describe API::Deployments do
   end
 
   describe 'GET /projects/:id/deployments/:deployment_id' do
-    let(:project)     { deployment.environment.project }
-    let!(:deployment) { create(:deployment, :success) }
+    let_it_be(:deployment_with_bridge) { create(:deployment, :with_bridge, :success) }
+    let_it_be(:deployment_with_build) { create(:deployment, :success) }
 
     context 'as a member of the project' do
-      it 'returns the projects deployment' do
-        get api("/projects/#{project.id}/deployments/#{deployment.id}", user)
+      shared_examples "returns project deployments" do
+        let(:project) { deployment.environment.project }
 
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(json_response['sha']).to match /\A\h{40}\z/
-        expect(json_response['id']).to eq(deployment.id)
+        it 'returns the expected response' do
+          get api("/projects/#{project.id}/deployments/#{deployment.id}", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['sha']).to match(/\A\h{40}\z/)
+          expect(json_response['id']).to eq(deployment.id)
+        end
+      end
+
+      context 'when the deployable is a build' do
+        it_behaves_like 'returns project deployments' do
+          let!(:deployment) { deployment_with_build }
+        end
+      end
+
+      context 'when the deployable is a bridge' do
+        it_behaves_like 'returns project deployments' do
+          let!(:deployment) { deployment_with_bridge }
+        end
       end
     end
 
     context 'as non member' do
-      it 'returns a 404 status code' do
-        get api("/projects/#{project.id}/deployments/#{deployment.id}", non_member)
+      shared_examples 'deployment will not be found' do
+        let(:project) { deployment.environment.project }
 
-        expect(response).to have_gitlab_http_status(:not_found)
+        it 'returns a 404 status code' do
+          get api("/projects/#{project.id}/deployments/#{deployment.id}", non_member)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when the deployable is a build' do
+        it_behaves_like 'deployment will not be found' do
+          let!(:deployment) { deployment_with_build }
+        end
+      end
+
+      context 'when the deployable is a bridge' do
+        it_behaves_like 'deployment will not be found' do
+          let!(:deployment) { deployment_with_bridge }
+        end
       end
     end
   end
@@ -188,6 +261,22 @@ RSpec.describe API::Deployments do
         expect(json_response['environment']['name']).to eq('production')
       end
 
+      it 'errors when creating a deployment with an invalid ref', :aggregate_failures do
+        post(
+          api("/projects/#{project.id}/deployments", user),
+          params: {
+            environment: 'production',
+            sha: sha,
+            ref: 'doesnotexist',
+            tag: false,
+            status: 'success'
+          }
+        )
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']).to eq({ "ref" => ["The branch or tag does not exist"] })
+      end
+
       it 'errors when creating a deployment with an invalid name' do
         post(
           api("/projects/#{project.id}/deployments", user),
@@ -200,7 +289,7 @@ RSpec.describe API::Deployments do
           }
         )
 
-        expect(response).to have_gitlab_http_status(:internal_server_error)
+        expect(response).to have_gitlab_http_status(:bad_request)
       end
 
       it 'links any merged merge requests to the deployment', :sidekiq_inline do
@@ -324,7 +413,7 @@ RSpec.describe API::Deployments do
     context 'as non member' do
       it 'returns a 404 status code' do
         post(
-          api( "/projects/#{project.id}/deployments", non_member),
+          api("/projects/#{project.id}/deployments", non_member),
           params: {
             environment: 'production',
             sha: '123',
@@ -383,7 +472,7 @@ RSpec.describe API::Deployments do
         )
 
         expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['message']['status']).to include(%Q{cannot transition via \"run\"})
+        expect(json_response['message']['status']).to include(%(cannot transition via \"run\"))
       end
 
       it 'links merge requests when the deployment status changes to success', :sidekiq_inline do
@@ -442,6 +531,90 @@ RSpec.describe API::Deployments do
           api("/projects/#{project.id}/deployments/#{deploy.id}", non_member),
           params: { status: 'success' }
         )
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+  end
+
+  describe 'DELETE /projects/:id/deployments/:deployment_id' do
+    let(:project) { create(:project, :repository) }
+    let(:environment) { create(:environment, project: project) }
+    let(:commits) { project.repository.commits(nil, { limit: 3 }) }
+    let!(:deploy) do
+      create(
+        :deployment,
+        :success,
+        project: project,
+        environment: environment,
+        deployable: nil,
+        sha: commits[1].sha
+      )
+    end
+
+    let!(:old_deploy) do
+      create(
+        :deployment,
+        :success,
+        project: project,
+        environment: environment,
+        deployable: nil,
+        sha: commits[0].sha,
+        finished_at: 1.year.ago
+      )
+    end
+
+    let!(:running_deploy) do
+      create(
+        :deployment,
+        :running,
+        project: project,
+        environment: environment,
+        deployable: nil,
+        sha: commits[2].sha
+      )
+    end
+
+    context 'as an maintainer' do
+      it 'deletes a deployment' do
+        delete api("/projects/#{project.id}/deployments/#{old_deploy.id}", user)
+
+        expect(response).to have_gitlab_http_status(:no_content)
+      end
+
+      it 'will not delete a running deployment' do
+        delete api("/projects/#{project.id}/deployments/#{running_deploy.id}", user)
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(response.body).to include("Cannot destroy running deployment")
+      end
+    end
+
+    context 'as a developer' do
+      let(:developer) { create(:user) }
+
+      before do
+        project.add_developer(developer)
+      end
+
+      it 'is forbidden' do
+        delete api("/projects/#{project.id}/deployments/#{deploy.id}", developer)
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
+    context 'as non member' do
+      it 'is not found' do
+        delete api("/projects/#{project.id}/deployments/#{deploy.id}", non_member)
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context 'for non-existent deployment' do
+      it 'is not found' do
+        delete api("/projects/#{project.id}/deployments/#{non_existing_record_id}", project.first_owner)
 
         expect(response).to have_gitlab_http_status(:not_found)
       end

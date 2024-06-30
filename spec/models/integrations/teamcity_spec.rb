@@ -2,13 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
+RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching, feature_category: :integrations do
   include ReactiveCachingHelpers
   include StubRequests
 
-  let(:teamcity_url) { 'https://gitlab.teamcity.com' }
+  let_it_be(:project) { create(:project) }
   let(:teamcity_full_url) { 'https://gitlab.teamcity.com/httpAuth/app/rest/builds/branch:unspecified:any,revision:123' }
-  let(:project) { create(:project) }
+  let(:teamcity_url) { 'https://gitlab.teamcity.com' }
+
+  it_behaves_like Integrations::HasAvatar
 
   subject(:integration) do
     described_class.create!(
@@ -21,6 +23,10 @@ RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
       }
     )
   end
+
+  it_behaves_like Integrations::BaseCi
+
+  it_behaves_like Integrations::ResetSecretFields
 
   include_context Integrations::EnableSslVerification do
     describe '#enable_ssl_verification' do
@@ -76,6 +82,7 @@ RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
 
       it { is_expected.to validate_presence_of(:build_type) }
       it { is_expected.to validate_presence_of(:teamcity_url) }
+
       it_behaves_like 'issue tracker integration URL attribute', :teamcity_url
 
       describe '#username' do
@@ -116,50 +123,6 @@ RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
       it { is_expected.not_to validate_presence_of(:teamcity_url) }
       it { is_expected.not_to validate_presence_of(:username) }
       it { is_expected.not_to validate_presence_of(:password) }
-    end
-  end
-
-  describe 'Callbacks' do
-    let(:teamcity_integration) { integration }
-
-    describe 'before_validation :reset_password' do
-      context 'when a password was previously set' do
-        it 'resets password if url changed' do
-          teamcity_integration.teamcity_url = 'http://gitlab1.com'
-          teamcity_integration.valid?
-
-          expect(teamcity_integration.password).to be_nil
-        end
-
-        it 'does not reset password if username changed' do
-          teamcity_integration.username = 'some_name'
-          teamcity_integration.valid?
-
-          expect(teamcity_integration.password).to eq('password')
-        end
-
-        it "does not reset password if new url is set together with password, even if it's the same password" do
-          teamcity_integration.teamcity_url = 'http://gitlab_edited.com'
-          teamcity_integration.password = 'password'
-          teamcity_integration.valid?
-
-          expect(teamcity_integration.password).to eq('password')
-          expect(teamcity_integration.teamcity_url).to eq('http://gitlab_edited.com')
-        end
-      end
-
-      it 'saves password if new url is set together with password when no password was previously set' do
-        teamcity_integration.password = nil
-
-        teamcity_integration.teamcity_url = 'http://gitlab_edited.com'
-        teamcity_integration.password = 'password'
-        teamcity_integration.save!
-
-        expect(teamcity_integration.reload).to have_attributes(
-          teamcity_url: 'http://gitlab_edited.com',
-          password: 'password'
-        )
-      end
     end
   end
 
@@ -210,7 +173,7 @@ RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
 
         expect(Gitlab::ErrorTracking)
           .to receive(:log_exception)
-          .with(instance_of(Errno::ECONNREFUSED), project_id: project.id)
+          .with(instance_of(Errno::ECONNREFUSED), { project_id: project.id })
 
         is_expected.to eq(teamcity_url)
       end
@@ -260,7 +223,7 @@ RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
 
         expect(Gitlab::ErrorTracking)
           .to receive(:log_exception)
-          .with(instance_of(Errno::ECONNREFUSED), project_id: project.id)
+          .with(instance_of(Errno::ECONNREFUSED), { project_id: project.id })
 
         is_expected.to eq(:error)
       end
@@ -285,7 +248,7 @@ RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
       end
 
       it 'returns nil when ref is blank' do
-        data[:after] = Gitlab::Git::BLANK_SHA
+        data[:after] = Gitlab::Git::SHA1_BLANK_SHA
 
         expect(integration.execute(data)).to be_nil
       end
@@ -344,10 +307,18 @@ RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
     end
   end
 
+  describe '#attribution_notice' do
+    it do
+      expect(subject.attribution_notice)
+      .to eq('Copyright © 2024 JetBrains s.r.o. JetBrains TeamCity and the JetBrains TeamCity logo are registered ' \
+             'trademarks of JetBrains s.r.o.')
+    end
+  end
+
   def stub_post_to_build_queue(branch:)
     teamcity_full_url = "#{teamcity_url}/httpAuth/app/rest/buildQueue"
-    body ||= %Q(<build branchName=\"#{branch}\"><buildType id=\"foo\"/></build>)
-    auth = %w(mic password)
+    body ||= %(<build branchName=\"#{branch}\"><buildType id=\"foo\"/></build>)
+    auth = %w[mic password]
 
     stub_full_request(teamcity_full_url, method: :post).with(
       basic_auth: auth,
@@ -359,9 +330,9 @@ RSpec.describe Integrations::Teamcity, :use_clean_rails_memory_store_caching do
   end
 
   def stub_request(status: 200, body: nil, build_status: 'success')
-    auth = %w(mic password)
+    auth = %w[mic password]
 
-    body ||= %Q({"build":{"status":"#{build_status}","id":"666"}})
+    body ||= %({"build":{"status":"#{build_status}","id":"666"}})
 
     stub_full_request(teamcity_full_url).with(basic_auth: auth).to_return(
       status: status,

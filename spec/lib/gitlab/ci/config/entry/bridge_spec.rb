@@ -2,10 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
-  subject { described_class.new(config, name: :my_bridge) }
+RSpec.describe Gitlab::Ci::Config::Entry::Bridge, feature_category: :continuous_integration do
+  subject(:entry) { described_class.new(config, name: :my_bridge) }
 
   it_behaves_like 'with inheritable CI config' do
+    let(:config) { { trigger: 'some/project' } }
     let(:inheritable_key) { 'default' }
     let(:inheritable_class) { Gitlab::Ci::Config::Entry::Default }
 
@@ -13,8 +14,18 @@ RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
     # that we know that we don't want to inherit
     # as they do not have sense in context of Bridge
     let(:ignored_inheritable_columns) do
-      %i[before_script after_script image services cache interruptible timeout
-         retry tags artifacts]
+      %i[before_script after_script hooks image services cache timeout
+         retry tags artifacts id_tokens]
+    end
+
+    before do
+      allow(entry).to receive_message_chain(:inherit_entry, :default_entry, :inherit?).and_return(true)
+    end
+  end
+
+  describe '.visible?' do
+    it 'always returns true' do
+      expect(described_class.visible?).to be_truthy
     end
   end
 
@@ -101,14 +112,16 @@ RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
 
       describe '#value' do
         it 'is returns a bridge job configuration' do
-          expect(subject.value).to eq(name: :my_bridge,
-                                      trigger: { project: 'some/project' },
-                                      ignore: false,
-                                      stage: 'test',
-                                      only: { refs: %w[branches tags] },
-                                      job_variables: {},
-                                      root_variables_inheritance: true,
-                                      scheduling_type: :stage)
+          expect(subject.value).to eq(
+            name: :my_bridge,
+            trigger: { project: 'some/project' },
+            ignore: false,
+            stage: 'test',
+            only: { refs: %w[branches tags] },
+            job_variables: {},
+            root_variables_inheritance: true,
+            scheduling_type: :stage
+          )
         end
       end
     end
@@ -124,15 +137,16 @@ RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
 
       describe '#value' do
         it 'is returns a bridge job configuration hash' do
-          expect(subject.value).to eq(name: :my_bridge,
-                                      trigger: { project: 'some/project',
-                                                 branch: 'feature' },
-                                      ignore: false,
-                                      stage: 'test',
-                                      only: { refs: %w[branches tags] },
-                                      job_variables: {},
-                                      root_variables_inheritance: true,
-                                      scheduling_type: :stage)
+          expect(subject.value).to eq(
+            name: :my_bridge,
+            trigger: { project: 'some/project', branch: 'feature' },
+            ignore: false,
+            stage: 'test',
+            only: { refs: %w[branches tags] },
+            job_variables: {},
+            root_variables_inheritance: true,
+            scheduling_type: :stage
+          )
         end
       end
     end
@@ -210,7 +224,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
       describe '#errors' do
         it 'is returns an error about unknown config key' do
           expect(subject.errors.first)
-            .to match /config contains unknown keys: unknown/
+            .to match(/config contains unknown keys: unknown/)
         end
       end
     end
@@ -225,7 +239,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
       describe '#errors' do
         it 'returns an error message' do
           expect(subject.errors.first)
-            .to match /contains unknown keys: script/
+            .to match(/contains unknown keys: script/)
         end
       end
     end
@@ -283,8 +297,8 @@ RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
               ignore: false,
               stage: 'test',
               only: { refs: %w[branches tags] },
-              parallel: { matrix: [{ 'PROVIDER' => ['aws'], 'STACK' => %w(monitoring app1) },
-                                   { 'PROVIDER' => ['gcp'], 'STACK' => %w(data) }] },
+              parallel: { matrix: [{ 'PROVIDER' => ['aws'], 'STACK' => %w[monitoring app1] },
+                                   { 'PROVIDER' => ['gcp'], 'STACK' => %w[data] }] },
               job_variables: {},
               root_variables_inheritance: true,
               scheduling_type: :stage
@@ -305,15 +319,16 @@ RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
 
       describe '#value' do
         it 'returns a bridge job configuration hash' do
-          expect(subject.value).to eq(name: :my_bridge,
-                                      trigger: { project: 'some/project',
-                                                 forward: { pipeline_variables: true } },
-                                      ignore: false,
-                                      stage: 'test',
-                                      only: { refs: %w[branches tags] },
-                                      job_variables: {},
-                                      root_variables_inheritance: true,
-                                      scheduling_type: :stage)
+          expect(subject.value).to eq(
+            name: :my_bridge,
+            trigger: { project: 'some/project', forward: { pipeline_variables: true } },
+            ignore: false,
+            stage: 'test',
+            only: { refs: %w[branches tags] },
+            job_variables: {},
+            root_variables_inheritance: true,
+            scheduling_type: :stage
+          )
         end
       end
     end
@@ -377,6 +392,40 @@ RSpec.describe Gitlab::Ci::Config::Entry::Bridge do
         let(:config) { { script: 'deploy', allow_failure: false } }
 
         it { is_expected.not_to be_ignored }
+      end
+    end
+  end
+
+  describe '#when' do
+    context 'when bridge is a manual action' do
+      let(:config) { { script: 'deploy', when: 'manual' } }
+
+      it { expect(entry.when).to eq('manual') }
+    end
+
+    context 'when bridge has no `when` attribute' do
+      let(:config) { { script: 'deploy' } }
+
+      it { expect(entry.when).to be_nil }
+    end
+
+    context 'when the `when` keyword is not a string' do
+      context 'when it is an array' do
+        let(:config) { { script: 'exit 0', when: ['always'] } }
+
+        it 'returns error' do
+          expect(entry).not_to be_valid
+          expect(entry.errors).to include 'bridge when should be a string'
+        end
+      end
+
+      context 'when it is a boolean' do
+        let(:config) { { script: 'exit 0', when: true } }
+
+        it 'returns error' do
+          expect(entry).not_to be_valid
+          expect(entry.errors).to include 'bridge when should be a string'
+        end
       end
     end
   end

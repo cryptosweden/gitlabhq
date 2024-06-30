@@ -3,8 +3,26 @@
 module Gitlab
   module Middleware
     class CompressedJson
-      COLLECTOR_PATH = '/api/v4/error_tracking/collector'
+      INSTANCE_PACKAGES_PATH = %r{
+        \A/api/v4/packages/npm/-/npm/v1/security/
+        (?:(?:advisories/bulk)|(?:audits/quick))\z (?# end)
+      }xi
+      GROUP_PACKAGES_PATH = %r{
+        \A/api/v4/groups/
+        (?<id>
+        [a-zA-Z0-9%-._]{1,255}
+        )/-/packages/npm/-/npm/v1/security/
+        (?:(?:advisories/bulk)|(?:audits/quick))\z (?# end)
+      }xi
+      PROJECT_PACKAGES_PATH = %r{
+        \A/api/v4/projects/
+        (?<id>
+        [a-zA-Z0-9%-._]{1,255}
+        )/packages/npm/-/npm/v1/security/
+        (?:(?:advisories/bulk)|(?:audits/quick))\z (?# end)
+      }xi
       MAXIMUM_BODY_SIZE = 200.kilobytes.to_i
+      UNSAFE_CHARACTERS = %r{[!"#&'()*+,./:;<>=?@\[\]^`{}|~$]}xi
 
       def initialize(app)
         @app = app
@@ -54,12 +72,29 @@ module Gitlab
       end
 
       def match_content_type?(env)
-        env['CONTENT_TYPE'] == 'application/json' ||
+        env['CONTENT_TYPE'].nil? ||
+          env['CONTENT_TYPE'] == 'application/json' ||
           env['CONTENT_TYPE'] == 'application/x-sentry-envelope'
       end
 
       def match_path?(env)
-        env['PATH_INFO'].start_with?((File.join(relative_url, COLLECTOR_PATH)))
+        match_packages_path?(env)
+      end
+
+      def match_packages_path?(env)
+        path = env['PATH_INFO'].delete_prefix(relative_url)
+        match_data = path.match(INSTANCE_PACKAGES_PATH) ||
+          path.match(PROJECT_PACKAGES_PATH) ||
+          path.match(GROUP_PACKAGES_PATH)
+        return false unless match_data
+
+        return true if match_data.names.empty? # instance level endpoint was matched
+
+        url_encoded?(match_data[:id])
+      end
+
+      def url_encoded?(id)
+        id !~ UNSAFE_CHARACTERS
       end
     end
   end

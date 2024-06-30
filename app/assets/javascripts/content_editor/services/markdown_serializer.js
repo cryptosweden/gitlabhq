@@ -2,52 +2,9 @@ import {
   MarkdownSerializer as ProseMirrorMarkdownSerializer,
   defaultMarkdownSerializer,
 } from '~/lib/prosemirror_markdown_serializer';
-import Audio from '../extensions/audio';
-import Blockquote from '../extensions/blockquote';
-import Bold from '../extensions/bold';
-import BulletList from '../extensions/bullet_list';
-import Code from '../extensions/code';
-import CodeBlockHighlight from '../extensions/code_block_highlight';
-import DescriptionItem from '../extensions/description_item';
-import DescriptionList from '../extensions/description_list';
-import Details from '../extensions/details';
-import DetailsContent from '../extensions/details_content';
-import Division from '../extensions/division';
-import Emoji from '../extensions/emoji';
-import Figure from '../extensions/figure';
-import FigureCaption from '../extensions/figure_caption';
-import FootnotesSection from '../extensions/footnotes_section';
-import FootnoteDefinition from '../extensions/footnote_definition';
-import FootnoteReference from '../extensions/footnote_reference';
-import Frontmatter from '../extensions/frontmatter';
-import HardBreak from '../extensions/hard_break';
-import Heading from '../extensions/heading';
-import HorizontalRule from '../extensions/horizontal_rule';
-import HTMLMarks from '../extensions/html_marks';
-import Image from '../extensions/image';
-import InlineDiff from '../extensions/inline_diff';
-import Italic from '../extensions/italic';
-import Link from '../extensions/link';
-import ListItem from '../extensions/list_item';
-import MathInline from '../extensions/math_inline';
-import OrderedList from '../extensions/ordered_list';
-import Paragraph from '../extensions/paragraph';
-import Reference from '../extensions/reference';
-import Strike from '../extensions/strike';
-import Subscript from '../extensions/subscript';
-import Superscript from '../extensions/superscript';
-import Table from '../extensions/table';
-import TableCell from '../extensions/table_cell';
-import TableHeader from '../extensions/table_header';
-import TableOfContents from '../extensions/table_of_contents';
-import TableRow from '../extensions/table_row';
-import TaskItem from '../extensions/task_item';
-import TaskList from '../extensions/task_list';
-import Text from '../extensions/text';
-import Video from '../extensions/video';
-import WordBreak from '../extensions/word_break';
+import * as extensions from '../extensions';
 import {
-  isPlainURL,
+  renderCodeBlock,
   renderHardBreak,
   renderTable,
   renderTableCell,
@@ -56,51 +13,47 @@ import {
   closeTag,
   renderOrderedList,
   renderImage,
+  renderHeading,
+  renderBlockquote,
   renderPlayable,
   renderHTMLNode,
   renderContent,
+  renderBulletList,
+  renderReference,
+  renderReferenceLabel,
+  preserveUnchanged,
+  bold,
+  italic,
+  link,
+  code,
+  strike,
 } from './serialization_helpers';
 
 const defaultSerializerConfig = {
   marks: {
-    [Bold.name]: defaultMarkdownSerializer.marks.strong,
-    [Italic.name]: { open: '_', close: '_', mixable: true, expelEnclosingWhitespace: true },
-    [Code.name]: defaultMarkdownSerializer.marks.code,
-    [Subscript.name]: { open: '<sub>', close: '</sub>', mixable: true },
-    [Superscript.name]: { open: '<sup>', close: '</sup>', mixable: true },
-    [InlineDiff.name]: {
+    [extensions.Bold.name]: bold,
+    [extensions.Italic.name]: italic,
+    [extensions.Code.name]: code,
+    [extensions.Subscript.name]: { open: '<sub>', close: '</sub>', mixable: true },
+    [extensions.Superscript.name]: { open: '<sup>', close: '</sup>', mixable: true },
+    [extensions.Highlight.name]: { open: '<mark>', close: '</mark>', mixable: true },
+    [extensions.InlineDiff.name]: {
       mixable: true,
-      open(state, mark) {
+      open(_, mark) {
         return mark.attrs.type === 'addition' ? '{+' : '{-';
       },
-      close(state, mark) {
+      close(_, mark) {
         return mark.attrs.type === 'addition' ? '+}' : '-}';
       },
     },
-    [Link.name]: {
-      open(state, mark, parent, index) {
-        return isPlainURL(mark, parent, index, 1) ? '<' : '[';
-      },
-      close(state, mark, parent, index) {
-        const href = mark.attrs.canonicalSrc || mark.attrs.href;
-
-        return isPlainURL(mark, parent, index, -1)
-          ? '>'
-          : `](${state.esc(href)}${mark.attrs.title ? ` ${state.quote(mark.attrs.title)}` : ''})`;
-      },
-    },
-    [MathInline.name]: {
+    [extensions.Link.name]: link,
+    [extensions.MathInline.name]: {
       open: (...args) => `$${defaultMarkdownSerializer.marks.code.open(...args)}`,
       close: (...args) => `${defaultMarkdownSerializer.marks.code.close(...args)}$`,
       escape: false,
     },
-    [Strike.name]: {
-      open: '~~',
-      close: '~~',
-      mixable: true,
-      expelEnclosingWhitespace: true,
-    },
-    ...HTMLMarks.reduce(
+    [extensions.Strike.name]: strike,
+    ...extensions.HTMLMarks.reduce(
       (acc, { name }) => ({
         ...acc,
         [name]: {
@@ -116,45 +69,27 @@ const defaultSerializerConfig = {
   },
 
   nodes: {
-    [Audio.name]: renderPlayable,
-    [Blockquote.name]: (state, node) => {
-      if (node.attrs.multiline) {
-        state.write('>>>');
-        state.ensureNewLine();
-        state.renderContent(node);
-        state.ensureNewLine();
-        state.write('>>>');
-        state.closeBlock(node);
-      } else {
-        state.wrapBlock('> ', null, node, () => state.renderContent(node));
-      }
-    },
-    [BulletList.name]: defaultMarkdownSerializer.nodes.bullet_list,
-    [CodeBlockHighlight.name]: (state, node) => {
-      state.write(`\`\`\`${node.attrs.language || ''}\n`);
-      state.text(node.textContent, false);
-      state.ensureNewLine();
-      state.write('```');
-      state.closeBlock(node);
-    },
-    [Division.name]: (state, node) => {
-      if (node.attrs.className?.includes('js-markdown-code')) {
-        state.renderInline(node);
-      } else {
-        const newNode = node;
-        delete newNode.attrs.className;
-
-        renderHTMLNode('div')(state, newNode);
-      }
-    },
-    [DescriptionList.name]: renderHTMLNode('dl', true),
-    [DescriptionItem.name]: (state, node, parent, index) => {
+    [extensions.Audio.name]: preserveUnchanged({
+      render: renderPlayable,
+      inline: true,
+    }),
+    [extensions.Blockquote.name]: preserveUnchanged(renderBlockquote),
+    [extensions.BulletList.name]: preserveUnchanged(renderBulletList),
+    [extensions.CodeBlockHighlight.name]: preserveUnchanged(renderCodeBlock),
+    [extensions.Diagram.name]: preserveUnchanged(renderCodeBlock),
+    [extensions.CodeSuggestion.name]: preserveUnchanged(renderCodeBlock),
+    [extensions.DrawioDiagram.name]: preserveUnchanged({
+      render: renderImage,
+      inline: true,
+    }),
+    [extensions.DescriptionList.name]: renderHTMLNode('dl', true),
+    [extensions.DescriptionItem.name]: (state, node, parent, index) => {
       if (index === 1) state.ensureNewLine();
       renderHTMLNode(node.attrs.isTerm ? 'dt' : 'dd')(state, node);
       if (index === parent.childCount - 1) state.ensureNewLine();
     },
-    [Details.name]: renderHTMLNode('details', true),
-    [DetailsContent.name]: (state, node, parent, index) => {
+    [extensions.Details.name]: renderHTMLNode('details', true),
+    [extensions.DetailsContent.name]: (state, node, parent, index) => {
       if (!index) renderHTMLNode('summary')(state, node);
       else {
         if (index === 1) state.ensureNewLine();
@@ -162,21 +97,23 @@ const defaultSerializerConfig = {
         if (index === parent.childCount - 1) state.ensureNewLine();
       }
     },
-    [Emoji.name]: (state, node) => {
+    [extensions.Emoji.name]: (state, node) => {
       const { name } = node.attrs;
 
       state.write(`:${name}:`);
     },
-    [FootnoteDefinition.name]: (state, node) => {
+    [extensions.FootnoteDefinition.name]: preserveUnchanged((state, node) => {
+      state.write(`[^${node.attrs.identifier}]: `);
       state.renderInline(node);
-    },
-    [FootnoteReference.name]: (state, node) => {
-      state.write(`[^${node.attrs.footnoteNumber}]`);
-    },
-    [FootnotesSection.name]: (state, node) => {
-      state.renderList(node, '', (index) => `[^${index + 1}]: `);
-    },
-    [Frontmatter.name]: (state, node) => {
+      state.ensureNewLine();
+    }),
+    [extensions.FootnoteReference.name]: preserveUnchanged({
+      render: (state, node) => {
+        state.write(`[^${node.attrs.identifier}]`);
+      },
+      inline: true,
+    }),
+    [extensions.Frontmatter.name]: preserveUnchanged((state, node) => {
       const { language } = node.attrs;
       const syntax = {
         toml: '+++',
@@ -189,77 +126,154 @@ const defaultSerializerConfig = {
       state.ensureNewLine();
       state.write(syntax);
       state.closeBlock(node);
-    },
-    [Figure.name]: renderHTMLNode('figure'),
-    [FigureCaption.name]: renderHTMLNode('figcaption'),
-    [HardBreak.name]: renderHardBreak,
-    [Heading.name]: defaultMarkdownSerializer.nodes.heading,
-    [HorizontalRule.name]: defaultMarkdownSerializer.nodes.horizontal_rule,
-    [Image.name]: renderImage,
-    [ListItem.name]: defaultMarkdownSerializer.nodes.list_item,
-    [OrderedList.name]: renderOrderedList,
-    [Paragraph.name]: defaultMarkdownSerializer.nodes.paragraph,
-    [Reference.name]: (state, node) => {
-      state.write(node.attrs.originalText || node.attrs.text);
-    },
-    [TableOfContents.name]: (state, node) => {
+    }),
+    [extensions.Figure.name]: renderHTMLNode('figure'),
+    [extensions.FigureCaption.name]: renderHTMLNode('figcaption'),
+    [extensions.HardBreak.name]: preserveUnchanged(renderHardBreak),
+    [extensions.Heading.name]: preserveUnchanged(renderHeading),
+    [extensions.HorizontalRule.name]: preserveUnchanged(
+      defaultMarkdownSerializer.nodes.horizontal_rule,
+    ),
+    [extensions.Image.name]: preserveUnchanged({
+      render: renderImage,
+      inline: true,
+    }),
+    [extensions.ListItem.name]: preserveUnchanged(defaultMarkdownSerializer.nodes.list_item),
+    [extensions.Loading.name]: () => {},
+    [extensions.OrderedList.name]: preserveUnchanged(renderOrderedList),
+    [extensions.Paragraph.name]: preserveUnchanged(defaultMarkdownSerializer.nodes.paragraph),
+    [extensions.Reference.name]: renderReference,
+    [extensions.ReferenceLabel.name]: renderReferenceLabel,
+    [extensions.ReferenceDefinition.name]: preserveUnchanged({
+      render: (state, node, parent, index, same, sourceMarkdown) => {
+        const nextSibling = parent.maybeChild(index + 1);
+
+        state.text(same ? sourceMarkdown : node.textContent, false);
+
+        /**
+         * Do not insert a blank line between reference definitions
+         * because it isn’t necessary and a more compact text format
+         * is preferred.
+         */
+        if (!nextSibling || nextSibling.type.name !== extensions.ReferenceDefinition.name) {
+          state.closeBlock(node);
+        } else {
+          state.ensureNewLine();
+        }
+      },
+      overwriteSourcePreservationStrategy: true,
+    }),
+    [extensions.TableOfContents.name]: preserveUnchanged((state, node) => {
       state.write('[[_TOC_]]');
       state.closeBlock(node);
-    },
-    [Table.name]: renderTable,
-    [TableCell.name]: renderTableCell,
-    [TableHeader.name]: renderTableCell,
-    [TableRow.name]: renderTableRow,
-    [TaskItem.name]: (state, node) => {
-      state.write(`[${node.attrs.checked ? 'x' : ' '}] `);
+    }),
+    [extensions.Table.name]: preserveUnchanged(renderTable),
+    [extensions.TableCell.name]: renderTableCell,
+    [extensions.TableHeader.name]: renderTableCell,
+    [extensions.TableRow.name]: renderTableRow,
+    [extensions.TaskItem.name]: preserveUnchanged((state, node) => {
+      let symbol = ' ';
+      if (node.attrs.inapplicable) symbol = '~';
+      else if (node.attrs.checked) symbol = 'x';
+
+      state.write(`[${symbol}] `);
+
+      if (!node.textContent) state.write('&nbsp;');
       state.renderContent(node);
-    },
-    [TaskList.name]: (state, node) => {
+    }),
+    [extensions.TaskList.name]: preserveUnchanged((state, node) => {
       if (node.attrs.numeric) renderOrderedList(state, node);
-      else defaultMarkdownSerializer.nodes.bullet_list(state, node);
-    },
-    [Text.name]: defaultMarkdownSerializer.nodes.text,
-    [Video.name]: renderPlayable,
-    [WordBreak.name]: (state) => state.write('<wbr>'),
+      else renderBulletList(state, node);
+    }),
+    [extensions.Text.name]: defaultMarkdownSerializer.nodes.text,
+    [extensions.Video.name]: preserveUnchanged({
+      render: renderPlayable,
+      inline: true,
+    }),
+    [extensions.WordBreak.name]: (state) => state.write('<wbr>'),
+    ...extensions.HTMLNodes.reduce((serializers, htmlNode) => {
+      return {
+        ...serializers,
+        [htmlNode.name]: (state, node) => renderHTMLNode(htmlNode.options.tagName)(state, node),
+      };
+    }, {}),
   },
 };
 
-/**
- * A markdown serializer converts arbitrary Markdown content
- * into a ProseMirror document and viceversa. To convert Markdown
- * into a ProseMirror document, the Markdown should be rendered.
- *
- * The client should provide a render function to allow flexibility
- * on the desired rendering approach.
- *
- * @param {Function} params.render Render function
- * that parses the Markdown and converts it into HTML.
- * @returns a markdown serializer
- */
-export default ({ serializerConfig = {} } = {}) => ({
+const createChangeTracker = (doc, pristineDoc) => {
+  const changeTracker = new WeakMap();
+  const pristineSourceMarkdownMap = new Map();
+
+  if (doc && pristineDoc) {
+    pristineDoc.descendants((node) => {
+      if (node.attrs.sourceMapKey) {
+        pristineSourceMarkdownMap.set(`${node.attrs.sourceMapKey}${node.type.name}`, node);
+      }
+    });
+    doc.descendants((node) => {
+      const pristineNode = pristineSourceMarkdownMap.get(
+        `${node.attrs.sourceMapKey}${node.type.name}`,
+      );
+
+      if (pristineNode) {
+        changeTracker.set(node, node.eq(pristineNode));
+      }
+    });
+  }
+
+  return changeTracker;
+};
+
+export default class MarkdownSerializer {
   /**
-   * Converts a ProseMirror JSONDocument based
-   * on a ProseMirror schema into Markdown
-   * @param {ProseMirror.Schema} params.schema A ProseMirror schema that defines
-   * the types of content supported in the document
-   * @param {String} params.content A ProseMirror JSONDocument
-   * @returns A Markdown string
+   * Converts a ProseMirror document to Markdown. See the
+   * following documentation to learn how to implement
+   * custom node and mark serializer functions.
+   *
+   * https://github.com/prosemirror/prosemirror-markdown
+   *
+   * @param {Object} params.nodes ProseMirror node serializer functions
+   * @param {Object} params.marks ProseMirror marks serializer config
+   *
+   * @returns a markdown serializer
    */
-  serialize: ({ schema, content }) => {
-    const proseMirrorDocument = schema.nodeFromJSON(content);
+  constructor({ serializerConfig = {} } = {}) {
+    this.serializerConfig = serializerConfig;
+  }
+  /**
+   * Serializes a ProseMirror document as Markdown. If a node contains
+   * sourcemap metadata, the serializer is capable of restoring the
+   * Markdown from which the node was generated using a Markdown
+   * deserializer.
+   *
+   * See the Sourcemap metadata extension and the remark_markdown_deserializer
+   * service for more information.
+   *
+   * @param {ProseMirror.Node} params.doc ProseMirror document to convert into Markdown
+   * @param {ProseMirror.Node} params.pristineDoc Pristine version of the document that
+   * should be converted into Markdown. This is used to detect which nodes in the document
+   * changed.
+   * @returns A String that represents the serialized document as Markdown
+   */
+  serialize({ doc, pristineDoc }, { useCanonicalSrc = true, skipEmptyNodes = false } = {}) {
+    const changeTracker = createChangeTracker(doc, pristineDoc);
     const serializer = new ProseMirrorMarkdownSerializer(
       {
         ...defaultSerializerConfig.nodes,
-        ...serializerConfig.nodes,
+        ...this.serializerConfig.nodes,
       },
       {
         ...defaultSerializerConfig.marks,
-        ...serializerConfig.marks,
+        ...this.serializerConfig.marks,
       },
     );
 
-    return serializer.serialize(proseMirrorDocument, {
+    return serializer.serialize(doc, {
       tightLists: true,
+      useCanonicalSrc,
+      skipEmptyNodes,
+      changeTracker,
+      escapeExtraCharacters: /<|>/g,
     });
-  },
-});
+  }
+}

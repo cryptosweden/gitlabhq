@@ -1,7 +1,8 @@
-import { GlPagination, GlDropdown, GlDropdownItem } from '@gitlab/ui';
+import { GlPagination, GlDisclosureDropdown, GlDisclosureDropdownItem } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import PaginationBar from '~/vue_shared/components/pagination_bar/pagination_bar.vue';
 import PaginationLinks from '~/vue_shared/components/pagination_links.vue';
+import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 
 describe('Pagination bar', () => {
   const DEFAULT_PROPS = {
@@ -20,12 +21,9 @@ describe('Pagination bar', () => {
         ...DEFAULT_PROPS,
         ...propsData,
       },
+      stubs: { LocalStorageSync: true },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('events', () => {
     beforeEach(() => {
@@ -44,8 +42,8 @@ describe('Pagination bar', () => {
     });
 
     it('emits set-page-size event when page size is selected', () => {
-      const firstItemInPageSizeDropdown = wrapper.findComponent(GlDropdownItem);
-      firstItemInPageSizeDropdown.vm.$emit('click');
+      const firstItemInPageSizeDropdown = wrapper.findComponent(GlDisclosureDropdownItem);
+      firstItemInPageSizeDropdown.vm.$emit('action');
 
       const [emittedPageSizeChange] = wrapper.emitted('set-page-size')[0];
       expect(firstItemInPageSizeDropdown.text()).toMatchInterpolatedText(
@@ -64,9 +62,9 @@ describe('Pagination bar', () => {
       },
     });
 
-    expect(wrapper.find(GlDropdown).find('button').text()).toMatchInterpolatedText(
-      `${CURRENT_PAGE_SIZE} items per page`,
-    );
+    expect(
+      wrapper.findComponent(GlDisclosureDropdown).find('button').text(),
+    ).toMatchInterpolatedText(`${CURRENT_PAGE_SIZE} items per page`);
   });
 
   it('renders current page information', () => {
@@ -89,5 +87,29 @@ describe('Pagination bar', () => {
     expect(wrapper.find('[data-testid="information"]').text()).toMatchInterpolatedText(
       'Showing 21 - 40 of 1000+',
     );
+  });
+
+  describe('local storage sync', () => {
+    it('does not perform local storage sync when no storage key is provided', () => {
+      createComponent();
+
+      expect(wrapper.findComponent(LocalStorageSync).exists()).toBe(false);
+    });
+
+    it('passes current page size to local storage sync when storage key is provided', () => {
+      const STORAGE_KEY = 'fakeStorageKey';
+      createComponent({ storageKey: STORAGE_KEY });
+
+      expect(wrapper.getComponent(LocalStorageSync).props('storageKey')).toBe(STORAGE_KEY);
+    });
+
+    it('emits set-page event when local storage sync provides new value', () => {
+      const SAVED_SIZE = 50;
+      createComponent({ storageKey: 'some storage key' });
+
+      wrapper.getComponent(LocalStorageSync).vm.$emit('input', SAVED_SIZE);
+
+      expect(wrapper.emitted('set-page-size')).toEqual([[SAVED_SIZE]]);
+    });
   });
 });

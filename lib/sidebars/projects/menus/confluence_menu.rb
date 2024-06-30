@@ -26,13 +26,6 @@ module Sidebars
           'confluence.svg'
         end
 
-        override :image_html_options
-        def image_html_options
-          {
-            alt: title
-          }
-        end
-
         override :render?
         def render?
           context.project.has_confluence?
@@ -41,6 +34,14 @@ module Sidebars
         override :active_routes
         def active_routes
           { controller: :confluences }
+        end
+
+        override :serialize_as_menu_item_args
+        def serialize_as_menu_item_args
+          super.merge({
+            item_id: :confluence,
+            super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::PlanMenu
+          })
         end
       end
     end

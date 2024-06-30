@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Tooling
@@ -63,8 +63,8 @@ disabled due to legacy compatibility reasons but they are in the process of bein
 Do not disable specific ESLint rules. To avoid introducing technical debt, you may disable the following
 rules only if you are invoking/instantiating existing code modules.
 
-- [`no-new`](https://eslint.org/docs/rules/no-new)
-- [`class-method-use-this`](https://eslint.org/docs/rules/class-methods-use-this)
+- [`no-new`](https://eslint.org/docs/latest/rules/no-new)
+- [`class-method-use-this`](https://eslint.org/docs/latest/rules/class-methods-use-this)
 
 Disable these rules on a per-line basis. This makes it easier to refactor in the
 future. For example, use `eslint-disable-next-line` or `eslint-disable-line`.
@@ -155,9 +155,27 @@ $ grep "eslint-disable.*import/no-deprecated" -r .
 ./app/assets/javascripts/issuable_form.js:  // eslint-disable-next-line import/no-deprecated
 ```
 
-## Formatting with Prettier
+### `vue/multi-word-component-names` is disabled in my file
 
-> Support for `.graphql` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/227280) in GitLab 13.2.
+Single name components are discouraged by the
+[Vue style guide](https://vuejs.org/style-guide/rules-essential.html#use-multi-word-component-names).
+
+They are problematic because they can be confused with other HTML components: We could name a
+component `<table>` and it would stop rendering an HTML `<table>`.
+
+To solve this, you should rename the `.vue` file and its references to use at least two words,
+for example:
+
+- `user/table.vue` could be renamed to `user/users_table.vue` and be imported as `UsersTable` and used with `<users-table />`.
+
+### GraphQL schema and operations validation
+
+We use [`@graphql-eslint/eslint-plugin`](https://www.npmjs.com/package/@graphql-eslint/eslint-plugin)
+to lint GraphQL schema and operations. This plugin requires the entire schema to function properly.
+It is thus recommended to generate an up-to-date dump of the schema when running ESLint locally.
+You can do this by running the `./scripts/dump_graphql_schema` script.
+
+## Formatting with Prettier
 
 Our code is automatically formatted with [Prettier](https://prettier.io) to follow our style guides. Prettier is taking care of formatting `.js`, `.vue`, `.graphql`, and `.scss` files based on the standard prettier rules. You can find all settings for Prettier in `.prettierrc`.
 
@@ -168,7 +186,7 @@ preferred editor (all major editors are supported) accordingly. We suggest
 setting up Prettier to run when each file is saved. For instructions about using
 Prettier in your preferred editor, see the [Prettier documentation](https://prettier.io/docs/en/editors.html).
 
-Please take care that you only let Prettier format the same file types as the global Yarn script does (`.js`, `.vue`, `.graphql`, and `.scss`). For example, you can exclude file formats in your Visual Studio Code settings file:
+Take care that you only let Prettier format the same file types as the global Yarn script does (`.js`, `.vue`, `.graphql`, and `.scss`). For example, you can exclude file formats in your Visual Studio Code settings file:
 
 ```json
   "prettier.disableLanguages": [
@@ -205,7 +223,7 @@ yarn run lint:prettier:fix
 
 Formats all files in the repository with Prettier.
 
-### VSCode Settings
+### VS Code Settings
 
 #### Select Prettier as default formatter
 

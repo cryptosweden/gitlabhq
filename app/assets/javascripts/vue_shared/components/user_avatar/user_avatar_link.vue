@@ -9,7 +9,7 @@
     :link-href="userProfileUrl"
     :img-src="userAvatarSrc"
     :img-alt="tooltipText"
-    :img-size="20"
+    :img-size="32"
     :tooltip-text="tooltipText"
     :tooltip-placement="top"
     :username="username"
@@ -17,17 +17,19 @@
 
 */
 
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import UserAvatarLinkNew from './user_avatar_link_new.vue';
-import UserAvatarLinkOld from './user_avatar_link_old.vue';
+import { GlAvatarLink, GlTooltipDirective } from '@gitlab/ui';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import UserAvatarImage from './user_avatar_image.vue';
 
 export default {
-  name: 'UserAvatarLink',
+  name: 'UserAvatarLinkNew',
   components: {
-    UserAvatarLinkNew,
-    UserAvatarLinkOld,
+    UserAvatarImage,
+    GlAvatarLink,
   },
-  mixins: [glFeatureFlagMixin()],
+  directives: {
+    GlTooltip: GlTooltipDirective,
+  },
   props: {
     lazy: {
       type: Boolean,
@@ -54,10 +56,14 @@ export default {
       required: false,
       default: '',
     },
-    imgSize: {
-      type: Number,
+    imgCssWrapperClasses: {
+      type: String,
       required: false,
-      default: 20,
+      default: '',
+    },
+    imgSize: {
+      type: [Number, Object],
+      required: true,
     },
     tooltipText: {
       type: String,
@@ -69,27 +75,71 @@ export default {
       required: false,
       default: 'top',
     },
+    popoverUserId: {
+      type: [String, Number],
+      required: false,
+      default: '',
+    },
+    popoverUsername: {
+      type: String,
+      required: false,
+      default: '',
+    },
     username: {
       type: String,
       required: false,
       default: '',
     },
   },
+  computed: {
+    userId() {
+      return getIdFromGraphQLId(this.popoverUserId);
+    },
+    shouldShowUsername() {
+      return this.username.length > 0;
+    },
+    avatarTooltipText() {
+      // Prevent showing tooltip when popoverUserId is present
+      if (this.popoverUserId) {
+        return '';
+      }
+      return this.shouldShowUsername ? '' : this.tooltipText;
+    },
+  },
 };
 </script>
 
 <template>
-  <user-avatar-link-new v-if="glFeatures.glAvatarForAllUserAvatars" v-bind="$props">
-    <slot></slot>
-    <template #avatar-badge>
-      <slot name="avatar-badge"></slot>
-    </template>
-  </user-avatar-link-new>
+  <gl-avatar-link
+    :href="linkHref"
+    :data-user-id="userId"
+    :data-username="popoverUsername"
+    class="user-avatar-link js-user-link"
+  >
+    <user-avatar-image
+      :class="imgCssWrapperClasses"
+      :img-src="imgSrc"
+      :img-alt="imgAlt"
+      :css-classes="imgCssClasses"
+      :size="imgSize"
+      :tooltip-text="avatarTooltipText"
+      :tooltip-placement="tooltipPlacement"
+      :lazy="lazy"
+    >
+      <slot></slot>
+    </user-avatar-image>
 
-  <user-avatar-link-old v-else v-bind="$props">
-    <slot></slot>
-    <template #avatar-badge>
-      <slot name="avatar-badge"></slot>
-    </template>
-  </user-avatar-link-old>
+    <span
+      v-if="shouldShowUsername"
+      v-gl-tooltip
+      :title="tooltipText"
+      :tooltip-placement="tooltipPlacement"
+      class="gl-ml-1"
+      data-testid="user-avatar-link-username"
+    >
+      {{ username }}
+    </span>
+
+    <slot name="avatar-badge"></slot>
+  </gl-avatar-link>
 </template>

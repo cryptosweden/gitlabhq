@@ -1,10 +1,14 @@
 import { isString, memoize } from 'lodash';
-
+import { sprintf, __ } from '~/locale';
+import { base64ToBuffer, bufferToBase64 } from '~/authentication/webauthn/util';
 import {
   TRUNCATE_WIDTH_DEFAULT_WIDTH,
   TRUNCATE_WIDTH_DEFAULT_FONT_SIZE,
 } from '~/lib/utils/constants';
-import { allSingleQuotes } from '~/lib/utils/regexp';
+
+export const COLON = ':';
+export const HYPHEN = '-';
+export const NEWLINE = '\n';
 
 /**
  * Adds a , to a string composed by numbers, at every 3 chars.
@@ -115,6 +119,7 @@ const getAverageCharWidth = memoize(function getAverageCharWidth(options = {}) {
   div.style.left = -1000;
   div.style.top = -1000;
 
+  // eslint-disable-next-line no-unsanitized/property
   div.innerHTML = chars;
 
   document.body.appendChild(div);
@@ -135,10 +140,8 @@ const getAverageCharWidth = memoize(function getAverageCharWidth(options = {}) {
  * @return {String} either the original string or a truncated version
  */
 export const truncateWidth = (string, options = {}) => {
-  const {
-    maxWidth = TRUNCATE_WIDTH_DEFAULT_WIDTH,
-    fontSize = TRUNCATE_WIDTH_DEFAULT_FONT_SIZE,
-  } = options;
+  const { maxWidth = TRUNCATE_WIDTH_DEFAULT_WIDTH, fontSize = TRUNCATE_WIDTH_DEFAULT_FONT_SIZE } =
+    options;
   const { truncateIndex } = string.split('').reduce(
     (memo, char, index) => {
       let newIndex = index;
@@ -161,36 +164,6 @@ export const truncateWidth = (string, options = {}) => {
  */
 export const truncateSha = (sha) => sha.substring(0, 8);
 
-const ELLIPSIS_CHAR = '…';
-export const truncatePathMiddleToLength = (text, maxWidth) => {
-  let returnText = text;
-  let ellipsisCount = 0;
-
-  while (returnText.length >= maxWidth) {
-    const textSplit = returnText.split('/').filter((s) => s !== ELLIPSIS_CHAR);
-
-    if (textSplit.length === 0) {
-      // There are n - 1 path separators for n segments, so 2n - 1 <= maxWidth
-      const maxSegments = Math.floor((maxWidth + 1) / 2);
-      return new Array(maxSegments).fill(ELLIPSIS_CHAR).join('/');
-    }
-
-    const middleIndex = Math.floor(textSplit.length / 2);
-
-    returnText = textSplit
-      .slice(0, middleIndex)
-      .concat(
-        new Array(ellipsisCount + 1).fill().map(() => ELLIPSIS_CHAR),
-        textSplit.slice(middleIndex + 1),
-      )
-      .join('/');
-
-    ellipsisCount += 1;
-  }
-
-  return returnText;
-};
-
 /**
  * Capitalizes first character
  *
@@ -198,19 +171,7 @@ export const truncatePathMiddleToLength = (text, maxWidth) => {
  * @return {String}
  */
 export function capitalizeFirstCharacter(text) {
-  return `${text[0].toUpperCase()}${text.slice(1)}`;
-}
-
-/**
- * Returns the first character capitalized
- *
- * If falsey, returns empty string.
- *
- * @param {String} text
- * @return {String}
- */
-export function getFirstCharacterCapitalized(text) {
-  return text ? text.charAt(0).toUpperCase() : '';
+  return text?.length ? `${text[0].toUpperCase()}${text.slice(1)}` : '';
 }
 
 /**
@@ -477,9 +438,14 @@ export const markdownConfig = {
     'ul',
     'var',
   ],
-  ALLOWED_ATTR: ['class', 'style', 'href', 'src'],
+  ALLOWED_ATTR: ['class', 'style', 'href', 'src', 'dir'],
   ALLOW_DATA_ATTR: false,
 };
+
+/**
+ * A regex that matches all single quotes in a string
+ */
+const allSingleQuotes = /'/g;
 
 /**
  * Escapes a string into a shell string, for example
@@ -494,3 +460,102 @@ export const markdownConfig = {
  * escaped to `'fix-'\''bug-behavior'\'''`.
  */
 export const escapeShellString = (str) => `'${str.replace(allSingleQuotes, () => "'\\''")}'`;
+
+/**
+ * Adds plus character as delimiter for count
+ * if count is greater than limit of 1000
+ * FE creation of `app/helpers/numbers_helper.rb`
+ *
+ * @param {Number} count
+ * @return {Number|String}
+ */
+export const limitedCounterWithDelimiter = (count) => {
+  const limit = 1000;
+
+  return count > limit ? '1,000+' : count;
+};
+
+// Encoding UTF8 ⇢ base64
+export function base64EncodeUnicode(str) {
+  const encoder = new TextEncoder('utf8');
+  return bufferToBase64(encoder.encode(str));
+}
+
+// Decoding base64 ⇢ UTF8
+export function base64DecodeUnicode(str) {
+  const decoder = new TextDecoder('utf8');
+  return decoder.decode(base64ToBuffer(str));
+}
+
+// returns an array of errors (if there are any)
+const INVALID_BRANCH_NAME_CHARS = [' ', '~', '^', ':', '?', '*', '[', '..', '@{', '\\', '//'];
+
+/**
+ * Returns an array of invalid characters found in a branch name
+ *
+ * @param {String} name branch name to check
+ * @return {Array} Array of invalid characters found
+ */
+export const findInvalidBranchNameCharacters = (name) => {
+  const invalidChars = [];
+
+  INVALID_BRANCH_NAME_CHARS.forEach((pattern) => {
+    if (name.indexOf(pattern) > -1) {
+      invalidChars.push(pattern);
+    }
+  });
+
+  return invalidChars;
+};
+
+/**
+ * Returns a string describing validation errors for a branch name
+ *
+ * @param {Array} invalidChars Array of invalid characters that were found
+ * @return {String} Error message describing on the invalid characters found
+ */
+export const humanizeBranchValidationErrors = (invalidChars = []) => {
+  const chars = invalidChars.filter((c) => INVALID_BRANCH_NAME_CHARS.includes(c));
+
+  if (chars.length && !chars.includes(' ')) {
+    return sprintf(__("Can't contain %{chars}"), { chars: chars.join(', ') });
+  }
+  if (chars.includes(' ') && chars.length <= 1) {
+    return __("Can't contain spaces");
+  }
+  if (chars.includes(' ') && chars.length > 1) {
+    return sprintf(__("Can't contain spaces, %{chars}"), {
+      chars: chars.filter((c) => c !== ' ').join(', '),
+    });
+  }
+  return '';
+};
+
+/**
+ * Strips enclosing quotations from a string if it has one.
+ *
+ * @param {String} value String to strip quotes from
+ *
+ * @returns {String} String without any enclosure
+ */
+export const stripQuotes = (value) => value.replace(/^('|")(.*)('|")$/, '$2');
+
+/**
+ * Converts a sentence to title case inspite of it being in any case
+ * e.g. Hello world => Hello World
+ * e.g HELLO WORLD => Hello World
+ * e.g. hello World => Hello World
+ * e.g. Hello world => Hello World
+ * e.g. Hello World => Hello World
+ *
+ * @param {String} string
+ * @returns {String}
+ */
+
+export const convertEachWordToTitleCase = (str) => {
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};

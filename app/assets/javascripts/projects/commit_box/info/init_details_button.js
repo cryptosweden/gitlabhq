@@ -1,9 +1,17 @@
-import $ from 'jquery';
-
 export const initDetailsButton = () => {
-  $('body').on('click', '.js-details-expand', function expand(e) {
-    e.preventDefault();
-    $(this).next('.js-details-content').removeClass('hide');
-    $(this).hide();
+  const expandButton = document.querySelector('.js-details-expand');
+
+  if (!expandButton) {
+    return;
+  }
+
+  expandButton.addEventListener('click', (event) => {
+    const btn = event.currentTarget;
+    const contentEl = btn.parentElement.querySelector('.js-details-content');
+
+    if (contentEl) {
+      contentEl.classList.remove('hide');
+      btn.classList.add('gl-display-none');
+    }
   });
 };

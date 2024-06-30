@@ -24,11 +24,7 @@ describe('UncollapsedAssigneeList component', () => {
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  const findMoreButton = () => wrapper.find('.user-list-more button');
+  const findMoreButton = () => wrapper.find('[data-testid="user-list-more-button"]');
 
   describe('One assignee/user', () => {
     let user;
@@ -42,17 +38,15 @@ describe('UncollapsedAssigneeList component', () => {
     });
 
     it('only has one user', () => {
-      expect(wrapper.findAll(AssigneeAvatarLink).length).toBe(1);
+      expect(wrapper.findAllComponents(AssigneeAvatarLink).length).toBe(1);
     });
 
     it('calls the AssigneeAvatarLink with the proper props', () => {
-      expect(wrapper.find(AssigneeAvatarLink).exists()).toBe(true);
-      expect(wrapper.find(AssigneeAvatarLink).props().tooltipPlacement).toEqual('left');
+      expect(wrapper.findComponent(AssigneeAvatarLink).exists()).toBe(true);
     });
 
     it('Shows one user with avatar, username and author name', () => {
       expect(wrapper.text()).toContain(user.name);
-      expect(wrapper.text()).toContain(`@${user.username}`);
     });
   });
 
@@ -81,7 +75,7 @@ describe('UncollapsedAssigneeList component', () => {
       });
 
       it('shows truncated users', () => {
-        expect(wrapper.findAll(AssigneeAvatarLink).length).toBe(DEFAULT_RENDER_COUNT);
+        expect(wrapper.findAllComponents(AssigneeAvatarLink).length).toBe(DEFAULT_RENDER_COUNT);
       });
 
       describe('when more button is clicked', () => {
@@ -96,7 +90,9 @@ describe('UncollapsedAssigneeList component', () => {
         });
 
         it('shows all users', () => {
-          expect(wrapper.findAll(AssigneeAvatarLink).length).toBe(DEFAULT_RENDER_COUNT + 1);
+          expect(wrapper.findAllComponents(AssigneeAvatarLink).length).toBe(
+            DEFAULT_RENDER_COUNT + 1,
+          );
         });
       });
     });

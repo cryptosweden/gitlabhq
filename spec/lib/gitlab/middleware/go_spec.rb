@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Middleware::Go do
+RSpec.describe Gitlab::Middleware::Go, feature_category: :source_code_management do
   let(:app) { double(:app) }
   let(:middleware) { described_class.new(app) }
   let(:env) do
@@ -136,14 +136,14 @@ RSpec.describe Gitlab::Middleware::Go do
                       it_behaves_like 'unauthorized'
                     end
 
-                    context 'with a blacklisted ip' do
+                    context 'with a denylisted ip' do
                       it 'returns forbidden' do
-                        expect(Gitlab::Auth).to receive(:find_for_git_client).and_raise(Gitlab::Auth::IpBlacklisted)
+                        err = Gitlab::Auth::IpBlocked.new
+                        expect(Gitlab::Auth).to receive(:find_for_git_client).and_raise(err)
                         response = go
 
                         expect(response[0]).to eq(403)
-                        expect(response[1]['Content-Length']).to be_nil
-                        expect(response[2]).to eq([''])
+                        expect(response[2]).to eq([err.message])
                       end
                     end
                   end
@@ -206,7 +206,7 @@ RSpec.describe Gitlab::Middleware::Go do
 
             expect(response[0]).to eq(404)
             expect(response[1]['Content-Type']).to eq('text/html')
-            expected_body = %{<html><body>go get #{Gitlab.config.gitlab.url}/#{project.full_path}</body></html>}
+            expected_body = %(<html><body>go get #{Gitlab.config.gitlab.url}/#{project.full_path}</body></html>)
             expect(response[2]).to eq([expected_body])
           end
         end
@@ -278,7 +278,7 @@ RSpec.describe Gitlab::Middleware::Go do
       project_url = "http://#{Gitlab.config.gitlab.host}/#{path}"
       expect(response[0]).to eq(200)
       expect(response[1]['Content-Type']).to eq('text/html')
-      expected_body = %{<html><head><meta name="go-import" content="#{Gitlab.config.gitlab.host}/#{path} git #{repository_url}" /><meta name="go-source" content="#{Gitlab.config.gitlab.host}/#{path} #{project_url} #{project_url}/-/tree/#{branch}{/dir} #{project_url}/-/blob/#{branch}{/dir}/{file}#L{line}" /></head><body>go get #{Gitlab.config.gitlab.url}/#{path}</body></html>}
+      expected_body = %(<html><head><meta name="go-import" content="#{Gitlab.config.gitlab.host}/#{path} git #{repository_url}"><meta name="go-source" content="#{Gitlab.config.gitlab.host}/#{path} #{project_url} #{project_url}/-/tree/#{branch}{/dir} #{project_url}/-/blob/#{branch}{/dir}/{file}#L{line}"></head><body>go get #{Gitlab.config.gitlab.url}/#{path}</body></html>)
       expect(response[2]).to eq([expected_body])
     end
   end

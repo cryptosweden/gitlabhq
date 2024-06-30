@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::ErrorTracking::ClientKeys do
+RSpec.describe API::ErrorTracking::ClientKeys, feature_category: :error_tracking do
   let_it_be(:guest) { create(:user) }
   let_it_be(:maintainer) { create(:user) }
   let_it_be(:setting) { create(:project_error_tracking_setting) }
@@ -80,6 +80,10 @@ RSpec.describe API::ErrorTracking::ClientKeys do
 
       it 'returns a correct status' do
         expect(response).to have_gitlab_http_status(:ok)
+      end
+
+      it 'returns specific fields using the entity' do
+        expect(json_response.keys).to match_array(%w[id active public_key sentry_dsn])
       end
     end
   end

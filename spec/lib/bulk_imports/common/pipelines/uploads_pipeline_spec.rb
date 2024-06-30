@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline do
+RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline, feature_category: :importers do
   let_it_be(:project) { create(:project) }
   let_it_be(:group) { create(:group) }
 
   let(:tmpdir) { Dir.mktmpdir }
   let(:uploads_dir_path) { File.join(tmpdir, '72a497a02fe3ee09edae2ed06d390038') }
-  let(:upload_file_path) { File.join(uploads_dir_path, 'upload.txt')}
+  let(:upload_file_path) { File.join(uploads_dir_path, 'upload.txt') }
   let(:tracker) { create(:bulk_import_tracker, entity: entity) }
   let(:context) { BulkImports::Pipeline::Context.new(tracker) }
 
@@ -19,6 +19,8 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline do
 
     FileUtils.mkdir_p(uploads_dir_path)
     FileUtils.touch(upload_file_path)
+
+    allow(pipeline).to receive(:set_source_objects_counter)
   end
 
   after do
@@ -38,6 +40,14 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline do
         expect(portable.uploads.map { |u| u.retrieve_uploader.filename }).to include('upload.txt')
 
         expect(Dir.exist?(tmpdir)).to eq(false)
+      end
+
+      it 'skips loads on duplicates' do
+        pipeline.run
+
+        expect(pipeline).not_to receive(:load)
+
+        pipeline.run
       end
 
       context 'when importing avatar' do
@@ -79,7 +89,7 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline do
           .to receive(:new)
           .with(
             configuration: context.configuration,
-            relative_url: "/#{entity.pluralized_name}/test/export_relations/download?relation=uploads",
+            relative_url: "/#{entity.pluralized_name}/#{CGI.escape(entity.source_full_path)}/export_relations/download?relation=uploads",
             tmpdir: tmpdir,
             filename: 'uploads.tar.gz')
           .and_return(download_service)
@@ -103,7 +113,10 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline do
 
       context 'when dynamic path is nil' do
         it 'returns' do
-          expect { pipeline.load(context, File.join(tmpdir, 'test')) }.not_to change { portable.uploads.count }
+          path = File.join(tmpdir, 'test')
+          FileUtils.touch(path)
+
+          expect { pipeline.load(context, path) }.not_to change { portable.uploads.count }
         end
       end
 
@@ -116,10 +129,33 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline do
       context 'when path is a symlink' do
         it 'does not upload the file' do
           symlink = File.join(tmpdir, 'symlink')
+          FileUtils.ln_s(upload_file_path, symlink)
 
-          FileUtils.ln_s(File.join(tmpdir, upload_file_path), symlink)
-
+          expect(Gitlab::Utils::FileInfo).to receive(:linked?).with(symlink).and_call_original
           expect { pipeline.load(context, symlink) }.not_to change { portable.uploads.count }
+        end
+      end
+
+      context 'when path has multiple hard links' do
+        it 'does not upload the file' do
+          FileUtils.link(upload_file_path, File.join(tmpdir, 'hard_link'))
+
+          expect(Gitlab::Utils::FileInfo).to receive(:linked?).with(upload_file_path).and_call_original
+          expect { pipeline.load(context, upload_file_path) }.not_to change { portable.uploads.count }
+        end
+      end
+
+      context 'when path traverses' do
+        it 'does not upload the file' do
+          path_traversal = "#{uploads_dir_path}/avatar/../../../../etc/passwd"
+          expect { pipeline.load(context, path_traversal) }.to not_change { portable.uploads.count }.and raise_error(Gitlab::PathTraversal::PathTraversalAttackError)
+        end
+      end
+
+      context 'when path is outside the tmpdir' do
+        it 'does not upload the file' do
+          path = "/etc/passwd"
+          expect { pipeline.load(context, path) }.to not_change { portable.uploads.count }.and raise_error(StandardError, /not allowed/)
         end
       end
     end
@@ -152,14 +188,14 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline do
 
   context 'when importing to group' do
     let(:portable) { group }
-    let(:entity) { create(:bulk_import_entity, :group_entity, group: group, source_full_path: 'test') }
+    let(:entity) { create(:bulk_import_entity, :group_entity, group: group, source_xid: nil) }
 
     include_examples 'uploads import'
   end
 
   context 'when importing to project' do
     let(:portable) { project }
-    let(:entity) { create(:bulk_import_entity, :project_entity, project: project, source_full_path: 'test') }
+    let(:entity) { create(:bulk_import_entity, :project_entity, project: project, source_xid: nil) }
 
     include_examples 'uploads import'
   end

@@ -4,12 +4,9 @@ require 'spec_helper'
 
 RSpec.describe 'projects/tags/index.html.haml' do
   let_it_be(:project)  { create(:project, :repository) }
-  let_it_be(:tags)     { project.repository.tags }
   let_it_be(:git_tag)  { project.repository.tags.last }
   let_it_be(:release)  do
-    create(:release, project: project,
-           sha: git_tag.target_commit.sha,
-           tag: 'v1.1.0')
+    create(:release, project: project, sha: git_tag.target_commit.sha, tag: 'v1.1.0')
   end
 
   let(:pipeline) { create(:ci_pipeline, :success, project: project, ref: git_tag.name, sha: release.sha) }
@@ -25,36 +22,30 @@ RSpec.describe 'projects/tags/index.html.haml' do
     allow(view).to receive(:current_user).and_return(project.namespace.owner)
   end
 
-  it 'renders links to the Releases page for tags associated with a release' do
-    render
-    expect(rendered).to have_link(release.name, href: project_releases_path(project, anchor: release.tag))
-  end
-
-  context 'when the most recent build for a tag has artifacts' do
-    let!(:build) { create(:ci_build, :success, :artifacts, pipeline: pipeline) }
-
-    it 'renders the Artifacts section in the download list' do
-      render
-      expect(rendered).to have_selector('li', text: 'Artifacts')
+  context 'when tag is associated with a release' do
+    context 'when name does not contain a backslash' do
+      it 'renders a link to the release page' do
+        render
+        expect(rendered).to have_link(release.name, href: project_release_path(project, release))
+      end
     end
 
-    it 'renders artifact download links' do
-      render
-      expect(rendered).to have_link(href: latest_succeeded_project_artifacts_path(project, "#{pipeline.ref}/download", job: 'test'))
-    end
-  end
+    context 'when name contains backslash' do
+      let_it_be(:release) { create(:release, project: project, tag: 'test/v1') }
 
-  context 'when the most recent build for a tag has expired artifacts' do
-    let!(:build) { create(:ci_build, :success, :expired, :artifacts, pipeline: pipeline) }
+      before_all do
+        project.repository.add_tag(project.owner, 'test/v1', project.default_branch_or_main)
+        project.repository.expire_tags_cache
 
-    it 'does not render the Artifacts section in the download list' do
-      render
-      expect(rendered).not_to have_selector('li', text: 'Artifacts')
-    end
+        project.releases.reload
 
-    it 'does not render artifact download links' do
-      render
-      expect(rendered).not_to have_link(href: latest_succeeded_project_artifacts_path(project, "#{pipeline.ref}/download", job: 'test'))
+        assign(:tags, Kaminari.paginate_array(tags).page(0))
+      end
+
+      it 'renders a link to the release page with backslash escaped' do
+        render
+        expect(rendered).to have_link(release.name, href: project_release_path(project, release))
+      end
     end
   end
 
@@ -72,14 +63,13 @@ RSpec.describe 'projects/tags/index.html.haml' do
 
       render
 
-      expect(page.find('.tags .content-list li', text: tag)).to have_css 'a.ci-status-icon-success'
-      expect(page.all('.tags .content-list li')).to all(have_css('svg.s24'))
+      expect(page.find('.tags .content-list li', text: tag)).to have_css '[data-testid="status_success_borderless-icon"]'
     end
 
     it 'shows no build status or placeholder when no pipelines present' do
       render
 
-      expect(page.all('.tags .content-list li')).not_to have_css 'svg.s24'
+      expect(page.find('.tags .content-list li', text: tag)).not_to have_css '[data-testid="status_success_borderless-icon"]'
     end
 
     it 'shows no build status or placeholder when pipelines are private' do
@@ -88,7 +78,7 @@ RSpec.describe 'projects/tags/index.html.haml' do
 
       render
 
-      expect(page.all('.tags .content-list li')).not_to have_css 'svg.s24'
+      expect(page.find('.tags .content-list li', text: tag)).not_to have_css '[data-testid="status_success_borderless-icon"]'
     end
   end
 
@@ -103,5 +93,9 @@ RSpec.describe 'projects/tags/index.html.haml' do
         "The git server, Gitaly, is not available at this time. Please contact your administrator."
       )
     end
+  end
+
+  def tags
+    project.repository.tags
   end
 end

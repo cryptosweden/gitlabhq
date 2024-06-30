@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User creates image diff notes', :js do
+RSpec.describe 'Merge request > User creates image diff notes', :js, feature_category: :code_review_workflow do
   include NoteInteractionHelpers
 
   let(:project) { create(:project, :public, :repository) }
@@ -72,7 +72,7 @@ RSpec.describe 'Merge request > User creates image diff notes', :js do
     end
   end
 
-  %w(inline parallel).each do |view|
+  %w[inline parallel].each do |view|
     context "#{view} view" do
       let(:position) do
         build(:image_diff_position, file: path, diff_refs: merge_request.diff_refs)
@@ -174,7 +174,7 @@ RSpec.describe 'Merge request > User creates image diff notes', :js do
   end
 
   shared_examples 'onion skin' do
-    it 'resets opacity when toggling between view modes' do
+    it 'resets opacity when toggling between view modes', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/393331' do
       # Simulate dragging onion-skin slider
       drag_and_drop_by(find('.dragger'), -30, 0)
 
@@ -258,7 +258,7 @@ RSpec.describe 'Merge request > User creates image diff notes', :js do
       end
 
       it 'resizes image' do
-        expect(find('.onion-skin-frame')['style']).to match('width: 228px; height: 240px;')
+        expect(find('.onion-skin-frame')['style']).to match('width: 198px; height: 210px;')
       end
 
       it_behaves_like 'onion skin'

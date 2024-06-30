@@ -11,7 +11,8 @@ end
 RSpec.shared_examples 'updating a single task' do
   def update_issuable(opts)
     issuable = try(:issue) || try(:merge_request)
-    described_class.new(project: project, current_user: user, params: opts).execute(issuable)
+    described_class.new(**described_class.constructor_container_arg(project), current_user: user, params: opts)
+      .execute(issuable)
   end
 
   before do
@@ -45,7 +46,7 @@ RSpec.shared_examples 'updating a single task' do
     end
 
     it 'creates system note about task status change' do
-      note1 = find_note('marked the task **Task 1** as completed')
+      note1 = find_note('marked the checklist item **Task 1** as completed')
 
       expect(note1).not_to be_nil
 
@@ -61,7 +62,7 @@ RSpec.shared_examples 'updating a single task' do
     end
 
     it 'creates system note about task status change' do
-      note1 = find_note('marked the task **Task 2** as incomplete')
+      note1 = find_note('marked the checklist item **Task 2** as incomplete')
 
       expect(note1).not_to be_nil
 
@@ -92,7 +93,7 @@ RSpec.shared_examples 'updating a single task' do
     end
 
     it 'creates system note about task status change' do
-      note1 = find_note('marked the task **Task 2** as incomplete')
+      note1 = find_note('marked the checklist item **Task 2** as incomplete')
 
       expect(note1).not_to be_nil
 

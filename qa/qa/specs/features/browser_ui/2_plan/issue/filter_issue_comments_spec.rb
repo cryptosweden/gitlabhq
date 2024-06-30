@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan' do
+  RSpec.describe 'Plan', :smoke, product_group: :project_management do
     describe 'filter issue comments activities' do
       before do
         Flow::Login.sign_in
 
-        Resource::Issue.fabricate_via_api!.visit!
+        create(:issue).visit!
       end
 
       it 'filters comments and activities in an issue', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347948' do

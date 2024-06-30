@@ -42,7 +42,7 @@ export default {
     modalId: CANARY_UPDATE_MODAL,
     actionPrimary: {
       text: s__('CanaryIngress|Change ratio'),
-      attributes: [{ variant: 'info' }],
+      attributes: { variant: 'confirm' },
     },
     actionCancel: { text: __('Cancel') },
     static: true,
@@ -108,11 +108,11 @@ export default {
             <template #environment>{{ environmentName }}</template>
           </gl-sprintf>
         </p>
-        <ul class="gl-list-style-none gl-p-0">
+        <ul class="gl-list-none gl-p-0">
           <li>
             <gl-sprintf :message="$options.translations.stableWeight">
               <template #bold="{ content }">
-                <span class="gl-font-weight-bold">{{ content }}</span>
+                <span class="gl-font-bold">{{ content }}</span>
               </template>
               <template #stable>{{ stableWeight }}</template>
             </gl-sprintf>
@@ -120,7 +120,7 @@ export default {
           <li>
             <gl-sprintf :message="$options.translations.canaryWeight">
               <template #bold="{ content }">
-                <span class="gl-font-weight-bold">{{ content }}</span>
+                <span class="gl-font-bold">{{ content }}</span>
               </template>
               <template #canary>{{ canaryWeight }}</template>
             </gl-sprintf>

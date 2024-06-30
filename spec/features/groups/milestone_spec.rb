@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group milestones' do
+RSpec.describe 'Group milestones', feature_category: :team_planning do
   let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project_empty_repo, group: group) }
-  let_it_be(:user) { create(:group_member, :maintainer, user: create(:user), group: group ).user }
+  let_it_be(:user) { create(:group_member, :maintainer, user: create(:user), group: group).user }
 
   around do |example|
     freeze_time { example.run }
@@ -25,17 +25,17 @@ RSpec.describe 'Group milestones' do
 
       description.native.send_keys('')
 
-      click_button('Preview')
+      click_button("Preview")
 
-      preview = find('.js-md-preview')
+      preview = find('.js-vue-md-preview')
 
       expect(preview).to have_content('Nothing to preview.')
 
-      click_button('Write')
+      click_button("Continue editing")
 
       description.native.send_keys(':+1: Nice')
 
-      click_button('Preview')
+      click_button("Preview")
 
       expect(preview).to have_css('gl-emoji')
       expect(find('#milestone_description', visible: false)).not_to be_visible
@@ -70,7 +70,7 @@ RSpec.describe 'Group milestones' do
       end
     end
 
-    context 'when milestones exists' do
+    context 'when milestones exists', :js do
       let_it_be(:other_project) { create(:project_empty_repo, group: group) }
 
       let_it_be(:active_project_milestone1) do
@@ -98,7 +98,7 @@ RSpec.describe 'Group milestones' do
       end
 
       it 'counts milestones correctly' do
-        page.within '[data-testid="milestones-filter"]' do
+        within_testid 'milestones-filter' do
           expect(page).to have_content('Open 3')
           expect(page).to have_content('Closed 3')
           expect(page).to have_content('All 6')
@@ -116,10 +116,40 @@ RSpec.describe 'Group milestones' do
         end
 
         page.within('.detail-page-header') do
+          find_by_testid('milestone-more-actions-dropdown-toggle').click
           click_link('Edit')
         end
 
         expect(page).to have_selector('.milestone-form')
+      end
+
+      it 'shows milestone id' do
+        page.within(".milestones #milestone_#{active_group_milestone.id}") do
+          click_link(active_group_milestone.title)
+        end
+
+        page.within('.detail-page-header') do
+          find_by_testid('milestone-more-actions-dropdown-toggle').click
+        end
+
+        expect(page).to have_selector('[data-testid="copy-milestone-id"]')
+        expect(page).to have_content("Copy milestone ID: #{active_group_milestone.id}")
+      end
+
+      it 'delete a milestone' do
+        page.within(".milestones #milestone_#{active_group_milestone.id}") do
+          click_link(active_group_milestone.title)
+        end
+
+        page.within('.detail-page-header') do
+          find_by_testid('milestone-more-actions-dropdown-toggle').click
+          click_button('Delete')
+        end
+
+        click_button('Delete milestone')
+
+        expect(page).to have_selector('.milestones')
+        expect(page).not_to have_selector(".milestones #milestone_#{active_group_milestone.id}")
       end
 
       it 'renders milestones' do

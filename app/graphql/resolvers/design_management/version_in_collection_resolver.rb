@@ -16,18 +16,14 @@ module Resolvers
       VersionID = ::Types::GlobalIDType[::DesignManagement::Version]
 
       argument :id, VersionID,
-               as: :version_id,
-               required: false,
-               description: 'Global ID of the version.'
+        as: :version_id,
+        required: false,
+        description: 'Global ID of the version.'
       argument :sha, GraphQL::Types::String,
-               required: false,
-               description: "SHA256 of a specific version."
+        required: false,
+        description: "SHA256 of a specific version."
 
       def resolve(version_id: nil, sha: nil)
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        version_id &&= VersionID.coerce_isolated_input(version_id)
-
         check_args(version_id, sha)
 
         ::DesignManagement::VersionsFinder

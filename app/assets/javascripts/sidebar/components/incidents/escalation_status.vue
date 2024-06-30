@@ -1,7 +1,12 @@
 <script>
-import { GlDropdown, GlDropdownItem } from '@gitlab/ui';
-import { i18n, STATUS_ACKNOWLEDGED, STATUS_TRIGGERED, STATUS_RESOLVED } from './constants';
-import { getStatusLabel } from './utils';
+import { GlCollapsibleListbox } from '@gitlab/ui';
+import {
+  INCIDENTS_I18N as i18n,
+  STATUS_ACKNOWLEDGED,
+  STATUS_TRIGGERED,
+  STATUS_RESOLVED,
+} from '../../constants';
+import { getStatusLabel } from '../../utils';
 
 const STATUS_LIST = [STATUS_TRIGGERED, STATUS_ACKNOWLEDGED, STATUS_RESOLVED];
 
@@ -9,8 +14,7 @@ export default {
   i18n,
   STATUS_LIST,
   components: {
-    GlDropdown,
-    GlDropdownItem,
+    GlCollapsibleListbox,
   },
   props: {
     value: {
@@ -21,18 +25,43 @@ export default {
         return [...STATUS_LIST, null].includes(value);
       },
     },
+    headerText: {
+      type: String,
+      required: false,
+      default: null,
+    },
+    statusSubtexts: {
+      type: Object,
+      required: false,
+      default() {
+        return {};
+      },
+    },
+  },
+  data() {
+    return {
+      selected: this.value,
+    };
   },
   computed: {
+    statusDropdownOptions() {
+      return this.$options.STATUS_LIST.map((status) => ({
+        text: this.getStatusLabel(status),
+        subtext: this.statusSubtexts[status],
+        value: status,
+      }));
+    },
     currentStatusLabel() {
       return this.getStatusLabel(this.value);
     },
   },
+
   methods: {
     show() {
-      this.$refs.dropdown.show();
+      this.$refs.dropdown.open();
     },
     hide() {
-      this.$refs.dropdown.hide();
+      this.$refs.dropdown.close();
     },
     getStatusLabel,
   },
@@ -40,22 +69,20 @@ export default {
 </script>
 
 <template>
-  <gl-dropdown
+  <gl-collapsible-listbox
     ref="dropdown"
+    v-model="selected"
+    :header-text="headerText"
     block
-    :text="currentStatusLabel"
+    :toggle-text="currentStatusLabel"
+    :items="statusDropdownOptions"
     toggle-class="dropdown-menu-toggle gl-mb-2"
+    data-testid="escalation-status-dropdown"
+    @select="$emit('input', selected)"
   >
-    <slot name="header"> </slot>
-    <gl-dropdown-item
-      v-for="status in $options.STATUS_LIST"
-      :key="status"
-      data-testid="status-dropdown-item"
-      :is-check-item="true"
-      :is-checked="status === value"
-      @click="$emit('input', status)"
-    >
-      {{ getStatusLabel(status) }}
-    </gl-dropdown-item>
-  </gl-dropdown>
+    <template #list-item="{ item }">
+      <span class="gl-block">{{ item.text }}</span>
+      <span v-if="item.subtext" class="gl-font-sm gl-text-gray-500">{{ item.subtext }}</span>
+    </template>
+  </gl-collapsible-listbox>
 </template>

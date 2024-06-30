@@ -1,14 +1,16 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import {
   GlBadge,
   GlLink,
   GlLoadingIcon,
   GlPagination,
-  GlDeprecatedSkeletonLoading as GlSkeletonLoading,
+  GlSkeletonLoader,
   GlSprintf,
   GlTableLite,
   GlTooltipDirective,
 } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState, mapActions } from 'vuex';
 import { __, sprintf } from '~/locale';
 import { CLUSTER_TYPES, STATUSES } from '../constants';
@@ -25,7 +27,7 @@ export default {
     GlLink,
     GlLoadingIcon,
     GlPagination,
-    GlSkeletonLoading,
+    GlSkeletonLoader,
     GlSprintf,
     GlTableLite,
     NodeErrorHelpText,
@@ -123,9 +125,11 @@ export default {
     k8sQuantityToGb(quantity) {
       if (!quantity) {
         return 0;
-      } else if (quantity.endsWith(__('Ki'))) {
+      }
+      if (quantity.endsWith(__('Ki'))) {
         return parseInt(quantity.substr(0, quantity.length - 2), 10) * 0.000001024;
-      } else if (quantity.endsWith(__('Mi'))) {
+      }
+      if (quantity.endsWith(__('Mi'))) {
         return parseInt(quantity.substr(0, quantity.length - 2), 10) * 0.001048576;
       }
 
@@ -136,9 +140,11 @@ export default {
     k8sQuantityToCpu(quantity) {
       if (!quantity) {
         return 0;
-      } else if (quantity.endsWith('m')) {
+      }
+      if (quantity.endsWith('m')) {
         return parseInt(quantity.substr(0, quantity.length - 1), 10) / 1000.0;
-      } else if (quantity.endsWith('n')) {
+      }
+      if (quantity.endsWith('n')) {
         return parseInt(quantity.substr(0, quantity.length - 1), 10) / 1000000000.0;
       }
 
@@ -224,7 +230,7 @@ export default {
 </script>
 
 <template>
-  <gl-loading-icon v-if="loadingClusters" size="md" />
+  <gl-loading-icon v-if="loadingClusters" size="lg" />
 
   <section v-else>
     <ancestor-notice />
@@ -235,9 +241,7 @@ export default {
       :fields="fields"
       fixed
       stacked="md"
-      head-variant="white"
-      thead-class="gl-border-b-solid gl-border-b-2 gl-border-b-gray-100"
-      class="qa-clusters-table gl-mb-4!"
+      class="gl-mb-4!"
       data-testid="cluster_list_table"
     >
       <template #cell(name)="{ item }">
@@ -248,12 +252,7 @@ export default {
             class="gl-w-6 gl-h-6 gl-display-flex gl-align-items-center"
           />
 
-          <gl-link
-            data-qa-selector="cluster"
-            :data-qa-cluster-name="item.name"
-            :href="item.path"
-            class="gl-px-3"
-          >
+          <gl-link :href="item.path" class="gl-px-3">
             {{ item.name }}
           </gl-link>
 
@@ -269,7 +268,7 @@ export default {
       <template #cell(node_size)="{ item }">
         <span v-if="item.nodes">{{ item.nodes.length }}</span>
 
-        <gl-skeleton-loading v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
+        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
 
         <node-error-help-text
           v-else-if="item.kubernetes_errors"
@@ -290,7 +289,7 @@ export default {
           </gl-sprintf>
         </span>
 
-        <gl-skeleton-loading v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
+        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
 
         <node-error-help-text
           v-else-if="item.kubernetes_errors"
@@ -311,7 +310,7 @@ export default {
           </gl-sprintf>
         </span>
 
-        <gl-skeleton-loading v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
+        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
 
         <node-error-help-text
           v-else-if="item.kubernetes_errors"

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'user reads pipeline status', :js do
+RSpec.describe 'user reads pipeline status', :js, feature_category: :continuous_integration do
   let(:project) { create(:project, :repository) }
   let(:user) { create(:user) }
   let(:v110_pipeline) { create_pipeline('v1.1.0', 'success') }
@@ -25,7 +25,7 @@ RSpec.describe 'user reads pipeline status', :js do
 
       page.within('.commit-detail') do
         expect(page).to have_link('', href: project_pipeline_path(project, expected_pipeline))
-        expect(page).to have_selector(".ci-status-icon-#{expected_pipeline.status}")
+        expect(page).to have_selector("[data-testid='status_#{expected_pipeline.status}_borderless-icon']")
       end
     end
   end

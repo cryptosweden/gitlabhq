@@ -5,34 +5,34 @@ module Types
     class AgentActivityEventType < BaseObject
       graphql_name 'ClusterAgentActivityEvent'
 
-      authorize :read_cluster
+      authorize :read_cluster_agent
 
-      connection_type_class(Types::CountableConnectionType)
+      connection_type_class Types::CountableConnectionType
 
       field :recorded_at,
-            Types::TimeType,
-            null: true,
-            description: 'Timestamp the event was recorded.'
+        Types::TimeType,
+        null: true,
+        description: 'Timestamp the event was recorded.'
 
       field :kind,
-            GraphQL::Types::String,
-            null: true,
-            description: 'Type of event.'
+        GraphQL::Types::String,
+        null: true,
+        description: 'Type of event.'
 
       field :level,
-            GraphQL::Types::String,
-            null: true,
-            description: 'Severity of the event.'
+        GraphQL::Types::String,
+        null: true,
+        description: 'Severity of the event.'
 
       field :user,
-            Types::UserType,
-            null: true,
-            description: 'User associated with the event.'
+        Types::UserType,
+        null: true,
+        description: 'User associated with the event.'
 
       field :agent_token,
-            Types::Clusters::AgentTokenType,
-            null: true,
-            description: 'Agent token associated with the event.'
+        Types::Clusters::AgentTokenType,
+        null: true,
+        description: 'Agent token associated with the event.'
     end
   end
 end

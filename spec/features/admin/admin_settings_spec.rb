@@ -2,20 +2,18 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin updates settings' do
+RSpec.describe 'Admin updates settings', feature_category: :shared do
   include StubENV
   include TermsHelper
   include UsageDataHelpers
 
-  let(:admin) { create(:admin) }
-  let(:dot_com?) { false }
+  let_it_be(:admin) { create(:admin) }
 
   context 'application setting :admin_mode is enabled', :request_store do
     before do
-      allow(Gitlab).to receive(:com?).and_return(dot_com?)
       stub_env('IN_MEMORY_APPLICATION_SETTINGS', 'false')
       sign_in(admin)
-      gitlab_enable_admin_mode_sign_in(admin)
+      enable_admin_mode!(admin, use_ui: true)
     end
 
     context 'General page' do
@@ -24,63 +22,75 @@ RSpec.describe 'Admin updates settings' do
       end
 
       it 'change visibility settings' do
-        page.within('.as-visibility-access') do
+        within_testid('admin-visibility-access-settings') do
           choose "application_setting_default_project_visibility_20"
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'uncheck all restricted visibility levels' do
-        page.within('.as-visibility-access') do
-          find('#application_setting_visibility_level_0').set(false)
-          find('#application_setting_visibility_level_10').set(false)
-          find('#application_setting_visibility_level_20').set(false)
+        within_testid('restricted-visibility-levels') do
+          uncheck s_('VisibilityLevel|Public')
+          uncheck s_('VisibilityLevel|Internal')
+          uncheck s_('VisibilityLevel|Private')
+        end
+
+        within_testid('admin-visibility-access-settings') do
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
-        expect(find('#application_setting_visibility_level_0')).not_to be_checked
-        expect(find('#application_setting_visibility_level_10')).not_to be_checked
-        expect(find('#application_setting_visibility_level_20')).not_to be_checked
+        expect(page).to have_content 'Application settings saved successfully'
+
+        within_testid('restricted-visibility-levels') do
+          expect(find_field(s_('VisibilityLevel|Public'))).not_to be_checked
+          expect(find_field(s_('VisibilityLevel|Internal'))).not_to be_checked
+          expect(find_field(s_('VisibilityLevel|Private'))).not_to be_checked
+        end
       end
 
       it 'modify import sources' do
-        expect(current_settings.import_sources).not_to be_empty
+        expect(current_settings.import_sources).to be_empty
 
-        page.within('.as-visibility-access') do
-          Gitlab::ImportSources.options.map do |name, _|
-            uncheck name
+        within_testid('admin-import-export-settings') do
+          check "Repository by URL"
+          click_button 'Save changes'
+        end
+
+        expect(page).to have_content 'Application settings saved successfully'
+        expect(current_settings.import_sources).to eq(['git'])
+      end
+
+      it 'change Visibility and Access Controls' do
+        expect(current_settings.project_export_enabled).to be(true)
+        expect(current_settings.bulk_import_enabled).to be(false)
+        expect(current_settings.silent_admin_exports_enabled).to be(false)
+
+        within_testid('admin-import-export-settings') do
+          within_testid('project-export') do
+            uncheck 'Enabled'
+          end
+
+          within_testid('bulk-import') do
+            check 'Enabled'
+          end
+
+          within_testid('silent-admin-exports') do
+            check 'Enabled'
           end
 
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
-        expect(current_settings.import_sources).to be_empty
-
-        page.within('.as-visibility-access') do
-          check "Repo by URL"
-          click_button 'Save changes'
-        end
-
-        expect(page).to have_content "Application settings saved successfully"
-        expect(current_settings.import_sources).to eq(['git'])
-      end
-
-      it 'change Visibility and Access Controls' do
-        page.within('.as-visibility-access') do
-          uncheck 'Project export enabled'
-          click_button 'Save changes'
-        end
-
-        expect(current_settings.project_export_enabled).to be_falsey
-        expect(page).to have_content "Application settings saved successfully"
+        expect(current_settings.project_export_enabled).to be(false)
+        expect(current_settings.bulk_import_enabled).to be(true)
+        expect(current_settings.silent_admin_exports_enabled).to be(true)
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'change Keys settings' do
-        page.within('.as-visibility-access') do
+        within_testid('admin-visibility-access-settings') do
           select 'Are forbidden', from: 'RSA SSH keys'
           select 'Are allowed', from: 'DSA SSH keys'
           select 'Must be at least 384 bits', from: 'ECDSA SSH keys'
@@ -102,23 +112,33 @@ RSpec.describe 'Admin updates settings' do
       end
 
       it 'change Account and Limit Settings' do
-        page.within('.as-account-limit') do
+        within_testid('account-and-limit-settings-content') do
           uncheck 'Gravatar enabled'
           click_button 'Save changes'
         end
 
         expect(current_settings.gravatar_enabled).to be_falsey
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
+      end
+
+      it 'change Maximum export size' do
+        within_testid('admin-import-export-settings') do
+          fill_in 'Maximum export size (MiB)', with: 25
+          click_button 'Save changes'
+        end
+
+        expect(current_settings.max_export_size).to eq 25
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'change Maximum import size' do
-        page.within('.as-account-limit') do
-          fill_in 'Maximum import size (MB)', with: 15
+        within_testid('admin-import-export-settings') do
+          fill_in 'Maximum import size (MiB)', with: 15
           click_button 'Save changes'
         end
 
         expect(current_settings.max_import_size).to eq 15
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'change New users set to external', :js do
@@ -133,33 +153,79 @@ RSpec.describe 'Admin updates settings' do
         expect(user_internal_regex['placeholder']).to eq 'Regex pattern'
       end
 
-      context 'Dormant users' do
-        context 'when Gitlab.com' do
-          let(:dot_com?) { true }
-
-          it 'does not expose the setting' do
-            expect(page).to have_no_selector('#application_setting_deactivate_dormant_users')
+      context 'Dormant users', feature_category: :user_management do
+        context 'when Gitlab.com', :saas do
+          it 'does not expose the setting section' do
+            # NOTE: not_to have_content may have false positives for content
+            #       that might not load instantly, so before checking that
+            #       `Dormant users` subsection has _not_ loaded, we check that the
+            #       `Account and limit` section _was_ loaded
+            expect(page).to have_content('Account and limit')
+            expect(page).not_to have_content('Dormant users')
+            expect(page).not_to have_field('Deactivate dormant users after a period of inactivity')
+            expect(page).not_to have_field('Days of inactivity before deactivation')
           end
         end
 
         context 'when not Gitlab.com' do
-          let(:dot_com?) { false }
+          it 'exposes the setting section' do
+            expect(page).to have_content('Dormant users')
+            expect(page).to have_field('Deactivate dormant users after a period of inactivity')
+            expect(page).to have_field('Days of inactivity before deactivation')
+          end
 
-          it 'change Dormant users' do
-            expect(page).to have_unchecked_field('Deactivate dormant users after 90 days of inactivity')
+          it 'changes dormant users', :js do
+            expect(page).to have_unchecked_field(_('Deactivate dormant users after a period of inactivity'))
             expect(current_settings.deactivate_dormant_users).to be_falsey
 
-            page.within('.as-account-limit') do
-              check 'application_setting_deactivate_dormant_users'
-              click_button 'Save changes'
+            within_testid('account-and-limit-settings-content') do
+              check _('Deactivate dormant users after a period of inactivity')
+              click_button _('Save changes')
             end
 
-            expect(page).to have_content "Application settings saved successfully"
+            expect(page).to have_content _('Application settings saved successfully')
 
             page.refresh
 
+            expect(page).to have_checked_field(_('Deactivate dormant users after a period of inactivity'))
             expect(current_settings.deactivate_dormant_users).to be_truthy
-            expect(page).to have_checked_field('Deactivate dormant users after 90 days of inactivity')
+          end
+
+          it 'change dormant users period', :js do
+            expect(page).to have_field(_('Days of inactivity before deactivation'), disabled: true)
+
+            within_testid('account-and-limit-settings-content') do
+              check _('Deactivate dormant users after a period of inactivity')
+              fill_in _('Days of inactivity before deactivation'), with: '180'
+              click_button _('Save changes')
+            end
+
+            expect(page).to have_content _('Application settings saved successfully')
+
+            page.refresh
+
+            expect(page).to have_field(_('Days of inactivity before deactivation'), disabled: false, with: '180')
+          end
+
+          it 'displays dormant users period field validation error', :js do
+            selector = '#application_setting_deactivate_dormant_users_period_error'
+            expect(page).not_to have_selector(selector, visible: :visible)
+
+            within_testid('account-and-limit-settings-content') do
+              check 'application_setting_deactivate_dormant_users'
+              fill_in _('application_setting_deactivate_dormant_users_period'), with: '30'
+              click_button 'Save changes'
+            end
+
+            expect(page).to have_selector(selector, visible: :visible)
+          end
+
+          it 'auto disables dormant users period field depending on parent checkbox', :js do
+            uncheck 'application_setting_deactivate_dormant_users'
+            expect(page).to have_field('application_setting_deactivate_dormant_users_period', disabled: true)
+
+            check 'application_setting_deactivate_dormant_users'
+            expect(page).to have_field('application_setting_deactivate_dormant_users_period', disabled: false)
           end
         end
       end
@@ -173,7 +239,23 @@ RSpec.describe 'Admin updates settings' do
             end
 
             expect(current_settings.require_admin_approval_after_user_signup).to be_truthy
-            expect(page).to have_content "Application settings saved successfully"
+            expect(page).to have_content 'Application settings saved successfully'
+          end
+        end
+
+        context 'Email confirmation settings' do
+          it "is set to 'hard' by default" do
+            expect(current_settings.email_confirmation_setting).to eq('off')
+          end
+
+          it 'changes the setting', :js do
+            page.within('.as-signup') do
+              choose 'Hard'
+              click_button 'Save changes'
+            end
+
+            expect(current_settings.email_confirmation_setting).to eq('hard')
+            expect(page).to have_content 'Application settings saved successfully'
           end
         end
       end
@@ -185,10 +267,10 @@ RSpec.describe 'Admin updates settings' do
         end
 
         expect(current_settings.home_page_url).to eq "https://about.gitlab.com/"
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
-      it 'terms of Service' do
+      it 'terms of Service', :js do
         # Already have the admin accept terms, so they don't need to accept in this spec.
         _existing_terms = create(:term)
         accept_terms(admin)
@@ -201,7 +283,10 @@ RSpec.describe 'Admin updates settings' do
 
         expect(current_settings.enforce_terms).to be(true)
         expect(current_settings.terms).to eq 'Be nice!'
-        expect(page).to have_content 'Application settings saved successfully'
+
+        click_button 'Accept terms'
+
+        expect(page).to have_current_path(general_admin_application_settings_path, ignore_query: true)
       end
 
       it 'modify oauth providers' do
@@ -212,7 +297,7 @@ RSpec.describe 'Admin updates settings' do
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.disabled_oauth_sign_in_sources).to include('google_oauth2')
 
         page.within('.as-signin') do
@@ -220,7 +305,7 @@ RSpec.describe 'Admin updates settings' do
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.disabled_oauth_sign_in_sources).not_to include('google_oauth2')
       end
 
@@ -232,7 +317,7 @@ RSpec.describe 'Admin updates settings' do
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.disabled_oauth_sign_in_sources).to include('google_oauth2')
 
         # Remove google_oauth2 from the Omniauth strategies
@@ -243,7 +328,7 @@ RSpec.describe 'Admin updates settings' do
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.disabled_oauth_sign_in_sources).to include('google_oauth2')
       end
 
@@ -253,7 +338,7 @@ RSpec.describe 'Admin updates settings' do
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.terminal_max_session_time).to eq(15)
       end
 
@@ -270,6 +355,67 @@ RSpec.describe 'Admin updates settings' do
           expect(current_settings.gitpod_enabled).to be(true)
         end
       end
+
+      context 'GitLab for Jira App settings', feature_category: :integrations do
+        it 'changes the settings' do
+          page.within('#js-jira_connect-settings') do
+            fill_in 'Jira Connect Application ID', with: '1234'
+            fill_in 'Jira Connect Proxy URL', with: 'https://example.com'
+            check 'Enable public key storage'
+            click_button 'Save changes'
+          end
+
+          expect(current_settings.jira_connect_application_key).to eq('1234')
+          expect(current_settings.jira_connect_proxy_url).to eq('https://example.com')
+          expect(current_settings.jira_connect_public_key_storage_enabled).to eq(true)
+          expect(page).to have_content 'Application settings saved successfully'
+        end
+      end
+
+      context 'GitLab for Slack app settings', feature_category: :integrations do
+        let(:create_heading) { 'Create your GitLab for Slack app' }
+        let(:configure_heading) { 'Configure the app settings' }
+        let(:update_heading) { 'Update your Slack app' }
+
+        it 'has all sections' do
+          page.within('.as-slack') do
+            expect(page).to have_content(create_heading)
+            expect(page).to have_content(configure_heading)
+            expect(page).to have_content(update_heading)
+          end
+        end
+
+        context 'when GitLab.com', :saas do
+          it 'only has the configure section' do
+            page.within('.as-slack') do
+              expect(page).to have_content(configure_heading)
+
+              expect(page).not_to have_content(create_heading)
+              expect(page).not_to have_content(update_heading)
+            end
+          end
+        end
+
+        it 'changes the settings' do
+          page.within('.as-slack') do
+            check 'Enable GitLab for Slack app'
+            fill_in 'Client ID', with: 'slack_app_id'
+            fill_in 'Client secret', with: 'slack_app_secret'
+            fill_in 'Signing secret', with: 'slack_app_signing_secret'
+            fill_in 'Verification token', with: 'slack_app_verification_token'
+            click_button 'Save changes'
+          end
+
+          expect(current_settings).to have_attributes(
+            slack_app_enabled: true,
+            slack_app_id: 'slack_app_id',
+            slack_app_secret: 'slack_app_secret',
+            slack_app_signing_secret: 'slack_app_signing_secret',
+            slack_app_verification_token: 'slack_app_verification_token'
+          )
+          expect(page).to have_content 'Application settings saved successfully'
+        end
+      end
     end
 
     context 'Integrations page' do
@@ -283,7 +429,7 @@ RSpec.describe 'Admin updates settings' do
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.hide_third_party_offers).to be true
       end
 
@@ -316,11 +462,13 @@ RSpec.describe 'Admin updates settings' do
       it 'changes CI/CD settings' do
         visit ci_cd_admin_application_settings_path
 
-        page.within('.as-ci-cd') do
+        within_testid('ci-cd-settings') do
           check 'Default to Auto DevOps pipeline for all projects'
           fill_in 'application_setting_auto_devops_domain', with: 'domain.com'
           uncheck 'Keep the latest artifacts for all jobs in the latest successful pipelines'
           uncheck 'Enable pipeline suggestion banner'
+          fill_in 'application_setting_ci_max_includes', with: 200
+          fill_in 'application_setting_downstream_pipeline_trigger_limit_per_project_user_sha', with: 500
           click_button 'Save changes'
         end
 
@@ -328,13 +476,18 @@ RSpec.describe 'Admin updates settings' do
         expect(current_settings.auto_devops_domain).to eq('domain.com')
         expect(current_settings.keep_latest_artifact).to be false
         expect(current_settings.suggest_pipeline_enabled).to be false
-        expect(page).to have_content "Application settings saved successfully"
+        expect(current_settings.ci_max_includes).to be 200
+        expect(current_settings.downstream_pipeline_trigger_limit_per_project_user_sha).to be 500
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'changes CI/CD limits', :aggregate_failures do
         visit ci_cd_admin_application_settings_path
 
-        page.within('.as-ci-cd') do
+        within_testid('ci-cd-settings') do
+          fill_in 'plan_limits_ci_instance_level_variables', with: 5
+          fill_in 'plan_limits_dotenv_size', with: 6
+          fill_in 'plan_limits_dotenv_variables', with: 7
           fill_in 'plan_limits_ci_pipeline_size', with: 10
           fill_in 'plan_limits_ci_active_jobs', with: 20
           fill_in 'plan_limits_ci_project_subscriptions', with: 30
@@ -346,6 +499,9 @@ RSpec.describe 'Admin updates settings' do
         end
 
         limits = default_plan.reload.limits
+        expect(limits.ci_instance_level_variables).to eq(5)
+        expect(limits.dotenv_size).to eq(6)
+        expect(limits.dotenv_variables).to eq(7)
         expect(limits.ci_pipeline_size).to eq(10)
         expect(limits.ci_active_jobs).to eq(20)
         expect(limits.ci_project_subscriptions).to eq(30)
@@ -356,67 +512,53 @@ RSpec.describe 'Admin updates settings' do
         expect(page).to have_content 'Application limits saved successfully'
       end
 
-      context 'Runner Registration' do
-        context 'when feature is enabled' do
-          before do
-            stub_feature_flags(runner_registration_control: true)
+      context 'Skip NuGet package metadata url validation' do
+        it 'updates skip NuGet url validation' do
+          allow(Gitlab).to receive(:com?).and_return(false)
+
+          visit ci_cd_admin_application_settings_path
+
+          within_testid('forward-package-requests-form') do
+            check 'Skip metadata URL validation for the NuGet package'
+            click_button 'Save changes'
           end
 
-          it 'allows admins to control who has access to register runners' do
-            visit ci_cd_admin_application_settings_path
-
-            expect(current_settings.valid_runner_registrars).to eq(ApplicationSetting::VALID_RUNNER_REGISTRAR_TYPES)
-
-            page.within('.as-runner') do
-              find_all('.form-check-input').each(&:click)
-
-              click_button 'Save changes'
-            end
-
-            expect(current_settings.valid_runner_registrars).to eq([])
-            expect(page).to have_content "Application settings saved successfully"
-          end
+          expect(current_settings.nuget_skip_metadata_url_validation).to be true
+          expect(page).to have_content 'Application settings saved successfully'
         end
+      end
 
-        context 'when feature is disabled' do
-          before do
-            stub_feature_flags(runner_registration_control: false)
+      context 'Runner Registration' do
+        it 'allows admins to control who has access to register runners' do
+          visit ci_cd_admin_application_settings_path
+
+          expect(current_settings.valid_runner_registrars).to eq(ApplicationSetting::VALID_RUNNER_REGISTRAR_TYPES)
+
+          within_testid('runner-settings') do
+            find_all('input[type="checkbox"]').each(&:click)
+
+            click_button 'Save changes'
           end
 
-          it 'does not allow admins to control who has access to register runners' do
-            visit ci_cd_admin_application_settings_path
-
-            expect(current_settings.valid_runner_registrars).to eq(ApplicationSetting::VALID_RUNNER_REGISTRAR_TYPES)
-
-            expect(page).not_to have_css('.as-runner')
-          end
+          expect(current_settings.valid_runner_registrars).to eq([])
+          expect(page).to have_content 'Application settings saved successfully'
         end
       end
 
       context 'Container Registry' do
-        let(:feature_flag_enabled) { true }
         let(:client_support) { true }
         let(:settings_titles) do
           {
             container_registry_delete_tags_service_timeout: 'Container Registry delete tags service execution timeout',
             container_registry_expiration_policies_worker_capacity: 'Cleanup policy maximum workers running concurrently',
             container_registry_cleanup_tags_service_max_list_size: 'Cleanup policy maximum number of tags to be deleted',
-            container_registry_expiration_policies_caching: 'Enable container expiration caching'
+            container_registry_expiration_policies_caching: 'Enable cleanup policy caching'
           }
         end
 
         before do
           stub_container_registry_config(enabled: true)
-          stub_feature_flags(container_registry_expiration_policies_throttling: feature_flag_enabled)
           allow(ContainerRegistry::Client).to receive(:supports_tag_delete?).and_return(client_support)
-        end
-
-        shared_examples 'not having container registry setting' do |registry_setting|
-          it "lacks the container setting #{registry_setting}" do
-            visit ci_cd_admin_application_settings_path
-
-            expect(page).not_to have_content(settings_titles[registry_setting])
-          end
         end
 
         %i[container_registry_delete_tags_service_timeout container_registry_expiration_policies_worker_capacity container_registry_cleanup_tags_service_max_list_size].each do |setting|
@@ -424,19 +566,13 @@ RSpec.describe 'Admin updates settings' do
             it 'changes the setting' do
               visit ci_cd_admin_application_settings_path
 
-              page.within('.as-registry') do
+              within_testid('registry-settings') do
                 fill_in "application_setting_#{setting}", with: 400
                 click_button 'Save changes'
               end
 
               expect(current_settings.public_send(setting)).to eq(400)
-              expect(page).to have_content "Application settings saved successfully"
-            end
-
-            context 'with feature flag disabled' do
-              let(:feature_flag_enabled) { false }
-
-              it_behaves_like 'not having container registry setting', setting
+              expect(page).to have_content 'Application settings saved successfully'
             end
           end
         end
@@ -447,19 +583,13 @@ RSpec.describe 'Admin updates settings' do
 
             visit ci_cd_admin_application_settings_path
 
-            page.within('.as-registry') do
-              find('#application_setting_container_registry_expiration_policies_caching.form-check-input').click
+            within_testid('registry-settings') do
+              find('#application_setting_container_registry_expiration_policies_caching').click
               click_button 'Save changes'
             end
 
             expect(current_settings.container_registry_expiration_policies_caching).to eq(!old_value)
-            expect(page).to have_content "Application settings saved successfully"
-          end
-
-          context 'with feature flag disabled' do
-            let(:feature_flag_enabled) { false }
-
-            it_behaves_like 'not having container registry setting', :container_registry_expiration_policies_caching
+            expect(page).to have_content 'Application settings saved successfully'
           end
         end
       end
@@ -469,7 +599,7 @@ RSpec.describe 'Admin updates settings' do
       it 'change Repository storage settings' do
         visit repository_admin_application_settings_path
 
-        page.within('.as-repository-storage') do
+        within_testid('repository-storage-settings') do
           fill_in 'application_setting_repository_storages_weighted_default', with: 50
           click_button 'Save changes'
         end
@@ -482,7 +612,7 @@ RSpec.describe 'Admin updates settings' do
 
         visit repository_admin_application_settings_path
 
-        page.within('.as-repository-storage') do
+        within_testid('repository-storage-settings') do
           fill_in 'application_setting_repository_storages_weighted_default', with: 50
           click_button 'Save changes'
         end
@@ -497,7 +627,7 @@ RSpec.describe 'Admin updates settings' do
 
           visit repository_admin_application_settings_path
 
-          page.within('.as-repository-static-objects') do
+          within_testid('repository-static-objects-settings') do
             fill_in 'application_setting_static_objects_external_storage_url', with: 'http://example.com'
             fill_in 'application_setting_static_objects_external_storage_auth_token', with: 'Token'
             click_button 'Save changes'
@@ -513,11 +643,11 @@ RSpec.describe 'Admin updates settings' do
       it 'change Spam settings' do
         visit reporting_admin_application_settings_path
 
-        page.within('.as-spam') do
+        within_testid('spam-settings') do
           fill_in 'reCAPTCHA site key', with: 'key'
           fill_in 'reCAPTCHA private key', with: 'key'
-          check 'Enable reCAPTCHA'
-          check 'Enable reCAPTCHA for login'
+          find('#application_setting_recaptcha_enabled').set(true)
+          find('#application_setting_login_recaptcha_protection_enabled').set(true)
           fill_in 'IP addresses per user', with: 15
           check 'Enable Spam Check via external API endpoint'
           fill_in 'URL of the external Spam Check endpoint', with: 'grpc://www.example.com/spamcheck'
@@ -525,7 +655,7 @@ RSpec.describe 'Admin updates settings' do
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.recaptcha_enabled).to be true
         expect(current_settings.login_recaptcha_protection_enabled).to be true
         expect(current_settings.unique_ips_limit_per_user).to eq(15)
@@ -540,29 +670,29 @@ RSpec.describe 'Admin updates settings' do
       end
 
       it 'change Prometheus settings' do
-        page.within('.as-prometheus') do
-          check 'Enable health and performance metrics endpoint'
+        within_testid('prometheus-settings') do
+          check 'Enable GitLab Prometheus metrics endpoint'
           click_button 'Save changes'
         end
 
         expect(current_settings.prometheus_metrics_enabled?).to be true
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'change Performance bar settings' do
         group = create(:group)
 
-        page.within('.as-performance-bar') do
+        within_testid('performance-bar-settings-content') do
           check 'Allow non-administrators access to the performance bar'
           fill_in 'Allow access to members of the following group', with: group.path
           click_on 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(find_field('Allow non-administrators access to the performance bar')).to be_checked
         expect(find_field('Allow access to members of the following group').value).to eq group.path
 
-        page.within('.as-performance-bar') do
+        within_testid('performance-bar-settings-content') do
           uncheck 'Allow non-administrators access to the performance bar'
           click_on 'Save changes'
         end
@@ -572,26 +702,47 @@ RSpec.describe 'Admin updates settings' do
         expect(find_field('Allow access to members of the following group').value).to be_nil
       end
 
-      it 'loads togglable usage ping payload on click', :js do
-        stub_usage_data_connections
-        stub_database_flavor_check
+      context 'Service usage data', :with_license do
+        before do
+          stub_usage_data_connections
+          stub_database_flavor_check
+        end
 
-        page.within('#js-usage-settings') do
-          expected_payload_content = /(?=.*"uuid")(?=.*"hostname")/m
+        context 'when service data cached' do
+          before_all do
+            create(:raw_usage_data)
+          end
 
-          expect(page).not_to have_content expected_payload_content
+          it 'loads usage ping payload on click', :js do
+            expected_payload_content = /(?=.*"test")/m
 
-          click_button('Preview payload')
+            expect(page).not_to have_content expected_payload_content
 
-          wait_for_requests
+            click_button('Preview payload')
 
-          expect(page).to have_selector '.js-service-ping-payload'
-          expect(page).to have_button 'Hide payload'
-          expect(page).to have_content expected_payload_content
+            wait_for_requests
 
-          click_button('Hide payload')
+            expect(page).to have_button 'Hide payload'
+            expect(page).to have_content expected_payload_content
+          end
 
-          expect(page).not_to have_content expected_payload_content
+          it 'generates usage ping payload on button click', :js do
+            expect_next_instance_of(Admin::ApplicationSettingsController) do |instance|
+              expect(instance).to receive(:usage_data).and_call_original
+            end
+
+            click_button('Download payload')
+
+            wait_for_requests
+          end
+        end
+
+        context 'when service data not cached' do
+          it 'renders missing cache information' do
+            visit metrics_and_profiling_admin_application_settings_path
+
+            expect(page).to have_text('Service Ping payload not found in the application cache')
+          end
         end
       end
     end
@@ -600,25 +751,25 @@ RSpec.describe 'Admin updates settings' do
       it 'changes Outbound requests settings' do
         visit network_admin_application_settings_path
 
-        page.within('.as-outbound') do
-          check 'Allow requests to the local network from web hooks and services'
+        within_testid('outbound-requests-content') do
+          check 'Allow requests to the local network from webhooks and integrations'
           # Enabled by default
           uncheck 'Allow requests to the local network from system hooks'
           # Enabled by default
-          uncheck 'Enforce DNS rebinding attack protection'
+          uncheck 'Enforce DNS-rebinding attack protection'
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.allow_local_requests_from_web_hooks_and_services).to be true
         expect(current_settings.allow_local_requests_from_system_hooks).to be false
         expect(current_settings.dns_rebinding_protection_enabled).to be false
       end
 
-      it 'changes User and IP Rate Limits settings' do
+      it 'changes User and IP rate limits settings' do
         visit network_admin_application_settings_path
 
-        page.within('.as-ip-limits') do
+        within_testid('ip-limits-content') do
           check 'Enable unauthenticated API request rate limit'
           fill_in 'Maximum unauthenticated API requests per rate limit period per IP', with: 100
           fill_in 'Unauthenticated API rate limit period in seconds', with: 200
@@ -635,12 +786,14 @@ RSpec.describe 'Admin updates settings' do
           fill_in 'Maximum authenticated web requests per rate limit period per user', with: 700
           fill_in 'Authenticated web rate limit period in seconds', with: 800
 
+          fill_in "Maximum authenticated requests to project/:id/jobs per minute", with: 1000
+
           fill_in 'Plain-text response to send to clients that hit a rate limit', with: 'Custom message'
 
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
 
         expect(current_settings).to have_attributes(
           throttle_unauthenticated_api_enabled: true,
@@ -655,6 +808,7 @@ RSpec.describe 'Admin updates settings' do
           throttle_authenticated_web_enabled: true,
           throttle_authenticated_web_requests_per_period: 700,
           throttle_authenticated_web_period_in_seconds: 800,
+          project_jobs_api_rate_limit: 1000,
           rate_limiting_response_text: 'Custom message'
         )
       end
@@ -662,34 +816,181 @@ RSpec.describe 'Admin updates settings' do
       it 'changes Issues rate limits settings' do
         visit network_admin_application_settings_path
 
-        page.within('.as-issue-limits') do
-          fill_in 'Max requests per minute per user', with: 0
+        within_testid('issue-limits-settings') do
+          fill_in 'Maximum number of requests per minute', with: 0
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.issues_create_limit).to eq(0)
+      end
+
+      it 'changes Pipelines rate limits settings' do
+        visit network_admin_application_settings_path
+
+        within_testid('pipeline-limits-settings') do
+          fill_in 'Maximum number of requests per minute', with: 10
+          click_button 'Save changes'
+        end
+
+        expect(page).to have_content 'Application settings saved successfully'
+        expect(current_settings.pipeline_limit_per_project_user_sha).to eq(10)
       end
 
       it 'changes Users API rate limits settings' do
         visit network_admin_application_settings_path
 
-        page.within('.as-users-api-limits') do
+        within_testid('users-api-limits-settings') do
           fill_in 'Maximum requests per 10 minutes per user', with: 0
           fill_in 'Users to exclude from the rate limit', with: 'someone, someone_else'
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.users_get_by_id_limit).to eq(0)
         expect(current_settings.users_get_by_id_limit_allowlist).to eq(%w[someone someone_else])
+      end
+
+      it 'changes gitlab shell operation limits settings' do
+        visit network_admin_application_settings_path
+
+        within_testid('gitlab-shell-operation-limits') do
+          fill_in 'Maximum number of Git operations per minute', with: 100
+          click_button 'Save changes'
+        end
+
+        expect(page).to have_content 'Application settings saved successfully'
+        expect(current_settings.gitlab_shell_operation_limit).to eq(100)
+      end
+
+      shared_examples 'API rate limit setting' do
+        it 'changes the rate limits settings' do
+          visit network_admin_application_settings_path
+
+          new_rate_limit = 1234
+          within_testid(network_settings_section) do
+            fill_in rate_limit_field, with: new_rate_limit
+            click_button 'Save changes'
+          end
+
+          expect(page).to have_content 'Application settings saved successfully'
+          expect(current_settings[application_setting_key]).to eq(new_rate_limit)
+        end
+      end
+
+      describe 'groups API rate limits' do
+        let_it_be(:network_settings_section) { 'groups-api-limits-settings' }
+
+        context 'for unauthenticated GET /groups API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user or IP address'), api_name: 'GET /groups', timeframe: 'minute')
+          end
+
+          let_it_be(:application_setting_key) { :groups_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
+
+        context 'for GET /groups/:id API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user or IP address'), api_name: 'GET /groups/:id', timeframe: 'minute')
+          end
+
+          let_it_be(:application_setting_key) { :group_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
+
+        context 'for GET /groups/:id/projects API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user or IP address'), api_name: 'GET /groups/:id/projects', timeframe: 'minute')
+          end
+
+          let_it_be(:application_setting_key) { :group_projects_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
+
+        context 'for GET /groups/:id/groups/shared API requests' do
+          let(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user or IP address'), api_name: 'GET /groups/:id/groups/shared', timeframe: 'minute')
+          end
+
+          let(:application_setting_key) { :group_shared_groups_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
+      end
+
+      describe 'projects API rate limits' do
+        let_it_be(:network_settings_section) { 'projects-api-limits-settings' }
+
+        context 'for unauthenticated GET /projects API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per IP address for unauthenticated requests'), api_name: 'GET /projects', timeframe: '10 minutes')
+          end
+
+          let_it_be(:application_setting_key) { :projects_api_rate_limit_unauthenticated }
+
+          it_behaves_like 'API rate limit setting'
+        end
+
+        context 'for GET /projects API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user for authenticated requests'), api_name: 'GET /projects', timeframe: '10 minutes')
+          end
+
+          let_it_be(:application_setting_key) { :projects_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
+
+        context 'for GET /projects/:id API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user or IP address'), api_name: 'GET /projects/:id', timeframe: 'minute')
+          end
+
+          let_it_be(:application_setting_key) { :project_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
+
+        context 'for GET /users/:user_id/projects API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user or IP address'), api_name: 'GET /users/:user_id/projects', timeframe: 'minute')
+          end
+
+          let_it_be(:application_setting_key) { :user_projects_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
+
+        context 'for GET /users/:user_id/contributed_projects API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user or IP address'), api_name: 'GET /users/:user_id/contributed_projects', timeframe: 'minute')
+          end
+
+          let_it_be(:application_setting_key) { :user_contributed_projects_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
+
+        context 'for GET /users/:user_id/starred_projects API requests' do
+          let_it_be(:rate_limit_field) do
+            format(_('Maximum requests to the %{api_name} API per %{timeframe} per user or IP address'), api_name: 'GET /users/:user_id/starred_projects', timeframe: 'minute')
+          end
+
+          let_it_be(:application_setting_key) { :user_starred_projects_api_limit }
+
+          it_behaves_like 'API rate limit setting'
+        end
       end
 
       shared_examples 'regular throttle rate limit settings' do
         it 'changes rate limit settings' do
           visit network_admin_application_settings_path
 
-          page.within(".#{selector}") do
+          within_testid(selector) do
             check 'Enable unauthenticated API request rate limit'
             fill_in 'Maximum unauthenticated API requests per rate limit period per IP', with: 12
             fill_in 'Unauthenticated API rate limit period in seconds', with: 34
@@ -701,7 +1002,7 @@ RSpec.describe 'Admin updates settings' do
             click_button 'Save changes'
           end
 
-          expect(page).to have_content "Application settings saved successfully"
+          expect(page).to have_content 'Application settings saved successfully'
 
           expect(current_settings).to have_attributes(
             "throttle_unauthenticated_#{fragment}_enabled" => true,
@@ -715,21 +1016,21 @@ RSpec.describe 'Admin updates settings' do
       end
 
       context 'Package Registry API rate limits' do
-        let(:selector) { 'as-packages-limits' }
+        let(:selector) { 'packages-limits-settings' }
         let(:fragment) { :packages_api }
 
         include_examples 'regular throttle rate limit settings'
       end
 
       context 'Files API rate limits' do
-        let(:selector) { 'as-files-limits' }
+        let(:selector) { 'files-limits-settings' }
         let(:fragment) { :files_api }
 
         include_examples 'regular throttle rate limit settings'
       end
 
       context 'Deprecated API rate limits' do
-        let(:selector) { 'as-deprecated-limits' }
+        let(:selector) { 'deprecated-api-rate-limits-settings' }
         let(:fragment) { :deprecated_api }
 
         include_examples 'regular throttle rate limit settings'
@@ -738,13 +1039,13 @@ RSpec.describe 'Admin updates settings' do
       it 'changes search rate limits' do
         visit network_admin_application_settings_path
 
-        page.within('.as-search-limits') do
+        within_testid('search-limits-settings') do
           fill_in 'Maximum number of requests per minute for an authenticated user', with: 98
           fill_in 'Maximum number of requests per minute for an unauthenticated IP address', with: 76
           click_button 'Save changes'
         end
 
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
         expect(current_settings.search_rate_limit).to eq(98)
         expect(current_settings.search_rate_limit_unauthenticated).to eq(76)
       end
@@ -755,11 +1056,27 @@ RSpec.describe 'Admin updates settings' do
         visit preferences_admin_application_settings_path
       end
 
+      describe 'Email page' do
+        context 'when deactivation email additional text feature flag is enabled' do
+          it 'shows deactivation email additional text field' do
+            expect(page).to have_field 'Additional text for deactivation email'
+
+            within_testid('email-content') do
+              fill_in 'Additional text for deactivation email', with: 'So long and thanks for all the fish!'
+              click_button 'Save changes'
+            end
+
+            expect(page).to have_content 'Application settings saved successfully'
+            expect(current_settings.deactivation_email_additional_text).to eq('So long and thanks for all the fish!')
+          end
+        end
+      end
+
       it 'change Help page' do
         new_support_url = 'http://example.com/help'
         new_documentation_url = 'https://docs.gitlab.com'
 
-        page.within('.as-help-page') do
+        within_testid('help-page-content') do
           fill_in 'Additional text to show on the Help page', with: 'Example text'
           check 'Hide marketing-related entries from the Help page'
           fill_in 'Support page URL', with: new_support_url
@@ -771,33 +1088,33 @@ RSpec.describe 'Admin updates settings' do
         expect(current_settings.help_page_hide_commercial_content).to be_truthy
         expect(current_settings.help_page_support_url).to eq new_support_url
         expect(current_settings.help_page_documentation_base_url).to eq new_documentation_url
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'change Pages settings' do
-        page.within('.as-pages') do
-          fill_in 'Maximum size of pages (MB)', with: 15
+        within_testid('pages-content') do
+          fill_in 'Maximum size of pages (MiB)', with: 15
           check 'Require users to prove ownership of custom domains'
           click_button 'Save changes'
         end
 
         expect(current_settings.max_pages_size).to eq 15
         expect(current_settings.pages_domain_verification_enabled?).to be_truthy
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'change Real-time features settings' do
-        page.within('.as-realtime') do
+        within_testid('realtime-content') do
           fill_in 'Polling interval multiplier', with: 5.0
           click_button 'Save changes'
         end
 
         expect(current_settings.polling_interval_multiplier).to eq 5.0
-        expect(page).to have_content "Application settings saved successfully"
+        expect(page).to have_content 'Application settings saved successfully'
       end
 
       it 'shows an error when validation fails' do
-        page.within('.as-realtime') do
+        within_testid('realtime-content') do
           fill_in 'Polling interval multiplier', with: -1.0
           click_button 'Save changes'
         end
@@ -809,7 +1126,7 @@ RSpec.describe 'Admin updates settings' do
 
       it "change Pages Let's Encrypt settings" do
         visit preferences_admin_application_settings_path
-        page.within('.as-pages') do
+        within_testid('pages-content') do
           fill_in "Let's Encrypt email", with: 'my@test.example.com'
           check "I have read and agree to the Let's Encrypt Terms of Service"
           click_button 'Save changes'
@@ -820,15 +1137,14 @@ RSpec.describe 'Admin updates settings' do
       end
     end
 
-    context 'Nav bar' do
+    context 'Nav bar', :js do
       it 'shows default help links in nav' do
-        default_support_url = "https://#{ApplicationHelper.promo_host}/getting-help/"
+        default_support_url = "https://#{ApplicationHelper.promo_host}/get-help/"
 
         visit root_dashboard_path
 
-        find('.header-help-dropdown-toggle').click
-
-        page.within '.header-help' do
+        within_testid('super-sidebar') do
+          click_on 'Help'
           expect(page).to have_link(text: 'Help', href: help_path)
           expect(page).to have_link(text: 'Support', href: default_support_url)
         end
@@ -840,43 +1156,10 @@ RSpec.describe 'Admin updates settings' do
 
         visit root_dashboard_path
 
-        find('.header-help-dropdown-toggle').click
-
-        page.within '.header-help' do
+        within_testid('super-sidebar') do
+          click_on 'Help'
           expect(page).to have_link(text: 'Support', href: new_support_url)
         end
-      end
-    end
-
-    context 'Service usage data page' do
-      before do
-        stub_usage_data_connections
-        stub_database_flavor_check
-
-        visit service_usage_data_admin_application_settings_path
-      end
-
-      it 'loads usage ping payload on click', :js do
-        expected_payload_content = /(?=.*"uuid")(?=.*"hostname")/m
-
-        expect(page).not_to have_content expected_payload_content
-
-        click_button('Preview payload')
-
-        wait_for_requests
-
-        expect(page).to have_button 'Hide payload'
-        expect(page).to have_content expected_payload_content
-      end
-
-      it 'generates usage ping payload on button click', :js do
-        expect_next_instance_of(Admin::ApplicationSettingsController) do |instance|
-          expect(instance).to receive(:usage_data).and_call_original
-        end
-
-        click_button('Download payload')
-
-        wait_for_requests
       end
     end
   end

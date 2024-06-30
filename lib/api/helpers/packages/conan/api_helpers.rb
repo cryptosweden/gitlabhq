@@ -23,7 +23,7 @@ module API
           end
 
           def present_download_urls(entity)
-            authorize!(:read_package, project)
+            authorize_read_package!(project)
 
             presenter = ::Packages::Conan::PackagePresenter.new(
               package,
@@ -47,14 +47,14 @@ module API
           end
 
           def recipe_upload_urls
-            { upload_urls: file_names.select(&method(:recipe_file?)).to_h do |file_name|
-                             [file_name, build_recipe_file_upload_url(file_name)]
+            { upload_urls: file_names.select(&method(:recipe_file?)).index_with do |file_name|
+                             build_recipe_file_upload_url(file_name)
                            end }
           end
 
           def package_upload_urls
-            { upload_urls: file_names.select(&method(:package_file?)).to_h do |file_name|
-                             [file_name, build_package_file_upload_url(file_name)]
+            { upload_urls: file_names.select(&method(:package_file?)).index_with do |file_name|
+                             build_package_file_upload_url(file_name)
                            end }
           end
 
@@ -125,43 +125,40 @@ module API
           end
 
           def project
-            strong_memoize(:project) do
-              case package_scope
-              when :project
-                find_project!(params[:id])
-              when :instance
-                full_path = ::Packages::Conan::Metadatum.full_path_from(package_username: params[:package_username])
-                find_project!(full_path)
-              end
+            case package_scope
+            when :project
+              user_project(action: :read_package)
+            when :instance
+              full_path = ::Packages::Conan::Metadatum.full_path_from(package_username: params[:package_username])
+              find_project!(full_path)
             end
           end
+          strong_memoize_attr :project
 
           def package
-            strong_memoize(:package) do
-              project.packages
-                .conan
-                .with_name(params[:package_name])
-                .with_version(params[:package_version])
-                .with_conan_username(params[:package_username])
-                .with_conan_channel(params[:package_channel])
-                .order_created
-                .not_pending_destruction
-                .last
-            end
+            ::Packages::Conan::Package
+              .for_projects(project)
+              .with_name(params[:package_name])
+              .with_version(params[:package_version])
+              .with_conan_username(params[:package_username])
+              .with_conan_channel(params[:package_channel])
+              .order_created
+              .not_pending_destruction
+              .last
           end
+          strong_memoize_attr :package
 
           def token
-            strong_memoize(:token) do
-              token = nil
-              token = ::Gitlab::ConanToken.from_personal_access_token(access_token) if access_token
-              token = ::Gitlab::ConanToken.from_deploy_token(deploy_token_from_request) if deploy_token_from_request
-              token = ::Gitlab::ConanToken.from_job(find_job_from_token) if find_job_from_token
-              token
-            end
+            token = nil
+            token = ::Gitlab::ConanToken.from_personal_access_token(find_personal_access_token.user_id, access_token_from_request) if find_personal_access_token
+            token = ::Gitlab::ConanToken.from_deploy_token(deploy_token_from_request) if deploy_token_from_request
+            token = ::Gitlab::ConanToken.from_job(find_job_from_token) if find_job_from_token
+            token
           end
+          strong_memoize_attr :token
 
           def download_package_file(file_type)
-            authorize!(:read_package, project)
+            authorize_read_package!(project)
 
             package_file = ::Packages::Conan::PackageFileFinder
               .new(
@@ -171,9 +168,9 @@ module API
                 conan_package_reference: params[:conan_package_reference]
               ).execute!
 
-            track_package_event('pull_package', :conan, category: 'API::ConanPackages', user: current_user, project: project, namespace: project.namespace) if params[:file_name] == ::Packages::Conan::FileMetadatum::PACKAGE_BINARY
+            track_package_event('pull_package', :conan, category: 'API::ConanPackages', project: project, namespace: project.namespace) if params[:file_name] == ::Packages::Conan::FileMetadatum::PACKAGE_BINARY
 
-            present_carrierwave_file!(package_file.file)
+            present_package_file!(package_file)
           end
 
           def find_or_create_package
@@ -185,8 +182,8 @@ module API
           end
 
           def track_push_package_event
-            if params[:file_name] == ::Packages::Conan::FileMetadatum::PACKAGE_BINARY && params[:file].size > 0 # rubocop: disable Style/ZeroLengthPredicate
-              track_package_event('push_package', :conan, category: 'API::ConanPackages', user: current_user, project: project, namespace: project.namespace)
+            if params[:file_name] == ::Packages::Conan::FileMetadatum::PACKAGE_BINARY
+              track_package_event('push_package', :conan, category: 'API::ConanPackages', project: project, namespace: project.namespace)
             end
           end
 
@@ -199,7 +196,7 @@ module API
           end
 
           def create_package_file_with_type(file_type, current_package)
-            unless params[:file].size == 0 # rubocop: disable Style/ZeroLengthPredicate
+            unless params[:file].empty_size?
               # conan sends two upload requests, the first has no file, so we skip record creation if file.size == 0
               ::Packages::Conan::CreatePackageFileService.new(
                 current_package,
@@ -215,7 +212,7 @@ module API
 
             current_package = find_or_create_package
 
-            track_push_package_event
+            track_push_package_event unless params[:file].empty_size?
 
             create_package_file_with_type(file_type, current_package)
           rescue ObjectStorage::RemoteStoreError => e
@@ -224,9 +221,25 @@ module API
             forbidden!
           end
 
+          # We override this method from auth_finders because we need to
+          # extract the token from the Conan JWT which is specific to the Conan API
           def find_personal_access_token
+            PersonalAccessToken.find_by_token(access_token_from_request)
+          end
+          strong_memoize_attr :find_personal_access_token
+
+          def access_token_from_request
             find_personal_access_token_from_conan_jwt ||
-              find_personal_access_token_from_http_basic_auth
+              find_password_from_basic_auth
+          end
+          strong_memoize_attr :access_token_from_request
+
+          def find_password_from_basic_auth
+            return unless route_authentication_setting[:basic_auth_personal_access_token]
+            return unless has_basic_credentials?(current_request)
+
+            _username, password = user_name_and_password(current_request)
+            password
           end
 
           def find_user_from_job_token
@@ -256,7 +269,7 @@ module API
 
             return unless token
 
-            PersonalAccessToken.find_by_id_and_user_id(token.access_token_id, token.user_id)
+            token.access_token_id
           end
 
           def find_deploy_token_from_conan_jwt

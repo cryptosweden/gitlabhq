@@ -15,8 +15,6 @@ module Ci
     end
 
     def execute
-      return unless ::Ci::PendingBuild.maintain_denormalized_data?
-
       @model.pending_builds.each_batch do |relation|
         relation.update_all(@update_params)
       end
@@ -37,7 +35,7 @@ module Ci
     def validate_params!
       extra_params = @update_params.keys - VALID_PARAMS
 
-      raise InvalidParamsError, "Unvalid params: #{extra_params.join(', ')}" unless extra_params.empty?
+      raise InvalidParamsError, "Invalid params: #{extra_params.join(', ')}" if extra_params.any?
 
       true
     end

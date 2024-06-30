@@ -1,5 +1,6 @@
 <script>
 import { isArray } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters } from 'vuex';
 import imageDiffMixin from 'ee_else_ce/diffs/mixins/image_diff';
 import DesignNotePin from '~/vue_shared/components/design_management/design_note_pin.vue';
@@ -105,11 +106,11 @@ export default {
 </script>
 
 <template>
-  <div class="position-absolute w-100 h-100 image-diff-overlay">
+  <div class="position-absolute gl-w-full gl-h-full image-diff-overlay">
     <button
       v-if="canComment"
       type="button"
-      class="btn-transparent position-absolute image-diff-overlay-add-comment w-100 h-100 js-add-image-diff-note-button"
+      class="btn-transparent position-absolute image-diff-overlay-add-comment gl-w-full gl-h-full js-add-image-diff-note-button"
       @click="clickedImage($event.offsetX, $event.offsetY)"
     >
       <span class="sr-only"> {{ __('Add image comment') }} </span>
@@ -132,10 +133,10 @@ export default {
 
     <design-note-pin
       v-if="canComment && currentCommentForm"
-      :position="{
+      :position="/* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */ {
         left: `${currentCommentForm.xPercent}%`,
         top: `${currentCommentForm.yPercent}%`,
-      }"
+      } /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */"
     />
   </div>
 </template>

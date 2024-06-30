@@ -14,14 +14,6 @@ RSpec.describe Resolvers::UsersResolver do
   end
 
   describe '#resolve' do
-    it 'generates an error when read_users_list is not authorized' do
-      expect(Ability).to receive(:allowed?).with(current_user, :read_users_list).and_return(false)
-
-      expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ResourceNotAvailable) do
-        resolve_users
-      end
-    end
-
     context 'when no arguments are passed' do
       it 'returns all users' do
         expect(resolve_users).to contain_exactly(user1, user2, current_user)
@@ -31,7 +23,7 @@ RSpec.describe Resolvers::UsersResolver do
     context 'when both ids and usernames are passed ' do
       it 'generates an error' do
         expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ArgumentError) do
-          resolve_users( args: { ids: [user1.to_global_id.to_s], usernames: [user1.username] } )
+          resolve_users(args: { ids: [user1.to_global_id.to_s], usernames: [user1.username] })
         end
       end
     end
@@ -39,7 +31,7 @@ RSpec.describe Resolvers::UsersResolver do
     context 'when a set of IDs is passed' do
       it 'returns those users' do
         expect(
-          resolve_users( args: { ids: [user1.to_global_id.to_s, user2.to_global_id.to_s] } )
+          resolve_users(args: { ids: [user1.to_global_id.to_s, user2.to_global_id.to_s] })
         ).to contain_exactly(user1, user2)
       end
     end
@@ -47,7 +39,7 @@ RSpec.describe Resolvers::UsersResolver do
     context 'when a set of usernames is passed' do
       it 'returns those users' do
         expect(
-          resolve_users( args: { usernames: [user1.username, user2.username] } )
+          resolve_users(args: { usernames: [user1.username, user2.username] })
         ).to contain_exactly(user1, user2)
       end
     end
@@ -57,16 +49,52 @@ RSpec.describe Resolvers::UsersResolver do
 
       it 'returns only admins' do
         expect(
-          resolve_users( args: { admins: true }, ctx: { current_user: admin_user } )
+          resolve_users(args: { admins: true }, ctx: { current_user: admin_user })
         ).to contain_exactly(admin_user)
       end
     end
 
     context 'when a search term is passed' do
       it 'returns all users who match', :aggregate_failures do
-        expect(resolve_users( args: { search: "some" } )).to contain_exactly(user1, user2)
-        expect(resolve_users( args: { search: "123784" } )).to contain_exactly(user2)
-        expect(resolve_users( args: { search: "someperson" } )).to contain_exactly(user1)
+        expect(resolve_users(args: { search: "some" })).to contain_exactly(user1, user2)
+        expect(resolve_users(args: { search: "123784" })).to contain_exactly(user2)
+        expect(resolve_users(args: { search: "someperson" })).to contain_exactly(user1)
+      end
+    end
+
+    context 'when a set of group_id is passed' do
+      let_it_be(:group) { create(:group, :private) }
+      let_it_be(:subgroup) { create(:group, :private, parent: group) }
+      let_it_be(:group_member) { create(:user) }
+
+      let_it_be(:indirect_group_member) do
+        create(:user, developer_of: subgroup)
+      end
+
+      let_it_be(:direct_group_members) do
+        [current_user, user1, group_member].each { |u| group.add_developer(u) }
+      end
+
+      it 'returns direct and indirect members of the group' do
+        expect(
+          resolve_users(args: { group_id: group.to_global_id })
+        ).to contain_exactly(indirect_group_member, *direct_group_members)
+      end
+
+      it 'raise an no resource not available error if the group do not exist group' do
+        expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ResourceNotAvailable) do
+          resolve_users(args: { group_id: "gid://gitlab/Group/#{non_existing_record_id}" })
+        end
+      end
+
+      context 'when user cannot read group' do
+        let(:current_user) { create(:user) }
+
+        it 'raise an no resource not available error the user cannot read the group' do
+          expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ResourceNotAvailable) do
+            resolve_users(args: { group_id: group.to_global_id })
+          end
+        end
       end
     end
 
@@ -74,11 +102,15 @@ RSpec.describe Resolvers::UsersResolver do
       let_it_be(:current_user) { nil }
 
       it 'prohibits search without usernames passed' do
-        expect { resolve_users }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
+        expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ResourceNotAvailable) do
+          resolve_users
+        end
       end
 
-      it 'allows to search by username' do
-        expect(resolve_users(args: { usernames: [user1.username] })).to contain_exactly(user1)
+      it 'prohibits search by username' do
+        expect_graphql_error_to_be_created(Gitlab::Graphql::Errors::ResourceNotAvailable) do
+          resolve_users(args: { usernames: [user1.username] })
+        end
       end
     end
   end

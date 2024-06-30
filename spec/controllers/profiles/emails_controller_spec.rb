@@ -20,9 +20,9 @@ RSpec.describe Profiles::EmailsController do
       before do
         allowed_threshold = Gitlab::ApplicationRateLimiter.rate_limits[action][:threshold]
 
-        allow(Gitlab::ApplicationRateLimiter)
-          .to receive(:increment)
-          .and_return(allowed_threshold + 1)
+        allow_next_instance_of(Gitlab::ApplicationRateLimiter::BaseStrategy) do |strategy|
+          allow(strategy).to receive(:increment).and_return(allowed_threshold + 1)
+        end
       end
 
       it 'does not send any email' do
@@ -62,7 +62,11 @@ RSpec.describe Profiles::EmailsController do
   end
 
   describe '#resend_confirmation_instructions' do
-    let_it_be(:email) { create(:email, user: user) }
+    let_it_be(:email) do
+      travel_to(5.minutes.ago) do
+        create(:email, user: user)
+      end
+    end
 
     let(:params) { { id: email.id } }
 

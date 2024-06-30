@@ -8,8 +8,9 @@ module Groups
       def initialize(group:, user:)
         @group = group
         @current_user = user
+        @user_role = user_role
         @shared = Gitlab::ImportExport::Shared.new(@group)
-        @logger = Gitlab::Import::Logger.build
+        @logger = ::Import::Framework::Logger.build
       end
 
       def async_execute
@@ -26,8 +27,18 @@ module Groups
       end
 
       def execute
-        if valid_user_permissions? && import_file && restorers.all?(&:restore)
+        Gitlab::Tracking.event(self.class.name, 'create', label: 'import_group_from_file')
+
+        if valid_user_permissions? && import_file && valid_import_file? && restorers.all?(&:restore)
           notify_success
+
+          Gitlab::Tracking.event(
+            self.class.name,
+            'create',
+            label: 'import_access_level',
+            user: current_user,
+            extra: { user_role: user_role, import_type: 'import_group_from_file' }
+          )
 
           group
         else
@@ -40,6 +51,15 @@ module Groups
       end
 
       private
+
+      def user_role
+        # rubocop:disable CodeReuse/ActiveRecord, Style/MultilineTernaryOperator
+        access_level = group.parent ?
+          current_user&.group_members&.find_by(source_id: group.parent&.id)&.access_level :
+          Gitlab::Access::OWNER
+        Gitlab::Access.human_access(access_level)
+        # rubocop:enable CodeReuse/ActiveRecord, Style/MultilineTernaryOperator
+      end
 
       def import_file
         @import_file ||= Gitlab::ImportExport::FileImporter.import(
@@ -55,25 +75,11 @@ module Groups
 
       def tree_restorer
         @tree_restorer ||=
-          if ndjson?
-            Gitlab::ImportExport::Group::TreeRestorer.new(
-              user: current_user,
-              shared: shared,
-              group: group
-            )
-          else
-            Gitlab::ImportExport::Group::LegacyTreeRestorer.new(
-              user: current_user,
-              shared: shared,
-              group: group,
-              group_hash: nil
-            )
-          end
-      end
-
-      def ndjson?
-        ::Feature.enabled?(:group_import_ndjson, group&.parent, default_enabled: true) &&
-          File.exist?(File.join(shared.export_path, 'tree/groups/_all.ndjson'))
+          Gitlab::ImportExport::Group::TreeRestorer.new(
+            user: current_user,
+            shared: shared,
+            group: group
+          )
       end
 
       def remove_import_file
@@ -95,19 +101,27 @@ module Groups
         end
       end
 
+      def valid_import_file?
+        return true if File.exist?(File.join(shared.export_path, 'tree/groups/_all.ndjson'))
+
+        shared.error(::Gitlab::ImportExport::Error.incompatible_import_file_error)
+
+        false
+      end
+
       def notify_success
         @logger.info(
-          group_id:   group.id,
+          group_id: group.id,
           group_name: group.name,
-          message:    'Group Import/Export: Import succeeded'
+          message: 'Group Import/Export: Import succeeded'
         )
       end
 
       def notify_error
         @logger.error(
-          group_id:   group.id,
+          group_id: group.id,
           group_name: group.name,
-          message:    "Group Import/Export: Errors occurred, see '#{Gitlab::ErrorTracking::Logger.file_name}' for details"
+          message: "Group Import/Export: Errors occurred, see '#{Gitlab::ErrorTracking::Logger.file_name}' for details"
         )
       end
 

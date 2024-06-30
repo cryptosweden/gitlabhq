@@ -1,3 +1,8 @@
+/*
+Package upstream provides functionality for handling upstream requests.
+
+This package includes handlers for managing request routing and interaction with upstream servers.
+*/
 package upstream
 
 import (
@@ -6,7 +11,7 @@ import (
 	"io"
 	"net/http"
 
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 )
 
 func contentEncodingHandler(h http.Handler) http.Handler {
@@ -26,10 +31,10 @@ func contentEncodingHandler(h http.Handler) http.Handler {
 		}
 
 		if err != nil {
-			helper.Fail500(w, r, fmt.Errorf("contentEncodingHandler: %v", err))
+			fail.Request(w, r, fmt.Errorf("contentEncodingHandler: %v", err))
 			return
 		}
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 
 		r.Body = body
 		r.Header.Del("Content-Encoding")

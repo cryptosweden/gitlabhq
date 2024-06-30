@@ -1,7 +1,7 @@
 import Vue from 'vue';
-import createFlash from '~/flash';
-import axios from '../lib/utils/axios_utils';
-import { __ } from '../locale';
+import { createAlert } from '~/alert';
+import axios from '~/lib/utils/axios_utils';
+import { __ } from '~/locale';
 import DivergenceGraph from './components/divergence_graph.vue';
 
 export function createGraphVueApp(el, data, maxCommits, defaultBranch) {
@@ -51,7 +51,7 @@ export default (endpoint, defaultBranch) => {
       });
     })
     .catch(() =>
-      createFlash({
+      createAlert({
         message: __('Error fetching diverging counts for branches. Please try again.'),
       }),
     );

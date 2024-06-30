@@ -24,13 +24,19 @@ export const switchLeftSidebarTab = (name) => {
 export const getStatusBar = () => document.querySelector('.ide-status-bar');
 
 export const waitForMonacoEditor = () =>
-  new Promise((resolve) => monacoEditor.onDidCreateEditor(resolve));
+  new Promise((resolve) => {
+    monacoEditor.onDidCreateEditor(resolve);
+  });
 
 export const waitForEditorDispose = (instance) =>
-  new Promise((resolve) => instance.onDidDispose(resolve));
+  new Promise((resolve) => {
+    instance.onDidDispose(resolve);
+  });
 
 export const waitForEditorModelChange = (instance) =>
-  new Promise((resolve) => instance.onDidChangeModel(resolve));
+  new Promise((resolve) => {
+    instance.onDidChangeModel(resolve);
+  });
 
 export const findMonacoEditor = () =>
   screen.findAllByLabelText(/Editor content;/).then(([x]) => x.closest('.monaco-editor'));
@@ -40,14 +46,14 @@ export const findMonacoDiffEditor = () =>
 
 export const findAndSetEditorValue = async (value) => {
   const editor = await findMonacoEditor();
-  const uri = editor.getAttribute('data-uri');
+  const { uri } = editor.dataset;
 
   monacoEditor.getModel(uri).setValue(value);
 };
 
 export const getEditorValue = async () => {
   const editor = await findMonacoEditor();
-  const uri = editor.getAttribute('data-uri');
+  const { uri } = editor.dataset;
 
   return monacoEditor.getModel(uri).getValue();
 };
@@ -201,10 +207,10 @@ export const commit = async ({ newBranch = false, newMR = false, newBranchName =
 
   if (!newBranch) {
     const option = await screen.findByLabelText(/Commit to .+ branch/);
-    option.click();
+    await option.click();
   } else {
     const option = await screen.findByLabelText('Create a new branch');
-    option.click();
+    await option.click();
 
     const branchNameInput = await screen.findByTestId('ide-new-branch-name');
     fireEvent.input(branchNameInput, { target: { value: newBranchName } });

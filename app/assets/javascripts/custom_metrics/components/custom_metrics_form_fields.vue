@@ -11,7 +11,7 @@ import { debounce } from 'lodash';
 import axios from '~/lib/utils/axios_utils';
 import { backOff } from '~/lib/utils/common_utils';
 import csrf from '~/lib/utils/csrf';
-import statusCodes from '~/lib/utils/http_status';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { __, s__ } from '~/locale';
 import { queryTypes, formDataValidator } from '../constants';
 
@@ -23,7 +23,7 @@ function backOffRequest(makeRequestCallback) {
   return backOff((next, stop) => {
     makeRequestCallback()
       .then((resp) => {
-        if (resp.status === statusCodes.OK) {
+        if (resp.status === HTTP_STATUS_OK) {
           stop(resp);
         } else {
           next();
@@ -81,6 +81,7 @@ export default {
       queryValidateInFlight: false,
       ...this.formData,
       group,
+      errorMessage: '',
     };
   },
   computed: {
@@ -107,7 +108,7 @@ export default {
   },
   beforeMount() {
     if (this.metricPersisted) {
-      this.validateQuery();
+      this.validateQuery(this.query);
     }
   },
   methods: {
@@ -129,8 +130,8 @@ export default {
       this.queryValidateInFlight = inFlight;
       this.errorMessage = message;
     },
-    validateQuery() {
-      if (!this.query) {
+    validateQuery(query) {
+      if (!query) {
         this.setFormState(null, false, '');
         return;
       }
@@ -143,7 +144,7 @@ export default {
       // if a single token is used it can cancel existing requests
       // as well.
       cancelTokenSource = axiosCancelToken.source();
-      this.requestValidation(this.query, cancelTokenSource.token)
+      this.requestValidation(query, cancelTokenSource.token)
         .then((res) => {
           const response = res.data;
           const { valid, error } = response.query;
@@ -161,8 +162,8 @@ export default {
           );
         });
     },
-    debouncedValidateQuery: debounce(function checkQuery() {
-      this.validateQuery();
+    debouncedValidateQuery: debounce(function checkQuery(query) {
+      this.validateQuery(query);
     }, 500),
   },
   csrfToken: csrf.token || '',
@@ -185,7 +186,6 @@ export default {
         name="prometheus_metric[title]"
         class="form-control"
         :placeholder="s__('Metrics|e.g. Throughput')"
-        data-qa-selector="custom_metric_prometheus_title_field"
         required
       />
       <span class="form-text text-muted">{{ s__('Metrics|Used as a title for the chart') }}</span>
@@ -209,13 +209,12 @@ export default {
       <gl-form-input
         id="prometheus_metric_query"
         v-model.trim="query"
-        data-qa-selector="custom_metric_prometheus_query_field"
         name="prometheus_metric[query]"
         class="form-control"
         :placeholder="s__('Metrics|e.g. rate(http_requests_total[5m])')"
         required
         :state="queryIsValid"
-        @input="debouncedValidateQuery"
+        @input="debouncedValidateQuery($event)"
       />
       <span v-if="queryValidateInFlight" class="form-text text-muted">
         <gl-loading-icon size="sm" :inline="true" class="mr-1 align-middle" />
@@ -247,7 +246,6 @@ export default {
       <gl-form-input
         id="prometheus_metric_y_label"
         v-model="yLabel"
-        data-qa-selector="custom_metric_prometheus_y_label_field"
         name="prometheus_metric[y_label]"
         class="form-control"
         :placeholder="s__('Metrics|e.g. Requests/second')"
@@ -267,7 +265,6 @@ export default {
       <gl-form-input
         id="prometheus_metric_unit"
         v-model="unit"
-        data-qa-selector="custom_metric_prometheus_unit_label_field"
         name="prometheus_metric[unit]"
         class="form-control"
         :placeholder="s__('Metrics|e.g. req/sec')"
@@ -282,7 +279,6 @@ export default {
       <gl-form-input
         id="prometheus_metric_legend"
         v-model="legend"
-        data-qa-selector="custom_metric_prometheus_legend_label_field"
         name="prometheus_metric[legend]"
         class="form-control"
         :placeholder="s__('Metrics|e.g. HTTP requests')"

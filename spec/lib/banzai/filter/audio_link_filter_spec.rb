@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::AudioLinkFilter do
+RSpec.describe Banzai::Filter::AudioLinkFilter, feature_category: :team_planning do
   def filter(doc, contexts = {})
     contexts.reverse_merge!({
       project: project
@@ -111,4 +111,6 @@ RSpec.describe Banzai::Filter::AudioLinkFilter do
       expect(link['href']).to eq proxy_src
     end
   end
+
+  it_behaves_like 'pipeline timing check'
 end

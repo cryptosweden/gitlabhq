@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlLink, GlSprintf } from '@gitlab/ui';
 import { s__ } from '~/locale';
@@ -14,7 +15,7 @@ export default {
     GlSprintf,
   },
   props: {
-    packageEntity: {
+    packageMetadata: {
       type: Object,
       required: true,
     },
@@ -25,7 +26,7 @@ export default {
 <template>
   <div>
     <details-row
-      v-if="packageEntity.metadata.projectUrl"
+      v-if="packageMetadata.projectUrl"
       icon="project"
       padding="gl-p-4"
       dashed
@@ -33,22 +34,22 @@ export default {
     >
       <gl-sprintf :message="$options.i18n.sourceText">
         <template #link>
-          <gl-link :href="packageEntity.metadata.projectUrl" target="_blank">{{
-            packageEntity.metadata.projectUrl
+          <gl-link :href="packageMetadata.projectUrl" target="_blank">{{
+            packageMetadata.projectUrl
           }}</gl-link>
         </template>
       </gl-sprintf>
     </details-row>
     <details-row
-      v-if="packageEntity.metadata.licenseUrl"
+      v-if="packageMetadata.licenseUrl"
       icon="license"
       padding="gl-p-4"
       data-testid="nuget-license"
     >
       <gl-sprintf :message="$options.i18n.licenseText">
         <template #link>
-          <gl-link :href="packageEntity.metadata.licenseUrl" target="_blank">{{
-            packageEntity.metadata.licenseUrl
+          <gl-link :href="packageMetadata.licenseUrl" target="_blank">{{
+            packageMetadata.licenseUrl
           }}</gl-link>
         </template>
       </gl-sprintf>

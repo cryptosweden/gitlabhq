@@ -30,7 +30,7 @@ module Gitlab
       def initialize(exportable)
         @exportable = exportable
         @errors     = []
-        @logger     = Gitlab::Import::Logger.build
+        @logger     = ::Import::Framework::Logger.build
       end
 
       def active_export_count
@@ -95,14 +95,9 @@ module Gitlab
       end
 
       def log_base_data
-        log = {
-          importer:        'Import/Export',
-          exportable_id:   @exportable&.id,
-          exportable_path: @exportable&.full_path
-        }
-
+        log = { importer: 'Import/Export' }
+        log.merge!(Gitlab::ImportExport::LogUtil.exportable_to_log_payload(@exportable))
         log[:import_jid] = @exportable&.import_state&.jid if exportable_type == 'Project'
-
         log
       end
 

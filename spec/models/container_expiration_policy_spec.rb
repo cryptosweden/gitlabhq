@@ -11,9 +11,7 @@ RSpec.describe ContainerExpirationPolicy, type: :model do
     it { is_expected.to validate_presence_of(:project) }
 
     describe '#enabled' do
-      it { is_expected.to allow_value(true).for(:enabled) }
-      it { is_expected.to allow_value(false).for(:enabled) }
-      it { is_expected.not_to allow_value(nil).for(:enabled) }
+      it { is_expected.to validate_inclusion_of(:enabled).in_array([true, false]) }
     end
 
     describe '#cadence' do
@@ -131,7 +129,7 @@ RSpec.describe ContainerExpirationPolicy, type: :model do
     end
 
     context 'when there are no runnable schedules' do
-      let!(:policy) { }
+      let!(:policy) {}
 
       it 'returns an empty array' do
         is_expected.to be_empty

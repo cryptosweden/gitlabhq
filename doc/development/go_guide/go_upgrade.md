@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Managing Go versions
@@ -10,7 +10,7 @@ info: To determine the technical writer assigned to the Stage/Group associated w
 
 All Go binaries, with the exception of
 [GitLab Runner](https://gitlab.com/gitlab-org/gitlab-runner) and [Security Projects](https://gitlab.com/gitlab-org/security-products), are built in
-projects managed by the [Distribution team](https://about.gitlab.com/handbook/product/categories/#distribution-group).
+projects managed by the [Distribution team](https://handbook.gitlab.com/handbook/product/categories/#distribution-group).
 
 The [Omnibus GitLab](https://gitlab.com/gitlab-org/omnibus-gitlab) project creates a
 single, monolithic operating system package containing all the binaries, while
@@ -18,19 +18,20 @@ the [Cloud-Native GitLab (CNG)](https://gitlab.com/gitlab-org/build/CNG) project
 publishes a set of Docker images deployed and configured by Helm Charts or
 the GitLab Operator.
 
-Testing matrices for all projects using Go must include the version shipped
-by Distribution:
+## Testing against shipped Go versions
 
-- [Check the Go version shipping with Omnibus GitLab](https://gitlab.com/gitlab-org/gitlab-omnibus-builder/-/blob/master/docker/VERSIONS#L6).
-- [Check the Go version shipping with Cloud-Native GitLab (CNG)](https://gitlab.com/gitlab-org/build/cng/blob/master/ci_files/variables.yml#L12).
+Testing matrices for all projects using Go must include the version shipped by Distribution. Check the Go version set by `GO_VERSION` for:
+
+- [Linux package builds](https://gitlab.com/gitlab-org/gitlab-omnibus-builder/-/blob/master/docker/VERSIONS).
+- [Cloud-Native GitLab (CNG)](https://gitlab.com/gitlab-org/build/cng/blob/master/ci_files/variables.yml).
 
 ## Supporting multiple Go versions
 
-Individual Golang projects need to support multiple Go versions because:
+Individual Go projects need to support multiple Go versions because:
 
 - When a new version of Go is released, we should start integrating it into the CI pipelines to verify compatibility with the new compiler.
-- We must support the [official Omnibus GitLab Go version](#updating-go-version), which may be behind the latest minor release.
-- When Omnibus switches Go version, we still may need to support the old one for security backports.
+- We must support the versions of Go [shipped by Distribution](#testing-against-shipped-go-versions), which might be behind the latest minor release.
+- When Linux package builds or Cloud-Native GitLab (CNG) change a Go version, we still might need to support the old version for backports.
 
 These 3 requirements may easily be satisfied by keeping support for the [3 latest minor versions of Go](https://go.dev/dl/).
 
@@ -40,7 +41,7 @@ if this is enough to support backports to the last 3 minor GitLab releases.
 For example, if we want to drop support for `go 1.11` in GitLab `12.10`, we need
 to verify which Go versions we are using in `12.9`, `12.8`, and `12.7`. We do not
 consider the active milestone, `12.10`, because a backport for `12.7` is required
-in case of a critical security release.
+in case of a critical patch release.
 
 - If both [Omnibus GitLab and Cloud-Native GitLab (CNG)](#updating-go-version) were using Go `1.12` in GitLab `12.7` and later,
   then we can safely drop support for `1.11`.
@@ -70,15 +71,33 @@ The upgrade process involves several key steps:
 
 #### Tracking work
 
-Use [the product categories page](https://about.gitlab.com/handbook/product/categories/)
+Use [the product categories page](https://handbook.gitlab.com/handbook/product/categories/)
 if you need help finding the correct person or labels:
 
 1. Create the epic in `gitlab-org` group:
    - Title the epic `Update Go version to <VERSION_NUMBER>`.
    - Ping the engineering managers responsible for [the projects listed below](#known-dependencies-using-go).
+     - Most engineering managers can be identified on
+       [the product page](https://handbook.gitlab.com/handbook/product/categories/) or the
+       [feature page](https://handbook.gitlab.com/handbook/product/categories/features/).
+     - If you still can't find the engineering manager, use
+       [Git blame](/ee/user/project/repository/files/git_blame.md) to identify a maintainer
+       involved in the project.
 
-1. Create an upgrade issue for each dependency in the [location indicated below](#known-dependencies-using-go)
-   titled `Support building with Go <VERSION_NUMBER>`. Add the proper label to each issue for easier triage.
+1. Create an upgrade issue for each dependency in the
+   [location indicated below](#known-dependencies-using-go) titled
+   `Support building with Go <VERSION_NUMBER>`. Add the proper labels to each issue
+   for easier triage. These should include the stage, group and section.
+   - The issue should be assigned by a member of the maintaining group.
+   - The milestone should be assigned by a member of the maintaining group.
+
+   NOTE:
+   Some overlap exists between project dependencies. When creating an issue for a
+   dependency that is part of a larger product, note the relationship in the issue
+   body. For example: Projects built in the context of Omnibus GitLab have their
+   runtime Go version managed by Omnibus, but "support" and compatibility should
+   be a concern of the individual project. Issues in the parent project's dependencies
+   issue should be about adding support for the updated Go version.
 
    NOTE:
    The upgrade issues must include [upgrade validation items](#upgrade-validation)
@@ -94,9 +113,10 @@ if you need help finding the correct person or labels:
    - [Composition Analysis tracker](https://gitlab.com/gitlab-org/gitlab/-/issues).
    - [Container Security tracker](https://gitlab.com/gitlab-org/gitlab/-/issues).
 
-    NOTE:
-    Updates to these Security analyzers should not block upgrades to Charts or Omnibus since
-    the analyzers are built independently as separate container images.
+   NOTE:
+   Updates to these Security analyzers should not block upgrades to Charts or Omnibus since
+   the analyzers are built independently as separate container images.
+
 1. Schedule builder updates with Distribution projects:
    - Dependency and GitLab Development Kit issues created in previous steps should be set as blockers.
    - Each issue should have the title `Support building with Go <VERSION_NUMBER>` and description as noted:
@@ -131,15 +151,19 @@ if you need help finding the correct person or labels:
 | [Alertmanager](https://github.com/prometheus/alertmanager) | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab/-/issues) |
 | Docker Distribution Pruner    | [Issue Tracker](https://gitlab.com/gitlab-org/docker-distribution-pruner) |
 | Gitaly                        | [Issue Tracker](https://gitlab.com/gitlab-org/gitaly/-/issues) |
+| GitLab CLI (`glab`).          | [Issue Tracker](https://gitlab.com/gitlab-org/cli/-/issues) |
 | GitLab Compose Kit            | [Issuer Tracker](https://gitlab.com/gitlab-org/gitlab-compose-kit/-/issues) |
-| GitLab Container Registry     | [Issue Tracker](https://gitlab.com/gitlab-org/container-registry) |
+| GitLab container registry     | [Issue Tracker](https://gitlab.com/gitlab-org/container-registry) |
 | GitLab Elasticsearch Indexer  | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab-elasticsearch-indexer/-/issues) |
+| GitLab Zoekt Indexer          | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab-zoekt-indexer/-/issues) |
 | GitLab agent server for Kubernetes (KAS) | [Issue Tracker](https://gitlab.com/gitlab-org/cluster-integration/gitlab-agent/-/issues) |
 | GitLab Pages                  | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab-pages/-/issues) |
 | GitLab Quality Images         | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab-build-images/-/issues) |
 | GitLab Shell                  | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab-shell/-/issues) |
 | GitLab Workhorse              | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab/-/issues) |
-| Labkit                        | [Issue Tracker](https://gitlab.com/gitlab-org/labkit/-/issues) |
+| GitLab Browser-based DAST     | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab/-/issues) |
+| GitLab Coverage Fuzzer        | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab/-/issues) |
+| LabKit                        | [Issue Tracker](https://gitlab.com/gitlab-org/labkit/-/issues) |
 | [Node Exporter](https://github.com/prometheus/node_exporter) | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab/-/issues) |
 | [PgBouncer Exporter](https://github.com/prometheus-community/pgbouncer_exporter) | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab/-/issues) |
 | [Postgres Exporter](https://github.com/prometheus-community/postgres_exporter) | [Issue Tracker](https://gitlab.com/gitlab-org/gitlab/-/issues) |
@@ -172,7 +196,7 @@ be included in the relevant issues as part of the definition of done:
 Upstream component maintainers must validate their Go-based projects using:
 
 - Established unit tests in the codebase.
-- Procedures established in [Merge Request Performance Guidelines](../merge_request_performance_guidelines.md).
+- Procedures established in [Merge Request Performance Guidelines](../merge_request_concepts/performance.md).
 - Procedures established in [Performance, Reliability, and Availability guidelines](../code_review.md#performance-reliability-and-availability).
 
 Upstream component maintainers should consider validating their Go-based

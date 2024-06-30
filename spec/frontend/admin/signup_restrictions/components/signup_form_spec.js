@@ -1,6 +1,6 @@
 import { GlButton, GlModal } from '@gitlab/ui';
-import { within, fireEvent } from '@testing-library/dom';
-import { shallowMount, mount } from '@vue/test-utils';
+import { within } from '@testing-library/dom';
+import { shallowMount, mount, createWrapper } from '@vue/test-utils';
 import { stubComponent } from 'helpers/stub_component';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import SignupForm from '~/pages/admin/application_settings/general/components/signup_form.vue';
@@ -28,7 +28,7 @@ describe('Signup Form', () => {
 
   const findForm = () => wrapper.findByTestId('form');
   const findInputCsrf = () => findForm().find('[name="authenticity_token"]');
-  const findFormSubmitButton = () => findForm().find(GlButton);
+  const findFormSubmitButton = () => findForm().findComponent(GlButton);
 
   const findDenyListRawRadio = () => queryByLabelText('Enter denylist manually');
   const findDenyListFileRadio = () => queryByLabelText('Upload denylist file');
@@ -36,11 +36,9 @@ describe('Signup Form', () => {
   const findDenyListRawInputGroup = () => wrapper.findByTestId('domain-denylist-raw-input-group');
   const findDenyListFileInputGroup = () => wrapper.findByTestId('domain-denylist-file-input-group');
   const findUserCapInput = () => wrapper.findByTestId('user-cap-input');
-  const findModal = () => wrapper.find(GlModal);
+  const findModal = () => wrapper.findComponent(GlModal);
 
   afterEach(() => {
-    wrapper.destroy();
-
     formSubmitSpy = null;
   });
 
@@ -53,7 +51,6 @@ describe('Signup Form', () => {
       prop                                     | propValue                                       | elementSelector                                                             | formElementPassedDataType | formElementKey | expected
       ${'signupEnabled'}                       | ${mockData.signupEnabled}                       | ${'[name="application_setting[signup_enabled]"]'}                           | ${'prop'}                 | ${'value'}     | ${mockData.signupEnabled}
       ${'requireAdminApprovalAfterUserSignup'} | ${mockData.requireAdminApprovalAfterUserSignup} | ${'[name="application_setting[require_admin_approval_after_user_signup]"]'} | ${'prop'}                 | ${'value'}     | ${mockData.requireAdminApprovalAfterUserSignup}
-      ${'sendUserConfirmationEmail'}           | ${mockData.sendUserConfirmationEmail}           | ${'[name="application_setting[send_user_confirmation_email]"]'}             | ${'prop'}                 | ${'value'}     | ${mockData.sendUserConfirmationEmail}
       ${'newUserSignupsCap'}                   | ${mockData.newUserSignupsCap}                   | ${'[name="application_setting[new_user_signups_cap]"]'}                     | ${'attribute'}            | ${'value'}     | ${mockData.newUserSignupsCap}
       ${'minimumPasswordLength'}               | ${mockData.minimumPasswordLength}               | ${'[name="application_setting[minimum_password_length]"]'}                  | ${'attribute'}            | ${'value'}     | ${mockData.minimumPasswordLength}
       ${'minimumPasswordLengthMin'}            | ${mockData.minimumPasswordLengthMin}            | ${'[name="application_setting[minimum_password_length]"]'}                  | ${'attribute'}            | ${'min'}       | ${mockData.minimumPasswordLengthMin}
@@ -121,7 +118,7 @@ describe('Signup Form', () => {
 
       describe('when user clicks on file radio', () => {
         beforeEach(() => {
-          fireEvent.click(findDenyListFileRadio());
+          createWrapper(findDenyListFileRadio()).setChecked(true);
         });
 
         it('has raw list not selected', () => {
@@ -165,7 +162,7 @@ describe('Signup Form', () => {
 
       describe('when user clicks on raw list radio', () => {
         beforeEach(() => {
-          fireEvent.click(findDenyListRawRadio());
+          createWrapper(findDenyListRawRadio()).setChecked(true);
         });
 
         it('has raw list selected', () => {

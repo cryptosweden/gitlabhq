@@ -7,7 +7,7 @@
 
 %tr.generic-commit-status{ class: ('retried' if retried) }
   %td.status
-    = render 'ci/status/badge', status: generic_commit_status.detailed_status(current_user)
+    = render 'ci/status/icon', status: generic_commit_status.detailed_status(current_user), show_status_text: true
 
   %td
     = generic_commit_status.name
@@ -39,10 +39,9 @@
     .label-container
       - if generic_commit_status.tags.any?
         - generic_commit_status.tags.each do |tag|
-          %span.badge.badge-primary
-            = tag
+          = gl_badge_tag tag, variant: :info, size: :sm
       - if retried
-        %span.badge.badge-warning retried
+        = gl_badge_tag retried, variant: :warning, size: :sm
 
   - if pipeline_link
     %td

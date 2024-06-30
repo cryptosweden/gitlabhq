@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe AutoMerge::BaseService do
+RSpec.describe AutoMerge::BaseService, feature_category: :code_review_workflow do
   let(:project) { create(:project) }
   let(:user) { create(:user) }
   let(:service) { described_class.new(project, user, params) }
@@ -61,7 +61,7 @@ RSpec.describe AutoMerge::BaseService do
 
       before do
         pipeline = build(:ci_pipeline)
-        allow(merge_request).to receive(:actual_head_pipeline) { pipeline }
+        allow(merge_request).to receive(:diff_head_pipeline) { pipeline }
       end
 
       it 'sets the auto merge strategy' do
@@ -97,8 +97,8 @@ RSpec.describe AutoMerge::BaseService do
 
       it 'tracks the exception' do
         expect(Gitlab::ErrorTracking)
-          .to receive(:track_exception).with(kind_of(ActiveRecord::RecordInvalid),
-                                             merge_request_id: merge_request.id)
+          .to receive(:track_exception)
+          .with(kind_of(ActiveRecord::RecordInvalid), merge_request_id: merge_request.id)
 
         subject
       end
@@ -122,8 +122,8 @@ RSpec.describe AutoMerge::BaseService do
 
       it 'tracks the exception' do
         expect(Gitlab::ErrorTracking)
-          .to receive(:track_exception).with(kind_of(RuntimeError),
-                                             merge_request_id: merge_request.id)
+          .to receive(:track_exception)
+          .with(kind_of(RuntimeError), merge_request_id: merge_request.id)
 
         execute_with_error_in_yield
       end
@@ -242,8 +242,8 @@ RSpec.describe AutoMerge::BaseService do
 
       it 'tracks the exception' do
         expect(Gitlab::ErrorTracking)
-          .to receive(:track_exception).with(kind_of(RuntimeError),
-                                             merge_request_id: merge_request.id)
+          .to receive(:track_exception)
+          .with(kind_of(RuntimeError), merge_request_id: merge_request.id)
 
         cancel_with_error_in_yield
       end
@@ -254,7 +254,7 @@ RSpec.describe AutoMerge::BaseService do
     subject { service.abort(merge_request, reason) }
 
     let(:merge_request) { create(:merge_request, :merge_when_pipeline_succeeds) }
-    let(:reason) { 'an error'}
+    let(:reason) { 'an error' }
 
     it_behaves_like 'Canceled or Dropped'
 
@@ -289,10 +289,75 @@ RSpec.describe AutoMerge::BaseService do
 
       it 'tracks the exception' do
         expect(Gitlab::ErrorTracking)
-          .to receive(:track_exception).with(kind_of(RuntimeError),
-                                             merge_request_id: merge_request.id)
+          .to receive(:track_exception)
+          .with(kind_of(RuntimeError), merge_request_id: merge_request.id)
 
         abort_with_error_in_yield
+      end
+    end
+  end
+
+  describe '#process' do
+    specify { expect(service).to respond_to :process }
+    specify { expect { service.process(nil) }.to raise_error NotImplementedError }
+  end
+
+  describe '#available_for?' do
+    using RSpec::Parameterized::TableSyntax
+
+    subject(:available_for) { service.available_for?(merge_request) { yield_result } }
+
+    let(:merge_request) { create(:merge_request) }
+    let(:yield_result) { true }
+    let(:checks_pass) { true }
+    let(:can_be_merged) { true }
+
+    context 'when can_be_merged is true' do
+      before do
+        allow(merge_request).to receive(:can_be_merged_by?).and_return(can_be_merged)
+        allow(merge_request).to receive(:mergeability_checks_pass?).and_return(checks_pass)
+      end
+
+      context 'when the mergeabilty checks pass is true' do
+        context 'when the yield is true' do
+          it 'returns true' do
+            expect(available_for).to be_truthy
+          end
+        end
+
+        context 'when the yield is false' do
+          let(:yield_result) { false }
+
+          it 'returns false' do
+            expect(available_for).to be_falsey
+          end
+        end
+      end
+
+      context 'when the mergeabilty checks pass is false' do
+        let(:checks_pass) { false }
+
+        context 'when the yield is true' do
+          it 'returns false' do
+            expect(available_for).to be_falsey
+          end
+        end
+
+        context 'when the yield is false' do
+          let(:yield_result) { false }
+
+          it 'returns false' do
+            expect(available_for).to be_falsey
+          end
+        end
+      end
+    end
+
+    context 'when can_be_merged is false' do
+      let(:can_be_merged) { false }
+
+      it 'returns false' do
+        expect(available_for).to be_falsey
       end
     end
   end

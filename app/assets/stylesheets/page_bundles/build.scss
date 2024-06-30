@@ -6,30 +6,22 @@
   }
 
   .archived-job {
-    top: $header-height;
+    top: $calc-application-header-height;
     border-radius: 2px 2px 0 0;
     color: var(--orange-600, $orange-600);
     background-color: var(--orange-50, $orange-50);
     border: 1px solid var(--border-color, $border-color);
-
-    .with-performance-bar & {
-      top: calc(#{$header-height} + #{$performance-bar-height});
-    }
   }
 
   .top-bar {
-    @include build-log-top-bar(50px);
+    @include job-log-top-bar;
 
     &.has-archived-block {
-      top: calc(#{$header-height} + 28px);
-
-      .with-performance-bar & {
-        top: calc(#{$header-height} + #{$performance-bar-height} + 28px);
-      }
+      top: calc(#{$calc-application-header-height} + 28px);
     }
 
     &.affix {
-      top: $header-height;
+      top: $calc-application-header-height;
 
       // with sidebar
       &.sidebar-expanded {
@@ -44,13 +36,6 @@
       }
     }
 
-    &.affix-top {
-      position: absolute;
-      right: 0;
-      left: 0;
-      top: 0;
-    }
-
     .controllers {
       @include build-controllers(15px, center, false, 0, inline, 0);
     }
@@ -59,15 +44,7 @@
   .environment-information {
     border: 1px solid var(--border-color, $border-color);
     padding: 8px $gl-padding 12px;
-    border-radius: $border-radius-default;
-
-    svg {
-      position: relative;
-      top: 3px;
-      margin-right: 5px;
-      width: 22px;
-      height: 22px;
-    }
+    border-radius: $gl-border-radius-base;
   }
 
   .build-loader-animation {
@@ -102,39 +79,20 @@
 
 .right-sidebar.build-sidebar {
   padding: 0;
+  top: $calc-application-header-height;
+
+  @include media-breakpoint-up(lg) {
+    border-left-width: 0;
+  }
 
   &.right-sidebar-collapsed {
     display: none;
   }
 
   .sidebar-container {
-    padding-right: 100px;
-    height: 100%;
+    max-height: 100%;
     overflow-y: scroll;
     overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .blocks-container {
-    padding: 0 $gl-padding;
-    width: 289px;
-  }
-
-  .trigger-variables-btn-container {
-    justify-content: space-between;
-    align-items: center;
-
-    .trigger-variables-btn {
-      margin-top: -5px;
-      margin-bottom: -5px;
-    }
-  }
-
-  .trigger-build-variables {
-    margin: 0;
-    overflow-x: auto;
-    width: 100%;
-    -ms-overflow-style: scrollbar;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -157,44 +115,20 @@
     vertical-align: top;
   }
 
-  .badge.badge-pill {
-    margin-left: 2px;
+  .blocks-container {
+    width: 289px;
   }
 
-  .stage-item {
-    cursor: pointer;
-
-    &:hover {
-      color: var(--gl-text-color, $gl-text-color);
-    }
+  .block {
+    width: 262px;
   }
 
   .builds-container {
-    background-color: var(--white, $white);
-    border-top: 1px solid var(--border-color, $border-color);
-    border-bottom: 1px solid var(--border-color, $border-color);
-    max-height: 300px;
-    width: 289px;
     overflow: auto;
 
-    svg {
-      margin-right: 3px;
-      height: 14px;
-      width: 14px;
-    }
-
-    a {
-      padding: $gl-padding 10px $gl-padding 40px;
-      width: 270px;
-
-      &:hover {
-        color: var(--gl-text-color, $gl-text-color);
-      }
-    }
-
     .icon-arrow-right {
-      left: 15px;
-      top: 20px;
+      left: 8px;
+      top: 12px;
     }
 
     .build-job {
@@ -213,9 +147,11 @@
   .container-fluid.container-limited {
     max-width: 100%;
   }
+}
 
-  .content-wrapper {
-    padding-bottom: 6px;
+.build-sidebar-item {
+  &:last-of-type {
+    margin-bottom: 0;
   }
 }
 
@@ -227,11 +163,71 @@
   }
 }
 
-@include media-breakpoint-down(md) {
-  .content-list {
-    &.builds-content-list {
-      width: 100%;
-      overflow: auto;
-    }
+.job-log {
+  font-family: $monospace-font;
+  padding: $gl-padding-8 $input-horizontal-padding;
+  margin: 0 0 $gl-padding-8;
+  font-size: 13px;
+  word-break: break-all;
+  word-wrap: break-word;
+  color: color-yiq($builds-log-bg);
+  border-radius: 0 0 $gl-border-radius-base $gl-border-radius-base;
+  @include gl-min-h-8;
+  background-color: $builds-log-bg;
+}
+
+.build-log-container:fullscreen {
+  overflow-y: scroll;
+
+  .top-bar {
+    top: 0 !important;
   }
+}
+
+.job-log-line {
+  display: flex;
+  padding: 1px $gl-padding-8 1px $gl-padding-8;
+  min-height: $gl-line-height-20;
+}
+
+.job-log-line-number {
+  color: $gray-500;
+  padding-right: $gl-padding-8;
+  margin-right: $gl-padding-8;
+  min-width: $job-line-number-width;
+  user-select: none;
+  text-align: right;
+
+  &:hover,
+  &:active,
+  &:visited {
+    text-decoration: underline;
+    color: $gray-500;
+  }
+}
+
+.job-log-time {
+  padding-right: $gl-padding-8;
+  margin-right: $gl-padding-8;
+  color: $gray-500;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.job-log-line-header {
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+
+  &:hover {
+    background-color: rgba($white, 0.2);
+  }
+
+  .arrow {
+    left: 0;
+  }
+}
+
+.loader-animation {
+  @include build-loader-animation;
 }

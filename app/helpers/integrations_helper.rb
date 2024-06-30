@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module IntegrationsHelper
+  # rubocop:disable Metrics/CyclomaticComplexity
   def integration_event_title(event)
     case event
     when "push", "push_events"
@@ -27,8 +28,11 @@ module IntegrationsHelper
       _("Deployment")
     when "alert"
       _("Alert")
+    when "incident"
+      _("Incident")
     end
   end
+  # rubocop:enable Metrics/CyclomaticComplexity
 
   def integration_event_description(integration, event)
     case integration
@@ -58,7 +62,7 @@ module IntegrationsHelper
 
   def scoped_integration_path(integration, project: nil, group: nil)
     if project.present?
-      project_integration_path(project, integration)
+      project_settings_integration_path(project, integration)
     elsif group.present?
       group_settings_integration_path(group, integration)
     else
@@ -68,7 +72,7 @@ module IntegrationsHelper
 
   def scoped_edit_integration_path(integration, project: nil, group: nil)
     if project.present?
-      edit_project_integration_path(project, integration)
+      edit_project_settings_integration_path(project, integration)
     elsif group.present?
       edit_group_settings_integration_path(group, integration)
     else
@@ -82,7 +86,7 @@ module IntegrationsHelper
 
   def scoped_test_integration_path(integration, project: nil, group: nil)
     if project.present?
-      test_project_integration_path(project, integration)
+      test_project_settings_integration_path(project, integration)
     elsif group.present?
       test_group_settings_integration_path(group, integration)
     else
@@ -103,6 +107,8 @@ module IntegrationsHelper
   def integration_form_data(integration, project: nil, group: nil)
     form_data = {
       id: integration.id,
+      project_id: integration.project_id,
+      group_id: integration.group_id,
       show_active: integration.show_active_box?.to_s,
       activated: (integration.active || (integration.new_record? && integration.activate_disabled_reason.nil?)).to_s,
       activate_disabled: integration.activate_disabled_reason.present?.to_s,
@@ -112,6 +118,7 @@ module IntegrationsHelper
       enable_comments: integration.comment_on_event_enabled.to_s,
       comment_detail: integration.comment_detail,
       learn_more_path: integrations_help_page_path,
+      about_pricing_url: Gitlab::Saas.about_pricing_url,
       trigger_events: trigger_events_for_integration(integration),
       sections: integration.sections.to_json,
       fields: fields_for_integration(integration),
@@ -131,6 +138,11 @@ module IntegrationsHelper
       form_data[:jira_issue_transition_id] = integration.jira_issue_transition_id
     end
 
+    if integration.is_a?(::Integrations::GitlabSlackApplication)
+      form_data[:upgrade_slack_url] = add_to_slack_link(integration.parent, slack_app_id)
+      form_data[:should_upgrade_slack] = integration.upgrade_needed?.to_s
+    end
+
     form_data
   end
 
@@ -148,7 +160,7 @@ module IntegrationsHelper
   end
 
   def integrations_help_page_path
-    help_page_path('user/admin_area/settings/project_integration_management')
+    help_page_path('administration/settings/project_integration_management')
   end
 
   def project_jira_issues_integration?
@@ -159,30 +171,106 @@ module IntegrationsHelper
     !Gitlab.com?
   end
 
-  def jira_issue_breadcrumb_link(issue_reference)
-    link_to '', { class: 'gl-display-flex gl-align-items-center gl-white-space-nowrap' } do
-      icon = image_tag image_path('illustrations/logos/jira.svg'), width: 15, height: 15, class: 'gl-mr-2'
-      [icon, html_escape(issue_reference)].join.html_safe
+  def integration_issue_type(issue_type)
+    issue_type_i18n_map = {
+      'issue' => _('Issue'),
+      'incident' => _('Incident'),
+      'test_case' => _('Test case'),
+      'requirement' => _('Requirement'),
+      'task' => _('Task'),
+      'ticket' => _('Service Desk Ticket')
+    }
+
+    issue_type_i18n_map[issue_type] || issue_type
+  end
+
+  def integration_todo_target_type(target_type)
+    target_type_i18n_map = {
+      'Commit' => _('Commit'),
+      'Issue' => _('Issue'),
+      'MergeRequest' => _('Merge Request'),
+      'Epic' => _('Epic'),
+      DesignManagement::Design.name => _('design'),
+      AlertManagement::Alert.name => _('alert')
+    }
+
+    target_type_i18n_map[target_type] || target_type
+  end
+
+  def integration_webhook_event_human_name(event)
+    event_i18n_map = {
+      repository_update_events: _('Repository update events'),
+      push_events: _('Push events'),
+      tag_push_events: s_('Webhooks|Tag push events'),
+      note_events: _('Comments'),
+      confidential_note_events: s_('Webhooks|Confidential comments'),
+      issues_events: s_('Webhooks|Issues events'),
+      confidential_issues_events: s_('Webhooks|Confidential issues events'),
+      subgroup_events: s_('Webhooks|Subgroup events'),
+      member_events: s_('Webhooks|Member events'),
+      merge_requests_events: s_('Webhooks|Merge request events'),
+      job_events: s_('Webhooks|Job events'),
+      pipeline_events: s_('Webhooks|Pipeline events'),
+      wiki_page_events: s_('Webhooks|Wiki page events'),
+      deployment_events: s_('Webhooks|Deployment events'),
+      feature_flag_events: s_('Webhooks|Feature flag events'),
+      releases_events: s_('Webhooks|Releases events'),
+      resource_access_token_events: s_('Webhooks|Project or group access token events')
+    }
+
+    event_i18n_map[event] || event.to_s.humanize
+  end
+
+  def add_to_slack_link(parent, slack_app_id)
+    query = {
+      scope: SlackIntegration::SCOPES.join(','),
+      client_id: slack_app_id,
+      redirect_uri: add_to_slack_link_redirect_url(parent),
+      state: form_authenticity_token
+    }
+
+    Gitlab::Utils.add_url_parameters(
+      Integrations::SlackInstallation::BaseService::SLACK_AUTHORIZE_URL,
+      query
+    )
+  end
+
+  def slack_integration_destroy_path(parent)
+    case parent
+    when Project
+      project_settings_slack_path(parent)
+    when Group
+      group_settings_slack_path(parent)
+    when nil
+      admin_application_settings_slack_path
     end
   end
 
-  def zentao_issue_breadcrumb_link(issue)
-    link_to issue[:web_url], { target: '_blank', rel: 'noopener noreferrer', class: 'gl-display-flex gl-align-items-center gl-white-space-nowrap' } do
-      icon = image_tag image_path('logos/zentao.svg'), width: 15, height: 15, class: 'gl-mr-2'
-      [icon, html_escape(issue[:id])].join.html_safe
-    end
-  end
-
-  def zentao_issues_show_data
+  def gitlab_slack_application_data(projects)
     {
-      issues_show_path: project_integrations_zentao_issue_path(@project, params[:id], format: :json),
-      issues_list_path: project_integrations_zentao_issues_path(@project)
+      projects: (projects || []).to_json(only: [:id, :name], methods: [:avatar_url, :name_with_namespace]),
+      sign_in_path: new_session_path(:user, redirect_to_referer: 'yes'),
+      is_signed_in: current_user.present?.to_s,
+      slack_link_path: slack_link_profile_slack_path,
+      gitlab_logo_path: image_path('illustrations/gitlab_logo.svg'),
+      slack_logo_path: image_path('illustrations/slack_logo.svg')
     }
   end
 
   extend self
 
   private
+
+  def add_to_slack_link_redirect_url(parent)
+    case parent
+    when Project
+      slack_auth_project_settings_slack_url(parent)
+    when Group
+      slack_auth_group_settings_slack_url(parent)
+    when nil
+      slack_auth_admin_application_settings_slack_url
+    end
+  end
 
   def jira_integration_event_description(event)
     case event
@@ -202,6 +290,7 @@ module IntegrationsHelper
     end
   end
 
+  # rubocop:disable Metrics/CyclomaticComplexity
   def default_integration_event_description(event)
     case event
     when "push", "push_events"
@@ -212,11 +301,11 @@ module IntegrationsHelper
       s_("ProjectService|Trigger event for new comments.")
     when "confidential_note", "confidential_note_events"
       s_("ProjectService|Trigger event for new comments on confidential issues.")
-    when "issue", "issue_events"
+    when "issue", "issue_events", "issues_events"
       s_("ProjectService|Trigger event when an issue is created, updated, or closed.")
-    when "confidential_issue", "confidential_issue_events"
+    when "confidential_issue", "confidential_issue_events", "confidential_issues_events"
       s_("ProjectService|Trigger event when a confidential issue is created, updated, or closed.")
-    when "merge_request", "merge_request_events"
+    when "merge_request", "merge_request_events", "merge_requests_events"
       s_("ProjectService|Trigger event when a merge request is created, updated, or merged.")
     when "pipeline", "pipeline_events"
       s_("ProjectService|Trigger event when a pipeline status changes.")
@@ -224,19 +313,26 @@ module IntegrationsHelper
       s_("ProjectService|Trigger event when a wiki page is created or updated.")
     when "commit", "commit_events"
       s_("ProjectService|Trigger event when a commit is created or updated.")
-    when "deployment"
+    when "deployment", "deployment_events"
       s_("ProjectService|Trigger event when a deployment starts or finishes.")
-    when "alert"
+    when "alert", "alert_events"
       s_("ProjectService|Trigger event when a new, unique alert is recorded.")
+    when "incident", "incident_events"
+      s_("ProjectService|Trigger event when an incident is created.")
+    when "build_events"
+      s_("ProjectService|Trigger event when a build is created.")
+    when "archive_trace_events"
+      s_('When enabled, job logs are collected by Datadog and displayed along with pipeline execution traces.')
     end
   end
+  # rubocop:enable Metrics/CyclomaticComplexity
 
   def trigger_events_for_integration(integration)
-    ServiceEventSerializer.new(service: integration).represent(integration.configurable_events).to_json
+    Integrations::EventSerializer.new(integration: integration).represent(integration.configurable_events).to_json
   end
 
   def fields_for_integration(integration)
-    ServiceFieldSerializer.new(service: integration).represent(integration.global_fields).to_json
+    Integrations::FieldSerializer.new(integration: integration).represent(integration.form_fields).to_json
   end
 
   def integration_level(integration)
@@ -251,12 +347,15 @@ module IntegrationsHelper
 
   def serialize_integration(integration, group: nil, project: nil)
     {
-      active: integration.operating?,
+      id: integration.id,
+      active: integration.activated?,
+      configured: integration.persisted?,
       title: integration.title,
       description: integration.description,
       updated_at: integration.updated_at,
       edit_path: scoped_edit_integration_path(integration, group: group, project: project),
-      name: integration.to_param
+      name: integration.to_param,
+      icon: integration.try(:avatar_url)
     }
   end
 end

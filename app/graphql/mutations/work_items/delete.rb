@@ -4,8 +4,7 @@ module Mutations
   module WorkItems
     class Delete < BaseMutation
       graphql_name 'WorkItemDelete'
-      description "Deletes a work item." \
-                  " Available only when feature flag `work_items` is enabled. The feature is experimental and is subject to change without notice."
+      description "Deletes a work item."
 
       authorize :delete_work_item
 
@@ -15,32 +14,31 @@ module Mutations
 
       field :project, Types::ProjectType,
             null: true,
-            description: 'Project the deleted work item belonged to.'
+            description: 'Project the deleted work item belonged to.',
+            deprecated: {
+              reason: 'Use `namespace`',
+              milestone: '16.9'
+            }
+
+      field :namespace, Types::NamespaceType,
+            null: true,
+            description: 'Namespace the deleted work item belonged to.'
 
       def resolve(id:)
         work_item = authorized_find!(id: id)
 
-        unless work_item.project.work_items_feature_flag_enabled?
-          return { errors: ['`work_items` feature flag disabled for this project'] }
-        end
-
         result = ::WorkItems::DeleteService.new(
-          project: work_item.project,
+          container: work_item.resource_parent,
           current_user: current_user
         ).execute(work_item)
 
-        {
-          project: result.success? ? work_item.project : nil,
-          errors: result.errors
-        }
-      end
+        response = { errors: result.errors }
 
-      private
-
-      def find_object(id:)
-        # TODO: Remove coercion when working on https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = ::Types::GlobalIDType[::WorkItem].coerce_isolated_input(id)
-        GitlabSchema.find_by_gid(id)
+        if result.success?
+          response.merge(project: work_item.project, namespace: work_item.namespace)
+        else
+          response
+        end
       end
     end
   end

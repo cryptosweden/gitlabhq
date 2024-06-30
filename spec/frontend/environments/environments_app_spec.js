@@ -1,6 +1,6 @@
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
-import { GlPagination } from '@gitlab/ui';
+import { GlPagination, GlSkeletonLoader } from '@gitlab/ui';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
@@ -50,6 +50,7 @@ describe('~/environments/components/environments_app.vue', () => {
         defaultBranchName: 'main',
         helpPagePath: '/help',
         projectId: '1',
+        projectPath: '/1',
         ...provide,
       },
       apolloProvider,
@@ -70,7 +71,7 @@ describe('~/environments/components/environments_app.vue', () => {
       previousPage: 1,
       __typename: 'LocalPageInfo',
     },
-    location = '?scope=available&page=2',
+    location = '?scope=active&page=2&search=prod',
   }) => {
     setWindowLocation(location);
     environmentAppMock.mockReturnValue(environmentsApp);
@@ -95,23 +96,33 @@ describe('~/environments/components/environments_app.vue', () => {
     paginationMock = jest.fn();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  it('should request available environments if the scope is invalid', async () => {
+  it('should request active environments if the scope is invalid', async () => {
     await createWrapperWithMocked({
       environmentsApp: resolvedEnvironmentsApp,
       folder: resolvedFolder,
-      location: '?scope=bad&page=2',
+      location: '?scope=bad&page=2&search=prod',
     });
 
     expect(environmentAppMock).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ scope: 'available', page: 2 }),
+      expect.objectContaining({ scope: 'active', page: 2 }),
       expect.anything(),
       expect.anything(),
     );
+  });
+
+  it('should show loading state while loading data', () => {
+    createWrapperWithMocked({});
+
+    const loader = wrapper.findComponent(GlSkeletonLoader);
+    expect(loader.exists()).toBe(true);
+  });
+
+  it('should hide loading state once received data', async () => {
+    await createWrapperWithMocked({ environmentsApp: resolvedEnvironmentsApp });
+
+    const loader = wrapper.findComponent(GlSkeletonLoader);
+    expect(loader.exists()).toBe(false);
   });
 
   it('should show all the folders that are fetched', async () => {
@@ -173,40 +184,73 @@ describe('~/environments/components/environments_app.vue', () => {
       folder: resolvedFolder,
     });
 
-    const button = wrapper.findByRole('button', { name: s__('Environments|Enable review app') });
-    button.trigger('click');
-
-    await nextTick();
-
-    expect(wrapper.findByText(s__('ReviewApp|Enable Review App')).exists()).toBe(true);
+    const button = wrapper.findByRole('button', { name: s__('Environments|Enable review apps') });
+    expect(button.exists()).toBe(true);
   });
 
-  it('should not show a button to open the review app modal if review apps are configured', async () => {
+  it.each`
+    canSetupReviewApp | hasReviewApp
+    ${false}          | ${true}
+    ${true}           | ${true}
+  `(
+    'should not show button to open the review app modal',
+    async ({ canSetupReviewApp, hasReviewApp }) => {
+      await createWrapperWithMocked({
+        environmentsApp: {
+          ...resolvedEnvironmentsApp,
+          reviewApp: { canSetupReviewApp, hasReviewApp },
+        },
+        folder: resolvedFolder,
+      });
+
+      const button = wrapper.findByRole('button', { name: s__('Environments|Enable review apps') });
+      expect(button.exists()).toBe(false);
+    },
+  );
+
+  it('should not show a button to clean up environments if the user has no permissions', async () => {
     await createWrapperWithMocked({
       environmentsApp: {
         ...resolvedEnvironmentsApp,
-        reviewApp: { canSetupReviewApp: false },
+        canStopStaleEnvironments: false,
       },
       folder: resolvedFolder,
     });
 
-    const button = wrapper.findByRole('button', { name: s__('Environments|Enable review app') });
+    const button = wrapper.findByRole('button', {
+      name: s__('Environments|Clean up environments'),
+    });
     expect(button.exists()).toBe(false);
   });
 
+  it('should show a button to clean up environments if the user has permissions', async () => {
+    await createWrapperWithMocked({
+      environmentsApp: {
+        ...resolvedEnvironmentsApp,
+        canStopStaleEnvironments: true,
+      },
+      folder: resolvedFolder,
+    });
+
+    const button = wrapper.findByRole('button', {
+      name: s__('Environments|Clean up environments'),
+    });
+    expect(button.exists()).toBe(true);
+  });
+
   describe('tabs', () => {
-    it('should show tabs for available and stopped environmets', async () => {
+    it('should show tabs for active and stopped environmets', async () => {
       await createWrapperWithMocked({
         environmentsApp: resolvedEnvironmentsApp,
         folder: resolvedFolder,
       });
 
-      const [available, stopped] = wrapper.findAllByRole('tab').wrappers;
+      const [active, stopped] = wrapper.findAllByRole('tab').wrappers;
 
-      expect(available.text()).toContain(__('Available'));
-      expect(available.text()).toContain(resolvedEnvironmentsApp.availableCount);
+      expect(active.text()).toContain(__('Active'));
+      expect(active.text()).toContain(resolvedEnvironmentsApp.activeCount.toString());
       expect(stopped.text()).toContain(__('Stopped'));
-      expect(stopped.text()).toContain(resolvedEnvironmentsApp.stoppedCount);
+      expect(stopped.text()).toContain(resolvedEnvironmentsApp.stoppedCount.toString());
     });
 
     it('should change the requested scope on tab change', async () => {
@@ -349,7 +393,54 @@ describe('~/environments/components/environments_app.vue', () => {
       next.trigger('click');
 
       await nextTick();
-      expect(window.location.search).toBe('?scope=available&page=3');
+      expect(window.location.search).toBe('?scope=active&page=3&search=prod');
+    });
+  });
+
+  describe('search', () => {
+    let searchBox;
+
+    const waitForDebounce = async () => {
+      await nextTick();
+      jest.runOnlyPendingTimers();
+    };
+
+    beforeEach(async () => {
+      await createWrapperWithMocked({
+        environmentsApp: resolvedEnvironmentsApp,
+        folder: resolvedFolder,
+      });
+      searchBox = wrapper.findByRole('searchbox', {
+        name: s__('Environments|Search by environment name'),
+      });
+    });
+
+    it('should sync the query params to the new search', async () => {
+      searchBox.setValue('hello');
+
+      await waitForDebounce();
+
+      expect(window.location.search).toBe('?scope=active&page=1&search=hello');
+    });
+
+    it('should query for the entered parameter', async () => {
+      const search = 'hello';
+
+      searchBox.setValue(search);
+
+      await waitForDebounce();
+      await waitForPromises();
+
+      expect(environmentAppMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ search }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('should sync search term from query params on load', () => {
+      expect(searchBox.element.value).toBe('prod');
     });
   });
 });

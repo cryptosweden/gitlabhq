@@ -9,7 +9,8 @@
 require 'securerandom'
 require 'socket'
 require 'logger'
-require 'bundler'
+require 'fileutils'
+require 'gitlab/utils/all'
 
 module GitalySetup
   extend self
@@ -23,12 +24,26 @@ module GitalySetup
     Logger.new($stdout, level: level, formatter: ->(_, _, _, msg) { msg })
   end
 
+  # Expands a path relative to rails root. This module is used in non-rails
+  # contexts and so Rails.root cannot be used.
   def expand_path(path)
     File.expand_path(path, File.join(__dir__, '../../..'))
   end
 
+  def storage_path
+    expand_path('tmp/tests/repositories')
+  end
+
+  def second_storage_path
+    expand_path('tmp/tests/second_storage')
+  end
+
   def tmp_tests_gitaly_dir
     expand_path('tmp/tests/gitaly')
+  end
+
+  def runtime_dir
+    expand_path('tmp/run')
   end
 
   def tmp_tests_gitaly_bin_dir
@@ -43,71 +58,41 @@ module GitalySetup
     expand_path('.gitlab_shell_secret')
   end
 
-  def gemfile
-    File.join(tmp_tests_gitaly_dir, 'ruby', 'Gemfile')
-  end
-
-  def gemfile_dir
-    File.dirname(gemfile)
-  end
-
   def gitlab_shell_secret_file
     File.join(tmp_tests_gitlab_shell_dir, '.gitlab_shell_secret')
   end
 
   def env
     {
-      'GEM_PATH' => Gem.path.join(':'),
-      'BUNDLE_INSTALL_FLAGS' => nil,
-      'BUNDLE_IGNORE_CONFIG' => '1',
-      'BUNDLE_PATH' => bundle_path,
-      'BUNDLE_GEMFILE' => gemfile,
-      'BUNDLE_JOBS' => '4',
-      'BUNDLE_RETRY' => '3',
-      'RUBYOPT' => nil,
-
       # Git hooks can't run during tests as the internal API is not running.
       'GITALY_TESTING_NO_GIT_HOOKS' => "1",
       'GITALY_TESTING_ENABLE_ALL_FEATURE_FLAGS' => "true"
     }
   end
 
-  def bundle_path
-    # Allow the user to override BUNDLE_PATH if they need to
-    return ENV['GITALY_TEST_BUNDLE_PATH'] if ENV['GITALY_TEST_BUNDLE_PATH']
-
-    if ENV['CI']
-      expand_path('vendor/gitaly-ruby')
-    else
-      explicit_path = Bundler.configured_bundle_path.explicit_path
-
-      return unless explicit_path
-
-      expand_path(explicit_path)
+  def config_name(service)
+    case service
+    when :gitaly
+      'config.toml'
+    when :gitaly2
+      'gitaly2.config.toml'
+    when :praefect
+      'praefect.config.toml'
     end
   end
 
   def config_path(service)
-    case service
-    when :gitaly
-      File.join(tmp_tests_gitaly_dir, 'config.toml')
-    when :gitaly2
-      File.join(tmp_tests_gitaly_dir, 'gitaly2.config.toml')
-    when :praefect
-      File.join(tmp_tests_gitaly_dir, 'praefect.config.toml')
-    end
+    File.join(tmp_tests_gitaly_dir, config_name(service))
   end
 
-  def repos_path(storage = REPOS_STORAGE)
-    Gitlab.config.repositories.storages[REPOS_STORAGE].legacy_disk_path
-  end
+  def service_cmd(service, toml = nil)
+    toml ||= config_path(service)
 
-  def service_binary(service)
     case service
     when :gitaly, :gitaly2
-      'gitaly'
+      [File.join(tmp_tests_gitaly_bin_dir, 'gitaly'), toml]
     when :praefect
-      'praefect'
+      [File.join(tmp_tests_gitaly_bin_dir, 'praefect'), '-config', toml]
     end
   end
 
@@ -115,31 +100,44 @@ module GitalySetup
     system(env, *cmd, exception: true, chdir: tmp_tests_gitaly_dir)
   end
 
-  def install_gitaly_gems
-    run_command(%W[make #{tmp_tests_gitaly_dir}/.ruby-bundle], env: env)
-  end
-
   def build_gitaly
     run_command(%w[make all WITH_BUNDLED_GIT=YesPlease], env: env.merge('GIT_VERSION' => nil))
   end
 
-  def start_gitaly(toml = nil)
-    start(:gitaly, toml)
-  end
+  def start_gitaly(service, toml = nil)
+    case service
+    when :gitaly
+      FileUtils.mkdir_p(GitalySetup.storage_path)
+    when :gitaly2
+      FileUtils.mkdir_p(GitalySetup.second_storage_path)
+    end
 
-  def start_gitaly2
-    start(:gitaly2)
+    if ENV['CI'] && gitaly_with_transactions?
+      # The configuration file with transactions is pre-generated in the CI. Here we check
+      # whether this job should actually run with transactions and choose the pre-generated
+      # configuration with transactions enabled if so.
+      toml = "#{config_path(service)}.transactions"
+    end
+
+    start(service, toml)
   end
 
   def start_praefect
-    start(:praefect)
+    if praefect_with_db?
+      LOGGER.debug 'Starting Praefect with database election strategy'
+      start(:praefect, File.join(tmp_tests_gitaly_dir, 'praefect-db.config.toml'))
+    else
+      LOGGER.debug 'Starting Praefect with in-memory election strategy'
+      start(:praefect)
+    end
   end
 
   def start(service, toml = nil)
     toml ||= config_path(service)
-    args = ["#{tmp_tests_gitaly_bin_dir}/#{service_binary(service)}"]
-    args.push("-config") if service == :praefect
-    args.push(toml)
+    args = service_cmd(service, toml)
+
+    # Ensure that tmp/run exists
+    FileUtils.mkdir_p(runtime_dir)
 
     # Ensure user configuration does not affect Git
     # Context: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/58776#note_547613780
@@ -171,25 +169,11 @@ module GitalySetup
     end
   end
 
-  def check_gitaly_config!
-    LOGGER.debug "Checking gitaly-ruby Gemfile...\n"
-
-    unless File.exist?(gemfile)
-      message = "#{gemfile} does not exist."
-      message += "\n\nThis might have happened if the CI artifacts for this build were destroyed." if ENV['CI']
-      abort message
-    end
-
-    LOGGER.debug "Checking gitaly-ruby bundle...\n"
-    out = ENV['CI'] ? $stdout : '/dev/null'
-    abort 'bundle check failed' unless system(env, 'bundle', 'check', out: out, chdir: gemfile_dir)
-  end
-
   def connect_proc(toml)
     # This code needs to work in an environment where we cannot use bundler,
     # so we cannot easily use the toml-rb gem. This ad-hoc parser should be
     # good enough.
-    config_text = IO.read(toml)
+    config_text = File.read(toml)
 
     config_text.lines.each do |line|
       match_data = line.match(/^\s*(socket_path|listen_addr)\s*=\s*"([^"]*)"$/)
@@ -233,6 +217,8 @@ module GitalySetup
     Gitlab::GitalyClient.address(REPOS_STORAGE).delete_prefix('unix:')
   end
 
+  # Extracts the gitaly install directory based on the gitaly socket configured
+  # in gitlab.yml. This allows the test gitaly to be temporarily overridden.
   def gitaly_dir
     socket_path = gitaly_socket_path
     socket_path = File.expand_path(gitaly_socket_path) if expand_path_for_socket?
@@ -254,25 +240,90 @@ module GitalySetup
       build_gitaly
     end
 
-    Gitlab::SetupHelper::Gitaly.create_configuration(
-      gitaly_dir,
-      { 'default' => repos_path },
-      force: true,
-      options: {
-        prometheus_listen_addr: 'localhost:9236'
+    [
+      {
+        storages: { 'default' => storage_path },
+        options: {
+          runtime_dir: runtime_dir,
+          prometheus_listen_addr: 'localhost:9236',
+          config_filename: config_name(:gitaly),
+          transactions_enabled: gitaly_with_transactions?
+        }
+      },
+      {
+        storages: { 'test_second_storage' => second_storage_path },
+        options: {
+          runtime_dir: runtime_dir,
+          gitaly_socket: "gitaly2.socket",
+          config_filename: config_name(:gitaly2),
+          transactions_enabled: gitaly_with_transactions?
+        }
       }
-    )
-    Gitlab::SetupHelper::Gitaly.create_configuration(
-      gitaly_dir,
-      { 'default' => repos_path },
-      force: true,
-      options: {
-        internal_socket_dir: File.join(gitaly_dir, "internal_gitaly2"),
-        gitaly_socket: "gitaly2.socket",
-        config_filename: "gitaly2.config.toml"
-      }
-    )
-    Gitlab::SetupHelper::Praefect.create_configuration(gitaly_dir, { 'praefect' => repos_path }, force: true)
+    ].each do |params|
+      Gitlab::SetupHelper::Gitaly.create_configuration(
+        gitaly_dir,
+        params[:storages],
+        force: true,
+        options: params[:options]
+      )
+
+      # CI generates all of the configuration files in the setup-test-env job. When we eventually get
+      # to run the rspec jobs with transactions enabled, the configuration has already been created
+      # without transactions enabled.
+      #
+      # Similarly to the Praefect configuration, generate variant of the configuration file with
+      # transactions enabled in CI. Later when the rspec job runs, we decide whether to run Gitaly
+      # using the configuration with transactions enabled or not.
+      #
+      # These configuration files are only used in the CI.
+      next unless ENV['CI']
+
+      params[:options][:config_filename] = "#{params[:options][:config_filename]}.transactions"
+      params[:options][:transactions_enabled] = true
+
+      Gitlab::SetupHelper::Gitaly.create_configuration(
+        gitaly_dir,
+        params[:storages],
+        force: true,
+        options: params[:options]
+      )
+    end
+
+    # In CI we need to pre-generate both config files.
+    # For local testing we'll create the correct file on-demand.
+    if ENV['CI'] || !praefect_with_db?
+      Gitlab::SetupHelper::Praefect.create_configuration(
+        gitaly_dir,
+        nil,
+        force: true
+      )
+    end
+
+    if ENV['CI'] || praefect_with_db?
+      Gitlab::SetupHelper::Praefect.create_configuration(
+        gitaly_dir,
+        nil,
+        force: true,
+        options: {
+          per_repository: true,
+          config_filename: 'praefect-db.config.toml',
+          pghost: ENV['CI'] ? 'postgres' : ENV.fetch('PGHOST'),
+          pgport: ENV['CI'] ? 5432 : ENV.fetch('PGPORT').to_i,
+          pguser: ENV['CI'] ? 'postgres' : ENV.fetch('USER')
+        }
+      )
+    end
+
+    # In CI no database is running when Gitaly is set up
+    # so scripts/gitaly-test-spawn will take care of it instead.
+    setup_praefect unless ENV['CI']
+  end
+
+  def setup_praefect
+    return unless praefect_with_db?
+
+    migrate_cmd = service_cmd(:praefect, File.join(tmp_tests_gitaly_dir, 'praefect-db.config.toml')) + ['sql-migrate']
+    system(env, *migrate_cmd, [:out, :err] => 'log/praefect-test.log')
   end
 
   def socket_path(service)
@@ -290,15 +341,13 @@ module GitalySetup
   end
 
   def spawn_gitaly(toml = nil)
-    check_gitaly_config!
-
     pids = []
 
     if toml
-      pids << start_gitaly(toml)
+      pids << start_gitaly(:gitaly, toml)
     else
-      pids << start_gitaly
-      pids << start_gitaly2
+      pids << start_gitaly(:gitaly)
+      pids << start_gitaly(:gitaly2)
       pids << start_praefect
     end
 
@@ -313,6 +362,8 @@ module GitalySetup
       next if ENV['GITALY_PID_FILE']
 
       pids.each { |pid| stop(pid) }
+
+      [storage_path, second_storage_path].each { |storage_dir| FileUtils.rm_rf(storage_dir) }
     end
   rescue StandardError
     raise gitaly_failure_message
@@ -323,9 +374,9 @@ module GitalySetup
 
     message += "- The `gitaly` binary does not exist: #{gitaly_binary}\n" unless File.exist?(gitaly_binary)
     message += "- The `praefect` binary does not exist: #{praefect_binary}\n" unless File.exist?(praefect_binary)
-    message += "- The `git` binary does not exist: #{git_binary}\n" unless File.exist?(git_binary)
+    message += "- No `git` binaries exist\n" if git_binaries.empty?
 
-    message += "\nCheck log/gitaly-test.log for errors.\n"
+    message += "\nCheck log/gitaly-test.log & log/praefect-test.log for errors.\n"
 
     unless ENV['CI']
       message += "\nIf binaries are missing, try running `make -C tmp/tests/gitaly all WITH_BUNDLED_GIT=YesPlease`.\n"
@@ -335,8 +386,8 @@ module GitalySetup
     message
   end
 
-  def git_binary
-    File.join(tmp_tests_gitaly_dir, "_build", "bin", "gitaly-git")
+  def git_binaries
+    Dir.glob(File.join(tmp_tests_gitaly_dir, "_build", "bin", "gitaly-git-v*"))
   end
 
   def gitaly_binary
@@ -347,7 +398,11 @@ module GitalySetup
     File.join(tmp_tests_gitaly_dir, "_build", "bin", "praefect")
   end
 
-  def git_binary_exists?
-    File.exist?(git_binary)
+  def praefect_with_db?
+    Gitlab::Utils.to_boolean(ENV['GITALY_PRAEFECT_WITH_DB'], default: false)
+  end
+
+  def gitaly_with_transactions?
+    Gitlab::Utils.to_boolean(ENV['GITALY_TRANSACTIONS_ENABLED'], default: false)
   end
 end

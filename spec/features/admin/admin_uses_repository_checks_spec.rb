@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin uses repository checks', :request_store do
+RSpec.describe 'Admin uses repository checks', :request_store, feature_category: :user_management do
   include StubENV
+  include Spec::Support::Helpers::ModalHelpers
 
   let(:admin) { create(:admin) }
 
   before do
-    stub_feature_flags(bootstrap_confirmation_modals: false)
     stub_env('IN_MEMORY_APPLICATION_SETTINGS', 'false')
     sign_in(admin)
   end
@@ -19,13 +19,13 @@ RSpec.describe 'Admin uses repository checks', :request_store do
       visit_admin_project_page(project)
 
       expect(page).not_to have_css('.repository-check')
-      expect(page).to have_content('Enter Admin Mode')
+      expect(page).to have_content('Enter admin mode')
     end
   end
 
   context 'when admin mode is enabled' do
     before do
-      gitlab_enable_admin_mode_sign_in(admin)
+      enable_admin_mode!(admin)
     end
 
     it 'to trigger a single check', :js do
@@ -47,7 +47,7 @@ RSpec.describe 'Admin uses repository checks', :request_store do
       )
       visit_admin_project_page(project)
 
-      page.within('[data-testid="last-repository-check-failed-alert"]') do
+      within_testid('last-repository-check-failed-alert') do
         expect(page.text).to match(/Last repository check \(just now\) failed/)
       end
     end
@@ -57,7 +57,9 @@ RSpec.describe 'Admin uses repository checks', :request_store do
 
       expect(RepositoryCheck::ClearWorker).to receive(:perform_async)
 
-      accept_confirm { find(:link, 'Clear all repository checks').send_keys(:return) }
+      accept_gl_confirm(button_text: 'Clear repository checks') do
+        find(:link, 'Clear all repository checks').send_keys(:return)
+      end
 
       expect(page).to have_content('Started asynchronous removal of all repository check states.')
     end

@@ -1,28 +1,34 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
-type: reference, api
+info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
 ---
 
-# Keys API **(FREE)**
+# Keys API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+If using a SHA256 fingerprint in an API call, you should URL-encode the fingerprint.
 
 ## Get SSH key with user by ID of an SSH key
 
-Get SSH key with user by ID of an SSH key. Note only administrators can lookup SSH key with user by ID of an SSH key.
+Get SSH key with user by ID of an SSH key. Only available to administrators.
 
 ```plaintext
 GET /keys/:id
 ```
 
-| Attribute | Type    | Required | Description          |
-|:----------|:--------|:---------|:---------------------|
-| `id`      | integer | yes      | The ID of an SSH key |
+| Attribute | Type    | Required | Description           |
+|:----------|:--------|:---------|:----------------------|
+| `id`      | integer | yes      | The ID of an SSH key. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/keys/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  "https://gitlab.example.com/api/v4/keys/1"
 ```
 
 ```json
@@ -32,6 +38,7 @@ curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/a
   "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt1256k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
   "created_at": "2015-09-03T07:24:44.627Z",
   "expires_at": "2020-05-05T00:00:00.000Z",
+  "usage_type": "auth",
   "user": {
     "name": "John Smith",
     "username": "john_smith",
@@ -74,22 +81,15 @@ You can search for a user that owns a specific SSH key. Note only administrators
 GET /keys
 ```
 
-| Attribute     | Type   | Required | Description                   |
-|:--------------|:-------|:---------|:------------------------------|
-| `fingerprint` | string | yes      | The fingerprint of an SSH key |
+| Attribute     | Type   | Required | Description                    |
+|:--------------|:-------|:---------|:-------------------------------|
+| `fingerprint` | string | yes      | The fingerprint of an SSH key. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/keys?fingerprint=ba:81:59:68:d7:6c:cd:02:02:bf:6a:9b:55:4e:af:d1"
-```
-
-If using sha256 fingerprint API calls, make sure that the fingerprint is URL-encoded.
-
-For example, `/` is represented by `%2F` and `:` is represented by`%3A`:
-
-```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/keys?fingerprint=SHA256%3AnUhzNyftwADy8AH3wFY31tAKs7HufskYTte2aXo%2FlCg"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  "https://gitlab.example.com/api/v4/keys?fingerprint=ba:81:59:68:d7:6c:cd:02:02:bf:6a:9b:55:4e:af:d1"
 ```
 
 Example response:
@@ -101,6 +101,7 @@ Example response:
   "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt1016k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
   "created_at": "2019-11-14T15:11:13.222Z",
   "expires_at": "2020-05-05T00:00:00.000Z",
+  "usage_type": "auth",
   "user": {
     "id": 1,
     "name": "Administrator",
@@ -140,15 +141,21 @@ Example response:
 
 ## Get user by deploy key fingerprint
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/119209) in GitLab 12.7.
+Deploy keys are bound to the creating user. If you query with a deploy key
+fingerprint, you get additional information about the projects using that key.
 
-Deploy keys are bound to the creating user, so if you query with a deploy key
-fingerprint you get additional information about the projects using that key.
-
-Example request:
+Example request with an MD5 fingerprint:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/keys?fingerprint=SHA256%3AnUhzNyftwADy8AH3wFY31tAKs7HufskYTte2aXo%2FlCg"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  "https://gitlab.example.com/api/v4/keys?fingerprint=ba:81:59:68:d7:6c:cd:02:02:bf:6a:9b:55:4e:af:d1"
+```
+
+In this SHA256 example, `/` is represented by `%2F` and `:` is represented by`%3A`:
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  "https://gitlab.example.com/api/v4/keys?fingerprint=SHA256%3AnUhzNyftwADy8AH3wFY31tAKs7HufskYTte2aXo%2FlCg"
 ```
 
 Example response:
@@ -159,6 +166,7 @@ Example response:
   "title": "Sample key 1",
   "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt1016k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
   "created_at": "2019-11-14T15:11:13.222Z",
+  "usage_type": "auth",
   "user": {
     "id": 1,
     "name": "Administrator",

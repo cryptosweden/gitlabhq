@@ -1,8 +1,9 @@
-import { GlAvatarLink } from '@gitlab/ui';
+import { GlAvatarLabeled, GlAvatarLink } from '@gitlab/ui';
 import { getByText as getByTextHelper } from '@testing-library/dom';
 import { mount, createWrapper } from '@vue/test-utils';
 import GroupAvatar from '~/members/components/avatars/group_avatar.vue';
-import { group as member } from '../../mock_data';
+import PrivateIcon from '~/members/components/icons/private_icon.vue';
+import { group as member, privateGroup as privateMember } from '../../mock_data';
 
 describe('MemberList', () => {
   let wrapper;
@@ -21,26 +22,36 @@ describe('MemberList', () => {
   const getByText = (text, options) =>
     createWrapper(getByTextHelper(wrapper.element, text, options));
 
-  beforeEach(() => {
-    createComponent();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('renders link to group', () => {
-    const link = wrapper.find(GlAvatarLink);
+    createComponent();
+
+    const link = wrapper.findComponent(GlAvatarLink);
 
     expect(link.exists()).toBe(true);
     expect(link.attributes('href')).toBe(group.webUrl);
   });
 
   it("renders group's full name", () => {
+    createComponent();
+
     expect(getByText(group.fullName).exists()).toBe(true);
   });
 
   it("renders group's avatar", () => {
+    createComponent();
+
     expect(wrapper.find('img').attributes('src')).toBe(group.avatarUrl);
+  });
+
+  describe('when group is private', () => {
+    beforeEach(() => {
+      createComponent({ member: privateMember });
+    });
+
+    it('renders private avatar with icon', () => {
+      expect(wrapper.findComponent(GlAvatarLink).exists()).toBe(false);
+      expect(wrapper.findComponent(GlAvatarLabeled).props('label')).toBe('Private');
+      expect(wrapper.findComponent(PrivateIcon).exists()).toBe(true);
+    });
   });
 });

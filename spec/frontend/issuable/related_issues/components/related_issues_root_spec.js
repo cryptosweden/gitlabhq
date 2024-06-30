@@ -1,362 +1,330 @@
-import { mount, shallowMount } from '@vue/test-utils';
+import { shallowMount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
-import { nextTick } from 'vue';
 import waitForPromises from 'helpers/wait_for_promises';
 import {
   defaultProps,
   issuable1,
   issuable2,
 } from 'jest/issuable/components/related_issuable_mock_data';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-import RelatedIssuesRoot from '~/related_issues/components/related_issues_root.vue';
+import {
+  HTTP_STATUS_CONFLICT,
+  HTTP_STATUS_OK,
+  HTTP_STATUS_UNPROCESSABLE_ENTITY,
+} from '~/lib/utils/http_status';
 import { linkedIssueTypesMap } from '~/related_issues/constants';
-import relatedIssuesService from '~/related_issues/services/related_issues_service';
+import RelatedIssuesBlock from '~/related_issues/components/related_issues_block.vue';
+import RelatedIssuesRoot from '~/related_issues/components/related_issues_root.vue';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('RelatedIssuesRoot', () => {
   let wrapper;
   let mock;
 
+  const findRelatedIssuesBlock = () => wrapper.findComponent(RelatedIssuesBlock);
+
   beforeEach(() => {
     mock = new MockAdapter(axios);
-    mock.onGet(defaultProps.endpoint).reply(200, []);
+    mock.onGet(defaultProps.endpoint).reply(HTTP_STATUS_OK, []);
   });
 
   afterEach(() => {
     mock.restore();
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
   });
 
-  const createComponent = (mountFn = mount) => {
-    wrapper = mountFn(RelatedIssuesRoot, {
-      propsData: defaultProps,
+  const createComponent = ({ props = {}, data = {} } = {}) => {
+    wrapper = shallowMount(RelatedIssuesRoot, {
+      propsData: {
+        ...defaultProps,
+        ...props,
+      },
+      provide: {
+        reportAbusePath: '/report/abuse/path',
+      },
+      data() {
+        return data;
+      },
     });
 
     // Wait for fetch request `fetchRelatedIssues` to complete before starting to test
     return waitForPromises();
   };
 
-  describe('methods', () => {
-    describe('onRelatedIssueRemoveRequest', () => {
-      beforeEach(() => {
-        jest
-          .spyOn(relatedIssuesService.prototype, 'fetchRelatedIssues')
-          .mockReturnValue(Promise.reject());
+  describe('events', () => {
+    describe('when "relatedIssueRemoveRequest" event is emitted', () => {
+      describe('when emitted value is a numerical issue', () => {
+        beforeEach(async () => {
+          mock.onGet(defaultProps.endpoint).reply(HTTP_STATUS_OK, [issuable1]);
+          await createComponent();
+        });
 
-        return createComponent().then(() => {
-          wrapper.vm.store.setRelatedIssues([issuable1]);
+        // quarantine: https://gitlab.com/gitlab-org/gitlab/-/issues/417177
+        // eslint-disable-next-line jest/no-disabled-tests
+        it.skip('removes related issue on API success', async () => {
+          mock.onDelete(issuable1.referencePath).reply(HTTP_STATUS_OK, { issues: [] });
+
+          findRelatedIssuesBlock().vm.$emit('relatedIssueRemoveRequest', issuable1.id);
+          await axios.waitForAll();
+
+          expect(findRelatedIssuesBlock().props('relatedIssues')).toEqual([]);
+        });
+
+        it('does not remove related issue on API error', async () => {
+          mock.onDelete(issuable1.referencePath).reply(HTTP_STATUS_UNPROCESSABLE_ENTITY, {});
+
+          findRelatedIssuesBlock().vm.$emit('relatedIssueRemoveRequest', issuable1.id);
+          await axios.waitForAll();
+
+          expect(findRelatedIssuesBlock().props('relatedIssues')).toEqual([
+            expect.objectContaining({ id: issuable1.id }),
+          ]);
         });
       });
 
-      it('remove related issue and succeeds', () => {
-        mock.onDelete(issuable1.referencePath).reply(200, { issues: [] });
+      describe('when emitted value is a work item id', () => {
+        it('removes related issue', async () => {
+          const workItem = `gid://gitlab/WorkItem/${issuable1.id}`;
+          createComponent({ data: { state: { relatedIssues: [issuable1] } } });
 
-        wrapper.vm.onRelatedIssueRemoveRequest(issuable1.id);
+          await findRelatedIssuesBlock().vm.$emit('relatedIssueRemoveRequest', workItem);
 
-        return axios.waitForAll().then(() => {
-          expect(wrapper.vm.state.relatedIssues).toEqual([]);
-        });
-      });
-
-      it('remove related issue, fails, and restores to related issues', () => {
-        mock.onDelete(issuable1.referencePath).reply(422, {});
-
-        wrapper.vm.onRelatedIssueRemoveRequest(issuable1.id);
-
-        return axios.waitForAll().then(() => {
-          expect(wrapper.vm.state.relatedIssues).toHaveLength(1);
-          expect(wrapper.vm.state.relatedIssues[0].id).toEqual(issuable1.id);
+          expect(findRelatedIssuesBlock().props('relatedIssues')).toEqual([]);
         });
       });
     });
 
-    describe('onToggleAddRelatedIssuesForm', () => {
-      beforeEach(() => createComponent(shallowMount));
+    describe('when "toggleAddRelatedIssuesForm" event is emitted', () => {
+      it('toggles related issues form to visible from hidden', async () => {
+        createComponent();
 
-      it('toggle related issues form to visible', () => {
-        wrapper.vm.onToggleAddRelatedIssuesForm();
+        await findRelatedIssuesBlock().vm.$emit('toggleAddRelatedIssuesForm');
 
-        expect(wrapper.vm.isFormVisible).toEqual(true);
+        expect(findRelatedIssuesBlock().props('isFormVisible')).toBe(true);
       });
 
-      it('show add related issues form to hidden', () => {
-        wrapper.vm.isFormVisible = true;
+      it('toggles related issues form to hidden from visible', async () => {
+        createComponent({ data: { isFormVisible: true } });
 
-        wrapper.vm.onToggleAddRelatedIssuesForm();
+        await findRelatedIssuesBlock().vm.$emit('toggleAddRelatedIssuesForm');
 
-        expect(wrapper.vm.isFormVisible).toEqual(false);
-      });
-    });
-
-    describe('onPendingIssueRemoveRequest', () => {
-      beforeEach(() =>
-        createComponent().then(() => {
-          wrapper.vm.store.setPendingReferences([issuable1.reference]);
-        }),
-      );
-
-      it('remove pending related issue', () => {
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(1);
-
-        wrapper.vm.onPendingIssueRemoveRequest(0);
-
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(0);
+        expect(findRelatedIssuesBlock().props('isFormVisible')).toBe(false);
       });
     });
 
-    describe('onPendingFormSubmit', () => {
-      beforeEach(() => {
-        jest
-          .spyOn(relatedIssuesService.prototype, 'fetchRelatedIssues')
-          .mockReturnValue(Promise.reject());
-
-        return createComponent().then(() => {
-          jest.spyOn(wrapper.vm, 'processAllReferences');
-          jest.spyOn(wrapper.vm.service, 'addRelatedIssues');
-          createFlash.mockClear();
+    describe('when "pendingIssuableRemoveRequest" event is emitted', () => {
+      beforeEach(async () => {
+        createComponent();
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
+          untouchedRawReferences: [issuable1.reference],
+          touchedReference: '',
         });
       });
 
-      it('processes references before submitting', () => {
+      it('removes pending related issue', async () => {
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toHaveLength(1);
+
+        await findRelatedIssuesBlock().vm.$emit('pendingIssuableRemoveRequest', 0);
+
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toHaveLength(0);
+      });
+    });
+
+    describe('when "addIssuableFormSubmit" event is emitted', () => {
+      beforeEach(async () => {
+        await createComponent();
+        createAlert.mockClear();
+      });
+
+      it('processes references before submitting', async () => {
         const input = '#123';
         const linkedIssueType = linkedIssueTypesMap.RELATES_TO;
         const emitObj = {
           pendingReferences: input,
           linkedIssueType,
         };
-
-        wrapper.vm.onPendingFormSubmit(emitObj);
-
-        expect(wrapper.vm.processAllReferences).toHaveBeenCalledWith(input);
-        expect(wrapper.vm.service.addRelatedIssues).toHaveBeenCalledWith([input], linkedIssueType);
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormSubmit', emitObj);
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toEqual([input]);
       });
 
-      it('submit zero pending issue as related issue', () => {
-        wrapper.vm.store.setPendingReferences([]);
-        wrapper.vm.onPendingFormSubmit({});
+      it('submits zero pending issues as related issue', async () => {
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormSubmit', {});
+        await waitForPromises();
 
-        return waitForPromises().then(() => {
-          expect(wrapper.vm.state.pendingReferences).toHaveLength(0);
-          expect(wrapper.vm.state.relatedIssues).toHaveLength(0);
-        });
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toHaveLength(0);
+        expect(findRelatedIssuesBlock().props('relatedIssues')).toHaveLength(0);
       });
 
-      it('submit pending issue as related issue', () => {
-        mock.onPost(defaultProps.endpoint).reply(200, {
+      it('submits pending issue as related issue', async () => {
+        mock.onPost(defaultProps.endpoint).reply(HTTP_STATUS_OK, {
           issuables: [issuable1],
           result: {
             message: 'something was successfully related',
             status: 'success',
           },
         });
-
-        wrapper.vm.store.setPendingReferences([issuable1.reference]);
-        wrapper.vm.onPendingFormSubmit({});
-
-        return waitForPromises().then(() => {
-          expect(wrapper.vm.state.pendingReferences).toHaveLength(0);
-          expect(wrapper.vm.state.relatedIssues).toHaveLength(1);
-          expect(wrapper.vm.state.relatedIssues[0].id).toEqual(issuable1.id);
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
+          untouchedRawReferences: [issuable1],
+          touchedReference: '',
         });
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormSubmit', {});
+        await waitForPromises();
+
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toHaveLength(0);
+        expect(findRelatedIssuesBlock().props('relatedIssues')).toEqual([
+          expect.objectContaining({ id: issuable1.id }),
+        ]);
       });
 
-      it('submit multiple pending issues as related issues', () => {
-        mock.onPost(defaultProps.endpoint).reply(200, {
+      it('submits multiple pending issues as related issues', async () => {
+        mock.onPost(defaultProps.endpoint).reply(HTTP_STATUS_OK, {
           issuables: [issuable1, issuable2],
           result: {
             message: 'something was successfully related',
             status: 'success',
           },
         });
-
-        wrapper.vm.store.setPendingReferences([issuable1.reference, issuable2.reference]);
-        wrapper.vm.onPendingFormSubmit({});
-
-        return waitForPromises().then(() => {
-          expect(wrapper.vm.state.pendingReferences).toHaveLength(0);
-          expect(wrapper.vm.state.relatedIssues).toHaveLength(2);
-          expect(wrapper.vm.state.relatedIssues[0].id).toEqual(issuable1.id);
-          expect(wrapper.vm.state.relatedIssues[1].id).toEqual(issuable2.id);
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
+          untouchedRawReferences: [issuable1.reference, issuable2.reference],
+          touchedReference: '',
         });
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormSubmit', {});
+        await waitForPromises();
+
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toHaveLength(0);
+        expect(findRelatedIssuesBlock().props('relatedIssues')).toEqual([
+          expect.objectContaining({ id: issuable1.id }),
+          expect.objectContaining({ id: issuable2.id }),
+        ]);
       });
 
-      it('displays a message from the backend upon error', () => {
+      it('passes an error message from the backend upon error', async () => {
         const input = '#123';
         const message = 'error';
-
-        mock.onPost(defaultProps.endpoint).reply(409, { message });
-        wrapper.vm.store.setPendingReferences([issuable1.reference, issuable2.reference]);
-
-        expect(createFlash).not.toHaveBeenCalled();
-        wrapper.vm.onPendingFormSubmit(input);
-
-        return waitForPromises().then(() => {
-          expect(createFlash).toHaveBeenCalledWith({
-            message,
-          });
+        mock.onPost(defaultProps.endpoint).reply(HTTP_STATUS_CONFLICT, { message });
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
+          untouchedRawReferences: [issuable1.reference, issuable2.reference],
+          touchedReference: '',
         });
-      });
-    });
 
-    describe('onPendingFormCancel', () => {
-      beforeEach(() =>
-        createComponent().then(() => {
-          wrapper.vm.isFormVisible = true;
-          wrapper.vm.inputValue = 'foo';
-        }),
-      );
+        expect(findRelatedIssuesBlock().props('hasError')).toBe(false);
+        expect(findRelatedIssuesBlock().props('itemAddFailureMessage')).toBe(null);
 
-      it('when canceling and hiding add issuable form', async () => {
-        wrapper.vm.onPendingFormCancel();
-
-        await nextTick();
-        expect(wrapper.vm.isFormVisible).toEqual(false);
-        expect(wrapper.vm.inputValue).toEqual('');
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(0);
-      });
-    });
-
-    describe('fetchRelatedIssues', () => {
-      beforeEach(() => createComponent());
-
-      it('sets isFetching while fetching', async () => {
-        wrapper.vm.fetchRelatedIssues();
-
-        expect(wrapper.vm.isFetching).toEqual(true);
-
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormSubmit', input);
         await waitForPromises();
-        expect(wrapper.vm.isFetching).toEqual(false);
-      });
 
-      it('should fetch related issues', async () => {
-        mock.onGet(defaultProps.endpoint).reply(200, [issuable1, issuable2]);
-
-        wrapper.vm.fetchRelatedIssues();
-
-        await waitForPromises();
-        expect(wrapper.vm.state.relatedIssues).toHaveLength(2);
-        expect(wrapper.vm.state.relatedIssues[0].id).toEqual(issuable1.id);
-        expect(wrapper.vm.state.relatedIssues[1].id).toEqual(issuable2.id);
+        expect(findRelatedIssuesBlock().props('hasError')).toBe(true);
+        expect(findRelatedIssuesBlock().props('itemAddFailureMessage')).toBe(message);
       });
     });
 
-    describe('onInput', () => {
-      beforeEach(() => createComponent());
+    describe('when "addIssuableFormCancel" event is emitted', () => {
+      beforeEach(() => createComponent({ data: { isFormVisible: true, inputValue: 'foo' } }));
 
-      it('fill in issue number reference and adds to pending related issues', () => {
+      it('hides form and resets input', async () => {
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormCancel');
+
+        expect(findRelatedIssuesBlock().props('isFormVisible')).toBe(false);
+        expect(findRelatedIssuesBlock().props('inputValue')).toBe('');
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toHaveLength(0);
+      });
+    });
+
+    describe('when "addIssuableFormInput" event is emitted', () => {
+      it('updates pending references with issue reference', async () => {
         const input = '#123 ';
-        wrapper.vm.onInput({
+        createComponent();
+
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
           untouchedRawReferences: [input.trim()],
           touchedReference: input,
         });
 
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(1);
-        expect(wrapper.vm.state.pendingReferences[0]).toEqual('#123');
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toEqual([input.trim()]);
       });
 
-      it('fill in with full reference', () => {
+      it('updates pending references with full reference', async () => {
         const input = 'asdf/qwer#444 ';
-        wrapper.vm.onInput({ untouchedRawReferences: [input.trim()], touchedReference: input });
+        createComponent();
 
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(1);
-        expect(wrapper.vm.state.pendingReferences[0]).toEqual('asdf/qwer#444');
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
+          untouchedRawReferences: [input.trim()],
+          touchedReference: input,
+        });
+
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toEqual([input.trim()]);
       });
 
-      it('fill in with issue link', () => {
+      it('updates pending references with issue link', async () => {
         const link = 'http://localhost:3000/foo/bar/issues/111';
         const input = `${link} `;
-        wrapper.vm.onInput({ untouchedRawReferences: [input.trim()], touchedReference: input });
+        createComponent();
 
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(1);
-        expect(wrapper.vm.state.pendingReferences[0]).toEqual(link);
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
+          untouchedRawReferences: [input.trim()],
+          touchedReference: input,
+        });
+
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toEqual([link]);
       });
 
-      it('fill in with multiple references', () => {
+      it('updates pending references with multiple references', async () => {
         const input = 'asdf/qwer#444 #12 ';
-        wrapper.vm.onInput({
+        createComponent();
+
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
           untouchedRawReferences: input.trim().split(/\s/),
           touchedReference: '2',
         });
 
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(2);
-        expect(wrapper.vm.state.pendingReferences[0]).toEqual('asdf/qwer#444');
-        expect(wrapper.vm.state.pendingReferences[1]).toEqual('#12');
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toEqual([
+          'asdf/qwer#444',
+          '#12',
+        ]);
       });
 
-      it('fill in with some invalid things', () => {
+      it('updates pending references with invalid values', async () => {
         const input = 'something random ';
-        wrapper.vm.onInput({
+        createComponent();
+
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
           untouchedRawReferences: input.trim().split(/\s/),
           touchedReference: '2',
         });
 
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(2);
-        expect(wrapper.vm.state.pendingReferences[0]).toEqual('something');
-        expect(wrapper.vm.state.pendingReferences[1]).toEqual('random');
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toEqual([
+          'something',
+          'random',
+        ]);
       });
 
-      it('prepends # when user enters a numeric value [0-9]', async () => {
-        const input = '23';
+      it.each(['#', '&'])(
+        'prepends %s when user enters a numeric value [0-9]',
+        async (pathIdSeparator) => {
+          const input = '23';
+          createComponent({ props: { pathIdSeparator } });
 
-        wrapper.vm.onInput({
-          untouchedRawReferences: input.trim().split(/\s/),
-          touchedReference: input,
-        });
+          await findRelatedIssuesBlock().vm.$emit('addIssuableFormInput', {
+            untouchedRawReferences: input.trim().split(/\s/),
+            touchedReference: input,
+          });
 
-        expect(wrapper.vm.inputValue).toBe(`#${input}`);
-      });
-
-      it('prepends # when user enters a number', async () => {
-        const input = 23;
-
-        wrapper.vm.onInput({
-          untouchedRawReferences: String(input).trim().split(/\s/),
-          touchedReference: input,
-        });
-
-        expect(wrapper.vm.inputValue).toBe(`#${input}`);
-      });
-    });
-
-    describe('onBlur', () => {
-      beforeEach(() =>
-        createComponent().then(() => {
-          jest.spyOn(wrapper.vm, 'processAllReferences').mockImplementation(() => {});
-        }),
+          expect(findRelatedIssuesBlock().props('inputValue')).toBe(`${pathIdSeparator}${input}`);
+        },
       );
-
-      it('add any references to pending when blurring', () => {
-        const input = '#123';
-
-        wrapper.vm.onBlur(input);
-
-        expect(wrapper.vm.processAllReferences).toHaveBeenCalledWith(input);
-      });
     });
 
-    describe('processAllReferences', () => {
-      beforeEach(() => createComponent());
-
-      it('add valid reference to pending', () => {
-        const input = '#123';
-        wrapper.vm.processAllReferences(input);
-
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(1);
-        expect(wrapper.vm.state.pendingReferences[0]).toEqual('#123');
+    describe('when "addIssuableFormBlur" event is emitted', () => {
+      beforeEach(() => {
+        createComponent();
       });
 
-      it('add any valid references to pending', () => {
-        const input = 'asdf #123';
-        wrapper.vm.processAllReferences(input);
-
-        expect(wrapper.vm.state.pendingReferences).toHaveLength(2);
-        expect(wrapper.vm.state.pendingReferences[0]).toEqual('asdf');
-        expect(wrapper.vm.state.pendingReferences[1]).toEqual('#123');
+      it('adds any references to pending when blurring', async () => {
+        const input = '#123';
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toEqual([]);
+        await findRelatedIssuesBlock().vm.$emit('addIssuableFormBlur', input);
+        expect(findRelatedIssuesBlock().props('pendingReferences')).toEqual([input]);
       });
     });
   });

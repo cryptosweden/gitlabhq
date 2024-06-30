@@ -28,31 +28,38 @@ module DraftNotes
     end
 
     def publish_draft_notes
-      return if draft_notes.empty?
+      return if draft_notes.blank?
 
       review = Review.create!(author: current_user, merge_request: merge_request, project: project)
 
       created_notes = draft_notes.map do |draft_note|
         draft_note.review = review
-        create_note_from_draft(draft_note, skip_capture_diff_note_position: true, skip_keep_around_commits: true)
+        create_note_from_draft(
+          draft_note,
+          skip_capture_diff_note_position: true,
+          skip_keep_around_commits: true,
+          skip_merge_status_trigger: true
+        )
       end
 
       capture_diff_note_positions(created_notes)
       keep_around_commits(created_notes)
       draft_notes.delete_all
-      set_reviewed
       notification_service.async.new_review(review)
       MergeRequests::ResolvedDiscussionNotificationService.new(project: project, current_user: current_user).execute(merge_request)
+      GraphqlTriggers.merge_request_merge_status_updated(merge_request)
+      after_publish(review)
     end
 
-    def create_note_from_draft(draft, skip_capture_diff_note_position: false, skip_keep_around_commits: false)
+    def create_note_from_draft(draft, skip_capture_diff_note_position: false, skip_keep_around_commits: false, skip_merge_status_trigger: false)
       # Make sure the diff file is unfolded in order to find the correct line
       # codes.
       draft.diff_file&.unfold_diff_lines(draft.original_position)
 
       note_params = draft.publish_params.merge(skip_keep_around_commits: skip_keep_around_commits)
-      note = Notes::CreateService.new(draft.project, draft.author, note_params).execute(
-        skip_capture_diff_note_position: skip_capture_diff_note_position
+      note = Notes::CreateService.new(project, current_user, note_params).execute(
+        skip_capture_diff_note_position: skip_capture_diff_note_position,
+        skip_merge_status_trigger: skip_merge_status_trigger
       )
 
       set_discussion_resolve_status(note, draft)
@@ -69,10 +76,6 @@ module DraftNotes
       else
         discussion.unresolve!
       end
-    end
-
-    def set_reviewed
-      ::MergeRequests::MarkReviewerReviewedService.new(project: project, current_user: current_user).execute(merge_request)
     end
 
     def capture_diff_note_positions(notes)
@@ -97,8 +100,14 @@ module DraftNotes
       # We are allowing this since gitaly call will be created for each sha and
       # even though they're unique, there will still be multiple Gitaly calls.
       Gitlab::GitalyClient.allow_n_plus_1_calls do
-        project.repository.keep_around(*shas)
+        project.repository.keep_around(*shas, source: self.class.name)
       end
+    end
+
+    def after_publish(review)
+      # Overridden in EE
     end
   end
 end
+
+DraftNotes::PublishService.prepend_mod

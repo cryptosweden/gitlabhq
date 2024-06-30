@@ -7,10 +7,11 @@ module Gitlab
     # The result of this method should be passed to
     # Sidekiq's `config.server_middleware` method
     # eg: `config.server_middleware(&Gitlab::SidekiqMiddleware.server_configurator)`
-    def self.server_configurator(metrics: true, arguments_logger: true, memory_killer: true)
+    def self.server_configurator(metrics: true, arguments_logger: true, skip_jobs: true)
       lambda do |chain|
         # Size limiter should be placed at the top
         chain.add ::Gitlab::SidekiqMiddleware::SizeLimiter::Server
+        chain.add ::Gitlab::SidekiqMiddleware::ShardAwarenessValidator
         chain.add ::Gitlab::SidekiqMiddleware::Monitor
 
         # Labkit wraps the job in the `Labkit::Context` resurrected from
@@ -19,6 +20,9 @@ module Gitlab
         # `::Gitlab::SidekiqMiddleware::ServerMetrics` (if we're using
         # that).
         chain.add ::Labkit::Middleware::Sidekiq::Server
+        chain.add ::Gitlab::SidekiqMiddleware::RequestStoreMiddleware
+
+        chain.add ::Gitlab::QueryLimiting::SidekiqMiddleware if ::Gitlab::QueryLimiting.enabled_for_env?
 
         if metrics
           chain.add ::Gitlab::SidekiqMiddleware::ServerMetrics
@@ -27,20 +31,23 @@ module Gitlab
         end
 
         chain.add ::Gitlab::SidekiqMiddleware::ArgumentsLogger if arguments_logger
-        chain.add ::Gitlab::SidekiqMiddleware::MemoryKiller if memory_killer
-        chain.add ::Gitlab::SidekiqMiddleware::RequestStoreMiddleware
         chain.add ::Gitlab::SidekiqMiddleware::ExtraDoneLogMetadata
         chain.add ::Gitlab::SidekiqMiddleware::BatchLoader
         chain.add ::Gitlab::SidekiqMiddleware::InstrumentationLogger
+        chain.add ::Gitlab::SidekiqMiddleware::SetIpAddress
         chain.add ::Gitlab::SidekiqMiddleware::AdminMode::Server
         chain.add ::Gitlab::SidekiqMiddleware::QueryAnalyzer
         chain.add ::Gitlab::SidekiqVersioning::Middleware
         chain.add ::Gitlab::SidekiqStatus::ServerMiddleware
         chain.add ::Gitlab::SidekiqMiddleware::WorkerContext::Server
-        # DuplicateJobs::Server should be placed  at the bottom, but before the SidekiqServerMiddleware,
+        chain.add ::Gitlab::SidekiqMiddleware::PauseControl::Server
+        chain.add ::ClickHouse::MigrationSupport::SidekiqMiddleware
+        chain.add ::Gitlab::SidekiqMiddleware::ConcurrencyLimit::Server
+        # DuplicateJobs::Server should be placed at the bottom, but before the SidekiqServerMiddleware,
         # so we can compare the latest WAL location against replica
         chain.add ::Gitlab::SidekiqMiddleware::DuplicateJobs::Server
         chain.add ::Gitlab::Database::LoadBalancing::SidekiqServerMiddleware
+        chain.add ::Gitlab::SidekiqMiddleware::SkipJobs if skip_jobs
       end
     end
 
@@ -54,6 +61,8 @@ module Gitlab
         # Sidekiq Client Middleware should be placed before DuplicateJobs::Client middleware,
         # so we can store WAL location before we deduplicate the job.
         chain.add ::Gitlab::Database::LoadBalancing::SidekiqClientMiddleware
+        chain.add ::Gitlab::SidekiqMiddleware::PauseControl::Client
+        chain.add ::Gitlab::SidekiqMiddleware::ConcurrencyLimit::Client
         chain.add ::Gitlab::SidekiqMiddleware::DuplicateJobs::Client
         chain.add ::Gitlab::SidekiqStatus::ClientMiddleware
         chain.add ::Gitlab::SidekiqMiddleware::AdminMode::Client
@@ -64,3 +73,5 @@ module Gitlab
     end
   end
 end
+
+Gitlab::SidekiqMiddleware.prepend_mod

@@ -2,14 +2,12 @@
 data_category: optional
 key_path: omniauth_enabled
 description: Whether OmniAuth is enabled
-product_section: dev
-product_stage: manage
-product_group: group::access
-product_category: authentication_and_authorization
+product_group: authentication
 value_type: boolean
 status: active
 time_frame: none
 data_source: system
+instrumentation_class: OmniauthEnabledMetric
 distribution:
 - ce
 - ee

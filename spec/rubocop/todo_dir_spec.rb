@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require 'fast_spec_helper'
-require 'fileutils'
+
 require 'active_support/inflector/inflections'
+require 'fileutils'
+require 'tmpdir'
 
 require_relative '../../rubocop/todo_dir'
 
@@ -40,12 +42,6 @@ RSpec.describe RuboCop::TodoDir do
         expect(fake_inflector).to have_received(:underscore)
       end
     end
-  end
-
-  describe '#directory' do
-    subject { todo_dir.directory }
-
-    it { is_expected.to eq(directory) }
   end
 
   describe '#read' do

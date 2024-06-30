@@ -3,13 +3,14 @@
 module Banzai
   module Filter
     class CustomEmojiFilter < HTML::Pipeline::Filter
+      include Concerns::TimeoutFilterHandler
+      prepend Concerns::PipelineTimingCheck
       include Gitlab::Utils::StrongMemoize
 
-      IGNORED_ANCESTOR_TAGS = %w(pre code tt).to_set
+      IGNORED_ANCESTOR_TAGS = %w[pre code tt].to_set
 
-      def call
-        return doc unless context[:project]
-        return doc unless Feature.enabled?(:custom_emoji, context[:project])
+      def call_with_timeout
+        return doc unless resource_parent
 
         doc.xpath('descendant-or-self::text()').each do |node|
           content = node.to_html
@@ -30,7 +31,7 @@ module Banzai
         @emoji_pattern ||=
           /(?<=[^[:alnum:]:]|\n|^)
           :(#{CustomEmoji::NAME_REGEXP}):
-          (?=[^[:alnum:]:]|$)/x
+          (?=[^[:alnum:]:]|$)/xo
       end
 
       def custom_emoji_name_element_filter(text)
@@ -49,22 +50,25 @@ module Banzai
       private
 
       def has_custom_emoji?
-        strong_memoize(:has_custom_emoji) do
-          namespace&.custom_emoji&.any?
-        end
+        all_custom_emoji&.any?
       end
+      strong_memoize_attr :has_custom_emoji?
 
-      def namespace
-        context[:project].namespace.root_ancestor
+      def resource_parent
+        context[:project] || context[:group]
       end
 
       def custom_emoji_candidates
-        doc.to_html.scan(/:(#{CustomEmoji::NAME_REGEXP}):/).flatten
+        doc.to_html.scan(/:(#{CustomEmoji::NAME_REGEXP}):/o).flatten.uniq
       end
 
       def all_custom_emoji
-        @all_custom_emoji ||= namespace.custom_emoji.by_name(custom_emoji_candidates).index_by(&:name)
+        Groups::CustomEmojiFinder.new(resource_parent, { include_ancestor_groups: true })
+          .execute
+          .by_name(custom_emoji_candidates)
+          .index_by(&:name)
       end
+      strong_memoize_attr :all_custom_emoji
     end
   end
 end

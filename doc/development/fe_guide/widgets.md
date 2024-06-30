@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Widgets
@@ -18,11 +18,11 @@ When building a widget, we should follow a few principles described below.
 All widgets should use the same stack (Vue + Apollo Client).
 To make it happen, we must add Vue Apollo to the application root (if we use a widget
 as a component) or provide it directly to a widget. For sidebar widgets, use the
-[sidebar Apollo Client and Apollo Provider](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/sidebar/graphql.js):
+[issuable Apollo Client and Apollo Provider](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/graphql_shared/issuable_client.js):
 
 ```javascript
 import SidebarConfidentialityWidget from '~/sidebar/components/confidential/sidebar_confidentiality_widget.vue';
-import { apolloProvider } from '~/sidebar/graphql';
+import { apolloProvider } from '~/graphql_shared/issuable_client';
 
 function mountConfidentialComponent() {
   new Vue({
@@ -44,7 +44,7 @@ All editable sidebar widgets should use [`SidebarEditableItem`](https://gitlab.c
 We aim to make widgets as reusable as possible. That's why we should avoid adding any external state
 bindings to widgets or to their child components. This includes Vuex mappings and mediator stores.
 
-## Widget's responsibility
+## Widget responsibility
 
 A widget is responsible for fetching and updating an entity it's designed for (assignees, iterations, and so on).
 This means a widget should **always** fetch data (if it's not in Apollo cache already).
@@ -62,11 +62,11 @@ Because we need different GraphQL queries and mutations for different sidebars, 
 
 ```javascript
 export const assigneesQueries = {
-  [IssuableType.Issue]: {
+  [TYPE_ISSUE]: {
     query: getIssueParticipants,
     mutation: updateAssigneesMutation,
   },
-  [IssuableType.MergeRequest]: {
+  [TYPE_MERGE_REQUEST]: {
     query: getMergeRequestParticipants,
     mutation: updateMergeRequestParticipantsMutation,
   },
@@ -78,7 +78,7 @@ To handle the same logic for query updates, we **alias** query fields. For examp
 - `group` or `project` become `workspace`
 - `issue`, `epic`, or `mergeRequest` become `issuable`
 
-Unfortunately, Apollo assigns aliased fields a typename of `undefined`, so we need to fetch `__typename` explicitly:
+Unfortunately, Apollo assigns aliased fields a `typename` of `undefined`, so we need to fetch `__typename` explicitly:
 
 ```plaintext
 query issueConfidential($fullPath: ID!, $iid: String) {
@@ -118,7 +118,7 @@ In this case, we can use a renderless component that imports a client and listen
 ```javascript
 import { fetchPolicies } from '~/lib/graphql';
 import { confidentialityQueries } from '~/sidebar/constants';
-import { defaultClient as gqlClient } from '~/sidebar/graphql';
+import { defaultClient as gqlClient } from '~/graphql_shared/issuable_client';
 
 created() {
   if (this.issuableType !== IssuableType.Issue) {
@@ -141,3 +141,7 @@ methods: {
 ```
 
 [View an example of such a component.](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/notes/components/sidebar_subscription.vue)
+
+## Merge request widgets
+
+Refer to the documentation specific to the [merge request widget extension framework](merge_request_widget_extensions.md).

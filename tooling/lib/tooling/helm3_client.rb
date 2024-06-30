@@ -8,62 +8,59 @@ module Tooling
   class Helm3Client
     CommandFailedError = Class.new(StandardError)
 
-    attr_reader :namespace
-
     RELEASE_JSON_ATTRIBUTES = %w[name revision updated status chart app_version namespace].freeze
     PAGINATION_SIZE = 256 # Default helm list pagination size
 
-    Release = Struct.new(:name, :revision, :last_update, :status, :chart, :app_version, :namespace) do
+    Release = Struct.new(:name, :namespace, :revision, :updated, :status, :chart, :app_version, keyword_init: true) do
       def revision
         @revision ||= self[:revision].to_i
       end
 
       def last_update
-        @last_update ||= self[:last_update] ? Time.parse(self[:last_update]) : nil
+        @last_update ||= self[:updated] ? Time.parse(self[:updated]) : nil
       end
     end
 
     # A single page of data and the corresponding page number.
     Page = Struct.new(:releases, :number)
 
-    def initialize(namespace:)
-      @namespace = namespace
-    end
-
     def releases(args: [])
       each_release(args)
     end
 
-    def delete(release_name:)
-      run_command([
-        'uninstall',
-        %(--namespace "#{namespace}"),
-        release_name
-      ])
+    def delete(release_name:, namespace: nil)
+      release_name = Array(release_name)
+
+      release_name.each do |release|
+        run_command(['uninstall', '--namespace', (namespace || release), release])
+      end
     end
 
     private
 
     def run_command(command)
-      final_command = ['helm', *command].join(' ')
-      puts "Running command: `#{final_command}`" # rubocop:disable Rails/Output
+      final_command = ['helm', *command]
+      final_command_str = final_command.join(' ')
+      puts "Running command: `#{final_command_str}`" # rubocop:disable Rails/Output -- Only review apps calls this
 
-      result = Gitlab::Popen.popen_with_detail([final_command])
+      result = Gitlab::Popen.popen_with_detail(final_command)
 
       if result.status.success?
         result.stdout.chomp.freeze
       else
-        raise CommandFailedError, "The `#{final_command}` command failed (status: #{result.status}) with the following error:\n#{result.stderr}"
+        raise CommandFailedError, "The `#{final_command_str}` command failed (status: #{result.status}) with the following error:\n#{result.stderr}"
       end
     end
 
     def raw_releases(page, args = [])
       command = [
         'list',
-        %(--namespace "#{namespace}"),
-        %(--max #{PAGINATION_SIZE}),
-        %(--offset #{PAGINATION_SIZE * page}),
-        %(--output json),
+        '--max',
+        PAGINATION_SIZE.to_s,
+        '--offset',
+        (PAGINATION_SIZE * page).to_s,
+        '--output',
+        'json',
         *args
       ]
 
@@ -71,7 +68,7 @@ module Tooling
       releases = JSON.parse(response) # rubocop:disable Gitlab/Json
 
       releases.map do |release|
-        Release.new(*release.values_at(*RELEASE_JSON_ATTRIBUTES))
+        Release.new(release.slice(*RELEASE_JSON_ATTRIBUTES))
       end
     rescue ::JSON::ParserError => ex
       puts "Ignoring this JSON parsing error: #{ex}\n\nResponse was:\n#{response}" # rubocop:disable Rails/Output
@@ -84,7 +81,7 @@ module Tooling
     # method - The Octokit method to use for getting the data.
     # args - Arguments to pass to the `helm list` command.
     def each_releases_page(args, &block)
-      return to_enum(__method__, args) unless block_given?
+      return to_enum(__method__, args) unless block
 
       page = 0
       final_args = args.dup
@@ -100,7 +97,7 @@ module Tooling
     #
     # args - Any arguments to pass to the `helm list` command.
     def each_release(args, &block)
-      return to_enum(__method__, args) unless block_given?
+      return to_enum(__method__, args) unless block
 
       each_releases_page(args) do |page|
         page.releases.each do |release|

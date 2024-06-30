@@ -2,8 +2,11 @@
 
 class CodequalityDegradationEntity < Grape::Entity
   expose :description
+  expose :fingerprint
   expose :severity do |degradation|
-    degradation.dig(:severity)&.downcase
+    severity = degradation.dig(:severity)&.downcase
+
+    ::Gitlab::Ci::Reports::CodequalityReports::SEVERITY_PRIORITIES.key?(severity) ? severity : 'unknown'
   end
 
   expose :file_path do |degradation|
@@ -13,4 +16,8 @@ class CodequalityDegradationEntity < Grape::Entity
   expose :line do |degradation|
     degradation.dig(:location, :lines, :begin) || degradation.dig(:location, :positions, :begin, :line)
   end
+
+  expose :web_url
+
+  expose :engine_name
 end

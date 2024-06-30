@@ -1,13 +1,12 @@
 <script>
-import { GlButtonGroup, GlButton, GlTooltipDirective, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlButtonGroup, GlButton, GlTooltipDirective, GlFormCheckbox } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 
-import CommitPipelineStatus from '~/projects/tree/components/commit_pipeline_status_component.vue';
+import CommitPipelineStatus from '~/projects/tree/components/commit_pipeline_status.vue';
 import ModalCopyButton from '~/vue_shared/components/modal_copy_button.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import UserAvatarLink from '~/vue_shared/components/user_avatar/user_avatar_link.vue';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-
-import initUserPopovers from '../../user_popovers';
 
 /**
  * CommitItem
@@ -31,10 +30,11 @@ export default {
     CommitPipelineStatus,
     GlButtonGroup,
     GlButton,
+    GlFormCheckbox,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   mixins: [glFeatureFlagsMixin()],
   props: {
@@ -82,11 +82,6 @@ export default {
       return this.commit.description_html.replace(/^&#x000A;/, '');
     },
   },
-  created() {
-    this.$nextTick(() => {
-      initUserPopovers(this.$el.querySelectorAll('.js-user-link'));
-    });
-  },
   safeHtmlConfig: {
     ADD_TAGS: ['gl-emoji'],
   },
@@ -95,28 +90,21 @@ export default {
 
 <template>
   <li :class="{ 'js-toggle-container': collapsible }" class="commit">
-    <div
-      class="d-block d-sm-flex flex-row-reverse justify-content-between align-items-start flex-lg-row-reverse"
-    >
-      <div
-        class="commit-actions flex-row d-none d-sm-flex align-items-start flex-wrap justify-content-end"
-      >
+    <div class="gl-block sm:gl-flex gl-flex-row-reverse gl-justify-between gl-items-start">
+      <div class="commit-actions gl-flex-row gl-hidden sm:gl-flex gl-items-center gl-justify-end">
         <div
           v-if="commit.signature_html"
-          v-safe-html:[$options.safeHtmlConfig]="commit.signature_html"
+          v-html="commit.signature_html /* eslint-disable-line vue/no-v-html */"
         ></div>
         <commit-pipeline-status
           v-if="commit.pipeline_status_path"
           :endpoint="commit.pipeline_status_path"
-          class="d-inline-flex mb-2"
+          class="gl-inline-flex mb-2"
         />
-        <gl-button-group class="gl-ml-4 gl-mb-4" data-testid="commit-sha-group">
-          <gl-button
-            label
-            class="gl-font-monospace"
-            data-testid="commit-sha-short-id"
-            v-text="commit.short_id"
-          />
+        <gl-button-group class="gl-ml-4" data-testid="commit-sha-group">
+          <gl-button label class="gl-font-monospace" data-testid="commit-sha-short-id">{{
+            commit.short_id
+          }}</gl-button>
           <modal-copy-button
             :text="commit.id"
             :title="__('Copy commit SHA')"
@@ -125,31 +113,34 @@ export default {
         </gl-button-group>
       </div>
       <div>
-        <div class="d-flex float-left align-items-center align-self-start">
-          <input
+        <div class="gl-flex float-left gl-items-center align-self-start">
+          <gl-form-checkbox
             v-if="isSelectable"
-            class="mr-2"
-            type="checkbox"
             :checked="checked"
-            @change="$emit('handleCheckboxChange', $event.target.checked)"
+            class="gl-mt-3"
+            @change="$emit('handleCheckboxChange', !checked)"
           />
           <user-avatar-link
             :link-href="authorUrl"
             :img-src="authorAvatar"
             :img-alt="authorName"
-            :img-size="40"
-            class="avatar-cell d-none d-sm-block"
+            :img-size="32"
+            class="avatar-cell gl-hidden sm:gl-block gl-my-2 gl-mr-4"
           />
         </div>
-        <div class="commit-detail flex-list">
-          <div class="commit-content" data-qa-selector="commit_content">
+        <div
+          class="commit-detail flex-list gl-display-flex gl-justify-content-space-between gl-align-items-center gl-flex-grow-1 gl-min-w-0"
+        >
+          <div class="commit-content" data-testid="commit-content">
             <a
               v-safe-html:[$options.safeHtmlConfig]="commit.title_html"
               :href="commit.commit_url"
               class="commit-row-message item-title"
             ></a>
 
-            <span class="commit-row-message d-block d-sm-none">&middot; {{ commit.short_id }}</span>
+            <span class="commit-row-message !gl-block sm:!gl-hidden"
+              >&middot; {{ commit.short_id }}</span
+            >
 
             <gl-button
               v-if="commit.description_html && collapsible"
@@ -179,8 +170,8 @@ export default {
       <pre
         v-if="commit.description_html"
         v-safe-html:[$options.safeHtmlConfig]="commitDescription"
-        :class="{ 'js-toggle-content': collapsible, 'd-block': !collapsible }"
-        class="commit-row-description gl-mb-3 gl-text-body"
+        :class="{ 'js-toggle-content': collapsible, '!gl-block': !collapsible }"
+        class="commit-row-description gl-mb-3 gl-text-body gl-whitespace-pre-wrap"
       ></pre>
     </div>
   </li>

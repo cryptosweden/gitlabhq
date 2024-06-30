@@ -2,8 +2,9 @@
 
 module Namespaces
   class ProjectNamespacePolicy < Namespaces::GroupProjectNamespaceSharedPolicy
-    # For now users are not granted any permissions on project namespace
-    # as it's completely hidden to them. When we start using project
-    # namespaces in queries, we will have to extend this policy.
+    delegate(:project)
+
+    rule { can?(:read_project) }.enable :read_namespace
+    rule { ~can?(:read_project) }.prevent :read_namespace
   end
 end

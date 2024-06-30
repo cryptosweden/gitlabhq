@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::ResourceGroups::AssignResourceFromResourceGroupWorker do
+RSpec.describe Ci::ResourceGroups::AssignResourceFromResourceGroupWorker, feature_category: :continuous_delivery do
   let(:worker) { described_class.new }
 
   it 'has the `until_executed` deduplicate strategy' do
@@ -13,19 +13,23 @@ RSpec.describe Ci::ResourceGroups::AssignResourceFromResourceGroupWorker do
     expect(described_class.get_deduplication_options).to include({ if_deduplicated: :reschedule_once })
   end
 
+  it 'has an option to deduplicate scheduled jobs' do
+    expect(described_class.get_deduplication_options).to include({ including_scheduled: true })
+  end
+
   describe '#perform' do
     subject { worker.perform(resource_group_id) }
 
     let(:resource_group) { create(:ci_resource_group) }
     let(:resource_group_id) { resource_group.id }
 
-    include_examples 'an idempotent worker' do
+    it_behaves_like 'an idempotent worker' do
       let(:job_args) { [resource_group_id] }
     end
 
     context 'when resource group exists' do
       it 'executes AssignResourceFromResourceGroupService' do
-        expect_next_instances_of(Ci::ResourceGroups::AssignResourceFromResourceGroupService, 2, resource_group.project, nil) do |service|
+        expect_next_instance_of(Ci::ResourceGroups::AssignResourceFromResourceGroupService, resource_group.project, nil) do |service|
           expect(service).to receive(:execute).with(resource_group)
         end
 

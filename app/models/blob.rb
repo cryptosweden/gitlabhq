@@ -8,6 +8,7 @@ class Blob < SimpleDelegator
   include BlobActiveModel
 
   MODE_SYMLINK = '120000' # The STRING 120000 is the git-reported octal filemode for a symlink
+  MODE_EXECUTABLE = '100755' # The STRING 100755 is the git-reported octal filemode for an executable file
 
   CACHE_TIME = 60 # Cache raw blobs referred to by a (mutable) ref for 1 minute
   CACHE_TIME_IMMUTABLE = 3600 # Cache blobs referred to by an immutable reference for 1 hour
@@ -32,6 +33,7 @@ class Blob < SimpleDelegator
     BlobViewer::Notebook,
     BlobViewer::SVG,
     BlobViewer::OpenApi,
+    BlobViewer::GeoJson,
 
     BlobViewer::Image,
     BlobViewer::Sketch,
@@ -53,7 +55,6 @@ class Blob < SimpleDelegator
     BlobViewer::License,
     BlobViewer::Contributing,
     BlobViewer::Changelog,
-    BlobViewer::MetricsDashboardYml,
 
     BlobViewer::CargoToml,
     BlobViewer::Cartfile,
@@ -71,6 +72,7 @@ class Blob < SimpleDelegator
   ].freeze
 
   attr_reader :container
+  attr_accessor :ref_type
 
   delegate :repository, to: :container, allow_nil: true
   delegate :project, to: :repository, allow_nil: true
@@ -92,8 +94,11 @@ class Blob < SimpleDelegator
   end
 
   def self.lazy(repository, commit_id, path, blob_size_limit: Gitlab::Git::Blob::MAX_DATA_DISPLAY_SIZE)
-    BatchLoader.for([commit_id, path]).batch(key: repository) do |items, loader, args|
-      args[:key].blobs_at(items, blob_size_limit: blob_size_limit).each do |blob|
+    key = [:repository_blobs, repository]
+    key << blob_size_limit if Feature.enabled?(:increase_diff_file_performance, repository.project)
+
+    BatchLoader.for([commit_id, path]).batch(key: key) do |items, loader, args|
+      args[:key].second.blobs_at(items, blob_size_limit: blob_size_limit).each do |blob|
         loader.call([blob.commit_id, blob.path], blob) if blob
       end
     end
@@ -179,6 +184,10 @@ class Blob < SimpleDelegator
 
   def symlink?
     mode == MODE_SYMLINK
+  end
+
+  def executable?
+    mode == MODE_EXECUTABLE
   end
 
   def extension

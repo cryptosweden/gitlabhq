@@ -1,5 +1,6 @@
 import { nextTick } from 'vue';
-import { setHTMLFixture } from 'helpers/fixtures';
+import { alertVariantOptions } from '@gitlab/ui/dist/utils/constants';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { TEST_HOST } from 'helpers/test_constants';
 import initVueAlerts from '~/vue_alerts';
 
@@ -40,6 +41,10 @@ describe('VueAlerts', () => {
     );
   });
 
+  afterEach(() => {
+    resetHTMLFixture();
+  });
+
   const findJsHooks = () => document.querySelectorAll('.js-vue-alert');
   const findAlerts = () => document.querySelectorAll('.gl-alert');
   const findAlertDismiss = (alert) => alert.querySelector('.gl-dismiss-btn');
@@ -51,7 +56,11 @@ describe('VueAlerts', () => {
     primaryButtonText: alert.querySelector('.gl-alert-action').textContent.trim(),
     primaryButtonLink: alert.querySelector('.gl-alert-action').href,
     variant: [...alert.classList]
-      .find((x) => x.match(/gl-alert-(?!not-dismissible)/))
+      .find((cssClass) => {
+        return Object.values(alertVariantOptions).some(
+          (variant) => cssClass === `gl-alert-${variant}`,
+        );
+      })
       .replace('gl-alert-', ''),
   });
 

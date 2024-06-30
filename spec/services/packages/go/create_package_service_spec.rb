@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Packages::Go::CreatePackageService do
+RSpec.describe Packages::Go::CreatePackageService, feature_category: :package_registry do
   let_it_be(:project) { create :project_empty_repo, path: 'my-go-lib' }
   let_it_be(:mod) { create :go_module, project: project }
 
-  before :all do
+  before_all do
     create :go_module_commit, :module, project: project, tag: 'v1.0.0'
   end
 
@@ -34,6 +34,22 @@ RSpec.describe Packages::Go::CreatePackageService do
       expect(file.file_md5).not_to be_nil
       expect(file.file_sha1).not_to be_nil
       expect(file.file_sha256).not_to be_nil
+    end
+
+    context 'with FIPS mode', :fips_mode do
+      it 'does not generate file_md5' do
+        file_name = "#{version.name}.#{type}"
+        expect(subject.package_files.map { |f| f.file_name }).to include(file_name)
+
+        file = subject.package_files.with_file_name(file_name).first
+        expect(file).not_to be_nil
+        expect(file.file).not_to be_nil
+        expect(file.size).to eq(file.file.size)
+        expect(file.file_name).to eq(file_name)
+        expect(file.file_md5).to be_nil
+        expect(file.file_sha1).not_to be_nil
+        expect(file.file_sha256).not_to be_nil
+      end
     end
   end
 

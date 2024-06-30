@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::Registry::RepositoriesController do
+RSpec.describe Projects::Registry::RepositoriesController, feature_category: :container_registry do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :private) }
 
@@ -59,8 +59,7 @@ RSpec.describe Projects::Registry::RepositoriesController do
       context 'when root container repository is not created' do
         context 'when there are tags for this repository' do
           before do
-            stub_container_registry_tags(repository: :any,
-                                         tags: %w[rc1 latest])
+            stub_container_registry_tags(repository: :any, tags: %w[rc1 latest])
           end
 
           it 'creates a root container repository' do
@@ -103,18 +102,15 @@ RSpec.describe Projects::Registry::RepositoriesController do
           stub_container_registry_tags(repository: :any, tags: [])
         end
 
-        it 'schedules a job to delete a repository' do
-          expect(DeleteContainerRepositoryWorker).to receive(:perform_async).with(user.id, repository.id)
-
-          delete_repository(repository)
+        it 'marks the repository as delete_scheduled' do
+          expect { delete_repository(repository) }
+            .to change { repository.reload.status }.from(nil).to('delete_scheduled')
 
           expect(repository.reload).to be_delete_scheduled
           expect(response).to have_gitlab_http_status(:no_content)
         end
 
         it 'tracks the event', :snowplow do
-          allow(DeleteContainerRepositoryWorker).to receive(:perform_async).with(user.id, repository.id)
-
           delete_repository(repository)
 
           expect_snowplow_event(category: anything, action: 'delete_repository')
@@ -137,20 +133,13 @@ RSpec.describe Projects::Registry::RepositoriesController do
     end
   end
 
-  def go_to_index(format: :html, params: {} )
-    get :index, params: params.merge({
-                  namespace_id: project.namespace,
-                  project_id: project
-                }),
-                format: format
+  def go_to_index(format: :html, params: {})
+    get :index, params: params.merge({ namespace_id: project.namespace, project_id: project }), format: format
   end
 
   def delete_repository(repository)
     delete :destroy, params: {
-                       namespace_id: project.namespace,
-                       project_id: project,
-                       id: repository
-                     },
-                     format: :json
+      namespace_id: project.namespace, project_id: project, id: repository
+    }, format: :json
   end
 end

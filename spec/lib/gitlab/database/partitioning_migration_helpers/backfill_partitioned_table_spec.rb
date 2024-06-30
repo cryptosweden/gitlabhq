@@ -54,6 +54,11 @@ RSpec.describe Gitlab::Database::PartitioningMigrationHelpers::BackfillPartition
       allow(backfill_job).to receive(:sleep)
     end
 
+    after do
+      connection.drop_table source_table
+      connection.drop_table destination_table
+    end
+
     let(:source_model) { Class.new(ActiveRecord::Base) }
     let(:destination_model) { Class.new(ActiveRecord::Base) }
     let(:timestamp) { Time.utc(2020, 1, 2).round }
@@ -82,7 +87,7 @@ RSpec.describe Gitlab::Database::PartitioningMigrationHelpers::BackfillPartition
     end
 
     it 'breaks the assigned batch into smaller batches' do
-      expect_next_instance_of(described_class::BulkCopy) do |bulk_copy|
+      expect_next_instance_of(Gitlab::Database::PartitioningMigrationHelpers::BulkCopy) do |bulk_copy|
         expect(bulk_copy).to receive(:copy_between).with(source1.id, source2.id)
         expect(bulk_copy).to receive(:copy_between).with(source3.id, source3.id)
       end
@@ -97,7 +102,8 @@ RSpec.describe Gitlab::Database::PartitioningMigrationHelpers::BackfillPartition
     end
 
     it 'marks each job record as succeeded after processing' do
-      create(:background_migration_job, class_name: "::#{described_class.name}",
+      create(:background_migration_job,
+        class_name: "::#{described_class.name}",
         arguments: [source1.id, source3.id, source_table, destination_table, unique_key])
 
       expect(::Gitlab::Database::BackgroundMigrationJob).to receive(:mark_all_as_succeeded).and_call_original
@@ -108,7 +114,8 @@ RSpec.describe Gitlab::Database::PartitioningMigrationHelpers::BackfillPartition
     end
 
     it 'returns the number of job records marked as succeeded' do
-      create(:background_migration_job, class_name: "::#{described_class.name}",
+      create(:background_migration_job,
+        class_name: "::#{described_class.name}",
         arguments: [source1.id, source3.id, source_table, destination_table, unique_key])
 
       jobs_updated = backfill_job.perform(source1.id, source3.id, source_table, destination_table, unique_key)

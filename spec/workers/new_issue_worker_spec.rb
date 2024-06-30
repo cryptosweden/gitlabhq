@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe NewIssueWorker do
+RSpec.describe NewIssueWorker, feature_category: :team_planning do
   include AfterNextHelpers
 
   describe '#perform' do
@@ -74,6 +74,8 @@ RSpec.describe NewIssueWorker do
 
         it 'creates a new event record' do
           expect { worker.perform(issue.id, user.id) }.to change { Event.count }.from(0).to(1)
+
+          expect(Event.last).to have_attributes(target_id: issue.id, target_type: 'Issue')
         end
 
         it 'creates a notification for the mentioned user' do
@@ -88,6 +90,22 @@ RSpec.describe NewIssueWorker do
               .to receive(:execute)
 
           worker.perform(issue.id, user.id)
+        end
+
+        context 'when a class is set' do
+          it 'creates event with the correct type' do
+            expect { worker.perform(issue.id, user.id, 'WorkItem') }.to change { Event.count }.from(0).to(1)
+
+            expect(Event.last).to have_attributes(target_id: issue.id, target_type: 'WorkItem')
+          end
+        end
+
+        context 'when skip_notifications is true' do
+          it 'does not call NotificationService' do
+            expect(NotificationService).not_to receive(:new)
+
+            worker.perform(issue.id, user.id, issue.class.name, true)
+          end
         end
       end
     end

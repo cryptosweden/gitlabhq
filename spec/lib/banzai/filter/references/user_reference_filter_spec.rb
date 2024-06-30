@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::UserReferenceFilter do
+RSpec.describe Banzai::Filter::References::UserReferenceFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   def get_reference(user)
@@ -23,30 +23,50 @@ RSpec.describe Banzai::Filter::References::UserReferenceFilter do
   end
 
   it 'ignores invalid users' do
-    exp = act = "Hey #{invalidate_reference(reference)}"
-    expect(reference_filter(act).to_html).to eq(exp)
+    act = "Hey #{invalidate_reference(reference)}"
+    expect(reference_filter(act).to_html).to include act
   end
 
   it 'ignores references with text before the @ sign' do
-    exp = act = "Hey foo#{reference}"
-    expect(reference_filter(act).to_html).to eq(exp)
+    act = "Hey foo#{reference}"
+    expect(reference_filter(act).to_html).to include act
   end
 
-  %w(pre code a style).each do |elem|
+  %w[pre code a style].each do |elem|
     it "ignores valid references contained inside '#{elem}' element" do
-      exp = act = "<#{elem}>Hey #{reference}</#{elem}>"
-      expect(reference_filter(act).to_html).to eq exp
+      act = "<#{elem}>Hey #{reference}</#{elem}>"
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
-  context 'mentioning @all' do
+  context 'when `disable_all_mention` FF is enabled' do
     let(:reference) { User.reference_prefix + 'all' }
 
-    it_behaves_like 'a reference containing an element node'
+    context 'mentioning @all' do
+      before do
+        stub_feature_flags(disable_all_mention: true)
+
+        project.add_developer(project.creator)
+      end
+
+      it 'ignores reference to @all' do
+        doc = reference_filter("Hey #{reference}", author: project.creator)
+
+        expect(doc.css('a').length).to eq 0
+      end
+    end
+  end
+
+  context 'mentioning @all (when `disable_all_mention` FF is disabled)' do
+    let(:reference) { User.reference_prefix + 'all' }
 
     before do
+      stub_feature_flags(disable_all_mention: false)
+
       project.add_developer(project.creator)
     end
+
+    it_behaves_like 'a reference containing an element node'
 
     it 'supports a special @all mention' do
       project.add_developer(user)
@@ -161,6 +181,7 @@ RSpec.describe Banzai::Filter::References::UserReferenceFilter do
     let(:context) { { author: group_member, project: nil, group: group } }
 
     it 'supports a special @all mention' do
+      stub_feature_flags(disable_all_mention: false)
       reference = User.reference_prefix + 'all'
       doc = reference_filter("Hey #{reference}", context)
 
@@ -209,17 +230,18 @@ RSpec.describe Banzai::Filter::References::UserReferenceFilter do
     let(:reference3) { group.to_reference }
 
     it 'does not have N+1 per multiple user references', :use_sql_query_cache do
-      markdown = "#{reference}"
+      markdown = reference.to_s
+      reference_filter(markdown) # warm up
 
       control_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         reference_filter(markdown)
-      end.count
+      end
 
       markdown = "#{reference} @qwertyuiopzx @wertyuio @ertyu @rtyui #{reference2} #{reference3}"
 
       expect do
         reference_filter(markdown)
-      end.not_to exceed_all_query_limit(control_count)
+      end.to issue_same_number_of_queries_as(control_count)
     end
   end
 end

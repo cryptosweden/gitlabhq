@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Members > Maintainer adds member with expiration date', :js do
+RSpec.describe 'Projects > Members > Maintainer adds member with expiration date', :js, feature_category: :groups_and_projects do
   include ActiveSupport::Testing::TimeHelpers
-  include Spec::Support::Helpers::Features::MembersHelpers
-  include Spec::Support::Helpers::Features::InviteMembersModalHelper
+  include Features::MembersHelpers
+  include Features::InviteMembersModalHelpers
 
   let_it_be(:maintainer) { create(:user) }
-  let_it_be(:project) { create(:project) }
+  let_it_be(:project) { create(:project, :with_namespace_settings) }
   let_it_be(:three_days_from_now) { 3.days.from_now.to_date }
   let_it_be(:five_days_from_now) { 5.days.from_now.to_date }
 
@@ -32,7 +32,7 @@ RSpec.describe 'Projects > Members > Maintainer adds member with expiration date
   end
 
   it 'changes expiration date' do
-    project.team.add_users([new_member.id], :developer, expires_at: three_days_from_now)
+    project.team.add_members([new_member.id], :developer, expires_at: three_days_from_now)
     visit project_project_members_path(project)
 
     page.within find_member_row(new_member) do
@@ -46,13 +46,13 @@ RSpec.describe 'Projects > Members > Maintainer adds member with expiration date
   end
 
   it 'clears expiration date' do
-    project.team.add_users([new_member.id], :developer, expires_at: five_days_from_now)
+    project.team.add_members([new_member.id], :developer, expires_at: five_days_from_now)
     visit project_project_members_path(project)
 
     page.within find_member_row(new_member) do
       expect(page).to have_field('Expiration date', with: five_days_from_now)
 
-      find('[data-testid="clear-button"]').click
+      find_by_testid('clear-button').click
 
       wait_for_requests
 

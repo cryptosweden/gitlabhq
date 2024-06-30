@@ -1,16 +1,12 @@
 import { shallowMount } from '@vue/test-utils';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import CommentFieldLayout from '~/notes/components/comment_field_layout.vue';
+import AttachmentsWarning from '~/notes/components/attachments_warning.vue';
 import EmailParticipantsWarning from '~/notes/components/email_participants_warning.vue';
 import NoteableWarning from '~/vue_shared/components/notes/noteable_warning.vue';
 
 describe('Comment Field Layout Component', () => {
   let wrapper;
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   const LOCKED_DISCUSSION_DOCS_PATH = 'docs/locked/path';
   const CONFIDENTIAL_ISSUES_DOCS_PATH = 'docs/confidential/path';
@@ -22,18 +18,26 @@ describe('Comment Field Layout Component', () => {
     confidential_issues_docs_path: CONFIDENTIAL_ISSUES_DOCS_PATH,
   };
 
-  const findIssuableNoteWarning = () => wrapper.find(NoteableWarning);
-  const findEmailParticipantsWarning = () => wrapper.find(EmailParticipantsWarning);
+  const commentFieldWithAttachmentData = {
+    noteableData: {
+      ...noteableDataMock,
+      issue_email_participants: [{ email: 'someone@gitlab.com' }, { email: 'another@gitlab.com' }],
+    },
+    containsLink: true,
+  };
+
+  const findIssuableNoteWarning = () => wrapper.findComponent(NoteableWarning);
+  const findEmailParticipantsWarning = () => wrapper.findComponent(EmailParticipantsWarning);
+  const findAttachmentsWarning = () => wrapper.findComponent(AttachmentsWarning);
   const findErrorAlert = () => wrapper.findByTestId('comment-field-alert-container');
 
-  const createWrapper = (props = {}, slots = {}) => {
+  const createWrapper = (props = {}) => {
     wrapper = extendedWrapper(
       shallowMount(CommentFieldLayout, {
         propsData: {
           noteableData: noteableDataMock,
           ...props,
         },
-        slots,
       }),
     );
   };
@@ -108,23 +112,25 @@ describe('Comment Field Layout Component', () => {
 
       expect(findEmailParticipantsWarning().exists()).toBe(false);
     });
+
+    it('does not show AttachmentWarning', () => {
+      createWrapper();
+
+      expect(findAttachmentsWarning().exists()).toBe(false);
+    });
   });
 
   describe('issue has email participants', () => {
     beforeEach(() => {
-      createWrapper({
-        noteableData: {
-          ...noteableDataMock,
-          issue_email_participants: [
-            { email: 'someone@gitlab.com' },
-            { email: 'another@gitlab.com' },
-          ],
-        },
-      });
+      createWrapper(commentFieldWithAttachmentData);
     });
 
     it('shows EmailParticipantsWarning', () => {
-      expect(findEmailParticipantsWarning().isVisible()).toBe(true);
+      expect(findEmailParticipantsWarning().exists()).toBe(true);
+    });
+
+    it('shows AttachmentsWarning', () => {
+      expect(findAttachmentsWarning().isVisible()).toBe(true);
     });
 
     it('sets EmailParticipantsWarning props', () => {
@@ -135,14 +141,14 @@ describe('Comment Field Layout Component', () => {
     });
   });
 
-  describe('issue has email participants, but note is confidential', () => {
+  describe('issue has email participants, but note is internal', () => {
     it('does not show EmailParticipantsWarning', () => {
       createWrapper({
         noteableData: {
           ...noteableDataMock,
           issue_email_participants: [{ email: 'someone@gitlab.com' }],
         },
-        noteIsConfidential: true,
+        isInternalNote: true,
       });
 
       expect(findEmailParticipantsWarning().exists()).toBe(false);

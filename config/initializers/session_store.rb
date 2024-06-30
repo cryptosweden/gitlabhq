@@ -6,27 +6,44 @@ require 'gitlab/current_settings'
 
 # allow it to fail: it may do so when create_from_defaults is executed before migrations are actually done
 begin
-  Settings.gitlab['session_expire_delay'] = Gitlab::CurrentSettings.current_application_settings.session_expire_delay || 10080
+  session_expire_delay = Gitlab::CurrentSettings.current_application_settings.session_expire_delay
+  Settings.gitlab['session_expire_delay'] = session_expire_delay || 10080
 rescue StandardError
   Settings.gitlab['session_expire_delay'] ||= 10080
 end
 
+raw_config = if File.exist?(Rails.root.join('config/session_store.yml'))
+               Rails.application.config_for(:session_store) || {}
+             else
+               {}
+             end
+
+session_cookie_token_prefix = raw_config.fetch(:session_cookie_token_prefix, "")
+
 cookie_key = if Rails.env.development?
-               "_gitlab_session_#{Digest::SHA256.hexdigest(Rails.root.to_s)}"
+               cookie_key_prefix = raw_config.fetch(:cookie_key, "_gitlab_session")
+               # If config doesn't exist we preserve the current default behaviour, which is a unique postfix per GDK
+               unique_key = raw_config.fetch(:unique_cookie_key_postfix, true)
+               unique_key ? "#{cookie_key_prefix}_#{Digest::SHA256.hexdigest(Rails.root.to_s)}" : cookie_key_prefix
              elsif ::Gitlab.ee? && ::Gitlab::Geo.connected? && ::Gitlab::Geo.secondary?
                "_gitlab_session_geo_#{Digest::SHA256.hexdigest(GeoNode.current_node_name)}"
              else
                "_gitlab_session"
              end
 
-store = Gitlab::Redis::Sessions.store(namespace: Gitlab::Redis::Sessions::SESSION_NAMESPACE)
+::Redis::Store::Factory.prepend(Gitlab::Patch::RedisStoreFactory)
 
-Gitlab::Application.config.session_store(
-  :redis_store, # Using the cookie_store would enable session replay attacks.
-  redis_store: store,
-  key: cookie_key,
-  secure: Gitlab.config.gitlab.https,
-  httponly: true,
-  expires_in: Settings.gitlab['session_expire_delay'] * 60,
-  path: Rails.application.config.relative_url_root.presence || '/'
-)
+Rails.application.configure do
+  config.session_store(
+    Gitlab::Sessions::RedisStore, # Using the cookie_store would enable session replay attacks
+    redis_server: Gitlab::Redis::Sessions.params.merge(namespace: Gitlab::Redis::Sessions::SESSION_NAMESPACE),
+    key: cookie_key,
+    secure: Gitlab.config.gitlab.https,
+    httponly: true,
+    expires_in: Settings.gitlab['session_expire_delay'] * 60,
+    path: Rails.application.config.relative_url_root.presence || '/',
+    session_cookie_token_prefix: session_cookie_token_prefix
+  )
+
+  config.middleware.insert_after Gitlab::Sessions::RedisStore, Gitlab::Middleware::UnauthenticatedSessionExpiry
+end

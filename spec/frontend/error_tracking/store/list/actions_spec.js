@@ -2,11 +2,11 @@ import MockAdapter from 'axios-mock-adapter';
 import testAction from 'helpers/vuex_action_helper';
 import * as actions from '~/error_tracking/store/list/actions';
 import * as types from '~/error_tracking/store/list/mutation_types';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
-jest.mock('~/flash.js');
+jest.mock('~/alert');
 
 describe('error tracking actions', () => {
   let mock;
@@ -20,11 +20,11 @@ describe('error tracking actions', () => {
   });
 
   describe('startPolling', () => {
-    it('should start polling for data', (done) => {
+    it('should start polling for data', () => {
       const payload = { errors: [{ id: 1 }, { id: 2 }] };
 
-      mock.onGet().reply(httpStatusCodes.OK, payload);
-      testAction(
+      mock.onGet().reply(HTTP_STATUS_OK, payload);
+      return testAction(
         actions.startPolling,
         {},
         {},
@@ -35,16 +35,13 @@ describe('error tracking actions', () => {
           { type: types.SET_LOADING, payload: false },
         ],
         [{ type: 'stopPolling' }],
-        () => {
-          done();
-        },
       );
     });
 
-    it('should show flash on API error', (done) => {
-      mock.onGet().reply(httpStatusCodes.BAD_REQUEST);
+    it('should show alert on API error', async () => {
+      mock.onGet().reply(HTTP_STATUS_BAD_REQUEST);
 
-      testAction(
+      await testAction(
         actions.startPolling,
         {},
         {},
@@ -53,17 +50,14 @@ describe('error tracking actions', () => {
           { type: types.SET_LOADING, payload: false },
         ],
         [],
-        () => {
-          expect(createFlash).toHaveBeenCalledTimes(1);
-          done();
-        },
       );
+      expect(createAlert).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('restartPolling', () => {
     it('should restart polling', () => {
-      testAction(
+      return testAction(
         actions.restartPolling,
         {},
         {},
@@ -80,7 +74,7 @@ describe('error tracking actions', () => {
     it('should search by query', () => {
       const query = 'search';
 
-      testAction(
+      return testAction(
         actions.searchByQuery,
         query,
         {},
@@ -98,7 +92,7 @@ describe('error tracking actions', () => {
     it('should search errors by status', () => {
       const status = 'ignored';
 
-      testAction(
+      return testAction(
         actions.filterByStatus,
         status,
         {},
@@ -112,7 +106,7 @@ describe('error tracking actions', () => {
     it('should search by query', () => {
       const field = 'frequency';
 
-      testAction(
+      return testAction(
         actions.sortByField,
         field,
         {},
@@ -129,7 +123,7 @@ describe('error tracking actions', () => {
     it('should set search endpoint', () => {
       const endpoint = 'https://sentry.io';
 
-      testAction(
+      return testAction(
         actions.setEndpoint,
         { endpoint },
         {},
@@ -142,7 +136,7 @@ describe('error tracking actions', () => {
   describe('fetchPaginatedResults', () => {
     it('should start polling the selected page cursor', () => {
       const cursor = '1576637570000:1:1';
-      testAction(
+      return testAction(
         actions.fetchPaginatedResults,
         cursor,
         {},

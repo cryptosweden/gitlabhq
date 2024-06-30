@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Issue Boards shortcut', :js do
+RSpec.describe 'Issue Boards shortcut', :js, feature_category: :portfolio_management do
   context 'issues are enabled' do
     let(:project) { create(:project) }
 
@@ -11,7 +11,7 @@ RSpec.describe 'Issue Boards shortcut', :js do
 
       admin = create(:admin)
       sign_in(admin)
-      gitlab_enable_admin_mode_sign_in(admin)
+      enable_admin_mode!(admin)
 
       visit project_path(project)
     end
@@ -30,7 +30,7 @@ RSpec.describe 'Issue Boards shortcut', :js do
     before do
       admin = create(:admin)
       sign_in(admin)
-      gitlab_enable_admin_mode_sign_in(admin)
+      enable_admin_mode!(admin)
 
       visit project_path(project)
     end

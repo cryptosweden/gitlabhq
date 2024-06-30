@@ -47,7 +47,7 @@ module Gitlab
     end
 
     def repository_path_match
-      strong_memoize(:repository_path_match) { repository_path.match(Gitlab::PathRegex.full_project_git_path_regex) || {} }
+      strong_memoize(:repository_path_match) { repository_path&.match(Gitlab::PathRegex.full_project_git_path_regex) || {} }
     end
 
     def ensure_project_on_push!
@@ -58,6 +58,7 @@ module Gitlab
       project_params = {
         path: project_path,
         namespace_id: namespace.id,
+        organization_id: namespace.organization_id,
         visibility_level: Gitlab::VisibilityLevel::PRIVATE
       }
 
@@ -74,3 +75,5 @@ module Gitlab
     end
   end
 end
+
+Gitlab::GitAccessProject.prepend_mod_with('Gitlab::GitAccessProject')

@@ -3,25 +3,12 @@
 require 'digest/sha1'
 
 module QA
-  RSpec.describe 'Release', :runner do
-    describe 'Git clone using a deploy key', :skip_fips_env do
+  RSpec.describe 'Release', :runner, :blocking, product_group: :environments do
+    describe 'Git clone using a deploy key' do
       let(:runner_name) { "qa-runner-#{SecureRandom.hex(4)}" }
       let(:repository_location) { project.repository_ssh_location }
-
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = 'deploy-key-clone-project'
-        end
-      end
-
-      let!(:runner) do
-        Resource::Runner.fabricate_via_api! do |resource|
-          resource.project = project
-          resource.name = runner_name
-          resource.tags = [runner_name]
-          resource.image = 'gitlab/gitlab-runner:alpine'
-        end
-      end
+      let(:project) { create(:project, name: 'deploy-key-clone-project') }
+      let!(:runner) { create(:project_runner, project: project, name: runner_name, tags: [runner_name]) }
 
       before do
         Flow::Login.sign_in
@@ -33,12 +20,19 @@ module QA
       end
 
       keys = [
-        ['https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348022', Runtime::Key::RSA, 8192],
-        ['https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348021', Runtime::Key::ECDSA, 521],
-        ['https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348020', Runtime::Key::ED25519]
+        ['https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348022', Runtime::Key::RSA, 8192, true],
+        ['https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348021', Runtime::Key::ECDSA, 521, true],
+        ['https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348020', Runtime::Key::ED25519, 256, false]
       ]
 
-      keys.each do |(testcase, key_class, bits)|
+      supported_keys =
+        if QA::Support::FIPS.enabled?
+          keys.select { |(_, _, _, allowed_in_fips)| allowed_in_fips }
+        else
+          keys
+        end
+
+      supported_keys.each do |(testcase, key_class, bits, _)|
         it "user sets up a deploy key with #{key_class}(#{bits}) to clone code using pipelines", testcase: testcase do
           key = key_class.new(*bits)
 
@@ -93,12 +87,7 @@ module QA
         private
 
         def make_ci_variable(key_name, key)
-          Resource::CiVariable.fabricate_via_api! do |resource|
-            resource.project = project
-            resource.key = key_name
-            resource.value = key.private_key
-            resource.masked = false
-          end
+          create(:ci_variable, project: project, key: key_name, value: key.private_key)
         end
       end
     end

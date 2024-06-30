@@ -2,7 +2,7 @@ import statuses from '~/user_lists/constants/edit';
 import * as types from '~/user_lists/store/edit/mutation_types';
 import mutations from '~/user_lists/store/edit/mutations';
 import createState from '~/user_lists/store/edit/state';
-import { userList } from '../../../feature_flags/mock_data';
+import { userList } from 'jest/feature_flags/mock_data';
 
 describe('User List Edit Mutations', () => {
   let state;
@@ -35,7 +35,7 @@ describe('User List Edit Mutations', () => {
     });
   });
 
-  describe(types.RECIEVE_USER_LIST_ERROR, () => {
+  describe(types.RECEIVE_USER_LIST_ERROR, () => {
     beforeEach(() => {
       mutations[types.RECEIVE_USER_LIST_ERROR](state, ['network error']);
     });
@@ -44,7 +44,7 @@ describe('User List Edit Mutations', () => {
       expect(state.status).toBe(statuses.ERROR);
     });
 
-    it('sets the error message to the recieved one', () => {
+    it('sets the error message to the received one', () => {
       expect(state.errorMessage).toEqual(['network error']);
     });
   });

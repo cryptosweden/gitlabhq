@@ -1,10 +1,12 @@
 import { GlSprintf } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import { shallowMountExtended, extendedWrapper } from 'helpers/vue_test_utils_helper';
 import InlineConflictLines from '~/merge_conflicts/components/inline_conflict_lines.vue';
 import ParallelConflictLines from '~/merge_conflicts/components/parallel_conflict_lines.vue';
 import component from '~/merge_conflicts/merge_conflict_resolver_app.vue';
+import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import { createStore } from '~/merge_conflicts/store';
 import { decorateFiles } from '~/merge_conflicts/utils';
 import { conflictsMock } from '../mock_data';
@@ -37,10 +39,6 @@ describe('Merge Conflict Resolver App', () => {
     store.dispatch('setConflictsData', conflictsMock);
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findLoadingSpinner = () => wrapper.findByTestId('loading-spinner');
   const findConflictsCount = () => wrapper.findByTestId('conflicts-count');
   const findFiles = () => wrapper.findAllByTestId('files');
@@ -49,9 +47,10 @@ describe('Merge Conflict Resolver App', () => {
     extendedWrapper(w).findByTestId('interactive-button');
   const findFileInlineButton = (w = wrapper) => extendedWrapper(w).findByTestId('inline-button');
   const findSideBySideButton = () => wrapper.findByTestId('side-by-side');
-  const findInlineConflictLines = (w = wrapper) => w.find(InlineConflictLines);
-  const findParallelConflictLines = (w = wrapper) => w.find(ParallelConflictLines);
+  const findInlineConflictLines = (w = wrapper) => w.findComponent(InlineConflictLines);
+  const findParallelConflictLines = (w = wrapper) => w.findComponent(ParallelConflictLines);
   const findCommitMessageTextarea = () => wrapper.findByTestId('commit-message');
+  const findClipboardButton = (w = wrapper) => w.findComponent(ClipboardButton);
 
   it('shows the amount of conflicts', () => {
     mountComponent();
@@ -59,7 +58,7 @@ describe('Merge Conflict Resolver App', () => {
     const title = findConflictsCount();
 
     expect(title.exists()).toBe(true);
-    expect(title.text().trim()).toBe('Showing 3 conflicts between test-conflicts and main');
+    expect(title.text().trim()).toBe('Showing 3 conflicts');
   });
 
   it('shows a loading spinner while loading', () => {
@@ -132,6 +131,21 @@ describe('Merge Conflict Resolver App', () => {
 
         expect(parallelConflictLinesComponent.exists()).toBe(true);
         expect(parallelConflictLinesComponent.props('file')).toEqual(decoratedMockFiles[0]);
+      });
+    });
+
+    describe('clipboard button', () => {
+      it('exists', () => {
+        mountComponent();
+        expect(findClipboardButton().exists()).toBe(true);
+      });
+
+      it('has the correct props', () => {
+        mountComponent();
+        expect(findClipboardButton().attributes()).toMatchObject({
+          text: decoratedMockFiles[0].filePath,
+          title: 'Copy file path',
+        });
       });
     });
   });

@@ -193,6 +193,10 @@ RSpec.shared_examples 'application settings examples' do
         it 'returns false for usage_ping_enabled' do
           expect(setting.usage_ping_enabled).to be_falsey
         end
+
+        it 'returns false for usage_ping_features_enabled' do
+          expect(setting.usage_ping_features_enabled).to be_falsey
+        end
       end
 
       context 'when the usage ping is enabled in the DB' do
@@ -202,6 +206,10 @@ RSpec.shared_examples 'application settings examples' do
 
         it 'returns false for usage_ping_enabled' do
           expect(setting.usage_ping_enabled).to be_falsey
+        end
+
+        it 'returns false for usage_ping_features_enabled' do
+          expect(setting.usage_ping_features_enabled).to be_falsey
         end
       end
     end
@@ -223,6 +231,10 @@ RSpec.shared_examples 'application settings examples' do
         it 'returns false for usage_ping_enabled' do
           expect(setting.usage_ping_enabled).to be_falsey
         end
+
+        it 'returns false for usage_ping_features_enabled' do
+          expect(setting.usage_ping_features_enabled).to be_falsey
+        end
       end
 
       context 'when the usage ping is enabled in the DB' do
@@ -233,13 +245,63 @@ RSpec.shared_examples 'application settings examples' do
         it 'returns true for usage_ping_enabled' do
           expect(setting.usage_ping_enabled).to be_truthy
         end
+
+        context 'when usage_ping_features_enabled is enabled in db' do
+          before do
+            setting.usage_ping_features_enabled = true
+          end
+
+          it 'returns true for usage_ping_features_enabled' do
+            expect(setting.usage_ping_features_enabled).to be_truthy
+          end
+
+          context 'when Gitlab.ee? is true', if: Gitlab.ee? do
+            context 'when include_optional_metrics_in_service_ping is true' do
+              before do
+                setting.include_optional_metrics_in_service_ping = true
+              end
+
+              it 'returns true for usage_ping_features_enabled' do
+                expect(setting.usage_ping_features_enabled).to be_truthy
+              end
+            end
+
+            context 'when include_optional_metrics_in_service_ping is false' do
+              before do
+                setting.include_optional_metrics_in_service_ping = false
+              end
+
+              it 'returns false for usage_ping_features_enabled' do
+                expect(setting.usage_ping_features_enabled).to be_falsey
+              end
+            end
+          end
+        end
+
+        context 'when usage_ping_features_enabled is disabled in db' do
+          before do
+            setting.usage_ping_features_enabled = false
+          end
+
+          it 'returns false for usage_ping_features_enabled' do
+            expect(setting.usage_ping_features_enabled).to be_falsey
+          end
+        end
       end
     end
   end
 
   describe '#allowed_key_types' do
-    it 'includes all key types by default' do
-      expect(setting.allowed_key_types).to contain_exactly(*described_class::SUPPORTED_KEY_TYPES)
+    context 'in non-FIPS mode', fips_mode: false do
+      it 'includes all key types by default' do
+        expect(setting.allowed_key_types).to contain_exactly(*Gitlab::SSHPublicKey.supported_types)
+      end
+    end
+
+    context 'in FIPS mode', :fips_mode do
+      it 'excludes DSA from supported key types' do
+        expect(setting.allowed_key_types).to contain_exactly(*Gitlab::SSHPublicKey.supported_types - %i[dsa])
+      end
     end
 
     it 'excludes disabled key types' do
@@ -289,7 +351,7 @@ RSpec.shared_examples 'application settings examples' do
 
   describe '#pick_repository_storage' do
     before do
-      allow(Gitlab.config.repositories.storages).to receive(:keys).and_return(%w(default backup))
+      allow(Gitlab.config.repositories.storages).to receive(:keys).and_return(%w[default backup])
       allow(setting).to receive(:repository_storages_weighted).and_return({ 'default' => 20, 'backup' => 80 })
     end
 
@@ -306,13 +368,13 @@ RSpec.shared_examples 'application settings examples' do
     using RSpec::Parameterized::TableSyntax
 
     where(:config_storages, :storages, :normalized) do
-      %w(default backup) | { 'default' => 0, 'backup' => 100 }   | { 'default' => 0.0, 'backup' => 1.0 }
-      %w(default backup) | { 'default' => 100, 'backup' => 100 } | { 'default' => 0.5, 'backup' => 0.5 }
-      %w(default backup) | { 'default' => 20, 'backup' => 80 }   | { 'default' => 0.2, 'backup' => 0.8 }
-      %w(default backup) | { 'default' => 0, 'backup' => 0 }     | { 'default' => 0.0, 'backup' => 0.0 }
-      %w(default)        | { 'default' => 0, 'backup' => 100 }   | { 'default' => 0.0 }
-      %w(default)        | { 'default' => 100, 'backup' => 100 } | { 'default' => 1.0 }
-      %w(default)        | { 'default' => 20, 'backup' => 80 }   | { 'default' => 1.0 }
+      %w[default backup] | { 'default' => 0, 'backup' => 100 }   | { 'default' => 0.0, 'backup' => 1.0 }
+      %w[default backup] | { 'default' => 100, 'backup' => 100 } | { 'default' => 0.5, 'backup' => 0.5 }
+      %w[default backup] | { 'default' => 20, 'backup' => 80 }   | { 'default' => 0.2, 'backup' => 0.8 }
+      %w[default backup] | { 'default' => 0, 'backup' => 0 }     | { 'default' => 0.0, 'backup' => 0.0 }
+      %w[default]        | { 'default' => 0, 'backup' => 100 }   | { 'default' => 0.0 }
+      %w[default]        | { 'default' => 100, 'backup' => 100 } | { 'default' => 1.0 }
+      %w[default]        | { 'default' => 20, 'backup' => 80 }   | { 'default' => 1.0 }
     end
 
     with_them do

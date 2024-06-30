@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::BroadcastMessagePlaceholdersFilter do
+RSpec.describe Banzai::Filter::BroadcastMessagePlaceholdersFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   subject { filter(text, current_user: user, broadcast_message_placeholders: true).to_html }
@@ -29,7 +29,7 @@ RSpec.describe Banzai::Filter::BroadcastMessagePlaceholdersFilter do
     end
 
     context 'works with empty text' do
-      let(:text) {" "}
+      let(:text) { " " }
 
       it { expect(subject).to eq(" ") }
     end
@@ -42,13 +42,13 @@ RSpec.describe Banzai::Filter::BroadcastMessagePlaceholdersFilter do
 
     context 'available placeholders' do
       context 'replaces the email of the user' do
-        let(:text) { "{{email}}"}
+        let(:text) { "{{email}}" }
 
         it { expect(subject).to eq(user.email) }
       end
 
       context 'replaces the name of the user' do
-        let(:text) { "{{name}}"}
+        let(:text) { "{{name}}" }
 
         it { expect(subject).to eq(user.name) }
       end
@@ -86,4 +86,6 @@ RSpec.describe Banzai::Filter::BroadcastMessagePlaceholdersFilter do
       it { expect(subject).to eq("Email: ") }
     end
   end
+
+  it_behaves_like 'pipeline timing check'
 end

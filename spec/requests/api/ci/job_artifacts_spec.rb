@@ -2,9 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Ci::JobArtifacts do
+RSpec.describe API::Ci::JobArtifacts, feature_category: :build_artifacts do
   include HttpBasicAuthHelpers
   include DependencyProxyHelpers
+  include Ci::JobTokenScopeHelpers
 
   include HttpIOHelpers
 
@@ -13,9 +14,7 @@ RSpec.describe API::Ci::JobArtifacts do
   end
 
   let_it_be(:pipeline, reload: true) do
-    create(:ci_pipeline, project: project,
-                         sha: project.commit.id,
-                         ref: project.default_branch)
+    create(:ci_pipeline, project: project, sha: project.commit.id, ref: project.default_branch)
   end
 
   let(:user) { create(:user) }
@@ -24,8 +23,7 @@ RSpec.describe API::Ci::JobArtifacts do
   let(:guest) { create(:project_member, :guest, project: project).user }
 
   let!(:job) do
-    create(:ci_build, :success, :tags, pipeline: pipeline,
-                                artifacts_expire_at: 1.day.since)
+    create(:ci_build, :success, :tags, pipeline: pipeline, artifacts_expire_at: 1.day.since)
   end
 
   before do
@@ -41,59 +39,63 @@ RSpec.describe API::Ci::JobArtifacts do
   describe 'DELETE /projects/:id/jobs/:job_id/artifacts' do
     let!(:job) { create(:ci_build, :artifacts, pipeline: pipeline, user: api_user) }
 
-    before do
-      delete api("/projects/#{project.id}/jobs/#{job.id}/artifacts", api_user)
+    context 'when project is not undergoing stats refresh' do
+      before do
+        delete api("/projects/#{project.id}/jobs/#{job.id}/artifacts", api_user)
+      end
+
+      context 'when user is anonymous' do
+        let(:api_user) { nil }
+
+        it 'does not delete artifacts' do
+          expect(job.job_artifacts.size).to eq 2
+        end
+
+        it 'returns status 401 (unauthorized)' do
+          expect(response).to have_gitlab_http_status(:unauthorized)
+        end
+      end
+
+      context 'with developer' do
+        it 'does not delete artifacts' do
+          expect(job.job_artifacts.size).to eq 2
+        end
+
+        it 'returns status 403 (forbidden)' do
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+
+      context 'with authorized user' do
+        let(:maintainer) { create(:project_member, :maintainer, project: project).user }
+        let!(:api_user) { maintainer }
+
+        it 'deletes artifacts' do
+          expect(job.job_artifacts.size).to eq 0
+        end
+
+        it 'returns status 204 (no content)' do
+          expect(response).to have_gitlab_http_status(:no_content)
+        end
+      end
     end
 
-    context 'when user is anonymous' do
-      let(:api_user) { nil }
+    context 'when project is undergoing stats refresh' do
+      it_behaves_like 'preventing request because of ongoing project stats refresh' do
+        let(:maintainer) { create(:project_member, :maintainer, project: project).user }
+        let(:api_user) { maintainer }
+        let(:make_request) { delete api("/projects/#{project.id}/jobs/#{job.id}/artifacts", api_user) }
 
-      it 'does not delete artifacts' do
-        expect(job.job_artifacts.size).to eq 2
-      end
+        it 'does not delete artifacts' do
+          make_request
 
-      it 'returns status 401 (unauthorized)' do
-        expect(response).to have_gitlab_http_status(:unauthorized)
-      end
-    end
-
-    context 'with developer' do
-      it 'does not delete artifacts' do
-        expect(job.job_artifacts.size).to eq 2
-      end
-
-      it 'returns status 403 (forbidden)' do
-        expect(response).to have_gitlab_http_status(:forbidden)
-      end
-    end
-
-    context 'with authorized user' do
-      let(:maintainer) { create(:project_member, :maintainer, project: project).user }
-      let!(:api_user) { maintainer }
-
-      it 'deletes artifacts' do
-        expect(job.job_artifacts.size).to eq 0
-      end
-
-      it 'returns status 204 (no content)' do
-        expect(response).to have_gitlab_http_status(:no_content)
+          expect(job.job_artifacts.size).to eq 2
+        end
       end
     end
   end
 
   describe 'DELETE /projects/:id/artifacts' do
-    context 'when feature flag is disabled' do
-      before do
-        stub_feature_flags(bulk_expire_project_artifacts: false)
-      end
-
-      it 'returns 404' do
-        delete api("/projects/#{project.id}/artifacts", api_user)
-
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-    end
-
     context 'when user is anonymous' do
       let(:api_user) { nil }
 
@@ -143,6 +145,22 @@ RSpec.describe API::Ci::JobArtifacts do
 
         expect(response).to have_gitlab_http_status(:accepted)
       end
+
+      context 'when project is undergoing stats refresh' do
+        let!(:job) { create(:ci_build, :artifacts, pipeline: pipeline, user: api_user) }
+
+        it_behaves_like 'preventing request because of ongoing project stats refresh' do
+          let(:maintainer) { create(:project_member, :maintainer, project: project).user }
+          let(:api_user) { maintainer }
+          let(:make_request) { delete api("/projects/#{project.id}/artifacts", api_user) }
+
+          it 'does not delete artifacts' do
+            make_request
+
+            expect(job.job_artifacts.size).to eq 2
+          end
+        end
+      end
     end
   end
 
@@ -159,8 +177,7 @@ RSpec.describe API::Ci::JobArtifacts do
 
         context 'when project is public' do
           it 'allows to access artifacts' do
-            project.update_column(:visibility_level,
-                                  Gitlab::VisibilityLevel::PUBLIC)
+            project.update_column(:visibility_level, Gitlab::VisibilityLevel::PUBLIC)
             project.update_column(:public_builds, true)
 
             get_artifact_file(artifact)
@@ -170,39 +187,21 @@ RSpec.describe API::Ci::JobArtifacts do
         end
 
         context 'when project is public with artifacts that are non public' do
-          let(:job) { create(:ci_build, :artifacts, :non_public_artifacts, pipeline: pipeline) }
+          let(:job) { create(:ci_build, :private_artifacts, :with_private_artifacts_config, pipeline: pipeline) }
 
           it 'rejects access to artifacts' do
-            project.update_column(:visibility_level,
-                                  Gitlab::VisibilityLevel::PUBLIC)
+            project.update_column(:visibility_level, Gitlab::VisibilityLevel::PUBLIC)
             project.update_column(:public_builds, true)
 
             get_artifact_file(artifact)
 
             expect(response).to have_gitlab_http_status(:forbidden)
           end
-
-          context 'with the non_public_artifacts feature flag disabled' do
-            before do
-              stub_feature_flags(non_public_artifacts: false)
-            end
-
-            it 'allows access to artifacts' do
-              project.update_column(:visibility_level,
-                                    Gitlab::VisibilityLevel::PUBLIC)
-              project.update_column(:public_builds, true)
-
-              get_artifact_file(artifact)
-
-              expect(response).to have_gitlab_http_status(:ok)
-            end
-          end
         end
 
         context 'when project is public with builds access disabled' do
           it 'rejects access to artifacts' do
-            project.update_column(:visibility_level,
-                                  Gitlab::VisibilityLevel::PUBLIC)
+            project.update_column(:visibility_level, Gitlab::VisibilityLevel::PUBLIC)
             project.update_column(:public_builds, false)
 
             get_artifact_file(artifact)
@@ -213,8 +212,7 @@ RSpec.describe API::Ci::JobArtifacts do
 
         context 'when project is private' do
           it 'rejects access and hides existence of artifacts' do
-            project.update_column(:visibility_level,
-                                  Gitlab::VisibilityLevel::PRIVATE)
+            project.update_column(:visibility_level, Gitlab::VisibilityLevel::PRIVATE)
             project.update_column(:public_builds, true)
 
             get_artifact_file(artifact)
@@ -234,8 +232,9 @@ RSpec.describe API::Ci::JobArtifacts do
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(response.headers.to_h)
-            .to include('Content-Type' => 'application/json',
-                        'Gitlab-Workhorse-Send-Data' => /artifacts-entry/)
+            .to include('Content-Type' => 'application/json', 'Gitlab-Workhorse-Send-Data' => /artifacts-entry/)
+          expect(response.headers.to_h)
+            .not_to include('Gitlab-Workhorse-Detect-Content-Type' => 'true')
           expect(response.parsed_body).to be_empty
         end
 
@@ -273,6 +272,9 @@ RSpec.describe API::Ci::JobArtifacts do
           'Content-Disposition' => %q(attachment; filename="ci_build_artifacts.zip"; filename*=UTF-8''ci_build_artifacts.zip) }
       end
 
+      let(:expected_params) { { artifact_size: job.artifacts_file.size } }
+      let(:subject_proc) { proc { subject } }
+
       it 'returns specific job artifacts' do
         subject
 
@@ -280,12 +282,15 @@ RSpec.describe API::Ci::JobArtifacts do
         expect(response.headers.to_h).to include(download_headers)
         expect(response.body).to match_file(job.artifacts_file.file.file)
       end
+
+      it_behaves_like 'storing arguments in the application context'
+      it_behaves_like 'not executing any extra queries for the application context'
     end
 
     context 'normal authentication' do
       context 'job with artifacts' do
         context 'when artifacts are stored locally' do
-          let(:job) { create(:ci_build, :artifacts, pipeline: pipeline) }
+          let(:job) { create(:ci_build, :artifacts, pipeline: pipeline, project: project) }
 
           subject { get api("/projects/#{project.id}/jobs/#{job.id}/artifacts", api_user) }
 
@@ -302,11 +307,12 @@ RSpec.describe API::Ci::JobArtifacts do
               stub_licensed_features(cross_project_pipelines: true)
             end
 
-            it_behaves_like 'downloads artifact'
-
             context 'when job token scope is enabled' do
               before do
-                other_job.project.ci_cd_settings.update!(job_token_scope_enabled: true)
+                other_job.project.ci_cd_settings.update!(
+                  job_token_scope_enabled: true,
+                  inbound_job_token_scope_enabled: true
+                )
               end
 
               it 'does not allow downloading artifacts' do
@@ -316,7 +322,9 @@ RSpec.describe API::Ci::JobArtifacts do
               end
 
               context 'when project is added to the job token scope' do
-                let!(:link) { create(:ci_job_token_project_scope_link, source_project: other_job.project, target_project: job.project) }
+                before do
+                  make_project_fully_accessible(other_job.project, job.project)
+                end
 
                 it_behaves_like 'downloads artifact'
               end
@@ -337,13 +345,15 @@ RSpec.describe API::Ci::JobArtifacts do
         context 'when artifacts are stored remotely' do
           let(:proxy_download) { false }
           let(:job) { create(:ci_build, pipeline: pipeline) }
-          let(:artifact) { create(:ci_job_artifact, :archive, :remote_store, job: job) }
+          let(:fixed_time) { Time.new(2001, 1, 1) }
+          let(:artifact) { create(:ci_job_artifact, :archive, :remote_store, job: job, created_at: fixed_time) }
 
           before do
             stub_artifacts_object_storage(proxy_download: proxy_download)
 
             artifact
             job.reload
+            travel_to fixed_time
 
             get api("/projects/#{project.id}/jobs/#{job.id}/artifacts", api_user)
           end
@@ -362,8 +372,40 @@ RSpec.describe API::Ci::JobArtifacts do
             end
           end
 
+          context 'when Google CDN is configured' do
+            let(:cdn_config) do
+              {
+                'provider' => 'Google',
+                'url' => 'https://cdn.example.org',
+                'key_name' => 'stanhu-key',
+                'key' => Base64.urlsafe_encode64(SecureRandom.hex)
+              }
+            end
+
+            before do
+              stub_object_storage_uploader(
+                config: Gitlab.config.artifacts.object_store,
+                uploader: JobArtifactUploader,
+                proxy_download: proxy_download,
+                cdn: cdn_config
+              )
+              allow(Gitlab::ApplicationContext).to receive(:push).and_call_original
+            end
+
+            subject { get api("/projects/#{project.id}/jobs/#{job.id}/artifacts", api_user), env: { REMOTE_ADDR: '18.245.0.1' } }
+
+            it 'returns CDN-signed URL' do
+              expect(Gitlab::ApplicationContext).to receive(:push).with(artifact_used_cdn: true).and_call_original
+
+              subject
+
+              expect(response.redirect_url).to start_with("https://cdn.example.org/#{artifact.file.path}")
+            end
+          end
+
           context 'authorized user' do
-            it 'returns the file remote URL' do
+            it 'returns the file remote URL', :freeze_time do
+              # Signed URLs contain timestamps. Freeze time to avoid flakiness.
               expect(response).to redirect_to(artifact.file.url)
             end
           end
@@ -379,7 +421,7 @@ RSpec.describe API::Ci::JobArtifacts do
 
         context 'when public project guest and artifacts are non public' do
           let(:api_user) { guest }
-          let(:job) { create(:ci_build, :artifacts, :non_public_artifacts, pipeline: pipeline) }
+          let(:job) { create(:ci_build, :private_artifacts, :with_private_artifacts_config, pipeline: pipeline) }
 
           before do
             project.update_column(:visibility_level,
@@ -390,17 +432,6 @@ RSpec.describe API::Ci::JobArtifacts do
 
           it 'rejects access and hides existence of artifacts' do
             expect(response).to have_gitlab_http_status(:forbidden)
-          end
-
-          context 'with the non_public_artifacts feature flag disabled' do
-            before do
-              stub_feature_flags(non_public_artifacts: false)
-              get api("/projects/#{project.id}/jobs/#{job.id}/artifacts", api_user)
-            end
-
-            it 'allows access to artifacts' do
-              expect(response).to have_gitlab_http_status(:ok)
-            end
           end
         end
 
@@ -481,7 +512,7 @@ RSpec.describe API::Ci::JobArtifacts do
           let(:download_headers) do
             { 'Content-Transfer-Encoding' => 'binary',
               'Content-Disposition' =>
-              %Q(attachment; filename="#{job_with_artifacts.artifacts_file.filename}"; filename*=UTF-8''#{job.artifacts_file.filename}) }
+              %(attachment; filename="#{job_with_artifacts.artifacts_file.filename}"; filename*=UTF-8''#{job.artifacts_file.filename}) }
           end
 
           it { expect(response).to have_gitlab_http_status(:ok) }
@@ -507,8 +538,7 @@ RSpec.describe API::Ci::JobArtifacts do
       context 'with regular branch' do
         before do
           pipeline.reload
-          pipeline.update!(ref: 'master',
-                          sha: project.commit('master').sha)
+          pipeline.update!(ref: 'master', sha: project.commit('master').sha)
 
           get_for_ref('master')
         end
@@ -551,8 +581,7 @@ RSpec.describe API::Ci::JobArtifacts do
         stub_artifacts_object_storage
         job.success
 
-        project.update!(visibility_level: visibility_level,
-                       public_builds: public_builds)
+        project.update!(visibility_level: visibility_level, public_builds: public_builds)
 
         get_artifact_file(artifact)
       end
@@ -566,9 +595,11 @@ RSpec.describe API::Ci::JobArtifacts do
 
           it 'allows to access artifacts', :sidekiq_might_not_need_inline do
             expect(response).to have_gitlab_http_status(:ok)
-            expect(response.headers.to_h)
-              .to include('Content-Type' => 'application/json',
-                          'Gitlab-Workhorse-Send-Data' => /artifacts-entry/)
+            expect(response.headers.to_h).to include(
+              'Content-Type' => 'application/json',
+              'Gitlab-Workhorse-Send-Data' => /artifacts-entry/,
+              'Gitlab-Workhorse-Detect-Content-Type' => 'true'
+            )
           end
         end
 
@@ -585,7 +616,7 @@ RSpec.describe API::Ci::JobArtifacts do
         end
 
         context 'when project is public with non public artifacts' do
-          let(:job) { create(:ci_build, :artifacts, :non_public_artifacts, pipeline: pipeline, user: api_user) }
+          let(:job) { create(:ci_build, :private_artifacts, :with_private_artifacts_config, pipeline: pipeline, user: api_user) }
           let(:visibility_level) { Gitlab::VisibilityLevel::PUBLIC }
           let(:public_builds) { true }
 
@@ -596,18 +627,6 @@ RSpec.describe API::Ci::JobArtifacts do
             expect(json_response).to have_key('message')
             expect(response.headers.to_h)
               .not_to include('Gitlab-Workhorse-Send-Data' => /artifacts-entry/)
-          end
-
-          context 'with the non_public_artifacts feature flag disabled' do
-            before do
-              stub_feature_flags(non_public_artifacts: false)
-            end
-
-            it 'allows access to artifacts', :sidekiq_might_not_need_inline do
-              get_artifact_file(artifact)
-
-              expect(response).to have_gitlab_http_status(:ok)
-            end
           end
         end
 
@@ -636,9 +655,11 @@ RSpec.describe API::Ci::JobArtifacts do
           get_artifact_file(artifact)
 
           expect(response).to have_gitlab_http_status(:ok)
-          expect(response.headers.to_h)
-            .to include('Content-Type' => 'application/json',
-                        'Gitlab-Workhorse-Send-Data' => /artifacts-entry/)
+          expect(response.headers.to_h).to include(
+            'Content-Type' => 'application/json',
+            'Gitlab-Workhorse-Send-Data' => /artifacts-entry/,
+            'Gitlab-Workhorse-Detect-Content-Type' => 'true'
+          )
           expect(response.parsed_body).to be_empty
         end
       end
@@ -646,17 +667,18 @@ RSpec.describe API::Ci::JobArtifacts do
       context 'with branch name containing slash' do
         before do
           pipeline.reload
-          pipeline.update!(ref: 'improve/awesome',
-                          sha: project.commit('improve/awesome').sha)
+          pipeline.update!(ref: 'improve/awesome', sha: project.commit('improve/awesome').sha)
         end
 
         it 'returns a specific artifact file for a valid path', :sidekiq_might_not_need_inline do
           get_artifact_file(artifact, 'improve/awesome')
 
           expect(response).to have_gitlab_http_status(:ok)
-          expect(response.headers.to_h)
-            .to include('Content-Type' => 'application/json',
-                        'Gitlab-Workhorse-Send-Data' => /artifacts-entry/)
+          expect(response.headers.to_h).to include(
+            'Content-Type' => 'application/json',
+            'Gitlab-Workhorse-Send-Data' => /artifacts-entry/,
+            'Gitlab-Workhorse-Detect-Content-Type' => 'true'
+          )
         end
       end
 
@@ -705,8 +727,15 @@ RSpec.describe API::Ci::JobArtifacts do
 
     context 'artifacts did not expire' do
       let(:job) do
-        create(:ci_build, :trace_artifact, :artifacts, :success,
-               project: project, pipeline: pipeline, artifacts_expire_at: Time.now + 7.days)
+        create(
+          :ci_build,
+          :trace_artifact,
+          :artifacts,
+          :success,
+          project: project,
+          pipeline: pipeline,
+          artifacts_expire_at: Time.now + 7.days
+        )
       end
 
       it 'keeps artifacts' do

@@ -1,49 +1,116 @@
+import { GlAlert } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import Vue from 'vue';
+import VueApollo from 'vue-apollo';
+import markdownEditorEventHub from '~/vue_shared/components/markdown/eventhub';
+import { CLEAR_AUTOSAVE_ENTRY_EVENT } from '~/vue_shared/constants';
+import createMockApollo from 'helpers/mock_apollo_helper';
+import waitForPromises from 'helpers/wait_for_promises';
+import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
+import createNoteMutation from '~/design_management/graphql/mutations/create_note.mutation.graphql';
 import DesignReplyForm from '~/design_management/components/design_notes/design_reply_form.vue';
+import {
+  ADD_DISCUSSION_COMMENT_ERROR,
+  ADD_IMAGE_DIFF_NOTE_ERROR,
+  UPDATE_IMAGE_DIFF_NOTE_ERROR,
+  UPDATE_NOTE_ERROR,
+} from '~/design_management/utils/error_messages';
+import {
+  mockNoteSubmitSuccessMutationResponse,
+  mockNoteSubmitFailureMutationResponse,
+} from '../../mock_data/apollo_mock';
 
-const showModal = jest.fn();
+Vue.use(VueApollo);
 
-const GlModal = {
-  template: '<div><slot name="modal-title"></slot><slot></slot><slot name="modal-ok"></slot></div>',
-  methods: {
-    show: showModal,
-  },
-};
+jest.mock('~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal');
+jest.mock('~/autosave');
 
 describe('Design reply form component', () => {
   let wrapper;
+  let mockApollo;
 
   const findTextarea = () => wrapper.find('textarea');
-  const findSubmitButton = () => wrapper.find({ ref: 'submitButton' });
-  const findCancelButton = () => wrapper.find({ ref: 'cancelButton' });
-  const findModal = () => wrapper.find({ ref: 'cancelCommentModal' });
+  const findSubmitButton = () => wrapper.findComponent({ ref: 'submitButton' });
+  const findCancelButton = () => wrapper.findComponent({ ref: 'cancelButton' });
+  const findAlert = () => wrapper.findComponent(GlAlert);
 
-  function createComponent(props = {}, mountOptions = {}) {
+  const mockNoteableId = 'gid://gitlab/DesignManagement::Design/6';
+  const mockComment = 'New comment';
+  const mockDiscussionId = 'gid://gitlab/Discussion/6466a72f35b163f3c3e52d7976a09387f2c573e8';
+  const createNoteMutationData = {
+    input: {
+      noteableId: mockNoteableId,
+      discussionId: mockDiscussionId,
+      body: mockComment,
+    },
+  };
+
+  const ctrlKey = {
+    ctrlKey: true,
+  };
+  const metaKey = {
+    metaKey: true,
+  };
+  const mockMutationHandler = jest.fn().mockResolvedValue(mockNoteSubmitSuccessMutationResponse);
+
+  function createComponent({
+    props = {},
+    mountOptions = {},
+    data = {},
+    mutationHandler = mockMutationHandler,
+  } = {}) {
+    mockApollo = createMockApollo([[createNoteMutation, mutationHandler]]);
     wrapper = mount(DesignReplyForm, {
       propsData: {
+        designNoteMutation: createNoteMutation,
+        noteableId: mockNoteableId,
+        markdownDocsPath: 'path/to/markdown/docs',
+        markdownPreviewPath: 'path/to/markdown/preview',
         value: '',
-        isSaving: false,
         ...props,
       },
-      stubs: { GlModal },
       ...mountOptions,
+      apolloProvider: mockApollo,
+      data() {
+        return {
+          ...data,
+        };
+      },
     });
   }
 
   beforeEach(() => {
-    gon.features = { markdownContinueLists: true };
+    window.gon.current_user_id = 1;
   });
 
   afterEach(() => {
-    wrapper.destroy();
+    mockApollo = null;
+    confirmAction.mockReset();
   });
 
   it('textarea has focus after component mount', () => {
     // We need to attach to document, so that `document.activeElement` is properly set in jsdom
-    createComponent({}, { attachTo: document.body });
+    createComponent({ mountOptions: { attachTo: document.body } });
 
     expect(findTextarea().element).toEqual(document.activeElement);
+  });
+
+  it('allows switching to rich text', () => {
+    createComponent();
+
+    expect(wrapper.text()).toContain('Switch to rich text editing');
+  });
+
+  it('renders "Attach a file or image" button in markdown toolbar', () => {
+    createComponent();
+
+    expect(wrapper.find('[data-testid="button-attach-file"]').exists()).toBe(true);
+  });
+
+  it('renders file upload progress container', () => {
+    createComponent();
+
+    expect(wrapper.find('.comment-toolbar .uploading-container').exists()).toBe(true);
   });
 
   it('renders button text as "Comment" when creating a comment', () => {
@@ -53,44 +120,34 @@ describe('Design reply form component', () => {
   });
 
   it('renders button text as "Save comment" when creating a comment', () => {
-    createComponent({ isNewComment: false });
+    createComponent({ props: { isNewComment: false } });
 
     expect(findSubmitButton().html()).toMatchSnapshot();
   });
 
   describe('when form has no text', () => {
     beforeEach(() => {
-      createComponent({
-        value: '',
-      });
+      createComponent();
     });
 
     it('submit button is disabled', () => {
-      expect(findSubmitButton().attributes().disabled).toBeTruthy();
+      expect(findSubmitButton().attributes().disabled).toBe('disabled');
     });
 
-    it('does not emit submitForm event on textarea ctrl+enter keydown', async () => {
-      findTextarea().trigger('keydown.enter', {
-        ctrlKey: true,
-      });
+    it.each`
+      key       | keyData
+      ${'ctrl'} | ${ctrlKey}
+      ${'meta'} | ${metaKey}
+    `('does not perform mutation on textarea $key+enter keydown', ({ keyData }) => {
+      findTextarea().trigger('keydown.enter', keyData);
 
-      await nextTick();
-      expect(wrapper.emitted('submit-form')).toBeFalsy();
-    });
-
-    it('does not emit submitForm event on textarea meta+enter keydown', async () => {
-      findTextarea().trigger('keydown.enter', {
-        metaKey: true,
-      });
-
-      await nextTick();
-      expect(wrapper.emitted('submit-form')).toBeFalsy();
+      expect(mockMutationHandler).not.toHaveBeenCalled();
     });
 
     it('emits cancelForm event on pressing escape button on textarea', () => {
-      findTextarea().trigger('keyup.esc');
+      findTextarea().trigger('keydown.esc');
 
-      expect(wrapper.emitted('cancel-form')).toBeTruthy();
+      expect(wrapper.emitted('cancel-form')).toHaveLength(1);
     });
 
     it('emits cancelForm event on clicking Cancel button', () => {
@@ -100,82 +157,151 @@ describe('Design reply form component', () => {
     });
   });
 
-  describe('when form has text', () => {
-    beforeEach(() => {
-      createComponent({
-        value: 'test',
-      });
-    });
-
+  describe('when the form has text', () => {
     it('submit button is enabled', () => {
-      expect(findSubmitButton().attributes().disabled).toBeFalsy();
+      createComponent({ props: { value: mockComment } });
+      expect(findSubmitButton().attributes().disabled).toBeUndefined();
     });
 
-    it('emits submitForm event on Comment button click', async () => {
+    it('calls a mutation on submit button click event', async () => {
+      const mockMutationVariables = {
+        noteableId: mockNoteableId,
+        discussionId: mockDiscussionId,
+      };
+
+      createComponent({
+        props: {
+          mutationVariables: mockMutationVariables,
+          value: mockComment,
+        },
+      });
+
       findSubmitButton().vm.$emit('click');
 
-      await nextTick();
-      expect(wrapper.emitted('submit-form')).toBeTruthy();
+      expect(mockMutationHandler).toHaveBeenCalledWith(createNoteMutationData);
+
+      await waitForPromises();
+
+      expect(wrapper.emitted('note-submit-complete')).toEqual([
+        [mockNoteSubmitSuccessMutationResponse],
+      ]);
     });
 
-    it('emits submitForm event on textarea ctrl+enter keydown', async () => {
-      findTextarea().trigger('keydown.enter', {
-        ctrlKey: true,
+    it.each`
+      key       | keyData
+      ${'ctrl'} | ${ctrlKey}
+      ${'meta'} | ${metaKey}
+    `('does perform mutation on textarea $key+enter keydown', async ({ keyData }) => {
+      const mockMutationVariables = {
+        noteableId: mockNoteableId,
+        discussionId: mockDiscussionId,
+      };
+
+      createComponent({
+        props: {
+          mutationVariables: mockMutationVariables,
+          value: mockComment,
+        },
       });
 
-      await nextTick();
-      expect(wrapper.emitted('submit-form')).toBeTruthy();
+      findTextarea().trigger('keydown.enter', keyData);
+
+      expect(mockMutationHandler).toHaveBeenCalledWith(createNoteMutationData);
+
+      await waitForPromises();
+      expect(wrapper.emitted('note-submit-complete')).toEqual([
+        [mockNoteSubmitSuccessMutationResponse],
+      ]);
     });
 
-    it('emits submitForm event on textarea meta+enter keydown', async () => {
-      findTextarea().trigger('keydown.enter', {
-        metaKey: true,
+    it('shows error message when mutation fails', async () => {
+      const failedMutation = jest.fn().mockRejectedValue(mockNoteSubmitFailureMutationResponse);
+      createComponent({
+        props: {
+          designNoteMutation: createNoteMutation,
+          value: mockComment,
+        },
+        mutationHandler: failedMutation,
+        data: {
+          errorMessage: 'error',
+        },
       });
 
-      await nextTick();
-      expect(wrapper.emitted('submit-form')).toBeTruthy();
+      findSubmitButton().vm.$emit('click');
+
+      await waitForPromises();
+      expect(findAlert().exists()).toBe(true);
     });
 
-    it('emits input event on changing textarea content', async () => {
-      findTextarea().setValue('test2');
+    it.each`
+      isDiscussion | isNewComment | errorMessage
+      ${true}      | ${true}      | ${ADD_IMAGE_DIFF_NOTE_ERROR}
+      ${true}      | ${false}     | ${UPDATE_IMAGE_DIFF_NOTE_ERROR}
+      ${false}     | ${true}      | ${ADD_DISCUSSION_COMMENT_ERROR}
+      ${false}     | ${false}     | ${UPDATE_NOTE_ERROR}
+    `(
+      'return proper error message on error in case of isDiscussion is $isDiscussion and isNewComment is $isNewComment',
+      ({ isDiscussion, isNewComment, errorMessage }) => {
+        createComponent({ props: { isDiscussion, isNewComment } });
 
-      await nextTick();
-      expect(wrapper.emitted('input')).toBeTruthy();
-    });
+        expect(wrapper.vm.getErrorMessage()).toBe(errorMessage);
+      },
+    );
 
     it('emits cancelForm event on Escape key if text was not changed', () => {
-      findTextarea().trigger('keyup.esc');
+      createComponent();
 
-      expect(wrapper.emitted('cancel-form')).toBeTruthy();
+      findTextarea().trigger('keydown.esc');
+
+      expect(wrapper.emitted('cancel-form')).toHaveLength(1);
     });
 
-    it('opens confirmation modal on Escape key when text has changed', async () => {
-      wrapper.setProps({ value: 'test2' });
+    it('opens confirmation modal on Escape key when text has changed', () => {
+      createComponent();
 
-      await nextTick();
-      findTextarea().trigger('keyup.esc');
-      expect(showModal).toHaveBeenCalled();
+      findTextarea().setValue(mockComment);
+
+      findTextarea().trigger('keydown.esc');
+
+      expect(confirmAction).toHaveBeenCalled();
     });
 
-    it('emits cancelForm event on Cancel button click if text was not changed', () => {
-      findCancelButton().trigger('click');
+    it('emits cancelForm event when confirmed', async () => {
+      confirmAction.mockResolvedValueOnce(true);
 
-      expect(wrapper.emitted('cancel-form')).toBeTruthy();
+      createComponent({ props: { value: mockComment } });
+      findTextarea().setValue('Comment changed');
+
+      findTextarea().trigger('keydown.esc');
+
+      expect(confirmAction).toHaveBeenCalled();
+
+      await waitForPromises();
+      expect(wrapper.emitted('cancel-form')).toHaveLength(1);
     });
 
-    it('opens confirmation modal on Cancel button click when text has changed', async () => {
-      wrapper.setProps({ value: 'test2' });
+    it('does not emit cancelForm event when not confirmed', async () => {
+      confirmAction.mockResolvedValueOnce(false);
 
-      await nextTick();
-      findCancelButton().trigger('click');
-      expect(showModal).toHaveBeenCalled();
+      createComponent({ props: { value: mockComment } });
+      findTextarea().setValue('Comment changed');
+
+      findTextarea().trigger('keydown.esc');
+
+      expect(confirmAction).toHaveBeenCalled();
+      await waitForPromises();
+
+      expect(wrapper.emitted('cancel-form')).toBeUndefined();
     });
+  });
 
-    it('emits cancelForm event on modal Ok button click', () => {
-      findTextarea().trigger('keyup.esc');
-      findModal().vm.$emit('ok');
-
-      expect(wrapper.emitted('cancel-form')).toBeTruthy();
+  describe('when component is destroyed', () => {
+    it('clears autosave entry', async () => {
+      const clearAutosaveSpy = jest.fn();
+      markdownEditorEventHub.$on(CLEAR_AUTOSAVE_ENTRY_EVENT, clearAutosaveSpy);
+      createComponent();
+      await wrapper.destroy();
+      expect(clearAutosaveSpy).toHaveBeenCalled();
     });
   });
 });

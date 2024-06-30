@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Suggestions::ApplyService do
+RSpec.describe Suggestions::ApplyService, feature_category: :code_review_workflow do
   include ProjectForksHelper
 
   def build_position(**optional_args)
@@ -22,10 +22,12 @@ RSpec.describe Suggestions::ApplyService do
 
     position = build_position(**position_args)
 
-    diff_note = create(:diff_note_on_merge_request,
-                       noteable: merge_request,
-                       position: position,
-                       project: project)
+    diff_note = create(
+      :diff_note_on_merge_request,
+      noteable: merge_request,
+      position: position,
+      project: project
+    )
 
     suggestion_args = { note: diff_note }.merge(content_args)
 
@@ -35,7 +37,7 @@ RSpec.describe Suggestions::ApplyService do
   def apply(suggestions, custom_message = nil)
     result = apply_service.new(user, *suggestions, message: custom_message).execute
 
-    suggestions.map { |suggestion| suggestion.reload }
+    suggestions.map(&:reload)
 
     expect(result[:status]).to eq(:success)
   end
@@ -46,8 +48,7 @@ RSpec.describe Suggestions::ApplyService do
 
       suggestions.each do |suggestion|
         path = suggestion.diff_file.file_path
-        blob = project.repository.blob_at_branch(merge_request.source_branch,
-                                                 path)
+        blob = project.repository.blob_at_branch(merge_request.source_branch, path)
 
         expect(blob.data).to eq(expected_content_by_path[path.to_sym])
       end
@@ -67,13 +68,31 @@ RSpec.describe Suggestions::ApplyService do
       apply(suggestions)
 
       commit = project.repository.commit
-      author = suggestions.first.note.author
 
       expect(user.commit_email).not_to eq(user.email)
-      expect(commit.author_email).to eq(author.commit_email_or_default)
+      expect(commit.author_email).to eq(user.commit_email)
       expect(commit.committer_email).to eq(user.commit_email)
-      expect(commit.author_name).to eq(author.name)
+      expect(commit.author_name).to eq(user.name)
       expect(commit.committer_name).to eq(user.name)
+    end
+
+    context 'when web_ui_commit_author_change feature flag is disabled' do
+      before do
+        stub_feature_flags(web_ui_commit_author_change: false)
+      end
+
+      it 'created commit has users email and name' do
+        apply(suggestions)
+
+        commit = project.repository.commit
+        author = suggestions.first.note.author
+
+        expect(user.commit_email).not_to eq(user.email)
+        expect(commit.author_email).to eq(author.commit_email_or_default)
+        expect(commit.committer_email).to eq(user.commit_email)
+        expect(commit.author_name).to eq(author.name)
+        expect(commit.committer_name).to eq(user.name)
+      end
     end
 
     it 'tracks apply suggestion event' do
@@ -95,9 +114,13 @@ RSpec.describe Suggestions::ApplyService do
         let(:message) { '' }
 
         it 'uses the default commit message' do
-          expect(project.repository.commit.message).to(
-            match(/\AApply #{suggestions.size} suggestion\(s\) to \d+ file\(s\)\z/)
+          message = project.repository.commit.message
+          expect(message).to match(
+            /Apply #{suggestions.size} suggestion\(s\) to \d+ file\(s\)/
           )
+
+          author = suggestion.note.author
+          expect(message).to include("Co-authored-by: #{author.name} <#{author.email}>")
         end
       end
 
@@ -136,21 +159,20 @@ RSpec.describe Suggestions::ApplyService do
   end
 
   let(:merge_request) do
-    create(:merge_request, source_project: project,
-           target_project: project,
-           source_branch: 'master')
+    create(:merge_request,
+      source_project: project, target_project: project, source_branch: 'master')
   end
 
   let(:position) { build_position }
 
   let(:diff_note) do
-    create(:diff_note_on_merge_request, noteable: merge_request,
-           position: position, project: project)
+    create(:diff_note_on_merge_request,
+      noteable: merge_request, position: position, project: project)
   end
 
   let(:suggestion) do
-    create(:suggestion, :content_from_repo, note: diff_note,
-           to_content: "      raise RuntimeError, 'Explosion'\n      # explosion?\n")
+    create(:suggestion, :content_from_repo,
+      note: diff_note, to_content: "      raise RuntimeError, 'Explosion'\n      # explosion?\n")
   end
 
   let(:suggestion2) do
@@ -311,9 +333,9 @@ RSpec.describe Suggestions::ApplyService do
 
       context 'when HEAD from position is different from source branch HEAD on repo' do
         it 'returns error message' do
-          allow(suggestion).to receive(:appliable?) { true }
-          allow(suggestion.position).to receive(:head_sha) { 'old-sha' }
-          allow(suggestion.noteable).to receive(:source_branch_sha) { 'new-sha' }
+          allow(suggestion).to receive(:appliable?).and_return(true)
+          allow(suggestion.position).to receive(:head_sha).and_return('old-sha')
+          allow(suggestion.noteable).to receive(:source_branch_sha).and_return('new-sha')
 
           result = apply_service.new(user, suggestion).execute
 
@@ -350,16 +372,16 @@ RSpec.describe Suggestions::ApplyService do
           it 'created commit has authors info and commiters info' do
             expect(user.commit_email).not_to eq(user.email)
             expect(author).not_to eq(user)
-            expect(commit.author_email).to eq(author.commit_email_or_default)
+            expect(commit.author_email).to eq(user.commit_email)
             expect(commit.committer_email).to eq(user.commit_email)
-            expect(commit.author_name).to eq(author.name)
+            expect(commit.author_name).to eq(user.name)
             expect(commit.committer_name).to eq(user.name)
           end
         end
       end
 
       context 'multiple suggestions' do
-        let(:author_emails) { suggestions.map {|s| s.note.author.commit_email_or_default } }
+        let(:author_emails) { suggestions.map { |s| s.note.author.commit_email_or_default } }
         let(:first_author) { suggestion.note.author }
         let(:commit) { project.repository.commit }
 
@@ -370,7 +392,7 @@ RSpec.describe Suggestions::ApplyService do
 
           it 'uses first authors information' do
             expect(author_emails).to include(first_author.commit_email_or_default).exactly(3)
-            expect(commit.author_email).to eq(first_author.commit_email_or_default)
+            expect(commit.author_email).to eq(user.commit_email)
           end
         end
 
@@ -399,9 +421,11 @@ RSpec.describe Suggestions::ApplyService do
           expect(result[:status]).to eq(:success)
 
           refresh = MergeRequests::RefreshService.new(project: project, current_user: user)
-          refresh.execute(merge_request.diff_head_sha,
-                          suggestion.commit_id,
-                          merge_request.source_branch_ref)
+          refresh.execute(
+            merge_request.diff_head_sha,
+            suggestion.commit_id,
+            merge_request.source_branch_ref
+          )
 
           result
         end
@@ -430,11 +454,10 @@ RSpec.describe Suggestions::ApplyService do
           suggestion1_diff = fetch_raw_diff(suggestion1)
           suggestion2_diff = fetch_raw_diff(suggestion2)
 
-          # rubocop: disable Layout/TrailingWhitespace
           expected_suggestion1_diff = <<-CONTENT.strip_heredoc
             @@ -10,7 +10,7 @@ module Popen
                  end
-             
+            #{' '}
                  path ||= Dir.pwd
             -
             +# v1 change
@@ -442,12 +465,9 @@ RSpec.describe Suggestions::ApplyService do
                    "PWD" => path
                  }
           CONTENT
-          # rubocop: enable Layout/TrailingWhitespace
-
-          # rubocop: disable Layout/TrailingWhitespace
           expected_suggestion2_diff = <<-CONTENT.strip_heredoc
             @@ -28,7 +28,7 @@ module Popen
-             
+            #{' '}
                  Open3.popen3(vars, *cmd, options) do |stdin, stdout, stderr, wait_thr|
                    @cmd_output << stdout.read
             -      @cmd_output << stderr.read
@@ -455,8 +475,6 @@ RSpec.describe Suggestions::ApplyService do
                    @cmd_status = wait_thr.value.exitstatus
                  end
           CONTENT
-          # rubocop: enable Layout/TrailingWhitespace
-
           expect(suggestion1_diff.strip).to eq(expected_suggestion1_diff.strip)
           expect(suggestion2_diff.strip).to eq(expected_suggestion2_diff.strip)
         end
@@ -508,10 +526,8 @@ RSpec.describe Suggestions::ApplyService do
         end
 
         let(:suggestion) do
-          create(:suggestion, :content_from_repo, note: diff_note,
-                 lines_above: 2,
-                 lines_below: 3,
-                 to_content: "# multi\n# line\n")
+          create(:suggestion, :content_from_repo,
+            note: diff_note, lines_above: 2, lines_below: 3, to_content: "# multi\n# line\n")
         end
 
         let(:suggestions) { [suggestion] }
@@ -568,7 +584,7 @@ RSpec.describe Suggestions::ApplyService do
         end
 
         let(:suggestion) do
-          create_suggestion( to_content: "", new_line: 13)
+          create_suggestion(to_content: "", new_line: 13)
         end
 
         let(:suggestions) { [suggestion] }
@@ -581,23 +597,26 @@ RSpec.describe Suggestions::ApplyService do
       let(:project) { create(:project, :public, :repository) }
 
       let(:forked_project) do
-        fork_project_with_submodules(project,
-                                     user, repository: project.repository)
+        fork_project_with_submodules(project, user)
       end
 
       let(:merge_request) do
-        create(:merge_request,
-               source_branch: 'conflict-resolvable-fork',
-               source_project: forked_project,
-               target_branch: 'conflict-start',
-               target_project: project)
+        create(
+          :merge_request,
+          source_branch: 'conflict-resolvable-fork',
+          source_project: forked_project,
+          target_branch: 'conflict-start',
+          target_project: project
+        )
       end
 
       let!(:diff_note) do
-        create(:diff_note_on_merge_request,
-               noteable: merge_request,
-               position: position,
-               project: project)
+        create(
+          :diff_note_on_merge_request,
+          noteable: merge_request,
+          position: position,
+          project: project
+        )
       end
 
       before do
@@ -606,9 +625,8 @@ RSpec.describe Suggestions::ApplyService do
 
       it 'updates file in the source project' do
         expect(Files::MultiService).to receive(:new)
-                                         .with(merge_request.source_project,
-                                               user,
-                                               anything).and_call_original
+          .with(merge_request.source_project, user, anything)
+          .and_call_original
 
         apply_service.new(user, suggestion).execute
       end
@@ -617,14 +635,12 @@ RSpec.describe Suggestions::ApplyService do
 
   context 'no permission' do
     let(:merge_request) do
-      create(:merge_request, source_project: project,
-             target_project: project)
+      create(:merge_request, source_project: project, target_project: project)
     end
 
     let(:diff_note) do
-      create(:diff_note_on_merge_request, noteable: merge_request,
-             position: position,
-             project: project)
+      create(:diff_note_on_merge_request,
+        noteable: merge_request, position: position, project: project)
     end
 
     context 'user cannot write in project repo' do
@@ -635,22 +651,22 @@ RSpec.describe Suggestions::ApplyService do
       it 'returns error' do
         result = apply_service.new(user, suggestion).execute
 
-        expect(result).to eq(message: "You are not allowed to push into this branch",
-                             status: :error)
+        expect(result).to eq(
+          message: "You are not allowed to push into this branch",
+          status: :error
+        )
       end
     end
   end
 
   context 'patch is not appliable' do
     let(:merge_request) do
-      create(:merge_request, source_project: project,
-             target_project: project)
+      create(:merge_request, source_project: project, target_project: project)
     end
 
     let(:diff_note) do
-      create(:diff_note_on_merge_request, noteable: merge_request,
-             position: position,
-             project: project)
+      create(:diff_note_on_merge_request,
+        noteable: merge_request, position: position, project: project)
     end
 
     before do
@@ -670,12 +686,11 @@ RSpec.describe Suggestions::ApplyService do
       let(:result) { apply_service.new(user, suggestion).execute }
 
       before do
-        expect(suggestion.note).to receive(:latest_diff_file) { nil }
+        expect(suggestion.note).to receive(:latest_diff_file).and_return(nil)
       end
 
       it 'returns error message' do
-        expect(result).to eq(message: 'A file was not found.',
-                             status: :error)
+        expect(result).to eq(message: 'A file was not found.', status: :error)
       end
 
       it_behaves_like 'service not tracking apply suggestion event'
@@ -714,8 +729,10 @@ RSpec.describe Suggestions::ApplyService do
       let(:result) { apply_service.new(user, suggestion, other_branch_suggestion).execute }
 
       it 'renders error message' do
-        expect(result).to eq(message: 'Suggestions must all be on the same branch.',
-                             status: :error)
+        expect(result).to eq(
+          message: 'Suggestions must all be on the same branch.',
+          status: :error
+        )
       end
 
       it_behaves_like 'service not tracking apply suggestion event'
@@ -750,8 +767,10 @@ RSpec.describe Suggestions::ApplyService do
       let(:result) { apply_service.new(user, suggestion, overlapping_suggestion).execute }
 
       it 'returns error message' do
-        expect(result).to eq(message: 'Suggestions are not applicable as their lines cannot overlap.',
-                             status: :error)
+        expect(result).to eq(
+          message: 'Suggestions are not applicable as their lines cannot overlap.',
+          status: :error
+        )
       end
 
       it_behaves_like 'service not tracking apply suggestion event'

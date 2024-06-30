@@ -3,6 +3,8 @@ import { mount, shallowMount } from '@vue/test-utils';
 
 import ColorPicker from '~/vue_shared/components/color_picker/color_picker.vue';
 
+jest.mock('lodash/uniqueId', () => (prefix) => (prefix ? `${prefix}1` : 1));
+
 describe('ColorPicker', () => {
   let wrapper;
 
@@ -14,13 +16,14 @@ describe('ColorPicker', () => {
 
   const setColor = '#000000';
   const invalidText = 'Please enter a valid hex (#RRGGBB or #RGB) color value';
-  const label = () => wrapper.find(GlFormGroup).attributes('label');
+  const findGlFormGroup = () => wrapper.findComponent(GlFormGroup);
   const colorPreview = () => wrapper.find('[data-testid="color-preview"]');
-  const colorPicker = () => wrapper.find(GlFormInput);
-  const colorInput = () => wrapper.find(GlFormInputGroup).find('input[type="text"]');
+  const colorPicker = () => wrapper.findComponent(GlFormInput);
+  const colorInput = () => wrapper.find('input[type="color"]');
+  const colorTextInput = () => wrapper.findComponent(GlFormInputGroup).find('input[type="text"]');
   const invalidFeedback = () => wrapper.find('.invalid-feedback');
-  const description = () => wrapper.find(GlFormGroup).attributes('description');
-  const presetColors = () => wrapper.findAll(GlLink);
+  const description = () => wrapper.findComponent(GlFormGroup).attributes('description');
+  const presetColors = () => wrapper.findAllComponents(GlLink);
 
   beforeEach(() => {
     gon.suggested_label_colors = {
@@ -31,21 +34,33 @@ describe('ColorPicker', () => {
     };
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('label', () => {
     it('hides the label if the label is not passed', () => {
       createComponent(shallowMount);
 
-      expect(label()).toBe('');
+      expect(findGlFormGroup().attributes('label')).toBe('');
     });
 
     it('shows the label if the label is passed', () => {
       createComponent(shallowMount, { label: 'test' });
 
-      expect(label()).toBe('test');
+      expect(findGlFormGroup().attributes('label')).toBe('test');
+    });
+
+    describe.each`
+      desc                 | id
+      ${'with prop id'}    | ${'test-id'}
+      ${'without prop id'} | ${undefined}
+    `('$desc', ({ id }) => {
+      beforeEach(() => {
+        createComponent(mount, { id, label: 'test' });
+      });
+
+      it('renders the same `ID` for input and `for` for label', () => {
+        expect(findGlFormGroup().find('label').attributes('for')).toBe(
+          colorInput().attributes('id'),
+        );
+      });
     });
   });
 
@@ -55,45 +70,45 @@ describe('ColorPicker', () => {
 
       expect(colorPreview().attributes('style')).toBe(undefined);
       expect(colorPicker().attributes('value')).toBe(undefined);
-      expect(colorInput().props('value')).toBe('');
-      expect(colorPreview().attributes('class')).toContain('gl-inset-border-1-gray-400');
+      expect(colorTextInput().props('value')).toBe('');
+      expect(colorPreview().attributes('class')).toContain('gl-shadow-inner-1-gray-400');
     });
 
     it('has a color set on initialization', () => {
       createComponent(mount, { value: setColor });
 
-      expect(colorInput().props('value')).toBe(setColor);
+      expect(colorTextInput().props('value')).toBe(setColor);
     });
 
     it('emits input event from component when a color is selected', async () => {
       createComponent();
-      await colorInput().setValue(setColor);
+      await colorTextInput().setValue(setColor);
 
       expect(wrapper.emitted().input[0]).toStrictEqual([setColor]);
     });
 
     it('trims spaces from submitted colors', async () => {
       createComponent();
-      await colorInput().setValue(`    ${setColor}    `);
+      await colorTextInput().setValue(`    ${setColor}    `);
 
       expect(wrapper.emitted().input[0]).toStrictEqual([setColor]);
-      expect(colorPreview().attributes('class')).toContain('gl-inset-border-1-gray-400');
-      expect(colorInput().attributes('class')).not.toContain('is-invalid');
+      expect(colorPreview().attributes('class')).toContain('gl-shadow-inner-1-gray-400');
+      expect(colorTextInput().attributes('class')).not.toContain('is-invalid');
     });
 
-    it('shows invalid feedback when the state is marked as invalid', async () => {
+    it('shows invalid feedback when the state is marked as invalid', () => {
       createComponent(mount, { invalidFeedback: invalidText, state: false });
 
       expect(invalidFeedback().text()).toBe(invalidText);
-      expect(colorPreview().attributes('class')).toContain('gl-inset-border-1-red-500');
-      expect(colorInput().attributes('class')).toContain('is-invalid');
+      expect(colorPreview().attributes('class')).toContain('gl-shadow-inner-1-red-500');
+      expect(colorTextInput().attributes('class')).toContain('is-invalid');
     });
   });
 
   describe('inputs', () => {
     it('has color input value entered', async () => {
       createComponent();
-      await colorInput().setValue(setColor);
+      await colorTextInput().setValue(setColor);
 
       expect(wrapper.emitted().input[0]).toStrictEqual([setColor]);
     });

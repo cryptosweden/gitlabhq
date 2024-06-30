@@ -10,7 +10,14 @@ module Projects
       return success unless remote_mirror.enabled?
 
       # Blocked URLs are a hard failure, no need to attempt to retry
-      if Gitlab::UrlBlocker.blocked_url?(normalized_url(remote_mirror.url))
+      if Gitlab::HTTP_V2::UrlBlocker.blocked_url?(
+        normalized_url(remote_mirror.url),
+        schemes: Project::VALID_MIRROR_PROTOCOLS,
+        allow_localhost: Gitlab::CurrentSettings.allow_local_requests_from_web_hooks_and_services?,
+        allow_local_network: Gitlab::CurrentSettings.allow_local_requests_from_web_hooks_and_services?,
+        deny_all_requests_except_allowed: Gitlab::CurrentSettings.deny_all_requests_except_allowed?,
+        outbound_local_requests_allowlist: Gitlab::CurrentSettings.outbound_local_requests_whitelist # rubocop:disable Naming/InclusiveLanguage -- existing setting
+      )
         hard_retry_or_fail(remote_mirror, _('The remote mirror URL is invalid.'), tries)
         return error(remote_mirror.last_error)
       end
@@ -32,7 +39,7 @@ module Projects
     private
 
     def normalized_url(url)
-      strong_memoize(:normalized_url) do
+      strong_memoize_with(:normalized_url, url) do
         CGI.unescape(Gitlab::UrlSanitizer.sanitize(url))
       end
     end
@@ -65,7 +72,7 @@ module Projects
         message += "Error synchronizing LFS files:"
         message += "\n\n#{lfs_status[:message]}\n\n"
 
-        failed = Feature.enabled?(:remote_mirror_fail_on_lfs, project, default_enabled: :yaml)
+        failed = Feature.enabled?(:remote_mirror_fail_on_lfs, project)
       end
 
       if response.divergent_refs.any?
@@ -75,12 +82,14 @@ module Projects
       end
 
       if message.present?
-        Gitlab::AppJsonLogger.info(message: "Error synching remote mirror",
+        Gitlab::AppJsonLogger.info(
+          message: "Error synching remote mirror",
           project_id: project.id,
           project_path: project.full_path,
           remote_mirror_id: remote_mirror.id,
           lfs_sync_failed: lfs_sync_failed,
-          divergent_ref_list: response.divergent_refs)
+          divergent_ref_list: response.divergent_refs
+        )
       end
 
       [failed, message]
@@ -91,7 +100,7 @@ module Projects
 
       # TODO: Support LFS sync over SSH
       # https://gitlab.com/gitlab-org/gitlab/-/issues/249587
-      return unless remote_mirror.url =~ %r{\Ahttps?://}i
+      return unless %r{\Ahttps?://}i.match?(remote_mirror.url)
       return unless remote_mirror.password_auth?
 
       Lfs::PushService.new(

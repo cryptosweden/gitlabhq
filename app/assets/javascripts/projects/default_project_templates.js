@@ -41,6 +41,10 @@ export default {
     text: s__('ProjectTemplates|Pages/Hugo'),
     icon: '.template-option .icon-hugo',
   },
+  pelican: {
+    text: s__('ProjectTemplates|Pages/Pelican'),
+    icon: '.template-option .icon-pelican',
+  },
   jekyll: {
     text: s__('ProjectTemplates|Pages/Jekyll'),
     icon: '.template-option .icon-jekyll',
@@ -48,10 +52,6 @@ export default {
   plainhtml: {
     text: s__('ProjectTemplates|Pages/Plain HTML'),
     icon: '.template-option .icon-plainhtml',
-  },
-  gitbook: {
-    text: s__('ProjectTemplates|Pages/GitBook'),
-    icon: '.template-option .icon-gitbook',
   },
   hexo: {
     text: s__('ProjectTemplates|Pages/Hexo'),
@@ -103,6 +103,30 @@ export default {
   },
   kotlin_native_linux: {
     text: s__('ProjectTemplates|Kotlin Native for Linux'),
+    icon: '.template-option .icon-gitlab_logo',
+  },
+  jsonnet: {
+    text: s__('ProjectTemplates|Jsonnet for Dynamic Child Pipelines'),
+    icon: '.template-option .icon-gitlab_logo',
+  },
+  bridgetown: {
+    text: s__('ProjectTemplates|Pages/Bridgetown'),
+    icon: '.template-option .icon-gitlab_logo',
+  },
+  typo3_distribution: {
+    text: s__('ProjectTemplates|TYPO3 Distribution'),
+    icon: '.template-option .icon-typo3',
+  },
+  laravel: {
+    text: s__('ProjectTemplates|Laravel Framework'),
+    icon: '.template-option .icon-laravel',
+  },
+  astro_tailwind: {
+    text: s__('ProjectTemplates|Astro Tailwind'),
+    icon: '.template-option .icon-gitlab_logo',
+  },
+  nist_80053r5: {
+    text: s__('ProjectTemplates|NIST 800-53r5'),
     icon: '.template-option .icon-gitlab_logo',
   },
 };

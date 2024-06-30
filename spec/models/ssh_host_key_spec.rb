@@ -4,7 +4,9 @@ require 'spec_helper'
 
 RSpec.describe SshHostKey do
   using RSpec::Parameterized::TableSyntax
+
   include ReactiveCachingHelpers
+  include StubRequests
 
   let(:key1) do
     'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC3UpyF2iLqy1d63M6k3jH1vuEnq/NWtE+o' \
@@ -24,6 +26,9 @@ RSpec.describe SshHostKey do
     'Ebi86VjJRi2sOuYoXQU1'
   end
 
+  let(:ssh_key1) { Gitlab::SSHPublicKey.new(key1) }
+  let(:ssh_key2) { Gitlab::SSHPublicKey.new(key2) }
+
   # Purposefully ordered so that `sort` will make changes
   let(:known_hosts) do
     <<~EOF
@@ -35,6 +40,7 @@ RSpec.describe SshHostKey do
   let(:extra) { known_hosts + "foo\nbar\n" }
   let(:reversed) { known_hosts.lines.reverse.join }
 
+  let(:url) { 'ssh://example.com:2222' }
   let(:compare_host_keys) { nil }
 
   def stub_ssh_keyscan(args, status: true, stdout: "", stderr: "")
@@ -50,7 +56,7 @@ RSpec.describe SshHostKey do
 
   let(:project) { build(:project) }
 
-  subject(:ssh_host_key) { described_class.new(project: project, url: 'ssh://example.com:2222', compare_host_keys: compare_host_keys) }
+  subject(:ssh_host_key) { described_class.new(project: project, url: url, compare_host_keys: compare_host_keys) }
 
   describe '.primary_key' do
     it 'returns a symbol' do
@@ -85,10 +91,17 @@ RSpec.describe SshHostKey do
     it 'returns an array of indexed fingerprints when the cache is filled' do
       stub_reactive_cache(ssh_host_key, known_hosts: known_hosts)
 
-      expected = [key1, key2]
-        .map { |data| Gitlab::SSHPublicKey.new(data) }
+      expected = [ssh_key1, ssh_key2]
         .each_with_index
-        .map { |key, i| { bits: key.bits, fingerprint: key.fingerprint, type: key.type, index: i } }
+        .map do |key, i|
+          {
+            bits: key.bits,
+            fingerprint: key.fingerprint,
+            fingerprint_sha256: key.fingerprint_sha256,
+            type: key.type,
+            index: i
+          }
+        end
 
       expect(ssh_host_key.fingerprints.as_json).to eq(expected)
     end
@@ -104,14 +117,35 @@ RSpec.describe SshHostKey do
 
       expect(ssh_host_key.fingerprints.as_json).to eq(
         [
-          { bits: 2048, fingerprint: Gitlab::SSHPublicKey.new(key1).fingerprint, type: :rsa, index: 0 },
-          { bits: 2048, fingerprint: Gitlab::SSHPublicKey.new(key2).fingerprint, type: :rsa, index: 1 }
+          { bits: 2048,
+            fingerprint: ssh_key1.fingerprint,
+            fingerprint_sha256: ssh_key1.fingerprint_sha256,
+            type: :rsa,
+            index: 0 },
+          { bits: 2048,
+            fingerprint: ssh_key2.fingerprint,
+            fingerprint_sha256: ssh_key2.fingerprint_sha256,
+            type: :rsa,
+            index: 1 }
         ]
       )
     end
 
     it 'returns an empty array when the cache is empty' do
       expect(ssh_host_key.fingerprints).to eq([])
+    end
+
+    context 'when FIPS is enabled', :fips_mode do
+      it 'only includes SHA256 fingerprint' do
+        stub_reactive_cache(ssh_host_key, known_hosts: known_hosts)
+
+        expect(ssh_host_key.fingerprints.as_json).to eq(
+          [
+            { bits: 2048, fingerprint_sha256: ssh_key1.fingerprint_sha256, type: :rsa, index: 0 },
+            { bits: 2048, fingerprint_sha256: ssh_key2.fingerprint_sha256, type: :rsa, index: 1 }
+          ]
+        )
+      end
     end
   end
 
@@ -189,6 +223,46 @@ RSpec.describe SshHostKey do
         stub_ssh_keyscan(%w[-T 5 -p 2222 -f-], stderr: 'Unknown host')
 
         is_expected.to eq(error: 'Failed to detect SSH host keys')
+      end
+    end
+
+    context 'DNS rebinding protection enabled' do
+      before do
+        stub_application_setting(dns_rebinding_protection_enabled: true)
+      end
+
+      it 'sends an address as well as hostname to ssh-keyscan' do
+        stub_dns(url, ip_address: '1.2.3.4')
+
+        stdin = stub_ssh_keyscan(%w[-T 5 -p 2222 -f-])
+
+        cache
+
+        expect(stdin.string).to eq("1.2.3.4 example.com\n")
+      end
+    end
+  end
+
+  describe 'URL validation' do
+    let(:url) { 'ssh://127.0.0.1' }
+
+    context 'when local requests are not allowed' do
+      before do
+        stub_application_setting(allow_local_requests_from_web_hooks_and_services: false)
+      end
+
+      it 'forbids scanning localhost' do
+        expect { ssh_host_key }.to raise_error(/Invalid URL/)
+      end
+    end
+
+    context 'when local requests are allowed' do
+      before do
+        stub_application_setting(allow_local_requests_from_web_hooks_and_services: true)
+      end
+
+      it 'permits scanning localhost' do
+        expect(ssh_host_key.url.to_s).to eq('ssh://127.0.0.1:22')
       end
     end
   end

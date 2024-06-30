@@ -16,12 +16,14 @@ module Gitlab
     DEVELOPER      = 30
     MAINTAINER     = 40
     OWNER          = 50
+    ADMIN          = 60
 
     # Branch protection settings
     PROTECTION_NONE          = 0
     PROTECTION_DEV_CAN_PUSH  = 1
     PROTECTION_FULL          = 2
     PROTECTION_DEV_CAN_MERGE = 3
+    PROTECTION_DEV_CAN_INITIAL_PUSH = 4
 
     # Default project creation level
     NO_ONE_PROJECT_ACCESS = 0
@@ -41,9 +43,9 @@ module Gitlab
 
       def options
         {
-          "Guest"      => GUEST,
-          "Reporter"   => REPORTER,
-          "Developer"  => DEVELOPER,
+          "Guest" => GUEST,
+          "Reporter" => REPORTER,
+          "Developer" => DEVELOPER,
           "Maintainer" => MAINTAINER
         }
       end
@@ -62,15 +64,19 @@ module Gitlab
 
       def sym_options
         {
-          guest:      GUEST,
-          reporter:   REPORTER,
-          developer:  DEVELOPER,
+          guest: GUEST,
+          reporter: REPORTER,
+          developer: DEVELOPER,
           maintainer: MAINTAINER
         }
       end
 
       def sym_options_with_owner
         sym_options.merge(owner: OWNER)
+      end
+
+      def sym_options_with_admin
+        sym_options_with_owner.merge(admin: ADMIN)
       end
 
       def protection_options
@@ -94,6 +100,26 @@ module Gitlab
             label: s_('DefaultBranchProtection|Fully protected'),
             help_text: s_('DefaultBranchProtection|Developers cannot push new commits, but maintainers can. No one can force push.'),
             value: PROTECTION_FULL
+          },
+          {
+            label: s_('DefaultBranchProtection|Fully protected after initial push'),
+            help_text: s_('DefaultBranchProtection|Developers can push the initial commit to a repository, but none afterward. Maintainers can always push. No one can force push.'),
+            value: PROTECTION_DEV_CAN_INITIAL_PUSH
+          }
+        ]
+      end
+
+      def global_protection_levels
+        [
+          {
+            label: s_('DefaultBranchProtection|Not protected'),
+            help_text: s_('DefaultBranchProtection|Both developers and maintainers can push new commits, force push, or delete the branch.'),
+            value: false
+          },
+          {
+            label: s_('DefaultBranchProtection|Protected'),
+            help_text: s_('DefaultBranchProtection|Once a repository is created this branch will be protected.'),
+            value: true
           }
         ]
       end
@@ -120,9 +146,9 @@ module Gitlab
 
       def project_creation_string_options
         {
-          'noone'       => NO_ONE_PROJECT_ACCESS,
-          'maintainer'  => MAINTAINER_PROJECT_ACCESS,
-          'developer'   => DEVELOPER_MAINTAINER_PROJECT_ACCESS
+          'noone' => NO_ONE_PROJECT_ACCESS,
+          'maintainer' => MAINTAINER_PROJECT_ACCESS,
+          'developer' => DEVELOPER_MAINTAINER_PROJECT_ACCESS
         }
       end
 
@@ -147,7 +173,7 @@ module Gitlab
 
       def subgroup_creation_string_options
         {
-          'owner'      => OWNER_SUBGROUP_ACCESS,
+          'owner' => OWNER_SUBGROUP_ACCESS,
           'maintainer' => MAINTAINER_SUBGROUP_ACCESS
         }
       end
@@ -167,6 +193,10 @@ module Gitlab
 
     def human_access_with_none
       Gitlab::Access.human_access_with_none(access_field)
+    end
+
+    def human_access_labeled
+      "#{s_('Default role')}: #{human_access}"
     end
 
     def owner?

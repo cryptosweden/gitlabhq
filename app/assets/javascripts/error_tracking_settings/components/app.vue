@@ -10,6 +10,7 @@ import {
   GlLink,
   GlSprintf,
 } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters, mapState } from 'vuex';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
@@ -152,7 +153,7 @@ export default {
 <template>
   <div>
     <gl-alert v-if="showIntegratedTrackingDisabledAlert" variant="danger" @dismiss="dismissAlert">
-      <gl-sprintf :message="this.$options.i18n.integratedErrorTrackingDisabledText">
+      <gl-sprintf :message="$options.i18n.integratedErrorTrackingDisabledText">
         <template #epicLink="{ content }">
           <gl-link :href="$options.epicLink" target="_blank">{{ content }}</gl-link>
         </template>
@@ -190,14 +191,14 @@ export default {
         <gl-form-radio name="error-tracking-integrated" :value="true">
           {{ __('GitLab') }}
           <template #help>
-            {{ __('Uses GitLab as a lightweight alternative to Sentry.') }}
+            {{ __('Uses GitLab as an alternative to Sentry.') }}
           </template>
         </gl-form-radio>
       </gl-form-radio-group>
     </gl-form-group>
     <gl-form-group
       v-if="showGitlabDsnSetting"
-      :label="__('Paste this DSN into your Sentry SDK')"
+      :label="__('Paste this Data Source Name (DSN) into your Sentry SDK.')"
       data-testid="gitlab-dsn-setting-form"
     >
       <gl-form-input-group readonly :value="gitlabDsn">

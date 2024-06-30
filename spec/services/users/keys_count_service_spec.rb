@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Users::KeysCountService, :use_clean_rails_memory_store_caching do
+RSpec.describe Users::KeysCountService, :use_clean_rails_memory_store_caching, feature_category: :system_access do
   let(:user) { create(:user) }
 
   subject { described_class.new(user) }
@@ -15,6 +15,12 @@ RSpec.describe Users::KeysCountService, :use_clean_rails_memory_store_caching do
     end
 
     it 'returns the number of SSH keys as an Integer' do
+      expect(subject.count).to eq(1)
+    end
+
+    it 'does not count signing keys' do
+      create(:key, usage_type: :signing, user: user)
+
       expect(subject.count).to eq(1)
     end
   end

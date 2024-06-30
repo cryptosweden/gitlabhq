@@ -1,26 +1,29 @@
 import { GlTabs, GlButton } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import setWindowLocation from 'helpers/set_window_location_helper';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import MembersApp from '~/members/components/app.vue';
 import MembersTabs from '~/members/components/members_tabs.vue';
 import {
-  MEMBER_TYPES,
+  MEMBERS_TAB_TYPES,
   TAB_QUERY_PARAM_VALUES,
   ACTIVE_TAB_QUERY_PARAM_NAME,
+  FILTERED_SEARCH_TOKEN_GROUPS_WITH_INHERITED_PERMISSIONS,
 } from '~/members/constants';
 import { pagination } from '../mock_data';
 
 describe('MembersTabs', () => {
   Vue.use(Vuex);
 
+  /** @type {import('helpers/vue_test_utils_helper').ExtendedWrapper} */
   let wrapper;
 
   const createComponent = ({ totalItems = 10, provide = {} } = {}) => {
     const store = new Vuex.Store({
       modules: {
-        [MEMBER_TYPES.user]: {
+        [MEMBERS_TAB_TYPES.user]: {
           namespaced: true,
           state: {
             pagination: {
@@ -32,7 +35,7 @@ describe('MembersTabs', () => {
             },
           },
         },
-        [MEMBER_TYPES.group]: {
+        [MEMBERS_TAB_TYPES.group]: {
           namespaced: true,
           state: {
             pagination: {
@@ -42,10 +45,11 @@ describe('MembersTabs', () => {
             },
             filteredSearchBar: {
               searchParam: 'search_groups',
+              tokens: [FILTERED_SEARCH_TOKEN_GROUPS_WITH_INHERITED_PERMISSIONS.type],
             },
           },
         },
-        [MEMBER_TYPES.invite]: {
+        [MEMBERS_TAB_TYPES.invite]: {
           namespaced: true,
           state: {
             pagination: {
@@ -58,7 +62,7 @@ describe('MembersTabs', () => {
             },
           },
         },
-        [MEMBER_TYPES.accessRequest]: {
+        [MEMBERS_TAB_TYPES.accessRequest]: {
           namespaced: true,
           state: {
             pagination: {
@@ -79,6 +83,7 @@ describe('MembersTabs', () => {
       stubs: ['members-app'],
       provide: {
         canManageMembers: true,
+        canManageAccessRequests: true,
         canExportMembers: true,
         exportCsvPath: '',
         ...provide,
@@ -95,10 +100,6 @@ describe('MembersTabs', () => {
 
   beforeEach(() => {
     setWindowLocation('https://localhost');
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   it('renders `GlTabs` with `syncActiveTabWithQueryParams` and `queryParamName` props set', async () => {
@@ -121,7 +122,7 @@ describe('MembersTabs', () => {
 
       expect(tabs[0].text()).toBe('Members  10');
       expect(tabs[1].text()).toBe('Groups  10');
-      expect(tabs[2].text()).toBe('Invited  10');
+      expect(tabs[2].text()).toBe('Pending invitations  10');
       expect(tabs[3].text()).toBe('Access requests  10');
       expect(findActiveTab().text()).toContain('Members');
     });
@@ -131,10 +132,10 @@ describe('MembersTabs', () => {
 
       const membersApps = wrapper.findAllComponents(MembersApp).wrappers;
 
-      expect(membersApps[0].props('namespace')).toBe(MEMBER_TYPES.user);
-      expect(membersApps[1].props('namespace')).toBe(MEMBER_TYPES.group);
-      expect(membersApps[2].props('namespace')).toBe(MEMBER_TYPES.invite);
-      expect(membersApps[3].props('namespace')).toBe(MEMBER_TYPES.accessRequest);
+      expect(membersApps[0].props('namespace')).toBe(MEMBERS_TAB_TYPES.user);
+      expect(membersApps[1].props('namespace')).toBe(MEMBERS_TAB_TYPES.group);
+      expect(membersApps[2].props('namespace')).toBe(MEMBERS_TAB_TYPES.invite);
+      expect(membersApps[3].props('namespace')).toBe(MEMBERS_TAB_TYPES.accessRequest);
 
       expect(membersApps[1].props('tabQueryParamValue')).toBe(TAB_QUERY_PARAM_VALUES.group);
       expect(membersApps[2].props('tabQueryParamValue')).toBe(TAB_QUERY_PARAM_VALUES.invite);
@@ -148,7 +149,7 @@ describe('MembersTabs', () => {
 
       expect(findTabByText('Members')).not.toBeUndefined();
       expect(findTabByText('Groups')).toBeUndefined();
-      expect(findTabByText('Invited')).toBeUndefined();
+      expect(findTabByText('Pending invitations')).toBeUndefined();
       expect(findTabByText('Access requests')).toBeUndefined();
     });
 
@@ -163,15 +164,29 @@ describe('MembersTabs', () => {
         expect(findTabByText('Groups')).not.toBeUndefined();
       });
     });
+
+    describe('when url param matches `filteredSearchBar.tokens`', () => {
+      beforeEach(() => {
+        setWindowLocation('?groups_with_inherited_permissions=exclude');
+      });
+
+      it('shows tab that corresponds to filtered search token', async () => {
+        await createComponent({ totalItems: 0 });
+
+        expect(findTabByText('Groups')).not.toBeUndefined();
+      });
+    });
   });
 
   describe('when `canManageMembers` is `false`', () => {
-    it('shows all tabs except `Invited` and `Access requests`', async () => {
-      await createComponent({ provide: { canManageMembers: false } });
+    it('shows all tabs except `Pending invitations` and `Access requests`', async () => {
+      await createComponent({
+        provide: { canManageMembers: false, canManageAccessRequests: false },
+      });
 
       expect(findTabByText('Members')).not.toBeUndefined();
       expect(findTabByText('Groups')).not.toBeUndefined();
-      expect(findTabByText('Invited')).toBeUndefined();
+      expect(findTabByText('Pending invitations')).toBeUndefined();
       expect(findTabByText('Access requests')).toBeUndefined();
     });
   });

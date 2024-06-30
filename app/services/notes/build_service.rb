@@ -4,7 +4,14 @@ module Notes
   class BuildService < ::BaseService
     def execute
       in_reply_to_discussion_id = params.delete(:in_reply_to_discussion_id)
+      external_author = params.delete(:external_author)
+
       discussion = nil
+
+      if external_author.present?
+        note_metadata = Notes::NoteMetadata.new(email_participant: external_author)
+        params[:note_metadata] = note_metadata
+      end
 
       if in_reply_to_discussion_id.present?
         discussion = find_discussion(in_reply_to_discussion_id)
@@ -13,8 +20,20 @@ module Notes
 
         discussion = discussion.convert_to_discussion! if discussion.can_convert_to_discussion?
 
-        params.merge!(discussion.reply_attributes)
+        reply_attributes = discussion.reply_attributes
+        # NOTE: Avoid overriding noteable if it already exists so that we don't have to reload noteable.
+        reply_attributes = reply_attributes.except(:noteable_id, :noteable_type) if params[:noteable]
+
+        params.merge!(reply_attributes)
       end
+
+      # The `confidential` param for notes is deprecated with 15.3
+      # and renamed to `internal`.
+      # We still accept `confidential` until the param gets removed from the API.
+      # Until we have not migrated the database column to `internal` we need to rename
+      # the parameter. Issue: https://gitlab.com/gitlab-org/gitlab/-/issues/367923.
+      params[:confidential] = params[:internal] || params[:confidential]
+      params.delete(:internal)
 
       new_note(params, discussion)
     end
@@ -27,7 +46,7 @@ module Notes
       note.author = current_user
 
       parent_confidential = discussion&.confidential?
-      can_set_confidential = can?(current_user, :mark_note_as_confidential, note)
+      can_set_confidential = can?(current_user, :mark_note_as_internal, note)
 
       return discussion_not_found if parent_confidential && !can_set_confidential
 

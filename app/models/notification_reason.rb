@@ -6,7 +6,6 @@ class NotificationReason
   OWN_ACTIVITY = 'own_activity'
   ASSIGNED = 'assigned'
   REVIEW_REQUESTED = 'review_requested'
-  ATTENTION_REQUESTED = 'attention_requested'
   MENTIONED = 'mentioned'
   SUBSCRIBED = 'subscribed'
 
@@ -15,13 +14,12 @@ class NotificationReason
     OWN_ACTIVITY,
     ASSIGNED,
     REVIEW_REQUESTED,
-    ATTENTION_REQUESTED,
     MENTIONED,
     SUBSCRIBED
   ].freeze
 
   # returns the priority of a reason as an integer
   def self.priority(reason)
-    REASON_PRIORITY.index(reason) || REASON_PRIORITY.length + 1
+    REASON_PRIORITY.index(reason) || (REASON_PRIORITY.length + 1)
   end
 end

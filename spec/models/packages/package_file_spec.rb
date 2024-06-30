@@ -1,14 +1,16 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Packages::PackageFile, type: :model do
+RSpec.describe Packages::PackageFile, type: :model, feature_category: :package_registry do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be(:project) { create(:project) }
   let_it_be(:package_file1) { create(:package_file, :xml, file_name: 'FooBar') }
   let_it_be(:package_file2) { create(:package_file, :xml, file_name: 'ThisIsATest') }
   let_it_be(:package_file3) { create(:package_file, :xml, file_name: 'formatted.zip') }
-  let_it_be(:debian_package) { create(:debian_package, project: project) }
+  let_it_be(:package_file4) { create(:package_file, :nuget, file_name: 'package-1.0.0.nupkg') }
+  let_it_be(:package_file5) { create(:package_file, :xml, file_name: 'my_dir%2Fformatted') }
+  let_it_be(:debian_package) { create(:debian_package, project: project, with_changes_file: true) }
 
   it_behaves_like 'having unique enum values'
   it_behaves_like 'destructible', factory: :package_file
@@ -23,6 +25,57 @@ RSpec.describe Packages::PackageFile, type: :model do
 
   describe 'validations' do
     it { is_expected.to validate_presence_of(:package) }
+
+    context 'with pypi package' do
+      let_it_be(:package) { create(:pypi_package) }
+
+      let(:package_file) { package.package_files.first }
+      let(:status) { :default }
+      let(:file_name) { 'foo' }
+      let(:file) { fixture_file_upload('spec/fixtures/dk.png') }
+      let(:params) { { file: file, file_name: file_name, status: status } }
+
+      subject { package.package_files.create!(params) }
+
+      context 'file_name' do
+        let(:file_name) { package_file.file_name }
+
+        it 'can not save a duplicated file' do
+          expect { subject }.to raise_error(ActiveRecord::RecordInvalid, "Validation failed: File name has already been taken")
+        end
+
+        context 'with a pending destruction package duplicated file' do
+          let(:status) { :pending_destruction }
+
+          it 'can save it' do
+            expect { subject }.to change { package.package_files.count }.from(1).to(2)
+          end
+        end
+      end
+
+      context 'file_sha256' do
+        where(:sha256_value, :expected_success) do
+          ('a' * 64) | true
+          nil | true
+          ('a' * 63)       | false
+          ('a' * 65)       | false
+          (('a' * 63) + '%') | false
+          '' | false
+        end
+
+        with_them do
+          let(:params) { super().merge({ file_sha256: sha256_value }) }
+
+          it 'does not allow invalid sha256 characters' do
+            if expected_success
+              expect { subject }.not_to raise_error
+            else
+              expect { subject }.to raise_error(ActiveRecord::RecordInvalid, "Validation failed: File sha256 is invalid")
+            end
+          end
+        end
+      end
+    end
   end
 
   context 'with package filenames' do
@@ -47,21 +100,21 @@ RSpec.describe Packages::PackageFile, type: :model do
 
       it { is_expected.to contain_exactly(package_file3) }
     end
+
+    describe '.with_nuget_format' do
+      subject { described_class.with_nuget_format }
+
+      it { is_expected.to contain_exactly(package_file4) }
+    end
   end
 
   context 'updating project statistics' do
     let_it_be(:package, reload: true) { create(:package) }
 
     context 'when the package file has an explicit size' do
-      it_behaves_like 'UpdateProjectStatistics' do
-        subject { build(:package_file, :jar, package: package, size: 42) }
-      end
-    end
+      subject { build(:package_file, :jar, package: package, size: 42) }
 
-    context 'when the package file does not have a size' do
-      it_behaves_like 'UpdateProjectStatistics' do
-        subject { build(:package_file, package: package, size: nil) }
-      end
+      it_behaves_like 'UpdateProjectStatistics', :packages_size
     end
   end
 
@@ -75,7 +128,7 @@ RSpec.describe Packages::PackageFile, type: :model do
   describe '.with_conan_package_reference' do
     let_it_be(:non_matching_package_file) { create(:package_file, :nuget) }
     let_it_be(:metadatum) { create(:conan_file_metadatum, :package_file) }
-    let_it_be(:reference) { metadatum.conan_package_reference}
+    let_it_be(:reference) { metadatum.conan_package_reference }
 
     it 'returns matching packages' do
       expect(described_class.with_conan_package_reference(reference))
@@ -99,8 +152,9 @@ RSpec.describe Packages::PackageFile, type: :model do
 
   context 'Debian scopes' do
     let_it_be(:debian_changes) { debian_package.package_files.last }
-    let_it_be(:debian_deb) { create(:debian_package_file, package: debian_package)}
-    let_it_be(:debian_udeb) { create(:debian_package_file, :udeb, package: debian_package)}
+    let_it_be(:debian_deb) { create(:debian_package_file, package: debian_package) }
+    let_it_be(:debian_udeb) { create(:debian_package_file, :udeb, package: debian_package) }
+    let_it_be(:debian_ddeb) { create(:debian_package_file, :ddeb, package: debian_package) }
 
     let_it_be(:debian_contrib) do
       create(:debian_package_file, package: debian_package).tap do |pf|
@@ -124,6 +178,17 @@ RSpec.describe Packages::PackageFile, type: :model do
 
     describe '#with_debian_architecture_name' do
       it { expect(described_class.with_debian_architecture_name('mipsel')).to contain_exactly(debian_mipsel) }
+    end
+
+    describe '#with_debian_unknown_since' do
+      let_it_be(:incoming) { create(:debian_incoming, project: project) }
+
+      before do
+        incoming.package_files.first.debian_file_metadatum.update! updated_at: 1.day.ago
+        incoming.package_files.second.update! updated_at: 1.day.ago, status: :error
+      end
+
+      it { expect(described_class.with_debian_unknown_since(1.hour.ago)).to contain_exactly(incoming.package_files.first) }
     end
   end
 
@@ -263,7 +328,7 @@ RSpec.describe Packages::PackageFile, type: :model do
       # to `1`.
       expect(package_file)
         .to receive(:update_column)
-        .with(:file_store, ::Packages::PackageFileUploader::Store::LOCAL)
+        .with('file_store', ::Packages::PackageFileUploader::Store::LOCAL)
 
       expect { subject }.to change { package_file.size }.from(nil).to(3513)
     end
@@ -354,6 +419,24 @@ RSpec.describe Packages::PackageFile, type: :model do
       subject { described_class.with_status(:pending_destruction) }
 
       it { is_expected.to contain_exactly(pending_destruction_package_file) }
+    end
+  end
+
+  describe '#file_name_for_download' do
+    subject { package_file.file_name_for_download }
+
+    context 'with a simple file name' do
+      let(:package_file) { package_file1 }
+
+      it { is_expected.to eq(package_file.file_name) }
+    end
+
+    context 'with a file name with encoded slashes' do
+      let(:package_file) { package_file5 }
+
+      it 'returns the last component of the file name' do
+        is_expected.to eq('formatted')
+      end
     end
   end
 end

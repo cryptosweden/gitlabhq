@@ -1,6 +1,7 @@
 import { GlFormRadioGroup, GlFormRadio, GlFormInputGroup } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import { TEST_HOST } from 'helpers/test_constants';
@@ -68,31 +69,25 @@ describe('error tracking settings app', () => {
     mountComponent();
   });
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
-  });
-
   describe('section', () => {
     it('renders the form and dropdown', () => {
-      expect(wrapper.find(ErrorTrackingForm).exists()).toBeTruthy();
-      expect(wrapper.find(ProjectDropdown).exists()).toBeTruthy();
+      expect(wrapper.findComponent(ErrorTrackingForm).exists()).toBe(true);
+      expect(wrapper.findComponent(ProjectDropdown).exists()).toBe(true);
     });
 
     it('renders the Save Changes button', () => {
-      expect(wrapper.find('.js-error-tracking-button').exists()).toBeTruthy();
+      expect(wrapper.find('.js-error-tracking-button').exists()).toBe(true);
     });
 
     it('enables the button by default', () => {
-      expect(wrapper.find('.js-error-tracking-button').attributes('disabled')).toBeFalsy();
+      expect(wrapper.find('.js-error-tracking-button').attributes('disabled')).toBeUndefined();
     });
 
     it('disables the button when saving', async () => {
       store.state.settingsLoading = true;
 
       await nextTick();
-      expect(wrapper.find('.js-error-tracking-button').attributes('disabled')).toBeTruthy();
+      expect(wrapper.find('.js-error-tracking-button').attributes('disabled')).toBeDefined();
     });
   });
 
@@ -177,7 +172,7 @@ describe('error tracking settings app', () => {
           const clipBoardButton = findDsnSettings().findComponent(ClipboardButton);
 
           expect(clipBoardInput.props('value')).toBe(TEST_GITLAB_DSN);
-          expect(clipBoardInput.attributes('readonly')).toBeTruthy();
+          expect(clipBoardInput.attributes('readonly')).toBe('');
           expect(clipBoardButton.props('text')).toBe(TEST_GITLAB_DSN);
         });
       });

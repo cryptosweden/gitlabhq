@@ -1,8 +1,13 @@
+- is_connect_page = local_assigns.fetch(:is_connect_page, false)
+- title = is_connect_page ? s_('ClusterIntegration|Connect a Kubernetes cluster') : s_('ClusterIntegration|Create a Kubernetes cluster')
+
 %h3
-  = s_('ClusterIntegration|Connect a Kubernetes cluster')
+  = title
 %p
   = clusterable.sidebar_text
-%p
-  = clusterable.learn_more_link
 
-= render 'clusters/clusters/multiple_clusters_message'
+- if is_connect_page
+  %p
+    = clusterable.learn_more_link
+
+  = render 'clusters/clusters/multiple_clusters_message'

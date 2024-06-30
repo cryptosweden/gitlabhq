@@ -5,24 +5,6 @@ module Gitlab
     module MigrationHelpers
       module V2
         include Gitlab::Database::MigrationHelpers
-
-        # Superseded by `create_table` override below
-        def create_table_with_constraints(*_)
-          raise <<~EOM
-            #create_table_with_constraints is not supported anymore - use #create_table instead, for example:
-
-              create_table :db_guides do |t|
-                t.bigint :stars, default: 0, null: false
-                t.text :title, limit: 128
-                t.text :notes, limit: 1024
-
-                t.check_constraint 'stars > 1000', name: 'so_many_stars'
-              end
-
-            See https://docs.gitlab.com/ee/development/database/strings_and_the_text_data_type.html
-          EOM
-        end
-
         # Creates a new table, optionally allowing the caller to add text limit constraints to the table.
         # This method only extends Rails' `create_table` method
         #
@@ -61,7 +43,7 @@ module Gitlab
               end
             end
 
-            t.instance_eval(&block) unless block.nil?
+            yield t unless block.nil?
           end
         end
 
@@ -71,8 +53,7 @@ module Gitlab
         #
         # In order to retry the block, the method wraps the block into a transaction.
         #
-        # When called inside an open transaction it will execute the block directly if lock retries are enabled
-        # with `enable_lock_retries!` at migration level, otherwise it will raise an error.
+        # When called inside an open transaction it will execute the block directly.
         #
         # ==== Examples
         #   # Invoking without parameters
@@ -103,17 +84,20 @@ module Gitlab
         # * +env+ - [Hash] custom environment hash, see the example with `DISABLE_LOCK_RETRIES`
         def with_lock_retries(*args, **kwargs, &block)
           if transaction_open?
-            if enable_lock_retries?
-              Gitlab::AppLogger.warn 'Lock retries already enabled, executing the block directly'
+            if with_lock_retries_used?
+              Gitlab::AppLogger.warn 'WithLockRetries used already, executing the block directly'
               yield
             else
               raise <<~EOF
-              #{__callee__} can not be run inside an already open transaction
+              #{__callee__} can not be run inside an already open transaction.
 
-              Use migration-level lock retries instead, see https://docs.gitlab.com/ee/development/migration_style_guide.html#retry-mechanism-when-acquiring-database-locks
+              Lock retries are enabled by default for transactional migrations, so this can be run without `#{__callee__}`.
+              For more details, see: https://docs.gitlab.com/ee/development/migration_style_guide.html#transactional-migrations
               EOF
             end
           else
+            with_lock_retries_used!
+
             super(*args, **kwargs.merge(allow_savepoints: false), &block)
           end
         end
@@ -133,8 +117,13 @@ module Gitlab
         #        type is used.
         # batch_column_name - option is for tables without primary key, in this
         #        case another unique integer column can be used. Example: :user_id
-        def rename_column_concurrently(table, old_column, new_column, type: nil, batch_column_name: :id)
-          setup_renamed_column(__callee__, table, old_column, new_column, type, batch_column_name)
+        def rename_column_concurrently(table, old_column, new_column, type: nil, batch_column_name: :id, type_cast_function: nil)
+          Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.require_ddl_mode!
+
+          setup_renamed_column(
+            __callee__, table, old_column, new_column,
+            type: type, batch_column_name: batch_column_name, type_cast_function: type_cast_function
+          )
 
           with_lock_retries do
             install_bidirectional_triggers(table, old_column, new_column)
@@ -181,16 +170,60 @@ module Gitlab
         #        case another unique integer column can be used. Example: :user_id
         #
         def undo_cleanup_concurrent_column_rename(table, old_column, new_column, type: nil, batch_column_name: :id)
-          setup_renamed_column(__callee__, table, new_column, old_column, type, batch_column_name)
+          Gitlab::Database::QueryAnalyzers::RestrictAllowedSchemas.require_ddl_mode!
+
+          setup_renamed_column(
+            __callee__, table, new_column, old_column,
+            type: type, batch_column_name: batch_column_name
+          )
 
           with_lock_retries do
             install_bidirectional_triggers(table, old_column, new_column)
           end
         end
 
+        # TRUNCATE is a DDL statement (it drops the table and re-creates it), so we want to run the
+        # migration in DDL mode, but we also don't want to execute it against all schemas because
+        # it will be prevented by the lock_writes trigger.
+        #
+        # For example,
+        # a `gitlab_main` table on `:gitlab_main` database will be truncated,
+        # and a `gitlab_main` table on `:gitlab_ci` database will be skipped.
+        #
+        # Note Rails already has a truncate_tables, see
+        # https://github.com/rails/rails/blob/6-1-stable/activerecord/lib/active_record/connection_adapters/abstract/database_statements.rb#L193
+        def truncate_tables!(*table_names, connection: self.connection)
+          table_schemas = Gitlab::Database::GitlabSchema.table_schemas!(table_names)
+
+          raise ArgumentError, "`table_names` must resolve to only one `gitlab_schema`" if table_schemas.size != 1
+
+          return unless Gitlab::Database.gitlab_schemas_for_connection(connection).include?(table_schemas.first)
+
+          quoted_tables = table_names.map { |table_name| quote_table_name(table_name) }.join(', ')
+
+          execute("TRUNCATE TABLE #{quoted_tables}")
+        end
+
+        # Rename an index that exists in a different schema other than current_schema() `public`,
+        # for example, an index under schema `gitlab_partitions_dynamic`
+        #
+        # table_name - The table name that old_index_name is under,
+        #               e.g. `gitlab_partitions_dynamic.ci_builds_101` or `ci_builds`
+        #               schema name in the table name will be used unless the `schema` argument is given
+        # schema - The schema name that old_index_name is under
+        def rename_index_with_schema(table_name, old_index_name, new_index_name, schema: nil)
+          if schema.blank?
+            schema, table_name_without_schema = table_name.to_s.scan(/[^".]+|"[^"]*"/)
+            schema = nil if table_name_without_schema.nil?
+          end
+
+          old_index_name_with_schema = [schema, old_index_name].compact.join('.')
+          execute "ALTER INDEX #{quote_table_name(old_index_name_with_schema)} RENAME TO #{quote_table_name(new_index_name)}"
+        end
+
         private
 
-        def setup_renamed_column(calling_operation, table, old_column, new_column, type, batch_column_name)
+        def setup_renamed_column(calling_operation, table, old_column, new_column, type:, batch_column_name:, type_cast_function: nil)
           if transaction_open?
             raise "#{calling_operation} can not be run inside a transaction"
           end
@@ -201,8 +234,8 @@ module Gitlab
             raise "Column #{old_column} does not exist on #{table}"
           end
 
-          if column.default
-            raise "#{calling_operation} does not currently support columns with default values"
+          if column.default_function
+            raise "#{calling_operation} does not currently support columns with default functions"
           end
 
           unless column_exists?(table, batch_column_name)
@@ -212,7 +245,7 @@ module Gitlab
           check_trigger_permissions!(table)
 
           unless column_exists?(table, new_column)
-            create_column_from(table, old_column, new_column, type: type, batch_column_name: batch_column_name)
+            create_column_from(table, old_column, new_column, type: type, batch_column_name: batch_column_name, type_cast_function: type_cast_function)
           end
         end
 
@@ -265,17 +298,20 @@ module Gitlab
         def create_insert_trigger(trigger_name, quoted_table, quoted_old_column, quoted_new_column)
           function_name = function_name_for_trigger(trigger_name)
 
+          column = columns(quoted_table.delete('"').to_sym).find { |column| column.name == quoted_old_column.delete('"') }
+          quoted_default_value = connection.quote(column.default)
+
           execute(<<~SQL)
             CREATE OR REPLACE FUNCTION #{function_name}()
             RETURNS trigger
             LANGUAGE plpgsql
             AS $$
             BEGIN
-              IF NEW.#{quoted_old_column} IS NULL AND NEW.#{quoted_new_column} IS NOT NULL THEN
+              IF NEW.#{quoted_old_column} IS NOT DISTINCT FROM #{quoted_default_value} AND NEW.#{quoted_new_column} IS DISTINCT FROM #{quoted_default_value} THEN
                 NEW.#{quoted_old_column} = NEW.#{quoted_new_column};
               END IF;
 
-              IF NEW.#{quoted_new_column} IS NULL AND NEW.#{quoted_old_column} IS NOT NULL THEN
+              IF NEW.#{quoted_new_column} IS NOT DISTINCT FROM #{quoted_default_value} AND NEW.#{quoted_old_column} IS DISTINCT FROM #{quoted_default_value} THEN
                 NEW.#{quoted_new_column} = NEW.#{quoted_old_column};
               END IF;
 

@@ -1,6 +1,6 @@
 import MockAdapter from 'axios-mock-adapter';
 import testAction from 'helpers/vuex_action_helper';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { PROJECT_BRANCHES_ERROR } from '~/projects/commit/constants';
 import * as actions from '~/projects/commit/store/actions';
@@ -8,7 +8,7 @@ import * as types from '~/projects/commit/store/mutation_types';
 import getInitialState from '~/projects/commit/store/state';
 import mockData from '../mock_data';
 
-jest.mock('~/flash.js');
+jest.mock('~/alert');
 
 describe('Commit form modal store actions', () => {
   let axiosMock;
@@ -25,7 +25,7 @@ describe('Commit form modal store actions', () => {
 
   describe('clearModal', () => {
     it('commits CLEAR_MODAL mutation', () => {
-      testAction(actions.clearModal, {}, {}, [
+      return testAction(actions.clearModal, {}, {}, [
         {
           type: types.CLEAR_MODAL,
         },
@@ -35,7 +35,7 @@ describe('Commit form modal store actions', () => {
 
   describe('requestBranches', () => {
     it('commits REQUEST_BRANCHES mutation', () => {
-      testAction(actions.requestBranches, {}, {}, [
+      return testAction(actions.requestBranches, {}, {}, [
         {
           type: types.REQUEST_BRANCHES,
         },
@@ -44,12 +44,12 @@ describe('Commit form modal store actions', () => {
   });
 
   describe('fetchBranches', () => {
-    it('dispatch correct actions on fetchBranches', (done) => {
+    it('dispatch correct actions on fetchBranches', () => {
       jest
         .spyOn(axios, 'get')
         .mockImplementation(() => Promise.resolve({ data: { Branches: mockData.mockBranches } }));
 
-      testAction(
+      return testAction(
         actions.fetchBranches,
         {},
         state,
@@ -60,25 +60,21 @@ describe('Commit form modal store actions', () => {
           },
         ],
         [{ type: 'requestBranches' }],
-        () => {
-          done();
-        },
       );
     });
 
-    it('should show flash error and set error in state on fetchBranches failure', (done) => {
+    it('should show an alert and set error in state on fetchBranches failure', async () => {
       jest.spyOn(axios, 'get').mockRejectedValue();
 
-      testAction(actions.fetchBranches, {}, state, [], [{ type: 'requestBranches' }], () => {
-        expect(createFlash).toHaveBeenCalledWith({ message: PROJECT_BRANCHES_ERROR });
-        done();
-      });
+      await testAction(actions.fetchBranches, {}, state, [], [{ type: 'requestBranches' }]);
+
+      expect(createAlert).toHaveBeenCalledWith({ message: PROJECT_BRANCHES_ERROR });
     });
   });
 
   describe('setBranch', () => {
     it('commits SET_BRANCH mutation', () => {
-      testAction(
+      return testAction(
         actions.setBranch,
         {},
         {},
@@ -100,7 +96,7 @@ describe('Commit form modal store actions', () => {
 
   describe('setSelectedBranch', () => {
     it('commits SET_SELECTED_BRANCH mutation', () => {
-      testAction(actions.setSelectedBranch, {}, {}, [
+      return testAction(actions.setSelectedBranch, {}, {}, [
         {
           type: types.SET_SELECTED_BRANCH,
           payload: {},
@@ -113,7 +109,7 @@ describe('Commit form modal store actions', () => {
     it('commits SET_BRANCHES_ENDPOINT mutation', () => {
       const endpoint = 'some/endpoint';
 
-      testAction(actions.setBranchesEndpoint, endpoint, {}, [
+      return testAction(actions.setBranchesEndpoint, endpoint, {}, [
         {
           type: types.SET_BRANCHES_ENDPOINT,
           payload: endpoint,
@@ -126,7 +122,7 @@ describe('Commit form modal store actions', () => {
     const id = 1;
 
     it('commits SET_SELECTED_PROJECT mutation', () => {
-      testAction(
+      return testAction(
         actions.setSelectedProject,
         id,
         {},

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ApplicationWorker do
+RSpec.describe ApplicationWorker, feature_category: :shared do
   # We depend on the lazy-load characteristic of rspec. If the worker is loaded
   # before setting up, it's likely to go wrong. Consider this catcha:
   # before do
@@ -24,6 +24,14 @@ RSpec.describe ApplicationWorker do
   let(:router) { double(:router) }
 
   before do
+    # Set up Sidekiq.default_configuration's Thread.current[:sidekiq_redis_pool].
+    # Creating a RedisConnection during spec's runtime will perform Sidekiq.info which messes with our spec expectations.
+    Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls { Sidekiq.redis(&:ping) }
+
+    allow(Feature).to receive(:enabled?).and_call_original
+    allow(Feature).to receive(:enabled?).with(:route_to_main, type: :ops).and_return(true)
+    allow(router).to receive(:store).and_return('main')
+
     allow(::Gitlab::SidekiqConfig::WorkerRouter).to receive(:global).and_return(router)
     allow(router).to receive(:route).and_return('foo_bar_dummy')
   end
@@ -49,7 +57,7 @@ RSpec.describe ApplicationWorker do
         worker.feature_category :pages
         expect(worker.sidekiq_options['queue']).to eq('queue_2')
 
-        worker.feature_category_not_owned!
+        worker.feature_category :not_owned
         expect(worker.sidekiq_options['queue']).to eq('queue_3')
 
         worker.urgency :high
@@ -101,6 +109,15 @@ RSpec.describe ApplicationWorker do
       instance.log_extra_metadata_on_done(:key2, "value2")
 
       expect(instance.logging_extras).to eq({ 'extra.gitlab_foo_bar_dummy_worker.key1' => "value1", 'extra.gitlab_foo_bar_dummy_worker.key2' => "value2" })
+    end
+
+    it 'returns extra data to be logged that was set from #log_hash_metadata_on_done' do
+      instance.log_hash_metadata_on_done({ key1: 'value0', key2: 'value1' })
+
+      expect(instance.logging_extras).to match_array({
+        'extra.gitlab_foo_bar_dummy_worker.key1' => 'value0',
+        'extra.gitlab_foo_bar_dummy_worker.key2' => 'value1'
+      })
     end
 
     context 'when nothing is set' do
@@ -289,7 +306,6 @@ RSpec.describe ApplicationWorker do
         perform_action
 
         expect(worker.jobs.count).to eq args.count
-        expect(worker.jobs).to all(include('enqueued_at'))
       end
     end
 
@@ -302,7 +318,6 @@ RSpec.describe ApplicationWorker do
         perform_action
 
         expect(worker.jobs.count).to eq args.count
-        expect(worker.jobs).to all(include('enqueued_at'))
       end
     end
 
@@ -494,6 +509,37 @@ RSpec.describe ApplicationWorker do
     end
   end
 
+  describe '.deferred' do
+    around do |example|
+      Sidekiq::Testing.fake!(&example)
+    end
+
+    context 'when the worker is not marked as deferred' do
+      it 'all deferred-related keys are nil' do
+        worker.perform_async
+        expect(Sidekiq::Queues[worker.queue].first['deferred']).to eq nil
+        expect(Sidekiq::Queues[worker.queue].first['deferred_by']).to eq nil
+        expect(Sidekiq::Queues[worker.queue].first['deferred_count']).to eq nil
+      end
+    end
+
+    context 'when the worker is marked as deferred' do
+      it 'correctly sets options' do
+        worker.deferred(1, :feature_flag).perform_async
+        expect(Sidekiq::Queues[worker.queue].first['deferred']).to eq true
+        expect(Sidekiq::Queues[worker.queue].first['deferred_by']).to eq "feature_flag"
+        expect(Sidekiq::Queues[worker.queue].first['deferred_count']).to eq 1
+      end
+
+      it 'sets defaults if no arguments are passed' do
+        worker.deferred.perform_async
+        expect(Sidekiq::Queues[worker.queue].first['deferred']).to eq true
+        expect(Sidekiq::Queues[worker.queue].first['deferred_by']).to eq nil
+        expect(Sidekiq::Queues[worker.queue].first['deferred_count']).to eq 0
+      end
+    end
+  end
+
   describe '.with_status' do
     around do |example|
       Sidekiq::Testing.fake!(&example)
@@ -535,6 +581,93 @@ RSpec.describe ApplicationWorker do
         expect(Sidekiq::Queues[worker.queue].first).not_to include('status_expiration')
         expect(Sidekiq::Queues[worker.queue].length).to eq(1)
       end
+    end
+  end
+
+  describe '.with_ip_address_state' do
+    around do |example|
+      Sidekiq::Testing.fake!(&example)
+    end
+
+    let(:ip_address) { '1.1.1.1' }
+
+    it 'sets IP state' do
+      allow(::Gitlab::IpAddressState).to receive(:current).and_return(ip_address)
+
+      worker.with_ip_address_state.perform_async
+
+      expect(Sidekiq::Queues[worker.queue].first).to include('ip_address_state' => ip_address)
+      expect(Sidekiq::Queues[worker.queue].length).to eq(1)
+    end
+  end
+
+  context 'when using perform_async/in/at' do
+    let(:shard_pool) { 'dummy_pool' }
+    let(:shard_name) { 'shard_name' }
+
+    shared_examples 'uses shard router' do
+      context 'with enable_sidekiq_shard_router disabled' do
+        before do
+          allow(Gitlab::SidekiqSharding::Router).to receive(:enabled?).and_return(false)
+        end
+
+        it 'does not use the router' do
+          expect(Sidekiq::Client).not_to receive(:via)
+
+          operation
+        end
+      end
+
+      context 'with router enabled' do
+        before do
+          allow(Gitlab::SidekiqSharding::Router).to receive(:enabled?).and_return(true)
+        end
+
+        it 'routes job using Sidekiq::Client.via' do
+          expect(Gitlab::SidekiqSharding::Router).to receive(:get_shard_instance).and_return([shard_name, shard_pool])
+          expect(Gitlab::ApplicationContext)
+            .to receive(:with_context).with(sidekiq_destination_shard_redis: shard_name).and_call_original
+          expect(Sidekiq::Client).to receive(:via).with(shard_pool)
+
+          operation
+        end
+      end
+    end
+
+    context 'when calling perform_async with setter' do
+      subject(:operation) { worker.set(testing: true).perform_async }
+
+      it_behaves_like 'uses shard router'
+    end
+
+    context 'when calling perform_in with setter' do
+      subject(:operation) { worker.set(testing: true).perform_in(1) }
+
+      it_behaves_like 'uses shard router'
+    end
+
+    context 'when calling perform_at with setter' do
+      subject(:operation) { worker.set(testing: true).perform_at(1) }
+
+      it_behaves_like 'uses shard router'
+    end
+
+    context 'when calling perform_async' do
+      subject(:operation) { worker.perform_async }
+
+      it_behaves_like 'uses shard router'
+    end
+
+    context 'when calling perform_in' do
+      subject(:operation) { worker.perform_in(1) }
+
+      it_behaves_like 'uses shard router'
+    end
+
+    context 'when calling perform_at' do
+      subject(:operation) { worker.perform_at(1) }
+
+      it_behaves_like 'uses shard router'
     end
   end
 end

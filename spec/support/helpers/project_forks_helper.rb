@@ -48,7 +48,13 @@ module ProjectForksHelper
       allow(service).to receive(:gitlab_shell).and_return(shell)
     end
 
-    forked_project = service.execute(params[:target_project])
+    response = service.execute(params[:target_project])
+
+    # This helper is expected to return a valid result.
+    # This exception will be raised if someone tries to test failed states using fork_project method (not recommended).
+    raise ArgumentError, response.message if response.error?
+
+    forked_project = response[:project]
 
     # Reload the both projects so they know about their newly created fork_network
     if forked_project.persisted?
@@ -70,12 +76,9 @@ module ProjectForksHelper
   def fork_project_with_submodules(project, user = nil, params = {})
     Gitlab::GitalyClient.allow_n_plus_1_calls do
       forked_project = fork_project_direct(project, user, params)
-      TestEnv.copy_repo(
-        forked_project,
-        bare_repo: TestEnv.forked_repo_path_bare,
-        refs: TestEnv::FORKED_BRANCH_SHA
-      )
-      forked_project.repository.expire_content_cache
+      repo = Gitlab::GlRepository::PROJECT.repository_for(forked_project)
+      repo.create_from_bundle(TestEnv.forked_repo_bundle_path)
+      repo.expire_content_cache
 
       forked_project
     end

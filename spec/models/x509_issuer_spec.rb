@@ -5,8 +5,6 @@ require 'spec_helper'
 RSpec.describe X509Issuer do
   describe 'validation' do
     it { is_expected.to validate_presence_of(:subject_key_identifier) }
-    it { is_expected.to validate_presence_of(:subject) }
-    it { is_expected.to validate_presence_of(:crl_url) }
   end
 
   describe '.safe_create!' do
@@ -39,7 +37,9 @@ RSpec.describe X509Issuer do
     it 'accepts correct subject_key_identifier' do
       subject_key_identifiers = [
         'AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB',
-        'CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD'
+        'CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD',
+        '79:FB:C1:E5:6B:53:8B:0A',
+        '79:fb:c1:e5:6b:53:8b:0a'
       ]
 
       subject_key_identifiers.each do |identifier|
@@ -49,7 +49,6 @@ RSpec.describe X509Issuer do
 
     it 'rejects invalid subject_key_identifier' do
       subject_key_identifiers = [
-        'AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB',
         'CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:CD:GG',
         'random string',
         '12321342545356434523412341245452345623453542345234523453245'

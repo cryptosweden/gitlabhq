@@ -11,6 +11,7 @@
     "created_at",
     "started_at",
     "finished_at",
+    "erased_at",
     "duration",
     "queued_duration",
     "user",
@@ -20,7 +21,9 @@
     "artifacts",
     "artifacts_expire_at",
     "tag_list",
-    "runner"
+    "runner",
+    "project",
+    "archived"
   ],
   "properties": {
     "id": { "type": "integer" },
@@ -34,6 +37,7 @@
     "created_at": { "type": "string" },
     "started_at": { "type": ["null", "string"] },
     "finished_at": { "type": ["null", "string"] },
+    "erased_at": { "type": ["null", "string"] },
     "duration": { "type": ["null", "number"] },
     "queued_duration": { "type": ["null", "number"] },
     "user": { "$ref": "user/basic.json" },
@@ -59,12 +63,22 @@
     "tag_list": {
       "type": "array"
     },
+    "runner_manager": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "runner_manager.json" }
+      ]
+    },
     "runner": {
       "oneOf": [
         { "type": "null" },
         { "$ref": "runner.json" }
       ]
-    }
+    },
+    "project": {
+      "ci_job_token_scope_enabled": { "type": "boolean" }
+    },
+    "archived": { "type": "boolean" }
   },
   "additionalProperties":false
 }

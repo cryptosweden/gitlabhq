@@ -18,9 +18,13 @@ export default () => {
     enableHistoricEntries,
     projectPath,
     adminSettingsPath,
+    cleanupSettingsPath,
     tagsRegexHelpPagePath,
     helpPagePath,
-    showCleanupPolicyOnAlert,
+    isContainerRegistryMetadataDatabaseEnabled,
+    showContainerRegistrySettings,
+    showPackageRegistrySettings,
+    showDependencyProxySettings,
   } = el.dataset;
   return new Vue({
     el,
@@ -33,9 +37,15 @@ export default () => {
       enableHistoricEntries: parseBoolean(enableHistoricEntries),
       projectPath,
       adminSettingsPath,
+      cleanupSettingsPath,
       tagsRegexHelpPagePath,
       helpPagePath,
-      showCleanupPolicyOnAlert: parseBoolean(showCleanupPolicyOnAlert),
+      isContainerRegistryMetadataDatabaseEnabled: parseBoolean(
+        isContainerRegistryMetadataDatabaseEnabled,
+      ),
+      showContainerRegistrySettings: parseBoolean(showContainerRegistrySettings),
+      showPackageRegistrySettings: parseBoolean(showPackageRegistrySettings),
+      showDependencyProxySettings: parseBoolean(showDependencyProxySettings),
     },
     render(createElement) {
       return createElement('registry-settings-app', {});

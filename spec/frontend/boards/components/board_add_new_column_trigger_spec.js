@@ -1,25 +1,30 @@
 import { GlButton } from '@gitlab/ui';
-import Vue, { nextTick } from 'vue';
-import Vuex from 'vuex';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import BoardAddNewColumnTrigger from '~/boards/components/board_add_new_column_trigger.vue';
-import { createStore } from '~/boards/stores';
-import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
-
-Vue.use(Vuex);
+import { createMockDirective } from 'helpers/vue_mock_directive';
+import { makeMockUserCalloutDismisser } from 'helpers/mock_user_callout_dismisser';
 
 describe('BoardAddNewColumnTrigger', () => {
   let wrapper;
 
-  const findBoardsCreateList = () => wrapper.findByTestId('boards-create-list');
-  const findTooltipText = () => getBinding(findBoardsCreateList().element, 'gl-tooltip');
+  const findCreateButton = () => wrapper.findComponent(GlButton);
 
-  const mountComponent = () => {
+  const mountComponent = ({ isNewListShowing = false } = {}) => {
+    const userCalloutDismissSpy = jest.fn();
+    const shouldShowCallout = true;
     wrapper = mountExtended(BoardAddNewColumnTrigger, {
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
-      store: createStore(),
+      stubs: {
+        UserCalloutDismisser: makeMockUserCalloutDismisser({
+          dismiss: userCalloutDismissSpy,
+          shouldShowCallout,
+        }),
+      },
+      propsData: {
+        isNewListShowing,
+      },
     });
   };
 
@@ -27,33 +32,20 @@ describe('BoardAddNewColumnTrigger', () => {
     mountComponent();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  describe('when isNewListShowing is false', () => {
+    it('shows form on click button', () => {
+      expect(findCreateButton().isVisible()).toBe(true);
 
-  describe('when button is active', () => {
-    it('does not show the tooltip', () => {
-      const tooltip = findTooltipText();
+      findCreateButton().vm.$emit('click');
 
-      expect(tooltip.value).toBe('');
-    });
-
-    it('renders an enabled button', () => {
-      const button = wrapper.find(GlButton);
-
-      expect(button.props('disabled')).toBe(false);
+      expect(wrapper.emitted('setAddColumnFormVisibility')).toEqual([[true]]);
     });
   });
+  describe('when isNewListShowing is true', () => {
+    it('does not show the button', () => {
+      mountComponent({ isNewListShowing: true });
 
-  describe('when button is disabled', () => {
-    it('shows the tooltip', async () => {
-      wrapper.find(GlButton).vm.$emit('click');
-
-      await nextTick();
-
-      const tooltip = findTooltipText();
-
-      expect(tooltip.value).toBe('The list creation wizard is already open');
+      expect(findCreateButton().isVisible()).toBe(false);
     });
   });
 });

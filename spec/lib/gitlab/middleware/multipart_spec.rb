@@ -33,7 +33,7 @@ RSpec.describe Gitlab::Middleware::Multipart do
         let(:params) { upload_parameters_for(key: 'file', mode: mode, filename: filename, remote_id: remote_id).merge('file.path' => '/should/not/be/read') }
 
         it 'builds an UploadedFile' do
-          expect_uploaded_files(original_filename: filename, remote_id: remote_id, size: uploaded_file.size, params_path: %w(file))
+          expect_uploaded_files(original_filename: filename, remote_id: remote_id, size: uploaded_file.size, params_path: %w[file])
 
           subject
         end
@@ -61,7 +61,7 @@ RSpec.describe Gitlab::Middleware::Multipart do
           let(:params) { upload_parameters_for(filepath: uploaded_filepath, key: 'file', mode: mode, filename: filename) }
 
           it 'builds an UploadedFile' do
-            expect_uploaded_files(filepath: uploaded_filepath, original_filename: filename, size: uploaded_file.size, params_path: %w(file))
+            expect_uploaded_files(filepath: uploaded_filepath, original_filename: filename, size: uploaded_file.size, params_path: %w[file])
 
             subject
           end
@@ -133,33 +133,33 @@ RSpec.describe Gitlab::Middleware::Multipart do
         end
 
         it_behaves_like 'rejecting the invalid key',
-                        key_in_header: 'file',
-                        key_in_upload_params: 'wrong_key',
-                        error_message: 'Empty JWT param: file.gitlab-workhorse-upload'
+          key_in_header: 'file',
+          key_in_upload_params: 'wrong_key',
+          error_message: 'Empty JWT param: file.gitlab-workhorse-upload'
         it_behaves_like 'rejecting the invalid key',
-                        key_in_header: 'user[avatar',
-                        key_in_upload_params: 'user[avatar]',
-                        error_message: 'invalid field: "user[avatar"'
+          key_in_header: 'user[avatar',
+          key_in_upload_params: 'user[avatar]',
+          error_message: 'invalid field: "user[avatar"'
         it_behaves_like 'rejecting the invalid key',
-                        key_in_header: '[user]avatar',
-                        key_in_upload_params: 'user[avatar]',
-                        error_message: 'invalid field: "[user]avatar"'
+          key_in_header: '[user]avatar',
+          key_in_upload_params: 'user[avatar]',
+          error_message: 'invalid field: "[user]avatar"'
         it_behaves_like 'rejecting the invalid key',
-                        key_in_header: 'user[]avatar',
-                        key_in_upload_params: 'user[avatar]',
-                        error_message: 'invalid field: "user[]avatar"'
+          key_in_header: 'user[]avatar',
+          key_in_upload_params: 'user[avatar]',
+          error_message: 'invalid field: "user[]avatar"'
         it_behaves_like 'rejecting the invalid key',
-                        key_in_header: 'user[avatar[image[url]]]',
-                        key_in_upload_params: 'user[avatar]',
-                        error_message: 'invalid field: "user[avatar[image[url]]]"'
+          key_in_header: 'user[avatar[image[url]]]',
+          key_in_upload_params: 'user[avatar]',
+          error_message: 'invalid field: "user[avatar[image[url]]]"'
         it_behaves_like 'rejecting the invalid key',
-                        key_in_header: '[]',
-                        key_in_upload_params: 'user[avatar]',
-                        error_message: 'invalid field: "[]"'
+          key_in_header: '[]',
+          key_in_upload_params: 'user[avatar]',
+          error_message: 'invalid field: "[]"'
         it_behaves_like 'rejecting the invalid key',
-                        key_in_header: 'x' * 11000,
-                        key_in_upload_params: 'user[avatar]',
-                        error_message: "invalid field: \"#{'x' * 11000}\""
+          key_in_header: 'x' * 11000,
+          key_in_upload_params: 'user[avatar]',
+          error_message: "invalid field: \"#{'x' * 11000}\""
       end
 
       context 'with a modified JWT payload' do
@@ -175,7 +175,7 @@ RSpec.describe Gitlab::Middleware::Multipart do
         end
 
         it 'raises an error' do
-          expect { subject }.to raise_error(JWT::VerificationError, 'Signature verification raised')
+          expect { subject }.to raise_error(JWT::VerificationError, 'Signature verification failed')
         end
       end
 
@@ -191,7 +191,7 @@ RSpec.describe Gitlab::Middleware::Multipart do
         end
 
         it 'raises an error' do
-          expect { subject }.to raise_error(JWT::VerificationError, 'Signature verification raised')
+          expect { subject }.to raise_error(JWT::VerificationError, 'Signature verification failed')
         end
       end
     end

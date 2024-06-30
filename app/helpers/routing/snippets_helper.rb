@@ -110,20 +110,20 @@ module Routing
       if @snippet.is_a?(PersonalSnippet)
         preview_markdown_snippets_path
       else
-        preview_markdown_project_path(parent, *args)
+        project_preview_markdown_path(parent, *args)
       end
     end
 
-    def toggle_award_emoji_personal_snippet_path(*args)
-      toggle_award_emoji_snippet_path(*args)
+    def toggle_award_emoji_personal_snippet_path(...)
+      toggle_award_emoji_snippet_path(...)
     end
 
-    def toggle_award_emoji_project_project_snippet_path(*args)
-      toggle_award_emoji_project_snippet_path(*args)
+    def toggle_award_emoji_project_project_snippet_path(...)
+      toggle_award_emoji_project_snippet_path(...)
     end
 
-    def toggle_award_emoji_project_project_snippet_url(*args)
-      toggle_award_emoji_project_snippet_url(*args)
+    def toggle_award_emoji_project_project_snippet_url(...)
+      toggle_award_emoji_project_snippet_url(...)
     end
 
     private

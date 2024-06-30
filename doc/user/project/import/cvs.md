@@ -1,14 +1,17 @@
 ---
-type: reference, howto
 stage: Manage
-group: Import
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Migrating from CVS **(FREE)**
+# Migrating from CVS
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 [CVS](https://savannah.nongnu.org/projects/cvs) is an old centralized version
-control system similar to [SVN](svn.md).
+control system similar to [SVN](https://subversion.apache.org/).
 
 ## CVS vs Git
 
@@ -24,8 +27,8 @@ The following list illustrates the main differences between CVS and Git:
   whole, or they fail without any changes. In CVS, commits (and other operations)
   are not atomic. If an operation on the repository is interrupted in the middle,
   the repository can be left in an inconsistent state.
-- **Storage method.** Changes in CVS are per file (changeset), while in Git
-  a committed file(s) is stored in its entirety (snapshot). That means it's
+- **Storage method.** Changes in CVS are per file (changeset), while in Git,
+  committed files are stored in their entirety (snapshot). This means it is
   very easy in Git to revert or undo a whole change.
 - **Revision IDs.** The fact that in CVS changes are per files, the revision ID
   is depicted by version numbers, for example `1.4` reflects how many times a
@@ -40,10 +43,10 @@ The following list illustrates the main differences between CVS and Git:
   your state in version control, then you merge the other developer's changes.
   You can also ask the other developer to do the merge and resolve any conflicts
   themselves.
-- **Signed commits.** Git supports signing your commits with GPG for additional
+- **Signed commits.** Git supports
+  [signing your commits](../repository/signed_commits/index.md) for additional
   security and verification that the commit indeed came from its original author.
-  GitLab can [integrate with GPG](../repository/gpg_signed_commits/index.md)
-  and show whether a signed commit is correctly verified.
+  GitLab shows whether a signed commit is correctly verified.
 
 _Some of the items above were taken from this great
 [Stack Overflow post](https://stackoverflow.com/a/824241/974710). For a more
@@ -54,7 +57,7 @@ Wikipedia article on [comparing the different version control software](https://
 
 CVS is old with no new release since 2008. Git provides more tools to work
 with (`git bisect` for one) which makes for a more productive workflow.
-Migrating to Git/GitLab will benefit you:
+Migrating to Git/GitLab benefits you:
 
 - **Shorter learning curve**, Git has a big community and a vast number of
   tutorials to get you started (see our [Git topic](../../../topics/git/index.md)).
@@ -71,6 +74,5 @@ Here's a few links to get you started with the migration:
 
 - [Migrate using the `cvs-fast-export` tool](https://gitlab.com/esr/cvs-fast-export)
 - [Stack Overflow post on importing the CVS repository](https://stackoverflow.com/a/11490134/974710)
-- [Convert a CVS repository to Git](http://www.techrepublic.com/article/convert-cvs-repositories-to-git/)
 - [Man page of the `git-cvsimport` tool](https://mirrors.edge.kernel.org/pub/software/scm/git/docs/git-cvsimport.html)
 - [Migrate using `reposurgeon`](http://www.catb.org/~esr/reposurgeon/repository-editing.html#conversion)

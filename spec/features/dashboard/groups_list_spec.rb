@@ -2,15 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Dashboard Groups page', :js do
-  let(:user) { create :user }
+RSpec.describe 'Dashboard Groups page', :js, feature_category: :groups_and_projects do
+  let(:user) { create(:user) }
   let(:group) { create(:group) }
   let(:nested_group) { create(:group, :nested) }
   let(:another_group) { create(:group) }
 
   def click_group_caret(group)
     within("#group-#{group.id}") do
-      first('.folder-caret').click
+      find_by_testid('group-item-toggle-button').click
     end
     wait_for_requests
   end
@@ -18,6 +18,8 @@ RSpec.describe 'Dashboard Groups page', :js do
   def click_options_menu(group)
     page.find("[data-testid='group-#{group.id}-dropdown-button'").click
   end
+
+  it_behaves_like 'a "Your work" page with sidebar and breadcrumbs', :dashboard_groups_path, :groups
 
   it 'shows groups user is member of' do
     group.add_owner(user)
@@ -226,6 +228,24 @@ RSpec.describe 'Dashboard Groups page', :js do
 
       expect(page).to have_content(group.name)
       expect(page).not_to have_content(another_group.name)
+    end
+  end
+
+  it 'links to the "Explore groups" page' do
+    sign_in(user)
+    visit dashboard_groups_path
+
+    expect(page).to have_link("Explore groups", href: explore_groups_path)
+  end
+
+  context 'when there are no groups to display' do
+    before do
+      sign_in(user)
+      visit dashboard_groups_path
+    end
+
+    it 'shows empty state' do
+      expect(page).to have_content(s_('GroupsEmptyState|A group is a collection of several projects'))
     end
   end
 end

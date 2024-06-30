@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils';
+import { GlButton } from '@gitlab/ui';
 import ExternalUrlComp from '~/environments/components/environment_external_url.vue';
 
 describe('External URL Component', () => {
@@ -10,7 +11,8 @@ describe('External URL Component', () => {
   });
 
   it('should link to the provided externalUrl prop', () => {
-    expect(wrapper.attributes('href')).toEqual(externalUrl);
-    expect(wrapper.find('a').exists()).toBe(true);
+    const button = wrapper.findComponent(GlButton);
+    expect(button.attributes('href')).toEqual(externalUrl);
+    expect(button.props('isUnsafeLink')).toBe(true);
   });
 });

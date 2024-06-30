@@ -2,19 +2,23 @@
 
 module Users
   class BuildService < BaseService
+    ALLOWED_USER_TYPES = %i[project_bot security_policy_bot].freeze
+
     delegate :user_default_internal_regex_enabled?,
-             :user_default_internal_regex_instance,
-             to: :'Gitlab::CurrentSettings.current_application_settings'
+      :user_default_internal_regex_instance,
+      to: :'Gitlab::CurrentSettings.current_application_settings'
 
     def initialize(current_user, params = {})
       @current_user = current_user
       @params = params.dup
+      @organization_id = params.delete(:organization_id)
       @identity_params = params.slice(*identity_attributes)
     end
 
     def execute
       build_user
       build_identity
+      build_user_detail
       update_canonical_email
 
       user
@@ -22,7 +26,7 @@ module Users
 
     private
 
-    attr_reader :identity_params, :user_params, :user
+    attr_reader :identity_params, :user_params, :user, :organization_id
 
     def identity_attributes
       [:extern_uid, :provider]
@@ -34,6 +38,10 @@ module Users
       else
         standard_build_user
       end
+
+      organization = Organizations::Organization.find_by_id(organization_id) if organization_id
+
+      user.assign_personal_namespace(organization)
     end
 
     def admin?
@@ -70,7 +78,7 @@ module Users
       @user_params[:created_by_id] = current_user&.id
       @user_params[:external] = user_external? if set_external_param?
 
-      @user_params.delete(:user_type) unless project_bot?
+      @user_params.delete(:user_type) unless allowed_user_type?
     end
 
     def set_external_param?
@@ -81,8 +89,8 @@ module Users
       user_default_internal_regex_instance.match(params[:email]).nil?
     end
 
-    def project_bot?
-      user_params[:user_type]&.to_sym == :project_bot
+    def allowed_user_type?
+      ALLOWED_USER_TYPES.include?(user_params[:user_type]&.to_sym)
     end
 
     def password_reset
@@ -106,6 +114,8 @@ module Users
 
     def build_user_params_for_non_admin
       @user_params = params.slice(*signup_params)
+      # if skip_confirmation is set to `true`, devise will set confirmed_at
+      # see: https://github.com/heartcombo/devise/blob/8593801130f2df94a50863b5db535c272b00efe1/lib/devise/models/confirmable.rb#L156
       @user_params[:skip_confirmation] = skip_user_confirmation_email_from_setting if assign_skip_confirmation_from_settings?
       @user_params[:name] = fallback_name if use_fallback_name?
     end
@@ -115,7 +125,7 @@ module Users
     end
 
     def skip_user_confirmation_email_from_setting
-      !Gitlab::CurrentSettings.send_user_confirmation_email
+      Gitlab::CurrentSettings.email_confirmation_setting_off?
     end
 
     def use_fallback_name?
@@ -132,6 +142,13 @@ module Users
       user.identities.build(identity_params)
     end
 
+    def build_user_detail
+      return unless Feature.enabled?(:create_user_details_all_user_creation, Feature.current_request)
+
+      # This will ensure we either load an existing record or create it.
+      user.user_detail
+    end
+
     def update_canonical_email
       Users::UpdateCanonicalEmailService.new(user: user).execute
     end
@@ -144,6 +161,7 @@ module Users
         :avatar,
         :bio,
         :can_create_group,
+        :color_mode_id,
         :color_scheme_id,
         :email,
         :external,
@@ -161,6 +179,7 @@ module Users
         :skype,
         :theme_id,
         :twitter,
+        :discord,
         :username,
         :website_url,
         :private_profile,
@@ -180,6 +199,7 @@ module Users
         :name,
         :password,
         :password_automatically_set,
+        :preferred_language,
         :username,
         :user_type,
         :first_name,

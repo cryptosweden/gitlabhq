@@ -1,6 +1,52 @@
+import { insertMarkdownText } from '~/lib/utils/text_markdown';
+import { EDITOR_TOOLBAR_BUTTON_GROUPS, EXTENSION_MARKDOWN_BUTTONS } from '../constants';
+
 export class EditorMarkdownExtension {
   static get extensionName() {
     return 'EditorMarkdown';
+  }
+
+  onSetup(instance) {
+    this.toolbarButtons = [];
+    this.actions = [];
+    if (instance.toolbar) {
+      this.setupToolbar(instance);
+    }
+  }
+  onBeforeUnuse(instance) {
+    const ids = this.toolbarButtons.map((item) => item.id);
+    if (instance.toolbar) {
+      instance.toolbar.removeItems(ids);
+    }
+    this.actions.forEach((action) => {
+      action.dispose();
+    });
+    this.actions = [];
+  }
+
+  setupToolbar(instance) {
+    this.toolbarButtons = EXTENSION_MARKDOWN_BUTTONS.map((btn) => {
+      if (btn.data.mdShortcuts) {
+        this.actions.push(
+          instance.addAction({
+            id: btn.id,
+            label: btn.label,
+            keybindings: btn.data.mdShortcuts,
+            run(inst) {
+              inst.insertMarkdown(btn.data);
+            },
+          }),
+        );
+      }
+      return {
+        ...btn,
+        icon: btn.id,
+        group: EDITOR_TOOLBAR_BUTTON_GROUPS.edit,
+        category: 'tertiary',
+        onClick: (e) => instance.insertMarkdown(e),
+      };
+    });
+    instance.toolbar.addItems(this.toolbarButtons);
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -35,6 +81,25 @@ export class EditorMarkdownExtension {
         pos.column += dx;
         pos.lineNumber += dy;
         instance.setPosition(pos);
+      },
+      insertMarkdown: (instance, e) => {
+        const {
+          mdTag: tag,
+          mdBlock: blockTag,
+          mdPrepend,
+          mdSelect: select,
+        } = e.currentTarget?.dataset || e;
+
+        insertMarkdownText({
+          tag,
+          blockTag,
+          wrap: !mdPrepend,
+          select,
+          selected: instance.getSelectedText(),
+          text: instance.getValue(),
+          editor: instance,
+        });
+        instance.focus();
       },
       /**
        * Adjust existing selection to select text within the original selection.

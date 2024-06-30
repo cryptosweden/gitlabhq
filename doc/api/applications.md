@@ -1,12 +1,14 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Applications API **(FREE)**
+# Applications API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/8160) in GitLab 10.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 The Applications API operates on instance-wide OAuth applications for:
 
@@ -28,7 +30,7 @@ Returns `200` if the request succeeds.
 POST /applications
 ```
 
-Parameters:
+Supported attributes:
 
 | Attribute      | Type    | Required | Description                      |
 |:---------------|:--------|:---------|:---------------------------------|
@@ -99,14 +101,49 @@ Returns `204` if the request succeeds.
 DELETE /applications/:id
 ```
 
-Parameters:
+Supported attributes:
 
 | Attribute | Type    | Required | Description                                         |
 |:----------|:--------|:---------|:----------------------------------------------------|
-| `id`      | integer | yes      | The ID of the application (not the application_id). |
+| `id`      | integer | yes      | The ID of the application (not the `application_id`). |
 
 Example request:
 
 ```shell
 curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/applications/:id"
+```
+
+## Renew an application secret
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/422420) in GitLab 16.11.
+
+Renews an application secret. Returns `200` if the request succeeds.
+
+```plaintext
+POST /applications/:id/renew-secret
+```
+
+Supported attributes:
+
+| Attribute | Type    | Required | Description                                         |
+|:----------|:--------|:---------|:----------------------------------------------------|
+| `id`      | integer | yes      | The ID of the application (not the `application_id`). |
+
+Example request:
+
+```shell
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/applications/:id/renew-secret"
+```
+
+Example response:
+
+```json
+{
+    "id":1,
+    "application_id": "5832fc6e14300a0d962240a8144466eef4ee93ef0d218477e55f11cf12fc3737",
+    "application_name": "MyApplication",
+    "secret": "ee1dd64b6adc89cf7e2c23099301ccc2c61b441064e9324d963c46902a85ec34",
+    "callback_url": "http://redirect.uri",
+    "confidential": true
+}
 ```

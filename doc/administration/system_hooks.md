@@ -1,13 +1,17 @@
 ---
-stage: Ecosystem
-group: Integrations
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+stage: Manage
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# System hooks **(FREE SELF)**
+# System hooks
 
-Your GitLab instance can perform HTTP POST requests on the following events:
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+System hooks (not to be confused with [server hooks](server_hooks.md) or [file hooks](file_hooks.md)) perform HTTP POST
+requests and are triggered on the following events:
 
 - `group_create`
 - `group_destroy`
@@ -31,37 +35,46 @@ Your GitLab instance can perform HTTP POST requests on the following events:
 - `user_update_for_group`
 - `user_update_for_team`
 
-The triggers for most of these are self-explanatory, but `project_update` and
-`project_rename` deserve some clarification: `project_update` is fired any time
-an attribute of a project is changed (including name, description, and tags)
-_unless_ the `path` attribute is also changed. In that case, a `project_rename`
-is triggered instead (so that, for instance, if all you care about is the
-repository URL, you can just listen for `project_rename`).
+The triggers for most of these are self-explanatory, but `project_update` and `project_rename` require clarification:
 
-`user_failed_login` is sent whenever a _blocked_ user attempts to sign in and is
-denied access.
+- `project_update` triggers when an attribute of a project is changed (including name, description, and tags)
+  **except** when the `path` attribute is also changed.
+- `project_rename` triggers when an attribute of a project (including `path`) is changed. If you only care about the
+  repository URL, just listen for `project_rename`.
 
-System hooks can be used, for example, for logging or changing information in an
-LDAP server.
+`user_failed_login` is sent whenever a **blocked** user attempts to sign in and is denied access.
 
-In addition to these default events, you can enable triggers for other events,
-such as push events, and disable the `repository_update` event
+As an example, use system hooks for logging or changing information in an LDAP server.
+
+You can also enable triggers for other events, such as push events, and disable the `repository_update` event
 when you create a system hook.
 
 NOTE:
-We follow the same structure and deprecations as [Webhooks](../user/project/integrations/webhooks.md)
-for Push and Tag events, but we never display commits.
+For push and tag events, the same structure and deprecations are followed as [project and group webhooks](../user/project/integrations/webhooks.md). However, commits are never displayed.
 
 ## Create a system hook
 
+> - **Name** and **Description** [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141977) in GitLab 16.9.
+
 To create a system hook:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **System Hooks**.
-1. Provide the **URL** and **Secret Token**.
-1. Select the checkbox next to each optional **Trigger** you want to enable.
-1. Select **Enable SSL verification**, if desired.
-1. Click **Add system hook**.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **System Hooks**.
+1. Select **Add new webhook**.
+1. In **URL**, enter the URL of the webhook endpoint.
+   The URL must be percent-encoded if it contains one or more special characters.
+1. Optional. In **Name**, enter the name of the webhook.
+1. Optional. In **Description**, enter the description of the webhook.
+1. Optional. In **Secret token**, enter the secret token to validate requests.
+
+   The token is sent with the webhook request in the `X-Gitlab-Token` HTTP header.
+   Your webhook endpoint can check the token to verify the request is legitimate.
+
+1. In the **Trigger** section, select the checkbox for each GitLab
+   [event](../user/project/integrations/webhook_events.md) you want to trigger the webhook.
+1. Optional. Clear the **Enable SSL verification** checkbox
+   to disable [SSL verification](../user/project/integrations/index.md#ssl-verification).
+1. Select **Add system hook**.
 
 ## Hooks request example
 
@@ -135,8 +148,8 @@ X-Gitlab-Event: System Hook
 }
 ```
 
-Note that `project_rename` is not triggered if the namespace changes.
-Please refer to `group_rename` and `user_rename` for that case.
+`project_rename` is not triggered if the namespace changes.
+Refer to `group_rename` and `user_rename` for that case.
 
 **Project transferred:**
 
@@ -766,6 +779,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

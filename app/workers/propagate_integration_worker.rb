@@ -12,6 +12,10 @@ class PropagateIntegrationWorker
   idempotent!
 
   def perform(integration_id)
-    ::Integrations::PropagateService.propagate(Integration.find(integration_id))
+    integration = Integration.find_by_id(integration_id)
+    return unless integration
+    return if integration.project_level?
+
+    ::Integrations::PropagateService.new(integration).execute
   end
 end

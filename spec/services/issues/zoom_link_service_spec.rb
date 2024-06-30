@@ -2,12 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Issues::ZoomLinkService do
+RSpec.describe Issues::ZoomLinkService, feature_category: :team_planning do
   let_it_be(:user) { create(:user) }
   let_it_be(:issue) { create(:issue) }
 
   let(:project) { issue.project }
-  let(:service) { described_class.new(project: project, current_user: user, params: { issue: issue }) }
+  let(:service) { described_class.new(container: project, current_user: user, params: { issue: issue }) }
   let(:zoom_link) { 'https://zoom.us/j/123456789' }
 
   before do
@@ -95,6 +95,13 @@ RSpec.describe Issues::ZoomLinkService do
           let(:current_user) { user }
 
           it_behaves_like 'an incident management tracked event', :incident_management_incident_zoom_meeting
+
+          it_behaves_like 'Snowplow event tracking with RedisHLL context' do
+            let(:namespace) { issue.namespace }
+            let(:category) { described_class.to_s }
+            let(:action) { 'incident_management_incident_zoom_meeting' }
+            let(:label) { 'redis_hll_counters.incident_management.incident_management_total_unique_counts_monthly' }
+          end
         end
 
         context 'with insufficient issue update permissions' do

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe RemoveExpiredMembersWorker do
+RSpec.describe RemoveExpiredMembersWorker, feature_category: :system_access do
   let(:worker) { described_class.new }
 
   describe '#perform' do
@@ -35,8 +35,10 @@ RSpec.describe RemoveExpiredMembersWorker do
 
         new_job = Sidekiq::Worker.jobs.last
 
-        expect(new_job).to include('meta.project' => expired_project_member.project.full_path,
-                                   'meta.user' => expired_project_member.user.username)
+        expect(new_job).to include(
+          'meta.project' => expired_project_member.project.full_path,
+          'meta.user' => expired_project_member.user.username
+        )
       end
     end
 
@@ -47,7 +49,7 @@ RSpec.describe RemoveExpiredMembersWorker do
         let_it_be(:expired_project_bot) { create(:user, :project_bot) }
 
         before do
-          project.add_user(expired_project_bot, :maintainer, expires_at: 1.day.from_now)
+          project.add_member(expired_project_bot, :maintainer, expires_at: 1.day.from_now)
           travel_to(3.days.from_now)
         end
 
@@ -56,10 +58,12 @@ RSpec.describe RemoveExpiredMembersWorker do
           expect(Member.find_by(user_id: expired_project_bot.id)).to be_nil
         end
 
-        it 'deletes expired project bot' do
+        it 'initiates project bot removal' do
           worker.perform
 
-          expect(User.exists?(expired_project_bot.id)).to be(false)
+          expect(
+            Users::GhostUserMigration.where(user: expired_project_bot, initiator_user: nil)
+          ).to be_exists
         end
       end
 
@@ -67,7 +71,7 @@ RSpec.describe RemoveExpiredMembersWorker do
         let_it_be(:other_project_bot) { create(:user, :project_bot) }
 
         before do
-          project.add_user(other_project_bot, :maintainer, expires_at: 10.days.from_now)
+          project.add_member(other_project_bot, :maintainer, expires_at: 10.days.from_now)
           travel_to(3.days.from_now)
         end
 
@@ -113,8 +117,10 @@ RSpec.describe RemoveExpiredMembersWorker do
 
         new_job = Sidekiq::Worker.jobs.last
 
-        expect(new_job).to include('meta.root_namespace' => expired_group_member.group.full_path,
-                                   'meta.user' => expired_group_member.user.username)
+        expect(new_job).to include(
+          'meta.root_namespace' => expired_group_member.group.full_path,
+          'meta.user' => expired_group_member.user.username
+        )
       end
     end
 
@@ -128,6 +134,28 @@ RSpec.describe RemoveExpiredMembersWorker do
       it 'does not delete the owner' do
         worker.perform
         expect(expired_group_owner.reload).to be_present
+      end
+    end
+
+    context 'when service raises an error' do
+      let_it_be(:expired_project_member) { create(:project_member, expires_at: 1.day.from_now, access_level: GroupMember::DEVELOPER) }
+
+      let(:logger_double) { instance_double('Gitlab::Logger') }
+      let(:test_err) { StandardError.new('test error') }
+
+      before do
+        allow_next_instance_of(Members::DestroyService) do |service|
+          allow(service).to receive(:execute).and_raise(test_err)
+        end
+        allow(worker).to receive(:logger).and_return(logger_double)
+        travel_to(3.days.from_now)
+      end
+
+      it 'logs errors to logger and error tracking' do
+        expect(logger_double).to receive(:error).with(a_string_matching(/cannot be removed/))
+        expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception).with(test_err)
+
+        worker.perform
       end
     end
   end

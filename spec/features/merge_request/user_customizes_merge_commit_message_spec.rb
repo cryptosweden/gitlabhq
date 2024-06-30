@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request < User customizes merge commit message', :js do
+RSpec.describe 'Merge request < User customizes merge commit message', :js, feature_category: :code_review_workflow do
   let(:project) { create(:project, :public, :repository) }
   let(:user) { project.creator }
-  let(:issue_1) { create(:issue, project: project)}
-  let(:issue_2) { create(:issue, project: project)}
+  let(:issue_1) { create(:issue, project: project) }
+  let(:issue_2) { create(:issue, project: project) }
   let(:source_branch) { 'csv' }
   let(:target_branch) { 'master' }
   let(:squash) { false }
@@ -41,7 +41,7 @@ RSpec.describe 'Merge request < User customizes merge commit message', :js do
 
   it 'has commit message without description' do
     expect(page).not_to have_selector('#merge-message-edit')
-    first('.js-mr-widget-commits-count').click
+    find_by_testid('widget_edit_commit_message').click
     expect(merge_textbox).to be_visible
     expect(merge_textbox.value).to eq(default_merge_commit_message)
   end
@@ -51,7 +51,7 @@ RSpec.describe 'Merge request < User customizes merge commit message', :js do
 
     it 'uses merge commit template' do
       expect(page).not_to have_selector('#merge-message-edit')
-      first('.js-mr-widget-commits-count').click
+      find_by_testid('widget_edit_commit_message').click
       expect(merge_textbox).to be_visible
       expect(merge_textbox.value).to eq(merge_request.title)
     end
@@ -62,7 +62,7 @@ RSpec.describe 'Merge request < User customizes merge commit message', :js do
 
     it 'has default message with merge request title' do
       expect(page).not_to have_selector('#squash-message-edit')
-      first('.js-mr-widget-commits-count').click
+      find_by_testid('widget_edit_commit_message').click
       expect(squash_textbox).to be_visible
       expect(merge_textbox).to be_visible
       expect(squash_textbox.value).to eq(merge_request.title)
@@ -74,7 +74,7 @@ RSpec.describe 'Merge request < User customizes merge commit message', :js do
 
       it 'uses squash commit template' do
         expect(page).not_to have_selector('#squash-message-edit')
-        first('.js-mr-widget-commits-count').click
+        find_by_testid('widget_edit_commit_message').click
         expect(squash_textbox).to be_visible
         expect(merge_textbox).to be_visible
         expect(squash_textbox.value).to eq(merge_request.description)

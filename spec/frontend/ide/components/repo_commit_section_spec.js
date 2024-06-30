@@ -63,11 +63,6 @@ describe('RepoCommitSection', () => {
     jest.spyOn(router, 'push').mockImplementation();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('empty state', () => {
     beforeEach(() => {
       store.state.noChangesStateSvgPath = TEST_NO_CHANGES_SVG;
@@ -76,9 +71,8 @@ describe('RepoCommitSection', () => {
       createComponent();
     });
 
-    it('renders no changes text', () => {
-      expect(wrapper.find(EmptyState).text().trim()).toContain('No changes');
-      expect(wrapper.find(EmptyState).find('img').attributes('src')).toBe(TEST_NO_CHANGES_SVG);
+    it('renders empty state component', () => {
+      expect(wrapper.findComponent(EmptyState).exists()).toBe(true);
     });
   });
 
@@ -111,7 +105,7 @@ describe('RepoCommitSection', () => {
     });
 
     it('does not show empty state', () => {
-      expect(wrapper.find(EmptyState).exists()).toBe(false);
+      expect(wrapper.findComponent(EmptyState).exists()).toBe(false);
     });
   });
 
@@ -157,24 +151,7 @@ describe('RepoCommitSection', () => {
     });
 
     it('does not show empty state', () => {
-      expect(wrapper.find(EmptyState).exists()).toBe(false);
-    });
-  });
-
-  describe('activated', () => {
-    let inititializeSpy;
-
-    beforeEach(async () => {
-      createComponent();
-
-      inititializeSpy = jest.spyOn(wrapper.find(RepoCommitSection).vm, 'initialize');
-      store.state.viewer = 'diff';
-
-      await wrapper.vm.reactivate();
-    });
-
-    it('re initializes the component', () => {
-      expect(inititializeSpy).toHaveBeenCalled();
+      expect(wrapper.findComponent(EmptyState).exists()).toBe(false);
     });
   });
 });

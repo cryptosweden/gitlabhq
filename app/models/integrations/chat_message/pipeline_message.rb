@@ -89,6 +89,15 @@ module Integrations
         }
       end
 
+      def attachment_color
+        case status
+        when 'success'
+          detailed_status == 'passed with warnings' ? 'warning' : 'good'
+        else
+          'danger'
+        end
+      end
+
       private
 
       def actually_failed_jobs(builds)
@@ -96,7 +105,7 @@ module Integrations
 
         failed_jobs = builds.select do |build|
           # Select jobs which doesn't have a successful retry
-          build[:status] == 'failed' && !succeeded_job_names.include?(build[:name])
+          build[:status] == 'failed' && succeeded_job_names.exclude?(build[:name])
         end
 
         failed_jobs.uniq { |job| job[:name] }.reverse
@@ -126,6 +135,14 @@ module Integrations
         }
       end
 
+      def pipeline_name_field
+        {
+          title: s_("ChatMessage|Pipeline name"),
+          value: pipeline.name,
+          short: false
+        }
+      end
+
       def attachments_fields
         fields = [
           {
@@ -143,6 +160,7 @@ module Integrations
         fields << failed_stages_field if failed_stages.any?
         fields << failed_jobs_field if failed_jobs.any?
         fields << yaml_error_field if pipeline.has_yaml_errors?
+        fields << pipeline_name_field if pipeline.name.present?
 
         fields
       end
@@ -168,15 +186,6 @@ module Integrations
           s_("ChatMessage|has failed")
         else
           status
-        end
-      end
-
-      def attachment_color
-        case status
-        when 'success'
-          detailed_status == 'passed with warnings' ? 'warning' : 'good'
-        else
-          'danger'
         end
       end
 
@@ -231,10 +240,10 @@ module Integrations
         failed_links = failed.map { |job| job_link(job) }
 
         unless truncated.blank?
-          failed_links << s_("ChatMessage|and [%{count} more](%{pipeline_failed_jobs_url})") % {
+          failed_links << (s_("ChatMessage|and [%{count} more](%{pipeline_failed_jobs_url})") % {
             count: truncated.size,
             pipeline_failed_jobs_url: pipeline_failed_jobs_url
-          }
+          })
         end
 
         failed_links.join(I18n.t(:'support.array.words_connector'))

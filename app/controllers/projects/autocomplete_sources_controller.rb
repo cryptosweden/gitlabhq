@@ -1,18 +1,21 @@
 # frozen_string_literal: true
 
 class Projects::AutocompleteSourcesController < Projects::ApplicationController
+  include AutocompleteSources::ExpiresIn
+
   before_action :authorize_read_milestone!, only: :milestones
   before_action :authorize_read_crm_contact!, only: :contacts
 
-  feature_category :team_planning, [:issues, :labels, :milestones, :commands, :contacts]
-  feature_category :code_review, [:merge_requests]
-  feature_category :users, [:members]
-  feature_category :snippets, [:snippets]
+  feature_category :team_planning, [:issues, :labels, :milestones, :commands, :contacts, :wikis]
+  feature_category :code_review_workflow, [:merge_requests]
+  feature_category :groups_and_projects, [:members]
+  feature_category :source_code_management, [:snippets]
 
-  urgency :low, [:merge_requests]
+  urgency :low, [:merge_requests, :members]
+  urgency :low, [:issues, :labels, :milestones, :commands, :contacts]
 
   def members
-    render json: ::Projects::ParticipantsService.new(@project, current_user).execute(target)
+    render json: ::Projects::ParticipantsService.new(@project, current_user, params).execute(target)
   end
 
   def issues
@@ -32,7 +35,7 @@ class Projects::AutocompleteSourcesController < Projects::ApplicationController
   end
 
   def commands
-    render json: autocomplete_service.commands(target, params[:type])
+    render json: autocomplete_service.commands(target)
   end
 
   def snippets
@@ -40,7 +43,11 @@ class Projects::AutocompleteSourcesController < Projects::ApplicationController
   end
 
   def contacts
-    render json: autocomplete_service.contacts
+    render json: autocomplete_service.contacts(target)
+  end
+
+  def wikis
+    render json: autocomplete_service.wikis
   end
 
   private
@@ -50,9 +57,14 @@ class Projects::AutocompleteSourcesController < Projects::ApplicationController
   end
 
   def target
+    # type_id is not required in general
+    target_type = params.require(:type)
+
+    # TODO https://gitlab.com/gitlab-org/gitlab/-/issues/388541
+    # type_id is a misnomer. QuickActions::TargetService actually requires an iid.
     QuickActions::TargetService
-      .new(project, current_user)
-      .execute(params[:type], params[:type_id])
+      .new(container: project, current_user: current_user, params: params)
+      .execute(target_type, params[:type_id])
   end
 
   def authorize_read_crm_contact!

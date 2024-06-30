@@ -3,7 +3,7 @@ export const rawMockData = {
   settingsPath: 'path/to/settings',
   signupEnabled: 'true',
   requireAdminApprovalAfterUserSignup: 'true',
-  sendUserConfirmationEmail: 'true',
+  emailConfirmationSetting: 'hard',
   minimumPasswordLength: '8',
   minimumPasswordLengthMin: '3',
   minimumPasswordLengthMax: '10',
@@ -18,6 +18,10 @@ export const rawMockData = {
   emailRestrictions: 'user1@domain.com, user2@domain.com',
   afterSignUpText: 'Congratulations on your successful sign-up!',
   pendingUserCount: '0',
+  passwordNumberRequired: 'true',
+  passwordLowercaseRequired: 'true',
+  passwordUppercaseRequired: 'true',
+  passwordSymbolRequired: 'true',
 };
 
 export const mockData = {
@@ -25,7 +29,7 @@ export const mockData = {
   settingsPath: 'path/to/settings',
   signupEnabled: true,
   requireAdminApprovalAfterUserSignup: true,
-  sendUserConfirmationEmail: true,
+  emailConfirmationSetting: 'hard',
   minimumPasswordLength: '8',
   minimumPasswordLengthMin: '3',
   minimumPasswordLengthMax: '10',
@@ -40,4 +44,8 @@ export const mockData = {
   emailRestrictions: 'user1@domain.com, user2@domain.com',
   afterSignUpText: 'Congratulations on your successful sign-up!',
   pendingUserCount: '0',
+  passwordNumberRequired: true,
+  passwordLowercaseRequired: true,
+  passwordUppercaseRequired: true,
+  passwordSymbolRequired: true,
 };

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe PagesDomains::ObtainLetsEncryptCertificateService do
+RSpec.describe PagesDomains::ObtainLetsEncryptCertificateService, feature_category: :pages do
   include LetsEncryptHelpers
 
   let(:pages_domain) { create(:pages_domain, :without_certificate, :without_key) }
@@ -65,7 +65,7 @@ RSpec.describe PagesDomains::ObtainLetsEncryptCertificateService do
     end
   end
 
-  %w(pending processing).each do |status|
+  %w[pending processing].each do |status|
     context "there is an order in '#{status}' status" do
       let(:existing_order) do
         create(:pages_domain_acme_order, pages_domain: pages_domain)
@@ -132,10 +132,9 @@ RSpec.describe PagesDomains::ObtainLetsEncryptCertificateService do
         ef.create_extension("basicConstraints", "CA:TRUE", true),
         ef.create_extension("subjectKeyIdentifier", "hash")
       ]
-      cert.add_extension ef.create_extension("authorityKeyIdentifier",
-                                             "keyid:always,issuer:always")
+      cert.add_extension ef.create_extension("authorityKeyIdentifier", "keyid:always,issuer:always")
 
-      cert.sign key, OpenSSL::Digest.new('SHA1')
+      cert.sign key, OpenSSL::Digest.new('SHA256')
 
       cert.to_pem
     end

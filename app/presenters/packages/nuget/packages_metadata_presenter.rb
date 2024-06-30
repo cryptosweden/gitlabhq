@@ -10,6 +10,10 @@ module Packages
 
       def initialize(packages)
         @packages = packages
+                    .preload_nuget_files
+                    .preload_nuget_metadatum
+                    .including_tags
+                    .including_dependency_links_with_nuget_metadatum
       end
 
       def count
@@ -23,12 +27,14 @@ module Packages
       private
 
       def summary
+        packages_with_metadata = @packages.map { |pkg| metadata_for(pkg) }
+
         {
           json_url: json_url,
           lower_version: lower_version,
           upper_version: upper_version,
-          packages_count: @packages.count,
-          packages: @packages.map { |pkg| metadata_for(pkg) }
+          packages_count: packages_with_metadata.size,
+          packages: packages_with_metadata
         }
       end
 
@@ -53,11 +59,10 @@ module Packages
       end
 
       def sorted_versions
-        strong_memoize(:sorted_versions) do
-          versions = @packages.map(&:version).compact
-          VersionSorter.sort(versions)
-        end
+        versions = @packages.filter_map(&:version)
+        sort_versions(versions)
       end
+      strong_memoize_attr :sorted_versions
     end
   end
 end

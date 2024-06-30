@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Settings > For a forked project', :js do
+RSpec.describe 'Projects > Settings > For a forked project', :js, feature_category: :source_code_management do
   include ProjectForksHelper
   let(:user) { create(:user) }
   let(:original_project) { create(:project) }
@@ -22,7 +22,7 @@ RSpec.describe 'Projects > Settings > For a forked project', :js do
 
       wait_for_requests
 
-      fill_in('confirm_name_input', with: forked_project.name)
+      fill_in('confirm_name_input', with: forked_project.path)
       click_button('Confirm')
 
       wait_for_requests

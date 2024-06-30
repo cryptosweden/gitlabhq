@@ -2,30 +2,32 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Overview tab on a user profile', :js do
+RSpec.describe 'Overview tab on a user profile', :js, feature_category: :user_profile do
   let(:user) { create(:user) }
   let(:contributed_project) { create(:project, :public, :repository) }
 
   def push_code_contribution
     event = create(:push_event, project: contributed_project, author: user)
 
-    create(:push_event_payload,
-           event: event,
-           commit_from: '11f9ac0a48b62cef25eedede4c1819964f08d5ce',
-           commit_to: '1cf19a015df3523caf0a1f9d40c98a267d6a2fc2',
-           commit_count: 3,
-           ref: 'master')
+    create(
+      :push_event_payload,
+      event: event,
+      commit_from: '11f9ac0a48b62cef25eedede4c1819964f08d5ce',
+      commit_to: '1cf19a015df3523caf0a1f9d40c98a267d6a2fc2',
+      commit_count: 3,
+      ref: 'master'
+    )
   end
 
   before do
+    stub_feature_flags(profile_tabs_vue: false)
     sign_in user
   end
 
   shared_context 'visit overview tab' do
     before do
       visit user.username
-      page.find('.js-overview-tab a').click
-      wait_for_requests
+      click_nav user.name
     end
   end
 
@@ -58,15 +60,15 @@ RSpec.describe 'Overview tab on a user profile', :js do
       end
     end
 
-    describe 'user has 11 activities' do
+    describe 'user has 15 activities' do
       before do
-        11.times { push_code_contribution }
+        16.times { push_code_contribution }
       end
 
       include_context 'visit overview tab'
 
-      it 'displays 10 entries in the list of activities' do
-        expect(find('#js-overview')).to have_selector('.event-item', count: 10)
+      it 'displays 15 entries in the list of activities' do
+        expect(find('#js-overview')).to have_selector('.event-item', count: 15)
       end
 
       it 'shows a link to the activity list' do
@@ -84,22 +86,6 @@ RSpec.describe 'Overview tab on a user profile', :js do
   end
 
   describe 'projects section' do
-    describe 'user has no personal projects' do
-      include_context 'visit overview tab'
-
-      it 'shows an empty project list with an info message' do
-        page.within('.projects-block') do
-          expect(page).to have_selector('.loading', visible: false)
-          expect(page).to have_content('You haven\'t created any personal projects.')
-          expect(page).not_to have_selector('.project-row')
-        end
-      end
-
-      it 'does not show a link to the project list' do
-        expect(find('#js-overview .projects-block')).to have_selector('.js-view-all', visible: false)
-      end
-    end
-
     describe 'user has a personal project' do
       before do
         create(:project, :private, namespace: user.namespace, creator: user) { |p| p.add_maintainer(user) }
@@ -109,7 +95,7 @@ RSpec.describe 'Overview tab on a user profile', :js do
 
       it 'shows one entry in the list of projects' do
         page.within('.projects-block') do
-          expect(page).to have_selector('.project-row', count: 1)
+          expect(page).to have_selector('.gl-card', count: 1)
         end
       end
 
@@ -117,9 +103,9 @@ RSpec.describe 'Overview tab on a user profile', :js do
         expect(find('#js-overview .projects-block')).to have_selector('.js-view-all', visible: true)
       end
 
-      it 'shows projects in "compact mode"' do
+      it 'shows projects in "card mode"' do
         page.within('#js-overview .projects-block') do
-          expect(find('.js-projects-list-holder')).to have_selector('.compact')
+          expect(find('.js-projects-list-holder')).to have_css('.gl-card')
         end
       end
     end
@@ -133,9 +119,9 @@ RSpec.describe 'Overview tab on a user profile', :js do
 
       include_context 'visit overview tab'
 
-      it 'shows max. ten entries in the list of projects' do
+      it 'shows max. 3 entries in the list of projects' do
         page.within('.projects-block') do
-          expect(page).to have_selector('.project-row', count: 10)
+          expect(page).to have_selector('.gl-card', count: 3)
         end
       end
 
@@ -155,8 +141,7 @@ RSpec.describe 'Overview tab on a user profile', :js do
     describe 'user has no followers' do
       before do
         visit user.username
-        page.find('.js-followers-tab a').click
-        wait_for_requests
+        click_nav 'Followers'
       end
 
       it 'shows an empty followers list with an info message' do
@@ -174,8 +159,7 @@ RSpec.describe 'Overview tab on a user profile', :js do
       before do
         follower.follow(user)
         visit user.username
-        page.find('.js-followers-tab a').click
-        wait_for_requests
+        click_nav 'Followers'
       end
 
       it 'shows followers' do
@@ -196,9 +180,9 @@ RSpec.describe 'Overview tab on a user profile', :js do
         end
 
         visit user.username
-        page.find('.js-followers-tab a').click
-        wait_for_requests
+        click_nav 'Followers'
       end
+
       it 'shows paginated followers' do
         page.within('#followers') do
           other_users.each_with_index do |follower, i|
@@ -218,8 +202,7 @@ RSpec.describe 'Overview tab on a user profile', :js do
     describe 'user is not following others' do
       before do
         visit user.username
-        page.find('.js-following-tab a').click
-        wait_for_requests
+        click_nav 'Following'
       end
 
       it 'shows an empty following list with an info message' do
@@ -237,8 +220,7 @@ RSpec.describe 'Overview tab on a user profile', :js do
       before do
         user.follow(followee)
         visit user.username
-        page.find('.js-following-tab a').click
-        wait_for_requests
+        click_nav 'Following'
       end
 
       it 'shows following user' do
@@ -259,9 +241,9 @@ RSpec.describe 'Overview tab on a user profile', :js do
         end
 
         visit user.username
-        page.find('.js-following-tab a').click
-        wait_for_requests
+        click_nav 'Following'
       end
+
       it 'shows paginated following' do
         page.within('#following') do
           other_users.each_with_index do |followee, i|
@@ -283,45 +265,29 @@ RSpec.describe 'Overview tab on a user profile', :js do
     shared_context "visit bot's overview tab" do
       before do
         visit bot_user.username
-        page.find('.js-overview-tab a').click
-        wait_for_requests
+        click_nav bot_user.name
       end
     end
 
-    describe 'feature flag enabled' do
-      before do
-        stub_feature_flags(security_auto_fix: true)
-      end
+    include_context "visit bot's overview tab"
 
-      include_context "visit bot's overview tab"
-
-      it "activity panel's title is 'Bot activity'" do
-        page.within('.activities-block') do
-          expect(page).to have_text('Bot activity')
-        end
-      end
-
-      it 'does not show projects panel' do
-        expect(page).not_to have_selector('.projects-block')
+    it "activity panel's title is 'Activity'" do
+      page.within('.activities-block') do
+        expect(page).to have_text('Activity')
       end
     end
 
-    describe 'feature flag disabled' do
-      before do
-        stub_feature_flags(security_auto_fix: false)
-      end
-
-      include_context "visit bot's overview tab"
-
-      it "activity panel's title is not 'Bot activity'" do
-        page.within('.activities-block') do
-          expect(page).not_to have_text('Bot activity')
-        end
-      end
-
-      it 'shows projects panel' do
-        expect(page).to have_selector('.projects-block')
-      end
+    it 'does not show projects panel' do
+      expect(page).not_to have_selector('.projects-block')
     end
+  end
+
+  private
+
+  def click_nav(title)
+    within_testid('super-sidebar') do
+      click_link title
+    end
+    wait_for_requests
   end
 end

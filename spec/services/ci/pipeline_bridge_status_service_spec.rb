@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PipelineBridgeStatusService do
+RSpec.describe Ci::PipelineBridgeStatusService, feature_category: :continuous_integration do
   let(:user) { build(:user) }
   let_it_be(:project) { create(:project) }
 
@@ -36,7 +36,9 @@ RSpec.describe Ci::PipelineBridgeStatusService do
             .with(
               instance_of(Ci::Bridge::InvalidTransitionError),
               bridge_id: bridge.id,
-              downstream_pipeline_id: pipeline.id)
+              downstream_pipeline_id: pipeline.id) do |error|
+            expect(error.backtrace).to be_present
+          end
 
           subject
         end

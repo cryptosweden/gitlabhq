@@ -5,8 +5,10 @@ module Resolvers
   class GroupPackagesResolver < PackagesBaseResolver
     # The GraphQL type is defined in the extended class
 
+    extension ::Gitlab::Graphql::Limit::FieldCallCount, limit: 1
+
     argument :sort, Types::Packages::PackageGroupSortEnum,
-      description: 'Sort packages by this criteria.',
+      description: 'Sort packages by the criteria.',
       required: false,
       default_value: :created_desc
 
@@ -15,18 +17,13 @@ module Resolvers
       project_path_asc: { order_by: 'project_path', sort: 'asc' }
     }).freeze
 
-    def ready?(**args)
-      context[self.class] ||= { executions: 0 }
-      context[self.class][:executions] += 1
-      raise GraphQL::ExecutionError, "Packages can be requested only for one group at a time" if context[self.class][:executions] > 1
-
-      super
-    end
-
     def resolve(sort:, **filters)
       return unless packages_available?
 
-      ::Packages::GroupPackagesFinder.new(current_user, object, filters.merge(GROUP_SORT_TO_PARAMS_MAP.fetch(sort))).execute
+      params = filters.merge(GROUP_SORT_TO_PARAMS_MAP.fetch(sort))
+      params[:preload_pipelines] = false
+
+      ::Packages::GroupPackagesFinder.new(current_user, object, params).execute
     end
   end
 end

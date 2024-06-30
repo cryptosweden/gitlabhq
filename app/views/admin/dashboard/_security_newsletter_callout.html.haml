@@ -1,13 +1,14 @@
 - return unless show_security_newsletter_user_callout?
 
-= render 'shared/global_alert',
-  title: s_('AdminArea|Get security updates from GitLab and stay up to date'),
-  variant: :tip,
-  alert_class: 'js-security-newsletter-callout',
-  alert_data: { feature_id: Users::CalloutsHelper::SECURITY_NEWSLETTER_CALLOUT, dismiss_endpoint: callouts_path, defer_links: 'true' },
-  close_button_data: { testid: 'close-security-newsletter-callout' } do
-  .gl-alert-body
+= render Pajamas::AlertComponent.new(variant: :tip,
+    title: s_('AdminArea|Get security updates from GitLab and stay up to date'),
+    alert_options: { class: 'js-security-newsletter-callout',
+                     data: { feature_id: Users::CalloutsHelper::SECURITY_NEWSLETTER_CALLOUT,
+                             dismiss_endpoint: callouts_path,
+                             defer_links: 'true' }},
+    close_button_options: { data: { testid: 'close-security-newsletter-callout' }}) do |c|
+  - c.with_body do
     = s_('AdminArea|Sign up for the GitLab Security Newsletter to get notified for security updates.')
-  .gl-alert-actions
-    = link_to 'https://about.gitlab.com/company/preference-center/', target: '_blank', rel: 'noreferrer noopener', class: 'deferred-link gl-alert-action btn-confirm btn-md gl-button' do
+  - c.with_actions do
+    = render Pajamas::ButtonComponent.new(variant: :confirm, href: 'https://about.gitlab.com/company/preference-center/', target: '_blank', button_options: { class: 'deferred-link gl-alert-action', rel: 'noreferrer noopener' }) do
       = s_('AdminArea|Sign up for the GitLab newsletter')

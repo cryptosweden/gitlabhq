@@ -7,28 +7,31 @@ RSpec.describe QA::Runtime::Env do
     it_behaves_like 'boolean method with parameter', kwargs
   end
 
-  shared_examples 'boolean method with parameter' do |method:, param: nil, env_key:, default:|
+  shared_examples 'boolean method with parameter' do |method:, env_key:, default:, param: nil|
     context 'when there is an env variable set' do
-      it 'returns false when falsey values specified' do
+      it 'returns false when variable is falsey or unsupported' do
         stub_env(env_key, 'false')
-        expect(described_class.public_send(method, *param)).to be_falsey
+        expect(described_class.public_send(method, *param)).to eq(false)
 
         stub_env(env_key, 'no')
-        expect(described_class.public_send(method, *param)).to be_falsey
+        expect(described_class.public_send(method, *param)).to eq(false)
 
         stub_env(env_key, '0')
-        expect(described_class.public_send(method, *param)).to be_falsey
-      end
-
-      it 'returns true when anything else specified' do
-        stub_env(env_key, 'true')
-        expect(described_class.public_send(method, *param)).to be_truthy
-
-        stub_env(env_key, '1')
-        expect(described_class.public_send(method, *param)).to be_truthy
+        expect(described_class.public_send(method, *param)).to eq(false)
 
         stub_env(env_key, 'anything')
-        expect(described_class.public_send(method, *param)).to be_truthy
+        expect(described_class.public_send(method, *param)).to eq(false)
+      end
+
+      it 'returns true when variable set to truthy' do
+        stub_env(env_key, 'true')
+        expect(described_class.public_send(method, *param)).to eq(true)
+
+        stub_env(env_key, '1')
+        expect(described_class.public_send(method, *param)).to eq(true)
+
+        stub_env(env_key, 'yes')
+        expect(described_class.public_send(method, *param)).to eq(true)
       end
     end
 
@@ -44,13 +47,6 @@ RSpec.describe QA::Runtime::Env do
     it_behaves_like 'boolean method',
       method: :signup_disabled?,
       env_key: 'SIGNUP_DISABLED',
-      default: false
-  end
-
-  describe '.debug?' do
-    it_behaves_like 'boolean method',
-      method: :debug?,
-      env_key: 'QA_DEBUG',
       default: false
   end
 
@@ -196,14 +192,14 @@ RSpec.describe QA::Runtime::Env do
   end
 
   describe '.github_access_token' do
-    it 'returns "" if GITHUB_ACCESS_TOKEN is not defined' do
-      stub_env('GITHUB_ACCESS_TOKEN', nil)
+    it 'returns "" if QA_GITHUB_ACCESS_TOKEN is not defined' do
+      stub_env('QA_GITHUB_ACCESS_TOKEN', nil)
 
       expect(described_class.github_access_token).to eq('')
     end
 
-    it 'returns stripped string if GITHUB_ACCESS_TOKEN is defined' do
-      stub_env('GITHUB_ACCESS_TOKEN', ' abc123 ')
+    it 'returns stripped string if QA_GITHUB_ACCESS_TOKEN is defined' do
+      stub_env('QA_GITHUB_ACCESS_TOKEN', ' abc123 ')
       expect(described_class.github_access_token).to eq('abc123')
     end
   end
@@ -236,14 +232,14 @@ RSpec.describe QA::Runtime::Env do
   end
 
   describe '.require_github_access_token!' do
-    it 'raises ArgumentError if GITHUB_ACCESS_TOKEN is not defined' do
-      stub_env('GITHUB_ACCESS_TOKEN', nil)
+    it 'raises ArgumentError if QA_GITHUB_ACCESS_TOKEN is not defined' do
+      stub_env('QA_GITHUB_ACCESS_TOKEN', nil)
 
       expect { described_class.require_github_access_token! }.to raise_error(ArgumentError)
     end
 
-    it 'does not raise if GITHUB_ACCESS_TOKEN is defined' do
-      stub_env('GITHUB_ACCESS_TOKEN', ' abc123 ')
+    it 'does not raise if QA_GITHUB_ACCESS_TOKEN is defined' do
+      stub_env('QA_GITHUB_ACCESS_TOKEN', ' abc123 ')
 
       expect { described_class.require_github_access_token! }.not_to raise_error
     end
@@ -261,20 +257,6 @@ RSpec.describe QA::Runtime::Env do
       stub_env('GITLAB_QA_ADMIN_ACCESS_TOKEN', 'foobar123')
 
       expect { described_class.require_admin_access_token! }.not_to raise_error
-    end
-  end
-
-  describe '.log_destination' do
-    it 'returns $stdout if QA_LOG_PATH is not defined' do
-      stub_env('QA_LOG_PATH', nil)
-
-      expect(described_class.log_destination).to eq($stdout)
-    end
-
-    it 'returns the path if QA_LOG_PATH is defined' do
-      stub_env('QA_LOG_PATH', 'path/to_file')
-
-      expect(described_class.log_destination).to eq('path/to_file')
     end
   end
 
@@ -303,9 +285,13 @@ RSpec.describe QA::Runtime::Env do
   end
 
   describe 'remote grid credentials' do
-    it 'is blank if username is empty' do
+    before do
       stub_env('QA_REMOTE_GRID_USERNAME', nil)
+      stub_env('QA_REMOTE_GRID_ACCESS_KEY', nil)
+      stub_env('QA_REMOTE_GRID', nil)
+    end
 
+    it 'is blank if username is empty' do
       expect(described_class.send(:remote_grid_credentials)).to eq('')
     end
 
@@ -321,43 +307,73 @@ RSpec.describe QA::Runtime::Env do
 
       expect(described_class.send(:remote_grid_credentials)).to eq('foo:bar@')
     end
-  end
 
-  describe '.remote_grid_protocol' do
-    it 'defaults protocol to http' do
-      stub_env('QA_REMOTE_GRID_PROTOCOL', nil)
-      expect(described_class.remote_grid_protocol).to eq('http')
-    end
-  end
-
-  describe '.remote_grid' do
-    it 'is falsey if QA_REMOTE_GRID is not set' do
-      expect(described_class.remote_grid).to be_falsey
-    end
-
-    it 'accepts https protocol' do
-      stub_env('QA_REMOTE_GRID', 'localhost:4444')
-      stub_env('QA_REMOTE_GRID_PROTOCOL', 'https')
-
-      expect(described_class.remote_grid).to eq('https://localhost:4444/wd/hub')
-    end
-
-    context 'with credentials' do
-      it 'has a grid of http://user:key@grid/wd/hub' do
-        stub_env('QA_REMOTE_GRID_USERNAME', 'foo')
-        stub_env('QA_REMOTE_GRID_ACCESS_KEY', 'bar')
-        stub_env('QA_REMOTE_GRID', 'localhost:4444')
-
-        expect(described_class.remote_grid).to eq('http://foo:bar@localhost:4444/wd/hub')
+    describe '.remote_grid_protocol' do
+      it 'defaults protocol to http' do
+        expect(described_class.remote_grid_protocol).to eq('http')
       end
     end
 
-    context 'without credentials' do
-      it 'has a grid of http://grid/wd/hub' do
-        stub_env('QA_REMOTE_GRID', 'localhost:4444')
-
-        expect(described_class.remote_grid).to eq('http://localhost:4444/wd/hub')
+    describe '.remote_grid' do
+      it 'is falsey if QA_REMOTE_GRID is not set' do
+        expect(described_class.remote_grid).to be_falsey
       end
+
+      it 'accepts https protocol' do
+        stub_env('QA_REMOTE_GRID', 'localhost:4444')
+        stub_env('QA_REMOTE_GRID_PROTOCOL', 'https')
+
+        expect(described_class.remote_grid).to eq('https://localhost:4444/wd/hub')
+      end
+
+      context 'with credentials' do
+        it 'has a grid of http://user:key@grid/wd/hub' do
+          stub_env('QA_REMOTE_GRID_USERNAME', 'foo')
+          stub_env('QA_REMOTE_GRID_ACCESS_KEY', 'bar')
+          stub_env('QA_REMOTE_GRID', 'localhost:4444')
+
+          expect(described_class.remote_grid).to eq('http://foo:bar@localhost:4444/wd/hub')
+        end
+      end
+
+      context 'without credentials' do
+        it 'has a grid of http://grid/wd/hub' do
+          stub_env('QA_REMOTE_GRID', 'localhost:4444')
+
+          expect(described_class.remote_grid).to eq('http://localhost:4444/wd/hub')
+        end
+      end
+    end
+  end
+
+  describe '.canary_cookie' do
+    subject { described_class.canary_cookie }
+
+    context 'with QA_COOKIES set' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:cookie_value, :result) do
+        'gitlab_canary=true'                      | { gitlab_canary: "true" }
+        'other_cookie=value\;gitlab_canary=true'  | { gitlab_canary: "true" }
+        'gitlab_canary=false'                     | { gitlab_canary: "false" }
+        'gitlab_canary=false\;other_cookie=value' | { gitlab_canary: "false" }
+      end
+
+      with_them do
+        before do
+          stub_env('QA_COOKIES', cookie_value)
+        end
+
+        it { is_expected.to eq(result) }
+      end
+    end
+
+    context 'without QA_COOKIES set' do
+      before do
+        stub_env('QA_COOKIES', nil)
+      end
+
+      it { is_expected.to be_empty }
     end
   end
 end

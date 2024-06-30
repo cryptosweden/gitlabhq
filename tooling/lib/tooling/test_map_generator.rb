@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'set'
+require 'set' # rubocop:disable Lint/RedundantRequireStatement -- Ruby 3.1 and earlier needs this. Drop this line after Ruby 3.2+ is only supported.
 require 'yaml'
 
 module Tooling
@@ -12,7 +12,9 @@ module Tooling
     def parse(yaml_files)
       Array(yaml_files).each do |yaml_file|
         data = File.read(yaml_file)
-        metadata, example_groups = data.split("---\n").reject(&:empty?).map { |yml| YAML.safe_load(yml, [Symbol]) }
+        metadata, example_groups = data.split("---\n").reject(&:empty?).map do |yml|
+          YAML.safe_load(yml, permitted_classes: [Symbol])
+        end
 
         if example_groups.nil?
           puts "No examples in #{yaml_file}! Metadata: #{metadata}"

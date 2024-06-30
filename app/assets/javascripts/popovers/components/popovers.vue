@@ -1,5 +1,7 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlPopover, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlPopover } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 
 const newPopover = (element) => {
   const { content, html, placement, title, triggers = 'focus' } = element.dataset;
@@ -19,7 +21,7 @@ export default {
     GlPopover,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   data() {
     return {
@@ -78,7 +80,7 @@ export default {
 <template>
   <div>
     <gl-popover v-for="(popover, index) in popovers" :key="index" v-bind="popover">
-      <template #title>
+      <template v-if="popover.title" #title>
         <span v-if="popover.html" v-safe-html:[$options.safeHtmlConfig]="popover.title"></span>
         <span v-else>{{ popover.title }}</span>
       </template>

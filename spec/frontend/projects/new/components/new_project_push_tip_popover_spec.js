@@ -1,5 +1,6 @@
 import { GlPopover, GlFormInputGroup } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import NewProjectPushTipPopover from '~/projects/new/components/new_project_push_tip_popover.vue';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 
@@ -7,7 +8,7 @@ describe('New project push tip popover', () => {
   let wrapper;
   const targetId = 'target';
   const pushToCreateProjectCommand = 'command';
-  const workingWithProjectsHelpPath = 'path';
+  const projectHelpPath = 'path';
 
   const findPopover = () => wrapper.findComponent(GlPopover);
   const findClipboardButton = () => wrapper.findComponent(ClipboardButton);
@@ -25,18 +26,18 @@ describe('New project push tip popover', () => {
       },
       provide: {
         pushToCreateProjectCommand,
-        workingWithProjectsHelpPath,
+        projectHelpPath,
       },
     });
   };
 
   beforeEach(() => {
-    setFixtures(`<a id="${targetId}"></a>`);
+    setHTMLFixture(`<a id="${targetId}"></a>`);
     buildWrapper();
   });
 
   afterEach(() => {
-    wrapper.destroy();
+    resetHTMLFixture();
   });
 
   it('renders popover that targets the specified target', () => {
@@ -55,7 +56,7 @@ describe('New project push tip popover', () => {
     });
     expect(findFormInput().attributes()).toMatchObject({
       'aria-label': 'Push project from command line',
-      readonly: 'readonly',
+      readonly: '',
     });
   });
 
@@ -69,7 +70,7 @@ describe('New project push tip popover', () => {
 
   it('displays a link to open the push command help page reference', () => {
     expect(findHelpLink().attributes().href).toBe(
-      `${workingWithProjectsHelpPath}#push-to-create-a-new-project`,
+      `${projectHelpPath}#create-a-new-project-with-git-push`,
     );
   });
 });

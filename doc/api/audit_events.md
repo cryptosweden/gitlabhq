@@ -1,37 +1,47 @@
 ---
-stage: Manage
+stage: Govern
 group: Compliance
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Audit Events API **(PREMIUM)**
+# Audit Events API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/121) in GitLab 12.4.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-## Instance Audit Events **(PREMIUM SELF)**
+> - [Author Email added to the response body](https://gitlab.com/gitlab-org/gitlab/-/issues/386322) in GitLab 15.9.
 
-The Audit Events API allows you to retrieve [instance audit events](../administration/audit_events.md#instance-events).
-This API cannot retrieve group or project audit events.
+## Instance Audit Events
 
-To retrieve audit events using the API, you must [authenticate yourself](index.md#authentication) as an Administrator.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+Use this API to retrieve instance audit events.
+
+To retrieve audit events using the API, you must [authenticate yourself](rest/index.md#authentication) as an Administrator.
 
 ### Retrieve all instance audit events
+
+> - Support for keyset pagination [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/367528) in GitLab 15.11.
+> - Entity type `Gitlab::Audit::InstanceScope` for instance audit events [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418185) in GitLab 16.2.
 
 ```plaintext
 GET /audit_events
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `created_after` | string | no | Return audit events created on or after the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`)  |
-| `created_before` | string | no | Return audit events created on or before the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) |
-| `entity_type` | string | no | Return audit events for the given entity type. Valid values are: `User`, `Group`, or `Project`.  |
-| `entity_id` | integer | no | Return audit events for the given entity ID. Requires `entity_type` attribute to be present. |
+| Attribute | Type | Required | Description                                                                                                     |
+| --------- | ---- | -------- |-----------------------------------------------------------------------------------------------------------------|
+| `created_after` | string | no | Return audit events created on or after the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`)               |
+| `created_before` | string | no | Return audit events created on or before the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`)              |
+| `entity_type` | string | no | Return audit events for the given entity type. Valid values are: `User`, `Group`, `Project`, or `Gitlab::Audit::InstanceScope`. |
+| `entity_id` | integer | no | Return audit events for the given entity ID. Requires `entity_type` attribute to be present.                    |
 
-By default, `GET` requests return 20 results at a time because the API results
-are paginated.
+This endpoint supports both offset-based and [keyset-based](rest/index.md#keyset-based-pagination) pagination. You should use keyset-based
+pagination when requesting consecutive pages of results.
 
-Read more on [pagination](index.md#pagination).
+Read more on [pagination](rest/index.md#pagination).
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/audit_events"
@@ -49,6 +59,7 @@ Example response:
     "details": {
       "custom_message": "Project archived",
       "author_name": "Administrator",
+      "author_email": "admin@example.com",
       "target_id": "flightjs/flight",
       "target_type": "Project",
       "target_details": "flightjs/flight",
@@ -65,6 +76,7 @@ Example response:
     "details": {
       "add": "group",
       "author_name": "Administrator",
+      "author_email": "admin@example.com",
       "target_id": "flightjs",
       "target_type": "Group",
       "target_details": "flightjs",
@@ -83,6 +95,7 @@ Example response:
       "from": "hello@flightjs.com",
       "to": "maintainer@flightjs.com",
       "author_name": "Andreas",
+      "author_email": "admin@example.com",
       "target_id": 51,
       "target_type": "User",
       "target_details": "Andreas",
@@ -90,6 +103,30 @@ Example response:
       "entity_path": "Andreas"
     },
     "created_at": "2019-08-22T16:34:25.639Z"
+  },
+  {
+    "id": 4,
+    "author_id": 43,
+    "entity_id": 1,
+    "entity_type": "Gitlab::Audit::InstanceScope",
+    "details": {
+      "author_name": "Administrator",
+      "author_class": "User",
+      "target_id": 32,
+      "target_type": "AuditEvents::Streaming::InstanceHeader",
+      "target_details": "unknown",
+      "custom_message": "Created custom HTTP header with key X-arg.",
+      "ip_address": "127.0.0.1",
+      "entity_path": "gitlab_instance"
+    },
+    "ip_address": "127.0.0.1",
+    "author_name": "Administrator",
+    "entity_path": "gitlab_instance",
+    "target_details": "unknown",
+    "created_at": "2023-08-01T11:29:44.764Z",
+    "target_type": "AuditEvents::Streaming::InstanceHeader",
+    "target_id": 32,
+    "event_type": "audit_events_streaming_instance_headers_create"
   }
 ]
 ```
@@ -119,6 +156,7 @@ Example response:
   "details": {
     "custom_message": "Project archived",
     "author_name": "Administrator",
+    "author_email": "admin@example.com",
     "target_id": "flightjs/flight",
     "target_type": "Project",
     "target_details": "flightjs/flight",
@@ -131,15 +169,21 @@ Example response:
 
 ## Group Audit Events
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/34078) in GitLab 12.5.
+> - Support for keyset pagination [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/333968) in GitLab 15.2.
 
-The Group Audit Events API allows you to retrieve [group audit events](../administration/audit_events.md#group-events).
-This API cannot retrieve project audit events.
+Use this API to retrieve group audit events.
 
-A user with a Owner role (or above) can retrieve group audit events of all users.
-A user with a Developer or Maintainer role is limited to group audit events based on their individual actions.
+A user with:
+
+- The Owner role can retrieve group audit events of all users.
+- The Developer or Maintainer role is limited to group audit events based on their individual actions.
+
+This endpoint supports both offset-based and [keyset-based](rest/index.md#keyset-based-pagination) pagination. Keyset-based
+pagination is recommended when requesting consecutive pages of results.
 
 ### Retrieve all group audit events
+
+> - Support for keyset pagination [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/333968) in GitLab 15.2.
 
 ```plaintext
 GET /groups/:id/audit_events
@@ -147,14 +191,14 @@ GET /groups/:id/audit_events
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) |
 | `created_after` | string | no | Return group audit events created on or after the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ)`  |
 | `created_before` | string | no | Return group audit events created on or before the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) |
 
 By default, `GET` requests return 20 results at a time because the API results
 are paginated.
 
-Read more on [pagination](index.md#pagination).
+Read more on [pagination](rest/index.md#pagination).
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/groups/60/audit_events"
@@ -172,6 +216,7 @@ Example response:
     "details": {
       "custom_message": "Group marked for deletion",
       "author_name": "Administrator",
+      "author_email": "admin@example.com",
       "target_id": "flightjs",
       "target_type": "Group",
       "target_details": "flightjs",
@@ -188,6 +233,7 @@ Example response:
     "details": {
       "add": "group",
       "author_name": "Administrator",
+      "author_email": "admin@example.com",
       "target_id": "flightjs",
       "target_type": "Group",
       "target_details": "flightjs",
@@ -209,7 +255,7 @@ GET /groups/:id/audit_events/:audit_event_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the group](index.md#namespaced-path-encoding) |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) |
 | `audit_event_id` | integer | yes | The ID of the audit event |
 
 ```shell
@@ -227,6 +273,7 @@ Example response:
   "details": {
     "custom_message": "Group marked for deletion",
     "author_name": "Administrator",
+    "author_email": "admin@example.com",
     "target_id": "flightjs",
     "target_type": "Group",
     "target_details": "flightjs",
@@ -239,14 +286,14 @@ Example response:
 
 ## Project Audit Events
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/219238) in GitLab 13.1.
-
-The Project Audit Events API allows you to retrieve [project audit events](../administration/audit_events.md#project-events).
+Use this API to retrieve project audit events.
 
 A user with a Maintainer role (or above) can retrieve project audit events of all users.
 A user with a Developer role is limited to project audit events based on their individual actions.
 
 ### Retrieve all project audit events
+
+> - Support for keyset pagination [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/367528) in GitLab 15.10.
 
 ```plaintext
 GET /projects/:id/audit_events
@@ -254,14 +301,14 @@ GET /projects/:id/audit_events
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) |
 | `created_after` | string | no | Return project audit events created on or after the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`)  |
 | `created_before` | string | no | Return project audit events created on or before the given time. Format: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) |
 
-By default, `GET` requests return 20 results at a time because the API results
-are paginated.
+By default, `GET` requests return 20 results at a time because the API results are paginated.
+When requesting consecutive pages of results, you should use [keyset pagination](rest/index.md#keyset-based-pagination).
 
-Read more on [pagination](index.md#pagination).
+Read more on [pagination](rest/index.md#pagination).
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/projects/7/audit_events"
@@ -281,6 +328,7 @@ Example response:
         "from": "",
         "to": "true",
         "author_name": "Administrator",
+        "author_email": "admin@example.com",
         "target_id": 7,
         "target_type": "Project",
         "target_details": "twitter/typeahead-js",
@@ -299,6 +347,7 @@ Example response:
           "from": "false",
           "to": "true",
           "author_name": "Administrator",
+          "author_email": "admin@example.com",
           "target_id": 7,
           "target_type": "Project",
           "target_details": "twitter/typeahead-js",
@@ -320,7 +369,7 @@ GET /projects/:id/audit_events/:audit_event_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) |
 | `audit_event_id` | integer | yes | The ID of the audit event |
 
 ```shell
@@ -340,6 +389,7 @@ Example response:
       "from": "",
       "to": "true",
       "author_name": "Administrator",
+      "author_email": "admin@example.com",
       "target_id": 7,
       "target_type": "Project",
       "target_details": "twitter/typeahead-js",

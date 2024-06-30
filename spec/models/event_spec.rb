@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Event do
+RSpec.describe Event, feature_category: :user_profile do
+  let_it_be_with_reload(:project) { create(:project) }
+
   describe "Associations" do
     it { is_expected.to belong_to(:project) }
     it { is_expected.to belong_to(:target) }
@@ -17,8 +19,6 @@ RSpec.describe Event do
   end
 
   describe 'Callbacks' do
-    let(:project) { create(:project) }
-
     describe 'after_create :reset_project_activity' do
       it 'calls the reset_project_activity method' do
         expect_next_instance_of(described_class) do |instance|
@@ -31,15 +31,22 @@ RSpec.describe Event do
 
     describe 'after_create :set_last_repository_updated_at' do
       context 'with a push event' do
-        it 'updates the project last_repository_updated_at and updated_at' do
-          project.touch(:last_repository_updated_at, time: 1.year.ago) # rubocop: disable Rails/SkipsModelValidations
+        it 'updates the project last_repository_updated_at' do
+          project.update!(last_repository_updated_at: 1.year.ago)
 
           event = create_push_event(project, project.first_owner)
 
           project.reload
 
           expect(project.last_repository_updated_at).to be_like_time(event.created_at)
-          expect(project.updated_at).to be_like_time(event.created_at)
+        end
+
+        it 'calls the reset_project_activity method' do
+          expect_next_instance_of(described_class) do |instance|
+            expect(instance).to receive(:reset_project_activity)
+          end
+
+          create_push_event(project, project.first_owner)
         end
       end
 
@@ -68,15 +75,6 @@ RSpec.describe Event do
         end.not_to change { project.last_repository_updated_at }
       end
     end
-
-    describe 'after_create UserInteractedProject.track' do
-      let(:event) { build(:push_event, project: project, author: project.first_owner) }
-
-      it 'passes event to UserInteractedProject.track' do
-        expect(UserInteractedProject).to receive(:track).with(event)
-        event.save!
-      end
-    end
   end
 
   describe 'validations' do
@@ -102,10 +100,35 @@ RSpec.describe Event do
   end
 
   describe 'scopes' do
-    describe 'created_at' do
+    describe '.for_issue' do
+      let(:issue_event) { create(:event, :for_issue, project: project) }
+      let(:work_item_event) { create(:event, :for_work_item, project: project) }
+
+      before do
+        create(:event, :for_design, project: project)
+      end
+
+      it 'returns events for Issue and WorkItem target_type' do
+        expect(described_class.for_issue).to contain_exactly(issue_event, work_item_event)
+      end
+    end
+
+    describe '.for_merge_request' do
+      let(:mr_event) { create(:event, :for_merge_request, project: project) }
+
+      before do
+        create(:event, :for_issue, project: project)
+      end
+
+      it 'returns events for MergeRequest target_type' do
+        expect(described_class.for_merge_request).to contain_exactly(mr_event)
+      end
+    end
+
+    describe '.created_at' do
       it 'can find the right event' do
         time = 1.day.ago
-        event = create(:event, created_at: time)
+        event = create(:event, created_at: time, project: project)
         false_positive = create(:event, created_at: 2.days.ago)
 
         found = described_class.created_at(time)
@@ -115,12 +138,27 @@ RSpec.describe Event do
       end
     end
 
+    describe '.created_between' do
+      it 'returns events created between given timestamps' do
+        start_time = 2.days.ago
+        end_time = Date.today
+
+        create(:event, created_at: 3.days.ago)
+        e1 = create(:event, created_at: 2.days.ago)
+        e2 = create(:event, created_at: 1.day.ago)
+
+        found = described_class.created_between(start_time, end_time)
+
+        expect(found).to contain_exactly(e1, e2)
+      end
+    end
+
     describe '.for_fingerprint' do
-      let_it_be(:with_fingerprint) { create(:event, fingerprint: 'aaa') }
+      let_it_be(:with_fingerprint) { create(:event, fingerprint: 'aaa', project: project) }
 
       before_all do
-        create(:event)
-        create(:event, fingerprint: 'bbb')
+        create(:event, project: project)
+        create(:event, fingerprint: 'bbb', project: project)
       end
 
       it 'returns none if there is no fingerprint' do
@@ -137,28 +175,55 @@ RSpec.describe Event do
           .to contain_exactly(with_fingerprint)
       end
     end
+
+    describe '.contributions' do
+      let!(:merge_request_events) do
+        %i[created closed merged approved].map do |action|
+          create(:event, :for_merge_request, action: action, project: project)
+        end
+      end
+
+      let!(:work_item_event) { create(:event, :created, :for_work_item, project: project) }
+      let!(:issue_events) do
+        %i[created closed].map { |action| create(:event, :for_issue, action: action, project: project) }
+      end
+
+      let!(:push_event) { create_push_event(project, project.owner) }
+      let!(:comment_event) { create(:event, :commented, project: project) }
+
+      before do
+        create(:design_event, project: project) # should not be in scope
+      end
+
+      it 'returns events for MergeRequest, Issue, WorkItem and push, comment events' do
+        expect(described_class.contributions).to contain_exactly(
+          *merge_request_events, *issue_events, work_item_event,
+          push_event, comment_event
+        )
+      end
+    end
   end
 
   describe '#fingerprint' do
     it 'is unique scoped to target' do
-      issue = create(:issue)
-      mr = create(:merge_request)
+      issue = create(:issue, project: project)
+      mr = create(:merge_request, source_project: project)
 
-      expect { create_list(:event, 2, target: issue, fingerprint: '1234') }
+      expect { create_list(:event, 2, target: issue, fingerprint: '1234', project: project) }
         .to raise_error(include('fingerprint'))
 
       expect do
-        create(:event, target: mr, fingerprint: 'abcd')
-        create(:event, target: issue, fingerprint: 'abcd')
-        create(:event, target: issue, fingerprint: 'efgh')
+        create(:event, target: mr, fingerprint: 'abcd', project: project)
+        create(:event, target: issue, fingerprint: 'abcd', project: project)
+        create(:event, target: issue, fingerprint: 'efgh', project: project)
       end.not_to raise_error
     end
   end
 
   describe "Push event" do
-    let(:project) { create(:project, :private) }
-    let(:user) { project.first_owner }
-    let(:event) { create_push_event(project, user) }
+    let(:private_project) { create(:project, :private) }
+    let(:user) { private_project.first_owner }
+    let(:event) { create_push_event(private_project, user) }
 
     it do
       expect(event.push_action?).to be_truthy
@@ -171,15 +236,11 @@ RSpec.describe Event do
   end
 
   describe '#target_title' do
-    let_it_be(:project) { create(:project) }
-
     let(:author) { project.first_owner }
     let(:target) { nil }
 
     let(:event) do
-      described_class.new(project: project,
-                          target: target,
-                          author_id: author.id)
+      described_class.new(project: project, target: target, author_id: author.id)
     end
 
     context 'for an issue' do
@@ -264,6 +325,8 @@ RSpec.describe Event do
     let(:project) { public_project }
     let(:issue) { create(:issue, project: project, author: author, assignees: [assignee]) }
     let(:confidential_issue) { create(:issue, :confidential, project: project, author: author, assignees: [assignee]) }
+    let(:work_item) { create(:work_item, project: project, author: author) }
+    let(:confidential_work_item) { create(:work_item, :confidential, project: project, author: author) }
     let(:project_snippet) { create(:project_snippet, :public, project: project, author: author) }
     let(:personal_snippet) { create(:personal_snippet, :public, author: author) }
     let(:design) { create(:design, issue: issue, project: project) }
@@ -276,9 +339,7 @@ RSpec.describe Event do
     let(:note_on_design) { create(:note_on_design, author: author, noteable: design, project: project) }
     let(:milestone_on_project) { create(:milestone, project: project) }
     let(:event) do
-      described_class.new(project: project,
-                          target: target,
-                          author_id: author.id)
+      described_class.new(project: project, target: target, author_id: author.id)
     end
 
     before do
@@ -301,11 +362,11 @@ RSpec.describe Event do
     end
 
     def visible_to_none_except(*roles)
-      visible_to_none.merge(roles.to_h { |role| [role, true] })
+      visible_to_none.merge(roles.index_with { true })
     end
 
     def visible_to_all_except(*roles)
-      visible_to_all.merge(roles.to_h { |role| [role, false] })
+      visible_to_all.merge(roles.index_with { false })
     end
 
     shared_examples 'visibility examples' do
@@ -380,6 +441,28 @@ RSpec.describe Event do
       end
     end
 
+    context 'work item event' do
+      context 'for non confidential work item' do
+        let(:target) { work_item }
+
+        include_examples 'visibility examples' do
+          let(:visibility) { visible_to_all }
+        end
+
+        include_examples 'visible to assignee and author', true
+      end
+
+      context 'for confidential work item' do
+        let(:target) { confidential_work_item }
+
+        include_examples 'visibility examples' do
+          let(:visibility) { visible_to_none_except(:member, :admin) }
+        end
+
+        include_examples 'visible to author', true
+      end
+    end
+
     context 'issue note event' do
       context 'on non confidential issues' do
         let(:target) { note_on_issue }
@@ -407,8 +490,6 @@ RSpec.describe Event do
         include_examples 'visibility examples' do
           let(:visibility) { visible_to_none_except(:member) }
         end
-
-        include_examples 'visible to author', true
       end
 
       context 'private project' do
@@ -834,16 +915,34 @@ RSpec.describe Event do
       end
     end
 
-    context 'when a project was updated more than 1 hour ago' do
+    context 'when a project was updated more than 1 hour ago', :clean_gitlab_redis_shared_state do
+      before do
+        ::Gitlab::Redis::SharedState.with do |redis|
+          redis.hset('inactive_projects_deletion_warning_email_notified', "project:#{project.id}", Date.current.to_s)
+        end
+      end
+
       it 'updates the project' do
-        project.touch(:last_activity_at, time: 1.year.ago) # rubocop: disable Rails/SkipsModelValidations
+        project.update!(last_activity_at: 1.year.ago)
 
         event = create_push_event(project, project.first_owner)
 
         project.reload
 
         expect(project.last_activity_at).to be_like_time(event.created_at)
-        expect(project.updated_at).to be_like_time(event.created_at)
+      end
+
+      it "deletes the redis key for if the project was inactive" do
+        Gitlab::Redis::SharedState.with do |redis|
+          expect(redis).to receive(:hdel).with(
+            'inactive_projects_deletion_warning_email_notified',
+            "project:#{project.id}"
+          )
+        end
+
+        project.touch(:last_activity_at, time: 1.year.ago)
+
+        create_push_event(project, project.first_owner)
       end
     end
   end
@@ -930,7 +1029,7 @@ RSpec.describe Event do
     let_it_be(:user) { create(:user) }
     let_it_be(:note_on_project_snippet) { create(:note_on_project_snippet, author: user) }
     let_it_be(:note_on_personal_snippet) { create(:note_on_personal_snippet, author: user) }
-    let_it_be(:other_note) { create(:note_on_issue, author: user)}
+    let_it_be(:other_note) { create(:note_on_issue, author: user) }
     let_it_be(:personal_snippet_event) { create(:event, :commented, project: nil, target: note_on_personal_snippet, author: user) }
     let_it_be(:project_snippet_event) { create(:event, :commented, project: note_on_project_snippet.project, target: note_on_project_snippet, author: user) }
     let_it_be(:other_event) { create(:event, :commented, project: other_note.project, target: other_note, author: user) }
@@ -1040,15 +1139,54 @@ RSpec.describe Event do
     end
   end
 
+  describe '#has_no_project_and_group' do
+    context 'with project event' do
+      it 'returns false when the event has project' do
+        event = build(:event, project: create(:project))
+
+        expect(event.has_no_project_and_group?).to be false
+      end
+
+      it 'returns true when the event has no project' do
+        event = build(:event, project: nil)
+
+        expect(event.has_no_project_and_group?).to be true
+      end
+    end
+
+    context 'with group event' do
+      it 'returns false when the event has group' do
+        event = build(:event, group: create(:group))
+
+        expect(event.has_no_project_and_group?).to be false
+      end
+
+      it 'returns true when the event has no group' do
+        event = build(:event, group: nil)
+
+        expect(event.has_no_project_and_group?).to be true
+      end
+    end
+  end
+
   def create_push_event(project, user)
     event = create(:push_event, project: project, author: user)
 
-    create(:push_event_payload,
-           event: event,
-           commit_to: '1cf19a015df3523caf0a1f9d40c98a267d6a2fc2',
-           commit_count: 0,
-           ref: 'master')
+    create(
+      :push_event_payload,
+      event: event,
+      commit_to: '1cf19a015df3523caf0a1f9d40c98a267d6a2fc2',
+      commit_count: 0,
+      ref: 'master'
+    )
 
     event
+  end
+
+  context 'with loose foreign key on events.author_id' do
+    it_behaves_like 'cleanup by a loose foreign key' do
+      let_it_be(:parent) { create(:user) }
+      let_it_be(:model) { create(:event, author: parent) }
+    end
   end
 end

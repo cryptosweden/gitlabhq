@@ -4,13 +4,7 @@ module QA
   module Resource
     module Repository
       class Commit < Base
-        attr_accessor :author_email,
-                      :author_name,
-                      :branch,
-                      :commit_message,
-                      :file_path,
-                      :sha,
-                      :start_branch
+        attr_accessor :branch, :commit_message, :file_path, :sha, :start_branch, :actions
 
         attribute :short_id
 
@@ -33,7 +27,11 @@ module QA
 
           super
         rescue ResourceNotFoundError
-          super
+          result = super
+
+          project.wait_for_push(commit_message)
+
+          result
         end
 
         def api_get_path
@@ -47,8 +45,6 @@ module QA
         def api_post_body
           {
             branch: branch || project.default_branch,
-            author_email: author_email || api_client.user&.email || Runtime::User.default_email,
-            author_name: author_name || api_client.user&.name || Runtime::User.username,
             commit_message: commit_message,
             actions: actions
           }.merge(new_branch)
@@ -102,8 +98,6 @@ module QA
         end
 
         private
-
-        attr_reader :actions
 
         def validate_files!(files)
           if !files.is_a?(Array) ||

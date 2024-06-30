@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Icons and SVG Illustrations
@@ -81,7 +81,7 @@ export default {
 
 ### Usage in HTML/JS
 
-Please use the following function inside JS to render an icon:
+Use the following function inside JS to render an icon:
 `gl.utils.spriteIcon(iconName)`
 
 ## Loading icon

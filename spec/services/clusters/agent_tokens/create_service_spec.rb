@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Clusters::AgentTokens::CreateService do
-  subject(:service) { described_class.new(container: project, current_user: user, params: params) }
+RSpec.describe Clusters::AgentTokens::CreateService, feature_category: :deployment_management do
+  subject(:service) { described_class.new(agent: cluster_agent, current_user: user, params: params) }
 
   let_it_be(:user) { create(:user) }
 
   let(:cluster_agent) { create(:cluster_agent) }
   let(:project) { cluster_agent.project }
-  let(:params) { { agent_id: cluster_agent.id, description: 'token description', name: 'token name' } }
+  let(:params) { { description: 'token description', name: 'token name' } }
 
   describe '#execute' do
     subject { service.execute }
@@ -75,7 +75,19 @@ RSpec.describe Clusters::AgentTokens::CreateService do
 
         it 'returns validation errors', :aggregate_failures do
           expect(subject.status).to eq(:error)
-          expect(subject.message).to eq(["Agent must exist", "Name can't be blank"])
+          expect(subject.message).to eq(["Name can't be blank"])
+        end
+      end
+
+      context 'when the active agent tokens limit is reached' do
+        before do
+          create(:cluster_agent_token, agent: cluster_agent)
+          create(:cluster_agent_token, agent: cluster_agent)
+        end
+
+        it 'returns an error' do
+          expect(subject.status).to eq(:error)
+          expect(subject.message).to eq('An agent can have only two active tokens at a time')
         end
       end
     end

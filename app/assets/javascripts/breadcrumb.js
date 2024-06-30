@@ -5,7 +5,7 @@ export const addTooltipToEl = (el) => {
 
   if (textEl && textEl.scrollWidth > textEl.offsetWidth) {
     el.setAttribute('title', el.textContent);
-    el.setAttribute('data-container', 'body');
+    el.dataset.container = 'body';
     el.classList.add('has-tooltip');
   }
 };
@@ -23,18 +23,18 @@ export default () => {
     topLevelLinks.forEach((el) => addTooltipToEl(el));
 
     $expanderBtn.on('click', () => {
-      const detailItems = $('.breadcrumbs-detail-item');
-      const hiddenClass = 'gl-display-none!';
+      const detailItems = $('.gl-breadcrumb-item');
+      const hiddenClass = '!gl-hidden';
 
       $.each(detailItems, (_key, item) => {
-        $(item).toggleClass(hiddenClass);
+        $(item).removeClass(hiddenClass);
       });
 
       // remove the ellipsis
       $('li.expander').remove();
 
       // set focus on first breadcrumb item
-      $('.breadcrumb-item-text').first().focus();
+      $('.js-breadcrumb-item-text').first().focus();
     });
   }
 };

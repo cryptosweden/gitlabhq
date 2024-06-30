@@ -2,12 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User searches project settings', :js do
+RSpec.describe 'User searches project settings', :js, feature_category: :groups_and_projects do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :repository, namespace: user.namespace, pages_https_only: false) }
 
   before do
-    stub_feature_flags(bootstrap_confirmation_modals: false)
     sign_in(user)
   end
 
@@ -27,20 +26,12 @@ RSpec.describe 'User searches project settings', :js do
     it_behaves_like 'can highlight results', 'third-party applications'
   end
 
-  context 'in Webhooks page' do
-    before do
-      visit project_hooks_path(project)
-    end
-
-    it_behaves_like 'can highlight results', 'Secret token'
-  end
-
   context 'in Access Tokens page' do
     before do
       visit project_settings_access_tokens_path(project)
     end
 
-    it_behaves_like 'can highlight results', 'Expiration date'
+    it_behaves_like 'can highlight results', 'Token name'
   end
 
   context 'in Repository page' do
@@ -65,15 +56,5 @@ RSpec.describe 'User searches project settings', :js do
     end
 
     it_behaves_like 'can search settings', 'Alerts', 'Error tracking'
-  end
-
-  context 'in Pages page' do
-    before do
-      allow(Gitlab.config.pages).to receive(:enabled).and_return(true)
-
-      visit project_pages_path(project)
-    end
-
-    it_behaves_like 'can highlight results', 'static website'
   end
 end

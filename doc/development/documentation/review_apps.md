@@ -1,7 +1,7 @@
 ---
 stage: none
 group: Documentation Guidelines
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
 description: Learn how documentation review apps work.
 ---
 
@@ -16,6 +16,7 @@ Review apps are enabled for the following projects:
 - [Omnibus GitLab](https://gitlab.com/gitlab-org/omnibus-gitlab)
 - [GitLab Runner](https://gitlab.com/gitlab-org/gitlab-runner)
 - [GitLab Charts](https://gitlab.com/gitlab-org/charts/gitlab)
+- [GitLab Operator](https://gitlab.com/gitlab-org/cloud-native/gitlab-operator)
 
 Alternatively, check the [`gitlab-docs` development guide](https://gitlab.com/gitlab-org/gitlab-docs/blob/main/README.md#development-when-contributing-to-gitlab-documentation)
 or [the GDK documentation](https://gitlab.com/gitlab-org/gitlab-development-kit/blob/main/doc/howto/gitlab_docs.md)
@@ -30,7 +31,9 @@ to deploy the documentation review app for your merge request.
 
 The `review-docs-deploy*` job triggers a cross project pipeline and builds the
 docs site with your changes. When the pipeline finishes, the review app URL
-appears in the merge request widget. Use it to navigate to your changes.
+appears in the merge request widget. Use the app to go to your changes.
+
+The `review-docs-cleanup` job is triggered automatically on merge. This job deletes the review app.
 
 You must have the Developer role in the project. Users without the Developer role, such
 as external contributors, cannot run the manual job. In that case, ask someone from
@@ -41,61 +44,107 @@ the GitLab team to run the job.
 If you want to know the in-depth details, here's what's really happening:
 
 1. You manually run the `review-docs-deploy` job in a merge request.
-1. The job runs the [`scripts/trigger-build.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/scripts/trigger-build.rb)
+1. The job downloads and runs the [`scripts/trigger-build.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/scripts/trigger-build.rb)
    script with the `docs deploy` flag, which triggers the "Triggered from `gitlab-org/gitlab` 'review-docs-deploy' job"
    pipeline trigger in the `gitlab-org/gitlab-docs` project for the `$DOCS_BRANCH` (defaults to `main`).
 1. The preview URL is shown both at the job output and in the merge request
    widget. You also get the link to the remote pipeline.
 1. In the `gitlab-org/gitlab-docs` project, the pipeline is created and it
-   [skips the test jobs](https://gitlab.com/gitlab-org/gitlab-docs/blob/8d5d5c750c602a835614b02f9db42ead1c4b2f5e/.gitlab-ci.yml#L50-55)
+   [skips most test jobs](https://gitlab.com/gitlab-org/gitlab-docs/-/blob/d41ca9323f762132780d2d072f845d28817a5383/.gitlab/ci/rules.gitlab-ci.yml#L101-103)
    to lower the build time.
-1. Once the docs site is built, the HTML files are uploaded as artifacts.
-1. A specific runner tied only to the docs project, runs the Review App job
-   that downloads the artifacts and uses `rsync` to transfer the files over
-   to a location where NGINX serves them.
+1. After the docs site is built, the HTML files are uploaded as artifacts to
+   a GCP bucket (see [issue `gitlab-com/gl-infra/reliability#11021`](https://gitlab.com/gitlab-com/gl-infra/reliability/-/issues/11021)
+   for the implementation details).
 
 The following GitLab features are used among others:
 
 - [Manual jobs](../../ci/jobs/job_control.md#create-a-job-that-must-be-run-manually)
-- [Multi project pipelines](../../ci/pipelines/multi_project_pipelines.md)
-- [Review Apps](../../ci/review_apps/index.md)
+- [Multi project pipelines](../../ci/pipelines/downstream_pipelines.md#multi-project-pipelines)
+- [Review apps](../../ci/review_apps/index.md)
 - [Artifacts](../../ci/yaml/index.md#artifacts)
-- [Specific runner](../../ci/runners/runners_scope.md#prevent-a-specific-runner-from-being-enabled-for-other-projects)
 - [Merge request pipelines](../../ci/pipelines/merge_request_pipelines.md)
+
+## How to add a new documentation review app
+
+In case a documentation review app is missing from one of the documentation
+projects, you can use the following CI/CD template to add a manually triggered review app:
+
+```yaml
+# Set up documentation review apps
+# https://docs.gitlab.com/ee/development/documentation/review_apps.html
+.review-docs:
+  image: ruby:3.1-alpine
+  needs: []
+  before_script:
+    - gem install gitlab --no-doc
+    # We need to download the script rather than clone the repo since the
+    # review-docs-cleanup job will not be able to run when the branch gets
+    # deleted (when merging the MR).
+    - apk add --update openssl
+    - wget https://gitlab.com/gitlab-org/gitlab/-/raw/master/scripts/trigger-build.rb
+    - chmod 755 trigger-build.rb
+  variables:
+    GIT_STRATEGY: none
+    DOCS_REVIEW_APPS_DOMAIN: docs.gitlab-review.app
+    # By default, deploy the Review App using the `main` branch of the `gitlab-org/gitlab-docs` project
+    DOCS_BRANCH: main
+  when: manual
+  allow_failure: true
+
+# Trigger a docs build in gitlab-docs
+# Useful to preview the docs changes live
+# https://docs.gitlab.com/ee/development/documentation/index.html#previewing-the-changes-live
+review-docs-deploy:
+  extends:
+    - .review-docs
+  environment:
+    name: review-docs/mr-${CI_MERGE_REQUEST_IID}
+    # DOCS_REVIEW_APPS_DOMAIN and DOCS_GITLAB_REPO_SUFFIX are CI variables
+    # Discussion: https://gitlab.com/gitlab-org/gitlab-foss/merge_requests/14236/diffs#note_40140693
+    auto_stop_in: 2 weeks
+    url: https://${DOCS_BRANCH}-${DOCS_GITLAB_REPO_SUFFIX}-${CI_MERGE_REQUEST_IID}.${DOCS_REVIEW_APPS_DOMAIN}/${DOCS_GITLAB_REPO_SUFFIX}
+    on_stop: review-docs-cleanup
+  script:
+  - ./trigger-build.rb docs deploy
+
+# Cleanup remote environment of gitlab-docs
+review-docs-cleanup:
+  extends:
+    - .review-docs
+  environment:
+    name: review-docs/mr-${CI_MERGE_REQUEST_IID}
+    action: stop
+  script:
+  - ./trigger-build.rb docs cleanup
+```
+
+You may need to add some rules when those jobs run, it depends on the project.
+You can find the current implementations:
+
+- [GitLab](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/docs.gitlab-ci.yml)
+- [Omnibus GitLab](https://gitlab.com/gitlab-org/omnibus-gitlab/-/blob/ee8699658c8a7d4c635ad503ef0b825ac592dc4b/gitlab-ci-config/gitlab-com.yml#L367-391)
+- [GitLab Runner](https://gitlab.com/gitlab-org/gitlab-runner/-/blob/main/.gitlab/ci/docs.gitlab-ci.yml)
+- [GitLab Charts](https://gitlab.com/gitlab-org/charts/gitlab/-/blob/aae7ee8d23a60d6025eec7d1a864ce244f21cd85/.gitlab-ci.yml#L629-679)
+- [GitLab Operator](https://gitlab.com/gitlab-org/cloud-native/gitlab-operator/-/blob/5fa29607cf9286b510148a8f5fef7595dca34186/.gitlab-ci.yml#L180-228)
 
 ## Troubleshooting review apps
 
-### Review app returns a 404 error
+### `NoSuchKey The specified key does not exist`
 
-If the review app URL returns a 404 error, either the site is not
-yet deployed, or something went wrong with the remote pipeline. You can:
+If you see the following message in a review app, either the site is not
+yet deployed, or something went wrong with the downstream pipeline in `gitlab-docs`.
 
-- Wait a few minutes and it should appear online.
-- Check the manual job's log and verify the URL. If the URL is different, try the
-  one from the job log.
+```plaintext
+NoSuchKeyThe specified key does not exist.No such object: <URL>
+```
+
+In that case, you can:
+
+- Wait a few minutes and the review app should appear online.
+- Check the `review-docs-deploy` job's log and verify the URL. If the URL shown in the merge
+  request UI is different than the job log, try the one from the job log.
 - Check the status of the remote pipeline from the link in the merge request's job output.
   If the pipeline failed or got stuck, GitLab team members can ask for help in the `#docs`
-  chat channel. Contributors can ping a technical writer in the merge request.
-
-### Not enough disk space
-
-Sometimes the review app server is full and there is no more disk space. Each review
-app takes about 570MB of disk space.
-
-A cron job to remove review apps older than 20 days runs hourly,
-but the disk space still occasionally fills up. To manually free up more space,
-a GitLab technical writing team member can:
-
-1. Navigate to the [`gitlab-docs` schedules page](https://gitlab.com/gitlab-org/gitlab-docs/-/pipeline_schedules).
-1. Select the play button for the `Remove old review apps from review app server`
-   schedule. By default, this cleans up review apps older than 14 days.
-1. Navigate to the [pipelines page](https://gitlab.com/gitlab-org/gitlab-docs/-/pipelines)
-   and start the manual job called `clean-pages`.
-
-If the job says no review apps were found in that period, edit the `CLEAN_REVIEW_APPS_DAYS`
-variable in the schedule, and repeat the process above. Gradually decrease the variable
-until the free disk space reaches an acceptable amount (for example, 3GB).
-Remember to set it to 14 again when you're done.
-
-There's an issue to [migrate from the DigitalOcean server to GCP buckets](https://gitlab.com/gitlab-org/gitlab-docs/-/issues/735)),
-which should solve the disk space problem.
+  internal Slack channel. Contributors can ping a
+  [technical writer](https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-devops-stages-and-groups)
+  in the merge request.

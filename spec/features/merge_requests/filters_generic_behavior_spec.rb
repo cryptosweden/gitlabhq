@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge Requests > Filters generic behavior', :js do
+RSpec.describe 'Merge Requests > Filters generic behavior', :js, feature_category: :code_review_workflow do
   include FilteredSearchHelpers
 
   let(:project) { create(:project, :public, :repository) }
@@ -71,7 +71,7 @@ RSpec.describe 'Merge Requests > Filters generic behavior', :js do
 
   context 'filter dropdown' do
     it 'filters by label name' do
-      init_label_search
+      filtered_search.set('label:=')
       filtered_search.send_keys('~bug')
 
       page.within '.filter-dropdown' do

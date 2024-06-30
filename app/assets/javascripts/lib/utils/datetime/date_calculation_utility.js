@@ -1,5 +1,5 @@
 import { isNumber } from 'lodash';
-import { __, n__ } from '../../../locale';
+import { __, n__ } from '~/locale';
 import { getDayName, parseSeconds } from './date_format_utility';
 
 const DAYS_IN_WEEK = 7;
@@ -133,7 +133,8 @@ export const dayInQuarter = (date, quarter) => {
   return quarter.reduce((acc, month) => {
     if (dateValues.month > month.getMonth()) {
       return acc + totalDaysInMonth(month);
-    } else if (dateValues.month === month.getMonth()) {
+    }
+    if (dateValues.month === month.getMonth()) {
       return acc + dateValues.date;
     }
     return acc + 0;
@@ -142,9 +143,16 @@ export const dayInQuarter = (date, quarter) => {
 
 export const millisecondsPerDay = 1000 * 60 * 60 * 24;
 
-export const getDayDifference = (a, b) => {
-  const date1 = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
-  const date2 = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+/**
+ * Calculates the number of days between 2 specified dates, excluding the current date
+ *
+ * @param {Date} startDate the earlier date that we will substract from the end date
+ * @param {Date} endDate the last date in the range
+ * @return {Number} number of days in between
+ */
+export const getDayDifference = (startDate, endDate) => {
+  const date1 = Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const date2 = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
 
   return Math.floor((date2 - date1) / millisecondsPerDay);
 };
@@ -208,6 +216,19 @@ export const newDateAsLocaleTime = (date) => {
   return new Date(`${date}${suffix}`);
 };
 
+/**
+ * Takes a Date object (where timezone could be GMT or EST) and
+ * returns a Date object with the same date but in UTC.
+ *
+ * @param {Date} date A Date object
+ * @returns {Date|null} A Date object with the same date but in UTC
+ */
+export const getDateWithUTC = (date) => {
+  return date instanceof Date
+    ? new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+    : null;
+};
+
 export const beginOfDayTime = 'T00:00:00Z';
 export const endOfDayTime = 'T23:59:59Z';
 
@@ -251,22 +272,23 @@ export const secondsToMilliseconds = (seconds) => seconds * 1000;
 export const secondsToDays = (seconds) => Math.round(seconds / 86400);
 
 /**
- * Converts a numeric utc offset in seconds to +/- hours
- * ie -32400 => -9 hours
- * ie -12600 => -3.5 hours
+ * Returns the date `n` seconds after the date provided
  *
- * @param {Number} offset UTC offset in seconds as a integer
- *
- * @return {String} the + or - offset in hours
+ * @param {Date} date the initial date
+ * @param {Number} numberOfSeconds number of seconds after
+ * @return {Date} A `Date` object `n` seconds after the provided `Date`
  */
-export const secondsToHours = (offset) => {
-  const parsed = parseInt(offset, 10);
-  if (Number.isNaN(parsed) || parsed === 0) {
-    return `0`;
-  }
-  const num = offset / 3600;
-  return parseInt(num, 10) !== num ? num.toFixed(1) : num;
-};
+export const nSecondsAfter = (date, numberOfSeconds) =>
+  new Date(date.getTime() + numberOfSeconds * 1000);
+
+/**
+ * Returns the date `n` seconds before the date provided
+ *
+ * @param {Date} date the initial date
+ * @param {Number} numberOfSeconds number of seconds before
+ * @return {Date} A `Date` object `n` seconds before the provided `Date`
+ */
+export const nSecondsBefore = (date, numberOfSeconds) => nSecondsAfter(date, -numberOfSeconds);
 
 /**
  * Returns the date `n` days after the date provided
@@ -379,6 +401,8 @@ export const nWeeksBefore = (date, numberOfWeeks, options) =>
 
 /**
  * Returns the date `n` years after the date provided.
+ * When Feb 29 is the specified date, the default behaviour is to return March 1.
+ * But to align with the equivalent rails code, moment JS and datefns we should return Feb 28 instead.
  *
  * @param {Date} date the initial date
  * @param {Number} numberOfYears number of years after
@@ -386,9 +410,27 @@ export const nWeeksBefore = (date, numberOfWeeks, options) =>
  */
 export const nYearsAfter = (date, numberOfYears) => {
   const clone = newDate(date);
-  clone.setFullYear(clone.getFullYear() + numberOfYears);
+  clone.setUTCMonth(clone.getUTCMonth());
+
+  // If the date we are calculating from is Feb 29, return the equivalent result for Feb 28
+  if (clone.getUTCMonth() === 1 && clone.getUTCDate() === 29) {
+    clone.setUTCDate(28);
+  } else {
+    clone.setUTCDate(clone.getUTCDate());
+  }
+
+  clone.setUTCFullYear(clone.getUTCFullYear() + numberOfYears);
   return clone;
 };
+
+/**
+ * Returns the date `n` years before the date provided.
+ *
+ * @param {Date} date the initial date
+ * @param {Number} numberOfYears number of years before
+ * @return {Date} A `Date` object `n` years before the provided `Date`
+ */
+export const nYearsBefore = (date, numberOfYears) => nYearsAfter(date, -numberOfYears);
 
 /**
  * Returns the date after the date provided
@@ -415,6 +457,10 @@ export const dayAfter = (date, options) => nDaysAfter(date, 1, options);
  */
 export const differenceInSeconds = (startDate, endDate) => {
   return (endDate.getTime() - startDate.getTime()) / 1000;
+};
+
+export const differenceInMinutes = (startDate, endDate) => {
+  return Math.ceil(differenceInSeconds(startDate, endDate) / 60);
 };
 
 /**
@@ -510,7 +556,7 @@ export const getOverlappingDaysInPeriods = (givenPeriodLeft = {}, givenPeriodRig
 
 /**
  * Mimics the behaviour of the rails distance_of_time_in_words function
- * https://api.rubyonrails.org/v6.0.1/classes/ActionView/Helpers/DateHelper.html#method-i-distance_of_time_in_words
+ * https://api.rubyonrails.org/classes/ActionView/Helpers/DateHelper.html#method-i-distance_of_time_in_words
  * 0 < -> 29 secs                                         => less than a minute
  * 30 secs < -> 1 min, 29 secs                            => 1 minute
  * 1 min, 30 secs < -> 44 mins, 29 secs                   => [2..44] minutes
@@ -533,7 +579,11 @@ export const approximateDuration = (seconds = 0) => {
   const HOURS_LIMIT = 86370; // 23 hours 59 minutes 30s
   const ONE_DAY_LIMIT = 151170; // 41 hours 59 minutes 30s
 
-  const { days = 0, hours = 0, minutes = 0 } = parseSeconds(seconds, {
+  const {
+    days = 0,
+    hours = 0,
+    minutes = 0,
+  } = parseSeconds(seconds, {
     daysPerWeek: 7,
     hoursPerDay: 24,
     limitToDays: true,
@@ -541,9 +591,11 @@ export const approximateDuration = (seconds = 0) => {
 
   if (seconds < 30) {
     return __('less than a minute');
-  } else if (seconds < MINUTES_LIMIT) {
+  }
+  if (seconds < MINUTES_LIMIT) {
     return n__('1 minute', '%d minutes', seconds < ONE_MINUTE_LIMIT ? 1 : minutes);
-  } else if (seconds < HOURS_LIMIT) {
+  }
+  if (seconds < HOURS_LIMIT) {
     return n__('about 1 hour', 'about %d hours', seconds < ONE_HOUR_LIMIT ? 1 : hours);
   }
   return n__('1 day', '%d days', seconds < ONE_DAY_LIMIT ? 1 : days);
@@ -622,6 +674,17 @@ export const isInFuture = (date) =>
  * @return {Boolean} Returns true if dateA falls before dateB, otherwise false
  */
 export const fallsBefore = (dateA, dateB) => differenceInMilliseconds(dateA, dateB) > 0;
+
+/**
+ * Checks whether date falls in the `start -> end` time period.
+ *
+ * @param {Date} date
+ * @param {Date} start
+ * @param {Date} end
+ * @return {Boolean} Returns true if date falls in the time period, otherwise false
+ */
+export const isInTimePeriod = (date, start, end) =>
+  differenceInMilliseconds(start, date) >= 0 && differenceInMilliseconds(date, end) >= 0;
 
 /**
  * Removes the time component of the date.
@@ -708,4 +771,14 @@ export const getTimeRemainingInWords = (date) => {
 
   const years = dateInFuture.getFullYear() - today.getFullYear();
   return n__('1 year remaining', '%d years remaining', years);
+};
+
+/**
+ * Returns the current date according to UTC time at midnight
+ * @return {Date} The current date in UTC
+ */
+export const getCurrentUtcDate = () => {
+  const now = new Date();
+
+  return new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 };

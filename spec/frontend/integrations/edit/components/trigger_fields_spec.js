@@ -1,32 +1,82 @@
 import { GlFormGroup, GlFormCheckbox, GlFormInput } from '@gitlab/ui';
+import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
+import Vuex from 'vuex';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
-
+import { placeholderForType } from 'jh_else_ce/integrations/constants';
 import TriggerFields from '~/integrations/edit/components/trigger_fields.vue';
+
+Vue.use(Vuex);
 
 describe('TriggerFields', () => {
   let wrapper;
+  let store;
 
   const defaultProps = {
     type: 'slack',
   };
 
   const createComponent = (props, isInheriting = false) => {
-    wrapper = mountExtended(TriggerFields, {
-      propsData: { ...defaultProps, ...props },
-      computed: {
+    store = new Vuex.Store({
+      getters: {
         isInheriting: () => isInheriting,
       },
     });
+
+    wrapper = mountExtended(TriggerFields, {
+      propsData: { ...defaultProps, ...props },
+      store,
+    });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findTriggerLabel = () => wrapper.findByTestId('trigger-fields-group').find('label');
-  const findAllGlFormGroups = () => wrapper.find('#trigger-fields').findAll(GlFormGroup);
+  const findAllGlFormGroups = () => wrapper.find('#trigger-fields').findAllComponents(GlFormGroup);
   const findAllGlFormCheckboxes = () => wrapper.findAllComponents(GlFormCheckbox);
   const findAllGlFormInputs = () => wrapper.findAllComponents(GlFormInput);
+
+  describe('placeholder text on the event fields and default values', () => {
+    const dummyFieldPlaceholder = '#foo';
+    const integrationTypes = {
+      INTEGRATION_TYPE_SLACK: 'slack',
+      INTEGRATION_TYPE_SLACK_APPLICATION: 'gitlab_slack_application',
+      INTEGRATION_TYPE_MATTERMOST: 'mattermost',
+      INTEGRATION_TYPE_NON_EXISTING: 'non_existing',
+    };
+    it.each`
+      integrationType                                        | fieldPlaceholder         | expectedPlaceholder
+      ${integrationTypes.INTEGRATION_TYPE_SLACK}             | ${undefined}             | ${placeholderForType[integrationTypes.INTEGRATION_TYPE_SLACK]}
+      ${integrationTypes.INTEGRATION_TYPE_SLACK}             | ${''}                    | ${placeholderForType[integrationTypes.INTEGRATION_TYPE_SLACK]}
+      ${integrationTypes.INTEGRATION_TYPE_SLACK}             | ${dummyFieldPlaceholder} | ${dummyFieldPlaceholder}
+      ${integrationTypes.INTEGRATION_TYPE_SLACK_APPLICATION} | ${undefined}             | ${placeholderForType[integrationTypes.INTEGRATION_TYPE_SLACK_APPLICATION]}
+      ${integrationTypes.INTEGRATION_TYPE_SLACK_APPLICATION} | ${''}                    | ${placeholderForType[integrationTypes.INTEGRATION_TYPE_SLACK_APPLICATION]}
+      ${integrationTypes.INTEGRATION_TYPE_SLACK_APPLICATION} | ${dummyFieldPlaceholder} | ${dummyFieldPlaceholder}
+      ${integrationTypes.INTEGRATION_TYPE_MATTERMOST}        | ${undefined}             | ${placeholderForType[integrationTypes.INTEGRATION_TYPE_MATTERMOST]}
+      ${integrationTypes.INTEGRATION_TYPE_MATTERMOST}        | ${''}                    | ${placeholderForType[integrationTypes.INTEGRATION_TYPE_MATTERMOST]}
+      ${integrationTypes.INTEGRATION_TYPE_MATTERMOST}        | ${dummyFieldPlaceholder} | ${dummyFieldPlaceholder}
+      ${integrationTypes.INTEGRATION_TYPE_NON_EXISTING}      | ${undefined}             | ${undefined}
+      ${integrationTypes.INTEGRATION_TYPE_NON_EXISTING}      | ${''}                    | ${undefined}
+      ${integrationTypes.INTEGRATION_TYPE_NON_EXISTING}      | ${dummyFieldPlaceholder} | ${dummyFieldPlaceholder}
+    `(
+      'passed down correct placeholder for "$integrationType" type and "$fieldPlaceholder" placeholder on the field',
+      ({ integrationType, fieldPlaceholder, expectedPlaceholder }) => {
+        createComponent({
+          type: integrationType,
+          events: [
+            {
+              field: {
+                name: 'foo',
+                value: '',
+                placeholder: fieldPlaceholder,
+              },
+            },
+          ],
+        });
+        const field = wrapper.findComponent(GlFormInput);
+
+        expect(field.attributes('placeholder')).toBe(expectedPlaceholder);
+      },
+    );
+  });
 
   describe.each([true, false])('template, isInheriting = `%p`', (isInheriting) => {
     it('renders a label with text "Trigger"', () => {
@@ -86,7 +136,7 @@ describe('TriggerFields', () => {
         expect(checkboxes).toHaveLength(2);
 
         checkboxes.wrappers.forEach((checkbox, index) => {
-          const checkBox = checkbox.find(GlFormCheckbox);
+          const checkBox = checkbox.findComponent(GlFormCheckbox);
 
           expect(checkbox.find('label').text()).toBe(expectedResults[index].labelText);
           expect(checkbox.find('[type=hidden]').attributes('name')).toBe(

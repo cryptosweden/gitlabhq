@@ -1,7 +1,16 @@
 <script>
-import { GlDropdown, GlDropdownItem, GlDropdownDivider } from '@gitlab/ui';
+import {
+  GlIcon,
+  GlDisclosureDropdown,
+  GlDisclosureDropdownGroup,
+  GlDisclosureDropdownItem,
+} from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters, mapActions } from 'vuex';
-import { getLocationHash, doesHashExistInUrl } from '../../lib/utils/url_utility';
+import { getLocationHash, doesHashExistInUrl } from '~/lib/utils/url_utility';
+import { __ } from '~/locale';
+import Tracking from '~/tracking';
+import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import {
   DISCUSSION_FILTERS_DEFAULT_VALUE,
   HISTORY_ONLY_FILTER_VALUE,
@@ -9,15 +18,26 @@ import {
   DISCUSSION_TAB_LABEL,
   DISCUSSION_FILTER_TYPES,
   NOTE_UNDERSCORE,
+  ASC,
+  DESC,
 } from '../constants';
 import notesEventHub from '../event_hub';
 
+const SORT_OPTIONS = [
+  { key: DESC, text: __('Newest first'), cls: 'js-newest-first' },
+  { key: ASC, text: __('Oldest first'), cls: 'js-oldest-first' },
+];
+
 export default {
+  SORT_OPTIONS,
   components: {
-    GlDropdown,
-    GlDropdownItem,
-    GlDropdownDivider,
+    GlIcon,
+    GlDisclosureDropdown,
+    GlDisclosureDropdownGroup,
+    GlDisclosureDropdownItem,
+    LocalStorageSync,
   },
+  mixins: [Tracking.mixin()],
   props: {
     filters: {
       type: Array,
@@ -39,10 +59,23 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['getNotesDataByProp', 'timelineEnabled', 'isLoading']),
+    ...mapGetters([
+      'getNotesDataByProp',
+      'timelineEnabled',
+      'isLoading',
+      'sortDirection',
+      'persistSortOrder',
+      'noteableType',
+    ]),
     currentFilter() {
       if (!this.currentValue) return this.filters[0];
       return this.filters.find((filter) => filter.value === this.currentValue);
+    },
+    selectedSortOption() {
+      return SORT_OPTIONS.find(({ key }) => this.sortDirection === key);
+    },
+    sortStorageKey() {
+      return `sort_direction_${this.noteableType.toLowerCase()}`;
     },
   },
   created() {
@@ -69,6 +102,7 @@ export default {
       'setCommentsDisabled',
       'setTargetNoteHash',
       'setTimelineView',
+      'setDiscussionSortDirection',
     ]),
     selectFilter(value, persistFilter = true) {
       const filter = parseInt(value, 10);
@@ -103,36 +137,99 @@ export default {
     filterType(value) {
       if (value === 0) {
         return DISCUSSION_FILTER_TYPES.ALL;
-      } else if (value === 1) {
+      }
+      if (value === 1) {
         return DISCUSSION_FILTER_TYPES.COMMENTS;
       }
       return DISCUSSION_FILTER_TYPES.HISTORY;
+    },
+    fetchSortedDiscussions(direction) {
+      if (this.isSortDropdownItemActive(direction)) {
+        return;
+      }
+
+      this.setDiscussionSortDirection({ direction });
+      this.track('change_discussion_sort_direction', { property: direction });
+    },
+    isSortDropdownItemActive(sortDir) {
+      return sortDir === this.sortDirection;
     },
   },
 };
 </script>
 
 <template>
-  <gl-dropdown
+  <div
     v-if="displayFilters"
-    id="discussion-filter-dropdown"
-    class="full-width-mobile discussion-filter-container js-discussion-filter-container"
-    data-qa-selector="discussion_filter_dropdown"
-    :text="currentFilter.title"
-    :disabled="isLoading"
+    id="discussion-preferences"
+    data-testid="discussion-preferences"
+    class="gl-display-inline-block gl-align-bottom full-width-mobile"
   >
-    <div v-for="filter in filters" :key="filter.value" class="dropdown-item-wrapper">
-      <gl-dropdown-item
-        :is-check-item="true"
-        :is-checked="filter.value === currentValue"
-        :class="{ 'is-active': filter.value === currentValue }"
-        :data-filter-type="filterType(filter.value)"
-        data-qa-selector="filter_menu_item"
-        @click.prevent="selectFilter(filter.value)"
+    <local-storage-sync
+      :value="sortDirection"
+      :storage-key="sortStorageKey"
+      :persist="persistSortOrder"
+      as-string
+      @input="setDiscussionSortDirection({ direction: $event })"
+    />
+    <gl-disclosure-dropdown
+      id="discussion-preferences-dropdown"
+      class="full-width-mobile"
+      data-testid="discussion-preferences-dropdown"
+      :toggle-text="__('Sort or filter')"
+      :disabled="isLoading"
+      placement="bottom-end"
+    >
+      <gl-disclosure-dropdown-group id="discussion-sort">
+        <gl-disclosure-dropdown-item
+          v-for="{ text, key, cls } in $options.SORT_OPTIONS"
+          :key="text"
+          :class="cls"
+          :is-selected="isSortDropdownItemActive(key)"
+          @action="fetchSortedDiscussions(key)"
+        >
+          <template #list-item>
+            <gl-icon
+              name="mobile-issue-close"
+              data-testid="dropdown-item-checkbox"
+              :class="[
+                'gl-dropdown-item-check-icon',
+                { 'gl-invisible': !isSortDropdownItemActive(key) },
+                'gl-text-blue-400',
+              ]"
+            />
+            {{ text }}
+          </template>
+        </gl-disclosure-dropdown-item>
+      </gl-disclosure-dropdown-group>
+      <gl-disclosure-dropdown-group
+        id="discussion-filter"
+        class="discussion-filter-container js-discussion-filter-container"
+        bordered
       >
-        {{ filter.title }}
-      </gl-dropdown-item>
-      <gl-dropdown-divider v-if="filter.value === defaultValue" />
-    </div>
-  </gl-dropdown>
+        <gl-disclosure-dropdown-item
+          v-for="filter in filters"
+          :key="filter.value"
+          :is-selected="filter.value === currentValue"
+          :class="{ 'is-active': filter.value === currentValue }"
+          :data-filter-type="filterType(filter.value)"
+          data-testid="filter-menu-item"
+          @action="selectFilter(filter.value)"
+        >
+          <template #list-item>
+            <gl-icon
+              name="mobile-issue-close"
+              data-testid="dropdown-item-checkbox"
+              :class="[
+                'gl-dropdown-item-check-icon',
+                { 'gl-invisible': filter.value !== currentValue },
+                'gl-text-blue-400',
+              ]"
+            />
+            {{ filter.title }}
+          </template>
+        </gl-disclosure-dropdown-item>
+      </gl-disclosure-dropdown-group>
+    </gl-disclosure-dropdown>
+  </div>
 </template>

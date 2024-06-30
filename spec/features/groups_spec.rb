@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group' do
-  let(:user) { create(:user) }
+RSpec.describe 'Group', feature_category: :groups_and_projects do
+  let_it_be(:user) { create(:user) }
 
   before do
     sign_in(user)
@@ -34,6 +34,33 @@ RSpec.describe 'Group' do
         expect(group.visibility_level).to eq(Gitlab::VisibilityLevel::PUBLIC)
         expect(page).to have_current_path(group_path(group), ignore_query: true)
         expect(page).to have_selector '.visibility-icon [data-testid="earth-icon"]'
+      end
+
+      context 'with current organization setting in middleware' do
+        let_it_be(:another_organization) { create(:organization, users: [user]) }
+
+        before_all do
+          create(:organization, :default)
+        end
+
+        context 'for setting from the header' do
+          it 'sets the organization to another organization', :feature do
+            fill_in 'Group name', with: 'test-group'
+
+            inspect_requests(
+              inject_headers: {
+                ::Organizations::ORGANIZATION_HTTP_HEADER.sub(/^HTTP_/, '') => another_organization.id.to_s
+              }
+            ) do
+              click_button 'Create group'
+            end
+
+            group = Group.find_by(name: 'test-group')
+
+            expect(group.organization).to eq(another_organization)
+            expect(page).to have_current_path(group_path(group), ignore_query: true)
+          end
+        end
       end
     end
 
@@ -105,11 +132,29 @@ RSpec.describe 'Group' do
 
         expect(page).to have_content('Group path is available')
       end
+
+      context 'when filling in the `Group name` field' do
+        let_it_be(:group1) { create(:group, :public, path: 'foo-bar') }
+        let_it_be(:group2) { create(:group, :public, path: 'bar-baz') }
+
+        it 'automatically populates the `Group URL` field' do
+          fill_in 'Group name', with: 'Foo bar'
+          # Wait for debounce in app/assets/javascripts/group.js#18
+          sleep(1)
+          fill_in 'Group name', with: 'Bar baz'
+          # Wait for debounce in app/assets/javascripts/group.js#18
+          sleep(1)
+
+          wait_for_requests
+
+          expect(page).to have_field('Group URL', with: 'bar-baz1')
+        end
+      end
     end
 
     describe 'Mattermost team creation' do
       before do
-        stub_mattermost_setting(enabled: mattermost_enabled)
+        stub_mattermost_setting(enabled: mattermost_enabled, host: 'https://mattermost.test')
 
         visit new_group_path
         click_link 'Create group'
@@ -127,13 +172,14 @@ RSpec.describe 'Group' do
         end
 
         it 'updates the team URL on graph path update', :js do
-          out_span = find('span[data-bind-out="create_chat_team"]', visible: false)
+          label = find('#group_create_chat_team ~ label[for=group_create_chat_team]')
+          url = 'https://mattermost.test/test-group'
 
-          expect(out_span.text).to be_empty
+          expect(label.text).not_to match(url)
 
           fill_in('group_path', with: 'test-group')
 
-          expect(out_span.text).to eq('test-group')
+          expect(label.text).to match(url)
         end
       end
 
@@ -186,7 +232,10 @@ RSpec.describe 'Group' do
     describe 'not showing personalization questions on group creation when it is enabled' do
       before do
         stub_application_setting(hide_third_party_offers: true)
-        visit new_group_path(anchor: 'create-group-pane')
+
+        # If visiting directly via path, personalization setting is not being picked up correctly
+        visit new_group_path
+        click_link 'Create group'
       end
 
       it 'does not render personalization questions' do
@@ -202,14 +251,13 @@ RSpec.describe 'Group' do
       let(:user) { create(:admin) }
 
       before do
-        visit new_group_path(parent_id: group.id)
+        visit new_group_path(parent_id: group.id, anchor: 'create-group-pane')
       end
 
       context 'when admin mode is enabled', :enable_admin_mode do
         it 'creates a nested group' do
-          click_link 'Create group'
-          fill_in 'Group name', with: 'bar'
-          click_button 'Create group'
+          fill_in 'Subgroup name', with: 'bar'
+          click_button 'Create subgroup'
 
           expect(page).to have_current_path(group_path('foo/bar'), ignore_query: true)
           expect(page).to have_selector 'h1', text: 'bar'
@@ -218,7 +266,7 @@ RSpec.describe 'Group' do
 
       context 'when admin mode is disabled' do
         it 'is not allowed' do
-          expect(page).not_to have_button('Create group')
+          expect(page).not_to have_button('Create subgroup')
         end
       end
     end
@@ -231,11 +279,10 @@ RSpec.describe 'Group' do
         sign_out(:user)
         sign_in(user)
 
-        visit new_group_path(parent_id: group.id)
-        click_link 'Create group'
+        visit new_group_path(parent_id: group.id, anchor: 'create-group-pane')
 
-        fill_in 'Group name', with: 'bar'
-        click_button 'Create group'
+        fill_in 'Subgroup name', with: 'bar'
+        click_button 'Create subgroup'
 
         expect(page).to have_current_path(group_path('foo/bar'), ignore_query: true)
         expect(page).to have_selector 'h1', text: 'bar'
@@ -249,7 +296,7 @@ RSpec.describe 'Group' do
       end
 
       context 'when creating subgroup' do
-        let(:path) { new_group_path(parent_id: group.id) }
+        let(:path) { new_group_path(parent_id: group.id, anchor: 'create-group-pane') }
 
         it 'does not render recaptcha' do
           visit path
@@ -259,24 +306,50 @@ RSpec.describe 'Group' do
       end
     end
 
+    context 'when many parent groups are available' do
+      let_it_be(:group2) { create(:group, path: 'foo2') }
+      let_it_be(:group3) { create(:group, path: 'foo3') }
+
+      before do
+        group.add_owner(user)
+        group2.add_maintainer(user)
+        group3.add_developer(user)
+        visit new_group_path(parent_id: group.id, anchor: 'create-group-pane')
+      end
+
+      it 'creates private subgroup' do
+        fill_in 'Subgroup name', with: 'bar'
+        click_button 'foo'
+
+        expect(page).to have_css('[data-testid="select_group_dropdown_item"]', text: 'foo2')
+        expect(page).not_to have_css('[data-testid="select_group_dropdown_item"]', text: 'foo3')
+
+        click_button 'foo2'
+        click_button 'Create subgroup'
+
+        expect(page).to have_current_path(group_path('foo2/bar'), ignore_query: true)
+        expect(page).to have_selector('h1', text: 'bar')
+        expect(page).to have_selector('.visibility-icon [data-testid="lock-icon"]')
+      end
+    end
+
     describe 'real-time group url validation', :js do
       let_it_be(:subgroup) { create(:group, path: 'sub', parent: group) }
 
       before do
         group.add_owner(user)
-        visit new_group_path(parent_id: group.id)
-        click_link 'Create group'
+        visit new_group_path(parent_id: group.id, anchor: 'create-group-pane')
       end
 
       it 'shows a message if group url is available' do
-        fill_in 'Group URL', with: group.path
+        fill_in 'Subgroup slug', with: group.path
         wait_for_requests
 
         expect(page).to have_content('Group path is available')
       end
 
       it 'shows an error if group url is taken' do
-        fill_in 'Group URL', with: subgroup.path
+        fill_in 'Subgroup slug', with: subgroup.path
         wait_for_requests
 
         expect(page).to have_content("Group path is unavailable. Path has been replaced with a suggested available path.")
@@ -289,7 +362,7 @@ RSpec.describe 'Group' do
 
     sign_out(:user)
     sign_in(create(:user))
-    visit new_group_path(parent_id: group.id)
+    visit new_group_path(parent_id: group.id, anchor: 'create-group-pane')
 
     expect(page).to have_title('Not Found')
     expect(page).to have_content('Page Not Found')
@@ -307,10 +380,16 @@ RSpec.describe 'Group' do
       visit path
     end
 
-    it_behaves_like 'dirty submit form', [{ form: '.js-general-settings-form', input: 'input[name="group[name]"]' },
-                                          { form: '.js-general-settings-form', input: '#group_visibility_level_0' },
-                                          { form: '.js-general-permissions-form', input: '#group_request_access_enabled' },
-                                          { form: '.js-general-permissions-form', input: 'input[name="group[two_factor_grace_period]"]' }]
+    it_behaves_like 'dirty submit form', [
+      { form: '.js-general-settings-form', input: 'input[name="group[name]"]', submit: 'button[type="submit"]' },
+      { form: '.js-general-settings-form', input: '#group_visibility_level_0', submit: 'button[type="submit"]' },
+      { form: '.js-general-permissions-form', input: '#group_request_access_enabled', submit: 'button[type="submit"]' },
+      {
+        form: '.js-general-permissions-form',
+        input: 'input[name="group[two_factor_grace_period]"]',
+        submit: 'button[type="submit"]'
+      }
+    ]
 
     it 'saves new settings' do
       page.within('.gs-general') do
@@ -323,21 +402,21 @@ RSpec.describe 'Group' do
       expect(page).to have_content 'successfully updated'
       expect(find('#group_name').value).to eq(new_name)
 
-      page.within ".breadcrumbs" do
+      within_testid "breadcrumb-links" do
         expect(page).to have_content new_name
       end
     end
 
     it 'focuses confirmation field on remove group' do
-      click_button('Remove group')
+      click_button('Delete group')
 
       expect(page).to have_selector '#confirm_name_input:focus'
     end
 
     it 'removes group', :sidekiq_might_not_need_inline do
-      expect { remove_with_confirm('Remove group', group.path) }.to change {Group.count}.by(-1)
+      expect { remove_with_confirm('Delete group', group.path) }.to change { Group.count }.by(-1)
       expect(group.members.all.count).to be_zero
-      expect(page).to have_content "scheduled for deletion"
+      expect(page).to have_content "is being deleted"
     end
   end
 
@@ -398,29 +477,40 @@ RSpec.describe 'Group' do
 
       expect(page).to have_content(nested_group.name)
       expect(page).to have_content(project.name)
-      expect(page).to have_link('Group information')
     end
 
-    it 'renders subgroup page with the text "Subgroup information"' do
+    it 'renders group page with the text "Group" in the sidebar header' do
+      visit group_path(group)
+
+      within('#super-sidebar-context-header') do
+        expect(page).to have_text('Group')
+      end
+    end
+
+    it 'renders subgroup page with the text "Group" in the sidebar header' do
       visit group_path(nested_group)
-      wait_for_requests
 
-      expect(page).to have_link('Subgroup information')
+      within('#super-sidebar-context-header') do
+        expect(page).to have_text('Group')
+      end
     end
 
-    it 'renders project page with the text "Project information"' do
+    it 'renders project page with the text "Project" in the sidebar header' do
       visit project_path(project)
-      wait_for_requests
 
-      expect(page).to have_link('Project information')
+      within('#super-sidebar-context-header') do
+        expect(page).to have_text('Project')
+      end
     end
   end
 
   describe 'new subgroup / project button' do
     let_it_be(:group, reload: true) do
-      create(:group,
-             project_creation_level: Gitlab::Access::NO_ONE_PROJECT_ACCESS,
-             subgroup_creation_level: Gitlab::Access::OWNER_SUBGROUP_ACCESS)
+      create(
+        :group,
+        project_creation_level: Gitlab::Access::NO_ONE_PROJECT_ACCESS,
+        subgroup_creation_level: Gitlab::Access::OWNER_SUBGROUP_ACCESS
+      )
     end
 
     before do
@@ -431,7 +521,7 @@ RSpec.describe 'Group' do
       it 'only displays "New subgroup" button' do
         visit group_path(group)
 
-        page.within '[data-testid="group-buttons"]' do
+        within_testid 'group-buttons' do
           expect(page).to have_link('New subgroup')
           expect(page).not_to have_link('New project')
         end
@@ -448,7 +538,7 @@ RSpec.describe 'Group' do
         sign_in(user)
 
         visit group_path(group)
-        page.within '[data-testid="group-buttons"]' do
+        within_testid 'group-buttons' do
           expect(page).to have_link('New project')
           expect(page).not_to have_link('New subgroup')
         end
@@ -461,10 +551,59 @@ RSpec.describe 'Group' do
 
         visit group_path(group)
 
-        page.within '[data-testid="group-buttons"]' do
+        within_testid 'group-buttons' do
           expect(page).to have_link('New subgroup')
           expect(page).to have_link('New project')
         end
+      end
+    end
+
+    context 'when in a private group' do
+      before do
+        group.update!(
+          visibility_level: Gitlab::VisibilityLevel::PRIVATE,
+          project_creation_level: Gitlab::Access::MAINTAINER_PROJECT_ACCESS
+        )
+      end
+
+      context 'when visibility levels have been restricted to private only by an administrator' do
+        before do
+          stub_application_setting(
+            restricted_visibility_levels: [
+              Gitlab::VisibilityLevel::PRIVATE
+            ]
+          )
+        end
+
+        it 'does not display the "New project" button' do
+          visit group_path(group)
+
+          within_testid 'group-buttons' do
+            expect(page).not_to have_link('New project')
+          end
+        end
+
+        it 'does not display the "New subgroup" button' do
+          visit group_path(group)
+
+          within_testid 'group-buttons' do
+            expect(page).not_to have_link('New subgroup')
+          end
+        end
+      end
+    end
+  end
+
+  describe 'group README', :js do
+    context 'with gitlab-profile project and README.md' do
+      let_it_be(:group) { create(:group) }
+      let_it_be(:project) { create(:project, :public, :readme, namespace: group) }
+
+      it 'renders README block on group page' do
+        visit group_path(group)
+        wait_for_requests
+
+        expect(page).to have_text('README.md')
       end
     end
   end
@@ -473,70 +612,5 @@ RSpec.describe 'Group' do
     click_button button_text
     fill_in 'confirm_name_input', with: confirm_with
     click_button 'Confirm'
-  end
-
-  describe 'storage_enforcement_banner', :js do
-    let_it_be(:group) { create(:group) }
-    let_it_be_with_refind(:user) { create(:user) }
-
-    before_all do
-      group.add_owner(user)
-      sign_in(user)
-    end
-
-    context 'with storage_enforcement_date set' do
-      let_it_be(:storage_enforcement_date) { Date.today + 30 }
-
-      before do
-        allow_next_found_instance_of(Group) do |g|
-          allow(g).to receive(:storage_enforcement_date).and_return(storage_enforcement_date)
-        end
-      end
-
-      it 'displays the banner in the group page' do
-        visit group_path(group)
-        expect_page_to_have_storage_enforcement_banner(storage_enforcement_date)
-      end
-
-      it 'does not display the banner in a paid group page' do
-        allow_next_found_instance_of(Group) do |g|
-          allow(g).to receive(:paid?).and_return(true)
-        end
-        visit group_path(group)
-        expect_page_not_to_have_storage_enforcement_banner
-      end
-
-      it 'does not display the banner if user has previously closed unless threshold has changed' do
-        visit group_path(group)
-        expect_page_to_have_storage_enforcement_banner(storage_enforcement_date)
-        find('.js-storage-enforcement-banner [data-testid="close-icon"]').click
-        page.refresh
-        expect_page_not_to_have_storage_enforcement_banner
-
-        storage_enforcement_date = Date.today + 13
-        allow_next_found_instance_of(Group) do |g|
-          allow(g).to receive(:storage_enforcement_date).and_return(storage_enforcement_date)
-        end
-        page.refresh
-        expect_page_to_have_storage_enforcement_banner(storage_enforcement_date)
-      end
-    end
-
-    context 'with storage_enforcement_date not set' do
-      # This test should break and be rewritten after the implementation of the storage_enforcement_date
-      # TBD: https://gitlab.com/gitlab-org/gitlab/-/issues/350632
-      it 'does not display the banner in the group page' do
-        visit group_path(group)
-        expect_page_not_to_have_storage_enforcement_banner
-      end
-    end
-  end
-
-  def expect_page_to_have_storage_enforcement_banner(storage_enforcement_date)
-    expect(page).to have_text "From #{storage_enforcement_date} storage limits will apply to this namespace"
-  end
-
-  def expect_page_not_to_have_storage_enforcement_banner
-    expect(page).not_to have_text "storage limits will apply to this namespace"
   end
 end

@@ -1,11 +1,15 @@
 import { GlFormCheckbox } from '@gitlab/ui';
-import { nextTick } from 'vue';
+import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
+import Vuex from 'vuex';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
-
 import JiraTriggerFields from '~/integrations/edit/components/jira_trigger_fields.vue';
+
+Vue.use(Vuex);
 
 describe('JiraTriggerFields', () => {
   let wrapper;
+  let store;
 
   const defaultProps = {
     initialTriggerCommit: false,
@@ -14,17 +18,17 @@ describe('JiraTriggerFields', () => {
   };
 
   const createComponent = (props, isInheriting = false) => {
-    wrapper = mountExtended(JiraTriggerFields, {
-      propsData: { ...defaultProps, ...props },
-      computed: {
+    store = new Vuex.Store({
+      getters: {
         isInheriting: () => isInheriting,
       },
     });
-  };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
+    wrapper = mountExtended(JiraTriggerFields, {
+      propsData: { ...defaultProps, ...props },
+      store,
+    });
+  };
 
   const findCommentSettings = () => wrapper.findByTestId('comment-settings');
   const findCommentDetail = () => wrapper.findByTestId('comment-detail');
@@ -115,9 +119,8 @@ describe('JiraTriggerFields', () => {
 
         const checkbox = findIssueTransitionEnabled();
         expect(checkbox.element.checked).toBe(false);
-        checkbox.trigger('click');
+        await checkbox.setChecked(true);
 
-        await nextTick();
         const [radio1, radio2] = findIssueTransitionModeRadios().wrappers;
         expect(radio1.element.checked).toBe(true);
         expect(radio2.element.checked).toBe(false);
@@ -192,7 +195,7 @@ describe('JiraTriggerFields', () => {
       );
 
       wrapper.findAll('[type=text], [type=checkbox], [type=radio]').wrappers.forEach((input) => {
-        expect(input.attributes('disabled')).toBe('disabled');
+        expect(input.attributes('disabled')).toBeDefined();
       });
     });
   });

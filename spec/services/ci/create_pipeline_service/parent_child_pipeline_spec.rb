@@ -2,9 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, '#execute' do
+RSpec.describe Ci::CreatePipelineService, '#execute', :ci_config_feature_flag_correctness,
+  feature_category: :continuous_integration do
   let_it_be(:project) { create(:project, :repository) }
-  let_it_be(:user) { create(:user) }
+  let_it_be(:user) { create(:user, developer_of: project) }
 
   let(:ref_name) { 'master' }
 
@@ -17,9 +18,27 @@ RSpec.describe Ci::CreatePipelineService, '#execute' do
     described_class.new(project, user, params)
   end
 
-  before do
-    project.add_developer(user)
-    stub_ci_pipeline_yaml_file(config)
+  it_behaves_like 'creating a pipeline with environment keyword' do
+    let!(:project) { create(:project, :repository) }
+    let(:execute_service) { service.execute(:push) }
+    let(:expected_deployable_class) { Ci::Bridge }
+    let(:expected_deployment_status) { 'running' }
+    let(:expected_job_status) { 'running' }
+    let(:child_config) { YAML.dump({ deploy: { script: 'deploy' } }) }
+    let(:base_config) do
+      {
+        trigger: {
+          include: [{ local: '.child.yml' }],
+          strategy: 'depend'
+        }
+      }
+    end
+
+    before do
+      project.add_developer(user)
+      project.repository.create_file(user, '.gitlab-ci.yml', config, branch_name: 'master', message: 'ok')
+      project.repository.create_file(user, '.child.yml', child_config, branch_name: 'master', message: 'ok')
+    end
   end
 
   shared_examples 'successful creation' do
@@ -36,7 +55,7 @@ RSpec.describe Ci::CreatePipelineService, '#execute' do
       expect(pipeline.statuses).to match_array [test, bridge]
       expect(bridge.options).to eq(expected_bridge_options)
       expect(bridge.yaml_variables)
-        .to include(key: 'CROSS', value: 'downstream', public: true)
+        .to include(key: 'CROSS', value: 'downstream')
     end
   end
 
@@ -64,6 +83,10 @@ RSpec.describe Ci::CreatePipelineService, '#execute' do
           include:
             - local: path/to/child.yml
       YAML
+    end
+
+    before do
+      stub_ci_pipeline_yaml_file(config)
     end
 
     it_behaves_like 'successful creation' do
@@ -108,7 +131,7 @@ RSpec.describe Ci::CreatePipelineService, '#execute' do
           pipeline = create_pipeline!
 
           test = pipeline.statuses.find_by(name: 'instrumentation_test')
-          expect(test).to be_pending
+          expect(test).to be_running
           expect(pipeline.triggered_pipelines.count).to eq(1)
         end
 
@@ -157,6 +180,10 @@ RSpec.describe Ci::CreatePipelineService, '#execute' do
   end
 
   describe 'child pipeline triggers' do
+    before do
+      stub_ci_pipeline_yaml_file(config)
+    end
+
     context 'when YAML is valid' do
       let(:config) do
         <<~YAML

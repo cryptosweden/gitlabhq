@@ -1,13 +1,15 @@
 ---
 stage: Create
-group: Editor
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
-type: reference
+group: IDE
+info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+description: "Configure external storage, such as a CDN, for static objects in your GitLab repository."
 ---
 
-# External storage for static objects **(FREE)**
+# External storage for static objects
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/31025) in GitLab 12.3.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 Configure GitLab to serve repository static objects (such as archives or raw blobs) from external
 storage such as a content delivery network (CDN).
@@ -16,9 +18,9 @@ storage such as a content delivery network (CDN).
 
 To configure external storage for static objects:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Settings > Repository**.
-1. Expand the **External storage for repository static objects** section.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Settings > Repository**.
+1. Expand **External storage for repository static objects**.
 1. Enter the base URL and an arbitrary token. When you [set up external storage](#set-up-external-storage),
    use a script that sets these values as `ORIGIN_HOSTNAME` and `STORAGE_TOKEN`.
 1. Select **Save changes**.
@@ -49,7 +51,10 @@ The following example shows a sequence of requests and responses between:
 - The content delivery network.
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 sequenceDiagram
+    accTitle: Request and response flow
+    accDescr: Describes how requests and responses flow from the user, GitLab, and a CDN.
     User->>GitLab: GET /project/-/archive/master.zip
     GitLab->>User: 302 Found
     Note over User,GitLab: Location: https://cdn.com/project/-/archive/master.zip?token=secure-user-token

@@ -1,22 +1,51 @@
-import { spriteIcon } from '~/lib/utils/common_utils';
+import { GlAlert } from '@gitlab/ui';
+import { escape } from 'lodash';
+import Vue from 'vue';
 import { differenceInMilliseconds } from '~/lib/utils/datetime_utility';
-import { s__ } from '~/locale';
+import { s__, sprintf } from '~/locale';
 
-// Renders math using KaTeX in any element with the
-// `js-render-math` class
+// Renders math using KaTeX in an element.
 //
-// ### Example Markup
+// Typically for elements with the `js-render-math` class such as
+//   <code class="js-render-math"></code>
 //
-//   <code class="js-render-math"></div>
-//
+// See app/assets/javascripts/behaviors/markdown/render_gfm.js
 
 const MAX_MATH_CHARS = 1000;
+const MAX_MACRO_EXPANSIONS = 1000;
+const MAX_USER_SPECIFIED_EMS = 20;
 const MAX_RENDER_TIME_MS = 2000;
+const LAZY_ALERT_SHOWN_CLASS = 'lazy-alert-shown';
 
 // Wait for the browser to reflow the layout. Reflowing SVG takes time.
 // This has to wrap the inner function, otherwise IE/Edge throw "invalid calling object".
 const waitForReflow = (fn) => {
   window.requestIdleCallback(fn);
+};
+
+const katexOptions = (el) => {
+  const options = {
+    displayMode: el.dataset.mathStyle === 'display',
+    throwOnError: true,
+    trust: (context) =>
+      // this config option restores the KaTeX pre-v0.11.0
+      // behavior of allowing certain commands and protocols
+      // eslint-disable-next-line @gitlab/require-i18n-strings
+      ['\\url', '\\href'].includes(context.command) &&
+      ['http', 'https', 'mailto', '_relative'].includes(context.protocol),
+  };
+
+  if (gon.math_rendering_limits_enabled) {
+    options.maxSize = MAX_USER_SPECIFIED_EMS;
+    // See https://gitlab.com/gitlab-org/gitlab/-/merge_requests/111107 for
+    // reasoning behind this value
+    options.maxExpand = MAX_MACRO_EXPANSIONS;
+  } else {
+    // eslint-disable-next-line @gitlab/require-i18n-strings
+    options.maxExpand = 'Infinity';
+  }
+
+  return options;
 };
 
 /**
@@ -47,7 +76,7 @@ class SafeMathRenderer {
 
     this.renderElement = this.renderElement.bind(this);
     this.render = this.render.bind(this);
-    this.attachEvents = this.attachEvents.bind(this);
+    this.pageName = document.querySelector('body').dataset.page;
   }
 
   renderElement(chosenEl) {
@@ -56,42 +85,32 @@ class SafeMathRenderer {
     }
 
     const el = chosenEl || this.queue.shift();
-    const forceRender = Boolean(chosenEl);
+    const forceRender = Boolean(chosenEl) || !gon.math_rendering_limits_enabled;
     const text = el.textContent;
+    const isTextTooLong = text.length > MAX_MATH_CHARS;
 
     el.removeAttribute('style');
-    if (!forceRender && (this.totalMS >= MAX_RENDER_TIME_MS || text.length > MAX_MATH_CHARS)) {
-      // Show unrendered math code
-      const wrapperElement = document.createElement('div');
-      const codeElement = document.createElement('pre');
+    if (!forceRender && (this.totalMS >= MAX_RENDER_TIME_MS || isTextTooLong)) {
+      if (!el.classList.contains(LAZY_ALERT_SHOWN_CLASS)) {
+        el.classList.add(LAZY_ALERT_SHOWN_CLASS);
 
-      codeElement.className = 'code';
-      codeElement.textContent = el.textContent;
+        // Show un-rendered math code
+        const codeElement = document.createElement('pre');
+        codeElement.className = 'code';
+        codeElement.textContent = el.textContent;
+        codeElement.dataset.mathStyle = el.dataset.mathStyle;
+        el.replaceChildren(codeElement);
 
-      const { parentNode } = el;
-      parentNode.replaceChild(wrapperElement, el);
-
-      const html = `
-          <div class="alert gl-alert gl-alert-warning alert-dismissible lazy-render-math-container js-lazy-render-math-container fade show" role="alert">
-            ${spriteIcon('warning', 'text-warning-600 s16 gl-alert-icon')}
-            <div class="display-flex gl-alert-content">
-              <div>${s__(
-                'math|Displaying this math block may cause performance issues on this page',
-              )}</div>
-              <div class="gl-alert-actions">
-                <button class="js-lazy-render-math btn gl-alert-action btn-primary btn-md gl-button">Display anyway</button>
-              </div>
-            </div>
-            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-              ${spriteIcon('close', 's16')}
-            </button>
-          </div>
-          `;
-
-      if (!wrapperElement.classList.contains('lazy-alert-shown')) {
-        wrapperElement.innerHTML = html;
-        wrapperElement.append(codeElement);
-        wrapperElement.classList.add('lazy-alert-shown');
+        this.renderAlert({
+          // We do not want to put the alert in the <copy-code> element's nearest
+          // positioned ancestor, otherwise it will display over the alert instead of
+          // the code block. Instead, put the alert *before* that ancestor.
+          mountBeforeEl: el.closest('.js-markdown-code'),
+          isTextTooLong,
+          onDisplayAnyway: () => {
+            this.renderElement(codeElement);
+          },
+        });
       }
 
       // Render the next math
@@ -109,22 +128,27 @@ class SafeMathRenderer {
       }
 
       try {
-        displayContainer.innerHTML = this.katex.renderToString(text, {
-          displayMode: el.getAttribute('data-math-style') === 'display',
-          throwOnError: true,
-          maxSize: 20,
-          maxExpand: 20,
-          trust: (context) =>
-            // this config option restores the KaTeX pre-v0.11.0
-            // behavior of allowing certain commands and protocols
-            // eslint-disable-next-line @gitlab/require-i18n-strings
-            ['\\url', '\\href'].includes(context.command) &&
-            ['http', 'https', 'mailto', '_relative'].includes(context.protocol),
-        });
+        if (displayContainer.dataset.mathStyle === 'inline') {
+          displayContainer.classList.add('math-content-inline');
+        } else {
+          displayContainer.classList.add('math-content-display');
+        }
+
+        // eslint-disable-next-line no-unsanitized/property
+        displayContainer.innerHTML = this.katex.renderToString(text, katexOptions(el));
       } catch (e) {
         // Don't show a flash for now because it would override an existing flash message
-        el.textContent = s__('math|There was an error rendering this math block');
-        // el.style.color = '#d00';
+        if (e.message.match(/Too many expansions/)) {
+          // this is controlled by the maxExpand parameter
+          el.textContent = s__('math|Too many expansions. Consider using multiple math blocks.');
+        } else {
+          // According to https://katex.org/docs/error.html, we need to ensure that
+          // the error message is escaped.
+          el.textContent = sprintf(
+            s__('math|There was an error rendering this math block. %{katexMessage}'),
+            { katexMessage: escape(e.message) },
+          );
+        }
         el.className = 'katex-error';
       }
 
@@ -141,9 +165,8 @@ class SafeMathRenderer {
   render() {
     // Replace math blocks with a placeholder so they aren't rendered twice
     this.elements.forEach((el) => {
-      const placeholder = document.createElement('span');
-      placeholder.style.display = 'none';
-      placeholder.setAttribute('data-math-style', el.getAttribute('data-math-style'));
+      const placeholder = document.createElement('div');
+      placeholder.dataset.mathStyle = el.dataset.mathStyle;
       placeholder.textContent = el.textContent;
       el.parentNode.replaceChild(placeholder, el);
       this.queue.push(placeholder);
@@ -154,33 +177,57 @@ class SafeMathRenderer {
     setTimeout(this.renderElement, 400);
   }
 
-  attachEvents() {
-    document.body.addEventListener('click', (event) => {
-      if (!event.target.classList.contains('js-lazy-render-math')) {
-        return;
-      }
+  // eslint-disable-next-line class-methods-use-this
+  renderAlert({ mountBeforeEl, isTextTooLong, onDisplayAnyway }) {
+    let alert;
 
-      const parent = event.target.closest('.js-lazy-render-math-container');
+    const dismiss = () => {
+      alert.$destroy();
+      alert.$el.remove();
+    };
 
-      const pre = parent.nextElementSibling;
+    const displayAnyway = () => {
+      dismiss();
+      onDisplayAnyway();
+    };
 
-      parent.remove();
+    const message = isTextTooLong
+      ? sprintf(
+          s__(
+            'math|This math block exceeds %{maxMathChars} characters, and may cause performance issues on this page.',
+          ),
+          { maxMathChars: MAX_MATH_CHARS },
+        )
+      : s__('math|Displaying this math block may cause performance issues on this page.');
 
-      this.renderElement(pre);
+    alert = new Vue({
+      render(h) {
+        return h(
+          GlAlert,
+          {
+            class: 'gl-mb-5',
+            props: { variant: 'warning', primaryButtonText: s__('math|Display anyway') },
+            on: { dismiss, primaryAction: displayAnyway },
+          },
+          message,
+        );
+      },
     });
+
+    alert.$mount();
+    mountBeforeEl.before(alert.$el);
   }
 }
 
-export default function renderMath($els) {
-  if (!$els.length) return;
+export default function renderMath(elements) {
+  if (!elements.length) return;
   Promise.all([
     import(/* webpackChunkName: 'katex' */ 'katex'),
     import(/* webpackChunkName: 'katex' */ 'katex/dist/katex.min.css'),
   ])
     .then(([katex]) => {
-      const renderer = new SafeMathRenderer($els.get(), katex);
+      const renderer = new SafeMathRenderer(elements, katex);
       renderer.render();
-      renderer.attachEvents();
     })
     .catch(() => {});
 }

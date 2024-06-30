@@ -1,19 +1,23 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 description: 'Learn how to install a GitLab instance on Google Cloud Platform.'
 ---
 
-# Installing GitLab on Google Cloud Platform **(FREE SELF)**
+# Installing GitLab on Google Cloud Platform
 
-You can install GitLab on a [Google Cloud Platform (GCP)](https://cloud.google.com/) using the official GitLab Linux package. You should customize it to accommodate your needs.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+You can install GitLab on a [Google Cloud Platform (GCP)](https://cloud.google.com/) using the official Linux package. You should customize it to accommodate your needs.
 
 NOTE:
 To deploy production-ready GitLab on
 Google Kubernetes Engine,
 you can follow Google Cloud Platform's
-[Click to Deploy steps](https://github.com/GoogleCloudPlatform/click-to-deploy/blob/master/k8s/gitlab/README.md)
+[`Click to Deploy` steps](https://github.com/GoogleCloudPlatform/click-to-deploy/blob/master/k8s/gitlab/README.md)
 It's an alternative to using a GCP VM, and uses
 the [Cloud native GitLab Helm chart](https://docs.gitlab.com/charts/).
 
@@ -31,7 +35,7 @@ After you have performed those two steps, you can [create a VM](#creating-the-vm
 
 To deploy GitLab on GCP you must create a virtual machine:
 
-1. Go to <https://console.cloud.google.com/compute/instances> and log in with your Google credentials.
+1. Go to <https://console.cloud.google.com/compute/instances> and sign in with your Google credentials.
 1. Select **Create**
 
    ![Search for GitLab](img/launch_vm.png)
@@ -42,14 +46,14 @@ To deploy GitLab on GCP you must create a virtual machine:
 
    ![Launch on Compute Engine](img/vm_details.png)
 
-1. To select the size, type, and desired [operating system](../requirements.md#supported-linux-distributions),
+1. To select the size, type, and desired [operating system](../../administration/package_information/supported_os.md#supported-operating-systems),
    select **Change** under `Boot disk`. select **Select** when finished.
 
 1. As a last step allow HTTP and HTTPS traffic, then select **Create**. The process finishes in a few seconds.
 
 ## Installing GitLab
 
-After a few seconds, the instance is created and available to log in. The next step is to install GitLab onto the instance.
+After a few seconds, the instance is created and available to sign in. The next step is to install GitLab onto the instance.
 
 ![Deploy settings](img/vm_created.png)
 
@@ -76,7 +80,7 @@ By default, Google assigns an ephemeral IP to your instance. It is strongly
 recommended to assign a static IP if you are using GitLab in production
 and use a domain name as shown below.
 
-Read Google's documentation on how to [promote an ephemeral IP address](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address#promote_ephemeral_ip).
+Read Google's documentation on how to [promote an ephemeral IP address](https://cloud.google.com/vpc/docs/reserve-static-external-ip-address#promote_ephemeral_ip).
 
 ### Using a domain name
 
@@ -89,10 +93,10 @@ here's how you configure GitLab to be aware of the change:
 
    ![SSH button](img/vm_created.png)
 
-   In the future you might want to set up [connecting with an SSH key](https://cloud.google.com/compute/docs/instances/connecting-to-instance)
+   In the future you might want to set up [connecting with an SSH key](https://cloud.google.com/compute/docs/connect/standard-ssh)
    instead.
 
-1. Edit the configuration file of Omnibus GitLab using your favorite text editor:
+1. Edit the configuration file of the Linux package using your favorite text editor:
 
    ```shell
    sudo vim /etc/gitlab/gitlab.rb
@@ -117,23 +121,23 @@ here's how you configure GitLab to be aware of the change:
 
 ### Configuring HTTPS with the domain name
 
-Although not needed, it's strongly recommended to secure GitLab with a TLS
-certificate. Follow the steps in the [Omnibus documentation](https://docs.gitlab.com/omnibus/settings/nginx.html#enable-https).
+Although not needed, it's strongly recommended to secure GitLab with a
+[TLS certificate](https://docs.gitlab.com/omnibus/settings/ssl/index.html).
 
 ### Configuring the email SMTP settings
 
 You must configure the email SMTP settings correctly otherwise GitLab cannot send notification emails, like comments, and password changes.
-Check the [Omnibus documentation](https://docs.gitlab.com/omnibus/settings/smtp.html#smtp-settings) how to do so.
+Check the [Linux package documentation](https://docs.gitlab.com/omnibus/settings/smtp.html#smtp-settings) how to do so.
 
 ## Further reading
 
 GitLab can be configured to authenticate with other OAuth providers, like LDAP,
 SAML, and Kerberos. Here are some documents you might be interested in reading:
 
-- [Omnibus GitLab documentation](https://docs.gitlab.com/omnibus/)
+- [Linux package documentation](https://docs.gitlab.com/omnibus/)
 - [Integration documentation](../../integration/index.md)
 - [GitLab Pages configuration](../../administration/pages/index.md)
-- [GitLab Container Registry configuration](../../administration/packages/container_registry.md)
+- [GitLab container registry configuration](../../administration/packages/container_registry.md)
 
 <!-- ## Troubleshooting
 
@@ -143,6 +147,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

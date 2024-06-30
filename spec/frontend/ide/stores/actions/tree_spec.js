@@ -1,4 +1,5 @@
 import MockAdapter from 'axios-mock-adapter';
+import { stubPerformanceWebAPI } from 'helpers/performance';
 import { TEST_HOST } from 'helpers/test_constants';
 import testAction from 'helpers/vuex_action_helper';
 import { createRouter } from '~/ide/ide_router';
@@ -7,6 +8,7 @@ import { createStore } from '~/ide/stores';
 import { showTreeEntry, getFiles, setDirectoryData } from '~/ide/stores/actions/tree';
 import * as types from '~/ide/stores/mutation_types';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { file, createEntriesFromPaths } from '../../helpers';
 
 describe('Multi-file store tree actions', () => {
@@ -24,6 +26,8 @@ describe('Multi-file store tree actions', () => {
   };
 
   beforeEach(() => {
+    stubPerformanceWebAPI();
+
     store = createStore();
     router = createRouter(store);
     jest.spyOn(router, 'push').mockImplementation();
@@ -49,7 +53,7 @@ describe('Multi-file store tree actions', () => {
 
         mock
           .onGet(/(.*)/)
-          .replyOnce(200, [
+          .replyOnce(HTTP_STATUS_OK, [
             'file.txt',
             'folder/fileinfolder.js',
             'folder/subfolder/fileinsubfolder.js',
@@ -62,27 +66,21 @@ describe('Multi-file store tree actions', () => {
         });
       });
 
-      it('adds data into tree', (done) => {
-        store
-          .dispatch('getFiles', basicCallParameters)
-          .then(() => {
-            projectTree = store.state.trees['abcproject/main'];
+      it('adds data into tree', async () => {
+        await store.dispatch('getFiles', basicCallParameters);
+        projectTree = store.state.trees['abcproject/main'];
 
-            expect(projectTree.tree.length).toBe(2);
-            expect(projectTree.tree[0].type).toBe('tree');
-            expect(projectTree.tree[0].tree[1].name).toBe('fileinfolder.js');
-            expect(projectTree.tree[1].type).toBe('blob');
-            expect(projectTree.tree[0].tree[0].tree[0].type).toBe('blob');
-            expect(projectTree.tree[0].tree[0].tree[0].name).toBe('fileinsubfolder.js');
-
-            done();
-          })
-          .catch(done.fail);
+        expect(projectTree.tree.length).toBe(2);
+        expect(projectTree.tree[0].type).toBe('tree');
+        expect(projectTree.tree[0].tree[1].name).toBe('fileinfolder.js');
+        expect(projectTree.tree[1].type).toBe('blob');
+        expect(projectTree.tree[0].tree[0].tree[0].type).toBe('blob');
+        expect(projectTree.tree[0].tree[0].tree[0].name).toBe('fileinsubfolder.js');
       });
     });
 
     describe('error', () => {
-      it('dispatches error action', (done) => {
+      it('dispatches error action', async () => {
         const dispatch = jest.fn();
 
         store.state.projects = {
@@ -101,30 +99,28 @@ describe('Multi-file store tree actions', () => {
           findBranch: () => store.state.projects['abc/def'].branches['main-testing'],
         };
 
-        mock.onGet(/(.*)/).replyOnce(500);
+        mock.onGet(/(.*)/).replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR);
 
-        getFiles(
-          {
-            commit() {},
-            dispatch,
-            state: store.state,
-            getters,
-          },
-          {
-            projectId: 'abc/def',
-            branchId: 'main-testing',
-          },
-        )
-          .then(done.fail)
-          .catch(() => {
-            expect(dispatch).toHaveBeenCalledWith('setErrorMessage', {
-              text: 'An error occurred while loading all the files.',
-              action: expect.any(Function),
-              actionText: 'Please try again',
-              actionPayload: { projectId: 'abc/def', branchId: 'main-testing' },
-            });
-            done();
-          });
+        await expect(
+          getFiles(
+            {
+              commit() {},
+              dispatch,
+              state: store.state,
+              getters,
+            },
+            {
+              projectId: 'abc/def',
+              branchId: 'main-testing',
+            },
+          ),
+        ).rejects.toEqual(new Error('Request failed with status code 500'));
+        expect(dispatch).toHaveBeenCalledWith('setErrorMessage', {
+          text: 'An error occurred while loading all the files.',
+          action: expect.any(Function),
+          actionText: 'Please try again',
+          actionPayload: { projectId: 'abc/def', branchId: 'main-testing' },
+        });
       });
     });
   });
@@ -137,15 +133,9 @@ describe('Multi-file store tree actions', () => {
       store.state.entries[tree.path] = tree;
     });
 
-    it('toggles the tree open', (done) => {
-      store
-        .dispatch('toggleTreeOpen', tree.path)
-        .then(() => {
-          expect(tree.opened).toBeTruthy();
-
-          done();
-        })
-        .catch(done.fail);
+    it('toggles the tree open', async () => {
+      await store.dispatch('toggleTreeOpen', tree.path);
+      expect(tree.opened).toBe(true);
     });
   });
 
@@ -163,24 +153,23 @@ describe('Multi-file store tree actions', () => {
       Object.assign(store.state.entries, createEntriesFromPaths(paths));
     });
 
-    it('opens the parents', (done) => {
-      testAction(
+    it('opens the parents', () => {
+      return testAction(
         showTreeEntry,
         'grandparent/parent/child.txt',
         store.state,
         [{ type: types.SET_TREE_OPEN, payload: 'grandparent/parent' }],
         [{ type: 'showTreeEntry', payload: 'grandparent/parent' }],
-        done,
       );
     });
   });
 
   describe('setDirectoryData', () => {
-    it('sets tree correctly if there are no opened files yet', (done) => {
+    it('sets tree correctly if there are no opened files yet', () => {
       const treeFile = file({ name: 'README.md' });
       store.state.trees['abcproject/main'] = {};
 
-      testAction(
+      return testAction(
         setDirectoryData,
         { projectId: 'abcproject', branchId: 'main', treeList: [treeFile] },
         store.state,
@@ -201,7 +190,6 @@ describe('Multi-file store tree actions', () => {
           },
         ],
         [],
-        done,
       );
     });
   });

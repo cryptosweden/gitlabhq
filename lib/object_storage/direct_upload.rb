@@ -23,9 +23,9 @@ module ObjectStorage
     MINIMUM_MULTIPART_SIZE = 5.megabytes
 
     attr_reader :config, :credentials, :bucket_name, :object_name
-    attr_reader :has_length, :maximum_size
+    attr_reader :has_length, :maximum_size, :skip_delete
 
-    def initialize(config, object_name, has_length:, maximum_size: nil)
+    def initialize(config, object_name, has_length:, maximum_size: nil, skip_delete: false)
       unless has_length
         raise ArgumentError, 'maximum_size has to be specified if length is unknown' unless maximum_size
       end
@@ -36,6 +36,7 @@ module ObjectStorage
       @object_name = object_name
       @has_length = has_length
       @maximum_size = maximum_size
+      @skip_delete = skip_delete
     end
 
     def to_hash
@@ -44,6 +45,7 @@ module ObjectStorage
         GetURL: get_url,
         StoreURL: store_url,
         DeleteURL: delete_url,
+        SkipDelete: skip_delete,
         MultipartUpload: multipart_upload_hash,
         CustomPutHeaders: true,
         PutHeaders: upload_options
@@ -66,6 +68,8 @@ module ObjectStorage
         workhorse_aws_hash
       elsif config.azure?
         workhorse_azure_hash
+      elsif config.google?
+        workhorse_google_hash
       else
         {}
       end
@@ -111,12 +115,38 @@ module ObjectStorage
       url
     end
 
+    def workhorse_google_hash
+      {
+        UseWorkhorseClient: use_workhorse_google_client?,
+        RemoteTempObjectID: object_name,
+        ObjectStorage: {
+          Provider: 'Google',
+          GoCloudConfig: {
+            URL: google_gocloud_url
+          }
+        }
+      }
+    end
+
+    def google_gocloud_url
+      "gs://#{bucket_name}"
+    end
+
     def use_workhorse_s3_client?
       return false unless config.use_iam_profile? || config.consolidated_settings?
       # The Golang AWS SDK does not support V2 signatures
       return false unless credentials.fetch(:aws_signature_version, 4).to_i >= 4
 
       true
+    end
+
+    def use_workhorse_google_client?
+      return false unless config.consolidated_settings?
+      return true if credentials[:google_application_default]
+      return true if credentials[:google_json_key_location]
+      return true if credentials[:google_json_key_string]
+
+      false
     end
 
     def provider
@@ -205,7 +235,10 @@ module ObjectStorage
     end
 
     def requires_multipart_upload?
-      config.aws? && !has_length
+      return false unless config.aws?
+      return false if use_workhorse_s3_client?
+
+      !has_length
     end
 
     def upload_id
@@ -228,7 +261,7 @@ module ObjectStorage
     end
 
     def connection
-      @connection ||= ::Fog::Storage.new(credentials)
+      @connection ||= ::Fog::Storage.new(credentials.to_hash)
     end
   end
 end

@@ -6,9 +6,9 @@ import waitForPromises from 'helpers/wait_for_promises';
 import { TEST_HOST } from 'spec/test_constants';
 import EnvironmentsDropdown from '~/feature_flags/components/environments_dropdown.vue';
 import axios from '~/lib/utils/axios_utils';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
-describe('Feature flags > Environments dropdown ', () => {
+describe('Feature flags > Environments dropdown', () => {
   let wrapper;
   let mock;
   const results = ['production', 'staging'];
@@ -23,11 +23,10 @@ describe('Feature flags > Environments dropdown ', () => {
     });
   };
 
-  const findEnvironmentSearchInput = () => wrapper.find(GlSearchBoxByType);
+  const findEnvironmentSearchInput = () => wrapper.findComponent(GlSearchBoxByType);
   const findDropdownMenu = () => wrapper.find('.dropdown-menu');
 
   afterEach(() => {
-    wrapper.destroy();
     mock.restore();
   });
 
@@ -51,7 +50,7 @@ describe('Feature flags > Environments dropdown ', () => {
 
   describe('on focus', () => {
     it('sets results with the received data', async () => {
-      mock.onGet(`${TEST_HOST}/environments.json'`).replyOnce(httpStatusCodes.OK, results);
+      mock.onGet(`${TEST_HOST}/environments.json'`).replyOnce(HTTP_STATUS_OK, results);
       factory();
       findEnvironmentSearchInput().vm.$emit('focus');
       await waitForPromises();
@@ -63,7 +62,7 @@ describe('Feature flags > Environments dropdown ', () => {
 
   describe('on keyup', () => {
     it('sets results with the received data', async () => {
-      mock.onGet(`${TEST_HOST}/environments.json'`).replyOnce(httpStatusCodes.OK, results);
+      mock.onGet(`${TEST_HOST}/environments.json'`).replyOnce(HTTP_STATUS_OK, results);
       factory();
       findEnvironmentSearchInput().vm.$emit('keyup');
       await waitForPromises();
@@ -76,7 +75,7 @@ describe('Feature flags > Environments dropdown ', () => {
   describe('on input change', () => {
     describe('on success', () => {
       beforeEach(async () => {
-        mock.onGet(`${TEST_HOST}/environments.json'`).replyOnce(httpStatusCodes.OK, results);
+        mock.onGet(`${TEST_HOST}/environments.json'`).replyOnce(HTTP_STATUS_OK, results);
         factory();
         findEnvironmentSearchInput().vm.$emit('focus');
         findEnvironmentSearchInput().vm.$emit('input', 'production');
@@ -91,7 +90,7 @@ describe('Feature flags > Environments dropdown ', () => {
       describe('with received data', () => {
         it('sets is loading to false', () => {
           expect(wrapper.vm.isLoading).toBe(false);
-          expect(wrapper.find(GlLoadingIcon).exists()).toBe(false);
+          expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(false);
         });
 
         it('shows the suggestions', () => {
@@ -100,7 +99,7 @@ describe('Feature flags > Environments dropdown ', () => {
 
         it('emits event when a suggestion is clicked', async () => {
           const button = wrapper
-            .findAll(GlButton)
+            .findAllComponents(GlButton)
             .filter((b) => b.text() === 'production')
             .at(0);
           button.vm.$emit('click');
@@ -111,7 +110,7 @@ describe('Feature flags > Environments dropdown ', () => {
 
       describe('on click clear button', () => {
         beforeEach(async () => {
-          wrapper.find(GlButton).vm.$emit('click');
+          wrapper.findComponent(GlButton).vm.$emit('click');
           await nextTick();
         });
 
@@ -128,7 +127,7 @@ describe('Feature flags > Environments dropdown ', () => {
 
   describe('on click create button', () => {
     beforeEach(async () => {
-      mock.onGet(`${TEST_HOST}/environments.json'`).replyOnce(httpStatusCodes.OK, []);
+      mock.onGet(`${TEST_HOST}/environments.json'`).replyOnce(HTTP_STATUS_OK, []);
       factory();
       findEnvironmentSearchInput().vm.$emit('focus');
       findEnvironmentSearchInput().vm.$emit('input', 'production');
@@ -137,7 +136,7 @@ describe('Feature flags > Environments dropdown ', () => {
     });
 
     it('emits create event', async () => {
-      wrapper.findAll(GlButton).at(0).vm.$emit('click');
+      wrapper.findAllComponents(GlButton).at(0).vm.$emit('click');
       await nextTick();
       expect(wrapper.emitted('createClicked')).toEqual([['production']]);
     });

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Admin::RunnersController do
+RSpec.describe Admin::RunnersController, feature_category: :fleet_visibility do
   let_it_be(:runner) { create(:ci_runner) }
   let_it_be(:user) { create(:admin) }
 
@@ -26,26 +26,45 @@ RSpec.describe Admin::RunnersController do
   describe '#show' do
     render_views
 
-    let_it_be(:project) { create(:project) }
-
-    before_all do
-      create(:ci_build, runner: runner, project: project)
-    end
-
     it 'shows a runner show page' do
       get :show, params: { id: runner.id }
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(response).to render_template(:show)
     end
+  end
 
-    it 'when runner_read_only_admin_view is off, redirects to the runner edit page' do
-      stub_feature_flags(runner_read_only_admin_view: false)
+  describe '#new' do
+    it 'renders a :new template' do
+      get :new
 
-      get :show, params: { id: runner.id }
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(response).to render_template(:new)
+    end
+  end
 
-      expect(response).to have_gitlab_http_status(:redirect)
-      expect(response).to redirect_to edit_admin_runner_path(runner)
+  describe '#register' do
+    subject(:register) { get :register, params: { id: new_runner.id } }
+
+    context 'when runner can be registered after creation' do
+      let_it_be(:new_runner) { create(:ci_runner, registration_type: :authenticated_user) }
+
+      it 'renders a :register template' do
+        register
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to render_template(:register)
+      end
+    end
+
+    context 'when runner cannot be registered after creation' do
+      let_it_be(:new_runner) { runner }
+
+      it 'returns :not_found' do
+        register
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
     end
   end
 
@@ -54,11 +73,6 @@ RSpec.describe Admin::RunnersController do
 
     let_it_be(:project) { create(:project) }
     let_it_be(:project_two) { create(:project) }
-
-    before_all do
-      create(:ci_build, runner: runner, project: project)
-      create(:ci_build, runner: runner, project: project_two)
-    end
 
     it 'shows a runner edit page' do
       get :edit, params: { id: runner.id }
@@ -75,74 +89,49 @@ RSpec.describe Admin::RunnersController do
     it 'avoids N+1 queries', :request_store do
       get :edit, params: { id: runner.id }
 
-      control_count = ActiveRecord::QueryRecorder.new { get :edit, params: { id: runner.id } }.count
-
-      new_project = create(:project)
-      create(:ci_build, runner: runner, project: new_project)
+      control = ActiveRecord::QueryRecorder.new { get :edit, params: { id: runner.id } }
 
       # There is one additional query looking up subject.group in ProjectPolicy for the
       # needs_new_sso_session permission
-      expect { get :edit, params: { id: runner.id } }.not_to exceed_query_limit(control_count + 1)
+      expect { get :edit, params: { id: runner.id } }.not_to exceed_query_limit(control).with_threshold(1)
 
       expect(response).to have_gitlab_http_status(:ok)
     end
   end
 
   describe '#update' do
-    it 'updates the runner and ticks the queue' do
-      new_desc = runner.description.swapcase
+    let(:new_desc) { runner.description.swapcase }
+    let(:runner_params) { { id: runner.id, runner: { description: new_desc } } }
 
-      expect do
-        post :update, params: { id: runner.id, runner: { description: new_desc } }
-      end.to change { runner.ensure_runner_queue_value }
+    subject(:request) { post :update, params: runner_params }
 
-      runner.reload
+    context 'with update succeeding' do
+      it 'updates the runner and ticks the queue' do
+        expect_next_instance_of(Ci::Runners::UpdateRunnerService, runner) do |service|
+          expect(service).to receive(:execute).with(anything).and_call_original
+        end
 
-      expect(response).to have_gitlab_http_status(:found)
-      expect(runner.description).to eq(new_desc)
-    end
-  end
+        expect { request }.to change { runner.ensure_runner_queue_value }
 
-  describe '#destroy' do
-    it 'destroys the runner' do
-      expect_next_instance_of(Ci::Runners::UnregisterRunnerService, runner, user) do |service|
-        expect(service).to receive(:execute).once.and_call_original
+        runner.reload
+
+        expect(response).to have_gitlab_http_status(:found)
+        expect(runner.description).to eq(new_desc)
       end
-
-      delete :destroy, params: { id: runner.id }
-
-      expect(response).to have_gitlab_http_status(:found)
-      expect(Ci::Runner.find_by(id: runner.id)).to be_nil
     end
-  end
 
-  describe '#resume' do
-    it 'marks the runner as active and ticks the queue' do
-      runner.update!(active: false)
+    context 'with update failing' do
+      it 'does not update runner or tick the queue' do
+        expect_next_instance_of(Ci::Runners::UpdateRunnerService, runner) do |service|
+          expect(service).to receive(:execute).with(anything).and_return(ServiceResponse.error(message: 'failure'))
+        end
 
-      expect do
-        post :resume, params: { id: runner.id }
-      end.to change { runner.ensure_runner_queue_value }
+        expect { request }.not_to change { runner.ensure_runner_queue_value }
+        expect { request }.not_to change { runner.reload.description }
 
-      runner.reload
-
-      expect(response).to have_gitlab_http_status(:found)
-      expect(runner.active).to eq(true)
-    end
-  end
-
-  describe '#pause' do
-    it 'marks the runner as inactive and ticks the queue' do
-      runner.update!(active: true)
-
-      expect do
-        post :pause, params: { id: runner.id }
-      end.to change { runner.ensure_runner_queue_value }
-
-      runner.reload
-
-      expect(response).to have_gitlab_http_status(:found)
-      expect(runner.active).to eq(false)
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to render_template(:show)
+      end
     end
   end
 

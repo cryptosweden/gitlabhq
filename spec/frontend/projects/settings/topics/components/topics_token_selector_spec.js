@@ -1,11 +1,11 @@
-import { GlTokenSelector, GlToken } from '@gitlab/ui';
+import { GlAvatarLabeled, GlTokenSelector, GlToken } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import TopicsTokenSelector from '~/projects/settings/topics/components/topics_token_selector.vue';
 
 const mockTopics = [
-  { id: 1, name: 'topic1', avatarUrl: 'avatar.com/topic1.png' },
-  { id: 2, name: 'GitLab', avatarUrl: 'avatar.com/GitLab.png' },
+  { id: 1, name: 'topic1', title: 'Topic 1', avatarUrl: 'avatar.com/topic1.png' },
+  { id: 2, name: 'GitLab', title: 'GitLab', avatarUrl: 'avatar.com/GitLab.png' },
 ];
 
 describe('TopicsTokenSelector', () => {
@@ -38,6 +38,8 @@ describe('TopicsTokenSelector', () => {
 
   const findTokenSelectorInput = () => findTokenSelector().find('input[type="text"]');
 
+  const findAllAvatars = () => wrapper.findAllComponents(GlAvatarLabeled).wrappers;
+
   const setTokenSelectorInputValue = (value) => {
     const tokenSelectorInput = findTokenSelectorInput();
 
@@ -62,7 +64,6 @@ describe('TopicsTokenSelector', () => {
   });
 
   afterEach(() => {
-    wrapper.destroy();
     div.remove();
     input.remove();
   });
@@ -80,6 +81,13 @@ describe('TopicsTokenSelector', () => {
       wrapper.findAllComponents(GlToken).wrappers.forEach((tokenWrapper, index) => {
         expect(tokenWrapper.text()).toBe(selected[index].name);
       });
+    });
+
+    it('passes topic title to the avatar', () => {
+      createComponent();
+      const avatars = findAllAvatars();
+
+      mockTopics.map((topic, index) => expect(avatars[index].text()).toBe(topic.title));
     });
   });
 

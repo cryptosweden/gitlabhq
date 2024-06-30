@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Slack slash commands', :js do
+RSpec.describe 'Slack slash commands', :js, feature_category: :integrations do
   include_context 'project integration activation'
 
   before do
@@ -12,7 +12,7 @@ RSpec.describe 'Slack slash commands', :js do
   it 'shows a token placeholder' do
     token_placeholder = find_field('Token')['placeholder']
 
-    expect(token_placeholder).to eq('XXxxXXxxXXxxXXxxXXxxXXxx')
+    expect(token_placeholder).to eq('')
   end
 
   it 'shows a help message' do
@@ -24,7 +24,11 @@ RSpec.describe 'Slack slash commands', :js do
     click_active_checkbox
     click_on 'Save'
 
-    expect(page).to have_current_path(edit_project_integration_path(project, :slack_slash_commands), ignore_query: true)
+    expect(page).to have_current_path(
+      edit_project_settings_integration_path(project, :slack_slash_commands),
+      ignore_query: true
+    )
+
     expect(page).to have_content('Slack slash commands settings saved, but not active.')
   end
 
@@ -32,13 +36,17 @@ RSpec.describe 'Slack slash commands', :js do
     fill_in 'Token', with: 'token'
     click_on 'Save'
 
-    expect(page).to have_current_path(edit_project_integration_path(project, :slack_slash_commands), ignore_query: true)
+    expect(page).to have_current_path(
+      edit_project_settings_integration_path(project, :slack_slash_commands),
+      ignore_query: true
+    )
+
     expect(page).to have_content('Slack slash commands settings saved and active.')
   end
 
   it 'shows the correct trigger url' do
     value = find_field('url').value
-    expect(value).to match("api/v4/projects/#{project.id}/services/slack_slash_commands/trigger")
+    expect(value).to match("api/v4/projects/#{project.id}/integrations/slack_slash_commands/trigger")
   end
 
   it 'shows help content' do

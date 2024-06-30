@@ -2,12 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Import::BitbucketServerController do
+RSpec.describe Import::BitbucketServerController, feature_category: :importers do
   let(:user) { create(:user) }
   let(:project_key) { 'test-project' }
   let(:repo_slug) { 'some-repo' }
   let(:repo_id) { "#{project_key}/#{repo_slug}" }
   let(:client) { instance_double(BitbucketServer::Client) }
+  let(:timeout_strategy) { "pessimistic" }
 
   def assign_session_tokens
     session[:bitbucket_server_url] = 'http://localhost:7990'
@@ -44,7 +45,7 @@ RSpec.describe Import::BitbucketServerController do
 
     it 'returns the new project' do
       allow(Gitlab::BitbucketServerImport::ProjectCreator)
-        .to receive(:new).with(project_key, repo_slug, anything, project_name, user.namespace, user, anything)
+        .to receive(:new).with(project_key, repo_slug, anything, project_name, user.namespace, user, anything, timeout_strategy)
         .and_return(double(execute: project))
 
       post :create, params: { repo_id: repo_id }, format: :json
@@ -57,7 +58,7 @@ RSpec.describe Import::BitbucketServerController do
 
       it 'successfully creates a project' do
         allow(Gitlab::BitbucketServerImport::ProjectCreator)
-          .to receive(:new).with(project_key, repo_slug, anything, project_name, user.namespace, user, anything)
+          .to receive(:new).with(project_key, repo_slug, anything, project_name, user.namespace, user, anything, timeout_strategy)
           .and_return(double(execute: project))
 
         post :create, params: { repo_id: repo_id }, format: :json
@@ -88,7 +89,7 @@ RSpec.describe Import::BitbucketServerController do
 
     it 'returns an error when the project cannot be saved' do
       allow(Gitlab::BitbucketServerImport::ProjectCreator)
-        .to receive(:new).with(project_key, repo_slug, anything, project_name, user.namespace, user, anything)
+        .to receive(:new).with(project_key, repo_slug, anything, project_name, user.namespace, user, anything, timeout_strategy)
         .and_return(double(execute: build(:project)))
 
       post :create, params: { repo_id: repo_id }, format: :json
@@ -134,6 +135,15 @@ RSpec.describe Import::BitbucketServerController do
       expect(response).to have_gitlab_http_status(:found)
       expect(response).to redirect_to(status_import_bitbucket_server_path)
     end
+
+    it 'passes namespace_id to status page if provided' do
+      namespace_id = 5
+      allow(controller).to receive(:allow_local_requests?).and_return(true)
+
+      post :configure, params: { personal_access_token: token, bitbucket_server_username: username, bitbucket_server_url: url, namespace_id: namespace_id }
+
+      expect(response).to redirect_to(status_import_bitbucket_server_path(namespace_id: namespace_id))
+    end
   end
 
   describe 'GET status' do
@@ -158,6 +168,14 @@ RSpec.describe Import::BitbucketServerController do
       expect(json_response.dig("incompatible_repos", 0, "id")).to eq("#{@invalid_repo.project_key}/#{@invalid_repo.slug}")
       expect(json_response['provider_repos'].length).to eq(1)
       expect(json_response.dig("provider_repos", 0, "id")).to eq(@repo.full_name)
+    end
+
+    it 'redirects to connection form if session is missing auth data' do
+      session[:bitbucket_server_url] = nil
+
+      get :status, format: :html
+
+      expect(response).to redirect_to(new_import_bitbucket_server_path)
     end
 
     it_behaves_like 'import controller status' do

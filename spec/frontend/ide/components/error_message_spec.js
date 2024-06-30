@@ -1,6 +1,7 @@
 import { GlLoadingIcon } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import ErrorMessage from '~/ide/components/error_message.vue';
 
@@ -30,11 +31,6 @@ describe('IDE error message component', () => {
 
   beforeEach(() => {
     setErrorMessageMock.mockReset();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
   });
 
   const findDismissButton = () => wrapper.find('button[aria-label=Dismiss]');
@@ -105,7 +101,7 @@ describe('IDE error message component', () => {
       findActionButton().trigger('click');
 
       await nextTick();
-      expect(wrapper.find(GlLoadingIcon).isVisible()).toBe(true);
+      expect(wrapper.findComponent(GlLoadingIcon).isVisible()).toBe(true);
       resolveAction();
     });
 
@@ -113,7 +109,7 @@ describe('IDE error message component', () => {
       findActionButton().trigger('click');
       await actionMock();
       await nextTick();
-      expect(wrapper.find(GlLoadingIcon).isVisible()).toBe(false);
+      expect(wrapper.findComponent(GlLoadingIcon).isVisible()).toBe(false);
     });
   });
 });

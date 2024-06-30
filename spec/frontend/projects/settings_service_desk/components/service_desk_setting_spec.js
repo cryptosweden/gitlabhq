@@ -1,35 +1,73 @@
-import { GlButton, GlDropdown, GlLoadingIcon, GlToggle } from '@gitlab/ui';
+import { GlButton, GlDropdown, GlLoadingIcon, GlToggle, GlAlert } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
+import { helpPagePath } from '~/helpers/help_page_helper';
 import ServiceDeskSetting from '~/projects/settings_service_desk/components/service_desk_setting.vue';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 
 describe('ServiceDeskSetting', () => {
   let wrapper;
 
-  const findButton = () => wrapper.find(GlButton);
-  const findClipboardButton = () => wrapper.find(ClipboardButton);
+  const findButton = () => wrapper.findComponent(GlButton);
+  const findClipboardButton = () => wrapper.findComponent(ClipboardButton);
   const findIncomingEmail = () => wrapper.findByTestId('incoming-email');
   const findIncomingEmailLabel = () => wrapper.findByTestId('incoming-email-label');
-  const findLoadingIcon = () => wrapper.find(GlLoadingIcon);
-  const findTemplateDropdown = () => wrapper.find(GlDropdown);
-  const findToggle = () => wrapper.find(GlToggle);
+  const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
+  const findTemplateDropdown = () => wrapper.findComponent(GlDropdown);
+  const findToggle = () => wrapper.findComponent(GlToggle);
+  const findSuffixFormGroup = () => wrapper.findByTestId('suffix-form-group');
+  const findIssueTrackerInfo = () => wrapper.findComponent(GlAlert);
+  const findIssueHelpLink = () => wrapper.findByTestId('issue-help-page');
+  const findAreTicketsConfidentialByDefaultWrapper = () =>
+    wrapper.findByTestId('service-desk-are-tickets-confidential-by-default-wrapper');
+  const findAreTicketsConfidentialByDefaultCheckbox = () =>
+    wrapper.findByTestId('service-desk-are-tickets-confidential-by-default');
+  const findReopenIssueOnExternalParticipantNoteCheckbox = () =>
+    wrapper.findByTestId('reopen-issue-on-external-participant-note');
+  const findAddExternalParticipantsFromCcCheckbox = () =>
+    wrapper.findByTestId('add-external-participants-from-cc');
 
-  const createComponent = ({ props = {} } = {}) =>
+  const createComponent = ({ props = {}, provide = {} } = {}) =>
     extendedWrapper(
       mount(ServiceDeskSetting, {
         propsData: {
           isEnabled: true,
+          isIssueTrackerEnabled: true,
           ...props,
+        },
+        provide: {
+          glFeatures: {
+            issueEmailParticipants: true,
+            serviceDeskTicketsConfidentiality: true,
+          },
+          ...provide,
         },
       }),
     );
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
+  describe('with issue tracker', () => {
+    it('does not show the info notice when enabled', () => {
+      wrapper = createComponent();
+
+      expect(findIssueTrackerInfo().exists()).toBe(false);
+    });
+
+    it('shows info notice when disabled with help page link', () => {
+      wrapper = createComponent({
+        props: {
+          isIssueTrackerEnabled: false,
+        },
+      });
+
+      expect(findIssueTrackerInfo().exists()).toBe(true);
+      expect(findIssueHelpLink().text()).toEqual('activate the issue tracker');
+      expect(findIssueHelpLink().attributes('href')).toBe(
+        helpPagePath('user/project/settings/index.md', {
+          anchor: 'configure-project-visibility-features-and-permissions',
+        }),
+      );
+    });
   });
 
   describe('when isEnabled=true', () => {
@@ -51,6 +89,26 @@ describe('ServiceDeskSetting', () => {
           expect(findLoadingIcon().exists()).toBe(true);
           expect(findIncomingEmail().exists()).toBe(false);
         });
+
+        it('should display help text', () => {
+          expect(findSuffixFormGroup().text()).toContain(
+            'To add a custom suffix, set up a Service Desk email address',
+          );
+          expect(findSuffixFormGroup().text()).not.toContain(
+            'Add a suffix to Service Desk email address',
+          );
+        });
+      });
+    });
+
+    describe('service desk email "from" name', () => {
+      it('service desk e-mail "from" name input appears', () => {
+        wrapper = createComponent();
+
+        const input = wrapper.findByTestId('email-from-name');
+
+        expect(input.exists()).toBe(true);
+        expect(input.attributes('disabled')).toBeUndefined();
       });
     });
 
@@ -91,26 +149,26 @@ describe('ServiceDeskSetting', () => {
       });
     });
 
-    describe('with customEmail', () => {
-      describe('customEmail is different than incomingEmail', () => {
+    describe('with serviceDeskEmail', () => {
+      describe('serviceDeskEmail is different than incomingEmail', () => {
         const incomingEmail = 'foo@bar.com';
-        const customEmail = 'custom@bar.com';
+        const serviceDeskEmail = 'servicedesk@bar.com';
 
         beforeEach(() => {
           wrapper = createComponent({
-            props: { incomingEmail, customEmail },
+            props: { incomingEmail, serviceDeskEmail },
           });
         });
 
-        it('should see custom email', () => {
-          expect(findIncomingEmail().element.value).toEqual(customEmail);
+        it('should see service desk email', () => {
+          expect(findIncomingEmail().element.value).toEqual(serviceDeskEmail);
         });
       });
 
       describe('project suffix', () => {
         it('input is hidden', () => {
           wrapper = createComponent({
-            props: { customEmailEnabled: false },
+            props: { serviceDeskEmailEnabled: false },
           });
 
           const input = wrapper.findByTestId('project-suffix');
@@ -120,7 +178,7 @@ describe('ServiceDeskSetting', () => {
 
         it('input is enabled', () => {
           wrapper = createComponent({
-            props: { customEmailEnabled: true },
+            props: { serviceDeskEmailEnabled: true },
           });
 
           const input = wrapper.findByTestId('project-suffix');
@@ -131,7 +189,7 @@ describe('ServiceDeskSetting', () => {
 
         it('shows error when value contains uppercase or special chars', async () => {
           wrapper = createComponent({
-            props: { email: 'foo@bar.com', customEmailEnabled: true },
+            props: { email: 'foo@bar.com', serviceDeskEmailEnabled: true },
           });
 
           const input = wrapper.findByTestId('project-suffix');
@@ -146,18 +204,135 @@ describe('ServiceDeskSetting', () => {
         });
       });
 
-      describe('customEmail is the same as incomingEmail', () => {
+      describe('serviceDeskEmail is the same as incomingEmail', () => {
         const email = 'foo@bar.com';
 
         beforeEach(() => {
           wrapper = createComponent({
-            props: { incomingEmail: email, customEmail: email },
+            props: { incomingEmail: email, serviceDeskEmail: email },
           });
         });
 
-        it('should see custom email', () => {
+        it('should see service desk email', () => {
           expect(findIncomingEmail().element.value).toEqual(email);
         });
+      });
+    });
+  });
+
+  describe('are tickets confidential by default checkbox', () => {
+    it('is rendered', () => {
+      wrapper = createComponent();
+
+      expect(findAreTicketsConfidentialByDefaultCheckbox().exists()).toBe(true);
+    });
+
+    describe('when project is public', () => {
+      beforeEach(() => {
+        wrapper = createComponent({
+          props: { publicProject: true, initialAreTicketsConfidentialByDefault: false },
+        });
+      });
+
+      it('displays correct help text', () => {
+        expect(findAreTicketsConfidentialByDefaultWrapper().text()).toContain(
+          ServiceDeskSetting.i18n.areTicketsConfidentialByDefault.help.publicProject,
+        );
+      });
+
+      it('checks and disables the checkbox', () => {
+        const { element } = findAreTicketsConfidentialByDefaultCheckbox().find('input');
+
+        expect(element.checked).toBe(true);
+        expect(element.disabled).toBe(true);
+      });
+    });
+
+    describe('when project is not public', () => {
+      describe('when tickets are confidential by default', () => {
+        beforeEach(() => {
+          wrapper = createComponent({ props: { initialAreTicketsConfidentialByDefault: true } });
+        });
+
+        it('forwards true as initial value to the checkbox', () => {
+          expect(findAreTicketsConfidentialByDefaultCheckbox().find('input').element.checked).toBe(
+            true,
+          );
+        });
+
+        it('displays correct help text', () => {
+          expect(findAreTicketsConfidentialByDefaultWrapper().text()).toContain(
+            ServiceDeskSetting.i18n.areTicketsConfidentialByDefault.help.confidential,
+          );
+        });
+      });
+
+      describe('when tickets are not confidential by default', () => {
+        beforeEach(() => {
+          wrapper = createComponent({ props: { initialAreTicketsConfidentialByDefault: false } });
+        });
+
+        it('forwards false as initial value to the checkbox', () => {
+          expect(findAreTicketsConfidentialByDefaultCheckbox().find('input').element.checked).toBe(
+            false,
+          );
+        });
+
+        it('displays correct help text', () => {
+          expect(findAreTicketsConfidentialByDefaultWrapper().text()).toContain(
+            ServiceDeskSetting.i18n.areTicketsConfidentialByDefault.help.nonConfidential,
+          );
+        });
+      });
+    });
+
+    describe('when feature flag service_desk_tickets_confidentiality is disabled', () => {
+      it('is not rendered', () => {
+        wrapper = createComponent({
+          provide: { glFeatures: { serviceDeskTicketsConfidentiality: false } },
+        });
+
+        expect(findAreTicketsConfidentialByDefaultCheckbox().exists()).toBe(false);
+      });
+    });
+  });
+
+  describe('reopen issue on external participant note checkbox', () => {
+    it('is rendered', () => {
+      wrapper = createComponent();
+      expect(findReopenIssueOnExternalParticipantNoteCheckbox().exists()).toBe(true);
+    });
+
+    it('forwards false as initial value to the checkbox', () => {
+      wrapper = createComponent({ props: { initialReopenIssueOnExternalParticipantNote: false } });
+      expect(findReopenIssueOnExternalParticipantNoteCheckbox().find('input').element.checked).toBe(
+        false,
+      );
+    });
+
+    it('forwards true as initial value to the checkbox', () => {
+      wrapper = createComponent({ props: { initialReopenIssueOnExternalParticipantNote: true } });
+      expect(findReopenIssueOnExternalParticipantNoteCheckbox().find('input').element.checked).toBe(
+        true,
+      );
+    });
+  });
+
+  describe('add external participants from cc checkbox', () => {
+    it('is rendered', () => {
+      wrapper = createComponent();
+      expect(findAddExternalParticipantsFromCcCheckbox().exists()).toBe(true);
+    });
+
+    it('forwards the initial value to the checkbox', () => {
+      wrapper = createComponent({ props: { initialAddExternalParticipantsFromCc: true } });
+      expect(findAddExternalParticipantsFromCcCheckbox().find('input').element.checked).toBe(true);
+    });
+
+    describe('when feature flag issue_email_participants is disabled', () => {
+      it('is not rendered', () => {
+        wrapper = createComponent({ provide: { glFeatures: { issueEmailParticipants: false } } });
+        expect(findAddExternalParticipantsFromCcCheckbox().exists()).toBe(false);
       });
     });
   });
@@ -165,8 +340,12 @@ describe('ServiceDeskSetting', () => {
   describe('save button', () => {
     it('renders a save button to save a template', () => {
       wrapper = createComponent();
+      const saveButton = findButton();
 
-      expect(findButton().text()).toContain('Save changes');
+      expect(saveButton.text()).toContain('Save changes');
+      expect(saveButton.props()).toMatchObject({
+        variant: 'confirm',
+      });
     });
 
     it('emits a save event with the chosen template when the save button is clicked', async () => {
@@ -176,6 +355,9 @@ describe('ServiceDeskSetting', () => {
           initialSelectedFileTemplateProjectId: 42,
           initialOutgoingName: 'GitLab Support Bot',
           initialProjectKey: 'key',
+          initialAreTicketsConfidentialByDefault: false,
+          initialReopenIssueOnExternalParticipantNote: true,
+          initialAddExternalParticipantsFromCc: true,
         },
       });
 
@@ -188,6 +370,9 @@ describe('ServiceDeskSetting', () => {
         fileTemplateProjectId: 42,
         outgoingName: 'GitLab Support Bot',
         projectKey: 'key',
+        areTicketsConfidentialByDefault: false,
+        reopenIssueOnExternalParticipantNote: true,
+        addExternalParticipantsFromCc: true,
       };
 
       expect(wrapper.emitted('save')[0]).toEqual([payload]);
@@ -211,6 +396,14 @@ describe('ServiceDeskSetting', () => {
 
     it('does not render template save button', () => {
       expect(findButton().exists()).toBe(false);
+    });
+
+    it('does not render reopen issue on external participant note checkbox', () => {
+      expect(findReopenIssueOnExternalParticipantNoteCheckbox().exists()).toBe(false);
+    });
+
+    it('does not render add external participants from cc checkbox', () => {
+      expect(findAddExternalParticipantsFromCcCheckbox().exists()).toBe(false);
     });
 
     it('emits an event to turn on Service Desk when the toggle is clicked', async () => {

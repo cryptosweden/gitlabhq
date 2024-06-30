@@ -4,23 +4,24 @@ module Gitlab
   module GithubImport
     module Representation
       class PullRequestReview
-        include ToHash
-        include ExposeAttribute
+        include Representable
 
-        attr_reader :attributes
+        expose_attribute :author, :note, :review_type, :submitted_at, :merge_request_id, :merge_request_iid, :review_id
 
-        expose_attribute :author, :note, :review_type, :submitted_at, :merge_request_id, :review_id
-
-        def self.from_api_response(review)
-          user = Representation::User.from_api_response(review.user) if review.user
+        # Builds a PullRequestReview from a GitHub API response.
+        #
+        # review - An instance of `Hash` containing the note details.
+        def self.from_api_response(review, additional_data = {})
+          user = Representation::User.from_api_response(review[:user]) if review[:user]
 
           new(
-            merge_request_id: review.merge_request_id,
+            merge_request_id: review[:merge_request_id],
+            merge_request_iid: review[:merge_request_iid],
             author: user,
-            note: review.body,
-            review_type: review.state,
-            submitted_at: review.submitted_at,
-            review_id: review.id
+            note: review[:body],
+            review_type: review[:state],
+            submitted_at: review[:submitted_at],
+            review_id: review[:id]
           )
         end
 
@@ -46,8 +47,8 @@ module Gitlab
 
         def github_identifiers
           {
-            review_id: review_id,
-            merge_request_id: merge_request_id
+            merge_request_iid: merge_request_iid,
+            review_id: review_id
           }
         end
       end

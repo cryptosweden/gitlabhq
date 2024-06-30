@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
+RSpec.describe Banzai::Filter::References::AlertReferenceFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   let_it_be(:project)   { create(:project, :public) }
@@ -13,11 +13,11 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
     expect { described_class.call('') }.to raise_error(ArgumentError, /:project/)
   end
 
-  %w(pre code a style).each do |elem|
+  %w[pre code a style].each do |elem|
     it "ignores valid references contained inside '#{elem}' element" do
-      exp = act = "<#{elem}>Alert #{reference}</#{elem}>"
+      act = "<#{elem}>Alert #{reference}</#{elem}>"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -35,9 +35,9 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
     end
 
     it 'ignores invalid alert IDs' do
-      exp = act = "Alert #{invalidate_reference(reference)}"
+      act = "Alert #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
 
     it 'includes a title attribute' do
@@ -47,7 +47,7 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
     end
 
     it 'escapes the title attribute' do
-      allow(alert).to receive(:title).and_return(%{"></a>whatever<a title="})
+      allow(alert).to receive(:title).and_return(%("></a>whatever<a title="))
       doc = reference_filter("Alert #{reference}")
 
       expect(doc.text).to eq "Alert #{reference}"
@@ -79,7 +79,7 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
       doc = reference_filter("Alert #{reference}", only_path: true)
       link = doc.css('a').first.attr('href')
 
-      expect(link).not_to match %r(https?://)
+      expect(link).not_to match %r{https?://}
       expect(link).to eq urls.details_project_alert_management_url(project, alert.iid, only_path: true)
     end
   end
@@ -109,9 +109,9 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
     end
 
     it 'ignores invalid alert IDs on the referenced project' do
-      exp = act = "See #{invalidate_reference(reference)}"
+      act = "See #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -141,9 +141,9 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
     end
 
     it 'ignores invalid alert IDs on the referenced project' do
-      exp = act = "See #{invalidate_reference(reference)}"
+      act = "See #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -173,9 +173,9 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
     end
 
     it 'ignores invalid alert IDs on the referenced project' do
-      exp = act = "See #{invalidate_reference(reference)}"
+      act = "See #{invalidate_reference(reference)}"
 
-      expect(reference_filter(act).to_html).to eq exp
+      expect(reference_filter(act).to_html).to include act
     end
   end
 
@@ -215,9 +215,9 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
     end
 
     it 'ignores internal references' do
-      exp = act = "See ^alert##{alert.iid}"
+      act = "See ^alert##{alert.iid}"
 
-      expect(reference_filter(act, project: nil, group: group).to_html).to eq exp
+      expect(reference_filter(act, project: nil, group: group).to_html).to include act
     end
   end
 
@@ -229,24 +229,28 @@ RSpec.describe Banzai::Filter::References::AlertReferenceFilter do
     let(:alert2_reference) { alert2.to_reference(full: true) }
 
     it 'does not have N+1 per multiple references per project', :use_sql_query_cache do
-      markdown = "#{alert_reference}"
-      max_count = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+      markdown = alert_reference.to_s
+      control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         reference_filter(markdown)
-      end.count
+      end
 
-      expect(max_count).to eq 1
+      expect(control.count).to eq 1
 
       markdown = "#{alert_reference} ^alert#2 ^alert#3 ^alert#4 #{alert2_reference}"
 
       # Since we're not batching alert queries across projects,
       # we have to account for that.
-      # 1 for both projects, 1 for alerts in each project == 3
+      # 1 for routes to find routes.source_id of projects matching paths
+      # 1 for projects belonging to the above routes
+      # 1 for preloading routes of the projects
+      # 1 for loading the namespaces associated to the project
+      # 1 for loading the routes associated with the namespace
+      # 1x2 for alerts in each project
+      # Total == 7
       # TODO: https://gitlab.com/gitlab-org/gitlab/-/issues/330359
-      max_count += 2
-
       expect do
         reference_filter(markdown)
-      end.not_to exceed_all_query_limit(max_count)
+      end.not_to exceed_all_query_limit(control).with_threshold(6)
     end
   end
 end

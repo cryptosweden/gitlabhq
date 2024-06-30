@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ProjectCacheWorker do
+RSpec.describe ProjectCacheWorker, feature_category: :source_code_management do
   include ExclusiveLeaseHelpers
 
   let_it_be(:project) { create(:project, :repository) }
@@ -13,10 +13,6 @@ RSpec.describe ProjectCacheWorker do
   let(:statistics) { [] }
 
   describe '#perform' do
-    before do
-      stub_exclusive_lease(lease_key, timeout: lease_timeout)
-    end
-
     context 'with a non-existing project' do
       it 'does nothing' do
         expect(worker).not_to receive(:update_statistics)
@@ -37,17 +33,12 @@ RSpec.describe ProjectCacheWorker do
     end
 
     context 'with an existing project' do
-      before do
-        lease_key = "namespace:namespaces_root_statistics:#{project.namespace_id}"
-        stub_exclusive_lease_taken(lease_key, timeout: Namespace::AggregationSchedule::DEFAULT_LEASE_TIMEOUT)
-      end
-
       it 'refreshes the method caches' do
         expect_any_instance_of(Repository).to receive(:refresh_method_caches)
-          .with(%i(readme))
+          .with(%i[readme])
           .and_call_original
 
-        worker.perform(project.id, %w(readme))
+        worker.perform(project.id, %w[readme])
       end
 
       context 'with statistics disabled' do
@@ -61,7 +52,7 @@ RSpec.describe ProjectCacheWorker do
       end
 
       context 'with statistics' do
-        let(:statistics) { %w(repository_size) }
+        let(:statistics) { %w[repository_size] }
 
         it 'updates the project statistics' do
           expect(worker).to receive(:update_statistics)
@@ -74,20 +65,20 @@ RSpec.describe ProjectCacheWorker do
 
       context 'with plain readme' do
         it 'refreshes the method caches' do
-          allow(MarkupHelper).to receive(:gitlab_markdown?).and_return(false)
-          allow(MarkupHelper).to receive(:plain?).and_return(true)
+          allow(Gitlab::MarkupHelper).to receive(:gitlab_markdown?).and_return(false)
+          allow(Gitlab::MarkupHelper).to receive(:plain?).and_return(true)
 
           expect_any_instance_of(Repository).to receive(:refresh_method_caches)
-                                                  .with(%i(readme))
+                                                  .with(%i[readme])
                                                   .and_call_original
-          worker.perform(project.id, %w(readme))
+          worker.perform(project.id, %w[readme])
         end
       end
     end
   end
 
   describe '#update_statistics' do
-    let(:statistics) { %w(repository_size) }
+    let(:statistics) { %w[repository_size] }
 
     context 'when a lease could not be obtained' do
       it 'does not update the project statistics' do
@@ -115,7 +106,7 @@ RSpec.describe ProjectCacheWorker do
           .twice
 
         expect(UpdateProjectStatisticsWorker).to receive(:perform_in)
-          .with(lease_timeout, project.id, statistics)
+          .with(lease_timeout, lease_key, project.id, statistics)
           .and_call_original
 
         expect(Namespaces::ScheduleAggregationWorker)
@@ -129,7 +120,7 @@ RSpec.describe ProjectCacheWorker do
   end
 
   it_behaves_like 'an idempotent worker' do
-    let(:job_args) { [project.id, %w(readme), %w(repository_size)] }
+    let(:job_args) { [project.id, %w[readme], %w[repository_size]] }
 
     it 'calls Projects::UpdateStatisticsService service twice', :clean_gitlab_redis_shared_state do
       expect(Projects::UpdateStatisticsService).to receive(:new).once.and_return(double(execute: true))

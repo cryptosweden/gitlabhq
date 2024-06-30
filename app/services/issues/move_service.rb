@@ -6,12 +6,13 @@ module Issues
 
     MoveError = Class.new(StandardError)
 
-    def execute(issue, target_project)
+    def execute(issue, target_project, move_any_issue_type = false)
+      @move_any_issue_type = move_any_issue_type
       @target_project = target_project
 
       verify_can_move_issue!(issue, target_project)
 
-      super
+      super(issue, target_project)
 
       notify_participants
 
@@ -19,6 +20,7 @@ module Issues
       # to receive service desk emails on the new moved issue.
       update_service_desk_sent_notifications
 
+      copy_email_participants
       queue_copy_designs
 
       new_entity
@@ -26,10 +28,32 @@ module Issues
 
     private
 
-    attr_reader :target_project
+    attr_reader :target_project, :move_any_issue_type
+
+    override :after_clone_actions
+    def after_clone_actions
+      move_children
+    end
+
+    def move_children
+      return if Feature.disabled?(:move_issue_children, original_entity.resource_parent, type: :beta)
+
+      WorkItems::ParentLink.for_parents(original_entity).each do |link|
+        new_child = self.class.new(
+          container: container,
+          current_user: current_user
+        ).execute(
+          ::Issue.find(link.work_item_id),
+          target_project,
+          true
+        )
+
+        WorkItems::ParentLink.create!(work_item_id: new_child.id, work_item_parent_id: new_entity.id)
+      end
+    end
 
     def verify_can_move_issue!(issue, target_project)
-      unless issue.supports_move_and_clone?
+      unless issue.supports_move_and_clone? || move_any_issue_type
         raise MoveError, s_('MoveIssue|Cannot move issues of \'%{issue_type}\' type.') % { issue_type: issue.issue_type }
       end
 
@@ -43,10 +67,25 @@ module Issues
     end
 
     def update_service_desk_sent_notifications
-      return unless original_entity.from_service_desk?
+      context = { project_id: new_entity.project_id, noteable_id: new_entity.id }
 
-      original_entity
-        .sent_notifications.update_all(project_id: new_entity.project_id, noteable_id: new_entity.id)
+      original_entity.run_after_commit_or_now do
+        next unless from_service_desk?
+
+        sent_notifications.update_all(**context)
+      end
+    end
+
+    def copy_email_participants
+      new_attributes = { id: nil, issue_id: new_entity.id }
+
+      new_participants = original_entity.issue_email_participants.dup
+
+      new_participants.each do |participant|
+        participant.assign_attributes(new_attributes)
+      end
+
+      IssueEmailParticipant.bulk_insert!(new_participants)
     end
 
     override :update_old_entity
@@ -72,17 +111,26 @@ module Issues
         project: target_project,
         author: original_entity.author,
         assignee_ids: original_entity.assignee_ids,
-        moved_issue: true
+        moved_issue: true,
+        imported_from: :none
       }
 
       new_params = original_entity.serializable_hash.symbolize_keys.merge(new_params)
-      # spam checking is not necessary, as no new content is being created. Passing nil for
-      # spam_params will cause SpamActionService to skip checking and return a success response.
-      spam_params = nil
+      new_params = new_params.merge(rewritten_old_entity_attributes)
+      # spam checking is not necessary, as no new content is being created.
 
       # Skip creation of system notes for existing attributes of the issue. The system notes of the old
       # issue are copied over so we don't want to end up with duplicate notes.
-      CreateService.new(project: @target_project, current_user: @current_user, params: new_params, spam_params: spam_params).execute(skip_system_notes: true)
+      create_result = CreateService.new(
+        container: @target_project,
+        current_user: @current_user,
+        params: new_params,
+        perform_spam_check: false
+      ).execute(skip_system_notes: true)
+
+      raise MoveError, create_result.errors.join(', ') if create_result.error? && create_result[:issue].blank?
+
+      create_result[:issue]
     end
 
     def queue_copy_designs
@@ -102,34 +150,45 @@ module Issues
     end
 
     def rewrite_related_issues
-      source_issue_links = IssueLink.for_source_issue(original_entity)
+      source_issue_links = IssueLink.for_source(original_entity)
       source_issue_links.update_all(source_id: new_entity.id)
 
-      target_issue_links = IssueLink.for_target_issue(original_entity)
+      target_issue_links = IssueLink.for_target(original_entity)
       target_issue_links.update_all(target_id: new_entity.id)
     end
 
     def copy_contacts
-      return unless Feature.enabled?(:customer_relations, original_entity.project.root_ancestor)
       return unless original_entity.project.root_ancestor == new_entity.project.root_ancestor
 
       new_entity.customer_relations_contacts = original_entity.customer_relations_contacts
     end
 
     def notify_participants
-      notification_service.async.issue_moved(original_entity, new_entity, @current_user)
+      context = { original: original_entity, new: new_entity, user: @current_user, service: notification_service }
+
+      original_entity.run_after_commit_or_now do
+        context[:service].async.issue_moved(context[:original], context[:new], context[:user])
+      end
     end
 
     def add_note_from
-      SystemNoteService.noteable_moved(new_entity, target_project,
-                                       original_entity, current_user,
-                                       direction: :from)
+      SystemNoteService.noteable_moved(
+        new_entity,
+        target_project,
+        original_entity,
+        current_user,
+        direction: :from
+      )
     end
 
     def add_note_to
-      SystemNoteService.noteable_moved(original_entity, old_project,
-                                       new_entity, current_user,
-                                       direction: :to)
+      SystemNoteService.noteable_moved(
+        original_entity,
+        old_project,
+        new_entity,
+        current_user,
+        direction: :to
+      )
     end
   end
 end

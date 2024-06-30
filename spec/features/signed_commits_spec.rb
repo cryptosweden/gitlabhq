@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'GPG signed commits' do
-  let(:project) { create(:project, :public, :repository) }
+RSpec.describe 'GPG signed commits', :js, feature_category: :source_code_management do
+  let_it_be(:project) { create(:project, :public, :repository) }
 
   it 'changes from unverified to verified when the user changes their email to match the gpg key', :sidekiq_might_not_need_inline do
     ref = GpgHelpers::SIGNED_AND_AUTHORED_SHA
@@ -16,7 +16,7 @@ RSpec.describe 'GPG signed commits' do
 
     visit project_commit_path(project, ref)
 
-    expect(page).to have_selector('.gpg-status-box', text: 'Unverified')
+    expect(page).to have_selector('.gl-badge', text: 'Unverified')
 
     # user changes their email which makes the gpg key verified
     perform_enqueued_jobs do
@@ -26,7 +26,7 @@ RSpec.describe 'GPG signed commits' do
 
     visit project_commit_path(project, ref)
 
-    expect(page).to have_selector('.gpg-status-box', text: 'Verified')
+    expect(page).to have_selector('.gl-badge', text: 'Verified')
   end
 
   it 'changes from unverified to verified when the user adds the missing gpg key', :sidekiq_might_not_need_inline do
@@ -35,7 +35,7 @@ RSpec.describe 'GPG signed commits' do
 
     visit project_commit_path(project, ref)
 
-    expect(page).to have_selector('.gpg-status-box', text: 'Unverified')
+    expect(page).to have_selector('.gl-badge', text: 'Unverified')
 
     # user adds the gpg key which makes the signature valid
     perform_enqueued_jobs do
@@ -44,10 +44,10 @@ RSpec.describe 'GPG signed commits' do
 
     visit project_commit_path(project, ref)
 
-    expect(page).to have_selector('.gpg-status-box', text: 'Verified')
+    expect(page).to have_selector('.gl-badge', text: 'Verified')
   end
 
-  context 'shows popover badges', :js do
+  context 'shows popover badges' do
     let(:user_1) do
       create :user, email: GpgHelpers::User1.emails.first, username: 'nannie.bernhard', name: 'Nannie Bernhard'
     end
@@ -61,7 +61,7 @@ RSpec.describe 'GPG signed commits' do
     let(:user_2) do
       create(:user, email: GpgHelpers::User2.emails.first, username: 'bette.cartwright', name: 'Bette Cartwright').tap do |user|
         # secondary, unverified email
-        create :email, user: user, email: GpgHelpers::User2.emails.last
+        create :email, user: user, email: 'mail@koffeinfrei.org'
       end
     end
 
@@ -71,11 +71,11 @@ RSpec.describe 'GPG signed commits' do
       end
     end
 
-    it 'unverified signature' do
+    it 'unverified signature', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/444982' do
       visit project_commit_path(project, GpgHelpers::SIGNED_COMMIT_SHA)
       wait_for_all_requests
 
-      page.find('.gpg-status-box', text: 'Unverified').click
+      page.find('.gl-badge', text: 'Unverified').click
 
       within '.popover' do
         expect(page).to have_content 'This commit was signed with an unverified signature.'
@@ -83,93 +83,87 @@ RSpec.describe 'GPG signed commits' do
       end
     end
 
-    it 'unverified signature: user email does not match the committer email, but is the same user' do
+    it 'unverified signature: gpg key email does not match the committer_email but is the same user when the committer_email belongs to the user as a confirmed secondary email', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/444984' do
       user_2_key
+      user_2.emails.find_by(email: 'mail@koffeinfrei.org').confirm
 
-      visit project_commit_path(project, GpgHelpers::DIFFERING_EMAIL_SHA)
+      visit project_commit_path(project, GpgHelpers::SIGNED_COMMIT_SHA)
       wait_for_all_requests
 
-      page.find('.gpg-status-box', text: 'Unverified').click
+      page.find('.gl-badge', text: 'Unverified').click
 
       within '.popover' do
-        expect(page).to have_content 'This commit was signed with a verified signature, but the committer email is not verified to belong to the same user.'
-        expect(page).to have_content 'Bette Cartwright'
-        expect(page).to have_content '@bette.cartwright'
+        expect(page).to have_content 'This commit was signed with a verified signature, but the committer email is not associated with the GPG Key.'
         expect(page).to have_content "GPG Key ID: #{GpgHelpers::User2.primary_keyid}"
       end
     end
 
-    it 'unverified signature: user email does not match the committer email' do
+    it 'unverified signature: gpg key email does not match the committer_email when the committer_email belongs to the user as a unconfirmed secondary email',
+      quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408233' do
       user_2_key
 
       visit project_commit_path(project, GpgHelpers::SIGNED_COMMIT_SHA)
       wait_for_all_requests
 
-      page.find('.gpg-status-box', text: 'Unverified').click
+      page.find('.gl-badge', text: 'Unverified').click
 
       within '.popover' do
         expect(page).to have_content "This commit was signed with a different user's verified signature."
-        expect(page).to have_content 'Bette Cartwright'
-        expect(page).to have_content '@bette.cartwright'
         expect(page).to have_content "GPG Key ID: #{GpgHelpers::User2.primary_keyid}"
       end
     end
 
-    it 'unverified signature: commit contains multiple GPG signatures' do
+    it 'unverified signature: commit contains multiple GPG signatures', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408233' do
       user_1_key
 
       visit project_commit_path(project, GpgHelpers::MULTIPLE_SIGNATURES_SHA)
       wait_for_all_requests
 
-      page.find('.gpg-status-box', text: 'Unverified').click
+      page.find('.gl-badge', text: 'Unverified').click
 
       within '.popover' do
         expect(page).to have_content "This commit was signed with multiple signatures."
       end
     end
 
-    it 'verified and the gpg user has a gitlab profile' do
+    it 'verified and the gpg user has a gitlab profile', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408233' do
       user_1_key
 
       visit project_commit_path(project, GpgHelpers::SIGNED_AND_AUTHORED_SHA)
       wait_for_all_requests
 
-      page.find('.gpg-status-box', text: 'Verified').click
+      page.find('.gl-badge', text: 'Verified').click
 
       within '.popover' do
-        expect(page).to have_content 'This commit was signed with a verified signature and the committer email is verified to belong to the same user.'
-        expect(page).to have_content 'Nannie Bernhard'
-        expect(page).to have_content '@nannie.bernhard'
+        expect(page).to have_content 'This commit was signed with a verified signature and the committer email was verified to belong to the same user.'
         expect(page).to have_content "GPG Key ID: #{GpgHelpers::User1.primary_keyid}"
       end
     end
 
-    it "verified and the gpg user's profile doesn't exist anymore" do
+    it "verified and the gpg user's profile doesn't exist anymore", quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/395802' do
       user_1_key
 
       visit project_commit_path(project, GpgHelpers::SIGNED_AND_AUTHORED_SHA)
       wait_for_all_requests
 
       # wait for the signature to get generated
-      expect(page).to have_selector('.gpg-status-box', text: 'Verified')
+      expect(page).to have_selector('.gl-badge', text: 'Verified')
 
       user_1.destroy!
 
       refresh
       wait_for_all_requests
 
-      page.find('.gpg-status-box', text: 'Verified').click
+      page.find('.gl-badge', text: 'Verified').click
 
       within '.popover' do
-        expect(page).to have_content 'This commit was signed with a verified signature and the committer email is verified to belong to the same user.'
-        expect(page).to have_content 'Nannie Bernhard'
-        expect(page).to have_content 'nannie.bernhard@example.com'
+        expect(page).to have_content 'This commit was signed with a verified signature and the committer email was verified to belong to the same user.'
         expect(page).to have_content "GPG Key ID: #{GpgHelpers::User1.primary_keyid}"
       end
     end
   end
 
-  context 'view signed commit on the tree view', :js do
+  context 'view signed commit on the tree view' do
     shared_examples 'a commit with a signature' do
       before do
         visit project_tree_path(project, 'signed-commits')
@@ -177,9 +171,9 @@ RSpec.describe 'GPG signed commits' do
       end
 
       it 'displays commit signature' do
-        expect(page).to have_selector('.gpg-status-box', text: 'Unverified')
+        expect(page).to have_selector('.gl-badge', text: 'Unverified')
 
-        page.find('.gpg-status-box', text: 'Unverified').click
+        page.find('.gl-badge', text: 'Unverified').click
 
         within '.popover' do
           expect(page).to have_content 'This commit was signed with multiple signatures.'

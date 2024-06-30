@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Config::External::File::Template do
+RSpec.describe Gitlab::Ci::Config::External::File::Template, feature_category: :pipeline_composition do
   let_it_be(:project) { create(:project) }
   let_it_be(:user) { create(:user) }
 
@@ -45,20 +45,25 @@ RSpec.describe Gitlab::Ci::Config::External::File::Template do
   end
 
   describe "#valid?" do
+    subject(:valid?) do
+      Gitlab::Ci::Config::External::Mapper::Verifier.new(context).process([template_file])
+      template_file.valid?
+    end
+
     context 'when is a valid template name' do
       let(:template) { 'Auto-DevOps.gitlab-ci.yml' }
 
-      it 'returns true' do
-        expect(template_file).to be_valid
-      end
+      it { is_expected.to be_truthy }
     end
 
     context 'with invalid template name' do
-      let(:template) { 'Template.yml' }
+      let(:template) { 'SecretTemplate.yml' }
+      let(:variables) { Gitlab::Ci::Variables::Collection.new([{ 'key' => 'GITLAB_TOKEN', 'value' => 'SecretTemplate', 'masked' => true }]) }
+      let(:context_params) { { project: project, sha: '12345', user: user, variables: variables } }
 
       it 'returns false' do
-        expect(template_file).not_to be_valid
-        expect(template_file.error_message).to include('Template file `Template.yml` is not a valid location!')
+        expect(valid?).to be_falsy
+        expect(template_file.error_message).to include('`xxxxxxxxxxxxxx.yml` is not a valid location!')
       end
     end
 
@@ -66,7 +71,7 @@ RSpec.describe Gitlab::Ci::Config::External::File::Template do
       let(:template) { 'I-Do-Not-Have-This-Template.gitlab-ci.yml' }
 
       it 'returns false' do
-        expect(template_file).not_to be_valid
+        expect(valid?).to be_falsy
         expect(template_file.error_message).to include('Included file `I-Do-Not-Have-This-Template.gitlab-ci.yml` is empty or does not exist!')
       end
     end
@@ -107,6 +112,55 @@ RSpec.describe Gitlab::Ci::Config::External::File::Template do
 
     it 'drops all parameters' do
       is_expected.to be_empty
+    end
+  end
+
+  describe '#metadata' do
+    subject(:metadata) { template_file.metadata }
+
+    it {
+      is_expected.to eq(
+        context_project: project.full_path,
+        context_sha: '12345',
+        type: :template,
+        location: template,
+        raw: "https://gitlab.com/gitlab-org/gitlab/-/raw/master/lib/gitlab/ci/templates/#{template}",
+        blob: nil,
+        extra: {}
+      )
+    }
+  end
+
+  describe '#to_hash' do
+    context 'when interpolation is being used' do
+      before do
+        allow(Gitlab::Template::GitlabCiYmlTemplate)
+          .to receive(:find)
+          .and_return(template_double)
+      end
+
+      let(:template_double) do
+        instance_double(Gitlab::Template::GitlabCiYmlTemplate, content: template_content)
+      end
+
+      let(:template_content) do
+        <<~YAML
+          spec:
+            inputs:
+              env:
+          ---
+          deploy:
+            script: deploy $[[ inputs.env ]]
+        YAML
+      end
+
+      let(:params) do
+        { template: template, inputs: { env: 'production' } }
+      end
+
+      it 'correctly interpolates the content' do
+        expect(template_file.to_hash).to eq({ deploy: { script: 'deploy production' } })
+      end
     end
   end
 end

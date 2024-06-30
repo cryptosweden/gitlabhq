@@ -12,9 +12,11 @@ export function mountImportGroupsApp(mountElement) {
 
   const {
     statusPath,
-    availableNamespacesPath,
     createBulkImportPath,
     jobsPath,
+    historyPath,
+    historyShowPath,
+    defaultTargetNamespace,
     sourceUrl,
     groupPathRegex,
   } = mountElement.dataset;
@@ -23,7 +25,6 @@ export function mountImportGroupsApp(mountElement) {
       sourceUrl,
       endpoints: {
         status: statusPath,
-        availableNamespaces: availableNamespacesPath,
         createBulkImport: createBulkImportPath,
       },
     }),
@@ -31,6 +32,7 @@ export function mountImportGroupsApp(mountElement) {
 
   return new Vue({
     el: mountElement,
+    name: 'ImportGroupsRoot',
     apolloProvider,
     render(createElement) {
       return createElement(ImportTable, {
@@ -38,6 +40,9 @@ export function mountImportGroupsApp(mountElement) {
           sourceUrl,
           jobsPath,
           groupPathRegex: new RegExp(`^(${groupPathRegex})$`),
+          historyPath,
+          historyShowPath,
+          defaultTargetNamespace: parseInt(defaultTargetNamespace, 10) || null,
         },
       });
     },

@@ -14,42 +14,57 @@ module Gitlab
           #     ::Issue.where(database_time_constraints)
           #   end
           # end
+
+          UnimplementedOperationError = Class.new(StandardError) # rubocop:disable UsageData/InstrumentationSuperclass
+
           class << self
+            IMPLEMENTED_OPERATIONS = %i[count distinct_count estimate_batch_distinct_count sum average].freeze
+
+            private_constant :IMPLEMENTED_OPERATIONS
+
             def start(&block)
-              return @metric_start&.call unless block_given?
+              return @metric_start&.call unless block
 
               @metric_start = block
             end
 
             def finish(&block)
-              return @metric_finish&.call unless block_given?
+              return @metric_finish&.call unless block
 
               @metric_finish = block
             end
 
-            def relation(&block)
-              return @metric_relation&.call unless block_given?
+            def relation(relation_proc = nil, &block)
+              return unless relation_proc || block
 
-              @metric_relation = block
+              @metric_relation = (relation_proc || block)
             end
 
             def metric_options(&block)
-              return @metric_options&.call.to_h unless block_given?
+              return @metric_options&.call.to_h unless block
 
               @metric_options = block
             end
 
+            def timestamp_column(symbol)
+              @metric_timestamp_column = symbol
+            end
+
             def operation(symbol, column: nil, &block)
+              raise UnimplementedOperationError unless symbol.in?(IMPLEMENTED_OPERATIONS)
+
               @metric_operation = symbol
               @column = column
-              @metric_operation_block = block if block_given?
+              @metric_operation_block = block if block
             end
 
             def cache_start_and_finish_as(cache_key)
               @cache_key = cache_key
             end
 
-            attr_reader :metric_operation, :metric_relation, :metric_start, :metric_finish, :metric_operation_block, :column, :cache_key
+            attr_reader :metric_operation, :metric_relation, :metric_start,
+              :metric_finish, :metric_operation_block,
+              :column, :cache_key, :metric_timestamp_column
           end
 
           def value
@@ -57,11 +72,11 @@ module Gitlab
 
             method(self.class.metric_operation)
               .call(relation,
-                    self.class.column,
-                    start: start,
-                    finish: finish,
-                    **self.class.metric_options,
-                    &self.class.metric_operation_block)
+                self.class.column,
+                start: start,
+                finish: finish,
+                **self.class.metric_options,
+                &self.class.metric_operation_block)
           end
 
           def to_sql
@@ -72,24 +87,30 @@ module Gitlab
             to_sql
           end
 
-          def suggested_name
-            Gitlab::Usage::Metrics::NameSuggestion.for(
-              self.class.metric_operation,
-              relation: relation,
-              column: self.class.column
-            )
-          end
-
           private
 
+          def start
+            self.class.metric_start&.call(time_constraints)
+          end
+
+          def finish
+            self.class.metric_finish&.call(time_constraints)
+          end
+
           def relation
-            self.class.metric_relation.call.where(time_constraints)
+            if self.class.metric_relation.arity == 1
+              self.class.metric_relation.call(options)
+            else
+              self.class.metric_relation.call
+            end.where(time_constraints)
           end
 
           def time_constraints
             case time_frame
             when '28d'
-              monthly_time_range_db_params
+              monthly_time_range_db_params(column: self.class.metric_timestamp_column)
+            when '7d'
+              weekly_time_range_db_params(column: self.class.metric_timestamp_column)
             when 'all'
               {}
             when 'none'
@@ -100,19 +121,19 @@ module Gitlab
           end
 
           def get_or_cache_batch_ids
-            return [self.class.start, self.class.finish] unless self.class.cache_key.present?
+            return [start, finish] unless self.class.cache_key.present?
 
             key_name = "metric_instrumentation/#{self.class.cache_key}"
 
-            start = Gitlab::Cache.fetch_once("#{key_name}_minimum_id", expires_in: 1.day) do
-              self.class.start
+            cached_start = Gitlab::Cache.fetch_once("#{key_name}_minimum_id", expires_in: 1.day) do
+              start
             end
 
-            finish = Gitlab::Cache.fetch_once("#{key_name}_maximum_id", expires_in: 1.day) do
-              self.class.finish
+            cached_finish = Gitlab::Cache.fetch_once("#{key_name}_maximum_id", expires_in: 1.day) do
+              finish
             end
 
-            [start, finish]
+            [cached_start, cached_finish]
           end
         end
       end

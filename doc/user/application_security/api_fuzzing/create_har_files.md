@@ -1,17 +1,20 @@
 ---
 stage: Secure
 group: Dynamic Analysis
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# HTTP Archive format **(ULTIMATE)**
+# Create HAR Files
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 HTTP Archive (HAR) format files are an industry standard for exchanging information about HTTP
 requests and HTTP responses. A HAR file's content is JSON formatted, containing browser interactions
 with a web site. The file extension `.har` is commonly used.
 
-The HAR files can be used to perform [web API Fuzz Testing](index.md#http-archive-har) as part of
+The HAR files can be used to perform [web API Fuzz Testing](configuration/enabling_the_analyzer.md#http-archive-har) as part of
 your [GitLab CI/CD](../../../ci/index.md) pipelines.
 
 WARNING:
@@ -79,7 +82,7 @@ To verify the HAR contains all requests, use an online HAR viewer, for example:
 
 [Insomnia API Client](https://insomnia.rest/) is an API design tool that among many uses, helps
 you to design, describe, and test your API. You can also use it to generate HAR files that can be
-used in [Web API Fuzz Testing](index.md#http-archive-har).
+used in [Web API Fuzz Testing](configuration/enabling_the_analyzer.md#http-archive-har).
 
 #### Create a HAR file with the Insomnia API Client
 
@@ -93,7 +96,7 @@ used in [Web API Fuzz Testing](index.md#http-archive-har).
 1. Select **Export Data > Current Workspace**.
 1. Select requests to include in the HAR file.
 1. Select **Export**.
-1. In the **Select Export Type** dropdown select **HAR -- HTTP Archive Format**.
+1. In the **Select Export Type** dropdown list select **HAR -- HTTP Archive Format**.
 1. Select **Done**.
 1. Enter a location and filename for the HAR file.
 
@@ -106,10 +109,10 @@ responses in HAR format.
 #### Create a HAR file with Fiddler
 
 1. Go to the [Fiddler home page](https://www.telerik.com/fiddler) and sign in. If you don't already
-have an account, first create an account.
+   have an account, first create an account.
 1. Browse pages that call an API. Fiddler automatically captures the requests.
 1. Select one or more requests, then from the context menu, select **Export > Selected Sessions**.
-1. In the **Choose Format** dropdown select **HTTPArchive v1.2**.
+1. In the **Choose Format** dropdown list select **HTTPArchive v1.2**.
 1. Enter a filename and select **Save**.
 
 Fiddler shows a popup message confirming the export has succeeded.
@@ -126,7 +129,7 @@ Prerequisites:
 
 - Enable the `Develop` menu item.
   1. Open Safari's preferences. Press <kbd>Command</kbd>+<kbd>,</kbd> or from the menu, select
-     **Safari > Preferences...**.
+     **Safari > Preferences**.
   1. Select **Advanced** tab, then select `Show Develop menu item in menu bar`.
   1. Close the **Preferences** window.
 
@@ -151,7 +154,7 @@ export it as a HAR file.
 1. Select **Preserve log**.
 1. Browse pages that call the API.
 1. Select one or more requests.
-1. Right click and select **Save all as HAR with content**.
+1. Right-click and select **Save all as HAR with content**.
 1. Enter a filename and select **Save**.
 1. To append additional requests, select and save them to the same file.
 
@@ -170,7 +173,7 @@ and export it as a HAR file.
    `Perform a request or Reload the page to see detailed information about network activity`,
    select **Reload** to start recording requests.
 1. Select one or more requests.
-1. Right click and select **Save All As HAR**.
+1. Right-click and select **Save All As HAR**.
 1. Enter a filename and select **Save**.
 1. To append additional requests, select and save them to the same file.
 
@@ -211,7 +214,7 @@ Review the HAR file for any of the following:
 We strongly recommended that you [edit or remove it](#edit-or-remove-sensitive-information) any
 sensitive information.
 
-Use the following as a checklist to start with. Note that it's not an exhaustive list.
+Use the following as a checklist to start with. It's not an exhaustive list.
 
 - Look for secrets. For example: if your application requires authentication, check common locations
   or authentication information:

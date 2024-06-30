@@ -16,10 +16,11 @@ describe('Blob Header Default Actions', () => {
 
   const blobHash = 'foo-bar';
 
-  function createComponent(propsData = {}) {
+  function createComponent(propsData = {}, provided = {}) {
     wrapper = shallowMountExtended(BlobHeaderActions, {
       provide: {
         blobHash,
+        ...provided,
       },
       propsData: {
         rawPath: Blob.rawPath,
@@ -30,17 +31,14 @@ describe('Blob Header Default Actions', () => {
 
   beforeEach(() => {
     createComponent();
-    btnGroup = wrapper.find(GlButtonGroup);
-    buttons = wrapper.findAll(GlButton);
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
+    btnGroup = wrapper.findComponent(GlButtonGroup);
+    buttons = wrapper.findAllComponents(GlButton);
   });
 
   describe('renders', () => {
-    const findCopyButton = () => wrapper.findByTestId('copyContentsButton');
+    const findCopyButton = () => wrapper.findByTestId('copy-contents-button');
     const findViewRawButton = () => wrapper.findByTestId('viewRawButton');
+    const findDownloadButton = () => wrapper.findByTestId('download-button');
 
     it('gl-button-group component', () => {
       expect(btnGroup.exists()).toBe(true);
@@ -49,7 +47,7 @@ describe('Blob Header Default Actions', () => {
     it('exactly 3 buttons with predefined actions', () => {
       expect(buttons.length).toBe(3);
       [BTN_COPY_CONTENTS_TITLE, BTN_RAW_TITLE, BTN_DOWNLOAD_TITLE].forEach((title, i) => {
-        expect(buttons.at(i).vm.$el.title).toBe(title);
+        expect(buttons.at(i).attributes('title')).toBe(title);
       });
     });
 
@@ -69,9 +67,9 @@ describe('Blob Header Default Actions', () => {
       createComponent({
         activeViewer: RICH_BLOB_VIEWER,
       });
-      buttons = wrapper.findAll(GlButton);
+      buttons = wrapper.findAllComponents(GlButton);
 
-      expect(buttons.at(0).attributes('disabled')).toBeTruthy();
+      expect(buttons.at(0).attributes('disabled')).toBeDefined();
     });
 
     it('does not render the copy button if a rendering error is set', () => {
@@ -87,6 +85,19 @@ describe('Blob Header Default Actions', () => {
 
       expect(findCopyButton().exists()).toBe(false);
       expect(findViewRawButton().exists()).toBe(false);
+    });
+
+    it('does not render the download button if canDownloadCode is set to false', () => {
+      createComponent({}, { canDownloadCode: false });
+
+      expect(findDownloadButton().exists()).toBe(false);
+    });
+
+    it('emits a copy event if overrideCopy is set to true', () => {
+      createComponent({ overrideCopy: true });
+      findCopyButton().vm.$emit('click');
+
+      expect(wrapper.emitted('copy')).toHaveLength(1);
     });
   });
 

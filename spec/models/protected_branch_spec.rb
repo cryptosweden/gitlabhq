@@ -2,16 +2,297 @@
 
 require 'spec_helper'
 
-RSpec.describe ProtectedBranch do
+RSpec.describe ProtectedBranch, feature_category: :source_code_management do
+  it_behaves_like 'protected ref', :protected_branch
+
   subject { build_stubbed(:protected_branch) }
 
   describe 'Associations' do
-    it { is_expected.to belong_to(:project) }
+    it { is_expected.to belong_to(:group) }
+    it { is_expected.to have_many(:merge_access_levels).inverse_of(:protected_branch) }
+    it { is_expected.to have_many(:push_access_levels).inverse_of(:protected_branch) }
   end
 
   describe 'Validation' do
-    it { is_expected.to validate_presence_of(:project) }
-    it { is_expected.to validate_presence_of(:name) }
+    context 'uniqueness' do
+      let(:protected_branch) { build(:protected_branch) }
+
+      subject { protected_branch }
+
+      it { is_expected.to validate_uniqueness_of(:name).scoped_to([:project_id, :namespace_id]) }
+
+      context 'when the protected_branch was saved previously' do
+        before do
+          protected_branch.save!
+        end
+
+        it { is_expected.not_to validate_uniqueness_of(:name) }
+
+        context 'and name is changed' do
+          before do
+            protected_branch.name = "#{protected_branch.name} + something else"
+          end
+
+          it { is_expected.to validate_uniqueness_of(:name).scoped_to([:project_id, :namespace_id]) }
+        end
+      end
+    end
+
+    describe '#validate_either_project_or_top_group' do
+      context 'when protected branch does not have project or group association' do
+        it 'validate failed' do
+          subject.assign_attributes(project: nil, group: nil)
+          subject.validate
+
+          expect(subject.errors).to include(:base)
+        end
+      end
+
+      context 'when protected branch is associated with both project and group' do
+        it 'validate failed' do
+          subject.assign_attributes(project: build(:project), group: build(:group))
+          subject.validate
+
+          expect(subject.errors).to include(:base)
+        end
+      end
+
+      context 'when protected branch is associated with a subgroup' do
+        it 'validate failed' do
+          subject.assign_attributes(project: nil, group: build(:group, :nested))
+          subject.validate
+
+          expect(subject.errors).to include(:base)
+        end
+      end
+    end
+  end
+
+  describe 'set a group' do
+    context 'when associated with group' do
+      it 'create successfully' do
+        expect { subject.group = build(:group) }.not_to raise_error
+      end
+    end
+
+    context 'when associated with other namespace' do
+      it 'create failed with `ActiveRecord::AssociationTypeMismatch`' do
+        expect { subject.group = build(:namespace) }.to raise_error(ActiveRecord::AssociationTypeMismatch)
+      end
+    end
+  end
+
+  describe '.protected_refs' do
+    let_it_be(:project) { create(:project) }
+
+    subject { described_class.protected_refs(project) }
+
+    context 'when feature flag enabled' do
+      before do
+        stub_feature_flags(group_protected_branches: true)
+        stub_feature_flags(allow_protected_branches_for_group: true)
+      end
+
+      it 'call `all_protected_branches`' do
+        expect(project).to receive(:all_protected_branches)
+
+        subject
+      end
+    end
+
+    context 'when feature flag disabled' do
+      before do
+        stub_feature_flags(group_protected_branches: false)
+        stub_feature_flags(allow_protected_branches_for_group: false)
+      end
+
+      it 'call `protected_branches`' do
+        expect(project).to receive(:protected_branches)
+
+        subject
+      end
+    end
+  end
+
+  describe '.protected_ref_accessible_to?' do
+    let_it_be(:project) { create(:project) }
+    let_it_be(:guest) { create(:user) }
+    let_it_be(:reporter) { create(:user) }
+    let_it_be(:developer) { create(:user) }
+    let_it_be(:maintainer) { create(:user) }
+    let_it_be(:owner) { create(:user) }
+    let_it_be(:admin) { create(:user, :admin) }
+
+    before do
+      project.add_guest(guest)
+      project.add_reporter(reporter)
+      project.add_developer(developer)
+      project.add_maintainer(maintainer)
+      project.add_owner(owner)
+    end
+
+    subject { described_class.protected_ref_accessible_to?(anything, current_user, project: project, action: :push) }
+
+    context 'with guest' do
+      let(:current_user) { guest }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'with reporter' do
+      let(:current_user) { reporter }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'with developer' do
+      let(:current_user) { developer }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'with maintainer' do
+      let(:current_user) { maintainer }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'with owner' do
+      let(:current_user) { owner }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'with admin' do
+      let(:current_user) { admin }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'when project is an empty repository' do
+      before do
+        allow(project).to receive(:empty_repo?).and_return(true)
+      end
+
+      context 'when user is an admin' do
+        let(:current_user) { admin }
+
+        it { is_expected.to eq(true) }
+      end
+
+      context 'when user is maintainer' do
+        let(:current_user) { maintainer }
+
+        it { is_expected.to eq(true) }
+      end
+
+      context 'when user is developer and initial push is allowed' do
+        let(:current_user) { developer }
+
+        before do
+          allow(project).to receive(:initial_push_to_default_branch_allowed_for_developer?).and_return(true)
+        end
+
+        it { is_expected.to eq(true) }
+      end
+
+      context 'when user is developer and initial push is not allowed' do
+        let(:current_user) { developer }
+
+        before do
+          allow(project).to receive(:initial_push_to_default_branch_allowed_for_developer?).and_return(false)
+        end
+
+        it { is_expected.to eq(false) }
+      end
+    end
+  end
+
+  describe '.by_name' do
+    let!(:protected_branch) { create(:protected_branch, name: 'master') }
+    let!(:another_protected_branch) { create(:protected_branch, name: 'stable') }
+
+    it 'returns protected branches with a matching name' do
+      expect(described_class.by_name(protected_branch.name))
+        .to eq([protected_branch])
+    end
+
+    it 'returns protected branches with a partially matching name' do
+      expect(described_class.by_name(protected_branch.name[0..2]))
+        .to eq([protected_branch])
+    end
+
+    it 'returns protected branches with a matching name regardless of the casing' do
+      expect(described_class.by_name(protected_branch.name.upcase))
+        .to eq([protected_branch])
+    end
+
+    it 'returns nothing when nothing matches' do
+      expect(described_class.by_name('unknown')).to be_empty
+    end
+
+    it 'return nothing when query is blank' do
+      expect(described_class.by_name('')).to be_empty
+    end
+  end
+
+  describe '.get_ids_by_name' do
+    let(:branch_name) { 'branch_name' }
+    let!(:protected_branch) { create(:protected_branch, name: branch_name) }
+    let(:branch_id) { protected_branch.id }
+
+    it 'returns the id for each protected branch matching name' do
+      expect(described_class.get_ids_by_name([branch_name]))
+        .to match_array([branch_id])
+    end
+  end
+
+  describe '.downcase_humanized_name' do
+    it 'returns downcase humanized name' do
+      expect(described_class.downcase_humanized_name).to eq 'protected branch'
+    end
+  end
+
+  describe '.default_branch?' do
+    before do
+      allow(subject.project).to receive(:default_branch).and_return(branch)
+    end
+
+    context 'when the name matches the default branch' do
+      let(:branch) { subject.name }
+
+      it { is_expected.to be_default_branch }
+    end
+
+    context 'when the name does not match the default branch' do
+      let(:branch) { "#{subject.name}qwerty" }
+
+      it { is_expected.not_to be_default_branch }
+    end
+
+    context 'when a wildcard name matches the default branch' do
+      let(:branch) { "#{subject.name}*" }
+
+      it { is_expected.not_to be_default_branch }
+    end
+  end
+
+  describe '#group_level?' do
+    context 'when entity is a Group' do
+      before do
+        subject.assign_attributes(project: nil, group: build(:group))
+      end
+
+      it { is_expected.to be_group_level }
+    end
+
+    context 'when entity is a Project' do
+      before do
+        subject.assign_attributes(project: build(:project), group: nil)
+      end
+
+      it { is_expected.not_to be_group_level }
+    end
   end
 
   describe "#matches?" do
@@ -167,27 +448,55 @@ RSpec.describe ProtectedBranch do
         expect(described_class.protected?(project, nil)).to eq(false)
       end
 
-      context 'with caching', :use_clean_rails_memory_store_caching do
+      context 'with caching', :use_clean_rails_redis_caching do
         let_it_be(:project) { create(:project, :repository) }
         let_it_be(:protected_branch) { create(:protected_branch, project: project, name: "“jawn”") }
 
         before do
-          allow(described_class).to receive(:matching).with(protected_branch.name, protected_refs: anything).once.and_call_original
+          allow(described_class).to receive(:matching).and_call_original
 
           # the original call works and warms the cache
           described_class.protected?(project, protected_branch.name)
         end
 
         it 'correctly invalidates a cache' do
-          expect(described_class).to receive(:matching).with(protected_branch.name, protected_refs: anything).once.and_call_original
+          expect(described_class).to receive(:matching).with(protected_branch.name, protected_refs: anything).exactly(3).times.and_call_original
 
-          create(:protected_branch, project: project, name: "bar")
-          # the cache is invalidated because the project has been "updated"
+          create_params = { name: 'bar', merge_access_levels_attributes: [{ access_level: Gitlab::Access::DEVELOPER }] }
+          branch = ProtectedBranches::CreateService.new(project, project.owner, create_params).execute
           expect(described_class.protected?(project, protected_branch.name)).to eq(true)
+
+          ProtectedBranches::UpdateService.new(project, project.owner, name: 'ber').execute(branch)
+          expect(described_class.protected?(project, protected_branch.name)).to eq(true)
+
+          ProtectedBranches::DestroyService.new(project, project.owner).execute(branch)
+          expect(described_class.protected?(project, protected_branch.name)).to eq(true)
+        end
+
+        context 'when project is updated' do
+          it 'does not invalidate a cache' do
+            expect(described_class).not_to receive(:matching).with(protected_branch.name, protected_refs: anything)
+
+            project.touch
+
+            described_class.protected?(project, protected_branch.name)
+          end
+        end
+
+        context 'when other project protected branch is updated' do
+          it 'does not invalidate the current project cache' do
+            expect(described_class).not_to receive(:matching).with(protected_branch.name, protected_refs: anything)
+
+            another_project = create(:project)
+            ProtectedBranches::CreateService.new(another_project, another_project.owner, name: 'bar').execute
+
+            described_class.protected?(project, protected_branch.name)
+          end
         end
 
         it 'correctly uses the cached version' do
           expect(described_class).not_to receive(:matching)
+
           expect(described_class.protected?(project, protected_branch.name)).to eq(true)
         end
       end
@@ -200,15 +509,15 @@ RSpec.describe ProtectedBranch do
 
       context 'when the group has set their own default_branch_protection level' do
         where(:default_branch_protection_level, :result) do
-          Gitlab::Access::PROTECTION_NONE          | false
-          Gitlab::Access::PROTECTION_DEV_CAN_PUSH  | false
-          Gitlab::Access::PROTECTION_DEV_CAN_MERGE | true
-          Gitlab::Access::PROTECTION_FULL          | true
+          Gitlab::Access::BranchProtection.protection_none                    | false
+          Gitlab::Access::BranchProtection.protection_partial                 | false
+          Gitlab::Access::BranchProtection.protected_against_developer_pushes | true
+          Gitlab::Access::BranchProtection.protected_fully                    | true
         end
 
         with_them do
           it 'protects the default branch based on the default branch protection setting of the group' do
-            expect(project.namespace).to receive(:default_branch_protection).and_return(default_branch_protection_level)
+            expect(project.namespace).to receive(:default_branch_protection_settings).and_return(default_branch_protection_level)
 
             expect(described_class.protected?(project, 'master')).to eq(result)
           end
@@ -217,15 +526,15 @@ RSpec.describe ProtectedBranch do
 
       context 'when the group has not set their own default_branch_protection level' do
         where(:default_branch_protection_level, :result) do
-          Gitlab::Access::PROTECTION_NONE          | false
-          Gitlab::Access::PROTECTION_DEV_CAN_PUSH  | false
-          Gitlab::Access::PROTECTION_DEV_CAN_MERGE | true
-          Gitlab::Access::PROTECTION_FULL          | true
+          Gitlab::Access::BranchProtection.protection_none                    | false
+          Gitlab::Access::BranchProtection.protection_partial                 | false
+          Gitlab::Access::BranchProtection.protected_against_developer_pushes | true
+          Gitlab::Access::BranchProtection.protected_fully                    | true
         end
 
         with_them do
           before do
-            stub_application_setting(default_branch_protection: default_branch_protection_level)
+            stub_application_setting(default_branch_protection_defaults: default_branch_protection_level)
           end
 
           it 'protects the default branch based on the instance level default branch protection setting' do
@@ -237,23 +546,63 @@ RSpec.describe ProtectedBranch do
   end
 
   describe "#allow_force_push?" do
-    context "when the attr allow_force_push is true" do
-      let(:subject_branch) { create(:protected_branch, allow_force_push: true, name: "foo") }
+    context "when feature flag disabled" do
+      before do
+        stub_feature_flags(group_protected_branches: false)
+        stub_feature_flags(allow_protected_branches_for_group: false)
+      end
 
-      it "returns true" do
-        project = subject_branch.project
+      let(:subject_branch) { create(:protected_branch, allow_force_push: allow_force_push, name: "foo") }
+      let(:project) { subject_branch.project }
 
-        expect(described_class.allow_force_push?(project, "foo")).to eq(true)
+      context "when the attr allow_force_push is true" do
+        let(:allow_force_push) { true }
+
+        it "returns true" do
+          expect(described_class.allow_force_push?(project, "foo")).to eq(true)
+        end
+      end
+
+      context "when the attr allow_force_push is false" do
+        let(:allow_force_push) { false }
+
+        it "returns false" do
+          expect(described_class.allow_force_push?(project, "foo")).to eq(false)
+        end
       end
     end
 
-    context "when the attr allow_force_push is false" do
-      let(:subject_branch) { create(:protected_branch, allow_force_push: false, name: "foo") }
+    context "when feature flag enabled" do
+      using RSpec::Parameterized::TableSyntax
 
-      it "returns false" do
-        project = subject_branch.project
+      let_it_be(:group) { create(:group) }
+      let_it_be(:project) { create(:project, group: group) }
 
-        expect(described_class.allow_force_push?(project, "foo")).to eq(false)
+      where(:group_level_value, :project_level_value, :result) do
+        true    | false    | true
+        false   | true     | false
+        true    | nil      | true
+        false   | nil      | false
+        nil     | nil      | false
+      end
+
+      with_them do
+        before do
+          stub_feature_flags(group_protected_branches: true)
+          stub_feature_flags(allow_protected_branches_for_group: true)
+
+          unless group_level_value.nil?
+            create(:protected_branch, allow_force_push: group_level_value, name: "foo", project: nil, group: group)
+          end
+
+          unless project_level_value.nil?
+            create(:protected_branch, allow_force_push: project_level_value, name: "foo", project: project)
+          end
+        end
+
+        it "returns result" do
+          expect(described_class.allow_force_push?(project, "foo")).to eq(result)
+        end
       end
     end
   end
@@ -283,45 +632,6 @@ RSpec.describe ProtectedBranch do
 
         expect(described_class.any_protected?(project, ['staging/some-branch'])).to eq(false)
       end
-    end
-  end
-
-  describe '.by_name' do
-    let!(:protected_branch) { create(:protected_branch, name: 'master') }
-    let!(:another_protected_branch) { create(:protected_branch, name: 'stable') }
-
-    it 'returns protected branches with a matching name' do
-      expect(described_class.by_name(protected_branch.name))
-        .to eq([protected_branch])
-    end
-
-    it 'returns protected branches with a partially matching name' do
-      expect(described_class.by_name(protected_branch.name[0..2]))
-        .to eq([protected_branch])
-    end
-
-    it 'returns protected branches with a matching name regardless of the casing' do
-      expect(described_class.by_name(protected_branch.name.upcase))
-        .to eq([protected_branch])
-    end
-
-    it 'returns nothing when nothing matches' do
-      expect(described_class.by_name('unknown')).to be_empty
-    end
-
-    it 'return nothing when query is blank' do
-      expect(described_class.by_name('')).to be_empty
-    end
-  end
-
-  describe '.get_ids_by_name' do
-    let(:branch_name) { 'branch_name' }
-    let!(:protected_branch) { create(:protected_branch, name: branch_name) }
-    let(:branch_id) { protected_branch.id }
-
-    it 'returns the id for each protected branch matching name' do
-      expect(described_class.get_ids_by_name([branch_name]))
-        .to match_array([branch_id])
     end
   end
 end

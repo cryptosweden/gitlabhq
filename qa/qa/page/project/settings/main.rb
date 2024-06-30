@@ -6,21 +6,22 @@ module QA
       module Settings
         class Main < Page::Base
           include QA::Page::Settings::Common
-          include Component::Select2
-          include SubMenus::Project
           include Component::Breadcrumbs
           include Layout::Flash
 
           view 'app/views/projects/edit.html.haml' do
-            element :advanced_settings_content
-            element :merge_request_settings_content
-            element :visibility_features_permissions_content
-            element :badges_settings_content
+            element 'advanced-settings-content'
+            element 'visibility-features-permissions-content'
+            element 'badges-settings-content'
+          end
+
+          view 'app/views/projects/settings/merge_requests/show.html.haml' do
+            element 'merge-request-settings-content'
           end
 
           view 'app/views/projects/settings/_general.html.haml' do
-            element :project_name_field
-            element :save_naming_topics_avatar_button
+            element 'project-name-field'
+            element 'save-naming-topics-avatar-button'
           end
 
           def rename_project_to(name)
@@ -29,33 +30,31 @@ module QA
           end
 
           def fill_project_name(name)
-            fill_element :project_name_field, name
+            fill_element 'project-name-field', name
           end
 
           def click_save_changes
-            click_element :save_naming_topics_avatar_button
+            click_element 'save-naming-topics-avatar-button'
+          end
+
+          def download_export_started?
+            has_text?('Project export started')
           end
 
           def expand_advanced_settings(&block)
-            expand_content(:advanced_settings_content) do
+            expand_content('advanced-settings-content') do
               Advanced.perform(&block)
             end
           end
 
-          def expand_merge_requests_settings(&block)
-            expand_content(:merge_request_settings_content) do
-              MergeRequest.perform(&block)
-            end
-          end
-
           def expand_visibility_project_features_permissions(&block)
-            expand_content(:visibility_features_permissions_content) do
+            expand_content('visibility-features-permissions-content') do
               VisibilityFeaturesPermissions.perform(&block)
             end
           end
 
           def expand_badges_settings(&block)
-            expand_content(:badges_settings_content) do
+            expand_content('badges-settings-content') do
               Component::Badges.perform(&block)
             end
           end

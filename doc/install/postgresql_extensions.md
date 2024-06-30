@@ -1,10 +1,14 @@
 ---
-stage: none
-group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Data Stores
+group: Database
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Managing PostgreSQL extensions **(FREE SELF)**
+# Managing PostgreSQL extensions
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 This guide documents how to manage PostgreSQL extensions for installations with an external
 PostgreSQL database.
@@ -17,21 +21,21 @@ You must load the following extensions into the main GitLab database (defaults t
 | `btree_gist` | 13.1                   |
 | `plpgsql`    | 11.7                   |
 
-If you are using [GitLab Geo](https://about.gitlab.com/solutions/geo/), you must load the following
+If you are using [GitLab Geo](../administration/geo/index.md), you must load the following
 extensions into all secondary tracking databases (defaults to `gitlabhq_geo_production`):
 
 | Extension    | Minimum GitLab version |
 |--------------|------------------------|
 | `plpgsql`    | 9.0                    |
 
-In order to install extensions, PostgreSQL requires the user to have superuser privileges.
+To install extensions, PostgreSQL requires the user to have superuser privileges.
 Typically, the GitLab database user is not a superuser. Therefore, regular database migrations
 cannot be used in installing extensions and instead, extensions have to be installed manually
 prior to upgrading GitLab to a newer version.
 
 ## Installing PostgreSQL extensions manually
 
-In order to install a PostgreSQL extension, this procedure should be followed:
+To install a PostgreSQL extension, this procedure should be followed:
 
 1. Connect to the GitLab PostgreSQL database using a superuser, for example:
 

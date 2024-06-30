@@ -9,31 +9,9 @@ class ProfilesController < Profiles::ApplicationController
   before_action only: :update_username do
     check_rate_limit!(:profile_update_username, scope: current_user)
   end
-  skip_before_action :require_email, only: [:show, :update]
-  before_action do
-    push_frontend_feature_flag(:webauthn, default_enabled: :yaml)
-  end
 
-  feature_category :users
-
-  def show
-  end
-
-  def update
-    respond_to do |format|
-      result = Users::UpdateService.new(current_user, user_params.merge(user: @user)).execute(check_password: true)
-
-      if result[:status] == :success
-        message = s_("Profiles|Profile was successfully updated")
-
-        format.html { redirect_back_or_default(default: { action: 'show' }, options: { notice: message }) }
-        format.json { render json: { message: message } }
-      else
-        format.html { redirect_back_or_default(default: { action: 'show' }, options: { alert: result[:message] }) }
-        format.json { render json: result }
-      end
-    end
-  end
+  feature_category :user_profile, [:reset_incoming_email_token, :reset_feed_token,
+    :reset_static_object_token, :update_username]
 
   def reset_incoming_email_token
     Users::UpdateService.new(current_user, user: @user).execute! do |user|
@@ -42,7 +20,7 @@ class ProfilesController < Profiles::ApplicationController
 
     flash[:notice] = s_("Profiles|Incoming email token was successfully reset")
 
-    redirect_to profile_personal_access_tokens_path
+    redirect_to user_settings_personal_access_tokens_path
   end
 
   def reset_feed_token
@@ -52,7 +30,7 @@ class ProfilesController < Profiles::ApplicationController
 
     flash[:notice] = s_('Profiles|Feed token was successfully reset')
 
-    redirect_to profile_personal_access_tokens_path
+    redirect_to user_settings_personal_access_tokens_path
   end
 
   def reset_static_object_token
@@ -60,19 +38,9 @@ class ProfilesController < Profiles::ApplicationController
       user.reset_static_object_token!
     end
 
-    redirect_to profile_personal_access_tokens_path,
+    redirect_to user_settings_personal_access_tokens_path,
       notice: s_('Profiles|Static object token was successfully reset')
   end
-
-  # rubocop: disable CodeReuse/ActiveRecord
-  def audit_log
-    @events = AuthenticationEvent.where(user: current_user)
-      .order("created_at DESC")
-      .page(params[:page])
-
-    Gitlab::Tracking.event(self.class.name, 'search_audit_event', user: current_user)
-  end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def update_username
     result = Users::UpdateService.new(current_user, user: @user, username: username_param).execute
@@ -81,12 +49,12 @@ class ProfilesController < Profiles::ApplicationController
       if result[:status] == :success
         message = s_("Profiles|Username successfully changed")
 
-        format.html { redirect_back_or_default(default: { action: 'show' }, options: { notice: message }) }
+        format.html { redirect_back_or_default(default: user_settings_profile_path, options: { notice: message }) }
         format.json { render json: { message: message }, status: :ok }
       else
         message = s_("Profiles|Username change failed - %{message}") % { message: result[:message] }
 
-        format.html { redirect_back_or_default(default: { action: 'show' }, options: { alert: message }) }
+        format.html { redirect_back_or_default(default: user_settings_profile_path, options: { alert: message }) }
         format.json { render json: { message: message }, status: :unprocessable_entity }
       end
     end
@@ -99,7 +67,7 @@ class ProfilesController < Profiles::ApplicationController
   end
 
   def authorize_change_username!
-    return render_404 unless @user.can_change_username?
+    render_404 unless @user.can_change_username?
   end
 
   def username_param
@@ -110,6 +78,7 @@ class ProfilesController < Profiles::ApplicationController
     [
       :avatar,
       :bio,
+      :discord,
       :email,
       :role,
       :gitpod_enabled,
@@ -118,6 +87,7 @@ class ProfilesController < Profiles::ApplicationController
       :hide_project_limit,
       :linkedin,
       :location,
+      :mastodon,
       :name,
       :public_email,
       :commit_email,
@@ -128,12 +98,13 @@ class ProfilesController < Profiles::ApplicationController
       :organization,
       :private_profile,
       :include_private_contributions,
+      :achievements_enabled,
       :timezone,
       :job_title,
       :pronouns,
       :pronunciation,
       :validation_password,
-      status: [:emoji, :message, :availability]
+      { status: [:emoji, :message, :availability, :clear_status_after] }
     ]
   end
 

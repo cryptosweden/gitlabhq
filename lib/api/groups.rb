@@ -7,9 +7,9 @@ module API
 
     before { authenticate_non_get! }
 
-    feature_category :subgroups
-
     helpers Helpers::GroupsHelpers
+
+    feature_category :groups_and_projects, ['/groups/:id/custom_attributes', '/groups/:id/custom_attributes/:key']
 
     helpers do
       params :statistics_params do
@@ -20,24 +20,21 @@ module API
         use :statistics_params
         optional :skip_groups, type: Array[Integer], coerce_with: ::API::Validations::Types::CommaSeparatedToIntegerArray.coerce, desc: 'Array of group ids to exclude from list'
         optional :all_available, type: Boolean, desc: 'Show all group that you have access to'
+        optional :visibility, type: String, values: Gitlab::VisibilityLevel.string_values,
+          desc: 'Limit by visibility'
         optional :search, type: String, desc: 'Search for a specific group'
         optional :owned, type: Boolean, default: false, desc: 'Limit by owned by authenticated user'
         optional :order_by, type: String, values: %w[name path id similarity], default: 'name', desc: 'Order by name, path, id or similarity if searching'
         optional :sort, type: String, values: %w[asc desc], default: 'asc', desc: 'Sort by asc (ascending) or desc (descending)'
         optional :min_access_level, type: Integer, values: Gitlab::Access.all_values, desc: 'Minimum access level of authenticated user'
         optional :top_level_only, type: Boolean, desc: 'Only include top level groups'
+        use :optional_group_list_params_ee
         use :pagination
       end
 
       # rubocop: disable CodeReuse/ActiveRecord
       def find_groups(params, parent_id = nil)
-        find_params = params.slice(
-          :all_available,
-          :custom_attributes,
-          :owned, :min_access_level,
-          :include_parent_descendants,
-          :search
-        )
+        find_params = params.slice(*allowable_find_params)
 
         find_params[:parent] = if params[:top_level_only]
                                  [nil]
@@ -51,24 +48,41 @@ module API
         groups = GroupsFinder.new(current_user, find_params).execute
         groups = groups.where.not(id: params[:skip_groups]) if params[:skip_groups].present?
 
-        order_groups(groups)
+        order_groups(groups).with_api_scopes
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
+      def allowable_find_params
+        [:all_available,
+          :custom_attributes,
+          :owned, :min_access_level,
+          :include_parent_descendants, :search, :visibility]
+      end
+
+      # This is a separate method so that EE can extend its behaviour, without
+      # having to modify this code directly.
+      #
       def create_group
-        # This is a separate method so that EE can extend its behaviour, without
-        # having to modify this code directly.
         ::Groups::CreateService
-          .new(current_user, declared_params(include_missing: false))
+          .new(current_user, translate_params_for_compatibility)
           .execute
       end
 
+      # This is a separate method so that EE can extend its behaviour, without
+      # having to modify this code directly.
+      #
       def update_group(group)
-        # This is a separate method so that EE can extend its behaviour, without
-        # having to modify this code directly.
         ::Groups::UpdateService
-          .new(group, current_user, declared_params(include_missing: false))
+          .new(group, current_user, translate_params_for_compatibility)
           .execute
+      end
+
+      def translate_params_for_compatibility
+        temp_params = declared_params(include_missing: false)
+
+        temp_params[:emails_enabled] = !temp_params.delete(:emails_disabled) if temp_params.key?(:emails_disabled)
+
+        temp_params
       end
 
       def find_group_projects(params, finder_options)
@@ -80,7 +94,10 @@ module API
           params: project_finder_params,
           options: finder_options
         ).execute
-        projects = reorder_projects_with_similarity_order_support(group, projects)
+
+        order_by = params[:order_by]
+        projects = reorder_projects_with_order_support(projects, group, order_by)
+
         paginate(projects)
       end
 
@@ -96,11 +113,11 @@ module API
         present options[:with].prepare_relation(projects, options), options
       end
 
-      def present_groups(params, groups)
+      def present_groups(params, groups, serializer: Entities::Group)
         options = {
-          with: Entities::Group,
+          with: serializer,
           current_user: current_user,
-          statistics: params[:statistics] && current_user&.admin?
+          statistics: params[:statistics] && current_user&.can_read_all_resources?
         }
 
         groups = groups.with_statistics if options[:statistics]
@@ -109,7 +126,22 @@ module API
         present paginate(groups), options
       end
 
+      def present_group_details(params, group, with_projects: true)
+        options = {
+          with: Entities::GroupDetail,
+          with_projects: with_projects,
+          current_user: current_user,
+          user_can_admin_group: can?(current_user, :admin_group, group)
+        }
+
+        group, options = with_custom_attributes(group, options) if params[:with_custom_attributes]
+
+        present group, options
+      end
+
       def present_groups_with_pagination_strategies(params, groups)
+        groups = groups.select(groups.arel_table[Arel.star])
+
         return present_groups(params, groups) if current_user.present?
 
         options = {
@@ -131,10 +163,15 @@ module API
         accepted!
       end
 
-      def reorder_projects_with_similarity_order_support(group, projects)
-        return handle_similarity_order(group, projects) if params[:order_by] == 'similarity'
-
-        reorder_projects(projects)
+      def reorder_projects_with_order_support(projects, group, order_by)
+        case order_by
+        when 'similarity'
+          handle_similarity_order(group, projects)
+        when 'star_count'
+          handle_star_count_order(group, projects)
+        else
+          reorder_projects(projects)
+        end
       end
 
       def order_groups(groups)
@@ -160,6 +197,12 @@ module API
           projects.reorder(order_options)
         end
       end
+
+      def handle_star_count_order(group, projects)
+        order_options = { star_count: params[:sort] == 'asc' ? :asc : :desc }
+        order_options['id'] ||= params[:sort]
+        projects.reorder(order_options)
+      end
       # rubocop: enable CodeReuse/ActiveRecord
 
       def authorize_group_creation!
@@ -167,7 +210,7 @@ module API
       end
 
       def check_subscription!(group)
-        render_api_error!("This group can't be removed because it is linked to a subscription.", :bad_request) if group.paid?
+        render_api_error!("This group can't be removed because it is linked to a subscription.", :bad_request) if group.prevent_delete?
       end
     end
 
@@ -176,38 +219,51 @@ module API
 
       desc 'Get a groups list' do
         success Entities::Group
+        is_array true
+        tags %w[groups]
       end
       params do
         use :group_list_params
         use :with_custom_attributes
       end
-      get do
+      get feature_category: :groups_and_projects do
+        if Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
+          check_rate_limit_by_user_or_ip!(:groups_api)
+        end
+
         groups = find_groups(declared_params(include_missing: false), params[:id])
         present_groups_with_pagination_strategies params, groups
       end
 
       desc 'Create a group. Available only for users who can create groups.' do
         success Entities::Group
+        tags %w[groups]
       end
       params do
         requires :name, type: String, desc: 'The name of the group'
         requires :path, type: String, desc: 'The path of the group'
         optional :parent_id, type: Integer, desc: 'The parent group id for creating nested group'
+        optional :organization_id, type: Integer, default: -> { Current.organization_id },
+          desc: 'The organization id for the group'
 
         use :optional_params
       end
-      post do
-        parent_group = find_group!(params[:parent_id]) if params[:parent_id].present?
+      post feature_category: :groups_and_projects, urgency: :low do
+        organization = find_organization!(params[:organization_id]) if params[:organization_id].present?
+        authorize! :create_group, organization if organization
+
+        parent_group = find_group!(params[:parent_id], organization: organization) if params[:parent_id].present?
         if parent_group
           authorize! :create_subgroup, parent_group
         else
           authorize_group_creation!
         end
 
-        group = create_group
+        response = create_group
+        group = response[:group]
         group.preload_shared_group_links
 
-        if group.persisted?
+        if response.success?
           present group, with: Entities::GroupDetail, current_user: current_user
         else
           render_api_error!("Failed to save group #{group.errors.messages}", 400)
@@ -221,6 +277,7 @@ module API
     resource :groups, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
       desc 'Update a group. Available only for users who can administrate groups.' do
         success Entities::Group
+        tags %w[groups]
       end
       params do
         optional :name, type: String, desc: 'The name of the group'
@@ -229,14 +286,17 @@ module API
         use :optional_update_params
         use :optional_update_params_ee
       end
-      put ':id' do
+      put ':id', feature_category: :groups_and_projects, urgency: :low do
         group = find_group!(params[:id])
         group.preload_shared_group_links
 
+        mark_throttle! :update_namespace_name, scope: group if params.key?(:name) && params[:name].present?
         authorize! :admin_group, group
 
+        group.remove_avatar! if params.key?(:avatar) && params[:avatar].nil?
+
         if update_group(group)
-          present group, with: Entities::GroupDetail, current_user: current_user
+          present_group_details(params, group, with_projects: true)
         else
           render_validation_error!(group)
         end
@@ -244,49 +304,76 @@ module API
 
       desc 'Get a single group, with containing projects.' do
         success Entities::GroupDetail
+        tags %w[groups]
       end
       params do
         use :with_custom_attributes
         optional :with_projects, type: Boolean, default: true, desc: 'Omit project details'
       end
-      get ":id" do
+      # TODO: Set higher urgency after resolving https://gitlab.com/gitlab-org/gitlab/-/issues/357841
+      get ":id", feature_category: :groups_and_projects, urgency: :low do
+        if Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
+          check_rate_limit_by_user_or_ip!(:group_api)
+        end
+
         group = find_group!(params[:id])
         group.preload_shared_group_links
 
-        options = {
-          with: params[:with_projects] ? Entities::GroupDetail : Entities::Group,
-          current_user: current_user,
-          user_can_admin_group: can?(current_user, :admin_group, group)
-        }
-
-        group, options = with_custom_attributes(group, options)
-
-        present group, options
+        present_group_details(params, group, with_projects: params[:with_projects])
       end
 
-      desc 'Remove a group.'
-      delete ":id" do
+      desc 'Remove a group.' do
+        tags %w[groups]
+      end
+      delete ":id", feature_category: :groups_and_projects, urgency: :low do
         group = find_group!(params[:id])
-        authorize! :admin_group, group
+        authorize! :remove_group, group
         check_subscription! group
 
         delete_group(group)
       end
 
+      desc 'Get a list of shared groups this group was invited to' do
+        success Entities::Group
+        is_array true
+        tags %w[groups]
+      end
+      params do
+        optional :visibility, type: String, values: Gitlab::VisibilityLevel.string_values,
+          desc: 'Limit by visibility'
+        optional :order_by, type: String, values: %w[name path id similarity], default: 'name', desc: 'Order by name, path, id or similarity if searching'
+        optional :sort, type: String, values: %w[asc desc], default: 'asc', desc: 'Sort by asc (ascending) or desc (descending)'
+
+        use :pagination
+        use :with_custom_attributes
+      end
+      get ":id/groups/shared", feature_category: :groups_and_projects do
+        if Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
+          check_rate_limit_by_user_or_ip!(:group_shared_groups_api)
+        end
+
+        group = find_group!(params[:id])
+        groups = ::Namespaces::Groups::SharedGroupsFinder.new(group, current_user, declared(params)).execute
+        groups = order_groups(groups).with_api_scopes
+        present_groups params, groups
+      end
+
       desc 'Get a list of projects in this group.' do
         success Entities::Project
+        is_array true
+        tags %w[groups]
       end
       params do
         optional :archived, type: Boolean, desc: 'Limit by archived status'
         optional :visibility, type: String, values: Gitlab::VisibilityLevel.string_values,
-                              desc: 'Limit by visibility'
+          desc: 'Limit by visibility'
         optional :search, type: String, desc: 'Return list of authorized projects matching the search criteria'
-        optional :order_by, type: String, values: %w[id name path created_at updated_at last_activity_at similarity],
-                            default: 'created_at', desc: 'Return projects ordered by field'
+        optional :order_by, type: String, values: %w[id name path created_at updated_at last_activity_at similarity star_count],
+          default: 'created_at', desc: 'Return projects ordered by field'
         optional :sort, type: String, values: %w[asc desc], default: 'desc',
-                        desc: 'Return projects sorted in ascending and descending order'
+          desc: 'Return projects sorted in ascending and descending order'
         optional :simple, type: Boolean, default: false,
-                          desc: 'Return only the ID, URL, name, and path of each project'
+          desc: 'Return only the ID, URL, name, and path of each project'
         optional :owned, type: Boolean, default: false, desc: 'Limit by owned by authenticated user'
         optional :starred, type: Boolean, default: false, desc: 'Limit by starred status'
         optional :with_issues_enabled, type: Boolean, default: false, desc: 'Limit by enabled issues feature'
@@ -300,9 +387,14 @@ module API
         use :with_custom_attributes
         use :optional_projects_params
       end
-      get ":id/projects" do
+      # TODO: Set higher urgency after resolving https://gitlab.com/gitlab-org/gitlab/-/issues/211498
+      get ":id/projects", feature_category: :groups_and_projects, urgency: :low do
+        if Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
+          check_rate_limit_by_user_or_ip!(:group_projects_api)
+        end
+
         finder_options = {
-          only_owned: !params[:with_shared],
+          exclude_shared: !params[:with_shared],
           include_subgroups: params[:include_subgroups],
           include_ancestor_groups: params[:include_ancestor_groups]
         }
@@ -314,18 +406,20 @@ module API
 
       desc 'Get a list of shared projects in this group' do
         success Entities::Project
+        is_array true
+        tags %w[groups]
       end
       params do
         optional :archived, type: Boolean, desc: 'Limit by archived status'
         optional :visibility, type: String, values: Gitlab::VisibilityLevel.string_values,
-                              desc: 'Limit by visibility'
+          desc: 'Limit by visibility'
         optional :search, type: String, desc: 'Return list of authorized projects matching the search criteria'
-        optional :order_by, type: String, values: %w[id name path created_at updated_at last_activity_at],
-                            default: 'created_at', desc: 'Return projects ordered by field'
+        optional :order_by, type: String, values: %w[id name path created_at updated_at last_activity_at star_count],
+          default: 'created_at', desc: 'Return projects ordered by field'
         optional :sort, type: String, values: %w[asc desc], default: 'desc',
-                        desc: 'Return projects sorted in ascending and descending order'
+          desc: 'Return projects sorted in ascending and descending order'
         optional :simple, type: Boolean, default: false,
-                          desc: 'Return only the ID, URL, name, and path of each project'
+          desc: 'Return only the ID, URL, name, and path of each project'
         optional :starred, type: Boolean, default: false, desc: 'Limit by starred status'
         optional :with_issues_enabled, type: Boolean, default: false, desc: 'Limit by enabled issues feature'
         optional :with_merge_requests_enabled, type: Boolean, default: false, desc: 'Limit by enabled merge requests feature'
@@ -334,7 +428,7 @@ module API
         use :pagination
         use :with_custom_attributes
       end
-      get ":id/projects/shared" do
+      get ":id/projects/shared", feature_category: :groups_and_projects do
         projects = find_group_projects(params, { only_shared: true })
 
         present_projects(params, projects)
@@ -342,24 +436,28 @@ module API
 
       desc 'Get a list of subgroups in this group.' do
         success Entities::Group
+        is_array true
+        tags %w[groups]
       end
       params do
         use :group_list_params
         use :with_custom_attributes
       end
-      get ":id/subgroups" do
+      get ":id/subgroups", feature_category: :groups_and_projects, urgency: :low do
         groups = find_groups(declared_params(include_missing: false), params[:id])
         present_groups params, groups
       end
 
       desc 'Get a list of descendant groups of this group.' do
         success Entities::Group
+        is_array true
+        tags %w[groups]
       end
       params do
         use :group_list_params
         use :with_custom_attributes
       end
-      get ":id/descendant_groups" do
+      get ":id/descendant_groups", feature_category: :groups_and_projects, urgency: :low do
         finder_params = declared_params(include_missing: false).merge(include_parent_descendants: true)
         groups = find_groups(finder_params, params[:id])
         present_groups params, groups
@@ -367,11 +465,12 @@ module API
 
       desc 'Transfer a project to the group namespace. Available only for admin.' do
         success Entities::GroupDetail
+        tags %w[groups]
       end
       params do
         requires :project_id, type: String, desc: 'The ID or path of the project'
       end
-      post ":id/projects/:project_id", requirements: { project_id: /.+/ } do
+      post ":id/projects/:project_id", requirements: { project_id: /.+/ }, feature_category: :groups_and_projects do
         authenticated_as_admin!
         group = find_group!(params[:id])
         group.preload_shared_group_links
@@ -385,13 +484,35 @@ module API
         end
       end
 
-      desc 'Transfer a group to a new parent group or promote a subgroup to a root group'
+      desc 'Get the groups to where the current group can be transferred to' do
+        success Entities::Group
+        is_array true
+        tags %w[groups]
+      end
       params do
-        optional :group_id, type: Integer,
+        optional :search, type: String, desc: 'Return list of namespaces matching the search criteria'
+        use :pagination
+      end
+      get ':id/transfer_locations', feature_category: :groups_and_projects do
+        authorize! :admin_group, user_group
+        args = declared_params(include_missing: false)
+
+        groups = ::Groups::AcceptingGroupTransfersFinder.new(current_user, user_group, args).execute
+        groups = groups.with_route
+
+        present_groups params, groups, serializer: Entities::PublicGroupDetails
+      end
+
+      desc 'Transfer a group to a new parent group or promote a subgroup to a root group' do
+        tags %w[groups]
+      end
+      params do
+        optional :group_id,
+          type: Integer,
           desc: 'The ID of the target group to which the group needs to be transferred to.'\
                 'If not provided, the source group will be promoted to a root group.'
       end
-      post ':id/transfer' do
+      post ':id/transfer', feature_category: :groups_and_projects do
         group = find_group!(params[:id])
         authorize! :admin_group, group
 
@@ -409,14 +530,14 @@ module API
 
       desc 'Share a group with a group' do
         success Entities::GroupDetail
+        tags %w[groups]
       end
       params do
         requires :group_id, type: Integer, desc: 'The ID of the group to share'
         requires :group_access, type: Integer, values: Gitlab::Access.all_values, desc: 'The group access level'
         optional :expires_at, type: Date, desc: 'Share expiration date'
       end
-      post ":id/share" do
-        shared_group = find_group!(params[:id])
+      post ":id/share", feature_category: :groups_and_projects, urgency: :low do
         shared_with_group = find_group!(params[:group_id])
 
         group_link_create_params = {
@@ -424,11 +545,11 @@ module API
           expires_at: params[:expires_at]
         }
 
-        result = ::Groups::GroupLinks::CreateService.new(shared_group, shared_with_group, current_user, group_link_create_params).execute
-        shared_group.preload_shared_group_links
+        result = ::Groups::GroupLinks::CreateService.new(user_group, shared_with_group, current_user, group_link_create_params).execute
+        user_group.preload_shared_group_links
 
         if result[:status] == :success
-          present shared_group, with: Entities::GroupDetail, current_user: current_user
+          present user_group, with: Entities::GroupDetail, current_user: current_user
         else
           render_api_error!(result[:message], result[:http_status])
         end
@@ -438,7 +559,7 @@ module API
         requires :group_id, type: Integer, desc: 'The ID of the shared group'
       end
       # rubocop: disable CodeReuse/ActiveRecord
-      delete ":id/share/:group_id" do
+      delete ":id/share/:group_id", feature_category: :groups_and_projects do
         shared_group = find_group!(params[:id])
 
         link = shared_group.shared_with_group_links.find_by(shared_with_group_id: params[:group_id])

@@ -3,6 +3,8 @@
 class SnippetBlobPresenter < BlobPresenter
   include GitlabRoutingHelper
 
+  delegator_override_with Gitlab::Utils::StrongMemoize # This module inclusion is expected. See https://gitlab.com/gitlab-org/gitlab/-/issues/352884.
+
   presents ::SnippetBlob
 
   def rich_data
@@ -38,9 +40,11 @@ class SnippetBlobPresenter < BlobPresenter
   end
 
   def render_rich_partial
-    renderer.render("projects/blob/viewers/_#{blob.rich_viewer.partial_name}",
-                    locals: { viewer: blob.rich_viewer, blob: blob, blob_raw_path: raw_path, blob_raw_url: raw_url, parent_dir_raw_path: raw_directory },
-                    layout: false)
+    renderer.render(
+      "projects/blob/viewers/_#{blob.rich_viewer.partial_name}",
+      locals: { viewer: blob.rich_viewer, blob: blob, blob_raw_path: raw_path, blob_raw_url: raw_url, parent_dir_raw_path: raw_directory },
+      layout: false
+    )
   end
 
   def renderer

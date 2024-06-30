@@ -4,26 +4,23 @@ module Gitlab
   module GithubImport
     module Representation
       class Note
-        include ToHash
-        include ExposeAttribute
-
-        attr_reader :attributes
+        include Representable
 
         expose_attribute :noteable_id, :noteable_type, :author, :note,
-                         :created_at, :updated_at, :note_id
+          :created_at, :updated_at, :note_id
 
-        NOTEABLE_TYPE_REGEX = %r{/(?<type>(pull|issues))/(?<iid>\d+)}i.freeze
+        NOTEABLE_TYPE_REGEX = %r{/(?<type>(pull|issues))/(?<iid>\d+)}i
 
         # Builds a note from a GitHub API response.
         #
-        # note - An instance of `Sawyer::Resource` containing the note details.
-        def self.from_api_response(note)
-          matches = note.html_url.match(NOTEABLE_TYPE_REGEX)
+        # note - An instance of `Hash` containing the note details.
+        def self.from_api_response(note, additional_data = {})
+          matches = note[:html_url].match(NOTEABLE_TYPE_REGEX)
 
           if !matches || !matches[:type]
             raise(
               ArgumentError,
-              "The note URL #{note.html_url.inspect} is not supported"
+              "The note URL #{note[:html_url].inspect} is not supported"
             )
           end
 
@@ -34,15 +31,15 @@ module Gitlab
               'Issue'
             end
 
-          user = Representation::User.from_api_response(note.user) if note.user
+          user = Representation::User.from_api_response(note[:user]) if note[:user]
           hash = {
             noteable_type: noteable_type,
             noteable_id: matches[:iid].to_i,
             author: user,
-            note: note.body,
-            created_at: note.created_at,
-            updated_at: note.updated_at,
-            note_id: note.id
+            note: note[:body],
+            created_at: note[:created_at],
+            updated_at: note[:updated_at],
+            note_id: note[:id]
           }
 
           new(hash)
@@ -76,7 +73,7 @@ module Gitlab
         def github_identifiers
           {
             note_id: note_id,
-            noteable_id: noteable_id,
+            noteable_iid: noteable_id,
             noteable_type: noteable_type
           }
         end

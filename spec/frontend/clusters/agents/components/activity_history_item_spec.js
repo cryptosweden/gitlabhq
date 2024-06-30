@@ -23,11 +23,7 @@ describe('ActivityHistoryItem', () => {
   };
 
   const findHistoryItem = () => wrapper.findComponent(HistoryItem);
-  const findTimeAgo = () => wrapper.find(TimeAgoTooltip);
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findTimeAgo = () => wrapper.findComponent(TimeAgoTooltip);
 
   describe.each`
     kind                    | icon                                              | title                                                                   | lineNumber

@@ -11,13 +11,15 @@ module Gitlab
 
     included do
       scope :public_only,               -> { where(visibility_level: PUBLIC) }
-      scope :public_and_internal_only,  -> { where(visibility_level: [PUBLIC, INTERNAL] ) }
+      scope :public_and_internal_only,  -> { where(visibility_level: [PUBLIC, INTERNAL]) }
       scope :private_only,              -> { where(visibility_level: PRIVATE) }
       scope :non_public_only,           -> { where.not(visibility_level: PUBLIC) }
 
-      scope :public_to_user, -> (user = nil) do
+      scope :public_to_user, ->(user = nil) do
         where(visibility_level: VisibilityLevel.levels_for_user(user))
       end
+
+      alias_method :visibility_level=, :visibility=
     end
 
     PRIVATE  = 0 unless const_defined?(:PRIVATE)
@@ -45,17 +47,17 @@ module Gitlab
 
       def options
         {
-          s_('VisibilityLevel|Private')  => PRIVATE,
+          s_('VisibilityLevel|Private') => PRIVATE,
           s_('VisibilityLevel|Internal') => INTERNAL,
-          s_('VisibilityLevel|Public')   => PUBLIC
+          s_('VisibilityLevel|Public') => PUBLIC
         }
       end
 
       def string_options
         {
-          'private'  => PRIVATE,
+          'private' => PRIVATE,
           'internal' => INTERNAL,
-          'public'   => PUBLIC
+          'public' => PUBLIC
         }
       end
 
@@ -108,10 +110,10 @@ module Gitlab
         options.key(level.to_i) || s_('VisibilityLevel|Unknown')
       end
 
-      def level_value(level)
+      def level_value(level, fallback_value: PRIVATE)
         return level.to_i if level.to_i.to_s == level.to_s && string_options.key(level.to_i)
 
-        string_options[level] || PRIVATE
+        string_options[level] || fallback_value
       end
 
       def string_level(level)

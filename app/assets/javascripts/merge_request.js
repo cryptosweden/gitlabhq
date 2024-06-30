@@ -1,14 +1,15 @@
 /* eslint-disable func-names, no-underscore-dangle, consistent-return */
 
 import $ from 'jquery';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import { TYPE_MERGE_REQUEST } from '~/issues/constants';
 import toast from '~/vue_shared/plugins/global_toast';
 import { __ } from '~/locale';
-import eventHub from '~/vue_merge_request_widget/event_hub';
+import { loadingIconForLegacyJS } from '~/loading_icon_for_legacy_js';
+import MergeRequestTabs from 'jh_else_ce/merge_request_tabs';
 import axios from './lib/utils/axios_utils';
 import { addDelimiter } from './lib/utils/text_utility';
 import { getParameterValues, setUrlParams } from './lib/utils/url_utility';
-import MergeRequestTabs from './merge_request_tabs';
 import TaskList from './task_list';
 
 function MergeRequest(opts) {
@@ -26,16 +27,24 @@ function MergeRequest(opts) {
 
   if ($('.description.js-task-list-container').length) {
     this.taskList = new TaskList({
-      dataType: 'merge_request',
+      dataType: TYPE_MERGE_REQUEST,
       fieldName: 'description',
       selector: '.detail-page-description',
       lockVersion: this.$el.data('lockVersion'),
       onSuccess: (result) => {
-        document.querySelector('#task_status').innerText = result.task_status;
-        document.querySelector('#task_status_short').innerText = result.task_status_short;
+        const taskStatus = document.querySelector('#task_status');
+        const taskStatusShort = document.querySelector('#task_status_short');
+
+        if (taskStatus) {
+          taskStatus.innerText = result.task_status;
+        }
+
+        if (taskStatusShort) {
+          document.querySelector('#task_status_short').innerText = result.task_status_short;
+        }
       },
       onError: () => {
-        createFlash({
+        createAlert({
           message: __(
             'Someone edited this merge request at the same time you did. Please refresh the page to see changes.',
           ),
@@ -72,24 +81,30 @@ MergeRequest.prototype.initMRBtnListeners = function () {
         const wipEvent = getParameterValues('merge_request[wip_event]', url)[0];
         const mobileDropdown = draftToggle.closest('.dropdown.show');
 
+        const loader = loadingIconForLegacyJS({ inline: true, classes: ['gl-mr-3'] });
+
         if (mobileDropdown) {
           $(mobileDropdown.firstElementChild).dropdown('toggle');
         }
 
         draftToggle.setAttribute('disabled', 'disabled');
+        draftToggle.prepend(loader);
 
         axios
           .put(draftToggle.href, null, { params: { format: 'json' } })
           .then(({ data }) => {
             draftToggle.removeAttribute('disabled');
-            eventHub.$emit('MRWidgetUpdateRequested');
-            MergeRequest.toggleDraftStatus(data.title, wipEvent === 'unwip');
+
+            MergeRequest.toggleDraftStatus(data.title, wipEvent === 'ready');
           })
           .catch(() => {
-            draftToggle.removeAttribute('disabled');
-            createFlash({
+            createAlert({
               message: __('Something went wrong. Please try again.'),
             });
+          })
+          .finally(() => {
+            draftToggle.removeAttribute('disabled');
+            loader.remove();
           });
       });
     });
@@ -124,15 +139,9 @@ MergeRequest.prototype.submitNoteForm = function (form, $button) {
 
 MergeRequest.decreaseCounter = function (by = 1) {
   const $el = $('.js-merge-counter');
-  const count = Math.max(parseInt($el.text().replace(/[^\d]/, ''), 10) - by, 0);
+  const count = Math.max(parseInt($el.first().text().replace(/[^\d]/, ''), 10) - by, 0);
 
   $el.text(addDelimiter(count));
-};
-
-MergeRequest.hideCloseButton = function () {
-  const el = document.querySelector('.merge-request .js-issuable-actions');
-  // Dropdown for mobile screen
-  el.querySelector('li.js-close-item').classList.add('hidden');
 };
 
 MergeRequest.toggleDraftStatus = function (title, isReady) {
@@ -141,7 +150,7 @@ MergeRequest.toggleDraftStatus = function (title, isReady) {
   } else {
     toast(__('Marked as draft. Can only be merged when marked as ready.'));
   }
-  const titleEl = document.querySelector('.merge-request .detail-page-description .title');
+  const titleEl = document.querySelector(`.merge-request .detail-page-header .title`);
 
   if (titleEl) {
     titleEl.textContent = title;
@@ -153,12 +162,14 @@ MergeRequest.toggleDraftStatus = function (title, isReady) {
     draftToggles.forEach((el) => {
       const draftToggle = el;
       const url = setUrlParams(
-        { 'merge_request[wip_event]': isReady ? 'wip' : 'unwip' },
+        { 'merge_request[wip_event]': isReady ? 'draft' : 'ready' },
         draftToggle.href,
       );
 
       draftToggle.setAttribute('href', url);
-      draftToggle.textContent = isReady ? __('Mark as draft') : __('Mark as ready');
+      draftToggle.querySelector('.gl-dropdown-item-text-wrapper').textContent = isReady
+        ? __('Mark as draft')
+        : __('Mark as ready');
     });
   }
 };

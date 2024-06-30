@@ -4,7 +4,6 @@ module Mutations
   class BaseMutation < GraphQL::Schema::RelayClassicMutation
     include Gitlab::Graphql::Authorize::AuthorizeResource
     prepend Gitlab::Graphql::CopyFieldDescription
-    prepend ::Gitlab::Graphql::GlobalIDCompatibility
 
     ERROR_MESSAGE = 'You cannot perform write operations on a read-only instance'
 
@@ -12,8 +11,8 @@ module Mutations
     argument_class ::Types::BaseArgument
 
     field :errors, [GraphQL::Types::String],
-          null: false,
-          description: 'Errors encountered during execution of the mutation.'
+      null: false,
+      description: 'Errors encountered during execution of the mutation.'
 
     def current_user
       context[:current_user]
@@ -29,25 +28,25 @@ module Mutations
     end
 
     def ready?(**args)
-      raise_resource_not_available_error! ERROR_MESSAGE if Gitlab::Database.read_only?
-
-      missing_args = self.class.arguments.values
-        .reject { |arg| arg.accepts?(args.fetch(arg.keyword, :not_given)) }
-        .map(&:graphql_name)
-
-      raise ArgumentError, "Arguments must be provided: #{missing_args.join(", ")}" if missing_args.any?
+      raise_resource_not_available_error!(ERROR_MESSAGE) if read_only?
 
       true
     end
 
-    def load_application_object(argument, lookup_as_type, id, context)
-      ::Gitlab::Graphql::Lazy.new { super }.catch(::GraphQL::UnauthorizedError) do |e|
-        Gitlab::ErrorTracking.track_exception(e)
-        # The default behaviour is to abort processing and return nil for the
-        # entire mutation field, but not set any top-level errors. We prefer to
-        # at least say that something went wrong.
-        raise_resource_not_available_error!
-      end
+    def read_only?
+      Gitlab::Database.read_only?
+    end
+
+    def load_application_object(argument, id, context)
+      ::Gitlab::Graphql::Lazy.new { super }
+    end
+
+    def unauthorized_object(error)
+      # The default behavior is to abort processing and return nil for the
+      # entire mutation field, but not set any top-level errors. We prefer to
+      # at least say that something went wrong.
+      Gitlab::ErrorTracking.track_exception(error)
+      raise_resource_not_available_error!
     end
 
     def self.authorizes_object?
@@ -55,18 +54,21 @@ module Mutations
     end
 
     def self.authorized?(object, context)
-      auth = ::Gitlab::Graphql::Authorize::ObjectAuthorization.new(:execute_graphql_mutation, :api)
-
+      auth = ::Gitlab::Graphql::Authorize::ObjectAuthorization.new(:execute_graphql_mutation, authorization_scopes)
       return true if auth.ok?(:global, context[:current_user],
-                              scope_validator: context[:scope_validator])
+        scope_validator: context[:scope_validator])
 
       # in our mutations we raise, rather than returning a null value.
       raise_resource_not_available_error!
     end
 
+    def self.authorization_scopes
+      [:api]
+    end
+
     # See: AuthorizeResource#authorized_resource?
     def self.authorization
-      @authorization ||= ::Gitlab::Graphql::Authorize::ObjectAuthorization.new(authorize)
+      @authorization ||= ::Gitlab::Graphql::Authorize::ObjectAuthorization.new(authorize, authorization_scopes)
     end
   end
 end

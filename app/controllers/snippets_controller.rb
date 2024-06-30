@@ -14,26 +14,10 @@ class SnippetsController < Snippets::ApplicationController
 
   skip_before_action :authenticate_user!, only: [:index, :show, :raw]
 
-  layout 'snippets'
+  layout :determine_layout
 
   def index
-    if params[:username].present?
-      @user = UserFinder.new(params[:username]).find_by_username!
-
-      @snippets = SnippetsFinder.new(current_user, author: @user, scope: params[:scope], sort: sort_param)
-        .execute
-        .page(params[:page])
-        .inc_author
-        .inc_statistics
-
-      return if redirect_out_of_range(@snippets)
-
-      @noteable_meta_data = noteable_meta_data(@snippets, 'Snippet')
-
-      render 'index'
-    else
-      redirect_to(current_user ? dashboard_snippets_path : explore_snippets_path)
-    end
+    redirect_to(current_user ? dashboard_snippets_path : explore_snippets_path)
   end
 
   def new
@@ -47,5 +31,13 @@ class SnippetsController < Snippets::ApplicationController
 
   def spammable_path
     snippet_path(@snippet)
+  end
+
+  def determine_layout
+    if action_name == 'show' && @snippet.author != current_user
+      'explore'
+    else
+      'snippets'
+    end
   end
 end

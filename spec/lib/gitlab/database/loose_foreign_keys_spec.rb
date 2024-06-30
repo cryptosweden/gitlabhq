@@ -8,14 +8,14 @@ RSpec.describe Gitlab::Database::LooseForeignKeys do
 
     it 'all definitions have assigned a known gitlab_schema and on_delete' do
       is_expected.to all(have_attributes(
-                           options: a_hash_including(
-                             column: be_a(String),
-                             gitlab_schema: be_in(Gitlab::Database.schemas_to_base_models.symbolize_keys.keys),
-                             on_delete: be_in([:async_delete, :async_nullify])
-                           ),
-                           from_table: be_a(String),
-                           to_table: be_a(String)
-                         ))
+        options: a_hash_including(
+          column: be_a(String),
+          gitlab_schema: be_in(Gitlab::Database.schemas_to_base_models.symbolize_keys.keys),
+          on_delete: be_in([:async_delete, :async_nullify])
+        ),
+        from_table: be_a(String),
+        to_table: be_a(String)
+      ))
     end
 
     context 'ensure keys are sorted' do
@@ -63,21 +63,92 @@ RSpec.describe Gitlab::Database::LooseForeignKeys do
         Gitlab::Database.schemas_to_base_models.fetch(parent_table_schema)
       end
 
-      it 'all `to_table` tables are present' do
+      it 'all `to_table` tables are present', :aggregate_failures do
         definitions.each do |definition|
           base_models_for(definition.to_table).each do |model|
-            expect(model.connection).to be_table_exist(definition.to_table)
+            expect(model.connection).to be_table_exist(definition.to_table),
+              "Table #{definition.from_table} does not exist"
           end
         end
       end
 
-      it 'all `from_table` tables are present' do
+      it 'all `from_table` tables are present', :aggregate_failures do
         definitions.each do |definition|
           base_models_for(definition.from_table).each do |model|
-            expect(model.connection).to be_table_exist(definition.from_table)
-            expect(model.connection).to be_column_exist(definition.from_table, definition.column)
+            expect(model.connection).to be_table_exist(definition.from_table),
+              "Table #{definition.from_table} does not exist"
+            expect(model.connection).to be_column_exist(definition.from_table, definition.column),
+              "Column #{definition.column} in #{definition.from_table} does not exist"
           end
         end
+      end
+    end
+  end
+
+  context 'all tables have correct triggers installed' do
+    let(:all_tables_from_yaml) { described_class.definitions.pluck(:to_table).uniq }
+
+    let(:all_tables_with_triggers) do
+      triggers_query = <<~SQL
+        SELECT event_object_table FROM information_schema.triggers
+        WHERE trigger_name LIKE '%_loose_fk_trigger'
+      SQL
+
+      ApplicationRecord.connection.execute(triggers_query)
+        .pluck('event_object_table').uniq
+    end
+
+    it 'all YAML tables do have `track_record_deletions` installed' do
+      missing_trigger_tables = all_tables_from_yaml - all_tables_with_triggers
+
+      expect(missing_trigger_tables).to be_empty, <<~END
+        The loose foreign keys definitions require using `track_record_deletions`
+        for the following tables: #{missing_trigger_tables}.
+        Read more at https://docs.gitlab.com/ee/development/database/loose_foreign_keys.html."
+      END
+    end
+
+    it 'no extra tables have `track_record_deletions` installed' do
+      extra_trigger_tables = all_tables_with_triggers - all_tables_from_yaml
+
+      pending 'This result of this test is informatory, and not critical' if extra_trigger_tables.any?
+
+      expect(extra_trigger_tables).to be_empty, <<~END
+        The following tables have unused `track_record_deletions` triggers installed,
+        but they are not referenced by any of the loose foreign key definitions: #{extra_trigger_tables}.
+        You can remove them in one of the future releases as part of `db/post_migrate`.
+        Read more at https://docs.gitlab.com/ee/development/database/loose_foreign_keys.html."
+      END
+    end
+  end
+
+  describe '.build_definition' do
+    context 'when child table schema is not defined' do
+      let(:loose_foreign_keys_yaml) do
+        {
+          'ci_unknown_table' => [
+            {
+              'table' => 'projects',
+              'column' => 'project_id',
+              'on_delete' => 'async_delete'
+            }
+          ]
+        }
+      end
+
+      subject { described_class.definitions }
+
+      before do
+        described_class.instance_variable_set(:@definitions, nil)
+        described_class.instance_variable_set(:@loose_foreign_keys_yaml, loose_foreign_keys_yaml)
+      end
+
+      after do
+        described_class.instance_variable_set(:@loose_foreign_keys_yaml, nil)
+      end
+
+      it 'raises Gitlab::Database::GitlabSchema::UnknownSchemaError error' do
+        expect { subject }.to raise_error(Gitlab::Database::GitlabSchema::UnknownSchemaError)
       end
     end
   end

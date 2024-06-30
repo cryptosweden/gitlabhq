@@ -1,15 +1,15 @@
 - user = user_email = nil
-- if @tag.tagger
-  - user_email = @tag.tagger.email
+- if @tag.user_email
+  - user_email = @tag.user_email
   - user = User.find_by_any_email(user_email)
 - add_to_breadcrumbs s_('TagsPage|Tags'), project_tags_path(@project)
 - breadcrumb_title @tag.name
 - page_title @tag.name, s_('TagsPage|Tags')
 
-.top-area.multi-line.flex-wrap
+.top-area.multi-line.gl-flex-wrap
   .nav-text
     .title
-      %span.item-title.ref-name{ data: { qa_selector: 'tag_name_content' } }
+      %span.item-title.ref-name{ data: { testid: 'tag-name-content' } }
         = sprite_icon('tag')
         = @tag.name
       - if protected_tag?(@project, @tag)
@@ -37,29 +37,23 @@
     - else
       = s_("TagsPage|Can't find HEAD commit for this tag")
 
+    - if @release
+      = render 'release_link', project: @project, release: @release
+
   .nav-controls
     - if @tag.has_signature?
       = render partial: 'projects/commit/signature', object: @tag.signature
     - if can?(current_user, :admin_tag, @project)
-      = link_to edit_project_tag_release_path(@project, @tag.name), class: 'btn btn-icon btn-edit gl-button btn-default controls-item has-tooltip', title: s_('TagsPage|Edit release notes') do
-        = sprite_icon("pencil", css_class: 'gl-icon')
-    = link_to project_tree_path(@project, @tag.name), class: 'btn btn-icon gl-button btn-default controls-item has-tooltip', title: s_('TagsPage|Browse files') do
-      = sprite_icon('folder-open', css_class: 'gl-icon')
-    = link_to project_commits_path(@project, @tag.name), class: 'btn btn-icon gl-button btn-default controls-item has-tooltip', title: s_('TagsPage|Browse commits') do
-      = sprite_icon('history', css_class: 'gl-icon')
-    .controls-item
-      = render 'projects/buttons/download', project: @project, ref: @tag.name
+      = render 'edit_release_button', tag: @tag, project: @project, release: @release
+    = link_button_to nil, project_tree_path(@project, @tag.name), class: 'has-tooltip', title: s_('TagsPage|Browse files'), icon: 'folder-open'
+    = link_button_to nil, project_commits_path(@project, @tag.name), class: 'has-tooltip', title: s_('TagsPage|Browse commits'), icon: 'history'
+    = render 'projects/buttons/download', project: @project, ref: @tag.name
     - if can?(current_user, :admin_tag, @project)
-      .btn-container.controls-item-full
-        = render 'projects/buttons/remove_tag', project: @project, tag: @tag
+      = render 'projects/buttons/remove_tag', project: @project, tag: @tag
 
   - if @tag.message.present?
-    %pre.wrap{ data: { qa_selector: 'tag_message_content' } }
+    %pre.wrap{ data: { testid: 'tag-message-content' } }
       = strip_signature(@tag.message)
 
-.gl-mb-3.gl-mt-3
-  - if @release.description.present?
-    .description.md{ data: { qa_selector: 'tag_release_notes_content' } }
-      = markdown_field(@release, :description)
-  - else
-    = s_('TagsPage|This tag has no release notes.')
+- if can?(current_user, :admin_tag, @project)
+  .js-delete-tag-modal

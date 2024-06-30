@@ -17,8 +17,7 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
         jobs.find { |job| job['args'] == args }
       end
 
-      def perform(*args)
-      end
+      def perform(*args); end
     end
   end
 
@@ -28,7 +27,7 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
         'TestNotOwnedWithContextWorker'
       end
 
-      feature_category_not_owned!
+      feature_category :not_owned
     end
   end
 
@@ -38,8 +37,7 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
         'TestMailer'
       end
 
-      def test_mail
-      end
+      def test_mail; end
     end
   end
 
@@ -50,14 +48,34 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
   end
 
   describe "#call" do
+    context 'root_caller_id' do
+      it 'uses caller_id of the current context' do
+        Gitlab::ApplicationContext.with_context(caller_id: 'CALLER') do
+          TestWithContextWorker.perform_async
+        end
+
+        job = TestWithContextWorker.jobs.last
+        expect(job['meta.root_caller_id']).to eq('CALLER')
+      end
+
+      it 'uses root_caller_id instead of caller_id of the current context' do
+        Gitlab::ApplicationContext.with_context(caller_id: 'CALLER', root_caller_id: 'ROOT_CALLER') do
+          TestWithContextWorker.perform_async
+        end
+
+        job = TestWithContextWorker.jobs.last
+        expect(job['meta.root_caller_id']).to eq('ROOT_CALLER')
+      end
+    end
+
     it 'applies a context for jobs scheduled in batch' do
       user_per_job = { 'job1' => build_stubbed(:user, username: 'user-1'),
                        'job2' => build_stubbed(:user, username: 'user-2') }
 
       TestWithContextWorker.bulk_perform_async_with_contexts(
-        %w(job1 job2),
-        arguments_proc: -> (name) { [name, 1, 2, 3] },
-        context_proc: -> (name) { { user: user_per_job[name] } }
+        %w[job1 job2],
+        arguments_proc: ->(name) { [name, 1, 2, 3] },
+        context_proc: ->(name) { { user: user_per_job[name] } }
       )
 
       job1 = TestWithContextWorker.job_for_args(['job1', 1, 2, 3])
@@ -70,9 +88,9 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
     context 'when the feature category is set in the context_proc' do
       it 'takes the feature category from the worker, not the caller' do
         TestWithContextWorker.bulk_perform_async_with_contexts(
-          %w(job1 job2),
-          arguments_proc: -> (name) { [name, 1, 2, 3] },
-          context_proc: -> (_) { { feature_category: 'code_review' } }
+          %w[job1 job2],
+          arguments_proc: ->(name) { [name, 1, 2, 3] },
+          context_proc: ->(_) { { feature_category: 'code_review' } }
         )
 
         job1 = TestWithContextWorker.job_for_args(['job1', 1, 2, 3])
@@ -84,9 +102,9 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
 
       it 'takes the feature category from the caller if the worker is not owned' do
         TestNotOwnedWithContextWorker.bulk_perform_async_with_contexts(
-          %w(job1 job2),
-          arguments_proc: -> (name) { [name, 1, 2, 3] },
-          context_proc: -> (_) { { feature_category: 'code_review' } }
+          %w[job1 job2],
+          arguments_proc: ->(name) { [name, 1, 2, 3] },
+          context_proc: ->(_) { { feature_category: 'code_review' } }
         )
 
         job1 = TestNotOwnedWithContextWorker.job_for_args(['job1', 1, 2, 3])
@@ -97,7 +115,7 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
       end
 
       it 'does not set any explicit feature category for mailers', :sidekiq_mailers do
-        expect(Gitlab::ApplicationContext).not_to receive(:with_context)
+        expect(Gitlab::ApplicationContext).to receive(:with_context).with(hash_excluding(feature_category: anything))
 
         TestMailer.test_mail.deliver_later
       end
@@ -105,11 +123,11 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
 
     context 'when the feature category is already set in the surrounding block' do
       it 'takes the feature category from the worker, not the caller' do
-        Gitlab::ApplicationContext.with_context(feature_category: 'authentication_and_authorization') do
+        Gitlab::ApplicationContext.with_context(feature_category: 'system_access') do
           TestWithContextWorker.bulk_perform_async_with_contexts(
-            %w(job1 job2),
-            arguments_proc: -> (name) { [name, 1, 2, 3] },
-            context_proc: -> (_) { {} }
+            %w[job1 job2],
+            arguments_proc: ->(name) { [name, 1, 2, 3] },
+            context_proc: ->(_) { {} }
           )
         end
 
@@ -121,19 +139,19 @@ RSpec.describe Gitlab::SidekiqMiddleware::WorkerContext::Client do
       end
 
       it 'takes the feature category from the caller if the worker is not owned' do
-        Gitlab::ApplicationContext.with_context(feature_category: 'authentication_and_authorization') do
+        Gitlab::ApplicationContext.with_context(feature_category: 'system_access') do
           TestNotOwnedWithContextWorker.bulk_perform_async_with_contexts(
-            %w(job1 job2),
-            arguments_proc: -> (name) { [name, 1, 2, 3] },
-            context_proc: -> (_) { {} }
+            %w[job1 job2],
+            arguments_proc: ->(name) { [name, 1, 2, 3] },
+            context_proc: ->(_) { {} }
           )
         end
 
         job1 = TestNotOwnedWithContextWorker.job_for_args(['job1', 1, 2, 3])
         job2 = TestNotOwnedWithContextWorker.job_for_args(['job2', 1, 2, 3])
 
-        expect(job1['meta.feature_category']).to eq('authentication_and_authorization')
-        expect(job2['meta.feature_category']).to eq('authentication_and_authorization')
+        expect(job1['meta.feature_category']).to eq('system_access')
+        expect(job2['meta.feature_category']).to eq('system_access')
       end
     end
   end

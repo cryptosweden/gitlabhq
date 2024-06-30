@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Project Graph', :js do
-  let(:user) { create :user }
+RSpec.describe 'Project Graph', :js, feature_category: :source_code_management do
+  let(:user) { create(:user) }
   let(:project) { create(:project, :repository, namespace: user.namespace) }
   let(:branch_name) { 'master' }
 
@@ -59,7 +59,31 @@ RSpec.describe 'Project Graph', :js do
 
     it 'HTML escapes branch name' do
       expect(page.body).to include("Commit statistics for <strong>#{ERB::Util.html_escape(branch_name)}</strong>")
-      expect(page.find('.dropdown-toggle-text')['innerHTML']).to eq(ERB::Util.html_escape(branch_name))
+      expect(page).to have_button(branch_name)
+    end
+  end
+
+  context 'charts graph ref switcher' do
+    it 'switches ref to branch' do
+      ref_name = 'add-pdf-file'
+      visit charts_project_graph_path(project, 'master')
+
+      # Not a huge fan of using a HTML (CSS) selectors here as any change of them will cause a failed test
+      ref_selector = find('.ref-selector .gl-new-dropdown-toggle')
+      scroll_to(ref_selector)
+      ref_selector.click
+
+      page.within '.gl-new-dropdown-contents' do
+        dropdown_branch_item = find('li', text: 'add-pdf-file')
+        scroll_to(dropdown_branch_item)
+        dropdown_branch_item.click
+      end
+
+      scroll_to(find('.tree-ref-header'), align: :center)
+      expect(page).to have_selector '.gl-new-dropdown-toggle', text: ref_name
+      page.within '.tree-ref-header' do
+        expect(page).to have_selector('h4', text: ref_name)
+      end
     end
   end
 
@@ -71,7 +95,7 @@ RSpec.describe 'Project Graph', :js do
     end
 
     it 'renders CI graphs' do
-      expect(page).to have_content 'Overall'
+      expect(page).to have_content 'CI/CD Analytics'
       expect(page).to have_content 'Last week'
       expect(page).to have_content 'Last month'
       expect(page).to have_content 'Last year'

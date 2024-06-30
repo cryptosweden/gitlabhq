@@ -13,7 +13,7 @@
 #
 # Initially created to filter user groups and descendants where the user can create projects
 module Groups
-  class UserGroupsFinder
+  class UserGroupsFinder < Base
     def initialize(current_user, target_user, params = {})
       @current_user = current_user
       @target_user = target_user
@@ -34,19 +34,13 @@ module Groups
 
     attr_reader :current_user, :target_user, :params
 
-    def sort(items)
-      items.order(path: :asc, id: :asc) # rubocop: disable CodeReuse/ActiveRecord
-    end
-
-    def by_search(items)
-      return items if params[:search].blank?
-
-      items.search(params[:search])
-    end
-
     def by_permission_scope
       if permission_scope_create_projects?
-        target_user.manageable_groups(include_groups_with_developer_maintainer_access: true)
+        Groups::AcceptingProjectCreationsFinder.new(target_user).execute # rubocop: disable CodeReuse/Finder
+      elsif permission_scope_transfer_projects?
+        Groups::AcceptingProjectTransfersFinder.new(target_user).execute # rubocop: disable CodeReuse/Finder
+      elsif permission_scope_import_projects?
+        Groups::AcceptingProjectImportsFinder.new(target_user).execute # rubocop: disable CodeReuse/Finder
       else
         target_user.groups
       end
@@ -54,6 +48,14 @@ module Groups
 
     def permission_scope_create_projects?
       params[:permission_scope] == :create_projects
+    end
+
+    def permission_scope_transfer_projects?
+      params[:permission_scope] == :transfer_projects
+    end
+
+    def permission_scope_import_projects?
+      params[:permission_scope] == :import_projects
     end
   end
 end

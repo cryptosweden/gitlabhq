@@ -1,6 +1,7 @@
 import { GlLink } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import IdeStatusList from '~/ide/components/ide_status_list.vue';
 import TerminalSyncStatusSafe from '~/ide/components/terminal_sync/terminal_sync_status_safe.vue';
@@ -25,7 +26,7 @@ describe('ide/components/ide_status_list', () => {
   let store;
   let wrapper;
 
-  const findLink = () => wrapper.find(GlLink);
+  const findLink = () => wrapper.findComponent(GlLink);
   const createComponent = (options = {}) => {
     store = new Vuex.Store({
       getters: {
@@ -53,10 +54,7 @@ describe('ide/components/ide_status_list', () => {
   });
 
   afterEach(() => {
-    wrapper.destroy();
-
     store = null;
-    wrapper = null;
   });
 
   describe('with regular file', () => {
@@ -98,6 +96,6 @@ describe('ide/components/ide_status_list', () => {
   it('renders terminal sync status', () => {
     createComponent();
 
-    expect(wrapper.find(TerminalSyncStatusSafe).exists()).toBe(true);
+    expect(wrapper.findComponent(TerminalSyncStatusSafe).exists()).toBe(true);
   });
 });

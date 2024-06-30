@@ -5,13 +5,14 @@ fragment PackageData on Package {
   packageType
   createdAt
   status
+  statusMessage
   tags {
     nodes {
       id
       name
     }
   }
-  pipelines(last: 1) {
+  pipelines(first: 1) {
     nodes {
       id
       sha
@@ -23,9 +24,11 @@ fragment PackageData on Package {
       }
     }
   }
-  project {
-    id
-    fullPath
-    webUrl
+  protectionRuleExists
+  _links {
+    webPath
+  }
+  userPermissions {
+    destroyPackage
   }
 }

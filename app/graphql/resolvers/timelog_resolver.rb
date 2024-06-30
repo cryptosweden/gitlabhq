@@ -3,56 +3,69 @@
 module Resolvers
   class TimelogResolver < BaseResolver
     include LooksAhead
-    include ResolvesIds
+    include Gitlab::Graphql::Authorize::AuthorizeResource
 
     type ::Types::TimelogType.connection_type, null: false
 
     argument :start_date, Types::TimeType,
-             required: false,
-             description: 'List timelogs within a date range where the logged date is equal to or after startDate.'
+      required: false,
+      description: 'List timelogs within a date range where the logged date is equal to or after startDate.'
 
     argument :end_date, Types::TimeType,
-             required: false,
-             description: 'List timelogs within a date range where the logged date is equal to or before endDate.'
+      required: false,
+      description: 'List timelogs within a date range where the logged date is equal to or before endDate.'
 
     argument :start_time, Types::TimeType,
-             required: false,
-             description: 'List timelogs within a time range where the logged time is equal to or after startTime.'
+      required: false,
+      description: 'List timelogs within a time range where the logged time is equal to or after startTime.'
 
     argument :end_time, Types::TimeType,
-             required: false,
-             description: 'List timelogs within a time range where the logged time is equal to or before endTime.'
+      required: false,
+      description: 'List timelogs within a time range where the logged time is equal to or before endTime.'
 
     argument :project_id, ::Types::GlobalIDType[::Project],
-             required: false,
-             description: 'List timelogs for a project.'
+      required: false,
+      description: 'List timelogs for a project.'
 
     argument :group_id, ::Types::GlobalIDType[::Group],
-             required: false,
-             description: 'List timelogs for a group.'
+      required: false,
+      description: 'List timelogs for a group.'
 
     argument :username, GraphQL::Types::String,
-             required: false,
-             description: 'List timelogs for a user.'
+      required: false,
+      description: 'List timelogs for a user.'
+
+    argument :sort, Types::TimeTracking::TimelogSortEnum,
+      description: 'List timelogs in a particular order.',
+      required: false,
+      default_value: :spent_at_asc
 
     def resolve_with_lookahead(**args)
       validate_args!(object, args)
 
-      timelogs = object&.timelogs || Timelog.limit(GitlabSchema.default_max_page_size)
+      args = parse_datetime_args(args)
 
-      if args.any?
-        args = parse_datetime_args(args)
-
-        timelogs = apply_user_filter(timelogs, args)
-        timelogs = apply_project_filter(timelogs, args)
-        timelogs = apply_time_filter(timelogs, args)
-        timelogs = apply_group_filter(timelogs, args)
-      end
+      timelogs = Timelogs::TimelogsFinder.new(object, finder_params(args)).execute
 
       apply_lookahead(timelogs)
+    rescue ArgumentError => e
+      raise_argument_error(e.message)
+    rescue ActiveRecord::RecordNotFound
+      raise_resource_not_available_error!
     end
 
     private
+
+    def finder_params(args)
+      {
+        username: args[:username],
+        start_time: args[:start_time],
+        end_time: args[:end_time],
+        group_id: args[:group_id]&.model_id,
+        project_id: args[:project_id]&.model_id,
+        sort: args[:sort]
+      }
+    end
 
     def preloads
       {
@@ -61,7 +74,12 @@ module Resolvers
     end
 
     def validate_args!(object, args)
-      if args.empty? && object.nil?
+      # sort is always provided because of its default value so we
+      # should check the remaining args to make sure at least one filter
+      # argument was provided
+      cleaned_args = args.except(:sort)
+
+      if cleaned_args.empty? && object.nil?
         raise_argument_error('Provide at least one argument')
       elsif args[:start_time] && args[:start_date]
         raise_argument_error('Provide either a start date or time, but not both')
@@ -85,53 +103,6 @@ module Resolvers
 
     def times_provided?(args)
       args[:start_time] && args[:end_time]
-    end
-
-    def validate_time_difference!(args)
-      return unless end_time_before_start_time?(args)
-
-      raise_argument_error('Start argument must be before End argument')
-    end
-
-    def end_time_before_start_time?(args)
-      times_provided?(args) && args[:end_time] < args[:start_time]
-    end
-
-    def apply_project_filter(timelogs, args)
-      return timelogs unless args[:project_id]
-
-      project = resolve_ids(args[:project_id], ::Types::GlobalIDType[::Project])
-      timelogs.in_project(project)
-    end
-
-    def apply_group_filter(timelogs, args)
-      return timelogs unless args[:group_id]
-
-      group = Group.find_by_id(resolve_ids(args[:group_id], ::Types::GlobalIDType[::Group]))
-      timelogs.in_group(group)
-    end
-
-    def apply_user_filter(timelogs, args)
-      return timelogs unless args[:username]
-
-      user = UserFinder.new(args[:username]).find_by_username!
-      timelogs.for_user(user)
-    end
-
-    def apply_time_filter(timelogs, args)
-      return timelogs unless args[:start_time] || args[:end_time]
-
-      validate_time_difference!(args)
-
-      if args[:start_time]
-        timelogs = timelogs.at_or_after(args[:start_time])
-      end
-
-      if args[:end_time]
-        timelogs = timelogs.at_or_before(args[:end_time])
-      end
-
-      timelogs
     end
 
     def raise_argument_error(message)

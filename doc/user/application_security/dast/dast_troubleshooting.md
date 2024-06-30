@@ -1,15 +1,18 @@
 ---
 stage: Secure
 group: Dynamic Analysis
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference, howto
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Dynamic Application Security Testing (DAST) Troubleshooting **(ULTIMATE)**
+# Troubleshooting DAST proxy-based analyzer
+
+DETAILS:
+**Tier:** Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 The following troubleshooting scenarios have been collected from customer support cases. If you
-experience a problem not addressed here, or the information here does not fix your problem, create a
-support ticket. For more details, see the [GitLab Support](https://about.gitlab.com/support/) page.
+experience a problem not addressed here, or the information here does not fix your problem, see the
+[GitLab Support](https://about.gitlab.com/support/) page for ways to get help.
 
 ## Debugging DAST jobs
 
@@ -20,7 +23,7 @@ A DAST job has two executing processes:
 
 Enable the `DAST_DEBUG` CI/CD variable to debug scripts. This can help when troubleshooting the job,
 and outputs statements indicating what percentage of the scan is complete.
-For details on using variables, see [Overriding the DAST template](index.md#customize-dast-settings).
+For details on using variables, see [Overriding the DAST template](proxy-based.md#customize-dast-settings).
 
 Debug mode of the ZAP server can be enabled using the `DAST_ZAP_LOG_CONFIGURATION` variable.
 The following table outlines examples of values that can be set and the effect that they have on the output that is logged.
@@ -70,14 +73,14 @@ tips for optimizing DAST scans in a [blog post](https://about.gitlab.com/blog/20
 
 ## Getting warning message `gl-dast-report.json: no matching files`
 
-For information on this, see the [general Application Security troubleshooting section](../../../ci/pipelines/job_artifacts.md#error-message-no-files-to-upload).
+For information on this, see the [general Application Security troubleshooting section](../../../ci/jobs/job_artifacts_troubleshooting.md#error-message-no-files-to-upload).
 
 ## Getting error `dast job: chosen stage does not exist` when including DAST CI template
 
 To avoid overwriting stages from other CI files, newer versions of the DAST CI template do not
 define stages. If you recently started using `DAST.latest.gitlab-ci.yml` or upgraded to a new major
 release of GitLab and began receiving this error, you must define a `dast` stage with your other
-stages. Note that you must have a running application for DAST to scan. If your application is set
+stages. You must have a running application for DAST to scan. If your application is set
 up in your pipeline, it must be deployed in a stage _before_ the `dast` stage:
 
 ```yaml
@@ -89,6 +92,21 @@ include:
   - template: DAST.latest.gitlab-ci.yml
 ```
 
+## Getting error `shell not found` when using DAST CI/CD template
+
+When including the DAST CI/CD template as described in the documentation, the job may fail, with an error like the following recorded in the job logs:
+
+```shell
+shell not found
+```
+
+To avoid this error, make sure you are using the latest stable version of Docker. More information is available in [issue 358847](https://gitlab.com/gitlab-org/gitlab/-/issues/358847).
+
 ## Lack of IPv6 support
 
 Due to the underlying [ZAProxy engine not supporting IPv6](https://github.com/zaproxy/zaproxy/issues/3705), DAST is unable to scan or crawl IPv6-based applications.
+
+## Additional insight into DAST scan activity
+
+For additional insight into what a DAST scan is doing at a given time, you may find it helpful to review
+the web server access logs for a DAST target endpoint during or following a scan.

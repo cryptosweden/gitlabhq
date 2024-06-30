@@ -20,7 +20,7 @@ describe('RemoveAvatar', () => {
         name,
       },
       directives: {
-        GlModal: createMockDirective(),
+        GlModal: createMockDirective('gl-modal'),
       },
       stubs: {
         GlSprintf,
@@ -34,10 +34,6 @@ describe('RemoveAvatar', () => {
 
   beforeEach(() => {
     createComponent();
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   describe('the button component', () => {
@@ -77,7 +73,7 @@ describe('RemoveAvatar', () => {
         let formSubmitSpy;
 
         beforeEach(() => {
-          formSubmitSpy = jest.spyOn(wrapper.vm.$refs.deleteForm, 'submit');
+          formSubmitSpy = jest.spyOn(findForm().element, 'submit');
           findModal().vm.$emit('primary');
         });
 

@@ -5,11 +5,12 @@ require 'digest'
 
 module QA
   RSpec.describe 'Create' do
-    describe 'Compare archives of different user projects with the same name and check they\'re different' do
+    describe 'Compare archives of different user projects with the same name and check they\'re different',
+      product_group: :source_code do
       include Support::API
       let(:project_name) { "project-archive-download-#{SecureRandom.hex(8)}" }
 
-      let(:archive_types) { %w(tar.gz tar.bz2 tar zip) }
+      let(:archive_types) { %w[tar.gz tar.bz2 tar zip] }
 
       let(:users) do
         {
@@ -27,7 +28,8 @@ module QA
         end
       end
 
-      it 'download archives of each user project then check they are different', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347748' do
+      it 'download archives of each user project then check they are different', :blocking,
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347748' do
         archive_checksums = {}
 
         users.each do |user_key, user_info|
@@ -45,27 +47,18 @@ module QA
       end
 
       def create_project(user, api_client, project_name)
-        project = Resource::Project.fabricate_via_api! do |project|
-          project.personal_namespace = user.username
-          project.add_name_uuid = false
-          project.name = project_name
-          project.api_client = api_client
-        end
+        project = create(:project, name: project_name, api_client: api_client, add_name_uuid: false, personal_namespace: user.username)
 
-        Resource::Repository::ProjectPush.fabricate! do |push|
-          push.project = project
-          push.file_name = 'README.md'
-          push.file_content = '# This is a test project'
-          push.commit_message = 'Add README.md'
-          push.user = user
-        end
+        create(:commit, project: project, api_client: api_client, commit_message: 'Add README.md', actions: [
+          { action: 'create', file_path: 'README.md', content: '# This is a test project' }
+        ])
 
         project
       end
 
       def download_project_archive_via_api(api_client, project, type = 'tar.gz')
         get_project_archive_zip = Runtime::API::Request.new(api_client, project.api_get_archive_path(type))
-        project_archive_download = get(get_project_archive_zip.url, raw_response: true)
+        project_archive_download = Support::API.get(get_project_archive_zip.url, raw_response: true)
         expect(project_archive_download.code).to eq(200)
 
         project_archive_download.file

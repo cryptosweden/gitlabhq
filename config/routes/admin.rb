@@ -22,6 +22,8 @@ namespace :admin do
       put :unlock
       put :confirm
       put :approve
+      put :trust
+      put :untrust
       delete :reject
       post :impersonate
       patch :disable_two_factor
@@ -35,7 +37,13 @@ namespace :admin do
 
   resource :impersonation, only: :destroy
 
-  resources :abuse_reports, only: [:index, :destroy]
+  resource :initial_setup, controller: :initial_setup, only: [:new, :update]
+
+  resources :abuse_reports, only: [:index, :show, :update, :destroy] do
+    member do
+      put :moderate_user
+    end
+  end
   resources :gitaly_servers, only: [:index]
 
   resources :spam_logs, only: [:index, :destroy] do
@@ -44,13 +52,19 @@ namespace :admin do
     end
   end
 
-  resources :applications
+  resources :applications do
+    put 'renew', on: :member
+  end
 
   resources :groups, only: [:index, :new, :create]
 
-  scope(path: 'groups/*id',
-        controller: :groups,
-        constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(html|json|atom)/ }) do
+  resources :organizations, only: [:index]
+
+  scope(
+    path: 'groups/*id',
+    controller: :groups,
+    constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(html|json|atom)/ }
+  ) do
     scope(as: :group) do
       put :members_update
       get :edit, action: :edit
@@ -61,10 +75,11 @@ namespace :admin do
     end
   end
 
-  resources :topics, only: [:index, :new, :create, :edit, :update] do
+  resources :topics, only: [:index, :new, :create, :edit, :update, :destroy] do
     resource :avatar, controller: 'topics/avatars', only: [:destroy]
     collection do
       post :preview_markdown
+      post :merge
     end
   end
 
@@ -88,7 +103,9 @@ namespace :admin do
 
   get :instance_review, to: 'instance_review#index'
 
-  resources :background_migrations, only: [:index] do
+  resources :background_migrations, only: [:index, :show] do
+    resources :batched_jobs, only: [:show]
+
     member do
       post :pause
       post :resume
@@ -100,7 +117,6 @@ namespace :admin do
   resource :background_jobs, controller: 'background_jobs', only: [:show]
 
   resource :system_info, controller: 'system_info', only: [:show]
-  resources :requests_profiles, only: [:index, :show], param: :name, constraints: { name: /.+\.(html|txt)/ }
 
   resources :projects, only: [:index]
 
@@ -109,16 +125,24 @@ namespace :admin do
   get 'dev_ops_report', to: redirect('admin/dev_ops_reports')
   resources :cohorts, only: :index
 
-  scope(path: 'projects/*namespace_id',
-        as: :namespace,
-        constraints: { namespace_id: Gitlab::PathRegex.full_namespace_route_regex }) do
-    resources(:projects,
-              path: '/',
-              constraints: { id: Gitlab::PathRegex.project_route_regex },
-              only: [:show, :destroy]) do
+  scope(
+    path: 'projects/*namespace_id',
+    as: :namespace,
+    constraints: { namespace_id: Gitlab::PathRegex.full_namespace_route_regex }
+  ) do
+    resources(
+      :projects,
+      path: '/',
+      constraints: { id: Gitlab::PathRegex.project_route_regex },
+      only: [:show, :destroy]
+    ) do
       member do
         put :transfer
         post :repository_check
+        get :edit, action: :edit
+        get '/', action: :show
+        patch '/', action: :update
+        put '/', action: :update
       end
 
       resources :runner_projects, only: [:create, :destroy]
@@ -134,24 +158,25 @@ namespace :admin do
       end
     end
 
+    resource :slack, only: [:destroy] do
+      get :slack_auth
+    end
+
     get :usage_data
     put :reset_registration_token
     put :reset_health_check_token
+    put :reset_error_tracking_access_token
     put :clear_repository_check_states
     match :general, :integrations, :repository, :ci_cd, :reporting, :metrics_and_profiling, :network, :preferences, via: [:get, :patch]
     get :lets_encrypt_terms_of_service
-
-    post :create_self_monitoring_project
-    get :status_create_self_monitoring_project
-    delete :delete_self_monitoring_project
-    get :status_delete_self_monitoring_project
-
-    get :service_usage_data
+    get :slack_app_manifest_download, format: :json
+    get :slack_app_manifest_share
 
     resource :appearances, only: [:show, :create, :update], path: 'appearance', module: 'application_settings' do
       member do
         get :preview_sign_in
         delete :logo
+        delete :pwa_icon
         delete :header_logos
         delete :favicon
       end
@@ -162,8 +187,9 @@ namespace :admin do
 
   resources :labels
 
-  resources :runners, only: [:index, :show, :edit, :update, :destroy] do
+  resources :runners, only: [:index, :new, :show, :edit, :update, :destroy] do
     member do
+      get :register
       post :resume
       post :pause
     end

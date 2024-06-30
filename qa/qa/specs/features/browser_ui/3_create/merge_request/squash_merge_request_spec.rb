@@ -2,22 +2,17 @@
 
 module QA
   RSpec.describe 'Create' do
-    describe 'Merge request squashing' do
-      let(:project) do
-        Resource::Project.fabricate_via_api! do |project|
-          project.name = "squash-before-merge"
-        end
-      end
-
-      let(:merge_request) do
-        Resource::MergeRequest.fabricate_via_api! do |merge_request|
-          merge_request.project = project
-          merge_request.title = 'Squashing commits'
-        end
-      end
+    describe 'Merge request squashing', :blocking, product_group: :code_review do
+      let(:project) { create(:project, name: 'squash-before-merge') }
+      let(:merge_request) { create(:merge_request, project: project, title: 'Squashing commits') }
 
       before do
         Flow::Login.sign_in
+
+        # Since the test immediately navigates to the MR after pushing a commit,
+        # the MR is blocked for 10 seconds
+        # https://gitlab.com/gitlab-org/gitlab/-/issues/431984
+        project.update_approval_configuration(reset_approvals_on_push: false)
 
         Resource::Repository::ProjectPush.fabricate! do |push|
           push.project = project

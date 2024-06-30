@@ -9,11 +9,11 @@ module Projects
 
     data_consistency :always
 
-    feature_category :sharding
+    feature_category :cell
     urgency :high
 
     idempotent!
-    deduplicate :until_executing
+    deduplicate :until_executed, if_deduplicated: :reschedule_once, ttl: 1.minute
 
     def perform
       results = ::Ci::ProcessSyncEventsService.new(

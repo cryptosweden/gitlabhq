@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ConfirmationsController do
+RSpec.describe ConfirmationsController, feature_category: :system_access do
   include DeviseHelpers
 
   before do
@@ -10,6 +10,9 @@ RSpec.describe ConfirmationsController do
   end
 
   describe '#show' do
+    let_it_be_with_reload(:user) { create(:user, :unconfirmed) }
+    let(:confirmation_token) { user.confirmation_token }
+
     render_views
 
     def perform_request
@@ -17,10 +20,6 @@ RSpec.describe ConfirmationsController do
     end
 
     context 'user is already confirmed' do
-      let_it_be_with_reload(:user) { create(:user, :unconfirmed) }
-
-      let(:confirmation_token) { user.confirmation_token }
-
       before do
         user.confirm
       end
@@ -48,8 +47,7 @@ RSpec.describe ConfirmationsController do
           m.call(*args)
 
           expect(Gitlab::ApplicationContext.current)
-            .to include('meta.user' => user.username,
-                        'meta.caller_id' => 'ConfirmationsController#show')
+            .to include('meta.user' => user.username, 'meta.caller_id' => 'ConfirmationsController#show')
         end
 
         perform_request
@@ -57,10 +55,6 @@ RSpec.describe ConfirmationsController do
     end
 
     context 'user accesses the link after the expiry of confirmation token has passed' do
-      let_it_be_with_reload(:user) { create(:user, :unconfirmed) }
-
-      let(:confirmation_token) { user.confirmation_token }
-
       before do
         allow(Devise).to receive(:confirm_within).and_return(1.day)
       end
@@ -88,8 +82,7 @@ RSpec.describe ConfirmationsController do
           m.call(*args)
 
           expect(Gitlab::ApplicationContext.current)
-            .to include('meta.user' => user.username,
-                        'meta.caller_id' => 'ConfirmationsController#show')
+            .to include('meta.user' => user.username, 'meta.caller_id' => 'ConfirmationsController#show')
         end
 
         travel_to(3.days.from_now) { perform_request }
@@ -129,38 +122,67 @@ RSpec.describe ConfirmationsController do
 
     subject(:perform_request) { post(:create, params: { user: { email: user.email } }) }
 
-    context 'when reCAPTCHA is disabled' do
+    context "when `email_confirmation_setting` is set to `soft`" do
       before do
-        stub_application_setting(recaptcha_enabled: false)
+        stub_application_setting_enum('email_confirmation_setting', 'soft')
       end
 
-      it 'successfully sends password reset when reCAPTCHA is not solved' do
-        perform_request
+      context 'when reCAPTCHA is disabled' do
+        before do
+          stub_application_setting(recaptcha_enabled: false)
+        end
 
-        expect(response).to redirect_to(dashboard_projects_path)
+        it 'successfully sends password reset when reCAPTCHA is not solved' do
+          perform_request
+
+          expect(response).to redirect_to(dashboard_projects_path)
+        end
+      end
+
+      context 'when reCAPTCHA is enabled' do
+        before do
+          stub_application_setting(recaptcha_enabled: true)
+        end
+
+        context 'when the reCAPTCHA is not solved' do
+          before do
+            Recaptcha.configuration.skip_verify_env.delete('test')
+          end
+
+          it 'displays an error' do
+            alert_text = _('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.')
+
+            perform_request
+
+            expect(response).to render_template(:new)
+            expect(flash[:alert]).to include alert_text
+          end
+
+          it 'sets gon variables' do
+            Gon.clear
+
+            perform_request
+
+            expect(response).to render_template(:new)
+            expect(Gon.all_variables).not_to be_empty
+          end
+        end
+
+        it 'successfully sends password reset when reCAPTCHA is solved' do
+          Recaptcha.configuration.skip_verify_env << 'test'
+
+          perform_request
+
+          expect(response).to redirect_to(dashboard_projects_path)
+        end
       end
     end
 
-    context 'when reCAPTCHA is enabled' do
-      before do
-        stub_application_setting(recaptcha_enabled: true)
-      end
-
-      it 'displays an error when the reCAPTCHA is not solved' do
-        Recaptcha.configuration.skip_verify_env.delete('test')
-
+    context "when `email_confirmation_setting` is not set to `soft`" do
+      it 'redirects to the users_almost_there path' do
         perform_request
 
-        expect(response).to render_template(:new)
-        expect(flash[:alert]).to include _('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.')
-      end
-
-      it 'successfully sends password reset when reCAPTCHA is solved' do
-        Recaptcha.configuration.skip_verify_env << 'test'
-
-        perform_request
-
-        expect(response).to redirect_to(dashboard_projects_path)
+        expect(response).to redirect_to(users_almost_there_path)
       end
     end
   end

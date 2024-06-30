@@ -2,9 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe ServiceHook do
+RSpec.describe ServiceHook, feature_category: :webhooks do
+  it_behaves_like 'a hook that does not get automatically disabled on failure' do
+    let(:integration) { build(:integration) }
+    let(:hook) { build(:service_hook) }
+    let(:hook_factory) { :service_hook }
+    let(:default_factory_arguments) { { integration: integration } }
+
+    def find_hooks
+      described_class.all
+    end
+  end
+
   describe 'associations' do
-    it { is_expected.to belong_to :integration }
+    it { is_expected.to belong_to(:integration) }
   end
 
   describe 'validations' do
@@ -20,14 +31,6 @@ RSpec.describe ServiceHook do
       expect_any_instance_of(WebHookService).to receive(:execute)
 
       hook.execute(data)
-    end
-  end
-
-  describe '#rate_limit' do
-    let(:hook) { build(:service_hook) }
-
-    it 'returns nil' do
-      expect(hook.rate_limit).to be_nil
     end
   end
 

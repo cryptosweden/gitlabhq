@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::AbortPipelinesService do
+RSpec.describe Ci::AbortPipelinesService, feature_category: :continuous_integration do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, namespace: user.namespace) }
 
@@ -12,13 +12,13 @@ RSpec.describe Ci::AbortPipelinesService do
 
   let_it_be(:cancelable_build, reload: true) { create(:ci_build, :running, pipeline: cancelable_pipeline) }
   let_it_be(:non_cancelable_build, reload: true) { create(:ci_build, :success, pipeline: cancelable_pipeline) }
-  let_it_be(:cancelable_stage, reload: true) { create(:ci_stage_entity, name: 'stageA', status: :running, pipeline: cancelable_pipeline, project: project) }
-  let_it_be(:non_cancelable_stage, reload: true) { create(:ci_stage_entity, name: 'stageB', status: :success, pipeline: cancelable_pipeline, project: project) }
+  let_it_be(:cancelable_stage, reload: true) { create(:ci_stage, name: 'stageA', status: :running, pipeline: cancelable_pipeline, project: project) }
+  let_it_be(:non_cancelable_stage, reload: true) { create(:ci_stage, name: 'stageB', status: :success, pipeline: cancelable_pipeline, project: project) }
 
   let_it_be(:manual_pipeline_cancelable_build, reload: true) { create(:ci_build, :created, pipeline: manual_pipeline) }
   let_it_be(:manual_pipeline_non_cancelable_build, reload: true) { create(:ci_build, :manual, pipeline: manual_pipeline) }
-  let_it_be(:manual_pipeline_cancelable_stage, reload: true) { create(:ci_stage_entity, name: 'stageA', status: :created, pipeline: manual_pipeline, project: project) }
-  let_it_be(:manual_pipeline_non_cancelable_stage, reload: true) { create(:ci_stage_entity, name: 'stageB', status: :success, pipeline: manual_pipeline, project: project) }
+  let_it_be(:manual_pipeline_cancelable_stage, reload: true) { create(:ci_stage, name: 'stageA', status: :created, pipeline: manual_pipeline, project: project) }
+  let_it_be(:manual_pipeline_non_cancelable_stage, reload: true) { create(:ci_stage, name: 'stageB', status: :success, pipeline: manual_pipeline, project: project) }
 
   describe '#execute' do
     def expect_correct_pipeline_cancellations
@@ -70,12 +70,12 @@ RSpec.describe Ci::AbortPipelinesService do
       end
 
       it 'avoids N+1 queries' do
-        control_count = ActiveRecord::QueryRecorder.new { abort_project_pipelines }.count
+        control = ActiveRecord::QueryRecorder.new { abort_project_pipelines }
 
         pipelines = create_list(:ci_pipeline, 5, :running, project: project)
         create_list(:ci_build, 5, :running, pipeline: pipelines.first)
 
-        expect { abort_project_pipelines }.not_to exceed_query_limit(control_count)
+        expect { abort_project_pipelines }.not_to exceed_query_limit(control)
       end
 
       context 'with live build logs' do
@@ -92,29 +92,6 @@ RSpec.describe Ci::AbortPipelinesService do
 
           expect(Ci::Build.with_stale_live_trace.count).to eq 1
         end
-      end
-    end
-
-    context 'with user pipelines' do
-      def abort_user_pipelines
-        described_class.new.execute(user.pipelines, :user_blocked)
-      end
-
-      it 'fails all running pipelines and related jobs' do
-        expect(abort_user_pipelines).to be_success
-
-        expect_correct_cancellations
-
-        expect(other_users_pipeline.status).not_to eq('failed')
-      end
-
-      it 'avoids N+1 queries' do
-        control_count = ActiveRecord::QueryRecorder.new { abort_user_pipelines }.count
-
-        pipelines = create_list(:ci_pipeline, 5, :running, project: project, user: user)
-        create_list(:ci_build, 5, :running, pipeline: pipelines.first)
-
-        expect { abort_user_pipelines }.not_to exceed_query_limit(control_count)
       end
     end
   end

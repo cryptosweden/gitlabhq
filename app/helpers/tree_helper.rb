@@ -14,8 +14,8 @@ module TreeHelper
   end
 
   # Simple shortcut to File.join
-  def tree_join(*args)
-    File.join(*args)
+  def tree_join(...)
+    File.join(...)
   end
 
   def on_top_of_branch?(project = @project, ref = @ref)
@@ -58,14 +58,6 @@ module TreeHelper
     "#{username}-#{ref}-patch-#{epoch}"
   end
 
-  def tree_edit_project(project = @project)
-    if can?(current_user, :push_code, project)
-      project
-    elsif current_user && current_user.already_forked?(project)
-      current_user.fork_of(project)
-    end
-  end
-
   def edit_in_new_fork_notice_now
     _("You're not allowed to make changes to this project directly. "\
       "A fork of this project is being created that you can make changes in, so you can submit a merge request.")
@@ -77,7 +69,7 @@ module TreeHelper
   end
 
   def edit_in_new_fork_notice_action(action)
-    edit_in_new_fork_notice + _(" Try to %{action} this file again.") % { action: action }
+    edit_in_new_fork_notice + (_(" Try to %{action} this file again.") % { action: action })
   end
 
   def commit_in_fork_help
@@ -104,21 +96,11 @@ module TreeHelper
         part_path = File.join(part_path, part) unless part_path.empty?
         part_path = part if part_path.empty?
 
-        next if parts.count > max_links && !parts.last(2).include?(part)
+        next if parts.count > max_links && parts.last(2).exclude?(part)
 
         yield(part, part_path)
       end
     end
-  end
-
-  def up_dir_path
-    file = File.join(@path, "..")
-    tree_join(@ref, file)
-  end
-
-  # returns the relative path of the first subdir that doesn't have only one directory descendant
-  def flatten_tree(root_path, tree)
-    tree.flat_path.sub(%r{\A#{Regexp.escape(root_path)}/}, '')
   end
 
   def selected_branch
@@ -171,21 +153,20 @@ module TreeHelper
       project_short_path: project.path,
       ref: ref,
       escaped_ref: ActionDispatch::Journey::Router::Utils.escape_path(ref),
-      full_name: project.name_with_namespace
+      full_name: project.name_with_namespace,
+      ref_type: @ref_type
     }
   end
 
-  def fork_modal_options(project, ref, path, blob)
+  def fork_modal_options(project, blob)
     if show_edit_button?({ blob: blob })
-      fork_path = fork_and_edit_path(project, ref, path)
       fork_modal_id = "modal-confirm-fork-edit"
     elsif show_web_ide_button?
-      fork_path = ide_fork_and_edit_path(project, ref, path)
       fork_modal_id = "modal-confirm-fork-webide"
     end
 
     {
-      fork_path: fork_path,
+      fork_path: new_namespace_project_fork_path(project_id: project.path, namespace_id: project.namespace.full_path),
       fork_modal_id: fork_modal_id
     }
   end
@@ -211,8 +192,17 @@ module TreeHelper
 
       gitpod_url: gitpod_url,
       user_preferences_gitpod_path: profile_preferences_path(anchor: 'user_gitpod_enabled'),
-      user_profile_enable_gitpod_path: profile_path(user: { gitpod_enabled: true })
+      user_profile_enable_gitpod_path: user_settings_profile_path(user: { gitpod_enabled: true })
     }
+  end
+
+  def download_links(project, ref, archive_prefix)
+    Gitlab::Workhorse::ARCHIVE_FORMATS.map do |fmt|
+      {
+        text: fmt,
+        path: external_storage_url_or_path(project_archive_path(project, id: tree_join(ref, archive_prefix), format: fmt))
+      }
+    end
   end
 
   def directory_download_links(project, ref, archive_prefix)
@@ -222,6 +212,15 @@ module TreeHelper
         path: project_archive_path(project, id: tree_join(ref, archive_prefix), format: fmt)
       }
     end
+  end
+end
+
+def previous_artifacts(project, ref, builds_with_artifacts)
+  builds_with_artifacts.map do |job|
+    {
+      text: job.name,
+      path: latest_succeeded_project_artifacts_path(project, "#{ref}/download", job: job.name)
+    }
   end
 end
 

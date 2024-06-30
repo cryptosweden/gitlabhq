@@ -32,8 +32,14 @@ module Ci
       end.to_i
     end
 
+    def repo_object_format
+      project.repository_object_format.to_s
+    end
+
     def runner_variables
-      variables.sort_and_expand_all(keep_undefined: true).to_runner_variables
+      variables
+        .sort_and_expand_all(keep_undefined: true, expand_file_refs: false, expand_raw_refs: false)
+        .to_runner_variables
     end
 
     def refspecs
@@ -54,10 +60,20 @@ module Ci
     # rubocop: disable CodeReuse/ActiveRecord
     def all_dependencies
       dependencies = super
-      ActiveRecord::Associations::Preloader.new.preload(dependencies, :job_artifacts_archive)
+      ActiveRecord::Associations::Preloader.new(records: dependencies, associations: :job_artifacts_archive).call
       dependencies
     end
     # rubocop: enable CodeReuse/ActiveRecord
+
+    def project_jobs_running_on_instance_runners_count
+      # if not instance runner we don't care about that value and present `+Inf` as a placeholder for Prometheus
+      return '+Inf' unless runner.instance_type?
+
+      return project.instance_runner_running_jobs_count.to_s if
+        project.instance_runner_running_jobs_count < Project::INSTANCE_RUNNER_RUNNING_JOBS_MAX_BUCKET
+
+      "#{Project::INSTANCE_RUNNER_RUNNING_JOBS_MAX_BUCKET}+"
+    end
 
     private
 
@@ -102,8 +118,8 @@ module Ci
 
         self.new(
           artifact_type: artifact_type,
-          artifact_format: ::Ci::JobArtifact::TYPE_AND_FORMAT_PAIRS.fetch(artifact_type),
-          name: ::Ci::JobArtifact::DEFAULT_FILE_NAMES.fetch(artifact_type),
+          artifact_format: ::Enums::Ci::JobArtifact.type_and_format_pairs.fetch(artifact_type),
+          name: ::Enums::Ci::JobArtifact.default_file_names.fetch(artifact_type),
           paths: paths,
           when: 'always',
           expire_in: expire_in

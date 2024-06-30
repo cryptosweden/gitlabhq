@@ -2,20 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe 'doorkeeper access' do
+RSpec.describe 'doorkeeper access', feature_category: :system_access do
   let!(:user) { create(:user) }
   let!(:application) { Doorkeeper::Application.create!(name: "MyApp", redirect_uri: "https://app.com", owner: user) }
   let!(:token) { Doorkeeper::AccessToken.create! application_id: application.id, resource_owner_id: user.id, scopes: "api" }
 
   describe "unauthenticated" do
     it "returns authentication success" do
-      get api("/user"), params: { access_token: token.token }
+      get api("/user"), params: { access_token: token.plaintext_token }
       expect(response).to have_gitlab_http_status(:ok)
     end
 
     include_examples 'user login request with unique ip limit' do
-      def request
-        get api('/user'), params: { access_token: token.token }
+      def gitlab_request
+        get api('/user'), params: { access_token: token.plaintext_token }
       end
     end
   end
@@ -34,7 +34,7 @@ RSpec.describe 'doorkeeper access' do
     end
 
     include_examples 'user login request with unique ip limit' do
-      def request
+      def gitlab_request
         get api('/user', user)
       end
     end
@@ -42,7 +42,7 @@ RSpec.describe 'doorkeeper access' do
 
   shared_examples 'forbidden request' do
     it 'returns 403 response' do
-      get api("/user"), params: { access_token: token.token }
+      get api("/user"), params: { access_token: token.plaintext_token }
 
       expect(response).to have_gitlab_http_status(:forbidden)
     end

@@ -1,138 +1,92 @@
 <script>
-import { GlAlert, GlSprintf, GlLink } from '@gitlab/ui';
-import { isEqual, get, isEmpty } from 'lodash';
+import { GlAlert } from '@gitlab/ui';
+import { historyReplaceState } from '~/lib/utils/common_utils';
+import { getParameterByName } from '~/lib/utils/url_utility';
 import {
-  FETCH_SETTINGS_ERROR_MESSAGE,
-  UNAVAILABLE_FEATURE_TITLE,
-  UNAVAILABLE_FEATURE_INTRO_TEXT,
-  UNAVAILABLE_USER_FEATURE_TEXT,
-  UNAVAILABLE_ADMIN_FEATURE_TEXT,
+  SHOW_SETUP_SUCCESS_ALERT,
+  UPDATE_SETTINGS_SUCCESS_MESSAGE,
 } from '~/packages_and_registries/settings/project/constants';
-import expirationPolicyQuery from '~/packages_and_registries/settings/project/graphql/queries/get_expiration_policy.query.graphql';
-import CleanupPolicyEnabledAlert from '~/packages_and_registries/shared/components/cleanup_policy_enabled_alert.vue';
-import SettingsBlock from '~/vue_shared/components/settings/settings_block.vue';
-
-import SettingsForm from './settings_form.vue';
+import ContainerExpirationPolicy from '~/packages_and_registries/settings/project/components/container_expiration_policy.vue';
+import ContainerProtectionRules from '~/packages_and_registries/settings/project/components/container_protection_rules.vue';
+import PackagesCleanupPolicy from '~/packages_and_registries/settings/project/components/packages_cleanup_policy.vue';
+import MetadataDatabaseAlert from '~/packages_and_registries/shared/components/container_registry_metadata_database_alert.vue';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 
 export default {
   components: {
-    SettingsBlock,
-    SettingsForm,
-    CleanupPolicyEnabledAlert,
+    ContainerExpirationPolicy,
+    ContainerProtectionRules,
+    DependencyProxyPackagesSettings: () =>
+      import(
+        'ee_component/packages_and_registries/settings/project/components/dependency_proxy_packages_settings.vue'
+      ),
     GlAlert,
-    GlSprintf,
-    GlLink,
+    MetadataDatabaseAlert,
+    PackagesCleanupPolicy,
+    PackagesProtectionRules: () =>
+      import('~/packages_and_registries/settings/project/components/packages_protection_rules.vue'),
   },
+  mixins: [glFeatureFlagsMixin()],
   inject: [
-    'projectPath',
-    'isAdmin',
-    'adminSettingsPath',
-    'enableHistoricEntries',
-    'helpPagePath',
-    'showCleanupPolicyOnAlert',
+    'showContainerRegistrySettings',
+    'showPackageRegistrySettings',
+    'showDependencyProxySettings',
+    'isContainerRegistryMetadataDatabaseEnabled',
   ],
   i18n: {
-    UNAVAILABLE_FEATURE_TITLE,
-    UNAVAILABLE_FEATURE_INTRO_TEXT,
-    FETCH_SETTINGS_ERROR_MESSAGE,
-  },
-  apollo: {
-    containerExpirationPolicy: {
-      query: expirationPolicyQuery,
-      variables() {
-        return {
-          projectPath: this.projectPath,
-        };
-      },
-      update: (data) => data.project?.containerExpirationPolicy,
-      result({ data }) {
-        this.workingCopy = { ...get(data, 'project.containerExpirationPolicy', {}) };
-      },
-      error(e) {
-        this.fetchSettingsError = e;
-      },
-    },
+    UPDATE_SETTINGS_SUCCESS_MESSAGE,
   },
   data() {
     return {
-      fetchSettingsError: false,
-      containerExpirationPolicy: null,
-      workingCopy: {},
+      showAlert: false,
     };
   },
   computed: {
-    isDisabled() {
-      return !(this.containerExpirationPolicy || this.enableHistoricEntries);
+    showProtectedPackagesSettings() {
+      return this.showPackageRegistrySettings && this.glFeatures.packagesProtectedPackages;
     },
-    showDisabledFormMessage() {
-      return this.isDisabled && !this.fetchSettingsError;
-    },
-    unavailableFeatureMessage() {
-      return this.isAdmin ? UNAVAILABLE_ADMIN_FEATURE_TEXT : UNAVAILABLE_USER_FEATURE_TEXT;
-    },
-    isEdited() {
-      if (isEmpty(this.containerExpirationPolicy) && isEmpty(this.workingCopy)) {
-        return false;
-      }
-      return !isEqual(this.containerExpirationPolicy, this.workingCopy);
+    showProtectedContainersSettings() {
+      return (
+        this.glFeatures.containerRegistryProtectedContainers && this.showContainerRegistrySettings
+      );
     },
   },
+  mounted() {
+    this.checkAlert();
+  },
   methods: {
-    restoreOriginal() {
-      this.workingCopy = { ...this.containerExpirationPolicy };
+    checkAlert() {
+      const showAlert = getParameterByName(SHOW_SETUP_SUCCESS_ALERT);
+
+      if (showAlert) {
+        this.showAlert = true;
+        const cleanUrl = window.location.href.split('?')[0];
+        historyReplaceState(cleanUrl);
+      }
     },
   },
 };
 </script>
 
 <template>
-  <section data-testid="registry-settings-app">
-    <cleanup-policy-enabled-alert v-if="showCleanupPolicyOnAlert" :project-path="projectPath" />
-    <settings-block :collapsible="false">
-      <template #title> {{ __('Clean up image tags') }}</template>
-      <template #description>
-        <span data-testid="description">
-          <gl-sprintf
-            :message="
-              __(
-                'Save storage space by automatically deleting tags from the container registry and keeping the ones you want. %{linkStart}How does cleanup work?%{linkEnd}',
-              )
-            "
-          >
-            <template #link="{ content }">
-              <gl-link :href="helpPagePath" target="_blank">{{ content }}</gl-link>
-            </template>
-          </gl-sprintf>
-        </span>
-      </template>
-      <template #default>
-        <settings-form
-          v-if="!isDisabled"
-          v-model="workingCopy"
-          :is-loading="$apollo.queries.containerExpirationPolicy.loading"
-          :is-edited="isEdited"
-          @reset="restoreOriginal"
-        />
-        <template v-else>
-          <gl-alert
-            v-if="showDisabledFormMessage"
-            :dismissible="false"
-            :title="$options.i18n.UNAVAILABLE_FEATURE_TITLE"
-            variant="tip"
-          >
-            {{ $options.i18n.UNAVAILABLE_FEATURE_INTRO_TEXT }}
-
-            <gl-sprintf :message="unavailableFeatureMessage">
-              <template #link="{ content }">
-                <gl-link :href="adminSettingsPath" target="_blank">{{ content }}</gl-link>
-              </template>
-            </gl-sprintf>
-          </gl-alert>
-          <gl-alert v-else-if="fetchSettingsError" variant="warning" :dismissible="false">
-            <gl-sprintf :message="$options.i18n.FETCH_SETTINGS_ERROR_MESSAGE" />
-          </gl-alert>
-        </template>
-      </template>
-    </settings-block>
-  </section>
+  <div
+    data-testid="packages-and-registries-project-settings"
+    class="js-hide-when-nothing-matches-search"
+  >
+    <metadata-database-alert v-if="!isContainerRegistryMetadataDatabaseEnabled" class="gl-mt-5" />
+    <gl-alert
+      v-if="showAlert"
+      variant="success"
+      class="gl-mt-5"
+      dismissible
+      @dismiss="showAlert = false"
+    >
+      {{ $options.i18n.UPDATE_SETTINGS_SUCCESS_MESSAGE }}
+    </gl-alert>
+    <packages-protection-rules v-if="showProtectedPackagesSettings" />
+    <packages-cleanup-policy v-if="showPackageRegistrySettings" />
+    <container-protection-rules v-if="showProtectedContainersSettings" />
+    <container-expiration-policy v-if="showContainerRegistrySettings" />
+    <dependency-proxy-packages-settings v-if="showDependencyProxySettings" />
+  </div>
 </template>

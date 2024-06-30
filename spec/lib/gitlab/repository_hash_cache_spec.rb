@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Gitlab::RepositoryHashCache, :clean_gitlab_redis_cache do
+RSpec.describe Gitlab::RepositoryHashCache, :clean_gitlab_redis_repository_cache, feature_category: :source_code_management do
   let_it_be(:project) { create(:project) }
 
   let(:repository) { project.repository }
@@ -88,7 +88,7 @@ RSpec.describe Gitlab::RepositoryHashCache, :clean_gitlab_redis_cache do
   describe "#read_members" do
     subject { cache.read_members(:example, keys) }
 
-    let(:keys) { %w(test missing) }
+    let(:keys) { %w[test missing] }
 
     context "all data is cached" do
       before do
@@ -140,7 +140,7 @@ RSpec.describe Gitlab::RepositoryHashCache, :clean_gitlab_redis_cache do
       end
     end
 
-    let(:keys) { %w(test) }
+    let(:keys) { %w[test] }
 
     it "records metrics" do
       # Here we expect it to receive "test" as a missing key because we
@@ -151,7 +151,7 @@ RSpec.describe Gitlab::RepositoryHashCache, :clean_gitlab_redis_cache do
     end
 
     context "fully cached" do
-      let(:keys) { %w(test another) }
+      let(:keys) { %w[test another] }
 
       before do
         cache.write(:example, test_hash.merge({ "another" => "not_missing" }))
@@ -169,7 +169,7 @@ RSpec.describe Gitlab::RepositoryHashCache, :clean_gitlab_redis_cache do
     end
 
     context "partially cached" do
-      let(:keys) { %w(test missing) }
+      let(:keys) { %w[test missing] }
 
       before do
         cache.write(:example, test_hash)
@@ -187,7 +187,7 @@ RSpec.describe Gitlab::RepositoryHashCache, :clean_gitlab_redis_cache do
     end
 
     context "uncached" do
-      let(:keys) { %w(test missing) }
+      let(:keys) { %w[test missing] }
 
       it "returns a hash" do
         is_expected.to eq({ "test" => "was_missing", "missing" => "was_missing" })

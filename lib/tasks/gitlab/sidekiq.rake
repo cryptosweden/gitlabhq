@@ -6,19 +6,33 @@ namespace :gitlab do
       File.write(path, banner + YAML.dump(object).gsub(/ *$/m, ''))
     end
 
+    # TODO: make shard-aware. See https://gitlab.com/gitlab-com/gl-infra/scalability/-/issues/3430
     namespace :migrate_jobs do
       desc 'GitLab | Sidekiq | Migrate jobs in the scheduled set to new queue names'
       task schedule: :environment do
-        ::Gitlab::SidekiqMigrateJobs
-          .new('schedule', logger: Logger.new($stdout))
-          .execute(::Gitlab::SidekiqConfig.worker_queue_mappings)
+        Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+          ::Gitlab::SidekiqMigrateJobs
+            .new(::Gitlab::SidekiqConfig.worker_queue_mappings, logger: Logger.new($stdout))
+            .migrate_set('schedule')
+        end
       end
 
       desc 'GitLab | Sidekiq | Migrate jobs in the retry set to new queue names'
       task retry: :environment do
-        ::Gitlab::SidekiqMigrateJobs
-          .new('retry', logger: Logger.new($stdout))
-          .execute(::Gitlab::SidekiqConfig.worker_queue_mappings)
+        Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+          ::Gitlab::SidekiqMigrateJobs
+            .new(::Gitlab::SidekiqConfig.worker_queue_mappings, logger: Logger.new($stdout))
+            .migrate_set('retry')
+        end
+      end
+
+      desc 'GitLab | Sidekiq | Migrate jobs in queues outside of routing rules'
+      task queued: :environment do
+        Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+          ::Gitlab::SidekiqMigrateJobs
+            .new(::Gitlab::SidekiqConfig.worker_queue_mappings, logger: Logger.new($stdout))
+            .migrate_queues
+        end
       end
     end
 
@@ -122,6 +136,11 @@ namespace :gitlab do
           MSG
         end
       end
+    end
+
+    namespace :queues do
+      desc 'GitLab | Sidekiq | Validate all_queues.yml and sidekiq_queues.yml match worker definitions'
+      task check: ['gitlab:sidekiq:all_queues_yml:check', 'gitlab:sidekiq:sidekiq_queues_yml:check', :environment]
     end
   end
 end

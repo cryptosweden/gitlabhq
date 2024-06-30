@@ -11,6 +11,11 @@ class LabelsFinder < UnionFinder
   def initialize(current_user, params = {})
     @current_user = current_user
     @params = params
+    # Preload container records (project, group) by default, in some cases we invoke
+    # the LabelsPreloader on the loaded records to prevent all N+1 queries.
+    # In that case we disable the default with_preloaded_container scope because it
+    # interferes with the LabelsPreloader.
+    @preload_parent_association = params.fetch(:preload_parent_association, true)
   end
 
   def execute(skip_authorization: false)
@@ -19,6 +24,9 @@ class LabelsFinder < UnionFinder
     items = with_title(items)
     items = by_subscription(items)
     items = by_search(items)
+    items = by_locked_labels(items)
+
+    items = items.with_preloaded_container if @preload_parent_association
     sort(items)
   end
 
@@ -46,9 +54,7 @@ class LabelsFinder < UnionFinder
         end
       end
     else
-      if group?
-        item_ids << Label.where(group_id: group_ids_for(group))
-      end
+      item_ids << Label.where(group_id: group_ids_for(group)) if group?
 
       item_ids << Label.where(group_id: projects.group_ids)
       item_ids << Label.where(project_id: ids_user_can_read_labels(projects)) unless only_group_labels?
@@ -60,11 +66,11 @@ class LabelsFinder < UnionFinder
 
   # rubocop: disable CodeReuse/ActiveRecord
   def sort(items)
-    if params[:sort]
-      items.order_by(params[:sort])
-    else
-      items.reorder(title: :asc)
-    end
+    return items.reorder(title: :asc) unless params[:sort]
+
+    return items.sorted_by_similarity_desc(params[:search]) if params[:sort] == 'relevance' && params[:search].present?
+
+    items.order_by(params[:sort])
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
@@ -80,11 +86,17 @@ class LabelsFinder < UnionFinder
   def by_search(labels)
     return labels unless search?
 
-    labels.search(params[:search])
+    labels.search(params[:search], search_in: params[:search_in])
   end
 
   def by_subscription(labels)
     labels.optionally_subscribed_by(subscriber_id)
+  end
+
+  def by_locked_labels(items)
+    return items unless params[:locked_labels]
+
+    items.with_lock_on_merge
   end
 
   def subscriber_id

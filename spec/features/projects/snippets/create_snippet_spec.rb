@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Snippets > Create Snippet', :js do
+RSpec.describe 'Projects > Snippets > Create Snippet', :js, feature_category: :source_code_management do
   include DropzoneHelper
-  include Spec::Support::Helpers::Features::SnippetSpecHelpers
+  include Features::SnippetSpecHelpers
 
   let_it_be(:user) { create(:user) }
   let_it_be(:project) do
@@ -28,18 +28,6 @@ RSpec.describe 'Projects > Snippets > Create Snippet', :js do
     visit new_project_snippet_path(project)
   end
 
-  it 'shows collapsible description input' do
-    collapsed = snippet_description_field_collapsed
-
-    expect(page).not_to have_field(snippet_description_locator)
-    expect(collapsed).to be_visible
-
-    collapsed.click
-
-    expect(page).to have_field(snippet_description_locator)
-    expect(collapsed).not_to be_visible
-  end
-
   it 'creates a new snippet' do
     fill_form
     click_button('Create snippet')
@@ -47,7 +35,7 @@ RSpec.describe 'Projects > Snippets > Create Snippet', :js do
 
     expect(page).to have_content(title)
     expect(page).to have_content(file_content)
-    page.within('.snippet-header .snippet-description') do
+    within_testid('snippet-description') do
       expect(page).to have_content(description)
       expect(page).to have_selector('strong')
     end
@@ -63,7 +51,7 @@ RSpec.describe 'Projects > Snippets > Create Snippet', :js do
     wait_for_requests
 
     link = find('a.no-attachment-icon img.js-lazy-loaded[alt="banana_sample"]')['src']
-    expect(link).to match(%r{/#{Regexp.escape(project.full_path)}/uploads/\h{32}/banana_sample\.gif\z})
+    expect(link).to match(%r{/-/project/#{project.id}/uploads/\h{32}/banana_sample\.gif\z})
   end
 
   context 'when the git operation fails' do
@@ -84,14 +72,5 @@ RSpec.describe 'Projects > Snippets > Create Snippet', :js do
       expect(page).to have_content(error)
       expect(page).to have_content('New Snippet')
     end
-  end
-
-  it 'does not allow submitting the form without title and content' do
-    snippet_fill_in_title(title)
-
-    expect(page).not_to have_button('Create snippet')
-
-    snippet_fill_in_form(title: title, content: file_content)
-    expect(page).to have_button('Create snippet')
   end
 end

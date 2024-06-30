@@ -12,6 +12,7 @@ module IssuableActions
     before_action :authorize_destroy_issuable!, only: :destroy
     before_action :check_destroy_confirmation!, only: :destroy
     before_action :authorize_admin_issuable!, only: :bulk_update
+    before_action :set_application_context!, only: :show
   end
 
   def show
@@ -76,7 +77,7 @@ module IssuableActions
       title_text: issuable.title,
       description: view_context.markdown_field(issuable, :description),
       description_text: issuable.description,
-      task_status: issuable.task_status,
+      task_completion_status: issuable.task_completion_status,
       lock_version: issuable.lock_version
     }
 
@@ -90,14 +91,14 @@ module IssuableActions
   end
 
   def destroy
-    Issuable::DestroyService.new(project: issuable.project, current_user: current_user).execute(issuable)
+    Issuable::DestroyService.new(container: issuable.project, current_user: current_user).execute(issuable)
 
     name = issuable.human_class_name
     flash[:notice] = "The #{name} was successfully deleted."
     index_path = polymorphic_path([parent, issuable.class])
 
     respond_to do |format|
-      format.html { redirect_to index_path }
+      format.html { redirect_to index_path, status: :see_other }
       format.json do
         render json: {
           web_url: index_path
@@ -142,56 +143,27 @@ module IssuableActions
     end
   end
 
-  # rubocop:disable CodeReuse/ActiveRecord
   def discussions
-    notes = NotesFinder.new(current_user, finder_params_for_issuable).execute
-                .inc_relations_for_view
-                .includes(:noteable)
-                .fresh
+    finder = Issuable::DiscussionsListService.new(current_user, issuable, finder_params_for_issuable)
+    discussion_notes = finder.execute
 
-    if paginated_discussions
-      paginated_discussions_by_type = paginated_discussions.records.group_by(&:table_name)
+    yield discussion_notes if block_given?
 
-      notes = if paginated_discussions_by_type['notes'].present?
-                notes.with_discussion_ids(paginated_discussions_by_type['notes'].map(&:discussion_id))
-              else
-                notes.none
-              end
-
-      response.headers['X-Next-Page-Cursor'] = paginated_discussions.cursor_for_next_page if paginated_discussions.has_next_page?
+    if finder.paginator.present? && finder.paginator.has_next_page?
+      response.headers['X-Next-Page-Cursor'] = finder.paginator.cursor_for_next_page
     end
 
-    if notes_filter != UserPreference::NOTES_FILTERS[:only_comments]
-      notes = ResourceEvents::MergeIntoNotesService.new(issuable, current_user, paginated_notes: paginated_discussions_by_type).execute(notes)
-    end
-
-    notes = prepare_notes_for_rendering(notes)
-    notes = notes.select { |n| n.readable_by?(current_user) }
-
-    discussions = Discussion.build_collection(notes, issuable)
-
-    if issuable.is_a?(MergeRequest)
-      render_cached(discussions, with: discussion_serializer, cache_context: -> (_) { discussion_cache_context }, context: self)
-    elsif issuable.is_a?(Issue)
-      render json: discussion_serializer.represent(discussions, context: self) if stale?(etag: [discussion_cache_context, discussions])
+    case issuable
+    when MergeRequest, Issue
+      if stale?(etag: [discussion_cache_context, discussion_notes])
+        render json: discussion_serializer.represent(discussion_notes, context: self)
+      end
     else
-      render json: discussion_serializer.represent(discussions, context: self)
+      render json: discussion_serializer.represent(discussion_notes, context: self)
     end
   end
-  # rubocop:enable CodeReuse/ActiveRecord
 
   private
-
-  def paginated_discussions
-    return if params[:per_page].blank?
-    return unless issuable.instance_of?(Issue) && Feature.enabled?(:paginated_issue_discussions, project, default_enabled: :yaml)
-
-    strong_memoize(:paginated_discussions) do
-      issuable
-        .discussion_root_note_ids(notes_filter: notes_filter)
-        .keyset_paginate(cursor: params[:cursor], per_page: params[:per_page].to_i)
-    end
-  end
 
   def notes_filter
     strong_memoize(:notes_filter) do
@@ -204,24 +176,13 @@ module IssuableActions
       if Gitlab::Database.read_only? || params[:persist_filter] == 'false'
         notes_filter_param || current_user&.notes_filter_for(issuable)
       else
-        notes_filter = current_user&.set_notes_filter(notes_filter_param, issuable) || notes_filter_param
-
-        # We need to invalidate the cache for polling notes otherwise it will
-        # ignore the filter.
-        # The ideal would be to invalidate the cache for each user.
-        issuable.expire_note_etag_cache if notes_filter_updated?
-
-        notes_filter
+        current_user&.set_notes_filter(notes_filter_param, issuable) || notes_filter_param
       end
     end
   end
 
-  def notes_filter_updated?
-    current_user&.user_preference&.previous_changes&.any?
-  end
-
   def discussion_cache_context
-    [current_user&.cache_key, project.team.human_max_access(current_user&.id)].join(':')
+    [current_user&.cache_key, project.team.human_max_access(current_user&.id), 'v2'].join(':')
   end
 
   def discussion_serializer
@@ -246,23 +207,37 @@ module IssuableActions
   end
 
   def authorize_destroy_issuable!
-    unless can?(current_user, :"destroy_#{issuable.to_ability_name}", issuable)
-      access_denied!
-    end
+    access_denied! unless can?(current_user, :"destroy_#{issuable.to_ability_name}", issuable)
   end
 
   def authorize_admin_issuable!
-    unless can?(current_user, :"admin_#{resource_name}", parent)
-      access_denied!
-    end
+    access_denied! unless can?(current_user, :"admin_#{resource_name}", parent)
   end
 
   def authorize_update_issuable!
     render_404 unless can?(current_user, :"update_#{resource_name}", issuable)
   end
 
+  def set_application_context!
+    # no-op. The logic is defined in EE module.
+  end
+
   def bulk_update_params
-    params.require(:update).permit(bulk_update_permitted_keys)
+    clean_bulk_update_params(
+      params.require(:update).permit(bulk_update_permitted_keys)
+    )
+  end
+
+  def clean_bulk_update_params(permitted_params)
+    permitted_params.delete_if do |k, v|
+      next if k == :issuable_ids
+
+      if v.is_a?(Array)
+        v.compact.empty?
+      else
+        v.blank?
+      end
+    end
   end
 
   def bulk_update_permitted_keys
@@ -270,12 +245,12 @@ module IssuableActions
       :issuable_ids,
       :assignee_id,
       :milestone_id,
-      :sprint_id,
       :state_event,
       :subscription_event,
-      assignee_ids: [],
-      add_label_ids: [],
-      remove_label_ids: []
+      :confidential,
+      { assignee_ids: [],
+        add_label_ids: [],
+        remove_label_ids: [] }
     ]
   end
 
@@ -308,9 +283,10 @@ module IssuableActions
   # rubocop:disable Gitlab/ModuleWithInstanceVariables
   def finder_params_for_issuable
     {
-        target: @issuable,
-        notes_filter: notes_filter
-    }.tap { |new_params| new_params[:project] = project if respond_to?(:project, true) }
+      notes_filter: notes_filter,
+      cursor: params[:cursor],
+      per_page: params[:per_page]
+    }
   end
   # rubocop:enable Gitlab/ModuleWithInstanceVariables
 end

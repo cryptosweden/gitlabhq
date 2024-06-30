@@ -1,11 +1,13 @@
 <script>
 import { GlFilteredSearchSuggestion } from '@gitlab/ui';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { __ } from '~/locale';
+import { WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
+import searchMilestonesQuery from '~/issues/list/queries/search_milestones.query.graphql';
 import { sortMilestonesByDueDate } from '~/milestones/utils';
 import BaseToken from '~/vue_shared/components/filtered_search_bar/tokens/base_token.vue';
+import { stripQuotes } from '~/lib/utils/text_utility';
 import { DEFAULT_MILESTONES } from '../constants';
-import { stripQuotes } from '../filtered_search_utils';
 
 export default {
   components: {
@@ -36,6 +38,14 @@ export default {
     defaultMilestones() {
       return this.config.defaultMilestones || DEFAULT_MILESTONES;
     },
+    namespace() {
+      return this.config.isProject ? WORKSPACE_PROJECT : WORKSPACE_GROUP;
+    },
+    fetchMilestonesQuery() {
+      return this.config.fetchMilestones
+        ? this.config.fetchMilestones
+        : this.fetchMilestonesBySearchTerm;
+    },
   },
   methods: {
     getActiveMilestone(milestones, data) {
@@ -47,14 +57,25 @@ export default {
 
       return (
         milestones.find(
-          (milestone) => milestone.title.toLowerCase() === stripQuotes(data).toLowerCase(),
+          (milestone) =>
+            this.getMilestoneTitle(milestone).toLowerCase() === stripQuotes(data).toLowerCase(),
         ) || this.defaultMilestones.find(({ value }) => value === data)
       );
     },
+    getMilestoneTitle(milestone) {
+      return milestone.title;
+    },
+    fetchMilestonesBySearchTerm(search) {
+      return this.$apollo
+        .query({
+          query: searchMilestonesQuery,
+          variables: { fullPath: this.config.fullPath, search, isProject: this.config.isProject },
+        })
+        .then(({ data }) => data[this.namespace]?.milestones.nodes);
+    },
     fetchMilestones(searchTerm) {
       this.loading = true;
-      this.config
-        .fetchMilestones(searchTerm)
+      this.fetchMilestonesQuery(searchTerm)
         .then((response) => {
           const data = Array.isArray(response) ? response : response.data;
 
@@ -65,7 +86,7 @@ export default {
           }
         })
         .catch(() => {
-          createFlash({ message: __('There was a problem fetching milestones.') });
+          createAlert({ message: __('There was a problem fetching milestones.') });
         })
         .finally(() => {
           this.loading = false;
@@ -84,19 +105,21 @@ export default {
     :suggestions="milestones"
     :suggestions-loading="loading"
     :get-active-token-value="getActiveMilestone"
+    :value-identifier="getMilestoneTitle"
+    v-bind="$attrs"
     @fetch-suggestions="fetchMilestones"
     v-on="$listeners"
   >
     <template #view="{ viewTokenProps: { inputValue, activeTokenValue } }">
-      %{{ activeTokenValue ? activeTokenValue.title : inputValue }}
+      %{{ activeTokenValue ? getMilestoneTitle(activeTokenValue) : inputValue }}
     </template>
     <template #suggestions-list="{ suggestions }">
       <gl-filtered-search-suggestion
         v-for="milestone in suggestions"
         :key="milestone.id"
-        :value="milestone.title"
+        :value="getMilestoneTitle(milestone)"
       >
-        {{ milestone.title }}
+        {{ getMilestoneTitle(milestone) }}
       </gl-filtered-search-suggestion>
     </template>
   </base-token>

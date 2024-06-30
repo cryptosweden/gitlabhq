@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Packages::Composer::CacheUpdateWorker, type: :worker do
+RSpec.describe Packages::Composer::CacheUpdateWorker, type: :worker, feature_category: :package_registry do
   describe '#perform' do
     let_it_be(:package_name) { 'sample-project' }
     let_it_be(:json) { { 'name' => package_name } }
@@ -19,7 +19,7 @@ RSpec.describe Packages::Composer::CacheUpdateWorker, type: :worker do
       stub_composer_cache_object_storage
     end
 
-    include_examples 'an idempotent worker' do
+    it_behaves_like 'an idempotent worker' do
       context 'creating a package' do
         it 'does nothing' do
           expect { subject }.to change { Packages::Composer::CacheFile.count }.by(0)

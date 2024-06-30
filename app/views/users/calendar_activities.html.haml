@@ -1,5 +1,5 @@
 %h4.prepend-top-20
-  = html_escape(_("Contributions for %{calendar_date}")) % { calendar_date: tag.strong(@calendar_date.to_s(:medium)) }
+  = html_escape(_("Contributions for %{calendar_date}")) % { calendar_date: tag.strong(@calendar_date.to_fs(:medium)) }
 
 - if @events.any?
   %ul.bordered-list
@@ -20,12 +20,14 @@
               - if event.note?
                 = link_to event.note_target.to_reference, event_note_target_url(event), class: 'has-tooltip', title: event.target_title
               - elsif event.target
-                = link_to event.target.to_reference, [event.project, event.target], class: 'has-tooltip', title: event.target_title
+                = link_to event.target.to_reference, Gitlab::UrlBuilder.build(event.target, only_path: true), class: 'has-tooltip', title: event.target_title
 
           = s_('UserProfile|at')
           %strong
             - if event.project
               = link_to_project(event.project)
+            - elsif event.group
+              = link_to_group(event.group)
             - else
               = event.resource_parent_name
         - else

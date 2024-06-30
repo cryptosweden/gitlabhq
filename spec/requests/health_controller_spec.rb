@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe HealthController do
+RSpec.describe HealthController, feature_category: :database do
   include StubENV
 
   let(:token) { Gitlab::CurrentSettings.health_check_access_token }
@@ -73,7 +73,9 @@ RSpec.describe HealthController do
   end
 
   describe 'GET /-/readiness' do
-    subject { get '/-/readiness', params: params, headers: headers }
+    subject(:request) { get readiness_path, params: params, headers: headers }
+
+    it_behaves_like 'Base action controller'
 
     shared_context 'endpoint responding with readiness data' do
       context 'when requesting instance-checks' do
@@ -138,17 +140,27 @@ RSpec.describe HealthController do
           end
 
           it 'responds with readiness checks data when a failure happens' do
-            allow(Gitlab::HealthChecks::Redis::RedisCheck).to receive(:readiness).and_return(
-              Gitlab::HealthChecks::Result.new('redis_check', false, "check error"))
+            allow(Gitlab::HealthChecks::Redis::SharedStateCheck).to receive(:readiness).and_return(
+              Gitlab::HealthChecks::Result.new('shared_state_check', false, "check error"))
 
             subject
 
             expect(json_response['cache_check']).to contain_exactly({ 'status' => 'ok' })
-            expect(json_response['redis_check']).to contain_exactly(
+            expect(json_response['shared_state_check']).to contain_exactly(
               { 'status' => 'failed', 'message' => 'check error' })
 
             expect(response).to have_gitlab_http_status(:service_unavailable)
             expect(response.headers['X-GitLab-Custom-Error']).to eq(1)
+          end
+
+          it 'checks all redis instances' do
+            expected_redis_checks = Gitlab::Redis::ALL_CLASSES.map do |redis|
+              { "#{redis.store_name.underscore}_check" => [{ 'status' => 'ok' }] }
+            end
+
+            subject
+
+            expect(json_response).to include(*expected_redis_checks)
           end
 
           context 'when DB is not accessible and connection raises an exception' do
@@ -170,7 +182,7 @@ RSpec.describe HealthController do
 
           context 'when any exception happens during the probing' do
             before do
-              expect(Gitlab::HealthChecks::Redis::RedisCheck)
+              expect(Gitlab::HealthChecks::Redis::CacheCheck)
                 .to receive(:readiness)
                 .and_raise(::Redis::CannotConnectError, 'Redis down')
             end
@@ -209,7 +221,6 @@ RSpec.describe HealthController do
         stub_remote_addr(whitelisted_ip)
       end
 
-      it_behaves_like 'endpoint not querying database'
       it_behaves_like 'endpoint responding with readiness data'
 
       context 'when requesting all checks' do
@@ -226,7 +237,6 @@ RSpec.describe HealthController do
         stub_remote_addr(not_whitelisted_ip)
       end
 
-      it_behaves_like 'endpoint not querying database'
       it_behaves_like 'endpoint not found'
     end
 
@@ -263,7 +273,6 @@ RSpec.describe HealthController do
         stub_remote_addr(whitelisted_ip)
       end
 
-      it_behaves_like 'endpoint not querying database'
       it_behaves_like 'endpoint responding with liveness data'
     end
 
@@ -272,7 +281,6 @@ RSpec.describe HealthController do
         stub_remote_addr(not_whitelisted_ip)
       end
 
-      it_behaves_like 'endpoint not querying database'
       it_behaves_like 'endpoint not found'
 
       context 'accessed with valid token' do

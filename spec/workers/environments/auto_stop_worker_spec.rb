@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Environments::AutoStopWorker do
+RSpec.describe Environments::AutoStopWorker, feature_category: :continuous_delivery do
   include CreateEnvironmentsHelpers
 
   subject { worker.perform(environment_id) }
 
   let_it_be(:project) { create(:project, :repository) }
-  let_it_be(:developer) { create(:user).tap { |u| project.add_developer(u) } }
-  let_it_be(:reporter) { create(:user).tap { |u| project.add_reporter(u) } }
+  let_it_be(:developer) { create(:user, developer_of: project) }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
 
   before_all do
     project.repository.add_branch(developer, 'review/feature', 'master')
@@ -23,7 +23,7 @@ RSpec.describe Environments::AutoStopWorker do
   it 'stops the environment' do
     expect { subject }
       .to change { Environment.find_by_name('review/feature').state }
-      .from('available').to('stopped')
+      .from('available').to('stopping')
   end
 
   it 'executes the stop action' do

@@ -1,6 +1,7 @@
 import { ApolloClient, InMemoryCache, ApolloLink, HttpLink } from '@apollo/client/core';
 import { BatchHttpLink } from '@apollo/client/link/batch-http';
 import { createUploadLink } from 'apollo-upload-client';
+import { persistCache } from 'apollo3-cache-persist';
 import ActionCableLink from '~/actioncable_link';
 import { apolloCaptchaLink } from '~/captcha/apollo_captcha_link';
 import possibleTypes from '~/graphql_shared/possible_types.json';
@@ -10,6 +11,9 @@ import { objectToQuery, queryToObject } from '~/lib/utils/url_utility';
 import PerformanceBarService from '~/performance_bar/services/performance_bar_service';
 import { getInstrumentationLink } from './apollo/instrumentation_link';
 import { getSuppressNetworkErrorsDuringNavigationLink } from './apollo/suppress_network_errors_during_navigation_link';
+import { getPersistLink } from './apollo/persist_link';
+import { persistenceMapper } from './apollo/persistence_mapper';
+import { correlationIdLink } from './apollo/correlation_id_link';
 
 export const fetchPolicies = {
   CACHE_FIRST: 'cache-first',
@@ -47,11 +51,40 @@ export const typePolicies = {
   DesignCollection: {
     merge: true,
   },
+  TreeEntry: {
+    keyFields: ['webPath'],
+  },
+  Subscription: {
+    fields: {
+      aiCompletionResponse: {
+        read(value) {
+          return value ?? null;
+        },
+      },
+    },
+  },
+  Dora: {
+    merge: true,
+  },
+  GroupValueStreamAnalyticsFlowMetrics: {
+    merge: true,
+  },
+  ProjectValueStreamAnalyticsFlowMetrics: {
+    merge: true,
+  },
+  ScanExecutionPolicy: {
+    keyFields: ['name'],
+  },
+  ApprovalPolicy: {
+    keyFields: ['name'],
+  },
+  ComplianceFrameworkConnection: {
+    merge: true,
+  },
 };
 
 export const stripWhitespaceFromQuery = (url, path) => {
-  /* eslint-disable-next-line no-unused-vars */
-  const [_, params] = url.split(path);
+  const [, params] = url.split(path);
 
   if (!params) {
     return url;
@@ -98,16 +131,17 @@ Object.defineProperty(window, 'pendingApolloRequests', {
   },
 });
 
-export default (resolvers = {}, config = {}) => {
+function createApolloClient(resolvers = {}, config = {}) {
   const {
     baseUrl,
-    batchMax = 10,
-    cacheConfig,
+    cacheConfig = { typePolicies: {}, possibleTypes: {} },
     fetchPolicy = fetchPolicies.CACHE_FIRST,
     typeDefs,
+    httpHeaders = {},
+    fetchCredentials = 'same-origin',
     path = '/api/graphql',
-    useGet = false,
   } = config;
+
   let ac = null;
   let uri = `${gon.relative_url_root || ''}${path}`;
 
@@ -116,16 +150,20 @@ export default (resolvers = {}, config = {}) => {
     uri = `${baseUrl}${uri}`.replace(/\/{3,}/g, '/');
   }
 
+  if (gon.version) {
+    httpHeaders['x-gitlab-version'] = gon.version;
+  }
+
   const httpOptions = {
     uri,
     headers: {
       [csrf.headerKey]: csrf.token,
+      ...httpHeaders,
     },
     // fetch won’t send cookies in older browsers, unless you set the credentials init option.
     // We set to `same-origin` which is default value in modern browsers.
     // See https://github.com/whatwg/fetch/pull/585 for more information.
-    credentials: 'same-origin',
-    batchMax,
+    credentials: fetchCredentials,
   };
 
   /*
@@ -145,13 +183,17 @@ export default (resolvers = {}, config = {}) => {
   };
 
   const requestLink = ApolloLink.split(
-    () => useGet,
+    (operation) => operation.getContext().batchKey,
+    new BatchHttpLink({
+      ...httpOptions,
+      batchKey: (operation) => operation.getContext().batchKey,
+      fetch: fetchIntervention,
+    }),
     new HttpLink({ ...httpOptions, fetch: fetchIntervention }),
-    new BatchHttpLink(httpOptions),
   );
 
   const uploadsLink = ApolloLink.split(
-    (operation) => operation.getContext().hasUpload || operation.getContext().isSingleRequest,
+    (operation) => operation.getContext().hasUpload,
     createUploadLink(httpOptions),
   );
 
@@ -163,6 +205,8 @@ export default (resolvers = {}, config = {}) => {
         PerformanceBarService.interceptor({
           config: {
             url: httpResponse.url,
+            operationName: operation.operationName,
+            method: operation.getContext()?.fetchOptions?.method || 'POST', // If method is not explicitly set, we default to POST request
           },
           headers: {
             'x-request-id': httpResponse.headers.get('x-request-id'),
@@ -197,6 +241,8 @@ export default (resolvers = {}, config = {}) => {
     });
   });
 
+  const persistLink = getPersistLink();
+
   const appLink = ApolloLink.split(
     hasSubscriptionOperation,
     new ActionCableLink(),
@@ -204,24 +250,35 @@ export default (resolvers = {}, config = {}) => {
       [
         getSuppressNetworkErrorsDuringNavigationLink(),
         getInstrumentationLink(),
+        correlationIdLink,
         requestCounterLink,
         performanceBarLink,
         new StartupJSLink(),
         apolloCaptchaLink,
+        persistLink,
         uploadsLink,
         requestLink,
       ].filter(Boolean),
     ),
   );
 
+  const newCache = new InMemoryCache({
+    ...cacheConfig,
+    typePolicies: {
+      ...typePolicies,
+      ...cacheConfig.typePolicies,
+    },
+    possibleTypes: {
+      ...possibleTypes,
+      ...cacheConfig.possibleTypes,
+    },
+  });
+
   ac = new ApolloClient({
     typeDefs,
     link: appLink,
-    cache: new InMemoryCache({
-      typePolicies,
-      possibleTypes,
-      ...cacheConfig,
-    }),
+    connectToDevTools: process.env.NODE_ENV !== 'production',
+    cache: newCache,
     resolvers,
     defaultOptions: {
       query: {
@@ -232,5 +289,42 @@ export default (resolvers = {}, config = {}) => {
 
   acs.push(ac);
 
-  return ac;
+  return { client: ac, cache: newCache };
+}
+
+export async function createApolloClientWithCaching(resolvers = {}, config = {}) {
+  const { localCacheKey = null } = config;
+  const { client, cache } = createApolloClient(resolvers, config);
+
+  if (localCacheKey) {
+    let storage;
+
+    // Test that we can use IndexedDB. If not, no persisting for you!
+    try {
+      const { IndexedDBPersistentStorage } = await import(
+        /* webpackChunkName: 'indexed_db_persistent_storage' */ './apollo/indexed_db_persistent_storage'
+      );
+
+      storage = await IndexedDBPersistentStorage.create();
+    } catch (error) {
+      return client;
+    }
+
+    await persistCache({
+      cache,
+      // we leave NODE_ENV here temporarily for visibility so developers can easily see caching happening in dev mode
+      debug: process.env.NODE_ENV === 'development',
+      storage,
+      key: localCacheKey,
+      persistenceMapper,
+    });
+  }
+
+  return client;
+}
+
+export default (resolvers = {}, config = {}) => {
+  const { client } = createApolloClient(resolvers, config);
+
+  return client;
 };

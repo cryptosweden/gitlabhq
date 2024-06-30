@@ -8,7 +8,7 @@ require 'google/apis/core/base_service'
 RSpec.describe Google::Apis::Core::HttpCommand do # rubocop:disable RSpec/FilePath
   context('with a successful response') do
     let(:client) { Google::Apis::Core::BaseService.new('', '').client }
-    let(:command) { Google::Apis::Core::HttpCommand.new(:get, 'https://www.googleapis.com/zoo/animals') }
+    let(:command) { described_class.new(:get, 'https://www.googleapis.com/zoo/animals') }
 
     before do
       stub_request(:get, 'https://www.googleapis.com/zoo/animals').to_return(body: %(Hello world))
@@ -26,8 +26,9 @@ RSpec.describe Google::Apis::Core::HttpCommand do # rubocop:disable RSpec/FilePa
     it 'retries with max elapsed_time and retries' do
       expect(Retriable).to receive(:retriable).with(
         tries: Google::Apis::RequestOptions.default.retries + 1,
-        max_elapsed_time: 3600,
+        max_elapsed_time: 900,
         base_interval: 1,
+        max_interval: 60,
         multiplier: 2,
         on: described_class::RETRIABLE_ERRORS).and_call_original
       allow(Retriable).to receive(:retriable).and_call_original

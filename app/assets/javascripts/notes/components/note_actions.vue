@@ -1,32 +1,42 @@
 <script>
-import { GlTooltipDirective, GlIcon, GlButton, GlDropdownItem } from '@gitlab/ui';
-import { mapActions, mapGetters } from 'vuex';
+import {
+  GlTooltipDirective,
+  GlButton,
+  GlDisclosureDropdown,
+  GlDisclosureDropdownItem,
+} from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
+import { mapActions, mapGetters, mapState } from 'vuex';
 import Api from '~/api';
 import resolvedStatusMixin from '~/batch_comments/mixins/resolved_status';
-import createFlash from '~/flash';
-import { BV_HIDE_TOOLTIP } from '~/lib/utils/constants';
+import { createAlert } from '~/alert';
+import { TYPE_ISSUE } from '~/issues/constants';
 import { __, sprintf } from '~/locale';
 import eventHub from '~/sidebar/event_hub';
 import UserAccessRoleBadge from '~/vue_shared/components/user_access_role_badge.vue';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import { splitCamelCase } from '../../lib/utils/text_utility';
+import { splitCamelCase } from '~/lib/utils/text_utility';
+import AbuseCategorySelector from '~/abuse_reports/components/abuse_category_selector.vue';
 import ReplyButton from './note_actions/reply_button.vue';
+import TimelineEventButton from './note_actions/timeline_event_button.vue';
 
 export default {
   i18n: {
-    addReactionLabel: __('Add reaction'),
     editCommentLabel: __('Edit comment'),
     deleteCommentLabel: __('Delete comment'),
     moreActionsLabel: __('More actions'),
+    reportAbuse: __('Report abuse'),
   },
   name: 'NoteActions',
   components: {
-    GlIcon,
-    ReplyButton,
-    GlButton,
-    GlDropdownItem,
-    UserAccessRoleBadge,
+    AbuseCategorySelector,
     EmojiPicker: () => import('~/emoji/components/picker.vue'),
+    GlButton,
+    GlDisclosureDropdown,
+    GlDisclosureDropdownItem,
+    ReplyButton,
+    TimelineEventButton,
+    UserAccessRoleBadge,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -54,11 +64,6 @@ export default {
       type: String,
       required: false,
       default: '',
-    },
-    reportAbusePath: {
-      type: String,
-      required: false,
-      default: null,
     },
     isAuthor: {
       type: Boolean,
@@ -132,10 +137,16 @@ export default {
       default: '',
     },
   },
+  data() {
+    return {
+      isReportAbuseDrawerOpen: false,
+    };
+  },
   computed: {
-    ...mapGetters(['getUserDataByProp', 'getNoteableData']),
+    ...mapState(['isPromoteCommentToTimelineEventInProgress']),
+    ...mapGetters(['getUserDataByProp', 'getNoteableData', 'canUserAddIncidentTimelineEvents']),
     shouldShowActionsDropdown() {
-      return this.currentUserId && (this.canEdit || this.canReportAsAbuse);
+      return this.currentUserId;
     },
     showDeleteAction() {
       return this.canDelete && !this.canReportAsAbuse && !this.noteUrl;
@@ -167,10 +178,10 @@ export default {
       return this.getNoteableData.assignees || [];
     },
     isIssue() {
-      return this.targetType === 'issue';
+      return this.targetType === TYPE_ISSUE;
     },
     canAssign() {
-      return this.getNoteableData.current_user?.can_update && this.isIssue;
+      return this.getNoteableData.current_user?.can_set_issue_metadata && this.isIssue;
     },
     displayAuthorBadgeText() {
       return sprintf(__('This user is the author of this %{noteable}.'), {
@@ -199,7 +210,7 @@ export default {
     },
   },
   methods: {
-    ...mapActions(['toggleAwardRequest']),
+    ...mapActions(['toggleAwardRequest', 'promoteCommentToTimelineEvent']),
     onEdit() {
       this.$emit('handleEdit');
     },
@@ -209,10 +220,11 @@ export default {
     onResolve() {
       this.$emit('handleResolve');
     },
-    closeTooltip() {
-      this.$nextTick(() => {
-        this.$root.$emit(BV_HIDE_TOOLTIP);
-      });
+    onAbuse() {
+      this.toggleReportAbuseDrawer(true);
+    },
+    onCopyUrl() {
+      this.$toast.show(__('Link copied to clipboard.'));
     },
     handleAssigneeUpdate(assignees) {
       this.$emit('updateAssignees', assignees);
@@ -229,13 +241,13 @@ export default {
         assignees.push({ id: this.author.id });
       }
 
-      if (this.targetType === 'issue') {
+      if (this.targetType === TYPE_ISSUE) {
         Api.updateIssue(project_id, iid, {
           assignee_ids: assignees.map((assignee) => assignee.id),
         })
           .then(() => this.handleAssigneeUpdate(assignees))
           .catch(() =>
-            createFlash({
+            createAlert({
               message: __('Something went wrong while updating assignees'),
             }),
           );
@@ -248,6 +260,9 @@ export default {
         awardName,
       });
     },
+    toggleReportAbuseDrawer(isOpen) {
+      this.isReportAbuseDrawerOpen = isOpen;
+    },
   },
 };
 </script>
@@ -257,7 +272,7 @@ export default {
     <user-access-role-badge
       v-if="isAuthor"
       v-gl-tooltip
-      class="gl-mr-3 d-none d-md-inline-block"
+      class="gl-mr-3 gl-hidden sm:gl-block"
       :title="displayAuthorBadgeText"
     >
       {{ __('Author') }}
@@ -265,7 +280,7 @@ export default {
     <user-access-role-badge
       v-if="accessLevel"
       v-gl-tooltip
-      class="gl-mr-3"
+      class="gl-mr-3 gl-hidden sm:gl-block"
       :title="displayMemberBadgeText"
     >
       {{ accessLevel }}
@@ -273,11 +288,12 @@ export default {
     <user-access-role-badge
       v-else-if="isContributor"
       v-gl-tooltip
-      class="gl-mr-3"
+      class="gl-mr-3 gl-hidden sm:gl-block"
       :title="displayContributorBadgeText"
     >
       {{ __('Contributor') }}
     </user-access-role-badge>
+    <span class="note-actions__mobile-spacer"></span>
     <gl-button
       v-if="canResolve"
       ref="resolveButton"
@@ -292,18 +308,18 @@ export default {
       class="line-resolve-btn note-action-button"
       @click="onResolve"
     />
+    <timeline-event-button
+      v-if="canUserAddIncidentTimelineEvents"
+      :note-id="noteId"
+      :is-promotion-in-progress="isPromoteCommentToTimelineEventInProgress"
+      @click-promote-comment-to-event="promoteCommentToTimelineEvent"
+    />
     <emoji-picker
       v-if="canAwardEmoji"
-      toggle-class="note-action-button note-emoji-button gl-text-gray-600 gl-m-3 gl-p-0! gl-shadow-none! gl-bg-transparent!"
+      toggle-class="add-reaction-button btn-default-tertiary"
       data-testid="note-emoji-button"
       @click="setAwardEmoji"
-    >
-      <template #button-content>
-        <gl-icon class="link-highlight award-control-icon-neutral gl-m-0!" name="slight-smile" />
-        <gl-icon class="link-highlight award-control-icon-positive gl-m-0!" name="smiley" />
-        <gl-icon class="link-highlight award-control-icon-super-positive gl-m-0!" name="smile" />
-      </template>
-    </emoji-picker>
+    />
     <reply-button
       v-if="showReply"
       ref="replyButton"
@@ -318,7 +334,7 @@ export default {
       icon="pencil"
       category="tertiary"
       class="note-action-button js-note-edit"
-      data-qa-selector="note_edit_button"
+      data-testid="note-edit-button"
       @click="onEdit"
     />
     <gl-button
@@ -331,37 +347,61 @@ export default {
       class="note-action-button js-note-delete"
       @click="onDelete"
     />
-    <div v-else-if="shouldShowActionsDropdown" class="dropdown more-actions">
-      <!-- eslint-disable @gitlab/vue-no-data-toggle -->
-      <gl-button
+    <div v-else-if="shouldShowActionsDropdown" class="more-actions dropdown">
+      <gl-disclosure-dropdown
         v-gl-tooltip
         :title="$options.i18n.moreActionsLabel"
-        :aria-label="$options.i18n.moreActionsLabel"
+        :toggle-text="$options.i18n.moreActionsLabel"
+        text-sr-only
         icon="ellipsis_v"
         category="tertiary"
+        placement="bottom-end"
         class="note-action-button more-actions-toggle"
-        data-toggle="dropdown"
-        @click="closeTooltip"
-      />
-      <!-- eslint-enable @gitlab/vue-no-data-toggle -->
-      <ul class="dropdown-menu more-actions-dropdown dropdown-open-left">
-        <gl-dropdown-item v-if="canReportAsAbuse" :href="reportAbusePath">
-          {{ __('Report abuse to admin') }}
-        </gl-dropdown-item>
-        <gl-dropdown-item
+        no-caret
+      >
+        <gl-disclosure-dropdown-item
+          v-if="canReportAsAbuse"
+          data-testid="report-abuse-button"
+          @action="onAbuse"
+        >
+          <template #list-item>
+            {{ $options.i18n.reportAbuse }}
+          </template>
+        </gl-disclosure-dropdown-item>
+        <gl-disclosure-dropdown-item
           v-if="noteUrl"
           class="js-btn-copy-note-link"
           :data-clipboard-text="noteUrl"
+          @action="onCopyUrl"
         >
-          {{ __('Copy link') }}
-        </gl-dropdown-item>
-        <gl-dropdown-item v-if="canAssign" data-testid="assign-user" @click="assignUser">
-          {{ displayAssignUserText }}
-        </gl-dropdown-item>
-        <gl-dropdown-item v-if="canEdit" class="js-note-delete" @click.prevent="onDelete">
-          <span class="text-danger">{{ __('Delete comment') }}</span>
-        </gl-dropdown-item>
-      </ul>
+          <template #list-item>
+            {{ __('Copy link') }}
+          </template>
+        </gl-disclosure-dropdown-item>
+        <gl-disclosure-dropdown-item
+          v-if="canAssign"
+          data-testid="assign-user"
+          @action="assignUser"
+        >
+          <template #list-item>
+            {{ displayAssignUserText }}
+          </template>
+        </gl-disclosure-dropdown-item>
+        <gl-disclosure-dropdown-item v-if="canEdit" class="js-note-delete" @action="onDelete">
+          <template #list-item>
+            <span class="text-danger">{{ __('Delete comment') }}</span>
+          </template>
+        </gl-disclosure-dropdown-item>
+      </gl-disclosure-dropdown>
     </div>
+    <!-- IMPORTANT: show this component lazily because it causes layout thrashing -->
+    <!-- https://gitlab.com/gitlab-org/gitlab/-/issues/331172#note_1269378396 -->
+    <abuse-category-selector
+      v-if="canReportAsAbuse && isReportAbuseDrawerOpen"
+      :reported-user-id="authorId"
+      :reported-from-url="noteUrl"
+      :show-drawer="isReportAbuseDrawerOpen"
+      @close-drawer="toggleReportAbuseDrawer(false)"
+    />
   </div>
 </template>

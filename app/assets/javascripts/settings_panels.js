@@ -1,4 +1,6 @@
 import $ from 'jquery';
+import { parseBoolean } from '~/lib/utils/common_utils';
+import { InternalEvents } from '~/tracking';
 import { __ } from './locale';
 
 /**
@@ -24,6 +26,10 @@ export function expandSection(sectionArg) {
       .addClass('animating')
       .one('animationend.animateSection', () => $section.removeClass('animating'));
   }
+
+  InternalEvents.trackEvent('click_expand_panel_on_settings', {
+    label: $section.find('.settings-title').text(),
+  });
 }
 
 export function closeSection(sectionArg) {
@@ -47,6 +53,33 @@ export function toggleSection($section) {
   }
 }
 
+export function initTrackProductAnalyticsExpanded() {
+  const $analyticsSection = $('#js-product-analytics-settings');
+  $analyticsSection.on('click.toggleSection', '.js-settings-toggle', () => {
+    if (isExpanded($analyticsSection)) {
+      InternalEvents.trackEvent('user_viewed_cluster_configuration');
+    }
+  });
+}
+
+function initGlobalProtectionOptions() {
+  const globalProtectionProtectedOption = document.querySelectorAll('.js-global-protection-levels');
+  const protectionSettingsSection = document.querySelector(
+    '.js-global-protection-levels-protected',
+  );
+
+  globalProtectionProtectedOption.forEach((option) => {
+    const isProtected = parseBoolean(option.value);
+    option.addEventListener('change', () => {
+      protectionSettingsSection.classList.toggle('gl-display-none', !isProtected);
+    });
+
+    if (option.checked) {
+      protectionSettingsSection.classList.toggle('gl-display-none', !isProtected);
+    }
+  });
+}
+
 export default function initSettingsPanels() {
   $('.settings').each((i, elm) => {
     const $section = $(elm);
@@ -64,4 +97,7 @@ export default function initSettingsPanels() {
       }
     }
   });
+
+  initTrackProductAnalyticsExpanded();
+  initGlobalProtectionOptions();
 }

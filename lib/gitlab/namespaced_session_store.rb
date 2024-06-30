@@ -2,10 +2,10 @@
 
 module Gitlab
   class NamespacedSessionStore
-    delegate :[], :[]=, to: :store
+    include Enumerable
 
     def initialize(key, session = Session.current)
-      @key = key
+      @namespace_key = key
       @session = session
     end
 
@@ -13,11 +13,23 @@ module Gitlab
       !session.nil?
     end
 
-    def store
+    def each(&block)
       return unless session
 
-      session[@key] ||= {}
-      session[@key]
+      session.fetch(@namespace_key, {}).each(&block)
+    end
+
+    def [](key)
+      return unless session
+
+      session[@namespace_key]&.fetch(key, nil)
+    end
+
+    def []=(key, value)
+      return unless session
+
+      session[@namespace_key] ||= {}
+      session[@namespace_key][key] = value
     end
 
     private

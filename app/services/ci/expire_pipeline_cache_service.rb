@@ -50,6 +50,10 @@ module Ci
         yield(pipelines_project_merge_request_path(merge_request))
         yield(merge_request_widget_path(merge_request))
       end
+
+      pipeline.project.merge_requests.by_merged_or_merge_or_squash_commit_sha(pipeline.sha).each do |merge_request|
+        yield(merge_request_widget_path(merge_request))
+      end
     end
 
     def graphql_pipeline_path(pipeline)
@@ -86,7 +90,7 @@ module Ci
         etag_paths << path
       end
 
-      pipeline.self_with_upstreams_and_downstreams.includes(project: [:route, { namespace: :route }]).each do |relative_pipeline| # rubocop: disable CodeReuse/ActiveRecord
+      pipeline.upstream_and_all_downstreams.includes(project: [:route, { namespace: :route }]).each do |relative_pipeline| # rubocop: disable CodeReuse/ActiveRecord
         etag_paths << project_pipeline_path(relative_pipeline.project, relative_pipeline)
         etag_paths << graphql_pipeline_path(relative_pipeline)
         etag_paths << graphql_pipeline_sha_path(relative_pipeline.sha)

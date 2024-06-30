@@ -22,6 +22,23 @@ RSpec.describe API::Entities::WikiPage do
     expect(subject[:content]).to eq wiki_page.content
   end
 
+  context "with front matter content" do
+    let(:wiki_page) { create(:wiki_page) }
+    let(:content_with_front_matter) { "---\ntitle: abc\n---\nHome Page" }
+
+    before do
+      wiki_page.update(content: content_with_front_matter) # rubocop:disable Rails/SaveBang
+    end
+
+    it 'returns the raw wiki page content' do
+      expect(subject[:content]).to eq content_with_front_matter
+    end
+
+    it 'return the front matter title' do
+      expect(subject[:front_matter]).to eq({ title: "abc" })
+    end
+  end
+
   context 'when render_html param is passed' do
     context 'when it is true' do
       let(:params) { { render_html: true } }
@@ -41,6 +58,23 @@ RSpec.describe API::Entities::WikiPage do
 
         it 'renders the page without errors' do
           expect(subject[:content]).to eq("<div>&#x000A;<p><strong>Test</strong> <em>content</em></p>&#x000A;</div>")
+        end
+      end
+
+      context 'when content contains a reference' do
+        let(:user) { create(:user) }
+        let(:project) { create(:project) }
+        let(:issue) { create(:issue, project: project) }
+        let(:wiki_page) { create(:wiki_page, wiki: project.wiki, title: 'page_with_ref', content: issue.to_reference) }
+        let(:expected_content) { %r{<a href=".*#{issue.iid}".*>#{issue.to_reference}</a>} }
+
+        before do
+          params[:current_user] = user
+          project.add_developer(user)
+        end
+
+        it 'expands the reference in the content' do
+          expect(subject[:content]).to match(expected_content)
         end
       end
     end

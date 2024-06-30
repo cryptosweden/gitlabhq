@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe SearchService do
+RSpec.describe SearchService, feature_category: :global_search do
   let_it_be(:user) { create(:user) }
 
   let_it_be(:accessible_group) { create(:group, :private) }
   let_it_be(:inaccessible_group) { create(:group, :private) }
   let_it_be(:group_member) { create(:group_member, group: accessible_group, user: user) }
 
-  let_it_be(:accessible_project) { create(:project, :repository, :private, name: 'accessible_project') }
+  let_it_be(:accessible_project) { create(:project, :repository, :private, name: 'accessible_project', maintainers: user) }
   let_it_be(:note) { create(:note_on_issue, project: accessible_project) }
 
   let_it_be(:inaccessible_project) { create(:project, :repository, :private, name: 'inaccessible_project') }
@@ -23,10 +23,6 @@ RSpec.describe SearchService do
   let(:valid_search) { "what is love?" }
 
   subject(:search_service) { described_class.new(user, search: search, scope: scope, page: page, per_page: per_page) }
-
-  before do
-    accessible_project.add_maintainer(user)
-  end
 
   describe '#project' do
     context 'when the project is accessible' do
@@ -87,6 +83,12 @@ RSpec.describe SearchService do
         expect(group).to be_nil
       end
     end
+  end
+
+  describe '#search_type' do
+    subject { described_class.new(user, search: valid_search).search_type }
+
+    it { is_expected.to eq('basic') }
   end
 
   describe '#show_snippets?' do
@@ -399,159 +401,7 @@ RSpec.describe SearchService do
       end
     end
 
-    context 'redacting search results' do
-      let(:search) { 'anything' }
-
-      subject(:result) { search_service.search_objects }
-
-      shared_examples "redaction limits N+1 queries" do |limit:|
-        it 'does not exceed the query limit' do
-          # issuing the query to remove the data loading call
-          unredacted_results.to_a
-
-          # only the calls from the redaction are left
-          query = ActiveRecord::QueryRecorder.new { result }
-
-          # these are the project authorization calls, which are not preloaded
-          expect(query.count).to be <= limit
-        end
-      end
-
-      def found_blob(project)
-        Gitlab::Search::FoundBlob.new(project: project)
-      end
-
-      def found_wiki_page(project)
-        Gitlab::Search::FoundWikiPage.new(found_blob(project))
-      end
-
-      before do
-        expect(search_service)
-          .to receive(:search_results)
-          .and_return(double('search results', objects: unredacted_results))
-      end
-
-      def ar_relation(klass, *objects)
-        klass.id_in(objects.map(&:id))
-      end
-
-      def kaminari_array(*objects)
-        Kaminari.paginate_array(objects).page(1).per(20)
-      end
-
-      context 'issues' do
-        let(:readable) { create(:issue, project: accessible_project) }
-        let(:unreadable) { create(:issue, project: inaccessible_project) }
-        let(:unredacted_results) { ar_relation(Issue, readable, unreadable) }
-        let(:scope) { 'issues' }
-
-        it 'redacts the inaccessible issue' do
-          expect(result).to contain_exactly(readable)
-        end
-      end
-
-      context 'notes' do
-        let(:readable) { create(:note_on_commit, project: accessible_project) }
-        let(:unreadable) { create(:note_on_commit, project: inaccessible_project) }
-        let(:unredacted_results) { ar_relation(Note, readable, unreadable) }
-        let(:scope) { 'notes' }
-
-        it 'redacts the inaccessible note' do
-          expect(result).to contain_exactly(readable)
-        end
-      end
-
-      context 'merge_requests' do
-        let(:readable) { create(:merge_request, source_project: accessible_project, author: user) }
-        let(:unreadable) { create(:merge_request, source_project: inaccessible_project) }
-        let(:unredacted_results) { ar_relation(MergeRequest, readable, unreadable) }
-        let(:scope) { 'merge_requests' }
-
-        it 'redacts the inaccessible merge request' do
-          expect(result).to contain_exactly(readable)
-        end
-
-        context 'with :with_api_entity_associations' do
-          let(:unredacted_results) { ar_relation(MergeRequest.with_api_entity_associations, readable, unreadable) }
-
-          it_behaves_like "redaction limits N+1 queries", limit: 8
-        end
-      end
-
-      context 'project repository blobs' do
-        let(:readable) { found_blob(accessible_project) }
-        let(:unreadable) { found_blob(inaccessible_project) }
-        let(:unredacted_results) { kaminari_array(readable, unreadable) }
-        let(:scope) { 'blobs' }
-
-        it 'redacts the inaccessible blob' do
-          expect(result).to contain_exactly(readable)
-        end
-      end
-
-      context 'project wiki blobs' do
-        let(:readable) { found_wiki_page(accessible_project) }
-        let(:unreadable) { found_wiki_page(inaccessible_project) }
-        let(:unredacted_results) { kaminari_array(readable, unreadable) }
-        let(:scope) { 'wiki_blobs' }
-
-        it 'redacts the inaccessible blob' do
-          expect(result).to contain_exactly(readable)
-        end
-      end
-
-      context 'project snippets' do
-        let(:readable) { create(:project_snippet, project: accessible_project) }
-        let(:unreadable) { create(:project_snippet, project: inaccessible_project) }
-        let(:unredacted_results) { ar_relation(ProjectSnippet, readable, unreadable) }
-        let(:scope) { 'snippet_titles' }
-
-        it 'redacts the inaccessible snippet' do
-          expect(result).to contain_exactly(readable)
-        end
-
-        context 'with :with_api_entity_associations' do
-          it_behaves_like "redaction limits N+1 queries", limit: 13
-        end
-      end
-
-      context 'personal snippets' do
-        let(:readable) { create(:personal_snippet, :private, author: user) }
-        let(:unreadable) { create(:personal_snippet, :private) }
-        let(:unredacted_results) { ar_relation(PersonalSnippet, readable, unreadable) }
-        let(:scope) { 'snippet_titles' }
-
-        it 'redacts the inaccessible snippet' do
-          expect(result).to contain_exactly(readable)
-        end
-
-        context 'with :with_api_entity_associations' do
-          it_behaves_like "redaction limits N+1 queries", limit: 4
-        end
-      end
-
-      context 'commits' do
-        let(:readable) { accessible_project.commit }
-        let(:unreadable) { inaccessible_project.commit }
-        let(:unredacted_results) { kaminari_array(readable, unreadable) }
-        let(:scope) { 'commits' }
-
-        it 'redacts the inaccessible commit' do
-          expect(result).to contain_exactly(readable)
-        end
-      end
-
-      context 'users' do
-        let(:other_user) { create(:user) }
-        let(:unredacted_results) { ar_relation(User, user, other_user) }
-        let(:scope) { 'users' }
-
-        it 'passes the users through' do
-          # Users are always visible to everyone
-          expect(result).to contain_exactly(user, other_user)
-        end
-      end
-    end
+    it_behaves_like 'a redacted search results'
   end
 
   describe '#valid_request?' do
@@ -599,25 +449,13 @@ RSpec.describe SearchService do
     let(:search_service) { double(:search_service) }
 
     before do
-      stub_feature_flags(prevent_abusive_searches: should_detect_abuse)
       expect(Gitlab::Search::Params).to receive(:new)
-        .with(raw_params, detect_abuse: should_detect_abuse).and_call_original
+        .with(raw_params, detect_abuse: true).and_call_original
 
       allow(subject).to receive(:search_service).and_return search_service
     end
 
-    context 'when abusive search but prevent_abusive_searches FF is disabled' do
-      let(:should_detect_abuse) { false }
-      let(:scope) { '1;drop%20table' }
-
-      it 'executes search even if params are abusive' do
-        expect(search_service).to receive(:execute)
-        subject.search_results
-      end
-    end
-
     context 'a search is abusive' do
-      let(:should_detect_abuse) { true }
       let(:scope) { '1;drop%20table' }
 
       it 'does NOT execute search service' do
@@ -627,12 +465,61 @@ RSpec.describe SearchService do
     end
 
     context 'a search is NOT abusive' do
-      let(:should_detect_abuse) { true }
       let(:scope) { 'issues' }
 
       it 'executes search service' do
         expect(search_service).to receive(:execute)
         subject.search_results
+      end
+    end
+  end
+
+  describe '.global_search_enabled_for_scope?' do
+    using RSpec::Parameterized::TableSyntax
+    let(:search) { 'foobar' }
+
+    where(:scope, :feature_flag, :enabled, :expected) do
+      'blobs'          | :global_search_code_tab           | false | false
+      'blobs'          | :global_search_code_tab           | true  | true
+      'commits'        | :global_search_commits_tab        | false | false
+      'commits'        | :global_search_commits_tab        | true  | true
+      'issues'         | :global_search_issues_tab         | false | false
+      'issues'         | :global_search_issues_tab         | true  | true
+      'merge_requests' | :global_search_merge_requests_tab | false | false
+      'merge_requests' | :global_search_merge_requests_tab | true  | true
+      'snippet_titles' | :global_search_snippet_titles_tab | false | false
+      'snippet_titles' | :global_search_snippet_titles_tab | true  | true
+      'wiki_blobs'     | :global_search_wiki_tab           | false | false
+      'wiki_blobs'     | :global_search_wiki_tab           | true  | true
+      'users'          | :global_search_users_tab          | false | false
+      'users'          | :global_search_users_tab          | true  | true
+      'random'         | :random                           | nil   | true
+    end
+
+    with_them do
+      it 'returns false when feature_flag is not enabled and returns true when feature_flag is enabled' do
+        stub_feature_flags(feature_flag => enabled)
+        expect(subject.global_search_enabled_for_scope?).to eq expected
+      end
+    end
+
+    context 'when snippet search is enabled' do
+      let(:scope) { 'snippet_titles' }
+
+      before do
+        allow(described_class).to receive(:show_snippets?).and_return(true)
+      end
+
+      it 'returns false when feature_flag is not enabled' do
+        stub_feature_flags(global_search_snippet_titles_tab: false)
+
+        expect(subject.global_search_enabled_for_scope?).to eq false
+      end
+
+      it 'returns true when feature_flag is enabled' do
+        stub_feature_flags(global_search_snippet_titles_tab: true)
+
+        expect(subject.global_search_enabled_for_scope?).to eq true
       end
     end
   end

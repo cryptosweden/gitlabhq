@@ -1,14 +1,17 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# How to set up Consul **(PREMIUM SELF)**
+# How to set up Consul
+
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed
 
 A Consul cluster consists of both
-[server and client agents](https://www.consul.io/docs/agent).
+[server and client agents](https://developer.hashicorp.com/consul/docs/agent).
 The servers run on their own nodes and the clients run on other nodes that in
 turn communicate with the servers.
 
@@ -49,7 +52,7 @@ On _each_ Consul server node:
    gitlab_rails['auto_migrate'] = false
    ```
 
-1. [Reconfigure GitLab](restart_gitlab.md#omnibus-gitlab-reconfigure) for the changes
+1. [Reconfigure GitLab](restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes
    to take effect.
 1. Run the following command to ensure Consul is both configured correctly and
    to verify that all server nodes are communicating:
@@ -76,18 +79,18 @@ To upgrade your Consul nodes, upgrade the GitLab package.
 
 Nodes should be:
 
-- Members of a healthy cluster prior to upgrading the Omnibus GitLab package.
+- Members of a healthy cluster prior to upgrading the Linux package.
 - Upgraded one node at a time.
 
 Identify any existing health issues in the cluster by running the following command
-within each node. The command will return an empty array if the cluster is healthy:
+in each node. The command returns an empty array if the cluster is healthy:
 
 ```shell
 curl "http://127.0.0.1:8500/v1/health/state/critical"
 ```
 
-If the Consul version has changed, you'll see a notice at the end of `gitlab-ctl reconfigure`
-informing you that Consul needs to be restarted for the new version to be used.
+If the Consul version has changed, you see a notice at the end of `gitlab-ctl reconfigure`
+informing you that Consul must be restarted for the new version to be used.
 
 Restart Consul one node at a time:
 
@@ -96,10 +99,10 @@ sudo gitlab-ctl restart consul
 ```
 
 Consul nodes communicate using the raft protocol. If the current leader goes
-offline, there needs to be a leader election. A leader node must exist to facilitate
+offline, there must be a leader election. A leader node must exist to facilitate
 synchronization across the cluster. If too many nodes go offline at the same time,
 the cluster loses quorum and doesn't elect a leader due to
-[broken consensus](https://www.consul.io/docs/architecture/consensus).
+[broken consensus](https://developer.hashicorp.com/consul/docs/architecture/consensus).
 
 Consult the [troubleshooting section](#troubleshooting-consul) if the cluster is not
 able to recover after the upgrade. The [outage recovery](#outage-recovery) may
@@ -111,7 +114,7 @@ bundled Consul wasn't used by any process other than GitLab itself, you can
 
 ## Troubleshooting Consul
 
-Below are some useful operations should you need to debug any issues.
+Below are some operations should you debug any issues.
 You can see any error logs by running:
 
 ```shell
@@ -148,8 +151,8 @@ you follow the Consul [outage recovery](#outage-recovery) process.
 To be safe, it's recommended that you only restart Consul in one node at a time to
 ensure the cluster remains intact. For larger clusters, it is possible to restart
 multiple nodes at a time. See the
-[Consul consensus document](https://www.consul.io/docs/architecture/consensus#deployment-table)
-for the number of failures it can tolerate. This will be the number of simultaneous
+[Consul consensus document](https://developer.hashicorp.com/consul/docs/architecture/consensus#deployment-table)
+for the number of failures it can tolerate. This is the number of simultaneous
 restarts it can sustain.
 
 To restart Consul:
@@ -161,7 +164,7 @@ sudo gitlab-ctl restart consul
 ### Consul nodes unable to communicate
 
 By default, Consul attempts to
-[bind](https://www.consul.io/docs/agent/options#_bind) to `0.0.0.0`, but
+[bind](https://developer.hashicorp.com/consul/docs/agent/config/config-files#bind_addr) to `0.0.0.0`, but
 it advertises the first private IP address on the node for other Consul nodes
 to communicate with it. If the other nodes cannot communicate with a node on
 this address, then the cluster has a failed status.
@@ -245,9 +248,15 @@ sudo gitlab-ctl start consul
 After this, the node should start back up, and the rest of the server agents rejoin.
 Shortly after that, the client agents should rejoin as well.
 
+If they do not join, you might also need to erase the Consul data on the client:
+
+```shell
+sudo rm -rf /var/opt/gitlab/consul/data
+```
+
 #### Recover a failed node
 
 If you have taken advantage of Consul to store other data and want to restore
 the failed node, follow the
-[Consul guide](https://learn.hashicorp.com/tutorials/consul/recovery-outage)
+[Consul guide](https://developer.hashicorp.com/consul/tutorials/operate-consul/recovery-outage)
 to recover a failed cluster.

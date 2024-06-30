@@ -1,6 +1,19 @@
 import setWindowLocation from 'helpers/set_window_location_helper';
 import { TEST_HOST } from 'helpers/test_constants';
 import * as urlUtils from '~/lib/utils/url_utility';
+import { setGlobalAlerts } from '~/lib/utils/global_alerts';
+import { safeUrls, unsafeUrls } from './mock_data';
+
+jest.mock('~/lib/utils/global_alerts', () => ({
+  getGlobalAlerts: jest.fn().mockImplementation(() => [
+    {
+      id: 'foo',
+      message: 'Foo',
+      variant: 'success',
+    },
+  ]),
+  setGlobalAlerts: jest.fn(),
+}));
 
 const shas = {
   valid: [
@@ -44,10 +57,6 @@ describe('URL utility', () => {
   });
 
   describe('webIDEUrl', () => {
-    afterEach(() => {
-      gon.relative_url_root = '';
-    });
-
     it('escapes special characters', () => {
       expect(urlUtils.webIDEUrl('/gitlab-org/gitlab-#-foss/merge_requests/1')).toBe(
         '/-/ide/project/gitlab-org/gitlab-%23-foss/merge_requests/1',
@@ -330,6 +339,26 @@ describe('URL utility', () => {
     });
   });
 
+  describe('getLocationHash', () => {
+    it('gets a default empty value', () => {
+      setWindowLocation(TEST_HOST);
+
+      expect(urlUtils.getLocationHash()).toBeUndefined();
+    });
+
+    it('gets a value', () => {
+      setWindowLocation('#hash-value');
+
+      expect(urlUtils.getLocationHash()).toBe('hash-value');
+    });
+
+    it('gets an empty value when only hash is set', () => {
+      setWindowLocation('#');
+
+      expect(urlUtils.getLocationHash()).toBeUndefined();
+    });
+  });
+
   describe('doesHashExistInUrl', () => {
     beforeEach(() => {
       setWindowLocation('#note_1');
@@ -347,15 +376,13 @@ describe('URL utility', () => {
   describe('urlContainsSha', () => {
     it('returns true when there is a valid 40-character SHA1 hash in the URL', () => {
       shas.valid.forEach((sha) => {
-        expect(
-          urlUtils.urlContainsSha({ url: `http://urlstuff/${sha}/moreurlstuff` }),
-        ).toBeTruthy();
+        expect(urlUtils.urlContainsSha({ url: `http://urlstuff/${sha}/moreurlstuff` })).toBe(true);
       });
     });
 
     it('returns false when there is not a valid 40-character SHA1 hash in the URL', () => {
       shas.invalid.forEach((str) => {
-        expect(urlUtils.urlContainsSha({ url: `http://urlstuff/${str}/moreurlstuff` })).toBeFalsy();
+        expect(urlUtils.urlContainsSha({ url: `http://urlstuff/${str}/moreurlstuff` })).toBe(false);
       });
     });
   });
@@ -399,6 +426,139 @@ describe('URL utility', () => {
       const url = urlUtils.setUrlFragment('/home/feature#overview', '#install');
 
       expect(url).toBe('/home/feature#install');
+    });
+  });
+
+  describe('visitUrl', () => {
+    let originalLocation;
+    const mockUrl = 'http://example.com/page';
+
+    beforeEach(() => {
+      originalLocation = window.location;
+
+      const { protocol, host, href } = new URL(mockUrl);
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: {
+          assign: jest.fn(),
+          protocol,
+          host,
+          href,
+        },
+      });
+
+      gon.gitlab_url = 'http://example.com';
+    });
+
+    afterEach(() => {
+      window.location = originalLocation;
+    });
+
+    it.each`
+      inputQuery                   | expectedQuery
+      ${'?scope=all&state=merged'} | ${'?scope=all&state=merged'}
+      ${'?'}                       | ${'?'}
+    `('handles query string: $inputQuery', ({ inputQuery, expectedQuery }) => {
+      urlUtils.visitUrl(inputQuery);
+      expect(window.location.assign).toHaveBeenCalledWith(`${mockUrl}${expectedQuery}`);
+    });
+
+    it('does not navigate to unsafe urls', () => {
+      // eslint-disable-next-line no-script-url
+      const url = 'javascript:alert(document.domain)';
+
+      expect(() => {
+        urlUtils.visitUrl(url);
+      }).toThrow(new RangeError(`Only http and https protocols are allowed: ${url}`));
+    });
+
+    it('navigates to a page', () => {
+      urlUtils.visitUrl(mockUrl);
+
+      expect(window.location.assign).toHaveBeenCalledWith(mockUrl);
+    });
+
+    it('opens a new window', () => {
+      Object.defineProperty(window, 'open', {
+        writable: true,
+        value: jest.fn(),
+      });
+
+      urlUtils.visitUrl(mockUrl, true);
+
+      expect(window.open).toHaveBeenCalledWith(mockUrl);
+    });
+
+    describe('when the URL is external', () => {
+      beforeEach(() => {
+        gon.gitlab_url = 'http://other.com';
+      });
+
+      it('navigates (on the same window) with no referrer or opener information', () => {
+        Object.defineProperty(window, 'open', {
+          writable: true,
+          value: jest.fn(),
+        });
+
+        urlUtils.visitUrl(mockUrl);
+
+        expect(window.open).toHaveBeenCalledWith(mockUrl, '_self', 'noreferrer');
+      });
+
+      it('opens a new window with no referrer or opener information', () => {
+        Object.defineProperty(window, 'open', {
+          writable: true,
+          value: jest.fn(),
+        });
+
+        urlUtils.visitUrl(mockUrl, true);
+
+        expect(window.open).toHaveBeenCalledWith(mockUrl, '_blank', 'noreferrer');
+      });
+    });
+  });
+
+  describe('visitUrlWithAlerts', () => {
+    let originalLocation;
+
+    beforeEach(() => {
+      originalLocation = window.location;
+
+      const { protocol, host, href } = new URL(TEST_HOST);
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: {
+          assign: jest.fn(),
+          protocol,
+          host,
+          href,
+        },
+      });
+    });
+
+    afterEach(() => {
+      window.location = originalLocation;
+    });
+
+    it('sets alerts and then visits url', () => {
+      const url = '/foo/bar';
+      const alert = {
+        id: 'bar',
+        message: 'Bar',
+        variant: 'danger',
+      };
+
+      urlUtils.visitUrlWithAlerts(url, [alert]);
+
+      expect(setGlobalAlerts).toHaveBeenCalledWith([
+        {
+          id: 'foo',
+          message: 'Foo',
+          variant: 'success',
+        },
+        alert,
+      ]);
+      expect(window.location.assign).toHaveBeenCalledWith(url);
     });
   });
 
@@ -499,25 +659,68 @@ describe('URL utility', () => {
     });
   });
 
-  describe('isExternal', () => {
-    const gitlabUrl = 'https://gitlab.com/';
-
-    beforeEach(() => {
-      gon.gitlab_url = gitlabUrl;
-    });
-
-    afterEach(() => {
-      gon.gitlab_url = '';
-    });
-
+  describe('pathSegments', () => {
     it.each`
-      url                                        | urlType                    | external
-      ${'/gitlab-org/gitlab-test/-/issues/2'}    | ${'relative'}              | ${false}
-      ${gitlabUrl}                               | ${'absolute and internal'} | ${false}
-      ${`${gitlabUrl}/gitlab-org/gitlab-test`}   | ${'absolute and internal'} | ${false}
-      ${'http://jira.atlassian.net/browse/IG-1'} | ${'absolute and external'} | ${true}
-    `('returns $external for $url ($urlType)', ({ url, external }) => {
-      expect(urlUtils.isExternal(url)).toBe(external);
+      url                              | segments
+      ${'https://foo.test'}            | ${[]}
+      ${'https://foo.test/'}           | ${[]}
+      ${'https://foo.test/..'}         | ${[]}
+      ${'https://foo.test//'}          | ${['']}
+      ${'https://foo.test/bar'}        | ${['bar']}
+      ${'https://foo.test/bar//'}      | ${['bar', '']}
+      ${'https://foo.test/bar/qux'}    | ${['bar', 'qux']}
+      ${'https://foo.test/bar/../qux'} | ${['qux']}
+      ${'https://foo.test/bar/.'}      | ${['bar']}
+    `('returns $segments for $url', ({ url, segments }) => {
+      expect(urlUtils.pathSegments(new URL(url))).toEqual(segments);
+    });
+  });
+
+  describe('isExternal', () => {
+    describe('when installed on the root path', () => {
+      const gitlabUrl = 'https://gitlab.com';
+
+      beforeEach(() => {
+        setWindowLocation(gitlabUrl);
+        gon.gitlab_url = gitlabUrl;
+      });
+
+      it.each`
+        url                                           | urlType                    | external
+        ${'/gitlab-org/gitlab-test/-/issues/2'}       | ${'relative'}              | ${false}
+        ${gitlabUrl}                                  | ${'absolute and internal'} | ${false}
+        ${`${gitlabUrl}/gitlab-org/gitlab-test`}      | ${'absolute and internal'} | ${false}
+        ${`${gitlabUrl}:8080/gitlab-org/gitlab-test`} | ${'absolute and internal'} | ${true}
+        ${'http://jira.atlassian.net/browse/IG-1'}    | ${'absolute and external'} | ${true}
+      `('returns $external for $url ($urlType)', ({ url, external }) => {
+        expect(urlUtils.isExternal(url)).toBe(external);
+      });
+    });
+
+    describe('when installed on a relative path', () => {
+      const gitlabUrl = 'https://foo.test/gitlab';
+
+      beforeEach(() => {
+        setWindowLocation(gitlabUrl);
+        gon.gitlab_url = gitlabUrl;
+      });
+
+      it.each`
+        url                                        | urlType                    | external
+        ${'/gitlab-org/gitlab-test/-/issues/2'}    | ${'relative'}              | ${true}
+        ${'../'}                                   | ${'relative'}              | ${true}
+        ${'a'}                                     | ${'relative'}              | ${true}
+        ${'#test'}                                 | ${'relative'}              | ${false}
+        ${'?test'}                                 | ${'relative'}              | ${false}
+        ${'/gitlab/a/..'}                          | ${'relative'}              | ${false}
+        ${gitlabUrl}                               | ${'absolute and internal'} | ${false}
+        ${`${gitlabUrl}/gitlab-org/gitlab-test`}   | ${'absolute and internal'} | ${false}
+        ${'http://jira.atlassian.net/browse/IG-1'} | ${'absolute and external'} | ${true}
+        ${'https://foo.test/'}                     | ${'absolute and external'} | ${true}
+        ${'https://foo.test/not-gitlab'}           | ${'absolute and external'} | ${true}
+      `('returns $external for $url ($urlType)', ({ url, external }) => {
+        expect(urlUtils.isExternal(url)).toBe(external);
+      });
     });
   });
 
@@ -554,18 +757,22 @@ describe('URL utility', () => {
 
   describe('relativePathToAbsolute', () => {
     it.each`
-      path                       | base                                  | result
-      ${'./foo'}                 | ${'bar/'}                             | ${'/bar/foo'}
-      ${'../john.md'}            | ${'bar/baz/foo.php'}                  | ${'/bar/john.md'}
-      ${'../images/img.png'}     | ${'bar/baz/foo.php'}                  | ${'/bar/images/img.png'}
-      ${'../images/Image 1.png'} | ${'bar/baz/foo.php'}                  | ${'/bar/images/Image 1.png'}
-      ${'/images/img.png'}       | ${'bar/baz/foo.php'}                  | ${'/images/img.png'}
-      ${'/images/img.png'}       | ${'/bar/baz/foo.php'}                 | ${'/images/img.png'}
-      ${'../john.md'}            | ${'/bar/baz/foo.php'}                 | ${'/bar/john.md'}
-      ${'../john.md'}            | ${'///bar/baz/foo.php'}               | ${'/bar/john.md'}
-      ${'/images/img.png'}       | ${'https://gitlab.com/user/project/'} | ${'https://gitlab.com/images/img.png'}
-      ${'../images/img.png'}     | ${'https://gitlab.com/user/project/'} | ${'https://gitlab.com/user/images/img.png'}
-      ${'../images/Image 1.png'} | ${'https://gitlab.com/user/project/'} | ${'https://gitlab.com/user/images/Image%201.png'}
+      path                       | base                                     | result
+      ${'./foo'}                 | ${'bar/'}                                | ${'/bar/foo'}
+      ${'../john.md'}            | ${'bar/baz/foo.php'}                     | ${'/bar/john.md'}
+      ${'../images/img.png'}     | ${'bar/baz/foo.php'}                     | ${'/bar/images/img.png'}
+      ${'../images/Image 1.png'} | ${'bar/baz/foo.php'}                     | ${'/bar/images/Image 1.png'}
+      ${'/images/img.png'}       | ${'bar/baz/foo.php'}                     | ${'/images/img.png'}
+      ${'/images/img.png'}       | ${'bar/baz//foo.php'}                    | ${'/images/img.png'}
+      ${'/images//img.png'}      | ${'bar/baz/foo.php'}                     | ${'/images/img.png'}
+      ${'/images/img.png'}       | ${'/bar/baz/foo.php'}                    | ${'/images/img.png'}
+      ${'../john.md'}            | ${'/bar/baz/foo.php'}                    | ${'/bar/john.md'}
+      ${'../john.md'}            | ${'///bar/baz/foo.php'}                  | ${'/bar/john.md'}
+      ${'/images/img.png'}       | ${'https://gitlab.com/user/project/'}    | ${'https://gitlab.com/images/img.png'}
+      ${'/images/img.png'}       | ${'https://gitlab.com////user/project/'} | ${'https://gitlab.com/images/img.png'}
+      ${'/images////img.png'}    | ${'https://gitlab.com/user/project/'}    | ${'https://gitlab.com/images/img.png'}
+      ${'../images/img.png'}     | ${'https://gitlab.com/user/project/'}    | ${'https://gitlab.com/user/images/img.png'}
+      ${'../images/Image 1.png'} | ${'https://gitlab.com/user/project/'}    | ${'https://gitlab.com/user/images/Image%201.png'}
     `(
       'converts relative path "$path" with base "$base" to absolute path => "expected"',
       ({ path, base, result }) => {
@@ -575,48 +782,6 @@ describe('URL utility', () => {
   });
 
   describe('isSafeUrl', () => {
-    const absoluteUrls = [
-      'http://example.org',
-      'http://example.org:8080',
-      'https://example.org',
-      'https://example.org:8080',
-      'https://192.168.1.1',
-    ];
-
-    const rootRelativeUrls = ['/relative/link'];
-
-    const relativeUrls = ['./relative/link', '../relative/link'];
-
-    const urlsWithoutHost = ['http://', 'https://', 'https:https:https:'];
-
-    /* eslint-disable no-script-url */
-    const nonHttpUrls = [
-      'javascript:',
-      'javascript:alert("XSS")',
-      'jav\tascript:alert("XSS");',
-      ' &#14;  javascript:alert("XSS");',
-      'ftp://192.168.1.1',
-      'file:///',
-      'file:///etc/hosts',
-    ];
-    /* eslint-enable no-script-url */
-
-    // javascript:alert('XSS')
-    const encodedJavaScriptUrls = [
-      '&#0000106&#0000097&#0000118&#0000097&#0000115&#0000099&#0000114&#0000105&#0000112&#0000116&#0000058&#0000097&#0000108&#0000101&#0000114&#0000116&#0000040&#0000039&#0000088&#0000083&#0000083&#0000039&#0000041',
-      '&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;&#97;&#108;&#101;&#114;&#116;&#40;&#39;&#88;&#83;&#83;&#39;&#41;',
-      '&#x6A&#x61&#x76&#x61&#x73&#x63&#x72&#x69&#x70&#x74&#x3A&#x61&#x6C&#x65&#x72&#x74&#x28&#x27&#x58&#x53&#x53&#x27&#x29',
-      '\\u006A\\u0061\\u0076\\u0061\\u0073\\u0063\\u0072\\u0069\\u0070\\u0074\\u003A\\u0061\\u006C\\u0065\\u0072\\u0074\\u0028\\u0027\\u0058\\u0053\\u0053\\u0027\\u0029',
-    ];
-
-    const safeUrls = [...absoluteUrls, ...rootRelativeUrls];
-    const unsafeUrls = [
-      ...relativeUrls,
-      ...urlsWithoutHost,
-      ...nonHttpUrls,
-      ...encodedJavaScriptUrls,
-    ];
-
     describe('with URL constructor support', () => {
       it.each(safeUrls)('returns true for %s', (url) => {
         expect(urlUtils.isSafeURL(url)).toBe(true);
@@ -625,6 +790,16 @@ describe('URL utility', () => {
       it.each(unsafeUrls)('returns false for %s', (url) => {
         expect(urlUtils.isSafeURL(url)).toBe(false);
       });
+    });
+  });
+
+  describe('sanitizeUrl', () => {
+    it.each(safeUrls)('returns the url for %s', (url) => {
+      expect(urlUtils.sanitizeUrl(url)).toBe(url);
+    });
+
+    it.each(unsafeUrls)('returns `about:blank` for %s', (url) => {
+      expect(urlUtils.sanitizeUrl(url)).toBe('about:blank');
     });
   });
 
@@ -788,6 +963,19 @@ describe('URL utility', () => {
     });
   });
 
+  describe('cleanEndingSeparator', () => {
+    it.each`
+      path            | expected
+      ${'foo/bar'}    | ${'foo/bar'}
+      ${'/foo/bar/'}  | ${'/foo/bar'}
+      ${'foo/bar//'}  | ${'foo/bar'}
+      ${'foo/bar/./'} | ${'foo/bar/.'}
+      ${''}           | ${''}
+    `('$path becomes $expected', ({ path, expected }) => {
+      expect(urlUtils.cleanEndingSeparator(path)).toBe(expected);
+    });
+  });
+
   describe('joinPaths', () => {
     it.each`
       paths                                       | expected
@@ -812,18 +1000,6 @@ describe('URL utility', () => {
     });
   });
 
-  describe('stripFinalUrlSegment', () => {
-    it.each`
-      path                                                        | expected
-      ${'http://fake.domain/twitter/typeahead-js/-/tags/v0.11.0'} | ${'http://fake.domain/twitter/typeahead-js/-/tags/'}
-      ${'http://fake.domain/bar/cool/-/nested/content'}           | ${'http://fake.domain/bar/cool/-/nested/'}
-      ${'http://fake.domain/bar/cool?q="search"'}                 | ${'http://fake.domain/bar/'}
-      ${'http://fake.domain/bar/cool#link-to-something'}          | ${'http://fake.domain/bar/'}
-    `('stripFinalUrlSegment $path => $expected', ({ path, expected }) => {
-      expect(urlUtils.stripFinalUrlSegment(path)).toBe(expected);
-    });
-  });
-
   describe('escapeFileUrl', () => {
     it('encodes URL excluding the slashes', () => {
       expect(urlUtils.escapeFileUrl('/foo-bar/file.md')).toBe('/foo-bar/file.md');
@@ -840,13 +1016,13 @@ describe('URL utility', () => {
     });
 
     it('should compare against the window location if no compare value is provided', () => {
-      expect(urlUtils.urlIsDifferent('different')).toBeTruthy();
-      expect(urlUtils.urlIsDifferent(current)).toBeFalsy();
+      expect(urlUtils.urlIsDifferent('different')).toBe(true);
+      expect(urlUtils.urlIsDifferent(current)).toBe(false);
     });
 
     it('should use the provided compare value', () => {
-      expect(urlUtils.urlIsDifferent('different', current)).toBeTruthy();
-      expect(urlUtils.urlIsDifferent(current, current)).toBeFalsy();
+      expect(urlUtils.urlIsDifferent('different', current)).toBe(true);
+      expect(urlUtils.urlIsDifferent(current, current)).toBe(false);
     });
   });
 
@@ -1084,9 +1260,48 @@ describe('URL utility', () => {
 
   describe('defaultPromoUrl', () => {
     it('Gitlab about page url', () => {
+      // eslint-disable-next-line no-restricted-syntax
       const url = 'https://about.gitlab.com';
 
       expect(urlUtils.PROMO_URL).toBe(url);
+    });
+  });
+
+  describe('removeUrlProtocol', () => {
+    it.each`
+      input                   | output
+      ${'http://gitlab.com'}  | ${'gitlab.com'}
+      ${'https://gitlab.com'} | ${'gitlab.com'}
+      ${'foo:bar.com'}        | ${'bar.com'}
+      ${'gitlab.com'}         | ${'gitlab.com'}
+    `('transforms $input to $output', ({ input, output }) => {
+      expect(urlUtils.removeUrlProtocol(input)).toBe(output);
+    });
+  });
+
+  describe('removeLastSlashInUrlPath', () => {
+    it.each`
+      input                                     | output
+      ${'https://www.gitlab.com/path/'}         | ${'https://www.gitlab.com/path'}
+      ${'https://www.gitlab.com/?query=search'} | ${'https://www.gitlab.com?query=search'}
+      ${'https://www.gitlab.com/#fragment'}     | ${'https://www.gitlab.com#fragment'}
+      ${'https://www.gitlab.com/hello'}         | ${'https://www.gitlab.com/hello'}
+    `('transforms $input to $output', ({ input, output }) => {
+      expect(urlUtils.removeLastSlashInUrlPath(input)).toBe(output);
+    });
+  });
+
+  describe('buildURLwithRefType', () => {
+    const base = 'http://gitlab.com/';
+
+    it.each`
+      path           | refType    | output
+      ${'foo/bar'}   | ${'heads'} | ${'/foo/bar?ref_type=heads'}
+      ${'/foo/bar/'} | ${'HEADS'} | ${'/foo/bar/?ref_type=heads'}
+      ${'/foo/bar/'} | ${''}      | ${'/foo/bar/'}
+      ${'/'}         | ${''}      | ${'/'}
+    `('path $path with ref $refType becomes $output', ({ path, refType, output }) => {
+      expect(urlUtils.buildURLwithRefType({ base, path, refType })).toBe(output);
     });
   });
 });

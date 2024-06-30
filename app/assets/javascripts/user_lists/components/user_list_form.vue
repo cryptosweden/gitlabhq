@@ -64,7 +64,7 @@ export default {
   <div>
     <div class="gl-display-flex gl-mt-7">
       <div class="gl-flex-basis-0 gl-mr-7">
-        <h4 class="gl-min-width-fit-content gl-white-space-nowrap">
+        <h4 class="gl-min-width-fit-content gl-whitespace-nowrap">
           {{ $options.translations.formLabel }}
         </h4>
         <gl-sprintf :message="$options.translations.formSubtitle" class="gl-text-gray-500">
@@ -84,7 +84,7 @@ export default {
           <gl-form-input id="user-list-name" v-model="name" data-testid="user-list-name" required />
         </gl-form-group>
         <div :class="$options.classes.actionContainer">
-          <gl-button variant="success" data-testid="save-user-list" @click="submit">
+          <gl-button variant="confirm" data-testid="save-user-list" @click="submit">
             {{ saveButtonLabel }}
           </gl-button>
           <gl-button :href="cancelPath" data-testid="user-list-cancel">

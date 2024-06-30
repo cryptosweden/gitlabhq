@@ -1,13 +1,14 @@
 ---
-type: reference
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Google Secure LDAP **(FREE SELF)**
+# Google Secure LDAP
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/46391) in GitLab 11.9.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 [Google Cloud Identity](https://cloud.google.com/identity/) provides a Secure
 LDAP service that can be configured with GitLab for authentication and group sync.
@@ -18,39 +19,41 @@ The steps below cover:
 - Configuring the Secure LDAP Client in the Google administrator console.
 - Required GitLab configuration.
 
+Secure LDAP is only available on specific Google Workspace editions. For more information, see the [Google Secure LDAP service documentation](https://support.google.com/a/answer/9048516).
+
 ## Configuring Google LDAP client
 
 1. Go to <https://admin.google.com/Dashboard> and sign in as a Google Workspace domain administrator.
 
 1. Go to **Apps > LDAP > Add Client**.
 
-1. Provide an `LDAP client name` and an optional `Description`. Any descriptive
-   values are acceptable. For example, the name could be 'GitLab' and the
-   description could be 'GitLab LDAP Client'. Click the **Continue** button.
+1. Provide an **LDAP client name** and an optional **Description**. Any descriptive
+   values are acceptable. For example, the name could be `GitLab` and the
+   description could be `GitLab LDAP Client`. Select **Continue**.
 
    ![Add LDAP Client Step 1](img/google_secure_ldap_add_step_1.png)
 
 1. Set **Access Permission** according to your needs. You must choose either
-   'Entire domain (GitLab)' or 'Selected organizational units' for both 'Verify user
-   credentials' and 'Read user information'. Select 'Add LDAP Client'
+   `Entire domain (GitLab)` or `Selected organizational units` for both **Verify user
+   credentials** and **Read user information**. Select **Add LDAP Client**.
 
    NOTE:
    If you plan to use GitLab [LDAP Group Sync](ldap_synchronization.md#group-sync)
-   , turn on 'Read group information'.
+   , turn on `Read group information`.
 
    ![Add LDAP Client Step 2](img/google_secure_ldap_add_step_2.png)
 
 1. Download the generated certificate. This is required for GitLab to
    communicate with the Google Secure LDAP service. Save the downloaded certificates
-   for later use. After downloading, click the **Continue to Client Details** button.
+   for later use. After downloading, select **Continue to Client Details**.
 
-1. Expand the **Service Status** section and turn the LDAP client 'ON for everyone'.
-   After selecting 'Save', click on the 'Service Status' bar again to collapse
+1. Expand the **Service Status** section and turn the LDAP client `ON for everyone`.
+   After selecting **Save**, select the **Service Status** bar again to collapse
    and return to the rest of the settings.
 
-1. Expand the **Authentication** section and choose 'Generate New Credentials'.
-   Copy/note these credentials for later use. After selecting 'Close', click
-   on the 'Authentication' bar again to collapse and return to the rest of the settings.
+1. Expand the **Authentication** section and choose **Generate New Credentials**.
+   Copy/note these credentials for later use. After selecting **Close**, select
+   the **Authentication** bar again to collapse and return to the rest of the settings.
 
 Now the Google Secure LDAP Client configuration is finished. The screenshot below
 shows an example of the final settings. Continue on to configure GitLab.
@@ -70,7 +73,7 @@ values obtained during the LDAP client configuration earlier:
 - `cert`: The `.crt` file text from the downloaded certificate bundle
 - `key`: The `.key` file text from the downloaded certificate bundle
 
-**For Omnibus installations**
+For Linux package installations:
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -88,7 +91,7 @@ values obtained during the LDAP client configuration earlier:
        encryption: 'simple_tls'
        verify_certificates: true
        retry_empty_result_with_codes: [80]
-
+       base: "DC=example,DC=com"
        tls_options:
          cert: |
            -----BEGIN CERTIFICATE-----
@@ -138,11 +141,9 @@ values obtained during the LDAP client configuration earlier:
    EOS
    ```
 
-1. Save the file and [reconfigure](../../restart_gitlab.md#omnibus-gitlab-reconfigure) GitLab for the changes to take effect.
+1. Save the file and [reconfigure](../../restart_gitlab.md#reconfigure-a-linux-package-installation) GitLab for the changes to take effect.
 
----
-
-**For installations from source**
+For self-compiled installations:
 
 1. Edit `config/gitlab.yml`:
 
@@ -152,7 +153,7 @@ values obtained during the LDAP client configuration earlier:
      servers:
        main: # 'main' is the GitLab 'provider ID' of this LDAP server
          label: 'Google Secure LDAP'
-
+         base: "DC=example,DC=com"
          host: 'ldap.google.com'
          port: 636
          uid: 'uid'
@@ -210,7 +211,7 @@ values obtained during the LDAP client configuration earlier:
              -----END PRIVATE KEY-----
    ```
 
-1. Save the file and [restart](../../restart_gitlab.md#installations-from-source) GitLab for the changes to take effect.
+1. Save the file and [restart](../../restart_gitlab.md#self-compiled-installations) GitLab for the changes to take effect.
 
 ## Using encrypted credentials
 
@@ -225,6 +226,6 @@ important to describe those, too. Think of things that may go wrong and include 
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

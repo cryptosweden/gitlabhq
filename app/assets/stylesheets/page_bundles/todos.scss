@@ -7,12 +7,14 @@
 
 .todos-list > .todo {
   // workaround because we cannot use border-collapse
-  border-top: 1px solid transparent;
+  padding: 6px 12px !important;
+  margin-top: -1px;
 
-  &:hover {
-    background-color: var(--blue-50, $blue-50);
-    border-color: var(--blue-200, $blue-200);
-    cursor: pointer;
+  span:not(.todo-label),
+  button,
+  a:not(.todo-target-link),
+  time {
+    position: relative;
   }
 
   // overwrite border style of .content-list
@@ -25,24 +27,19 @@
   }
 
   &.todo-pending.done-reversible {
+    .todo-item,
+    .todo-timestamp {
+      opacity: 0.5;
+    }
+
+    .todo-avatar {
+      filter: grayscale(1);
+    }
+
     &:hover {
-      border-color: var(--border-color, $border-color);
-      background-color: var(--gray-50, $gray-50);
-      border-top: 1px solid transparent;
-
-      .todo-avatar,
-      .todo-item {
-        opacity: 0.6;
-      }
-    }
-
-    .todo-avatar,
-    .todo-item {
-      opacity: 0.2;
-    }
-
-    .btn {
-      background-color: var(--gray-50, $gray-50);
+      border-top-width: $gl-border-size-1;
+      border-top-color: transparent;
+      border-top-style: solid;
     }
   }
 }
@@ -50,45 +47,68 @@
 .todo-item {
   @include transition(opacity);
 
-  .status-box {
-    line-height: inherit;
+  .todo-label a::before {
+    // Make area of the todo item clickable by expanding the area around the todo link
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 9;
+  }
+}
+
+.todo-title {
+  margin-right: 2.5rem;
+
+  @include media-breakpoint-up(sm) {
+    margin-right: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+}
+
+.todo-body {
+  p {
+    display: inline;
+    color: var(--gl-text-color, $gl-text-color);
   }
 
-  .todo-label,
-  .todo-project {
-    a {
-      color: var(--blue-600, $blue-600);
-    }
+  pre.code.highlight {
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: $gl-spacing-scale-1;
+    padding-right: $gl-spacing-scale-1;
+    margin: 0;
+    border-width: 0;
+    border-radius: $gl-border-radius-base;
+    display: inline-flex;
+    background: var(--gray-50, $gray-50);
+    color: var(--gl-text-color, $gl-text-color);
   }
 
-  .todo-body {
-    p {
-      color: var(--gl-text-color, $gl-text-color);
-    }
+  .gl-label-scoped {
+    --label-inset-border: inset 0 0 0 1px currentColor;
+  }
 
-    pre {
-      border: 0;
-      background: var(--gray-50, $gray-50);
-      border-radius: 0;
-      color: var(--gray-500, $gray-500);
-      margin: 0 20px;
-      overflow: hidden;
-    }
+  .avatar {
+    margin-bottom: 0;
+  }
+}
 
-    .note-image-attach {
-      margin-top: 4px;
-      margin-left: 0;
-      max-width: 200px;
-      float: none;
-    }
+.todo-actions,
+.todo-body .todo-avatar,
+.todos-list > .todo a:not(.todo-target-link) {
+  z-index: 11 !important;
+}
 
-    .gl-label-scoped {
-      --label-inset-border: inset 0 0 0 1px currentColor;
-    }
+.todo-actions {
+  position: absolute;
+  right: 0;
 
-    @include media-breakpoint-down(sm) {
-      border-left: 2px solid var(--border-color, $border-color);
-      padding-left: 10px;
-    }
+  @include media-breakpoint-up(sm) {
+    position: relative;
   }
 }

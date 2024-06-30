@@ -10,13 +10,12 @@ const mockData = [
     commit_path: `https://test.com`,
     commit_title_html: 'testing message',
     file_name: 'index.js',
-    type: 'blob',
   },
 ];
 
 describe('normalizeData', () => {
   it('normalizes data into LogTreeCommit object', () => {
-    expect(normalizeData(mockData, '')).toEqual([
+    expect(normalizeData(mockData, '/')).toEqual([
       {
         sha: '123',
         message: 'testing message',
@@ -24,7 +23,6 @@ describe('normalizeData', () => {
         commitPath: 'https://test.com',
         fileName: 'index.js',
         filePath: '/index.js',
-        type: 'blob',
         titleHtml: 'testing message',
         __typename: 'LogTreeCommit',
       },

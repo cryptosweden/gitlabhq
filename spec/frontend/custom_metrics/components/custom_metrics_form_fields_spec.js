@@ -1,8 +1,10 @@
+import { nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
 import { TEST_HOST } from 'helpers/test_constants';
 import CustomMetricsFormFields from '~/custom_metrics/components/custom_metrics_form_fields.vue';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
 describe('custom metrics form fields component', () => {
   let wrapper;
@@ -40,12 +42,11 @@ describe('custom metrics form fields component', () => {
   });
 
   afterEach(() => {
-    wrapper.destroy();
     mockAxios.restore();
   });
 
   it('checks form validity', async () => {
-    mockAxios.onPost(validateQueryPath).reply(200, validQueryResponse);
+    mockAxios.onPost(validateQueryPath).reply(HTTP_STATUS_OK, validQueryResponse);
     mountComponent({
       metricPersisted: true,
       ...makeFormData({
@@ -142,12 +143,13 @@ describe('custom metrics form fields component', () => {
     describe('when query validation is in flight', () => {
       beforeEach(() => {
         mountComponent({ metricPersisted: true, ...makeFormData({ query: 'validQuery' }) });
-        mockAxios.onPost(validateQueryPath).reply(200, validQueryResponse);
+        mockAxios.onPost(validateQueryPath).reply(HTTP_STATUS_OK, validQueryResponse);
       });
 
       it('expect loading message to display', async () => {
         const queryInput = wrapper.find(`input[name="${queryInputName}"]`);
         queryInput.setValue('query');
+        await nextTick();
 
         expect(wrapper.text()).toContain('Validating query');
       });
@@ -166,19 +168,19 @@ describe('custom metrics form fields component', () => {
       const invalidQueryResponse = { success: true, query: { valid: false, error: errorMessage } };
 
       beforeEach(() => {
-        mockAxios.onPost(validateQueryPath).reply(200, invalidQueryResponse);
+        mockAxios.onPost(validateQueryPath).reply(HTTP_STATUS_OK, invalidQueryResponse);
         mountComponent({ metricPersisted: true, ...makeFormData({ query: 'invalidQuery' }) });
         return axios.waitForAll();
       });
 
-      it('shows invalid query message', async () => {
+      it('shows invalid query message', () => {
         expect(wrapper.text()).toContain(errorMessage);
       });
     });
 
     describe('when query is valid', () => {
       beforeEach(() => {
-        mockAxios.onPost(validateQueryPath).reply(200, validQueryResponse);
+        mockAxios.onPost(validateQueryPath).reply(HTTP_STATUS_OK, validQueryResponse);
         mountComponent({ metricPersisted: true, ...makeFormData({ query: 'validQuery' }) });
       });
 

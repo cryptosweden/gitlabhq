@@ -1,38 +1,22 @@
 <script>
 import { GlTab, GlTabs, GlSprintf, GlLink, GlAlert } from '@gitlab/ui';
-import { __, s__ } from '~/locale';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import Api from '~/api';
 import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import UserCalloutDismisser from '~/vue_shared/components/user_callout_dismisser.vue';
-import { helpPagePath } from '~/helpers/help_page_helper';
+import SectionLayout from '~/vue_shared/security_configuration/components/section_layout.vue';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import { SERVICE_PING_SECURITY_CONFIGURATION_THREAT_MANAGEMENT_VISIT } from '~/tracking/constants';
+import {
+  AUTO_DEVOPS_ENABLED_ALERT_DISMISSED_STORAGE_KEY,
+  TAB_VULNERABILITY_MANAGEMENT_INDEX,
+  i18n,
+  PRE_RECEIVE_SECRET_DETECTION,
+} from '../constants';
 import AutoDevOpsAlert from './auto_dev_ops_alert.vue';
 import AutoDevOpsEnabledAlert from './auto_dev_ops_enabled_alert.vue';
-import { AUTO_DEVOPS_ENABLED_ALERT_DISMISSED_STORAGE_KEY } from './constants';
 import FeatureCard from './feature_card.vue';
+import PreReceiveSecretDetectionFeatureCard from './pre_receive_secret_detection_feature_card.vue';
 import TrainingProviderList from './training_provider_list.vue';
-import SectionLayout from './section_layout.vue';
-import UpgradeBanner from './upgrade_banner.vue';
-
-export const i18n = {
-  compliance: s__('SecurityConfiguration|Compliance'),
-  configurationHistory: s__('SecurityConfiguration|Configuration history'),
-  securityTesting: s__('SecurityConfiguration|Security testing'),
-  latestPipelineDescription: s__(
-    `SecurityConfiguration|The status of the tools only applies to the
-     default branch and is based on the %{linkStart}latest pipeline%{linkEnd}.`,
-  ),
-  description: s__(
-    `SecurityConfiguration|Once you've enabled a scan for the default branch,
-     any subsequent feature branch you create will include the scan.`,
-  ),
-  securityConfiguration: __('Security Configuration'),
-  vulnerabilityManagement: s__('SecurityConfiguration|Vulnerability Management'),
-  securityTraining: s__('SecurityConfiguration|Security training'),
-  securityTrainingDescription: s__(
-    'SecurityConfiguration|Enable security training to help your developers learn how to fix vulnerabilities. Developers can view security training from selected educational providers, relevant to the detected vulnerability.',
-  ),
-  securityTrainingDoc: s__('SecurityConfiguration|Learn more about vulnerability training'),
-};
 
 export default {
   i18n,
@@ -40,6 +24,7 @@ export default {
     AutoDevOpsAlert,
     AutoDevOpsEnabledAlert,
     FeatureCard,
+    PreReceiveSecretDetectionFeatureCard,
     GlAlert,
     GlLink,
     GlSprintf,
@@ -47,18 +32,15 @@ export default {
     GlTabs,
     LocalStorageSync,
     SectionLayout,
-    UpgradeBanner,
+    UpgradeBanner: () =>
+      import('ee_component/security_configuration/components/upgrade_banner.vue'),
     UserCalloutDismisser,
     TrainingProviderList,
   },
-  mixins: [glFeatureFlagsMixin()],
-  inject: ['projectFullPath'],
+  directives: { SafeHtml },
+  inject: ['projectFullPath', 'vulnerabilityTrainingDocsPath'],
   props: {
     augmentedSecurityFeatures: {
-      type: Array,
-      required: true,
-    },
-    augmentedComplianceFeatures: {
       type: Array,
       required: true,
     },
@@ -87,6 +69,10 @@ export default {
       required: false,
       default: '',
     },
+    securityTrainingEnabled: {
+      type: Boolean,
+      required: true,
+    },
   },
   data() {
     return {
@@ -96,9 +82,7 @@ export default {
   },
   computed: {
     canUpgrade() {
-      return [...this.augmentedSecurityFeatures, ...this.augmentedComplianceFeatures].some(
-        ({ available }) => !available,
-      );
+      return [...this.augmentedSecurityFeatures].some(({ available }) => !available);
     },
     canViewCiHistory() {
       return Boolean(this.gitlabCiPresent && this.gitlabCiHistoryPath);
@@ -114,6 +98,12 @@ export default {
     },
   },
   methods: {
+    getComponentName(feature) {
+      if (feature.type === PRE_RECEIVE_SECRET_DETECTION) {
+        return 'pre-receive-secret-detection-feature-card';
+      }
+      return 'feature-card';
+    },
     dismissAutoDevopsEnabledAlert() {
       const dismissedProjects = new Set(this.autoDevopsEnabledAlertDismissedProjects);
       dismissedProjects.add(this.projectFullPath);
@@ -125,11 +115,13 @@ export default {
     dismissAlert() {
       this.errorMessage = '';
     },
+    tabChange(value) {
+      if (value === TAB_VULNERABILITY_MANAGEMENT_INDEX) {
+        Api.trackRedisHllUserEvent(SERVICE_PING_SECURITY_CONFIGURATION_THREAT_MANAGEMENT_VISIT);
+      }
+    },
   },
   autoDevopsEnabledAlertStorageKey: AUTO_DEVOPS_ENABLED_ALERT_DISMISSED_STORAGE_KEY,
-  securityTraininDocLink: helpPagePath('user/application_security/vulnerabilities/index', {
-    anchor: 'enable-security-training-for-vulnerabilities',
-  }),
 };
 </script>
 
@@ -138,17 +130,16 @@ export default {
     <gl-alert
       v-if="errorMessage"
       sticky
-      class="gl-top-8 gl-z-index-1"
+      class="gl-top-8 gl-z-1"
       data-testid="manage-via-mr-error-alert"
       variant="danger"
       @dismiss="dismissAlert"
     >
-      {{ errorMessage }}
+      <span v-safe-html="errorMessage"></span>
     </gl-alert>
     <local-storage-sync
       v-model="autoDevopsEnabledAlertDismissedProjects"
       :storage-key="$options.autoDevopsEnabledAlertStorageKey"
-      as-json
     />
 
     <user-callout-dismisser
@@ -168,7 +159,13 @@ export default {
       </template>
     </user-callout-dismisser>
 
-    <gl-tabs content-class="gl-pt-0" sync-active-tab-with-query-params lazy>
+    <gl-tabs
+      content-class="gl-pt-0"
+      data-testid="security-configuration-container"
+      sync-active-tab-with-query-params
+      lazy
+      @input="tabChange"
+    >
       <gl-tab
         data-testid="security-testing-tab"
         :title="$options.i18n.securityTesting"
@@ -180,10 +177,10 @@ export default {
           @dismiss="dismissAutoDevopsEnabledAlert"
         />
 
-        <section-layout :heading="$options.i18n.securityTesting">
+        <section-layout class="gl-border-b-0" :heading="$options.i18n.securityTesting">
           <template #description>
             <p>
-              <span data-testid="latest-pipeline-info-security">
+              <span>
                 <gl-sprintf
                   v-if="latestPipelinePath"
                   :message="$options.i18n.latestPipelineDescription"
@@ -197,18 +194,17 @@ export default {
               {{ $options.i18n.description }}
             </p>
             <p v-if="canViewCiHistory">
-              <gl-link
-                data-testid="security-view-history-link"
-                data-qa-selector="security_configuration_history_link"
-                :href="gitlabCiHistoryPath"
-                >{{ $options.i18n.configurationHistory }}</gl-link
-              >
+              <gl-link data-testid="security-view-history-link" :href="gitlabCiHistoryPath">{{
+                $options.i18n.configurationHistory
+              }}</gl-link>
             </p>
           </template>
 
           <template #features>
-            <feature-card
+            <component
+              :is="getComponentName(feature)"
               v-for="feature in augmentedSecurityFeatures"
+              :id="feature.anchor"
               :key="feature.type"
               data-testid="security-testing-card"
               :feature="feature"
@@ -219,45 +215,6 @@ export default {
         </section-layout>
       </gl-tab>
       <gl-tab
-        data-testid="compliance-testing-tab"
-        :title="$options.i18n.compliance"
-        query-param-value="compliance-testing"
-      >
-        <section-layout :heading="$options.i18n.compliance">
-          <template #description>
-            <p>
-              <span data-testid="latest-pipeline-info-compliance">
-                <gl-sprintf
-                  v-if="latestPipelinePath"
-                  :message="$options.i18n.latestPipelineDescription"
-                >
-                  <template #link="{ content }">
-                    <gl-link :href="latestPipelinePath">{{ content }}</gl-link>
-                  </template>
-                </gl-sprintf>
-              </span>
-
-              {{ $options.i18n.description }}
-            </p>
-            <p v-if="canViewCiHistory">
-              <gl-link data-testid="compliance-view-history-link" :href="gitlabCiHistoryPath">{{
-                $options.i18n.configurationHistory
-              }}</gl-link>
-            </p>
-          </template>
-          <template #features>
-            <feature-card
-              v-for="feature in augmentedComplianceFeatures"
-              :key="feature.type"
-              :feature="feature"
-              class="gl-mb-6"
-              @error="onError"
-            />
-          </template>
-        </section-layout>
-      </gl-tab>
-      <gl-tab
-        v-if="glFeatures.secureVulnerabilityTraining"
         data-testid="vulnerability-management-tab"
         :title="$options.i18n.vulnerabilityManagement"
         query-param-value="vulnerability-management"
@@ -268,13 +225,13 @@ export default {
               {{ $options.i18n.securityTrainingDescription }}
             </p>
             <p>
-              <gl-link :href="$options.securityTraininDocLink">{{
+              <gl-link :href="vulnerabilityTrainingDocsPath">{{
                 $options.i18n.securityTrainingDoc
               }}</gl-link>
             </p>
           </template>
           <template #features>
-            <training-provider-list />
+            <training-provider-list :security-training-enabled="securityTrainingEnabled" />
           </template>
         </section-layout>
       </gl-tab>

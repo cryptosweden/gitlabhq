@@ -3,29 +3,40 @@
 module Packages
   module Conan
     class PackageFinder
-      attr_reader :current_user, :query
+      MAX_PACKAGES_COUNT = 500
+      QUERY_SEPARATOR = '/'
 
-      def initialize(current_user, params)
+      def initialize(current_user, params, project: nil)
         @current_user = current_user
-        @query = params[:query]
+        @name, @version = params[:query].to_s.split(QUERY_SEPARATOR)
+        @project = project
       end
 
       def execute
-        packages_for_current_user.installable.with_name_like(query).order_name_asc if query
+        return ::Packages::Conan::Package.none unless name.present?
+
+        packages
       end
 
       private
 
+      attr_reader :current_user, :name, :project, :version
+
       def packages
-        Packages::Package.conan
+        matching_packages = base
+        .installable
+        .preload_conan_metadatum
+        .with_name_like(name)
+        matching_packages = matching_packages.with_version(version) if version
+        matching_packages.limit_recent(MAX_PACKAGES_COUNT)
       end
 
-      def packages_for_current_user
-        packages.for_projects(projects_visible_to_current_user)
+      def base
+        ::Packages::Conan::Package.for_projects(project || projects_visible_to_current_user)
       end
 
       def projects_visible_to_current_user
-        ::Project.public_or_visible_to_user(current_user)
+        ::Project.public_or_visible_to_user(current_user, ::Gitlab::Access::REPORTER)
       end
     end
   end

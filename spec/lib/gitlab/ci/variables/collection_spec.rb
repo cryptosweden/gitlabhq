@@ -2,7 +2,63 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Variables::Collection do
+RSpec.describe Gitlab::Ci::Variables::Collection, feature_category: :secrets_management do
+  describe '.fabricate' do
+    using RSpec::Parameterized::TableSyntax
+
+    where do
+      {
+        "given an array of variables": {
+          input: [
+            { key: 'VAR1', value: 'value1' },
+            { key: 'VAR2', value: 'value2' }
+          ]
+        },
+        "given a hash of variables": {
+          input: { 'VAR1' => 'value1', 'VAR2' => 'value2' }
+        },
+        "given a proc that evaluates to an array": {
+          input: -> do
+            [
+              { key: 'VAR1', value: 'value1' },
+              { key: 'VAR2', value: 'value2' }
+            ]
+          end
+        },
+        "given a proc that evaluates to a hash": {
+          input: -> do
+            { 'VAR1' => 'value1', 'VAR2' => 'value2' }
+          end
+        },
+        "given a collection": {
+          input: Gitlab::Ci::Variables::Collection.new(
+            [
+              { key: 'VAR1', value: 'value1' },
+              { key: 'VAR2', value: 'value2' }
+            ]
+          )
+        }
+      }
+    end
+
+    with_them do
+      subject(:collection) { Gitlab::Ci::Variables::Collection.fabricate(input) }
+
+      it 'returns a collection' do
+        expect(collection).to be_a(Gitlab::Ci::Variables::Collection)
+        expect(collection.size).to eq(2)
+        expect(collection.map(&:key)).to contain_exactly('VAR1', 'VAR2')
+        expect(collection.map(&:value)).to contain_exactly('value1', 'value2')
+      end
+    end
+
+    context 'when given an unrecognized type' do
+      it 'raises error' do
+        expect { described_class.fabricate(1) }.to raise_error(ArgumentError)
+      end
+    end
+  end
+
   describe '.new' do
     it 'can be initialized with an array' do
       variable = { key: 'VAR', value: 'value', public: true, masked: false }
@@ -123,7 +179,7 @@ RSpec.describe Gitlab::Ci::Variables::Collection do
   end
 
   describe '#[]' do
-    subject { Gitlab::Ci::Variables::Collection.new(variables)[var_name] }
+    subject { described_class.new(variables)[var_name] }
 
     shared_examples 'an array access operator' do
       context 'for a non-existent variable name' do
@@ -267,8 +323,7 @@ RSpec.describe Gitlab::Ci::Variables::Collection do
         .append(key: 'TEST2', value: 'test-2')
         .append(key: 'TEST1', value: 'test-3')
 
-      expect(collection.to_hash).to eq('TEST1' => 'test-3',
-                                       'TEST2' => 'test-2')
+      expect(collection.to_hash).to eq('TEST1' => 'test-3', 'TEST2' => 'test-2')
 
       expect(collection.to_hash).to include(TEST1: 'test-3')
       expect(collection.to_hash).not_to include(TEST1: 'test-1')
@@ -295,68 +350,6 @@ RSpec.describe Gitlab::Ci::Variables::Collection do
     end
   end
 
-  describe '#expand_value' do
-    let(:collection) do
-      Gitlab::Ci::Variables::Collection.new
-                     .append(key: 'CI_JOB_NAME', value: 'test-1')
-                     .append(key: 'CI_BUILD_ID', value: '1')
-                     .append(key: 'RAW_VAR', value: '$TEST1', raw: true)
-                     .append(key: 'TEST1', value: 'test-3')
-    end
-
-    context 'table tests' do
-      using RSpec::Parameterized::TableSyntax
-
-      where do
-        {
-          "empty value": {
-            value: '',
-            result: '',
-            keep_undefined: false
-          },
-          "simple expansions": {
-            value: 'key$TEST1-$CI_BUILD_ID',
-            result: 'keytest-3-1',
-            keep_undefined: false
-          },
-          "complex expansion": {
-            value: 'key${TEST1}-${CI_JOB_NAME}',
-            result: 'keytest-3-test-1',
-            keep_undefined: false
-          },
-          "complex expansions with raw variable": {
-            value: 'key${RAW_VAR}-${CI_JOB_NAME}',
-            result: 'key$TEST1-test-1',
-            keep_undefined: false
-          },
-          "missing variable not keeping original": {
-            value: 'key${MISSING_VAR}-${CI_JOB_NAME}',
-            result: 'key-test-1',
-            keep_undefined: false
-          },
-          "missing variable keeping original": {
-            value: 'key${MISSING_VAR}-${CI_JOB_NAME}',
-            result: 'key${MISSING_VAR}-test-1',
-            keep_undefined: true
-          },
-          "escaped characters are kept intact": {
-            value: 'key-$TEST1-%%HOME%%-$${HOME}',
-            result: 'key-test-3-%%HOME%%-$${HOME}',
-            keep_undefined: false
-          }
-        }
-      end
-
-      with_them do
-        subject { collection.expand_value(value, keep_undefined: keep_undefined) }
-
-        it 'matches expected expansion' do
-          is_expected.to eq(result)
-        end
-      end
-    end
-  end
-
   describe '#sort_and_expand_all' do
     context 'table tests' do
       using RSpec::Parameterized::TableSyntax
@@ -367,6 +360,14 @@ RSpec.describe Gitlab::Ci::Variables::Collection do
             variables: [],
             keep_undefined: false,
             result: []
+          },
+          "empty string": {
+            variables: [
+              { key: 'variable', value: '' }
+            ],
+            result: [
+              { key: 'variable', value: '' }
+            ]
           },
           "simple expansions": {
             variables: [
@@ -503,17 +504,35 @@ RSpec.describe Gitlab::Ci::Variables::Collection do
               { key: 'variable4', value: 'keyvalue${variable2}value3' }
             ]
           },
-          "complex expansions with raw variable": {
+          "complex expansions with raw variable with expand_raw_refs: true (default)": {
             variables: [
-              { key: 'variable3', value: 'key_${variable}_${variable2}' },
-              { key: 'variable', value: '$variable2', raw: true },
-              { key: 'variable2', value: 'value2' }
+              { key: 'variable1', value: 'value1' },
+              { key: 'raw_var', value: 'raw-$variable1', raw: true },
+              { key: 'nonraw_var', value: 'nonraw-$variable1' },
+              { key: 'variable2', value: '$raw_var and $nonraw_var' }
             ],
             keep_undefined: false,
             result: [
-              { key: 'variable', value: '$variable2', raw: true },
-              { key: 'variable2', value: 'value2' },
-              { key: 'variable3', value: 'key_$variable2_value2' }
+              { key: 'variable1', value: 'value1' },
+              { key: 'raw_var', value: 'raw-$variable1', raw: true },
+              { key: 'nonraw_var', value: 'nonraw-value1' },
+              { key: 'variable2', value: 'raw-$variable1 and nonraw-value1' }
+            ]
+          },
+          "complex expansions with raw variable with expand_raw_refs: false": {
+            variables: [
+              { key: 'variable1', value: 'value1' },
+              { key: 'raw_var', value: 'raw-$variable1', raw: true },
+              { key: 'nonraw_var', value: 'nonraw-$variable1' },
+              { key: 'variable2', value: '$raw_var and $nonraw_var' }
+            ],
+            keep_undefined: false,
+            expand_raw_refs: false,
+            result: [
+              { key: 'variable1', value: 'value1' },
+              { key: 'raw_var', value: 'raw-$variable1', raw: true },
+              { key: 'nonraw_var', value: 'nonraw-value1' },
+              { key: 'variable2', value: '$raw_var and nonraw-value1' }
             ]
           },
           "variable value referencing password with special characters": {
@@ -541,14 +560,44 @@ RSpec.describe Gitlab::Ci::Variables::Collection do
               { key: 'variable2', value: '$variable3' },
               { key: 'variable3', value: 'key$variable$variable2' }
             ]
+          },
+          "file variables with expand_file_refs: true": {
+            variables: [
+              { key: 'file_var', value: 'secret content', file: true },
+              { key: 'variable1', value: 'var one' },
+              { key: 'variable2', value: 'var two $variable1 $file_var' }
+            ],
+            result: [
+              { key: 'file_var', value: 'secret content' },
+              { key: 'variable1', value: 'var one' },
+              { key: 'variable2', value: 'var two var one secret content' }
+            ]
+          },
+          "file variables with expand_file_refs: false": {
+            variables: [
+              { key: 'file_var', value: 'secret content', file: true },
+              { key: 'variable1', value: 'var one' },
+              { key: 'variable2', value: 'var two $variable1 $file_var' }
+            ],
+            expand_file_refs: false,
+            result: [
+              { key: 'file_var', value: 'secret content' },
+              { key: 'variable1', value: 'var one' },
+              { key: 'variable2', value: 'var two var one $file_var' }
+            ]
           }
         }
       end
 
       with_them do
         let(:collection) { Gitlab::Ci::Variables::Collection.new(variables) }
+        let(:options) do
+          { keep_undefined: keep_undefined,
+            expand_raw_refs: expand_raw_refs,
+            expand_file_refs: expand_file_refs }.compact
+        end
 
-        subject { collection.sort_and_expand_all(keep_undefined: keep_undefined) }
+        subject(:expanded_result) { collection.sort_and_expand_all(**options) }
 
         it 'returns Collection' do
           is_expected.to be_an_instance_of(Gitlab::Ci::Variables::Collection)
@@ -565,5 +614,21 @@ RSpec.describe Gitlab::Ci::Variables::Collection do
         end
       end
     end
+  end
+
+  describe '#to_s' do
+    let(:variables) do
+      [
+        { key: 'VAR', value: 'value', public: true },
+        { key: 'VAR2', value: 'value2', public: false }
+      ]
+    end
+
+    let(:errors) { 'circular variable reference detected' }
+    let(:collection) { described_class.new(variables, errors) }
+
+    subject(:result) { collection.to_s }
+
+    it { is_expected.to eq("[\"VAR\", \"VAR2\"], @errors='circular variable reference detected'") }
   end
 end

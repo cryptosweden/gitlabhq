@@ -15,6 +15,7 @@
 class MilestonesFinder
   include FinderMethods
   include TimeFrameFilter
+  include UpdatedAtFilter
 
   attr_reader :params
 
@@ -26,38 +27,32 @@ class MilestonesFinder
 
   def execute
     items = Milestone.all
-    items = by_ids(items)
+    items = by_ids_or_title(items)
     items = by_groups_and_projects(items)
-    items = by_title(items)
     items = by_search_title(items)
+    items = by_search(items)
     items = by_state(items)
     items = by_timeframe(items)
     items = containing_date(items)
+    items = by_updated_at(items)
+    items = by_iids(items)
 
     order(items)
   end
 
   private
 
-  def by_ids(items)
-    return items unless params[:ids].present?
+  def by_ids_or_title(items)
+    return items if params[:ids].blank? && params[:title].blank?
+    return items.id_in(params[:ids]) if params[:ids].present? && params[:title].blank?
+    return items.with_title(params[:title]) if params[:ids].blank? && params[:title].present?
 
-    items.id_in(params[:ids])
+    items.with_ids_or_title(ids: params[:ids], title: params[:title])
   end
 
   def by_groups_and_projects(items)
     items.for_projects_and_groups(params[:project_ids], params[:group_ids])
   end
-
-  # rubocop: disable CodeReuse/ActiveRecord
-  def by_title(items)
-    if params[:title]
-      items.where(title: params[:title])
-    else
-      items
-    end
-  end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def by_search_title(items)
     if params[:search_title].present?
@@ -65,6 +60,12 @@ class MilestonesFinder
     else
       items
     end
+  end
+
+  def by_search(items)
+    return items if params[:search].blank?
+
+    items.search(params[:search])
   end
 
   def by_state(items)
@@ -83,5 +84,11 @@ class MilestonesFinder
 
   def sort_by_expired_last?(sort_by)
     EXPIRED_LAST_SORTS.include?(sort_by)
+  end
+
+  def by_iids(items)
+    return items unless params[:iids].present? && !params[:include_ancestors]
+
+    items.by_iid(params[:iids])
   end
 end

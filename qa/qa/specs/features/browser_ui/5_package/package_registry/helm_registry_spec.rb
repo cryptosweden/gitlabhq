@@ -1,10 +1,11 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package', :orchestrated, :packages, :object_storage do
-    describe 'Helm Registry' do
+  RSpec.describe 'Package', :object_storage, :blocking, product_group: :package_registry do
+    describe 'Helm Registry', :external_api_calls do
       using RSpec::Parameterized::TableSyntax
       include Runtime::Fixtures
+      include Support::Helpers::MaskToken
       include_context 'packages registry qa scenario'
 
       let(:package_name) { "gitlab_qa_helm-#{SecureRandom.hex(8)}" }
@@ -32,33 +33,27 @@ module QA
         let(:access_token) do
           case authentication_token_type
           when :personal_access_token
-            personal_access_token
+            use_ci_variable(name: 'PERSONAL_ACCESS_TOKEN', value: personal_access_token, project: package_project)
+            use_ci_variable(name: 'PERSONAL_ACCESS_TOKEN', value: personal_access_token, project: client_project)
           when :ci_job_token
+            package_project_inbound_job_token_disabled
+            client_project_inbound_job_token_disabled
             '${CI_JOB_TOKEN}'
           when :project_deploy_token
-            project_deploy_token.token
+            use_ci_variable(name: 'PROJECT_DEPLOY_TOKEN', value: project_deploy_token.token, project: package_project)
+            use_ci_variable(name: 'PROJECT_DEPLOY_TOKEN', value: project_deploy_token.token, project: client_project)
           end
         end
 
         it "pushes and pulls a helm chart", testcase: params[:testcase] do
-          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-            Resource::Repository::Commit.fabricate_via_api! do |commit|
-              helm_upload_yaml = ERB.new(read_fixture('package_managers/helm', 'helm_upload_package.yaml.erb')).result(binding)
-              helm_chart_yaml = ERB.new(read_fixture('package_managers/helm', 'Chart.yaml.erb')).result(binding)
+          helm_upload_yaml = ERB.new(read_fixture('package_managers/helm', 'helm_upload_package.yaml.erb')).result(binding)
+          helm_chart_yaml = ERB.new(read_fixture('package_managers/helm', 'Chart.yaml.erb')).result(binding)
 
-              commit.project = package_project
-              commit.commit_message = 'Add .gitlab-ci.yml'
-              commit.add_files([
-                                {
-                                  file_path: '.gitlab-ci.yml',
-                                  content: helm_upload_yaml
-                                },
-                                {
-                                  file_path: 'Chart.yaml',
-                                  content: helm_chart_yaml
-                                }
-              ])
-            end
+          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
+            create(:commit, project: package_project, commit_message: 'Add .gitlab-ci.yml', actions: [
+              { action: 'create', file_path: '.gitlab-ci.yml', content: helm_upload_yaml },
+              { action: 'create', file_path: 'Chart.yaml', content: helm_chart_yaml }
+            ])
           end
 
           package_project.visit!
@@ -70,10 +65,10 @@ module QA
           end
 
           Page::Project::Job::Show.perform do |job|
-            expect(job).to be_successful(timeout: 800)
+            expect(job).to be_successful(timeout: 180)
           end
 
-          Page::Project::Menu.perform(&:click_packages_link)
+          Page::Project::Menu.perform(&:go_to_package_registry)
 
           Page::Project::Packages::Index.perform do |index|
             expect(index).to have_package(package_name)
@@ -85,19 +80,12 @@ module QA
             expect(show).to have_package_info(package_name, package_version)
           end
 
-          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-            Resource::Repository::Commit.fabricate_via_api! do |commit|
-              helm_install_yaml = ERB.new(read_fixture('package_managers/helm', 'helm_install_package.yaml.erb')).result(binding)
+          helm_install_yaml = ERB.new(read_fixture('package_managers/helm', 'helm_install_package.yaml.erb')).result(binding)
 
-              commit.project = client_project
-              commit.commit_message = 'Add .gitlab-ci.yml'
-              commit.add_files([
-                {
-                  file_path: '.gitlab-ci.yml',
-                  content: helm_install_yaml
-                }
-              ])
-            end
+          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
+            create(:commit, project: client_project, commit_message: 'Add .gitlab-ci.yml', actions: [
+              { action: 'create', file_path: '.gitlab-ci.yml', content: helm_install_yaml }
+            ])
           end
 
           client_project.visit!
@@ -109,7 +97,7 @@ module QA
           end
 
           Page::Project::Job::Show.perform do |job|
-            expect(job).to be_successful(timeout: 800)
+            expect(job).to be_successful(timeout: 180)
           end
         end
       end

@@ -2,15 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User sees feature flag list', :js do
+RSpec.describe 'User sees feature flag list', :js, feature_category: :feature_flags do
   include FeatureFlagHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project, namespace: user.namespace) }
-
-  before_all do
-    project.add_developer(user)
-  end
+  let_it_be(:project) { create(:project, namespace: user.namespace, developers: user) }
 
   before do
     sign_in(user)
@@ -30,8 +26,7 @@ RSpec.describe 'User sees feature flag list', :js do
           create(:operations_scope, strategy: strat, environment_scope: 'production')
         end
       end
-      create(:operations_feature_flag, :new_version_flag, project: project,
-             name: 'my_flag', active: false)
+      create(:operations_feature_flag, :new_version_flag, project: project, name: 'my_flag', active: false)
     end
 
     it 'shows the user the first flag' do
@@ -43,7 +38,7 @@ RSpec.describe 'User sees feature flag list', :js do
         expect_status_toggle_button_not_to_be_checked
 
         within_feature_flag_scopes do
-          expect(page.find('[data-testid="strategy-badge"]')).to have_content('All Users: All Environments, review/*')
+          expect(find_by_testid('strategy-label')).to have_content('All Users: All Environments, review/*')
         end
       end
     end
@@ -67,7 +62,7 @@ RSpec.describe 'User sees feature flag list', :js do
         expect_status_toggle_button_to_be_checked
 
         within_feature_flag_scopes do
-          expect(page.find('[data-testid="strategy-badge"]')).to have_content('All Users: production')
+          expect(find_by_testid('strategy-label')).to have_content('All Users: production')
         end
       end
     end
@@ -91,7 +86,7 @@ RSpec.describe 'User sees feature flag list', :js do
     it 'shows the empty page' do
       expect(page).to have_text 'Get started with feature flags'
       expect(page).to have_selector('.btn-confirm', text: 'New feature flag')
-      expect(page).to have_selector('[data-qa-selector="configure_feature_flags_button"]', text: 'Configure') # rubocop:disable QA/SelectorUsage
+      expect(page).to have_selector('[data-testid="ff-configure-button"]', text: 'Configure')
     end
   end
 end

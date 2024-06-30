@@ -1,18 +1,19 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlLoadingIcon, GlButton, GlAlert, GlLink, GlSprintf } from '@gitlab/ui';
+import { GlBreakpointInstance } from '@gitlab/ui/dist/utils';
 import VueDraggable from 'vuedraggable';
 import permissionsQuery from 'shared_queries/design_management/design_permissions.query.graphql';
 import getDesignListQuery from 'shared_queries/design_management/get_design_list.query.graphql';
-import createFlash, { FLASH_TYPES } from '~/flash';
 import { getFilename, validateImageName } from '~/lib/utils/file_upload';
-import { __, s__, sprintf } from '~/locale';
+import { __, s__ } from '~/locale';
 import DesignDropzone from '~/vue_shared/components/upload_dropzone/upload_dropzone.vue';
 import DeleteButton from '../components/delete_button.vue';
 import DesignDestroyer from '../components/design_destroyer.vue';
 import Design from '../components/list/item.vue';
 import UploadButton from '../components/upload/button.vue';
 import DesignVersionDropdown from '../components/upload/design_version_dropdown.vue';
-import { VALID_DESIGN_FILE_MIMETYPE } from '../constants';
+import { MAXIMUM_FILE_UPLOAD_LIMIT, VALID_DESIGN_FILE_MIMETYPE } from '../constants';
 import moveDesignMutation from '../graphql/mutations/move_design.mutation.graphql';
 import uploadDesignMutation from '../graphql/mutations/upload_design.mutation.graphql';
 import allDesignsMixin from '../mixins/all_designs';
@@ -34,10 +35,14 @@ import {
   UPLOAD_DESIGN_INVALID_FILETYPE_ERROR,
   designUploadSkippedWarning,
   designDeletionError,
+  MAXIMUM_FILE_UPLOAD_LIMIT_REACHED,
 } from '../utils/error_messages';
 import { trackDesignCreate, trackDesignUpdate } from '../utils/tracking';
 
-const MAXIMUM_FILE_UPLOAD_LIMIT = 10;
+export const i18n = {
+  dropzoneDescriptionText: __('Drag your designs here or %{linkStart}click to upload%{linkEnd}.'),
+  designLoadingError: __('An error occurred while loading designs. Please try again.'),
+};
 
 export default {
   components: {
@@ -86,6 +91,7 @@ export default {
       isDraggingDesign: false,
       reorderedDesigns: null,
       isReorderingInProgress: false,
+      uploadError: null,
     };
   },
   computed: {
@@ -97,11 +103,14 @@ export default {
     isSaving() {
       return this.filesToBeSaved.length > 0;
     },
+    isMobile() {
+      return GlBreakpointInstance.getBreakpointSize() === 'xs';
+    },
     canCreateDesign() {
       return this.permissions.createDesign;
     },
     showToolbar() {
-      return this.canCreateDesign && this.allVersions.length > 0;
+      return this.allVersions.length > 0;
     },
     hasDesigns() {
       return this.designs.length > 0;
@@ -130,9 +139,13 @@ export default {
       return this.designCollection && this.designCollection.copyState === 'IN_PROGRESS';
     },
     designDropzoneWrapperClass() {
-      return this.isDesignListEmpty
-        ? 'col-12'
-        : 'gl-flex-direction-column col-md-6 col-lg-3 gl-mb-3';
+      if (!this.isDesignListEmpty) {
+        return 'gl-flex-direction-column col-md-6 col-lg-3 gl-mt-5';
+      }
+      if (this.showToolbar) {
+        return 'col-12 gl-mt-5';
+      }
+      return 'col-12';
     },
   },
   mounted() {
@@ -155,16 +168,7 @@ export default {
       if (!this.canCreateDesign) return false;
 
       if (files.length > MAXIMUM_FILE_UPLOAD_LIMIT) {
-        createFlash({
-          message: sprintf(
-            s__(
-              'DesignManagement|The maximum number of designs allowed to be uploaded is %{upload_limit}. Please try again.',
-            ),
-            {
-              upload_limit: MAXIMUM_FILE_UPLOAD_LIMIT,
-            },
-          ),
-        });
+        this.uploadError = MAXIMUM_FILE_UPLOAD_LIMIT_REACHED;
 
         return false;
       }
@@ -202,7 +206,7 @@ export default {
       const skippedFiles = res?.data?.designManagementUpload?.skippedDesigns || [];
       const skippedWarningMessage = designUploadSkippedWarning(this.filesToBeSaved, skippedFiles);
       if (skippedWarningMessage) {
-        createFlash({ message: skippedWarningMessage, types: FLASH_TYPES.WARNING });
+        this.uploadError = skippedWarningMessage;
       }
 
       // if this upload resulted in a new version being created, redirect user to the latest version
@@ -225,7 +229,7 @@ export default {
     },
     onUploadDesignError() {
       this.resetFilesToBeSaved();
-      createFlash({ message: UPLOAD_DESIGN_ERROR });
+      this.uploadError = UPLOAD_DESIGN_ERROR;
     },
     changeSelectedDesigns(filename) {
       if (this.isDesignSelected(filename)) {
@@ -256,21 +260,21 @@ export default {
     },
     onDesignDeleteError() {
       const errorMessage = designDeletionError(this.selectedDesigns.length);
-      createFlash({ message: errorMessage });
+      this.uploadError = errorMessage;
     },
     onDesignDropzoneError() {
-      createFlash({ message: UPLOAD_DESIGN_INVALID_FILETYPE_ERROR });
+      this.uploadError = UPLOAD_DESIGN_INVALID_FILETYPE_ERROR;
     },
     onExistingDesignDropzoneChange(files, existingDesignFilename) {
       const filesArr = Array.from(files);
 
       if (filesArr.length > 1) {
-        createFlash({ message: EXISTING_DESIGN_DROP_MANY_FILES_MESSAGE });
+        this.uploadError = EXISTING_DESIGN_DROP_MANY_FILES_MESSAGE;
         return;
       }
 
       if (!filesArr.some(({ name }) => existingDesignFilename === name)) {
-        createFlash({ message: EXISTING_DESIGN_DROP_INVALID_FILENAME_MESSAGE });
+        this.uploadError = EXISTING_DESIGN_DROP_INVALID_FILENAME_MESSAGE;
         return;
       }
 
@@ -325,7 +329,7 @@ export default {
           optimisticResponse: moveDesignOptimisticResponse(this.reorderedDesigns),
         })
         .catch(() => {
-          createFlash({ message: MOVE_DESIGN_ERROR });
+          this.uploadError = MOVE_DESIGN_ERROR;
         })
         .finally(() => {
           this.isReorderingInProgress = false;
@@ -334,43 +338,52 @@ export default {
     onDesignMove(designs) {
       this.reorderedDesigns = designs;
     },
+    unsetUpdateError() {
+      this.uploadError = null;
+    },
   },
   dragOptions: {
     animation: 200,
-    ghostClass: 'gl-visibility-hidden',
+    ghostClass: 'gl-invisible',
   },
-  i18n: {
-    dropzoneDescriptionText: __('Drag your designs here or %{linkStart}click to upload%{linkEnd}.'),
-  },
+  i18n,
 };
 </script>
 
 <template>
   <div
     data-testid="designs-root"
-    class="gl-mt-5"
+    class="gl-mt-4"
+    :class="{ 'gl-new-card': showToolbar }"
     @mouseenter="toggleOnPasteListener"
     @mouseleave="toggleOffPasteListener"
   >
-    <header
-      v-if="showToolbar"
-      class="row-content-block gl-border-t-0 gl-py-3 gl-display-flex"
-      data-testid="design-toolbar-wrapper"
+    <gl-alert
+      v-if="uploadError"
+      variant="danger"
+      class="gl-mb-3"
+      data-testid="design-update-alert"
+      @dismiss="unsetUpdateError"
     >
+      {{ uploadError }}
+    </gl-alert>
+    <header v-if="showToolbar" class="gl-new-card-header" data-testid="design-toolbar-wrapper">
       <div
-        class="gl-display-flex gl-justify-content-space-between gl-align-items-center gl-w-full gl-flex-wrap"
+        class="gl-display-flex gl-justify-content-space-between gl-align-items-center gl-w-full gl-flex-wrap gl-gap-3"
       >
-        <div class="gl-display-flex gl-align-items-center gl-my-2">
-          <span class="gl-font-weight-bold gl-mr-3">{{ s__('DesignManagement|Designs') }}</span>
+        <div class="gl-display-flex gl-align-items-center">
+          <span class="gl-font-bold gl-mr-3">{{ s__('DesignManagement|Designs') }}</span>
           <design-version-dropdown />
         </div>
         <div
+          v-if="canCreateDesign"
           v-show="hasDesigns"
-          class="qa-selector-toolbar gl-display-flex gl-align-items-center gl-my-2"
+          class="gl-display-flex gl-align-items-center"
+          data-testid="design-selector-toolbar"
         >
           <gl-button
             v-if="isLatestVersion"
-            variant="link"
+            category="tertiary"
             size="small"
             class="gl-mr-3"
             data-testid="select-all-designs-button"
@@ -389,7 +402,7 @@ export default {
               button-variant="default"
               button-class="gl-mr-3"
               button-size="small"
-              data-qa-selector="archive_button"
+              data-testid="archive-button"
               :loading="loading"
               :has-selected-designs="hasSelectedDesigns"
               @delete-selected-designs="mutate()"
@@ -406,10 +419,15 @@ export default {
         </div>
       </div>
     </header>
-    <div class="gl-mt-6">
-      <gl-loading-icon v-if="isLoading" size="md" />
+    <div
+      :class="{
+        'gl-mx-5': showToolbar,
+        'gl-new-card-body gl-mx-3!': hasDesigns,
+      }"
+    >
+      <gl-loading-icon v-if="isLoading" size="sm" class="gl-py-4" />
       <gl-alert v-else-if="error" variant="danger" :dismissible="false">
-        {{ __('An error occurred while loading designs. Please try again.') }}
+        {{ $options.i18n.designLoadingError }}
       </gl-alert>
       <header
         v-else-if="isDesignCollectionCopying"
@@ -429,7 +447,7 @@ export default {
       <vue-draggable
         v-else
         :value="designs"
-        :disabled="!isLatestVersion || isReorderingInProgress"
+        :disabled="!isLatestVersion || isReorderingInProgress || isMobile"
         v-bind="$options.dragOptions"
         tag="ol"
         draggable=".js-design-tile"
@@ -442,7 +460,7 @@ export default {
         <li
           v-for="design in designs"
           :key="design.id"
-          class="col-md-6 col-lg-3 gl-mb-3 gl-bg-transparent gl-shadow-none js-design-tile"
+          class="col-md-6 col-lg-3 gl-mt-5 gl-bg-transparent gl-shadow-none js-design-tile"
         >
           <design-dropzone
             :display-as-card="hasDesigns"
@@ -471,20 +489,24 @@ export default {
             v-if="canSelectDesign(design.filename)"
             :checked="isDesignSelected(design.filename)"
             type="checkbox"
-            class="design-checkbox"
-            data-qa-selector="design_checkbox"
+            class="design-checkbox gl-absolute gl-top-4 gl-left-6 gl-ml-2"
+            data-testid="design-checkbox"
             :data-qa-design="design.filename"
             @change="changeSelectedDesigns(design.filename)"
           />
         </li>
         <template #header>
-          <li :class="designDropzoneWrapperClass" data-testid="design-dropzone-wrapper">
+          <li
+            v-if="canCreateDesign"
+            :class="designDropzoneWrapperClass"
+            data-testid="design-dropzone-wrapper"
+          >
             <design-dropzone
               :enable-drag-behavior="isDraggingDesign"
-              :class="{ 'design-list-item design-list-item-new': !isDesignListEmpty }"
+              :class="{ 'design-list-item': !isDesignListEmpty }"
               :display-as-card="hasDesigns"
               v-bind="$options.dropzoneProps"
-              data-qa-selector="design_dropzone_content"
+              data-testid="design-dropzone-content"
               @change="onUploadDesign"
               @error="onDesignDropzoneError"
             >

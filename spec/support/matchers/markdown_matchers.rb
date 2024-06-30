@@ -18,8 +18,8 @@ module MarkdownMatchers
       link = actual.at_css('a:contains("Relative Upload Link")')
       image = actual.at_css('img[alt="Relative Upload Image"]')
 
-      expect(link['href']).to eq("/#{project.full_path}/uploads/e90decf88d8f96fe9e1389afc2e4a91f/test.jpg")
-      expect(image['data-src']).to eq("/#{project.full_path}/uploads/e90decf88d8f96fe9e1389afc2e4a91f/test.jpg")
+      expect(link['href']).to eq("/-/project/#{project.id}/uploads/e90decf88d8f96fe9e1389afc2e4a91f/test.jpg")
+      expect(image['data-src']).to eq("/-/project/#{project.id}/uploads/e90decf88d8f96fe9e1389afc2e4a91f/test.jpg")
     end
   end
 
@@ -49,18 +49,28 @@ module MarkdownMatchers
     end
   end
 
-  # TableOfContentsFilter
+  # TableOfContentsLegacyFilter
   matcher :create_header_links do
     set_default_markdown_messages
 
     match do |actual|
       expect(actual).to have_selector('h1 a#user-content-gitlab-markdown')
       expect(actual).to have_selector('h2 a#user-content-markdown')
-      expect(actual).to have_selector('h3 a#user-content-autolinkfilter')
+      expect(actual).to have_selector('h3 a#user-content-autolinking-in-markdownfilter')
     end
   end
 
-  # AutolinkFilter
+  # TableOfContentsTagFilter
+  matcher :create_toc do
+    set_default_markdown_messages
+
+    match do |actual|
+      expect(actual).to have_selector('li > a[href="#gitlab-markdown"]')
+      expect(actual).to have_selector('li > a[href="#tableofcontentstagfilter"]')
+    end
+  end
+
+  # Autolinking in MarkdownFilter
   matcher :create_autolinks do
     def have_autolink(link)
       have_link(link, href: link)
@@ -76,14 +86,14 @@ module MarkdownMatchers
       expect(actual).to have_autolink('irc://irc.freenode.net/git')
       expect(actual).to have_autolink('http://localhost:3000')
 
-      %w(code a kbd).each do |elem|
+      %w[code a kbd].each do |elem|
         expect(body).not_to have_selector("#{elem} a")
       end
     end
   end
 
   # GollumTagsFilter
-  matcher :parse_gollum_tags do
+  matcher :parse_wiki_link_gollum_tags do
     def have_image(src)
       have_css("img[data-src$='#{src}']")
     end
@@ -110,12 +120,33 @@ module MarkdownMatchers
     end
   end
 
+  # UserReferenceFilter
+  # TODO: https://gitlab.com/gitlab-org/gitlab/-/issues/18442
+  # When `@all` is completely deprecated, this matcher should be renamed to
+  # `reference_users` and remove the original matcher `reference_users`
+  matcher :reference_users_excluding_all do
+    set_default_markdown_messages
+
+    match do |actual|
+      expect(actual).to have_selector('a.gfm.gfm-project_member', count: 3)
+    end
+  end
+
   # IssueReferenceFilter
   matcher :reference_issues do
     set_default_markdown_messages
 
     match do |actual|
-      expect(actual).to have_selector('a.gfm.gfm-issue', count: 6)
+      expect(actual).to have_selector('a.gfm.gfm-issue', count: 9)
+    end
+  end
+
+  # WorkItemReferenceFilter
+  matcher :reference_work_items do
+    set_default_markdown_messages
+
+    match do |actual|
+      expect(actual).to have_selector('a.gfm.gfm-work_item', count: 2)
     end
   end
 
@@ -134,7 +165,7 @@ module MarkdownMatchers
     set_default_markdown_messages
 
     match do |actual|
-      expect(actual).to have_selector('a.gfm.gfm-snippet', count: 5)
+      expect(actual).to have_selector('a.gfm.gfm-snippet', count: 9)
     end
   end
 
@@ -189,8 +220,20 @@ module MarkdownMatchers
 
     match do |actual|
       expect(actual).to have_selector('ul.task-list', count: 2)
-      expect(actual).to have_selector('li.task-list-item', count: 7)
+      expect(actual).to have_selector('li.task-list-item', count: 9)
+      expect(actual).to have_selector('li.task-list-item.inapplicable > s', count: 2)
       expect(actual).to have_selector('input[checked]', count: 3)
+      expect(actual).to have_selector('input[data-inapplicable]', count: 2)
+    end
+  end
+
+  # MathFilter
+  matcher :parse_math do
+    set_default_markdown_messages
+
+    match do |actual|
+      expect(actual).to have_selector('[data-math-style="inline"]', count: 4)
+      expect(actual).to have_selector('[data-math-style="display"]', count: 6)
     end
   end
 
@@ -270,7 +313,7 @@ module MarkdownMatchers
     set_default_markdown_messages
 
     match do |actual|
-      expect(actual).to have_link(href: 'http://localhost:8000/nomnoml/svg/eNqLDsgsSixJrUmtTHXOL80rsVLwzCupKUrMTNHQtC7IzMlJTE_V0KzhUlCITkpNLEqJ1dWNLkgsKsoviUUSs7KLTssvzVHIzS8tyYjligUAMhEd0g==')
+      expect(actual).to have_link(href: 'http://localhost:8000/nomnoml/svg/eNqLDsgsSixJrUmtTHXOL80rsVLwzCupKUrMTNHQtC7IzMlJTE_V0KzhUlCITkpNLEqJ1dWNLkgsKsoviUUSs7KLTssvzVHIzS8tyYjliuUCAE_tHdw=')
     end
   end
 end

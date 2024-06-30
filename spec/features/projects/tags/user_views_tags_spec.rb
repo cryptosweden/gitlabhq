@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'User views tags', :feature do
+RSpec.describe 'User views tags', :feature, feature_category: :source_code_management do
+  include_examples 'user views tag' do
+    let(:tag_page) { project_tags_path(project) }
+  end
+
   context 'rss' do
     shared_examples 'has access to the tags RSS feed' do
       it do
@@ -34,6 +38,9 @@ RSpec.describe 'User views tags', :feature do
         it_behaves_like "it has an RSS button with current_user's feed token"
         it_behaves_like "an autodiscoverable RSS feed with current_user's feed token"
         it_behaves_like 'has access to the tags RSS feed'
+        it 'passes axe automated accessibility testing', :js do
+          expect(page).to be_axe_clean.within('#content-body')
+        end
       end
 
       context 'when user signed out' do

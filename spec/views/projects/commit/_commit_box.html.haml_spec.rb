@@ -17,7 +17,7 @@ RSpec.describe 'projects/commit/_commit_box.html.haml' do
   it 'shows the commit SHA' do
     render
 
-    expect(rendered).to have_text("#{Commit.truncate_sha(project.commit.sha)}")
+    expect(rendered).to have_text(Commit.truncate_sha(project.commit.sha).to_s)
   end
 
   context 'when there is a pipeline present' do
@@ -52,8 +52,7 @@ RSpec.describe 'projects/commit/_commit_box.html.haml' do
 
     context 'when pipeline for the commit is blocked' do
       let!(:pipeline) do
-        create(:ci_pipeline, :blocked, project: project,
-                                       sha: project.commit.id)
+        create(:ci_pipeline, :blocked, project: project, sha: project.commit.id)
       end
 
       it 'shows correct pipeline description' do

@@ -45,16 +45,19 @@ export default {
       return `${getCommitIconMap(this.file).icon}${suffix}`;
     },
     changedIconClass() {
-      return `${this.changedIcon} float-left d-block`;
+      return `${this.changedIcon} float-left gl-block`;
     },
     tooltipTitle() {
       if (!this.showTooltip) {
         return undefined;
-      } else if (this.file.deleted) {
+      }
+      if (this.file.deleted) {
         return __('Deleted');
-      } else if (this.file.tempFile) {
+      }
+      if (this.file.tempFile) {
         return __('Added');
-      } else if (this.file.changed) {
+      }
+      if (this.file.changed) {
         return __('Modified');
       }
 
@@ -78,9 +81,7 @@ export default {
     v-gl-tooltip.right
     :title="tooltipTitle"
     :class="{ 'ml-auto': isCentered }"
-    class="file-changed-icon d-inline-block"
-    data-qa-selector="changed_file_icon_content"
-    :data-qa-title="tooltipTitle"
+    class="file-changed-icon gl-inline-block"
   >
     <gl-icon v-if="showIcon" :name="changedIcon" :size="size" :class="changedIconClass" />
   </span>

@@ -2,16 +2,24 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Dashboard > Activity' do
+RSpec.describe 'Dashboard > Activity', :js, feature_category: :user_profile do
   let(:user) { create(:user) }
 
   before do
     sign_in(user)
   end
 
+  it_behaves_like 'a "Your work" page with sidebar and breadcrumbs', :activity_dashboard_path, :activity
+
   context 'tabs' do
-    it 'shows Your Projects' do
+    it 'shows Your Activity' do
       visit activity_dashboard_path
+
+      expect(find('[data-testid="dashboard-activity-tabs"] a.active')).to have_content('Your activity')
+    end
+
+    it 'shows Your Projects' do
+      visit activity_dashboard_path(filter: 'projects')
 
       expect(find('[data-testid="dashboard-activity-tabs"] a.active')).to have_content('Your projects')
     end
@@ -22,7 +30,7 @@ RSpec.describe 'Dashboard > Activity' do
       expect(find('[data-testid="dashboard-activity-tabs"] a.active')).to have_content('Starred projects')
     end
 
-    it 'shows Followed Projects' do
+    it 'shows Followed Users' do
       visit activity_dashboard_path(filter: 'followed')
 
       expect(find('[data-testid="dashboard-activity-tabs"] a.active')).to have_content('Followed users')
@@ -38,7 +46,7 @@ RSpec.describe 'Dashboard > Activity' do
     it_behaves_like "an autodiscoverable RSS feed with current_user's feed token"
   end
 
-  context 'event filters', :js do
+  context 'event filters' do
     let(:project) { create(:project, :repository) }
 
     let(:merge_request) do
@@ -51,12 +59,14 @@ RSpec.describe 'Dashboard > Activity' do
     let!(:push_event) do
       event = create(:push_event, project: project, author: user)
 
-      create(:push_event_payload,
-             event: event,
-             action: :created,
-             commit_to: '0220c11b9a3e6c69dc8fd35321254ca9a7b98f7e',
-             ref: 'new_design',
-             commit_count: 1)
+      create(
+        :push_event_payload,
+        event: event,
+        action: :created,
+        commit_to: '0220c11b9a3e6c69dc8fd35321254ca9a7b98f7e',
+        ref: 'new_design',
+        commit_count: 1
+      )
 
       event
     end

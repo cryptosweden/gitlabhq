@@ -1,8 +1,6 @@
 <script>
-import produce from 'immer';
-import { convertToGraphQLId, getIdFromGraphQLId } from '~/graphql_shared/utils';
-import { IssuableType } from '~/issues/constants';
-import { assigneesQueries } from '~/sidebar/constants';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { assigneesQueries } from '../../queries/constants';
 
 export default {
   subscription: null,
@@ -17,18 +15,14 @@ export default {
       type: String,
       required: true,
     },
-    issuableId: {
-      type: Number,
-      required: true,
-    },
     queryVariables: {
       type: Object,
       required: true,
     },
   },
   computed: {
-    issuableClass() {
-      return Object.keys(IssuableType).find((key) => IssuableType[key] === this.issuableType);
+    issuableId() {
+      return this.issuable?.id;
     },
   },
   apollo: {
@@ -48,29 +42,36 @@ export default {
         },
         variables() {
           return {
-            issuableId: convertToGraphQLId(this.issuableClass, this.issuableId),
+            issuableId: this.issuableId,
           };
         },
-        updateQuery(prev, { subscriptionData }) {
-          if (prev && subscriptionData?.data?.issuableAssigneesUpdated) {
-            const data = produce(prev, (draftData) => {
-              draftData.workspace.issuable.assignees.nodes =
-                subscriptionData.data.issuableAssigneesUpdated.assignees.nodes;
-            });
+        skip() {
+          return !this.issuableId;
+        },
+        updateQuery(
+          _,
+          {
+            subscriptionData: {
+              data: { issuableAssigneesUpdated },
+            },
+          },
+        ) {
+          if (issuableAssigneesUpdated) {
+            const {
+              id,
+              assignees: { nodes },
+            } = issuableAssigneesUpdated;
             if (this.mediator) {
-              this.handleFetchResult(data);
+              this.handleFetchResult(nodes);
             }
-            return data;
+            this.$emit('assigneesUpdated', { id, assignees: nodes });
           }
-          return prev;
         },
       },
     },
   },
   methods: {
-    handleFetchResult(data) {
-      const { nodes } = data.workspace.issuable.assignees;
-
+    handleFetchResult(nodes) {
       const assignees = nodes.map((n) => ({
         ...n,
         avatar_url: n.avatarUrl,

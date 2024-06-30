@@ -44,7 +44,7 @@ RSpec.describe Gitlab::ApplicationContext do
   describe '.push' do
     it 'passes the expected context on to labkit' do
       fake_proc = duck_type(:call)
-      expected_context = { user: fake_proc, client_id: fake_proc }
+      expected_context = { user: fake_proc, user_id: fake_proc, client_id: fake_proc }
 
       expect(Labkit::Context).to receive(:push).with(expected_context)
 
@@ -52,7 +52,7 @@ RSpec.describe Gitlab::ApplicationContext do
     end
 
     it 'raises an error when passing invalid options' do
-      expect { described_class.push(no: 'option')}.to raise_error(ArgumentError)
+      expect { described_class.push(no: 'option') }.to raise_error(ArgumentError)
     end
   end
 
@@ -107,22 +107,32 @@ RSpec.describe Gitlab::ApplicationContext do
     it 'correctly loads the expected values when they are wrapped in a block' do
       context = described_class.new(user: -> { user }, project: -> { project }, namespace: -> { subgroup })
 
-      expect(result(context))
-        .to include(user: user.username, project: project.full_path, root_namespace: namespace.full_path)
+      expect(result(context)).to include(
+        user: user.username,
+        user_id: user.id,
+        project: project.full_path,
+        root_namespace: namespace.full_path
+      )
     end
 
     it 'correctly loads the expected values when passed directly' do
       context = described_class.new(user: user, project: project, namespace: subgroup)
 
-      expect(result(context))
-        .to include(user: user.username, project: project.full_path, root_namespace: namespace.full_path)
+      expect(result(context)).to include(
+        user: user.username,
+        user_id: user.id,
+        project: project.full_path,
+        root_namespace: namespace.full_path
+      )
     end
 
     it 'falls back to a projects namespace when a project is passed but no namespace' do
       context = described_class.new(project: project)
 
-      expect(result(context))
-        .to include(project: project.full_path, root_namespace: project.full_path_components.first)
+      expect(result(context)).to include(
+        project: project.full_path,
+        root_namespace: project.full_path_components.first
+      )
     end
 
     it 'contains known keys' do
@@ -139,14 +149,17 @@ RSpec.describe Gitlab::ApplicationContext do
     describe 'setting the client' do
       let_it_be(:remote_ip) { '127.0.0.1' }
       let_it_be(:runner) { create(:ci_runner) }
-      let_it_be(:options) { { remote_ip: remote_ip, runner: runner, user: user } }
+      let_it_be(:job) { create(:ci_build, :pending, :queued, user: user, project: project) }
+      let_it_be(:options) { { remote_ip: remote_ip, runner: runner, user: user, job: job } }
 
       using RSpec::Parameterized::TableSyntax
 
       where(:provided_options, :client) do
         [:remote_ip]                 | :remote_ip
         [:remote_ip, :runner]        | :runner
-        [:remote_ip, :runner, :user] | :user
+        [:remote_ip, :runner, :user] | :runner
+        [:remote_ip, :user]          | :user
+        [:job]                       | :user
       end
 
       with_them do
@@ -193,6 +206,24 @@ RSpec.describe Gitlab::ApplicationContext do
         context = described_class.new(runner: runner)
 
         expect(result(context)).to include(project: nil)
+      end
+    end
+
+    context 'when using job context' do
+      let_it_be(:job) { create(:ci_build, :pending, :queued, user: user, project: project) }
+
+      it 'sets expected values' do
+        context = described_class.new(job: job)
+
+        expect(result(context)).to include(job_id: job.id, project: project.full_path, pipeline_id: job.pipeline_id)
+      end
+    end
+
+    context 'when using bulk import context' do
+      it 'sets expected bulk_import_entity_id value' do
+        context = described_class.new(bulk_import_entity_id: 1)
+
+        expect(result(context)).to include(bulk_import_entity_id: 1)
       end
     end
   end

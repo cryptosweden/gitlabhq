@@ -6,6 +6,7 @@ https://gitlab.com/gitlab-org/gitlab/-/merge_requests/57842
 * */
 import { memoize } from 'lodash';
 import { isLoggedIn } from '~/lib/utils/common_utils';
+import { compatFunctionalMixin } from '~/lib/utils/vue3compat/compat_functional_mixin';
 import {
   PARALLEL_DIFF_VIEW_TYPE,
   CONFLICT_MARKER_THEIR,
@@ -23,7 +24,12 @@ import * as utils from './diff_row_utils';
 
 export default {
   DiffGutterAvatars,
-  CodeQualityGutterIcon: () => import('ee_component/diffs/components/code_quality_gutter_icon.vue'),
+  InlineFindingsGutterIconDropdown: () =>
+    import('ee_component/diffs/components/inline_findings_gutter_icon_dropdown.vue'),
+
+  // Temporary mixin for migration from Vue.js 2 to @vue/compat
+  mixins: [compatFunctionalMixin],
+
   props: {
     fileHash: {
       type: String,
@@ -60,6 +66,16 @@ export default {
       type: Boolean,
       required: true,
     },
+    isFirstHighlightedLine: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    isLastHighlightedLine: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
     fileLineCoverage: {
       type: Function,
       required: true,
@@ -76,12 +92,23 @@ export default {
   ),
   parallelViewLeftLineType: memoize(
     (props) => {
-      return utils.parallelViewLeftLineType(props.line, props.isHighlighted || props.isCommented);
+      return utils.parallelViewLeftLineType({
+        line: props.line,
+        highlighted: props.isHighlighted,
+        commented: props.isCommented,
+        selectionStart: props.isFirstHighlightedLine,
+        selectionEnd: props.isLastHighlightedLine,
+      });
     },
     (props) =>
-      [props.line.left?.type, props.line.right?.type, props.isHighlighted, props.isCommented].join(
-        ':',
-      ),
+      [
+        props.line.left?.type,
+        props.line.right?.type,
+        props.isHighlighted,
+        props.isCommented,
+        props.isFirstHighlightedLine,
+        props.isLastHighlightedLine,
+      ].join(':'),
   ),
   coverageStateLeft: memoize(
     (props) => {
@@ -110,29 +137,64 @@ export default {
     },
     (props) => [props.inline, props.line.right?.codequality?.length].join(':'),
   ),
+  showSecurityLeft: memoize(
+    (props) => {
+      return props.inline && props.line.left?.sast?.length > 0;
+    },
+    (props) => [props.inline, props.line.left?.sast?.length].join(':'),
+  ),
+  showSecurityRight: memoize(
+    (props) => {
+      return !props.inline && props.line.right?.sast?.length > 0;
+    },
+    (props) => [props.inline, props.line.right?.sast?.length].join(':'),
+  ),
   classNameMapCellLeft: memoize(
     (props) => {
       return utils.classNameMapCell({
-        line: props.line.left,
-        hll: props.isHighlighted || props.isCommented,
+        line: props.line?.left,
+        highlighted: props.isHighlighted,
+        commented: props.isCommented,
+        selectionStart: props.isFirstHighlightedLine,
+        selectionEnd: props.isLastHighlightedLine,
       });
     },
-    (props) => [props.line.left.type, props.isHighlighted, props.isCommented].join(':'),
+    (props) =>
+      [
+        props.line?.left?.type,
+        props.isHighlighted,
+        props.isCommented,
+        props.isFirstHighlightedLine,
+        props.isLastHighlightedLine,
+      ].join(':'),
   ),
   classNameMapCellRight: memoize(
     (props) => {
       return utils.classNameMapCell({
-        line: props.line.right,
-        hll: props.isHighlighted || props.isCommented,
+        line: props.line?.right,
+        highlighted: props.isHighlighted,
+        commented: props.isCommented,
+        selectionStart: props.isFirstHighlightedLine,
+        selectionEnd: props.isLastHighlightedLine,
       });
     },
-    (props) => [props.line.right.type, props.isHighlighted, props.isCommented].join(':'),
+    (props) =>
+      [
+        props.line?.right?.type,
+        props.isHighlighted,
+        props.isCommented,
+        props.isFirstHighlightedLine,
+        props.isLastHighlightedLine,
+      ].join(':'),
   ),
   shouldRenderCommentButton: memoize(
-    (props) => {
-      return isLoggedIn() && !props.line.isContextLineLeft && !props.line.isMetaLineLeft;
+    (props, side) => {
+      return (
+        isLoggedIn() && !props.line[`isContextLine${side}`] && !props.line[`isMetaLine${side}`]
+      );
     },
-    (props) => [props.line.isContextLineLeft, props.line.isMetaLineLeft].join(':'),
+    (props, side) =>
+      [props.line[`isContextLine${side}`], props.line[`isMetaLine${side}`]].join(':'),
   ),
   interopLeftAttributes(props) {
     if (props.inline) {
@@ -160,7 +222,13 @@ export default {
 
 <!-- eslint-disable-next-line vue/no-deprecated-functional-template -->
 <template functional>
-  <div :class="$options.classNameMap(props)" class="diff-grid-row diff-tr line_holder">
+  <div
+    :class="[
+      $options.classNameMap(props),
+      { expansion: props.line.left && props.line.left.type === 'expanded' },
+    ]"
+    class="diff-grid-row diff-tr line_holder"
+  >
     <div
       :id="props.line.left && props.line.left.line_code"
       data-testid="left-side"
@@ -175,12 +243,11 @@ export default {
           :class="$options.classNameMapCellLeft(props)"
           data-testid="left-line-number"
           class="diff-td diff-line-num"
-          data-qa-selector="new_diff_line_link"
         >
           <span
             v-if="
               !props.line.left.isConflictMarker &&
-              $options.shouldRenderCommentButton(props) &&
+              $options.shouldRenderCommentButton(props, 'Left') &&
               !props.line.hasDiscussionsLeft
             "
             class="add-diff-note tooltip-wrapper has-tooltip"
@@ -193,7 +260,6 @@ export default {
               :draggable="!props.line.left.commentsDisabled"
               type="button"
               class="add-diff-note unified-diff-components-diff-note-button note-button js-add-diff-note-button"
-              data-qa-selector="diff_comment_button"
               :disabled="props.line.left.commentsDisabled"
               :aria-disabled="props.line.left.commentsDisabled"
               @click="
@@ -221,7 +287,7 @@ export default {
             v-if="props.line.left.old_line && props.line.left.type !== $options.CONFLICT_THEIR"
             :data-linenumber="props.line.left.old_line"
             :href="props.line.lineHrefOld"
-            @click="listeners.setHighlightedRow(props.line.lineCode)"
+            @click="listeners.setHighlightedRow({ lineCode: props.line.lineCode, event: $event })"
           >
           </a>
           <component
@@ -247,12 +313,13 @@ export default {
             v-if="props.line.left.new_line && props.line.left.type !== $options.CONFLICT_OUR"
             :data-linenumber="props.line.left.new_line"
             :href="props.line.lineHrefOld"
-            @click="listeners.setHighlightedRow(props.line.lineCode)"
+            @click="listeners.setHighlightedRow({ lineCode: props.line.lineCode, event: $event })"
           >
           </a>
         </div>
         <div
           :title="$options.coverageStateLeft(props).text"
+          :data-tooltip-custom-class="$options.coverageStateLeft(props).class"
           :class="[
             $options.parallelViewLeftLineType(props),
             $options.coverageStateLeft(props).class,
@@ -260,21 +327,29 @@ export default {
           class="diff-td line-coverage left-side has-tooltip"
         ></div>
         <div
-          class="diff-td line-codequality left-side"
+          class="diff-td line-inline-findings left-side"
           :class="$options.parallelViewLeftLineType(props)"
         >
           <component
-            :is="$options.CodeQualityGutterIcon"
-            v-if="$options.showCodequalityLeft(props)"
-            :codequality="props.line.left.codequality"
+            :is="$options.InlineFindingsGutterIconDropdown"
+            v-if="$options.showCodequalityLeft(props) || $options.showSecurityLeft(props)"
+            :code-quality="props.line.left.codequality"
+            :sast="props.line.left.sast"
             :file-path="props.filePath"
+            @showInlineFindings="
+              listeners.toggleCodeQualityFindings(
+                props.line.left.codequality[0]
+                  ? props.line.left.codequality[0].line
+                  : props.line.left.sast[0].line,
+              )
+            "
           />
         </div>
         <div
           :key="props.line.left.line_code"
           :class="[
             $options.parallelViewLeftLineType(props),
-            { parallel: !props.inline, 'gl-font-weight-bold': props.line.left.isConflictMarker },
+            { parallel: !props.inline, 'gl-font-bold': props.line.left.isConflictMarker },
           ]"
           class="diff-td line_content with-coverage left-side"
           data-testid="left-content"
@@ -288,15 +363,24 @@ export default {
           !props.inline || (props.line.left && props.line.left.type === $options.CONFLICT_MARKER)
         "
       >
-        <div data-testid="left-empty-cell" class="diff-td diff-line-num old_line empty-cell">
+        <div
+          data-testid="left-empty-cell"
+          class="diff-td diff-line-num old_line empty-cell"
+          :class="$options.classNameMapCellLeft(props)"
+        >
           &nbsp;
         </div>
-        <div v-if="props.inline" class="diff-td diff-line-num old_line empty-cell"></div>
-        <div class="diff-td line-coverage left-side empty-cell"></div>
-        <div v-if="props.inline" class="diff-td line-codequality left-side empty-cell"></div>
+        <div
+          class="diff-td line-coverage left-side empty-cell"
+          :class="$options.classNameMapCellLeft(props)"
+        ></div>
+        <div
+          class="diff-td line-inline-findings left-side empty-cell"
+          :class="$options.classNameMapCellLeft(props)"
+        ></div>
         <div
           class="diff-td line_content with-coverage left-side empty-cell"
-          :class="[{ parallel: !props.inline }]"
+          :class="[{ parallel: !props.inline }, ...$options.classNameMapCellLeft(props)]"
         ></div>
       </template>
     </div>
@@ -314,7 +398,10 @@ export default {
         <div :class="$options.classNameMapCellRight(props)" class="diff-td diff-line-num new_line">
           <template v-if="props.line.right.type !== $options.CONFLICT_MARKER_THEIR">
             <span
-              v-if="$options.shouldRenderCommentButton(props) && !props.line.hasDiscussionsRight"
+              v-if="
+                $options.shouldRenderCommentButton(props, 'Right') &&
+                !props.line.hasDiscussionsRight
+              "
               class="add-diff-note tooltip-wrapper has-tooltip"
               :title="props.line.right.addCommentTooltip"
             >
@@ -353,7 +440,7 @@ export default {
             v-if="props.line.right.new_line"
             :data-linenumber="props.line.right.new_line"
             :href="props.line.lineHrefNew"
-            @click="listeners.setHighlightedRow(props.line.lineCode)"
+            @click="listeners.setHighlightedRow({ lineCode: props.line.lineCode, event: $event })"
           >
           </a>
           <component
@@ -372,23 +459,32 @@ export default {
         </div>
         <div
           :title="$options.coverageStateRight(props).text"
+          :data-tooltip-custom-class="$options.coverageStateRight(props).class"
           :class="[
             props.line.right.type,
             $options.coverageStateRight(props).class,
-            { hll: props.isHighlighted, hll: props.isCommented },
+            ...$options.classNameMapCellRight(props),
           ]"
           class="diff-td line-coverage right-side has-tooltip"
         ></div>
         <div
-          class="diff-td line-codequality right-side"
-          :class="[props.line.right.type, { hll: props.isHighlighted, hll: props.isCommented }]"
+          class="diff-td line-inline-findings right-side"
+          :class="$options.classNameMapCellRight(props)"
         >
           <component
-            :is="$options.CodeQualityGutterIcon"
-            v-if="$options.showCodequalityRight(props)"
-            :codequality="props.line.right.codequality"
+            :is="$options.InlineFindingsGutterIconDropdown"
+            v-if="$options.showCodequalityRight(props) || $options.showSecurityRight(props)"
+            :code-quality="props.line.right.codequality"
+            :sast="props.line.right.sast"
             :file-path="props.filePath"
-            data-testid="codeQualityIcon"
+            data-testid="inlineFindingsIcon"
+            @showInlineFindings="
+              listeners.toggleCodeQualityFindings(
+                props.line.right.codequality[0]
+                  ? props.line.right.codequality[0].line
+                  : props.line.right.sast[0].line,
+              )
+            "
           />
         </div>
         <div
@@ -396,10 +492,9 @@ export default {
           :class="[
             props.line.right.type,
             {
-              hll: props.isHighlighted,
-              hll: props.isCommented,
-              'gl-font-weight-bold': props.line.right.type === $options.CONFLICT_MARKER_THEIR,
+              'gl-font-bold': props.line.right.type === $options.CONFLICT_MARKER_THEIR,
             },
+            ...$options.classNameMapCellRight(props),
           ]"
           class="diff-td line_content with-coverage right-side parallel"
           v-html="
@@ -408,10 +503,23 @@ export default {
         ></div>
       </template>
       <template v-else>
-        <div data-testid="right-empty-cell" class="diff-td diff-line-num old_line empty-cell"></div>
-        <div class="diff-td line-coverage right-side empty-cell"></div>
-        <div class="diff-td line-codequality right-side empty-cell"></div>
-        <div class="diff-td line_content with-coverage right-side empty-cell parallel"></div>
+        <div
+          data-testid="right-empty-cell"
+          class="diff-td diff-line-num old_line empty-cell"
+          :class="$options.classNameMapCellRight(props)"
+        ></div>
+        <div
+          class="diff-td line-coverage right-side empty-cell"
+          :class="$options.classNameMapCellRight(props)"
+        ></div>
+        <div
+          class="diff-td line-inline-findings right-side empty-cell"
+          :class="$options.classNameMapCellRight(props)"
+        ></div>
+        <div
+          class="diff-td line_content with-coverage right-side empty-cell parallel"
+          :class="$options.classNameMapCellRight(props)"
+        ></div>
       </template>
     </div>
   </div>

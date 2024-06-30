@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Keys::ExpiryNotificationService do
+RSpec.describe Keys::ExpiryNotificationService, feature_category: :source_code_management do
   let_it_be_with_reload(:user) { create(:user) }
 
   let(:params) { { keys: user.keys, expiring_soon: expiring_soon } }
@@ -44,7 +44,7 @@ RSpec.describe Keys::ExpiryNotificationService do
   end
 
   context 'with key expiring today', :mailer do
-    let_it_be_with_reload(:key) { create(:key, expires_at: Time.current, user: user) }
+    let_it_be_with_reload(:key) { create(:key, expires_at: 10.minutes.from_now, user: user) }
 
     let(:expiring_soon) { false }
 

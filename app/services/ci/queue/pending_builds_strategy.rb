@@ -19,23 +19,19 @@ module Ci
       def builds_for_group_runner
         return new_builds.none if runner.namespace_ids.empty?
 
-        new_builds.where('ci_pending_builds.namespace_traversal_ids && ARRAY[?]::int[]', runner.namespace_ids)
+        new_builds_relation = new_builds.where("ci_pending_builds.namespace_traversal_ids && '{?}'", runner.namespace_ids)
+
+        return order(new_builds_relation) if ::Feature.enabled?(:order_builds_for_group_runner)
+
+        new_builds_relation
       end
 
       def builds_matching_tag_ids(relation, ids)
-        if use_denormalized_data_strategy?
-          relation.for_tags(runner.tags_ids)
-        else
-          relation.merge(CommitStatus.matches_tag_ids(ids, table: 'ci_pending_builds', column: 'build_id'))
-        end
+        relation.for_tags(runner.tags_ids)
       end
 
       def builds_with_any_tags(relation)
-        if use_denormalized_data_strategy?
-          relation.where('cardinality(tag_ids) > 0')
-        else
-          relation.merge(CommitStatus.with_any_tags(table: 'ci_pending_builds', column: 'build_id'))
-        end
+        relation.where('cardinality(tag_ids) > 0')
       end
 
       def order(relation)
@@ -46,37 +42,25 @@ module Ci
         ::Ci::PendingBuild.all
       end
 
-      def build_ids(relation)
-        relation.pluck(:build_id)
-      end
-
-      def use_denormalized_data_strategy?
-        ::Feature.enabled?(:ci_queuing_use_denormalized_data_strategy, default_enabled: :yaml)
+      def build_and_partition_ids(relation)
+        relation.pluck(:build_id, :partition_id)
       end
 
       private
 
       def builds_available_for_shared_runners
-        if use_denormalized_data_strategy?
-          new_builds.with_instance_runners
-        else
-          new_builds
-            # don't run projects which have not enabled shared runners and builds
-            .joins('INNER JOIN projects ON ci_pending_builds.project_id = projects.id')
-            .where(projects: { shared_runners_enabled: true, pending_delete: false })
-            .joins('LEFT JOIN project_features ON ci_pending_builds.project_id = project_features.project_id')
-            .where('project_features.builds_access_level IS NULL or project_features.builds_access_level > 0')
-        end
+        new_builds.with_instance_runners
       end
 
       def builds_ordered_for_shared_runners(relation)
-        if Feature.enabled?(:ci_queueing_disaster_recovery_disable_fair_scheduling, runner, type: :ops, default_enabled: :yaml)
+        if Feature.enabled?(:ci_queueing_disaster_recovery_disable_fair_scheduling, runner, type: :ops)
           # if disaster recovery is enabled, we fallback to FIFO scheduling
           relation.order('ci_pending_builds.build_id ASC')
         else
-          # Implement fair scheduling
-          # this returns builds that are ordered by number of running builds
-          # we prefer projects that don't use shared runners at all
+          # Implements Fair Scheduling
+          # Builds are ordered by projects that have the fewest running builds.
+          # This keeps projects that create many builds at once from hogging capacity but
+          # has the downside of penalizing projects with lots of builds created in a short period of time
           relation
             .with(running_builds_for_shared_runners_cte.to_arel)
             .joins("LEFT JOIN project_builds ON ci_pending_builds.project_id = project_builds.project_id")

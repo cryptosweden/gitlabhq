@@ -15,21 +15,21 @@ RSpec.describe Gitlab::Pagination::Keyset::Iterator do
   let(:nulls_position) { :nulls_last }
   let(:reverse_nulls_position) { ::Gitlab::Pagination::Keyset::ColumnOrderDefinition::REVERSED_NULL_POSITIONS[nulls_position] }
   let(:custom_reorder) do
-    Gitlab::Pagination::Keyset::Order.build([
-      Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
-        attribute_name: column,
-        column_expression: klass.arel_table[column],
-        order_expression: ::Gitlab::Database.nulls_order(column, direction, nulls_position),
-        reversed_order_expression: ::Gitlab::Database.nulls_order(column, reverse_direction, reverse_nulls_position),
-        order_direction: direction,
-        nullable: nulls_position,
-        distinct: false
-      ),
-      Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
-        attribute_name: 'id',
-        order_expression: klass.arel_table[:id].send(direction)
-      )
-    ])
+    Gitlab::Pagination::Keyset::Order.build(
+      [
+        Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
+          attribute_name: column,
+          column_expression: klass.arel_table[column],
+          order_expression: klass.arel_table[column].public_send(direction).public_send(nulls_position), # rubocop:disable GitlabSecurity/PublicSend
+          reversed_order_expression: klass.arel_table[column].public_send(reverse_direction).public_send(reverse_nulls_position), # rubocop:disable GitlabSecurity/PublicSend
+          order_direction: direction,
+          nullable: nulls_position
+        ),
+        Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
+          attribute_name: 'id',
+          order_expression: klass.arel_table[:id].send(direction)
+        )
+      ])
   end
 
   let(:iterator_params) { nil }
@@ -43,12 +43,6 @@ RSpec.describe Gitlab::Pagination::Keyset::Iterator do
         iterator.each_batch(of: 1) do |relation|
           expect(relation).to be_a_kind_of(ActiveRecord::Relation)
         end
-      end
-
-      it 'raises error when ordering configuration cannot be automatically determined' do
-        expect do
-          described_class.new(scope: MergeRequestDiffCommit.order(:merge_request_diff_id, :relative_order))
-        end.to raise_error /The order on the scope does not support keyset pagination/
       end
 
       it 'accepts a custom batch size' do
@@ -86,7 +80,7 @@ RSpec.describe Gitlab::Pagination::Keyset::Iterator do
         time = Time.current
 
         iterator.each_batch(of: 2) do |relation|
-          Issue.connection.execute("UPDATE issues SET updated_at = '#{time.to_s(:inspect)}' WHERE id IN (#{relation.reselect(:id).to_sql})")
+          Issue.connection.execute("UPDATE issues SET updated_at = '#{time.to_fs(:inspect)}' WHERE id IN (#{relation.reselect(:id).to_sql})")
         end
 
         expect(Issue.pluck(:updated_at)).to all(be_within(5.seconds).of(time))
@@ -99,7 +93,7 @@ RSpec.describe Gitlab::Pagination::Keyset::Iterator do
 
             iterator.each_batch(of: 2) { |rel| positions.concat(rel.pluck(:relative_position, :id)) }
 
-            expect(positions).to eq(project.issues.reorder(::Gitlab::Database.nulls_last_order('relative_position', 'ASC')).order(id: :asc).pluck(:relative_position, :id))
+            expect(positions).to eq(project.issues.reorder(Issue.arel_table[:relative_position].asc.nulls_last).order(id: :asc).pluck(:relative_position, :id))
           end
         end
 
@@ -111,7 +105,7 @@ RSpec.describe Gitlab::Pagination::Keyset::Iterator do
 
             iterator.each_batch(of: 2) { |rel| positions.concat(rel.pluck(:relative_position, :id)) }
 
-            expect(positions).to eq(project.issues.reorder(::Gitlab::Database.nulls_first_order('relative_position', 'DESC')).order(id: :desc).pluck(:relative_position, :id))
+            expect(positions).to eq(project.issues.reorder(Issue.arel_table[:relative_position].desc.nulls_first).order(id: :desc).pluck(:relative_position, :id))
           end
         end
 
@@ -123,7 +117,7 @@ RSpec.describe Gitlab::Pagination::Keyset::Iterator do
 
             iterator.each_batch(of: 2) { |rel| positions.concat(rel.pluck(:relative_position, :id)) }
 
-            expect(positions).to eq(project.issues.reorder(::Gitlab::Database.nulls_first_order('relative_position', 'ASC')).order(id: :asc).pluck(:relative_position, :id))
+            expect(positions).to eq(project.issues.reorder(Issue.arel_table[:relative_position].asc.nulls_first).order(id: :asc).pluck(:relative_position, :id))
           end
         end
 
@@ -136,7 +130,7 @@ RSpec.describe Gitlab::Pagination::Keyset::Iterator do
 
             iterator.each_batch(of: 2) { |rel| positions.concat(rel.pluck(:relative_position, :id)) }
 
-            expect(positions).to eq(project.issues.reorder(::Gitlab::Database.nulls_last_order('relative_position', 'DESC')).order(id: :desc).pluck(:relative_position, :id))
+            expect(positions).to eq(project.issues.reorder(Issue.arel_table[:relative_position].desc.nulls_last).order(id: :desc).pluck(:relative_position, :id))
           end
         end
 

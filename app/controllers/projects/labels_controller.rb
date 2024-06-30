@@ -8,13 +8,14 @@ class Projects::LabelsController < Projects::ApplicationController
   before_action :find_labels, only: [:index, :set_priorities, :remove_priority, :toggle_subscription]
   before_action :authorize_read_label!
   before_action :authorize_admin_labels!, only: [:new, :create, :edit, :update,
-                                                 :generate, :destroy, :remove_priority,
-                                                 :set_priorities]
+    :generate, :destroy, :remove_priority,
+    :set_priorities]
   before_action :authorize_admin_group_labels!, only: [:promote]
 
   respond_to :js, :html
 
   feature_category :team_planning
+  urgency :low
 
   def index
     respond_to do |format|
@@ -67,9 +68,10 @@ class Projects::LabelsController < Projects::ApplicationController
   def generate
     Gitlab::IssuesLabels.generate(@project)
 
-    if params[:redirect] == 'issues'
+    case params[:redirect]
+    when 'issues'
       redirect_to project_issues_path(@project)
-    elsif params[:redirect] == 'merge_requests'
+    when 'merge_requests'
       redirect_to project_merge_requests_path(@project)
     else
       redirect_to project_labels_path(@project)
@@ -77,12 +79,13 @@ class Projects::LabelsController < Projects::ApplicationController
   end
 
   def destroy
-    @label.destroy
-    @labels = find_labels
-
-    redirect_to project_labels_path(@project),
-                status: :found,
-                notice: 'Label was removed'
+    if @label.destroy
+      redirect_to project_labels_path(@project), status: :found,
+        notice: format(_('%{label_name} was removed'), label_name: @label.name)
+    else
+      redirect_to project_labels_path(@project), status: :found,
+        alert: @label.errors.full_messages.to_sentence
+    end
   end
 
   def remove_priority
@@ -136,8 +139,9 @@ class Projects::LabelsController < Projects::ApplicationController
 
       respond_to do |format|
         format.html do
-          redirect_to(project_labels_path(@project),
-                      notice: _('Failed to promote label due to internal error. Please contact administrators.'))
+          redirect_to(
+            project_labels_path(@project),
+            notice: _('Failed to promote label due to internal error. Please contact administrators.'))
         end
         format.js
       end
@@ -151,7 +155,10 @@ class Projects::LabelsController < Projects::ApplicationController
   protected
 
   def label_params
-    params.require(:label).permit(:title, :description, :color)
+    allowed = [:title, :description, :color]
+    allowed << :lock_on_merge if @project.supports_lock_on_merge?
+
+    params.require(:label).permit(allowed)
   end
 
   def label
@@ -163,13 +170,14 @@ class Projects::LabelsController < Projects::ApplicationController
   end
 
   def find_labels
-    @available_labels ||=
-      LabelsFinder.new(current_user,
-                       project_id: @project.id,
-                       include_ancestor_groups: true,
-                       search: params[:search],
-                       subscribed: params[:subscribed],
-                       sort: sort).execute
+    @available_labels ||= LabelsFinder.new(
+      current_user,
+      project_id: @project.id,
+      include_ancestor_groups: true,
+      search: params[:search],
+      subscribed: params[:subscribed],
+      sort: sort
+    ).execute
   end
 
   def sort
@@ -177,10 +185,10 @@ class Projects::LabelsController < Projects::ApplicationController
   end
 
   def authorize_admin_labels!
-    return render_404 unless can?(current_user, :admin_label, @project)
+    render_404 unless can?(current_user, :admin_label, @project)
   end
 
   def authorize_admin_group_labels!
-    return render_404 unless can?(current_user, :admin_label, @project.group)
+    render_404 unless can?(current_user, :admin_label, @project.group)
   end
 end

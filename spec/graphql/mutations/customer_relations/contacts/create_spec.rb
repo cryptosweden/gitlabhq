@@ -3,9 +3,11 @@
 require 'spec_helper'
 
 RSpec.describe Mutations::CustomerRelations::Contacts::Create do
+  include GraphqlHelpers
+
   let_it_be(:user) { create(:user) }
 
-  let(:group) { create(:group, :crm_enabled) }
+  let(:group) { create(:group) }
   let(:not_found_or_does_not_belong) { 'The specified organization was not found or does not belong to this group' }
   let(:valid_params) do
     attributes_for(:contact,
@@ -38,19 +40,8 @@ RSpec.describe Mutations::CustomerRelations::Contacts::Create do
         group.add_developer(user)
       end
 
-      context 'when the feature flag is disabled' do
-        before do
-          stub_feature_flags(customer_relations: false)
-        end
-
-        it 'raises an error' do
-          expect { resolve_mutation }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
-            .with_message("The resource that you are attempting to access does not exist or you don't have permission to perform this action")
-        end
-      end
-
       context 'when crm_enabled is false' do
-        let(:group) { create(:group) }
+        let(:group) { create(:group, :crm_disabled) }
 
         it 'raises an error' do
           expect { resolve_mutation }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
@@ -66,10 +57,10 @@ RSpec.describe Mutations::CustomerRelations::Contacts::Create do
         end
       end
 
-      context 'when attaching to an organization' do
+      context 'when attaching to an crm_organization' do
         context 'when all ok' do
           before do
-            organization = create(:organization, group: group)
+            organization = create(:crm_organization, group: group)
             valid_params[:organization_id] = organization.to_global_id
           end
 
@@ -78,9 +69,9 @@ RSpec.describe Mutations::CustomerRelations::Contacts::Create do
           end
         end
 
-        context 'when organization_id is invalid' do
+        context 'when crm_organization does not exist' do
           before do
-            valid_params[:organization_id] = "gid://gitlab/CustomerRelations::Organization/#{non_existing_record_id}"
+            valid_params[:organization_id] = global_id_of(model_name: 'CustomerRelations::Organization', id: non_existing_record_id)
           end
 
           it 'returns the relevant error' do
@@ -88,10 +79,10 @@ RSpec.describe Mutations::CustomerRelations::Contacts::Create do
           end
         end
 
-        context 'when organzation belongs to a different group' do
+        context 'when crm_organzation belongs to a different group' do
           before do
-            organization = create(:organization)
-            valid_params[:organization_id] = organization.to_global_id
+            crm_organization = create(:crm_organization)
+            valid_params[:organization_id] = crm_organization.to_global_id
           end
 
           it 'returns the relevant error' do

@@ -2,64 +2,218 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::JobToken::Scope do
-  let_it_be(:project) { create(:project, ci_job_token_scope_enabled: true).tap(&:save!) }
+RSpec.describe Ci::JobToken::Scope, feature_category: :continuous_integration, factory_default: :keep do
+  include Ci::JobTokenScopeHelpers
+  using RSpec::Parameterized::TableSyntax
 
-  let(:scope) { described_class.new(project) }
+  let_it_be(:project) { create_default(:project) }
+  let_it_be(:user) { create_default(:user) }
+  let_it_be(:namespace) { create_default(:namespace) }
 
-  describe '#all_projects' do
-    subject(:all_projects) { scope.all_projects }
+  let_it_be(:source_project) do
+    create(:project,
+      ci_outbound_job_token_scope_enabled: true,
+      ci_inbound_job_token_scope_enabled: true
+    )
+  end
+
+  let(:current_project) { source_project }
+
+  let(:scope) { described_class.new(current_project) }
+
+  describe '#outbound_projects' do
+    subject { scope.outbound_projects }
 
     context 'when no projects are added to the scope' do
       it 'returns the project defining the scope' do
-        expect(all_projects).to contain_exactly(project)
+        expect(subject).to contain_exactly(current_project)
       end
     end
 
-    context 'when other projects are added to the scope' do
-      let_it_be(:scoped_project) { create(:project) }
-      let_it_be(:unscoped_project) { create(:project) }
-
-      let!(:link_in_scope) { create(:ci_job_token_project_scope_link, source_project: project, target_project: scoped_project) }
-      let!(:link_out_of_scope) { create(:ci_job_token_project_scope_link, target_project: unscoped_project) }
+    context 'when projects are added to the scope' do
+      include_context 'with accessible and inaccessible projects'
 
       it 'returns all projects that can be accessed from a given scope' do
-        expect(subject).to contain_exactly(project, scoped_project)
+        expect(subject).to contain_exactly(current_project, outbound_allowlist_project, fully_accessible_project)
       end
     end
   end
 
-  describe '#includes?' do
-    subject { scope.includes?(target_project) }
+  describe '#inbound_projects' do
+    subject { scope.inbound_projects }
 
-    context 'when param is the project defining the scope' do
-      let(:target_project) { project }
-
-      it { is_expected.to be_truthy }
+    context 'when no projects are added to the scope' do
+      it 'returns the project defining the scope' do
+        expect(subject).to contain_exactly(current_project)
+      end
     end
 
-    context 'when param is a project in scope' do
-      let(:target_link) { create(:ci_job_token_project_scope_link, source_project: project) }
-      let(:target_project) { target_link.target_project }
+    context 'when projects are added to the scope' do
+      include_context 'with accessible and inaccessible projects'
 
-      it { is_expected.to be_truthy }
+      it 'returns all projects that can be accessed from a given scope' do
+        expect(subject).to contain_exactly(current_project, inbound_allowlist_project)
+      end
+    end
+  end
+
+  describe '#groups' do
+    subject { scope.groups }
+
+    context 'when no groups are added to the scope' do
+      it 'returns an empty list' do
+        expect(subject).to be_empty
+      end
     end
 
-    context 'when param is a project in another scope' do
-      let(:scope_link) { create(:ci_job_token_project_scope_link) }
-      let(:target_project) { scope_link.target_project }
+    context 'when groups are added to the scope' do
+      let_it_be(:target_group) { create(:group) }
 
-      it { is_expected.to be_falsey }
+      include_context 'with projects that are with and without groups added in allowlist'
 
-      context 'when project scope setting is disabled' do
-        before do
-          project.ci_job_token_scope_enabled = false
-        end
-
-        it 'considers any project to be part of the scope' do
-          expect(subject).to be_truthy
+      with_them do
+        it 'returns all groups that are allowed access in the job token scope' do
+          expect(subject).to contain_exactly(target_group)
         end
       end
+    end
+  end
+
+  describe 'accessible?' do
+    subject { scope.accessible?(accessed_project) }
+
+    context 'with groups in allowlist' do
+      let_it_be(:target_group) { create(:group) }
+      let_it_be(:target_project) do
+        create(:project,
+          ci_inbound_job_token_scope_enabled: true,
+          group: target_group
+        )
+      end
+
+      let(:scope) { described_class.new(target_project) }
+
+      include_context 'with projects that are with and without groups added in allowlist'
+
+      where(:accessed_project, :result) do
+        ref(:project_with_target_project_group_in_allowlist)            | true
+        ref(:project_wo_target_project_group_in_allowlist)              | false
+      end
+
+      with_them do
+        it { is_expected.to eq(result) }
+      end
+    end
+
+    context 'with inbound and outbound scopes enabled' do
+      context 'when inbound and outbound access setup' do
+        include_context 'with accessible and inaccessible projects'
+
+        where(:accessed_project, :result) do
+          ref(:current_project)            | true
+          ref(:inbound_allowlist_project)  | false
+          ref(:unscoped_project1)          | false
+          ref(:unscoped_project2)          | false
+          ref(:outbound_allowlist_project) | false
+          ref(:inbound_accessible_project) | false
+          ref(:fully_accessible_project)   | true
+          ref(:unscoped_public_project)    | false
+        end
+
+        with_them do
+          it 'allows self and projects allowed from both directions' do
+            is_expected.to eq(result)
+          end
+        end
+      end
+    end
+
+    context 'with inbound scope enabled and outbound scope disabled' do
+      before do
+        accessed_project.update!(ci_inbound_job_token_scope_enabled: true)
+        current_project.update!(ci_outbound_job_token_scope_enabled: false)
+      end
+
+      include_context 'with accessible and inaccessible projects'
+
+      where(:accessed_project, :result) do
+        ref(:current_project)            | true
+        ref(:inbound_allowlist_project)  | false
+        ref(:unscoped_project1)          | false
+        ref(:unscoped_project2)          | false
+        ref(:outbound_allowlist_project) | false
+        ref(:inbound_accessible_project) | true
+        ref(:fully_accessible_project)   | true
+        ref(:unscoped_public_project)    | false
+      end
+
+      with_them do
+        it { is_expected.to eq(result) }
+      end
+    end
+
+    context 'with inbound scope disabled and outbound scope enabled' do
+      before do
+        accessed_project.update!(ci_inbound_job_token_scope_enabled: false)
+        current_project.update!(ci_outbound_job_token_scope_enabled: true)
+      end
+
+      include_context 'with accessible and inaccessible projects'
+
+      where(:accessed_project, :result) do
+        ref(:current_project)            | true
+        ref(:inbound_allowlist_project)  | false
+        ref(:unscoped_project1)          | false
+        ref(:unscoped_project2)          | false
+        ref(:outbound_allowlist_project) | true
+        ref(:inbound_accessible_project) | false
+        ref(:fully_accessible_project)   | true
+        ref(:unscoped_public_project)    | true
+      end
+
+      with_them do
+        it { is_expected.to eq(result) }
+      end
+    end
+
+    describe 'metrics' do
+      include_context 'with accessible and inaccessible projects'
+
+      context 'when the access project has ci_inbound_job_token_scope_enabled' do
+        it 'increments the counter metric with legacy: false' do
+          expect(Gitlab::Ci::Pipeline::Metrics.job_token_inbound_access_counter)
+            .to receive(:increment)
+            .with(legacy: false)
+
+          scope.accessible?(fully_accessible_project)
+        end
+      end
+
+      context 'when the access project does not have ci_inbound_job_token_scope_enabled' do
+        it 'increments the counter metric with legacy: true' do
+          expect(Gitlab::Ci::Pipeline::Metrics.job_token_inbound_access_counter)
+            .to receive(:increment)
+            .with(legacy: false)
+
+          scope.accessible?(unscoped_public_project)
+        end
+      end
+    end
+  end
+
+  describe '#self_referential?' do
+    subject { scope.self_referential?(access_project) }
+
+    context 'when a current project requested' do
+      let(:access_project) { current_project }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when a different project requested' do
+      let_it_be(:access_project) { create(:project) }
+
+      it { is_expected.to be_falsey }
     end
   end
 end

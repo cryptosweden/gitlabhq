@@ -1,15 +1,20 @@
 import { GlAlert } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
-import { ApolloMutation } from 'vue-apollo';
+import VueApollo, { ApolloMutation } from 'vue-apollo';
 import VueRouter from 'vue-router';
+import createMockApollo from 'helpers/mock_apollo_helper';
 import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
+import waitForPromises from 'helpers/wait_for_promises';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import Api from '~/api';
+import DesignReplyForm from '~/design_management/components/design_notes/design_reply_form.vue';
 import DesignPresentation from '~/design_management/components/design_presentation.vue';
 import DesignSidebar from '~/design_management/components/design_sidebar.vue';
+import DesignDestroyer from '~/design_management/components/design_destroyer.vue';
+import Toolbar from '~/design_management/components/toolbar/index.vue';
 import { DESIGN_DETAIL_LAYOUT_CLASSLIST } from '~/design_management/constants';
-import createImageDiffNoteMutation from '~/design_management/graphql/mutations/create_image_diff_note.mutation.graphql';
-import updateActiveDiscussion from '~/design_management/graphql/mutations/update_active_discussion.mutation.graphql';
+import getDesignQuery from '~/design_management/graphql/queries/get_design.query.graphql';
+import getDesignListQuery from 'shared_queries/design_management/get_design_list.query.graphql';
 import DesignIndex from '~/design_management/pages/design/index.vue';
 import createRouter from '~/design_management/router';
 import { DESIGNS_ROUTE_NAME, DESIGN_ROUTE_NAME } from '~/design_management/router/constants';
@@ -23,96 +28,103 @@ import {
   DESIGN_SNOWPLOW_EVENT_TYPES,
   DESIGN_SERVICE_PING_EVENT_TYPES,
 } from '~/design_management/utils/tracking';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import * as cacheUpdate from '~/design_management/utils/cache_update';
+import { stubComponent } from 'helpers/stub_component';
+
 import mockAllVersions from '../../mock_data/all_versions';
 import design from '../../mock_data/design';
 import mockResponseWithDesigns from '../../mock_data/designs';
 import mockResponseNoDesigns from '../../mock_data/no_designs';
+import { mockCreateImageNoteDiffResponse } from '../../mock_data/apollo_mock';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 jest.mock('~/api.js');
+jest.mock('~/design_management/utils/cache_update');
 
-const focusInput = jest.fn();
-const mutate = jest.fn().mockResolvedValue();
+Vue.use(VueApollo);
+Vue.use(VueRouter);
+
 const mockPageLayoutElement = {
   classList: {
     add: jest.fn(),
     remove: jest.fn(),
   },
 };
-const DesignReplyForm = {
-  template: '<div><textarea ref="textarea"></textarea></div>',
-  methods: {
-    focusInput,
-  },
-};
-const mockDesignNoDiscussions = {
-  ...design,
-  discussions: {
-    nodes: [],
-  },
-};
-const newComment = 'new comment';
-const annotationCoordinates = {
-  x: 10,
-  y: 10,
-  width: 100,
-  height: 100,
-};
-const createDiscussionMutationVariables = {
-  mutation: createImageDiffNoteMutation,
-  update: expect.anything(),
-  variables: {
-    input: {
-      body: newComment,
-      noteableId: design.id,
-      position: {
-        headSha: 'headSha',
-        baseSha: 'baseSha',
-        startSha: 'startSha',
-        paths: {
-          newPath: 'full-design-path',
+
+const DesignSidebarStub = stubComponent(DesignSidebar, {
+  template: '<div><slot name="reply-form"></slot></div>',
+});
+
+const mockAllVersionsResponse = {
+  data: {
+    project: {
+      __typename: 'Project',
+      id: 'gid://gitlab/Project/1',
+      issue: {
+        __typename: 'Issue',
+        id: 'gid://gitlab/Issue/1',
+        designCollection: {
+          __typename: 'DesignCollection',
+          copyState: 'READY',
+          versions: { __typename: 'DesignVersionConnection', nodes: mockAllVersions },
+          designs: {
+            __typename: 'DesignConnection',
+            nodes: [],
+          },
         },
-        ...annotationCoordinates,
       },
     },
   },
 };
 
-Vue.use(VueRouter);
-
 describe('Design management design index page', () => {
   let wrapper;
   let router;
+  let mockApollo;
 
-  const findDiscussionForm = () => wrapper.find(DesignReplyForm);
-  const findSidebar = () => wrapper.find(DesignSidebar);
-  const findDesignPresentation = () => wrapper.find(DesignPresentation);
+  const findDesignReplyForm = () => wrapper.findComponent(DesignReplyForm);
+  const findSidebar = () => wrapper.findComponent(DesignSidebar);
+  const findDesignPresentation = () => wrapper.findComponent(DesignPresentation);
+  const findToolbar = () => wrapper.findComponent(Toolbar);
 
-  function createComponent(
-    { loading = false } = {},
-    { data = {}, intialRouteOptions = {}, provide = {} } = {},
-  ) {
-    const $apollo = {
-      queries: {
-        design: {
-          loading,
-        },
-      },
-      mutate,
-    };
+  const updateActiveDiscussionResolver = jest.fn();
+  const getDesignQueryHandler = jest.fn().mockResolvedValue({ data: mockResponseWithDesigns });
+  const allVersionsQueryHandler = jest.fn().mockResolvedValue(mockAllVersionsResponse);
+  const error = new Error('ruh roh some error');
+  const errorQueryHandler = jest.fn().mockRejectedValue(error);
 
+  const createComponent = ({
+    data = {},
+    initialRouteOptions = {},
+    provide = {},
+    stubs = { DesignSidebar: DesignSidebarStub },
+    designQueryHandler = getDesignQueryHandler,
+  } = {}) => {
     router = createRouter();
 
-    router.push({ name: DESIGN_ROUTE_NAME, params: { id: design.id }, ...intialRouteOptions });
+    router.push({ name: DESIGN_ROUTE_NAME, params: { id: design.id }, ...initialRouteOptions });
 
-    wrapper = shallowMount(DesignIndex, {
+    mockApollo = createMockApollo(
+      [
+        [getDesignQuery, designQueryHandler],
+        [getDesignListQuery, allVersionsQueryHandler],
+      ],
+      {
+        Mutation: {
+          updateActiveDiscussion: updateActiveDiscussionResolver,
+        },
+      },
+    );
+
+    wrapper = shallowMountExtended(DesignIndex, {
       propsData: { id: '1' },
-      mocks: { $apollo },
+      apolloProvider: mockApollo,
       stubs: {
+        ...stubs,
+        RouterLink: true,
+        DesignDestroyer,
         ApolloMutation,
-        DesignSidebar,
-        DesignReplyForm,
       },
       provide: {
         issueIid: '1',
@@ -130,16 +142,108 @@ describe('Design management design index page', () => {
       },
       router,
     });
-  }
+  };
 
   afterEach(() => {
-    wrapper.destroy();
+    mockApollo = null;
+  });
+
+  it('sets loading state', () => {
+    createComponent();
+
+    expect(wrapper.findComponent(DesignPresentation).props('isLoading')).toBe(true);
+    expect(wrapper.findComponent(DesignSidebar).props('isLoading')).toBe(true);
+  });
+
+  describe('when loaded', () => {
+    beforeEach(async () => {
+      createComponent();
+      await waitForPromises();
+    });
+
+    it('renders design index', () => {
+      expect(wrapper.element).toMatchSnapshot();
+      expect(wrapper.findComponent(GlAlert).exists()).toBe(false);
+    });
+
+    it('passes correct props to sidebar component', () => {
+      expect(findSidebar().props()).toEqual({
+        design: expect.any(Object),
+        markdownPreviewPath: '/project-path/-/preview_markdown?target_type=Issue',
+        resolvedDiscussionsExpanded: false,
+        isLoading: false,
+        isOpen: true,
+        designVariables: {
+          fullPath: 'project-path',
+          iid: '1',
+          filenames: ['gid:/gitlab/Design/1'],
+          atVersion: null,
+        },
+      });
+    });
+
+    it('opens a new discussion form', async () => {
+      findDesignPresentation().vm.$emit('openCommentForm', { x: 0, y: 0 });
+      expect(findSidebar().props('isOpen')).toBe(true);
+
+      await nextTick();
+      expect(findDesignReplyForm().exists()).toBe(true);
+    });
+
+    it('closes sidebar and disables commenting on toggle', async () => {
+      expect(findDesignPresentation().props('disableCommenting')).toBe(false);
+      expect(findSidebar().props('isOpen')).toBe(true);
+
+      findToolbar().vm.$emit('toggle-sidebar');
+      await nextTick();
+
+      expect(findDesignPresentation().props('disableCommenting')).toBe(true);
+      expect(findSidebar().props('isOpen')).toBe(false);
+    });
+  });
+
+  describe('when annotating', () => {
+    beforeEach(async () => {
+      createComponent();
+
+      await waitForPromises();
+      findDesignPresentation().vm.$emit('openCommentForm', { x: 0, y: 0 });
+    });
+
+    it('sends a update and closes the form when mutation is completed', async () => {
+      const addImageDiffNoteToStore = jest.spyOn(cacheUpdate, 'updateStoreAfterAddImageDiffNote');
+
+      const mockDesignVariables = {
+        fullPath: 'project-path',
+        iid: '1',
+        filenames: ['gid:/gitlab/Design/1'],
+        atVersion: null,
+      };
+
+      findDesignReplyForm().vm.$emit('note-submit-complete', mockCreateImageNoteDiffResponse);
+
+      await nextTick();
+      expect(addImageDiffNoteToStore).toHaveBeenCalledWith(
+        expect.any(Object),
+        mockCreateImageNoteDiffResponse.data.createImageDiffNote,
+        getDesignQuery,
+        mockDesignVariables,
+      );
+      expect(findDesignReplyForm().exists()).toBe(false);
+    });
+
+    it('closes the form and clears the comment on canceling form', async () => {
+      findDesignReplyForm().vm.$emit('cancel-form');
+
+      await nextTick();
+      expect(findDesignReplyForm().exists()).toBe(false);
+    });
   });
 
   describe('when navigating to component', () => {
     it('applies fullscreen layout class', () => {
       jest.spyOn(utils, 'getPageLayoutElement').mockReturnValue(mockPageLayoutElement);
-      createComponent({ loading: true });
+      createComponent();
 
       expect(mockPageLayoutElement.classList.add).toHaveBeenCalledTimes(1);
       expect(mockPageLayoutElement.classList.add).toHaveBeenCalledWith(
@@ -151,7 +255,7 @@ describe('Design management design index page', () => {
   describe('when navigating within the component', () => {
     it('`scale` prop of DesignPresentation component is 1', async () => {
       jest.spyOn(utils, 'getPageLayoutElement').mockReturnValue(mockPageLayoutElement);
-      createComponent({ loading: false }, { data: { design, scale: 2 } });
+      createComponent({ data: { scale: 2 } });
 
       await nextTick();
       expect(findDesignPresentation().props('scale')).toBe(2);
@@ -164,9 +268,9 @@ describe('Design management design index page', () => {
   });
 
   describe('when navigating away from component', () => {
-    it('removes fullscreen layout class', async () => {
+    it('removes fullscreen layout class', () => {
       jest.spyOn(utils, 'getPageLayoutElement').mockReturnValue(mockPageLayoutElement);
-      createComponent({ loading: true });
+      createComponent();
 
       wrapper.vm.$options.beforeRouteLeave[0].call(wrapper.vm, {}, {}, jest.fn());
 
@@ -177,129 +281,30 @@ describe('Design management design index page', () => {
     });
   });
 
-  it('sets loading state', () => {
-    createComponent({ loading: true });
-
-    expect(wrapper.element).toMatchSnapshot();
-  });
-
-  it('renders design index', () => {
-    createComponent({ loading: false }, { data: { design } });
-
-    expect(wrapper.element).toMatchSnapshot();
-    expect(wrapper.find(GlAlert).exists()).toBe(false);
-  });
-
-  it('passes correct props to sidebar component', () => {
-    createComponent({ loading: false }, { data: { design } });
-
-    expect(findSidebar().props()).toEqual({
-      design,
-      markdownPreviewPath: '/project-path/preview_markdown?target_type=Issue',
-      resolvedDiscussionsExpanded: false,
-    });
-  });
-
-  it('opens a new discussion form', async () => {
-    createComponent(
-      { loading: false },
-      {
-        data: {
-          design,
-        },
-      },
-    );
-
-    findDesignPresentation().vm.$emit('openCommentForm', { x: 0, y: 0 });
-
-    await nextTick();
-    expect(findDiscussionForm().exists()).toBe(true);
-  });
-
-  it('keeps new discussion form focused', () => {
-    createComponent(
-      { loading: false },
-      {
-        data: {
-          design,
-          annotationCoordinates,
-        },
-      },
-    );
-
-    findDesignPresentation().vm.$emit('openCommentForm', { x: 10, y: 10 });
-
-    expect(focusInput).toHaveBeenCalled();
-  });
-
-  it('sends a mutation on submitting form and closes form', async () => {
-    createComponent(
-      { loading: false },
-      {
-        data: {
-          design,
-          annotationCoordinates,
-          comment: newComment,
-        },
-      },
-    );
-
-    findDiscussionForm().vm.$emit('submit-form');
-    expect(mutate).toHaveBeenCalledWith(createDiscussionMutationVariables);
-
-    await nextTick();
-    await mutate({ variables: createDiscussionMutationVariables });
-    expect(findDiscussionForm().exists()).toBe(false);
-  });
-
-  it('closes the form and clears the comment on canceling form', async () => {
-    createComponent(
-      { loading: false },
-      {
-        data: {
-          design,
-          annotationCoordinates,
-          comment: newComment,
-        },
-      },
-    );
-
-    findDiscussionForm().vm.$emit('cancel-form');
-
-    expect(wrapper.vm.comment).toBe('');
-
-    await nextTick();
-    expect(findDiscussionForm().exists()).toBe(false);
-  });
-
   describe('with error', () => {
-    beforeEach(() => {
-      createComponent(
-        { loading: false },
-        {
-          data: {
-            design: mockDesignNoDiscussions,
-            errorMessage: 'woops',
-          },
-        },
-      );
+    beforeEach(async () => {
+      createComponent({
+        designQueryHandler: errorQueryHandler,
+      });
+      router.push = jest.fn();
+      await waitForPromises();
     });
 
-    it('GlAlert is rendered in correct position with correct content', () => {
-      expect(wrapper.element).toMatchSnapshot();
+    it('createAlert has been called', () => {
+      expect(createAlert).toHaveBeenCalledWith({ message: DESIGN_NOT_FOUND_ERROR });
     });
   });
 
   describe('onDesignQueryResult', () => {
     describe('with no designs', () => {
       it('redirects to /designs', async () => {
-        createComponent({ loading: true });
+        createComponent();
         router.push = jest.fn();
 
         wrapper.vm.onDesignQueryResult({ data: mockResponseNoDesigns, loading: false });
         await nextTick();
-        expect(createFlash).toHaveBeenCalledTimes(1);
-        expect(createFlash).toHaveBeenCalledWith({ message: DESIGN_NOT_FOUND_ERROR });
+        expect(createAlert).toHaveBeenCalledTimes(1);
+        expect(createAlert).toHaveBeenCalledWith({ message: DESIGN_NOT_FOUND_ERROR });
         expect(router.push).toHaveBeenCalledTimes(1);
         expect(router.push).toHaveBeenCalledWith({ name: DESIGNS_ROUTE_NAME });
       });
@@ -307,7 +312,7 @@ describe('Design management design index page', () => {
 
     describe('when no design exists for given version', () => {
       it('redirects to /designs', async () => {
-        createComponent({ loading: true });
+        createComponent();
         // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
         // eslint-disable-next-line no-restricted-syntax
         wrapper.setData({
@@ -320,8 +325,8 @@ describe('Design management design index page', () => {
 
         wrapper.vm.onDesignQueryResult({ data: mockResponseWithDesigns, loading: false });
         await nextTick();
-        expect(createFlash).toHaveBeenCalledTimes(1);
-        expect(createFlash).toHaveBeenCalledWith({ message: DESIGN_VERSION_NOT_EXIST_ERROR });
+        expect(createAlert).toHaveBeenCalledTimes(1);
+        expect(createAlert).toHaveBeenCalledWith({ message: DESIGN_VERSION_NOT_EXIST_ERROR });
         expect(router.push).toHaveBeenCalledTimes(1);
         expect(router.push).toHaveBeenCalledWith({ name: DESIGNS_ROUTE_NAME });
       });
@@ -329,30 +334,34 @@ describe('Design management design index page', () => {
   });
 
   describe('when hash present in current route', () => {
-    it('calls updateActiveDiscussion mutation', () => {
-      createComponent(
-        { loading: false },
-        {
-          data: {
-            design,
-          },
-          intialRouteOptions: { hash: '#note_123' },
-        },
-      );
-
-      expect(mutate).toHaveBeenCalledTimes(1);
-      expect(mutate).toHaveBeenCalledWith({
-        mutation: updateActiveDiscussion,
-        variables: { id: 'gid://gitlab/DiffNote/123', source: 'url' },
+    beforeEach(async () => {
+      createComponent({
+        initialRouteOptions: { hash: '#note_123' },
       });
+      await waitForPromises();
+    });
+
+    it('calls updateActiveDiscussion mutation', () => {
+      expect(updateActiveDiscussionResolver).toHaveBeenCalledTimes(1);
+      expect(updateActiveDiscussionResolver).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          id: 'gid://gitlab/DiffNote/123',
+          source: 'url',
+        }),
+        expect.any(Object),
+        expect.any(Object),
+      );
     });
   });
 
   describe('tracking', () => {
     let trackingSpy;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       trackingSpy = mockTracking('_category_', undefined, jest.spyOn);
+      createComponent();
+      await waitForPromises();
     });
 
     afterEach(() => {
@@ -361,8 +370,6 @@ describe('Design management design index page', () => {
 
     describe('on mount', () => {
       it('tracks design view in snowplow', () => {
-        createComponent({ loading: true });
-
         expect(trackingSpy).toHaveBeenCalledTimes(1);
         expect(trackingSpy).toHaveBeenCalledWith(
           DESIGN_TRACKING_PAGE_NAME,
@@ -383,8 +390,6 @@ describe('Design management design index page', () => {
       });
 
       it('tracks design view service ping', () => {
-        createComponent({ loading: true });
-
         expect(Api.trackRedisHllUserEvent).toHaveBeenCalledTimes(1);
         expect(Api.trackRedisHllUserEvent).toHaveBeenCalledWith(
           DESIGN_SERVICE_PING_EVENT_TYPES.DESIGN_ACTION,

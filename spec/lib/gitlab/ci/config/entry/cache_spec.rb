@@ -16,22 +16,34 @@ RSpec.describe Gitlab::Ci::Config::Entry::Cache do
       let(:policy) { nil }
       let(:key) { 'some key' }
       let(:when_config) { nil }
+      let(:unprotect) { false }
+      let(:fallback_keys) { [] }
 
       let(:config) do
         {
           key: key,
           untracked: true,
-          paths: ['some/path/']
+          paths: ['some/path/'],
+          unprotect: unprotect
         }.tap do |config|
           config[:policy] = policy if policy
           config[:when] = when_config if when_config
+          config[:fallback_keys] = fallback_keys if fallback_keys
         end
       end
 
       describe '#value' do
         shared_examples 'hash key value' do
           it 'returns hash value' do
-            expect(entry.value).to eq(key: key, untracked: true, paths: ['some/path/'], policy: 'pull-push', when: 'on_success')
+            expect(entry.value).to eq(
+              key: key,
+              untracked: true,
+              paths: ['some/path/'],
+              policy: 'pull-push',
+              when: 'on_success',
+              unprotect: false,
+              fallback_keys: []
+            )
           end
         end
 
@@ -57,11 +69,20 @@ RSpec.describe Gitlab::Ci::Config::Entry::Cache do
           end
         end
 
+        context 'with option `unprotect` specified' do
+          let(:unprotect) { true }
+
+          it 'returns true' do
+            expect(entry.value).to match(a_hash_including(unprotect: true))
+          end
+        end
+
         context 'with `policy`' do
           where(:policy, :result) do
             'pull-push' | 'pull-push'
             'push'      | 'push'
             'pull'      | 'pull'
+            '$VARIABLE' | '$VARIABLE'
             'unknown'   | 'unknown' # invalid
           end
 
@@ -94,6 +115,20 @@ RSpec.describe Gitlab::Ci::Config::Entry::Cache do
             expect(entry.value).to include(when: 'on_success')
           end
         end
+
+        context 'with `fallback_keys`' do
+          let(:fallback_keys) { %w[key-1 key-2] }
+
+          it 'matches the list of fallback keys' do
+            expect(entry.value).to match(a_hash_including(fallback_keys: %w[key-1 key-2]))
+          end
+        end
+
+        context 'without `fallback_keys`' do
+          it 'assigns an empty list' do
+            expect(entry.value).to match(a_hash_including(fallback_keys: []))
+          end
+        end
       end
 
       describe '#valid?' do
@@ -111,6 +146,7 @@ RSpec.describe Gitlab::Ci::Config::Entry::Cache do
           'pull-push' | true
           'push'      | true
           'pull'      | true
+          '$VARIABLE' | true
           'unknown'   | false
         end
 
@@ -163,22 +199,6 @@ RSpec.describe Gitlab::Ci::Config::Entry::Cache do
           end
         end
 
-        context 'when policy is unknown' do
-          let(:config) { { policy: 'unknown' } }
-
-          it 'reports error' do
-            is_expected.to include('cache policy should be pull-push, push, or pull')
-          end
-        end
-
-        context 'when `when` is unknown' do
-          let(:config) { { when: 'unknown' } }
-
-          it 'reports error' do
-            is_expected.to include('cache when should be on_success, on_failure or always')
-          end
-        end
-
         context 'when descendants are invalid' do
           context 'with invalid keys' do
             let(:config) { { key: 1 } }
@@ -226,6 +246,62 @@ RSpec.describe Gitlab::Ci::Config::Entry::Cache do
 
           it 'reports error with descendants' do
             is_expected.to include 'cache config contains unknown keys: invalid'
+          end
+        end
+
+        context 'when the `when` keyword is not a valid string' do
+          context 'when `when` is unknown' do
+            let(:config) { { when: 'unknown' } }
+
+            it 'returns error' do
+              is_expected.to include('cache when should be one of: on_success, on_failure, always')
+            end
+          end
+
+          context 'when it is an array' do
+            let(:config) { { when: ['always'] } }
+
+            it 'returns error' do
+              expect(entry).not_to be_valid
+              is_expected.to include('cache when should be a string')
+            end
+          end
+
+          context 'when it is a boolean' do
+            let(:config) { { when: true } }
+
+            it 'returns error' do
+              expect(entry).not_to be_valid
+              is_expected.to include('cache when should be a string')
+            end
+          end
+        end
+
+        context 'when the `policy` keyword is not a valid string' do
+          context 'when `policy` is unknown' do
+            let(:config) { { policy: 'unknown' } }
+
+            it 'returns error' do
+              is_expected.to include('cache policy should be a variable or one of: pull-push, push, pull')
+            end
+          end
+
+          context 'when it is an array' do
+            let(:config) { { policy: ['pull-push'] } }
+
+            it 'returns error' do
+              expect(entry).not_to be_valid
+              is_expected.to include('cache policy should be a string')
+            end
+          end
+
+          context 'when it is a boolean' do
+            let(:config) { { policy: true } }
+
+            it 'returns error' do
+              expect(entry).not_to be_valid
+              is_expected.to include('cache policy should be a string')
+            end
           end
         end
       end

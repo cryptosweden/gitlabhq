@@ -10,30 +10,33 @@ module QA
           super
 
           base.view 'app/views/shared/groups/_search_form.html.haml' do
-            element :groups_filter
+            element 'groups-filter-field'
           end
 
           base.view 'app/assets/javascripts/groups/components/groups.vue' do
-            element :groups_list_tree_container
+            element 'groups-list-tree-container'
           end
         end
 
         private
 
+        # Check if a group exists in private or public tab
+        # @param name [String] group name
+        # @return [Boolean] whether a group with given name exists
         def has_filtered_group?(name)
-          # Filter and submit to reload the page and only retrieve the filtered results
-          find_element(:groups_filter).set(name).send_keys(:return)
+          filter_group(name)
 
-          # Since we submitted after filtering, the presence of
-          # groups_list_tree_container means we have the complete filtered list
-          # of groups
-          has_element?(:groups_list_tree_container, wait: QA::Support::Repeater::DEFAULT_MAX_WAIT_TIME)
+          page.has_link?(name, wait: 0) # element containing link to group
+        end
 
-          # If there are no groups we'll know immediately because we filtered the list
-          return false if page.has_text?('No groups or projects matched your search', wait: 0)
-
-          # The name will be present as filter input so we check for a link, not text
-          page.has_link?(name, wait: 0)
+        # Filter by group name
+        # @param name [String] group name
+        # @return [Boolean] whether the filter returned any group
+        def filter_group(name)
+          fill_element('groups-filter-field', name).send_keys(:return)
+          # Loading starts a moment after `return` is sent. We mustn't jump ahead
+          wait_for_requests if spinner_exists?
+          has_element?('groups-list-tree-container', wait: 1)
         end
       end
     end

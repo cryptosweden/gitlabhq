@@ -2,10 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe TagsFinder do
+RSpec.describe TagsFinder, feature_category: :source_code_management do
+  subject(:tags_finder) { described_class.new(repository, params) }
+
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:repository) { project.repository }
+
+  let(:params) { {} }
 
   def load_tags(params, gitaly_pagination: false)
     described_class.new(repository, params).execute(gitaly_pagination: gitaly_pagination)
@@ -68,6 +72,14 @@ RSpec.describe TagsFinder do
         expect(result.count).to eq(1)
       end
 
+      it 'filters tags by name with wildcard' do
+        result = load_tags({ search: 'v1.*.0' })
+
+        expect(result.first.name).to eq('v1.0.0')
+        expect(result.second.name).to eq('v1.1.0')
+        expect(result.count).to eq(2)
+      end
+
       it 'filters tags by nonexistent name that begins with' do
         result = load_tags({ search: '^nope' })
 
@@ -77,6 +89,20 @@ RSpec.describe TagsFinder do
       it 'filters tags by nonexistent name that ends with' do
         result = load_tags({ search: 'nope$' })
         expect(result.count).to eq(0)
+      end
+
+      it 'filters tags by nonexistent name with wildcard' do
+        result = load_tags({ search: 'n*e' })
+        expect(result.count).to eq(0)
+      end
+
+      it 'uses ::Gitlab::UntrustedRegexp for regex filter' do
+        escaped_regex = '^v1\\..*?.*?.*?.*?.*?.*?.*?.*?.*?.*?\\.0$'
+
+        expect(::Gitlab::UntrustedRegexp).to receive(:new).with(escaped_regex).once.and_call_original
+        result = load_tags({ search: '^v1.**********.0$' })
+
+        expect(result.count).to eq(2)
       end
 
       context 'when search is not a string' do
@@ -120,7 +146,7 @@ RSpec.describe TagsFinder do
         it 'filters tags' do
           result = subject
 
-          expect(result.map(&:name)).to eq(%w(v1.1.0))
+          expect(result.map(&:name)).to eq(%w[v1.1.0])
         end
       end
 
@@ -130,7 +156,7 @@ RSpec.describe TagsFinder do
         it 'filters branches' do
           result = subject
 
-          expect(result.map(&:name)).to eq(%w(v1.1.1))
+          expect(result.map(&:name)).to eq(%w[v1.1.1])
         end
       end
 
@@ -140,7 +166,21 @@ RSpec.describe TagsFinder do
         it 'filters branches' do
           result = subject
 
-          expect(result.map(&:name)).to eq(%w(v1.0.0 v1.1.0))
+          expect(result.map(&:name)).to eq(%w[v1.0.0 v1.1.0])
+        end
+
+        context 'when per_page is over the limit' do
+          let(:params) { { per_page: 3 } }
+
+          before do
+            stub_const('Gitlab::PaginationDelegate::MAX_PER_PAGE', 2)
+          end
+
+          it 'limits the maximum number of elements' do
+            result = subject
+
+            expect(result.map(&:name)).to eq(%w[v1.0.0 v1.1.0])
+          end
         end
       end
 
@@ -161,7 +201,7 @@ RSpec.describe TagsFinder do
           it 'filters branches' do
             result = subject
 
-            expect(result.map(&:name)).to eq(%w(v1.1.1 v1.1.0 v1.0.0))
+            expect(result.map(&:name)).to eq(%w[v1.1.1 v1.1.0 v1.0.0])
           end
         end
 
@@ -171,8 +211,18 @@ RSpec.describe TagsFinder do
           it 'filters branches' do
             result = subject
 
-            expect(result.map(&:name)).to eq(%w(v1.1.0 v1.0.0))
+            expect(result.map(&:name)).to eq(%w[v1.1.0 v1.0.0])
           end
+        end
+      end
+
+      context 'pagination and search' do
+        let(:params) { { search: '1.1.1', per_page: 1 } }
+
+        it 'ignores the pagination for search' do
+          result = subject
+
+          expect(result.map(&:name)).to eq(%w[v1.1.1])
         end
       end
     end
@@ -184,6 +234,60 @@ RSpec.describe TagsFinder do
         tags_finder = described_class.new(repository, {})
 
         expect { tags_finder.execute }.to raise_error(Gitlab::Git::CommandError)
+      end
+    end
+  end
+
+  describe '#next_cursor' do
+    subject { tags_finder.next_cursor }
+
+    it 'always nil before #execute call' do
+      is_expected.to be_nil
+    end
+
+    context 'after #execute' do
+      context 'with gitaly pagination' do
+        before do
+          tags_finder.execute(gitaly_pagination: true)
+        end
+
+        context 'without pagination params' do
+          it { is_expected.to be_nil }
+        end
+
+        context 'with pagination params' do
+          let(:params) { { per_page: 5 } }
+
+          it { is_expected.to be_present }
+
+          context 'when all objects can be returned on the same page' do
+            let(:params) { { per_page: 100 } }
+
+            it { is_expected.to be_present }
+          end
+        end
+      end
+
+      context 'without gitaly pagination' do
+        before do
+          tags_finder.execute(gitaly_pagination: false)
+        end
+
+        context 'without pagination params' do
+          it { is_expected.to be_nil }
+        end
+
+        context 'with pagination params' do
+          let(:params) { { per_page: 5 } }
+
+          it { is_expected.to be_nil }
+
+          context 'when all objects can be returned on the same page' do
+            let(:params) { { per_page: 100 } }
+
+            it { is_expected.to be_nil }
+          end
+        end
       end
     end
   end

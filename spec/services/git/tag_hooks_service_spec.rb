@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Git::TagHooksService, :service do
+RSpec.describe Git::TagHooksService, :service, feature_category: :source_code_management do
   let(:user) { create(:user) }
   let(:project) { create(:project, :repository) }
 
-  let(:oldrev) { Gitlab::Git::BLANK_SHA }
+  let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
   let(:newrev) { "8a2a6eb295bb170b34c24c76c49ed0e9b2eaf34b" } # gitlab-test: git rev-parse refs/tags/v1.1.0
   let(:ref) { "refs/tags/#{tag_name}" }
   let(:tag_name) { 'v1.1.0' }
@@ -63,6 +63,7 @@ RSpec.describe Git::TagHooksService, :service do
         is_expected.to match a_hash_including(
           object_kind: 'tag_push',
           ref: ref,
+          ref_protected: project.protected_for?(ref),
           before: oldrev,
           after: newrev,
           message: tag.message,
@@ -104,12 +105,12 @@ RSpec.describe Git::TagHooksService, :service do
               id: commit.id,
               message: commit.safe_message,
               url: [
-               Gitlab.config.gitlab.url,
-               project.namespace.to_param,
-               project.to_param,
-               '-',
-               'commit',
-               commit.id
+                Gitlab.config.gitlab.url,
+                project.namespace.to_param,
+                project.to_param,
+                '-',
+                'commit',
+                commit.id
               ].join('/')
             )
           end
@@ -138,7 +139,7 @@ RSpec.describe Git::TagHooksService, :service do
 
       before do
         # Create the lightweight tag
-        rugged_repo(project.repository).tags.create(tag_name, newrev)
+        project.repository.write_ref("refs/tags/#{tag_name}", newrev)
 
         # Clear tag list cache
         project.repository.expire_tags_cache

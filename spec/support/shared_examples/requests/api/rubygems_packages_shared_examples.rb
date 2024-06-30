@@ -122,21 +122,11 @@ RSpec.shared_examples 'process rubygems upload' do |user_type, status, add_membe
       end
 
       context 'and direct upload disabled' do
-        context 'and background upload disabled' do
-          let(:fog_connection) do
-            stub_package_file_object_storage(direct_upload: false, background_upload: false)
-          end
-
-          it_behaves_like 'creates rubygems package files'
+        let(:fog_connection) do
+          stub_package_file_object_storage(direct_upload: false)
         end
 
-        context 'and background upload enabled' do
-          let(:fog_connection) do
-            stub_package_file_object_storage(direct_upload: false, background_upload: true)
-          end
-
-          it_behaves_like 'creates rubygems package files'
-        end
+        it_behaves_like 'creates rubygems package files'
       end
     end
   end
@@ -161,7 +151,7 @@ RSpec.shared_examples 'dependency endpoint success' do |user_type, status, add_m
 
     context 'with gems params' do
       let(:params) { { gems: 'foo,bar' } }
-      let(:expected_response) { Marshal.dump(%w(result result)) }
+      let(:expected_response) { Marshal.dump(%w[result result]) }
 
       it 'returns successfully', :aggregate_failures do
         service_result = double('DependencyResolverService', execute: ServiceResponse.success(payload: 'result'))
@@ -203,5 +193,6 @@ RSpec.shared_examples 'Rubygems gem download' do |user_type, status, add_member 
     end
 
     it_behaves_like 'a package tracking event', described_class.name, 'pull_package'
+    it_behaves_like 'bumping the package last downloaded at field'
   end
 end

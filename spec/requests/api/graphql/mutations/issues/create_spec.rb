@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Create an issue' do
+RSpec.describe 'Create an issue', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:current_user) { create(:user) }
@@ -20,7 +20,7 @@ RSpec.describe 'Create an issue' do
       'title' => 'new title',
       'description' => 'new description',
       'confidential' => true,
-      'dueDate' => Date.tomorrow.strftime('%Y-%m-%d'),
+      'dueDate' => Date.tomorrow.iso8601,
       'type' => 'ISSUE'
     }
   end
@@ -53,6 +53,22 @@ RSpec.describe 'Create an issue' do
       let(:mutation_class) { ::Mutations::Issues::Create }
     end
 
+    context 'when creating an issue of type TASK' do
+      before do
+        input['type'] = 'TASK'
+      end
+
+      it 'creates an issue with TASK type' do
+        expect do
+          post_graphql_mutation(mutation, current_user: current_user)
+        end.to change(Issue, :count).by(1)
+
+        created_issue = Issue.last
+
+        expect(created_issue.work_item_type.base_type).to eq('task')
+      end
+    end
+
     context 'when position params are provided' do
       let(:existing_issue) { create(:issue, project: project, relative_position: 50) }
 
@@ -68,6 +84,18 @@ RSpec.describe 'Create an issue' do
         expect(response).to have_gitlab_http_status(:success)
         expect(mutation_response['issue']['relativePosition']).to be < existing_issue.relative_position
       end
+    end
+
+    context 'when both labels and labelIds params are provided' do
+      before do
+        input.merge!(
+          labels: [project_label1.name],
+          label_ids: [project_label1.to_global_id.to_s]
+        )
+      end
+
+      it_behaves_like 'a mutation that returns top-level errors',
+        errors: ['Only one of [labels, labelIds] arguments is allowed at the same time.']
     end
   end
 end

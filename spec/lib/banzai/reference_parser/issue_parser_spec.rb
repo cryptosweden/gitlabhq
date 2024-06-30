@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::ReferenceParser::IssueParser do
+RSpec.describe Banzai::ReferenceParser::IssueParser, feature_category: :team_planning do
   include ReferenceParserHelpers
 
-  let_it_be(:group)   { create(:group, :public) }
-  let_it_be(:project) { create(:project, :public, group: group) }
-  let_it_be(:user)    { create(:user) }
-  let_it_be(:issue)   { create(:issue, project: project) }
+  let_it_be(:group) { create(:group, :public) }
+  let_it_be_with_reload(:project) { create(:project, :public, group: group) }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:issue) { create(:issue, project: project) }
 
   let(:link)    { empty_html_link }
 
@@ -136,7 +136,7 @@ RSpec.describe Banzai::ReferenceParser::IssueParser do
     end
 
     def issue_link(issue)
-      Nokogiri::HTML.fragment(%Q{<a data-issue="#{issue.id}"></a>}).children[0]
+      Nokogiri::HTML.fragment(%(<a data-issue="#{issue.id}"></a>)).children[0]
     end
 
     before do

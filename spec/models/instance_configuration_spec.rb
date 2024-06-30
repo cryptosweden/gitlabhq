@@ -36,7 +36,7 @@ RSpec.describe InstanceConfiguration do
 
           result = subject.settings[:ssh_algorithms_hashes]
 
-          expect(result.map { |a| a[:name] }).to match_array(%w(DSA ECDSA ED25519 RSA))
+          expect(result.map { |a| a[:name] }).to match_array(%w[DSA ECDSA ED25519 RSA])
         end
 
         it 'does not include disabled algorithm' do
@@ -45,7 +45,7 @@ RSpec.describe InstanceConfiguration do
 
           result = subject.settings[:ssh_algorithms_hashes]
 
-          expect(result.map { |a| a[:name] }).to match_array(%w(ECDSA ED25519 RSA))
+          expect(result.map { |a| a[:name] }).to match_array(%w[ECDSA ED25519 RSA])
         end
 
         def pub_file(exist: true)
@@ -73,7 +73,7 @@ RSpec.describe InstanceConfiguration do
         it 'returns Settings.pages' do
           gitlab_pages.delete(:ip_address)
 
-          expect(gitlab_pages).to eq(Settings.pages.symbolize_keys)
+          expect(gitlab_pages).to eq(Settings.pages.to_hash.deep_symbolize_keys)
         end
 
         it 'returns the GitLab\'s pages host ip address' do
@@ -99,10 +99,13 @@ RSpec.describe InstanceConfiguration do
             max_attachment_size: 10,
             receive_max_input_size: 20,
             max_import_size: 30,
+            max_export_size: 40,
             diff_max_patch_bytes: 409600,
             max_artifacts_size: 50,
             max_pages_size: 60,
-            snippet_size_limit: 70
+            snippet_size_limit: 70,
+            max_import_remote_file_size: 80,
+            bulk_import_max_download_file_size: 90
           )
         end
 
@@ -112,10 +115,13 @@ RSpec.describe InstanceConfiguration do
           expect(size_limits[:max_attachment_size]).to eq(10.megabytes)
           expect(size_limits[:receive_max_input_size]).to eq(20.megabytes)
           expect(size_limits[:max_import_size]).to eq(30.megabytes)
+          expect(size_limits[:max_export_size]).to eq(40.megabytes)
           expect(size_limits[:diff_max_patch_bytes]).to eq(400.kilobytes)
           expect(size_limits[:max_artifacts_size]).to eq(50.megabytes)
           expect(size_limits[:max_pages_size]).to eq(60.megabytes)
           expect(size_limits[:snippet_size_limit]).to eq(70.bytes)
+          expect(size_limits[:max_import_remote_file_size]).to eq(80.megabytes)
+          expect(size_limits[:bulk_import_max_download_file_size]).to eq(90.megabytes)
         end
 
         it 'returns nil if receive_max_input_size not set' do
@@ -127,12 +133,21 @@ RSpec.describe InstanceConfiguration do
         end
 
         it 'returns nil if set to 0 (unlimited)' do
-          Gitlab::CurrentSettings.current_application_settings.update!(max_import_size: 0, max_pages_size: 0)
+          Gitlab::CurrentSettings.current_application_settings.update!(
+            max_import_size: 0,
+            max_export_size: 0,
+            max_pages_size: 0,
+            max_import_remote_file_size: 0,
+            bulk_import_max_download_file_size: 0
+          )
 
           size_limits = subject.settings[:size_limits]
 
           expect(size_limits[:max_import_size]).to be_nil
+          expect(size_limits[:max_export_size]).to be_nil
           expect(size_limits[:max_pages_size]).to be_nil
+          expect(size_limits[:max_import_remote_file_size]).to eq(0)
+          expect(size_limits[:bulk_import_max_download_file_size]).to eq(0)
         end
       end
 
@@ -170,6 +185,57 @@ RSpec.describe InstanceConfiguration do
 
           expect(file_size_limits[:Plan1]).to eq({ conan: 1001, helm: 1008, maven: 1002, npm: 1003, nuget: 1004, pypi: 1005, terraform_module: 1006, generic: 1007 })
           expect(file_size_limits[:Plan2]).to eq({ conan: 1101, helm: 1108, maven: 1102, npm: 1103, nuget: 1104, pypi: 1105, terraform_module: 1106, generic: 1107 })
+        end
+      end
+
+      describe '#ci_cd_limits' do
+        let_it_be(:plan1) { create(:plan, name: 'plan1', title: 'Plan 1') }
+        let_it_be(:plan2) { create(:plan, name: 'plan2', title: 'Plan 2') }
+
+        before do
+          create(:plan_limits,
+            plan: plan1,
+            ci_pipeline_size: 1001,
+            ci_active_jobs: 1002,
+            ci_project_subscriptions: 1004,
+            ci_pipeline_schedules: 1005,
+            ci_needs_size_limit: 1006,
+            ci_registered_group_runners: 1007,
+            ci_registered_project_runners: 1008
+          )
+          create(:plan_limits,
+            plan: plan2,
+            ci_pipeline_size: 1101,
+            ci_active_jobs: 1102,
+            ci_project_subscriptions: 1104,
+            ci_pipeline_schedules: 1105,
+            ci_needs_size_limit: 1106,
+            ci_registered_group_runners: 1107,
+            ci_registered_project_runners: 1108
+          )
+        end
+
+        it 'returns CI/CD limits' do
+          ci_cd_size_limits = subject.settings[:ci_cd_limits]
+
+          expect(ci_cd_size_limits[:Plan1]).to eq({
+            ci_active_jobs: 1002,
+            ci_needs_size_limit: 1006,
+            ci_pipeline_schedules: 1005,
+            ci_pipeline_size: 1001,
+            ci_project_subscriptions: 1004,
+            ci_registered_group_runners: 1007,
+            ci_registered_project_runners: 1008
+          })
+          expect(ci_cd_size_limits[:Plan2]).to eq({
+            ci_active_jobs: 1102,
+            ci_needs_size_limit: 1106,
+            ci_pipeline_schedules: 1105,
+            ci_pipeline_size: 1101,
+            ci_project_subscriptions: 1104,
+            ci_registered_group_runners: 1107,
+            ci_registered_project_runners: 1108
+          })
         end
       end
 

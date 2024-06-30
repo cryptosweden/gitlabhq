@@ -4,8 +4,8 @@ import { parseBoolean } from '~/lib/utils/common_utils';
 import PerformancePlugin from '~/performance/vue_performance_plugin';
 import Translate from '~/vue_shared/translate';
 import RegistryBreadcrumb from '~/packages_and_registries/shared/components/registry_breadcrumb.vue';
-import { renderBreadcrumb } from '~/packages_and_registries/shared/utils';
-import { apolloProvider } from './graphql/index';
+import { injectVueAppBreadcrumbs } from '~/lib/utils/breadcrumbs';
+import { apolloProvider } from 'ee_else_ce/packages_and_registries/container_registry/explorer/graphql';
 import RegistryExplorer from './pages/index.vue';
 import createRouter from './router';
 
@@ -35,10 +35,14 @@ export default () => {
     expirationPolicy,
     isGroupPage,
     isAdmin,
-    showCleanupPolicyOnAlert,
+    isMetadataDatabaseEnabled,
+    showCleanupPolicyLink,
+    showContainerRegistrySettings,
     showUnfinishedTagCleanupCallout,
     connectionError,
     invalidPathError,
+    securityConfigurationPath,
+    containerScanningForRegistryDocsPath,
     ...config
   } = el.dataset;
 
@@ -68,10 +72,14 @@ export default () => {
             expirationPolicy: expirationPolicy ? JSON.parse(expirationPolicy) : undefined,
             isGroupPage: parseBoolean(isGroupPage),
             isAdmin: parseBoolean(isAdmin),
-            showCleanupPolicyOnAlert: parseBoolean(showCleanupPolicyOnAlert),
+            showCleanupPolicyLink: parseBoolean(showCleanupPolicyLink),
+            showContainerRegistrySettings: parseBoolean(showContainerRegistrySettings),
             showUnfinishedTagCleanupCallout: parseBoolean(showUnfinishedTagCleanupCallout),
             connectionError: parseBoolean(connectionError),
             invalidPathError: parseBoolean(invalidPathError),
+            isMetadataDatabaseEnabled: parseBoolean(isMetadataDatabaseEnabled),
+            securityConfigurationPath,
+            containerScanningForRegistryDocsPath,
           },
           /* eslint-disable @gitlab/require-i18n-strings */
           dockerBuildCommand: `docker build -t ${config.repositoryUrl} .`,
@@ -86,7 +94,7 @@ export default () => {
     });
 
   return {
-    attachBreadcrumb: renderBreadcrumb(router, apolloProvider, RegistryBreadcrumb),
+    attachBreadcrumb: () => injectVueAppBreadcrumbs(router, RegistryBreadcrumb, apolloProvider),
     attachMainComponent,
   };
 };

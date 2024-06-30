@@ -2,15 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe Packages::Debian::GenerateDistributionWorker, type: :worker do
+RSpec.describe Packages::Debian::GenerateDistributionWorker, type: :worker, feature_category: :package_registry do
   describe '#perform' do
-    let(:container_type) { distribution.container_type }
+    let(:container_type_as_string) { container_type.to_s }
     let(:distribution_id) { distribution.id }
 
-    subject { described_class.new.perform(container_type, distribution_id) }
+    subject { described_class.new.perform(container_type_as_string, distribution_id) }
 
-    let(:subject2) { described_class.new.perform(container_type, distribution_id) }
-    let(:subject3) { described_class.new.perform(container_type, distribution_id) }
+    let(:subject2) { described_class.new.perform(container_type_as_string, distribution_id) }
+    let(:subject3) { described_class.new.perform(container_type_as_string, distribution_id) }
 
     include_context 'with published Debian package'
 
@@ -53,8 +53,8 @@ RSpec.describe Packages::Debian::GenerateDistributionWorker, type: :worker do
         end
 
         context 'with valid parameters' do
-          it_behaves_like 'an idempotent worker' do
-            let(:job_args) { [container_type, distribution_id] }
+          it_behaves_like 'an idempotent worker', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446272' do
+            let(:job_args) { [container_type_as_string, distribution_id] }
 
             it_behaves_like 'Generate Debian Distribution and component files'
           end

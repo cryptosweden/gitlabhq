@@ -12,18 +12,15 @@ module Gitlab
       included do
         # Issue, MergeRequest, Epic: quick actions definitions
         desc do
-          _('Close this %{quick_action_target}') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
+          _('Close this %{quick_action_target}') % { quick_action_target: target_issuable_name }
         end
         explanation do
-          _('Closes this %{quick_action_target}.') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
+          _('Closes this %{quick_action_target}.') % { quick_action_target: target_issuable_name }
         end
         execution_message do
-          _('Closed this %{quick_action_target}.') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
+          _('Closed this %{quick_action_target}.') % { quick_action_target: target_issuable_name }
         end
-        types Issuable
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             quick_action_target.open? &&
@@ -35,17 +32,17 @@ module Gitlab
 
         desc do
           _('Reopen this %{quick_action_target}') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
+            { quick_action_target: target_issuable_name }
         end
         explanation do
           _('Reopens this %{quick_action_target}.') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
+            { quick_action_target: target_issuable_name }
         end
         execution_message do
           _('Reopened this %{quick_action_target}.') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
+            { quick_action_target: target_issuable_name }
         end
-        types Issuable
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             quick_action_target.closed? &&
@@ -55,7 +52,7 @@ module Gitlab
           @updates[:state_event] = 'reopen'
         end
 
-        desc _('Change title')
+        desc { _('Change title') }
         explanation do |title_param|
           _('Changes the title to "%{title_param}".') % { title_param: title_param }
         end
@@ -63,7 +60,7 @@ module Gitlab
           _('Changed the title to "%{title_param}".') % { title_param: title_param }
         end
         params '<New title>'
-        types Issuable
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             current_user.can?(:"update_#{quick_action_target.to_ability_name}", quick_action_target)
@@ -72,7 +69,7 @@ module Gitlab
           @updates[:title] = title_param
         end
 
-        desc _('Add label(s)')
+        desc { _('Add labels') }
         explanation do |labels_param|
           labels = find_label_references(labels_param)
 
@@ -82,16 +79,16 @@ module Gitlab
           end
         end
         params '~label1 ~"label 2"'
-        types Issuable
+        types ::Issuable
         condition do
           current_user.can?(:"set_#{quick_action_target.to_ability_name}_metadata", quick_action_target) &&
             find_labels.any?
         end
-        command :label do |labels_param|
+        command :label, :labels do |labels_param|
           run_label_command(labels: find_labels(labels_param), command: :label, updates_key: :add_label_ids)
         end
 
-        desc _('Remove all or specific label(s)')
+        desc { _('Remove all or specific labels') }
         explanation do |labels_param = nil|
           label_references = labels_param.present? ? find_label_references(labels_param) : []
           if label_references.any?
@@ -102,7 +99,7 @@ module Gitlab
           end
         end
         params '~label1 ~"label 2"'
-        types Issuable
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             quick_action_target.labels.any? &&
@@ -128,13 +125,13 @@ module Gitlab
           @execution_message[:unlabel] = remove_label_message(label_references)
         end
 
-        desc _('Replace all label(s)')
+        desc { _('Replace all labels') }
         explanation do |labels_param|
           labels = find_label_references(labels_param)
           "Replaces all labels with #{labels.join(' ')} #{'label'.pluralize(labels.count)}." if labels.any?
         end
         params '~label1 ~"label 2"'
-        types Issuable
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             quick_action_target.labels.any? &&
@@ -144,10 +141,10 @@ module Gitlab
           run_label_command(labels: find_labels(labels_param), command: :relabel, updates_key: :label_ids)
         end
 
-        desc _('Add a to do')
-        explanation _('Adds a to do.')
-        execution_message _('Added a to do.')
-        types Issuable
+        desc { _('Add a to do') }
+        explanation { _('Adds a to do.') }
+        execution_message { _('Added a to do.') }
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             !TodoService.new.todo_exist?(quick_action_target, current_user)
@@ -156,10 +153,10 @@ module Gitlab
           @updates[:todo_event] = 'add'
         end
 
-        desc _('Mark to do as done')
-        explanation _('Marks to do as done.')
-        execution_message _('Marked to do as done.')
-        types Issuable
+        desc { _('Mark to do as done') }
+        explanation { _('Marks to do as done.') }
+        execution_message { _('Marked to do as done.') }
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             TodoService.new.todo_exist?(quick_action_target, current_user)
@@ -168,16 +165,10 @@ module Gitlab
           @updates[:todo_event] = 'done'
         end
 
-        desc _('Subscribe')
-        explanation do
-          _('Subscribes to this %{quick_action_target}.') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
-        end
-        execution_message do
-          _('Subscribed to this %{quick_action_target}.') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
-        end
-        types Issuable
+        desc { _('Subscribe') }
+        explanation { _('Subscribes to notifications.') }
+        execution_message { _('Subscribed to notifications.') }
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             !quick_action_target.subscribed?(current_user, project)
@@ -186,16 +177,10 @@ module Gitlab
           @updates[:subscription_event] = 'subscribe'
         end
 
-        desc _('Unsubscribe')
-        explanation do
-          _('Unsubscribes from this %{quick_action_target}.') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
-        end
-        execution_message do
-          _('Unsubscribed from this %{quick_action_target}.') %
-            { quick_action_target: quick_action_target.to_ability_name.humanize(capitalize: false) }
-        end
-        types Issuable
+        desc { _('Unsubscribe') }
+        explanation { _('Unsubscribes from notifications.') }
+        execution_message { _('Unsubscribed from notifications.') }
+        types ::Issuable
         condition do
           quick_action_target.persisted? &&
             quick_action_target.subscribed?(current_user, project)
@@ -204,15 +189,15 @@ module Gitlab
           @updates[:subscription_event] = 'unsubscribe'
         end
 
-        desc _('Toggle emoji award')
+        desc { _('Toggle emoji reaction') }
         explanation do |name|
-          _("Toggles :%{name}: emoji award.") % { name: name } if name
+          _("Toggles :%{name}: emoji reaction.") % { name: name } if name
         end
         execution_message do |name|
-          _("Toggled :%{name}: emoji award.") % { name: name } if name
+          _("Toggled :%{name}: emoji reaction.") % { name: name } if name
         end
         params ':emoji:'
-        types Issuable
+        types ::Issuable
         condition do
           quick_action_target.persisted?
         end
@@ -220,28 +205,28 @@ module Gitlab
           match = emoji_param.match(Banzai::Filter::EmojiFilter.emoji_pattern)
           match[1] if match
         end
-        command :award do |name|
+        command :react, :award do |name|
           if name && quick_action_target.user_can_award?(current_user)
             @updates[:emoji_award] = name
           end
         end
 
-        desc _("Append the comment with %{shrug}") % { shrug: SHRUG }
+        desc { _("Append the comment with %{shrug}") % { shrug: SHRUG } }
         params '<Comment>'
-        types Issuable
+        types ::Issuable
         substitution :shrug do |comment|
           "#{comment} #{SHRUG}"
         end
 
-        desc _("Append the comment with %{tableflip}") % { tableflip: TABLEFLIP }
+        desc { _("Append the comment with %{tableflip}") % { tableflip: TABLEFLIP } }
         params '<Comment>'
-        types Issuable
+        types ::Issuable
         substitution :tableflip do |comment|
           "#{comment} #{TABLEFLIP}"
         end
 
-        desc _('Set severity')
-        explanation _('Sets the severity')
+        desc { _('Set severity') }
+        explanation { _('Sets the severity') }
         params '1 / S1 / Critical'
         types Issue
         condition do
@@ -255,7 +240,7 @@ module Gitlab
 
           if severity
             if quick_action_target.persisted?
-              ::Issues::UpdateService.new(project: quick_action_target.project, current_user: current_user, params: { severity: severity }).execute(quick_action_target)
+              ::Issues::UpdateService.new(container: quick_action_target.project, current_user: current_user, params: { severity: severity }).execute(quick_action_target)
             else
               quick_action_target.build_issuable_severity(severity: severity)
             end
@@ -264,6 +249,16 @@ module Gitlab
           else
             @execution_message[:severity] = _('No severity matches the provided parameter')
           end
+        end
+
+        desc { _("Turn on confidentiality") }
+        explanation { _("Makes this %{type} confidential.") % { type: target_issuable_name } }
+        types ::Issuable
+        condition { quick_action_target.supports_confidentiality? && can_make_confidential? }
+        command :confidential do
+          @updates[:confidential] = true
+
+          @execution_message[:confidential] = confidential_execution_message
         end
 
         private
@@ -314,6 +309,33 @@ module Gitlab
           else
             _('Removed all labels.')
           end
+        end
+
+        def target_issuable_name
+          if quick_action_target.to_ability_name == "work_item"
+            _('item')
+          else
+            quick_action_target.to_ability_name.humanize(capitalize: false)
+          end
+        end
+
+        def can_make_confidential?
+          confidentiality_not_supported = quick_action_target.respond_to?(:issue_type_supports?) &&
+            !quick_action_target.issue_type_supports?(:confidentiality)
+
+          return false if confidentiality_not_supported
+
+          !quick_action_target.confidential? && current_user.can?(:set_confidentiality, quick_action_target)
+        end
+
+        def confidential_execution_message
+          confidential_error_message.presence || (_("Made this %{type} confidential.") % { type: target_issuable_name })
+        end
+
+        def confidential_error_message
+          return unless quick_action_target.respond_to?(:confidentiality_errors)
+
+          quick_action_target.confidentiality_errors.join("\n")
         end
       end
     end

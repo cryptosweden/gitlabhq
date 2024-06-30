@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Modules with instance variables could be considered harmful
@@ -35,12 +35,10 @@ one of the variables. Everything could touch anything.
 People are saying multiple inheritance is bad. Mixing multiple modules with
 multiple instance variables scattering everywhere suffer from the same issue.
 The same applies to `ActiveSupport::Concern`. See:
-[Consider replacing concerns with dedicated classes & composition](
-https://gitlab.com/gitlab-org/gitlab/-/issues/16270)
+[Consider replacing concerns with dedicated classes & composition](https://gitlab.com/gitlab-org/gitlab/-/issues/16270)
 
 There's also a similar idea:
-[Use decorators and interface segregation to solve overgrowing models problem](
-https://gitlab.com/gitlab-org/gitlab/-/issues/14235)
+[Use decorators and interface segregation to solve overgrowing models problem](https://gitlab.com/gitlab-org/gitlab/-/issues/14235)
 
 Note that `included` doesn't solve the whole issue. They define the
 dependencies, but they still allow each modules to talk implicitly via the

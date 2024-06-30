@@ -5,7 +5,7 @@ module Gitlab
     module Status
       class WaitingForResource < Status::Core
         def text
-          s_('CiStatusText|waiting')
+          s_('CiStatusText|Waiting')
         end
 
         def label
@@ -17,7 +17,11 @@ module Gitlab
         end
 
         def favicon
-          'favicon_pending'
+          'favicon_status_pending'
+        end
+
+        def name
+          'WAITING_FOR_RESOURCE'
         end
 
         def group

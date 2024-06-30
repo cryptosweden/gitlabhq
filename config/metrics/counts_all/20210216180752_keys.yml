@@ -2,10 +2,7 @@
 data_category: optional
 key_path: counts.keys
 description: Number of keys.
-product_section: dev
-product_stage: managed
-product_group: group::access
-product_category: authentication_and_authorization
+product_group: authentication
 value_type: number
 status: active
 time_frame: all

@@ -2,17 +2,26 @@
 
 require 'spec_helper'
 
-RSpec.describe 'rendering namespace statistics' do
+RSpec.describe 'rendering namespace statistics', feature_category: :metrics do
   include GraphqlHelpers
 
   let(:namespace) { user.namespace }
-  let!(:statistics) { create(:namespace_root_storage_statistics, namespace: namespace, packages_size: 5.gigabytes, uploads_size: 3.gigabytes) }
   let(:user) { create(:user) }
+  let!(:statistics) do
+    create(
+      :namespace_root_storage_statistics,
+      namespace: namespace,
+      packages_size: 5.gigabytes,
+      uploads_size: 3.gigabytes
+    )
+  end
 
   let(:query) do
-    graphql_query_for('namespace',
-                      { 'fullPath' => namespace.full_path },
-                      "rootStorageStatistics { #{all_graphql_fields_for('RootStorageStatistics')} }")
+    graphql_query_for(
+      'namespace',
+      { 'fullPath' => namespace.full_path },
+      "rootStorageStatistics { #{all_graphql_fields_for('RootStorageStatistics')} }"
+    )
   end
 
   shared_examples 'a working namespace with storage statistics query' do
@@ -49,12 +58,12 @@ RSpec.describe 'rendering namespace statistics' do
     it_behaves_like 'a working namespace with storage statistics query'
 
     context 'when the namespace is public' do
-      let(:group) { create(:group, :public)}
+      let(:group) { create(:group, :public) }
 
       it 'hides statistics for unauthenticated requests' do
         post_graphql(query, current_user: nil)
 
-        expect(graphql_data['namespace']).to be_blank
+        expect(graphql_data_at(:namespace, :root_storage_statistics)).to be_blank
       end
     end
   end

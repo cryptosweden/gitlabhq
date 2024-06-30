@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Importer::NoteImporter do
+RSpec.describe Gitlab::GithubImport::Importer::NoteImporter, feature_category: :importers do
   let(:client) { double(:client) }
   let(:project) { create(:project) }
   let(:user) { create(:user) }
@@ -12,13 +12,13 @@ RSpec.describe Gitlab::GithubImport::Importer::NoteImporter do
 
   let(:github_note) do
     Gitlab::GithubImport::Representation::Note.new(
+      note_id: 100,
       noteable_id: 1,
       noteable_type: 'Issue',
       author: Gitlab::GithubImport::Representation::User.new(id: 4, login: 'alice'),
       note: note_body,
       created_at: created_at,
-      updated_at: updated_at,
-      github_id: 1
+      updated_at: updated_at
     )
   end
 
@@ -50,6 +50,7 @@ RSpec.describe Gitlab::GithubImport::Importer::NoteImporter do
                   noteable_type: 'Issue',
                   noteable_id: issue_row.id,
                   project_id: project.id,
+                  namespace_id: project.project_namespace_id,
                   author_id: user.id,
                   note: 'This is my note',
                   discussion_id: match(/\A[0-9a-f]{40}\z/),
@@ -81,6 +82,7 @@ RSpec.describe Gitlab::GithubImport::Importer::NoteImporter do
                   noteable_type: 'Issue',
                   noteable_id: issue_row.id,
                   project_id: project.id,
+                  namespace_id: project.project_namespace_id,
                   author_id: project.creator_id,
                   note: "*Created by: alice*\n\nThis is my note",
                   discussion_id: match(/\A[0-9a-f]{40}\z/),
@@ -97,7 +99,7 @@ RSpec.describe Gitlab::GithubImport::Importer::NoteImporter do
       end
 
       context 'when the note have invalid chars' do
-        let(:note_body) { %{There were an invalid char "\u0000" <= right here} }
+        let(:note_body) { %(There were an invalid char "\u0000" <= right here) }
 
         it 'removes invalid chars' do
           expect(importer.user_finder)
@@ -113,34 +115,33 @@ RSpec.describe Gitlab::GithubImport::Importer::NoteImporter do
             .to eq('There were an invalid char "" <= right here')
         end
       end
-    end
 
-    context 'when the noteable does not exist' do
-      it 'does not import the note' do
-        expect(ApplicationRecord).not_to receive(:legacy_bulk_insert)
+      context 'when note is invalid' do
+        it 'fails validation' do
+          expect(importer.user_finder)
+            .to receive(:author_id_for)
+            .with(github_note)
+            .and_return([user.id, true])
 
-        importer.execute
+          expect(github_note).to receive(:discussion_id).and_return('invalid')
+
+          expect { importer.execute }.to raise_error(ActiveRecord::RecordInvalid)
+        end
       end
-    end
 
-    context 'when the import fails due to a foreign key error' do
-      it 'does not raise any errors' do
-        issue_row = create(:issue, project: project, iid: 1)
+      context 'when noteble_id can not be found' do
+        before do
+          allow(importer)
+            .to receive(:find_noteable_id)
+            .and_return(nil)
+        end
 
-        allow(importer)
-          .to receive(:find_noteable_id)
-          .and_return(issue_row.id)
-
-        allow(importer.user_finder)
-          .to receive(:author_id_for)
-          .with(github_note)
-          .and_return([user.id, true])
-
-        expect(ApplicationRecord)
-          .to receive(:legacy_bulk_insert)
-          .and_raise(ActiveRecord::InvalidForeignKey, 'invalid foreign key')
-
-        expect { importer.execute }.not_to raise_error
+        it 'raises NoteableNotFound' do
+          expect { importer.execute }.to raise_error(
+            ::Gitlab::GithubImport::Exceptions::NoteableNotFound,
+            'Error to find noteable_id for note'
+          )
+        end
       end
     end
 

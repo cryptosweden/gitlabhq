@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe "User browses artifacts" do
+RSpec.describe "User browses artifacts", feature_category: :build_artifacts do
   let(:project) { create(:project, :public) }
   let(:pipeline) { create(:ci_empty_pipeline, project: project) }
   let(:job) { create(:ci_build, :artifacts, pipeline: pipeline) }
@@ -21,8 +21,8 @@ RSpec.describe "User browses artifacts" do
       visit(browse_project_job_artifacts_path(project, job))
     end
 
-    it "renders a link to the job in the breadcrumbs" do
-      page.within('.js-breadcrumbs-list') do
+    it "renders a link to the job in the breadcrumbs", :js do
+      within_testid('breadcrumb-links') do
         expect(page).to have_link("##{job.id}", href: project_job_path(project, job))
       end
     end
@@ -33,8 +33,8 @@ RSpec.describe "User browses artifacts" do
       page.within(".tree-table") do
         expect(page).to have_no_content("..")
                    .and have_content("other_artifacts_0.1.2")
-                   .and have_content("ci_artifacts.txt 27 Bytes")
-                   .and have_content("rails_sample.jpg 34.4 KB")
+                   .and have_content("ci_artifacts.txt 27 B")
+                   .and have_content("rails_sample.jpg 34.4 KiB")
       end
 
       page.within(".build-header") do
@@ -81,12 +81,11 @@ RSpec.describe "User browses artifacts" do
       end
 
       it "shows correct content" do
-        link = first(".tree-item-file-external-link")
-
-        expect(link[:target]).to eq("_blank")
-        expect(link[:rel]).to include("noopener").and include("noreferrer")
-        expect(page).to have_link("doc_sample.txt", href: file_project_job_artifacts_path(project, job, path: txt_entry.blob.path))
-                   .and have_selector(".js-artifact-tree-external-icon")
+        expect(page)
+          .to have_link(
+            "doc_sample.txt",
+            href: external_file_project_job_artifacts_path(project, job, path: txt_entry.blob.path)
+          ).and have_selector(".js-artifact-tree-external-icon")
 
         page.within(".tree-table") do
           expect(page).to have_content("..").and have_content("another-subdirectory")

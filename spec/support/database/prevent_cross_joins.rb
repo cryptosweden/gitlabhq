@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # This module tries to discover and prevent cross-joins across tables
-# This will forbid usage of tables between CI and main database
+# This will forbid usage of tables of different gitlab_schemas
 # on a same query unless explicitly allowed by. This will change execution
 # from a given point to allow cross-joins. The state will be cleared
 # on a next test run.
@@ -39,9 +39,9 @@ module Database
         return
       end
 
-      schemas = ::Gitlab::Database::GitlabSchema.table_schemas(tables)
+      schemas = ::Gitlab::Database::GitlabSchema.table_schemas!(tables)
 
-      if schemas.include?(:gitlab_ci) && schemas.include?(:gitlab_main)
+      unless ::Gitlab::Database::GitlabSchema.cross_joins_allowed?(schemas, tables)
         Thread.current[:has_cross_join_exception] = true
         raise CrossJoinAcrossUnsupportedTablesError,
           "Unsupported cross-join across '#{tables.join(", ")}' querying '#{schemas.to_a.join(", ")}' discovered " \

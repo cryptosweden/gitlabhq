@@ -23,12 +23,8 @@ describe('resolveDiscussionButton', () => {
     });
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('should emit a onClick event on button click', async () => {
-    const button = wrapper.find(GlButton);
+    const button = wrapper.findComponent(GlButton);
 
     button.vm.$emit('click');
 
@@ -39,7 +35,7 @@ describe('resolveDiscussionButton', () => {
   });
 
   it('should contain the provided button title', () => {
-    const button = wrapper.find(GlButton);
+    const button = wrapper.findComponent(GlButton);
 
     expect(button.text()).toContain(buttonTitle);
   });
@@ -52,7 +48,7 @@ describe('resolveDiscussionButton', () => {
       },
     });
 
-    const button = wrapper.find(GlButton);
+    const button = wrapper.findComponent(GlButton);
 
     expect(button.props('loading')).toEqual(true);
   });
@@ -65,7 +61,7 @@ describe('resolveDiscussionButton', () => {
       },
     });
 
-    const button = wrapper.find(GlButton);
+    const button = wrapper.findComponent(GlButton);
 
     await nextTick();
     expect(button.props('loading')).toEqual(false);

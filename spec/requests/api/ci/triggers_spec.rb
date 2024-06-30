@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Ci::Triggers do
+RSpec.describe API::Ci::Triggers, feature_category: :pipeline_composition do
   let_it_be(:user) { create(:user) }
   let_it_be(:user2) { create(:user) }
 
@@ -81,7 +81,7 @@ RSpec.describe API::Ci::Triggers do
         end
 
         it 'validates variables needs to be a map of key-valued strings' do
-          post api("/projects/#{project.id}/trigger/pipeline"), params: options.merge(variables: { key: %w(1 2) }, ref: 'master')
+          post api("/projects/#{project.id}/trigger/pipeline"), params: options.merge(variables: { 'TRIGGER_KEY' => %w[1 2] }, ref: 'master')
 
           expect(response).to have_gitlab_http_status(:bad_request)
           expect(json_response['message']).to eq('variables needs to be a map of key-valued strings')
@@ -136,8 +136,8 @@ RSpec.describe API::Ci::Triggers do
       end
 
       context 'when triggered from another running job' do
-        let!(:trigger) { }
-        let!(:trigger_request) { }
+        let!(:trigger) {}
+        let!(:trigger_request) {}
 
         context 'when other job is triggered by a user' do
           let(:trigger_token) { create(:ci_build, :running, project: project, user: user).token }
@@ -242,7 +242,7 @@ RSpec.describe API::Ci::Triggers do
           expect do
             post api("/projects/#{project.id}/triggers", user),
               params: { description: 'trigger' }
-          end.to change {project.triggers.count}.by(1)
+          end.to change { project.triggers.count }.by(1)
 
           expect(response).to have_gitlab_http_status(:created)
           expect(json_response).to include('description' => 'trigger')
@@ -251,9 +251,49 @@ RSpec.describe API::Ci::Triggers do
 
       context 'without required parameters' do
         it 'does not create trigger' do
-          post api("/projects/#{project.id}/triggers", user)
+          expect do
+            post api("/projects/#{project.id}/triggers", user)
+          end.not_to change { project.triggers.count }
 
           expect(response).to have_gitlab_http_status(:bad_request)
+        end
+      end
+
+      context 'when the CreateService returns a permissions error' do
+        before do
+          failure_response = instance_double(ServiceResponse, success?: false, reason: :forbidden, message: "Permissions error message")
+
+          allow_next_instance_of(::Ci::PipelineTriggers::CreateService) do |instance|
+            allow(instance).to receive(:execute)
+                      .and_return(failure_response)
+          end
+        end
+
+        it 'returns forbidden' do
+          post api("/projects/#{project.id}/triggers", user),
+            params: { description: 'trigger' }
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+          expect(json_response['message']).to eq('403 Forbidden - Permissions error message')
+        end
+      end
+
+      context 'when trigger fails to save' do
+        before do
+          failure_response = instance_double(ServiceResponse, success?: false, reason: :validation_error, message: "Unexpected Ci::Trigger creation failure")
+
+          allow_next_instance_of(::Ci::PipelineTriggers::CreateService) do |instance|
+            allow(instance).to receive(:execute)
+                      .and_return(failure_response)
+          end
+        end
+
+        it 'returns bad request' do
+          post api("/projects/#{project.id}/triggers", user),
+            params: { description: 'trigger' }
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+          expect(json_response['message']).to eq('400 Bad request - Unexpected Ci::Trigger creation failure')
         end
       end
     end
@@ -326,6 +366,44 @@ RSpec.describe API::Ci::Triggers do
         expect(response).to have_gitlab_http_status(:unauthorized)
       end
     end
+
+    context 'when the UpdateService returns a permissions error' do
+      before do
+        failure_response = instance_double(ServiceResponse, success?: false, reason: :forbidden, message: "Permissions error message")
+
+        allow_next_instance_of(::Ci::PipelineTriggers::UpdateService) do |instance|
+          allow(instance).to receive(:execute)
+                    .and_return(failure_response)
+        end
+      end
+
+      it 'returns forbidden' do
+        put api("/projects/#{project.id}/triggers/#{trigger.id}", user),
+          params: { description: 'updated trigger' }
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+        expect(json_response['message']).to eq('403 Forbidden - Permissions error message')
+      end
+    end
+
+    context 'when trigger fails to update' do
+      before do
+        failure_response = instance_double(ServiceResponse, success?: false, reason: :validation_error, message: "Unexpected Ci::Trigger update failure")
+
+        allow_next_instance_of(::Ci::PipelineTriggers::UpdateService) do |instance|
+          allow(instance).to receive(:execute)
+                    .and_return(failure_response)
+        end
+      end
+
+      it 'returns bad request' do
+        put api("/projects/#{project.id}/triggers/#{trigger.id}", user),
+          params: { description: 'updated trigger' }
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']).to eq('400 Bad request - Unexpected Ci::Trigger update failure')
+      end
+    end
   end
 
   describe 'DELETE /projects/:id/triggers/:trigger_id' do
@@ -335,7 +413,7 @@ RSpec.describe API::Ci::Triggers do
           delete api("/projects/#{project.id}/triggers/#{trigger.id}", user)
 
           expect(response).to have_gitlab_http_status(:no_content)
-        end.to change {project.triggers.count}.by(-1)
+        end.to change { project.triggers.count }.by(-1)
       end
 
       it 'responds with 404 Not Found if requesting non-existing trigger' do

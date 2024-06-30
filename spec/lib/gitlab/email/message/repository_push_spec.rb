@@ -45,7 +45,7 @@ RSpec.describe Gitlab::Email::Message::RepositoryPush do
     describe '#project_name_with_namespace' do
       subject { message.project_name_with_namespace }
 
-      it { is_expected.to eq "#{group.name} / #{project.path}" }
+      it { is_expected.to eq "#{group.name} / #{project.name}" }
     end
 
     describe '#author' do
@@ -64,7 +64,7 @@ RSpec.describe Gitlab::Email::Message::RepositoryPush do
     describe '#commits' do
       subject { message.commits }
 
-      it { is_expected.to be_kind_of Array }
+      it { is_expected.to be_kind_of CommitCollection }
       it { is_expected.to all(be_instance_of Commit) }
     end
 

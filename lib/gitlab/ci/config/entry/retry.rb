@@ -8,8 +8,8 @@ module Gitlab
         # Entry that represents a retry config for a job.
         #
         class Retry < ::Gitlab::Config::Entry::Simplifiable
-          strategy :SimpleRetry, if: -> (config) { config.is_a?(Integer) }
-          strategy :FullRetry, if: -> (config) { config.is_a?(Hash) }
+          strategy :SimpleRetry, if: ->(config) { config.is_a?(Integer) }
+          strategy :FullRetry, if: ->(config) { config.is_a?(Hash) }
 
           class SimpleRetry < ::Gitlab::Config::Entry::Node
             include ::Gitlab::Config::Entry::Validatable
@@ -35,8 +35,8 @@ module Gitlab
             include ::Gitlab::Config::Entry::Validatable
             include ::Gitlab::Config::Entry::Attributable
 
-            ALLOWED_KEYS = %i[max when].freeze
-            attributes :max, :when
+            ALLOWED_KEYS = %i[max when exit_codes].freeze
+            attributes ALLOWED_KEYS
 
             validations do
               validates :config, allowed_keys: ALLOWED_KEYS
@@ -48,11 +48,12 @@ module Gitlab
 
                 validates :when, array_of_strings_or_string: true
                 validates :when,
-                          allowed_array_values: { in: FullRetry.possible_retry_when_values },
-                          if: -> (config) { config.when.is_a?(Array) }
+                  allowed_array_values: { in: FullRetry.possible_retry_when_values },
+                  if: ->(config) { config.when.is_a?(Array) }
                 validates :when,
-                          inclusion: { in: FullRetry.possible_retry_when_values },
-                          if: -> (config) { config.when.is_a?(String) }
+                  inclusion: { in: FullRetry.possible_retry_when_values },
+                  if: ->(config) { config.when.is_a?(String) }
+                validates :exit_codes, array_of_integers_or_integer: true
               end
             end
 
@@ -62,9 +63,14 @@ module Gitlab
 
             def value
               super.tap do |config|
-                # make sure that `when` is an array, because we allow it to
-                # be passed as a String in config for simplicity
+                # make sure that `when` and `exit_codes` are arrays, because we allow them to
+                # be passed as a String/Integer in config for simplicity
                 config[:when] = Array.wrap(config[:when]) if config[:when]
+                if config[:exit_codes] && Feature.enabled?(:ci_retry_on_exit_codes, Feature.current_request)
+                  config[:exit_codes] = Array.wrap(config[:exit_codes])
+                else
+                  config.delete(:exit_codes)
+                end
               end
             end
 

@@ -8,19 +8,19 @@ module Mutations
       description 'Toggles the resolved state of a discussion'
 
       argument :id,
-                Types::GlobalIDType[Discussion],
-                required: true,
-                description: 'Global ID of the discussion.'
+        Types::GlobalIDType[Discussion],
+        required: true,
+        description: 'Global ID of the discussion.'
 
       argument :resolve,
-               GraphQL::Types::Boolean,
-               required: true,
-               description: 'Will resolve the discussion when true, and unresolve the discussion when false.'
+        GraphQL::Types::Boolean,
+        required: true,
+        description: 'Will resolve the discussion when true, and unresolve the discussion when false.'
 
       field :discussion,
-            Types::Notes::DiscussionType,
-            null: true,
-            description: 'Discussion after mutation.'
+        Types::Notes::DiscussionType,
+        null: true,
+        description: 'Discussion after mutation.'
 
       def resolve(id:, resolve:)
         discussion = authorized_find_discussion!(id: id)
@@ -51,13 +51,6 @@ module Mutations
         find_object(id: id).tap do |discussion|
           raise_resource_not_available_error! unless discussion&.can_resolve?(current_user)
         end
-      end
-
-      def find_object(id:)
-        # TODO: remove explicit coercion once compatibility layer has been removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = Types::GlobalIDType[Discussion].coerce_isolated_input(id)
-        GitlabSchema.find_by_gid(id)
       end
 
       def resolve!(discussion)

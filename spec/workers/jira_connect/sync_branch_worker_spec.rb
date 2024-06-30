@@ -2,12 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe JiraConnect::SyncBranchWorker do
+RSpec.describe JiraConnect::SyncBranchWorker, feature_category: :integrations do
   include AfterNextHelpers
 
-  it_behaves_like 'worker with data consistency',
-                  described_class,
-                  data_consistency: :delayed
+  it_behaves_like 'worker with data consistency', described_class, data_consistency: :delayed
 
   describe '#perform' do
     let_it_be(:group) { create(:group) }
@@ -16,7 +14,7 @@ RSpec.describe JiraConnect::SyncBranchWorker do
 
     let(:project_id) { project.id }
     let(:branch_name) { 'master' }
-    let(:commit_shas) { %w(b83d6e3 5a62481) }
+    let(:commit_shas) { %w[b83d6e3 5a62481] }
     let(:update_sequence_id) { 1 }
 
     def perform

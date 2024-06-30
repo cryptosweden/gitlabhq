@@ -1,35 +1,25 @@
 import Vue from 'vue';
-import { IssuableType } from '~/issues/constants';
 import { parseBoolean } from '~/lib/utils/common_utils';
-import timeTracker from './components/time_tracking/time_tracker.vue';
+import TimeTracker from './components/time_tracking/time_tracker.vue';
 
 export default class SidebarMilestone {
   constructor() {
-    const el = document.getElementById('issuable-time-tracker');
+    const el = document.querySelector('.js-sidebar-time-tracking-root');
 
     if (!el) return;
 
-    const {
-      timeEstimate,
-      timeSpent,
-      humanTimeEstimate,
-      humanTimeSpent,
-      limitToHours,
-      iid,
-    } = el.dataset;
+    const { timeEstimate, timeSpent, humanTimeEstimate, humanTimeSpent, limitToHours, iid } =
+      el.dataset;
 
     // eslint-disable-next-line no-new
     new Vue({
       el,
       name: 'SidebarMilestoneRoot',
       components: {
-        timeTracker,
-      },
-      provide: {
-        issuableType: IssuableType.Milestone,
+        TimeTracker,
       },
       render: (createElement) =>
-        createElement('timeTracker', {
+        createElement('time-tracker', {
           props: {
             limitToHours: parseBoolean(limitToHours),
             issuableIid: iid.toString(),
@@ -39,6 +29,8 @@ export default class SidebarMilestone {
               humanTimeEstimate,
               humanTotalTimeSpent: humanTimeSpent,
             },
+            canAddTimeEntries: false,
+            canSetTimeEstimate: false,
           },
         }),
     });

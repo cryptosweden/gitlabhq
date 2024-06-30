@@ -7,41 +7,42 @@ import (
 	"strconv"
 )
 
-const (
-	definitions = "definitions"
-	references  = "references"
-)
-
+// Ranges represents a collection of range data
 type Ranges struct {
-	DefRefs    map[Id]Item
+	DefRefs    map[ID]Item
 	References *References
-	Hovers     *Hovers
+	ResultSet  *ResultSet
 	Cache      *cache
 }
 
+// RawRange represents a raw range with an ID and start position
 type RawRange struct {
-	Id   Id    `json:"id"`
+	ID   ID    `json:"id"`
 	Data Range `json:"start"`
 }
 
+// Range represents a range with line and character positions
 type Range struct {
-	Line      int32 `json:"line"`
-	Character int32 `json:"character"`
-	RefId     Id
+	Line        int32 `json:"line"`
+	Character   int32 `json:"character"`
+	ResultSetID ID
 }
 
+// RawItem represents a raw item
 type RawItem struct {
 	Property string `json:"property"`
-	RefId    Id     `json:"outV"`
-	RangeIds []Id   `json:"inVs"`
-	DocId    Id     `json:"document"`
+	RefID    ID     `json:"outV"`
+	RangeIds []ID   `json:"inVs"`
+	DocID    ID     `json:"document"`
 }
 
+// Item represents an item with line and document ID
 type Item struct {
 	Line  int32
-	DocId Id
+	DocID ID
 }
 
+// SerializedRange represents a serialized range
 type SerializedRange struct {
 	StartLine      int32                 `json:"start_line"`
 	StartChar      int32                 `json:"start_char"`
@@ -50,30 +51,32 @@ type SerializedRange struct {
 	References     []SerializedReference `json:"references,omitempty"`
 }
 
-func NewRanges(config Config) (*Ranges, error) {
-	hovers, err := NewHovers(config)
+// NewRanges creates a new instance of Ranges
+func NewRanges() (*Ranges, error) {
+	resultSet, err := NewResultSet()
 	if err != nil {
 		return nil, err
 	}
 
-	references, err := NewReferences(config)
+	references, err := NewReferences()
 	if err != nil {
 		return nil, err
 	}
 
-	cache, err := newCache(config.TempPath, "ranges", Range{})
+	cache, err := newCache("ranges", Range{})
 	if err != nil {
 		return nil, err
 	}
 
 	return &Ranges{
-		DefRefs:    make(map[Id]Item),
+		DefRefs:    make(map[ID]Item),
 		References: references,
-		Hovers:     hovers,
 		Cache:      cache,
+		ResultSet:  resultSet,
 	}, nil
 }
 
+// Read processes a label and line, adding ranges or items as appropriate
 func (r *Ranges) Read(label string, line []byte) error {
 	switch label {
 	case "range":
@@ -85,13 +88,14 @@ func (r *Ranges) Read(label string, line []byte) error {
 			return err
 		}
 	default:
-		return r.Hovers.Read(label, line)
+		return r.ResultSet.Read(label, line)
 	}
 
 	return nil
 }
 
-func (r *Ranges) Serialize(f io.Writer, rangeIds []Id, docs map[Id]string) error {
+// Serialize serializes the ranges to the provided writer
+func (r *Ranges) Serialize(f io.Writer, rangeIds []ID, docs map[ID]string) error {
 	encoder := json.NewEncoder(f)
 	n := len(rangeIds)
 
@@ -99,8 +103,8 @@ func (r *Ranges) Serialize(f io.Writer, rangeIds []Id, docs map[Id]string) error
 		return err
 	}
 
-	for i, rangeId := range rangeIds {
-		entry, err := r.getRange(rangeId)
+	for i, rangeID := range rangeIds {
+		entry, err := r.getRange(rangeID)
 		if err != nil {
 			continue
 		}
@@ -108,9 +112,9 @@ func (r *Ranges) Serialize(f io.Writer, rangeIds []Id, docs map[Id]string) error
 		serializedRange := SerializedRange{
 			StartLine:      entry.Line,
 			StartChar:      entry.Character,
-			DefinitionPath: r.definitionPathFor(docs, entry.RefId),
-			Hover:          r.Hovers.For(entry.RefId),
-			References:     r.References.For(docs, entry.RefId),
+			DefinitionPath: r.definitionPathFor(docs, entry.ResultSetID),
+			Hover:          r.ResultSet.Hovers.For(entry.ResultSetID),
+			References:     r.References.For(docs, entry.ResultSetID),
 		}
 		if err := encoder.Encode(serializedRange); err != nil {
 			return err
@@ -129,21 +133,27 @@ func (r *Ranges) Serialize(f io.Writer, rangeIds []Id, docs map[Id]string) error
 	return nil
 }
 
+// Close closes all resources associated with Ranges
 func (r *Ranges) Close() error {
-	return combineErrors(
+	for _, err := range []error{
 		r.Cache.Close(),
 		r.References.Close(),
-		r.Hovers.Close(),
-	)
+		r.ResultSet.Close(),
+	} {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (r *Ranges) definitionPathFor(docs map[Id]string, refId Id) string {
-	defRef, ok := r.DefRefs[refId]
+func (r *Ranges) definitionPathFor(docs map[ID]string, refID ID) string {
+	defRef, ok := r.DefRefs[refID]
 	if !ok {
 		return ""
 	}
 
-	defPath := docs[defRef.DocId] + "#L" + strconv.Itoa(int(defRef.Line))
+	defPath := docs[defRef.DocID] + "#L" + strconv.Itoa(int(defRef.Line))
 
 	return defPath
 }
@@ -154,7 +164,7 @@ func (r *Ranges) addRange(line []byte) error {
 		return err
 	}
 
-	return r.Cache.SetEntry(rg.Id, &rg.Data)
+	return r.Cache.SetEntry(rg.ID, &rg.Data)
 }
 
 func (r *Ranges) addItem(line []byte) error {
@@ -163,50 +173,55 @@ func (r *Ranges) addItem(line []byte) error {
 		return err
 	}
 
-	if rawItem.Property != definitions && rawItem.Property != references {
-		return nil
-	}
-
 	if len(rawItem.RangeIds) == 0 {
 		return errors.New("no range IDs")
 	}
 
-	var references []Item
+	resultSetRef, err := r.ResultSet.RefByID(rawItem.RefID)
+	if err != nil {
+		return nil
+	}
 
-	for _, rangeId := range rawItem.RangeIds {
-		rg, err := r.getRange(rangeId)
+	var references []Item
+	for _, rangeID := range rawItem.RangeIds {
+		rg, err := r.getRange(rangeID)
 		if err != nil {
-			return err
+			break
 		}
 
-		rg.RefId = rawItem.RefId
+		rg.ResultSetID = resultSetRef.ID
 
-		if err := r.Cache.SetEntry(rangeId, rg); err != nil {
+		if err := r.Cache.SetEntry(rangeID, rg); err != nil {
 			return err
 		}
 
 		item := Item{
 			Line:  rg.Line + 1,
-			DocId: rawItem.DocId,
+			DocID: rawItem.DocID,
 		}
 
-		if rawItem.Property == definitions {
-			r.DefRefs[rawItem.RefId] = item
+		definitionItem := r.DefRefs[resultSetRef.ID]
+		if item == definitionItem {
+			continue
+		}
+
+		if resultSetRef.IsDefinition() {
+			r.DefRefs[resultSetRef.ID] = item
 		} else {
 			references = append(references, item)
 		}
 	}
 
-	if err := r.References.Store(rawItem.RefId, references); err != nil {
+	if err := r.References.Store(resultSetRef.ID, references); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (r *Ranges) getRange(rangeId Id) (*Range, error) {
+func (r *Ranges) getRange(rangeID ID) (*Range, error) {
 	var rg Range
-	if err := r.Cache.Entry(rangeId, &rg); err != nil {
+	if err := r.Cache.Entry(rangeID, &rg); err != nil {
 		return nil, err
 	}
 

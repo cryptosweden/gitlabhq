@@ -14,38 +14,25 @@ module MembersHelper
         else
           "deny #{member.user.name}'s request to join"
         end
+      elsif member.user
+        "remove #{member.user.name} from"
       else
-        if member.user
-          "remove #{member.user.name} from"
-        else
-          e = RuntimeError.new("Data integrity error: no associated user for member ID #{member.id}")
-          Gitlab::ErrorTracking.track_exception(e,
-            member_id: member.id,
-            invite_email: member.invite_email,
-            invite_accepted_at: member.invite_accepted_at,
-            source_id: member.source_id,
-            source_type: member.source_type)
-          "remove this orphaned member from"
-        end
+        e = RuntimeError.new("Data integrity error: no associated user for member ID #{member.id}")
+        Gitlab::ErrorTracking.track_exception(e,
+          member_id: member.id,
+          invite_email: member.invite_email,
+          invite_accepted_at: member.invite_accepted_at,
+          source_id: member.source_id,
+          source_type: member.source_type)
+        "remove this orphaned member from"
       end
 
     "#{text} #{action} the #{member.source.human_name} #{source_text(member)}?"
   end
 
-  def remove_member_title(member)
-    action = member.request? ? 'Deny access request' : 'Remove user'
-
-    "#{action} from #{source_text(member)}"
-  end
-
   def leave_confirmation_message(member_source)
     "Are you sure you want to leave the " \
-    "\"#{member_source.human_name}\" #{member_source.class.to_s.humanize(capitalize: false)}?"
-  end
-
-  def filter_group_project_member_path(options = {})
-    options = params.slice(:search, :sort).merge(options).permit!
-    "#{request.path}?#{options.to_param}"
+    "\"#{member_source.human_name}\" #{member_source.model_name.to_s.humanize(capitalize: false)}?"
   end
 
   def member_path(member)
@@ -54,14 +41,6 @@ module MembersHelper
     else
       project_project_member_path(member.source, member)
     end
-  end
-
-  def localized_tasks_to_be_done_choices
-    {
-      code: s_('TasksToBeDone|Create/import code into a project (repository)'),
-      ci: s_('TasksToBeDone|Set up CI/CD pipelines to build, test, deploy, and monitor code'),
-      issues: s_('TasksToBeDone|Create/import issues (tickets) to collaborate on ideas and plan work')
-    }.freeze
   end
 
   private
@@ -83,4 +62,24 @@ module MembersHelper
       params: pagination[:params] || {}
     }
   end
+
+  def member_request_access_link(member)
+    user = member.user
+    member_source = member.source
+
+    member_link = link_to user.name, user, class: :highlight
+    member_role = content_tag :span, member.human_access, class: :highlight
+    target_source_link = link_to member_source.human_name, polymorphic_url([member_source, :members]), class: :highlight
+    target_type = member_source.model_name.singular
+
+    s_('Notify|%{member_link} requested %{member_role} access to the %{target_source_link} %{target_type}.')
+      .html_safe % {
+        member_link: member_link,
+        member_role: member_role,
+        target_source_link: target_source_link,
+        target_type: target_type
+      }
+  end
 end
+
+MembersHelper.prepend_mod_with('MembersHelper')

@@ -1,7 +1,11 @@
 <script>
 import RegistrySearch from '~/vue_shared/components/registry/registry_search.vue';
 import UrlSync from '~/vue_shared/components/url_sync.vue';
-import { extractFilterAndSorting, getQueryParams } from '~/packages_and_registries/shared/utils';
+import {
+  extractFilterAndSorting,
+  extractPageInfo,
+  getQueryParams,
+} from '~/packages_and_registries/shared/utils';
 
 export default {
   components: { RegistrySearch, UrlSync },
@@ -18,6 +22,11 @@ export default {
       type: String,
       required: true,
     },
+    tokens: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
   },
   data() {
     return {
@@ -26,6 +35,7 @@ export default {
         orderBy: this.defaultOrder,
         sort: this.defaultSort,
       },
+      pageInfo: {},
       mountRegistrySearch: false,
     };
   },
@@ -36,39 +46,57 @@ export default {
     },
   },
   mounted() {
-    const queryParams = getQueryParams(window.document.location.search);
-    const { sorting, filters } = extractFilterAndSorting(queryParams);
-    this.updateSorting(sorting);
-    this.updateFilters(filters);
+    this.updateDataFromUrlAndEmitUpdate();
     this.mountRegistrySearch = true;
-    this.emitUpdate();
   },
   methods: {
+    updateDataFromUrlAndEmitUpdate() {
+      this.updateDataFromUrl();
+      this.emitUpdate();
+    },
+    updateDataFromUrl() {
+      const queryParams = getQueryParams(window.location.search);
+      const { sorting, filters } = extractFilterAndSorting(queryParams);
+      const pageInfo = extractPageInfo(queryParams);
+      this.updateSorting(sorting);
+      this.updateFilters(filters);
+      this.updatePageInfo(pageInfo);
+    },
     updateFilters(newValue) {
+      this.updatePageInfo({});
       this.filters = newValue;
     },
     updateSorting(newValue) {
+      this.updatePageInfo({});
       this.sorting = { ...this.sorting, ...newValue };
+    },
+    updatePageInfo(newValue) {
+      this.pageInfo = newValue;
     },
     updateSortingAndEmitUpdate(newValue) {
       this.updateSorting(newValue);
       this.emitUpdate();
     },
     emitUpdate() {
-      this.$emit('update', { sort: this.parsedSorting, filters: this.filters });
+      this.$emit('update', {
+        sort: this.parsedSorting,
+        filters: this.filters,
+        pageInfo: this.pageInfo,
+        sorting: this.sorting,
+      });
     },
   },
 };
 </script>
 
 <template>
-  <url-sync>
+  <url-sync @popstate="updateDataFromUrlAndEmitUpdate">
     <template #default="{ updateQuery }">
       <registry-search
         v-if="mountRegistrySearch"
-        :filter="filters"
+        :filters="filters"
         :sorting="sorting"
-        :tokens="$options.tokens"
+        :tokens="tokens"
         :sortable-fields="sortableFields"
         @sorting:changed="updateSortingAndEmitUpdate"
         @filter:changed="updateFilters"

@@ -56,12 +56,8 @@ module DeprecationToolkitEnv
   # In this case, we recommend to add a silence together with an issue to patch or update
   # the dependency causing the problem.
   # See https://gitlab.com/gitlab-org/gitlab/-/commit/aea37f506bbe036378998916d374966c031bf347#note_647515736
-  #
-  # - lib/gitlab/lazy.rb: https://gitlab.com/gitlab-org/gitlab/-/issues/356367
   def self.allowed_kwarg_warning_paths
-    %w[
-        lib/gitlab/lazy.rb
-      ]
+    %w[]
   end
 
   def self.configure!
@@ -72,7 +68,7 @@ module DeprecationToolkitEnv
     DeprecationToolkit::Configuration.deprecation_path = 'deprecations'
     DeprecationToolkit::Configuration.warnings_treated_as_deprecation = [kwargs_warning]
 
-    disallowed_deprecations = -> (deprecations) do
+    disallowed_deprecations = ->(deprecations) do
       deprecations.any? do |deprecation|
         kwargs_warning.match?(deprecation) &&
           allowed_kwarg_warning_paths.none? { |path| deprecation.include?(path) }

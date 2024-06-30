@@ -13,7 +13,7 @@ class InvitesController < ApplicationController
 
   respond_to :html
 
-  feature_category :authentication_and_authorization
+  feature_category :system_access
 
   def show
     accept if skip_invitation_prompt?
@@ -29,7 +29,7 @@ class InvitesController < ApplicationController
 
   def decline
     if member.decline_invite!
-      return render layout: 'signup_onboarding' if !current_user && member.invite_to_unknown_user? && member.created_by
+      return render layout: 'minimal' if !current_user && member.invite_to_unknown_user? && member.created_by
 
       path =
         if current_user
@@ -57,13 +57,13 @@ class InvitesController < ApplicationController
 
   def member?
     strong_memoize(:is_member) do
-      @member.source.users.include?(current_user)
+      @member.source.has_user?(current_user)
     end
   end
 
   def member
     strong_memoize(:member) do
-      @token = params[:id]
+      @token = params[:id].to_s
       Member.find_by_invite_token(@token)
     end
   end
@@ -83,8 +83,6 @@ class InvitesController < ApplicationController
   def authenticate_user!
     return if current_user
 
-    store_location_for(:user, invite_landing_url) if member
-
     if user_sign_up?
       set_session_invite_params
 
@@ -101,7 +99,7 @@ class InvitesController < ApplicationController
   end
 
   def initial_invite_email?
-    params[:invite_type] == Emails::Members::INITIAL_INVITE
+    params[:invite_type] == ::Members::InviteMailer::INITIAL_INVITE
   end
 
   def sign_in_redirect_params
@@ -120,10 +118,6 @@ class InvitesController < ApplicationController
     end
   end
 
-  def invite_landing_url
-    root_url + invite_details[:path]
-  end
-
   def invite_details
     @invite_details ||= case member.source
                         when Project
@@ -131,14 +125,14 @@ class InvitesController < ApplicationController
                             name: member.source.full_name,
                             url: project_url(member.source),
                             title: _("project"),
-                            path: member.source.activity_path
+                            path: project_path(member.source)
                           }
                         when Group
                           {
                             name: member.source.name,
                             url: group_url(member.source),
                             title: _("group"),
-                            path: member.source.activity_path
+                            path: group_path(member.source)
                           }
                         end
   end

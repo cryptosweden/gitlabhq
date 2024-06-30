@@ -1,11 +1,9 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 require_relative '../../../../rubocop/cop/code_reuse/worker'
 
 RSpec.describe RuboCop::Cop::CodeReuse::Worker do
-  subject(:cop) { described_class.new }
-
   it 'flags the use of a worker in a controller' do
     allow(cop)
       .to receive(:in_controller?)
@@ -31,7 +29,24 @@ RSpec.describe RuboCop::Cop::CodeReuse::Worker do
         resource :projects do
           get '/' do
             FooWorker.perform_async
-            ^^^^^^^^^^^^^^^^^^^^^^^ Workers can not be used in a Grape API.
+            ^^^^^^^^^^^^^^^^^^^^^^^ Workers can not be used in an API endpoint.
+          end
+        end
+      end
+    SOURCE
+  end
+
+  it 'flags the use of a worker in GraphQL' do
+    allow(cop)
+      .to receive(:in_graphql?)
+      .and_return(true)
+
+    expect_offense(<<~SOURCE)
+      module Mutations
+        class Foo < BaseMutation
+          def resolve
+            FooWorker.perform_async
+            ^^^^^^^^^^^^^^^^^^^^^^^ Workers can not be used in an API endpoint.
           end
         end
       end

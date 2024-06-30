@@ -6,7 +6,10 @@ class AvatarUploader < GitlabUploader
   include ObjectStorage::Concern
   prepend ObjectStorage::Extension::RecordsUploads
 
-  MIME_WHITELIST = %w[image/png image/jpeg image/gif image/bmp image/tiff image/vnd.microsoft.icon].freeze
+  MIME_ALLOWLIST = %w[image/png image/jpeg image/gif image/bmp image/tiff image/vnd.microsoft.icon].freeze
+
+  after :store, :clear_avatar_caches
+  after :remove, :clear_avatar_caches
 
   def exists?
     model.avatar.file && model.avatar.file.present?
@@ -29,12 +32,18 @@ class AvatarUploader < GitlabUploader
   end
 
   def content_type_whitelist
-    MIME_WHITELIST
+    MIME_ALLOWLIST
   end
 
   private
 
   def dynamic_segment
     File.join(model.class.underscore, mounted_as.to_s, model.id.to_s)
+  end
+
+  def clear_avatar_caches(*)
+    return unless model.respond_to?(:verified_emails) && model.verified_emails.any?
+
+    Gitlab::AvatarCache.delete_by_email(*model.verified_emails)
   end
 end

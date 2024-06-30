@@ -1,91 +1,140 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: concepts, reference, howto
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Webhooks and insecure internal web services **(FREE SELF)**
+# Filtering outbound requests
 
-NOTE:
-On GitLab.com, the [maximum number of webhooks and their size](../user/gitlab_com/index.md#webhooks) per project, and per group, is limited.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
-If you have non-GitLab web services running on your GitLab server or within its
-local network, these may be vulnerable to exploitation via Webhooks.
+To protect against the risk of data loss and exposure, GitLab administrators can now use outbound request filtering controls to restrict certain outbound requests made by the GitLab instance.
 
-With [Webhooks](../user/project/integrations/webhooks.md), you and your project
-maintainers and owners can set up URLs to be triggered when specific changes
-occur in your projects. Normally, these requests are sent to external web
-services specifically set up for this purpose, that process the request and its
-attached data in some appropriate way.
+## Secure webhooks and integrations
 
-Things get hairy, however, when a Webhook is set up with a URL that doesn't
-point to an external, but to an internal service, that may do something
-completely unintended when the webhook is triggered and the POST request is
-sent.
+Users with at least the Maintainer role can set up [webhooks](../user/project/integrations/webhooks.md) that are
+triggered when specific changes occur in a project or group. When triggered, a `POST` HTTP request is sent to a URL. A webhook is
+usually configured to send data to a specific external web service, which processes the data in an appropriate way.
 
-Webhook requests are made by the GitLab server itself and use a single
-(optional) secret token per hook for authorization (instead of a user or
-repository-specific token). As a result, these requests may have broader access than
-intended, including access to everything running on the server hosting the webhook. This
-may include the GitLab server or API itself (for example, `http://localhost:123`).
-Depending on the called webhook, this may also result in network access
-to other servers within that webhook server's local network (for example,
-`http://192.168.1.12:345`), even if these services are otherwise protected
-and inaccessible from the outside world.
+However, a webhook can be configured with a URL for an internal web service instead of an external web service.
+When the webhook is triggered, non-GitLab web services running on your GitLab server or in its local network could be
+exploited.
 
-If a web service does not require authentication, Webhooks can be used to
-trigger destructive commands by getting the GitLab server to make POST requests
-to endpoints like `http://localhost:123/some-resource/delete`.
+Webhook requests are made by the GitLab server itself and use a single optional secret token per hook for authorization
+instead of:
 
-To prevent this type of exploitation from happening, starting with GitLab 10.6,
-all Webhook requests to the current GitLab instance server address and/or in a
-private network are forbidden by default. That means that all requests made
-to `127.0.0.1`, `::1` and `0.0.0.0`, as well as IPv4 `10.0.0.0/8`, `172.16.0.0/12`,
-`192.168.0.0/16` and IPv6 site-local (`ffc0::/10`) addresses aren't allowed.
+- A user token.
+- A repository-specific token.
 
-This behavior can be overridden:
+As a result, these requests can have broader access than intended, including access to everything running on the server
+that hosts the webhook including:
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Settings > Network**.
-1. Expand the **Outbound requests** section:
-   ![Outbound requests admin settings](img/outbound_requests_section_v12_2.png)
-1. Select **Allow requests to the local network from web hooks and services**.
+- The GitLab server.
+- The API itself.
+- For some webhooks, network access to other servers in that webhook server's local network, even if these services
+  are otherwise protected and inaccessible from the outside world.
 
-NOTE:
-*System hooks* are enabled to make requests to local network by default since they are
-set up by administrators. However, you can turn this off by disabling the
-**Allow requests to the local network from system hooks** option.
+Webhooks can be used to trigger destructive commands using web services that don't require authentication. These webhooks
+can get the GitLab server to make `POST` HTTP requests to endpoints that delete resources.
 
-## Allowlist for local requests
+### Allow requests to the local network from webhooks and integrations
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/44496) in GitLab 12.2
+Prerequisites:
 
-You can allow certain domains and IP addresses to be accessible to both *system hooks*
-and *webhooks* even when local requests are not allowed by adding them to the
-allowlist:
+- You must have administrator access to the instance.
 
-1. On the top bar, select **Menu > Admin**.
-1. On the left sidebar, select **Settings > Network** (`/admin/application_settings/network`)
-   and expand **Outbound requests**:
+To prevent exploitation of insecure internal web services, all webhook and integration requests to the following local network addresses are not allowed:
 
-   ![Outbound local requests allowlist](img/allowlist_v13_0.png)
+- The current GitLab instance server address.
+- Private network addresses, including `127.0.0.1`, `::1`, `0.0.0.0`, `10.0.0.0/8`, `172.16.0.0/12`,
+  `192.168.0.0/16`, and IPv6 site-local (`ffc0::/10`) addresses.
 
-The allowed entries can be separated by semicolons, commas or whitespaces
-(including newlines) and be in different formats like hostnames, IP addresses and/or
-IP ranges. IPv6 is supported. Hostnames that contain Unicode characters should
-use [Internationalized Domain Names in Applications](https://www.icann.org/resources/pages/glossary-2014-02-04-en#i)
-(IDNA) encoding.
+To allow access to these addresses:
 
-The allowlist can hold a maximum of 1000 entries. Each entry can be a maximum of
-255 characters.
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Settings > Network**.
+1. Expand **Outbound requests**.
+1. Select the **Allow requests to the local network from webhooks and integrations** checkbox.
 
-You can allow a particular port by specifying it in the allowlist entry.
-For example `127.0.0.1:8080` only allows connections to port 8080 on `127.0.0.1`.
-If no port is mentioned, all ports on that IP/domain are allowed. An IP range
-allows all ports on all IPs in that range.
+### Prevent requests to the local network from system hooks
 
-Example:
+Prerequisites:
+
+- You must have administrator access to the instance.
+
+[System hooks](../administration/system_hooks.md) can make requests to the local network by default. To prevent system hook requests to the local network:
+
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Settings > Network**.
+1. Expand **Outbound requests**.
+1. Clear the **Allow requests to the local network from system hooks** checkbox.
+
+### Enforce DNS rebinding attack protection
+
+Prerequisites:
+
+- You must have administrator access to the instance.
+
+[DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) is a technique to make a malicious domain name resolve to an internal network resource to bypass local network access restrictions. GitLab has protection against this attack enabled by default. To disable this protection:
+
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Settings > Network**.
+1. Expand **Outbound requests**.
+1. Clear the **Enforce DNS-rebinding attack protection** checkbox.
+
+## Filter requests
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/377371) in GitLab 15.10.
+
+Prerequisites:
+
+- You must have administrator access to the GitLab instance.
+
+To filter requests by blocking many requests:
+
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Settings > Network**.
+1. Expand **Outbound requests**.
+1. Select the **Block all requests, except for IP addresses, IP ranges, and domain names defined in the allowlist** checkbox.
+
+When this checkbox is selected, requests to the following are still not blocked:
+
+- Core services like Geo, Git, GitLab Shell, Gitaly, PostgreSQL, and Redis.
+- Object storage.
+- IP addresses and domains in the [allowlist](#allow-outbound-requests-to-certain-ip-addresses-and-domains).
+
+This setting is respected by the main GitLab application only, so other services like Gitaly can still make requests that break the rule.
+Additionally, [some areas of GitLab](https://gitlab.com/groups/gitlab-org/-/epics/8029) do not respect outbound filtering
+rules.
+
+## Allow outbound requests to certain IP addresses and domains
+
+Prerequisites:
+
+- You must have administrator access to the instance.
+
+To allow outbound requests to certain IP addresses and domains:
+
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Settings > Network**.
+1. Expand **Outbound requests**.
+1. In **Local IP addresses and domain names that hooks and integrations can access**, enter your IP addresses and domains.
+
+The entries can:
+
+- Be separated by semicolons, commas, or whitespaces (including newlines).
+- Be in different formats like hostnames, IP addresses, IP address ranges. IPv6 is supported. Hostnames that contain
+  Unicode characters should use [Internationalized Domain Names in Applications](https://www.icann.org/en/icann-acronyms-and-terms/internationalized-domain-names-in-applications-en)
+  (IDNA) encoding.
+- Include ports. For example, `127.0.0.1:8080` only allows connections to port 8080 on `127.0.0.1`. If no port is specified,
+  all ports on that IP address or domain are allowed. An IP address range allows all ports on all IP addresses in that
+  range.
+- Number no more than 1000 entries of no more than 255 characters for each entry.
+- Not contain wildcards (for example, `*.example.com`).
+
+For example:
 
 ```plaintext
 example.com;gitlab.example.com
@@ -96,17 +145,53 @@ example.com;gitlab.example.com
 example.com:8080
 ```
 
-NOTE:
-Wildcards (`*.example.com`) are not currently supported.
+## Troubleshooting
 
-<!-- ## Troubleshooting
+When filtering outbound requests, you might encounter the following issues.
 
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
+### Configured URLs are blocked
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->
+You can only select the **Block all requests, except for IP addresses, IP ranges, and domain names defined in the allowlist** checkbox if no configured URLs would be blocked. Otherwise, you might get an error message that says the URL is blocked.
+
+If you can't enable this setting, do one of the following:
+
+- Disable the URL setting.
+- Configure another URL, or leave the URL setting empty.
+- Add the configured URL to the [allowlist](#allow-requests-to-the-local-network-from-webhooks-and-integrations).
+
+### Public runner releases URL is blocked
+
+Most GitLab instances have their `public_runner_releases_url` set to
+`https://gitlab.com/api/v4/projects/gitlab-org%2Fgitlab-runner/releases`,
+which can prevent you from [filtering requests](#filter-requests).
+
+To resolve this issue, [configure GitLab to no longer fetch runner release version data from GitLab.com](../administration/settings/continuous_integration.md#disable-runner-version-management).
+
+### GitLab subscription management is blocked
+
+When you [filter requests](#filter-requests), [GitLab subscription management](../subscriptions/self_managed/index.md)
+is blocked.
+
+To work around this problem, add `customers.gitlab.com:443` to the
+[allowlist](#allow-outbound-requests-to-certain-ip-addresses-and-domains).
+
+### GitLab documentation is blocked
+
+When you [filter requests](#filter-requests), you might get an error that states `Help page documentation base url is blocked: Requests to hosts and IP addresses not on the Allow List are denied`.
+To work around this error:
+
+1. Revert the change so the error message `Help page documentation base url is blocked` does not appear anymore.
+1. Add `docs.gitlab.com` , or [the redirect help documentation pages URL](../administration/settings/help_page.md#redirect-help-pages) to the [allowlist](#allow-outbound-requests-to-certain-ip-addresses-and-domains).
+1. Select **Save Changes**.
+
+### GitLab Duo functionality is blocked
+
+When you [filter requests](#filter-requests), you might see `401` errors when trying to use [GitLab Duo features](../user/ai_features.md).
+
+This error can occur when outbound requests to the GitLab cloud server are not allowed. To work around this error:
+
+1. Add `https://cloud.gitlab.com:443` to the [allowlist](#allow-outbound-requests-to-certain-ip-addresses-and-domains).
+1. Select **Save Changes**.
+1. After GitLab has access to the [cloud server](../user/ai_features.md), [manually sychronize your license](../subscriptions/self_managed/index.md#manually-synchronize-your-subscription-details)
+
+For more information, see the [GitLab Duo Code Suggestions troubleshooting documentation](../user/project/repository/code_suggestions/troubleshooting.md).

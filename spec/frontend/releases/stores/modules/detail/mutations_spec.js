@@ -25,15 +25,23 @@ describe('Release edit/new mutations', () => {
       mutations[types.INITIALIZE_EMPTY_RELEASE](state);
 
       expect(state.release).toEqual({
-        tagName: null,
+        tagName: 'v1.3',
+        tagMessage: '',
         name: '',
         description: '',
         milestones: [],
         groupMilestones: [],
+        releasedAt: new Date(),
         assets: {
           links: [],
         },
       });
+    });
+
+    it('saves the original released at date as well', () => {
+      mutations[types.INITIALIZE_EMPTY_RELEASE](state);
+
+      expect(state.originalReleasedAt).toEqual(new Date());
     });
   });
 
@@ -56,6 +64,7 @@ describe('Release edit/new mutations', () => {
       expect(state.release).toEqual(release);
 
       expect(state.originalRelease).toEqual(release);
+      expect(state.originalReleasedAt).toEqual(release.releasedAt);
     });
   });
 
@@ -80,6 +89,35 @@ describe('Release edit/new mutations', () => {
 
       expect(state.release.tagName).toBe(newTag);
     });
+
+    it('nulls out existing release', () => {
+      state.release = release;
+      state.existingRelease = release;
+      const newTag = 'updated-tag-name';
+      mutations[types.UPDATE_RELEASE_TAG_NAME](state, newTag);
+
+      expect(state.existingRelease).toBe(null);
+    });
+  });
+
+  describe(`${types.UPDATE_RELEASE_TAG_MESSAGE}`, () => {
+    it("updates the release's tag message", () => {
+      state.release = release;
+      const newMessage = 'updated-tag-message';
+      mutations[types.UPDATE_RELEASE_TAG_MESSAGE](state, newMessage);
+
+      expect(state.release.tagMessage).toBe(newMessage);
+    });
+  });
+
+  describe(`${types.UPDATE_RELEASED_AT}`, () => {
+    it("updates the release's released at date", () => {
+      state.release = release;
+      const newDate = new Date();
+      mutations[types.UPDATE_RELEASED_AT](state, newDate);
+
+      expect(state.release.releasedAt).toBe(newDate);
+    });
   });
 
   describe(`${types.UPDATE_CREATE_FROM}`, () => {
@@ -89,6 +127,16 @@ describe('Release edit/new mutations', () => {
       mutations[types.UPDATE_CREATE_FROM](state, newRef);
 
       expect(state.createFrom).toBe(newRef);
+    });
+  });
+
+  describe(`${types.UPDATE_SHOW_CREATE_FROM}`, () => {
+    it('updates the ref that the ref will be created from', () => {
+      state.showCreateFrom = true;
+      const newValue = false;
+      mutations[types.UPDATE_SHOW_CREATE_FROM](state, newValue);
+
+      expect(state.showCreateFrom).toBe(newValue);
     });
   });
 
@@ -235,6 +283,54 @@ describe('Release edit/new mutations', () => {
       mutations[types.REMOVE_ASSET_LINK](state, linkToRemove.id);
 
       expect(state.release.assets.links).not.toContainEqual(linkToRemove);
+    });
+  });
+  describe(`${types.REQUEST_TAG_NOTES}`, () => {
+    it('sets isFetchingTagNotes to true', () => {
+      state.isFetchingTagNotes = false;
+      mutations[types.REQUEST_TAG_NOTES](state);
+      expect(state.isFetchingTagNotes).toBe(true);
+    });
+  });
+  describe(`${types.RECEIVE_TAG_NOTES_SUCCESS}`, () => {
+    it('sets the tag notes in the state', () => {
+      state.isFetchingTagNotes = true;
+      const message = 'tag notes';
+
+      mutations[types.RECEIVE_TAG_NOTES_SUCCESS](state, { message, release });
+      expect(state.tagNotes).toBe(message);
+      expect(state.isFetchingTagNotes).toBe(false);
+      expect(state.existingRelease).toBe(release);
+    });
+  });
+  describe(`${types.RECEIVE_TAG_NOTES_ERROR}`, () => {
+    it('sets tag notes to empty', () => {
+      const message = 'there was an error';
+      state.isFetchingTagNotes = true;
+      state.tagNotes = 'tag notes';
+
+      mutations[types.RECEIVE_TAG_NOTES_ERROR](state, { message });
+      expect(state.tagNotes).toBe('');
+      expect(state.isFetchingTagNotes).toBe(false);
+    });
+
+    it('nulls out existing release', () => {
+      state.existingRelease = release;
+      const message = 'there was an error';
+      state.isFetchingTagNotes = true;
+      state.tagNotes = 'tag notes';
+
+      mutations[types.RECEIVE_TAG_NOTES_ERROR](state, { message });
+
+      expect(state.existingRelease).toBe(null);
+    });
+  });
+  describe(`${types.UPDATE_INCLUDE_TAG_NOTES}`, () => {
+    it('sets whether or not to include the tag notes', () => {
+      state.includeTagNotes = false;
+
+      mutations[types.UPDATE_INCLUDE_TAG_NOTES](state, true);
+      expect(state.includeTagNotes).toBe(true);
     });
   });
 });

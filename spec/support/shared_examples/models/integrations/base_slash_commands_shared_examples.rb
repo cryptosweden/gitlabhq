@@ -3,7 +3,10 @@
 RSpec.shared_examples Integrations::BaseSlashCommands do
   describe "Associations" do
     it { is_expected.to respond_to :token }
-    it { is_expected.to have_many :chat_names }
+  end
+
+  describe 'default values' do
+    it { expect(subject.category).to eq(:chat) }
   end
 
   describe '#valid_token?' do
@@ -81,45 +84,79 @@ RSpec.shared_examples Integrations::BaseSlashCommands do
       end
 
       context 'when the user is authenticated' do
-        let!(:chat_name) { create(:chat_name, integration: subject) }
+        let!(:chat_name) { create(:chat_name) }
         let(:params) { { token: 'token', team_id: chat_name.team_id, user_id: chat_name.chat_id } }
 
         subject do
           described_class.create!(project: project, properties: { token: 'token' })
         end
 
-        it 'triggers the command' do
-          expect_any_instance_of(Gitlab::SlashCommands::Command).to receive(:execute)
-
-          subject.trigger(params)
-        end
-
-        shared_examples_for 'blocks command execution' do
-          it do
-            expect_any_instance_of(Gitlab::SlashCommands::Command).not_to receive(:execute)
-
-            result = subject.trigger(params)
-            expect(result[:text]).to match(error_message)
-          end
-        end
-
-        context 'when user is blocked' do
+        context 'with verified request' do
           before do
-            chat_name.user.block
+            allow_next_instance_of(::Gitlab::SlashCommands::VerifyRequest) do |instance|
+              allow(instance).to receive(:valid?).and_return(true)
+            end
           end
 
-          it_behaves_like 'blocks command execution' do
-            let(:error_message) { 'you do not have access to the GitLab project' }
+          it 'triggers the command' do
+            expect_any_instance_of(Gitlab::SlashCommands::Command).to receive(:execute)
+
+            subject.trigger(params)
+          end
+
+          shared_examples_for 'blocks command execution' do
+            it do
+              expect_any_instance_of(Gitlab::SlashCommands::Command).not_to receive(:execute)
+
+              result = subject.trigger(params)
+              expect(result[:text]).to match(error_message)
+            end
+          end
+
+          context 'when user is blocked' do
+            before do
+              chat_name.user.block
+            end
+
+            it_behaves_like 'blocks command execution' do
+              let(:error_message) { 'you do not have access to the GitLab project' }
+            end
+          end
+
+          context 'when user is deactivated' do
+            before do
+              chat_name.user.deactivate
+            end
+
+            it_behaves_like 'blocks command execution' do
+              let(:error_message) { "your #{Gitlab.config.gitlab.url} account needs to be reactivated" }
+            end
           end
         end
 
-        context 'when user is deactivated' do
+        context 'with unverified request' do
           before do
-            chat_name.user.deactivate
+            allow_next_instance_of(::Gitlab::SlashCommands::VerifyRequest) do |instance|
+              allow(instance).to receive(:valid?).and_return(false)
+            end
           end
 
-          it_behaves_like 'blocks command execution' do
-            let(:error_message) { 'your account has been deactivated by your administrator' }
+          let(:params) do
+            {
+              team_domain: 'http://domain.tld',
+              channel_name: 'channel-test',
+              team_id: chat_name.team_id,
+              user_id: chat_name.chat_id,
+              response_url: 'http://domain.tld/commands',
+              token: 'token'
+            }
+          end
+
+          it 'caches the slash command params and returns confirmation message' do
+            expect(Rails.cache).to receive(:write).with(an_instance_of(String), params, { expires_in: 3.minutes })
+            expect_any_instance_of(Gitlab::SlashCommands::Presenters::Access).to receive(:confirm)
+
+            subject.trigger(params)
           end
         end
       end

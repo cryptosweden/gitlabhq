@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe JiraConnect::SubscriptionsController do
+RSpec.describe JiraConnect::SubscriptionsController, feature_category: :integrations do
   let_it_be(:installation) { create(:jira_connect_installation) }
 
   describe '#index' do
@@ -56,23 +56,15 @@ RSpec.describe JiraConnect::SubscriptionsController do
           expect(json_response).to include('subscriptions_path' => jira_connect_subscriptions_path)
         end
 
-        context 'when not signed in to GitLab' do
-          it 'contains a login path' do
-            expect(json_response).to include('login_path' => jira_connect_users_path)
-          end
-        end
+        context 'with context qsh' do
+          # The JSON endpoint will be requested by frontend using a JWT that Atlassian provides via Javascript.
+          # This JWT will likely use a context-qsh because Atlassian don't know for which endpoint it will be used.
+          # Read more about context JWT here: https://developer.atlassian.com/cloud/jira/platform/understanding-jwt-for-connect-apps/
 
-        context 'when signed in to GitLab' do
-          let(:user) { create(:user) }
+          let(:qsh) { 'context-qsh' }
 
-          before do
-            sign_in(user)
-
-            get :index, params: { jwt: jwt }
-          end
-
-          it 'does not contain a login path' do
-            expect(json_response).to include('login_path' => nil)
+          specify do
+            expect(response).to have_gitlab_http_status(:ok)
           end
         end
       end
@@ -102,7 +94,7 @@ RSpec.describe JiraConnect::SubscriptionsController do
     end
 
     context 'with valid JWT' do
-      let(:claims) { { iss: installation.client_key, sub: 1234 } }
+      let(:claims) { { iss: installation.client_key, sub: 1234, qsh: '123' } }
       let(:jwt) { Atlassian::Jwt.encode(claims, installation.shared_secret) }
       let(:jira_user) { { 'groups' => { 'items' => [{ 'name' => jira_group_name }] } } }
       let(:jira_group_name) { 'site-admins' }
@@ -158,7 +150,7 @@ RSpec.describe JiraConnect::SubscriptionsController do
         .stub_request(:get, "#{installation.base_url}/rest/api/3/user?accountId=1234&expand=groups")
         .to_return(body: jira_user.to_json, status: 200, headers: { 'Content-Type' => 'application/json' })
 
-      delete :destroy, params: { jwt: jwt, id: subscription.id }
+      delete :destroy, params: { jwt: jwt, id: subscription.id, format: :json }
     end
 
     context 'without JWT' do
@@ -170,7 +162,7 @@ RSpec.describe JiraConnect::SubscriptionsController do
     end
 
     context 'with valid JWT' do
-      let(:claims) { { iss: installation.client_key, sub: 1234 } }
+      let(:claims) { { iss: installation.client_key, sub: 1234, qsh: '123' } }
       let(:jwt) { Atlassian::Jwt.encode(claims, installation.shared_secret) }
 
       it 'deletes the subscription' do

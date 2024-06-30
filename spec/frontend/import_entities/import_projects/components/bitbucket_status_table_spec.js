@@ -14,18 +14,11 @@ const ImportProjectsTableStub = {
 describe('BitbucketStatusTable', () => {
   let wrapper;
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
-  });
-
-  function createComponent(propsData, importProjectsTableStub = true, slots) {
+  function createComponent(propsData, slots) {
     wrapper = shallowMount(BitbucketStatusTable, {
       propsData,
       stubs: {
-        ImportProjectsTable: importProjectsTableStub,
+        ImportProjectsTable: ImportProjectsTableStub,
       },
       slots,
     });
@@ -33,27 +26,30 @@ describe('BitbucketStatusTable', () => {
 
   it('renders import table component', () => {
     createComponent({ providerTitle: 'Test' });
-    expect(wrapper.find(ImportProjectsTable).exists()).toBe(true);
+    expect(wrapper.findComponent(ImportProjectsTable).exists()).toBe(true);
   });
 
   it('passes alert in incompatible-repos-warning slot', () => {
-    createComponent({ providerTitle: 'Test' }, ImportProjectsTableStub);
-    expect(wrapper.find(GlAlert).exists()).toBe(true);
+    createComponent({ providerTitle: 'Test' });
+    expect(wrapper.findComponent(GlAlert).exists()).toBe(true);
   });
 
   it('passes actions slot to import project table component', () => {
     const actionsSlotContent = 'DEMO';
-    createComponent({ providerTitle: 'Test' }, ImportProjectsTableStub, {
-      actions: actionsSlotContent,
-    });
-    expect(wrapper.find(ImportProjectsTable).text()).toBe(actionsSlotContent);
+    createComponent(
+      { providerTitle: 'Test' },
+      {
+        actions: actionsSlotContent,
+      },
+    );
+    expect(wrapper.findComponent(ImportProjectsTable).text()).toBe(actionsSlotContent);
   });
 
   it('dismisses alert when requested', async () => {
-    createComponent({ providerTitle: 'Test' }, ImportProjectsTableStub);
-    wrapper.find(GlAlert).vm.$emit('dismiss');
+    createComponent({ providerTitle: 'Test' });
+    wrapper.findComponent(GlAlert).vm.$emit('dismiss');
     await nextTick();
 
-    expect(wrapper.find(GlAlert).exists()).toBe(false);
+    expect(wrapper.findComponent(GlAlert).exists()).toBe(false);
   });
 });

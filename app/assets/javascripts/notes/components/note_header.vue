@@ -1,27 +1,22 @@
 <script>
-import {
-  GlIcon,
-  GlLoadingIcon,
-  GlTooltipDirective,
-  GlSafeHtmlDirective as SafeHtml,
-} from '@gitlab/ui';
+import { GlIcon, GlBadge, GlLoadingIcon, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
-import { __ } from '~/locale';
-import timeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
-import UserNameWithStatus from '../../sidebar/components/assignees/user_name_with_status.vue';
+import { isGid, getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { TYPE_ACTIVITY, TYPE_COMMENT } from '~/import/constants';
+import { __, s__ } from '~/locale';
+import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
+import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 
 export default {
-  safeHtmlConfig: { ADD_TAGS: ['gl-emoji'] },
   components: {
-    timeAgoTooltip,
-    GitlabTeamMemberBadge: () =>
-      import('ee_component/vue_shared/components/user_avatar/badges/gitlab_team_member_badge.vue'),
+    ImportedBadge,
+    TimeAgoTooltip,
     GlIcon,
+    GlBadge,
     GlLoadingIcon,
-    UserNameWithStatus,
   },
   directives: {
-    SafeHtml,
     GlTooltip: GlTooltipDirective,
   },
   props: {
@@ -45,6 +40,11 @@ export default {
       required: false,
       default: null,
     },
+    noteableType: {
+      type: String,
+      required: false,
+      default: '',
+    },
     includeToggle: {
       type: Boolean,
       required: false,
@@ -60,28 +60,67 @@ export default {
       required: false,
       default: true,
     },
-    isConfidential: {
+    isInternalNote: {
       type: Boolean,
       required: false,
       default: false,
+    },
+    isImported: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    isSystemNote: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    noteUrl: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    emailParticipant: {
+      type: String,
+      required: false,
+      default: '',
     },
   },
   data() {
     return {
       isUsernameLinkHovered: false,
-      emojiTitle: '',
-      authorStatusHasTooltip: false,
     };
   },
   computed: {
+    authorId() {
+      return getIdFromGraphQLId(this.author.id);
+    },
+    authorHref() {
+      return this.author.path || this.author.webUrl;
+    },
     toggleChevronIconName() {
       return this.expanded ? 'chevron-up' : 'chevron-down';
     },
     noteTimestampLink() {
-      return this.noteId ? `#note_${this.noteId}` : undefined;
+      if (this.noteUrl) return this.noteUrl;
+
+      if (this.noteId) {
+        let { noteId } = this;
+
+        if (isGid(noteId)) noteId = getIdFromGraphQLId(noteId);
+
+        return `#note_${noteId}`;
+      }
+
+      return undefined;
     },
     hasAuthor() {
       return this.author && Object.keys(this.author).length;
+    },
+    isServiceDeskEmailParticipant() {
+      return (
+        !this.isInternalNote && this.author.username === 'support-bot' && this.emailParticipant
+      );
     },
     authorLinkClasses() {
       return {
@@ -89,28 +128,19 @@ export default {
         'text-underline': this.isUsernameLinkHovered,
         'author-name-link': true,
         'js-user-link': true,
+        'gl-overflow-hidden': true,
+        'gl-break-words': true,
       };
     },
-    authorStatus() {
-      if (this.author?.show_status) {
-        return this.author.status_tooltip_html;
-      }
-      return false;
-    },
-    emojiElement() {
-      return this.$refs?.authorStatus?.querySelector('gl-emoji');
-    },
     authorName() {
-      return this.author.name;
+      return this.isServiceDeskEmailParticipant ? this.emailParticipant : this.author.name;
     },
-  },
-  mounted() {
-    this.emojiTitle = this.emojiElement ? this.emojiElement.getAttribute('title') : '';
-
-    const authorStatusTitle = this.$refs?.authorStatus
-      ?.querySelector('.user-status-emoji')
-      ?.getAttribute('title');
-    this.authorStatusHasTooltip = authorStatusTitle && authorStatusTitle !== '';
+    internalNoteTooltip() {
+      return s__('Notes|This internal note will always remain confidential');
+    },
+    importableType() {
+      return this.isSystemNote ? TYPE_ACTIVITY : TYPE_COMMENT;
+    },
   },
   methods: {
     ...mapActions(['setTargetNoteHash']),
@@ -122,12 +152,6 @@ export default {
         this.setTargetNoteHash(this.noteTimestampLink);
       }
     },
-    removeEmojiTitle() {
-      this.emojiElement.removeAttribute('title');
-    },
-    addEmojiTitle() {
-      this.emojiElement.setAttribute('title', this.emojiTitle);
-    },
     handleUsernameMouseEnter() {
       this.$refs.authorNameLink.dispatchEvent(new Event('mouseenter'));
       this.isUsernameLinkHovered = true;
@@ -135,9 +159,6 @@ export default {
     handleUsernameMouseLeave() {
       this.$refs.authorNameLink.dispatchEvent(new Event('mouseleave'));
       this.isUsernameLinkHovered = false;
-    },
-    userAvailability(selectedAuthor) {
-      return selectedAuthor?.availability || '';
     },
   },
   i18n: {
@@ -166,43 +187,47 @@ export default {
       </button>
     </div>
     <template v-if="hasAuthor">
+      <span
+        v-if="emailParticipant"
+        class="note-header-author-name gl-font-bold"
+        data-testid="author-name"
+        v-text="authorName"
+      ></span>
       <a
+        v-else
         ref="authorNameLink"
-        :href="author.path"
+        :href="authorHref"
         :class="authorLinkClasses"
-        :data-user-id="author.id"
+        :data-user-id="authorId"
         :data-username="author.username"
       >
-        <slot name="note-header-info"></slot>
-        <user-name-with-status
-          :name="authorName"
-          :availability="userAvailability(author)"
-          container-classes="note-header-author-name gl-font-weight-bold"
-        />
+        <span
+          class="note-header-author-name gl-font-bold"
+          data-testid="author-name"
+          v-text="authorName"
+        ></span>
       </a>
       <span
-        v-if="authorStatus"
-        ref="authorStatus"
-        v-safe-html:[$options.safeHtmlConfig]="authorStatus"
-        v-on="
-          authorStatusHasTooltip ? { mouseenter: removeEmojiTitle, mouseleave: addEmojiTitle } : {}
-        "
-      ></span>
-      <span class="text-nowrap author-username">
+        v-if="!isSystemNote && !emailParticipant"
+        class="text-nowrap author-username gl-text-truncate"
+      >
         <a
           ref="authorUsernameLink"
           class="author-username-link"
-          :href="author.path"
+          :href="authorHref"
           @mouseenter="handleUsernameMouseEnter"
           @mouseleave="handleUsernameMouseLeave"
-          ><span class="note-headline-light">@{{ author.username }}</span>
+          ><span class="note-headline-light gl-hidden md:gl-inline">@{{ author.username }}</span>
         </a>
-        <gitlab-team-member-badge v-if="author && author.is_gitlab_employee" />
+        <slot name="note-header-info"></slot>
       </span>
+      <span v-if="emailParticipant" class="note-headline-light">{{
+        __('(external participant)')
+      }}</span>
     </template>
     <span v-else>{{ __('A deleted user') }}</span>
     <span class="note-headline-light note-headline-meta">
-      <span class="system-note-message" data-qa-selector="system_note_content">
+      <span class="system-note-message" data-testid="system-note-content">
         <slot></slot>
       </span>
       <template v-if="createdAt">
@@ -220,15 +245,22 @@ export default {
         </a>
         <time-ago-tooltip v-else ref="noteTimestamp" :time="createdAt" tooltip-placement="bottom" />
       </template>
-      <gl-icon
-        v-if="isConfidential"
+
+      <template v-if="isImported">
+        <span v-if="isSystemNote">&middot;</span>
+        <imported-badge :text-only="isSystemNote" :importable-type="importableType" />
+      </template>
+
+      <gl-badge
+        v-if="isInternalNote"
         v-gl-tooltip:tooltipcontainer.bottom
-        data-testid="confidentialIndicator"
-        name="eye-slash"
-        :size="16"
-        :title="s__('Notes|This comment is confidential and only visible to project members')"
-        class="gl-ml-1 gl-text-orange-700 align-middle"
-      />
+        data-testid="internal-note-indicator"
+        variant="warning"
+        class="gl-ml-2"
+        :title="internalNoteTooltip"
+      >
+        {{ __('Internal note') }}
+      </gl-badge>
       <slot name="extra-controls"></slot>
       <gl-loading-icon
         v-if="showSpinner"

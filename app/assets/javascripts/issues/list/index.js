@@ -1,17 +1,30 @@
-import produce from 'immer';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
-import getIssuesQuery from 'ee_else_ce/issues/list/queries/get_issues.query.graphql';
+import VueRouter from 'vue-router';
 import IssuesListApp from 'ee_else_ce/issues/list/components/issues_list_app.vue';
-import createDefaultClient from '~/lib/graphql';
+import { resolvers, config } from '~/graphql_shared/issuable_client';
+import createDefaultClient, { createApolloClientWithCaching } from '~/lib/graphql';
+import { addShortcutsExtension } from '~/behaviors/shortcuts';
+import ShortcutsWorkItems from '~/behaviors/shortcuts/shortcuts_work_items';
 import { parseBoolean } from '~/lib/utils/common_utils';
-import JiraIssuesImportStatusRoot from './components/jira_issues_import_status_app.vue';
+import JiraIssuesImportStatusApp from './components/jira_issues_import_status_app.vue';
+import { gqlClient } from './graphql';
 
-export function mountJiraIssuesListApp() {
-  const el = document.querySelector('.js-jira-issues-import-status');
+let issuesClient;
+
+export async function issuesListClient() {
+  if (issuesClient) return issuesClient;
+  issuesClient = gon.features?.frontendCaching
+    ? await createApolloClientWithCaching(resolvers, { localCacheKey: 'issues_list', ...config })
+    : createDefaultClient(resolvers, config);
+  return issuesClient;
+}
+
+export async function mountJiraIssuesListApp() {
+  const el = document.querySelector('.js-jira-issues-import-status-root');
 
   if (!el) {
-    return false;
+    return null;
   }
 
   const { issuesPath, projectPath } = el.dataset;
@@ -19,21 +32,19 @@ export function mountJiraIssuesListApp() {
   const isJiraConfigured = parseBoolean(el.dataset.isJiraConfigured);
 
   if (!isJiraConfigured || !canEdit) {
-    return false;
+    return null;
   }
 
   Vue.use(VueApollo);
-  const defaultClient = createDefaultClient();
-  const apolloProvider = new VueApollo({
-    defaultClient,
-  });
 
   return new Vue({
     el,
     name: 'JiraIssuesImportStatusRoot',
-    apolloProvider,
+    apolloProvider: new VueApollo({
+      defaultClient: await gqlClient(),
+    }),
     render(createComponent) {
-      return createComponent(JiraIssuesImportStatusRoot, {
+      return createComponent(JiraIssuesImportStatusApp, {
         props: {
           canEdit,
           isJiraConfigured,
@@ -45,70 +56,54 @@ export function mountJiraIssuesListApp() {
   });
 }
 
-export function mountIssuesListApp() {
-  const el = document.querySelector('.js-issues-list');
+export async function mountIssuesListApp() {
+  const el = document.querySelector('.js-issues-list-root');
 
   if (!el) {
-    return false;
+    return null;
   }
 
+  addShortcutsExtension(ShortcutsWorkItems);
+
   Vue.use(VueApollo);
-
-  const resolvers = {
-    Mutation: {
-      reorderIssues: (_, { oldIndex, newIndex, namespace, serializedVariables }, { cache }) => {
-        const variables = JSON.parse(serializedVariables);
-        const sourceData = cache.readQuery({ query: getIssuesQuery, variables });
-
-        const data = produce(sourceData, (draftData) => {
-          const issues = draftData[namespace].issues.nodes.slice();
-          const issueToMove = issues[oldIndex];
-          issues.splice(oldIndex, 1);
-          issues.splice(newIndex, 0, issueToMove);
-
-          draftData[namespace].issues.nodes = issues;
-        });
-
-        cache.writeQuery({ query: getIssuesQuery, variables, data });
-      },
-    },
-  };
-
-  const defaultClient = createDefaultClient(resolvers);
-  const apolloProvider = new VueApollo({
-    defaultClient,
-  });
+  Vue.use(VueRouter);
 
   const {
     autocompleteAwardEmojisPath,
     calendarPath,
     canBulkUpdate,
+    canCreateIssue,
+    canCreateProjects,
     canEdit,
     canImportIssues,
+    canReadCrmContact,
+    canReadCrmOrganization,
     email,
     emailsHelpPagePath,
-    emptyStateSvgPath,
     exportCsvPath,
     fullPath,
     groupPath,
     hasAnyIssues,
     hasAnyProjects,
     hasBlockedIssuesFeature,
+    hasEpicsFeature,
     hasIssuableHealthStatusFeature,
+    hasIssueDateFilterFeature,
     hasIssueWeightsFeature,
     hasIterationsFeature,
-    hasMultipleIssueAssigneesFeature,
+    hasScopedLabelsFeature,
+    hasOkrsFeature,
     importCsvIssuesPath,
     initialEmail,
     initialSort,
-    isAnonymousSearchDisabled,
     isIssueRepositioningDisabled,
     isProject,
+    isPublicVisibilityRestricted,
     isSignedIn,
-    jiraIntegrationPath,
     markdownHelpPath,
     maxAttachmentSize,
     newIssuePath,
+    newProjectPath,
     projectImportJiraPath,
     quickActionsHelpPath,
     releasesPath,
@@ -116,33 +111,54 @@ export function mountIssuesListApp() {
     rssPath,
     showNewIssueLink,
     signInPath,
+    groupId = '',
+    reportAbusePath,
+    registerPath,
+    issuesListPath,
   } = el.dataset;
 
   return new Vue({
     el,
     name: 'IssuesListRoot',
-    apolloProvider,
+    apolloProvider: new VueApollo({
+      defaultClient: await issuesListClient(),
+    }),
+    router: new VueRouter({
+      base: window.location.pathname,
+      mode: 'history',
+      routes: [{ path: '/' }],
+    }),
     provide: {
       autocompleteAwardEmojisPath,
       calendarPath,
       canBulkUpdate: parseBoolean(canBulkUpdate),
-      emptyStateSvgPath,
+      canCreateIssue: parseBoolean(canCreateIssue),
+      canCreateProjects: parseBoolean(canCreateProjects),
+      canReadCrmContact: parseBoolean(canReadCrmContact),
+      canReadCrmOrganization: parseBoolean(canReadCrmOrganization),
       fullPath,
+      projectPath: fullPath,
       groupPath,
+      reportAbusePath,
+      registerPath,
       hasAnyIssues: parseBoolean(hasAnyIssues),
       hasAnyProjects: parseBoolean(hasAnyProjects),
       hasBlockedIssuesFeature: parseBoolean(hasBlockedIssuesFeature),
+      hasEpicsFeature: parseBoolean(hasEpicsFeature),
       hasIssuableHealthStatusFeature: parseBoolean(hasIssuableHealthStatusFeature),
+      hasIssueDateFilterFeature: parseBoolean(hasIssueDateFilterFeature),
       hasIssueWeightsFeature: parseBoolean(hasIssueWeightsFeature),
       hasIterationsFeature: parseBoolean(hasIterationsFeature),
-      hasMultipleIssueAssigneesFeature: parseBoolean(hasMultipleIssueAssigneesFeature),
+      hasScopedLabelsFeature: parseBoolean(hasScopedLabelsFeature),
+      hasOkrsFeature: parseBoolean(hasOkrsFeature),
       initialSort,
-      isAnonymousSearchDisabled: parseBoolean(isAnonymousSearchDisabled),
       isIssueRepositioningDisabled: parseBoolean(isIssueRepositioningDisabled),
+      isGroup: !parseBoolean(isProject),
       isProject: parseBoolean(isProject),
+      isPublicVisibilityRestricted: parseBoolean(isPublicVisibilityRestricted),
       isSignedIn: parseBoolean(isSignedIn),
-      jiraIntegrationPath,
       newIssuePath,
+      newProjectPath,
       releasesPath,
       rssPath,
       showNewIssueLink: parseBoolean(showNewIssueLink),
@@ -163,6 +179,8 @@ export function mountIssuesListApp() {
       markdownHelpPath,
       quickActionsHelpPath,
       resetPath,
+      groupId,
+      issuesListPath,
     },
     render: (createComponent) => createComponent(IssuesListApp),
   });

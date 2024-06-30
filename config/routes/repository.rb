@@ -51,19 +51,9 @@ scope format: false do
     end
 
     delete :merged_branches, controller: 'branches', action: :destroy_all_merged
-    resources :tags, only: [:index, :show, :new, :create, :destroy] do
-      resource :release, controller: 'tags/releases', only: [:edit, :update]
-    end
-
+    resources :tags, only: [:index, :show, :new, :create, :destroy]
     resources :protected_branches, only: [:index, :show, :create, :update, :destroy, :patch], constraints: { id: Gitlab::PathRegex.git_reference_regex }
     resources :protected_tags, only: [:index, :show, :create, :update, :destroy]
-
-    scope constraints: { id: /[^\0]+?/ } do
-      scope controller: :static_site_editor do
-        get '/sse/:id(/*vueroute)', action: :show, as: :show_sse
-        get '/sse', as: :root_sse, action: :index
-      end
-    end
   end
 
   scope constraints: { id: /[^\0]+/ } do
@@ -85,6 +75,8 @@ scope format: false do
 
     get '/tree/*id', to: 'tree#show', as: :tree
     get '/raw/*id', to: 'raw#show', as: :raw
+    get '/blame_page/*id', to: 'blame#page', as: :blame_page
+    get '/blame/*id/streaming', to: 'blame#streaming', as: :blame_streaming, defaults: { streaming: true }
     get '/blame/*id', to: 'blame#show', as: :blame
 
     get '/commits', to: 'commits#commits_root', as: :commits_root
@@ -100,8 +92,10 @@ scope format: false do
   end
 end
 
-resources :commit, only: [:show], constraints: { id: /\h{7,40}/ } do
+resources :commit, only: [:show], constraints: { id: Gitlab::Git::Commit::SHA_PATTERN } do
   member do
+    get :show, to: 'commit#rapid_diffs',
+      constraints: ->(params) { params[:rapid_diffs] == 'true' }
     get :branches
     get :pipelines
     post :revert

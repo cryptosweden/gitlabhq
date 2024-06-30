@@ -19,10 +19,10 @@ module API
       expose :closed_at do |merge_request, _options|
         merge_request.metrics&.latest_closed_at
       end
-      expose :title_html, if: -> (_, options) { options[:render_html] } do |entity|
+      expose :title_html, if: ->(_, options) { options[:render_html] } do |entity|
         MarkupHelper.markdown_field(entity, :title)
       end
-      expose :description_html, if: -> (_, options) { options[:render_html] } do |entity|
+      expose :description_html, if: ->(_, options) { options[:render_html] } do |entity|
         MarkupHelper.markdown_field(entity, :description)
       end
       expose :target_branch, :source_branch
@@ -41,6 +41,8 @@ module API
         end
       end
       expose :draft?, as: :draft
+      expose :imported?, as: :imported
+      expose :imported_from, documentation: { type: 'string', example: 'bitbucket' }
 
       # [Deprecated]  see draft
       #
@@ -55,17 +57,22 @@ module API
       #
       # For list endpoints, we skip the recheck by default, since it's expensive
       expose :merge_status do |merge_request, options|
-        merge_request.check_mergeability(async: true) unless options[:skip_merge_status_recheck]
+        if !options[:skip_merge_status_recheck] && can_check_mergeability?(merge_request.project)
+          merge_request.check_mergeability(async: true)
+        end
+
         merge_request.public_merge_status
       end
+      expose :detailed_merge_status
       expose :diff_head_sha, as: :sha
       expose :merge_commit_sha
       expose :squash_commit_sha
       expose :discussion_locked
       expose :should_remove_source_branch?, as: :should_remove_source_branch
       expose :force_remove_source_branch?, as: :force_remove_source_branch
+      expose :prepared_at
 
-      with_options if: -> (merge_request, _) { merge_request.for_fork? } do
+      with_options if: ->(merge_request, _) { merge_request.for_fork? } do
         expose :allow_collaboration
         # Deprecated
         expose :allow_collaboration, as: :allow_maintainer_to_push
@@ -90,9 +97,25 @@ module API
       end
 
       expose :squash
+      expose :squash_on_merge?, as: :squash_on_merge
       expose :task_completion_status
+
+      # #cannot_be_merged? is generally indicative of conflicts, and is set via
+      #   MergeRequests::MergeabilityCheckService. However, it can also indicate
+      #   that either #has_no_commits? or #branch_missing? are true.
+      #
       expose :cannot_be_merged?, as: :has_conflicts
       expose :mergeable_discussions_state?, as: :blocking_discussions_resolved
+
+      private
+
+      def detailed_merge_status
+        ::MergeRequests::Mergeability::DetailedMergeStatusService.new(merge_request: object).execute
+      end
+
+      def can_check_mergeability?(project)
+        Ability.allowed?(options[:current_user], :update_merge_request, project)
+      end
     end
   end
 end

@@ -1,11 +1,11 @@
 package git
 
 import (
-	"io/ioutil"
 	"net/http/httptest"
+	"os"
 	"testing"
 
-	"gitlab.com/gitlab-org/gitaly/v14/proto/go/gitalypb"
+	"gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/testhelper"
 
@@ -40,7 +40,7 @@ func TestParseBasename(t *testing.T) {
 }
 
 func TestFinalizeArchive(t *testing.T) {
-	tempFile, err := ioutil.TempFile("", "gitlab-workhorse-test")
+	tempFile, err := os.CreateTemp("", "gitlab-workhorse-test")
 	if err != nil {
 		t.Fatal(err)
 	}

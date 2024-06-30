@@ -15,18 +15,31 @@ RSpec.shared_examples 'wiki controller actions' do
     sign_in(user)
   end
 
-  shared_examples 'recovers from git timeout' do
+  shared_examples 'recovers from git errors' do
     let(:method_name) { :page }
 
-    context 'when we encounter git command errors' do
+    context 'when we encounter CommandTimedOut error' do
       it 'renders the appropriate template', :aggregate_failures do
-        expect(controller).to receive(method_name) do
-          raise ::Gitlab::Git::CommandTimedOut, 'Deadline Exceeded'
-        end
+        expect(controller)
+          .to receive(method_name)
+          .and_raise(::Gitlab::Git::CommandTimedOut, 'Deadline Exceeded')
 
         request
 
         expect(response).to render_template('shared/wikis/git_error')
+      end
+    end
+
+    context 'when we encounter a NoRepository error' do
+      it 'renders the appropriate template', :aggregate_failures do
+        expect(controller)
+          .to receive(method_name)
+          .and_raise(Gitlab::Git::Repository::NoRepository)
+
+        request
+
+        expect(response).to render_template('shared/wikis/empty')
+        expect(assigns(:error)).to eq('Could not access the Wiki Repository at this time.')
       end
     end
   end
@@ -48,7 +61,7 @@ RSpec.shared_examples 'wiki controller actions' do
     context 'when the wiki repository cannot be created' do
       before do
         expect(Wiki).to receive(:for_container).and_return(wiki)
-        expect(wiki).to receive(:wiki) { raise Wiki::CouldNotCreateWikiError }
+        expect(wiki).to receive(:create_wiki_repository) { raise Wiki::CouldNotCreateWikiError }
       end
 
       it 'redirects to the wiki container and displays an error message' do
@@ -65,24 +78,19 @@ RSpec.shared_examples 'wiki controller actions' do
       get :pages, params: routing_params.merge(id: wiki_title)
     end
 
-    it_behaves_like 'recovers from git timeout' do
+    it_behaves_like 'recovers from git errors' do
       subject(:request) { get :pages, params: routing_params.merge(id: wiki_title) }
 
-      let(:method_name) { :wiki_pages }
+      let(:method_name) { :pages_list }
     end
 
     it 'assigns the page collections' do
-      expect(assigns(:wiki_pages)).to contain_exactly(an_instance_of(WikiPage))
+      expect(assigns(:pages_list)).to contain_exactly(an_instance_of(WikiPage))
       expect(assigns(:wiki_entries)).to contain_exactly(an_instance_of(WikiPage))
     end
 
     it 'does not load the page content' do
       expect(assigns(:page)).to be_nil
-    end
-
-    it 'does not load the sidebar' do
-      expect(assigns(:sidebar_wiki_entries)).to be_nil
-      expect(assigns(:sidebar_limited)).to be_nil
     end
 
     context 'when the request is of non-html format' do
@@ -122,7 +130,7 @@ RSpec.shared_examples 'wiki controller actions' do
       end
     end
 
-    it_behaves_like 'recovers from git timeout' do
+    it_behaves_like 'recovers from git errors' do
       subject(:request) { get :history, params: routing_params.merge(id: wiki_title) }
 
       let(:allow_read_wiki)   { true }
@@ -170,7 +178,7 @@ RSpec.shared_examples 'wiki controller actions' do
       end
     end
 
-    it_behaves_like 'recovers from git timeout' do
+    it_behaves_like 'recovers from git errors' do
       subject(:request) { get :diff, params: routing_params.merge(id: wiki_title, version_id: wiki.repository.commit.id) }
     end
   end
@@ -185,7 +193,7 @@ RSpec.shared_examples 'wiki controller actions' do
     context 'when page exists' do
       let(:id) { wiki_title }
 
-      it_behaves_like 'recovers from git timeout'
+      it_behaves_like 'recovers from git errors'
 
       it 'renders the page' do
         request
@@ -193,30 +201,6 @@ RSpec.shared_examples 'wiki controller actions' do
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to render_template('shared/wikis/show')
         expect(assigns(:page).title).to eq(wiki_title)
-        expect(assigns(:sidebar_wiki_entries)).to contain_exactly(an_instance_of(WikiPage))
-        expect(assigns(:sidebar_limited)).to be(false)
-      end
-
-      context 'the sidebar fails to load' do
-        before do
-          allow(Wiki).to receive(:for_container).and_return(wiki)
-          wiki.wiki
-          expect(wiki).to receive(:find_sidebar) do
-            raise ::Gitlab::Git::CommandTimedOut, 'Deadline Exceeded'
-          end
-        end
-
-        it 'renders the page, and marks the sidebar as failed' do
-          request
-
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(response).to render_template('shared/wikis/_sidebar')
-          expect(assigns(:page).title).to eq(wiki_title)
-          expect(assigns(:sidebar_page)).to be_nil
-          expect(assigns(:sidebar_wiki_entries)).to be_nil
-          expect(assigns(:sidebar_limited)).to be_nil
-          expect(assigns(:sidebar_error)).to be_a_kind_of(::Gitlab::Git::CommandError)
-        end
       end
 
       context 'page view tracking' do
@@ -225,12 +209,12 @@ RSpec.shared_examples 'wiki controller actions' do
           let(:expected_value) { instance_of(String) }
         end
 
-        it 'increases the page view counter' do
-          expect do
-            request
+        it_behaves_like 'internal event tracking' do
+          let(:event) { 'view_wiki_page' }
+          let(:project) { container if container.is_a?(Project) }
+          let(:namespace) { container.is_a?(Group) ? container : container.namespace }
 
-            expect(response).to have_gitlab_http_status(:ok)
-          end.to change { Gitlab::UsageDataCounters::WikiPageCounter.read(:view) }.by(1)
+          subject(:track_event) { request }
         end
       end
 
@@ -261,14 +245,6 @@ RSpec.shared_examples 'wiki controller actions' do
         it 'builds a new wiki page with the id as the title' do
           expect(assigns(:page).title).to eq(id)
         end
-
-        context 'when a random_title param is present' do
-          let(:random_title) { true }
-
-          it 'builds a new wiki page with no title' do
-            expect(assigns(:page).title).to be_empty
-          end
-        end
       end
 
       context 'when the user cannot create pages' do
@@ -279,8 +255,8 @@ RSpec.shared_examples 'wiki controller actions' do
         it 'shows the empty state' do
           request
 
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(response).to render_template('shared/wikis/empty')
+          expect(response).to have_gitlab_http_status(:not_found)
+          expect(response).to render_template('shared/wikis/404')
         end
       end
     end
@@ -288,7 +264,7 @@ RSpec.shared_examples 'wiki controller actions' do
     context 'when page is a file' do
       include WikiHelpers
 
-      where(:file_name) { ['dk.png', 'unsanitized.svg', 'git-cheat-sheet.pdf'] }
+      where(:file_name) { ['dk.png', 'unsanitized.svg', 'sample.pdf'] }
 
       with_them do
         let(:id) { upload_file_to_wiki(wiki, user, file_name) }
@@ -300,7 +276,134 @@ RSpec.shared_examples 'wiki controller actions' do
           expect(response.headers['Content-Disposition']).to match(/^inline/)
           expect(response.headers[Gitlab::Workhorse::DETECT_HEADER]).to eq('true')
           expect(response.cache_control[:public]).to be(false)
-          expect(response.headers['Cache-Control']).to eq('max-age=60, private')
+          expect(response.headers['Cache-Control']).to eq('max-age=60, private, must-revalidate, stale-while-revalidate=60, stale-if-error=300, s-maxage=60')
+        end
+      end
+    end
+
+    context 'when wiki_redirection feature flag is enabled' do
+      before do
+        stub_feature_flags(wiki_redirection: true)
+      end
+
+      context 'when the page redirects to another page' do
+        before do
+          redirect_limit_yml = ''
+          51.times do |i|
+            redirect_limit_yml += "Page#{i}: Page#{i + 1}\n"
+          end
+
+          wiki.repository.update_file(
+            user,
+            '.gitlab/redirects.yml',
+            "PageA: PageB\nLoopA: LoopB\nLoopB: LoopA\n#{redirect_limit_yml}",
+            message: 'Create redirects file',
+            branch_name: 'master'
+          )
+        end
+
+        context 'that exists' do
+          let(:id) { 'PageA' }
+
+          before do
+            create(:wiki_page, wiki: wiki, title: 'PageB', content: 'Page B content')
+          end
+
+          it 'redirects to the target page' do
+            request
+
+            expect(response).to redirect_to_wiki(wiki, 'PageB', redirected_from: 'PageA')
+            expect(flash[:notice]).to eq('The page at <code>PageA</code> has been moved to <code>PageB</code>.')
+          end
+        end
+
+        context 'that results in a redirect loop' do
+          let(:id) { 'LoopA' }
+
+          it 'renders the edit page with a notice' do
+            request
+
+            expect(response).to redirect_to_wiki(wiki, 'LoopA', redirect_limit_reached: true)
+            expect(flash[:notice]).to eq('The page at <code>LoopA</code> redirected too many times. You are now editing the page at <code>LoopA</code>.')
+          end
+        end
+
+        context 'that results in a redirect limit' do
+          let(:id) { 'Page0' }
+
+          it 'renders the edit page with a notice' do
+            request
+
+            expect(response).to redirect_to_wiki(wiki, 'Page0', redirect_limit_reached: true)
+            expect(flash[:notice]).to eq('The page at <code>Page0</code> redirected too many times. You are now editing the page at <code>Page0</code>.')
+          end
+        end
+
+        context 'but the original page also exists' do
+          let(:id) { 'PageA' }
+
+          before do
+            create(:wiki_page, wiki: wiki, title: 'PageA', content: 'Page A content')
+          end
+
+          it 'renders the page instead of redirecting' do
+            request
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to render_template('shared/wikis/show')
+            expect(assigns(:page).title).to eq('PageA')
+          end
+        end
+
+        context 'when the destination page does not exist' do
+          let(:redirected_from) { 'PageA' }
+          let(:id) { 'PageB' }
+
+          render_views
+
+          before do
+            routing_params[:redirected_from] = redirected_from
+          end
+
+          it 'renders the edit page for redirect with a notice and a link to edit the original page' do
+            request
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to render_template('shared/wikis/edit')
+
+            expect(response.body).to include("The page at <code>PageA</code> tried to redirect to <code>PageB</code>, but it does not exist. You are now editing the page at <code>PageB</code>. <a href=\"#{controller.wiki_page_path(wiki, 'PageA')}?no_redirect=true\">Edit page at <code>PageA</code> instead.</a>")
+
+            expect(flash[:notice]).to be_nil
+          end
+        end
+      end
+    end
+
+    context 'when wiki_redirection feature flag is disabled' do
+      before do
+        stub_feature_flags(wiki_redirection: false)
+      end
+
+      context 'when a redirection is listed in the .gitlab/redirects.yml file' do
+        let(:id) { 'PageA' }
+
+        before do
+          wiki.repository.update_file(
+            user,
+            '.gitlab/redirects.yml',
+            "PageA: PageB",
+            message: 'Create redirects file',
+            branch_name: 'master'
+          )
+
+          create(:wiki_page, wiki: wiki, title: 'PageB', content: 'Page B content')
+        end
+
+        it 'does not redirect' do
+          request
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template('shared/wikis/edit')
         end
       end
     end
@@ -311,7 +414,7 @@ RSpec.shared_examples 'wiki controller actions' do
       post :preview_markdown, params: routing_params.merge(id: 'page/path', text: '*Markdown* text')
 
       expect(response).to have_gitlab_http_status(:ok)
-      expect(json_response.keys).to match_array(%w(body references))
+      expect(json_response.keys).to match_array(%w[body references])
     end
   end
 
@@ -366,7 +469,7 @@ RSpec.shared_examples 'wiki controller actions' do
     subject(:request) { get(:edit, params: routing_params.merge(id: id_param)) }
 
     it_behaves_like 'edit action'
-    it_behaves_like 'recovers from git timeout'
+    it_behaves_like 'recovers from git errors'
 
     context 'when page content encoding is valid' do
       render_views
@@ -375,7 +478,7 @@ RSpec.shared_examples 'wiki controller actions' do
         request
 
         expect(response).to have_gitlab_http_status(:ok)
-        expect(response.body).to include(s_('Wiki|Edit Page'))
+        expect(response.body).to include('Edit · page title test')
       end
     end
   end
@@ -386,11 +489,10 @@ RSpec.shared_examples 'wiki controller actions' do
     let(:id_param) { wiki_title }
 
     subject(:request) do
-      patch(:update,
-            params: routing_params.merge(
-              id: id_param,
-              wiki: { title: new_title, content: new_content }
-            ))
+      patch(:update, params: routing_params.merge(
+        id: id_param,
+        wiki: { title: new_title, content: new_content }
+      ))
     end
 
     it_behaves_like 'edit action'
@@ -426,10 +528,9 @@ RSpec.shared_examples 'wiki controller actions' do
     let(:new_content) { 'New content' }
 
     subject(:request) do
-      post(:create,
-            params: routing_params.merge(
-              wiki: { title: new_title, content: new_content }
-            ))
+      post(:create, params: routing_params.merge(
+        wiki: { title: new_title, content: new_content }
+      ))
     end
 
     context 'when page is valid' do
@@ -463,10 +564,9 @@ RSpec.shared_examples 'wiki controller actions' do
     let(:delete_user) { user }
 
     subject(:request) do
-      delete(:destroy,
-            params: routing_params.merge(
-              id: id_param
-            ))
+      delete(:destroy, params: routing_params.merge(
+        id: id_param
+      ))
     end
 
     before do
@@ -552,7 +652,8 @@ RSpec.shared_examples 'wiki controller actions' do
     end
   end
 
-  def redirect_to_wiki(wiki, page)
-    redirect_to(controller.wiki_page_path(wiki, page))
+  def redirect_to_wiki(wiki, page, query_params = {})
+    query = query_params.empty? ? '' : "?#{query_params.to_query}"
+    redirect_to("#{controller.wiki_page_path(wiki, page)}#{query}")
   end
 end

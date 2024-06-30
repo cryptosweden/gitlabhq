@@ -3,27 +3,61 @@
 module Issuable
   module Clone
     class BaseService < IssuableBaseService
-      attr_reader :original_entity, :new_entity, :target_project
+      attr_reader :original_entity, :new_entity
 
       alias_method :old_project, :project
 
-      def execute(original_entity, target_project = nil)
+      def execute(original_entity, target_parent)
         @original_entity = original_entity
-        @target_project = target_project
+        @target_parent = target_parent
 
         # Using transaction because of a high resources footprint
         # on rewriting notes (unfolding references)
-        #
+
         ApplicationRecord.transaction do
           @new_entity = create_new_entity
+          @new_entity.system_note_timestamp = nil
 
           update_new_entity
           update_old_entity
           create_notes
+          after_clone_actions
         end
       end
 
       private
+
+      attr_reader :target_parent
+
+      # Overwritten in child class
+      def after_clone_actions; end
+
+      def rewritten_old_entity_attributes(include_milestone: true)
+        Gitlab::Issuable::Clone::AttributesRewriter.new(
+          current_user,
+          original_entity,
+          target_parent
+        ).execute(include_milestone: include_milestone)
+      end
+
+      def update_new_entity
+        update_new_entity_description
+        copy_award_emoji
+        copy_notes
+        copy_resource_events
+      end
+
+      def update_new_entity_description
+        update_description_params = MarkdownContentRewriterService.new(
+          current_user,
+          original_entity,
+          :description,
+          original_entity.project,
+          new_parent
+        ).execute
+
+        new_entity.update!(update_description_params)
+      end
 
       def copy_award_emoji
         AwardEmojis::CopyService.new(original_entity, new_entity).execute
@@ -33,26 +67,8 @@ module Issuable
         Notes::CopyService.new(current_user, original_entity, new_entity).execute
       end
 
-      def update_new_entity
-        update_new_entity_description
-        update_new_entity_attributes
-        copy_award_emoji
-        copy_notes
-      end
-
-      def update_new_entity_description
-        rewritten_description = MarkdownContentRewriterService.new(
-          current_user,
-          original_entity.description,
-          original_entity.project,
-          new_parent
-        ).execute
-
-        new_entity.update!(description: rewritten_description)
-      end
-
-      def update_new_entity_attributes
-        AttributesRewriter.new(current_user, original_entity, new_entity).execute
+      def copy_resource_events
+        Gitlab::Issuable::Clone::CopyResourceEventsService.new(current_user, original_entity, new_entity).execute
       end
 
       def update_old_entity
@@ -65,7 +81,7 @@ module Issuable
       end
 
       def close_issue
-        close_service = Issues::CloseService.new(project: old_project, current_user: current_user)
+        close_service = Issues::CloseService.new(container: old_project, current_user: current_user)
         close_service.execute(original_entity, notifications: false, system_note: true)
       end
 
@@ -73,19 +89,11 @@ module Issuable
         new_entity.resource_parent
       end
 
-      def group
-        if new_entity.project&.group && current_user.can?(:read_group, new_entity.project.group)
-          new_entity.project.group
-        end
-      end
-
       def relative_position
-        return if original_entity.project.root_ancestor.id != target_project.root_ancestor.id
+        return if original_entity.project.root_ancestor.id != target_parent.root_ancestor.id
 
         original_entity.relative_position
       end
     end
   end
 end
-
-Issuable::Clone::BaseService.prepend_mod_with('Issuable::Clone::BaseService')

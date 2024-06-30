@@ -1,6 +1,5 @@
 import { getByRole } from '@testing-library/dom';
 import { shallowMount, mount } from '@vue/test-utils';
-import '~/behaviors/markdown/render_gfm';
 import { nextTick } from 'vue';
 import DiscussionNotes from '~/notes/components/discussion_notes.vue';
 import NoteableNote from '~/notes/components/noteable_note.vue';
@@ -10,6 +9,8 @@ import PlaceholderNote from '~/vue_shared/components/notes/placeholder_note.vue'
 import PlaceholderSystemNote from '~/vue_shared/components/notes/placeholder_system_note.vue';
 import SystemNote from '~/vue_shared/components/notes/system_note.vue';
 import { noteableDataMock, discussionMock, notesDataMock } from '../mock_data';
+
+jest.mock('~/behaviors/markdown/render_gfm');
 
 const LINE_RANGE = {};
 const DISCUSSION_WITH_LINE_RANGE = {
@@ -52,22 +53,17 @@ describe('DiscussionNotes', () => {
     store.dispatch('setNotesData', notesDataMock);
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
   describe('rendering', () => {
     it('renders an element for each note in the discussion', () => {
       createComponent();
       const notesCount = discussionMock.notes.length;
-      const els = wrapper.findAll(NoteableNote);
+      const els = wrapper.findAllComponents(NoteableNote);
       expect(els.length).toBe(notesCount);
     });
 
     it('renders one element if replies groupping is enabled', () => {
       createComponent({ shouldGroupReplies: true });
-      const els = wrapper.findAll(NoteableNote);
+      const els = wrapper.findAllComponents(NoteableNote);
       expect(els.length).toBe(1);
     });
 
@@ -140,21 +136,21 @@ describe('DiscussionNotes', () => {
         findNoteAtIndex(0).vm.$emit('handleDeleteNote');
 
         await nextTick();
-        expect(wrapper.emitted().deleteNote).toBeTruthy();
+        expect(wrapper.emitted().deleteNote).toHaveLength(1);
       });
 
       it('emits startReplying when first note emits startReplying', async () => {
         findNoteAtIndex(0).vm.$emit('startReplying');
 
         await nextTick();
-        expect(wrapper.emitted().startReplying).toBeTruthy();
+        expect(wrapper.emitted().startReplying).toHaveLength(1);
       });
 
       it('emits deleteNote when second note emits handleDeleteNote', async () => {
         findNoteAtIndex(1).vm.$emit('handleDeleteNote');
 
         await nextTick();
-        expect(wrapper.emitted().deleteNote).toBeTruthy();
+        expect(wrapper.emitted().deleteNote).toHaveLength(1);
       });
     });
 
@@ -169,7 +165,7 @@ describe('DiscussionNotes', () => {
         note.vm.$emit('handleDeleteNote');
 
         await nextTick();
-        expect(wrapper.emitted().deleteNote).toBeTruthy();
+        expect(wrapper.emitted().deleteNote).toHaveLength(1);
       });
     });
   });

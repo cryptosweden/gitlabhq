@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Explore Topics' do
+RSpec.describe 'Explore Topics', feature_category: :user_profile do
   context 'when no topics exist' do
     it 'renders empty message', :aggregate_failures do
       visit topics_explore_projects_path
@@ -13,13 +13,13 @@ RSpec.describe 'Explore Topics' do
   end
 
   context 'when topics exist' do
-    let!(:topic) { create(:topic, name: 'topic1') }
+    let!(:topic) { create(:topic, name: 'topic1', title: 'Topic 1') }
 
     it 'renders topic list' do
       visit topics_explore_projects_path
 
       expect(page).to have_current_path topics_explore_projects_path, ignore_query: true
-      expect(page).to have_content('topic1')
+      expect(page).to have_content(topic.title)
     end
   end
 end

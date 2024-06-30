@@ -1,160 +1,192 @@
+import Vue, { nextTick } from 'vue';
 import { GlLoadingIcon } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import VueApollo from 'vue-apollo';
+import createMockApollo from 'helpers/mock_apollo_helper';
+import waitForPromises from 'helpers/wait_for_promises';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import LastCommit from '~/repository/components/last_commit.vue';
-import UserAvatarLink from '~/vue_shared/components/user_avatar/user_avatar_link.vue';
+import CommitInfo from '~/repository/components/commit_info.vue';
+import SignatureBadge from '~/commit/components/signature_badge.vue';
+import eventHub from '~/repository/event_hub';
+import pathLastCommitQuery from 'shared_queries/repository/path_last_commit.query.graphql';
+import { FORK_UPDATED_EVENT } from '~/repository/constants';
+import { refMock } from '../mock_data';
 
-let vm;
+let wrapper;
+let commitData;
+let mockResolver;
 
-function createCommitData(data = {}) {
-  const defaultData = {
-    sha: '123456789',
-    title: 'Commit title',
-    titleHtml: 'Commit title',
-    message: 'Commit message',
-    webPath: '/commit/123',
-    authoredDate: '2019-01-01',
-    author: {
-      name: 'Test',
-      avatarUrl: 'https://test.com',
-      webPath: '/test',
-    },
-    pipeline: {
+const findPipeline = () => wrapper.find('.js-commit-pipeline');
+const findLastCommitLabel = () => wrapper.findByTestId('last-commit-id-label');
+const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
+const findStatusBox = () => wrapper.findComponent(SignatureBadge);
+const findCommitInfo = () => wrapper.findComponent(CommitInfo);
+
+const defaultPipelineEdges = [
+  {
+    __typename: 'PipelineEdge',
+    node: {
+      __typename: 'Pipeline',
+      id: 'gid://gitlab/Ci::Pipeline/167',
       detailedStatus: {
+        __typename: 'DetailedStatus',
+        id: 'id',
         detailsPath: 'https://test.com/pipeline',
-        icon: 'failed',
+        icon: 'status_running',
         tooltip: 'failed',
         text: 'failed',
-        group: {},
+        group: 'failed',
       },
     },
-  };
-  return Object.assign(defaultData, data);
-}
+  },
+];
 
-function factory(commit = createCommitData(), loading = false) {
-  vm = shallowMount(LastCommit, {
-    mocks: {
-      $apollo: {
-        queries: {
-          commit: {
-            loading: true,
+const createCommitData = ({ pipelineEdges = defaultPipelineEdges, signature = null }) => {
+  return {
+    data: {
+      project: {
+        __typename: 'Project',
+        id: 'gid://gitlab/Project/6',
+        repository: {
+          __typename: 'Repository',
+          paginatedTree: {
+            __typename: 'TreeConnection',
+            nodes: [
+              {
+                __typename: 'Tree',
+                lastCommit: {
+                  __typename: 'Commit',
+                  id: 'gid://gitlab/CommitPresenter/123456789',
+                  sha: '123456789',
+                  title: 'Commit title',
+                  titleHtml: 'Commit title',
+                  descriptionHtml: '',
+                  message: '',
+                  webPath: '/commit/123',
+                  authoredDate: '2019-01-01',
+                  authorName: 'Test',
+                  authorGravatar: 'https://test.com',
+                  author: {
+                    __typename: 'UserCore',
+                    id: 'gid://gitlab/User/1',
+                    name: 'Test',
+                    avatarUrl: 'https://test.com',
+                    webPath: '/test',
+                  },
+                  signature,
+                  pipelines: {
+                    __typename: 'PipelineConnection',
+                    edges: pipelineEdges,
+                  },
+                },
+              },
+            ],
           },
         },
       },
     },
-  });
-  // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-  // eslint-disable-next-line no-restricted-syntax
-  vm.setData({ commit });
-  vm.vm.$apollo.queries.commit.loading = loading;
-}
+  };
+};
 
-const emptyMessageClass = 'font-italic';
+const createComponent = async (data = {}) => {
+  Vue.use(VueApollo);
+
+  const currentPath = 'path';
+
+  commitData = createCommitData(data);
+  mockResolver = jest.fn().mockResolvedValue(commitData);
+
+  wrapper = shallowMountExtended(LastCommit, {
+    apolloProvider: createMockApollo([[pathLastCommitQuery, mockResolver]]),
+    propsData: { currentPath },
+    mixins: [{ data: () => ({ ref: refMock }) }],
+    stubs: {
+      SignatureBadge,
+    },
+  });
+
+  await waitForPromises();
+  await nextTick();
+};
+
+beforeEach(() => createComponent());
+
+afterEach(() => {
+  mockResolver = null;
+});
 
 describe('Repository last commit component', () => {
-  afterEach(() => {
-    vm.destroy();
-  });
-
   it.each`
     loading  | label
     ${true}  | ${'shows'}
     ${false} | ${'hides'}
-  `('$label when loading icon $loading is true', async ({ loading }) => {
-    factory(createCommitData(), loading);
+  `('$label when loading icon is $loading', async ({ loading }) => {
+    createComponent();
 
-    await nextTick();
+    if (!loading) {
+      await waitForPromises();
+    }
 
-    expect(vm.find(GlLoadingIcon).exists()).toBe(loading);
+    expect(findLoadingIcon().exists()).toBe(loading);
   });
 
-  it('renders commit widget', async () => {
-    factory();
+  it('renders a CommitInfo component', () => {
+    const commit = { ...commitData.project?.repository.paginatedTree.nodes[0].lastCommit };
 
-    await nextTick();
-
-    expect(vm.element).toMatchSnapshot();
+    expect(findCommitInfo().props().commit).toMatchObject(commit);
   });
 
-  it('renders short commit ID', async () => {
-    factory();
+  it('renders commit widget', () => {
+    expect(wrapper.element).toMatchSnapshot();
+  });
 
-    await nextTick();
-
-    expect(vm.find('[data-testid="last-commit-id-label"]').text()).toEqual('12345678');
+  it('renders short commit ID', () => {
+    expect(findLastCommitLabel().text()).toBe('12345678');
   });
 
   it('hides pipeline components when pipeline does not exist', async () => {
-    factory(createCommitData({ pipeline: null }));
+    createComponent({ pipelineEdges: [] });
+    await waitForPromises();
 
-    await nextTick();
-
-    expect(vm.find('.js-commit-pipeline').exists()).toBe(false);
+    expect(findPipeline().exists()).toBe(false);
   });
 
-  it('renders pipeline components', async () => {
-    factory();
-
-    await nextTick();
-
-    expect(vm.find('.js-commit-pipeline').exists()).toBe(true);
+  it('renders pipeline components when pipeline exists', () => {
+    expect(findPipeline().exists()).toBe(true);
   });
 
-  it('hides author component when author does not exist', async () => {
-    factory(createCommitData({ author: null }));
+  describe('created', () => {
+    it('binds `epicsListScrolled` event listener via eventHub', () => {
+      jest.spyOn(eventHub, '$on').mockImplementation(() => {});
+      createComponent();
 
-    await nextTick();
-
-    expect(vm.find('.js-user-link').exists()).toBe(false);
-    expect(vm.find(UserAvatarLink).exists()).toBe(false);
+      expect(eventHub.$on).toHaveBeenCalledWith(FORK_UPDATED_EVENT, expect.any(Function));
+    });
   });
 
-  it('does not render description expander when description is null', async () => {
-    factory(createCommitData({ descriptionHtml: null }));
+  describe('beforeDestroy', () => {
+    it('unbinds `epicsListScrolled` event listener via eventHub', () => {
+      jest.spyOn(eventHub, '$off').mockImplementation(() => {});
+      createComponent();
+      wrapper.destroy();
 
-    await nextTick();
-
-    expect(vm.find('.text-expander').exists()).toBe(false);
-    expect(vm.find('.commit-row-description').exists()).toBe(false);
-  });
-
-  it('expands commit description when clicking expander', async () => {
-    factory(createCommitData({ descriptionHtml: 'Test description' }));
-
-    await nextTick();
-
-    vm.find('.text-expander').vm.$emit('click');
-
-    await nextTick();
-
-    expect(vm.find('.commit-row-description').isVisible()).toBe(true);
-    expect(vm.find('.text-expander').classes('open')).toBe(true);
-  });
-
-  it('strips the first newline of the description', async () => {
-    factory(createCommitData({ descriptionHtml: '&#x000A;Update ADOPTERS.md' }));
-
-    await nextTick();
-
-    expect(vm.find('.commit-row-description').html()).toBe(
-      '<pre class="commit-row-description gl-mb-3">Update ADOPTERS.md</pre>',
-    );
+      expect(eventHub.$off).toHaveBeenCalledWith(FORK_UPDATED_EVENT, expect.any(Function));
+    });
   });
 
   it('renders the signature HTML as returned by the backend', async () => {
-    factory(createCommitData({ signatureHtml: '<button>Verified</button>' }));
+    const signatureResponse = {
+      __typename: 'GpgSignature',
+      gpgKeyPrimaryKeyid: 'xxx',
+      verificationStatus: 'VERIFIED',
+    };
+    createComponent({
+      signature: {
+        ...signatureResponse,
+      },
+    });
+    await waitForPromises();
 
-    await nextTick();
-
-    expect(vm.element).toMatchSnapshot();
-  });
-
-  it('sets correct CSS class if the commit message is empty', async () => {
-    factory(createCommitData({ message: '' }));
-
-    await nextTick();
-
-    expect(vm.find('.item-title').classes()).toContain(emptyMessageClass);
+    expect(findStatusBox().props()).toMatchObject({ signature: signatureResponse });
   });
 });

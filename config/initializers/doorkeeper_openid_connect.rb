@@ -31,8 +31,9 @@ Doorkeeper::OpenidConnect.configure do
         Digest::SHA256.hexdigest "#{user.id}-#{Rails.application.secrets.secret_key_base}"
       end
 
-      o.claim(:name)           { |user| user.name }
-      o.claim(:nickname)       { |user| user.username }
+      o.claim(:name, response: [:id_token, :user_info]) { |user| user.name }
+      o.claim(:nickname, response: [:id_token, :user_info]) { |user| user.username }
+      o.claim(:preferred_username, response: [:id_token, :user_info]) { |user| user.username }
 
       # Check whether the application has access to the email scope, and grant
       # access to the user's primary email address if so, otherwise their
@@ -54,19 +55,33 @@ Doorkeeper::OpenidConnect.configure do
         end
       end
 
-      o.claim(:website)        { |user| user.full_website_url if user.website_url? }
-      o.claim(:profile)        { |user| Gitlab::Routing.url_helpers.user_url user }
-      o.claim(:picture)        { |user| user.avatar_url(only_path: false) }
-      o.claim(:groups)         { |user| user.membership_groups.joins(:route).with_route.map(&:full_path) }
-      o.claim(:groups_direct, response: [:id_token]) { |user| user.groups.joins(:route).with_route.map(&:full_path) }
+      o.claim(:website, response: [:id_token, :user_info]) { |user| user.full_website_url if user.website_url.present? }
+      o.claim(:profile, response: [:id_token, :user_info]) { |user| Gitlab::Routing.url_helpers.user_url user }
+      o.claim(:picture, response: [:id_token, :user_info]) { |user| user.avatar_url(only_path: false) }
+      o.claim(:groups) do |user|
+        user.membership_groups.joins(:route).with_route
+          .allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/420046")
+          .map(&:full_path)
+      end
+      o.claim(:groups_direct, response: [:id_token]) do |user|
+        user.groups.joins(:route).with_route
+        .allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/420046")
+        .map(&:full_path)
+      end
       o.claim('https://gitlab.org/claims/groups/owner') do |user|
-        user.owned_groups.joins(:route).with_route.map(&:full_path).presence
+        user.owned_groups.joins(:route).with_route
+        .allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/420046")
+        .map(&:full_path).presence
       end
       o.claim('https://gitlab.org/claims/groups/maintainer') do |user|
-        user.maintainers_groups.joins(:route).with_route.map(&:full_path).presence
+        user.maintainers_groups.joins(:route).with_route
+        .allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/420046")
+        .map(&:full_path).presence
       end
       o.claim('https://gitlab.org/claims/groups/developer') do |user|
-        user.developer_groups.joins(:route).with_route.map(&:full_path).presence
+        user.developer_groups.joins(:route).with_route
+        .allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/420046")
+        .map(&:full_path).presence
       end
     end
   end

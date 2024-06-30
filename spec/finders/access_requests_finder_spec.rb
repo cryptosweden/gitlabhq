@@ -40,7 +40,7 @@ RSpec.describe AccessRequestsFinder do
     end
   end
 
-  describe '#execute' do
+  shared_examples '#execute' do
     context 'when current user cannot see project access requests' do
       it_behaves_like 'a finder returning no results', :execute do
         let(:source) { project }
@@ -67,7 +67,7 @@ RSpec.describe AccessRequestsFinder do
     end
   end
 
-  describe '#execute!' do
+  shared_examples '#execute!' do
     context 'when current user cannot see access requests' do
       it_behaves_like 'a finder raising Gitlab::Access::AccessDeniedError', :execute! do
         let(:source) { project }
@@ -93,4 +93,7 @@ RSpec.describe AccessRequestsFinder do
       end
     end
   end
+
+  it_behaves_like '#execute'
+  it_behaves_like '#execute!'
 end

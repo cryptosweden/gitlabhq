@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge request > User sees merge button depending on unresolved threads', :js do
+RSpec.describe 'Merge request > User sees merge button depending on unresolved threads', :js,
+  feature_category: :code_review_workflow do
   let(:project)        { create(:project, :repository) }
   let(:user)           { project.creator }
   let!(:merge_request) { create(:merge_request_with_diff_notes, source_project: project, author: user) }
@@ -20,8 +21,11 @@ RSpec.describe 'Merge request > User sees merge button depending on unresolved t
 
     context 'with unresolved threads' do
       it 'does not allow to merge' do
-        expect(page).not_to have_button 'Merge'
-        expect(page).to have_content('all threads must be resolved')
+        expect(page).not_to have_button('Merge', exact: true)
+
+        click_button 'Expand merge checks'
+
+        expect(page).to have_content('Unresolved discussions must be resolved')
       end
     end
 
@@ -32,7 +36,7 @@ RSpec.describe 'Merge request > User sees merge button depending on unresolved t
       end
 
       it 'allows MR to be merged' do
-        expect(page).to have_button 'Merge'
+        expect(page).to have_button('Merge', exact: true)
       end
     end
   end
@@ -45,7 +49,7 @@ RSpec.describe 'Merge request > User sees merge button depending on unresolved t
 
     context 'with unresolved threads' do
       it 'does not allow to merge' do
-        expect(page).to have_button 'Merge'
+        expect(page).to have_button('Merge', exact: true)
       end
     end
 
@@ -56,7 +60,7 @@ RSpec.describe 'Merge request > User sees merge button depending on unresolved t
       end
 
       it 'allows MR to be merged' do
-        expect(page).to have_button 'Merge'
+        expect(page).to have_button('Merge', exact: true)
       end
     end
   end

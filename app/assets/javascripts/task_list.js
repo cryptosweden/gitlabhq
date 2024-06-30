@@ -1,7 +1,8 @@
 import $ from 'jquery';
 import 'deckar01-task_list';
 import { __ } from '~/locale';
-import createFlash from './flash';
+import { createAlert } from '~/alert';
+import { TYPE_INCIDENT, TYPE_ISSUE } from '~/issues/constants';
 import axios from './lib/utils/axios_utils';
 
 export default class TaskList {
@@ -23,7 +24,7 @@ export default class TaskList {
           errorMessages = e.response.data.errors.join(' ');
         }
 
-        return createFlash({
+        return createAlert({
           message: errorMessages || __('Update failed'),
         });
       };
@@ -62,13 +63,21 @@ export default class TaskList {
       .prop('disabled', true);
   }
 
+  updateInapplicableTaskListItems(e) {
+    this.getTaskListTarget(e)
+      .find('.task-list-item-checkbox[data-inapplicable]')
+      .prop('disabled', true);
+  }
+
   disableTaskListItems(e) {
     this.getTaskListTarget(e).taskList('disable');
+    this.updateInapplicableTaskListItems();
   }
 
   enableTaskListItems(e) {
     this.getTaskListTarget(e).taskList('enable');
     this.disableNonMarkdownTaskListItems(e);
+    this.updateInapplicableTaskListItems(e);
   }
 
   enable() {
@@ -86,7 +95,8 @@ export default class TaskList {
     const { index, checked, lineNumber, lineSource } = e.detail;
     const patchData = {};
 
-    patchData[this.dataType] = {
+    const dataType = this.dataType === TYPE_INCIDENT ? TYPE_ISSUE : this.dataType;
+    patchData[dataType] = {
       [this.fieldName]: $target.val(),
       lock_version: this.lockVersion,
       update_task: {

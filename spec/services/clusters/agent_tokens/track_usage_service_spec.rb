@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Clusters::AgentTokens::TrackUsageService do
+RSpec.describe Clusters::AgentTokens::TrackUsageService, feature_category: :deployment_management do
   let_it_be(:agent) { create(:cluster_agent) }
 
   describe '#execute', :clean_gitlab_redis_cache do
@@ -67,6 +67,19 @@ RSpec.describe Clusters::AgentTokens::TrackUsageService do
         it 'does not create an activity event' do
           expect { subject }.not_to change { agent.activity_events.count }
         end
+      end
+    end
+
+    context 'when usage tracking raises an error' do
+      before do
+        allow(agent_token).to receive(:update_columns).and_raise(ActiveRecord::NotNullViolation, 'error message')
+      end
+
+      it 'tracks the exception without raising' do
+        expect(Gitlab::ErrorTracking).to receive(:track_exception)
+          .with(instance_of(ActiveRecord::NotNullViolation), agent_id: agent.id)
+
+        subject
       end
     end
 

@@ -1,5 +1,6 @@
 <script>
 import { GlLoadingIcon, GlTooltipDirective } from '@gitlab/ui';
+import { joinPaths, buildURLwithRefType } from '~/lib/utils/url_utility';
 
 export default {
   components: {
@@ -8,6 +9,7 @@ export default {
   directives: {
     GlTooltip: GlTooltipDirective,
   },
+  inject: ['refType'],
   props: {
     commitRef: {
       type: String,
@@ -31,7 +33,9 @@ export default {
       return splitArray.map((p) => encodeURIComponent(p)).join('/');
     },
     parentRoute() {
-      return { path: `/-/tree/${this.commitRef}/${this.parentPath}` };
+      const path = joinPaths('/-/tree', this.commitRef, this.parentPath);
+
+      return buildURLwithRefType({ path, refType: this.refType });
     },
   },
   methods: {
@@ -55,7 +59,7 @@ export default {
         v-if="parentPath === loadingPath"
         size="sm"
         inline
-        class="d-inline-block align-text-bottom"
+        class="gl-inline-block align-text-bottom"
       />
       <router-link v-else :to="parentRoute" :aria-label="__('Go to parent')"> .. </router-link>
     </td>

@@ -1,25 +1,23 @@
-- search_service = local_assigns.fetch(:search_service)
-
-- return unless search_service.show_results_status?
-
-.search-results-status
-  .row-content-block.gl-display-flex
-    .gl-md-display-flex.gl-text-left.gl-align-items-center.gl-flex-grow-1
-      - unless search_service.without_count?
-        = search_entries_info(search_service.search_objects, search_service.scope, params[:search])
-      - unless search_service.show_snippets?
-        - if search_service.project
-          - link_to_project = link_to(search_service.project.full_name, search_service.project, class: 'ml-md-1')
-          - if search_service.scope == 'blobs'
-            = _("in")
-            .mx-md-1
-              = render partial: "shared/ref_switcher", locals: { ref: repository_ref(search_service.project), form_path: request.fullpath, field_name: 'repository_ref' }
-            = s_('SearchCodeResults|of %{link_to_project}').html_safe % { link_to_project: link_to_project }
+.search-results-status.sm:gl-flex.gl-items-start.gl-justify-content-space-between.gl-my-4{ class: ('lg:gl-hidden' if @search_objects.to_a.empty?) }
+  - unless @search_objects.to_a.empty?
+    %div
+      - unless @search_service_presenter.without_count?
+        %span= search_entries_info(@search_objects, @scope, @search_term)
+      - unless @search_service_presenter.show_snippets?
+        - if @project
+          - link_to_project = link_to(@project.full_name, @project, class: 'search-wrap-f-md-down')
+          - if @scope == 'blobs'
+            %span= _("in")
+            .gl-display-inline-block
+              #js-blob-ref-switcher{ data: { "project-id" => @project.id, "ref" => repository_ref(@project), "field-name": "repository_ref" } }
+            %span= safe_format(s_('SearchCodeResults|of %{link_to_project}'), link_to_project: link_to_project)
           - else
-            = _("in project %{link_to_project}").html_safe % { link_to_project: link_to_project }
-        - elsif search_service.group
-          - link_to_group = link_to(search_service.group.name, search_service.group, class: 'ml-md-1')
-          = _("in group %{link_to_group}").html_safe % { link_to_group: link_to_group }
-    - if search_service.show_sort_dropdown?
-      .gl-md-display-flex.gl-flex-direction-column
-        #js-search-sort{ data: { "search-sort-options" => search_sort_options.to_json } }
+            = safe_format(_("in project %{link_to_project}"), link_to_project: link_to_project)
+        - elsif @group
+          - link_to_group = link_to(@group.name, @group, class: 'ml-md-1')
+          = safe_format(_("in group %{link_to_group}"), link_to_group: link_to_group)
+  .gl-flex.gl-gap-3.gl-mt-3.gl-sm-mt-0
+    = render Pajamas::ButtonComponent.new(category: 'primary', icon: 'filter', button_options: {id: 'js-open-mobile-filters', class: 'lg:gl-hidden gl-flex-grow-1 gl-md-flex-grow-0'}) do
+      = s_('GlobalSearch|Filters')
+    - if @search_service_presenter.show_sort_dropdown? && !@search_objects.to_a.empty?
+      #js-search-sort{ data: { "search-sort-options" => search_sort_options.to_json }, class: "gl-flex-grow-1 gl-md-flex-grow-0" }

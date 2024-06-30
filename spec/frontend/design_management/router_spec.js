@@ -11,8 +11,6 @@ import '~/commons/bootstrap';
 function factory(routeArg) {
   Vue.use(VueRouter);
 
-  window.gon = { sprite_icons: '' };
-
   const router = createRouter('/');
   if (routeArg !== undefined) {
     router.push(routeArg);
@@ -20,6 +18,8 @@ function factory(routeArg) {
 
   return mount(App, {
     router,
+    provide: { issueIid: '1' },
+    stubs: { Toolbar: true },
     mocks: {
       $apollo: {
         queries: {
@@ -34,15 +34,11 @@ function factory(routeArg) {
 }
 
 describe('Design management router', () => {
-  afterEach(() => {
-    window.location.hash = '';
-  });
-
   describe.each([['/'], [{ name: DESIGNS_ROUTE_NAME }]])('root route', (routeArg) => {
     it('pushes home component', () => {
       const wrapper = factory(routeArg);
 
-      expect(wrapper.find(Designs).exists()).toBe(true);
+      expect(wrapper.findComponent(Designs).exists()).toBe(true);
     });
   });
 
@@ -53,7 +49,7 @@ describe('Design management router', () => {
         const wrapper = factory(routeArg);
 
         return nextTick().then(() => {
-          const detail = wrapper.find(DesignDetail);
+          const detail = wrapper.findComponent(DesignDetail);
           expect(detail.exists()).toBe(true);
           expect(detail.props('id')).toEqual('1');
         });

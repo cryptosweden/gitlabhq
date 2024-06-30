@@ -2,19 +2,25 @@
 
 class NewMergeRequestWorker # rubocop:disable Scalability/IdempotentWorker
   include ApplicationWorker
-
-  data_consistency :always
-
-  sidekiq_options retry: 3
   include NewIssuable
 
-  feature_category :code_review
+  data_consistency :always
+  sidekiq_options retry: 3
+
+  idempotent!
+  deduplicate :until_executed
+
+  feature_category :code_review_workflow
   urgency :high
+
   worker_resource_boundary :cpu
   weight 2
 
   def perform(merge_request_id, user_id)
+    Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/337182')
+
     return unless objects_found?(merge_request_id, user_id)
+    return if issuable.prepared?
 
     MergeRequests::AfterCreateService
       .new(project: issuable.target_project, current_user: user)

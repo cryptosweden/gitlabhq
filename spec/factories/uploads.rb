@@ -8,6 +8,7 @@ FactoryBot.define do
     mount_point { :avatar }
     secret { nil }
     store { ObjectStorage::Store::LOCAL }
+    version { RecordsUploads::Concern::VERSION }
 
     # we should build a mount agnostic upload by default
     transient do
@@ -69,7 +70,7 @@ FactoryBot.define do
     trait :design_action_image_v432x230_upload do
       mount_point { :image_v432x230 }
       model { association(:design_action) }
-      uploader { ::DesignManagement::DesignV432x230Uploader.name }
+      uploader { DesignManagement::DesignV432x230Uploader.name }
     end
   end
 end

@@ -1,106 +1,67 @@
 ---
-stage: Manage
+stage: Plan
 group: Optimize
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Productivity Analytics **(PREMIUM)**
+# Productivity analytics
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/12079) in GitLab 12.3.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-Track development velocity with Productivity Analytics.
+You can use productivity analytics to identify:
 
-For many companies, the development cycle is a black box and getting an estimate of how
-long, on average, it takes to deliver features is an enormous endeavor.
+- Your development velocity based on how long it takes for a merge request to merge.
+- The most time consuming merge requests and potential causes.
+- Authors, labels, or milestones with the longest time to merge, or most changes.
 
-While [Value Stream Analytics](../analytics/value_stream_analytics.md) focuses on the entire
-Software Development Life Cycle (SDLC) process, Productivity Analytics provides a way for Engineering Management to drill down in a systematic way to uncover patterns and causes for success or failure at an individual, project, or group level.
+Use productivity analytics to view the following merge request statistics for your groups:
 
-Productivity can slow down for many reasons ranging from degrading codebase to quickly growing teams. To investigate, department or team leaders can start by visualizing the time it takes for merge requests to be merged.
+- Amount of time between merge request creation and merge.
+- Amount of time between commits, comments, and merge.
+- Complexity of changes, like number of lines of code per commit and number of files.
 
-## Visualizations and metrics
+To view merge request data for projects, use [Merge request analytics](../analytics/merge_request_analytics.md).
 
-With Productivity Analytics, GitLab users can:
+## View productivity analytics
 
-- Visualize typical merge request (MR) lifetime and statistics. A histogram shows the distribution of the time elapsed between creating and merging merge requests.
-- Drill down into the most time consuming merge requests, select outliers, and filter subsequent charts to investigate potential causes.
-- Filter by group, project, author, label, milestone, or a specific date range. For example, filter down to the merge requests of a specific author in a group or project during a milestone or specific date range.
-- Measure velocity over time. To observe progress, visualize the trends of each metric from the charts over time. Zoom in on a particular date range if you notice outliers.
+Prerequisites:
 
-## Metrics charts
+- You must have at least the Reporter role for the group.
 
-To access the charts, navigate to a group's sidebar and select **Analytics > Productivity Analytics**.
-Metrics and visualizations of **merged** merge requests are available on a project or group level.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Analyze > Productivity analytics**.
+1. Optional. Filter results:
+   1. From the **Projects** dropdown list, select a project.
+   1. To filter results by author, milestone, or label,
+      select **Filter results** and enter a value.
+   1. To adjust the date range:
+      - In the **From** field, select a start date.
+      - In the **To** field, select an end date.
 
-### Time to merge
+## View time metrics for merge requests
 
-The **Time to merge** histogram shows the number of merge requests and the number
-of days it took to merge after creation. Select a column to filter subsequent charts.
+To view time metrics for merge requests:
 
-![Metrics for number of days merge requests per number of days](img/productivity_analytics_time_to_merge_v14_4.png)
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Analyze > Productivity analytics**.
+   Time metrics are displayed on the following charts:
+   - **Time to merge**: number of days it took for a merge requests to merge after they were created.
+   - **Trendline**: number of merge requests that were merged in a specific time period.
+1. Optional. Filter the results:
+   - To filter the **Trendline** chart, in the **Time to merge** chart, select a bar.
+   - To view a specific merge request, below the charts, from the **List** table select a merge request.
 
-### Trendline
+## View commit statistics
 
-The **Trendline** scatterplot shows all merge requests on a certain date,
-and the days it took to complete the action and a 30 day rolling median. Select the dropdown to view:
+To view commit statistics for your group:
 
-- Time from first commit to first comment.
-- Time from first comment until last commit.
-- Time from last commit to merge.
-- Number of commits per merge request.
-- Number of lines of code (LOC) per commit.
-- Number of files touched.
-
-![Metrics for amount of merge requests merged on a certain date](img/productivity_analytics_trendline_v14_4.png)
-
-### Commits and merge request size
-
-Under the **Trendline** scatterplot, the left-side histogram shows
-the time taken (in hours) between commits and comments until the merge
-request is merged. Select the dropdown to view:
-
-- Time from first commit to first comment.
-- Time from first comment until last commit.
-- Time from last commit to merge.
-
-The right-side histogram shows the size or complexity of a merge request.
-Select the dropdown to view:
-
-- Number of commits per merge request.
-- Number of lines of code (LOC) per commit.
-- Number of files touched.
-
-![Metrics for amount of commits and complexity of changes per merge request.](img/product_analytics_commits_per_mr_v14_4.png)
-
-### Merge request list
-
-The **List** table shows a list of merge requests with their respective time duration metrics.
-
-Sort metrics by:
-
-- Time from first commit to first comment.
-- Time from first comment until last commit.
-- Time from last commit to merge.
-
-Filter metrics by:
-
-- Number of commits per merge request.
-- Number of lines of code per commit.
-- Number of files touched.
-
-## Filter by date range
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/13188) in GitLab 12.4.
-
-You can filter analytics based on a date range. To filter results:
-
-1. Select a group.
-1. Optional. Select a project.
-1. Select a date range by using the available date pickers.
-
-## Permissions
-
-The **Productivity Analytics** dashboard can be accessed only:
-
-- On [GitLab Premium](https://about.gitlab.com/pricing/) and above.
-- By users with at least the Reporter role.
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Analyze > Productivity analytics**.
+   Commit statistics are displayed under the **Trendline** scatterplot:
+   - The left histogram shows the number of hours between commits, comments, and merges.
+   - The right histogram shows the number of commits and changes per merge request.
+1. Optional. Filter results:
+   - To view different types of commit data, from the dropdown list next to each histogram, select an option.
+   - To view a specific merge request, below the charts, from the **List** table select a merge request.

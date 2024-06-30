@@ -1,23 +1,24 @@
 ---
-stage: Monitor
-group: Respond
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Systems
+group: Cloud Connector
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# GitLab Performance Monitoring **(FREE SELF)**
+# GitLab Performance Monitoring
 
-GitLab comes with its own application performance measuring system as of GitLab
-8.4, called "GitLab Performance Monitoring". GitLab Performance Monitoring is available in both the
-Community and Enterprise editions.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
+
+GitLab comes with its own application performance measuring system , called "GitLab Performance Monitoring".
+GitLab Performance Monitoring is available in both the Community and Enterprise editions.
 
 Apart from this introduction, you are advised to read through the following
 documents to understand and properly configure GitLab Performance Monitoring:
 
-- [GitLab Configuration](gitlab_configuration.md)
 - [Prometheus documentation](../prometheus/index.md)
 - [Grafana Install/Configuration](grafana_configuration.md)
 - [Performance bar](performance_bar.md)
-- [Request profiling](request_profiling.md)
 
 ## Introduction to GitLab Performance Monitoring
 
@@ -42,7 +43,7 @@ Two types of metrics are collected:
 
 Transaction metrics are metrics that can be associated with a single
 transaction. This includes statistics such as the transaction duration, timings
-of any executed SQL queries, time spent rendering HAML views, and so on. These metrics
+of any executed SQL queries, and time spent rendering HAML views. These metrics
 are collected for every Rack request and Sidekiq job processed.
 
 ### Sampled Metrics

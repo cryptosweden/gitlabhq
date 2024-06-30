@@ -16,25 +16,28 @@
  *    }"
  *   />
  */
-import {
-  GlButton,
-  GlDeprecatedSkeletonLoading as GlSkeletonLoading,
-  GlTooltipDirective,
-  GlIcon,
-  GlSafeHtmlDirective as SafeHtml,
-} from '@gitlab/ui';
+import { GlButton, GlSkeletonLoader, GlTooltipDirective, GlIcon } from '@gitlab/ui';
 import $ from 'jquery';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters, mapActions, mapState } from 'vuex';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import descriptionVersionHistoryMixin from 'ee_else_ce/notes/mixins/description_version_history';
 import axios from '~/lib/utils/axios_utils';
 import { __ } from '~/locale';
-import initMRPopovers from '~/mr_popover/';
-import noteHeader from '~/notes/components/note_header.vue';
+import NoteHeader from '~/notes/components/note_header.vue';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import { spriteIcon } from '../../../lib/utils/common_utils';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 import TimelineEntryItem from './timeline_entry_item.vue';
 
 const MAX_VISIBLE_COMMIT_LIST_COUNT = 3;
+const ICON_COLORS = {
+  check: 'gl-bg-green-100 gl-text-green-700',
+  'merge-request-close': 'gl-bg-red-100 gl-text-red-700',
+  merge: 'gl-bg-blue-100 gl-text-blue-700',
+  'issue-close': 'gl-bg-blue-100 gl-text-blue-700',
+  issues: 'gl-bg-green-100 gl-text-green-700',
+  error: 'gl-bg-red-100 gl-text-red-700',
+};
 
 export default {
   i18n: {
@@ -43,10 +46,10 @@ export default {
   name: 'SystemNote',
   components: {
     GlIcon,
-    noteHeader,
+    NoteHeader,
     TimelineEntryItem,
     GlButton,
-    GlSkeletonLoading,
+    GlSkeletonLoader,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -68,16 +71,16 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['targetNoteHash', 'descriptionVersions']),
+    ...mapGetters(['targetNoteHash', 'descriptionVersions', 'getNoteableData']),
     ...mapState(['isLoadingDescriptionVersion']),
     noteAnchorId() {
       return `note_${this.note.id}`;
     },
+    isAllowedIcon() {
+      return Object.keys(ICON_COLORS).includes(this.note.system_note_icon_name);
+    },
     isTargetNote() {
       return this.targetNoteHash === this.noteAnchorId;
-    },
-    iconHtml() {
-      return spriteIcon(this.note.system_note_icon_name);
     },
     toggleIcon() {
       return this.expanded ? 'chevron-up' : 'chevron-down';
@@ -92,9 +95,27 @@ export default {
     descriptionVersion() {
       return this.descriptionVersions[this.note.description_version_id];
     },
+    isMergeRequest() {
+      return this.getNoteableData.noteableType === 'MergeRequest';
+    },
+    iconBgClass() {
+      return ICON_COLORS[this.note.system_note_icon_name] || 'gl-bg-gray-50 gl-text-gray-600';
+    },
+    systemNoteIconName() {
+      let icon = this.note.system_note_icon_name;
+      if (this.note.system_note_icon_name === 'issues') {
+        // eslint-disable-next-line @gitlab/require-i18n-strings
+        if (this.note.noteable_type === 'Issue') {
+          icon = 'issue-open-m';
+        } else if (this.note.noteable_type === 'MergeRequest') {
+          icon = 'merge-request-open';
+        }
+      }
+      return icon;
+    },
   },
   mounted() {
-    initMRPopovers(this.$el.querySelectorAll('.gfm-merge_request'));
+    renderGFM(this.$refs['gfm-content']);
   },
   methods: {
     ...mapActions(['fetchDescriptionVersion', 'softDeleteDescriptionVersion']),
@@ -113,9 +134,6 @@ export default {
       }
     },
   },
-  safeHtmlConfig: {
-    ADD_TAGS: ['use'], // to support icon SVGs
-  },
   userColorSchemeClass: window.gon.user_color_scheme,
 };
 </script>
@@ -126,22 +144,43 @@ export default {
     :class="{ target: isTargetNote, 'pr-0': shouldShowDescriptionVersion }"
     class="note system-note note-wrapper"
   >
-    <div v-safe-html:[$options.safeHtmlConfig]="iconHtml" class="timeline-icon"></div>
+    <div
+      :class="[
+        iconBgClass,
+        {
+          'system-note-icon': isAllowedIcon,
+          'system-note-tiny-dot gl-bg-gray-900!': !isAllowedIcon,
+        },
+      ]"
+      class="gl-float-left gl-flex gl-justify-center gl-items-center gl-rounded-full gl-relative timeline-icon"
+    >
+      <gl-icon
+        v-if="isAllowedIcon"
+        :name="systemNoteIconName"
+        :size="12"
+        data-testid="timeline-icon"
+      />
+    </div>
     <div class="timeline-content">
       <div class="note-header">
-        <note-header :author="note.author" :created-at="note.created_at" :note-id="note.id">
-          <span v-safe-html="actionTextHtml"></span>
+        <note-header
+          :author="note.author"
+          :created-at="note.created_at"
+          :note-id="note.id"
+          :is-system-note="true"
+          :is-imported="note.imported"
+        >
+          <span ref="gfm-content" v-safe-html="actionTextHtml"></span>
           <template
             v-if="canSeeDescriptionVersion || note.outdated_line_change_path"
             #extra-controls
           >
-            &middot;
             <gl-button
               v-if="canSeeDescriptionVersion"
               variant="link"
               :icon="descriptionVersionToggleIcon"
               data-testid="compare-btn"
-              class="gl-vertical-align-text-bottom"
+              class="gl-vertical-align-text-bottom gl-font-sm! gl-ml-3"
               @click="toggleDescriptionVersion"
               >{{ __('Compare with previous version') }}</gl-button
             >
@@ -150,7 +189,7 @@ export default {
               :icon="showLines ? 'chevron-up' : 'chevron-down'"
               variant="link"
               data-testid="outdated-lines-change-btn"
-              class="gl-vertical-align-text-bottom"
+              class="gl-vertical-align-text-bottom gl-font-sm!"
               @click="toggleDiff"
             >
               {{ __('Compare changes') }}
@@ -165,14 +204,17 @@ export default {
           class="note-text md"
         ></div>
         <div v-if="hasMoreCommits" class="flex-list">
-          <div class="system-note-commit-list-toggler flex-row" @click="expanded = !expanded">
-            <gl-icon :name="toggleIcon" :size="8" class="gl-mr-2" />
+          <div
+            class="system-note-commit-list-toggler flex-row gl-pl-4 gl-pt-3"
+            @click="expanded = !expanded"
+          >
+            <gl-icon :name="toggleIcon" :size="12" class="gl-mr-2" />
             <span>{{ __('Toggle commit list') }}</span>
           </div>
         </div>
         <div v-if="shouldShowDescriptionVersion" class="description-version pt-2">
           <pre v-if="isLoadingDescriptionVersion" class="loading-state">
-            <gl-skeleton-loading />
+            <gl-skeleton-loader />
           </pre>
           <pre v-else v-safe-html="descriptionVersion" class="wrapper mt-2"></pre>
           <gl-button
@@ -190,7 +232,7 @@ export default {
         </div>
         <div
           v-if="lines.length && showLines"
-          class="diff-content gl-border-solid gl-border-1 gl-border-gray-200 gl-mt-4 gl-rounded-small gl-overflow-hidden"
+          class="diff-content outdated-lines-wrapper gl-border-solid gl-border-1 gl-border-gray-200 gl-mt-4 gl-rounded-small gl-overflow-hidden"
         >
           <table
             :class="$options.userColorSchemeClass"
@@ -200,7 +242,7 @@ export default {
             <tr v-for="line in lines" v-once :key="line.line_code" class="line_holder">
               <td
                 :class="line.type"
-                class="diff-line-num old_line gl-border-bottom-0! gl-border-top-0!"
+                class="diff-line-num old_line gl-border-bottom-0! gl-border-top-0! gl-border-0! gl-rounded-0!"
               >
                 {{ line.old_line }}
               </td>
@@ -212,13 +254,15 @@ export default {
               </td>
               <td
                 :class="line.type"
-                class="line_content gl-display-table-cell!"
+                class="line_content gl-display-table-cell! gl-border-0! gl-rounded-0!"
                 v-html="line.rich_text /* eslint-disable-line vue/no-v-html */"
               ></td>
             </tr>
           </table>
         </div>
-        <gl-skeleton-loading v-else-if="showLines" class="gl-mt-4" />
+        <div v-else-if="showLines" class="mt-4">
+          <gl-skeleton-loader />
+        </div>
       </div>
     </div>
   </timeline-entry-item>

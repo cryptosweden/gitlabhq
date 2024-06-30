@@ -2,16 +2,31 @@
 
 require "spec_helper"
 
-RSpec.describe Gitlab::Git::Tree, :seed_helper do
-  let(:repository) { Gitlab::Git::Repository.new('default', TEST_REPO_PATH, '', 'group/project') }
+RSpec.describe Gitlab::Git::Tree, feature_category: :source_code_management do
+  let_it_be(:user) { create(:user) }
 
-  shared_examples :repo do
-    subject(:tree) { Gitlab::Git::Tree.where(repository, sha, path, recursive, pagination_params) }
+  let_it_be(:project) { create(:project, :repository) }
+  let_it_be(:repository) { project.repository.raw }
+
+  shared_examples 'repo' do
+    subject(:tree) do
+      Gitlab::Git::Tree.tree_entries(
+        repository: repository,
+        sha: sha,
+        path: path,
+        recursive: recursive,
+        skip_flat_paths: skip_flat_paths,
+        rescue_not_found: rescue_not_found,
+        pagination_params: pagination_params
+      )
+    end
 
     let(:sha) { SeedRepo::Commit::ID }
     let(:path) { nil }
     let(:recursive) { false }
     let(:pagination_params) { nil }
+    let(:skip_flat_paths) { false }
+    let(:rescue_not_found) { true }
 
     let(:entries) { tree.first }
     let(:cursor) { tree.second }
@@ -26,8 +41,14 @@ RSpec.describe Gitlab::Git::Tree, :seed_helper do
     context 'with an invalid ref' do
       let(:sha) { 'foobar-does-not-exist' }
 
-      it { expect(entries).to eq([]) }
-      it { expect(cursor).to be_nil }
+      context 'when handle_structured_gitaly_errors feature is disabled' do
+        before do
+          stub_feature_flags(handle_structured_gitaly_errors: false)
+        end
+
+        it { expect(entries).to eq([]) }
+        it { expect(cursor).to be_nil }
+      end
     end
 
     context 'when path is provided' do
@@ -36,7 +57,7 @@ RSpec.describe Gitlab::Git::Tree, :seed_helper do
 
       it 'returns a list of tree objects' do
         expect(entries.map(&:path)).to include('files/html',
-                                               'files/markdown/ruby-style-guide.md')
+          'files/markdown/ruby-style-guide.md')
         expect(entries.count).to be >= 10
         expect(entries).to all(be_a(Gitlab::Git::Tree))
       end
@@ -84,52 +105,34 @@ RSpec.describe Gitlab::Git::Tree, :seed_helper do
       end
 
       context :flat_path do
+        let(:project) { create(:project, :repository) }
+        let(:repository) { project.repository.raw }
         let(:filename) { 'files/flat/path/correct/content.txt' }
-        let(:sha) { create_file(filename) }
         let(:path) { 'files/flat' }
         # rubocop: disable Rails/FindBy
         # This is not ActiveRecord where..first
         let(:subdir_file) { entries.first }
         # rubocop: enable Rails/FindBy
-        let(:repository_rugged) { Rugged::Repository.new(File.join(SEED_STORAGE_PATH, TEST_REPO_PATH)) }
+        let!(:sha) do
+          repository.commit_files(
+            user,
+            branch_name: 'HEAD',
+            message: "Create #{filename}",
+            actions: [{
+              action: :create,
+              file_path: filename,
+              contents: 'test'
+            }]
+          ).newrev
+        end
 
         it { expect(subdir_file.flat_path).to eq('files/flat/path/correct') }
-      end
 
-      def create_file(path)
-        oid = repository_rugged.write('test', :blob)
-        index = repository_rugged.index
-        index.add(path: filename, oid: oid, mode: 0100644)
+        context 'when skip_flat_paths is true' do
+          let(:skip_flat_paths) { true }
 
-        options = commit_options(
-          repository_rugged,
-          index,
-          repository_rugged.head.target,
-          'HEAD',
-          'Add new file')
-
-        Rugged::Commit.create(repository_rugged, options)
-      end
-
-      # Build the options hash that's passed to Rugged::Commit#create
-      def commit_options(repo, index, target, ref, message)
-        options = {}
-        options[:tree] = index.write_tree(repo)
-        options[:author] = {
-          email: "test@example.com",
-          name: "Test Author",
-          time: Time.gm(2014, "mar", 3, 20, 15, 1)
-        }
-        options[:committer] = {
-          email: "test@example.com",
-          name: "Test Author",
-          time: Time.gm(2014, "mar", 3, 20, 15, 1)
-        }
-        options[:message] ||= message
-        options[:parents] = repo.empty? ? [] : [target].compact
-        options[:update_ref] = ref
-
-        options
+          it { expect(subdir_file.flat_path).to be_blank }
+        end
       end
     end
 
@@ -167,7 +170,7 @@ RSpec.describe Gitlab::Git::Tree, :seed_helper do
   end
 
   describe '.where with Gitaly enabled' do
-    it_behaves_like :repo do
+    it_behaves_like 'repo' do
       context 'with pagination parameters' do
         let(:pagination_params) { { limit: 3, page_token: nil } }
 
@@ -176,122 +179,25 @@ RSpec.describe Gitlab::Git::Tree, :seed_helper do
           expect(cursor.next_cursor).to be_present
         end
       end
-    end
-  end
 
-  describe '.where with Rugged enabled', :enable_rugged do
-    it 'calls out to the Rugged implementation' do
-      allow_next_instance_of(Rugged) do |instance|
-        allow(instance).to receive(:lookup).with(SeedRepo::Commit::ID)
-      end
+      context 'and invalid reference is used' do
+        before do
+          allow(repository.gitaly_commit_client).to receive(:tree_entries).and_raise(Gitlab::Git::Index::IndexError)
+        end
 
-      described_class.where(repository, SeedRepo::Commit::ID, 'files', false)
-    end
+        context 'when rescue_not_found is set to false' do
+          let(:rescue_not_found) { false }
 
-    it_behaves_like :repo do
-      describe 'Pagination' do
-        context 'with restrictive limit' do
-          let(:pagination_params) { { limit: 3, page_token: nil } }
-
-          it 'returns limited paginated list of tree objects' do
-            expect(entries.count).to eq(3)
-            expect(cursor.next_cursor).to be_present
+          it 'raises an IndexError error' do
+            expect { entries }.to raise_error(Gitlab::Git::Index::IndexError)
           end
         end
 
-        context 'when limit is equal to number of entries' do
-          let(:entries_count) { entries.count }
-
-          it 'returns all entries without a cursor' do
-            result, cursor = Gitlab::Git::Tree.where(repository, sha, path, recursive, { limit: entries_count, page_token: nil })
-
-            expect(cursor).to be_nil
-            expect(result.entries.count).to eq(entries_count)
-          end
-        end
-
-        context 'when limit is 0' do
-          let(:pagination_params) { { limit: 0, page_token: nil } }
-
-          it 'returns empty result' do
-            expect(entries).to eq([])
+        context 'when rescue_not_found is set to true' do
+          it 'returns no entries and nil cursor' do
+            expect(entries.count).to eq(0)
             expect(cursor).to be_nil
           end
-        end
-
-        context 'when limit is missing' do
-          let(:pagination_params) { { limit: nil, page_token: nil } }
-
-          it 'returns empty result' do
-            expect(entries).to eq([])
-            expect(cursor).to be_nil
-          end
-        end
-
-        context 'when limit is negative' do
-          let(:entries_count) { entries.count }
-
-          it 'returns all entries' do
-            result, cursor = Gitlab::Git::Tree.where(repository, sha, path, recursive, { limit: -1, page_token: nil })
-
-            expect(result.count).to eq(entries_count)
-            expect(cursor).to be_nil
-          end
-
-          context 'when token is provided' do
-            let(:pagination_params) { { limit: 1000, page_token: nil } }
-            let(:token) { entries.second.id }
-
-            it 'returns all entries after token' do
-              result, cursor = Gitlab::Git::Tree.where(repository, sha, path, recursive, { limit: -1, page_token: token })
-
-              expect(result.count).to eq(entries.count - 2)
-              expect(cursor).to be_nil
-            end
-          end
-        end
-
-        context 'when token does not exist' do
-          let(:pagination_params) { { limit: 5, page_token: 'aabbccdd' } }
-
-          it 'raises a command error' do
-            expect { entries }.to raise_error(Gitlab::Git::CommandError, 'could not find starting OID: aabbccdd')
-          end
-        end
-
-        context 'when limit is bigger than number of entries' do
-          let(:pagination_params) { { limit: 1000, page_token: nil } }
-
-          it 'returns only available entries' do
-            expect(entries.count).to be < 20
-            expect(cursor).to be_nil
-          end
-        end
-
-        it 'returns all tree entries in specific order during cursor pagination' do
-          collected_entries = []
-          token = nil
-
-          expected_entries = entries
-
-          loop do
-            result, cursor = Gitlab::Git::Tree.where(repository, sha, path, recursive, { limit: 5, page_token: token })
-
-            collected_entries += result.entries
-            token = cursor&.next_cursor
-
-            break if token.blank?
-          end
-
-          expect(collected_entries.map(&:path)).to match_array(expected_entries.map(&:path))
-
-          expected_order = [
-            collected_entries.select(&:dir?).map(&:path),
-            collected_entries.select(&:file?).map(&:path),
-            collected_entries.select(&:submodule?).map(&:path)
-          ].flatten
-
-          expect(collected_entries.map(&:path)).to eq(expected_order)
         end
       end
     end

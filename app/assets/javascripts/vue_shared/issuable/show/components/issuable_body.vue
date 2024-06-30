@@ -3,6 +3,7 @@ import { GlLink } from '@gitlab/ui';
 
 import TaskList from '~/task_list';
 
+import { TYPE_ISSUE } from '~/issues/constants';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 
 import IssuableDescription from './issuable_description.vue';
@@ -22,10 +23,6 @@ export default {
       type: Object,
       required: true,
     },
-    statusBadgeClass: {
-      type: String,
-      required: true,
-    },
     statusIcon: {
       type: String,
       required: true,
@@ -33,6 +30,10 @@ export default {
     enableEdit: {
       type: Boolean,
       required: true,
+    },
+    hideEditButton: {
+      type: Boolean,
+      required: false,
     },
     enableAutocomplete: {
       type: Boolean,
@@ -77,6 +78,11 @@ export default {
       required: false,
       default: 0,
     },
+    workspaceType: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
   computed: {
     isUpdated() {
@@ -116,7 +122,7 @@ export default {
          * task lists in Issue, Test Cases and Incidents
          * as all of those are derived from `issue`.
          */
-        dataType: 'issue',
+        dataType: TYPE_ISSUE,
         fieldName: 'description',
         lockVersion: this.taskListLockVersion,
         selector: '.js-detail-page-description',
@@ -142,7 +148,7 @@ export default {
 
 <template>
   <div class="issue-details issuable-details">
-    <div class="detail-page-description js-detail-page-description content-block">
+    <div class="detail-page-description js-detail-page-description content-block gl-pt-4">
       <issuable-edit-form
         v-if="editFormVisible"
         :issuable="issuable"
@@ -162,9 +168,10 @@ export default {
       <template v-else>
         <issuable-title
           :issuable="issuable"
-          :status-badge-class="statusBadgeClass"
           :status-icon="statusIcon"
           :enable-edit="enableEdit"
+          :hide-edit-button="hideEditButton"
+          :workspace-type="workspaceType"
           @edit-issuable="$emit('edit-issuable', $event)"
         >
           <template #status-badge>
@@ -178,12 +185,13 @@ export default {
           :can-edit="enableEdit"
           :task-list-update-path="taskListUpdatePath"
         />
-        <small v-if="isUpdated" class="edited-text gl-font-sm!">
+        <slot name="secondary-content"></slot>
+        <small v-if="isUpdated" class="edited-text gl-font-sm! gl-text-secondary">
           {{ __('Edited') }}
           <time-ago-tooltip :time="issuable.updatedAt" tooltip-placement="bottom" />
           <span v-if="updatedBy">
             {{ __('by') }}
-            <gl-link :href="updatedBy.webUrl" class="author-link gl-font-sm!">
+            <gl-link :href="updatedBy.webUrl" class="author-link gl-font-sm! gl-text-secondary">
               <span>{{ updatedBy.name }}</span>
             </gl-link>
           </span>

@@ -3,78 +3,54 @@
 - mirror_settings_enabled = can?(current_user, :admin_remote_mirror, @project)
 - mirror_settings_class = "#{'expanded' if expanded} #{'js-mirror-settings' if mirror_settings_enabled}".strip
 
-%section.settings.project-mirror-settings.no-animate#js-push-remote-settings{ class: mirror_settings_class, data: { qa_selector: 'mirroring_repositories_settings_content' } }
+%section.settings.project-mirror-settings.no-animate#js-push-remote-settings{ class: mirror_settings_class, data: { testid: 'mirroring-repositories-settings-content' } }
   .settings-header
     %h4.settings-title.js-settings-toggle.js-settings-toggle-trigger-only= _('Mirroring repositories')
-    %button.btn.gl-button.btn-default.js-settings-toggle
+    = render Pajamas::ButtonComponent.new(button_options: { class: 'js-settings-toggle' }) do
       = expanded ? _('Collapse') : _('Expand')
-    %p
+    %p.gl-text-secondary
       = _('Set up your project to automatically push and/or pull changes to/from another repository. Branches, tags, and commits will be synced automatically.')
-      = link_to _('How do I mirror repositories?'), help_page_path('user/project/repository/mirror/index.md'), target: '_blank', rel: 'noopener noreferrer'
+      = link_to _('How do I mirror repositories?'), help_page_path('user/project/repository/mirror/index'), target: '_blank', rel: 'noopener noreferrer'
+
 
   .settings-content
-    - if mirror_settings_enabled
-      = form_for @project, url: project_mirror_path(@project), html: { class: 'gl-show-field-errors js-mirror-form', autocomplete: 'new-password', data: mirrors_form_data_attributes } do |f|
-        .panel.panel-default
-          .panel-body
-            %div= form_errors(@project)
+    = render Pajamas::CardComponent.new(card_options: { class: 'gl-new-card js-toggle-container' }, header_options: { class: 'gl-new-card-header' }, body_options: { class: 'gl-new-card-body gl-px-0' }) do |c|
+      - c.with_header do
+        .gl-new-card-title-wrapper
+          %h5.gl-new-card-title
+            = _('Mirrored repositories')
+          .gl-new-card-count
+            = sprite_icon('earth', css_class: 'gl-mr-2')
+            %span.js-mirrored-repo-count
+              = mirrored_repositories_count
+        .gl-new-card-actions
+          = render Pajamas::ButtonComponent.new(size: :small, button_options: { class: "js-toggle-button js-toggle-content", data: { testid: 'add-new-mirror' } }) do
+            = _('Add new')
+      - c.with_body do
+        - if mirror_settings_enabled
+          .gl-new-card-add-form.gl-m-3.gl-mb-4.gl-display-none.js-toggle-content
+            %h4.gl-mt-0
+              = s_('Profiles|Add new mirror repository')
+            = gitlab_ui_form_for @project, url: project_mirror_path(@project), html: { class: 'gl-show-field-errors js-mirror-form', autocomplete: 'new-password', data: mirrors_form_data_attributes } do |f|
+              %div= form_errors(@project)
+              .form-group.has-feedback
+                = label_tag :url, _('Git repository URL'), class: 'label-light'
+                = text_field_tag :url, nil, class: 'form-control gl-form-input js-mirror-url js-repo-url gl-form-input-xl', placeholder: _('Input the remote repository URL'), required: true, pattern: "(#{protocols}):\/\/.+", autocomplete: 'new-password', data: { testid: 'mirror-repository-url-field' }
 
-            .form-group.has-feedback
-              = label_tag :url, _('Git repository URL'), class: 'label-light'
-              = text_field_tag :url, nil, class: 'form-control gl-form-input js-mirror-url js-repo-url qa-mirror-repository-url-input', placeholder: _('Input the remote repository URL'), required: true, pattern: "(#{protocols}):\/\/.+", autocomplete: 'new-password'
+              = render 'projects/mirrors/instructions'
 
-            = render 'projects/mirrors/instructions'
+              = render 'projects/mirrors/mirror_repos_form', f: f
 
-            = render 'projects/mirrors/mirror_repos_form', f: f
+              = render 'projects/mirrors/branch_filter'
 
-            .form-check.gl-mb-3
-              = check_box_tag :only_protected_branches, '1', false, class: 'js-mirror-protected form-check-input'
-              = label_tag :only_protected_branches, _('Mirror only protected branches'), class: 'form-check-label'
-              .form-text.text-muted
-                = _('If enabled, only protected branches will be mirrored.')
-                = link_to _('Learn more.'), help_page_path('user/project/repository/mirror/index.md', anchor: 'mirror-only-protected-branches'), target: '_blank', rel: 'noopener noreferrer'
+              = f.submit _('Mirror repository'), class: 'js-mirror-submit', name: :update_remote_mirror, pajamas_button: true, data: { testid: 'mirror-repository-button' }
 
-          .panel-footer
-            = f.submit _('Mirror repository'), class: 'gl-button btn btn-confirm js-mirror-submit qa-mirror-repository-button', name: :update_remote_mirror
-    - else
-      = render 'shared/global_alert',
-        dismissible: false,
-        variant: :info do
-        .gl-alert-body
-          = _('Mirror settings are only available to GitLab administrators.')
+              = render Pajamas::ButtonComponent.new(button_options: { type: 'reset', class: 'gl-ml-2 js-toggle-button' }) do
+                = _('Cancel')
 
-    .panel.panel-default
-      .table-responsive
-        %table.table.push-pull-table
-          %thead
-            %tr
-              %th
-                = _('Mirrored repositories')
-                = render_if_exists 'projects/mirrors/mirrored_repositories_count'
-              %th= _('Direction')
-              %th= _('Last update attempt')
-              %th= _('Last successful update')
-              %th
-              %th
-          %tbody.js-mirrors-table-body
-            = render_if_exists 'projects/mirrors/table_pull_row'
-            - @project.remote_mirrors.each_with_index do |mirror, index|
-              - next if mirror.new_record?
-              %tr.rspec-mirrored-repository-row{ class: ('bg-secondary' if mirror.disabled?), data: { qa_selector: 'mirrored_repository_row' } }
-                %td{ data: { qa_selector: 'mirror_repository_url_cell' } }= mirror.safe_url || _('Invalid URL')
-                %td= _('Push')
-                %td
-                  = mirror.last_update_started_at.present? ? time_ago_with_tooltip(mirror.last_update_started_at) : _('Never')
-                %td{ data: { qa_selector: 'mirror_last_update_at_cell' } }= mirror.last_update_at.present? ? time_ago_with_tooltip(mirror.last_update_at) : _('Never')
-                %td
-                  - if mirror.disabled?
-                    = render 'projects/mirrors/disabled_mirror_badge'
-                  - if mirror.last_error.present?
-                    = gl_badge_tag _('Error'), { variant: :danger }, { data: { toggle: 'tooltip', html: 'true', qa_selector: 'mirror_error_badge' }, title: html_escape(mirror.last_error.try(:strip)) }
-                %td.gl-display-flex
-                  - if mirror_settings_enabled
-                    %button.js-delete-mirror.qa-delete-mirror.rspec-delete-mirror.btn.btn-icon.gl-button.btn-danger.gl-mr-3{ type: 'button', data: { mirror_id: mirror.id, toggle: 'tooltip', container: 'body' }, title: _('Remove') }= sprite_icon('remove')
-                    .btn-group.mirror-actions-group{ role: 'group' }
-                      - if mirror.ssh_key_auth?
-                        = clipboard_button(text: mirror.ssh_public_key, class: 'gl-button btn btn-default', title: _('Copy SSH public key'), qa_selector: 'copy_public_key_button')
-                      = render 'shared/remote_mirror_update_button', remote_mirror: mirror
+        - else
+          = render Pajamas::AlertComponent.new(dismissible: false) do |c|
+            - c.with_body do
+              = _('Mirror settings are only available to GitLab administrators.')
+
+        = render 'projects/mirrors/mirror_repos_list'

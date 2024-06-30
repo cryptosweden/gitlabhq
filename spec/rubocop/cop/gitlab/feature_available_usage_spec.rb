@@ -1,13 +1,9 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
-require 'rubocop'
-require 'rubocop/rspec/support'
+require 'rubocop_spec_helper'
 require_relative '../../../../rubocop/cop/gitlab/feature_available_usage'
 
 RSpec.describe RuboCop::Cop::Gitlab::FeatureAvailableUsage do
-  subject(:cop) { described_class.new }
-
   context 'no arguments given' do
     it 'does not flag the use of Gitlab::Sourcegraph.feature_available? with no arguments' do
       expect_no_offenses('Gitlab::Sourcegraph.feature_available?')
@@ -18,6 +14,10 @@ RSpec.describe RuboCop::Cop::Gitlab::FeatureAvailableUsage do
   context 'one argument given' do
     it 'does not flag the use of License.feature_available?' do
       expect_no_offenses('License.feature_available?(:push_rules)')
+    end
+
+    it 'does not flag the use of Gitlab::Saas.feature_available?' do
+      expect_no_offenses('Gitlab::Saas.feature_available?(:some_feature)')
     end
 
     it 'flags the use with a dynamic feature as nil' do

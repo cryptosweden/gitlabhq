@@ -2,9 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::MergeRequestsController do
+RSpec.describe Projects::MergeRequestsController, feature_category: :code_review_workflow do
   include ProjectForksHelper
   include Gitlab::Routing
+  using RSpec::Parameterized::TableSyntax
 
   let_it_be_with_refind(:project) { create(:project, :repository) }
   let_it_be_with_reload(:project_public_with_private_builds) { create(:project, :repository, :public, :builds_private) }
@@ -15,6 +16,27 @@ RSpec.describe Projects::MergeRequestsController do
 
   before do
     sign_in(user)
+  end
+
+  shared_examples 'a 400 response' do
+    it 'does not send polling interval' do
+      expect(Gitlab::PollingInterval).not_to receive(:set_header)
+
+      subject
+    end
+
+    it 'returns 400 HTTP status' do
+      subject
+
+      expect(response).to have_gitlab_http_status(:bad_request)
+    end
+
+    it 'returns an error string' do
+      subject
+
+      expect(json_response['status_reason']).to eq error_string
+      expect(json_response['errors']).to match_array [error_string]
+    end
   end
 
   describe 'GET commit_change_content' do
@@ -77,7 +99,63 @@ RSpec.describe Projects::MergeRequestsController do
             merge_request,
             'json',
             diff_head: true,
-            view: 'inline'))
+            view: 'inline',
+            w: '0'))
+      end
+
+      context 'when merge_head diff is present' do
+        before do
+          create(:merge_request_diff, :merge_head, merge_request: merge_request)
+        end
+
+        it 'sets the endpoint_diff_batch_url with ck' do
+          go
+
+          expect(assigns["endpoint_diff_batch_url"]).to eq(
+            diffs_batch_project_json_merge_request_path(
+              project,
+              merge_request,
+              'json',
+              diff_head: true,
+              view: 'inline',
+              w: '0',
+              page: '0',
+              per_page: '5',
+              ck: merge_request.merge_head_diff.patch_id_sha))
+        end
+
+        it 'sets diffs_batch_cache_key' do
+          go
+
+          expect(assigns['diffs_batch_cache_key']).to eq(merge_request.merge_head_diff.patch_id_sha)
+        end
+
+        context 'when diffs_batch_cache_with_max_age feature flag is disabled' do
+          before do
+            stub_feature_flags(diffs_batch_cache_with_max_age: false)
+          end
+
+          it 'sets the endpoint_diff_batch_url without ck param' do
+            go
+
+            expect(assigns['endpoint_diff_batch_url']).to eq(
+              diffs_batch_project_json_merge_request_path(
+                project,
+                merge_request,
+                'json',
+                diff_head: true,
+                view: 'inline',
+                w: '0',
+                page: '0',
+                per_page: '5'))
+          end
+
+          it 'does not set diffs_batch_cache_key' do
+            go
+
+            expect(assigns['diffs_batch_cache_key']).to be_nil
+          end
+        end
       end
 
       context 'when diff files were cleaned' do
@@ -87,9 +165,7 @@ RSpec.describe Projects::MergeRequestsController do
           diff = merge_request.merge_request_diff
 
           diff.clean!
-          diff.update!(real_size: nil,
-                       start_commit_sha: nil,
-                       base_commit_sha: nil)
+          diff.update!(real_size: nil, start_commit_sha: nil, base_commit_sha: nil)
 
           go(format: :html)
 
@@ -147,27 +223,44 @@ RSpec.describe Projects::MergeRequestsController do
         end
 
         it 'redirects from an old merge request correctly' do
-          get :show,
-              params: {
-                namespace_id: project.namespace,
-                project_id: project,
-                id: merge_request
-              }
+          get :show, params: {
+            namespace_id: project.namespace,
+            project_id: project,
+            id: merge_request
+          }
 
           expect(response).to redirect_to(project_merge_request_path(new_project, merge_request))
           expect(response).to have_gitlab_http_status(:moved_permanently)
         end
 
         it 'redirects from an old merge request commits correctly' do
-          get :commits,
-              params: {
-                namespace_id: project.namespace,
-                project_id: project,
-                id: merge_request
-              }
+          get :commits, params: {
+            namespace_id: project.namespace,
+            project_id: project,
+            id: merge_request
+          }
 
           expect(response).to redirect_to(commits_project_merge_request_path(new_project, merge_request))
           expect(response).to have_gitlab_http_status(:moved_permanently)
+        end
+      end
+
+      context 'when has pinned file' do
+        let(:file) { merge_request.merge_request_diff.diffs.diff_files.first }
+        let(:file_hash) { file.file_hash }
+
+        it 'adds pinned file url' do
+          go(pin: file_hash)
+
+          expect(assigns['pinned_file_url']).to eq(
+            diff_by_file_hash_namespace_project_merge_request_path(
+              format: 'json',
+              id: merge_request.iid,
+              namespace_id: project.namespace.to_param,
+              project_id: project.path,
+              file_hash: file_hash,
+              diff_head: true
+            ))
         end
       end
     end
@@ -227,6 +320,16 @@ RSpec.describe Projects::MergeRequestsController do
 
         expect(response.headers[Gitlab::Workhorse::SEND_DATA_HEADER]).to start_with("git-diff:")
       end
+
+      context 'when there is no diff' do
+        it 'renders 404' do
+          merge_request.merge_request_diff.destroy!
+
+          go(format: :diff)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
     end
 
     describe "as patch" do
@@ -235,6 +338,16 @@ RSpec.describe Projects::MergeRequestsController do
 
         expect(response.headers[Gitlab::Workhorse::SEND_DATA_HEADER]).to start_with("git-format-patch:")
       end
+
+      context 'when there is no diff' do
+        it 'renders 404' do
+          merge_request.merge_request_diff.destroy!
+
+          go(format: :patch)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
     end
   end
 
@@ -242,13 +355,12 @@ RSpec.describe Projects::MergeRequestsController do
     let(:merge_request) { create(:merge_request_with_diffs, target_project: project, source_project: project) }
 
     def get_merge_requests(page = nil)
-      get :index,
-          params: {
-            namespace_id: project.namespace.to_param,
-            project_id: project,
-            state: 'opened',
-            page: page.to_param
-          }
+      get :index, params: {
+        namespace_id: project.namespace.to_param,
+        project_id: project,
+        state: 'opened',
+        page: page.to_param
+      }
     end
 
     it_behaves_like "issuables list meta-data", :merge_request
@@ -313,15 +425,6 @@ RSpec.describe Projects::MergeRequestsController do
         end
       end
     end
-
-    it_behaves_like 'issuable list with anonymous search disabled' do
-      let(:params) { { namespace_id: project.namespace, project_id: project } }
-
-      before do
-        sign_out(user)
-        project.update!(visibility_level: Gitlab::VisibilityLevel::PUBLIC)
-      end
-    end
   end
 
   describe 'PUT update' do
@@ -344,7 +447,7 @@ RSpec.describe Projects::MergeRequestsController do
 
         update_merge_request({ assignee_ids: [assignee.id] }, format: :json)
 
-        expect(json_response['assignees']).to all(include(*%w(name username avatar_url id state web_url)))
+        expect(json_response['assignees']).to all(include(*%w[name username avatar_url id state web_url]))
       end
     end
 
@@ -446,6 +549,16 @@ RSpec.describe Projects::MergeRequestsController do
       it 'returns :failed' do
         expect(json_response).to eq('status' => 'failed')
       end
+
+      context 'for logging' do
+        let(:expected_params) { { merge_action_status: 'failed' } }
+        let(:subject_proc) { proc { subject } }
+
+        subject { post :merge, params: base_params }
+
+        it_behaves_like 'storing arguments in the application context'
+        it_behaves_like 'not executing any extra queries for the application context'
+      end
     end
 
     context 'when the sha parameter does not match the source SHA' do
@@ -455,6 +568,16 @@ RSpec.describe Projects::MergeRequestsController do
 
       it 'returns :sha_mismatch' do
         expect(json_response).to eq('status' => 'sha_mismatch')
+      end
+
+      context 'for logging' do
+        let(:expected_params) { { merge_action_status: 'sha_mismatch' } }
+        let(:subject_proc) { proc { subject } }
+
+        subject { post :merge, params: base_params.merge(sha: 'foo') }
+
+        it_behaves_like 'storing arguments in the application context'
+        it_behaves_like 'not executing any extra queries for the application context'
       end
     end
 
@@ -475,6 +598,16 @@ RSpec.describe Projects::MergeRequestsController do
         expect(MergeWorker).to receive(:perform_async).with(merge_request.id, anything, { 'sha' => merge_request.diff_head_sha })
 
         merge_with_sha
+      end
+
+      context 'for logging' do
+        let(:expected_params) { { merge_action_status: 'success' } }
+        let(:subject_proc) { proc { subject } }
+
+        subject { merge_with_sha }
+
+        it_behaves_like 'storing arguments in the application context'
+        it_behaves_like 'not executing any extra queries for the application context'
       end
 
       context 'when squash is passed as 1' do
@@ -498,22 +631,18 @@ RSpec.describe Projects::MergeRequestsController do
       context 'when a squash commit message is passed' do
         let(:message) { 'My custom squash commit message' }
 
-        it 'passes the same message to SquashService', :sidekiq_might_not_need_inline do
-          params = { squash: '1',
-                     squash_commit_message: message,
-                     sha: merge_request.diff_head_sha }
-          expected_squash_params = { squash_commit_message: message,
-                                     sha: merge_request.diff_head_sha,
-                                     merge_request: merge_request }
-
-          expect_next_instance_of(MergeRequests::SquashService, project: project, current_user: user, params: expected_squash_params) do |squash_service|
+        it 'passes the same message to SquashService', :sidekiq_inline do
+          expect_next_instance_of(MergeRequests::SquashService,
+            merge_request: merge_request,
+            current_user: user,
+            commit_message: message) do |squash_service|
             expect(squash_service).to receive(:execute).and_return({
               status: :success,
               squash_sha: SecureRandom.hex(20)
             })
           end
 
-          merge_with_sha(params)
+          merge_with_sha(squash: '1', squash_commit_message: message, sha: merge_request.diff_head_sha)
         end
       end
 
@@ -522,73 +651,25 @@ RSpec.describe Projects::MergeRequestsController do
           create(:ci_empty_pipeline, project: project, sha: merge_request.diff_head_sha, ref: merge_request.source_branch, head_pipeline_of: merge_request)
         end
 
-        def merge_when_pipeline_succeeds
+        def set_auto_merge
           post :merge, params: base_params.merge(sha: merge_request.diff_head_sha, merge_when_pipeline_succeeds: '1')
         end
 
-        it 'returns :merge_when_pipeline_succeeds' do
-          merge_when_pipeline_succeeds
-
-          expect(json_response).to eq('status' => 'merge_when_pipeline_succeeds')
+        it_behaves_like 'api merge with auto merge' do
+          let(:service_class) { AutoMerge::MergeWhenChecksPassService }
+          let(:status) { 'merge_when_checks_pass' }
+          let(:not_current_pipeline_status) { 'merge_when_checks_pass' }
         end
 
-        it 'sets the MR to merge when the pipeline succeeds' do
-          service = double(:merge_when_pipeline_succeeds_service)
-          allow(service).to receive(:available_for?) { true }
-
-          expect(AutoMerge::MergeWhenPipelineSucceedsService)
-            .to receive(:new).with(project, anything, anything)
-            .and_return(service)
-          expect(service).to receive(:execute).with(merge_request)
-
-          merge_when_pipeline_succeeds
-        end
-
-        context 'when project.only_allow_merge_if_pipeline_succeeds? is true' do
+        context 'when merge_when_checks_pass is false' do
           before do
-            project.update_column(:only_allow_merge_if_pipeline_succeeds, true)
+            stub_feature_flags(merge_when_checks_pass: false)
           end
 
-          context 'and head pipeline is not the current one' do
-            before do
-              head_pipeline.update!(sha: 'not_current_sha')
-            end
-
-            it 'returns :failed' do
-              merge_when_pipeline_succeeds
-
-              expect(json_response).to eq('status' => 'failed')
-            end
-          end
-
-          it 'returns :merge_when_pipeline_succeeds' do
-            merge_when_pipeline_succeeds
-
-            expect(json_response).to eq('status' => 'merge_when_pipeline_succeeds')
-          end
-        end
-
-        context 'when auto merge has not been enabled yet' do
-          it 'calls AutoMergeService#execute' do
-            expect_next_instance_of(AutoMergeService) do |service|
-              expect(service).to receive(:execute).with(merge_request, 'merge_when_pipeline_succeeds')
-            end
-
-            merge_when_pipeline_succeeds
-          end
-        end
-
-        context 'when auto merge has already been enabled' do
-          before do
-            merge_request.update!(auto_merge_enabled: true, merge_user: user)
-          end
-
-          it 'calls AutoMergeService#update' do
-            expect_next_instance_of(AutoMergeService) do |service|
-              expect(service).to receive(:update).with(merge_request)
-            end
-
-            merge_when_pipeline_succeeds
+          it_behaves_like 'api merge with auto merge' do
+            let(:service_class) { AutoMerge::MergeWhenPipelineSucceedsService }
+            let(:status) { 'merge_when_pipeline_succeeds' }
+            let(:not_current_pipeline_status) { 'failed' }
           end
         end
       end
@@ -682,7 +763,7 @@ RSpec.describe Projects::MergeRequestsController do
       it "deletes the merge request" do
         delete :destroy, params: { namespace_id: project.namespace, project_id: project, id: merge_request.iid, destroy_confirm: true }
 
-        expect(response).to have_gitlab_http_status(:found)
+        expect(response).to have_gitlab_http_status(:see_other)
         expect(controller).to set_flash[:notice].to(/The merge request was successfully deleted\./)
       end
 
@@ -707,14 +788,14 @@ RSpec.describe Projects::MergeRequestsController do
   end
 
   describe 'GET commits' do
-    def go(format: 'html')
-      get :commits,
-          params: {
-            namespace_id: project.namespace.to_param,
-            project_id: project,
-            id: merge_request.iid
-          },
-          format: format
+    def go(page: nil, per_page: 1, format: 'html')
+      get :commits, params: {
+        namespace_id: project.namespace.to_param,
+        project_id: project,
+        id: merge_request.iid,
+        page: page,
+        per_page: per_page
+      }, format: format
     end
 
     it 'renders the commits template to a string' do
@@ -722,22 +803,44 @@ RSpec.describe Projects::MergeRequestsController do
 
       expect(response).to render_template('projects/merge_requests/_commits')
       expect(json_response).to have_key('html')
+      expect(json_response).to have_key('next_page')
+      expect(json_response['next_page']).to eq(2)
+    end
+
+    describe 'pagination' do
+      where(:page, :next_page) do
+        1 | 2
+        2 | 3
+        3 | nil
+      end
+
+      with_them do
+        it "renders the commits for page #{params[:page]}" do
+          go format: 'json', page: page, per_page: 10
+
+          expect(response).to render_template('projects/merge_requests/_commits')
+          expect(json_response).to have_key('html')
+          expect(json_response).to have_key('next_page')
+          expect(json_response['next_page']).to eq(next_page)
+        end
+      end
     end
   end
 
   describe 'GET pipelines' do
     before do
-      create(:ci_pipeline, project: merge_request.source_project,
-                           ref: merge_request.source_branch,
-                           sha: merge_request.diff_head_sha)
+      create(
+        :ci_pipeline,
+        project: merge_request.source_project,
+        ref: merge_request.source_branch,
+        sha: merge_request.diff_head_sha
+      )
 
-      get :pipelines,
-          params: {
-            namespace_id: project.namespace.to_param,
-            project_id: project,
-            id: merge_request.iid
-          },
-          format: :json
+      get :pipelines, params: {
+        namespace_id: project.namespace.to_param,
+        project_id: project,
+        id: merge_request.iid
+      }, format: :json
     end
 
     context 'with "enabled" builds on a public project' do
@@ -790,7 +893,7 @@ RSpec.describe Projects::MergeRequestsController do
 
         context 'with private builds' do
           context 'for the target project member' do
-            it 'does not respond with serialized pipelines', :sidekiq_might_not_need_inline do
+            it 'does not respond with serialized pipelines' do
               expect(json_response['pipelines']).to be_empty
               expect(json_response['count']['all']).to eq(0)
               expect(response).to include_pagination_headers
@@ -800,7 +903,7 @@ RSpec.describe Projects::MergeRequestsController do
           context 'for the source project member' do
             let(:user) { fork_user }
 
-            it 'responds with serialized pipelines', :sidekiq_might_not_need_inline do
+            it 'responds with serialized pipelines' do
               expect(json_response['pipelines']).to be_present
               expect(json_response['count']['all']).to eq(1)
               expect(response).to include_pagination_headers
@@ -816,7 +919,7 @@ RSpec.describe Projects::MergeRequestsController do
           end
 
           context 'for the target project member' do
-            it 'does not respond with serialized pipelines', :sidekiq_might_not_need_inline do
+            it 'does not respond with serialized pipelines' do
               expect(json_response['pipelines']).to be_present
               expect(json_response['count']['all']).to eq(1)
               expect(response).to include_pagination_headers
@@ -826,7 +929,7 @@ RSpec.describe Projects::MergeRequestsController do
           context 'for the source project member' do
             let(:user) { fork_user }
 
-            it 'responds with serialized pipelines', :sidekiq_might_not_need_inline do
+            it 'responds with serialized pipelines' do
               expect(json_response['pipelines']).to be_present
               expect(json_response['count']['all']).to eq(1)
               expect(response).to include_pagination_headers
@@ -891,17 +994,18 @@ RSpec.describe Projects::MergeRequestsController do
         .and_return(report)
 
       allow_any_instance_of(MergeRequest)
-        .to receive(:actual_head_pipeline)
+        .to receive(:diff_head_pipeline)
         .and_return(pipeline)
     end
 
     subject do
-      get :exposed_artifacts, params: {
-        namespace_id: project.namespace.to_param,
-        project_id: project,
-        id: merge_request.iid
-      },
-      format: :json
+      get :exposed_artifacts,
+        params: {
+          namespace_id: project.namespace.to_param,
+          project_id: project,
+          id: merge_request.iid
+        },
+        format: :json
     end
 
     describe 'permissions on a public project with private CI/CD' do
@@ -1026,17 +1130,18 @@ RSpec.describe Projects::MergeRequestsController do
         .and_return(report)
 
       allow_any_instance_of(MergeRequest)
-        .to receive(:actual_head_pipeline)
+        .to receive(:diff_head_pipeline)
         .and_return(pipeline)
     end
 
     subject do
-      get :coverage_reports, params: {
-        namespace_id: project.namespace.to_param,
-        project_id: project,
-        id: merge_request.iid
-      },
-      format: :json
+      get :coverage_reports,
+        params: {
+          namespace_id: project.namespace.to_param,
+          project_id: project,
+          id: merge_request.iid
+        },
+        format: :json
     end
 
     describe 'permissions on a public project with private CI/CD' do
@@ -1094,7 +1199,7 @@ RSpec.describe Projects::MergeRequestsController do
       end
 
       context 'when processing coverage reports is completed' do
-        let(:report) { { status: :parsed, data: pipeline.coverage_reports } }
+        let(:report) { { status: :parsed, data: { 'files' => {} } } }
 
         it 'returns coverage reports' do
           subject
@@ -1105,20 +1210,10 @@ RSpec.describe Projects::MergeRequestsController do
       end
 
       context 'when user created corrupted coverage reports' do
-        let(:report) { { status: :error, status_reason: 'Failed to parse coverage reports' } }
+        let(:report) { { status: :error, status_reason: error_string } }
+        let(:error_string) { 'Failed to parse coverage reports' }
 
-        it 'does not send polling interval' do
-          expect(Gitlab::PollingInterval).not_to receive(:set_header)
-
-          subject
-        end
-
-        it 'returns 400 HTTP status' do
-          subject
-
-          expect(response).to have_gitlab_http_status(:bad_request)
-          expect(json_response).to eq({ 'status_reason' => 'Failed to parse coverage reports' })
-        end
+        it_behaves_like 'a 400 response'
       end
     end
 
@@ -1156,17 +1251,18 @@ RSpec.describe Projects::MergeRequestsController do
         .and_return(report)
 
       allow_any_instance_of(MergeRequest)
-        .to receive(:actual_head_pipeline)
+        .to receive(:diff_head_pipeline)
         .and_return(pipeline)
     end
 
     subject(:get_codequality_mr_diff_reports) do
-      get :codequality_mr_diff_reports, params: {
-        namespace_id: project.namespace.to_param,
-        project_id: project,
-        id: merge_request.iid
-      },
-      format: :json
+      get :codequality_mr_diff_reports,
+        params: {
+          namespace_id: project.namespace.to_param,
+          project_id: project,
+          id: merge_request.iid
+        },
+        format: :json
     end
 
     context 'permissions on a public project with private CI/CD' do
@@ -1259,17 +1355,18 @@ RSpec.describe Projects::MergeRequestsController do
         .and_return(report)
 
       allow_any_instance_of(MergeRequest)
-        .to receive(:actual_head_pipeline)
+        .to receive(:diff_head_pipeline)
         .and_return(pipeline)
     end
 
     subject do
-      get :terraform_reports, params: {
-        namespace_id: project.namespace.to_param,
-        project_id: project,
-        id: merge_request.iid
-      },
-      format: :json
+      get :terraform_reports,
+        params: {
+          namespace_id: project.namespace.to_param,
+          project_id: project,
+          id: merge_request.iid
+        },
+        format: :json
     end
 
     describe 'permissions on a public project with private CI/CD' do
@@ -1350,20 +1447,10 @@ RSpec.describe Projects::MergeRequestsController do
       end
 
       context 'when user created corrupted terraform reports' do
-        let(:report) { { status: :error, status_reason: 'Failed to parse terraform reports' } }
+        let(:report) { { status: :error, status_reason: error_string } }
+        let(:error_string) { 'Failed to parse terraform reports' }
 
-        it 'does not send polling interval' do
-          expect(Gitlab::PollingInterval).not_to receive(:set_header)
-
-          subject
-        end
-
-        it 'returns 400 HTTP status' do
-          subject
-
-          expect(response).to have_gitlab_http_status(:bad_request)
-          expect(json_response).to eq({ 'status_reason' => 'Failed to parse terraform reports' })
-        end
+        it_behaves_like 'a 400 response'
       end
     end
 
@@ -1394,12 +1481,13 @@ RSpec.describe Projects::MergeRequestsController do
     end
 
     subject do
-      get :test_reports, params: {
-        namespace_id: project.namespace.to_param,
-        project_id: project,
-        id: merge_request.iid
-      },
-      format: :json
+      get :test_reports,
+        params: {
+          namespace_id: project.namespace.to_param,
+          project_id: project,
+          id: merge_request.iid
+        },
+        format: :json
     end
 
     before do
@@ -1408,7 +1496,7 @@ RSpec.describe Projects::MergeRequestsController do
         .and_return(comparison_status)
 
       allow_any_instance_of(MergeRequest)
-        .to receive(:actual_head_pipeline)
+        .to receive(:diff_head_pipeline)
         .and_return(merge_request.all_pipelines.take)
     end
 
@@ -1477,20 +1565,10 @@ RSpec.describe Projects::MergeRequestsController do
     end
 
     context 'when user created corrupted test reports' do
-      let(:comparison_status) { { status: :error, status_reason: 'Failed to parse test reports' } }
+      let(:error_string) { 'Failed to parse test reports' }
+      let(:comparison_status) { { status: :error, status_reason: error_string } }
 
-      it 'does not send polling interval' do
-        expect(Gitlab::PollingInterval).not_to receive(:set_header)
-
-        subject
-      end
-
-      it 'returns 400 HTTP status' do
-        subject
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response).to eq({ 'status_reason' => 'Failed to parse test reports' })
-      end
+      it_behaves_like 'a 400 response'
     end
   end
 
@@ -1517,17 +1595,18 @@ RSpec.describe Projects::MergeRequestsController do
         .and_return(accessibility_comparison)
 
       allow_any_instance_of(MergeRequest)
-        .to receive(:actual_head_pipeline)
+        .to receive(:diff_head_pipeline)
         .and_return(pipeline)
     end
 
     subject do
-      get :accessibility_reports, params: {
-        namespace_id: project.namespace.to_param,
-        project_id: project,
-        id: merge_request.iid
-      },
-      format: :json
+      get :accessibility_reports,
+        params: {
+          namespace_id: project.namespace.to_param,
+          project_id: project,
+          id: merge_request.iid
+        },
+        format: :json
     end
 
     context 'permissions on a public project with private CI/CD' do
@@ -1596,20 +1675,10 @@ RSpec.describe Projects::MergeRequestsController do
       end
 
       context 'when user created corrupted accessibility reports' do
-        let(:accessibility_comparison) { { status: :error, status_reason: 'This merge request does not have accessibility reports' } }
+        let(:error_string) { 'This merge request does not have accessibility reports' }
+        let(:accessibility_comparison) { { status: :error, status_reason: error_string } }
 
-        it 'does not send polling interval' do
-          expect(Gitlab::PollingInterval).not_to receive(:set_header)
-
-          subject
-        end
-
-        it 'returns 400 HTTP status' do
-          subject
-
-          expect(response).to have_gitlab_http_status(:bad_request)
-          expect(json_response).to eq({ 'status_reason' => 'This merge request does not have accessibility reports' })
-        end
+        it_behaves_like 'a 400 response'
       end
     end
   end
@@ -1637,17 +1706,18 @@ RSpec.describe Projects::MergeRequestsController do
         .and_return(codequality_comparison)
 
       allow_any_instance_of(MergeRequest)
-        .to receive(:actual_head_pipeline)
+        .to receive(:diff_head_pipeline)
         .and_return(pipeline)
     end
 
     subject do
-      get :codequality_reports, params: {
-        namespace_id: project.namespace.to_param,
-        project_id: project,
-        id: merge_request.iid
-      },
-      format: :json
+      get :codequality_reports,
+        params: {
+          namespace_id: project.namespace.to_param,
+          project_id: project,
+          id: merge_request.iid
+        },
+        format: :json
     end
 
     context 'permissions on a public project with private CI/CD' do
@@ -1717,20 +1787,16 @@ RSpec.describe Projects::MergeRequestsController do
     end
 
     context 'when pipeline has job without a codequality report' do
-      let(:codequality_comparison) { { status: :error, status_reason: 'no codequality report' } }
+      let(:error_string) { 'no codequality report' }
+      let(:codequality_comparison) { { status: :error, status_reason: error_string } }
 
-      it 'returns a 400' do
-        subject
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response).to eq({ 'status_reason' => 'no codequality report' })
-      end
+      it_behaves_like 'a 400 response'
     end
   end
 
   describe 'POST remove_wip' do
     before do
-      merge_request.title = merge_request.wip_title
+      merge_request.title = merge_request.draft_title
       merge_request.save!
 
       post :remove_wip,
@@ -1743,12 +1809,12 @@ RSpec.describe Projects::MergeRequestsController do
         xhr: true
     end
 
-    it 'removes the wip status' do
-      expect(merge_request.reload.title).to eq(merge_request.wipless_title)
+    it 'removes the draft status' do
+      expect(merge_request.reload.title).to eq(merge_request.draftless_title)
     end
 
     it 'renders MergeRequest as JSON' do
-      expect(json_response.keys).to include('id', 'iid', 'title', 'has_ci', 'merge_status', 'can_be_merged', 'current_user')
+      expect(json_response.keys).to include('id', 'iid', 'title', 'has_ci', 'current_user')
     end
   end
 
@@ -1782,7 +1848,7 @@ RSpec.describe Projects::MergeRequestsController do
     it 'renders MergeRequest as JSON' do
       subject
 
-      expect(json_response.keys).to include('id', 'iid', 'title', 'has_ci', 'merge_status', 'can_be_merged', 'current_user')
+      expect(json_response.keys).to include('id', 'iid', 'title', 'has_ci', 'current_user')
     end
   end
 
@@ -1791,31 +1857,40 @@ RSpec.describe Projects::MergeRequestsController do
     let(:issue2) { create(:issue, project: project) }
 
     def post_assign_issues
-      merge_request.update!(description: "Closes #{issue1.to_reference} and #{issue2.to_reference}",
-                            author: user,
-                            source_branch: 'feature',
-                            target_branch: 'master')
+      merge_request.update!(
+        description: "Closes #{issue1.to_reference} and #{issue2.to_reference}",
+        author: user,
+        source_branch: 'feature',
+        target_branch: 'master'
+      )
 
-      post :assign_related_issues,
-           params: {
-             namespace_id: project.namespace.to_param,
-             project_id: project,
-             id: merge_request.iid
-           }
+      post :assign_related_issues, params: {
+        namespace_id: project.namespace.to_param,
+        project_id: project,
+        id: merge_request.iid
+      }
+    end
+
+    it 'displays an flash error message on fail' do
+      allow(MergeRequests::AssignIssuesService).to receive(:new).and_return(double(execute: { count: 0 }))
+
+      post_assign_issues
+
+      expect(flash[:alert]).to eq _('Failed to assign you issues related to the merge request.')
     end
 
     it 'shows a flash message on success' do
-      post_assign_issues
-
-      expect(flash[:notice]).to eq '2 issues have been assigned to you'
-    end
-
-    it 'correctly pluralizes flash message on success' do
       issue2.assignees = [user]
 
       post_assign_issues
 
-      expect(flash[:notice]).to eq '1 issue has been assigned to you'
+      expect(flash[:notice]).to eq n_("An issue has been assigned to you.", "%d issues have been assigned to you.", 1)
+    end
+
+    it 'correctly pluralizes flash message on success' do
+      post_assign_issues
+
+      expect(flash[:notice]).to eq n_("An issue has been assigned to you.", "%d issues have been assigned to you.", 2)
     end
 
     it 'calls MergeRequests::AssignIssuesService' do
@@ -1848,13 +1923,13 @@ RSpec.describe Projects::MergeRequestsController do
         create(:merge_request, source_project: forked, target_project: project, target_branch: 'master', head_pipeline: pipeline)
       end
 
-      it 'links to the environment on that project', :sidekiq_might_not_need_inline do
+      it 'links to the environment on that project' do
         get_ci_environments_status
 
         expect(json_response.first['url']).to match(/#{forked.full_path}/)
       end
 
-      context "when environment_target is 'merge_commit'", :sidekiq_might_not_need_inline do
+      context "when environment_target is 'merge_commit'" do
         it 'returns nothing' do
           get_ci_environments_status(environment_target: 'merge_commit')
 
@@ -1884,25 +1959,22 @@ RSpec.describe Projects::MergeRequestsController do
 
       # we're trying to reduce the overall number of queries for this method.
       # set a hard limit for now. https://gitlab.com/gitlab-org/gitlab-foss/issues/52287
-      it 'keeps queries in check', :sidekiq_might_not_need_inline do
+      it 'keeps queries in check' do
         control_count = ActiveRecord::QueryRecorder.new { get_ci_environments_status }.count
 
         expect(control_count).to be <= 137
       end
 
-      it 'has no N+1 SQL issues for environments', :request_store, :sidekiq_might_not_need_inline, retry: 0 do
+      it 'has no N+1 SQL issues for environments', :request_store, retry: 0 do
         # First run to insert test data from lets, which does take up some 30 queries
         get_ci_environments_status
 
-        control_count = ActiveRecord::QueryRecorder.new(skip_cached: false) { get_ci_environments_status }.count
+        control_count = ActiveRecord::QueryRecorder.new { get_ci_environments_status }
 
         environment2 = create(:environment, project: forked)
         create(:deployment, :succeed, environment: environment2, sha: sha, ref: 'master', deployable: build)
 
-        # TODO address the last 3 queries
-        # See https://gitlab.com/gitlab-org/gitlab-foss/issues/63952 (3 queries)
-        leeway = 3
-        expect { get_ci_environments_status }.not_to exceed_all_query_limit(control_count + leeway)
+        expect { get_ci_environments_status }.not_to exceed_all_query_limit(control_count)
       end
     end
 
@@ -1974,10 +2046,13 @@ RSpec.describe Projects::MergeRequestsController do
   describe 'GET pipeline_status.json' do
     context 'when head_pipeline exists' do
       let!(:pipeline) do
-        create(:ci_pipeline, project: merge_request.source_project,
-                             ref: merge_request.source_branch,
-                             sha: merge_request.diff_head_sha,
-                             head_pipeline_of: merge_request)
+        create(
+          :ci_pipeline,
+          project: merge_request.source_project,
+          ref: merge_request.source_branch,
+          sha: merge_request.diff_head_sha,
+          head_pipeline_of: merge_request
+        )
       end
 
       let(:status) { pipeline.detailed_status(double('user')) }
@@ -2030,34 +2105,58 @@ RSpec.describe Projects::MergeRequestsController do
 
     def get_pipeline_status
       get :pipeline_status, params: {
-                              namespace_id: project.namespace,
-                              project_id: project,
-                              id: merge_request.iid
-                            },
-                            format: :json
+        namespace_id: project.namespace,
+        project_id: project,
+        id: merge_request.iid
+      }, format: :json
     end
   end
 
   describe 'POST #rebase' do
+    let(:other_params) { {} }
+    let(:params) { { namespace_id: project.namespace, project_id: project, id: merge_request }.merge(other_params) }
+
     def post_rebase
-      post :rebase, params: { namespace_id: project.namespace, project_id: project, id: merge_request }
+      post :rebase, params: params
     end
 
     before do
       allow(RebaseWorker).to receive(:with_status).and_return(RebaseWorker)
     end
 
-    def expect_rebase_worker_for(user)
-      expect(RebaseWorker).to receive(:perform_async).with(merge_request.id, user.id, false)
+    def expect_rebase_worker_for(user, skip_ci: false)
+      expect(RebaseWorker).to receive(:perform_async).with(merge_request.id, user.id, skip_ci)
     end
 
     context 'successfully' do
-      it 'enqeues a RebaseWorker' do
-        expect_rebase_worker_for(user)
+      shared_examples 'successful rebase scheduler' do
+        it 'enqueues a RebaseWorker' do
+          expect_rebase_worker_for(user, skip_ci: skip_ci)
 
-        post_rebase
+          post_rebase
 
-        expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+
+      context 'with skip_ci not specified' do
+        let(:skip_ci) { false }
+
+        it_behaves_like 'successful rebase scheduler'
+      end
+
+      context 'with skip_ci enabled' do
+        let(:skip_ci) { true }
+        let(:other_params) { { skip_ci: 'true' } }
+
+        it_behaves_like 'successful rebase scheduler'
+      end
+
+      context 'with skip_ci disabled' do
+        let(:skip_ci) { false }
+        let(:other_params) { { skip_ci: 'false' } }
+
+        it_behaves_like 'successful rebase scheduler'
       end
     end
 
@@ -2078,12 +2177,13 @@ RSpec.describe Projects::MergeRequestsController do
         create(:protected_branch, project: project, name: merge_request.source_branch, allow_force_push: false)
       end
 
-      it 'returns 404' do
+      it 'returns 403' do
         expect_rebase_worker_for(user).never
 
         post_rebase
 
-        expect(response).to have_gitlab_http_status(:not_found)
+        expect(response).to have_gitlab_http_status(:forbidden)
+        expect(json_response['merge_error']).to eq('Source branch is protected from force push')
       end
     end
 
@@ -2099,12 +2199,13 @@ RSpec.describe Projects::MergeRequestsController do
           forked_project.add_reporter(user)
         end
 
-        it 'returns 404' do
+        it 'returns 403' do
           expect_rebase_worker_for(user).never
 
           post_rebase
 
-          expect(response).to have_gitlab_http_status(:not_found)
+          expect(response).to have_gitlab_http_status(:forbidden)
+          expect(json_response['merge_error']).to eq('Cannot push to source branch')
         end
       end
 
@@ -2115,7 +2216,7 @@ RSpec.describe Projects::MergeRequestsController do
           sign_in(fork_owner)
         end
 
-        it 'returns 200', :sidekiq_might_not_need_inline do
+        it 'returns 200' do
           expect_rebase_worker_for(fork_owner)
 
           post_rebase
@@ -2143,19 +2244,40 @@ RSpec.describe Projects::MergeRequestsController do
 
       context 'highlight preloading' do
         context 'with commit diff notes' do
-          let!(:commit_diff_note) do
+          let!(:first_commit_diff_note) do
             create(:diff_note_on_commit, project: merge_request.project)
           end
 
-          it 'preloads notes diffs highlights' do
-            expect_next_instance_of(Gitlab::DiscussionsDiff::FileCollection) do |collection|
-              note_diff_file = commit_diff_note.note_diff_file
+          let!(:second_commit_diff_note) do
+            create(:diff_note_on_commit, project: merge_request.project)
+          end
 
-              expect(collection).to receive(:load_highlight).and_call_original
-              expect(collection).to receive(:find_by_id).with(note_diff_file.id).and_call_original
+          it 'preloads all of the notes diffs highlights' do
+            expect_next_instance_of(Gitlab::DiscussionsDiff::FileCollection) do |collection|
+              first_note_diff_file = first_commit_diff_note.note_diff_file
+              second_note_diff_file = second_commit_diff_note.note_diff_file
+
+              expect(collection).to receive(:load_highlight).with(diff_note_ids: [first_commit_diff_note.id, second_commit_diff_note.id]).and_call_original
+              expect(collection).to receive(:find_by_id).with(first_note_diff_file.id).and_call_original
+              expect(collection).to receive(:find_by_id).with(second_note_diff_file.id).and_call_original
             end
 
-            get :discussions, params: { namespace_id: project.namespace, project_id: project, id: merge_request.iid }
+            get :discussions, params: { namespace_id: project.namespace, project_id: project, id: merge_request.iid,
+                                        per_page: 2 }
+          end
+
+          it 'preloads all of the notes diffs highlights when per_page is 1' do
+            expect_next_instance_of(Gitlab::DiscussionsDiff::FileCollection) do |collection|
+              first_note_diff_file = first_commit_diff_note.note_diff_file
+              second_note_diff_file = second_commit_diff_note.note_diff_file
+
+              expect(collection).to receive(:load_highlight).with(diff_note_ids: [first_commit_diff_note.id]).and_call_original
+              expect(collection).to receive(:find_by_id).with(first_note_diff_file.id).and_call_original
+              expect(collection).not_to receive(:find_by_id).with(second_note_diff_file.id)
+            end
+
+            get :discussions, params: { namespace_id: project.namespace, project_id: project, id: merge_request.iid,
+                                        per_page: 1 }
           end
         end
 
@@ -2168,20 +2290,7 @@ RSpec.describe Projects::MergeRequestsController do
             expect_next_instance_of(Gitlab::DiscussionsDiff::FileCollection) do |collection|
               note_diff_file = diff_note.note_diff_file
 
-              expect(collection).to receive(:load_highlight).and_call_original
-              expect(collection).to receive(:find_by_id).with(note_diff_file.id).and_call_original
-            end
-
-            get :discussions, params: { namespace_id: project.namespace, project_id: project, id: merge_request.iid }
-          end
-
-          it 'does not preload highlights when diff note is resolved' do
-            Notes::ResolveService.new(diff_note.project, user).execute(diff_note)
-
-            expect_next_instance_of(Gitlab::DiscussionsDiff::FileCollection) do |collection|
-              note_diff_file = diff_note.note_diff_file
-
-              expect(collection).to receive(:load_highlight).and_call_original
+              expect(collection).to receive(:load_highlight).with(diff_note_ids: [diff_note.id]).and_call_original
               expect(collection).to receive(:find_by_id).with(note_diff_file.id).and_call_original
             end
 
@@ -2189,21 +2298,21 @@ RSpec.describe Projects::MergeRequestsController do
           end
         end
       end
-    end
 
-    context do
-      it_behaves_like 'discussions provider' do
-        let!(:author) { create(:user) }
-        let!(:project) { create(:project) }
+      context do
+        it_behaves_like 'discussions provider' do
+          let!(:author) { create(:user) }
+          let_it_be_with_refind(:project) { create(:project) }
 
-        let!(:merge_request) { create(:merge_request, source_project: project) }
+          let!(:merge_request) { create(:merge_request, source_project: project) }
 
-        let!(:mr_note1) { create(:discussion_note_on_merge_request, noteable: merge_request, project: project) }
-        let!(:mr_note2) { create(:discussion_note_on_merge_request, noteable: merge_request, project: project) }
+          let!(:mr_note1) { create(:discussion_note_on_merge_request, noteable: merge_request, project: project) }
+          let!(:mr_note2) { create(:discussion_note_on_merge_request, noteable: merge_request, project: project) }
 
-        let(:requested_iid) { merge_request.iid }
-        let(:expected_discussion_count) { 2 }
-        let(:expected_discussion_ids) { [mr_note1.discussion_id, mr_note2.discussion_id] }
+          let(:requested_iid) { merge_request.iid }
+          let(:expected_discussion_count) { 2 }
+          let(:expected_discussion_ids) { [mr_note1.discussion_id, mr_note2.discussion_id] }
+        end
       end
     end
   end
@@ -2236,6 +2345,22 @@ RSpec.describe Projects::MergeRequestsController do
       expect(IssuableExportCsvWorker).to receive(:perform_async).with(:merge_request, user.id, project.id, anything)
 
       subject
+    end
+  end
+
+  describe '#append_info_to_payload' do
+    it 'appends diffs_files_count for logging' do
+      expect(controller).to receive(:append_info_to_payload).and_wrap_original do |method, payload|
+        method.call(payload)
+
+        expect(payload[:metadata]['meta.diffs_files_count']).to eq(merge_request.merge_request_diff.files_count)
+      end
+
+      get :diffs, params: {
+        namespace_id: project.namespace.to_param,
+        project_id: project,
+        id: merge_request.iid
+      }
     end
   end
 end

@@ -9,14 +9,21 @@ module API
       ensure_feature_enabled!
     end
 
-    feature_category :kubernetes_management
+    feature_category :deployment_management
+    urgency :low
 
     params do
       requires :id, type: String, desc: 'The ID of the group'
     end
     resource :groups, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
-      desc 'Get all clusters from the group' do
+      desc 'List group clusters' do
+        detail 'This feature was introduced in GitLab 12.1. Returns a list of group clusters.'
         success Entities::Cluster
+        failure [
+          { code: 403, message: 'Forbidden' }
+        ]
+        is_array true
+        tags %w[clusters]
       end
       params do
         use :pagination
@@ -27,8 +34,14 @@ module API
         present paginate(clusters_for_current_user), with: Entities::Cluster
       end
 
-      desc 'Get specific cluster for the group' do
+      desc 'Get a single group cluster' do
+        detail 'This feature was introduced in GitLab 12.1. Gets a single group cluster.'
         success Entities::ClusterGroup
+        failure [
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[clusters]
       end
       params do
         requires :cluster_id, type: Integer, desc: 'The cluster ID'
@@ -39,8 +52,15 @@ module API
         present cluster, with: Entities::ClusterGroup
       end
 
-      desc 'Adds an existing cluster' do
+      desc 'Add existing cluster to group' do
+        detail 'This feature was introduced in GitLab 12.1. Adds an existing Kubernetes cluster to the group.'
         success Entities::ClusterGroup
+        failure [
+          { code: 400, message: 'Validation error' },
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[clusters]
       end
       params do
         requires :name, type: String, desc: 'Cluster name'
@@ -72,8 +92,15 @@ module API
         end
       end
 
-      desc 'Update an existing cluster' do
+      desc 'Edit group cluster' do
+        detail 'This feature was introduced in GitLab 12.1. Updates an existing group cluster.'
         success Entities::ClusterGroup
+        failure [
+          { code: 400, message: 'Validation error' },
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[clusters]
       end
       params do
         requires :cluster_id, type: Integer, desc: 'The cluster ID'
@@ -103,8 +130,14 @@ module API
         end
       end
 
-      desc 'Remove a cluster' do
+      desc 'Delete group cluster' do
+        detail 'This feature was introduced in GitLab 12.1. Deletes an existing group cluster. Does not remove existing resources within the connected Kubernetes cluster.'
         success Entities::ClusterGroup
+        failure [
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[clusters]
       end
       params do
         requires :cluster_id, type: Integer, desc: 'The Cluster ID'
@@ -138,7 +171,7 @@ module API
       end
 
       def ensure_feature_enabled!
-        not_found! unless Feature.enabled?(:certificate_based_clusters, user_group, default_enabled: :yaml, type: :ops)
+        not_found! unless user_group.certificate_based_clusters_enabled?
       end
     end
   end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects settings' do
+RSpec.describe 'Projects settings', feature_category: :groups_and_projects do
   let_it_be(:project) { create(:project) }
 
   let(:user) { project.first_owner }
@@ -47,7 +47,7 @@ RSpec.describe 'Projects settings' do
       # disable by clicking toggle
       forking_enabled_button.click
       page.within('.sharing-permissions') do
-        find('[data-testid="project-features-save-button"]').click
+        find_by_testid('project-features-save-button').click
       end
       wait_for_requests
 
@@ -77,7 +77,7 @@ RSpec.describe 'Projects settings' do
       expect(default_award_emojis_input.value).to eq('false')
 
       page.within('.sharing-permissions') do
-        find('[data-testid="project-features-save-button"]').click
+        find_by_testid('project-features-save-button').click
       end
       wait_for_requests
 

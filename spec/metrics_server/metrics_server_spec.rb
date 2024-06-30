@@ -4,7 +4,7 @@ require 'spec_helper'
 
 require_relative '../../metrics_server/metrics_server'
 
-RSpec.describe MetricsServer do # rubocop:disable RSpec/FilePath
+RSpec.describe MetricsServer, feature_category: :cloud_connector do
   let(:prometheus_config) { ::Prometheus::Client.configuration }
   let(:metrics_dir) { Dir.mktmpdir }
 
@@ -15,6 +15,8 @@ RSpec.describe MetricsServer do # rubocop:disable RSpec/FilePath
   let(:ruby_sampler_double) { double(Gitlab::Metrics::Samplers::RubySampler) }
 
   before do
+    # Make sure we never actually spawn any new processes in a unit test.
+    %i[spawn fork detach].each { |m| allow(Process).to receive(m) }
     # We do not want this to have knock-on effects on the test process.
     allow(Gitlab::ProcessManagement).to receive(:modify_signals)
 
@@ -31,7 +33,7 @@ RSpec.describe MetricsServer do # rubocop:disable RSpec/FilePath
     FileUtils.rm_rf(metrics_dir, secure: true)
   end
 
-  %w(puma sidekiq).each do |target|
+  %w[puma sidekiq].each do |target|
     context "when targeting #{target}" do
       describe '.fork' do
         context 'when in parent process' do
@@ -70,8 +72,13 @@ RSpec.describe MetricsServer do # rubocop:disable RSpec/FilePath
         let(:expected_env) do
           {
             'METRICS_SERVER_TARGET' => target,
-            'WIPE_METRICS_DIR' => '0'
+            'WIPE_METRICS_DIR' => '0',
+            'GITLAB_CONFIG' => 'path/to/config/gitlab.yml'
           }
+        end
+
+        before do
+          stub_env('GITLAB_CONFIG', 'path/to/config/gitlab.yml')
         end
 
         it 'spawns a new server process and returns its PID' do
@@ -85,18 +92,6 @@ RSpec.describe MetricsServer do # rubocop:disable RSpec/FilePath
           pid = described_class.spawn(target, metrics_dir: metrics_dir)
 
           expect(pid).to eq(99)
-        end
-
-        context 'when path to gitlab.yml is passed' do
-          it 'sets the GITLAB_CONFIG environment variable' do
-            expect(Process).to receive(:spawn).with(
-              expected_env.merge('GITLAB_CONFIG' => 'path/to/config/gitlab.yml'),
-              end_with('bin/metrics-server'),
-              hash_including(pgroup: true)
-            ).and_return(99)
-
-            described_class.spawn(target, metrics_dir: metrics_dir, gitlab_config: 'path/to/config/gitlab.yml')
-          end
         end
       end
     end
@@ -191,12 +186,12 @@ RSpec.describe MetricsServer do # rubocop:disable RSpec/FilePath
   end
 
   context 'for sidekiq' do
-    let(:settings) { { "sidekiq_exporter" => { "enabled" => true } } }
+    let(:settings) { GitlabSettings::Options.build({ "sidekiq_exporter" => { "enabled" => true } }) }
 
     before do
       allow(::Settings).to receive(:monitoring).and_return(settings)
       allow(Gitlab::Metrics::Exporter::SidekiqExporter).to receive(:instance).with(
-        settings['sidekiq_exporter'], gc_requests: true, synchronous: true
+        settings.sidekiq_exporter, gc_requests: true, synchronous: true
       ).and_return(exporter_double)
     end
 
@@ -220,28 +215,45 @@ RSpec.describe MetricsServer do # rubocop:disable RSpec/FilePath
     end
 
     context 'when the supervisor callback is invoked' do
-      context 'and the supervisor is alive' do
-        it 'restarts the metrics server' do
-          expect(supervisor).to receive(:alive).and_return(true)
-          expect(supervisor).to receive(:supervise).and_yield
-          expect(Process).to receive(:spawn).with(
-            include('METRICS_SERVER_TARGET' => 'puma'), end_with('bin/metrics-server'), anything
-          ).twice.and_return(42)
+      it 'restarts the metrics server' do
+        expect(supervisor).to receive(:supervise).and_yield
+        expect(Process).to receive(:spawn).with(
+          include('METRICS_SERVER_TARGET' => 'puma'), end_with('bin/metrics-server'), anything
+        ).twice.and_return(42)
 
-          described_class.start_for_puma
-        end
+        described_class.start_for_puma
       end
+    end
+  end
 
-      context 'and the supervisor is not alive' do
-        it 'does not restart the server' do
-          expect(supervisor).to receive(:alive).and_return(false)
-          expect(supervisor).to receive(:supervise).and_yield
-          expect(Process).to receive(:spawn).with(
-            include('METRICS_SERVER_TARGET' => 'puma'), end_with('bin/metrics-server'), anything
-          ).once.and_return(42)
+  describe '.start_for_sidekiq' do
+    it 'forks the parent process' do
+      expect(Process).to receive(:fork).and_return(42)
 
-          described_class.start_for_puma
-        end
+      described_class.start_for_sidekiq(metrics_dir: '/path/to/metrics')
+    end
+  end
+
+  describe '.name' do
+    subject { described_class.name(target) }
+
+    context 'for puma' do
+      let(:target) { 'puma' }
+
+      it { is_expected.to eq 'web_exporter' }
+    end
+
+    context 'for sidekiq' do
+      let(:target) { 'sidekiq' }
+
+      it { is_expected.to eq 'sidekiq_exporter' }
+    end
+
+    context 'for invalid target' do
+      let(:target) { 'invalid' }
+
+      it 'raises error' do
+        expect { subject }.to raise_error(RuntimeError, "Target must be one of [puma,sidekiq]")
       end
     end
   end

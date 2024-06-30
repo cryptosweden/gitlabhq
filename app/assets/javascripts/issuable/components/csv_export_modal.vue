@@ -1,23 +1,25 @@
 <script>
-import { GlButton, GlModal, GlSprintf, GlIcon } from '@gitlab/ui';
+import { GlModal, GlSprintf, GlIcon } from '@gitlab/ui';
+import { TYPE_ISSUE } from '~/issues/constants';
 import { __, n__ } from '~/locale';
-import { ISSUABLE_TYPE } from '../constants';
 
 export default {
+  actionCancel: {
+    text: __('Cancel'),
+  },
   i18n: {
     exportText: __(
       'The CSV export will be created in the background. Once finished, it will be sent to %{email} in an attachment.',
     ),
   },
   components: {
-    GlButton,
     GlModal,
     GlSprintf,
     GlIcon,
   },
   inject: {
     issuableType: {
-      default: ISSUABLE_TYPE.issues,
+      default: TYPE_ISSUE,
     },
     email: {
       default: '',
@@ -38,8 +40,24 @@ export default {
     },
   },
   computed: {
+    actionPrimary() {
+      return {
+        text: this.exportText,
+        attributes: {
+          href: this.exportCsvPath,
+          variant: 'confirm',
+          'data-method': 'post',
+          'data-testid': 'export-issues-button',
+          'data-track-action': 'click_button',
+          'data-track-label': this.dataTrackLabel,
+        },
+      };
+    },
     isIssue() {
-      return this.issuableType === ISSUABLE_TYPE.issues;
+      return this.issuableType === TYPE_ISSUE;
+    },
+    dataTrackLabel() {
+      return this.isIssue ? 'export_issues_csv' : 'export_merge-requests_csv';
     },
     exportText() {
       return this.isIssue ? __('Export issues') : __('Export merge requests');
@@ -56,9 +74,11 @@ export default {
 <template>
   <gl-modal
     :modal-id="modalId"
+    :action-primary="actionPrimary"
+    :action-cancel="$options.actionCancel"
     body-class="gl-p-0!"
     :title="exportText"
-    data-qa-selector="export_issuable_modal"
+    data-testid="export-issuable-modal"
   >
     <div
       class="gl-justify-content-start gl-align-items-center gl-p-4 gl-border-b-solid gl-border-1 gl-border-gray-50"
@@ -73,18 +93,5 @@ export default {
         </template>
       </gl-sprintf>
     </div>
-    <template #modal-footer>
-      <gl-button
-        category="primary"
-        variant="confirm"
-        :href="exportCsvPath"
-        data-method="post"
-        :data-qa-selector="`export_${issuableType}_button`"
-        data-track-action="click_button"
-        :data-track-label="`export_${issuableType}_csv`"
-      >
-        {{ exportText }}
-      </gl-button>
-    </template>
   </gl-modal>
 </template>

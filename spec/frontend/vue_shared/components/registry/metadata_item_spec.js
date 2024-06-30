@@ -14,20 +14,15 @@ describe('Metadata Item', () => {
     wrapper = shallowMount(component, {
       propsData,
       directives: {
-        GlTooltip: createMockDirective(),
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
-
-  const findIcon = () => wrapper.find(GlIcon);
-  const findLink = (w = wrapper) => w.find(GlLink);
+  const findIcon = () => wrapper.findComponent(GlIcon);
+  const findLink = (w = wrapper) => w.findComponent(GlLink);
   const findText = () => wrapper.find('[data-testid="metadata-item-text"]');
-  const findTooltipOnTruncate = (w = wrapper) => w.find(TooltipOnTruncate);
+  const findTooltipOnTruncate = (w = wrapper) => w.findComponent(TooltipOnTruncate);
   const findTextTooltip = () => wrapper.find('[data-testid="text-tooltip-container"]');
 
   describe.each(['xs', 's', 'm', 'l', 'xl'])('size class', (size) => {

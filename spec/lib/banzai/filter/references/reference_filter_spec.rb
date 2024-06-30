@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::ReferenceFilter do
+RSpec.describe Banzai::Filter::References::ReferenceFilter, feature_category: :team_planning do
   let(:project) { build_stubbed(:project) }
 
   describe '#each_node' do
@@ -30,6 +30,13 @@ RSpec.describe Banzai::Filter::References::ReferenceFilter do
 
     it 'skips text nodes in pre elements' do
       document = Nokogiri::HTML.fragment('<pre>foo</pre>')
+      filter = described_class.new(document, project: project)
+
+      expect { |b| filter.each_node(&b) }.not_to yield_control
+    end
+
+    it 'skips text nodes in inline diff elements' do
+      document = Nokogiri::HTML.fragment('<span class="idiff">foo</span>')
       filter = described_class.new(document, project: project)
 
       expect { |b| filter.each_node(&b) }.not_to yield_control
@@ -148,7 +155,7 @@ RSpec.describe Banzai::Filter::References::ReferenceFilter do
     include_context 'document nodes'
     let(:node) { Nokogiri::HTML.fragment('text @reference') }
 
-    let(:ref_pattern) { %r{(?<!\w)@(?<user>[a-zA-Z0-9_\-\.]*)}x }
+    let(:ref_pattern) { %r{(?<!\w)@(?<user>[a-zA-Z0-9_\-.]*)}x }
 
     context 'when node has no reference pattern' do
       let(:node) { Nokogiri::HTML.fragment('random text') }
@@ -189,9 +196,9 @@ RSpec.describe Banzai::Filter::References::ReferenceFilter do
     let(:filter) { described_class.new(document, project: project) }
 
     it 'updates all new nodes', :aggregate_failures do
-      filter.instance_variable_set('@nodes', nodes)
+      filter.instance_variable_set(:@nodes, nodes)
 
-      expect(filter).to receive(:call) { filter.instance_variable_set('@new_nodes', new_nodes) }
+      expect(filter).to receive(:call) { filter.instance_variable_set(:@new_nodes, new_nodes) }
       expect(filter).to receive(:with_update_nodes).and_call_original
       expect(filter).to receive(:update_nodes!).and_call_original
 
@@ -212,7 +219,7 @@ RSpec.describe Banzai::Filter::References::ReferenceFilter do
       expect_next_instance_of(described_class) do |filter|
         expect(filter).to receive(:call_and_update_nodes).and_call_original
         expect(filter).to receive(:with_update_nodes).and_call_original
-        expect(filter).to receive(:call) { filter.instance_variable_set('@new_nodes', new_nodes) }
+        expect(filter).to receive(:call) { filter.instance_variable_set(:@new_nodes, new_nodes) }
         expect(filter).to receive(:update_nodes!).and_call_original
       end
 
@@ -238,4 +245,6 @@ RSpec.describe Banzai::Filter::References::ReferenceFilter do
       end
     end
   end
+
+  it_behaves_like 'pipeline timing check', context: { project: nil }
 end

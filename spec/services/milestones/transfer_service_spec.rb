@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Milestones::TransferService do
+RSpec.describe Milestones::TransferService, feature_category: :team_planning do
   describe '#execute' do
     subject(:service) { described_class.new(user, old_group, project) }
 
@@ -11,9 +11,9 @@ RSpec.describe Milestones::TransferService do
       let(:new_group) { create(:group) }
       let(:old_group) { create(:group) }
       let(:project) { create(:project, namespace: old_group) }
-      let(:group_milestone) { create(:milestone, group: old_group)}
-      let(:group_milestone2) { create(:milestone, group: old_group)}
-      let(:project_milestone) { create(:milestone, project: project)}
+      let(:group_milestone) { create(:milestone, :closed, group: old_group) }
+      let(:group_milestone2) { create(:milestone, group: old_group) }
+      let(:project_milestone) { create(:milestone, project: project) }
       let!(:issue_with_group_milestone) { create(:issue, project: project, milestone: group_milestone) }
       let!(:issue_with_project_milestone) { create(:issue, project: project, milestone: project_milestone) }
       let!(:mr_with_group_milestone) { create(:merge_request, source_project: project, source_branch: 'branch-1', milestone: group_milestone) }
@@ -38,12 +38,13 @@ RSpec.describe Milestones::TransferService do
           expect(new_milestone).not_to eq(group_milestone)
           expect(new_milestone.title).to eq(group_milestone.title)
           expect(new_milestone.project_milestone?).to be_truthy
+          expect(new_milestone.state).to eq("closed")
         end
 
         context 'when milestone is from an ancestor group' do
           let(:old_group_ancestor) { create(:group) }
           let(:old_group) { create(:group, parent: old_group_ancestor) }
-          let(:group_milestone) { create(:milestone, group: old_group_ancestor)}
+          let(:group_milestone) { create(:milestone, group: old_group_ancestor) }
 
           it 'recreates the missing group milestones at project level' do
             expect { service.execute }.to change(project.milestones, :count).by(1)
@@ -88,6 +89,7 @@ RSpec.describe Milestones::TransferService do
           expect(new_milestone).not_to eq(group_milestone)
           expect(new_milestone.title).to eq(group_milestone.title)
           expect(new_milestone.project_milestone?).to be_truthy
+          expect(new_milestone.state).to eq("closed")
         end
 
         it 'does not apply new project milestone to issuables with project milestone' do

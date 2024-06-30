@@ -20,13 +20,16 @@ Disallow: /admin
 Disallow: /profile
 Disallow: /dashboard
 Disallow: /users
+Disallow: /api/v*
 Disallow: /help
 Disallow: /s/
 Disallow: /-/profile
+Disallow: /-/user_settings/profile
 Disallow: /-/ide/
 Disallow: /-/experiment
 # Restrict allowed routes to avoid very ugly search results
 Allow: /users/sign_in
+Allow: /users/sign_up
 Allow: /users/*/snippets
 
 # Generic resource routes like new, edit, raw

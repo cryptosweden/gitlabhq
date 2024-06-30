@@ -18,10 +18,6 @@ module Routing
       project_environment_path(environment.project, environment, *args)
     end
 
-    def environment_metrics_path(environment, *args)
-      metrics_project_environment_path(environment.project, environment, *args)
-    end
-
     def environment_delete_path(environment, *args)
       expose_path(api_v4_projects_environments_path(id: environment.project.id, environment_id: environment.id))
     end
@@ -39,7 +35,21 @@ module Routing
     end
 
     def issue_url(entity, *args)
-      project_issue_url(entity.project, entity, *args)
+      if use_work_items_path?(entity)
+        work_item_url(entity, *args)
+      else
+        project_issue_url(entity.project, entity, *args)
+      end
+    end
+
+    def work_item_url(entity, *args)
+      return group_work_item_url(entity.namespace, entity.iid, *args) unless entity.project.present?
+
+      if use_issue_path?(entity)
+        project_issue_url(entity.project, entity.iid, *args)
+      else
+        project_work_item_url(entity.project, entity.iid, *args)
+      end
     end
 
     def merge_request_url(entity, *args)
@@ -81,5 +91,19 @@ module Routing
         toggle_subscription_project_merge_request_path(entity.project, entity)
       end
     end
+
+    private
+
+    def use_work_items_path?(issue)
+      return true if issue.project.blank? && issue.namespace.present?
+
+      issue.issue_type == 'task'
+    end
+
+    def use_issue_path?(work_item)
+      work_item.issue_type == 'issue'
+    end
   end
 end
+
+Routing::ProjectsHelper.prepend_mod

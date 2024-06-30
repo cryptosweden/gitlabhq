@@ -8,12 +8,12 @@ import { BV_HIDE_TOOLTIP } from '~/lib/utils/constants';
 const TEST_TABS = [
   {
     title: 'Lorem',
-    icon: 'angle-up',
+    icon: 'chevron-lg-up',
     views: [{ name: 'lorem-1' }, { name: 'lorem-2' }],
   },
   {
     title: 'Ipsum',
-    icon: 'angle-down',
+    icon: 'chevron-lg-down',
     views: [{ name: 'ipsum-1' }, { name: 'ipsum-2' }],
   },
 ];
@@ -25,10 +25,6 @@ describe('ide/components/ide_sidebar_nav', () => {
   let wrapper;
 
   const createComponent = (props = {}) => {
-    if (wrapper) {
-      throw new Error('wrapper already exists');
-    }
-
     wrapper = shallowMount(IdeSidebarNav, {
       propsData: {
         tabs: TEST_TABS,
@@ -37,15 +33,10 @@ describe('ide/components/ide_sidebar_nav', () => {
         ...props,
       },
       directives: {
-        tooltip: createMockDirective(),
+        tooltip: createMockDirective('tooltip'),
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   const findButtons = () => wrapper.findAll('li button');
   const findButtonsData = () =>
@@ -54,8 +45,7 @@ describe('ide/components/ide_sidebar_nav', () => {
         title: button.attributes('title'),
         ariaLabel: button.attributes('aria-label'),
         classes: button.classes(),
-        qaSelector: button.attributes('data-qa-selector'),
-        icon: button.find(GlIcon).props('name'),
+        icon: button.findComponent(GlIcon).props('name'),
         tooltip: getBinding(button.element, 'tooltip').value,
       };
     });
@@ -84,7 +74,6 @@ describe('ide/components/ide_sidebar_nav', () => {
             title: tab.title,
             ariaLabel: tab.title,
             classes: ['ide-sidebar-link', ...classes, ...(classesObj[index] || [])],
-            qaSelector: `${tab.title.toLowerCase()}_tab_button`,
             icon: tab.icon,
             tooltip: {
               container: 'body',

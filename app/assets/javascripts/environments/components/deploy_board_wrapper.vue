@@ -25,7 +25,7 @@ export default {
   },
   computed: {
     icon() {
-      return this.visible ? 'angle-down' : 'angle-right';
+      return this.visible ? 'chevron-lg-down' : 'chevron-lg-right';
     },
     label() {
       return this.visible ? this.$options.i18n.collapse : this.$options.i18n.expand;
@@ -62,7 +62,7 @@ export default {
   <div>
     <div>
       <gl-button
-        class="gl-mr-4 gl-min-w-fit-content"
+        class="gl-mr-4 gl-min-w-fit"
         :icon="icon"
         :aria-label="label"
         size="small"
@@ -78,7 +78,7 @@ export default {
         :is-empty="isEmpty"
         :environment="environment"
         graphql
-        class="gl-reset-bg!"
+        class="!gl-bg-inherit"
         @changeCanaryWeight="changeCanaryWeight"
       />
     </gl-collapse>

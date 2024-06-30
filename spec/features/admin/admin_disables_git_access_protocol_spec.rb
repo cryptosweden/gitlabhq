@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin disables Git access protocol', :js do
+RSpec.describe 'Admin disables Git access protocol', :js, feature_category: :source_code_management do
   include StubENV
   include MobileHelpers
 
@@ -12,7 +12,7 @@ RSpec.describe 'Admin disables Git access protocol', :js do
   before do
     stub_env('IN_MEMORY_APPLICATION_SETTINGS', 'false')
     sign_in(admin)
-    gitlab_enable_admin_mode_sign_in(admin)
+    enable_admin_mode!(admin)
   end
 
   context 'with HTTP disabled' do
@@ -25,9 +25,9 @@ RSpec.describe 'Admin disables Git access protocol', :js do
 
       expect(page).to have_content("git clone #{project.ssh_url_to_repo}")
 
-      find('.clone-dropdown-btn').click
+      find('[data-testid="code-dropdown"] button').click
 
-      within('.git-clone-holder') do
+      within_testid('code-dropdown') do
         expect(page).to have_content('Clone with SSH')
         expect(page).not_to have_content('Clone with HTTP')
       end
@@ -55,11 +55,12 @@ RSpec.describe 'Admin disables Git access protocol', :js do
 
     it 'shows only HTTP url' do
       visit_project
-      find('.clone-dropdown-btn').click
+
+      find('[data-testid="code-dropdown"] button').click
 
       expect(page).to have_content("git clone #{project.http_url_to_repo}")
 
-      within('.git-clone-holder') do
+      within_testid('code-dropdown') do
         expect(page).to have_content('Clone with HTTP')
         expect(page).not_to have_content('Clone with SSH')
       end
@@ -91,9 +92,9 @@ RSpec.describe 'Admin disables Git access protocol', :js do
 
       expect(page).to have_content("git clone #{project.ssh_url_to_repo}")
 
-      find('.clone-dropdown-btn').click
+      find('[data-testid="code-dropdown"] button').click
 
-      within('.git-clone-holder') do
+      within_testid('code-dropdown') do
         expect(page).to have_content('Clone with SSH')
         expect(page).to have_content('Clone with HTTP')
       end

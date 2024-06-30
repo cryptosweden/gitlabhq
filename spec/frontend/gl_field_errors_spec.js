@@ -1,4 +1,6 @@
 import $ from 'jquery';
+import htmlGlFieldErrors from 'test_fixtures_static/gl_field_errors.html';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import GlFieldErrors from '~/gl_field_errors';
 
 describe('GL Style Field Errors', () => {
@@ -9,11 +11,15 @@ describe('GL Style Field Errors', () => {
   });
 
   beforeEach(() => {
-    loadFixtures('static/gl_field_errors.html');
+    setHTMLFixture(htmlGlFieldErrors);
     const $form = $('form.gl-show-field-errors');
 
     testContext.$form = $form;
     testContext.fieldErrors = new GlFieldErrors($form);
+  });
+
+  afterEach(() => {
+    resetHTMLFixture();
   });
 
   it('should select the correct input elements', () => {
@@ -22,7 +28,7 @@ describe('GL Style Field Errors', () => {
     expect(testContext.fieldErrors).toBeDefined();
     const { inputs } = testContext.fieldErrors.state;
 
-    expect(inputs.length).toBe(4);
+    expect(inputs.length).toBe(6);
   });
 
   it('should ignore elements with custom error handling', () => {
@@ -118,5 +124,16 @@ describe('GL Style Field Errors', () => {
 
     expect(noTitleErrorElem.text()).toBe('This field is required.');
     expect(hasTitleErrorElem.text()).toBe('Please provide a valid email address.');
+  });
+
+  it('sanitizes error messages before appending them to DOM', () => {
+    testContext.$form.submit();
+
+    const trackedInputs = testContext.fieldErrors.state.inputs;
+    const xssInput = trackedInputs[5];
+
+    const xssErrorElem = xssInput.inputElement.siblings('.gl-field-error');
+
+    expect(xssErrorElem.html()).toBe('xss:');
   });
 });

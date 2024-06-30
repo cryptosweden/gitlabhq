@@ -1,81 +1,147 @@
-import { GlButton, GlIcon } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
+import { GlDisclosureDropdown, GlDisclosureDropdownItem, GlButton } from '@gitlab/ui';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+
 import ImportActionsCell from '~/import_entities/import_groups/components/import_actions_cell.vue';
 
 describe('import actions cell', () => {
   let wrapper;
 
+  const defaultProps = {
+    isFinished: false,
+    isAvailableForImport: false,
+    isInvalid: false,
+    isProjectCreationAllowed: true,
+  };
+
   const createComponent = (props) => {
-    wrapper = shallowMount(ImportActionsCell, {
+    wrapper = shallowMountExtended(ImportActionsCell, {
       propsData: {
-        isFinished: false,
-        isAvailableForImport: false,
-        isInvalid: false,
+        ...defaultProps,
         ...props,
+      },
+      stubs: {
+        GlDisclosureDropdown,
+        GlDisclosureDropdownItem,
       },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findButton = () => wrapper.findComponent(GlButton);
+  const findDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
+  const findDropdownItem = () => findDropdown().findComponent(GlDisclosureDropdownItem);
+  const findReimportInfoIcon = () => wrapper.findByTestId('reimport-info-icon');
+  const findProjectCreationWarningIcon = () =>
+    wrapper.findByTestId('project-creation-warning-icon');
 
-  describe('when group is available for import', () => {
-    beforeEach(() => {
-      createComponent({ isAvailableForImport: true });
-    });
+  describe.each`
+    isProjectCreationAllowed | isAvailableForImport | isFinished | expectedButton                  | expectedDropdown                | expectedWarningIcon
+    ${true}                  | ${false}             | ${false}   | ${false}                        | ${false}                        | ${false}
+    ${true}                  | ${false}             | ${true}    | ${'Re-import with projects'}    | ${'Re-import without projects'} | ${false}
+    ${true}                  | ${true}              | ${false}   | ${'Import with projects'}       | ${'Import without projects'}    | ${false}
+    ${true}                  | ${true}              | ${true}    | ${'Re-import with projects'}    | ${'Re-import without projects'} | ${false}
+    ${false}                 | ${false}             | ${false}   | ${false}                        | ${false}                        | ${false}
+    ${false}                 | ${false}             | ${true}    | ${'Re-import without projects'} | ${false}                        | ${true}
+    ${false}                 | ${true}              | ${false}   | ${'Import without projects'}    | ${false}                        | ${true}
+    ${false}                 | ${true}              | ${true}    | ${'Re-import without projects'} | ${false}                        | ${true}
+  `(
+    'isProjectCreationAllowed = $isProjectCreationAllowed, isAvailableForImport = $isAvailableForImport, isFinished = $isFinished',
+    ({
+      isAvailableForImport,
+      isFinished,
+      isProjectCreationAllowed,
+      expectedButton,
+      expectedDropdown,
+      expectedWarningIcon,
+    }) => {
+      beforeEach(() => {
+        createComponent({ isAvailableForImport, isFinished, isProjectCreationAllowed });
+      });
 
-    it('renders import button', () => {
-      const button = wrapper.findComponent(GlButton);
-      expect(button.exists()).toBe(true);
-      expect(button.text()).toBe('Import');
-    });
+      if (expectedButton) {
+        it(`renders button with "${expectedButton}" text`, () => {
+          const button = findButton();
+          expect(button.exists()).toBe(true);
+          expect(button.text()).toBe(expectedButton);
+        });
+      } else {
+        it('does not render button', () => {
+          expect(findButton().exists()).toBe(false);
+        });
+      }
 
-    it('does not render icon with a hint', () => {
-      expect(wrapper.findComponent(GlIcon).exists()).toBe(false);
-    });
-  });
+      if (expectedDropdown) {
+        it(`renders dropdown with "${expectedDropdown}" text`, () => {
+          expect(findDropdown().exists()).toBe(true);
+          expect(findDropdownItem().text()).toBe(expectedDropdown);
+        });
+      } else {
+        it('does not render dropdown', () => {
+          expect(findDropdown().exists()).toBe(false);
+        });
+      }
 
-  describe('when group is finished', () => {
-    beforeEach(() => {
-      createComponent({ isAvailableForImport: true, isFinished: true });
-    });
+      if (isFinished) {
+        it('renders re-import info icon with a hint', () => {
+          const icon = findReimportInfoIcon();
+          expect(icon.exists()).toBe(true);
+          expect(icon.attributes()).toMatchObject({
+            name: 'information-o',
+            title: 'Re-import creates a new group. It does not sync with the existing group.',
+          });
+        });
+      } else {
+        it('does not render re-import info icon', () => {
+          expect(findReimportInfoIcon().exists()).toBe(false);
+        });
+      }
 
-    it('renders re-import button', () => {
-      const button = wrapper.findComponent(GlButton);
-      expect(button.exists()).toBe(true);
-      expect(button.text()).toBe('Re-import');
-    });
+      if (expectedWarningIcon) {
+        it('renders project creation warning icon', () => {
+          const icon = findProjectCreationWarningIcon();
+          expect(icon.exists()).toBe(true);
+          expect(icon.attributes('name')).toBe('warning');
+        });
+      } else {
+        it('does not render project creation warning icon', () => {
+          expect(findProjectCreationWarningIcon().exists()).toBe(false);
+        });
+      }
+    },
+  );
 
-    it('renders icon with a hint', () => {
-      const icon = wrapper.findComponent(GlIcon);
-      expect(icon.exists()).toBe(true);
-      expect(icon.attributes().title).toBe(
-        'Re-import creates a new group. It does not sync with the existing group.',
-      );
-    });
-  });
-
-  it('does not render import button when group is not available for import', () => {
-    createComponent({ isAvailableForImport: false });
-
-    const button = wrapper.findComponent(GlButton);
-    expect(button.exists()).toBe(false);
-  });
-
-  it('renders import button as disabled when group is invalid', () => {
+  it('renders import dropdown as disabled when group is invalid', () => {
     createComponent({ isInvalid: true, isAvailableForImport: true });
 
-    const button = wrapper.findComponent(GlButton);
-    expect(button.props().disabled).toBe(true);
+    expect(findDropdown().props().disabled).toBe(true);
   });
 
-  it('emits import-group event when import button is clicked', () => {
+  it('emits import-group event (with projects) when import button is clicked', () => {
     createComponent({ isAvailableForImport: true });
 
-    const button = wrapper.findComponent(GlButton);
-    button.vm.$emit('click');
+    findButton().vm.$emit('click');
 
     expect(wrapper.emitted('import-group')).toHaveLength(1);
+    expect(wrapper.emitted('import-group')[0]).toStrictEqual([{ migrateProjects: true }]);
+  });
+
+  it('emits import-group event (without projects) when dropdown option is clicked', () => {
+    createComponent({ isAvailableForImport: true });
+
+    findDropdownItem().vm.$emit('action');
+
+    expect(wrapper.emitted('import-group')).toHaveLength(1);
+    expect(wrapper.emitted('import-group')[0]).toStrictEqual([{ migrateProjects: false }]);
+  });
+
+  it('emits import-group event (without projects) when isProjectCreationAllowed is false and import button is clicked', () => {
+    createComponent({
+      isProjectCreationAllowed: false,
+      isAvailableForImport: true,
+    });
+
+    findButton().vm.$emit('click');
+
+    expect(wrapper.emitted('import-group')).toHaveLength(1);
+    expect(wrapper.emitted('import-group')[0]).toStrictEqual([{ migrateProjects: false }]);
   });
 });

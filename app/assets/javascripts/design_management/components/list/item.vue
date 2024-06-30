@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
 import { GlLoadingIcon, GlIcon, GlIntersectionObserver, GlTooltipDirective } from '@gitlab/ui';
 import { n__, __ } from '~/locale';
@@ -64,17 +65,17 @@ export default {
       const icons = {
         creation: {
           name: 'file-addition-solid',
-          classes: 'text-success-500',
+          classes: 'gl-text-green-500',
           tooltip: __('Added in this version'),
         },
         modification: {
           name: 'file-modified-solid',
-          classes: 'text-primary-500',
+          classes: 'gl-text-blue-500',
           tooltip: __('Modified in this version'),
         },
         deletion: {
           name: 'file-deletion-solid',
-          classes: 'text-danger-500',
+          classes: 'gl-text-red-500',
           tooltip: __('Archived in this version'),
         },
       };
@@ -128,24 +129,33 @@ export default {
       params: { id: filename },
       query: $route.query,
     }"
-    class="card gl-cursor-pointer text-plain js-design-list-item design-list-item design-list-item-new"
+    class="card gl-cursor-pointer text-plain js-design-list-item design-list-item gl-mb-0"
   >
     <div
-      class="card-body gl-p-0 gl-display-flex gl-align-items-center gl-justify-content-center gl-overflow-hidden gl-relative"
+      class="card-body gl-p-0 gl-display-flex gl-align-items-center gl-justify-content-center gl-overflow-hidden gl-relative gl-rounded-top-base"
     >
-      <div v-if="icon.name" data-testid="design-event" class="gl-top-5 gl-right-5 gl-absolute">
+      <div
+        v-if="icon.name"
+        data-testid="design-event"
+        class="gl-absolute gl-top-3 gl-right-3 gl-mr-1"
+      >
         <span :title="icon.tooltip" :aria-label="icon.tooltip">
           <gl-icon
             :name="icon.name"
             :size="16"
             :class="icon.classes"
-            data-qa-selector="design_status_icon"
+            data-testid="design-status-icon"
             :data-qa-status="icon.name"
           />
         </span>
       </div>
-      <gl-intersection-observer @appear="onAppear">
-        <gl-loading-icon v-if="showLoadingSpinner" size="md" />
+      <gl-intersection-observer
+        class="gl-flex-grow-1"
+        data-testid="design-image"
+        :data-qa-filename="filename"
+        @appear="onAppear"
+      >
+        <gl-loading-icon v-if="showLoadingSpinner" size="lg" />
         <gl-icon
           v-else-if="showImageErrorIcon"
           name="media-broken"
@@ -156,21 +166,21 @@ export default {
           v-show="showImage"
           :src="imageLink"
           :alt="filename"
-          class="gl-display-block gl-mx-auto gl-max-w-full gl-max-h-full design-img"
-          data-qa-selector="design_image"
-          :data-qa-filename="filename"
+          class="gl-block gl-mx-auto gl-max-w-full gl-max-h-full gl-w-auto design-img"
           :data-testid="`design-img-${id}`"
           @load="onImageLoad"
           @error="onImageError"
         />
       </gl-intersection-observer>
     </div>
-    <div class="card-footer gl-display-flex gl-w-full">
-      <div class="gl-display-flex gl-flex-direction-column str-truncated-100">
+    <div class="card-footer gl-display-flex gl-w-full gl-bg-white gl-py-3 gl-px-4">
+      <div
+        class="gl-display-flex gl-flex-direction-column str-truncated-100"
+        data-testid="design-file-name"
+      >
         <span
           v-gl-tooltip
-          class="gl-font-weight-bold str-truncated-100"
-          data-qa-selector="design_file_name"
+          class="gl-font-semibold str-truncated-100"
           :data-testid="`design-img-filename-${id}`"
           :title="filename"
           >{{ filename }}</span

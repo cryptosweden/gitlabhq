@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Ruby 3 gotchas
@@ -57,7 +57,7 @@ To write code that works under both 2.7 and 3.0, consider the following options:
 
 We recommend always passing the block explicitly, and prefer two required arguments as block parameters.
 
-To learn more, see [Ruby issue 12706](https://bugs.ruby-lang.org/issues/12706).
+For more information, see [Ruby issue 12706](https://bugs.ruby-lang.org/issues/12706).
 
 ## `Symbol#to_proc` returns signature metadata consistent with lambdas
 
@@ -92,7 +92,7 @@ called without a receiver.
 Ruby 3 corrects this: the code that tests `Proc` object arity or parameter lists might now break and
 has to be updated.
 
-To learn more, see [Ruby issue 16260](https://bugs.ruby-lang.org/issues/16260).
+For more information, see [Ruby issue 16260](https://bugs.ruby-lang.org/issues/16260).
 
 ## `OpenStruct` does not evaluate fields lazily
 
@@ -138,3 +138,65 @@ installed Ruby manually or via tools like `asdf`. Users of the `gitlab-developme
 are also affected by this problem.
 
 Build images are not affected because they include the patch set addressing this bug.
+
+## Deprecations are not caught in DeprecationToolkit if the method is stubbed
+
+We rely on `deprecation_toolkit` to fail fast when using functionality that is deprecated in Ruby 2 and removed in Ruby 3.
+A common issue caught during the transition from Ruby 2 to Ruby 3 relates to
+the [separation of positional and keyword arguments in Ruby 3.0](https://www.ruby-lang.org/en/news/2019/12/12/separation-of-positional-and-keyword-arguments-in-ruby-3-0/).
+
+Unfortunately, if the author has stubbed such methods in tests, deprecations would not be caught.
+We run automated detection for this warning in tests via `deprecation_toolkit`,
+but it relies on the fact that `Kernel#warn` emits a warning, so stubbing out this call will effectively remove the call to warn, which means `deprecation_toolkit` will never see the deprecation warnings.
+Stubbing out the implementation removes that warning, and we never pick it up, so the build is green.
+
+Refer to [issue 364099](https://gitlab.com/gitlab-org/gitlab/-/issues/364099) for more context.
+
+## Testing in `irb` and `rails console`
+
+Another pitfall is that testing in `irb`/`rails c` silences the deprecation warning,
+since `irb` in Ruby 2.7.x has a [bug](https://bugs.ruby-lang.org/issues/17377) that prevents deprecation warnings from showing.
+
+When writing code and performing code reviews, pay extra attention to method calls of the form `f({k: v})`.
+This is valid in Ruby 2 when `f` takes either a `Hash` or keyword arguments, but Ruby 3 only considers this valid if `f` takes a `Hash`.
+For Ruby 3 compliance, this should be changed to one of the following invocations if `f` takes keyword arguments:
+
+- `f(**{k: v})`
+- `f(k: v)`
+
+## RSpec `with` argument matcher fails for shorthand Hash syntax
+
+Because keyword arguments ("kwargs") are a first-class concept in Ruby 3, keyword arguments are not
+converted into internal `Hash` instances anymore. This leads to RSpec method argument matchers failing
+when the receiver takes a positional options hash instead of kwargs:
+
+```ruby
+def m(options={}); end
+```
+
+```ruby
+expect(subject).to receive(:m).with(a: 42)
+```
+
+In Ruby 3 this expectations fails with the following error:
+
+```plaintext
+  Failure/Error:
+
+     #<subject> received :m with unexpected arguments
+       expected: ({:a=>42})
+            got: ({:a=>42})
+```
+
+This happens because RSpec uses a kwargs argument matcher here, but the method takes a hash.
+It works in Ruby 2, because `a: 42` is converted to a hash first and RSpec will use a hash argument matcher.
+
+A workaround is to not use the shorthand syntax and pass an actual `Hash` instead whenever we know a method
+to take an options hash:
+
+```ruby
+# Note the braces around the key-value pair.
+expect(subject).to receive(:m).with({ a: 42 })
+```
+
+For more information, see [the official issue report for RSpec](https://github.com/rspec/rspec-mocks/issues/1460).

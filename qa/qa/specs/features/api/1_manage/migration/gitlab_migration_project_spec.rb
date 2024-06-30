@@ -1,20 +1,50 @@
 # frozen_string_literal: true
 
-require_relative 'gitlab_project_migration_common'
-
 module QA
   RSpec.describe 'Manage' do
-    describe 'Gitlab migration' do
+    describe 'Gitlab migration', product_group: :import_and_integrate do
       include_context 'with gitlab project migration'
+
+      # this spec is used as a sanity test for gitlab migration because it can run outside of orchestrated setup
+      context 'with import within same instance', :skip_live_env, orchestrated: false, import: false do
+        let!(:source_project_with_readme) { true }
+        let!(:source_gitlab_address) { Runtime::Scenario.gitlab_address }
+        let!(:source_admin_api_client) { admin_api_client }
+
+        # do not use top level group (sandbox) to avoid issues when applying permissions etc. because it will contain
+        # a lot subgroups and projects on live envs
+        let!(:source_sandbox) { create(:group, api_client: admin_api_client) }
+
+        let!(:source_group) do
+          create(:group,
+            api_client: admin_api_client,
+            sandbox: source_sandbox,
+            path: "source-group-for-import-#{SecureRandom.hex(4)}",
+            avatar: File.new(Runtime::Path.fixture('designs', 'tanuki.jpg'), 'r'))
+        end
+
+        let!(:target_sandbox) { source_sandbox }
+
+        let(:destination_group_path) { "target-group-for-import-#{SecureRandom.hex(4)}" }
+
+        it(
+          'successfully imports project',
+          testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/383351'
+        ) do
+          expect_project_import_finished_successfully
+
+          expect(imported_project).to eq(source_project)
+        end
+      end
 
       context 'with uninitialized project' do
         it(
           'successfully imports project',
           testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347610'
         ) do
-          expect_import_finished
+          expect_project_import_finished_successfully
 
-          expect(imported_projects.first).to eq(source_project)
+          expect(imported_project).to eq(source_project)
         end
       end
 
@@ -59,9 +89,13 @@ module QA
 
         it(
           'successfully imports repository',
-          testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347570'
+          testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347570',
+          quarantine: {
+            type: :bug,
+            issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/422430'
+          }
         ) do
-          expect_import_finished
+          expect_project_import_finished_successfully
 
           aggregate_failures do
             expect(imported_commits).to match_array(source_commits)
@@ -80,9 +114,9 @@ module QA
           'successfully imports project wiki',
           testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347567'
         ) do
-          expect_import_finished
+          expect_project_import_finished_successfully
 
-          expect(imported_projects.first.wikis).to eq(source_project.wikis)
+          expect(imported_project.wikis).to eq(source_project.wikis)
         end
       end
     end

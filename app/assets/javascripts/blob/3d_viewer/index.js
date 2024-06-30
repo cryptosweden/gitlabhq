@@ -1,10 +1,7 @@
-import OrbitControlsClass from 'three-orbit-controls';
-import STLLoaderClass from 'three-stl-loader';
-import * as THREE from 'three/build/three.module';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+import * as THREE from 'three';
 import MeshObject from './mesh_object';
-
-const STLLoader = STLLoaderClass(THREE);
-const OrbitControls = OrbitControlsClass(THREE);
 
 export default class Renderer {
   constructor(container) {
@@ -98,9 +95,9 @@ export default class Renderer {
     requestAnimationFrame(this.renderWrapper);
   }
 
-  changeObjectMaterials(type) {
+  changeObjectMaterials(material) {
     this.objects.forEach((obj) => {
-      obj.changeMaterial(type);
+      obj.changeMaterial(material);
     });
   }
 

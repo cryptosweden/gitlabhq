@@ -2,97 +2,83 @@
 
 exports[`Snippet Description Edit component rendering matches the snapshot 1`] = `
 <div
-  class="form-group js-description-input"
+  class="form-group"
 >
   <label
-    for="snippet-description"
+    for="reference-0"
   >
     Description (optional)
   </label>
-   
   <div
-    class="js-collapsible-input"
+    class="gfm-form js-vue-markdown-field md-area position-relative"
+    data-uploads-path=""
   >
+    <markdown-header-stub
+      data-testid="markdownHeader"
+      enablepreview="true"
+      linecontent=""
+      markdownpreviewpath="foo/"
+      restrictedtoolbaritems=""
+      suggestionstartindex="0"
+      uploadspath=""
+    />
     <div
-      class="js-collapsed d-none"
+      class="md-write-holder"
     >
-      <gl-form-input-stub
-        class="form-control"
-        data-qa-selector="description_placeholder"
-        placeholder="Optionally add a description about what your snippet does or how to use it…"
-      />
-    </div>
-     
-    <div
-      class="js-vue-markdown-field md-area position-relative gfm-form js-expanded"
-      data-uploads-path=""
-    >
-      <markdown-header-stub
-        data-testid="markdownHeader"
-        enablepreview="true"
-        linecontent=""
-        suggestionstartindex="0"
-      />
-       
       <div
-        class="md-write-holder"
+        class="div-dropzone-wrapper zen-backdrop"
       >
         <div
-          class="zen-backdrop div-dropzone-wrapper"
+          class="div-dropzone js-invalid-dropzone"
         >
-          <div
-            class="div-dropzone js-invalid-dropzone"
-          >
-            <textarea
-              aria-label="Description"
-              class="note-textarea js-gfm-input js-autosize markdown-area js-gfm-input-initialized"
-              data-qa-selector="snippet_description_field"
-              data-supports-quick-actions="false"
-              dir="auto"
-              id="snippet-description"
-              placeholder="Write a comment or drag your files here…"
-              style="overflow-x: hidden; word-wrap: break-word; overflow-y: hidden;"
-            />
-            <div
-              class="div-dropzone-hover"
-            >
-              <svg
-                class="div-dropzone-icon s24"
-              >
-                <use
-                  xlink:href="undefined#paperclip"
-                />
-              </svg>
-            </div>
-          </div>
-           
-          <a
-            aria-label="Leave zen mode"
-            class="zen-control zen-control-leave js-zen-leave gl-text-gray-500"
-            href="#"
-          >
-            <gl-icon-stub
-              name="minimize"
-              size="16"
-            />
-          </a>
-           
-          <markdown-toolbar-stub
-            canattachfile="true"
-            markdowndocspath="help/"
-            quickactionsdocspath=""
+          <textarea
+            aria-label="Description"
+            class="!gl-min-h-0 js-autosize js-gfm-input js-gfm-input-initialized markdown-area note-textarea"
+            data-supports-quick-actions="false"
+            data-testid="snippet-description-field"
+            dir="auto"
+            id="reference-0"
+            placeholder="Describe what your snippet does or how to use it…"
+            rows="3"
+            style="overflow-x: hidden; word-wrap: break-word; overflow-y: hidden;"
           />
+          <div
+            class="div-dropzone-hover"
+          >
+            <svg
+              class="div-dropzone-icon s24"
+            >
+              <use
+                xlink:href="undefined#paperclip"
+              />
+            </svg>
+          </div>
         </div>
+        <a
+          aria-label="Leave zen mode"
+          class="gl-text-gray-500 js-zen-leave zen-control zen-control-leave"
+          href="#"
+        >
+          <gl-icon-stub
+            name="minimize"
+            size="16"
+            variant="current"
+          />
+        </a>
+        <markdown-toolbar-stub
+          canattachfile="true"
+          markdowndocspath="help/"
+          showcommenttoolbar="true"
+        />
       </div>
-       
+    </div>
+    <div
+      class="gl-px-5 js-vue-md-preview md-preview-holder"
+      style="display: none;"
+    >
       <div
-        class="js-vue-md-preview md md-preview-holder"
-        style="display: none;"
+        class="md"
       />
-       
-      <!---->
-       
-      <!---->
     </div>
   </div>
 </div>

@@ -1,12 +1,13 @@
 ---
 description: "Internal users documentation."
-type: concepts, reference, dev
 stage: none
-group: Development
-info: "See the Technical Writers assigned to Development Guidelines: https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments-to-development-guidelines"
+group: unassigned
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Internal users
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/97584) in GitLab 15.4, bots are indicated with a badge in user listings.
 
 GitLab uses internal users (sometimes referred to as "bots") to perform
 actions or functions that cannot be attributed to a regular user.
@@ -26,7 +27,7 @@ they perform.
 
 For example, when we [migrated](https://gitlab.com/gitlab-org/gitlab/-/issues/216120)
 GitLab Snippets to [Versioned Snippets](../user/snippets.md#versioned-snippets)
-in GitLab 13.0, we used an internal user to attribute the authorship of
+we used an internal user to attribute the authorship of
 snippets to itself when a snippet's author wasn't available for creating
 repository commits, such as when the user has been disabled, so the Migration
 Bot was used instead.
@@ -38,9 +39,15 @@ For this bot:
 
 Other examples of internal users:
 
-- [Alert Bot](../operations/metrics/alerts.md#trigger-actions-from-alerts)
+- [GitLab Admin Bot](https://gitlab.com/gitlab-org/gitlab/-/blob/278bc9018dd1515a10cbf15b6c6cd55cb5431407/app/models/user.rb#L950-960)
+- [GitLab Automation Bot](../user/group/iterations/index.md#gitlab-automation-bot-user)
+- [Alert Bot](../operations/incident_management/alerts.md#trigger-actions-from-alerts)
 - [Ghost User](../user/profile/account/delete_account.md#associated-records)
-- [Support Bot](../user/project/service_desk.md#support-bot-user)
+- [Support Bot](../user/project/service_desk/configure.md#support-bot-user)
 - Visual Review Bot
-- Resource access tokens (including [project access tokens](../user/project/settings/project_access_tokens.md)).
-  These are implemented as `project_bot` users with a `PersonalAccessToken`.
+- Resource access tokens, including:
+  - [Project access tokens](../user/project/settings/project_access_tokens.md).
+  - [Group access tokens](../user/group/settings/group_access_tokens.md).
+
+  These are implemented as `project_{project_id}_bot_{random_string}` and `group_{group_id}_bot_{random_string}`
+  users, with a `PersonalAccessToken`.

@@ -39,7 +39,7 @@ module Ci
           .new(pipeline)
           .execute
 
-        pipeline_created_counter.increment(source: :webide)
+        pipeline_created_counter.increment(source: :webide, partition_id: pipeline.partition_id)
       end
     end
 
@@ -52,7 +52,7 @@ module Ci
         ref: ref,
         sha: sha,
         tag: false,
-        before_sha: Gitlab::Git::BLANK_SHA
+        before_sha: project.repository.blank_ref
       )
     end
 
@@ -104,8 +104,7 @@ module Ci
     end
 
     def pipeline_created_counter
-      @pipeline_created_counter ||= Gitlab::Metrics
-        .counter(:pipelines_created_total, "Counter of pipelines created")
+      ::Gitlab::Ci::Pipeline::Metrics.pipelines_created_counter
     end
 
     def terminal_active?

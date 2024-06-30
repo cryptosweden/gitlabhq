@@ -3,7 +3,7 @@
 module QA
   module Flow
     module User
-      module_function
+      extend self
 
       def page
         Capybara.current_session
@@ -14,7 +14,8 @@ module QA
           Page::Main::Menu.perform(&:go_to_admin_area)
           Page::Admin::Menu.perform(&:go_to_users_overview)
           Page::Admin::Overview::Users::Index.perform do |index|
-            index.search_user(user.email)
+            index.choose_search_user(user.email)
+            index.click_search
             index.click_user(user.name)
           end
 
@@ -24,3 +25,5 @@ module QA
     end
   end
 end
+
+QA::Flow::User.prepend_mod_with('Flow::User', namespace: QA)

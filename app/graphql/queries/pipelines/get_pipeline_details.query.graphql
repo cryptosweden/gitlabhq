@@ -18,17 +18,24 @@ fragment LinkedPipelineData on Pipeline {
   id
   iid
   path
+  cancelable
+  retryable
+  userPermissions {
+    updatePipeline
+  }
   status: detailedStatus {
     __typename
     id
     group
     label
     icon
+    text
   }
   sourceJob {
     __typename
     id
     name
+    retried
   }
   project {
     __typename
@@ -75,6 +82,7 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
               icon
               path
               title
+              confirmationMessage
             }
           }
           groups {
@@ -88,6 +96,7 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
                 label
                 group
                 icon
+                text
               }
               name
               size
@@ -97,6 +106,7 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
                   __typename
                   id
                   name
+                  kind
                   scheduledAt
                   needs {
                     __typename
@@ -121,10 +131,12 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
                     detailsPath
                     group
                     label
+                    text
                     action {
                       __typename
                       id
                       buttonTitle
+                      confirmationMessage
                       icon
                       path
                       title

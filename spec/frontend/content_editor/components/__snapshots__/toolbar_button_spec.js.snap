@@ -1,9 +1,20 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`content_editor/components/toolbar_button displays tertiary, small button with a provided label and icon 1`] = `
-"<b-button-stub size=\\"sm\\" variant=\\"default\\" type=\\"button\\" tag=\\"button\\" aria-label=\\"Bold\\" title=\\"Bold\\" class=\\"gl-button btn-default-tertiary btn-icon\\">
-  <!---->
-  <gl-icon-stub name=\\"bold\\" size=\\"16\\" class=\\"gl-button-icon\\"></gl-icon-stub>
-  <!---->
-</b-button-stub>"
+exports[`content_editor/components/toolbar_button displays tertiary, medium button with a provided label and icon 1`] = `
+<b-button-stub
+  aria-label="Bold"
+  class="btn-default-tertiary btn-icon gl-button gl-mr-2"
+  size="sm"
+  tag="button"
+  title="Bold"
+  type="button"
+  variant="default"
+>
+  <gl-icon-stub
+    class="gl-button-icon"
+    name="bold"
+    size="16"
+    variant="current"
+  />
+</b-button-stub>
 `;

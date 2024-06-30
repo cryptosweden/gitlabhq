@@ -2,22 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe AlertManagement::Alerts::UpdateService do
+RSpec.describe AlertManagement::Alerts::UpdateService, feature_category: :incident_management do
   let_it_be(:user_with_permissions) { create(:user) }
   let_it_be(:other_user_with_permissions) { create(:user) }
   let_it_be(:user_without_permissions) { create(:user) }
-  let_it_be(:project) { create(:project) }
+  let_it_be(:project) { create(:project, developers: [user_with_permissions, other_user_with_permissions]) }
   let_it_be(:alert, reload: true) { create(:alert_management_alert, :triggered, project: project) }
 
   let(:current_user) { user_with_permissions }
   let(:params) { {} }
 
   let(:service) { described_class.new(alert, current_user, params) }
-
-  before_all do
-    project.add_developer(user_with_permissions)
-    project.add_developer(other_user_with_permissions)
-  end
 
   describe '#execute' do
     shared_examples 'does not add a todo' do
@@ -88,7 +83,7 @@ RSpec.describe AlertManagement::Alerts::UpdateService do
       it_behaves_like 'title update'
     end
 
-    context 'when alert is resolved and another existing open alert' do
+    context 'when alert is resolved and another existing unresolved alert' do
       let!(:alert) { create(:alert_management_alert, :resolved, project: project) }
       let!(:existing_alert) { create(:alert_management_alert, :triggered, project: project) }
 
@@ -193,27 +188,38 @@ RSpec.describe AlertManagement::Alerts::UpdateService do
         end
       end
 
-      context 'with an opening status and existing open alert' do
-        let_it_be(:alert) { create(:alert_management_alert, :resolved, :with_fingerprint, project: project) }
-        let_it_be(:existing_alert) { create(:alert_management_alert, :triggered, fingerprint: alert.fingerprint, project: project) }
-        let_it_be(:url) { Gitlab::Routing.url_helpers.details_project_alert_management_path(project, existing_alert) }
-        let_it_be(:link) { ActionController::Base.helpers.link_to(_('alert'), url) }
+      context 'with existing unresolved alert' do
+        context 'with fingerprints' do
+          let_it_be(:existing_alert) { create(:alert_management_alert, :triggered, fingerprint: alert.fingerprint, project: project) }
 
-        let(:message) do
-          "An #{link} with the same fingerprint is already open. " \
-          'To change the status of this alert, resolve the linked alert.'
+          it 'does not query for existing alerts' do
+            expect(::AlertManagement::Alert).not_to receive(:find_unresolved_alert)
+
+            response
+          end
+
+          context 'when status was resolved' do
+            let_it_be(:alert) { create(:alert_management_alert, :resolved, :with_fingerprint, project: project) }
+            let_it_be(:existing_alert) { create(:alert_management_alert, :triggered, fingerprint: alert.fingerprint, project: project) }
+
+            let(:url) { Gitlab::Routing.url_helpers.details_project_alert_management_path(project, existing_alert) }
+            let(:link) { ActionController::Base.helpers.link_to(_('alert'), url) }
+            let(:message) do
+              "An #{link} with the same fingerprint is already open. " \
+              'To change the status of this alert, resolve the linked alert.'
+            end
+
+            it_behaves_like 'does not add a todo'
+            it_behaves_like 'does not add a system note'
+
+            it 'has an informative message' do
+              expect(response).to be_error
+              expect(response.message).to eq(message)
+            end
+          end
         end
 
-        it_behaves_like 'does not add a todo'
-        it_behaves_like 'does not add a system note'
-
-        it 'has an informative message' do
-          expect(response).to be_error
-          expect(response.message).to eq(message)
-        end
-
-        context 'fingerprints are blank' do
-          let_it_be(:alert) { create(:alert_management_alert, :resolved, project: project, fingerprint: nil) }
+        context 'without fingerprints' do
           let_it_be(:existing_alert) { create(:alert_management_alert, :triggered, fingerprint: alert.fingerprint, project: project) }
 
           it 'successfully changes the status' do
@@ -237,65 +243,6 @@ RSpec.describe AlertManagement::Alerts::UpdateService do
         end
 
         it_behaves_like 'adds a system note'
-      end
-
-      context 'with an associated issue' do
-        let_it_be(:issue, reload: true) { create(:issue, project: project) }
-
-        before do
-          alert.update!(issue: issue)
-        end
-
-        shared_examples 'does not sync with the incident status' do
-          specify do
-            expect(::Issues::UpdateService).not_to receive(:new)
-            expect { response }.to change { alert.acknowledged? }.to(true)
-          end
-        end
-
-        it_behaves_like 'does not sync with the incident status'
-
-        context 'when the issue is an incident' do
-          before do
-            issue.update!(issue_type: Issue.issue_types[:incident])
-          end
-
-          it_behaves_like 'does not sync with the incident status'
-
-          context 'when the incident has an escalation status' do
-            let_it_be(:escalation_status, reload: true) { create(:incident_management_issuable_escalation_status, issue: issue) }
-
-            it 'updates the incident escalation status with the new alert status' do
-              expect(::Issues::UpdateService).to receive(:new).once.and_call_original
-              expect(described_class).to receive(:new).once.and_call_original
-
-              expect { response }.to change { escalation_status.reload.acknowledged? }.to(true)
-                                 .and change { alert.reload.acknowledged? }.to(true)
-            end
-
-            context 'when the statuses match' do
-              before do
-                escalation_status.update!(status_event: :acknowledge)
-              end
-
-              it_behaves_like 'does not sync with the incident status'
-            end
-
-            context 'when feature flag is disabled' do
-              before do
-                stub_feature_flags(incident_escalations: false)
-              end
-
-              it_behaves_like 'does not sync with the incident status'
-            end
-          end
-        end
-      end
-
-      context 'when a status change reason is included' do
-        let(:params) { { status: new_status, status_change_reason: ' by changing the incident status' } }
-
-        it_behaves_like 'adds a system note', /changed the status to \*\*Acknowledged\*\* by changing the incident status/
       end
     end
   end

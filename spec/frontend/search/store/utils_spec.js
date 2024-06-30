@@ -1,17 +1,27 @@
 import { useLocalStorageSpy } from 'helpers/local_storage_helper';
-import { MAX_FREQUENCY, SIDEBAR_PARAMS } from '~/search/store/constants';
+import { MAX_FREQUENCY, SIDEBAR_PARAMS, LS_REGEX_HANDLE } from '~/search/store/constants';
 import {
   loadDataFromLS,
   setFrequentItemToLS,
   mergeById,
   isSidebarDirty,
+  formatSearchResultCount,
+  getAggregationsUrl,
+  prepareSearchAggregations,
+  addCountOverLimit,
+  injectRegexSearch,
 } from '~/search/store/utils';
+import { useMockLocationHelper } from 'helpers/mock_window_location_helper';
+import { TEST_HOST } from 'helpers/test_constants';
 import {
   MOCK_LS_KEY,
   MOCK_GROUPS,
   MOCK_INFLATED_DATA,
   FRESH_STORED_DATA,
   STALE_STORED_DATA,
+  MOCK_AGGREGATIONS,
+  SMALL_MOCK_AGGREGATIONS,
+  TEST_RAW_BUCKETS,
 } from '../mock_data';
 
 const PREV_TIME = new Date().getTime() - 1;
@@ -49,7 +59,7 @@ describe('Global Search Store Utils', () => {
 
       it('wipes local storage and returns an empty array', () => {
         expect(localStorage.removeItem).toHaveBeenCalledWith(MOCK_LS_KEY);
-        expect(res).toStrictEqual([]);
+        expect(res).toStrictEqual(null);
       });
     });
   });
@@ -223,11 +233,14 @@ describe('Global Search Store Utils', () => {
   });
 
   describe.each`
-    description            | currentQuery                                                          | urlQuery                                                              | isDirty
-    ${'identical'}         | ${{ [SIDEBAR_PARAMS[0]]: 'default', [SIDEBAR_PARAMS[1]]: 'default' }} | ${{ [SIDEBAR_PARAMS[0]]: 'default', [SIDEBAR_PARAMS[1]]: 'default' }} | ${false}
-    ${'different'}         | ${{ [SIDEBAR_PARAMS[0]]: 'default', [SIDEBAR_PARAMS[1]]: 'new' }}     | ${{ [SIDEBAR_PARAMS[0]]: 'default', [SIDEBAR_PARAMS[1]]: 'default' }} | ${true}
-    ${'null/undefined'}    | ${{ [SIDEBAR_PARAMS[0]]: null, [SIDEBAR_PARAMS[1]]: null }}           | ${{ [SIDEBAR_PARAMS[0]]: undefined, [SIDEBAR_PARAMS[1]]: undefined }} | ${false}
-    ${'updated/undefined'} | ${{ [SIDEBAR_PARAMS[0]]: 'new', [SIDEBAR_PARAMS[1]]: 'new' }}         | ${{ [SIDEBAR_PARAMS[0]]: undefined, [SIDEBAR_PARAMS[1]]: undefined }} | ${true}
+    description                             | currentQuery                                                                                           | urlQuery                                                                                               | isDirty
+    ${'identical'}                          | ${{ [SIDEBAR_PARAMS[0]]: 'default', [SIDEBAR_PARAMS[1]]: 'default', [SIDEBAR_PARAMS[2]]: ['a', 'b'] }} | ${{ [SIDEBAR_PARAMS[0]]: 'default', [SIDEBAR_PARAMS[1]]: 'default', [SIDEBAR_PARAMS[2]]: ['a', 'b'] }} | ${false}
+    ${'different'}                          | ${{ [SIDEBAR_PARAMS[0]]: 'default', [SIDEBAR_PARAMS[1]]: 'new', [SIDEBAR_PARAMS[2]]: ['a', 'b'] }}     | ${{ [SIDEBAR_PARAMS[0]]: 'default', [SIDEBAR_PARAMS[1]]: 'default', [SIDEBAR_PARAMS[2]]: ['a', 'c'] }} | ${true}
+    ${'null/undefined'}                     | ${{ [SIDEBAR_PARAMS[0]]: null, [SIDEBAR_PARAMS[1]]: null, [SIDEBAR_PARAMS[2]]: null }}                 | ${{ [SIDEBAR_PARAMS[0]]: undefined, [SIDEBAR_PARAMS[1]]: undefined, [SIDEBAR_PARAMS[2]]: undefined }}  | ${false}
+    ${'updated/undefined'}                  | ${{ [SIDEBAR_PARAMS[0]]: 'new', [SIDEBAR_PARAMS[1]]: 'new', [SIDEBAR_PARAMS[2]]: ['a', 'b'] }}         | ${{ [SIDEBAR_PARAMS[0]]: undefined, [SIDEBAR_PARAMS[1]]: undefined, [SIDEBAR_PARAMS[2]]: [] }}         | ${true}
+    ${'language only no url params'}        | ${{ [SIDEBAR_PARAMS[2]]: ['a', 'b'] }}                                                                 | ${{ [SIDEBAR_PARAMS[2]]: undefined }}                                                                  | ${true}
+    ${'language only url params symetric'}  | ${{ [SIDEBAR_PARAMS[2]]: ['a', 'b'] }}                                                                 | ${{ [SIDEBAR_PARAMS[2]]: ['a', 'b'] }}                                                                 | ${false}
+    ${'language only url params asymetric'} | ${{ [SIDEBAR_PARAMS[2]]: ['a'] }}                                                                      | ${{ [SIDEBAR_PARAMS[2]]: ['a', 'b'] }}                                                                 | ${true}
   `('isSidebarDirty', ({ description, currentQuery, urlQuery, isDirty }) => {
     describe(`with ${description} sidebar query data`, () => {
       let res;
@@ -238,6 +251,108 @@ describe('Global Search Store Utils', () => {
 
       it(`returns ${isDirty}`, () => {
         expect(res).toStrictEqual(isDirty);
+      });
+    });
+  });
+  describe('formatSearchResultCount', () => {
+    it('returns zero as string if no count is provided', () => {
+      expect(formatSearchResultCount()).toStrictEqual('0');
+    });
+    it('returns 10K string for 10000 integer', () => {
+      expect(formatSearchResultCount(10000)).toStrictEqual('10K');
+    });
+    it('returns 23K string for "23,000+" string', () => {
+      expect(formatSearchResultCount('23,000+')).toStrictEqual('23K');
+    });
+  });
+
+  describe('getAggregationsUrl', () => {
+    useMockLocationHelper();
+    it('returns zero as string if no count is provided', () => {
+      const testURL = window.location.href;
+      expect(getAggregationsUrl()).toStrictEqual(`${testURL}search/aggregations`);
+    });
+  });
+
+  const TEST_LANGUAGE_QUERY = ['Markdown', 'JSON'];
+  const TEST_EXPECTED_ORDERED_BUCKETS = [
+    TEST_RAW_BUCKETS.find((x) => x.key === 'Markdown'),
+    TEST_RAW_BUCKETS.find((x) => x.key === 'JSON'),
+    ...TEST_RAW_BUCKETS.filter((x) => !TEST_LANGUAGE_QUERY.includes(x.key)),
+  ];
+
+  describe('prepareSearchAggregations', () => {
+    it.each`
+      description        | query                                | data                       | result
+      ${'has no query'}  | ${undefined}                         | ${MOCK_AGGREGATIONS}       | ${MOCK_AGGREGATIONS}
+      ${'has query'}     | ${{ language: TEST_LANGUAGE_QUERY }} | ${SMALL_MOCK_AGGREGATIONS} | ${[{ ...SMALL_MOCK_AGGREGATIONS[0], buckets: TEST_EXPECTED_ORDERED_BUCKETS }]}
+      ${'has bad query'} | ${{ language: ['sdf', 'wrt'] }}      | ${SMALL_MOCK_AGGREGATIONS} | ${SMALL_MOCK_AGGREGATIONS}
+    `('$description', ({ query, data, result }) => {
+      expect(prepareSearchAggregations({ query }, data)).toStrictEqual(result);
+    });
+  });
+
+  describe('addCountOverLimit', () => {
+    it("should return '+' if count includes '+'", () => {
+      expect(addCountOverLimit('10+')).toEqual('+');
+    });
+
+    it("should return empty string if count does not include '+'", () => {
+      expect(addCountOverLimit('10')).toEqual('');
+    });
+
+    it('should return empty string if count is not provided', () => {
+      expect(addCountOverLimit()).toEqual('');
+    });
+  });
+
+  describe('injectRegexSearch', () => {
+    describe.each`
+      urlIn                                                            | urlOut
+      ${`${TEST_HOST}/search?search=test&group_id=123`}                | ${'/search?search=test&group_id=123'}
+      ${'/search?search=test&group_id=123'}                            | ${'/search?search=test&group_id=123'}
+      ${`${TEST_HOST}/search?search=test&project_id=123`}              | ${'/search?search=test&project_id=123'}
+      ${'/search?search=test&project_id=123'}                          | ${'/search?search=test&project_id=123'}
+      ${`${TEST_HOST}/search?search=test&project_id=123&group_id=123`} | ${'/search?search=test&project_id=123&group_id=123'}
+      ${'/search?search=test&project_id=123&group_id=123'}             | ${'/search?search=test&project_id=123&group_id=123'}
+    `('modifies urls and links', ({ urlIn, urlOut }) => {
+      it(`should add regex=true to ${urlIn}`, () => {
+        localStorage.setItem(LS_REGEX_HANDLE, JSON.stringify(true));
+        expect(injectRegexSearch(urlIn)).toEqual(`${urlOut}&regex=true`);
+      });
+
+      it(`should NOT add regex=true to ${urlIn}`, () => {
+        localStorage.setItem(LS_REGEX_HANDLE, JSON.stringify(false));
+        expect(injectRegexSearch(urlIn)).toEqual(urlOut);
+      });
+    });
+
+    describe.each`
+      urlIn                                | urlOut
+      ${'/search?search=test'}             | ${'/search?search=test'}
+      ${`${TEST_HOST}/search?search=test`} | ${'/search?search=test'}
+      ${'/'}                               | ${'/'}
+    `('does not modify urls and links', ({ urlIn, urlOut }) => {
+      it('should return link with regex equals true', () => {
+        localStorage.setItem(LS_REGEX_HANDLE, JSON.stringify(true));
+        expect(injectRegexSearch(urlIn)).toEqual(urlOut);
+      });
+    });
+
+    describe.each`
+      urlIn                                                           | urlOut
+      ${'/search?search=test&group_id=123&regex=true'}                | ${'/search?search=test&group_id=123&regex=true'}
+      ${'/search?search=test&project_id=123&regex=true'}              | ${'/search?search=test&project_id=123&regex=true'}
+      ${'/search?search=test&project_id=123&group_id=123&regex=true'} | ${'/search?search=test&project_id=123&group_id=123&regex=true'}
+    `('does not double params', ({ urlIn, urlOut }) => {
+      it(`should not add additional regex=true to ${urlIn} if enabled`, () => {
+        localStorage.setItem(LS_REGEX_HANDLE, JSON.stringify(true));
+        expect(injectRegexSearch(urlIn)).toEqual(`${urlOut}`);
+      });
+
+      it(`should NOT remove regex=true from ${urlIn} if disabled`, () => {
+        localStorage.setItem(LS_REGEX_HANDLE, JSON.stringify(false));
+        expect(injectRegexSearch(urlIn)).toEqual(urlOut);
       });
     });
   });

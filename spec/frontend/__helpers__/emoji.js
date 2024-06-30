@@ -1,5 +1,5 @@
 import { initEmojiMap, EMOJI_VERSION } from '~/emoji';
-import { CACHE_VERSION_KEY, CACHE_KEY } from '~/emoji/constants';
+import { CACHE_KEY } from '~/emoji/constants';
 
 export const validEmoji = {
   atom: {
@@ -58,6 +58,16 @@ export const validEmoji = {
     unicodeVersion: '6.0',
     description: 'because it contains multiple zero width joiners',
   },
+  thumbsup: {
+    moji: '👍',
+    unicodeVersion: '6.0',
+    description: 'thumbs up sign',
+  },
+  thumbsdown: {
+    moji: '👎',
+    description: 'thumbs down sign',
+    unicodeVersion: '6.0',
+  },
 };
 
 export const invalidEmoji = {
@@ -85,19 +95,18 @@ export const emojiFixtureMap = {
 
 export const mockEmojiData = Object.keys(emojiFixtureMap).reduce((acc, k) => {
   const { moji: e, unicodeVersion: u, category: c, description: d } = emojiFixtureMap[k];
-  acc[k] = { name: k, e, u, c, d };
+  acc.push({ n: k, e, u, c, d });
 
   return acc;
-}, {});
+}, []);
 
 export function clearEmojiMock() {
   localStorage.clear();
   initEmojiMap.promise = null;
 }
 
-export async function initEmojiMock(mockData = mockEmojiData) {
+export async function initEmojiMock(data = mockEmojiData) {
   clearEmojiMock();
-  localStorage.setItem(CACHE_VERSION_KEY, EMOJI_VERSION);
-  localStorage.setItem(CACHE_KEY, JSON.stringify(mockData));
+  localStorage.setItem(CACHE_KEY, JSON.stringify({ data, EMOJI_VERSION }));
   await initEmojiMap();
 }

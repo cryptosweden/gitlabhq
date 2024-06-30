@@ -5,14 +5,30 @@ class Projects::MergeRequests::ApplicationController < Projects::ApplicationCont
   before_action :merge_request
   before_action :authorize_read_merge_request!
 
-  feature_category :code_review
+  feature_category :code_review_workflow
 
   private
+
+  # Normally the methods with `check_(\w+)_available!` pattern are
+  # handled by the `method_missing` defined in `ProjectsController::ApplicationController`
+  # but that logic does not take the member roles into account, therefore, we handle this
+  # case here manually.
+  def check_merge_requests_available!
+    render_404 if project_policy.merge_requests_disabled?
+  end
+
+  def project_policy
+    ProjectPolicy.new(current_user, project)
+  end
 
   def merge_request
     @issuable =
       @merge_request ||=
         merge_request_includes(@project.merge_requests).find_by_iid!(params[:id])
+
+    return render_404 unless can?(current_user, :read_merge_request, @issuable)
+
+    @issuable
   end
 
   def merge_request_includes(association)
@@ -45,10 +61,10 @@ class Projects::MergeRequests::ApplicationController < Projects::ApplicationCont
       :title,
       :discussion_locked,
       :issue_iid,
-      label_ids: [],
-      assignee_ids: [],
-      reviewer_ids: [],
-      update_task: [:index, :checked, :line_number, :line_source]
+      { label_ids: [],
+        assignee_ids: [],
+        reviewer_ids: [],
+        update_task: [:index, :checked, :line_number, :line_source] }
     ]
   end
 

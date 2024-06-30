@@ -38,6 +38,36 @@ RSpec.describe Admin::ApplicationsController do
     end
   end
 
+  describe 'PUT #renew' do
+    let(:oauth_params) do
+      {
+        id: application.id
+      }
+    end
+
+    subject { put :renew, params: oauth_params }
+
+    it { is_expected.to have_gitlab_http_status(:ok) }
+    it { expect { subject }.to change { application.reload.secret } }
+
+    it 'returns the secret in json format' do
+      subject
+
+      expect(json_response['secret']).not_to be_nil
+    end
+
+    context 'when renew fails' do
+      before do
+        allow_next_found_instance_of(Doorkeeper::Application) do |application|
+          allow(application).to receive(:save).and_return(false)
+        end
+      end
+
+      it { expect { subject }.not_to change { application.reload.secret } }
+      it { is_expected.to have_gitlab_http_status(:unprocessable_entity) }
+    end
+  end
+
   describe 'POST #create' do
     it 'creates the application' do
       create_params = attributes_for(:application, trusted: true, confidential: false, scopes: ['api'])
@@ -48,7 +78,8 @@ RSpec.describe Admin::ApplicationsController do
 
       application = Doorkeeper::Application.last
 
-      expect(response).to redirect_to(admin_application_path(application))
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(response).to render_template :show
       expect(application).to have_attributes(create_params.except(:uid, :owner_type))
     end
 
@@ -71,7 +102,8 @@ RSpec.describe Admin::ApplicationsController do
 
         application = Doorkeeper::Application.last
 
-        expect(response).to redirect_to(admin_application_path(application))
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to render_template :show
         expect(application).to have_attributes(create_params.except(:uid, :owner_type))
       end
     end

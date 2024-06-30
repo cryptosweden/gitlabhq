@@ -1,7 +1,8 @@
-#import "~/graphql_shared/fragments/pageInfo.fragment.graphql"
+#import "~/graphql_shared/fragments/page_info.fragment.graphql"
 #import "./issue.fragment.graphql"
 
 query getIssues(
+  $hideUsers: Boolean = false
   $isProject: Boolean = false
   $isSignedIn: Boolean = false
   $fullPath: ID!
@@ -9,7 +10,9 @@ query getIssues(
   $search: String
   $sort: IssueSort
   $state: IssuableState
+  $in: [IssuableSearchableField!]
   $assigneeId: String
+  $assigneeWildcardId: AssigneeWildcardId
   $assigneeUsernames: [String!]
   $authorUsername: String
   $confidential: Boolean
@@ -20,13 +23,20 @@ query getIssues(
   $releaseTag: [String!]
   $releaseTagWildcardId: ReleaseTagWildcardId
   $types: [IssueType!]
+  $crmContactId: String
+  $crmOrganizationId: String
   $not: NegatedIssueFilterInput
+  $or: UnionedIssueFilterInput
   $beforeCursor: String
   $afterCursor: String
   $firstPageSize: Int
   $lastPageSize: Int
+  $createdAfter: Time
+  $createdBefore: Time
+  $closedAfter: Time
+  $closedBefore: Time
 ) {
-  group(fullPath: $fullPath) @skip(if: $isProject) {
+  group(fullPath: $fullPath) @skip(if: $isProject) @persist {
     id
     issues(
       includeSubgroups: true
@@ -34,7 +44,9 @@ query getIssues(
       search: $search
       sort: $sort
       state: $state
+      in: $in
       assigneeId: $assigneeId
+      assigneeWildcardId: $assigneeWildcardId
       assigneeUsernames: $assigneeUsernames
       authorUsername: $authorUsername
       confidential: $confidential
@@ -43,29 +55,40 @@ query getIssues(
       milestoneWildcardId: $milestoneWildcardId
       myReactionEmoji: $myReactionEmoji
       types: $types
+      crmContactId: $crmContactId
+      crmOrganizationId: $crmOrganizationId
       not: $not
+      or: $or
       before: $beforeCursor
       after: $afterCursor
       first: $firstPageSize
       last: $lastPageSize
+      createdAfter: $createdAfter
+      createdBefore: $createdBefore
+      closedAfter: $closedAfter
+      closedBefore: $closedBefore
     ) {
+      __persist
       pageInfo {
         ...PageInfo
       }
       nodes {
+        __persist
         ...IssueFragment
         reference(full: true)
       }
     }
   }
-  project(fullPath: $fullPath) @include(if: $isProject) {
+  project(fullPath: $fullPath) @include(if: $isProject) @persist {
     id
     issues(
       iid: $iid
       search: $search
       sort: $sort
       state: $state
+      in: $in
       assigneeId: $assigneeId
+      assigneeWildcardId: $assigneeWildcardId
       assigneeUsernames: $assigneeUsernames
       authorUsername: $authorUsername
       confidential: $confidential
@@ -76,16 +99,25 @@ query getIssues(
       releaseTag: $releaseTag
       releaseTagWildcardId: $releaseTagWildcardId
       types: $types
+      crmContactId: $crmContactId
+      crmOrganizationId: $crmOrganizationId
       not: $not
+      or: $or
       before: $beforeCursor
       after: $afterCursor
       first: $firstPageSize
       last: $lastPageSize
+      createdAfter: $createdAfter
+      createdBefore: $createdBefore
+      closedAfter: $closedAfter
+      closedBefore: $closedBefore
     ) {
+      __persist
       pageInfo {
         ...PageInfo
       }
       nodes {
+        __persist
         ...IssueFragment
       }
     }

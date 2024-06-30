@@ -19,6 +19,7 @@ module Issuable
   include Awardable
   include Taskable
   include Importable
+  include Transitionable
   include Editable
   include AfterCommitQueue
   include Sortable
@@ -27,12 +28,16 @@ module Issuable
   include ClosedAtFilterable
   include VersionedDescription
   include SortableTitle
+  include Exportable
+  include ReportableChanges
+  include Import::HasImportSource
 
   TITLE_LENGTH_MAX = 255
   TITLE_HTML_LENGTH_MAX = 800
   DESCRIPTION_LENGTH_MAX = 1.megabyte
   DESCRIPTION_HTML_LENGTH_MAX = 5.megabytes
-  SEARCHABLE_FIELDS = %w(title description).freeze
+  SEARCHABLE_FIELDS = %w[title description].freeze
+  MAX_NUMBER_OF_ASSIGNEES_OR_REVIEWERS = 200
 
   STATE_ID_MAP = {
     opened: 1,
@@ -83,18 +88,18 @@ module Issuable
     has_one :metrics, inverse_of: model_name.singular.to_sym, autosave: true
 
     delegate :name,
-             :email,
-             :public_email,
-             to: :author,
-             allow_nil: true,
-             prefix: true
+      :email,
+      :public_email,
+      to: :author,
+      allow_nil: true,
+      prefix: true
 
     validates :author, presence: true
     validates :title, presence: true, length: { maximum: TITLE_LENGTH_MAX }
-    # we validate the description against DESCRIPTION_LENGTH_MAX only for Issuables being created
-    # to avoid breaking the existing Issuables which may have their descriptions longer
-    validates :description, length: { maximum: DESCRIPTION_LENGTH_MAX }, allow_blank: true, on: :create
-    validate :description_max_length_for_new_records_is_valid, on: :update
+    # we validate the description against DESCRIPTION_LENGTH_MAX only for Issuables being created and on updates if
+    # the description changes to avoid breaking the existing Issuables which may have their descriptions longer
+    validates :description, bytesize: { maximum: -> { DESCRIPTION_LENGTH_MAX } }, if: :validate_description_length?
+    validate :validate_assignee_size_length, unless: :importing?
 
     before_validation :truncate_description_on_import!
 
@@ -102,27 +107,28 @@ module Issuable
     scope :not_authored, ->(user) { where.not(author_id: user) }
     scope :recent, -> { reorder(id: :desc) }
     scope :of_projects, ->(ids) { where(project_id: ids) }
+    scope :with_state, ->(*states) { where(state_id: states.flatten.map { |s| STATE_ID_MAP[s] }) }
     scope :opened, -> { with_state(:opened) }
     scope :closed, -> { with_state(:closed) }
 
     # rubocop:disable GitlabSecurity/SqlInjection
-    # The `to_ability_name` method is not an user input.
+    # The `assignee_association_name` method is not an user input.
     scope :assigned, -> do
-      where("EXISTS (SELECT TRUE FROM #{to_ability_name}_assignees WHERE #{to_ability_name}_id = #{to_ability_name}s.id)")
+      where("EXISTS (SELECT TRUE FROM #{assignee_association_name}_assignees WHERE #{assignee_association_name}_id = #{assignee_association_name}s.id)")
     end
     scope :unassigned, -> do
-      where("NOT EXISTS (SELECT TRUE FROM #{to_ability_name}_assignees WHERE #{to_ability_name}_id = #{to_ability_name}s.id)")
+      where("NOT EXISTS (SELECT TRUE FROM #{assignee_association_name}_assignees WHERE #{assignee_association_name}_id = #{assignee_association_name}s.id)")
     end
     scope :assigned_to, ->(users) do
-      assignees_class = self.reflect_on_association("#{to_ability_name}_assignees").klass
+      assignees_class = self.reflect_on_association("#{assignee_association_name}_assignees").klass
 
-      condition = assignees_class.where(user_id: users).where(Arel.sql("#{to_ability_name}_id = #{to_ability_name}s.id"))
+      condition = assignees_class.where(user_id: users).where(Arel.sql("#{assignee_association_name}_id = #{assignee_association_name}s.id"))
       where(condition.arel.exists)
     end
     scope :not_assigned_to, ->(users) do
-      assignees_class = self.reflect_on_association("#{to_ability_name}_assignees").klass
+      assignees_class = self.reflect_on_association("#{assignee_association_name}_assignees").klass
 
-      condition = assignees_class.where(user_id: users).where(Arel.sql("#{to_ability_name}_id = #{to_ability_name}s.id"))
+      condition = assignees_class.where(user_id: users).where(Arel.sql("#{assignee_association_name}_id = #{assignee_association_name}s.id"))
       where(condition.arel.exists.not)
     end
     # rubocop:enable GitlabSecurity/SqlInjection
@@ -166,6 +172,15 @@ module Issuable
       def locking_enabled?
         false
       end
+
+      def max_number_of_assignees_or_reviewers_message
+        # Assignees will be included in https://gitlab.com/gitlab-org/gitlab/-/issues/368936
+        format(_("total must be less than or equal to %{size}"), size: MAX_NUMBER_OF_ASSIGNEES_OR_REVIEWERS)
+      end
+    end
+
+    def issuable_type
+      self.class.name.underscore
     end
 
     # We want to use optimistic lock for cases when only title or description are involved
@@ -191,17 +206,15 @@ module Issuable
     end
 
     def supports_severity?
-      incident?
+      incident_type_issue?
     end
 
     def supports_escalation?
-      return false unless ::Feature.enabled?(:incident_escalations, project)
-
-      incident?
+      incident_type_issue?
     end
 
-    def incident?
-      is_a?(Issue) && super
+    def incident_type_issue?
+      is_a?(Issue) && work_item_type&.incident?
     end
 
     def supports_issue_type?
@@ -212,28 +225,55 @@ module Issuable
       false
     end
 
+    def supports_confidentiality?
+      false
+    end
+
+    def supports_lock_on_merge?
+      false
+    end
+
     def severity
       return IssuableSeverity::DEFAULT unless supports_severity?
 
       issuable_severity&.severity || IssuableSeverity::DEFAULT
     end
 
+    def exportable_restricted_associations
+      super + [:notes]
+    end
+
+    def importing_or_transitioning?
+      importing? || transitioning?
+    end
+
     private
 
-    def description_max_length_for_new_records_is_valid
-      if new_record? && description.length > Issuable::DESCRIPTION_LENGTH_MAX
-        errors.add(:description, :too_long, count: Issuable::DESCRIPTION_LENGTH_MAX)
-      end
+    def validate_description_length?
+      return false unless description_changed?
+
+      previous_description = changes['description'].first
+      # previous_description will be nil for new records
+      return true if previous_description.blank?
+
+      previous_description.bytesize <= DESCRIPTION_LENGTH_MAX
     end
 
     def truncate_description_on_import!
       self.description = description&.slice(0, Issuable::DESCRIPTION_LENGTH_MAX) if importing?
     end
+
+    def validate_assignee_size_length
+      return true unless assignees.size > MAX_NUMBER_OF_ASSIGNEES_OR_REVIEWERS
+
+      errors.add :assignees,
+        ->(_object, _data) { self.class.max_number_of_assignees_or_reviewers_message }
+    end
   end
 
   class_methods do
     def participant_includes
-      [:assignees, :author, { notes: [:author, :award_emoji] }]
+      [:author, :award_emoji, { notes: [:author, :award_emoji, :system_note_metadata] }]
     end
 
     # Searches for records with a matching title.
@@ -318,12 +358,15 @@ module Issuable
       # 2. We can't ORDER BY a column that isn't in the GROUP BY and doesn't
       #    have an aggregate function applied, so we do a useless MIN() instead.
       #
-      milestones_due_date = 'MIN(milestones.due_date)'
+      milestones_due_date = Milestone.arel_table[:due_date].minimum
+      milestones_due_date_with_direction = direction == 'ASC' ? milestones_due_date.asc : milestones_due_date.desc
+
+      highest_priority_arel = Arel.sql('highest_priority')
+      highest_priority_arel_with_direction = direction == 'ASC' ? highest_priority_arel.asc : highest_priority_arel.desc
 
       order_milestone_due_asc
         .order_labels_priority(excluded_labels: excluded_labels, extra_select_columns: [milestones_due_date])
-        .reorder(Gitlab::Database.nulls_last_order(milestones_due_date, direction),
-                Gitlab::Database.nulls_last_order('highest_priority', direction))
+        .reorder(milestones_due_date_with_direction.nulls_last, highest_priority_arel_with_direction.nulls_last)
     end
 
     def order_labels_priority(direction = 'ASC', excluded_labels: [], extra_select_columns: [], with_cte: false)
@@ -341,12 +384,15 @@ module Issuable
 
       extra_select_columns.unshift("highest_priorities.label_priority as highest_priority")
 
+      highest_priority_arel = Arel.sql('highest_priority')
+      highest_priority_arel_with_direction = direction == 'ASC' ? highest_priority_arel.asc : highest_priority_arel.desc
+
       select(issuable_columns)
         .select(extra_select_columns)
-        .from("#{table_name}")
+        .from(table_name.to_s)
         .joins("JOIN LATERAL(#{highest_priority}) as highest_priorities ON TRUE")
         .group(group_columns)
-        .reorder(Gitlab::Database.nulls_last_order('highest_priority', direction))
+        .reorder(highest_priority_arel_with_direction.nulls_last)
     end
 
     def with_label(title, sort = nil)
@@ -374,14 +420,16 @@ module Issuable
       sort = sort.to_s
       grouping_columns = [arel_table[:id]]
 
-      if %w(milestone_due_desc milestone_due_asc milestone).include?(sort)
+      if %w[milestone_due_desc milestone_due_asc milestone].include?(sort)
         milestone_table = Milestone.arel_table
         grouping_columns << milestone_table[:id]
         grouping_columns << milestone_table[:due_date]
-      elsif %w(merged_at_desc merged_at_asc).include?(sort)
+      elsif %w[merged_at_desc merged_at_asc merged_at].include?(sort)
+        grouping_columns << MergeRequest::Metrics.arel_table[:id]
         grouping_columns << MergeRequest::Metrics.arel_table[:merged_at]
-      elsif %w(closed_at_desc closed_at_asc).include?(sort)
-        grouping_columns << MergeRequest::Metrics.arel_table[:closed_at]
+      elsif %w[closed_at_desc closed_at_asc closed_at].include?(sort)
+        grouping_columns << MergeRequest::Metrics.arel_table[:id]
+        grouping_columns << MergeRequest::Metrics.arel_table[:latest_closed_at]
       end
 
       grouping_columns
@@ -407,6 +455,10 @@ module Issuable
     def parent_class
       ::Project
     end
+
+    def assignee_association_name
+      to_ability_name
+    end
   end
 
   def state
@@ -422,19 +474,16 @@ module Issuable
   end
 
   def assignee_or_author?(user)
-    author_id == user.id || assignees.exists?(user.id)
+    author_id == user.id || assignee?(user)
   end
 
-  def today?
-    Date.today == created_at.to_date
-  end
-
-  def created_hours_ago
-    (Time.now.utc.to_i - created_at.utc.to_i) / 3600
-  end
-
-  def new?
-    created_hours_ago < 24
+  def assignee?(user)
+    # Necessary so we can preload the association and avoid N + 1 queries
+    if assignees.loaded?
+      assignees.to_a.include?(user)
+    else
+      assignees.exists?(user.id)
+    end
   end
 
   def open?
@@ -465,55 +514,59 @@ module Issuable
     false
   end
 
+  # rubocop:disable Metrics/PerceivedComplexity -- Related issue: https://gitlab.com/gitlab-org/gitlab/-/issues/437679
   def hook_association_changes(old_associations)
     changes = {}
 
-    old_labels = old_associations.fetch(:labels, labels)
-    old_assignees = old_associations.fetch(:assignees, assignees)
-    old_severity = old_associations.fetch(:severity, severity)
-
-    if old_labels != labels
-      changes[:labels] = [old_labels.map(&:hook_attrs), labels.map(&:hook_attrs)]
+    if old_assignees(old_associations) != assignees
+      changes[:assignees] = [old_assignees(old_associations).map(&:hook_attrs), assignees.map(&:hook_attrs)]
     end
 
-    if old_assignees != assignees
-      changes[:assignees] = [old_assignees.map(&:hook_attrs), assignees.map(&:hook_attrs)]
+    if old_labels(old_associations) != labels
+      changes[:labels] = [old_labels(old_associations).map(&:hook_attrs), labels.map(&:hook_attrs)]
     end
 
-    if supports_severity? && old_severity != severity
-      changes[:severity] = [old_severity, severity]
+    if supports_severity? && old_severity(old_associations) != severity
+      changes[:severity] = [old_severity(old_associations), severity]
     end
 
-    if supports_escalation? && escalation_status
-      current_escalation_status = escalation_status.status_name
-      old_escalation_status = old_associations.fetch(:escalation_status, current_escalation_status)
-
-      if old_escalation_status != current_escalation_status
-        changes[:escalation_status] = [old_escalation_status, current_escalation_status]
-      end
+    if is_a?(MergeRequest) && old_target_branch(old_associations) != target_branch
+      changes[:target_branch] = [old_target_branch(old_associations), target_branch]
     end
 
-    if self.respond_to?(:total_time_spent)
-      old_total_time_spent = old_associations.fetch(:total_time_spent, total_time_spent)
-      old_time_change = old_associations.fetch(:time_change, time_change)
+    if supports_escalation? && escalation_status && old_escalation_status(old_associations) != escalation_status.status_name
+      changes[:escalation_status] = [old_escalation_status(old_associations), escalation_status.status_name]
+    end
 
-      if old_total_time_spent != total_time_spent
-        changes[:total_time_spent] = [old_total_time_spent, total_time_spent]
-        changes[:time_change] = [old_time_change, time_change]
-      end
+    if self.respond_to?(:total_time_spent) && old_total_time_spent(old_associations) != total_time_spent
+      changes[:total_time_spent] = [old_total_time_spent(old_associations), total_time_spent]
+      changes[:time_change] = [old_time_change(old_associations), time_change]
+    end
+
+    changes
+  end
+  # rubocop:enable Metrics/PerceivedComplexity
+
+  def hook_reviewer_changes(old_associations)
+    changes = {}
+    old_reviewers = old_associations.fetch(:reviewers, reviewers)
+
+    if old_reviewers != reviewers
+      changes[:reviewers] = [old_reviewers.map(&:hook_attrs), reviewers.map(&:hook_attrs)]
     end
 
     changes
   end
 
-  def to_hook_data(user, old_associations: {})
-    changes = previous_changes
+  def to_hook_data(user, old_associations: {}, action: nil)
+    changes = reportable_changes
 
     if old_associations.present?
       changes.merge!(hook_association_changes(old_associations))
+      changes.merge!(hook_reviewer_changes(old_associations)) if allows_reviewers?
     end
 
-    Gitlab::HookData::IssuableBuilder.new(self).build(user: user, changes: changes)
+    Gitlab::DataBuilder::Issuable.new(self).build(user: user, changes: changes, action: action)
   end
 
   def labels_array
@@ -522,6 +575,14 @@ module Issuable
 
   def label_names
     labels.order('title ASC').pluck(:title)
+  end
+
+  def labels_hook_attrs
+    labels.map(&:hook_attrs)
+  end
+
+  def allows_scoped_labels?
+    false
   end
 
   # Convert this Issuable class name to a format usable by Ability definitions
@@ -537,7 +598,7 @@ module Issuable
   # Returns a Hash of attributes to be used for Twitter card metadata
   def card_attributes
     {
-      'Author'   => author.try(:name),
+      'Author' => author.try(:name),
       'Assignee' => assignee_list
     }
   end
@@ -571,8 +632,10 @@ module Issuable
   end
 
   def updated_tasks
-    Taskable.get_updated_tasks(old_content: previous_changes['description'].first,
-                               new_content: description)
+    Taskable.get_updated_tasks(
+      old_content: previous_changes['description'].first,
+      new_content: description
+    )
   end
 
   ##
@@ -591,15 +654,52 @@ module Issuable
     false
   end
 
-  def ensure_metrics
-    self.metrics || create_metrics
-  end
-
   ##
   # Overridden in MergeRequest
   #
   def draftless_title_changed(old_title)
     old_title != title
+  end
+
+  def read_ability_for(participable_source)
+    return super if participable_source == self
+    return super if participable_source.is_a?(Note) && participable_source.system?
+
+    name =  participable_source.try(:issuable_ability_name) || :read_issuable_participables
+
+    { name: name, subject: self }
+  end
+
+  def supports_health_status?
+    false
+  end
+
+  def old_assignees(assoc)
+    @_old_assignees ||= assoc.fetch(:assignees, assignees)
+  end
+
+  def old_labels(assoc)
+    @_old_labels ||= assoc.fetch(:labels, labels)
+  end
+
+  def old_severity(assoc)
+    @_old_severity ||= assoc.fetch(:severity, severity)
+  end
+
+  def old_target_branch(assoc)
+    @_old_target_branch ||= assoc.fetch(:target_branch, target_branch)
+  end
+
+  def old_escalation_status(assoc)
+    @_old_escalation_status ||= assoc.fetch(:escalation_status, escalation_status.status_name) # rubocop:disable Gitlab/ModuleWithInstanceVariables -- This is only used here
+  end
+
+  def old_total_time_spent(assoc)
+    @_old_total_time_spent ||= assoc.fetch(:total_time_spent, total_time_spent) # rubocop:disable Gitlab/ModuleWithInstanceVariables -- This is only used here
+  end
+
+  def old_time_change(assoc)
+    @_old_time_change ||= assoc.fetch(:time_change, time_change) # rubocop:disable Gitlab/ModuleWithInstanceVariables -- This is only used here
   end
 end
 

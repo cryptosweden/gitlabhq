@@ -25,10 +25,6 @@ describe('NewBranchForm', () => {
     });
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('page title', () => {
     it.each`
       initialBranchName    | pageTitle
@@ -51,7 +47,7 @@ describe('NewBranchForm', () => {
     expect(findEmptyState().exists()).toBe(false);
   });
 
-  describe('when `sucesss` event emitted from NewBranchForm', () => {
+  describe('when `success` event emitted from NewBranchForm', () => {
     it('renders the success state', async () => {
       createComponent();
 

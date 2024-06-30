@@ -12,37 +12,30 @@ image: python:latest
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
-# Pip's cache doesn't store the python packages
-# https://pip.pypa.io/en/stable/reference/pip_install/#caching
-#
-# If you want to also cache the installed packages, you have to install
-# them in a virtualenv and cache it as well.
+# https://pip.pypa.io/en/stable/topics/caching/
 cache:
   paths:
     - .cache/pip
-    - venv/
 
 before_script:
-  - python --version  # For debugging
+  - python --version ; pip --version  # For debugging
   - pip install virtualenv
   - virtualenv venv
   - source venv/bin/activate
 
 test:
   script:
-    - python setup.py test
-    - pip install tox flake8  # you can also use tox
-    - tox -e py36,flake8
+    - pip install ruff tox  # you can also use tox
+    - pip install --editable ".[test]"
+    - tox -e py,ruff
 
 run:
   script:
-    - python setup.py bdist_wheel
-    # an alternative approach is to install and run:
-    - pip install dist/*
+    - pip install .
     # run the command here
   artifacts:
     paths:
-      - dist/*.whl
+      - build/*
 
 pages:
   script:
@@ -55,3 +48,8 @@ pages:
       - public
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+deploy:
+  stage: deploy
+  script: echo "Define your deployment script!"
+  environment: production

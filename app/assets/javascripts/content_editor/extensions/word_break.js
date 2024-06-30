@@ -10,7 +10,7 @@ export default Node.create({
   addOptions() {
     return {
       HTMLAttributes: {
-        class: 'gl-display-inline-flex gl-px-1 gl-bg-blue-100 gl-rounded-base gl-font-sm',
+        class: 'gl-inline-flex gl-px-1 gl-bg-blue-100 gl-rounded-base gl-font-sm',
       },
     };
   },
@@ -24,7 +24,7 @@ export default Node.create({
   },
 
   addInputRules() {
-    const inputRegex = /^<wbr>$/;
+    const inputRegex = /<wbr>$/;
 
     return [nodeInputRule({ find: inputRegex, type: this.type })];
   },

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Setting Draft status of a merge request' do
+RSpec.describe 'Setting Draft status of a merge request', feature_category: :code_review_workflow do
   include GraphqlHelpers
 
   let(:current_user) { create(:user) }
@@ -15,15 +15,17 @@ RSpec.describe 'Setting Draft status of a merge request' do
       project_path: project.full_path,
       iid: merge_request.iid.to_s
     }
-    graphql_mutation(:merge_request_set_draft, variables.merge(input),
-                     <<-QL.strip_heredoc
-                       clientMutationId
-                       errors
-                       mergeRequest {
-                         id
-                         title
-                       }
-                     QL
+    graphql_mutation(
+      :merge_request_set_draft,
+      variables.merge(input),
+      <<-QL.strip_heredoc
+        clientMutationId
+        errors
+        mergeRequest {
+          id
+          title
+        }
+      QL
     )
   end
 
@@ -64,7 +66,7 @@ RSpec.describe 'Setting Draft status of a merge request' do
       post_graphql_mutation(mutation, current_user: current_user)
 
       expect(response).to have_gitlab_http_status(:success)
-      expect(mutation_response['mergeRequest']['title']).not_to start_with(/draft\:/)
+      expect(mutation_response['mergeRequest']['title']).not_to start_with(/draft:/)
     end
 
     it 'unmarks the merge request as `Draft`' do

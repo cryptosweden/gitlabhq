@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe DeployToken do
+RSpec.describe DeployToken, feature_category: :continuous_delivery do
   subject(:deploy_token) { create(:deploy_token) }
 
   it { is_expected.to have_many :project_deploy_tokens }
@@ -73,18 +73,16 @@ RSpec.describe DeployToken do
 
   describe '#ensure_token' do
     it 'ensures a token' do
-      deploy_token.token = nil
+      deploy_token.token_encrypted = nil
       deploy_token.save!
 
-      expect(deploy_token.token).not_to be_empty
+      expect(deploy_token.token_encrypted).not_to be_empty
     end
   end
 
   describe '#ensure_at_least_one_scope' do
     context 'with at least one scope' do
-      it 'is valid' do
-        is_expected.to be_valid
-      end
+      it { is_expected.to be_valid }
     end
 
     context 'with no scopes' do
@@ -427,7 +425,7 @@ RSpec.describe DeployToken do
   end
 
   describe '.gitlab_deploy_token' do
-    let(:project) { create(:project ) }
+    let(:project) { create(:project) }
 
     subject { project.deploy_tokens.gitlab_deploy_token }
 
@@ -468,5 +466,19 @@ RSpec.describe DeployToken do
         subject
       end
     end
+  end
+
+  describe '.impersonated?' do
+    it 'returns false' do
+      expect(subject.impersonated?).to be(false)
+    end
+  end
+
+  describe '.token' do
+    # Specify a blank token_encrypted so that the model's method is used
+    # instead of the factory value
+    subject(:plaintext) { create(:deploy_token, token_encrypted: nil).token }
+
+    it { is_expected.to match(/gldt-[A-Za-z0-9_-]{20}/) }
   end
 end

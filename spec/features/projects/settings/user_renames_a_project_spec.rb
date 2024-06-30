@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Settings > User renames a project' do
+RSpec.describe 'Projects > Settings > User renames a project', feature_category: :groups_and_projects do
   let(:user) { create(:user) }
   let(:project) { create(:project, namespace: user.namespace, path: 'gitlab', name: 'sample') }
 
@@ -37,7 +37,7 @@ RSpec.describe 'Projects > Settings > User renames a project' do
     it 'shows errors for invalid project path' do
       change_path(project, 'foo&bar')
 
-      expect(page).to have_field 'Path', with: 'gitlab'
+      expect(page).to have_field 'Path', with: project.path
       expect(page).to have_content "Path can contain only letters, digits, '_', '-' and '.'. Cannot start with '-', end in '.git' or end in '.atom'"
     end
   end
@@ -51,23 +51,23 @@ RSpec.describe 'Projects > Settings > User renames a project' do
     expect(page).to have_content "Project 'hello world' was successfully updated."
   end
 
-  context 'when changing project name' do
+  context 'when changing project name', :js do
     it 'renames the repository' do
       change_name(project, 'bar')
-      expect(find('.breadcrumbs')).to have_content(project.name)
+      expect(find_by_testid('breadcrumb-links')).to have_content(project.name)
     end
 
     context 'with emojis' do
       it 'shows error for invalid project name' do
         change_name(project, '🧮 foo bar ☁️')
         expect(page).to have_field 'Project name', with: '🧮 foo bar ☁️'
-        expect(page).not_to have_content "Name can contain only letters, digits, emojis '_', '.', dash and space. It must start with letter, digit, emoji or '_'."
+        expect(page).not_to have_content "Name can contain only letters, digits, emoji '_', '.', dash and space. It must start with letter, digit, emoji or '_'."
       end
     end
   end
 
-  context 'when changing project path' do
-    let(:project) { create(:project, :repository, namespace: user.namespace, name: 'gitlabhq') }
+  context 'when changing project path', :js do
+    let(:project) { create(:project, :repository, namespace: user.namespace, path: 'gitlabhq') }
 
     before(:context) do
       TestEnv.clean_test_path
@@ -83,7 +83,7 @@ RSpec.describe 'Projects > Settings > User renames a project' do
       visit new_path
 
       expect(page).to have_current_path(new_path, ignore_query: true)
-      expect(find('.breadcrumbs')).to have_content(project.name)
+      expect(find_by_testid('breadcrumb-links')).to have_content(project.name)
     end
 
     it 'the project is accessible via a redirect from the old path' do
@@ -93,7 +93,7 @@ RSpec.describe 'Projects > Settings > User renames a project' do
       visit old_path
 
       expect(page).to have_current_path(new_path, ignore_query: true)
-      expect(find('.breadcrumbs')).to have_content(project.name)
+      expect(find_by_testid('breadcrumb-links')).to have_content(project.name)
     end
 
     context 'and a new project is added with the same path' do
@@ -104,7 +104,7 @@ RSpec.describe 'Projects > Settings > User renames a project' do
         visit old_path
 
         expect(page).to have_current_path(old_path, ignore_query: true)
-        expect(find('.breadcrumbs')).to have_content(new_project.name)
+        expect(find_by_testid('breadcrumb-links')).to have_content(new_project.name)
       end
     end
   end

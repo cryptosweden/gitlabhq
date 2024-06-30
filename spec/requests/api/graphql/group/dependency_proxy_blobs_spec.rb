@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'getting dependency proxy blobs in a group' do
+RSpec.describe 'getting dependency proxy blobs in a group', feature_category: :virtual_registry do
   using RSpec::Parameterized::TableSyntax
   include GraphqlHelpers
 
@@ -26,6 +26,7 @@ RSpec.describe 'getting dependency proxy blobs in a group' do
       #{query_graphql_field('dependency_proxy_blobs', {}, dependency_proxy_blob_fields)}
       dependencyProxyBlobCount
       dependencyProxyTotalSize
+      dependencyProxyTotalSizeBytes
     GQL
   end
 
@@ -42,6 +43,7 @@ RSpec.describe 'getting dependency proxy blobs in a group' do
   let(:dependency_proxy_blobs_response) { graphql_data.dig('group', 'dependencyProxyBlobs', 'edges') }
   let(:dependency_proxy_blob_count_response) { graphql_data.dig('group', 'dependencyProxyBlobCount') }
   let(:dependency_proxy_total_size_response) { graphql_data.dig('group', 'dependencyProxyTotalSize') }
+  let(:dependency_proxy_total_size_bytes_response) { graphql_data.dig('group', 'dependencyProxyTotalSizeBytes') }
 
   before do
     stub_config(dependency_proxy: { enabled: true })
@@ -75,7 +77,7 @@ RSpec.describe 'getting dependency proxy blobs in a group' do
     with_them do
       before do
         group.update_column(:visibility_level, Gitlab::VisibilityLevel.const_get(group_visibility.to_s.upcase, false))
-        group.add_user(user, role) unless role == :anonymous
+        group.add_member(user, role) unless role == :anonymous
       end
 
       it 'return the proper response' do
@@ -121,7 +123,58 @@ RSpec.describe 'getting dependency proxy blobs in a group' do
 
   it 'returns the total size' do
     subject
+    expected_size = ActiveSupport::NumberHelper.number_to_human_size(blobs.inject(0) { |sum, blob| sum + blob.size })
+    expect(dependency_proxy_total_size_response).to eq(expected_size)
+  end
+
+  it 'returns the total size in bytes' do
+    subject
     expected_size = blobs.inject(0) { |sum, blob| sum + blob.size }
-    expect(dependency_proxy_total_size_response).to eq(ActiveSupport::NumberHelper.number_to_human_size(expected_size))
+    expect(dependency_proxy_total_size_bytes_response.to_i).to eq(expected_size)
+  end
+
+  context 'with a giant size blob' do
+    let_it_be(:owner) { create(:user) }
+    let_it_be_with_reload(:group) { create(:group) }
+    let_it_be(:blob) do
+      create(:dependency_proxy_blob, file_name: 'blob2.json', group: group, size: GraphQL::Types::Int::MAX + 1)
+    end
+
+    let_it_be(:blobs) { [blob].flatten }
+
+    context 'using dependencyProxyTotalSizeInBytes' do
+      let(:fields) do
+        <<~GQL
+          #{query_graphql_field('dependency_proxy_blobs', {}, dependency_proxy_blob_fields)}
+          dependencyProxyTotalSizeInBytes
+        GQL
+      end
+
+      it 'returns an error' do
+        post_graphql(query, current_user: user, variables: variables)
+
+        err_message = 'Integer out of bounds'
+        expect(graphql_errors).to include(a_hash_including('message' => a_string_including(err_message)))
+      end
+    end
+
+    context 'using dependencyProxyTotalSizeBytes' do
+      let(:fields) do
+        <<~GQL
+          #{query_graphql_field('dependency_proxy_blobs', {}, dependency_proxy_blob_fields)}
+          dependencyProxyTotalSizeBytes
+        GQL
+      end
+
+      let(:dependency_proxy_total_size_bytes_response) { graphql_data.dig('group', 'dependencyProxyTotalSizeBytes') }
+
+      it 'returns the total size in bytes as a string' do
+        post_graphql(query, current_user: user, variables: variables)
+
+        expect(graphql_errors).to be_nil
+        expected_size = String(blobs.inject(0) { |sum, blob| sum + blob.size })
+        expect(dependency_proxy_total_size_bytes_response).to eq(expected_size)
+      end
+    end
   end
 end

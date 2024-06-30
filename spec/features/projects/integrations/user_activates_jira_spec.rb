@@ -2,12 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User activates Jira', :js do
+RSpec.describe 'User activates Jira', :js, feature_category: :integrations do
   include_context 'project integration activation'
   include_context 'project integration Jira context'
 
   before do
     stub_request(:get, test_url).to_return(body: { key: 'value' }.to_json)
+    stub_request(:get, client_url).to_return(body: { key: 'value' }.to_json)
   end
 
   describe 'user tests Jira integration' do
@@ -20,15 +21,16 @@ RSpec.describe 'User activates Jira', :js do
 
       it 'activates the Jira integration' do
         expect(page).to have_content('Jira settings saved and active.')
-        expect(page).to have_current_path(edit_project_integration_path(project, :jira), ignore_query: true)
+        expect(page).to have_current_path(edit_project_settings_integration_path(project, :jira), ignore_query: true)
       end
 
       unless Gitlab.ee?
         it 'adds Jira link to sidebar menu' do
-          page.within('.nav-sidebar') do
-            expect(page).not_to have_link('Jira issues', visible: false)
-            expect(page).not_to have_link('Open Jira', href: url, visible: false)
-            expect(page).to have_link('Jira', href: url)
+          within_testid('super-sidebar') do
+            click_button 'Plan'
+            expect(page).not_to have_link('Jira issues')
+            expect(page).not_to have_link('Open Jira')
+            expect(page).to have_link(exact_text: 'Jira', href: url)
           end
         end
       end
@@ -38,30 +40,32 @@ RSpec.describe 'User activates Jira', :js do
       it 'shows errors when some required fields are not filled in' do
         visit_project_integration('Jira')
 
-        fill_in 'service_password', with: 'password'
+        fill_in 'service-password', with: 'password'
         click_test_integration
 
-        page.within('[data-testid="integration-settings-form"]') do
+        within_testid 'integration-settings-form' do
           expect(page).to have_content('This field is required.')
         end
       end
 
       it 'activates the Jira integration' do
-        stub_request(:get, test_url).with(basic_auth: %w(username password))
-          .to_raise(JIRA::HTTPError.new(double(message: 'message')))
+        stub_request(:get, test_url).with(basic_auth: %w[username password])
+          .to_raise(JIRA::HTTPError.new(double(message: 'message', code: '200')))
+        stub_request(:get, client_url).with(basic_auth: %w[username password])
+          .to_raise(JIRA::HTTPError.new(double(message: 'message', code: '200')))
 
         visit_project_integration('Jira')
         fill_form
         click_test_then_save_integration
 
         expect(page).to have_content('Jira settings saved and active.')
-        expect(page).to have_current_path(edit_project_integration_path(project, :jira), ignore_query: true)
+        expect(page).to have_current_path(edit_project_settings_integration_path(project, :jira), ignore_query: true)
       end
     end
   end
 
   describe 'user disables the Jira integration' do
-    include JiraServiceHelper
+    include JiraIntegrationHelpers
 
     before do
       stub_jira_integration_test
@@ -72,12 +76,13 @@ RSpec.describe 'User activates Jira', :js do
 
     it 'saves but does not activate the Jira integration' do
       expect(page).to have_content('Jira settings saved, but not active.')
-      expect(page).to have_current_path(edit_project_integration_path(project, :jira), ignore_query: true)
+      expect(page).to have_current_path(edit_project_settings_integration_path(project, :jira), ignore_query: true)
     end
 
     it 'does not show the Jira link in the menu' do
-      page.within('.nav-sidebar') do
-        expect(page).not_to have_link('Jira', href: url)
+      within_testid('super-sidebar') do
+        click_button 'Plan'
+        expect(page).not_to have_link('Jira')
       end
     end
   end
@@ -96,7 +101,7 @@ RSpec.describe 'User activates Jira', :js do
       choose 'Use custom transitions'
       click_save_integration
 
-      within '[data-testid="issue-transition-mode"]' do
+      within_testid 'issue-transition-mode' do
         expect(page).to have_content('This field is required.')
       end
 

@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'getting Alert Management Alert Issue' do
+RSpec.describe 'getting Alert Management Alert Issue', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
-  let_it_be(:current_user) { create(:user) }
+  let_it_be(:current_user) { create(:user, developer_of: project) }
 
   let(:payload) { {} }
   let(:query) { 'avg(metric) > 1.0' }
@@ -33,10 +33,6 @@ RSpec.describe 'getting Alert Management Alert Issue' do
 
   let(:alerts) { graphql_data.dig('project', 'alertManagementAlerts', 'nodes') }
   let(:first_alert) { alerts.first }
-
-  before do
-    project.add_developer(current_user)
-  end
 
   context 'with gitlab alert' do
     before do

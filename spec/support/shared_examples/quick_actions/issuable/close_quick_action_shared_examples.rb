@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.shared_examples 'close quick action' do |issuable_type|
-  include Spec::Support::Helpers::Features::NotesHelpers
+  include Features::NotesHelpers
 
   before do
     project.add_maintainer(maintainer)
@@ -12,10 +12,10 @@ RSpec.shared_examples 'close quick action' do |issuable_type|
     before do
       case issuable_type
       when :merge_request
-        visit public_send('namespace_project_new_merge_request_path', project.namespace, project, new_url_opts)
+        visit public_send(:namespace_project_new_merge_request_path, project.namespace, project, new_url_opts)
         wait_for_all_requests
       when :issue
-        visit public_send('new_namespace_project_issue_path', project.namespace, project, new_url_opts)
+        visit public_send(:new_namespace_project_issue_path, project.namespace, project, new_url_opts)
         wait_for_all_requests
       end
     end
@@ -54,7 +54,7 @@ RSpec.shared_examples 'close quick action' do |issuable_type|
       expect(issuable).to be_closed
     end
 
-    context "when current user cannot close #{issuable_type}" do
+    context "when current user cannot close #{issuable_type}", :js do
       before do
         guest = create(:user)
         project.add_guest(guest)

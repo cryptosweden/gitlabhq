@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe ProjectTeam do
+RSpec.describe ProjectTeam, feature_category: :groups_and_projects do
   include ProjectForksHelper
 
   let(:maintainer) { create(:user) }
@@ -91,15 +91,18 @@ RSpec.describe ProjectTeam do
       let(:project) { create(:project, group: group) }
       let(:user1) { create(:user) }
       let(:user2) { create(:user) }
+      let(:user3) { create(:user) }
 
       before do
         group.add_owner(user1)
         group.add_owner(user2)
+        group.add_developer(user3)
       end
 
       specify { expect(project.team.owners).to contain_exactly(user1, user2) }
       specify { expect(project.team.owner?(user1)).to be_truthy }
       specify { expect(project.team.owner?(user2)).to be_truthy }
+      specify { expect(project.team.owner?(user3)).to be_falsey }
     end
   end
 
@@ -126,9 +129,12 @@ RSpec.describe ProjectTeam do
 
       it 'returns invited members of a group' do
         group_member = create(:group_member)
-        create(:project_group_link, group: group_member.group,
-                                    project: project,
-                                    group_access: Gitlab::Access::GUEST)
+        create(
+          :project_group_link,
+          group: group_member.group,
+          project: project,
+          group_access: Gitlab::Access::GUEST
+        )
 
         expect(project.team.members)
           .to contain_exactly(group_member.user, project.first_owner)
@@ -136,9 +142,12 @@ RSpec.describe ProjectTeam do
 
       it 'returns invited members of a group of a specified level' do
         group_member = create(:group_member)
-        create(:project_group_link, group: group_member.group,
-                                    project: project,
-                                    group_access: Gitlab::Access::REPORTER)
+        create(
+          :project_group_link,
+          group: group_member.group,
+          project: project,
+          group_access: Gitlab::Access::REPORTER
+        )
 
         expect(project.team.guests).to be_empty
         expect(project.team.reporters).to contain_exactly(group_member.user)
@@ -161,6 +170,66 @@ RSpec.describe ProjectTeam do
         expect(project.team.guests).to be_empty
         expect(project.team.reporters).to contain_exactly(group_member.user)
       end
+    end
+  end
+
+  describe '#import_team' do
+    let_it_be(:source_project) { create(:project) }
+    let_it_be(:target_project) { create(:project) }
+    let_it_be(:source_project_owner) { source_project.first_owner }
+    let_it_be(:source_project_developer) { create(:user) { |user| source_project.add_developer(user) } }
+    let_it_be(:current_user) { create(:user) { |user| target_project.add_maintainer(user) } }
+    let(:imported_members) { [source_project_owner.members.last, source_project_developer.members.last] }
+
+    subject(:import) { target_project.team.import(source_project, current_user) }
+
+    it 'matches the imported members' do
+      is_expected.to match_array(imported_members)
+    end
+
+    it 'target project includes source member with the same access' do
+      import
+
+      imported_member_access = target_project.members.find_by!(user: source_project_developer).access_level
+      expect(imported_member_access).to eq(Gitlab::Access::DEVELOPER)
+    end
+
+    it 'does not change the source project members' do
+      import
+
+      expect(source_project.users).to include(source_project_developer)
+      expect(source_project.users).not_to include(current_user)
+    end
+
+    shared_examples 'imports source owners with correct access' do
+      specify do
+        import
+
+        source_owner_access_in_target = target_project.members.find_by!(user: source_project_owner).access_level
+        expect(source_owner_access_in_target).to eq(target_access_level)
+      end
+    end
+
+    context 'when importer is a maintainer in target project' do
+      it_behaves_like 'imports source owners with correct access' do
+        let(:target_access_level) { Gitlab::Access::MAINTAINER }
+      end
+    end
+
+    context 'when importer is an owner in target project' do
+      before do
+        target_project.add_owner(current_user)
+      end
+
+      it_behaves_like 'imports source owners with correct access' do
+        let(:target_access_level) { Gitlab::Access::OWNER }
+      end
+    end
+
+    context 'when source_project does not exist' do
+      let_it_be(:source_project) { nil }
+
+      it { is_expected.to eq(false) }
     end
   end
 
@@ -251,59 +320,84 @@ RSpec.describe ProjectTeam do
     end
   end
 
-  describe '#add_users' do
+  describe '#add_members' do
     let(:user1) { create(:user) }
     let(:user2) { create(:user) }
     let(:project) { create(:project) }
 
     it 'add the given users to the team' do
-      project.team.add_users([user1, user2], :reporter)
+      project.team.add_members([user1, user2], :reporter)
 
       expect(project.team.reporter?(user1)).to be(true)
       expect(project.team.reporter?(user2)).to be(true)
     end
-
-    context 'when `tasks_to_be_done` and `tasks_project_id` are passed' do
-      before do
-        project.team.add_users([user1], :developer, tasks_to_be_done: %w(ci code), tasks_project_id: project.id)
-      end
-
-      it 'creates a member_task with the correct attributes', :aggregate_failures do
-        member = project.project_members.last
-
-        expect(member.tasks_to_be_done).to match_array([:ci, :code])
-        expect(member.member_task.project).to eq(project)
-      end
-    end
   end
 
-  describe '#add_user' do
+  describe '#add_member' do
     let(:user) { create(:user) }
     let(:project) { create(:project) }
 
     it 'add the given user to the team' do
-      project.team.add_user(user, :reporter)
+      project.team.add_member(user, :reporter)
 
       expect(project.team.reporter?(user)).to be(true)
     end
   end
 
-  describe "#human_max_access" do
-    it 'returns Maintainer role' do
-      user = create(:user)
-      group = create(:group)
-      project = create(:project, namespace: group)
+  describe '#has_user?' do
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project, namespace: group) }
+    let_it_be(:user) { create(:user) }
+    let_it_be(:user2) { create(:user) }
+    let_it_be(:invited_project_member) { create(:project_member, :owner, :invited, project: project) }
 
+    subject { project.team.has_user?(user) }
+
+    context 'when the user is a member' do
+      before_all do
+        project.add_developer(user)
+      end
+
+      it { is_expected.to be_truthy }
+      it { expect(group.has_user?(user2)).to be_falsey }
+    end
+
+    context 'when user is a member with minimal access' do
+      before_all do
+        project.add_member(user, GroupMember::MINIMAL_ACCESS)
+      end
+
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when user is not a direct member of the project' do
+      before_all do
+        create(:group_member, :developer, user: user, source: group)
+      end
+
+      it { is_expected.to be_falsey }
+    end
+
+    context 'when the user is an invited member' do
+      it 'returns false when nil is passed' do
+        expect(invited_project_member.user).to eq(nil)
+        expect(project.team.has_user?(invited_project_member.user)).to be_falsey
+      end
+    end
+  end
+
+  describe "#human_max_access" do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project, namespace: group) }
+
+    it 'returns Maintainer role' do
       group.add_maintainer(user)
 
       expect(project.team.human_max_access(user.id)).to eq 'Maintainer'
     end
 
     it 'returns Owner role' do
-      user = create(:user)
-      group = create(:group)
-      project = create(:project, namespace: group)
-
       group.add_owner(user)
 
       expect(project.team.human_max_access(user.id)).to eq 'Owner'
@@ -410,6 +504,22 @@ RSpec.describe ProjectTeam do
     end
   end
 
+  describe '#purge_member_access_cache_for_user_id', :request_store do
+    let(:project) { create(:project) }
+    let(:user_id) { 1 }
+    let(:resource_data) { { user_id => 50, 42 => 50 } }
+
+    before do
+      Gitlab::SafeRequestStore[project.max_member_access_for_resource_key(User)] = resource_data
+    end
+
+    it 'removes cached max access for user from store' do
+      project.team.purge_member_access_cache_for_user_id(user_id)
+
+      expect(Gitlab::SafeRequestStore[project.max_member_access_for_resource_key(User)]).to eq({ 42 => 50 })
+    end
+  end
+
   describe '#member?' do
     let(:group) { create(:group) }
     let(:developer) { create(:user) }
@@ -512,8 +622,7 @@ RSpec.describe ProjectTeam do
       all_users = users + [new_contributor.id, second_new_user.id]
       create(:merge_request, :merged, author: new_contributor, target_project: project, source_project: new_fork_project, target_branch: project.default_branch.to_s)
 
-      expected_all = expected.merge(new_contributor.id => true,
-                                    second_new_user.id => false)
+      expected_all = expected.merge(new_contributor.id => true, second_new_user.id => false)
 
       contributors(users)
 
@@ -610,8 +719,10 @@ RSpec.describe ProjectTeam do
         second_new_user = create(:user)
         all_users = users + [new_user.id, second_new_user.id]
 
-        expected_all = expected.merge(new_user.id => Gitlab::Access::NO_ACCESS,
-                                      second_new_user.id => Gitlab::Access::NO_ACCESS)
+        expected_all = expected.merge(
+          new_user.id => Gitlab::Access::NO_ACCESS,
+          second_new_user.id => Gitlab::Access::NO_ACCESS
+        )
 
         access_levels(users)
 

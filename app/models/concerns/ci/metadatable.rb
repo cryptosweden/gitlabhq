@@ -9,10 +9,13 @@ module Ci
     extend ActiveSupport::Concern
 
     included do
-      has_one :metadata, class_name: 'Ci::BuildMetadata',
-                         foreign_key: :build_id,
-                         inverse_of: :build,
-                         autosave: true
+      has_one :metadata,
+        ->(build) { where(partition_id: build.partition_id) },
+        class_name: 'Ci::BuildMetadata',
+        foreign_key: :build_id,
+        partition_foreign_key: :partition_id,
+        inverse_of: :build,
+        autosave: true
 
       accepts_nested_attributes_for :metadata
 
@@ -20,7 +23,14 @@ module Ci
       delegate :interruptible, to: :metadata, prefix: false, allow_nil: true
       delegate :environment_auto_stop_in, to: :metadata, prefix: false, allow_nil: true
       delegate :set_cancel_gracefully, to: :metadata, prefix: false, allow_nil: false
-      before_create :ensure_metadata
+      delegate :id_tokens, to: :metadata, allow_nil: true
+      delegate :exit_code, to: :metadata, allow_nil: true
+
+      before_validation :ensure_metadata, on: :create
+
+      scope :with_project_and_metadata, -> do
+        joins(:metadata).includes(:metadata).preload(:project)
+      end
     end
 
     def has_exposed_artifacts?
@@ -75,6 +85,24 @@ module Ci
 
     def interruptible=(value)
       ensure_metadata.interruptible = value
+    end
+
+    def id_tokens?
+      metadata&.id_tokens.present?
+    end
+
+    def id_tokens=(value)
+      ensure_metadata.id_tokens = value
+    end
+
+    def enqueue_immediately?
+      !!options[:enqueue_immediately]
+    end
+
+    def set_enqueue_immediately!
+      # ensures that even if `config_options: nil` in the database we set the
+      # new value correctly.
+      self.options = options.merge(enqueue_immediately: true)
     end
 
     private

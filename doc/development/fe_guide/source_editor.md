@@ -1,10 +1,10 @@
 ---
 stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Source Code
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# Source Editor **(FREE)**
+# Source Editor
 
 **Source Editor** provides the editing experience at GitLab. This thin wrapper around
 [the Monaco editor](https://microsoft.github.io/monaco-editor/) provides necessary
@@ -16,6 +16,14 @@ GitLab features use it, including:
 - [Snippets](../../user/snippets.md)
 - [Web Editor](../../user/project/repository/web_editor.md)
 - [Security Policies](../../user/application_security/policies/index.md)
+
+## When to use Source Editor
+
+Use Source Editor only when users need to edit the file content.
+If you only need to display source code, consider using the [`BlobContent`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/blob/components/blob_content.vue) component.
+
+If the page you're working on is already loading the Source Editor,
+displaying read-only content in the Source Editor is still a valid option.
 
 ## How to use Source Editor
 
@@ -35,7 +43,7 @@ Vue component, but the integration of Source Editor is generally straightforward
    const editor = new SourceEditor({
      // Editor Options.
      // The list of all accepted options can be found at
-     // https://microsoft.github.io/monaco-editor/api/enums/monaco.editor.editoroption.html
+     // https://microsoft.github.io/monaco-editor/docs.html
    });
    ```
 
@@ -56,19 +64,19 @@ An instance of Source Editor accepts the following configuration options:
 | `blobContent`  | `false` | `String`: The initial content to render in the editor. |
 | `extensions`   | `false` | `Array`: Extensions to use in this instance. |
 | `blobGlobalId` | `false` | `String`: An auto-generated property.<br>**Note:** This property may go away in the future. Do not pass `blobGlobalId` unless you know what you're doing.|
-| Editor Options | `false` | `Object(s)`: Any property outside of the list above is treated as an Editor Option for this particular instance. Use this field to override global Editor Options on the instance level. A full [index of Editor Options](https://microsoft.github.io/monaco-editor/api/enums/monaco.editor.editoroption.html) is available. |
+| Editor Options | `false` | `Object(s)`: Any property outside of the list above is treated as an Editor Option for this particular instance. Use this field to override global Editor Options on the instance level. A full [index of Editor Options](https://microsoft.github.io/monaco-editor/docs.html#enums/editor.EditorOption.html) is available. |
 
 ## API
 
 The editor uses the same public API as
-[provided by Monaco editor](https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.istandalonecodeeditor.html)
+[provided by Monaco editor](https://microsoft.github.io/monaco-editor/docs.html)
 with additional functions on the instance level:
 
-| Function              | Arguments | Description
+| Function              | Arguments | Description |
 | --------------------- | ----- | ----- |
-| `updateModelLanguage` | `path`: String | Updates the instance's syntax highlighting to follow the extension of the passed `path`. Available only on the instance level.|
-| `use`                 | Array of objects | Array of extensions to apply to the instance. Accepts only the array of _objects_. You must fetch the extensions' ES6 modules must be fetched and resolved in your views or components before they are passed to `use`. This property is available on _instance_ (applies extension to this particular instance) and _global editor_ (applies the same extension to all instances) levels. |
-| Monaco Editor options | See [documentation](https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.istandalonecodeeditor.html) | Default Monaco editor options |
+| `updateModelLanguage` | `path`: String | Updates the instance's syntax highlighting to follow the extension of the passed `path`. Available only on the instance level. |
+| `use`                 | Array of objects | Array of extensions to apply to the instance. Accepts only an array of **objects**. The extensions' ES6 modules must be fetched and resolved in your views or components before they're passed to `use`. Available on the instance and global editor (all instances) levels. |
+| Monaco Editor options | See [documentation](https://microsoft.github.io/monaco-editor/docs.html#interfaces/editor.IStandaloneCodeEditor.html) | Default Monaco editor options. |
 
 ## Tips
 
@@ -84,7 +92,7 @@ with additional functions on the instance level:
 1. Update syntax highlighting if the filename changes.
 
    ```javascript
-   // fileNameEl here is the HTML input element that contains the file name
+   // fileNameEl here is the HTML input element that contains the filename
    fileNameEl.addEventListener('change', () => {
      this.editor.updateModelLanguage(fileNameEl.value);
    });
@@ -129,7 +137,7 @@ with additional functions on the instance level:
 
 Source Editor provides a universal, extensible editing tool to the whole product,
 and doesn't depend on any particular group. Even though the Source Editor's core is owned by
-[Create::Editor FE Team](https://about.gitlab.com/handbook/engineering/development/dev/create-editor/),
+[Create::Editor FE Team](https://handbook.gitlab.com/handbook/engineering/development/dev/create/editor-extensions/),
 any group can own the extensions—the main functional elements. The goal of
 Source Editor extensions is to keep the editor's core slim and stable. Any
 needed features can be added as extensions to this core. Any group can
@@ -142,6 +150,7 @@ the size of Source Editor's core at bay by importing dependencies only when need
 Structurally, the complete implementation of Source Editor can be presented as this diagram:
 
 ```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
 graph TD;
     B[Extension 1]---A[Source Editor]
     C[Extension 2]---A[Source Editor]
@@ -202,7 +211,7 @@ export default {
 
 In the code example, `this` refers to the instance. By referring to the instance,
 we can access the complete underlying
-[Monaco editor API](https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.istandalonecodeeditor.html),
+[Monaco editor API](https://microsoft.github.io/monaco-editor/docs.html),
 which includes functions like `getValue()`.
 
 Now let's use our extension:

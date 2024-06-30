@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::UpdateBuildStateService do
+RSpec.describe Ci::UpdateBuildStateService, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project) }
   let_it_be(:pipeline) { create(:ci_pipeline, project: project) }
 
@@ -30,6 +30,24 @@ RSpec.describe Ci::UpdateBuildStateService do
 
       expect(build).to be_failed
       expect(result.status).to eq 200
+    end
+  end
+
+  context 'when build has failed' do
+    let(:params) do
+      {
+        output: { checksum: 'crc32:12345678', bytesize: 123 },
+        state: 'failed',
+        failure_reason: 'script_failure',
+        exit_code: 7
+      }
+    end
+
+    it 'sends a build failed event to Snowplow' do
+      expect(::Ci::TrackFailedBuildWorker)
+        .to receive(:perform_async).with(build.id, params[:exit_code], params[:failure_reason])
+
+      subject.execute
     end
   end
 

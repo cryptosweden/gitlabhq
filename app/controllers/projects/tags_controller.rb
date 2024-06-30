@@ -7,7 +7,7 @@ class Projects::TagsController < Projects::ApplicationController
 
   # Authorize
   before_action :require_non_empty_project
-  before_action :authorize_download_code!
+  before_action :authorize_read_code!
   before_action :authorize_admin_tag!, only: [:new, :create, :destroy]
 
   feature_category :source_code_management
@@ -29,7 +29,7 @@ class Projects::TagsController < Projects::ApplicationController
       tag_names = @tags.map(&:name)
       @tags_pipelines = @project.ci_pipelines.latest_successful_for_refs(tag_names)
 
-      @releases = project.releases.where(tag: tag_names)
+      @releases = ReleasesFinder.new(project, current_user, tag: tag_names).execute
       @tag_pipeline_statuses = Ci::CommitStatusesFinder.new(@project, @repository, current_user, @tags).execute
 
     rescue Gitlab::Git::CommandError => e
@@ -53,7 +53,7 @@ class Projects::TagsController < Projects::ApplicationController
 
     return render_404 unless @tag
 
-    @release = @project.releases.find_or_initialize_by(tag: @tag.name)
+    @release = @project.releases.find_by(tag: @tag.name)
     @commit = @repository.commit(@tag.dereferenced_target)
   end
   # rubocop: enable CodeReuse/ActiveRecord
@@ -94,11 +94,10 @@ class Projects::TagsController < Projects::ApplicationController
   def destroy
     result = ::Tags::DestroyService.new(project, current_user).execute(params[:id])
 
-    if result[:status] == :success
-      render json: result
-    else
-      render json: { message: result[:message] }, status: result[:return_code]
-    end
+    flash_type = result[:status] == :error ? :alert : :notice
+    flash[flash_type] = result[:message]
+
+    redirect_to project_tags_path(@project), status: :see_other
   end
 
   private

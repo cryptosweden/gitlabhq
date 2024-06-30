@@ -22,9 +22,14 @@ Doorkeeper.configure do
     end
   end
 
-  resource_owner_from_credentials do |routes|
-    user = Gitlab::Auth.find_with_user_password(params[:username], params[:password], increment_failed_attempts: true)
-    user unless user.try(:two_factor_enabled?)
+  resource_owner_from_credentials do |_routes|
+    user = User.find_by_login(params[:username])
+    next unless user
+
+    next if user.password_automatically_set? && !user.password_based_omniauth_user?
+    next if user.two_factor_enabled? || Gitlab::Auth::TwoFactorAuthVerifier.new(user).two_factor_authentication_enforced?
+
+    Gitlab::Auth.find_with_user_password(params[:username], params[:password], increment_failed_attempts: true)
   end
 
   # If you want to restrict access to the web interface for adding oauth authorized applications, you need to declare the block below.
@@ -37,16 +42,9 @@ Doorkeeper.configure do
   # Authorization Code expiration time (default 10 minutes).
   # authorization_code_expires_in 10.minutes
 
-  # Access token expiration time (default 2 hours).
-  # Until 15.0, applications can opt-out of expiring tokens.
-  # Removal issue: https://gitlab.com/gitlab-org/gitlab/-/issues/340848
-  custom_access_token_expires_in do |context|
-    context.client&.expire_access_tokens ? 2.hours : Float::INFINITY
-  end
-
   # Reuse access token for the same resource owner within an application (disabled by default)
   # Rationale: https://github.com/doorkeeper-gem/doorkeeper/issues/383
-  reuse_access_token
+  # reuse_access_token
 
   # Issue access tokens with refresh token (disabled by default)
   use_refresh_token
@@ -93,15 +91,18 @@ Doorkeeper.configure do
   # Check out the wiki for more information on customization
   access_token_methods :from_access_token_param, :from_bearer_authorization, :from_bearer_param
 
+  hash_token_secrets using: '::Gitlab::DoorkeeperSecretStoring::Token::Pbkdf2Sha512', fallback: :plain
+
+  hash_application_secrets using: '::Gitlab::DoorkeeperSecretStoring::Secret::Pbkdf2Sha512', fallback: :plain
+
   # Specify what grant flows are enabled in array of Strings. The valid
   # strings and the flows they enable are:
   #
   # "authorization_code" => Authorization Code Grant Flow
-  # "implicit"           => Implicit Grant Flow
   # "password"           => Resource Owner Password Credentials Grant Flow
   # "client_credentials" => Client Credentials Grant Flow
   #
-  grant_flows %w(authorization_code implicit password client_credentials)
+  grant_flows %w[authorization_code password client_credentials]
 
   # Under some circumstances you might want to have applications auto-approved,
   # so that the user skips the authorization step.
@@ -120,4 +121,12 @@ Doorkeeper.configure do
   #
   # We might want to disable this in the future, see https://gitlab.com/gitlab-org/gitlab/-/issues/323615
   skip_client_authentication_for_password_grant true
+
+  # 2 hours in seconds
+  # This is also the database default value
+  access_token_expires_in 7200
+
+  # Use a custom class for generating the application secret.
+  # https://doorkeeper.gitbook.io/guides/configuration/other-configurations#custom-application-secret-generator
+  application_secret_generator 'Gitlab::DoorkeeperSecretStoring::Token::UniqueApplicationToken'
 end

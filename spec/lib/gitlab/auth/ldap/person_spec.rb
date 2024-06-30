@@ -10,16 +10,17 @@ RSpec.describe Gitlab::Auth::Ldap::Person do
   before do
     stub_ldap_config(
       options: {
-        'uid'        => 'uid',
+        'uid' => 'uid',
         'attributes' => {
-          'name'     => 'cn',
-          'email'    => %w(mail email userPrincipalName),
+          'name' => 'cn',
+          'email' => %w[mail email userPrincipalName],
           'username' => username_attribute
         }
       }
     )
   end
-  let(:username_attribute) { %w(uid sAMAccountName userid) }
+
+  let(:username_attribute) { %w[uid sAMAccountName userid] }
 
   describe '.normalize_dn' do
     subject { described_class.normalize_dn(given) }
@@ -53,11 +54,11 @@ RSpec.describe Gitlab::Auth::Ldap::Person do
     it 'returns a compact and unique array' do
       stub_ldap_config(
         options: {
-          'uid'        => nil,
+          'uid' => nil,
           'attributes' => {
-            'name'     => 'cn',
-            'email'    => 'mail',
-            'username' => %w(uid mail),
+            'name' => 'cn',
+            'email' => 'mail',
+            'username' => %w[uid mail],
             'first_name' => ''
           }
         }

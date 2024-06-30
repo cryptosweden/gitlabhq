@@ -9,9 +9,9 @@ class Projects::ForksController < Projects::ApplicationController
   # Authorize
   before_action :disable_query_limiting, only: [:create]
   before_action :require_non_empty_project
-  before_action :authorize_download_code!
+  before_action :authorize_read_code!
   before_action :authenticate_user!, only: [:new, :create]
-  before_action :authorize_fork_project!, only: [:new, :create]
+  before_action :authorize_fork_project!, except: [:index]
   before_action :authorize_fork_namespace!, only: [:create]
 
   feature_category :source_code_management
@@ -65,14 +65,17 @@ class Projects::ForksController < Projects::ApplicationController
     end
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def create
-    @forked_project = fork_namespace.projects.find_by(path: project.path)
+    @forked_project = fork_namespace.projects.find_by(path: project.path) # rubocop: disable CodeReuse/ActiveRecord
     @forked_project = nil unless @forked_project && @forked_project.forked_from_project == project
 
-    @forked_project ||= fork_service.execute
+    unless @forked_project
+      @fork_response = fork_service.execute
 
-    if !@forked_project.saved? || !@forked_project.forked?
+      @forked_project ||= @fork_response[:project] if @fork_response.success?
+    end
+
+    if defined?(@fork_response) && @fork_response.error?
       render :error
     elsif @forked_project.import_in_progress?
       redirect_to project_import_path(@forked_project, continue: continue_params)
@@ -96,7 +99,9 @@ class Projects::ForksController < Projects::ApplicationController
       current_user: current_user
     ).execute
 
+    # rubocop: disable CodeReuse/ActiveRecord
     forks.includes(:route, :creator, :group, :topics, namespace: [:route, :owner])
+    # rubocop: enable CodeReuse/ActiveRecord
   end
 
   def fork_service
@@ -130,15 +135,21 @@ class Projects::ForksController < Projects::ApplicationController
   end
 
   def load_namespaces_with_associations
+    # rubocop: disable CodeReuse/ActiveRecord
     @load_namespaces_with_associations ||= fork_service.valid_fork_targets(only_groups: true).preload(:route)
+    # rubocop: enable CodeReuse/ActiveRecord
   end
 
   def memberships_hash
+    # rubocop: disable CodeReuse/ActiveRecord
     current_user.members.where(source: load_namespaces_with_associations).index_by(&:source_id)
+    # rubocop: enable CodeReuse/ActiveRecord
   end
 
   def forked_projects_by_namespace(namespaces)
+    # rubocop: disable CodeReuse/ActiveRecord
     project.forks.where(namespace: namespaces).includes(:namespace).index_by(&:namespace_id)
+    # rubocop: enable CodeReuse/ActiveRecord
   end
 end
 

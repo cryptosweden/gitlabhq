@@ -1,11 +1,8 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
-require_relative '../../support/matchers/be_request_urgency'
-require_relative '../../../lib/gitlab/endpoint_attributes/config'
-require_relative '../../../lib/gitlab/endpoint_attributes'
+require 'spec_helper'
 
-RSpec.describe Gitlab::EndpointAttributes do
+RSpec.describe Gitlab::EndpointAttributes, feature_category: :api do
   let(:base_controller) do
     Class.new do
       include ::Gitlab::EndpointAttributes
@@ -14,19 +11,19 @@ RSpec.describe Gitlab::EndpointAttributes do
 
   let(:controller) do
     Class.new(base_controller) do
-      feature_category :foo, %w(update edit)
-      feature_category :bar, %w(index show)
-      feature_category :quux, %w(destroy)
+      feature_category :foo, %w[update edit]
+      feature_category :bar, %w[index show]
+      feature_category :quux, %w[destroy]
 
-      urgency :high, %w(do_a)
-      urgency :low, %w(do_b do_c)
+      urgency :high, %w[do_a]
+      urgency :low, %w[do_b do_c]
     end
   end
 
   let(:subclass) do
     Class.new(controller) do
-      feature_category :baz, %w(subclass_index)
-      urgency :high, %w(superclass_do_something)
+      feature_category :baz, %w[subclass_index]
+      urgency :high, %w[superclass_do_something]
     end
   end
 

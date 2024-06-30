@@ -1,7 +1,7 @@
 import { GlToast } from '@gitlab/ui';
 import Vue from 'vue';
 import InviteMembersModal from '~/invite_members/components/invite_members_modal.vue';
-import { parseBoolean } from '~/lib/utils/common_utils';
+import { parseBoolean, convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
 
 Vue.use(GlToast);
 
@@ -24,7 +24,10 @@ export default (function initInviteMembersModal() {
         el,
         name: 'InviteMembersModalRoot',
         provide: {
-          newProjectPath: el.dataset.newProjectPath,
+          name: el.dataset.name,
+          overageMembersModalAvailable: parseBoolean(el.dataset.overageMembersModalAvailable),
+          hasGitlabSubscription: parseBoolean(el.dataset.hasGitlabSubscription),
+          addSeatsHref: el.dataset.addSeatsHref,
         },
         render: (createElement) =>
           createElement(InviteMembersModal, {
@@ -33,10 +36,16 @@ export default (function initInviteMembersModal() {
               isProject: parseBoolean(el.dataset.isProject),
               accessLevels: JSON.parse(el.dataset.accessLevels),
               defaultAccessLevel: parseInt(el.dataset.defaultAccessLevel, 10),
-              tasksToBeDoneOptions: JSON.parse(el.dataset.tasksToBeDoneOptions || '[]'),
-              projects: JSON.parse(el.dataset.projects || '[]'),
+              defaultMemberRoleId: parseInt(el.dataset.defaultMemberRoleId, 10) || null,
               usersFilter: el.dataset.usersFilter,
               filterId: parseInt(el.dataset.filterId, 10),
+              usersLimitDataset: convertObjectPropsToCamelCase(
+                JSON.parse(el.dataset.usersLimitDataset || '{}'),
+              ),
+              activeTrialDataset: convertObjectPropsToCamelCase(
+                JSON.parse(el.dataset.activeTrialDataset || '{}'),
+              ),
+              reloadPageOnSubmit: parseBoolean(el.dataset.reloadPageOnSubmit),
             },
           }),
       });

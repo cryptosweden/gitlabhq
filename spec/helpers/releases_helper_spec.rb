@@ -5,13 +5,13 @@ require 'spec_helper'
 RSpec.describe ReleasesHelper do
   describe '#illustration' do
     it 'returns the correct image path' do
-      expect(helper.illustration).to match(%r{illustrations/releases-(\w+)\.svg})
+      expect(helper.illustration).to match(%r{illustrations/rocket-launch-md-(\w+)\.svg})
     end
   end
 
-  describe '#help_page' do
+  describe '#releases_help_page_path' do
     it 'returns the correct link to the help page' do
-      expect(helper.help_page).to include('user/project/releases/index')
+      expect(helper.releases_help_page_path).to include('user/project/releases/index')
     end
   end
 
@@ -20,7 +20,7 @@ RSpec.describe ReleasesHelper do
     let(:release) { create(:release, project: project) }
     let(:user) { create(:user) }
     let(:can_user_create_release) { false }
-    let(:common_keys) { [:project_id, :project_path, :illustration_path, :documentation_path] }
+    let(:common_keys) { [:project_id, :project_path, :illustration_path, :documentation_path, :atom_feed_path] }
 
     # rubocop: disable CodeReuse/ActiveRecord
     before do
@@ -49,11 +49,17 @@ RSpec.describe ReleasesHelper do
           expect(helper.data_for_releases_page[:new_release_path]).to eq(new_project_release_path(project))
         end
       end
+
+      context 'new releases redirect new milestone creation' do
+        it 'redirects new_milestone_path back to the release page' do
+          expect(helper.data_for_new_release_page[:new_milestone_path]).to include('redirect_path')
+        end
+      end
     end
 
     describe '#data_for_edit_release_page' do
       it 'has the needed data to display the "edit release" page' do
-        keys = %i(project_id
+        keys = %i[project_id
                   group_id
                   group_milestones_available
                   project_path
@@ -63,7 +69,10 @@ RSpec.describe ReleasesHelper do
                   releases_page_path
                   release_assets_docs_path
                   manage_milestones_path
-                  new_milestone_path)
+                  new_milestone_path
+                  upcoming_release_docs_path
+                  edit_release_docs_path
+                  delete_release_docs_path]
 
         expect(helper.data_for_edit_release_page.keys).to match_array(keys)
       end
@@ -71,17 +80,20 @@ RSpec.describe ReleasesHelper do
 
     describe '#data_for_new_release_page' do
       it 'has the needed data to display the "new release" page' do
-        keys = %i(project_id
+        keys = %i[project_id
                   group_id
                   group_milestones_available
                   project_path
+                  tag_name
                   releases_page_path
                   markdown_preview_path
                   markdown_docs_path
                   release_assets_docs_path
                   manage_milestones_path
                   new_milestone_path
-                  default_branch)
+                  default_branch
+                  upcoming_release_docs_path
+                  edit_release_docs_path]
 
         expect(helper.data_for_new_release_page.keys).to match_array(keys)
       end
@@ -89,9 +101,9 @@ RSpec.describe ReleasesHelper do
 
     describe '#data_for_show_page' do
       it 'has the needed data to display the individual "release" page' do
-        keys = %i(project_id
+        keys = %i[project_id
                   project_path
-                  tag_name)
+                  tag_name]
 
         expect(helper.data_for_show_page.keys).to match_array(keys)
       end

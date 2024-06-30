@@ -11,21 +11,15 @@ module QA
             super
 
             base.view 'app/assets/javascripts/issues/show/components/title.vue' do
-              element :edit_button
-              element :title, required: true
+              element 'issue-title', required: true
             end
 
-            base.view 'app/assets/javascripts/issues/show/components/fields/title.vue' do
-              element :title_input
+            base.view 'app/assets/javascripts/related_issues/components/add_issuable_form.vue' do
+              element 'add-issue-button'
             end
 
-            base.view 'app/assets/javascripts/issues/show/components/fields/description.vue' do
-              element :description_textarea
-            end
-
-            base.view 'app/assets/javascripts/issues/show/components/edit_actions.vue' do
-              element :save_button
-              element :delete_button
+            base.view 'app/assets/javascripts/related_issues/components/related_issuable_input.vue' do
+              element 'add-issue-field'
             end
           end
         end

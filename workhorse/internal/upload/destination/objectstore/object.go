@@ -4,16 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 
 	"gitlab.com/gitlab-org/labkit/mask"
 
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/httptransport"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/transport"
 )
 
 var httpClient = &http.Client{
-	Transport: httptransport.New(),
+	Transport: transport.NewRestrictedTransport(),
 }
 
 // Object represents an object on a S3 compatible Object Store service.
@@ -31,6 +30,7 @@ type Object struct {
 	*uploader
 }
 
+// StatusCodeError represents an error with a specific status code.
 type StatusCodeError error
 
 // NewObject opens an HTTP connection to Object Store and returns an Object pointer that can be used for uploading.
@@ -51,9 +51,10 @@ func newObject(putURL, deleteURL string, putHeaders map[string]string, size int6
 	return o, nil
 }
 
+// Upload uploads the content of the object using the provided reader.
 func (o *Object) Upload(ctx context.Context, r io.Reader) error {
 	// we should prevent pr.Close() otherwise it may shadow error set with pr.CloseWithError(err)
-	req, err := http.NewRequest(http.MethodPut, o.putURL, ioutil.NopCloser(r))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, o.putURL, io.NopCloser(r))
 
 	if err != nil {
 		return fmt.Errorf("PUT %q: %v", mask.URL(o.putURL), err)
@@ -66,9 +67,9 @@ func (o *Object) Upload(ctx context.Context, r io.Reader) error {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("PUT request %q: %v", mask.URL(o.putURL), err)
+		return fmt.Errorf("PUT request %q: %w", mask.URL(o.putURL), err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		if o.metrics {
@@ -82,14 +83,17 @@ func (o *Object) Upload(ctx context.Context, r io.Reader) error {
 	return nil
 }
 
+// ETag returns the ETag of the object.
 func (o *Object) ETag() string {
 	return o.etag
 }
 
+// Abort aborts the operation on the object.
 func (o *Object) Abort() {
 	o.Delete()
 }
 
+// Delete deletes the object.
 func (o *Object) Delete() {
 	deleteURL(o.deleteURL)
 }

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Snippets > User views snippets' do
+RSpec.describe 'Projects > Snippets > User views snippets', feature_category: :source_code_management do
   let_it_be(:project) { create(:project) }
 
   let(:user) { create(:user) }
@@ -60,7 +60,7 @@ RSpec.describe 'Projects > Snippets > User views snippets' do
       it 'hides New Snippet button' do
         visit_project_snippets
 
-        page.within(find('.empty-state')) do
+        page.within(find('.gl-empty-state')) do
           expect(page).not_to have_link('New snippet')
         end
       end
@@ -89,7 +89,7 @@ RSpec.describe 'Projects > Snippets > User views snippets' do
       it 'shows New Snippet button' do
         visit_project_snippets
 
-        page.within(find('.empty-state')) do
+        page.within(find('.gl-empty-state')) do
           expect(page).to have_link('New snippet')
         end
       end

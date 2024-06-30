@@ -1,29 +1,36 @@
 import { nextTick } from 'vue';
-import { GlSegmentedControl } from '@gitlab/ui';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import CiCdAnalyticsAreaChart from '~/vue_shared/components/ci_cd_analytics/ci_cd_analytics_area_chart.vue';
 import CiCdAnalyticsCharts from '~/vue_shared/components/ci_cd_analytics/ci_cd_analytics_charts.vue';
+import SegmentedControlButtonGroup from '~/vue_shared/components/segmented_control_button_group.vue';
 import { transformedAreaChartData, chartOptions } from '../mock_data';
+
+const charts = [
+  {
+    range: 'test range 1',
+    title: 'title 1',
+    data: transformedAreaChartData,
+  },
+  {
+    range: 'test range 2',
+    title: 'title 2',
+    data: transformedAreaChartData,
+  },
+  {
+    range: 'test range 3',
+    title: 'title 3',
+    data: transformedAreaChartData,
+  },
+  {
+    range: 'test range 4',
+    title: 'title 4',
+    data: transformedAreaChartData,
+  },
+];
 
 const DEFAULT_PROPS = {
   chartOptions,
-  charts: [
-    {
-      range: 'test range 1',
-      title: 'title 1',
-      data: transformedAreaChartData,
-    },
-    {
-      range: 'test range 2',
-      title: 'title 2',
-      data: transformedAreaChartData,
-    },
-    {
-      range: 'test range 3',
-      title: 'title 3',
-      data: transformedAreaChartData,
-    },
-  ],
+  charts,
 };
 
 describe('~/vue_shared/components/ci_cd_analytics/ci_cd_analytics_charts.vue', () => {
@@ -40,28 +47,21 @@ describe('~/vue_shared/components/ci_cd_analytics/ci_cd_analytics_charts.vue', (
       },
     });
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
-  });
-
   const findMetricsSlot = () => wrapper.findByTestId('metrics-slot');
-  const findSegmentedControl = () => wrapper.findComponent(GlSegmentedControl);
+  const findSegmentedControl = () => wrapper.findComponent(SegmentedControlButtonGroup);
 
   describe('segmented control', () => {
     beforeEach(() => {
       wrapper = createWrapper();
     });
 
-    it('should default to the first chart', () => {
-      expect(findSegmentedControl().props('checked')).toBe(0);
+    it('should default to the 3rd chart (last 90 days)', () => {
+      expect(findSegmentedControl().props('value')).toBe(2);
     });
 
     it('should use the title and index as values', () => {
       const options = findSegmentedControl().props('options');
-      expect(options).toHaveLength(3);
+      expect(options).toHaveLength(charts.length);
       expect(options).toEqual([
         {
           text: 'title 1',
@@ -75,24 +75,38 @@ describe('~/vue_shared/components/ci_cd_analytics/ci_cd_analytics_charts.vue', (
           text: 'title 3',
           value: 2,
         },
+        {
+          text: 'title 4',
+          value: 3,
+        },
       ]);
     });
 
-    it('should select a different chart on change', async () => {
-      findSegmentedControl().vm.$emit('input', 1);
+    describe('when the date range is updated', () => {
+      let chart;
 
-      const chart = wrapper.find(CiCdAnalyticsAreaChart);
+      beforeEach(async () => {
+        chart = wrapper.findComponent(CiCdAnalyticsAreaChart);
 
-      await nextTick();
+        await findSegmentedControl().vm.$emit('input', 1);
+      });
 
-      expect(chart.props('chartData')).toEqual(transformedAreaChartData);
-      expect(chart.text()).toBe('Date range: test range 2');
+      it('should select a different chart on change', () => {
+        expect(chart.props('chartData')).toEqual(transformedAreaChartData);
+        expect(chart.text()).toBe('Date range: test range 2');
+      });
+
+      it('will emit a `select-chart` event', () => {
+        expect(wrapper.emitted()).toEqual({
+          'select-chart': [[1]],
+        });
+      });
     });
   });
 
   it('should not display charts if there are no charts', () => {
     wrapper = createWrapper({ charts: [] });
-    expect(wrapper.find(CiCdAnalyticsAreaChart).exists()).toBe(false);
+    expect(wrapper.findComponent(CiCdAnalyticsAreaChart).exists()).toBe(false);
   });
 
   describe('slots', () => {

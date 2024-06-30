@@ -1,6 +1,7 @@
 package zipartifacts
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	zip "gitlab.com/gitlab-org/golang-archive-zip"
 )
 
 func createArchive(t *testing.T, dir string) (map[string][]byte, int64) {
@@ -26,8 +26,8 @@ func createArchive(t *testing.T, dir string) (map[string][]byte, int64) {
 		entryName := fmt.Sprintf("file_%d", size)
 		entries[entryName] = bytes.Repeat([]byte{'z'}, size)
 
-		w, err := zw.Create(entryName)
-		require.NoError(t, err)
+		w, entryNameErr := zw.Create(entryName)
+		require.NoError(t, entryNameErr)
 
 		_, err = w.Write(entries[entryName])
 		require.NoError(t, err)

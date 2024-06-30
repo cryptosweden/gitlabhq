@@ -2,42 +2,31 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::BuildFinishedWorker do
+RSpec.describe Ci::BuildFinishedWorker, feature_category: :continuous_integration do
+  include AfterNextHelpers
+
   subject { described_class.new.perform(build.id) }
 
   describe '#perform' do
     context 'when build exists' do
-      let_it_be(:build) { create(:ci_build, :success, pipeline: create(:ci_pipeline)) }
+      let_it_be(:build) do
+        create(:ci_build, :success, user: create(:user), pipeline: create(:ci_pipeline))
+      end
 
       before do
-        stub_feature_flags(ci_build_finished_worker_namespace_changed: build.project)
-        expect(Ci::Build).to receive(:find_by).with(id: build.id).and_return(build)
+        expect(Ci::Build).to receive(:find_by).with({ id: build.id }).and_return(build)
       end
 
       it 'calculates coverage and calls hooks', :aggregate_failures do
         expect(build).to receive(:update_coverage).ordered
 
-        expect_next_instance_of(Ci::BuildReportResultService) do |build_report_result_service|
-          expect(build_report_result_service).to receive(:execute).with(build)
-        end
+        expect_next(Ci::BuildReportResultService).to receive(:execute).with(build)
 
-        expect(BuildHooksWorker).to receive(:perform_async)
+        expect(build).to receive(:execute_hooks)
         expect(ChatNotificationWorker).not_to receive(:perform_async)
         expect(Ci::ArchiveTraceWorker).to receive(:perform_in)
 
         subject
-      end
-
-      context 'with ci_build_finished_worker_namespace_changed feature flag disabled' do
-        before do
-          stub_feature_flags(ci_build_finished_worker_namespace_changed: false)
-        end
-
-        it 'calls deprecated worker' do
-          expect(ArchiveTraceWorker).to receive(:perform_in)
-
-          subject
-        end
       end
 
       context 'when build is failed' do
@@ -76,6 +65,12 @@ RSpec.describe Ci::BuildFinishedWorker do
           expect(ChatNotificationWorker).to receive(:perform_async).with(build.id)
 
           subject
+        end
+      end
+
+      context 'when it has a token' do
+        it 'removes the token' do
+          expect { subject }.to change { build.reload.token }.to(nil)
         end
       end
     end

@@ -3,8 +3,7 @@
 module QA
   module Resource
     class RegistryRepository < Base
-      attr_accessor :name,
-                    :tag_name
+      attr_accessor :name, :tag_name
 
       attribute :project do
         Project.fabricate_via_api! do |resource|
@@ -26,8 +25,7 @@ module QA
         @tag_name = 'master'
       end
 
-      def fabricate!
-      end
+      def fabricate!; end
 
       def fabricate_via_api!
         resource_web_url(api_get)

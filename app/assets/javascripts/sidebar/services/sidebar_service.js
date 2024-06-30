@@ -1,16 +1,8 @@
-import sidebarDetailsIssueQuery from 'ee_else_ce/sidebar/queries/sidebarDetails.query.graphql';
-import { TYPE_USER } from '~/graphql_shared/constants';
+import { TYPENAME_USER } from '~/graphql_shared/constants';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
 import createGqClient, { fetchPolicies } from '~/lib/graphql';
 import axios from '~/lib/utils/axios_utils';
 import reviewerRereviewMutation from '../queries/reviewer_rereview.mutation.graphql';
-import sidebarDetailsMRQuery from '../queries/sidebarDetailsMR.query.graphql';
-import toggleAttentionRequestedMutation from '../queries/toggle_attention_requested.mutation.graphql';
-
-const queries = {
-  merge_request: sidebarDetailsMRQuery,
-  issue: sidebarDetailsIssueQuery,
-};
 
 export const gqClient = createGqClient(
   {},
@@ -32,39 +24,16 @@ export default class SidebarService {
       SidebarService.singleton = this;
     }
 
+    // eslint-disable-next-line no-constructor-return
     return SidebarService.singleton;
   }
 
   get() {
-    return Promise.all([
-      axios.get(this.endpoint),
-      gqClient.query({
-        query: this.sidebarDetailsQuery(),
-        variables: {
-          fullPath: this.fullPath,
-          iid: this.iid.toString(),
-        },
-      }),
-    ]);
-  }
-
-  sidebarDetailsQuery() {
-    return queries[this.issuableType];
+    return axios.get(this.endpoint);
   }
 
   update(key, data) {
     return axios.put(this.endpoint, { [key]: data });
-  }
-
-  updateWithGraphQl(mutation, variables) {
-    return gqClient.mutate({
-      mutation,
-      variables: {
-        ...variables,
-        projectPath: this.fullPath,
-        iid: this.iid.toString(),
-      },
-    });
   }
 
   getProjectsAutocomplete(searchTerm) {
@@ -85,18 +54,7 @@ export default class SidebarService {
     return gqClient.mutate({
       mutation: reviewerRereviewMutation,
       variables: {
-        userId: convertToGraphQLId(TYPE_USER, `${userId}`),
-        projectPath: this.fullPath,
-        iid: this.iid.toString(),
-      },
-    });
-  }
-
-  toggleAttentionRequested(userId) {
-    return gqClient.mutate({
-      mutation: toggleAttentionRequestedMutation,
-      variables: {
-        userId: convertToGraphQLId(TYPE_USER, `${userId}`),
+        userId: convertToGraphQLId(TYPENAME_USER, `${userId}`),
         projectPath: this.fullPath,
         iid: this.iid.toString(),
       },

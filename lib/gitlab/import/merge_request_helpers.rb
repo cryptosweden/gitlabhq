@@ -5,6 +5,12 @@ module Gitlab
     module MergeRequestHelpers
       include DatabaseHelpers
 
+      # @param attributes [Hash]
+      def create_merge_request_metrics(attributes)
+        metric = MergeRequest::Metrics.find_or_initialize_by(merge_request: merge_request) # rubocop: disable CodeReuse/ActiveRecord -- no need to move this to ActiveRecord model
+        metric.update(attributes)
+      end
+
       # rubocop: disable CodeReuse/ActiveRecord
       def create_merge_request_without_hooks(project, attributes, iid)
         # This work must be wrapped in a transaction as otherwise we can leave
@@ -61,6 +67,59 @@ module Gitlab
         diff.save
         diff.save_git_content
         diff.set_as_latest_diff
+      end
+
+      def insert_merge_request_reviewers(merge_request, reviewers)
+        return unless reviewers.present?
+
+        rows = reviewers.map { |reviewer_id| { merge_request_id: merge_request.id, user_id: reviewer_id } }
+        MergeRequestReviewer.insert_all(rows)
+      end
+
+      def create_approval!(project_id, merge_request_id, user_id, submitted_at)
+        approval_attributes = {
+          merge_request_id: merge_request_id,
+          user_id: user_id,
+          created_at: submitted_at,
+          updated_at: submitted_at
+        }
+
+        result = ::Approval.insert(
+          approval_attributes,
+          returning: [:id],
+          unique_by: [:user_id, :merge_request_id]
+        )
+
+        add_approval_system_note!(project_id, merge_request_id, user_id, submitted_at) if result.rows.present?
+      end
+
+      def add_approval_system_note!(project_id, merge_request_id, user_id, submitted_at)
+        attributes = {
+          importing: true,
+          noteable_id: merge_request_id,
+          noteable_type: 'MergeRequest',
+          project_id: project_id,
+          author_id: user_id,
+          note: 'approved this merge request',
+          system: true,
+          system_note_metadata: SystemNoteMetadata.new(action: 'approved'),
+          created_at: submitted_at,
+          updated_at: submitted_at
+        }
+
+        Note.create!(attributes)
+      end
+
+      def create_reviewer!(merge_request_id, user_id, submitted_at)
+        ::MergeRequestReviewer.create!(
+          merge_request_id: merge_request_id,
+          user_id: user_id,
+          state: ::MergeRequestReviewer.states['reviewed'],
+          created_at: submitted_at
+        )
+      rescue ActiveRecord::RecordNotUnique
+        # multiple reviews from single person could make a SQL concurrency issue here
+        nil
       end
     end
   end

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create', :reliable do
+  RSpec.describe 'Create', :blocking, product_group: :source_code do
     describe 'Multiple file snippet' do
       let(:snippet) do
         Resource::ProjectSnippet.fabricate_via_browser_ui! do |snippet|
@@ -24,10 +24,6 @@ module QA
         Flow::Login.sign_in
       end
 
-      after do
-        snippet.remove_via_api!
-      end
-
       it 'creates a project snippet with multiple files', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347725' do
         snippet
 
@@ -35,7 +31,7 @@ module QA
           aggregate_failures 'file content verification' do
             expect(snippet).to have_snippet_title('Project snippet with multiple files')
             expect(snippet).to have_snippet_description('Snippet description')
-            expect(snippet).to have_visibility_type(/private/i)
+            expect(snippet).to have_visibility_description('The snippet is visible only to project members.')
 
             (1..10).each do |i|
               expect(snippet).to have_file_name(file_name(i), i)

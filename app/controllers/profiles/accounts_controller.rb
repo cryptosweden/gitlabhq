@@ -3,9 +3,11 @@
 class Profiles::AccountsController < Profiles::ApplicationController
   include AuthHelper
 
-  feature_category :users
+  feature_category :system_access
+  urgency :low, [:show]
 
   def show
+    push_frontend_feature_flag(:delay_delete_own_user)
     render(locals: show_view_variables)
   end
 

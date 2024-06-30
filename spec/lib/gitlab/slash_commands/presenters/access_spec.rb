@@ -38,7 +38,7 @@ RSpec.describe Gitlab::SlashCommands::Presenters::Access do
     it { is_expected.to be_a(Hash) }
 
     it_behaves_like 'displays an error message' do
-      let(:error_message) { 'your account has been deactivated by your administrator' }
+      let(:error_message) { "your #{Gitlab.config.gitlab.url} account needs to be reactivated" }
     end
   end
 
@@ -74,6 +74,21 @@ RSpec.describe Gitlab::SlashCommands::Presenters::Access do
         expect(subject[:text]).to match("Couldn't identify you")
         expect(subject[:response_type]).to be(:ephemeral)
       end
+    end
+  end
+
+  describe '#confirm' do
+    let(:url) { 'https://example.com/api' }
+
+    subject { described_class.new.confirm(url) }
+
+    it { is_expected.to be_a(Hash) }
+
+    it 'tells the user to confirm the request' do
+      expect(subject[:response_type]).to be(:ephemeral)
+      expect(subject[:text]).to match(
+        "Please confirm the request by accessing <#{url}|this link> through a web browser"
+      )
     end
   end
 end

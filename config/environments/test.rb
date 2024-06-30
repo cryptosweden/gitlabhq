@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
+require 'gitlab/middleware/strip_cookies'
 require 'gitlab/testing/request_blocker_middleware'
 require 'gitlab/testing/robots_blocker_middleware'
 require 'gitlab/testing/request_inspector_middleware'
 require 'gitlab/testing/clear_process_memory_cache_middleware'
-require 'gitlab/utils'
+require 'gitlab/testing/action_cable_blocker'
+require 'gitlab/utils/all'
 
 Rails.application.configure do
   # Make sure the middleware is inserted first in middleware chain
@@ -13,6 +15,10 @@ Rails.application.configure do
   config.middleware.insert_before(ActionDispatch::Static, Gitlab::Testing::RequestInspectorMiddleware)
   config.middleware.insert_before(ActionDispatch::Static, Gitlab::Testing::ClearProcessMemoryCacheMiddleware)
 
+  config.middleware.insert_before(ActionDispatch::Cookies, Gitlab::Middleware::StripCookies, paths: [%r{^/assets/}])
+
+  Gitlab::Testing::ActionCableBlocker.install
+
   # Settings specified here will take precedence over those in config/application.rb
 
   # The test environment is used exclusively to run your application's
@@ -20,6 +26,8 @@ Rails.application.configure do
   # your test database is "scratch space" for the test suite and is wiped
   # and recreated between test runs. Don't rely on the data there!
   config.cache_classes = Gitlab::Utils.to_boolean(ENV['CACHE_CLASSES'], default: false)
+
+  config.view_component.preview_route = "/-/view_component/previews"
 
   # Configure static asset server for tests with Cache-Control for performance
   config.assets.compile = false if ENV['CI']
@@ -46,8 +54,7 @@ Rails.application.configure do
   # ActionMailer::Base.deliveries array.
   config.action_mailer.delivery_method = :test
 
-  # Print deprecation notices to the stderr
-  config.active_support.deprecation = :stderr
+  config.action_mailer.preview_path = GitlabEdition.path_glob('app/mailers/previews')
 
   config.eager_load = Gitlab::Utils.to_boolean(ENV['GITLAB_TEST_EAGER_LOAD'], default: ENV['CI'].present?)
 

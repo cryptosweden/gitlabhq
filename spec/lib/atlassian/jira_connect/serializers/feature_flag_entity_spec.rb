@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Atlassian::JiraConnect::Serializers::FeatureFlagEntity do
+RSpec.describe Atlassian::JiraConnect::Serializers::FeatureFlagEntity, feature_category: :integrations do
   let_it_be(:user) { create_default(:user) }
   let_it_be(:project) { create_default(:project) }
 
@@ -47,10 +47,12 @@ RSpec.describe Atlassian::JiraConnect::Serializers::FeatureFlagEntity do
 
     context 'it has a percentage strategy' do
       let!(:scopes) do
-        strat = create(:operations_strategy,
-               feature_flag: feature_flag,
-               name: ::Operations::FeatureFlags::Strategy::STRATEGY_GRADUALROLLOUTUSERID,
-               parameters: { 'percentage' => '50', 'groupId' => 'abcde' })
+        strat = create(
+          :operations_strategy,
+          feature_flag: feature_flag,
+          name: ::Operations::FeatureFlags::Strategy::STRATEGY_GRADUALROLLOUTUSERID,
+          parameters: { 'percentage' => '50', 'groupId' => 'abcde' }
+        )
 
         [
           create(:operations_scope, strategy: strat, environment_scope: 'production in live'),

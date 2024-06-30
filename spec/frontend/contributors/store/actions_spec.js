@@ -2,10 +2,11 @@ import MockAdapter from 'axios-mock-adapter';
 import testAction from 'helpers/vuex_action_helper';
 import * as actions from '~/contributors/stores/actions';
 import * as types from '~/contributors/stores/mutation_types';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
-jest.mock('~/flash.js');
+jest.mock('~/alert');
 
 describe('Contributors store actions', () => {
   describe('fetchChartData', () => {
@@ -17,10 +18,14 @@ describe('Contributors store actions', () => {
       mock = new MockAdapter(axios);
     });
 
-    it('should commit SET_CHART_DATA with received response', (done) => {
-      mock.onGet().reply(200, chartData);
+    afterEach(() => {
+      mock.restore();
+    });
 
-      testAction(
+    it('should commit SET_CHART_DATA with received response', () => {
+      mock.onGet().reply(HTTP_STATUS_OK, chartData);
+
+      return testAction(
         actions.fetchChartData,
         { endpoint },
         {},
@@ -30,30 +35,22 @@ describe('Contributors store actions', () => {
           { type: types.SET_LOADING_STATE, payload: false },
         ],
         [],
-        () => {
-          mock.restore();
-          done();
-        },
       );
     });
 
-    it('should show flash on API error', (done) => {
-      mock.onGet().reply(400, 'Not Found');
+    it('should show alert on API error', async () => {
+      mock.onGet().reply(HTTP_STATUS_BAD_REQUEST, 'Not Found');
 
-      testAction(
+      await testAction(
         actions.fetchChartData,
         { endpoint },
         {},
         [{ type: types.SET_LOADING_STATE, payload: true }],
         [],
-        () => {
-          expect(createFlash).toHaveBeenCalledWith({
-            message: expect.stringMatching('error'),
-          });
-          mock.restore();
-          done();
-        },
       );
+      expect(createAlert).toHaveBeenCalledWith({
+        message: expect.stringMatching('error'),
+      });
     });
   });
 });

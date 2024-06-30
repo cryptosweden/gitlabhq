@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Backwards compatibility across updates
@@ -54,7 +54,7 @@ familiarizing yourself with:
 
 - [Update instructions](../update/index.md)
 - [Reference architectures](../administration/reference_architectures/index.md)
-- [GitLab.com's architecture](https://about.gitlab.com/handbook/engineering/infrastructure/production/architecture/)
+- [GitLab.com's architecture](https://handbook.gitlab.com/handbook/engineering/infrastructure/production/architecture/)
 - [GitLab.com's upgrade pipeline](https://gitlab.com/gitlab-org/release/docs/blob/master/general/deploy/gitlab-com-deployer.md#upgrade-pipeline-default)
 
 To illustrate how these problems arise, take a look at this example:
@@ -93,7 +93,7 @@ These users accept some downtime during the update. Unfortunately we can't ignor
 
 ## What kind of components can GitLab be broken down into?
 
-The [50,000 reference architecture](../administration/reference_architectures/50k_users.md) runs GitLab on 48+ nodes. GitLab.com is [bigger than that](https://about.gitlab.com/handbook/engineering/infrastructure/production/architecture/), plus a portion of the [infrastructure runs on Kubernetes](https://about.gitlab.com/handbook/engineering/infrastructure/production/kubernetes/gitlab-com/), plus there is a ["canary" stage which receives updates first](https://about.gitlab.com/handbook/engineering/#sts=Canary%20Testing).
+The [1000 RPS or 50,000 user reference architecture](../administration/reference_architectures/50k_users.md) runs GitLab on 48+ nodes. GitLab.com is [bigger than that](https://handbook.gitlab.com/handbook/engineering/infrastructure/production/architecture/), plus a portion of the [infrastructure runs on Kubernetes](https://handbook.gitlab.com/handbook/engineering/infrastructure/production/architecture/#gitlab-com-architecture), plus there is a ["canary" stage which receives updates first](https://handbook.gitlab.com/handbook/engineering/infrastructure/environments/canary-stage/).
 
 But the problem isn't just that there are many nodes. The bigger problem is that a deployment can be divided into different contexts. And GitLab.com is not the only one that does this. Some possible divisions:
 
@@ -112,7 +112,7 @@ During an update, there will be [two different versions of GitLab running in dif
 
 Yes! We have specific instructions for [zero-downtime updates](../update/index.md#upgrading-without-downtime) because it allows us to ignore some permutations of compatibility. This is why we don't worry about Rails code making DB calls to an old PostgreSQL database schema.
 
-## I've identified a potential backwards compatibility problem, what can I do about it?
+## You've identified a potential backwards compatibility problem, what can you do about it?
 
 ### Coordinate
 
@@ -148,7 +148,7 @@ As an example, when adding a new feature with frontend and API changes, it may b
 
 ### Expand and contract pattern
 
-One way to guarantee zero downtime updates for on-premise instances is following the
+One way to guarantee zero-downtime updates for on-premise instances is following the
 [expand and contract pattern](https://martinfowler.com/bliki/ParallelChange.html).
 
 This means that every breaking change is broken down in three phases: expand, migrate, and contract.
@@ -157,7 +157,7 @@ This means that every breaking change is broken down in three phases: expand, mi
 1. **migrate**: all consumers are updated to make use of the new implementation.
 1. **contract**: backward compatibility is removed.
 
-Those three phases **must be part of different milestones**, to allow zero downtime updates.
+Those three phases **must be part of different milestones**, to allow zero-downtime updates.
 
 Depending on the support level for the feature, the contract phase could be delayed until the next major release.
 
@@ -234,7 +234,7 @@ And these deployments align perfectly with application changes.
 1. At the beginning we have `Version N` on `Schema A`.
 1. Then we have a _long_ transition period with both `Version N` and `Version N+1` on `Schema B`.
 1. When we only have `Version N+1` on `Schema B` the schema changes again.
-1. Finally we have  `Version N+1` on `Schema C`.
+1. Finally we have `Version N+1` on `Schema C`.
 
 With all those details in mind, let's imagine we need to replace a query, and this query has an index to support it.
 
@@ -243,7 +243,7 @@ With all those details in mind, let's imagine we need to replace a query, and th
 1. **contract**: from `Schema B` to `Schema C` (post-deployment migration). Nothing uses the old index anymore, we can safely remove it.
 
 This is only an example. More complex migrations, especially when background migrations are needed may
-require more than one milestone. For details please refer to our [migration style guide](migration_style_guide.md).
+require more than one milestone. For details refer to our [migration style guide](migration_style_guide.md).
 
 ## Examples of previous incidents
 
@@ -258,7 +258,7 @@ For more information, see [the relevant issue](https://gitlab.com/gitlab-org/git
 
 We bumped the Markdown cache version and found a bug when a user edited a description or comment which was generated from a different Markdown
 cache version. The cached HTML wasn't generated properly after saving. In most cases, this wouldn't have happened because users would have
-viewed the Markdown before clicking **Edit** and that would mean the Markdown cache is refreshed. But because we run mixed versions, this is
+viewed the Markdown before selecting **Edit** and that would mean the Markdown cache is refreshed. But because we run mixed versions, this is
 more likely to happen. Another user on a different version could view the same page and refresh the cache to the other version behind the scenes.
 
 For more information, see [the relevant issue](https://gitlab.com/gitlab-org/gitlab/-/issues/208255).
@@ -270,7 +270,7 @@ and set this column to `false`. The old servers were still updating the old colu
 that updated the new column from the old one. For the new servers though, they were only updating the new column and that same trigger
 was now working against us and setting it back to the wrong value.
 
-For more information, see [the relevant issue](https://gitlab.com/gitlab-com/gl-infra/infrastructure/-/issues/9176).
+For more information, see [the relevant issue](https://gitlab.com/gitlab-com/gl-infra/reliability/-/issues/9176).
 
 ### Sidebar wasn't loading for some users
 
@@ -310,10 +310,10 @@ variable `CI_NODE_TOTAL` being an integer failed. This was caused because after 
 1. New code: Sidekiq created a new pipeline and new build. `build.options[:parallel]` is a `Hash`.
 1. Old code: Runners requested a job from an API node that is running the previous version.
 1. As a result, the [new code](https://gitlab.com/gitlab-org/gitlab/-/blob/42b82a9a3ac5a96f9152aad6cbc583c42b9fb082/app/models/concerns/ci/contextable.rb#L104)
-was not run on the API server. The runner's request failed because the
-older API server tried return the `CI_NODE_TOTAL` CI/CD variable, but
-instead of sending an integer value (for example, 9), it sent a serialized
-`Hash` value (`{:number=>9, :total=>9}`).
+   was not run on the API server. The runner's request failed because the
+   older API server tried return the `CI_NODE_TOTAL` CI/CD variable, but
+   instead of sending an integer value (for example, 9), it sent a serialized
+   `Hash` value (`{:number=>9, :total=>9}`).
 
 If you look at the [deployment pipeline](https://ops.gitlab.net/gitlab-com/gl-infra/deployer/-/pipelines/202212),
 you see all nodes were updated in parallel:
@@ -322,11 +322,11 @@ you see all nodes were updated in parallel:
 
 However, even though the updated started around the same time, the completion time varied significantly:
 
-|Node type|Duration (min)|
-|---------|--------------|
-|API      |54            |
-|Sidekiq  |21            |
-|K8S      |8             |
+| Node type | Duration (min) |
+|-----------|----------------|
+| API       | 54             |
+| Sidekiq   | 21             |
+| K8S       | 8              |
 
 Builds that used the `parallel` keyword and depended on `CI_NODE_TOTAL`
 and `CI_NODE_INDEX` would fail during the time after Sidekiq was

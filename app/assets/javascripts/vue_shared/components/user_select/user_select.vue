@@ -2,18 +2,19 @@
 import { debounce } from 'lodash';
 import {
   GlDropdown,
-  GlDropdownForm,
   GlDropdownDivider,
+  GlDropdownForm,
   GlDropdownItem,
-  GlSearchBoxByType,
   GlLoadingIcon,
+  GlSearchBoxByType,
   GlTooltipDirective,
 } from '@gitlab/ui';
 import { __ } from '~/locale';
 import SidebarParticipant from '~/sidebar/components/assignees/sidebar_participant.vue';
-import { IssuableType } from '~/issues/constants';
+import { TYPE_ISSUE, TYPE_MERGE_REQUEST } from '~/issues/constants';
 import { DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
-import { participantsQueries, userSearchQueries } from '~/sidebar/constants';
+import { participantsQueries, userSearchQueries } from '~/sidebar/queries/constants';
+import { TYPENAME_MERGE_REQUEST } from '~/graphql_shared/constants';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
 
 export default {
@@ -47,7 +48,8 @@ export default {
     },
     iid: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
     },
     value: {
       type: Array,
@@ -65,7 +67,7 @@ export default {
     issuableType: {
       type: String,
       required: false,
-      default: IssuableType.Issue,
+      default: TYPE_ISSUE,
     },
     isEditing: {
       type: Boolean,
@@ -74,6 +76,11 @@ export default {
     },
     issuableId: {
       type: Number,
+      required: false,
+      default: null,
+    },
+    issuableAuthor: {
+      type: Object,
       required: false,
       default: null,
     },
@@ -92,12 +99,15 @@ export default {
         return participantsQueries[this.issuableType].query;
       },
       skip() {
-        return Boolean(participantsQueries[this.issuableType].skipQuery) || !this.isEditing;
+        return (
+          Boolean(participantsQueries[this.issuableType].skipQuery) || !this.isEditing || !this.iid
+        );
       },
       variables() {
         return {
           iid: this.iid,
           fullPath: this.fullPath,
+          getStatus: true,
         };
       },
       update(data) {
@@ -122,11 +132,11 @@ export default {
       },
       update(data) {
         return (
-          data.workspace?.users?.nodes
-            .filter((x) => x?.user)
-            .map((node) => ({
-              ...node.user,
-              canMerge: node.mergeRequestInteraction?.canMerge || false,
+          data.workspace?.users
+            .filter((user) => user)
+            .map((user) => ({
+              ...user,
+              canMerge: user.mergeRequestInteraction?.canMerge || false,
             })) || []
         );
       },
@@ -141,7 +151,7 @@ export default {
   },
   computed: {
     isMergeRequest() {
-      return this.issuableType === IssuableType.MergeRequest;
+      return this.issuableType === TYPE_MERGE_REQUEST;
     },
     searchUsersVariables() {
       const variables = {
@@ -154,20 +164,17 @@ export default {
       }
       return {
         ...variables,
-        mergeRequestId: convertToGraphQLId('MergeRequest', this.issuableId),
+        mergeRequestId: convertToGraphQLId(TYPENAME_MERGE_REQUEST, this.issuableId),
       };
     },
     isLoading() {
       return this.$apollo.queries.searchUsers.loading || this.$apollo.queries.participants.loading;
     },
     users() {
-      if (!this.participants) {
-        return [];
-      }
-
-      const filteredParticipants = this.participants.filter(
-        (user) => user.name.includes(this.search) || user.username.includes(this.search),
-      );
+      const filteredParticipants =
+        this.participants?.filter(
+          (user) => user.name.includes(this.search) || user.username.includes(this.search),
+        ) || [];
 
       // TODO this de-duplication is temporary (BE fix required)
       // https://gitlab.com/gitlab-org/gitlab/-/issues/327822
@@ -178,7 +185,7 @@ export default {
           [],
         );
 
-      return this.moveCurrentUserToStart(mergedSearchResults);
+      return this.moveCurrentUserAndAuthorToStart(mergedSearchResults);
     },
     isSearchEmpty() {
       return this.search === '';
@@ -196,14 +203,21 @@ export default {
     showCurrentUser() {
       return this.currentUser.username && !this.isCurrentUserInList && this.isSearchEmpty;
     },
+    showAuthor() {
+      return (
+        this.issuableAuthor &&
+        !this.users.some((user) => user.id === this.issuableAuthor.id) &&
+        this.isSearchEmpty
+      );
+    },
     selectedFiltered() {
       if (this.shouldShowParticipants) {
-        return this.moveCurrentUserToStart(this.value);
+        return this.moveCurrentUserAndAuthorToStart(this.value);
       }
 
       const foundUsernames = this.users.map(({ username }) => username);
       const filtered = this.value.filter(({ username }) => foundUsernames.includes(username));
-      return this.moveCurrentUserToStart(filtered);
+      return this.moveCurrentUserAndAuthorToStart(filtered);
     },
     selectedUserNames() {
       return this.value.map(({ username }) => username);
@@ -240,10 +254,16 @@ export default {
         selected.push(user);
         this.$emit('input', selected);
       }
+      this.clearAndFocusSearch();
+    },
+    unassign() {
+      this.$emit('input', []);
+      this.$refs.dropdown.hide();
     },
     unselect(name) {
       const selected = this.value.filter((user) => user.username !== name);
       this.$emit('input', selected);
+      this.clearAndFocusSearch();
     },
     focusSearch() {
       this.$refs.search.focusInput();
@@ -254,20 +274,22 @@ export default {
     showDivider(list) {
       return list.length > 0 && this.isSearchEmpty;
     },
-    moveCurrentUserToStart(users) {
-      if (!users) {
-        return [];
+    moveCurrentUserAndAuthorToStart(users = []) {
+      let sortedUsers = [...users];
+
+      const author = sortedUsers.find((user) => user.id === this.issuableAuthor?.id);
+      if (author) {
+        sortedUsers = [author, ...sortedUsers.filter((user) => user.id !== author.id)];
       }
-      const usersCopy = [...users];
-      const currentUser = usersCopy.find((user) => user.username === this.currentUser.username);
+
+      const currentUser = sortedUsers.find((user) => user.username === this.currentUser.username);
 
       if (currentUser) {
         currentUser.canMerge = this.currentUser.canMerge;
-        const index = usersCopy.indexOf(currentUser);
-        usersCopy.splice(0, 0, usersCopy.splice(index, 1)[0]);
+        sortedUsers = [currentUser, ...sortedUsers.filter((user) => user.id !== currentUser.id)];
       }
 
-      return usersCopy;
+      return sortedUsers;
     },
     setSearchKey(value) {
       this.search = value.trim();
@@ -278,6 +300,10 @@ export default {
       }
       return user.canMerge ? '' : __('Cannot merge');
     },
+    clearAndFocusSearch() {
+      this.search = '';
+      this.focusSearch();
+    },
   },
 };
 </script>
@@ -285,12 +311,12 @@ export default {
 <template>
   <gl-dropdown ref="dropdown" :text="text" @toggle="$emit('toggle')" @shown="focusSearch">
     <template #header>
-      <p class="gl-font-weight-bold gl-text-center gl-mt-2 gl-mb-4">{{ headerText }}</p>
+      <p class="gl-font-bold gl-text-center gl-mt-2 gl-mb-4">{{ headerText }}</p>
       <gl-dropdown-divider />
       <gl-search-box-by-type
         ref="search"
         :value="search"
-        class="js-dropdown-input-field"
+        data-testid="user-search-input"
         @input="debouncedSearchKeyUpdate"
       />
     </template>
@@ -306,14 +332,14 @@ export default {
           <gl-dropdown-item
             v-if="isSearchEmpty"
             :is-checked="selectedIsEmpty"
-            :is-check-centered="true"
+            is-check-centered
             data-testid="unassign"
-            @click.native.capture.stop="$emit('input', [])"
+            @click.native.capture.stop="unassign"
           >
-            <span :class="selectedIsEmpty ? 'gl-pl-0' : 'gl-pl-6'" class="gl-font-weight-bold">{{
+            <span :class="selectedIsEmpty ? 'gl-pl-0' : 'gl-pl-6'" class="gl-font-bold">{{
               $options.i18n.unassigned
-            }}</span></gl-dropdown-item
-          >
+            }}</span>
+          </gl-dropdown-item>
         </template>
         <gl-dropdown-divider v-if="showDivider(selectedFiltered)" />
         <gl-dropdown-item
@@ -327,7 +353,7 @@ export default {
           data-testid="selected-participant"
           @click.native.capture.stop="unselect(item.username)"
         >
-          <sidebar-participant :user="item" :issuable-type="issuableType" />
+          <sidebar-participant :user="item" :issuable-type="issuableType" selected />
         </gl-dropdown-item>
         <template v-if="showCurrentUser">
           <gl-dropdown-divider />
@@ -342,7 +368,17 @@ export default {
             />
           </gl-dropdown-item>
         </template>
-        <gl-dropdown-divider v-if="showDivider(unselectedFiltered)" />
+        <gl-dropdown-item
+          v-if="showAuthor"
+          data-testid="issuable-author"
+          @click.native.capture.stop="selectAssignee(issuableAuthor)"
+        >
+          <sidebar-participant
+            :user="issuableAuthor"
+            :issuable-type="issuableType"
+            class="gl-pl-6!"
+          />
+        </gl-dropdown-item>
         <gl-dropdown-item
           v-for="unselectedUser in unselectedFiltered"
           :key="unselectedUser.id"

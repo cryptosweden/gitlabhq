@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::ReleaseAssetLinks::Update do
+RSpec.describe Mutations::ReleaseAssetLinks::Update, feature_category: :release_orchestration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :private, :repository) }
   let_it_be(:release) { create(:release, project: project, tag: 'v13.10') }
-  let_it_be(:reporter) { create(:user).tap { |u| project.add_reporter(u) } }
-  let_it_be(:developer) { create(:user).tap { |u| project.add_developer(u) } }
+  let_it_be(:reporter) { create(:user, reporter_of: project) }
+  let_it_be(:developer) { create(:user, developer_of: project) }
 
   let_it_be(:name) { 'link name' }
   let_it_be(:url) { 'https://example.com/url' }
@@ -16,12 +16,14 @@ RSpec.describe Mutations::ReleaseAssetLinks::Update do
   let_it_be(:link_type) { 'package' }
 
   let_it_be(:release_link) do
-    create(:release_link,
-           release: release,
-           name: name,
-           url: url,
-           filepath: filepath,
-           link_type: link_type)
+    create(
+      :release_link,
+      release: release,
+      name: name,
+      url: url,
+      filepath: filepath,
+      link_type: link_type
+    )
   end
 
   let(:current_user) { developer }
@@ -186,18 +188,12 @@ RSpec.describe Mutations::ReleaseAssetLinks::Update do
     end
 
     context "when the link doesn't exist" do
-      let(:mutation_arguments) { super().merge(id: "gid://gitlab/Releases::Link/#{non_existing_record_id}") }
+      let(:mutation_arguments) do
+        super().merge(id: global_id_of(id: non_existing_record_id, model_name: "Releases::Link"))
+      end
 
       it 'raises an error' do
         expect { subject }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
-      end
-    end
-
-    context "when the provided ID is invalid" do
-      let(:mutation_arguments) { super().merge(id: 'not-a-valid-gid') }
-
-      it 'raises an error' do
-        expect { subject }.to raise_error(::GraphQL::CoercionError)
       end
     end
   end

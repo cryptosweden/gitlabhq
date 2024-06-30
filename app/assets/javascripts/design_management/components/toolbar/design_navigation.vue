@@ -1,12 +1,11 @@
 <script>
-/* global Mousetrap */
-import 'mousetrap';
 import { GlButton, GlButtonGroup, GlTooltipDirective } from '@gitlab/ui';
 import {
   keysFor,
   ISSUE_PREVIOUS_DESIGN,
   ISSUE_NEXT_DESIGN,
 } from '~/behaviors/shortcuts/keybindings';
+import { Mousetrap } from '~/lib/mousetrap';
 import { s__, sprintf } from '~/locale';
 import allDesignsMixin from '../../mixins/all_designs';
 import { DESIGN_ROUTE_NAME } from '../../router/constants';
@@ -79,15 +78,15 @@ export default {
 </script>
 
 <template>
-  <div v-if="designsCount" class="gl-display-flex gl-align-items-center">
+  <div v-if="designsCount" class="gl-display-flex gl-align-items-center gl-flex-shrink-0">
     {{ paginationText }}
-    <gl-button-group class="gl-mx-5">
+    <gl-button-group class="gl-ml-3">
       <gl-button
         v-gl-tooltip.bottom
         :disabled="!previousDesign"
         :title="$options.i18n.previousButton"
         :aria-label="$options.i18n.previousButton"
-        icon="angle-left"
+        icon="chevron-lg-left"
         class="js-previous-design"
         @click="navigateToDesign(previousDesign)"
       />
@@ -96,7 +95,7 @@ export default {
         :disabled="!nextDesign"
         :title="$options.i18n.nextButton"
         :aria-label="$options.i18n.nextButton"
-        icon="angle-right"
+        icon="chevron-lg-right"
         class="js-next-design"
         @click="navigateToDesign(nextDesign)"
       />

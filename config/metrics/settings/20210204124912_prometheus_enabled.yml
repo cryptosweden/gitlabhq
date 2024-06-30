@@ -1,15 +1,13 @@
 ---
-data_category: optional
+data_category: operational
 key_path: prometheus_enabled
 description: Whether the bundled Prometheus is enabled
-product_section: growth
-product_stage: growth
-product_group: group::product intelligence
-product_category: collection
+product_group: respond
 value_type: boolean
 status: active
 time_frame: none
 data_source: system
+instrumentation_class: PrometheusEnabledMetric
 distribution:
 - ce
 - ee
@@ -17,5 +15,6 @@ tier:
 - free
 - premium
 - ultimate
-performance_indicator_type: []
+performance_indicator_type:
+- customer_health_score
 milestone: "<13.9"

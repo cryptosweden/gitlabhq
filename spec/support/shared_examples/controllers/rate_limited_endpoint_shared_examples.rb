@@ -5,7 +5,9 @@
 # - current_user
 # - error_message # optional
 
-RSpec.shared_examples 'rate limited endpoint' do |rate_limit_key:|
+RSpec.shared_examples 'rate limited endpoint' do |rate_limit_key:, graphql: false|
+  let(:error_message) { _('This endpoint has been requested too many times. Try again later.') }
+
   context 'when rate limiter enabled', :freeze_time, :clean_gitlab_redis_rate_limiting do
     let(:expected_logger_attributes) do
       {
@@ -25,24 +27,26 @@ RSpec.shared_examples 'rate limited endpoint' do |rate_limit_key:|
       end
     end
 
-    let(:error_message) { _('This endpoint has been requested too many times. Try again later.') }
-
     before do
       allow(Gitlab::ApplicationRateLimiter).to receive(:threshold).with(rate_limit_key).and_return(1)
     end
 
-    it 'logs request and declines it when endpoint called more than the threshold' do |example|
+    it 'logs request and declines it when endpoint called more than the threshold' do
       expect(Gitlab::AuthLogger).to receive(:error).with(expected_logger_attributes).once
 
       request
       request
 
-      expect(response).to have_gitlab_http_status(:too_many_requests)
+      if graphql
+        expect_graphql_errors_to_include(error_message)
+      else
+        expect(response).to have_gitlab_http_status(:too_many_requests)
 
-      if example.metadata[:type] == :controller
-        expect(response.body).to eq(error_message)
-      else # it is API spec
-        expect(response.body).to eq({ message: { error: error_message } }.to_json)
+        if response.content_type == 'application/json' # it is API spec
+          expect(response.body).to eq({ message: { error: error_message } }.to_json)
+        else
+          expect(response.body).to eq(error_message)
+        end
       end
     end
   end
@@ -57,7 +61,31 @@ RSpec.shared_examples 'rate limited endpoint' do |rate_limit_key:|
 
       request
 
-      expect(response).not_to have_gitlab_http_status(:too_many_requests)
+      if graphql
+        expect_graphql_errors_to_be_empty
+      else
+        expect(response).not_to have_gitlab_http_status(:too_many_requests)
+      end
+    end
+  end
+end
+
+RSpec.shared_examples 'unthrottled endpoint' do |graphql: false|
+  let(:error_message) { _('This endpoint has been requested too many times. Try again later.') }
+
+  context 'when rate limiter enabled', :freeze_time, :clean_gitlab_redis_rate_limiting do
+    it 'does not log request and accepts it when endpoint called more than the threshold' do
+      expect(Gitlab::ApplicationRateLimiter).not_to receive(:threshold)
+      expect(Gitlab::AuthLogger).not_to receive(:error)
+
+      request
+      request
+
+      if graphql
+        expect(flattened_errors).not_to include(error_message)
+      else
+        expect(response).not_to have_gitlab_http_status(:too_many_requests)
+      end
     end
   end
 end

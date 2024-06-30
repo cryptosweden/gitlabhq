@@ -1,8 +1,7 @@
 # frozen_string_literal: true
-
 require 'spec_helper'
 
-RSpec.describe Projects::UpdateService do
+RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects do
   include ExternalAuthorizationServiceHelpers
   include ProjectForksHelper
 
@@ -11,10 +10,108 @@ RSpec.describe Projects::UpdateService do
     create(:project, creator: user, namespace: user.namespace)
   end
 
+  shared_examples 'publishing Projects::ProjectAttributesChangedEvent' do |params:, attributes:|
+    it "publishes Projects::ProjectAttributesChangedEvent" do
+      expect { update_project(project, user, params) }
+        .to publish_event(Projects::ProjectAttributesChangedEvent)
+        .with(
+          project_id: project.id,
+          namespace_id: project.namespace_id,
+          root_namespace_id: project.root_namespace.id,
+          attributes: attributes
+        )
+    end
+  end
+
   describe '#execute' do
     let(:admin) { create(:admin) }
 
+    let_it_be(:maintainer) { create(:user) }
+    let_it_be(:developer) { create(:user) }
+    let_it_be(:owner) { create(:user) }
+
+    context 'when changing restrict_user_defined_variables' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:current_user_role, :project_minimum_role, :from_value, :to_value, :status) do
+        :owner      | :developer  | true  | false | :success
+        :owner      | :maintainer | true  | false | :success
+        :owner      | :developer  | false | true  | :success
+        :owner      | :maintainer | false | true  | :success
+        :maintainer | :developer  | true  | false | :success
+        :maintainer | :maintainer | true  | false | :success
+        :maintainer | :owner      | true  | false | :api_error
+        :maintainer | :owner      | false | true  | :api_error
+        :maintainer | :owner      | true  | true  | :success
+        :developer  | :owner      | true  | false | :api_error
+        :developer  | :developer  | true  | false | :api_error
+        :developer  | :maintainer | true  | false | :api_error
+      end
+
+      with_them do
+        let(:current_user) { public_send(current_user_role) }
+
+        before do
+          project.add_maintainer(maintainer)
+          project.add_developer(developer)
+          project.add_owner(owner)
+
+          ci_cd_settings = project.ci_cd_settings
+          ci_cd_settings.pipeline_variables_minimum_override_role = project_minimum_role
+          ci_cd_settings.restrict_user_defined_variables = from_value
+          ci_cd_settings.save!
+        end
+
+        it 'allows/disallows to change restrict_user_defined_variables' do
+          result = update_project(project, current_user, restrict_user_defined_variables: to_value)
+          expect(result[:status]).to eq(status)
+        end
+      end
+    end
+
+    context 'when changing ci_pipeline_variables_minimum_override_role' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:current_user_role, :restrict_user_defined_variables, :from_value, :to_value, :status) do
+        :owner      | true  | :owner      | :developer  | :success
+        :owner      | true  | :owner      | :maintainer | :success
+        :owner      | true  | :developer  | :maintainer | :success
+        :owner      | true  | :maintainer | :owner      | :success
+        :maintainer | true  | :owner      | :developer  | :api_error
+        :maintainer | true  | :owner      | :maintainer | :api_error
+        :maintainer | true  | :developer  | :maintainer | :success
+        :maintainer | true  | :maintainer | :owner      | :api_error
+        :owner      | false | :owner      | :maintainer | :success
+        :maintainer | false | :owner      | :developer  | :api_error
+        :maintainer | false | :maintainer | :owner      | :api_error
+      end
+
+      with_them do
+        let(:current_user) { public_send(current_user_role) }
+
+        before do
+          project.add_maintainer(maintainer)
+          project.add_developer(developer)
+          project.add_owner(owner)
+
+          ci_cd_settings = project.ci_cd_settings
+          ci_cd_settings.pipeline_variables_minimum_override_role = from_value
+          ci_cd_settings.restrict_user_defined_variables = restrict_user_defined_variables
+          ci_cd_settings.save!
+        end
+
+        it 'allows/disallows to change ci_pipeline_variables_minimum_override_role' do
+          result = update_project(project, current_user, ci_pipeline_variables_minimum_override_role: to_value.to_s)
+          expect(result[:status]).to eq(status)
+        end
+      end
+    end
+
     context 'when changing visibility level' do
+      it_behaves_like 'publishing Projects::ProjectAttributesChangedEvent',
+        params: { visibility_level: Gitlab::VisibilityLevel::INTERNAL },
+        attributes: %w[updated_at visibility_level]
+
       context 'when visibility_level changes to INTERNAL' do
         it 'updates the project to internal' do
           expect(TodosDestroyer::ProjectPrivateWorker).not_to receive(:perform_in)
@@ -120,6 +217,65 @@ RSpec.describe Projects::UpdateService do
         end
       end
 
+      context 'when user is not project owner' do
+        let_it_be(:maintainer) { create(:user) }
+
+        before do
+          project.add_maintainer(maintainer)
+        end
+
+        context 'when project is private' do
+          it 'does not update the project to public' do
+            result = update_project(project, maintainer, visibility_level: Gitlab::VisibilityLevel::PUBLIC)
+
+            expect(result).to eq({ status: :error, message: 'New visibility level not allowed!' })
+            expect(project).to be_private
+          end
+
+          it 'does not update the project to public with tricky value' do
+            result = update_project(project, maintainer, visibility_level: Gitlab::VisibilityLevel::PUBLIC.to_s + 'r')
+
+            expect(result).to eq({ status: :error, message: 'New visibility level not allowed!' })
+            expect(project).to be_private
+          end
+        end
+
+        context 'when project is public' do
+          before do
+            project.update!(visibility_level: Gitlab::VisibilityLevel::PUBLIC)
+          end
+
+          it 'does not update the project to private' do
+            result = update_project(project, maintainer, visibility_level: Gitlab::VisibilityLevel::PRIVATE)
+
+            expect(result).to eq({ status: :error, message: 'New visibility level not allowed!' })
+            expect(project).to be_public
+          end
+
+          it 'does not update the project to private with invalid string value' do
+            result = update_project(project, maintainer, visibility_level: 'invalid')
+
+            expect(result).to eq({ status: :error, message: 'New visibility level not allowed!' })
+            expect(project).to be_public
+          end
+
+          it 'does not update the project to private with valid string value' do
+            result = update_project(project, maintainer, visibility_level: 'private')
+
+            expect(result).to eq({ status: :error, message: 'New visibility level not allowed!' })
+            expect(project).to be_public
+          end
+
+          # See https://gitlab.com/gitlab-org/gitlab/-/issues/359910
+          it 'does not update the project to private because of Active Record typecasting' do
+            result = update_project(project, maintainer, visibility_level: 'public')
+
+            expect(result).to eq({ status: :success })
+            expect(project).to be_public
+          end
+        end
+      end
+
       context 'when updating shared runners' do
         context 'can enable shared runners' do
           let(:group) { create(:group, shared_runners_enabled: true) }
@@ -152,48 +308,16 @@ RSpec.describe Projects::UpdateService do
       let(:user) { project.first_owner }
       let(:forked_project) { fork_project(project) }
 
-      context 'and unlink forks feature flag is off' do
-        before do
-          stub_feature_flags(unlink_fork_network_upon_visibility_decrease: false)
-        end
+      it 'does not change visibility of forks' do
+        opts = { visibility_level: Gitlab::VisibilityLevel::PRIVATE }
 
-        it 'updates forks visibility level when parent set to more restrictive' do
-          opts = { visibility_level: Gitlab::VisibilityLevel::PRIVATE }
+        expect(project).to be_internal
+        expect(forked_project).to be_internal
 
-          expect(project).to be_internal
-          expect(forked_project).to be_internal
+        expect(update_project(project, user, opts)).to eq({ status: :success })
 
-          expect(update_project(project, user, opts)).to eq({ status: :success })
-
-          expect(project).to be_private
-          expect(forked_project.reload).to be_private
-        end
-
-        it 'does not update forks visibility level when parent set to less restrictive' do
-          opts = { visibility_level: Gitlab::VisibilityLevel::PUBLIC }
-
-          expect(project).to be_internal
-          expect(forked_project).to be_internal
-
-          expect(update_project(project, user, opts)).to eq({ status: :success })
-
-          expect(project).to be_public
-          expect(forked_project.reload).to be_internal
-        end
-      end
-
-      context 'and unlink forks feature flag is on' do
-        it 'does not change visibility of forks' do
-          opts = { visibility_level: Gitlab::VisibilityLevel::PRIVATE }
-
-          expect(project).to be_internal
-          expect(forked_project).to be_internal
-
-          expect(update_project(project, user, opts)).to eq({ status: :success })
-
-          expect(project).to be_private
-          expect(forked_project.reload).to be_internal
-        end
+        expect(project).to be_private
+        expect(forked_project.reload).to be_internal
       end
     end
 
@@ -227,11 +351,30 @@ RSpec.describe Projects::UpdateService do
         expect(project.default_branch).to eq 'master'
         expect(project.previous_default_branch).to be_nil
       end
+
+      context 'when repository has an ambiguous branch named "HEAD"' do
+        before do
+          allow(project.repository.raw).to receive(:write_ref).and_return(false)
+          allow(project.repository).to receive(:branch_names) { %w[fix master main HEAD] }
+        end
+
+        it 'returns an error to the user' do
+          result = update_project(project, admin, default_branch: 'fix')
+
+          expect(result).to include(status: :error)
+          expect(result[:message]).to include("Could not set the default branch. Do you have a branch named 'HEAD' in your repository?")
+
+          project.reload
+
+          expect(project.default_branch).to eq 'master'
+          expect(project.previous_default_branch).to be_nil
+        end
+      end
     end
 
     context 'when we update project but not enabling a wiki' do
       it 'does not try to create an empty wiki' do
-        TestEnv.rm_storage_dir(project.repository_storage, project.wiki.path)
+        project.wiki.repository.raw.remove
 
         result = update_project(project, user, { name: 'test1' })
 
@@ -252,7 +395,7 @@ RSpec.describe Projects::UpdateService do
     context 'when enabling a wiki' do
       it 'creates a wiki' do
         project.project_feature.update!(wiki_access_level: ProjectFeature::DISABLED)
-        TestEnv.rm_storage_dir(project.repository_storage, project.wiki.path)
+        project.wiki.repository.raw.remove
 
         result = update_project(project, user, project_feature_attributes: { wiki_access_level: ProjectFeature::ENABLED })
 
@@ -264,7 +407,9 @@ RSpec.describe Projects::UpdateService do
       it 'logs an error and creates a metric when wiki can not be created' do
         project.project_feature.update!(wiki_access_level: ProjectFeature::DISABLED)
 
-        expect_any_instance_of(ProjectWiki).to receive(:wiki).and_raise(Wiki::CouldNotCreateWikiError)
+        expect_next_instance_of(ProjectWiki) do |project_wiki|
+          expect(project_wiki).to receive(:create_wiki_repository).and_raise(Wiki::CouldNotCreateWikiError)
+        end
         expect_any_instance_of(described_class).to receive(:log_error).with("Could not create wiki for #{project.full_name}")
 
         counter = double(:counter)
@@ -289,18 +434,154 @@ RSpec.describe Projects::UpdateService do
       end
     end
 
+    context 'when changes project features' do
+      # Using some sample features for testing.
+      # Not using all the features because some of them must be enabled/disabled together
+      %w[issues wiki forking model_experiments model_registry].each do |feature_name|
+        context "with feature_name:#{feature_name}" do
+          let(:feature) { "#{feature_name}_access_level" }
+          let(:params) do
+            { project_feature_attributes: { feature => ProjectFeature::ENABLED } }
+          end
+
+          before do
+            project.project_feature.update!(feature => ProjectFeature::DISABLED)
+          end
+
+          it 'publishes Projects::ProjectFeaturesChangedEvent' do
+            expect { update_project(project, user, params) }
+              .to publish_event(Projects::ProjectFeaturesChangedEvent)
+              .with(
+                project_id: project.id,
+                namespace_id: project.namespace_id,
+                root_namespace_id: project.root_namespace.id,
+                features: array_including(feature, "updated_at")
+              )
+          end
+        end
+      end
+    end
+
+    context 'when archiving a project' do
+      it_behaves_like 'publishing Projects::ProjectAttributesChangedEvent',
+        params: { archived: true },
+        attributes: %w[updated_at archived]
+
+      it 'publishes a ProjectTransferedEvent' do
+        expect { update_project(project, user, archived: true) }
+          .to publish_event(Projects::ProjectArchivedEvent)
+          .with(
+            project_id: project.id,
+            namespace_id: project.namespace_id,
+            root_namespace_id: project.root_namespace.id
+          )
+      end
+    end
+
+    context 'when changing operations feature visibility' do
+      let(:feature_params) { { operations_access_level: ProjectFeature::DISABLED } }
+
+      it 'does not sync the changes to the related fields' do
+        result = update_project(project, user, project_feature_attributes: feature_params)
+
+        expect(result).to eq({ status: :success })
+        feature = project.project_feature
+
+        expect(feature.operations_access_level).to eq(ProjectFeature::DISABLED)
+        expect(feature.monitor_access_level).not_to eq(ProjectFeature::DISABLED)
+        expect(feature.infrastructure_access_level).not_to eq(ProjectFeature::DISABLED)
+        expect(feature.feature_flags_access_level).not_to eq(ProjectFeature::DISABLED)
+        expect(feature.environments_access_level).not_to eq(ProjectFeature::DISABLED)
+      end
+    end
+
     context 'when updating a project that contains container images' do
+      let(:new_name) { 'renamed' }
+
       before do
         stub_container_registry_config(enabled: true)
         stub_container_registry_tags(repository: /image/, tags: %w[rc1])
         create(:container_repository, project: project, name: :image)
       end
 
-      it 'does not allow to rename the project' do
-        result = update_project(project, admin, path: 'renamed')
+      shared_examples 'renaming the project fails with message' do |error_message|
+        it 'does not allow to rename the project' do
+          result = update_project(project, admin, path: new_name)
 
-        expect(result).to include(status: :error)
-        expect(result[:message]).to match(/contains container registry tags/)
+          expect(result).to include(status: :error)
+          expect(result[:message]).to match(error_message)
+        end
+      end
+
+      context 'when the GitlabAPI is not supported' do
+        before do
+          allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(false)
+        end
+
+        it_behaves_like 'renaming the project fails with message', /contains container registry tags/
+      end
+
+      context 'when Gitlab API is supported' do
+        before do
+          allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
+        end
+
+        it 'executes a dry run of the project rename' do
+          stub_rename_base_repository_in_registry(dry_run: true)
+
+          update_project(project, admin, path: new_name)
+
+          expect_rename_of_base_repository_in_registry(dry_run: true)
+        end
+
+        context 'when the dry run fails' do
+          before do
+            stub_rename_base_repository_in_registry(dry_run: true, result: :bad_request)
+          end
+
+          it_behaves_like 'renaming the project fails with message', /container registry path rename validation failed/
+
+          it 'logs the error' do
+            expect_any_instance_of(described_class).to receive(:log_error).with("Dry run failed for renaming project with tags: #{project.full_path}, error: bad_request")
+
+            update_project(project, admin, path: new_name)
+          end
+        end
+
+        context 'when the dry run succeeds' do
+          before do
+            stub_rename_base_repository_in_registry(dry_run: true, result: :accepted)
+          end
+
+          it 'continues with the project rename' do
+            stub_rename_base_repository_in_registry(dry_run: false, result: :ok)
+            old_project_full_path = project.full_path
+
+            update_project(project, admin, path: new_name)
+
+            expect_rename_of_base_repository_in_registry(dry_run: true, path: old_project_full_path)
+            expect_rename_of_base_repository_in_registry(dry_run: false, path: old_project_full_path)
+          end
+        end
+
+        def stub_rename_base_repository_in_registry(dry_run:, result: nil)
+          options = { name: new_name }
+          options[:dry_run] = true if dry_run
+
+          allow(ContainerRegistry::GitlabApiClient)
+            .to receive(:rename_base_repository_path)
+            .with(project.full_path, options)
+            .and_return(result)
+        end
+
+        def expect_rename_of_base_repository_in_registry(dry_run:, path: nil)
+          options = { name: new_name }
+          options[:dry_run] = true if dry_run
+
+          expect(ContainerRegistry::GitlabApiClient)
+            .to have_received(:rename_base_repository_path)
+            .with(path || project.full_path, options)
+        end
       end
 
       it 'allows to update other settings' do
@@ -312,17 +593,17 @@ RSpec.describe Projects::UpdateService do
     end
 
     context 'when renaming a project' do
-      let(:fake_repo_path) { File.join(TestEnv.repos_path, user.namespace.full_path, 'existing.git') }
+      let(:raw_fake_repo) { Gitlab::Git::Repository.new('default', File.join(user.namespace.full_path, 'existing.git'), nil, nil) }
 
       context 'with legacy storage' do
         let(:project) { create(:project, :legacy_storage, :repository, creator: user, namespace: user.namespace) }
 
         before do
-          TestEnv.create_bare_repository(fake_repo_path)
+          raw_fake_repo.create_repository
         end
 
         after do
-          FileUtils.rm_rf(fake_repo_path)
+          raw_fake_repo.remove
         end
 
         it 'does not allow renaming when new path matches existing repository on disk' do
@@ -374,24 +655,43 @@ RSpec.describe Projects::UpdateService do
 
         expect(result).to eq({
           status: :error,
-          message: "Name can contain only letters, digits, emojis, '_', '.', '+', dashes, or spaces. It must start with a letter, digit, emoji, or '_'."
+          message: "Name can contain only letters, digits, emoji, '_', '.', '+', dashes, or spaces. It must start with a letter, digit, emoji, or '_'."
         })
       end
     end
 
-    context 'when updating #emails_disabled' do
+    context 'when updating #emails_enabled' do
       it 'updates the attribute for the project owner' do
-        expect { update_project(project, user, emails_disabled: true) }
-          .to change { project.emails_disabled }
-          .to(true)
+        expect { update_project(project, user, emails_enabled: false) }
+          .to change { project.emails_enabled }
+          .to(false)
       end
 
       it 'does not update when not project owner' do
         maintainer = create(:user)
-        project.add_user(maintainer, :maintainer)
+        project.add_member(maintainer, :maintainer)
 
-        expect { update_project(project, maintainer, emails_disabled: true) }
-          .not_to change { project.emails_disabled }
+        expect { update_project(project, maintainer, emails_enabled: false) }
+          .not_to change { project.emails_enabled }
+      end
+    end
+
+    context 'when updating #runner_registration_enabled' do
+      it 'updates the attribute' do
+        expect { update_project(project, user, runner_registration_enabled: false) }
+          .to change { project.runner_registration_enabled }
+          .to(false)
+      end
+
+      context 'when runner registration is disabled for all projects' do
+        before do
+          stub_application_setting(valid_runner_registrars: [])
+        end
+
+        it 'restricts updating the attribute' do
+          expect { update_project(project, user, runner_registration_enabled: false) }
+            .not_to change { project.runner_registration_enabled }
+        end
       end
     end
 
@@ -500,17 +800,19 @@ RSpec.describe Projects::UpdateService do
     context 'when updating nested attributes for prometheus integration' do
       context 'prometheus integration exists' do
         let(:prometheus_integration_attributes) do
-          attributes_for(:prometheus_integration,
-                         project: project,
-                         properties: { api_url: "http://new.prometheus.com", manual_configuration: "0" }
-                        )
+          attributes_for(
+            :prometheus_integration,
+            project: project,
+            properties: { api_url: "http://new.prometheus.com", manual_configuration: "0" }
+          )
         end
 
         let!(:prometheus_integration) do
-          create(:prometheus_integration,
-                 project: project,
-                 properties: { api_url: "http://old.prometheus.com", manual_configuration: "0" }
-                )
+          create(
+            :prometheus_integration,
+            project: project,
+            properties: { api_url: "http://old.prometheus.com", manual_configuration: "0" }
+          )
         end
 
         it 'updates existing record' do
@@ -524,10 +826,11 @@ RSpec.describe Projects::UpdateService do
       context 'prometheus integration does not exist' do
         context 'valid parameters' do
           let(:prometheus_integration_attributes) do
-            attributes_for(:prometheus_integration,
-                           project: project,
-                           properties: { api_url: "http://example.prometheus.com", manual_configuration: "0" }
-                          )
+            attributes_for(
+              :prometheus_integration,
+              project: project,
+              properties: { api_url: "http://example.prometheus.com", manual_configuration: "0" }
+            )
           end
 
           it 'creates new record' do
@@ -540,10 +843,11 @@ RSpec.describe Projects::UpdateService do
 
         context 'invalid parameters' do
           let(:prometheus_integration_attributes) do
-            attributes_for(:prometheus_integration,
-                           project: project,
-                           properties: { api_url: nil, manual_configuration: "1" }
-                          )
+            attributes_for(
+              :prometheus_integration,
+              project: project,
+              properties: { api_url: 'invalid-url', manual_configuration: "1" }
+            )
           end
 
           it 'does not create new record' do
@@ -560,7 +864,7 @@ RSpec.describe Projects::UpdateService do
       let(:opts) { { repository_storage: 'test_second_storage' } }
 
       before do
-        stub_storage_settings('test_second_storage' => { 'path' => 'tmp/tests/extra_storage' })
+        stub_storage_settings('test_second_storage' => {})
       end
 
       shared_examples 'the transfer was not scheduled' do
@@ -641,6 +945,31 @@ RSpec.describe Projects::UpdateService do
         expect(project.topic_list).to eq(%w[tag_list])
       end
     end
+
+    describe 'when updating pages unique domain', feature_category: :pages do
+      before do
+        stub_pages_setting(enabled: true)
+      end
+
+      context 'when turning it on' do
+        it 'adds pages unique domain' do
+          expect(Gitlab::Pages).to receive(:add_unique_domain_to)
+
+          expect { update_project(project, user, project_setting_attributes: { pages_unique_domain_enabled: true }) }
+            .to change { project.project_setting.pages_unique_domain_enabled }
+            .from(false).to(true)
+        end
+      end
+
+      context 'when turning it off' do
+        it 'adds pages unique domain' do
+          expect(Gitlab::Pages).not_to receive(:add_unique_domain_to)
+
+          expect { update_project(project, user, project_setting_attributes: { pages_unique_domain_enabled: false }) }
+            .not_to change { project.project_setting.pages_unique_domain_enabled }
+        end
+      end
+    end
   end
 
   describe '#run_auto_devops_pipeline?' do
@@ -648,7 +977,7 @@ RSpec.describe Projects::UpdateService do
 
     context 'when master contains a .gitlab-ci.yml file' do
       before do
-        allow(project.repository).to receive(:gitlab_ci_yml).and_return("script: ['test']")
+        allow(project).to receive(:has_ci_config_file?).and_return(true)
       end
 
       it { is_expected.to eq(false) }

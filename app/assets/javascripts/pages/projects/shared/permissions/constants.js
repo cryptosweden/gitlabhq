@@ -1,19 +1,17 @@
 import { s__, __ } from '~/locale';
-
-export const visibilityOptions = {
-  PRIVATE: 0,
-  INTERNAL: 10,
-  PUBLIC: 20,
-};
+import {
+  VISIBILITY_LEVEL_PRIVATE_INTEGER,
+  VISIBILITY_LEVEL_INTERNAL_INTEGER,
+  VISIBILITY_LEVEL_PUBLIC_INTEGER,
+} from '~/visibility_level/constants';
+import { helpPagePath } from '~/helpers/help_page_helper';
 
 export const visibilityLevelDescriptions = {
-  [visibilityOptions.PRIVATE]: __(
-    'The project is accessible only by members of the project. Access must be granted explicitly to each user.',
+  [VISIBILITY_LEVEL_PRIVATE_INTEGER]: __(
+    `Only accessible by %{membersPageLinkStart}project members%{membersPageLinkEnd}. Membership must be explicitly granted to each user.`,
   ),
-  [visibilityOptions.INTERNAL]: __('The project can be accessed by any user who is logged in.'),
-  [visibilityOptions.PUBLIC]: __(
-    'The project can be accessed by anyone, regardless of authentication.',
-  ),
+  [VISIBILITY_LEVEL_INTERNAL_INTEGER]: __('Accessible by any user who is logged in.'),
+  [VISIBILITY_LEVEL_PUBLIC_INTEGER]: __('Accessible by anyone, regardless of authentication.'),
 };
 
 export const featureAccessLevel = {
@@ -46,3 +44,9 @@ export const featureAccessLevelEveryone = [
 export const CVE_ID_REQUEST_BUTTON_I18N = {
   cve_request_toggle_label: s__('CVE|Enable CVE ID requests in the issue sidebar'),
 };
+
+export const modelExperimentsHelpPath = helpPagePath(
+  'user/project/ml/experiment_tracking/index.md',
+);
+
+export const modelRegistryHelpPath = helpPagePath('user/project/ml/model_registry/index.md');

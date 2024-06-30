@@ -3,11 +3,22 @@
 module Gitlab
   module GithubImport
     module ParallelScheduling
-      attr_reader :project, :client, :page_counter, :already_imported_cache_key
+      include JobDelayCalculator
+
+      attr_reader :project, :client, :page_counter, :already_imported_cache_key,
+        :job_waiter_cache_key, :job_waiter_remaining_cache_key
+
+      attr_accessor :job_started_at, :enqueued_job_counter
 
       # The base cache key to use for tracking already imported objects.
       ALREADY_IMPORTED_CACHE_KEY =
         'github-importer/already-imported/%{project}/%{collection}'
+      # The base cache key to use for storing job waiter key
+      JOB_WAITER_CACHE_KEY =
+        'github-importer/job-waiter/%{project}/%{collection}'
+      # The base cache key to use for storing job waiter remaining jobs
+      JOB_WAITER_REMAINING_CACHE_KEY =
+        'github-importer/job-waiter-remaining/%{project}/%{collection}'
 
       # project - An instance of `Project`.
       # client - An instance of `Gitlab::GithubImport::Client`.
@@ -16,9 +27,12 @@ module Gitlab
         @project = project
         @client = client
         @parallel = parallel
-        @page_counter = PageCounter.new(project, collection_method)
-        @already_imported_cache_key = ALREADY_IMPORTED_CACHE_KEY %
-          { project: project.id, collection: collection_method }
+        @page_counter = Gitlab::Import::PageCounter.new(project, collection_method)
+        @already_imported_cache_key = format(ALREADY_IMPORTED_CACHE_KEY, project: project.id,
+          collection: collection_method)
+        @job_waiter_cache_key = format(JOB_WAITER_CACHE_KEY, project: project.id, collection: collection_method)
+        @job_waiter_remaining_cache_key = format(JOB_WAITER_REMAINING_CACHE_KEY, project: project.id,
+          collection: collection_method)
       end
 
       def parallel?
@@ -44,7 +58,8 @@ module Gitlab
         # still scheduling duplicates while. Since all work has already been
         # completed those jobs will just cycle through any remaining pages while
         # not scheduling anything.
-        Gitlab::Cache::Import::Caching.expire(already_imported_cache_key, Gitlab::Cache::Import::Caching::SHORTER_TIMEOUT)
+        Gitlab::Cache::Import::Caching.expire(already_imported_cache_key,
+          Gitlab::Cache::Import::Caching::SHORTER_TIMEOUT)
         info(project.id, message: "importer finished")
 
         retval
@@ -63,7 +78,7 @@ module Gitlab
       # Imports all the objects in sequence in the current thread.
       def sequential_import
         each_object_to_import do |object|
-          repr = representation_class.from_api_response(object)
+          repr = object_representation(object)
 
           importer_class.new(repr, project, client).execute
         end
@@ -72,53 +87,26 @@ module Gitlab
       # Imports all objects in parallel by scheduling a Sidekiq job for every
       # individual object.
       def parallel_import
-        if Feature.enabled?(:spread_parallel_import, default_enabled: :yaml) && parallel_import_batch.present?
-          spread_parallel_import
-        else
-          parallel_import_deprecated
-        end
-      end
+        raise 'Batch settings must be defined for parallel import' if parallel_import_batch.blank?
 
-      def parallel_import_deprecated
-        waiter = JobWaiter.new
-
-        each_object_to_import do |object|
-          repr = representation_class.from_api_response(object)
-
-          sidekiq_worker_class
-            .perform_async(project.id, repr.to_hash, waiter.key)
-
-          waiter.jobs_remaining += 1
-        end
-
-        waiter
+        spread_parallel_import
       end
 
       def spread_parallel_import
-        waiter = JobWaiter.new
-
-        import_arguments = []
+        self.job_started_at = Time.current
+        self.enqueued_job_counter = 0
 
         each_object_to_import do |object|
-          repr = representation_class.from_api_response(object)
+          repr = object_representation(object)
 
-          import_arguments << [project.id, repr.to_hash, waiter.key]
+          sidekiq_worker_class.perform_in(job_delay, project.id, repr.to_hash.deep_stringify_keys, job_waiter.key.to_s)
 
-          waiter.jobs_remaining += 1
+          self.enqueued_job_counter += 1
+
+          job_waiter.jobs_remaining = Gitlab::Cache::Import::Caching.increment(job_waiter_remaining_cache_key)
         end
 
-        # rubocop:disable Scalability/BulkPerformWithContext
-        Gitlab::ApplicationContext.with_context(project: project) do
-          sidekiq_worker_class.bulk_perform_in(
-            1.second,
-            import_arguments,
-            batch_size: parallel_import_batch[:size],
-            batch_delay: parallel_import_batch[:delay]
-          )
-        end
-        # rubocop:enable Scalability/BulkPerformWithContext
-
-        waiter
+        job_waiter
       end
 
       # The method that will be called for traversing through all the objects to
@@ -142,9 +130,13 @@ module Gitlab
           next unless page_counter.set(page.number)
 
           page.objects.each do |object|
+            object = object.to_h
+
             next if already_imported?(object)
 
-            Gitlab::GithubImport::ObjectCounter.increment(project, object_type, :fetched)
+            if increment_object_counter?(object)
+              Gitlab::GithubImport::ObjectCounter.increment(project, object_type, :fetched)
+            end
 
             yield object
 
@@ -153,6 +145,10 @@ module Gitlab
             mark_as_imported(object)
           end
         end
+      end
+
+      def increment_object_counter?(_object)
+        true
       end
 
       # Returns true if the given object has already been imported, false
@@ -206,12 +202,6 @@ module Gitlab
         raise NotImplementedError
       end
 
-      # Default batch settings for parallel import (can be redefined in Importer classes)
-      # Example: { size: 100, delay: 1.minute }
-      def parallel_import_batch
-        {}
-      end
-
       def abort_on_failure
         false
       end
@@ -224,6 +214,20 @@ module Gitlab
 
       private
 
+      # Returns the set used to track "already imported" objects.
+      # Items are the values returned by `#id_for_already_imported_cache`.
+      def already_imported_ids
+        Gitlab::Cache::Import::Caching.values_from_set(already_imported_cache_key)
+      end
+
+      def additional_object_data
+        {}
+      end
+
+      def object_representation(object)
+        representation_class.from_api_response(object, additional_object_data)
+      end
+
       def info(project_id, extra = {})
         Logger.info(log_attributes(project_id, extra))
       end
@@ -234,6 +238,24 @@ module Gitlab
           importer: importer_class.name,
           parallel: parallel?
         )
+      end
+
+      def job_waiter
+        @job_waiter ||= begin
+          key = Gitlab::Cache::Import::Caching.read(job_waiter_cache_key)
+          key ||= Gitlab::Cache::Import::Caching.write(job_waiter_cache_key, JobWaiter.generate_key)
+          jobs_remaining = Gitlab::Cache::Import::Caching.read(job_waiter_remaining_cache_key).to_i || 0
+
+          JobWaiter.new(jobs_remaining, key)
+        end
+      end
+
+      def job_delay
+        runtime = Time.current - job_started_at
+
+        delay = calculate_job_delay(enqueued_job_counter) - runtime
+
+        delay > 0 ? delay : 1.0.second
       end
     end
   end

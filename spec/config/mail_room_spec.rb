@@ -2,36 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe 'mail_room.yml' do
+RSpec.describe 'mail_room.yml', feature_category: :service_desk do
   include StubENV
 
   let(:mailroom_config_path) { 'config/mail_room.yml' }
   let(:gitlab_config_path) { 'config/mail_room.yml' }
   let(:queues_config_path) { 'config/redis.queues.yml' }
 
-  let(:configuration) do
-    vars = {
-      'MAIL_ROOM_GITLAB_CONFIG_FILE' => absolute_path(gitlab_config_path),
-      'GITLAB_REDIS_QUEUES_CONFIG_FILE' => absolute_path(queues_config_path)
-    }
-    cmd = "puts ERB.new(File.read(#{absolute_path(mailroom_config_path).inspect})).result"
-
-    result = Gitlab::Popen.popen_with_detail(%W(ruby -rerb -e #{cmd}), absolute_path('config'), vars)
-    output = result.stdout
-    errors = result.stderr
-    status = result.status
-    raise "Error interpreting #{mailroom_config_path}: #{output}\n#{errors}" unless status == 0
-
-    YAML.safe_load(output, permitted_classes: [Symbol])
-  end
+  let(:configuration) { YAML.safe_load(ERB.new(File.read(mailroom_config_path)).result, permitted_classes: [Symbol]) }
 
   before do
-    stub_env('GITLAB_REDIS_QUEUES_CONFIG_FILE', absolute_path(queues_config_path))
-    redis_clear_raw_config!(Gitlab::Redis::Queues)
-  end
-
-  after do
-    redis_clear_raw_config!(Gitlab::Redis::Queues)
+    stub_env('MAIL_ROOM_GITLAB_CONFIG_FILE', absolute_path(gitlab_config_path))
+    allow(Gitlab::Redis::Queues).to receive(:config_file_name).and_return(queues_config_path)
+    Gitlab::MailRoom.instance_variable_set(:@enabled_configs, nil)
+    Gitlab::MailRoom.instance_variable_set(:@yaml, nil)
   end
 
   context 'when incoming email is disabled' do
@@ -57,6 +41,7 @@ RSpec.describe 'mail_room.yml' do
         password: '[REDACTED]',
         name: 'inbox',
         idle_timeout: 60,
+        delete_after_delivery: true,
         expunge_deleted: true
       }
       expected_options = {
@@ -81,7 +66,7 @@ RSpec.describe 'mail_room.yml' do
         email: 'gitlab-incoming@gmail.com',
         name: 'inbox',
         idle_timeout: 60,
-        expunge_deleted: true
+        delete_after_delivery: false
       }
       expected_options = {
         redis_url: gitlab_redis_queues.url,

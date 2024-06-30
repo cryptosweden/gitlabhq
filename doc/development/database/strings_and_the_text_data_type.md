@@ -1,21 +1,19 @@
 ---
-stage: Enablement
+stage: Data Stores
 group: Database
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Strings and the Text data type
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/30453) in GitLab 13.0.
-
-When adding new columns that will be used to store strings or other textual information:
+When adding new columns to store strings or other textual information:
 
 1. We always use the `text` data type instead of the `string` data type.
 1. `text` columns should always have a limit set, either by using the `create_table` with
-the `#text ... limit: 100` helper (see below) when creating a table, or by using the `add_text_limit`
-when altering an existing table.
+   the `#text ... limit: 100` helper (see below) when creating a table, or by using the `add_text_limit`
+   when altering an existing table.
 
-The standard Rails `text` column type can not be defined with a limit, but we extend `create_table` to
+The standard Rails `text` column type cannot be defined with a limit, but we extend `create_table` to
 add a `limit: 255` option. Outside of `create_table`, `add_text_limit` can be used to add a [check constraint](https://www.postgresql.org/docs/11/ddl-constraints.html)
 to an already existing column.
 
@@ -50,7 +48,7 @@ For example, consider a migration that creates a table with two text columns,
 `db/migrate/20200401000001_create_db_guides.rb`:
 
 ```ruby
-class CreateDbGuides < Gitlab::Database::Migration[1.0]
+class CreateDbGuides < Gitlab::Database::Migration[2.1]
   def change
     create_table :db_guides do |t|
       t.bigint :stars, default: 0, null: false
@@ -68,13 +66,21 @@ is held for a brief amount of time, the time `add_column` needs to complete its 
 depending on how frequently the table is accessed. For example, acquiring an exclusive lock for a very
 frequently accessed table may take minutes in GitLab.com and requires the use of `with_lock_retries`.
 
-For these reasons, it is advised to add the text limit on a separate migration than the `add_column` one.
+When adding a text limit, transactions must be disabled with `disable_ddl_transaction!`. This means adding the column is not rolled back
+in case the migration fails afterwards. An attempt to re-run the migration will raise an error because of the already existing column.
 
-For example, consider a migration that adds a new text column `extended_title` to table `sprints`,
+For these reasons, adding a text column to an existing table can be done by either:
+
+- [Add the column and limit in separate migrations.](#add-the-column-and-limit-in-separate-migrations)
+- [Add the column and limit in one migration with checking if the column already exists.](#add-the-column-and-limit-in-one-migration-with-checking-if-the-column-already-exists)
+
+### Add the column and limit in separate migrations
+
+Consider a migration that adds a new text column `extended_title` to table `sprints`,
 `db/migrate/20200501000001_add_extended_title_to_sprints.rb`:
 
 ```ruby
-class AddExtendedTitleToSprints < Gitlab::Database::Migration[1.0]
+class AddExtendedTitleToSprints < Gitlab::Database::Migration[2.1]
 
   # rubocop:disable Migration/AddLimitToTextColumns
   # limit is added in 20200501000002_add_text_limit_to_sprints_extended_title
@@ -89,7 +95,7 @@ A second migration should follow the first one with a limit added to `extended_t
 `db/migrate/20200501000002_add_text_limit_to_sprints_extended_title.rb`:
 
 ```ruby
-class AddTextLimitToSprintsExtendedTitle < Gitlab::Database::Migration[1.0]
+class AddTextLimitToSprintsExtendedTitle < Gitlab::Database::Migration[2.1]
   disable_ddl_transaction!
 
   def up
@@ -99,6 +105,31 @@ class AddTextLimitToSprintsExtendedTitle < Gitlab::Database::Migration[1.0]
   def down
     # Down is required as `add_text_limit` is not reversible
     remove_text_limit :sprints, :extended_title
+  end
+end
+```
+
+### Add the column and limit in one migration with checking if the column already exists
+
+Consider a migration that adds a new text column `extended_title` to table `sprints`,
+`db/migrate/20200501000001_add_extended_title_to_sprints.rb`:
+
+```ruby
+class AddExtendedTitleToSprints < Gitlab::Database::Migration[2.1]
+  disable_ddl_transaction!
+
+  def up
+    with_lock_retries do
+      add_column :sprints, :extended_title, :text, if_not_exists: true
+    end
+
+    add_text_limit :sprints, :extended_title, 512
+  end
+
+  def down
+    with_lock_retries do
+      remove_column :sprints, :extended_title, if_exists: true
+    end
   end
 end
 ```
@@ -131,7 +162,7 @@ Issues is a pretty busy and large table with more than 25 million rows, so we do
 other processes that try to access it while running the update.
 
 Also, after checking our production database, we know that there are `issues` with more characters in
-their title than the 1024 character limit, so we can not add and validate the constraint in one step.
+their title than the 1024 character limit, so we cannot add and validate the constraint in one step.
 
 NOTE:
 Even if we did not have any record with a title larger than the provided limit, another
@@ -142,14 +173,15 @@ instance of GitLab could have such records, so we would follow the same process 
 We first add the limit as a `NOT VALID` check constraint to the table, which enforces consistency when
 new records are inserted or current records are updated.
 
-In the example above, the existing issues with more than 1024 characters in their title will not be
-affected and you'll be still able to update records in the `issues` table. However, when you'd try
+In the example above, the existing issues with more than 1024 characters in their title are not
+affected, and you are still able to update records in the `issues` table. However, when you'd try
 to update the `title_html` with a title that has more than 1024 characters, the constraint causes
 a database error.
 
 Adding or removing a constraint to an existing attribute requires that any application changes are
-deployed _first_, [otherwise servers still in the old version of the application may try to update the
-attribute with invalid values](../multi_version_compatibility.md#ci-artifact-uploads-were-failing).
+deployed _first_,
+otherwise servers still in the old version of the application
+[may try to update the attribute with invalid values](../multi_version_compatibility.md#ci-artifact-uploads-were-failing).
 For these reasons, `add_text_limit` should run in a post-deployment migration.
 
 Still in our example, for the 13.0 milestone (current), consider that the following validation
@@ -164,7 +196,7 @@ in a post-deployment migration,
 `db/post_migrate/20200501000001_add_text_limit_migration.rb`:
 
 ```ruby
-class AddTextLimitMigration < Gitlab::Database::Migration[1.0]
+class AddTextLimitMigration < Gitlab::Database::Migration[2.1]
   disable_ddl_transaction!
 
   def up
@@ -182,20 +214,20 @@ end
 #### Data migration to fix existing records (current release)
 
 The approach here depends on the data volume and the cleanup strategy. The number of records that must
-be fixed on GitLab.com is a nice indicator that will help us decide whether to use a post-deployment
+be fixed on GitLab.com is a nice indicator that helps us decide whether to use a post-deployment
 migration or a background data migration:
 
 - If the data volume is less than `1,000` records, then the data migration can be executed within the post-migration.
 - If the data volume is higher than `1,000` records, it's advised to create a background migration.
 
-When unsure about which option to use, please contact the Database team for advice.
+When unsure about which option to use, contact the Database team for advice.
 
 Back to our example, the issues table is considerably large and frequently accessed, so we are going
 to add a background migration for the 13.0 milestone (current),
 `db/post_migrate/20200501000002_schedule_cap_title_length_on_issues.rb`:
 
 ```ruby
-class ScheduleCapTitleLengthOnIssues < Gitlab::Database::Migration[1.0]
+class ScheduleCapTitleLengthOnIssues < Gitlab::Database::Migration[2.1]
   # Info on how many records will be affected on GitLab.com
   # time each batch needs to run on average, etc ...
   BATCH_SIZE = 5000
@@ -206,41 +238,36 @@ class ScheduleCapTitleLengthOnIssues < Gitlab::Database::Migration[1.0]
 
   disable_ddl_transaction!
 
-  class Issue < ActiveRecord::Base
-    include EachBatch
-
-    self.table_name = 'issues'
-  end
-
   def up
-    queue_background_migration_jobs_by_range_at_intervals(
-      Issue.where('char_length(title_html) > 1024'),
-      ISSUES_MIGRATION,
-      DELAY_INTERVAL,
+    queue_batched_background_migration(
+      ISSUES_BACKGROUND_MIGRATION,
+      :issues,
+      :id,
+      job_interval: DELAY_INTERVAL,
       batch_size: BATCH_SIZE
     )
   end
 
   def down
-    # no-op : the part of the title_html after the limit is lost forever
+    delete_batched_background_migration(ISSUES_BACKGROUND_MIGRATION, :issues, :id, [])
   end
 end
 ```
 
 To keep this guide short, we skipped the definition of the background migration and only
 provided a high level example of the post-deployment migration that is used to schedule the batches.
-You can find more information on the guide about [background migrations](../background_migrations.md)
+You can find more information on the guide about [batched background migrations](batched_background_migrations.md)
 
 #### Validate the text limit (next release)
 
-Validating the text limit will scan the whole table and make sure that each record is correct.
+Validating the text limit scans the whole table, and makes sure that each record is correct.
 
 Still in our example, for the 13.1 milestone (next), we run the `validate_text_limit` migration
 helper in a final post-deployment migration,
 `db/post_migrate/20200601000001_validate_text_limit_migration.rb`:
 
 ```ruby
-class ValidateTextLimitMigration < Gitlab::Database::Migration[1.0]
+class ValidateTextLimitMigration < Gitlab::Database::Migration[2.1]
   disable_ddl_transaction!
 
   def up
@@ -259,11 +286,11 @@ Increasing text limits on existing database columns can be safely achieved by fi
 and then dropping the previous limit:
 
 ```ruby
-class ChangeMaintainerNoteLimitInCiRunner < Gitlab::Database::Migration[1.0]
+class ChangeMaintainerNoteLimitInCiRunner < Gitlab::Database::Migration[2.1]
   disable_ddl_transaction!
 
   def up
-    add_text_limit :ci_runners, :maintainer_note, 1024, constraint_name: check_constraint_name(:ci_runners, :maintainer_note, 'max_length_1MB')
+    add_text_limit :ci_runners, :maintainer_note, 1024, constraint_name: check_constraint_name(:ci_runners, :maintainer_note, 'max_length_1K')
     remove_text_limit :ci_runners, :maintainer_note, constraint_name: check_constraint_name(:ci_runners, :maintainer_note, 'max_length')
   end
 
@@ -276,11 +303,11 @@ end
 ## Text limit constraints on large tables
 
 If you have to clean up a text column for a really [large table](https://gitlab.com/gitlab-org/gitlab/-/blob/master/rubocop/rubocop-migrations.yml#L3)
-(for example, the `artifacts` in `ci_builds`), your background migration will go on for a while and
-it will need an additional [background migration cleaning up](../background_migrations.md#cleaning-up)
+(for example, the `artifacts` in `ci_builds`), your background migration goes on for a while and
+it needs an additional [batched background migration cleaning up](batched_background_migrations.md#cleaning-up-a-batched-background-migration)
 in the release after adding the data migration.
 
-In that rare case you will need 3 releases end-to-end:
+In that rare case you need 3 releases end-to-end:
 
 1. Release `N.M` - Add the text limit and the background migration to fix the existing records.
 1. Release `N.M+1` - Cleanup the background migration.

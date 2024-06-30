@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 class ResourceTimeboxEvent < ResourceEvent
+  include MergeRequestResourceEvent
+  include Importable
+
   self.abstract_class = true
 
-  include IssueResourceEvent
-  include MergeRequestResourceEvent
-
-  validate :exactly_one_issuable
+  validate :exactly_one_issuable, unless: :importing?
 
   enum action: {
     add: 1,
@@ -16,7 +16,7 @@ class ResourceTimeboxEvent < ResourceEvent
   after_create :issue_usage_metrics
 
   def self.issuable_attrs
-    %i(issue merge_request).freeze
+    %i[issue merge_request].freeze
   end
 
   def issuable
@@ -34,7 +34,9 @@ class ResourceTimeboxEvent < ResourceEvent
 
     case self
     when ResourceMilestoneEvent
-      Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_milestone_changed_action(author: user)
+      Gitlab::UsageDataCounters::IssueActivityUniqueCounter.track_issue_milestone_changed_action(
+        author: user, project: issue.project
+      )
     else
       # no-op
     end

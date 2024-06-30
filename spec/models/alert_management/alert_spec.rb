@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe AlertManagement::Alert do
+RSpec.describe AlertManagement::Alert, feature_category: :incident_management do
   let_it_be(:project) { create(:project) }
   let_it_be(:project2) { create(:project) }
-  let_it_be(:triggered_alert, reload: true) { create(:alert_management_alert, :triggered, project: project) }
-  let_it_be(:acknowledged_alert, reload: true) { create(:alert_management_alert, :acknowledged, project: project) }
-  let_it_be(:resolved_alert, reload: true) { create(:alert_management_alert, :resolved, project: project2) }
-  let_it_be(:ignored_alert, reload: true) { create(:alert_management_alert, :ignored, project: project2) }
+  let_it_be_with_refind(:triggered_alert) { create(:alert_management_alert, :triggered, project: project) }
+  let_it_be_with_refind(:acknowledged_alert) { create(:alert_management_alert, :acknowledged, project: project) }
+  let_it_be_with_refind(:resolved_alert) { create(:alert_management_alert, :resolved, project: project2) }
+  let_it_be_with_refind(:ignored_alert) { create(:alert_management_alert, :ignored, project: project2) }
 
   describe 'associations' do
     it { is_expected.to belong_to(:project) }
@@ -16,9 +16,13 @@ RSpec.describe AlertManagement::Alert do
     it { is_expected.to belong_to(:prometheus_alert).optional }
     it { is_expected.to belong_to(:environment).optional }
     it { is_expected.to have_many(:assignees).through(:alert_assignees) }
-    it { is_expected.to have_many(:notes) }
-    it { is_expected.to have_many(:ordered_notes) }
-    it { is_expected.to have_many(:user_mentions) }
+    it { is_expected.to have_many(:notes).inverse_of(:noteable) }
+    it { is_expected.to have_many(:ordered_notes).class_name('Note').inverse_of(:noteable) }
+
+    it do
+      is_expected.to have_many(:user_mentions).class_name('AlertManagement::AlertUserMention')
+        .with_foreign_key(:alert_management_alert_id).inverse_of(:alert)
+    end
   end
 
   describe 'validations' do
@@ -164,7 +168,7 @@ RSpec.describe AlertManagement::Alert do
       let_it_be(:alert) { triggered_alert }
       let_it_be(:assignee) { create(:user) }
 
-      subject { AlertManagement::Alert.for_assignee_username(assignee_username) }
+      subject { described_class.for_assignee_username(assignee_username) }
 
       before_all do
         alert.update!(assignees: [assignee])
@@ -233,6 +237,17 @@ RSpec.describe AlertManagement::Alert do
     end
   end
 
+  describe '.find_unresolved_alert' do
+    let_it_be(:fingerprint) { SecureRandom.hex }
+    let_it_be(:resolved_alert_with_fingerprint) { create(:alert_management_alert, :resolved, project: project, fingerprint: fingerprint) }
+    let_it_be(:alert_with_fingerprint_in_other_project) { create(:alert_management_alert, project: project2, fingerprint: fingerprint) }
+    let_it_be(:alert_with_fingerprint) { create(:alert_management_alert, project: project, fingerprint: fingerprint) }
+
+    subject { described_class.find_unresolved_alert(project, fingerprint) }
+
+    it { is_expected.to eq(alert_with_fingerprint) }
+  end
+
   describe '.last_prometheus_alert_by_project_id' do
     subject { described_class.last_prometheus_alert_by_project_id }
 
@@ -254,7 +269,7 @@ RSpec.describe AlertManagement::Alert do
       alert.update!(title: 'Title', description: 'Desc', service: 'Service', monitoring_tool: 'Monitor')
     end
 
-    subject { AlertManagement::Alert.search(query) }
+    subject { described_class.search(query) }
 
     context 'does not contain search string' do
       let(:query) { 'something else' }

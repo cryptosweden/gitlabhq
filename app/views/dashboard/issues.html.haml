@@ -1,26 +1,16 @@
-- @hide_top_links = true
-- page_title _("Issues")
+- page_title _("Assigned issues")
 - @breadcrumb_link = issues_dashboard_path(assignee_username: current_user.username)
+- add_page_specific_style 'page_bundles/issuable_list'
+- add_page_specific_style 'page_bundles/dashboard'
 = content_for :meta_tags do
   = auto_discovery_link_tag(:atom, safe_params.merge(rss_url_options).to_h, title: "#{current_user.name} issues")
 
 = render_dashboard_ultimate_trial(current_user)
+= render_if_exists 'shared/dashboard/saml_reauth_notice',
+  groups_requiring_saml_reauth: user_groups_requiring_reauth
 
-.page-title-holder.d-flex.align-items-center
-  %h1.page-title= _('Issues')
+= render ::Layouts::PageHeadingComponent.new(_('Assigned issues')) do |c|
+  - c.with_actions do
+    = render 'shared/new_project_item_vue_select'
 
-  - if current_user
-    .page-title-controls
-      = render 'shared/new_project_item_select', path: 'issues/new', label: _("issue"), with_feature_enabled: 'issues', type: :issues
-
-.top-area
-  = render 'shared/issuable/nav', type: :issues, display_count: !@no_filters_set
-  .nav-controls
-    = render 'shared/issuable/feed_buttons'
-
-= render 'shared/issuable/search_bar', type: :issues
-
-- if current_user && @no_filters_set
-  = render 'shared/dashboard/no_filter_selected'
-- else
-  = render 'shared/issues'
+.js-issues-dashboard{ data: dashboard_issues_list_data(current_user) }

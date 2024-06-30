@@ -24,6 +24,9 @@ module CacheMarkdownField
     true
   end
 
+  attr_accessor :skip_markdown_cache_validation
+  alias_method :skip_markdown_cache_validation?, :skip_markdown_cache_validation
+
   # Returns the default Banzai render context for the cached markdown field.
   def banzai_render_context(field)
     raise ArgumentError, "Unknown field: #{field.inspect}" unless
@@ -36,8 +39,6 @@ module CacheMarkdownField
 
     # Banzai is less strict about authors, so don't always have an author key
     context[:author] = self.author if self.respond_to?(:author)
-
-    context[:markdown_engine] = :common_mark
 
     if Feature.enabled?(:personal_snippet_reference_filters, context[:author])
       context[:user] = self.parent_user
@@ -91,7 +92,7 @@ module CacheMarkdownField
   end
 
   def invalidated_markdown_cache?
-    cached_markdown_fields.html_fields.any? {|html_field| attribute_invalidated?(html_field) }
+    cached_markdown_fields.html_fields.any? { |html_field| attribute_invalidated?(html_field) }
   end
 
   def attribute_invalidated?(attr)
@@ -169,7 +170,7 @@ module CacheMarkdownField
     refs = all_references(self.author)
 
     references = {}
-    references[:mentioned_users_ids] = refs.mentioned_user_ids.presence
+    references[:mentioned_users_ids] = mentioned_filtered_user_ids_for(refs)
     references[:mentioned_groups_ids] = refs.mentioned_group_ids.presence
     references[:mentioned_projects_ids] = refs.mentioned_project_ids.presence
 
@@ -180,6 +181,13 @@ module CacheMarkdownField
     end
 
     true
+  end
+
+  # Overriden on objects that needs to filter
+  # mentioned users that cannot read them, for example,
+  # guest users that are referenced on a confidential note.
+  def mentioned_filtered_user_ids_for(refs)
+    refs.mentioned_user_ids.presence
   end
 
   def mentionable_attributes_changed?(changes = saved_changes)
@@ -218,6 +226,8 @@ module CacheMarkdownField
       # The HTML becomes invalid if any dependent fields change. For now, assume
       # author and project invalidate the cache in all circumstances.
       define_method(invalidation_method) do
+        return false if skip_markdown_cache_validation?
+
         changed_fields = changed_attributes.keys
         invalidations  = changed_fields & [markdown_field.to_s, *INVALIDATED_BY]
         !invalidations.empty? || !cached_html_up_to_date?(markdown_field)
@@ -225,3 +235,5 @@ module CacheMarkdownField
     end
   end
 end
+
+CacheMarkdownField.prepend_mod

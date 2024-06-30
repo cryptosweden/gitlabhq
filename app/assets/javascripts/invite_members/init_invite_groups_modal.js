@@ -28,6 +28,11 @@ export default function initInviteGroupsModal() {
 
   return new Vue({
     el,
+    provide: {
+      freeUsersLimit: parseInt(el.dataset.freeUsersLimit, 10),
+      overageMembersModalAvailable: parseBoolean(el.dataset.overageMembersModalAvailable),
+      hasGitlabSubscription: parseBoolean(el.dataset.hasGitlabSubscription),
+    },
     render: (createElement) =>
       createElement(InviteGroupsModal, {
         props: {
@@ -38,6 +43,8 @@ export default function initInviteGroupsModal() {
           groupSelectFilter: el.dataset.groupsFilter,
           groupSelectParentId: parseInt(el.dataset.parentId, 10),
           invalidGroups: JSON.parse(el.dataset.invalidGroups || '[]'),
+          freeUserCapEnabled: parseBoolean(el.dataset.freeUserCapEnabled),
+          reloadPageOnSubmit: parseBoolean(el.dataset.reloadPageOnSubmit),
         },
       }),
   });

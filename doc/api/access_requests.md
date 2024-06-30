@@ -1,10 +1,14 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
+stage: Govern
+group: Authentication
+info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
 ---
 
-# Group and project access requests API **(FREE)**
+# Group and project access requests API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 ## Valid access levels
 
@@ -12,12 +16,12 @@ The access levels are defined in the `Gitlab::Access` module, and the
 following levels are recognized:
 
 - No access (`0`)
-- Minimal access (`5`) ([Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/220203) in GitLab 13.5.)
+- Minimal access (`5`)
 - Guest (`10`)
 - Reporter (`20`)
 - Developer (`30`)
 - Maintainer (`40`)
-- Owner (`50`) - Only valid to set for groups
+- Owner (`50`).
 
 ## List access requests for a group or project
 
@@ -30,7 +34,7 @@ GET /projects/:id/access_requests
 
 | Attribute | Type           | Required | Description |
 | --------- | -------------- | -------- | ----------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 
 Example request:
 
@@ -71,9 +75,9 @@ POST /groups/:id/access_requests
 POST /projects/:id/access_requests
 ```
 
-| Attribute | Type           | Required | Description |
-| --------- | -------------- | -------- | ----------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| Attribute | Type           | Required | Description                                                                             |
+| --------- | -------------- | -------- |-----------------------------------------------------------------------------------------|
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the group or project](rest/index.md#namespaced-path-encoding) |
 
 Example request:
 
@@ -106,7 +110,7 @@ PUT /projects/:id/access_requests/:user_id/approve
 
 | Attribute      | Type           | Required | Description |
 | -------------- | -------------- | -------- | ----------- |
-| `id`           | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`           | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id`      | integer        | yes      | The user ID of the access requester                                                                             |
 | `access_level` | integer        | no       | A valid access level (defaults: `30`, the Developer role)                                                   |
 
@@ -141,7 +145,7 @@ DELETE /projects/:id/access_requests/:user_id
 
 | Attribute | Type           | Required | Description |
 | --------- | -------------- | -------- | ----------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
 | `user_id` | integer        | yes      | The user ID of the access requester                                                                             |
 
 Example request:

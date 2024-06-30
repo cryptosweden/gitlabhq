@@ -79,7 +79,8 @@ RSpec.describe Groups::GroupLinksController do
 
           subject
 
-          expect(json_response).to eq({ "expires_in" => "about 1 month", "expires_soon" => false })
+          expect(json_response).to eq({ "expires_in" => controller.helpers.time_ago_with_tooltip(expiry_date),
+                                        "expires_soon" => false })
         end
       end
 
@@ -130,8 +131,24 @@ RSpec.describe Groups::GroupLinksController do
         expect { subject }.to change(GroupGroupLink, :count).by(-1)
       end
 
-      it 'updates project permissions', :sidekiq_inline do
-        expect { subject }.to change { group_member.can?(:create_release, project) }.from(true).to(false)
+      context 'with skip_group_share_unlink_auth_refresh feature flag disabled' do
+        before do
+          stub_feature_flags(skip_group_share_unlink_auth_refresh: false)
+        end
+
+        it 'updates project permissions', :sidekiq_inline do
+          expect { subject }.to change { group_member.can?(:create_release, project) }.from(true).to(false)
+        end
+      end
+
+      context 'with skip_group_share_unlink_auth_refresh feature flag enabled' do
+        before do
+          stub_feature_flags(skip_group_share_unlink_auth_refresh: true)
+        end
+
+        it 'maintains project authorization', :sidekiq_inline do
+          expect(Ability.allowed?(user, :read_project, project)).to be_truthy
+        end
       end
     end
 

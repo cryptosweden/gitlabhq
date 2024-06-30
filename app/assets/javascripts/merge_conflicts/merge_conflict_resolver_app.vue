@@ -1,6 +1,8 @@
 <script>
 import { GlSprintf, GlButton, GlButtonGroup, GlLoadingIcon } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters, mapState, mapActions } from 'vuex';
+import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import { __ } from '~/locale';
 import FileIcon from '~/vue_shared/components/file_icon.vue';
 import DiffFileEditor from './components/diff_file_editor.vue';
@@ -22,6 +24,7 @@ export default {
   components: {
     GlButton,
     GlButtonGroup,
+    ClipboardButton,
     GlSprintf,
     GlLoadingIcon,
     FileIcon,
@@ -31,9 +34,9 @@ export default {
   },
   inject: ['mergeRequestPath', 'sourceBranchPath', 'resolveConflictsPath'],
   i18n: {
-    commitStatSummary: __('Showing %{conflict} between %{sourceBranch} and %{targetBranch}'),
+    commitStatSummary: __('Showing %{conflict}'),
     resolveInfo: __(
-      'You can resolve the merge conflict using either the Interactive mode, by choosing %{use_ours} or %{use_theirs} buttons, or by editing the files directly. Commit these changes into %{branch_name}',
+      'You can resolve the merge conflict using either the Interactive mode, by choosing %{use_ours} or %{use_theirs} buttons, or by editing the files directly. Commit these changes into %{branch_name}.',
     ),
   },
   computed: {
@@ -73,12 +76,12 @@ export default {
 </script>
 <template>
   <div id="conflicts">
-    <gl-loading-icon v-if="isLoading" size="md" data-testid="loading-spinner" />
+    <gl-loading-icon v-if="isLoading" size="lg" data-testid="loading-spinner" />
     <div v-if="hasError" class="nothing-here-block">
       {{ conflictsData.errorMessage }}
     </div>
     <template v-if="!isLoading && !hasError">
-      <div class="gl-border-b-0 gl-py-5 gl-line-height-32">
+      <div class="gl-border-b-0 gl-py-5 gl-leading-32">
         <div v-if="fileTextTypePresent" class="gl-float-right">
           <gl-button-group>
             <gl-button :selected="!isParallel" @click="setViewType('inline')">
@@ -121,8 +124,14 @@ export default {
               <div class="file-header-content" data-testid="file-name">
                 <file-icon :file-name="file.filePath" :size="16" css-classes="gl-mr-2" />
                 <strong class="file-title-name">{{ file.filePath }}</strong>
+                <clipboard-button
+                  :title="__('Copy file path')"
+                  :text="file.filePath"
+                  size="small"
+                  category="tertiary"
+                />
               </div>
-              <div class="file-actions d-flex align-items-center gl-ml-auto gl-align-self-start">
+              <div class="file-actions gl-flex gl-items-center gl-ml-auto gl-align-self-start">
                 <gl-button-group v-if="file.type === 'text'" class="gl-mr-3">
                   <gl-button
                     :selected="file.resolveMode === 'interactive'"
@@ -148,10 +157,10 @@ export default {
                 </gl-button>
               </div>
             </div>
-            <div class="diff-content diff-wrap-lines">
+            <div class="diff-content diff-wrap-lines gl-rounded-bottom-base">
               <div
                 v-if="file.resolveMode === 'interactive' && file.type === 'text'"
-                class="file-content"
+                class="file-content gl-rounded-bottom-base"
               >
                 <parallel-conflict-lines v-if="isParallel" :file="file" />
                 <inline-conflict-lines v-else :file="file" />
@@ -164,8 +173,7 @@ export default {
           </div>
         </div>
       </div>
-      <hr />
-      <div class="resolve-conflicts-form">
+      <div class="resolve-conflicts-form gl-mt-6">
         <div class="form-group row">
           <div class="col-md-4">
             <h4 class="gl-mt-0">
@@ -180,9 +188,7 @@ export default {
                   <code>{{ s__('MergeConflict|Use theirs') }}</code>
                 </template>
                 <template #branch_name>
-                  <a class="ref-name" :href="sourceBranchPath">
-                    {{ conflictsData.sourceBranch }}
-                  </a>
+                  <a class="ref-name" :href="sourceBranchPath">{{ conflictsData.sourceBranch }}</a>
                 </template>
               </gl-sprintf>
             </div>
@@ -204,7 +210,7 @@ export default {
             <gl-button
               :disabled="!isReadyToCommit"
               variant="confirm"
-              class="js-submit-button"
+              class="js-submit-button gl-mr-2"
               @click="submitResolvedConflicts(resolveConflictsPath)"
             >
               {{ getCommitButtonText }}

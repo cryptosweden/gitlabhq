@@ -20,6 +20,10 @@ module AutoMerge
       :failed
     end
 
+    def process(_)
+      raise NotImplementedError
+    end
+
     def update(merge_request)
       assign_allowed_merge_params(merge_request, params.merge(auto_merge_strategy: strategy))
 
@@ -55,27 +59,19 @@ module AutoMerge
     def available_for?(merge_request)
       strong_memoize("available_for_#{merge_request.id}") do
         merge_request.can_be_merged_by?(current_user) &&
-          merge_request.mergeable_state?(skip_ci_check: true) &&
+          merge_request.mergeability_checks_pass?(**skippable_available_for_checks(merge_request)) &&
           yield
       end
     end
 
-    ##
-    # NOTE: This method is to be removed when `disallow_to_create_merge_request_pipelines_in_target_project`
-    # feature flag is removed.
-    def self.can_add_to_merge_train?(merge_request)
-      if ::Feature.enabled?(:ci_disallow_to_create_merge_request_pipelines_in_target_project, merge_request.target_project)
-        merge_request.for_same_project?
-      else
-        true
-      end
-    end
-
-    def can_add_to_merge_train?(merge_request)
-      self.class.can_add_to_merge_train?(merge_request)
-    end
-
     private
+
+    def skippable_available_for_checks(merge_request)
+      merge_request.skipped_mergeable_checks(
+        auto_merge_requested: true,
+        auto_merge_strategy: strategy
+      )
+    end
 
     # Overridden in child classes
     def notify(merge_request)
@@ -98,18 +94,27 @@ module AutoMerge
       merge_request.auto_merge_enabled = false
       merge_request.merge_user = nil
 
-      merge_request.merge_params&.except!(
-        'should_remove_source_branch',
-        'commit_message',
-        'squash_commit_message',
-        'auto_merge_strategy'
-      )
+      merge_request.merge_params&.except!(*clearable_auto_merge_parameters)
 
       merge_request.save!
     end
 
+    # Overridden in EE child classes
+    def clearable_auto_merge_parameters
+      %w[
+        should_remove_source_branch
+        commit_message
+        squash_commit_message
+        auto_merge_strategy
+      ]
+    end
+
     def track_exception(error, merge_request)
       Gitlab::ErrorTracking.track_exception(error, merge_request_id: merge_request&.id)
+    end
+
+    def logger
+      @logger ||= Gitlab::AppLogger
     end
   end
 end

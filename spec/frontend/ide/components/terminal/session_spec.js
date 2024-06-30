@@ -1,6 +1,7 @@
 import { GlButton } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
+// eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import TerminalSession from '~/ide/components/terminal/session.vue';
 import Terminal from '~/ide/components/terminal/terminal.vue';
@@ -38,7 +39,7 @@ describe('IDE TerminalSession', () => {
     });
   };
 
-  const findButton = () => wrapper.find(GlButton);
+  const findButton = () => wrapper.findComponent(GlButton);
 
   beforeEach(() => {
     state = {
@@ -60,7 +61,7 @@ describe('IDE TerminalSession', () => {
   it('shows terminal', () => {
     factory();
 
-    expect(wrapper.find(Terminal).props()).toEqual({
+    expect(wrapper.findComponent(Terminal).props()).toEqual({
       terminalPath: TEST_TERMINAL_PATH,
       status: RUNNING,
     });

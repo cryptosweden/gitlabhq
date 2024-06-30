@@ -1,11 +1,20 @@
 <script>
-import { GlTable, GlButton, GlPagination, GlLoadingIcon, GlEmptyState, GlModal } from '@gitlab/ui';
+import {
+  GlTable,
+  GlButton,
+  GlPagination,
+  GlLoadingIcon,
+  GlEmptyState,
+  GlModal,
+  GlTooltipDirective,
+} from '@gitlab/ui';
 
 import { __ } from '~/locale';
 import Api, { DEFAULT_PER_PAGE } from '~/api';
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import { cleanLeadingSeparator } from '~/lib/utils/url_utility';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import csrf from '~/lib/utils/csrf';
 
 export default {
@@ -15,7 +24,7 @@ export default {
     newDeployKeyButtonText: __('New deploy key'),
     emptyStateTitle: __('No public deploy keys'),
     emptyStateDescription: __(
-      'Deploy keys grant read/write access to all repositories in your instance',
+      'Deploy keys grant read/write access to all repositories in your instance, start by creating a new one above.',
     ),
     delete: __('Delete deploy key'),
     edit: __('Edit deploy key'),
@@ -35,8 +44,14 @@ export default {
       label: __('Title'),
     },
     {
+      key: 'fingerprint_sha256',
+      label: __('Fingerprint (SHA256)'),
+      tdClass: 'gl-md-max-w-26',
+    },
+    {
       key: 'fingerprint',
-      label: __('Fingerprint'),
+      label: __('Fingerprint (MD5)'),
+      tdClass: 'gl-md-max-w-26',
     },
     {
       key: 'projects',
@@ -49,8 +64,8 @@ export default {
     {
       key: 'actions',
       label: __('Actions'),
-      tdClass: 'gl-lg-w-1px gl-white-space-nowrap',
-      thClass: 'gl-lg-w-1px gl-white-space-nowrap',
+      tdClass: 'gl-lg-w-1px gl-whitespace-nowrap',
+      thClass: 'gl-lg-w-1px gl-whitespace-nowrap',
     },
   ],
   modal: {
@@ -71,6 +86,7 @@ export default {
   csrf,
   DEFAULT_PER_PAGE,
   components: {
+    CrudComponent,
     GlTable,
     GlButton,
     GlPagination,
@@ -78,6 +94,9 @@ export default {
     GlLoadingIcon,
     GlEmptyState,
     GlModal,
+  },
+  directives: {
+    GlTooltip: GlTooltipDirective,
   },
   inject: ['editPath', 'deletePath', 'createPath', 'emptyStateSvgPath'],
   data() {
@@ -130,16 +149,24 @@ export default {
         }
 
         this.items = items.map(
-          ({ id, title, fingerprint, projects_with_write_access, created_at }) => ({
+          ({
             id,
             title,
             fingerprint,
-            projects: projects_with_write_access,
-            created: created_at,
+            fingerprint_sha256,
+            projects_with_write_access: projects,
+            created_at: created,
+          }) => ({
+            id,
+            title,
+            fingerprint,
+            fingerprint_sha256,
+            projects,
+            created,
           }),
         );
       } catch (error) {
-        createFlash({
+        createAlert({
           message: this.$options.i18n.apiErrorMessage,
           captureError: true,
           error,
@@ -165,81 +192,103 @@ export default {
 </script>
 
 <template>
-  <div>
-    <div class="gl-display-flex gl-justify-content-space-between gl-align-items-center gl-py-5">
-      <h4 class="gl-m-0">
-        {{ $options.i18n.pageTitle }}
-      </h4>
-      <gl-button variant="confirm" :href="createPath" data-testid="new-deploy-key-button">{{
-        $options.i18n.newDeployKeyButtonText
-      }}</gl-button>
-    </div>
-    <template v-if="shouldShowTable">
-      <gl-table
-        :busy="loading"
-        :items="items"
-        :fields="$options.fields"
-        stacked="lg"
-        data-testid="deploy-keys-list"
-      >
-        <template #table-busy>
-          <gl-loading-icon size="lg" class="gl-my-5" />
-        </template>
+  <crud-component
+    :title="$options.i18n.pageTitle"
+    :count="totalItems.toString()"
+    icon="key"
+    class="gl-mt-5"
+  >
+    <template #actions>
+      <div class="gl-new-card-actions">
+        <gl-button size="small" :href="createPath" data-testid="new-deploy-key-button">{{
+          $options.i18n.newDeployKeyButtonText
+        }}</gl-button>
+      </div>
+    </template>
 
-        <template #cell(projects)="{ item: { projects } }">
-          <a
-            v-for="project in projects"
-            :key="project.id"
-            :href="projectHref(project)"
-            class="gl-display-block"
-            >{{ project.name_with_namespace }}</a
-          >
-        </template>
+    <gl-table
+      v-if="shouldShowTable"
+      :busy="loading"
+      :items="items"
+      :fields="$options.fields"
+      stacked="md"
+      data-testid="deploy-keys-list"
+      class="-gl-mt-1 -gl-mb-2"
+    >
+      <template #table-busy>
+        <gl-loading-icon size="sm" class="gl-my-5" />
+      </template>
 
-        <template #cell(fingerprint)="{ item: { fingerprint } }">
-          <code>{{ fingerprint }}</code>
-        </template>
+      <template #cell(projects)="{ item: { projects } }">
+        <a
+          v-for="project in projects"
+          :key="project.id"
+          :href="projectHref(project)"
+          class="gl-block"
+          >{{ project.name_with_namespace }}</a
+        >
+      </template>
+      <template #cell(fingerprint_sha256)="{ item: { fingerprint_sha256 } }">
+        <div
+          v-if="fingerprint_sha256"
+          class="gl-font-monospace gl-text-truncate"
+          :title="fingerprint_sha256"
+        >
+          {{ fingerprint_sha256 }}
+        </div>
+      </template>
 
-        <template #cell(created)="{ item: { created } }">
-          <time-ago-tooltip :time="created" />
-        </template>
+      <template #cell(fingerprint)="{ item: { fingerprint } }">
+        <div v-if="fingerprint" class="gl-font-monospace gl-text-truncate" :title="fingerprint">
+          {{ fingerprint }}
+        </div>
+      </template>
 
-        <template #head(actions)="{ label }">
-          <span class="gl-sr-only">{{ label }}</span>
-        </template>
+      <template #cell(created)="{ item: { created } }">
+        <time-ago-tooltip :time="created" />
+      </template>
 
-        <template #cell(actions)="{ item: { id } }">
+      <template #head(actions)="{ label }">
+        <span class="gl-sr-only">{{ label }}</span>
+      </template>
+
+      <template #cell(actions)="{ item: { id } }">
+        <div class="gl-flex gl-gap-2 -gl-my-3">
           <gl-button
+            v-gl-tooltip
+            :title="$options.i18n.edit"
+            category="tertiary"
             icon="pencil"
             :aria-label="$options.i18n.edit"
             :href="editHref(id)"
-            class="gl-mr-2"
           />
           <gl-button
-            variant="danger"
+            v-gl-tooltip
+            :title="$options.i18n.delete"
+            category="tertiary"
             icon="remove"
             :aria-label="$options.i18n.delete"
             @click="handleDeleteClick(id)"
           />
-        </template>
-      </gl-table>
-      <gl-pagination
-        v-if="!loading"
-        v-model="page"
-        :per-page="$options.DEFAULT_PER_PAGE"
-        :total-items="totalItems"
-        :next-text="$options.i18n.pagination.next"
-        :prev-text="$options.i18n.pagination.prev"
-        align="center"
-      />
-    </template>
+        </div>
+      </template>
+    </gl-table>
     <gl-empty-state
       v-else
       :svg-path="emptyStateSvgPath"
+      :svg-height="150"
       :title="$options.i18n.emptyStateTitle"
       :description="$options.i18n.emptyStateDescription"
-      :primary-button-text="$options.i18n.newDeployKeyButtonText"
-      :primary-button-link="createPath"
+    />
+    <gl-pagination
+      v-if="!loading"
+      v-model="page"
+      :per-page="$options.DEFAULT_PER_PAGE"
+      :total-items="totalItems"
+      :next-text="$options.i18n.pagination.next"
+      :prev-text="$options.i18n.pagination.prev"
+      align="center"
+      class="gl-mt-5"
     />
     <gl-modal
       :modal-id="$options.modal.id"
@@ -257,5 +306,5 @@ export default {
       </form>
       {{ $options.i18n.modal.body }}
     </gl-modal>
-  </div>
+  </crud-component>
 </template>

@@ -2,16 +2,15 @@
 
 module Snippets
   class UpdateService < Snippets::BaseService
-    COMMITTABLE_ATTRIBUTES = %w(file_name content).freeze
+    include Gitlab::InternalEventsTracking
+
+    COMMITTABLE_ATTRIBUTES = %w[file_name content].freeze
 
     UpdateError = Class.new(StandardError)
 
-    # NOTE: For Snippets::UpdateService, we default the spam_params to nil, because spam_checking is not
-    # necessary in many cases, and we don't want every caller to have to explicitly pass it as nil
-    # to disable spam checking.
-    def initialize(project:, current_user: nil, params: {}, spam_params: nil)
+    def initialize(project:, current_user: nil, params: {}, perform_spam_check: false)
       super(project: project, current_user: current_user, params: params)
-      @spam_params = spam_params
+      @perform_spam_check = perform_spam_check
     end
 
     def execute(snippet)
@@ -23,15 +22,14 @@ module Snippets
 
       update_snippet_attributes(snippet)
 
-      Spam::SpamActionService.new(
-        spammable: snippet,
-        spam_params: spam_params,
-        user: current_user,
-        action: :update
-      ).execute
+      files = snippet.all_files.map { |f| { path: f } } + file_paths_to_commit
+
+      if perform_spam_check
+        snippet.check_for_spam(user: current_user, action: :update, extra_features: { files: files })
+      end
 
       if save_and_commit(snippet)
-        Gitlab::UsageDataCounters::SnippetCounter.count(:update)
+        track_internal_event('update_snippet', project: project, user: current_user)
 
         ServiceResponse.success(payload: { snippet: snippet })
       else
@@ -41,7 +39,7 @@ module Snippets
 
     private
 
-    attr_reader :spam_params
+    attr_reader :perform_spam_check
 
     def visibility_changed?(snippet)
       visibility_level && visibility_level.to_i != snippet.visibility_level

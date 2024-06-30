@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
+require_relative 'deployable'
+
 FactoryBot.define do
   factory :ci_bridge, class: 'Ci::Bridge', parent: :ci_processable do
+    instance_eval ::Factories::Ci::Deployable.traits
+
     name { 'bridge' }
     created_at { '2013-10-29 09:50:00 CET' }
     status { :created }
@@ -33,8 +37,20 @@ FactoryBot.define do
       end
     end
 
+    trait :retried do
+      retried { true }
+    end
+
+    trait :retryable do
+      success
+    end
+
     trait :created do
       status { 'created' }
+    end
+
+    trait :running do
+      status { 'running' }
     end
 
     trait :started do
@@ -54,6 +70,11 @@ FactoryBot.define do
     trait :failed do
       finished
       status { 'failed' }
+    end
+
+    trait :canceled do
+      finished
+      status { 'canceled' }
     end
 
     trait :skipped do

@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe MergeRequestUserEntity do
-  let_it_be(:user) { create(:user) }
+  let_it_be_with_reload(:user) { create(:user) }
   let_it_be(:merge_request) { create(:merge_request, assignees: [user]) }
 
   let(:request) { EntityRequest.new(project: merge_request.target_project, current_user: user) }
@@ -18,8 +18,7 @@ RSpec.describe MergeRequestUserEntity do
     it 'exposes needed attributes' do
       is_expected.to include(
         :id, :name, :username, :state, :avatar_url, :web_url,
-        :can_merge, :can_update_merge_request, :reviewed, :approved,
-        :attention_requested
+        :can_merge, :can_update_merge_request, :reviewed, :approved
       )
     end
 
@@ -55,10 +54,6 @@ RSpec.describe MergeRequestUserEntity do
       it 'exposes the availibility attribute' do
         expect(subject[:availability]).to eq('busy')
       end
-    end
-
-    context 'attention_requested' do
-      it { is_expected.to include(attention_requested: true ) }
     end
 
     describe 'performance' do

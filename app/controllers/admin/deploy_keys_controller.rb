@@ -5,6 +5,7 @@ class Admin::DeployKeysController < Admin::ApplicationController
   before_action :deploy_key, only: [:destroy, :edit, :update]
 
   feature_category :continuous_delivery
+  urgency :low
 
   def index
   end
@@ -54,7 +55,7 @@ class Admin::DeployKeysController < Admin::ApplicationController
   end
 
   def create_params
-    params.require(:deploy_key).permit(:key, :title)
+    params.require(:deploy_key).permit(:key, :title, :expires_at)
   end
 
   def update_params

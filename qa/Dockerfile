@@ -1,33 +1,32 @@
-FROM ruby:2.7-buster
+ARG DOCKER_VERSION=24.0.5
+ARG CHROME_VERSION=123
+ARG RUBY_VERSION=3.2.4
+ARG BUILD_OS=debian
+ARG OS_VERSION=bookworm
+ARG QA_BUILD_TARGET=ee
+
+FROM registry.gitlab.com/gitlab-org/gitlab-build-images/${BUILD_OS}-${OS_VERSION}-ruby-${RUBY_VERSION}:git-2.36-lfs-2.9-chrome-${CHROME_VERSION}-docker-${DOCKER_VERSION}-gcloud-383-kubectl-1.23 AS foss
 LABEL maintainer="GitLab Quality Department <quality@gitlab.com>"
 
 ENV DEBIAN_FRONTEND="noninteractive"
-ENV DOCKER_VERSION="17.09.0-ce"
+# Override config path to make sure local config doesn't override it when building image locally
+ENV BUNDLE_APP_CONFIG=/home/gitlab/.bundle
 
 ##
-# Update APT sources and install dependencies
+# Install system libs
 #
-RUN sed -i "s/httpredir.debian.org/ftp.us.debian.org/" /etc/apt/sources.list
-RUN apt-get update && apt-get install -y wget unzip xvfb lsb-release git git-lfs
+RUN apt-get update \
+    && apt-get install -y xvfb unzip \
+    && apt-get -yq autoremove \
+    && apt-get clean -yqq \
+    && rm -rf /var/lib/apt/lists/*
 
 ##
-# Install Docker
+# Install 1Password CLI
 #
-RUN wget -q "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" && \
-    tar -zxf "docker-${DOCKER_VERSION}.tgz" && mv docker/docker /usr/local/bin/docker && \
-    rm "docker-${DOCKER_VERSION}.tgz"
-
-##
-# Install client certificate - Bug in Chrome Headless: https://gitlab.com/gitlab-org/gitlab/-/issues/331492
-#
-# RUN apt install -y libnss3-tools
-# RUN mkdir -p $HOME/.pki/nssdb
-# RUN certutil -N -d sql:$HOME/.pki/nssdb
-# COPY ./qa/tls_certificates/client/client.pfx /tmp/client.pfx
-# RUN pk12util -d sql:$HOME/.pki/nssdb -i /tmp/client.pfx -W ''
-# RUN mkdir -p /etc/opt/chrome/policies/managed
-# RUN echo '{ "AutoSelectCertificateForUrls": ["{\"pattern\":\"*\",\"filter\":{}}"] }' > /etc/opt/chrome/policies/managed/policy.json
-# RUN cat /etc/opt/chrome/policies/managed/policy.json
+RUN wget -P /tmp/ https://downloads.1password.com/linux/debian/$(dpkg --print-architecture)/stable/1password-cli-$(dpkg --print-architecture)-latest.deb
+RUN dpkg -i /tmp/1password-cli-$(dpkg --print-architecture)-latest.deb
+RUN op --version
 
 ##
 # Install root certificate
@@ -37,51 +36,45 @@ ADD ./qa/tls_certificates/authority/ca.crt /usr/share/ca-certificates/gitlab/
 RUN echo 'gitlab/ca.crt' >> /etc/ca-certificates.conf
 RUN chmod -R 644 /usr/share/ca-certificates/gitlab && update-ca-certificates
 
-##
-# Install gcloud and kubectl CLI used in Auto DevOps test to create K8s
-# clusters
-#
-RUN export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)" && \
-    echo "deb http://packages.cloud.google.com/apt $CLOUD_SDK_REPO main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
-    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - && \
-    apt-get update -y && apt-get install google-cloud-sdk kubectl -y
-
-##
-# Install Google Chrome version with headless support
-# Download from our local S3 bucket, populated by https://gitlab.com/gitlab-org/gitlab-build-images/-/blob/master/scripts/cache-google-chrome
-#
-# https://s3.amazonaws.com/gitlab-google-chrome-stable
-ENV CHROME_VERSION="91.0.4472.77-1"
-ENV CHROME_DEB="google-chrome-stable_${CHROME_VERSION}_amd64.deb"
-ENV CHROME_URL="https://s3.amazonaws.com/gitlab-google-chrome-stable/${CHROME_DEB}"
-RUN curl --silent --show-error --fail -O "${CHROME_URL}" && \
-    dpkg -i "./${CHROME_DEB}" || true && \
-    apt-get install -f -y && \
-    rm -f "./${CHROME_DEB}"
-
 WORKDIR /home/gitlab/qa
 
-# Install qa dependencies or fetch from cache if unchanged
-COPY ./qa/Gemfile* /home/gitlab/qa/
-RUN gem install bundler --no-document --conservative --version 2.3.6
-RUN bundle install --jobs=$(nproc) --retry=3 --without=development --quiet
-
 ##
-# Fetch chromedriver based on version of chrome
-# Copy rakefile first so that webdriver is not reinstalled on every code change
-# https://github.com/titusfortner/webdrivers
-COPY ./qa/tasks/webdrivers.rake /home/gitlab/qa/tasks/
-RUN bundle exec rake -f tasks/webdrivers.rake webdrivers:chromedriver:update
+# Install qa dependencies or fetch from cache if unchanged
+#
+COPY ./qa/Gemfile* /home/gitlab/qa/
+COPY ./vendor/gems/ /home/gitlab/vendor/gems/
+COPY ./gems/ /home/gitlab/gems/
+RUN bundle config set --local without development \
+    && bundle install --retry=3
 
 COPY ./config/initializers/0_inject_enterprise_edition_module.rb /home/gitlab/config/initializers/
-# Copy VERSION to ensure the COPY succeeds to copy at least one file since ee/app/models/license.rb isn't present in FOSS
-# The [b] part makes ./ee/app/models/license.r[b] a pattern that is allowed to return no files (which is the case in FOSS)
-COPY VERSION ./ee/app/models/license.r[b] /home/gitlab/ee/app/models/
+COPY ./config/feature_flags /home/gitlab/config/feature_flags
 COPY ./config/bundler_setup.rb /home/gitlab/config/
 COPY ./lib/gitlab_edition.rb /home/gitlab/lib/
-COPY ./lib/gitlab/utils.rb /home/gitlab/lib/gitlab/
+COPY ./spec/support/fast_quarantine.rb /home/gitlab/spec/support/
+COPY ./tooling/lib/tooling/fast_quarantine.rb /home/gitlab/tooling/lib/tooling/
 COPY ./INSTALLATION_TYPE ./VERSION /home/gitlab/
 
 COPY ./qa /home/gitlab/qa
 
 ENTRYPOINT ["bin/test"]
+
+# Add ee files when passing the parameter: `--build-arg QA_BUILD_TARGET=ee`
+FROM foss as ee
+# Copy VERSION to ensure the COPY succeeds to copy at least one file since ee/app/models/license.rb isn't present in FOSS
+# The [b] part makes ./ee/app/models/license.r[b] a pattern that is allowed to return no files (which is the case in FOSS)
+ONBUILD COPY VERSION ./ee/app/models/license.r[b] /home/gitlab/ee/app/models/
+ONBUILD COPY VERSION ./ee/config/feature_flag[s] /home/gitlab/ee/config/feature_flags/
+
+# Add JH files when passing the parameter: `--build-arg QA_BUILD_TARGET=jhqa`
+FROM ee AS jhqa
+ONBUILD COPY ./jh/qa /home/gitlab/jh/qa
+ONBUILD COPY ./jh/lib /home/gitlab/jh/lib
+ONBUILD COPY ./jh/config/feature_flags /home/gitlab/jh/config/feature_flags
+
+# Add solargraph gem for devcontainer
+# Solargraph is only present in parent Gemfile so we just install it manually
+FROM ee as dev
+RUN gem install solargraph --force
+
+FROM $QA_BUILD_TARGET

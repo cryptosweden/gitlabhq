@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Gcp Cluster', :js do
+RSpec.describe 'Gcp Cluster', :js, feature_category: :deployment_management do
   include GoogleApi::CloudPlatformHelpers
 
   let(:project) { create(:project) }
@@ -12,11 +12,6 @@ RSpec.describe 'Gcp Cluster', :js do
     project.add_maintainer(user)
     gitlab_sign_in(user)
     allow(Projects::ClustersController).to receive(:STATUS_POLLING_INTERVAL) { 100 }
-  end
-
-  def submit_form
-    execute_script('document.querySelector(".js-gke-cluster-creation-submit").removeAttribute("disabled")')
-    execute_script('document.querySelector(".js-gke-cluster-creation-submit").click()')
   end
 
   context 'when user has signed with Google' do
@@ -29,82 +24,7 @@ RSpec.describe 'Gcp Cluster', :js do
         .to receive(:expires_at_in_session).and_return(1.hour.since.to_i.to_s)
     end
 
-    context 'when user does not have a cluster and visits cluster index page' do
-      before do
-        visit project_clusters_path(project)
-
-        visit_create_cluster_page
-        click_link 'Google GKE'
-      end
-
-      it 'highlights Google GKE logo' do
-        expect(page).to have_css('.js-create-gcp-cluster-button.active')
-      end
-
-      context 'when user filled form with valid parameters' do
-        subject { submit_form }
-
-        before do
-          allow_any_instance_of(GoogleApi::CloudPlatform::Client)
-            .to receive(:projects_zones_clusters_create) do
-            double(
-              'cluster',
-              self_link: 'projects/gcp-project-12345/zones/us-central1-a/operations/ope-123',
-              status: 'RUNNING'
-            )
-          end
-
-          allow(WaitForClusterCreationWorker).to receive(:perform_in).and_return(nil)
-
-          expect(page).to have_css('.js-gcp-project-id-dropdown')
-
-          execute_script('document.querySelector(".js-gcp-project-id-dropdown input").setAttribute("type", "text")')
-          execute_script('document.querySelector(".js-gcp-zone-dropdown input").setAttribute("type", "text")')
-          execute_script('document.querySelector(".js-gcp-machine-type-dropdown input").setAttribute("type", "text")')
-
-          fill_in 'cluster[name]', with: 'dev-cluster'
-          fill_in 'cluster[provider_gcp_attributes][gcp_project_id]', with: 'gcp-project-123'
-          fill_in 'cluster[provider_gcp_attributes][zone]', with: 'us-central1-a'
-          fill_in 'cluster[provider_gcp_attributes][machine_type]', with: 'n1-standard-2'
-        end
-
-        it 'users sees a form with the GCP token' do
-          expect(page).to have_selector(:css, 'form[data-token="token"]')
-        end
-
-        it 'user sees a cluster details page and creation status' do
-          subject
-
-          expect(page).to have_content('Kubernetes cluster is being created...')
-
-          Clusters::Cluster.last.provider.make_created!
-
-          expect(page).to have_content('Kubernetes cluster was successfully created')
-        end
-
-        it 'user sees a error if something wrong during creation' do
-          subject
-
-          expect(page).to have_content('Kubernetes cluster is being created...')
-
-          Clusters::Cluster.last.provider.make_errored!('Something wrong!')
-
-          expect(page).to have_content('Something wrong!')
-        end
-      end
-
-      context 'when user filled form with invalid parameters' do
-        before do
-          submit_form
-        end
-
-        it 'user sees a validation error' do
-          expect(page).to have_css('.gl-field-error')
-        end
-      end
-    end
-
-    context 'when user does have a cluster and visits cluster page' do
+    context 'when user have a cluster and visits cluster page' do
       let(:cluster) { create(:cluster, :provided_by_gcp, projects: [project]) }
 
       before do
@@ -134,8 +54,8 @@ RSpec.describe 'Gcp Cluster', :js do
         before do
           visit project_clusters_path(project)
 
-          click_button(class: 'dropdown-toggle-split')
-          click_link 'Connect with a certificate'
+          click_button(class: 'gl-new-dropdown-toggle', text: 'Connect a cluster (agent)')
+          click_link 'Connect a cluster (certificate - deprecated)'
         end
 
         it 'user sees the "Environment scope" field' do
@@ -146,15 +66,14 @@ RSpec.describe 'Gcp Cluster', :js do
       context 'when user destroys the cluster' do
         before do
           click_link 'Advanced Settings'
-          click_button 'Remove integration and resources'
+          find_by_testid('remove-integration-button').click
           fill_in 'confirm_cluster_name_input', with: cluster.name
-          click_button 'Remove integration'
+          find_by_testid('remove-integration-modal-button').click
           click_link 'Certificate'
         end
 
         it 'user sees creation form with the successful message' do
           expect(page).to have_content('Kubernetes cluster integration was successfully removed.')
-          expect(page).to have_link('Connect with a certificate')
         end
       end
     end
@@ -166,12 +85,6 @@ RSpec.describe 'Gcp Cluster', :js do
     end
 
     it 'user sees offer on cluster index page' do
-      expect(page).to have_css('.gcp-signup-offer')
-    end
-
-    it 'user sees offer on cluster create page' do
-      visit_create_cluster_page
-
       expect(page).to have_css('.gcp-signup-offer')
     end
   end
@@ -188,8 +101,6 @@ RSpec.describe 'Gcp Cluster', :js do
       find('.gcp-signup-offer .js-close').click
       wait_for_requests
 
-      visit_create_cluster_page
-
       expect(page).not_to have_css('.gcp-signup-offer')
     end
   end
@@ -199,7 +110,7 @@ RSpec.describe 'Gcp Cluster', :js do
 
     before do
       stub_env('IN_MEMORY_APPLICATION_SETTINGS', 'false')
-      gitlab_enable_admin_mode_sign_in(user)
+      enable_admin_mode!(user)
       visit general_admin_application_settings_path
     end
 
@@ -216,10 +127,5 @@ RSpec.describe 'Gcp Cluster', :js do
 
       expect(page).not_to have_css('.gcp-signup-offer')
     end
-  end
-
-  def visit_create_cluster_page
-    click_button(class: 'dropdown-toggle-split')
-    click_link 'Create a new cluster'
   end
 end

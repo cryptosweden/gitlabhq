@@ -1,23 +1,21 @@
 - expanded = integration_expanded?('eks_')
 %section.settings.as-eks.no-animate#js-eks-settings{ class: ('expanded' if expanded) }
   .settings-header
-    %h4
+    %h4.settings-title.js-settings-toggle.js-settings-toggle-trigger-only
       = _('Amazon EKS')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
+    = render Pajamas::ButtonComponent.new(button_options: { class: 'js-settings-toggle' }) do
       = expanded ? _('Collapse') : _('Expand')
-    %p
+    %p.gl-text-secondary
       = _('Amazon EKS integration allows you to provision EKS clusters from GitLab.')
 
   .settings-content
-    = form_for @application_setting, url: general_admin_application_settings_path(anchor: 'js-eks-settings'), html: { class: 'fieldset-form', id: 'eks-settings' } do |f|
+    = gitlab_ui_form_for @application_setting, url: general_admin_application_settings_path(anchor: 'js-eks-settings'), html: { class: 'fieldset-form', id: 'eks-settings' } do |f|
       = form_errors(@application_setting)
 
       %fieldset
         .form-group
-          .form-check
-            = f.check_box :eks_integration_enabled, class: 'form-check-input'
-            = f.label :eks_integration_enabled, class: 'form-check-label' do
-              = _('Enable Amazon EKS integration')
+          = f.gitlab_ui_checkbox_component :eks_integration_enabled,
+            _('Enable Amazon EKS integration')
         .form-group
           = f.label :eks_account_id, _('Account ID'), class: 'label-bold'
           = f.text_field :eks_account_id, class: 'form-control gl-form-input'
@@ -33,4 +31,4 @@
           .form-text.text-muted
             = _('Only required if not using role instance credentials.')
 
-      = f.submit _('Save changes'), class: "gl-button btn btn-confirm"
+      = f.submit _('Save changes'), pajamas_button: true

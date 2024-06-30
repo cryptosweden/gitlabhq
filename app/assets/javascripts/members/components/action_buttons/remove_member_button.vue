@@ -1,5 +1,6 @@
 <script>
 import { GlButton, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 
 export default {
@@ -14,34 +15,13 @@ export default {
       type: Number,
       required: true,
     },
-    memberType: {
-      type: String,
-      required: false,
-      default: null,
-    },
     message: {
       type: String,
       required: true,
     },
     title: {
       type: String,
-      required: false,
-      default: null,
-    },
-    icon: {
-      type: String,
-      required: false,
-      default: undefined,
-    },
-    buttonText: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    buttonCategory: {
-      type: String,
-      required: false,
-      default: 'secondary',
+      required: true,
     },
     isAccessRequest: {
       type: Boolean,
@@ -70,7 +50,6 @@ export default {
         isAccessRequest: this.isAccessRequest,
         isInvite: this.isInvite,
         memberPath: this.memberPath.replace(':id', this.memberId),
-        memberType: this.memberType,
         message: this.message,
         userDeletionObstacles: this.userDeletionObstacles,
       };
@@ -89,13 +68,10 @@ export default {
 <template>
   <gl-button
     v-gl-tooltip
-    variant="danger"
-    :category="buttonCategory"
     :title="title"
     :aria-label="title"
-    :icon="icon"
-    data-qa-selector="delete_member_button"
+    icon="remove"
+    data-testid="delete-member-button"
     @click="showRemoveMemberModal(modalData)"
-    ><template v-if="buttonText">{{ buttonText }}</template></gl-button
-  >
+  />
 </template>

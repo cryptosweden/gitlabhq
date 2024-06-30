@@ -1,24 +1,23 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-comments: false
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Upgrading Community Edition and Enterprise Edition from source **(FREE SELF)**
+# Upgrading self-compiled installations
 
-NOTE:
-Users wishing to upgrade to 12.0.0 must take some extra steps. See the
-version specific upgrade instructions for 12.0.0 for more details.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
-Make sure you view this update guide from the branch (version) of GitLab you
-would like to install (for example, `11.8`). You can select the required version of documentation in the dropdown at the top right corner of GitLab documentation page.
+Make sure you view this upgrade guide from the branch (version) of GitLab you
+would like to install (for example, `16.0`). You can select the required version of documentation in the dropdown list in the upper-right corner of GitLab documentation page.
 
-In each of the following examples, replace `BRANCH` with the branch of the version you upgrading to (for example, `11-8-stable` for `11.8`). Replace `PREVIOUS_BRANCH` with the
-branch for the version you are upgrading from (for example, `11-7-stable` for `11.7`).
+In each of the following examples, replace `BRANCH` with the branch of the version you upgrading to (for example, `16-0-stable` for `16.0`). Replace `PREVIOUS_BRANCH` with the
+branch for the version you are upgrading from (for example, `15-11-stable` for `15.11`).
 
-If the highest number stable branch is unclear please check the
-[GitLab Blog](https://about.gitlab.com/blog/archives.html) for installation
+If the highest number stable branch is unclear check the
+[GitLab Blog](https://about.gitlab.com/blog/archive/) for installation
 guide links by version.
 
 If you are changing from GitLab Community Edition to GitLab Enterprise Edition, see
@@ -26,14 +25,13 @@ the [Upgrading from CE to EE](upgrading_from_ce_to_ee.md) documentation.
 
 ## Upgrading to a new major version
 
-Major versions are reserved for backwards incompatible changes. We recommend that
-you first upgrade to the latest available minor version of your current major version.
-Please follow the [Upgrade Recommendations](../policy/maintenance.md#upgrade-recommendations)
+Major versions are reserved for backwards incompatible changes. You should first upgrade to the latest available minor version of your current major version.
+Follow the [Upgrade Recommendations](../policy/maintenance.md#upgrade-recommendations)
 to identify the ideal upgrade path.
 
 Before upgrading to a new major version, you should ensure that any background
 migration jobs from previous releases have been completed. To see the current size of the `background_migration` queue,
-[Check for background migrations before upgrading](index.md#checking-for-background-migrations-before-upgrading).
+[Check for background migrations before upgrading](background_migrations.md).
 
 ## Guidelines for all versions
 
@@ -43,7 +41,11 @@ specific guidelines (should there be any) are covered separately.
 
 ### 1. Backup
 
-If you installed GitLab from source, make sure `rsync` is installed.
+Prerequisites:
+
+- Make sure `rsync` is installed.
+
+Perform the backup:
 
 ```shell
 cd /home/git/gitlab
@@ -63,24 +65,10 @@ sudo service gitlab stop
 
 ### 3. Update Ruby
 
-NOTE:
-Beginning in GitLab 13.6, we only support Ruby 2.7 or higher, and dropped
-support for Ruby 2.6. Be sure to upgrade if necessary.
-
+From GitLab 16.7, we only support Ruby 3.1.x and dropped support for Ruby 3.0. Be sure to upgrade if necessary.
 You can check which version you are running with `ruby -v`.
 
-Download Ruby and compile it:
-
-```shell
-mkdir /tmp/ruby && cd /tmp/ruby
-curl --remote-name --location --progress-bar "https://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.4.tar.gz"
-echo '3043099089608859fc8cce7f9fdccaa1f53a462457e3838ec3b25a7d609fbc5b ruby-2.7.4.tar.gz' | sha256sum -c - && tar xzf ruby-2.7.4.tar.gz
-cd ruby-2.7.4
-
-./configure --disable-install-rdoc --enable-shared
-make
-sudo make install
-```
+[Install Ruby](https://www.ruby-lang.org/en/documentation/installation/).
 
 ### 4. Update Node.js
 
@@ -111,11 +99,11 @@ Download and install Go (for Linux, 64-bit):
 # Remove former Go installation folder
 sudo rm -rf /usr/local/go
 
-curl --remote-name --location --progress-bar "https://go.dev/dl/go1.16.10.linux-amd64.tar.gz"
-echo '414cd18ce1d193769b9e97d2401ad718755ab47816e13b2a1cde203d263b55cf  go1.16.10.linux-amd64.tar.gz' | shasum -a256 -c - && \
-  sudo tar -C /usr/local -xzf go1.16.10.linux-amd64.tar.gz
+curl --remote-name --location --progress-bar "https://go.dev/dl/go1.20.8.linux-amd64.tar.gz"
+echo 'cc97c28d9c252fbf28f91950d830201aa403836cbed702a05932e63f7f0c7bc4  go1.20.8.linux-amd64.tar.gz' | shasum -a256 -c - && \
+  sudo tar -C /usr/local -xzf go1.20.8.linux-amd64.tar.gz
 sudo ln -sf /usr/local/go/bin/{go,gofmt} /usr/local/bin/
-rm go1.16.10.linux-amd64.tar.gz
+rm go1.20.8.linux-amd64.tar.gz
 ```
 
 ### 6. Update Git
@@ -123,9 +111,7 @@ rm go1.16.10.linux-amd64.tar.gz
 To check you are running the minimum required Git version, see
 [Git versions](../install/installation.md#software-requirements).
 
-From GitLab 13.6, we recommend you use the [Git version provided by
-Gitaly](https://gitlab.com/gitlab-org/gitaly/-/issues/2729)
-that:
+Use the [Git version provided by Gitaly](https://gitlab.com/gitlab-org/gitaly/-/issues/2729) that:
 
 - Is always at the version required by GitLab.
 - May contain custom patches required for proper operation.
@@ -143,14 +129,14 @@ sudo make git GIT_PREFIX=/usr/local
 ```
 
 Replace `<X-Y-stable>` with the stable branch that matches the GitLab version you want to
-install. For example, if you want to install GitLab 13.6, use the branch name `13-6-stable`.
+install. For example, if you want to install GitLab 16.7, use the branch name `16-7-stable`.
 
 Remember to set `git -> bin_path` to `/usr/local/bin/git` in `config/gitlab.yml`.
 
 ### 7. Update PostgreSQL
 
 WARNING:
-From GitLab 14.0, you must use at least PostgreSQL 12.
+GitLab 16.0 requires at least PostgreSQL 13.
 
 The latest version of GitLab might depend on a more recent PostgreSQL version
 than what you are running. You may also have to enable some
@@ -199,6 +185,19 @@ cd /home/git/gitlab
 git diff origin/PREVIOUS_BRANCH:config/gitlab.yml.example origin/BRANCH:config/gitlab.yml.example
 ```
 
+#### New configuration options for `database.yml`
+
+> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/119139) in GitLab 16.0 to have `ci:` section in `config/database.yml.postgresql`.
+
+There might be configuration options available for [`database.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/database.yml.postgresql).
+View them with the command below and apply them manually to your current `database.yml`:
+
+```shell
+cd /home/git/gitlab
+
+git diff origin/PREVIOUS_BRANCH:config/database.yml.postgresql origin/BRANCH:config/database.yml.postgresql
+```
+
 #### NGINX configuration
 
 Ensure you're still up-to-date with the latest NGINX configuration changes:
@@ -218,13 +217,13 @@ NGINX configuration to continue using it. This is because the GitLab application
 sets it.
 
 If you are using Apache instead of NGINX see the updated [Apache templates](https://gitlab.com/gitlab-org/gitlab-recipes/tree/master/web-server/apache).
-Also note that because Apache does not support upstreams behind Unix sockets you
+Also because Apache does not support upstreams behind Unix sockets you
 must let GitLab Workhorse listen on a TCP port. You can do this
 via [`/etc/default/gitlab`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/support/init.d/gitlab.default.example#L38).
 
 #### SMTP configuration
 
-If you're installing from source and use SMTP to deliver mail, you must
+If you use SMTP to deliver mail, you must
 add the following line to `config/initializers/smtp_settings.rb`:
 
 ```ruby
@@ -292,7 +291,7 @@ cd /home/git/gitlab
 
 # If you haven't done so during installation or a previous upgrade already
 sudo -u git -H bundle config set --local deployment 'true'
-sudo -u git -H bundle config set --local without 'development test mysql aws kerberos'
+sudo -u git -H bundle config set --local without 'development test kerberos'
 
 # Update gems
 sudo -u git -H bundle install
@@ -302,9 +301,6 @@ sudo -u git -H bundle clean
 
 # Run database migrations
 sudo -u git -H bundle exec rake db:migrate RAILS_ENV=production
-
-# Compile GetText PO files
-sudo -u git -H bundle exec rake gettext:compile RAILS_ENV=production
 
 # Update node dependencies and recompile assets
 sudo -u git -H bundle exec rake yarn:install gitlab:assets:clean gitlab:assets:compile RAILS_ENV=production NODE_ENV=production NODE_OPTIONS="--max_old_space_size=4096"
@@ -333,11 +329,9 @@ cd /home/git/gitlab
 sudo -u git -H bundle exec rake "gitlab:workhorse:install[/home/git/gitlab-workhorse]" RAILS_ENV=production
 ```
 
-NOTE:
-If you get any errors concerning Rack attack, see the [13.0](#1301) specific
-upgrade instructions.
-
 ### 13. Update Gitaly
+
+If Gitaly is located on its own server, or you use Gitaly Cluster, see [Zero-downtime upgrades](zero_downtime.md).
 
 #### Compile Gitaly
 
@@ -396,44 +390,12 @@ sudo -u git -H bundle exec rake gitlab:check RAILS_ENV=production
 
 If all items are green, then congratulations, the upgrade is complete!
 
-## Version specific upgrading instructions
+## Version specific changes
 
-This section contains upgrading instructions for specific versions. When
-present, first follow the upgrading guidelines for all versions. If the version
-you are upgrading to is not listed here, then no additional steps are required.
-
-<!--
-Example:
-
-### 11.8.0
-
-Additional instructions here.
--->
-
-### 14.5.0
-
-As part of [enabling real-time issue assignees](https://gitlab.com/gitlab-org/gitlab/-/issues/330117), Action Cable is now enabled by default, and requires `config/cable.yml` to be present.
-You can configure this by running:
-
-```shell
-cd /home/git/gitlab
-
-sudo -u git -H cp config/cable.yml.example config/cable.yml
-
-# Change the Redis socket path if you are not using the default Debian / Ubuntu configuration
-sudo -u git -H editor config/cable.yml
-```
-
-### 13.0.1
-
-As part of [deprecating Rack Attack throttles on Omnibus GitLab](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/4750), the Rack Attack initializer on GitLab
-was renamed from [`config/initializers/rack_attack_new.rb` to `config/initializers/rack_attack.rb`](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/33072).
-If this file exists on your installation, consider creating a backup before updating:
-
-```shell
-cd /home/git/gitlab
-cp config/initializers/rack_attack.rb ~/config/initializers/rack_attack_backup.rb
-```
+Upgrading versions might need some manual intervention. For more information,
+[check the version you are upgrading to](index.md#version-specific-upgrading-instructions)
+for additional steps required for all GitLab installations, and for
+steps that apply to self-compiled installations.
 
 ## Troubleshooting
 
@@ -442,9 +404,9 @@ cp config/initializers/rack_attack.rb ~/config/initializers/rack_attack_backup.r
 To revert to a previous version, you must follow the upgrading guides
 for the previous version.
 
-For example, if you have upgraded to GitLab 12.6 and want to revert back to
-12.5, follow the guides for upgrading from 12.4 to 12.5. You can
-use the version dropdown at the top of the page to select the right version.
+For example, if you have upgraded to GitLab 16.6 and want to revert back to
+16.5, follow the guides for upgrading from 16.4 to 16.5. You can
+use the version dropdown list at the top of the page to select the right version.
 
 When reverting, you should **not** follow the database migration guides, as the
 backup has already been migrated to the previous version.

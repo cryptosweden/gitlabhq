@@ -133,16 +133,11 @@ class IssuableFinder
 
     def projects
       strong_memoize(:projects) do
-        next [project] if project?
+        next Array.wrap(project) if project?
 
-        projects =
-          if current_user && params[:authorized_only].presence && !current_user_related?
-            current_user.authorized_projects(min_access_level)
-          else
-            projects_public_or_visible_to_user
-          end
-
-        projects.with_feature_available_for_user(klass, current_user).reorder(nil) # rubocop: disable CodeReuse/ActiveRecord
+        projects_public_or_visible_to_user
+          .with_feature_available_for_user(klass.base_class, current_user)
+          .without_order
       end
     end
 
@@ -175,7 +170,7 @@ class IssuableFinder
       return Project.none unless group
 
       if params[:include_subgroups]
-        Project.where(namespace_id: group.self_and_descendants) # rubocop: disable CodeReuse/ActiveRecord
+        Project.where(namespace_id: group.self_and_descendant_ids) # rubocop: disable CodeReuse/ActiveRecord
       else
         group.projects
       end
@@ -194,6 +189,11 @@ class IssuableFinder
     def parent
       project || group
     end
+
+    def user_can_see_all_issuables?
+      Ability.allowed?(current_user, :read_all_resources)
+    end
+    strong_memoize_attr :user_can_see_all_issuables?
 
     private
 
@@ -215,7 +215,7 @@ class IssuableFinder
     end
 
     def min_access_level
-      ProjectFeature.required_minimum_access_level(klass)
+      ProjectFeature.required_minimum_access_level(klass.base_class)
     end
 
     def method_missing(method_name, *args, &block)

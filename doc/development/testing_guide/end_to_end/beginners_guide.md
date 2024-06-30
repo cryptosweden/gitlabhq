@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Beginner's guide to writing end-to-end tests
@@ -34,9 +34,8 @@ For more information, see [End-to-end testing Best Practices](best_practices.md)
 
 ## Determine if end-to-end tests are needed
 
-Check the code coverage of a specific feature before writing end-to-end tests,
-for both [GitLab Community Edition](https://gitlab-org.gitlab.io/gitlab-foss/coverage-ruby/#_AllFiles)
-and [GitLab Enterprise Edition](https://gitlab-org.gitlab.io/gitlab/coverage-ruby/#_AllFiles) projects.
+Check the code coverage of a specific feature before writing end-to-end tests
+for the [GitLab](https://gitlab-org.gitlab.io/gitlab/coverage-ruby/#_AllFiles) project.
 Does sufficient test coverage exist at the unit, feature, or integration levels?
 If you answered *yes*, then you *don't* need an end-to-end test.
 
@@ -49,13 +48,12 @@ For information about the distribution of tests per level in GitLab, see
 - Review how often the feature changes. Stable features that don't change very often
   might not be worth covering with end-to-end tests if they are already covered
   in lower level tests.
-- Finally, discuss the proposed test with the developer(s) involved in implementing
+- Finally, discuss the proposed test with the developers involved in implementing
   the feature and the lower-level tests.
 
 WARNING:
-Check both [GitLab Community Edition](https://gitlab-org.gitlab.io/gitlab-foss/coverage-ruby/#_AllFiles) and
-[GitLab Enterprise Edition](https://gitlab-org.gitlab.io/gitlab/coverage-ruby/#_AllFiles) coverage projects
-for previously-written tests for this feature. For analyzing the code coverage,
+Check the [GitLab](https://gitlab-org.gitlab.io/gitlab/coverage-ruby/#_AllFiles) coverage project
+for previously written tests for this feature. To analyze code coverage,
 you must understand which application files implement specific features.
 
 In this tutorial we're writing a login end-to-end test, even though it has been
@@ -67,7 +65,7 @@ end-to-end flows, and is easiest to understand.
 The GitLab QA end-to-end tests are organized by the different
 [stages in the DevOps lifecycle](https://gitlab.com/gitlab-org/gitlab-foss/tree/master/qa/qa/specs/features/browser_ui).
 Determine where the test should be placed by
-[stage](https://about.gitlab.com/handbook/product/categories/#devops-stages),
+[stage](https://handbook.gitlab.com/handbook/product/categories/#devops-stages),
 determine which feature the test belongs to, and then place it in a subdirectory
 under the stage.
 
@@ -87,7 +85,7 @@ file `basic_login_spec.rb`.
 See the [`RSpec.describe` outer block](#the-outer-rspecdescribe-block)
 
 WARNING:
-The outer `context` [was deprecated](https://gitlab.com/gitlab-org/quality/team-tasks/-/issues/550) in `13.2`
+The outer `context` [was deprecated](https://gitlab.com/gitlab-org/quality/quality-engineering/team-tasks/-/issues/550) in `13.2`
 in adherence to RSpec 4.0 specifications. Use `RSpec.describe` instead.
 
 ### The outer `RSpec.describe` block
@@ -120,6 +118,22 @@ module QA
 end
 ```
 
+### The `product_group` metadata
+
+Assign `product_group` metadata and specify what product group this test belongs to. In this case, `authentication_and_authorization`.
+
+```ruby
+# frozen_string_literal: true
+
+module QA
+  RSpec.describe 'Manage' do
+    describe 'Login', product_group: :authentication do
+
+    end
+  end
+end
+```
+
 ### The `it` blocks (examples)
 
 Every test suite contains at least one `it` block (example). A good way to start
@@ -128,7 +142,7 @@ writing end-to-end tests is to write test case descriptions as `it` blocks:
 ```ruby
 module QA
   RSpec.describe 'Manage' do
-    describe 'Login' do
+    describe 'Login', product_group: :authentication do
       it 'can login' do
 
       end
@@ -152,7 +166,7 @@ Begin by logging in.
 
 module QA
   RSpec.describe 'Manage' do
-    describe 'Login' do
+    describe 'Login', product_group: :authentication do
       it 'can login' do
         Flow::Login.sign_in
 
@@ -175,7 +189,7 @@ should answer the question "What do we test?"
 
 module QA
   RSpec.describe 'Manage' do
-    describe 'Login' do
+    describe 'Login', product_group: :authentication do
       it 'can login' do
         Flow::Login.sign_in
 
@@ -205,11 +219,11 @@ end
 
 **How do we test?**
 
-1. Check if the user avatar appears in the top navigation.
-1. Check if the user avatar *does not* appear in the top navigation.
+1. Check if the user avatar appears in the left sidebar.
+1. Check if the user avatar *does not* appear in the left sidebar.
 
 Behind the scenes, `be_signed_in` is a
-[predicate matcher](https://relishapp.com/rspec/rspec-expectations/v/3-8/docs/built-in-matchers/predicate-matchers)
+[predicate matcher](https://rspec.info/features/3-12/rspec-expectations/built-in-matchers/predicates/)
 that [implements checking the user avatar](https://gitlab.com/gitlab-org/gitlab/-/blob/master/qa/qa/page/main/menu.rb#L92).
 
 ## De-duplicate your code
@@ -222,7 +236,7 @@ a call to `sign_in`.
 
 module QA
   RSpec.describe 'Manage' do
-    describe 'Login' do
+    describe 'Login', product_group: :authentication do
       before do
         Flow::Login.sign_in
       end
@@ -246,26 +260,21 @@ end
 ```
 
 The `before` block is essentially a `before(:each)` and is run before each example,
-ensuring we now log in at the beginning of each test.
+ensuring we now sign in at the beginning of each test.
 
 ## Test setup using resources and page objects
 
 Next, let's test something other than Login. Let's test Issues, which are owned by the Plan
-stage, so [create a file](#identify-the-devops-stage) in
-`qa/specs/features/browser_ui/3_create/issues` called `issues_spec.rb`.
+stage and the Project Management Group, so [create a file](#identify-the-devops-stage) in
+`qa/specs/features/browser_ui/2_plan/issue` called `issues_spec.rb`.
 
 ```ruby
 # frozen_string_literal: true
 
 module QA
   RSpec.describe 'Plan' do
-    describe 'Issues' do
-      let(:issue) do
-        Resource::Issue.fabricate_via_api! do |issue|
-          issue.title = 'My issue'
-          issue.description = 'This is an issue specific to this test'
-        end
-      end
+    describe 'Issues', product_group: :project_management do
+      let(:issue) { create(:issue) }
 
       before do
         Flow::Login.sign_in
@@ -312,22 +321,22 @@ the **Issue Show** page already exists, add the `closed?` method.
 module Page::Project::Issue
   class Show
     view 'app/views/projects/issues/show.html.haml' do
-      element :closed_status_box
+      element 'closed-status-box'
     end
 
     def closed?
-      has_element?(:closed_status_box)
+      has_element?('closed-status-box')
     end
   end
 end
 ```
 
-Next, define the element `closed_status_box` within your view, so your Page Object
+Next, define the element `closed-status-box` within your view, so your Page Object
 can see it.
 
 ```haml
 -#=> app/views/projects/issues/show.html.haml
-.issuable-status-box.status-box.status-box-issue-closed{ ..., data: { qa_selector: 'closed_status_box' } }
+.issuable-status-box.status-box.status-box-issue-closed{ ..., data: { testid: 'closed-status-box' } }
 ```
 
 ## Run the spec
@@ -343,14 +352,16 @@ Before running the spec, make sure that:
 
 To run the spec, run the following command:
 
-```ruby
-GITLAB_PASSWORD=<GDK root password> bundle exec bin/qa Test::Instance::All http://localhost:3000 -- <test_file>
+```shell
+GITLAB_PASSWORD=<GDK root password> bundle exec rspec <test_file>
 ```
 
 Where `<test_file>` is:
 
 - `qa/specs/features/browser_ui/1_manage/login/log_in_spec.rb` when running the Login example.
 - `qa/specs/features/browser_ui/2_plan/issue/create_issue_spec.rb` when running the Issue example.
+
+Additional information on test execution and possible options are described in ["QA framework README"](https://gitlab.com/gitlab-org/gitlab/-/blob/master/qa/README.md#run-the-end-to-end-tests-in-a-local-development-environment)
 
 ## End-to-end test merge request template
 

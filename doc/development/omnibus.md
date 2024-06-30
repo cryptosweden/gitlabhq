@@ -1,7 +1,7 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # What you should know about Omnibus packages
@@ -21,7 +21,7 @@ For example, the `git` user is allowed to write in the `log/` directory, in
 `public/uploads`, and they are allowed to rewrite the `db/structure.sql` file.
 
 In other cases, the reconfigure script tricks GitLab into not trying to write a
-file. For instance, GitLab will generate a `.secret` file if it cannot find one
+file. For instance, GitLab generates a `.secret` file if it cannot find one
 and write it to the Rails root. In the Omnibus packages, reconfigure writes the
 `.secret` file first, so that GitLab never tries to write it.
 

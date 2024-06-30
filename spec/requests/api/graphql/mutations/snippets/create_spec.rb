@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Creating a Snippet' do
+RSpec.describe 'Creating a Snippet', feature_category: :source_code_management do
   include GraphqlHelpers
 
   let_it_be(:user) { create(:user) }
@@ -12,11 +12,12 @@ RSpec.describe 'Creating a Snippet' do
   let(:title) { 'Initial title' }
   let(:visibility_level) { 'public' }
   let(:action) { :create }
-  let(:file_1) { { filePath: 'example_file1', content: 'This is the example file 1' }}
-  let(:file_2) { { filePath: 'example_file2', content: 'This is the example file 2' }}
+  let(:file_1) { { filePath: 'example_file1', content: 'This is the example file 1' } }
+  let(:file_2) { { filePath: 'example_file2', content: 'This is the example file 2' } }
   let(:actions) { [{ action: action }.merge(file_1), { action: action }.merge(file_2)] }
   let(:project_path) { nil }
   let(:uploaded_files) { nil }
+  let(:category) { ::Mutations::Snippets::Create }
   let(:mutation_vars) do
     {
       description: description,
@@ -42,7 +43,7 @@ RSpec.describe 'Creating a Snippet' do
     let(:current_user) { nil }
 
     it_behaves_like 'a mutation that returns top-level errors',
-                    errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
+      errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
 
     it 'does not create the Snippet' do
       expect do
@@ -103,14 +104,12 @@ RSpec.describe 'Creating a Snippet' do
       end
 
       it_behaves_like 'snippet edit usage data counters'
-
-      it_behaves_like 'a mutation which can mutate a spammable' do
-        let(:service) { Snippets::CreateService }
-      end
     end
 
     context 'with PersonalSnippet' do
-      it_behaves_like 'creates snippet'
+      it_behaves_like 'creates snippet' do
+        let(:project) { nil }
+      end
     end
 
     context 'with ProjectSnippet' do
@@ -126,7 +125,7 @@ RSpec.describe 'Creating a Snippet' do
         let(:project_path) { 'foobar' }
 
         it_behaves_like 'a mutation that returns top-level errors',
-                        errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
+          errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
       end
 
       context 'when the feature is disabled' do
@@ -135,7 +134,7 @@ RSpec.describe 'Creating a Snippet' do
         end
 
         it_behaves_like 'a mutation that returns top-level errors',
-                        errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
+          errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
       end
 
       it_behaves_like 'snippet edit usage data counters'
@@ -149,7 +148,7 @@ RSpec.describe 'Creating a Snippet' do
     end
 
     context 'when there non ActiveRecord errors' do
-      let(:file_1) { { filePath: 'invalid://file/path', content: 'foobar' }}
+      let(:file_1) { { filePath: 'invalid://file/path', content: 'foobar' } }
 
       it_behaves_like 'a mutation that returns errors in the response', errors: ['Repository Error creating the snippet - Invalid file name']
       it_behaves_like 'does not create snippet'
@@ -165,7 +164,7 @@ RSpec.describe 'Creating a Snippet' do
 
         it do
           expect(::Snippets::CreateService).to receive(:new)
-            .with(project: nil, current_user: user, params: hash_including(files: expected_value), spam_params: instance_of(::Spam::SpamParams))
+            .with(project: nil, current_user: user, params: hash_including(files: expected_value))
             .and_return(double(execute: creation_response))
 
           subject
@@ -173,8 +172,8 @@ RSpec.describe 'Creating a Snippet' do
       end
 
       it_behaves_like 'expected files argument', nil, nil
-      it_behaves_like 'expected files argument', %w(foo bar), %w(foo bar)
-      it_behaves_like 'expected files argument', 'foo', %w(foo)
+      it_behaves_like 'expected files argument', %w[foo bar], %w[foo bar]
+      it_behaves_like 'expected files argument', 'foo', %w[foo]
 
       context 'when files has an invalid value' do
         let(:uploaded_files) { [1] }
@@ -182,7 +181,7 @@ RSpec.describe 'Creating a Snippet' do
         it 'returns an error' do
           subject
 
-          expect(json_response['errors']).to be
+          expect(json_response['errors']).to be_present
         end
       end
     end

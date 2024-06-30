@@ -5,15 +5,19 @@ require 'peek/adapters/redis'
 Peek::Adapters::Redis.prepend ::Gitlab::PerformanceBar::RedisAdapterWhenPeekEnabled
 Peek.singleton_class.prepend ::Gitlab::PerformanceBar::WithTopLevelWarnings
 
-Rails.application.config.peek.adapter = :redis, { client: ::Redis.new(Gitlab::Redis::Cache.params) }
+Rails.application.config.peek.adapter = :redis, {
+  client: Gitlab::Redis::Cache.redis,
+  expires_in: 5.minutes
+}
 
 Peek.into Peek::Views::Host
 Peek.into Peek::Views::ActiveRecord
 Peek.into Peek::Views::Gitaly
 Peek.into Peek::Views::RedisDetailed
 Peek.into Peek::Views::Elasticsearch
-Peek.into Peek::Views::Rugged
+Peek.into Peek::Views::Zoekt
 Peek.into Peek::Views::ExternalHttp
+Peek.into Peek::Views::ClickHouse
 Peek.into Peek::Views::BulletDetailed if defined?(Bullet)
 Peek.into Peek::Views::Memory
 

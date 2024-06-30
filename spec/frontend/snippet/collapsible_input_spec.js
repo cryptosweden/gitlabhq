@@ -1,4 +1,4 @@
-import { setHTMLFixture } from 'helpers/fixtures';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import setupCollapsibleInputs from '~/snippet/collapsible_input';
 
 describe('~/snippet/collapsible_input', () => {
@@ -9,9 +9,9 @@ describe('~/snippet/collapsible_input', () => {
 
   beforeEach(() => {
     setHTMLFixture(`
-      <form>    
+      <form>
         <div class="js-collapsible-input js-title">
-          <div class="js-collapsed d-none">
+          <div class="js-collapsed !gl-hidden">
             <input type="text" />
           </div>
           <div class="js-expanded">
@@ -22,7 +22,7 @@ describe('~/snippet/collapsible_input', () => {
           <div class="js-collapsed">
             <input type="text" />
           </div>
-          <div class="js-expanded d-none">
+          <div class="js-expanded !gl-hidden">
             <textarea></textarea>
           </div>
         </div>
@@ -38,6 +38,10 @@ describe('~/snippet/collapsible_input', () => {
     setupCollapsibleInputs();
   });
 
+  afterEach(() => {
+    resetHTMLFixture();
+  });
+
   const findInput = (el) => el.querySelector('textarea,input');
   const findCollapsed = (el) => el.querySelector('.js-collapsed');
   const findExpanded = (el) => el.querySelector('.js-expanded');
@@ -45,8 +49,8 @@ describe('~/snippet/collapsible_input', () => {
   const findExpandedInput = (el) => findInput(findExpanded(el));
   const focusIn = (target) => target.dispatchEvent(new Event('focusin', { bubbles: true }));
   const expectIsCollapsed = (el, isCollapsed) => {
-    expect(findCollapsed(el).classList.contains('d-none')).toEqual(!isCollapsed);
-    expect(findExpanded(el).classList.contains('d-none')).toEqual(isCollapsed);
+    expect(findCollapsed(el).classList.contains('!gl-hidden')).toEqual(!isCollapsed);
+    expect(findExpanded(el).classList.contains('!gl-hidden')).toEqual(isCollapsed);
   };
 
   describe('when collapsed', () => {
@@ -68,7 +72,7 @@ describe('~/snippet/collapsible_input', () => {
         ${'is collapsed'}              | ${''}             | ${true}
         ${'stays open if given value'} | ${'Hello world!'} | ${false}
       `('when loses focus', ({ desc, value, isCollapsed }) => {
-        it(desc, () => {
+        it(`${desc}`, () => {
           findExpandedInput(descriptionEl).value = value;
           focusIn(fooEl);
 

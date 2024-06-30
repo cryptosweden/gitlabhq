@@ -10,40 +10,6 @@ RSpec.describe Gitlab::HookData::MergeRequestBuilder do
   describe '#build' do
     let(:data) { builder.build }
 
-    it 'includes safe attribute' do
-      %w[
-        assignee_id
-        assignee_ids
-        author_id
-        blocking_discussions_resolved
-        created_at
-        description
-        head_pipeline_id
-        id
-        iid
-        last_edited_at
-        last_edited_by_id
-        merge_commit_sha
-        merge_error
-        merge_params
-        merge_status
-        merge_user_id
-        merge_when_pipeline_succeeds
-        milestone_id
-        source_branch
-        source_project_id
-        state
-        target_branch
-        target_project_id
-        time_estimate
-        title
-        updated_at
-        updated_by_id
-      ].each do |key|
-        expect(data).to include(key)
-      end
-    end
-
     %i[source target].each do |key|
       describe "#{key} key" do
         include_examples 'project hook data', project_key: key do
@@ -52,16 +18,34 @@ RSpec.describe Gitlab::HookData::MergeRequestBuilder do
       end
     end
 
+    it 'includes safe attributes' do
+      expect(data).to include(*described_class.safe_hook_attributes)
+    end
+
     it 'includes additional attrs' do
-      expect(data).to include(:source)
-      expect(data).to include(:target)
-      expect(data).to include(:last_commit)
-      expect(data).to include(:work_in_progress)
-      expect(data).to include(:total_time_spent)
-      expect(data).to include(:time_change)
-      expect(data).to include(:human_time_estimate)
-      expect(data).to include(:human_total_time_spent)
-      expect(data).to include(:human_time_change)
+      expected_additional_attributes = %w[
+        description
+        url
+        last_commit
+        work_in_progress
+        draft
+        total_time_spent
+        time_change
+        human_total_time_spent
+        human_time_change
+        human_time_estimate
+        assignee_ids
+        assignee_id
+        reviewer_ids
+        labels
+        state
+        blocking_discussions_resolved
+        target_branch
+        first_contribution
+        detailed_merge_status
+      ].freeze
+
+      expect(data).to include(*expected_additional_attributes)
     end
 
     context 'when the MR has an image in the description' do

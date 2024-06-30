@@ -21,15 +21,6 @@ module NotesHelper
     Notes::QuickActionsService.supported?(note)
   end
 
-  def noteable_json(noteable)
-    {
-      id: noteable.id,
-      class: noteable.class.name,
-      resources: noteable.class.table_name,
-      project_id: noteable.project.id
-    }.to_json
-  end
-
   def diff_view_data
     return {} unless @new_diff_note_attrs
 
@@ -71,18 +62,20 @@ module NotesHelper
   def link_to_reply_discussion(discussion, line_type = nil)
     return unless current_user
 
-    data = {
-      discussion_id: discussion.reply_id,
-      discussion_project_id: discussion.project&.id,
-      line_type: line_type
-    }
-
-    button_tag 'Reply...', class: 'btn btn-text-field js-discussion-reply-button',
-                           data: data, title: 'Add a reply'
-  end
-
-  def note_max_access_for_user(note)
-    note.project.team.max_member_access(note.author_id)
+    content_tag(
+      :textarea,
+      rows: 1,
+      placeholder: _('Reply…'),
+      'aria-label': _('Reply to comment'),
+      class: 'reply-placeholder-text-field js-discussion-reply-button',
+      data: {
+        discussion_id: discussion.reply_id,
+        discussion_project_id: discussion.project&.id,
+        line_type: line_type
+      }
+    ) do
+      # render empty textarea
+    end
   end
 
   def note_human_max_access(note)
@@ -151,7 +144,6 @@ module NotesHelper
   def initial_notes_data(autocomplete)
     {
       notesUrl: notes_url,
-      notesIds: @noteable.notes.pluck(:id), # rubocop: disable CodeReuse/ActiveRecord
       now: Time.now.to_i,
       diffView: diff_view,
       enableGFM: {
@@ -175,12 +167,14 @@ module NotesHelper
     end
   end
 
-  def notes_data(issuable, start_at_zero = false)
-    initial_last_fetched_at = start_at_zero ? 0 : Time.current.to_i * ::Gitlab::UpdatedNotesPaginator::MICROSECOND
-
+  def notes_data(issuable)
     data = {
+      noteableType: @noteable.class.underscore,
+      noteableId: @noteable.id,
+      projectId: @project&.id,
+      groupId: @group&.id,
       discussionsPath: discussions_path(issuable),
-      registerPath: new_session_path(:user, redirect_to_referer: 'yes', anchor: 'register-pane'),
+      registerPath: new_user_registration_path(redirect_to_referer: 'yes'),
       newSessionPath: new_session_path(:user, redirect_to_referer: 'yes'),
       markdownDocsPath: help_page_path('user/markdown'),
       quickActionsDocsPath: help_page_path('user/project/quick_actions'),
@@ -188,7 +182,7 @@ module NotesHelper
       reopenPath: reopen_issuable_path(issuable),
       notesPath: notes_url,
       prerenderedNotesCount: issuable.capped_notes_count(MAX_PRERENDERED_NOTES),
-      lastFetchedAt: initial_last_fetched_at,
+      lastFetchedAt: Time.current.to_i * NotesActions::MICROSECOND,
       notesFilter: current_user&.notes_filter_for(issuable)
     }
 
@@ -201,10 +195,6 @@ module NotesHelper
     end
 
     data
-  end
-
-  def discussion_resolved_intro(discussion)
-    discussion.resolved_by_push? ? 'Automatically resolved' : 'Resolved'
   end
 
   def rendered_for_merge_request?

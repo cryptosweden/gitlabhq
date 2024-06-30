@@ -1,7 +1,8 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlDeprecatedSkeletonLoading as GlSkeletonLoading, GlButton } from '@gitlab/ui';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import { sprintf, __ } from '../../../locale';
+import { GlSkeletonLoader, GlButton } from '@gitlab/ui';
+import { sprintf, __ } from '~/locale';
+import { joinPaths } from '~/lib/utils/url_utility';
 import getRefMixin from '../../mixins/get_ref';
 import projectPathQuery from '../../queries/project_path.query.graphql';
 import TableHeader from './header.vue';
@@ -10,13 +11,13 @@ import TableRow from './row.vue';
 
 export default {
   components: {
-    GlSkeletonLoading,
+    GlSkeletonLoader,
     TableHeader,
     TableRow,
     ParentRow,
     GlButton,
   },
-  mixins: [getRefMixin, glFeatureFlagMixin()],
+  mixins: [getRefMixin],
   apollo: {
     projectPath: {
       query: projectPathQuery,
@@ -80,36 +81,34 @@ export default {
       return ['', '/'].indexOf(this.path) === -1;
     },
   },
-  watch: {
-    $route: function routeChange() {
-      this.$options.totalRowsLoaded = -1;
-    },
-  },
-  totalRowsLoaded: -1,
   methods: {
     showMore() {
       this.$emit('showMore');
     },
-    generateRowNumber(path, id, index) {
-      const key = `${path}-${id}-${index}`;
-      if (!this.glFeatures.lazyLoadCommits) {
-        return 0;
-      }
+    generateRowNumber(entry, index) {
+      const { flatPath, id } = entry;
+      const key = `${flatPath}-${id}-${index}`;
 
+      // We adjust the offset that we request based on the type of entry
+
+      const numTrees = this.entries?.trees?.length || 0;
+      const numBlobs = this.entries?.blobs?.length || 0;
       if (!this.rowNumbers[key] && this.rowNumbers[key] !== 0) {
-        this.$options.totalRowsLoaded += 1;
-        this.rowNumbers[key] = this.$options.totalRowsLoaded;
+        if (entry.type === 'commit') {
+          // submodules are rendered before blobs but are in the last pages the api response
+          this.rowNumbers[key] = numTrees + numBlobs + index;
+        } else if (entry.type === 'blob') {
+          this.rowNumbers[key] = numTrees + index;
+        } else {
+          this.rowNumbers[key] = index;
+        }
       }
 
       return this.rowNumbers[key];
     },
-    getCommit(fileName, type) {
-      if (!this.glFeatures.lazyLoadCommits) {
-        return {};
-      }
-
+    getCommit(fileName) {
       return this.commits.find(
-        (commitEntry) => commitEntry.fileName === fileName && commitEntry.type === type,
+        (commitEntry) => commitEntry.filePath === joinPaths(this.path, fileName),
       );
     },
   },
@@ -122,9 +121,9 @@ export default {
       <table
         :aria-label="tableCaption"
         class="table tree-table"
-        :class="{ 'gl-table-layout-fixed': !showParentRow }"
+        :class="{ 'gl-table-fixed': !showParentRow }"
         aria-live="polite"
-        data-qa-selector="file_tree_table"
+        data-testid="file-tree-table"
       >
         <table-header v-once />
         <tbody>
@@ -151,18 +150,22 @@ export default {
               :lfs-oid="entry.lfsOid"
               :loading-path="loadingPath"
               :total-entries="totalEntries"
-              :row-number="generateRowNumber(entry.flatPath, entry.id, index)"
-              :commit-info="getCommit(entry.name, entry.type)"
+              :row-number="generateRowNumber(entry, index)"
+              :commit-info="getCommit(entry.name)"
               v-on="$listeners"
             />
           </template>
           <template v-if="isLoading">
             <tr v-for="i in 5" :key="i" aria-hidden="true">
-              <td><gl-skeleton-loading :lines="1" class="h-auto" /></td>
-              <td class="gl-display-none gl-sm-display-block">
-                <gl-skeleton-loading :lines="1" class="h-auto" />
+              <td><gl-skeleton-loader :lines="1" /></td>
+              <td class="gl-hidden sm:gl-block">
+                <gl-skeleton-loader :lines="1" />
               </td>
-              <td><gl-skeleton-loading :lines="1" class="ml-auto h-auto w-50" /></td>
+              <td>
+                <div class="gl-display-flex gl-lg-justify-content-end">
+                  <gl-skeleton-loader :equal-width-lines="true" :lines="1" />
+                </div>
+              </td>
             </tr>
           </template>
           <template v-if="hasMore">

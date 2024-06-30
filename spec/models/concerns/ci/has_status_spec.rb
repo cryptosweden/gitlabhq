@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::HasStatus do
+RSpec.describe Ci::HasStatus, feature_category: :continuous_integration do
   describe '.composite_status' do
     using RSpec::Parameterized::TableSyntax
 
@@ -53,6 +53,22 @@ RSpec.describe Ci::HasStatus do
         end
 
         it { is_expected.to eq 'waiting_for_resource' }
+      end
+
+      context 'all waiting for callback' do
+        let!(:statuses) do
+          [create(type, status: :waiting_for_callback), create(type, status: :waiting_for_callback)]
+        end
+
+        it { is_expected.to eq 'waiting_for_callback' }
+      end
+
+      context 'at least one waiting for callback' do
+        let!(:statuses) do
+          [create(type, status: :success), create(type, status: :waiting_for_callback)]
+        end
+
+        it { is_expected.to eq 'waiting_for_callback' }
       end
 
       context 'all preparing' do
@@ -225,7 +241,7 @@ RSpec.describe Ci::HasStatus do
       end
     end
 
-    %i[created waiting_for_resource preparing running pending success
+    %i[created waiting_for_callback waiting_for_resource preparing running pending success
        failed canceled skipped].each do |status|
       it_behaves_like 'having a job', status
     end
@@ -271,23 +287,11 @@ RSpec.describe Ci::HasStatus do
     describe '.alive' do
       subject { CommitStatus.alive }
 
-      %i[running pending waiting_for_resource preparing created].each do |status|
+      %i[running pending waiting_for_callback waiting_for_resource preparing created].each do |status|
         it_behaves_like 'containing the job', status
       end
 
       %i[failed success].each do |status|
-        it_behaves_like 'not containing the job', status
-      end
-    end
-
-    describe '.alive_or_scheduled' do
-      subject { CommitStatus.alive_or_scheduled }
-
-      %i[running pending waiting_for_resource preparing created scheduled].each do |status|
-        it_behaves_like 'containing the job', status
-      end
-
-      %i[failed success canceled skipped].each do |status|
         it_behaves_like 'not containing the job', status
       end
     end
@@ -319,7 +323,7 @@ RSpec.describe Ci::HasStatus do
     describe '.cancelable' do
       subject { CommitStatus.cancelable }
 
-      %i[running pending waiting_for_resource preparing created scheduled].each do |status|
+      %i[running pending waiting_for_callback waiting_for_resource preparing created scheduled].each do |status|
         it_behaves_like 'containing the job', status
       end
 
@@ -364,6 +368,18 @@ RSpec.describe Ci::HasStatus do
       end
     end
 
+    describe '.complete_or_manual' do
+      subject { CommitStatus.complete_or_manual }
+
+      (described_class::COMPLETED_STATUSES + [:manual]).each do |status|
+        it_behaves_like 'containing the job', status
+      end
+
+      described_class::ACTIVE_STATUSES.each do |status|
+        it_behaves_like 'not containing the job', status
+      end
+    end
+
     describe '.waiting_for_resource_or_upcoming' do
       subject { CommitStatus.waiting_for_resource_or_upcoming }
 
@@ -393,24 +409,26 @@ RSpec.describe Ci::HasStatus do
     subject { object.blocked? }
 
     %w[ci_pipeline ci_stage ci_build generic_commit_status].each do |type|
-      let(:object) { build(type, status: status) }
+      context "when #{type}" do
+        let(:object) { build(type, status: status) }
 
-      context 'when status is scheduled' do
-        let(:status) { :scheduled }
+        context 'when status is scheduled' do
+          let(:status) { :scheduled }
 
-        it { is_expected.to be_truthy }
-      end
+          it { is_expected.to be_truthy }
+        end
 
-      context 'when status is manual' do
-        let(:status) { :manual }
+        context 'when status is manual' do
+          let(:status) { :manual }
 
-        it { is_expected.to be_truthy }
-      end
+          it { is_expected.to be_truthy }
+        end
 
-      context 'when status is created' do
-        let(:status) { :created }
+        context 'when status is created' do
+          let(:status) { :created }
 
-        it { is_expected.to be_falsy }
+          it { is_expected.to be_falsy }
+        end
       end
     end
   end

@@ -25,7 +25,7 @@ class InternalId < ApplicationRecord
 
   validates :usage, presence: true
 
-  scope :filter_by, -> (scope, usage) do
+  scope :filter_by, ->(scope, usage) do
     where(**scope, usage: usage)
   end
 
@@ -143,10 +143,7 @@ class InternalId < ApplicationRecord
     def track_greatest(new_value)
       InternalId.internal_id_transactions_increment(operation: :track_greatest, usage: usage)
 
-      function = Arel::Nodes::NamedFunction.new('GREATEST', [
-        arel_table[:last_value],
-        new_value.to_i
-      ])
+      function = Arel::Nodes::NamedFunction.new('GREATEST', [arel_table[:last_value], new_value.to_i])
 
       next_iid = update_record!(subject, scope, usage, function)
       return next_iid if next_iid

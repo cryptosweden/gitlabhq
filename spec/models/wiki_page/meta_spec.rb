@@ -89,7 +89,7 @@ RSpec.describe WikiPage::Meta do
       shared_examples 'canonical_slug setting examples' do
         # Constant overhead of two queries for the transaction
         let(:upper_query_limit) { query_limit + 2 }
-        let(:lower_query_limit) { [upper_query_limit - 1, 0].max}
+        let(:lower_query_limit) { [upper_query_limit - 1, 0].max }
         let(:other_slug) { generate(:sluggified_title) }
 
         it 'changes it to the correct value' do
@@ -167,10 +167,12 @@ RSpec.describe WikiPage::Meta do
     end
 
     def create_previous_version(title: old_title, slug: last_known_slug, date: wiki_page.version.commit.committed_date)
-      create(:wiki_page_meta,
-             title: title, project: project,
-             created_at: date, updated_at: date,
-             canonical_slug: slug)
+      create(
+        :wiki_page_meta,
+        title: title, project: project,
+        created_at: date, updated_at: date,
+        canonical_slug: slug
+      )
     end
 
     def create_context

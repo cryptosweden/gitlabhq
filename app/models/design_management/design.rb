@@ -4,6 +4,7 @@ module DesignManagement
   class Design < ApplicationRecord
     include AtomicInternalId
     include Importable
+    include Import::HasImportSource
     include Noteable
     include Gitlab::FileTypeDetection
     include Gitlab::Utils::StrongMemoize
@@ -13,6 +14,13 @@ module DesignManagement
     include RelativePositioning
     include Todoable
     include Participable
+    include CacheMarkdownField
+    include Subscribable
+    include IgnorableColumns
+
+    ignore_column :imported, remove_with: '17.2', remove_after: '2024-07-22'
+
+    cache_markdown_field :description
 
     belongs_to :project, inverse_of: :designs
     belongs_to :issue
@@ -34,6 +42,7 @@ module DesignManagement
     validates :project, :filename, presence: true
     validates :issue, presence: true, unless: :importing?
     validates :filename, uniqueness: { scope: :issue_id }, length: { maximum: 255 }
+    validates :description, length: { maximum: Gitlab::Database::MAX_TEXT_SIZE_LIMIT }
     validate :validate_file_is_image
 
     alias_attribute :title, :filename
@@ -43,7 +52,7 @@ module DesignManagement
 
     # Pre-fetching scope to include the data necessary to construct a
     # reference using `to_reference`.
-    scope :for_reference, -> { includes(issue: [{ project: [:route, :namespace] }]) }
+    scope :for_reference, -> { includes(issue: [{ namespace: :project }, { project: [:route, :namespace] }]) }
 
     # A design can be uniquely identified by issue_id and filename
     # Takes one or more sets of composite IDs of the form:
@@ -77,10 +86,10 @@ module DesignManagement
     #
     # As a query, we ascertain this by finding the last event prior to
     # (or equal to) the cut-off, and seeing whether that version was a deletion.
-    scope :visible_at_version, -> (version) do
-      deletion = ::DesignManagement::Action.events[:deletion]
+    scope :visible_at_version, ->(version) do
+      deletion = DesignManagement::Action.events[:deletion]
       designs = arel_table
-      actions = ::DesignManagement::Action
+      actions = DesignManagement::Action
         .most_recent.up_to_version(version)
         .arel.as('most_recent_actions')
 
@@ -98,7 +107,7 @@ module DesignManagement
 
     scope :in_creation_order, -> { reorder(:id) }
 
-    scope :with_filename, -> (filenames) { where(filename: filenames) }
+    scope :with_filename, ->(filenames) { where(filename: filenames) }
     scope :on_issue, ->(issue) { where(issue_id: issue) }
 
     # Scope called by our REST API to avoid N+1 problems
@@ -174,7 +183,7 @@ module DesignManagement
           (?<url_filename> #{valid_char}+ \. #{ext})
         }x
 
-        super(path_segment, filename_pattern)
+        compose_link_reference_pattern(path_segment, filename_pattern)
       end
     end
 
@@ -182,8 +191,8 @@ module DesignManagement
       File.join(DesignManagement.designs_directory, "issue-#{issue.iid}", design.filename)
     end
 
-    def description
-      ''
+    def self.to_ability_name
+      'design'
     end
 
     def new_design?
@@ -253,7 +262,7 @@ module DesignManagement
 
     def user_notes_count_service
       strong_memoize(:user_notes_count_service) do
-        ::DesignManagement::DesignUserNotesCountService.new(self) # rubocop: disable CodeReuse/ServiceClass
+        DesignManagement::DesignUserNotesCountService.new(self) # rubocop: disable CodeReuse/ServiceClass
       end
     end
   end

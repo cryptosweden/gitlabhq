@@ -1,49 +1,48 @@
 - breadcrumb_title _("CI/CD")
 - page_title _("CI/CD")
-- @content_class = "limit-container-width" unless fluid_layout
+- add_page_specific_style 'page_bundles/settings'
+- @force_desktop_expanded_sidebar = true
 
-%section.settings.no-animate#js-ci-cd-variables{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    = render 'admin/application_settings/ci/header', expanded: expanded_by_default?
-  .settings-content
+= render ::Layouts::SettingsBlockComponent.new(_('Variables'),
+  id: 'js-ci-cd-variables',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = s_('CiVariables|Variables store information that you can use in job scripts. All projects on the instance can use these variables.')
+    = link_to _('Learn more.'), help_page_path('ci/variables/index', anchor: 'for-an-instance'), target: '_blank', rel: 'noopener noreferrer'
+  - c.with_body do
+    = render 'ci/variables/attributes'
     - if ci_variable_protected_by_default?
-      %p.settings-message.text-center
-        - link_start = '<a href="%{url}">'.html_safe % { url: help_page_path('ci/variables/index', anchor: 'protect-a-cicd-variable') }
-        = s_('Environment variables on this GitLab instance are configured to be %{link_start}protected%{link_end} by default.').html_safe % { link_start: link_start, link_end: '</a>'.html_safe }
-    #js-instance-variables{ data: { endpoint: admin_ci_variables_path, group: 'true', maskable_regex: ci_variable_maskable_regex, protected_by_default: ci_variable_protected_by_default?.to_s} }
+      %p.settings-message.gl-text-center
+        - help_link = link_to('', help_page_path('ci/variables/index', anchor: 'protect-a-cicd-variable', target: '_blank', rel: 'noopener noreferrer'))
+        = safe_format(s_('Environment variables on this GitLab instance are configured to be %{help_link_start}protected%{help_link_end} by default.'), tag_pair(help_link, :help_link_start, :help_link_end))
+    #js-instance-variables{ data: { endpoint: admin_ci_variables_path, maskable_regex: ci_variable_maskable_regex, protected_by_default: ci_variable_protected_by_default?.to_s} }
 
-%section.settings.as-ci-cd.no-animate#js-ci-cd-settings{ class: ('expanded' if expanded_by_default?) }
-  .settings-header
-    %h4
-      = _('Continuous Integration and Deployment')
-    %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-      = expanded_by_default? ? _('Collapse') : _('Expand')
-    %p
-      = _('Customize CI/CD settings, including Auto DevOps, shared runners, and job artifacts.')
-  = render 'ci_cd'
-
-= render_if_exists 'admin/application_settings/required_instance_ci_setting', expanded: expanded_by_default?
+= render ::Layouts::SettingsBlockComponent.new(_('Continuous Integration and Deployment'),
+  id: 'js-continuous-integration-settings',
+  testid: 'ci-cd-settings',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _('Customize CI/CD settings, including Auto DevOps, instance runners, and job artifacts.')
+  - c.with_body do
+    = render 'ci_cd'
 
 = render_if_exists 'admin/application_settings/package_registry', expanded: expanded_by_default?
 
 - if Gitlab.config.registry.enabled
-  %section.settings.as-registry.no-animate#js-registry-settings{ class: ('expanded' if expanded_by_default?) }
-    .settings-header
-      %h4
-        = _('Container Registry')
-      %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-        = expanded_by_default? ? _('Collapse') : _('Expand')
-      %p
-        = _('Various container registry settings.')
-    .settings-content
+  = render ::Layouts::SettingsBlockComponent.new(_('Container Registry'),
+    id: 'js-registry-settings',
+    testid: 'registry-settings',
+    expanded: expanded_by_default?) do |c|
+    - c.with_description do
+      = _('Various container registry settings.')
+    - c.with_body do
       = render 'registry'
 
-- if Feature.enabled?(:runner_registration_control, default_enabled: :yaml)
-  %section.settings.as-runner.no-animate#js-runner-settings{ class: ('expanded' if expanded_by_default?) }
-    .settings-header
-      %h4
-        = s_('Runners|Runner registration')
-      %button.btn.gl-button.btn-default.js-settings-toggle{ type: 'button' }
-        = expanded_by_default? ? 'Collapse' : 'Expand'
-    .settings-content
-      = render 'runner_registrars_form'
+= render ::Layouts::SettingsBlockComponent.new(s_('Runners|Runners'),
+  id: 'js-runner-settings',
+  testid: 'runner-settings',
+  expanded: expanded_by_default?) do |c|
+  - c.with_description do
+    = _('Configure runner version management and registration settings.')
+  - c.with_body do
+    = render 'runner_registrars_form'

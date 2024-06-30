@@ -10,11 +10,19 @@ module Gitlab
         # Use periods to flatten the fields.
         payload.merge!(
           'exception.class' => exception.class.name,
-          'exception.message' => exception.message
+          'exception.message' => sanitize_message(exception)
         )
 
         if exception.backtrace
           payload['exception.backtrace'] = Rails.backtrace_cleaner.clean(exception.backtrace)
+        end
+
+        if exception.cause
+          payload['exception.cause_class'] = exception.cause.class.name
+        end
+
+        if gitaly_metadata = find_gitaly_metadata(exception)
+          payload['exception.gitaly'] = gitaly_metadata.to_s
         end
 
         if sql = find_sql(exception)
@@ -31,12 +39,26 @@ module Gitlab
         end
       end
 
+      def find_gitaly_metadata(exception)
+        if exception.is_a?(::Gitlab::Git::BaseError)
+          exception.metadata
+        elsif exception.is_a?(::GRPC::BadStatus)
+          exception.metadata[::Gitlab::Git::BaseError::METADATA_KEY]
+        elsif exception.cause.present?
+          find_gitaly_metadata(exception.cause)
+        end
+      end
+
       private
 
       def normalize_query(sql)
         PgQuery.normalize(sql)
       rescue PgQuery::ParseError
         sql
+      end
+
+      def sanitize_message(exception)
+        Gitlab::Sanitizers::ExceptionMessage.clean(exception.class.name, exception.message)
       end
     end
   end

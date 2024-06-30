@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'getting pipeline information nested in a project' do
+RSpec.describe 'getting pipeline information nested in a project', feature_category: :continuous_integration do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :repository, :public) }
@@ -15,7 +15,7 @@ RSpec.describe 'getting pipeline information nested in a project' do
   let(:path) { %i[project pipeline] }
   let(:pipeline_graphql_data) { graphql_data_at(*path) }
   let(:depth) { 3 }
-  let(:excluded) { %w[job project] } # Project is very expensive, due to the number of fields
+  let(:excluded) { %w[job project jobs] } # Project is very expensive, due to the number of fields
   let(:fields) { all_graphql_fields_for('Pipeline', excluded: excluded, max_depth: depth) }
 
   let(:query) do
@@ -82,27 +82,90 @@ RSpec.describe 'getting pipeline information nested in a project' do
   context 'when enough data is requested' do
     let(:fields) do
       query_graphql_field(:jobs, nil,
-                          query_graphql_field(:nodes, {}, all_graphql_fields_for('CiJob', max_depth: 3)))
+        query_graphql_field(
+          :nodes, {},
+          all_graphql_fields_for('CiJob', excluded: %w[aiFailureAnalysis], max_depth: 1)
+        )
+      )
     end
 
     it 'contains jobs' do
       post_graphql(query, current_user: current_user)
 
       expect(graphql_data_at(*path, :jobs, :nodes)).to contain_exactly(
-        a_hash_including(
-          'name' => build_job.name,
-          'status' => build_job.status.upcase,
-          'duration' => build_job.duration
+        a_graphql_entity_for(
+          build_job, :name, :duration,
+          'status' => build_job.status.upcase
         ),
-        a_hash_including(
-          'id' => global_id_of(failed_build),
+        a_graphql_entity_for(
+          failed_build,
           'status' => failed_build.status.upcase
         ),
-        a_hash_including(
-          'id' => global_id_of(bridge),
+        a_graphql_entity_for(
+          bridge,
           'status' => bridge.status.upcase
         )
       )
+    end
+  end
+
+  context 'when a job has been retried' do
+    let_it_be(:retried) do
+      create(
+        :ci_build,
+        :retried,
+        name: build_job.name,
+        pipeline: pipeline,
+        stage_idx: 0,
+        stage: build_job.stage_name
+      )
+    end
+
+    let(:fields) do
+      query_graphql_field(:jobs, { retried: retried_argument },
+        query_graphql_field(:nodes, {}, "id name duration retried")
+      )
+    end
+
+    context 'when we filter out retried jobs' do
+      let(:retried_argument) { false }
+
+      it 'contains latest jobs' do
+        post_graphql(query, current_user: current_user)
+
+        expect(graphql_data_at(*path, :jobs, :nodes)).to include(
+          a_graphql_entity_for(build_job, :name, :duration, :retried)
+        )
+
+        expect(graphql_data_at(*path, :jobs, :nodes)).not_to include(
+          a_graphql_entity_for(retried)
+        )
+      end
+    end
+
+    context 'when we filter to only retried jobs' do
+      let(:retried_argument) { true }
+
+      it 'contains only retried jobs' do
+        post_graphql(query, current_user: current_user)
+
+        expect(graphql_data_at(*path, :jobs, :nodes)).to contain_exactly(
+          a_graphql_entity_for(retried)
+        )
+      end
+    end
+
+    context 'when we pass null explicitly' do
+      let(:retried_argument) { nil }
+
+      it 'contains all jobs' do
+        post_graphql(query, current_user: current_user)
+
+        expect(graphql_data_at(*path, :jobs, :nodes)).to include(
+          a_graphql_entity_for(build_job),
+          a_graphql_entity_for(retried)
+        )
+      end
     end
   end
 
@@ -121,9 +184,7 @@ RSpec.describe 'getting pipeline information nested in a project' do
         project(fullPath: $path) {
           pipeline(iid: $pipelineIID) {
             jobs(statuses: [$status]) {
-              nodes {
-                #{all_graphql_fields_for('CiJob', max_depth: 1)}
-              }
+              nodes { id }
             }
           }
         }
@@ -135,7 +196,7 @@ RSpec.describe 'getting pipeline information nested in a project' do
       post_graphql(query, current_user: current_user, variables: variables)
 
       expect(graphql_data_at(*path, :jobs, :nodes))
-        .to contain_exactly(a_hash_including('id' => global_id_of(failed_build)))
+        .to contain_exactly(a_graphql_entity_for(failed_build))
     end
   end
 
@@ -166,7 +227,7 @@ RSpec.describe 'getting pipeline information nested in a project' do
     end
 
     let(:the_job) do
-      a_hash_including('name' => build_job.name, 'id' => global_id_of(build_job))
+      a_graphql_entity_for(build_job, :name)
     end
 
     it 'can request a build by name' do
@@ -273,16 +334,33 @@ RSpec.describe 'getting pipeline information nested in a project' do
     end
   end
 
-  context 'N+1 queries on pipeline jobs' do
+  context 'N+1 queries on pipeline jobs.previousStageJobsOrNeeds' do
     let(:pipeline) { create(:ci_pipeline, project: project) }
 
     let(:fields) do
       <<~FIELDS
-      jobs {
+      stages {
         nodes {
-          previousStageJobsAndNeeds {
+          groups {
             nodes {
-              name
+              jobs {
+                nodes {
+                  previousStageJobsOrNeeds {
+                    nodes {
+                      ... on JobNeedUnion {
+                        ... on CiBuildNeed {
+                          id
+                          name
+                        }
+                        ... on CiJob {
+                          id
+                          name
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -291,23 +369,25 @@ RSpec.describe 'getting pipeline information nested in a project' do
     end
 
     it 'does not generate N+1 queries', :request_store, :use_sql_query_cache do
-      build_stage = create(:ci_stage_entity, position: 1, name: 'build', project: project, pipeline: pipeline)
-      test_stage = create(:ci_stage_entity, position: 2, name: 'test', project: project, pipeline: pipeline)
-      create(:ci_build, pipeline: pipeline, stage_idx: build_stage.position, name: 'docker 1 2', stage: build_stage)
-      create(:ci_build, pipeline: pipeline, stage_idx: build_stage.position, name: 'docker 2 2', stage: build_stage)
-      create(:ci_build, pipeline: pipeline, stage_idx: test_stage.position, name: 'rspec 1 2', stage: test_stage)
-      test_job = create(:ci_build, pipeline: pipeline, stage_idx: test_stage.position, name: 'rspec 2 2', stage: test_stage)
-      create(:ci_build_need, build: test_job, name: 'docker 1 2')
+      build_stage = create(:ci_stage, position: 1, name: 'build', project: project, pipeline: pipeline)
+      test_stage = create(:ci_stage, position: 2, name: 'test', project: project, pipeline: pipeline)
 
+      docker_1_2 = create(:ci_build, pipeline: pipeline, name: 'docker 1 2', ci_stage: build_stage)
+      create(:ci_build, pipeline: pipeline, name: 'docker 2 2', ci_stage: build_stage)
+      create(:ci_build, pipeline: pipeline, name: 'rspec 1 2', ci_stage: test_stage)
+      create(:ci_build, :dependent, needed: docker_1_2, pipeline: pipeline, name: 'rspec 2 2', ci_stage: test_stage)
+
+      # warm up
       post_graphql(query, current_user: current_user)
+      expect_graphql_errors_to_be_empty
 
       control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         post_graphql(query, current_user: current_user)
       end
 
-      create(:ci_build, name: 'test-a', stage: test_stage, stage_idx: test_stage.position, pipeline: pipeline)
-      test_b_job = create(:ci_build, name: 'test-b', stage: test_stage, stage_idx: test_stage.position, pipeline: pipeline)
-      create(:ci_build_need, build: test_b_job, name: 'docker 2 2')
+      create(:ci_build, name: 'test-a', ci_stage: test_stage, pipeline: pipeline)
+      test_b_job = create(:ci_build, name: 'test-b', ci_stage: test_stage, pipeline: pipeline)
+      create(:ci_build, :dependent, needed: test_b_job, pipeline: pipeline, name: 'docker 2 2', ci_stage: test_stage)
 
       expect do
         post_graphql(query, current_user: current_user)
@@ -341,6 +421,7 @@ RSpec.describe 'getting pipeline information nested in a project' do
                       buttonTitle
                       path
                       title
+                      confirmationMessage
                     }
                   }
                 }
@@ -354,17 +435,19 @@ RSpec.describe 'getting pipeline information nested in a project' do
 
     it 'does not generate N+1 queries', :request_store, :use_sql_query_cache do
       # create extra statuses
-      create(:generic_commit_status, :pending, name: 'generic-build-a', pipeline: pipeline, stage_idx: 0, stage: 'build')
+      external_stage = create(:ci_stage, position: 10, name: 'external', project: project, pipeline: pipeline)
+      create(:generic_commit_status, :pending, name: 'generic-build-a', pipeline: pipeline, ci_stage: external_stage)
       create(:ci_bridge, :failed, name: 'deploy-a', pipeline: pipeline, stage_idx: 2, stage: 'deploy')
 
       # warm up
       post_graphql(query, current_user: current_user)
+      expect_graphql_errors_to_be_empty
 
       control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
         post_graphql(query, current_user: current_user)
       end
 
-      create(:generic_commit_status, :pending, name: 'generic-build-b', pipeline: pipeline, stage_idx: 0, stage: 'build')
+      create(:generic_commit_status, :pending, name: 'generic-build-b', pipeline: pipeline, ci_stage: external_stage)
       create(:ci_build, :failed, name: 'test-a', pipeline: pipeline, stage_idx: 1, stage: 'test')
       create(:ci_build, :running, name: 'test-b', pipeline: pipeline, stage_idx: 1, stage: 'test')
       create(:ci_build, :pending, name: 'deploy-b', pipeline: pipeline, stage_idx: 2, stage: 'deploy')

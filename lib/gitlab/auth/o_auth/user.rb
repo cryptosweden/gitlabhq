@@ -11,16 +11,21 @@ module Gitlab
       class User
         class << self
           # rubocop: disable CodeReuse/ActiveRecord
+
           def find_by_uid_and_provider(uid, provider)
             identity = ::Identity.with_extern_uid(provider, uid).take
 
-            identity && identity.user
+            return unless identity
+            raise IdentityWithUntrustedExternUidError unless identity.trusted_extern_uid?
+
+            identity.user
           end
           # rubocop: enable CodeReuse/ActiveRecord
         end
 
         SignupDisabledError = Class.new(StandardError)
         SigninDisabledForProviderError = Class.new(StandardError)
+        IdentityWithUntrustedExternUidError = Class.new(StandardError)
 
         attr_reader :auth_hash
 
@@ -225,24 +230,27 @@ module Gitlab
           if creating_linked_ldap_user?
             username = ldap_person.username.presence
             name = ldap_person.name.presence
-            email = ldap_person.email.first.presence
+            email = ldap_person.email&.first.presence
           end
 
           username ||= auth_hash.username
           name ||= auth_hash.name
           email ||= auth_hash.email
 
-          valid_username = ::Namespace.clean_path(username)
-          valid_username = Uniquify.new.string(valid_username) { |s| !NamespacePathValidator.valid_path?(s) }
+          valid_username = sanitize_username(username)
 
           {
-            name:                       name.strip.presence || valid_username,
-            username:                   valid_username,
-            email:                      email,
-            password:                   Gitlab::Password.test_default(21),
-            password_confirmation:      Gitlab::Password.test_default(21),
+            name: name.strip.presence || valid_username,
+            username: valid_username,
+            email: email,
+            password: auth_hash.password,
+            password_confirmation: auth_hash.password,
             password_automatically_set: true
           }
+        end
+
+        def sanitize_username(username)
+          ExternalUsernameSanitizer.new(username).sanitize
         end
 
         def sync_profile_from_provider?
@@ -258,9 +266,9 @@ module Gitlab
           metadata = gl_user.build_user_synced_attributes_metadata
 
           if sync_profile_from_provider?
-            UserSyncedAttributesMetadata::SYNCABLE_ATTRIBUTES.each do |key|
+            UserSyncedAttributesMetadata.syncable_attributes(auth_hash.provider).each do |key|
               if auth_hash.has_attribute?(key) && gl_user.sync_attribute?(key)
-                gl_user[key] = auth_hash.public_send(key) # rubocop:disable GitlabSecurity/PublicSend
+                gl_user.public_send("#{key}=".to_sym, auth_hash.public_send(key)) # rubocop:disable GitlabSecurity/PublicSend
                 metadata.set_attribute_synced(key, true)
               else
                 metadata.set_attribute_synced(key, false)
@@ -272,7 +280,7 @@ module Gitlab
 
           if creating_linked_ldap_user?
             metadata.set_attribute_synced(:name, true) if gl_user.name == ldap_person.name
-            metadata.set_attribute_synced(:email, true) if gl_user.email == ldap_person.email.first
+            metadata.set_attribute_synced(:email, true) if gl_user.email == ldap_person.email&.first
             metadata.provider = ldap_person.provider
           end
         end

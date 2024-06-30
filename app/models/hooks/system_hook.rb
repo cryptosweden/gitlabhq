@@ -3,6 +3,8 @@
 class SystemHook < WebHook
   include TriggerableHooks
 
+  self.allow_legacy_sti_class = true
+
   triggerable_hooks [
     :repository_update_hooks,
     :push_hooks,
@@ -10,9 +12,9 @@ class SystemHook < WebHook
     :merge_request_hooks
   ]
 
-  default_value_for :push_events, false
-  default_value_for :repository_update_events, true
-  default_value_for :merge_requests_events, false
+  attribute :push_events, default: false
+  attribute :repository_update_events, default: true
+  attribute :merge_requests_events, default: false
 
   validates :url, system_hook_url: true
 
@@ -26,6 +28,6 @@ class SystemHook < WebHook
   end
 
   def help_path
-    'system_hooks/system_hooks'
+    'administration/system_hooks'
   end
 end

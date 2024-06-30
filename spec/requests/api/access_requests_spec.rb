@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::AccessRequests do
+RSpec.describe API::AccessRequests, feature_category: :system_access do
   let_it_be(:maintainer) { create(:user) }
   let_it_be(:developer) { create(:user) }
   let_it_be(:access_requester) { create(:user) }
@@ -147,7 +147,7 @@ RSpec.describe API::AccessRequests do
         it 'returns 201' do
           expect do
             put api("/#{source_type.pluralize}/#{source.id}/access_requests/#{access_requester.id}/approve", maintainer),
-                params: { access_level: Member::MAINTAINER }
+              params: { access_level: Member::MAINTAINER }
 
             expect(response).to have_gitlab_http_status(:created)
           end.to change { source.members.count }.by(1)

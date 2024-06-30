@@ -2,41 +2,72 @@
 
 module Integrations
   class Field
-    SENSITIVE_NAME = %r/token|key|password|passphrase|secret/.freeze
+    BOOLEAN_ATTRIBUTES = %i[required api_only is_secret exposes_secrets].freeze
 
     ATTRIBUTES = %i[
-      section type placeholder required choices value checkbox_label
-      title help
+      section type placeholder choices value checkbox_label
+      title help if description
+      label_description
       non_empty_password_help
       non_empty_password_title
-      api_only
-    ].freeze
+    ].concat(BOOLEAN_ATTRIBUTES).freeze
 
-    attr_reader :name
+    TYPES = %i[text textarea password checkbox select].freeze
 
-    def initialize(name:, type: 'text', api_only: false, **attributes)
+    attr_reader :name, :integration_class
+
+    delegate :key?, to: :attributes
+
+    def initialize(name:, integration_class:, type: :text, is_secret: false, api_only: false, **attributes)
       @name = name.to_s.freeze
+      @integration_class = integration_class
 
-      attributes[:type] = SENSITIVE_NAME.match?(@name) ? 'password' : type
+      attributes[:type] = is_secret ? :password : type
       attributes[:api_only] = api_only
+      attributes[:if] = attributes.fetch(:if, true)
+      attributes[:is_secret] = is_secret
+      attributes[:description] ||= attributes[:help]
       @attributes = attributes.freeze
+
+      invalid_attributes = attributes.keys - ATTRIBUTES
+      if invalid_attributes.present?
+        raise ArgumentError, "Invalid attributes #{invalid_attributes.inspect}"
+      elsif TYPES.exclude?(self[:type])
+        raise ArgumentError, "Invalid type #{self[:type].inspect}"
+      end
     end
 
     def [](key)
       return name if key == :name
 
-      value = @attributes[key]
-      return value.call if value.respond_to?(:call)
+      value = attributes[key]
+      return integration_class.class_exec(&value) if value.respond_to?(:call)
 
       value
     end
 
-    def sensitive?
-      @attributes[:type] == 'password'
+    def secret?
+      self[:type] == :password
     end
 
     ATTRIBUTES.each do |name|
       define_method(name) { self[name] }
     end
+
+    BOOLEAN_ATTRIBUTES.each do |name|
+      define_method("#{name}?") { !!self[name] }
+    end
+
+    TYPES.each do |type|
+      define_method("#{type}?") { self[:type] == type }
+    end
+
+    def api_type
+      checkbox? ? ::API::Integrations::Boolean : String
+    end
+
+    private
+
+    attr_reader :attributes
   end
 end

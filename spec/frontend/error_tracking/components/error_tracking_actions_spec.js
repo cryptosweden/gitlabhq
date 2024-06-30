@@ -29,13 +29,7 @@ describe('Error Tracking Actions', () => {
     mountComponent();
   });
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-    }
-  });
-
-  const findButtons = () => wrapper.findAll(GlButton);
+  const findButtons = () => wrapper.findAllComponents(GlButton);
 
   describe('when error status is unresolved', () => {
     it('renders the correct actions buttons to allow ignore and resolve', async () => {

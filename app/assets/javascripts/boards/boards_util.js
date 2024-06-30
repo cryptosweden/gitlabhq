@@ -1,7 +1,18 @@
-import { sortBy, cloneDeep } from 'lodash';
-import { TYPE_BOARD, TYPE_ITERATION, TYPE_MILESTONE, TYPE_USER } from '~/graphql_shared/constants';
-import { isGid, convertToGraphQLId } from '~/graphql_shared/utils';
-import { ListType, MilestoneIDs, AssigneeFilterType, MilestoneFilterType } from './constants';
+import { sortBy, cloneDeep, find, inRange } from 'lodash';
+import {
+  TYPENAME_BOARD,
+  TYPENAME_ITERATION,
+  TYPENAME_MILESTONE,
+  TYPENAME_USER,
+} from '~/graphql_shared/constants';
+import { isGid, convertToGraphQLId, getIdFromGraphQLId } from '~/graphql_shared/utils';
+import {
+  ListType,
+  MilestoneIDs,
+  AssigneeFilterType,
+  MilestoneFilterType,
+  boardQuery,
+} from 'ee_else_ce/boards/constants';
 
 export function getMilestone() {
   return null;
@@ -17,6 +28,17 @@ export function updateListPosition(listObj) {
   }
 
   return { ...listObj, position };
+}
+
+export function calculateNewPosition(listPosition, initialPosition, targetPosition) {
+  if (
+    listPosition === null ||
+    !(inRange(listPosition, initialPosition, targetPosition) || listPosition === targetPosition)
+  ) {
+    return listPosition;
+  }
+  const offset = initialPosition < targetPosition ? -1 : 1;
+  return listPosition + offset;
 }
 
 export function formatBoardLists(lists) {
@@ -38,13 +60,9 @@ export function formatIssue(issue) {
 
 export function formatListIssues(listIssues) {
   const boardItems = {};
-  let listItemsCount;
 
   const listData = listIssues.nodes.reduce((map, list) => {
-    listItemsCount = list.issuesCount;
-    let sortedIssues = list.issues.edges.map((issueNode) => ({
-      ...issueNode.node,
-    }));
+    let sortedIssues = list.issues.nodes;
     if (list.listType !== ListType.closed) {
       sortedIssues = sortBy(sortedIssues, 'relativePosition');
     }
@@ -67,7 +85,7 @@ export function formatListIssues(listIssues) {
     };
   }, {});
 
-  return { listData, boardItems, listItemsCount };
+  return { listData, boardItems };
 }
 
 export function formatListsPageInfo(lists) {
@@ -84,19 +102,19 @@ export function fullBoardId(boardId) {
   if (!boardId) {
     return null;
   }
-  return convertToGraphQLId(TYPE_BOARD, boardId);
+  return convertToGraphQLId(TYPENAME_BOARD, boardId);
 }
 
 export function fullIterationId(id) {
-  return convertToGraphQLId(TYPE_ITERATION, id);
+  return convertToGraphQLId(TYPENAME_ITERATION, id);
 }
 
 export function fullUserId(id) {
-  return convertToGraphQLId(TYPE_USER, id);
+  return convertToGraphQLId(TYPENAME_USER, id);
 }
 
 export function fullMilestoneId(id) {
-  return convertToGraphQLId(TYPE_MILESTONE, id);
+  return convertToGraphQLId(TYPENAME_MILESTONE, id);
 }
 
 export function fullLabelId(label) {
@@ -182,6 +200,40 @@ export function moveItemListHelper(item, fromList, toList) {
   }
 
   return updatedItem;
+}
+
+export function moveItemVariables({
+  iid,
+  itemId,
+  epicId = null,
+  fromListId,
+  toListId,
+  moveBeforeId,
+  moveAfterId,
+  isIssue,
+  boardId,
+  itemToMove,
+}) {
+  if (isIssue) {
+    return {
+      iid,
+      boardId,
+      projectPath: itemToMove.referencePath.split(/[#]/)[0],
+      moveBeforeId: moveBeforeId ? getIdFromGraphQLId(moveBeforeId) : undefined,
+      moveAfterId: moveAfterId ? getIdFromGraphQLId(moveAfterId) : undefined,
+      fromListId: getIdFromGraphQLId(fromListId),
+      toListId: getIdFromGraphQLId(toListId),
+    };
+  }
+  return {
+    itemId,
+    epicId,
+    boardId,
+    moveBeforeId,
+    moveAfterId,
+    fromListId,
+    toListId,
+  };
 }
 
 export function isListDraggable(list) {
@@ -305,6 +357,17 @@ export const filterVariables = ({ filters, issuableType, filterInfo, filterField
 // EE-specific feature. Find the implementation in the `ee/`-folder
 export function transformBoardConfig() {
   return '';
+}
+
+export function getBoardQuery(boardType) {
+  return boardQuery[boardType].query;
+}
+
+export function getListByTypeId(lists, type, id) {
+  // type can be assignee/label/milestone/iteration
+  if (type && id) return find(lists, (l) => l.listType === ListType[type] && l[type]?.id === id);
+
+  return null;
 }
 
 export default {

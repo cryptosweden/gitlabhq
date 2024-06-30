@@ -2,31 +2,46 @@
 
 require 'spec_helper'
 
-RSpec.describe Note do
+RSpec.describe Note, feature_category: :team_planning do
   include RepoHelpers
+
+  describe 'Concerns' do
+    let_it_be(:factory) { :note }
+    let_it_be(:discussion_factory) { :discussion_note_on_issue }
+
+    let_it_be(:note1) { create(:note_on_issue) }
+    let_it_be(:note2) { create(:note_on_issue) }
+    let_it_be(:reply) { create(:note_on_issue, in_reply_to: note1) }
+
+    let_it_be(:discussion_note) { create(:discussion_note_on_issue) }
+    let_it_be(:discussion_reply) { create(:discussion_note_on_issue, in_reply_to: discussion_note) }
+
+    it_behaves_like 'Notes::ActiveRecord'
+    it_behaves_like 'Notes::Discussion'
+  end
 
   describe 'associations' do
     it { is_expected.to belong_to(:project) }
+    it { is_expected.to belong_to(:namespace) }
     it { is_expected.to belong_to(:noteable).touch(false) }
-    it { is_expected.to belong_to(:author).class_name('User') }
 
-    it { is_expected.to have_many(:todos) }
+    it { is_expected.to have_one(:note_metadata).inverse_of(:note).class_name('Notes::NoteMetadata') }
     it { is_expected.to belong_to(:review).inverse_of(:notes) }
   end
 
   describe 'modules' do
     subject { described_class }
 
-    it { is_expected.to include_module(Participable) }
-    it { is_expected.to include_module(Mentionable) }
-    it { is_expected.to include_module(Awardable) }
     it { is_expected.to include_module(Sortable) }
   end
 
+  describe 'default values' do
+    it { expect(described_class.new).not_to be_system }
+  end
+
   describe 'validation' do
-    it { is_expected.to validate_length_of(:note).is_at_most(1_000_000) }
-    it { is_expected.to validate_presence_of(:note) }
     it { is_expected.to validate_presence_of(:project) }
+    it { is_expected.to validate_presence_of(:namespace) }
 
     context 'when note is on commit' do
       before do
@@ -48,8 +63,7 @@ RSpec.describe Note do
 
     context 'when noteable and note project differ' do
       subject do
-        build(:note, noteable: build_stubbed(:issue),
-                     project: build_stubbed(:project))
+        build(:note, noteable: build_stubbed(:issue), project: build_stubbed(:project))
       end
 
       it { is_expected.to be_invalid }
@@ -103,6 +117,128 @@ RSpec.describe Note do
         end
 
         it { is_expected.to be_valid }
+      end
+    end
+
+    describe 'created_at in the past' do
+      let_it_be(:noteable) { create(:issue) }
+
+      context 'when creating a note not too much in the past' do
+        subject { build(:note, project: noteable.project, noteable: noteable, created_at: '1990-05-06') }
+
+        it { is_expected.to be_valid }
+      end
+
+      context 'when creating a note too much in the past' do
+        subject { build(:note, project: noteable.project, noteable: noteable, created_at: '1600-05-06') }
+
+        it { is_expected.not_to be_valid }
+      end
+    end
+
+    describe 'confidentiality' do
+      context 'for existing public note' do
+        let_it_be(:existing_note) { create(:note) }
+
+        it 'is not possible to change the note to confidential' do
+          existing_note.confidential = true
+
+          expect(existing_note).not_to be_valid
+          expect(existing_note.errors[:confidential]).to include('can not be changed for existing notes')
+        end
+
+        it 'is possible to change confidentiality from nil to false' do
+          existing_note.confidential = false
+
+          expect(existing_note).to be_valid
+        end
+      end
+
+      context 'for existing confidential note' do
+        let_it_be(:existing_note) { create(:note, confidential: true) }
+
+        it 'is not possible to change the note to public' do
+          existing_note.confidential = false
+
+          expect(existing_note).not_to be_valid
+          expect(existing_note.errors[:confidential]).to include('can not be changed for existing notes')
+        end
+      end
+
+      context 'for a new note' do
+        let_it_be(:noteable) { create(:issue) }
+
+        let(:note_params) { { confidential: true, noteable: noteable, project: noteable.project } }
+
+        subject { build(:note, **note_params) }
+
+        it 'allows to create a confidential note for an issue' do
+          expect(subject).to be_valid
+        end
+
+        context 'when noteable is a merge request' do
+          let_it_be(:noteable) { create(:merge_request) }
+
+          it 'can not be set confidential' do
+            expect(subject).to be_valid
+          end
+        end
+
+        context 'when noteable is not allowed to have confidential notes' do
+          let_it_be(:noteable) { create(:snippet) }
+
+          it 'can not be set confidential' do
+            expect(subject).not_to be_valid
+            expect(subject.errors[:confidential]).to include('can not be set for this resource')
+          end
+        end
+
+        context 'when note type is not allowed to be confidential' do
+          let(:note_params) { { type: 'DiffNote', confidential: true, noteable: noteable, project: noteable.project } }
+
+          it 'can not be set confidential' do
+            expect(subject).not_to be_valid
+            expect(subject.errors[:confidential]).to include('can not be set for this type of note')
+          end
+        end
+
+        context 'when the note is a discussion note' do
+          let(:note_params) { { type: 'DiscussionNote', confidential: true, noteable: noteable, project: noteable.project } }
+
+          it { is_expected.to be_valid }
+        end
+
+        context 'when replying to a note' do
+          let(:note_params) { { confidential: true, noteable: noteable, project: noteable.project } }
+
+          subject { build(:discussion_note, discussion_id: original_note.discussion_id, **note_params) }
+
+          context 'when the note is reply to a confidential note' do
+            let_it_be(:original_note) { create(:note, confidential: true, noteable: noteable, project: noteable.project) }
+
+            it { is_expected.to be_valid }
+          end
+
+          context 'when the note is reply to a public note' do
+            let_it_be(:original_note) { create(:note, noteable: noteable, project: noteable.project) }
+
+            it 'can not be set confidential' do
+              expect(subject).not_to be_valid
+              expect(subject.errors[:confidential]).to include('reply should have same confidentiality as top-level note')
+            end
+          end
+
+          context 'when reply note is public but discussion is confidential' do
+            let_it_be(:original_note) { create(:note, confidential: true, noteable: noteable, project: noteable.project) }
+
+            let(:note_params) { { noteable: noteable, project: noteable.project } }
+
+            it 'can not be set confidential' do
+              expect(subject).not_to be_valid
+              expect(subject.errors[:confidential]).to include('reply should have same confidentiality as top-level note')
+            end
+          end
+        end
       end
     end
   end
@@ -166,6 +302,121 @@ RSpec.describe Note do
         expect { note.destroy! }.not_to raise_error
       end
     end
+
+    describe 'sets internal flag' do
+      subject(:internal) { note.reload.internal }
+
+      let(:note) { create(:note, confidential: confidential, project: issue.project, noteable: issue) }
+
+      let_it_be(:issue) { create(:issue) }
+
+      context 'when confidential is `true`' do
+        let(:confidential) { true }
+
+        it { is_expected.to be true }
+      end
+
+      context 'when confidential is `false`' do
+        let(:confidential) { false }
+
+        it { is_expected.to be false }
+      end
+
+      context 'when confidential is `nil`' do
+        let(:confidential) { nil }
+
+        it { is_expected.to be false }
+      end
+    end
+
+    describe '#ensure_namespace_id' do
+      context 'for issues' do
+        let!(:issue) { create(:issue) }
+
+        it 'copies the namespace_id of the issue' do
+          note = build(:note, noteable: issue)
+
+          note.valid?
+
+          expect(note.namespace_id).to eq(issue.namespace_id)
+        end
+      end
+
+      context 'for group-level work items' do
+        let!(:group) { create(:group) }
+        let!(:work_item) { create(:work_item, namespace: group) }
+
+        it 'copies the namespace_id of the work item' do
+          note = build(:note, noteable: work_item)
+
+          note.valid?
+
+          expect(note.namespace_id).to eq(group.id)
+        end
+      end
+
+      context 'for a project noteable' do
+        let_it_be(:merge_request) { create(:merge_request) }
+
+        it 'copies the project_namespace_id of the project' do
+          note = build(:note, noteable: merge_request, project: merge_request.project)
+
+          note.valid?
+
+          expect(note.namespace_id).to eq(merge_request.project.project_namespace_id)
+        end
+
+        context 'when noteable is changed' do
+          let_it_be(:another_mr) { create(:merge_request) }
+
+          it 'updates the namespace_id' do
+            note = create(:note, noteable: merge_request, project: merge_request.project)
+
+            note.noteable = another_mr
+            note.project = another_mr.project
+            note.valid?
+
+            expect(note.namespace_id).to eq(another_mr.project.project_namespace_id)
+          end
+        end
+
+        context 'when project is missing' do
+          it 'does not raise an exception' do
+            note = build(:note, noteable: merge_request, project: nil)
+
+            expect { note.valid? }.not_to raise_error
+          end
+        end
+      end
+
+      context 'for a personal snippet note' do
+        let_it_be(:snippet) { create(:personal_snippet) }
+
+        it 'copies the personal namespace_id of the author' do
+          note = build(:note, noteable: snippet, project: nil)
+
+          note.valid?
+
+          expect(note.namespace_id).to eq(snippet.author.namespace.id)
+        end
+
+        context 'when snippet author is missing' do
+          it 'does not raise an exception' do
+            note = build(:note, noteable: build(:personal_snippet, author: nil), project: nil)
+
+            expect { note.valid? }.not_to raise_error
+          end
+        end
+      end
+
+      context 'when noteable is missing' do
+        it 'does not raise an exception' do
+          note = build(:note, noteable: nil, project: nil)
+
+          expect { note.valid? }.not_to raise_error
+        end
+      end
+    end
   end
 
   describe "Commit notes" do
@@ -205,13 +456,13 @@ RSpec.describe Note do
       # Project authorization checks are cached, establish a baseline
       retrieve_participants
 
-      control_count = ActiveRecord::QueryRecorder.new do
+      control = ActiveRecord::QueryRecorder.new do
         retrieve_participants
       end
 
       create(:note_on_commit, project: note.project, note: 'another note', noteable_id: commit.id)
 
-      expect { retrieve_participants }.not_to exceed_query_limit(control_count)
+      expect { retrieve_participants }.not_to exceed_query_limit(control)
     end
   end
 
@@ -267,36 +518,85 @@ RSpec.describe Note do
     let(:set_mentionable_text) { ->(txt) { subject.note = txt } }
   end
 
+  describe '#note_html' do
+    shared_examples 'note that parses work item references' do
+      it 'parses the work item reference' do
+        html_link = Nokogiri::HTML.fragment(note.note_html).css('a').first
+
+        expect(html_link.text).to eq(expected_link_text)
+        expect(html_link[:href]).to eq(work_item_path)
+      end
+    end
+
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project, group: group) }
+    let_it_be(:group_work_item) { create(:work_item, :group_level, namespace: group) }
+    let_it_be(:project_work_item) { create(:work_item, :task, project: project) }
+
+    context 'when noteable is a group level work item', :aggregate_failures do
+      let(:work_item_path) { Gitlab::UrlBuilder.build(group_work_item, only_path: true) }
+      let(:expected_link_text) { group_work_item.to_reference }
+      let(:note) { create(:note, :on_group_work_item, noteable: group_work_item, note: note_text) }
+
+      context 'when note text contains a group reference (URL)' do
+        let(:work_item_path) { Gitlab::UrlBuilder.build(group_work_item) }
+        let(:note_text) { work_item_path }
+
+        it_behaves_like 'note that parses work item references'
+      end
+
+      context 'when note text contains a group reference (short)' do
+        let(:note_text) { group_work_item.to_reference }
+
+        it_behaves_like 'note that parses work item references'
+      end
+
+      context 'when note text contains a group reference (full)' do
+        let(:note_text) { group_work_item.to_reference(full: true) }
+
+        it_behaves_like 'note that parses work item references'
+      end
+
+      context 'when note text contains a project reference (URL)' do
+        let(:work_item_path) { Gitlab::UrlBuilder.build(project_work_item) }
+        let(:note_text) { work_item_path }
+        let(:expected_link_text) { "#{project.path}##{project_work_item.iid}" }
+
+        it_behaves_like 'note that parses work item references'
+      end
+    end
+  end
+
   describe "#all_references" do
     let!(:note1) { create(:note_on_issue) }
     let!(:note2) { create(:note_on_issue) }
 
     it "reads the rendered note body from the cache" do
       expect(Banzai::Renderer).to receive(:cache_collection_render)
-        .with([{
-          text: note1.note,
-          context: {
-            skip_project_check: false,
-            pipeline: :note,
-            cache_key: [note1, "note"],
-            project: note1.project,
-            rendered: note1.note_html,
-            author: note1.author
-          }
-        }]).and_call_original
+                                    .with([{
+                                      text: note1.note,
+                                      context: {
+                                        skip_project_check: false,
+                                        pipeline: :note,
+                                        cache_key: [note1, "note"],
+                                        project: note1.project,
+                                        rendered: note1.note_html,
+                                        author: note1.author
+                                      }
+                                    }]).and_call_original
 
       expect(Banzai::Renderer).to receive(:cache_collection_render)
-        .with([{
-          text: note2.note,
-          context: {
-            skip_project_check: false,
-            pipeline: :note,
-            cache_key: [note2, "note"],
-            project: note2.project,
-            rendered: note2.note_html,
-            author: note2.author
-          }
-        }]).and_call_original
+                                    .with([{
+                                      text: note2.note,
+                                      context: {
+                                        skip_project_check: false,
+                                        pipeline: :note,
+                                        cache_key: [note2, "note"],
+                                        project: note2.project,
+                                        rendered: note2.note_html,
+                                        author: note2.author
+                                      }
+                                    }]).and_call_original
 
       note1.all_references.users
       note2.all_references.users
@@ -435,6 +735,7 @@ RSpec.describe Note do
         expect(commit_note.confidential?).to be_falsy
       end
     end
+
     context 'when note is confidential' do
       it 'is true even when a noteable is not confidential' do
         issue = create(:issue, confidential: false)
@@ -650,24 +951,44 @@ RSpec.describe Note do
         expect(note.system_note_visible_for?(nil)).to be_truthy
       end
     end
+
+    context 'when referenced resource is not present' do
+      let(:note) do
+        create :note, noteable: ext_issue, project: ext_proj, note: "mentioned in merge request !1", system: true
+      end
+
+      it "returns true for other users" do
+        expect(note.system_note_visible_for?(private_user)).to be_truthy
+      end
+
+      it "returns true if user visible reference count set" do
+        note.user_visible_reference_count = 0
+        note.total_reference_count = 0
+
+        expect(note).not_to receive(:reference_mentionables)
+        expect(note.system_note_visible_for?(ext_issue.author)).to be_truthy
+      end
+    end
   end
 
   describe '#system_note_with_references?' do
     it 'falsey for user-generated notes' do
-      note = create(:note, system: false)
+      note = build_stubbed(:note, system: false)
 
       expect(note.system_note_with_references?).to be_falsy
     end
 
     context 'when the note might contain cross references' do
       SystemNoteMetadata.new.cross_reference_types.each do |type|
-        let(:note) { create(:note, :system) }
-        let!(:metadata) { create(:system_note_metadata, note: note, action: type) }
+        context "with #{type}" do
+          let(:note) { build_stubbed(:note, :system) }
+          let!(:metadata) { build_stubbed(:system_note_metadata, note: note, action: type) }
 
-        it 'delegates to the cross-reference regex' do
-          expect(note).to receive(:matches_cross_reference_regex?).and_return(false)
+          it 'delegates to the cross-reference regex' do
+            expect(note).to receive(:matches_cross_reference_regex?).and_return(false)
 
-          note.system_note_with_references?
+            note.system_note_with_references?
+          end
         end
       end
     end
@@ -709,14 +1030,14 @@ RSpec.describe Note do
       end
 
       context 'with :label action' do
-        let!(:metadata) {create(:system_note_metadata, note: note, action: :label)}
+        let!(:metadata) { create(:system_note_metadata, note: note, action: :label) }
 
         it_behaves_like 'system_note_metadata includes note action'
 
         it { expect(note.system_note_with_references?).to be_falsy }
 
         context 'with cross reference label note' do
-          let(:label) { create(:label, project: issue.project)}
+          let(:label) { create(:label, project: issue.project) }
           let(:note) { create(:system_note, note: "added #{label.to_reference} label", noteable: issue, project: issue.project) }
 
           it { expect(note.system_note_with_references?).to be_truthy }
@@ -724,14 +1045,14 @@ RSpec.describe Note do
       end
 
       context 'with :milestone action' do
-        let!(:metadata) {create(:system_note_metadata, note: note, action: :milestone)}
+        let!(:metadata) { create(:system_note_metadata, note: note, action: :milestone) }
 
         it_behaves_like 'system_note_metadata includes note action'
 
         it { expect(note.system_note_with_references?).to be_falsy }
 
         context 'with cross reference milestone note' do
-          let(:milestone) { create(:milestone, project: issue.project)}
+          let(:milestone) { create(:milestone, project: issue.project) }
           let(:note) { create(:system_note, note: "added #{milestone.to_reference} milestone", noteable: issue, project: issue.project) }
 
           it { expect(note.system_note_with_references?).to be_truthy }
@@ -758,30 +1079,104 @@ RSpec.describe Note do
     end
   end
 
-  describe '#start_of_discussion?' do
-    let_it_be(:note) { create(:discussion_note_on_merge_request) }
-    let_it_be(:reply) { create(:discussion_note_on_merge_request, in_reply_to: note) }
+  describe '#check_for_spam' do
+    let_it_be(:project) { create(:project, :public) }
+    let_it_be(:group)   { create(:group, :public) }
+    let(:issue)     { create(:issue, project: project) }
+    let(:note)      { create(:note, note: "test", noteable: issue, project: project) }
+    let(:note_text) { 'content changed' }
 
-    it 'returns true when note is the start of a discussion' do
-      expect(note).to be_start_of_discussion
+    subject do
+      note.assign_attributes(note: note_text)
+      note.check_for_spam?(user: note.author)
     end
 
-    it 'returns false when note is a reply' do
-      expect(reply).not_to be_start_of_discussion
+    before do
+      allow(issue).to receive(:group).and_return(group)
     end
-  end
 
-  describe '.find_discussion' do
-    let!(:note) { create(:discussion_note_on_merge_request) }
-    let!(:note2) { create(:discussion_note_on_merge_request, in_reply_to: note) }
-    let(:merge_request) { note.noteable }
+    context 'when note is public' do
+      it 'returns true' do
+        is_expected.to be_truthy
+      end
+    end
 
-    it 'returns a discussion with multiple notes' do
-      discussion = merge_request.notes.find_discussion(note.discussion_id)
+    context 'when note is public and spammable attributes are not changed' do
+      let(:note_text) { 'test' }
 
-      expect(discussion).not_to be_nil
-      expect(discussion.notes).to match_array([note, note2])
-      expect(discussion.first_note.discussion_id).to eq(note.discussion_id)
+      it 'returns false' do
+        is_expected.to be_falsey
+      end
+    end
+
+    context 'when project does not exist' do
+      before do
+        allow(note).to receive(:project).and_return(nil)
+      end
+
+      it 'returns true' do
+        is_expected.to be_truthy
+      end
+    end
+
+    context 'when project is not public' do
+      before do
+        allow(project).to receive(:public?).and_return(false)
+      end
+
+      it 'returns false' do
+        is_expected.to be_falsey
+      end
+    end
+
+    context 'when group is not public' do
+      before do
+        allow(group).to receive(:public?).and_return(false)
+      end
+
+      it 'returns false' do
+        is_expected.to be_falsey
+      end
+    end
+
+    context 'when note is confidential' do
+      before do
+        allow(note).to receive(:confidential?).and_return(true)
+      end
+
+      it 'returns false' do
+        is_expected.to be_falsey
+      end
+    end
+
+    context 'when noteable is confidential' do
+      before do
+        allow(issue).to receive(:confidential?).and_return(true)
+      end
+
+      it 'returns false' do
+        is_expected.to be_falsey
+      end
+    end
+
+    context 'when noteable is not public' do
+      before do
+        allow(issue).to receive(:public?).and_return(false)
+      end
+
+      it 'returns false' do
+        is_expected.to be_falsey
+      end
+    end
+
+    context 'when note is a system note' do
+      before do
+        allow(note).to receive(:system?).and_return(true)
+      end
+
+      it 'returns false' do
+        is_expected.to be_falsey
+      end
     end
   end
 
@@ -955,6 +1350,16 @@ RSpec.describe Note do
     end
   end
 
+  describe '#for_work_item?' do
+    it 'returns true for a work item' do
+      expect(build(:note_on_work_item).for_work_item?).to be true
+    end
+
+    it 'returns false for an issue' do
+      expect(build(:note_on_issue).for_work_item?).to be false
+    end
+  end
+
   describe '#for_project_snippet?' do
     it 'returns true for a project snippet note' do
       expect(build(:note_on_project_snippet).for_project_snippet?).to be true
@@ -1016,7 +1421,7 @@ RSpec.describe Note do
   end
 
   describe '#cache_markdown_field' do
-    let(:html) { '<p>some html</p>'}
+    let(:html) { '<p>some html</p>' }
 
     before do
       allow(Banzai::Renderer).to receive(:cacheless_render_field).and_call_original
@@ -1122,176 +1527,12 @@ RSpec.describe Note do
     end
   end
 
-  describe "#discussion_id" do
-    let(:note) { create(:note_on_commit) }
-
-    context "when it is newly created" do
-      it "has a discussion id" do
-        expect(note.discussion_id).not_to be_nil
-        expect(note.discussion_id).to match(/\A\h{40}\z/)
-      end
-    end
-
-    context "when it didn't store a discussion id before" do
-      before do
-        note.update_column(:discussion_id, nil)
-      end
-
-      it "has a discussion id" do
-        # The discussion_id is set in `after_initialize`, so `reload` won't work
-        reloaded_note = described_class.find(note.id)
-
-        expect(reloaded_note.discussion_id).not_to be_nil
-        expect(reloaded_note.discussion_id).to match(/\A\h{40}\z/)
-      end
-    end
-
-    context 'when the note is displayed out of context' do
-      let(:merge_request) { create(:merge_request) }
-
-      it 'overrides the discussion id' do
-        expect(note.discussion_id(merge_request)).not_to eq(note.discussion_id)
-      end
-    end
-  end
-
-  describe '#to_discussion' do
-    subject { create(:discussion_note_on_merge_request) }
-
-    let!(:note2) { create(:discussion_note_on_merge_request, project: subject.project, noteable: subject.noteable, in_reply_to: subject) }
-
-    it "returns a discussion with just this note" do
-      discussion = subject.to_discussion
-
-      expect(discussion.id).to eq(subject.discussion_id)
-      expect(discussion.notes).to eq([subject])
-    end
-  end
-
-  describe "#discussion" do
-    let!(:note1) { create(:discussion_note_on_merge_request) }
-    let!(:note2) { create(:diff_note_on_merge_request, project: note1.project, noteable: note1.noteable) }
-
-    context 'when the note is part of a discussion' do
-      subject { create(:discussion_note_on_merge_request, project: note1.project, noteable: note1.noteable, in_reply_to: note1) }
-
-      it "returns the discussion this note is in" do
-        discussion = subject.discussion
-
-        expect(discussion.id).to eq(subject.discussion_id)
-        expect(discussion.notes).to eq([note1, subject])
-      end
-    end
-
-    context 'when the note is not part of a discussion' do
-      subject { create(:note) }
-
-      it "returns a discussion with just this note" do
-        discussion = subject.discussion
-
-        expect(discussion.id).to eq(subject.discussion_id)
-        expect(discussion.notes).to eq([subject])
-      end
-    end
-  end
-
-  describe "#part_of_discussion?" do
-    context 'for a regular note' do
-      let(:note) { build(:note) }
-
-      it 'returns false' do
-        expect(note.part_of_discussion?).to be_falsey
-      end
-    end
-
+  describe '#part_of_discussion?' do
     context 'for a diff note' do
       let(:note) { build(:diff_note_on_commit) }
 
       it 'returns true' do
         expect(note.part_of_discussion?).to be_truthy
-      end
-    end
-
-    context 'for a discussion note' do
-      let(:note) { build(:discussion_note_on_merge_request) }
-
-      it 'returns true' do
-        expect(note.part_of_discussion?).to be_truthy
-      end
-    end
-  end
-
-  describe '#in_reply_to?' do
-    context 'for a note' do
-      context 'when part of a discussion' do
-        subject { create(:discussion_note_on_issue) }
-
-        let(:note) { create(:discussion_note_on_issue, in_reply_to: subject) }
-
-        it 'checks if the note is in reply to the other discussion' do
-          expect(subject).to receive(:in_reply_to?).with(note).and_call_original
-          expect(subject).to receive(:in_reply_to?).with(note.noteable).and_call_original
-          expect(subject).to receive(:in_reply_to?).with(note.to_discussion).and_call_original
-
-          subject.in_reply_to?(note)
-        end
-      end
-
-      context 'when not part of a discussion' do
-        subject { create(:note) }
-
-        let(:note) { create(:note, in_reply_to: subject) }
-
-        it 'checks if the note is in reply to the other noteable' do
-          expect(subject).to receive(:in_reply_to?).with(note).and_call_original
-          expect(subject).to receive(:in_reply_to?).with(note.noteable).and_call_original
-
-          subject.in_reply_to?(note)
-        end
-      end
-    end
-
-    context 'for a discussion' do
-      context 'when part of the same discussion' do
-        subject { create(:diff_note_on_merge_request) }
-
-        let(:note) { create(:diff_note_on_merge_request, in_reply_to: subject) }
-
-        it 'returns true' do
-          expect(subject.in_reply_to?(note.to_discussion)).to be_truthy
-        end
-      end
-
-      context 'when not part of the same discussion' do
-        subject { create(:diff_note_on_merge_request) }
-
-        let(:note) { create(:diff_note_on_merge_request) }
-
-        it 'returns false' do
-          expect(subject.in_reply_to?(note.to_discussion)).to be_falsey
-        end
-      end
-    end
-
-    context 'for a noteable' do
-      context 'when a comment on the same noteable' do
-        subject { create(:note) }
-
-        let(:note) { create(:note, in_reply_to: subject) }
-
-        it 'returns true' do
-          expect(subject.in_reply_to?(note.noteable)).to be_truthy
-        end
-      end
-
-      context 'when not a comment on the same noteable' do
-        subject { create(:note) }
-
-        let(:note) { create(:note) }
-
-        it 'returns false' do
-          expect(subject.in_reply_to?(note.noteable)).to be_falsey
-        end
       end
     end
   end
@@ -1319,34 +1560,30 @@ RSpec.describe Note do
     end
   end
 
-  describe 'expiring ETag cache' do
+  describe 'broadcasting note changes' do
     let_it_be(:issue) { create(:issue) }
 
     let(:note) { build(:note, project: issue.project, noteable: issue) }
 
-    def expect_expiration(noteable)
-      expect_any_instance_of(Gitlab::EtagCaching::Store)
-        .to receive(:touch)
-        .with("/#{noteable.project.namespace.to_param}/#{noteable.project.to_param}/noteable/#{noteable.class.name.underscore}/#{noteable.id}/notes")
-    end
-
-    it "expires cache for note's issue when note is saved" do
-      expect_expiration(note.noteable)
+    it 'broadcasts an Action Cable event for the noteable' do
+      expect(Noteable::NotesChannel).to receive(:broadcast_to).with(note.noteable, event: 'updated')
 
       note.save!
     end
 
-    it "expires cache for note's issue when note is destroyed" do
-      expect_expiration(note.noteable)
+    it 'broadcast an Action Cable event for the noteable when note is destroyed' do
+      note.save!
+
+      expect(Noteable::NotesChannel).to receive(:broadcast_to).with(note.noteable, event: 'updated')
 
       note.destroy!
     end
 
-    context 'when issuable etag caching is disabled' do
-      it 'does not store cache key' do
-        allow(note.noteable).to receive(:etag_caching_enabled?).and_return(false)
+    context 'when issuable real_time_notes is disabled' do
+      it 'does not broadcast an Action Cable event' do
+        allow(note.noteable).to receive(:real_time_notes_enabled?).and_return(false)
 
-        expect_any_instance_of(Gitlab::EtagCaching::Store).not_to receive(:touch)
+        expect(Noteable::NotesChannel).not_to receive(:broadcast_to)
 
         note.save!
       end
@@ -1358,8 +1595,8 @@ RSpec.describe Note do
       context 'when adding a note to the MR' do
         let(:note) { build(:note, noteable: merge_request, project: merge_request.project) }
 
-        it 'expires the MR note etag cache' do
-          expect_expiration(merge_request)
+        it 'broadcasts an Action Cable event for the MR' do
+          expect(Noteable::NotesChannel).to receive(:broadcast_to).with(merge_request, event: 'updated')
 
           note.save!
         end
@@ -1368,8 +1605,8 @@ RSpec.describe Note do
       context 'when adding a note to a commit on the MR' do
         let(:note) { build(:note_on_commit, commit_id: merge_request.commits.first.id, project: merge_request.project) }
 
-        it 'expires the MR note etag cache' do
-          expect_expiration(merge_request)
+        it 'broadcasts an Action Cable event for the MR' do
+          expect(Noteable::NotesChannel).to receive(:broadcast_to).with(merge_request, event: 'updated')
 
           note.save!
         end
@@ -1477,69 +1714,88 @@ RSpec.describe Note do
         expect(described_class.with_suggestions).not_to include(note_without_suggestion)
       end
     end
-  end
 
-  describe '#noteable_assignee_or_author?' do
-    let(:user) { create(:user) }
-    let(:noteable) { create(:issue) }
-    let(:note) { create(:note, project: noteable.project, noteable: noteable) }
+    describe '.inc_relations_for_view' do
+      subject { note.noteable.notes.inc_relations_for_view(noteable) }
 
-    subject { note.noteable_assignee_or_author?(user) }
+      context 'when noteable can not have diffs' do
+        let_it_be(:note) { create(:note_on_issue) }
+        let(:noteable) { note.noteable }
 
-    shared_examples 'assignee check' do
-      context 'when the provided user is one of the assignees' do
-        before do
-          note.noteable.update!(assignees: [user, create(:user)])
+        it 'does not include additional associations' do
+          expect { subject.reload }.to match_query_count(0).for_model(NoteDiffFile).and(
+            match_query_count(0).for_model(DiffNotePosition))
         end
 
-        it 'returns true' do
-          expect(subject).to be_truthy
+        context 'when noteable is not set' do
+          let(:noteable) { nil }
+
+          it 'includes additional diff associations' do
+            expect { subject.reload }.to match_query_count(1).for_model(NoteDiffFile).and(
+              match_query_count(1).for_model(DiffNotePosition))
+          end
+        end
+      end
+
+      context 'when noteable can have diffs' do
+        let_it_be(:note) { create(:note_on_commit) }
+        let(:noteable) { note.noteable }
+
+        it 'includes additional diff associations' do
+          expect { subject.reload }.to match_query_count(1).for_model(NoteDiffFile).and(
+            match_query_count(1).for_model(DiffNotePosition))
         end
       end
     end
 
-    shared_examples 'author check' do
-      context 'when the provided user is the author' do
-        before do
-          note.noteable.update!(author: user)
+    describe '.without_hidden' do
+      subject { described_class.without_hidden }
+
+      context 'when a note with a banned author exists' do
+        let_it_be(:banned_user) { create(:banned_user).user }
+        let_it_be(:banned_note) { create(:note, author: banned_user) }
+
+        context 'when the :hidden_notes feature is disabled' do
+          before do
+            stub_feature_flags(hidden_notes: false)
+          end
+
+          it { is_expected.to include(banned_note, note1) }
         end
 
-        it 'returns true' do
-          expect(subject).to be_truthy
+        context 'when the :hidden_notes feature is enabled' do
+          before do
+            stub_feature_flags(hidden_notes: true)
+          end
+
+          it { is_expected.not_to include(banned_note) }
+          it { is_expected.to include(note1) }
         end
       end
+    end
 
-      context 'when the provided user is neither author nor assignee' do
-        it 'returns true' do
-          expect(subject).to be_falsey
+    describe '.authored_by' do
+      subject(:notes_by_author) { described_class.authored_by(author) }
+
+      let(:author) { create(:user) }
+
+      it 'returns the notes with the matching author' do
+        note = create(:note, author: author)
+        create(:note)
+
+        expect(notes_by_author).to contain_exactly(note)
+      end
+
+      context 'With ID integer' do
+        subject(:notes_by_author) { described_class.authored_by(author.id) }
+
+        it 'returns the notes with the matching author' do
+          note = create(:note, author: author)
+          create(:note)
+
+          expect(notes_by_author).to contain_exactly(note)
         end
       end
-    end
-
-    context 'when user is nil' do
-      let(:user) { nil }
-
-      it 'returns false' do
-        expect(subject).to be_falsey
-      end
-    end
-
-    context 'when noteable is an issue' do
-      it_behaves_like 'author check'
-      it_behaves_like 'assignee check'
-    end
-
-    context 'when noteable is a merge request' do
-      let(:noteable) { create(:merge_request) }
-
-      it_behaves_like 'author check'
-      it_behaves_like 'assignee check'
-    end
-
-    context 'when noteable is a snippet' do
-      let(:noteable) { create(:personal_snippet) }
-
-      it_behaves_like 'author check'
     end
   end
 
@@ -1653,6 +1909,75 @@ RSpec.describe Note do
       note.commands_changes = { emoji_award: {}, time_estimate: {}, spend_time: {}, target_project: build(:project) }
 
       expect(note.commands_changes.keys).to contain_exactly(:emoji_award, :time_estimate, :spend_time)
+    end
+  end
+
+  describe '#bump_updated_at', :freeze_time do
+    it 'sets updated_at to the current timestamp' do
+      note = create(:note, updated_at: 1.day.ago)
+
+      note.bump_updated_at
+      note.reload
+
+      expect(note.updated_at).to be_like_time(Time.current)
+    end
+
+    context 'with legacy edited note' do
+      it 'copies updated_at to last_edited_at before bumping the timestamp' do
+        note = create(:note, updated_at: 1.day.ago, updated_by: create(:user), last_edited_at: nil)
+
+        note.bump_updated_at
+        note.reload
+
+        expect(note.last_edited_at).to be_like_time(1.day.ago)
+        expect(note.updated_at).to be_like_time(Time.current)
+      end
+    end
+  end
+
+  describe '#issuable_ability_name' do
+    subject { note.issuable_ability_name }
+
+    context 'when not confidential note' do
+      let(:note) { build(:note) }
+
+      it { is_expected.to eq :read_note }
+    end
+
+    context 'when confidential note' do
+      let(:note) { build(:note, :confidential) }
+
+      it { is_expected.to eq :read_internal_note }
+    end
+  end
+
+  describe '#exportable_record?' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:project) { create(:project, :private) }
+    let_it_be(:noteable) { create(:issue, project: project) }
+
+    subject { note.exportable_record?(user) }
+
+    context 'when not a system note' do
+      let(:note) { build(:note, noteable: noteable) }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'with system note' do
+      let(:note) { build(:system_note, project: project, noteable: noteable) }
+
+      it 'returns `false` when the user cannot read the note' do
+        is_expected.to be_falsey
+      end
+
+      context 'when user can read the note' do
+        before do
+          project.add_developer(user)
+        end
+
+        it { is_expected.to be_truthy }
+      end
     end
   end
 end

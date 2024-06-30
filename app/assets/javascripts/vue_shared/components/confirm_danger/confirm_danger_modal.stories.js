@@ -1,9 +1,8 @@
-/* eslint-disable @gitlab/require-i18n-strings */
 import ConfirmDanger from './confirm_danger.vue';
 
 export default {
   component: ConfirmDanger,
-  title: 'vue_shared/components/modals/confirm_danger_modal',
+  title: 'vue_shared/modals/confirm_danger_modal',
 };
 
 const Template = (args, { argTypes }) => ({
@@ -14,6 +13,8 @@ const Template = (args, { argTypes }) => ({
     additionalInformation: args.additionalInformation || null,
     confirmDangerMessage: args.confirmDangerMessage || 'You require more Vespene Gas',
     htmlConfirmationMessage: args.confirmDangerMessage || false,
+    confirmButtonText: args.confirmButtonText || 'Cancel',
+    cancelButtonText: args.cancelButtonText || 'Confirm',
   },
 });
 

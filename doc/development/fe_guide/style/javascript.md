@@ -1,13 +1,12 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-disqus_identifier: 'https://docs.gitlab.com/ee/development/fe_guide/style_guide_js.html'
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # JavaScript style guide
 
-We use [Airbnb's JavaScript Style Guide](https://github.com/airbnb/javascript) and its accompanying
+We use [the Airbnb JavaScript Style Guide](https://github.com/airbnb/javascript) and its accompanying
 linter to manage most of our JavaScript style guidelines.
 
 In addition to the style guidelines set by Airbnb, we also have a few specific rules
@@ -16,11 +15,11 @@ listed below.
 NOTE:
 You can run ESLint locally by running `yarn run lint:eslint:all` or `yarn run lint:eslint $PATH_TO_FILE`.
 
-## Avoid forEach
+## Avoid `forEach`
 
-Avoid forEach when mutating data. Use `map`, `reduce` or `filter` instead of `forEach`
+Avoid `forEach` when mutating data. Use `map`, `reduce` or `filter` instead of `forEach`
 when mutating data. This minimizes mutations in functions,
-which aligns with [Airbnb's style guide](https://github.com/airbnb/javascript#testing--for-real).
+which aligns with [the Airbnb style guide](https://github.com/airbnb/javascript#testing--for-real).
 
 ```javascript
 // bad
@@ -41,12 +40,12 @@ instead.
 
 ```javascript
 // bad
-function a(p1, p2, p3) {
+function a(p1, p2, p3, p4) {
   // ...
 };
 
 // good
-function a(p) {
+function a({ p1, p2, p3, p4 }) {
   // ...
 };
 ```
@@ -100,26 +99,31 @@ class a {
 
 ## Converting Strings to Integers
 
-When converting strings to integers, `parseInt` has a slight performance advantage over `Number`, but `Number` is semantic and can be more readable. Prefer `parseInt`, but do not discourage `Number` if it significantly helps readability.
+When converting strings to integers, `Number` is semantic and can be more readable. Both are allowable, but `Number` has a slight maintainability advantage.
 
 **WARNING:** `parseInt` **must** include the [radix argument](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/parseInt).
 
 ```javascript
-// bad
+// bad (missing radix argument)
 parseInt('10');
 
-// bad
-things.map(parseInt)
-
-// ok
-Number("106")
+// good
+parseInt("106", 10);
 
 // good
-things.map(Number)
-
-// good
-parseInt("106", 10)
+Number("106");
 ```
+
+```javascript
+// bad (missing radix argument)
+things.map(parseInt);
+
+// good
+things.map(Number);
+```
+
+NOTE:
+If the String could represent a non-integer (i.e., it includes a decimal), **do not** use `parseInt`. Consider `Number` or `parseFloat` instead.
 
 ## CSS Selectors - Use `js-` prefix
 
@@ -324,3 +328,40 @@ Only export the constants as a collection (array, or object) when there is a nee
   // good, if the constants need to be iterated over
   export const VARIANTS = [VARIANT_WARNING, VARIANT_ERROR];
   ```
+
+## Error handling
+
+For internal server errors when the server returns `500`, you should return a
+generic error message.
+
+When the backend returns errors, the errors should be
+suitable to display back to the user.
+
+If for some reason, it is difficult to do so, as a last resort, you can
+select particular error messages with prefixing:
+
+1. Ensure that the backend prefixes the error messages to be displayed with:
+
+   ```ruby
+   Gitlab::Utils::ErrorMessage.to_user_facing('Example user-facing error-message')
+   ```
+
+1. Use the error message utility function contained in `app/assets/javascripts/lib/utils/error_message.js`.
+
+This utility accepts two parameters: the error object received from the server response and a
+default error message. The utility examines the message in the error object for a prefix that
+indicates whether the message is meant to be user-facing or not. If the message is intended
+to be user-facing, the utility returns it as is. Otherwise, it returns the default error
+message passed as a parameter.
+
+```javascript
+import { parseErrorMessage } from '~/lib/utils/error_message';
+
+onError(error) {
+  const errorMessage = parseErrorMessage(error, genericErrorText);
+}
+```
+
+Note that this prefixing must not be used for API responses. Instead follow the
+[REST API](../../../api/rest/index.md#data-validation-and-error-reporting),
+or [GraphQL guides](../../api_graphql_styleguide.md#error-handling) on how to consume error objects.

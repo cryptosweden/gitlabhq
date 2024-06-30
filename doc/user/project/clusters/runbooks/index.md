@@ -1,10 +1,14 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Runbooks **(FREE)**
+# Runbooks
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Runbooks are a collection of documented procedures that explain how to
 carry out a particular process, be it starting, stopping, debugging,
@@ -23,8 +27,6 @@ pre-written code blocks or database queries against a given environment.
 
 ## Executable Runbooks
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/45912) in GitLab 11.4.
-
 The JupyterHub app offered via the GitLab Kubernetes integration now ships
 with Nurtch's Rubix library, providing a simple way to create DevOps
 runbooks. A sample runbook is provided, showcasing common operations. While
@@ -40,8 +42,8 @@ for an overview of how this is accomplished in GitLab!
 To create an executable runbook, you need:
 
 - **Kubernetes** - A Kubernetes cluster is required to deploy the rest of the
-  applications. The simplest way to get started is to add a cluster using one
-  of the [GitLab integrations](../add_remove_clusters.md#create-new-cluster).
+  applications. The simplest way to get started is to connect a cluster using the
+  [GitLab agent](../../../clusters/agent/index.md).
 - **Ingress** - Ingress can provide load balancing, SSL termination, and name-based
   virtual hosting. It acts as a web proxy for your applications.
 - **JupyterHub** - [JupyterHub](https://jupyterhub.readthedocs.io/) is a multi-user
@@ -55,7 +57,7 @@ Nurtch is the company behind the [Rubix library](https://github.com/Nurtch/rubix
 Rubix is an open-source Python library that makes it easy to perform common
 DevOps tasks inside Jupyter Notebooks. Tasks such as plotting Cloudwatch metrics
 and rolling your ECS/Kubernetes app are simplified down to a couple of lines of
-code. See the [Nurtch Documentation](http://docs.nurtch.com/en/latest/) for more
+code. See the [Nurtch Documentation](https://docs.nurtch.com/en/latest/) for more
 information.
 
 ## Configure an executable runbook with GitLab
@@ -69,64 +71,53 @@ the components outlined above and the pre-loaded demo runbook.
 
    ```yaml
    #-----------------------------------------------------------------------------
-   # The gitlab and ingress sections must be customized!
-   #-----------------------------------------------------------------------------
-
-   gitlab:
-      clientId: <Your OAuth Application ID>
-      clientSecret: <Your OAuth Application Secret>
-      callbackUrl: http://<Jupyter Hostname>/hub/oauth_callback,
-      # Limit access to members of specific projects or groups:
-      # allowedGitlabGroups: [ "my-group-1", "my-group-2" ]
-      # allowedProjectIds: [ 12345, 6789 ]
-
-   # ingress is required for OAuth to work
-   ingress:
-      enabled: true
-      host: <JupyterHostname>
-      # tls:
-      #    - hosts:
-      #       - <JupyterHostanme>
-      #         secretName: jupyter-cert
-      # annotations:
-      #    kubernetes.io/ingress.class: "nginx"
-      #    kubernetes.io/tls-acme: "true"
-
-   #-----------------------------------------------------------------------------
-   # NO MODIFICATIONS REQUIRED BEYOND THIS POINT
+   # The hub.config.GitLabOAuthenticator section must be customized!
    #-----------------------------------------------------------------------------
 
    hub:
-      extraEnv:
-         JUPYTER_ENABLE_LAB: 1
-      extraConfig: |
-         c.KubeSpawner.cmd = ['jupyter-labhub']
-         c.GitLabOAuthenticator.scope = ['api read_repository write_repository']
+     config:
+       GitLabOAuthenticator:
+         # Limit access to members of specific projects or groups or to specific users:
+         # allowedGitlabGroups: [ "my-group-1", "my-group-2" ]
+         # allowedProjectIds: [ 12345, 6789 ]
+         # allowed_users: ["user-1", "user-2"]
+         client_id: <Your OAuth Application ID>
+         client_secret: <Your OAuth Application ID>
+         enable_auth_state: true
+         gitlab_url: https://gitlab.example.com
+         oauth_callback_url: http://<Jupyter Hostname>/hub/oauth_callback
+         scope:
+           - read_user
+           - read_api
+           - openid
+           - profile
+           - email
+       JupyterHub:
+         authenticator_class: gitlab
+      extraConfig: 
+        gitlab-config: |   
+           c.KubeSpawner.cmd = ['jupyter-labhub']
+           c.GitLabOAuthenticator.scope = ['api read_repository write_repository']
 
-         async def add_auth_env(spawner):
-            '''
-            We set user's id, login and access token on single user image to
-            enable repository integration for JupyterHub.
-            See: https://gitlab.com/gitlab-org/gitlab-foss/issues/47138#note_154294790
-            '''
-            auth_state = await spawner.user.get_auth_state()
+           async def add_auth_env(spawner):
+              '''
+              We set user's id, login and access token on single user image to
+              enable repository integration for JupyterHub.
+              See: https://gitlab.com/gitlab-org/gitlab-foss/-/issues/47138#note_154294790
+              '''
+              auth_state = await spawner.user.get_auth_state()
 
-            if not auth_state:
-               spawner.log.warning("No auth state for %s", spawner.user)
-               return
+              if not auth_state:
+                 spawner.log.warning("No auth state for %s", spawner.user)
+                 return
 
-            spawner.environment['GITLAB_ACCESS_TOKEN'] = auth_state['access_token']
-            spawner.environment['GITLAB_USER_LOGIN'] = auth_state['gitlab_user']['username']
-            spawner.environment['GITLAB_USER_ID'] = str(auth_state['gitlab_user']['id'])
-            spawner.environment['GITLAB_USER_EMAIL'] = auth_state['gitlab_user']['email']
-            spawner.environment['GITLAB_USER_NAME'] = auth_state['gitlab_user']['name']
+              spawner.environment['GITLAB_ACCESS_TOKEN'] = auth_state['access_token']
+              spawner.environment['GITLAB_USER_EMAIL'] = auth_state['gitlab_user']['email']
+              spawner.environment['GITLAB_USER_ID'] = str(auth_state['gitlab_user']['id'])
+              spawner.environment['GITLAB_USER_LOGIN'] = auth_state['gitlab_user']['username']
+              spawner.environment['GITLAB_USER_NAME'] = auth_state['gitlab_user']['name']
 
-         c.KubeSpawner.pre_spawn_hook = add_auth_env
-
-   auth:
-      type: gitlab
-      state:
-         enabled: true
+           c.KubeSpawner.pre_spawn_hook = add_auth_env
 
    singleuser:
       defaultUrl: "/lab"
@@ -153,24 +144,24 @@ the components outlined above and the pre-loaded demo runbook.
    ```
 
 1. After JupyterHub has been installed successfully, open the **Jupyter Hostname**
-   in your browser. Click the **Sign in with GitLab** button to log in to
+   in your browser. Select **Sign in with GitLab** button to sign in to
    JupyterHub and start the server. Authentication is enabled for any user of the
    GitLab instance with OAuth2. This button redirects you to a page at GitLab
    requesting authorization for JupyterHub to use your GitLab account.
 
    ![authorize Jupyter](img/authorize-jupyter.png)
 
-1. Click **Authorize**, and GitLab redirects you to the JupyterHub application.
-1. Click **Start My Server** to start the server in a few seconds.
+1. Select **Authorize**, and GitLab redirects you to the JupyterHub application.
+1. Select **Start My Server** to start the server in a few seconds.
 1. To configure the runbook's access to your GitLab project, you must enter your
    [GitLab Access Token](../../../profile/personal_access_tokens.md)
    and your Project ID in the **Setup** section of the demo runbook:
 
-   1. Double-click the **DevOps-Runbook-Demo** folder located on the left panel.
+   1. Select the **DevOps-Runbook-Demo** folder located on the left panel.
 
       ![demo runbook](img/demo-runbook.png)
 
-   1. Double-click the `Nurtch-DevOps-Demo.ipynb` runbook.
+   1. Select the `Nurtch-DevOps-Demo.ipynb` runbook.
 
       ![sample runbook](img/sample-runbook.png)
 
@@ -203,18 +194,18 @@ the components outlined above and the pre-loaded demo runbook.
    %env DB_NAME={project.variables.get('DB_NAME').value}
    ```
 
-   1. Navigate to **Settings > CI/CD > Variables** to create
+   1. Go to **Settings > CI/CD > Variables** to create
       the variables in your project.
 
       ![GitLab variables](img/gitlab-variables.png)
 
-   1. Click **Save variables**.
+   1. Select **Save variables**.
 
-   1. In Jupyter, click the **Run SQL queries in Notebook** heading, and then click
+   1. In Jupyter, select the **Run SQL queries in Notebook** heading, and then select
       **Run**. The results are displayed inline as follows:
 
       ![PostgreSQL query](img/postgres-query.png)
 
 You can try other operations, such as running shell scripts or interacting with a
 Kubernetes cluster. Visit the
-[Nurtch Documentation](http://docs.nurtch.com/) for more information.
+[Nurtch Documentation](https://docs.nurtch.com/) for more information.

@@ -9,7 +9,8 @@ module Banzai
           Filter::SanitizationFilter,
           Filter::AssetProxyFilter,
           Filter::EmojiFilter,
-          Filter::AutolinkFilter,
+          Filter::CustomEmojiFilter,
+          Filter::AutolinkLegacyFilter,
           Filter::ExternalLinkFilter,
           *reference_filters
         ]
@@ -19,6 +20,7 @@ module Banzai
         [
           Filter::References::UserReferenceFilter,
           Filter::References::IssueReferenceFilter,
+          Filter::References::WorkItemReferenceFilter,
           Filter::References::ExternalIssueReferenceFilter,
           Filter::References::MergeRequestReferenceFilter,
           Filter::References::SnippetReferenceFilter,

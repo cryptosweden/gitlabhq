@@ -1,187 +1,172 @@
-import { GlAlert, GlSprintf, GlLink } from '@gitlab/ui';
+import { GlAlert } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
-import Vue from 'vue';
-import VueApollo from 'vue-apollo';
-import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
+import setWindowLocation from 'helpers/set_window_location_helper';
+import * as commonUtils from '~/lib/utils/common_utils';
 import component from '~/packages_and_registries/settings/project/components/registry_settings_app.vue';
-import SettingsForm from '~/packages_and_registries/settings/project/components/settings_form.vue';
+import ContainerExpirationPolicy from '~/packages_and_registries/settings/project/components/container_expiration_policy.vue';
+import ContainerProtectionRules from '~/packages_and_registries/settings/project/components/container_protection_rules.vue';
+import PackagesCleanupPolicy from '~/packages_and_registries/settings/project/components/packages_cleanup_policy.vue';
+import PackagesProtectionRules from '~/packages_and_registries/settings/project/components/packages_protection_rules.vue';
+import DependencyProxyPackagesSettings from 'ee_component/packages_and_registries/settings/project/components/dependency_proxy_packages_settings.vue';
+import MetadataDatabaseAlert from '~/packages_and_registries/shared/components/container_registry_metadata_database_alert.vue';
 import {
-  FETCH_SETTINGS_ERROR_MESSAGE,
-  UNAVAILABLE_FEATURE_INTRO_TEXT,
-  UNAVAILABLE_USER_FEATURE_TEXT,
+  SHOW_SETUP_SUCCESS_ALERT,
+  UPDATE_SETTINGS_SUCCESS_MESSAGE,
 } from '~/packages_and_registries/settings/project/constants';
-import expirationPolicyQuery from '~/packages_and_registries/settings/project/graphql/queries/get_expiration_policy.query.graphql';
-import CleanupPolicyEnabledAlert from '~/packages_and_registries/shared/components/cleanup_policy_enabled_alert.vue';
-import SettingsBlock from '~/vue_shared/components/settings/settings_block.vue';
 
-import {
-  expirationPolicyPayload,
-  emptyExpirationPolicyPayload,
-  containerExpirationPolicyData,
-} from '../mock_data';
+jest.mock('~/lib/utils/common_utils');
 
-describe('Registry Settings App', () => {
+describe('Registry Settings app', () => {
   let wrapper;
-  let fakeApollo;
 
-  const defaultProvidedValues = {
+  const findContainerExpirationPolicy = () => wrapper.findComponent(ContainerExpirationPolicy);
+  const findContainerProtectionRules = () => wrapper.findComponent(ContainerProtectionRules);
+  const findPackagesCleanupPolicy = () => wrapper.findComponent(PackagesCleanupPolicy);
+  const findPackagesProtectionRules = () => wrapper.findComponent(PackagesProtectionRules);
+  const findDependencyProxyPackagesSettings = () =>
+    wrapper.findComponent(DependencyProxyPackagesSettings);
+  const findAlert = () => wrapper.findComponent(GlAlert);
+  const findMetadataDatabaseAlert = () => wrapper.findComponent(MetadataDatabaseAlert);
+
+  const defaultProvide = {
     projectPath: 'path',
-    isAdmin: false,
-    adminSettingsPath: 'settingsPath',
-    enableHistoricEntries: false,
-    helpPagePath: 'helpPagePath',
-    showCleanupPolicyOnAlert: false,
+    showContainerRegistrySettings: true,
+    showPackageRegistrySettings: true,
+    showDependencyProxySettings: false,
+    ...(IS_EE && { showDependencyProxySettings: true }),
+    glFeatures: {
+      containerRegistryProtectedContainers: true,
+      packagesProtectedPackages: true,
+    },
+    isContainerRegistryMetadataDatabaseEnabled: false,
   };
 
-  const findSettingsComponent = () => wrapper.find(SettingsForm);
-  const findAlert = () => wrapper.find(GlAlert);
-  const findCleanupAlert = () => wrapper.findComponent(CleanupPolicyEnabledAlert);
-
-  const mountComponent = (provide = defaultProvidedValues, config) => {
+  const mountComponent = (provide = defaultProvide) => {
     wrapper = shallowMount(component, {
-      stubs: {
-        GlSprintf,
-        SettingsBlock,
-      },
-      mocks: {
-        $toast: {
-          show: jest.fn(),
-        },
-      },
       provide,
-      ...config,
     });
   };
 
-  const mountComponentWithApollo = ({ provide = defaultProvidedValues, resolver } = {}) => {
-    Vue.use(VueApollo);
+  describe('metadata database alert', () => {
+    it('is rendered when metadata database is not enabled', () => {
+      mountComponent();
 
-    const requestHandlers = [[expirationPolicyQuery, resolver]];
-
-    fakeApollo = createMockApollo(requestHandlers);
-    mountComponent(provide, {
-      apolloProvider: fakeApollo,
+      expect(findMetadataDatabaseAlert().exists()).toBe(true);
     });
-  };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  describe('cleanup is on alert', () => {
-    it('exist when showCleanupPolicyOnAlert is true and has the correct props', () => {
+    it('is not rendered when metadata database is enabled', () => {
       mountComponent({
-        ...defaultProvidedValues,
-        showCleanupPolicyOnAlert: true,
+        ...defaultProvide,
+        isContainerRegistryMetadataDatabaseEnabled: true,
       });
 
-      expect(findCleanupAlert().exists()).toBe(true);
-      expect(findCleanupAlert().props()).toMatchObject({
-        projectPath: 'path',
-      });
-    });
-
-    it('is hidden when showCleanupPolicyOnAlert is false', async () => {
-      mountComponent();
-
-      expect(findCleanupAlert().exists()).toBe(false);
+      expect(findMetadataDatabaseAlert().exists()).toBe(false);
     });
   });
 
-  describe('isEdited status', () => {
+  describe('container policy success alert handling', () => {
+    const originalLocation = window.location.href;
+    const search = `?${SHOW_SETUP_SUCCESS_ALERT}=true`;
+
+    beforeEach(() => {
+      setWindowLocation(search);
+    });
+
+    afterEach(() => {
+      setWindowLocation(originalLocation);
+    });
+
+    it(`renders alert if the query string contains ${SHOW_SETUP_SUCCESS_ALERT}`, async () => {
+      mountComponent();
+
+      await waitForPromises();
+
+      expect(findAlert().exists()).toBe(true);
+      expect(findAlert().props()).toMatchObject({
+        dismissible: true,
+        variant: 'success',
+      });
+      expect(findAlert().text()).toMatchInterpolatedText(UPDATE_SETTINGS_SUCCESS_MESSAGE);
+    });
+
+    it('calls historyReplaceState with a clean url', () => {
+      mountComponent();
+
+      expect(commonUtils.historyReplaceState).toHaveBeenCalledWith(originalLocation);
+    });
+
+    it(`does nothing if the query string does not contain ${SHOW_SETUP_SUCCESS_ALERT}`, () => {
+      setWindowLocation('?');
+      mountComponent();
+
+      expect(findAlert().exists()).toBe(false);
+      expect(commonUtils.historyReplaceState).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('settings', () => {
     it.each`
-      description                                  | apiResponse                       | workingCopy                                                   | result
-      ${'empty response and no changes from user'} | ${emptyExpirationPolicyPayload()} | ${{}}                                                         | ${false}
-      ${'empty response and changes from user'}    | ${emptyExpirationPolicyPayload()} | ${{ enabled: true }}                                          | ${true}
-      ${'response and no changes'}                 | ${expirationPolicyPayload()}      | ${containerExpirationPolicyData()}                            | ${false}
-      ${'response and changes'}                    | ${expirationPolicyPayload()}      | ${{ ...containerExpirationPolicyData(), nameRegex: '12345' }} | ${true}
-      ${'response and empty'}                      | ${expirationPolicyPayload()}      | ${{}}                                                         | ${true}
-    `('$description', async ({ apiResponse, workingCopy, result }) => {
-      mountComponentWithApollo({
-        provide: { ...defaultProvidedValues, enableHistoricEntries: true },
-        resolver: jest.fn().mockResolvedValue(apiResponse),
+      showContainerRegistrySettings | showPackageRegistrySettings
+      ${true}                       | ${false}
+      ${true}                       | ${true}
+      ${false}                      | ${true}
+      ${false}                      | ${false}
+    `(
+      'container cleanup policy $showContainerRegistrySettings and package cleanup policy is $showPackageRegistrySettings',
+      ({ showContainerRegistrySettings, showPackageRegistrySettings }) => {
+        mountComponent({
+          ...defaultProvide,
+          showContainerRegistrySettings,
+          showPackageRegistrySettings,
+        });
+
+        expect(findContainerExpirationPolicy().exists()).toBe(showContainerRegistrySettings);
+        expect(findContainerProtectionRules().exists()).toBe(showContainerRegistrySettings);
+        expect(findPackagesCleanupPolicy().exists()).toBe(showPackageRegistrySettings);
+        expect(findPackagesProtectionRules().exists()).toBe(showPackageRegistrySettings);
+      },
+    );
+
+    if (IS_EE) {
+      it.each([true, false])('when showDependencyProxySettings is %s', (value) => {
+        mountComponent({
+          ...defaultProvide,
+          showDependencyProxySettings: value,
+        });
+
+        expect(findDependencyProxyPackagesSettings().exists()).toBe(value);
       });
-      await waitForPromises();
+    }
 
-      findSettingsComponent().vm.$emit('input', workingCopy);
+    describe('when feature flag "packagesProtectedPackages" is disabled', () => {
+      it.each([true, false])(
+        'package protection rules settings is hidden if showPackageRegistrySettings is %s',
+        (showPackageRegistrySettings) => {
+          mountComponent({
+            ...defaultProvide,
+            showPackageRegistrySettings,
+            glFeatures: { packagesProtectedPackages: false },
+          });
 
-      await waitForPromises();
-
-      expect(findSettingsComponent().props('isEdited')).toBe(result);
-    });
-  });
-
-  it('renders the setting form', async () => {
-    mountComponentWithApollo({
-      resolver: jest.fn().mockResolvedValue(expirationPolicyPayload()),
-    });
-    await waitForPromises();
-
-    expect(findSettingsComponent().exists()).toBe(true);
-  });
-
-  describe('the form is disabled', () => {
-    it('the form is hidden', () => {
-      mountComponent();
-
-      expect(findSettingsComponent().exists()).toBe(false);
-    });
-
-    it('shows an alert', () => {
-      mountComponent();
-
-      const text = findAlert().text();
-      expect(text).toContain(UNAVAILABLE_FEATURE_INTRO_TEXT);
-      expect(text).toContain(UNAVAILABLE_USER_FEATURE_TEXT);
-    });
-
-    describe('an admin is visiting the page', () => {
-      it('shows the admin part of the alert message', () => {
-        mountComponent({ ...defaultProvidedValues, isAdmin: true });
-
-        const sprintf = findAlert().find(GlSprintf);
-        expect(sprintf.text()).toBe('administration settings');
-        expect(sprintf.find(GlLink).attributes('href')).toBe(
-          defaultProvidedValues.adminSettingsPath,
-        );
-      });
-    });
-  });
-
-  describe('fetchSettingsError', () => {
-    beforeEach(async () => {
-      mountComponentWithApollo({
-        resolver: jest.fn().mockRejectedValue(new Error('GraphQL error')),
-      });
-      await waitForPromises();
-    });
-
-    it('the form is hidden', () => {
-      expect(findSettingsComponent().exists()).toBe(false);
-    });
-
-    it('shows an alert', () => {
-      expect(findAlert().html()).toContain(FETCH_SETTINGS_ERROR_MESSAGE);
-    });
-  });
-
-  describe('empty API response', () => {
-    it.each`
-      enableHistoricEntries | isShown
-      ${true}               | ${true}
-      ${false}              | ${false}
-    `('is $isShown that the form is shown', async ({ enableHistoricEntries, isShown }) => {
-      mountComponentWithApollo({
-        provide: {
-          ...defaultProvidedValues,
-          enableHistoricEntries,
+          expect(findPackagesProtectionRules().exists()).toBe(false);
         },
-        resolver: jest.fn().mockResolvedValue(emptyExpirationPolicyPayload()),
-      });
-      await waitForPromises();
+      );
+    });
 
-      expect(findSettingsComponent().exists()).toBe(isShown);
+    describe('when feature flag "containerRegistryProtectedContainers" is disabled', () => {
+      it.each([true, false])(
+        'container protection rules settings is hidden if showContainerRegistrySettings is %s',
+        (showContainerRegistrySettings) => {
+          mountComponent({
+            ...defaultProvide,
+            showContainerRegistrySettings,
+            glFeatures: { containerRegistryProtectedContainers: false },
+          });
+
+          expect(findPackagesProtectionRules().exists()).toBe(false);
+        },
+      );
     });
   });
 });

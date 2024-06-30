@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::DependencyProxy::GroupSettings::Update do
+RSpec.describe Mutations::DependencyProxy::GroupSettings::Update, feature_category: :virtual_registry do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be_with_reload(:group) { create(:group) }
@@ -36,8 +36,9 @@ RSpec.describe Mutations::DependencyProxy::GroupSettings::Update do
     end
 
     where(:user_role, :shared_examples_name) do
-      :maintainer | 'updating the dependency proxy group settings'
-      :developer  | 'updating the dependency proxy group settings'
+      :owner      | 'updating the dependency proxy group settings'
+      :maintainer | 'denying access to dependency proxy group settings'
+      :developer  | 'denying access to dependency proxy group settings'
       :reporter   | 'denying access to dependency proxy group settings'
       :guest      | 'denying access to dependency proxy group settings'
       :anonymous  | 'denying access to dependency proxy group settings'

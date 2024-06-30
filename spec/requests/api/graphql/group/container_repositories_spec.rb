@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'getting container repositories in a group' do
+RSpec.describe 'getting container repositories in a group', feature_category: :source_code_management do
   using RSpec::Parameterized::TableSyntax
   include GraphqlHelpers
 
@@ -14,12 +14,12 @@ RSpec.describe 'getting container repositories in a group' do
   let_it_be(:container_repositories) { [container_repository, container_repositories_delete_scheduled, container_repositories_delete_failed].flatten }
   let_it_be(:container_expiration_policy) { project.container_expiration_policy }
 
-  let(:excluded_fields) { [] }
+  let(:excluded_fields) { %w[pipeline jobs productAnalyticsState mlModels mergeTrains] }
   let(:container_repositories_fields) do
     <<~GQL
       edges {
         node {
-          #{all_graphql_fields_for('container_repositories'.classify, max_depth: 1, excluded: excluded_fields)}
+          #{all_graphql_fields_for('container_repositories'.classify, excluded: excluded_fields)}
         }
       }
     GQL
@@ -49,7 +49,7 @@ RSpec.describe 'getting container repositories in a group' do
     group.add_owner(owner)
     stub_container_registry_config(enabled: true)
     container_repositories.each do |repository|
-      stub_container_registry_tags(repository: repository.path, tags: %w(tag1 tag2 tag3), with_manifest: false)
+      stub_container_registry_tags(repository: repository.path, tags: %w[tag1 tag2 tag3], with_manifest: false)
     end
   end
 
@@ -64,7 +64,7 @@ RSpec.describe 'getting container repositories in a group' do
   context 'with different permissions' do
     let_it_be(:user) { create(:user) }
 
-    where(:group_visibility, :role, :access_granted, :can_delete) do
+    where(:group_visibility, :role, :access_granted, :destroy_container_repository) do
       :private | :maintainer | true   | true
       :private | :developer  | true   | true
       :private | :reporter   | true   | false
@@ -82,7 +82,7 @@ RSpec.describe 'getting container repositories in a group' do
         group.update!(visibility_level: Gitlab::VisibilityLevel.const_get(group_visibility.to_s.upcase, false))
         project.update!(visibility_level: Gitlab::VisibilityLevel.const_get(group_visibility.to_s.upcase, false))
 
-        group.add_user(user, role) unless role == :anonymous
+        group.add_member(user, role) unless role == :anonymous
       end
 
       it 'return the proper response' do
@@ -91,7 +91,7 @@ RSpec.describe 'getting container repositories in a group' do
         if access_granted
           expect(container_repositories_response.size).to eq(container_repositories.size)
           container_repositories_response.each do |repository_response|
-            expect(repository_response.dig('node', 'canDelete')).to eq(can_delete)
+            expect(repository_response.dig('node', 'userPermissions', 'destroyContainerRepository')).to eq(destroy_container_repository)
           end
         else
           expect(container_repositories_response).to eq(nil)
@@ -142,7 +142,7 @@ RSpec.describe 'getting container repositories in a group' do
     end
 
     before do
-      stub_container_registry_tags(repository: container_repository.path, tags: %w(tag4 tag5 tag6), with_manifest: false)
+      stub_container_registry_tags(repository: container_repository.path, tags: %w[tag4 tag5 tag6], with_manifest: false)
     end
 
     it 'returns the searched container repository' do
@@ -156,7 +156,7 @@ RSpec.describe 'getting container repositories in a group' do
   it_behaves_like 'handling graphql network errors with the container registry'
 
   it_behaves_like 'not hitting graphql network errors with the container registry' do
-    let(:excluded_fields) { %w[tags tagsCount] }
+    let(:excluded_fields) { %w[pipeline jobs tags tagsCount productAnalyticsState mlModels mergeTrains] }
   end
 
   it 'returns the total count of container repositories' do

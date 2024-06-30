@@ -6,6 +6,7 @@ import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
 import InviteMembersBanner from '~/groups/components/invite_members_banner.vue';
 import eventHub from '~/invite_members/event_hub';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
 jest.mock('~/lib/utils/common_utils');
 
@@ -41,8 +42,6 @@ describe('InviteMembersBanner', () => {
   });
 
   afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
     mockAxios.restore();
     unmockTracking();
   });
@@ -58,7 +57,6 @@ describe('InviteMembersBanner', () => {
     });
 
     const trackCategory = undefined;
-    const buttonClickEvent = 'invite_members_banner_button_clicked';
 
     it('sends the displayEvent when the banner is displayed', () => {
       const displayEvent = 'invite_members_banner_displayed';
@@ -71,7 +69,7 @@ describe('InviteMembersBanner', () => {
     describe('when the button is clicked', () => {
       beforeEach(() => {
         jest.spyOn(eventHub, '$emit').mockImplementation(() => {});
-        wrapper.find(GlBanner).vm.$emit('primary');
+        wrapper.findComponent(GlBanner).vm.$emit('primary');
       });
 
       it('calls openModal through the eventHub', () => {
@@ -79,20 +77,14 @@ describe('InviteMembersBanner', () => {
           source: 'invite_members_banner',
         });
       });
-
-      it('sends the buttonClickEvent with correct trackCategory and trackLabel', () => {
-        expect(trackingSpy).toHaveBeenCalledWith(trackCategory, buttonClickEvent, {
-          label: provide.trackLabel,
-        });
-      });
     });
 
     it('sends the dismissEvent when the banner is dismissed', () => {
       mockTrackingOnWrapper();
-      mockAxios.onPost(provide.calloutsPath).replyOnce(200);
+      mockAxios.onPost(provide.calloutsPath).replyOnce(HTTP_STATUS_OK);
       const dismissEvent = 'invite_members_banner_dismissed';
 
-      wrapper.find(GlBanner).vm.$emit('close');
+      wrapper.findComponent(GlBanner).vm.$emit('close');
 
       expect(trackingSpy).toHaveBeenCalledWith(trackCategory, dismissEvent, {
         label: provide.trackLabel,
@@ -102,7 +94,7 @@ describe('InviteMembersBanner', () => {
 
   describe('rendering', () => {
     const findBanner = () => {
-      return wrapper.find(GlBanner);
+      return wrapper.findComponent(GlBanner);
     };
 
     beforeEach(() => {
@@ -132,16 +124,16 @@ describe('InviteMembersBanner', () => {
     });
 
     it('should render the banner when not dismissed', () => {
-      expect(wrapper.find(GlBanner).exists()).toBe(true);
+      expect(wrapper.findComponent(GlBanner).exists()).toBe(true);
     });
 
     it('should close the banner when dismiss is clicked', async () => {
-      mockAxios.onPost(provide.calloutsPath).replyOnce(200);
-      expect(wrapper.find(GlBanner).exists()).toBe(true);
-      wrapper.find(GlBanner).vm.$emit('close');
+      mockAxios.onPost(provide.calloutsPath).replyOnce(HTTP_STATUS_OK);
+      expect(wrapper.findComponent(GlBanner).exists()).toBe(true);
+      wrapper.findComponent(GlBanner).vm.$emit('close');
 
       await nextTick();
-      expect(wrapper.find(GlBanner).exists()).toBe(false);
+      expect(wrapper.findComponent(GlBanner).exists()).toBe(false);
     });
   });
 });

@@ -9,13 +9,14 @@ class Label < ApplicationRecord
   include Sortable
   include FromUnion
   include Presentable
+  include EachBatch
 
   cache_markdown_field :description, pipeline: :single_line
 
   DEFAULT_COLOR = ::Gitlab::Color.of('#6699cc')
+  DESCRIPTION_LENGTH_MAX = 512.kilobytes
 
-  attribute :color, ::Gitlab::Database::Type::Color.new
-  default_value_for :color, DEFAULT_COLOR
+  attribute :color, ::Gitlab::Database::Type::Color.new, default: DEFAULT_COLOR
 
   has_many :lists, dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
   has_many :priorities, class_name: 'LabelPriority'
@@ -24,26 +25,34 @@ class Label < ApplicationRecord
   has_many :merge_requests, through: :label_links, source: :target, source_type: 'MergeRequest'
 
   before_validation :strip_whitespace_from_title
+  before_destroy :prevent_locked_label_destroy, prepend: true
 
   validates :color, color: true, presence: true
+  validate :ensure_lock_on_merge_allowed
 
   # Don't allow ',' for label titles
   validates :title, presence: true, format: { with: /\A[^,]+\z/ }
   validates :title, uniqueness: { scope: [:group_id, :project_id] }
   validates :title, length: { maximum: 255 }
 
+  # we validate the description against DESCRIPTION_LENGTH_MAX only for labels being created and on updates if
+  # the description changes to avoid breaking the existing labels which may have their descriptions longer
+  validates :description, bytesize: { maximum: -> { DESCRIPTION_LENGTH_MAX } }, if: :validate_description_length?
+
   default_scope { order(title: :asc) } # rubocop:disable Cop/DefaultScope
 
   scope :templates, -> { where(template: true, type: [Label.name, nil]) }
   scope :with_title, ->(title) { where(title: title) }
   scope :with_lists_and_board, -> { joins(lists: :board).merge(List.movable) }
+  scope :with_lock_on_merge, -> { where(lock_on_merge: true) }
   scope :on_project_boards, ->(project_id) { with_lists_and_board.where(boards: { project_id: project_id }) }
   scope :on_board, ->(board_id) { with_lists_and_board.where(boards: { id: board_id }) }
   scope :order_name_asc, -> { reorder(title: :asc) }
   scope :order_name_desc, -> { reorder(title: :desc) }
   scope :subscribed_by, ->(user_id) { joins(:subscriptions).where(subscriptions: { user_id: user_id, subscribed: true }) }
+  scope :with_preloaded_container, -> { preload(parent_container: :route) }
 
-  scope :top_labels_by_target, -> (target_relation) {
+  scope :top_labels_by_target, ->(target_relation) {
     label_id_column = arel_table[:id]
 
     # Window aggregation to count labels
@@ -58,6 +67,43 @@ class Label < ApplicationRecord
       .reorder(count_by_id: :desc)
       .distinct
   }
+
+  scope :for_targets, ->(target_relation) do
+    joins(:label_links)
+      .merge(LabelLink.where(target: target_relation))
+      .select(arel_table[Arel.star], LabelLink.arel_table[:target_id], LabelLink.arel_table[:target_type])
+      .with_preloaded_container
+  end
+
+  scope :sorted_by_similarity_desc, ->(search) do
+    order_expression = Gitlab::Database::SimilarityScore.build_expression(
+      search: search,
+      rules: [
+        { column: arel_table["title"], multiplier: 1 },
+        { column: arel_table["description"], multiplier: 0.2 }
+      ])
+
+    order = Gitlab::Pagination::Keyset::Order.build(
+      [
+        Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
+          attribute_name: 'similarity',
+          column_expression: order_expression,
+          order_expression: order_expression.desc,
+          order_direction: :desc,
+          add_to_projections: true
+        ),
+        Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
+          attribute_name: 'id',
+          order_expression: Label.arel_table[:id].desc
+        )
+      ])
+
+    order.apply_cursor_conditions(reorder(order))
+  end
+
+  def self.pluck_titles
+    pluck(:title)
+  end
 
   def self.prioritized(project)
     joins(:priorities)
@@ -118,7 +164,7 @@ class Label < ApplicationRecord
         | # Integer-based label ID, or
           (?<label_name>
               # String-based single-word label title, or
-              [A-Za-z0-9_\-\?\.&]+
+              #{Gitlab::Regex.sep_by_1(/:{1,2}/, /[A-Za-z0-9_\-\?\.&]+/)}
               (?<!\.|\?)
             |
               # String-based multi-word label surrounded in quotes
@@ -144,7 +190,17 @@ class Label < ApplicationRecord
   #
   # Returns an ActiveRecord::Relation.
   def self.search(query, **options)
-    fuzzy_search(query, [:title, :description])
+    # make sure we prevent passing in disallowed columns
+    search_in = case options[:search_in]
+                when [:title]
+                  [:title]
+                when [:description]
+                  [:description]
+                else
+                  [:title, :description]
+                end
+
+    fuzzy_search(query, search_in)
   end
 
   # Override Gitlab::SQL::Pattern.min_chars_for_partial_matching as
@@ -158,11 +214,6 @@ class Label < ApplicationRecord
     return false if label_id.blank?
 
     on_project_boards(project_id).where(id: label_id).exists?
-  end
-
-  # Generate a hex color based on hex-encoded value
-  def self.color_for(value)
-    "##{Digest::MD5.hexdigest(value)[0..5]}"
   end
 
   def open_issues_count(user = nil)
@@ -266,7 +317,18 @@ class Label < ApplicationRecord
   end
 
   def hook_attrs
-    attributes
+    {
+      id: id,
+      title: title,
+      color: color,
+      project_id: project_id,
+      created_at: created_at,
+      updated_at: updated_at,
+      template: template,
+      description: description,
+      type: type,
+      group_id: group_id
+    }
   end
 
   def present(attributes = {})
@@ -274,6 +336,16 @@ class Label < ApplicationRecord
   end
 
   private
+
+  def validate_description_length?
+    return false unless description_changed?
+
+    previous_description = changes['description'].first
+    # previous_description will be nil for new records
+    return true if previous_description.blank?
+
+    previous_description.bytesize <= DESCRIPTION_LENGTH_MAX || description.bytesize > previous_description.bytesize
+  end
 
   def issues_count(user, params = {})
     params.merge!(subject_foreign_key => subject.id, label_name: title, scope: 'all')
@@ -283,7 +355,7 @@ class Label < ApplicationRecord
   def label_format_reference(format = :id)
     raise StandardError, 'Unknown format' unless [:id, :name].include?(format)
 
-    if format == :name && !name.include?('"')
+    if format == :name && name.exclude?('"')
       %("#{name}")
     else
       id
@@ -296,6 +368,20 @@ class Label < ApplicationRecord
 
   def strip_whitespace_from_title
     self[:title] = title&.strip
+  end
+
+  def prevent_locked_label_destroy
+    return unless lock_on_merge
+
+    errors.add(:base, format(_('%{label_name} is locked and was not removed'), label_name: name))
+    throw :abort # rubocop:disable Cop/BanCatchThrow
+  end
+
+  def ensure_lock_on_merge_allowed
+    return unless template?
+    return unless lock_on_merge || will_save_change_to_lock_on_merge?
+
+    errors.add(:lock_on_merge, _('can not be set for template labels'))
   end
 end
 

@@ -4,7 +4,7 @@ module Gitlab
   module Sanitizers
     class Exif
       # these tags are not removed from the image
-      WHITELISTED_TAGS = %w(
+      ALLOWLISTED_TAGS = %w[
         ResolutionUnit
         XResolution
         YResolution
@@ -17,13 +17,13 @@ module Gitlab
         Copyright
         CopyrightNotice
         Orientation
-      ).freeze
+      ].freeze
 
       # these tags are common in exiftool output, these
       # do not contain any sensitive information, but
       # we don't need to preserve them when removing
       # exif tags
-      IGNORED_TAGS = %w(
+      IGNORED_TAGS = %w[
         ColorComponents
         EncodingProcess
         ExifByteOrder
@@ -41,11 +41,11 @@ module Gitlab
         FileType
         FileTypeExtension
         MIMEType
-      ).freeze
+      ].freeze
 
-      ALLOWED_TAGS = WHITELISTED_TAGS + IGNORED_TAGS
-      EXCLUDE_PARAMS = WHITELISTED_TAGS.map { |tag| "-#{tag}" }
-      ALLOWED_MIME_TYPES = %w(image/jpeg image/tiff).freeze
+      ALLOWED_TAGS = ALLOWLISTED_TAGS + IGNORED_TAGS
+      EXCLUDE_PARAMS = ALLOWLISTED_TAGS.map { |tag| "-#{tag}" }
+      ALLOWED_MIME_TYPES = %w[image/jpeg image/tiff].freeze
 
       attr_reader :logger
 
@@ -56,7 +56,7 @@ module Gitlab
       # rubocop: disable CodeReuse/ActiveRecord
       def batch_clean(start_id: nil, stop_id: nil, dry_run: true, sleep_time: nil, uploader: nil, since: nil)
         relation = Upload.where('lower(path) like ? or lower(path) like ? or lower(path) like ?',
-                                '%.jpg', '%.jpeg', '%.tiff')
+          '%.jpg', '%.jpeg', '%.tiff')
         relation = relation.where(uploader: uploader) if uploader
         relation = relation.where('created_at > ?', since) if since
 

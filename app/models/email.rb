@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class Email < ApplicationRecord
+class Email < MainClusterwide::ApplicationRecord
   include Sortable
   include Gitlab::SQL::Pattern
 
@@ -11,6 +11,8 @@ class Email < ApplicationRecord
   validate :unique_email, if: ->(email) { email.email_changed? }
 
   scope :confirmed, -> { where.not(confirmed_at: nil) }
+  scope :unconfirmed, -> { where(confirmed_at: nil) }
+  scope :unconfirmed_and_created_before, ->(created_cut_off) { unconfirmed.where('created_at < ?', created_cut_off) }
 
   after_commit :update_invalid_gpg_signatures, if: -> { previous_changes.key?('confirmed_at') }
 

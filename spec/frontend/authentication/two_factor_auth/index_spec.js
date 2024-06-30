@@ -10,13 +10,13 @@ describe('initRecoveryCodes', () => {
   let el;
   let wrapper;
 
-  const findRecoveryCodesComponent = () => wrapper.find(RecoveryCodes);
+  const findRecoveryCodesComponent = () => wrapper.findComponent(RecoveryCodes);
 
   beforeEach(() => {
     el = document.createElement('div');
     el.setAttribute('class', 'js-2fa-recovery-codes');
-    el.setAttribute('data-codes', codesJsonString);
-    el.setAttribute('data-profile-account-path', profileAccountPath);
+    el.dataset.codes = codesJsonString;
+    el.dataset.profileAccountPath = profileAccountPath;
     document.body.appendChild(el);
 
     wrapper = createWrapper(initRecoveryCodes());

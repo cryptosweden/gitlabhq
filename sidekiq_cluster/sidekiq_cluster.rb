@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../lib/gitlab/process_management'
+require_relative '../lib/gitlab/process_supervisor'
 
 module Gitlab
   module SidekiqCluster
@@ -33,27 +34,27 @@ module Gitlab
     #
     # directory - The directory of the Rails application.
     #
-    # Returns an Array containing the PIDs of the started processes.
-    def self.start(queues, env: :development, directory: Dir.pwd, max_concurrency: 50, min_concurrency: 0, timeout: DEFAULT_SOFT_TIMEOUT_SECONDS, dryrun: false)
+    # Returns an Array containing the waiter threads (from Process.detach) of
+    # the started processes.
+    def self.start(queues, env: :development, directory: Dir.pwd, concurrency: 20, timeout: DEFAULT_SOFT_TIMEOUT_SECONDS, dryrun: false)
       queues.map.with_index do |pair, index|
         start_sidekiq(pair, env: env,
-                            directory: directory,
-                            max_concurrency: max_concurrency,
-                            min_concurrency: min_concurrency,
-                            worker_id: index,
-                            timeout: timeout,
-                            dryrun: dryrun)
+          directory: directory,
+          concurrency: concurrency,
+          worker_id: index,
+          timeout: timeout,
+          dryrun: dryrun)
       end
     end
 
     # Starts a Sidekiq process that processes _only_ the given queues.
     #
     # Returns the PID of the started process.
-    def self.start_sidekiq(queues, env:, directory:, max_concurrency:, min_concurrency:, worker_id:, timeout:, dryrun:)
+    def self.start_sidekiq(queues, env:, directory:, concurrency:, worker_id:, timeout:, dryrun:)
       counts = count_by_queue(queues)
 
       cmd = %w[bundle exec sidekiq]
-      cmd << "-c#{self.concurrency(queues, min_concurrency, max_concurrency)}"
+      cmd << "-c#{concurrency}"
       cmd << "-e#{env}"
       cmd << "-t#{timeout}"
       cmd << "-gqueues:#{proc_details(counts)}"
@@ -82,9 +83,7 @@ module Gitlab
         )
       end
 
-      ProcessManagement.wait_async(pid)
-
-      pid
+      Process.detach(pid)
     end
 
     def self.count_by_queue(queues)
@@ -99,14 +98,6 @@ module Gitlab
           "#{queue} (#{count})"
         end
       end.join(',')
-    end
-
-    def self.concurrency(queues, min_concurrency, max_concurrency)
-      concurrency_from_queues = queues.length + 1
-      max = max_concurrency > 0 ? max_concurrency : concurrency_from_queues
-      min = [min_concurrency, max].min
-
-      concurrency_from_queues.clamp(min, max)
     end
   end
 end

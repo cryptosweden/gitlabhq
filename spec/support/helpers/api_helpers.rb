@@ -19,17 +19,24 @@ module ApiHelpers
   #   => "/api/v2/issues?foo=bar&private_token=..."
   #
   # Returns the relative path to the requested API resource
-  def api(path, user = nil, version: API::API.version, personal_access_token: nil, oauth_access_token: nil, job_token: nil)
+  def api(path, user = nil, version: API::API.version, personal_access_token: nil, oauth_access_token: nil, job_token: nil, access_token: nil, admin_mode: false)
     full_path = "/api/#{version}#{path}"
 
     if oauth_access_token
-      query_string = "access_token=#{oauth_access_token.token}"
+      query_string = "access_token=#{oauth_access_token.plaintext_token}"
     elsif personal_access_token
       query_string = "private_token=#{personal_access_token.token}"
     elsif job_token
       query_string = "job_token=#{job_token}"
+    elsif access_token
+      query_string = "access_token=#{access_token.token}"
     elsif user
-      personal_access_token = create(:personal_access_token, user: user)
+      personal_access_token = if admin_mode && user.admin?
+                                create(:personal_access_token, :admin_mode, user: user)
+                              else
+                                create(:personal_access_token, user: user)
+                              end
+
       query_string = "private_token=#{personal_access_token.token}"
     end
 
@@ -62,6 +69,13 @@ module ApiHelpers
 
   def expect_response_contain_exactly(*items)
     expect(response).to have_gitlab_http_status(:ok)
+    expect(json_response).to be_an Array
+    expect(json_response.map { |item| item['id'] }).to contain_exactly(*items)
+  end
+
+  def expect_paginated_array_response_contain_exactly(*items)
+    expect(response).to have_gitlab_http_status(:ok)
+    expect(response).to include_pagination_headers
     expect(json_response).to be_an Array
     expect(json_response.map { |item| item['id'] }).to contain_exactly(*items)
   end

@@ -10,7 +10,7 @@ class Projects::CompareController < Projects::ApplicationController
 
   # Authorize
   before_action :require_non_empty_project
-  before_action :authorize_download_code!
+  before_action :authorize_read_code!
   # Defining ivars
   before_action :define_diffs, only: [:show, :diff_for_path]
   before_action :define_environment, only: [:show]
@@ -34,7 +34,7 @@ class Projects::CompareController < Projects::ApplicationController
   def show
     apply_diff_view_cookie!
 
-    render
+    render locals: { pagination_params: params.permit(:page) }
   end
 
   def diff_for_path
@@ -47,7 +47,8 @@ class Projects::CompareController < Projects::ApplicationController
     from_to_vars = {
       from: compare_params[:from].presence,
       to: compare_params[:to].presence,
-      from_project_id: compare_params[:from_project_id].presence
+      from_project_id: compare_params[:from_project_id].presence,
+      straight: compare_params[:straight].presence
     }
 
     if from_to_vars[:from].blank? || from_to_vars[:to].blank?
@@ -88,13 +89,17 @@ class Projects::CompareController < Projects::ApplicationController
   # target == start_ref == from
   def target_project
     strong_memoize(:target_project) do
-      next source_project unless compare_params.key?(:from_project_id)
-      next source_project if compare_params[:from_project_id].to_i == source_project.id
-
-      target_project = target_projects(source_project).find_by_id(compare_params[:from_project_id])
+      target_project =
+        if !compare_params.key?(:from_project_id)
+          source_project.default_merge_request_target
+        elsif compare_params[:from_project_id].to_i == source_project.id
+          source_project
+        else
+          target_projects(source_project).find_by_id(compare_params[:from_project_id])
+        end
 
       # Just ignore the field if it points at a non-existent or hidden project
-      next source_project unless target_project && can?(current_user, :download_code, target_project)
+      next source_project unless target_project && can?(current_user, :read_code, target_project)
 
       target_project
     end
@@ -102,27 +107,42 @@ class Projects::CompareController < Projects::ApplicationController
 
   # source == head_ref == to
   def source_project
-    project
+    strong_memoize(:source_project) do
+      # Eager load project's avatar url to prevent batch loading
+      # for all forked projects
+      project&.tap(&:avatar_url)
+    end
   end
 
   def compare
     return @compare if defined?(@compare)
 
-    @compare = CompareService.new(source_project, head_ref).execute(target_project, start_ref)
+    @compare = CompareService.new(source_project, head_ref).execute(target_project, start_ref, straight: straight)
+  end
+
+  def straight
+    compare_params[:straight] == "true"
   end
 
   def start_ref
-    @start_ref ||= Addressable::URI.unescape(compare_params[:from])
+    @start_ref ||= Addressable::URI.unescape(compare_params[:from]).presence
   end
 
   def head_ref
     return @ref if defined?(@ref)
 
-    @ref = @head_ref = Addressable::URI.unescape(compare_params[:to])
+    @ref = @head_ref = Addressable::URI.unescape(compare_params[:to]).presence
   end
 
   def define_commits
-    @commits = compare.present? ? set_commits_for_rendering(@compare.commits) : []
+    strong_memoize(:commits) do
+      if compare.present?
+        commits = compare.commits.with_markdown_cache.with_latest_pipeline(head_ref)
+        set_commits_for_rendering(commits)
+      else
+        []
+      end
+    end
   end
 
   def define_diffs
@@ -149,6 +169,6 @@ class Projects::CompareController < Projects::ApplicationController
   # rubocop: enable CodeReuse/ActiveRecord
 
   def compare_params
-    @compare_params ||= params.permit(:from, :to, :from_project_id)
+    @compare_params ||= params.permit(:from, :to, :from_project_id, :straight)
   end
 end

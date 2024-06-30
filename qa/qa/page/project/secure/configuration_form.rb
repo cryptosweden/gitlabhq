@@ -5,79 +5,106 @@ module QA
     module Project
       module Secure
         class ConfigurationForm < QA::Page::Base
-          include QA::Page::Component::Select2
           include QA::Page::Settings::Common
 
           view 'app/assets/javascripts/security_configuration/components/app.vue' do
-            element :security_configuration_history_link
+            element 'security-configuration-container'
+            element 'security-view-history-link'
           end
 
           view 'app/assets/javascripts/security_configuration/components/feature_card.vue' do
-            element :dependency_scanning_status, "`${feature.type}_status`" # rubocop:disable QA/ElementWithPattern
-            element :sast_status, "`${feature.type}_status`" # rubocop:disable QA/ElementWithPattern
-            element :sast_enable_button, "`${feature.type}_enable_button`" # rubocop:disable QA/ElementWithPattern
-            element :dependency_scanning_mr_button, "`${feature.type}_mr_button`" # rubocop:disable QA/ElementWithPattern
+            element 'feature-status'
+            element 'sast-enable-button', "`${hyphenatedFeature}-enable-button`" # rubocop:disable QA/ElementWithPattern
+            element 'dependency-scanning-mr-button', "`${hyphenatedFeature}-mr-button`" # rubocop:disable QA/ElementWithPattern
           end
 
           view 'app/assets/javascripts/security_configuration/components/auto_dev_ops_alert.vue' do
-            element :autodevops_container
+            element 'autodevops-container'
           end
 
           def has_security_configuration_history_link?
-            has_element?(:security_configuration_history_link)
+            has_element?('security-view-history-link')
           end
 
           def has_no_security_configuration_history_link?
-            has_no_element?(:security_configuration_history_link)
+            has_no_element?('security-view-history-link')
           end
 
           def click_security_configuration_history_link
-            click_element(:security_configuration_history_link)
+            click_element('security-view-history-link')
           end
 
           def click_sast_enable_button
-            click_element(:sast_enable_button)
+            click_element('sast-enable-button')
           end
 
           def click_dependency_scanning_mr_button
-            click_element(:dependency_scanning_mr_button)
+            click_element('dependency-scanning-mr-button')
           end
 
-          def has_sast_status?(status_text)
-            within_element(:sast_status) do
-              has_text?(status_text)
-            end
+          def has_true_sast_status?
+            has_element?('feature-status', feature: 'sast_true_status')
           end
 
-          def has_no_sast_status?(status_text)
-            within_element(:sast_status) do
-              has_no_text?(status_text)
-            end
+          def has_false_sast_status?
+            has_element?('feature-status', feature: 'sast_false_status')
           end
 
-          def has_dependency_scanning_status?(status_text)
-            within_element(:dependency_scanning_status) do
-              has_text?(status_text)
-            end
+          def has_true_dependency_scanning_status?
+            has_element?('feature-status', feature: 'dependency_scanning_true_status')
           end
 
-          def has_no_dependency_scanning_status?(status_text)
-            within_element(:dependency_scanning_status) do
-              has_no_text?(status_text)
-            end
+          def has_false_dependency_scanning_status?
+            has_element?('feature-status', feature: 'dependency_scanning_false_status')
+          end
+
+          def has_true_secret_detection_status?
+            has_element?('feature-status', feature: 'pre_receive_secret_detection_true_status')
+          end
+
+          def has_false_secret_detection_status?
+            has_element?('feature-status', feature: 'pre_receive_secret_detection_false_status')
           end
 
           def has_auto_devops_container?
-            has_element?(:autodevops_container)
+            has_element?('autodevops-container')
           end
 
           def has_no_auto_devops_container?
-            has_no_element?(:autodevops_container)
+            has_no_element?('autodevops-container')
           end
 
           def has_auto_devops_container_description?
-            within_element(:autodevops_container) do
+            within_element('autodevops-container') do
               has_text?('Quickly enable all continuous testing and compliance tools by enabling Auto DevOps')
+            end
+          end
+
+          def go_to_compliance_tab
+            go_to_tab('Compliance')
+          end
+
+          def enable_secret_detection
+            card = find_security_testing_card('Secret push protection')
+            within(card) do
+              # The GitLabUI toggle uses a Close Icon button
+              click_element('close-icon')
+            end
+          end
+
+          private
+
+          def go_to_tab(name)
+            within_element('security-configuration-container') do
+              find('.nav-item', text: name).click
+            end
+          end
+
+          def find_security_testing_card(header_text)
+            cards = all_elements('security-testing-card', minimum: 1)
+            cards.each do |card|
+              title = card.find('h3').text
+              return card if title.eql? header_text
             end
           end
         end

@@ -1,7 +1,7 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Govern
+group: Anti-Abuse
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # GraphQL API spam protection and CAPTCHA support
@@ -16,9 +16,8 @@ related to changing a model's confidential/public flag.
 The main steps are:
 
 1. Use `include Mutations::SpamProtection` in your mutation.
-1. Create a `spam_params` instance based on the request. Obtain the request from the context
-   via `context[:request]` when creating the `SpamParams` instance.
-1. Pass `spam_params` to the relevant Service class constructor.
+1. Pass `perform_spam_check: true` to the Update Service class constructor.
+   It is set to `true` by default in the Create Service.
 1. After you create or update the `Spammable` model instance, call `#check_spam_action_response!`
    and pass it the model instance. This call:
    1. Performs the necessary spam checks on the model.
@@ -44,13 +43,10 @@ module Mutations
       include Mutations::SpamProtection
 
       def resolve(args)
-        spam_params = ::Spam::SpamParams.new_from_request(request: context[:request])
-
         service_response = ::Widgets::CreateService.new(
           project: project,
           current_user: current_user,
-          params: args,
-          spam_params: spam_params
+          params: args
         ).execute
 
         widget = service_response.payload[:widget]

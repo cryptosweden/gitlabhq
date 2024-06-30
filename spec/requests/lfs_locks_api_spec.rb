@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Git LFS File Locking API' do
+RSpec.describe 'Git LFS File Locking API', feature_category: :source_code_management do
   include LfsHttpHelpers
   include WorkhorseHelpers
 
@@ -67,7 +67,7 @@ RSpec.describe 'Git LFS File Locking API' do
 
         expect(response).to have_gitlab_http_status(:conflict)
 
-        expect(json_response.keys).to match_array(%w(lock message documentation_url))
+        expect(json_response.keys).to match_array(%w[lock message documentation_url])
         expect(json_response['message']).to match(/already locked/)
       end
 
@@ -84,7 +84,7 @@ RSpec.describe 'Git LFS File Locking API' do
 
         expect(response).to have_gitlab_http_status(:created)
 
-        expect(json_response['lock'].keys).to match_array(%w(id path locked_at owner))
+        expect(json_response['lock'].keys).to match_array(%w[id path locked_at owner])
       end
     end
   end
@@ -103,7 +103,7 @@ RSpec.describe 'Git LFS File Locking API' do
       expect(response).to have_gitlab_http_status(:ok)
 
       expect(json_response['locks'].size).to eq(2)
-      expect(json_response['locks'].first.keys).to match_array(%w(id path locked_at owner))
+      expect(json_response['locks'].first.keys).to match_array(%w[id path locked_at owner])
     end
   end
 
@@ -143,7 +143,7 @@ RSpec.describe 'Git LFS File Locking API' do
       it 'returns the deleted lock' do
         post_lfs_json url, nil, headers
 
-        expect(json_response['lock'].keys).to match_array(%w(id path locked_at owner))
+        expect(json_response['lock'].keys).to match_array(%w[id path locked_at owner])
       end
 
       context 'when a maintainer uses force' do

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Destroying a package' do
+RSpec.describe 'Destroying a package', feature_category: :package_registry do
   using RSpec::Parameterized::TableSyntax
 
   include GraphqlHelpers
@@ -33,6 +33,17 @@ RSpec.describe 'Destroying a package' do
 
       expect { mutation_request }
         .to change { ::Packages::Package.pending_destruction.count }.by(1)
+    end
+
+    context 'when npm package' do
+      let_it_be_with_reload(:package) { create(:npm_package) }
+
+      it 'enqueues the worker to sync a metadata cache' do
+        expect(Packages::Npm::CreateMetadataCacheWorker)
+          .to receive(:perform_async).with(project.id, package.name)
+
+        mutation_request
+      end
     end
 
     it_behaves_like 'returning response status', :success

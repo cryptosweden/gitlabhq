@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::DeployTokens do
+RSpec.describe API::DeployTokens, :aggregate_failures, feature_category: :continuous_delivery do
   let_it_be(:user)          { create(:user) }
   let_it_be(:creator)       { create(:user) }
   let_it_be(:project)       { create(:project, creator_id: creator.id) }
@@ -17,8 +17,14 @@ RSpec.describe API::DeployTokens do
 
   describe 'GET /deploy_tokens' do
     subject do
-      get api('/deploy_tokens', user)
+      get api('/deploy_tokens', user, admin_mode: admin_mode)
       response
+    end
+
+    let_it_be(:admin_mode) { false }
+
+    it_behaves_like 'GET request permissions for admin mode' do
+      let(:path) { '/deploy_tokens' }
     end
 
     context 'when unauthenticated' do
@@ -27,16 +33,9 @@ RSpec.describe API::DeployTokens do
       it { is_expected.to have_gitlab_http_status(:unauthorized) }
     end
 
-    context 'when authenticated as non-admin user' do
-      let(:user) { creator }
-
-      it { is_expected.to have_gitlab_http_status(:forbidden) }
-    end
-
     context 'when authenticated as admin' do
       let(:user) { create(:admin) }
-
-      it { is_expected.to have_gitlab_http_status(:ok) }
+      let_it_be(:admin_mode) { true }
 
       it 'returns all deploy tokens' do
         subject
@@ -44,35 +43,39 @@ RSpec.describe API::DeployTokens do
         token_ids = json_response.map { |token| token['id'] }
         expect(response).to include_pagination_headers
         expect(response).to match_response_schema('public_api/v4/deploy_tokens')
-        expect(token_ids).to match_array([
-          deploy_token.id,
-          revoked_deploy_token.id,
-          expired_deploy_token.id,
-          group_deploy_token.id,
-          revoked_group_deploy_token.id,
-          expired_group_deploy_token.id
-        ])
+        expect(token_ids).to match_array(
+          [
+            deploy_token.id,
+            revoked_deploy_token.id,
+            expired_deploy_token.id,
+            group_deploy_token.id,
+            revoked_group_deploy_token.id,
+            expired_group_deploy_token.id
+          ])
       end
 
       context 'and active=true' do
         it 'only returns active deploy tokens' do
-          get api('/deploy_tokens?active=true', user)
+          get api('/deploy_tokens?active=true', user, admin_mode: true)
 
           token_ids = json_response.map { |token| token['id'] }
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
-          expect(token_ids).to match_array([
-            deploy_token.id,
-            group_deploy_token.id
-          ])
+          expect(token_ids).to match_array(
+            [
+              deploy_token.id,
+              group_deploy_token.id
+            ])
         end
       end
     end
   end
 
   describe 'GET /projects/:id/deploy_tokens' do
+    let(:path) { "/projects/#{project.id}/deploy_tokens" }
+
     subject do
-      get api("/projects/#{project.id}/deploy_tokens", user)
+      get api(path, user)
       response
     end
 
@@ -110,11 +113,12 @@ RSpec.describe API::DeployTokens do
         subject
 
         token_ids = json_response.map { |token| token['id'] }
-        expect(token_ids).to match_array([
-          deploy_token.id,
-          expired_deploy_token.id,
-          revoked_deploy_token.id
-        ])
+        expect(token_ids).to match_array(
+          [
+            deploy_token.id,
+            expired_deploy_token.id,
+            revoked_deploy_token.id
+          ])
       end
 
       context 'and active=true' do
@@ -131,8 +135,10 @@ RSpec.describe API::DeployTokens do
   end
 
   describe 'GET /projects/:id/deploy_tokens/:token_id' do
+    let(:path) { "/projects/#{project.id}/deploy_tokens/#{deploy_token.id}" }
+
     subject do
-      get api("/projects/#{project.id}/deploy_tokens/#{deploy_token.id}", user)
+      get api(path, user)
       response
     end
 
@@ -180,8 +186,10 @@ RSpec.describe API::DeployTokens do
   end
 
   describe 'GET /groups/:id/deploy_tokens' do
+    let(:path) { "/groups/#{group.id}/deploy_tokens" }
+
     subject do
-      get api("/groups/#{group.id}/deploy_tokens", user)
+      get api(path, user)
       response
     end
 
@@ -238,8 +246,10 @@ RSpec.describe API::DeployTokens do
   end
 
   describe 'GET /groups/:id/deploy_tokens/:token_id' do
+    let(:path) { "/groups/#{group.id}/deploy_tokens/#{group_deploy_token.id}" }
+
     subject do
-      get api("/groups/#{group.id}/deploy_tokens/#{group_deploy_token.id}", user)
+      get api(path, user)
       response
     end
 
@@ -287,8 +297,10 @@ RSpec.describe API::DeployTokens do
   end
 
   describe 'DELETE /projects/:id/deploy_tokens/:token_id' do
+    let(:path) { "/projects/#{project.id}/deploy_tokens/#{deploy_token.id}" }
+
     subject do
-      delete api("/projects/#{project.id}/deploy_tokens/#{deploy_token.id}", user)
+      delete api(path, user)
       response
     end
 
@@ -343,7 +355,7 @@ RSpec.describe API::DeployTokens do
 
   context 'deploy token creation' do
     shared_examples 'creating a deploy token' do |entity, unauthenticated_response, authorized_role|
-      let(:expires_time) { 1.year.from_now }
+      let(:expires_time) { 1.year.from_now.to_datetime }
       let(:params) do
         {
           name: 'Foo',
@@ -383,6 +395,7 @@ RSpec.describe API::DeployTokens do
           expect(json_response['scopes']).to eq(['read_repository'])
           expect(json_response['username']).to eq('Bar')
           expect(json_response['expires_at'].to_time.to_i).to eq(expires_time.to_i)
+          expect(json_response['token']).to match(/gldt-[A-Za-z0-9_-]{20}/)
         end
 
         context 'with no optional params given' do
@@ -407,6 +420,14 @@ RSpec.describe API::DeployTokens do
         context 'with an invalid scope' do
           before do
             params[:scopes] = %w[read_repository all_access]
+          end
+
+          it { is_expected.to have_gitlab_http_status(:bad_request) }
+        end
+
+        context 'with an invalid expires_at date' do
+          before do
+            params[:expires_at] = 'foo'
           end
 
           it { is_expected.to have_gitlab_http_status(:bad_request) }
@@ -444,8 +465,10 @@ RSpec.describe API::DeployTokens do
   end
 
   describe 'DELETE /groups/:id/deploy_tokens/:token_id' do
+    let(:path) { "/groups/#{group.id}/deploy_tokens/#{group_deploy_token.id}" }
+
     subject do
-      delete api("/groups/#{group.id}/deploy_tokens/#{group_deploy_token.id}", user)
+      delete api(path, user)
       response
     end
 

@@ -29,9 +29,14 @@ module Gitlab
     class Event
       attr_reader :data
 
+      class << self
+        attr_accessor :json_schema_valid
+      end
+
       def initialize(data:)
-        validate_schema!(data)
-        @data = data
+        validate_schema!
+        validate_data!(data)
+        @data = data.with_indifferent_access
       end
 
       def schema
@@ -40,14 +45,32 @@ module Gitlab
 
       private
 
-      def validate_schema!(data)
+      def validate_schema!
+        if self.class.json_schema_valid.nil?
+          self.class.json_schema_valid = JSONSchemer.schema(Event.json_schema).valid?(schema)
+        end
+
+        return if self.class.json_schema_valid == true
+
+        raise Gitlab::EventStore::InvalidEvent, "Schema for event #{self.class} is invalid"
+      end
+
+      def validate_data!(data)
         unless data.is_a?(Hash)
           raise Gitlab::EventStore::InvalidEvent, "Event data must be a Hash"
         end
 
-        unless JSONSchemer.schema(schema).valid?(data.deep_stringify_keys)
-          raise Gitlab::EventStore::InvalidEvent, "Data for event #{self.class} does not match the defined schema: #{schema}"
+        errors = JSONSchemer.schema(schema).validate(data.deep_stringify_keys).map do |error|
+          JSONSchemer::Errors.pretty(error)
         end
+
+        unless errors.empty?
+          raise Gitlab::EventStore::InvalidEvent, "Data for event #{self.class} does not match the defined schema: #{errors.inspect}"
+        end
+      end
+
+      def self.json_schema
+        @json_schema ||= Gitlab::Json.parse(File.read(File.join(__dir__, 'json_schema_draft07.json')))
       end
     end
   end

@@ -2,17 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::ChildrenController do
+RSpec.describe Groups::ChildrenController, feature_category: :groups_and_projects do
   include ExternalAuthorizationServiceHelpers
 
-  let(:group) { create(:group, :public) }
-  let(:user) { create(:user) }
-  let!(:group_member) { create(:group_member, group: group, user: user) }
+  let_it_be(:group) { create(:group, :public) }
+  let_it_be(:user) { create(:user) }
+  let_it_be_with_reload(:group_member) { create(:group_member, group: group, user: user) }
 
   describe 'GET #index' do
     context 'for projects' do
-      let!(:public_project) { create(:project, :public, namespace: group) }
-      let!(:private_project) { create(:project, :private, namespace: group) }
+      let_it_be(:public_project) { create(:project, :public, namespace: group) }
+      let_it_be(:private_project) { create(:project, :private, namespace: group) }
 
       context 'as a user' do
         before do
@@ -47,10 +47,10 @@ RSpec.describe Groups::ChildrenController do
     end
 
     context 'for subgroups' do
-      let!(:public_subgroup) { create(:group, :public, parent: group) }
-      let!(:private_subgroup) { create(:group, :private, parent: group) }
-      let!(:public_project) { create(:project, :public, namespace: group) }
-      let!(:private_project) { create(:project, :private, namespace: group) }
+      let_it_be(:public_subgroup) { create(:group, :public, parent: group) }
+      let_it_be(:private_subgroup) { create(:group, :private, parent: group) }
+      let_it_be(:public_project) { create(:project, :public, namespace: group) }
+      let_it_be(:private_project) { create(:project, :private, namespace: group) }
 
       context 'as a user' do
         before do
@@ -197,6 +197,17 @@ RSpec.describe Groups::ChildrenController do
         end
       end
 
+      context 'sorting children' do
+        it 'allows sorting projects' do
+          project_1 = create(:project, :public, namespace: group, name: 'mobile')
+          project_2 = create(:project, :public, namespace: group, name: 'hardware')
+
+          get :index, params: { group_id: group.to_param, sort: 'name_asc' }, format: :json
+
+          expect(assigns(:children)).to eq([public_subgroup, project_2, project_1, public_project])
+        end
+      end
+
       context 'queries per rendered element', :request_store do
         # We need to make sure the following counts are preloaded
         # otherwise they will cause an extra query
@@ -222,13 +233,13 @@ RSpec.describe Groups::ChildrenController do
           control = ActiveRecord::QueryRecorder.new { get_list }
           _new_project = create(:project, :public, namespace: group)
 
-          expect { get_list }.not_to exceed_query_limit(control).with_threshold(expected_queries_per_project)
+          expect { get_list }.not_to exceed_query_limit(control).with_threshold(expected_queries_per_project + 1)
         end
 
         context 'when rendering hierarchies' do
           # When loading hierarchies we load the all the ancestors for matched projects
-          # in 2 separate queries
-          let(:extra_queries_for_hierarchies) { 2 }
+          # in 3 separate queries
+          let(:extra_queries_for_hierarchies) { 3 }
 
           def get_filtered_list
             get :index, params: { group_id: group.to_param, filter: 'filter' }, format: :json
@@ -269,15 +280,27 @@ RSpec.describe Groups::ChildrenController do
     end
 
     context 'pagination' do
-      let(:per_page) { 3 }
+      let_it_be(:per_page) { 3 }
 
       before do
         allow(Kaminari.config).to receive(:default_per_page).and_return(per_page)
       end
 
+      it 'rejects negative per_page parameter' do
+        get :index, params: { group_id: group.to_param, per_page: -1 }, format: :json
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+      end
+
+      it 'rejects non-numeric per_page parameter' do
+        get :index, params: { group_id: group.to_param, per_page: 'abc' }, format: :json
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+      end
+
       context 'with only projects' do
-        let!(:other_project) { create(:project, :public, namespace: group) }
-        let!(:first_page_projects) { create_list(:project, per_page, :public, namespace: group ) }
+        let_it_be(:other_project) { create(:project, :public, namespace: group) }
+        let_it_be(:first_page_projects) { create_list(:project, per_page, :public, namespace: group) }
 
         it 'has projects on the first page' do
           get :index, params: { group_id: group.to_param, sort: 'id_desc' }, format: :json
@@ -293,9 +316,9 @@ RSpec.describe Groups::ChildrenController do
       end
 
       context 'with subgroups and projects' do
-        let!(:first_page_subgroups) { create_list(:group, per_page, :public, parent: group) }
-        let!(:other_subgroup) { create(:group, :public, parent: group) }
-        let!(:next_page_projects) { create_list(:project, per_page, :public, namespace: group) }
+        let_it_be(:first_page_subgroups) { create_list(:group, per_page, :public, parent: group) }
+        let_it_be(:other_subgroup) { create(:group, :public, parent: group) }
+        let_it_be(:next_page_projects) { create_list(:project, per_page, :public, namespace: group) }
 
         it 'contains all subgroups' do
           get :index, params: { group_id: group.to_param, sort: 'id_asc' }, format: :json
@@ -310,8 +333,8 @@ RSpec.describe Groups::ChildrenController do
         end
 
         context 'with a mixed first page' do
-          let!(:first_page_subgroups) { [create(:group, :public, parent: group)] }
-          let!(:first_page_projects) { create_list(:project, per_page, :public, namespace: group) }
+          let_it_be(:first_page_subgroups) { [create(:group, :public, parent: group)] }
+          let_it_be(:first_page_projects) { create_list(:project, per_page, :public, namespace: group) }
 
           it 'correctly calculates the counts' do
             get :index, params: { group_id: group.to_param, sort: 'id_asc', page: 2 }, format: :json

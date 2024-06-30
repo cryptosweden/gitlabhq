@@ -56,13 +56,16 @@ export default {
 </script>
 
 <template>
-  <div :class="{ full: isFullWidth }" class="position-relative float-left pt-1 graph-side h-100">
+  <div
+    :class="{ full: isFullWidth }"
+    class="position-relative float-left pt-1 graph-side gl-h-full"
+  >
     <div
       :style="style"
       :class="[roundedClass, positionSideClass]"
       class="position-absolute bar js-graph-bar"
     ></div>
-    <span :class="textAlignmentClass" class="d-block pt-1 pr-1 count js-graph-count">
+    <span :class="textAlignmentClass" class="gl-block gl-pt-1 gl-px-1 count js-graph-count">
       {{ label }}
     </span>
   </div>

@@ -12,7 +12,7 @@ import {
   GlLoadingIcon,
   GlSearchBoxByType,
   GlSprintf,
-  GlTable,
+  GlTableLite,
 } from '@gitlab/ui';
 import { debounce } from 'lodash';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
@@ -45,7 +45,7 @@ export default {
     GlLoadingIcon,
     GlSearchBoxByType,
     GlSprintf,
-    GlTable,
+    GlTableLite,
   },
   currentUsername: gon.current_username,
   dropdownLabel,
@@ -254,13 +254,13 @@ export default {
       </gl-sprintf>
     </gl-alert>
 
-    <h3 class="page-title">{{ __('New Jira import') }}</h3>
+    <h1 class="page-title gl-font-size-h-display">{{ __('New Jira import') }}</h1>
 
     <hr />
 
     <form @submit="initiateJiraImport">
       <gl-form-group
-        class="row align-items-center"
+        class="row gl-align-items-center"
         :invalid-feedback="__('Please select a Jira project')"
         :label="__('Import from')"
         label-cols-sm="2"
@@ -269,7 +269,7 @@ export default {
         <gl-form-select
           id="jira-project-select"
           v-model="selectedProject"
-          data-qa-selector="jira_project_dropdown"
+          data-testid="jira-project-dropdown"
           class="mb-2"
           :options="jiraProjects"
           :state="selectState"
@@ -295,16 +295,19 @@ export default {
 
       <p>{{ $options.userMappingMessage }}</p>
 
-      <gl-table :fields="$options.tableConfig" :items="userMappings" fixed>
+      <gl-table-lite :fields="$options.tableConfig" :items="userMappings" fixed>
         <template #cell(arrow)>
           <gl-icon name="arrow-right" :aria-label="__('Will be mapped to')" />
         </template>
         <template #cell(gitlabUsername)="data">
           <gl-dropdown
             :text="data.value || $options.currentUsername"
-            class="w-100"
+            class="gl-w-full"
             :aria-label="
-              sprintf($options.dropdownLabel, { jiraDisplayName: data.item.jiraDisplayName })
+              /* eslint-disable @gitlab/vue-no-new-non-primitive-in-template */
+              sprintf($options.dropdownLabel, {
+                jiraDisplayName: data.item.jiraDisplayName,
+              }) /* eslint-enable @gitlab/vue-no-new-non-primitive-in-template */
             "
             @hide="resetDropdown"
           >
@@ -326,9 +329,9 @@ export default {
             </gl-dropdown-text>
           </gl-dropdown>
         </template>
-      </gl-table>
+      </gl-table-lite>
 
-      <gl-loading-icon v-if="isInitialLoadingState" size="sm" />
+      <gl-loading-icon v-if="isInitialLoadingState" size="lg" />
 
       <gl-button
         v-if="hasMoreUsers"
@@ -339,14 +342,14 @@ export default {
         {{ __('Load more users') }}
       </gl-button>
 
-      <div class="footer-block row-content-block d-flex justify-content-between">
+      <div class="footer-block row-content-block gl-flex justify-content-between">
         <gl-button
           type="submit"
           category="primary"
-          variant="success"
+          variant="confirm"
           class="js-no-auto-disable"
           :loading="isSubmitting"
-          data-qa-selector="jira_issues_import_button"
+          data-testid="jira-issues-import-button"
         >
           {{ __('Continue') }}
         </gl-button>

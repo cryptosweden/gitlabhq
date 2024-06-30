@@ -1,11 +1,10 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 
 require_relative '../../../../rubocop/cop/migration/schedule_async'
 
 RSpec.describe RuboCop::Cop::Migration::ScheduleAsync do
-  let(:cop) { described_class.new }
   let(:source) do
     <<~SOURCE
       def up

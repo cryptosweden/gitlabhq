@@ -7,25 +7,27 @@ module Gitlab
     extend self
 
     # Theme ID used when no `default_theme` configuration setting is provided.
-    APPLICATION_DEFAULT = 1
+    APPLICATION_DEFAULT = 3
+
+    # Theme ID previously used for dark mode theme
+    DEPRECATED_DARK_THEME_ID = 11
 
     # Struct class representing a single Theme
-    Theme = Struct.new(:id, :name, :css_class, :css_filename, :primary_color)
+    Theme = Struct.new(:id, :name, :css_class, :primary_color)
 
     # All available Themes
     def available_themes
       [
-        Theme.new(1, s_('NavigationTheme|Indigo'), 'ui-indigo', 'theme_indigo', '#292961'),
-        Theme.new(6, s_('NavigationTheme|Light Indigo'), 'ui-light-indigo', 'theme_light_indigo', '#4b4ba3'),
-        Theme.new(4, s_('NavigationTheme|Blue'), 'ui-blue', 'theme_blue', '#1a3652'),
-        Theme.new(7, s_('NavigationTheme|Light Blue'), 'ui-light-blue', 'theme_light_blue', '#2261a1'),
-        Theme.new(5, s_('NavigationTheme|Green'), 'ui-green', 'theme_green', '#0d4524'),
-        Theme.new(8, s_('NavigationTheme|Light Green'), 'ui-light-green', 'theme_light_green', '#156b39'),
-        Theme.new(9, s_('NavigationTheme|Red'), 'ui-red', 'theme_red', '#691a16'),
-        Theme.new(10, s_('NavigationTheme|Light Red'), 'ui-light-red', 'theme_light_red', '#a62e21'),
-        Theme.new(2, s_('NavigationTheme|Dark'), 'ui-dark', 'theme_dark', '#303030'),
-        Theme.new(3, s_('NavigationTheme|Light'), 'ui-light', 'theme_light', '#666'),
-        Theme.new(11, s_('NavigationTheme|Dark Mode (alpha)'), 'gl-dark', nil, '#303030')
+        Theme.new(1, s_('NavigationTheme|Indigo'), 'ui-indigo', '#222261'),
+        Theme.new(6, s_('NavigationTheme|Light Indigo'), 'ui-light-indigo', '#41419f'),
+        Theme.new(4, s_('NavigationTheme|Blue'), 'ui-blue', '#0b2640'),
+        Theme.new(7, s_('NavigationTheme|Light Blue'), 'ui-light-blue', '#145aa1'),
+        Theme.new(5, s_('NavigationTheme|Green'), 'ui-green', '#0e4328'),
+        Theme.new(8, s_('NavigationTheme|Light Green'), 'ui-light-green', '#1b653f'),
+        Theme.new(9, s_('NavigationTheme|Red'), 'ui-red', '#580d02'),
+        Theme.new(10, s_('NavigationTheme|Light Red'), 'ui-light-red', '#a02e1c'),
+        Theme.new(2, s_('NavigationTheme|Gray'), 'ui-gray', '#333238'),
+        Theme.new(3, s_('NavigationTheme|Neutral'), 'ui-neutral', '#ececef')
       ]
     end
 
@@ -81,7 +83,7 @@ module Gitlab
     end
 
     def self.valid_ids
-      available_themes.map(&:id)
+      available_themes.map(&:id) + [DEPRECATED_DARK_THEME_ID]
     end
 
     private

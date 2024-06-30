@@ -36,10 +36,6 @@ describe('Registry List', () => {
   const findScopedSlotFirstValue = (index) => findScopedSlots().at(index).find('span');
   const findScopedSlotIsSelectedValue = (index) => findScopedSlots().at(index).find('p');
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   describe('header', () => {
     it('renders the title passed in the prop', () => {
       mountComponent();
@@ -54,6 +50,28 @@ describe('Registry List', () => {
 
       it('exists', () => {
         expect(findSelectAll().exists()).toBe(true);
+        expect(findSelectAll().attributes('aria-label')).toBe('Select all');
+        expect(findSelectAll().attributes('disabled')).toBeUndefined();
+        expect(findSelectAll().attributes('indeterminate')).toBeUndefined();
+      });
+
+      it('sets disabled prop to true when items length is 0', () => {
+        mountComponent({ propsData: { ...defaultPropsData, items: [] } });
+
+        expect(findSelectAll().attributes('disabled')).toBeDefined();
+      });
+
+      it('when few are selected, sets indeterminate prop to true', async () => {
+        await findScopedSlotSelectButton(0).trigger('click');
+
+        expect(findSelectAll().attributes('indeterminate')).toBe('true');
+      });
+
+      it('when all are selected, sets the right checkbox label', async () => {
+        findSelectAll().vm.$emit('change', true);
+        await nextTick();
+
+        expect(findSelectAll().attributes('aria-label')).toBe('Unselect all');
       });
 
       it('select and unselect all', async () => {
@@ -63,7 +81,7 @@ describe('Registry List', () => {
         });
 
         // simulate selection
-        findSelectAll().vm.$emit('input', true);
+        findSelectAll().vm.$emit('change', true);
         await nextTick();
 
         // all rows selected
@@ -72,12 +90,12 @@ describe('Registry List', () => {
         });
 
         // simulate de-selection
-        findSelectAll().vm.$emit('input', '');
+        findSelectAll().vm.$emit('change', false);
         await nextTick();
 
         // no row is not selected
         items.forEach((item, index) => {
-          expect(findScopedSlotIsSelectedValue(index).text()).toBe('');
+          expect(findScopedSlotIsSelectedValue(index).text()).toBe('false');
         });
       });
     });
@@ -89,10 +107,21 @@ describe('Registry List', () => {
         expect(findDeleteSelected().text()).toBe(component.i18n.deleteSelected);
       });
 
-      it('is hidden when hiddenDelete is true', () => {
-        mountComponent({ propsData: { ...defaultPropsData, hiddenDelete: true } });
+      describe('when hiddenDelete is true', () => {
+        beforeEach(() => {
+          mountComponent({ propsData: { ...defaultPropsData, hiddenDelete: true } });
+        });
 
-        expect(findDeleteSelected().exists()).toBe(false);
+        it('is hidden', () => {
+          expect(findDeleteSelected().exists()).toBe(false);
+        });
+
+        it('populates the first slot prop correctly', () => {
+          expect(findScopedSlots().at(0).exists()).toBe(true);
+
+          // it's the first slot
+          expect(findScopedSlotFirstValue(0).text()).toBe('false');
+        });
       });
 
       it('is disabled when isLoading is true', () => {
@@ -156,31 +185,13 @@ describe('Registry List', () => {
       pagination = { hasPreviousPage: false, hasNextPage: true };
     });
 
-    it('has a pagination', () => {
+    it('has pagination', () => {
       mountComponent({
         propsData: { ...defaultPropsData, pagination },
       });
 
       expect(findPagination().props()).toMatchObject(pagination);
     });
-
-    it.each`
-      hasPreviousPage | hasNextPage | visible
-      ${true}         | ${true}     | ${true}
-      ${true}         | ${false}    | ${true}
-      ${false}        | ${true}     | ${true}
-      ${false}        | ${false}    | ${false}
-    `(
-      'when hasPreviousPage is $hasPreviousPage and hasNextPage is $hasNextPage is $visible that the pagination is shown',
-      ({ hasPreviousPage, hasNextPage, visible }) => {
-        pagination = { hasPreviousPage, hasNextPage };
-        mountComponent({
-          propsData: { ...defaultPropsData, pagination },
-        });
-
-        expect(findPagination().exists()).toBe(visible);
-      },
-    );
 
     it('pagination emits the correct events', () => {
       mountComponent({

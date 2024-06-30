@@ -1,18 +1,21 @@
 ---
-type: reference, howto
 stage: Manage
-group: Import
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Import and Integrate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Migrating from ClearCase **(FREE)**
+# Migrating from ClearCase
 
-[ClearCase](https://www.ibm.com/products/rational-clearcase) is a set of
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+[ClearCase](https://www.ibm.com/products/devops-code-clearcase) is a set of
 tools developed by IBM which also include a centralized version control system
 similar to Git.
 
-A good read of ClearCase's basic concepts is can be found in this [StackOverflow
-post](https://stackoverflow.com/a/645771/974710).
+A good read of ClearCase's basic concepts is can be found in this
+[StackOverflow post](https://stackoverflow.com/a/645771/974710).
 
 The following table illustrates the main differences between ClearCase and Git:
 
@@ -26,8 +29,6 @@ The following table illustrates the main differences between ClearCase and Git:
 | Client | CLI, Eclipse, CC Client | CLI, Eclipse, Git client/GUIs |
 | Server | UNIX, Windows legacy systems | UNIX, macOS |
 | License | Proprietary | GPL |
-
-_Taken from the slides [ClearCase and the journey to Git](https://docplayer.net/42708453-Clearcase-the-journey-to-git-migrating-your-skills-and-vobs-to-git.html) provided by [collab.net](https://www.collab.net/)_
 
 ## Why migrate
 
@@ -47,7 +48,7 @@ While there doesn't exist a tool to fully migrate from ClearCase to Git, here
 are some useful links to get you started:
 
 - [Bridge for Git and ClearCase](https://github.com/charleso/git-cc)
-- [Slides "ClearCase and the journey to Git"](https://docplayer.net/42708453-Clearcase-the-journey-to-git-migrating-your-skills-and-vobs-to-git.html)
+
 - [ClearCase to Git](https://therub.org/2013/07/19/clearcase-to-git/)
 - [Dual syncing ClearCase to Git](https://therub.org/2013/10/22/dual-syncing-clearcase-and-git/)
 - [Moving to Git from ClearCase](https://sateeshkumarb.wordpress.com/2011/01/15/moving-to-git-from-clearcase/)

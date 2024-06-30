@@ -1,50 +1,86 @@
-import initTree from 'ee_else_ce/repository';
-import Activities from '~/activities';
+import Vue from 'vue';
+import { addShortcutsExtension } from '~/behaviors/shortcuts';
 import ShortcutsNavigation from '~/behaviors/shortcuts/shortcuts_navigation';
-import { BlobViewer } from '~/blob/viewer';
-import { initUploadForm } from '~/blob_edit/blob_bundle';
-import initInviteMembersModal from '~/invite_members/init_invite_members_modal';
-import initInviteMembersTrigger from '~/invite_members/init_invite_members_trigger';
+import { initFindFileShortcut } from '~/projects/behaviors';
+import initClustersDeprecationAlert from '~/projects/clusters_deprecation_alert';
 import leaveByUrl from '~/namespaces/leave_by_url';
-import initVueNotificationsDropdown from '~/notifications';
-import Star from '~/projects/star';
+import initTerraformNotification from '~/projects/terraform_notification';
 import { initUploadFileTrigger } from '~/projects/upload_file';
 import initReadMore from '~/read_more';
-import UserCallout from '~/user_callout';
-
-initReadMore();
-new Star(); // eslint-disable-line no-new
-
-// eslint-disable-next-line no-new
-new UserCallout({
-  setCalloutPerProject: false,
-  className: 'js-autodevops-banner',
-});
+import initAmbiguousRefModal from '~/ref/init_ambiguous_ref_modal';
+import CodeDropdown from '~/vue_shared/components/code_dropdown/code_dropdown.vue';
+import initSourceCodeDropdowns from '~/vue_shared/components/download_dropdown/init_download_dropdowns';
+import { initHomePanel } from '../home_panel';
 
 // Project show page loads different overview content based on user preferences
-
-if (document.querySelector('.js-upload-blob-form')) {
-  initUploadForm();
-}
-
 if (document.getElementById('js-tree-list')) {
-  initTree();
+  import(/* webpackChunkName: 'treeList' */ 'ee_else_ce/repository')
+    .then(({ default: initTree }) => {
+      initTree();
+    })
+    .catch(() => {});
 }
 
 if (document.querySelector('.blob-viewer')) {
-  new BlobViewer(); // eslint-disable-line no-new
+  import(/* webpackChunkName: 'blobViewer' */ '~/blob/viewer')
+    .then(({ BlobViewer }) => {
+      new BlobViewer(); // eslint-disable-line no-new
+    })
+    .catch(() => {});
 }
 
 if (document.querySelector('.project-show-activity')) {
-  new Activities(); // eslint-disable-line no-new
+  import(/* webpackChunkName: 'activitiesList' */ '~/activities')
+    .then(({ default: Activities }) => {
+      new Activities(); // eslint-disable-line no-new
+    })
+    .catch(() => {});
+}
+
+addShortcutsExtension(ShortcutsNavigation);
+
+initUploadFileTrigger();
+initClustersDeprecationAlert();
+initTerraformNotification();
+initReadMore();
+initAmbiguousRefModal();
+initHomePanel();
+
+if (document.querySelector('.js-autodevops-banner')) {
+  import(/* webpackChunkName: 'userCallOut' */ '~/user_callout')
+    .then(({ default: UserCallout }) => {
+      // eslint-disable-next-line no-new
+      new UserCallout({
+        setCalloutPerProject: false,
+        className: 'js-autodevops-banner',
+      });
+    })
+    .catch(() => {});
 }
 
 leaveByUrl('project');
 
-initVueNotificationsDropdown();
+const initCodeDropdown = () => {
+  const codeDropdownEl = document.querySelector('#js-project-show-empty-page #js-code-dropdown');
 
-new ShortcutsNavigation(); // eslint-disable-line no-new
+  if (!codeDropdownEl) return false;
 
-initUploadFileTrigger();
-initInviteMembersModal();
-initInviteMembersTrigger();
+  const { sshUrl, httpUrl, kerberosUrl } = codeDropdownEl.dataset;
+
+  return new Vue({
+    el: codeDropdownEl,
+    render(createElement) {
+      return createElement(CodeDropdown, {
+        props: {
+          sshUrl,
+          httpUrl,
+          kerberosUrl,
+        },
+      });
+    },
+  });
+};
+
+initCodeDropdown();
+initSourceCodeDropdowns();
+initFindFileShortcut();

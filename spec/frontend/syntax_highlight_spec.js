@@ -1,14 +1,10 @@
-/* eslint-disable no-return-assign */
-
 import $ from 'jquery';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import syntaxHighlight from '~/syntax_highlight';
 
 describe('Syntax Highlighter', () => {
   const stubUserColorScheme = (value) => {
-    if (window.gon == null) {
-      window.gon = {};
-    }
-    return (window.gon.user_color_scheme = value);
+    window.gon.user_color_scheme = value;
   };
 
   // We have to bind `document.querySelectorAll` to `document` to not mess up the fn's context
@@ -20,7 +16,11 @@ describe('Syntax Highlighter', () => {
   `('highlight using $desc syntax', ({ fn }) => {
     describe('on a js-syntax-highlight element', () => {
       beforeEach(() => {
-        setFixtures('<div class="js-syntax-highlight"></div>');
+        setHTMLFixture('<div class="js-syntax-highlight"></div>');
+      });
+
+      afterEach(() => {
+        resetHTMLFixture();
       });
 
       it('applies syntax highlighting', () => {
@@ -33,9 +33,13 @@ describe('Syntax Highlighter', () => {
 
     describe('on a parent element', () => {
       beforeEach(() => {
-        setFixtures(
+        setHTMLFixture(
           '<div class="parent">\n  <div class="js-syntax-highlight"></div>\n  <div class="foo"></div>\n  <div class="js-syntax-highlight"></div>\n</div>',
         );
+      });
+
+      afterEach(() => {
+        resetHTMLFixture();
       });
 
       it('applies highlighting to all applicable children', () => {
@@ -49,7 +53,7 @@ describe('Syntax Highlighter', () => {
       });
 
       it('prevents an infinite loop when no matches exist', () => {
-        setFixtures('<div></div>');
+        setHTMLFixture('<div></div>');
         const highlight = () => syntaxHighlight(fn('div'));
 
         expect(highlight).not.toThrow();

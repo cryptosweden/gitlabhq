@@ -1,11 +1,14 @@
 ---
-stage: Release
-group: Release
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: concepts, howto
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Incremental rollouts with GitLab CI/CD **(FREE)**
+# Incremental rollouts with GitLab CI/CD
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 When rolling out changes to your application, it is possible to release production changes
 to only a portion of your Kubernetes pods as a risk mitigation strategy. By releasing
@@ -22,9 +25,9 @@ Manual and Timed rollouts are included automatically in projects controlled by
 [Auto DevOps](../../topics/autodevops/index.md), but they are also configurable through
 GitLab CI/CD in the `.gitlab-ci.yml` configuration file.
 
-Manually triggered rollouts can be implemented with your [Continuous Delivery](../introduction/index.md#continuous-delivery)
-methodology, while timed rollouts do not require intervention and can be part of your
-[Continuous Deployment](../introduction/index.md#continuous-deployment) strategy.
+Manually triggered rollouts can be implemented with Continuous Delivery,
+while timed rollouts do not require intervention and can be part of your
+Continuous Deployment strategy.
 You can also combine both of them in a way that the app is deployed automatically
 unless you eventually intervene manually if necessary.
 
@@ -63,12 +66,9 @@ rollout 10%:
     ROLLOUT_PERCENTAGE: 10
 ```
 
-When the jobs are built, a **play** button appears next to the job's name. Click the **play** button
+After the jobs are built, select **Run** (**{play}**) next to the job's name
 to release each stage of pods. You can also rollback by running a lower percentage job. Once 100%
-is reached, you cannot roll back using this method. It is still possible to roll back by redeploying
-the old version using the **Rollback** button on the environment page.
-
-![Play button](img/incremental_rollouts_play_v12_7.png)
+is reached, you cannot roll back using this method. To roll back a deployment, see [retry or roll back a deployment](../../ci/environments/index.md#retry-or-roll-back-a-deployment).
 
 A [deployable application](https://gitlab.com/gl-release/incremental-rollout-example) is
 available, demonstrating manually triggered incremental rollouts.
@@ -76,7 +76,7 @@ available, demonstrating manually triggered incremental rollouts.
 ## Timed Rollouts
 
 Timed rollouts behave in the same way as manual rollouts, except that each job is defined with a
-delay in minutes before it deploys. Clicking the job reveals the countdown.
+delay in minutes before it deploys. Selecting the job reveals the countdown.
 
 ![Timed rollout](img/timed_rollout_v12_7.png)
 
@@ -114,7 +114,7 @@ available, [demonstrating configuration of timed rollouts](https://gitlab.com/gl
 ## Blue-Green Deployment
 
 NOTE:
-As of GitLab 13.7, teams can leverage an Ingress annotation and [set traffic weight](../../user/project/canary_deployments.md#how-to-change-the-traffic-weight-on-a-canary-ingress)
+Teams can leverage an Ingress annotation and [set traffic weight](../../user/project/canary_deployments.md#how-to-change-the-traffic-weight-on-a-canary-ingress-deprecated)
 as an alternative approach to the blue-green deployment strategy documented here.
 
 Also sometimes known as A/B deployment or red-black deployment, this technique is used to reduce

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Sidebars::Groups::Menus::CiCdMenu do
+RSpec.describe Sidebars::Groups::Menus::CiCdMenu, feature_category: :navigation do
   let_it_be(:owner) { create(:user) }
   let_it_be(:root_group) do
     build(:group, :private).tap do |g|
@@ -21,14 +21,6 @@ RSpec.describe Sidebars::Groups::Menus::CiCdMenu do
       let(:item_id) { :runners }
 
       specify { is_expected.not_to be_nil }
-
-      describe 'when feature flag :runner_list_group_view_vue_ui is disabled' do
-        before do
-          stub_feature_flags(runner_list_group_view_vue_ui: false)
-        end
-
-        specify { is_expected.to be_nil }
-      end
 
       describe 'when the user does not have access' do
         let(:user) { nil }

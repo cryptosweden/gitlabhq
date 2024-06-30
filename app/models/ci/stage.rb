@@ -2,22 +2,64 @@
 
 module Ci
   class Stage < Ci::ApplicationRecord
-    include Importable
+    include Ci::Partitionable
     include Ci::HasStatus
+    include Importable
     include Gitlab::OptimisticLocking
     include Presentable
+
+    self.table_name = :p_ci_stages
+    self.primary_key = :id
+    self.sequence_name = :ci_job_stages_id_seq
+
+    query_constraints :id, :partition_id
+    partitionable scope: :pipeline, partitioned: true
 
     enum status: Ci::HasStatus::STATUSES_ENUM
 
     belongs_to :project
-    belongs_to :pipeline
+    belongs_to :pipeline, ->(stage) { in_partition(stage) },
+      foreign_key: :pipeline_id, partition_foreign_key: :partition_id, inverse_of: :stages
 
-    has_many :statuses, class_name: 'CommitStatus', foreign_key: :stage_id
-    has_many :latest_statuses, -> { ordered.latest }, class_name: 'CommitStatus', foreign_key: :stage_id
-    has_many :retried_statuses, -> { ordered.retried }, class_name: 'CommitStatus', foreign_key: :stage_id
-    has_many :processables, class_name: 'Ci::Processable', foreign_key: :stage_id
-    has_many :builds, foreign_key: :stage_id
-    has_many :bridges, foreign_key: :stage_id
+    has_many :statuses,
+      ->(stage) { in_partition(stage) },
+      class_name: 'CommitStatus',
+      foreign_key: :stage_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :ci_stage
+    has_many :latest_statuses,
+      ->(stage) { in_partition(stage).ordered.latest },
+      class_name: 'CommitStatus',
+      foreign_key: :stage_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :ci_stage
+    has_many :retried_statuses,
+      ->(stage) { in_partition(stage).ordered.retried },
+      class_name: 'CommitStatus',
+      foreign_key: :stage_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :ci_stage
+    has_many :processables,
+      ->(stage) { in_partition(stage) },
+      class_name: 'Ci::Processable',
+      foreign_key: :stage_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :ci_stage
+    has_many :builds,
+      ->(stage) { in_partition(stage) },
+      foreign_key: :stage_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :ci_stage
+    has_many :bridges,
+      ->(stage) { in_partition(stage) },
+      foreign_key: :stage_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :ci_stage
+    has_many :generic_commit_statuses,
+      ->(stage) { in_partition(stage) },
+      foreign_key: :stage_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :ci_stage
 
     scope :ordered, -> { order(position: :asc) }
     scope :in_pipelines, ->(pipelines) { where(pipeline: pipelines) }
@@ -62,6 +104,10 @@ module Ci
         transition any - [:running] => :running
       end
 
+      event :wait_for_callback do
+        transition any - [:waiting_for_callback] => :waiting_for_callback
+      end
+
       event :skip do
         transition any - [:skipped] => :skipped
       end
@@ -72,6 +118,10 @@ module Ci
 
       event :succeed do
         transition any - [:success] => :success
+      end
+
+      event :start_cancel do
+        transition any - [:canceling, :canceled] => :canceling
       end
 
       event :cancel do
@@ -87,27 +137,31 @@ module Ci
       end
     end
 
+    # rubocop: disable Metrics/CyclomaticComplexity -- breaking apart hurts readability, consider refactoring issue #439268
     def set_status(new_status)
       retry_optimistic_lock(self, name: 'ci_stage_set_status') do
         case new_status
         when 'created' then nil
         when 'waiting_for_resource' then request_resource
         when 'preparing' then prepare
+        when 'waiting_for_callback' then wait_for_callback
         when 'pending' then enqueue
         when 'running' then run
         when 'success' then succeed
         when 'failed' then drop
+        when 'canceling' then start_cancel
         when 'canceled' then cancel
         when 'manual' then block
         when 'scheduled' then delay
         when 'skipped', nil then skip
         else
-          raise Ci::HasStatus::UnknownStatusError,
-                "Unknown status `#{new_status}`"
+          raise Ci::HasStatus::UnknownStatusError, "Unknown status `#{new_status}`"
         end
       end
     end
+    # rubocop: enable Metrics/CyclomaticComplexity
 
+    # This will be removed with ci_remove_ensure_stage_service
     def update_legacy_status
       set_status(latest_stage_status.to_s)
     end
@@ -141,8 +195,16 @@ module Ci
       blocked? || skipped?
     end
 
+    # We only check jobs that are played by `Ci::PlayManualStageService`.
+    def confirm_manual_job?
+      processables.manual.any? do |job|
+        job.playable? && job.manual_confirmation_message
+      end
+    end
+
+    # This will be removed with ci_remove_ensure_stage_service
     def latest_stage_status
-      statuses.latest.composite_status(project: project) || 'skipped'
+      statuses.latest.composite_status || 'skipped'
     end
   end
 end

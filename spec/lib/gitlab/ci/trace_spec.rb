@@ -2,15 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Trace, :clean_gitlab_redis_shared_state, factory_default: :keep do
-  let_it_be(:project) { create_default(:project).freeze }
+RSpec.describe Gitlab::Ci::Trace, :clean_gitlab_redis_shared_state, factory_default: :keep, feature_category: :continuous_integration do
+  let_it_be(:project) { create_default(:project, :allow_runner_registration_token).freeze }
   let_it_be_with_reload(:build) { create(:ci_build, :success) }
 
   let(:trace) { described_class.new(build) }
 
   describe "associations" do
     it { expect(trace).to respond_to(:job) }
-    it { expect(trace).to delegate_method(:old_trace).to(:job) }
   end
 
   context 'when trace is migrated to object storage' do
@@ -75,7 +74,7 @@ RSpec.describe Gitlab::Ci::Trace, :clean_gitlab_redis_shared_state, factory_defa
       trace.being_watched!
 
       result = Gitlab::Redis::SharedState.with do |redis|
-        redis.exists(cache_key)
+        redis.exists?(cache_key)
       end
 
       expect(result).to eq(true)

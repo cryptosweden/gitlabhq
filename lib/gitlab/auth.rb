@@ -3,13 +3,26 @@
 module Gitlab
   module Auth
     MissingPersonalAccessTokenError = Class.new(StandardError)
-    IpBlacklisted = Class.new(StandardError)
+
+    # Scopes used for GitLab internal API (Kubernetes cluster access)
+    K8S_PROXY_SCOPE = :k8s_proxy
 
     # Scopes used for GitLab API access
     API_SCOPE = :api
     READ_API_SCOPE = :read_api
     READ_USER_SCOPE = :read_user
-    API_SCOPES = [API_SCOPE, READ_API_SCOPE, READ_USER_SCOPE].freeze
+    CREATE_RUNNER_SCOPE = :create_runner
+    MANAGE_RUNNER_SCOPE = :manage_runner
+    API_SCOPES = [
+      API_SCOPE, READ_API_SCOPE,
+      READ_USER_SCOPE,
+      CREATE_RUNNER_SCOPE, MANAGE_RUNNER_SCOPE,
+      K8S_PROXY_SCOPE
+    ].freeze
+
+    # Scopes for Duo
+    AI_FEATURES = :ai_features
+    AI_FEATURES_SCOPES = [AI_FEATURES].freeze
 
     PROFILE_SCOPE = :profile
     EMAIL_SCOPE = :email
@@ -29,9 +42,19 @@ module Gitlab
     WRITE_REGISTRY_SCOPE = :write_registry
     REGISTRY_SCOPES = [READ_REGISTRY_SCOPE, WRITE_REGISTRY_SCOPE].freeze
 
+    # Scopes used for GitLab Observability access which is outside of the GitLab app itself.
+    # Hence the lack of ability mapping in `abilities_for_scopes`.
+    READ_OBSERVABILITY_SCOPE = :read_observability
+    WRITE_OBSERVABILITY_SCOPE = :write_observability
+    OBSERVABILITY_SCOPES = [READ_OBSERVABILITY_SCOPE, WRITE_OBSERVABILITY_SCOPE].freeze
+
+    # Scopes for Monitor access
+    READ_SERVICE_PING_SCOPE = :read_service_ping
+
     # Scopes used for GitLab as admin
     SUDO_SCOPE = :sudo
-    ADMIN_SCOPES = [SUDO_SCOPE].freeze
+    ADMIN_MODE_SCOPE = :admin_mode
+    ADMIN_SCOPES = [SUDO_SCOPE, ADMIN_MODE_SCOPE, READ_SERVICE_PING_SCOPE].freeze
 
     # Default scopes for OAuth applications that don't define their own
     DEFAULT_SCOPES = [API_SCOPE].freeze
@@ -45,12 +68,12 @@ module Gitlab
         Gitlab.config.omniauth.enabled
       end
 
-      def find_for_git_client(login, password, project:, ip:)
-        raise "Must provide an IP for rate limiting" if ip.nil?
+      def find_for_git_client(login, password, project:, request:)
+        raise "Must provide an IP for rate limiting" if request.ip.nil?
 
-        rate_limiter = Gitlab::Auth::IpRateLimiter.new(ip)
+        rate_limiter = Gitlab::Auth::IpRateLimiter.new(request.ip)
 
-        raise IpBlacklisted if !skip_rate_limit?(login: login) && rate_limiter.banned?
+        raise IpBlocked if !skip_rate_limit?(login: login) && rate_limiter.banned?
 
         # `user_with_password_for_git` should be the last check
         # because it's the most expensive, especially when LDAP
@@ -59,13 +82,13 @@ module Gitlab
           service_request_check(login, password, project) ||
           build_access_token_check(login, password) ||
           lfs_token_check(login, password, project) ||
-          oauth_access_token_check(login, password) ||
+          oauth_access_token_check(password) ||
           personal_access_token_check(password, project) ||
           deploy_token_check(login, password, project) ||
           user_with_password_for_git(login, password) ||
           Gitlab::Auth::Result::EMPTY
 
-        rate_limit!(rate_limiter, success: result.success?, login: login)
+        rate_limit!(rate_limiter, success: result.success?, login: login, request: request)
         look_to_limit_user(result.actor)
 
         return result if result.success? || authenticate_using_internal_or_ldap_password?
@@ -92,7 +115,7 @@ module Gitlab
         return unless authenticate_using_internal_or_ldap_password?
 
         Gitlab::Auth::UniqueIpsLimiter.limit_user! do
-          user = User.by_login(login)
+          user = User.find_by_login(login)
 
           break if user && !user.can_log_in_with_non_expired_password?
 
@@ -127,7 +150,7 @@ module Gitlab
 
       private
 
-      def rate_limit!(rate_limiter, success:, login:)
+      def rate_limit!(rate_limiter, success:, login:, request:)
         return if skip_rate_limit?(login: login)
 
         if success
@@ -135,15 +158,23 @@ module Gitlab
           # it is important to reset the ban counter once the client has proven
           # they are not a 'bad guy'.
           rate_limiter.reset!
-        else
+        elsif rate_limiter.register_fail!
           # Register a login failure so that Rack::Attack can block the next
           # request from this IP if needed.
           # This returns true when the failures are over the threshold and the IP
           # is banned.
-          if rate_limiter.register_fail!
-            Gitlab::AppLogger.info "IP #{rate_limiter.ip} failed to login " \
-              "as #{login} but has been temporarily banned from Git auth"
-          end
+
+          message = "Rack_Attack: Git auth failures has exceeded the threshold. " \
+            "IP has been temporarily banned from Git auth."
+
+          Gitlab::AuthLogger.error(
+            message: message,
+            env: :blocklist,
+            remote_ip: request.ip,
+            request_method: request.request_method,
+            path: request.fullpath,
+            login: login
+          )
         end
       end
 
@@ -191,8 +222,8 @@ module Gitlab
         Gitlab::Auth::Result.new(user, nil, :gitlab_or_ldap, full_authentication_abilities)
       end
 
-      def oauth_access_token_check(login, password)
-        if login == "oauth2" && password.present?
+      def oauth_access_token_check(password)
+        if password.present?
           token = Doorkeeper::AccessToken.by_token(password)
 
           if valid_oauth_token?(token)
@@ -216,31 +247,23 @@ module Gitlab
 
         return unless valid_scoped_token?(token, all_available_scopes)
 
-        if project && token.user.project_bot?
-          return unless token_bot_in_resource?(token.user, project)
+        if project && (token.user.project_bot? || token.user.service_account?)
+          return unless can_read_project?(token.user, project)
         end
 
-        if token.user.can_log_in_with_non_expired_password? || token.user.project_bot?
+        if token.user.can_log_in_with_non_expired_password? || (token.user.project_bot? || token.user.service_account?)
+          ::PersonalAccessTokens::LastUsedService.new(token).execute
+
           Gitlab::Auth::Result.new(token.user, nil, :personal_access_token, abilities_for_scopes(token.scopes))
         end
       end
 
-      def token_bot_in_project?(user, project)
-        project.bots.include?(user)
+      def can_read_project?(user, project)
+        user.can?(:read_project, project)
       end
 
-      # rubocop: disable CodeReuse/ActiveRecord
-
-      # A workaround for adding group-level automation is to add the bot user of a project access token as a group member.
-      # In order to make project access tokens work this way during git authentication, we need to add an additional check for group membership.
-      # This is a temporary workaround until service accounts are implemented.
-      def token_bot_in_group?(user, project)
-        project.group && project.group.members_with_parents.where(user_id: user.id).exists?
-      end
-      # rubocop: enable CodeReuse/ActiveRecord
-
-      def token_bot_in_resource?(user, project)
-        token_bot_in_project?(user, project) || token_bot_in_group?(user, project)
+      def bot_user_can_read_project?(user, project)
+        (user.project_bot? || user.service_account? || user.security_policy_bot?) && can_read_project?(user, project)
       end
 
       def valid_oauth_token?(token)
@@ -255,10 +278,12 @@ module Gitlab
         abilities_by_scope = {
           api: full_authentication_abilities,
           read_api: read_only_authentication_abilities,
-          read_registry: [:read_container_image],
-          write_registry: [:create_container_image],
-          read_repository: [:download_code],
-          write_repository: [:download_code, :push_code]
+          read_registry: %i[read_container_image],
+          write_registry: %i[create_container_image],
+          read_repository: %i[download_code],
+          write_repository: %i[download_code push_code],
+          create_runner: %i[create_instance_runner create_runner],
+          manage_runner: %i[assign_runner update_runner delete_runner]
         }
 
         scopes.flat_map do |scope|
@@ -287,13 +312,15 @@ module Gitlab
       end
 
       def lfs_token_check(login, encoded_token, project)
+        return unless login
+
         deploy_key_matches = login.match(/\Alfs\+deploy-key-(\d+)\z/)
 
         actor =
           if deploy_key_matches
             DeployKey.find(deploy_key_matches[1])
           else
-            User.by_login(login)
+            User.find_by_login(login)
           end
 
         return unless actor
@@ -323,7 +350,7 @@ module Gitlab
         return unless build.project.builds_enabled?
 
         if build.user
-          return unless build.user.can_log_in_with_non_expired_password? || (build.user.project_bot? && token_bot_in_resource?(build.user, build.project))
+          return unless build.user.can_log_in_with_non_expired_password? || bot_user_can_read_project?(build.user, build.project)
 
           # If user is assigned to build, use restricted credentials of user
           Gitlab::Auth::Result.new(build.user, build.project, :build, build_authentication_abilities)
@@ -339,6 +366,7 @@ module Gitlab
         [
           :read_project,
           :build_download_code,
+          :build_push_code,
           :build_read_container_image,
           :build_create_container_image,
           :build_destroy_container_image
@@ -377,10 +405,8 @@ module Gitlab
         ]
       end
 
-      def available_scopes_for(current_user)
-        scopes = non_admin_available_scopes
-        scopes += ADMIN_SCOPES if current_user.admin?
-        scopes
+      def available_scopes_for(resource)
+        available_scopes_for_resource(resource) - unavailable_scopes_for_resource(resource)
       end
 
       def all_available_scopes
@@ -399,13 +425,41 @@ module Gitlab
       end
 
       def resource_bot_scopes
-        Gitlab::Auth::API_SCOPES + Gitlab::Auth::REPOSITORY_SCOPES + Gitlab::Auth.registry_scopes - [:read_user]
+        non_admin_available_scopes - [READ_USER_SCOPE]
       end
 
       private
 
+      def available_scopes_for_resource(resource)
+        case resource
+        when User
+          scopes = non_admin_available_scopes
+
+          if resource.admin? # rubocop: disable Cop/UserAdmin
+            scopes += ADMIN_SCOPES
+          end
+
+          scopes
+        when Project, Group
+          resource_bot_scopes
+        else
+          []
+        end
+      end
+
+      def unavailable_scopes_for_resource(resource)
+        unavailable_observability_scopes_for_resource(resource)
+      end
+
+      def unavailable_observability_scopes_for_resource(resource)
+        return [] if (resource.is_a?(Project) || resource.is_a?(Group)) &&
+          Gitlab::Observability.should_enable_observability_auth_scopes?(resource)
+
+        OBSERVABILITY_SCOPES
+      end
+
       def non_admin_available_scopes
-        API_SCOPES + REPOSITORY_SCOPES + registry_scopes
+        API_SCOPES + REPOSITORY_SCOPES + registry_scopes + OBSERVABILITY_SCOPES + AI_FEATURES_SCOPES
       end
 
       def find_build_by_token(token)

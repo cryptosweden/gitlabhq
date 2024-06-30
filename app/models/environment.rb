@@ -6,97 +6,162 @@ class Environment < ApplicationRecord
   include FastDestroyAll::Helpers
   include Presentable
   include NullifyIfBlank
+  include FromUnion
+
+  LONG_STOP = 1.week
 
   self.reactive_cache_refresh_interval = 1.minute
   self.reactive_cache_lifetime = 55.seconds
   self.reactive_cache_hard_limit = 10.megabytes
   self.reactive_cache_work_type = :external_dependency
 
-  belongs_to :project, required: true
+  belongs_to :project, optional: false
+  belongs_to :merge_request, optional: true
+  belongs_to :cluster_agent, class_name: 'Clusters::Agent', optional: true, inverse_of: :environments
 
   use_fast_destroy :all_deployments
-  nullify_if_blank :external_url
+  nullify_if_blank :external_url, :kubernetes_namespace, :flux_resource_path
 
   has_many :all_deployments, class_name: 'Deployment'
   has_many :deployments, -> { visible }
   has_many :successful_deployments, -> { success }, class_name: 'Deployment'
   has_many :active_deployments, -> { active }, class_name: 'Deployment'
   has_many :prometheus_alerts, inverse_of: :environment
-  has_many :metrics_dashboard_annotations, class_name: 'Metrics::Dashboard::Annotation', inverse_of: :environment
-  has_many :self_managed_prometheus_alert_events, inverse_of: :environment
   has_many :alert_management_alerts, class_name: 'AlertManagement::Alert', inverse_of: :environment
 
-  has_one :last_deployment, -> { success.distinct_on_environment }, class_name: 'Deployment', inverse_of: :environment
-  has_one :last_visible_deployment, -> { visible.distinct_on_environment }, inverse_of: :environment, class_name: 'Deployment'
-  has_one :last_visible_deployable, through: :last_visible_deployment, source: 'deployable', source_type: 'CommitStatus', disable_joins: true
-  has_one :last_visible_pipeline, through: :last_visible_deployable, source: 'pipeline', disable_joins: true
+  # NOTE: If you preload multiple last deployments of environments, use Preloaders::Environments::DeploymentPreloader.
+  has_one :last_deployment, -> { success.ordered }, class_name: 'Deployment', inverse_of: :environment
+  has_one :last_finished_deployment, -> { finished.ordered }, class_name: 'Deployment', inverse_of: :environment
+  has_one :last_visible_deployment, -> { visible.order(id: :desc) }, inverse_of: :environment, class_name: 'Deployment'
+  has_one :upcoming_deployment, -> { upcoming.order(id: :desc) }, class_name: 'Deployment', inverse_of: :environment
 
-  has_one :upcoming_deployment, -> { upcoming.distinct_on_environment }, class_name: 'Deployment', inverse_of: :environment
+  Deployment::FINISHED_STATUSES.each do |status|
+    has_one :"last_#{status}_deployment", -> { where(status: status).ordered },
+      class_name: 'Deployment', inverse_of: :environment
+  end
+
+  Deployment::UPCOMING_STATUSES.each do |status|
+    has_one :"last_#{status}_deployment", -> { where(status: status).ordered_as_upcoming },
+      class_name: 'Deployment', inverse_of: :environment
+  end
+
   has_one :latest_opened_most_severe_alert, -> { order_severity_with_open_prometheus_alert }, class_name: 'AlertManagement::Alert', inverse_of: :environment
 
   before_validation :generate_slug, if: ->(env) { env.slug.blank? }
+  before_validation :ensure_environment_tier
 
   before_save :set_environment_type
-  before_save :ensure_environment_tier
   after_save :clear_reactive_cache!
 
   validates :name,
-            presence: true,
-            uniqueness: { scope: :project_id },
-            length: { maximum: 255 },
-            format: { with: Gitlab::Regex.environment_name_regex,
-                      message: Gitlab::Regex.environment_name_regex_message }
+    presence: true,
+    uniqueness: { scope: :project_id },
+    length: { maximum: 255 },
+    format: { with: Gitlab::Regex.environment_name_regex,
+              message: Gitlab::Regex.environment_name_regex_message }
 
   validates :slug,
-            presence: true,
-            uniqueness: { scope: :project_id },
-            length: { maximum: 24 },
-            format: { with: Gitlab::Regex.environment_slug_regex,
-                      message: Gitlab::Regex.environment_slug_regex_message }
+    presence: true,
+    uniqueness: { scope: :project_id },
+    length: { maximum: 24 },
+    format: { with: Gitlab::Regex.environment_slug_regex,
+              message: Gitlab::Regex.environment_slug_regex_message }
 
   validates :external_url,
-            length: { maximum: 255 },
-            allow_nil: true,
-            addressable_url: true
+    length: { maximum: 255 },
+    allow_nil: true
 
-  delegate :stop_action, :manual_actions, to: :last_deployment, allow_nil: true
+  validates :kubernetes_namespace,
+    allow_nil: true,
+    length: 1..63,
+    format: {
+      with: Gitlab::Regex.kubernetes_namespace_regex,
+      message: Gitlab::Regex.kubernetes_namespace_regex_message
+    }
+
+  validates :flux_resource_path,
+    length: { maximum: 255 },
+    allow_nil: true
+
+  validates :tier, presence: true
+
+  validate :safe_external_url
+  validate :merge_request_not_changed
+
+  delegate :manual_actions, to: :last_deployment, allow_nil: true
   delegate :auto_rollback_enabled?, to: :project
 
   scope :available, -> { with_state(:available) }
+  scope :active, -> { with_state(:available, :stopping) }
   scope :stopped, -> { with_state(:stopped) }
 
   scope :order_by_last_deployed_at, -> do
-    order(Gitlab::Database.nulls_first_order("(#{max_deployment_id_sql})", 'ASC'))
+    order(Arel::Nodes::Grouping.new(max_deployment_id_query).asc.nulls_first)
   end
   scope :order_by_last_deployed_at_desc, -> do
-    order(Gitlab::Database.nulls_last_order("(#{max_deployment_id_sql})", 'DESC'))
+    order(Arel::Nodes::Grouping.new(max_deployment_id_query).desc.nulls_last)
   end
   scope :order_by_name, -> { order('environments.name ASC') }
 
   scope :in_review_folder, -> { where(environment_type: "review") }
-  scope :for_name, -> (name) { where(name: name) }
-  scope :preload_cluster, -> { preload(last_deployment: :cluster) }
+  scope :for_name, ->(name) { where(name: name) }
   scope :preload_project, -> { preload(:project) }
-  scope :auto_stoppable, -> (limit) { available.where('auto_stop_at < ?', Time.zone.now).limit(limit) }
-  scope :auto_deletable, -> (limit) { stopped.where('auto_delete_at < ?', Time.zone.now).limit(limit) }
+  scope :auto_stoppable, ->(limit) { available.where('auto_stop_at < ?', Time.zone.now).limit(limit) }
+  scope :auto_deletable, ->(limit) { stopped.where('auto_delete_at < ?', Time.zone.now).limit(limit) }
+  scope :long_stopping,  -> { with_state(:stopping).where('updated_at < ?', LONG_STOP.ago) }
+
+  scope :deployed_and_updated_before, ->(project_id, before) do
+    # this query joins deployments and filters out any environment that has recent deployments
+    joins = %(
+    LEFT JOIN "deployments" on "deployments".environment_id = "environments".id
+        AND "deployments".project_id = #{project_id}
+        AND "deployments".updated_at >= #{connection.quote(before)}
+    )
+    Environment.joins(joins)
+               .where(project_id: project_id, updated_at: ...before)
+               .group('id', 'deployments.id')
+               .having('deployments.id IS NULL')
+  end
+  scope :without_protected, ->(project) {} # no-op when not in EE mode
+
+  scope :without_names, ->(names) do
+    where.not(name: names)
+  end
+  scope :without_tiers, ->(tiers) do
+    where.not(tier: tiers)
+  end
 
   ##
   # Search environments which have names like the given query.
   # Do not set a large limit unless you've confirmed that it works on gitlab.com scale.
-  scope :for_name_like, -> (query, limit: 5) do
-    where(arel_table[:name].matches("#{sanitize_sql_like query}%")).limit(limit)
+  scope :for_name_like, ->(query, limit: 5) do
+    top_level = 'LOWER(environments.name) LIKE LOWER(?) || \'%\''
+
+    where(top_level, sanitize_sql_like(query)).limit(limit)
   end
 
-  scope :for_project, -> (project) { where(project_id: project) }
-  scope :for_tier, -> (tier) { where(tier: tier).where.not(tier: nil) }
-  scope :with_deployment, -> (sha) { where('EXISTS (?)', Deployment.select(1).where('deployments.environment_id = environments.id').where(sha: sha)) }
+  scope :for_name_like_within_folder, ->(query, limit: 5) do
+    within_folder_name = "LOWER(ltrim(ltrim(environments.name, environments.environment_type), '/'))"
+
+    where("#{within_folder_name} LIKE (LOWER(?) || '%')", sanitize_sql_like(query)).limit(limit)
+  end
+
+  scope :for_project, ->(project) { where(project_id: project) }
+  scope :for_tier, ->(tier) { where(tier: tier).where.not(tier: nil) }
+  scope :for_type, ->(type) { where(environment_type: type) }
   scope :unfoldered, -> { where(environment_type: nil) }
   scope :with_rank, -> do
     select('environments.*, rank() OVER (PARTITION BY project_id ORDER BY id DESC)')
   end
-  scope :for_id, -> (id) { where(id: id) }
 
-  scope :stopped_review_apps, -> (before, limit) do
+  scope :with_deployment, ->(sha, status: nil) do
+    deployments = Deployment.select(1).where('deployments.environment_id = environments.id').where(sha: sha)
+    deployments = deployments.where(status: status) if status
+
+    where('EXISTS (?)', deployments)
+  end
+
+  scope :stopped_review_apps, ->(before, limit) do
     stopped
       .in_review_folder
       .where("created_at < ?", before)
@@ -126,10 +191,20 @@ class Environment < ApplicationRecord
     end
 
     event :stop do
-      transition available: :stopped
+      transition available: :stopping, if: :wait_for_stop?
+      transition available: :stopped, unless: :wait_for_stop?
+    end
+
+    event :stop_complete do
+      transition %i[available stopping] => :stopped
+    end
+
+    event :recover_stuck_stopping do
+      transition stopping: :available
     end
 
     state :available
+    state :stopping
     state :stopped
 
     before_transition any => :stopped do |environment|
@@ -145,10 +220,11 @@ class Environment < ApplicationRecord
     find_by(id: id, slug: slug)
   end
 
-  def self.max_deployment_id_sql
-    Deployment.select(Deployment.arel_table[:id].maximum)
-    .where(Deployment.arel_table[:environment_id].eq(arel_table[:id]))
-    .to_sql
+  def self.max_deployment_id_query
+    Arel.sql(
+      Deployment.select(Deployment.arel_table[:id].maximum)
+      .where(Deployment.arel_table[:environment_id].eq(arel_table[:id])).to_sql
+    )
   end
 
   def self.pluck_names
@@ -171,12 +247,18 @@ class Environment < ApplicationRecord
     update_all(auto_delete_at: at_time)
   end
 
+  def self.nested
+    group('COALESCE(environment_type, id::text)', 'COALESCE(environment_type, name)')
+      .select('COALESCE(environment_type, id::text), COALESCE(environment_type, name) AS name', 'COUNT(*) AS size', 'MAX(id) AS last_id')
+      .order('name ASC')
+  end
+
   class << self
     def count_by_state
       environments_count_by_state = group(:state).count
 
-      valid_states.each_with_object({}) do |state, count_hash|
-        count_hash[state] = environments_count_by_state[state.to_s] || 0
+      valid_states.index_with do |state|
+        environments_count_by_state[state.to_s] || 0
       end
     end
   end
@@ -185,28 +267,23 @@ class Environment < ApplicationRecord
     last_deployment&.deployable
   end
 
-  # NOTE: Below assocation overrides is a workaround for issue https://gitlab.com/gitlab-org/gitlab/-/issues/339908
-  # It helps to avoid cross joins with the CI database.
-  # Caveat: It also overrides and losses the default AR caching mechanism.
-  # Read - https://gitlab.com/gitlab-org/gitlab/-/merge_requests/68870#note_677227727
+  def last_finished_deployable
+    last_finished_deployment&.deployable
+  end
 
-  # NOTE: Association Preloads does not use the overriden definitions below.
-  # Association Preloads when preloading uses the original definitions from the relationships above.
-  # https://github.com/rails/rails/blob/75ac626c4e21129d8296d4206a1960563cc3d4aa/activerecord/lib/active_record/associations/preloader.rb#L158
-  # But after preloading, when they are called it is using the overriden methods below.
-  # So we are checking for `association_cached?(:association_name)` in the overridden methods and calling `super` which inturn fetches the preloaded values.
+  def last_finished_pipeline
+    last_finished_deployable&.pipeline
+  end
 
-  # Overriding association
+  def latest_finished_jobs
+    last_finished_pipeline&.latest_finished_jobs
+  end
+
   def last_visible_deployable
-    return super if association_cached?(:last_visible_deployable)
-
     last_visible_deployment&.deployable
   end
 
-  # Overriding association
   def last_visible_pipeline
-    return super if association_cached?(:last_visible_pipeline)
-
     last_visible_deployable&.pipeline
   end
 
@@ -222,7 +299,6 @@ class Environment < ApplicationRecord
     Gitlab::Ci::Variables::Collection.new
       .append(key: 'CI_ENVIRONMENT_NAME', value: name)
       .append(key: 'CI_ENVIRONMENT_SLUG', value: slug)
-      .append(key: 'CI_ENVIRONMENT_TIER', value: tier)
   end
 
   def recently_updated_on_branch?(ref)
@@ -245,6 +321,10 @@ class Environment < ApplicationRecord
     last_deployment.try(:created_at)
   end
 
+  def long_stopping?
+    stopping? && self.updated_at < LONG_STOP.ago
+  end
+
   def ref_path
     "refs/#{Repository::REF_ENVIRONMENTS}/#{slug}"
   end
@@ -255,25 +335,54 @@ class Environment < ApplicationRecord
     external_url.gsub(%r{\A.*?://}, '')
   end
 
-  def stop_action_available?
-    available? && stop_action.present?
+  def stop_actions_available?
+    available? && stop_actions.present?
   end
 
   def cancel_deployment_jobs!
-    active_deployments.builds.each do |build|
-      Gitlab::OptimisticLocking.retry_lock(build, name: 'environment_cancel_deployment_jobs') do |build|
-        build.cancel! if build&.cancelable?
+    active_deployments.jobs.each do |job|
+      Gitlab::OptimisticLocking.retry_lock(job, name: 'environment_cancel_deployment_jobs') do |job|
+        job.cancel! if job&.cancelable?
       end
     rescue StandardError => e
       Gitlab::ErrorTracking.track_exception(e, environment_id: id, deployment_id: deployment.id)
     end
   end
 
-  def stop_with_action!(current_user)
+  def wait_for_stop?
+    stop_actions.present?
+  end
+
+  def stop_with_actions!(current_user)
     return unless available?
 
     stop!
-    stop_action&.play(current_user)
+
+    actions = []
+
+    stop_actions.each do |stop_action|
+      Gitlab::OptimisticLocking.retry_lock(
+        stop_action,
+        name: 'environment_stop_with_actions'
+      ) do |job|
+        actions << job.play(current_user)
+      rescue StateMachines::InvalidTransition
+        # Ci::PlayBuildService rescues an error of StateMachines::InvalidTransition and fall back to retry. However,
+        # Ci::PlayBridgeService doesn't rescue it, so we're ignoring the error if it's not playable.
+        # We should fix this inconsistency in https://gitlab.com/gitlab-org/gitlab/-/issues/420855.
+      end
+    end
+
+    actions
+  end
+
+  def stop_actions
+    last_finished_deployment_group.map(&:stop_action).compact
+  end
+  strong_memoize_attr :stop_actions
+
+  def last_finished_deployment_group
+    Deployment.last_finished_deployment_group_for_environment(self)
   end
 
   def reset_auto_stop
@@ -390,14 +499,20 @@ class Environment < ApplicationRecord
   end
 
   def auto_stop_in=(value)
-    return unless value
-    return unless parsed_result = ChronicDuration.parse(value)
+    if value.nil?
+      # Handles edge case when auto_stop_at is already set and the new value is nil.
+      # Possible by setting `auto_stop_in: null` in the CI configuration yml.
+      self.auto_stop_at = nil
 
-    self.auto_stop_at = parsed_result.seconds.from_now
-  end
+      return
+    end
 
-  def elastic_stack_available?
-    !!deployment_platform&.cluster&.elastic_stack_available?
+    parser = ::Gitlab::Ci::Build::DurationParser.new(value)
+
+    self.auto_stop_at = parser.seconds_from_now
+  rescue ChronicDuration::DurationParseError => ex
+    Gitlab::ErrorTracking.track_exception(ex, project_id: self.project_id, environment_id: self.id)
+    raise ex
   end
 
   def rollout_status
@@ -433,7 +548,29 @@ class Environment < ApplicationRecord
     environment_type.nil?
   end
 
+  def deploy_freezes
+    Gitlab::SafeRequestStore.fetch("project:#{project_id}:freeze_periods_for_environments") do
+      project.freeze_periods
+    end
+  end
+
   private
+
+  # We deliberately avoid using AddressableUrlValidator to allow users to update their environments even if they have
+  # misconfigured `environment:url` keyword. The external URL is presented as a clickable link on UI and not consumed
+  # in GitLab internally, thus we sanitize the URL before the persistence to make sure the rendered link is XSS safe.
+  # See https://gitlab.com/gitlab-org/gitlab/-/issues/337417
+  def safe_external_url
+    return unless self.external_url.present?
+
+    new_external_url = Addressable::URI.parse(self.external_url)
+
+    if Gitlab::Utils::SanitizeNodeLink::UNSAFE_PROTOCOLS.include?(new_external_url.normalized_scheme)
+      errors.add(:external_url, "#{new_external_url.normalized_scheme} scheme is not allowed")
+    end
+  rescue Addressable::URI::InvalidURIError
+    errors.add(:external_url, 'URI is invalid')
+  end
 
   def rollout_status_available?
     has_terminals?
@@ -457,6 +594,12 @@ class Environment < ApplicationRecord
     self.tier ||= guess_tier
   end
 
+  def merge_request_not_changed
+    if merge_request_id_changed? && persisted?
+      errors.add(:merge_request, 'merge_request cannot be changed')
+    end
+  end
+
   # Guessing the tier of the environment if it's not explicitly specified by users.
   # See https://en.wikipedia.org/wiki/Deployment_environment for industry standard deployment environments
   def guess_tier
@@ -465,7 +608,7 @@ class Environment < ApplicationRecord
       self.class.tiers[:development]
     when /(test|tst|int|ac(ce|)pt|qa|qc|control|quality)/i
       self.class.tiers[:testing]
-    when /(st(a|)g|mod(e|)l|pre|demo)/i
+    when /(st(a|)g|mod(e|)l|pre|demo|non)/i
       self.class.tiers[:staging]
     when /(pr(o|)d|live)/i
       self.class.tiers[:production]

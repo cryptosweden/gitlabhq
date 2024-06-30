@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Groups::Crm::OrganizationsController do
+RSpec.describe Groups::Crm::OrganizationsController, feature_category: :team_planning do
   let_it_be(:user) { create(:user) }
 
   shared_examples 'response with 404 status' do
@@ -24,7 +24,7 @@ RSpec.describe Groups::Crm::OrganizationsController do
 
   shared_examples 'ok response with index template if authorized' do
     context 'private group' do
-      let(:group) { create(:group, :private, :crm_enabled) }
+      let(:group) { create(:group, :private) }
 
       context 'with authorized user' do
         before do
@@ -37,21 +37,13 @@ RSpec.describe Groups::Crm::OrganizationsController do
         end
 
         context 'when crm_enabled is false' do
-          let(:group) { create(:group, :private) }
-
-          it_behaves_like 'response with 404 status'
-        end
-
-        context 'when feature flag is disabled' do
-          before do
-            stub_feature_flags(customer_relations: false)
-          end
+          let(:group) { create(:group, :private, :crm_disabled) }
 
           it_behaves_like 'response with 404 status'
         end
 
         context 'when subgroup' do
-          let(:group) { create(:group, :private, :crm_enabled, parent: create(:group)) }
+          let(:group) { create(:group, :private, parent: create(:group)) }
 
           it_behaves_like 'response with 404 status'
         end
@@ -76,7 +68,7 @@ RSpec.describe Groups::Crm::OrganizationsController do
     end
 
     context 'public group' do
-      let(:group) { create(:group, :public, :crm_enabled) }
+      let(:group) { create(:group, :public) }
 
       context 'with anonymous user' do
         it_behaves_like 'response with 404 status'
@@ -85,18 +77,19 @@ RSpec.describe Groups::Crm::OrganizationsController do
   end
 
   describe 'GET #index' do
-    subject do
-      get group_crm_organizations_path(group)
-      response
-    end
+    subject { get group_crm_organizations_path(group) }
 
     it_behaves_like 'ok response with index template if authorized'
   end
 
   describe 'GET #new' do
-    subject do
-      get new_group_crm_organization_path(group)
-    end
+    subject { get new_group_crm_organization_path(group) }
+
+    it_behaves_like 'ok response with index template if authorized'
+  end
+
+  describe 'GET #edit' do
+    subject { get edit_group_crm_organization_path(group, id: 1) }
 
     it_behaves_like 'ok response with index template if authorized'
   end

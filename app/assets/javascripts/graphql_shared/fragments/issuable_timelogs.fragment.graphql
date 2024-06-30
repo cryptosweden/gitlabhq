@@ -1,4 +1,6 @@
 fragment TimelogFragment on Timelog {
+  __typename
+  id
   timeSpent
   user {
     id
@@ -10,4 +12,7 @@ fragment TimelogFragment on Timelog {
     body
   }
   summary
+  userPermissions {
+    adminTimelog
+  }
 }

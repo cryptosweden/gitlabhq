@@ -2,18 +2,41 @@
 
 require 'spec_helper'
 
-RSpec.describe "Admin::Projects" do
-  include Spec::Support::Helpers::Features::MembersHelpers
-  include Spec::Support::Helpers::Features::InviteMembersModalHelper
+RSpec.describe "Admin::Projects", feature_category: :groups_and_projects do
+  include Features::MembersHelpers
+  include Features::InviteMembersModalHelpers
   include Spec::Support::Helpers::ModalHelpers
+  include ListboxHelpers
 
-  let(:user) { create :user }
-  let(:project) { create(:project) }
-  let(:current_user) { create(:admin) }
+  let_it_be_with_reload(:user) { create :user }
+  let_it_be_with_reload(:project) { create(:project, :with_namespace_settings) }
+  let_it_be_with_reload(:current_user) { create(:admin, timezone: 'Asia/Shanghai') }
 
   before do
     sign_in(current_user)
-    gitlab_enable_admin_mode_sign_in(current_user)
+    enable_admin_mode!(current_user)
+  end
+
+  describe 'when membership is set to expire', :js do
+    it 'renders relative time' do
+      expire_time = Time.current + 2.days
+      current_user.update!(time_display_relative: true)
+      project.add_member(user, Gitlab::Access::REPORTER, expires_at: expire_time)
+
+      visit admin_project_path(project)
+
+      expect(page).to have_content(/Expires in \d day/)
+    end
+
+    it 'renders absolute time' do
+      expire_time = Time.current.tomorrow.middle_of_day
+      current_user.update!(time_display_relative: false)
+      project.add_member(user, Gitlab::Access::REPORTER, expires_at: expire_time)
+
+      visit admin_project_path(project)
+
+      expect(page).to have_content("Expires on #{expire_time.strftime('%b %-d')}")
+    end
   end
 
   describe "GET /admin/projects" do
@@ -39,7 +62,7 @@ RSpec.describe "Admin::Projects" do
 
       expect(page).to have_content(project.name)
       expect(page).to have_content(archived_project.name)
-      expect(page).to have_xpath("//span[@class='gl-badge badge badge-pill badge-warning md']", text: 'archived')
+      expect(page).to have_xpath("//span[@class='gl-badge badge badge-pill badge-info md gl-mr-3']", text: 'Archived')
     end
 
     it 'renders only archived projects', :js do
@@ -48,6 +71,19 @@ RSpec.describe "Admin::Projects" do
 
       expect(page).to have_content(archived_project.name)
       expect(page).not_to have_content(project.name)
+    end
+
+    context 'for "jh transition banner" part' do
+      before do
+        allow(::Gitlab).to receive(:com?).and_return(false)
+        allow(::Gitlab).to receive(:jh?).and_return(false)
+      end
+
+      it 'shows the banner class ".js-jh-transition-banner"' do
+        expect(page).to have_selector('.js-jh-transition-banner')
+        expect(page).to have_selector("[data-feature-name='transition_to_jihu_callout']")
+        expect(page).to have_selector("[data-user-preferred-language='en']")
+      end
     end
   end
 
@@ -72,7 +108,7 @@ RSpec.describe "Admin::Projects" do
 
     context 'when project has open access requests' do
       it 'shows access requests with link to manage access' do
-        page.within '[data-testid="access-requests"]' do
+        within_testid('access-requests') do
           expect(page).to have_content access_request.user.name
           expect(page).to have_link 'Manage access', href: project_project_members_path(project, tab: 'access_requests')
         end
@@ -82,7 +118,7 @@ RSpec.describe "Admin::Projects" do
 
   describe 'transfer project' do
     # The gitlab-shell transfer will fail for a project without a repository
-    let(:project) { create(:project, :repository) }
+    let(:project) { create(:project, :repository, :with_namespace_settings) }
 
     before do
       create(:group, name: 'Web')
@@ -95,8 +131,7 @@ RSpec.describe "Admin::Projects" do
     it 'transfers project to group web', :js do
       visit admin_project_path(project)
 
-      click_button 'Search for Namespace'
-      click_button 'group: web'
+      select_from_listbox 'group: web', from: 'Search for Namespace'
       click_button 'Transfer'
 
       expect(page).to have_content("Web / #{project.name}")
@@ -129,15 +164,54 @@ RSpec.describe "Admin::Projects" do
 
       expect(find_member_row(current_user)).to have_content('Developer')
 
-      page.within find_member_row(current_user) do
-        click_button 'Leave'
-      end
+      show_actions_for_username(current_user)
+      click_button _('Leave project')
 
       within_modal do
-        click_button('Leave')
+        click_button _('Leave')
       end
 
       expect(page).to have_current_path(dashboard_projects_path, ignore_query: true, url: false)
+    end
+  end
+
+  describe 'project edit' do
+    it 'updates project details' do
+      project = create(:project, :private, name: 'Garfield', description: 'Funny Cat')
+
+      visit edit_admin_namespace_project_path({ id: project.to_param, namespace_id: project.namespace.to_param })
+
+      aggregate_failures do
+        expect(page).to have_content(project.name)
+        expect(page).to have_content(project.description)
+      end
+
+      fill_in 'Project name', with: 'Scooby-Doo'
+      fill_in 'Project description (optional)', with: 'Funny Dog'
+
+      click_button 'Save changes'
+
+      visit edit_admin_namespace_project_path({ id: project.to_param, namespace_id: project.namespace.to_param })
+
+      aggregate_failures do
+        expect(page).to have_content('Scooby-Doo')
+        expect(page).to have_content('Funny Dog')
+      end
+    end
+  end
+
+  describe 'project runner registration edit' do
+    it 'updates runner registration' do
+      visit edit_admin_namespace_project_path({ id: project.to_param, namespace_id: project.namespace.to_param })
+
+      expect(find_field('New project runners can be registered')).to be_checked
+
+      uncheck 'New project runners can be registered'
+      click_button 'Save changes'
+
+      visit edit_admin_namespace_project_path({ id: project.to_param, namespace_id: project.namespace.to_param })
+
+      expect(find_field('New project runners can be registered')).not_to be_checked
     end
   end
 end

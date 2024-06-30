@@ -7,29 +7,20 @@ module QA
         class MergeRequest < QA::Page::Base
           include QA::Page::Settings::Common
 
-          view 'app/views/projects/edit.html.haml' do
-            element :save_merge_request_changes_button
+          view 'app/views/projects/settings/merge_requests/show.html.haml' do
+            element 'save-merge-request-changes-button'
           end
 
-          view 'app/views/projects/_merge_request_merge_method_settings.html.haml' do
-            element :merge_ff_radio
-          end
-
-          view 'app/views/projects/_merge_request_merge_checks_settings.html.haml' do
-            element :allow_merge_if_all_discussions_are_resolved_checkbox
+          view 'app/views/projects/settings/merge_requests/_merge_request_merge_method_settings.html.haml' do
+            element 'merge-ff-radio'
           end
 
           def click_save_changes
-            click_element(:save_merge_request_changes_button)
+            click_element('save-merge-request-changes-button')
           end
 
           def enable_ff_only
-            choose_element(:merge_ff_radio)
-            click_save_changes
-          end
-
-          def enable_merge_if_all_disscussions_are_resolved
-            check_element(:allow_merge_if_all_discussions_are_resolved_checkbox)
+            choose_element('merge-ff-radio', true)
             click_save_changes
           end
         end

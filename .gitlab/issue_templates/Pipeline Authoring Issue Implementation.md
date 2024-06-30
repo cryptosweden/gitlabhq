@@ -12,6 +12,24 @@
 
 ## Proposal
 
+## Confirm purpose and User Reception (how does this benefit the user?)
+
+## Additional details
+<!--
+_NOTE: If the issue has addressed all of these questions, this separate section can be removed._
+-->
+
+Some relevant technical details, if applicable, such as:
+
+- Does this need a ~"feature flag"?
+- Does there need to be an associated ~"instrumentation" issue created related to this work?
+- Is there an example response showing the data structure that should be returned (new endpoints only)?
+- What permissions should be used?
+- Is this EE or CE?
+    - [ ] EE
+    - [ ] CE
+- Additional comments:
+
 ## Implementation Table
 
 <!--
@@ -35,4 +53,4 @@ _NOTE: This section is optional, but can be used for easy access to any relevant
 
 
 
-/label ~"group::pipeline authoring" ~"Category:Pipeline Authoring" ~"section::ops" ~"devops::verify" ~"workflow::planning breakdown"
+/label ~"group::pipeline authoring" ~"Category:Pipeline Composition" ~"section::ci" ~"devops::verify" ~"workflow::planning breakdown"

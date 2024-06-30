@@ -7,11 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 
 	"gitlab.com/gitlab-org/labkit/mask"
+
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/upload/destination/objectstore/s3api"
 )
 
 // ErrNotEnoughParts will be used when writing more than size * len(partURLs)
@@ -51,8 +52,9 @@ func NewMultipart(partURLs []string, completeURL, abortURL, deleteURL string, pu
 	return m, nil
 }
 
+// Upload uploads the multipart content using the provided reader.
 func (m *Multipart) Upload(ctx context.Context, r io.Reader) error {
-	cmu := &CompleteMultipartUpload{}
+	cmu := &s3api.CompleteMultipartUpload{}
 	for i, partURL := range m.PartURLs {
 		src := io.LimitReader(r, m.partSize)
 		part, err := m.readAndUploadOnePart(ctx, partURL, m.PutHeaders, src, i+1)
@@ -61,12 +63,11 @@ func (m *Multipart) Upload(ctx context.Context, r io.Reader) error {
 		}
 		if part == nil {
 			break
-		} else {
-			cmu.Part = append(cmu.Part, part)
 		}
+		cmu.Part = append(cmu.Part, part)
 	}
 
-	n, err := io.Copy(ioutil.Discard, r)
+	n, err := io.Copy(io.Discard, r)
 	if err != nil {
 		return fmt.Errorf("drain pipe: %v", err)
 	}
@@ -81,31 +82,35 @@ func (m *Multipart) Upload(ctx context.Context, r io.Reader) error {
 	return nil
 }
 
+// ETag returns the ETag of the multipart upload.
 func (m *Multipart) ETag() string {
 	return m.etag
 }
+
+// Abort aborts the multipart upload by sending a DELETE request to the AbortURL.
 func (m *Multipart) Abort() {
 	deleteURL(m.AbortURL)
 }
 
+// Delete deletes the multipart upload by sending a DELETE request to the DeleteURL.
 func (m *Multipart) Delete() {
 	deleteURL(m.DeleteURL)
 }
 
-func (m *Multipart) readAndUploadOnePart(ctx context.Context, partURL string, putHeaders map[string]string, src io.Reader, partNumber int) (*completeMultipartUploadPart, error) {
-	file, err := ioutil.TempFile("", "part-buffer")
+func (m *Multipart) readAndUploadOnePart(ctx context.Context, partURL string, putHeaders map[string]string, src io.Reader, partNumber int) (*s3api.CompleteMultipartUploadPart, error) {
+	file, err := os.CreateTemp("", "part-buffer")
 	if err != nil {
 		return nil, fmt.Errorf("create temporary buffer file: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
-	if err := os.Remove(file.Name()); err != nil {
-		return nil, err
+	if err = os.Remove(file.Name()); err != nil {
+		return nil, fmt.Errorf("remove temporary buffer file: %v", err)
 	}
 
 	n, err := io.Copy(file, src)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("copy to temporary buffer file: %v", err)
 	}
 	if n == 0 {
 		return nil, nil
@@ -119,7 +124,7 @@ func (m *Multipart) readAndUploadOnePart(ctx context.Context, partURL string, pu
 	if err != nil {
 		return nil, fmt.Errorf("upload part %d: %v", partNumber, err)
 	}
-	return &completeMultipartUploadPart{PartNumber: partNumber, ETag: etag}, nil
+	return &s3api.CompleteMultipartUploadPart{PartNumber: partNumber, ETag: etag}, nil
 }
 
 func (m *Multipart) uploadPart(ctx context.Context, url string, headers map[string]string, body io.Reader, size int64) (string, error) {
@@ -143,7 +148,7 @@ func (m *Multipart) uploadPart(ctx context.Context, url string, headers map[stri
 	return part.ETag(), nil
 }
 
-func (m *Multipart) complete(ctx context.Context, cmu *CompleteMultipartUpload) error {
+func (m *Multipart) complete(ctx context.Context, cmu *s3api.CompleteMultipartUpload) error {
 	body, err := xml.Marshal(cmu)
 	if err != nil {
 		return fmt.Errorf("marshal CompleteMultipartUpload request: %v", err)
@@ -161,7 +166,7 @@ func (m *Multipart) complete(ctx context.Context, cmu *CompleteMultipartUpload) 
 	if err != nil {
 		return fmt.Errorf("CompleteMultipartUpload request %q: %v", mask.URL(m.CompleteURL), err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("CompleteMultipartUpload request %v returned: %s", mask.URL(m.CompleteURL), resp.Status)

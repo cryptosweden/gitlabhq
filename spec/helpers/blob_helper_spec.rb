@@ -4,6 +4,7 @@ require 'spec_helper'
 
 RSpec.describe BlobHelper do
   include TreeHelper
+  include FakeBlobHelpers
 
   describe "#sanitize_svg_data" do
     let(:input_svg_path) { File.join(Rails.root, 'spec', 'fixtures', 'unsanitized.svg') }
@@ -57,8 +58,6 @@ RSpec.describe BlobHelper do
   end
 
   describe "#relative_raw_path" do
-    include FakeBlobHelpers
-
     let_it_be(:project) { create(:project) }
 
     before do
@@ -80,9 +79,8 @@ RSpec.describe BlobHelper do
       end
     end
   end
-  context 'viewer related' do
-    include FakeBlobHelpers
 
+  context 'viewer related' do
     let_it_be(:project) { create(:project, lfs_enabled: true) }
 
     before do
@@ -108,7 +106,7 @@ RSpec.describe BlobHelper do
           let(:blob) { fake_blob(size: 10.megabytes) }
 
           it 'returns an error message' do
-            expect(helper.blob_render_error_reason(viewer)).to eq('it is larger than 5 MB')
+            expect(helper.blob_render_error_reason(viewer)).to eq('it is larger than 5 MiB')
           end
         end
 
@@ -116,7 +114,7 @@ RSpec.describe BlobHelper do
           let(:blob) { fake_blob(size: 2.megabytes) }
 
           it 'returns an error message' do
-            expect(helper.blob_render_error_reason(viewer)).to eq('it is larger than 1 MB')
+            expect(helper.blob_render_error_reason(viewer)).to eq('it is larger than 1 MiB')
           end
         end
       end
@@ -209,83 +207,6 @@ RSpec.describe BlobHelper do
         end
       end
     end
-
-    describe '#show_suggest_pipeline_creation_celebration?' do
-      let(:current_user) { create(:user) }
-
-      before do
-        assign(:project, project)
-        assign(:blob, blob)
-        assign(:commit, double('Commit', sha: 'whatever'))
-        helper.request.cookies["suggest_gitlab_ci_yml_commit_#{project.id}"] = 'true'
-        allow(helper).to receive(:current_user).and_return(current_user)
-      end
-
-      context 'when file is a pipeline config file' do
-        let(:data) { File.read(Rails.root.join('spec/support/gitlab_stubs/gitlab_ci.yml')) }
-        let(:blob) { fake_blob(path: Gitlab::FileDetector::PATTERNS[:gitlab_ci], data: data) }
-
-        it 'is true' do
-          expect(helper.show_suggest_pipeline_creation_celebration?).to be_truthy
-        end
-
-        context 'file is invalid format' do
-          let(:data) { 'foo' }
-
-          it 'is false' do
-            expect(helper.show_suggest_pipeline_creation_celebration?).to be_falsey
-          end
-        end
-
-        context 'does not use the default ci config' do
-          before do
-            project.ci_config_path = 'something_bad'
-          end
-
-          it 'is false' do
-            expect(helper.show_suggest_pipeline_creation_celebration?).to be_falsey
-          end
-        end
-
-        context 'does not have the needed cookie' do
-          before do
-            helper.request.cookies.delete "suggest_gitlab_ci_yml_commit_#{project.id}"
-          end
-
-          it 'is false' do
-            expect(helper.show_suggest_pipeline_creation_celebration?).to be_falsey
-          end
-        end
-
-        context 'blob does not have auxiliary view' do
-          before do
-            allow(blob).to receive(:auxiliary_viewer).and_return(nil)
-          end
-
-          it 'is false' do
-            expect(helper.show_suggest_pipeline_creation_celebration?).to be_falsey
-          end
-        end
-      end
-
-      context 'when file is not a pipeline config file' do
-        let(:blob) { fake_blob(path: 'LICENSE') }
-
-        it 'is false' do
-          expect(helper.show_suggest_pipeline_creation_celebration?).to be_falsey
-        end
-      end
-    end
-  end
-
-  describe 'suggest_pipeline_commit_cookie_name' do
-    let(:project) { create(:project) }
-
-    it 'uses project id to make up the cookie name' do
-      assign(:project, project)
-
-      expect(helper.suggest_pipeline_commit_cookie_name).to eq "suggest_gitlab_ci_yml_commit_#{project.id}"
-    end
   end
 
   describe '#ide_edit_path' do
@@ -357,7 +278,7 @@ RSpec.describe BlobHelper do
 
   describe '#ide_merge_request_path' do
     let_it_be(:project) { create(:project, :repository) }
-    let_it_be(:merge_request) { create(:merge_request, source_project: project)}
+    let_it_be(:merge_request) { create(:merge_request, source_project: project) }
 
     it 'returns IDE path for the given MR if MR is not merged' do
       expect(helper.ide_merge_request_path(merge_request)).to eq("/-/ide/project/#{project.full_path}/merge_requests/#{merge_request.iid}")
@@ -471,58 +392,86 @@ RSpec.describe BlobHelper do
     end
   end
 
-  describe '#editing_ci_config?' do
-    let(:project) { build(:project) }
+  describe '#vue_blob_app_data' do
+    let(:blob) { fake_blob(path: 'file.md', size: 2.megabytes) }
+    let(:project) { build_stubbed(:project) }
+    let(:user) { build_stubbed(:user) }
+    let(:ref) { 'main' }
 
-    subject { helper.editing_ci_config? }
+    it 'returns data related to blob app' do
+      allow(helper).to receive(:current_user).and_return(user)
+      assign(:ref, ref)
+
+      expect(helper.vue_blob_app_data(project, blob, ref)).to include({
+        blob_path: blob.path,
+        project_path: project.full_path,
+        resource_id: project.to_global_id,
+        user_id: user.to_global_id,
+        target_branch: ref,
+        original_branch: ref,
+        can_download_code: 'false'
+      })
+    end
+
+    context 'when a user can download code' do
+      let_it_be(:user) { build_stubbed(:user) }
+
+      before do
+        allow(helper).to receive(:current_user).and_return(user)
+        allow(Ability).to receive(:allowed?).and_call_original
+        allow(Ability).to receive(:allowed?).with(user, :download_code, project).and_return(true)
+      end
+
+      it 'returns true for `can_download_code` value' do
+        expect(helper.vue_blob_app_data(project, blob, ref)).to include(
+          can_download_code: 'true'
+        )
+      end
+    end
+  end
+
+  describe "#copy_blob_source_button" do
+    let(:project) { build_stubbed(:project) }
+
+    context 'when blob is rendered as text' do
+      let(:blob) { fake_blob }
+
+      it 'returns HTML content for a copy button' do
+        expect(blob).to receive(:rendered_as_text?).and_return(true)
+
+        button_html = helper.copy_blob_source_button(blob)
+
+        expect(button_html).to include('<span class="btn-group has-tooltip js-copy-blob-source-btn-tooltip"')
+        expect(button_html).to include('<button class="gl-button btn btn-icon btn-md btn-default btn-default-tertiary js-copy-blob-source-btn"')
+      end
+    end
+
+    context 'when blob is not rendered as text' do
+      let(:blob) { fake_blob }
+
+      it 'returns nil' do
+        expect(blob).to receive(:rendered_as_text?).and_return(false)
+        expect(helper.copy_blob_source_button(blob)).to be_nil
+      end
+    end
+  end
+
+  describe '#edit_fork_button_tag' do
+    let_it_be(:project) { create(:project) }
+    let_it_be(:user) { create(:user) }
+
+    let(:current_user) { user }
 
     before do
-      assign(:project, project)
-      assign(:path, path)
+      allow(helper).to receive(:current_user).and_return(current_user)
+      allow(helper).to receive(:can?).and_return(true)
     end
 
-    context 'when path is nil' do
-      let(:path) { nil }
+    it 'renders the edit fork button' do
+      rendered_button = helper.edit_fork_button_tag('common-class', project, 'Edit Fork', { param_key: 'param_value' })
 
-      it { is_expected.to be_falsey }
-    end
-
-    context 'when path is not a ci file' do
-      let(:path) { 'some-file.txt' }
-
-      it { is_expected.to be_falsey }
-    end
-
-    context 'when path ends is gitlab-ci.yml' do
-      let(:path) { '.gitlab-ci.yml' }
-
-      it { is_expected.to be_truthy }
-    end
-
-    context 'when path ends with gitlab-ci.yml' do
-      let(:path) { 'template.gitlab-ci.yml' }
-
-      it { is_expected.to be_truthy }
-    end
-
-    context 'with custom ci paths' do
-      let(:path) { 'path/to/ci.yaml' }
-
-      before do
-        project.ci_config_path = 'path/to/ci.yaml'
-      end
-
-      it { is_expected.to be_truthy }
-    end
-
-    context 'with custom ci config and path' do
-      let(:path) { 'path/to/template.gitlab-ci.yml' }
-
-      before do
-        project.ci_config_path = 'ci/path/.gitlab-ci.yml@another-group/another-project'
-      end
-
-      it { is_expected.to be_truthy }
+      expect(rendered_button).to have_selector('button.gl-button.btn.btn-md.btn-confirm.common-class.js-edit-blob-link-fork-toggler', text: 'Edit Fork')
+      expect(rendered_button).to have_selector('button[data-action="edit"]')
     end
   end
 end

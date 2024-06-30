@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::Packages::InfrastructureRegistryController do
+RSpec.describe Projects::Packages::InfrastructureRegistryController, feature_category: :package_registry do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project, :private) }
 
@@ -40,18 +40,6 @@ RSpec.describe Projects::Packages::InfrastructureRegistryController do
       end
 
       it_behaves_like 'returning response status', :not_found
-    end
-
-    context 'with package file pending destruction' do
-      let_it_be(:package_file_pending_destruction) { create(:package_file, :pending_destruction, package: terraform_module) }
-
-      let(:terraform_module_package_file) { terraform_module.package_files.first }
-
-      it 'does not return them' do
-        subject
-
-        expect(assigns(:package_files)).to contain_exactly(terraform_module_package_file)
-      end
     end
   end
 end

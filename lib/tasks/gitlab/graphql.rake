@@ -2,10 +2,10 @@
 
 return if Rails.env.production?
 
-require 'graphql/rake_task'
-require_relative '../../../tooling/graphql/docs/renderer'
-
 namespace :gitlab do
+  require 'graphql/rake_task'
+  require_relative '../../../tooling/graphql/docs/renderer'
+
   OUTPUT_DIR = Rails.root.join("doc/api/graphql/reference")
   TEMP_SCHEMA_DIR = Rails.root.join('tmp/tests/graphql')
   TEMPLATES_DIR = 'tooling/graphql/docs/templates/'
@@ -15,11 +15,14 @@ namespace :gitlab do
   # Also avoids pipeline failures in case developer
   # dumps schema with flags disabled locally before pushing
   task enable_feature_flags: :environment do
-    class Feature
-      def self.enabled?(*args)
-        true
-      end
+    def Feature.enabled?(*args)
+      true
     end
+  end
+
+  task generous_gitlab_schema: :environment do
+    GitlabSchema.validate_timeout 1.second
+    puts "Validation timeout set to #{GitlabSchema.validate_timeout} second(s)"
   end
 
   # Defines tasks for dumping the GraphQL schema:
@@ -28,7 +31,7 @@ namespace :gitlab do
   # - gitlab:graphql:schema:json
   GraphQL::RakeTask.new(
     schema_name: 'GitlabSchema',
-    dependencies: [:environment, :enable_feature_flags],
+    dependencies: [:environment, :enable_feature_flags, :generous_gitlab_schema],
     directory: TEMP_SCHEMA_DIR,
     idl_outfile: "gitlab_schema.graphql",
     json_outfile: "gitlab_schema.json"
@@ -50,7 +53,7 @@ namespace :gitlab do
         if summary == :client_query
           $stdout.puts " - client query"
         elsif errs.present?
-          $stdout.puts " - invalid query".color(:red)
+          $stdout.puts Rainbow(" - invalid query").red
         else
           complexity = defn.complexity(GitlabSchema)
           color = case complexity
@@ -64,7 +67,7 @@ namespace :gitlab do
                     :red
                   end
 
-          $stdout.puts " - complexity: #{complexity}".color(color)
+          $stdout.puts Rainbow(" - complexity: #{complexity}").color(color)
         end
 
         $stdout.puts ""
@@ -72,7 +75,7 @@ namespace :gitlab do
     end
 
     desc 'GitLab | GraphQL | Validate queries'
-    task validate: [:environment, :enable_feature_flags] do |t, args|
+    task validate: [:environment, :enable_feature_flags, :generous_gitlab_schema] do |t, args|
       queries = if args.to_a.present?
                   args.to_a.flat_map { |path| Gitlab::Graphql::Queries.find(path) }
                 else
@@ -86,10 +89,12 @@ namespace :gitlab do
         when :client_query
           warn("SKIP  #{defn.file}: client query")
         else
-          warn("#{'OK'.color(:green)}    #{defn.file}") if errs.empty?
+          warn("#{Rainbow('OK').green}    #{defn.file}") if errs.empty?
           errs.each do |err|
+            path_info = "(at #{err.path.join('.')})" if err.path
+
             warn(<<~MSG)
-            #{'ERROR'.color(:red)} #{defn.file}: #{err.message} (at #{err.path.join('.')})
+            #{Rainbow('ERROR').red} #{defn.file}: #{err.message} #{path_info}
             MSG
           end
         end

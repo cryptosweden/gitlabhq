@@ -16,15 +16,25 @@ class MergeRequestsFinder
           User.find_by_id(params[:reviewer_id])
         elsif reviewer_username?
           User.find_by_username(params[:reviewer_username])
-        else
-          nil
         end
       end
     end
 
-    def attention
-      strong_memoize(:attention) do
-        User.find_by_username(params[:attention])
+    def merge_user
+      strong_memoize(:merge_user) do
+        if merge_user_id?
+          User.find_by_id(params[:merge_user_id])
+        elsif merge_user_username?
+          User.find_by_username(params[:merge_user_username])
+        end
+      end
+    end
+
+    def review_state
+      if params[:review_state].present?
+        MergeRequestReviewer.states[params[:review_state]]
+      elsif params[:review_states].present?
+        params[:review_states].map { |state| MergeRequestReviewer.states[state] }
       end
     end
   end

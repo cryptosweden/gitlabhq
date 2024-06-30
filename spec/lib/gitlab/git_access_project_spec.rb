@@ -18,8 +18,8 @@ RSpec.describe Gitlab::GitAccessProject do
   let(:pull_access_check) { access.check('git-upload-pack', changes) }
   let(:access) do
     described_class.new(actor, container, protocol,
-                        authentication_abilities: authentication_abilities,
-                        repository_path: repository_path)
+      authentication_abilities: authentication_abilities,
+      repository_path: repository_path)
   end
 
   describe '#check_namespace!' do
@@ -141,7 +141,9 @@ RSpec.describe Gitlab::GitAccessProject do
         end
 
         context 'when check contains actual changes' do
-          let(:changes) { "#{Gitlab::Git::BLANK_SHA} 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/new_branch" }
+          let(:changes) do
+            "#{Gitlab::Git::SHA1_BLANK_SHA} 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/new_branch"
+          end
 
           it_behaves_like 'no project is created'
         end

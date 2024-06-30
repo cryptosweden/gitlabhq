@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group labels' do
+RSpec.describe 'Group labels', feature_category: :team_planning do
   let(:user)  { create(:user) }
   let(:group) { create(:group) }
   let!(:label) { create(:group_label, group: group) }
@@ -24,6 +24,10 @@ RSpec.describe 'Group labels' do
   end
 
   it 'shows an edit label button', :js do
-    expect(page).to have_selector('.edit')
+    page.within "#group_label_#{label.id}" do
+      find_by_testid('label-actions-dropdown-toggle').click
+
+      expect(page).to have_link('Edit')
+    end
   end
 end

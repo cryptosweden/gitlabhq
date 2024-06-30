@@ -2,7 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'When a user searches for Sentry errors', :js, :use_clean_rails_memory_store_caching, :sidekiq_inline do
+RSpec.describe 'When a user searches for Sentry errors', :js, :use_clean_rails_memory_store_caching, :sidekiq_inline,
+  feature_category: :error_tracking do
   include_context 'sentry error tracking context feature'
 
   let_it_be(:issues_response_body) { fixture_file('sentry/issues_sample_response.json') }
@@ -30,7 +31,7 @@ RSpec.describe 'When a user searches for Sentry errors', :js, :use_clean_rails_m
       expect(results.count).to be(3)
     end
 
-    find('.gl-form-input').set('NotFound').native.send_keys(:return)
+    find('.filtered-search-input-container .gl-form-input').set('NotFound').native.send_keys(:return)
 
     page.within(find('.gl-table')) do
       results = page.all('.table-row')

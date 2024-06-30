@@ -8,11 +8,15 @@ import { mergeUrlParams, updateHistory, getParameterValues } from '~/lib/utils/u
 import Component from '~/projects/pipelines/charts/components/app.vue';
 import PipelineCharts from '~/projects/pipelines/charts/components/pipeline_charts.vue';
 import API from '~/api';
+import { mockTracking } from 'helpers/tracking_helper';
+import { SNOWPLOW_DATA_SOURCE, SNOWPLOW_SCHEMA } from '~/projects/pipelines/charts/constants';
 
 jest.mock('~/lib/utils/url_utility');
 
 const DeploymentFrequencyChartsStub = { name: 'DeploymentFrequencyCharts', render: () => {} };
 const LeadTimeChartsStub = { name: 'LeadTimeCharts', render: () => {} };
+const TimeToRestoreServiceChartsStub = { name: 'TimeToRestoreServiceCharts', render: () => {} };
+const ChangeFailureRateChartsStub = { name: 'ChangeFailureRateCharts', render: () => {} };
 const ProjectQualitySummaryStub = { name: 'ProjectQualitySummary', render: () => {} };
 
 describe('ProjectsPipelinesChartsApp', () => {
@@ -31,6 +35,8 @@ describe('ProjectsPipelinesChartsApp', () => {
           stubs: {
             DeploymentFrequencyCharts: DeploymentFrequencyChartsStub,
             LeadTimeCharts: LeadTimeChartsStub,
+            TimeToRestoreServiceCharts: TimeToRestoreServiceChartsStub,
+            ChangeFailureRateCharts: ChangeFailureRateChartsStub,
             ProjectQualitySummary: ProjectQualitySummaryStub,
           },
         },
@@ -39,70 +45,65 @@ describe('ProjectsPipelinesChartsApp', () => {
     );
   }
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  const findGlTabs = () => wrapper.find(GlTabs);
-  const findAllGlTabs = () => wrapper.findAll(GlTab);
+  const findGlTabs = () => wrapper.findComponent(GlTabs);
+  const findAllGlTabs = () => wrapper.findAllComponents(GlTab);
   const findGlTabAtIndex = (index) => findAllGlTabs().at(index);
-  const findLeadTimeCharts = () => wrapper.find(LeadTimeChartsStub);
-  const findDeploymentFrequencyCharts = () => wrapper.find(DeploymentFrequencyChartsStub);
-  const findPipelineCharts = () => wrapper.find(PipelineCharts);
-  const findProjectQualitySummary = () => wrapper.find(ProjectQualitySummaryStub);
+  const findLeadTimeCharts = () => wrapper.findComponent(LeadTimeChartsStub);
+  const findTimeToRestoreServiceCharts = () =>
+    wrapper.findComponent(TimeToRestoreServiceChartsStub);
+  const findChangeFailureRateCharts = () => wrapper.findComponent(ChangeFailureRateChartsStub);
+  const findDeploymentFrequencyCharts = () => wrapper.findComponent(DeploymentFrequencyChartsStub);
+  const findPipelineCharts = () => wrapper.findComponent(PipelineCharts);
+  const findProjectQualitySummary = () => wrapper.findComponent(ProjectQualitySummaryStub);
 
   describe('when all charts are available', () => {
     beforeEach(() => {
       createComponent();
     });
 
-    it('renders tabs', () => {
-      expect(findGlTabs().exists()).toBe(true);
-
-      expect(findGlTabAtIndex(0).attributes('title')).toBe('Pipelines');
-      expect(findGlTabAtIndex(1).attributes('title')).toBe('Deployment frequency');
-      expect(findGlTabAtIndex(2).attributes('title')).toBe('Lead time');
-    });
-
-    it('renders the pipeline charts', () => {
-      expect(findPipelineCharts().exists()).toBe(true);
-    });
-
-    it('renders the deployment frequency charts', () => {
-      expect(findDeploymentFrequencyCharts().exists()).toBe(true);
-    });
-
-    it('renders the lead time charts', () => {
-      expect(findLeadTimeCharts().exists()).toBe(true);
-    });
-
-    it('renders the project quality summary', () => {
-      expect(findProjectQualitySummary().exists()).toBe(true);
-    });
-
-    it('sets the tab and url when a tab is clicked', async () => {
-      let chartsPath;
-      setWindowLocation(`${TEST_HOST}/gitlab-org/gitlab-test/-/pipelines/charts`);
-
-      mergeUrlParams.mockImplementation(({ chart }, path) => {
-        expect(chart).toBe('deployment-frequency');
-        expect(path).toBe(window.location.pathname);
-        chartsPath = `${path}?chart=${chart}`;
-        return chartsPath;
+    describe.each`
+      title                        | finderFn                          | index
+      ${'Pipelines'}               | ${findPipelineCharts}             | ${0}
+      ${'Deployment frequency'}    | ${findDeploymentFrequencyCharts}  | ${1}
+      ${'Lead time'}               | ${findLeadTimeCharts}             | ${2}
+      ${'Time to restore service'} | ${findTimeToRestoreServiceCharts} | ${3}
+      ${'Change failure rate'}     | ${findChangeFailureRateCharts}    | ${4}
+      ${'Project quality'}         | ${findProjectQualitySummary}      | ${5}
+    `('Tabs', ({ title, finderFn, index }) => {
+      it(`renders tab with a title ${title} at index ${index}`, () => {
+        expect(findGlTabAtIndex(index).attributes('title')).toBe(title);
       });
 
-      updateHistory.mockImplementation(({ url }) => {
-        expect(url).toBe(chartsPath);
+      it(`renders the ${title} chart`, () => {
+        expect(finderFn().exists()).toBe(true);
       });
-      const tabs = findGlTabs();
 
-      expect(tabs.attributes('value')).toBe('0');
+      it(`updates the current tab and url when the ${title} tab is clicked`, async () => {
+        let chartsPath;
+        const tabName = title.toLowerCase().replace(/\s/g, '-');
 
-      tabs.vm.$emit('input', 1);
+        setWindowLocation(`${TEST_HOST}/gitlab-org/gitlab-test/-/pipelines/charts`);
 
-      await nextTick();
+        mergeUrlParams.mockImplementation(({ chart }, path) => {
+          expect(chart).toBe(tabName);
+          expect(path).toBe(window.location.pathname);
+          chartsPath = `${path}?chart=${chart}`;
+          return chartsPath;
+        });
 
-      expect(tabs.attributes('value')).toBe('1');
+        updateHistory.mockImplementation(({ url }) => {
+          expect(url).toBe(chartsPath);
+        });
+        const tabs = findGlTabs();
+
+        expect(tabs.attributes('value')).toBe('0');
+
+        tabs.vm.$emit('input', index);
+
+        await nextTick();
+
+        expect(tabs.attributes('value')).toBe(index.toString());
+      });
     });
 
     it('should not try to push history if the tab does not change', async () => {
@@ -122,31 +123,86 @@ describe('ProjectsPipelinesChartsApp', () => {
     });
 
     describe('event tracking', () => {
-      it.each`
-        testId                        | event
-        ${'pipelines-tab'}            | ${'p_analytics_ci_cd_pipelines'}
-        ${'deployment-frequency-tab'} | ${'p_analytics_ci_cd_deployment_frequency'}
-        ${'lead-time-tab'}            | ${'p_analytics_ci_cd_lead_time'}
-      `('tracks the $event event when clicked', ({ testId, event }) => {
-        jest.spyOn(API, 'trackRedisHllUserEvent');
+      describe('RedisHLL events', () => {
+        it.each`
+          testId                           | event
+          ${'time-to-restore-service-tab'} | ${'p_analytics_ci_cd_time_to_restore_service'}
+          ${'change-failure-rate-tab'}     | ${'p_analytics_ci_cd_change_failure_rate'}
+        `('tracks the $event event when clicked', ({ testId, event }) => {
+          const trackApiSpy = jest.spyOn(API, 'trackRedisHllUserEvent');
 
-        expect(API.trackRedisHllUserEvent).not.toHaveBeenCalled();
+          expect(trackApiSpy).not.toHaveBeenCalled();
 
-        wrapper.findByTestId(testId).vm.$emit('click');
+          wrapper.findByTestId(testId).vm.$emit('click');
 
-        expect(API.trackRedisHllUserEvent).toHaveBeenCalledWith(event);
+          expect(trackApiSpy).toHaveBeenCalledWith(event);
+        });
+      });
+
+      describe('Internal Events RedisHLL events', () => {
+        it.each`
+          testId                        | event
+          ${'pipelines-tab'}            | ${'p_analytics_ci_cd_pipelines'}
+          ${'deployment-frequency-tab'} | ${'p_analytics_ci_cd_deployment_frequency'}
+          ${'lead-time-tab'}            | ${'p_analytics_ci_cd_lead_time'}
+        `('tracks the $event event when clicked', ({ testId, event }) => {
+          const trackApiSpy = jest.spyOn(API, 'trackInternalEvent');
+
+          expect(trackApiSpy).not.toHaveBeenCalled();
+
+          wrapper.findByTestId(testId).vm.$emit('click');
+
+          expect(trackApiSpy).toHaveBeenCalledWith(event, {});
+        });
+      });
+
+      describe('Snowplow events', () => {
+        it.each`
+          testId                        | event
+          ${'pipelines-tab'}            | ${'p_analytics_ci_cd_pipelines'}
+          ${'deployment-frequency-tab'} | ${'p_analytics_ci_cd_deployment_frequency'}
+          ${'lead-time-tab'}            | ${'p_analytics_ci_cd_lead_time'}
+        `('tracks the $event event when clicked', ({ testId, event }) => {
+          const trackingSpy = mockTracking(undefined, wrapper.element, jest.spyOn);
+
+          wrapper.findByTestId(testId).vm.$emit('click');
+
+          expect(trackingSpy).toHaveBeenCalledWith(undefined, event, {
+            context: {
+              schema: SNOWPLOW_SCHEMA,
+              data: {
+                event_name: event,
+                data_source: SNOWPLOW_DATA_SOURCE,
+              },
+            },
+          });
+        });
+
+        it.each`
+          tab
+          ${'time-to-restore-service-tab'}
+          ${'change-failure-rate-tab'}
+        `('does not track when tab $tab is clicked', ({ tab }) => {
+          const trackingSpy = mockTracking(undefined, wrapper.element, jest.spyOn);
+
+          wrapper.findByTestId(tab).vm.$emit('click');
+
+          expect(trackingSpy).not.toHaveBeenCalled();
+        });
       });
     });
   });
 
   describe('when provided with a query param', () => {
     it.each`
-      chart                     | tab
-      ${'lead-time'}            | ${'2'}
-      ${'deployment-frequency'} | ${'1'}
-      ${'pipelines'}            | ${'0'}
-      ${'fake'}                 | ${'0'}
-      ${''}                     | ${'0'}
+      chart                        | tab
+      ${'change-failure-rate'}     | ${'4'}
+      ${'time-to-restore-service'} | ${'3'}
+      ${'lead-time'}               | ${'2'}
+      ${'deployment-frequency'}    | ${'1'}
+      ${'pipelines'}               | ${'0'}
+      ${'fake'}                    | ${'0'}
+      ${''}                        | ${'0'}
     `('shows the correct tab for URL parameter "$chart"', ({ chart, tab }) => {
       setWindowLocation(`${TEST_HOST}/gitlab-org/gitlab-test/-/pipelines/charts?chart=${chart}`);
       getParameterValues.mockImplementation((name) => {

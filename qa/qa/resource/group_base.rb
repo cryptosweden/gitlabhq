@@ -12,16 +12,26 @@ module QA
       attr_accessor :path, :avatar
 
       attributes :id,
-                 :runners_token,
-                 :name,
-                 :full_path
+        :runners_token,
+        :name,
+        :full_path,
+        # Add visibility to enable create private group
+        :visibility,
+        :shared_with_groups
 
       # Get group projects
       #
       # @return [Array<QA::Resource::Project>]
-      def projects
-        parse_body(api_get_from("#{api_get_path}/projects")).map do |project|
+      def projects(auto_paginate: false)
+        response = if auto_paginate
+                     auto_paginated_response(request_url("#{api_get_path}/projects", per_page: '100'))
+                   else
+                     parse_body(api_get_from("#{api_get_path}/projects"))
+                   end
+
+        response.map do |project|
           Project.init do |resource|
+            resource.add_name_uuid = false
             resource.api_client = api_client
             resource.group = self
             resource.id = project[:id]
@@ -35,8 +45,14 @@ module QA
       # Get group labels
       #
       # @return [Array<QA::Resource::GroupLabel>]
-      def labels
-        parse_body(api_get_from("#{api_get_path}/labels")).map do |label|
+      def labels(auto_paginate: false)
+        response = if auto_paginate
+                     auto_paginated_response(request_url("#{api_get_path}/labels", per_page: '100'))
+                   else
+                     parse_body(api_get_from("#{api_get_path}/labels"))
+                   end
+
+        response.map do |label|
           GroupLabel.init do |resource|
             resource.api_client = api_client
             resource.group = self
@@ -51,8 +67,14 @@ module QA
       # Get group milestones
       #
       # @return [Array<QA::Resource::GroupMilestone>]
-      def milestones
-        parse_body(api_get_from("#{api_get_path}/milestones")).map do |milestone|
+      def milestones(auto_paginate: false)
+        response = if auto_paginate
+                     auto_paginated_response(request_url("#{api_get_path}/milestones", per_page: '100'))
+                   else
+                     parse_body(api_get_from("#{api_get_path}/milestones"))
+                   end
+
+        response.map do |milestone|
           GroupMilestone.init do |resource|
             resource.api_client = api_client
             resource.group = self
@@ -64,15 +86,17 @@ module QA
         end
       end
 
-      def marked_for_deletion?
-        reload!.api_response[:marked_for_deletion_on].present?
-      end
-
       # Get group badges
       #
       # @return [Array<QA::Resource::GroupBadge>]
-      def badges
-        parse_body(api_get_from("#{api_get_path}/badges")).map do |badge|
+      def badges(auto_paginate: false)
+        response = if auto_paginate
+                     auto_paginated_response(request_url("#{api_get_path}/badges", per_page: '100'))
+                   else
+                     parse_body(api_get_from("#{api_get_path}/badges"))
+                   end
+
+        response.map do |badge|
           GroupBadge.init do |resource|
             resource.api_client = api_client
             resource.group = self
@@ -82,6 +106,14 @@ module QA
             resource.image_url = badge[:image_url]
           end
         end
+      end
+
+      # Get group runners
+      #
+      # @param [Hash] **kwargs optional query arguments, see: https://docs.gitlab.com/ee/api/runners.html#list-groups-runners
+      # @return [Array]
+      def runners(**kwargs)
+        auto_paginated_response(request_url(api_runners_path, **kwargs))
       end
 
       # API get path
@@ -110,6 +142,14 @@ module QA
       # @return [String]
       def api_delete_path
         "/groups/#{id}"
+      end
+
+      # API path to GET runners
+      # See https://docs.gitlab.com/ee/api/runners.html#list-groups-runners
+      #
+      # @return [String]
+      def api_runners_path
+        "#{api_get_path}/runners"
       end
 
       # Object comparison
@@ -141,7 +181,8 @@ module QA
           :require_two_factor_authentication,
           :share_with_group_lock,
           :subgroup_creation_level,
-          :two_factor_grace_perion
+          :shared_with_groups,
+          :two_factor_grace_period
           # TODO: Add back visibility comparison once https://gitlab.com/gitlab-org/gitlab/-/issues/331252 is fixed
           # :visibility
         )

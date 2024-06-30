@@ -1,14 +1,21 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
-type: reference, api
+info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
 ---
 
-# Project statistics API **(FREE)**
+# Project statistics API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Every API call to [project](../user/project/index.md) statistics must be authenticated.
-Retrieving these statistics requires write access to the repository.
+Retrieving these statistics requires read access to the repository.
+
+For use with a [personal access token](../user/profile/personal_access_tokens.md),
+use a token with `read_api` scope. For a [group access token](../user/group/settings/group_access_tokens.md),
+you can use Reporter role and `read_api` scope.
 
 This API retrieves the number of times the project is either cloned or pulled
 with the HTTP method. SSH fetches are not included.
@@ -21,7 +28,7 @@ GET /projects/:id/statistics
 
 | Attribute  | Type   | Required | Description |
 | ---------- | ------ | -------- | ----------- |
-| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) |
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) |
 
 Example response:
 

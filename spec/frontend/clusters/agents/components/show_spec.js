@@ -6,12 +6,13 @@ import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import ClusterAgentShow from '~/clusters/agents/components/show.vue';
 import TokenTable from '~/clusters/agents/components/token_table.vue';
 import ActivityEvents from '~/clusters/agents/components/activity_events_list.vue';
+import IntegrationStatus from '~/clusters/agents/components/integration_status.vue';
 import getAgentQuery from '~/clusters/agents/graphql/queries/get_cluster_agent.query.graphql';
 import { useFakeDate } from 'helpers/fake_date';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
-import { MAX_LIST_COUNT, TOKEN_STATUS_ACTIVE } from '~/clusters/agents/constants';
+import { MAX_LIST_COUNT } from '~/clusters/agents/constants';
 
 const localVue = createLocalVue();
 localVue.use(VueApollo);
@@ -75,11 +76,9 @@ describe('ClusterAgentShow', () => {
   const findPaginationButtons = () => wrapper.findComponent(GlKeysetPagination);
   const findTokenCount = () => wrapper.findByTestId('cluster-agent-token-count').text();
   const findEESecurityTabSlot = () => wrapper.findByTestId('ee-security-tab');
+  const findEEWorkspacesTabSlot = () => wrapper.findByTestId('ee-workspaces-tab');
   const findActivity = () => wrapper.findComponent(ActivityEvents);
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
+  const findIntegrationStatus = () => wrapper.findComponent(IntegrationStatus);
 
   describe('default behaviour', () => {
     beforeEach(async () => {
@@ -91,7 +90,6 @@ describe('ClusterAgentShow', () => {
       const variables = {
         agentName: provide.agentName,
         projectPath: provide.projectPath,
-        tokenStatus: TOKEN_STATUS_ACTIVE,
         first: MAX_LIST_COUNT,
         last: null,
       };
@@ -105,6 +103,10 @@ describe('ClusterAgentShow', () => {
 
     it('displays agent create information', () => {
       expect(findCreatedText()).toMatchInterpolatedText('Created by user-1 2 days ago');
+    });
+
+    it('displays agent integration status section', () => {
+      expect(findIntegrationStatus().exists()).toBe(true);
     });
 
     it('displays token count', () => {
@@ -250,6 +252,25 @@ describe('ClusterAgentShow', () => {
       });
       await nextTick();
       expect(findEESecurityTabSlot().exists()).toBe(true);
+    });
+  });
+
+  describe('ee-workspaces-tab slot', () => {
+    it('does not display when a slot is not passed in', async () => {
+      createWrapperWithoutApollo({ clusterAgent: defaultClusterAgent });
+      await nextTick();
+      expect(findEEWorkspacesTabSlot().exists()).toBe(false);
+    });
+
+    it('does display when a slot is passed in', async () => {
+      createWrapperWithoutApollo({
+        clusterAgent: defaultClusterAgent,
+        slots: {
+          'ee-workspaces-tab': `<gl-tab data-testid="ee-workspaces-tab">Workspaces Tab!</gl-tab>`,
+        },
+      });
+      await nextTick();
+      expect(findEEWorkspacesTabSlot().exists()).toBe(true);
     });
   });
 });

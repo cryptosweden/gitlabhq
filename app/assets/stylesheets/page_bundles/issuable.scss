@@ -1,0 +1,128 @@
+@import 'mixins_and_variables_and_functions';
+@import 'system_note_styles';
+
+.issuable-details {
+  section {
+    .issuable-discussion {
+      margin-right: 1px;
+    }
+  }
+
+  .title-container {
+    display: flex;
+    align-items: flex-start;
+  }
+
+  .title {
+    padding: 0;
+    margin-bottom: $gl-spacing-scale-4;
+    border-bottom: 0;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    min-width: 0;
+    width: 100%;
+    text-align: initial;
+  }
+
+  .btn-edit {
+    margin-left: auto;
+  }
+}
+
+.detail-page-description {
+  small {
+    color: var(--gray-500, $gray-500);
+  }
+}
+
+.edited-text {
+  color: var(--gray-500, $gray-500);
+  display: block;
+  margin: 16px 0 0;
+  font-size: $gl-font-size-small;
+
+  .author-link {
+    color: var(--gray-700, $gray-700);
+    font-size: $gl-font-size-small;
+  }
+}
+
+.user-item {
+  padding: 5px;
+  flex-basis: 20%;
+
+  .user-link {
+    display: inline-block;
+  }
+}
+
+.issuable-gutter-toggle {
+  @include media-breakpoint-down(sm) {
+    margin-left: $btn-side-margin;
+  }
+}
+
+.issuable-meta {
+  flex: 1;
+  display: inline-block;
+  font-size: 14px;
+  align-self: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  .user-status-emoji {
+    margin-left: $gl-padding-4;
+    margin-right: 0;
+  }
+}
+
+.js-issuable-selector-wrap {
+  .js-issuable-selector {
+    width: 100%;
+  }
+
+  @include media-breakpoint-down(sm) {
+    margin-bottom: $gl-padding;
+  }
+}
+
+.suggestion-footer {
+  font-size: 12px;
+  line-height: 15px;
+
+  .avatar {
+    margin-top: -3px;
+    border: 0;
+  }
+}
+
+.merge-request-notification-toggle {
+  .gl-toggle {
+    margin-left: auto;
+  }
+
+  .gl-toggle-label {
+    font-weight: $gl-font-weight-normal;
+  }
+}
+
+.comment-templates-modal {
+  padding: 3rem 0.5rem 0;
+
+  &.gl-modal .modal-dialog {
+    align-items: flex-start;
+  }
+
+  @include gl-media-breakpoint-up(sm) {
+    padding: 5rem 1rem 0;
+  }
+
+  [id*='gl-disclosure-dropdown-group'] {
+    padding-left: 0;
+  }
+
+  .comment-templates-options .gl-new-dropdown-item {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}

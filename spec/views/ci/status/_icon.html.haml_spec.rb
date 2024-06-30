@@ -31,7 +31,7 @@ RSpec.describe 'ci/status/_icon' do
       end
 
       it 'contains build status text' do
-        expect(rendered).to have_css('.ci-status-icon.ci-status-icon-success')
+        expect(rendered).to have_css('[data-testid="status_success_borderless-icon"]')
       end
 
       it 'does not contain links' do
@@ -48,16 +48,18 @@ RSpec.describe 'ci/status/_icon' do
 
       context 'status has external target url' do
         before do
-          external_job = create(:generic_commit_status,
-                                status: :running,
-                                pipeline: pipeline,
-                                target_url: 'http://gitlab.com')
+          external_job = create(
+            :generic_commit_status,
+            status: :running,
+            pipeline: pipeline,
+            target_url: 'http://gitlab.com'
+          )
 
           render_status(external_job)
         end
 
         it 'contains valid commit status text' do
-          expect(rendered).to have_css('.ci-status-icon.ci-status-icon-running')
+          expect(rendered).to have_css('[data-testid="status_running_borderless-icon"]')
         end
 
         it 'has link to external status page' do
@@ -73,7 +75,7 @@ RSpec.describe 'ci/status/_icon' do
         end
 
         it 'contains valid commit status text' do
-          expect(rendered).to have_css('.ci-status-icon.ci-status-icon-canceled')
+          expect(rendered).to have_css('[data-testid="status_canceled_borderless-icon"]')
         end
 
         it 'has link to external status page' do

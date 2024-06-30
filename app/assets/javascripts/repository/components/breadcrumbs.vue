@@ -1,37 +1,22 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import {
-  GlDropdown,
-  GlDropdownDivider,
-  GlDropdownSectionHeader,
-  GlDropdownItem,
-  GlIcon,
-  GlModalDirective,
-} from '@gitlab/ui';
+import { GlDisclosureDropdown, GlModalDirective } from '@gitlab/ui';
 import permissionsQuery from 'shared_queries/repository/permissions.query.graphql';
-import { joinPaths, escapeFileUrl } from '~/lib/utils/url_utility';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import { __ } from '../../locale';
+import { joinPaths, escapeFileUrl, buildURLwithRefType } from '~/lib/utils/url_utility';
+import { BV_SHOW_MODAL } from '~/lib/utils/constants';
+import { __ } from '~/locale';
 import getRefMixin from '../mixins/get_ref';
 import projectPathQuery from '../queries/project_path.query.graphql';
 import projectShortPathQuery from '../queries/project_short_path.query.graphql';
 import UploadBlobModal from './upload_blob_modal.vue';
 import NewDirectoryModal from './new_directory_modal.vue';
 
-const ROW_TYPES = {
-  header: 'header',
-  divider: 'divider',
-};
-
 const UPLOAD_BLOB_MODAL_ID = 'modal-upload-blob';
 const NEW_DIRECTORY_MODAL_ID = 'modal-new-directory';
 
 export default {
   components: {
-    GlDropdown,
-    GlDropdownDivider,
-    GlDropdownSectionHeader,
-    GlDropdownItem,
-    GlIcon,
+    GlDisclosureDropdown,
     UploadBlobModal,
     NewDirectoryModal,
   },
@@ -58,12 +43,17 @@ export default {
   directives: {
     GlModal: GlModalDirective,
   },
-  mixins: [getRefMixin, glFeatureFlagsMixin()],
+  mixins: [getRefMixin],
   props: {
     currentPath: {
       type: String,
       required: false,
       default: '',
+    },
+    refType: {
+      type: String,
+      required: false,
+      default: null,
     },
     canCollaborate: {
       type: Boolean,
@@ -157,14 +147,17 @@ export default {
             return acc.concat({
               name,
               path,
-              to,
+              to: buildURLwithRefType({ path: to, refType: this.refType }),
             });
           },
           [
             {
               name: this.projectShortPath,
               path: '/',
-              to: `/-/tree/${this.escapedRef}/`,
+              to: buildURLwithRefType({
+                path: joinPaths('/-/tree', this.escapedRef),
+                refType: this.refType,
+              }),
             },
           ],
         );
@@ -172,140 +165,118 @@ export default {
     canCreateMrFromFork() {
       return this.userPermissions?.forkProject && this.userPermissions?.createMergeRequestIn;
     },
+    hasPushCodePermission() {
+      return this.userPermissions?.pushCode;
+    },
     showUploadModal() {
       return this.canEditTree && !this.$apollo.queries.userPermissions.loading;
     },
     showNewDirectoryModal() {
-      return (
-        this.glFeatures.newDirModal &&
-        this.canEditTree &&
-        !this.$apollo.queries.userPermissions.loading
-      );
+      return this.canEditTree && !this.$apollo.queries.userPermissions.loading;
+    },
+    dropdownDirectoryItems() {
+      if (this.canEditTree) {
+        return [
+          {
+            text: __('New file'),
+            href: joinPaths(
+              this.newBlobPath,
+              this.currentPath ? encodeURIComponent(this.currentPath) : '',
+            ),
+            extraAttrs: {
+              'data-testid': 'new-file-menu-item',
+            },
+          },
+          {
+            text: __('Upload file'),
+            action: () => this.$root.$emit(BV_SHOW_MODAL, UPLOAD_BLOB_MODAL_ID),
+          },
+          {
+            text: __('New directory'),
+            action: () => this.$root.$emit(BV_SHOW_MODAL, NEW_DIRECTORY_MODAL_ID),
+          },
+        ];
+      }
+
+      if (this.canCreateMrFromFork) {
+        return [
+          {
+            text: __('New file'),
+            href: this.forkNewBlobPath,
+            extraAttrs: {
+              'data-method': 'post',
+            },
+          },
+          {
+            text: __('Upload file'),
+            href: this.forkUploadBlobPath,
+            extraAttrs: {
+              'data-method': 'post',
+            },
+          },
+          {
+            text: __('New directory'),
+            href: this.forkNewDirectoryPath,
+            extraAttrs: {
+              'data-method': 'post',
+            },
+          },
+        ];
+      }
+
+      return [];
+    },
+    dropdownRepositoryItems() {
+      if (!this.hasPushCodePermission) return [];
+      return [
+        {
+          text: __('New branch'),
+          href: this.newBranchPath,
+        },
+        {
+          text: __('New tag'),
+          href: this.newTagPath,
+        },
+      ];
     },
     dropdownItems() {
-      const items = [];
-
-      if (this.canEditTree) {
-        items.push(
-          {
-            type: ROW_TYPES.header,
-            text: __('This directory'),
-          },
-          {
-            attrs: {
-              href: `${this.newBlobPath}/${
-                this.currentPath ? encodeURIComponent(this.currentPath) : ''
-              }`,
-              class: 'qa-new-file-option',
-            },
-            text: __('New file'),
-          },
-          {
-            attrs: {
-              href: '#modal-upload-blob',
-            },
-            text: __('Upload file'),
-            modalId: UPLOAD_BLOB_MODAL_ID,
-          },
-        );
-
-        if (this.glFeatures.newDirModal) {
-          items.push({
-            attrs: {
-              href: '#modal-create-new-dir',
-            },
-            text: __('New directory'),
-            modalId: NEW_DIRECTORY_MODAL_ID,
-          });
-        } else {
-          items.push({
-            attrs: {
-              href: '#modal-create-new-dir',
-              'data-target': '#modal-create-new-dir',
-              'data-toggle': 'modal',
-            },
-            text: __('New directory'),
-          });
-        }
-      } else if (this.canCreateMrFromFork) {
-        items.push(
-          {
-            attrs: {
-              href: this.forkNewBlobPath,
-              'data-method': 'post',
-            },
-            text: __('New file'),
-          },
-          {
-            attrs: {
-              href: this.forkUploadBlobPath,
-              'data-method': 'post',
-            },
-            text: __('Upload file'),
-          },
-          {
-            attrs: {
-              href: this.forkNewDirectoryPath,
-              'data-method': 'post',
-            },
-            text: __('New directory'),
-          },
-        );
-      }
-
-      if (this.userPermissions?.pushCode) {
-        items.push(
-          {
-            type: ROW_TYPES.divider,
-          },
-          {
-            type: ROW_TYPES.header,
-            text: __('This repository'),
-          },
-          {
-            attrs: {
-              href: this.newBranchPath,
-            },
-            text: __('New branch'),
-          },
-          {
-            attrs: {
-              href: this.newTagPath,
-            },
-            text: __('New tag'),
-          },
-        );
-      }
-
-      return items;
+      if (this.isBlobPath) return [];
+      if (!this.canCollaborate && !this.canCreateMrFromFork) return [];
+      return [
+        this.dropdownDirectoryItems?.length && {
+          name: __('This directory'),
+          items: this.dropdownDirectoryItems,
+        },
+        this.dropdownRepositoryItems?.length && {
+          name: __('This repository'),
+          items: this.dropdownRepositoryItems,
+        },
+      ].filter(Boolean);
     },
     isBlobPath() {
       return this.$route.name === 'blobPath' || this.$route.name === 'blobPathDecoded';
     },
     renderAddToTreeDropdown() {
-      return !this.isBlobPath && (this.canCollaborate || this.canCreateMrFromFork);
+      return this.dropdownItems.length;
+    },
+    newDirectoryPath() {
+      return joinPaths(this.newDirPath, this.currentPath);
     },
   },
   methods: {
     isLast(i) {
       return i === this.pathLinks.length - 1;
     },
-    getComponent(type) {
-      switch (type) {
-        case ROW_TYPES.divider:
-          return 'gl-dropdown-divider';
-        case ROW_TYPES.header:
-          return 'gl-dropdown-section-header';
-        default:
-          return 'gl-dropdown-item';
-      }
-    },
   },
 };
 </script>
 
 <template>
-  <nav :aria-label="__('Files breadcrumb')">
+  <nav
+    :aria-label="__('Files breadcrumb')"
+    :data-current-path="currentPath"
+    class="js-repo-breadcrumbs"
+  >
     <ol class="breadcrumb repo-breadcrumb">
       <li v-for="(link, i) in pathLinks" :key="i" class="breadcrumb-item">
         <router-link :to="link.to" :aria-current="isLast(i) ? 'page' : null">
@@ -313,23 +284,14 @@ export default {
         </router-link>
       </li>
       <li v-if="renderAddToTreeDropdown" class="breadcrumb-item">
-        <gl-dropdown toggle-class="add-to-tree qa-add-to-tree gl-ml-2">
-          <template #button-content>
-            <span class="sr-only">{{ __('Add to tree') }}</span>
-            <gl-icon name="plus" :size="16" class="float-left" />
-            <gl-icon name="chevron-down" :size="16" class="float-left" />
-          </template>
-          <template v-for="(item, i) in dropdownItems">
-            <component
-              :is="getComponent(item.type)"
-              :key="i"
-              v-bind="item.attrs"
-              v-gl-modal="item.modalId || null"
-            >
-              {{ item.text }}
-            </component>
-          </template>
-        </gl-dropdown>
+        <gl-disclosure-dropdown
+          :toggle-text="__('Add to tree')"
+          toggle-class="add-to-tree gl-ml-2"
+          data-testid="add-to-tree"
+          text-sr-only
+          icon="plus"
+          :items="dropdownItems"
+        />
       </li>
     </ol>
     <upload-blob-modal
@@ -348,7 +310,7 @@ export default {
       :commit-message="__('Add new directory')"
       :target-branch="selectedBranch"
       :original-branch="originalBranch"
-      :path="newDirPath"
+      :path="newDirectoryPath"
     />
   </nav>
 </template>

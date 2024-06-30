@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Adding an AwardEmoji' do
+RSpec.describe 'Adding an AwardEmoji', feature_category: :shared do
   include GraphqlHelpers
 
   let_it_be(:current_user) { create(:user) }
@@ -57,7 +57,7 @@ RSpec.describe 'Adding an AwardEmoji' do
       it_behaves_like 'a mutation that does not create an AwardEmoji'
 
       it_behaves_like 'a mutation that returns top-level errors',
-        errors: ['You cannot award emoji to this resource.']
+        errors: ['You cannot add emoji reactions to this resource.']
     end
 
     context 'when the given awardable is an Awardable' do
@@ -74,7 +74,7 @@ RSpec.describe 'Adding an AwardEmoji' do
       end
 
       describe 'marking Todos as done' do
-        let(:user) { current_user}
+        let(:user) { current_user }
 
         subject { post_graphql_mutation(mutation, current_user: user) }
 

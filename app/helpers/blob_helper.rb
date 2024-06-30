@@ -2,9 +2,7 @@
 
 module BlobHelper
   def edit_blob_path(project = @project, ref = @ref, path = @path, options = {})
-    project_edit_blob_path(project,
-                           tree_join(ref, path),
-                           options[:link_opts])
+    project_edit_blob_path(project, tree_join(ref, path), options[:link_opts])
   end
 
   def ide_edit_path(project = @project, ref = @ref, path = @path)
@@ -52,9 +50,11 @@ module BlobHelper
   def fork_path_for_current_user(project, path, with_notice: true)
     return unless current_user
 
-    project_forks_path(project,
-                      namespace_key: current_user.namespace&.id,
-                      continue: edit_blob_fork_params(path, with_notice: with_notice))
+    project_forks_path(
+      project,
+      namespace_key: current_user.namespace&.id,
+      continue: edit_blob_fork_params(path, with_notice: with_notice)
+    )
   end
 
   def encode_ide_path(path)
@@ -64,57 +64,15 @@ module BlobHelper
   def edit_blob_button(project = @project, ref = @ref, path = @path, options = {})
     return unless blob = readable_blob(options, path, project, ref)
 
-    common_classes = "btn gl-button btn-confirm js-edit-blob gl-ml-3 #{options[:extra_class]}"
+    common_classes = "js-edit-blob gl-ml-3 #{options[:extra_class]}"
 
-    edit_button_tag(blob,
-                    common_classes,
-                    _('Edit'),
-                    edit_blob_path(project, ref, path, options),
-                    project,
-                    ref)
-  end
-
-  def modify_file_button(project = @project, ref = @ref, path = @path, blob:, label:, action:, btn_class:, modal_type:)
-    return unless current_user
-    return unless blob
-
-    common_classes = "btn gl-button btn-default btn-#{btn_class}"
-    base_button = button_tag(label, class: "#{common_classes} disabled", disabled: true)
-
-    if !on_top_of_branch?(project, ref)
-      modify_file_button_tooltip(base_button, _("You can only %{action} files when you are on a branch") % { action: action })
-    elsif blob.stored_externally?
-      modify_file_button_tooltip(base_button, _("It is not possible to %{action} files that are stored in LFS using the web interface") % { action: action })
-    elsif can_modify_blob?(blob, project, ref)
-      button_tag label, class: "#{common_classes}", 'data-target' => "#modal-#{modal_type}-blob", 'data-toggle' => 'modal'
-    elsif can?(current_user, :fork_project, project) && can?(current_user, :create_merge_request_in, project)
-      edit_fork_button_tag(common_classes, project, label, edit_modify_file_fork_params(action), action)
-    end
-  end
-
-  def replace_blob_link(project = @project, ref = @ref, path = @path, blob:)
-    modify_file_button(
+    edit_button_tag(
+      blob,
+      common_classes,
+      _('Edit'),
+      edit_blob_path(project, ref, path, options),
       project,
-      ref,
-      path,
-      blob: blob,
-      label:      _("Replace"),
-      action:     "replace",
-      btn_class:  "default",
-      modal_type: "upload"
-    )
-  end
-
-  def delete_blob_link(project = @project, ref = @ref, path = @path, blob:)
-    modify_file_button(
-      project,
-      ref,
-      path,
-      blob: blob,
-      label:      _("Delete"),
-      action:     "delete",
-      btn_class:  "default",
-      modal_type: "remove"
+      ref
     )
   end
 
@@ -157,11 +115,11 @@ module BlobHelper
   end
 
   def parent_dir_raw_path
-    blob_raw_path.rpartition("/").first + "/"
+    "#{blob_raw_path.rpartition('/').first}/"
   end
 
-  # SVGs can contain malicious JavaScript; only include whitelisted
-  # elements and attributes. Note that this whitelist is by no means complete
+  # SVGs can contain malicious JavaScript; only include allowlisted
+  # elements and attributes. Note that this allowlist is by no means complete
   # and may omit some elements.
   def sanitize_svg_data(data)
     Gitlab::Sanitizers::SVG.clean(data)
@@ -183,34 +141,32 @@ module BlobHelper
     @gitlab_ci_ymls ||= TemplateFinder.all_template_names(project, :gitlab_ci_ymls)
   end
 
-  def metrics_dashboard_ymls(project)
-    @metrics_dashboard_ymls ||= TemplateFinder.all_template_names(project, :metrics_dashboard_ymls)
-  end
-
   def dockerfile_names(project)
     @dockerfile_names ||= TemplateFinder.all_template_names(project, :dockerfiles)
   end
 
-  def blob_editor_paths(project)
+  def blob_editor_paths(project, method)
     {
       'relative-url-root' => Rails.application.config.relative_url_root,
       'assets-prefix' => Gitlab::Application.config.assets.prefix,
       'blob-filename' => @blob && @blob.path,
       'project-id' => project.id,
+      'project-path': project.full_path,
       'is-markdown' => @blob && @blob.path && Gitlab::MarkupHelper.gitlab_markdown?(@blob.path),
-      'preview-markdown-path' => preview_markdown_path(project)
+      'preview-markdown-path' => preview_markdown_path(project),
+      'form-method' => method
     }
   end
 
   def copy_file_path_button(file_path)
-    clipboard_button(text: file_path, gfm: "`#{file_path}`", class: 'gl-button btn btn-default-tertiary btn-icon btn-sm', title: _('Copy file path'))
+    clipboard_button(text: file_path, gfm: "`#{file_path}`", title: _('Copy file path'))
   end
 
   def copy_blob_source_button(blob)
     return unless blob.rendered_as_text?(ignore_errors: false)
 
     content_tag(:span, class: 'btn-group has-tooltip js-copy-blob-source-btn-tooltip') do
-      clipboard_button(target: ".blob-content[data-blob-id='#{blob.id}'] > pre", class: "btn gl-button btn-default btn-icon js-copy-blob-source-btn", hide_tooltip: true)
+      clipboard_button(target: ".blob-content[data-blob-id='#{blob.id}'] > pre", class: "js-copy-blob-source-btn", size: :medium)
     end
   end
 
@@ -219,29 +175,14 @@ module BlobHelper
     return if blob.binary? || blob.stored_externally?
 
     title = _('Open raw')
-    link_to sprite_icon('doc-code'),
-      external_storage_url_or_path(blob_raw_path),
-      class: 'btn gl-button btn-default btn-icon has-tooltip',
-      target: '_blank',
-      rel: 'noopener noreferrer',
-      aria: { label: title },
-      title: title,
-      data: { container: 'body' }
+    render Pajamas::ButtonComponent.new(href: external_storage_url_or_path(blob_raw_path), target: '_blank', icon: 'doc-code', button_options: { title: title, class: 'has-tooltip', rel: 'noopener noreferrer', data: { container: 'body' } })
   end
 
   def download_blob_button(blob)
     return if blob.empty?
 
     title = _('Download')
-    link_to sprite_icon('download'),
-      external_storage_url_or_path(blob_raw_path(inline: false)),
-      download: @path,
-      class: 'btn gl-button btn-default btn-icon has-tooltip',
-      target: '_blank',
-      rel: 'noopener noreferrer',
-      aria: { label: title },
-      title: title,
-      data: { container: 'body' }
+    render Pajamas::ButtonComponent.new(href: external_storage_url_or_path(blob_raw_path(inline: false)), target: '_blank', icon: 'download', button_options: { download: @path, title: title, class: 'has-tooltip', rel: 'noopener noreferrer', data: { container: 'body' } })
   end
 
   def blob_render_error_reason(viewer)
@@ -298,7 +239,9 @@ module BlobHelper
 
   def readable_blob(options, path, project, ref)
     blob = options.fetch(:blob) do
-      project.repository.blob_at(ref, path) rescue nil
+      project.repository.blob_at(ref, path)
+    rescue StandardError
+      nil
     end
 
     blob if blob&.readable_text?
@@ -312,24 +255,18 @@ module BlobHelper
     }.compact
   end
 
-  def edit_modify_file_fork_params(action)
-    {
-      to: request.fullpath,
-      notice: edit_in_new_fork_notice_action(action),
-      notice_now: edit_in_new_fork_notice_now
-    }
-  end
-
   def edit_fork_button_tag(common_classes, project, label, params, action = 'edit')
     fork_path = project_forks_path(project, namespace_key: current_user.namespace.id, continue: params)
 
-    button_tag label,
-               class: "#{common_classes} js-edit-blob-link-fork-toggler",
-               data: { action: action, fork_path: fork_path }
+    render Pajamas::ButtonComponent.new(variant: :confirm, button_options: { class: "#{common_classes} js-edit-blob-link-fork-toggler", data: { action: action, fork_path: fork_path } }) do
+      label
+    end
   end
 
   def edit_disabled_button_tag(button_text, common_classes)
-    button = button_tag(button_text, class: "#{common_classes} disabled", disabled: true)
+    button = render Pajamas::ButtonComponent.new(disabled: true, variant: :confirm, button_options: { class: common_classes }) do
+      button_text
+    end
 
     # Disabled buttons with tooltips should have the tooltip attached
     # to a wrapper element https://bootstrap-vue.org/docs/components/tooltip#disabled-elements
@@ -337,7 +274,9 @@ module BlobHelper
   end
 
   def edit_link_tag(link_text, edit_path, common_classes)
-    link_to link_text, edit_path, class: "#{common_classes}"
+    render Pajamas::ButtonComponent.new(variant: :confirm, href: edit_path, button_options: { class: common_classes }) do
+      link_text
+    end
   end
 
   def edit_button_tag(blob, common_classes, text, edit_path, project, ref)
@@ -351,31 +290,17 @@ module BlobHelper
     end
   end
 
-  def show_suggest_pipeline_creation_celebration?
-    @blob.path == Gitlab::FileDetector::PATTERNS[:gitlab_ci] &&
-      @blob.auxiliary_viewer&.valid?(project: @project, sha: @commit.sha, user: current_user) &&
-      @project.uses_default_ci_config? &&
-      cookies[suggest_pipeline_commit_cookie_name].present?
-  end
-
-  def suggest_pipeline_commit_cookie_name
-    "suggest_gitlab_ci_yml_commit_#{@project.id}"
-  end
-
-  def human_access
-    @project.team.human_max_access(current_user&.id).try(:downcase)
-  end
-
-  def editing_ci_config?
-    @path.to_s.end_with?(Ci::Pipeline::CONFIG_EXTENSION) ||
-      @path.to_s == @project.ci_config_path_or_default
-  end
-
-  private
-
-  def modify_file_button_tooltip(button, tooltip_message)
-    # Disabled buttons with tooltips should have the tooltip attached
-    # to a wrapper element https://bootstrap-vue.org/docs/components/tooltip#disabled-elements
-    content_tag(:span, button, class: 'btn-group has-tooltip', title: tooltip_message, data: { container: 'body' })
+  def vue_blob_app_data(project, blob, ref)
+    {
+      blob_path: blob.path,
+      project_path: project.full_path,
+      resource_id: project.to_global_id,
+      user_id: current_user.present? ? current_user.to_global_id : '',
+      target_branch: project.empty_repo? ? ref : @ref,
+      original_branch: @ref,
+      can_download_code: can?(current_user, :download_code, project).to_s
+    }
   end
 end
+
+BlobHelper.prepend_mod_with('BlobHelper')

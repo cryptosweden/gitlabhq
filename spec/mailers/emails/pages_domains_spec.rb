@@ -33,7 +33,7 @@ RSpec.describe Emails::PagesDomains do
 
     it 'has the expected content' do
       is_expected.to have_body_text domain.url
-      is_expected.to have_body_text help_page_url('user/project/pages/custom_domains_ssl_tls_certification/index.md', anchor: link_anchor)
+      is_expected.to have_body_text help_page_url('user/project/pages/custom_domains_ssl_tls_certification/index', anchor: link_anchor)
     end
   end
 
@@ -48,6 +48,7 @@ RSpec.describe Emails::PagesDomains do
       before do
         domain.update!(remove_at: 1.week.from_now)
       end
+
       it 'notifies user that domain will be removed automatically' do
         aggregate_failures do
           is_expected.to have_body_text domain.remove_at.strftime('%F %T')
@@ -58,7 +59,7 @@ RSpec.describe Emails::PagesDomains do
   end
 
   describe '#pages_domain_enabled_email' do
-    let(:email_subject) { "#{project.path} | GitLab Pages domain '#{domain.domain}' has been enabled" }
+    let(:email_subject) { "#{project.name} | GitLab Pages domain '#{domain.domain}' has been enabled" }
     let(:link_anchor) { 'steps' }
 
     subject { Notify.pages_domain_enabled_email(domain, user) }
@@ -69,7 +70,7 @@ RSpec.describe Emails::PagesDomains do
   end
 
   describe '#pages_domain_disabled_email' do
-    let(:email_subject) { "#{project.path} | GitLab Pages domain '#{domain.domain}' has been disabled" }
+    let(:email_subject) { "#{project.name} | GitLab Pages domain '#{domain.domain}' has been disabled" }
     let(:link_anchor) { '4-verify-the-domains-ownership' }
 
     subject { Notify.pages_domain_disabled_email(domain, user) }
@@ -82,7 +83,7 @@ RSpec.describe Emails::PagesDomains do
   end
 
   describe '#pages_domain_verification_succeeded_email' do
-    let(:email_subject) { "#{project.path} | Verification succeeded for GitLab Pages domain '#{domain.domain}'" }
+    let(:email_subject) { "#{project.name} | Verification succeeded for GitLab Pages domain '#{domain.domain}'" }
     let(:link_anchor) { 'steps' }
 
     subject { Notify.pages_domain_verification_succeeded_email(domain, user) }
@@ -93,7 +94,7 @@ RSpec.describe Emails::PagesDomains do
   end
 
   describe '#pages_domain_verification_failed_email' do
-    let(:email_subject) { "#{project.path} | ACTION REQUIRED: Verification failed for GitLab Pages domain '#{domain.domain}'" }
+    let(:email_subject) { "#{project.name} | ACTION REQUIRED: Verification failed for GitLab Pages domain '#{domain.domain}'" }
     let(:link_anchor) { 'steps' }
 
     subject { Notify.pages_domain_verification_failed_email(domain, user) }
@@ -104,7 +105,7 @@ RSpec.describe Emails::PagesDomains do
   end
 
   describe '#pages_domain_auto_ssl_failed_email' do
-    let(:email_subject) { "#{project.path} | ACTION REQUIRED: Something went wrong while obtaining the Let's Encrypt certificate for GitLab Pages domain '#{domain.domain}'" }
+    let(:email_subject) { "#{project.name} | ACTION REQUIRED: Something went wrong while obtaining the Let's Encrypt certificate for GitLab Pages domain '#{domain.domain}'" }
 
     subject { Notify.pages_domain_auto_ssl_failed_email(domain, user) }
 
@@ -112,7 +113,7 @@ RSpec.describe Emails::PagesDomains do
 
     it 'says that we failed to obtain certificate' do
       is_expected.to have_body_text "Something went wrong while obtaining the Let's Encrypt certificate."
-      is_expected.to have_body_text help_page_url('user/project/pages/custom_domains_ssl_tls_certification/lets_encrypt_integration.md', anchor: 'troubleshooting')
+      is_expected.to have_body_text help_page_url('user/project/pages/custom_domains_ssl_tls_certification/lets_encrypt_integration', anchor: 'troubleshooting')
     end
   end
 end

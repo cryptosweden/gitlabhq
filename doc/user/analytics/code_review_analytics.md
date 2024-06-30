@@ -1,58 +1,57 @@
 ---
 description: "Learn how long your open merge requests have spent in code review, and what distinguishes the longest-running." # Up to ~200 chars long. They will be displayed in Google Search snippets. It may help to write the page intro first, and then reuse it here.
-stage: Manage
+stage: Plan
 group: Optimize
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
+# Code review analytics
 
-# Code Review Analytics **(PREMIUM)**
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/38062) in GitLab 12.7.
 > - Moved to GitLab Premium in 13.9.
 
-Use Code Review Analytics to view the longest-running reviews among open merge
-requests, and:
+Code review analytics displays a table of open merge requests that have at least one non-author comment.
+The review time is the amount of time since the first comment by a non-author in a merge request.
 
-- Take action on individual merge requests.
-- Reduce overall cycle time.
+You can use code review analytics to view review metrics per merge request
+and improve your code review process.
 
-Code Review Analytics is available to users with at least the Reporter role, and displays a table of open merge requests that have at least one non-author comment. The review time is measured from the time the first non-author comment was submitted.
+- A high number of comments or commits may indicate:
+  - Code that is too complex.
+  - Authors who require more training.
+- A long review time may indicate:
+  - Types of work that move slower than other types.
+  - Opportunities to accelerate your development cycle.
+- Few comments and approvers may indicate a lack of available team members.
 
-NOTE:
-Initially, no data appears. Data is populated as users comment on open merge requests.
+<i class="fa fa-youtube-play youtube" aria-hidden="true"></i>
+For a video explanation, see [Code review analytics: Faster code review](https://www.youtube.com/watch?v=849o0XD991M).
 
-![Code Review Analytics](img/code_review_analytics_v13_11.png "List of code reviews; oldest review first.")
+## View code review analytics
 
-The table is sorted by:
+Prerequisites:
 
-- **Review time**: Helping you to quickly find the longest-running reviews which may need intervention
-  or to be broken down into smaller parts.
-- Other columns: Display the author, approvers, comment count, and line change (-/+) counts.
+- You must have at least the Reporter role.
 
-## View Code Review Analytics
+To view code review analytics:
 
-To view Code Review Analytics:
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Analyze > Code review analytics**.
+1. Optional. Filter results:
+   1. Select the filter bar.
+   1. Select a parameter. You can filter merge requests by milestone and label.
+   1. Select a value for the selected parameter.
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Analytics > Code Review**.
-1. Filter merge requests by milestone and label.
+The table shows up to 20 merge requests in review per page,
+and includes the following information about each merge request:
 
-## Use cases
-
-This feature is designed for [development team leaders](https://about.gitlab.com/handbook/product/personas/#delaney-development-team-lead)
-and others who want to understand broad code review dynamics, and identify patterns to explain them.
-
-You can use Code Review Analytics to:
-
-- Expose your team's unique challenges with code review.
-- Identify improvements that might substantially accelerate your development cycle.
-- Your team agrees that code review is moving too slow.
-- The [Value Stream Analytics feature](value_stream_analytics.md) shows that reviews are your team's most time-consuming step.
-- Analyze the patterns and trends of different types of work that are moving slow.
-
-For example:
-
-- Lots of comments or commits? Maybe the code is too complex.
-- A particular author is involved? Maybe more training is required.
-- Few comments and approvers? Maybe your team is understaffed.
+- Merge request title
+- Review time
+- Author
+- Approvers
+- Comments
+- Commits
+- Line changes

@@ -9,13 +9,19 @@ FactoryBot.define do
     project_name { 'Sentry Project' }
     organization_name { 'Sentry Org' }
     integrated { false }
+    sentry_project_id { 10 }
 
     trait :disabled do
       enabled { false }
     end
 
     trait :integrated do
+      api_url { nil }
       integrated { true }
+      token { nil }
+      project_name { nil }
+      organization_name { nil }
+      sentry_project_id { nil }
     end
   end
 end

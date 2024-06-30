@@ -1,12 +1,13 @@
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import testAction from 'helpers/vuex_action_helper';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import actions from '~/projects/commits/store/actions';
 import * as types from '~/projects/commits/store/mutation_types';
 import createState from '~/projects/commits/store/state';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('Project commits actions', () => {
   let state;
@@ -33,13 +34,13 @@ describe('Project commits actions', () => {
       ]));
   });
 
-  describe('shows a flash message when there is an error', () => {
-    it('creates a flash', () => {
+  describe('shows an alert when there is an error', () => {
+    it('creates an alert', () => {
       const mockDispatchContext = { dispatch: () => {}, commit: () => {}, state };
       actions.receiveAuthorsError(mockDispatchContext);
 
-      expect(createFlash).toHaveBeenCalledTimes(1);
-      expect(createFlash).toHaveBeenCalledWith({
+      expect(createAlert).toHaveBeenCalledTimes(1);
+      expect(createAlert).toHaveBeenCalledWith({
         message: 'An error occurred fetching the project authors.',
       });
     });
@@ -51,8 +52,8 @@ describe('Project commits actions', () => {
       state.projectId = '8';
       const data = [{ id: 1 }];
 
-      mock.onGet(path).replyOnce(200, data);
-      testAction(
+      mock.onGet(path).replyOnce(HTTP_STATUS_OK, data);
+      return testAction(
         actions.fetchAuthors,
         null,
         state,
@@ -63,9 +64,9 @@ describe('Project commits actions', () => {
 
     it('dispatches request/receive on error', () => {
       const path = '/-/autocomplete/users.json';
-      mock.onGet(path).replyOnce(500);
+      mock.onGet(path).replyOnce(HTTP_STATUS_INTERNAL_SERVER_ERROR);
 
-      testAction(actions.fetchAuthors, null, state, [], [{ type: 'receiveAuthorsError' }]);
+      return testAction(actions.fetchAuthors, null, state, [], [{ type: 'receiveAuthorsError' }]);
     });
   });
 });

@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Files > User searches for files' do
-  let(:user) { project.first_owner }
+RSpec.describe 'Projects > Files > User searches for files', feature_category: :source_code_management do
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project, :repository, namespace: user.namespace) }
 
   before do
     sign_in(user)
@@ -11,13 +12,13 @@ RSpec.describe 'Projects > Files > User searches for files' do
 
   describe 'project main screen' do
     context 'when project is empty' do
-      let(:project) { create(:project) }
+      let_it_be(:project) { create(:project, namespace: user.namespace) }
 
       before do
         visit project_path(project)
       end
 
-      it 'does not show any result' do
+      it 'does not show any result', :js do
         submit_search('coffee')
 
         expect(page).to have_content("We couldn't find any")
@@ -25,10 +26,7 @@ RSpec.describe 'Projects > Files > User searches for files' do
     end
 
     context 'when project is not empty' do
-      let(:project) { create(:project, :repository) }
-
       before do
-        project.add_developer(user)
         visit project_path(project)
       end
 
@@ -39,14 +37,11 @@ RSpec.describe 'Projects > Files > User searches for files' do
   end
 
   describe 'project tree screen' do
-    let(:project) { create(:project, :repository) }
-
     before do
-      project.add_developer(user)
       visit project_tree_path(project, project.default_branch)
     end
 
-    it 'shows found files' do
+    it 'shows found files', :js do
       expect(page).to have_selector('.tree-controls .shortcuts-find-file')
 
       submit_search('coffee')

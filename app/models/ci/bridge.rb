@@ -3,7 +3,7 @@
 module Ci
   class Bridge < Ci::Processable
     include Ci::Contextable
-    include Ci::Metadatable
+    include Ci::Deployable
     include Importable
     include AfterCommitQueue
     include Ci::HasRef
@@ -16,12 +16,10 @@ module Ci
       pipeline_variables: false
     }.freeze
 
-    belongs_to :project
-    belongs_to :trigger_request
-    has_many :sourced_pipelines, class_name: "::Ci::Sources::Pipeline",
-                                  foreign_key: :source_job_id
+    self.allow_legacy_sti_class = true
 
-    has_one :sourced_pipeline, class_name: "::Ci::Sources::Pipeline", foreign_key: :source_job_id
+    belongs_to :project
+
     has_one :downstream_pipeline, through: :sourced_pipeline, source: :pipeline
 
     validates :ref, presence: true
@@ -33,10 +31,8 @@ module Ci
 
     state_machine :status do
       after_transition [:created, :manual, :waiting_for_resource] => :pending do |bridge|
-        next unless bridge.triggers_downstream_pipeline?
-
         bridge.run_after_commit do
-          ::Ci::CreateDownstreamPipelineWorker.perform_async(bridge.id)
+          Ci::TriggerDownstreamPipelineService.new(bridge).execute # rubocop: disable CodeReuse/ServiceClass
         end
       end
 
@@ -55,33 +51,53 @@ module Ci
       event :actionize do
         transition created: :manual
       end
+
+      event :start_cancel do
+        transition CANCELABLE_STATUSES.map(&:to_sym) + [:manual] => :canceling
+      end
+
+      event :finish_cancel do
+        transition CANCELABLE_STATUSES.map(&:to_sym) + [:manual, :canceling] => :canceled
+      end
+    end
+
+    def retryable?
+      return false if failed? && (pipeline_loop_detected? || reached_max_descendant_pipelines_depth?)
+
+      super
     end
 
     def self.with_preloads
       preload(
         :metadata,
+        user: [:followers, :followees],
         downstream_pipeline: [project: [:route, { namespace: :route }]],
         project: [:namespace]
       )
     end
 
-    def retryable?
-      false
+    def self.clone_accessors
+      %i[pipeline project ref tag options name
+        allow_failure stage stage_idx
+        yaml_variables when environment description needs_attributes
+        scheduling_type ci_stage partition_id].freeze
     end
 
     def inherit_status_from_downstream!(pipeline)
       case pipeline.status
       when 'success'
-        self.success!
-      when 'failed', 'canceled', 'skipped'
-        self.drop!
+        success!
+      when 'canceled'
+        finish_cancel!
+      when 'failed', 'skipped'
+        drop!
       else
         false
       end
     end
 
     def has_downstream_pipeline?
-      sourced_pipelines.exists?
+      sourced_pipeline.present?
     end
 
     def downstream_pipeline_params
@@ -103,7 +119,12 @@ module Ci
 
     def downstream_project_path
       strong_memoize(:downstream_project_path) do
-        options&.dig(:trigger, :project)
+        project = options&.dig(:trigger, :project)
+        next unless project
+
+        scoped_variables.to_runner_variables.then do |all_variables|
+          ::ExpandVariables.expand(project, all_variables)
+        end
       end
     end
 
@@ -145,6 +166,10 @@ module Ci
       %w[manual].include?(self.when)
     end
 
+    def can_auto_cancel_pipeline_on_job_failure?
+      true
+    end
+
     # rubocop: disable CodeReuse/ServiceClass
     # We don't need it but we are taking `job_variables_attributes` parameter
     # to make it consistent with `Ci::Build#play` method.
@@ -154,6 +179,18 @@ module Ci
         .execute(self)
     end
     # rubocop: enable CodeReuse/ServiceClass
+
+    def job_artifacts
+      Ci::JobArtifact.none
+    end
+
+    def artifacts_expire_at; end
+
+    def runner; end
+
+    def tag_list
+      ActsAsTaggableOn::TagList.new
+    end
 
     def artifacts?
       false
@@ -165,12 +202,6 @@ module Ci
 
     def any_unmet_prerequisites?
       false
-    end
-
-    def expanded_environment_name
-    end
-
-    def persisted_environment
     end
 
     def execute_hooks
@@ -192,7 +223,7 @@ module Ci
       branch = options&.dig(:trigger, :branch)
       return unless branch
 
-      scoped_variables.to_runner_variables.yield_self do |all_variables|
+      scoped_variables.to_runner_variables.then do |all_variables|
         ::ExpandVariables.expand(branch, all_variables)
       end
     end
@@ -203,22 +234,74 @@ module Ci
       end
     end
 
-    def downstream_variables
-      if ::Feature.enabled?(:ci_trigger_forward_variables, project, default_enabled: :yaml)
-        calculate_downstream_variables
-          .reverse # variables priority
-          .uniq { |var| var[:key] } # only one variable key to pass
-          .reverse
-      else
-        legacy_downstream_variables
-      end
-    end
-
     def target_revision_ref
       downstream_pipeline_params.dig(:target_revision, :ref)
     end
 
+    def downstream_variables
+      Gitlab::Ci::Variables::Downstream::Generator.new(self).calculate
+    end
+
+    def variables
+      strong_memoize(:variables) do
+        bridge_variables =
+          if ::Feature.disabled?(:exclude_protected_variables_from_multi_project_pipeline_triggers, project) ||
+              (expose_protected_project_variables? && expose_protected_group_variables?)
+            scoped_variables
+          else
+            unprotected_scoped_variables(
+              expose_project_variables: expose_protected_project_variables?,
+              expose_group_variables: expose_protected_group_variables?
+            )
+          end
+
+        Gitlab::Ci::Variables::Collection.new
+         .concat(bridge_variables)
+         .concat(pipeline.persisted_variables)
+      end
+    end
+
+    def pipeline_variables
+      pipeline.variables
+    end
+
+    def pipeline_schedule_variables
+      return [] unless pipeline.pipeline_schedule
+
+      pipeline.pipeline_schedule.variables.to_a
+    end
+
+    def forward_yaml_variables?
+      strong_memoize(:forward_yaml_variables) do
+        result = options&.dig(:trigger, :forward, :yaml_variables)
+
+        result.nil? ? FORWARD_DEFAULTS[:yaml_variables] : result
+      end
+    end
+
+    def forward_pipeline_variables?
+      strong_memoize(:forward_pipeline_variables) do
+        result = options&.dig(:trigger, :forward, :pipeline_variables)
+
+        result.nil? ? FORWARD_DEFAULTS[:pipeline_variables] : result
+      end
+    end
+
     private
+
+    def expose_protected_group_variables?
+      return true if downstream_project.nil?
+      return true if project.group.present? && project.group == downstream_project.group
+
+      false
+    end
+
+    def expose_protected_project_variables?
+      return true if downstream_project.nil?
+      return true if project.id == downstream_project.id
+
+      false
+    end
 
     def cross_project_params
       {
@@ -255,58 +338,6 @@ module Ci
           merge_request: parent_pipeline.merge_request
         }
       }
-    end
-
-    def legacy_downstream_variables
-      variables = scoped_variables.concat(pipeline.persisted_variables)
-
-      variables.to_runner_variables.yield_self do |all_variables|
-        yaml_variables.to_a.map do |hash|
-          { key: hash[:key], value: ::ExpandVariables.expand(hash[:value], all_variables) }
-        end
-      end
-    end
-
-    def calculate_downstream_variables
-      expand_variables = scoped_variables
-                           .concat(pipeline.persisted_variables)
-                           .to_runner_variables
-
-      # The order of this list refers to the priority of the variables
-      downstream_yaml_variables(expand_variables) +
-        downstream_pipeline_variables(expand_variables)
-    end
-
-    def downstream_yaml_variables(expand_variables)
-      return [] unless forward_yaml_variables?
-
-      yaml_variables.to_a.map do |hash|
-        { key: hash[:key], value: ::ExpandVariables.expand(hash[:value], expand_variables) }
-      end
-    end
-
-    def downstream_pipeline_variables(expand_variables)
-      return [] unless forward_pipeline_variables?
-
-      pipeline.variables.to_a.map do |variable|
-        { key: variable.key, value: ::ExpandVariables.expand(variable.value, expand_variables) }
-      end
-    end
-
-    def forward_yaml_variables?
-      strong_memoize(:forward_yaml_variables) do
-        result = options&.dig(:trigger, :forward, :yaml_variables)
-
-        result.nil? ? FORWARD_DEFAULTS[:yaml_variables] : result
-      end
-    end
-
-    def forward_pipeline_variables?
-      strong_memoize(:forward_pipeline_variables) do
-        result = options&.dig(:trigger, :forward, :pipeline_variables)
-
-        result.nil? ? FORWARD_DEFAULTS[:pipeline_variables] : result
-      end
     end
   end
 end

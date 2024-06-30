@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-# rubocop:disable Rails/Output
 module Gitlab
   class EncryptedLdapCommand < EncryptedCommandBase
     DISPLAY_NAME = "LDAP"
@@ -15,10 +14,9 @@ module Gitlab
         <<~YAML
           # main:
           #   password: '123'
-          #   user_dn: 'gitlab-adm'
+          #   bind_dn: 'gitlab-adm'
         YAML
       end
     end
   end
 end
-# rubocop:enable Rails/Output

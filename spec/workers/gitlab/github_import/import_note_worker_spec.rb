@@ -2,12 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::ImportNoteWorker do
+RSpec.describe Gitlab::GithubImport::ImportNoteWorker, feature_category: :importers do
   let(:worker) { described_class.new }
 
   describe '#import' do
     it 'imports a note' do
-      project = double(:project, full_path: 'foo/bar', id: 1)
+      import_state = create(:import_state, :started)
+      project = double(:project, full_path: 'foo/bar', id: 1, import_state: import_state)
       client = double(:client)
       importer = double(:importer)
       hash = {

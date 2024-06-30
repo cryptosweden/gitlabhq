@@ -1,11 +1,11 @@
 <script>
 import { GlLoadingIcon } from '@gitlab/ui';
 import Sortable from 'sortablejs';
-import sortableConfig from '~/sortable/sortable_config';
 import RelatedIssuableItem from '~/issuable/components/related_issuable_item.vue';
+import { TYPE_ISSUE } from '~/issues/constants';
+import { defaultSortableOptions } from '~/sortable/constants';
 
 export default {
-  name: 'RelatedIssuesList',
   components: {
     GlLoadingIcon,
     RelatedIssuableItem,
@@ -53,7 +53,7 @@ export default {
   mounted() {
     if (this.canReorder) {
       this.sortable = Sortable.create(this.$refs.list, {
-        ...sortableConfig,
+        ...defaultSortableOptions,
         onStart: this.addDraggingCursor,
         onEnd: this.reordered,
       });
@@ -89,7 +89,7 @@ export default {
       document.body.classList.remove('is-dragging');
     },
     issuableOrderingId({ epicIssueId, id }) {
-      return this.issuableType === 'issue' ? epicIssueId : id;
+      return this.issuableType === TYPE_ISSUE ? epicIssueId : id;
     },
   },
 };
@@ -97,12 +97,11 @@ export default {
 
 <template>
   <div :data-link-type="listLinkType">
-    <h4 v-if="heading" class="gl-font-base mt-0">{{ heading }}</h4>
-    <div
-      class="related-issues-token-body bordered-box bg-white"
-      :class="{ 'sortable-container': canReorder }"
-    >
-      <div v-if="isFetching" class="gl-mb-2" data-qa-selector="related_issues_loading_placeholder">
+    <h4 v-if="heading" class="gl-font-sm gl-font-semibold gl-text-gray-700 gl-mx-2 gl-mt-3 gl-mb-2">
+      {{ heading }}
+    </h4>
+    <div class="related-issues-token-body" :class="{ 'sortable-container': canReorder }">
+      <div v-if="isFetching" class="gl-mb-2" data-testid="related-issues-loading-placeholder">
         <gl-loading-icon
           ref="loadingIcon"
           size="sm"
@@ -121,10 +120,11 @@ export default {
           }"
           :data-key="issue.id"
           :data-ordering-id="issuableOrderingId(issue)"
-          class="js-related-issues-token-list-item list-item pt-0 pb-0"
+          class="js-related-issues-token-list-item list-item pt-0 pb-0 gl-border-b-0!"
         >
           <related-issuable-item
             :id-key="issue.id"
+            :iid="issue.iid"
             :display-reference="issue.reference"
             :confidential="issue.confidential"
             :title="issue.title"
@@ -141,8 +141,10 @@ export default {
             :path-id-separator="pathIdSeparator"
             :is-locked="issue.lockIssueRemoval"
             :locked-message="issue.lockedMessage"
+            :work-item-type="issue.type"
             event-namespace="relatedIssue"
-            data-qa-selector="related_issuable_content"
+            data-testid="related-issuable-content"
+            class="-gl-mx-2"
             @relatedIssueRemoveRequest="$emit('relatedIssueRemoveRequest', $event)"
           />
         </li>

@@ -3,7 +3,7 @@
 require 'gon'
 require 'fogbugz'
 
-class ApplicationController < ActionController::Base
+class ApplicationController < BaseActionController
   include Gitlab::GonHelper
   include Gitlab::NoCacheHeaders
   include GitlabRoutingHelper
@@ -13,10 +13,10 @@ class ApplicationController < ActionController::Base
   include EnforcesTwoFactorAuthentication
   include WithPerformanceBar
   include Gitlab::SearchContext::ControllerConcern
+  include PreferredLanguageSwitcher
   include SessionlessAuthentication
   include SessionsHelper
   include ConfirmEmailWarning
-  include Gitlab::Experimentation::ControllerConcern
   include InitializesCurrentUserMode
   include Impersonation
   include Gitlab::Logging::CloudflareHelper
@@ -24,26 +24,24 @@ class ApplicationController < ActionController::Base
   include ::Gitlab::EndpointAttributes
   include FlocOptOut
   include CheckRateLimit
+  include RequestPayloadLogger
+  include StrongPaginationParams
 
   before_action :authenticate_user!, except: [:route_not_found]
   before_action :enforce_terms!, if: :should_enforce_terms?
-  before_action :validate_user_service_ticket!
   before_action :check_password_expiration, if: :html_request?
   before_action :ldap_security_check
   before_action :default_headers
-  before_action :default_cache_headers
   before_action :add_gon_variables, if: :html_request?
   before_action :configure_permitted_parameters, if: :devise_controller?
   before_action :require_email, unless: :devise_controller?
   before_action :active_user_check, unless: :devise_controller?
   before_action :set_usage_stats_consent_flag
   before_action :check_impersonation_availability
-  before_action :required_signup_info
 
   # Make sure the `auth_user` is memoized so it can be logged, we do this after
   # all other before filters that could have set the user.
   before_action :auth_user
-  before_action :limit_session_time, if: -> { !current_user }
 
   prepend_around_action :set_current_context
 
@@ -53,22 +51,19 @@ class ApplicationController < ActionController::Base
   around_action :set_current_admin
 
   after_action :set_page_title_header, if: :json_request?
-  after_action :ensure_authenticated_session_time, if: -> { current_user }
 
   protect_from_forgery with: :exception, prepend: true
 
   helper_method :can?
   helper_method :import_sources_enabled?, :github_import_enabled?,
     :gitea_import_enabled?, :github_import_configured?,
-    :gitlab_import_enabled?, :gitlab_import_configured?,
     :bitbucket_import_enabled?, :bitbucket_import_configured?,
     :bitbucket_server_import_enabled?, :fogbugz_import_enabled?,
     :git_import_enabled?, :gitlab_project_import_enabled?,
-    :manifest_import_enabled?, :phabricator_import_enabled?,
-    :masked_page_url
+    :manifest_import_enabled?, :masked_page_url
 
   def self.endpoint_id_for_action(action_name)
-    "#{self.name}##{action_name}"
+    "#{name}##{action_name}"
   end
 
   rescue_from Encoding::CompatibilityError do |exception|
@@ -89,7 +84,7 @@ class ApplicationController < ActionController::Base
     render_403
   end
 
-  rescue_from Gitlab::Auth::IpBlacklisted do
+  rescue_from Gitlab::Auth::IpBlocked do |e|
     Gitlab::AuthLogger.error(
       message: 'Rack_Attack',
       env: :blocklist,
@@ -98,7 +93,7 @@ class ApplicationController < ActionController::Base
       path: request.fullpath
     )
 
-    head :forbidden
+    render plain: e.message, status: :forbidden
   end
 
   rescue_from Gitlab::Auth::TooManyIps do |e|
@@ -111,13 +106,9 @@ class ApplicationController < ActionController::Base
     render plain: e.message, status: :too_many_requests
   end
 
-  content_security_policy do |p|
-    next if p.directives.blank?
-    next unless Gitlab::CurrentSettings.snowplow_enabled? && !Gitlab::CurrentSettings.snowplow_collector_hostname.blank?
-
-    default_connect_src = p.directives['connect-src'] || p.directives['default-src']
-    connect_src_values = Array.wrap(default_connect_src) | [Gitlab::CurrentSettings.snowplow_collector_hostname]
-    p.connect_src(*connect_src_values)
+  rescue_from Gitlab::Git::ResourceExhaustedError do |e|
+    response.headers.merge!(e.headers)
+    render plain: e.message, status: :service_unavailable
   end
 
   def redirect_back_or_default(default: root_path, options: {})
@@ -158,28 +149,7 @@ class ApplicationController < ActionController::Base
   protected
 
   def workhorse_excluded_content_types
-    @workhorse_excluded_content_types ||= %w(text/html application/json)
-  end
-
-  def append_info_to_payload(payload)
-    super
-
-    payload[:ua] = request.env["HTTP_USER_AGENT"]
-    payload[:remote_ip] = request.remote_ip
-
-    payload[Labkit::Correlation::CorrelationId::LOG_KEY] = Labkit::Correlation::CorrelationId.current_id
-    payload[:metadata] = @current_context
-    payload[:request_urgency] = urgency&.name
-    payload[:target_duration_s] = urgency&.duration
-    logged_user = auth_user
-    if logged_user.present?
-      payload[:user_id] = logged_user.try(:id)
-      payload[:username] = logged_user.try(:username)
-    end
-
-    payload[:queue_duration_s] = request.env[::Gitlab::Middleware::RailsQueueDuration::GITLAB_RAILS_QUEUE_DURATION_KEY]
-
-    store_cloudflare_headers!(payload, request)
+    @workhorse_excluded_content_types ||= %w[text/html application/json]
   end
 
   ##
@@ -239,8 +209,8 @@ class ApplicationController < ActionController::Base
     Gitlab::CurrentSettings.after_sign_out_path.presence || new_user_session_path
   end
 
-  def can?(object, action, subject = :global)
-    Ability.allowed?(object, action, subject)
+  def can?(user, action, subject = :global)
+    Ability.allowed?(user, action, subject)
   end
 
   def access_denied!(message = nil, status = nil)
@@ -257,10 +227,7 @@ class ApplicationController < ActionController::Base
 
     respond_to do |format|
       format.html do
-        render template,
-               layout: "errors",
-               status: status,
-               locals: { message: message }
+        render template, layout: "errors", status: status, locals: { message: message }
       end
       format.any { head status }
     end
@@ -283,6 +250,13 @@ class ApplicationController < ActionController::Base
       # Prevent the Rails CSRF protector from thinking a missing .js file is a JavaScript file
       format.js { render json: '', status: :not_found, content_type: 'application/json' }
       format.any { head :not_found }
+    end
+  end
+
+  def render_409(message = nil)
+    respond_to do |format|
+      format.html { render template: "errors/request_conflict", formats: :html, layout: "errors", status: :conflict, locals: { message: message } }
+      format.any { head :conflict }
     end
   end
 
@@ -309,10 +283,6 @@ class ApplicationController < ActionController::Base
     headers['X-Content-Type-Options'] = 'nosniff'
   end
 
-  def default_cache_headers
-    headers['Pragma'] = 'no-cache' # HTTP 1.0 compatibility
-  end
-
   def stream_csv_headers(csv_filename)
     no_cache_headers
     stream_headers
@@ -321,25 +291,12 @@ class ApplicationController < ActionController::Base
     headers['Content-Disposition'] = "attachment; filename=\"#{csv_filename}\""
   end
 
-  def validate_user_service_ticket!
-    return unless signed_in? && session[:service_tickets]
-
-    valid = session[:service_tickets].all? do |provider, ticket|
-      Gitlab::Auth::OAuth::Session.valid?(provider, ticket)
-    end
-
-    unless valid
-      session[:service_tickets] = nil
-      sign_out current_user
-      redirect_to new_user_session_path
-    end
-  end
-
   def check_password_expiration
-    return if session[:impersonator_id] || !current_user&.allow_password_authentication?
+    return if session[:impersonator_id]
+    return if current_user.nil?
 
-    if current_user&.password_expired?
-      redirect_to new_profile_password_path
+    if current_user.password_expired? && current_user.allow_password_authentication?
+      redirect_to new_user_settings_password_path
     end
   end
 
@@ -397,7 +354,7 @@ class ApplicationController < ActionController::Base
 
   def require_email
     if current_user && current_user.temp_oauth_email? && session[:impersonator_id].nil?
-      redirect_to profile_path, notice: _('Please complete your profile with email address')
+      redirect_to user_settings_profile_path, notice: _('Please complete your profile with email address')
     end
   end
 
@@ -415,8 +372,8 @@ class ApplicationController < ActionController::Base
       # accepting the terms.
       redirect_path = if request.get?
                         request.fullpath
-                      else
-                        URI(request.referer).path if request.referer
+                      elsif request.referer
+                        URI(request.referer).path
                       end
 
       flash[:notice] = message
@@ -444,14 +401,6 @@ class ApplicationController < ActionController::Base
     Gitlab::Auth::OAuth::Provider.enabled?(:github)
   end
 
-  def gitlab_import_enabled?
-    request.host != 'gitlab.com' && Gitlab::CurrentSettings.import_sources.include?('gitlab')
-  end
-
-  def gitlab_import_configured?
-    Gitlab::Auth::OAuth::Provider.enabled?(:gitlab)
-  end
-
   def bitbucket_import_enabled?
     Gitlab::CurrentSettings.import_sources.include?('bitbucket')
   end
@@ -476,10 +425,6 @@ class ApplicationController < ActionController::Base
     Gitlab::CurrentSettings.import_sources.include?('manifest')
   end
 
-  def phabricator_import_enabled?
-    Gitlab::PhabricatorImport.available?
-  end
-
   # U2F (universal 2nd factor) devices need a unique identifier for the application
   # to perform authentication.
   # https://developers.yubico.com/U2F/App_ID.html
@@ -502,7 +447,11 @@ class ApplicationController < ActionController::Base
   end
 
   def set_locale(&block)
-    Gitlab::I18n.with_user_locale(current_user, &block)
+    if current_user
+      Gitlab::I18n.with_user_locale(current_user, &block)
+    else
+      Gitlab::I18n.with_locale(preferred_language, &block)
+    end
   end
 
   def set_session_storage(&block)
@@ -512,7 +461,7 @@ class ApplicationController < ActionController::Base
   end
 
   def set_page_title_header
-    # Per https://tools.ietf.org/html/rfc5987, headers need to be ISO-8859-1, not UTF-8
+    # Per https://www.rfc-editor.org/rfc/rfc5987, headers need to be ISO-8859-1, not UTF-8
     response.headers['Page-Title'] = Addressable::URI.encode_component(page_title('GitLab'))
   end
 
@@ -548,9 +497,7 @@ class ApplicationController < ActionController::Base
 
     session[:ask_for_usage_stats_consent] = current_user.requires_usage_stats_consent?
 
-    if session[:ask_for_usage_stats_consent]
-      disable_usage_stats
-    end
+    disable_usage_stats if session[:ask_for_usage_stats_consent]
   end
 
   def disable_usage_stats
@@ -576,15 +523,6 @@ class ApplicationController < ActionController::Base
   # `auth_user` again would also trigger the Warden callbacks again
   def context_user
     auth_user if strong_memoized?(:auth_user)
-  end
-
-  def required_signup_info
-    return unless current_user
-    return unless current_user.role_required?
-
-    store_location_for :user, request.fullpath
-
-    redirect_to users_sign_up_welcome_path
   end
 end
 

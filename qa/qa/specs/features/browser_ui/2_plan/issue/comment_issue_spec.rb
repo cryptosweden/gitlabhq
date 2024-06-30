@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan', :reliable do
+  RSpec.describe 'Plan', :smoke, product_group: :project_management do
     describe 'Issue comments' do
       before do
         Flow::Login.sign_in
 
-        Resource::Issue.fabricate_via_api!.visit!
+        create(:issue).visit!
       end
 
       it 'comments on an issue and edits the comment', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347978' do

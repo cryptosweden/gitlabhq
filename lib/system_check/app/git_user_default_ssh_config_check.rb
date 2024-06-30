@@ -5,7 +5,7 @@ module SystemCheck
     class GitUserDefaultSSHConfigCheck < SystemCheck::BaseCheck
       # These files are allowed in the .ssh directory. The `config` file is not
       # whitelisted as it may change the SSH client's behaviour dramatically.
-      WHITELIST = %w[
+      ALLOWLIST = %w[
         authorized_keys
         authorized_keys.lock
         authorized_keys2
@@ -31,7 +31,7 @@ module SystemCheck
         end
 
         try_fixing_it("mkdir #{backup_dir}", *instructions)
-        for_more_information('doc/ssh/index.md in section "Overriding SSH settings on the GitLab server"')
+        for_more_information('doc/user/ssh.md#overriding-ssh-settings-on-the-gitlab-server')
         fix_and_rerun
       end
 
@@ -62,7 +62,7 @@ module SystemCheck
         @forbidden_files ||=
           begin
             present = Dir[File.join(ssh_dir, '*')]
-            whitelisted = WHITELIST.map { |basename| File.join(ssh_dir, basename) }
+            whitelisted = ALLOWLIST.map { |basename| File.join(ssh_dir, basename) }
 
             present - whitelisted
           end

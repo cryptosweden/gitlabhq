@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Setting an issue as confidential' do
+RSpec.describe 'Setting an issue as confidential', feature_category: :team_planning do
   include GraphqlHelpers
 
   let(:current_user) { create(:user) }
@@ -15,15 +15,17 @@ RSpec.describe 'Setting an issue as confidential' do
       project_path: project.full_path,
       iid: issue.iid.to_s
     }
-    graphql_mutation(:issue_set_confidential, variables.merge(input),
-                     <<-QL.strip_heredoc
-                       clientMutationId
-                       errors
-                       issue {
-                         iid
-                         confidential
-                       }
-                     QL
+    graphql_mutation(
+      :issue_set_confidential,
+      variables.merge(input),
+      <<-QL.strip_heredoc
+        clientMutationId
+        errors
+        issue {
+          iid
+          confidential
+        }
+      QL
     )
   end
 

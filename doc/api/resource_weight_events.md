@@ -1,14 +1,16 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Resource weight events API **(FREE)**
+# Resource weight events API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/32542) in GitLab 13.2.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-Resource weight events keep track of what happens to GitLab [issues](../user/project/issues/).
+Resource weight events keep track of what happens to GitLab [issues](../user/project/issues/index.md).
 
 Use them to track which weight was set, who did it, and when it happened.
 
@@ -24,7 +26,7 @@ GET /projects/:id/issues/:issue_iid/resource_weight_events
 
 | Attribute   | Type           | Required | Description                                                                     |
 | ----------- | -------------- | -------- | ------------------------------------------------------------------------------- |
-| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) |
+| `id`        | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) |
 | `issue_iid` | integer        | yes      | The IID of an issue                                                             |
 
 Example request:
@@ -80,7 +82,7 @@ Parameters:
 
 | Attribute                     | Type           | Required | Description                                                                     |
 | ----------------------------- | -------------- | -------- | ------------------------------------------------------------------------------- |
-| `id`                          | integer/string | yes      | The ID or [URL-encoded path](index.md#namespaced-path-encoding) of the project |
+| `id`                          | integer/string | yes      | The ID or [URL-encoded path](rest/index.md#namespaced-path-encoding) of the project |
 | `issue_iid`                   | integer        | yes      | The IID of an issue                                                             |
 | `resource_weight_event_id`    | integer        | yes      | The ID of a weight event                                                     |
 

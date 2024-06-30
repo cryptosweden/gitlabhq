@@ -1,6 +1,7 @@
 <script>
-import { GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { __, sprintf } from '~/locale';
 
 export default {
@@ -34,5 +35,5 @@ export default {
 </script>
 
 <template>
-  <div v-safe-html="signedOutText" class="disabled-comment text-center"></div>
+  <div v-safe-html="signedOutText" class="disabled-comment gl-text-center gl-text-secondary"></div>
 </template>

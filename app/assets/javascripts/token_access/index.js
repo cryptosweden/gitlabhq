@@ -1,12 +1,13 @@
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createDefaultClient from '~/lib/graphql';
-import TokenAccess from './components/token_access.vue';
+import TokenAccessApp from './components/token_access_app.vue';
+import cacheConfig from './graphql/cache_config';
 
 Vue.use(VueApollo);
 
 const apolloProvider = new VueApollo({
-  defaultClient: createDefaultClient(),
+  defaultClient: createDefaultClient({}, { cacheConfig }),
 });
 
 export const initTokenAccess = (containerId = 'js-ci-token-access-app') => {
@@ -20,12 +21,13 @@ export const initTokenAccess = (containerId = 'js-ci-token-access-app') => {
 
   return new Vue({
     el: containerEl,
+    name: 'TokenAccessAppsRoot',
     apolloProvider,
     provide: {
       fullPath,
     },
     render(createElement) {
-      return createElement(TokenAccess);
+      return createElement(TokenAccessApp);
     },
   });
 };

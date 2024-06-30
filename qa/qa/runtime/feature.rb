@@ -9,6 +9,8 @@ module QA
       AuthorizationError = Class.new(RuntimeError)
       UnknownScopeError = Class.new(RuntimeError)
       UnknownStateError = Class.new(RuntimeError)
+      UnknownFeatureFlagError = Class.new(RuntimeError)
+      DefinitionFileError = Class.new(RuntimeError)
 
       class << self
         # Documentation: https://docs.gitlab.com/ee/api/features.html
@@ -42,6 +44,8 @@ module QA
               enable(flag, **scopes)
             when 'disabled', 'disable', 'false', 0, false
               disable(flag, **scopes)
+            when 'deleted'
+              QA::Runtime::Logger.info("Feature flag definition for '#{flag}' was deleted. The state of the feature flag has not been changed.")
             else
               raise UnknownStateError, "Unknown feature flag state: #{state}"
             end
@@ -50,7 +54,26 @@ module QA
 
         def enabled?(key, **scopes)
           feature = JSON.parse(get_features).find { |flag| flag['name'] == key.to_s }
-          feature && (feature['state'] == 'on' || feature['state'] == 'conditional' && scopes.present? && enabled_scope?(feature['gates'], **scopes))
+          if feature
+            feature['state'] == 'on' ||
+              (feature['state'] == 'conditional' && scopes.present? && enabled_scope?(feature['gates'], **scopes))
+          else
+            # The feature wasn't found via the API so we check for a default value.
+            # We expand the path include both ee and jh.
+
+            pattern = if GitlabEdition.jh?
+                        "#{File.expand_path('../{ee/,jh/,}config/feature_flags', QA::Runtime::Path.qa_root)}/**/#{key}.yml"
+                      else
+                        "#{File.expand_path('../{ee/,}config/feature_flags', QA::Runtime::Path.qa_root)}/**/#{key}.yml"
+                      end
+
+            file = Dir.glob(pattern).first
+
+            raise UnknownFeatureFlagError, "No feature flag found named '#{key}'" unless file
+
+            definition = YAML.safe_load(File.read(file))
+            definition['default_enabled'].to_s.casecmp('true') == 0
+          end
         end
 
         private
@@ -99,7 +122,7 @@ module QA
 
             QA::Support::Waiter.wait_until(sleep_interval: 1) do
               is_enabled = enabled?(key, **scopes)
-              is_enabled == enable || !enable && scopes.present?
+              is_enabled == enable || (!enable && scopes.present?)
             end
 
             if is_enabled == enable

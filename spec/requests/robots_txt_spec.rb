@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Robots.txt Requests', :aggregate_failures do
+RSpec.describe 'Robots.txt Requests', :aggregate_failures, feature_category: :build do
   before do
     Gitlab::Testing::RobotsBlockerMiddleware.block_requests!
   end
@@ -37,9 +37,13 @@ RSpec.describe 'Robots.txt Requests', :aggregate_failures do
       '/dashboard',
       '/users',
       '/users/foo',
+      '/users/foo@email.com/captcha_check',
+      '/users/foo/captcha_check',
+      '/api/v1/users/foo/captcha_check',
       '/help',
       '/s/',
       '/-/profile',
+      '/-/user_settings/profile',
       '/-/ide/project',
       '/foo/bar/new',
       '/foo/bar/edit',

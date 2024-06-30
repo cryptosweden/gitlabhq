@@ -2,12 +2,12 @@ stages:
   - provision
 
 cloud_formation:
-  image: 'registry.gitlab.com/gitlab-org/cloud-deploy/aws-cloudformation:latest'
+  image: '${CI_TEMPLATE_REGISTRY_HOST}/gitlab-org/cloud-deploy/aws-cloudformation:latest'
   stage: provision
   script:
     - gl-cloudformation create-stack
   rules:
-    - if: '($AUTO_DEVOPS_PLATFORM_TARGET != "EC2") || ($AUTO_DEVOPS_PLATFORM_TARGET != "ECS")'
+    - if: '($AUTO_DEVOPS_PLATFORM_TARGET != "EC2") && ($AUTO_DEVOPS_PLATFORM_TARGET != "ECS")'
       when: never
     - if: '$CI_KUBERNETES_ACTIVE || $KUBECONFIG'
       when: never

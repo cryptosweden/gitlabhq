@@ -9,10 +9,12 @@ module Gitlab
 
       attr_reader :limits
 
-      delegate :max_files, :max_lines, :max_bytes, :safe_max_files, :safe_max_lines, :safe_max_bytes, to: :limits
-
       def self.default_limits
         { max_files: ::Commit.diff_safe_max_files, max_lines: ::Commit.diff_safe_max_lines }
+      end
+
+      def self.collect_all_paths?(collect_all_paths)
+        Gitlab::Git::Diff.collect_patch_overage? ? collect_all_paths : false
       end
 
       def self.limits(options = {})
@@ -26,12 +28,14 @@ module Gitlab
         limits[:safe_max_lines] = [limits[:max_lines], defaults[:max_lines]].min
         limits[:safe_max_bytes] = limits[:safe_max_files] * 5.kilobytes # Average 5 KB per file
         limits[:max_patch_bytes] = Gitlab::Git::Diff.patch_hard_limit_bytes
-
-        OpenStruct.new(limits)
+        limits[:max_patch_bytes_for_file_extension] = options.fetch(:max_patch_bytes_for_file_extension, {})
+        limits[:collect_all_paths] = collect_all_paths?(options.fetch(:collect_all_paths, false))
+        limits
       end
 
       def initialize(iterator, options = {})
         @iterator = iterator
+        @generated_files = options.fetch(:generated_files, nil)
         @limits = self.class.limits(options)
         @enforce_limits = !!options.fetch(:limits, true)
         @expanded = !!options.fetch(:expanded, true)
@@ -140,11 +144,11 @@ module Gitlab
       end
 
       def over_safe_limits?(files)
-        if files >= safe_max_files
+        if files >= limits[:safe_max_files]
           @collapsed_safe_files = true
-        elsif @line_count > safe_max_lines
+        elsif @line_count > limits[:safe_max_lines]
           @collapsed_safe_lines = true
-        elsif @byte_count >= safe_max_bytes
+        elsif @byte_count >= limits[:safe_max_bytes]
           @collapsed_safe_bytes = true
         end
 
@@ -161,11 +165,19 @@ module Gitlab
         i = @array.length
 
         @iterator.each do |raw|
-          diff = Gitlab::Git::Diff.new(raw, expanded: expand_diff?)
+          options = { expanded: expand_diff? }
+          options[:generated] = @generated_files.include?(raw.from_path) if @generated_files
+
+          diff = Gitlab::Git::Diff.new(raw, **options)
 
           if raw.overflow_marker
             @overflow = true
-            break
+            # If we're requesting patches with `collect_all_paths` enabled, then
+            # Once we hit the overflow marker, gitlay has still returned diffs, just without
+            # patches, only metadata
+            unless @limits[:collect_all_paths]
+              break
+            end
           end
 
           yield @array[i] = diff
@@ -179,7 +191,7 @@ module Gitlab
         @iterator.each_with_index do |raw, iterator_index|
           @empty = false
 
-          if @enforce_limits && i >= max_files
+          if @enforce_limits && i >= limits[:max_files]
             @overflow = true
             @overflow_max_files = true
             break
@@ -194,7 +206,7 @@ module Gitlab
           @line_count += diff.line_count
           @byte_count += diff.diff.bytesize
 
-          if @enforce_limits && @line_count >= max_lines
+          if @enforce_limits && @line_count >= limits[:max_lines]
             # This last Diff instance pushes us over the lines limit. We stop and
             # discard it.
             @overflow = true
@@ -202,7 +214,7 @@ module Gitlab
             break
           end
 
-          if @enforce_limits && @byte_count >= max_bytes
+          if @enforce_limits && @byte_count >= limits[:max_bytes]
             # This last Diff instance pushes us over the lines limit. We stop and
             # discard it.
             @overflow = true

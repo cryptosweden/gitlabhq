@@ -16,8 +16,15 @@ require 'benchmark/ips'
 # or
 #   rake benchmark:banzai
 #
+# A specific filter can also be benchmarked by using the `FILTER`
+# environment variable.
+#
+#   BENCHMARK=1 FILTER=MathFilter rspec spec/benchmarks/banzai_benchmark.rb --tag specific_filter
+# or
+#   FILTER=MathFilter rake benchmark:banzai
+#
 # rubocop: disable RSpec/TopLevelDescribePath
-RSpec.describe 'GitLab Markdown Benchmark', :aggregate_failures do
+RSpec.describe 'GitLab Markdown Benchmark', :aggregate_failures, feature_category: :team_planning do
   include MarkupHelper
 
   let_it_be(:feature)       { MarkdownFeature.new }
@@ -26,6 +33,8 @@ RSpec.describe 'GitLab Markdown Benchmark', :aggregate_failures do
   let_it_be(:wiki)          { feature.wiki }
   let_it_be(:wiki_page)     { feature.wiki_page }
   let_it_be(:markdown_text) { feature.raw_markdown }
+  let_it_be(:glfm_engine)   { Banzai::Filter::MarkdownFilter::GLFM_ENGINE }
+  let_it_be(:cmark_engine)  { Banzai::Filter::MarkdownFilter::CMARK_ENGINE }
   let_it_be(:grafana_integration) { create(:grafana_integration, project: project) }
   let_it_be(:default_context) do
     {
@@ -45,7 +54,7 @@ RSpec.describe 'GitLab Markdown Benchmark', :aggregate_failures do
     stub_application_setting(asset_proxy_enabled: true)
     stub_application_setting(asset_proxy_secret_key: 'shared-secret')
     stub_application_setting(asset_proxy_url: 'https://assets.example.com')
-    stub_application_setting(asset_proxy_whitelist: %w(gitlab.com *.mydomain.com))
+    stub_application_setting(asset_proxy_whitelist: %w[gitlab.com *.mydomain.com])
     stub_application_setting(plantuml_enabled: true, plantuml_url: 'http://localhost:8080')
     stub_application_setting(kroki_enabled: true, kroki_url: 'http://localhost:8000')
 
@@ -56,7 +65,7 @@ RSpec.describe 'GitLab Markdown Benchmark', :aggregate_failures do
     it 'benchmarks several pipelines' do
       name = 'example.jpg'
       path = "images/#{name}"
-      blob = double(name: name, path: path, mime_type: 'image/jpeg', data: nil)
+      blob = instance_double('Gitlab::Git::Blob', name: name, path: path, mime_type: 'image/jpeg', data: nil)
       allow(wiki).to receive(:find_file).with(path, load_content: false).and_return(Gitlab::Git::WikiFile.new(blob))
       allow(wiki).to receive(:wiki_base_path) { '/namespace1/gitlabhq/wikis' }
 
@@ -74,6 +83,62 @@ RSpec.describe 'GitLab Markdown Benchmark', :aggregate_failures do
     end
   end
 
+  context 'markdown engines' do
+    it 'benchmarks full pipeline using different markdown engines' do
+      puts "\n--> Benchmarking FullPipeline with Cmark and Glfm engines\n"
+
+      Benchmark.ips do |x|
+        x.config(time: 10, warmup: 2)
+
+        x.report('glfm') { Banzai::Pipeline::FullPipeline.call(markdown_text, context.merge(markdown_engine: glfm_engine)) }
+        x.report('cmark') { Banzai::Pipeline::FullPipeline.call(markdown_text, context.merge(markdown_engine: cmark_engine)) }
+
+        x.compare!
+      end
+    end
+
+    it 'benchmarks plain markdown pipeline using different markdown engines' do
+      puts "\n--> Benchmarking PlainMarkdownPipeline with Cmark and Glfm engines\n"
+
+      Benchmark.ips do |x|
+        x.config(time: 10, warmup: 2)
+
+        x.report('glfm') { Banzai::Pipeline::PlainMarkdownPipeline.call(markdown_text, context.merge(markdown_engine: glfm_engine)) }
+        x.report('cmark') { Banzai::Pipeline::PlainMarkdownPipeline.call(markdown_text, context.merge(markdown_engine: cmark_engine)) }
+
+        x.compare!
+      end
+    end
+
+    it 'benchmarks MarkdownFilter using different markdown engines' do
+      puts "\n--> Benchmarking MarkdownFilter with Cmark and Glfm engines\n"
+
+      pipeline      = Banzai::Pipeline[:plain_markdown]
+      filter_klass  = Banzai::Filter::MarkdownFilter
+      filter_source = build_filter_text(pipeline, markdown_text)
+
+      Benchmark.ips do |x|
+        x.config(time: 10, warmup: 2)
+
+        x.report('Markdown-glfm') do
+          filter = filter_klass.new(filter_source[filter_klass][:input_text],
+            context.merge(markdown_engine: glfm_engine),
+            filter_source[filter_klass][:input_result])
+          filter.call
+        end
+
+        x.report('Markdown-cmark') do
+          filter = filter_klass.new(filter_source[filter_klass][:input_text],
+            context.merge(markdown_engine: cmark_engine),
+            filter_source[filter_klass][:input_result])
+          filter.call
+        end
+
+        x.compare!
+      end
+    end
+  end
+
   context 'filters' do
     it 'benchmarks all filters in the FullPipeline' do
       benchmark_pipeline_filters(:full)
@@ -81,6 +146,17 @@ RSpec.describe 'GitLab Markdown Benchmark', :aggregate_failures do
 
     it 'benchmarks all filters in the PlainMarkdownPipeline' do
       benchmark_pipeline_filters(:plain_markdown)
+    end
+
+    it 'benchmarks specified filters in the FullPipeline', :specific_filter do
+      begin
+        filter = ENV['FILTER'] || 'MarkdownFilter'
+        filter_klass = "Banzai::Filter::#{filter}".constantize
+      rescue NameError
+        raise 'Incorrect filter specified. Correct example: FILTER=MathFilter'
+      end
+
+      benchmark_pipeline_filters(:full, [filter_klass])
     end
   end
 
@@ -105,22 +181,24 @@ RSpec.describe 'GitLab Markdown Benchmark', :aggregate_failures do
     filter_source
   end
 
-  def benchmark_pipeline_filters(pipeline_type)
+  def benchmark_pipeline_filters(pipeline_type, filter_klass_list = nil)
     pipeline      = Banzai::Pipeline[pipeline_type]
     filter_source = build_filter_text(pipeline, markdown_text)
 
-    puts "\n--> Benchmarking #{pipeline.name.demodulize} filters\n"
+    filter_msg = filter_klass_list ? filter_klass_list.first.name.demodulize : 'all filters'
+    puts "\n--> Benchmarking #{filter_msg} for #{pipeline.name.demodulize} with Glfm\n"
 
     Benchmark.ips do |x|
       x.config(time: 10, warmup: 2)
 
-      pipeline.filters.each do |filter_klass|
+      filters = filter_klass_list || pipeline.filters
+      filters.each do |filter_klass|
         label = filter_klass.name.demodulize.delete_suffix('Filter').truncate(20)
 
         x.report(label) do
           filter = filter_klass.new(filter_source[filter_klass][:input_text],
-                                    context,
-                                    filter_source[filter_klass][:input_result])
+            context,
+            filter_source[filter_klass][:input_result])
           filter.call
         end
       end

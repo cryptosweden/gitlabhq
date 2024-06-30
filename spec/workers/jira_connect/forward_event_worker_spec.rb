@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe JiraConnect::ForwardEventWorker do
+RSpec.describe JiraConnect::ForwardEventWorker, feature_category: :integrations do
   describe '#perform' do
     let!(:jira_connect_installation) { create(:jira_connect_installation, instance_url: self_managed_url, client_key: client_key, shared_secret: shared_secret) }
     let(:base_path) { '/-/jira_connect' }
@@ -24,14 +24,14 @@ RSpec.describe JiraConnect::ForwardEventWorker do
       expect(Atlassian::Jwt).to receive(:encode).with({ iss: client_key, qsh: 'some_qsh' }, shared_secret).and_return('auth_token')
       expect(JiraConnect::RetryRequestWorker).to receive(:perform_async).with(event_url, 'auth_token')
 
-      expect { perform }.to change(JiraConnectInstallation, :count).by(-1)
+      expect { perform }.to change { JiraConnectInstallation.count }.by(-1)
     end
 
     context 'when installation does not exist' do
       let(:jira_connect_installation) { instance_double(JiraConnectInstallation, id: -1) }
 
       it 'does nothing' do
-        expect { perform }.not_to change(JiraConnectInstallation, :count)
+        expect { perform }.not_to change { JiraConnectInstallation.count }
       end
     end
 
@@ -39,7 +39,7 @@ RSpec.describe JiraConnect::ForwardEventWorker do
       let!(:jira_connect_installation) { create(:jira_connect_installation) }
 
       it 'forwards the event including the auth header' do
-        expect { perform }.to change(JiraConnectInstallation, :count).by(-1)
+        expect { perform }.to change { JiraConnectInstallation.count }.by(-1)
 
         expect(JiraConnect::RetryRequestWorker).not_to receive(:perform_async)
       end

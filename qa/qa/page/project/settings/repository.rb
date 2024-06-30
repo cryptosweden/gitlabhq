@@ -7,62 +7,62 @@ module QA
         class Repository < Page::Base
           include QA::Page::Settings::Common
 
-          view 'app/views/projects/protected_branches/shared/_index.html.haml' do
-            element :protected_branches_settings_content
+          view 'app/views/protected_branches/shared/_index.html.haml' do
+            element 'protected-branches-settings-content'
           end
 
           view 'app/views/projects/mirrors/_mirror_repos.html.haml' do
-            element :mirroring_repositories_settings_content
+            element 'mirroring-repositories-settings-content'
           end
 
           view 'app/views/shared/deploy_tokens/_index.html.haml' do
-            element :deploy_tokens_settings_content
+            element 'deploy-tokens-settings-content'
           end
 
           view 'app/views/shared/deploy_keys/_index.html.haml' do
-            element :deploy_keys_settings_content
+            element 'deploy-keys-settings-content'
           end
 
           view 'app/views/projects/protected_tags/shared/_index.html.haml' do
-            element :protected_tag_settings_content
+            element 'protected-tag-settings-content'
+          end
+
+          view 'app/views/projects/branch_rules/_show.html.haml' do
+            element 'branch-rules-content'
           end
 
           def expand_deploy_tokens(&block)
-            expand_content(:deploy_tokens_settings_content) do
-              Settings::DeployTokens.perform(&block)
+            expand_content('deploy-tokens-settings-content') do
+              Settings::ProjectDeployTokens.perform(&block)
             end
           end
 
           def expand_deploy_keys(&block)
-            expand_content(:deploy_keys_settings_content) do
+            expand_content('deploy-keys-settings-content') do
               Settings::DeployKeys.perform(&block)
             end
           end
 
           def expand_protected_branches(&block)
-            expand_content(:protected_branches_settings_content) do
+            expand_content('protected-branches-settings-content') do
               ProtectedBranches.perform(&block)
             end
           end
 
           def expand_mirroring_repositories(&block)
-            expand_content(:mirroring_repositories_settings_content) do
+            expand_content('mirroring-repositories-settings-content') do
               MirroringRepositories.perform(&block)
             end
           end
 
           def expand_protected_tags(&block)
-            expand_content(:protected_tag_settings_content) do
+            expand_content('protected-tag-settings-content') do
               ProtectedTags.perform(&block)
             end
           end
 
-          def expand_default_branch(&block)
-            within('#default-branch-settings') do
-              find('.btn-default').click do
-                DefaultBranch.perform(&block)
-              end
-            end
+          def expand_branch_rules
+            expand_content('branch-rules-content')
           end
         end
       end

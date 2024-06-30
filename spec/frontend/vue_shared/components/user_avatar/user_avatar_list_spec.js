@@ -4,6 +4,7 @@ import { nextTick } from 'vue';
 import { TEST_HOST } from 'spec/test_constants';
 import UserAvatarLink from '~/vue_shared/components/user_avatar/user_avatar_link.vue';
 import UserAvatarList from '~/vue_shared/components/user_avatar/user_avatar_list.vue';
+import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
 
 const TEST_IMAGE_SIZE = 7;
 const TEST_BREAKPOINT = 5;
@@ -13,13 +14,17 @@ const DEFAULT_EMPTY_MESSAGE = 'None';
 const createUser = (id) => ({
   id,
   name: 'Lorem',
+  username: 'lorem.ipsum',
   web_url: `${TEST_HOST}/${id}`,
   avatar_url: `${TEST_HOST}/${id}/avatar`,
 });
+
 const createList = (n) =>
   Array(n)
     .fill(1)
     .map((x, id) => createUser(id));
+const createListCamelCase = (n) =>
+  createList(n).map((user) => convertObjectPropsToCamelCase(user, { deep: true }));
 
 describe('UserAvatarList', () => {
   let props;
@@ -38,16 +43,12 @@ describe('UserAvatarList', () => {
   };
 
   const clickButton = () => {
-    const button = wrapper.find(GlButton);
+    const button = wrapper.findComponent(GlButton);
     button.vm.$emit('click');
   };
 
   beforeEach(() => {
     props = { imgSize: TEST_IMAGE_SIZE };
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
   });
 
   describe('empty text', () => {
@@ -75,14 +76,14 @@ describe('UserAvatarList', () => {
       props.breakpoint = 0;
     });
 
-    it('renders avatars', () => {
+    const linkProps = () =>
+      wrapper.findAllComponents(UserAvatarLink).wrappers.map((x) => x.props());
+
+    it('renders avatars when user has snake_case attributes', () => {
       const items = createList(20);
       factory({ propsData: { items } });
 
-      const links = wrapper.findAll(UserAvatarLink);
-      const linkProps = links.wrappers.map((x) => x.props());
-
-      expect(linkProps).toEqual(
+      expect(linkProps()).toEqual(
         items.map((x) =>
           expect.objectContaining({
             linkHref: x.web_url,
@@ -90,6 +91,27 @@ describe('UserAvatarList', () => {
             imgAlt: x.name,
             tooltipText: x.name,
             imgSize: TEST_IMAGE_SIZE,
+            popoverUserId: x.id,
+            popoverUsername: x.username,
+          }),
+        ),
+      );
+    });
+
+    it('renders avatars when user has camelCase attributes', () => {
+      const items = createListCamelCase(20);
+      factory({ propsData: { items } });
+
+      expect(linkProps()).toEqual(
+        items.map((x) =>
+          expect.objectContaining({
+            linkHref: x.webUrl,
+            imgSrc: x.avatarUrl,
+            imgAlt: x.name,
+            tooltipText: x.name,
+            imgSize: TEST_IMAGE_SIZE,
+            popoverUserId: x.id,
+            popoverUsername: x.username,
           }),
         ),
       );
@@ -105,7 +127,7 @@ describe('UserAvatarList', () => {
     it('renders all avatars if length is <= breakpoint', () => {
       factory();
 
-      const links = wrapper.findAll(UserAvatarLink);
+      const links = wrapper.findAllComponents(UserAvatarLink);
 
       expect(links.length).toEqual(props.items.length);
     });
@@ -113,7 +135,7 @@ describe('UserAvatarList', () => {
     it('does not show button', () => {
       factory();
 
-      expect(wrapper.find(GlButton).exists()).toBe(false);
+      expect(wrapper.findComponent(GlButton).exists()).toBe(false);
     });
   });
 
@@ -126,9 +148,16 @@ describe('UserAvatarList', () => {
     it('renders avatars up to breakpoint', () => {
       factory();
 
-      const links = wrapper.findAll(UserAvatarLink);
+      const links = wrapper.findAllComponents(UserAvatarLink);
 
       expect(links.length).toEqual(TEST_BREAKPOINT);
+    });
+
+    it('does not emit any event on mount', async () => {
+      factory();
+      await nextTick();
+
+      expect(wrapper.emitted()).toEqual({});
     });
 
     describe('with expand clicked', () => {
@@ -138,44 +167,31 @@ describe('UserAvatarList', () => {
       });
 
       it('renders all avatars', () => {
-        const links = wrapper.findAll(UserAvatarLink);
+        const links = wrapper.findAllComponents(UserAvatarLink);
 
         expect(links.length).toEqual(props.items.length);
       });
 
-      it('with collapse clicked, it renders avatars up to breakpoint', async () => {
-        clickButton();
-
-        await nextTick();
-        const links = wrapper.findAll(UserAvatarLink);
-
-        expect(links.length).toEqual(TEST_BREAKPOINT);
-      });
-    });
-  });
-
-  describe('additional styling for the image', () => {
-    it('should not add CSS class when feature flag  `glAvatarForAllUserAvatars` is disabled', () => {
-      factory({
-        propsData: { items: createList(1) },
+      it('emits the `expanded` event', () => {
+        expect(wrapper.emitted('expanded')).toHaveLength(1);
       });
 
-      const link = wrapper.findComponent(UserAvatarLink);
-      expect(link.props('imgCssClasses')).not.toBe('gl-mr-3');
-    });
+      describe('with collapse clicked', () => {
+        beforeEach(() => {
+          clickButton();
+        });
 
-    it('should add CSS class when feature flag `glAvatarForAllUserAvatars` is enabled', () => {
-      factory({
-        propsData: { items: createList(1) },
-        provide: {
-          glFeatures: {
-            glAvatarForAllUserAvatars: true,
-          },
-        },
+        it('renders avatars up to breakpoint', async () => {
+          await nextTick();
+          const links = wrapper.findAllComponents(UserAvatarLink);
+
+          expect(links.length).toEqual(TEST_BREAKPOINT);
+        });
+
+        it('emits the `collapsed` event', () => {
+          expect(wrapper.emitted('collapsed')).toHaveLength(1);
+        });
       });
-
-      const link = wrapper.findComponent(UserAvatarLink);
-      expect(link.props('imgCssClasses')).toBe('gl-mr-3');
     });
   });
 });

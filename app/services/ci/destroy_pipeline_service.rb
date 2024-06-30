@@ -7,7 +7,13 @@ module Ci
 
       Ci::ExpirePipelineCacheService.new.execute(pipeline, delete: true)
 
-      pipeline.cancel_running if pipeline.cancelable?
+      # ensure cancellation happens sync so we accumulate compute minutes successfully
+      # before deleting the pipeline.
+      ::Ci::CancelPipelineService.new(
+        pipeline: pipeline,
+        current_user: current_user,
+        cascade_to_children: true,
+        execute_async: false).force_execute
 
       # The pipeline, the builds, job and pipeline artifacts all get destroyed here.
       # Ci::Pipeline#destroy triggers fast destroy on job_artifacts and
@@ -22,3 +28,5 @@ module Ci
     end
   end
 end
+
+Ci::DestroyPipelineService.prepend_mod

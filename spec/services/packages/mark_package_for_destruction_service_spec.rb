@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Packages::MarkPackageForDestructionService do
+RSpec.describe Packages::MarkPackageForDestructionService, feature_category: :package_registry do
   let_it_be(:user) { create(:user) }
   let_it_be_with_reload(:package) { create(:npm_package) }
 
@@ -17,6 +17,7 @@ RSpec.describe Packages::MarkPackageForDestructionService do
       context 'when it is successful' do
         it 'marks the package and package files as pending destruction' do
           expect(package).to receive(:sync_maven_metadata).and_call_original
+          expect(package).to receive(:sync_npm_metadata_cache).and_call_original
           expect(package).to receive(:mark_package_files_for_destruction).and_call_original
           expect { service.execute }.to change { package.status }.from('default').to('pending_destruction')
         end
@@ -36,9 +37,16 @@ RSpec.describe Packages::MarkPackageForDestructionService do
         end
 
         it 'returns an error ServiceResponse' do
+          expect(Gitlab::ErrorTracking).to receive(:track_exception).with(
+            instance_of(StandardError),
+            project_id: package.project_id,
+            package_id: package.id
+          )
+
           response = service.execute
 
           expect(package).not_to receive(:sync_maven_metadata)
+          expect(package).not_to receive(:sync_npm_metadata_cache)
           expect(response).to be_a(ServiceResponse)
           expect(response).to be_error
           expect(response.message).to eq("Failed to mark the package as pending destruction")

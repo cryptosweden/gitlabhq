@@ -1,8 +1,8 @@
-package objectstore_test
+package objectstore
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/upload/destination/objectstore"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/upload/destination/objectstore/test"
 )
 
@@ -22,7 +21,7 @@ func TestMultipartUploadWithUpcaseETags(t *testing.T) {
 	var putCnt, postCnt int
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, err := ioutil.ReadAll(r.Body)
+		_, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		defer r.Body.Close()
 
@@ -48,7 +47,7 @@ func TestMultipartUploadWithUpcaseETags(t *testing.T) {
 
 	deadline := time.Now().Add(testTimeout)
 
-	m, err := objectstore.NewMultipart(
+	m, err := NewMultipart(
 		[]string{ts.URL},    // a single presigned part URL
 		ts.URL,              // the complete multipart upload URL
 		"",                  // no abort

@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'a maintainer edits files on a source-branch of an MR from a fork', :js, :sidekiq_might_not_need_inline do
+RSpec.describe 'a maintainer edits files on a source-branch of an MR from a fork', :js, :sidekiq_might_not_need_inline,
+  feature_category: :code_review_workflow do
+  include Features::SourceEditorSpecHelpers
   include ProjectForksHelper
   let(:user) { create(:user, username: 'the-maintainer') }
   let(:target_project) { create(:project, :public, :repository) }
@@ -10,13 +12,15 @@ RSpec.describe 'a maintainer edits files on a source-branch of an MR from a fork
   let(:source_project) { fork_project(target_project, author, repository: true) }
 
   let(:merge_request) do
-    create(:merge_request,
-           source_project: source_project,
-           target_project: target_project,
-           source_branch: 'fix',
-           target_branch: 'master',
-           author: author,
-           allow_collaboration: true)
+    create(
+      :merge_request,
+      source_project: source_project,
+      target_project: target_project,
+      source_branch: 'fix',
+      target_branch: 'master',
+      author: author,
+      allow_collaboration: true
+    )
   end
 
   before do
@@ -40,12 +44,16 @@ RSpec.describe 'a maintainer edits files on a source-branch of an MR from a fork
   end
 
   it 'allows committing to the source branch' do
-    execute_script("monaco.editor.getModels()[0].setValue('Updated the readme')")
+    content = 'Updated the readme'
+    editor_set_value(content)
 
     click_button 'Commit changes'
     wait_for_requests
 
-    expect(page).to have_content('Your changes have been successfully committed')
-    expect(page).to have_content('Updated the readme')
+    expect(page).to have_content('Your changes have been committed successfully')
+    page.within '.flash-container' do
+      expect(page).to have_link 'changes'
+    end
+    expect(page).to have_content(content)
   end
 end

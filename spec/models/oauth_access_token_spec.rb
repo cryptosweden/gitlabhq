@@ -2,27 +2,77 @@
 
 require 'spec_helper'
 
-RSpec.describe OauthAccessToken do
-  let(:user) { create(:user) }
+RSpec.describe OauthAccessToken, feature_category: :system_access do
   let(:app_one) { create(:oauth_application) }
   let(:app_two) { create(:oauth_application) }
   let(:app_three) { create(:oauth_application) }
-  let(:tokens) { described_class.all }
+  let(:token) { create(:oauth_access_token, application_id: app_one.id) }
 
-  before do
-    create(:oauth_access_token, application_id: app_one.id)
-    create_list(:oauth_access_token, 2, resource_owner: user, application_id: app_two.id)
+  describe 'scopes' do
+    describe '.latest_per_application' do
+      let!(:app_two_token1) { create(:oauth_access_token, application: app_two) }
+      let!(:app_two_token2) { create(:oauth_access_token, application: app_two) }
+      let!(:app_three_token1) { create(:oauth_access_token, application: app_three) }
+      let!(:app_three_token2) { create(:oauth_access_token, application: app_three) }
+
+      it 'returns only the latest token for each application' do
+        expect(described_class.latest_per_application.map(&:id))
+          .to match_array([app_two_token2.id, app_three_token2.id])
+      end
+    end
   end
 
-  it 'returns unique owners' do
-    expect(tokens.count).to eq(3)
-    expect(tokens.distinct_resource_owner_counts([app_one])).to eq({ app_one.id => 1 })
-    expect(tokens.distinct_resource_owner_counts([app_two])).to eq({ app_two.id => 1 })
-    expect(tokens.distinct_resource_owner_counts([app_three])).to eq({})
-    expect(tokens.distinct_resource_owner_counts([app_one, app_two]))
-      .to eq({
-               app_one.id => 1,
-               app_two.id => 1
-             })
+  describe 'Doorkeeper secret storing' do
+    it 'does not have a prefix' do
+      expect(token.plaintext_token).not_to start_with('gl')
+    end
+
+    it 'stores the token in hashed format' do
+      expect(token.token).not_to eq(token.plaintext_token)
+    end
+
+    it 'does not allow falling back to plaintext token comparison' do
+      expect(described_class.by_token(token.token)).to be_nil
+    end
+
+    it 'finds a token by plaintext token' do
+      expect(described_class.by_token(token.plaintext_token)).to be_a(described_class)
+    end
+
+    context 'when the token is stored in plaintext' do
+      let(:plaintext_token) { Devise.friendly_token(20) }
+
+      before do
+        token.update_column(:token, plaintext_token)
+      end
+
+      it 'falls back to plaintext token comparison' do
+        expect(described_class.by_token(plaintext_token)).to be_a(described_class)
+      end
+    end
+  end
+
+  describe '.matching_token_for' do
+    it 'does not find existing tokens' do
+      expect(described_class.matching_token_for(app_one, token.resource_owner, token.scopes)).to be_nil
+    end
+  end
+
+  describe '#expires_in' do
+    context 'when token has expires_in value set' do
+      it 'uses the expires_in value' do
+        token = described_class.new(expires_in: 1.minute)
+
+        expect(token).to be_valid
+      end
+    end
+
+    context 'when token has nil expires_in' do
+      it 'uses default value' do
+        token = described_class.new(expires_in: nil)
+
+        expect(token).to be_invalid
+      end
+    end
   end
 end

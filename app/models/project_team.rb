@@ -8,23 +8,23 @@ class ProjectTeam
   end
 
   def add_guest(user, current_user: nil)
-    add_user(user, :guest, current_user: current_user)
+    add_member(user, :guest, current_user: current_user)
   end
 
   def add_reporter(user, current_user: nil)
-    add_user(user, :reporter, current_user: current_user)
+    add_member(user, :reporter, current_user: current_user)
   end
 
   def add_developer(user, current_user: nil)
-    add_user(user, :developer, current_user: current_user)
+    add_member(user, :developer, current_user: current_user)
   end
 
   def add_maintainer(user, current_user: nil)
-    add_user(user, :maintainer, current_user: current_user)
+    add_member(user, :maintainer, current_user: current_user)
   end
 
   def add_owner(user, current_user: nil)
-    add_user(user, :owner, current_user: current_user)
+    add_member(user, :owner, current_user: current_user)
   end
 
   def add_role(user, role, current_user: nil)
@@ -43,25 +43,23 @@ class ProjectTeam
     member
   end
 
-  def add_users(users, access_level, current_user: nil, expires_at: nil, tasks_to_be_done: [], tasks_project_id: nil)
-    Members::Projects::BulkCreatorService.add_users( # rubocop:disable CodeReuse/ServiceClass
+  def add_members(users, access_level, current_user: nil, expires_at: nil)
+    Members::Projects::CreatorService.add_members( # rubocop:disable CodeReuse/ServiceClass
       project,
       users,
       access_level,
       current_user: current_user,
-      expires_at: expires_at,
-      tasks_to_be_done: tasks_to_be_done,
-      tasks_project_id: tasks_project_id
+      expires_at: expires_at
     )
   end
 
-  def add_user(user, access_level, current_user: nil, expires_at: nil)
-    Members::Projects::CreatorService.new(project, # rubocop:disable CodeReuse/ServiceClass
-                                          user,
-                                          access_level,
-                                          current_user: current_user,
-                                          expires_at: expires_at)
-                                     .execute
+  def add_member(user, access_level, current_user: nil, expires_at: nil)
+    Members::Projects::CreatorService.add_member( # rubocop:disable CodeReuse/ServiceClass
+      project,
+      user,
+      access_level,
+      current_user: current_user,
+      expires_at: expires_at)
   end
 
   # Remove all users from project team
@@ -80,6 +78,7 @@ class ProjectTeam
   # so we filter out only members of project or project's group
   def members_in_project_and_ancestors
     members.where(id: member_user_ids)
+      .allow_cross_joins_across_databases(url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/432606')
   end
 
   def members_with_access_levels(access_levels = [])
@@ -105,7 +104,7 @@ class ProjectTeam
   def owners
     @owners ||=
       if group
-        group.owners
+        group.owners.allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/432606")
       else
         # workaround until we migrate Project#owners to have membership with
         # OWNER access level
@@ -117,11 +116,13 @@ class ProjectTeam
     owners.include?(user)
   end
 
-  def import(source_project, current_user = nil)
+  def import(source_project, current_user)
     target_project = project
 
-    source_members = source_project.project_members.to_a
-    target_user_ids = target_project.project_members.pluck(:user_id)
+    source_members = source_members_for_import(source_project)
+    target_user_ids = target_project.project_members.pluck_user_ids
+
+    importer_access_level = max_member_access(current_user.id)
 
     source_members.reject! do |member|
       # Skip if user already present in team
@@ -132,17 +133,17 @@ class ProjectTeam
       new_member = member.dup
       new_member.id = nil
       new_member.source = target_project
+      # So that a maintainer cannot import a member with owner access
+      new_member.access_level = [new_member.access_level, importer_access_level].min
       new_member.created_by = current_user
       new_member
     end
 
     ProjectMember.transaction do
-      source_members.each do |member|
-        member.save
-      end
+      source_members.each(&:save)
     end
 
-    true
+    source_members
   rescue StandardError
     false
   end
@@ -171,6 +172,13 @@ class ProjectTeam
     max_member_access(user.id) >= min_access_level
   end
 
+  # Only for direct and not invited members
+  def has_user?(user)
+    return false unless user
+
+    project.project_members.non_invite.exists?(user: user)
+  end
+
   def human_max_access(user_id)
     Gitlab::Access.human_access(max_member_access(user_id))
   end
@@ -179,9 +187,11 @@ class ProjectTeam
   #
   # Returns a Hash mapping user ID -> maximum access level.
   def max_member_access_for_user_ids(user_ids)
-    Gitlab::SafeRequestLoader.execute(resource_key: project.max_member_access_for_resource_key(User),
-                                      resource_ids: user_ids,
-                                      default_value: Gitlab::Access::NO_ACCESS) do |user_ids|
+    Gitlab::SafeRequestLoader.execute(
+      resource_key: project.max_member_access_for_resource_key(User),
+      resource_ids: user_ids,
+      default_value: Gitlab::Access::NO_ACCESS
+    ) do |user_ids|
       project.project_authorizations
              .where(user: user_ids)
              .group(:user_id)
@@ -193,14 +203,20 @@ class ProjectTeam
     project.merge_value_to_request_store(User, user_id, project_access_level)
   end
 
+  def purge_member_access_cache_for_user_id(user_id)
+    project.purge_resource_id_from_request_store(User, user_id)
+  end
+
   def max_member_access(user_id)
     max_member_access_for_user_ids([user_id])[user_id]
   end
 
   def contribution_check_for_user_ids(user_ids)
-    Gitlab::SafeRequestLoader.execute(resource_key: "contribution_check_for_users:#{project.id}",
-                                      resource_ids: user_ids,
-                                      default_value: false) do |user_ids|
+    Gitlab::SafeRequestLoader.execute(
+      resource_key: "contribution_check_for_users:#{project.id}",
+      resource_ids: user_ids,
+      default_value: false
+    ) do |user_ids|
       project.merge_requests
              .merged
              .where(author_id: user_ids, target_branch: project.default_branch.to_s)
@@ -230,6 +246,10 @@ class ProjectTeam
 
   def member_user_ids
     Member.on_project_and_ancestors(project).select(:user_id)
+  end
+
+  def source_members_for_import(source_project)
+    source_project.project_members.to_a
   end
 end
 

@@ -1,19 +1,16 @@
 ---
-stage: Manage
+stage: Plan
 group: Optimize
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Aggregated Value Stream Analytics
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/335391) in GitLab 14.7.
 
 DISCLAIMER:
 This page contains information related to upcoming products, features, and functionality.
 It is important to note that the information presented is for informational purposes only.
 Please do not rely on this information for purchasing or planning purposes.
-As with all projects, the items mentioned on this page are subject to change or delay.
-The development, release, and timing of any products, features, or functionality remain at the
+The development, release, and timing of any products, features, or functionality may be subject to change or delay and remain at the
 sole discretion of GitLab Inc.
 
 This page provides a high-level overview of the aggregated backend for
@@ -21,8 +18,7 @@ Value Stream Analytics (VSA).
 
 ## Current Status
 
-As of 14.8 the aggregated VSA backend is used only in the `gitlab-org` group, for testing purposes
-. We plan to gradually roll it out in the next major release (15.0) for the rest of the groups.
+The aggregated backend is used by default since GitLab 15.0 on the group-level.
 
 ## Motivation
 
@@ -32,7 +28,7 @@ for long-term growth.
 Our main database is not prepared for analytical workloads. Executing long-running queries can
 affect the reliability of the application. For large groups, the current
 implementation (old backend) is slow and, in some cases, doesn't even load due to the configured
-statement timeout (15s).
+statement timeout (15 s).
 
 The database queries in the old backend use the core domain models directly through
 `IssuableFinders` classes: ([MergeRequestsFinder](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/finders/merge_requests_finder.rb) and [IssuesFinder](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/finders/issues_finder.rb)).
@@ -44,64 +40,26 @@ Benefits of the aggregated VSA backend:
 - Simpler database queries (fewer JOINs).
 - Faster aggregations, only a single table is accessed.
 - Possibility to introduce further aggregations for improving the first page load time.
-- Better performance for large groups (with many sub-groups, projects, issues and, merge requests).
+- Better performance for large groups (with many subgroups, projects, issues and, merge requests).
 - Ready for database decomposition. The VSA related database tables could live in a separate
-database with a minimal development effort.
+  database with a minimal development effort.
 - Ready for keyset pagination which can be useful for exporting the data.
 - Possibility to implement more complex event definitions.
   - For example, the start event can be two timestamp columns where the earliest value would be
-  used by the system.
+    used by the system.
   - Example: `MIN(issues.created_at, issues.updated_at)`
-
-## How does Value Stream Analytics work?
-
-Value Stream Analytics calculates the duration between two timestamp columns or timestamp
-expressions and runs various aggregations on the data.
-
-Examples:
-
-- Duration between the Merge Request creation time and Merge Request merge time.
-- Duration between the Issue creation time and Issue close time.
-
-This duration is exposed in various ways:
-
-- Aggregation: median, average
-- Listing: list the duration for individual Merge Request and Issue records
-
-Apart from the durations, we expose the record count within a stage.
-
-### Stages
-
-A stage represents an event pair (start and end events) with additional metadata, such as the name
-of the stage. Stages are configurable by the user within the pairing rules defined in the backend.
-
-**Example stage: Code Review**
-
-- Start event identifier: Merge Request creation time
-- Start event column: uses the `merge_requests.created_at` timestamp column.
-- End event identifier: Merge Request merge time
-- End event column: uses the `merge_request_metrics.merged_at` timestamp column.
-- Stage event hash ID: a calculated hash for the pair of start and end event identifiers.
-  - If two stages have the same configuration of start and end events, then their stage event hash
-  IDs are identical.
-  - The stage event hash ID is later used to store the aggregated data in partitioned database tables.
-
-### Value streams
-
-Value streams are container objects for the stages. There can be multiple value streams per group
-or project focusing on different aspects of the Dev Ops lifecycle.
 
 ### Example configuration
 
-![vsa object hierarchy example](img/object_hierarchy_example_V14_10.png)
+![VSA object hierarchy example](img/object_hierarchy_example_V14_10.png)
 
-In this example, there are two independent value streams set up for two teams that are using
+In this example, two independent value streams are set up for two teams that are using
 different development workflows within the `Test Group` (top-level namespace).
 
 The first value stream uses standard timestamp-based events for defining the stages. The second
 value stream uses label events.
 
-Each value stream and stage item from the example will be persisted in the database. Notice that
+Each value stream and stage item from the example is persisted in the database. Notice that
 the `Deployment` stage is identical for both value streams; that means that the underlying
 `stage_event_hash_id` is the same for both stages. The `stage_event_hash_id` reduces
 the amount of data the backend collects and plays a vital role in database partitioning.
@@ -141,17 +99,16 @@ High-level overview for each top-level namespace with Premium or Ultimate licens
 1. `INSERT` or `UPDATE` the data into the VSA database tables.
 
 The data loading is implemented within the [`Analytics::CycleAnalytics::DataLoaderService`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/app/services/analytics/cycle_analytics/data_loader_service.rb)
-class. There are groups containing a lot of data, so to avoid overloading the primary database,
+class. Some groups contain a lot of data, so to avoid overloading the primary database,
 the service performs operations in batches and enforces strict application limits:
 
 - Load records in batches.
 - Insert records in batches.
-- Stop processing when a limit is reached, schedule a background job to continue the processing
-later.
+- Stop processing when a limit is reached, schedule a background job to continue the processing later.
 - Continue processing data from a specific point.
 
-As of GitLab 14.7, the data loading is done manually. Once the feature is ready, the service will
-be invoked periodically by the system via a cron job (this part is not implemented yet).
+The data loading is done manually. Once the feature is ready, the service is
+invoked periodically by the system via a cron job (this part is not implemented yet).
 
 #### Record iteration
 
@@ -204,7 +161,7 @@ Creation time always happens first, so this stage always reports negative durati
 
 The data collection scans and processes all issues and merge requests records in the group
 hierarchy, starting from the top-level group. This means that if a group only has one value stream
-in a sub-group, we nevertheless collect data of all issues and merge requests in the hierarchy of
+in a subgroup, we nevertheless collect data of all issues and merge requests in the hierarchy of
 this group. This aims to simplify the data collection mechanism. Moreover, data research shows
 that most group hierarchies have their stages configured on the top level.
 
@@ -232,7 +189,7 @@ aggregated data separated, we use two additional database tables:
 - `analytics_cycle_analytics_merge_request_stage_events`
 
 Both tables are hash partitioned by the `stage_event_hash_id`. Each table uses 32 partitions. It's
-an arbitrary number and it could be changed. Important is to keep the partitions under 100GB in
+an arbitrary number and it could be changed. Important is to keep the partitions under 100 GB in
 size (which gives the feature a lot of headroom).
 
 |Column|Description|
@@ -306,18 +263,17 @@ database tables. This change could be implemented using array columns.
 The feature uses private JSON APIs for delivering the data to the frontend. On the first page load
 , the following requests are invoked:
 
-- Initial HTML page load which is mostly empty. Some configuration data is exposed via `data`
-attributes.
+- Initial HTML page load which is mostly empty. Some configuration data is exposed via `data` attributes.
 - `value_streams` - Load the available value streams for the given group.
 - `stages` - Load the stages for the currently selected value stream.
 - `median` - For each stage, request the median duration.
 - `count` - For each stage, request the number of items in the stage (this is a
-[limit count](../merge_request_performance_guidelines.md#badge-counters), maximum 1000 rows).
+  [limit count](../merge_request_concepts/performance.md#badge-counters), maximum 1000 rows).
 - `average_duration_chart` - Data for the duration chart.
 - `summary`, `time_summary` - Top-level aggregations, most of the metrics are using different APIs/
-finders and not invoking the aggregated backend.
+  finders and not invoking the aggregated backend.
 
-When clicking on a specific stage, the `records` endpoint is invoked, which returns the related
+When selecting a specific stage, the `records` endpoint is invoked, which returns the related
 records (paginated) for the chosen stage in a specific order.
 
 ### Database decomposition

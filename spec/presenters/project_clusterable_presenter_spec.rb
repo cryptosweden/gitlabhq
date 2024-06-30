@@ -2,15 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe ProjectClusterablePresenter do
+RSpec.describe ProjectClusterablePresenter, feature_category: :environment_management do
   include Gitlab::Routing.url_helpers
 
   let(:presenter) { described_class.new(project) }
-  let(:project) { create(:project) }
-  let(:cluster) { create(:cluster, :provided_by_gcp, projects: [project]) }
+  let(:project) { build_stubbed(:project) }
+  let(:cluster) { build_stubbed(:cluster, :provided_by_gcp, projects: [project]) }
 
   describe '#can_create_cluster?' do
-    let(:user) { create(:user) }
+    let(:user) { build_stubbed(:user) }
 
     subject { presenter.can_create_cluster? }
 
@@ -20,7 +20,7 @@ RSpec.describe ProjectClusterablePresenter do
 
     context 'when user can create' do
       before do
-        project.add_maintainer(user)
+        stub_member_access_level(project, maintainer: user)
       end
 
       it { is_expected.to be_truthy }
@@ -37,34 +37,22 @@ RSpec.describe ProjectClusterablePresenter do
     it { is_expected.to eq(project_clusters_path(project)) }
   end
 
-  describe '#new_path' do
-    subject { presenter.new_path }
-
-    it { is_expected.to eq(new_project_cluster_path(project)) }
-  end
-
   describe '#connect_path' do
     subject { presenter.connect_path }
 
     it { is_expected.to eq(connect_project_clusters_path(project)) }
   end
 
-  describe '#authorize_aws_role_path' do
-    subject { presenter.authorize_aws_role_path }
+  describe '#new_cluster_docs_path' do
+    subject { presenter.new_cluster_docs_path }
 
-    it { is_expected.to eq(authorize_aws_role_project_clusters_path(project)) }
+    it { is_expected.to eq(new_cluster_docs_project_clusters_path(project)) }
   end
 
   describe '#create_user_clusters_path' do
     subject { presenter.create_user_clusters_path }
 
     it { is_expected.to eq(create_user_project_clusters_path(project)) }
-  end
-
-  describe '#create_gcp_clusters_path' do
-    subject { presenter.create_gcp_clusters_path }
-
-    it { is_expected.to eq(create_gcp_project_clusters_path(project)) }
   end
 
   describe '#cluster_status_cluster_path' do

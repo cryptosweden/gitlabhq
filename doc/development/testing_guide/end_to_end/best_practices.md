@@ -1,7 +1,7 @@
 ---
 stage: none
-group: Development
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: unassigned
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # End-to-end testing Best Practices
@@ -10,15 +10,15 @@ This is a tailored extension of the Best Practices [found in the testing guide](
 
 ## Class and module naming
 
-The QA framework uses [Zeitwerk](https://github.com/fxn/zeitwerk) for class and module autoloading. The default Zeitwerk [inflector](https://github.com/fxn/zeitwerk#zeitwerkinflector) simply converts snake_cased file names to PascalCased module or class names. It is advised to stick to this pattern to avoid manual maintenance of inflections.
+The QA framework uses [Zeitwerk](https://github.com/fxn/zeitwerk) for class and module autoloading. The default Zeitwerk [inflector](https://github.com/fxn/zeitwerk#zeitwerkinflector) converts snake_cased filenames to PascalCased module or class names. It is advised to stick to this pattern to avoid manual maintenance of inflections.
 
 In case custom inflection logic is needed, custom inflectors are added in the [qa.rb](https://gitlab.com/gitlab-org/gitlab/-/blob/master/qa/qa.rb) file in the `loader.inflector.inflect` method invocation.
 
 ## Link a test to its test case
 
-Every test should have a corresponding test case in the [GitLab project Test Cases](https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases) as well as a results issue in the [Quality Test Cases project](https://gitlab.com/gitlab-org/quality/testcases/-/issues).
-If a test case issue does not yet exist you can create one yourself. To do so, create a new
-issue in the [Test Cases](https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases) GitLab project
+Every test should have a corresponding test case in the [GitLab project test cases](https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases) as well as a results issue in the [Quality Test Cases project](https://gitlab.com/gitlab-org/quality/testcases/-/issues).
+If a test case issue does not yet exist, any GitLab team member can create a new test case in
+the **[CI/CD > Test cases](https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases)** page of the GitLab project
 with a placeholder title. After the test case URL is linked to a test in the code, when the test is
 run in a pipeline that has reporting enabled, the `report-results` script automatically updates the
 test case and the results issue.
@@ -62,13 +62,13 @@ In those and similar cases we need to include the test case link by other means.
 To illustrate, there are two tests in the shared examples in [`qa/specs/features/ee/browser_ui/3_create/repository/restrict_push_protected_branch_spec.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/qa/qa/specs/features/ee/browser_ui/3_create/repository/restrict_push_protected_branch_spec.rb):
 
 ```ruby
-shared_examples 'unselected maintainer' do |testcase|
+RSpec.shared_examples 'unselected maintainer' do |testcase|
   it 'user fails to push', testcase: testcase do
     ...
   end
 end
 
-shared_examples 'selected developer' do |testcase|
+RSpec.shared_examples 'selected developer' do |testcase|
   it 'user pushes and merges', testcase: testcase do
     ...
   end
@@ -98,6 +98,43 @@ end
 ```
 
 We recommend creating four associated test cases, two for each shared example.
+
+## Test naming
+
+Test names should form a readable sentence defining the purpose of the test. Our [testing guide](index.md) extends the [Thoughtbot testing style guide](https://github.com/thoughtbot/guides/tree/master/testing-rspec). This page clarifies the guidelines, along with input from [https://www.betterspecs.org/](https://www.betterspecs.org/) and [the RSpec naming guide](https://rspec.rubystyle.guide/#naming.)
+
+### Recommended approach
+
+The following block generates a test named `Plan wiki content creation in a project adds a home page`
+
+``` ruby
+# `RSpec.describe` is the DevOps Stage being covered
+RSpec.describe 'Plan', product_group: :knowledge do
+  # `describe` is the feature being tested
+  describe 'wiki content creation' do
+    # `context` provides the condition being covered
+    context 'in a project'
+      # `it` defines the expected result of the test
+      it 'adds a home page'
+      ...
+      end
+    ...
+    end
+  ...
+  end
+end
+```
+
+1. Every `describe`, `context`, and `it` blocks should have a short description attached
+1. Keep descriptions as concise as possible.
+   1. Long descriptions or multiple conditionals could be a sign it should be split up (additional `context` blocks).
+   1. The [Documentation Style Guide](../../documentation/styleguide/index.md) gives recommendations on how to write concisely and with [active voice](../../documentation/styleguide/index.md#active-voice).
+1. The outermost `Rspec.describe` block should be [the DevOps stage name](https://handbook.gitlab.com/handbook/product/categories/#devops-stages)
+1. Inside the `Rspec.describe` block is a `describe` block with the name of the feature being tested
+1. Optional `context` blocks define what the conditions being tested are
+   1. `context` blocks descriptions should begin with `when`, `with`, `without`, `for`, `and`, `on`, `in`, `as`, or `if` to match the [RuboCop rule](https://www.rubydoc.info/gems/rubocop-rspec/RuboCop/Cop/RSpec/ContextWording)
+1. The `it` block describes the pass/fail criteria for the test
+   1. In `shared_examples` with a single example a `specify` block can be used instead of a named `it` block
 
 ## Prefer API over UI
 
@@ -132,18 +169,14 @@ Page::Main::Menu.perform do |menu|
 end
 
 #=> Good
-issue = Resource::Issue.fabricate_via_api! do |issue|
-  issue.name = 'issue-name'
-end
+issue = create(:issue, name: 'issue-name')
 
 Project::Issues::Index.perform do |index|
   expect(index).to have_issue(issue)
 end
 
 #=> Bad
-issue = Resource::Issue.fabricate_via_api! do |issue|
-  issue.name = 'issue-name'
-end
+issue = create(:issue, name: 'issue-name')
 
 Project::Issues::Index.perform do |index|
   expect(index).to have_issue(issue)
@@ -189,9 +222,9 @@ Attach the `:aggregate_failures` metadata to the example if multiple expectation
 it 'searches', :aggregate_failures do
   Page::Search::Results.perform do |search|
     expect(search).to have_file_in_project(template[:file_name], project.name)
-    
+
     search.switch_to_code
-    
+
     expect(search).to have_file_with_content(template[:file_name], content[0..33])
   end
 end
@@ -205,6 +238,54 @@ it 'searches' do
 
     expect(search).to have_file_with_content(template[:file_name], content[0..33])
   end
+end
+```
+
+## Avoid multiple actions in `expect do ... raise_error` blocks
+
+When you wrap multiple actions in a single `expect do ... end.not_to raise_error` or `expect do ... end.to raise_error` block,
+it can be hard to debug the actual cause of the failure, because of how the logs are printed. Important information can be truncated
+or missing altogether.
+
+For example, if you encapsulate some actions and expectations in a private method in the test, like `expect_owner_permissions_allow_delete_issue`:
+
+```ruby
+it "has Owner role with Owner permissions" do
+  Page::Dashboard::Projects.perform do |projects|
+    projects.filter_by_name(project.name)
+
+    expect(projects).to have_project_with_access_role(project.name, 'Owner')
+  end
+
+  expect_owner_permissions_allow_delete_issue
+end
+```
+
+Then, in the method itself:
+
+```ruby
+#=> Good
+def expect_owner_permissions_allow_delete_issue
+  issue.visit!
+
+  Page::Project::Issue::Show.perform(&:delete_issue)
+
+  Page::Project::Issue::Index.perform do |index|
+    expect(index).not_to have_issue(issue)
+  end
+end
+
+#=> Bad
+def expect_owner_permissions_allow_delete_issue
+  expect do
+    issue.visit!
+
+    Page::Project::Issue::Show.perform(&:delete_issue)
+
+    Page::Project::Issue::Index.perform do |index|
+      expect(index).not_to have_issue(issue)
+    end
+  end.not_to raise_error
 end
 ```
 
@@ -251,7 +332,7 @@ point of failure and so the screenshot would not be captured at the right moment
 
 ## Ensure tests do not leave the browser logged in
 
-All tests expect to be able to log in at the start of the test.
+All tests expect to be able to sign in at the start of the test.
 
 For an example see [issue #34736](https://gitlab.com/gitlab-org/gitlab/-/issues/34736).
 
@@ -279,11 +360,14 @@ When you add a new test that requires administrator access, apply the RSpec meta
 
 When running tests locally or configuring a pipeline, the environment variable `QA_CAN_TEST_ADMIN_FEATURES` can be set to `false` to skip tests that have the `:requires_admin` tag.
 
+NOTE:
+If the _only_ action in the test that requires administrator access is to toggle a feature flag, use the `feature_flag` tag instead. More details can be found in [testing with feature flags](feature_flags.md).
+
 ## Prefer `Commit` resource over `ProjectPush`
 
 In line with [using the API](#prefer-api-over-ui), use a `Commit` resource whenever possible.
 
-`ProjectPush` uses raw shell commands via the Git Command Line Interface (CLI) whereas the `Commit` resource makes an HTTP request.
+`ProjectPush` uses raw shell commands from the Git command-line interface (CLI), and the `Commit` resource makes an HTTP request.
 
 ```ruby
 # Using a commit resource
@@ -307,7 +391,7 @@ using the Git CLI.
 
 ## Preferred method to blur elements
 
-To blur an element, the preferred method is to click another element that does not alter the test state.
+To blur an element, the preferred method is to select another element that does not alter the test state.
 If there's a mask that blocks the page elements, such as may occur with some dropdowns,
 use WebDriver's native mouse events to simulate a click event on the coordinates of an element. Use the following method: `click_element_coordinates`.
 
@@ -362,10 +446,10 @@ except(page).to have_no_text('hidden')
 ```
 
 Unfortunately, that's not automatically the case for the predicate methods that we add to our
-[page objects](page_objects.md). We need to [create our own negatable matchers](https://relishapp.com/rspec/rspec-expectations/v/3-9/docs/custom-matchers/define-a-custom-matcher#matcher-with-separate-logic-for-expect().to-and-expect().not-to).
+[page objects](page_objects.md). We need to [create our own negatable matchers](https://rspec.info/features/3-12/rspec-expectations/custom-matchers/define-matcher/).
 
-The initial example uses the `have_job` matcher which is derived from the [`has_job?` predicate
-method of the `Page::Project::Pipeline::Show` page object](https://gitlab.com/gitlab-org/gitlab/-/blob/87864b3047c23b4308f59c27a3757045944af447/qa/qa/page/project/pipeline/show.rb#L53).
+The initial example uses the `have_job` matcher which is derived from the
+[`has_job?` predicate method of the `Page::Project::Pipeline::Show` page object](https://gitlab.com/gitlab-org/gitlab/-/blob/87864b3047c23b4308f59c27a3757045944af447/qa/qa/page/project/pipeline/show.rb#L53).
 To create a negatable matcher, we use `has_no_job?` for the negative case:
 
 ```ruby

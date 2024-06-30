@@ -46,11 +46,11 @@ module Gitlab
         # 2. Don't sample data at the same interval two times in a row.
         def sleep_interval
           while step = @interval_steps.sample
-            if step != @last_step
-              @last_step = step
+            next if step == @last_step
 
-              return @interval + @last_step
-            end
+            @last_step = step
+
+            return @interval + @last_step
           end
         end
 
@@ -77,9 +77,16 @@ module Gitlab
         def run_thread
           sleep(sleep_interval)
           while running
-            safe_sample
+            wrap_sampler { safe_sample }
             sleep(sleep_interval)
           end
+        end
+
+        def wrap_sampler
+          # If a separate exporter is run, Rails.application may not be available.
+          return yield unless defined?(Rails) && defined?(Rails.application) && Rails.application
+
+          Rails.application.executor.wrap { yield }
         end
 
         def stop_working

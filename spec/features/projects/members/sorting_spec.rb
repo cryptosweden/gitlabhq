@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Members > Sorting', :js do
-  include Spec::Support::Helpers::Features::MembersHelpers
+RSpec.describe 'Projects > Members > Sorting', :js, feature_category: :groups_and_projects do
+  include Features::MembersHelpers
 
   let(:maintainer) { create(:user, name: 'John Doe', created_at: 5.days.ago, last_activity_on: Date.today) }
   let(:developer) { create(:user, name: 'Mary Jane', created_at: 1.day.ago, last_sign_in_at: 5.days.ago, last_activity_on: Date.today - 5) }
@@ -48,7 +48,7 @@ RSpec.describe 'Projects > Members > Sorting', :js do
     expect(first_row.text).to have_content(maintainer.name)
     expect(second_row.text).to have_content(developer.name)
 
-    expect_sort_by('Created on', :asc)
+    expect_sort_by('User created', :asc)
   end
 
   it 'sorts by user created on descending' do
@@ -57,7 +57,7 @@ RSpec.describe 'Projects > Members > Sorting', :js do
     expect(first_row.text).to have_content(developer.name)
     expect(second_row.text).to have_content(maintainer.name)
 
-    expect_sort_by('Created on', :desc)
+    expect_sort_by('User created', :desc)
   end
 
   it 'sorts by last activity ascending' do
@@ -147,9 +147,9 @@ RSpec.describe 'Projects > Members > Sorting', :js do
   end
 
   def expect_sort_by(text, sort_direction)
-    within('[data-testid="members-sort-dropdown"]') do
-      expect(page).to have_css('button[aria-haspopup="true"]', text: text)
-      expect(page).to have_button("Sorting Direction: #{sort_direction == :asc ? 'Ascending' : 'Descending'}")
+    within_testid('members-sort-dropdown') do
+      expect(page).to have_css('button[aria-haspopup="listbox"]', text: text)
+      expect(page).to have_button("Sort direction: #{sort_direction == :asc ? 'Ascending' : 'Descending'}")
     end
   end
 end

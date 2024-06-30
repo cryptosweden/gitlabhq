@@ -67,13 +67,14 @@ export default {
       {{ message }}
     </gl-alert>
 
-    <gl-loading-icon v-if="isLoading" :label="loadingLabel" size="md" class="gl-mt-4" />
+    <gl-loading-icon v-if="isLoading" :label="loadingLabel" size="lg" class="gl-mt-4" />
 
     <gl-empty-state
       v-else-if="errorState"
       :title="errorTitle"
       :description="s__('FeatureFlags|Try again in a few moments or contact your support team.')"
       :svg-path="errorStateSvgPath"
+      :svg-height="null"
       data-testid="error-state"
     />
 
@@ -81,6 +82,7 @@ export default {
       v-else-if="emptyState"
       :title="emptyTitle"
       :svg-path="errorStateSvgPath"
+      :svg-height="150"
       data-testid="empty-state"
     >
       <template #description>

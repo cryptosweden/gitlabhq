@@ -1,61 +1,105 @@
 # frozen_string_literal: true
 
 module BulkImports
-  class EntityWorker # rubocop:disable Scalability/IdempotentWorker
+  class EntityWorker
     include ApplicationWorker
-
-    data_consistency :always
-
-    feature_category :importers
-
-    sidekiq_options retry: false, dead: false
-
-    worker_has_external_dependencies!
+    include ExclusiveLeaseGuard
 
     idempotent!
-    deduplicate :until_executed, including_scheduled: true
+    deduplicate :until_executing
+    data_consistency :always
+    feature_category :importers
+    sidekiq_options retry: 3, dead: false
+    worker_has_external_dependencies!
 
-    def perform(entity_id, current_stage = nil)
-      return if stage_running?(entity_id, current_stage)
+    sidekiq_retries_exhausted do |msg, exception|
+      new.perform_failure(exception, msg['args'].first)
+    end
 
-      logger.info(
-        worker: self.class.name,
-        entity_id: entity_id,
-        current_stage: current_stage
-      )
+    PERFORM_DELAY = 5.seconds
 
-      next_pipeline_trackers_for(entity_id).each do |pipeline_tracker|
-        BulkImports::PipelineWorker.perform_async(
-          pipeline_tracker.id,
-          pipeline_tracker.stage,
-          entity_id
-        )
+    def perform(entity_id)
+      @entity = ::BulkImports::Entity.find(entity_id)
+
+      return unless @entity.started?
+
+      if running_tracker.present?
+        log_info(message: 'Stage running', entity_stage: running_tracker.stage)
+      else
+        # Use lease guard to prevent duplicated workers from starting multiple stages
+        try_obtain_lease do
+          start_next_stage
+        end
       end
-    rescue StandardError => e
-      logger.error(
-        worker: self.class.name,
-        entity_id: entity_id,
-        current_stage: current_stage,
-        error_message: e.message
+
+      re_enqueue
+    end
+
+    def perform_failure(exception, entity_id)
+      @entity = ::BulkImports::Entity.find(entity_id)
+
+      Gitlab::ErrorTracking.track_exception(
+        exception,
+        {
+          message: "Request to export #{entity.source_type} failed"
+        }.merge(logger.default_attributes)
       )
 
-      Gitlab::ErrorTracking.track_exception(e, entity_id: entity_id)
+      entity.fail_op!
     end
 
     private
 
-    def stage_running?(entity_id, stage)
-      return unless stage
+    attr_reader :entity
 
-      BulkImports::Tracker.stage_running?(entity_id, stage)
+    def re_enqueue
+      with_context(bulk_import_entity_id: entity.id) do
+        BulkImports::EntityWorker.perform_in(PERFORM_DELAY, entity.id)
+      end
+    end
+
+    def running_tracker
+      @running_tracker ||= BulkImports::Tracker.running_trackers(entity.id).first
     end
 
     def next_pipeline_trackers_for(entity_id)
       BulkImports::Tracker.next_pipeline_trackers_for(entity_id).update(status_event: 'enqueue')
     end
 
+    def start_next_stage
+      next_pipeline_trackers = next_pipeline_trackers_for(entity.id)
+
+      next_pipeline_trackers.each_with_index do |pipeline_tracker, index|
+        log_info(message: 'Stage starting', entity_stage: pipeline_tracker.stage) if index == 0
+
+        with_context(bulk_import_entity_id: entity.id) do
+          BulkImports::PipelineWorker.perform_async(
+            pipeline_tracker.id,
+            pipeline_tracker.stage,
+            entity.id
+          )
+        end
+      end
+    end
+
+    def lease_timeout
+      PERFORM_DELAY
+    end
+
+    def lease_key
+      "gitlab:bulk_imports:entity_worker:#{entity.id}"
+    end
+
+    def log_lease_taken
+      log_info(message: lease_taken_message)
+    end
+
     def logger
-      @logger ||= Gitlab::Import::Logger.build
+      @logger ||= Logger.build.with_entity(entity)
+    end
+
+    def log_info(payload)
+      logger.info(structured_payload(payload))
     end
   end
 end

@@ -3,6 +3,8 @@
 class StateNote < SyntheticNote
   include Gitlab::Utils::StrongMemoize
 
+  self.allow_legacy_sti_class = true
+
   def self.from_event(event, resource: nil, resource_parent: nil)
     attrs = note_attributes(action_by(event), event, resource, resource_parent)
 
@@ -26,8 +28,10 @@ class StateNote < SyntheticNote
       end
     end
 
+    return "merged manually" if event.state == 'merged' && event_source.is_a?(Commit)
+
     body = event.state.dup
-    body << " via #{event_source.gfm_reference(project)}" if event_source
+    body << " with #{event_source.gfm_reference(project)}" if event_source
     body
   end
 

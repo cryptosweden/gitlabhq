@@ -2,11 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Updating an existing Prometheus Integration' do
+RSpec.describe 'Updating an existing Prometheus Integration', feature_category: :incident_management do
   include GraphqlHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project) }
+  let_it_be(:project) { create(:project, maintainers: user) }
   let_it_be(:integration) { create(:prometheus_integration, project: project) }
 
   let(:mutation) do
@@ -29,10 +29,6 @@ RSpec.describe 'Updating an existing Prometheus Integration' do
   end
 
   let(:mutation_response) { graphql_mutation_response(:prometheus_integration_update) }
-
-  before do
-    project.add_maintainer(user)
-  end
 
   it 'updates the integration' do
     post_graphql_mutation(mutation, current_user: user)

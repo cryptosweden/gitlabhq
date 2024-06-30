@@ -4,8 +4,11 @@ class Projects::MilestonesController < Projects::ApplicationController
   include Gitlab::Utils::StrongMemoize
   include MilestoneActions
 
+  REDIRECT_TARGETS = [:new_release].freeze
+
   before_action :check_issuables_available!
   before_action :milestone, only: [:edit, :update, :destroy, :show, :issues, :merge_requests, :participants, :labels, :promote]
+  before_action :redirect_path, only: [:new, :create]
 
   # Allow read any milestone
   before_action :authorize_read_milestone!
@@ -19,6 +22,7 @@ class Projects::MilestonesController < Projects::ApplicationController
   respond_to :html
 
   feature_category :team_planning
+  urgency :low
 
   def index
     @sort = params[:sort] || 'due_date_asc'
@@ -58,7 +62,11 @@ class Projects::MilestonesController < Projects::ApplicationController
     @milestone = Milestones::CreateService.new(project, current_user, milestone_params).execute
 
     if @milestone.valid?
-      redirect_to project_milestone_path(@project, @milestone)
+      if @redirect_path == :new_release
+        redirect_to new_project_release_path(@project)
+      else
+        redirect_to project_milestone_path(@project, @milestone)
+      end
     else
       render "new"
     end
@@ -68,13 +76,40 @@ class Projects::MilestonesController < Projects::ApplicationController
     @milestone = Milestones::UpdateService.new(project, current_user, milestone_params).execute(milestone)
 
     respond_to do |format|
-      format.js
       format.html do
         if @milestone.valid?
           redirect_to project_milestone_path(@project, @milestone)
         else
           render :edit
         end
+      end
+
+      format.js
+
+      format.json do
+        if @milestone.valid?
+          head :no_content
+        else
+          render json: { errors: @milestone.errors.full_messages }, status: :unprocessable_entity
+        end
+      end
+    end
+  rescue ActiveRecord::StaleObjectError
+    respond_to do |format|
+      format.html do
+        @conflict = true
+        render :edit
+      end
+
+      format.json do
+        render json: {
+          errors: [
+            format(
+              _("Someone edited this %{model_name} at the same time you did. Please refresh your browser and make sure your changes will not unintentionally remove theirs."),
+              model_name: _('milestone')
+            )
+          ]
+        }, status: :conflict
       end
     end
   end
@@ -91,8 +126,8 @@ class Projects::MilestonesController < Projects::ApplicationController
         render json: { url: project_milestones_path(project) }
       end
     end
-  rescue Milestones::PromoteService::PromoteMilestoneError => error
-    redirect_to milestone, alert: error.message
+  rescue Milestones::PromoteService::PromoteMilestoneError => e
+    redirect_to milestone, alert: e.message
   end
 
   def flash_notice_for(milestone, group)
@@ -111,6 +146,11 @@ class Projects::MilestonesController < Projects::ApplicationController
   end
 
   protected
+
+  def redirect_path
+    path = params[:redirect_path]&.to_sym
+    @redirect_path = path if REDIRECT_TARGETS.include?(path)
+  end
 
   def project_group
     strong_memoize(:project_group) do
@@ -131,15 +171,23 @@ class Projects::MilestonesController < Projects::ApplicationController
   # rubocop: enable CodeReuse/ActiveRecord
 
   def authorize_admin_milestone!
-    return render_404 unless can?(current_user, :admin_milestone, @project)
+    render_404 unless can?(current_user, :admin_milestone, @project)
   end
 
   def authorize_promote_milestone!
-    return render_404 unless can?(current_user, :admin_milestone, project_group)
+    render_404 unless can?(current_user, :admin_milestone, project_group)
   end
 
   def milestone_params
-    params.require(:milestone).permit(:title, :description, :start_date, :due_date, :state_event)
+    params.require(:milestone)
+          .permit(
+            :description,
+            :due_date,
+            :lock_version,
+            :start_date,
+            :state_event,
+            :title
+          )
   end
 
   def search_params

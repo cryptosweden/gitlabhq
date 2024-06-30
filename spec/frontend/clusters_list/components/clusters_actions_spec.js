@@ -1,5 +1,11 @@
-import { GlDropdown, GlDropdownItem, GlButton } from '@gitlab/ui';
-import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import {
+  GlButton,
+  GlDisclosureDropdown,
+  GlDisclosureDropdownItem,
+  GlTooltip,
+  GlButtonGroup,
+} from '@gitlab/ui';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import ClustersActions from '~/clusters_list/components/clusters_actions.vue';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import { INSTALL_AGENT_MODAL_ID, CLUSTERS_ACTIONS } from '~/clusters_list/constants';
@@ -7,35 +13,40 @@ import { INSTALL_AGENT_MODAL_ID, CLUSTERS_ACTIONS } from '~/clusters_list/consta
 describe('ClustersActionsComponent', () => {
   let wrapper;
 
-  const newClusterPath = 'path/to/create/cluster';
   const addClusterPath = 'path/to/connect/existing/cluster';
+  const newClusterDocsPath = 'path/to/create/new/cluster';
 
   const defaultProvide = {
-    newClusterPath,
     addClusterPath,
+    newClusterDocsPath,
     canAddCluster: true,
     displayClusterAgents: true,
     certificateBasedClustersEnabled: true,
   };
 
-  const findDropdown = () => wrapper.findComponent(GlDropdown);
-  const findDropdownItems = () => wrapper.findAllComponents(GlDropdownItem);
+  const findButtonGroup = () => wrapper.findComponent(GlButtonGroup);
+  const findButton = () => wrapper.findComponent(GlButton);
+  const findDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
+  const findDropdownItems = () => wrapper.findAllComponents(GlDisclosureDropdownItem);
+  const findTooltip = () => wrapper.findComponent(GlTooltip);
   const findDropdownItemIds = () =>
-    findDropdownItems().wrappers.map((x) => x.attributes('data-testid'));
-  const findNewClusterLink = () => wrapper.findByTestId('new-cluster-link');
+    findDropdownItems().wrappers.map((x) => x.find('a').attributes('data-testid'));
+  const findDropdownItemTexts = () => findDropdownItems().wrappers.map((x) => x.text());
+  const findNewClusterDocsLink = () => wrapper.findByTestId('create-cluster-link');
   const findConnectClusterLink = () => wrapper.findByTestId('connect-cluster-link');
-  const findConnectNewAgentLink = () => wrapper.findByTestId('connect-new-agent-link');
-  const findConnectWithAgentButton = () => wrapper.findComponent(GlButton);
 
   const createWrapper = (provideData = {}) => {
-    wrapper = shallowMountExtended(ClustersActions, {
+    wrapper = mountExtended(ClustersActions, {
       provide: {
         ...defaultProvide,
         ...provideData,
       },
+      stubs: {
+        GlDisclosureDropdown,
+        GlDisclosureDropdownItem,
+      },
       directives: {
-        GlModalDirective: createMockDirective(),
-        GlTooltip: createMockDirective(),
+        GlModalDirective: createMockDirective('gl-modal-directive'),
       },
     });
   };
@@ -44,68 +55,63 @@ describe('ClustersActionsComponent', () => {
     createWrapper();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
   describe('when the certificate based clusters are enabled', () => {
-    it('renders actions menu', () => {
-      expect(findDropdown().props('text')).toBe(CLUSTERS_ACTIONS.actionsButton);
+    it('renders actions menu button group with dropdown', () => {
+      expect(findButtonGroup().exists()).toBe(true);
+      expect(findButton().exists()).toBe(true);
+      expect(findDropdown().exists()).toBe(true);
     });
 
-    it('renders correct href attributes for the links', () => {
-      expect(findNewClusterLink().attributes('href')).toBe(newClusterPath);
-      expect(findConnectClusterLink().attributes('href')).toBe(addClusterPath);
-    });
-
-    describe('when user cannot add clusters', () => {
-      beforeEach(() => {
-        createWrapper({ canAddCluster: false });
-      });
-
-      it('disables dropdown', () => {
-        expect(findDropdown().props('disabled')).toBe(true);
-      });
-
-      it('shows tooltip explaining why dropdown is disabled', () => {
-        const tooltip = getBinding(findDropdown().element, 'gl-tooltip');
-        expect(tooltip.value).toBe(CLUSTERS_ACTIONS.dropdownDisabledHint);
-      });
-
-      it('does not bind split dropdown button', () => {
-        const binding = getBinding(findDropdown().element, 'gl-modal-directive');
-
-        expect(binding.value).toBe(false);
-      });
+    it("doesn't show the tooltip", () => {
+      expect(findTooltip().exists()).toBe(false);
     });
 
     describe('when on project level', () => {
-      it('renders a dropdown with 3 actions items', () => {
-        expect(findDropdownItemIds()).toEqual([
-          'connect-new-agent-link',
-          'new-cluster-link',
-          'connect-cluster-link',
+      it(`displays default action as ${CLUSTERS_ACTIONS.connectWithAgent}`, () => {
+        expect(findButton().text()).toBe(CLUSTERS_ACTIONS.connectWithAgent);
+      });
+
+      it('renders correct modal id for the default action', () => {
+        const binding = getBinding(findButton().element, 'gl-modal-directive');
+
+        expect(binding.value).toBe(INSTALL_AGENT_MODAL_ID);
+      });
+
+      it('renders a dropdown with 2 actions items', () => {
+        expect(findDropdownItemIds()).toEqual(['create-cluster-link', 'connect-cluster-link']);
+      });
+
+      it('renders correct texts for the dropdown items', () => {
+        expect(findDropdownItemTexts()).toEqual([
+          CLUSTERS_ACTIONS.createCluster,
+          CLUSTERS_ACTIONS.connectClusterCertificate,
         ]);
       });
 
-      it('renders correct modal id for the agent link', () => {
-        const binding = getBinding(findConnectNewAgentLink().element, 'gl-modal-directive');
-
-        expect(binding.value).toBe(INSTALL_AGENT_MODAL_ID);
+      it('renders correct href attributes for the links', () => {
+        expect(findNewClusterDocsLink().attributes('href')).toBe(newClusterDocsPath);
+        expect(findConnectClusterLink().attributes('href')).toBe(addClusterPath);
       });
 
-      it('shows tooltip', () => {
-        const tooltip = getBinding(findDropdown().element, 'gl-tooltip');
-        expect(tooltip.value).toBe(CLUSTERS_ACTIONS.connectWithAgent);
-      });
+      describe('when user cannot add clusters', () => {
+        beforeEach(() => {
+          createWrapper({ canAddCluster: false });
+        });
 
-      it('shows split button in dropdown', () => {
-        expect(findDropdown().props('split')).toBe(true);
-      });
+        it('disables dropdown', () => {
+          expect(findDropdown().props('disabled')).toBe(true);
+          expect(findButton().props('disabled')).toBe(true);
+        });
 
-      it('binds split button with modal id', () => {
-        const binding = getBinding(findDropdown().element, 'gl-modal-directive');
+        it('shows tooltip explaining why dropdown is disabled', () => {
+          expect(findTooltip().attributes('title')).toBe(CLUSTERS_ACTIONS.actionsDisabledHint);
+        });
 
-        expect(binding.value).toBe(INSTALL_AGENT_MODAL_ID);
+        it('does not bind split dropdown button', () => {
+          const binding = getBinding(findButton().element, 'gl-modal-directive');
+
+          expect(binding.value).toBe(false);
+        });
       });
     });
 
@@ -114,23 +120,34 @@ describe('ClustersActionsComponent', () => {
         createWrapper({ displayClusterAgents: false });
       });
 
-      it('renders a dropdown with 2 actions items', () => {
-        expect(findDropdownItemIds()).toEqual(['new-cluster-link', 'connect-cluster-link']);
+      it("doesn't render a dropdown", () => {
+        expect(findDropdown().exists()).toBe(false);
       });
 
-      it('shows tooltip', () => {
-        const tooltip = getBinding(findDropdown().element, 'gl-tooltip');
-        expect(tooltip.value).toBe(CLUSTERS_ACTIONS.connectExistingCluster);
+      it('render an action button', () => {
+        expect(findButton().exists()).toBe(true);
       });
 
-      it('does not show split button in dropdown', () => {
-        expect(findDropdown().props('split')).toBe(false);
+      it(`displays default action as ${CLUSTERS_ACTIONS.connectClusterDeprecated}`, () => {
+        expect(findButton().text()).toBe(CLUSTERS_ACTIONS.connectClusterDeprecated);
       });
 
-      it('does not bind dropdown button to modal', () => {
-        const binding = getBinding(findDropdown().element, 'gl-modal-directive');
+      it('renders correct href attribute for the button', () => {
+        expect(findButton().attributes('href')).toBe(addClusterPath);
+      });
 
-        expect(binding.value).toBe(false);
+      describe('when user cannot add clusters', () => {
+        beforeEach(() => {
+          createWrapper({ displayClusterAgents: false, canAddCluster: false });
+        });
+
+        it('disables action button', () => {
+          expect(findButton().props('disabled')).toBe(true);
+        });
+
+        it('shows tooltip explaining why dropdown is disabled', () => {
+          expect(findTooltip().attributes('title')).toBe(CLUSTERS_ACTIONS.actionsDisabledHint);
+        });
       });
     });
   });
@@ -140,17 +157,26 @@ describe('ClustersActionsComponent', () => {
       createWrapper({ certificateBasedClustersEnabled: false });
     });
 
-    it('it does not show the the dropdown', () => {
-      expect(findDropdown().exists()).toBe(false);
+    it(`displays default action as ${CLUSTERS_ACTIONS.connectCluster}`, () => {
+      expect(findButton().text()).toBe(CLUSTERS_ACTIONS.connectCluster);
     });
 
-    it('shows the connect with agent button', () => {
-      expect(findConnectWithAgentButton().props()).toMatchObject({
-        disabled: !defaultProvide.canAddCluster,
-        category: 'primary',
-        variant: 'confirm',
-      });
-      expect(findConnectWithAgentButton().text()).toBe(CLUSTERS_ACTIONS.connectWithAgent);
+    it('renders correct modal id for the default action', () => {
+      const binding = getBinding(findButton().element, 'gl-modal-directive');
+
+      expect(binding.value).toBe(INSTALL_AGENT_MODAL_ID);
+    });
+
+    it('renders a dropdown with 1 action item', () => {
+      expect(findDropdownItemIds()).toEqual(['create-cluster-link']);
+    });
+
+    it('renders correct text for the dropdown item', () => {
+      expect(findDropdownItemTexts()).toEqual([CLUSTERS_ACTIONS.createCluster]);
+    });
+
+    it('renders correct href attributes for the links', () => {
+      expect(findNewClusterDocsLink().attributes('href')).toBe(newClusterDocsPath);
     });
   });
 });

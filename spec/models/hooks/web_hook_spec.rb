@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe WebHook do
+RSpec.describe WebHook, feature_category: :webhooks do
   include AfterNextHelpers
 
   let_it_be(:project) { create(:project) }
@@ -23,6 +23,71 @@ RSpec.describe WebHook do
 
   describe 'validations' do
     it { is_expected.to validate_presence_of(:url) }
+    it { is_expected.to validate_length_of(:custom_webhook_template).is_at_most(4096) }
+
+    describe 'url_variables' do
+      it { is_expected.to allow_value({}).for(:url_variables) }
+      it { is_expected.to allow_value({ 'foo' => 'bar' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'FOO' => 'bar' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'MY_TOKEN' => 'bar' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'foo2' => 'bar' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'x' => 'y' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'x' => ('a' * 2048) }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'foo' => 'bar', 'bar' => 'baz' }).for(:url_variables) }
+      it { is_expected.to allow_value((1..20).to_h { ["k#{_1}", 'value'] }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'MY-TOKEN' => 'bar' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'my_secr3t-token' => 'bar' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'x-y-z' => 'bar' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'x_y_z' => 'bar' }).for(:url_variables) }
+      it { is_expected.to allow_value({ 'f.o.o' => 'bar' }).for(:url_variables) }
+
+      it { is_expected.not_to allow_value([]).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'foo' => 1 }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'bar' => :baz }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'bar' => nil }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'foo' => '' }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'foo' => ('a' * 2049) }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'has spaces' => 'foo' }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ '' => 'foo' }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ '1foo' => 'foo' }).for(:url_variables) }
+      it { is_expected.not_to allow_value((1..21).to_h { ["k#{_1}", 'value'] }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'MY--TOKEN' => 'foo' }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'MY__SECRET' => 'foo' }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'x-_y' => 'foo' }).for(:url_variables) }
+      it { is_expected.not_to allow_value({ 'x..y' => 'foo' }).for(:url_variables) }
+    end
+
+    describe 'custom_headers' do
+      it { is_expected.to allow_value({}).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'foo' => 'bar' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'FOO' => 'bar' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'MY_TOKEN' => 'bar' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'foo2' => 'bar' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'x' => 'y' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'x' => ('a' * 2048) }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'foo' => 'bar', 'bar' => 'baz' }).for(:custom_headers) }
+      it { is_expected.to allow_value((1..20).to_h { ["k#{_1}", 'value'] }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'MY-TOKEN' => 'bar' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'my_secr3t-token' => 'bar' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'x-y-z' => 'bar' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'x_y_z' => 'bar' }).for(:custom_headers) }
+      it { is_expected.to allow_value({ 'f.o.o' => 'bar' }).for(:custom_headers) }
+
+      it { is_expected.not_to allow_value([]).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'foo' => 1 }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'bar' => :baz }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'bar' => nil }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'foo' => '' }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'foo' => ('a' * 2049) }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'has spaces' => 'foo' }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ '' => 'foo' }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ '1foo' => 'foo' }).for(:custom_headers) }
+      it { is_expected.not_to allow_value((1..21).to_h { ["k#{_1}", 'value'] }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'MY--TOKEN' => 'foo' }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'MY__SECRET' => 'foo' }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'x-_y' => 'foo' }).for(:custom_headers) }
+      it { is_expected.not_to allow_value({ 'x..y' => 'foo' }).for(:custom_headers) }
+    end
 
     describe 'url' do
       it { is_expected.to allow_value('http://example.com').for(:url) }
@@ -55,6 +120,34 @@ RSpec.describe WebHook do
 
         expect(hook.url).to eq('https://example.com')
       end
+
+      context 'when there are URL variables' do
+        subject { hook }
+
+        before do
+          hook.url_variables = { 'one' => 'a', 'two' => 'b', 'url' => 'http://example.com' }
+        end
+
+        it { is_expected.to allow_value('http://example.com').for(:url) }
+        it { is_expected.to allow_value('http://example.com/{one}/{two}').for(:url) }
+        it { is_expected.to allow_value('http://example.com/{one}').for(:url) }
+        it { is_expected.to allow_value('http://example.com/{two}').for(:url) }
+        it { is_expected.to allow_value('http://user:s3cret@example.com/{two}').for(:url) }
+        it { is_expected.to allow_value('http://{one}:{two}@example.com').for(:url) }
+        it { is_expected.to allow_value('http://{one}').for(:url) }
+        it { is_expected.to allow_value('{url}').for(:url) }
+
+        it { is_expected.not_to allow_value('http://example.com/{one}/{two}/{three}').for(:url) }
+        it { is_expected.not_to allow_value('http://example.com/{foo}').for(:url) }
+        it { is_expected.not_to allow_value('http:{user}:{pwd}//example.com/{foo}').for(:url) }
+
+        it 'mentions all missing variable names' do
+          hook.url = 'http://example.com/{one}/{foo}/{two}/{three}'
+
+          expect(hook).to be_invalid
+          expect(hook.errors[:url].to_sentence).to eq "Invalid URL template. Missing keys: [\"foo\", \"three\"]"
+        end
+      end
     end
 
     describe 'token' do
@@ -64,30 +157,212 @@ RSpec.describe WebHook do
     end
 
     describe 'push_events_branch_filter' do
-      it { is_expected.to allow_values("good_branch_name", "another/good-branch_name").for(:push_events_branch_filter) }
-      it { is_expected.to allow_values("").for(:push_events_branch_filter) }
-      it { is_expected.not_to allow_values("bad branch name", "bad~branchname").for(:push_events_branch_filter) }
-
-      it 'gets rid of whitespace' do
-        hook.push_events_branch_filter = ' branch '
-        hook.save!
-
-        expect(hook.push_events_branch_filter).to eq('branch')
+      before do
+        subject.branch_filter_strategy = strategy
       end
 
-      it 'stores whitespace only as empty' do
-        hook.push_events_branch_filter = ' '
-        hook.save!
+      context 'with "all branches" strategy' do
+        let(:strategy) { 'all_branches' }
 
-        expect(hook.push_events_branch_filter).to eq('')
+        it {
+          is_expected.to allow_values(
+            "good_branch_name",
+            "another/good-branch_name",
+            "good branch name",
+            "good~branchname",
+            "good_branchname(",
+            "good_branchname[",
+            ""
+          ).for(:push_events_branch_filter)
+        }
       end
+
+      context 'with "wildcard" strategy' do
+        let(:strategy) { 'wildcard' }
+
+        it {
+          is_expected.to allow_values(
+            "good_branch_name",
+            "another/good-branch_name",
+            "good_branch_name(",
+            ""
+          ).for(:push_events_branch_filter)
+        }
+
+        it {
+          is_expected.not_to allow_values(
+            "bad branch name",
+            "bad~branchname",
+            "bad_branch_name["
+          ).for(:push_events_branch_filter)
+        }
+
+        it 'gets rid of whitespace' do
+          hook.push_events_branch_filter = ' branch '
+          hook.save!
+
+          expect(hook.push_events_branch_filter).to eq('branch')
+        end
+
+        it 'stores whitespace only as empty' do
+          hook.push_events_branch_filter = ' '
+          hook.save!
+          expect(hook.push_events_branch_filter).to eq('')
+        end
+      end
+
+      context 'with "regex" strategy' do
+        let(:strategy) { 'regex' }
+
+        it {
+          is_expected.to allow_values(
+            "good_branch_name",
+            "another/good-branch_name",
+            "good branch name",
+            "good~branch~name",
+            ""
+          ).for(:push_events_branch_filter)
+        }
+
+        it { is_expected.not_to allow_values("bad_branch_name(", "bad_branch_name[").for(:push_events_branch_filter) }
+      end
+    end
+
+    describe 'before_validation :reset_token' do
+      subject(:hook) { build_stubbed(:project_hook, :token, project: project) }
+
+      it 'resets token if url changed' do
+        hook.url = 'https://webhook.example.com/new-hook'
+
+        expect(hook).to be_valid
+        expect(hook.token).to be_nil
+      end
+
+      it 'does not reset token if new url is set together with the same token' do
+        hook.url = 'https://webhook.example.com/new-hook'
+        current_token = hook.token
+        hook.token = current_token
+
+        expect(hook).to be_valid
+        expect(hook.token).to eq(current_token)
+        expect(hook.url).to eq('https://webhook.example.com/new-hook')
+      end
+
+      it 'does not reset token if new url is set together with a new token' do
+        hook.url = 'https://webhook.example.com/new-hook'
+        hook.token = 'token'
+
+        expect(hook).to be_valid
+        expect(hook.token).to eq('token')
+        expect(hook.url).to eq('https://webhook.example.com/new-hook')
+      end
+    end
+
+    describe 'before_validation :reset_url_variables' do
+      subject(:hook) { build_stubbed(:project_hook, :url_variables, project: project, url: 'http://example.com/{abc}') }
+
+      it 'resets url variables if url changed' do
+        hook.url = 'http://example.com/new-hook'
+
+        expect(hook).to be_valid
+        expect(hook.url_variables).to eq({})
+      end
+
+      it 'resets url variables if url is changed but url variables stayed the same' do
+        hook.url = 'http://test.example.com/{abc}'
+
+        expect(hook).not_to be_valid
+        expect(hook.url_variables).to eq({})
+      end
+
+      it 'resets url variables if url is changed and url variables are appended' do
+        hook.url = 'http://suspicious.example.com/{abc}/{foo}'
+        hook.url_variables = hook.url_variables.merge('foo' => 'bar')
+
+        expect(hook).not_to be_valid
+        expect(hook.url_variables).to eq({})
+      end
+
+      it 'resets url variables if url is changed and url variables are removed' do
+        hook.url = 'http://suspicious.example.com/{abc}'
+        hook.url_variables = hook.url_variables.except("def")
+
+        expect(hook).not_to be_valid
+        expect(hook.url_variables).to eq({})
+      end
+
+      it 'resets url variables if url variables are overwritten' do
+        hook.url_variables = hook.url_variables.merge('abc' => 'baz')
+
+        expect(hook).not_to be_valid
+        expect(hook.url_variables).to eq({})
+      end
+
+      it 'does not reset url variables if both url and url variables are changed' do
+        hook.url = 'http://example.com/{one}/{two}'
+        hook.url_variables = { 'one' => 'foo', 'two' => 'bar' }
+
+        expect(hook).to be_valid
+        expect(hook.url_variables).to eq({ 'one' => 'foo', 'two' => 'bar' })
+      end
+
+      context 'without url variables' do
+        subject(:hook) { build_stubbed(:project_hook, project: project, url: 'http://example.com', url_variables: nil) }
+
+        it 'does not reset url variables' do
+          hook.url = 'http://example.com/{one}/{two}'
+          hook.url_variables = { 'one' => 'foo', 'two' => 'bar' }
+
+          expect(hook).to be_valid
+          expect(hook.url_variables).to eq({ 'one' => 'foo', 'two' => 'bar' })
+        end
+      end
+    end
+
+    describe 'before_validation :reset_custom_headers' do
+      subject(:hook) { build_stubbed(:project_hook, :url_variables, project: project, url: 'http://example.com/{abc}', custom_headers: { test: 'blub' }) }
+
+      it 'resets custom headers if url changed' do
+        hook.url = 'http://example.com/new-hook'
+
+        expect(hook).to be_valid
+        expect(hook.custom_headers).to eq({})
+      end
+
+      it 'resets custom headers if url and url variables changed' do
+        hook.url = 'http://example.com/{something}'
+        hook.url_variables = { 'something' => 'testing-around' }
+
+        expect(hook).to be_valid
+        expect(hook.custom_headers).to eq({})
+      end
+
+      it 'does not reset custom headers if url stayed the same' do
+        hook.url = 'http://example.com/{abc}'
+
+        expect(hook).to be_valid
+        expect(hook.custom_headers).to eq({ test: 'blub' })
+      end
+
+      it 'does not reset custom headers if url and url variables changed and evaluate to the same url' do
+        hook.url = 'http://example.com/{def}'
+        hook.url_variables = { 'def' => 'supers3cret' }
+
+        expect(hook).to be_valid
+        expect(hook.custom_headers).to eq({ test: 'blub' })
+      end
+    end
+
+    it "only consider these branch filter strategies are valid" do
+      expected_valid_types = %w[all_branches regex wildcard]
+      expect(described_class.branch_filter_strategies.keys).to contain_exactly(*expected_valid_types)
     end
   end
 
   describe 'encrypted attributes' do
-    subject { described_class.encrypted_attributes.keys }
+    subject { described_class.attr_encrypted_attributes.keys }
 
-    it { is_expected.to contain_exactly(:token, :url) }
+    it { is_expected.to contain_exactly(:token, :url, :url_variables, :custom_headers) }
   end
 
   describe 'execute' do
@@ -121,7 +396,7 @@ RSpec.describe WebHook do
     end
 
     it 'does not async execute non-executable hooks' do
-      hook.update!(disabled_until: 1.day.from_now)
+      allow(hook).to receive(:executable?).and_return(false)
 
       expect(WebHookService).not_to receive(:new)
 
@@ -130,371 +405,241 @@ RSpec.describe WebHook do
   end
 
   describe '#destroy' do
-    it 'cascades to web_hook_logs' do
+    it 'does not cascade to web_hook_logs' do
       web_hook = create(:project_hook)
       create_list(:web_hook_log, 3, web_hook: web_hook)
 
-      expect { web_hook.destroy! }.to change(web_hook.web_hook_logs, :count).by(-3)
-    end
-  end
-
-  describe '.executable' do
-    let(:not_executable) do
-      [
-        [0, Time.current],
-        [0, 1.minute.from_now],
-        [1, 1.minute.from_now],
-        [3, 1.minute.from_now],
-        [4, nil],
-        [4, 1.day.ago],
-        [4, 1.minute.from_now]
-      ].map do |(recent_failures, disabled_until)|
-        create(:project_hook, project: project, recent_failures: recent_failures, disabled_until: disabled_until)
-      end
-    end
-
-    let(:executables) do
-      [
-        [0, nil],
-        [0, 1.day.ago],
-        [1, nil],
-        [1, 1.day.ago],
-        [3, nil],
-        [3, 1.day.ago]
-      ].map do |(recent_failures, disabled_until)|
-        create(:project_hook, project: project, recent_failures: recent_failures, disabled_until: disabled_until)
-      end
-    end
-
-    it 'finds the correct set of project hooks' do
-      expect(described_class.where(project_id: project.id).executable).to match_array executables
-    end
-
-    context 'when the feature flag is not enabled' do
-      before do
-        stub_feature_flags(web_hooks_disable_failed: false)
-      end
-
-      it 'is the same as all' do
-        expect(described_class.where(project_id: project.id).executable).to match_array(executables + not_executable)
-      end
-    end
-  end
-
-  describe '#executable?' do
-    let(:web_hook) { create(:project_hook, project: project) }
-
-    where(:recent_failures, :not_until, :executable) do
-      [
-        [0, :not_set, true],
-        [0, :past,    true],
-        [0, :future,  false],
-        [0, :now,     false],
-        [1, :not_set, true],
-        [1, :past,    true],
-        [1, :future,  false],
-        [3, :not_set, true],
-        [3, :past,    true],
-        [3, :future,  false],
-        [4, :not_set, false],
-        [4, :past,    false],
-        [4, :future,  false]
-      ]
-    end
-
-    with_them do
-      # Phasing means we cannot put these values in the where block,
-      # which is not subject to the frozen time context.
-      let(:disabled_until) do
-        case not_until
-        when :not_set
-          nil
-        when :past
-          1.minute.ago
-        when :future
-          1.minute.from_now
-        when :now
-          Time.current
-        end
-      end
-
-      before do
-        web_hook.update!(recent_failures: recent_failures, disabled_until: disabled_until)
-      end
-
-      it 'has the correct state' do
-        expect(web_hook.executable?).to eq(executable)
-      end
-
-      context 'when the feature flag is enabled for a project' do
-        before do
-          stub_feature_flags(web_hooks_disable_failed: project)
-        end
-
-        it 'has the expected value' do
-          expect(web_hook.executable?).to eq(executable)
-        end
-      end
-
-      context 'when the feature flag is not enabled' do
-        before do
-          stub_feature_flags(web_hooks_disable_failed: false)
-        end
-
-        it 'is executable' do
-          expect(web_hook).to be_executable
-        end
-      end
+      expect { web_hook.destroy! }.not_to change(web_hook.web_hook_logs, :count)
     end
   end
 
   describe '#next_backoff' do
-    context 'when there was no last backoff' do
-      before do
-        hook.backoff_count = 0
-      end
+    before do
+      hook.backoff_count = backoff_count
+    end
 
-      it 'is 10 minutes' do
-        expect(hook.next_backoff).to eq(described_class::INITIAL_BACKOFF)
+    context 'when there was no last backoff' do
+      let(:backoff_count) { 0 }
+
+      it 'is the initial value' do
+        expect(hook.next_backoff).to eq(WebHooks::AutoDisabling::INITIAL_BACKOFF)
       end
     end
 
     context 'when we have backed off once' do
-      before do
-        hook.backoff_count = 1
-      end
+      let(:backoff_count) { 1 }
 
       it 'is twice the initial value' do
-        expect(hook.next_backoff).to eq(20.minutes)
+        expect(hook.next_backoff).to eq(2 * WebHooks::AutoDisabling::INITIAL_BACKOFF)
       end
     end
 
-    context 'when we have backed off 3 times' do
-      before do
-        hook.backoff_count = 3
+    context 'when the next backoff is just before the max backoff limit' do
+      let(:backoff_count) { WebHooks::AutoDisabling::MAX_BACKOFF_COUNT - 1 }
+
+      it 'is an exponential of the initial backoff' do
+        expect(hook.next_backoff).to eq((2**backoff_count) * WebHooks::AutoDisabling::INITIAL_BACKOFF)
       end
 
-      it 'grows exponentially' do
-        expect(hook.next_backoff).to eq(80.minutes)
+      it 'is not yet capped at the max limit' do
+        expect(hook.next_backoff).to be < WebHooks::AutoDisabling::MAX_BACKOFF
       end
     end
 
-    context 'when the previous backoff was large' do
-      before do
-        hook.backoff_count = 8 # last value before MAX_BACKOFF
-      end
+    describe 'when next_backoff has reached the MAX_BACKOFF limit' do
+      let(:backoff_count) { WebHooks::AutoDisabling::MAX_BACKOFF_COUNT }
 
       it 'does not exceed the max backoff value' do
-        expect(hook.next_backoff).to eq(described_class::MAX_BACKOFF)
-      end
-    end
-  end
-
-  shared_examples 'is tolerant of invalid records' do
-    specify do
-      hook.url = nil
-
-      expect(hook).to be_invalid
-      run_expectation
-    end
-  end
-
-  describe '#enable!' do
-    it 'makes a hook executable if it was marked as failed' do
-      hook.recent_failures = 1000
-
-      expect { hook.enable! }.to change(hook, :executable?).from(false).to(true)
-    end
-
-    it 'makes a hook executable if it is currently backed off' do
-      hook.disabled_until = 1.hour.from_now
-
-      expect { hook.enable! }.to change(hook, :executable?).from(false).to(true)
-    end
-
-    it 'does not update hooks unless necessary' do
-      sql_count = ActiveRecord::QueryRecorder.new { hook.enable! }.count
-
-      expect(sql_count).to eq(0)
-    end
-
-    include_examples 'is tolerant of invalid records' do
-      def run_expectation
-        hook.recent_failures = 1000
-
-        expect { hook.enable! }.to change(hook, :executable?).from(false).to(true)
-      end
-    end
-  end
-
-  describe 'backoff!' do
-    it 'sets disabled_until to the next backoff' do
-      expect { hook.backoff! }.to change(hook, :disabled_until).to(hook.next_backoff.from_now)
-    end
-
-    it 'increments the backoff count' do
-      expect { hook.backoff! }.to change(hook, :backoff_count).by(1)
-    end
-
-    context 'when the hook is permanently disabled' do
-      before do
-        allow(hook).to receive(:permanently_disabled?).and_return(true)
-      end
-
-      it 'does not set disabled_until' do
-        expect { hook.backoff! }.not_to change(hook, :disabled_until)
-      end
-
-      it 'does not increment the backoff count' do
-        expect { hook.backoff! }.not_to change(hook, :backoff_count)
-      end
-    end
-
-    context 'when we have backed off MAX_FAILURES times' do
-      before do
-        stub_const("#{described_class}::MAX_FAILURES", 5)
-        5.times { hook.backoff! }
-      end
-
-      it 'does not let the backoff count exceed the maximum failure count' do
-        expect { hook.backoff! }.not_to change(hook, :backoff_count)
-      end
-
-      it 'does not change disabled_until', :skip_freeze_time do
-        travel_to(hook.disabled_until - 1.minute) do
-          expect { hook.backoff! }.not_to change(hook, :disabled_until)
-        end
-      end
-
-      it 'changes disabled_until when it has elapsed', :skip_freeze_time do
-        travel_to(hook.disabled_until + 1.minute) do
-          expect { hook.backoff! }.to change { hook.disabled_until }
-          expect(hook.backoff_count).to eq(described_class::MAX_FAILURES)
-        end
-      end
-    end
-
-    include_examples 'is tolerant of invalid records' do
-      def run_expectation
-        expect { hook.backoff! }.to change(hook, :backoff_count).by(1)
-      end
-    end
-  end
-
-  describe 'failed!' do
-    it 'increments the failure count' do
-      expect { hook.failed! }.to change(hook, :recent_failures).by(1)
-    end
-
-    it 'does not update the hook if the the failure count exceeds the maximum value' do
-      hook.recent_failures = described_class::MAX_FAILURES
-
-      sql_count = ActiveRecord::QueryRecorder.new { hook.failed! }.count
-
-      expect(sql_count).to eq(0)
-    end
-
-    include_examples 'is tolerant of invalid records' do
-      def run_expectation
-        expect { hook.failed! }.to change(hook, :recent_failures).by(1)
-      end
-    end
-  end
-
-  describe '#disable!' do
-    it 'disables a hook' do
-      expect { hook.disable! }.to change(hook, :executable?).from(true).to(false)
-    end
-
-    include_examples 'is tolerant of invalid records' do
-      def run_expectation
-        expect { hook.disable! }.to change(hook, :executable?).from(true).to(false)
-      end
-    end
-  end
-
-  describe '#temporarily_disabled?' do
-    it 'is false when not temporarily disabled' do
-      expect(hook).not_to be_temporarily_disabled
-    end
-
-    context 'when hook has been told to back off' do
-      before do
-        hook.backoff!
-      end
-
-      it 'is true' do
-        expect(hook).to be_temporarily_disabled
-      end
-
-      it 'is false when `web_hooks_disable_failed` flag is disabled' do
-        stub_feature_flags(web_hooks_disable_failed: false)
-
-        expect(hook).not_to be_temporarily_disabled
-      end
-
-      it 'can ignore the feature flag' do
-        stub_feature_flags(web_hooks_disable_failed: false)
-
-        expect(hook).to be_temporarily_disabled(ignore_flag: true)
-      end
-    end
-  end
-
-  describe '#permanently_disabled?' do
-    it 'is false when not disabled' do
-      expect(hook).not_to be_permanently_disabled
-    end
-
-    context 'when hook has been disabled' do
-      before do
-        hook.disable!
-      end
-
-      it 'is true' do
-        expect(hook).to be_permanently_disabled
-      end
-
-      it 'is false when `web_hooks_disable_failed` flag is disabled' do
-        stub_feature_flags(web_hooks_disable_failed: false)
-
-        expect(hook).not_to be_permanently_disabled
-      end
-
-      it 'can ignore the feature flag' do
-        stub_feature_flags(web_hooks_disable_failed: false)
-
-        expect(hook).to be_permanently_disabled(ignore_flag: true)
+        expect(hook.next_backoff).to eq(WebHooks::AutoDisabling::MAX_BACKOFF)
       end
     end
   end
 
   describe '#rate_limited?' do
-    context 'when there are rate limits' do
+    it 'is false when hook has not been rate limited' do
+      expect_next_instance_of(Gitlab::WebHooks::RateLimiter) do |rate_limiter|
+        expect(rate_limiter).to receive(:rate_limited?).and_return(false)
+      end
+
+      expect(hook).not_to be_rate_limited
+    end
+
+    it 'is true when hook has been rate limited' do
+      expect_next_instance_of(Gitlab::WebHooks::RateLimiter) do |rate_limiter|
+        expect(rate_limiter).to receive(:rate_limited?).and_return(true)
+      end
+
+      expect(hook).to be_rate_limited
+    end
+  end
+
+  describe '#rate_limit' do
+    it 'returns the hook rate limit' do
+      expect_next_instance_of(Gitlab::WebHooks::RateLimiter) do |rate_limiter|
+        expect(rate_limiter).to receive(:limit).and_return(10)
+      end
+
+      expect(hook.rate_limit).to eq(10)
+    end
+  end
+
+  describe '#to_json' do
+    it 'does not error' do
+      expect { hook.to_json }.not_to raise_error
+    end
+
+    it 'does not contain binary attributes' do
+      expect(hook.to_json).not_to include('encrypted_url_variables')
+    end
+  end
+
+  describe '#interpolated_url' do
+    subject(:hook) { build(:project_hook, project: project) }
+
+    context 'when the hook URL does not contain variables' do
       before do
-        allow(hook).to receive(:rate_limit).and_return(3)
+        hook.url = 'http://example.com'
       end
 
-      it 'is false when hook has not been rate limited' do
-        expect(Gitlab::ApplicationRateLimiter).to receive(:peek).and_return(false)
-        expect(hook).not_to be_rate_limited
+      it { is_expected.to have_attributes(interpolated_url: hook.url) }
+    end
+
+    it 'is not vulnerable to malicious input' do
+      hook.url = 'something%{%<foo>2147483628G}'
+      hook.url_variables = { 'foo' => '1234567890.12345678' }
+
+      expect(hook).to have_attributes(interpolated_url: hook.url)
+    end
+
+    context 'when the hook URL contains variables' do
+      before do
+        hook.url = 'http://example.com/{path}/resource?token={token}'
+        hook.url_variables = { 'path' => 'abc', 'token' => 'xyz' }
       end
 
-      it 'is true when hook has been rate limited' do
-        expect(Gitlab::ApplicationRateLimiter).to receive(:peek).and_return(true)
-        expect(hook).to be_rate_limited
+      it { is_expected.to have_attributes(interpolated_url: 'http://example.com/abc/resource?token=xyz') }
+
+      context 'when a variable is missing' do
+        before do
+          hook.url_variables = { 'path' => 'present' }
+        end
+
+        it 'raises an error' do
+          # We expect validations to prevent this entirely - this is not user-error
+          expect { hook.interpolated_url }
+            .to raise_error(described_class::InterpolationError, include('Missing key token'))
+        end
+      end
+
+      context 'when the URL appears to include percent formatting' do
+        before do
+          hook.url = 'http://example.com/%{path}/resource?token=%{token}'
+        end
+
+        it 'succeeds, interpolates correctly' do
+          expect(hook.interpolated_url).to eq 'http://example.com/%abc/resource?token=%xyz'
+        end
+      end
+    end
+  end
+
+  describe '#masked_token' do
+    it { expect(hook.masked_token).to be_nil }
+
+    context 'with a token' do
+      let(:hook) { build(:project_hook, :token, project: project) }
+
+      it { expect(hook.masked_token).to eq described_class::SECRET_MASK }
+    end
+  end
+
+  describe '#backoff!' do
+    context 'when we have not backed off before' do
+      it 'increments the recent_failures count' do
+        expect { hook.backoff! }.to change(hook, :recent_failures).by(1)
       end
     end
 
-    context 'when there are no rate limits' do
+    context 'when the recent failure value is the max value of a smallint' do
       before do
-        allow(hook).to receive(:rate_limit).and_return(nil)
+        hook.update!(recent_failures: 32767, disabled_until: 1.hour.ago)
       end
 
-      it 'does not call Gitlab::ApplicationRateLimiter, and is false' do
-        expect(Gitlab::ApplicationRateLimiter).not_to receive(:peek)
-        expect(hook).not_to be_rate_limited
+      it 'reduces to MAX_FAILURES' do
+        expect { hook.backoff! }.to change(hook, :recent_failures).to(WebHooks::AutoDisabling::MAX_FAILURES)
       end
+    end
+
+    context 'when the recent failure value is MAX_FAILURES' do
+      before do
+        hook.update!(recent_failures: WebHooks::AutoDisabling::MAX_FAILURES, disabled_until: 1.hour.ago)
+      end
+
+      it 'does not change recent_failures' do
+        expect { hook.backoff! }.not_to change(hook, :recent_failures)
+      end
+    end
+
+    context 'when we have exhausted the grace period' do
+      before do
+        hook.update!(recent_failures: WebHooks::AutoDisabling::FAILURE_THRESHOLD)
+      end
+
+      it 'sets disabled_until to the next backoff' do
+        expect { hook.backoff! }.to change(hook, :disabled_until).to(hook.next_backoff.from_now)
+      end
+
+      it 'increments the backoff count' do
+        expect { hook.backoff! }.to change(hook, :backoff_count).by(1)
+      end
+
+      context 'when we have backed off MAX_FAILURES times' do
+        before do
+          stub_const("WebHooks::AutoDisabling::MAX_FAILURES", 5)
+          (WebHooks::AutoDisabling::FAILURE_THRESHOLD + 5).times { hook.backoff! }
+        end
+
+        it 'does not let the backoff count exceed the maximum failure count' do
+          expect { hook.backoff! }.not_to change(hook, :backoff_count)
+        end
+
+        it 'does not change disabled_until', :skip_freeze_time do
+          travel_to(hook.disabled_until - 1.minute) do
+            expect { hook.backoff! }.not_to change(hook, :disabled_until)
+          end
+        end
+
+        it 'changes disabled_until when it has elapsed', :skip_freeze_time do
+          travel_to(hook.disabled_until + 1.minute) do
+            expect { hook.backoff! }.to change { hook.disabled_until }
+            expect(hook.backoff_count).to eq(WebHooks::AutoDisabling::MAX_FAILURES)
+          end
+        end
+      end
+    end
+  end
+
+  describe '#failed!' do
+    it 'increments the failure count' do
+      expect { hook.failed! }.to change(hook, :recent_failures).by(1)
+    end
+
+    context 'when the recent failure value is the max value of a smallint' do
+      before do
+        hook.update!(recent_failures: 32767)
+      end
+
+      it 'does not change recent_failures' do
+        expect { hook.failed! }.not_to change(hook, :recent_failures)
+      end
+    end
+
+    it 'does not update the hook if the the failure count exceeds the maximum value' do
+      hook.recent_failures = WebHooks::AutoDisabling::MAX_FAILURES
+
+      sql_count = ActiveRecord::QueryRecorder.new { hook.failed! }.count
+
+      expect(sql_count).to eq(0)
     end
   end
 end

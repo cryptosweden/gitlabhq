@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Projects::Pipelines::SnippetsPipeline do
+RSpec.describe BulkImports::Projects::Pipelines::SnippetsPipeline, feature_category: :importers do
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, group: group) }
@@ -14,7 +14,7 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsPipeline do
       project: project,
       bulk_import: bulk_import,
       source_full_path: 'source/full/path',
-      destination_name: 'My Destination Project',
+      destination_slug: 'My-Destination-Project',
       destination_namespace: group.full_path
     )
   end
@@ -40,7 +40,7 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsPipeline do
 
   subject(:pipeline) { described_class.new(context) }
 
-  describe '#run' do
+  describe '#run', :clean_gitlab_redis_shared_state do
     before do
       group.add_owner(user)
       snippet_with_index = [exported_snippet.dup, 0]
@@ -48,6 +48,8 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsPipeline do
       allow_next_instance_of(BulkImports::Common::Extractors::NdjsonExtractor) do |extractor|
         allow(extractor).to receive(:extract).and_return(BulkImports::Pipeline::ExtractedData.new(data: [snippet_with_index]))
       end
+
+      allow(pipeline).to receive(:set_source_objects_counter)
 
       pipeline.run
     end
@@ -104,7 +106,7 @@ RSpec.describe BulkImports::Projects::Pipelines::SnippetsPipeline do
         note_updated_at = exported_snippet['notes'].first['updated_at'].split('.').first
 
         expect(snippet_note).to have_attributes(
-          note: note.note + "\n\n *By #{author_name} on #{note_updated_at} (imported from GitLab)*",
+          note: note.note + "\n\n *By #{author_name} on #{note_updated_at}*",
           noteable_type: note.noteable_type,
           author_id: user.id,
           updated_at: note.updated_at,

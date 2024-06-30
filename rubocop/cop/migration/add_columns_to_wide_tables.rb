@@ -6,13 +6,13 @@ module RuboCop
   module Cop
     module Migration
       # Cop that prevents adding columns to wide tables.
-      class AddColumnsToWideTables < RuboCop::Cop::Cop
+      class AddColumnsToWideTables < RuboCop::Cop::Base
         include MigrationHelpers
 
-        MSG = '`%s` is a wide table with several columns, adding more should be avoided unless absolutely necessary.' \
-              ' Consider storing the column in a different table or creating a new one.'
+        MSG = '`%s` is a wide table with several columns, adding more should be avoided unless absolutely necessary. ' \
+              'Consider storing the column in a different table or creating a new one.'
 
-        BLACKLISTED_METHODS = %i[
+        DENYLISTED_METHODS = %i[
           add_column
           add_reference
           add_timestamps_with_timezone
@@ -26,14 +26,14 @@ module RuboCop
 
           return unless offense?(method_name, table_name)
 
-          add_offense(node, location: :selector, message: format(MSG, table_name.value))
+          add_offense(node.loc.selector, message: format(MSG, table_name.value))
         end
 
         private
 
         def offense?(method_name, table_name)
           wide_table?(table_name) &&
-            BLACKLISTED_METHODS.include?(method_name)
+            DENYLISTED_METHODS.include?(method_name)
         end
 
         def wide_table?(table_name)

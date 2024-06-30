@@ -1,14 +1,17 @@
 ---
-stage: Manage
-group: Authentication and Authorization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference, howto
+stage: Govern
+group: Authentication
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Rate limits **(FREE SELF)**
+# Rate limits
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
 NOTE:
-For GitLab.com, please see
+For GitLab.com, see
 [GitLab.com-specific rate limits](../user/gitlab_com/index.md#gitlabcom-specific-rate-limits).
 
 Rate limiting is a common technique used to improve the security and durability
@@ -27,21 +30,29 @@ Most cases can be mitigated by limiting the rate of requests from a single IP ad
 Most [brute-force attacks](https://en.wikipedia.org/wiki/Brute-force_attack) are
 similarly mitigated by a rate limit.
 
+NOTE:
+The rate limits for API requests do not affect requests made by the frontend, because these requests are always counted as web traffic.
+
 ## Configurable limits
 
 You can set these rate limits in the Admin Area of your instance:
 
-- [Import/Export rate limits](../user/admin_area/settings/import_export_rate_limits.md)
-- [Issues rate limits](../user/admin_area/settings/rate_limit_on_issues_creation.md)
-- [Notes rate limits](../user/admin_area/settings/rate_limit_on_notes_creation.md)
-- [Protected paths](../user/admin_area/settings/protected_paths.md)
-- [Raw endpoints rate limits](../user/admin_area/settings/rate_limits_on_raw_endpoints.md)
-- [User and IP rate limits](../user/admin_area/settings/user_and_ip_rate_limits.md)
-- [Package registry rate limits](../user/admin_area/settings/package_registry_rate_limits.md)
-- [Git LFS rate limits](../user/admin_area/settings/git_lfs_rate_limits.md)
-- [Files API rate limits](../user/admin_area/settings/files_api_rate_limits.md)
-- [Deprecated API rate limits](../user/admin_area/settings/deprecated_api_rate_limits.md)
+- [Import/Export rate limits](../administration/settings/import_export_rate_limits.md)
+- [Issue rate limits](../administration/settings/rate_limit_on_issues_creation.md)
+- [Note rate limits](../administration/settings/rate_limit_on_notes_creation.md)
+- [Protected paths](../administration/settings/protected_paths.md)
+- [Raw endpoints rate limits](../administration/settings/rate_limits_on_raw_endpoints.md)
+- [User and IP rate limits](../administration/settings/user_and_ip_rate_limits.md)
+- [Package registry rate limits](../administration/settings/package_registry_rate_limits.md)
+- [Git LFS rate limits](../administration/settings/git_lfs_rate_limits.md)
+- [Rate limits on Git SSH operations](../administration/settings/rate_limits_on_git_ssh_operations.md)
+- [Files API rate limits](../administration/settings/files_api_rate_limits.md)
+- [Deprecated API rate limits](../administration/settings/deprecated_api_rate_limits.md)
 - [GitLab Pages rate limits](../administration/pages/index.md#rate-limits)
+- [Pipeline rate limits](../administration/settings/rate_limit_on_pipelines_creation.md)
+- [Incident management rate limits](../administration/settings/incident_management_rate_limits.md)
+- [Projects API rate limits](../administration/settings/rate_limit_on_projects_api.md)
+- [Groups API rate limits](../administration/settings/rate_limit_on_groups_api.md)
 
 You can set these rate limits using the Rails console:
 
@@ -65,14 +76,25 @@ This limit:
 
 No response headers are provided.
 
+To avoid being rate limited, you can:
+
+- Stagger the execution of your automated pipelines.
+- Configure [exponential back off and retry](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/retry-backoff.html) for failed authentication attempts.
+- Use a documented process and [best practice](https://about.gitlab.com/blog/2023/10/25/access-token-lifetime-limits/#how-to-minimize-the-impact) to manage token expiry.
+
 For configuration information, see
 [Omnibus GitLab configuration options](https://docs.gitlab.com/omnibus/settings/configuration.html#configure-a-failed-authentication-ban).
 
 ## Non-configurable limits
 
-### Repository archives
+> - Rate limit on the `:user_id/status`, `:id/following`, `:id/followers`, `:user_id/keys`, `id/keys/:key_id`, `:id/gpg_keys`, and `:id/gpg_keys/:key_id` endpoints [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/452349) in GitLab 17.1 [with a flag](../administration/feature_flags.md) named `rate_limiting_user_endpoints`. Disabled by default.
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/25750) in GitLab 12.9.
+FLAG:
+The availability of multiple endpoints in this feature is controlled by a feature flag.
+For more information, see the history.
+These endpoints are available for testing, but not ready for production use.
+
+### Repository archives
 
 A rate limit for [downloading repository archives](../api/repositories.md#get-file-archive) is
 available. The limit applies to the project and to the user initiating the download either through
@@ -82,38 +104,106 @@ The **rate limit** is 5 requests per minute per user.
 
 ### Webhook Testing
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/commit/35bc85c3ca093fee58d60dacdc9ed1fd9a15adec) in GitLab 13.4.
-
 There is a rate limit for [testing webhooks](../user/project/integrations/webhooks.md#test-a-webhook), which prevents abuse of the webhook functionality.
 
 The **rate limit** is 5 requests per minute per user.
 
 ### Users sign up
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/339151) in GitLab 14.7.
-
 There is a rate limit per IP address on the `/users/sign_up` endpoint. This is to mitigate attempts to misuse the endpoint. For example, to mass
 discover usernames or email addresses in use.
 
 The **rate limit** is 20 calls per minute per IP address.
 
-### Update username
+### User status
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/339152) in GitLab 14.7.
+There is a rate limit per IP address on the `:user_id/status` endpoint. This is to mitigate attempts to misuse the endpoint.
+
+The **rate limit** is 240 calls per minute per IP address.
+
+### User following
+
+There is a rate limit per IP address on the `:id/following` endpoint. This is to mitigate attempts to misuse the endpoint.
+
+The **rate limit** is 100 calls per minute per IP address.
+
+### User followers
+
+There is a rate limit per IP address on the `:id/followers` endpoint. This is to mitigate attempts to misuse the endpoint.
+
+The **rate limit** is 100 calls per minute per IP address.
+
+### User keys
+
+There is a rate limit per IP address on the `:user_id/keys` endpoint. This is to mitigate attempts to misuse the endpoint.
+
+The **rate limit** is 120 calls per minute per IP address.
+
+### User specific key
+
+There is a rate limit per IP address on the `id/keys/:key_id` endpoint. This is to mitigate attempts to misuse the endpoint.
+
+The **rate limit** is 120 calls per minute per IP address.
+
+### User GPG keys
+
+There is a rate limit per IP address on the `:id/gpg_keys` endpoint. This is to mitigate attempts to misuse the endpoint.
+
+The **rate limit** is 120 calls per minute per IP address.
+
+### User specific GPG keys
+
+There is a rate limit per IP address on the `:id/gpg_keys/:key_id` endpoint. This is to mitigate attempts to misuse the endpoint.
+
+The **rate limit** is 120 calls per minute per IP address.
+
+### Update username
 
 There is a rate limit on how frequently a username can be changed. This is enforced to mitigate misuse of the feature. For example, to mass discover
 which usernames are in use.
 
-The **rate limit** is 10 calls per minute per signed-in user.
+The **rate limit** is 10 calls per minute per authenticated user.
 
 ### Username exists
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/29040) in GitLab 14.7.
 
 There is a rate limit for the internal endpoint `/users/:username/exists`, used upon sign up to check if a chosen username has already been taken.
 This is to mitigate the risk of misuses, such as mass discovery of usernames in use.
 
 The **rate limit** is 20 calls per minute per IP address.
+
+### Project Jobs API endpoint
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/382985) in GitLab 15.7 [with a flag](../administration/feature_flags.md) named `ci_enforce_rate_limits_jobs_api`. Disabled by default.
+> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/384186) in GitLab 16.0. Feature flag `ci_enforce_rate_limits_jobs_api` removed.
+
+There is a rate limit for the endpoint `project/:id/jobs`, which is enforced to reduce timeouts when retrieving jobs.
+
+The **rate limit** defaults to 600 calls per authenticated user. You can [configure the rate limit](../administration/settings/user_and_ip_rate_limits.md).
+
+### AI action
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/118010) in GitLab 16.0.
+
+There is a rate limit for the GraphQL `aiAction` mutation, which is enforced to prevent from abusing this endpoint.
+
+The **rate limit** is 160 calls per 8 hours per authenticated user.
+
+### Delete a member using the API
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/118296) in GitLab 16.0.
+
+There is a rate limit for [removing project or group members using the API endpoints](../api/members.md#remove-a-member-from-a-group-or-project) `/groups/:id/members` or `/project/:id/members`.
+
+The **rate limit** is 60 deletions per minute.
+
+### Notification emails
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/439101) in GitLab 17.1 [with a flag](../administration/feature_flags.md) named `rate_limit_notification_emails`. Disabled by default.
+> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/439101) in GitLab 17.2. Feature flag `rate_limit_notification_emails` removed.
+
+There is a rate limit for notification emails related to a project or group.
+
+The **rate limit** is 1,000 notifications per 24 hours per project or group per user.
 
 ## Troubleshooting
 
@@ -160,7 +250,7 @@ To remove a blocked IP:
    keys *rack::attack*
    ```
 
-  By default, the [`keys` command is disabled](https://docs.gitlab.com/omnibus/settings/redis.html#renamed-commands).
+   By default, the [`keys` command is disabled](https://docs.gitlab.com/omnibus/settings/redis.html#renamed-commands).
 
 1. Optionally, add [the IP to the allowlist](https://docs.gitlab.com/omnibus/settings/configuration.html#configuring-rack-attack)
    to prevent it being denylisted again.

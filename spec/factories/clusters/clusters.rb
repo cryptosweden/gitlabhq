@@ -82,26 +82,8 @@ FactoryBot.define do
       sequence(:environment_scope) { |n| "production#{n}/*" }
     end
 
-    trait :with_installed_helm do
-      application_helm factory: %i(clusters_applications_helm installed)
-    end
-
     trait :with_installed_prometheus do
-      application_prometheus factory: %i(clusters_applications_prometheus installed)
-      integration_prometheus factory: %i(clusters_integrations_prometheus)
-    end
-
-    trait :with_all_applications do
-      application_helm factory: %i(clusters_applications_helm installed)
-      application_ingress factory: %i(clusters_applications_ingress installed)
-      application_cert_manager factory: %i(clusters_applications_cert_manager installed)
-      application_crossplane factory: %i(clusters_applications_crossplane installed)
-      application_prometheus factory: %i(clusters_applications_prometheus installed)
-      application_runner factory: %i(clusters_applications_runner installed)
-      application_jupyter factory: %i(clusters_applications_jupyter installed)
-      application_knative factory: %i(clusters_applications_knative installed)
-      application_elastic_stack factory: %i(clusters_applications_elastic_stack installed)
-      application_cilium factory: %i(clusters_applications_cilium installed)
+      integration_prometheus factory: %i[clusters_integrations_prometheus]
     end
 
     trait :with_domain do
@@ -110,7 +92,7 @@ FactoryBot.define do
 
     trait :with_environments do
       transient do
-        environments { %i(staging production) }
+        environments { %i[staging production] }
       end
 
       cluster_type { Clusters::Cluster.cluster_types[:project_type] }

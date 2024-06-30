@@ -1,6 +1,6 @@
-import createFlash from '~/flash';
-import axios from '../../../lib/utils/axios_utils';
-import { __ } from '../../../locale';
+import { createAlert } from '~/alert';
+import axios from '~/lib/utils/axios_utils';
+import { __ } from '~/locale';
 
 export default class PayloadDownloader {
   constructor(trigger) {
@@ -19,7 +19,7 @@ export default class PayloadDownloader {
   }
 
   requestPayload() {
-    this.spinner.classList.add('d-inline-flex');
+    this.spinner.classList.add('gl-display-inline');
 
     return axios
       .get(this.trigger.dataset.endpoint, {
@@ -29,12 +29,12 @@ export default class PayloadDownloader {
         PayloadDownloader.downloadFile(data);
       })
       .catch(() => {
-        createFlash({
+        createAlert({
           message: __('Error fetching payload data.'),
         });
       })
       .finally(() => {
-        this.spinner.classList.remove('d-inline-flex');
+        this.spinner.classList.remove('gl-display-inline');
       });
   }
 

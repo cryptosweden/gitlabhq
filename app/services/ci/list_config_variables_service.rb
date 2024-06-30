@@ -17,19 +17,30 @@ module Ci
       new(project, user)
     end
 
-    def execute(sha)
+    def execute(ref)
+      sha = project.commit(ref).try(:sha)
+
       with_reactive_cache(sha) { |result| result }
     end
 
     def calculate_reactive_cache(sha)
-      config = project.ci_config_for(sha)
-      return {} unless config
+      config = ::Gitlab::Ci::ProjectConfig.new(project: project, sha: sha)
 
-      result = Gitlab::Ci::YamlProcessor.new(config, project: project,
-                                                     user:    current_user,
-                                                     sha:     sha).execute
+      return {} unless config.exists?
 
-      result.valid? ? result.variables_with_data : {}
+      ref_name = Gitlab::Ci::RefFinder.new(project).find_by_sha(sha) if Feature.enabled?(
+        :project_ref_name_in_variables, project)
+
+      result = Gitlab::Ci::YamlProcessor.new(
+        config.content,
+        project: project,
+        user: current_user,
+        sha: sha,
+        ref: ref_name,
+        verify_project_sha: true
+      ).execute
+
+      result.valid? ? result.root_variables_with_prefill_data : {}
     end
 
     # Required for ReactiveCaching, it is also used in `reactive_cache_worker_finder`

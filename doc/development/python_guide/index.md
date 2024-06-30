@@ -1,15 +1,13 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# Python Development Guidelines
+# Python development guidelines
 
 GitLab requires Python as a dependency for [reStructuredText](https://docutils.sourceforge.io/rst.html)
-markup rendering.
-
-As of GitLab 11.10, we require Python 3.
+markup rendering. It requires Python 3.
 
 ## Installation
 
@@ -24,6 +22,18 @@ To install `pyenv` on macOS, you can use [Homebrew](https://brew.sh/) with:
 ```shell
 brew install pyenv
 ```
+
+### Windows
+
+`pyenv` does not officially support Windows and does not work in Windows outside the Windows Subsystem for Linux. If you are a Windows user, you can use `pyenv-win`.
+
+To install `pyenv-win` on Windows, run the following PowerShell command:
+
+```shell
+Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/pyenv-win/pyenv-win/master/pyenv-win/install-pyenv-win.ps1" -OutFile "./install-pyenv-win.ps1"; &"./install-pyenv-win.ps1"
+```
+
+[Learn more about `pyenv-win`](https://github.com/pyenv-win/pyenv-win).
 
 ### Linux
 

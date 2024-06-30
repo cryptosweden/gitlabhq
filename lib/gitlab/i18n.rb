@@ -25,6 +25,7 @@ module Gitlab
       'pt_BR' => 'Portuguese (Brazil) - português (Brasil)',
       'ro_RO' => 'Romanian - română',
       'ru' => 'Russian - русский',
+      'si_LK' => 'Sinhalese - සිංහල',
       'tr_TR' => 'Turkish - Türkçe',
       'uk' => 'Ukrainian - українська',
       'zh_CN' => 'Chinese, Simplified - 简体中文',
@@ -43,40 +44,48 @@ module Gitlab
     TRANSLATION_LEVELS = {
       'bg' => 0,
       'cs_CZ' => 0,
-      'da_DK' => 46,
-      'de' => 15,
+      'da_DK' => 24,
+      'de' => 99,
       'en' => 100,
       'eo' => 0,
-      'es' => 40,
+      'es' => 25,
       'fil_PH' => 0,
-      'fr' => 11,
+      'fr' => 99,
       'gl_ES' => 0,
       'id_ID' => 0,
-      'it' => 2,
-      'ja' => 34,
-      'ko' => 12,
-      'nb_NO' => 30,
+      'it' => 1,
+      'ja' => 99,
+      'ko' => 20,
+      'nb_NO' => 18,
       'nl_NL' => 0,
-      'pl_PL' => 4,
-      'pt_BR' => 49,
-      'ro_RO' => 22,
-      'ru' => 32,
-      'tr_TR' => 14,
-      'uk' => 48,
-      'zh_CN' => 95,
-      'zh_HK' => 2,
-      'zh_TW' => 2
+      'pl_PL' => 2,
+      'pt_BR' => 52,
+      'ro_RO' => 61,
+      'ru' => 18,
+      'si_LK' => 10,
+      'tr_TR' => 7,
+      'uk' => 46,
+      'zh_CN' => 92,
+      'zh_HK' => 1,
+      'zh_TW' => 98
     }.freeze
     private_constant :TRANSLATION_LEVELS
 
-    def selectable_locales
+    def selectable_locales(minimum_translation_level = MINIMUM_TRANSLATION_LEVEL)
       AVAILABLE_LANGUAGES.reject do |code, _name|
-        percentage_translated_for(code) < MINIMUM_TRANSLATION_LEVEL
+        percentage_translated_for(code) < minimum_translation_level
       end
     end
 
     def percentage_translated_for(code)
       TRANSLATION_LEVELS.fetch(code, 0)
+    end
+
+    def trimmed_language_name(code)
+      language_name = AVAILABLE_LANGUAGES[code]
+      return if language_name.blank?
+
+      language_name.sub(/\s-\s.*/, '')
     end
 
     def available_locales
@@ -113,6 +122,49 @@ module Gitlab
 
     def with_default_locale(&block)
       with_locale(::I18n.default_locale, &block)
+    end
+
+    def setup(domain:, default_locale:)
+      custom_pluralization
+      setup_repositories(domain)
+      setup_default_locale(default_locale)
+    end
+
+    private
+
+    def custom_pluralization
+      Gitlab::I18n::Pluralization.install_on(FastGettext)
+    end
+
+    def setup_repositories(domain)
+      translation_repositories = [
+        (po_repository(domain, 'jh/locale') if Gitlab.jh?),
+        po_repository(domain, 'locale')
+      ].compact
+
+      FastGettext.add_text_domain(
+        domain,
+        type: :chain,
+        chain: translation_repositories,
+        ignore_fuzzy: true
+      )
+
+      FastGettext.default_text_domain = domain
+    end
+
+    def po_repository(domain, path)
+      FastGettext::TranslationRepository.build(
+        domain,
+        path: Rails.root.join(path),
+        type: :po,
+        ignore_fuzzy: true
+      )
+    end
+
+    def setup_default_locale(locale)
+      FastGettext.default_locale = locale
+      FastGettext.default_available_locales = available_locales
+      ::I18n.available_locales = available_locales
     end
   end
 end

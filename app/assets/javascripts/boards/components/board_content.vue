@@ -1,17 +1,28 @@
 <script>
 import { GlAlert } from '@gitlab/ui';
 import { sortBy } from 'lodash';
+import produce from 'immer';
 import Draggable from 'vuedraggable';
-import { mapState, mapGetters, mapActions } from 'vuex';
 import BoardAddNewColumn from 'ee_else_ce/boards/components/board_add_new_column.vue';
-import defaultSortableConfig from '~/sortable/sortable_config';
-import { DraggableItemTypes } from '../constants';
+import BoardAddNewColumnTrigger from '~/boards/components/board_add_new_column_trigger.vue';
+import { s__ } from '~/locale';
+import { defaultSortableOptions, DRAG_DELAY } from '~/sortable/constants';
+import {
+  DraggableItemTypes,
+  flashAnimationDuration,
+  listsQuery,
+  updateListQueries,
+  ListType,
+} from 'ee_else_ce/boards/constants';
+import { calculateNewPosition } from 'ee_else_ce/boards/boards_util';
+import { setError } from '../graphql/cache_updates';
 import BoardColumn from './board_column.vue';
 
 export default {
   draggableItemTypes: DraggableItemTypes,
   components: {
     BoardAddNewColumn,
+    BoardAddNewColumnTrigger,
     BoardColumn,
     BoardContentSidebar: () => import('~/boards/components/board_content_sidebar.vue'),
     EpicBoardContentSidebar: () =>
@@ -19,21 +30,52 @@ export default {
     EpicsSwimlanes: () => import('ee_component/boards/components/epics_swimlanes.vue'),
     GlAlert,
   },
-  inject: ['canAdminList'],
+  inject: ['boardType', 'canAdminList', 'isIssueBoard', 'isEpicBoard', 'disabled', 'issuableType'],
   props: {
-    disabled: {
+    boardId: {
+      type: String,
+      required: true,
+    },
+    filterParams: {
+      type: Object,
+      required: true,
+    },
+    isSwimlanesOn: {
+      type: Boolean,
+      required: true,
+    },
+    boardLists: {
+      type: Object,
+      required: false,
+      default: () => {},
+    },
+    error: {
+      type: String,
+      required: false,
+      default: null,
+    },
+    listQueryVariables: {
+      type: Object,
+      required: true,
+    },
+    addColumnFormVisible: {
       type: Boolean,
       required: true,
     },
   },
+  data() {
+    return {
+      boardHeight: null,
+      highlightedLists: [],
+    };
+  },
   computed: {
-    ...mapState(['boardLists', 'error', 'addColumnForm']),
-    ...mapGetters(['isSwimlanesOn', 'isEpicBoard', 'isIssueBoard']),
-    addColumnFormVisible() {
-      return this.addColumnForm?.visible;
+    boardListsById() {
+      return this.boardLists;
     },
     boardListsToUse() {
-      return sortBy([...Object.values(this.boardLists)], 'position');
+      const lists = this.boardLists;
+      return sortBy([...Object.values(lists)], 'position');
     },
     canDragColumns() {
       return this.canAdminList;
@@ -43,31 +85,125 @@ export default {
     },
     draggableOptions() {
       const options = {
-        ...defaultSortableConfig,
+        ...defaultSortableOptions,
         disabled: this.disabled,
         draggable: '.is-draggable',
         fallbackOnBody: false,
         group: 'boards-list',
         tag: 'div',
         value: this.boardListsToUse,
+        delay: DRAG_DELAY,
+        delayOnTouchOnly: true,
+        filter: 'input',
+        preventOnFilter: false,
       };
 
       return this.canDragColumns ? options : {};
     },
+    backlogListId() {
+      const backlogList = this.boardListsToUse.find((list) => list.listType === ListType.backlog);
+      return backlogList?.id || '';
+    },
+    closedListId() {
+      const closedList = this.boardListsToUse.find((list) => list.listType === ListType.closed);
+      return closedList?.id || '';
+    },
   },
   methods: {
-    ...mapActions(['moveList', 'unsetError']),
     afterFormEnters() {
       const el = this.canDragColumns ? this.$refs.list.$el : this.$refs.list;
       el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });
+    },
+    highlightList(listId) {
+      this.highlightedLists.push(listId);
+
+      setTimeout(() => {
+        this.highlightedLists = this.highlightedLists.filter((id) => id !== listId);
+      }, flashAnimationDuration);
+    },
+    dismissError() {
+      setError({ message: null, captureError: false });
+    },
+    async updateListPosition({
+      item: {
+        dataset: { listId: movedListId, draggableItemType },
+      },
+      newIndex,
+      to: { children },
+    }) {
+      if (draggableItemType !== DraggableItemTypes.list) {
+        return;
+      }
+
+      const displacedListId = children[newIndex].dataset.listId;
+
+      if (movedListId === displacedListId) {
+        return;
+      }
+      const initialPosition = this.boardListsById[movedListId].position;
+      const targetPosition = this.boardListsById[displacedListId].position;
+
+      try {
+        await this.$apollo.mutate({
+          mutation: updateListQueries[this.issuableType].mutation,
+          variables: {
+            listId: movedListId,
+            position: targetPosition,
+          },
+          update: (store) => {
+            const sourceData = store.readQuery({
+              query: listsQuery[this.issuableType].query,
+              variables: this.listQueryVariables,
+            });
+            const data = produce(sourceData, (draftData) => {
+              // for current list, new position is already set by Apollo via automatic update
+              const affectedNodes = draftData[this.boardType].board.lists.nodes.filter(
+                (node) => node.id !== movedListId,
+              );
+              affectedNodes.forEach((node) => {
+                // eslint-disable-next-line no-param-reassign
+                node.position = calculateNewPosition(
+                  node.position,
+                  initialPosition,
+                  targetPosition,
+                );
+              });
+            });
+            store.writeQuery({
+              query: listsQuery[this.issuableType].query,
+              variables: this.listQueryVariables,
+              data,
+            });
+          },
+          optimisticResponse: {
+            updateBoardList: {
+              __typename: 'UpdateBoardListPayload',
+              errors: [],
+              list: {
+                ...this.boardLists[movedListId],
+                position: targetPosition,
+              },
+            },
+          },
+        });
+      } catch (error) {
+        setError({
+          error,
+          message: s__('Boards|An error occurred while moving the list. Please try again.'),
+        });
+      }
     },
   },
 };
 </script>
 
 <template>
-  <div v-cloak data-qa-selector="boards_list">
-    <gl-alert v-if="error" variant="danger" :dismissible="true" @dismiss="unsetError">
+  <div
+    v-cloak
+    data-testid="boards-list"
+    class="gl-flex-grow-1 gl-display-flex gl-flex-direction-column gl-min-h-0"
+  >
+    <gl-alert v-if="error" variant="danger" :dismissible="true" @dismiss="dismissError">
       {{ error }}
     </gl-alert>
     <component
@@ -75,33 +211,91 @@ export default {
       v-if="!isSwimlanesOn"
       ref="list"
       v-bind="draggableOptions"
-      class="boards-list gl-w-full gl-py-5 gl-px-3 gl-white-space-nowrap"
-      @end="moveList"
+      class="boards-list gl-w-full gl-py-5 gl-pl-0 gl-pr-5 xl:gl-pl-3 xl:gl-pr-6 gl-whitespace-nowrap gl-overflow-x-auto"
+      @end="updateListPosition"
     >
       <board-column
         v-for="(list, index) in boardListsToUse"
         :key="index"
         ref="board"
+        :board-id="boardId"
         :list="list"
+        :filters="filterParams"
+        :highlighted-lists="highlightedLists"
         :data-draggable-item-type="$options.draggableItemTypes.list"
-        :disabled="disabled"
+        :class="{ '!gl-hidden sm:!gl-inline-block': addColumnFormVisible }"
+        @setActiveList="$emit('setActiveList', $event)"
+        @setFilters="$emit('setFilters', $event)"
       />
 
-      <transition name="slide" @after-enter="afterFormEnters">
-        <board-add-new-column v-if="addColumnFormVisible" />
+      <transition mode="out-in" name="slide" @after-enter="afterFormEnters">
+        <div v-if="!addColumnFormVisible" class="gl-display-inline-block gl-pl-2">
+          <board-add-new-column-trigger
+            v-if="canAdminList"
+            :is-new-list-showing="addColumnFormVisible"
+            @setAddColumnFormVisibility="$emit('setAddColumnFormVisibility', $event)"
+          />
+        </div>
+        <board-add-new-column
+          v-if="addColumnFormVisible"
+          :board-id="boardId"
+          :list-query-variables="listQueryVariables"
+          :lists="boardListsById"
+          @setAddColumnFormVisibility="$emit('setAddColumnFormVisibility', $event)"
+          @highlight-list="highlightList"
+        />
       </transition>
     </component>
 
     <epics-swimlanes
       v-else-if="boardListsToUse.length"
       ref="swimlanes"
+      :board-id="boardId"
       :lists="boardListsToUse"
       :can-admin-list="canAdminList"
-      :disabled="disabled"
+      :filters="filterParams"
+      :highlighted-lists="highlightedLists"
+      @setActiveList="$emit('setActiveList', $event)"
+      @move-list="updateListPosition"
+      @setFilters="$emit('setFilters', $event)"
+    >
+      <template #create-list-button>
+        <div
+          v-if="!addColumnFormVisible"
+          class="gl-mt-5 gl-display-inline-block gl-pl-3 gl-sticky gl-top-5"
+        >
+          <board-add-new-column-trigger
+            v-if="canAdminList"
+            :is-new-list-showing="addColumnFormVisible"
+            @setAddColumnFormVisibility="$emit('setAddColumnFormVisibility', $event)"
+          />
+        </div>
+      </template>
+      <div v-if="addColumnFormVisible" class="gl-pl-2">
+        <board-add-new-column
+          class="gl-sticky gl-top-5"
+          :filter-params="filterParams"
+          :list-query-variables="listQueryVariables"
+          :board-id="boardId"
+          :lists="boardListsById"
+          @setAddColumnFormVisibility="$emit('setAddColumnFormVisibility', $event)"
+          @highlight-list="highlightList"
+        />
+      </div>
+    </epics-swimlanes>
+
+    <board-content-sidebar
+      v-if="isIssueBoard"
+      :backlog-list-id="backlogListId"
+      :closed-list-id="closedListId"
+      data-testid="issue-boards-sidebar"
     />
 
-    <board-content-sidebar v-if="isIssueBoard" data-testid="issue-boards-sidebar" />
-
-    <epic-board-content-sidebar v-else-if="isEpicBoard" data-testid="epic-boards-sidebar" />
+    <epic-board-content-sidebar
+      v-else-if="isEpicBoard"
+      :backlog-list-id="backlogListId"
+      :closed-list-id="closedListId"
+      data-testid="epic-boards-sidebar"
+    />
   </div>
 </template>

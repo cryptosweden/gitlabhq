@@ -10,7 +10,7 @@ module Import
       end
 
       unless authorized?
-        return log_and_return_error("You don't have permissions to create this project", :unauthorized)
+        return log_and_return_error("You don't have permissions to import this project", :unauthorized)
       end
 
       unless repo
@@ -19,8 +19,12 @@ module Import
 
       project = create_project(credentials)
 
+      track_access_level('bitbucket')
+
       if project.persisted?
         success(project)
+      elsif project.errors[:import_source_disabled].present?
+        error(project.errors[:import_source_disabled], :forbidden)
       else
         log_and_return_error(project_save_error(project), :unprocessable_entity)
       end
@@ -38,7 +42,8 @@ module Import
         project_name,
         target_namespace,
         current_user,
-        credentials
+        credentials,
+        timeout_strategy
       ).execute
     end
 
@@ -70,8 +75,8 @@ module Import
       @url ||= params[:bitbucket_server_url]
     end
 
-    def authorized?
-      can?(current_user, :create_projects, target_namespace)
+    def timeout_strategy
+      @timeout_strategy ||= params[:timeout_strategy] || ProjectImportData::PESSIMISTIC_TIMEOUT
     end
 
     def allow_local_requests?
@@ -79,11 +84,13 @@ module Import
     end
 
     def blocked_url?
-      Gitlab::UrlBlocker.blocked_url?(
+      Gitlab::HTTP_V2::UrlBlocker.blocked_url?(
         url,
         allow_localhost: allow_local_requests?,
         allow_local_network: allow_local_requests?,
-        schemes: %w(http https)
+        schemes: %w[http https],
+        deny_all_requests_except_allowed: Gitlab::CurrentSettings.deny_all_requests_except_allowed?,
+        outbound_local_requests_allowlist: Gitlab::CurrentSettings.outbound_local_requests_whitelist # rubocop:disable Naming/InclusiveLanguage -- existing setting
       )
     end
 
@@ -93,7 +100,7 @@ module Import
     end
 
     def log_error(message)
-      Gitlab::Import::Logger.error(
+      ::Import::Framework::Logger.error(
         message: 'Import failed due to a BitBucket Server error',
         error: message
       )

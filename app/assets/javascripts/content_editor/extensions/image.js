@@ -1,12 +1,14 @@
 import { Image } from '@tiptap/extension-image';
 import { VueNodeViewRenderer } from '@tiptap/vue-2';
+import { PARSE_HTML_PRIORITY_HIGH } from '../constants';
 import ImageWrapper from '../components/wrappers/image.vue';
-import { PARSE_HTML_PRIORITY_HIGHEST } from '../constants';
 
 const resolveImageEl = (element) =>
   element.nodeName === 'IMG' ? element : element.querySelector('img');
 
 export default Image.extend({
+  draggable: true,
+
   addOptions() {
     return {
       ...this.parent?.(),
@@ -36,6 +38,7 @@ export default Image.extend({
       canonicalSrc: {
         default: null,
         parseHTML: (element) => element.dataset.canonicalSrc,
+        renderHTML: () => '',
       },
       alt: {
         default: null,
@@ -53,12 +56,32 @@ export default Image.extend({
           return img.getAttribute('title');
         },
       },
+      width: {
+        default: null,
+        parseHTML: (element) => {
+          const img = resolveImageEl(element);
+
+          return img.getAttribute('width');
+        },
+      },
+      height: {
+        default: null,
+        parseHTML: (element) => {
+          const img = resolveImageEl(element);
+
+          return img.getAttribute('height');
+        },
+      },
+      isReference: {
+        default: false,
+        renderHTML: () => '',
+      },
     };
   },
   parseHTML() {
     return [
       {
-        priority: PARSE_HTML_PRIORITY_HIGHEST,
+        priority: PARSE_HTML_PRIORITY_HIGH,
         tag: 'a.no-attachment-icon',
       },
       {
@@ -73,7 +96,8 @@ export default Image.extend({
         src: HTMLAttributes.src,
         alt: HTMLAttributes.alt,
         title: HTMLAttributes.title,
-        'data-canonical-src': HTMLAttributes.canonicalSrc,
+        width: HTMLAttributes.width,
+        height: HTMLAttributes.height,
       },
     ];
   },

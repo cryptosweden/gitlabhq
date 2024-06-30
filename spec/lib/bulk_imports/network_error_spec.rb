@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::NetworkError, :clean_gitlab_redis_cache do
+RSpec.describe BulkImports::NetworkError, :clean_gitlab_redis_shared_state, feature_category: :importers do
   let(:tracker) { double(id: 1, stage: 2, entity: double(id: 3)) }
 
   describe '.new' do
@@ -46,13 +46,51 @@ RSpec.describe BulkImports::NetworkError, :clean_gitlab_redis_cache do
         expect(exception.retriable?(tracker)).to eq(false)
       end
     end
+
+    context 'when entity is passed' do
+      it 'increments entity cache key' do
+        entity = create(:bulk_import_entity)
+        exception = described_class.new('Error!')
+
+        allow(exception).to receive(:cause).and_return(SocketError.new('Error!'))
+
+        expect(Gitlab::Cache::Import::Caching)
+          .to receive(:increment)
+          .with("bulk_imports/#{entity.id}/network_error/SocketError")
+          .and_call_original
+
+        exception.retriable?(entity)
+      end
+    end
   end
 
   describe '#retry_delay' do
-    it 'returns the default value when there is not a rate limit error' do
-      exception = described_class.new('foo')
+    context 'when the exception is not a rate limit error' do
+      let(:exception) { described_class.new('Error!') }
 
-      expect(exception.retry_delay).to eq(described_class::DEFAULT_RETRY_DELAY_SECONDS.seconds)
+      it 'returns the default value' do
+        expect(exception.retry_delay).to eq(described_class::DEFAULT_RETRY_DELAY_SECONDS.seconds)
+      end
+
+      context 'when the exception is a decompression error' do
+        before do
+          allow(exception).to receive(:cause).and_return(Zlib::Error.new('Error!'))
+        end
+
+        it 'returns the exception delay value' do
+          expect(exception.retry_delay).to eq(60.seconds)
+        end
+      end
+
+      context 'when the exception is a no space left error' do
+        before do
+          allow(exception).to receive(:cause).and_return(Errno::ENOSPC.new('Error!'))
+        end
+
+        it 'returns the exception delay value' do
+          expect(exception.retry_delay).to eq(120.seconds)
+        end
+      end
     end
 
     context 'when the exception is a rate limit error' do

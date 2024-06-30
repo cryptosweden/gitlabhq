@@ -20,7 +20,9 @@ module Gitlab
               log_message = pipeline_authorized ? 'authorized' : 'not authorized'
               Gitlab::AppLogger.info(message: "Pipeline #{log_message}", project_id: project.id, user_id: current_user.id)
 
-              error('External validation failed', drop_reason: :external_validation_failure) unless pipeline_authorized
+              return if pipeline_authorized
+
+              error('External validation failed', failure_reason: :external_validation_failure)
             end
 
             def break?
@@ -57,7 +59,8 @@ module Gitlab
               }.compact
 
               Gitlab::HTTP.post(
-                validation_service_url, timeout: validation_service_timeout,
+                validation_service_url,
+                timeout: validation_service_timeout,
                 headers: headers,
                 body: validation_service_payload.to_json
               )
@@ -83,7 +86,9 @@ module Gitlab
                 project: {
                   id: project.id,
                   path: project.full_path,
-                  created_at: project.created_at&.iso8601
+                  created_at: project.created_at&.iso8601,
+                  shared_runners_enabled: project.shared_runners_enabled?,
+                  group_runners_enabled: project.group_runners_enabled?
                 },
                 user: {
                   id: current_user.id,
@@ -94,12 +99,17 @@ module Gitlab
                   last_sign_in_ip: current_user.last_sign_in_ip,
                   sign_in_count: current_user.sign_in_count
                 },
+                credit_card: {
+                  similar_cards_count: current_user.credit_card_validation&.similar_records&.count.to_i,
+                  similar_holder_names_count: current_user.credit_card_validation&.similar_holder_names_count.to_i
+                },
                 pipeline: {
                   sha: pipeline.sha,
                   ref: pipeline.ref,
                   type: pipeline.source
                 },
-                builds: builds_validation_payload
+                builds: builds_validation_payload,
+                total_builds_count: current_user.pipelines.builds_count_in_alive_pipelines
               }
             end
 
@@ -114,6 +124,7 @@ module Gitlab
                 stage: build[:stage],
                 image: build.dig(:options, :image, :name),
                 services: service_names(build),
+                tag_list: build[:tag_list],
                 script: [
                   build.dig(:options, :before_script),
                   build.dig(:options, :script),

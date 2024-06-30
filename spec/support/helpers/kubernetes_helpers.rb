@@ -40,9 +40,6 @@ module KubernetesHelpers
   def stub_kubeclient_discover_base(api_url)
     WebMock.stub_request(:get, api_url + '/api/v1').to_return(kube_response(kube_v1_discovery_body))
     WebMock
-      .stub_request(:get, api_url + '/apis/extensions/v1beta1')
-      .to_return(kube_response(kube_extensions_v1beta1_discovery_body))
-    WebMock
       .stub_request(:get, api_url + '/apis/apps/v1')
       .to_return(kube_response(kube_apps_v1_discovery_body))
     WebMock
@@ -129,27 +126,9 @@ module KubernetesHelpers
     WebMock.stub_request(:get, pod_url).to_return(response || kube_pod_response)
   end
 
-  def stub_kubeclient_logs(pod_name, namespace, container: nil, status: nil, message: nil)
-    stub_kubeclient_discover(service.api_url)
-
-    if container
-      container_query_param = "container=#{container}&"
-    end
-
-    logs_url = service.api_url + "/api/v1/namespaces/#{namespace}/pods/#{pod_name}" \
-    "/log?#{container_query_param}tailLines=#{::PodLogs::KubernetesService::LOGS_LIMIT}&timestamps=true"
-
-    if status
-      response = { status: status }
-      response[:body] = { message: message }.to_json if message
-    end
-
-    WebMock.stub_request(:get, logs_url).to_return(response || kube_logs_response)
-  end
-
   def stub_kubeclient_deployments(namespace, status: nil)
     stub_kubeclient_discover(service.api_url)
-    deployments_url = service.api_url + "/apis/extensions/v1beta1/namespaces/#{namespace}/deployments"
+    deployments_url = service.api_url + "/apis/apps/v1/namespaces/#{namespace}/deployments"
     response = { status: status } if status
 
     WebMock.stub_request(:get, deployments_url).to_return(response || kube_deployments_response)
@@ -157,10 +136,33 @@ module KubernetesHelpers
 
   def stub_kubeclient_ingresses(namespace, status: nil, method: :get, resource_path: "", response: kube_ingresses_response)
     stub_kubeclient_discover(service.api_url)
-    ingresses_url = service.api_url + "/apis/extensions/v1beta1/namespaces/#{namespace}/ingresses#{resource_path}"
+    ingresses_url = service.api_url + "/apis/networking.k8s.io/v1/namespaces/#{namespace}/ingresses#{resource_path}"
     response = { status: status } if status
 
     WebMock.stub_request(method, ingresses_url).to_return(response)
+  end
+
+  def stub_server_min_version_failed_request
+    WebMock.stub_request(:get, service.api_url + '/version').to_return(
+      status: [500, "Internal Server Error"],
+      body: {}.to_json)
+  end
+
+  def stub_server_min_version(min_version)
+    response = kube_response({
+                               major: "1", # not used, just added here to be a bit more realistic purposes
+                               minor: min_version.to_s
+                             })
+
+    WebMock.stub_request( :get, service.api_url + '/version')
+      .with(
+        headers: {
+          'Accept' => '*/*',
+          'Accept-Encoding' => 'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
+          'Authorization' => 'Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          'User-Agent' => 'Ruby'
+        })
+      .to_return(response)
   end
 
   def stub_kubeclient_knative_services(options = {})
@@ -288,13 +290,13 @@ module KubernetesHelpers
   def kube_v1_secret_body(options)
     {
       "kind" => "SecretList",
-      "apiVersion": "v1",
-      "metadata": {
-        "name": options.fetch(:metadata_name, "default-token-1"),
-        "namespace": "kube-system"
+      apiVersion: "v1",
+      metadata: {
+        name: options.fetch(:metadata_name, "default-token-1"),
+        namespace: "kube-system"
       },
-      "data": {
-        "token": options.fetch(:token, Base64.encode64('token-sample-123'))
+      data: {
+        token: options.fetch(:token, Base64.encode64('token-sample-123'))
       }
     }
   end
@@ -314,24 +316,6 @@ module KubernetesHelpers
     }
   end
 
-  # From Kubernetes 1.16+ Deployments are no longer served from apis/extensions
-  def kube_1_16_extensions_v1beta1_discovery_body
-    {
-      "kind" => "APIResourceList",
-      "resources" => [
-        { "name" => "ingresses", "namespaced" => true, "kind" => "Deployment" }
-      ]
-    }
-  end
-
-  # From Kubernetes 1.22+ Ingresses are no longer served from apis/extensions
-  def kube_1_22_extensions_v1beta1_discovery_body
-    {
-      "kind" => "APIResourceList",
-      "resources" => []
-    }
-  end
-
   def kube_knative_discovery_body
     {
       "kind" => "APIResourceList",
@@ -339,18 +323,6 @@ module KubernetesHelpers
     }
   end
 
-  def kube_extensions_v1beta1_discovery_body
-    {
-      "kind" => "APIResourceList",
-      "resources" => [
-        { "name" => "deployments", "namespaced" => true, "kind" => "Deployment" },
-        { "name" => "ingresses", "namespaced" => true, "kind" => "Ingress" }
-      ]
-    }
-  end
-
-  # Yes, deployments are defined in both apis/extensions/v1beta1 and apis/v1
-  # (for Kubernetes < 1.16). This matches what Kubenetes API server returns.
   def kube_apps_v1_discovery_body
     {
       "kind" => "APIResourceList",
@@ -562,10 +534,10 @@ module KubernetesHelpers
     }
   end
 
-  def kube_knative_services_body(**options)
+  def kube_knative_services_body(...)
     {
       "kind" => "List",
-      "items" => [knative_09_service(**options)]
+      "items" => [knative_09_service(...)]
     }
   end
 
@@ -588,7 +560,7 @@ module KubernetesHelpers
       },
       "spec" => {
         "containers" => [
-          { "name" => "#{container_name}" },
+          { "name" => container_name.to_s },
           { "name" => "#{container_name}-1" }
         ]
       },
@@ -704,7 +676,6 @@ module KubernetesHelpers
     }
   end
 
-  # noinspection RubyStringKeysInHashInspection
   def knative_06_service(name: 'kubetest', namespace: 'default', domain: 'example.com', description: 'a knative service', environment: 'production', cluster_id: 9)
     { "apiVersion" => "serving.knative.dev/v1alpha1",
       "kind" => "Service",
@@ -764,7 +735,6 @@ module KubernetesHelpers
       "podcount" => 0 }
   end
 
-  # noinspection RubyStringKeysInHashInspection
   def knative_07_service(name: 'kubetest', namespace: 'default', domain: 'example.com', description: 'a knative service', environment: 'production', cluster_id: 5)
     { "apiVersion" => "serving.knative.dev/v1alpha1",
       "kind" => "Service",
@@ -816,7 +786,6 @@ module KubernetesHelpers
       "podcount" => 0 }
   end
 
-  # noinspection RubyStringKeysInHashInspection
   def knative_09_service(name: 'kubetest', namespace: 'default', domain: 'example.com', description: 'a knative service', environment: 'production', cluster_id: 5)
     { "apiVersion" => "serving.knative.dev/v1alpha1",
       "kind" => "Service",
@@ -868,7 +837,6 @@ module KubernetesHelpers
       "podcount" => 0 }
   end
 
-  # noinspection RubyStringKeysInHashInspection
   def knative_05_service(name: 'kubetest', namespace: 'default', domain: 'example.com', description: 'a knative service', environment: 'production', cluster_id: 8)
     { "apiVersion" => "serving.knative.dev/v1alpha1",
       "kind" => "Service",
@@ -931,7 +899,7 @@ module KubernetesHelpers
     containers.map do |container|
       terminal = {
         selectors: { pod: pod_name, container: container['name'] },
-        url:  container_exec_url(service.api_url, pod_namespace, pod_name, container['name']),
+        url: container_exec_url(service.api_url, pod_namespace, pod_name, container['name']),
         subprotocols: ['channel.k8s.io'],
         headers: { 'Authorization' => ["Bearer #{service.token}"] },
         created_at: DateTime.parse(pod['metadata']['creationTimestamp']),

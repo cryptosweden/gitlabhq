@@ -7,33 +7,26 @@ class Projects::PipelineSchedulesController < Projects::ApplicationController
   before_action :authorize_play_pipeline_schedule!, only: [:play]
   before_action :authorize_read_pipeline_schedule!
   before_action :authorize_create_pipeline_schedule!, only: [:new, :create]
-  before_action :authorize_update_pipeline_schedule!, except: [:index, :new, :create, :play]
-  before_action :authorize_admin_pipeline_schedule!, only: [:destroy]
-
-  before_action do
-    push_frontend_feature_flag(:pipeline_schedules_with_tags, @project, default_enabled: :yaml)
-  end
+  before_action :authorize_update_pipeline_schedule!, only: [:edit, :update]
+  before_action :authorize_admin_pipeline_schedule!, only: [:take_ownership, :destroy]
 
   feature_category :continuous_integration
+  urgency :low
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def index
     @scope = params[:scope]
     @all_schedules = Ci::PipelineSchedulesFinder.new(@project).execute
     @schedules = Ci::PipelineSchedulesFinder.new(@project).execute(scope: params[:scope])
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def new
-    @schedule = project.pipeline_schedules.new
   end
 
   def create
-    @schedule = Ci::CreatePipelineScheduleService
-      .new(@project, current_user, schedule_params)
-      .execute
+    response = Ci::PipelineSchedules::CreateService.new(@project, current_user, schedule_params).execute
+    @schedule = response.payload
 
-    if @schedule.persisted?
+    if response.success?
       redirect_to pipeline_schedules_path(@project)
     else
       render :new
@@ -44,7 +37,9 @@ class Projects::PipelineSchedulesController < Projects::ApplicationController
   end
 
   def update
-    if schedule.update(schedule_params)
+    response = Ci::PipelineSchedules::UpdateService.new(schedule, current_user, schedule_params).execute
+
+    if response.success?
       redirect_to project_pipeline_schedules_path(@project)
     else
       render :edit
@@ -66,7 +61,9 @@ class Projects::PipelineSchedulesController < Projects::ApplicationController
   end
 
   def take_ownership
-    if schedule.update(owner: current_user)
+    response = Ci::PipelineSchedules::TakeOwnershipService.new(schedule, current_user).execute
+
+    if response.success?
       redirect_to pipeline_schedules_path(@project)
     else
       redirect_to pipeline_schedules_path(@project), alert: _("Failed to change the owner")
@@ -77,9 +74,7 @@ class Projects::PipelineSchedulesController < Projects::ApplicationController
     if schedule.destroy
       redirect_to pipeline_schedules_path(@project), status: :found
     else
-      redirect_to pipeline_schedules_path(@project),
-                  status: :forbidden,
-                  alert: _("Failed to remove the pipeline schedule")
+      redirect_to pipeline_schedules_path(@project), status: :forbidden, alert: _("Failed to remove the pipeline schedule")
     end
   end
 
@@ -101,18 +96,27 @@ class Projects::PipelineSchedulesController < Projects::ApplicationController
   def schedule_params
     params.require(:schedule)
       .permit(:description, :cron, :cron_timezone, :ref, :active,
-        variables_attributes: [:id, :variable_type, :key, :secret_value, :_destroy] )
+        variables_attributes: [:id, :variable_type, :key, :secret_value, :_destroy])
+  end
+
+  def new_schedule
+    # We need the `ref` here for `authorize_create_pipeline_schedule!`
+    @schedule ||= project.pipeline_schedules.new(ref: params.dig(:schedule, :ref))
+  end
+
+  def authorize_create_pipeline_schedule!
+    access_denied! unless can?(current_user, :create_pipeline_schedule, new_schedule)
   end
 
   def authorize_play_pipeline_schedule!
-    return access_denied! unless can?(current_user, :play_pipeline_schedule, schedule)
+    access_denied! unless can?(current_user, :play_pipeline_schedule, schedule)
   end
 
   def authorize_update_pipeline_schedule!
-    return access_denied! unless can?(current_user, :update_pipeline_schedule, schedule)
+    access_denied! unless can?(current_user, :update_pipeline_schedule, schedule)
   end
 
   def authorize_admin_pipeline_schedule!
-    return access_denied! unless can?(current_user, :admin_pipeline_schedule, schedule)
+    access_denied! unless can?(current_user, :admin_pipeline_schedule, schedule)
   end
 end

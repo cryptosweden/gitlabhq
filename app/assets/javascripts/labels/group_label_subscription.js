@@ -1,7 +1,8 @@
 import $ from 'jquery';
 import { __ } from '~/locale';
 import { fixTitle, hide } from '~/tooltips';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
+import { WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
 import axios from '~/lib/utils/axios_utils';
 
 const tooltipTitles = {
@@ -31,7 +32,7 @@ export default class GroupLabelSubscription {
         this.$unsubscribeButtons.removeAttr('data-url');
       })
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('There was an error when unsubscribing from this label.'),
         }),
       );
@@ -50,7 +51,7 @@ export default class GroupLabelSubscription {
       .then(() => GroupLabelSubscription.setNewTooltip($btn))
       .then(() => this.toggleSubscriptionButtons())
       .catch(() =>
-        createFlash({
+        createAlert({
           message: __('There was an error when subscribing to this label.'),
         }),
       );
@@ -65,7 +66,7 @@ export default class GroupLabelSubscription {
   static setNewTooltip($button) {
     if (!$button.hasClass('js-subscribe-button')) return;
 
-    const type = $button.hasClass('js-group-level') ? 'group' : 'project';
+    const type = $button.hasClass('js-group-level') ? WORKSPACE_GROUP : WORKSPACE_PROJECT;
     const newTitle = tooltipTitles[type];
 
     const $el = $('.js-unsubscribe-button', $button.closest('.label-actions-list'));

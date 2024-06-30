@@ -1,58 +1,188 @@
 ---
 stage: Create
 group: Source Code
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference, concepts
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "Cherry-pick a Git commit when you want to add a single commit from one branch to another."
 ---
 
-# Cherry-pick changes **(FREE)**
+# Cherry-pick changes
 
-GitLab implements Git's powerful feature to
-[cherry-pick any commit](https://git-scm.com/docs/git-cherry-pick "Git cherry-pick documentation")
-with a **Cherry-pick** button in merge requests and commit details.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-## Cherry-pick a merge request
+In Git, *cherry-picking* is taking a single commit from one branch and adding it
+as the latest commit on another branch. The rest of the commits in the source branch
+are not added to the target. Cherry-pick a commit when you need the
+contents in a single commit, but not the contents of the entire branch. For example,
+when you:
 
-After the merge request has been merged, a **Cherry-pick** button displays
-to cherry-pick the changes introduced by that merge request.
+- Backport bug fixes from the default branch to previous release branches.
+- Copy changes from a fork to the upstream repository.
 
-![Cherry-pick merge request](img/cherry_pick_changes_mr.png)
+Use the GitLab UI to cherry-pick a single commit or the contents of an entire merge request
+from a project or a project fork.
 
-After you click that button, a modal displays a
-[branch filter search box](../repository/branches/index.md#branch-filter-search-box)
-where you can choose to either:
+In this example, a Git repository has two branches: `develop` and `main`.
+Commit `B` is cherry-picked from the `develop` branch after commit `E` in the `main` branch.
+Commit `G` is added after the cherry-pick:
 
-- Cherry-pick the changes directly into the selected branch.
-- Create a new merge request with the cherry-picked changes.
+```mermaid
+gitGraph
+ commit id: "A"
+ branch develop
+ commit id:"B"
+ checkout main
+ commit id:"C"
+ checkout develop
+ commit id:"D"
+ checkout main
+ commit id:"E"
+ cherry-pick id:"B"
+ commit id:"G"
+ checkout develop
+ commit id:"H"
+```
 
-### Track a cherry-pick
+## Cherry-pick all changes from a merge request
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/2675) in GitLab 12.9.
+After a merge request is merged, you can cherry-pick all changes introduced
+by the merge request. The merge request can be in the upstream project or in
+a downstream fork.
 
-When you cherry-pick a merge commit, GitLab displays a system note to the related merge
-request thread. It crosslinks the new commit and the existing merge request.
+Prerequisites:
 
-![Cherry-pick tracking in merge request timeline](img/cherry_pick_mr_timeline_v12_9.png)
+- You must have a role in the project that allows you to edit merge requests, and add
+  code to the repository.
+- Your project must use the [merge method](methods/index.md#fast-forward-merge) **Merge Commit**,
+  which is set in the project's **Settings > Merge requests**.
 
+  [In GitLab 16.9 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/142152), fast-forwarded
+  commits can be cherry-picked from the GitLab UI only when they are squashed or when the
+  merge request contains a single commit.
+  You can always [cherry-pick individual commits](#cherry-pick-a-single-commit).
+
+To do this:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Merge requests**, and find your merge request.
+1. Scroll to the merge request reports section, and find the **Merged by** report.
+1. In the upper-right corner of the report, select **Cherry-pick**:
+
+   ![Cherry-pick merge request](img/cherry_pick_v15_4.png)
+1. On the dialog, select the project and branch to cherry-pick into.
+1. Optional. Select **Start a new merge request with these changes**.
+1. Select **Cherry-pick**.
+
+## Cherry-pick a single commit
+
+You can cherry-pick a single commit from multiple locations in your GitLab project.
+
+### From a project's commit list
+
+To cherry-pick a commit from the list of all commits for a project:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Commits**.
+1. Select the [title](https://git-scm.com/docs/git-commit#_discussion) of the commit you want to cherry-pick.
+1. In the upper-right corner, select **Options > Cherry-pick**.
+1. On the cherry-pick dialog, select the project and branch to cherry-pick into.
+1. Optional. Select **Start a new merge request with these changes**.
+1. Select **Cherry-pick**.
+
+### From the file view of a repository
+
+You can cherry-pick from the list of previous commits affecting an individual file
+when you view that file in your project's Git repository:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Repository**.
+1. Go to the file changed by the commit. In the upper-right corner, select **History**.
+1. Select the [title](https://git-scm.com/docs/git-commit#_discussion)
+   of the commit you want to cherry-pick.
+1. In the upper-right corner, select **Options > Cherry-pick**.
+1. On the cherry-pick dialog, select the project and branch to cherry-pick into.
+1. Optional. Select **Start a new merge request with these changes**.
+1. Select **Cherry-pick**.
+
+### From the command line
+
+You can cherry-pick commits from one branch to another using the `git` command-line interface.
+
+In this example, you cherry-pick a commit from a feature branch (`feature`) into a different branch (`develop`).
+
+1. Check out the default branch, then check out a new `develop` branch based on it:
+
+   ```shell
+   git checkout main
+   git checkout -b develop
+   ```
+
+1. Change back to the feature branch:
+
+   ```shell
+   git checkout feature
+   ```
+
+1. Make your changes, then commit them:
+
+   ```shell
+   git add changed_file.rb
+   git commit -m 'Fix bugs in changed_file.rb'
+   ```
+
+1. Display the commit log:
+
+   ```shell
+   $ git log
+
+   commit 0000011111222223333344444555556666677777
+   Merge: 88888999999 aaaaabbbbbb
+   Author: user@example.com
+   Date:   Tue Aug 31 21:19:41 2021 +0000
+   ```
+
+1. Identify the `commit` line, and copy the string of letters and numbers on that line.
+   This information is the SHA (Secure Hash Algorithm) of the commit. The SHA is
+   a unique identifier for this commit, and you need it in a future step.
+
+1. Now that you know the SHA, check out the `develop` branch again:
+
+   ```shell
+   git checkout develop
+   ```
+
+1. Cherry-pick the commit into the `develop` branch, and change `SHA` to your commit
+   SHA:
+
+   ```shell
+   git cherry-pick SHA
+   ```
+
+## View system notes for cherry-picked commits
+
+When you cherry-pick a merge commit in the GitLab UI or API, GitLab adds a [system note](../system_notes.md)
+to the related merge request thread. The format is **{cherry-pick-commit}**
+`[USER]` **picked the changes into the branch** `[BRANCHNAME]` with commit** `[SHA]` `[DATE]`:
+
+![Cherry-pick tracking in merge request timeline](img/cherry_pick_mr_timeline_v15_4.png)
+
+The system note crosslinks the new commit and the existing merge request.
 Each deployment's [list of associated merge requests](../../../api/deployments.md#list-of-merge-requests-associated-with-a-deployment) includes cherry-picked merge commits.
 
-NOTE:
-We only track cherry-pick executed from GitLab (both UI and API). Support for tracking cherry-picked commits through the command line
-is tracked [in this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/202215).
+Commits cherry-picked outside the GitLab UI or API do not add a system note.
 
-## Cherry-pick a commit
+## Related topics
 
-You can cherry-pick a commit from the commit details page:
+- [Commits API](../../../api/commits.md)
+- Git documentation [for cherry-picks](https://git-scm.com/docs/git-cherry-pick)
 
-![Cherry-pick commit](img/cherry_pick_changes_commit.png)
+## Troubleshooting
 
-Similar to cherry-picking a merge request, you can cherry-pick the changes
-directly into the target branch or create a new merge request to cherry-pick the
-changes.
+### Selecting a different parent commit when cherry-picking
 
-When cherry-picking merge commits, the mainline is always the
-first parent. If you want to use a different mainline, you need to do that
-from the command line.
+When you cherry-pick a merge commit in the GitLab UI, the mainline is always the
+first parent. Use the command line to cherry-pick with a different mainline.
 
 Here's a quick example to cherry-pick a merge commit using the second parent as the
 mainline:
@@ -60,35 +190,3 @@ mainline:
 ```shell
 git cherry-pick -m 2 7a39eb0
 ```
-
-### Cherry-pick into a project
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/21268) in GitLab 13.11 behind a [feature flag](../../feature_flags.md), disabled by default.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/324154) in GitLab 14.0.
-
-You can cherry-pick merge requests from the same project, or forks of the same
-project, from the GitLab user interface:
-
-1. In the merge request's secondary menu, click **Commits** to display the commit details page.
-1. Click on the **Options** dropdown and select **Cherry-pick** to show the cherry-pick modal.
-1. In **Pick into project** and **Pick into branch**, select the destination project and branch:
-   ![Cherry-pick commit](img/cherry_pick_into_project_v13_11.png)
-1. Optional. Select **Start a new merge request** if you're ready to create a merge request.
-1. Click **Cherry-pick**.
-
-## Related topics
-
-- The [Commits API](../../../api/commits.md) enables you to add custom messages
-  to changes you cherry-pick through the API.
-
-<!-- ## Troubleshooting
-
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
-
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->

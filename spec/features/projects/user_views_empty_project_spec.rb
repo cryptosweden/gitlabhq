@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User views an empty project' do
+RSpec.describe 'User views an empty project', feature_category: :groups_and_projects do
+  include Features::InviteMembersModalHelpers
+
   let_it_be(:project) { create(:project, :empty_repo) }
   let_it_be(:user) { create(:user) }
 
@@ -12,7 +14,7 @@ RSpec.describe 'User views an empty project' do
     it 'shows push-to-default-branch instructions' do
       visit project_path(project)
 
-      expect(page).to have_content("git push -u origin #{default_branch}")
+      expect(page).to have_content("git push --set-upstream origin #{default_branch}")
     end
   end
 
@@ -29,7 +31,9 @@ RSpec.describe 'User views an empty project' do
 
       click_button 'Invite members'
 
-      expect(page).to have_content("You're inviting members to the")
+      page.within invite_modal_selector do
+        expect(page).to have_content("You're inviting members to the #{project.name} project")
+      end
     end
   end
 
@@ -39,7 +43,7 @@ RSpec.describe 'User views an empty project' do
     context 'when admin mode is enabled' do
       before do
         sign_in(user)
-        gitlab_enable_admin_mode_sign_in(user)
+        enable_admin_mode!(user)
       end
 
       it_behaves_like 'allowing push to default branch'
@@ -49,7 +53,7 @@ RSpec.describe 'User views an empty project' do
       it 'does not show push-to-master instructions' do
         visit project_path(project)
 
-        expect(page).not_to have_content('git push -u origin')
+        expect(page).not_to have_content('git push --set-upstream origin')
       end
     end
   end
@@ -63,7 +67,7 @@ RSpec.describe 'User views an empty project' do
     it 'does not show push-to-master instructions nor invite members link', :aggregate_failures, :js do
       visit project_path(project)
 
-      expect(page).not_to have_content('git push -u origin')
+      expect(page).not_to have_content('git push --set-upstream origin')
       expect(page).not_to have_button(text: 'Invite members')
     end
   end

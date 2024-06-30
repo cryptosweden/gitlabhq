@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Notes::CopyService do
+RSpec.describe Notes::CopyService, feature_category: :team_planning do
   describe '#initialize' do
     let_it_be(:noteable) { create(:issue) }
 
@@ -16,9 +16,8 @@ RSpec.describe Notes::CopyService do
     let_it_be(:group) { create(:group) }
     let_it_be(:from_project) { create(:project, :public, group: group) }
     let_it_be(:to_project) { create(:project, :public, group: group) }
-
-    let(:from_noteable) { create(:issue, project: from_project) }
-    let(:to_noteable) { create(:issue, project: to_project) }
+    let_it_be(:from_noteable) { create(:issue, project: from_project) }
+    let_it_be(:to_noteable) { create(:issue, project: to_project) }
 
     subject(:execute_service) { described_class.new(user, from_noteable, to_noteable).execute }
 
@@ -26,10 +25,12 @@ RSpec.describe Notes::CopyService do
       context 'simple notes' do
         let!(:notes) do
           [
-            create(:note, noteable: from_noteable, project: from_noteable.project,
-                          created_at: 2.weeks.ago, updated_at: 1.week.ago),
-            create(:note, noteable: from_noteable, project: from_noteable.project),
-            create(:note, system: true, noteable: from_noteable, project: from_noteable.project)
+            create(
+              :note, noteable: from_noteable, project: from_noteable.project,
+              created_at: 2.weeks.ago, updated_at: 1.week.ago, imported_from: :gitlab_migration
+            ),
+            create(:note, noteable: from_noteable, project: from_noteable.project, imported_from: :gitlab_project),
+            create(:note, system: true, noteable: from_noteable, project: from_noteable.project, imported_from: :github)
           ]
         end
 
@@ -43,6 +44,16 @@ RSpec.describe Notes::CopyService do
           execute_service
 
           expect(to_noteable.notes.count).to eq(3)
+        end
+
+        it 'changes the imported_from value' do
+          execute_service
+
+          expect(notes[0].reload.imported_from).to eq('gitlab_migration')
+          expect(notes[1].reload.imported_from).to eq('gitlab_project')
+          expect(notes[2].reload.imported_from).to eq('github')
+
+          expect(to_noteable.notes.pluck(:imported_from)).to all(eq('none'))
         end
 
         it 'does not change the note attributes' do
@@ -85,6 +96,15 @@ RSpec.describe Notes::CopyService do
             expect(execute_service).to be_success
           end
         end
+
+        it 'copies rendered markdown from note_html' do
+          expect(Banzai::Renderer).not_to receive(:cacheless_render_field)
+
+          execute_service
+
+          new_note = to_noteable.notes.first
+          expect(new_note.note_html).to eq(notes.first.note_html)
+        end
       end
 
       context 'notes with mentions' do
@@ -119,11 +139,18 @@ RSpec.describe Notes::CopyService do
             expect(new_note.author).to eq(note.author)
           end
         end
+
+        it 'does not copy rendered markdown from note_html' do
+          execute_service
+
+          new_note = to_noteable.notes.first
+          expect(new_note.note_html).not_to eq(note.note_html)
+        end
       end
 
       context 'notes with upload' do
         let(:uploader) { build(:file_uploader, project: from_noteable.project) }
-        let(:text) { "Simple text with image: #{uploader.markdown_link} "}
+        let(:text) { "Simple text with image: #{uploader.markdown_link} " }
         let!(:note) { create(:note, noteable: from_noteable, note: text, project: from_noteable.project) }
 
         it 'rewrites note content correctly' do
@@ -131,11 +158,20 @@ RSpec.describe Notes::CopyService do
           new_note = to_noteable.notes.first
 
           aggregate_failures do
-            expect(note.note).to match(/Simple text with image: #{FileUploader::MARKDOWN_PATTERN}/)
-            expect(new_note.note).to match(/Simple text with image: #{FileUploader::MARKDOWN_PATTERN}/)
+            expect(note.note).to match(/Simple text with image:/o)
+            expect(FileUploader::MARKDOWN_PATTERN.match(note.note)).not_to be_nil
+            expect(new_note.note).to match(/Simple text with image:/o)
+            expect(FileUploader::MARKDOWN_PATTERN.match(new_note.note)).not_to be_nil
             expect(note.note).not_to eq(new_note.note)
             expect(note.note_html).not_to eq(new_note.note_html)
           end
+        end
+
+        it 'does not copy rendered markdown from note_html' do
+          execute_service
+
+          new_note = to_noteable.notes.first
+          expect(new_note.note_html).not_to eq(note.note_html)
         end
       end
 

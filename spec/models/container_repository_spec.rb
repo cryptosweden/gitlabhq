@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe ContainerRepository, :aggregate_failures do
+RSpec.describe ContainerRepository, :aggregate_failures, feature_category: :container_registry do
+  include_context 'container registry client stubs'
+
   using RSpec::Parameterized::TableSyntax
 
   let(:group) { create(:group, name: 'group') }
@@ -13,11 +15,11 @@ RSpec.describe ContainerRepository, :aggregate_failures do
   end
 
   before do
-    stub_container_registry_config(enabled: true,
-                                   api_url: 'http://registry.gitlab',
-                                   host_port: 'registry.gitlab')
+    stub_container_registry_config(
+      enabled: true, api_url: 'http://registry.gitlab', host_port: 'registry.gitlab'
+    )
 
-    stub_request(:get, 'http://registry.gitlab/v2/group/test/my_image/tags/list')
+    stub_request(:get, "http://registry.gitlab/v2/group/test/my_image/tags/list?n=#{::ContainerRegistry::Client::DEFAULT_TAGS_PAGE_SIZE}")
       .with(headers: { 'Accept' => ContainerRegistry::Client::ACCEPTED_TYPES.join(', ') })
       .to_return(
         status: 200,
@@ -33,345 +35,6 @@ RSpec.describe ContainerRepository, :aggregate_failures do
     end
   end
 
-  describe 'validations' do
-    it { is_expected.to validate_presence_of(:migration_retries_count) }
-    it { is_expected.to validate_numericality_of(:migration_retries_count).is_greater_than_or_equal_to(0) }
-
-    it { is_expected.to validate_inclusion_of(:migration_aborted_in_state).in_array(described_class::ABORTABLE_MIGRATION_STATES) }
-    it { is_expected.to allow_value(nil).for(:migration_aborted_in_state) }
-
-    context 'migration_state' do
-      it { is_expected.to validate_presence_of(:migration_state) }
-      it { is_expected.to validate_inclusion_of(:migration_state).in_array(described_class::MIGRATION_STATES) }
-
-      describe 'pre_importing' do
-        it 'validates expected attributes' do
-          expect(build(:container_repository, migration_state: 'pre_importing')).to be_invalid
-          expect(build(:container_repository, :pre_importing)).to be_valid
-        end
-      end
-
-      describe 'pre_import_done' do
-        it 'validates expected attributes' do
-          expect(build(:container_repository, migration_state: 'pre_import_done')).to be_invalid
-          expect(build(:container_repository, :pre_import_done)).to be_valid
-        end
-      end
-
-      describe 'importing' do
-        it 'validates expected attributes' do
-          expect(build(:container_repository, migration_state: 'importing')).to be_invalid
-          expect(build(:container_repository, :importing)).to be_valid
-        end
-      end
-
-      describe 'import_skipped' do
-        it 'validates expected attributes' do
-          expect(build(:container_repository, migration_state: 'import_skipped')).to be_invalid
-          expect(build(:container_repository, :import_skipped)).to be_valid
-        end
-      end
-
-      describe 'import_aborted' do
-        it 'validates expected attributes' do
-          expect(build(:container_repository, migration_state: 'import_aborted')).to be_invalid
-          expect(build(:container_repository, :import_aborted)).to be_valid
-        end
-      end
-    end
-  end
-
-  context ':migration_state state_machine' do
-    shared_examples 'no action when feature flag is disabled' do
-      context 'feature flag disabled' do
-        before do
-          stub_feature_flags(container_registry_migration_phase2_enabled: false)
-        end
-
-        it { is_expected.to eq(false) }
-      end
-    end
-
-    shared_examples 'transitioning to pre_importing', skip_pre_import_success: true do
-      before do
-        repository.update_column(:migration_pre_import_done_at, Time.zone.now)
-      end
-
-      it_behaves_like 'no action when feature flag is disabled'
-
-      context 'successful pre_import request' do
-        it 'sets migration_pre_import_started_at and resets migration_pre_import_done_at' do
-          expect(repository).to receive(:migration_pre_import).and_return(:ok)
-
-          expect { subject }.to change { repository.reload.migration_pre_import_started_at }
-            .and change { repository.migration_pre_import_done_at }.to(nil)
-
-          expect(repository).to be_pre_importing
-        end
-      end
-
-      context 'failed pre_import request' do
-        it 'sets migration_pre_import_started_at and resets migration_pre_import_done_at' do
-          expect(repository).to receive(:migration_pre_import).and_return(:error)
-
-          expect { subject }.to change { repository.reload.migration_pre_import_started_at }
-            .and change { repository.migration_aborted_at }
-            .and change { repository.migration_pre_import_done_at }.to(nil)
-
-          expect(repository.migration_aborted_in_state).to eq('pre_importing')
-          expect(repository).to be_import_aborted
-        end
-      end
-
-      context 'already imported' do
-        it 'finishes the import' do
-          expect(repository).to receive(:migration_pre_import).and_return(:already_imported)
-
-          expect { subject }
-            .to change { repository.reload.migration_state }.to('import_done')
-            .and change { repository.reload.migration_skipped_reason }.to('native_import')
-        end
-      end
-    end
-
-    shared_examples 'transitioning to importing', skip_import_success: true do
-      before do
-        repository.update_columns(migration_import_done_at: Time.zone.now)
-      end
-
-      context 'successful import request' do
-        it 'sets migration_import_started_at and resets migration_import_done_at' do
-          expect(repository).to receive(:migration_import).and_return(:ok)
-
-          expect { subject }.to change { repository.reload.migration_import_started_at }
-            .and change { repository.migration_import_done_at }.to(nil)
-
-          expect(repository).to be_importing
-        end
-      end
-
-      context 'failed import request' do
-        it 'sets migration_import_started_at and resets migration_import_done_at' do
-          expect(repository).to receive(:migration_import).and_return(:error)
-
-          expect { subject }.to change { repository.reload.migration_import_started_at }
-            .and change { repository.migration_aborted_at }
-
-          expect(repository.migration_aborted_in_state).to eq('importing')
-          expect(repository).to be_import_aborted
-        end
-      end
-
-      context 'already imported' do
-        it 'finishes the import' do
-          expect(repository).to receive(:migration_import).and_return(:already_imported)
-
-          expect { subject }
-            .to change { repository.reload.migration_state }.to('import_done')
-            .and change { repository.reload.migration_skipped_reason }.to('native_import')
-        end
-      end
-    end
-
-    shared_examples 'transitioning out of import_aborted' do
-      it 'resets migration_aborted_at and migration_aborted_in_state' do
-        expect { subject }.to change { repository.reload.migration_aborted_in_state }.to(nil)
-          .and change { repository.migration_aborted_at }.to(nil)
-      end
-    end
-
-    shared_examples 'transitioning from allowed states' do |allowed_states|
-      described_class::MIGRATION_STATES.each do |state|
-        result = allowed_states.include?(state)
-
-        context "when transitioning from #{state}" do
-          let(:repository) { create(:container_repository, state.to_sym) }
-
-          it "returns #{result}" do
-            expect(subject).to eq(result)
-          end
-        end
-      end
-    end
-
-    shared_examples 'queueing the next import' do
-      it 'starts the worker' do
-        expect(::ContainerRegistry::Migration::EnqueuerWorker).to receive(:perform_async)
-
-        subject
-      end
-    end
-
-    describe '#start_pre_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository) }
-
-      subject { repository.start_pre_import }
-
-      before do |example|
-        unless example.metadata[:skip_pre_import_success]
-          allow(repository).to receive(:migration_pre_import).and_return(:ok)
-        end
-      end
-
-      it_behaves_like 'transitioning from allowed states', %w[default]
-      it_behaves_like 'transitioning to pre_importing'
-    end
-
-    describe '#retry_pre_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository, :import_aborted) }
-
-      subject { repository.retry_pre_import }
-
-      before do |example|
-        unless example.metadata[:skip_pre_import_success]
-          allow(repository).to receive(:migration_pre_import).and_return(:ok)
-        end
-      end
-
-      it_behaves_like 'transitioning from allowed states', %w[pre_importing importing import_aborted]
-      it_behaves_like 'transitioning to pre_importing'
-      it_behaves_like 'transitioning out of import_aborted'
-    end
-
-    describe '#finish_pre_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository, :pre_importing) }
-
-      subject { repository.finish_pre_import }
-
-      it_behaves_like 'transitioning from allowed states', %w[pre_importing importing import_aborted]
-
-      it 'sets migration_pre_import_done_at' do
-        expect { subject }.to change { repository.reload.migration_pre_import_done_at }
-
-        expect(repository).to be_pre_import_done
-      end
-    end
-
-    describe '#start_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository, :pre_import_done) }
-
-      subject { repository.start_import }
-
-      before do |example|
-        unless example.metadata[:skip_import_success]
-          allow(repository).to receive(:migration_import).and_return(:ok)
-        end
-      end
-
-      it_behaves_like 'transitioning from allowed states', %w[pre_import_done pre_importing importing import_aborted]
-      it_behaves_like 'transitioning to importing'
-    end
-
-    describe '#retry_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository, :import_aborted) }
-
-      subject { repository.retry_import }
-
-      before do |example|
-        unless example.metadata[:skip_import_success]
-          allow(repository).to receive(:migration_import).and_return(:ok)
-        end
-      end
-
-      it_behaves_like 'transitioning from allowed states', %w[pre_importing importing import_aborted]
-      it_behaves_like 'transitioning to importing'
-      it_behaves_like 'no action when feature flag is disabled'
-    end
-
-    describe '#finish_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository, :importing) }
-
-      subject { repository.finish_import }
-
-      it_behaves_like 'transitioning from allowed states', %w[pre_importing importing import_aborted]
-      it_behaves_like 'queueing the next import'
-
-      it 'sets migration_import_done_at and queues the next import' do
-        expect { subject }.to change { repository.reload.migration_import_done_at }
-
-        expect(repository).to be_import_done
-      end
-    end
-
-    describe '#already_migrated' do
-      let_it_be_with_reload(:repository) { create(:container_repository) }
-
-      subject { repository.already_migrated }
-
-      it_behaves_like 'transitioning from allowed states', %w[default]
-
-      it 'sets migration_import_done_at' do
-        subject
-
-        expect(repository).to be_import_done
-      end
-    end
-
-    describe '#abort_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository, :importing) }
-
-      subject { repository.abort_import }
-
-      it_behaves_like 'transitioning from allowed states', ContainerRepository::ABORTABLE_MIGRATION_STATES
-      it_behaves_like 'queueing the next import'
-
-      it 'sets migration_aborted_at and migration_aborted_at, increments the retry count, and queues the next import' do
-        expect { subject }.to change { repository.migration_aborted_at }
-          .and change { repository.reload.migration_retries_count }.by(1)
-
-        expect(repository.migration_aborted_in_state).to eq('importing')
-        expect(repository).to be_import_aborted
-      end
-
-      context 'above the max retry limit' do
-        before do
-          stub_application_setting(container_registry_import_max_retries: 1)
-        end
-
-        it 'skips the migration' do
-          expect { subject }.to change { repository.migration_skipped_at }
-
-          expect(repository.reload).to be_import_skipped
-          expect(repository.migration_skipped_reason).to eq('too_many_retries')
-        end
-      end
-    end
-
-    describe '#skip_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository) }
-
-      subject { repository.skip_import(reason: :too_many_retries) }
-
-      it_behaves_like 'transitioning from allowed states', ContainerRepository::SKIPPABLE_MIGRATION_STATES
-
-      it 'sets migration_skipped_at and migration_skipped_reason' do
-        expect { subject }.to change { repository.reload.migration_skipped_at }
-
-        expect(repository.migration_skipped_reason).to eq('too_many_retries')
-        expect(repository).to be_import_skipped
-      end
-
-      it 'raises and error if a reason is not given' do
-        expect { repository.skip_import }.to raise_error(ArgumentError)
-      end
-    end
-
-    describe '#finish_pre_import_and_start_import' do
-      let_it_be_with_reload(:repository) { create(:container_repository, :pre_importing) }
-
-      subject { repository.finish_pre_import_and_start_import }
-
-      before do |example|
-        unless example.metadata[:skip_import_success]
-          allow(repository).to receive(:migration_import).and_return(:ok)
-        end
-      end
-
-      it_behaves_like 'transitioning from allowed states', %w[pre_importing importing import_aborted]
-      it_behaves_like 'transitioning to importing'
-    end
-  end
-
   context 'when triggering registry API requests' do
     let(:repository_state) { nil }
     let(:repository) { create(:container_repository, repository_state) }
@@ -382,100 +45,171 @@ RSpec.describe ContainerRepository, :aggregate_failures do
           expect(ApplicationRecord.connection.transaction_open?).to be true
         end
 
-        expect(repository).to receive(:try_import) do
-          expect(ApplicationRecord.connection.transaction_open?).to be false
-        end
-
         subject
       end
     end
-
-    context 'when responding to a start_pre_import event' do
-      subject { repository.start_pre_import }
-
-      it_behaves_like 'a state machine configured with use_transactions: false'
-    end
-
-    context 'when responding to a retry_pre_import event' do
-      let(:repository_state) { :import_aborted }
-
-      subject { repository.retry_pre_import }
-
-      it_behaves_like 'a state machine configured with use_transactions: false'
-    end
-
-    context 'when responding to a start_import event' do
-      let(:repository_state) { :pre_import_done }
-
-      subject { repository.start_import }
-
-      it_behaves_like 'a state machine configured with use_transactions: false'
-    end
-
-    context 'when responding to a retry_import event' do
-      let(:repository_state) { :import_aborted }
-
-      subject { repository.retry_import }
-
-      it_behaves_like 'a state machine configured with use_transactions: false'
-    end
   end
 
-  describe '#retry_aborted_migration' do
-    subject { repository.retry_aborted_migration }
+  describe '#last_published_at' do
+    subject { repository.last_published_at }
 
-    context 'when migration_state is not aborted' do
-      it 'does nothing' do
-        expect { subject }.not_to change { repository.reload.migration_state }
+    context 'on GitLab.com', :saas do
+      context 'supports gitlab api' do
+        before do
+          stub_container_registry_gitlab_api_support(supported: true)
+          expect(repository.gitlab_api_client).to receive(:repository_details).with(repository.path, sizing: :self).and_return(response)
+        end
 
-        expect(subject).to eq(nil)
-      end
-    end
+        context 'with a size_bytes field' do
+          let(:timestamp_string) { '2024-04-30T06:07:36.225Z' }
+          let(:response) { { 'last_published_at' => timestamp_string } }
 
-    context 'when migration_state is aborted' do
-      before do
-        repository.abort_import
+          it { is_expected.to eq(DateTime.iso8601(timestamp_string)) }
+        end
 
-        allow(repository.gitlab_api_client)
-            .to receive(:import_status).with(repository.path).and_return(status)
-      end
+        context 'without a last_published_at field' do
+          let(:response) { { 'foo' => 'bar' } }
 
-      it_behaves_like 'reconciling migration_state' do
-        context 'error response' do
-          let(:status) { 'error' }
+          it { is_expected.to eq(nil) }
+        end
 
-          context 'migration_pre_import_done_at is NULL' do
-            it_behaves_like 'retrying the pre_import'
-          end
+        context 'with an invalid value for the last_published_at field' do
+          let(:response) { { 'last_published_at' => 'foobar' } }
 
-          context 'migration_pre_import_done_at is not NULL' do
-            before do
-              repository.update_columns(
-                migration_pre_import_started_at: 5.minutes.ago,
-                migration_pre_import_done_at: Time.zone.now
-              )
-            end
-
-            it_behaves_like 'retrying the import'
-          end
+          it { is_expected.to eq(nil) }
         end
       end
+
+      context 'does not support gitlab api' do
+        before do
+          stub_container_registry_gitlab_api_support(supported: false)
+          expect(repository.gitlab_api_client).not_to receive(:repository_details)
+        end
+
+        it { is_expected.to eq(nil) }
+      end
     end
-  end
 
-  describe '#reconcile_import_status' do
-    subject { repository.reconcile_import_status(status) }
+    context 'not on GitLab.com' do
+      before do
+        expect(repository.gitlab_api_client).not_to receive(:repository_details)
+      end
 
-    before do
-      repository.abort_import
+      it { is_expected.to eq(nil) }
     end
-
-    it_behaves_like 'reconciling migration_state'
   end
 
   describe '#tag' do
-    it 'has a test tag' do
-      expect(repository.tag('test')).not_to be_nil
+    shared_examples 'returning an instantiated tag' do
+      it 'returns an instantiated tag' do
+        allow(ContainerRegistry::Tag).to receive(:new).and_call_original
+        tag = repository.tag('test')
+
+        expect(tag).to be_a ContainerRegistry::Tag
+        expect(tag).to have_attributes(
+          repository: repository,
+          name: 'test'
+        )
+
+        expect(ContainerRegistry::Tag).to have_received(:new).with(repository, 'test')
+      end
+    end
+
+    context 'when the repository is migrated', :saas do
+      context 'when Gitlab API is supported' do
+        before do
+          stub_container_registry_gitlab_api_support(supported: true)
+        end
+
+        shared_examples 'returning an instantiated tag from the API response' do
+          let_it_be(:response_body) do
+            {
+              pagination: {},
+              response_body: ::Gitlab::Json.parse(tags_response.to_json)
+            }
+          end
+
+          before do
+            allow(repository.gitlab_api_client).to receive(:tags).and_return(response_body)
+            allow(ContainerRegistry::Tag).to receive(:new).and_call_original
+          end
+
+          it 'returns an instantiated tag from the response' do
+            tag = repository.tag('test')
+
+            expect(ContainerRegistry::Tag).to have_received(:new).with(repository, 'test', from_api: true)
+
+            expect(tag).to be_a ContainerRegistry::Tag
+            expect(tag).to have_attributes(
+              repository: repository,
+              name: 'test',
+              digest: tags_response[0][:digest],
+              total_size: tags_response[0][:size_bytes]
+            )
+          end
+        end
+
+        context 'when the Gitlab API returns a tag' do
+          let_it_be(:tags_response) do
+            [
+              {
+                name: 'test',
+                digest: 'sha256:6c3c647c6eebdaab7c610cf7d66709b3',
+                size_bytes: 1234567892
+              }
+            ]
+          end
+
+          it_behaves_like 'returning an instantiated tag from the API response'
+        end
+
+        context 'when the Gitlab API returns multiple tags' do
+          let_it_be(:tags_response) do
+            [
+              {
+                name: 'a-test',
+                digest: 'sha256:6c3c647c6eebdaab7c610cf7d66709b3',
+                size_bytes: 1234567892
+              },
+              {
+                name: 'test',
+                digest: 'sha256:6c3c647c6eebdaab7c610cf7d66709b3',
+                size_bytes: 1234567892
+              },
+
+              {
+                name: 'test-a',
+                digest: 'sha256:6c3c647c6eebdaab7c610cf7d66709b3',
+                size_bytes: 1234567892
+              }
+            ]
+          end
+
+          it_behaves_like 'returning an instantiated tag from the API response'
+        end
+
+        context 'when the Gitlab API does not return a tag' do
+          before do
+            allow(repository.gitlab_api_client).to receive(:tags).and_return({ pagination: {}, response_body: {} })
+          end
+
+          it 'returns nil' do
+            expect(repository.tag('test')).to be_nil
+          end
+        end
+      end
+
+      context 'when the Gitlab API is not supported' do
+        before do
+          stub_container_registry_gitlab_api_support(supported: false)
+        end
+
+        it_behaves_like 'returning an instantiated tag'
+      end
+    end
+
+    context 'when the repository is not migrated' do
+      it_behaves_like 'returning an instantiated tag'
     end
   end
 
@@ -501,6 +235,21 @@ RSpec.describe ContainerRepository, :aggregate_failures do
     end
   end
 
+  describe '#image_manifest' do
+    let(:ref) { 'latest' }
+    let(:manifest_content) { '{"data":"example"}' }
+
+    it 'returns an image manifest from the registry' do
+      allow_next_instance_of(ContainerRegistry::Client) do |client|
+        allow(client).to receive(:repository_manifest)
+          .with(repository.path, ref)
+          .and_return(manifest_content)
+      end
+
+      expect(repository.image_manifest(ref)).to eq(manifest_content)
+    end
+  end
+
   describe '#valid?' do
     it 'is a valid repository' do
       expect(repository).to be_valid
@@ -508,8 +257,350 @@ RSpec.describe ContainerRepository, :aggregate_failures do
   end
 
   describe '#tags' do
-    it 'returns non-empty tags list' do
-      expect(repository.tags).not_to be_empty
+    shared_examples 'returning the non-empty tags list' do
+      it 'returns non-empty tags list' do
+        expect(repository.tags).not_to be_empty
+      end
+    end
+
+    context 'when the repository is migrated', :saas do
+      context 'when Gitlab API is supported' do
+        before do
+          stub_container_registry_gitlab_api_support(supported: true)
+        end
+
+        context 'when the Gitlab API returns tags' do
+          include_context 'with the container registry GitLab API returning tags'
+
+          before do
+            allow(repository.gitlab_api_client).to receive(:tags).and_return(response_body)
+            allow(repository).to receive(:each_tags_page).and_call_original
+          end
+
+          it 'returns an instantiated tag from the response' do
+            tags = repository.tags
+
+            expect(repository).to have_received(:each_tags_page)
+            expect(tags).to match_array([
+              have_attributes(
+                repository: repository,
+                name: tags_response[0][:name],
+                digest: tags_response[0][:digest],
+                total_size: tags_response[0][:size_bytes]
+              ),
+              have_attributes(
+                repository: repository,
+                name: tags_response[1][:name],
+                digest: tags_response[1][:digest],
+                total_size: tags_response[1][:size_bytes]
+              )
+            ])
+          end
+        end
+
+        context 'when the Gitlab API does not return any tags' do
+          before do
+            allow(repository.gitlab_api_client).to receive(:tags).and_return({ pagination: {}, response_body: {} })
+          end
+
+          it 'returns an empty array' do
+            expect(repository.tags).to be_empty
+          end
+        end
+      end
+
+      context 'when the Gitlab API is not supported' do
+        before do
+          stub_container_registry_gitlab_api_support(supported: false)
+        end
+
+        it_behaves_like 'returning the non-empty tags list'
+      end
+    end
+
+    context 'when the repository is not migrated' do
+      it_behaves_like 'returning the non-empty tags list'
+    end
+  end
+
+  describe '#each_tags_page' do
+    let(:page_size) { 100 }
+
+    before do
+      allow(repository).to receive(:migrated?).and_return(true)
+    end
+
+    shared_examples 'iterating through a page' do |expected_tags: true|
+      it 'iterates through one page' do
+        expect(repository.gitlab_api_client).to receive(:tags)
+                                                  .with(repository.path, page_size: page_size, last: nil)
+                                                  .and_return(client_response)
+        expect { |b| repository.each_tags_page(page_size: page_size, &b) }
+          .to yield_with_args(expected_tags ? expected_tags_from(client_response_tags) : [])
+      end
+    end
+
+    context 'with an empty page' do
+      let(:client_response) { { pagination: {}, response_body: [] } }
+
+      it_behaves_like 'iterating through a page', expected_tags: false
+    end
+
+    context 'with one page' do
+      let(:client_response) { { pagination: {}, response_body: client_response_tags } }
+      let(:client_response_tags) do
+        [
+          {
+            'name' => '0.1.0',
+            'created_at' => '2022-06-07T12:10:12.412+00:00'
+          },
+          {
+            'name' => 'latest',
+            'created_at' => '2022-06-07T12:11:13.633+00:00'
+          }
+        ]
+      end
+
+      context 'with a nil created_at' do
+        let(:client_response_tags) { ['name' => '0.1.0', 'created_at' => nil] }
+
+        it_behaves_like 'iterating through a page'
+      end
+
+      context 'with an invalid created_at' do
+        let(:client_response_tags) { ['name' => '0.1.0', 'created_at' => 'not_a_timestamp'] }
+
+        it_behaves_like 'iterating through a page'
+      end
+    end
+
+    context 'with two pages' do
+      let(:client_response1) { { pagination: { next: { uri: URI('http://localhost/next?last=latest') } }, response_body: client_response_tags1 } }
+      let(:client_response_tags1) do
+        [
+          {
+            'name' => '0.1.0',
+            'created_at' => '2022-06-07T12:10:12.412+00:00'
+          },
+          {
+            'name' => 'latest',
+            'created_at' => '2022-06-07T12:11:13.633+00:00'
+          }
+        ]
+      end
+
+      let(:client_response2) { { pagination: {}, response_body: client_response_tags2 } }
+      let(:client_response_tags2) do
+        [
+          {
+            'name' => '1.2.3',
+            'created_at' => '2022-06-10T12:10:15.412+00:00'
+          },
+          {
+            'name' => '2.3.4',
+            'created_at' => '2022-06-11T12:11:17.633+00:00'
+          }
+        ]
+      end
+
+      it 'iterates through two pages' do
+        expect(repository.gitlab_api_client).to receive(:tags)
+                                                  .with(repository.path, page_size: page_size, last: nil)
+                                                  .and_return(client_response1)
+        expect(repository.gitlab_api_client).to receive(:tags)
+                                                  .with(repository.path, page_size: page_size, last: 'latest')
+                                                  .and_return(client_response2)
+        expect { |b| repository.each_tags_page(page_size: page_size, &b) }
+          .to yield_successive_args(expected_tags_from(client_response_tags1), expected_tags_from(client_response_tags2))
+      end
+    end
+
+    context 'when max pages is reached' do
+      before do
+        stub_const('ContainerRepository::MAX_TAGS_PAGES', 0)
+      end
+
+      it 'raises an error' do
+        expect { repository.each_tags_page(page_size: page_size) {} }
+          .to raise_error(StandardError, 'too many pages requested')
+      end
+    end
+
+    context 'without a block set' do
+      it 'raises an Argument error' do
+        expect { repository.each_tags_page(page_size: page_size) }.to raise_error(ArgumentError, 'block not given')
+      end
+    end
+
+    context 'without a page size set' do
+      let(:client_response) { { pagination: {}, response_body: [] } }
+
+      it 'uses a default size' do
+        expect(repository.gitlab_api_client).to receive(:tags)
+                                                  .with(repository.path, page_size: 100, last: nil)
+                                                  .and_return(client_response)
+        expect { |b| repository.each_tags_page(&b) }.to yield_with_args([])
+      end
+    end
+
+    context 'with an empty client response' do
+      let(:client_response) { {} }
+
+      it 'breaks the loop' do
+        expect(repository.gitlab_api_client).to receive(:tags)
+                                                  .with(repository.path, page_size: page_size, last: nil)
+                                                  .and_return(client_response)
+        expect { |b| repository.each_tags_page(page_size: page_size, &b) }.not_to yield_control
+      end
+    end
+
+    context 'with a nil page' do
+      let(:client_response) { { pagination: {}, response_body: nil } }
+
+      it_behaves_like 'iterating through a page', expected_tags: false
+    end
+
+    context 'calling on a non migrated repository' do
+      before do
+        allow(repository).to receive(:migrated?).and_return(false)
+      end
+
+      it 'raises an Argument error' do
+        expect { repository.each_tags_page }.to raise_error(ArgumentError, 'not a migrated repository')
+      end
+    end
+
+    def expected_tags_from(client_tags)
+      client_tags.map do |tag|
+        created_at =
+          begin
+            DateTime.iso8601(tag['created_at'])
+          rescue ArgumentError
+            nil
+          end
+        an_object_having_attributes(name: tag['name'], created_at: created_at)
+      end
+    end
+  end
+
+  describe '#tags_page' do
+    let_it_be(:page_size) { 100 }
+    let_it_be(:before) { 'before' }
+    let_it_be(:last) { 'last' }
+    let_it_be(:sort) { '-name' }
+    let_it_be(:name) { 'repo' }
+    let_it_be(:referrers) { true }
+    let_it_be(:referrer_type) { 'application/example' }
+
+    subject do
+      repository.tags_page(before: before, last: last, sort: sort, name: name, page_size: page_size,
+        referrers: referrers, referrer_type: referrer_type)
+    end
+
+    before do
+      allow(repository).to receive(:migrated?).and_return(true)
+    end
+
+    it 'calls GitlabApiClient#tags and passes parameters' do
+      allow(repository.gitlab_api_client).to receive(:tags).and_return({})
+      expect(repository.gitlab_api_client).to receive(:tags).with(
+        repository.path, page_size: page_size, before: before, last: last, sort: sort, name: name,
+        referrers: referrers, referrer_type: referrer_type)
+
+      subject
+    end
+
+    context 'with a call to tags' do
+      let_it_be(:created_at) { 15.minutes.ago }
+      let_it_be(:updated_at) { 10.minutes.ago }
+      let_it_be(:published_at) { 5.minutes.ago }
+
+      let_it_be(:tags_response) do
+        [
+          {
+            name: '0.1.0',
+            digest: 'sha256:6c3c624b58dbbcd3c0dd82b4c53f04194d1247c6eebdaab7c610cf7d6670',
+            config_digest: 'sha256:66b1132a0173910b01ee69583bbf2f7f1e4462c99efbe1b9ab5bf',
+            media_type: 'application/vnd.oci.image.manifest.v1+json',
+            size_bytes: 1234567890,
+            created_at: created_at,
+            updated_at: updated_at,
+            published_at: published_at,
+            referrers: [
+              {
+                artifactType: 'application/vnd.example+type',
+                digest: 'sha256:57d3be92c2f857566ecc7f9306a80021c0a7fa631e0ef5146957235aea859961'
+              }
+            ]
+          },
+          {
+            name: 'latest',
+            digest: 'sha256:6c3c624b58dbbcd3c0dd82b4c53f04191247c6eebdaab7c610cf7d66709b3',
+            config_digest: nil,
+            media_type: 'application/vnd.oci.image.manifest.v1+json',
+            size_bytes: 1234567892,
+            created_at: created_at,
+            updated_at: updated_at,
+            published_at: published_at
+          }
+        ]
+      end
+
+      let_it_be(:response_body) do
+        {
+          pagination: {
+            previous: { uri: URI('/test?before=prev-cursor') },
+            next: { uri: URI('/test?last=next-cursor') }
+          },
+          response_body: ::Gitlab::Json.parse(tags_response.to_json)
+        }
+      end
+
+      before do
+        allow(repository.gitlab_api_client).to receive(:tags).and_return(response_body)
+      end
+
+      it 'returns tags and parses the previous and next cursors' do
+        return_value = subject
+
+        expect(return_value[:pagination]).to eq(response_body[:pagination])
+
+        return_value[:tags].each_with_index do |tag, index|
+          expected_revision = tags_response[index][:config_digest].to_s.split(':')[1].to_s
+
+          expect(tag.is_a?(ContainerRegistry::Tag)).to eq(true)
+          expect(tag).to have_attributes(
+            repository: repository,
+            name: tags_response[index][:name],
+            digest: tags_response[index][:digest],
+            total_size: tags_response[index][:size_bytes],
+            revision: expected_revision,
+            short_revision: expected_revision[0..8],
+            created_at: DateTime.rfc3339(tags_response[index][:created_at].rfc3339),
+            updated_at: DateTime.rfc3339(tags_response[index][:updated_at].rfc3339),
+            published_at: DateTime.rfc3339(tags_response[index][:published_at].rfc3339),
+            media_type: tags_response[index][:media_type]
+          )
+
+          Array(tag.referrers).each_with_index do |ref, ref_index|
+            expect(ref.is_a?(ContainerRegistry::Referrer)).to eq(true)
+            expect(ref).to have_attributes(
+              artifact_type: tags_response[index][:referrers][ref_index][:artifactType],
+              digest: tags_response[index][:referrers][ref_index][:digest]
+            )
+          end
+        end
+      end
+    end
+
+    context 'calling on a non migrated repository' do
+      before do
+        allow(repository).to receive(:migrated?).and_return(false)
+      end
+
+      it 'raises an Argument error' do
+        expect { repository.tags_page }.to raise_error(ArgumentError, 'not a migrated repository')
+      end
     end
   end
 
@@ -527,9 +618,12 @@ RSpec.describe ContainerRepository, :aggregate_failures do
 
   describe '#delete_tags!' do
     let(:repository) do
-      create(:container_repository, name: 'my_image',
-                                    tags: { latest: '123', rc1: '234' },
-                                    project: project)
+      create(
+        :container_repository,
+        name: 'my_image',
+        tags: { latest: '123', rc1: '234' },
+        project: project
+      )
     end
 
     context 'when action succeeds' do
@@ -555,32 +649,35 @@ RSpec.describe ContainerRepository, :aggregate_failures do
     end
   end
 
-  describe '#delete_tag_by_name' do
+  describe '#delete_tag' do
     let(:repository) do
-      create(:container_repository, name: 'my_image',
-                                    tags: { latest: '123', rc1: '234' },
-                                    project: project)
+      create(
+        :container_repository,
+        name: 'my_image',
+        tags: { latest: '123', rc1: '234' },
+        project: project
+      )
     end
 
     context 'when action succeeds' do
       it 'returns status that indicates success' do
         expect(repository.client)
-          .to receive(:delete_repository_tag_by_name)
+          .to receive(:delete_repository_tag_by_digest)
           .with(repository.path, "latest")
           .and_return(true)
 
-        expect(repository.delete_tag_by_name('latest')).to be_truthy
+        expect(repository.delete_tag('latest')).to be_truthy
       end
     end
 
     context 'when action fails' do
       it 'returns status that indicates failure' do
         expect(repository.client)
-          .to receive(:delete_repository_tag_by_name)
+          .to receive(:delete_repository_tag_by_digest)
           .with(repository.path, "latest")
           .and_return(false)
 
-        expect(repository.delete_tag_by_name('latest')).to be_falsey
+        expect(repository.delete_tag('latest')).to be_falsey
       end
     end
   end
@@ -588,9 +685,11 @@ RSpec.describe ContainerRepository, :aggregate_failures do
   describe '#location' do
     context 'when registry is running on a custom port' do
       before do
-        stub_container_registry_config(enabled: true,
-                                       api_url: 'http://registry.gitlab:5000',
-                                       host_port: 'registry.gitlab:5000')
+        stub_container_registry_config(
+          enabled: true,
+          api_url: 'http://registry.gitlab:5000',
+          host_port: 'registry.gitlab:5000'
+        )
       end
 
       it 'returns a full location of the repository' do
@@ -619,29 +718,27 @@ RSpec.describe ContainerRepository, :aggregate_failures do
   describe '#start_expiration_policy!' do
     subject { repository.start_expiration_policy! }
 
+    before do
+      repository.update_column(:last_cleanup_deleted_tags_count, 10)
+    end
+
     it 'sets the expiration policy started at to now' do
       freeze_time do
         expect { subject }
           .to change { repository.expiration_policy_started_at }.from(nil).to(Time.zone.now)
+          .and change { repository.expiration_policy_cleanup_status }.from('cleanup_unscheduled').to('cleanup_ongoing')
+          .and change { repository.last_cleanup_deleted_tags_count }.from(10).to(nil)
       end
     end
   end
 
   describe '#size' do
-    let(:on_com) { true }
-    let(:created_at) { described_class::MIGRATION_PHASE_1_STARTED_AT + 3.months }
-
     subject { repository.size }
 
-    before do
-      allow(::Gitlab).to receive(:com?).and_return(on_com)
-      allow(repository).to receive(:created_at).and_return(created_at)
-    end
-
-    context 'supports gitlab api on .com with a recent repository' do
+    context 'supports gitlab api' do
       before do
         expect(repository.gitlab_api_client).to receive(:supports_gitlab_api?).and_return(true)
-        expect(repository.gitlab_api_client).to receive(:repository_details).with(repository.path, with_size: true).and_return(response)
+        expect(repository.gitlab_api_client).to receive(:repository_details).with(repository.path, sizing: :self).and_return(response)
       end
 
       context 'with a size_bytes field' do
@@ -665,91 +762,49 @@ RSpec.describe ContainerRepository, :aggregate_failures do
 
       it { is_expected.to eq(nil) }
     end
+  end
 
-    context 'not on .com' do
-      let(:on_com) { false }
+  describe '#set_delete_ongoing_status', :freeze_time do
+    let_it_be(:repository) { create(:container_repository) }
 
-      it { is_expected.to eq(nil) }
-    end
+    subject { repository.set_delete_ongoing_status }
 
-    context 'with an old repository' do
-      let(:created_at) { described_class::MIGRATION_PHASE_1_STARTED_AT - 3.months }
-
-      it { is_expected.to eq(nil) }
+    it 'updates deletion status attributes' do
+      expect { subject }.to change(repository, :status).from(nil).to('delete_ongoing')
+                              .and change(repository, :delete_started_at).from(nil).to(Time.zone.now)
+                              .and change(repository, :status_updated_at).from(nil).to(Time.zone.now)
     end
   end
 
-  describe '#reset_expiration_policy_started_at!' do
-    subject { repository.reset_expiration_policy_started_at! }
+  describe '#set_delete_scheduled_status', :freeze_time do
+    let_it_be(:repository) { create(:container_repository, :status_delete_ongoing, delete_started_at: 3.minutes.ago) }
 
-    before do
-      repository.start_expiration_policy!
-    end
+    subject { repository.set_delete_scheduled_status }
 
-    it 'resets the expiration policy started at' do
-      started_at = repository.expiration_policy_started_at
-
-      expect(started_at).not_to be_nil
-      expect { subject }
-          .to change { repository.expiration_policy_started_at }.from(started_at).to(nil)
+    it 'updates delete attributes' do
+      expect { subject }.to change(repository, :status).from('delete_ongoing').to('delete_scheduled')
+                              .and change(repository, :delete_started_at).to(nil)
+                              .and change(repository, :status_updated_at).to(Time.zone.now)
     end
   end
 
-  context 'registry migration' do
-    before do
-      allow(repository.gitlab_api_client).to receive(:supports_gitlab_api?).and_return(true)
-    end
+  describe '#status_updated_at', :freeze_time do
+    let_it_be_with_reload(:repository) { create(:container_repository) }
 
-    shared_examples 'gitlab migration client request' do |step|
-      let(:client_response) { :foobar }
-
-      it 'returns the same response as the client' do
-        expect(repository.gitlab_api_client)
-          .to receive(step).with(repository.path).and_return(client_response)
-        expect(subject).to eq(client_response)
-      end
-
-      context 'when the gitlab_api feature is not supported' do
-        before do
-          allow(repository.gitlab_api_client).to receive(:supports_gitlab_api?).and_return(false)
-        end
-
-        it 'returns :error' do
-          expect(repository.gitlab_api_client).not_to receive(step)
-
-          expect(subject).to eq(:error)
+    %i[delete_scheduled delete_ongoing delete_failed].each do |status|
+      context "when status is updated to #{status}" do
+        it 'updates status_changed_at' do
+          expect { repository.update!(status: status) }.to change(repository, :status_updated_at).from(nil).to(Time.zone.now)
         end
       end
     end
 
-    shared_examples 'handling the migration step' do |step|
-      it_behaves_like 'gitlab migration client request', step
+    context 'when status is not changed' do
+      it 'does not update status_changed_at' do
+        repository.name = 'different-image'
 
-      context 'too many imports' do
-        it 'raises an error when it receives too_many_imports as a response' do
-          expect(repository.gitlab_api_client)
-            .to receive(step).with(repository.path).and_return(:too_many_imports)
-          expect { subject }.to raise_error(described_class::TooManyImportsError)
-        end
+        expect { repository.save! }.not_to change(repository, :status_updated_at)
       end
-    end
-
-    describe '#migration_pre_import' do
-      subject { repository.migration_pre_import }
-
-      it_behaves_like 'handling the migration step', :pre_import_repository
-    end
-
-    describe '#migration_import' do
-      subject { repository.migration_import }
-
-      it_behaves_like 'handling the migration step', :import_repository
-    end
-
-    describe '#migration_cancel' do
-      subject { repository.migration_cancel }
-
-      it_behaves_like 'gitlab migration client request', :cancel_repository_import
     end
   end
 
@@ -775,9 +830,9 @@ RSpec.describe ContainerRepository, :aggregate_failures do
     end
   end
 
-  describe '.find_or_create_from_path' do
+  describe '.find_or_create_from_path!' do
     let(:repository) do
-      described_class.find_or_create_from_path(ContainerRegistry::Path.new(path))
+      described_class.find_or_create_from_path!(ContainerRegistry::Path.new(path))
     end
 
     let(:repository_path) { ContainerRegistry::Path.new(path) }
@@ -866,7 +921,7 @@ RSpec.describe ContainerRepository, :aggregate_failures do
         Thread.new do
           true while wait_for_it
 
-          described_class.find_or_create_from_path(path)
+          described_class.find_or_create_from_path!(path)
         end
       end
       wait_for_it = false
@@ -961,6 +1016,8 @@ RSpec.describe ContainerRepository, :aggregate_failures do
       end
 
       before do
+        allow(group).to receive(:first_project_with_container_registry_tags).and_return(nil)
+
         group.parent = test_group
         group.save!
       end
@@ -1002,36 +1059,6 @@ RSpec.describe ContainerRepository, :aggregate_failures do
     it { is_expected.to contain_exactly(repository1, repository2, repository4) }
   end
 
-  describe '.with_migration_import_started_at_nil_or_before' do
-    let_it_be(:repository1) { create(:container_repository, migration_import_started_at: 5.minutes.ago) }
-    let_it_be(:repository2) { create(:container_repository, migration_import_started_at: nil) }
-    let_it_be(:repository3) { create(:container_repository, migration_import_started_at: 10.minutes.ago) }
-
-    subject { described_class.with_migration_import_started_at_nil_or_before(7.minutes.ago) }
-
-    it { is_expected.to contain_exactly(repository2, repository3) }
-  end
-
-  describe '.with_migration_pre_import_started_at_nil_or_before' do
-    let_it_be(:repository1) { create(:container_repository, migration_pre_import_started_at: 5.minutes.ago) }
-    let_it_be(:repository2) { create(:container_repository, migration_pre_import_started_at: nil) }
-    let_it_be(:repository3) { create(:container_repository, migration_pre_import_started_at: 10.minutes.ago) }
-
-    subject { described_class.with_migration_pre_import_started_at_nil_or_before(7.minutes.ago) }
-
-    it { is_expected.to contain_exactly(repository2, repository3) }
-  end
-
-  describe '.with_migration_pre_import_done_at_nil_or_before' do
-    let_it_be(:repository1) { create(:container_repository, migration_pre_import_done_at: 5.minutes.ago) }
-    let_it_be(:repository2) { create(:container_repository, migration_pre_import_done_at: nil) }
-    let_it_be(:repository3) { create(:container_repository, migration_pre_import_done_at: 10.minutes.ago) }
-
-    subject { described_class.with_migration_pre_import_done_at_nil_or_before(7.minutes.ago) }
-
-    it { is_expected.to contain_exactly(repository2, repository3) }
-  end
-
   describe '.with_stale_ongoing_cleanup' do
     let_it_be(:repository1) { create(:container_repository, :cleanup_ongoing, expiration_policy_started_at: 1.day.ago) }
     let_it_be(:repository2) { create(:container_repository, :cleanup_ongoing, expiration_policy_started_at: 25.minutes.ago) }
@@ -1039,6 +1066,16 @@ RSpec.describe ContainerRepository, :aggregate_failures do
     let_it_be(:repository4) { create(:container_repository, :cleanup_unscheduled, expiration_policy_started_at: 25.minutes.ago) }
 
     subject { described_class.with_stale_ongoing_cleanup(27.minutes.ago) }
+
+    it { is_expected.to contain_exactly(repository1, repository3) }
+  end
+
+  describe '.with_stale_delete_at' do
+    let_it_be(:repository1) { create(:container_repository, delete_started_at: 1.day.ago) }
+    let_it_be(:repository2) { create(:container_repository, delete_started_at: 25.minutes.ago) }
+    let_it_be(:repository3) { create(:container_repository, delete_started_at: 1.week.ago) }
+
+    subject { described_class.with_stale_delete_at(27.minutes.ago) }
 
     it { is_expected.to contain_exactly(repository1, repository3) }
   end
@@ -1065,6 +1102,18 @@ RSpec.describe ContainerRepository, :aggregate_failures do
     end
   end
 
+  describe '.all_migrated?' do
+    subject { project.container_repositories.all_migrated? }
+
+    context 'when on GitLab.com', :saas do
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when not on GitLab.com' do
+      it { is_expected.to be_falsey }
+    end
+  end
+
   describe '.with_enabled_policy' do
     let_it_be(:repository) { create(:container_repository) }
     let_it_be(:repository2) { create(:container_repository) }
@@ -1078,126 +1127,20 @@ RSpec.describe ContainerRepository, :aggregate_failures do
     it { is_expected.to eq([repository]) }
   end
 
-  describe '#migration_in_active_state?' do
-    subject { container_repository.migration_in_active_state? }
+  describe '#migrated?' do
+    subject { repository.migrated? }
 
-    described_class::MIGRATION_STATES.each do |state|
-      context "when in #{state} migration_state" do
-        let(:container_repository) { create(:container_repository, state.to_sym)}
-
-        it { is_expected.to eq(state == 'importing' || state == 'pre_importing') }
-      end
-    end
-  end
-
-  describe '#migration_importing?' do
-    subject { container_repository.migration_importing? }
-
-    described_class::MIGRATION_STATES.each do |state|
-      context "when in #{state} migration_state" do
-        let(:container_repository) { create(:container_repository, state.to_sym)}
-
-        it { is_expected.to eq(state == 'importing') }
-      end
-    end
-  end
-
-  describe '#migration_pre_importing?' do
-    subject { container_repository.migration_pre_importing? }
-
-    described_class::MIGRATION_STATES.each do |state|
-      context "when in #{state} migration_state" do
-        let(:container_repository) { create(:container_repository, state.to_sym)}
-
-        it { is_expected.to eq(state == 'pre_importing') }
-      end
-    end
-  end
-
-  describe '#try_import' do
-    let_it_be_with_reload(:container_repository) { create(:container_repository) }
-
-    let(:response) { nil }
-
-    subject do
-      container_repository.try_import do
-        container_repository.foo
-      end
-    end
-
-    before do
-      allow(container_repository).to receive(:foo).and_return(response)
-    end
-
-    context 'successful request' do
-      let(:response) { :ok }
-
-      it { is_expected.to eq(true) }
-    end
-
-    context 'TooManyImportsError' do
+    context 'on gitlab.com' do
       before do
-        stub_application_setting(container_registry_import_start_max_retries: 3)
-        allow(container_repository).to receive(:foo).and_raise(described_class::TooManyImportsError)
-      end
-
-      it 'tries again exponentially and aborts the migration' do
-        expect(container_repository).to receive(:sleep).with(a_value_within(0.01).of(0.1))
-        expect(container_repository).to receive(:sleep).with(a_value_within(0.01).of(0.2))
-        expect(container_repository).to receive(:sleep).with(a_value_within(0.01).of(0.3))
-
-        expect(subject).to eq(false)
-
-        expect(container_repository).to be_import_aborted
-      end
-    end
-
-    context 'not found response' do
-      let(:response) { :not_found }
-
-      it 'aborts the migration' do
-        expect(subject).to eq(false)
-
-        expect(container_repository).to be_import_skipped
-        expect(container_repository.reload.migration_skipped_reason).to eq('not_found')
-      end
-    end
-
-    context 'other response' do
-      let(:response) { :error }
-
-      it 'aborts the migration' do
-        expect(subject).to eq(false)
-
-        expect(container_repository).to be_import_aborted
-      end
-    end
-
-    context 'with no block given' do
-      it 'raises an error' do
-        expect { container_repository.try_import }.to raise_error(ArgumentError)
-      end
-    end
-  end
-
-  describe '#retried_too_many_times?' do
-    subject { repository.retried_too_many_times? }
-
-    before do
-      stub_application_setting(container_registry_import_max_retries: 3)
-    end
-
-    context 'migration_retries_count is equal or greater than max_retries' do
-      before do
-        repository.update_column(:migration_retries_count, 3)
+        allow(::Gitlab).to receive(:com_except_jh?).and_return(true)
       end
 
       it { is_expected.to eq(true) }
     end
 
-    context 'migration_retries_count is lower than max_retries' do
+    context 'not on gitlab.com' do
       before do
-        repository.update_column(:migration_retries_count, 2)
+        allow(::Gitlab).to receive(:com_except_jh?).and_return(false)
       end
 
       it { is_expected.to eq(false) }
@@ -1255,87 +1198,20 @@ RSpec.describe ContainerRepository, :aggregate_failures do
         it { is_expected.to eq([repository]) }
       end
     end
-
-    describe '.recently_done_migration_step' do
-      let_it_be(:import_done_repository) { create(:container_repository, :import_done, migration_pre_import_done_at: 3.days.ago, migration_import_done_at: 2.days.ago) }
-      let_it_be(:import_aborted_repository) { create(:container_repository, :import_aborted, migration_pre_import_done_at: 5.days.ago, migration_aborted_at: 1.day.ago) }
-      let_it_be(:pre_import_done_repository) { create(:container_repository, :pre_import_done, migration_pre_import_done_at: 1.hour.ago) }
-
-      subject { described_class.recently_done_migration_step }
-
-      it 'returns completed imports by done_at date' do
-        expect(subject.to_a).to eq([pre_import_done_repository, import_aborted_repository, import_done_repository])
-      end
-    end
-
-    describe '.ready_for_import' do
-      include_context 'importable repositories'
-
-      subject { described_class.ready_for_import }
-
-      before do
-        stub_application_setting(container_registry_import_target_plan: valid_container_repository.migration_plan)
-      end
-
-      it 'works' do
-        expect(subject).to contain_exactly(valid_container_repository, valid_container_repository2)
-      end
-    end
-
-    describe '#last_import_step_done_at' do
-      let_it_be(:aborted_at) { Time.zone.now - 1.hour }
-      let_it_be(:pre_import_done_at) { Time.zone.now - 2.hours }
-
-      subject { repository.last_import_step_done_at }
-
-      before do
-        repository.update_columns(
-          migration_pre_import_done_at: pre_import_done_at,
-          migration_aborted_at: aborted_at
-        )
-      end
-
-      it { is_expected.to eq(aborted_at) }
-    end
   end
 
-  describe '#external_import_status' do
-    subject { repository.external_import_status }
+  describe '#registry' do
+    it 'caches the client' do
+      registry = repository.registry
+      registry1 = repository.registry
+      registry2 = nil
 
-    it 'returns the response from the client' do
-      expect(repository.gitlab_api_client).to receive(:import_status).with(repository.path).and_return('test')
+      travel_to(Time.current + Gitlab::CurrentSettings.container_registry_token_expire_delay.minutes) do
+        registry2 = repository.registry
+      end
 
-      expect(subject).to eq('test')
+      expect(registry1.object_id).to be(registry.object_id)
+      expect(registry2.object_id).not_to be(registry.object_id)
     end
-  end
-
-  describe '.with_stale_migration' do
-    let_it_be(:repository) { create(:container_repository) }
-    let_it_be(:stale_pre_importing_old_timestamp) { create(:container_repository, :pre_importing, migration_pre_import_started_at: 10.minutes.ago) }
-    let_it_be(:stale_pre_importing_nil_timestamp) { create(:container_repository, :pre_importing).tap { |r| r.update_column(:migration_pre_import_started_at, nil) } }
-    let_it_be(:stale_pre_importing_recent_timestamp) { create(:container_repository, :pre_importing, migration_pre_import_started_at: 2.minutes.ago) }
-
-    let_it_be(:stale_pre_import_done_old_timestamp) { create(:container_repository, :pre_import_done, migration_pre_import_done_at: 10.minutes.ago) }
-    let_it_be(:stale_pre_import_done_nil_timestamp) { create(:container_repository, :pre_import_done).tap { |r| r.update_column(:migration_pre_import_done_at, nil) } }
-    let_it_be(:stale_pre_import_done_recent_timestamp) { create(:container_repository, :pre_import_done, migration_pre_import_done_at: 2.minutes.ago) }
-
-    let_it_be(:stale_importing_old_timestamp) { create(:container_repository, :importing, migration_import_started_at: 10.minutes.ago) }
-    let_it_be(:stale_importing_nil_timestamp) { create(:container_repository, :importing).tap { |r| r.update_column(:migration_import_started_at, nil) } }
-    let_it_be(:stale_importing_recent_timestamp) { create(:container_repository, :importing, migration_import_started_at: 2.minutes.ago) }
-
-    let(:stale_migrations) do
-      [
-        stale_pre_importing_old_timestamp,
-        stale_pre_importing_nil_timestamp,
-        stale_pre_import_done_old_timestamp,
-        stale_pre_import_done_nil_timestamp,
-        stale_importing_old_timestamp,
-        stale_importing_nil_timestamp
-      ]
-    end
-
-    subject { described_class.with_stale_migration(5.minutes.ago) }
-
-    it { is_expected.to contain_exactly(*stale_migrations) }
   end
 end

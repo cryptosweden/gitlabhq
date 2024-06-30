@@ -4,9 +4,10 @@ class DraftNote < ApplicationRecord
   include Gitlab::Utils::StrongMemoize
   include Sortable
   include ShaAttribute
+  include BulkInsertSafe
 
-  PUBLISH_ATTRS = %i(noteable_id noteable_type type note).freeze
-  DIFF_ATTRS = %i(position original_position change_position commit_id).freeze
+  PUBLISH_ATTRS = %i[noteable type note internal].freeze
+  DIFF_ATTRS = %i[position original_position change_position commit_id].freeze
 
   sha_attribute :commit_id
 
@@ -26,6 +27,12 @@ class DraftNote < ApplicationRecord
   validates :author_id, presence: true, uniqueness: { scope: [:merge_request_id, :discussion_id] }, if: :discussion_id?
   validates :discussion_id, allow_nil: true, format: { with: /\A\h{40}\z/ }
   validates :line_code, length: { maximum: 255 }, allow_nil: true
+
+  enum note_type: {
+    Note: 0,
+    DiffNote: 1,
+    DiscussionNote: 2
+  }
 
   scope :authored_by, ->(u) { where(author_id: u.id) }
 
@@ -76,6 +83,7 @@ class DraftNote < ApplicationRecord
   end
 
   def type
+    return note_type if note_type.present?
     return 'DiffNote' if on_diff?
     return 'DiscussionNote' if discussion_id.present?
 
@@ -103,12 +111,13 @@ class DraftNote < ApplicationRecord
     params = slice(*attrs)
     params[:in_reply_to_discussion_id] = discussion_id if discussion_id.present?
     params[:review_id] = review.id if review.present?
+    params.except("internal") if on_diff?
 
     params
   end
 
   def self.preload_author(draft_notes)
-    ActiveRecord::Associations::Preloader.new.preload(draft_notes, { author: :status })
+    ActiveRecord::Associations::Preloader.new(records: draft_notes, associations: { author: :status }).call
   end
 
   def diff_file

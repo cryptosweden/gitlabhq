@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'rubocop_spec_helper'
 
 require_relative '../../../../rubocop/cop/graphql/authorize_types'
 
 RSpec.describe RuboCop::Cop::Graphql::AuthorizeTypes do
-  subject(:cop) { described_class.new }
-
   it 'adds an offense when there is no authorize call' do
     expect_offense(<<~TYPE)
       module Types
@@ -14,6 +12,28 @@ RSpec.describe RuboCop::Cop::Graphql::AuthorizeTypes do
         ^^^^^^^^^^^^^^^^^^^^^^^^ Add an `authorize :ability` call to the type: https://docs.gitlab.com/ee/development/graphql_guide/authorization.html#type-authorization
           field :a_thing
           field :another_thing
+        end
+      end
+    TYPE
+  end
+
+  it 'adds add an offense when authorize has no arguments' do
+    expect_offense(<<~TYPE.strip)
+      module Types
+        class AType < SuperClassWithFields
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Add an `authorize :ability` call to the type: https://docs.gitlab.com/ee/development/graphql_guide/authorization.html#type-authorization
+          authorize
+        end
+      end
+    TYPE
+  end
+
+  it 'adds add an offense when authorize is empty' do
+    expect_offense(<<~TYPE.strip)
+      module Types
+        class AType < SuperClassWithFields
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Add an `authorize :ability` call to the type: https://docs.gitlab.com/ee/development/graphql_guide/authorization.html#type-authorization
+          authorize []
         end
       end
     TYPE

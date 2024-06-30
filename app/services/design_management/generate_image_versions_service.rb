@@ -43,7 +43,7 @@ module DesignManagement
       end
 
       # Skip attempting to process images that would be rejected by CarrierWave.
-      return unless DesignManagement::DesignV432x230Uploader::MIME_TYPE_WHITELIST.include?(raw_file.content_type)
+      return unless DesignManagement::DesignV432x230Uploader::MIME_TYPE_ALLOWLIST.include?(raw_file.content_type)
 
       # Store and process the file
       action.image_v432x230.store!(raw_file)
@@ -69,17 +69,15 @@ module DesignManagement
     # The LFS pointer file data contains an "OID" that lets us retrieve `LfsObject`
     # records, which have an Uploader (`LfsObjectUploader`) for the original design file.
     def raw_files_by_path
-      @raw_files_by_path ||= begin
-        LfsObject.for_oids(blobs_by_oid.keys).each_with_object({}) do |lfs_object, h|
-          blob = blobs_by_oid[lfs_object.oid]
-          file = lfs_object.file.file
-          # The `CarrierWave::SanitizedFile` is loaded without knowing the `content_type`
-          # of the file, due to the file not having an extension.
-          #
-          # Set the content_type from the `Blob`.
-          file.content_type = blob.content_type
-          h[blob.path] = file
-        end
+      @raw_files_by_path ||= LfsObject.for_oids(blobs_by_oid.keys).each_with_object({}) do |lfs_object, h|
+        blob = blobs_by_oid[lfs_object.oid]
+        file = lfs_object.file.file
+        # The `CarrierWave::SanitizedFile` is loaded without knowing the `content_type`
+        # of the file, due to the file not having an extension.
+        #
+        # Set the content_type from the `Blob`.
+        file.content_type = blob.content_type
+        h[blob.path] = file
       end
     end
 

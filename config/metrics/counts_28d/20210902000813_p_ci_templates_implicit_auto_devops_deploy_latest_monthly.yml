@@ -1,10 +1,7 @@
 ---
 key_path: redis_hll_counters.ci_templates.p_ci_templates_implicit_auto_devops_deploy_latest_monthly
 description: ''
-product_section: ''
-product_stage: ''
-product_group: ''
-product_category: ''
+product_group: environments
 value_type: number
 status: removed
 milestone: '14.3'
@@ -24,3 +21,4 @@ tier:
 options:
   events:
   - p_ci_templates_implicit_auto_devops_deploy_latest
+removed_by_url:

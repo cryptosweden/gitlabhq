@@ -1,4 +1,6 @@
 // Copied to ee/spec/frontend/notes/mock_data.js
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { __ } from '~/locale';
 
 export const notesDataMock = {
   discussionsPath: '/gitlab-org/gitlab-foss/issues/26/discussions.json',
@@ -13,6 +15,10 @@ export const notesDataMock = {
   closePath: '/twitter/flight/issues/9.json?issue%5Bstate_event%5D=close',
   reopenPath: '/twitter/flight/issues/9.json?issue%5Bstate_event%5D=reopen',
   canAwardEmoji: true,
+  noteableType: 'issue',
+  noteableId: 1,
+  projectId: 2,
+  groupId: null,
 };
 
 export const userDataMock = {
@@ -35,6 +41,7 @@ export const noteableDataMock = {
     can_create_note: true,
     can_update: true,
     can_award_emoji: true,
+    can_create_confidential_note: true,
   },
   description: '',
   due_date: null,
@@ -57,7 +64,7 @@ export const noteableDataMock = {
   updated_at: '2017-08-04T09:53:01.226Z',
   updated_by_id: 1,
   web_url: '/gitlab-org/gitlab-foss/issues/26',
-  noteableType: 'issue',
+  noteableType: 'Issue',
   blocked_by_issues: [],
 };
 
@@ -131,6 +138,7 @@ export const note = {
   created_at: '2017-08-10T15:24:03.087Z',
   updated_at: '2017-08-10T15:24:03.087Z',
   system: false,
+  imported: true,
   noteable_id: 67,
   noteable_type: 'Issue',
   noteable_iid: 7,
@@ -314,6 +322,7 @@ export const discussionMock = {
   individual_note: false,
   resolvable: true,
   active: true,
+  confidential: false,
 };
 
 export const loggedOutnoteableData = {
@@ -653,11 +662,11 @@ export const DISCUSSION_NOTE_RESPONSE_MAP = {
 };
 
 export function getIndividualNoteResponse(config) {
-  return [200, INDIVIDUAL_NOTE_RESPONSE_MAP[config.method.toUpperCase()][config.url]];
+  return [HTTP_STATUS_OK, INDIVIDUAL_NOTE_RESPONSE_MAP[config.method.toUpperCase()][config.url]];
 }
 
 export function getDiscussionNoteResponse(config) {
-  return [200, DISCUSSION_NOTE_RESPONSE_MAP[config.method.toUpperCase()][config.url]];
+  return [HTTP_STATUS_OK, DISCUSSION_NOTE_RESPONSE_MAP[config.method.toUpperCase()][config.url]];
 }
 
 export const notesWithDescriptionChanges = [
@@ -686,8 +695,7 @@ export const notesWithDescriptionChanges = [
         noteable_type: 'Issue',
         resolvable: false,
         noteable_iid: 12,
-        note:
-          'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+        note: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
         note_html:
           '<p dir="auto">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>',
         current_user: { can_edit: true, can_award_emoji: true },
@@ -733,8 +741,7 @@ export const notesWithDescriptionChanges = [
         noteable_type: 'Issue',
         resolvable: false,
         noteable_iid: 12,
-        note:
-          'Varius vel pharetra vel turpis nunc eget lorem. Ipsum dolor sit amet consectetur adipiscing.',
+        note: 'Varius vel pharetra vel turpis nunc eget lorem. Ipsum dolor sit amet consectetur adipiscing.',
         note_html:
           '<p dir="auto">Varius vel pharetra vel turpis nunc eget lorem. Ipsum dolor sit amet consectetur adipiscing.</p>',
         current_user: { can_edit: true, can_award_emoji: true },
@@ -785,7 +792,7 @@ export const notesWithDescriptionChanges = [
         current_user: { can_edit: false, can_award_emoji: true },
         resolved: false,
         resolved_by: null,
-        system_note_icon_name: 'pencil-square',
+        system_note_icon_name: 'pencil',
         discussion_id: '7f1feda384083eb31763366e6392399fde6f3f31',
         emoji_awardable: false,
         report_abuse_path:
@@ -874,7 +881,7 @@ export const notesWithDescriptionChanges = [
         current_user: { can_edit: false, can_award_emoji: true },
         resolved: false,
         resolved_by: null,
-        system_note_icon_name: 'pencil-square',
+        system_note_icon_name: 'pencil',
         discussion_id: 'a21cf2e804acc3c60d07e37d75e395f5a9a4d044',
         emoji_awardable: false,
         report_abuse_path:
@@ -918,7 +925,7 @@ export const notesWithDescriptionChanges = [
         current_user: { can_edit: false, can_award_emoji: true },
         resolved: false,
         resolved_by: null,
-        system_note_icon_name: 'pencil-square',
+        system_note_icon_name: 'pencil',
         discussion_id: '70411b08cdfc01f24187a06d77daa33464cb2620',
         emoji_awardable: false,
         report_abuse_path:
@@ -960,8 +967,7 @@ export const collapsedSystemNotes = [
         noteable_type: 'Issue',
         resolvable: false,
         noteable_iid: 12,
-        note:
-          'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+        note: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
         note_html:
           '<p dir="auto">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>',
         current_user: { can_edit: true, can_award_emoji: true },
@@ -1007,8 +1013,7 @@ export const collapsedSystemNotes = [
         noteable_type: 'Issue',
         resolvable: false,
         noteable_iid: 12,
-        note:
-          'Varius vel pharetra vel turpis nunc eget lorem. Ipsum dolor sit amet consectetur adipiscing.',
+        note: 'Varius vel pharetra vel turpis nunc eget lorem. Ipsum dolor sit amet consectetur adipiscing.',
         note_html:
           '<p dir="auto">Varius vel pharetra vel turpis nunc eget lorem. Ipsum dolor sit amet consectetur adipiscing.</p>',
         current_user: { can_edit: true, can_award_emoji: true },
@@ -1105,7 +1110,7 @@ export const collapsedSystemNotes = [
         current_user: { can_edit: false, can_award_emoji: true },
         resolved: false,
         resolved_by: null,
-        system_note_icon_name: 'pencil-square',
+        system_note_icon_name: 'pencil',
         discussion_id: 'a21cf2e804acc3c60d07e37d75e395f5a9a4d044',
         emoji_awardable: false,
         report_abuse_path:
@@ -1149,7 +1154,7 @@ export const collapsedSystemNotes = [
         current_user: { can_edit: false, can_award_emoji: true },
         resolved: false,
         resolved_by: null,
-        system_note_icon_name: 'pencil-square',
+        system_note_icon_name: 'pencil',
         discussion_id: '70411b08cdfc01f24187a06d77daa33464cb2620',
         emoji_awardable: false,
         report_abuse_path:
@@ -1171,7 +1176,7 @@ export const discussion1 = {
   resolved: false,
   active: true,
   diff_file: {
-    file_path: 'about.md',
+    file_identifier_hash: 'discfile1',
   },
   position: {
     new_line: 50,
@@ -1189,7 +1194,7 @@ export const resolvedDiscussion1 = {
   resolvable: true,
   resolved: true,
   diff_file: {
-    file_path: 'about.md',
+    file_identifier_hash: 'discfile1',
   },
   position: {
     new_line: 50,
@@ -1208,7 +1213,7 @@ export const discussion2 = {
   resolved: false,
   active: true,
   diff_file: {
-    file_path: 'README.md',
+    file_identifier_hash: 'discfile2',
   },
   position: {
     new_line: null,
@@ -1227,7 +1232,7 @@ export const discussion3 = {
   active: true,
   resolved: false,
   diff_file: {
-    file_path: 'README.md',
+    file_identifier_hash: 'discfile3',
   },
   position: {
     new_line: 21,
@@ -1238,6 +1243,12 @@ export const discussion3 = {
       created_at: '2018-07-05T17:25:41.749Z',
     },
   ],
+};
+
+export const authoritativeDiscussionFile = {
+  id: 'abc',
+  file_identifier_hash: 'discfile1',
+  order: 0,
 };
 
 export const unresolvableDiscussion = {
@@ -1286,3 +1297,18 @@ export const draftDiffDiscussion = {
   file_path: 'lib/foo.rb',
   isDraft: true,
 };
+
+export const notesFilters = [
+  {
+    title: __('Show all activity'),
+    value: 0,
+  },
+  {
+    title: __('Show comments only'),
+    value: 1,
+  },
+  {
+    title: __('Show history only'),
+    value: 2,
+  },
+];

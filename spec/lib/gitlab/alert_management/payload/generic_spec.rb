@@ -142,6 +142,52 @@ RSpec.describe Gitlab::AlertManagement::Payload::Generic do
       end
 
       it { is_expected.to eq(value) }
+
+      context 'when integer is given' do
+        let(:current_time) { Time.current }
+
+        before do
+          raw_payload['end_time'] = (current_time.to_f * 1000).to_i
+        end
+
+        it { is_expected.to be_within(1.second).of(current_time) }
+      end
+    end
+  end
+
+  describe '#resolved?' do
+    subject { parsed_payload.resolved? }
+
+    context 'without end time' do
+      it { is_expected.to eq(false) }
+    end
+
+    context 'with end time' do
+      let(:raw_payload) { { 'end_time' => Time.current.to_s } }
+
+      it { is_expected.to eq(true) }
+    end
+  end
+
+  describe '#source' do
+    subject { parsed_payload.source }
+
+    it { is_expected.to eq('Generic Alert Endpoint') }
+
+    context 'with alerting integration provided' do
+      before do
+        parsed_payload.integration = instance_double('::AlertManagement::HttpIntegration', name: 'INTEGRATION')
+      end
+
+      it { is_expected.to eq('INTEGRATION') }
+    end
+
+    context 'with monitoring tool defined in the raw payload' do
+      before do
+        allow(parsed_payload).to receive(:monitoring_tool).and_return('TOOL')
+      end
+
+      it { is_expected.to eq('TOOL') }
     end
   end
 end

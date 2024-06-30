@@ -60,7 +60,7 @@ RSpec.describe 'projects/empty' do
     it 'shows archived notice' do
       render
 
-      expect(rendered).to have_content('Archived project!')
+      expect(rendered).to have_content('Archived')
     end
   end
 
@@ -73,10 +73,7 @@ RSpec.describe 'projects/empty' do
       expect(rendered).to have_content('Invite your team')
       expect(rendered).to have_content('Add members to this project and start collaborating with your team.')
       expect(rendered).to have_selector('.js-invite-members-trigger')
-      expect(rendered).to have_selector('.js-invite-members-modal')
-      expect(rendered).to have_selector('[data-label=invite_members_empty_project]')
-      expect(rendered).to have_selector('[data-event=click_button]')
-      expect(rendered).to have_selector('[data-trigger-source=project-empty-page]')
+      expect(rendered).to have_selector('[data-trigger-source=project_empty_page]')
     end
 
     context 'when user does not have permissions to invite members' do
@@ -87,7 +84,6 @@ RSpec.describe 'projects/empty' do
 
         expect(rendered).not_to have_content('Invite your team')
         expect(rendered).not_to have_selector('.js-invite-members-trigger')
-        expect(rendered).not_to have_selector('.js-invite-members-modal')
       end
     end
   end

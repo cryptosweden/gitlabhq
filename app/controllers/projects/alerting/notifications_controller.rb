@@ -13,12 +13,14 @@ module Projects
       prepend_before_action :repository, :project_without_auth
 
       feature_category :incident_management
+      urgency :low, [:create]
 
       def create
         token = extract_alert_manager_token(request)
         result = notify_service.execute(token, integration)
+        has_something_to_return = result.success? && result.http_status != :created
 
-        if result.success?
+        if has_something_to_return
           render json: AlertManagement::AlertSerializer.new.represent(result.payload[:alerts]), code: result.http_status
         else
           head result.http_status
@@ -64,13 +66,9 @@ module Projects
       def integration
         AlertManagement::HttpIntegrationsFinder.new(
           project,
-          endpoint_identifier: endpoint_identifier,
+          endpoint_identifier: params[:endpoint_identifier],
           active: true
         ).execute.first
-      end
-
-      def endpoint_identifier
-        params[:endpoint_identifier] || AlertManagement::HttpIntegration::LEGACY_IDENTIFIER
       end
 
       def notification_payload

@@ -2,18 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe Users::UpdateService do
-  let(:password) { 'longsecret987!' }
+RSpec.describe Users::UpdateService, feature_category: :user_profile do
+  let(:password) { User.random_password }
   let(:user) { create(:user, password: password, password_confirmation: password) }
 
   describe '#execute' do
     it 'updates time preferences' do
-      result = update_user(user, timezone: 'Europe/Warsaw', time_display_relative: true, time_format_in_24h: false)
+      result = update_user(user, timezone: 'Europe/Warsaw', time_display_relative: true)
 
       expect(result).to eq(status: :success)
       expect(user.reload.timezone).to eq('Europe/Warsaw')
       expect(user.time_display_relative).to eq(true)
-      expect(user.time_format_in_24h).to eq(false)
     end
 
     it 'returns an error result when record cannot be updated' do
@@ -77,6 +76,34 @@ RSpec.describe Users::UpdateService do
           subject
         end
 
+        context 'when race condition' do
+          # See https://gitlab.com/gitlab-org/gitlab/-/issues/382957
+          it 'updates email for stale user', :aggregate_failures do
+            unconfirmed_email = 'unconfirmed-email-user-has-access-to@example.com'
+            forgery_email = 'forgery@example.com'
+
+            user.update!(email: unconfirmed_email)
+
+            stale_user = User.find(user.id)
+
+            service1 = described_class.new(stale_user, { email: unconfirmed_email }.merge(user: stale_user))
+
+            service2 = described_class.new(user, { email: forgery_email }.merge(user: user))
+
+            service2.execute
+            reloaded_user = User.find(user.id)
+            expect(reloaded_user.unconfirmed_email).to eq(forgery_email)
+            expect(stale_user.confirmation_token).not_to eq(user.confirmation_token)
+            expect(reloaded_user.confirmation_token).to eq(user.confirmation_token)
+
+            service1.execute
+            reloaded_user = User.find(user.id)
+            expect(reloaded_user.unconfirmed_email).to eq(unconfirmed_email)
+            expect(stale_user.confirmation_token).not_to eq(user.confirmation_token)
+            expect(reloaded_user.confirmation_token).to eq(stale_user.confirmation_token)
+          end
+        end
+
         context 'when check_password is true' do
           def update_user(user, opts)
             described_class.new(user, opts.merge(user: user)).execute(check_password: true)
@@ -138,6 +165,55 @@ RSpec.describe Users::UpdateService do
           expect do
             update_user(user, job_title: 'supreme leader of the universe')
           end.not_to change { user.user_canonical_email }
+        end
+
+        it 'does not reset unconfirmed email' do
+          unconfirmed_email = 'unconfirmed-email@example.com'
+          user.update!(email: unconfirmed_email)
+
+          expect do
+            update_user(user, job_title: 'supreme leader of the universe')
+          end.not_to change { user.unconfirmed_email }
+        end
+      end
+    end
+
+    it 'does not try to reset unconfirmed email for a new user' do
+      expect do
+        update_user(build(:user), job_title: 'supreme leader of the universe')
+      end.not_to raise_error
+    end
+
+    describe 'updates the enabled_following' do
+      let(:user) { create(:user) }
+
+      before do
+        3.times do
+          user.follow(create(:user))
+          create(:user).follow(user)
+        end
+        user.reload
+      end
+
+      it 'removes followers and followees' do
+        expect do
+          update_user(user, enabled_following: false)
+        end.to change { user.followed_users.count }.from(3).to(0)
+                                                   .and change { user.following_users.count }.from(3).to(0)
+        expect(user.enabled_following).to eq(false)
+      end
+
+      context 'when there is more followers/followees then batch limit' do
+        before do
+          stub_env('BATCH_SIZE', 1)
+        end
+
+        it 'removes followers and followees' do
+          expect do
+            update_user(user, enabled_following: false)
+          end.to change { user.followed_users.count }.from(3).to(0)
+                                                     .and change { user.following_users.count }.from(3).to(0)
+          expect(user.enabled_following).to eq(false)
         end
       end
     end

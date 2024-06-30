@@ -1,12 +1,14 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# SMTP Rake tasks **(FREE SELF)**
+# SMTP Rake tasks
 
-[Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/67802) in GitLab 14.2.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 The following are SMTP-related Rake tasks.
 
@@ -18,17 +20,17 @@ GitLab can use SMTP configuration secrets to read from an encrypted file. The fo
 
 Show the contents of the current SMTP secrets.
 
-**Omnibus Installation**
+- Linux package installations:
 
-```shell
-sudo gitlab-rake gitlab:smtp:secret:show
-```
+  ```shell
+  sudo gitlab-rake gitlab:smtp:secret:show
+  ```
 
-**Source Installation**
+- Self-compiled installations:
 
-```shell
-bundle exec rake gitlab:smtp:secret:show RAILS_ENV=production
-```
+  ```shell
+  bundle exec rake gitlab:smtp:secret:show RAILS_ENV=production
+  ```
 
 **Example output:**
 
@@ -41,33 +43,33 @@ user_name: 'gitlab-inst'
 
 Opens the secret contents in your editor, and writes the resulting content to the encrypted secret file when you exit.
 
-**Omnibus Installation**
+- Linux package installations:
 
-```shell
-sudo gitlab-rake gitlab:smtp:secret:edit EDITOR=vim
-```
+  ```shell
+  sudo gitlab-rake gitlab:smtp:secret:edit EDITOR=vim
+  ```
 
-**Source Installation**
+- Self-compiled installations:
 
-```shell
-bundle exec rake gitlab:smtp:secret:edit RAILS_ENV=production EDITOR=vim
-```
+  ```shell
+  bundle exec rake gitlab:smtp:secret:edit RAILS_ENV=production EDITOR=vim
+  ```
 
 ### Write raw secret
 
-Write new secret content by providing it on STDIN.
+Write new secret content by providing it on `STDIN`.
 
-**Omnibus Installation**
+- Linux package installations:
 
-```shell
-echo -e "password: '123'" | sudo gitlab-rake gitlab:smtp:secret:write
-```
+  ```shell
+  echo -e "password: '123'" | sudo gitlab-rake gitlab:smtp:secret:write
+  ```
 
-**Source Installation**
+- Self-compiled installations:
 
-```shell
-echo -e "password: '123'" | bundle exec rake gitlab:smtp:secret:write RAILS_ENV=production
-```
+  ```shell
+  echo -e "password: '123'" | bundle exec rake gitlab:smtp:secret:write RAILS_ENV=production
+  ```
 
 ### Secrets examples
 

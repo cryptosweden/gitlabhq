@@ -1,25 +1,35 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Jobs API **(FREE)**
+# Jobs API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 ## List project jobs
 
+> - Support for keyset pagination [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/362172) in GitLab 15.9.
+
 Get a list of jobs in a project. Jobs are sorted in descending order of their IDs.
 
-By default, this request returns 20 results at a time because the API results [are paginated](index.md#pagination)
+By default, this request returns 20 results at a time because the API results [are paginated](rest/index.md#pagination)
+
+NOTE:
+This endpoint supports both offset-based and [keyset-based](rest/index.md#keyset-based-pagination) pagination, but keyset-based
+pagination is strongly recommended when requesting consecutive pages of results.
 
 ```plaintext
 GET /projects/:id/jobs
 ```
 
-| Attribute | Type                           | Required               | Description |
-|-----------|--------------------------------|------------------------|-------------|
-| `id`      | integer/string                 | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `scope`   | string **or** array of strings | **{dotted-circle}** No | Scope of jobs to show. Either one of or an array of the following: `created`, `pending`, `running`, `failed`, `success`, `canceled`, `skipped`, or `manual`. All jobs are returned if `scope` is not provided. |
+| Attribute | Type                           | Required | Description |
+|-----------|--------------------------------|----------|-------------|
+| `id`      | integer/string                 | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `scope`   | string **or** array of strings | No       | Scope of jobs to show. Either one of or an array of the following: `created`, `pending`, `running`, `failed`, `success`, `canceled`, `skipped`, `waiting_for_resource`, or `manual`. All jobs are returned if `scope` is not provided. |
 
 ```shell
 curl --globoff --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs?scope[]=pending&scope[]=running"
@@ -40,10 +50,12 @@ Example of response
       "title": "Test the CI integration."
     },
     "coverage": null,
+    "archived": false,
     "allow_failure": false,
     "created_at": "2015-12-24T15:51:21.802Z",
     "started_at": "2015-12-24T17:54:27.722Z",
     "finished_at": "2015-12-24T17:54:27.895Z",
+    "erased_at": null,
     "duration": 0.173,
     "queued_duration": 0.010,
     "artifacts_file": {
@@ -70,12 +82,38 @@ Example of response
       "status": "pending"
     },
     "ref": "main",
-    "runner": null,
+    "runner": {
+      "id": 32,
+      "description": "",
+      "ip_address": null,
+      "active": true,
+      "paused": false,
+      "is_shared": true,
+      "runner_type": "instance_type",
+      "name": null,
+      "online": false,
+      "status": "offline"
+    },
+    "runner_manager": {
+      "id": 1,
+      "system_id": "s_89e5e9956577",
+      "version": "16.11.1",
+      "revision": "535ced5f",
+      "platform": "linux",
+      "architecture": "amd64",
+      "created_at": "2024-05-01T10:12:02.507Z",
+      "contacted_at": "2024-05-07T06:30:09.355Z",
+      "ip_address": "127.0.0.1",
+      "status": "offline"
+    },
     "stage": "test",
     "status": "failed",
     "failure_reason": "script_failure",
     "tag": false,
     "web_url": "https://example.com/foo/bar/-/jobs/7",
+    "project": {
+      "ci_job_token_scope_enabled": false
+    },
     "user": {
       "id": 1,
       "name": "Administrator",
@@ -105,10 +143,12 @@ Example of response
       "title": "Test the CI integration."
     },
     "coverage": null,
+    "archived": false,
     "allow_failure": false,
     "created_at": "2015-12-24T15:51:21.727Z",
     "started_at": "2015-12-24T17:54:24.729Z",
     "finished_at": "2015-12-24T17:54:24.921Z",
+    "erased_at": null,
     "duration": 0.192,
     "queued_duration": 0.023,
     "artifacts_expire_at": "2016-01-23T17:54:24.921Z",
@@ -127,11 +167,15 @@ Example of response
     "ref": "main",
     "artifacts": [],
     "runner": null,
+    "runner_manager": null,
     "stage": "test",
     "status": "failed",
     "failure_reason": "stuck_or_timeout_failure",
     "tag": false,
     "web_url": "https://example.com/foo/bar/-/jobs/6",
+    "project": {
+      "ci_job_token_scope_enabled": false
+    },
     "user": {
       "id": 1,
       "name": "Administrator",
@@ -157,18 +201,24 @@ Example of response
 
 Get a list of jobs for a pipeline.
 
-By default, this request returns 20 results at a time because the API results [are paginated](index.md#pagination)
+By default, this request returns 20 results at a time because the API results [are paginated](rest/index.md#pagination)
+
+This endpoint:
+
+- [Returns data for any pipeline](pipelines.md#get-a-single-pipeline) including [child pipelines](../ci/pipelines/downstream_pipelines.md#parent-child-pipelines).
+- Does not return retried jobs in the response by default.
+- Sorts jobs by ID in descending order (newest first).
 
 ```plaintext
 GET /projects/:id/pipelines/:pipeline_id/jobs
 ```
 
-| Attribute         | Type                           | Required               | Description |
-|-------------------|--------------------------------|------------------------|-------------|
-| `id`              | integer/string                 | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `pipeline_id`     | integer                        | **{check-circle}** Yes | ID of a pipeline. Can also be obtained in CI jobs via the [predefined CI variable](../ci/variables/predefined_variables.md) `CI_PIPELINE_ID`. |
-| `scope`           | string **or** array of strings | **{dotted-circle}** No | Scope of jobs to show. Either one of or an array of the following: `created`, `pending`, `running`, `failed`, `success`, `canceled`, `skipped`, or `manual`. All jobs are returned if `scope` is not provided. |
-| `include_retried` | boolean                        | **{dotted-circle}** No | Include retried jobs in the response. Defaults to `false`. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/272627) in GitLab 13.9. |
+| Attribute         | Type                           | Required | Description |
+|-------------------|--------------------------------|----------|-------------|
+| `id`              | integer/string                 | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `pipeline_id`     | integer                        | Yes      | ID of a pipeline. Can also be obtained in CI jobs via the [predefined CI variable](../ci/variables/predefined_variables.md) `CI_PIPELINE_ID`. |
+| `include_retried` | boolean                        | No       | Include retried jobs in the response. Defaults to `false`. |
+| `scope`           | string **or** array of strings | No       | Scope of jobs to show. Either one of or an array of the following: `created`, `pending`, `running`, `failed`, `success`, `canceled`, `skipped`, `waiting_for_resource`, or `manual`. All jobs are returned if `scope` is not provided. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/pipelines/6/jobs?scope[]=pending&scope[]=running"
@@ -189,10 +239,12 @@ Example of response
       "title": "Test the CI integration."
     },
     "coverage": null,
+    "archived": false,
     "allow_failure": false,
     "created_at": "2015-12-24T15:51:21.727Z",
     "started_at": "2015-12-24T17:54:24.729Z",
     "finished_at": "2015-12-24T17:54:24.921Z",
+    "erased_at": null,
     "duration": 0.192,
     "queued_duration": 0.023,
     "artifacts_expire_at": "2016-01-23T17:54:24.921Z",
@@ -210,12 +262,37 @@ Example of response
     },
     "ref": "main",
     "artifacts": [],
-    "runner": null,
+    "runner": {
+      "id": 32,
+      "description": "",
+      "ip_address": null,
+      "active": true,
+      "paused": false,
+      "is_shared": true,
+      "runner_type": "instance_type",
+      "name": null,
+      "online": false,
+      "status": "offline"
+    },
+    "runner_manager": {
+      "id": 1,
+      "system_id": "s_89e5e9956577",
+      "version": "16.11.1",
+      "revision": "535ced5f",
+      "platform": "linux",
+      "architecture": "amd64",
+      "created_at": "2024-05-01T10:12:02.507Z",
+      "contacted_at": "2024-05-07T06:30:09.355Z",
+      "ip_address": "127.0.0.1",
+    },
     "stage": "test",
     "status": "failed",
     "failure_reason": "stuck_or_timeout_failure",
     "tag": false,
     "web_url": "https://example.com/foo/bar/-/jobs/6",
+    "project": {
+      "ci_job_token_scope_enabled": false
+    },
     "user": {
       "id": 1,
       "name": "Administrator",
@@ -245,10 +322,12 @@ Example of response
       "title": "Test the CI integration."
     },
     "coverage": null,
+    "archived": false,
     "allow_failure": false,
     "created_at": "2015-12-24T15:51:21.802Z",
     "started_at": "2015-12-24T17:54:27.722Z",
     "finished_at": "2015-12-24T17:54:27.895Z",
+    "erased_at": null,
     "duration": 0.173,
     "queued_duration": 0.023,
     "artifacts_file": {
@@ -276,11 +355,15 @@ Example of response
     },
     "ref": "main",
     "runner": null,
+    "runner_manager": null,
     "stage": "test",
     "status": "failed",
     "failure_reason": "script_failure",
     "tag": false,
     "web_url": "https://example.com/foo/bar/-/jobs/7",
+    "project": {
+      "ci_job_token_scope_enabled": false
+    },
     "user": {
       "id": 1,
       "name": "Administrator",
@@ -302,29 +385,19 @@ Example of response
 ]
 ```
 
-In GitLab 13.3 and later, this endpoint [returns data for any pipeline](pipelines.md#get-a-single-pipeline)
-including [child pipelines](../ci/pipelines/parent_child_pipelines.md).
+## List pipeline trigger jobs
 
-In GitLab 13.5 and later, this endpoint does not return retried jobs in the response
-by default. Additionally, jobs are sorted by ID in descending order (newest first).
-In earlier GitLab versions, jobs are sorted by ID in ascending order (oldest first).
-
-In GitLab 13.9 and later, this endpoint can include retried jobs in the response
-with `include_retried` set to `true`.
-
-## List pipeline bridges
-
-Get a list of bridge jobs for a pipeline.
+Get a list of trigger jobs for a pipeline.
 
 ```plaintext
 GET /projects/:id/pipelines/:pipeline_id/bridges
 ```
 
-| Attribute     | Type                           | Required               | Description |
-|---------------|--------------------------------|------------------------|-------------|
-| `id`          | integer/string                 | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `pipeline_id` | integer                        | **{check-circle}** Yes | ID of a pipeline. |
-| `scope`       | string **or** array of strings | **{dotted-circle}** No | Scope of jobs to show. Either one of or an array of the following: `created`, `pending`, `running`, `failed`, `success`, `canceled`, `skipped`, or `manual`. All jobs are returned if `scope` is not provided. |
+| Attribute     | Type                           | Required | Description |
+|---------------|--------------------------------|----------|-------------|
+| `id`          | integer/string                 | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `pipeline_id` | integer                        | Yes      | ID of a pipeline. |
+| `scope`       | string **or** array of strings | No       | Scope of jobs to show. Either one of or an array of the following: `created`, `pending`, `running`, `failed`, `success`, `canceled`, `skipped`, `waiting_for_resource`, or `manual`. All jobs are returned if `scope` is not provided. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/pipelines/6/bridges?scope[]=pending&scope[]=running"
@@ -345,10 +418,12 @@ Example of response
       "title": "Test the CI integration."
     },
     "coverage": null,
+    "archived": false,
     "allow_failure": false,
     "created_at": "2015-12-24T15:51:21.802Z",
     "started_at": "2015-12-24T17:54:27.722Z",
     "finished_at": "2015-12-24T17:58:27.895Z",
+    "erased_at": null,
     "duration": 240,
     "queued_duration": 0.123,
     "id": 7,
@@ -368,6 +443,9 @@ Example of response
     "status": "pending",
     "tag": false,
     "web_url": "https://example.com/foo/bar/-/jobs/7",
+    "project": {
+      "ci_job_token_scope_enabled": false
+    },
     "user": {
       "id": 1,
       "name": "Administrator",
@@ -400,8 +478,6 @@ Example of response
 
 ## Get job token's job
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/51727) in GitLab 13.10.
-
 Retrieve the job that generated a job token.
 
 ```plaintext
@@ -430,10 +506,12 @@ Example of response
     "title": "Test the CI integration."
   },
   "coverage": null,
+  "archived": false,
   "allow_failure": false,
   "created_at": "2015-12-24T15:51:21.880Z",
   "started_at": "2015-12-24T17:54:30.733Z",
   "finished_at": "2015-12-24T17:54:31.198Z",
+  "erased_at": null,
   "duration": 0.465,
   "queued_duration": 0.123,
   "artifacts_expire_at": "2016-01-23T17:54:31.198Z",
@@ -449,11 +527,15 @@ Example of response
   "ref": "main",
   "artifacts": [],
   "runner": null,
+  "runner_manager": null,
   "stage": "test",
   "status": "failed",
   "failure_reason": "script_failure",
   "tag": false,
   "web_url": "https://example.com/foo/bar/-/jobs/8",
+  "project": {
+    "ci_job_token_scope_enabled": false
+  },
   "user": {
     "id": 1,
     "name": "Administrator",
@@ -474,9 +556,11 @@ Example of response
 }
 ```
 
-## Get GitLab agent by `CI_JOB_TOKEN` **(PREMIUM)**
+## Get GitLab agent by `CI_JOB_TOKEN`
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/324269) in GitLab 13.11.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Retrieve the job that generated the `CI_JOB_TOKEN`, along with a list of allowed
 [agents](../user/clusters/agent/index.md).
@@ -487,9 +571,9 @@ GET /job/allowed_agents
 
 Supported attributes:
 
-| Attribute      | Type     | Required               | Description |
-|----------------|----------|------------------------|-------------|
-| `CI_JOB_TOKEN` | string   | **{check-circle}** Yes | Token value associated with the GitLab-provided `CI_JOB_TOKEN` variable. |
+| Attribute      | Type   | Required | Description |
+|----------------|--------|----------|-------------|
+| `CI_JOB_TOKEN` | string | Yes      | Token value associated with the GitLab-provided `CI_JOB_TOKEN` variable. |
 
 Example request:
 
@@ -502,46 +586,39 @@ Example response:
 
 ```json
 {
-  "allowed_agents":
-    [
-      {
+  "allowed_agents": [
+    {
+      "id": 1,
+      "config_project": {
         "id": 1,
-        "config_project": {
-          "id": 1,
-          "description": null,
-          "name": "project1",
-          "name_with_namespace": "John Doe2 / project1",
-          "path": "project1",
-          "path_with_namespace": "namespace1/project1",
-          "created_at": "2021-03-26T14:51:50.579Z"
-        }
+        "description": null,
+        "name": "project1",
+        "name_with_namespace": "John Doe2 / project1",
+        "path": "project1",
+        "path_with_namespace": "namespace1/project1",
+        "created_at": "2022-11-16T14:51:50.579Z"
       }
-    ],
+    }
+  ],
   "job": {
-    "id": 1,
-    "name": "test",
-    "stage": "test",
-    "project_id": 1,
-    "project_name": "project1"
+    "id": 1
   },
   "pipeline": {
-    "id": 1,
-    "project_id": 1,
-    "sha": "b83d6e391c22777fca1ed3012fce84f633d7fed0",
-    "ref": "main",
-    "status": "pending",
-    "created_at": "2021-03-26T14:51:51.107Z",
-    "updated_at": "2021-03-26T14:51:51.107Z",
-    "web_url": "http://localhost/namespace1/project1/-/pipelines/1"
+    "id": 2
   },
   "project": {
     "id": 1,
-    "description": null,
-    "name": "project1",
-    "name_with_namespace": "John Doe2 / project1",
-    "path": "project1",
-    "path_with_namespace": "namespace1/project1",
-    "created_at": "2021-03-26T14:51:50.579Z"
+    "groups": [
+      {
+        "id": 1
+      },
+      {
+        "id": 2
+      },
+      {
+        "id": 3
+      }
+    ]
   },
   "user": {
     "id": 2,
@@ -562,10 +639,10 @@ Get a single job of a project
 GET /projects/:id/jobs/:job_id
 ```
 
-| Attribute | Type           | Required               | Description |
-|-----------|----------------|------------------------|-------------|
-| `id`      | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `job_id`  | integer        | **{check-circle}** Yes | ID of a job. |
+| Attribute | Type           | Required | Description |
+|-----------|----------------|----------|-------------|
+| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `job_id`  | integer        | Yes      | ID of a job. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/8"
@@ -585,10 +662,12 @@ Example of response
     "title": "Test the CI integration."
   },
   "coverage": null,
+  "archived": false,
   "allow_failure": false,
   "created_at": "2015-12-24T15:51:21.880Z",
   "started_at": "2015-12-24T17:54:30.733Z",
   "finished_at": "2015-12-24T17:54:31.198Z",
+  "erased_at": null,
   "duration": 0.465,
   "queued_duration": 0.010,
   "artifacts_expire_at": "2016-01-23T17:54:31.198Z",
@@ -607,10 +686,14 @@ Example of response
   "ref": "main",
   "artifacts": [],
   "runner": null,
+  "runner_manager": null,
   "stage": "test",
   "status": "failed",
   "tag": false,
   "web_url": "https://example.com/foo/bar/-/jobs/8",
+  "project": {
+    "ci_job_token_scope_enabled": false
+  },
   "user": {
     "id": 1,
     "name": "Administrator",
@@ -639,10 +722,10 @@ Get a log (trace) of a specific job of a project:
 GET /projects/:id/jobs/:job_id/trace
 ```
 
-| Attribute | Type           | Required               | Description |
-|-----------|----------------|------------------------|-------------|
-| `id`      | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `job_id`  | integer        | **{check-circle}** Yes | ID of a job. |
+| Attribute | Type           | Required | Description |
+|-----------|----------------|----------|-------------|
+| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `job_id`  | integer        | Yes      | ID of a job. |
 
 ```shell
 curl --location --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/8/trace"
@@ -650,10 +733,10 @@ curl --location --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.ex
 
 Possible response status codes:
 
-| Status    | Description                   |
-|-----------|-------------------------------|
-| 200       | Serves the log file           |
-| 404       | Job not found or no log file  |
+| Status | Description |
+|--------|-------------|
+| 200    | Serves the log file |
+| 404    | Job not found or no log file |
 
 ## Cancel a job
 
@@ -663,10 +746,10 @@ Cancel a single job of a project
 POST /projects/:id/jobs/:job_id/cancel
 ```
 
-| Attribute | Type           | Required               | Description |
-|-----------|----------------|------------------------|-------------|
-| `id`      | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `job_id`  | integer        | **{check-circle}** Yes | ID of a job. |
+| Attribute | Type           | Required | Description |
+|-----------|----------------|----------|-------------|
+| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `job_id`  | integer        | Yes      | ID of a job. |
 
 ```shell
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/1/cancel"
@@ -686,21 +769,27 @@ Example of response
     "title": "Test the CI integration."
   },
   "coverage": null,
+  "archived": false,
   "allow_failure": false,
   "created_at": "2016-01-11T10:13:33.506Z",
   "started_at": "2016-01-11T10:14:09.526Z",
   "finished_at": null,
+  "erased_at": null,
   "duration": 8,
   "queued_duration": 0.010,
-  "id": 42,
+  "id": 1,
   "name": "rubocop",
   "ref": "main",
   "artifacts": [],
   "runner": null,
+  "runner_manager": null,
   "stage": "test",
   "status": "canceled",
   "tag": false,
-  "web_url": "https://example.com/foo/bar/-/jobs/42",
+  "web_url": "https://example.com/foo/bar/-/jobs/1",
+  "project": {
+    "ci_job_token_scope_enabled": false
+  },
   "user": null
 }
 ```
@@ -713,10 +802,10 @@ Retry a single job of a project
 POST /projects/:id/jobs/:job_id/retry
 ```
 
-| Attribute | Type           | Required               | Description |
-|-----------|----------------|------------------------|-------------|
-| `id`      | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `job_id`  | integer        | **{check-circle}** Yes | ID of a job. |
+| Attribute | Type           | Required | Description |
+|-----------|----------------|----------|-------------|
+| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `job_id`  | integer        | Yes      | ID of a job. |
 
 ```shell
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/1/retry"
@@ -736,24 +825,33 @@ Example of response
     "title": "Test the CI integration."
   },
   "coverage": null,
+  "archived": false,
   "allow_failure": false,
   "created_at": "2016-01-11T10:13:33.506Z",
   "started_at": null,
   "finished_at": null,
+  "erased_at": null,
   "duration": null,
   "queued_duration": 0.010,
-  "id": 42,
+  "id": 1,
   "name": "rubocop",
   "ref": "main",
   "artifacts": [],
   "runner": null,
+  "runner_manager": null,
   "stage": "test",
   "status": "pending",
   "tag": false,
-  "web_url": "https://example.com/foo/bar/-/jobs/42",
+  "web_url": "https://example.com/foo/bar/-/jobs/1",
+  "project": {
+    "ci_job_token_scope_enabled": false
+  },
   "user": null
 }
 ```
+
+NOTE:
+Prior to GitLab 17.0, this endpoint does not support trigger jobs.
 
 ## Erase a job
 
@@ -765,10 +863,10 @@ POST /projects/:id/jobs/:job_id/erase
 
 Parameters
 
-| Attribute | Type           | Required               | Description |
-|-----------|----------------|------------------------|-------------|
-| `id`      | integer/string | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `job_id`  | integer        | **{check-circle}** Yes | ID of a job. |
+| Attribute | Type           | Required | Description |
+|-----------|----------------|----------|-------------|
+| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `job_id`  | integer        | Yes      | ID of a job. |
 
 Example of request
 
@@ -790,49 +888,56 @@ Example of response
     "title": "Test the CI integration."
   },
   "coverage": null,
+  "archived": false,
   "allow_failure": false,
   "download_url": null,
-  "id": 42,
+  "id": 1,
   "name": "rubocop",
   "ref": "main",
   "artifacts": [],
   "runner": null,
+  "runner_manager": null,
   "stage": "test",
   "created_at": "2016-01-11T10:13:33.506Z",
   "started_at": "2016-01-11T10:13:33.506Z",
   "finished_at": "2016-01-11T10:15:10.506Z",
+  "erased_at": "2016-01-11T11:30:19.914Z",
   "duration": 97.0,
   "queued_duration": 0.010,
   "status": "failed",
   "tag": false,
-  "web_url": "https://example.com/foo/bar/-/jobs/42",
+  "web_url": "https://example.com/foo/bar/-/jobs/1",
+  "project": {
+    "ci_job_token_scope_enabled": false
+  },
   "user": null
 }
 ```
 
 NOTE:
 You can't delete archived jobs with the API, but you can
-[delete job artifacts and logs from jobs completed before a specific date](../administration/job_artifacts.md#delete-job-artifacts-and-logs-from-jobs-completed-before-a-specific-date)
+[delete job artifacts and logs from jobs completed before a specific date](../administration/job_artifacts_troubleshooting.md#delete-old-builds-and-artifacts)
 
 ## Run a job
 
-Triggers a manual action to start a job.
+For a job in manual status, trigger an action to start the job.
 
 ```plaintext
 POST /projects/:id/jobs/:job_id/play
 ```
 
-| Attribute                  | Type            | Required               | Description |
-|----------------------------|-----------------|------------------------|-------------|
-| `id`                       | integer/string  | **{check-circle}** Yes | ID or [URL-encoded path of the project](index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `job_id`                   | integer         | **{check-circle}** Yes | ID of a job. |
-| `job_variables_attributes` | array of hashes | **{dotted-circle}** No | An array containing the custom variables available to the job. [Introduced in](https://gitlab.com/gitlab-org/gitlab/-/issues/37267) GitLab 14.9. |
+| Attribute                  | Type            | Required | Description |
+|----------------------------|-----------------|----------|-------------|
+| `id`                       | integer/string  | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `job_id`                   | integer         | Yes      | ID of a job. |
+| `job_variables_attributes` | array of hashes | No       | An array containing the custom variables available to the job. |
 
 Example request:
 
 ```shell
-curl --request POST "https://gitlab.example.com/api/v4/projects/1/jobs/1/play
-     --header "PRIVATE-TOKEN: <your_access_token>"
+curl --request POST "https://gitlab.example.com/api/v4/projects/1/jobs/1/play" \
+     --header "Content-Type: application/json" \
+     --header "PRIVATE-TOKEN: <your_access_token>" \
      --data @variables.json
 ```
 
@@ -867,21 +972,27 @@ Example response:
     "title": "Test the CI integration."
   },
   "coverage": null,
+  "archived": false,
   "allow_failure": false,
   "created_at": "2016-01-11T10:13:33.506Z",
   "started_at": null,
   "finished_at": null,
+  "erased_at": null,
   "duration": null,
   "queued_duration": 0.010,
-  "id": 42,
+  "id": 1,
   "name": "rubocop",
   "ref": "main",
   "artifacts": [],
   "runner": null,
+  "runner_manager": null,
   "stage": "test",
   "status": "pending",
   "tag": false,
-  "web_url": "https://example.com/foo/bar/-/jobs/42",
+  "web_url": "https://example.com/foo/bar/-/jobs/1",
+  "project": {
+    "ci_job_token_scope_enabled": false
+  },
   "user": null
 }
 ```

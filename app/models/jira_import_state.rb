@@ -14,7 +14,7 @@ class JiraImportState < ApplicationRecord
   belongs_to :user
   belongs_to :label
 
-  scope :by_jira_project_key, -> (jira_project_key) { where(jira_project_key: jira_project_key) }
+  scope :by_jira_project_key, ->(jira_project_key) { where(jira_project_key: jira_project_key) }
   scope :with_status, ->(statuses) { where(status: statuses) }
 
   validates :project, presence: true
@@ -24,7 +24,7 @@ class JiraImportState < ApplicationRecord
 
   validates :project, uniqueness: {
     conditions: -> { where.not(status: STATUSES.values_at(:failed, :finished)) },
-    message: _('Cannot have multiple Jira imports running at the same time')
+    message: N_('Cannot have multiple Jira imports running at the same time')
   }
 
   before_save :ensure_error_message_size

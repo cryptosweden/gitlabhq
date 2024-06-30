@@ -49,13 +49,6 @@ RSpec.describe Mutations::Todos::RestoreMany do
       expect_states_were_not_changed
     end
 
-    it 'raises an error with invalid or non-Todo GIDs' do
-      expect { mutation.resolve(ids: [author.to_global_id.to_s]) }
-        .to raise_error(GraphQL::CoercionError)
-
-      expect_states_were_not_changed
-    end
-
     it 'restores multiple todos' do
       todo4 = create(:todo, user: current_user, author: author, state: :done)
 
@@ -87,7 +80,7 @@ RSpec.describe Mutations::Todos::RestoreMany do
   end
 
   def restore_mutation(todos)
-    mutation.resolve(ids: todos.map { |todo| global_id_of(todo) } )
+    mutation.resolve(ids: todos.map { |todo| global_id_of(todo) })
   end
 
   def expect_states_were_not_changed

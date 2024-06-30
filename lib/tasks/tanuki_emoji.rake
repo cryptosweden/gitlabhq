@@ -30,9 +30,9 @@ namespace :tanuki_emoji do
     require 'digest/sha2'
 
     digest_emoji_map = {}
-    emojis_map = {}
+    emojis_array = []
 
-    TanukiEmoji.index.all.each do |emoji|
+    TanukiEmoji.index.all.sort_by(&:sort_key).each do |emoji|
       emoji_path = Gitlab::Emoji.emoji_public_absolute_path.join("#{emoji.name}.png")
 
       digest_entry = {
@@ -47,13 +47,14 @@ namespace :tanuki_emoji do
 
       # Our new map is only characters to make the json substantially smaller
       emoji_entry = {
+        n: emoji.name,
         c: emoji.category,
         e: emoji.codepoints,
         d: emoji.description,
         u: emoji.unicode_version
       }
 
-      emojis_map[emoji.name] = emoji_entry
+      emojis_array << emoji_entry
     end
 
     digests_json = File.join(Rails.root, 'fixtures', 'emojis', 'digests.json')
@@ -63,7 +64,7 @@ namespace :tanuki_emoji do
 
     emojis_json = Gitlab::Emoji.emoji_public_absolute_path.join('emojis.json')
     File.open(emojis_json, 'w') do |handle|
-      handle.write(Gitlab::Json.pretty_generate(emojis_map))
+      handle.write(Gitlab::Json.pretty_generate(emojis_array))
     end
   end
 
@@ -139,7 +140,7 @@ namespace :tanuki_emoji do
 
       puts "\n"
 
-      style_path = Rails.root.join(*%w(app assets stylesheets emoji_sprites.scss))
+      style_path = Rails.root.join(*%w[app assets stylesheets emoji_sprites.scss])
 
       print 'Compiling sprites regular sprites... '
 
@@ -148,18 +149,18 @@ namespace :tanuki_emoji do
       SpriteFactory.run!(tmpdir, {
         output_style: style_path,
         output_image: "app/assets/images/emoji.png",
-        selector:     '.emoji-',
-        style:        :scss,
-        nocomments:   true,
-        pngcrush:     true,
-        layout:       :packed
+        selector: '.emoji-',
+        style: :scss,
+        nocomments: true,
+        pngcrush: true,
+        layout: :packed
       })
 
       # SpriteFactory's SCSS is a bit too verbose for our purposes here, so
       # let's simplify it
-      system(%Q(sed -i '' "s/width: #{SIZE}px; height: #{SIZE}px; background: image-url('emoji.png')/background-position:/" #{style_path}))
-      system(%Q(sed -i '' "s/ no-repeat//" #{style_path}))
-      system(%Q(sed -i '' "s/ 0px/ 0/g" #{style_path}))
+      system(%(sed -i '' "s/width: #{SIZE}px; height: #{SIZE}px; background: image-url('emoji.png')/background-position:/" #{style_path}))
+      system(%(sed -i '' "s/ no-repeat//" #{style_path}))
+      system(%(sed -i '' "s/ 0px/ 0/g" #{style_path}))
 
       # Append a generic rule that applies to all Emojis
       File.open(style_path, 'a') do |f|
@@ -215,10 +216,10 @@ namespace :tanuki_emoji do
       # Combine the resized assets into a packed sprite and re-generate the SCSS
       SpriteFactory.run!(tmpdir, {
         output_image: "app/assets/images/emoji@2x.png",
-        style:        false,
-        nocomments:   true,
-        pngcrush:     true,
-        layout:       :packed
+        style: false,
+        nocomments: true,
+        pngcrush: true,
+        layout: :packed
       })
     end
 

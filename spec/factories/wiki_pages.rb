@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'ostruct'
-
 FactoryBot.define do
   factory :wiki_page do
     transient do
@@ -12,7 +10,7 @@ FactoryBot.define do
       project { association(:project) }
       container { project }
       wiki { association(:wiki, container: container) }
-      page { OpenStruct.new(url_path: title) }
+      page { ActiveSupport::InheritableOptions.new(url_path: title) }
     end
 
     initialize_with do
@@ -28,7 +26,7 @@ FactoryBot.define do
 
     # Clear our default @page, except when using build_stubbed
     after(:build) do |page|
-      page.instance_variable_set('@page', nil)
+      page.instance_variable_set(:@page, nil)
     end
 
     to_create do |page, evaluator|

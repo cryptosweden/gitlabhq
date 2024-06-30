@@ -6,32 +6,21 @@ module QA
       module ClonePanel
         extend QA::Page::PageConcern
 
-        def self.included(base)
-          super
-
-          base.view 'app/views/projects/buttons/_clone.html.haml' do
-            element :clone_dropdown
-            element :clone_options
-            element :ssh_clone_url
-            element :http_clone_url
-          end
-        end
-
         def repository_clone_http_location
-          repository_clone_location(:http_clone_url)
+          repository_clone_location('copy-http-url-input')
         end
 
         def repository_clone_ssh_location
-          repository_clone_location(:ssh_clone_url)
+          repository_clone_location('copy-ssh-url-input')
         end
 
         private
 
         def repository_clone_location(kind)
           wait_until(reload: false) do
-            click_element :clone_dropdown
+            click_element 'code-dropdown'
 
-            within_element :clone_options do
+            within_element 'code-dropdown' do
               Git::Location.new(find_element(kind).value)
             end
           end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Issues Feed' do
+RSpec.describe 'Issues Feed', feature_category: :devops_reports do
   describe 'GET /issues' do
     let_it_be_with_reload(:user) do
       user = create(:user, email: 'private1@example.com')
@@ -49,8 +49,11 @@ RSpec.describe 'Issues Feed' do
       before do
         personal_access_token = create(:personal_access_token, user: user)
 
-        visit project_issues_path(project, :atom,
-                                  private_token: personal_access_token.token)
+        visit project_issues_path(
+          project,
+          :atom,
+          private_token: personal_access_token.token
+        )
       end
 
       it_behaves_like 'an authenticated issuable atom feed'
@@ -59,8 +62,11 @@ RSpec.describe 'Issues Feed' do
 
     context 'when authenticated via feed token' do
       before do
-        visit project_issues_path(project, :atom,
-                                  feed_token: user.feed_token)
+        visit project_issues_path(
+          project,
+          :atom,
+          feed_token: user.feed_token
+        )
       end
 
       it_behaves_like 'an authenticated issuable atom feed'

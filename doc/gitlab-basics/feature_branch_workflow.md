@@ -1,38 +1,11 @@
 ---
-stage: Create
-group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
-disqus_identifier: 'https://docs.gitlab.com/ee/workflow/workflow.html'
+redirect_to: 'add-file.md'
+remove_date: '2024-09-26'
 ---
 
-# Feature branch workflow **(FREE)**
+This document was moved to [another location](add-file.md).
 
-1. Clone project:
-
-   ```shell
-   git clone git@example.com:project-name.git
-   ```
-
-1. Create branch with your feature:
-
-   ```shell
-   git checkout -b feature_name
-   ```
-
-1. Write code. Commit changes:
-
-   ```shell
-   git commit -am "My feature is ready"
-   ```
-
-1. Push your branch to GitLab:
-
-   ```shell
-   git push origin feature_name
-   ```
-
-1. Review your code on commits page.
-
-1. Create a merge request.
-
-1. Your team lead reviews the code and merges it to the main branch.
+<!-- This redirect file can be deleted after <2024-09-26>. -->
+<!-- Redirects that point to other docs in the same project expire in three months. -->
+<!-- Redirects that point to docs in a different project or site (for example, link is not relative and starts with `https:`) expire in one year. -->
+<!-- Before deletion, see: https://docs.gitlab.com/ee/development/documentation/redirects.html -->

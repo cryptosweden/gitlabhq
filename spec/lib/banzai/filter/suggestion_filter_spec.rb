@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::SuggestionFilter do
+RSpec.describe Banzai::Filter::SuggestionFilter, feature_category: :team_planning do
   include FilterSpecHelper
 
   let(:input) { %(<pre class="code highlight js-syntax-highlight language-suggestion"><code>foo\n</code></pre>) }
@@ -25,7 +25,7 @@ RSpec.describe Banzai::Filter::SuggestionFilter do
   end
 
   context 'multi-line suggestions' do
-    let(:data_attr) { Banzai::Filter::SyntaxHighlightFilter::LANG_PARAMS_ATTR }
+    let(:data_attr) { Banzai::Filter::CodeLanguageFilter::LANG_PARAMS_ATTR }
     let(:input) { %(<pre class="code highlight js-syntax-highlight language-suggestion" #{data_attr}="-3+2"><code>foo\n</code></pre>) }
 
     it 'element has correct data-lang-params' do
@@ -35,4 +35,6 @@ RSpec.describe Banzai::Filter::SuggestionFilter do
       expect(pre[data_attr]).to eq('-3+2')
     end
   end
+
+  it_behaves_like 'pipeline timing check'
 end

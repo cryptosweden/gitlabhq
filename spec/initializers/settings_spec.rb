@@ -9,12 +9,7 @@ RSpec.describe Settings do
       expect(Gitlab.config.ldap.servers.main.label).to eq('ldap')
     end
 
-    # Specifically trying to cause this error discovered in EE when removing the
-    # reassignment of each server element with Settingslogic.
-    #
-    #   `undefined method `label' for #<Hash:0x007fbd18b59c08>`
-    #
-    it 'can be accessed in a very specific way that breaks without reassigning each element with Settingslogic' do
+    it 'can be accessed in a very specific way that breaks without reassigning each element' do
       server_settings = Gitlab.config.ldap.servers['main']
       expect(server_settings.label).to eq('ldap')
     end
@@ -56,6 +51,42 @@ RSpec.describe Settings do
           expect(described_class.host_without_www('http://bob:pass@www.gravatar.com:8080/avatar/%{hash}?s=%{size}&d=identicon')).to eq 'gravatar.com'
         end
       end
+    end
+  end
+
+  describe "#weak_passwords_digest_set" do
+    subject { described_class.gitlab.weak_passwords_digest_set }
+
+    it 'is a Set' do
+      expect(subject).to be_kind_of(Set)
+    end
+
+    it 'contains 4500 password digests' do
+      expect(subject.length).to eq(4500)
+    end
+
+    it 'includes 8 char weak password digest' do
+      expect(subject).to include(digest("password"))
+    end
+
+    it 'includes 16 char weak password digest' do
+      expect(subject).to include(digest("progressivehouse"))
+    end
+
+    it 'includes long char weak password digest' do
+      expect(subject).to include(digest("01234567890123456789"))
+    end
+
+    it 'does not include 7 char weak password digest' do
+      expect(subject).not_to include(digest("1234567"))
+    end
+
+    it 'does not include plaintext' do
+      expect(subject).not_to include("password")
+    end
+
+    def digest(plaintext)
+      Digest::SHA256.base64digest(plaintext)
     end
   end
 end

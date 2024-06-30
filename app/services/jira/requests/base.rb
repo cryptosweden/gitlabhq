@@ -3,18 +3,17 @@
 module Jira
   module Requests
     class Base
-      include ProjectServicesLoggable
-
       JIRA_API_VERSION = 2
       # Limit the size of the JSON error message we will attempt to parse, as the JSON is external input.
       JIRA_ERROR_JSON_SIZE_LIMIT = 5_000
 
       ERRORS = {
         connection: [Errno::ECONNRESET, Errno::ECONNREFUSED],
-        jira_ruby:  JIRA::HTTPError,
-        ssl:        OpenSSL::SSL::SSLError,
-        timeout:    [Timeout::Error, Errno::ETIMEDOUT],
-        uri:        [URI::InvalidURIError, SocketError]
+        jira_ruby: JIRA::HTTPError,
+        ssl: OpenSSL::SSL::SSLError,
+        timeout: [Timeout::Error, Errno::ETIMEDOUT],
+        uri: [URI::InvalidURIError, SocketError],
+        url_blocked: Gitlab::HTTP::BlockedUrlError
       }.freeze
       ALL_ERRORS = ERRORS.values.flatten.freeze
 
@@ -54,32 +53,37 @@ module Jira
       def request
         response = client.get(url)
         build_service_response(response)
-      rescue *ALL_ERRORS => e
-        log_error('Error sending message',
-          client_url: client.options[:site],
-          error: {
-            exception_class: e.class.name,
-            exception_message: e.message,
-            exception_backtrace: Gitlab::BacktraceCleaner.clean_backtrace(e.backtrace)
-          }
+      rescue *ALL_ERRORS => error
+        jira_integration.log_exception(error,
+          message: 'Error sending message',
+          client_url: client.options[:site]
         )
 
-        ServiceResponse.error(message: error_message(e))
+        ServiceResponse.error(message: error_message(error))
       end
 
       def auth_docs_link_start
-        auth_docs_link_url = Rails.application.routes.url_helpers.help_page_path('integration/jira', anchor: 'authentication-in-jira')
-        '<a href="%{url}" target="_blank" rel="noopener noreferrer">'.html_safe % { url: auth_docs_link_url }
+        auth_docs_link_url = Rails.application.routes.url_helpers.help_page_path('integration/jira/index', anchor: 'authentication-in-jira')
+        link_start(auth_docs_link_url)
       end
 
       def config_docs_link_start
         config_docs_link_url = Rails.application.routes.url_helpers.help_page_path('integration/jira/configure')
-        '<a href="%{url}" target="_blank" rel="noopener noreferrer">'.html_safe % { url: config_docs_link_url }
+        link_start(config_docs_link_url)
+      end
+
+      def config_integration_link_start
+        config_jira_integration_url = Rails.application.routes.url_helpers.edit_project_settings_integration_path(project, jira_integration)
+        link_start(config_jira_integration_url)
+      end
+
+      def link_start(url)
+        '<a href="%{url}" target="_blank" rel="noopener noreferrer">'.html_safe % { url: url }
       end
 
       def error_message(error)
         reportable_error_message(error) ||
-          s_('JiraRequest|An error occurred while requesting data from Jira. Check your %{docs_link_start}Jira integration configuration%{docs_link_end} and try again.').html_safe % { docs_link_start: config_docs_link_start, docs_link_end: '</a>'.html_safe }
+          (s_('JiraRequest|An error occurred while requesting data from Jira. Check your %{docs_link_start}Jira integration configuration%{docs_link_end} and try again.').html_safe % { docs_link_start: config_docs_link_start, docs_link_end: '</a>'.html_safe })
       end
 
       # Returns a user-facing error message if possible, otherwise `nil`.
@@ -95,6 +99,8 @@ module Jira
           s_('JiraRequest|A timeout error occurred while connecting to Jira. Try your request again.')
         when *ERRORS[:connection]
           s_('JiraRequest|A connection error occurred while connecting to Jira. Try your request again.')
+        when ERRORS[:url_blocked]
+          s_('JiraRequest|Unable to connect to the Jira URL. Please verify your %{config_link_start}Jira integration URL%{config_link_end} and attempt the connection again.').html_safe % { config_link_start: config_integration_link_start, config_link_end: '</a>'.html_safe }
         end
       end
 
@@ -107,9 +113,7 @@ module Jira
         when 'Forbidden'
           s_('JiraRequest|The credentials for accessing Jira are not allowed to access the data. Check your %{docs_link_start}Jira integration credentials%{docs_link_end} and try again.').html_safe % { docs_link_start: auth_docs_link_start, docs_link_end: '</a>'.html_safe }
         when 'Bad Request'
-          s_('JiraRequest|An error occurred while requesting data from Jira. Check your %{docs_link_start}Jira integration configuration%{docs_link_end} and try again.').html_safe % { docs_link_start: config_docs_link_start, docs_link_end: '</a>'.html_safe }
-        when /errorMessages/
-          jira_ruby_json_error_message(error.message)
+          jira_ruby_json_error_message(error.response.body) || (s_('JiraRequest|An error occurred while requesting data from Jira. Check your %{docs_link_start}Jira integration configuration%{docs_link_end} and try again.').html_safe % { docs_link_start: config_docs_link_start, docs_link_end: '</a>'.html_safe })
         end
       end
 
@@ -121,7 +125,7 @@ module Jira
           messages = Rails::Html::FullSanitizer.new.sanitize(messages).presence
           return unless messages
 
-          s_('JiraRequest|An error occurred while requesting data from Jira: %{messages}. Check your %{docs_link_start}Jira integration configuration%{docs_link_end} and try again.').html_safe % { messages: messages, docs_link_start: config_docs_link_start, docs_link_end: '</a>'.html_safe }
+          s_('JiraRequest|An error occurred while requesting data from Jira: %{messages} Check your %{docs_link_start}Jira integration configuration%{docs_link_end} and try again.').html_safe % { messages: messages, docs_link_start: config_docs_link_start, docs_link_end: '</a>'.html_safe }
         rescue JSON::ParserError
         end
       end

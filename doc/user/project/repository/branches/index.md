@@ -1,115 +1,522 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
+info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+description: "Understand how to name, manage, and protect Git branches."
 ---
 
-# Branches **(FREE)**
+# Branches
 
-A branch is a version of a project's working tree. You create a branch for each
-set of related changes you make. This keeps each set of changes separate from
-each other, allowing changes to be made in parallel, without affecting each
-other.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-After pushing your changes to a new branch, you can:
+Branches are versions of a project's working tree. When you create a new
+[project](../../index.md), GitLab creates a [default branch](default.md) (which
+cannot be deleted) for your repository. Default branch settings can be configured
+at the project, subgroup, group, or instance level.
 
-- Create a [merge request](../../merge_requests/index.md)
-- Perform inline code review
-- [Discuss](../../../discussions/index.md) your implementation with your team
-- Preview changes submitted to a new branch with [Review Apps](../../../../ci/review_apps/index.md).
+As your project grows, your team creates more
+branches, preferably by following [branch naming patterns](#prefix-branch-names-with-issue-numbers).
+Each branch represents a set of changes, which allows development work to be done
+in parallel. Development work in one branch does not affect another branch.
 
-You can also request [approval](../../merge_requests/approvals/index.md)
-from your managers.
+Branches are the foundation of development in a project:
 
-For more information on managing branches using the GitLab UI, see:
+1. To get started, create a branch and add commits to it.
+1. When the work is ready for review, create a [merge request](../../merge_requests/index.md) to propose
+   merging the changes in your branch. To streamline this process, you should follow
+   [branch naming patterns](#prefix-branch-names-with-issue-numbers).
+1. Preview changes in a branch with a [review app](../../../../ci/review_apps/index.md).
+1. After the contents of your branch are merged, [delete the merged branch](#delete-merged-branches).
 
-- [Default branches](default.md): When you create a new [project](../../index.md), GitLab creates a
-  default branch for the repository. You can change this setting at the project,
-  subgroup, group, or instance level.
-- [Create a branch](../web_editor.md#create-a-new-branch)
-- [Protected branches](../../protected_branches.md#protected-branches)
-- [Delete merged branches](#delete-merged-branches)
-- [Branch filter search box](#branch-filter-search-box)
+## Create branch
 
-You can also manage branches using the
-[command line](../../../../gitlab-basics/start-using-git.md#create-a-branch).
+Prerequisites:
 
-<i class="fa fa-youtube-play youtube" aria-hidden="true"></i>Watch the video [GitLab Flow](https://www.youtube.com/watch?v=InKNIvky2KE).
+- You must have at least the Developer role for the project.
 
-See also:
+To create a new branch from the GitLab UI:
 
-- [Branches API](../../../../api/branches.md), for information on operating on repository branches using the GitLab API.
-- [GitLab Flow](../../../../topics/gitlab_flow.md) documentation.
-- [Getting started with Git](../../../../topics/git/index.md) and GitLab.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Branches**.
+1. In the upper-right corner, select **New branch**.
+1. Enter a **Branch name**.
+1. In **Create from**, select the base of your branch: an existing branch, an existing
+   tag, or a commit SHA.
+1. Select **Create branch**.
 
-## Compare
+### In a blank project
+
+A [blank project](../../index.md#create-a-blank-project) does not contain a branch, but
+you can add one.
+
+Prerequisites:
+
+- You must have at least the Developer role for the project.
+- If you don't have the Maintainer or Owner role, the
+  [default branch protection](../../../group/manage.md#change-the-default-branch-protection-of-a-group)
+  must be set to `Partially protected` or `Not protected` for you to push a commit
+  to the default branch.
+
+To add a [default branch](default.md) to an empty project:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Scroll to **The repository for this project is empty** and select the type of
+   file you want to add.
+1. In the Web IDE, make any desired changes to this file, then select **Create commit**.
+1. Enter a commit message, and select **Commit**.
+
+GitLab creates a default branch and adds your file to it.
+
+### From an issue
+
+Prerequisites:
+
+- You must have at least the Developer role for the project.
+
+When viewing an issue, you can create an associated branch directly from that page.
+Branches created this way use the
+[default pattern for branch names from issues](#configure-default-pattern-for-branch-names-from-issues),
+including variables.
+
+Prerequisites:
+
+- You must have at least the Developer role for the project.
+
+To create a branch from an issue:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Plan > Issues** and find your issue.
+1. Below the issue description, find the **Create merge request** dropdown list, and select
+   **{chevron-down}** to display the dropdown list.
+1. Select **Create branch**. A default **Branch name** is provided, based on the
+   [default pattern](#configure-default-pattern-for-branch-names-from-issues) for
+   this project. If desired, enter a different **Branch name**.
+1. Select **Create branch** to create the branch based on your project's
+   [default branch](default.md).
+
+## Manage and protect branches
+
+GitLab provides multiple methods to protect individual branches. These methods
+ensure your branches receive oversight and quality checks from their creation to their deletion:
+
+- The [default branch](default.md) in your project receives extra protection.
+- Configure [protected branches](../../protected_branches.md)
+  to restrict who can commit to a branch, merge other branches into it, or merge
+  the branch itself into another branch.
+- Configure [approval rules](../../merge_requests/approvals/rules.md) to set review
+  requirements, including [security-related approvals](../../merge_requests/approvals/rules.md#security-approvals), before a branch can merge.
+- Integrate with third-party [status checks](../../merge_requests/status_checks.md)
+  to ensure your branch contents meet your standards of quality.
+
+You can manage your branches:
+
+- With the GitLab user interface.
+- With Git on the command line.
+- With the [Branches API](../../../../api/branches.md).
+
+### View all branches
+
+To view and manage your branches in the GitLab user interface:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Branches**.
+
+On this page, you can:
+
+- See all branches, or filter to see only active or stale branches.
+
+  A branch is considered active if a commit has been made to it in the last three months.
+  Otherwise it is considered stale.
+- Create new branches.
+- [Compare branches](#compare-branches).
+- Delete merged branches.
+
+### View branches with configured protections
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88279) in GitLab 15.1 with a flag named `branch_rules`. Disabled by default.
+> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/363170) in GitLab 15.10.
+> - [Enabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/363170) in GitLab 15.11.
+> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123368) in GitLab 16.1. Feature flag `branch_rules` removed.
+
+Branches in your repository can be [protected](../../protected_branches.md) in multiple ways. You can:
+
+- Limit who can push to the branch.
+- Limit who can merge the branch.
+- Require approval of all changes.
+- Require external tests to pass.
+
+The **Branch rules overview** page shows all branches with any configured protections,
+and their protection methods:
+
+![Example of a branch with configured protections](img/view_branch_protections_v15_10.png)
+
+Prerequisites:
+
+- You must have at least the Maintainer role for the project.
+
+To view the **Branch rules overview** list:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Repository**.
+1. Expand **Branch rules** to view all branches with protections.
+   - To add protections to a new branch:
+     1. Select **Add branch rule**.
+     1. Select **Create protected branch**.
+   - To view more information about protections on an existing branch:
+     1. Identify the branch you want more information about.
+     1. Select **View details** to see information about its:
+        - [Branch protections](../../protected_branches.md).
+        - [Approval rules](../../merge_requests/approvals/rules.md).
+        - [Status checks](../../merge_requests/status_checks.md).
+
+#### Create a branch rule
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88279) in GitLab 16.8 with a flag named `add_branch_rules`. Disabled by default.
+> - Feature flag `add_branch_rules` [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88279) to `edit_branch_rules` in GitLab 16.11. Disabled by default.
+> - **All branches** and **All protected branches** options [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/388129) in GitLab 17.0.
+
+FLAG:
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+This feature is available for testing, but not ready for production use.
+
+Prerequisites:
+
+- You must have at least the Maintainer role for the project.
+
+To create a branch rule:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Repository**.
+1. Expand **Branch rules**.
+1. Then:
+   - To enter a specific branch name or pattern:
+     1. In the **Add branch rule** dropdown list, select **Branch name or pattern**.
+     1. On the dialog, from the **Create branch rule** dropdown list, select a branch name or create a wildcard by typing `*`.
+   - To protect all branches in the project:
+     1. In the **Add branch rule** dropdown list, select **All branches**.
+     1. On the rule's details page, under **Merge request approvals**, enter the required number of approvals for the rule.
+   - To protect all branches in the project that are already specified as protected:
+     1. In the **Add branch rule** dropdown list, select **All protected branches**.
+     1. On the rule's details page, under **Merge request approvals**, enter the required number of approvals for the rule.
+
+#### Edit a branch rule
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88279) in GitLab 16.8 with a flag named `add_branch_rules`. Disabled by default.
+> - Feature flag `add_branch_rules` [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88279) to `edit_branch_rules` in GitLab 16.11. Disabled by default.
+
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available per project or for your entire instance, an administrator can [enable the feature flag](../../../../administration/feature_flags.md) named `edit_branch_rules`.
+On GitLab.com and GitLab Dedicated, this feature is not available.
+This feature is not ready for production use.
+
+Prerequisites:
+
+- You must have at least the Maintainer role for the project.
+
+To edit a branch rule:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Repository**.
+1. Expand **Branch rules**.
+1. Next to a rule you want to edit, select **View details**.
+1. In the upper-right corner, select **Edit**.
+1. In the dialog, from the **Create branch rule** dropdown list, select a branch name or create a wildcard by typing `*`.
+1. Select **Update**.
+
+#### Delete a branch rule
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88279) in GitLab 16.8 with a flag named `add_branch_rules`. Disabled by default.
+> - Feature flag `add_branch_rules` [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88279) to `edit_branch_rules` in GitLab 16.11. Disabled by default.
+
+FLAG:
+On self-managed GitLab, by default this feature is not available. To make it available per project or for your entire instance, an administrator can [enable the feature flag](../../../../administration/feature_flags.md) named `edit_branch_rules`.
+On GitLab.com and GitLab Dedicated, this feature is not available.
+This feature is not ready for production use.
+
+Prerequisites:
+
+- You must have at least the Maintainer role for the project.
+
+To delete a branch rule:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Repository**.
+1. Expand **Branch rules**.
+1. Next to a rule you want to delete, select **View details**.
+1. In the upper-right corner, select **Delete rule**.
+1. On the confirmation dialog, select **Delete branch rule**.
+
+## Name your branch
+
+Git enforces [branch name rules](https://git-scm.com/docs/git-check-ref-format)
+to help ensure branch names remain compatible with other tools. GitLab
+adds extra requirements for branch names, and provides benefits for well-structured branch names.
+
+GitLab enforces these additional rules on all branches:
+
+- No spaces are allowed in branch names.
+- Branch names with 40 hexadecimal characters are prohibited, because they are similar to Git commit hashes.
+- Branch names are case-sensitive.
+
+Common software packages, like Docker, can enforce
+[additional branch naming restrictions](../../../../administration/packages/container_registry.md#docker-connection-error).
+
+For the best compatibility with other software packages, use only:
+
+- Numbers
+- Hyphens (`-`)
+- Underscores (`_`)
+- Lowercase letters from the ASCII standard table
+
+You can use forward slashes (`/`) and emoji in branch names, but compatibility with other
+software packages cannot be guaranteed.
+
+Branch names with specific formatting offer extra benefits:
+
+- Streamline your merge request workflow by
+  [prefixing branch names with issue numbers](#prefix-branch-names-with-issue-numbers).
+- Automate [branch protections](../../protected_branches.md) based on branch name.
+- Test branch names with [push rules](../push_rules.md) before branches are pushed up to GitLab.
+- Define which [CI/CD jobs](../../../../ci/jobs/index.md) to run on merge requests.
+
+### Configure default pattern for branch names from issues
+
+By default, GitLab uses the pattern `%{id}-%{title}` when creating a branch from
+an issue, but you can change this pattern.
+
+Prerequisites:
+
+- You must have at least the Maintainer role for the project.
+
+To change the default pattern for branches created from issues:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Repository**.
+1. Expand **Branch defaults**.
+1. Scroll to **Branch name template** and enter a value. The field supports these variables:
+   - `%{id}`: The numeric ID of the issue.
+   - `%{title}`: The title of the issue, modified to use only characters acceptable in Git branch names.
+1. Select **Save changes**.
+
+### Prefix branch names with issue numbers
+
+To streamline the creation of merge requests, start your Git branch name with the
+issue number, followed by a hyphen.
+For example, to link a branch to issue `#123`, start the branch name with `123-`.
+
+The issue and the branch must be in the same project.
+
+GitLab uses the issue number to import data into the merge request:
+
+- The issue is marked as related to the merge request. The issue and merge request
+  display links to each other.
+- The branch is connected to the issue.
+- If your project is configured with a
+  [default closing pattern](../../issues/managing_issues.md#default-closing-pattern),
+  merging the merge request [also closes](../../issues/managing_issues.md#closing-issues-automatically)
+  the related issue.
+- If the merge request is in the same project, and not a fork, the issue milestone
+  and labels are copied to the merge request.
+
+## Compare branches
 
 To compare branches in a repository:
 
-1. Navigate to your project's repository.
-1. Select **Repository > Compare** in the sidebar.
-1. Select the target repository to compare with the [repository filter search box](#repository-filter-search-box).
-1. Select branches to compare using the [branch filter search box](#branch-filter-search-box).
-1. Click **Compare** to view the changes inline:
-
-   ![compare branches](img/compare_branches_v13_12.png)
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Compare revisions**.
+1. Select the **Source** branch to search for your desired branch. Exact matches are
+   shown first. You can refine your search with operators:
+   - `^` matches the beginning of the branch name: `^feat` matches `feat/user-authentication`.
+   - `$` matches the end of the branch name: `widget$` matches `feat/search-box-widget`.
+   - `*` matches using a wildcard: `branch*cache*` matches `fix/branch-search-cache-expiration`.
+   - You can combine operators: `^chore/*migration$` matches `chore/user-data-migration`.
+1. Select the **Target** repository and branch. Exact matches are shown first.
+1. Below **Show changes**, select the method to compare branches:
+   <!-- vale gitlab.SubstitutionWarning = NO -->
+   <!-- Disable Vale so it doesn't flag "since" -->
+   - **Only incoming changes from source** (default) shows differences from the source branch since
+     the latest common commit on both branches.
+     It doesn't include unrelated changes made to the target branch after the source branch was created.
+     This method uses the `git diff <from>...<to>`
+     [Git command](https://git-scm.com/docs/git-diff#Documentation/git-diff.txt-emgitdiffemltoptionsgtltcommitgtltcommitgt--ltpathgt82308203-1).
+     To compare branches, this method uses the merge base instead of the actual commit, so
+     changes from cherry-picked commits are shown as new changes.
+   - **Include changes to target since source was created** shows all the differences between the two
+     branches.
+     This method uses the `git diff <from> <to>`
+     [Git command](https://git-scm.com/docs/git-diff#Documentation/git-diff.txt-emgitdiffemltoptionsgt--merge-baseltcommitgtltcommitgt--ltpathgt82308203).
+   <!-- vale gitlab.SubstitutionWarning = YES -->
+1. Select **Compare** to show the list of commits, and changed files.
+1. Optional. To reverse the **Source** and **Target**, select **Swap revisions** (**{substitute}**).
 
 ## Delete merged branches
 
-![Delete merged branches](img/delete_merged_branches.png)
+Merged branches can be deleted in bulk if they meet all of these criteria:
 
-This feature allows merged branches to be deleted in bulk. Only branches that
-have been merged and [are not protected](../../protected_branches.md) are deleted as part of
-this operation.
+- They are not [protected branches](../../protected_branches.md).
+- They have been merged into the project's default branch.
 
-It's particularly useful to clean up old branches that were not deleted
-automatically when a merge request was merged.
+Prerequisites:
 
-## Repository filter search box
+- You must have at least the Developer role for the project.
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/52967) in GitLab 13.10.
+To do this:
 
-This feature allows you to search and select a repository quickly when [comparing branches](#compare).
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Branches**.
+1. In the upper right corner of the page, select **More** **{ellipsis_v}**.
+1. Select **Delete merged branches**.
+1. In the dialog, enter the word `delete` to confirm, then select **Delete merged branches**.
 
-![Repository filter search box](img/repository_filter_search_box_v13_12.png)
+## Configure workflows for target branches
 
-Search results appear in the following order:
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-- Repositories with names exactly matching the search terms.
-- Other repositories with names that include search terms, sorted alphabetically.
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/127115) in GitLab 16.4 [with a flag](../../../../administration/feature_flags.md) named `target_branch_rules_flag`. Enabled by default.
+> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/136431) in GitLab 16.7.
 
-## Branch filter search box
+Some projects use multiple long-term branches for development, like `develop` and `qa`.
+In these projects, you might want to keep `main` as the default branch, but expect
+merge requests to target `develop` or `qa` instead. Target branch workflows help ensure
+merge requests target the appropriate development branch for your project.
 
-![Branch filter search box](img/branch_filter_search_box_v13_12.png)
+When you create a merge request, the workflow checks the name of the branch. If the
+branch name matches the workflow, the merge request targets the branch you specify. If the branch name does not match, the merge request targets the
+default branch of the project.
 
-This feature allows you to search and select branches quickly. Search results appear in the following order:
+Rules are processed on a "first-match" basis - if two rules match the same branch name, the top-most rule is applied.
 
-- Branches with names that matched search terms exactly.
-- Other branches with names that include search terms, sorted alphabetically.
+Prerequisites:
 
-Sometimes when you have hundreds of branches you may want a more flexible matching pattern. In such cases you can use the following:
+- You must have at least the Maintainer role.
 
-- `^feature` matches only branch names that begin with 'feature'.
-- `feature$` matches only branch names that end with 'feature'.
+To create a target branch workflow:
 
-## Swap revisions
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Merge requests**.
+1. Scroll down to **Merge request branch workflow**
+1. Select **Add branch target**.
+1. For **Branch name pattern**, provide a string or wild card to compare against branch names.
+1. Select the **Target branch** to use when the branch name matches the **Branch name pattern**.
+1. Select **Save**.
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/60491) in GitLab 13.12.
+### Example
 
-![Before swap revisions](img/swap_revisions_before_v13_12.png)
+You could configure your project to have the following target branch workflows:
 
-The Swap revisions feature allows you to swap the Source and Target revisions. When the Swap revisions button is clicked, the selected revisions for Source and Target will be swapped.
+| Branch name pattern   | Target branch |
+|-------------|---------------|
+| `feature/*` | `develop`     |
+| `bug/*`     | `develop`     |
+| `release/*` | `main`        |
 
-![After swap revisions](img/swap_revisions_after_v13_12.png)
+These target branches simplify the process of creating merge requests for a project that:
 
-<!-- ## Troubleshooting
+- Uses `main` to represent the deployed state of your application.
+- Tracks current, unreleased development work in another long-running branch, like `develop`.
 
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
+If your workflow initially places new features in `develop` instead of `main`, these target branches
+ensure all branches matching either `feature/*` or `bug/*` do not target `main` by mistake.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->
+When you're ready to release to `main`, create a branch named `release/*`, and
+ensure this branch targets `main`.
+
+## Delete a target branch workflow
+
+When you remove a target branch workflow, existing merge requests remain unchanged.
+
+Prerequisites:
+
+- You must have at least the Maintainer role.
+
+To do this:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Merge requests**.
+1. Select **Delete** on the branch target you want to delete.
+
+## Related topics
+
+- [Protected branches](../../protected_branches.md)
+- [Branches API](../../../../api/branches.md)
+- [Protected Branches API](../../../../api/protected_branches.md)
+- [Getting started with Git](../../../../topics/git/index.md)
+
+## Troubleshooting
+
+### Multiple branches containing the same commit
+
+At a deeper technical level, Git branches aren't separate entities, but labels
+attached to a set of commit SHAs. When GitLab determines whether or not a branch has been
+merged, it checks the target branch for the existence of those commit SHAs.
+This behavior can cause unexpected results when two merge requests contain the same
+commits. In this example, branches `B` and `C` both start from the same commit (`3`)
+on branch `A`:
+
+```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
+gitGraph
+    accTitle: Diagram of multiple branches with the same commit
+    accDescr: Branches A and B contain the same commit, but branch B also contains other commits. Merging branch B makes branch A appear as merged, because all its commits are merged.
+    commit id:"a"
+    branch "branch A"
+    commit id:"b"
+    commit id:"c" type: HIGHLIGHT
+    branch "branch B"
+    commit id:"d"
+    checkout "branch A"
+    branch "branch C"
+    commit id:"e"
+    checkout main
+    merge "branch B" id:"merges commits b, c, d"
+```
+
+If you merge branch `B`, branch `A` also appears as merged (without any action from you)
+because all commits from branch `A` now appear in the target branch `main`. Branch `C`
+remains unmerged, because commit `5` wasn't part of branch `A` or `B`.
+
+Merge request `A` remains merged, even if you attempt to push new commits
+to its branch. If any changes in merge request `A` remain unmerged (because they
+weren't part of merge request `A`), open a new merge request for them.
+
+### Error: ambiguous `HEAD` branch exists
+
+In versions of Git earlier than 2.16.0, you could create a branch named `HEAD`.
+This branch named `HEAD` collides with the internal reference (also named `HEAD`)
+Git uses to describe the active (checked out) branch. This naming collision can
+prevent you from updating the default branch of your repository:
+
+```plaintext
+Error: Could not set the default branch. Do you have a branch named 'HEAD' in your repository?
+```
+
+To fix this problem:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Branches**.
+1. Search for a branch named `HEAD`.
+1. Make sure the branch has no uncommitted changes.
+1. Select **Delete branch**, then **Yes, delete branch**.
+
+Git versions [2.16.0 and later](https://github.com/git/git/commit/a625b092cc59940521789fe8a3ff69c8d6b14eb2),
+prevent you from creating a branch with this name.
+
+### Find all branches you've authored
+
+To find all branches you've authored in a project, run this command in a Git repository:
+
+```shell
+git for-each-ref --format='%(authoremail) %(refname:short)' | grep $(git config --get user.email)
+```
+
+To get a total of all branches in a project, sorted by author, run this command
+in a Git repository:
+
+```shell
+git for-each-ref --format='%(authoremail)'  | sort | uniq -c | sort -g
+```

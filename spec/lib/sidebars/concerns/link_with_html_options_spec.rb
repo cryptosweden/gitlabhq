@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
-RSpec.describe Sidebars::Concerns::LinkWithHtmlOptions do
+RSpec.describe Sidebars::Concerns::LinkWithHtmlOptions, feature_category: :navigation do
   let(:options) { {} }
 
   subject { Class.new { include Sidebars::Concerns::LinkWithHtmlOptions }.new }

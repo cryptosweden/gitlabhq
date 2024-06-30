@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::CleanupService do
+RSpec.describe Projects::CleanupService, feature_category: :source_code_management do
   subject(:service) { described_class.new(project) }
 
   describe '.enqueue' do
@@ -190,7 +190,7 @@ RSpec.describe Projects::CleanupService do
     Gitaly::ApplyBfgObjectMapStreamResponse::Entry.new(
       type: :COMMIT,
       old_oid: old_oid,
-      new_oid: Gitlab::Git::BLANK_SHA
+      new_oid: Gitlab::Git::SHA1_BLANK_SHA
     )
   end
 

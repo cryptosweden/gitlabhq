@@ -22,7 +22,7 @@
 #
 # **important**: If the cardinality of your collection is likely to be greater than 100,
 # then you will want to pass `max_page_size:` as part of the field definition
-# or (ideally) as part of the resolver `field_options`.
+# or (ideally) set `max_page_size` in the resolver.
 #
 # How to implement:
 # --------------------
@@ -63,6 +63,7 @@ module CachingArrayResolver
 
         queries.in_groups_of(max_union_size, false).each do |group|
           by_id = model_class
+            .select(all_fields, :union_member_idx)
             .from_union(tag(group), remove_duplicates: false)
             .preload(preload) # rubocop: disable CodeReuse/ActiveRecord
             .group_by { |r| r[primary_key] }
@@ -131,7 +132,7 @@ module CachingArrayResolver
     model_class.arel_table[Arel.star]
   end
 
-  # rubocop: disable Graphql/Descriptions (false positive!)
+  # rubocop: disable Graphql/Descriptions -- false positive
   def query_limit
     field&.max_page_size.presence || context.schema.default_max_page_size
   end

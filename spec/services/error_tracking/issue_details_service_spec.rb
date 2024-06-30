@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe ErrorTracking::IssueDetailsService do
+RSpec.describe ErrorTracking::IssueDetailsService, feature_category: :error_tracking do
   include_context 'sentry error tracking context'
 
-  subject { described_class.new(project, user, params) }
+  subject(:service) { described_class.new(project, user, params) }
 
   describe '#execute' do
     context 'with authorized user' do
@@ -14,7 +14,7 @@ RSpec.describe ErrorTracking::IssueDetailsService do
         let(:params) { { issue_id: detailed_error.id } }
 
         before do
-          expect(error_tracking_setting)
+          allow(error_tracking_setting)
             .to receive(:issue_details).and_return(issue: detailed_error)
         end
 
@@ -40,18 +40,45 @@ RSpec.describe ErrorTracking::IssueDetailsService do
       include_examples 'error tracking service sentry error handling', :issue_details
       include_examples 'error tracking service http status handling', :issue_details
 
-      context 'integrated error tracking' do
-        let_it_be(:error) { create(:error_tracking_error, project: project) }
-
-        let(:params) { { issue_id: error.id } }
+      context 'with integrated error tracking' do
+        let(:error_repository) { instance_double(Gitlab::ErrorTracking::ErrorRepository) }
+        let(:params) { { issue_id: issue_id } }
 
         before do
           error_tracking_setting.update!(integrated: true)
+
+          allow(service).to receive(:error_repository).and_return(error_repository)
         end
 
-        it 'returns the error in detailed format' do
-          expect(result[:status]).to eq(:success)
-          expect(result[:issue].to_json).to eq(error.to_sentry_detailed_error.to_json)
+        context 'when error is found' do
+          let(:error) { build_stubbed(:error_tracking_open_api_error, project_id: project.id) }
+          let(:issue_id) { error.fingerprint }
+
+          before do
+            allow(error_repository).to receive(:find_error).with(issue_id).and_return(error)
+          end
+
+          it 'returns the error in detailed format' do
+            expect(result[:status]).to eq(:success)
+            expect(result[:issue]).to eq(error)
+          end
+        end
+
+        context 'when error does not exist' do
+          let(:issue_id) { non_existing_record_id }
+
+          before do
+            allow(error_repository).to receive(:find_error).with(issue_id)
+              .and_raise(Gitlab::ErrorTracking::ErrorRepository::DatabaseError.new('Error not found'))
+          end
+
+          it 'returns the error in detailed format' do
+            expect(result).to match(
+              status: :error,
+              message: /Error not found/,
+              http_status: :bad_request
+            )
+          end
         end
       end
     end

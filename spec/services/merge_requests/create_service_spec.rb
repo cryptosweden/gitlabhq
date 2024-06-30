@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
+RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state, feature_category: :code_review_workflow do
   include ProjectForksHelper
+  include AfterNextHelpers
 
   let(:project) { create(:project, :repository) }
   let(:user) { create(:user) }
@@ -27,27 +28,31 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
       before do
         project.add_maintainer(user)
         project.add_developer(user2)
-        allow(service).to receive(:execute_hooks)
       end
 
       it 'creates an MR' do
         expect(merge_request).to be_valid
-        expect(merge_request.work_in_progress?).to be(false)
+        expect(merge_request.draft?).to be(false)
         expect(merge_request.title).to eq('Awesome merge_request')
         expect(merge_request.assignees).to be_empty
         expect(merge_request.merge_params['force_remove_source_branch']).to eq('1')
       end
 
-      it 'executes hooks with default action' do
-        expect(service).to have_received(:execute_hooks).with(merge_request)
+      it 'does not execute hooks' do
+        expect(project).not_to receive(:execute_hooks)
+
+        service.execute
       end
 
       it 'refreshes the number of open merge requests', :use_clean_rails_memory_store_caching do
-        expect { service.execute }
-          .to change { project.open_merge_requests_count }.from(0).to(1)
+        expect do
+          service.execute
+
+          BatchLoader::Executor.clear_current
+        end.to change { project.open_merge_requests_count }.from(0).to(1)
       end
 
-      it 'creates exactly 1 create MR event', :sidekiq_might_not_need_inline do
+      it 'creates exactly 1 create MR event', :sidekiq_inline do
         attributes = {
           action: :created,
           target_id: merge_request.id,
@@ -59,6 +64,24 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
 
       it 'sets the merge_status to preparing' do
         expect(merge_request.reload).to be_preparing
+      end
+
+      describe 'checking for spam' do
+        it 'checks for spam' do
+          expect_next_instance_of(MergeRequest) do |instance|
+            expect(instance).to receive(:check_for_spam).with(user: user, action: :create)
+          end
+
+          service.execute
+        end
+
+        it 'does not persist when spam' do
+          allow_next_instance_of(MergeRequest) do |instance|
+            allow(instance).to receive(:spam?).and_return(true)
+          end
+
+          expect(merge_request).not_to be_persisted
+        end
       end
 
       describe 'when marked with /draft' do
@@ -74,7 +97,7 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
           end
 
           it 'sets MR to draft' do
-            expect(merge_request.work_in_progress?).to be(true)
+            expect(merge_request.draft?).to be(true)
           end
         end
 
@@ -90,7 +113,7 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
           end
 
           it 'sets MR to draft' do
-            expect(merge_request.work_in_progress?).to be(true)
+            expect(merge_request.draft?).to be(true)
           end
         end
       end
@@ -102,7 +125,7 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
             description: 'please fix',
             source_branch: 'feature',
             target_branch: 'master',
-            assignees: [user2]
+            assignee_ids: [user2.id]
           }
         end
 
@@ -196,7 +219,7 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
 
             merge_request.reload
             expect(merge_request.pipelines_for_merge_request.count).to eq(1)
-            expect(merge_request.actual_head_pipeline).to be_detached_merge_request_pipeline
+            expect(merge_request.diff_head_pipeline).to be_detached_merge_request_pipeline
           end
 
           context 'when merge request is submitted from forked project' do
@@ -212,7 +235,6 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
             end
 
             before do
-              stub_feature_flags(ci_disallow_to_create_merge_request_pipelines_in_target_project: false)
               target_project.add_developer(user2)
               target_project.add_maintainer(user)
             end
@@ -220,7 +242,7 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
             it 'create detached merge request pipeline for fork merge request' do
               merge_request.reload
 
-              head_pipeline = merge_request.actual_head_pipeline
+              head_pipeline = merge_request.diff_head_pipeline
               expect(head_pipeline).to be_detached_merge_request_pipeline
               expect(head_pipeline.project).to eq(target_project)
             end
@@ -246,10 +268,13 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
 
           context "when branch pipeline was created before a merge request pipline has been created" do
             before do
-              create(:ci_pipeline, project: merge_request.source_project,
-                                   sha: merge_request.diff_head_sha,
-                                   ref: merge_request.source_branch,
-                                   tag: false)
+              create(
+                :ci_pipeline,
+                project: merge_request.source_project,
+                sha: merge_request.diff_head_sha,
+                ref: merge_request.source_branch,
+                tag: false
+              )
 
               merge_request
             end
@@ -257,7 +282,7 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
             it 'sets the latest detached merge request pipeline as the head pipeline' do
               merge_request.reload
 
-              expect(merge_request.actual_head_pipeline).to be_merge_request_event
+              expect(merge_request.diff_head_pipeline).to be_merge_request_event
             end
           end
         end
@@ -334,8 +359,27 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
         end
       end
 
+      context 'with a milestone' do
+        let(:milestone) { create(:milestone, project: project) }
+
+        let(:opts) { { title: 'Awesome merge_request', source_branch: 'feature', target_branch: 'master', milestone_id: milestone.id } }
+
+        it 'deletes the cache key for milestone merge request counter' do
+          expect_next(Milestones::MergeRequestsCountService, milestone)
+            .to receive(:delete_cache).and_call_original
+
+          expect(merge_request).to be_persisted
+        end
+      end
+
       it_behaves_like 'reviewer_ids filter' do
         let(:execute) { service.execute }
+      end
+
+      context 'when called in a transaction' do
+        it 'does not raise an error' do
+          expect { MergeRequest.transaction { described_class.new(project: project, current_user: user, params: opts).execute } }.not_to raise_error
+        end
       end
     end
 
@@ -423,19 +467,29 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
             }
           end
 
-          it 'invalidates open merge request counter for assignees when merge request is assigned' do
+          before do
             project.add_maintainer(user2)
+          end
 
+          it 'invalidates open merge request counter for assignees when merge request is assigned' do
             described_class.new(project: project, current_user: user, params: opts).execute
 
             expect(user2.assigned_open_merge_requests_count).to eq 1
+          end
+
+          it 'records the assignee assignment event', :sidekiq_inline do
+            mr = described_class.new(project: project, current_user: user, params: opts).execute.reload
+
+            expect(mr.assignment_events).to match([have_attributes(user_id: user2.id, action: 'add')])
           end
         end
 
         context "when issuable feature is private" do
           before do
-            project.project_feature.update!(issues_access_level: ProjectFeature::PRIVATE,
-                                           merge_requests_access_level: ProjectFeature::PRIVATE)
+            project.project_feature.update!(
+              issues_access_level: ProjectFeature::PRIVATE,
+              merge_requests_access_level: ProjectFeature::PRIVATE
+            )
           end
 
           levels = [Gitlab::VisibilityLevel::INTERNAL, Gitlab::VisibilityLevel::PUBLIC]
@@ -496,15 +550,12 @@ RSpec.describe MergeRequests::CreateService, :clean_gitlab_redis_shared_state do
           project.add_developer(user)
         end
 
-        it 'creates the merge request', :sidekiq_might_not_need_inline do
-          expect_next_instance_of(MergeRequest) do |instance|
-            expect(instance).to receive(:eager_fetch_ref!).and_call_original
-          end
-
+        it 'creates the merge request', :sidekiq_inline do
           merge_request = described_class.new(project: project, current_user: user, params: opts).execute
 
           expect(merge_request).to be_persisted
           expect(merge_request.iid).to be > 0
+          expect(merge_request.merge_request_diff).not_to be_empty
         end
 
         it 'does not create the merge request when the target project is archived' do

@@ -20,14 +20,10 @@ describe('Issue title suggestions item component', () => {
   }
 
   const findLink = () => wrapper.findComponent(GlLink);
-  const findAuthorLink = () => wrapper.findAll(GlLink).at(1);
+  const findAuthorLink = () => wrapper.findAllComponents(GlLink).at(1);
   const findIcon = () => wrapper.findComponent(GlIcon);
   const findTooltip = () => wrapper.findComponent(GlTooltip);
   const findUserAvatar = () => wrapper.findComponent(UserAvatarImage);
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   it('renders title', () => {
     createComponent();
@@ -105,7 +101,7 @@ describe('Issue title suggestions item component', () => {
       const count = wrapper.findAll('.suggestion-counts span').at(0);
 
       expect(count.text()).toContain('1');
-      expect(count.find(GlIcon).props('name')).toBe('thumb-up');
+      expect(count.findComponent(GlIcon).props('name')).toBe('thumb-up');
     });
 
     it('renders notes count', () => {
@@ -114,7 +110,7 @@ describe('Issue title suggestions item component', () => {
       const count = wrapper.findAll('.suggestion-counts span').at(1);
 
       expect(count.text()).toContain('2');
-      expect(count.find(GlIcon).props('name')).toBe('comment');
+      expect(count.findComponent(GlIcon).props('name')).toBe('comment');
     });
   });
 

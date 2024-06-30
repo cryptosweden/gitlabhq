@@ -4,7 +4,6 @@ module ErrorTracking
   class SentryClient
     module Issue
       BadRequestError = Class.new(StandardError)
-      ResponseInvalidSizeError = Class.new(StandardError)
 
       SENTRY_API_SORT_VALUE_MAP = {
         # <accepted_by_client> => <accepted_by_sentry_api>
@@ -18,8 +17,6 @@ module ErrorTracking
 
         issues = response[:issues]
         pagination = response[:pagination]
-
-        validate_size(issues)
 
         handle_mapping_exceptions do
           {
@@ -54,9 +51,7 @@ module ErrorTracking
       end
 
       def list_issue_sentry_query(issue_status:, limit:, sort: nil, search_term: '', cursor: nil)
-        unless SENTRY_API_SORT_VALUE_MAP.key?(sort)
-          raise BadRequestError, 'Invalid value for sort param'
-        end
+        raise BadRequestError, 'Invalid value for sort param' unless SENTRY_API_SORT_VALUE_MAP.key?(sort)
 
         {
           query: "is:#{issue_status} #{search_term}".strip,
@@ -64,12 +59,6 @@ module ErrorTracking
           sort: SENTRY_API_SORT_VALUE_MAP[sort],
           cursor: cursor
         }.compact
-      end
-
-      def validate_size(issues)
-        return if Gitlab::Utils::DeepSize.new(issues).valid?
-
-        raise ResponseInvalidSizeError, "Sentry API response is too big. Limit is #{Gitlab::Utils::DeepSize.human_default_max_size}."
       end
 
       def get_issue(issue_id:)
@@ -117,12 +106,14 @@ module ErrorTracking
       end
 
       def map_to_errors(issues)
-        issues.map(&method(:map_to_error))
+        issues.map { map_to_error(_1) }
       end
 
       def map_to_error(issue)
+        id = ensure_numeric!('id', issue.fetch('id'))
+
         Gitlab::ErrorTracking::Error.new(
-          id: issue.fetch('id'),
+          id: id,
           first_seen: issue.fetch('firstSeen', nil),
           last_seen: issue.fetch('lastSeen', nil),
           title: issue.fetch('title', nil),
@@ -131,7 +122,7 @@ module ErrorTracking
           count: issue.fetch('count', nil),
           message: issue.dig('metadata', 'value'),
           culprit: issue.fetch('culprit', nil),
-          external_url: issue_url(issue.fetch('id')),
+          external_url: issue_url(id),
           short_id: issue.fetch('shortId', nil),
           status: issue.fetch('status', nil),
           frequency: issue.dig('stats', '24h'),
@@ -142,8 +133,10 @@ module ErrorTracking
       end
 
       def map_to_detailed_error(issue)
-        Gitlab::ErrorTracking::DetailedError.new({
-          id: issue.fetch('id'),
+        id = ensure_numeric!('id', issue.fetch('id'))
+
+        Gitlab::ErrorTracking::DetailedError.new(
+          id: id,
           first_seen: issue.fetch('firstSeen', nil),
           last_seen: issue.fetch('lastSeen', nil),
           tags: extract_tags(issue),
@@ -153,7 +146,7 @@ module ErrorTracking
           count: issue.fetch('count', nil),
           message: issue.dig('metadata', 'value'),
           culprit: issue.fetch('culprit', nil),
-          external_url: issue_url(issue.fetch('id')),
+          external_url: issue_url(id),
           external_base_url: project_url,
           short_id: issue.fetch('shortId', nil),
           status: issue.fetch('status', nil),
@@ -169,7 +162,7 @@ module ErrorTracking
           last_release_short_version: issue.dig('lastRelease', 'shortVersion'),
           last_release_version: issue.dig('lastRelease', 'version'),
           integrated: false
-        })
+        )
       end
 
       def extract_tags(issue)

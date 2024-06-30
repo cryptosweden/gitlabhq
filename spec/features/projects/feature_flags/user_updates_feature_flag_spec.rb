@@ -2,15 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User updates feature flag', :js do
+RSpec.describe 'User updates feature flag', :js, feature_category: :feature_flags do
   include FeatureFlagHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project, namespace: user.namespace) }
-
-  before_all do
-    project.add_developer(user)
-  end
+  let_it_be(:project) { create(:project, namespace: user.namespace, developers: user) }
 
   before do
     sign_in(user)
@@ -18,13 +14,12 @@ RSpec.describe 'User updates feature flag', :js do
 
   context 'with a new version feature flag' do
     let!(:feature_flag) do
-      create_flag(project, 'test_flag', false, version: Operations::FeatureFlag.versions['new_version_flag'],
-                  description: 'For testing')
+      create_flag(project, 'test_flag', false,
+        version: Operations::FeatureFlag.versions['new_version_flag'], description: 'For testing')
     end
 
     let!(:strategy) do
-      create(:operations_strategy, feature_flag: feature_flag,
-             name: 'default', parameters: {})
+      create(:operations_strategy, feature_flag: feature_flag, name: 'default', parameters: {})
     end
 
     let!(:scope) do

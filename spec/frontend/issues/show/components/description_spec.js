@@ -1,76 +1,92 @@
-import $ from 'jquery';
-import { nextTick } from 'vue';
-import '~/behaviors/markdown/render_gfm';
-import { GlTooltip, GlModal } from '@gitlab/ui';
-import { stubComponent } from 'helpers/stub_component';
+import Vue, { nextTick } from 'vue';
+import VueApollo from 'vue-apollo';
+import projectWorkItemTypesQueryResponse from 'test_fixtures/graphql/work_items/project_work_item_types.query.graphql.json';
+import getIssueDetailsQuery from 'ee_else_ce/work_items/graphql/get_issue_details.query.graphql';
 import { TEST_HOST } from 'helpers/test_constants';
-import { mockTracking } from 'helpers/tracking_helper';
+import createMockApollo from 'helpers/mock_apollo_helper';
+import waitForPromises from 'helpers/wait_for_promises';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { createAlert } from '~/alert';
 import Description from '~/issues/show/components/description.vue';
+import eventHub from '~/issues/show/event_hub';
+import createWorkItemMutation from '~/work_items/graphql/create_work_item.mutation.graphql';
+import workItemTypesQuery from '~/work_items/graphql/project_work_item_types.query.graphql';
+import workItemByIidQuery from '~/work_items/graphql/work_item_by_iid.query.graphql';
 import TaskList from '~/task_list';
-import WorkItemDetailModal from '~/work_items/components/work_item_detail_modal.vue';
-import CreateWorkItem from '~/work_items/pages/create_work_item.vue';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
+import {
+  createWorkItemMutationErrorResponse,
+  createWorkItemMutationResponse,
+  getIssueDetailsResponse,
+  workItemByIidResponseFactory,
+} from 'jest/work_items/mock_data';
 import {
   descriptionProps as initialProps,
-  descriptionHtmlWithCheckboxes,
-  descriptionHtmlWithTask,
+  descriptionHtmlWithList,
+  descriptionHtmlWithDetailsTag,
 } from '../mock_data/mock_data';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 jest.mock('~/task_list');
+jest.mock('~/behaviors/markdown/render_gfm');
 
-const showModal = jest.fn();
-const hideModal = jest.fn();
+const mockSpriteIcons = '/icons.svg';
+const $toast = {
+  show: jest.fn(),
+};
+
+const issueDetailsResponse = getIssueDetailsResponse();
+const workItemTypesQueryHandler = jest.fn().mockResolvedValue(projectWorkItemTypesQueryResponse);
 
 describe('Description component', () => {
   let wrapper;
 
+  Vue.use(VueApollo);
+
   const findGfmContent = () => wrapper.find('[data-testid="gfm-content"]');
   const findTextarea = () => wrapper.find('[data-testid="textarea"]');
-  const findTaskActionButtons = () => wrapper.findAll('.js-add-task');
-  const findConvertToTaskButton = () => wrapper.find('.js-add-task');
+  const findListItems = () => findGfmContent().findAll('ul > li');
+  const findTaskActionButtons = () => wrapper.findAll('.task-list-item-actions');
 
-  const findTooltips = () => wrapper.findAllComponents(GlTooltip);
-  const findModal = () => wrapper.findComponent(GlModal);
-  const findCreateWorkItem = () => wrapper.findComponent(CreateWorkItem);
-  const findWorkItemDetailModal = () => wrapper.findComponent(WorkItemDetailModal);
+  function createComponent({
+    props = {},
+    provide,
+    issueDetailsQueryHandler = jest.fn().mockResolvedValue(issueDetailsResponse),
+    createWorkItemMutationHandler,
+  } = {}) {
+    const mockApollo = createMockApollo([
+      [workItemTypesQuery, workItemTypesQueryHandler],
+      [getIssueDetailsQuery, issueDetailsQueryHandler],
+      [createWorkItemMutation, createWorkItemMutationHandler],
+    ]);
 
-  function createComponent({ props = {}, provide = {} } = {}) {
+    mockApollo.clients.defaultClient.cache.writeQuery({
+      query: workItemByIidQuery,
+      variables: { fullPath: 'gitlab-org/gitlab-test', iid: '1' },
+      data: workItemByIidResponseFactory().data,
+    });
+
     wrapper = shallowMountExtended(Description, {
+      apolloProvider: mockApollo,
       propsData: {
-        issueId: 1,
+        issueId: '1',
+        issueIid: '1',
         ...initialProps,
         ...props,
       },
-      provide,
-      stubs: {
-        GlModal: stubComponent(GlModal, {
-          methods: {
-            show: showModal,
-            hide: hideModal,
-          },
-        }),
+      provide: {
+        fullPath: 'gitlab-org/gitlab-test',
+        hasIterationsFeature: true,
+        ...provide,
+      },
+      mocks: {
+        $toast,
       },
     });
   }
 
   beforeEach(() => {
-    if (!document.querySelector('.issuable-meta')) {
-      const metaData = document.createElement('div');
-      metaData.classList.add('issuable-meta');
-      metaData.innerHTML =
-        '<div class="flash-container"></div><span id="task_status"></span><span id="task_status_short"></span>';
-
-      document.body.appendChild(metaData);
-    }
-  });
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
-  afterAll(() => {
-    $('.issuable-meta .flash-container').remove();
+    window.gon = { sprite_icons: mockSpriteIcons };
   });
 
   it('doesnt animate first description changes', async () => {
@@ -101,8 +117,20 @@ describe('Description component', () => {
     expect(findGfmContent().classes()).toContain('issue-realtime-trigger-pulse');
   });
 
+  it('doesnt animate expand/collapse of details elements', async () => {
+    createComponent();
+
+    await wrapper.setProps({ descriptionHtml: descriptionHtmlWithDetailsTag.collapsed });
+    expect(findGfmContent().classes()).not.toContain('issue-realtime-pre-pulse');
+
+    await wrapper.setProps({ descriptionHtml: descriptionHtmlWithDetailsTag.expanded });
+    expect(findGfmContent().classes()).not.toContain('issue-realtime-pre-pulse');
+
+    await wrapper.setProps({ descriptionHtml: descriptionHtmlWithDetailsTag.collapsed });
+    expect(findGfmContent().classes()).not.toContain('issue-realtime-pre-pulse');
+  });
+
   it('applies syntax highlighting and math when description changed', async () => {
-    const prototypeSpy = jest.spyOn($.prototype, 'renderGFM');
     createComponent();
 
     await wrapper.setProps({
@@ -110,7 +138,7 @@ describe('Description component', () => {
     });
 
     expect(findGfmContent().exists()).toBe(true);
-    expect(prototypeSpy).toHaveBeenCalled();
+    expect(renderGFM).toHaveBeenCalled();
   });
 
   it('sets data-update-url', () => {
@@ -123,20 +151,20 @@ describe('Description component', () => {
       TaskList.mockClear();
     });
 
-    it('re-inits the TaskList when description changed', () => {
+    it('re-inits the TaskList when description changed', async () => {
       createComponent({
         props: {
           issuableType: 'issuableType',
         },
       });
-      wrapper.setProps({
+      await wrapper.setProps({
         descriptionHtml: 'changed',
       });
 
       expect(TaskList).toHaveBeenCalled();
     });
 
-    it('does not re-init the TaskList when canUpdate is false', async () => {
+    it('does not re-init the TaskList when canUpdate is false', () => {
       createComponent({
         props: {
           issuableType: 'issuableType',
@@ -150,13 +178,13 @@ describe('Description component', () => {
       expect(TaskList).not.toHaveBeenCalled();
     });
 
-    it('calls with issuableType dataType', () => {
+    it('calls with issuableType dataType', async () => {
       createComponent({
         props: {
           issuableType: 'issuableType',
         },
       });
-      wrapper.setProps({
+      await wrapper.setProps({
         descriptionHtml: 'changed',
       });
 
@@ -172,160 +200,164 @@ describe('Description component', () => {
     });
   });
 
-  describe('taskStatus', () => {
-    it('adds full taskStatus', async () => {
+  describe('with list', () => {
+    beforeEach(async () => {
       createComponent({
         props: {
-          taskStatus: '1 of 1',
+          descriptionHtml: descriptionHtmlWithList,
         },
       });
       await nextTick();
-
-      expect(document.querySelector('.issuable-meta #task_status').textContent.trim()).toBe(
-        '1 of 1',
-      );
     });
 
-    it('adds short taskStatus', async () => {
-      createComponent({
-        props: {
-          taskStatus: '1 of 1',
-        },
-      });
-      await nextTick();
-
-      expect(document.querySelector('.issuable-meta #task_status_short').textContent.trim()).toBe(
-        '1/1 task',
-      );
+    it('shows list items', () => {
+      expect(findListItems()).toHaveLength(3);
     });
 
-    it('clears task status text when no tasks are present', async () => {
-      createComponent({
-        props: {
-          taskStatus: '0 of 0',
-        },
+    it('shows list items drag icons', () => {
+      const dragIcon = findListItems().at(0).find('.drag-icon');
+
+      expect(dragIcon.classes()).toEqual(
+        expect.arrayContaining(['s14', 'gl-icon', 'gl-cursor-grab', 'gl-opacity-0']),
+      );
+      expect(dragIcon.attributes()).toMatchObject({
+        'aria-hidden': 'true',
+        role: 'img',
       });
-
-      await nextTick();
-
-      expect(document.querySelector('.issuable-meta #task_status').textContent.trim()).toBe('');
+      expect(dragIcon.find('use').attributes()).toEqual({
+        href: `${mockSpriteIcons}#grip`,
+      });
     });
   });
 
-  describe('with work items feature flag is enabled', () => {
-    describe('empty description', () => {
-      beforeEach(() => {
-        createComponent({
-          props: {
-            descriptionHtml: '',
-          },
-          provide: {
-            glFeatures: {
-              workItems: true,
-            },
-          },
+  describe('empty description', () => {
+    beforeEach(() => {
+      createComponent({
+        props: {
+          descriptionHtml: '',
+        },
+      });
+      return nextTick();
+    });
+
+    it('renders without error', () => {
+      expect(findTaskActionButtons()).toHaveLength(0);
+    });
+  });
+
+  describe('task list item actions', () => {
+    describe('converting the task list item to a task', () => {
+      describe('when successful', () => {
+        let createWorkItemMutationHandler;
+
+        beforeEach(async () => {
+          createWorkItemMutationHandler = jest
+            .fn()
+            .mockResolvedValue(createWorkItemMutationResponse);
+          const descriptionText = `Tasks
+
+1. [ ] item 1
+   1. [ ] item 2
+
+      paragraph text
+
+      1. [ ] item 3
+   1. [ ] item 4;`;
+          createComponent({
+            props: { descriptionText },
+            createWorkItemMutationHandler,
+          });
+          await waitForPromises();
+
+          eventHub.$emit('convert-task-list-item', '4:4-8:19');
+          await waitForPromises();
         });
-        return nextTick();
+
+        it('emits an event to update the description with the deleted task list item omitted', () => {
+          const newDescriptionText = `Tasks
+
+1. [ ] item 1
+   1. [ ] item 3
+   1. [ ] item 4;`;
+
+          expect(wrapper.emitted('saveDescription')).toEqual([[newDescriptionText]]);
+        });
+
+        it('calls a mutation to create a task', () => {
+          const workItemTypeIdForTask =
+            projectWorkItemTypesQueryResponse.data.workspace.workItemTypes.nodes.find(
+              (node) => node.name === 'Task',
+            ).id;
+          const { confidential, iteration, milestone } = issueDetailsResponse.data.issue;
+          expect(createWorkItemMutationHandler).toHaveBeenCalledWith({
+            input: {
+              confidential,
+              description: '\nparagraph text\n',
+              hierarchyWidget: {
+                parentId: 'gid://gitlab/WorkItem/1',
+              },
+              iterationWidget: {
+                iterationId: IS_EE ? iteration.id : null,
+              },
+              milestoneWidget: {
+                milestoneId: milestone.id,
+              },
+              projectPath: 'gitlab-org/gitlab-test',
+              title: 'item 2',
+              workItemTypeId: workItemTypeIdForTask,
+            },
+          });
+        });
+
+        it('shows a toast to confirm the creation of the task', () => {
+          expect($toast.show).toHaveBeenCalledWith('Converted to task', expect.any(Object));
+        });
       });
 
-      it('renders without error', () => {
-        expect(findTaskActionButtons()).toHaveLength(0);
+      describe('when unsuccessful', () => {
+        beforeEach(async () => {
+          createComponent({
+            props: { descriptionText: 'description' },
+            createWorkItemMutationHandler: jest
+              .fn()
+              .mockResolvedValue(createWorkItemMutationErrorResponse),
+          });
+          await waitForPromises();
+
+          eventHub.$emit('convert-task-list-item', '1:1-1:11');
+          await waitForPromises();
+        });
+
+        it('shows an alert with an error message', () => {
+          expect(createAlert).toHaveBeenCalledWith({
+            message: 'Something went wrong when creating task. Please try again.',
+            error: new Error('an error'),
+            captureError: true,
+          });
+        });
       });
     });
 
-    describe('description with checkboxes', () => {
-      beforeEach(() => {
+    describe('deleting the task list item', () => {
+      it('emits an event to update the description with the deleted task list item', () => {
+        const descriptionText = `Tasks
+
+1. [ ] item 1
+   1. [ ] item 2
+      1. [ ] item 3
+   1. [ ] item 4;`;
+        const newDescriptionText = `Tasks
+
+1. [ ] item 1
+   1. [ ] item 3
+   1. [ ] item 4;`;
         createComponent({
-          props: {
-            descriptionHtml: descriptionHtmlWithCheckboxes,
-          },
-          provide: {
-            glFeatures: {
-              workItems: true,
-            },
-          },
+          props: { descriptionText },
         });
-        return nextTick();
-      });
 
-      it('renders a list of hidden buttons corresponding to checkboxes in description HTML', () => {
-        expect(findTaskActionButtons()).toHaveLength(3);
-      });
+        eventHub.$emit('delete-task-list-item', '4:4-5:19');
 
-      it('renders a list of tooltips corresponding to checkboxes in description HTML', () => {
-        expect(findTooltips()).toHaveLength(3);
-        expect(findTooltips().at(0).props('target')).toBe(
-          findTaskActionButtons().at(0).attributes('id'),
-        );
-      });
-
-      it('does not show a modal by default', () => {
-        expect(findModal().props('visible')).toBe(false);
-      });
-
-      it('opens a modal when a button is clicked and displays correct title', async () => {
-        await findConvertToTaskButton().trigger('click');
-        expect(findCreateWorkItem().props('initialTitle').trim()).toBe('todo 1');
-      });
-
-      it('closes the modal on `closeCreateTaskModal` event', async () => {
-        await findConvertToTaskButton().trigger('click');
-        findCreateWorkItem().vm.$emit('closeModal');
-        expect(hideModal).toHaveBeenCalled();
-      });
-
-      it('emits `updateDescription` on `onCreate` event', () => {
-        const newDescription = `<p>New description</p>`;
-        findCreateWorkItem().vm.$emit('onCreate', newDescription);
-        expect(hideModal).toHaveBeenCalled();
-        expect(wrapper.emitted('updateDescription')).toEqual([[newDescription]]);
-      });
-    });
-
-    describe('work items detail', () => {
-      const findTaskLink = () => wrapper.find('a.gfm-issue');
-
-      beforeEach(() => {
-        createComponent({
-          props: {
-            descriptionHtml: descriptionHtmlWithTask,
-          },
-          provide: {
-            glFeatures: { workItems: true },
-          },
-        });
-        return nextTick();
-      });
-
-      it('opens when task button is clicked', async () => {
-        expect(findWorkItemDetailModal().props('visible')).toBe(false);
-
-        await findTaskLink().trigger('click');
-
-        expect(findWorkItemDetailModal().props('visible')).toBe(true);
-      });
-
-      it('closes from an open state', async () => {
-        await findTaskLink().trigger('click');
-
-        expect(findWorkItemDetailModal().props('visible')).toBe(true);
-
-        findWorkItemDetailModal().vm.$emit('close');
-        await nextTick();
-
-        expect(findWorkItemDetailModal().props('visible')).toBe(false);
-      });
-
-      it('tracks when opened', async () => {
-        const trackingSpy = mockTracking(undefined, wrapper.element, jest.spyOn);
-
-        await findTaskLink().trigger('click');
-
-        expect(trackingSpy).toHaveBeenCalledWith('workItems:show', 'viewed_work_item_from_modal', {
-          category: 'workItems:show',
-          label: 'work_item_view',
-          property: 'type_task',
-        });
+        expect(wrapper.emitted('saveDescription')).toEqual([[newDescriptionText]]);
       });
     });
   });

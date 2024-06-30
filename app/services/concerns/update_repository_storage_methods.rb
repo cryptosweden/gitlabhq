@@ -3,6 +3,8 @@
 module UpdateRepositoryStorageMethods
   include Gitlab::Utils::StrongMemoize
 
+  MAX_ERROR_LENGTH = 256
+
   Error = Class.new(StandardError)
 
   attr_reader :repository_storage_move
@@ -14,29 +16,36 @@ module UpdateRepositoryStorageMethods
   end
 
   def execute
-    repository_storage_move.with_lock do
-      return ServiceResponse.success unless repository_storage_move.scheduled? # rubocop:disable Cop/AvoidReturnFromBlocks
+    response = repository_storage_move.with_lock do
+      next ServiceResponse.success unless repository_storage_move.scheduled?
 
       repository_storage_move.start!
+
+      nil
     end
 
-    mirror_repositories unless same_filesystem?
+    return response if response
+
+    unless same_filesystem?
+      # Mirror the object pool first, as we'll later provide the pool's disk path as
+      # partitioning hints when mirroring member repositories.
+      mirror_object_pool(destination_storage_name)
+      mirror_repositories
+    end
+
+    repository_storage_move.finish_replication!
 
     repository_storage_move.transaction do
-      repository_storage_move.finish_replication!
-
       track_repository(destination_storage_name)
     end
 
-    unless same_filesystem?
-      remove_old_paths
-      enqueue_housekeeping
-    end
+    remove_old_paths unless same_filesystem?
 
     repository_storage_move.finish_cleanup!
 
     ServiceResponse.success
   rescue StandardError => e
+    repository_storage_move.update_column(:error_message, e.message.truncate(MAX_ERROR_LENGTH))
     repository_storage_move.do_fail!
 
     Gitlab::ErrorTracking.track_and_raise_exception(e, container_klass: container.class.to_s, container_path: container.full_path)
@@ -52,15 +61,29 @@ module UpdateRepositoryStorageMethods
     raise NotImplementedError
   end
 
+  def mirror_object_pool(_destination_shard)
+    # no-op, redefined for Projects::UpdateRepositoryStorageService
+    nil
+  end
+
   def mirror_repository(type:)
     unless wait_for_pushes(type)
       raise Error, s_('UpdateRepositoryStorage|Timeout waiting for %{type} repository pushes') % { type: type.name }
     end
 
-    repository = type.repository_for(container)
+    # `Projects::UpdateRepositoryStorageService`` expects the repository it is
+    # moving to have a `Project` as a container.
+    # This hack allows design repos to also be moved as part of a project move
+    # as before.
+    # The alternative to this hack is to setup a service like
+    # `Snippets::UpdateRepositoryStorageService' and a corresponding worker like
+    # `Snippets::UpdateRepositoryStorageWorker` for snippets.
+    #
+    # Gitlab issue: https://gitlab.com/gitlab-org/gitlab/-/issues/423429
+
+    repository = type.repository_for(type.design? ? container.design_management_repository : container)
     full_path = repository.full_path
     raw_repository = repository.raw
-    checksum = repository.checksum
 
     # Initialize a git repository on the target path
     new_repository = Gitlab::Git::Repository.new(
@@ -70,12 +93,14 @@ module UpdateRepositoryStorageMethods
       full_path
     )
 
-    new_repository.replicate(raw_repository)
-    new_checksum = new_repository.checksum
+    # Provide the object pool's disk path as a partitioning hint to Gitaly. This
+    # ensures Gitaly creates the repository in the same partition as its pool, so
+    # they can be correctly linked.
+    object_pool = repository.project&.pool_repository&.object_pool
+    hint = object_pool ? object_pool.relative_path : ""
 
-    if checksum != new_checksum
-      raise Error, s_('UpdateRepositoryStorage|Failed to verify %{type} repository checksum from %{old} to %{new}') % { type: type.name, old: checksum, new: new_checksum }
-    end
+    Repositories::ReplicateService.new(raw_repository)
+      .execute(new_repository, type.name, partition_hint: hint)
   end
 
   def same_filesystem?
@@ -93,10 +118,6 @@ module UpdateRepositoryStorageMethods
         nil
       ).remove
     end
-  end
-
-  def enqueue_housekeeping
-    # no-op
   end
 
   def wait_for_pushes(type)

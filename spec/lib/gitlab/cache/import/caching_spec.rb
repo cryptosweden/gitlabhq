@@ -2,7 +2,18 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
+RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_shared_state, feature_category: :importers do
+  shared_examples 'validated redis value' do
+    let(:value) { double('value', to_s: Object.new) }
+
+    it 'raise error if value.to_s does not return a String' do
+      value_as_string = value.to_s
+      message = /Value '#{value_as_string}' of type '#{value_as_string.class}' for '#{value.inspect}' is not a String/
+
+      expect { subject }.to raise_error(message)
+    end
+  end
+
   describe '.read' do
     it 'reads a value from the cache' do
       described_class.write('foo', 'bar')
@@ -21,7 +32,7 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
 
       expect(redis).to receive(:get).with(/foo/).and_return('bar')
       expect(redis).to receive(:expire).with(/foo/, described_class::TIMEOUT)
-      expect(Gitlab::Redis::Cache).to receive(:with).twice.and_yield(redis)
+      expect(Gitlab::Redis::SharedState).to receive(:with).twice.and_yield(redis)
 
       described_class.read('foo')
     end
@@ -33,7 +44,7 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
 
       expect(redis).to receive(:get).with(/foo/).and_return('')
       expect(redis).not_to receive(:expire)
-      expect(Gitlab::Redis::Cache).to receive(:with).and_yield(redis)
+      expect(Gitlab::Redis::SharedState).to receive(:with).once.and_yield(redis)
 
       described_class.read('foo')
     end
@@ -56,13 +67,23 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
       expect(described_class.write('foo', 10)).to eq(10)
       expect(described_class.read('foo')).to eq('10')
     end
+
+    it_behaves_like 'validated redis value' do
+      subject { described_class.write('foo', value) }
+    end
+  end
+
+  describe '.increment_by' do
+    it_behaves_like 'validated redis value' do
+      subject { described_class.increment_by('foo', value) }
+    end
   end
 
   describe '.increment' do
     it 'increment a key and returns the current value' do
       expect(described_class.increment('foo')).to eq(1)
 
-      value = Gitlab::Redis::Cache.with { |r| r.get(described_class.cache_key_for('foo')) }
+      value = Gitlab::Redis::SharedState.with { |r| r.get(described_class.cache_key_for('foo')) }
 
       expect(value.to_i).to eq(1)
     end
@@ -74,9 +95,13 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
       described_class.set_add('foo', 10)
 
       key = described_class.cache_key_for('foo')
-      values = Gitlab::Redis::Cache.with { |r| r.smembers(key) }
+      values = Gitlab::Redis::SharedState.with { |r| r.smembers(key) }
 
       expect(values).to eq(['10'])
+    end
+
+    it_behaves_like 'validated redis value' do
+      subject { described_class.set_add('foo', value) }
     end
   end
 
@@ -95,6 +120,10 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
       described_class.set_add('foo', 10)
 
       expect(described_class.set_includes?('foo', 10)).to eq(true)
+    end
+
+    it_behaves_like 'validated redis value' do
+      subject { described_class.set_includes?('foo', value) }
     end
   end
 
@@ -116,9 +145,13 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
       described_class.hash_add('foo', 2, 2)
 
       key = described_class.cache_key_for('foo')
-      values = Gitlab::Redis::Cache.with { |r| r.hgetall(key) }
+      values = Gitlab::Redis::SharedState.with { |r| r.hgetall(key) }
 
       expect(values).to eq({ '1' => '1', '2' => '2' })
+    end
+
+    it_behaves_like 'validated redis value' do
+      subject { described_class.hash_add('foo', 1, value) }
     end
   end
 
@@ -134,6 +167,40 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
     end
   end
 
+  describe '.hash_increment' do
+    it 'increments a value in a hash' do
+      described_class.hash_increment('foo', 'field', 1)
+      described_class.hash_increment('foo', 'field', 5)
+
+      key = described_class.cache_key_for('foo')
+      values = Gitlab::Redis::Cache.with { |r| r.hgetall(key) }
+
+      expect(values).to eq({ 'field' => '6' })
+    end
+
+    context 'when the value is not an integer' do
+      it 'returns' do
+        described_class.hash_increment('another-foo', 'another-field', 'not-an-integer')
+
+        key = described_class.cache_key_for('foo')
+        values = Gitlab::Redis::Cache.with { |r| r.hgetall(key) }
+
+        expect(values).to eq({})
+      end
+    end
+
+    context 'when the value is less than 0' do
+      it 'returns' do
+        described_class.hash_increment('another-foo', 'another-field', -5)
+
+        key = described_class.cache_key_for('foo')
+        values = Gitlab::Redis::Cache.with { |r| r.hgetall(key) }
+
+        expect(values).to eq({})
+      end
+    end
+  end
+
   describe '.write_multiple' do
     it 'sets multiple keys when key_prefix not set' do
       mapping = { 'foo' => 10, 'bar' => 20 }
@@ -142,7 +209,7 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
 
       mapping.each do |key, value|
         full_key = described_class.cache_key_for(key)
-        found = Gitlab::Redis::Cache.with { |r| r.get(full_key) }
+        found = Gitlab::Redis::SharedState.with { |r| r.get(full_key) }
 
         expect(found).to eq(value.to_s)
       end
@@ -155,10 +222,16 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
 
       mapping.each do |key, value|
         full_key = described_class.cache_key_for("pref/#{key}")
-        found = Gitlab::Redis::Cache.with { |r| r.get(full_key) }
+        found = Gitlab::Redis::SharedState.with { |r| r.get(full_key) }
 
         expect(found).to eq(value.to_s)
       end
+    end
+
+    it_behaves_like 'validated redis value' do
+      let(:mapping) { { 'foo' => value, 'bar' => value } }
+
+      subject { described_class.write_multiple(mapping) }
     end
   end
 
@@ -170,9 +243,67 @@ RSpec.describe Gitlab::Cache::Import::Caching, :clean_gitlab_redis_cache do
       described_class.expire('foo', timeout)
 
       key = described_class.cache_key_for('foo')
-      found_ttl = Gitlab::Redis::Cache.with { |r| r.ttl(key) }
+      found_ttl = Gitlab::Redis::SharedState.with { |r| r.ttl(key) }
 
       expect(found_ttl).to be <= timeout
+    end
+  end
+
+  describe '.write_if_greater' do
+    it_behaves_like 'validated redis value' do
+      subject { described_class.write_if_greater('foo', value) }
+    end
+  end
+
+  describe '.list_add' do
+    it 'adds a value to a list' do
+      described_class.list_add('foo', 10)
+      described_class.list_add('foo', 20)
+
+      key = described_class.cache_key_for('foo')
+      values = Gitlab::Redis::Cache.with { |r| r.lrange(key, 0, -1) }
+
+      expect(values).to eq(%w[10 20])
+    end
+
+    context 'when a limit is provided' do
+      it 'limits the size of the list to the number of items defined by the limit' do
+        described_class.list_add('foo', 10, limit: 3)
+        described_class.list_add('foo', 20, limit: 3)
+        described_class.list_add('foo', 30, limit: 3)
+        described_class.list_add('foo', 40, limit: 3)
+
+        key = described_class.cache_key_for('foo')
+        values = Gitlab::Redis::Cache.with { |r| r.lrange(key, 0, -1) }
+
+        expect(values).to eq(%w[20 30 40])
+      end
+    end
+
+    it_behaves_like 'validated redis value' do
+      subject { described_class.list_add('foo', value) }
+    end
+  end
+
+  describe '.values_from_list' do
+    it 'returns empty hash when the list is empty' do
+      expect(described_class.values_from_list('foo')).to eq([])
+    end
+
+    it 'returns the items stored in the list in order' do
+      described_class.list_add('foo', 10)
+      described_class.list_add('foo', 20)
+      described_class.list_add('foo', 10)
+
+      expect(described_class.values_from_list('foo')).to eq(%w[10 20 10])
+    end
+  end
+
+  describe '.del' do
+    it 'deletes the key' do
+      described_class.write('foo', 'value')
+
+      expect { described_class.del('foo') }.to change { described_class.read('foo') }.from('value').to(nil)
     end
   end
 end

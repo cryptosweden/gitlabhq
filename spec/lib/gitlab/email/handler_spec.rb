@@ -60,10 +60,10 @@ RSpec.describe Gitlab::Email::Handler do
 
   describe 'regexps are set properly' do
     let(:addresses) do
-      %W(sent_notification_key#{Gitlab::IncomingEmail::UNSUBSCRIBE_SUFFIX} sent_notification_key#{Gitlab::IncomingEmail::UNSUBSCRIBE_SUFFIX_LEGACY}) +
-        %w(sent_notification_key path-to-project-123-user_email_token-merge-request) +
-        %w(path-to-project-123-user_email_token-issue path-to-project-123-user_email_token-issue-123) +
-        %w(path/to/project+user_email_token path/to/project+merge-request+user_email_token some/project)
+      %W[sent_notification_key#{Gitlab::Email::Common::UNSUBSCRIBE_SUFFIX} sent_notification_key#{Gitlab::Email::Common::UNSUBSCRIBE_SUFFIX_LEGACY}] +
+        %w[sent_notification_key path-to-project-123-user_email_token-merge-request] +
+        %w[path-to-project-123-user_email_token-issue path-to-project-123-user_email_token-issue-123] +
+        %w[path/to/project+user_email_token path/to/project+merge-request+user_email_token some/project]
     end
 
     before do
@@ -75,7 +75,7 @@ RSpec.describe Gitlab::Email::Handler do
         described_class.for(email, address).class
       end
 
-      expect(matched_handlers.uniq).to match_array(Gitlab::Email::Handler.handlers)
+      expect(matched_handlers.uniq).to match_array(described_class.handlers)
     end
 
     it 'can pick exactly one handler for each address' do

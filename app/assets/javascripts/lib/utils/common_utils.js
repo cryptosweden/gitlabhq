@@ -4,15 +4,18 @@
 
 import { GlBreakpointInstance as breakpointInstance } from '@gitlab/ui/dist/utils';
 import $ from 'jquery';
-import Cookies from 'js-cookie';
-import { isFunction, defer } from 'lodash';
-import { SCOPED_LABEL_DELIMITER } from '~/vue_shared/components/sidebar/labels_select_widget/constants';
+import { isFunction, defer, escape, partial, toLower } from 'lodash';
+import Cookies from '~/lib/utils/cookies';
+import { SCOPED_LABEL_DELIMITER } from '~/sidebar/components/labels/labels_select_widget/constants';
+import { DEFAULT_CI_CONFIG_PATH, CI_CONFIG_PATH_EXTENSION } from '~/lib/utils/constants';
 import { convertToCamelCase, convertToSnakeCase } from './text_utility';
 import { isObject } from './type_utility';
 import { getLocationHash } from './url_utility';
 
+export const NO_SCROLL_TO_HASH_CLASS = 'js-no-scroll-to-hash';
+
 export const getPagePath = (index = 0) => {
-  const { page = '' } = document?.body?.dataset;
+  const { page = '' } = document.body.dataset;
   return page.split(':')[index];
 };
 
@@ -26,15 +29,13 @@ export const checkPageAndAction = (page, action) => {
 export const isInIncidentPage = () => checkPageAndAction('incidents', 'show');
 export const isInIssuePage = () => checkPageAndAction('issues', 'show');
 export const isInDesignPage = () => checkPageAndAction('issues', 'designs');
-export const isInMRPage = () => checkPageAndAction('merge_requests', 'show');
+export const isInMRPage = () =>
+  checkPageAndAction('merge_requests', 'show') ||
+  checkPageAndAction('merge_requests', 'diffs') ||
+  checkPageAndAction('merge_requests', 'rapid_diffs');
 export const isInEpicPage = () => checkPageAndAction('epics', 'show');
 
 export const getDashPath = (path = window.location.pathname) => path.split('/-/')[1] || null;
-
-export const getCspNonceValue = () => {
-  const metaTag = document.querySelector('meta[name=csp-nonce]');
-  return metaTag && metaTag.content;
-};
 
 export const rstrip = (val) => {
   if (val) {
@@ -58,6 +59,15 @@ export const disableButtonIfEmptyField = (fieldSelector, buttonSelector, eventNa
   });
 };
 
+/**
+ * Return the given element's offset height, or 0 if the element doesn't exist.
+ * Probably not useful outside of handleLocationHash.
+ *
+ * @param {HTMLElement} element The element to measure.
+ * @returns {number} The element's offset height.
+ */
+const getElementOffsetHeight = (element) => element?.offsetHeight ?? 0;
+
 // automatically adjust scroll position for hash urls taking the height of the navbar into account
 // https://github.com/twitter/bootstrap/issues/1768
 export const handleLocationHash = () => {
@@ -68,53 +78,58 @@ export const handleLocationHash = () => {
   hash = decodeURIComponent(hash);
 
   const target = document.getElementById(hash) || document.getElementById(`user-content-${hash}`);
+
+  // Allow targets to opt out of scroll behavior
+  if (target?.classList.contains(NO_SCROLL_TO_HASH_CLASS)) return;
+
   const fixedTabs = document.querySelector('.js-tabs-affix');
   const fixedDiffStats = document.querySelector('.js-diff-files-changed');
-  const fixedNav = document.querySelector('.navbar-gitlab');
+  const headerLoggedOut = document.querySelector('.header-logged-out');
+  const fixedTopBar = document.querySelector('.top-bar-fixed');
   const performanceBar = document.querySelector('#js-peek');
   const topPadding = 8;
   const diffFileHeader = document.querySelector('.js-file-title');
-  const versionMenusContainer = document.querySelector('.mr-version-menus-container');
-  const fixedIssuableTitle = document.querySelector('.issue-sticky-header');
+  const getFixedIssuableTitle = () => document.querySelector('.issue-sticky-header');
+  const getMRStickyHeader = () => document.querySelector('.merge-request-sticky-header');
+  const isIssuePage = isInIssuePage();
 
   let adjustment = 0;
-  if (fixedNav) adjustment -= fixedNav.offsetHeight;
+  let fixedIssuableTitleOffset = 0;
 
-  if (target && target.scrollIntoView) {
-    target.scrollIntoView(true);
-  }
+  adjustment -= getElementOffsetHeight(headerLoggedOut);
+  adjustment -= getElementOffsetHeight(fixedTabs);
+  adjustment -= getElementOffsetHeight(fixedDiffStats);
+  adjustment -= getElementOffsetHeight(fixedTopBar);
+  adjustment -= getElementOffsetHeight(performanceBar);
+  adjustment -= getElementOffsetHeight(diffFileHeader);
 
-  if (fixedTabs) {
-    adjustment -= fixedTabs.offsetHeight;
-  }
-
-  if (fixedDiffStats) {
-    adjustment -= fixedDiffStats.offsetHeight;
-  }
-
-  if (performanceBar) {
-    adjustment -= performanceBar.offsetHeight;
-  }
-
-  if (diffFileHeader) {
-    adjustment -= diffFileHeader.offsetHeight;
-  }
-
-  if (versionMenusContainer) {
-    adjustment -= versionMenusContainer.offsetHeight;
-  }
-
-  if (isInIssuePage()) {
-    adjustment -= fixedIssuableTitle?.offsetHeight;
+  if (isIssuePage) {
+    adjustment -= topPadding;
+    fixedIssuableTitleOffset = getElementOffsetHeight(getFixedIssuableTitle());
+    adjustment -= fixedIssuableTitleOffset;
   }
 
   if (isInMRPage()) {
     adjustment -= topPadding;
+    adjustment -= getElementOffsetHeight(getMRStickyHeader()) - getElementOffsetHeight(fixedTabs);
+  }
+
+  if (target?.scrollIntoView) {
+    target.scrollIntoView(true);
   }
 
   setTimeout(() => {
     window.scrollBy(0, adjustment);
   });
+
+  if (isIssuePage) {
+    if (fixedIssuableTitleOffset === 0) {
+      setTimeout(() => {
+        fixedIssuableTitleOffset = -1 * getElementOffsetHeight(getFixedIssuableTitle());
+        window.scrollBy(0, fixedIssuableTitleOffset);
+      }, 200);
+    }
+  }
 };
 
 // Check if element scrolled into viewport from above or below
@@ -145,7 +160,7 @@ export const getOuterHeight = (selector) => {
   const element = document.querySelector(selector);
 
   if (!element) {
-    return undefined;
+    return 0;
   }
 
   return element.offsetHeight;
@@ -155,39 +170,36 @@ export const contentTop = () => {
   const isDesktop = breakpointInstance.isDesktop();
   const heightCalculators = [
     () => getOuterHeight('#js-peek'),
-    () => getOuterHeight('.navbar-gitlab'),
+    () => getOuterHeight('.header-logged-out'),
+    () => getOuterHeight('.top-bar-fixed'),
     ({ desktop }) => {
-      const container = document.querySelector('.line-resolve-all-container');
+      const mrStickyHeader = document.querySelector('.merge-request-sticky-header');
+      if (mrStickyHeader) {
+        return mrStickyHeader.offsetHeight;
+      }
+
+      const container = document.querySelector('.discussions-counter');
       let size = 0;
 
       if (!desktop && container) {
         size = container.offsetHeight;
       }
 
+      size += getOuterHeight('.merge-request-tabs');
+      size += getOuterHeight('.issue-sticky-header.gl-fixed');
+
       return size;
     },
-    () => getOuterHeight('.merge-request-tabs'),
     () => getOuterHeight('.js-diff-files-changed'),
-    () => getOuterHeight('.issue-sticky-header.gl-fixed'),
     ({ desktop }) => {
       const diffsTabIsActive = window.mrTabs?.currentAction === 'diffs';
-      let size;
-
-      if (desktop && diffsTabIsActive) {
-        size = getOuterHeight('.diff-file .file-title-flex-parent:not([style="display:none"])');
-      }
-
-      return size;
+      const isDiscussionScroll =
+        desktop && diffsTabIsActive && window.location.hash.startsWith('#note');
+      return isDiscussionScroll
+        ? getOuterHeight('.diffs .diff-file .file-title-flex-parent:not([style="display:none"])')
+        : 0;
     },
-    ({ desktop }) => {
-      let size;
-
-      if (desktop) {
-        size = getOuterHeight('.mr-version-controls');
-      }
-
-      return size;
-    },
+    ({ desktop }) => (desktop ? getOuterHeight('.mr-version-controls') : 0),
   ];
 
   return heightCalculators.reduce((totalHeight, calculator) => {
@@ -282,23 +294,59 @@ export const getSelectedFragment = (restrictToNode) => {
   return documentFragment;
 };
 
-export const insertText = (target, text) => {
-  // Firefox doesn't support `document.execCommand('insertText', false, text)` on textareas
-  const { selectionStart, selectionEnd, value } = target;
+function execInsertText(text, hasSelection) {
+  if (text !== '') {
+    return document.execCommand('insertText', false, text);
+  }
 
+  if (hasSelection) {
+    return document.execCommand('delete');
+  }
+
+  // Nothing to do :)
+  return true;
+}
+
+/**
+ * This method inserts text into a textarea/input field.
+ * Uses `execCommand` if supported
+ *
+ * @param {HTMLElement} target - textarea/input to have text inserted into
+ * @param {String | function} text - text to be inserted
+ */
+export const insertText = (target, text) => {
+  const { selectionStart, selectionEnd, value } = target;
   const textBefore = value.substring(0, selectionStart);
   const textAfter = value.substring(selectionEnd, value.length);
-
   const insertedText = text instanceof Function ? text(textBefore, textAfter) : text;
-  const newText = textBefore + insertedText + textAfter;
+  const hasSelection = selectionEnd !== selectionStart;
 
-  // eslint-disable-next-line no-param-reassign
-  target.value = newText;
-  // eslint-disable-next-line no-param-reassign
-  target.selectionStart = selectionStart + insertedText.length;
+  // The `execCommand` is officially deprecated.  However, for `insertText`,
+  // there is currently no alternative. We need to use it in order to trigger
+  // the browser's undo tracking when we insert text.
+  // Per https://developer.mozilla.org/en-US/docs/Web/API/Document/execCommand on 2022-04-11,
+  //   The Clipboard API can be used instead of execCommand in many cases,
+  //   but execCommand is still sometimes useful. In particular, the Clipboard
+  //   API doesn't replace the insertText command
+  // So we attempt to use it if possible. Otherwise, fall back to just replacing
+  // the value as before. In this case, Undo will be broken with inserted text.
+  // Testing on older versions of Firefox:
+  //   87 and below: does not work and falls through to just replacing value.
+  //     87 was released in Mar of 2021
+  //   89 and above: works well
+  //     89 was released in May of 2021
+  if (!execInsertText(insertedText, hasSelection)) {
+    const newText = textBefore + insertedText + textAfter;
 
-  // eslint-disable-next-line no-param-reassign
-  target.selectionEnd = selectionStart + insertedText.length;
+    // eslint-disable-next-line no-param-reassign
+    target.value = newText;
+
+    // eslint-disable-next-line no-param-reassign
+    target.selectionStart = selectionStart + insertedText.length;
+
+    // eslint-disable-next-line no-param-reassign
+    target.selectionEnd = selectionStart + insertedText.length;
+  }
 
   // Trigger autosave
   target.dispatchEvent(new Event('input'));
@@ -350,8 +398,8 @@ export const buildUrlWithCurrentLocation = (param) => {
  *
  * @param {String} param
  */
-export const historyPushState = (newUrl) => {
-  window.history.pushState({}, document.title, newUrl);
+export const historyPushState = (newUrl, state = {}) => {
+  window.history.pushState(state, document.title, newUrl);
 };
 
 /**
@@ -438,7 +486,7 @@ export const backOff = (fn, timeout = 60000) => {
 export const spriteIcon = (icon, className = '') => {
   const classAttribute = className.length > 0 ? `class="${className}"` : '';
 
-  return `<svg ${classAttribute}><use xlink:href="${gon.sprite_icons}#${icon}" /></svg>`;
+  return `<svg ${classAttribute}><use xlink:href="${gon.sprite_icons}#${escape(icon)}" /></svg>`;
 };
 
 /**
@@ -519,6 +567,22 @@ export const convertObjectPropsToCamelCase = (obj = {}, options = {}) =>
   convertObjectProps(convertToCamelCase, obj, options);
 
 /**
+ * This method returns a new object with lowerCase property names
+ *
+ * Reasoning for this method is to ensure consistent access for some
+ * sort of objects
+ *
+ * This method also supports additional params in `options` object
+ *
+ * @param {Object} obj - Object to be converted.
+ * @param {Object} options - Object containing additional options.
+ * @param {boolean} options.deep - FLag to allow deep object converting
+ * @param {Array[]} options.dropKeys - List of properties to discard while building new object
+ * @param {Array[]} options.ignoreKeyNames - List of properties to leave intact while building new object
+ */
+export const convertObjectPropsToLowerCase = partial(convertObjectProps, toLower);
+
+/**
  * Converts all the object keys to snake case
  *
  * This method also supports additional params in `options` object
@@ -557,8 +621,7 @@ export const addSelectOnFocusBehaviour = (selector = '.js-select-on-focus') => {
  * @param {Number} precision
  */
 export const roundOffFloat = (number, precision = 0) => {
-  // eslint-disable-next-line no-restricted-properties
-  const multiplier = Math.pow(10, precision);
+  const multiplier = 10 ** precision;
   return Math.round(number * multiplier) / multiplier;
 };
 
@@ -588,8 +651,7 @@ export const roundToNearestHalf = (num) => Math.round(num * 2).toFixed() / 2;
  * @param {Number} precision
  */
 export const roundDownFloat = (number, precision = 0) => {
-  // eslint-disable-next-line no-restricted-properties
-  const multiplier = Math.pow(10, precision);
+  const multiplier = 10 ** precision;
   return Math.floor(number * multiplier) / multiplier;
 };
 
@@ -597,71 +659,11 @@ export const roundDownFloat = (number, precision = 0) => {
  * Represents navigation type constants of the Performance Navigation API.
  * Detailed explanation see https://developer.mozilla.org/en-US/docs/Web/API/PerformanceNavigation.
  */
-export const NavigationType = {
+export const navigationType = {
   TYPE_NAVIGATE: 0,
   TYPE_RELOAD: 1,
   TYPE_BACK_FORWARD: 2,
   TYPE_RESERVED: 255,
-};
-
-/**
- * Method to perform case-insensitive search for a string
- * within multiple properties and return object containing
- * properties in case there are multiple matches or `null`
- * if there's no match.
- *
- * Eg; Suppose we want to allow user to search using for a string
- *     within `iid`, `title`, `url` or `reference` props of a target object;
- *
- *     const objectToSearch = {
- *       "iid": 1,
- *       "title": "Error omnis quos consequatur ullam a vitae sed omnis libero cupiditate. &3",
- *       "url": "/groups/gitlab-org/-/epics/1",
- *       "reference": "&1",
- *     };
- *
- *    Following is how we call searchBy and the return values it will yield;
- *
- *    -  `searchBy('omnis', objectToSearch);`: This will return `{ title: ... }` as our
- *        query was found within title prop we only return that.
- *    -  `searchBy('1', objectToSearch);`: This will return `{ "iid": ..., "reference": ..., "url": ... }`.
- *    -  `searchBy('https://gitlab.com/groups/gitlab-org/-/epics/1', objectToSearch);`:
- *        This will return `{ "url": ... }`.
- *    -  `searchBy('foo', objectToSearch);`: This will return `null` as no property value
- *        matched with our query.
- *
- *    You can learn more about behaviour of this method by referring to tests
- *    within `spec/frontend/lib/utils/common_utils_spec.js`.
- *
- * @param {string} query String to search for
- * @param {object} searchSpace Object containing properties to search in for `query`
- */
-export const searchBy = (query = '', searchSpace = {}) => {
-  const targetKeys = searchSpace !== null ? Object.keys(searchSpace) : [];
-
-  if (!query || !targetKeys.length) {
-    return null;
-  }
-
-  const normalizedQuery = query.toLowerCase();
-  const matches = targetKeys
-    .filter((item) => {
-      const searchItem = `${searchSpace[item]}`.toLowerCase();
-
-      return (
-        searchItem.indexOf(normalizedQuery) > -1 ||
-        normalizedQuery.indexOf(searchItem) > -1 ||
-        normalizedQuery === searchItem
-      );
-    })
-    .reduce((acc, prop) => {
-      const match = acc;
-      match[prop] = searchSpace[prop];
-
-      return acc;
-    }, {});
-
-  return Object.keys(matches).length ? matches : null;
 };
 
 /**
@@ -702,21 +704,6 @@ export const getCookie = (name) => Cookies.get(name);
 export const removeCookie = (name) => Cookies.remove(name);
 
 /**
- * Returns the status of a feature flag.
- * Currently, there is no way to access feature
- * flags in Vuex other than directly tapping into
- * window.gon.
- *
- * This should only be used on Vuex. If feature flags
- * need to be accessed in Vue components consider
- * using the Vue feature flag mixin.
- *
- * @param {String} flag Feature flag
- * @returns {Boolean} on/off
- */
-export const isFeatureFlagEnabled = (flag) => window.gon.features?.[flag];
-
-/**
  * This method takes in array with snake_case strings
  * and returns a new array with camelCase strings
  *
@@ -746,3 +733,44 @@ export const getFirstPropertyValue = (data) => {
 
   return data[key];
 };
+
+export const isCurrentUser = (userId) => {
+  const currentUserId = window.gon?.current_user_id;
+
+  if (!currentUserId) {
+    return false;
+  }
+
+  return Number(userId) === currentUserId;
+};
+
+/**
+ * Clones an object via JSON stringifying and re-parsing.
+ * This ensures object references are not persisted (e.g. unlike lodash cloneDeep)
+ */
+export const cloneWithoutReferences = (obj) => {
+  return JSON.parse(JSON.stringify(obj));
+};
+
+/**
+ * Returns true if the given path is the default CI config path.
+ */
+export const isDefaultCiConfig = (path) => {
+  return path === DEFAULT_CI_CONFIG_PATH;
+};
+
+/**
+ * Returns true if the given path has the CI config path extension.
+ */
+export const hasCiConfigExtension = (path) => {
+  return CI_CONFIG_PATH_EXTENSION.test(path);
+};
+
+/**
+ * Checks if an element with position:sticky is stuck
+ *
+ * @param el
+ * @returns {boolean}
+ */
+export const isElementStuck = (el) =>
+  el.getBoundingClientRect().top <= parseInt(getComputedStyle(el).top, 10);

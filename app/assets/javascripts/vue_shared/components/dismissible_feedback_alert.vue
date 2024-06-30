@@ -37,8 +37,8 @@ export default {
 
 <template>
   <div v-show="showAlert">
-    <local-storage-sync v-model="isDismissed" :storage-key="storageKey" as-json />
-    <gl-alert v-if="showAlert" @dismiss="dismissFeedbackAlert">
+    <local-storage-sync v-model="isDismissed" :storage-key="storageKey" />
+    <gl-alert v-if="showAlert" v-bind="$attrs" @dismiss="dismissFeedbackAlert">
       <slot></slot>
     </gl-alert>
   </div>

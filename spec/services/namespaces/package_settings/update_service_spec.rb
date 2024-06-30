@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::Namespaces::PackageSettings::UpdateService do
+RSpec.describe ::Namespaces::PackageSettings::UpdateService, feature_category: :package_registry do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be_with_reload(:namespace) { create(:group) }
@@ -33,8 +33,39 @@ RSpec.describe ::Namespaces::PackageSettings::UpdateService do
 
     shared_examples 'updating the namespace package setting' do
       it_behaves_like 'updating the namespace package setting attributes',
-        from: { maven_duplicates_allowed: true, maven_duplicate_exception_regex: 'SNAPSHOT', generic_duplicates_allowed: true, generic_duplicate_exception_regex: 'foo' },
-        to: { maven_duplicates_allowed: false, maven_duplicate_exception_regex: 'RELEASE', generic_duplicates_allowed: false, generic_duplicate_exception_regex: 'bar' }
+        from: {
+          maven_duplicates_allowed: true,
+          maven_duplicate_exception_regex: 'SNAPSHOT',
+          generic_duplicates_allowed: true,
+          generic_duplicate_exception_regex: 'foo',
+          nuget_duplicates_allowed: true,
+          nuget_duplicate_exception_regex: 'foo',
+          maven_package_requests_forwarding: true,
+          lock_maven_package_requests_forwarding: false,
+          npm_package_requests_forwarding: nil,
+          lock_npm_package_requests_forwarding: false,
+          pypi_package_requests_forwarding: nil,
+          lock_pypi_package_requests_forwarding: false,
+          nuget_symbol_server_enabled: false,
+          terraform_module_duplicates_allowed: false,
+          terraform_module_duplicate_exception_regex: 'foo'
+        }, to: {
+          maven_duplicates_allowed: false,
+          maven_duplicate_exception_regex: 'RELEASE',
+          generic_duplicates_allowed: false,
+          generic_duplicate_exception_regex: 'bar',
+          nuget_duplicates_allowed: false,
+          nuget_duplicate_exception_regex: 'bar',
+          maven_package_requests_forwarding: true,
+          lock_maven_package_requests_forwarding: true,
+          npm_package_requests_forwarding: true,
+          lock_npm_package_requests_forwarding: true,
+          pypi_package_requests_forwarding: true,
+          lock_pypi_package_requests_forwarding: true,
+          nuget_symbol_server_enabled: true,
+          terraform_module_duplicates_allowed: true,
+          terraform_module_duplicate_exception_regex: 'bar'
+        }
 
       it_behaves_like 'returning a success'
 
@@ -63,15 +94,29 @@ RSpec.describe ::Namespaces::PackageSettings::UpdateService do
     context 'with existing namespace package setting' do
       let_it_be(:package_settings) { create(:namespace_package_setting, namespace: namespace) }
       let_it_be(:params) do
-        { maven_duplicates_allowed: false,
+        {
+          maven_duplicates_allowed: false,
           maven_duplicate_exception_regex: 'RELEASE',
           generic_duplicates_allowed: false,
-          generic_duplicate_exception_regex: 'bar' }
+          generic_duplicate_exception_regex: 'bar',
+          nuget_duplicates_allowed: false,
+          nuget_duplicate_exception_regex: 'bar',
+          maven_package_requests_forwarding: true,
+          lock_maven_package_requests_forwarding: true,
+          npm_package_requests_forwarding: true,
+          lock_npm_package_requests_forwarding: true,
+          pypi_package_requests_forwarding: true,
+          lock_pypi_package_requests_forwarding: true,
+          nuget_symbol_server_enabled: true,
+          terraform_module_duplicates_allowed: true,
+          terraform_module_duplicate_exception_regex: 'bar'
+        }
       end
 
       where(:user_role, :shared_examples_name) do
-        :maintainer | 'updating the namespace package setting'
-        :developer  | 'updating the namespace package setting'
+        :owner      | 'updating the namespace package setting'
+        :maintainer | 'denying access to namespace package setting'
+        :developer  | 'denying access to namespace package setting'
         :reporter   | 'denying access to namespace package setting'
         :guest      | 'denying access to namespace package setting'
         :anonymous  | 'denying access to namespace package setting'
@@ -90,8 +135,9 @@ RSpec.describe ::Namespaces::PackageSettings::UpdateService do
       let_it_be(:package_settings) { namespace.package_settings }
 
       where(:user_role, :shared_examples_name) do
-        :maintainer | 'creating the namespace package setting'
-        :developer  | 'creating the namespace package setting'
+        :owner      | 'creating the namespace package setting'
+        :maintainer | 'denying access to namespace package setting'
+        :developer  | 'denying access to namespace package setting'
         :reporter   | 'denying access to namespace package setting'
         :guest      | 'denying access to namespace package setting'
         :anonymous  | 'denying access to namespace package setting'

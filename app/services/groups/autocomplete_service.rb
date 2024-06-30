@@ -13,7 +13,8 @@ module Groups
       IssuesFinder.new(current_user, finder_params)
         .execute
         .preload(project: :namespace)
-        .select(:iid, :title, :project_id)
+        .with_work_item_type
+        .select(:iid, :title, :project_id, :namespace_id, 'work_item_types.icon_name')
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
@@ -41,7 +42,7 @@ module Groups
     def commands(noteable)
       return [] unless noteable
 
-      QuickActions::InterpretService.new(nil, current_user).available_commands(noteable)
+      QuickActions::InterpretService.new(container: group, current_user: current_user).available_commands(noteable)
     end
   end
 end

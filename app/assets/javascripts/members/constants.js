@@ -1,7 +1,13 @@
 import { GlFilteredSearchToken } from '@gitlab/ui';
 
 import { __, s__ } from '~/locale';
-import { OPERATOR_IS_ONLY } from '~/vue_shared/components/filtered_search_bar/constants';
+import { OPERATORS_IS } from '~/vue_shared/components/filtered_search_bar/constants';
+
+// Overridden in EE
+export const GROUPS_APP_OPTIONS = {};
+export const PROJECTS_APP_OPTIONS = {};
+
+export const ACTION_BUTTONS = {};
 
 export const FIELD_KEY_ACCOUNT = 'account';
 export const FIELD_KEY_SOURCE = 'source';
@@ -12,6 +18,7 @@ export const FIELD_KEY_MAX_ROLE = 'maxRole';
 export const FIELD_KEY_USER_CREATED_AT = 'userCreatedAt';
 export const FIELD_KEY_LAST_ACTIVITY_ON = 'lastActivityOn';
 export const FIELD_KEY_EXPIRATION = 'expiration';
+export const FIELD_KEY_ACTIVITY = 'activity';
 export const FIELD_KEY_LAST_SIGN_IN = 'lastSignIn';
 export const FIELD_KEY_ACTIONS = 'actions';
 
@@ -23,40 +30,40 @@ export const FIELDS = [
       asc: 'name_asc',
       desc: 'name_desc',
     },
+    tdClass: '!gl-align-middle',
   },
   {
     key: FIELD_KEY_SOURCE,
     label: __('Source'),
     thClass: 'col-meta',
-    tdClass: 'col-meta',
+    tdClass: 'col-meta !gl-align-middle',
   },
   {
     key: FIELD_KEY_GRANTED,
     label: __('Access granted'),
-    thClass: 'col-meta',
-    tdClass: 'col-meta',
     sort: {
       asc: 'last_joined',
       desc: 'oldest_joined',
     },
+    tdClass: '!gl-align-middle',
   },
   {
     key: FIELD_KEY_INVITED,
     label: __('Invited'),
     thClass: 'col-meta',
-    tdClass: 'col-meta',
+    tdClass: 'col-meta !gl-align-middle',
   },
   {
     key: FIELD_KEY_REQUESTED,
     label: __('Requested'),
     thClass: 'col-meta',
-    tdClass: 'col-meta',
+    tdClass: 'col-meta !gl-align-middle',
   },
   {
     key: FIELD_KEY_MAX_ROLE,
     label: __('Max role'),
     thClass: 'col-max-role',
-    tdClass: 'col-max-role',
+    tdClass: 'col-max-role !gl-align-middle',
     sort: {
       asc: 'access_level_asc',
       desc: 'access_level_desc',
@@ -66,11 +73,17 @@ export const FIELDS = [
     key: FIELD_KEY_EXPIRATION,
     label: __('Expiration'),
     thClass: 'col-expiration',
-    tdClass: 'col-expiration',
+    tdClass: 'col-expiration !gl-align-middle',
+  },
+  {
+    key: FIELD_KEY_ACTIVITY,
+    label: s__('Members|Activity'),
+    thClass: 'col-activity',
+    tdClass: 'col-activity !gl-align-middle',
   },
   {
     key: FIELD_KEY_USER_CREATED_AT,
-    label: __('Created on'),
+    label: s__('Members|User created'),
     sort: {
       asc: 'oldest_created_user',
       desc: 'recent_created_user',
@@ -109,7 +122,7 @@ export const FILTERED_SEARCH_TOKEN_TWO_FACTOR = {
   title: s__('Members|2FA'),
   token: GlFilteredSearchToken,
   unique: true,
-  operators: OPERATOR_IS_ONLY,
+  operators: OPERATORS_IS,
   options: [
     { value: 'enabled', title: s__('Members|Enabled') },
     { value: 'disabled', title: s__('Members|Disabled') },
@@ -123,38 +136,57 @@ export const FILTERED_SEARCH_TOKEN_WITH_INHERITED_PERMISSIONS = {
   title: s__('Members|Membership'),
   token: GlFilteredSearchToken,
   unique: true,
-  operators: OPERATOR_IS_ONLY,
+  operators: OPERATORS_IS,
   options: [
     { value: 'exclude', title: s__('Members|Direct') },
-    { value: 'only', title: s__('Members|Inherited') },
+    {
+      value: 'only',
+      title: gon.features?.webuiMembersInheritedUsers
+        ? s__('Members|Indirect')
+        : s__('Members|Inherited'),
+    },
   ],
+};
+
+export const FILTERED_SEARCH_TOKEN_GROUPS_WITH_INHERITED_PERMISSIONS = {
+  ...FILTERED_SEARCH_TOKEN_WITH_INHERITED_PERMISSIONS,
+  type: 'groups_with_inherited_permissions',
 };
 
 export const AVAILABLE_FILTERED_SEARCH_TOKENS = [
   FILTERED_SEARCH_TOKEN_TWO_FACTOR,
   FILTERED_SEARCH_TOKEN_WITH_INHERITED_PERMISSIONS,
+  FILTERED_SEARCH_TOKEN_GROUPS_WITH_INHERITED_PERMISSIONS,
 ];
 
 export const AVATAR_SIZE = 48;
 
-export const MEMBER_TYPES = {
+export const MEMBERS_TAB_TYPES = Object.freeze({
   user: 'user',
   group: 'group',
   invite: 'invite',
   accessRequest: 'accessRequest',
-};
+  placeholder: 'placeholder',
+});
 
-export const TAB_QUERY_PARAM_VALUES = {
+// `app/models/members/group_member.rb`
+export const MEMBER_MODEL_TYPE_GROUP_MEMBER = 'GroupMember';
+
+// `app/models/members/project_member.rb`
+export const MEMBER_MODEL_TYPE_PROJECT_MEMBER = 'ProjectMember';
+
+export const TAB_QUERY_PARAM_VALUES = Object.freeze({
   group: 'groups',
   invite: 'invited',
   accessRequest: 'access_requests',
-};
+  placeholder: 'placeholders',
+});
 
 /**
  * This user state value comes from the User model
  * see the state machine in app/models/user.rb
  */
-export const USER_STATE_BLOCKED_PENDING_APPROVAL = 'blocked_pending_approval';
+export const USER_STATE_BLOCKED = 'blocked_pending_approval';
 
 /**
  * This and following member state constants' values
@@ -164,16 +196,12 @@ export const MEMBER_STATE_CREATED = 0;
 export const MEMBER_STATE_AWAITING = 1;
 export const MEMBER_STATE_ACTIVE = 2;
 
-export const BADGE_LABELS_AWAITING_USER_SIGNUP = __('Awaiting user signup');
-export const BADGE_LABELS_PENDING_OWNER_APPROVAL = __('Pending owner approval');
-
-export const DAYS_TO_EXPIRE_SOON = 7;
+export const BADGE_LABELS_AWAITING_SIGNUP = __('Awaiting user signup');
+export const BADGE_LABELS_PENDING = __('Pending owner action');
 
 export const LEAVE_MODAL_ID = 'member-leave-modal';
 
 export const REMOVE_GROUP_LINK_MODAL_ID = 'remove-group-link-modal-id';
-
-export const SEARCH_TOKEN_TYPE = 'filtered-search-term';
 
 export const SORT_QUERY_PARAM_NAME = 'sort';
 export const ACTIVE_TAB_QUERY_PARAM_NAME = 'tab';
@@ -182,3 +210,8 @@ export const MEMBER_ACCESS_LEVEL_PROPERTY_NAME = 'access_level';
 
 export const GROUP_LINK_BASE_PROPERTY_NAME = 'group_link';
 export const GROUP_LINK_ACCESS_LEVEL_PROPERTY_NAME = 'group_access';
+
+export const I18N_USER_YOU = __("It's you");
+export const I18N_USER_BLOCKED = __('Blocked');
+export const I18N_USER_BOT = __('Bot');
+export const I188N_USER_2FA = __('2FA');

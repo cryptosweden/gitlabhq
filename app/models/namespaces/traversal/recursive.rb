@@ -19,6 +19,12 @@ module Namespaces
       end
       alias_method :recursive_root_ancestor, :root_ancestor
 
+      def all_project_ids
+        namespace = user_namespace? ? self : recursive_self_and_descendant_ids
+        Project.where(namespace: namespace).select(:id)
+      end
+      alias_method :recursive_all_project_ids, :all_project_ids
+
       # Returns all ancestors, self, and descendants of the current namespace.
       def self_and_hierarchy
         object_hierarchy(self.class.where(id: id))
@@ -63,19 +69,17 @@ module Namespaces
 
       # Returns all the descendants of the current namespace.
       def descendants
-        object_hierarchy(self.class.where(parent_id: id))
-          .base_and_descendants
+        object_hierarchy(self.class.where(parent_id: id)).base_and_descendants
       end
       alias_method :recursive_descendants, :descendants
 
       def self_and_descendants
-        object_hierarchy(self.class.where(id: id))
-          .base_and_descendants
+        object_hierarchy(self.class.where(id: id)).base_and_descendants
       end
       alias_method :recursive_self_and_descendants, :self_and_descendants
 
       def self_and_descendant_ids
-        recursive_self_and_descendants.select(:id)
+        object_hierarchy(self.class.where(id: id)).base_and_descendant_ids
       end
       alias_method :recursive_self_and_descendant_ids, :self_and_descendant_ids
 

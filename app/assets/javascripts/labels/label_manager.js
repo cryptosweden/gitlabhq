@@ -3,7 +3,7 @@
 import $ from 'jquery';
 import Sortable from 'sortablejs';
 import { dispose } from '~/tooltips';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { __ } from '~/locale';
 
@@ -68,7 +68,7 @@ export default class LabelManager {
     const $detachedLabel = $label.detach();
     this.toggleLabelPriorityBadge($detachedLabel, action);
 
-    const $labelEls = $target.find('li.label-list-item');
+    const $labelEls = $target.find('.js-label-list-item');
 
     /*
      * If there is a label element in the target, we'd want to
@@ -106,13 +106,13 @@ export default class LabelManager {
     if (action === 'remove') {
       $('.js-priority-badge', $label).remove();
     } else {
-      $('.label-links', $label).append(this.$badgeItemTemplate.clone().html());
+      $('.label-links', $label).prepend(this.$badgeItemTemplate.clone().html());
     }
   }
 
   onPrioritySortUpdate() {
     this.savePrioritySort().catch(() =>
-      createFlash({
+      createAlert({
         message: this.errorMessage,
       }),
     );
@@ -127,7 +127,7 @@ export default class LabelManager {
   rollbackLabelPosition($label, originalAction) {
     const action = originalAction === 'remove' ? 'add' : 'remove';
     this.toggleLabelPriority($label, action, false);
-    createFlash({
+    createAlert({
       message: this.errorMessage,
     });
   }

@@ -105,7 +105,7 @@ module Ci
 
         Result.new(status: 200)
       when 'failed'
-        build.drop_with_exit_code!(params[:failure_reason] || :unknown_failure, params[:exit_code])
+        build.drop_with_exit_code!(params[:failure_reason], params[:exit_code])
 
         Result.new(status: 200)
       else
@@ -168,6 +168,7 @@ module Ci
     def ensure_pending_state
       build_state = Ci::BuildPendingState.safe_find_or_create_by(
         build_id: build.id,
+        partition_id: build.partition_id,
         state: params.fetch(:state),
         trace_checksum: trace_checksum,
         trace_bytesize: trace_bytesize,
@@ -216,12 +217,11 @@ module Ci
     end
 
     def chunks_migration_enabled?
-      ::Feature.enabled?(:ci_enable_live_trace, build.project) &&
-        ::Feature.enabled?(:ci_accept_trace, build.project, type: :ops, default_enabled: true)
+      ::Feature.enabled?(:ci_enable_live_trace, build.project)
     end
 
     def log_invalid_chunks?
-      ::Feature.enabled?(:ci_trace_log_invalid_chunks, build.project, type: :ops, default_enabled: false)
+      ::Feature.enabled?(:ci_trace_log_invalid_chunks, build.project, type: :ops)
     end
   end
 end

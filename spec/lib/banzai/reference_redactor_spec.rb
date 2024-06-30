@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::ReferenceRedactor do
+RSpec.describe Banzai::ReferenceRedactor, feature_category: :team_planning do
   let(:user) { create(:user) }
   let(:project) { build(:project) }
   let(:redactor) { described_class.new(Banzai::RenderContext.new(project, user)) }
@@ -35,7 +35,7 @@ RSpec.describe Banzai::ReferenceRedactor do
       end
 
       context 'when data-original attribute provided' do
-        let(:original_content) { '<code>foo</code>' }
+        let(:original_content) { '&lt;script&gt;alert(1);&lt;/script&gt;' }
 
         it 'replaces redacted reference with original content' do
           doc = Nokogiri::HTML.fragment("<a class='gfm' href='https://www.gitlab.com' data-reference-type='issue' data-original='#{original_content}'>bar</a>")
@@ -103,6 +103,18 @@ RSpec.describe Banzai::ReferenceRedactor do
         expect(doc2.to_html).to eq(doc2_html)
       end
     end
+
+    context 'when reference is a gollum wiki page link that is not visible to user' do
+      it 'redacts the wiki page title and href' do
+        doc = Nokogiri::HTML.fragment('<a class="gfm" href="https://gitlab.com/path/to/project/-/wikis/foo" data-reference-type="wiki_page" data-gollum="true">foo</a>')
+
+        expect(redactor).to receive(:nodes_visible_to_user).and_return([])
+
+        redactor.redact([doc])
+
+        expect(doc.to_html).to eq('[redacted]')
+      end
+    end
   end
 
   context 'when the user cannot read cross project' do
@@ -111,13 +123,16 @@ RSpec.describe Banzai::ReferenceRedactor do
 
     def create_link(issuable)
       type = issuable.class.name.underscore.downcase
-      ActionController::Base.helpers.link_to(issuable.to_reference, '',
-              class: 'gfm has-tooltip',
-              title: issuable.title,
-              data: {
-                reference_type: type,
-                "#{type}": issuable.id
-              })
+      ActionController::Base.helpers.link_to(
+        issuable.to_reference,
+        '',
+        class: 'gfm has-tooltip',
+        title: issuable.title,
+        data: {
+          reference_type: type,
+          "#{type}": issuable.id
+        }
+      )
     end
 
     before do

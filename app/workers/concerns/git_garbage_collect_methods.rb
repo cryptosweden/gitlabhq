@@ -33,11 +33,12 @@ module GitGarbageCollectMethods
 
     before_gitaly_call(task, resource)
     gitaly_call(task, resource)
+    after_gitaly_call(task, resource)
 
     # Refresh the branch cache in case garbage collection caused a ref lookup to fail
     flush_ref_caches(resource) if gc?(task)
 
-    update_repository_statistics(resource) if task != :pack_refs
+    update_repository_statistics(resource, task)
 
     # In case pack files are deleted, release libgit2 cache and open file
     # descriptors ASAP instead of waiting for Ruby garbage collection
@@ -57,7 +58,7 @@ module GitGarbageCollectMethods
   end
 
   def gc?(task)
-    task == :gc || task == :prune
+    %i[gc eager prune].include?(task)
   end
 
   def try_obtain_lease(key)
@@ -82,28 +83,12 @@ module GitGarbageCollectMethods
 
   def gitaly_call(task, resource)
     repository = resource.repository.raw_repository
+    client = repository.gitaly_repository_client
 
-    if Feature.enabled?(:optimized_housekeeping, container(resource), default_enabled: :yaml)
-      client = repository.gitaly_repository_client
-
-      if task == :prune
-        client.prune_unreachable_objects
-      else
-        client.optimize_repository
-      end
+    if task == :prune
+      client.prune_unreachable_objects
     else
-      client = get_gitaly_client(task, repository)
-
-      case task
-      when :prune, :gc
-        client.garbage_collect(bitmaps_enabled?, prune: task == :prune)
-      when :full_repack
-        client.repack_full(bitmaps_enabled?)
-      when :incremental_repack
-        client.repack_incremental
-      when :pack_refs
-        client.pack_refs
-      end
+      client.optimize_repository(eager: task == :eager)
     end
   rescue GRPC::NotFound => e
     Gitlab::GitLogger.error("#{__method__} failed:\nRepository not found")
@@ -113,16 +98,8 @@ module GitGarbageCollectMethods
     raise Gitlab::Git::CommandError, e
   end
 
-  def get_gitaly_client(task, repository)
-    if task == :pack_refs
-      Gitlab::GitalyClient::RefService
-    else
-      Gitlab::GitalyClient::RepositoryService
-    end.new(repository)
-  end
-
-  def bitmaps_enabled?
-    Gitlab::CurrentSettings.housekeeping_bitmaps_enabled
+  def after_gitaly_call(task, resource)
+    # no-op
   end
 
   def flush_ref_caches(resource)
@@ -131,15 +108,23 @@ module GitGarbageCollectMethods
     resource.repository.has_visible_content?
   end
 
-  def update_repository_statistics(resource)
+  def update_repository_statistics(resource, task)
     resource.repository.expire_statistics_caches
 
     return if Gitlab::Database.read_only? # GitGarbageCollectWorker may be run on a Geo secondary
 
-    update_db_repository_statistics(resource)
+    stats_to_update = stats
+
+    stats_to_update.delete(:repository_size) if task == :incremental_repack
+
+    update_db_repository_statistics(resource, stats_to_update)
   end
 
-  def update_db_repository_statistics(resource)
+  def update_db_repository_statistics(resource, stats)
     # no-op
+  end
+
+  def stats
+    []
   end
 end

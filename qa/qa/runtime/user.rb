@@ -6,7 +6,10 @@ module QA
       extend self
 
       def admin
-        Struct.new(:username, :password).new(admin_username, admin_password)
+        QA::Resource::User.init do |user|
+          user.username = admin_username
+          user.password = admin_password
+        end
       end
 
       def default_username
@@ -55,3 +58,5 @@ module QA
     end
   end
 end
+
+QA::Runtime::User.extend_mod_with('Runtime::User', namespace: QA)

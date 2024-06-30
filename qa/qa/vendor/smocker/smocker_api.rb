@@ -17,35 +17,21 @@ module QA
               body: '{}'
         YAML
 
-        # @param wait [Integer] seconds to wait for server
-        # @yieldparam [SmockerApi] the api object ready for interaction
-        def self.init(**wait_args)
-          if @container.nil?
-            @container = Service::DockerRun::Smocker.new
-            @container.register!
-            @container.wait_for_running
-          end
-
-          yield new(@container, **wait_args)
-        end
-
-        def self.teardown!
-          @container&.remove!
-        end
-
-        def initialize(container, **wait_args)
-          @container = container
-          wait_for_ready(**wait_args)
+        def initialize(host:, public_port: 8080, admin_port: 8081, tls: false)
+          @host = host
+          @public_port = public_port
+          @admin_port = admin_port
+          @scheme = tls ? "https" : "http"
         end
 
         # @return [String] Base url of mock endpoint
         def base_url
-          @container.base_url
+          @base_url ||= "#{scheme}://#{host}:#{public_port}"
         end
 
         # @return [String] Url of admin endpoint
         def admin_url
-          @container.admin_url
+          @admin_url ||= "#{scheme}://#{host}:#{admin_port}"
         end
 
         # @param endpoint [String] path for mock endpoint
@@ -58,7 +44,7 @@ module QA
         #
         # @param wait [Integer] wait duration for smocker readiness
         def wait_for_ready(wait: 10)
-          Support::Waiter.wait_until(max_duration: wait, reload_page: false, raise_on_failure: true) do
+          Support::Waiter.wait_until(max_duration: wait, sleep_interval: 1, log: false) do
             ready?
           end
         end
@@ -127,7 +113,28 @@ module QA
           end
         end
 
+        # Fetch session verify response
+        #
+        # @param [String] session_name
+        # @return [VerifyResponse]
+        def verify(session_name = nil)
+          payload = { session: session_name ? get_session_id(session_name) : nil }
+          response = post("#{admin_url}/sessions/verify", payload)
+
+          VerifyResponse.new(parse_body(response))
+        end
+
+        # Returns a stringfied version of the Smocker history
+        #
+        # @param session_name [String] the session name for the mock
+        # @return [String] stringified event payloads
+        def stringified_history(session_name = nil)
+          history(session_name).map(&:payload).join("\n")
+        end
+
         private
+
+        attr_reader :host, :public_port, :admin_port, :scheme
 
         def build_params(**args)
           args.each_with_object([]) do |(k, v), memo|

@@ -4,9 +4,12 @@ module Gitlab
   module GitalyClient
     class BlobService
       include Gitlab::EncodingHelper
+      include WithFeatureFlagActors
 
       def initialize(repository)
         @gitaly_repo = repository.gitaly_repository
+
+        self.repository_actor = repository
       end
 
       def get_blob(oid:, limit:)
@@ -15,8 +18,34 @@ module Gitlab
           oid: oid,
           limit: limit
         )
-        response = GitalyClient.call(@gitaly_repo.storage_name, :blob_service, :get_blob, request, timeout: GitalyClient.fast_timeout)
+        response = gitaly_client_call(@gitaly_repo.storage_name, :blob_service, :get_blob, request, timeout: GitalyClient.fast_timeout)
         consume_blob_response(response)
+      end
+
+      def list_all_blobs(limit: nil, bytes_limit: 0, dynamic_timeout: nil, ignore_alternate_object_directories: false)
+        repository = @gitaly_repo
+
+        if ignore_alternate_object_directories
+          repository = @gitaly_repo.dup.tap do |g_repo|
+            g_repo.git_alternate_object_directories = Google::Protobuf::RepeatedField.new(:string)
+          end
+        end
+
+        request = Gitaly::ListAllBlobsRequest.new(
+          repository: repository,
+          limit: limit,
+          bytes_limit: bytes_limit
+        )
+
+        timeout =
+          if dynamic_timeout
+            [dynamic_timeout, GitalyClient.medium_timeout].min
+          else
+            GitalyClient.medium_timeout
+          end
+
+        response = Gitlab::GitalyClient.call(repository.storage_name, :blob_service, :list_all_blobs, request, timeout: timeout)
+        GitalyClient::BlobsStitcher.new(GitalyClient::ListBlobsAdapter.new(response))
       end
 
       def list_blobs(revisions, limit: 0, bytes_limit: 0, with_paths: false, dynamic_timeout: nil)
@@ -35,7 +64,7 @@ module Gitlab
             GitalyClient.medium_timeout
           end
 
-        response = GitalyClient.call(@gitaly_repo.storage_name, :blob_service, :list_blobs, request, timeout: timeout)
+        response = gitaly_client_call(@gitaly_repo.storage_name, :blob_service, :list_blobs, request, timeout: timeout)
         GitalyClient::BlobsStitcher.new(GitalyClient::ListBlobsAdapter.new(response))
       end
 
@@ -47,7 +76,7 @@ module Gitlab
           blob_ids: blob_ids
         )
 
-        response = GitalyClient.call(@gitaly_repo.storage_name, :blob_service, :get_lfs_pointers, request, timeout: GitalyClient.medium_timeout)
+        response = gitaly_client_call(@gitaly_repo.storage_name, :blob_service, :get_lfs_pointers, request, timeout: GitalyClient.medium_timeout)
         map_lfs_pointers(response)
       end
 
@@ -64,7 +93,7 @@ module Gitlab
           limit: limit
         )
 
-        response = GitalyClient.call(
+        response = gitaly_client_call(
           @gitaly_repo.storage_name,
           :blob_service,
           :get_blobs,
@@ -87,7 +116,7 @@ module Gitlab
           limit: limit
         )
 
-        response = GitalyClient.call(
+        response = gitaly_client_call(
           @gitaly_repo.storage_name,
           :blob_service,
           :get_blobs,
@@ -107,7 +136,7 @@ module Gitlab
             GitalyClient.medium_timeout
           end
 
-        response = GitalyClient.call(
+        response = gitaly_client_call(
           @gitaly_repo.storage_name,
           :blob_service,
           rpc,
@@ -123,7 +152,7 @@ module Gitlab
           revisions: [encode_binary("--all")]
         )
 
-        response = GitalyClient.call(@gitaly_repo.storage_name, :blob_service, :list_lfs_pointers, request, timeout: GitalyClient.medium_timeout)
+        response = gitaly_client_call(@gitaly_repo.storage_name, :blob_service, :list_lfs_pointers, request, timeout: GitalyClient.medium_timeout)
         map_lfs_pointers(response)
       end
 

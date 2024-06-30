@@ -2,15 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Merge requests > User mass updates', :js do
+RSpec.describe 'Merge requests > User mass updates', :js, feature_category: :code_review_workflow do
+  include ListboxHelpers
+
   let(:project) { create(:project, :repository) }
   let(:user)    { project.creator }
+  let(:user2) { create(:user) }
   let!(:merge_request) { create(:merge_request, source_project: project, target_project: project) }
 
   before do
-    stub_feature_flags(mr_attention_requests: false)
-
     project.add_maintainer(user)
+    project.add_maintainer(user2)
     sign_in(user)
   end
 
@@ -44,7 +46,7 @@ RSpec.describe 'Merge requests > User mass updates', :js do
       merge_request.close
       visit project_merge_requests_path(project, state: 'merged')
 
-      click_button 'Edit merge requests'
+      click_button 'Bulk edit'
 
       expect(page).not_to have_button 'Select status'
     end
@@ -60,18 +62,6 @@ RSpec.describe 'Merge requests > User mass updates', :js do
         change_assignee(user.name)
 
         expect(find('.merge-request')).to have_link "Assigned to #{user.name}"
-      end
-
-      describe 'with attention requests feature flag on' do
-        before do
-          stub_feature_flags(mr_attention_requests: true)
-        end
-
-        it 'updates merge request with assignee' do
-          change_assignee(user.name)
-
-          expect(find('.issuable-meta a.author-link')[:title]).to eq "Attention requested from assignee #{user.name}, go to their profile."
-        end
       end
     end
 
@@ -120,34 +110,33 @@ RSpec.describe 'Merge requests > User mass updates', :js do
   end
 
   def change_status(text)
-    click_button 'Edit merge requests'
+    click_button 'Bulk edit'
     check 'Select all'
-    click_button 'Select status'
-    click_button text
+    select_from_listbox(text, from: 'Select status')
     click_update_merge_requests_button
   end
 
   def change_assignee(text)
-    click_button 'Edit merge requests'
+    click_button 'Bulk edit'
     check 'Select all'
     within 'aside[aria-label="Bulk update"]' do
       click_button 'Select assignee'
       wait_for_requests
-      click_link text
+      click_button text
     end
     click_update_merge_requests_button
   end
 
   def change_milestone(text)
-    click_button 'Edit merge requests'
+    click_button 'Bulk edit'
     check 'Select all'
     click_button 'Select milestone'
-    click_link text
+    click_button text
     click_update_merge_requests_button
   end
 
   def click_update_merge_requests_button
-    click_button 'Update all'
+    click_button 'Update selected'
     wait_for_requests
   end
 end

@@ -31,15 +31,18 @@ module Gitlab
 
         def init_metrics
           metrics = {
-            file_descriptors:                  ::Gitlab::Metrics.gauge(metric_name(:file, :descriptors), 'File descriptors used', labels),
-            process_cpu_seconds_total:         ::Gitlab::Metrics.gauge(metric_name(:process, :cpu_seconds_total), 'Process CPU seconds total'),
-            process_max_fds:                   ::Gitlab::Metrics.gauge(metric_name(:process, :max_fds), 'Process max fds'),
-            process_resident_memory_bytes:     ::Gitlab::Metrics.gauge(metric_name(:process, :resident_memory_bytes), 'Memory used (RSS)', labels),
-            process_unique_memory_bytes:       ::Gitlab::Metrics.gauge(metric_name(:process, :unique_memory_bytes), 'Memory used (USS)', labels),
+            file_descriptors: ::Gitlab::Metrics.gauge(metric_name(:file, :descriptors), 'File descriptors used', labels),
+            process_cpu_seconds_total: ::Gitlab::Metrics.gauge(metric_name(:process, :cpu_seconds_total), 'Process CPU seconds total'),
+            process_max_fds: ::Gitlab::Metrics.gauge(metric_name(:process, :max_fds), 'Process max fds'),
+            process_resident_memory_bytes: ::Gitlab::Metrics.gauge(metric_name(:process, :resident_memory_bytes), 'Memory used (RSS)', labels),
+            process_resident_anon_memory_bytes: ::Gitlab::Metrics.gauge(metric_name(:process, :resident_anon_memory_bytes), 'Anonymous memory used (RSS)', labels),
+            process_resident_file_memory_bytes: ::Gitlab::Metrics.gauge(metric_name(:process, :resident_file_memory_bytes), 'File backed memory used (RSS)', labels),
+            process_unique_memory_bytes: ::Gitlab::Metrics.gauge(metric_name(:process, :unique_memory_bytes), 'Memory used (USS)', labels),
             process_proportional_memory_bytes: ::Gitlab::Metrics.gauge(metric_name(:process, :proportional_memory_bytes), 'Memory used (PSS)', labels),
-            process_start_time_seconds:        ::Gitlab::Metrics.gauge(metric_name(:process, :start_time_seconds), 'Process start time seconds'),
-            sampler_duration:                  ::Gitlab::Metrics.counter(metric_name(:sampler, :duration_seconds_total), 'Sampler time', labels),
-            gc_duration_seconds:               ::Gitlab::Metrics.histogram(metric_name(:gc, :duration_seconds), 'GC time', labels, GC_REPORT_BUCKETS)
+            process_start_time_seconds: ::Gitlab::Metrics.gauge(metric_name(:process, :start_time_seconds), 'Process start time seconds'),
+            sampler_duration: ::Gitlab::Metrics.counter(metric_name(:sampler, :duration_seconds_total), 'Sampler time', labels),
+            gc_duration_seconds: ::Gitlab::Metrics.histogram(metric_name(:gc, :duration_seconds), 'GC time', labels, GC_REPORT_BUCKETS),
+            heap_fragmentation: ::Gitlab::Metrics.gauge(metric_name(:gc_stat_ext, :heap_fragmentation), 'Ruby heap fragmentation', labels)
           }
 
           GC.stat.keys.each do |key|
@@ -76,8 +79,13 @@ module Gitlab
           end
 
           # Collect generic GC stats
-          GC.stat.each do |key, value|
-            metrics[key].set(labels, value)
+          GC.stat.then do |gc_stat|
+            gc_stat.each do |key, value|
+              metrics[key].set(labels, value)
+            end
+
+            # Collect custom GC stats
+            metrics[:heap_fragmentation].set(labels, Memory.gc_heap_fragmentation(gc_stat))
           end
         end
 
@@ -89,7 +97,10 @@ module Gitlab
         end
 
         def set_memory_usage_metrics
-          metrics[:process_resident_memory_bytes].set(labels, System.memory_usage_rss)
+          rss = System.memory_usage_rss
+          metrics[:process_resident_memory_bytes].set(labels, rss[:total])
+          metrics[:process_resident_anon_memory_bytes].set(labels, rss[:anon])
+          metrics[:process_resident_file_memory_bytes].set(labels, rss[:file])
 
           if Gitlab::Utils.to_boolean(ENV['enable_memory_uss_pss'] || '1')
             memory_uss_pss = System.memory_usage_uss_pss

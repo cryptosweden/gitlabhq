@@ -1,5 +1,4 @@
 # frozen_string_literal: true
-# rubocop:disable Rails/RakeEnvironment
 
 unless Rails.env.production?
   require 'rubocop/rake_task'
@@ -7,6 +6,19 @@ unless Rails.env.production?
   RuboCop::RakeTask.new
 
   namespace :rubocop do
+    namespace :check do
+      desc 'Run RuboCop check gracefully'
+      task :graceful do |_task, args|
+        require_relative '../../rubocop/check_graceful_task'
+
+        # Don't reveal TODOs in this run.
+        ENV.delete('REVEAL_RUBOCOP_TODO')
+
+        result = RuboCop::CheckGracefulTask.new($stdout).run(args.extras)
+        exit result if result.nonzero?
+      end
+    end
+
     namespace :todo do
       desc 'Generate RuboCop todos'
       task :generate do |_task, args|
@@ -36,7 +48,7 @@ unless Rails.env.production?
         # expected.
         cop_names = args.to_a
 
-        todo_dir = RuboCop::TodoDir.new(RuboCop::TodoDir::DEFAULT_TODO_DIR)
+        todo_dir = RuboCop::TodoDir.new(RuboCop::Formatter::TodoFormatter.base_directory)
 
         if cop_names.any?
           # We are sorting the cop names to benefit from RuboCop cache which
@@ -63,5 +75,3 @@ unless Rails.env.production?
     end
   end
 end
-
-# rubocop:enable Rails/RakeEnvironment

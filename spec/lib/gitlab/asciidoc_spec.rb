@@ -4,7 +4,7 @@ require 'spec_helper'
 require 'nokogiri'
 
 module Gitlab
-  RSpec.describe Asciidoc do
+  RSpec.describe Asciidoc, feature_category: :wiki do
     include FakeBlobHelpers
 
     before do
@@ -18,10 +18,10 @@ module Gitlab
 
       it "converts the input using Asciidoctor and default options" do
         expected_asciidoc_opts = {
-            safe: :secure,
-            backend: :gitlab_html5,
-            attributes: described_class::DEFAULT_ADOC_ATTRS.merge({ "kroki-server-url" => nil }),
-            extensions: be_a(Proc)
+          safe: :secure,
+          backend: :gitlab_html5,
+          attributes: described_class::DEFAULT_ADOC_ATTRS.merge({ "kroki-server-url" => nil, "allow-uri-read" => false }),
+          extensions: be_a(Proc)
         }
 
         expect(Asciidoctor).to receive(:convert)
@@ -33,10 +33,10 @@ module Gitlab
       context "with asciidoc_opts" do
         it "merges the options with default ones" do
           expected_asciidoc_opts = {
-              safe: :secure,
-              backend: :gitlab_html5,
-              attributes: described_class::DEFAULT_ADOC_ATTRS.merge({ "kroki-server-url" => nil }),
-              extensions: be_a(Proc)
+            safe: :secure,
+            backend: :gitlab_html5,
+            attributes: described_class::DEFAULT_ADOC_ATTRS.merge({ "kroki-server-url" => nil, "allow-uri-read" => false }),
+            extensions: be_a(Proc)
           }
 
           expect(Asciidoctor).to receive(:convert)
@@ -74,12 +74,12 @@ module Gitlab
             output: "<div>\n<p><a href=\"mylink\">Click Here</a></p>\n</div>"
           },
           'link with unsafe scheme' => {
-              input: 'link:data://danger[Click Here]',
-              output: "<div>\n<p><a>Click Here</a></p>\n</div>"
+            input: 'link:data://danger[Click Here]',
+            output: "<div>\n<p><a>Click Here</a></p>\n</div>"
           },
           'image with onerror' => {
             input: 'image:https://localhost.com/image.png[Alt text" onerror="alert(7)]',
-            output: "<div>\n<p><span><a class=\"no-attachment-icon\" href=\"https://localhost.com/image.png\" target=\"_blank\" rel=\"noopener noreferrer\"><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==\" alt='Alt text\" onerror=\"alert(7)' class=\"lazy\" data-src=\"https://localhost.com/image.png\"></a></span></p>\n</div>"
+            output: "<div>\n<p><span><a class=\"no-attachment-icon\" href=\"https://localhost.com/image.png\" target=\"_blank\" rel=\"noopener noreferrer\"><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==\" alt='Alt text\" onerror=\"alert(7)' decoding=\"async\" class=\"lazy\" data-src=\"https://localhost.com/image.png\"></a></span></p>\n</div>"
           }
         }
 
@@ -94,9 +94,18 @@ module Gitlab
         # Move this test back to the items hash when removing `use_cmark_renderer` feature flag.
         it "does not convert dangerous fenced code with inline script into HTML" do
           input = '```mypre"><script>alert(3)</script>'
-          output = "<div>\n<div>\n<div class=\"gl-relative markdown-code-block js-markdown-code\">\n<pre class=\"code highlight js-syntax-highlight language-plaintext\" lang=\"plaintext\" v-pre=\"true\"><code></code></pre>\n<copy-code></copy-code>\n</div>\n</div>\n</div>"
+          output = <<~HTML
+            <div>
+            <div>
+            <div class="gl-relative markdown-code-block js-markdown-code">
+            <pre data-canonical-lang="mypre" class="code highlight js-syntax-highlight language-plaintext" v-pre="true"><code></code></pre>
+            <copy-code></copy-code>
+            </div>
+            </div>
+            </div>
+          HTML
 
-          expect(render(input, context)).to include(output)
+          expect(render(input, context)).to include(output.strip)
         end
 
         it 'does not allow locked attributes to be overridden' do
@@ -112,13 +121,13 @@ module Gitlab
       context "images" do
         it "does lazy load and link image" do
           input = 'image:https://localhost.com/image.png[]'
-          output = "<div>\n<p><span><a class=\"no-attachment-icon\" href=\"https://localhost.com/image.png\" target=\"_blank\" rel=\"noopener noreferrer\"><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==\" alt=\"image\" class=\"lazy\" data-src=\"https://localhost.com/image.png\"></a></span></p>\n</div>"
+          output = "<div>\n<p><span><a class=\"no-attachment-icon\" href=\"https://localhost.com/image.png\" target=\"_blank\" rel=\"noopener noreferrer\"><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==\" alt=\"image\" decoding=\"async\" class=\"lazy\" data-src=\"https://localhost.com/image.png\"></a></span></p>\n</div>"
           expect(render(input, context)).to include(output)
         end
 
         it "does not automatically link image if link is explicitly defined" do
           input = 'image:https://localhost.com/image.png[link=https://gitlab.com]'
-          output = "<div>\n<p><span><a href=\"https://gitlab.com\" rel=\"nofollow noreferrer noopener\" target=\"_blank\"><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==\" alt=\"image\" class=\"lazy\" data-src=\"https://localhost.com/image.png\"></a></span></p>\n</div>"
+          output = "<div>\n<p><span><a href=\"https://gitlab.com\" rel=\"nofollow noreferrer noopener\" target=\"_blank\"><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==\" alt=\"image\" decoding=\"async\" class=\"lazy\" data-src=\"https://localhost.com/image.png\"></a></span></p>\n</div>"
           expect(render(input, context)).to include(output)
         end
       end
@@ -360,7 +369,7 @@ module Gitlab
             <div>
             <div>
             <div class="gl-relative markdown-code-block js-markdown-code">
-            <pre class="code highlight js-syntax-highlight language-javascript" lang="javascript" v-pre="true"><code><span id="LC1" class="line" lang="javascript"><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">hello world</span><span class="dl">'</span><span class="p">)</span></span></code></pre>
+            <pre data-canonical-lang="js" class="code highlight js-syntax-highlight language-javascript" v-pre="true"><code><span id="LC1" class="line" lang="javascript"><span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">hello world</span><span class="dl">'</span><span class="p">)</span></span></code></pre>
             <copy-code></copy-code>
             </div>
             </div>
@@ -390,7 +399,7 @@ module Gitlab
             <div>class.cpp</div>
             <div>
             <div class="gl-relative markdown-code-block js-markdown-code">
-            <pre class="code highlight js-syntax-highlight language-cpp" lang="cpp" v-pre="true"><code><span id="LC1" class="line" lang="cpp"><span class="cp">#include &lt;stdio.h&gt;</span></span>
+            <pre data-canonical-lang="c++" class="code highlight js-syntax-highlight language-cpp" v-pre="true"><code><span id="LC1" class="line" lang="cpp"><span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span></span>
             <span id="LC2" class="line" lang="cpp"></span>
             <span id="LC3" class="line" lang="cpp"><span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">5</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span></span>
             <span id="LC4" class="line" lang="cpp">  <span class="n">std</span><span class="o">::</span><span class="n">cout</span><span class="o">&lt;&lt;</span><span class="s">"*"</span><span class="o">&lt;&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">endl</span><span class="p">;</span></span>
@@ -448,8 +457,8 @@ module Gitlab
             stem:[2+2] is 4
           MD
 
-          expect(render(input, context)).to include('<pre data-math-style="display" class="code math js-render-math"><code>eta_x gamma</code></pre>')
-          expect(render(input, context)).to include('<p><code data-math-style="inline" class="code math js-render-math">2+2</code> is 4</p>')
+          expect(render(input, context)).to include('<pre data-math-style="display" class="js-render-math" v-pre="true"><code><span id="LC1" class="line" lang="plaintext">eta_x gamma</span></code></pre>')
+          expect(render(input, context)).to include('<p><code data-math-style="inline" class="js-render-math">2+2</code> is 4</p>')
         end
       end
 
@@ -524,7 +533,7 @@ module Gitlab
           output = <<~HTML
             <div>
             <div>
-            <a class="no-attachment-icon" href="https://kroki.io/graphviz/svg/eNpLyUwvSizIUHBXqOZSUPBIzcnJ17ULzy_KSeGqBQCEzQka" target="_blank" rel="noopener noreferrer"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Diagram" class="lazy" data-src="https://kroki.io/graphviz/svg/eNpLyUwvSizIUHBXqOZSUPBIzcnJ17ULzy_KSeGqBQCEzQka"></a>
+            <a class="no-attachment-icon" href="https://kroki.io/graphviz/svg/eNpLyUwvSizIUHBXqOZSUPBIzcnJ17ULzy_KSeGqBQCEzQka" target="_blank" rel="noopener noreferrer"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Diagram" decoding="async" class="lazy" data-src="https://kroki.io/graphviz/svg/eNpLyUwvSizIUHBXqOZSUPBIzcnJ17ULzy_KSeGqBQCEzQka"></a>
             </div>
             </div>
           HTML
@@ -567,7 +576,7 @@ module Gitlab
 
         it 'does not allow kroki-plantuml-include to be overridden' do
           input = <<~ADOC
-            [plantuml, test="{counter:kroki-plantuml-include:/etc/passwd}", format="png"]
+            [plantuml, test="{counter:kroki-plantuml-include:README.md}", format="png"]
             ....
             class BlockProcessor
 
@@ -578,7 +587,7 @@ module Gitlab
           output = <<~HTML
             <div>
             <div>
-            <a class=\"no-attachment-icon\" href=\"https://kroki.io/plantuml/png/eNpLzkksLlZwyslPzg4oyk9OLS7OL-LiQuUr2NTo6ipUJ-eX5pWkFlllF-VnZ-oW5CTmlZTm5uhm5iXnlKak1gIABQEb8A==\" target=\"_blank\" rel=\"noopener noreferrer\"><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==\" alt=\"Diagram\" class=\"lazy\" data-src=\"https://kroki.io/plantuml/png/eNpLzkksLlZwyslPzg4oyk9OLS7OL-LiQuUr2NTo6ipUJ-eX5pWkFlllF-VnZ-oW5CTmlZTm5uhm5iXnlKak1gIABQEb8A==\"></a>
+            <a class=\"no-attachment-icon\" href=\"https://kroki.io/plantuml/png/eNpLzkksLlZwyslPzg4oyk9OLS7OL-LiQuUr2NTo6ipUJ-eX5pWkFlllF-VnZ-oW5CTmlZTm5uhm5iXnlKak1gIABQEb8A==?test=README.md\" target=\"_blank\" rel=\"noopener noreferrer\"><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==\" alt=\"Diagram\" decoding=\"async\" class=\"lazy\" data-src=\"https://kroki.io/plantuml/png/eNpLzkksLlZwyslPzg4oyk9OLS7OL-LiQuUr2NTo6ipUJ-eX5pWkFlllF-VnZ-oW5CTmlZTm5uhm5iXnlKak1gIABQEb8A==?test=README.md\"></a>
             </div>
             </div>
           HTML
@@ -625,7 +634,7 @@ module Gitlab
           output = <<~HTML
             <div>
             <div>
-            <a class="no-attachment-icon" href="https://kroki.io/blockdiag/svg/eNpdzDEKQjEQhOHeU4zpPYFoYesRxGJ9bwghMSsbUYJ4d10UCZbDfPynolOek0Q8FsDeNCestoisNLmy-Qg7R3Blcm5hPcr0ITdaB6X15fv-_YdJixo2CNHI2lmK3sPRA__RwV5SzV80ZAegJjXSyfMFptc71w==" target="_blank" rel="noopener noreferrer"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Diagram" class="lazy" data-src="https://kroki.io/blockdiag/svg/eNpdzDEKQjEQhOHeU4zpPYFoYesRxGJ9bwghMSsbUYJ4d10UCZbDfPynolOek0Q8FsDeNCestoisNLmy-Qg7R3Blcm5hPcr0ITdaB6X15fv-_YdJixo2CNHI2lmK3sPRA__RwV5SzV80ZAegJjXSyfMFptc71w=="></a>
+            <a class="no-attachment-icon" href="https://kroki.io/blockdiag/svg/eNpdzDEKQjEQhOHeU4zpPYFoYesRxGJ9bwghMSsbUYJ4d10UCZbDfPynolOek0Q8FsDeNCestoisNLmy-Qg7R3Blcm5hPcr0ITdaB6X15fv-_YdJixo2CNHI2lmK3sPRA__RwV5SzV80ZAegJjXSyfMFptc71w==" target="_blank" rel="noopener noreferrer"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Diagram" decoding="async" class="lazy" data-src="https://kroki.io/blockdiag/svg/eNpdzDEKQjEQhOHeU4zpPYFoYesRxGJ9bwghMSsbUYJ4d10UCZbDfPynolOek0Q8FsDeNCestoisNLmy-Qg7R3Blcm5hPcr0ITdaB6X15fv-_YdJixo2CNHI2lmK3sPRA__RwV5SzV80ZAegJjXSyfMFptc71w=="></a>
             </div>
             </div>
           HTML
@@ -638,9 +647,9 @@ module Gitlab
     context 'with project' do
       let(:context) do
         {
-          commit:         commit,
-          project:        project,
-          ref:            ref,
+          commit: commit,
+          project: project,
+          ref: ref,
           requested_path: requested_path
         }
       end
@@ -688,7 +697,7 @@ module Gitlab
           end
         end
 
-        shared_examples :invalid_include do
+        shared_examples 'invalid include' do
           let(:include_path) { 'dk.png' }
 
           before do
@@ -707,7 +716,7 @@ module Gitlab
         context 'with path to a binary file' do
           let(:blob) { fake_blob(path: 'dk.png', binary: true) }
 
-          include_examples :invalid_include
+          include_examples 'invalid include'
         end
 
         context 'with path to file in external storage' do
@@ -718,7 +727,20 @@ module Gitlab
             project.update_attribute(:lfs_enabled, true)
           end
 
-          include_examples :invalid_include
+          include_examples 'invalid include'
+        end
+
+        context 'with a URI that returns 404' do
+          let(:include_path) { 'https://example.com/some_file.adoc' }
+
+          before do
+            stub_request(:get, include_path).to_return(status: 404, body: 'not found')
+            allow_any_instance_of(ApplicationSetting).to receive(:wiki_asciidoc_allow_uri_includes).and_return(true)
+          end
+
+          it 'renders Unresolved directive placeholder' do
+            is_expected.to include("<strong>[ERROR: include::#{include_path}[] - unresolved directive]</strong>")
+          end
         end
 
         context 'with path to a textual file' do
@@ -728,7 +750,7 @@ module Gitlab
             create_file(file_path, "Content from #{include_path}")
           end
 
-          shared_examples :valid_include do
+          shared_examples 'valid include' do
             [
               ['/doc/sample.adoc',  'doc/sample.adoc',     'absolute path'],
               ['sample.adoc',       'doc/api/sample.adoc', 'relative path'],
@@ -751,24 +773,24 @@ module Gitlab
           context 'when requested path is a file in the repo' do
             let(:requested_path) { 'doc/api/README.adoc' }
 
-            include_examples :valid_include
+            include_examples 'valid include'
 
             context 'without a commit (only ref)' do
               let(:commit) { nil }
 
-              include_examples :valid_include
+              include_examples 'valid include'
             end
           end
 
           context 'when requested path is a directory in the repo' do
             let(:requested_path) { 'doc/api/' }
 
-            include_examples :valid_include
+            include_examples 'valid include'
 
             context 'without a commit (only ref)' do
               let(:commit) { nil }
 
-              include_examples :valid_include
+              include_examples 'valid include'
             end
           end
         end
@@ -791,7 +813,60 @@ module Gitlab
           end
 
           context 'when the file does not exist' do
-            it { is_expected.to include("[ERROR: include::#{include_path}[] - unresolved directive]")}
+            it { is_expected.to include("[ERROR: include::#{include_path}[] - unresolved directive]") }
+          end
+        end
+
+        describe 'the effect of max-includes' do
+          before do
+            create_file 'doc/preface.adoc', 'source: preface'
+            create_file 'doc/chapter-1.adoc', 'source: chapter-1'
+            create_file 'license.adoc', 'source: license'
+            stub_request(:get, 'https://example.com/some_file.adoc')
+              .to_return(status: 200, body: 'source: interwebs')
+            stub_request(:get, 'https://example.com/other_file.adoc')
+              .to_return(status: 200, body: 'source: intertubes')
+            allow_any_instance_of(ApplicationSetting).to receive(:wiki_asciidoc_allow_uri_includes).and_return(true)
+          end
+
+          let(:input) do
+            <<~ADOC
+              Source: requested file
+
+              include::doc/preface.adoc[]
+              include::https://example.com/some_file.adoc[]
+              include::doc/chapter-1.adoc[]
+              include::https://example.com/other_file.adoc[]
+              include::license.adoc[]
+            ADOC
+          end
+
+          it 'includes the content of all sources' do
+            expect(output.gsub(/<[^>]+>/, '').gsub(/\n\s*/, "\n").strip).to eq <<~ADOC.strip
+              Source: requested file
+              source: preface
+              source: interwebs
+              source: chapter-1
+              source: intertubes
+              source: license
+            ADOC
+          end
+
+          context 'when the document includes more than asciidoc_max_includes' do
+            before do
+              stub_application_setting(asciidoc_max_includes: 2)
+            end
+
+            it 'includes only the content of the first 2 sources' do
+              expect(output.gsub(/<[^>]+>/, '').gsub(/\n\s*/, "\n").strip).to eq <<~ADOC.strip
+                Source: requested file
+                source: preface
+                source: interwebs
+                doc/chapter-1.adoc
+                https://example.com/other_file.adoc
+                license.adoc
+              ADOC
+            end
           end
         end
 
@@ -802,29 +877,53 @@ module Gitlab
 
               include::doc/README.adoc[]
 
-              include::license.adoc[]
+              include::https://example.com/some_file.adoc[]
+
+              include::license.adoc[lines=1]
             ADOC
           end
 
           before do
+            stub_request(:get, 'https://example.com/some_file.adoc')
+              .to_return(status: 200, body: <<~ADOC)
+                Source: some file from Example.com
+
+                include::https://example.com/other_file[lines=1..2]
+
+                End some file from Example.com
+              ADOC
+
+            stub_request(:get, 'https://example.com/other_file')
+              .to_return(status: 200, body: <<~ADOC)
+                Source: other file from Example.com
+                Other file line 2
+                Other file line 3
+              ADOC
+
             create_file 'doc/README.adoc', <<~ADOC
               Source: doc/README.adoc
 
-              include::../license.adoc[]
+              include::../license.adoc[lines=1;3]
 
               include::api/hello.adoc[]
             ADOC
             create_file 'license.adoc', <<~ADOC
               Source: license.adoc
+              License content
+              License end
             ADOC
             create_file 'doc/api/hello.adoc', <<~ADOC
               Source: doc/api/hello.adoc
 
-              include::./common.adoc[]
+              include::./common.adoc[lines=2..3]
             ADOC
             create_file 'doc/api/common.adoc', <<~ADOC
+              Common start
               Source: doc/api/common.adoc
+              Common end
             ADOC
+
+            allow_any_instance_of(ApplicationSetting).to receive(:wiki_asciidoc_allow_uri_includes).and_return(true)
           end
 
           it 'includes content of the included files recursively' do
@@ -832,8 +931,14 @@ module Gitlab
               Source: requested file
               Source: doc/README.adoc
               Source: license.adoc
+              License end
               Source: doc/api/hello.adoc
               Source: doc/api/common.adoc
+              Common end
+              Source: some file from Example.com
+              Source: other file from Example.com
+              Other file line 2
+              End some file from Example.com
               Source: license.adoc
             ADOC
           end
@@ -846,8 +951,15 @@ module Gitlab
       end
     end
 
-    def render(*args)
-      described_class.render(*args)
+    it 'detects and converts to a wikilink' do
+      tag = '[[text|url]]'
+      html = render("See #{tag}", {})
+
+      expect(html).to include 'See <a href="url" data-wikilink="true">text</a>'
+    end
+
+    def render(...)
+      described_class.render(...)
     end
   end
 end

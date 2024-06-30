@@ -4,37 +4,30 @@ class Projects::GoogleCloud::ServiceAccountsController < Projects::GoogleCloud::
   before_action :validate_gcp_token!
 
   def index
-    @google_cloud_path = project_google_cloud_index_path(project)
-    google_api_client = GoogleApi::CloudPlatform::Client.new(token_in_session, nil)
-    gcp_projects = google_api_client.list_projects
-
     if gcp_projects.empty?
-      @js_data = { screen: 'no_gcp_projects' }.to_json
-      track_event('service_accounts#index', 'form_error', 'no_gcp_projects')
-      render status: :unauthorized, template: 'projects/google_cloud/errors/no_gcp_projects'
+      track_event(:error_no_gcp_projects)
+      flash[:warning] = _('No Google Cloud projects - You need at least one Google Cloud project')
+      redirect_to project_google_cloud_configuration_path(project)
     else
-      params = { per_page: 50 }
-      branches = BranchesFinder.new(project.repository, params).execute(gitaly_pagination: true)
-      tags = TagsFinder.new(project.repository, params).execute(gitaly_pagination: true)
-      refs = (branches + tags).map(&:name)
       js_data = {
-        screen: 'service_accounts_form',
         gcpProjects: gcp_projects,
         refs: refs,
-        cancelPath: project_google_cloud_index_path(project)
+        cancelPath: project_google_cloud_configuration_path(project)
       }
-      @js_data = js_data.to_json
+      @js_data = Gitlab::Json.dump(js_data)
 
-      track_event('service_accounts#index', 'form_success', js_data)
+      track_event(:render_form)
     end
-  rescue Google::Apis::ClientError => error
-    handle_gcp_error('service_accounts#index', error)
+  rescue Google::Apis::Error => e
+    track_event(:error_google_api)
+    flash[:warning] = _('Google Cloud Error - %{error}') % { error: e }
+    redirect_to project_google_cloud_configuration_path(project)
   end
 
   def create
     permitted_params = params.permit(:gcp_project, :ref)
 
-    response = GoogleCloud::CreateServiceAccountsService.new(
+    response = CloudSeed::GoogleCloud::CreateServiceAccountsService.new(
       project,
       current_user,
       google_oauth2_token: token_in_session,
@@ -42,9 +35,11 @@ class Projects::GoogleCloud::ServiceAccountsController < Projects::GoogleCloud::
       environment_name: permitted_params[:ref]
     ).execute
 
-    track_event('service_accounts#create', 'form_submit', response)
-    redirect_to project_google_cloud_index_path(project), notice: response.message
-  rescue Google::Apis::ClientError, Google::Apis::ServerError, Google::Apis::AuthorizationError => error
-    handle_gcp_error('service_accounts#create', error)
+    track_event(:create_service_account)
+    redirect_to project_google_cloud_configuration_path(project), notice: response.message
+  rescue Google::Apis::Error => e
+    track_event(:error_google_api)
+    flash[:warning] = _('Google Cloud Error - %{error}') % { error: e }
+    redirect_to project_google_cloud_configuration_path(project)
   end
 end

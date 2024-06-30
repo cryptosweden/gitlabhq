@@ -1,4 +1,5 @@
 <script>
+import { GlLink, GlPopover } from '@gitlab/ui';
 import { toNounSeriesText } from '~/lib/utils/grammar';
 import { n__, sprintf } from '~/locale';
 import {
@@ -7,32 +8,52 @@ import {
   APPROVED_BY_OTHERS,
 } from '~/vue_merge_request_widget/components/approvals/messages';
 import UserAvatarList from '~/vue_shared/components/user_avatar/user_avatar_list.vue';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { getApprovalRuleNamesLeft } from 'ee_else_ce/vue_merge_request_widget/mappers';
 
 export default {
   components: {
+    GlLink,
+    GlPopover,
     UserAvatarList,
   },
   props: {
-    approved: {
+    multipleApprovalRulesAvailable: {
       type: Boolean,
+      required: false,
+      default: false,
+    },
+    approvalState: {
+      type: Object,
       required: true,
     },
-    approvalsLeft: {
-      type: Number,
-      required: true,
-    },
-    rulesLeft: {
-      type: Array,
+    disableCommittersApproval: {
+      type: Boolean,
       required: false,
-      default: () => [],
-    },
-    approvers: {
-      type: Array,
-      required: false,
-      default: () => [],
+      default: false,
     },
   },
+  data() {
+    return {
+      isUserAvatarListExpanded: false,
+    };
+  },
   computed: {
+    approvers() {
+      return this.approvalState.approvedBy?.nodes || [];
+    },
+    approved() {
+      return this.approvalState.approved || this.approvalState.approvedBy?.nodes.length > 0;
+    },
+    approvalsLeft() {
+      return this.approvalState.approvalsLeft || 0;
+    },
+    rulesLeft() {
+      return getApprovalRuleNamesLeft(
+        this.multipleApprovalRulesAvailable,
+        (this.approvalState.approvalState?.rules || []).filter((r) => !r.approved),
+      );
+    },
     approvalLeftMessage() {
       if (this.rulesLeft.length) {
         return sprintf(
@@ -81,28 +102,65 @@ export default {
       if (!this.currentUserId) {
         return false;
       }
-      return this.approvers.some((approver) => approver.id === this.currentUserId);
+      return this.approvers.some(
+        (approver) => getIdFromGraphQLId(approver.id) === this.currentUserId,
+      );
     },
     approvedByOthers() {
       if (!this.currentUserId) {
         return false;
       }
-      return this.approvers.some((approver) => approver.id !== this.currentUserId);
+      return this.approvers.some(
+        (approver) => getIdFromGraphQLId(approver.id) !== this.currentUserId,
+      );
+    },
+    currentUserHasCommitted() {
+      if (!this.currentUserId) return false;
+
+      return this.approvalState.committers?.nodes?.some(
+        (user) => getIdFromGraphQLId(user.id) === this.currentUserId,
+      );
     },
     currentUserId() {
       return gon.current_user_id;
+    },
+  },
+  methods: {
+    onUserAvatarListExpanded() {
+      this.isUserAvatarListExpanded = true;
+    },
+    onUserAvatarListCollapsed() {
+      this.isUserAvatarListExpanded = false;
     },
   },
 };
 </script>
 
 <template>
-  <div data-qa-selector="approvals_summary_content">
-    <strong>{{ approvalLeftMessage }}</strong>
+  <div
+    class="gl-display-flex gl-flex-wrap gl-align-items-baseline gl-gap-2"
+    data-testid="approvals-summary-content"
+  >
+    <span class="gl-font-bold">{{ approvalLeftMessage }}</span>
     <template v-if="hasApprovers">
       <span v-if="approvalLeftMessage">{{ message }}</span>
-      <strong v-else>{{ message }}</strong>
-      <user-avatar-list class="d-inline-block align-middle" :items="approvers" />
+      <span v-else class="gl-font-bold">{{ message }}</span>
+      <user-avatar-list
+        class="gl-display-inline-block"
+        :class="{ 'gl-pt-1': isUserAvatarListExpanded }"
+        :img-size="24"
+        :items="approvers"
+        @expanded="onUserAvatarListExpanded"
+        @collapsed="onUserAvatarListCollapsed"
+      />
+    </template>
+    <template v-if="disableCommittersApproval && currentUserHasCommitted">
+      <gl-link id="cant-approve-popover" data-testid="commit-cant-approve" class="gl-cursor-help">{{
+        __("Why can't I approve?")
+      }}</gl-link>
+      <gl-popover target="cant-approve-popover">
+        {{ __("You can't approve because you added one or more commits to this merge request.") }}
+      </gl-popover>
     </template>
   </div>
 </template>

@@ -9,11 +9,13 @@
 #     updated_before: DateTime
 #     finished_after: DateTime
 #     finished_before: DateTime
-#     environment: String
-#     status: String (see Deployment.statuses)
+#     environment: String (name) or Integer (ID)
+#     status: String or Array<String> (see Deployment.statuses)
 #     order_by: String (see ALLOWED_SORT_VALUES constant)
 #     sort: String (asc | desc)
 class DeploymentsFinder
+  include UpdatedAtFilter
+
   attr_reader :params
 
   # Warning:
@@ -23,7 +25,7 @@ class DeploymentsFinder
   # performant with the other filtering/sorting parameters.
   # The composed query could be significantly slower when the filtering and sorting columns are different.
   # See https://gitlab.com/gitlab-org/gitlab/-/issues/325627 for example.
-  ALLOWED_SORT_VALUES = %w[id iid created_at updated_at ref finished_at].freeze
+  ALLOWED_SORT_VALUES = %w[id iid created_at updated_at finished_at].freeze
   DEFAULT_SORT_VALUE = 'id'
 
   ALLOWED_SORT_DIRECTIONS = %w[asc desc].freeze
@@ -33,6 +35,7 @@ class DeploymentsFinder
 
   def initialize(params = {})
     @params = params
+    @params[:status] = Array(@params[:status]).map(&:to_s) if @params[:status]
 
     validate!
   end
@@ -49,35 +52,34 @@ class DeploymentsFinder
 
   private
 
-  def raise_for_inefficient_updated_at_query?
-    params.fetch(:raise_for_inefficient_updated_at_query, Rails.env.development? || Rails.env.test?)
-  end
-
   def validate!
     if filter_by_updated_at? && filter_by_finished_at?
       raise InefficientQueryError, 'Both `updated_at` filter and `finished_at` filter can not be specified'
     end
 
-    # Currently, the inefficient parameters are allowed in order to avoid breaking changes in Deployment API.
-    # We'll switch to a hard error in https://gitlab.com/gitlab-org/gitlab/-/issues/328500.
-    if (filter_by_updated_at? && !order_by_updated_at?) || (!filter_by_updated_at? && order_by_updated_at?)
-      error = InefficientQueryError.new('`updated_at` filter and `updated_at` sorting must be paired')
-
-      Gitlab::ErrorTracking.log_exception(error)
-
-      raise error if raise_for_inefficient_updated_at_query?
+    if filter_by_updated_at? && !order_by_updated_at?
+      raise InefficientQueryError, '`updated_at` filter requires `updated_at` sort'
     end
 
-    if (filter_by_finished_at? && !order_by_finished_at?) || (!filter_by_finished_at? && order_by_finished_at?)
-      raise InefficientQueryError, '`finished_at` filter and `finished_at` sorting must be paired'
+    if filter_by_finished_at? && !order_by_finished_at?
+      raise InefficientQueryError, '`finished_at` filter requires `finished_at` sort.'
+    end
+
+    if order_by_finished_at? && !(filter_by_finished_at? || filter_by_finished_statuses?)
+      raise InefficientQueryError,
+        '`finished_at` sort requires `finished_at` filter or a filter with at least one of the finished statuses.'
     end
 
     if filter_by_finished_at? && !filter_by_successful_deployment?
       raise InefficientQueryError, '`finished_at` filter must be combined with `success` status filter.'
     end
 
-    if params[:environment].present? && !params[:project].present?
-      raise InefficientQueryError, '`environment` filter must be combined with `project` scope.'
+    if filter_by_environment_name? && !params[:project].present?
+      raise InefficientQueryError, '`environment` name filter must be combined with `project` scope.'
+    end
+
+    if filter_by_finished_statuses? && filter_by_upcoming_statuses?
+      raise InefficientQueryError, 'finished statuses and upcoming statuses must be separately queried.'
     end
   end
 
@@ -86,6 +88,8 @@ class DeploymentsFinder
       params[:project].deployments
     elsif params[:group].present?
       ::Deployment.for_projects(params[:group].all_projects)
+    elsif filter_by_environment_id?
+      ::Deployment.for_environment(params[:environment])
     else
       ::Deployment.none
     end
@@ -97,13 +101,6 @@ class DeploymentsFinder
     items.order(sort_params) # rubocop: disable CodeReuse/ActiveRecord
   end
 
-  def by_updated_at(items)
-    items = items.updated_before(params[:updated_before]) if params[:updated_before].present?
-    items = items.updated_after(params[:updated_after]) if params[:updated_after].present?
-
-    items
-  end
-
   def by_finished_at(items)
     items = items.finished_before(params[:finished_before]) if params[:finished_before].present?
     items = items.finished_after(params[:finished_after]) if params[:finished_after].present?
@@ -112,7 +109,7 @@ class DeploymentsFinder
   end
 
   def by_environment(items)
-    if params[:project].present? && params[:environment].present?
+    if params[:project].present? && filter_by_environment_name?
       items.for_environment_name(params[:project], params[:environment])
     else
       items
@@ -122,7 +119,7 @@ class DeploymentsFinder
   def by_status(items)
     return items unless params[:status].present?
 
-    unless Deployment.statuses.key?(params[:status])
+    unless Deployment.statuses.keys.intersection(params[:status]) == params[:status]
       raise ArgumentError, "The deployment status #{params[:status]} is invalid"
     end
 
@@ -142,9 +139,7 @@ class DeploymentsFinder
     # Implicitly enforce the ordering when filtered by `updated_at` column for performance optimization.
     # See https://gitlab.com/gitlab-org/gitlab/-/issues/325627#note_552417509.
     # We remove this in https://gitlab.com/gitlab-org/gitlab/-/issues/328500.
-    if filter_by_updated_at?
-      sort_params.replace('updated_at' => sort_direction)
-    end
+    sort_params.replace('updated_at' => sort_direction) if filter_by_updated_at?
 
     if sort_params['created_at'] || sort_params['iid']
       # Sorting by `id` produces the same result as sorting by `created_at` or `iid`
@@ -165,7 +160,23 @@ class DeploymentsFinder
   end
 
   def filter_by_successful_deployment?
-    params[:status].to_s == 'success'
+    params[:status].present? && params[:status].count == 1 && params[:status].first.to_s == 'success'
+  end
+
+  def filter_by_finished_statuses?
+    params[:status].present? && Deployment::FINISHED_STATUSES.map(&:to_s).intersection(params[:status]).any?
+  end
+
+  def filter_by_upcoming_statuses?
+    params[:status].present? && Deployment::UPCOMING_STATUSES.map(&:to_s).intersection(params[:status]).any?
+  end
+
+  def filter_by_environment_name?
+    params[:environment].present? && params[:environment].is_a?(String)
+  end
+
+  def filter_by_environment_id?
+    params[:environment].present? && params[:environment].is_a?(Integer)
   end
 
   def order_by_updated_at?
@@ -183,6 +194,8 @@ class DeploymentsFinder
       environment: [],
       deployable: {
         job_artifacts: [],
+        user: [],
+        metadata: [],
         pipeline: {
           project: {
             route: [],

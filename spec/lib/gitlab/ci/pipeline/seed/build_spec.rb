@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
+RSpec.describe Gitlab::Ci::Pipeline::Seed::Build, feature_category: :pipeline_composition do
   let_it_be_with_reload(:project) { create(:project, :repository) }
   let_it_be(:head_sha) { project.repository.head_commit.id }
 
@@ -11,7 +11,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
   let(:seed_context) { Gitlab::Ci::Pipeline::Seed::Context.new(pipeline, root_variables: root_variables) }
   let(:attributes) { { name: 'rspec', ref: 'master', scheduling_type: :stage, when: 'on_success' } }
   let(:previous_stages) { [] }
-  let(:current_stage) { double(seeds_names: [attributes[:name]]) }
+  let(:current_stage) { instance_double(Gitlab::Ci::Pipeline::Seed::Stage, seeds_names: [attributes[:name]]) }
 
   let(:seed_build) { described_class.new(seed_context, attributes, previous_stages + [current_stage]) }
 
@@ -28,9 +28,9 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
     end
 
     context 'with job:when:delayed' do
-      let(:attributes) { { name: 'rspec', ref: 'master', when: 'delayed', start_in: '3 hours' } }
+      let(:attributes) { { name: 'rspec', ref: 'master', when: 'delayed', options: { start_in: '3 hours' } } }
 
-      it { is_expected.to include(when: 'delayed', start_in: '3 hours') }
+      it { is_expected.to include(when: 'delayed', options: { start_in: '3 hours' }) }
     end
 
     context 'with job:rules:[when:]' do
@@ -97,15 +97,162 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
       let(:attributes) do
         { name: 'rspec',
           ref: 'master',
-          job_variables: [{ key: 'VAR1', value: 'var 1', public: true },
-                          { key: 'VAR2', value: 'var 2', public: true }],
+          job_variables: [{ key: 'VAR1', value: 'var 1' },
+                          { key: 'VAR2', value: 'var 2' }],
           rules: [{ if: '$VAR == null', variables: { VAR1: 'new var 1', VAR3: 'var 3' } }] }
       end
 
       it do
-        is_expected.to include(yaml_variables: [{ key: 'VAR1', value: 'new var 1', public: true },
-                                                { key: 'VAR2', value: 'var 2', public: true },
-                                                { key: 'VAR3', value: 'var 3', public: true }])
+        is_expected.to include(yaml_variables: [{ key: 'VAR1', value: 'new var 1' },
+                                                { key: 'VAR3', value: 'var 3' },
+                                                { key: 'VAR2', value: 'var 2' }])
+      end
+    end
+
+    context 'with job:rules:[needs:]' do
+      context 'with a single rule' do
+        let(:job_needs_attributes) { [{ name: 'rspec' }] }
+
+        context 'when job has needs set' do
+          context 'when rule evaluates to true' do
+            let(:attributes) do
+              { name: 'rspec',
+                ref: 'master',
+                needs_attributes: job_needs_attributes,
+                rules: [{ if: '$VAR == null', needs: { job: [{ name: 'build-job' }] } }] }
+            end
+
+            it 'overrides the job needs' do
+              expect(subject).to include(needs_attributes: [{ name: 'build-job' }])
+            end
+          end
+
+          context 'when rule evaluates to false' do
+            let(:attributes) do
+              { name: 'rspec',
+                ref: 'master',
+                needs_attributes: job_needs_attributes,
+                rules: [{ if: '$VAR == true', needs: { job: [{ name: 'build-job' }] } }] }
+            end
+
+            it 'keeps the job needs' do
+              expect(subject).to include(needs_attributes: job_needs_attributes)
+            end
+          end
+
+          context 'with subkeys: artifacts, optional' do
+            let(:attributes) do
+              { name: 'rspec',
+                ref: 'master',
+                rules:
+                [
+                  { if: '$VAR == null',
+                    needs: {
+                      job: [{
+                        name: 'build-job',
+                        optional: false,
+                        artifacts: true
+                      }]
+                    } }
+                ] }
+            end
+
+            context 'when rule evaluates to true' do
+              it 'sets the job needs as well as the job subkeys' do
+                expect(subject[:needs_attributes]).to match_array([{ name: 'build-job', optional: false, artifacts: true }])
+              end
+
+              it 'sets the scheduling type to dag' do
+                expect(subject[:scheduling_type]).to eq(:dag)
+              end
+            end
+          end
+        end
+
+        context 'with multiple rules' do
+          context 'when a rule evaluates to true' do
+            let(:attributes) do
+              { name: 'rspec',
+                ref: 'master',
+                needs_attributes: job_needs_attributes,
+                rules: [
+                  { if: '$VAR == true', needs: { job: [{ name: 'rspec-1' }] } },
+                  { if: '$VAR2 == true', needs: { job: [{ name: 'rspec-2' }] } },
+                  { if: '$VAR3 == null', needs: { job: [{ name: 'rspec' }, { name: 'lint' }] } }
+                ] }
+            end
+
+            it 'overrides the job needs' do
+              expect(subject).to include(needs_attributes: [{ name: 'rspec' }, { name: 'lint' }])
+            end
+          end
+
+          context 'when all rules evaluates to false' do
+            let(:attributes) do
+              { name: 'rspec',
+                ref: 'master',
+                needs_attributes: job_needs_attributes,
+                rules: [
+                  { if: '$VAR == true', needs: { job: [{ name: 'rspec-1' }] }  },
+                  { if: '$VAR2 == true', needs: { job: [{ name: 'rspec-2' }] } },
+                  { if: '$VAR3 == true', needs: { job: [{ name: 'rspec-3' }] } }
+                ] }
+            end
+
+            it 'keeps the job needs' do
+              expect(subject).to include(needs_attributes: job_needs_attributes)
+            end
+          end
+        end
+      end
+    end
+
+    context 'with job:rules:[interruptible:]' do
+      let(:attributes) do
+        {
+          name: 'rspec',
+          ref: 'master',
+          interruptible: false,
+          rules: rules
+        }
+      end
+
+      context 'when rule evaluates to true' do
+        let(:rules) { [{ if: '$VAR == null', interruptible: true }] }
+
+        it 'overrides the job interruptible value' do
+          is_expected.to include(interruptible: true)
+        end
+
+        context 'when job does not have an interruptible value' do
+          let(:attributes) do
+            {
+              name: 'rspec',
+              ref: 'master',
+              rules: rules
+            }
+          end
+
+          it 'adds interruptible value to the job' do
+            is_expected.to include(interruptible: true)
+          end
+        end
+
+        context 'when rules:interruptible is not specified' do
+          let(:rules) { [{ if: '$VAR == null' }] }
+
+          it 'does not change the job interruptible value' do
+            is_expected.to include(interruptible: false)
+          end
+        end
+      end
+
+      context 'when rule evaluates to false' do
+        let(:rules) { [{ if: '$VAR == true', interruptible: true }] }
+
+        it 'does not change the job interruptible value' do
+          is_expected.to include(interruptible: false)
+        end
       end
     end
 
@@ -114,13 +261,13 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
         {
           name: 'rspec',
           ref: 'master',
-          job_variables: [{ key: 'VARIABLE', value: 'value', public: true }],
+          job_variables: [{ key: 'VARIABLE', value: 'value' }],
           tag_list: ['static-tag', '$VARIABLE', '$NO_VARIABLE']
         }
       end
 
       it { is_expected.to include(tag_list: ['static-tag', 'value', '$NO_VARIABLE']) }
-      it { is_expected.to include(yaml_variables: [{ key: 'VARIABLE', value: 'value', public: true }]) }
+      it { is_expected.to include(yaml_variables: [{ key: 'VARIABLE', value: 'value' }]) }
     end
 
     context 'with cache:key' do
@@ -152,7 +299,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
         it 'includes cache options' do
           cache_options = {
             options: {
-              cache: [a_hash_including(key: 'f155568ad0933d8358f66b846133614f76dd0ca4')]
+              cache: [a_hash_including(key: '0_VERSION-f155568ad0933d8358f66b846133614f76dd0ca4')]
             }
           }
 
@@ -257,19 +404,19 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
       let(:attributes) do
         { name: 'rspec',
           ref: 'master',
-          yaml_variables: [{ key: 'VAR2', value: 'var 2', public: true },
-                           { key: 'VAR3', value: 'var 3', public: true }],
-          job_variables: [{ key: 'VAR2', value: 'var 2', public: true },
-                          { key: 'VAR3', value: 'var 3', public: true }],
+          yaml_variables: [{ key: 'VAR2', value: 'var 2' },
+                            { key: 'VAR3', value: 'var 3' }],
+          job_variables: [{ key: 'VAR2', value: 'var 2' },
+                          { key: 'VAR3', value: 'var 3' }],
           root_variables_inheritance: root_variables_inheritance }
       end
 
       context 'when the pipeline has variables' do
         let(:root_variables) do
-          [{ key: 'VAR1', value: 'var overridden pipeline 1', public: true },
-           { key: 'VAR2', value: 'var pipeline 2', public: true },
-           { key: 'VAR3', value: 'var pipeline 3', public: true },
-           { key: 'VAR4', value: 'new var pipeline 4', public: true }]
+          [{ key: 'VAR1', value: 'var overridden pipeline 1' },
+            { key: 'VAR2', value: 'var pipeline 2' },
+            { key: 'VAR3', value: 'var pipeline 3' },
+            { key: 'VAR4', value: 'new var pipeline 4' }]
         end
 
         context 'when root_variables_inheritance is true' do
@@ -277,10 +424,10 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
 
           it 'returns calculated yaml variables' do
             expect(subject[:yaml_variables]).to match_array(
-              [{ key: 'VAR1', value: 'var overridden pipeline 1', public: true },
-               { key: 'VAR2', value: 'var 2', public: true },
-               { key: 'VAR3', value: 'var 3', public: true },
-               { key: 'VAR4', value: 'new var pipeline 4', public: true }]
+              [{ key: 'VAR1', value: 'var overridden pipeline 1' },
+                { key: 'VAR2', value: 'var 2' },
+                { key: 'VAR3', value: 'var 3' },
+                { key: 'VAR4', value: 'new var pipeline 4' }]
             )
           end
         end
@@ -290,20 +437,20 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
 
           it 'returns job variables' do
             expect(subject[:yaml_variables]).to match_array(
-              [{ key: 'VAR2', value: 'var 2', public: true },
-               { key: 'VAR3', value: 'var 3', public: true }]
+              [{ key: 'VAR2', value: 'var 2' },
+                { key: 'VAR3', value: 'var 3' }]
             )
           end
         end
 
         context 'when root_variables_inheritance is an array' do
-          let(:root_variables_inheritance) { %w(VAR1 VAR2 VAR3) }
+          let(:root_variables_inheritance) { %w[VAR1 VAR2 VAR3] }
 
           it 'returns calculated yaml variables' do
             expect(subject[:yaml_variables]).to match_array(
-              [{ key: 'VAR1', value: 'var overridden pipeline 1', public: true },
-               { key: 'VAR2', value: 'var 2', public: true },
-               { key: 'VAR3', value: 'var 3', public: true }]
+              [{ key: 'VAR1', value: 'var overridden pipeline 1' },
+                { key: 'VAR2', value: 'var 2' },
+                { key: 'VAR3', value: 'var 3' }]
             )
           end
         end
@@ -314,8 +461,8 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
 
         it 'returns seed yaml variables' do
           expect(subject[:yaml_variables]).to match_array(
-            [{ key: 'VAR2', value: 'var 2', public: true },
-             { key: 'VAR3', value: 'var 3', public: true }])
+            [{ key: 'VAR2', value: 'var 2' },
+              { key: 'VAR3', value: 'var 3' }])
         end
       end
     end
@@ -324,8 +471,8 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
       let(:attributes) do
         { name: 'rspec',
           ref: 'master',
-          yaml_variables: [{ key: 'VAR1', value: 'var 1', public: true }],
-          job_variables: [{ key: 'VAR1', value: 'var 1', public: true }],
+          yaml_variables: [{ key: 'VAR1', value: 'var 1' }],
+          job_variables: [{ key: 'VAR1', value: 'var 1' }],
           root_variables_inheritance: root_variables_inheritance,
           rules: rules }
       end
@@ -338,14 +485,16 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
         end
 
         it 'recalculates the variables' do
-          expect(subject[:yaml_variables]).to contain_exactly({ key: 'VAR1', value: 'overridden var 1', public: true },
-                                                              { key: 'VAR2', value: 'new var 2', public: true })
+          expect(subject[:yaml_variables]).to contain_exactly(
+            { key: 'VAR1', value: 'overridden var 1' },
+            { key: 'VAR2', value: 'new var 2' }
+          )
         end
       end
 
       context 'when the rules use root variables' do
         let(:root_variables) do
-          [{ key: 'VAR2', value: 'var pipeline 2', public: true }]
+          [{ key: 'VAR2', value: 'var pipeline 2' }]
         end
 
         let(:rules) do
@@ -353,15 +502,17 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
         end
 
         it 'recalculates the variables' do
-          expect(subject[:yaml_variables]).to contain_exactly({ key: 'VAR1', value: 'overridden var 1', public: true },
-                                                              { key: 'VAR2', value: 'overridden var 2', public: true })
+          expect(subject[:yaml_variables]).to contain_exactly(
+            { key: 'VAR1', value: 'overridden var 1' },
+            { key: 'VAR2', value: 'overridden var 2' }
+          )
         end
 
         context 'when the root_variables_inheritance is false' do
           let(:root_variables_inheritance) { false }
 
           it 'does not recalculate the variables' do
-            expect(subject[:yaml_variables]).to contain_exactly({ key: 'VAR1', value: 'var 1', public: true })
+            expect(subject[:yaml_variables]).to contain_exactly({ key: 'VAR1', value: 'var 1' })
           end
         end
       end
@@ -635,12 +786,12 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
 
       context 'non-matches' do
         where(:keyword, :source) do
-          %w[web trigger schedule api external].map  { |source| ['pushes', source] } +
-          %w[push trigger schedule api external].map { |source| ['web', source] } +
-          %w[push web schedule api external].map { |source| ['triggers', source] } +
-          %w[push web trigger api external].map { |source| ['schedules', source] } +
-          %w[push web trigger schedule external].map { |source| ['api', source] } +
-          %w[push web trigger schedule api].map { |source| ['external', source] }
+          %w[web trigger schedule api external].map { |source| ['pushes', source] } +
+            %w[push trigger schedule api external].map { |source| ['web', source] } +
+            %w[push web schedule api external].map { |source| ['triggers', source] } +
+            %w[push web trigger api external].map { |source| ['schedules', source] } +
+            %w[push web trigger schedule external].map { |source| ['api', source] } +
+            %w[push web trigger schedule api].map { |source| ['external', source] }
         end
 
         with_them do
@@ -769,7 +920,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
           with_them do
             it { is_expected.not_to be_included }
 
-            it 'correctly populates when:' do
+            it 'still correctly populates when:' do
               expect(seed_build.attributes).to include(when: 'never')
             end
           end
@@ -798,7 +949,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
             [
               [[{ if: '$CI_JOB_NAME == "rspec" && $VAR == null', when: 'on_failure' }]],
               [[{ if: '$VARIABLE != null',              when: 'delayed', start_in: '1 day' }, { if: '$CI_JOB_NAME   == "rspec"', when: 'on_failure' }]],
-              [[{ if: '$VARIABLE == "the wrong value"', when: 'delayed', start_in: '1 day' }, { if: '$CI_BUILD_NAME == "rspec"', when: 'on_failure' }]]
+              [[{ if: '$VARIABLE == "the wrong value"', when: 'delayed', start_in: '1 day' }, { if: '$CI_JOB_NAME == "rspec"', when: 'on_failure' }]]
             ]
           end
 
@@ -858,14 +1009,14 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
         context 'with an explicit `when: never`' do
           where(:rule_set) do
             [
-              [[{ changes: %w[*/**/*.rb],                 when: 'never' }, { changes: %w[*/**/*.rb],                 when: 'always' }]],
-              [[{ changes: %w[app/models/ci/pipeline.rb], when: 'never' }, { changes: %w[app/models/ci/pipeline.rb], when: 'always' }]],
-              [[{ changes: %w[spec/**/*.rb],              when: 'never' }, { changes: %w[spec/**/*.rb],              when: 'always' }]],
-              [[{ changes: %w[*.yml],                     when: 'never' }, { changes: %w[*.yml],                     when: 'always' }]],
-              [[{ changes: %w[.*.yml],                    when: 'never' }, { changes: %w[.*.yml],                    when: 'always' }]],
-              [[{ changes: %w[**/*],                      when: 'never' }, { changes: %w[**/*],                      when: 'always' }]],
-              [[{ changes: %w[*/**/*.rb *.yml],           when: 'never' }, { changes: %w[*/**/*.rb *.yml],           when: 'always' }]],
-              [[{ changes: %w[.*.yml **/*],               when: 'never' }, { changes: %w[.*.yml **/*],               when: 'always' }]]
+              [[{ changes: { paths: %w[*/**/*.rb] },                 when: 'never' }, { changes: { paths: %w[*/**/*.rb] },                 when: 'always' }]],
+              [[{ changes: { paths: %w[app/models/ci/pipeline.rb] }, when: 'never' }, { changes: { paths: %w[app/models/ci/pipeline.rb] }, when: 'always' }]],
+              [[{ changes: { paths: %w[spec/**/*.rb] },              when: 'never' }, { changes: { paths: %w[spec/**/*.rb] },              when: 'always' }]],
+              [[{ changes: { paths: %w[*.yml] },                     when: 'never' }, { changes: { paths: %w[*.yml] },                     when: 'always' }]],
+              [[{ changes: { paths: %w[.*.yml] },                    when: 'never' }, { changes: { paths: %w[.*.yml] },                    when: 'always' }]],
+              [[{ changes: { paths: %w[**/*] },                      when: 'never' }, { changes: { paths: %w[**/*] },                      when: 'always' }]],
+              [[{ changes: { paths: %w[*/**/*.rb *.yml] },           when: 'never' }, { changes: { paths: %w[*/**/*.rb *.yml] },           when: 'always' }]],
+              [[{ changes: { paths: %w[.*.yml **/*] },               when: 'never' }, { changes: { paths: %w[.*.yml **/*] },               when: 'always' }]]
             ]
           end
 
@@ -881,14 +1032,14 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
         context 'with an explicit `when: always`' do
           where(:rule_set) do
             [
-              [[{ changes: %w[*/**/*.rb],                 when: 'always' }, { changes: %w[*/**/*.rb],                 when: 'never' }]],
-              [[{ changes: %w[app/models/ci/pipeline.rb], when: 'always' }, { changes: %w[app/models/ci/pipeline.rb], when: 'never' }]],
-              [[{ changes: %w[spec/**/*.rb],              when: 'always' }, { changes: %w[spec/**/*.rb],              when: 'never' }]],
-              [[{ changes: %w[*.yml],                     when: 'always' }, { changes: %w[*.yml],                     when: 'never' }]],
-              [[{ changes: %w[.*.yml],                    when: 'always' }, { changes: %w[.*.yml],                    when: 'never' }]],
-              [[{ changes: %w[**/*],                      when: 'always' }, { changes: %w[**/*],                      when: 'never' }]],
-              [[{ changes: %w[*/**/*.rb *.yml],           when: 'always' }, { changes: %w[*/**/*.rb *.yml],           when: 'never' }]],
-              [[{ changes: %w[.*.yml **/*],               when: 'always' }, { changes: %w[.*.yml **/*],               when: 'never' }]]
+              [[{ changes: { paths: %w[*/**/*.rb] },                 when: 'always' }, { changes: { paths: %w[*/**/*.rb] },                 when: 'never' }]],
+              [[{ changes: { paths: %w[app/models/ci/pipeline.rb] }, when: 'always' }, { changes: { paths: %w[app/models/ci/pipeline.rb] }, when: 'never' }]],
+              [[{ changes: { paths: %w[spec/**/*.rb] },              when: 'always' }, { changes: { paths: %w[spec/**/*.rb] },              when: 'never' }]],
+              [[{ changes: { paths: %w[*.yml] },                     when: 'always' }, { changes: { paths: %w[*.yml] },                     when: 'never' }]],
+              [[{ changes: { paths: %w[.*.yml] },                    when: 'always' }, { changes: { paths: %w[.*.yml] },                    when: 'never' }]],
+              [[{ changes: { paths: %w[**/*] },                      when: 'always' }, { changes: { paths: %w[**/*] },                      when: 'never' }]],
+              [[{ changes: { paths: %w[*/**/*.rb *.yml] },           when: 'always' }, { changes: { paths: %w[*/**/*.rb *.yml] },           when: 'never' }]],
+              [[{ changes: { paths: %w[.*.yml **/*] },               when: 'always' }, { changes: { paths: %w[.*.yml **/*] },               when: 'never' }]]
             ]
           end
 
@@ -904,14 +1055,14 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
         context 'without an explicit when: value' do
           where(:rule_set) do
             [
-              [[{ changes: %w[*/**/*.rb]                 }]],
-              [[{ changes: %w[app/models/ci/pipeline.rb] }]],
-              [[{ changes: %w[spec/**/*.rb]              }]],
-              [[{ changes: %w[*.yml]                     }]],
-              [[{ changes: %w[.*.yml]                    }]],
-              [[{ changes: %w[**/*]                      }]],
-              [[{ changes: %w[*/**/*.rb *.yml]           }]],
-              [[{ changes: %w[.*.yml **/*]               }]]
+              [[{ changes:  { paths: %w[*/**/*.rb] }                 }]],
+              [[{ changes:  { paths: %w[app/models/ci/pipeline.rb] } }]],
+              [[{ changes:  { paths: %w[spec/**/*.rb] }              }]],
+              [[{ changes:  { paths: %w[*.yml] }                     }]],
+              [[{ changes:  { paths: %w[.*.yml] }                    }]],
+              [[{ changes:  { paths: %w[**/*] }                      }]],
+              [[{ changes:  { paths: %w[*/**/*.rb *.yml] }           }]],
+              [[{ changes:  { paths: %w[.*.yml **/*] }               }]]
             ]
           end
 
@@ -949,6 +1100,160 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
         end
       end
 
+      context 'with a rule using CI_ENVIRONMENT_NAME variable' do
+        let(:rule_set) do
+          [{ if: '$CI_ENVIRONMENT_NAME == "test"' }]
+        end
+
+        context 'when environment:name satisfies the rule' do
+          let(:attributes) { { name: 'rspec', rules: rule_set, environment: 'test', when: 'on_success' } }
+
+          it { is_expected.to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'on_success')
+          end
+        end
+
+        context 'when environment:name does not satisfy rule' do
+          let(:attributes) { { name: 'rspec', rules: rule_set, environment: 'dev', when: 'on_success' } }
+
+          it { is_expected.not_to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'never')
+          end
+        end
+
+        context 'when environment:name is not set' do
+          it { is_expected.not_to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'never')
+          end
+        end
+      end
+
+      context 'with a rule using CI_ENVIRONMENT_ACTION variable' do
+        let(:rule_set) do
+          [{ if: '$CI_ENVIRONMENT_ACTION == "start"' }]
+        end
+
+        context 'when environment:action satisfies the rule' do
+          let(:attributes) do
+            { name: 'rspec', rules: rule_set, environment: 'test', when: 'on_success',
+              options: { environment: { action: 'start' } } }
+          end
+
+          it { is_expected.to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'on_success')
+          end
+        end
+
+        context 'when environment:action does not satisfy rule' do
+          let(:attributes) do
+            { name: 'rspec', rules: rule_set, environment: 'test', when: 'on_success',
+              options: { environment: { action: 'stop' } } }
+          end
+
+          it { is_expected.not_to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'never')
+          end
+        end
+
+        context 'when environment:action is not set' do
+          it { is_expected.not_to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'never')
+          end
+        end
+      end
+
+      context 'with a rule using CI_ENVIRONMENT_TIER variable' do
+        let(:rule_set) do
+          [{ if: '$CI_ENVIRONMENT_TIER == "production"' }]
+        end
+
+        context 'when environment:deployment_tier satisfies the rule' do
+          let(:attributes) do
+            { name: 'rspec', rules: rule_set, environment: 'test', when: 'on_success',
+              options: { environment: { deployment_tier: 'production' } } }
+          end
+
+          it { is_expected.to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'on_success')
+          end
+        end
+
+        context 'when environment:deployment_tier does not satisfy rule' do
+          let(:attributes) do
+            { name: 'rspec', rules: rule_set, environment: 'test', when: 'on_success',
+              options: { environment: { deployment_tier: 'development' } } }
+          end
+
+          it { is_expected.not_to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'never')
+          end
+        end
+
+        context 'when environment:action is not set' do
+          it { is_expected.not_to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'never')
+          end
+        end
+      end
+
+      context 'with a rule using CI_ENVIRONMENT_URL variable' do
+        let(:rule_set) do
+          [{ if: '$CI_ENVIRONMENT_URL == "http://gitlab.com"' }]
+        end
+
+        context 'when environment:url satisfies the rule' do
+          let(:attributes) do
+            { name: 'rspec', rules: rule_set, environment: 'test', when: 'on_success',
+              options: { environment: { url: 'http://gitlab.com' } } }
+          end
+
+          it { is_expected.to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'on_success')
+          end
+        end
+
+        context 'when environment:url does not satisfy rule' do
+          let(:attributes) do
+            { name: 'rspec', rules: rule_set, environment: 'test', when: 'on_success',
+              options: { environment: { url: 'http://staging.gitlab.com' } } }
+          end
+
+          it { is_expected.not_to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'never')
+          end
+        end
+
+        context 'when environment:action is not set' do
+          it { is_expected.not_to be_included }
+
+          it 'correctly populates when:' do
+            expect(seed_build.attributes).to include(when: 'never')
+          end
+        end
+      end
+
       context 'with no rules' do
         let(:rule_set) { [] }
 
@@ -956,6 +1261,26 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Build do
 
         it 'correctly populates when:' do
           expect(seed_build.attributes).to include(when: 'never')
+        end
+      end
+
+      context 'with invalid rules raising error' do
+        let(:rule_set) do
+          [
+            { changes: { paths: ['README.md'], compare_to: 'invalid-ref' }, when: 'never' }
+          ]
+        end
+
+        it { is_expected.not_to be_included }
+
+        it 'correctly populates when:' do
+          expect(seed_build.attributes).to include(when: 'never')
+        end
+
+        it 'returns an error' do
+          expect(seed_build.errors).to contain_exactly(
+            'Failed to parse rule for rspec: rules:changes:compare_to is not a valid ref'
+          )
         end
       end
     end

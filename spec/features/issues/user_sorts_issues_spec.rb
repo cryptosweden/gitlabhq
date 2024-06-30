@@ -2,7 +2,8 @@
 
 require "spec_helper"
 
-RSpec.describe "User sorts issues" do
+RSpec.describe "User sorts issues", feature_category: :team_planning do
+  include Features::SortingHelpers
   include SortingHelper
   include IssueHelpers
 
@@ -24,33 +25,29 @@ RSpec.describe "User sorts issues" do
     sign_in(user)
   end
 
-  it 'keeps the sort option' do
+  it 'keeps the sort option', :js, quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/378184' do
     visit(project_issues_path(project))
 
-    find('.filter-dropdown-container .dropdown').click
-
-    page.within('ul.dropdown-menu.dropdown-menu-right li') do
-      click_link('Milestone')
-    end
+    click_button 'Created date'
+    click_button 'Milestone'
 
     visit(issues_dashboard_path(assignee_username: user.username))
 
-    expect(find('.issues-filters a.is-active')).to have_content('Milestone')
+    expect(page).to have_button 'Milestone'
 
     visit(project_issues_path(project))
 
-    expect(find('.issues-filters a.is-active')).to have_content('Milestone')
+    expect(page).to have_button 'Milestone'
 
     visit(issues_group_path(group))
 
-    expect(find('.issues-filters a.is-active')).to have_content('Milestone')
+    expect(page).to have_button 'Milestone'
   end
 
   it 'sorts by popularity', :js do
     visit(project_issues_path(project))
 
-    click_button 'Created date'
-    click_on 'Popularity'
+    pajamas_sort_by 'Popularity', from: 'Created date'
 
     page.within(".issues-list") do
       page.within("li.issue:nth-child(1)") do

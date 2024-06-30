@@ -11,8 +11,10 @@ module Db
                   name: FFaker::Name.name,
                   email: FFaker::Internet.email,
                   confirmed_at: DateTime.now,
-                  password: Gitlab::Password.test_default
-                )
+                  password: ::User.random_password
+                ) do |user|
+                  user.assign_personal_namespace(Organizations::Organization.default_organization)
+                end
 
               ::AbuseReport.create(reporter: ::User.take, user: reported_user, message: 'User sends spam')
               print '.'

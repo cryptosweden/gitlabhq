@@ -8,6 +8,11 @@ module Preloaders
     end
 
     def execute
+      ActiveRecord::Associations::Preloader.new(
+        records: groups,
+        associations: [:organization]
+      ).call
+
       Preloaders::UserMaxAccessLevelInGroupsPreloader.new(groups, current_user).execute
     end
 
@@ -17,4 +22,4 @@ module Preloaders
   end
 end
 
-Preloaders::GroupPolicyPreloader.prepend_mod_with('Preloaders::GroupPolicyPreloader')
+Preloaders::GroupPolicyPreloader.prepend_mod

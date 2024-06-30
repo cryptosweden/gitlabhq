@@ -24,10 +24,6 @@ describe('PipelineWizard', () => {
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('mounts without error', () => {
     const consoleSpy = jest.spyOn(console, 'error');
 
@@ -59,6 +55,7 @@ describe('PipelineWizard', () => {
         defaultBranch,
         projectPath,
         filename: parseDocument(template).get('filename'),
+        templateId: parseDocument(template).get('id'),
       }),
     );
   });
@@ -98,5 +95,13 @@ describe('PipelineWizard', () => {
     expect(wrapper.findByTestId('description').text()).toBe(
       parseDocument(template).get('description').toString(),
     );
+  });
+
+  it('bubbles the done event upwards', () => {
+    createComponent();
+
+    wrapper.findComponent(PipelineWizardWrapper).vm.$emit('done');
+
+    expect(wrapper.emitted().done.length).toBe(1);
   });
 });

@@ -2,13 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Internal::Base do
+RSpec.describe API::Internal::Base, feature_category: :system_access do
+  include GitlabShellHelpers
   include APIInternalBaseHelpers
 
   let_it_be(:user, reload: true) { create(:user) }
   let_it_be(:project, reload: true) { create(:project, :repository, :wiki_repo) }
   let_it_be(:personal_snippet) { create(:personal_snippet, :repository, author: user) }
   let_it_be(:project_snippet) { create(:project_snippet, :repository, author: user, project: project) }
+  let_it_be(:max_pat_access_token_lifetime) do
+    PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS.days.from_now.to_date.freeze
+  end
 
   let(:key) { create(:key, user: user) }
   let(:secret_token) { Gitlab::Shell.secret_token }
@@ -17,10 +21,14 @@ RSpec.describe API::Internal::Base do
   let(:snippet_changes) { "#{TestEnv::BRANCH_SHA['snippet/single-file']} #{TestEnv::BRANCH_SHA['snippet/edit-file']} refs/heads/snippet/edit-file" }
 
   describe "GET /internal/check" do
+    def perform_request(headers: gitlab_shell_internal_api_request_header)
+      get api("/internal/check"), headers: headers
+    end
+
     it do
       expect_any_instance_of(Redis).to receive(:ping).and_return('PONG')
 
-      get api("/internal/check"), params: { secret_token: secret_token }
+      perform_request
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(json_response['api_version']).to eq(API::API.version)
@@ -30,21 +38,47 @@ RSpec.describe API::Internal::Base do
     it 'returns false for field `redis` when redis is unavailable' do
       expect_any_instance_of(Redis).to receive(:ping).and_raise(Errno::ENOENT)
 
-      get api("/internal/check"), params: { secret_token: secret_token }
+      perform_request
 
       expect(json_response['redis']).to be(false)
     end
 
     context 'authenticating' do
-      it 'authenticates using a header' do
-        get api("/internal/check"),
-            headers: { API::Helpers::GITLAB_SHARED_SECRET_HEADER => Base64.encode64(secret_token) }
+      it 'authenticates using a jwt token in a header' do
+        perform_request
 
         expect(response).to have_gitlab_http_status(:ok)
       end
 
-      it 'returns 401 when no credentials provided' do
-        get(api("/internal/check"))
+      it 'authenticates using a jwt token with an IAT from 10 seconds in the future' do
+        headers =
+          travel_to(Time.now + 10.seconds) do
+            gitlab_shell_internal_api_request_header
+          end
+
+        perform_request(headers: headers)
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+
+      it 'returns 401 when jwt token is expired' do
+        headers = gitlab_shell_internal_api_request_header
+
+        travel_to(2.minutes.since) do
+          perform_request(headers: headers)
+        end
+
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+
+      it 'returns 401 when jwt issuer is not Gitlab-Shell' do
+        perform_request(headers: gitlab_shell_internal_api_request_header(issuer: "gitlab-workhorse"))
+
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+
+      it 'returns 401 when jwt token is not provided, even if plain secret is provided' do
+        perform_request(headers: { API::Helpers::GITLAB_SHARED_SECRET_HEADER => Base64.encode64(secret_token) })
 
         expect(response).to have_gitlab_http_status(:unauthorized)
       end
@@ -56,10 +90,8 @@ RSpec.describe API::Internal::Base do
 
     subject do
       post api('/internal/two_factor_recovery_codes'),
-           params: {
-             secret_token: secret_token,
-             key_id: key_id
-           }
+        params: { key_id: key_id },
+        headers: gitlab_shell_internal_api_request_header
     end
 
     it_behaves_like 'actor key validations'
@@ -79,12 +111,12 @@ RSpec.describe API::Internal::Base do
       it 'returns new recovery codes when the user exists' do
         allow_any_instance_of(User).to receive(:two_factor_enabled?).and_return(true)
         allow_any_instance_of(User)
-          .to receive(:generate_otp_backup_codes!).and_return(%w(119135e5a3ebce8e 34bd7b74adbc8861))
+          .to receive(:generate_otp_backup_codes!).and_return(%w[119135e5a3ebce8e 34bd7b74adbc8861])
 
         subject
 
         expect(json_response['success']).to be_truthy
-        expect(json_response['recovery_codes']).to match_array(%w(119135e5a3ebce8e 34bd7b74adbc8861))
+        expect(json_response['recovery_codes']).to match_array(%w[119135e5a3ebce8e 34bd7b74adbc8861])
       end
     end
 
@@ -105,10 +137,8 @@ RSpec.describe API::Internal::Base do
 
     subject do
       post api('/internal/personal_access_token'),
-           params: {
-             secret_token: secret_token,
-             key_id: key_id
-           }
+        params: { key_id: key_id },
+        headers: gitlab_shell_internal_api_request_header
     end
 
     it_behaves_like 'actor key validations'
@@ -126,10 +156,8 @@ RSpec.describe API::Internal::Base do
 
     it 'returns an error message when given an non existent user' do
       post api('/internal/personal_access_token'),
-           params: {
-             secret_token: secret_token,
-             user_id: 0
-           }
+        params: { user_id: 0 },
+        headers: gitlab_shell_internal_api_request_header
 
       expect(json_response['success']).to be_falsey
       expect(json_response['message']).to eq("Could not find the given user")
@@ -137,10 +165,8 @@ RSpec.describe API::Internal::Base do
 
     it 'returns an error message when no name parameter is received' do
       post api('/internal/personal_access_token'),
-           params: {
-             secret_token: secret_token,
-             key_id:  key.id
-           }
+        params: { key_id: key.id },
+        headers: gitlab_shell_internal_api_request_header
 
       expect(json_response['success']).to be_falsey
       expect(json_response['message']).to eq("No token name specified")
@@ -148,11 +174,8 @@ RSpec.describe API::Internal::Base do
 
     it 'returns an error message when no scopes parameter is received' do
       post api('/internal/personal_access_token'),
-           params: {
-             secret_token: secret_token,
-             key_id:  key.id,
-             name: 'newtoken'
-           }
+        params: { key_id: key.id, name: 'newtoken' },
+        headers: gitlab_shell_internal_api_request_header
 
       expect(json_response['success']).to be_falsey
       expect(json_response['message']).to eq("No token scopes specified")
@@ -160,13 +183,13 @@ RSpec.describe API::Internal::Base do
 
     it 'returns an error message when expires_at contains an invalid date' do
       post api('/internal/personal_access_token'),
-           params: {
-             secret_token: secret_token,
-             key_id:  key.id,
-             name: 'newtoken',
-             scopes: ['api'],
-             expires_at: 'invalid-date'
-           }
+        params: {
+          key_id: key.id,
+          name: 'newtoken',
+          scopes: ['api'],
+          expires_at: 'invalid-date'
+        },
+        headers: gitlab_shell_internal_api_request_header
 
       expect(json_response['success']).to be_falsey
       expect(json_response['message']).to eq("Invalid token expiry date: 'invalid-date'")
@@ -174,50 +197,55 @@ RSpec.describe API::Internal::Base do
 
     it 'returns an error message when it receives an invalid scope' do
       post api('/internal/personal_access_token'),
-           params: {
-             secret_token: secret_token,
-             key_id:  key.id,
-             name: 'newtoken',
-             scopes: %w(read_api badscope read_repository)
-           }
+        params: {
+          key_id: key.id,
+          name: 'newtoken',
+          scopes: %w[read_api badscope read_repository]
+        },
+        headers: gitlab_shell_internal_api_request_header
 
       expect(json_response['success']).to be_falsey
       expect(json_response['message']).to match(/\AInvalid scope: 'badscope'. Valid scopes are: /)
     end
 
-    it 'returns a token without expiry when the expires_at parameter is missing' do
-      token_size = (PersonalAccessToken.token_prefix || '').size + 20
+    it 'returns a token with expiry when it receives a valid expires_at parameter' do
+      freeze_time do
+        token_size = (PersonalAccessToken.token_prefix || '').size + 20
 
-      post api('/internal/personal_access_token'),
-           params: {
-             secret_token: secret_token,
-             key_id:  key.id,
-             name: 'newtoken',
-             scopes: %w(read_api read_repository)
-           }
+        post api('/internal/personal_access_token'),
+          params: {
+            key_id: key.id,
+            name: 'newtoken',
+            scopes: %w[read_api read_repository],
+            expires_at: max_pat_access_token_lifetime
+          },
+          headers: gitlab_shell_internal_api_request_header
 
-      expect(json_response['success']).to be_truthy
-      expect(json_response['token']).to match(/\A\S{#{token_size}}\z/)
-      expect(json_response['scopes']).to match_array(%w(read_api read_repository))
-      expect(json_response['expires_at']).to be_nil
+        expect(json_response['success']).to be_truthy
+        expect(json_response['token']).to match(/\A\S{#{token_size}}\z/)
+        expect(json_response['scopes']).to match_array(%w[read_api read_repository])
+        expect(json_response['expires_at']).to eq(max_pat_access_token_lifetime.iso8601)
+      end
     end
 
-    it 'returns a token with expiry when it receives a valid expires_at parameter' do
-      token_size = (PersonalAccessToken.token_prefix || '').size + 20
+    it 'returns token with expiry as PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS' do
+      freeze_time do
+        token_size = (PersonalAccessToken.token_prefix || '').size + 20
 
-      post api('/internal/personal_access_token'),
-           params: {
-             secret_token: secret_token,
-             key_id:  key.id,
-             name: 'newtoken',
-             scopes: %w(read_api read_repository),
-             expires_at: '9001-11-17'
-           }
+        post api('/internal/personal_access_token'),
+          params: {
+            key_id: key.id,
+            name: 'newtoken',
+            scopes: %w[read_api read_repository],
+            expires_at: 365.days.from_now
+          },
+          headers: gitlab_shell_internal_api_request_header
 
-      expect(json_response['success']).to be_truthy
-      expect(json_response['token']).to match(/\A\S{#{token_size}}\z/)
-      expect(json_response['scopes']).to match_array(%w(read_api read_repository))
-      expect(json_response['expires_at']).to eq('9001-11-17')
+        expect(json_response['success']).to be_truthy
+        expect(json_response['token']).to match(/\A\S{#{token_size}}\z/)
+        expect(json_response['scopes']).to match_array(%w[read_api read_repository])
+        expect(json_response['expires_at']).to eq(max_pat_access_token_lifetime.iso8601)
+      end
     end
   end
 
@@ -309,15 +337,37 @@ RSpec.describe API::Internal::Base do
 
   describe "GET /internal/discover" do
     it "finds a user by key id" do
-      get(api("/internal/discover"), params: { key_id: key.id, secret_token: secret_token })
+      get(api("/internal/discover"), params: { key_id: key.id }, headers: gitlab_shell_internal_api_request_header)
 
       expect(response).to have_gitlab_http_status(:ok)
 
       expect(json_response['name']).to eq(user.name)
     end
 
+    context 'when signing key is passed' do
+      it 'does not authenticate user' do
+        key.signing!
+
+        get(api("/internal/discover"), params: { key_id: key.id }, headers: gitlab_shell_internal_api_request_header)
+
+        expect(json_response).to be_nil
+      end
+    end
+
+    context 'when auth-only key is passed' do
+      it 'authenticates user' do
+        key.auth!
+
+        get(api("/internal/discover"), params: { key_id: key.id }, headers: gitlab_shell_internal_api_request_header)
+
+        expect(response).to have_gitlab_http_status(:ok)
+
+        expect(json_response['name']).to eq(user.name)
+      end
+    end
+
     it "finds a user by username" do
-      get(api("/internal/discover"), params: { username: user.username, secret_token: secret_token })
+      get(api("/internal/discover"), params: { username: user.username }, headers: gitlab_shell_internal_api_request_header)
 
       expect(response).to have_gitlab_http_status(:ok)
 
@@ -325,7 +375,7 @@ RSpec.describe API::Internal::Base do
     end
 
     it 'responds successfully when a user is not found' do
-      get(api('/internal/discover'), params: { username: 'noone', secret_token: secret_token })
+      get(api('/internal/discover'), params: { username: 'noone' }, headers: gitlab_shell_internal_api_request_header)
 
       expect(response).to have_gitlab_http_status(:ok)
 
@@ -333,7 +383,7 @@ RSpec.describe API::Internal::Base do
     end
 
     it 'response successfully when passing invalid params' do
-      get(api('/internal/discover'), params: { nothing: 'to find a user', secret_token: secret_token })
+      get(api('/internal/discover'), params: { nothing: 'to find a user' }, headers: gitlab_shell_internal_api_request_header)
 
       expect(response).to have_gitlab_http_status(:ok)
 
@@ -344,15 +394,39 @@ RSpec.describe API::Internal::Base do
   describe "GET /internal/authorized_keys" do
     context "using an existing key" do
       it "finds the key" do
-        get(api('/internal/authorized_keys'), params: { key: key.key.split[1], secret_token: secret_token })
+        get(api('/internal/authorized_keys'), params: { key: key.key.split[1] }, headers: gitlab_shell_internal_api_request_header)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['id']).to eq(key.id)
         expect(json_response['key'].split[1]).to eq(key.key.split[1])
       end
 
+      context 'when signing key is passed' do
+        it 'does not return the key' do
+          key.signing!
+
+          get(api('/internal/authorized_keys'), params: { key: key.key.split[1] }, headers: gitlab_shell_internal_api_request_header)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+
+          expect(json_response['id']).to be_nil
+        end
+      end
+
+      context 'when auth-only key is passed' do
+        it 'authenticates user' do
+          key.auth!
+
+          get(api('/internal/authorized_keys'), params: { key: key.key.split[1] }, headers: gitlab_shell_internal_api_request_header)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['id']).to eq(key.id)
+          expect(json_response['key'].split[1]).to eq(key.key.split[1])
+        end
+      end
+
       it 'exposes the comment of the key as a simple identifier of username + hostname' do
-        get(api('/internal/authorized_keys'), params: { key: key.key.split[1], secret_token: secret_token })
+        get(api('/internal/authorized_keys'), params: { key: key.key.split[1] }, headers: gitlab_shell_internal_api_request_header)
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['key']).to include("#{key.user_name} (#{Gitlab.config.gitlab.host})")
@@ -360,13 +434,13 @@ RSpec.describe API::Internal::Base do
     end
 
     it "returns 404 with a partial key" do
-      get(api('/internal/authorized_keys'), params: { key: key.key.split[1][0...-3], secret_token: secret_token })
+      get(api('/internal/authorized_keys'), params: { key: key.key.split[1][0...-3] }, headers: gitlab_shell_internal_api_request_header)
 
       expect(response).to have_gitlab_http_status(:not_found)
     end
 
     it "returns 404 with an not valid base64 string" do
-      get(api('/internal/authorized_keys'), params: { key: "whatever!", secret_token: secret_token })
+      get(api('/internal/authorized_keys'), params: { key: "whatever!" }, headers: gitlab_shell_internal_api_request_header)
 
       expect(response).to have_gitlab_http_status(:not_found)
     end
@@ -376,10 +450,17 @@ RSpec.describe API::Internal::Base do
     shared_examples 'rate limited request' do
       let(:action) { 'git-upload-pack' }
       let(:actor) { key }
+      let(:rate_limiter) { double(:rate_limiter, ip: "127.0.0.1", trusted_ip?: false) }
+
+      before do
+        allow(::Gitlab::Auth::IpRateLimiter).to receive(:new).with("127.0.0.1").and_return(rate_limiter)
+      end
 
       it 'is throttled by rate limiter' do
         allow(::Gitlab::ApplicationRateLimiter).to receive(:threshold).and_return(1)
+
         expect(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).with(:gitlab_shell_operation, scope: [action, project.full_path, actor]).twice.and_call_original
+        expect(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).with(:gitlab_shell_operation, scope: [action, project.full_path, "127.0.0.1"]).and_call_original
 
         request
 
@@ -391,10 +472,14 @@ RSpec.describe API::Internal::Base do
         expect(json_response['message']['error']).to eq('This endpoint has been requested too many times. Try again later.')
       end
 
-      context 'when rate_limit_gitlab_shell feature flag is disabled' do
-        before do
-          stub_feature_flags(rate_limit_gitlab_shell: false)
-        end
+      it 'is not throttled by rate limiter' do
+        expect(::Gitlab::ApplicationRateLimiter).not_to receive(:throttled?)
+
+        subject
+      end
+
+      context 'when the IP is in a trusted range' do
+        let(:rate_limiter) { double(:rate_limiter, ip: "127.0.0.1", trusted_ip?: true) }
 
         it 'is not throttled by rate limiter' do
           expect(::Gitlab::ApplicationRateLimiter).not_to receive(:throttled?)
@@ -405,6 +490,7 @@ RSpec.describe API::Internal::Base do
     end
 
     context "access granted" do
+      let(:relative_path) { nil }
       let(:env) { {} }
 
       around do |example|
@@ -415,28 +501,69 @@ RSpec.describe API::Internal::Base do
         project.add_developer(user)
       end
 
+      shared_context 'with env passed as a JSON' do
+        let(:obj_dir_relative) { './objects' }
+        let(:alt_obj_dirs_relative) { ['./alt-objects-1', './alt-objects-2'] }
+        let(:env) do
+          {
+            GIT_OBJECT_DIRECTORY_RELATIVE: obj_dir_relative,
+            GIT_ALTERNATE_OBJECT_DIRECTORIES_RELATIVE: alt_obj_dirs_relative
+          }
+        end
+      end
+
       shared_examples 'sets hook env' do
-        context 'with env passed as a JSON' do
-          let(:obj_dir_relative) { './objects' }
-          let(:alt_obj_dirs_relative) { ['./alt-objects-1', './alt-objects-2'] }
-          let(:env) do
-            {
-              GIT_OBJECT_DIRECTORY_RELATIVE: obj_dir_relative,
-              GIT_ALTERNATE_OBJECT_DIRECTORIES_RELATIVE: alt_obj_dirs_relative
-            }
-          end
+        include_context 'with env passed as a JSON'
 
-          it 'sets env in RequestStore' do
-            expect(Gitlab::Git::HookEnv).to receive(:set).with(gl_repository, env.stringify_keys)
+        it 'sets env in RequestStore' do
+          expect(Gitlab::Git::HookEnv).to receive(:set).with(gl_repository, relative_path, env.stringify_keys)
 
-            subject
+          subject
 
-            expect(response).to have_gitlab_http_status(:ok)
-          end
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+
+      shared_examples 'sets hook env and routes to primary' do
+        include_context 'with env passed as a JSON'
+
+        let(:interceptor) do
+          Class.new(::GRPC::ClientInterceptor) do
+            def route_to_primary_received?
+              @route_to_primary_count.to_i > 0
+            end
+
+            def request_response(request:, call:, method:, metadata:) # rubocop:disable Lint/UnusedMethodArgument
+              @route_to_primary_count ||= 0
+              @route_to_primary_count += 1 if metadata['gitaly-route-repository-accessor-policy'] == 'primary-only'
+
+              yield
+            end
+          end.new
+        end
+
+        before do
+          Gitlab::GitalyClient.clear_stubs!
+          allow(::Gitlab::GitalyClient).to receive(:interceptors).and_return([interceptor])
+        end
+
+        after do
+          Gitlab::GitalyClient.clear_stubs!
+        end
+
+        it 'sets env in RequestStore and routes gRPC messages to primary', :request_store do
+          expect(Gitlab::Git::HookEnv).to receive(:set).with(gl_repository, relative_path, env.stringify_keys).and_call_original
+
+          subject
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(interceptor.route_to_primary_received?).to be_truthy
         end
       end
 
       context "git push with project.wiki" do
+        let(:relative_path) { project.wiki.repository.relative_path }
+
         subject { push(key, project.wiki, env: env.to_json) }
 
         it 'responds with success' do
@@ -446,11 +573,15 @@ RSpec.describe API::Internal::Base do
           expect(json_response["status"]).to be_truthy
           expect(json_response["gl_project_path"]).to eq(project.wiki.full_path)
           expect(json_response["gl_repository"]).to eq("wiki-#{project.id}")
+          expect(json_response["gl_project_id"]).to eq(project.id)
+          expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
           expect(json_response["gl_key_type"]).to eq("key")
           expect(json_response["gl_key_id"]).to eq(key.id)
-          expect(user.reload.last_activity_on).to be_nil
+          expect(user.reload.last_activity_on).to eql(Date.today)
         end
 
+        # Wiki repositories don't invoke any Gitaly RPCs to check for changes, so we can only test for the
+        # hook environment being set.
         it_behaves_like 'sets hook env' do
           let(:gl_repository) { Gitlab::GlRepository::WIKI.identifier_for_container(project.wiki) }
         end
@@ -464,6 +595,8 @@ RSpec.describe API::Internal::Base do
           expect(json_response["status"]).to be_truthy
           expect(json_response["gl_project_path"]).to eq(project.wiki.full_path)
           expect(json_response["gl_repository"]).to eq("wiki-#{project.id}")
+          expect(json_response["gl_project_id"]).to eq(project.id)
+          expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
           expect(user.reload.last_activity_on).to eql(Date.today)
         end
       end
@@ -478,6 +611,11 @@ RSpec.describe API::Internal::Base do
       end
 
       context 'git push with personal snippet' do
+        # relative_path is sent from Gitaly to Rails when invoking internal API. In production it points to the
+        # transaction's snapshot repository. As Gitaly is stubbed out from the invocation loop, there is no transaction
+        # and thus no snapshot repository. Pass the original relative path.
+        let(:relative_path) { personal_snippet.repository.relative_path }
+
         subject { push(key, personal_snippet, env: env.to_json, changes: snippet_changes) }
 
         it 'responds with success' do
@@ -487,10 +625,12 @@ RSpec.describe API::Internal::Base do
           expect(json_response["status"]).to be_truthy
           expect(json_response["gl_project_path"]).to eq(personal_snippet.repository.full_path)
           expect(json_response["gl_repository"]).to eq("snippet-#{personal_snippet.id}")
-          expect(user.reload.last_activity_on).to be_nil
+          expect(json_response["gl_project_id"]).to be_nil
+          expect(json_response["gl_root_namespace_id"]).to be_nil
+          expect(user.reload.last_activity_on).to eql(Date.today)
         end
 
-        it_behaves_like 'sets hook env' do
+        it_behaves_like 'sets hook env and routes to primary' do
           let(:gl_repository) { Gitlab::GlRepository::SNIPPET.identifier_for_container(personal_snippet) }
         end
       end
@@ -505,11 +645,18 @@ RSpec.describe API::Internal::Base do
           expect(json_response["status"]).to be_truthy
           expect(json_response["gl_project_path"]).to eq(personal_snippet.repository.full_path)
           expect(json_response["gl_repository"]).to eq("snippet-#{personal_snippet.id}")
+          expect(json_response["gl_project_id"]).to be_nil
+          expect(json_response["gl_root_namespace_id"]).to be_nil
           expect(user.reload.last_activity_on).to eql(Date.today)
         end
       end
 
       context 'git push with project snippet' do
+        # relative_path is sent from Gitaly to Rails when invoking internal API. In production it points to the
+        # transaction's snapshot repository. As Gitaly is stubbed out from the invocation loop, there is no transaction
+        # and thus no snapshot repository. Pass the original relative path.
+        let(:relative_path) { project_snippet.repository.relative_path }
+
         subject { push(key, project_snippet, env: env.to_json, changes: snippet_changes) }
 
         it 'responds with success' do
@@ -519,10 +666,12 @@ RSpec.describe API::Internal::Base do
           expect(json_response["status"]).to be_truthy
           expect(json_response["gl_project_path"]).to eq(project_snippet.repository.full_path)
           expect(json_response["gl_repository"]).to eq("snippet-#{project_snippet.id}")
-          expect(user.reload.last_activity_on).to be_nil
+          expect(json_response["gl_project_id"]).to eq(project.id)
+          expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
+          expect(user.reload.last_activity_on).to eql(Date.today)
         end
 
-        it_behaves_like 'sets hook env' do
+        it_behaves_like 'sets hook env and routes to primary' do
           let(:gl_repository) { Gitlab::GlRepository::SNIPPET.identifier_for_container(project_snippet) }
         end
       end
@@ -535,6 +684,8 @@ RSpec.describe API::Internal::Base do
           expect(json_response["status"]).to be_truthy
           expect(json_response["gl_project_path"]).to eq(project_snippet.repository.full_path)
           expect(json_response["gl_repository"]).to eq("snippet-#{project_snippet.id}")
+          expect(json_response["gl_project_id"]).to eq(project.id)
+          expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
           expect(user.reload.last_activity_on).to eql(Date.today)
         end
       end
@@ -552,6 +703,8 @@ RSpec.describe API::Internal::Base do
             expect(json_response["status"]).to be_truthy
             expect(json_response["gl_repository"]).to eq("project-#{project.id}")
             expect(json_response["gl_project_path"]).to eq(project.full_path)
+            expect(json_response["gl_project_id"]).to eq(project.id)
+            expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
             expect(json_response["gitaly"]).not_to be_nil
             expect(json_response["gitaly"]["repository"]).not_to be_nil
             expect(json_response["gitaly"]["repository"]["storage_name"]).to eq(project.repository.gitaly_repository.storage_name)
@@ -580,10 +733,16 @@ RSpec.describe API::Internal::Base do
                     project: full_path_for(project),
                     gl_repository: gl_repository_for(project),
                     action: 'git-upload-pack',
-                    secret_token: secret_token,
                     protocol: 'ssh'
-                  }
+                  },
+                  headers: gitlab_shell_internal_api_request_header
                 )
+              end
+
+              it "updates user's activity data" do
+                expect(::Users::ActivityService).to receive(:new).with(author: user, namespace: project.namespace, project: project)
+
+                request
               end
             end
           end
@@ -613,27 +772,14 @@ RSpec.describe API::Internal::Base do
           end
         end
 
-        context "with a sidechannels enabled for a project" do
-          before do
-            stub_feature_flags(gitlab_shell_upload_pack_sidechannel: project)
-          end
+        context 'with audit event' do
+          it 'does not send a git streaming audit event' do
+            expect(::Gitlab::Audit::Auditor).not_to receive(:audit)
 
-          it "has the use_sidechannel field set to true for that project" do
             pull(key, project)
 
             expect(response).to have_gitlab_http_status(:ok)
-            expect(json_response["gl_repository"]).to eq("project-#{project.id}")
-            expect(json_response["gitaly"]["use_sidechannel"]).to eq(true)
-          end
-
-          it "has the use_sidechannel field set to false for other projects" do
-            other_project = create(:project, :public, :repository)
-
-            pull(key, other_project)
-
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(json_response["gl_repository"]).to eq("project-#{other_project.id}")
-            expect(json_response["gitaly"]["use_sidechannel"]).to eq(false)
+            expect(json_response["need_audit"]).to be_falsy
           end
         end
       end
@@ -647,15 +793,18 @@ RSpec.describe API::Internal::Base do
             expect(json_response["status"]).to be_truthy
             expect(json_response["gl_repository"]).to eq("project-#{project.id}")
             expect(json_response["gl_project_path"]).to eq(project.full_path)
+            expect(json_response["gl_project_id"]).to eq(project.id)
+            expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
             expect(json_response["gl_key_type"]).to eq("key")
             expect(json_response["gl_key_id"]).to eq(key.id)
+            expect(json_response["need_audit"]).to be_falsy
             expect(json_response["gitaly"]).not_to be_nil
             expect(json_response["gitaly"]["repository"]).not_to be_nil
             expect(json_response["gitaly"]["repository"]["storage_name"]).to eq(project.repository.gitaly_repository.storage_name)
             expect(json_response["gitaly"]["repository"]["relative_path"]).to eq(project.repository.gitaly_repository.relative_path)
             expect(json_response["gitaly"]["address"]).to eq(Gitlab::GitalyClient.address(project.repository_storage))
             expect(json_response["gitaly"]["token"]).to eq(Gitlab::GitalyClient.token(project.repository_storage))
-            expect(user.reload.last_activity_on).to be_nil
+            expect(user.reload.last_activity_on).to eql(Date.today)
           end
 
           it_behaves_like 'rate limited request' do
@@ -773,12 +922,11 @@ RSpec.describe API::Internal::Base do
     end
 
     context "custom action" do
-      let(:access_checker) { double(Gitlab::GitAccess) }
       let(:payload) do
         {
           'action' => 'geo_proxy_to_primary',
           'data' => {
-            'api_endpoints' => %w{geo/proxy_git_ssh/info_refs_receive_pack geo/proxy_git_ssh/receive_pack},
+            'api_endpoints' => %w[geo/proxy_git_ssh/info_refs_receive_pack geo/proxy_git_ssh/receive_pack],
             'gl_username' => 'testuser',
             'primary_repo' => 'http://localhost:3000/testuser/repo.git'
           }
@@ -790,20 +938,23 @@ RSpec.describe API::Internal::Base do
 
       before do
         project.add_guest(user)
-        expect(Gitlab::GitAccess).to receive(:new).with(
+
+        expect_next_instance_of(Gitlab::GitAccess,
           key,
           project,
           'ssh',
           {
             authentication_abilities: [:read_project, :download_code, :push_code],
             repository_path: "#{project.full_path}.git",
-            redirected_path: nil
+            redirected_path: nil,
+            push_options: nil
           }
-        ).and_return(access_checker)
-        expect(access_checker).to receive(:check).with(
-          'git-receive-pack',
-          'd14d6c0abdd253381df51a723d58691b2ee1ab08 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/master'
-        ).and_return(custom_action_result)
+        ) do |access_checker|
+          expect(access_checker).to receive(:check).with(
+            'git-receive-pack',
+            'd14d6c0abdd253381df51a723d58691b2ee1ab08 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/master'
+          ).and_return(custom_action_result)
+        end
       end
 
       context "git push" do
@@ -814,7 +965,7 @@ RSpec.describe API::Internal::Base do
           expect(json_response['status']).to be_truthy
           expect(json_response['payload']).to eql(payload)
           expect(json_response['gl_console_messages']).to eql(console_messages)
-          expect(user.reload.last_activity_on).to be_nil
+          expect(user.reload.last_activity_on).to eql(Date.today)
         end
       end
     end
@@ -826,13 +977,13 @@ RSpec.describe API::Internal::Base do
 
       context 'git pull' do
         context 'with a key that has expired' do
-          let(:key) { create(:key, user: user, expires_at: 2.days.ago) }
+          let(:key) { create(:key, :expired, user: user) }
 
-          it 'includes the `key expired` message in the response' do
+          it 'includes the `key expired` message in the response and fails' do
             pull(key, project)
 
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(json_response['gl_console_messages']).to eq(['INFO: Your SSH key has expired. Please generate a new key.'])
+            expect(response).to have_gitlab_http_status(:unauthorized)
+            expect(json_response['message']).to eq('Your SSH key has expired.')
           end
         end
 
@@ -901,6 +1052,21 @@ RSpec.describe API::Internal::Base do
           expect(json_response['message']).to eq("Foo")
           expect(user.reload.last_activity_on).to be_nil
         end
+      end
+    end
+
+    context 'when result is not ::Gitlab::GitAccessResult::Success or ::Gitlab::GitAccessResult::CustomAction' do
+      it 'responds with 500' do
+        personal_project = create(:project, namespace: user.namespace)
+
+        allow_next_instance_of(Gitlab::GitAccess) do |access|
+          allow(access).to receive(:check).and_return(nil)
+        end
+        push(key, personal_project)
+
+        expect(response).to have_gitlab_http_status(:internal_server_error)
+        expect(json_response['status']).to be_falsey
+        expect(json_response['message']).to eq(::API::Helpers::InternalHelpers::UNKNOWN_CHECK_RESULT_ERROR)
       end
     end
 
@@ -989,9 +1155,9 @@ RSpec.describe API::Internal::Base do
               key_id: key.id,
               project: 'project/does-not-exist.git',
               action: 'git-upload-pack',
-              secret_token: secret_token,
               protocol: 'ssh'
-            }
+            },
+            headers: gitlab_shell_internal_api_request_header
           )
 
           expect(response).to have_gitlab_http_status(:not_found)
@@ -1001,7 +1167,7 @@ RSpec.describe API::Internal::Base do
 
       context 'git push' do
         before do
-          stub_const('Gitlab::QueryLimiting::Transaction::THRESHOLD', 120)
+          allow(Gitlab::QueryLimiting::Transaction).to receive(:threshold).and_return(120)
         end
 
         subject { push_with_path(key, full_path: path, changes: '_any') }
@@ -1016,6 +1182,18 @@ RSpec.describe API::Internal::Base do
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(json_response['status']).to be_truthy
+          end
+        end
+
+        context 'when push path is invalid' do
+          let!(:path) { "#{user.namespace.path}/cannot_end_with_dot." }
+
+          it 'returns an error' do
+            expect { subject }.not_to change { Project.count }
+
+            expect(response).to have_gitlab_http_status(:unprocessable_entity)
+            expect(json_response['message']).to include('Could not create project')
+            expect(json_response['status']).to be_falsey
           end
         end
 
@@ -1161,13 +1339,13 @@ RSpec.describe API::Internal::Base do
 
       it 'does not allow access' do
         post(api('/internal/allowed'),
-             params: {
-               key_id: key.id,
-               project: project.full_path,
-               gl_repository: gl_repository,
-               secret_token: secret_token,
-               protocol: 'ssh'
-             })
+          params: {
+            key_id: key.id,
+            project: project.full_path,
+            gl_repository: gl_repository,
+            protocol: 'ssh'
+          }, headers: gitlab_shell_internal_api_request_header
+        )
 
         expect(response).to have_gitlab_http_status(:unauthorized)
       end
@@ -1280,7 +1458,6 @@ RSpec.describe API::Internal::Base do
     let(:valid_params) do
       {
         gl_repository: gl_repository,
-        secret_token: secret_token,
         identifier: identifier,
         changes: changes,
         push_options: push_options
@@ -1288,10 +1465,10 @@ RSpec.describe API::Internal::Base do
     end
 
     let(:changes) do
-      "#{Gitlab::Git::BLANK_SHA} 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/#{branch_name}"
+      "#{Gitlab::Git::SHA1_BLANK_SHA} 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/#{branch_name}"
     end
 
-    subject { post api('/internal/post_receive'), params: valid_params }
+    subject { post api('/internal/post_receive'), params: valid_params, headers: gitlab_shell_internal_api_request_header }
 
     before do
       project.add_developer(user)
@@ -1392,7 +1569,7 @@ RSpec.describe API::Internal::Base do
 
   describe 'POST /internal/pre_receive' do
     let(:valid_params) do
-      { gl_repository: gl_repository, secret_token: secret_token }
+      { gl_repository: gl_repository, user_id: user.id }
     end
 
     it 'decreases the reference counter and returns the result' do
@@ -1400,9 +1577,15 @@ RSpec.describe API::Internal::Base do
         .and_return(reference_counter)
       expect(reference_counter).to receive(:increase).and_return(true)
 
-      post api("/internal/pre_receive"), params: valid_params
+      post api("/internal/pre_receive"), params: valid_params, headers: gitlab_shell_internal_api_request_header
 
       expect(json_response['reference_counter_increased']).to be(true)
+    end
+
+    it 'sticks to the primary' do
+      expect(User.sticking).to receive(:find_caught_up_replica).with(:user, user.id)
+
+      post api("/internal/pre_receive"), params: valid_params, headers: gitlab_shell_internal_api_request_header
     end
   end
 
@@ -1415,10 +1598,8 @@ RSpec.describe API::Internal::Base do
 
     subject do
       post api('/internal/two_factor_config'),
-           params: {
-             secret_token: secret_token,
-             key_id: key_id
-           }
+        params: { key_id: key_id },
+        headers: gitlab_shell_internal_api_request_header
     end
 
     it_behaves_like 'actor key validations'
@@ -1473,17 +1654,83 @@ RSpec.describe API::Internal::Base do
     end
   end
 
-  describe 'POST /internal/two_factor_otp_check' do
+  describe 'POST /internal/two_factor_manual_otp_check' do
     let(:key_id) { key.id }
-    let(:otp) { '123456'}
+    let(:otp) { '123456' }
 
     subject do
-      post api('/internal/two_factor_otp_check'),
-           params: {
-             secret_token: secret_token,
-             key_id: key_id,
-             otp_attempt: otp
-           }
+      post api('/internal/two_factor_manual_otp_check'),
+        params: {
+          secret_token: secret_token,
+          key_id: key_id,
+          otp_attempt: otp
+        },
+        headers: gitlab_shell_internal_api_request_header
+    end
+
+    it 'is not available' do
+      subject
+
+      expect(json_response['success']).to be_falsey
+      expect(json_response['message']).to eq 'Feature is not available'
+    end
+  end
+
+  describe 'POST /internal/two_factor_push_otp_check' do
+    let(:key_id) { key.id }
+    let(:otp) { '123456' }
+
+    subject do
+      post api('/internal/two_factor_push_otp_check'),
+        params: {
+          secret_token: secret_token,
+          key_id: key_id,
+          otp_attempt: otp
+        },
+        headers: gitlab_shell_internal_api_request_header
+    end
+
+    it 'is not available' do
+      subject
+
+      expect(json_response['success']).to be_falsey
+      expect(json_response['message']).to eq 'Feature is not available'
+    end
+  end
+
+  describe 'POST /internal/two_factor_manual_otp_check' do
+    let(:key_id) { key.id }
+    let(:otp) { '123456' }
+
+    subject do
+      post api('/internal/two_factor_manual_otp_check'),
+        params: {
+          secret_token: secret_token,
+          key_id: key_id,
+          otp_attempt: otp
+        },
+        headers: gitlab_shell_internal_api_request_header
+    end
+
+    it 'is not available' do
+      subject
+
+      expect(json_response['success']).to be_falsey
+    end
+  end
+
+  describe 'POST /internal/two_factor_push_otp_check' do
+    let(:key_id) { key.id }
+    let(:otp) { '123456' }
+
+    subject do
+      post api('/internal/two_factor_push_otp_check'),
+        params: {
+          secret_token: secret_token,
+          key_id: key_id,
+          otp_attempt: otp
+        },
+        headers: gitlab_shell_internal_api_request_header
     end
 
     it 'is not available' do
@@ -1496,32 +1743,24 @@ RSpec.describe API::Internal::Base do
   def lfs_auth_project(project)
     post(
       api("/internal/lfs_authenticate"),
-      params: {
-        secret_token: secret_token,
-        project: project.full_path
-      }
+      params: { project: project.full_path },
+      headers: gitlab_shell_internal_api_request_header
     )
   end
 
   def lfs_auth_key(key_id, project)
     post(
       api("/internal/lfs_authenticate"),
-      params: {
-        key_id: key_id,
-        secret_token: secret_token,
-        project: project.full_path
-      }
+      params: { key_id: key_id, project: project.full_path },
+      headers: gitlab_shell_internal_api_request_header
     )
   end
 
   def lfs_auth_user(user_id, project)
     post(
       api("/internal/lfs_authenticate"),
-      params: {
-        user_id: user_id,
-        secret_token: secret_token,
-        project: project.full_path
-      }
+      params: { user_id: user_id, project: project.full_path },
+      headers: gitlab_shell_internal_api_request_header
     )
   end
 end

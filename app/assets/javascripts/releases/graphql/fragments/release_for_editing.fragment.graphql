@@ -1,7 +1,11 @@
 fragment ReleaseForEditing on Release {
+  id
   name
   tagName
   description
+  releasedAt
+  createdAt
+  tagPath
   assets {
     links {
       nodes {

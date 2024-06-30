@@ -1,3 +1,9 @@
+const userPermissionsData = {
+  userPermissions: {
+    destroyContainerRepository: true,
+  },
+};
+
 export const imagesListResponse = [
   {
     __typename: 'ContainerRepository',
@@ -5,11 +11,18 @@ export const imagesListResponse = [
     name: 'rails-12009',
     path: 'gitlab-org/gitlab-test/rails-12009',
     status: null,
+    migrationState: 'default',
     location: '0.0.0.0:5000/gitlab-org/gitlab-test/rails-12009',
-    canDelete: true,
-    createdAt: '2020-11-03T13:29:21Z',
+    createdAt: '2020-05-17T14:23:32Z',
     expirationPolicyStartedAt: null,
     expirationPolicyCleanupStatus: 'UNSCHEDULED',
+    project: {
+      id: 'gid://gitlab/Project/22',
+      name: 'gitlab-test',
+      path: 'GITLAB-TEST',
+      webUrl: 'http://localhost:3000/gitlab-org/gitlab-test',
+    },
+    ...userPermissionsData,
   },
   {
     __typename: 'ContainerRepository',
@@ -17,11 +30,18 @@ export const imagesListResponse = [
     name: 'rails-20572',
     path: 'gitlab-org/gitlab-test/rails-20572',
     status: null,
+    migrationState: 'default',
     location: '0.0.0.0:5000/gitlab-org/gitlab-test/rails-20572',
-    canDelete: true,
     createdAt: '2020-09-21T06:57:43Z',
     expirationPolicyStartedAt: null,
     expirationPolicyCleanupStatus: 'UNSCHEDULED',
+    project: {
+      id: 'gid://gitlab/Project/22',
+      name: 'gitlab-test',
+      path: 'GITLAB-TEST',
+      webUrl: 'http://localhost:3000/gitlab-org/gitlab-test',
+    },
+    ...userPermissionsData,
   },
 ];
 
@@ -30,7 +50,7 @@ export const pageInfo = {
   hasPreviousPage: true,
   startCursor: 'eyJpZCI6IjI2In0',
   endCursor: 'eyJpZCI6IjgifQ',
-  __typename: 'ContainerRepositoryConnection',
+  __typename: 'PageInfo',
 };
 
 export const graphQLImageListMock = {
@@ -115,9 +135,7 @@ export const containerRepositoryMock = {
   path: 'gitlab-org/gitlab-test/rails-12009',
   status: null,
   location: 'host.docker.internal:5000/gitlab-org/gitlab-test/rails-12009',
-  canDelete: true,
   createdAt: '2020-11-03T13:29:21Z',
-  updatedAt: '2020-11-03T13:29:21Z',
   expirationPolicyStartedAt: null,
   expirationPolicyCleanupStatus: 'UNSCHEDULED',
   project: {
@@ -130,6 +148,7 @@ export const containerRepositoryMock = {
     },
     __typename: 'Project',
   },
+  ...userPermissionsData,
 };
 
 export const tagsPageInfo = {
@@ -149,8 +168,12 @@ export const tagsMock = [
     revision: 'c2613843ab33aabf847965442b13a8b55a56ae28837ce182627c0716eb08c02b',
     shortRevision: 'c2613843a',
     createdAt: '2020-11-03T13:29:38+00:00',
+    publishedAt: '2020-11-05T13:29:38+00:00',
     totalSize: '1099511627776',
-    canDelete: true,
+    referrers: null,
+    userPermissions: {
+      destroyContainerRepositoryTag: true,
+    },
     __typename: 'ContainerRepositoryTag',
   },
   {
@@ -161,13 +184,17 @@ export const tagsMock = [
     revision: 'df44e7228f0f255c73e35b6f0699624a615f42746e3e8e2e4b3804a6d6fc3292',
     shortRevision: 'df44e7228',
     createdAt: '2020-11-03T13:29:32+00:00',
+    publishedAt: '2020-11-05T13:29:32+00:00',
     totalSize: '536870912000',
-    canDelete: true,
+    referrers: null,
+    userPermissions: {
+      destroyContainerRepositoryTag: true,
+    },
     __typename: 'ContainerRepositoryTag',
   },
 ];
 
-export const imageTagsMock = (nodes = tagsMock) => ({
+export const imageTagsMock = ({ nodes = tagsMock, userPermissions = {} } = {}) => ({
   data: {
     containerRepository: {
       id: containerRepositoryMock.id,
@@ -176,6 +203,10 @@ export const imageTagsMock = (nodes = tagsMock) => ({
         nodes,
         pageInfo: { ...tagsPageInfo },
         __typename: 'ContainerRepositoryTagConnection',
+      },
+      userPermissions: {
+        ...userPermissionsData.userPermissions,
+        ...userPermissions,
       },
       __typename: 'ContainerRepositoryDetails',
     },
@@ -188,6 +219,7 @@ export const imageTagsCountMock = (override) => ({
       id: containerRepositoryMock.id,
       tagsCount: 13,
       size: null,
+      lastPublishedAt: '2020-11-05T13:29:32+00:00',
       ...override,
     },
   },
@@ -234,15 +266,6 @@ export const graphQLDeleteImageRepositoryTagsMock = {
     destroyContainerRepositoryTags: {
       deletedTagNames: [],
       errors: [],
-      __typename: 'DestroyContainerRepositoryTagsPayload',
-    },
-  },
-};
-
-export const graphQLDeleteImageRepositoryTagImportingErrorMock = {
-  data: {
-    destroyContainerRepositoryTags: {
-      errors: ['repository importing'],
       __typename: 'DestroyContainerRepositoryTagsPayload',
     },
   },

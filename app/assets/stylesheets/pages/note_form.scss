@@ -31,7 +31,7 @@
 
 .note-textarea {
   display: block;
-  padding: 10px 1px;
+  padding: 10px 16px;
   color: $gl-text-color;
   font-family: $regular-font;
   border: 0;
@@ -48,26 +48,15 @@
 
 .common-note-form {
   .md-area {
-    padding: $gl-padding-8 $gl-padding;
-    border: 1px solid $border-color;
-    border-radius: $border-radius-base;
+    border: 1px solid $gray-400;
+    border-radius: $border-radius-large;
     transition: border-color ease-in-out 0.15s,
       box-shadow ease-in-out 0.15s;
     background-color: $white;
 
-    &.is-focused {
-      border-color: $input-focus-border-color;
-      box-shadow: $input-focus-box-shadow;
-
-      .comment-toolbar,
-      .nav-links {
-        border-color: $blue-300;
-      }
-    }
-
     &.is-dropzone-hover {
       border-color: $green-500;
-      box-shadow: 0 0 2px $black-transparent,
+      box-shadow: 0 0 2px $t-gray-a-24,
         0 0 4px $green-500-focus;
 
       .comment-toolbar,
@@ -75,7 +64,59 @@
         border-color: $green-500;
       }
     }
+
+    &:hover,
+    &:focus-within {
+      @include gl-shadow-md;
+    }
+
+    &:hover {
+      border: 1px solid $gray-500;
+    }
+
+    &:focus-within {
+      border: 1px solid $gray-900;
+    }
+
+    // Add focus
+    .zen-backdrop:not(.fullscreen) textarea {
+      width: calc(100% - 4px);
+      margin: 2px;
+      padding-left: calc(#{$gl-spacing-scale-5} - 2px);
+
+      .gl-dark & {
+        width: calc(100% - 6px);
+        margin: 2px 3px;
+        padding-left: calc(#{$gl-spacing-scale-5} - 3px);
+
+        // cf. https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147476
+        &.note-textarea-rounded-bottom {
+          margin-bottom: 3px;
+          border-bottom-left-radius: $gl-border-radius-base;
+          border-bottom-right-radius: $gl-border-radius-base;
+        }
+      }
+
+      &:focus {
+        @include gl-focus;
+      }
+    }
+
+    .note-textarea-rounded-bottom {
+      border-bottom-left-radius: calc(#{$border-radius-large} - 3px);
+      border-bottom-right-radius: calc(#{$border-radius-large} - 3px);
+    }
   }
+
+  &.is-invalid {
+    .md-area {
+      border-color: var(--red-500, $red-500);
+    }
+  }
+}
+
+.md-header {
+  min-height: 32px;
 }
 
 .md-header .nav-links {
@@ -83,16 +124,21 @@
   flex-flow: row wrap;
   width: 100%;
 
-  .float-right {
+  .gl-float-right {
     // Flexbox quirk to make sure right-aligned items stay right-aligned.
     margin-left: auto;
   }
 }
 
+
+.md-header .gl-tabs-nav {
+  border-bottom: 0;
+}
+
 .issuable-note-warning {
   color: $orange-600;
   background-color: $orange-50;
-  border-radius: $border-radius-default $border-radius-default 0 0;
+  border-radius: $gl-border-radius-base $gl-border-radius-base 0 0;
   padding: 3px 12px;
   margin: auto;
   align-items: center;
@@ -103,7 +149,7 @@
   }
 
   .icon {
-    margin-right: $issuable-warning-icon-margin;
+    margin-right: $gl-padding-4;
     vertical-align: text-bottom;
     fill: $orange-600;
   }
@@ -118,20 +164,11 @@
     border-radius: $label-border-radius;
     padding-top: $gl-vert-padding;
     padding-bottom: $gl-vert-padding;
-
-    .icon svg {
-      position: relative;
-      top: 2px;
-      margin-right: $btn-margin-5;
-      width: $gl-font-size;
-      height: $gl-font-size;
-      fill: $orange-600;
-    }
   }
 }
 
 .sidebar-item-icon {
-  border-radius: $border-radius-default;
+  border-radius: $gl-border-radius-base;
   margin: 0 5px 0 0;
   vertical-align: text-bottom;
 
@@ -215,6 +252,7 @@ table {
 
   .md-area {
     background-color: $white;
+    border-radius: $gl-border-radius-base;
   }
 }
 
@@ -243,18 +281,21 @@ table {
 .diff-file,
 .commit-diff {
   .discussion-reply-holder {
-    background-color: $gray-light;
-    border-radius: 0 0 3px 3px;
-    padding: $gl-padding;
+    border-radius: 0 0 $gl-border-radius-base $gl-border-radius-base;
+    padding: 0 $gl-padding $gl-padding-12 $gl-padding;
     border-top: 1px solid $gray-50;
 
     + .new-note {
-      background-color: $gray-light;
       border-top: 1px solid $gray-50;
     }
 
     &.is-replying {
-      padding-bottom: $gl-padding;
+      padding-top: $gl-padding-12;
+    }
+
+    &.internal-note,
+    &.internal-note.is-replying {
+      padding-top: $gl-padding-12 !important;
     }
 
     .user-avatar-link {
@@ -263,6 +304,11 @@ table {
       }
     }
   }
+}
+
+.diff-td > .content > .discussion-reply-holder {
+  padding-top: $gl-padding-12;
+  background-color: $gray-10;
 }
 
 .discussion-with-resolve-btn {
@@ -293,17 +339,27 @@ table {
 
 .discussion-reply-holder {
   .reply-placeholder-text-field {
-    font-family: $monospace-font;
-    font-size: $gl-font-size-monospace;
     border-radius: $gl-border-radius-base;
     width: 100%;
     resize: none;
     padding: $gl-padding-8 $gl-padding-12;
     line-height: 1;
-    border: 1px solid $border-color;
+    border: 1px solid $gray-200;
     background-color: $white;
     overflow: hidden;
+    transition: border-color ease-in-out 0.15s,
+      box-shadow ease-in-out 0.15s;
 
+    @include media-breakpoint-down(xs) {
+      margin-bottom: $gl-padding-8;
+    }
+
+    &:hover {
+      border: 1px solid $gray-500;
+    }
+  }
+
+  .reply-placeholder-input-field {
     @include media-breakpoint-down(xs) {
       margin-bottom: $gl-padding-8;
     }
@@ -311,9 +367,7 @@ table {
 }
 
 .comment-toolbar {
-  padding-top: $gl-padding-top;
   color: $gl-text-color-secondary;
-  border-top: 1px solid $border-color;
 }
 
 .toolbar-button {
@@ -342,12 +396,7 @@ table {
 
 .toolbar-text {
   font-size: 14px;
-  line-height: 16px;
-  margin-top: 2px;
-
-  @include media-breakpoint-up(md) {
-    float: left;
-  }
+  line-height: $gl-spacing-scale-7;
 }
 
 .note-form-actions {
@@ -403,6 +452,10 @@ table {
     float: left;
     margin-top: 5px;
   }
+
+  button {
+    font-size: $gl-font-size-sm !important;
+  }
 }
 
 .uploading-error-icon,
@@ -428,7 +481,6 @@ table {
 }
 
 .comment-warning-wrapper {
-  .md-area {
-    border: 0;
-  }
+  transition: border-color ease-in-out 0.15s,
+    box-shadow ease-in-out 0.15s;
 }

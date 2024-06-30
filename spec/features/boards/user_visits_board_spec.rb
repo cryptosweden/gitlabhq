@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User visits issue boards', :js do
+RSpec.describe 'User visits issue boards', :js, feature_category: :portfolio_management do
   using RSpec::Parameterized::TableSyntax
 
   let_it_be(:group) { create_default(:group, :public) }
@@ -21,7 +21,7 @@ RSpec.describe 'User visits issue boards', :js do
 
   let_it_be(:label1) { create(:group_label, group: group, name: label_name1) }
   let_it_be(:label2) { create(:group_label, group: group, name: label_name2) }
-  let_it_be(:assignee) { create_default(:group_member, :maintainer, user: create(:user, username: assignee_username), group: group ).user }
+  let_it_be(:assignee) { create_default(:group_member, :maintainer, user: create(:user, username: assignee_username), group: group).user }
   let_it_be(:milestone) { create_default(:milestone, project: project, start_date: Date.today - 1, due_date: 7.days.from_now) }
 
   before_all do
@@ -52,7 +52,7 @@ RSpec.describe 'User visits issue boards', :js do
       it 'displays all issues satisfiying filter params and correctly sets url params' do
         expect(page).to have_current_path(board_path)
 
-        page.assert_selector('[data-testid="board_card"]', count: expected_issues.length)
+        page.assert_selector('[data-testid="board-card"]', count: expected_issues.length)
         expected_issues.each { |issue_title| expect(page).to have_link issue_title }
       end
     end
@@ -60,7 +60,6 @@ RSpec.describe 'User visits issue boards', :js do
 
   context "project boards" do
     let_it_be(:board) { create_default(:board, project: project) }
-    let_it_be(:backlog_list) { create_default(:backlog_list, board: board) }
 
     let(:board_path) { project_boards_path(project, params) }
 
@@ -69,7 +68,6 @@ RSpec.describe 'User visits issue boards', :js do
 
   context "group boards" do
     let_it_be(:board) { create_default(:board, group: group) }
-    let_it_be(:backlog_list) { create_default(:backlog_list, board: board) }
 
     let(:board_path) { group_boards_path(group, params) }
 

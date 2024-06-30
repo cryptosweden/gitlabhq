@@ -10,7 +10,7 @@ RSpec.describe Clusters::Platforms::Kubernetes do
   it { is_expected.to be_kind_of(Gitlab::Kubernetes) }
   it { is_expected.to respond_to :ca_pem }
 
-  it { is_expected.to validate_exclusion_of(:namespace).in_array(%w(gitlab-managed-apps)) }
+  it { is_expected.to validate_exclusion_of(:namespace).in_array(%w[gitlab-managed-apps]) }
   it { is_expected.to validate_presence_of(:api_url) }
   it { is_expected.to validate_presence_of(:token) }
 
@@ -20,6 +20,12 @@ RSpec.describe Clusters::Platforms::Kubernetes do
   it { is_expected.to nullify_if_blank(:namespace) }
 
   it_behaves_like 'having unique enum values'
+
+  describe 'default values' do
+    let(:kubernetes) { create(:cluster_platform_kubernetes) }
+
+    it { expect(kubernetes.authorization_type).to eq("rbac") }
+  end
 
   describe 'before_validation' do
     let(:kubernetes) { create(:cluster_platform_kubernetes, :configured, namespace: namespace) }
@@ -192,10 +198,12 @@ RSpec.describe Clusters::Platforms::Kubernetes do
     subject { kubernetes.kubeclient }
 
     before do
-      create(:cluster_kubernetes_namespace,
-             cluster: kubernetes.cluster,
-             cluster_project: kubernetes.cluster.cluster_project,
-             project: kubernetes.cluster.cluster_project.project)
+      create(
+        :cluster_kubernetes_namespace,
+        cluster: kubernetes.cluster,
+        cluster_project: kubernetes.cluster.cluster_project,
+        project: kubernetes.cluster.cluster_project.project
+      )
     end
 
     it { is_expected.to be_an_instance_of(Gitlab::Kubernetes::KubeClient) }
@@ -203,11 +211,13 @@ RSpec.describe Clusters::Platforms::Kubernetes do
     context 'ca_pem is a single certificate' do
       let(:ca_pem) { File.read(Rails.root.join('spec/fixtures/clusters/root_certificate.pem')) }
       let(:kubernetes) do
-        build(:cluster_platform_kubernetes,
-              :configured,
-              namespace: 'a-namespace',
-              cluster: cluster,
-              ca_pem: ca_pem)
+        build(
+          :cluster_platform_kubernetes,
+          :configured,
+          namespace: 'a-namespace',
+          cluster: cluster,
+          ca_pem: ca_pem
+        )
       end
 
       it 'adds it to cert_store' do
@@ -221,11 +231,13 @@ RSpec.describe Clusters::Platforms::Kubernetes do
     context 'ca_pem is a chain' do
       let(:cert_chain) { File.read(Rails.root.join('spec/fixtures/clusters/chain_certificates.pem')) }
       let(:kubernetes) do
-        build(:cluster_platform_kubernetes,
-              :configured,
-              namespace: 'a-namespace',
-              cluster: cluster,
-              ca_pem: cert_chain)
+        build(
+          :cluster_platform_kubernetes,
+          :configured,
+          namespace: 'a-namespace',
+          cluster: cluster,
+          ca_pem: cert_chain
+        )
       end
 
       where(:fixture_path) do
@@ -427,6 +439,55 @@ RSpec.describe Clusters::Platforms::Kubernetes do
         let(:cluster) { create(:cluster, :project, platform_kubernetes: service) }
 
         include_examples 'successful deployment request'
+
+        context 'when reading ingress raises NoMethodError' do
+          before do
+            allow_next_instance_of(Gitlab::Kubernetes::KubeClient) do |kube_client|
+              allow(kube_client).to receive(:get_pods).with(namespace: namespace).and_return([])
+              allow(kube_client).to receive(:get_deployments).with(namespace: namespace).and_return([])
+              allow(kube_client).to receive(:get_ingresses).with(namespace: namespace).and_raise(NoMethodError)
+            end
+          end
+
+          context 'when version request succeeds' do
+            before do
+              stub_server_min_version(min_server_version)
+            end
+
+            context 'when server min version is < 23' do
+              let(:min_server_version) { "18" }
+
+              it 'does not raise error', :unlimited_max_formatted_output_length do
+                expect { subject }.not_to raise_error
+              end
+
+              it 'returns empty array for the K8s component keys' do
+                expect(subject).to include({ pods: [], deployments: [], ingresses: [] })
+              end
+            end
+
+            context 'when server min version is >= 23' do
+              let(:min_server_version) { "23" }
+
+              it 'does raise error' do
+                expect { subject }.to raise_error(NoMethodError)
+              end
+            end
+          end
+
+          context 'when the version request fails' do
+            before do
+              stub_server_min_version_failed_request
+            end
+
+            it "tracks error and returns empty arrays" do
+              expect(Gitlab::ErrorTracking)
+                .to receive(:track_exception).with(kind_of(Clusters::Platforms::Kubernetes::FailedVersionCheckError))
+
+              expect(subject).to include({ pods: [], deployments: [], ingresses: [] })
+            end
+          end
+        end
       end
 
       context 'on a group level cluster' do
@@ -450,6 +511,42 @@ RSpec.describe Clusters::Platforms::Kubernetes do
       it { is_expected.to be_nil }
     end
 
+    context 'when there are ignored K8s connections errors' do
+      described_class::IGNORED_CONNECTION_EXCEPTIONS.each do |exception|
+        context exception.to_s do
+          before do
+            exception_args = ['arg1']
+            exception_args.push('arg2', 'arg3') if exception.name == 'Kubeclient::HttpError'
+            exception_instance = exception.new(*exception_args)
+
+            allow_next_instance_of(Gitlab::Kubernetes::KubeClient) do |kube_client|
+              allow(kube_client).to receive(:get_pods).with(namespace: namespace).and_raise(exception_instance)
+              allow(kube_client).to receive(:get_deployments).with(namespace: namespace).and_raise(exception_instance)
+              allow(kube_client).to receive(:get_ingresses).with(namespace: namespace).and_raise(exception_instance)
+            end
+          end
+
+          it 'does not raise error' do
+            expect { subject }.not_to raise_error
+          end
+
+          it 'returns empty array for the K8s component keys' do
+            expect(subject).to include({ pods: [], deployments: [], ingresses: [] })
+          end
+
+          it 'logs the error' do
+            expect_next_instance_of(Gitlab::Kubernetes::Logger) do |logger|
+              expect(logger).to receive(:error)
+                .with(hash_including(event: :kube_connection_error))
+                .and_call_original
+            end
+
+            subject
+          end
+        end
+      end
+    end
+
     context 'when kubernetes responds with 500s' do
       before do
         stub_kubeclient_pods(namespace, status: 500)
@@ -457,7 +554,9 @@ RSpec.describe Clusters::Platforms::Kubernetes do
         stub_kubeclient_ingresses(namespace, status: 500)
       end
 
-      it { expect { subject }.to raise_error(Kubeclient::HttpError) }
+      it 'does not raise kubeclient http error' do
+        expect { subject }.not_to raise_error
+      end
     end
 
     context 'when kubernetes responds with 404s' do
@@ -563,19 +662,27 @@ RSpec.describe Clusters::Platforms::Kubernetes do
 
       it 'creates a matching RolloutStatus' do
         expect(rollout_status).to be_kind_of(::Gitlab::Kubernetes::RolloutStatus)
-        expect(rollout_status.deployments.map(&:annotations)).to eq([
-          { 'app.gitlab.com/app' => project.full_path_slug, 'app.gitlab.com/env' => 'env-000000' }
-        ])
-        expect(rollout_status.instances).to eq([{ pod_name: "kube-pod",
-                                                 stable: true,
-                                                 status: "pending",
-                                                 tooltip: "kube-pod (Pending)",
-                                                 track: "stable" },
-                                                { pod_name: "Not provided",
-                                                 stable: true,
-                                                 status: "pending",
-                                                 tooltip: "Not provided (Pending)",
-                                                 track: "stable" }])
+        expect(rollout_status.deployments.map(&:annotations)).to eq(
+          [
+            { 'app.gitlab.com/app' => project.full_path_slug, 'app.gitlab.com/env' => 'env-000000' }
+          ])
+        expect(rollout_status.instances).to eq(
+          [
+            {
+              pod_name: "kube-pod",
+              stable: true,
+              status: "pending",
+              tooltip: "kube-pod (Pending)",
+              track: "stable"
+            },
+            {
+              pod_name: "Not provided",
+              stable: true,
+              status: "pending",
+              tooltip: "Not provided (Pending)",
+              track: "stable"
+            }
+          ])
       end
 
       context 'with canary ingress' do
@@ -682,11 +789,12 @@ RSpec.describe Clusters::Platforms::Kubernetes do
       end
 
       it 'returns a pending pod for each missing replica' do
-        expect(rollout_status.instances.map { |p| p.slice(:pod_name, :status) }).to eq([
-          { pod_name: 'pod-a-1', status: 'running' },
-          { pod_name: 'Not provided', status: 'pending' },
-          { pod_name: 'Not provided', status: 'pending' }
-        ])
+        expect(rollout_status.instances.map { |p| p.slice(:pod_name, :status) }).to eq(
+          [
+            { pod_name: 'pod-a-1', status: 'running' },
+            { pod_name: 'Not provided', status: 'pending' },
+            { pod_name: 'Not provided', status: 'pending' }
+          ])
       end
     end
 
@@ -705,12 +813,13 @@ RSpec.describe Clusters::Platforms::Kubernetes do
       end
 
       it 'returns the correct track for the pending pods' do
-        expect(rollout_status.instances.map { |p| p.slice(:pod_name, :status, :track) }).to eq([
-          { pod_name: 'pod-a-1', status: 'running', track: 'canary' },
-          { pod_name: 'Not provided', status: 'pending', track: 'canary' },
-          { pod_name: 'Not provided', status: 'pending', track: 'stable' },
-          { pod_name: 'Not provided', status: 'pending', track: 'stable' }
-        ])
+        expect(rollout_status.instances.map { |p| p.slice(:pod_name, :status, :track) }).to eq(
+          [
+            { pod_name: 'pod-a-1', status: 'running', track: 'canary' },
+            { pod_name: 'Not provided', status: 'pending', track: 'canary' },
+            { pod_name: 'Not provided', status: 'pending', track: 'stable' },
+            { pod_name: 'Not provided', status: 'pending', track: 'stable' }
+          ])
       end
     end
 
@@ -727,10 +836,11 @@ RSpec.describe Clusters::Platforms::Kubernetes do
       end
 
       it 'returns the correct number of pending pods' do
-        expect(rollout_status.instances.map { |p| p.slice(:pod_name, :status, :track) }).to eq([
-          { pod_name: 'Not provided', status: 'pending', track: 'mytrack' },
-          { pod_name: 'Not provided', status: 'pending', track: 'mytrack' }
-        ])
+        expect(rollout_status.instances.map { |p| p.slice(:pod_name, :status, :track) }).to eq(
+          [
+            { pod_name: 'Not provided', status: 'pending', track: 'mytrack' },
+            { pod_name: 'Not provided', status: 'pending', track: 'mytrack' }
+          ])
       end
     end
 
@@ -753,6 +863,18 @@ RSpec.describe Clusters::Platforms::Kubernetes do
 
       it 'returns each pod once' do
         expect(rollout_status.instances.map { |p| p[:pod_name] }).to eq(['pod-a-1', 'pod-a-2', 'pod-b-1', 'pod-b-2'])
+      end
+    end
+
+    # Scenario when there are K8s connection errors.
+    context 'when cache keys are defaulted' do
+      let(:cache_data) { Hash(deployments: [], pods: [], ingresses: []) }
+
+      it 'does not raise error' do
+        expect { rollout_status }.not_to raise_error
+
+        expect(rollout_status).to be_kind_of(::Gitlab::Kubernetes::RolloutStatus)
+        expect(rollout_status).to be_not_found
       end
     end
   end
@@ -813,5 +935,14 @@ RSpec.describe Clusters::Platforms::Kubernetes do
         expect { subject }.to raise_error(Kubeclient::ResourceNotFoundError)
       end
     end
+  end
+
+  describe '#authorization_type' do
+    subject(:kubernetes) { create(:cluster_platform_kubernetes) }
+
+    let(:attr) { :authorization_type }
+    let(:attr_value) { :unknown_authorization }
+
+    it_behaves_like 'having enum with nil value'
   end
 end

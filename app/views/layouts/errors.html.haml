@@ -1,10 +1,13 @@
 !!! 5
-%html{ lang: "en" }
+%html{ lang: I18n.locale }
   %head
-    %meta{ :content => "width=device-width, initial-scale=1, maximum-scale=1", :name => "viewport" }
+    %meta{ :content => "width=device-width, initial-scale=1", :name => "viewport" }
     %title= yield(:title)
-    %style
-      = Rails.application.assets_manifest.find_sources('errors.css').first.to_s.html_safe
+    - if vite_enabled?
+      = universal_stylesheet_link_tag 'errors'
+    - else
+      %style
+        = error_css
   %body
     .page-container
       = yield
@@ -22,8 +25,8 @@
           }
 
           // We do not have rails_ujs here, so we're manually making a link trigger a form submit.
-          document.getElementById('sign_out_link').addEventListener('click', function(e) {
+          document.querySelector('.js-sign-out-link')?.addEventListener('click', (e) => {
             e.preventDefault();
-            document.getElementById('sign_out_form').submit();
+            document.querySelector('.js-sign-out-form')?.submit();
           });
         }());

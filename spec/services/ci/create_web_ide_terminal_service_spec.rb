@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreateWebIdeTerminalService do
+RSpec.describe Ci::CreateWebIdeTerminalService, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) { create(:user) }
 
@@ -26,6 +26,14 @@ RSpec.describe Ci::CreateWebIdeTerminalService do
           expect_next_instance_of(Ci::Pipeline) do |instance|
             expect(instance).to receive(:ensure_project_iid!).twice
           end
+          subject
+        end
+
+        it 'increments the metrics' do
+          expect(::Gitlab::Ci::Pipeline::Metrics.pipelines_created_counter)
+            .to receive(:increment)
+            .with({ partition_id: instance_of(Integer), source: :webide })
+
           subject
         end
       end
@@ -60,7 +68,7 @@ RSpec.describe Ci::CreateWebIdeTerminalService do
             <<-EOS
               terminal:
                 image:
-                  name: ruby:2.7
+                  name: image:1.0
                   ports:
                     - 80
                 script: rspec

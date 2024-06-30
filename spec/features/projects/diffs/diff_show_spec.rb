@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Diff file viewer', :js, :with_clean_rails_cache do
+RSpec.describe 'Diff file viewer', :js, :with_clean_rails_cache, feature_category: :code_review_workflow do
   let(:project) { create(:project, :public, :repository) }
 
   def visit_commit(sha, anchor: nil)
@@ -48,7 +48,7 @@ RSpec.describe 'Diff file viewer', :js, :with_clean_rails_cache do
       end
 
       it 'shows an error message' do
-        expect(page).to have_content('This source diff could not be displayed because it is stored in LFS. You can view the blob instead.')
+        expect(page).to have_content('source diff could not be displayed: it is stored in LFS. Options to address this: view the blob.')
       end
     end
 
@@ -169,8 +169,8 @@ RSpec.describe 'Diff file viewer', :js, :with_clean_rails_cache do
         wait_for_requests
       end
 
-      it 'shows there is no preview' do
-        expect(page).to have_content('No preview for this file type')
+      it 'shows that file was added' do
+        expect(page).to have_content('File added')
       end
     end
   end

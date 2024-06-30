@@ -8,7 +8,8 @@ module Gitlab
 
       STUB_CLASSES = {
         agent_tracker: Gitlab::Agent::AgentTracker::Rpc::AgentTracker::Stub,
-        configuration_project: Gitlab::Agent::ConfigurationProject::Rpc::ConfigurationProject::Stub
+        configuration_project: Gitlab::Agent::ConfigurationProject::Rpc::ConfigurationProject::Stub,
+        notifications: Gitlab::Agent::Notifications::Rpc::Notifications::Stub
       }.freeze
 
       ConfigurationError = Class.new(StandardError)
@@ -18,25 +19,39 @@ module Gitlab
         raise ConfigurationError, 'KAS internal URL is not configured' unless Gitlab::Kas.internal_url.present?
       end
 
-      def get_connected_agents(project:)
-        request = Gitlab::Agent::AgentTracker::Rpc::GetConnectedAgentsRequest.new(project_id: project.id)
+      def get_connected_agents_by_agent_ids(agent_ids:)
+        request = Gitlab::Agent::AgentTracker::Rpc::GetConnectedAgentsByAgentIDsRequest.new(agent_ids: agent_ids)
 
         stub_for(:agent_tracker)
-          .get_connected_agents(request, metadata: metadata)
-          .agents
-          .to_a
+         .get_connected_agents_by_agent_i_ds(request, metadata: metadata)
+         .agents
+         .to_a
       end
 
       def list_agent_config_files(project:)
         request = Gitlab::Agent::ConfigurationProject::Rpc::ListAgentConfigFilesRequest.new(
           repository: repository(project),
-          gitaly_address: gitaly_address(project)
+          gitaly_info: gitaly_info(project)
         )
 
         stub_for(:configuration_project)
           .list_agent_config_files(request, metadata: metadata)
           .config_files
           .to_a
+      end
+
+      def send_git_push_event(project:)
+        request = Gitlab::Agent::Notifications::Rpc::GitPushEventRequest.new(
+          event: Gitlab::Agent::Event::GitPushEvent.new(
+            project: Gitlab::Agent::Event::Project.new(
+              id: project.id,
+              full_path: project.full_path
+            )
+          )
+        )
+
+        stub_for(:notifications)
+          .git_push_event(request, metadata: metadata)
       end
 
       private
@@ -49,13 +64,15 @@ module Gitlab
       def repository(project)
         gitaly_repository = project.repository.gitaly_repository
 
-        Gitlab::Agent::Modserver::Repository.new(gitaly_repository.to_h)
+        Gitlab::Agent::Entity::GitalyRepository.new(gitaly_repository.to_h)
       end
 
-      def gitaly_address(project)
+      def gitaly_info(project)
+        gitaly_features = Feature::Gitaly.server_feature_flags
         connection_data = Gitlab::GitalyClient.connection_data(project.repository_storage)
+          .merge(features: gitaly_features)
 
-        Gitlab::Agent::Modserver::GitalyAddress.new(connection_data)
+        Gitlab::Agent::Entity::GitalyInfo.new(connection_data)
       end
 
       def kas_endpoint_url
@@ -64,7 +81,7 @@ module Gitlab
 
       def credentials
         if URI(Gitlab::Kas.internal_url).scheme == 'grpcs'
-          GRPC::Core::ChannelCredentials.new
+          GRPC::Core::ChannelCredentials.new(::Gitlab::X509::Certificate.ca_certs_bundle)
         else
           :this_channel_is_insecure
         end

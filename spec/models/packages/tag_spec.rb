@@ -1,9 +1,27 @@
 # frozen_string_literal: true
+
 require 'spec_helper'
 
-RSpec.describe Packages::Tag, type: :model do
-  let!(:project) { create(:project) }
-  let!(:package) { create(:npm_package, version: '1.0.2', project: project, updated_at: 3.days.ago) }
+RSpec.describe Packages::Tag, type: :model, feature_category: :package_registry do
+  let_it_be(:project) { create(:project) }
+  let_it_be(:package) { create(:npm_package, version: '1.0.2', project: project, updated_at: 3.days.ago) }
+
+  describe '#ensure_project_id' do
+    it 'sets the project_id before saving' do
+      tag = build(:packages_tag)
+      expect(tag.project_id).to be_nil
+      tag.save!
+      expect(tag.project_id).not_to be_nil
+      expect(tag.project_id).to eq(tag.package.project_id)
+    end
+
+    it 'does not override the project_id if set' do
+      another_project = create(:project)
+      tag = build(:packages_tag, project_id: another_project.id)
+      tag.save!
+      expect(tag.project_id).to eq(another_project.id)
+    end
+  end
 
   describe 'relationships' do
     it { is_expected.to belong_to(:package).inverse_of(:tags) }
@@ -16,14 +34,14 @@ RSpec.describe Packages::Tag, type: :model do
     it { is_expected.to validate_presence_of(:name) }
   end
 
-  describe '.for_packages' do
+  describe '.for_package_ids' do
     let(:package2) { create(:package, project: project, updated_at: 2.days.ago) }
     let(:package3) { create(:package, project: project, updated_at: 1.day.ago) }
     let!(:tag1) { create(:packages_tag, package: package) }
     let!(:tag2) { create(:packages_tag, package: package2) }
     let!(:tag3) { create(:packages_tag, package: package3) }
 
-    subject { described_class.for_packages(project.packages) }
+    subject { described_class.for_package_ids(project.packages) }
 
     it { is_expected.to match_array([tag1, tag2, tag3]) }
 
@@ -33,6 +51,12 @@ RSpec.describe Packages::Tag, type: :model do
       end
 
       it { is_expected.to match_array([tag2, tag3]) }
+    end
+
+    context 'with package ids' do
+      subject { described_class.for_package_ids(project.packages.select(:id)) }
+
+      it { is_expected.to match_array([tag1, tag2, tag3]) }
     end
   end
 
@@ -55,7 +79,7 @@ RSpec.describe Packages::Tag, type: :model do
     end
 
     context 'with multiple names' do
-      let(:name) { %w(tag1 tag3) }
+      let(:name) { %w[tag1 tag3] }
 
       it { is_expected.to contain_exactly(tag1, tag3) }
     end

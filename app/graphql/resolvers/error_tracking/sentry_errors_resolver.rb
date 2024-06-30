@@ -4,16 +4,15 @@ module Resolvers
   module ErrorTracking
     class SentryErrorsResolver < BaseResolver
       type Types::ErrorTracking::SentryErrorType.connection_type, null: true
-      extension Gitlab::Graphql::Extensions::ExternallyPaginatedArrayExtension
 
       argument :search_term, ::GraphQL::Types::String,
-              description: 'Search query for the Sentry error details.',
-              required: false
+        description: 'Search query for the Sentry error details.',
+        required: false
 
       # TODO: convert to Enum
       argument :sort, ::GraphQL::Types::String,
-              description: 'Attribute to sort on. Options are frequency, first_seen, last_seen. last_seen is default.',
-              required: false
+        description: 'Attribute to sort on. Options are frequency, first_seen, last_seen. last_seen is default.',
+        required: false
 
       delegate :project, to: :object
 
@@ -30,10 +29,6 @@ module Resolvers
         return if issues.nil?
 
         Gitlab::Graphql::ExternallyPaginatedArray.new(previous_cursor, next_cursor, *issues)
-      end
-
-      def self.field_options
-        super.merge(connection: false) # we manage the pagination manually, so opt out of the connection field extension
       end
     end
   end

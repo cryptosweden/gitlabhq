@@ -2,17 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Common::Pipelines::LfsObjectsPipeline do
+RSpec.describe BulkImports::Common::Pipelines::LfsObjectsPipeline, feature_category: :importers do
   let_it_be(:portable) { create(:project) }
   let_it_be(:oid) { 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }
 
   let(:tmpdir) { Dir.mktmpdir }
-  let(:entity) { create(:bulk_import_entity, :project_entity, project: portable, source_full_path: 'test') }
+  let(:entity) { create(:bulk_import_entity, :project_entity, project: portable, source_xid: nil) }
   let(:tracker) { create(:bulk_import_tracker, entity: entity) }
   let(:context) { BulkImports::Pipeline::Context.new(tracker) }
   let(:lfs_dir_path) { tmpdir }
-  let(:lfs_json_file_path) { File.join(lfs_dir_path, 'lfs_objects.json')}
-  let(:lfs_file_path) { File.join(lfs_dir_path, oid)}
+  let(:lfs_json_file_path) { File.join(lfs_dir_path, 'lfs_objects.json') }
+  let(:lfs_file_path) { File.join(lfs_dir_path, oid) }
 
   subject(:pipeline) { described_class.new(context) }
 
@@ -23,6 +23,7 @@ RSpec.describe BulkImports::Common::Pipelines::LfsObjectsPipeline do
     File.write(lfs_json_file_path, { oid => [0, 1, 2, nil] }.to_json )
 
     allow(Dir).to receive(:mktmpdir).with('bulk_imports').and_return(tmpdir)
+    allow(pipeline).to receive(:set_source_objects_counter)
   end
 
   after do
@@ -41,6 +42,17 @@ RSpec.describe BulkImports::Common::Pipelines::LfsObjectsPipeline do
       expect(portable.lfs_objects_projects.count).to eq(4)
       expect(Dir.exist?(tmpdir)).to eq(false)
     end
+
+    it 'does not call load on duplicates' do
+      allow(pipeline)
+        .to receive(:extract)
+        .and_return(BulkImports::Pipeline::ExtractedData.new(data: [lfs_json_file_path, lfs_file_path]))
+
+      pipeline.run
+
+      expect(pipeline).not_to receive(:load)
+      pipeline.run
+    end
   end
 
   describe '#extract' do
@@ -53,7 +65,7 @@ RSpec.describe BulkImports::Common::Pipelines::LfsObjectsPipeline do
         .to receive(:new)
         .with(
           configuration: context.configuration,
-          relative_url: "/#{entity.pluralized_name}/test/export_relations/download?relation=lfs_objects",
+          relative_url: "/#{entity.pluralized_name}/#{CGI.escape(entity.source_full_path)}/export_relations/download?relation=lfs_objects",
           tmpdir: tmpdir,
           filename: 'lfs_objects.tar.gz')
         .and_return(download_service)
@@ -105,7 +117,7 @@ RSpec.describe BulkImports::Common::Pipelines::LfsObjectsPipeline do
 
     context 'when file path is being traversed' do
       it 'raises an error' do
-        expect { pipeline.load(context, File.join(tmpdir, '..')) }.to raise_error(Gitlab::Utils::PathTraversalAttackError, 'Invalid path')
+        expect { pipeline.load(context, File.join(tmpdir, '..')) }.to raise_error(Gitlab::PathTraversal::PathTraversalAttackError, 'Invalid path')
       end
     end
 
@@ -118,10 +130,19 @@ RSpec.describe BulkImports::Common::Pipelines::LfsObjectsPipeline do
     context 'when file path is symlink' do
       it 'returns' do
         symlink = File.join(tmpdir, 'symlink')
+        FileUtils.ln_s(lfs_file_path, symlink)
 
-        FileUtils.ln_s(File.join(tmpdir, lfs_file_path), symlink)
-
+        expect(Gitlab::Utils::FileInfo).to receive(:linked?).with(symlink).and_call_original
         expect { pipeline.load(context, symlink) }.not_to change { portable.lfs_objects.count }
+      end
+    end
+
+    context 'when file path shares multiple hard links' do
+      it 'returns' do
+        FileUtils.link(lfs_file_path, File.join(tmpdir, 'hard_link'))
+
+        expect(Gitlab::Utils::FileInfo).to receive(:linked?).with(lfs_file_path).and_call_original
+        expect { pipeline.load(context, lfs_file_path) }.not_to change { portable.lfs_objects.count }
       end
     end
 
@@ -172,7 +193,7 @@ RSpec.describe BulkImports::Common::Pipelines::LfsObjectsPipeline do
             allow(object).to receive(:persisted?).and_return(false)
           end
 
-          expect_next_instance_of(Gitlab::Import::Logger) do |logger|
+          expect_next_instance_of(BulkImports::Logger) do |logger|
             expect(logger)
               .to receive(:warn)
               .with(project_id: portable.id,

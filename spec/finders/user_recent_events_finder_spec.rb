@@ -8,9 +8,9 @@ RSpec.describe UserRecentEventsFinder do
   let_it_be(:private_project)  { create(:project, :private, creator: project_owner) }
   let_it_be(:internal_project) { create(:project, :internal, creator: project_owner) }
   let_it_be(:public_project)   { create(:project, :public, creator: project_owner) }
-  let!(:private_event)   { create(:event, project: private_project, author: project_owner) }
-  let!(:internal_event)  { create(:event, project: internal_project, author: project_owner) }
-  let!(:public_event)    { create(:event, project: public_project, author: project_owner) }
+  let_it_be(:private_event)   { create(:event, project: private_project, author: project_owner) }
+  let_it_be(:internal_event)  { create(:event, project: internal_project, author: project_owner) }
+  let_it_be(:public_event)    { create(:event, project: public_project, author: project_owner) }
   let_it_be(:issue) { create(:issue, project: public_project) }
 
   let(:limit) { nil }
@@ -45,11 +45,11 @@ RSpec.describe UserRecentEventsFinder do
       let_it_be(:second_user, reload: true) { create(:user) }
       let_it_be(:private_project_second_user) { create(:project, :private, creator: second_user) }
 
-      let(:internal_project_second_user) { create(:project, :internal, creator: second_user) }
-      let(:public_project_second_user)   { create(:project, :public, creator: second_user) }
-      let!(:private_event_second_user)   { create(:event, project: private_project_second_user, author: second_user) }
-      let!(:internal_event_second_user)  { create(:event, project: internal_project_second_user, author: second_user) }
-      let!(:public_event_second_user)    { create(:event, project: public_project_second_user, author: second_user) }
+      let_it_be(:internal_project_second_user) { create(:project, :internal, creator: second_user) }
+      let_it_be(:public_project_second_user)   { create(:project, :public, creator: second_user) }
+      let_it_be(:private_event_second_user)   { create(:event, project: private_project_second_user, author: second_user) }
+      let_it_be(:internal_event_second_user)  { create(:event, project: internal_project_second_user, author: second_user) }
+      let_it_be(:public_event_second_user)    { create(:event, project: public_project_second_user, author: second_user) }
 
       it 'includes events from all users', :aggregate_failures do
         events = described_class.new(current_user, [project_owner, second_user], nil, params).execute
@@ -60,14 +60,39 @@ RSpec.describe UserRecentEventsFinder do
       end
 
       context 'selected events' do
-        let!(:push_event)                  { create(:push_event, project: public_project, author: project_owner) }
-        let!(:push_event_second_user)      { create(:push_event, project: public_project_second_user, author: second_user) }
+        using RSpec::Parameterized::TableSyntax
 
-        it 'only includes selected events (PUSH) from all users', :aggregate_failures do
-          event_filter = EventFilter.new(EventFilter::PUSH)
-          events = described_class.new(current_user, [project_owner, second_user], event_filter, params).execute
+        let_it_be(:push_event1) { create(:push_event, project: public_project, author: project_owner) }
+        let_it_be(:push_event2) { create(:push_event, project: public_project_second_user, author: second_user) }
+        let_it_be(:merge_event1) { create(:event, :merged, target_type: MergeRequest.to_s, project: public_project, author: project_owner) }
+        let_it_be(:merge_event2) { create(:event, :merged, target_type: MergeRequest.to_s, project: public_project_second_user, author: second_user) }
+        let_it_be(:comment_event1) { create(:event, :commented, target_type: Note.to_s, project: public_project, author: project_owner) }
+        let_it_be(:comment_event2) { create(:event, :commented, target_type: DiffNote.to_s, project: public_project, author: project_owner) }
+        let_it_be(:comment_event3) { create(:event, :commented, target_type: DiscussionNote.to_s, project: public_project_second_user, author: second_user) }
+        let_it_be(:issue_event1) { create(:event, :created, project: public_project, target: issue, author: project_owner) }
+        let_it_be(:issue_event2) { create(:event, :updated, project: public_project, target: issue, author: project_owner) }
+        let_it_be(:issue_event3) { create(:event, :closed, project: public_project_second_user, target: issue, author: second_user) }
+        let_it_be(:wiki_event1) { create(:wiki_page_event, project: public_project, author: project_owner) }
+        let_it_be(:wiki_event2) { create(:wiki_page_event, project: public_project_second_user, author: second_user) }
+        let_it_be(:design_event1) { create(:design_event, project: public_project, author: project_owner) }
+        let_it_be(:design_event2) { create(:design_updated_event, project: public_project_second_user, author: second_user) }
 
-          expect(events).to contain_exactly(push_event, push_event_second_user)
+        where(:event_filter, :ordered_expected_events) do
+          EventFilter.new(EventFilter::PUSH)     | lazy { [push_event1, push_event2] }
+          EventFilter.new(EventFilter::MERGED)   | lazy { [merge_event1, merge_event2] }
+          EventFilter.new(EventFilter::COMMENTS) | lazy { [comment_event1, comment_event2, comment_event3] }
+          EventFilter.new(EventFilter::TEAM)     | lazy { [private_event, internal_event, public_event, private_event_second_user, internal_event_second_user, public_event_second_user] }
+          EventFilter.new(EventFilter::ISSUE)    | lazy { [issue_event1, issue_event2, issue_event3] }
+          EventFilter.new(EventFilter::WIKI)     | lazy { [wiki_event1, wiki_event2] }
+          EventFilter.new(EventFilter::DESIGNS)  | lazy { [design_event1, design_event2] }
+        end
+
+        with_them do
+          it 'only returns selected events from all users (id DESC)' do
+            events = described_class.new(current_user, [project_owner, second_user], event_filter, params).execute
+
+            expect(events).to eq(ordered_expected_events.reverse)
+          end
         end
       end
 
@@ -103,13 +128,13 @@ RSpec.describe UserRecentEventsFinder do
     end
 
     context 'filter activity events' do
-      let!(:push_event) { create(:push_event, project: public_project, author: project_owner) }
-      let!(:merge_event) { create(:event, :merged, project: public_project, author: project_owner) }
-      let!(:issue_event) { create(:event, :closed, project: public_project, target: issue, author: project_owner) }
-      let!(:comment_event) { create(:event, :commented, project: public_project, author: project_owner) }
-      let!(:wiki_event) { create(:wiki_page_event, project: public_project, author: project_owner) }
-      let!(:design_event) { create(:design_event, project: public_project, author: project_owner) }
-      let!(:team_event) { create(:event, :joined, project: public_project, author: project_owner) }
+      let_it_be(:push_event) { create(:push_event, project: public_project, author: project_owner) }
+      let_it_be(:merge_event) { create(:event, :merged, project: public_project, author: project_owner) }
+      let_it_be(:issue_event) { create(:event, :closed, project: public_project, target: issue, author: project_owner) }
+      let_it_be(:comment_event) { create(:event, :commented, project: public_project, author: project_owner) }
+      let_it_be(:wiki_event) { create(:wiki_page_event, project: public_project, author: project_owner) }
+      let_it_be(:design_event) { create(:design_event, project: public_project, author: project_owner) }
+      let_it_be(:team_event) { create(:event, :joined, project: public_project, author: project_owner) }
 
       it 'includes all events', :aggregate_failures do
         event_filter = EventFilter.new(EventFilter::ALL)
@@ -118,6 +143,19 @@ RSpec.describe UserRecentEventsFinder do
         expect(events).to include(private_event, internal_event, public_event)
         expect(events).to include(push_event, merge_event, issue_event, comment_event, wiki_event, design_event, team_event)
         expect(events.size).to eq(10)
+      end
+
+      context 'when unknown filter is given' do
+        it 'includes returns all events', :aggregate_failures do
+          event_filter = EventFilter.new('unknown')
+          allow(event_filter).to receive(:filter).and_return('unknown')
+
+          events = described_class.new(current_user, [project_owner], event_filter, params).execute
+
+          expect(events).to include(private_event, internal_event, public_event)
+          expect(events).to include(push_event, merge_event, issue_event, comment_event, wiki_event, design_event, team_event)
+          expect(events.size).to eq(10)
+        end
       end
 
       it 'only includes push events', :aggregate_failures do

@@ -13,6 +13,10 @@ module Gitlab
         @request = request
       end
 
+      def find_authenticated_requester(request_formats)
+        user(request_formats) || deploy_token_from_request
+      end
+
       def user(request_formats)
         request_formats.each do |format|
           user = find_sessionless_user(format)
@@ -34,7 +38,7 @@ module Gitlab
           find_user_from_web_access_token(request_format, scopes: [:api, :read_api]) ||
           find_user_from_feed_token(request_format) ||
           find_user_from_static_object_token(request_format) ||
-          find_user_from_basic_auth_job ||
+          find_user_from_job_token_basic_auth ||
           find_user_from_job_token ||
           find_user_from_personal_access_token_for_api_or_git ||
           find_user_for_git_or_lfs_request
@@ -43,7 +47,7 @@ module Gitlab
       end
 
       def can_sign_in_bot?(user)
-        user&.project_bot? && api_request?
+        (user&.project_bot? || user&.service_account?) && api_request?
       end
 
       # To prevent Rack Attack from incorrectly rate limiting
@@ -66,7 +70,7 @@ module Gitlab
       end
 
       def valid_access_token?(scopes: [])
-        validate_access_token!(scopes: scopes)
+        validate_and_save_access_token!(scopes: scopes)
 
         true
       rescue Gitlab::Auth::AuthenticationError
@@ -84,7 +88,8 @@ module Gitlab
       def route_authentication_setting
         @route_authentication_setting ||= {
           job_token_allowed: api_request?,
-          basic_auth_personal_access_token: api_request? || git_request?
+          basic_auth_personal_access_token: api_request? || git_request?,
+          deploy_token_allowed: api_request? || git_request?
         }
       end
 

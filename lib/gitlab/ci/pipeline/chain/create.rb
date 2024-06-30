@@ -9,12 +9,12 @@ module Gitlab
           include Gitlab::Utils::StrongMemoize
 
           def perform!
-            logger.instrument_with_sql(:pipeline_save) do
+            logger.instrument_once_with_sql(:pipeline_save) do
               BulkInsertableAssociations.with_bulk_insert do
-                with_bulk_insert_tags do
+                ::Ci::BulkInsertableTags.with_bulk_insert_tags do
                   pipeline.transaction do
                     pipeline.save!
-                    CommitStatus.bulk_insert_tags!(statuses)
+                    Gitlab::Ci::Tags::BulkInsert.bulk_insert_tags!(statuses)
                   end
                 end
               end
@@ -29,20 +29,12 @@ module Gitlab
 
           private
 
-          def with_bulk_insert_tags
-            previous = Thread.current['ci_bulk_insert_tags']
-            Thread.current['ci_bulk_insert_tags'] = true
-            yield
-          ensure
-            Thread.current['ci_bulk_insert_tags'] = previous
-          end
-
           def statuses
             strong_memoize(:statuses) do
               pipeline
                 .stages
                 .flat_map(&:statuses)
-                .select { |status| status.respond_to?(:tag_list) }
+                .select { |status| status.respond_to?(:tag_list=) }
             end
           end
         end

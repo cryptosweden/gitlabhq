@@ -19,6 +19,14 @@ class BasePolicy < DeclarativePolicy::Base
   with_options scope: :user, score: 0
   condition(:deactivated) { @user&.deactivated? }
 
+  desc "User is bot"
+  with_options scope: :user, score: 0
+  condition(:bot) { @user&.bot? }
+
+  desc "User is alert bot"
+  with_options scope: :user, score: 0
+  condition(:alert_bot) { @user&.alert_bot? }
+
   desc "User is support bot"
   with_options scope: :user, score: 0
   condition(:support_bot) { @user&.support_bot? }
@@ -27,9 +35,21 @@ class BasePolicy < DeclarativePolicy::Base
   with_options scope: :user, score: 0
   condition(:security_bot) { @user&.security_bot? }
 
+  desc "User is security policy bot"
+  with_options scope: :user, score: 0
+  condition(:security_policy_bot) { false }
+
   desc "User is automation bot"
   with_options scope: :user, score: 0
   condition(:automation_bot) { @user&.automation_bot? }
+
+  desc "User is llm bot"
+  with_options scope: :user, score: 0
+  condition(:llm_bot) { @user&.llm_bot? }
+
+  desc "User is placeholder"
+  with_options scope: :user, score: 0
+  condition(:placeholder_user) { @user.try(:placeholder?) || false }
 
   desc "User email is unconfirmed or user account is locked"
   with_options scope: :user, score: 0
@@ -41,6 +61,10 @@ class BasePolicy < DeclarativePolicy::Base
   with_options scope: :user, score: 0
   condition(:can_create_group) { @user&.can_create_group }
 
+  desc 'User can create an organization'
+  with_options scope: :global, score: 0
+  condition(:can_create_organization) { Gitlab::CurrentSettings.can_create_organization }
+
   desc "The application is restricted from public visibility"
   condition(:restricted_public_level, scope: :global) do
     Gitlab::CurrentSettings.current_application_settings.restricted_visibility_levels.include?(Gitlab::VisibilityLevel::PUBLIC)
@@ -50,15 +74,12 @@ class BasePolicy < DeclarativePolicy::Base
     ::Gitlab::ExternalAuthorization.perform_check?
   end
 
-  with_options scope: :user, score: 0
-  condition(:alert_bot) { @user&.alert_bot? }
-
   rule { external_authorization_enabled & ~can?(:read_all_resources) }.policy do
     prevent :read_cross_project
   end
 
   rule { admin }.policy do
-    # Only for actual administrator accounts, behaviour affected by admin mode application setting
+    # Only for actual administrator accounts, behavior affected by admin mode application setting
     enable :admin_all_resources
     # Policy extended in EE to also enable auditors
     enable :read_all_resources
@@ -68,6 +89,14 @@ class BasePolicy < DeclarativePolicy::Base
   rule { default }.enable :read_cross_project
 
   condition(:is_gitlab_com, score: 0, scope: :global) { ::Gitlab.com? }
+
+  rule { placeholder_user }.prevent_all
+
+  private
+
+  def user_is_user?
+    user.is_a?(User)
+  end
 end
 
 BasePolicy.prepend_mod_with('BasePolicy')

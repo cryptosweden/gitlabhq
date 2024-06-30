@@ -1,81 +1,77 @@
 ---
 stage: Create
 group: Code Review
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "Use diff versions to compare pushes contained in a single merge request."
 ---
 
-# Merge requests versions **(FREE)**
+# Merge request diff versions
 
-Every time you push to a branch that is tied to a merge request, a new version
-of merge request diff is created. When you visit a merge request that contains
-more than one pushes, you can select and compare the versions of those merge
-request diffs.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-![Merge request versions](img/versions.png)
+When you create a merge request, you select two branches to compare. The differences
+between the two branches are shown as a **diff** in the merge request. Each time
+you push commits to a branch connected to a merge request, GitLab updates the
+merge request diff to a new **diff version**.
 
-## Selecting a version
+NOTE:
+Diff versions are updated on each push, not each commit. If a push contains multiple
+commits, only one new diff version is created.
 
-By default, the latest version of changes is shown. However, you
-can select an older one from version dropdown.
+By default, GitLab compares the latest push in your source branch (`feature`)
+against the most recent commit in the target branch, often `main`.
 
-![Merge request versions dropdown](img/versions_dropdown.png)
+## Compare diff versions
 
-Merge request versions are based on push not on commit. So, if you pushed 5
-commits in a single push, it displays as a single option in the dropdown. If you
-pushed 5 times, that counts for 5 options.
+If you've pushed to your branch multiple times, the diff version from each previous push
+is available for comparison. When your merge request contains many changes or
+sequential changes to the same file, you might want to compare a smaller number of changes.
 
-You can also compare the merge request version with an older one to see what has
-changed since then.
+Prerequisites:
 
-![Merge request versions compare](img/versions_compare.png)
+- The merge request branch must contain commits from multiple pushes. Individual commits
+  in the same push do not generate new diff versions.
 
-Comments are disabled while viewing outdated merge versions or comparing to
-versions other than base.
+To compare diff versions:
 
-Every time you push new changes to the branch, a link to compare the last
-changes appears as a system note.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Merge requests**.
+1. Select a merge request.
+1. To view the current diff version for this merge request, select **Changes**.
+1. Next to **Compare** (**{file-tree}**), select the pushes to compare. This example
+   compares `main` to the most recent push (latest diff version) of the branch:
 
-![Merge request versions system note](img/versions_system_note.png)
+   ![Merge request versions dropdown list](img/versions_dropdown_v16_6.png)
 
-## Find the merge request that introduced a change
+   This example branch has four commits, but the branch contains only three diff versions
+   because two commits were pushed at the same time.
 
-When viewing the commit details page, GitLab links to the merge request (or
-merge requests, if it's in more than one) containing that commit.
+## View diff versions from a system note
 
-This only applies to commits that are in the most recent version of a merge
-request - if commits were in a merge request, then rebased out of that merge
-request, they aren't linked.
+GitLab adds a system note to a merge request each time you push new changes to
+the merge request's branch. In this example, a single push added two commits:
 
-## `HEAD` comparison mode for merge requests
+![Merge request versions system note](img/versions_system_note_v16_6.png)
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/27008) in GitLab 12.10.
+To view the diff for that commit, select the commit SHA.
 
-Merge requests, particularly the **Changes** tab, is where source code
-is reviewed and discussed. In circumstances where the target branch was
-merged into the source branch of the merge request, the changes in the
-source and target branch can be shown mixed together making it hard to
-understand which changes are being added and which already exist in the
-target branch.
+For more information, see how to [show or filter system notes on a merge request](../system_notes.md#on-a-merge-request).
 
-In GitLab 12.10, we added a comparison mode, which
-shows a diff calculated by simulating how it would look like once merged - a more accurate
-representation of the changes rather than using the base of the two
-branches. The new mode is available from the comparison target drop down
-by selecting **main (HEAD)**. In GitLab 13.9, it
-[replaced](https://gitlab.com/gitlab-org/gitlab/-/issues/198458) the
-old default comparison. For technical details, additional information is available in the
-[developer documentation](../../../development/diffs.md#merge-request-diffs-against-the-head-of-the-target-branch).
+## Related topics
 
-![Merge request versions compare HEAD](img/versions_compare_head_v12_10.png)
+- [Merge request diffs for developers](../../../development/merge_request_concepts/diffs/index.md)
+- [Merge request diff storage for administrators](../../../administration/merge_request_diffs.md)
 
 <!-- ## Troubleshooting
 
 Include any troubleshooting steps that you can foresee. If you know beforehand what issues
 one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
+important to describe those, too. Think of things that might go wrong and include them here.
 This is important to minimize requests for support, and to avoid doc comments with
 questions that you know someone might ask.
 
-Each scenario can be a third-level heading, e.g. `### Getting error message X`.
+Each scenario can be a third-level heading, for example `### Getting error message X`.
 If you have none to add when creating a doc, leave this section in place
 but commented out to help encourage others to add to it in the future. -->

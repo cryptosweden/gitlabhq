@@ -2,11 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Sidebars::Panel do
+RSpec.describe Sidebars::Panel, feature_category: :navigation do
   let(:context) { Sidebars::Context.new(current_user: nil, container: nil) }
-  let(:panel) { Sidebars::Panel.new(context) }
+  let(:panel) { described_class.new(context) }
   let(:menu1) { Sidebars::Menu.new(context) }
   let(:menu2) { Sidebars::Menu.new(context) }
+  let(:menu3) { Sidebars::Menu.new(context) }
 
   describe '#renderable_menus' do
     it 'returns only renderable menus' do
@@ -20,17 +21,50 @@ RSpec.describe Sidebars::Panel do
     end
   end
 
-  describe '#has_renderable_menus?' do
-    it 'returns false when no renderable menus' do
-      expect(panel.has_renderable_menus?).to be false
+  describe '#super_sidebar_menu_items' do
+    it "serializes every renderable menu and returns a flattened result" do
+      panel.add_menu(menu1)
+      panel.add_menu(menu2)
+      panel.add_menu(menu3)
+
+      allow(menu1).to receive(:render?).and_return(true)
+      allow(menu1).to receive(:serialize_for_super_sidebar).and_return("foo")
+
+      allow(menu2).to receive(:render?).and_return(false)
+      allow(menu2).to receive(:serialize_for_super_sidebar).and_return("i-should-not-appear-in-results")
+
+      allow(menu3).to receive(:render?).and_return(true)
+      allow(menu3).to receive(:serialize_for_super_sidebar).and_return(%w[bar baz])
+
+      expect(panel.super_sidebar_menu_items).to eq(%w[foo bar baz])
+    end
+  end
+
+  describe '#super_sidebar_context_header' do
+    it 'raises `NotImplementedError`' do
+      expect { panel.super_sidebar_context_header }.to raise_error(NotImplementedError)
+    end
+  end
+
+  describe '#render?' do
+    it 'returns false with no menus' do
+      expect(panel.render?).to be false
     end
 
-    it 'returns true when no renderable menus' do
+    it 'returns false with no renderable menus' do
+      allow(menu1).to receive(:render?).and_return(false)
+
+      panel.add_menu(menu1)
+
+      expect(panel.render?).to be false
+    end
+
+    it 'returns true with renderable menus' do
       allow(menu1).to receive(:render?).and_return(true)
 
       panel.add_menu(menu1)
 
-      expect(panel.has_renderable_menus?).to be true
+      expect(panel.render?).to be true
     end
   end
 

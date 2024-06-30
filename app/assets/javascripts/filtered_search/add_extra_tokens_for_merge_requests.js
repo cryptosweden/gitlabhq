@@ -1,9 +1,22 @@
 import { __ } from '~/locale';
+import {
+  TOKEN_TITLE_APPROVED_BY,
+  TOKEN_TITLE_MERGE_USER,
+  TOKEN_TITLE_REVIEWER,
+  TOKEN_TYPE_APPROVED_BY,
+  TOKEN_TYPE_MERGE_USER,
+  TOKEN_TYPE_REVIEWER,
+  TOKEN_TYPE_TARGET_BRANCH,
+  TOKEN_TYPE_SOURCE_BRANCH,
+} from '~/vue_shared/components/filtered_search_bar/constants';
 
-export default (IssuableTokenKeys, disableTargetBranchFilter = false) => {
+export default (
+  IssuableTokenKeys,
+  { disableBranchFilter = false, disableEnvironmentFilter = false } = {},
+) => {
   const reviewerToken = {
-    formattedKey: __('Reviewer'),
-    key: 'reviewer',
+    formattedKey: TOKEN_TITLE_REVIEWER,
+    key: TOKEN_TYPE_REVIEWER,
     type: 'string',
     param: 'username',
     symbol: '@',
@@ -13,21 +26,6 @@ export default (IssuableTokenKeys, disableTargetBranchFilter = false) => {
   IssuableTokenKeys.tokenKeys.splice(2, 0, reviewerToken);
   IssuableTokenKeys.tokenKeysWithAlternative.splice(2, 0, reviewerToken);
 
-  if (window.gon?.features?.mrAttentionRequests) {
-    const attentionRequestedToken = {
-      formattedKey: __('Attention'),
-      key: 'attention',
-      type: 'string',
-      param: '',
-      symbol: '@',
-      icon: 'user',
-      tag: '@attention',
-      hideNotEqual: true,
-    };
-    IssuableTokenKeys.tokenKeys.splice(2, 0, attentionRequestedToken);
-    IssuableTokenKeys.tokenKeysWithAlternative.splice(2, 0, attentionRequestedToken);
-  }
-
   const draftToken = {
     token: {
       formattedKey: __('Draft'),
@@ -35,7 +33,7 @@ export default (IssuableTokenKeys, disableTargetBranchFilter = false) => {
       type: 'string',
       param: '',
       symbol: '',
-      icon: 'admin',
+      icon: 'pencil-square',
       tag: __('Yes or No'),
       lowercaseValueOnSubmit: true,
       capitalizeTokenValue: true,
@@ -65,10 +63,10 @@ export default (IssuableTokenKeys, disableTargetBranchFilter = false) => {
   IssuableTokenKeys.tokenKeysWithAlternative.push(draftToken.token);
   IssuableTokenKeys.conditions.push(...draftToken.conditions);
 
-  if (!disableTargetBranchFilter) {
+  if (!disableBranchFilter) {
     const targetBranchToken = {
       formattedKey: __('Target-Branch'),
-      key: 'target-branch',
+      key: TOKEN_TYPE_TARGET_BRANCH,
       type: 'string',
       param: '',
       symbol: '',
@@ -76,14 +74,58 @@ export default (IssuableTokenKeys, disableTargetBranchFilter = false) => {
       tag: 'branch',
     };
 
-    IssuableTokenKeys.tokenKeys.push(targetBranchToken);
-    IssuableTokenKeys.tokenKeysWithAlternative.push(targetBranchToken);
+    const sourceBranchToken = {
+      formattedKey: __('Source-Branch'),
+      key: TOKEN_TYPE_SOURCE_BRANCH,
+      type: 'string',
+      param: '',
+      symbol: '',
+      icon: 'branch',
+      tag: 'branch',
+    };
+
+    IssuableTokenKeys.tokenKeys.push(targetBranchToken, sourceBranchToken);
+    IssuableTokenKeys.tokenKeysWithAlternative.push(targetBranchToken, sourceBranchToken);
+  }
+
+  const approvedToken = {
+    token: {
+      formattedKey: __('Approved'),
+      key: 'approved',
+      type: 'string',
+      param: '',
+      symbol: '',
+      icon: 'approval',
+      tag: __('Yes or No'),
+      lowercaseValueOnSubmit: true,
+      capitalizeTokenValue: true,
+      hideNotEqual: true,
+    },
+    conditions: [
+      {
+        url: 'approved=yes',
+        tokenKey: 'approved',
+        value: __('Yes'),
+        operator: '=',
+      },
+      {
+        url: 'approved=no',
+        tokenKey: 'approved',
+        value: __('No'),
+        operator: '=',
+      },
+    ],
+  };
+
+  if (gon.features.mrApprovedFilter) {
+    IssuableTokenKeys.tokenKeys.splice(3, 0, approvedToken.token);
+    IssuableTokenKeys.conditions.push(...approvedToken.conditions);
   }
 
   const approvedBy = {
     token: {
-      formattedKey: __('Approved-By'),
-      key: 'approved-by',
+      formattedKey: TOKEN_TITLE_APPROVED_BY,
+      key: TOKEN_TYPE_APPROVED_BY,
       type: 'array',
       param: 'usernames[]',
       symbol: '@',
@@ -91,8 +133,8 @@ export default (IssuableTokenKeys, disableTargetBranchFilter = false) => {
       tag: '@approved-by',
     },
     tokenAlternative: {
-      formattedKey: __('Approved-By'),
-      key: 'approved-by',
+      formattedKey: TOKEN_TITLE_APPROVED_BY,
+      key: TOKEN_TYPE_APPROVED_BY,
       type: 'string',
       param: 'usernames',
       symbol: '@',
@@ -100,33 +142,33 @@ export default (IssuableTokenKeys, disableTargetBranchFilter = false) => {
     condition: [
       {
         url: 'approved_by_usernames[]=None',
-        tokenKey: 'approved-by',
+        tokenKey: TOKEN_TYPE_APPROVED_BY,
         value: __('None'),
         operator: '=',
       },
       {
         url: 'not[approved_by_usernames][]=None',
-        tokenKey: 'approved-by',
+        tokenKey: TOKEN_TYPE_APPROVED_BY,
         value: __('None'),
         operator: '!=',
       },
       {
         url: 'approved_by_usernames[]=Any',
-        tokenKey: 'approved-by',
+        tokenKey: TOKEN_TYPE_APPROVED_BY,
         value: __('Any'),
         operator: '=',
       },
       {
         url: 'not[approved_by_usernames][]=Any',
-        tokenKey: 'approved-by',
+        tokenKey: TOKEN_TYPE_APPROVED_BY,
         value: __('Any'),
         operator: '!=',
       },
     ],
   };
 
-  const tokenPosition = 3;
-  IssuableTokenKeys.tokenKeys.splice(tokenPosition, 0, ...[approvedBy.token]);
+  const tokenPosition = gon.features.mrApprovedFilter ? 4 : 3;
+  IssuableTokenKeys.tokenKeys.splice(tokenPosition, 0, approvedBy.token);
   IssuableTokenKeys.tokenKeysWithAlternative.splice(
     tokenPosition,
     0,
@@ -134,41 +176,56 @@ export default (IssuableTokenKeys, disableTargetBranchFilter = false) => {
   );
   IssuableTokenKeys.conditions.push(...approvedBy.condition);
 
-  const environmentToken = {
-    formattedKey: __('Environment'),
-    key: 'environment',
+  const mergeUserToken = {
+    formattedKey: TOKEN_TITLE_MERGE_USER,
+    key: TOKEN_TYPE_MERGE_USER,
     type: 'string',
-    param: '',
-    symbol: '',
-    icon: 'cloud-gear',
-    tag: 'environment',
+    param: 'username',
+    symbol: '@',
+    icon: 'merge',
+    tag: '@merge_user',
+    hideNotEqual: true,
   };
+  IssuableTokenKeys.tokenKeys.splice(3, 0, mergeUserToken);
+  IssuableTokenKeys.tokenKeysWithAlternative.splice(3, 0, mergeUserToken);
 
-  const deployedBeforeToken = {
-    formattedKey: __('Deployed-before'),
-    key: 'deployed-before',
-    type: 'string',
-    param: '',
-    symbol: '',
-    icon: 'clock',
-    tag: 'deployed_before',
-  };
+  if (!disableEnvironmentFilter) {
+    const environmentToken = {
+      formattedKey: __('Environment'),
+      key: 'environment',
+      type: 'string',
+      param: '',
+      symbol: '',
+      icon: 'environment',
+      tag: 'environment',
+    };
 
-  const deployedAfterToken = {
-    formattedKey: __('Deployed-after'),
-    key: 'deployed-after',
-    type: 'string',
-    param: '',
-    symbol: '',
-    icon: 'clock',
-    tag: 'deployed_after',
-  };
+    const deployedBeforeToken = {
+      formattedKey: __('Deployed-before'),
+      key: 'deployed-before',
+      type: 'string',
+      param: '',
+      symbol: '',
+      icon: 'clock',
+      tag: 'deployed_before',
+    };
 
-  IssuableTokenKeys.tokenKeys.push(environmentToken, deployedBeforeToken, deployedAfterToken);
+    const deployedAfterToken = {
+      formattedKey: __('Deployed-after'),
+      key: 'deployed-after',
+      type: 'string',
+      param: '',
+      symbol: '',
+      icon: 'clock',
+      tag: 'deployed_after',
+    };
 
-  IssuableTokenKeys.tokenKeysWithAlternative.push(
-    environmentToken,
-    deployedBeforeToken,
-    deployedAfterToken,
-  );
+    IssuableTokenKeys.tokenKeys.push(environmentToken, deployedBeforeToken, deployedAfterToken);
+
+    IssuableTokenKeys.tokenKeysWithAlternative.push(
+      environmentToken,
+      deployedBeforeToken,
+      deployedAfterToken,
+    );
+  }
 };

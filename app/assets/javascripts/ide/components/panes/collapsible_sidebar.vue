@@ -1,4 +1,5 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 import IdeSidebarNav from '../ide_sidebar_nav.vue';
 
@@ -12,6 +13,11 @@ export default {
       type: Array,
       required: false,
       default: () => [],
+    },
+    initOpenView: {
+      type: String,
+      required: false,
+      default: '',
     },
     side: {
       type: String,
@@ -44,6 +50,9 @@ export default {
       return this.tabViews.filter((view) => this.isAliveView(view.name));
     },
   },
+  created() {
+    this.openViewByName(this.initOpenView);
+  },
   methods: {
     ...mapActions({
       toggleOpen(dispatch) {
@@ -53,16 +62,19 @@ export default {
         return dispatch(`${this.namespace}/open`, view);
       },
     }),
+    openViewByName(viewName) {
+      const view = viewName && this.tabViews.find((x) => x.name === viewName);
+
+      if (view) {
+        this.open(view);
+      }
+    },
   },
 };
 </script>
 
 <template>
-  <div
-    :class="`ide-${side}-sidebar`"
-    :data-qa-selector="`ide_${side}_sidebar`"
-    class="multi-file-commit-panel ide-sidebar"
-  >
+  <div :class="`ide-${side}-sidebar`" class="multi-file-commit-panel ide-sidebar">
     <div
       v-show="isOpen"
       :class="`ide-${side}-sidebar-${currentView}`"

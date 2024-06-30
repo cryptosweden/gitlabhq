@@ -17,11 +17,7 @@ class MergeRequestUserEntity < ::API::Entities::UserBasic
   end
 
   expose :reviewed, if: satisfies(:present?, :allows_reviewers?) do |user, options|
-    find_reviewer_or_assignee(user, options)&.reviewed?
-  end
-
-  expose :attention_requested, if: satisfies(:present?, :allows_reviewers?, :attention_requested_enabled?) do |user, options|
-    find_reviewer_or_assignee(user, options)&.attention_requested?
+    options[:merge_request].find_reviewer(user)&.reviewed?
   end
 
   expose :approved, if: satisfies(:present?) do |user, options|
@@ -30,14 +26,8 @@ class MergeRequestUserEntity < ::API::Entities::UserBasic
     options[:merge_request].approvals.any? { |app| app.user_id == user.id }
   end
 
-  private
-
-  def find_reviewer_or_assignee(user, options)
-    if options[:type] == :reviewers
-      options[:merge_request].find_reviewer(user)
-    else
-      options[:merge_request].find_assignee(user)
-    end
+  expose :suggested, if: satisfies(:present?) do |user, options|
+    options[:suggested]
   end
 end
 

@@ -2,37 +2,46 @@
 
 require 'spec_helper'
 
-RSpec.describe Sidebars::Projects::Menus::MonitorMenu do
+RSpec.describe Sidebars::Projects::Menus::MonitorMenu, feature_category: :navigation do
   let_it_be_with_refind(:project) { create(:project) }
 
   let(:user) { project.first_owner }
   let(:show_cluster_hint) { true }
-  let(:context) { Sidebars::Projects::Context.new(current_user: user, container: project, show_cluster_hint: show_cluster_hint) }
+  let(:context) do
+    Sidebars::Projects::Context.new(current_user: user, container: project, show_cluster_hint: show_cluster_hint)
+  end
 
   subject { described_class.new(context) }
 
   describe '#render?' do
-    context 'when operations feature is disabled' do
+    using RSpec::Parameterized::TableSyntax
+    let(:enabled) { Featurable::PRIVATE }
+    let(:disabled) { Featurable::DISABLED }
+
+    where(:monitor_level, :render) do
+      ref(:enabled)  | true
+      ref(:disabled) | false
+    end
+
+    with_them do
+      it 'renders when expected to' do
+        project.project_feature.update!(monitor_access_level: monitor_level)
+
+        expect(subject.render?).to be render
+      end
+    end
+
+    context 'when menu does not have any renderable menu items' do
       it 'returns false' do
-        project.project_feature.update!(operations_access_level: Featurable::DISABLED)
+        allow(subject).to receive(:has_renderable_items?).and_return(false)
 
         expect(subject.render?).to be false
       end
     end
 
-    context 'when operation feature is enabled' do
-      context 'when menu does not have any renderable menu items' do
-        it 'returns false' do
-          allow(subject).to receive(:has_renderable_items?).and_return(false)
-
-          expect(subject.render?).to be false
-        end
-      end
-
-      context 'when menu has menu items' do
-        it 'returns true' do
-          expect(subject.render?).to be true
-        end
+    context 'when menu has menu items' do
+      it 'returns true' do
+        expect(subject.render?).to be true
       end
     end
   end
@@ -62,24 +71,6 @@ RSpec.describe Sidebars::Projects::Menus::MonitorMenu do
       end
     end
 
-    describe 'Metrics Dashboard' do
-      let(:item_id) { :metrics }
-
-      it_behaves_like 'access rights checks'
-    end
-
-    describe 'Logs' do
-      let(:item_id) { :logs }
-
-      it_behaves_like 'access rights checks'
-    end
-
-    describe 'Tracing' do
-      let(:item_id) { :tracing }
-
-      it_behaves_like 'access rights checks'
-    end
-
     describe 'Error Tracking' do
       let(:item_id) { :error_tracking }
 
@@ -96,20 +87,6 @@ RSpec.describe Sidebars::Projects::Menus::MonitorMenu do
       let(:item_id) { :incidents }
 
       it_behaves_like 'access rights checks'
-    end
-
-    describe 'Product Analytics' do
-      let(:item_id) { :product_analytics }
-
-      specify { is_expected.not_to be_nil }
-
-      describe 'when feature flag :product_analytics is disabled' do
-        specify do
-          stub_feature_flags(product_analytics: false)
-
-          is_expected.to be_nil
-        end
-      end
     end
   end
 end

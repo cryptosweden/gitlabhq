@@ -7,18 +7,22 @@ require 'spec_helper'
 # for example, adding quick actions when creating the issue and checking DateTime formats on UI.
 # Because this kind of spec takes more time to run there is no need to add new ones
 # for each existing quick action unless they test something not tested by existing tests.
-RSpec.describe 'Issues > User uses quick actions', :js do
-  include Spec::Support::Helpers::Features::NotesHelpers
+RSpec.describe 'Issues > User uses quick actions', :js, feature_category: :team_planning do
+  include Features::NotesHelpers
+
+  before do
+    allow(Gitlab::QueryLimiting::Transaction).to receive(:threshold).and_return(105)
+  end
 
   context "issuable common quick actions" do
     let(:new_url_opts) { {} }
     let(:maintainer) { create(:user) }
-    let(:project) { create(:project, :public) }
+    let_it_be(:project) { create(:project, :public) }
     let!(:label_bug) { create(:label, project: project, title: 'bug') }
     let!(:label_feature) { create(:label, project: project, title: 'feature') }
     let!(:milestone) { create(:milestone, project: project, title: 'ASAP') }
     let(:issuable) { create(:issue, project: project) }
-    let(:source_issuable) { create(:issue, project: project, milestone: milestone, labels: [label_bug, label_feature])}
+    let(:source_issuable) { create(:issue, project: project, milestone: milestone, labels: [label_bug, label_feature]) }
 
     it_behaves_like 'close quick action', :issue
     it_behaves_like 'issuable time tracker', :issue

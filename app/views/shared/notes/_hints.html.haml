@@ -1,20 +1,11 @@
-- supports_quick_actions = local_assigns.fetch(:supports_quick_actions, false)
 - supports_file_upload = local_assigns.fetch(:supports_file_upload, true)
-.comment-toolbar.clearfix
-  .toolbar-text
-    = link_to _('Markdown'), help_page_path('user/markdown'), target: '_blank', rel: 'noopener noreferrer'
-    - if supports_quick_actions
-      and
-      = link_to _('quick actions'), help_page_path('user/project/quick_actions'), target: '_blank', rel: 'noopener noreferrer'
-      are
-    - else
-      is
-    supported
-
+.comment-toolbar.gl-px-2.gl-display-flex.gl-justify-content-end.gl-rounded-bottom-left-base.gl-rounded-bottom-right-base.clearfix
+  .content-editor-switcher.gl-inline-flex.gl-align-items-center
+    = render Pajamas::ButtonComponent.new(category: :tertiary, icon: 'markdown-mark', size: :small, href: help_page_path('user/markdown'), target: '_blank', button_options: { class: 'gl-px-3!' })
   - if supports_file_upload
-    %span.uploading-container
+    %span.uploading-container.gl-leading-32.gl-font-sm
       %span.uploading-progress-container.hide
-        = sprite_icon('media', css_class: 'gl-icon gl-vertical-align-text-bottom')
+        = sprite_icon('paperclip', css_class: 'gl-icon gl-vertical-align-text-bottom')
         %span.attaching-file-message
           -# Populated by app/assets/javascripts/dropzone_input.js
         %span.uploading-progress 0%
@@ -22,23 +13,18 @@
 
       %span.uploading-error-container.hide
         %span.uploading-error-icon
-          = sprite_icon('media', css_class: 'gl-icon gl-vertical-align-text-bottom')
+          = sprite_icon('paperclip', css_class: 'gl-icon gl-vertical-align-text-bottom')
         %span.uploading-error-message
           -# Populated by app/assets/javascripts/dropzone_input.js
-        %button.btn.gl-button.btn-link.gl-vertical-align-baseline.retry-uploading-link
+        = render Pajamas::ButtonComponent.new(variant: :link, button_options: { class: 'retry-uploading-link' }) do
           %span.gl-button-text
             = _("Try again")
         = _("or")
-        %button.btn.gl-button.btn-link.attach-new-file.markdown-selector.gl-vertical-align-baseline
+        = render Pajamas::ButtonComponent.new(variant: :link, button_options: { class: 'attach-new-file markdown-selector' }) do
           %span.gl-button-text
             = _("attach a new file")
         = _(".")
 
-      %button.btn.gl-button.btn-link.button-attach-file.markdown-selector.button-attach-file.gl-vertical-align-text-bottom
-        = sprite_icon('media')
-        %span.gl-button-text
-          = _("Attach a file")
-
-      %button.btn.gl-button.btn-link.button-cancel-uploading-files.gl-vertical-align-baseline.hide
+      = render Pajamas::ButtonComponent.new(variant: :link, button_options: { class: 'button-cancel-uploading-files hide' }) do
         %span.gl-button-text
           = _("Cancel")

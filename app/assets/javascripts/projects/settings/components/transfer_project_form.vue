@@ -1,24 +1,15 @@
 <script>
-import { GlFormGroup } from '@gitlab/ui';
-import NamespaceSelect from '~/vue_shared/components/namespace_select/namespace_select.vue';
 import ConfirmDanger from '~/vue_shared/components/confirm_danger/confirm_danger.vue';
+import TransferLocations from '~/groups_projects/components/transfer_locations.vue';
+import { getTransferLocations } from '~/api/projects_api';
 
 export default {
   name: 'TransferProjectForm',
   components: {
-    GlFormGroup,
-    NamespaceSelect,
+    TransferLocations,
     ConfirmDanger,
   },
   props: {
-    groupNamespaces: {
-      type: Array,
-      required: true,
-    },
-    userNamespaces: {
-      type: Array,
-      required: true,
-    },
     confirmationPhrase: {
       type: String,
       required: true,
@@ -29,38 +20,38 @@ export default {
     },
   },
   data() {
-    return { selectedNamespace: null };
+    return {
+      selectedTransferLocation: null,
+    };
   },
+
   computed: {
     hasSelectedNamespace() {
-      return Boolean(this.selectedNamespace?.id);
+      return Boolean(this.selectedTransferLocation?.id);
+    },
+  },
+  watch: {
+    selectedTransferLocation(selectedTransferLocation) {
+      this.$emit('selectTransferLocation', selectedTransferLocation.id);
     },
   },
   methods: {
-    handleSelect(selectedNamespace) {
-      this.selectedNamespace = selectedNamespace;
-      this.$emit('selectNamespace', selectedNamespace.id);
-    },
+    getTransferLocations,
   },
 };
 </script>
 <template>
   <div>
-    <gl-form-group>
-      <namespace-select
-        data-testid="transfer-project-namespace"
-        :full-width="true"
-        :group-namespaces="groupNamespaces"
-        :user-namespaces="userNamespaces"
-        :selected-namespace="selectedNamespace"
-        @select="handleSelect"
-      />
-    </gl-form-group>
+    <transfer-locations
+      v-model="selectedTransferLocation"
+      data-testid="transfer-project-namespace"
+      :group-transfer-locations-api-method="getTransferLocations"
+    />
     <confirm-danger
-      button-class="qa-transfer-button"
       :disabled="!hasSelectedNamespace"
       :phrase="confirmationPhrase"
       :button-text="confirmButtonText"
+      button-testid="transfer-project-button"
       @confirm="$emit('confirm')"
     />
   </div>

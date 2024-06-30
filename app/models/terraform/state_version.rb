@@ -2,9 +2,10 @@
 
 module Terraform
   class StateVersion < ApplicationRecord
+    include EachBatch
     include FileStoreMounter
 
-    belongs_to :terraform_state, class_name: 'Terraform::State', optional: false
+    belongs_to :terraform_state, class_name: 'Terraform::State', optional: false, touch: true
     belongs_to :created_by_user, class_name: 'User', optional: true
     belongs_to :build, class_name: 'Ci::Build', optional: true, foreign_key: :ci_build_id
 
@@ -12,7 +13,7 @@ module Terraform
     scope :with_files_stored_locally, -> { where(file_store: Terraform::StateUploader::Store::LOCAL) }
     scope :preload_state, -> { includes(:terraform_state) }
 
-    default_value_for(:file_store) { StateUploader.default_store }
+    attribute :file_store, default: -> { StateUploader.default_store }
 
     mount_file_store_uploader StateUploader
 

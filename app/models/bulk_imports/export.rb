@@ -14,12 +14,15 @@ module BulkImports
     belongs_to :group, optional: true
 
     has_one :upload, class_name: 'BulkImports::ExportUpload'
+    has_many :batches, class_name: 'BulkImports::ExportBatch'
 
     validates :project, presence: true, unless: :group
     validates :group, presence: true, unless: :project
     validates :relation, :status, presence: true
 
     validate :portable_relation?
+
+    scope :for_status, ->(status) { where(status: status) }
 
     state_machine :status, initial: :started do
       state :started, value: STARTED
@@ -31,12 +34,17 @@ module BulkImports
       end
 
       event :finish do
-        transition started: :finished
-        transition failed: :failed
+        transition any => :finished
       end
 
       event :fail_op do
         transition any => :failed
+      end
+
+      after_transition any => :finished do |export|
+        if export.config.user_contributions_relation?(export.relation)
+          UserContributionsExportMapper.new(export.portable).clear_cache
+        end
       end
     end
 
@@ -60,6 +68,13 @@ module BulkImports
       strong_memoize(:config) do
         FileTransfer.config_for(portable)
       end
+    end
+
+    def remove_existing_upload!
+      return unless upload&.export_file&.file
+
+      upload.remove_export_file!
+      upload.save!
     end
   end
 end

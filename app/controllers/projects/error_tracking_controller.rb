@@ -4,6 +4,7 @@ class Projects::ErrorTrackingController < Projects::ErrorTracking::BaseControlle
   respond_to :json
 
   before_action :authorize_read_sentry_issue!
+  before_action :authorize_update_sentry_issue!, only: %i[update]
   before_action :set_issue_id, only: :details
 
   before_action only: [:index] do
@@ -73,8 +74,7 @@ class Projects::ErrorTrackingController < Projects::ErrorTracking::BaseControlle
 
   def render_errors(result)
     unless result[:status] == :success
-      render json: { message: result[:message] },
-             status: result[:http_status] || :bad_request
+      render json: { message: result[:message] }, status: result[:http_status] || :bad_request
     end
   end
 

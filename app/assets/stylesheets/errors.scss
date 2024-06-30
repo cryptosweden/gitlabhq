@@ -9,6 +9,10 @@
 @import 'bootstrap/scss/buttons';
 @import 'bootstrap/scss/forms';
 
+@import '@gitlab/ui/src/scss/variables';
+@import '@gitlab/ui/src/scss/utility-mixins/index';
+@import '@gitlab/ui/src/components/base/button/button';
+
 $body-color: #666;
 $header-color: #456;
 
@@ -117,4 +121,12 @@ a {
       }
     }
   }
+}
+
+.tanuki-logo {
+  width: 210px;
+  height: 210px;
+  max-width: 40vw;
+  display: block;
+  margin: map-get($spacing-scale, 4) auto;
 }

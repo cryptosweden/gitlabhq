@@ -23,7 +23,8 @@ namespace :gitlab do
 
       GroupSeeder.new(
         subgroups_depth: args.subgroups_depth,
-        username: args.username
+        username: args.username,
+        organization: Organizations::Organization.default_organization
       ).seed
     end
   end
@@ -34,13 +35,14 @@ class GroupSeeder
 
   attr_reader :all_group_ids
 
-  def initialize(subgroups_depth:, username:)
+  def initialize(subgroups_depth:, username:, organization:)
     @subgroups_depth = subgroups_depth.to_i
     @user = User.find_by_username(username)
     @group_names = Set.new
     @resource_count = 2
     @all_groups = {}
     @all_group_ids = []
+    @organization = organization
   end
 
   def seed
@@ -72,7 +74,7 @@ class GroupSeeder
   end
 
   def create_root_group
-    root_group = ::Groups::CreateService.new(@user, group_params).execute
+    root_group = ::Groups::CreateService.new(@user, group_params).execute[:group]
 
     track_group_id(1, root_group.id)
   end
@@ -85,7 +87,7 @@ class GroupSeeder
 
       parent_groups.each do |parent_id|
         @resource_count.times do |_|
-          sub_group = ::Groups::CreateService.new(@user, group_params(parent_id: parent_id)).execute
+          sub_group = ::Groups::CreateService.new(@user, group_params(parent_id: parent_id)).execute[:group]
 
           track_group_id(current_level, sub_group.id)
         end
@@ -105,7 +107,8 @@ class GroupSeeder
     {
       name: name,
       path: name,
-      parent_id: parent_id
+      parent_id: parent_id,
+      organization_id: @organization.id
     }
   end
 
@@ -120,13 +123,17 @@ class GroupSeeder
   end
 
   def create_user
+    # rubocop:disable Style/SymbolProc -- Incorrect rubocop advice.
     User.create!(
-      username: FFaker::Internet.user_name,
+      username: FFaker::Internet.unique.user_name,
       name: FFaker::Name.name,
-      email: FFaker::Internet.email,
+      email: FFaker::Internet.unique.email,
       confirmed_at: DateTime.now,
-      password: Gitlab::Password.test_default
-    )
+      password: Devise.friendly_token
+    ) do |user|
+      user.assign_personal_namespace(@organization)
+    end
+    # rubocop:enable Style/SymbolProc
   end
 
   def create_member(user_id, group_id)
@@ -140,14 +147,15 @@ class GroupSeeder
       @resource_count.times do |_|
         group = Group.find(group_id)
 
+        author = group.group_members.non_invite.sample.user
         epic_params = {
           title: FFaker::Lorem.sentence(6),
           description: FFaker::Lorem.paragraphs(3).join("\n\n"),
-          author: group.users.sample,
+          author: author,
           group: group
         }
 
-        Epic.create!(epic_params)
+        ::Epics::CreateService.new(group: group, current_user: author, params: epic_params).execute
       end
     end
   end
@@ -158,7 +166,7 @@ class GroupSeeder
         group = Group.find(group_id)
         label_title = FFaker::Product.brand
 
-        Labels::CreateService.new(title: label_title, color: "##{Digest::MD5.hexdigest(label_title)[0..5]}").execute(group: group)
+        Labels::CreateService.new(title: label_title, color: ::Gitlab::Color.color_for(label_title).to_s).execute(group: group)
       end
     end
   end

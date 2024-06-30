@@ -14,42 +14,45 @@ module API
         include Constants
         include Gitlab::Utils::StrongMemoize
 
-        def unauthorized_user_project
-          @unauthorized_user_project ||= find_project(params[:id])
+        def authorized_user_project(action: :read_project)
+          strong_memoize("authorized_user_project_#{action}") do
+            authorized_project_find!(action: action)
+          end
         end
 
-        def unauthorized_user_project!
-          unauthorized_user_project || not_found!
-        end
+        def authorized_project_find!(action: :read_project)
+          project = find_project(params[:id])
 
-        def unauthorized_user_group
-          @unauthorized_user_group ||= find_group(params[:id])
-        end
+          return unauthorized_or! { not_found! } unless project
 
-        def unauthorized_user_group!
-          unauthorized_user_group || not_found!
-        end
+          case action
+          when :read_package
+            unless can?(current_user, :read_package, project&.packages_policy_subject)
+              # guest users can have :read_project but not :read_package
+              return forbidden! if can?(current_user, :read_project, project)
 
-        def authorized_user_project
-          @authorized_user_project ||= authorized_project_find!
-        end
-
-        def authorized_project_find!
-          project = unauthorized_user_project
-
-          unless project && can?(current_user, :read_project, project)
-            return unauthorized_or! { not_found! }
+              return unauthorized_or! { not_found! }
+            end
+          else
+            return unauthorized_or! { not_found! } unless can?(current_user, action, project)
           end
 
           project
         end
 
-        def find_authorized_group!
-          strong_memoize(:authorized_group) do
+        def find_authorized_group!(action: :read_group)
+          strong_memoize_with(:find_authorized_group, action) do
             group = find_group(params[:id])
 
-            unless group && can?(current_user, :read_group, group)
-              next unauthorized_or! { not_found! }
+            subject = case action
+                      when :read_package_within_public_registries
+                        group&.packages_policy_subject
+                      when :read_group
+                        group
+                      end
+
+            unless group && can?(current_user, action, subject)
+              break unauthorized_or! { not_found! }
             end
 
             group

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::Issues::Update do
+RSpec.describe Mutations::Issues::Update, feature_category: :team_planning do
   let_it_be(:project) { create(:project) }
   let_it_be(:user) { create(:user) }
   let_it_be(:project_label) { create(:label, project: project) }
@@ -35,10 +35,6 @@ RSpec.describe Mutations::Issues::Update do
 
     subject { mutation.resolve(**mutation_params) }
 
-    before do
-      stub_spam_services
-    end
-
     it_behaves_like 'permission level for issue mutation is correctly verified'
 
     context 'when the user can update the issue' do
@@ -46,10 +42,12 @@ RSpec.describe Mutations::Issues::Update do
         project.add_developer(user)
       end
 
-      it 'updates issue with correct values' do
-        subject
+      context 'when all attributes except timeEstimate are provided' do
+        it 'updates issue with correct values' do
+          subject
 
-        expect(issue.reload).to have_attributes(expected_attributes)
+          expect(issue.reload).to have_attributes(expected_attributes)
+        end
       end
 
       context 'when iid does not exist' do
@@ -63,7 +61,7 @@ RSpec.describe Mutations::Issues::Update do
       context 'when setting milestone to nil' do
         let(:expected_attributes) { { milestone_id: nil } }
 
-        it 'changes the milestone corrrectly' do
+        it 'changes the milestone correctly' do
           issue.update_column(:milestone_id, milestone.id)
 
           expect { subject }.to change { issue.reload.milestone }.from(milestone).to(nil)
@@ -160,6 +158,64 @@ RSpec.describe Mutations::Issues::Update do
           mutation_params[:issue_type] = 'incident'
 
           expect { subject }.to change { issue.reload.issue_type }.from('issue').to('incident')
+        end
+      end
+
+      context 'when timeEstimate attribute is provided' do
+        let_it_be_with_refind(:issue) { create(:issue, project: project, time_estimate: 3600) }
+
+        let(:time_estimate) { '0' }
+        let(:expected_attributes) { { time_estimate: time_estimate } }
+
+        context 'when timeEstimate is invalid' do
+          let(:time_estimate) { '1e' }
+
+          it 'raises an argument error and changes are not applied' do
+            expect { mutation.ready?(time_estimate: time_estimate) }
+              .to raise_error(Gitlab::Graphql::Errors::ArgumentError, 'timeEstimate must be formatted correctly, for example `1h 30m`')
+            expect { subject }.not_to change { issue.reload.time_estimate }
+          end
+        end
+
+        context 'when timeEstimate is negative' do
+          let(:time_estimate) { '-1h' }
+
+          it 'raises an argument error and changes are not applied' do
+            expect { mutation.ready?(time_estimate: time_estimate) }
+              .to raise_error(Gitlab::Graphql::Errors::ArgumentError,
+                'timeEstimate must be greater than or equal to zero. Remember that every new timeEstimate overwrites the previous value.')
+            expect { subject }.not_to change { issue.time_estimate }
+          end
+        end
+
+        context 'when timeEstimate is 0' do
+          let(:time_estimate) { '0' }
+
+          it 'resets the time estimate' do
+            expect { subject }.to change { issue.reload.time_estimate }.from(3600).to(0)
+          end
+        end
+
+        context 'when timeEstimate is a valid human readable time' do
+          let(:time_estimate) { '1h 30m' }
+
+          it 'updates the time estimate' do
+            expect { subject }.to change { issue.reload.time_estimate }.from(3600).to(5400)
+          end
+
+          context 'when user is a guest' do
+            let_it_be(:guest) { create(:user) }
+            let(:user) { guest }
+
+            before do
+              issue.update!(author: guest)
+              project.add_guest(guest)
+            end
+
+            it 'does not change time_estimate' do
+              expect { subject }.not_to change { issue.reload.time_estimate }
+            end
+          end
         end
       end
     end

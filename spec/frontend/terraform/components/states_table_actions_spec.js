@@ -1,4 +1,4 @@
-import { GlDropdown, GlModal, GlSprintf } from '@gitlab/ui';
+import { GlDropdown, GlModal, GlSprintf, GlFormInput } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
@@ -9,6 +9,8 @@ import StateActions from '~/terraform/components/states_table_actions.vue';
 import lockStateMutation from '~/terraform/graphql/mutations/lock_state.mutation.graphql';
 import removeStateMutation from '~/terraform/graphql/mutations/remove_state.mutation.graphql';
 import unlockStateMutation from '~/terraform/graphql/mutations/unlock_state.mutation.graphql';
+import getStatesQuery from '~/terraform/graphql/queries/get_states.query.graphql';
+import { getStatesResponse } from './mock_data';
 
 Vue.use(VueApollo);
 
@@ -49,6 +51,7 @@ describe('StatesTableActions', () => {
         [lockStateMutation, lockResponse],
         [removeStateMutation, removeResponse],
         [unlockStateMutation, unlockResponse],
+        [getStatesQuery, jest.fn().mockResolvedValue(getStatesResponse)],
       ],
       {
         Mutation: {
@@ -66,6 +69,7 @@ describe('StatesTableActions', () => {
     wrapper = shallowMount(StateActions, {
       apolloProvider,
       propsData,
+      provide: { projectPath: 'path/to/project' },
       mocks: { $toast: { show: toast } },
       stubs: { GlDropdown, GlModal, GlSprintf },
     });
@@ -81,6 +85,7 @@ describe('StatesTableActions', () => {
   const findDownloadBtn = () => wrapper.find('[data-testid="terraform-state-download"]');
   const findRemoveBtn = () => wrapper.find('[data-testid="terraform-state-remove"]');
   const findRemoveModal = () => wrapper.findComponent(GlModal);
+  const findFormInput = () => wrapper.findComponent(GlFormInput);
 
   beforeEach(() => {
     return createComponent();
@@ -92,7 +97,6 @@ describe('StatesTableActions', () => {
     toast = null;
     unlockResponse = null;
     updateStateResponse = null;
-    wrapper.destroy();
   });
 
   describe('when the state is loading', () => {
@@ -139,7 +143,7 @@ describe('StatesTableActions', () => {
         return waitForPromises();
       });
 
-      it('opens the modal', async () => {
+      it('opens the modal', () => {
         expect(findCopyModal().exists()).toBe(true);
         expect(findCopyModal().isVisible()).toBe(true);
       });
@@ -292,9 +296,7 @@ describe('StatesTableActions', () => {
 
         describe('when state name is present', () => {
           beforeEach(async () => {
-            // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-            // eslint-disable-next-line no-restricted-syntax
-            await wrapper.setData({ removeConfirmText: defaultProps.state.name });
+            await findFormInput().vm.$emit('input', defaultProps.state.name);
 
             findRemoveModal().vm.$emit('ok');
 

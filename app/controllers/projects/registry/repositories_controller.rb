@@ -6,6 +6,10 @@ module Projects
       include PackagesHelper
       include ::Registry::ConnectionErrorsHandler
 
+      before_action only: [:index, :show] do
+        push_frontend_feature_flag(:show_container_registry_tag_signatures, project)
+      end
+
       before_action :authorize_update_container_image!, only: [:destroy]
 
       def index
@@ -22,7 +26,7 @@ module Projects
 
       def destroy
         image.delete_scheduled!
-        DeleteContainerRepositoryWorker.perform_async(current_user.id, image.id) # rubocop:disable CodeReuse/Worker
+
         track_package_event(:delete_repository, :container)
 
         respond_to do |format|
@@ -53,3 +57,5 @@ module Projects
     end
   end
 end
+
+Projects::Registry::RepositoriesController.prepend_mod

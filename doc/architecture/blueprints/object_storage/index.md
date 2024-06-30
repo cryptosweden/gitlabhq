@@ -1,9 +1,14 @@
 ---
-stage: none
-group: unassigned
-comments: false
-description: 'Object storage: direct_upload consolidation - architecture blueprint.'
+status: accepted
+creation-date: "2021-11-18"
+authors: [ "@nolith" ]
+coach: "@glopezfernandez"
+approvers: [ "@marin" ]
+owning-stage: "~devops::data stores"
+participating-stages: []
 ---
+
+<!-- vale gitlab.FutureTense = NO -->
 
 # Object storage: `direct_upload` consolidation
 
@@ -31,9 +36,9 @@ underlying implementation for shared, distributed, highly-available
 (HA) file storage.
 
 Over time, we have built support for object storage across the
-application, solving specific problems in a [multitude of
-iterations](https://about.gitlab.com/company/team/structure/working-groups/object-storage/#company-efforts-on-uploads). This
-has led to increased complexity across the board, from development
+application, solving specific problems in a
+[multitude of iterations](https://handbook.gitlab.com/handbook/company/working-groups/object-storage/#company-efforts-on-uploads).
+This has led to increased complexity across the board, from development
 (new features and bug fixes) to installation:
 
 - New GitLab installations require the creation and configuration of
@@ -50,7 +55,7 @@ has led to increased complexity across the board, from development
   [we no longer recommend](../../../administration/nfs.md) to our
   users and is no longer in use on GitLab.com.
 - Understanding all the moving parts and the flow is extremely
-  complicated: we have CarrierWave, Fog, Golang S3/Azure SDKs, all
+  complicated: we have CarrierWave, Fog, Go S3/Azure SDKs, all
   being used, and that complicates testing as well.
 - Fog and CarrierWave are not maintained to the level of the native
   SDKs (for example, AWS S3 SDK), so we have to maintain or monkey
@@ -59,7 +64,7 @@ has led to increased complexity across the board, from development
   that would normally be "free".
 - In many cases, we copy around object storage files needlessly
   (for example, [issue #285597](https://gitlab.com/gitlab-org/gitlab/-/issues/285597)).
-  Large files (LFS, packages, and so on) are slow to finalize or don't work
+  Large files (for example, LFS and packages) are slow to finalize or don't work
   at all as a result.
 
 ## Improvements over the current situation
@@ -67,10 +72,8 @@ has led to increased complexity across the board, from development
 The following is a brief description of the main directions we can take to
 remove the pain points affecting our object storage implementation.
 
-This is also available as [a YouTube
-video](https://youtu.be/X9V_w8hsM8E) recorded for the [Object Storage
-Working
-Group](https://about.gitlab.com/company/team/structure/working-groups/object-storage/).
+This is also available as [a YouTube video](https://youtu.be/X9V_w8hsM8E) recorded for the
+[Object Storage Working Group](https://handbook.gitlab.com/handbook/company/working-groups/object-storage/).
 
 ### Simplify GitLab architecture by shipping MinIO
 
@@ -80,8 +83,8 @@ local storage and object storage.
 
 With local storage, there is the assumption of a shared storage
 between components. This can be achieved by having a single box
-installation, without HA, or with a NFS, which [we no longer
-recommend](../../../administration/nfs.md).
+installation, without HA, or with a NFS, which
+[we no longer recommend](../../../administration/nfs.md).
 
 We have a testing gap on object storage. It also requires Workhorse
 and MinIO, which are not present in our pipelines, so too much is
@@ -112,7 +115,7 @@ Because every group of features requires its own bucket, we don't have
 direct upload enabled everywhere. Contributing a new upload requires
 coding it in both Ruby on Rails and Go.
 
-Implementing a new feature that does not yet have a dedicated bucket
+Implementing a new feature that does not have a dedicated bucket
 requires the developer to also create a merge request in Omnibus
 and CNG, as well as coordinate with SREs to configure the new bucket
 for our own environments.
@@ -123,7 +126,7 @@ infrastructure. It also makes the initial installation more complex
 feature after feature.
 
 Implementing a direct upload by default, with a
-[consolidated object storage configuration](../../../administration/object_storage.md#consolidated-object-storage-configuration)
+[consolidated object storage configuration](../../../administration/object_storage.md#configure-a-single-storage-connection-for-all-object-types-consolidated-form)
 will reduce the number of merge requests needed to ship a new feature
 from four to only one. It will also remove the need for SRE
 intervention as the bucket will always be the same.
@@ -136,8 +139,8 @@ access to new features without infrastructure chores.
 
 Our implementation is built on top of a 3rd-party framework where
 every object storage client is a 3rd-party library. Unfortunately some
-of them are unmaintained. [We have customers who cannot push 5GB Git
-LFS objects](https://gitlab.com/gitlab-org/gitlab/-/issues/216442),
+of them are unmaintained.
+[We have customers who cannot push 5 GB Git LFS objects](https://gitlab.com/gitlab-org/gitlab/-/issues/216442),
 but with such a vital feature implemented in 3rd-party libraries we
 are slowed down in fixing it, and we also rely on external maintainers
 to merge and release fixes.
@@ -147,8 +150,7 @@ Before the introduction of direct upload, using the
 library, _"a gem that provides a simple and extremely flexible way to
 upload files from Ruby applications."_, was the boring solution.
 However this is no longer our use-case, as we upload files from
-Workhorse, and we had to [patch CarrierWave's
-internals](https://gitlab.com/gitlab-org/gitlab/-/issues/285597#note_452696638)
+Workhorse, and we had to [patch CarrierWave's internals](https://gitlab.com/gitlab-org/gitlab/-/issues/285597#note_452696638)
 to support direct upload.
 
 A brief proposal covering CarrierWave removal and a new streamlined
@@ -200,24 +202,3 @@ require one bucket.
 - [Speed up the monolith, building a smart reverse proxy in Go](https://archive.fosdem.org/2020/schedule/event/speedupmonolith/): a presentation explaining a bit of workhorse history and the challenge we faced in releasing the first cloud-native installation.
 - [Object Storage improvements epic](https://gitlab.com/groups/gitlab-org/-/epics/483).
 - We are moving to GraphQL API, but [we do not support direct upload](https://gitlab.com/gitlab-org/gitlab/-/issues/280819).
-
-## Who
-
-Proposal:
-
-<!-- vale gitlab.Spelling = NO -->
-
-| Role                           | Who                     |
-|--------------------------------|-------------------------|
-| Author                         | Alessio Caiazza         |
-| Architecture Evolution Coach   | Gerardo Lopez-Fernandez |
-| Engineering Leader             | Marin Jankovski         |
-| Domain Expert / Object storage | Stan Hu                 |
-| Domain Expert / Security       | Joern Schneeweisz       |
-
-DRIs:
-
-The DRI for this blueprint is the [Object Storage Working
-Group](https://about.gitlab.com/company/team/structure/working-groups/object-storage/).
-
-<!-- vale gitlab.Spelling = YES -->

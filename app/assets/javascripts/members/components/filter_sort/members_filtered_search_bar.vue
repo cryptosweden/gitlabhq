@@ -1,23 +1,21 @@
 <script>
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
+import { __ } from '~/locale';
+import { getParameterByName, setUrlParams, queryToObject, visitUrl } from '~/lib/utils/url_utility';
 import {
-  getParameterByName,
-  setUrlParams,
-  queryToObject,
-  redirectTo,
-} from '~/lib/utils/url_utility';
-import {
-  SEARCH_TOKEN_TYPE,
   SORT_QUERY_PARAM_NAME,
   ACTIVE_TAB_QUERY_PARAM_NAME,
   AVAILABLE_FILTERED_SEARCH_TOKENS,
 } from 'ee_else_ce/members/constants';
+import { FILTERED_SEARCH_TERM } from '~/vue_shared/components/filtered_search_bar/constants';
 import FilteredSearchBar from '~/vue_shared/components/filtered_search_bar/filtered_search_bar_root.vue';
 
 export default {
   name: 'MembersFilteredSearchBar',
   components: { FilteredSearchBar },
   availableTokens: AVAILABLE_FILTERED_SEARCH_TOKENS,
+  searchButtonAttributes: { 'data-testid': 'search-button' },
   inject: {
     namespace: {},
     sourceId: {},
@@ -44,6 +42,10 @@ export default {
           return false;
         }
 
+        if (token.type === 'user_type' && !gon.features?.serviceAccountsCrud) {
+          return false;
+        }
+
         return this.filteredSearchBar.tokens?.includes(token.type);
       });
     },
@@ -63,7 +65,7 @@ export default {
 
     if (query[this.filteredSearchBar.searchParam]) {
       tokens.push({
-        type: SEARCH_TOKEN_TYPE,
+        type: FILTERED_SEARCH_TERM,
         value: {
           data: query[this.filteredSearchBar.searchParam],
         },
@@ -81,7 +83,7 @@ export default {
           return accumulator;
         }
 
-        if (type === SEARCH_TOKEN_TYPE) {
+        if (type === FILTERED_SEARCH_TERM) {
           if (value.data !== '') {
             const { searchParam } = this.filteredSearchBar;
             const { [searchParam]: searchParamValue } = accumulator;
@@ -92,6 +94,14 @@ export default {
             };
           }
         } else {
+          // Remove this block after this issue is closed: https://gitlab.com/gitlab-org/gitlab-ui/-/issues/2159
+          if (value.data === __('Service account')) {
+            return {
+              ...accumulator,
+              [type]: 'service_account',
+            };
+          }
+
           return {
             ...accumulator,
             [type]: value.data,
@@ -104,7 +114,7 @@ export default {
       const sortParamValue = getParameterByName(SORT_QUERY_PARAM_NAME);
       const activeTabParamValue = getParameterByName(ACTIVE_TAB_QUERY_PARAM_NAME);
 
-      redirectTo(
+      visitUrl(
         setUrlParams(
           {
             ...params,
@@ -127,8 +137,9 @@ export default {
     :recent-searches-storage-key="filteredSearchBar.recentSearchesStorageKey"
     :search-input-placeholder="filteredSearchBar.placeholder"
     :initial-filter-value="initialFilterValue"
+    :search-button-attributes="$options.searchButtonAttributes"
+    :search-input-attributes="$options.searchInputAttributes"
     data-testid="members-filtered-search-bar"
-    data-qa-selector="members_filtered_search_bar_content"
     @onFilter="handleFilter"
   />
 </template>

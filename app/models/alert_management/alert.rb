@@ -25,8 +25,10 @@ module AlertManagement
     has_many :assignees, through: :alert_assignees
 
     has_many :notes, as: :noteable, inverse_of: :noteable, dependent: :delete_all # rubocop:disable Cop/ActiveRecordDependent
-    has_many :ordered_notes, -> { fresh }, as: :noteable, class_name: 'Note'
-    has_many :user_mentions, class_name: 'AlertManagement::AlertUserMention', foreign_key: :alert_management_alert_id
+    has_many :ordered_notes, -> { fresh }, as: :noteable, class_name: 'Note', inverse_of: :noteable
+    has_many :user_mentions, class_name: 'AlertManagement::AlertUserMention', foreign_key: :alert_management_alert_id,
+      inverse_of: :alert
+    has_many :metric_images, class_name: '::AlertManagement::MetricImage'
 
     has_internal_id :iid, scope: :project
 
@@ -52,7 +54,7 @@ module AlertManagement
     validates :fingerprint,     allow_blank: true, uniqueness: {
       scope: :project,
       conditions: -> { not_resolved },
-      message: -> (object, data) { _('Cannot have multiple unresolved alerts') }
+      message: ->(object, data) { _('Cannot have multiple unresolved alerts') }
     }, unless: :resolved?
     validate :hosts_format
 
@@ -73,24 +75,23 @@ module AlertManagement
     delegate :iid, to: :issue, prefix: true, allow_nil: true
     delegate :details_url, to: :present
 
-    scope :for_iid, -> (iid) { where(iid: iid) }
-    scope :for_fingerprint, -> (project, fingerprint) { where(project: project, fingerprint: fingerprint) }
-    scope :for_environment, -> (environment) { where(environment: environment) }
-    scope :for_assignee_username, -> (assignee_username) { joins(:assignees).merge(User.by_username(assignee_username)) }
-    scope :search, -> (query) { fuzzy_search(query, [:title, :description, :monitoring_tool, :service]) }
+    scope :for_iid, ->(iid) { where(iid: iid) }
+    scope :for_fingerprint, ->(project, fingerprint) { where(project: project, fingerprint: fingerprint) }
+    scope :for_environment, ->(environment) { where(environment: environment) }
+    scope :for_assignee_username, ->(assignee_username) { joins(:assignees).merge(User.by_username(assignee_username)) }
+    scope :search, ->(query) { fuzzy_search(query, [:title, :description, :monitoring_tool, :service]) }
     scope :not_resolved, -> { without_status(:resolved) }
     scope :with_prometheus_alert, -> { includes(:prometheus_alert) }
-    scope :with_threat_monitoring_alerts, -> { where(domain: :threat_monitoring ) }
     scope :with_operations_alerts, -> { where(domain: :operations) }
 
-    scope :order_start_time,    -> (sort_order) { order(started_at: sort_order) }
-    scope :order_end_time,      -> (sort_order) { order(ended_at: sort_order) }
-    scope :order_event_count,   -> (sort_order) { order(events: sort_order) }
+    scope :order_start_time,    ->(sort_order) { order(started_at: sort_order) }
+    scope :order_end_time,      ->(sort_order) { order(ended_at: sort_order) }
+    scope :order_event_count,   ->(sort_order) { order(events: sort_order) }
 
     # Ascending sort order sorts severity from less critical to more critical.
     # Descending sort order sorts severity from more critical to less critical.
     # https://gitlab.com/gitlab-org/gitlab/-/issues/221242#what-is-the-expected-correct-behavior
-    scope :order_severity,      -> (sort_order) { order(severity: sort_order == :asc ? :desc : :asc) }
+    scope :order_severity,      ->(sort_order) { order(severity: sort_order == :asc ? :desc : :asc) }
     scope :order_severity_with_open_prometheus_alert, -> { open.with_prometheus_alert.order(severity: :asc, started_at: :desc) }
 
     scope :counts_by_project_id, -> { group(:project_id).count }
@@ -118,6 +119,10 @@ module AlertManagement
       end
     end
 
+    def self.find_unresolved_alert(project, fingerprint)
+      for_fingerprint(project, fingerprint).not_resolved.take
+    end
+
     def self.last_prometheus_alert_by_project_id
       ids = select(arel_table[:id].maximum).group(:project_id)
       with_prometheus_alert.where(id: ids)
@@ -135,7 +140,7 @@ module AlertManagement
     end
 
     def self.link_reference_pattern
-      @link_reference_pattern ||= super("alert_management", %r{(?<alert>\d+)/details(\#)?})
+      @link_reference_pattern ||= compose_link_reference_pattern('alert_management', %r{(?<alert>\d+)/details(\#)?})
     end
 
     def self.reference_valid?(reference)

@@ -1,20 +1,24 @@
 ---
-stage: Enablement
+stage: Systems
 group: Distribution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Create a GitLab upgrade plan **(FREE SELF)**
+# Create a GitLab upgrade plan
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 This document serves as a guide to create a strong plan to upgrade a self-managed
 GitLab instance.
 
 General notes:
 
-- If possible, we recommend you test out the upgrade in a test environment before
+- If possible, you should test out the upgrade in a test environment before
   updating your production instance. Ideally, your test environment should mimic
   your production environment as closely as possible.
-- If [working with Support](https://about.gitlab.com/support/scheduling-live-upgrade-assistance.html)
+- If [working with Support](https://about.gitlab.com/support/scheduling-upgrade-assistance/)
   to create your plan, share details of your architecture, including:
   - How is GitLab installed?
   - What is the operating system of the node?
@@ -42,7 +46,7 @@ to ensure the major components of GitLab are working:
    ```
 
 1. In GitLab UI, check that:
-   - Users can log in.
+   - Users can sign in.
    - The project list is visible.
    - Project issues and merge requests are accessible.
    - Users can clone repositories from GitLab.
@@ -60,16 +64,6 @@ to ensure the major components of GitLab are working:
 
 1. If using Elasticsearch, verify that searches are successful.
 
-1. If you are using [Reply by Email](../administration/reply_by_email.md) or [Service Desk](../user/project/service_desk.md),
-   manually install the latest version of `gitlab-mail_room`:
-
-   ```shell
-   gem install gitlab-mail_room
-   ```
-
-   NOTE: This step is necessary to avoid thread deadlocks and to support the latest MailRoom features. See
-   [this explanation](../development/emails.md#mailroom-gem-updates) for more details.
-
 If in any case something goes wrong, see [how to troubleshoot](#troubleshooting).
 
 ## Rollback plan
@@ -85,25 +79,25 @@ Create a backup of GitLab and all its data (database, repositories, uploads, bui
 artifacts, LFS objects, registry, pages). This is vital for making it possible
 to roll back GitLab to a working state if there's a problem with the upgrade:
 
-- Create a [GitLab backup](../raketasks/backup_restore.md).
+- Create a [GitLab backup](../administration/backup_restore/index.md).
   Make sure to follow the instructions based on your installation method.
-  Don't forget to back up the [secrets and configuration files](../raketasks/backup_restore.md#storing-configuration-files).
+  Don't forget to back up the [secrets and configuration files](../administration/backup_restore/backup_gitlab.md#storing-configuration-files).
 - Alternatively, create a snapshot of your instance. If this is a multi-node
   installation, you must snapshot every node.
   **This process is out of scope for GitLab Support.**
 
 ### Restore GitLab
 
-If you have a test environment that mimics your production one, we recommend testing the restoration to ensure that everything works as you expect.
+If you have a test environment that mimics your production one, you should test the restoration to ensure that everything works as you expect.
 
 To restore your GitLab backup:
 
 - Before restoring, make sure to read about the
-  [prerequisites](../raketasks/backup_restore.md#restore-gitlab), most importantly,
+  [prerequisites](../administration/backup_restore/index.md#restore-gitlab), most importantly,
   the versions of the backed up and the new GitLab instance must be the same.
-- [Restore GitLab](../raketasks/backup_restore.md#restore-gitlab).
+- [Restore GitLab](../administration/backup_restore/index.md#restore-gitlab).
   Make sure to follow the instructions based on your installation method.
-  Confirm that the [secrets and configuration files](../raketasks/backup_restore.md#storing-configuration-files) are also restored.
+  Confirm that the [secrets and configuration files](../administration/backup_restore/backup_gitlab.md#storing-configuration-files) are also restored.
 - If restoring from a snapshot, know the steps to do this.
   **This process is out of scope for GitLab Support.**
 
@@ -113,32 +107,27 @@ For the upgrade plan, start by creating an outline of a plan that best applies
 to your instance and then upgrade it for any relevant features you're using.
 
 - Generate an upgrade plan by reading and understanding the relevant documentation:
-  - upgrade based on the installation method:
-    - [Linux package (Omnibus)](index.md#linux-packages-omnibus-gitlab)
-    - [Compiled from source](index.md#installation-from-source)
-    - [Docker](index.md#installation-using-docker)
-    - [Helm Charts](index.md#installation-using-helm)
+  - Upgrade based on the [installation method](index.md#upgrade-based-on-installation-method).
   - [Zero-downtime upgrades](zero_downtime.md) (if possible and desired)
   - [Convert from GitLab Community Edition to Enterprise Edition](package/convert_to_ee.md)
 - What version should you upgrade to:
   - [Determine what upgrade path](index.md#upgrade-paths) to follow.
-  - Account for any [version-specific update instructions](index.md#version-specific-upgrading-instructions).
+  - Account for any [version-specific update instructions](index.md#version-specific-upgrading-instructions) for both the current version and the destination version.
   - Account for any [version-specific changes](package/index.md#version-specific-changes).
   - Check the [OS compatibility with the target GitLab version](../administration/package_information/supported_os.md).
-- Due to background migrations, plan to pause any further upgrades after upgrading
-  to a new major version.
-  [All migrations must finish running](index.md#checking-for-background-migrations-before-upgrading)
+- Due to background migrations, plan to pause before any further upgrades.
+  [All migrations must finish running](background_migrations.md)
   before the next upgrade.
 - If available in your starting version, consider
-  [turning on maintenance mode](../administration/maintenance_mode/) during the
+  [turning on maintenance mode](../administration/maintenance_mode/index.md) during the
   upgrade.
 - About PostgreSQL:
-  - On the top bar, select **Menu > Admin**, and look for the version of
-    PostgreSQL you are using.
-    If [a PostgreSQL upgrade is needed](../administration/package_information/postgresql_versions.md),
-    account for the relevant
-    [packaged](https://docs.gitlab.com/omnibus/settings/database.html#upgrade-packaged-postgresql-server)
-    or [non-packaged](https://docs.gitlab.com/omnibus/settings/database.html#upgrade-a-non-packaged-postgresql-database) steps.
+  1. On the left sidebar, at the bottom, select **Admin Area**..
+  1. Look for the version of PostgreSQL you are using.
+     If [a PostgreSQL upgrade is needed](../administration/package_information/postgresql_versions.md),
+     account for the relevant
+     [packaged](https://docs.gitlab.com/omnibus/settings/database.html#upgrade-packaged-postgresql-server)
+     or [non-packaged](https://docs.gitlab.com/omnibus/settings/database.html#upgrade-a-non-packaged-postgresql-database) steps.
 
 ### Additional features
 
@@ -157,20 +146,27 @@ version prior to upgrading the application server.
 
 If you're using Geo:
 
-- Review [Geo upgrade documentation](../administration/geo/replication/updating_the_geo_sites.md).
-- Read about the [Geo version-specific update instructions](../administration/geo/replication/version_specific_updates.md).
-- Review Geo-specific steps when [updating the database](https://docs.gitlab.com/omnibus/settings/database.html#upgrading-a-geo-instance).
-- Create an upgrade and rollback plan for _each_ Geo node (primary and each secondary).
+- Review [Geo upgrade documentation](../administration/geo/replication/upgrading_the_geo_sites.md).
+- Read about the [Geo version-specific update instructions](index.md#version-specific-upgrading-instructions).
+- Review Geo-specific steps when [upgrading the database](https://docs.gitlab.com/omnibus/settings/database.html#upgrading-a-geo-instance).
+- Create an upgrade and rollback plan for _each_ Geo site (primary and each secondary).
 
 #### Runners
 
 After updating GitLab, upgrade your runners to match
 [your new GitLab version](https://docs.gitlab.com/runner/#gitlab-runner-versions).
 
+#### GitLab agent for Kubernetes
+
+If you have Kubernetes clusters connected with GitLab, [upgrade your GitLab agents for Kubernetes](../user/clusters/agent/install/index.md#update-the-agent-version) to match your new GitLab version.
+
 #### Elasticsearch
 
+Before updating GitLab, confirm advanced search migrations are complete by
+[checking for pending advanced search migrations](index.md#checking-for-pending-advanced-search-migrations).
+
 After updating GitLab, you may have to upgrade
-[Elasticsearch if the new version breaks compatibility](../integration/elasticsearch.md#version-requirements).
+[Elasticsearch if the new version breaks compatibility](../integration/advanced_search/elasticsearch.md#version-requirements).
 Updating Elasticsearch is **out of scope for GitLab Support**.
 
 ## Troubleshooting
@@ -185,8 +181,8 @@ If anything doesn't go as planned:
   - [`kubesos`](https://gitlab.com/gitlab-com/support/toolbox/kubesos/) if
     you installed GitLab using the Helm Charts.
 - For support:
-  - [Contact GitLab Support](https://support.gitlab.com/hc) and,
-    if you have one, your Technical Account Manager.
+  - [Contact GitLab Support](https://support.gitlab.com/hc/en-us) and,
+    if you have one, your Customer Success Manager.
   - If [the situation qualifies](https://about.gitlab.com/support/#definitions-of-support-impact)
     and [your plan includes emergency support](https://about.gitlab.com/support/#priority-support),
     create an emergency ticket.

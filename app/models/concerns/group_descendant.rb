@@ -21,7 +21,7 @@ module GroupDescendant
     descendants = Array.wrap(descendants).uniq
     return [] if descendants.empty?
 
-    unless descendants.all? { |hierarchy| hierarchy.is_a?(GroupDescendant) }
+    unless descendants.all?(GroupDescendant)
       raise ArgumentError, _('element is not a hierarchy')
     end
 
@@ -60,10 +60,7 @@ module GroupDescendant
     end
 
     if parent && parent != hierarchy_top
-      expand_hierarchy_for_child(parent,
-                                 { parent => hierarchy },
-                                 hierarchy_top,
-                                 preloaded)
+      expand_hierarchy_for_child(parent, { parent => hierarchy }, hierarchy_top, preloaded)
     else
       hierarchy
     end

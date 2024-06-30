@@ -1,4 +1,5 @@
 import { last } from 'lodash';
+import { TOKEN_TYPE_LABEL } from '~/vue_shared/components/filtered_search_bar/constants';
 import FilteredSearchContainer from './container';
 import FilteredSearchDropdownManager from './filtered_search_dropdown_manager';
 import FilteredSearchTokenizer from './filtered_search_tokenizer';
@@ -87,6 +88,7 @@ export default class DropdownUtils {
   }
 
   static setDataValueIfSelected(filter, operator, selected) {
+    // eslint-disable-next-line unicorn/prefer-dom-node-dataset
     const dataValue = selected.getAttribute('data-value');
 
     if (dataValue) {
@@ -96,6 +98,7 @@ export default class DropdownUtils {
         tokenValue: dataValue,
         clicked: true,
         options: {
+          // eslint-disable-next-line unicorn/prefer-dom-node-dataset
           capitalizeTokenValue: selected.hasAttribute('data-capitalize'),
         },
       });
@@ -111,7 +114,7 @@ export default class DropdownUtils {
       visualToken &&
       visualToken.querySelector('.value') &&
       visualToken.querySelector('.value').textContent.trim();
-    if (tokenName === 'label' && tokenValue) {
+    if (tokenName === TOKEN_TYPE_LABEL && tokenValue) {
       // remove leading symbol and wrapping quotes
       tokenValue = tokenValue.replace(/^~("|')?(.*)/, '$2').replace(/("|')$/, '');
     }
@@ -160,9 +163,8 @@ export default class DropdownUtils {
           values.push(name.innerText);
         }
       } else if (token.classList.contains('input-token')) {
-        const {
-          isLastVisualTokenValid,
-        } = FilteredSearchVisualTokens.getLastVisualTokenBeforeInput();
+        const { isLastVisualTokenValid } =
+          FilteredSearchVisualTokens.getLastVisualTokenBeforeInput();
 
         const input = FilteredSearchContainer.container.querySelector('.filtered-search');
         const inputValue = input && input.value;

@@ -1,12 +1,14 @@
 ---
-stage: Manage
-group: Workspace
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Data Stores
+group: Tenant Scale
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Topics API **(FREE)**
+# Topics API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/340920) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Interact with project topics using the REST API.
 
@@ -20,11 +22,12 @@ GET /topics
 
 Supported attributes:
 
-| Attribute  | Type    | Required               | Description |
-| ---------- | ------- | ---------------------- | ----------- |
-| `page`     | integer | **{dotted-circle}** No | Page to retrieve. Defaults to `1`.                      |
-| `per_page` | integer | **{dotted-circle}** No | Number of records to return per page. Defaults to `20`. |
-| `search`   | string  | **{dotted-circle}** No | Search topics against their `name`.                     |
+| Attribute          | Type    | Required               | Description |
+| ------------------ | ------- | ---------------------- | ----------- |
+| `page`             | integer | No | Page to retrieve. Defaults to `1`.                      |
+| `per_page`         | integer | No | Number of records to return per page. Defaults to `20`. |
+| `search`           | string  | No | Search topics against their `name`.                     |
+| `without_projects` | boolean | No | Limit results to topics without assigned projects.      |
 
 Example request:
 
@@ -38,21 +41,24 @@ Example response:
 [
   {
     "id": 1,
-    "name": "GitLab",
+    "name": "gitlab",
+    "title": "GitLab",
     "description": "GitLab is an open source end-to-end software development platform with built-in version control, issue tracking, code review, CI/CD, and more.",
     "total_projects_count": 1000,
     "avatar_url": "http://www.gravatar.com/avatar/a0d477b3ea21970ce6ffcbb817b0b435?s=80&d=identicon"
   },
   {
     "id": 3,
-    "name": "Git",
+    "name": "git",
+    "title": "Git",
     "description": "Git is a free and open source distributed version control system designed to handle everything from small to very large projects with speed and efficiency.",
     "total_projects_count": 900,
     "avatar_url": "http://www.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=80&d=identicon"
   },
   {
     "id": 2,
-    "name": "Git LFS",
+    "name": "git-lfs",
+    "title": "Git LFS",
     "description": null,
     "total_projects_count": 300,
     "avatar_url": null
@@ -72,7 +78,7 @@ Supported attributes:
 
 | Attribute | Type    | Required               | Description         |
 | --------- | ------- | ---------------------- | ------------------- |
-| `id`      | integer | **{check-circle}** Yes | ID of project topic |
+| `id`      | integer | Yes | ID of project topic |
 
 Example request:
 
@@ -85,7 +91,8 @@ Example response:
 ```json
 {
   "id": 1,
-  "name": "GitLab",
+  "name": "gitlab",
+  "title": "GitLab",
   "description": "GitLab is an open source end-to-end software development platform with built-in version control, issue tracking, code review, CI/CD, and more.",
   "total_projects_count": 1000,
   "avatar_url": "http://www.gravatar.com/avatar/a0d477b3ea21970ce6ffcbb817b0b435?s=80&d=identicon"
@@ -112,15 +119,16 @@ Supported attributes:
 
 | Attribute     | Type    | Required               | Description |
 | ------------- | ------- | ---------------------- | ----------- |
-| `name`        | string  | **{check-circle}** Yes | Name        |
-| `avatar`      | file    | **{dotted-circle}** No | Avatar      |
-| `description` | string  | **{dotted-circle}** No | Description |
+| `name`        | string  | Yes | Slug (name) |
+| `title`       | string  | Yes | Title       |
+| `avatar`      | file    | No | Avatar      |
+| `description` | string  | No | Description |
 
 Example request:
 
 ```shell
 curl --request POST \
-     --data "name=topic1" \
+     --data "name=topic1&title=Topic 1" \
      --header "PRIVATE-TOKEN: <your_access_token>" \
      "https://gitlab.example.com/api/v4/topics"
 ```
@@ -131,6 +139,7 @@ Example response:
 {
   "id": 1,
   "name": "topic1",
+  "title": "Topic 1",
   "description": null,
   "total_projects_count": 0,
   "avatar_url": null
@@ -149,10 +158,11 @@ Supported attributes:
 
 | Attribute     | Type    | Required               | Description         |
 | ------------- | ------- | ---------------------- | ------------------- |
-| `id`          | integer | **{check-circle}** Yes | ID of project topic |
-| `avatar`      | file    | **{dotted-circle}** No | Avatar              |
-| `description` | string  | **{dotted-circle}** No | Description         |
-| `name`        | string  | **{dotted-circle}** No | Name                |
+| `id`          | integer | Yes | ID of project topic |
+| `avatar`      | file    | No | Avatar              |
+| `description` | string  | No | Description         |
+| `name`        | string  | No | Slug (name)         |
+| `title`       | string  | No | Title               |
 
 Example request:
 
@@ -169,6 +179,7 @@ Example response:
 {
   "id": 1,
   "name": "topic1",
+  "title": "Topic 1",
   "description": null,
   "total_projects_count": 0,
   "avatar_url": null
@@ -191,8 +202,6 @@ curl --request PUT \
 
 ### Remove a topic avatar
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/348148) in GitLab 14.6.
-
 To remove a topic avatar, use a blank value for the `avatar` attribute.
 
 Example request:
@@ -206,9 +215,7 @@ curl --request PUT \
 
 ## Delete a project topic
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/80725) in GitLab 14.9.
-
-You must be an administrator to delete a project.
+You must be an administrator to delete a project topic.
 When you delete a project topic, you also delete the topic assignment for projects.
 
 ```plaintext
@@ -219,7 +226,7 @@ Supported attributes:
 
 | Attribute     | Type    | Required               | Description         |
 | ------------- | ------- | ---------------------- | ------------------- |
-| `id`          | integer | **{check-circle}** Yes | ID of project topic |
+| `id`          | integer | Yes | ID of project topic |
 
 Example request:
 
@@ -227,4 +234,44 @@ Example request:
 curl --request DELETE \
      --header "PRIVATE-TOKEN: <your_access_token>" \
      "https://gitlab.example.com/api/v4/topics/1"
+```
+
+## Merge topics
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/95501) in GitLab 15.4.
+
+You must be an administrator to merge a source topic into a target topic.
+When you merge topics, you delete the source topic and move all assigned projects to the target topic.
+
+```plaintext
+POST /topics/merge
+```
+
+Supported attributes:
+
+| Attribute         | Type    | Required               | Description                |
+| ----------------- | ------- | ---------------------- | -------------------------- |
+| `source_topic_id` | integer | Yes | ID of source project topic |
+| `target_topic_id` | integer | Yes | ID of target project topic |
+
+Example request:
+
+```shell
+curl --request POST \
+     --data "source_topic_id=2&target_topic_id=1" \
+     --header "PRIVATE-TOKEN: <your_access_token>" \
+     "https://gitlab.example.com/api/v4/topics/merge"
+```
+
+Example response:
+
+```json
+{
+  "id": 1,
+  "name": "topic1",
+  "title": "Topic 1",
+  "description": null,
+  "total_projects_count": 0,
+  "avatar_url": null
+}
 ```

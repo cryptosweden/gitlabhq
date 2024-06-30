@@ -1,24 +1,17 @@
-import {
-  GlDropdown,
-  GlDropdownItem,
-  GlDropdownText,
-  GlLink,
-  GlSearchBoxByType,
-  GlFormInput,
-  GlLoadingIcon,
-} from '@gitlab/ui';
-import * as Sentry from '@sentry/browser';
-import { shallowMount, mount } from '@vue/test-utils';
+import { GlLink, GlLoadingIcon, GlSearchBoxByType } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
-import { extendedWrapper } from 'helpers/vue_test_utils_helper';
+import { mountExtended, shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { stubComponent } from 'helpers/stub_component';
 import waitForPromises from 'helpers/wait_for_promises';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
-import { IssuableType } from '~/issues/constants';
+import { TYPE_ISSUE } from '~/issues/constants';
 import { timeFor } from '~/lib/utils/datetime_utility';
+import SidebarDropdown from '~/sidebar/components/sidebar_dropdown.vue';
 import SidebarDropdownWidget from '~/sidebar/components/sidebar_dropdown_widget.vue';
 import SidebarEditableItem from '~/sidebar/components/sidebar_editable_item.vue';
 import { IssuableAttributeType } from '~/sidebar/constants';
@@ -32,10 +25,9 @@ import {
   noCurrentMilestoneResponse,
   mockMilestoneMutationResponse,
   mockMilestone2,
-  emptyProjectMilestonesResponse,
 } from '../mock_data';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('SidebarDropdownWidget', () => {
   let wrapper;
@@ -55,20 +47,11 @@ describe('SidebarDropdownWidget', () => {
 
   const findGlLink = () => wrapper.findComponent(GlLink);
   const findDateTooltip = () => getBinding(findGlLink().element, 'gl-tooltip');
-  const findDropdown = () => wrapper.findComponent(GlDropdown);
-  const findDropdownText = () => wrapper.findComponent(GlDropdownText);
-  const findSearchBox = () => wrapper.findComponent(GlSearchBoxByType);
-  const findAllDropdownItems = () => wrapper.findAllComponents(GlDropdownItem);
-  const findDropdownItemWithText = (text) =>
-    findAllDropdownItems().wrappers.find((x) => x.text() === text);
-
+  const findSidebarDropdown = () => wrapper.findComponent(SidebarDropdown);
   const findSidebarEditableItem = () => wrapper.findComponent(SidebarEditableItem);
   const findEditButton = () => findSidebarEditableItem().find('[data-testid="edit-button"]');
   const findEditableLoadingIcon = () => findSidebarEditableItem().findComponent(GlLoadingIcon);
-  const findAttributeItems = () => wrapper.findByTestId('milestone-items');
   const findSelectedAttribute = () => wrapper.findByTestId('select-milestone');
-  const findNoAttributeItem = () => wrapper.findByTestId('no-milestone-item');
-  const findLoadingIconDropdown = () => wrapper.findByTestId('loading-icon-dropdown');
 
   const waitForDropdown = async () => {
     // BDropdown first changes its `visible` property
@@ -107,83 +90,74 @@ describe('SidebarDropdownWidget', () => {
     currentMilestoneSpy = jest.fn().mockResolvedValue(noCurrentMilestoneResponse),
   } = {}) => {
     Vue.use(VueApollo);
+
     mockApollo = createMockApollo([
       [projectMilestonesQuery, projectMilestonesSpy],
       [projectIssueMilestoneQuery, currentMilestoneSpy],
       ...requestHandlers,
     ]);
 
-    wrapper = extendedWrapper(
-      mount(SidebarDropdownWidget, {
-        provide: { canUpdate: true },
-        apolloProvider: mockApollo,
-        propsData: {
-          workspacePath: mockIssue.projectPath,
-          attrWorkspacePath: mockIssue.projectPath,
-          iid: mockIssue.iid,
-          issuableType: IssuableType.Issue,
-          issuableAttribute: IssuableAttributeType.Milestone,
-        },
-        attachTo: document.body,
-      }),
-    );
+    wrapper = mountExtended(SidebarDropdownWidget, {
+      provide: { canUpdate: true },
+      apolloProvider: mockApollo,
+      propsData: {
+        workspacePath: mockIssue.projectPath,
+        attrWorkspacePath: mockIssue.projectPath,
+        iid: mockIssue.iid,
+        issuableType: TYPE_ISSUE,
+        issuableAttribute: IssuableAttributeType.Milestone,
+      },
+      attachTo: document.body,
+    });
 
     await waitForApollo();
   };
 
   const createComponent = ({ data = {}, mutationPromise = mutationSuccess, queries = {} } = {}) => {
-    wrapper = extendedWrapper(
-      shallowMount(SidebarDropdownWidget, {
-        provide: { canUpdate: true },
-        data() {
-          return data;
-        },
-        propsData: {
-          workspacePath: '',
-          attrWorkspacePath: '',
-          iid: '',
-          issuableType: IssuableType.Issue,
-          issuableAttribute: IssuableAttributeType.Milestone,
-        },
-        mocks: {
-          $apollo: {
-            mutate: mutationPromise(),
-            queries: {
-              currentAttribute: { loading: false },
-              attributesList: { loading: false },
-              ...queries,
-            },
+    wrapper = shallowMountExtended(SidebarDropdownWidget, {
+      provide: { canUpdate: true },
+      data() {
+        return data;
+      },
+      propsData: {
+        workspacePath: '',
+        attrWorkspacePath: '',
+        iid: '',
+        issuableType: TYPE_ISSUE,
+        issuableAttribute: IssuableAttributeType.Milestone,
+      },
+      mocks: {
+        $apollo: {
+          mutate: mutationPromise(),
+          queries: {
+            issuable: { loading: false },
+            attributesList: { loading: false },
+            ...queries,
           },
         },
-        directives: {
-          GlTooltip: createMockDirective(),
-        },
-        stubs: {
-          SidebarEditableItem,
-          GlSearchBoxByType,
-          GlDropdown,
-        },
-      }),
-    );
-
-    // We need to mock out `showDropdown` which
-    // invokes `show` method of BDropdown used inside GlDropdown.
-    jest.spyOn(wrapper.vm, 'showDropdown').mockImplementation();
+      },
+      directives: {
+        GlTooltip: createMockDirective('gl-tooltip'),
+      },
+      stubs: {
+        SidebarEditableItem,
+        GlSearchBoxByType,
+        SidebarDropdown: stubComponent(SidebarDropdown, {
+          methods: { show: jest.fn() },
+        }),
+      },
+    });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   describe('when not editing', () => {
     beforeEach(() => {
       createComponent({
         data: {
-          currentAttribute: { id: 'id', title: 'title', webUrl: 'webUrl', dueDate: '2021-09-09' },
+          issuable: {
+            attribute: { id: 'id', title: 'title', webUrl: 'webUrl', dueDate: '2021-09-09' },
+          },
         },
         stubs: {
-          GlDropdown,
           SidebarEditableItem,
         },
       });
@@ -204,7 +178,7 @@ describe('SidebarDropdownWidget', () => {
     it('shows a loading spinner while fetching the current attribute', () => {
       createComponent({
         queries: {
-          currentAttribute: { loading: true },
+          issuable: { loading: true },
         },
       });
 
@@ -218,7 +192,7 @@ describe('SidebarDropdownWidget', () => {
           selectedTitle: 'Some milestone title',
         },
         queries: {
-          currentAttribute: { loading: false },
+          issuable: { loading: false },
         },
       });
 
@@ -237,91 +211,30 @@ describe('SidebarDropdownWidget', () => {
         expect(findSelectedAttribute().text()).toBe('None');
       });
     });
+
+    describe("when user doesn't have permission to view current attribute", () => {
+      it('renders no permission text', () => {
+        createComponent({
+          data: {
+            hasCurrentAttribute: true,
+            issuable: {},
+          },
+          queries: {
+            issuable: { loading: false },
+          },
+        });
+
+        expect(findSelectedAttribute().text()).toBe(
+          `You don't have permission to view this ${wrapper.props('issuableAttribute')}.`,
+        );
+      });
+    });
   });
 
   describe('when a user can edit', () => {
     describe('when user is editing', () => {
       describe('when rendering the dropdown', () => {
-        it('shows a loading spinner while fetching a list of attributes', async () => {
-          createComponent({
-            queries: {
-              attributesList: { loading: true },
-            },
-          });
-
-          await toggleDropdown();
-
-          expect(findLoadingIconDropdown().exists()).toBe(true);
-        });
-
-        describe('GlDropdownItem with the right title and id', () => {
-          const id = 'id';
-          const title = 'title';
-
-          beforeEach(async () => {
-            createComponent({
-              data: { attributesList: [{ id, title }], currentAttribute: { id, title } },
-            });
-
-            await toggleDropdown();
-          });
-
-          it('does not show a loading spinner', () => {
-            expect(findLoadingIconDropdown().exists()).toBe(false);
-          });
-
-          it('renders title $title', () => {
-            expect(findDropdownItemWithText(title).exists()).toBe(true);
-          });
-
-          it('checks the correct dropdown item', () => {
-            expect(
-              findAllDropdownItems()
-                .filter((w) => w.props('isChecked') === true)
-                .at(0)
-                .text(),
-            ).toBe(title);
-          });
-        });
-
-        describe('when no data is assigned', () => {
-          beforeEach(async () => {
-            createComponent();
-
-            await toggleDropdown();
-          });
-
-          it('finds GlDropdownItem with "No milestone"', () => {
-            expect(findNoAttributeItem().text()).toBe('No milestone');
-          });
-
-          it('"No milestone" is checked', () => {
-            expect(findNoAttributeItem().props('isChecked')).toBe(true);
-          });
-
-          it('does not render any dropdown item', () => {
-            expect(findAttributeItems().exists()).toBe(false);
-          });
-        });
-
         describe('when clicking on dropdown item', () => {
-          describe('when currentAttribute is equal to attribute id', () => {
-            it('does not call setIssueAttribute mutation', async () => {
-              createComponent({
-                data: {
-                  attributesList: [{ id: 'id', title: 'title' }],
-                  currentAttribute: { id: 'id', title: 'title' },
-                },
-              });
-
-              await toggleDropdown();
-
-              findDropdownItemWithText('title').vm.$emit('click');
-
-              expect(wrapper.vm.$apollo.mutate).toHaveBeenCalledTimes(0);
-            });
-          });
-
           describe('when currentAttribute is not equal to attribute id', () => {
             describe('when error', () => {
               const bootstrapComponent = (mutationResp) => {
@@ -331,7 +244,9 @@ describe('SidebarDropdownWidget', () => {
                       { id: '123', title: '123' },
                       { id: 'id', title: 'title' },
                     ],
-                    currentAttribute: '123',
+                    issuable: {
+                      attribute: { id: '123' },
+                    },
                   },
                   mutationPromise: mutationResp,
                 });
@@ -347,36 +262,18 @@ describe('SidebarDropdownWidget', () => {
 
                   await toggleDropdown();
 
-                  findDropdownItemWithText('title').vm.$emit('click');
+                  findSidebarDropdown().vm.$emit('change', { id: 'error' });
                 });
 
-                it(`calls createFlash with "${expectedMsg}"`, async () => {
+                it(`calls createAlert with "${expectedMsg}"`, async () => {
                   await nextTick();
-                  expect(createFlash).toHaveBeenCalledWith({
+                  expect(createAlert).toHaveBeenCalledWith({
                     message: expectedMsg,
                     captureError: true,
                     error: expectedMsg,
                   });
                 });
               });
-            });
-          });
-        });
-      });
-
-      describe('when a user is searching', () => {
-        describe('when search result is not found', () => {
-          describe('when milestone', () => {
-            it('renders "No milestone found"', async () => {
-              createComponent();
-
-              await toggleDropdown();
-
-              findSearchBox().vm.$emit('input', 'non existing milestones');
-
-              await nextTick();
-
-              expect(findDropdownText().text()).toBe('No milestone found');
             });
           });
         });
@@ -405,89 +302,15 @@ describe('SidebarDropdownWidget', () => {
           await clickEdit();
         });
 
-        it('renders the dropdown on clicking edit', async () => {
-          expect(findDropdown().isVisible()).toBe(true);
-        });
-
-        it('focuses on the input when dropdown is shown', async () => {
-          expect(document.activeElement).toEqual(wrapper.findComponent(GlFormInput).element);
-        });
-
         describe('when currentAttribute is not equal to attribute id', () => {
           describe('when update is successful', () => {
-            beforeEach(() => {
-              findDropdownItemWithText(mockMilestone2.title).vm.$emit('click');
-            });
-
             it('calls setIssueAttribute mutation', () => {
+              findSidebarDropdown().vm.$emit('change', { id: mockMilestone2.id });
+
               expect(milestoneMutationSpy).toHaveBeenCalledWith({
                 iid: mockIssue.iid,
                 attributeId: getIdFromGraphQLId(mockMilestone2.id),
                 fullPath: mockIssue.projectPath,
-              });
-            });
-
-            it('sets the value returned from the mutation to currentAttribute', async () => {
-              expect(findSelectedAttribute().text()).toBe(mockMilestone2.title);
-            });
-          });
-        });
-
-        describe('milestones', () => {
-          let projectMilestonesSpy;
-
-          it('should call createFlash if milestones query fails', async () => {
-            await createComponentWithApollo({
-              projectMilestonesSpy: jest.fn().mockRejectedValue(error),
-            });
-
-            await clickEdit();
-
-            expect(createFlash).toHaveBeenCalledWith({
-              message: wrapper.vm.i18n.listFetchError,
-              captureError: true,
-              error: expect.any(Error),
-            });
-          });
-
-          it('only fetches attributes when dropdown is opened', async () => {
-            projectMilestonesSpy = jest.fn().mockResolvedValueOnce(emptyProjectMilestonesResponse);
-            await createComponentWithApollo({ projectMilestonesSpy });
-
-            expect(projectMilestonesSpy).not.toHaveBeenCalled();
-
-            await clickEdit();
-
-            expect(projectMilestonesSpy).toHaveBeenNthCalledWith(1, {
-              fullPath: mockIssue.projectPath,
-              state: 'active',
-              title: '',
-            });
-          });
-
-          describe('when a user is searching', () => {
-            const mockSearchTerm = 'foobar';
-
-            beforeEach(async () => {
-              projectMilestonesSpy = jest
-                .fn()
-                .mockResolvedValueOnce(emptyProjectMilestonesResponse);
-              await createComponentWithApollo({ projectMilestonesSpy });
-
-              await clickEdit();
-            });
-
-            it('sends a projectMilestones query with the entered search term "foo"', async () => {
-              findSearchBox().vm.$emit('input', mockSearchTerm);
-              await nextTick();
-
-              // Account for debouncing
-              jest.runAllTimers();
-
-              expect(projectMilestonesSpy).toHaveBeenNthCalledWith(2, {
-                fullPath: mockIssue.projectPath,
-                state: 'active',
-                title: mockSearchTerm,
               });
             });
           });
@@ -495,12 +318,12 @@ describe('SidebarDropdownWidget', () => {
       });
 
       describe('currentAttributes', () => {
-        it('should call createFlash if currentAttributes query fails', async () => {
+        it('should call createAlert if currentAttributes query fails', async () => {
           await createComponentWithApollo({
             currentMilestoneSpy: jest.fn().mockRejectedValue(error),
           });
 
-          expect(createFlash).toHaveBeenCalledWith({
+          expect(createAlert).toHaveBeenCalledWith({
             message: wrapper.vm.i18n.currentFetchError,
             captureError: true,
             error: expect.any(Error),

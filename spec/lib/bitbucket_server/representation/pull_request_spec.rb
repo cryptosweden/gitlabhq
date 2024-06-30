@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BitbucketServer::Representation::PullRequest do
+RSpec.describe BitbucketServer::Representation::PullRequest, feature_category: :importers do
   let(:sample_data) { Gitlab::Json.parse(fixture_file('importers/bitbucket_server/pull_request.json')) }
 
   subject { described_class.new(sample_data) }
@@ -46,6 +46,10 @@ RSpec.describe BitbucketServer::Representation::PullRequest do
     it { expect(subject.description).to eq('Test') }
   end
 
+  describe '#reviewers' do
+    it { expect(subject.reviewers.count).to eq(2) }
+  end
+
   describe '#iid' do
     it { expect(subject.iid).to eq(7) }
   end
@@ -78,6 +82,18 @@ RSpec.describe BitbucketServer::Representation::PullRequest do
     it { expect(subject.merged?).to be_truthy }
   end
 
+  describe '#closed?' do
+    it { expect(subject.closed?).to be_falsey }
+
+    context 'for declined pull requests' do
+      before do
+        sample_data['state'] = 'DECLINED'
+      end
+
+      it { expect(subject.closed?).to be_truthy }
+    end
+  end
+
   describe '#created_at' do
     it { expect(subject.created_at.to_i).to eq(sample_data['createdDate'] / 1000) }
   end
@@ -104,5 +120,27 @@ RSpec.describe BitbucketServer::Representation::PullRequest do
 
   describe '#target_branch_sha' do
     it { expect(subject.target_branch_sha).to eq('839fa9a2d434eb697815b8fcafaecc51accfdbbc') }
+  end
+
+  describe '#to_hash' do
+    it do
+      expect(subject.to_hash).to match(
+        a_hash_including(
+          author_email: "joe.montana@49ers.com",
+          author_username: "username",
+          author: "root",
+          description: "Test",
+          reviewers: contain_exactly(
+            hash_including('user' => hash_including('emailAddress' => 'jane@doe.com', 'slug' => 'jane_doe')),
+            hash_including('user' => hash_including('emailAddress' => 'john@smith.com', 'slug' => 'john_smith'))
+          ),
+          source_branch_name: "refs/heads/root/CODE_OF_CONDUCTmd-1530600625006",
+          source_branch_sha: "074e2b4dddc5b99df1bf9d4a3f66cfc15481fdc8",
+          target_branch_name: "refs/heads/master",
+          target_branch_sha: "839fa9a2d434eb697815b8fcafaecc51accfdbbc",
+          title: "Added a new line"
+        )
+      )
+    end
   end
 end

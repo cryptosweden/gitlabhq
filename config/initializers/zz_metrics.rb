@@ -2,22 +2,9 @@
 
 # This file was prefixed with zz_ because we want to load it the last!
 # See: https://gitlab.com/gitlab-org/gitlab-foss/issues/55611
-
-# With prometheus enabled by default this breaks all specs
-# that stubs methods using `any_instance_of` for the models reloaded here.
-#
-# We should deprecate the usage of `any_instance_of` in the future
-# check: https://github.com/rspec/rspec-mocks#settings-mocks-or-stubs-on-any-instance-of-a-class
-#
-# Related issue: https://gitlab.com/gitlab-org/gitlab-foss/issues/33587
-#
-# In development mode, we turn off eager loading when we're running
-# `rails generate migration` because eager loading short-circuits the
-# loading of our custom migration templates.
-if Gitlab::Metrics.enabled? && !Rails.env.test? && !(Rails.env.development? && defined?(Rails::Generators))
+if Gitlab::Metrics.enabled? && Gitlab::Runtime.application?
   require 'pathname'
   require 'connection_pool'
-  require 'method_source'
 
   # These are manually require'd so the classes are registered properly with
   # ActiveSupport.
@@ -25,6 +12,7 @@ if Gitlab::Metrics.enabled? && !Rails.env.test? && !(Rails.env.development? && d
   require_dependency 'gitlab/metrics/subscribers/action_view'
   require_dependency 'gitlab/metrics/subscribers/active_record'
   require_dependency 'gitlab/metrics/subscribers/rails_cache'
+  require_dependency 'gitlab/metrics/subscribers/ldap'
 
   Gitlab::Application.configure do |config|
     # We want to track certain metrics during the Load Balancing host resolving process.
@@ -32,12 +20,23 @@ if Gitlab::Metrics.enabled? && !Rails.env.test? && !(Rails.env.development? && d
     config.middleware.insert_before Gitlab::Database::LoadBalancing::RackMiddleware,
       Gitlab::Metrics::RackMiddleware
 
-    config.middleware.use(Gitlab::Middleware::RailsQueueDuration)
+    config.middleware.insert_before Gitlab::Database::LoadBalancing::RackMiddleware,
+      Gitlab::Middleware::RailsQueueDuration
+
+    config.middleware.move_after Gitlab::Metrics::RackMiddleware,
+      Gitlab::EtagCaching::Middleware
+
     config.middleware.use(Gitlab::Metrics::ElasticsearchRackMiddleware)
   end
 
   if Gitlab::Runtime.puma?
     Gitlab::Metrics::RequestsRackMiddleware.initialize_metrics
+    Gitlab::Metrics::GlobalSearchSlis.initialize_slis!
+  elsif Gitlab::Runtime.sidekiq?
+    Gitlab::Metrics::GlobalSearchIndexingSlis.initialize_slis! if Gitlab.ee?
+    Gitlab::Metrics::LooseForeignKeysSlis.initialize_slis!
+    Gitlab::Metrics::Llm.initialize_slis! if Gitlab.ee?
+    Gitlab::Metrics::Lfs.initialize_slis!
   end
 
   GC::Profiler.enable

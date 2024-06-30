@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'query a single terraform state' do
+RSpec.describe 'query a single terraform state', feature_category: :infrastructure_as_code do
   include GraphqlHelpers
   include ::API::Helpers::RelatedResourcesHelpers
 
@@ -20,7 +20,7 @@ RSpec.describe 'query a single terraform state' do
       query_graphql_field(
         :terraformState,
         { name: terraform_state.name },
-        %{
+        %(
           id
           name
           lockedAt
@@ -45,7 +45,7 @@ RSpec.describe 'query a single terraform state' do
           lockedByUser {
             id
           }
-        }
+        )
       )
     )
   end
@@ -57,22 +57,22 @@ RSpec.describe 'query a single terraform state' do
   it_behaves_like 'a working graphql query'
 
   it 'returns terraform state data' do
-    expect(data).to match(a_hash_including({
-      'id'            => global_id_of(terraform_state),
-      'name'          => terraform_state.name,
-      'lockedAt'      => terraform_state.locked_at.iso8601,
-      'createdAt'     => terraform_state.created_at.iso8601,
-      'updatedAt'     => terraform_state.updated_at.iso8601,
-      'lockedByUser'  => { 'id' => global_id_of(terraform_state.locked_by_user) },
-      'latestVersion' => {
-        'id'            => eq(global_id_of(latest_version)),
-        'serial'        => eq(latest_version.version),
-        'createdAt'     => eq(latest_version.created_at.iso8601),
-        'updatedAt'     => eq(latest_version.updated_at.iso8601),
-        'createdByUser' => { 'id' => eq(global_id_of(latest_version.created_by_user)) },
-        'job'           => { 'name' => eq(latest_version.build.name) }
-      }
-    }))
+    expect(data).to match a_graphql_entity_for(
+      terraform_state,
+      :name,
+      'lockedAt' => terraform_state.locked_at.iso8601,
+      'createdAt' => terraform_state.created_at.iso8601,
+      'updatedAt' => terraform_state.updated_at.iso8601,
+      'lockedByUser' => a_graphql_entity_for(terraform_state.locked_by_user),
+      'latestVersion' => a_graphql_entity_for(
+        latest_version,
+        'serial' => eq(latest_version.version),
+        'createdAt' => eq(latest_version.created_at.iso8601),
+        'updatedAt' => eq(latest_version.updated_at.iso8601),
+        'createdByUser' => a_graphql_entity_for(latest_version.created_by_user),
+        'job' => { 'name' => eq(latest_version.build.name) }
+      )
+    )
   end
 
   context 'unauthorized users' do

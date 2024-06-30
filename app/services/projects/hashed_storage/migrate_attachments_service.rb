@@ -6,7 +6,7 @@ module Projects
       extend ::Gitlab::Utils::Override
 
       # List of paths that can be excluded while evaluation if a target can be discarded
-      DISCARDABLE_PATHS = %w(tmp tmp/cache tmp/work).freeze
+      DISCARDABLE_PATHS = %w[tmp tmp/cache tmp/work].freeze
 
       def initialize(project:, old_disk_path:, logger: nil)
         super
@@ -63,5 +63,3 @@ module Projects
     end
   end
 end
-
-Projects::HashedStorage::MigrateAttachmentsService.prepend_mod_with('Projects::HashedStorage::MigrateAttachmentsService')

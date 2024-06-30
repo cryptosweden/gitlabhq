@@ -1,27 +1,11 @@
 ---
-stage: Create
-group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
-type: reference
+redirect_to: 'repository/files/git_attributes.md'
+remove_date: '2024-09-27'
 ---
 
-# Git Attributes **(FREE)**
+This document was moved to [another location](repository/files/git_attributes.md).
 
-GitLab supports defining custom [Git attributes](https://git-scm.com/docs/gitattributes) such as what
-files to treat as binary, and what language to use for syntax highlighting
-diffs.
-
-To define these attributes, create a file called `.gitattributes` in the root
-directory of your repository and push it to the default branch of your project.
-
-## Encoding Requirements
-
-The `.gitattributes` file _must_ be encoded in UTF-8 and _must not_ contain a
-Byte Order Mark. If a different encoding is used, the file's contents are
-ignored.
-
-## Syntax Highlighting
-
-The `.gitattributes` file can be used to define which language to use when
-syntax highlighting files and diffs. See ["Syntax
-Highlighting"](highlighting.md) for more information.
+<!-- This redirect file can be deleted after <2024-09-27>. -->
+<!-- Redirects that point to other docs in the same project expire in three months. -->
+<!-- Redirects that point to docs in a different project or site (for example, link is not relative and starts with `https:`) expire in one year. -->
+<!-- Before deletion, see: https://docs.gitlab.com/ee/development/documentation/redirects.html -->

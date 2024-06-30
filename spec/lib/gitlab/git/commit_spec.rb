@@ -2,79 +2,30 @@
 
 require "spec_helper"
 
-RSpec.describe Gitlab::Git::Commit, :seed_helper do
-  include GitHelpers
-
-  let(:repository) { Gitlab::Git::Repository.new('default', TEST_REPO_PATH, '', 'group/project') }
-  let(:rugged_repo) do
-    Rugged::Repository.new(File.join(TestEnv.repos_path, TEST_REPO_PATH))
-  end
-
+RSpec.describe Gitlab::Git::Commit, feature_category: :source_code_management do
+  let_it_be(:repository) { create(:project, :repository).repository.raw }
   let(:commit) { described_class.find(repository, SeedRepo::Commit::ID) }
-  let(:rugged_commit) { rugged_repo.lookup(SeedRepo::Commit::ID) }
-
-  describe "Commit info" do
-    before do
-      @committer = {
-        email: 'mike@smith.com',
-        name: "Mike Smith",
-        time: Time.new(2000, 1, 1, 0, 0, 0, "+08:00")
-      }
-
-      @author = {
-        email: 'john@smith.com',
-        name: "John Smith",
-        time: Time.new(2000, 1, 1, 0, 0, 0, "-08:00")
-      }
-
-      @parents = [rugged_repo.head.target]
-      @gitlab_parents = @parents.map { |c| described_class.find(repository, c.oid) }
-      @tree = @parents.first.tree
-
-      sha = Rugged::Commit.create(
-        rugged_repo,
-        author: @author,
-        committer: @committer,
-        tree: @tree,
-        parents: @parents,
-        message: "Refactoring specs",
-        update_ref: "HEAD"
-      )
-
-      @raw_commit = rugged_repo.lookup(sha)
-      @commit = described_class.find(repository, sha)
-    end
-
-    it { expect(@commit.short_id).to eq(@raw_commit.oid[0..10]) }
-    it { expect(@commit.id).to eq(@raw_commit.oid) }
-    it { expect(@commit.sha).to eq(@raw_commit.oid) }
-    it { expect(@commit.safe_message).to eq(@raw_commit.message) }
-    it { expect(@commit.created_at).to eq(@raw_commit.committer[:time]) }
-    it { expect(@commit.date).to eq(@raw_commit.committer[:time]) }
-    it { expect(@commit.author_email).to eq(@author[:email]) }
-    it { expect(@commit.author_name).to eq(@author[:name]) }
-    it { expect(@commit.committer_name).to eq(@committer[:name]) }
-    it { expect(@commit.committer_email).to eq(@committer[:email]) }
-    it { expect(@commit.different_committer?).to be_truthy }
-    it { expect(@commit.parents).to eq(@gitlab_parents) }
-    it { expect(@commit.parent_id).to eq(@parents.first.oid) }
-    it { expect(@commit.no_commit_message).to eq("No commit message") }
-
-    after do
-      # Erase the new commit so other tests get the original repo
-      rugged_repo.references.update("refs/heads/master", SeedRepo::LastCommit::ID)
-    end
-  end
 
   describe "Commit info from gitaly commit" do
     let(:subject) { (+"My commit").force_encoding('ASCII-8BIT') }
-    let(:body) { subject + (+"My body").force_encoding('ASCII-8BIT') }
     let(:body_size) { body.length }
-    let(:gitaly_commit) { build(:gitaly_commit, subject: subject, body: body, body_size: body_size) }
+    let(:gitaly_commit) { build(:gitaly_commit, subject: subject, body: body, body_size: body_size, tree_id: tree_id) }
     let(:id) { gitaly_commit.id }
+    let(:tree_id) { 'd7f32d821c9cc7b1a9166ca7c4ba95b5c2d0d000' }
     let(:committer) { gitaly_commit.committer }
     let(:author) { gitaly_commit.author }
     let(:commit) { described_class.new(repository, gitaly_commit) }
+
+    let(:body) do
+      body = +<<~BODY
+        Bleep bloop.
+
+        Cc: John Doe <johndoe@gitlab.com>
+        Cc: Jane Doe <janedoe@gitlab.com>
+      BODY
+
+      [subject, "\n", body].join.force_encoding("ASCII-8BIT")
+    end
 
     it { expect(commit.short_id).to eq(id[0..10]) }
     it { expect(commit.id).to eq(id) }
@@ -86,6 +37,19 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
     it { expect(commit.committer_name).to eq(committer.name) }
     it { expect(commit.committer_email).to eq(committer.email) }
     it { expect(commit.parent_ids).to eq(gitaly_commit.parent_ids) }
+    it { expect(commit.tree_id).to eq(tree_id) }
+
+    it "parses the commit trailers" do
+      expect(commit.trailers).to eq(
+        { "Cc" => "Jane Doe <janedoe@gitlab.com>" }
+      )
+    end
+
+    it "parses the extended commit trailers" do
+      expect(commit.extended_trailers).to eq(
+        { "Cc" => ["John Doe <johndoe@gitlab.com>", "Jane Doe <janedoe@gitlab.com>"] }
+      )
+    end
 
     context 'non-UTC dates' do
       let(:seconds) { Time.now.to_i }
@@ -121,8 +85,39 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       context 'body_size greater than threshold' do
         let(:body_size) { described_class::MAX_COMMIT_MESSAGE_DISPLAY_SIZE + 1 }
 
-        it 'returns the suject plus a notice about message size' do
+        it 'returns the subject plus a notice about message size' do
           expect(commit.safe_message).to eq("My commit\n\n--commit message is too big")
+        end
+      end
+
+      context "large commit message" do
+        let(:user) { create(:user) }
+        let(:sha) { create_commit_with_large_message }
+        let(:commit) { repository.commit(sha) }
+
+        def create_commit_with_large_message
+          repository.commit_files(
+            user,
+            branch_name: 'HEAD',
+            message: "Repeat " * 10 * 1024,
+            actions: []
+          ).newrev
+        end
+
+        it 'returns a String' do
+          # When #message is called, its encoding is forced from
+          # ASCII-8BIT to UTF-8, and the method returns a
+          # string. Calling #message again may cause BatchLoader to
+          # return since the encoding has been modified to UTF-8, and
+          # the encoding helper will return the original object unmodified.
+          #
+          # To ensure #fetch_body_from_gitaly returns a String, invoke
+          # #to_s. In the test below, do a strict type check to ensure
+          # that a String is always returned. Note that the Rspec
+          # matcher be_instance_of(String) appears to evaluate the
+          # BatchLoader result, so we have to do a strict comparison
+          # here.
+          2.times { expect(String === commit.message).to be true }
         end
       end
     end
@@ -132,7 +127,7 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
     shared_examples '.find' do
       it "returns first head commit if without params" do
         expect(described_class.last(repository).id).to eq(
-          rugged_repo.head.target.oid
+          repository.commit.sha
         )
       end
 
@@ -181,29 +176,9 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       it "returns nil for id containing NULL" do
         expect(described_class.find(repository, "HE\x00AD")).to be_nil
       end
-
-      context 'with broken repo' do
-        let(:repository) { Gitlab::Git::Repository.new('default', TEST_BROKEN_REPO_PATH, '', 'group/project') }
-
-        it 'returns nil' do
-          expect(described_class.find(repository, SeedRepo::Commit::ID)).to be_nil
-        end
-      end
     end
 
     describe '.find with Gitaly enabled' do
-      it_behaves_like '.find'
-    end
-
-    describe '.find with Rugged enabled', :enable_rugged do
-      it 'calls out to the Rugged implementation' do
-        allow_next_instance_of(Rugged) do |instance|
-          allow(instance).to receive(:rev_parse).with(SeedRepo::Commit::ID).and_call_original
-        end
-
-        described_class.find(repository, SeedRepo::Commit::ID)
-      end
-
       it_behaves_like '.find'
     end
 
@@ -214,7 +189,7 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
         describe '#id' do
           subject { super().id }
 
-          it { is_expected.to eq(SeedRepo::LastCommit::ID) }
+          it { is_expected.to eq(TestEnv::BRANCH_SHA['master']) }
         end
       end
 
@@ -282,7 +257,8 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       it 'has 10 elements' do
         expect(subject.size).to eq(10)
       end
-      it { is_expected.to include(SeedRepo::EmptyCommit::ID) }
+
+      it { is_expected.to include(TestEnv::BRANCH_SHA['master']) }
     end
 
     context 'path is nil' do
@@ -300,27 +276,8 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       it 'has 10 elements' do
         expect(subject.size).to eq(10)
       end
-      it { is_expected.to include(SeedRepo::EmptyCommit::ID) }
-    end
 
-    context 'ref is branch name' do
-      subject do
-        commits = described_class.where(
-          repo: repository,
-          ref: 'master',
-          path: 'files',
-          limit: 3,
-          offset: 1
-        )
-
-        commits.map { |c| c.id }
-      end
-
-      it 'has 3 elements' do
-        expect(subject.size).to eq(3)
-      end
-      it { is_expected.to include("d14d6c0abdd253381df51a723d58691b2ee1ab08") }
-      it { is_expected.not_to include("eb49186cfa5c4338011f5f590fac11bd66c5c631") }
+      it { is_expected.to include(TestEnv::BRANCH_SHA['master']) }
     end
 
     context 'ref is commit id' do
@@ -339,6 +296,7 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       it 'has 3 elements' do
         expect(subject.size).to eq(3)
       end
+
       it { is_expected.to include("2f63565e7aac07bcdadb654e253078b727143ec4") }
       it { is_expected.not_to include(SeedRepo::Commit::ID) }
     end
@@ -359,6 +317,7 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       it 'has 3 elements' do
         expect(subject.size).to eq(3)
       end
+
       it { is_expected.to include("874797c3a73b60d2187ed6e2fcabd289ff75171e") }
       it { is_expected.not_to include(SeedRepo::Commit::ID) }
     end
@@ -378,13 +337,12 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
 
       context 'requesting a commit range' do
         let(:from) { 'v1.0.0' }
-        let(:to) { 'v1.2.0' }
+        let(:to) { 'v1.1.0' }
 
         let(:commits_in_range) do
           %w[
             570e7b2abdd848b95f2f578043fc23bd6f6fd24d
             5937ac0a7beb003549fc5fd26fc247adbce4a52e
-            eb49186cfa5c4338011f5f590fac11bd66c5c631
           ]
         end
 
@@ -393,9 +351,9 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
         end
 
         context 'limited' do
-          let(:limit) { 2 }
+          let(:limit) { 1 }
 
-          it { expect(commit_ids).to eq(commits_in_range.last(2)) }
+          it { expect(commit_ids).to eq(commits_in_range.last(1)) }
         end
       end
     end
@@ -438,16 +396,8 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
           commits.map(&:id)
         end
 
-        it 'has 34 elements' do
-          expect(subject.size).to eq(34)
-        end
-
-        it 'includes the expected commits' do
-          expect(subject).to include(
-            SeedRepo::Commit::ID,
-            SeedRepo::Commit::PARENT_ID,
-            SeedRepo::FirstCommit::ID
-          )
+        it 'has maximum elements' do
+          expect(subject.size).to eq(50)
         end
       end
 
@@ -463,13 +413,13 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
           commits.map(&:id)
         end
 
-        it 'has 24 elements' do
-          expect(subject.size).to eq(24)
+        it 'has 36 elements' do
+          expect(subject.size).to eq(36)
         end
 
         it 'includes the expected commits' do
           expect(subject).to include(SeedRepo::Commit::ID, SeedRepo::FirstCommit::ID)
-          expect(subject).not_to include(SeedRepo::LastCommit::ID)
+          expect(subject).not_to include(TestEnv::BRANCH_SHA['master'])
         end
       end
     end
@@ -482,7 +432,7 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
           commits = described_class.batch_by_oid(repository, oids)
 
           expect(commits.count).to eq(2)
-          expect(commits).to all( be_a(Gitlab::Git::Commit) )
+          expect(commits).to all( be_a(described_class) )
           expect(commits.first.sha).to eq(SeedRepo::Commit::ID)
           expect(commits.second.sha).to eq(SeedRepo::FirstCommit::ID)
         end
@@ -519,18 +469,6 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       end
     end
 
-    describe '.batch_by_oid with Rugged enabled', :enable_rugged do
-      it_behaves_like '.batch_by_oid'
-
-      it 'calls out to the Rugged implementation' do
-        allow_next_instance_of(Rugged) do |instance|
-          allow(instance).to receive(:rev_parse).with(SeedRepo::Commit::ID).and_call_original
-        end
-
-        described_class.batch_by_oid(repository, [SeedRepo::Commit::ID])
-      end
-    end
-
     describe '.extract_signature_lazily' do
       subject { described_class.extract_signature_lazily(repository, commit_id).itself }
 
@@ -538,7 +476,7 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
         let(:commit_id) { '0b4bc9a49b562e85de7cc9e834518ea6828729b9' }
 
         it 'returns signature and signed text' do
-          signature, signed_text = subject
+          signature, signed_text, signer = subject.values_at(:signature, :signed_text, :signer)
 
           expected_signature = <<~SIGNATURE
             -----BEGIN PGP SIGNATURE-----
@@ -571,6 +509,7 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
 
           expect(signed_text).to eq(expected_signed_text)
           expect(signed_text).to be_a_binary_string
+          expect(signer).to eq(:SIGNER_USER)
         end
       end
 
@@ -583,7 +522,7 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       end
 
       context 'when the commit cannot be found' do
-        let(:commit_id) { Gitlab::Git::BLANK_SHA }
+        let(:commit_id) { Gitlab::Git::SHA1_BLANK_SHA }
 
         it 'returns nil' do
           expect(subject).to be_nil
@@ -622,19 +561,6 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
     end
   end
 
-  skip 'move this test to gitaly-ruby' do
-    RSpec.describe '#init_from_rugged' do
-      let(:gitlab_commit) { described_class.new(repository, rugged_commit) }
-
-      subject { gitlab_commit }
-
-      describe '#id' do
-        subject { super().id }
-        it { is_expected.to eq(SeedRepo::Commit::ID) }
-      end
-    end
-  end
-
   describe '#init_from_hash' do
     let(:commit) { described_class.new(repository, sample_commit_hash) }
 
@@ -643,13 +569,21 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
     describe '#id' do
       subject { super().id }
 
-      it { is_expected.to eq(sample_commit_hash[:id])}
+      it { is_expected.to eq(sample_commit_hash[:id]) }
     end
 
     describe '#message' do
       subject { super().message }
 
-      it { is_expected.to eq(sample_commit_hash[:message])}
+      it { is_expected.to eq(sample_commit_hash[:message]) }
+    end
+
+    describe '#tree_id' do
+      subject { super().tree_id }
+
+      it "doesn't return tree id for non-Gitaly commits" do
+        is_expected.to be_nil
+      end
     end
   end
 
@@ -718,9 +652,10 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
 
     subject { commit.ref_names(repository) }
 
-    it 'has 2 element' do
-      expect(subject.size).to eq(2)
+    it 'has 3 elements' do
+      expect(subject.size).to eq(3)
     end
+
     it { is_expected.to include("master") }
     it { is_expected.not_to include("feature") }
   end
@@ -748,7 +683,103 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
     end
 
     it 'gets messages in one batch', :request_store do
+      repository # preload repository so that the project factory does not pollute request counts
+
       expect { subject.map(&:itself) }.to change { Gitlab::GitalyClient.get_request_count }.by(1)
+    end
+  end
+
+  describe 'SHA patterns' do
+    shared_examples 'a SHA-matching pattern' do
+      let(:expected_match) { sha }
+
+      shared_examples 'a match' do
+        it 'matches the pattern' do
+          expect(value).to match(pattern)
+          expect(pattern.match(value).to_a).to eq([expected_match])
+        end
+      end
+
+      shared_examples 'no match' do
+        it 'does not match the pattern' do
+          expect(value).not_to match(pattern)
+        end
+      end
+
+      shared_examples 'a SHA pattern' do
+        context "with too short value" do
+          let(:value) { sha[0, described_class::MIN_SHA_LENGTH - 1] }
+
+          it_behaves_like 'no match'
+        end
+
+        context "with full length" do
+          let(:value) { sha }
+
+          it_behaves_like 'a match'
+        end
+
+        context "with exceeeding length" do
+          let(:value) { sha + sha }
+
+          # This case is not exactly pretty for SHA1 as we would still match the full SHA256 length. It's arguable what
+          # the correct behaviour would be, but without starting to distinguish SHA1 and SHA256 hashes this is the best
+          # we can do.
+          let(:expected_match) { (sha + sha)[0, described_class::MAX_SHA_LENGTH] }
+
+          it_behaves_like 'a match'
+        end
+
+        context "with embedded SHA" do
+          let(:value) { "xxx#{sha}xxx" }
+
+          it_behaves_like 'a match'
+        end
+      end
+
+      context 'abbreviated SHA pattern' do
+        let(:pattern) { described_class::SHA_PATTERN }
+
+        context "with minimum length" do
+          let(:value) { sha[0, described_class::MIN_SHA_LENGTH] }
+          let(:expected_match) { value }
+
+          it_behaves_like 'a match'
+        end
+
+        context "with medium length" do
+          let(:value) { sha[0, described_class::MIN_SHA_LENGTH + 20] }
+          let(:expected_match) { value }
+
+          it_behaves_like 'a match'
+        end
+
+        it_behaves_like 'a SHA pattern'
+      end
+
+      context 'full SHA pattern' do
+        let(:pattern) { described_class::FULL_SHA_PATTERN }
+
+        context 'with abbreviated length' do
+          let(:value) { sha[0, described_class::SHA1_LENGTH - 1] }
+
+          it_behaves_like 'no match'
+        end
+
+        it_behaves_like 'a SHA pattern'
+      end
+    end
+
+    context 'SHA1' do
+      let(:sha) { "5716ca5987cbf97d6bb54920bea6adde242d87e6" }
+
+      it_behaves_like 'a SHA-matching pattern'
+    end
+
+    context 'SHA256' do
+      let(:sha) { "a52e146ac2ab2d0efbb768ab8ebd1e98a6055764c81fe424fbae4522f5b4cb92" }
+
+      it_behaves_like 'a SHA-matching pattern'
     end
   end
 
@@ -763,7 +794,9 @@ RSpec.describe Gitlab::Git::Commit, :seed_helper do
       id: SeedRepo::Commit::ID,
       message: "tree css fixes",
       parent_ids: ["874797c3a73b60d2187ed6e2fcabd289ff75171e"],
-      trailers: {}
+      trailers: {},
+      extended_trailers: {},
+      referenced_by: []
     }
   end
 end

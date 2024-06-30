@@ -5,7 +5,7 @@ class Admin::GroupsController < Admin::ApplicationController
 
   before_action :group, only: [:edit, :update, :destroy, :project_update, :members_update]
 
-  feature_category :subgroups
+  feature_category :groups_and_projects, [:create, :destroy, :edit, :index, :members_update, :new, :show, :update]
 
   def index
     @groups = groups.sort_by_attribute(@sort = params[:sort])
@@ -38,13 +38,11 @@ class Admin::GroupsController < Admin::ApplicationController
   end
 
   def create
-    @group = Group.new(group_params)
-    @group.name = @group.path.dup unless @group.name
+    response = ::Groups::CreateService.new(current_user, group_params.with_defaults(organization_id: Current.organization_id)).execute
+    @group = response[:group]
 
-    if @group.save
-      @group.add_owner(current_user)
-      @group.create_namespace_settings
-      redirect_to [:admin, @group], notice: _('Group %{group_name} was successfully created.') % { group_name: @group.name }
+    if response.success?
+      redirect_to [:admin, @group], notice: format(_('Group %{group_name} was successfully created.'), group_name: @group.name)
     else
       render "new"
     end
@@ -54,29 +52,22 @@ class Admin::GroupsController < Admin::ApplicationController
     @group.build_admin_note unless @group.admin_note
 
     if @group.update(group_params)
+      unless Gitlab::Utils.to_boolean(group_params['runner_registration_enabled'])
+        Ci::Runners::ResetRegistrationTokenService.new(@group, current_user).execute
+      end
+
       redirect_to [:admin, @group], notice: _('Group was successfully updated.')
     else
       render "edit"
     end
   end
 
-  def members_update
-    member_params = params.permit(:user_ids, :access_level, :expires_at)
-    result = Members::CreateService.new(current_user, member_params.merge(limit: -1, source: @group, invite_source: 'admin-group-page')).execute
-
-    if result[:status] == :success
-      redirect_to [:admin, @group], notice: _('Users were successfully added.')
-    else
-      redirect_to [:admin, @group], alert: result[:message]
-    end
-  end
-
   def destroy
     Groups::DestroyService.new(@group, current_user).async_execute
 
-    redirect_to admin_groups_path,
-                status: :found,
-                alert: _('Group %{group_name} was scheduled for deletion.') % { group_name: @group.name }
+    flash[:toast] = format(_("Group '%{group_name}' is being deleted."), group_name: @group.full_name)
+
+    redirect_to admin_groups_path, status: :found
   end
 
   private
@@ -105,14 +96,17 @@ class Admin::GroupsController < Admin::ApplicationController
       :name,
       :path,
       :request_access_enabled,
+      :runner_registration_enabled,
       :visibility_level,
       :require_two_factor_authentication,
       :two_factor_grace_period,
+      :enabled_git_access_protocol,
       :project_creation_level,
       :subgroup_creation_level,
-      admin_note_attributes: [
+      :organization_id,
+      { admin_note_attributes: [
         :note
-      ]
+      ] }
     ]
   end
 end

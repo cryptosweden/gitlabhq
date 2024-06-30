@@ -2,17 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Issue boards sidebar labels select', :js do
+RSpec.describe 'Issue boards sidebar labels select', :js, feature_category: :portfolio_management do
   include BoardHelpers
 
   include_context 'labels from nested groups and projects'
 
-  let(:card) { find('.board:nth-child(1)').first('[data-testid="board_card"]') }
+  let(:card) { find('.board:nth-child(1)').first('[data-testid="board-card"]') }
 
   context 'group boards' do
     context 'in the top-level group board' do
       let_it_be(:group_board) { create(:board, group: group) }
-      let_it_be(:board_list) { create(:backlog_list, board: group_board) }
 
       before do
         load_board group_board_path(group, group_board)

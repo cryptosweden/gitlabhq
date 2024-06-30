@@ -2,12 +2,12 @@
 
 require "spec_helper"
 
-RSpec.describe "deleting designs" do
+RSpec.describe "deleting designs", feature_category: :design_management do
   include GraphqlHelpers
   include DesignManagementTestHelpers
 
-  let(:developer) { create(:user) }
-  let(:current_user) { developer }
+  let(:reporter) { create(:user) }
+  let(:current_user) { reporter }
   let(:issue) { create(:issue) }
   let(:project) { issue.project }
   let(:designs) { create_designs }
@@ -31,7 +31,7 @@ RSpec.describe "deleting designs" do
   before do
     enable_design_management
 
-    project.add_developer(developer)
+    project.add_reporter(reporter)
   end
 
   shared_examples 'a failed request' do
@@ -47,28 +47,28 @@ RSpec.describe "deleting designs" do
   context 'the designs list is empty' do
     it_behaves_like 'a failed request' do
       let(:designs) { [] }
-      let(:the_error) { a_string_matching %r/was provided invalid value/ }
+      let(:the_error) { a_string_matching %r{no filenames} }
     end
   end
 
   context 'the designs list contains filenames we cannot find' do
     it_behaves_like 'a failed request' do
-      let(:designs) { %w/foo bar baz/.map { |fn| double('file', filename: fn) } }
-      let(:the_error) { a_string_matching %r/filenames were not found/ }
+      let(:designs) { %w[foo bar baz].map { |fn| double('file', filename: fn) } }
+      let(:the_error) { a_string_matching %r{filenames were not found} }
     end
   end
 
-  context 'the current user does not have developer access' do
+  context 'the current user does not have reporter access' do
     it_behaves_like 'a failed request' do
       let(:current_user) { create(:user) }
-      let(:the_error) { a_string_matching %r/you don't have permission/ }
+      let(:the_error) { a_string_matching %r{you don't have permission} }
     end
   end
 
   context "when the issue does not exist" do
     it_behaves_like 'a failed request' do
       let(:variables) { { iid: "1234567890" } }
-      let(:the_error) { a_string_matching %r/does not exist/ }
+      let(:the_error) { a_string_matching %r{does not exist} }
     end
   end
 

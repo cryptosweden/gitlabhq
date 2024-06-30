@@ -25,7 +25,7 @@ RSpec.shared_examples 'value stream analytics stage' do
       stage = described_class.new(valid_params.except(:parent))
 
       expect(stage).to be_invalid
-      expect(stage.errors[parent_name]).to include("can't be blank")
+      expect(stage.errors[parent_name]).to include('must exist')
     end
 
     it 'validates presence of start_event_identifier' do
@@ -59,7 +59,9 @@ RSpec.shared_examples 'value stream analytics stage' do
 
       it { expect(stage).not_to be_valid }
     end
+  end
 
+  describe 'scopes' do
     # rubocop: disable Rails/SaveBang
     describe '.by_value_stream' do
       it 'finds stages by value stream' do
@@ -69,6 +71,17 @@ RSpec.shared_examples 'value stream analytics stage' do
         result = described_class.by_value_stream(stage1.value_stream)
 
         expect(result).to eq([stage1])
+      end
+    end
+
+    describe '.by_value_stream_ids' do
+      it 'finds stages by array of value streams ids' do
+        stages = create_list(factory, 2)
+        create(factory) # To be left out of the results
+
+        result = described_class.by_value_streams_ids(stages.map(&:value_stream_id))
+
+        expect(result).to match_array(stages)
       end
     end
     # rubocop: enable Rails/SaveBang
@@ -290,6 +303,7 @@ RSpec.shared_examples 'value stream analytics label based stage' do
 
     context 'when `ProjectLabel is given' do
       let_it_be(:label) { create(:label) }
+      let(:expected_error) { s_('CycleAnalyticsStage|is not available for the selected group') }
 
       it 'raises error when `ProjectLabel` is given for `start_event_label`' do
         params = {
@@ -300,7 +314,9 @@ RSpec.shared_examples 'value stream analytics label based stage' do
           end_event_identifier: :issue_closed
         }
 
-        expect { described_class.new(params) }.to raise_error(ActiveRecord::AssociationTypeMismatch)
+        stage = described_class.new(params)
+        expect(stage).to be_invalid
+        expect(stage.errors.messages_for(:start_event_label_id)).to eq([expected_error])
       end
 
       it 'raises error when `ProjectLabel` is given for `end_event_label`' do
@@ -312,7 +328,9 @@ RSpec.shared_examples 'value stream analytics label based stage' do
           end_event_label: label
         }
 
-        expect { described_class.new(params) }.to raise_error(ActiveRecord::AssociationTypeMismatch)
+        stage = described_class.new(params)
+        expect(stage).to be_invalid
+        expect(stage.errors.messages_for(:end_event_label_id)).to eq([expected_error])
       end
     end
   end

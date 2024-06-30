@@ -1,11 +1,14 @@
 ---
-type: reference, howto
-stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Plan
+group: Knowledge
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Create a Pages website by using a CI/CD template **(FREE)**
+# Create a GitLab Pages website from a CI/CD template
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 GitLab provides `.gitlab-ci.yml` templates for the most popular Static Site Generators (SSGs).
 You can create your own `.gitlab-ci.yml` file from one of these templates, and run
@@ -16,19 +19,22 @@ Use a `.gitlab-ci.yml` template when you have an existing project that you want 
 Your GitLab repository should contain files specific to an SSG, or plain HTML. After you complete
 these steps, you may have to do additional configuration for the Pages site to generate properly.
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select the project's name.
-1. From the **Add** (**{plus}**) dropdown, select **New file**.
-1. From the **Select a template type** dropdown, select `.gitlab-ci.yml`.
-1. From the **Apply a template** dropdown, in the **Pages** section, select the name of your SSG.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. From the **Add** (**{plus}**) dropdown list, select **New file**.
+1. From the **Select a template type** dropdown list, select `.gitlab-ci.yml`.
+1. From the **Apply a template** dropdown list, in the **Pages** section, select the name of your SSG.
 1. In the **Commit message** box, type the commit message.
 1. Select **Commit changes**.
 
 If everything is configured correctly, the site can take approximately 30 minutes to deploy.
 
-You can watch the pipeline run by navigating to **CI/CD > Pipelines**.
-When the pipeline is finished, go to **Settings > Pages** to find the link to
+To view the pipeline, go to **Build > Pipelines**.
+
+When the pipeline is finished, go to **Deploy > Pages** to find the link to
 your Pages website.
 
 For every change pushed to your repository, GitLab CI/CD runs a new pipeline
 that immediately publishes your changes to the Pages site.
+
+To view the HTML and other assets that were created for the site,
+[download the job artifacts](../../../../ci/jobs/job_artifacts.md#download-job-artifacts).

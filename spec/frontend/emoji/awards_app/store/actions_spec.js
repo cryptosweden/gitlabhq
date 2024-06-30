@@ -1,17 +1,14 @@
-import * as Sentry from '@sentry/browser';
 import MockAdapter from 'axios-mock-adapter';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import testAction from 'helpers/vuex_action_helper';
 import * as actions from '~/emoji/awards_app/store/actions';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
-jest.mock('@sentry/browser');
+jest.mock('~/sentry/sentry_browser_wrapper');
 jest.mock('~/vue_shared/plugins/global_toast');
 
 describe('Awards app actions', () => {
-  afterEach(() => {
-    window.gon = {};
-  });
-
   describe('setInitialData', () => {
     it('commits SET_INITIAL_DATA', async () => {
       await testAction(
@@ -45,15 +42,13 @@ describe('Awards app actions', () => {
           window.gon = { relative_url_root: relativeRootUrl };
           mock
             .onGet(`${relativeRootUrl || ''}/awards`, { params: { per_page: 100, page: '1' } })
-            .reply(200, ['thumbsup'], { 'x-next-page': '2' });
+            .reply(HTTP_STATUS_OK, ['thumbsup'], { 'x-next-page': '2' });
           mock
             .onGet(`${relativeRootUrl || ''}/awards`, { params: { per_page: 100, page: '2' } })
-            .reply(200, ['thumbsdown']);
+            .reply(HTTP_STATUS_OK, ['thumbsdown']);
         });
 
         it('commits FETCH_AWARDS_SUCCESS', async () => {
-          window.gon.current_user_id = 1;
-
           await testAction(
             actions.fetchAwards,
             '1',
@@ -62,24 +57,17 @@ describe('Awards app actions', () => {
             [{ type: 'fetchAwards', payload: '2' }],
           );
         });
-
-        it('does not commit FETCH_AWARDS_SUCCESS when user signed out', async () => {
-          await testAction(actions.fetchAwards, '1', { path: '/awards' }, [], []);
-        });
       });
     });
 
     describe('error', () => {
       beforeEach(() => {
-        mock.onGet('/awards').reply(500);
+        mock.onGet('/awards').reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
       });
 
       it('calls Sentry.captureException', async () => {
-        window.gon = { current_user_id: 1 };
-
-        await testAction(actions.fetchAwards, null, { path: '/awards' }, [], [], () => {
-          expect(Sentry.captureException).toHaveBeenCalled();
-        });
+        await testAction(actions.fetchAwards, null, { path: '/awards' }, [], []);
+        expect(Sentry.captureException).toHaveBeenCalled();
       });
     });
   });
@@ -127,10 +115,10 @@ describe('Awards app actions', () => {
       describe('adding new award', () => {
         describe('success', () => {
           beforeEach(() => {
-            mock.onPost(`${relativeRootUrl || ''}/awards`).reply(200, { id: 1 });
+            mock.onPost(`${relativeRootUrl || ''}/awards`).reply(HTTP_STATUS_OK, { id: 1 });
           });
 
-          it('adds an optimistic award, removes it, and then commits ADD_NEW_AWARD', async () => {
+          it('adds an optimistic award, removes it, and then commits ADD_NEW_AWARD', () => {
             testAction(actions.toggleAward, null, { path: '/awards', awards: [] }, [
               makeOptimisticAddMutation(),
               makeOptimisticRemoveMutation(),
@@ -141,7 +129,7 @@ describe('Awards app actions', () => {
 
         describe('error', () => {
           beforeEach(() => {
-            mock.onPost(`${relativeRootUrl || ''}/awards`).reply(500);
+            mock.onPost(`${relativeRootUrl || ''}/awards`).reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
           });
 
           it('calls Sentry.captureException', async () => {
@@ -151,10 +139,8 @@ describe('Awards app actions', () => {
               { path: '/awards', awards: [] },
               [makeOptimisticAddMutation(), makeOptimisticRemoveMutation()],
               [],
-              () => {
-                expect(Sentry.captureException).toHaveBeenCalled();
-              },
             );
+            expect(Sentry.captureException).toHaveBeenCalled();
           });
         });
       });
@@ -164,10 +150,10 @@ describe('Awards app actions', () => {
 
         describe('success', () => {
           beforeEach(() => {
-            mock.onDelete(`${relativeRootUrl || ''}/awards/1`).reply(200);
+            mock.onDelete(`${relativeRootUrl || ''}/awards/1`).reply(HTTP_STATUS_OK);
           });
 
-          it('commits REMOVE_AWARD', async () => {
+          it('commits REMOVE_AWARD', () => {
             testAction(
               actions.toggleAward,
               'thumbsup',
@@ -186,7 +172,9 @@ describe('Awards app actions', () => {
           const name = 'thumbsup';
 
           beforeEach(() => {
-            mock.onDelete(`${relativeRootUrl || ''}/awards/1`).reply(500);
+            mock
+              .onDelete(`${relativeRootUrl || ''}/awards/1`)
+              .reply(HTTP_STATUS_INTERNAL_SERVER_ERROR);
           });
 
           it('calls Sentry.captureException', async () => {
@@ -200,10 +188,8 @@ describe('Awards app actions', () => {
               },
               [makeOptimisticRemoveMutation(1), makeOptimisticAddMutation(1, name, currentUserId)],
               [],
-              () => {
-                expect(Sentry.captureException).toHaveBeenCalled();
-              },
             );
+            expect(Sentry.captureException).toHaveBeenCalled();
           });
         });
       });

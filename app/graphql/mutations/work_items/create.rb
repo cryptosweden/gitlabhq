@@ -6,19 +6,48 @@ module Mutations
       graphql_name 'WorkItemCreate'
 
       include Mutations::SpamProtection
-      include FindsProject
+      include FindsNamespace
+      include Mutations::WorkItems::Widgetable
 
-      description "Creates a work item." \
-                  " Available only when feature flag `work_items` is enabled. The feature is experimental and is subject to change without notice."
+      description "Creates a work item."
 
       authorize :create_work_item
 
+      MUTUALLY_EXCLUSIVE_ARGUMENTS_ERROR = 'Please provide either projectPath or namespacePath argument, but not both.'
+      DISABLED_FF_ERROR = 'namespace_level_work_items feature flag is disabled. Only project paths allowed.'
+
+      argument :assignees_widget, ::Types::WorkItems::Widgets::AssigneesInputType,
+               required: false,
+               description: 'Input for assignees widget.'
+      argument :confidential, GraphQL::Types::Boolean,
+               required: false,
+               description: 'Sets the work item confidentiality.'
       argument :description, GraphQL::Types::String,
                required: false,
-               description: copy_field_description(Types::WorkItemType, :description)
+               description: copy_field_description(Types::WorkItemType, :description),
+               deprecated: { milestone: '16.9', reason: 'use description widget instead' }
+      argument :description_widget, ::Types::WorkItems::Widgets::DescriptionInputType,
+               required: false,
+               description: 'Input for description widget.'
+      argument :hierarchy_widget, ::Types::WorkItems::Widgets::HierarchyCreateInputType,
+               required: false,
+               description: 'Input for hierarchy widget.'
+      argument :labels_widget, ::Types::WorkItems::Widgets::LabelsCreateInputType,
+               required: false,
+               description: 'Input for labels widget.'
+      argument :milestone_widget, ::Types::WorkItems::Widgets::MilestoneInputType,
+               required: false,
+               description: 'Input for milestone widget.'
+      argument :namespace_path, GraphQL::Types::ID,
+               required: false,
+               description: 'Full path of the namespace(project or group) the work item is created in.'
       argument :project_path, GraphQL::Types::ID,
-               required: true,
-               description: 'Full path of the project the work item is associated with.'
+               required: false,
+               description: 'Full path of the project the work item is associated with.',
+               deprecated: {
+                 reason: 'Please use namespace_path instead. That will cover for both projects and groups',
+                 milestone: '15.10'
+               }
       argument :title, GraphQL::Types::String,
                required: true,
                description: copy_field_description(Types::WorkItemType, :title)
@@ -30,17 +59,29 @@ module Mutations
             null: true,
             description: 'Created work item.'
 
-      def resolve(project_path:, **attributes)
-        project = authorized_find!(project_path)
-
-        unless project.work_items_feature_flag_enabled?
-          return { errors: ['`work_items` feature flag disabled for this project'] }
+      def ready?(**args)
+        if args.slice(:project_path, :namespace_path)&.length != 1
+          raise Gitlab::Graphql::Errors::ArgumentError, MUTUALLY_EXCLUSIVE_ARGUMENTS_ERROR
         end
 
-        params = global_id_compatibility_params(attributes).merge(author_id: current_user.id)
+        super
+      end
 
-        spam_params = ::Spam::SpamParams.new_from_request(request: context[:request])
-        create_result = ::WorkItems::CreateService.new(project: project, current_user: current_user, params: params, spam_params: spam_params).execute
+      def resolve(project_path: nil, namespace_path: nil, **attributes)
+        container_path = project_path || namespace_path
+        container = authorized_find!(container_path)
+        check_feature_available!(container)
+
+        params = global_id_compatibility_params(attributes).merge(author_id: current_user.id)
+        type = ::WorkItems::Type.find(attributes[:work_item_type_id])
+        widget_params = extract_widget_params!(type, params, container)
+
+        create_result = ::WorkItems::CreateService.new(
+          container: container,
+          current_user: current_user,
+          params: params,
+          widget_params: widget_params
+        ).execute
 
         check_spam_action_response!(create_result[:work_item]) if create_result[:work_item]
 
@@ -52,10 +93,13 @@ module Mutations
 
       private
 
+      def check_feature_available!(container)
+        return unless container.is_a?(::Group) && Feature.disabled?(:namespace_level_work_items, container)
+
+        raise Gitlab::Graphql::Errors::ArgumentError, DISABLED_FF_ERROR
+      end
+
       def global_id_compatibility_params(params)
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        params[:work_item_type_id] = ::Types::GlobalIDType[::WorkItems::Type].coerce_isolated_input(params[:work_item_type_id]) if params[:work_item_type_id]
         params[:work_item_type_id] = params[:work_item_type_id]&.model_id
 
         params
@@ -63,3 +107,5 @@ module Mutations
     end
   end
 end
+
+Mutations::WorkItems::Create.prepend_mod

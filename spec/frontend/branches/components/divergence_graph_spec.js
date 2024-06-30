@@ -9,10 +9,6 @@ function factory(propsData = {}) {
 }
 
 describe('Branch divergence graph component', () => {
-  afterEach(() => {
-    vm.destroy();
-  });
-
   it('renders ahead and behind count', () => {
     factory({
       defaultBranch: 'main',
@@ -21,7 +17,7 @@ describe('Branch divergence graph component', () => {
       maxCommits: 100,
     });
 
-    expect(vm.findAll(GraphBar).length).toBe(2);
+    expect(vm.findAllComponents(GraphBar).length).toBe(2);
     expect(vm.element).toMatchSnapshot();
   });
 
@@ -45,7 +41,7 @@ describe('Branch divergence graph component', () => {
       maxCommits: 100,
     });
 
-    expect(vm.findAll(GraphBar).length).toBe(1);
+    expect(vm.findAllComponents(GraphBar).length).toBe(1);
     expect(vm.element).toMatchSnapshot();
   });
 

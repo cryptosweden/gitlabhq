@@ -15,6 +15,7 @@ module Gitlab
     #     end
     class Client
       include ::Gitlab::Utils::StrongMemoize
+      include ::Gitlab::GithubImport::Clients::SearchRepos
 
       attr_reader :octokit
 
@@ -66,25 +67,41 @@ module Gitlab
       end
 
       # Returns the details of a GitHub user.
+      # 304 (Not Modified) status means the user is cached - API won't return user data.
       #
-      # username - The username of the user.
-      def user(username)
-        with_rate_limit { octokit.user(username) }
+      # @param username[String] the username of the user.
+      # @param options[Hash] the optional parameters.
+      def user(username, options = {})
+        with_rate_limit do
+          user = octokit.user(username, options)
+
+          next if octokit.last_response&.status == 304
+
+          user.to_h
+        end
       end
 
       def pull_request_reviews(repo_name, iid)
         each_object(:pull_request_reviews, repo_name, iid)
       end
 
+      def pull_request_review_requests(repo_name, iid)
+        with_rate_limit { octokit.pull_request_review_requests(repo_name, iid).to_h }
+      end
+
+      def repos(options = {})
+        octokit.repos(nil, options).map(&:to_h)
+      end
+
       # Returns the details of a GitHub repository.
       #
       # name - The path (in the form `owner/repository`) of the repository.
       def repository(name)
-        with_rate_limit { octokit.repo(name) }
+        with_rate_limit { octokit.repo(name).to_h }
       end
 
       def pull_request(repo_name, iid)
-        with_rate_limit { octokit.pull_request(repo_name, iid) }
+        with_rate_limit { octokit.pull_request(repo_name, iid).to_h }
       end
 
       def labels(*args)
@@ -99,6 +116,18 @@ module Gitlab
         each_object(:releases, *args)
       end
 
+      def branches(*args)
+        each_object(:branches, *args)
+      end
+
+      def collaborators(*args)
+        each_object(:collaborators, *args)
+      end
+
+      def branch_protection(repo_name, branch_name)
+        with_rate_limit { octokit.branch_protection(repo_name, branch_name).to_h }
+      end
+
       # Fetches data from the GitHub API and yields a Page object for every page
       # of data, without loading all of them into memory.
       #
@@ -107,7 +136,7 @@ module Gitlab
       #
       # rubocop: disable GitlabSecurity/PublicSend
       def each_page(method, *args, &block)
-        return to_enum(__method__, method, *args) unless block_given?
+        return to_enum(__method__, method, *args) unless block
 
         page =
           if args.last.is_a?(Hash) && args.last[:page]
@@ -134,11 +163,11 @@ module Gitlab
       # method - The method to send to Octokit for querying data.
       # args - Any arguments to pass to the Octokit method.
       def each_object(method, *args, &block)
-        return to_enum(__method__, method, *args) unless block_given?
+        return to_enum(__method__, method, *args) unless block
 
         each_page(method, *args) do |page|
           page.objects.each do |object|
-            yield object
+            yield object.to_h
           end
         end
       end
@@ -153,30 +182,17 @@ module Gitlab
 
         request_count_counter.increment
 
-        raise_or_wait_for_rate_limit unless requests_remaining?
+        raise_or_wait_for_rate_limit('Internal threshold reached') unless requests_remaining?
 
         begin
           with_retry { yield }
-        rescue ::Octokit::TooManyRequests
-          raise_or_wait_for_rate_limit
+        rescue ::Octokit::TooManyRequests => e
+          raise_or_wait_for_rate_limit(e.response_body)
 
           # This retry will only happen when running in sequential mode as we'll
           # raise an error in parallel mode.
           retry
         end
-      end
-
-      def search_repos_by_name(name, options = {})
-        with_retry { octokit.search_repositories(search_query(str: name, type: :name), options) }
-      end
-
-      def search_query(str:, type:, include_collaborations: true, include_orgs: true)
-        query = "#{str} in:#{type} is:public,private user:#{octokit.user.login}"
-
-        query = [query, collaborations_subquery].join(' ') if include_collaborations
-        query = [query, organizations_subquery].join(' ') if include_orgs
-
-        query
       end
 
       # Returns `true` if we're still allowed to perform API calls.
@@ -197,11 +213,11 @@ module Gitlab
         octokit.rate_limit.limit
       end
 
-      def raise_or_wait_for_rate_limit
+      def raise_or_wait_for_rate_limit(message)
         rate_limit_counter.increment
 
         if parallel?
-          raise RateLimitError
+          raise RateLimitError, message
         else
           sleep(rate_limit_resets_in)
         end
@@ -260,18 +276,6 @@ module Gitlab
 
       private
 
-      def collaborations_subquery
-        each_object(:repos, nil, { affiliation: 'collaborator' })
-          .map { |repo| "repo:#{repo.full_name}" }
-          .join(' ')
-      end
-
-      def organizations_subquery
-        each_object(:organizations)
-          .map { |org| "org:#{org.login}" }
-          .join(' ')
-      end
-
       def with_retry
         Retriable.retriable(on: CLIENT_CONNECTION_ERROR, on_retry: on_retry) do
           yield
@@ -280,10 +284,10 @@ module Gitlab
 
       def on_retry
         proc do |exception, try, elapsed_time, next_interval|
-          Gitlab::Import::Logger.info(
+          Logger.info(
             message: "GitHub connection retry triggered",
             'error.class': exception.class,
-            'error.message': exception.message,
+            'exception.message': exception.message,
             try_count: try,
             elapsed_time_s: elapsed_time,
             wait_to_retry_s: next_interval

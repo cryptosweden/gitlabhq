@@ -3,11 +3,12 @@
 RSpec.describe 'Interceptor' do
   let(:browser) { Capybara.current_session }
   # need a real host for the js runtime
-  let(:url) { "file://#{__dir__}/../../../qa/fixtures/script_extensions/test.html" }
+  let(:url) { "file://#{File.join(Runtime::Path.fixtures_path, 'script_extensions', 'test.html')}" }
 
   before(:context) do
     skip 'Only can test for chrome' unless QA::Runtime::Env.can_intercept?
 
+    QA::Runtime::Browser.configure!
     QA::Runtime::Browser::Session.enable_interception
   end
 
@@ -26,7 +27,7 @@ RSpec.describe 'Interceptor' do
   end
 
   context 'with Interceptor' do
-    context 'caching' do
+    context 'with caching' do
       it 'checks the cache' do
         expect(check_cache).to be(true)
       end

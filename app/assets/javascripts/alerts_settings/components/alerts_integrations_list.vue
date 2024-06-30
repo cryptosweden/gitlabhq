@@ -36,12 +36,23 @@ export const i18n = {
   },
 };
 
-const bodyTrClass =
-  'gl-border-1 gl-border-t-solid gl-border-b-solid gl-border-gray-100 gl-hover-cursor-pointer gl-hover-bg-blue-50 gl-hover-border-blue-200';
-
 export default {
   i18n,
   typeSet,
+  modal: {
+    actionPrimary: {
+      text: i18n.deleteIntegration,
+      attributes: {
+        variant: 'danger',
+      },
+    },
+    actionSecondary: {
+      text: __('Cancel'),
+      attributes: {
+        variant: 'default',
+      },
+    },
+  },
   components: {
     GlButtonGroup,
     GlButton,
@@ -71,20 +82,23 @@ export default {
     {
       key: 'active',
       label: __('Status'),
+      tdClass: '!gl-align-middle',
     },
     {
       key: 'name',
       label: s__('AlertsIntegrations|Integration Name'),
+      tdClass: '!gl-align-middle',
     },
     {
       key: 'type',
       label: __('Type'),
+      tdClass: '!gl-align-middle',
       formatter: (value) => (value === typeSet.prometheus ? capitalize(value) : value),
     },
     {
       key: 'actions',
-      thClass: `gl-text-center`,
-      tdClass: `gl-text-center`,
+      thClass: 'gl-text-right',
+      tdClass: 'gl-text-right !gl-align-middle',
       label: __('Actions'),
     },
   ],
@@ -113,12 +127,6 @@ export default {
     this.observer.observe(this.$el);
   },
   methods: {
-    tbodyTrClass(item) {
-      return {
-        [bodyTrClass]: this.integrations?.length,
-        'gl-bg-blue-50': (item !== null && item.id) === this.currentIntegration?.id,
-      };
-    },
     trackPageViews() {
       const { category, action } = trackAlertIntegrationsViewsOptions;
       Tracking.event(category, action);
@@ -139,14 +147,13 @@ export default {
 </script>
 
 <template>
-  <div class="incident-management-list">
+  <div class="paginated-table-wrapper">
     <gl-table
       class="integration-list"
       :items="integrations"
       :fields="$options.fields"
       :busy="loading"
       stacked="md"
-      :tbody-tr-class="tbodyTrClass"
       show-empty
     >
       <template #cell(active)="{ item }">
@@ -173,7 +180,7 @@ export default {
       </template>
 
       <template #cell(actions)="{ item }">
-        <gl-button-group class="gl-ml-3">
+        <gl-button-group class="gl-ml-3 -gl-mt-2 -gl-mb-2">
           <gl-button
             icon="settings"
             :aria-label="$options.i18n.editIntegration"
@@ -190,22 +197,19 @@ export default {
       </template>
 
       <template #table-busy>
-        <gl-loading-icon size="lg" color="dark" class="mt-3" />
+        <gl-loading-icon size="sm" />
       </template>
 
       <template #empty>
-        <div
-          class="gl-border-t-solid gl-border-b-solid gl-border-1 gl-border gl-border-gray-100 mt-n3 gl-px-5"
-        >
-          <p class="gl-text-gray-400 gl-py-3 gl-my-3">{{ $options.i18n.emptyState }}</p>
-        </div>
+        <p class="gl-new-card-empty gl-text-center gl-mb-0">{{ $options.i18n.emptyState }}</p>
       </template>
     </gl-table>
+
     <gl-modal
       modal-id="deleteIntegration"
       :title="$options.i18n.deleteIntegration"
-      :ok-title="$options.i18n.deleteIntegration"
-      ok-variant="danger"
+      :action-primary="$options.modal.actionPrimary"
+      :action-secondary="$options.modal.actionSecondary"
       @ok="deleteIntegration"
     >
       <gl-sprintf

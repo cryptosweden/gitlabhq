@@ -61,10 +61,6 @@ function factory({ position, data, definitionPathPrefix, blobPath = 'index.js' }
 }
 
 describe('Code navigation popover component', () => {
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it('renders popover', () => {
     factory({
       position: { x: 0, y: 0, height: 0 },
@@ -115,8 +111,8 @@ describe('Code navigation popover component', () => {
         definitionPathPrefix: DEFINITION_PATH_PREFIX,
       });
 
-      expect(wrapper.find({ ref: 'code-output' }).exists()).toBe(true);
-      expect(wrapper.find({ ref: 'doc-output' }).exists()).toBe(false);
+      expect(wrapper.findComponent({ ref: 'code-output' }).exists()).toBe(true);
+      expect(wrapper.findComponent({ ref: 'doc-output' }).exists()).toBe(false);
     });
   });
 
@@ -128,8 +124,8 @@ describe('Code navigation popover component', () => {
         definitionPathPrefix: DEFINITION_PATH_PREFIX,
       });
 
-      expect(wrapper.find({ ref: 'code-output' }).exists()).toBe(false);
-      expect(wrapper.find({ ref: 'doc-output' }).exists()).toBe(true);
+      expect(wrapper.findComponent({ ref: 'code-output' }).exists()).toBe(false);
+      expect(wrapper.findComponent({ ref: 'doc-output' }).exists()).toBe(true);
     });
   });
 });

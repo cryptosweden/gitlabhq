@@ -7,9 +7,8 @@
 # then result in potentially breaking your future pipelines.
 #
 # More about including CI templates: https://docs.gitlab.com/ee/ci/yaml/#includetemplate
-
 .ecs_image:
-  image: 'registry.gitlab.com/gitlab-org/cloud-deploy/aws-ecs:latest'
+  image: '${CI_TEMPLATE_REGISTRY_HOST}/gitlab-org/cloud-deploy/aws-ecs:latest'
 
 .deploy_to_ecs:
   extends: .ecs_image
@@ -20,6 +19,11 @@
 .review_ecs_base:
   stage: review
   extends: .deploy_to_ecs
+  after_script:
+    - echo "http://$(ecs get-task-hostname)" > environment_url.txt
+  artifacts:
+    paths:
+      - environment_url.txt
 
 .production_ecs_base:
   stage: production

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+require 'fast_spec_helper'
 
 RSpec.describe Gitlab::GithubImport::Representation::PullRequest do
   let(:created_at) { Time.new(2017, 1, 1, 12, 00) }
@@ -93,33 +93,30 @@ RSpec.describe Gitlab::GithubImport::Representation::PullRequest do
 
   describe '.from_api_response' do
     let(:response) do
-      double(
-        :response,
+      {
         number: 42,
         title: 'My Pull Request',
         body: 'This is my pull request',
         state: 'closed',
-        head: double(
-          :head,
+        head: {
           sha: '123abc',
           ref: 'my-feature',
-          repo: double(:repo, id: 400),
-          user: double(:user, id: 4, login: 'alice')
-        ),
-        base: double(
-          :base,
+          repo: { id: 400 },
+          user: { id: 4, login: 'alice' }
+        },
+        base: {
           sha: '456def',
           ref: 'master',
-          repo: double(:repo, id: 200)
-        ),
-        milestone: double(:milestone, number: 4),
-        user: double(:user, id: 4, login: 'alice'),
-        assignee: double(:user, id: 4, login: 'alice'),
-        merged_by: double(:user, id: 4, login: 'alice'),
+          repo: { id: 200 }
+        },
+        milestone: { number: 4 },
+        user: { id: 4, login: 'alice' },
+        assignee: { id: 4, login: 'alice' },
+        merged_by: { id: 4, login: 'alice' },
         created_at: created_at,
         updated_at: updated_at,
         merged_at: merged_at
-      )
+      }
     end
 
     it_behaves_like 'a PullRequest' do
@@ -127,9 +124,7 @@ RSpec.describe Gitlab::GithubImport::Representation::PullRequest do
     end
 
     it 'does not set the user if the response did not include a user' do
-      allow(response)
-        .to receive(:user)
-        .and_return(nil)
+      response[:user] = nil
 
       pr = described_class.from_api_response(response)
 
@@ -292,7 +287,8 @@ RSpec.describe Gitlab::GithubImport::Representation::PullRequest do
   describe '#github_identifiers' do
     it 'returns a hash with needed identifiers' do
       github_identifiers = {
-        iid: 1
+        iid: 1,
+        title: 'My Pull Request'
       }
       other_attributes = { something_else: '_something_else_' }
       pr = described_class.new(github_identifiers.merge(other_attributes))

@@ -1,7 +1,7 @@
 <script>
 import { GlLoadingIcon, GlSprintf, GlLink } from '@gitlab/ui';
 import { backOff } from '~/lib/utils/common_utils';
-import statusCodes from '~/lib/utils/http_status';
+import { HTTP_STATUS_NO_CONTENT } from '~/lib/utils/http_status';
 import { bytesToMiB } from '~/lib/utils/number_utils';
 import { s__ } from '~/locale';
 import MemoryGraph from '~/vue_shared/components/memory_graph.vue';
@@ -58,7 +58,8 @@ export default {
         return s__(
           'mrWidget|%{metricsLinkStart} Memory %{metricsLinkEnd} usage %{emphasisStart} increased %{emphasisEnd} from %{memoryFrom}MB to %{memoryTo}MB',
         );
-      } else if (memoryTo < memoryFrom) {
+      }
+      if (memoryTo < memoryFrom) {
         return s__(
           'mrWidget|%{metricsLinkStart} Memory %{metricsLinkEnd} usage %{emphasisStart} decreased %{emphasisEnd} from %{memoryFrom}MB to %{memoryTo}MB',
         );
@@ -80,22 +81,26 @@ export default {
     },
     computeGraphData(metrics, deploymentTime) {
       this.loadingMetrics = false;
-      const { memory_before, memory_after, memory_values } = metrics;
+      const {
+        memory_before: memoryBefore,
+        memory_after: memoryAfter,
+        memory_values: memoryValues,
+      } = metrics;
 
       // Both `memory_before` and `memory_after` objects
       // have peculiar structure where accessing only a specific
       // index yeilds correct value that we can use to show memory delta.
-      if (memory_before.length > 0) {
-        this.memoryFrom = this.getMegabytes(memory_before[0].value[1]);
+      if (memoryBefore.length > 0) {
+        this.memoryFrom = this.getMegabytes(memoryBefore[0].value[1]);
       }
 
-      if (memory_after.length > 0) {
-        this.memoryTo = this.getMegabytes(memory_after[0].value[1]);
+      if (memoryAfter.length > 0) {
+        this.memoryTo = this.getMegabytes(memoryAfter[0].value[1]);
       }
 
-      if (memory_values.length > 0) {
+      if (memoryValues.length > 0) {
         this.hasMetrics = true;
-        this.memoryMetrics = memory_values[0].values;
+        this.memoryMetrics = memoryValues[0].values;
         this.deploymentTime = deploymentTime;
       }
     },
@@ -103,7 +108,7 @@ export default {
       backOff((next, stop) => {
         MRWidgetService.fetchMetrics(this.metricsUrl)
           .then((res) => {
-            if (res.status === statusCodes.NO_CONTENT) {
+            if (res.status === HTTP_STATUS_NO_CONTENT) {
               this.backOffRequestCounter += 1;
               /* eslint-disable no-unused-expressions */
               this.backOffRequestCounter < 3 ? next() : stop(res);
@@ -114,7 +119,7 @@ export default {
           .catch(stop);
       })
         .then((res) => {
-          if (res.status === statusCodes.NO_CONTENT) {
+          if (res.status === HTTP_STATUS_NO_CONTENT) {
             return res;
           }
 

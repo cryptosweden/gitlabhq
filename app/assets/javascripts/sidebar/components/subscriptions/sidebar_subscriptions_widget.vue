@@ -1,11 +1,21 @@
 <script>
-import { GlIcon, GlLoadingIcon, GlToggle, GlTooltipDirective } from '@gitlab/ui';
-import createFlash from '~/flash';
-import { IssuableType } from '~/issues/constants';
+import {
+  GlButton,
+  GlDisclosureDropdownItem,
+  GlIcon,
+  GlLoadingIcon,
+  GlToggle,
+  GlTooltipDirective,
+} from '@gitlab/ui';
+import { createAlert } from '~/alert';
+import { TYPE_ISSUE, TYPE_EPIC, WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
 import { isLoggedIn } from '~/lib/utils/common_utils';
 import { __, sprintf } from '~/locale';
-import SidebarEditableItem from '~/sidebar/components/sidebar_editable_item.vue';
-import { subscribedQueries, Tracking } from '~/sidebar/constants';
+import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import toast from '~/vue_shared/plugins/global_toast';
+import { subscribedQueries } from '../../queries/constants';
+import { Tracking } from '../../constants';
+import SidebarEditableItem from '../sidebar_editable_item.vue';
 
 const ICON_ON = 'notifications';
 const ICON_OFF = 'notifications-off';
@@ -20,11 +30,14 @@ export default {
     GlTooltip: GlTooltipDirective,
   },
   components: {
+    GlButton,
+    GlDisclosureDropdownItem,
     GlIcon,
     GlLoadingIcon,
     GlToggle,
     SidebarEditableItem,
   },
+  mixins: [glFeatureFlagMixin()],
   props: {
     iid: {
       type: String,
@@ -37,6 +50,11 @@ export default {
     issuableType: {
       required: true,
       type: String,
+    },
+    showInDropdown: {
+      required: false,
+      type: Boolean,
+      default: true,
     },
   },
   data() {
@@ -57,6 +75,9 @@ export default {
           iid: String(this.iid),
         };
       },
+      skip() {
+        return !this.iid;
+      },
       update(data) {
         return data.workspace?.issuable?.subscribed || false;
       },
@@ -70,7 +91,7 @@ export default {
         this.$emit('subscribedUpdated', data.workspace?.issuable?.subscribed);
       },
       error() {
-        createFlash({
+        createAlert({
           message: sprintf(
             __('Something went wrong while setting %{issuableType} notifications.'),
             {
@@ -82,6 +103,9 @@ export default {
     },
   },
   computed: {
+    isIssuable() {
+      return this.issuableType === TYPE_ISSUE;
+    },
     isLoading() {
       return this.$apollo.queries?.subscribed?.loading || this.loading;
     },
@@ -98,11 +122,11 @@ export default {
       return ICON_ON;
     },
     parentIsGroup() {
-      return this.issuableType === IssuableType.Epic;
+      return this.issuableType === TYPE_EPIC;
     },
     subscribeDisabledDescription() {
       return sprintf(__('Disabled by %{parent} owner'), {
-        parent: this.parentIsGroup ? 'group' : 'project',
+        parent: this.parentIsGroup ? WORKSPACE_GROUP : WORKSPACE_PROJECT,
       });
     },
     isLoggedIn() {
@@ -110,6 +134,12 @@ export default {
     },
     canSubscribe() {
       return this.emailsDisabled || !this.isLoggedIn;
+    },
+    isNotificationsTodosButtons() {
+      return this.glFeatures.notificationsTodosButtons;
+    },
+    isMergeRequest() {
+      return this.issuableType === 'merge_request';
     },
   },
   methods: {
@@ -131,14 +161,16 @@ export default {
             },
           }) => {
             if (errors.length) {
-              createFlash({
+              createAlert({
                 message: errors[0],
               });
             }
+
+            toast(subscribed ? __('Notifications turned on.') : __('Notifications turned off.'));
           },
         )
         .catch(() => {
-          createFlash({
+          createAlert({
             message: sprintf(
               __('Something went wrong while setting %{issuableType} notifications.'),
               {
@@ -171,7 +203,48 @@ export default {
 </script>
 
 <template>
+  <gl-disclosure-dropdown-item
+    v-if="showInDropdown && !isNotificationsTodosButtons"
+    data-testid="notification-toggle"
+    @action="toggleSubscribed"
+  >
+    <template #list-item>
+      <gl-toggle
+        :value="subscribed"
+        :label="__('Notifications')"
+        class="merge-request-notification-toggle"
+        label-position="left"
+      />
+    </template>
+  </gl-disclosure-dropdown-item>
+  <div v-else-if="isNotificationsTodosButtons" :class="{ 'inline-block': !isMergeRequest }">
+    <gl-button
+      ref="tooltip"
+      v-gl-tooltip.hover.top
+      category="secondary"
+      data-testid="subscribe-button"
+      class="hide-collapsed"
+      :title="notificationTooltip"
+      :class="{ 'gl-ml-2': isIssuable, 'btn-icon': isNotificationsTodosButtons }"
+      @click="toggleSubscribed"
+    >
+      <gl-icon :name="notificationIcon" :size="16" :class="{ '!gl-fill-blue-500': subscribed }" />
+    </gl-button>
+    <gl-button
+      v-if="!isMergeRequest"
+      ref="tooltip"
+      v-gl-tooltip.left.viewport
+      category="secondary"
+      data-testid="subscribe-button"
+      :title="notificationTooltip"
+      class="sidebar-collapsed-icon sidebar-collapsed-container gl-rounded-0! !gl-shadow-none"
+      @click="toggleSubscribed"
+    >
+      <gl-icon :name="notificationIcon" :size="16" :class="{ '!gl-fill-blue-500': subscribed }" />
+    </gl-button>
+  </div>
   <sidebar-editable-item
+    v-else
     ref="editable"
     :title="$options.i18n.notifications"
     :tracking="$options.tracking"

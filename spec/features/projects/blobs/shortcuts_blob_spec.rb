@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Blob shortcuts', :js do
+RSpec.describe 'Blob shortcuts', :js, feature_category: :groups_and_projects do
   include TreeHelper
   let(:project) { create(:project, :public, :repository) }
   let(:path) { project.repository.ls_files(project.repository.root_ref)[0] }
@@ -20,6 +20,20 @@ RSpec.describe 'Blob shortcuts', :js do
     describe 'pressing "y"' do
       it 'redirects to permalink with commit sha' do
         visit_blob
+        wait_for_requests
+
+        find('body').native.send_key('y')
+
+        expect(page).to have_current_path(get_absolute_url(project_blob_path(project, tree_join(sha, path))), url: true)
+      end
+
+      it 'redirects to permalink of a currently viewed file' do
+        visit project_path(project)
+        wait_for_requests
+        click_link 'VERSION'
+        wait_for_requests
+        page.driver.go_back
+        click_link path
         wait_for_requests
 
         find('body').native.send_key('y')

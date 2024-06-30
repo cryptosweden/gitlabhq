@@ -15,6 +15,10 @@ FactoryBot.define do
       state { :stopped }
     end
 
+    trait :stopping do
+      state { :stopping }
+    end
+
     trait :production do
       name { 'production' }
     end
@@ -29,6 +33,14 @@ FactoryBot.define do
 
     trait :development do
       name { 'development' }
+    end
+
+    trait :with_folders do |environment|
+      sequence(:name) { |n| "#{folder}/environment#{n}" }
+
+      transient do
+        folder { 'folder' }
+      end
     end
 
     trait :with_review_app do |environment|
@@ -46,20 +58,19 @@ FactoryBot.define do
       after(:create) do |environment, evaluator|
         pipeline = create(:ci_pipeline, project: environment.project)
 
-        deployable = create(:ci_build, name: "#{environment.name}:deploy",
-                                       pipeline: pipeline)
+        deployable = create(:ci_build, :success, name: "#{environment.name}:deploy", pipeline: pipeline)
 
-        deployment = create(:deployment,
-                            :success,
-                            environment: environment,
-                            project: environment.project,
-                            deployable: deployable,
-                            ref: evaluator.ref,
-                            sha: environment.project.commit(evaluator.ref).id)
+        deployment = create(
+          :deployment,
+          :success,
+          environment: environment,
+          project: environment.project,
+          deployable: deployable,
+          ref: evaluator.ref,
+          sha: environment.project.commit(evaluator.ref).id
+        )
 
-        teardown_build = create(:ci_build, :manual,
-                                name: "#{environment.name}:teardown",
-                                pipeline: pipeline)
+        teardown_build = create(:ci_build, :manual, name: "#{environment.name}:teardown", pipeline: pipeline)
 
         deployment.update_column(:on_stop, teardown_build.name)
         environment.update_attribute(:deployments, [deployment])

@@ -34,14 +34,7 @@ describe('Highlight Bar', () => {
     mountComponent();
   });
 
-  afterEach(() => {
-    if (wrapper) {
-      wrapper.destroy();
-      wrapper = null;
-    }
-  });
-
-  const findLink = () => wrapper.find(GlLink);
+  const findLink = () => wrapper.findComponent(GlLink);
 
   describe('empty state', () => {
     beforeEach(() => {
@@ -74,7 +67,7 @@ describe('Highlight Bar', () => {
     });
 
     it('renders a number of alert events', () => {
-      expect(wrapper.text()).toContain(alert.eventCount);
+      expect(wrapper.text()).toContain(alert.eventCount.toString());
     });
   });
 

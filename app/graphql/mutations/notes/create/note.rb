@@ -8,25 +8,22 @@ module Mutations
         description "Creates a Note.\n#{QUICK_ACTION_ONLY_WARNING}"
 
         argument :discussion_id,
-                  ::Types::GlobalIDType[::Discussion],
-                  required: false,
-                  description: 'Global ID of the discussion this note is in reply to.'
+          ::Types::GlobalIDType[::Discussion],
+          required: false,
+          description: 'Global ID of the discussion the note is in reply to.'
 
         argument :merge_request_diff_head_sha,
-                  GraphQL::Types::String,
-                  required: false,
-                  description: 'SHA of the head commit which is used to ensure that the merge request has not been updated since the request was sent.'
+          GraphQL::Types::String,
+          required: false,
+          description: 'SHA of the head commit which is used to ensure that the merge request has not been updated since the request was sent.'
 
         private
 
         def create_note_params(noteable, args)
           discussion_id = nil
 
-          if args[:discussion_id]
-            # TODO: remove this line when the compatibility layer is removed
-            # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-            discussion_gid = ::Types::GlobalIDType[::Discussion].coerce_isolated_input(args[:discussion_id])
-            discussion = GitlabSchema.find_by_gid(discussion_gid)
+          if gid = args[:discussion_id]
+            discussion = GitlabSchema.find_by_gid(gid)
 
             authorize_discussion!(discussion)
 

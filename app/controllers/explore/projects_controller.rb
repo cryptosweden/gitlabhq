@@ -10,6 +10,7 @@ class Explore::ProjectsController < Explore::ApplicationController
 
   MIN_SEARCH_LENGTH = 3
   PAGE_LIMIT = 50
+  RSS_ENTRIES_LIMIT = 20
 
   before_action :set_non_archived_param
   before_action :set_sorting
@@ -23,7 +24,10 @@ class Explore::ProjectsController < Explore::ApplicationController
 
   rescue_from PageOutOfBoundsError, with: :page_out_of_bounds
 
-  feature_category :projects
+  feature_category :groups_and_projects
+  # TODO: Set higher urgency after addressing https://gitlab.com/gitlab-org/gitlab/-/issues/357913
+  # and https://gitlab.com/gitlab-org/gitlab/-/issues/358945
+  urgency :low, [:index, :topics, :trending, :starred, :topic]
 
   def index
     show_alert_if_search_is_disabled
@@ -80,13 +84,21 @@ class Explore::ProjectsController < Explore::ApplicationController
 
     params[:topic] = @topic.name
     @projects = load_projects
+
+    respond_to do |format|
+      format.html
+      format.atom do
+        @projects = @projects.projects_order_id_desc.limit(RSS_ENTRIES_LIMIT)
+        render layout: 'xml'
+      end
+    end
   end
 
   private
 
   def load_project_counts
-    @total_user_projects_count = ProjectsFinder.new(params: { non_public: true }, current_user: current_user).execute
-    @total_starred_projects_count = ProjectsFinder.new(params: { starred: true }, current_user: current_user).execute
+    @all_user_projects = ProjectsFinder.new(params: { non_public: true }, current_user: current_user).execute
+    @all_starred_projects = ProjectsFinder.new(params: { starred: true }, current_user: current_user).execute
   end
 
   def load_projects
@@ -100,17 +112,19 @@ class Explore::ProjectsController < Explore::ApplicationController
     projects = ProjectsFinder.new(current_user: current_user, params: params.merge(finder_params)).execute
 
     projects = preload_associations(projects)
-    projects = projects.page(params[:page]).without_count
+    projects = projects.page(pagination_params[:page]).without_count
 
     prepare_projects_for_rendering(projects)
   end
 
   def load_topics
-    @topics = Projects::TopicsFinder.new(params: params.permit(:search)).execute.page(params[:page]).without_count
+    @topics = Projects::TopicsFinder.new(params: params.permit(:search)).execute.page(pagination_params[:page]).without_count
   end
 
   def load_topic
-    @topic = Projects::Topic.find_by_name(params[:topic_name])
+    topic_name = Feature.enabled?(:explore_topics_cleaned_path) ? URI.decode_www_form_component(params[:topic_name]) : params[:topic_name]
+
+    @topic = Projects::Topic.find_by_name_case_insensitive(topic_name)
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
@@ -150,7 +164,9 @@ class Explore::ProjectsController < Explore::ApplicationController
   end
 
   def show_alert_if_search_is_disabled
-    return if current_user || params[:name].blank? && params[:search].blank? || !html_request? || Feature.disabled?(:disable_anonymous_project_search, type: :ops)
+    if current_user || (params[:name].blank? && params[:search].blank?) || !html_request? || Feature.disabled?(:disable_anonymous_project_search, type: :ops)
+      return
+    end
 
     flash.now[:notice] = _('You must sign in to search for specific projects.')
   end

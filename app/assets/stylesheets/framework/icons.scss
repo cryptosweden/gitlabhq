@@ -1,39 +1,37 @@
+@mixin icon-styles($color) {
+  svg,
+  .gl-icon {
+    fill: $color;
+  }
+}
+
 .ci-status-icon-success,
 .ci-status-icon-passed {
-  svg {
-    fill: $green-500;
-  }
+  @include icon-styles($green-500);
 }
 
 .ci-status-icon-error,
 .ci-status-icon-failed {
-  svg {
-    fill: $red-500;
-  }
+  @include icon-styles($red-500);
 }
 
 .ci-status-icon-pending,
 .ci-status-icon-waiting-for-resource,
+.ci-status-icon-waiting-for-callback,
 .ci-status-icon-failed-with-warnings,
 .ci-status-icon-success-with-warnings {
-  svg {
-    fill: $orange-500;
-  }
+  @include icon-styles($orange-500);
 }
 
 .ci-status-icon-running {
-  svg {
-    fill: $blue-400;
-  }
+  @include icon-styles($blue-500);
 }
 
 .ci-status-icon-canceled,
 .ci-status-icon-disabled,
 .ci-status-icon-scheduled,
 .ci-status-icon-manual {
-  svg {
-    fill: $gl-text-color;
-  }
+  @include icon-styles($gray-900);
 }
 
 .ci-status-icon-notification,
@@ -41,8 +39,64 @@
 .ci-status-icon-created,
 .ci-status-icon-skipped,
 .ci-status-icon-notfound {
+  @include icon-styles($gray-500);
+}
+
+.ci-icon {
+  // .ci-icon class is used at
+  // - app/assets/javascripts/vue_shared/components/ci_icon/ci_icon.vue
+  // - app/helpers/ci/status_helper.rb
+  .ci-icon-gl-icon-wrapper {
+    border-radius: $gl-border-radius-full;
+    line-height: 0;
+  }
+
+  // Makes the borderless CI icons appear slightly bigger than the default 16px.
+  // Could be fixed by making the SVG fill up the canvas in a follow up issue.
+  .gl-icon {
+    // fill: currentColor;
+    width: 20px;
+    height: 20px;
+    margin: -2px;
+  }
+
+  @mixin ci-icon-style($bg-color, $color, $gl-dark-bg-color: null, $gl-dark-color: null) {
+    .ci-icon-gl-icon-wrapper {
+      background-color: $bg-color;
+      color: $color;
+
+      .gl-dark & {
+        background-color: $gl-dark-bg-color;
+        color: $gl-dark-color;
+      }
+    }
+  }
+
+  &.ci-icon-variant-success {
+    @include ci-icon-style($green-500, $white, $green-600, $green-50)
+  }
+
+  &.ci-icon-variant-warning {
+    @include ci-icon-style($orange-500, $white, $orange-600, $orange-50)
+  }
+
+  &.ci-icon-variant-danger {
+    @include ci-icon-style($red-500, $white, $red-600, $red-50)
+  }
+
+  &.ci-icon-variant-info {
+    @include ci-icon-style($white, $blue-500, $blue-600, $blue-50)
+  }
+
+  &.ci-icon-variant-neutral {
+    @include ci-icon-style($white, $gray-500)
+  }
+}
+
+.password-status-icon-success {
   svg {
-    fill: var(--gray-400, $gray-400);
+    vertical-align: middle;
+    fill: $green-500;
   }
 }
 

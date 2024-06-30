@@ -1,17 +1,17 @@
 <script>
 import { GlSprintf, GlButton } from '@gitlab/ui';
-import createFlash from '~/flash';
-import { IssuableType } from '~/issues/constants';
+import { createAlert } from '~/alert';
+import { TYPE_ISSUE, TYPE_TEST_CASE, issuableTypeText } from '~/issues/constants';
 import { __, sprintf } from '~/locale';
-import { confidentialityQueries } from '~/sidebar/constants';
+import { confidentialityQueries } from '../../queries/constants';
 
 export default {
   i18n: {
     confidentialityOnWarning: __(
-      'You are going to turn on confidentiality. Only team members with %{strongStart}at least Reporter access%{strongEnd} will be able to see and leave comments on the %{issuableType}.',
+      'You are going to turn on confidentiality. Only %{context} members with %{strongStart}%{permissions}%{strongEnd} can view or be notified about this %{issuableType}.',
     ),
     confidentialityOffWarning: __(
-      'You are going to turn off the confidentiality. This means %{strongStart}everyone%{strongEnd} will be able to see and leave a comment on this %{issuableType}.',
+      'You are going to turn off the confidentiality. This means %{strongStart}everyone%{strongEnd} will be able to see%{commentText} this %{issuableType}.',
     ),
   },
   components: {
@@ -53,14 +53,37 @@ export default {
         ? this.$options.i18n.confidentialityOffWarning
         : this.$options.i18n.confidentialityOnWarning;
     },
+    isIssue() {
+      return this.issuableType === TYPE_ISSUE;
+    },
+    isTestCase() {
+      return this.issuableType === TYPE_TEST_CASE;
+    },
+    isIssueOrTestCase() {
+      return this.isIssue || this.isTestCase;
+    },
+    context() {
+      return this.isIssueOrTestCase ? __('project') : __('group');
+    },
     workspacePath() {
-      return this.issuableType === IssuableType.Issue
+      return this.isIssueOrTestCase
         ? {
             projectPath: this.fullPath,
           }
         : {
             groupPath: this.fullPath,
           };
+    },
+    permissions() {
+      return this.isIssue
+        ? __('at least the Reporter role, the author, and assignees')
+        : __('at least the Reporter role');
+    },
+    issuableTypeText() {
+      return issuableTypeText[this.issuableType];
+    },
+    commentText() {
+      return this.isTestCase ? '' : __(' and leave a comment on');
     },
   },
   methods: {
@@ -84,7 +107,7 @@ export default {
             },
           }) => {
             if (errors.length) {
-              createFlash({
+              createAlert({
                 message: errors[0],
               });
             } else {
@@ -93,11 +116,11 @@ export default {
           },
         )
         .catch(() => {
-          createFlash({
+          createAlert({
             message: sprintf(
               __('Something went wrong while setting %{issuableType} confidentiality.'),
               {
-                issuableType: this.issuableType,
+                issuableType: this.issuableTypeText,
               },
             ),
           });
@@ -117,9 +140,15 @@ export default {
         <p data-testid="warning-message">
           <gl-sprintf :message="warningMessage">
             <template #strong="{ content }">
-              <strong>{{ content }}</strong>
+              <strong>
+                <gl-sprintf :message="content">
+                  <template #permissions>{{ permissions }}</template>
+                </gl-sprintf>
+              </strong>
             </template>
-            <template #issuableType>{{ issuableType }}</template>
+            <template #context>{{ context }}</template>
+            <template #commentText>{{ commentText }}</template>
+            <template #issuableType>{{ issuableTypeText }}</template>
           </gl-sprintf>
         </p>
         <div class="sidebar-item-warning-message-actions">

@@ -1,60 +1,59 @@
 import { GlFormCheckbox } from '@gitlab/ui';
-import { mount } from '@vue/test-utils';
+import { shallowMount } from '@vue/test-utils';
 
-import { nextTick } from 'vue';
 import ActiveCheckbox from '~/integrations/edit/components/active_checkbox.vue';
 import { createStore } from '~/integrations/edit/store';
 
 describe('ActiveCheckbox', () => {
   let wrapper;
 
-  const createComponent = (customStateProps = {}, { isInheriting = false } = {}) => {
-    wrapper = mount(ActiveCheckbox, {
+  const createComponent = ({ customStateProps = {}, isInheriting = false } = {}) => {
+    wrapper = shallowMount(ActiveCheckbox, {
       store: createStore({
         customState: { ...customStateProps },
         override: !isInheriting,
         defaultState: isInheriting ? {} : undefined,
       }),
+      stubs: {
+        GlFormCheckbox,
+      },
     });
   };
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findGlFormCheckbox = () => wrapper.findComponent(GlFormCheckbox);
-  const findInputInCheckbox = () => findGlFormCheckbox().find('input');
 
   describe('template', () => {
     describe('is inheriting adminSettings', () => {
       it('renders GlFormCheckbox as disabled', () => {
-        createComponent({}, { isInheriting: true });
+        createComponent({ isInheriting: true });
 
         expect(findGlFormCheckbox().exists()).toBe(true);
-        expect(findInputInCheckbox().attributes('disabled')).toBe('disabled');
+        expect(findGlFormCheckbox().attributes().disabled).toBe('true');
       });
     });
 
     describe('when activateDisabled is true', () => {
       it('renders GlFormCheckbox as disabled', () => {
-        createComponent({ activateDisabled: true });
+        createComponent({ customStateProps: { activateDisabled: true } });
 
         expect(findGlFormCheckbox().exists()).toBe(true);
-        expect(findInputInCheckbox().attributes('disabled')).toBe('disabled');
+        expect(findGlFormCheckbox().attributes().disabled).toBe('true');
       });
     });
 
     describe('initialActivated is `false`', () => {
       beforeEach(() => {
         createComponent({
-          initialActivated: false,
+          customStateProps: {
+            initialActivated: false,
+          },
         });
       });
 
       it('renders GlFormCheckbox as unchecked', () => {
         expect(findGlFormCheckbox().exists()).toBe(true);
-        expect(findGlFormCheckbox().vm.$attrs.checked).toBe(false);
-        expect(findInputInCheckbox().attributes('disabled')).toBeUndefined();
+        expect(findGlFormCheckbox().attributes().checked).toBeUndefined();
+        expect(findGlFormCheckbox().attributes().disabled).toBeUndefined();
       });
 
       it('emits `toggle-integration-active` event with `false` on mount', () => {
@@ -65,22 +64,15 @@ describe('ActiveCheckbox', () => {
     describe('initialActivated is true', () => {
       beforeEach(() => {
         createComponent({
-          initialActivated: true,
+          customStateProps: {
+            initialActivated: true,
+          },
         });
       });
 
       it('renders GlFormCheckbox as checked', () => {
         expect(findGlFormCheckbox().exists()).toBe(true);
-        expect(findGlFormCheckbox().vm.$attrs.checked).toBe(true);
-      });
-
-      describe('on checkbox click', () => {
-        it('switches the form value', async () => {
-          findInputInCheckbox().trigger('click');
-
-          await nextTick();
-          expect(findGlFormCheckbox().vm.$attrs.checked).toBe(false);
-        });
+        expect(findGlFormCheckbox().attributes().checked).toBeDefined();
       });
 
       it('emits `toggle-integration-active` event with `true` on mount', () => {

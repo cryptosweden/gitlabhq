@@ -3,24 +3,28 @@
 class Import::GitlabGroupsController < ApplicationController
   include WorkhorseAuthorization
 
-  before_action :ensure_group_import_enabled
   before_action :check_import_rate_limit!, only: %i[create]
 
   feature_category :importers
+  urgency :low
 
   def create
     unless file_is_valid?(group_params[:file])
       return redirect_to new_group_path(anchor: 'import-group-pane'), alert: s_('GroupImport|Unable to process group import file')
     end
 
-    group_data = group_params.except(:file).merge(
-      visibility_level: closest_allowed_visibility_level,
-      import_export_upload: ImportExportUpload.new(import_file: group_params[:file])
-    )
+    group_data = group_params
+      .except(:file)
+      .merge(
+        visibility_level: closest_allowed_visibility_level,
+        import_export_upload: ImportExportUpload.new(import_file: group_params[:file])
+      )
+      .with_defaults(organization_id: Current.organization_id)
 
-    group = ::Groups::CreateService.new(current_user, group_data).execute
+    response = ::Groups::CreateService.new(current_user, group_data).execute
+    group = response[:group]
 
-    if group.persisted?
+    if response.success?
       if Groups::ImportExport::ImportService.new(group: group, user: current_user).async_execute
         redirect_to(
           group_path(group),
@@ -49,10 +53,6 @@ class Import::GitlabGroupsController < ApplicationController
     else
       Gitlab::VisibilityLevel::PRIVATE
     end
-  end
-
-  def ensure_group_import_enabled
-    render_404 unless Feature.enabled?(:group_import_export, @group, default_enabled: true)
   end
 
   def check_import_rate_limit!

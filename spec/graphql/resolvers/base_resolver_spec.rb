@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Resolvers::BaseResolver do
+RSpec.describe Resolvers::BaseResolver, feature_category: :api do
   include GraphqlHelpers
+  let_it_be(:user) { create(:user) }
 
   let(:resolver) do
     Class.new(described_class) do
@@ -112,24 +113,22 @@ RSpec.describe Resolvers::BaseResolver do
         end
 
         def resolve(foo: 1)
-          [foo * foo] # rubocop: disable Lint/BinaryOperatorWithIdenticalOperands
+          [foo * foo]
         end
       end
     end
 
     it 'does not apply the block to the resolver' do
-      expect(resolver.field_options).to include(
-        arguments: be_empty
-      )
+      expect(resolver.arguments).to be_empty
+
       result = resolve(resolver)
 
       expect(result).to eq([1])
     end
 
     it 'applies the block to the single version of the resolver' do
-      expect(resolver.single.field_options).to include(
-        arguments: match('foo' => an_instance_of(::Types::BaseArgument))
-      )
+      expect(resolver.single.arguments).to match('foo' => an_instance_of(::Types::BaseArgument))
+
       result = resolve(resolver.single, args: { foo: 7 })
 
       expect(result).to eq(49)
@@ -155,9 +154,8 @@ RSpec.describe Resolvers::BaseResolver do
       end
 
       it 'applies both blocks to the single version of the resolver' do
-        expect(resolver.single.field_options).to include(
-          arguments: match('foo' => ::Types::BaseArgument, 'bar' => ::Types::BaseArgument)
-        )
+        expect(resolver.single.arguments).to match('foo' => ::Types::BaseArgument, 'bar' => ::Types::BaseArgument)
+
         result = resolve(resolver.single, args: { foo: 7, bar: 5 })
 
         expect(result).to eq(35)
@@ -178,12 +176,9 @@ RSpec.describe Resolvers::BaseResolver do
       end
 
       it 'applies both blocks to the single version of the resolver' do
-        expect(resolver.single.field_options).to include(
-          arguments: match('foo' => ::Types::BaseArgument)
-        )
-        expect(subclass.single.field_options).to include(
-          arguments: match('foo' => ::Types::BaseArgument, 'inc' => ::Types::BaseArgument)
-        )
+        expect(resolver.single.arguments).to match('foo' => ::Types::BaseArgument)
+        expect(subclass.single.arguments).to match('foo' => ::Types::BaseArgument, 'inc' => ::Types::BaseArgument)
+
         result = resolve(subclass.single, args: { foo: 7, inc: 1 })
 
         expect(result).to eq(64)
@@ -253,8 +248,6 @@ RSpec.describe Resolvers::BaseResolver do
   end
 
   describe '#object' do
-    let_it_be(:user) { create(:user) }
-
     it 'returns object' do
       expect_next_instance_of(resolver) do |r|
         expect(r).to receive(:process).with(user)
@@ -279,6 +272,20 @@ RSpec.describe Resolvers::BaseResolver do
 
     it 'is sugar for OffsetPaginatedRelation.new' do
       expect(instance.offset_pagination(User.none)).to be_a(::Gitlab::Graphql::Pagination::OffsetPaginatedRelation)
+    end
+  end
+
+  describe '#authorized?' do
+    let(:object) { :object }
+    let(:scope_validator) { instance_double(::Gitlab::Auth::ScopeValidator) }
+    let(:context) { { current_user: user, scope_validator: scope_validator } }
+
+    it 'delegates to authorization' do
+      expect(resolver.authorization).to be_kind_of(::Gitlab::Graphql::Authorize::ObjectAuthorization)
+      expect(resolver.authorization).to receive(:ok?)
+        .with(object, user, scope_validator: scope_validator)
+
+      resolver.authorized?(object, context)
     end
   end
 end

@@ -2,7 +2,9 @@ package channel
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -10,21 +12,24 @@ import (
 	"gitlab.com/gitlab-org/labkit/log"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
-	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 )
 
 var (
 	// See doc/channel.md for documentation of this subprotocol
-	subprotocols             = []string{"terminal.gitlab.com", "base64.terminal.gitlab.com"}
-	upgrader                 = &websocket.Upgrader{Subprotocols: subprotocols}
+	subprotocols = []string{"terminal.gitlab.com", "base64.terminal.gitlab.com"}
+	upgrader     = &websocket.Upgrader{Subprotocols: subprotocols}
+	// ReauthenticationInterval specifies the interval for reauthentication.
 	ReauthenticationInterval = 5 * time.Minute
-	BrowserPingInterval      = 30 * time.Second
+	// BrowserPingInterval specifies the interval for browser pings.
+	BrowserPingInterval = 30 * time.Second
 )
 
+// Handler returns an HTTP handler for handling API requests using the provided API instance.
 func Handler(myAPI *api.API) http.Handler {
 	return myAPI.PreAuthorizeHandler(func(w http.ResponseWriter, r *http.Request, a *api.Response) {
 		if err := a.Channel.Validate(); err != nil {
-			helper.Fail500(w, r, err)
+			fail.Request(w, r, err)
 			return
 		}
 
@@ -34,7 +39,9 @@ func Handler(myAPI *api.API) http.Handler {
 			a.Channel,
 			proxy.StopCh,
 		)
-		defer checker.Close()
+		defer func() {
+			_ = checker.Close()
+		}()
 		go checker.Loop(ReauthenticationInterval)
 		go closeAfterMaxTime(proxy, a.Channel.MaxSessionTime)
 
@@ -42,14 +49,19 @@ func Handler(myAPI *api.API) http.Handler {
 	}, "authorize")
 }
 
+// ProxyChannel handles proxying of HTTP requests.
 func ProxyChannel(w http.ResponseWriter, r *http.Request, settings *api.ChannelSettings, proxy *Proxy) {
 	server, err := connectToServer(settings, r)
 	if err != nil {
-		helper.Fail500(w, r, err)
+		fail.Request(w, r, err)
 		log.ContextLogger(r.Context()).WithError(err).Print("Channel: connecting to server failed")
 		return
 	}
-	defer server.UnderlyingConn().Close()
+	defer func() {
+		if err = server.UnderlyingConn().Close(); err != nil {
+			fmt.Printf("Error closing server connection: %v", err)
+		}
+	}()
 	serverAddr := server.UnderlyingConn().RemoteAddr().String()
 
 	client, err := upgradeClient(w, r)
@@ -62,7 +74,9 @@ func ProxyChannel(w http.ResponseWriter, r *http.Request, settings *api.ChannelS
 	// being timed out by intervening proxies.
 	go pingLoop(client)
 
-	defer client.UnderlyingConn().Close()
+	defer func() {
+		_ = client.UnderlyingConn().Close()
+	}()
 	clientAddr := getClientAddr(r) // We can't know the port with confidence
 
 	logEntry := log.WithContextFields(r.Context(), log.Fields{
@@ -109,7 +123,7 @@ func pingLoop(conn Connection) {
 func connectToServer(settings *api.ChannelSettings, r *http.Request) (Connection, error) {
 	settings = settings.Clone()
 
-	helper.SetForwardedFor(&settings.Header, r)
+	setForwardedFor(&settings.Header, r)
 
 	conn, _, err := settings.Dial()
 	if err != nil {
@@ -129,4 +143,20 @@ func closeAfterMaxTime(proxy *Proxy, maxSessionTime int) {
 		"connection closed: session time greater than maximum time allowed - %v seconds",
 		maxSessionTime,
 	)
+}
+
+func setForwardedFor(newHeaders *http.Header, originalRequest *http.Request) {
+	if clientIP, _, err := net.SplitHostPort(originalRequest.RemoteAddr); err == nil {
+		var header string
+
+		// If we aren't the first proxy retain prior
+		// X-Forwarded-For information as a comma+space
+		// separated list and fold multiple headers into one.
+		if prior, ok := originalRequest.Header["X-Forwarded-For"]; ok {
+			header = strings.Join(prior, ", ") + ", " + clientIP
+		} else {
+			header = clientIP
+		}
+		newHeaders.Set("X-Forwarded-For", header)
+	}
 }

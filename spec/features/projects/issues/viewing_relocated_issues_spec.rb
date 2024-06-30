@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'issues canonical link' do
-  include Spec::Support::Helpers::Features::CanonicalLinkHelpers
+RSpec.describe 'issues canonical link', feature_category: :team_planning do
+  include Features::CanonicalLinkHelpers
 
   let_it_be(:original_project) { create(:project, :public) }
   let_it_be(:original_issue)   { create(:issue, project: original_project) }

@@ -1,5 +1,6 @@
 <script>
 import { GlIcon, GlTooltipDirective, GlBadge } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState } from 'vuex';
 import { BV_HIDE_TOOLTIP } from '~/lib/utils/constants';
 import { leftSidebarViews } from '../constants';
@@ -42,7 +43,7 @@ export default {
           :aria-label="s__('IDE|Edit')"
           data-container="body"
           data-placement="right"
-          data-qa-selector="edit_mode_tab"
+          data-testid="edit-mode-button"
           type="button"
           class="ide-sidebar-link js-ide-edit-mode"
           @click.prevent="changedActivityView($event, $options.leftSidebarViews.edit.name)"
@@ -60,6 +61,7 @@ export default {
           :aria-label="s__('IDE|Review')"
           data-container="body"
           data-placement="right"
+          data-testid="review-mode-button"
           type="button"
           class="ide-sidebar-link js-ide-review-mode"
           @click.prevent="changedActivityView($event, $options.leftSidebarViews.review.name)"
@@ -77,7 +79,7 @@ export default {
           :aria-label="s__('IDE|Commit')"
           data-container="body"
           data-placement="right"
-          data-qa-selector="commit_mode_tab"
+          data-testid="commit-mode-button"
           type="button"
           class="ide-sidebar-link js-ide-commit-mode"
           @click.prevent="changedActivityView($event, $options.leftSidebarViews.commit.name)"
@@ -85,8 +87,7 @@ export default {
           <gl-icon name="commit" />
           <gl-badge
             v-if="stagedFiles.length"
-            class="gl-absolute gl-px-2 gl-top-3 gl-right-3 gl-font-weight-bold gl-bg-gray-900! gl-text-white!"
-            size="sm"
+            class="gl-absolute gl-px-2 gl-top-3 gl-right-3 gl-font-bold gl-bg-gray-900! gl-text-white!"
           >
             {{ stagedFiles.length }}
           </gl-badge>

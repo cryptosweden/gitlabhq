@@ -1,7 +1,7 @@
-const noop = () => {};
+// eslint-disable-next-line no-restricted-syntax
+import { setImmediate } from 'timers';
 
-/**
- * Helper for testing action with expected mutations inspired in
+/** Helper for testing action with expected mutations inspired in
  * https://vuex.vuejs.org/en/testing.html
  *
  * @param {(Function|Object)} action to be tested, or object of named parameters
@@ -9,7 +9,6 @@ const noop = () => {};
  * @param {Object} state will be provided to the action
  * @param {Array} [expectedMutations=[]] mutations expected to be committed
  * @param {Array} [expectedActions=[]] actions expected to be dispatched
- * @param {Function} [done=noop] to be executed after the tests
  * @return {Promise}
  *
  * @example
@@ -27,18 +26,7 @@ const noop = () => {};
  *    { type: 'actionName', payload: {param: 'foobar'}},
  *    { type: 'actionName1'}
  *   ]
- *   done,
  * );
- *
- * @example
- * testAction(
- *   actions.actionName, // action
- *   { }, // mocked payload
- *   state, //state
- *   [ { type: types.MUTATION} ], // expected mutations
- *   [], // expected actions
- * ).then(done)
- * .catch(done.fail);
  *
  * @example
  * await testAction({
@@ -49,30 +37,22 @@ const noop = () => {};
  *   expectedActions: [],
  * })
  */
+
 export default (
   actionArg,
   payloadArg,
   stateArg,
   expectedMutationsArg = [],
   expectedActionsArg = [],
-  doneArg = noop,
 ) => {
   let action = actionArg;
   let payload = payloadArg;
   let state = stateArg;
   let expectedMutations = expectedMutationsArg;
   let expectedActions = expectedActionsArg;
-  let done = doneArg;
 
   if (typeof actionArg !== 'function') {
-    ({
-      action,
-      payload,
-      state,
-      expectedMutations = [],
-      expectedActions = [],
-      done = noop,
-    } = actionArg);
+    ({ action, payload, state, expectedMutations = [], expectedActions = [] } = actionArg);
   }
 
   const mutations = [];
@@ -98,8 +78,9 @@ export default (
     }
 
     actions.push(dispatchedAction);
-  };
 
+    return Promise.resolve();
+  };
   const validateResults = () => {
     expect({
       mutations,
@@ -108,7 +89,6 @@ export default (
       mutations: expectedMutations,
       actions: expectedActions,
     });
-    done();
   };
 
   const result = action(
@@ -116,8 +96,13 @@ export default (
     payload,
   );
 
-  // eslint-disable-next-line no-restricted-syntax
-  return (result || new Promise((resolve) => setImmediate(resolve)))
+  return (
+    result ||
+    new Promise((resolve) => {
+      // eslint-disable-next-line no-restricted-syntax
+      setImmediate(resolve);
+    })
+  )
     .catch((error) => {
       validateResults();
       throw error;

@@ -2,13 +2,22 @@
 
 require 'spec_helper'
 
-RSpec.describe API::PackageFiles do
+RSpec.describe API::PackageFiles, feature_category: :package_registry do
   let(:user) { create(:user) }
   let(:project) { create(:project, :public) }
   let(:package) { create(:maven_package, project: project) }
 
   describe 'GET /projects/:id/packages/:package_id/package_files' do
     let(:url) { "/projects/#{project.id}/packages/#{package.id}/package_files" }
+
+    shared_examples 'handling job token and returning' do |status:|
+      it "returns status #{status}" do
+        get api(url, job_token: job.token)
+
+        expect(response).to have_gitlab_http_status(status)
+        expect(response).to match_response_schema('public_api/v4/packages/package_files') if status == :ok
+      end
+    end
 
     before do
       project.add_developer(user)
@@ -26,6 +35,12 @@ RSpec.describe API::PackageFiles do
           get api("/projects/#{project.id}/packages/0/package_files")
 
           expect(response).to have_gitlab_http_status(:not_found)
+        end
+
+        context 'with JOB-TOKEN auth' do
+          let(:job) { create(:ci_build, :running, user: user, project: project) }
+
+          it_behaves_like 'handling job token and returning', status: :ok
         end
       end
 
@@ -52,13 +67,36 @@ RSpec.describe API::PackageFiles do
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to match_response_schema('public_api/v4/packages/package_files')
         end
+
+        context 'with JOB-TOKEN auth' do
+          let(:job) { create(:ci_build, :running, user: user, project: project) }
+
+          context 'a non authenticated user' do
+            let(:user) { nil }
+
+            it_behaves_like 'handling job token and returning', status: :not_found
+          end
+
+          context 'a user without access to the project', :sidekiq_inline do
+            before do
+              project.team.truncate
+            end
+
+            it_behaves_like 'handling job token and returning', status: :not_found
+          end
+
+          context 'a user with access to the project' do
+            it_behaves_like 'handling job token and returning', status: :ok
+          end
+        end
       end
 
       context 'with pagination params' do
         let(:per_page) { 2 }
-        let!(:package_file_1) { package.package_files[0] }
-        let!(:package_file_2) { package.package_files[1] }
-        let!(:package_file_3) { package.package_files[2] }
+        let(:package_files) { package.package_files.order(:id) }
+        let(:package_file_1) { package_files[0] }
+        let(:package_file_2) { package_files[1] }
+        let(:package_file_3) { package_files[2] }
 
         context 'when viewing the first page' do
           it 'returns first 2 packages' do
@@ -97,6 +135,18 @@ RSpec.describe API::PackageFiles do
 
     subject(:api_request) { delete api(url, user) }
 
+    shared_examples 'handling job token and returning' do |status:|
+      it "returns status #{status}", :aggregate_failures do
+        if status == :no_content
+          expect { api_request }.to change { package.package_files.pending_destruction.count }.by(1)
+        else
+          expect { api_request }.not_to change { package.package_files.pending_destruction.count }
+        end
+
+        expect(response).to have_gitlab_http_status(status)
+      end
+    end
+
     context 'project is public' do
       context 'without user' do
         let(:user) { nil }
@@ -106,6 +156,14 @@ RSpec.describe API::PackageFiles do
 
           expect(response).to have_gitlab_http_status(:forbidden)
         end
+      end
+
+      context 'with JOB-TOKEN auth' do
+        subject(:api_request) { delete api(url, job_token: job.token) }
+
+        let(:job) { create(:ci_build, :running, user: user, project: project) }
+
+        it_behaves_like 'handling job token and returning', status: :forbidden
       end
 
       it 'returns 403 for a user without access to the project', :aggregate_failures do
@@ -173,6 +231,33 @@ RSpec.describe API::PackageFiles do
           expect { api_request }.not_to change { package.package_files.pending_destruction.count }
 
           expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'with JOB-TOKEN auth' do
+        subject(:api_request) { delete api(url, job_token: job.token) }
+
+        let(:job) { create(:ci_build, :running, user: user, project: project) }
+        let_it_be_with_refind(:project) { create(:project, :private) }
+
+        context 'a user without access to the project' do
+          it_behaves_like 'handling job token and returning', status: :not_found
+        end
+
+        context 'a user without enough permissions' do
+          before do
+            project.add_developer(user)
+          end
+
+          it_behaves_like 'handling job token and returning', status: :forbidden
+        end
+
+        context 'a user with the right permissions' do
+          before do
+            project.add_maintainer(user)
+          end
+
+          it_behaves_like 'handling job token and returning', status: :no_content
         end
       end
     end

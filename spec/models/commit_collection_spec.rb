@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe CommitCollection do
+RSpec.describe CommitCollection, feature_category: :source_code_management do
   let(:project) { create(:project, :repository) }
   let(:commit) { project.commit("c1c67abbaf91f624347bb3ae96eabe3a1b742478") }
 
@@ -15,25 +15,107 @@ RSpec.describe CommitCollection do
   end
 
   describe '.committers' do
+    subject(:collection) { described_class.new(project, [commit]) }
+
     it 'returns a relation of users when users are found' do
       user = create(:user, email: commit.committer_email.upcase)
-      collection = described_class.new(project, [commit])
 
       expect(collection.committers).to contain_exactly(user)
     end
 
     it 'returns empty array when committers cannot be found' do
-      collection = described_class.new(project, [commit])
-
       expect(collection.committers).to be_empty
     end
 
-    it 'excludes authors of merge commits' do
-      commit = project.commit("60ecb67744cb56576c30214ff52294f8ce2def98")
-      create(:user, email: commit.committer_email.upcase)
-      collection = described_class.new(project, [commit])
+    context 'when is with_merge_commits false' do
+      let(:commit) { project.commit("60ecb67744cb56576c30214ff52294f8ce2def98") }
 
-      expect(collection.committers).to be_empty
+      it 'excludes authors of merge commits' do
+        create(:user, email: commit.committer_email.upcase)
+
+        expect(collection.committers).to be_empty
+      end
+    end
+
+    context 'when is with_merge_commits true' do
+      let(:commit) { project.commit("60ecb67744cb56576c30214ff52294f8ce2def98") }
+
+      it 'does not exclude authors of merge commits' do
+        user = create(:user, email: commit.committer_email.upcase)
+
+        expect(collection.committers(with_merge_commits: true)).to contain_exactly(user)
+      end
+    end
+
+    context 'when committer email is nil' do
+      before do
+        allow(commit).to receive(:committer_email).and_return(nil)
+      end
+
+      it 'returns empty array when committers cannot be found' do
+        expect(collection.committers).to be_empty
+      end
+    end
+
+    context 'when a commit is signed by GitLab' do
+      let(:author_email) { 'author@gitlab.com' }
+      let(:committer_email) { 'committer@gitlab.com' }
+      let(:author) { create(:user, email: author_email.upcase) }
+      let(:committer) { create(:user, email: committer_email.upcase) }
+
+      before do
+        allow(commit).to receive_message_chain(:signature, :verified_system?).and_return(true)
+        allow(commit).to receive(:author_email).and_return(author_email)
+        allow(commit).to receive(:committer_email).and_return(committer_email)
+      end
+
+      it 'users committer email to identify committers' do
+        expect(collection.committers).to eq([committer])
+      end
+
+      context 'when web_ui_commit_author_change feature flag is disabled' do
+        before do
+          stub_feature_flags(web_ui_commit_author_change: false)
+        end
+
+        it 'users committer email to identify committers' do
+          expect(collection.committers).to eq([committer])
+        end
+      end
+
+      context 'when include_author_when_signed is true' do
+        it 'uses author email to identify committers' do
+          expect(collection.committers(include_author_when_signed: true)).to eq([author])
+        end
+
+        context 'when web_ui_commit_author_change feature flag is disabled' do
+          before do
+            stub_feature_flags(web_ui_commit_author_change: false)
+          end
+
+          it 'users committer email to identify committers' do
+            expect(collection.committers(include_author_when_signed: true)).to eq([committer])
+          end
+        end
+      end
+    end
+  end
+
+  describe '#committer_user_ids' do
+    subject(:collection) { described_class.new(project, [commit]) }
+
+    it 'returns an array of committer user IDs' do
+      user = create(:user, email: commit.committer_email)
+
+      expect(collection.committer_user_ids).to contain_exactly(user.id)
+    end
+
+    context 'when there are no committers' do
+      subject(:collection) { described_class.new(project, []) }
+
+      it 'returns an empty array' do
+        expect(collection.committer_user_ids).to be_empty
+      end
     end
   end
 
@@ -42,10 +124,7 @@ RSpec.describe CommitCollection do
       merge_commit = project.commit("60ecb67744cb56576c30214ff52294f8ce2def98")
       expect(merge_commit).to receive(:merge_commit?).and_return(true)
 
-      collection = described_class.new(project, [
-        commit,
-        merge_commit
-      ])
+      collection = described_class.new(project, [commit, merge_commit])
 
       expect(collection.without_merge_commits).to contain_exactly(commit)
     end
@@ -175,7 +254,7 @@ RSpec.describe CommitCollection do
 
       it 'returns the original commit if the commit could not be lazy loaded' do
         collection = described_class.new(project, [hash_commit])
-        unexisting_lazy_commit = Commit.lazy(project, Gitlab::Git::BLANK_SHA)
+        unexisting_lazy_commit = Commit.lazy(project, Gitlab::Git::SHA1_BLANK_SHA)
 
         expect(Commit).to receive(:lazy).with(project, hash_commit.id).and_return(unexisting_lazy_commit)
 
@@ -183,6 +262,19 @@ RSpec.describe CommitCollection do
 
         expect(collection.commits).to contain_exactly(hash_commit)
       end
+    end
+  end
+
+  describe '#load_tags' do
+    let(:gitaly_commit_with_tags) { project.commit('5937ac0a7beb003549fc5fd26fc247adbce4a52e') }
+    let(:collection) { described_class.new(project, [gitaly_commit_with_tags]) }
+
+    subject { collection.load_tags }
+
+    it 'loads tags' do
+      subject
+
+      expect(collection.commits[0].referenced_by).to contain_exactly('refs/tags/v1.1.0')
     end
   end
 

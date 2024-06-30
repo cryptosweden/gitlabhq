@@ -1,34 +1,30 @@
 import { GlButton } from '@gitlab/ui';
 import { mount, shallowMount } from '@vue/test-utils';
-import { nextTick } from 'vue';
-import waitForPromises from 'helpers/wait_for_promises';
 
-import * as JiraConnectApi from '~/jira_connect/subscriptions/api';
 import GroupItemName from '~/jira_connect/subscriptions/components/group_item_name.vue';
 import GroupsListItem from '~/jira_connect/subscriptions/components/add_namespace_modal/groups_list_item.vue';
-import { persistAlert, reloadPage } from '~/jira_connect/subscriptions/utils';
+import createStore from '~/jira_connect/subscriptions/store';
 import { mockGroup1 } from '../../mock_data';
-
-jest.mock('~/jira_connect/subscriptions/utils');
 
 describe('GroupsListItem', () => {
   let wrapper;
-  const mockSubscriptionPath = 'subscriptionPath';
+  let store;
 
-  const createComponent = ({ mountFn = shallowMount } = {}) => {
+  const createComponent = ({ mountFn = shallowMount, provide } = {}) => {
+    store = createStore();
+
+    jest.spyOn(store, 'dispatch').mockImplementation();
+
     wrapper = mountFn(GroupsListItem, {
+      store,
       propsData: {
         group: mockGroup1,
       },
       provide: {
-        subscriptionsPath: mockSubscriptionPath,
+        ...provide,
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   const findGroupItemName = () => wrapper.findComponent(GroupItemName);
   const findLinkButton = () => wrapper.findComponent(GlButton);
@@ -51,62 +47,24 @@ describe('GroupsListItem', () => {
   });
 
   describe('on Link button click', () => {
-    let addSubscriptionSpy;
+    const mockSubscriptionsPath = '/subscriptions';
 
     beforeEach(() => {
-      createComponent({ mountFn: mount });
-
-      addSubscriptionSpy = jest.spyOn(JiraConnectApi, 'addSubscription').mockResolvedValue();
+      createComponent({
+        mountFn: mount,
+        provide: {
+          subscriptionsPath: mockSubscriptionsPath,
+        },
+      });
     });
 
-    it('sets button to loading and sends request', async () => {
-      expect(findLinkButton().props('loading')).toBe(false);
-
+    it('dispatches `addSubscription` action', () => {
       clickLinkButton();
 
-      await nextTick();
-
-      expect(findLinkButton().props('loading')).toBe(true);
-
-      await waitForPromises();
-
-      expect(addSubscriptionSpy).toHaveBeenCalledWith(mockSubscriptionPath, mockGroup1.full_path);
-      expect(persistAlert).toHaveBeenCalledWith({
-        linkUrl: '/help/integration/jira_development_panel.html#usage',
-        message:
-          'You should now see GitLab.com activity inside your Jira Cloud issues. %{linkStart}Learn more%{linkEnd}',
-        title: 'Namespace successfully linked',
-        variant: 'success',
-      });
-    });
-
-    describe('when request is successful', () => {
-      it('reloads the page', async () => {
-        clickLinkButton();
-
-        await waitForPromises();
-
-        expect(reloadPage).toHaveBeenCalled();
-      });
-    });
-
-    describe('when request has errors', () => {
-      const mockErrorMessage = 'error message';
-      const mockError = { response: { data: { error: mockErrorMessage } } };
-
-      beforeEach(() => {
-        addSubscriptionSpy = jest
-          .spyOn(JiraConnectApi, 'addSubscription')
-          .mockRejectedValue(mockError);
-      });
-
-      it('emits `error` event', async () => {
-        clickLinkButton();
-
-        await waitForPromises();
-
-        expect(reloadPage).not.toHaveBeenCalled();
-        expect(wrapper.emitted('error')[0][0]).toBe(mockErrorMessage);
+      expect(store.dispatch).toHaveBeenCalledTimes(1);
+      expect(store.dispatch).toHaveBeenCalledWith('addSubscription', {
+        namespacePath: mockGroup1.full_path,
+        subscriptionsPath: mockSubscriptionsPath,
       });
     });
   });

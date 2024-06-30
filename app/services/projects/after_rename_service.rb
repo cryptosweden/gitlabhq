@@ -38,7 +38,7 @@ module Projects
     end
 
     def execute
-      first_ensure_no_registry_tags_are_present
+      rename_base_repository_in_registry!
       expire_caches_before_rename
       rename_or_migrate_repository!
       send_move_instructions
@@ -46,13 +46,27 @@ module Projects
       update_repository_configuration
       rename_transferred_documents
       log_completion
+      publish_event
     end
 
-    def first_ensure_no_registry_tags_are_present
+    def rename_base_repository_in_registry!
       return unless project.has_container_registry_tags?
 
-      raise RenameFailedError, "Project #{full_path_before} cannot be renamed because images are " \
-          "present in its container registry"
+      ensure_registry_tags_can_be_handled
+
+      result = ContainerRegistry::GitlabApiClient.rename_base_repository_path(
+        full_path_before, name: project_path)
+
+      return if result == :ok
+
+      rename_failed!("Renaming the base repository in the registry failed with error #{result}.")
+    end
+
+    def ensure_registry_tags_can_be_handled
+      return if ContainerRegistry::GitlabApiClient.supports_gitlab_api?
+
+      rename_failed!("Project #{full_path_before} cannot be renamed because images are " \
+      "present in its container registry")
     end
 
     def expire_caches_before_rename
@@ -61,15 +75,13 @@ module Projects
 
     def rename_or_migrate_repository!
       success =
-        if migrate_to_hashed_storage?
-          ::Projects::HashedStorage::MigrationService
-            .new(project, full_path_before)
-            .execute
-        else
-          project.storage.rename_repo(old_full_path: full_path_before, new_full_path: full_path_after)
-        end
+        ::Projects::HashedStorage::MigrationService
+          .new(project, full_path_before)
+          .execute
 
-      rename_failed! unless success
+      return if success
+
+      rename_failed!("Repository #{full_path_before} could not be renamed to #{full_path_after}")
     end
 
     def send_move_instructions
@@ -85,7 +97,6 @@ module Projects
 
     def update_repository_configuration
       project.reload_repository!
-      project.set_full_path
       project.track_project_repository
     end
 
@@ -95,20 +106,6 @@ module Projects
           .new
           .rename_project(path_before, project_path, namespace_full_path)
       end
-
-      if project.pages_deployed?
-        # Block will be evaluated in the context of project so we need
-        # to bind to a local variable to capture it, as the instance
-        # variable and method aren't available on Project
-        path_before_local = @path_before
-
-        project.run_after_commit_or_now do
-          Gitlab::PagesTransfer
-            .new
-            .async
-            .rename_project(path_before_local, path, namespace.full_path)
-        end
-      end
     end
 
     def log_completion
@@ -116,11 +113,6 @@ module Projects
         "Project #{project.id} has been renamed from " \
           "#{full_path_before} to #{full_path_after}"
       )
-    end
-
-    def migrate_to_hashed_storage?
-      Gitlab::CurrentSettings.hashed_storage_enabled? &&
-        project.storage_upgradable?
     end
 
     def send_move_instructions?
@@ -139,14 +131,22 @@ module Projects
       project.namespace.full_path
     end
 
-    def rename_failed!
-      error = "Repository #{full_path_before} could not be renamed to #{full_path_after}"
-
+    def rename_failed!(error)
       log_error(error)
 
       raise RenameFailedError, error
     end
+
+    def publish_event
+      event = Projects::ProjectPathChangedEvent.new(data: {
+        project_id: project.id,
+        namespace_id: project.namespace_id,
+        root_namespace_id: project.root_namespace.id,
+        old_path: full_path_before,
+        new_path: full_path_after
+      })
+
+      Gitlab::EventStore.publish(event)
+    end
   end
 end
-
-Projects::AfterRenameService.prepend_mod_with('Projects::AfterRenameService')

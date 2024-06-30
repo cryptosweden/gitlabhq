@@ -2,10 +2,59 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Auth::CurrentUserMode, :request_store do
+RSpec.describe Gitlab::Auth::CurrentUserMode, :request_store, feature_category: :system_access do
   let(:user) { build_stubbed(:user) }
 
   subject { described_class.new(user) }
+
+  describe '#initialize' do
+    context 'with user' do
+      around do |example|
+        Gitlab::Session.with_session(nil) do
+          example.run
+        end
+      end
+
+      it 'has no session' do
+        subject
+        expect(Gitlab::Session.current).to be_nil
+      end
+    end
+
+    context 'with user and session' do
+      include_context 'custom session'
+      let(:session) { { 'key' => "value" } }
+
+      it 'has a session' do
+        described_class.new(user, session)
+        expect(Gitlab::Session.current).to eq(session)
+      end
+    end
+  end
+
+  describe '#current_session_data' do
+    include_context 'custom session'
+    let(:session) { { 'key' => "value" } }
+
+    it 'without session' do
+      expect(Gitlab::Session.current).to eq(session)
+
+      expect(Gitlab::NamespacedSessionStore).to receive(:new).with(described_class::SESSION_STORE_KEY, session)
+
+      subject.current_session_data
+      expect(Gitlab::Session.current).to eq(session)
+    end
+
+    it 'with session' do
+      expect(Gitlab::Session.current).to eq(session)
+      subject = described_class.new(user, session)
+
+      expect(Gitlab::NamespacedSessionStore).to receive(:new).with(described_class::SESSION_STORE_KEY, session)
+
+      subject.current_session_data
+      expect(Gitlab::Session.current).to eq(session)
+    end
+  end
 
   context 'when session is available' do
     include_context 'custom session'
@@ -194,9 +243,40 @@ RSpec.describe Gitlab::Auth::CurrentUserMode, :request_store do
 
       it 'creates a timestamp in the session' do
         subject.request_admin_mode!
+
         subject.enable_admin_mode!(password: user.password)
 
         expect(session).to include(expected_session_entry(be_within(1.second).of(Time.now)))
+      end
+
+      it 'returns true after successful enable' do
+        subject.request_admin_mode!
+
+        expect(subject.enable_admin_mode!(password: user.password)).to eq(true)
+      end
+
+      it 'returns false after unsuccessful enable' do
+        subject.request_admin_mode!
+
+        expect(subject.enable_admin_mode!(password: 'wrong password')).to eq(false)
+      end
+
+      context 'when user is not an admin' do
+        let(:user) { build_stubbed(:user) }
+
+        it 'returns false' do
+          subject.request_admin_mode!
+
+          expect(subject.enable_admin_mode!(password: user.password)).to eq(false)
+        end
+      end
+
+      context 'when admin mode is not requested' do
+        it 'raises error' do
+          expect do
+            subject.enable_admin_mode!(password: user.password)
+          end.to raise_error(Gitlab::Auth::CurrentUserMode::NotRequestedError)
+        end
       end
     end
 

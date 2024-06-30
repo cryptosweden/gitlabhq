@@ -1,8 +1,0 @@
----
-name: dynamic_nonce
-introduced_by_url:
-rollout_issue_url:
-milestone: '14.0'
-type: ops
-group: group::access
-default_enabled: false

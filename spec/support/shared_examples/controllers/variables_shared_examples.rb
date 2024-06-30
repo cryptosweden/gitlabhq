@@ -19,13 +19,15 @@ RSpec.shared_examples 'PATCH #update updates variables' do
     { id: variable.id,
       key: variable.key,
       secret_value: variable.value,
-      protected: variable.protected?.to_s }
+      protected: variable.protected?.to_s,
+      raw: (!variable.raw?).to_s }
   end
 
   let(:new_variable_attributes) do
     { key: 'new_key',
       secret_value: 'dummy_value',
-      protected: 'false' }
+      protected: 'false',
+      raw: 'true' }
   end
 
   let(:variables_scope) { owner.variables }
@@ -80,13 +82,20 @@ RSpec.shared_examples 'PATCH #update updates variables' do
   context 'with valid new variable parameters' do
     let(:variables_attributes) do
       [
-        variable_attributes.merge(secret_value: 'other_value'),
+        variable_attributes.merge(secret_value: 'other_value', description: 'other_description'),
         new_variable_attributes
       ]
     end
 
     it 'updates the existing variable' do
-      expect { subject }.to change { variable.reload.value }.to('other_value')
+      old_raw = variable.raw
+
+      subject
+
+      variable.reload
+      expect(variable.value).to eq('other_value')
+      expect(variable.description).to eq('other_description')
+      expect(variable.raw?).not_to be(old_raw)
     end
 
     it 'creates the new variable' do

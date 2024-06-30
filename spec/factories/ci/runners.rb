@@ -4,26 +4,30 @@ FactoryBot.define do
   factory :ci_runner, class: 'Ci::Runner' do
     sequence(:description) { |n| "My runner#{n}" }
 
-    platform { "darwin" }
     active { true }
     access_level { :not_protected }
 
     runner_type { :instance_type }
 
+    creation_state { :finished }
+
     transient do
       groups { [] }
       projects { [] }
       token_expires_at { nil }
+      creator { nil }
     end
 
     after(:build) do |runner, evaluator|
       evaluator.projects.each do |proj|
-        runner.runner_projects << build(:ci_runner_project, project: proj)
+        runner.runner_projects << build(:ci_runner_project, runner: runner, project: proj)
       end
 
       evaluator.groups.each do |group|
-        runner.runner_namespaces << build(:ci_runner_namespace, namespace: group)
+        runner.runner_namespaces << build(:ci_runner_namespace, runner: runner, namespace: group)
       end
+
+      runner.creator = evaluator.creator if evaluator.creator
     end
 
     after(:create) do |runner, evaluator|
@@ -32,6 +36,34 @@ FactoryBot.define do
 
     trait :online do
       contacted_at { Time.now }
+    end
+
+    trait :offline do
+      contacted_at { Ci::Runner.online_contact_time_deadline }
+    end
+
+    trait :unregistered do
+      contacted_at { nil }
+      creation_state { :started }
+    end
+
+    trait :stale do
+      after(:build) do |runner, evaluator|
+        if evaluator.uncached_contacted_at.nil? && evaluator.creation_state == :finished
+          # Set stale contacted_at value unless this is an `:unregistered` runner
+          runner.contacted_at = Ci::Runner.stale_deadline
+        end
+
+        runner.created_at = [runner.created_at, runner.uncached_contacted_at, Ci::Runner.stale_deadline].compact.min
+      end
+    end
+
+    trait :contacted_within_stale_deadline do
+      contacted_at { 1.second.after(Ci::Runner.stale_deadline) }
+    end
+
+    trait :created_within_stale_deadline do
+      created_at { 1.second.after(Ci::Runner.stale_deadline) }
     end
 
     trait :instance do
@@ -66,6 +98,12 @@ FactoryBot.define do
       end
     end
 
+    trait :with_runner_manager do
+      after(:build) do |runner, evaluator|
+        runner.runner_managers << build(:ci_runner_machine, runner: runner)
+      end
+    end
+
     trait :inactive do
       active { false }
     end
@@ -77,7 +115,7 @@ FactoryBot.define do
     trait :tagged_only do
       run_untagged { false }
 
-      tag_list { %w(tag1 tag2) }
+      tag_list { %w[tag1 tag2] }
     end
 
     trait :locked do

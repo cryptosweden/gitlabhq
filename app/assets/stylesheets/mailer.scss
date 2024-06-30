@@ -2,8 +2,6 @@
 
 // Do not use 3-letter hex codes, bgcolor vs css background-color is problematic in emails
 //
-// stylelint-disable color-hex-length
-
 $mailer-font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 $mailer-text-color: #333;
 $mailer-bg-color: #fafafa;
@@ -67,7 +65,7 @@ a {
 }
 
 .invite-btn-join {
-  border-radius: $border-radius-default;
+  border-radius: $gl-border-radius-base;
   padding: $gl-btn-vert-padding $gl-btn-horz-padding;
   cursor: pointer;
   background-color: $purple;
@@ -75,7 +73,7 @@ a {
 }
 
 .invite-btn-decline {
-  border-radius: $border-radius-default;
+  border-radius: $gl-border-radius-base;
   border: 1px solid $purple;
   padding: $gl-btn-vert-padding $gl-btn-horz-padding;
   cursor: pointer;
@@ -197,6 +195,5 @@ tr.footer td {
 
   .footer-logo {
     width: 90px;
-    height: 33px;
   }
 }

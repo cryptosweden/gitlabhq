@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe "Issues > User edits issue", :js do
+RSpec.describe "Issues > User edits issue", :js, feature_category: :team_planning do
   let_it_be(:project) { create(:project_empty_repo, :public) }
   let_it_be(:project_with_milestones) { create(:project_empty_repo, :public) }
   let_it_be(:user) { create(:user) }
@@ -26,7 +26,9 @@ RSpec.describe "Issues > User edits issue", :js do
         visit edit_project_issue_path(project, issue)
       end
 
-      it "previews content" do
+      it_behaves_like 'rich text editor - common'
+
+      it "previews content", quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/391757' do
         form = first(".gfm-form")
 
         page.within(form) do
@@ -34,7 +36,11 @@ RSpec.describe "Issues > User edits issue", :js do
           click_button("Preview")
         end
 
-        expect(form).to have_button("Write")
+        click_button("Continue editing")
+        fill_in("Description", with: "/confidential")
+        click_button("Preview")
+
+        expect(form).to have_content('Makes this issue confidential.')
       end
 
       it 'allows user to select unassigned' do
@@ -45,7 +51,7 @@ RSpec.describe "Issues > User edits issue", :js do
         first('.js-user-search').click
         click_link 'Unassigned'
 
-        click_button 'Save changes'
+        click_button _('Save changes')
 
         page.within('.assignee') do
           expect(page).to have_content 'None - assign yourself'
@@ -70,10 +76,10 @@ RSpec.describe "Issues > User edits issue", :js do
 
           expect(find('#issuable-due-date').value).to eq date.to_s
 
-          click_button 'Save changes'
+          click_button _('Save changes')
 
           page.within '.issuable-sidebar' do
-            expect(page).to have_content date.to_s(:medium)
+            expect(page).to have_content date.to_fs(:medium)
           end
         end
 
@@ -83,9 +89,15 @@ RSpec.describe "Issues > User edits issue", :js do
           fill_in 'issue_title', with: 'bug 345'
           fill_in 'issue_description', with: 'bug description'
 
-          click_button 'Save changes'
+          click_button _('Save changes')
 
-          expect(page).to have_content 'Someone edited the issue the same time you did'
+          expect(page).to have_content(
+            format(
+              _("Someone edited this %{model_name} at the same time you did. Please check out the %{link_to_model} and make sure your changes will not unintentionally remove theirs."), # rubocop:disable Layout/LineLength
+              model_name: _('issue'),
+              link_to_model: _('issue')
+            )
+          )
         end
       end
     end
@@ -95,7 +107,41 @@ RSpec.describe "Issues > User edits issue", :js do
         visit project_issue_path(project, issue)
       end
 
-      describe 'update labels' do
+      describe 'edit description' do
+        def click_edit_issue_description
+          click_on 'Edit title and description'
+        end
+
+        it 'places focus on the web editor' do
+          content_editor_focused_selector = '[data-testid="content-editor"].is-focused'
+          markdown_field_focused_selector = 'textarea:focus'
+          click_edit_issue_description
+
+          issuable_form = find_by_testid('issuable-form')
+
+          expect(issuable_form).to have_selector(markdown_field_focused_selector)
+
+          page.within issuable_form do
+            click_button("Switch to rich text editing")
+          end
+
+          expect(issuable_form).to have_selector(content_editor_focused_selector)
+
+          refresh
+
+          click_edit_issue_description
+
+          expect(issuable_form).to have_selector(content_editor_focused_selector)
+
+          page.within issuable_form do
+            click_button("Switch to plain text editing")
+          end
+
+          expect(issuable_form).to have_selector(markdown_field_focused_selector)
+        end
+      end
+
+      describe 'update labels', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/345229' do
         it 'will not send ajax request when no data is changed' do
           page.within '.labels' do
             click_on 'Edit'
@@ -149,7 +195,7 @@ RSpec.describe "Issues > User edits issue", :js do
 
           page.within '.block.labels' do
             # Remove `verisimilitude` label
-            within '.gl-label' do
+            within '.gl-label', text: 'verisimilitude' do
               click_button 'Remove label'
             end
 
@@ -164,166 +210,79 @@ RSpec.describe "Issues > User edits issue", :js do
       end
 
       describe 'update assignee' do
-        context 'when GraphQL assignees widget feature flag is disabled' do
-          before do
-            stub_feature_flags(issue_assignees_widget: false)
-          end
+        context 'by authorized user' do
+          it 'allows user to select unassigned' do
+            visit project_issue_path(project, issue)
 
-          context 'by authorized user' do
-            def close_dropdown_menu_if_visible
-              find('.dropdown-menu-toggle', visible: :all).tap do |toggle|
-                toggle.click if toggle.visible?
-              end
-            end
+            page.within('.assignee') do
+              expect(page).to have_content user.name.to_s
 
-            it 'allows user to select unassigned' do
-              visit project_issue_path(project, issue)
+              click_button('Edit')
+              wait_for_requests
 
-              page.within('.assignee') do
-                expect(page).to have_content "#{user.name}"
+              find_by_testid('unassign').click
+              find_by_testid('title').click
+              wait_for_requests
 
-                click_link 'Edit'
-                click_link 'Unassigned'
-
-                close_dropdown_menu_if_visible
-
-                expect(page).to have_content 'None - assign yourself'
-              end
-            end
-
-            it 'allows user to select an assignee' do
-              issue2 = create(:issue, project: project, author: user)
-              visit project_issue_path(project, issue2)
-
-              page.within('.assignee') do
-                expect(page).to have_content "None"
-              end
-
-              page.within '.assignee' do
-                click_link 'Edit'
-              end
-
-              page.within '.dropdown-menu-user' do
-                click_link user.name
-              end
-
-              page.within('.assignee') do
-                expect(page).to have_content user.name
-              end
-            end
-
-            it 'allows user to unselect themselves' do
-              issue2 = create(:issue, project: project, author: user, assignees: [user])
-
-              visit project_issue_path(project, issue2)
-
-              page.within '.assignee' do
-                expect(page).to have_content user.name
-
-                click_link 'Edit'
-                click_link user.name
-
-                close_dropdown_menu_if_visible
-
-                page.within '[data-testid="no-value"]' do
-                  expect(page).to have_content "None"
-                end
-              end
+              expect(page).to have_content 'None - assign yourself'
             end
           end
 
-          context 'by unauthorized user' do
-            let(:guest) { create(:user) }
+          it 'allows user to select an assignee' do
+            issue2 = create(:issue, project: project, author: user)
+            visit project_issue_path(project, issue2)
 
-            before do
-              project.add_guest(guest)
+            page.within('.assignee') do
+              expect(page).to have_content "None"
+              click_button('Edit')
+              wait_for_requests
             end
 
-            it 'shows assignee text' do
-              sign_out(:user)
-              sign_in(guest)
+            page.within '.dropdown-menu-user' do
+              click_button user.name
+            end
 
-              visit project_issue_path(project, issue)
-              expect(page).to have_content issue.assignees.first.name
+            page.within('.assignee') do
+              find_by_testid('title').click
+              wait_for_requests
+
+              expect(page).to have_content user.name
+            end
+          end
+
+          it 'allows user to unselect themselves' do
+            issue2 = create(:issue, project: project, author: user, assignees: [user])
+
+            visit project_issue_path(project, issue2)
+
+            page.within '.assignee' do
+              expect(page).to have_content user.name
+
+              click_button('Edit')
+              wait_for_requests
+              click_button user.name
+
+              find_by_testid('title').click
+              wait_for_requests
+
+              expect(page).to have_content "None"
             end
           end
         end
 
-        context 'when GraphQL assignees widget feature flag is enabled' do
-          context 'by authorized user' do
-            it 'allows user to select unassigned' do
-              visit project_issue_path(project, issue)
+        context 'by unauthorized user' do
+          let(:guest) { create(:user) }
 
-              page.within('.assignee') do
-                expect(page).to have_content "#{user.name}"
-
-                click_button('Edit')
-                wait_for_requests
-
-                find('[data-testid="unassign"]').click
-                find('[data-testid="title"]').click
-                wait_for_requests
-
-                expect(page).to have_content 'None - assign yourself'
-              end
-            end
-
-            it 'allows user to select an assignee' do
-              issue2 = create(:issue, project: project, author: user)
-              visit project_issue_path(project, issue2)
-
-              page.within('.assignee') do
-                expect(page).to have_content "None"
-                click_button('Edit')
-                wait_for_requests
-              end
-
-              page.within '.dropdown-menu-user' do
-                click_link user.name
-              end
-
-              page.within('.assignee') do
-                find('[data-testid="title"]').click
-                wait_for_requests
-
-                expect(page).to have_content user.name
-              end
-            end
-
-            it 'allows user to unselect themselves' do
-              issue2 = create(:issue, project: project, author: user, assignees: [user])
-
-              visit project_issue_path(project, issue2)
-
-              page.within '.assignee' do
-                expect(page).to have_content user.name
-
-                click_button('Edit')
-                wait_for_requests
-                click_link user.name
-
-                find('[data-testid="title"]').click
-                wait_for_requests
-
-                expect(page).to have_content "None"
-              end
-            end
+          before do
+            project.add_guest(guest)
           end
 
-          context 'by unauthorized user' do
-            let(:guest) { create(:user) }
+          it 'shows assignee text' do
+            sign_out(:user)
+            sign_in(guest)
 
-            before do
-              project.add_guest(guest)
-            end
-
-            it 'shows assignee text' do
-              sign_out(:user)
-              sign_in(guest)
-
-              visit project_issue_path(project, issue)
-              expect(page).to have_content issue.assignees.first.name
-            end
+            visit project_issue_path(project, issue)
+            expect(page).to have_content issue.assignees.first.name
           end
         end
       end
@@ -355,7 +314,7 @@ RSpec.describe "Issues > User edits issue", :js do
               wait_for_requests
               click_button milestone.title
 
-              page.within '[data-testid="select-milestone"]' do
+              within_testid('select-milestone') do
                 expect(page).to have_content milestone.title
               end
 
@@ -363,7 +322,7 @@ RSpec.describe "Issues > User edits issue", :js do
               wait_for_requests
               click_button 'No milestone'
 
-              page.within '[data-testid="select-milestone"]' do
+              within_testid('select-milestone') do
                 expect(page).to have_content 'None'
               end
             end
@@ -381,7 +340,7 @@ RSpec.describe "Issues > User edits issue", :js do
               find('.gl-form-input', visible: true).send_keys "\"#{milestones[0].title}\""
               wait_for_requests
 
-              page.within '.gl-new-dropdown-contents' do
+              page.within '.gl-dropdown-contents' do
                 expect(page).to have_content milestones[0].title
               end
             end
@@ -397,7 +356,7 @@ RSpec.describe "Issues > User edits issue", :js do
             issue.save!
           end
 
-          it 'shows milestone text' do
+          it 'shows milestone text', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/389287' do
             sign_out(:user)
             sign_in(guest)
 
@@ -417,7 +376,7 @@ RSpec.describe "Issues > User edits issue", :js do
         it 'adds due date to issue' do
           date = Date.today.at_beginning_of_month + 2.days
 
-          page.within '[data-testid="sidebar-due-date"]' do
+          within_testid('sidebar-due-date') do
             click_button 'Edit'
             page.within '.pika-single' do
               click_button date.day
@@ -425,14 +384,14 @@ RSpec.describe "Issues > User edits issue", :js do
 
             wait_for_requests
 
-            expect(find('[data-testid="sidebar-date-value"]').text).to have_content date.strftime('%b %-d, %Y')
+            expect(find_by_testid('sidebar-date-value').text).to have_content date.strftime('%b %-d, %Y')
           end
         end
 
         it 'removes due date from issue' do
           date = Date.today.at_beginning_of_month + 2.days
 
-          page.within '[data-testid="sidebar-due-date"]' do
+          within_testid('sidebar-due-date') do
             click_button 'Edit'
 
             page.within '.pika-single' do

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Users
-  class Callout < ApplicationRecord
+  class Callout < MainClusterwide::ApplicationRecord
     include Users::Calloutable
 
     self.table_name = 'user_callouts'
@@ -28,7 +28,7 @@ module Users
       registration_enabled_callout: 25,
       new_user_signups_cap_reached: 26,          # EE-only
       unfinished_tag_cleanup_callout: 27,
-      eoa_bronze_plan_banner: 28,                # EE-only
+      # 28 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/146309
       pipeline_needs_banner: 29,
       pipeline_needs_hover_tip: 30,
       web_ide_ci_environments_guidance: 31,
@@ -43,17 +43,61 @@ module Users
       verification_reminder: 40, # EE-only
       ci_deprecation_warning_for_types_keyword: 41,
       security_training_feature_promotion: 42, # EE-only
-      storage_enforcement_banner_first_enforcement_threshold: 43,
-      storage_enforcement_banner_second_enforcement_threshold: 44,
-      storage_enforcement_banner_third_enforcement_threshold: 45,
-      storage_enforcement_banner_fourth_enforcement_threshold: 46,
-      attention_requests_top_nav: 47,
-      attention_requests_side_nav: 48
+      namespace_storage_pre_enforcement_banner: 43, # EE-only
+      # 44, 45, 46 were unused and removed with https://gitlab.com/gitlab-org/gitlab/-/merge_requests/118330,
+      # they can be replaced.
+      # 47 and 48 were removed with https://gitlab.com/gitlab-org/gitlab/-/merge_requests/95446
+      # 49 was removed with https://gitlab.com/gitlab-org/gitlab/-/merge_requests/91533
+      # because the banner was no longer relevant.
+      # Records will be migrated with https://gitlab.com/gitlab-org/gitlab/-/issues/367293
+      preview_user_over_limit_free_plan_alert: 50, # EE-only
+      user_reached_limit_free_plan_alert: 51, # EE-only
+      submit_license_usage_data_banner: 52, # EE-only
+      personal_project_limitations_banner: 53, # EE-only
+      mr_experience_survey: 54,
+      # 55 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121920
+      namespace_storage_limit_alert_warning_threshold: 56, # EE-only
+      namespace_storage_limit_alert_alert_threshold: 57, # EE-only
+      namespace_storage_limit_alert_error_threshold: 58, # EE-only
+      project_quality_summary_feedback: 59, # EE-only
+      # 60 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/154140
+      new_top_level_group_alert: 61,
+      # 62, removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131314
+      # 63 and 64 were removed with https://gitlab.com/gitlab-org/gitlab/-/merge_requests/120233
+      branch_rules_info_callout: 65,
+      # 66 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/135470/
+      # 67 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121920
+      project_repository_limit_alert_warning_threshold: 68, # EE-only
+      project_repository_limit_alert_alert_threshold: 69, # EE-only
+      project_repository_limit_alert_error_threshold: 70, # EE-only
+      # 71 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/134432
+      # 72 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/129022
+      namespace_over_storage_users_combined_alert: 73, # EE-only
+      # 74 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132751
+      vsd_feedback_banner: 75, # EE-only
+      security_policy_protected_branch_modification: 76, # EE-only
+      vulnerability_report_grouping: 77, # EE-only
+      new_nav_for_everyone_callout: 78,
+      # 79 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/143862
+      duo_chat_callout: 80, # EE-only
+      # 81 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/146322
+      product_analytics_dashboard_feedback: 82, # EE-only
+      joining_a_project_alert: 83, # EE-only
+      transition_to_jihu_callout: 84,
+      summarize_code_changes: 85, # EE-only
+      # 86 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/152619
+      deployment_details_feedback: 87,
+      # 88 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/152999
+      # 89 removed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/152981
+      deployment_approvals_empty_state: 90,
+      period_in_terraform_state_name_alert: 91
     }
 
     validates :feature_name,
       presence: true,
       uniqueness: { scope: :user_id },
       inclusion: { in: Users::Callout.feature_names.keys }
+
+    scope :with_feature_name, ->(feature_name) { where(feature_name: feature_name) }
   end
 end

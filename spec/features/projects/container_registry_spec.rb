@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Container Registry', :js do
+RSpec.describe 'Container Registry', :js, feature_category: :container_registry do
   include_context 'container registry tags'
 
   let(:user) { create(:user) }
@@ -16,18 +16,43 @@ RSpec.describe 'Container Registry', :js do
     create(:container_repository, name: '')
   end
 
+  let(:help_page_href) { help_page_path('administration/packages/container_registry_metadata_database') }
+
   before do
     sign_in(user)
     project.add_developer(user)
     stub_container_registry_config(enabled: true)
     stub_container_registry_info
     stub_container_registry_tags(repository: :any, tags: [])
+    allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
   end
 
   it 'has a page title set' do
     visit_container_registry
 
     expect(page).to have_title _('Container Registry')
+  end
+
+  it 'has link to next generation container registry docs' do
+    allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(false)
+
+    visit_container_registry
+
+    expect(page).to have_link('next-generation container registry', href: help_page_href)
+  end
+
+  it 'does not have link to settings' do
+    visit_container_registry
+
+    expect(page).not_to have_link _('Configure in settings')
+  end
+
+  it 'has link to settings when user is maintainer' do
+    project.add_maintainer(user)
+
+    visit_container_registry
+
+    expect(page).to have_link _('Configure in settings')
   end
 
   context 'when there are no image repositories' do
@@ -53,16 +78,18 @@ RSpec.describe 'Container Registry', :js do
     it 'list page has a list of images' do
       visit_container_registry
 
+      expect(page).to have_content '1 Image repository'
       expect(page).to have_content 'my/image'
     end
 
-    it 'user removes entire container repository', :sidekiq_might_not_need_inline do
+    it 'user removes entire container repository' do
       visit_container_registry
 
-      expect_any_instance_of(ContainerRepository).to receive(:delete_tags!).and_return(true)
+      expect_any_instance_of(ContainerRepository).to receive(:delete_scheduled!).and_call_original
 
       find('[title="Remove repository"]').click
-      expect(find('.modal .modal-title')).to have_content _('Remove repository')
+      expect(find('.modal .modal-title')).to have_content _('Delete image repository?')
+      find('.modal .modal-body input').set('my/image')
       find('.modal .modal-footer .btn-danger').click
     end
 
@@ -76,10 +103,11 @@ RSpec.describe 'Container Registry', :js do
       before do
         stub_container_registry_tags(repository: %r{my/image}, tags: ('1'..'20').to_a, with_manifest: true)
         visit_container_registry_details 'my/image'
+        click_sort_option('Name', true)
       end
 
       it 'shows the details breadcrumb' do
-        expect(find('.breadcrumbs')).to have_link 'my/image'
+        expect(find_by_testid('breadcrumb-links')).to have_link 'my/image'
       end
 
       it 'shows the image title' do
@@ -100,10 +128,12 @@ RSpec.describe 'Container Registry', :js do
         first('[data-testid="additional-actions"]').click
         first('[data-testid="single-delete-button"]').click
         expect(find('.modal .modal-title')).to have_content _('Remove tag')
+        stub_container_registry_tags(repository: %r{my/image}, tags: ('1'..'19').to_a, with_manifest: true)
         find('.modal .modal-footer .btn-danger').click
-      end
 
-      it_behaves_like 'rejecting tags destruction for an importing repository on', tags: ['1']
+        expect(page).to have_content '19 tags'
+        expect(page).not_to have_content '20 tags'
+      end
 
       it('pagination navigate to the second page') do
         visit_next_page
@@ -122,7 +152,7 @@ RSpec.describe 'Container Registry', :js do
       it 'renders the tags list correctly' do
         expect(page).to have_content('latest')
         expect(page).to have_content('stable')
-        expect(page).to have_content('Digest: N/A')
+        expect(page).to have_content('Digest: Not applicable.')
       end
     end
 
@@ -171,8 +201,7 @@ RSpec.describe 'Container Registry', :js do
     it 'pagination is preserved after navigating back from details' do
       visit_next_page
       click_link 'my/image'
-      breadcrumb = find '.breadcrumbs'
-      breadcrumb.click_link 'Container Registry'
+      page.go_back
       expect(page).to have_content 'my/image'
     end
   end

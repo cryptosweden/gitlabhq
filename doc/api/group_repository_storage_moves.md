@@ -1,17 +1,21 @@
 ---
 stage: Create
-group: Editor
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+group: IDE
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "Documentation for the REST API for moving the storage for repositories in a GitLab group."
 ---
 
-# Group repository storage moves API **(PREMIUM SELF)**
+# Group repository storage moves API
 
-> [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/53016) in GitLab 13.9.
+DETAILS:
+**Tier:** Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
-Group repositories can be moved between storages. This API can help you when
-[migrating to Gitaly Cluster](../administration/gitaly/index.md#migrating-to-gitaly-cluster), for
-example, or to migrate a [group wiki](../user/project/wiki/group.md).
+Group wiki repositories can be moved between storages. This API can help you, for example,
+[migrate to Gitaly Cluster](../administration/gitaly/index.md#migrate-to-gitaly-cluster)
+or migrate a [group wiki](../user/project/wiki/group.md). This API does not manage
+project repositories in a group. To schedule project moves, use the
+[project repository storage moves API](project_repository_storage_moves.md).
 
 As group repository storage moves are processed, they transition through different states. Values
 of `state` are:
@@ -32,7 +36,7 @@ push new commits:
 The repository is temporarily read-only. Please try again later.
 ```
 
-This API requires you to [authenticate yourself](index.md#authentication) as an administrator.
+This API requires you to [authenticate yourself](rest/index.md#authentication) as an administrator.
 
 APIs are also available to move other types of repositories:
 
@@ -46,7 +50,7 @@ GET /group_repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time, because the API results
-are [paginated](index.md#pagination).
+are [paginated](rest/index.md#pagination).
 
 Example request:
 
@@ -82,7 +86,7 @@ GET /groups/:group_id/repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time, because the API results
-are [paginated](index.md#pagination).
+are [paginated](rest/index.md#pagination).
 
 Supported attributes:
 
@@ -194,6 +198,11 @@ Example response:
 
 ## Schedule a repository storage move for a group
 
+Schedules a repository storage move for a group. This endpoint:
+
+- Moves only group Wiki repositories.
+- Doesn't move repositories for projects in a group. To schedule project moves, use the [Project repository storage moves](project_repository_storage_moves.md) API.
+
 ```plaintext
 POST /groups/:group_id/repository_storage_moves
 ```
@@ -203,7 +212,7 @@ Supported attributes:
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
 | `group_id` | integer | yes | ID of the group. |
-| `destination_storage_name` | string | no | Name of the destination storage shard. In [GitLab 13.5 and later](https://gitlab.com/gitlab-org/gitaly/-/issues/3209), the storage is selected [based on storage weights](../administration/repository_storage_paths.md#configure-where-new-repositories-are-stored) if not provided. |
+| `destination_storage_name` | string | no | Name of the destination storage shard. The storage is selected [based on storage weights](../administration/repository_storage_paths.md#configure-where-new-repositories-are-stored) if not provided. |
 
 Example request:
 
@@ -234,6 +243,8 @@ Example response:
 ## Schedule repository storage moves for all groups on a storage shard
 
 Schedules repository storage moves for each group repository stored on the source storage shard.
+This endpoint migrates all groups at once. For more information, see
+[Move all groups](../administration/operations/moving_repositories.md#move-all-groups).
 
 ```plaintext
 POST /group_repository_storage_moves

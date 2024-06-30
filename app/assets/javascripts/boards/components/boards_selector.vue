@@ -1,134 +1,122 @@
 <script>
-import {
-  GlLoadingIcon,
-  GlSearchBoxByType,
-  GlDropdown,
-  GlDropdownDivider,
-  GlDropdownSectionHeader,
-  GlDropdownItem,
-  GlModalDirective,
-} from '@gitlab/ui';
-import { throttle } from 'lodash';
-import { mapActions, mapGetters, mapState } from 'vuex';
+import { GlButton, GlCollapsibleListbox, GlModalDirective } from '@gitlab/ui';
+import { produce } from 'immer';
+import { differenceBy, debounce } from 'lodash';
 
 import BoardForm from 'ee_else_ce/boards/components/board_form.vue';
 
+import { formType } from '~/boards/constants';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
-import { s__ } from '~/locale';
+import { isMetaKey } from '~/lib/utils/common_utils';
+import { visitUrl } from '~/lib/utils/url_utility';
+import { DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
+import { s__, __ } from '~/locale';
 
-import eventHub from '../eventhub';
 import groupBoardsQuery from '../graphql/group_boards.query.graphql';
 import projectBoardsQuery from '../graphql/project_boards.query.graphql';
-import groupBoardQuery from '../graphql/group_board.query.graphql';
-import projectBoardQuery from '../graphql/project_board.query.graphql';
 import groupRecentBoardsQuery from '../graphql/group_recent_boards.query.graphql';
 import projectRecentBoardsQuery from '../graphql/project_recent_boards.query.graphql';
+import { setError } from '../graphql/cache_updates';
+import { fullBoardId } from '../boards_util';
 
 const MIN_BOARDS_TO_VIEW_RECENT = 10;
 
 export default {
   name: 'BoardsSelector',
+  i18n: {
+    fetchBoardsError: s__('Boards|An error occurred while fetching boards. Please try again.'),
+    headerText: s__('Boards|Switch board'),
+    noResultsText: s__('Boards|No matching boards found'),
+    hiddenBoardsText: s__(
+      'Boards|Some of your boards are hidden, add a license to see them again.',
+    ),
+  },
   components: {
     BoardForm,
-    GlLoadingIcon,
-    GlSearchBoxByType,
-    GlDropdown,
-    GlDropdownDivider,
-    GlDropdownSectionHeader,
-    GlDropdownItem,
+    GlButton,
+    GlCollapsibleListbox,
   },
   directives: {
     GlModalDirective,
   },
-  inject: ['fullPath'],
+  inject: [
+    'boardBaseUrl',
+    'fullPath',
+    'canAdminBoard',
+    'multipleIssueBoardsAvailable',
+    'hasMissingBoards',
+    'scopedIssueBoardFeatureEnabled',
+    'weights',
+    'boardType',
+    'isGroupBoard',
+  ],
   props: {
-    throttleDuration: {
-      type: Number,
-      default: 200,
+    board: {
+      type: Object,
       required: false,
+      default: () => ({}),
     },
-    boardBaseUrl: {
+    isCurrentBoardLoading: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    boardModalForm: {
       type: String,
-      required: true,
-    },
-    hasMissingBoards: {
-      type: Boolean,
-      required: true,
-    },
-    canAdminBoard: {
-      type: Boolean,
-      required: true,
-    },
-    multipleIssueBoardsAvailable: {
-      type: Boolean,
-      required: true,
-    },
-    scopedIssueBoardFeatureEnabled: {
-      type: Boolean,
-      required: true,
-    },
-    weights: {
-      type: Array,
-      required: true,
+      required: false,
+      default: '',
     },
   },
   data() {
     return {
-      hasScrollFade: false,
-      loadingBoards: 0,
-      loadingRecentBoards: false,
-      scrollFadeInitialized: false,
       boards: [],
       recentBoards: [],
-      throttledSetScrollFade: throttle(this.setScrollFade, this.throttleDuration),
+      loadingBoards: false,
+      loadingRecentBoards: false,
       contentClientHeight: 0,
       maxPosition: 0,
       filterTerm: '',
-      currentPage: '',
-      board: {},
     };
   },
-  apollo: {
-    board: {
-      query() {
-        return this.currentBoardQuery;
-      },
-      variables() {
-        return {
-          fullPath: this.fullPath,
-          boardId: this.fullBoardId,
-        };
-      },
-      update(data) {
-        const board = data.workspace?.board;
-        this.setBoardConfig(board);
-        return {
-          ...board,
-          labels: board?.labels?.nodes,
-        };
-      },
-      error() {
-        this.setError({ message: this.$options.i18n.errorFetchingBoard });
-      },
-    },
-  },
+
   computed: {
-    ...mapState(['boardType', 'fullBoardId']),
-    ...mapGetters(['isGroupBoard', 'isProjectBoard']),
+    boardName() {
+      return this.board?.name || s__('Boards|Select board');
+    },
+    boardId() {
+      return getIdFromGraphQLId(this.board.id) || '';
+    },
     parentType() {
       return this.boardType;
     },
-    currentBoardQueryCE() {
-      return this.isGroupBoard ? groupBoardQuery : projectBoardQuery;
+    issueBoardsQuery() {
+      return this.isGroupBoard ? groupBoardsQuery : projectBoardsQuery;
     },
-    currentBoardQuery() {
-      return this.currentBoardQueryCE;
-    },
-    isBoardLoading() {
-      return this.$apollo.queries.board.loading;
+    boardsQuery() {
+      return this.issueBoardsQuery;
     },
     loading() {
-      return this.loadingRecentBoards || Boolean(this.loadingBoards);
+      return this.loadingRecentBoards || this.loadingBoards;
+    },
+    listBoxItems() {
+      const mapItems = ({ id, name }) => ({ text: name, value: id });
+
+      if (this.showRecentSection) {
+        const notRecent = differenceBy(this.filteredBoards, this.recentBoards, 'id');
+
+        return [
+          {
+            text: __('Recent'),
+            options: this.recentBoards.map(mapItems),
+          },
+          {
+            text: __('All'),
+            options: notRecent.map(mapItems),
+          },
+        ];
+      }
+
+      return this.filteredBoards.map(mapItems);
     },
     filteredBoards() {
       return this.boards.filter((board) =>
@@ -141,54 +129,43 @@ export default {
     showDelete() {
       return this.boards.length > 1;
     },
-    scrollFadeClass() {
-      return {
-        'fade-out': !this.hasScrollFade,
-      };
+    showDropdown() {
+      return this.showCreate || this.hasMissingBoards;
     },
     showRecentSection() {
       return (
-        this.recentBoards.length &&
+        this.recentBoards.length > 0 &&
         this.boards.length > MIN_BOARDS_TO_VIEW_RECENT &&
         !this.filterTerm.length
       );
     },
   },
   watch: {
-    filteredBoards() {
-      this.scrollFadeInitialized = false;
-      this.$nextTick(this.setScrollFade);
-    },
-    recentBoards() {
-      this.scrollFadeInitialized = false;
-      this.$nextTick(this.setScrollFade);
+    board(newBoard) {
+      document.title = newBoard.name;
     },
   },
   created() {
-    eventHub.$on('showBoardModal', this.showPage);
+    this.handleSearch = debounce(this.setFilterTerm, DEFAULT_DEBOUNCE_AND_THROTTLE_MS);
   },
-  beforeDestroy() {
-    eventHub.$off('showBoardModal', this.showPage);
+  destroyed() {
+    this.handleSearch.cancel();
   },
   methods: {
-    ...mapActions(['setError', 'setBoardConfig']),
-    showPage(page) {
-      this.currentPage = page;
+    fullBoardId(boardId) {
+      return fullBoardId(boardId);
     },
     cancel() {
-      this.showPage('');
+      this.$emit('showBoardModal', '');
     },
     boardUpdate(data, boardType) {
       if (!data?.[this.parentType]) {
         return [];
       }
-      return data[this.parentType][boardType].edges.map(({ node }) => ({
+      return data[this.parentType][boardType].nodes.map((node) => ({
         id: getIdFromGraphQLId(node.id),
         name: node.name,
       }));
-    },
-    boardQuery() {
-      return this.isGroupBoard ? groupBoardsQuery : projectBoardsQuery;
     },
     recentBoardsQuery() {
       return this.isGroupBoard ? groupRecentBoardsQuery : projectRecentBoardsQuery;
@@ -202,9 +179,17 @@ export default {
         variables() {
           return { fullPath: this.fullPath };
         },
-        query: this.boardQuery,
-        loadingKey: 'loadingBoards',
+        query: this.boardsQuery,
         update: (data) => this.boardUpdate(data, 'boards'),
+        watchLoading: (isLoading) => {
+          this.loadingBoards = isLoading;
+        },
+        error(error) {
+          setError({
+            error,
+            message: this.$options.i18n.fetchBoardsError,
+          });
+        },
       });
 
       this.loadRecentBoards();
@@ -215,153 +200,122 @@ export default {
           return { fullPath: this.fullPath };
         },
         query: this.recentBoardsQuery,
-        loadingKey: 'loadingRecentBoards',
         update: (data) => this.boardUpdate(data, 'recentIssueBoards'),
+        watchLoading: (isLoading) => {
+          this.loadingRecentBoards = isLoading;
+        },
+        error(error) {
+          setError({
+            error,
+            message: s__(
+              'Boards|An error occurred while fetching recent boards. Please try again.',
+            ),
+          });
+        },
       });
     },
-    isScrolledUp() {
-      const { content } = this.$refs;
+    addBoard(board) {
+      const { defaultClient: store } = this.$apollo.provider.clients;
 
-      if (!content) {
-        return false;
-      }
+      const sourceData = store.readQuery({
+        query: this.boardsQuery,
+        variables: { fullPath: this.fullPath },
+      });
 
-      const currentPosition = this.contentClientHeight + content.scrollTop;
+      const newData = produce(sourceData, (draftState) => {
+        draftState[this.parentType].boards.nodes = [
+          ...draftState[this.parentType].boards.nodes,
+          { ...board },
+        ];
+      });
 
-      return currentPosition < this.maxPosition;
+      store.writeQuery({
+        query: this.boardsQuery,
+        variables: { fullPath: this.fullPath },
+        data: newData,
+      });
+
+      this.$emit('switchBoard', board.id);
     },
-    initScrollFade() {
-      const { content } = this.$refs;
-
-      if (!content) {
-        return;
-      }
-
-      this.scrollFadeInitialized = true;
-
-      this.contentClientHeight = content.clientHeight;
-      this.maxPosition = content.scrollHeight;
+    setFilterTerm(value) {
+      this.filterTerm = value;
     },
-    setScrollFade() {
-      if (!this.scrollFadeInitialized) this.initScrollFade();
-
-      this.hasScrollFade = this.isScrolledUp();
+    async switchBoardKeyEvent(boardId, e) {
+      if (isMetaKey(e)) {
+        e.stopPropagation();
+        visitUrl(`${this.boardBaseUrl}/${boardId}`, true);
+      }
+    },
+    switchBoardGroup(value) {
+      // Epic board ID is supported in EE version of this file
+      this.$emit('switchBoard', this.fullBoardId(value));
     },
   },
-  i18n: {
-    errorFetchingBoard: s__('Board|An error occurred while fetching the board, please try again.'),
-  },
+  formType,
 };
 </script>
 
 <template>
-  <div class="boards-switcher js-boards-selector gl-mr-3">
-    <span class="boards-selector-wrapper js-boards-selector-wrapper">
-      <gl-dropdown
-        data-qa-selector="boards_dropdown"
-        toggle-class="dropdown-menu-toggle js-dropdown-toggle"
-        menu-class="flex-column dropdown-extended-height"
-        :loading="isBoardLoading"
-        :text="board.name"
-        @show="loadBoards"
+  <div class="boards-switcher" data-testid="boards-selector">
+    <span class="boards-selector-wrapper">
+      <gl-collapsible-listbox
+        v-if="showDropdown"
+        block
+        data-testid="boards-dropdown"
+        searchable
+        :searching="loading"
+        toggle-class="gl-min-w-20"
+        :header-text="$options.i18n.headerText"
+        :no-results-text="$options.i18n.noResultsText"
+        :loading="isCurrentBoardLoading"
+        :items="listBoxItems"
+        :toggle-text="boardName"
+        :selected="boardId"
+        @search="handleSearch"
+        @select="switchBoardGroup"
+        @shown="loadBoards"
       >
-        <p class="gl-new-dropdown-header-top" @mousedown.prevent>
-          {{ s__('IssueBoards|Switch board') }}
-        </p>
-        <gl-search-box-by-type ref="searchBox" v-model="filterTerm" class="m-2" />
+        <template #list-item="{ item }">
+          <div data-testid="dropdown-item-recent" @click="switchBoardKeyEvent(item.value, $event)">
+            {{ item.text }}
+          </div>
+        </template>
 
-        <div
-          v-if="!loading"
-          ref="content"
-          data-qa-selector="boards_dropdown_content"
-          class="dropdown-content flex-fill"
-          @scroll.passive="throttledSetScrollFade"
-        >
-          <gl-dropdown-item
-            v-show="filteredBoards.length === 0"
-            class="gl-pointer-events-none text-secondary"
-          >
-            {{ s__('IssueBoards|No matching boards found') }}
-          </gl-dropdown-item>
-
-          <gl-dropdown-section-header v-if="showRecentSection">
-            {{ __('Recent') }}
-          </gl-dropdown-section-header>
-
-          <template v-if="showRecentSection">
-            <gl-dropdown-item
-              v-for="recentBoard in recentBoards"
-              :key="`recent-${recentBoard.id}`"
-              class="js-dropdown-item"
-              :href="`${boardBaseUrl}/${recentBoard.id}`"
+        <template #footer>
+          <div v-if="hasMissingBoards" class="gl-border-t gl-font-sm gl-px-4 gl-pt-4 gl-pb-3">
+            {{ s__('Boards|Some of your boards are hidden, add a license to see them again.') }}
+          </div>
+          <div v-if="canAdminBoard" class="gl-border-t gl-py-2 gl-px-2">
+            <gl-button
+              v-if="showCreate"
+              v-gl-modal-directive="'board-config-modal'"
+              block
+              class="gl-justify-content-start!"
+              category="tertiary"
+              data-testid="create-new-board-button"
+              data-track-action="click_button"
+              data-track-label="create_new_board"
+              data-track-property="dropdown"
+              @click="$emit('showBoardModal', $options.formType.new)"
             >
-              {{ recentBoard.name }}
-            </gl-dropdown-item>
-          </template>
-
-          <gl-dropdown-divider v-if="showRecentSection" />
-
-          <gl-dropdown-section-header v-if="showRecentSection">
-            {{ __('All') }}
-          </gl-dropdown-section-header>
-
-          <gl-dropdown-item
-            v-for="otherBoard in filteredBoards"
-            :key="otherBoard.id"
-            class="js-dropdown-item"
-            :href="`${boardBaseUrl}/${otherBoard.id}`"
-          >
-            {{ otherBoard.name }}
-          </gl-dropdown-item>
-
-          <gl-dropdown-item v-if="hasMissingBoards" class="no-pointer-events">
-            {{
-              s__('IssueBoards|Some of your boards are hidden, add a license to see them again.')
-            }}
-          </gl-dropdown-item>
-        </div>
-
-        <div
-          v-show="filteredBoards.length > 0"
-          class="dropdown-content-faded-mask"
-          :class="scrollFadeClass"
-        ></div>
-
-        <gl-loading-icon v-if="loading" size="sm" />
-
-        <div v-if="canAdminBoard">
-          <gl-dropdown-divider />
-
-          <gl-dropdown-item
-            v-if="showCreate"
-            v-gl-modal-directive="'board-config-modal'"
-            data-qa-selector="create_new_board_button"
-            data-track-action="click_button"
-            data-track-label="create_new_board"
-            data-track-property="dropdown"
-            @click.prevent="showPage('new')"
-          >
-            {{ s__('IssueBoards|Create new board') }}
-          </gl-dropdown-item>
-
-          <gl-dropdown-item
-            v-if="showDelete"
-            v-gl-modal-directive="'board-config-modal'"
-            class="text-danger js-delete-board"
-            @click.prevent="showPage('delete')"
-          >
-            {{ s__('IssueBoards|Delete board') }}
-          </gl-dropdown-item>
-        </div>
-      </gl-dropdown>
+              {{ s__('Boards|Create new board') }}
+            </gl-button>
+          </div>
+        </template>
+      </gl-collapsible-listbox>
 
       <board-form
-        v-if="currentPage"
+        v-if="boardModalForm"
         :can-admin-board="canAdminBoard"
         :scoped-issue-board-feature-enabled="scopedIssueBoardFeatureEnabled"
         :weights="weights"
         :current-board="board"
-        :current-page="currentPage"
+        :current-page="boardModalForm"
+        :show-delete="showDelete"
+        @addBoard="addBoard"
+        @updateBoard="$emit('updateBoard', $event)"
+        @showBoardModal="$emit('showBoardModal', $event)"
+        @shown="loadBoards"
         @cancel="cancel"
       />
     </span>

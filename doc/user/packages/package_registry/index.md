@@ -1,20 +1,24 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Package Registry **(FREE)**
+# Package registry
 
-> [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/221259) from GitLab Premium to GitLab Free in 13.3.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
-With the GitLab Package Registry, you can use GitLab as a private or public registry for a variety
-of [supported package managers](#supported-package-managers).
+> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/221259) from GitLab Premium to GitLab Free in 13.3.
+
+With the GitLab package registry, you can use GitLab as a private or public registry for a variety
+of [supported package managers](supported_package_managers.md).
 You can publish and share packages, which can be consumed as a dependency in downstream projects.
 
 ## Package workflows
 
-Learn how to use the GitLab Package Registry to build your own custom package workflow:
+Learn how to use the GitLab package registry to build your own custom package workflow:
 
 - [Use a project as a package registry](../workflows/project_registry.md)
   to publish all of your packages to one project.
@@ -26,7 +30,7 @@ Learn how to use the GitLab Package Registry to build your own custom package wo
 You can view packages for your project or group.
 
 1. Go to the project or group.
-1. Go to **Packages & Registries > Package Registry**.
+1. Go to **Deploy > Package Registry**.
 
 You can search, sort, and filter packages on this page. You can share your search results by copying
 and pasting the URL from your browser.
@@ -35,9 +39,9 @@ You can also find helpful code snippets for configuring your package manager or 
 
 When you view packages in a group:
 
-- All projects published to the group and its projects are displayed.
+- All packages published to the group and its projects are displayed.
 - Only the projects you can access are displayed.
-- If a project is private, or you are not a member of the project, it is not displayed.
+- If a project is private, or you are not a member of the project, the packages from that project are not displayed.
 
 For information on how to create and upload a package, view the GitLab documentation for your package type.
 
@@ -53,37 +57,38 @@ For most package types, the following credential types are valid:
 - [Project deploy token](../../project/deploy_tokens/index.md):
   allows access to all packages in a project. Good for granting and revoking project access to many
   users.
-- [Group deploy token](../../project/deploy_tokens/index.md#group-deploy-token):
+- [Group deploy token](../../project/deploy_tokens/index.md):
   allows access to all packages in a group and its subgroups. Good for granting and revoking access
   to a large number of packages to sets of users.
 - [Job token](../../../ci/jobs/ci_job_token.md):
   allows access to packages in the project running the job for the users running the pipeline.
   Access to other external projects can be configured.
+- If your organization uses two factor authentication (2FA), you must use a personal access token with the scope set to `api`.
+- If you are publishing a package via CI/CD pipelines, you must use a CI job token.
 
-  NOTE:
-  There's an open issue,
-  [GitLab-#333444](https://gitlab.com/gitlab-org/gitlab/-/issues/333444),
-  which prevents you from using a job token with internal projects. This bug only impacts self-managed
-  GitLab instances.
-  
-## Use GitLab CI/CD to build packages
+NOTE:
+If the "Package registry" feature is turned off for your project at **Settings > General > Visibility, project features, permissions**, you will receive a 403 Forbidden response.
+Accessing package registry via deploy token is not available when external authorization is enabled.
 
-You can use [GitLab CI/CD](../../../ci/index.md) to build packages.
-For Maven, NuGet, npm, Conan, Helm, and PyPI packages, and Composer dependencies, you can
-authenticate with GitLab by using the `CI_JOB_TOKEN`.
+## Use GitLab CI/CD
+
+You can use [GitLab CI/CD](../../../ci/index.md) to build or import packages into
+a package registry.
+
+### To build packages
+
+You can authenticate with GitLab by using the `CI_JOB_TOKEN`.
 
 CI/CD templates, which you can use to get started, are in [this repository](https://gitlab.com/gitlab-org/gitlab/-/tree/master/lib/gitlab/ci/templates).
 
-Learn more about using the GitLab Package Registry with CI/CD:
+For more information about using the GitLab package registry with CI/CD, see:
 
-- [Composer](../composer_repository/index.md#publish-a-composer-package-by-using-cicd)
-- [Conan](../conan_repository/index.md#publish-a-conan-package-by-using-cicd)
 - [Generic](../generic_packages/index.md#publish-a-generic-package-by-using-cicd)
 - [Maven](../maven_repository/index.md#create-maven-packages-with-gitlab-cicd)
-- [npm](../npm_registry/index.md#publish-an-npm-package-by-using-cicd)
+- [npm](../npm_registry/index.md#publishing-a-package-by-using-a-cicd-pipeline)
 - [NuGet](../nuget_repository/index.md#publish-a-nuget-package-by-using-cicd)
 - [PyPI](../pypi_repository/index.md#authenticate-with-a-ci-job-token)
-- [RubyGems](../rubygems_registry/index.md#authenticate-with-a-ci-job-token)
+- [Terraform](../terraform_module_registry/index.md#authenticate-to-the-terraform-module-registry)
 
 If you use CI/CD to build a package, extended activity information is displayed
 when you view the package details:
@@ -92,88 +97,99 @@ when you view the package details:
 
 You can view which pipeline published the package, and the commit and user who triggered it. However, the history is limited to five updates of a given package.
 
+### To import packages
+
+If you already have packages built in a different registry, you can import them
+into your GitLab package registry with the [package importer](https://gitlab.com/gitlab-org/ci-cd/package-stage/pkgs_importer).
+
+For a list of supported packages, see [Importing packages from other repositories](supported_functionality.md#importing-packages-from-other-repositories).
+
 ## Reduce storage usage
 
-For information on reducing your storage use for the Package Registry, see
-[Reduce Package Registry storage use](reduce_package_registry_storage.md).
+For information on reducing your storage use for the package registry, see
+[Reduce package registry storage use](reduce_package_registry_storage.md).
 
-## Disable the Package Registry
+## Disable the package registry
 
-The Package Registry is automatically enabled.
+The package registry is automatically enabled.
 
 If you are using a self-managed instance of GitLab, your administrator can remove
-the menu item, **Packages & Registries**, from the GitLab sidebar. For more information,
+the menu item, **Packages and registries**, from the GitLab sidebar. For more information,
 see the [administration documentation](../../../administration/packages/index.md).
 
-You can also remove the Package Registry for your project specifically:
+You can also remove the package registry for your project specifically:
 
 1. In your project, go to **Settings > General**.
 1. Expand the **Visibility, project features, permissions** section and disable the
    **Packages** feature.
-1. Click **Save changes**.
+1. Select **Save changes**.
 
-The **Packages & Registries > Package Registry** entry is removed from the sidebar.
+The **Deploy > Package Registry** entry is removed from the sidebar.
 
-## Package Registry visibility permissions
+## Package registry visibility permissions
 
 [Project-level permissions](../../permissions.md)
 determine actions such as downloading, pushing, or deleting packages.
 
-The visibility of the Package Registry is independent of the repository and can't be controlled from
+The visibility of the package registry is independent of the repository and can be controlled from
 your project's settings. For example, if you have a public project and set the repository visibility
-to **Only Project Members**, the Package Registry is then public. However, disabling the Package
-Registry disables all Package Registry operations.
+to **Only Project Members**, the package registry is then public. Disabling the Package
+Registry disables all package registry operations.
 
-[GitLab-#329253](https://gitlab.com/gitlab-org/gitlab/-/issues/329253)
-proposes adding the ability to control Package Registry visibility from the UI.  
+| Project visibility | Action                | Minimum [role](../../permissions.md#roles) required     |
+|--------------------|-----------------------|---------------------------------------------------------|
+| Public             | View package registry | `n/a`, everyone on the internet can perform this action |
+| Public             | Publish a package     | Developer                                               |
+| Public             | Pull a package        | `n/a`, everyone on the internet can perform this action |
+| Internal           | View package registry | Guest                                                   |
+| Internal           | Publish a package     | Developer                                               |
+| Internal           | Pull a package        | Guest (1)                                               |
+| Private            | View package registry | Reporter                                                |
+| Private            | Publish a package     | Developer                                               |
+| Private            | Pull a package        | Reporter (1)                                            |
 
-|                      |                       | Anonymous<br/>(everyone on internet) | Guest | Reporter, Developer, Maintainer, Owner |
-| -------------------- | --------------------- | --------- | ----- | ------------------------------------------ |
-| Public project with Package Registry enabled | View Package Registry <br/> and pull packages | Yes       | Yes   | Yes      |
-| Internal project with Package Registry enabled | View Package Registry <br/> and pull packages | No       | Yes   | Yes      |
-| Private project with Package Registry enabled | View Package Registry <br/> and pull packages | No        | No    | Yes      |
-| Any project with Package Registry disabled | All operations on Package Registry | No | No | No |
+### Allow anyone to pull from package registry
 
-## Supported package managers
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/385994) in GitLab 15.7.
 
-WARNING:
-Not all package manager formats are ready for production use. To view each format's status, see the
-table's **Status** column.
+To allow anyone to pull from the package registry, regardless of project visibility:
 
-The Package Registry supports the following formats:
+1. On the left sidebar, select **Search or go to** and find your private or internal project.
+1. Select **Settings > General**.
+1. Expand **Visibility, project features, permissions**.
+1. Turn on the **Allow anyone to pull from Package Registry** toggle.
+1. Select **Save changes**.
 
-| Package type | GitLab version | Status |
-| ------------ | -------------- |------- |
-| [Maven](../maven_repository/index.md) | 11.3+ | GA |
-| [npm](../npm_registry/index.md) | 11.7+ | GA |
-| [NuGet](../nuget_repository/index.md) | 12.8+ | GA |
-| [PyPI](../pypi_repository/index.md) | 12.10+ | GA |
-| [Generic packages](../generic_packages/index.md) | 13.5+ | GA |
-| [Composer](../composer_repository/index.md) | 13.2+ | [Beta](https://gitlab.com/groups/gitlab-org/-/epics/6817) |
-| [Conan](../conan_repository/index.md) | 12.6+ | [Beta](https://gitlab.com/groups/gitlab-org/-/epics/6816) |
-| [Helm](../helm_repository/index.md) | 14.1+ | [Beta](https://gitlab.com/groups/gitlab-org/-/epics/6366) |
-| [Debian](../debian_repository/index.md) | 14.2+ | [Alpha](https://gitlab.com/groups/gitlab-org/-/epics/6057) |
-| [Go](../go_proxy/index.md) | 13.1+ | [Alpha](https://gitlab.com/groups/gitlab-org/-/epics/3043) |
-| [Ruby gems](../rubygems_registry/index.md) | 13.10+ | [Alpha](https://gitlab.com/groups/gitlab-org/-/epics/3200) |
+Anyone on the internet can access the package registry for the project.
 
-[Status](../../../policy/alpha-beta-support.md):
+#### Disable allowing anyone to pull
 
-- Alpha: behind a feature flag and not officially supported.
-- Beta: several known issues that may prevent expected use.
-- GA (Generally Available): ready for production use at any scale.
+Prerequisites:
 
-You can also use the [API](../../../api/packages.md) to administer the Package Registry.
+- You must be an administrator.
+
+To hide the **Allow anyone to pull from Package Registry** toggle globally:
+
+- [Change the application setting](../../../api/settings.md#change-application-settings) `package_registry_allow_anyone_to_pull_option` to `false`.
+
+Anonymous downloads are disabled, even for projects that turned on the **Allow anyone to pull from Package Registry** toggle.
+
+Several known issues exist when you allow anyone to pull from the package registry:
+
+- Project-level endpoints are supported. Group-level and instance-level endpoints are not supported. Support for group-level endpoints is proposed in [issue 383537](https://gitlab.com/gitlab-org/gitlab/-/issues/383537).
+- It does not work with the [Composer](../composer_repository/index.md#install-a-composer-package), because Composer only has a group endpoint.
+- It works with Conan, but using [`conan search`](../conan_repository/index.md#search-for-conan-packages-in-the-package-registry) does not work.
 
 ## Accepting contributions
 
 This table lists unsupported package manager formats that we are accepting contributions for.
-Consider contributing to GitLab. This [development documentation](../../../development/packages.md)
+Consider contributing to GitLab. This [development documentation](../../../development/packages/index.md)
 guides you through the process.
 
 <!-- vale gitlab.Spelling = NO -->
 
-| Format | Status |
-| ------ | ------ |
+| Format    | Status                                                        |
+| --------- | ------------------------------------------------------------- |
 | Chef      | [#36889](https://gitlab.com/gitlab-org/gitlab/-/issues/36889) |
 | CocoaPods | [#36890](https://gitlab.com/gitlab-org/gitlab/-/issues/36890) |
 | Conda     | [#36891](https://gitlab.com/gitlab-org/gitlab/-/issues/36891) |

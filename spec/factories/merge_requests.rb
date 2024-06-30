@@ -25,10 +25,6 @@ FactoryBot.define do
       title { generate(:draft_title) }
     end
 
-    trait :wip_merge_request do
-      title { generate(:wip_title) }
-    end
-
     trait :jira_title do
       title { generate(:jira_title) }
     end
@@ -60,16 +56,25 @@ FactoryBot.define do
       state_id { MergeRequest.available_states[:merged] }
     end
 
+    trait :unprepared do
+      prepared_at { nil }
+    end
+
+    trait :prepared do
+      prepared_at { Time.now }
+    end
+
     trait :with_merged_metrics do
       merged
 
       transient do
         merged_by { author }
+        merged_at { nil }
       end
 
       after(:build) do |merge_request, evaluator|
         metrics = merge_request.build_metrics
-        metrics.merged_at = 1.week.from_now
+        metrics.merged_at = evaluator.merged_at || 1.week.from_now
         metrics.merged_by = evaluator.merged_by
         metrics.pipeline = create(:ci_empty_pipeline)
       end
@@ -133,6 +138,15 @@ FactoryBot.define do
       auto_merge_strategy { AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS }
       merge_user { author }
       merge_params { { sha: diff_head_sha } }
+    end
+
+    trait :merge_when_checks_pass do
+      auto_merge_enabled { true }
+      auto_merge_strategy { AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS }
+      merge_user { author }
+      merge_params do
+        { sha: diff_head_sha, 'auto_merge_strategy' => AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS }
+      end
     end
 
     trait :remove_source_branch do
@@ -316,6 +330,12 @@ FactoryBot.define do
       sequence(:source_branch) { |n| "feature#{n}" }
     end
 
+    trait :skip_diff_creation do
+      before(:create) do |merge_request, _|
+        merge_request.skip_ensure_merge_request_diff = true
+      end
+    end
+
     after(:build) do |merge_request|
       target_project = merge_request.target_project
       source_project = merge_request.source_project
@@ -323,7 +343,7 @@ FactoryBot.define do
       # Fake `fetch_ref!` if we don't have repository
       # We have too many existing tests relying on this behaviour
       unless [target_project, source_project].all?(&:repository_exists?)
-        allow(merge_request).to receive(:fetch_ref!)
+        stub_method(merge_request, :fetch_ref!) { nil }
       end
     end
 
@@ -360,7 +380,5 @@ FactoryBot.define do
         merge_request.update!(labels: evaluator.labels)
       end
     end
-
-    factory :merge_request_without_merge_request_diff, class: 'MergeRequestWithoutMergeRequestDiff'
   end
 end

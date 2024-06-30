@@ -3,13 +3,13 @@
 mutation issueMoveList(
   $projectPath: ID!
   $iid: String!
-  $boardId: ID!
+  $boardId: BoardID!
   $fromListId: ID
   $toListId: ID
   $moveBeforeId: ID
   $moveAfterId: ID
 ) {
-  issueMoveList(
+  issuableMoveList: issueMoveList(
     input: {
       projectPath: $projectPath
       iid: $iid
@@ -20,7 +20,7 @@ mutation issueMoveList(
       moveAfterId: $moveAfterId
     }
   ) {
-    issue {
+    issuable: issue {
       ...Issue
     }
     errors

@@ -6,15 +6,14 @@ require "slack-notifier"
 module QA
   module Tools
     class LongRunningSpecReporter
-      extend SingleForwardable
-
       SLACK_CHANNEL = "#quality-reports"
       PROJECT = "gitlab-qa-resources"
       BUCKET = "knapsack-reports"
-      REPORT_NAME = "ee-instance-parallel.json"
       RUNTIME_THRESHOLD = 300
 
-      def_delegator :new, :execute
+      class << self
+        delegate :execute, to: :new
+      end
 
       # Find and report specs exceeding runtime threshold
       #
@@ -41,21 +40,30 @@ module QA
       def mean_runtime
         @mean_runtime ||= latest_report.values
           .select { |v| v < RUNTIME_THRESHOLD }
-          .yield_self { |runtimes| runtimes.sum(0.0) / runtimes.length }
+          .then { |runtimes| runtimes.sum(0.0) / runtimes.length }
       end
 
       # Spec files exceeding runtime threshold
       #
       # @return [Hash]
       def long_running_specs
-        @long_running_specs ||= latest_report.select { |k, v| v > RUNTIME_THRESHOLD }
+        @long_running_specs ||= latest_report.select { |_k, v| v > RUNTIME_THRESHOLD }
       end
 
       # Latest knapsack report
       #
       # @return [Hash]
       def latest_report
-        @latest_report ||= JSON.parse(client.get_object(BUCKET, REPORT_NAME)[:body])
+        @latest_report ||= reports.each_with_object({}) do |report, hash|
+          hash.merge!(JSON.parse(client.get_object(BUCKET, report)[:body]))
+        end
+      end
+
+      # All knapsack reports in a bucket
+      #
+      # @return [Array<String>]
+      def reports
+        @reports ||= client.list_objects(BUCKET).items.map(&:name)
       end
 
       # Slack notifier

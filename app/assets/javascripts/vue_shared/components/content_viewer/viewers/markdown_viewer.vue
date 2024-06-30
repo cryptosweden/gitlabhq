@@ -1,20 +1,17 @@
 <script>
-import {
-  GlDeprecatedSkeletonLoading as GlSkeletonLoading,
-  GlSafeHtmlDirective as SafeHtml,
-} from '@gitlab/ui';
-import $ from 'jquery';
-import '~/behaviors/markdown/render_gfm';
+import { GlSkeletonLoader } from '@gitlab/ui';
 import { forEach, escape } from 'lodash';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import axios from '~/lib/utils/axios_utils';
 import { __ } from '~/locale';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 
 const { CancelToken } = axios;
 let axiosSource;
 
 export default {
   components: {
-    GlSkeletonLoading,
+    GlSkeletonLoader,
   },
   directives: {
     SafeHtml,
@@ -82,7 +79,7 @@ export default {
 
         axios
           .post(
-            `${gon.relative_url_root}/${this.projectPath}/preview_markdown`,
+            `${gon.relative_url_root}/${this.projectPath}/-/preview_markdown`,
             postBody,
             postOptions,
           )
@@ -99,7 +96,7 @@ export default {
             this.isLoading = false;
 
             this.$nextTick(() => {
-              $(this.$refs.markdownPreview).renderGFM();
+              renderGFM(this.$refs.markdownPreview);
             });
           })
           .catch(() => {
@@ -115,7 +112,7 @@ export default {
 
 <template>
   <div ref="markdownPreview" class="md-previewer" data-testid="md-previewer">
-    <gl-skeleton-loading v-if="isLoading" />
+    <gl-skeleton-loader v-if="isLoading" />
     <div
       v-else
       v-safe-html:[$options.safeHtmlConfig]="previewContent"

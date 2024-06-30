@@ -1,9 +1,3 @@
-
-// stylelint-disable selector-class-pattern
-// stylelint-disable selector-max-compound-selectors
-// stylelint-disable stylelint-gitlab/duplicate-selectors
-// stylelint-disable stylelint-gitlab/utility-classes
-
 .blob-editor-container {
   flex: 1;
   height: 0;
@@ -81,7 +75,7 @@
 
     .diffOverview {
       background-color: $white;
-      border-left: 1px solid $white-dark;
+      border-left: 1px solid $border-color;
       cursor: ns-resize;
     }
 
@@ -98,7 +92,7 @@
     }
 
     .line-numbers {
-      color: $black-transparent;
+      color: $t-gray-a-24;
     }
 
     .view-overlays {

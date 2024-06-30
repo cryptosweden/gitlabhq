@@ -16,14 +16,6 @@ module Gitlab
 
     attr_reader :deploy_key
 
-    def protected_tag_accessible_to?(ref, action:)
-      assert_project!
-
-      # a deploy key can always push a protected tag
-      # (which is not always the case when pushing to a protected branch)
-      true
-    end
-
     def can_collaborate?(_ref)
       assert_project!
 

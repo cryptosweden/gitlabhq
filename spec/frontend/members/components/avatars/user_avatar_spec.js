@@ -1,7 +1,7 @@
 import { GlAvatarLink, GlBadge } from '@gitlab/ui';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import UserAvatar from '~/members/components/avatars/user_avatar.vue';
-import { AVAILABILITY_STATUS } from '~/set_status_modal/utils';
+import { AVAILABILITY_STATUS } from '~/set_status_modal/constants';
 
 import { member as memberMock, member2faEnabled, orphanedMember } from '../../mock_data';
 
@@ -26,20 +26,17 @@ describe('UserAvatar', () => {
 
   const findStatusEmoji = (emoji) => wrapper.find(`gl-emoji[data-name="${emoji}"]`);
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   it("renders link to user's profile", () => {
     createComponent();
 
-    const link = wrapper.find(GlAvatarLink);
+    const link = wrapper.findComponent(GlAvatarLink);
 
     expect(link.exists()).toBe(true);
     expect(link.attributes()).toMatchObject({
       href: user.webUrl,
       'data-user-id': `${user.id}`,
       'data-username': user.username,
+      'data-email': user.email,
     });
   });
 
@@ -58,7 +55,21 @@ describe('UserAvatar', () => {
   it("renders user's avatar", () => {
     createComponent();
 
-    expect(wrapper.find('img').attributes('src')).toBe(user.avatarUrl);
+    expect(wrapper.find('img').attributes('src')).toBe(
+      'https://www.gravatar.com/avatar/4816142ef496f956a277bedf1a40607b?s=80&d=identicon&width=96',
+    );
+  });
+  it('does not render user avatar image if avatarUrl is null', () => {
+    createComponent({
+      member: {
+        ...memberMock,
+        user: {
+          ...memberMock.user,
+          avatarUrl: null,
+        },
+      },
+    });
+    expect(wrapper.find('img').exists()).toBe(false);
   });
 
   describe('when user property does not exist', () => {
@@ -77,7 +88,7 @@ describe('UserAvatar', () => {
     `('renders the "$badgeText" badge', ({ member, badgeText }) => {
       createComponent({ member });
 
-      expect(wrapper.find(GlBadge).text()).toBe(badgeText);
+      expect(wrapper.findComponent(GlBadge).text()).toBe(badgeText);
     });
 
     it('renders the "It\'s you" badge when member is current user', () => {

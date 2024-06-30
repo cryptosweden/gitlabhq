@@ -1,56 +1,46 @@
 ---
 stage: Plan
 group: Project Management
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Import your Jira project issues to GitLab **(FREE)**
+# Import your Jira project issues to GitLab
 
-> [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/2766) in GitLab 12.10.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Using GitLab Jira importer, you can import your Jira issues to GitLab.com or to
 your self-managed GitLab instance.
 
 Jira issues import is an MVC, project-level feature, meaning that issues from multiple
 Jira projects can be imported into a GitLab project. MVC version imports issue title and description
-as well as some other issue metadata as a section in the issue description.
+and some other issue metadata as a section in the issue description.
 
 ## Known limitations
 
-The information imported into GitLab fields from Jira depends on the version of GitLab:
+GitLab imports the following information directly:
 
-- From GitLab 12.10 to GitLab 13.1, only the issue's title and description are imported
-  directly.
-- From GitLab 13.2:
-  - The issue's labels are also imported directly.
-  - You're also able to map Jira users to GitLab project members when preparing for the
-    import.
+- The issue's title, description, and labels.
+- You can also map Jira users to GitLab project members when preparing for the import.
 
 Other Jira issue metadata that is not formally mapped to GitLab issue fields is
 imported into the GitLab issue's description as plain text.
 
-Our parser for converting text in Jira issues to GitLab Flavored Markdown is only compatible with
-Jira V3 REST API.
+Text in Jira issues is not parsed to GitLab Flavored Markdown which can result in broken text formatting.
+For more information, see [issue 379104](https://gitlab.com/gitlab-org/gitlab/-/issues/379104).
 
 There is an [epic](https://gitlab.com/groups/gitlab-org/-/epics/2738) tracking the addition of issue assignees, comments, and much more in the future
 iterations of the GitLab Jira importer.
 
 ## Prerequisites
 
-### Permissions
-
-To be able to import issues from a Jira project you must have read access on Jira
-issues and at least the Maintainer role in the GitLab project that you wish to import into.
-
-### Jira integration
-
-This feature uses the existing GitLab [Jira integration](../../../integration/jira/index.md).
-
-Make sure you have the integration set up before trying to import Jira issues.
+- To be able to import issues from a Jira project you must have read access on Jira
+  issues and at least the Maintainer role in the GitLab project that you wish to import into.
+- This feature uses the existing GitLab [Jira integration](../../../integration/jira/index.md).
+  Make sure you have the integration set up before trying to import Jira issues.
 
 ## Import Jira issues to GitLab
-
-> New import form [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/216145) in GitLab 13.2.
 
 NOTE:
 Importing Jira issues is done as an asynchronous background job, which
@@ -59,11 +49,11 @@ Importing large projects may take several minutes depending on the size of the i
 
 To import Jira issues to a GitLab project:
 
-1. On the **{issues}** **Issues** page, select **Import Issues** (**{import}**) **> Import from Jira**.
+1. On the **{issues}** **Issues** page, select  **Actions** (**{ellipsis_v}**) **> Import from Jira**.
 
-   ![Import issues from Jira button](img/jira/import_issues_from_jira_button_v12_10.png)
+   ![Import issues from Jira button](img/jira/import_issues_from_jira_button_v16_3.png)
 
-   The **Import from Jira** option is only visible if you have the [correct permissions](#permissions).
+   The **Import from Jira** option is only visible if you have the [correct permissions](#prerequisites).
 
    The following form appears.
    If you've previously set up the [Jira integration](../../../integration/jira/index.md), you can now see
@@ -71,19 +61,19 @@ To import Jira issues to a GitLab project:
 
    ![Import issues from Jira form](img/jira/import_issues_from_jira_form_v13_2.png)
 
-1. Click the **Import from** dropdown list and select the Jira project that you wish to import issues from.
+1. Select the **Import from** dropdown list and select the Jira project that you wish to import issues from.
 
    In the **Jira-GitLab user mapping template** section, the table shows to which GitLab users your Jira
    users are mapped.
    When the form appears, the dropdown list defaults to the user conducting the import.
 
-1. To change any of the mappings, click the dropdown list in the **GitLab username** column and
+1. To change any of the mappings, select the dropdown list in the **GitLab username** column and
    select the user you want to map to each Jira user.
 
    The dropdown list may not show all the users, so use the search bar to find a specific
    user in this GitLab project.
 
-1. Click **Continue**. You're presented with a confirmation that import has started.
+1. Select **Continue**. You're presented with a confirmation that import has started.
 
    While the import is running in the background, you can navigate away from the import status page
    to the issues page, and you can see the new issues appearing in the issues list.

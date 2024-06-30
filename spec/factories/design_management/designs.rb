@@ -14,19 +14,13 @@ FactoryBot.define do
       issue { nil }
 
       importing { true }
-      imported { false }
-    end
-
-    trait :imported do
-      importing { false }
-      imported { true }
     end
 
     trait :with_relative_position do
       sequence(:relative_position) { |n| n * 1000 }
     end
 
-    create_versions = ->(design, evaluator, commit_version) do
+    create_versions = ->(design, evaluator, commit_version) do # rubocop:disable RSpec/FactoryBot/LocalStaticAssignment
       unless evaluator.versions_count == 0
         project = design.project
         issue = design.issue
@@ -100,8 +94,9 @@ FactoryBot.define do
     trait :with_file do
       transient do
         deleted { false }
-        versions_count { 1 }
         file { File.join(Rails.root, 'spec/fixtures/dk.png') }
+        versions_count { 1 }
+        versions_sha { nil }
       end
 
       after :create do |design, evaluator|
@@ -109,7 +104,9 @@ FactoryBot.define do
         repository = project.design_repository
 
         commit_version = ->(action) do
-          repository.multi_action(
+          return evaluator.versions_sha if evaluator.versions_sha
+
+          repository.commit_files(
             evaluator.author,
             branch_name: 'master',
             message: "#{action.action} for #{design.filename}",

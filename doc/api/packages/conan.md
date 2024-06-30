@@ -1,10 +1,14 @@
 ---
 stage: Package
-group: Package
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+group: Package Registry
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Conan API **(FREE)**
+# Conan API
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 This is the API documentation for [Conan Packages](../../user/packages/conan_repository/index.md).
 
@@ -17,7 +21,11 @@ package registry, see the [Conan package registry documentation](../../user/pack
 
 NOTE:
 These endpoints do not adhere to the standard API authentication methods.
-See each route for details on how credentials are expected to be passed.
+See each route for details on how credentials are expected to be passed. Undocumented authentication methods might be removed in the future.
+
+NOTE:
+The Conan registry is not FIPS compliant and is disabled when [FIPS mode](../../development/fips_compliance.md) is enabled.
+These endpoints will all return 404 Not Found.
 
 ## Route prefix
 
@@ -34,14 +42,14 @@ The examples in this document all use the instance-level prefix.
 /packages/conan/v1
 ```
 
-When using the instance-level routes, be aware that there is a [naming
-restriction](../../user/packages/conan_repository/index.md#package-recipe-naming-convention-for-instance-remotes)
+When using the instance-level routes, be aware that there is a
+[naming restriction](../../user/packages/conan_repository/index.md#package-recipe-naming-convention-for-instance-remotes)
 for Conan recipes.
 
 ### Project-level
 
 ```plaintext
- /projects/:id/packages/conan/v1`
+/projects/:id/packages/conan/v1
 ```
 
 | Attribute | Type | Required | Description |
@@ -49,8 +57,6 @@ for Conan recipes.
 | `id`      | string | yes | The project ID or full project path. |
 
 ## Ping
-
-> Introduced in GitLab 12.2.
 
 Ping the GitLab Conan repository to verify availability:
 
@@ -69,8 +75,6 @@ Example response:
 ```
 
 ## Search
-
-> Introduced in GitLab 12.4.
 
 Search the instance for Conan packages by name:
 
@@ -104,8 +108,6 @@ Example response:
 
 ## Authenticate
 
-> Introduced in GitLab 12.2.
-
 Returns a JWT to be used for Conan requests in a Bearer header:
 
 ```shell
@@ -119,7 +121,7 @@ GET <route-prefix>/users/authenticate
 ```
 
 ```shell
-curl --user <username>:<personal_access_token> "https://gitlab.example.com/packages/conan/v1/users/authenticate
+curl --user <username>:<personal_access_token> "https://gitlab.example.com/api/v4/packages/conan/v1/users/authenticate"
 ```
 
 Example response:
@@ -129,8 +131,6 @@ eyJhbGciOiJIUzI1NiIiheR5cCI6IkpXVCJ9.eyJhY2Nlc3NfdG9rZW4iOjMyMTQyMzAsqaVzZXJfaWQ
 ```
 
 ## Check Credentials
-
-> Introduced in GitLab 12.4.
 
 Checks the validity of Basic Auth credentials or a Conan JWT generated from [`/authenticate`](#authenticate).
 
@@ -150,8 +150,6 @@ ok
 
 ## Recipe Snapshot
 
-> Introduced in GitLab 12.5.
-
 This returns the snapshot of the recipe files for the specified Conan recipe. The snapshot is a list
 of filenames with their associated md5 hash.
 
@@ -163,7 +161,7 @@ GET <route-prefix>/conans/:package_name/:package_version/:package_username/:pack
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 
 ```shell
@@ -182,8 +180,6 @@ Example response:
 
 ## Package Snapshot
 
-> Introduced in GitLab 12.5.
-
 This returns the snapshot of the package files for the specified Conan recipe with the specified
 Conan reference. The snapshot is a list of filenames with their associated md5 hash.
 
@@ -195,7 +191,7 @@ GET <route-prefix>/conans/:package_name/:package_version/:package_username/:pack
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 | `conan_package_reference` | string | yes | Reference hash of a Conan package. Conan generates this value. |
 
@@ -215,8 +211,6 @@ Example response:
 
 ## Recipe Manifest
 
-> Introduced in GitLab 12.5.
-
 The manifest is a list of recipe filenames with their associated download URLs.
 
 ```plaintext
@@ -227,7 +221,7 @@ GET <route-prefix>/conans/:package_name/:package_version/:package_username/:pack
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 
 ```shell
@@ -249,8 +243,6 @@ the project-level route, the returned URLs contain `/projects/:id`.
 
 ## Package Manifest
 
-> Introduced in GitLab 12.5.
-
 The manifest is a list of package filenames with their associated download URLs.
 
 ```plaintext
@@ -261,7 +253,7 @@ GET <route-prefix>/conans/:package_name/:package_version/:package_username/:pack
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 | `conan_package_reference` | string | yes | Reference hash of a Conan package. Conan generates this value. |
 
@@ -284,10 +276,8 @@ the project-level route, the returned URLs contain `/projects/:id`.
 
 ## Recipe Download URLs
 
-> Introduced in GitLab 12.5.
-
-Returns a list of recipe filenames with their associated download URLs.
-This is the same payload as the [recipe manifest](#recipe-manifest) endpoint.
+Recipe download URLs return a list of recipe filenames with their associated download URLs.
+This attribute is the same payload as the [recipe manifest](#recipe-manifest) endpoint.
 
 ```plaintext
 GET <route-prefix>/conans/:package_name/:package_version/:package_username/:package_channel/download_urls
@@ -297,7 +287,7 @@ GET <route-prefix>/conans/:package_name/:package_version/:package_username/:pack
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 
 ```shell
@@ -319,10 +309,8 @@ the project-level route, the returned URLs contain `/projects/:id`.
 
 ## Package Download URLs
 
-> Introduced in GitLab 12.5.
-
-Returns a list of package filenames with their associated download URLs.
-This is the same payload as the [package manifest](#package-manifest) endpoint.
+Package download URLs return a list of package filenames with their associated download URLs.
+This URL is the same payload as the [package manifest](#package-manifest) endpoint.
 
 ```plaintext
 GET <route-prefix>/conans/:package_name/:package_version/:package_username/:package_channel/packages/:conan_package_reference/download_urls
@@ -332,7 +320,7 @@ GET <route-prefix>/conans/:package_name/:package_version/:package_username/:pack
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 | `conan_package_reference` | string | yes | Reference hash of a Conan package. Conan generates this value. |
 
@@ -355,8 +343,6 @@ the project-level route, the returned URLs contain `/projects/:id`.
 
 ## Recipe Upload URLs
 
-> Introduced in GitLab 12.5.
-
 Given a list of recipe filenames and file sizes, a list of URLs to upload each file is returned.
 
 ```plaintext
@@ -367,7 +353,7 @@ POST <route-prefix>/conans/:package_name/:package_version/:package_username/:pac
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 
 Example request JSON payload:
@@ -401,8 +387,6 @@ the project-level route, the returned URLs contain `/projects/:id`.
 
 ## Package Upload URLs
 
-> Introduced in GitLab 12.5.
-
 Given a list of package filenames and file sizes, a list of URLs to upload each file is returned.
 
 ```plaintext
@@ -413,7 +397,7 @@ POST <route-prefix>/conans/:package_name/:package_version/:package_username/:pac
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 | `conan_package_reference` | string | yes | Reference hash of a Conan package. Conan generates this value. |
 
@@ -450,13 +434,11 @@ the project-level route, the returned URLs contain `/projects/:id`.
 
 ## Download a Recipe file
 
-> Introduced in GitLab 12.6.
-
 Download a recipe file to the package registry. You must use a download URL that the
 [recipe download URLs endpoint](#recipe-download-urls)
 returned.
 
-```shell
+```plaintext
 GET packages/conan/v1/files/:package_name/:package_version/:package_username/:package_channel/:recipe_revision/export/:file_name
 ```
 
@@ -464,7 +446,7 @@ GET packages/conan/v1/files/:package_name/:package_version/:package_username/:pa
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 | `recipe_revision`   | string | yes | Revision of the recipe. GitLab does not yet support Conan revisions, so the default value of `0` is always used. |
 | `file_name`         | string | yes | The name and file extension of the requested file. |
@@ -483,21 +465,19 @@ This example writes to `conanfile.py` in the current directory.
 
 ## Upload a Recipe file
 
-> Introduced in GitLab 12.6.
-
 Upload a recipe file to the package registry. You must use an upload URL that the
 [recipe upload URLs endpoint](#recipe-upload-urls)
 returned.
 
-```shell
-GET packages/conan/v1/files/:package_name/:package_version/:package_username/:package_channel/:recipe_revision/export/:file_name
+```plaintext
+PUT packages/conan/v1/files/:package_name/:package_version/:package_username/:package_channel/:recipe_revision/export/:file_name
 ```
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 | `recipe_revision`   | string | yes | Revision of the recipe. GitLab does not yet support Conan revisions, so the default value of `0` is always used. |
 | `file_name`         | string | yes | The name and file extension of the requested file. |
@@ -505,20 +485,19 @@ GET packages/conan/v1/files/:package_name/:package_version/:package_username/:pa
 Provide the file context in the request body:
 
 ```shell
-curl --header "Authorization: Bearer <authenticate_token>" \
+curl --request PUT \
+     --user <username>:<personal_access_token> \
      --upload-file path/to/conanfile.py \
      "https://gitlab.example.com/api/v4/packages/conan/v1/files/my-package/1.0/my-group+my-project/stable/0/export/conanfile.py"
 ```
 
 ## Download a Package file
 
-> Introduced in GitLab 12.6.
-
 Download a package file to the package registry. You must use a download URL that the
 [package download URLs endpoint](#package-download-urls)
 returned.
 
-```shell
+```plaintext
 GET packages/conan/v1/files/:package_name/:package_version/:package_username/:package_channel/:recipe_revision/package/:conan_package_reference/:package_revision/:file_name
 ```
 
@@ -526,7 +505,7 @@ GET packages/conan/v1/files/:package_name/:package_version/:package_username/:pa
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 | `recipe_revision`   | string | yes | Revision of the recipe. GitLab does not yet support Conan revisions, so the default value of `0` is always used. |
 | `conan_package_reference` | string | yes | Reference hash of a Conan package. Conan generates this value. |
@@ -547,21 +526,19 @@ This example writes to `conaninfo.txt` in the current directory.
 
 ## Upload a Package file
 
-> Introduced in GitLab 12.6.
-
 Upload a package file to the package registry. You must use an upload URL that the
 [package upload URLs endpoint](#package-upload-urls)
 returned.
 
-```shell
-GET packages/conan/v1/files/:package_name/:package_version/:package_username/:package_channel/:recipe_revision/package/:conan_package_reference/:package_revision/:file_name
+```plaintext
+PUT packages/conan/v1/files/:package_name/:package_version/:package_username/:package_channel/:recipe_revision/package/:conan_package_reference/:package_revision/:file_name
 ```
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 | `recipe_revision`   | string | yes | Revision of the recipe. GitLab does not yet support Conan revisions, so the default value of `0` is always used. |
 | `conan_package_reference` | string | yes | Reference hash of a Conan package. Conan generates this value. |
@@ -571,14 +548,13 @@ GET packages/conan/v1/files/:package_name/:package_version/:package_username/:pa
 Provide the file context in the request body:
 
 ```shell
-curl --header "Authorization: Bearer <authenticate_token>" \
+curl --request PUT \
+     --user <username>:<personal_access_token> \
      --upload-file path/to/conaninfo.txt \
-     "https://gitlab.example.com/api/v4/packages/conan/v1/files/my-package/1.0/my-group+my-project/stable/packages/103f6067a947f366ef91fc1b7da351c588d1827f/0/conaninfo.txt"
+     "https://gitlab.example.com/api/v4/packages/conan/v1/files/my-package/1.0/my-group+my-project/stable/0/package/103f6067a947f366ef91fc1b7da351c588d1827f/0/conaninfo.txt"
 ```
 
 ## Delete a Package (delete a Conan recipe)
-
-> Introduced in GitLab 12.5.
 
 Delete the Conan recipe and package files from the registry:
 
@@ -590,7 +566,7 @@ DELETE <route-prefix>/conans/:package_name/:package_version/:package_username/:p
 | --------- | ---- | -------- | ----------- |
 | `package_name`      | string | yes | Name of a package. |
 | `package_version`   | string | yes | Version of a package. |
-| `package_username`  | string | yes | Conan username of a package. This is the `+`-separated full path of your project. |
+| `package_username`  | string | yes | Conan username of a package. This attribute is the `+`-separated full path of your project. |
 | `package_channel`   | string | yes | Channel of a package. |
 
 ```shell

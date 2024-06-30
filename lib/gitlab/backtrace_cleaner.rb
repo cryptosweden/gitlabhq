@@ -17,7 +17,6 @@ module Gitlab
       lib/gitlab/profiler.rb
       lib/gitlab/query_limiting/
       lib/gitlab/request_context.rb
-      lib/gitlab/request_profiler/
       lib/gitlab/sidekiq_logging/
       lib/gitlab/sidekiq_middleware/
       lib/gitlab/sidekiq_status/
@@ -30,8 +29,14 @@ module Gitlab
     def self.clean_backtrace(backtrace)
       return unless backtrace
 
-      Array(Rails.backtrace_cleaner.clean(backtrace)).reject do |line|
+      Array(backtrace_cleaner.clean(backtrace)).reject do |line|
         IGNORED_BACKTRACES_REGEXP.match?(line)
+      end
+    end
+
+    def self.backtrace_cleaner
+      @backtrace_cleaner ||= Rails.backtrace_cleaner.dup.tap do |cleaner|
+        cleaner.add_silencer { |line| !Gitlab::APP_DIRS_PATTERN.match?(line) }
       end
     end
   end

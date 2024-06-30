@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Jira::Requests::Projects::ListService do
+RSpec.describe Jira::Requests::Projects::ListService, feature_category: :groups_and_projects do
   include AfterNextHelpers
 
   let(:jira_integration) { create(:jira_integration) }
@@ -73,7 +73,7 @@ RSpec.describe Jira::Requests::Projects::ListService do
             payload = subject.payload
 
             expect(subject.success?).to be_truthy
-            expect(payload[:projects].map(&:key)).to eq(%w(pr1 pr2))
+            expect(payload[:projects].map(&:key)).to eq(%w[pr1 pr2])
             expect(payload[:is_last]).to be_truthy
           end
 
@@ -84,7 +84,7 @@ RSpec.describe Jira::Requests::Projects::ListService do
               payload = subject.payload
 
               expect(subject.success?).to be_truthy
-              expect(payload[:projects].map(&:key)).to eq(%w(pr1))
+              expect(payload[:projects].map(&:key)).to eq(%w[pr1])
               expect(payload[:is_last]).to be_truthy
             end
           end

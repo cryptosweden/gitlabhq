@@ -13,13 +13,20 @@ class Snippet < ApplicationRecord
   include Editable
   include Gitlab::SQL::Pattern
   include FromUnion
-  include IgnorableColumns
   include HasRepository
   include CanMoveRepositoryStorage
   include AfterCommitQueue
   extend ::Gitlab::Utils::Override
+  include CreatedAtFilterable
+  include EachBatch
+  include Import::HasImportSource
+  include IgnorableColumns
+
+  ignore_column :imported, remove_with: '17.2', remove_after: '2024-07-22'
 
   MAX_FILE_COUNT = 10
+
+  DESCRIPTION_LENGTH_MAX = 1.megabyte
 
   cache_markdown_field :title, pipeline: :single_line
   cache_markdown_field :description
@@ -40,6 +47,8 @@ class Snippet < ApplicationRecord
 
   belongs_to :author, class_name: 'User'
   belongs_to :project
+  belongs_to :organization, class_name: 'Organizations::Organization'
+  alias_method :resource_parent, :project
 
   has_many :notes, as: :noteable, dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
   has_many :user_mentions, class_name: "SnippetUserMention", dependent: :delete_all # rubocop:disable Cop/ActiveRecordDependent
@@ -55,21 +64,10 @@ class Snippet < ApplicationRecord
   validates :title, presence: true, length: { maximum: 255 }
   validates :file_name,
     length: { maximum: 255 }
+  validates :description, bytesize: { maximum: -> { DESCRIPTION_LENGTH_MAX } }, if: :description_changed?
 
   validates :content, presence: true
-  validates :content,
-            length: {
-              maximum: ->(_) { Gitlab::CurrentSettings.snippet_size_limit },
-              message: -> (_, data) do
-                current_value = ActiveSupport::NumberHelper.number_to_human_size(data[:value].size)
-                max_size = ActiveSupport::NumberHelper.number_to_human_size(Gitlab::CurrentSettings.snippet_size_limit)
-
-                _("is too long (%{current_value}). The maximum size is %{max_size}.") % { current_value: current_value, max_size: max_size }
-              end
-            },
-            if: :content_changed?
-
-  validates :visibility_level, inclusion: { in: Gitlab::VisibilityLevel.values }
+  validates :content, bytesize: { maximum: -> { Gitlab::CurrentSettings.snippet_size_limit } }, if: :content_changed?
 
   after_create :create_statistics
 
@@ -83,7 +81,12 @@ class Snippet < ApplicationRecord
   scope :inc_relations_for_view, -> { includes(author: :status) }
   scope :inc_statistics, -> { includes(:statistics) }
   scope :with_statistics, -> { joins(:statistics) }
+  scope :with_repository_storage_moves, -> { joins(:repository_storage_moves) }
   scope :inc_projects_namespace_route, -> { includes(project: [:route, :namespace]) }
+
+  scope :without_created_by_banned_user, -> do
+    where_not_exists(Users::BannedUser.where('snippets.author_id = banned_users.user_id'))
+  end
 
   attr_mentionable :description
 
@@ -91,11 +94,11 @@ class Snippet < ApplicationRecord
   participant :notes_with_associations
 
   attr_spammable :title, spam_title: true
-  attr_spammable :content, spam_description: true
+  attr_spammable :description, spam_description: true
 
   attr_encrypted :secret_token,
-    key:       Settings.attr_encrypted_db_key_base_truncated,
-    mode:      :per_attribute_iv,
+    key: Settings.attr_encrypted_db_key_base_truncated,
+    mode: :per_attribute_iv,
     algorithm: 'aes-256-cbc'
 
   class << self
@@ -163,7 +166,7 @@ class Snippet < ApplicationRecord
     def for_project_with_user(project, user = nil)
       return none unless project.snippets_visible?(user)
 
-      if user && project.team.member?(user)
+      if project.member?(user)
         project.snippets
       else
         project.snippets.public_to_user(user)
@@ -190,7 +193,7 @@ class Snippet < ApplicationRecord
     end
 
     def link_reference_pattern
-      @link_reference_pattern ||= super("snippets", /(?<snippet>\d+)/)
+      @link_reference_pattern ||= compose_link_reference_pattern('snippets', /(?<snippet>\d+)/)
     end
 
     def find_by_id_and_project(id:, project:)
@@ -210,14 +213,7 @@ class Snippet < ApplicationRecord
   end
 
   def initialize(attributes = {})
-    # We can't use default_value_for because the database has a default
-    # value of 0 for visibility_level. If someone attempts to create a
-    # private snippet, default_value_for will assume that the
-    # visibility_level hasn't changed and will use the application
-    # setting default, which could be internal or public.
-    #
-    # To fix the problem, we assign the actual snippet default if no
-    # explicit visibility has been initialized.
+    # We assign the actual snippet default if no explicit visibility has been initialized.
     attributes ||= {}
 
     unless visibility_attribute_present?(attributes)
@@ -255,7 +251,20 @@ class Snippet < ApplicationRecord
   end
 
   def hook_attrs
-    attributes
+    {
+      id: id,
+      title: title,
+      description: description,
+      content: content,
+      author_id: author_id,
+      project_id: project_id,
+      created_at: created_at,
+      updated_at: updated_at,
+      file_name: file_name,
+      type: type,
+      visibility_level: visibility_level,
+      url: Gitlab::UrlBuilder.build(self)
+    }
   end
 
   def file_name
@@ -274,19 +283,12 @@ class Snippet < ApplicationRecord
     notes.includes(:author)
   end
 
-  def check_for_spam?(user:)
-    visibility_level_changed?(to: Snippet::PUBLIC) ||
-      (public? && (title_changed? || content_changed?))
+  def check_for_spam?(*)
+    visibility_level_changed?(to: Snippet::PUBLIC) || (public? && spammable_attribute_changed?)
   end
 
-  # snippets are the biggest sources of spam
-  override :allow_possible_spam?
-  def allow_possible_spam?
-    false
-  end
-
-  def spammable_entity_type
-    'snippet'
+  def supports_recaptcha?
+    true
   end
 
   def to_ability_name
@@ -363,7 +365,7 @@ class Snippet < ApplicationRecord
   end
 
   def can_cache_field?(field)
-    field != :content || MarkupHelper.gitlab_markdown?(file_name)
+    field != :content || Gitlab::MarkupHelper.gitlab_markdown?(file_name)
   end
 
   def hexdigest
@@ -384,6 +386,10 @@ class Snippet < ApplicationRecord
 
   def multiple_files?
     list_files.size > 1
+  end
+
+  def hidden_due_to_author_ban?
+    Feature.enabled?(:hide_snippets_of_banned_users) && author.banned?
   end
 end
 

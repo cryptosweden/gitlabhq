@@ -11,6 +11,7 @@ export const initSidebar = (store) => {
 
   return new Vue({
     el,
+    name: 'GlobalSearchSidebar',
     store,
     render(createElement) {
       return createElement(GlobalSearchSidebar);

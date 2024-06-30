@@ -5,18 +5,33 @@ class Projects::CycleAnalyticsController < Projects::ApplicationController
   include ActionView::Helpers::TextHelper
   include CycleAnalyticsParams
   include GracefulTimeoutHandling
-  include RedisTracking
+  include ProductAnalyticsTracking
+  include Gitlab::Utils::StrongMemoize
   extend ::Gitlab::Utils::Override
 
   before_action :authorize_read_cycle_analytics!
-  before_action :load_value_stream, only: :show
 
-  track_redis_hll_event :show, name: 'p_analytics_valuestream'
+  track_event :show,
+    name: 'p_analytics_valuestream',
+    action: 'perform_analytics_usage_action',
+    label: 'redis_hll_counters.analytics.analytics_total_unique_counts_monthly',
+    destinations: %i[redis_hll snowplow]
 
-  feature_category :planning_analytics
+  feature_category :team_planning
+  urgency :low
 
   before_action do
-    push_licensed_feature(:cycle_analytics_for_groups) if project.licensed_feature_available?(:cycle_analytics_for_groups)
+    if project.licensed_feature_available?(:cycle_analytics_for_groups)
+      push_licensed_feature(:cycle_analytics_for_groups)
+    end
+
+    if project.licensed_feature_available?(:group_level_analytics_dashboard)
+      push_licensed_feature(:group_level_analytics_dashboard)
+    end
+
+    if project.licensed_feature_available?(:cycle_analytics_for_projects)
+      push_licensed_feature(:cycle_analytics_for_projects)
+    end
   end
 
   def show
@@ -25,7 +40,7 @@ class Projects::CycleAnalyticsController < Projects::ApplicationController
 
     respond_to do |format|
       format.html do
-        Gitlab::UsageDataCounters::CycleAnalyticsCounter.count(:views)
+        Gitlab::InternalEvents.track_event('view_cycle_analytics', project: @project, user: current_user)
 
         render :show
       end
@@ -39,12 +54,13 @@ class Projects::CycleAnalyticsController < Projects::ApplicationController
 
   override :all_cycle_analytics_params
   def all_cycle_analytics_params
-    super.merge({ project: @project, value_stream: @value_stream })
+    super.merge({ value_stream: value_stream })
   end
 
-  def load_value_stream
-    @value_stream = Analytics::CycleAnalytics::ProjectValueStream.build_default_value_stream(@project)
+  def value_stream
+    Analytics::CycleAnalytics::ValueStream.build_default_value_stream(namespace)
   end
+  strong_memoize_attr :value_stream
 
   def cycle_analytics_json
     {
@@ -53,4 +69,18 @@ class Projects::CycleAnalyticsController < Projects::ApplicationController
       permissions: @cycle_analytics.permissions(user: current_user)
     }
   end
+
+  def namespace
+    @project.project_namespace
+  end
+
+  def tracking_namespace_source
+    project.namespace
+  end
+
+  def tracking_project_source
+    project
+  end
 end
+
+Projects::CycleAnalyticsController.prepend_mod

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ContainerRegistry::Tag do
+RSpec.describe ContainerRegistry::Tag, feature_category: :container_registry do
   let(:group) { create(:group, name: 'group') }
   let(:project) { create(:project, path: 'test', group: group) }
 
@@ -23,6 +23,7 @@ RSpec.describe ContainerRegistry::Tag do
   end
 
   it { expect(tag).to respond_to(:repository) }
+  it { expect(tag).to respond_to(:media_type) }
   it { expect(tag).to delegate_method(:registry).to(:repository) }
   it { expect(tag).to delegate_method(:client).to(:repository) }
 
@@ -71,6 +72,120 @@ RSpec.describe ContainerRegistry::Tag do
         expect(tag).not_to receive(:config)
 
         expect(subject).to eq(value)
+      end
+    end
+
+    describe '#total_size' do
+      context 'when total_size is set' do
+        before do
+          tag.total_size = 1000
+        end
+
+        it 'returns the set size' do
+          expect(tag.total_size).to eq(1000)
+        end
+      end
+    end
+
+    describe '#revision' do
+      context 'when revision is set' do
+        before do
+          tag.revision = 'xyz789'
+        end
+
+        it 'returns the set revision' do
+          expect(tag.revision).to eq('xyz789')
+        end
+      end
+
+      context 'when revision is not set' do
+        context 'when config_blob is not nil' do
+          let(:blob) { ContainerRegistry::Blob.new(repository, {}) }
+
+          before do
+            allow(tag).to receive(:config_blob).and_return(blob)
+            allow(blob).to receive(:revision).and_return('abc123')
+          end
+
+          it 'returns the revision from config_blob' do
+            expect(tag.revision).to eq('abc123')
+          end
+        end
+
+        context 'when config_blob is nil' do
+          before do
+            allow(tag).to receive(:config_blob).and_return(nil)
+          end
+
+          it 'returns nil' do
+            expect(tag.revision).to be_nil
+          end
+        end
+      end
+    end
+
+    describe '#short_revision' do
+      context 'when revision is not nil' do
+        before do
+          allow(tag).to receive(:revision).and_return('abcdef1234567890')
+        end
+
+        it 'returns the first 9 characters of the revision' do
+          expect(tag.short_revision).to eq('abcdef123')
+        end
+      end
+
+      context 'when revision is nil' do
+        before do
+          allow(tag).to receive(:revision).and_return(nil)
+        end
+
+        it 'returns nil' do
+          expect(tag.short_revision).to be_nil
+        end
+      end
+    end
+
+    describe 'valid?' do
+      shared_examples 'checking for the manifest' do
+        context 'when manifest is present' do
+          before do
+            allow(tag).to receive(:manifest).and_return('manifest')
+          end
+
+          it 'returns true' do
+            expect(tag.valid?).to eq(true)
+          end
+        end
+
+        context 'when manifest is not present' do
+          it 'returns false' do
+            expect(tag.valid?).to eq(false)
+          end
+        end
+      end
+
+      before do
+        allow(tag).to receive(:manifest)
+      end
+
+      context 'when tag is instantiated with from_api: true' do
+        let(:tag) { described_class.new(repository, 'tag', from_api: true) }
+
+        it 'returns true' do
+          expect(tag.valid?).to eq(true)
+          expect(tag).not_to have_received(:manifest)
+        end
+      end
+
+      context 'when tag is instantiated with from_api: false' do
+        let(:tag) { described_class.new(repository, 'tag', from_api: false) }
+
+        it_behaves_like 'checking for the manifest'
+      end
+
+      context 'when tag is not instantiated from_api' do
+        it_behaves_like 'checking for the manifest'
       end
     end
 
@@ -205,6 +320,91 @@ RSpec.describe ContainerRegistry::Tag do
 
           it_behaves_like 'a processable'
         end
+
+        describe '#force_created_at_from_iso8601' do
+          subject { tag.force_created_at_from_iso8601(input) }
+
+          shared_examples 'setting and caching the created_at value' do
+            it 'sets and caches the created_at value' do
+              expect(tag).not_to receive(:config)
+
+              subject
+
+              expect(tag.created_at).to eq(expected_value)
+            end
+          end
+
+          context 'with a valid input' do
+            let(:input) { 2.days.ago.iso8601 }
+            let(:expected_value) { DateTime.iso8601(input) }
+
+            it_behaves_like 'setting and caching the created_at value'
+          end
+
+          context 'with a nil input' do
+            let(:input) { nil }
+            let(:expected_value) { nil }
+
+            it_behaves_like 'setting and caching the created_at value'
+          end
+
+          context 'with an invalid input' do
+            let(:input) { 'not a timestamp' }
+            let(:expected_value) { nil }
+
+            it_behaves_like 'setting and caching the created_at value'
+          end
+        end
+
+        describe 'updated_at=' do
+          subject do
+            tag.updated_at = input
+            tag.updated_at
+          end
+
+          context 'with a valid input' do
+            let(:input) { 2.days.ago.iso8601 }
+
+            it { is_expected.to eq(DateTime.iso8601(input)) }
+          end
+
+          context 'with a nil input' do
+            let(:input) { nil }
+
+            it { is_expected.to eq(nil) }
+          end
+
+          context 'with an invalid input' do
+            let(:input) { 'not a timestamp' }
+
+            it { is_expected.to eq(nil) }
+          end
+        end
+
+        describe 'published_at=' do
+          subject do
+            tag.published_at = input
+            tag.published_at
+          end
+
+          context 'with a valid input' do
+            let(:input) { 2.days.ago.iso8601 }
+
+            it { is_expected.to eq(DateTime.iso8601(input)) }
+          end
+
+          context 'with a nil input' do
+            let(:input) { nil }
+
+            it { is_expected.to eq(nil) }
+          end
+
+          context 'with an invalid input' do
+            let(:input) { 'not a timestamp' }
+
+            it { is_expected.to eq(nil) }
+          end
+        end
       end
     end
   end
@@ -217,6 +417,16 @@ RSpec.describe ContainerRegistry::Tag do
     end
 
     describe '#digest' do
+      context 'when manifest_digest is set' do
+        before do
+          tag.manifest_digest = 'sha256:manifestdigest'
+        end
+
+        it 'returns the set manifest_digest' do
+          expect(tag.digest).to eq('sha256:manifestdigest')
+        end
+      end
+
       it 'returns a correct tag digest' do
         expect(tag.digest).to eq 'sha256:digest'
       end

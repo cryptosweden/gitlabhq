@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Resolvers::Projects::JiraProjectsResolver do
+RSpec.describe Resolvers::Projects::JiraProjectsResolver, feature_category: :integrations do
   include GraphqlHelpers
 
   specify do
@@ -60,9 +60,9 @@ RSpec.describe Resolvers::Projects::JiraProjectsResolver do
             project_ids = jira_projects.map(&:id)
 
             expect(jira_projects.size).to eq 2
-            expect(project_keys).to eq(%w(EX ABC))
-            expect(project_names).to eq(%w(Example Alphabetical))
-            expect(project_ids).to eq(%w(10000 10001))
+            expect(project_keys).to eq(%w[EX ABC])
+            expect(project_names).to eq(%w[Example Alphabetical])
+            expect(project_ids).to eq(%w[10000 10001])
             expect(resolver.max_page_size).to eq(2)
           end
 
@@ -75,9 +75,9 @@ RSpec.describe Resolvers::Projects::JiraProjectsResolver do
               project_ids = jira_projects.map(&:id)
 
               expect(jira_projects.size).to eq 1
-              expect(project_keys).to eq(%w(ABC))
-              expect(project_names).to eq(%w(Alphabetical))
-              expect(project_ids).to eq(%w(10001))
+              expect(project_keys).to eq(%w[ABC])
+              expect(project_names).to eq(%w[Alphabetical])
+              expect(project_ids).to eq(%w[10001])
               expect(resolver.max_page_size).to eq(1)
             end
           end
@@ -86,7 +86,7 @@ RSpec.describe Resolvers::Projects::JiraProjectsResolver do
         context 'when Jira connection is not valid' do
           before do
             WebMock.stub_request(:get, 'https://jira.example.com/rest/api/2/project')
-              .to_raise(JIRA::HTTPError.new(double(message: '{"errorMessages":["Some failure"]}')))
+              .to_raise(JIRA::HTTPError.new(double(message: 'Bad Request', body: '{"errorMessages":["Some failure."]}')))
           end
 
           it 'generates a failure error' do

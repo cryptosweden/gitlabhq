@@ -1,14 +1,21 @@
+<!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlTooltip, GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+import { GlTooltip } from '@gitlab/ui';
 import { uniqueId } from 'lodash';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 
 const getTooltipTitle = (element) => {
   return element.getAttribute('title') || element.dataset.title;
 };
 
+const getTooltipCustomClass = (element) => {
+  return element.dataset.tooltipCustomClass;
+};
+
 const newTooltip = (element, config = {}) => {
   const { placement, container, boundary, html, triggers } = element.dataset;
   const title = getTooltipTitle(element);
+  const customClass = getTooltipCustomClass(element);
 
   return {
     id: uniqueId('gl-tooltip'),
@@ -20,6 +27,7 @@ const newTooltip = (element, config = {}) => {
     boundary,
     triggers,
     disabled: !title,
+    customClass,
     ...config,
   };
 };
@@ -114,6 +122,7 @@ export default {
       :boundary="tooltip.boundary"
       :disabled="tooltip.disabled"
       :show="tooltip.show"
+      :custom-class="tooltip.customClass"
       @hidden="$emit('hidden', tooltip)"
     >
       <span v-if="tooltip.html" v-safe-html:[$options.safeHtmlConfig]="tooltip.title"></span>

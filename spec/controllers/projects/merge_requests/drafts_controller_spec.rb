@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Projects::MergeRequests::DraftsController do
+RSpec.describe Projects::MergeRequests::DraftsController, feature_category: :code_review_workflow do
   include RepoHelpers
 
-  let(:project)       { create(:project, :repository) }
-  let(:merge_request) { create(:merge_request_with_diffs, target_project: project, source_project: project) }
-  let(:user)          { project.first_owner }
-  let(:user2)         { create(:user) }
+  let_it_be(:project) { create(:project, :repository) }
+  let_it_be_with_reload(:merge_request) { create(:merge_request_with_diffs, target_project: project, source_project: project, author: create(:user)) }
+  let(:user) { project.first_owner }
+  let_it_be(:user2) { create(:user) }
 
   let(:params) do
     {
@@ -18,6 +18,8 @@ RSpec.describe Projects::MergeRequests::DraftsController do
   end
 
   before do
+    create(:merge_request_reviewer, merge_request: merge_request, reviewer: user)
+
     sign_in(user)
     stub_licensed_features(multiple_merge_request_assignees: true)
     stub_commonmark_sourcepos_disabled
@@ -54,13 +56,21 @@ RSpec.describe Projects::MergeRequests::DraftsController do
       end
 
       it 'does not allow draft note creation' do
-        expect { create_draft_note }.to change { DraftNote.count }.by(0)
+        expect { create_draft_note }.not_to change { DraftNote.count }
         expect(response).to have_gitlab_http_status(:not_found)
       end
     end
 
     it 'creates a draft note' do
       expect { create_draft_note }.to change { DraftNote.count }.by(1)
+    end
+
+    it 'creates an internal draft note' do
+      create_draft_note(draft_overrides: { internal: true })
+
+      draft_note = DraftNote.find_by(author: user)
+
+      expect(draft_note.internal).to eq(true)
     end
 
     it 'creates draft note with position' do
@@ -85,6 +95,7 @@ RSpec.describe Projects::MergeRequests::DraftsController do
     end
 
     it 'creates a draft note with quick actions' do
+      stub_commonmark_sourcepos_enabled
       create_draft_note(draft_overrides: { note: "#{user2.to_reference}\n/assign #{user.to_reference}" })
 
       expect(response).to have_gitlab_http_status(:ok)
@@ -172,6 +183,43 @@ RSpec.describe Projects::MergeRequests::DraftsController do
         end
       end
     end
+
+    context 'when the draft note is invalid' do
+      let_it_be(:draft_note) { DraftNote.new }
+
+      before do
+        errors = ActiveModel::Errors.new(draft_note)
+        errors.add(:base, 'Error 1')
+        errors.add(:base, 'Error 2')
+
+        allow(draft_note).to receive(:errors).and_return(errors)
+
+        allow_next_instance_of(DraftNotes::CreateService) do |service|
+          allow(service).to receive(:execute).and_return(draft_note)
+        end
+      end
+
+      it 'does not allow draft note creation' do
+        expect { create_draft_note }.not_to change { DraftNote.count }
+      end
+
+      it "returns status 422", :aggregate_failures do
+        create_draft_note
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+        expect(response.body).to eq('{"errors":"Error 1 and Error 2"}')
+      end
+    end
+
+    context 'when type is present in draft note params' do
+      it 'assign note_type to draft note' do
+        create_draft_note(draft_overrides: { type: 'DiscussionNote' })
+
+        draft_note = DraftNote.find_by(author: user)
+
+        expect(draft_note.note_type).to eq('DiscussionNote')
+      end
+    end
   end
 
   describe 'PUT #update' do
@@ -189,9 +237,12 @@ RSpec.describe Projects::MergeRequests::DraftsController do
     end
 
     context 'without permissions' do
+      before_all do
+        project.add_developer(user2)
+      end
+
       before do
         sign_in(user2)
-        project.add_developer(user2)
       end
 
       it 'does not allow editing draft note belonging to someone else' do
@@ -212,6 +263,30 @@ RSpec.describe Projects::MergeRequests::DraftsController do
       expect(draft.note).to eq('This is an updated unpublished comment')
       expect(json_response['note_html']).not_to be_empty
     end
+
+    context 'when the draft note is invalid' do
+      before do
+        errors = ActiveModel::Errors.new(draft)
+        errors.add(:base, 'Error 1')
+        errors.add(:base, 'Error 2')
+
+        allow_next_found_instance_of(DraftNote) do |instance|
+          allow(instance).to receive(:update).and_return(false)
+          allow(instance).to receive(:errors).and_return(errors)
+        end
+      end
+
+      it 'does not update the draft' do
+        expect { update_draft_note }.not_to change { draft.reload.note }
+      end
+
+      it 'returns status 422', :aggregate_failures do
+        update_draft_note
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+        expect(response.body).to eq('{"errors":"Error 1 and Error 2"}')
+      end
+    end
   end
 
   describe 'POST #publish' do
@@ -231,7 +306,7 @@ RSpec.describe Projects::MergeRequests::DraftsController do
       end
 
       context 'when note belongs to someone else' do
-        before do
+        before_all do
           project.add_developer(user2)
         end
 
@@ -298,9 +373,9 @@ RSpec.describe Projects::MergeRequests::DraftsController do
     end
 
     it 'publishes a draft note with quick actions and applies them', :sidekiq_inline do
+      stub_commonmark_sourcepos_enabled
       project.add_developer(user2)
-      create(:draft_note, merge_request: merge_request, author: user,
-                          note: "/assign #{user2.to_reference}")
+      create(:draft_note, merge_request: merge_request, author: user, note: "/assign #{user2.to_reference}")
 
       expect(merge_request.assignees).to be_empty
 
@@ -350,12 +425,13 @@ RSpec.describe Projects::MergeRequests::DraftsController do
       let(:note) { create(:discussion_note_on_merge_request, noteable: merge_request, project: project) }
 
       def create_reply(discussion_id, resolves: false)
-        create(:draft_note,
-               merge_request: merge_request,
-               author: user,
-               discussion_id: discussion_id,
-               resolve_discussion: resolves
-              )
+        create(
+          :draft_note,
+          merge_request: merge_request,
+          author: user,
+          discussion_id: discussion_id,
+          resolve_discussion: resolves
+        )
       end
 
       it 'resolves a thread if the draft note resolves it' do
@@ -385,6 +461,95 @@ RSpec.describe Projects::MergeRequests::DraftsController do
         expect(discussion.resolved?).to eq(false)
       end
     end
+
+    context 'publish with note' do
+      before do
+        allow(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+            .to receive(:track_submit_review_comment)
+
+        create(:draft_note, merge_request: merge_request, author: user)
+      end
+
+      it 'creates note' do
+        post :publish, params: params.merge!(note: 'Hello world')
+
+        expect(merge_request.notes.reload.size).to be(2)
+      end
+
+      it 'does not create note when note param is empty' do
+        post :publish, params: params.merge!(note: '')
+
+        expect(merge_request.notes.reload.size).to be(1)
+      end
+
+      it 'tracks merge request activity' do
+        post :publish, params: params.merge!(note: 'Hello world')
+
+        expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+          .to have_received(:track_submit_review_comment).with(user: user)
+      end
+    end
+
+    context 'reviewer state' do
+      before do
+        create(:draft_note, merge_request: merge_request, author: user)
+      end
+
+      it 'updates reviewers state' do
+        post :publish, params: params.merge!(reviewer_state: 'requested_changes')
+
+        expect(merge_request.merge_request_reviewers.reload[0].state).to eq('requested_changes')
+      end
+
+      it 'approves merge request' do
+        post :publish, params: params.merge!(reviewer_state: 'approved')
+
+        expect(merge_request.approvals.reload.size).to eq(1)
+      end
+    end
+
+    context 'approve merge request' do
+      before do
+        allow(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+          .to receive(:track_submit_review_approve)
+
+        create(:draft_note, merge_request: merge_request, author: user)
+      end
+
+      it 'approves merge request' do
+        post :publish, params: params.merge!(reviewer_state: 'approved')
+
+        expect(merge_request.approvals.reload.size).to be(1)
+      end
+
+      it 'does not approve merge request' do
+        post :publish, params: params.merge!(reviewer_state: 'reviewed')
+
+        expect(merge_request.approvals.reload.size).to be(0)
+      end
+
+      it 'tracks merge request activity' do
+        post :publish, params: params.merge!(reviewer_state: 'approved')
+
+        expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+          .to have_received(:track_submit_review_approve).with(user: user)
+      end
+
+      context 'when merge request is already approved by user' do
+        before do
+          create(:approval, merge_request: merge_request, user: user)
+        end
+
+        it 'does return 200' do
+          post :publish, params: params.merge!(reviewer_state: 'approved')
+
+          expect(response).to have_gitlab_http_status(:ok)
+
+          expect(Gitlab::UsageDataCounters::MergeRequestActivityUniqueCounter)
+            .to have_received(:track_submit_review_approve).with(user: user)
+        end
+      end
+    end
   end
 
   describe 'DELETE #destroy' do
@@ -395,9 +560,12 @@ RSpec.describe Projects::MergeRequests::DraftsController do
     end
 
     context 'without permissions' do
+      before_all do
+        project.add_developer(user2)
+      end
+
       before do
         sign_in(user2)
-        project.add_developer(user2)
       end
 
       it 'does not allow destroying a draft note belonging to someone else' do
@@ -440,9 +608,12 @@ RSpec.describe Projects::MergeRequests::DraftsController do
     end
 
     context 'without permissions' do
+      before_all do
+        project.add_developer(user2)
+      end
+
       before do
         sign_in(user2)
-        project.add_developer(user2)
       end
 
       it 'does not destroys a draft note belonging to someone else' do

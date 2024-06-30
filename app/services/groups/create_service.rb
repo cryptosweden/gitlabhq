@@ -6,75 +6,99 @@ module Groups
       @current_user = user
       @params = params.dup
       @chat_team = @params.delete(:create_chat_team)
-      @create_event = @params.delete(:create_event)
     end
 
     def execute
-      remove_unallowed_params
-      set_visibility_level
+      build_group
+      after_build_hook
 
-      @group = Group.new(params.except(*::NamespaceSetting::NAMESPACE_SETTINGS_PARAMS))
-
-      @group.build_namespace_settings
-      handle_namespace_settings
-
-      after_build_hook(@group, params)
-
-      inherit_group_shared_runners_settings
-
-      unless can_use_visibility_level? && can_create_group?
-        return @group
-      end
+      return error_response unless valid?
 
       @group.name ||= @group.path.dup
 
-      if create_chat_team?
-        response = ::Mattermost::CreateTeamService.new(@group, current_user).execute
-        return @group if @group.errors.any?
+      create_chat_team
+      create_group
 
-        @group.build_chat_team(name: response['name'], team_id: response['id'])
-      end
+      return error_response unless @group.persisted?
 
-      Group.transaction do
-        if @group.save
-          @group.add_owner(current_user)
-          Integration.create_from_active_default_integrations(@group, :group_id)
-          OnboardingProgress.onboard(@group)
-        end
-      end
+      after_successful_creation_hook
 
-      after_create_hook
-
-      @group
+      ServiceResponse.success(payload: { group: @group })
     end
 
     private
 
-    attr_reader :create_event
+    def valid?
+      valid_visibility_level? && valid_user_permissions?
+    end
 
-    def after_build_hook(group, params)
+    def error_response
+      ServiceResponse.error(message: 'Group has errors', payload: { group: @group })
+    end
+
+    def create_chat_team
+      return unless valid_to_create_chat_team?
+
+      response = ::Mattermost::CreateTeamService.new(@group, current_user).execute
+      return ServiceResponse.error(message: 'Group has errors', payload: { group: @group }) if @group.errors.any?
+
+      @group.build_chat_team(name: response['name'], team_id: response['id'])
+    end
+
+    def build_group
+      remove_unallowed_params
+
+      set_visibility_level
+
+      except_keys = ::NamespaceSetting.allowed_namespace_settings_params + [:organization_id]
+      @group = Group.new(params.except(*except_keys))
+
+      set_organization
+
+      @group.build_namespace_settings
+      handle_namespace_settings
+    end
+
+    def create_group
+      Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModification.temporary_ignore_tables_in_transaction(
+        %w[routes redirect_routes], url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/424281'
+      ) do
+        Group.transaction do
+          if @group.save
+            @group.add_owner(current_user)
+            @group.add_creator(current_user)
+            Integration.create_from_default_integrations(@group, :group_id)
+          end
+        end
+      end
+    end
+
+    def after_build_hook
+      inherit_group_shared_runners_settings
+    end
+
+    def after_successful_creation_hook
       # overridden in EE
     end
 
-    def after_create_hook
-      if group.persisted? && group.root?
-        delay = Namespaces::InviteTeamEmailService::DELIVERY_DELAY_IN_MINUTES
-        Namespaces::InviteTeamEmailWorker.perform_in(delay, group.id, current_user.id)
+    def remove_unallowed_params
+      unless can?(current_user, :create_group_with_default_branch_protection)
+        params.delete(:default_branch_protection)
+        params.delete(:default_branch_protection_defaults)
       end
 
-      track_experiment_event
-    end
-
-    def remove_unallowed_params
-      params.delete(:default_branch_protection) unless can?(current_user, :create_group_with_default_branch_protection)
       params.delete(:allow_mfa_for_subgroups)
+      params.delete(:remove_dormant_members)
+      params.delete(:remove_dormant_members_period)
+      params.delete(:math_rendering_limits_enabled)
+      params.delete(:lock_math_rendering_limits_enabled)
     end
 
-    def create_chat_team?
-      Gitlab.config.mattermost.enabled && @chat_team && group.chat_team.nil?
+    def valid_to_create_chat_team?
+      Gitlab.config.mattermost.enabled && @chat_team && @group.chat_team.nil?
     end
 
-    def can_create_group?
+    def valid_user_permissions?
       if @group.subgroup?
         unless can?(current_user, :create_subgroup, @group.parent)
           @group.parent = nil
@@ -90,16 +114,57 @@ module Groups
         end
       end
 
-      true
+      return true if organization_setting_valid?
+
+      # We are unsetting this here to match behavior of invalid parent_id above and protect against possible
+      # committing to the database of a value that isn't allowed.
+      @group.organization = nil
+
+      false
     end
 
-    def can_use_visibility_level?
-      unless Gitlab::VisibilityLevel.allowed_for?(current_user, visibility_level)
-        deny_visibility_level(@group)
-        return false
-      end
+    def can_create_group_in_organization?
+      return true if can?(current_user, :create_group, @group.organization)
 
-      true
+      message = s_("CreateGroup|You don't have permission to create a group in the provided organization.")
+      @group.errors.add(:organization_id, message)
+
+      false
+    end
+
+    def matches_parent_organization?
+      return true if @group.parent_id.blank?
+      return true if @group.parent.organization_id == @group.organization_id
+
+      message = s_("CreateGroup|You can't create a group in a different organization than the parent group.")
+      @group.errors.add(:organization_id, message)
+
+      false
+    end
+
+    def organization_setting_valid?
+      # we check for the params presence explicitly since:
+      # 1. We have a default organization_id at db level set and organization exists and may not have the entry
+      #    in organization_users table to allow authorization. This shouldn't be the case longterm as we
+      #    plan on populating organization_users correctly.
+      # 2. We shouldn't need to check if this is allowed if the user didn't try to set it themselves. i.e.
+      #    provided in the params
+      return true if params[:organization_id].blank?
+      # There is a chance the organization is still blank(if not default organization), but that is the only case
+      # where we should allow this to not actually be a record in the database.
+      # Otherwise it isn't valid to set this to a non-existent record id and we'll check that in the lines after
+      # this code.
+      return true if @group.organization.blank? && Organizations::Organization.default?(params[:organization_id])
+
+      can_create_group_in_organization? && matches_parent_organization?
+    end
+
+    def valid_visibility_level?
+      return true if Gitlab::VisibilityLevel.allowed_for?(current_user, visibility_level)
+
+      deny_visibility_level(@group)
+
+      false
     end
 
     def set_visibility_level
@@ -115,13 +180,12 @@ module Groups
       @group.allow_descendants_override_disabled_shared_runners = @group.parent.allow_descendants_override_disabled_shared_runners
     end
 
-    def track_experiment_event
-      return unless group.persisted?
-
-      # Track namespace created events to relate them with signed up events for
-      # the same experiment.  This will let us associate created namespaces to
-      # users that signed up from the experimental logged out header.
-      experiment(:logged_out_marketing_header, actor: current_user).track(:namespace_created, namespace: group)
+    def set_organization
+      if params[:organization_id]
+        @group.organization_id = params[:organization_id]
+      elsif @group.parent_id
+        @group.organization = @group.parent.organization
+      end
     end
   end
 end

@@ -1,8 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: reference
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # Testing Rails migrations at GitLab
@@ -17,12 +16,19 @@ a database schema.
 - If your migration is a data migration then it **must** have a migration test.
 - Other migrations may have a migration test if necessary.
 
+We don't enforce tests on post migrations that only perform schema changes.
+
 ## How does it work?
 
-Adding a `:migration` tag to a test signature enables some custom RSpec
+All specs in `(ee/)spec/migrations/` and `spec/lib/(ee/)background_migrations` are automatically
+tagged with the `:migration` RSpec tag. This tag enables some custom RSpec
 `before` and `after` hooks in our
 [`spec/support/migration.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/f81fa6ab1dd788b70ef44b85aaba1f31ffafae7d/spec/support/migration.rb)
-to run.
+to run. If performing a migration against a database schema other than
+`:gitlab_main` (for example `:gitlab_ci`), then you must explicitly specify it
+with an RSpec tag like: `migration: :gitlab_ci`. See
+[spec/migrations/change_public_projects_cost_factor_spec.rb](https://gitlab.com/gitlab-org/gitlab/blob/master/spec/migrations/change_public_projects_cost_factor_spec.rb#L6-6)
+for an example.
 
 A `before` hook reverts all migrations to the point that a migration
 under test is not yet migrated.
@@ -61,7 +67,7 @@ Since the migration files are not autoloaded by Rails, you must manually
 load the migration file. To do so, you can use the `require_migration!` helper method
 which can automatically load the correct migration file based on the spec filename.
 
-In GitLab 14.4 and later, you can use `require_migration!` to load migration files from spec files
+You can use `require_migration!` to load migration files from spec files
 that contain the schema version in the filename (for example,
 `2021101412150000_populate_foo_column_spec.rb`).
 
@@ -77,8 +83,7 @@ end
 ```
 
 In some cases, you must require multiple migration files to use them in your specs. Here, there's no
-pattern between your spec file and the other migration file. You can provide the migration filename
-like so:
+pattern between your spec file and the other migration file. You can provide the migration filename like so:
 
 ```ruby
 # frozen_string_literal: true
@@ -101,7 +106,7 @@ application code which can change after the migration has run, and cause the tes
 to fail. For example, to create a record in the `projects` table:
 
 ```ruby
-project = table(:projects).create!(id: 1, name: 'gitlab1', path: 'gitlab1')
+project = table(:projects).create!(name: 'gitlab1', path: 'gitlab1')
 ```
 
 #### `migrate!`
@@ -227,6 +232,18 @@ expect('MigrationClass').to have_scheduled_batched_migration(
 )
 ```
 
+#### `be_finalize_background_migration_of`
+
+Verifies that a migration calls `finalize_background_migration` with the expected background migration class.
+
+```ruby
+# Migration
+finalize_background_migration('MigrationClass')
+
+# Spec
+expect(described_class).to be_finalize_background_migration_of('MigrationClass')
+```
+
 ### Examples of migration tests
 
 Migration tests depend on what the migration does exactly, the most common types are data migrations and scheduling background migrations.
@@ -275,7 +292,7 @@ RSpec.describe MigrateIncidentIssuesToIncidentType do
         .from(issue_type)
         .to(incident_type)
 
-      expect(other_issue.reload.issue_type).to eql(issue_type)
+      expect(other_issue.reload.issue_type).to eq(issue_type)
     end
   end
 
@@ -305,8 +322,8 @@ To test these you usually have to:
 - Verify that the expected jobs were scheduled, with the correct set
   of records, the correct batch size, interval, etc.
 
-The behavior of the background migration itself needs to be verified in a [separate
-test for the background migration class](#example-background-migration-test).
+The behavior of the background migration itself needs to be verified in a
+[separate test for the background migration class](#example-background-migration-test).
 
 This spec tests the
 [`db/post_migrate/20210701111909_backfill_issues_upvotes_count.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/v14.1.0-ee/db/post_migrate/20210701111909_backfill_issues_upvotes_count.rb)
@@ -352,7 +369,7 @@ end
 ## Testing a non-`ActiveRecord::Migration` class
 
 To test a non-`ActiveRecord::Migration` test (a background migration),
-you must manually provide a required schema version. Please add a
+you must manually provide a required schema version. Add a
 `schema` tag to a context that you want to switch the database schema within.
 
 If not set, `schema` defaults to `:latest`.

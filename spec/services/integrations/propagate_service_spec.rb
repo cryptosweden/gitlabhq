@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::PropagateService do
-  describe '.propagate' do
-    include JiraServiceHelper
+RSpec.describe Integrations::PropagateService, feature_category: :integrations do
+  describe '#execute' do
+    include JiraIntegrationHelpers
 
     before do
       stub_jira_integration_test
@@ -30,7 +30,7 @@ RSpec.describe Integrations::PropagateService do
         expect(PropagateIntegrationInheritWorker).to receive(:perform_async)
           .with(instance_integration.id, inherited_integration.id, inherited_integration.id)
 
-        described_class.propagate(instance_integration)
+        described_class.new(instance_integration).execute
       end
     end
 
@@ -41,7 +41,7 @@ RSpec.describe Integrations::PropagateService do
         expect(PropagateIntegrationProjectWorker).to receive(:perform_async)
           .with(instance_integration.id, another_project.id, another_project.id)
 
-        described_class.propagate(instance_integration)
+        described_class.new(instance_integration).execute
       end
     end
 
@@ -50,7 +50,7 @@ RSpec.describe Integrations::PropagateService do
         expect(PropagateIntegrationGroupWorker).to receive(:perform_async)
           .with(instance_integration.id, group.id, group.id)
 
-        described_class.propagate(instance_integration)
+        described_class.new(instance_integration).execute
       end
     end
 
@@ -64,7 +64,7 @@ RSpec.describe Integrations::PropagateService do
           expect(PropagateIntegrationProjectWorker).to receive(:perform_async)
             .with(group_integration.id, another_project.id, another_project.id)
 
-          described_class.propagate(group_integration)
+          described_class.new(group_integration).execute
         end
       end
 
@@ -75,7 +75,28 @@ RSpec.describe Integrations::PropagateService do
           expect(PropagateIntegrationGroupWorker).to receive(:perform_async)
             .with(group_integration.id, subgroup.id, subgroup.id)
 
-          described_class.propagate(group_integration)
+          described_class.new(group_integration).execute
+        end
+      end
+
+      context 'and the integration is instance specific' do
+        let(:group_integration) { create(:beyond_identity_integration, :group, group: group, instance: false) }
+
+        context 'with a subgroup with integration' do
+          let(:subgroup) { create(:group, parent: group) }
+          let(:subgroup_integration) do
+            create(:beyond_identity_integration, :group,
+              group: subgroup,
+              inherit_from_id: group_integration.id,
+              instance: false)
+          end
+
+          it 'calls to PropagateIntegrationInheritDescendantWorker' do
+            expect(Integrations::PropagateIntegrationDescendantWorker).to receive(:perform_async)
+              .with(group_integration.id, subgroup_integration.id, subgroup_integration.id)
+
+            described_class.new(group_integration).execute
+          end
         end
       end
 
@@ -87,7 +108,7 @@ RSpec.describe Integrations::PropagateService do
           expect(PropagateIntegrationInheritDescendantWorker).to receive(:perform_async)
             .with(group_integration.id, subgroup_integration.id, subgroup_integration.id)
 
-          described_class.propagate(group_integration)
+          described_class.new(group_integration).execute
         end
       end
     end

@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User edits snippet', :js do
+RSpec.describe 'User edits snippet', :js, feature_category: :source_code_management do
   include DropzoneHelper
-  include Spec::Support::Helpers::Features::SnippetSpecHelpers
+  include Features::SnippetSpecHelpers
 
   let_it_be(:file_name) { 'test.rb' }
   let_it_be(:content) { 'puts "test"' }
@@ -81,7 +81,7 @@ RSpec.describe 'User edits snippet', :js do
 
     it 'renders edit page and displays the error' do
       expect(page.find('.flash-container')).to have_content('Error updating the snippet - Error Message')
-      expect(page).to have_content('Edit Snippet')
+      expect(page).to have_content('Edit snippet')
     end
   end
 end

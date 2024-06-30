@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Issues::AfterCreateService do
+RSpec.describe Issues::AfterCreateService, feature_category: :team_planning do
   include AfterNextHelpers
 
   let_it_be(:project) { create(:project) }
@@ -11,7 +11,7 @@ RSpec.describe Issues::AfterCreateService do
   let_it_be(:milestone) { create(:milestone, project: project) }
   let_it_be(:issue) { create(:issue, project: project, author: current_user, milestone: milestone, assignee_ids: [assignee.id]) }
 
-  subject(:after_create_service) { described_class.new(project: project, current_user: current_user) }
+  subject(:after_create_service) { described_class.new(container: project, current_user: current_user) }
 
   describe '#execute' do
     it 'creates a pending todo for new assignee' do
@@ -26,13 +26,6 @@ RSpec.describe Issues::AfterCreateService do
       }
 
       expect { after_create_service.execute(issue) }.to change { Todo.where(attributes).count }.by(1)
-    end
-
-    it 'deletes milestone issues count cache' do
-      expect_next(Milestones::IssuesCountService, milestone)
-        .to receive(:delete_cache).and_call_original
-
-      after_create_service.execute(issue)
     end
 
     context 'with a regular issue' do

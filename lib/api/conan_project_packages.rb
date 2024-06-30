@@ -3,8 +3,14 @@
 # Conan Project-Level Package Manager Client API
 module API
   class ConanProjectPackages < ::API::Base
+    helpers do
+      def search_project
+        project
+      end
+    end
+
     params do
-      requires :id, type: Integer, desc: 'The ID of a project', regexp: %r{\A[1-9]\d*\z}
+      requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
     end
 
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do

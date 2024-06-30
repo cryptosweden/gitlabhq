@@ -2,25 +2,27 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PipelineEntity do
+RSpec.describe Ci::PipelineEntity, feature_category: :continuous_integration do
   include Gitlab::Routing
 
   let_it_be(:project) { create(:project) }
   let_it_be(:user) { create(:user) }
 
   let(:request) { double('request', current_user: user) }
-  let(:entity) { described_class.represent(pipeline, request: request) }
+  let(:options) { {} }
+  let(:entity) { described_class.represent(pipeline, request: request, **options) }
 
   describe '#as_json' do
     subject { entity.as_json }
 
     context 'when pipeline is empty' do
-      let(:pipeline) { create(:ci_empty_pipeline) }
+      let(:pipeline) { create(:ci_empty_pipeline, name: 'Build pipeline') }
 
       it 'contains required fields' do
         expect(subject).to include :id, :iid, :user, :path, :coverage, :source
         expect(subject).to include :ref, :commit
         expect(subject).to include :updated_at, :created_at
+        expect(subject[:name]).to eq('Build pipeline')
       end
 
       it 'excludes coverage data when disabled' do
@@ -31,17 +33,21 @@ RSpec.describe Ci::PipelineEntity do
       end
 
       it 'contains details' do
+        allow(pipeline).to receive(:merge_request_event_type).and_return(:merged_result)
+
         expect(subject).to include :details
         expect(subject[:details])
-          .to include :duration, :finished_at, :name
+          .to include :duration, :finished_at, :event_type_name
         expect(subject[:details][:status]).to include :icon, :favicon, :text, :label, :tooltip
+
+        expect(subject[:details][:event_type_name]).to eq('Merged result pipeline')
       end
 
       it 'contains flags' do
-        expect(subject).to include :flags
-        expect(subject[:flags])
-          .to include :stuck, :auto_devops, :yaml_errors,
-                      :retryable, :cancelable, :merge_request
+        expect(subject).to include(:flags)
+        expect(subject[:flags]).to include(
+          :stuck, :auto_devops, :yaml_errors, :retryable, :cancelable, :merge_request
+        )
       end
     end
 
@@ -250,8 +256,29 @@ RSpec.describe Ci::PipelineEntity do
           project.add_maintainer(user)
         end
 
-        it 'exposes these failed builds' do
-          expect(subject[:failed_builds].map { |b| b[:id] }).to contain_exactly(failed_1.id, failed_2.id)
+        context 'when disable_failed_builds is true' do
+          let(:options) { { disable_failed_builds: true } }
+
+          it 'exposes the failed builds count but not the failed builds' do
+            expect(subject[:failed_builds_count]).to eq(2)
+            expect(subject).not_to have_key(:failed_builds)
+          end
+        end
+
+        context 'when disable_failed_builds is false' do
+          let(:options) { { disable_failed_builds: false } }
+
+          it 'exposes the failed builds count but not the failed builds' do
+            expect(subject[:failed_builds_count]).to eq(2)
+            expect(subject[:failed_builds].map { |b| b[:id] }).to contain_exactly(failed_1.id, failed_2.id)
+          end
+        end
+
+        context 'when disable_failed_builds is nil' do
+          it 'exposes the failed builds count and the failed builds' do
+            expect(subject[:failed_builds_count]).to eq(2)
+            expect(subject[:failed_builds].map { |b| b[:id] }).to contain_exactly(failed_1.id, failed_2.id)
+          end
         end
       end
 

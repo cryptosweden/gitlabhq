@@ -1,10 +1,10 @@
 kbd {
   display: inline-block;
   padding: 3px 5px;
-  font-size: $gl-font-size-monospace-sm;
+  font-size: $gl-font-size-sm;
   line-height: 10px;
   color: var(--gray-700, $gray-700);
-  vertical-align: middle;
+  vertical-align: unset;
   background-color: var(--gray-10, $gray-10);
   border-width: 1px;
   border-style: solid;
@@ -18,7 +18,7 @@ kbd {
     background-color: $gray-100;
     border-color: var(--gray-10, $gray-10) var(--gray-10, $gray-10) var(--gray-50, $gray-50);
     box-shadow: none;
-    border-radius: $border-radius-default;
+    border-radius: $gl-border-radius-base;
     font-family: $monospace-font;
     font-size: $gl-font-size-small;
     line-height: 1;

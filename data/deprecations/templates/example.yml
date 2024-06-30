@@ -1,34 +1,69 @@
-# This is a template for a feature deprecation
-# A deprecation typically occurs when a feature or capability is planned to be removed in a future release.
-# Deprecations should be announced at least two releases prior to removal.  Any breaking changes should only be done in major releases.
+# Use this template to announce a feature deprecation or other
+# important planned changes at least three releases prior to removal.
+# Breaking changes must happen in a major release.
 #
-# Below is an example of what a single entry should look like, it's required attributes,
-# and what types we expect those attribute values to be.
+# Copy this template into a new file in /data/deprecations, and name the file similar to:
+# `16-9-deprecated-feature.yml`, where `16-9` is the announcement milestone,
+# not the removal milestone.
 #
-# For more information please refer to the handbook documentation here:
-# https://about.gitlab.com/handbook/marketing/blog/release-posts/#deprecations
+# See the deprecation guidelines to confirm your understanding of GitLab's definitions:
+# https://docs.gitlab.com/ee/development/deprecation_guidelines/#terminology
 #
-# Please delete this line and above before submitting your merge request.
+# If an End of Support period applies, see the OPTIONAL section below.
+#
+# For more information, see the handbook:
+# https://handbook.gitlab.com/handbook/marketing/blog/release-posts/#deprecations-and-other-planned-breaking-change-announcements
 
-- name: "Feature name"  # The name of the feature to be deprecated
-  announcement_milestone: "XX.YY"  # The milestone when this feature was first announced as deprecated.
-  announcement_date: "YYYY-MM-DD"  # The date of the milestone release when this feature was first announced as deprecated. This should almost always be the 22nd of a month (YYYY-MM-22), unless you did an out of band blog post.
-  removal_milestone: "XX.YY"  # The milestone when this feature is planned to be removed
-  removal_date:  # The date of the milestone release when this feature is planned to be removed. This should almost always be the 22nd of a month (YYYY-MM-22), unless you did an out of band blog post.
-  breaking_change: false  # If this deprecation is a breaking change, set this value to true
-  reporter: exampleuser  # GitLab username of the person reporting the deprecation
-  body: |  # Do not modify this line, instead modify the lines below.
+# ===================
+# REQUIRED FIELDS
+# ===================
+
+# ----- DELETE EVERYTHING ABOVE THIS LINE -----
+
+- title: "Feature A is deprecated"
+  # The milestones for the deprecation announcement, and the removal.
+  removal_milestone: "XX.YY"
+  announcement_milestone: "XX.YY"
+  # Change breaking_change to false if needed.
+  breaking_change: true
+  # The stage and GitLab username of the person reporting the change,
+  # and a link to the deprecation issue
+  reporter: exampleuser
+  stage: stage
+  issue_url: https://gitlab.com/gitlab-org/gitlab/-/issues/000000
+  impact:  # Can be one of: [critical, high, medium, low]
+  scope:  # Can be one or a combination of: [instance, group, project]
+  resolution_role:  # Can be one of: [Admin, Owner, Maintainer, Developer]
+  manual_task:  # Can be true or false. Use this to denote whether a resolution action must be performed manually (true), or if it can be automated by using the API or other automation (false).
+  body: |  # (required) Don't change this line.
     <!-- START OF BODY COMMENT
 
-    This area supports markdown.  Delete this entire comment and replace it with your markdown content.
+    This area supports markdown. Replace this comment with your markdown content.
 
-    When ready, assign to your tech writer for review. When ready, they will run `bin/rake gitlab:docs:compile_deprecations` to update the deprecations doc, then merge.
+    Explain, *briefly*, the details or reasons for the change. Deprecations and other planned changes should be actionable, so tell users how to address the change. For example:
+
+    - "Use the `internal` keyword instead of `confidential`."
+    - "Stop using the `omniauth_crowd` gem. It will be removed and will not be replaced."
+
+    When ready, assign to your tech writer for review. They will run `bin/rake gitlab:docs:compile_deprecations` to update the deprecations doc, then merge.
 
     END OF BODY COMMENT -->
-# The following items are not published on the docs page, but may be used in the future.
-  stage:  # (optional - may be required in the future) String value of the stage that the feature was created in. e.g., Growth
-  tiers:  # (optional - may be required in the future) An array of tiers that the feature is available in currently.  e.g., [Free, Silver, Gold, Core, Premium, Ultimate]
-  issue_url:  # (optional) This is a link to the deprecation issue in GitLab
-  documentation_url:  # (optional) This is a link to the current documentation page
-  image_url:  # (optional) This is a link to a thumbnail image depicting the feature
-  video_url:  # (optional) Use the youtube thumbnail URL with the structure of https://img.youtube.com/vi/UNIQUEID/hqdefault.jpg
+
+# ==============================
+# OPTIONAL END-OF-SUPPORT FIELDS
+# ==============================
+#
+# If an End of Support period applies:
+# 1) Share this announcement in the `#spt_managers` Support channel in Slack
+# 2) Mention `@gitlab-com/support` in this merge request.
+#
+  # When support for this feature ends, in XX.YY milestone format.
+  end_of_support_milestone:
+  # Array of tiers the feature is currently available to,
+  # like [Free, Silver, Gold, Core, Premium, Ultimate]
+  tiers:
+  # Links to documentation and thumbnail image
+  documentation_url:
+  image_url:
+  # Use the youtube thumbnail URL with the structure of https://img.youtube.com/vi/UNIQUEID/hqdefault.jpg
+  video_url:

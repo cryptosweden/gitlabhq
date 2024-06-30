@@ -1,19 +1,32 @@
 <script>
-import { GlAlert, GlSafeHtmlDirective } from '@gitlab/ui';
+import { GlAlert, GlSprintf, GlLink } from '@gitlab/ui';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import axios from '~/lib/utils/axios_utils';
+import { helpPagePath } from '~/helpers/help_page_helper';
 import { __, sprintf } from '~/locale';
 import ServiceDeskSetting from './service_desk_setting.vue';
 
+const CustomEmailWrapper = () => import('./custom_email_wrapper.vue');
+
 export default {
+  serviceDeskEmailHelpPath: helpPagePath('/user/project/service_desk/configure.html', {
+    anchor: 'use-an-additional-service-desk-alias-email',
+  }),
   components: {
     GlAlert,
+    GlSprintf,
+    GlLink,
     ServiceDeskSetting,
+    CustomEmailWrapper,
   },
   directives: {
-    SafeHtml: GlSafeHtmlDirective,
+    SafeHtml,
   },
   inject: {
     initialIsEnabled: {
+      default: false,
+    },
+    isIssueTrackerEnabled: {
       default: false,
     },
     endpoint: {
@@ -22,10 +35,10 @@ export default {
     initialIncomingEmail: {
       default: '',
     },
-    customEmail: {
+    serviceDeskEmail: {
       default: '',
     },
-    customEmailEnabled: {
+    serviceDeskEmailEnabled: {
       default: false,
     },
     selectedTemplate: {
@@ -40,8 +53,23 @@ export default {
     projectKey: {
       default: '',
     },
+    areTicketsConfidentialByDefault: {
+      default: false,
+    },
+    reopenIssueOnExternalParticipantNote: {
+      default: false,
+    },
+    addExternalParticipantsFromCc: {
+      default: false,
+    },
     templates: {
       default: [],
+    },
+    publicProject: {
+      default: false,
+    },
+    customEmailEndpoint: {
+      default: '',
     },
   },
   data() {
@@ -52,8 +80,13 @@ export default {
       alertVariant: 'danger',
       alertMessage: '',
       incomingEmail: this.initialIncomingEmail,
-      updatedCustomEmail: this.customEmail,
+      updatedServiceDeskEmail: this.serviceDeskEmail,
     };
+  },
+  computed: {
+    showCustomEmailWrapper() {
+      return this.isEnabled && this.isIssueTrackerEnabled;
+    },
   },
   methods: {
     onEnableToggled(isChecked) {
@@ -83,13 +116,24 @@ export default {
         });
     },
 
-    onSaveTemplate({ selectedTemplate, fileTemplateProjectId, outgoingName, projectKey }) {
+    onSaveTemplate({
+      selectedTemplate,
+      fileTemplateProjectId,
+      outgoingName,
+      projectKey,
+      areTicketsConfidentialByDefault,
+      reopenIssueOnExternalParticipantNote,
+      addExternalParticipantsFromCc,
+    }) {
       this.isTemplateSaving = true;
 
       const body = {
         issue_template_key: selectedTemplate,
         outgoing_name: outgoingName,
         project_key: projectKey,
+        tickets_confidential_by_default: areTicketsConfidentialByDefault,
+        reopen_issue_on_external_participant_note: reopenIssueOnExternalParticipantNote,
+        add_external_participants_from_cc: addExternalParticipantsFromCc,
         service_desk_enabled: this.isEnabled,
         file_template_project_id: fileTemplateProjectId,
       };
@@ -97,7 +141,7 @@ export default {
       return axios
         .put(this.endpoint, body)
         .then(({ data }) => {
-          this.updatedCustomEmail = data?.service_desk_address;
+          this.updatedServiceDeskEmail = data?.service_desk_address;
           this.showAlert(__('Changes saved.'), 'success');
         })
         .catch((err) => {
@@ -127,22 +171,53 @@ export default {
 
 <template>
   <div>
+    <gl-alert
+      v-if="publicProject && isEnabled"
+      class="mb-3"
+      variant="warning"
+      data-testid="public-project-alert"
+      :dismissible="false"
+    >
+      <gl-sprintf
+        :message="
+          __(
+            'This project is public. Non-members can guess the Service Desk email address, because it contains the group and project name. %{linkStart}How do I create a custom email address?%{linkEnd}',
+          )
+        "
+      >
+        <template #link="{ content }">
+          <gl-link :href="$options.serviceDeskEmailHelpPath" target="_blank">
+            {{ content }}
+          </gl-link>
+        </template>
+      </gl-sprintf>
+    </gl-alert>
     <gl-alert v-if="isAlertShowing" class="mb-3" :variant="alertVariant" @dismiss="onDismiss">
       <span v-safe-html="alertMessage"></span>
     </gl-alert>
     <service-desk-setting
       :is-enabled="isEnabled"
+      :is-issue-tracker-enabled="isIssueTrackerEnabled"
       :incoming-email="incomingEmail"
-      :custom-email="updatedCustomEmail"
-      :custom-email-enabled="customEmailEnabled"
+      :service-desk-email="updatedServiceDeskEmail"
+      :service-desk-email-enabled="serviceDeskEmailEnabled"
       :initial-selected-template="selectedTemplate"
       :initial-selected-file-template-project-id="selectedFileTemplateProjectId"
       :initial-outgoing-name="outgoingName"
       :initial-project-key="projectKey"
+      :initial-are-tickets-confidential-by-default="areTicketsConfidentialByDefault"
+      :initial-reopen-issue-on-external-participant-note="reopenIssueOnExternalParticipantNote"
+      :initial-add-external-participants-from-cc="addExternalParticipantsFromCc"
+      :public-project="publicProject"
       :templates="templates"
       :is-template-saving="isTemplateSaving"
       @save="onSaveTemplate"
       @toggle="onEnableToggled"
+    />
+    <custom-email-wrapper
+      v-if="showCustomEmailWrapper"
+      :incoming-email="incomingEmail"
+      :custom-email-endpoint="customEmailEndpoint"
     />
   </div>
 </template>

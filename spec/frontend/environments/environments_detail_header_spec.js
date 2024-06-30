@@ -1,15 +1,16 @@
 import { GlSprintf } from '@gitlab/ui';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { createMockDirective } from 'helpers/vue_mock_directive';
 import DeleteEnvironmentModal from '~/environments/components/delete_environment_modal.vue';
 import EnvironmentsDetailHeader from '~/environments/components/environments_detail_header.vue';
 import StopEnvironmentModal from '~/environments/components/stop_environment_modal.vue';
 import TimeAgo from '~/vue_shared/components/time_ago_tooltip.vue';
+import DeployFreezeAlert from '~/environments/components/deploy_freeze_alert.vue';
 import { createEnvironment } from './mock_data';
 
 describe('Environments detail header component', () => {
   const cancelAutoStopPath = '/my-environment/cancel/path';
   const terminalPath = '/my-environment/terminal/path';
-  const metricsPath = '/my-environment/metrics/path';
   const updatePath = '/my-environment/edit/path';
 
   let wrapper;
@@ -19,29 +20,34 @@ describe('Environments detail header component', () => {
   const findCancelAutoStopAtButton = () => wrapper.findByTestId('cancel-auto-stop-button');
   const findCancelAutoStopAtForm = () => wrapper.findByTestId('cancel-auto-stop-form');
   const findTerminalButton = () => wrapper.findByTestId('terminal-button');
-  const findExternalUrlButton = () => wrapper.findByTestId('external-url-button');
-  const findMetricsButton = () => wrapper.findByTestId('metrics-button');
+  const findExternalUrlButton = () => wrapper.findComponentByTestId('external-url-button');
   const findEditButton = () => wrapper.findByTestId('edit-button');
   const findStopButton = () => wrapper.findByTestId('stop-button');
   const findDestroyButton = () => wrapper.findByTestId('destroy-button');
   const findStopEnvironmentModal = () => wrapper.findComponent(StopEnvironmentModal);
   const findDeleteEnvironmentModal = () => wrapper.findComponent(DeleteEnvironmentModal);
+  const findDeployFreezeAlert = () => wrapper.findComponent(DeployFreezeAlert);
 
   const buttons = [
     ['Cancel Auto Stop At', findCancelAutoStopAtButton],
     ['Terminal', findTerminalButton],
     ['External Url', findExternalUrlButton],
-    ['Metrics', findMetricsButton],
     ['Edit', findEditButton],
     ['Stop', findStopButton],
     ['Destroy', findDestroyButton],
   ];
 
-  const createWrapper = ({ props }) => {
+  const createWrapper = ({ props, glFeatures = {} }) => {
     wrapper = shallowMountExtended(EnvironmentsDetailHeader, {
       stubs: {
         GlSprintf,
         TimeAgo,
+      },
+      provide: {
+        glFeatures,
+      },
+      directives: {
+        GlTooltip: createMockDirective('gl-tooltip'),
       },
       propsData: {
         canAdminEnvironment: false,
@@ -52,10 +58,6 @@ describe('Environments detail header component', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-  });
 
   describe('default state with minimal access', () => {
     beforeEach(() => {
@@ -169,21 +171,7 @@ describe('Environments detail header component', () => {
 
     it('displays the external url button with correct path', () => {
       expect(findExternalUrlButton().attributes('href')).toBe(externalUrl);
-    });
-  });
-
-  describe('when metrics are enabled', () => {
-    beforeEach(() => {
-      createWrapper({
-        props: {
-          environment: createEnvironment({ metricsUrl: 'my metrics url' }),
-          metricsPath,
-        },
-      });
-    });
-
-    it('displays the metrics button with correct path', () => {
-      expect(findMetricsButton().attributes('href')).toBe(metricsPath);
+      expect(findExternalUrlButton().props('isUnsafeLink')).toBe(true);
     });
   });
 
@@ -201,6 +189,7 @@ describe('Environments detail header component', () => {
     });
 
     it('displays the edit button with correct path', () => {
+      expect(findEditButton().text()).toBe('Edit environment');
       expect(findEditButton().attributes('href')).toBe(updatePath);
     });
 
@@ -229,6 +218,15 @@ describe('Environments detail header component', () => {
 
     it('displays delete environment modal', () => {
       expect(findDeleteEnvironmentModal().exists()).toBe(true);
+    });
+  });
+
+  describe('deploy freeze alert', () => {
+    it('passes the environment name to the alert', () => {
+      const environment = createEnvironment();
+      createWrapper({ props: { environment } });
+
+      expect(findDeployFreezeAlert().props('name')).toBe(environment.name);
     });
   });
 });

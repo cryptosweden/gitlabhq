@@ -2,10 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Discussion Lock', :js do
+RSpec.describe 'Discussion Lock', :js, feature_category: :team_planning do
   let(:user) { create(:user) }
   let(:issue) { create(:issue, project: project, author: user) }
   let(:project) { create(:project, :public) }
+  let(:more_dropdown) { find_by_testid('desktop-dropdown') }
+  let(:issuable_lock) { find_by_testid('issuable-lock') }
+  let(:locked_badge) { '[data-testid="locked-badge"]' }
+  let(:issuable_note_warning) { '[data-testid="issuable-note-warning"]' }
 
   before do
     sign_in(user)
@@ -20,14 +24,11 @@ RSpec.describe 'Discussion Lock', :js do
       it 'the user can lock the issue' do
         visit project_issue_path(project, issue)
 
-        expect(find('.issuable-sidebar')).to have_content('Unlocked')
+        more_dropdown.click
+        expect(issuable_lock).to have_content('Lock discussion')
 
-        page.within('.issuable-sidebar') do
-          find('.lock-edit').click
-          click_button('Lock')
-        end
-
-        expect(find('#notes')).to have_content('locked this issue')
+        issuable_lock.click
+        expect(find('#notes')).to have_content('locked the discussion in this issue')
       end
     end
 
@@ -38,15 +39,12 @@ RSpec.describe 'Discussion Lock', :js do
       end
 
       it 'the user can unlock the issue' do
-        expect(find('.issuable-sidebar')).to have_content('Locked')
+        more_dropdown.click
+        expect(issuable_lock).to have_content('Unlock discussion')
 
-        page.within('.issuable-sidebar') do
-          find('.lock-edit').click
-          click_button('Unlock')
-        end
-
-        expect(find('#notes')).to have_content('unlocked this issue')
-        expect(find('.issuable-sidebar')).to have_content('Unlocked')
+        issuable_lock.click
+        expect(find('#notes')).to have_content('unlocked the discussion in this issue')
+        expect(issuable_lock).to have_content('Lock discussion')
       end
 
       it 'the user can create a comment' do
@@ -69,8 +67,8 @@ RSpec.describe 'Discussion Lock', :js do
       end
 
       it 'the user can not lock the issue' do
-        expect(find('.issuable-sidebar')).to have_content('Unlocked')
-        expect(find('.issuable-sidebar')).not_to have_selector('.lock-edit')
+        more_dropdown.click
+        expect(issuable_lock).to have_content('Lock discussion')
       end
 
       it 'the user can create a comment' do
@@ -92,17 +90,30 @@ RSpec.describe 'Discussion Lock', :js do
       end
 
       it 'the user can not unlock the issue' do
-        expect(find('.issuable-sidebar')).to have_content('Locked')
-        expect(find('.issuable-sidebar')).not_to have_selector('.lock-edit')
+        more_dropdown.click
+        expect(issuable_lock).to have_content('Unlock discussion')
       end
 
       it 'the user can not create a comment' do
         page.within('#notes') do
           expect(page).not_to have_selector('js-main-target-form')
-          expect(page.find('.disabled-comment'))
-            .to have_content('This issue is locked. Only project members can comment.')
+          expect(find_by_testid('disabled-comments'))
+            .to have_content('The discussion in this issue is locked. Only project members can comment.')
         end
       end
     end
+  end
+
+  it 'passes axe automated accessibility testing' do
+    project.add_developer(user)
+    issue.update_attribute(:discussion_locked, true)
+    visit project_issue_path(project, issue)
+    wait_for_all_requests
+
+    expect(page).to be_axe_clean.within(locked_badge)
+    expect(page).to be_axe_clean.within(issuable_note_warning)
+
+    more_dropdown.click
+    expect(page).to be_axe_clean.within('[data-testid="lock-issue-toggle"] button') # rubocop:todo Capybara/TestidFinders -- Doesn't cover use case, see https://gitlab.com/gitlab-org/gitlab/-/issues/442224
   end
 end

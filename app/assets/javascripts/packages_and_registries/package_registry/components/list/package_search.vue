@@ -1,34 +1,60 @@
 <script>
-import { s__ } from '~/locale';
+import { GlFilteredSearchToken } from '@gitlab/ui';
 import { sortableFields } from '~/packages_and_registries/package_registry/utils';
-import { OPERATOR_IS_ONLY } from '~/vue_shared/components/filtered_search_bar/constants';
-import RegistrySearch from '~/vue_shared/components/registry/registry_search.vue';
-import UrlSync from '~/vue_shared/components/url_sync.vue';
-import { getQueryParams, extractFilterAndSorting } from '~/packages_and_registries/shared/utils';
 import {
   FILTERED_SEARCH_TERM,
-  FILTERED_SEARCH_TYPE,
-} from '~/packages_and_registries/shared/constants';
-import { LIST_KEY_CREATED_AT } from '~/packages_and_registries/package_registry/constants';
+  OPERATORS_IS,
+  TOKEN_TITLE_TYPE,
+  TOKEN_TYPE_TYPE,
+  TOKEN_TITLE_VERSION,
+  TOKEN_TYPE_VERSION,
+  TOKEN_TITLE_STATUS,
+  TOKEN_TYPE_STATUS,
+} from '~/vue_shared/components/filtered_search_bar/constants';
+import PersistedSearch from '~/packages_and_registries/shared/components/persisted_search.vue';
+import {
+  LIST_KEY_CREATED_AT,
+  PACKAGE_STATUS_OPTIONS,
+  PACKAGE_TYPES_OPTIONS,
+} from '~/packages_and_registries/package_registry/constants';
 import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
-import PackageTypeToken from './tokens/package_type_token.vue';
 
 export default {
   tokens: [
     {
-      type: 'type',
-      icon: 'package',
-      title: s__('PackageRegistry|Type'),
+      type: TOKEN_TYPE_STATUS,
+      icon: 'status',
+      title: TOKEN_TITLE_STATUS,
       unique: true,
-      token: PackageTypeToken,
-      operators: OPERATOR_IS_ONLY,
+      token: GlFilteredSearchToken,
+      operators: OPERATORS_IS,
+      options: PACKAGE_STATUS_OPTIONS,
+    },
+    {
+      type: TOKEN_TYPE_TYPE,
+      icon: 'package',
+      title: TOKEN_TITLE_TYPE,
+      unique: true,
+      token: GlFilteredSearchToken,
+      operators: OPERATORS_IS,
+      options: PACKAGE_TYPES_OPTIONS,
+    },
+    {
+      type: TOKEN_TYPE_VERSION,
+      icon: 'doc-versions',
+      title: TOKEN_TITLE_VERSION,
+      unique: true,
+      token: GlFilteredSearchToken,
+      operators: OPERATORS_IS,
     },
   ],
-  components: { RegistrySearch, UrlSync, LocalStorageSync },
+  components: {
+    LocalStorageSync,
+    PersistedSearch,
+  },
   inject: ['isGroupPage'],
   data() {
     return {
-      filters: [],
       sorting: {
         orderBy: LIST_KEY_CREATED_AT,
         sort: 'desc',
@@ -37,59 +63,72 @@ export default {
     };
   },
   computed: {
+    localStorageKey() {
+      return this.isGroupPage
+        ? 'group_package_registry_list_sorting'
+        : 'package_registry_list_sorting';
+    },
     sortableFields() {
       return sortableFields(this.isGroupPage);
     },
-    parsedSorting() {
-      const cleanOrderBy = this.sorting?.orderBy.replace('_at', '');
-      return `${cleanOrderBy}_${this.sorting?.sort}`.toUpperCase();
-    },
-    parsedFilters() {
-      const parsed = {
-        packageName: '',
-        packageType: undefined,
-      };
-
-      return this.filters.reduce((acc, filter) => {
-        if (filter.type === FILTERED_SEARCH_TYPE && filter.value?.data) {
-          return {
-            ...acc,
-            packageType: filter.value.data.toUpperCase(),
-          };
-        }
-
-        if (filter.type === FILTERED_SEARCH_TERM) {
-          return {
-            ...acc,
-            packageName: `${acc.packageName} ${filter.value.data}`.trim(),
-          };
-        }
-
-        return acc;
-      }, parsed);
-    },
   },
   mounted() {
-    const queryParams = getQueryParams(window.document.location.search);
-    const { sorting, filters } = extractFilterAndSorting(queryParams);
-    this.updateSorting(sorting);
-    this.updateFilters(filters);
-    this.mountRegistrySearch = true;
-    this.emitUpdate();
+    // local-storage-sync does not emit `input`
+    // event when key is not found, so set the
+    // flag if it hasn't been updated
+    this.$nextTick(() => {
+      if (!this.mountRegistrySearch) {
+        this.mountRegistrySearch = true;
+      }
+    });
   },
   methods: {
-    updateFilters(newValue) {
-      this.filters = newValue;
+    formatFilters(filters) {
+      return filters
+        .filter((filter) => filter.value?.data)
+        .reduce((acc, filter) => {
+          if (filter.type === TOKEN_TYPE_TYPE) {
+            return {
+              ...acc,
+              packageType: filter.value.data.toUpperCase(),
+            };
+          }
+
+          if (filter.type === TOKEN_TYPE_VERSION) {
+            return {
+              ...acc,
+              packageVersion: filter.value.data.trim(),
+            };
+          }
+
+          if (filter.type === TOKEN_TYPE_STATUS) {
+            return {
+              ...acc,
+              packageStatus: filter.value.data.toUpperCase(),
+            };
+          }
+
+          if (filter.type === FILTERED_SEARCH_TERM) {
+            return {
+              ...acc,
+              packageName: filter.value.data.trim(),
+            };
+          }
+
+          return acc;
+        }, {});
     },
     updateSorting(newValue) {
       this.sorting = { ...this.sorting, ...newValue };
     },
-    updateSortingAndEmitUpdate(newValue) {
+    updateSortingFromLocalStorage(newValue) {
       this.updateSorting(newValue);
-      this.emitUpdate();
+      this.mountRegistrySearch = true;
     },
-    emitUpdate() {
-      this.$emit('update', { sort: this.parsedSorting, filters: this.parsedFilters });
+    emitUpdate(values) {
+      const { filters, sorting } = values;
+      this.updateSorting(sorting);
+      this.$emit('update', { ...values, filters: this.formatFilters(filters) });
     },
   },
 };
@@ -97,25 +136,17 @@ export default {
 
 <template>
   <local-storage-sync
-    storage-key="package_registry_list_sorting"
+    :storage-key="localStorageKey"
     :value="sorting"
-    as-json
-    @input="updateSorting"
+    @input="updateSortingFromLocalStorage"
   >
-    <url-sync>
-      <template #default="{ updateQuery }">
-        <registry-search
-          v-if="mountRegistrySearch"
-          :filter="filters"
-          :sorting="sorting"
-          :tokens="$options.tokens"
-          :sortable-fields="sortableFields"
-          @sorting:changed="updateSortingAndEmitUpdate"
-          @filter:changed="updateFilters"
-          @filter:submit="emitUpdate"
-          @query:changed="updateQuery"
-        />
-      </template>
-    </url-sync>
+    <persisted-search
+      v-if="mountRegistrySearch"
+      :sortable-fields="sortableFields"
+      :default-order="sorting.orderBy"
+      :default-sort="sorting.sort"
+      :tokens="$options.tokens"
+      @update="emitUpdate"
+    />
   </local-storage-sync>
 </template>

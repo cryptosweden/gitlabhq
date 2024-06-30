@@ -4,27 +4,82 @@ module Gitlab
   module Ci
     module Build
       class Rules::Rule::Clause::Changes < Rules::Rule::Clause
+        include Gitlab::Utils::StrongMemoize
+
         def initialize(globs)
-          @globs = Array(globs)
+          @globs = globs
         end
 
         def satisfied_by?(pipeline, context)
-          return true unless pipeline&.modified_paths
+          compare_to_sha = find_compare_to_sha(pipeline, context)
+          modified_paths = find_modified_paths(pipeline, compare_to_sha)
 
-          expanded_globs = expand_globs(context)
-          pipeline.modified_paths.any? do |path|
-            expanded_globs.any? do |glob|
+          return true unless modified_paths
+          return false if modified_paths.empty?
+
+          expanded_globs = expand_globs(context).uniq
+          return false if expanded_globs.empty?
+
+          cache_key = [
+            self.class.to_s,
+            '#satisfied_by?',
+            pipeline.project_id,
+            pipeline.sha,
+            compare_to_sha,
+            expanded_globs.sort
+          ]
+          Gitlab::SafeRequestStore.fetch(cache_key) do
+            match?(expanded_globs, modified_paths)
+          end
+        end
+
+        private
+
+        def match?(globs, paths)
+          paths.any? do |path|
+            globs.any? do |glob|
               File.fnmatch?(glob, path, File::FNM_PATHNAME | File::FNM_DOTMATCH | File::FNM_EXTGLOB)
             end
           end
         end
 
         def expand_globs(context)
-          return @globs unless context
+          return paths unless context
 
-          @globs.map do |glob|
+          paths.map do |glob|
             ExpandVariables.expand_existing(glob, -> { context.variables_hash })
           end
+        end
+
+        def paths
+          strong_memoize(:paths) do
+            Array(@globs[:paths]).uniq
+          end
+        end
+
+        def find_modified_paths(pipeline, compare_to_sha)
+          return unless pipeline
+
+          if compare_to_sha
+            pipeline.modified_paths_since(compare_to_sha)
+          else
+            pipeline.modified_paths
+          end
+        end
+
+        def find_compare_to_sha(pipeline, context)
+          return unless @globs.include?(:compare_to)
+
+          compare_to = if Feature.enabled?(:ci_expand_variables_in_compare_to, pipeline.project)
+                         ExpandVariables.expand(@globs[:compare_to], -> { context.variables_hash })
+                       else
+                         @globs[:compare_to]
+                       end
+
+          commit = pipeline.project.commit(compare_to)
+          raise Rules::Rule::Clause::ParseError, 'rules:changes:compare_to is not a valid ref' unless commit
+
+          commit.sha
         end
       end
     end

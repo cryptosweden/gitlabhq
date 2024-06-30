@@ -43,10 +43,12 @@ class IssuableFinder
   include FinderMethods
   include CreatedAtFilter
   include Gitlab::Utils::StrongMemoize
+  include UpdatedAtFilter
 
   requires_cross_project_access unless: -> { params.project? }
 
-  FULL_TEXT_SEARCH_TERM_REGEX = /\A[\p{ASCII}|\p{Latin}]+\z/.freeze
+  FULL_TEXT_SEARCH_TERM_PATTERN = '[\u0000-\u02FF\u1E00-\u1EFF\u2070-\u218F]*'
+  FULL_TEXT_SEARCH_TERM_REGEX = /\A#{FULL_TEXT_SEARCH_TERM_PATTERN}\z/
   NEGATABLE_PARAMS_HELPER_KEYS = %i[project_id scope status include_subgroups].freeze
 
   attr_accessor :current_user, :params
@@ -58,19 +60,19 @@ class IssuableFinder
   class << self
     def scalar_params
       @scalar_params ||= %i[
-      assignee_id
-      assignee_username
-      author_id
-      author_username
-      crm_contact_id
-      crm_organization_id
-      label_name
-      milestone_title
-      release_tag
-      my_reaction_emoji
-      search
-      in
-    ]
+        assignee_id
+        assignee_username
+        author_id
+        author_username
+        crm_contact_id
+        crm_organization_id
+        label_name
+        milestone_title
+        release_tag
+        my_reaction_emoji
+        search
+        in
+      ]
     end
 
     def array_params
@@ -128,9 +130,7 @@ class IssuableFinder
   end
 
   def filter_items(items)
-    # Selection by group is already covered by `by_project` and `projects` for project-based issuables
-    # Group-based issuables have their own group filter methods
-    items = by_project(items)
+    items = by_parent(items)
     items = by_scope(items)
     items = by_created_at(items)
     items = by_updated_at(items)
@@ -247,7 +247,10 @@ class IssuableFinder
   end
 
   def init_collection
-    klass.all
+    return klass.all if params.user_can_see_all_issuables?
+
+    # Only admins and auditors can see hidden issuables, for other users we filter out hidden issuables
+    klass.without_hidden
   end
 
   def default_or_simple_sort?
@@ -285,13 +288,6 @@ class IssuableFinder
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
-  def by_updated_at(items)
-    items = items.updated_after(params[:updated_after]) if params[:updated_after].present?
-    items = items.updated_before(params[:updated_before]) if params[:updated_before].present?
-
-    items
-  end
-
   def by_closed_at(items)
     items = items.closed_after(params[:closed_after]) if params[:closed_after].present?
     items = items.closed_before(params[:closed_before]) if params[:closed_before].present?
@@ -315,11 +311,14 @@ class IssuableFinder
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
-  def by_project(items)
-    if params.project?
-      items.of_projects(params.projects).references_project
-    elsif params.projects
+  def by_parent(items)
+    # When finding issues for multiple projects it's more efficient
+    # to use a JOIN instead of running a sub-query
+    # See https://gitlab.com/gitlab-org/gitlab/-/commit/8591cc02be6b12ed60f763a5e0147f2cbbca99e1
+    if params.projects.is_a?(ActiveRecord::Relation)
       items.merge(params.projects.reorder(nil)).join_project
+    elsif params.projects
+      items.of_projects(params.projects).references_project
     else
       items.none
     end
@@ -330,9 +329,8 @@ class IssuableFinder
   def by_search(items)
     return items unless search
     return items if items.is_a?(ActiveRecord::NullRelation)
-    return items if Feature.enabled?(:disable_anonymous_search, type: :ops) && current_user.nil?
 
-    return items.pg_full_text_search(search) if use_full_text_search?
+    return filter_by_full_text_search(items) if use_full_text_search?
 
     if use_cte_for_search?
       cte = Gitlab::SQL::CTE.new(klass.table_name, items)
@@ -345,10 +343,12 @@ class IssuableFinder
   # rubocop: enable CodeReuse/ActiveRecord
 
   def use_full_text_search?
-    params[:in].blank? &&
-      klass.try(:pg_full_text_searchable_columns).present? &&
-      params[:search] =~ FULL_TEXT_SEARCH_TERM_REGEX &&
-      Feature.enabled?(:issues_full_text_search, params.project || params.group, default_enabled: :yaml)
+    klass.try(:pg_full_text_searchable_columns).present? &&
+      params[:search] =~ FULL_TEXT_SEARCH_TERM_REGEX
+  end
+
+  def filter_by_full_text_search(items)
+    items.pg_full_text_search(search, matched_columns: params[:in].to_s.split(','))
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
@@ -373,8 +373,7 @@ class IssuableFinder
 
   def by_author(items)
     Issuables::AuthorFilter.new(
-      params: original_params,
-      or_filters_enabled: or_filters_enabled?
+      params: original_params
     ).filter(items)
   end
 
@@ -385,8 +384,7 @@ class IssuableFinder
   def assignee_filter
     strong_memoize(:assignee_filter) do
       Issuables::AssigneeFilter.new(
-        params: original_params,
-        or_filters_enabled: or_filters_enabled?
+        params: original_params
       )
     end
   end
@@ -433,7 +431,7 @@ class IssuableFinder
     elsif not_params.filter_by_started_milestone?
       items.joins(:milestone).merge(Milestone.not_started)
     else
-      items.without_particular_milestone(not_params[:milestone_title])
+      items.without_particular_milestones(not_params[:milestone_title])
     end
   end
   # rubocop: enable CodeReuse/ActiveRecord
@@ -480,20 +478,30 @@ class IssuableFinder
   end
 
   def by_crm_contact(items)
+    return items unless can_filter_by_crm_contact?
+
     Issuables::CrmContactFilter.new(params: original_params).filter(items)
   end
 
   def by_crm_organization(items)
+    return items unless can_filter_by_crm_organization?
+
     Issuables::CrmOrganizationFilter.new(params: original_params).filter(items)
   end
 
-  def or_filters_enabled?
-    strong_memoize(:or_filters_enabled) do
-      Feature.enabled?(:or_issuable_queries, feature_flag_scope, default_enabled: :yaml)
-    end
+  def can_filter_by_crm_contact?
+    current_user&.can?(:read_crm_contact, root_group)
   end
 
-  def feature_flag_scope
-    params.group || params.project
+  def can_filter_by_crm_organization?
+    current_user&.can?(:read_crm_organization, root_group)
+  end
+
+  def root_group
+    strong_memoize(:root_group) do
+      base_group = params.group || params.project&.group
+
+      base_group&.root_ancestor
+    end
   end
 end

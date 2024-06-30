@@ -1,45 +1,43 @@
-import Vue, { nextTick } from 'vue';
-
-import mountComponent from 'helpers/vue_mount_component_helper';
-import groupFolderComponent from '~/groups/components/group_folder.vue';
-import groupItemComponent from '~/groups/components/group_item.vue';
-import groupsComponent from '~/groups/components/groups.vue';
+import Vue from 'vue';
+import { GlEmptyState } from '@gitlab/ui';
+import { shallowMount } from '@vue/test-utils';
+import GroupFolderComponent from '~/groups/components/group_folder.vue';
+import PaginationLinks from '~/vue_shared/components/pagination_links.vue';
+import GroupsComponent from '~/groups/components/groups.vue';
 import eventHub from '~/groups/event_hub';
+import { VISIBILITY_LEVEL_PRIVATE_STRING } from '~/visibility_level/constants';
 import { mockGroups, mockPageInfo } from '../mock_data';
 
-const createComponent = (searchEmpty = false) => {
-  const Component = Vue.extend(groupsComponent);
+describe('GroupsComponent', () => {
+  let wrapper;
 
-  return mountComponent(Component, {
+  const defaultPropsData = {
     groups: mockGroups,
     pageInfo: mockPageInfo,
-    searchEmptyMessage: 'No matching results',
-    searchEmpty,
-  });
-};
+  };
 
-describe('GroupsComponent', () => {
-  let vm;
+  const createComponent = ({ propsData } = {}) => {
+    wrapper = shallowMount(GroupsComponent, {
+      propsData: {
+        ...defaultPropsData,
+        ...propsData,
+      },
+      provide: {
+        currentGroupVisibility: VISIBILITY_LEVEL_PRIVATE_STRING,
+      },
+    });
+  };
 
-  beforeEach(async () => {
-    Vue.component('GroupFolder', groupFolderComponent);
-    Vue.component('GroupItem', groupItemComponent);
-
-    vm = createComponent();
-
-    await nextTick();
-  });
-
-  afterEach(() => {
-    vm.$destroy();
-  });
+  const findPaginationLinks = () => wrapper.findComponent(PaginationLinks);
 
   describe('methods', () => {
     describe('change', () => {
       it('should emit `fetchPage` event when page is changed via pagination', () => {
+        createComponent();
+
         jest.spyOn(eventHub, '$emit').mockImplementation();
 
-        vm.change(2);
+        findPaginationLinks().props('change')(2);
 
         expect(eventHub.$emit).toHaveBeenCalledWith('fetchPage', {
           page: 2,
@@ -52,18 +50,14 @@ describe('GroupsComponent', () => {
   });
 
   describe('template', () => {
-    it('should render component template correctly', async () => {
-      await nextTick();
-      expect(vm.$el.querySelector('.groups-list-tree-container')).toBeDefined();
-      expect(vm.$el.querySelector('.group-list-tree')).toBeDefined();
-      expect(vm.$el.querySelector('.gl-pagination')).toBeDefined();
-      expect(vm.$el.querySelectorAll('.has-no-search-results').length).toBe(0);
-    });
+    Vue.component('GroupFolder', GroupFolderComponent);
 
-    it('should render empty search message when `searchEmpty` is `true`', async () => {
-      vm.searchEmpty = true;
-      await nextTick();
-      expect(vm.$el.querySelector('.has-no-search-results')).toBeDefined();
+    it('should render component template correctly', () => {
+      createComponent();
+
+      expect(wrapper.findComponent(GroupFolderComponent).exists()).toBe(true);
+      expect(findPaginationLinks().exists()).toBe(true);
+      expect(wrapper.findComponent(GlEmptyState).exists()).toBe(false);
     });
   });
 });

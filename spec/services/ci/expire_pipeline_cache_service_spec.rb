@@ -2,10 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::ExpirePipelineCacheService do
+RSpec.describe Ci::ExpirePipelineCacheService, feature_category: :continuous_integration do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project) }
   let_it_be(:pipeline) { create(:ci_pipeline, project: project) }
+  let_it_be(:merge_pipeline) { create(:ci_pipeline, :detached_merge_request_pipeline, project: project) }
 
   subject { described_class.new }
 
@@ -43,6 +44,17 @@ RSpec.describe Ci::ExpirePipelineCacheService do
       )
 
       subject.execute(merge_request.all_pipelines.last)
+    end
+
+    it 'invalidates Etag caching for merge request that pipeline runs on its merged commit' do
+      merge_request = create(:merge_request, merge_commit_sha: pipeline.sha, source_project: pipeline.project)
+      project = merge_request.target_project
+
+      merge_request_widget_path = "/#{project.full_path}/-/merge_requests/#{merge_request.iid}/cached_widget.json"
+
+      expect_touched_etag_caching_paths(merge_request_widget_path)
+
+      subject.execute(pipeline)
     end
 
     it 'updates the cached status for a project' do
@@ -104,9 +116,9 @@ RSpec.describe Ci::ExpirePipelineCacheService do
       control = ActiveRecord::QueryRecorder.new { subject.execute(pipeline) }
 
       create(:ci_sources_pipeline, pipeline: pipeline)
-      create(:ci_sources_pipeline, source_job: create(:ci_build, pipeline: pipeline))
+      create(:ci_sources_pipeline, source_job: create(:ci_build, pipeline: pipeline, ci_stage: create(:ci_stage)))
 
-      expect { subject.execute(pipeline) }.not_to exceed_query_limit(control.count)
+      expect { subject.execute(pipeline) }.not_to exceed_query_limit(control)
     end
   end
 

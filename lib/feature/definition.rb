@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
-class Feature
+module Feature
   class Definition
     include ::Feature::Shared
 
     attr_reader :path
     attr_reader :attributes
+
+    VALID_FEATURE_NAME = %r{^#{Gitlab::Regex.sep_by_1('_', /[a-z0-9]+/)}$}
 
     PARAMS.each do |param|
       define_method(param) do
@@ -38,43 +40,48 @@ class Feature
         raise Feature::InvalidFeatureFlagError, "Feature flag is missing name"
       end
 
+      unless VALID_FEATURE_NAME =~ name
+        raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' is invalid"
+      end
+
       unless path.present?
         raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' is missing path"
       end
 
       unless type.present?
-        raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' is missing type. Ensure to update #{path}"
+        raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' is missing `type`. Ensure to update #{path}"
       end
 
       unless Definition::TYPES.include?(type.to_sym)
         raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' type '#{type}' is invalid. Ensure to update #{path}"
       end
 
-      unless File.basename(path, ".yml") == name
+      if File.basename(path, ".yml") != name || File.basename(File.dirname(path)) != type
         raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' has an invalid path: '#{path}'. Ensure to update #{path}"
       end
 
-      unless File.basename(File.dirname(path)) == type
-        raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' has an invalid type: '#{path}'. Ensure to update #{path}"
+      validate_default_enabled!
+    end
+
+    def validate_default_enabled!
+      if default_enabled.nil?
+        raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' is missing `default_enabled`. Ensure to update #{path}"
       end
 
-      if default_enabled.nil?
-        raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' is missing default_enabled. Ensure to update #{path}"
+      if default_enabled && !Definition::TYPES.dig(type.to_sym, :can_be_default_enabled)
+        raise Feature::InvalidFeatureFlagError, "Feature flag '#{name}' cannot have `default_enabled` set to `true`. Ensure to update #{path}"
       end
     end
 
-    def valid_usage!(type_in_code:, default_enabled_in_code:)
-      unless Array(type).include?(type_in_code.to_s)
-        # Raise exception in test and dev
-        raise Feature::InvalidFeatureFlagError, "The `type:` of `#{key}` is not equal to config: " \
-          "#{type_in_code} vs #{type}. Ensure to use valid type in #{path} or ensure that you use " \
-          "a valid syntax: #{TYPES.dig(type, :example)}"
-      end
+    def valid_usage!(type_in_code:)
+      return if type_in_code.nil?
 
-      unless default_enabled_in_code == :yaml || default_enabled == default_enabled_in_code
+      if type != type_in_code.to_s
         # Raise exception in test and dev
-        raise Feature::InvalidFeatureFlagError, "The `default_enabled:` of `#{key}` is not equal to config: " \
-          "#{default_enabled_in_code} vs #{default_enabled}. Ensure to update #{path}"
+        raise Feature::InvalidFeatureFlagError,
+          "The given `type: :#{type_in_code}` for `#{key}` is not equal to the " \
+          ":#{type} set in its definition file. Ensure to use a valid type in #{path} or ensure that you use " \
+          "a valid syntax:\n\n#{TYPES.dig(type.to_sym, :example)}"
       end
     end
 
@@ -118,15 +125,17 @@ class Feature
 
       def log_states?(key)
         return false if key == :feature_flag_state_logs
-        return false if Feature.disabled?(:feature_flag_state_logs, type: :ops)
+        return false if Feature.disabled?(:feature_flag_state_logs)
         return false unless (feature = get(key))
 
         feature.force_log_state_changes? || feature.for_upcoming_milestone?
       end
 
-      def valid_usage!(key, type:, default_enabled:)
+      def valid_usage!(key, type:)
         if definition = get(key)
-          definition.valid_usage!(type_in_code: type, default_enabled_in_code: default_enabled)
+          definition.valid_usage!(type_in_code: type)
+        elsif type.nil?
+          raise InvalidFeatureFlagError, "Missing type for undefined feature `#{key}`"
         elsif type_definition = self::TYPES[type]
           raise InvalidFeatureFlagError, "Missing feature definition for `#{key}`" unless type_definition[:optional]
         else
@@ -134,9 +143,11 @@ class Feature
         end
       end
 
-      def default_enabled?(key)
+      def default_enabled?(key, default_enabled_if_undefined: nil)
         if definition = get(key)
           definition.default_enabled
+        elsif !default_enabled_if_undefined.nil?
+          default_enabled_if_undefined
         else
           Gitlab::ErrorTracking.track_and_raise_for_dev_exception(
             InvalidFeatureFlagError.new("The feature flag YAML definition for '#{key}' does not exist"))

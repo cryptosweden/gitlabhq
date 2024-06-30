@@ -18,7 +18,7 @@ module Gitlab
     end
 
     def self.subdomain_regex
-      %r{\Ahttps://[a-z0-9-]+\.gitlab\.com\z}.freeze
+      %r{\Ahttps://[a-z0-9-]+\.gitlab\.com\z}
     end
 
     def self.dev_url
@@ -47,6 +47,18 @@ module Gitlab
 
     def self.about_pricing_faq_url
       "https://about.gitlab.com/pricing#faq"
+    end
+
+    def self.about_feature_comparison_url
+      "https://about.gitlab.com/pricing/gitlab-com/feature-comparison"
+    end
+
+    def self.doc_url
+      'https://docs.gitlab.com'
+    end
+
+    def self.community_forum_url
+      'https://forum.gitlab.com'
     end
   end
 end

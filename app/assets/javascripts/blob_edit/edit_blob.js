@@ -1,14 +1,17 @@
 import $ from 'jquery';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 import { SourceEditorExtension } from '~/editor/extensions/source_editor_extension_base';
 import { FileTemplateExtension } from '~/editor/extensions/source_editor_file_template_ext';
+import { ToolbarExtension } from '~/editor/extensions/source_editor_toolbar_ext';
 import SourceEditor from '~/editor/source_editor';
-import { getBlobLanguage } from '~/editor/utils';
-import createFlash from '~/flash';
+import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
 import { addEditorMarkdownListeners } from '~/lib/utils/text_markdown';
-import { insertFinalNewline } from '~/lib/utils/text_utility';
-import TemplateSelectorMediator from '../blob/file_template_mediator';
-import { BLOB_EDITOR_ERROR, BLOB_PREVIEW_ERROR } from './constants';
+import FilepathFormMediator from '~/blob/filepath_form_mediator';
+import { visitUrl } from '~/lib/utils/url_utility';
+import Api from '~/api';
+
+import { BLOB_EDITOR_ERROR, BLOB_PREVIEW_ERROR, BLOB_EDIT_ERROR } from './constants';
 
 export default class EditBlob {
   // The options object has:
@@ -16,15 +19,11 @@ export default class EditBlob {
   constructor(options) {
     this.options = options;
     this.configureMonacoEditor();
-
-    if (this.options.isMarkdown) {
-      this.fetchMarkdownExtension();
-    }
+    this.isMarkdown = this.options.isMarkdown;
+    this.markdownLivePreviewOpened = false;
 
     this.initModePanesAndLinks();
-    this.initFileSelectors();
     this.initSoftWrap();
-    this.editor.focus();
   }
 
   async fetchMarkdownExtension() {
@@ -36,7 +35,7 @@ export default class EditBlob {
         import('~/editor/extensions/source_editor_markdown_ext'),
         import('~/editor/extensions/source_editor_markdown_livepreview_ext'),
       ]);
-      this.editor.use([
+      this.markdownExtensions = this.editor.use([
         { definition: MarkdownExtension },
         {
           definition: MarkdownLivePreview,
@@ -44,52 +43,110 @@ export default class EditBlob {
         },
       ]);
     } catch (e) {
-      createFlash({
+      createAlert({
         message: `${BLOB_EDITOR_ERROR}: ${e}`,
       });
     }
-    this.hasMarkdownExtension = true;
     addEditorMarkdownListeners(this.editor);
   }
 
-  configureMonacoEditor() {
+  async fetchSecurityPolicyExtension(projectPath) {
+    try {
+      const { SecurityPolicySchemaExtension } = await import(
+        '~/editor/extensions/source_editor_security_policy_schema_ext'
+      );
+      this.editor.use([{ definition: SecurityPolicySchemaExtension }]);
+      this.editor.registerSecurityPolicySchema(projectPath);
+    } catch (e) {
+      createAlert({
+        message: `${BLOB_EDITOR_ERROR}: ${e}`,
+      });
+    }
+  }
+
+  async configureMonacoEditor() {
     const editorEl = document.getElementById('editor');
-    const fileNameEl = document.getElementById('file_path') || document.getElementById('file_name');
-    const fileContentEl = document.getElementById('file-content');
     const form = document.querySelector('.js-edit-blob-form');
 
-    this.hasMarkdownExtension = false;
-
     const rootEditor = new SourceEditor();
+    const { filePath, projectId } = this.options;
+    const { ref } = editorEl.dataset;
+    let blobContent = '';
+
+    if (filePath) {
+      const { data } = await Api.getRawFile(
+        projectId,
+        filePath,
+        { ref },
+        { responseType: 'text', transformResponse: (x) => x },
+      );
+      blobContent = String(data);
+    }
 
     this.editor = rootEditor.createInstance({
       el: editorEl,
-      blobPath: fileNameEl.value,
-      blobContent: editorEl.innerText,
+      blobContent,
+      blobPath: this.options.filePath,
     });
-    this.editor.use([{ definition: SourceEditorExtension }, { definition: FileTemplateExtension }]);
+    this.editor.use([
+      { definition: ToolbarExtension },
+      { definition: SourceEditorExtension },
+      { definition: FileTemplateExtension },
+    ]);
 
-    fileNameEl.addEventListener('change', () => {
-      this.editor.updateModelLanguage(fileNameEl.value);
-      const newLang = getBlobLanguage(fileNameEl.value);
-      if (newLang === 'markdown') {
-        if (!this.hasMarkdownExtension) {
-          this.fetchMarkdownExtension();
-        }
+    if (this.isMarkdown) {
+      this.fetchMarkdownExtension();
+    }
+
+    if (this.options.filePath === '.gitlab/security-policies/policy.yml') {
+      await this.fetchSecurityPolicyExtension(this.options.projectPath);
+    }
+
+    this.initFilepathForm();
+    this.editor.focus();
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const { formMethod } = form.dataset;
+      const endpoint = form.action;
+      const formData = new FormData(form);
+      formData.set('content', this.editor.getValue());
+
+      try {
+        const { data } = await axios[formMethod](endpoint, Object.fromEntries(formData));
+        visitUrl(data.filePath);
+      } catch (error) {
+        createAlert({ message: BLOB_EDIT_ERROR, captureError: true });
       }
     });
 
-    form.addEventListener('submit', () => {
-      fileContentEl.value = insertFinalNewline(this.editor.getValue());
+    // onDidChangeModelLanguage is part of the native Monaco API
+    // https://microsoft.github.io/monaco-editor/api/interfaces/monaco.editor.IStandaloneCodeEditor.html#onDidChangeModelLanguage
+    this.editor.onDidChangeModelLanguage(({ newLanguage = '', oldLanguage = '' }) => {
+      if (newLanguage === 'markdown') {
+        this.fetchMarkdownExtension();
+      } else if (oldLanguage === 'markdown') {
+        this.editor.unuse(this.markdownExtensions);
+      }
     });
   }
 
-  initFileSelectors() {
+  initFilepathForm() {
     const { currentAction, projectId } = this.options;
-    this.fileTemplateMediator = new TemplateSelectorMediator({
+    this.filepathFormMediator = new FilepathFormMediator({
       currentAction,
       editor: this.editor,
       projectId,
+    });
+    this.initFilepathListeners();
+  }
+
+  initFilepathListeners() {
+    const fileNameEl = document.getElementById('file_path') || document.getElementById('file_name');
+    this.editor.updateModelLanguage(fileNameEl.value);
+    fileNameEl.addEventListener('input', () => {
+      this.editor.updateModelLanguage(fileNameEl.value);
     });
   }
 
@@ -97,6 +154,13 @@ export default class EditBlob {
     this.$editModePanes = $('.js-edit-mode-pane');
     this.$editModeLinks = $('.js-edit-mode a');
     this.$editModeLinks.on('click', (e) => this.editModeLinkClickHandler(e));
+  }
+
+  toggleMarkdownPreview(toOpen) {
+    if (toOpen !== this.markdownLivePreviewOpened) {
+      this.editor.markdownPreview?.eventEmitter.fire();
+      this.markdownLivePreviewOpened = !this.markdownLivePreviewOpened;
+    }
   }
 
   editModeLinkClickHandler(e) {
@@ -110,25 +174,29 @@ export default class EditBlob {
 
     currentLink.parent().addClass('active hover');
 
-    this.$editModePanes.hide();
+    if (this.isMarkdown) {
+      this.toggleMarkdownPreview(paneId === '#preview');
+    } else {
+      this.$editModePanes.hide();
 
-    currentPane.show();
+      currentPane.show();
 
-    if (paneId === '#preview') {
-      this.$toggleButton.hide();
-      axios
-        .post(currentLink.data('previewUrl'), {
-          content: this.editor.getValue(),
-        })
-        .then(({ data }) => {
-          currentPane.empty().append(data);
-          currentPane.renderGFM();
-        })
-        .catch(() =>
-          createFlash({
-            message: BLOB_PREVIEW_ERROR,
-          }),
-        );
+      if (paneId === '#preview') {
+        this.$toggleButton.hide();
+        axios
+          .post(currentLink.data('previewUrl'), {
+            content: this.editor.getValue(),
+          })
+          .then(({ data }) => {
+            currentPane.empty().append(data);
+            renderGFM(currentPane.get(0));
+          })
+          .catch(() =>
+            createAlert({
+              message: BLOB_PREVIEW_ERROR,
+            }),
+          );
+      }
     }
 
     this.$toggleButton.show();

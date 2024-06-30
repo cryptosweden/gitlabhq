@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Milestones through GroupQuery' do
+RSpec.describe 'Milestones through GroupQuery', feature_category: :team_planning do
   include GraphqlHelpers
 
   let_it_be(:user) { create(:user) }
@@ -35,12 +35,6 @@ RSpec.describe 'Milestones through GroupQuery' do
     end
 
     context 'when filtering by timeframe' do
-      it 'fetches milestones between start_date and due_date' do
-        fetch_milestones(user, { start_date: now.to_s, end_date: (now + 2.days).to_s })
-
-        expect_array_response(milestone_2.to_global_id.to_s, milestone_3.to_global_id.to_s)
-      end
-
       it 'fetches milestones between timeframe start and end arguments' do
         today = Date.today
         fetch_milestones(user, { timeframe: { start: today.to_s, end: (today + 2.days).to_s } })
@@ -142,7 +136,7 @@ RSpec.describe 'Milestones through GroupQuery' do
     let_it_be(:closed_issue) { create(:issue, :closed, project: project, milestone: milestone) }
 
     let(:milestone_query) do
-      %{
+      %(
         id
         title
         description
@@ -155,7 +149,7 @@ RSpec.describe 'Milestones through GroupQuery' do
         projectMilestone
         groupMilestone
         subgroupMilestone
-      }
+      )
     end
 
     def post_query
@@ -170,10 +164,8 @@ RSpec.describe 'Milestones through GroupQuery' do
     end
 
     it 'returns correct values for scalar fields' do
-      expect(post_query).to eq({
-        'id' => global_id_of(milestone),
-        'title' => milestone.title,
-        'description' => milestone.description,
+      expect(post_query).to match a_graphql_entity_for(
+        milestone, :title, :description,
         'state' => 'active',
         'webPath' => milestone_path(milestone),
         'dueDate' => milestone.due_date.iso8601,
@@ -183,17 +175,17 @@ RSpec.describe 'Milestones through GroupQuery' do
         'projectMilestone' => false,
         'groupMilestone' => true,
         'subgroupMilestone' => false
-      })
+      )
     end
 
     context 'milestone statistics' do
       let(:milestone_query) do
-        %{
+        %(
           stats {
             totalIssuesCount
             closedIssuesCount
           }
-        }
+        )
       end
 
       it 'returns the correct milestone statistics' do

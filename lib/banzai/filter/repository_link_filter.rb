@@ -15,6 +15,8 @@ module Banzai
     #   :requested_path
     #   :system_note
     class RepositoryLinkFilter < BaseRelativeLinkFilter
+      prepend Concerns::PipelineTimingCheck
+
       def call
         return doc if context[:system_note]
 
@@ -60,7 +62,7 @@ module Banzai
       def get_uri_types(paths)
         return {} if paths.empty?
 
-        uri_types = paths.to_h { |name| [name, nil] }
+        uri_types = paths.index_with { nil }
 
         get_blob_types(paths).each do |name, type|
           if type == :blob
@@ -90,17 +92,18 @@ module Banzai
       end
 
       def get_uri(html_attr)
-        uri = URI(html_attr.value)
+        uri = Addressable::URI.parse(html_attr.value)
 
         uri if uri.relative? && uri.path.present?
       rescue URI::Error, Addressable::URI::InvalidURIError
       end
 
       def process_link_to_repository_attr(html_attr)
-        uri = URI(html_attr.value)
+        uri = Addressable::URI.parse(html_attr.value)
 
         if uri.relative? && uri.path.present?
           html_attr.value = rebuild_relative_uri(uri).to_s
+          html_attr.parent.add_class('gfm')
         end
       rescue URI::Error, Addressable::URI::InvalidURIError
         # noop
@@ -113,7 +116,7 @@ module Banzai
         # Repository routes are under /-/ scope now.
         # Since we craft a path without using route helpers we must
         # ensure - is added here.
-        prefix = '-' if %w(tree blob raw commits).include?(resource_type.to_s)
+        prefix = '-' if %w[tree blob raw commits].include?(resource_type.to_s)
 
         uri.path = [
           relative_url_root,
@@ -180,7 +183,7 @@ module Banzai
 
         parts.pop if uri_type(request_path) != :tree
 
-        path.sub!(%r{\A\./}, '')
+        path.delete_prefix!('./')
 
         while path.start_with?('../')
           parts.pop
@@ -203,7 +206,7 @@ module Banzai
       end
 
       def repo_visible_to_user?
-        project && Ability.allowed?(current_user, :download_code, project)
+        project && Ability.allowed?(current_user, :read_code, project)
       end
 
       def ref

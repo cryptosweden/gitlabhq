@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Environments page', :js do
+RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery do
   include Spec::Support::Helpers::ModalHelpers
 
   let(:project) { create(:project) }
@@ -31,19 +31,19 @@ RSpec.describe 'Environments page', :js do
   end
 
   describe 'page tabs' do
-    it 'shows "Available" and "Stopped" tab with links' do
-      visit_environments(project)
-
-      expect(page).to have_link(_('Available'))
-      expect(page).to have_link(_('Stopped'))
-    end
-
     describe 'with one available environment' do
       let!(:environment) { create(:environment, project: project, state: :available) }
 
-      describe 'in available tab page' do
+      it 'shows "Active" and "Stopped" tab with links' do
+        visit_environments(project)
+
+        expect(page).to have_link(_('Active'))
+        expect(page).to have_link(_('Stopped'))
+      end
+
+      describe 'in active tab page' do
         it 'shows one environment' do
-          visit_environments(project, scope: 'available')
+          visit_environments(project, scope: 'active')
 
           expect(page).to have_link(environment.name, href: project_environment_path(project, environment))
         end
@@ -56,7 +56,7 @@ RSpec.describe 'Environments page', :js do
         end
 
         it 'renders second page of pipelines' do
-          visit_environments(project, scope: 'available')
+          visit_environments(project, scope: 'active')
 
           find('.page-link.next-page-item').click
           wait_for_requests
@@ -70,7 +70,7 @@ RSpec.describe 'Environments page', :js do
         it 'shows no environments' do
           visit_environments(project, scope: 'stopped')
 
-          expect(page).to have_content('You don\'t have any environments right now')
+          expect(page).to have_content(s_('Environments|Get started with environments'))
         end
       end
 
@@ -85,7 +85,7 @@ RSpec.describe 'Environments page', :js do
         end
 
         it 'shows one environment without error' do
-          visit_environments(project, scope: 'available')
+          visit_environments(project, scope: 'active')
 
           expect(page).to have_link(environment.name, href: project_environment_path(project, environment))
         end
@@ -95,11 +95,11 @@ RSpec.describe 'Environments page', :js do
     describe 'with one stopped environment' do
       let!(:environment) { create(:environment, project: project, state: :stopped) }
 
-      describe 'in available tab page' do
+      describe 'in active tab page' do
         it 'shows no environments' do
-          visit_environments(project, scope: 'available')
+          visit_environments(project, scope: 'active')
 
-          expect(page).to have_content('You don\'t have any environments right now')
+          expect(page).to have_content(s_('Environments|Get started with environments'))
         end
       end
 
@@ -119,11 +119,11 @@ RSpec.describe 'Environments page', :js do
       visit_environments(project)
     end
 
-    it 'does not show environments and counters are set to zero' do
-      expect(page).to have_content('You don\'t have any environments right now')
+    it 'does not show environments and tabs' do
+      expect(page).to have_content(s_('Environments|Get started with environments'))
 
-      expect(page).to have_link("#{_('Available')} 0")
-      expect(page).to have_link("#{_('Stopped')} 0")
+      expect(page).not_to have_link(_('Active'))
+      expect(page).not_to have_link(_('Stopped'))
     end
   end
 
@@ -131,8 +131,6 @@ RSpec.describe 'Environments page', :js do
     let!(:environment) do
       create(:environment, project: project, state: :available)
     end
-
-    stub_feature_flags(bootstrap_confirmation_modals: false)
 
     context 'when there are no deployments' do
       before do
@@ -144,7 +142,7 @@ RSpec.describe 'Environments page', :js do
       it 'shows environments names and counters' do
         expect(page).to have_link(environment.name, href: project_environment_path(project, environment))
 
-        expect(page).to have_link("#{_('Available')} 1")
+        expect(page).to have_link("#{_('Active')} 1")
         expect(page).to have_link("#{_('Stopped')} 0")
       end
 
@@ -161,9 +159,7 @@ RSpec.describe 'Environments page', :js do
       let(:project) { create(:project, :repository) }
 
       let!(:deployment) do
-        create(:deployment, :success,
-                            environment: environment,
-                            sha: project.commit.id)
+        create(:deployment, :success, environment: environment, sha: project.commit.id)
       end
 
       it 'shows deployment SHA and internal ID' do
@@ -177,17 +173,14 @@ RSpec.describe 'Environments page', :js do
 
       context 'when builds and manual actions are present' do
         let!(:pipeline) { create(:ci_pipeline, project: project) }
-        let!(:build) { create(:ci_build, pipeline: pipeline) }
+        let!(:build) { create(:ci_build, :success, pipeline: pipeline) }
 
         let!(:action) do
           create(:ci_build, :manual, pipeline: pipeline, name: 'deploy to production')
         end
 
         let!(:deployment) do
-          create(:deployment, :success,
-                              environment: environment,
-                              deployable: build,
-                              sha: project.commit.id)
+          create(:deployment, :success, environment: environment, deployable: build, sha: project.commit.id)
         end
 
         before do
@@ -209,8 +202,14 @@ RSpec.describe 'Environments page', :js do
             .not_to change { Ci::Pipeline.count }
         end
 
-        it 'shows a stop button' do
+        it 'shows a stop button and dialog' do
           expect(page).to have_selector(stop_button_selector)
+
+          click_button(_('Stop'))
+
+          within('.modal-body') do
+            expect(page).to have_css('.warning_message')
+          end
         end
 
         it 'does not show external link button' do
@@ -218,7 +217,6 @@ RSpec.describe 'Environments page', :js do
         end
 
         it 'does not show terminal button' do
-          expect(page).not_to have_button(_('More actions'))
           expect(page).not_to have_terminal_button
         end
 
@@ -238,14 +236,17 @@ RSpec.describe 'Environments page', :js do
           end
 
           let(:deployment) do
-            create(:deployment, :success,
-                                environment: environment,
-                                deployable: build,
-                                on_stop: 'close_app')
+            create(:deployment, :success, environment: environment, deployable: build, on_stop: 'close_app')
           end
 
-          it 'shows a stop button' do
+          it 'shows a stop button and dialog' do
             expect(page).to have_selector(stop_button_selector)
+
+            click_button(_('Stop'))
+
+            within('.modal-body') do
+              expect(page).not_to have_css('.warning_message')
+            end
           end
 
           context 'when user is a reporter' do
@@ -275,7 +276,6 @@ RSpec.describe 'Environments page', :js do
               let(:role) { :developer }
 
               it 'does not show terminal button' do
-                expect(page).not_to have_button(_('More actions'))
                 expect(page).not_to have_terminal_button
               end
             end
@@ -288,18 +288,11 @@ RSpec.describe 'Environments page', :js do
         let!(:build) { create(:ci_build, pipeline: pipeline) }
 
         let!(:delayed_job) do
-          create(:ci_build, :scheduled,
-                 pipeline: pipeline,
-                 name: 'delayed job',
-                 stage: 'test')
+          create(:ci_build, :scheduled, pipeline: pipeline, name: 'delayed job', stage: 'test')
         end
 
         let!(:deployment) do
-          create(:deployment,
-                 :success,
-                 environment: environment,
-                 deployable: build,
-                 sha: project.commit.id)
+          create(:deployment, :success, environment: environment, deployable: build, sha: project.commit.id)
         end
 
         before do
@@ -319,10 +312,7 @@ RSpec.describe 'Environments page', :js do
 
         context 'when delayed job is expired already' do
           let!(:delayed_job) do
-            create(:ci_build, :expired_scheduled,
-                   pipeline: pipeline,
-                   name: 'delayed job',
-                   stage: 'test')
+            create(:ci_build, :expired_scheduled, pipeline: pipeline, name: 'delayed job', stage: 'test')
           end
 
           it "shows 00:00:00 as the remaining time" do
@@ -338,10 +328,15 @@ RSpec.describe 'Environments page', :js do
             accept_gl_confirm do
               find(action_link_selector).click
             end
+
+            # Wait for UI to transition to ensure we an GraphQL request has been made
+            within(actions_button_selector) { find('.gl-spinner') }
+            within(actions_button_selector) { find_by_testid('play-icon') }
+
             wait_for_requests
           end
 
-          it 'enqueues the delayed job', :js do
+          it 'enqueues the delayed job', :js, quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/409990' do
             expect(delayed_job.reload).to be_pending
           end
         end
@@ -352,12 +347,10 @@ RSpec.describe 'Environments page', :js do
       let(:project) { create(:project, :repository) }
 
       let!(:deployment) do
-        create(:deployment, :failed,
-                            environment: environment,
-                            sha: project.commit.id)
+        create(:deployment, :failed, environment: environment, sha: project.commit.id)
       end
 
-      it 'does not show deployments' do
+      it 'does not show deployments', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/409990' do
         visit_environments(project)
 
         page.click_button _('Expand')
@@ -369,9 +362,7 @@ RSpec.describe 'Environments page', :js do
       let_it_be(:project) { create(:project, :repository) }
 
       let!(:deployment) do
-        create(:deployment, :running,
-                            environment: environment,
-                            sha: project.commit.id)
+        create(:deployment, :running, environment: environment, sha: project.commit.id)
       end
 
       it "renders the upcoming deployment", :aggregate_failures do
@@ -385,12 +376,45 @@ RSpec.describe 'Environments page', :js do
         end
       end
     end
+
+    describe 'stop actions' do
+      using RSpec::Parameterized::TableSyntax
+
+      let_it_be(:project) { create(:project, :repository) }
+
+      let(:warning_message) { 'no “stop environment action” being defined' }
+
+      where(:status, :warning_present_if_ff_disabled) do
+        :success  | false
+        :failed   | true
+        :canceled | true
+      end
+
+      with_them do
+        before do
+          pipeline = create(:ci_pipeline, status, project: project)
+          build = create(:ci_build, status, pipeline: pipeline)
+          create(:ci_build, :manual, project: project, pipeline: pipeline, name: 'stop_action')
+          create(:deployment, status, environment: environment, deployable: build, sha: project.commit.id, on_stop: 'stop_action')
+
+          visit_environments(project)
+        end
+
+        it 'shows a stop action dialog without a warning message' do
+          click_button(_('Stop'))
+
+          within('.modal-body') do
+            expect(page).not_to have_content(warning_message)
+          end
+        end
+      end
+    end
   end
 
   it 'does have a new environment button' do
     visit_environments(project)
 
-    expect(page).to have_link('New environment')
+    expect(page).to have_link('Create an environment')
   end
 
   describe 'creating a new environment' do
@@ -402,7 +426,7 @@ RSpec.describe 'Environments page', :js do
       let(:role) { :developer }
 
       it 'developer creates a new environment with a valid name' do
-        click_link 'New environment'
+        click_link 'Create an environment'
         fill_in('Name', with: 'production')
         click_on 'Save'
 
@@ -410,7 +434,7 @@ RSpec.describe 'Environments page', :js do
       end
 
       it 'developer creates a new environment with invalid name' do
-        click_link 'New environment'
+        click_link 'Create an environment'
         fill_in('Name', with: 'name,with,commas')
         click_on 'Save'
 
@@ -430,14 +454,8 @@ RSpec.describe 'Environments page', :js do
   describe 'environments folders' do
     describe 'available environments' do
       before do
-        create(:environment, :will_auto_stop,
-                            project: project,
-                            name: 'staging/review-1',
-                            state: :available)
-        create(:environment, :will_auto_stop,
-                            project: project,
-                            name: 'staging/review-2',
-                            state: :available)
+        create(:environment, :will_auto_stop, project: project, name: 'staging/review-1', state: :available)
+        create(:environment, :will_auto_stop, project: project, name: 'staging/review-2', state: :available)
       end
 
       it 'users unfurls an environment folder' do
@@ -457,14 +475,8 @@ RSpec.describe 'Environments page', :js do
 
     describe 'stopped environments' do
       before do
-        create(:environment, :will_auto_stop,
-                            project: project,
-                            name: 'staging/review-1',
-                            state: :stopped)
-        create(:environment, :will_auto_stop,
-                            project: project,
-                            name: 'staging/review-2',
-                            state: :stopped)
+        create(:environment, :will_auto_stop, project: project, name: 'staging/review-1', state: :stopped)
+        create(:environment, :will_auto_stop, project: project, name: 'staging/review-2', state: :stopped)
       end
 
       it 'users unfurls an environment folder' do
@@ -479,26 +491,6 @@ RSpec.describe 'Environments page', :js do
         expect(page).to have_content 'review-1'
         expect(page).to have_content 'review-2'
       end
-    end
-  end
-
-  describe 'environments folders view' do
-    before do
-      create(:environment, project: project,
-                           name: 'staging.review/review-1',
-                           state: :available)
-      create(:environment, project: project,
-                           name: 'staging.review/review-2',
-                           state: :available)
-    end
-
-    it 'user opens folder view' do
-      visit folder_project_environments_path(project, 'staging.review')
-      wait_for_requests
-
-      expect(page).to have_content('Environments / staging.review')
-      expect(page).to have_content('review-1')
-      expect(page).to have_content('review-2')
     end
   end
 

@@ -6,23 +6,15 @@ module Gitlab
 
     DURATION_PRECISION = 6 # microseconds
 
-    def init_instrumentation_data(request_ip: nil)
-      # Set `request_start_time` only if this is request
-      # This is done, as `request_start_time` imply `request_deadline`
-      if request_ip
-        Gitlab::RequestContext.instance.client_ip = request_ip
-        Gitlab::RequestContext.instance.request_start_time = Gitlab::Metrics::System.real_time
-      end
-
-      Gitlab::RequestContext.instance.start_thread_cpu_time = Gitlab::Metrics::System.thread_cpu_time
-      Gitlab::RequestContext.instance.thread_memory_allocations = Gitlab::Memory::Instrumentation.start_thread_memory_allocations
+    def init_instrumentation_data
+      Gitlab::RequestContext.start_thread_context
     end
 
     def add_instrumentation_data(payload)
       instrument_gitaly(payload)
-      instrument_rugged(payload)
       instrument_redis(payload)
       instrument_elasticsearch(payload)
+      instrument_zoekt(payload)
       instrument_throttle(payload)
       instrument_active_record(payload)
       instrument_external_http(payload)
@@ -31,7 +23,12 @@ module Gitlab
       instrument_thread_memory_allocations(payload)
       instrument_load_balancing(payload)
       instrument_pid(payload)
+      instrument_worker_id(payload)
       instrument_uploads(payload)
+      instrument_rate_limiting_gates(payload)
+      instrument_global_search_api(payload)
+      instrument_ldap(payload)
+      instrument_exclusive_lock(payload)
     end
 
     def instrument_gitaly(payload)
@@ -41,15 +38,6 @@ module Gitlab
 
       payload[:gitaly_calls] = gitaly_calls
       payload[:gitaly_duration_s] = Gitlab::GitalyClient.query_time
-    end
-
-    def instrument_rugged(payload)
-      rugged_calls = Gitlab::RuggedInstrumentation.query_count
-
-      return if rugged_calls == 0
-
-      payload[:rugged_calls] = rugged_calls
-      payload[:rugged_duration_s] = Gitlab::RuggedInstrumentation.query_time
     end
 
     def instrument_redis(payload)
@@ -66,6 +54,17 @@ module Gitlab
       payload[:elasticsearch_calls] = elasticsearch_calls
       payload[:elasticsearch_duration_s] = Gitlab::Instrumentation::ElasticsearchTransport.query_time
       payload[:elasticsearch_timed_out_count] = Gitlab::Instrumentation::ElasticsearchTransport.get_timed_out_count
+    end
+
+    def instrument_zoekt(payload)
+      # Zoekt integration is only available in EE but instrumentation
+      # only depends on the Gem which is also available in FOSS.
+      zoekt_calls = Gitlab::Instrumentation::Zoekt.get_request_count
+
+      return if zoekt_calls == 0
+
+      payload[:zoekt_calls] = zoekt_calls
+      payload[:zoekt_duration_s] = Gitlab::Instrumentation::Zoekt.query_time
     end
 
     def instrument_external_http(payload)
@@ -105,6 +104,10 @@ module Gitlab
       payload[:pid] = Process.pid
     end
 
+    def instrument_worker_id(payload)
+      payload[:worker_id] = ::Prometheus::PidProvider.worker_id
+    end
+
     def instrument_thread_memory_allocations(payload)
       counters = ::Gitlab::Memory::Instrumentation.measure_thread_memory_allocations(
         ::Gitlab::RequestContext.instance.thread_memory_allocations)
@@ -119,6 +122,30 @@ module Gitlab
 
     def instrument_uploads(payload)
       payload.merge! ::Gitlab::Instrumentation::Uploads.payload
+    end
+
+    def instrument_rate_limiting_gates(payload)
+      payload.merge!(::Gitlab::Instrumentation::RateLimitingGates.payload)
+    end
+
+    def instrument_global_search_api(payload)
+      payload.merge!(::Gitlab::Instrumentation::GlobalSearchApi.payload)
+    end
+
+    def instrument_ldap(payload)
+      ldap_count = Gitlab::Metrics::Subscribers::Ldap.count
+
+      return if ldap_count == 0
+
+      payload.merge! Gitlab::Metrics::Subscribers::Ldap.payload
+    end
+
+    def instrument_exclusive_lock(payload)
+      requested_count = Gitlab::Instrumentation::ExclusiveLock.requested_count
+
+      return if requested_count == 0
+
+      payload.merge!(Gitlab::Instrumentation::ExclusiveLock.payload)
     end
 
     # Returns the queuing duration for a Sidekiq job in seconds, as a float, if the

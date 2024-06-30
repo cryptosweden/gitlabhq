@@ -1,11 +1,15 @@
 ---
 stage: Create
-group: Gitaly
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
-type: howto
+group: Source Code
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: "To remove unwanted large files from a Git repository and reduce its storage size, use the filter-repo command."
 ---
 
-# Reduce repository size **(FREE)**
+# Reduce repository size
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
 
 Git repositories become larger over time. When large files are added to a Git repository:
 
@@ -20,30 +24,46 @@ over [`git filter-branch`](https://git-scm.com/docs/git-filter-branch) and
 
 WARNING:
 Rewriting repository history is a destructive operation. Make sure to back up your repository before
-you begin. The best way back up a repository is to
+you begin. The best way to back up a repository is to
 [export the project](../settings/import_export.md#export-a-project-and-its-data).
+
+## Calculate repository size
+
+The size of a repository is determined by computing the accumulated size of all files in the repository.
+It is similar to executing `du --summarize --bytes` on your repository's
+[hashed storage path](../../../administration/repository_storage_paths.md).
 
 ## Purge files from repository history
 
-To reduce the size of your repository in GitLab, you must first remove references to large files from branches, tags, *and*
-other internal references (refs) that are automatically created by GitLab. These refs include:
+GitLab [prunes unreachable objects](../../../administration/housekeeping.md#prune-unreachable-objects)
+as part of housekeeping. In GitLab, to reduce the disk size of your repository manually, you must
+first remove references to large files from branches, tags, *and* other internal references (refs)
+created by GitLab. These refs include:
 
-- `refs/merge-requests/*` for merge requests.
-- `refs/pipelines/*` for
-  [pipelines](../../../ci/troubleshooting.md#fatal-reference-is-not-a-tree-error).
-- `refs/environments/*` for environments.
-- `refs/keep-around/*` are created as hidden refs to prevent commits referenced in the database from being removed
+- `refs/merge-requests/*`
+- `refs/pipelines/*`
+- `refs/environments/*`
+- `refs/keep-around/*`
+
+NOTE:
+For details on each of these references, see
+[GitLab-specific references](../../../development/gitaly.md#gitlab-specific-references).
 
 These refs are not automatically downloaded and hidden refs are not advertised, but we can remove these refs using a project export.
 
+WARNING:
+This process is not suitable for removing sensitive data like password or keys from your repository.
+Information about commits, including file content, is cached in the database, and remain
+visible even after they have been removed from the repository.
+
 To purge files from a GitLab repository:
 
-1. Install either [`git filter-repo`](https://github.com/newren/git-filter-repo/blob/main/INSTALL.md) or
+1. Install [`git filter-repo`](https://github.com/newren/git-filter-repo/blob/main/INSTALL.md) and optionally
    [`git-sizer`](https://github.com/github/git-sizer#getting-started)
    using a supported package manager or from source.
 
-1. Generate a fresh [export from the
-   project](../settings/import_export.html#export-a-project-and-its-data) and download it.
+1. Generate a fresh
+   [export from the project](../settings/import_export.md#export-a-project-and-its-data) and download it.
    This project export contains a backup copy of your repository *and* refs
    we can use to purge files from your repository.
 
@@ -56,7 +76,7 @@ To purge files from a GitLab repository:
    This contains a `project.bundle` file, which was created by
    [`git bundle`](https://git-scm.com/docs/git-bundle).
 
-1. Clone a fresh copy of the repository from the bundle using  `--bare` and `--mirror` options:
+1. Clone a fresh copy of the repository from the bundle using `--bare` and `--mirror` options:
 
    ```shell
    git clone --bare --mirror /path/to/project.bundle
@@ -68,48 +88,61 @@ To purge files from a GitLab repository:
    cd project.git
    ```
 
+1. Because cloning from a bundle file sets the `origin` remote to the local bundle file, change it to the URL of your repository:
+
+   ```shell
+   git remote set-url origin https://gitlab.example.com/<namespace>/<project_name>.git
+   ```
+
 1. Using either `git filter-repo` or `git-sizer`, analyze your repository
    and review the results to determine which items you want to purge:
 
    ```shell
    # Using git filter-repo
    git filter-repo --analyze
-   head .git/filter-repo/analysis/*-{all,deleted}-sizes.txt
+   head filter-repo/analysis/*-{all,deleted}-sizes.txt
 
    # Using git-sizer
    git-sizer
    ```
 
-1. Proceed to purging any files from the history of your repository. Because we are
-   trying to remove internal refs, we rely on the `commit-map` produced by each run to tell us
-   which internal refs to remove.
+1. Purge the history of your repository using relevant `git filter-repo` options.
+   Two common options are:
 
-   NOTE:
-   `git filter-repo` creates a new `commit-map` file every run, and overwrites the `commit-map` from
-   the previous run. You need this file from **every** run. Do the next step every time you run
-   `git filter-repo`.
+   - `--path` and `--invert-paths` to purge specific files:
 
-   To purge specific files, the `--path` and `--invert-paths` options can be combined:
+     ```shell
+     git filter-repo --path path/to/file.ext --invert-paths
+     ```
 
-   ```shell
-   git filter-repo --path path/to/file.ext --invert-paths
-   ```
+   - `--strip-blobs-bigger-than` to purge all files larger than for example 10M:
 
-   To generally purge all files larger than 10M, the `--strip-blobs-bigger-than` option can be used:
-
-   ```shell
-   git filter-repo --strip-blobs-bigger-than 10M
-   ```
+     ```shell
+     git filter-repo --strip-blobs-bigger-than 10M
+     ```
 
    See the
    [`git filter-repo` documentation](https://htmlpreview.github.io/?https://github.com/newren/git-filter-repo/blob/docs/html/git-filter-repo.html#EXAMPLES)
    for more examples and the complete documentation.
 
-1. Because cloning from a bundle file sets the `origin` remote to the local bundle file, delete this `origin` remote, and set it to the URL to your repository:
+1. Because you are trying to remove internal refs,
+   you need the `commit-map` files produced by each run
+   to tell you which internal refs to remove.
+   Every `git filter-repo` run creates a new `commit-map`,
+   and overwrites the `commit-map` from the previous run.
+   You can use the following command to back up each `commit-map` file:
 
    ```shell
-   git remote remove origin
-   git remote add origin https://gitlab.example.com/<namespace>/<project_name>.git
+   cp filter-repo/commit-map ./_filter_repo_commit_map_$(date +%s)
+   ```
+
+   Repeat this step and all following steps (including the [repository cleanup](#repository-cleanup) step)
+   every time you run any `git filter-repo` command.
+
+1. To allow you to force push the changes you need to unset the mirror flag:
+
+   ```shell
+    git config --unset remote.origin.mirror
    ```
 
 1. Force push your changes to overwrite all branches on GitLab:
@@ -138,32 +171,36 @@ To purge files from a GitLab repository:
 
    Refer to the Git [`replace`](https://git-scm.com/book/en/v2/Git-Tools-Replace) documentation for information on how this works.
 
-1. Wait at least 30 minutes, because the repository cleanup process only processes object older than 30 minutes.
-1. Run [repository cleanup](#repository-cleanup).
+1. Wait at least 30 minutes before attempting the next step.
+1. Run [repository cleanup](#repository-cleanup). This process only cleans up objects
+   that are more than 30 minutes old. See [Space not being freed](#space-not-being-freed)
+   for more information.
 
 ## Repository cleanup
-
-> [Introduced](https://gitlab.com/gitlab-org/gitlab-foss/-/issues/19376) in GitLab 11.6.
 
 Repository cleanup allows you to upload a text file of objects and GitLab removes internal Git
 references to these objects. You can use
 [`git filter-repo`](https://github.com/newren/git-filter-repo) to produce a list of objects (in a
 `commit-map` file) that can be used with repository cleanup.
 
-[Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/45058) in GitLab 13.6,
-safely cleaning the repository requires it to be made read-only for the duration
+Safely cleaning the repository requires it to be made read-only for the duration
 of the operation. This happens automatically, but submitting the cleanup request
 fails if any writes are ongoing, so cancel any outstanding `git push`
 operations before continuing.
 
+WARNING:
+Removing internal Git references results in associated merge request commits, pipelines, and changes details
+no longer being available.
+
 To clean up a repository:
 
-1. Go to the project for the repository.
+1. On the left sidebar, select **Search or go to** and find your project.
 1. Go to **Settings > Repository**.
+1. Expand **Repository maintenance**.
 1. Upload a list of objects. For example, a `commit-map` file created by `git filter-repo` which is located in the
    `filter-repo` directory.
 
-   If your `commit-map` file is larger than about 250KB or 3000 lines, the file can be split and uploaded piece by piece:
+   If your `commit-map` file is larger than about 250 KB or 3000 lines, the file can be split and uploaded piece by piece:
 
    ```shell
    split -l 3000 filter-repo/commit-map filter-repo/commit-map-
@@ -175,8 +212,8 @@ This:
 
 - Removes any internal Git references to old commits.
 - Runs `git gc --prune=30.minutes.ago` against the repository to remove unreferenced objects. Repacking your repository temporarily
-  causes the size of your repository to increase significantly, because the old pack files are not removed until the
-  new pack files have been created.
+  causes the size of your repository to increase significantly, because the old packfiles are not removed until the
+  new packfiles have been created.
 - Unlinks any unused LFS objects attached to your project, freeing up storage space.
 - Recalculates the size of your repository on disk.
 
@@ -191,20 +228,81 @@ When using repository cleanup, note:
 
 - Project statistics are cached. You may need to wait 5-10 minutes to see a reduction in storage utilization.
 - The cleanup prunes loose objects older than 30 minutes. This means objects added or referenced in the last 30 minutes
-  are not be removed immediately. If you have access to the
-  [Gitaly](../../../administration/gitaly/index.md) server, you may slip that delay and run `git gc --prune=now` to
+  are not removed immediately. If you have access to the
+  [Gitaly](../../../administration/gitaly/index.md) server, you may skip that delay and run `git gc --prune=now` to
   prune all loose objects immediately.
 - This process removes some copies of the rewritten commits from the GitLab cache and database,
   but there are still numerous gaps in coverage and some of the copies may persist indefinitely.
   [Clearing the instance cache](../../../administration/raketasks/maintenance.md#clear-redis-cache)
   may help to remove some of them, but it should not be depended on for security purposes!
 
+## Remove blobs
+
+> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/450701) in GitLab 17.1 [with a flag](../../../administration/feature_flags.md) named `rewrite_history_ui`. Disabled by default.
+
+FLAG:
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+This feature is available for testing, but not ready for production use.
+
+Permanently delete sensitive or confidential information that was accidentally committed, ensuring
+it's no longer accessible in your repository's history.
+
+Prerequisites:
+
+- You must have the Owner role for the instance.
+- You must have [a list of object IDs](#get-a-list-of-object-ids) to remove.
+
+To remove blobs from your repository:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Repository**.
+1. Expand **Repository maintenance**.
+1. Select **Remove blobs**.
+1. On the drawer, enter a list of blob IDs to remove, each ID on its own line.
+1. Select **Remove blobs**.
+1. On the confirmation dialog, enter your project path.
+1. Select **Yes, remove blobs**.
+1. On the left sidebar, select **Settings > General**.
+1. Expand the section labeled **Advanced**.
+1. Select **Run housekeeping**.
+
+### Get a list of object IDs
+
+To remove blobs, you need a list of objects to remove.
+To get these IDs, use the Git `ls-tree command`.
+
+Prerequisites:
+
+- You must have the repository cloned to your local machine.
+
+For example, to get a list of files at a given commit or branch sorted by size:
+
+1. Open a terminal and go to your repository directory.
+1. Run the following command:
+
+   ```shell
+   git ls-tree -r -t --long --full-name <COMMIT/BRANCH> | sort -nk 4
+   ```
+
+   Example output:
+
+   ```plaintext
+   100644 blob 8150ee86f923548d376459b29afecbe8495514e9  133508 doc/howto/img/remote-development-new-workspace-button.png
+   100644 blob cde4360b3d3ee4f4c04c998d43cfaaf586f09740  214231 doc/howto/img/dependency_proxy_macos_config_new.png
+   100644 blob 2ad0e839a709e73a6174e78321e87021b20be445  216452 doc/howto/img/gdk-in-gitpod.jpg
+   100644 blob 115dd03fc0828a9011f012abbc58746f7c587a05  242304 doc/howto/img/gitpod-button-repository.jpg
+   100644 blob c41ebb321a6a99f68ee6c353dd0ed29f52c1dc80  491158 doc/howto/img/dependency_proxy_macos_config.png
+   ```
+
+   The third column in the output is the object ID of the blob.
+
 ## Storage limits
 
 Repository size limits:
 
-- Can [be set by an administrator](../../admin_area/settings/account_and_limit_settings.md#account-and-limit-settings)
-- Can [be set by an administrator](../../admin_area/settings/account_and_limit_settings.md) on self-managed instances.
+- Can [be set by an administrator](../../../administration/settings/account_and_limit_settings.md#account-and-limit-settings).
+- Can [be set by an administrator](../../../administration/settings/account_and_limit_settings.md) on self-managed instances.
 - Are [set for GitLab.com](../../gitlab_com/index.md#account-and-limit-settings).
 
 When a project has reached its size limit, you cannot:
@@ -248,14 +346,84 @@ increased, your only option is to:
 1. Prune all the unneeded stuff locally.
 1. Create a new project on GitLab and start using that instead.
 
-WARNING:
-This process is not suitable for removing sensitive data like password or keys from your repository.
-Information about commits, including file content, is cached in the database, and remain
-visible even after they have been removed from the repository.
-
 ## Troubleshooting
 
 ### Incorrect repository statistics shown in the GUI
 
 If the displayed size or commit number is different from the exported `.tar.gz` or local repository,
-you can ask a GitLab administrator to [force an update](../../../administration/troubleshooting/gitlab_rails_cheat_sheet.md#incorrect-repository-statistics-shown-in-the-gui).
+you can ask a GitLab administrator to force an update.
+
+Using [the rails console](../../../administration/operations/rails_console.md#starting-a-rails-console-session):
+
+```ruby
+p = Project.find_by_full_path('<namespace>/<project>')
+pp p.statistics
+p.statistics.refresh!
+pp p.statistics
+# compare with earlier values
+
+# An alternate method to clear project statistics
+p.repository.expire_all_method_caches
+UpdateProjectStatisticsWorker.perform_async(p.id, ["commit_count","repository_size","storage_size","lfs_objects_size"])
+
+# check the total artifact storage space separately
+builds_with_artifacts = p.builds.with_downloadable_artifacts.all
+
+artifact_storage = 0
+builds_with_artifacts.find_each do |build|
+  artifact_storage += build.artifacts_size
+end
+
+puts "#{artifact_storage} bytes"
+```
+
+### Space not being freed
+
+The process defined on this page can decrease the size of repository exports
+decreasing, but the usage in the file system appearing unchanged in both the Web UI and terminal.
+
+The process leaves many unreachable objects remaining in the repository.
+Because they are unreachable, they are not included in the export, but they are
+still stored in the file system. These files are pruned after a grace period of
+two weeks. Pruning deletes these files and ensures your storage usage statistics
+are accurate.
+
+To expedite this process, see the
+['Prune Unreachable Objects' housekeeping task](../../../administration/housekeeping.md).
+
+### Sidekiq process fails to export a project
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+Occasionally the Sidekiq process can fail to export a project, for example if
+it is terminated during execution.
+
+GitLab.com users should [contact Support](https://about.gitlab.com/support/#contact-support) to resolve this issue.
+
+Self-managed users can use the Rails console to bypass the Sidekiq process and
+manually trigger the project export:
+
+```ruby
+project = Project.find(1)
+current_user = User.find_by(username: 'my-user-name')
+RequestStore.begin!
+ActiveRecord::Base.logger = Logger.new(STDOUT)
+params = {}
+
+::Projects::ImportExport::ExportService.new(project, current_user, params).execute(nil)
+```
+
+This makes the export available through the UI, but does not trigger an email to the user.
+To manually trigger the project export and send an email:
+
+```ruby
+project = Project.find(1)
+current_user = User.find_by(username: 'my-user-name')
+RequestStore.begin!
+ActiveRecord::Base.logger = Logger.new(STDOUT)
+params = {}
+
+ProjectExportWorker.new.perform(current_user.id, project.id)
+```

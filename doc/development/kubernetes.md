@@ -1,10 +1,10 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
-# Kubernetes integration - development guidelines **(FREE)**
+# Kubernetes integration development guidelines
 
 This document provides various guidelines when developing for the GitLab
 [Kubernetes integration](../user/infrastructure/clusters/index.md).
@@ -54,7 +54,7 @@ webserver, and can lead to a denial-of-service (DoS) attack in GitLab as
 the Kubernetes cluster response times are outside of our control.
 
 The easiest way to ensure your calls happen a background process is to
-delegate any such work to happen in a [Sidekiq worker](sidekiq_style_guide.md).
+delegate any such work to happen in a [Sidekiq worker](sidekiq/index.md).
 
 You may want to make calls to Kubernetes and return the response, but a background
 worker isn't a good fit. Consider using
@@ -155,14 +155,8 @@ Mitigation strategies include:
 ## Debugging Kubernetes integrations
 
 Logs related to the Kubernetes integration can be found in
-[`kubernetes.log`](../administration/logs.md#kuberneteslog). On a local
+[`kubernetes.log`](../administration/logs/index.md#kuberneteslog-deprecated). On a local
 GDK install, these logs are present in `log/kubernetes.log`.
-
-Some services such as
-[`Clusters::Applications::InstallService`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/services/clusters/applications/install_service.rb#L18)
-rescues `StandardError` which can make it harder to debug issues in an
-development environment. The current workaround is to temporarily
-comment out the `rescue` in your local development source.
 
 You can also follow the installation logs to debug issues related to
 installation. Once the installation/upgrade is underway, wait for the

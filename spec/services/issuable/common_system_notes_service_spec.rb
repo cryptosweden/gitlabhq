@@ -2,17 +2,48 @@
 
 require 'spec_helper'
 
-RSpec.describe Issuable::CommonSystemNotesService do
+RSpec.describe Issuable::CommonSystemNotesService, feature_category: :team_planning do
   let_it_be(:project) { create(:project) }
   let_it_be(:user) { create(:user) }
 
   let(:issuable) { create(:issue, project: project) }
 
+  shared_examples 'system note for issuable date changes' do
+    it 'creates a system note for due_date set' do
+      issuable.update!(due_date: Date.today)
+
+      expect { subject }.to change(issuable.notes, :count).from(0).to(1)
+      expect(issuable.notes.last.note).to match('changed due date to')
+    end
+
+    it 'creates a system note for start_date set' do
+      issuable.update!(start_date: Date.today)
+
+      expect { subject }.to change(issuable.notes, :count).from(0).to(1)
+      expect(issuable.notes.last.note).to match('changed start date to')
+    end
+
+    it 'creates a note when both start and due date are changed' do
+      issuable.update!(start_date: Date.today, due_date: 1.week.from_now)
+
+      expect { subject }.to change { issuable.notes.count }.from(0).to(1)
+      expect(issuable.notes.last.note).to match(/changed start date to.+and changed due date to/)
+    end
+
+    it 'does not call SystemNoteService if no dates are changed' do
+      issuable.update!(title: 'new title')
+
+      expect(SystemNoteService).not_to receive(:change_start_date_or_due_date)
+
+      subject
+    end
+  end
+
   context 'on issuable update' do
     it_behaves_like 'system note creation', { title: 'New title' }, 'changed title'
     it_behaves_like 'system note creation', { description: 'New description' }, 'changed the description'
-    it_behaves_like 'system note creation', { discussion_locked: true }, 'locked this issue'
-    it_behaves_like 'system note creation', { time_estimate: 5 }, 'changed time estimate'
+    it_behaves_like 'system note creation', { discussion_locked: true }, 'locked the discussion in this issue'
+    it_behaves_like 'system note creation', { time_estimate: 5 }, 'added time estimate of 5s'
 
     context 'when new label is added' do
       let(:label) { create(:label, project: project) }
@@ -61,6 +92,12 @@ RSpec.describe Issuable::CommonSystemNotesService do
         end
       end
     end
+
+    context 'when changing dates' do
+      it_behaves_like 'system note for issuable date changes' do
+        subject { described_class.new(project: project, current_user: user).execute(issuable) }
+      end
+    end
   end
 
   context 'on issuable create' do
@@ -102,12 +139,12 @@ RSpec.describe Issuable::CommonSystemNotesService do
       end
     end
 
-    it 'creates a system note for due_date set' do
-      issuable.due_date = Date.today
-      issuable.save!
+    context 'when changing dates' do
+      it_behaves_like 'system note for issuable date changes'
+    end
 
-      expect { subject }.to change { issuable.notes.count }.from(0).to(1)
-      expect(issuable.notes.last.note).to match('changed due date')
+    context 'when setting an estimae' do
+      it_behaves_like 'system note creation', { time_estimate: 5 }, 'added time estimate of 5s', false
     end
   end
 end

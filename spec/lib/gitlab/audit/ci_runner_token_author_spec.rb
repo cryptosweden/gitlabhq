@@ -6,7 +6,7 @@ RSpec.describe Gitlab::Audit::CiRunnerTokenAuthor do
   describe '.initialize' do
     subject { described_class.new(audit_event) }
 
-    let(:details) { }
+    let(:details) {}
     let(:audit_event) { instance_double(AuditEvent, details: details, entity_type: 'Project', entity_path: 'd/e') }
 
     context 'with runner_authentication_token' do
@@ -34,8 +34,8 @@ RSpec.describe Gitlab::Audit::CiRunnerTokenAuthor do
         {}
       end
 
-      it 'raises ArgumentError' do
-        expect { subject }.to raise_error ArgumentError, 'Runner token missing'
+      it 'returns token not available' do
+        is_expected.to have_attributes(id: -1, name: 'Token not available')
       end
     end
   end

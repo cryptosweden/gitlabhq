@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe "Gitlab::Experiment", :js do
+RSpec.describe "Gitlab::Experiment", :js, feature_category: :activation do
   # This is part of a set of tests that ensure that tracking remains
   # consistent at the front end layer. Since we don't want to actually
   # introduce an experiment in real code, we're going to simulate it
@@ -12,7 +12,7 @@ RSpec.describe "Gitlab::Experiment", :js do
   before do
     admin = create(:admin)
     sign_in(admin)
-    gitlab_enable_admin_mode_sign_in(admin)
+    enable_admin_mode!(admin)
     stub_experiments(null_hypothesis: :candidate)
   end
 

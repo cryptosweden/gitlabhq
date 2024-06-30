@@ -42,6 +42,26 @@ RSpec.shared_examples 'issue boards sidebar' do
     end
   end
 
+  context 'editing issue title' do
+    it 'edits issue title' do
+      page.within('[data-testid="sidebar-title"]') do
+        click_button 'Edit'
+
+        wait_for_requests
+
+        find('input').set('Test title')
+
+        click_button 'Save changes'
+
+        wait_for_requests
+
+        expect(page).to have_content('Test title')
+      end
+
+      expect(first_card).to have_content('Test title')
+    end
+  end
+
   context 'editing issue milestone', :js do
     it_behaves_like 'milestone sidebar widget'
   end
@@ -77,21 +97,6 @@ RSpec.shared_examples 'issue boards sidebar' do
 
       expect(subscription_button).to have_css("button:not(.is-checked)")
     end
-
-    context 'when notifications have been disabled' do
-      before do
-        project.update_attribute(:emails_disabled, true)
-
-        refresh_and_click_first_card
-      end
-
-      it 'displays a message that notifications have been disabled' do
-        page.within('[data-testid="sidebar-notifications"]') do
-          expect(page).to have_selector('[data-testid="subscription-toggle"]', class: 'is-disabled')
-          expect(page).to have_content('Disabled by project owner')
-        end
-      end
-    end
   end
 
   context 'confidentiality' do
@@ -108,7 +113,10 @@ RSpec.shared_examples 'issue boards sidebar' do
 
         wait_for_requests
 
-        expect(page).to have_content('This issue is confidential')
+        expect(page).to have_content(
+          _('Only project members with at least the Reporter role, the author, and assignees ' \
+            'can view or be notified about this issue.')
+        )
       end
     end
   end
@@ -176,7 +184,7 @@ RSpec.shared_examples 'issue boards sidebar' do
     context 'when limitedToHours instance option is turned on' do
       before do
         # 3600+3600*24 = 1d 1h or 25h
-        issue.timelogs.create!(time_spent: 3600 + 3600 * 24, user: user)
+        issue.timelogs.create!(time_spent: 3600 + (3600 * 24), user: user)
         stub_application_setting(time_tracking_limit_to_hours: true)
 
         refresh_and_click_first_card

@@ -2,23 +2,24 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Adding a Note' do
+RSpec.describe 'Adding a Note', feature_category: :team_planning do
   include GraphqlHelpers
 
-  let_it_be(:current_user) { create(:user) }
-
+  let_it_be(:user) { create(:user) }
+  let_it_be(:group) { create(:group, developers: developer) }
+  let_it_be_with_reload(:project) { create(:project, :repository, group: group) }
+  let_it_be(:developer) { create(:user, developer_of: group) }
   let(:noteable) { create(:merge_request, source_project: project, target_project: project) }
-  let(:project) { create(:project, :repository) }
   let(:discussion) { nil }
   let(:head_sha) { nil }
   let(:body) { 'Body text' }
+  let(:current_user) { user }
   let(:mutation) do
     variables = {
       noteable_id: GitlabSchema.id_from_object(noteable).to_s,
       discussion_id: (GitlabSchema.id_from_object(discussion).to_s if discussion),
       merge_request_diff_head_sha: head_sha.presence,
-      body: body,
-      confidential: true
+      body: body
     }
 
     graphql_mutation(:create_note, variables)
@@ -31,9 +32,7 @@ RSpec.describe 'Adding a Note' do
   it_behaves_like 'a Note mutation when the user does not have permission'
 
   context 'when the user has permission' do
-    before do
-      project.add_developer(current_user)
-    end
+    let(:current_user) { developer }
 
     it_behaves_like 'a working GraphQL mutation'
 
@@ -49,7 +48,6 @@ RSpec.describe 'Adding a Note' do
       post_graphql_mutation(mutation, current_user: current_user)
 
       expect(mutation_response['note']['body']).to eq('Body text')
-      expect(mutation_response['note']['confidential']).to eq(true)
     end
 
     describe 'creating Notes in reply to a discussion' do
@@ -66,7 +64,7 @@ RSpec.describe 'Adding a Note' do
         it 'creates a Note in a discussion' do
           post_graphql_mutation(mutation, current_user: current_user)
 
-          expect(mutation_response['note']['discussion']['id']).to eq(discussion.to_global_id.to_s)
+          expect(mutation_response['note']['discussion']).to match a_graphql_entity_for(discussion)
         end
 
         context 'when the discussion_id is not for a Discussion' do
@@ -79,20 +77,74 @@ RSpec.describe 'Adding a Note' do
       end
     end
 
+    context 'for an issue' do
+      let_it_be_with_reload(:issue) { create(:issue, project: project) }
+      let(:noteable) { issue }
+      let(:mutation) { graphql_mutation(:create_note, variables) }
+      let(:variables_extra) { {} }
+      let(:variables) do
+        {
+          noteable_id: GitlabSchema.id_from_object(noteable).to_s,
+          body: body
+        }.merge(variables_extra)
+      end
+
+      context 'when using internal param' do
+        let(:variables_extra) { { internal: true } }
+
+        it_behaves_like 'a Note mutation with confidential notes'
+      end
+
+      context 'as work item' do
+        let_it_be_with_reload(:work_item) { create(:work_item, :task, project: project) }
+        let(:noteable) { work_item }
+
+        context 'when using internal param' do
+          let(:variables_extra) { { internal: true } }
+
+          it_behaves_like 'a Note mutation with confidential notes'
+        end
+
+        context 'without notes widget' do
+          before do
+            WorkItems::Type.default_by_type(:task).widget_definitions.find_by_widget_type(:notes)
+              .update!(disabled: true)
+          end
+
+          it_behaves_like 'a Note mutation that does not create a Note'
+          it_behaves_like 'a mutation that returns top-level errors',
+            errors: [Gitlab::Graphql::Authorize::AuthorizeResource::RESOURCE_ACCESS_ERROR]
+        end
+
+        context 'when body contains quick actions' do
+          it_behaves_like 'work item supports labels widget updates via quick actions'
+          it_behaves_like 'work item does not support labels widget updates via quick actions'
+          it_behaves_like 'work item supports assignee widget updates via quick actions'
+          it_behaves_like 'work item does not support assignee widget updates via quick actions'
+          it_behaves_like 'work item supports start and due date widget updates via quick actions'
+          it_behaves_like 'work item does not support start and due date widget updates via quick actions'
+          it_behaves_like 'work item supports type change via quick actions'
+        end
+
+        context 'when work item is directly associated with a group' do
+          let_it_be_with_reload(:group_work_item) { create(:work_item, :group_level, :task, namespace: group) }
+          let(:noteable) { group_work_item }
+
+          it_behaves_like 'a Note mutation that creates a Note'
+        end
+      end
+    end
+
     context 'when body only contains quick actions' do
       let(:head_sha) { noteable.diff_head_sha }
       let(:body) { '/merge' }
-
-      before do
-        project.add_developer(current_user)
-      end
 
       # NOTE: Known issue https://gitlab.com/gitlab-org/gitlab/-/issues/346557
       it 'returns a nil note and info about the command in errors' do
         post_graphql_mutation(mutation, current_user: current_user)
 
         expect(mutation_response).to include(
-          'errors' => [/Merged this merge request/],
+          'errors' => include(/Merged this merge request/),
           'note' => nil
         )
       end

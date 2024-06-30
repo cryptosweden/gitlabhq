@@ -1,399 +1,430 @@
 ---
 stage: Manage
-group: Import
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments"
+group: Import and Integrate
+info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
 ---
 
-# Project import/export **(FREE)**
+# Migrate projects and groups by using file exports
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+
+Migrating groups and projects by using [direct transfer](../../group/import/index.md) is recommended. However, in some
+situations, you might need to migrate groups and project by using file exports.
+
+## Migrate projects by uploading an export file
 
 Existing projects on any self-managed GitLab instance or GitLab.com can be exported to a file and
-then imported into a new GitLab instance.
+then imported into another GitLab instance.
 
-## Set up project import/export
+### Preserving user contributions
 
-Before you can import or export a project and its data, you must set it up.
+The requirements for preserving user contribution depends on whether you're migrating to GitLab.com or to a GitLab
+self-managed instance.
 
-1. On the left sidebar, select **Settings > General**.
-1. Expand **Visibility and access controls**.
+#### When migrating from GitLab self-managed to GitLab.com
+
+When migrating projects by using file exports, an administrator's access token is required for user contributions to map correctly.
+
+Therefore, user contributions never map correctly when importing file exports from a self-managed instance to GitLab.com.
+Instead, all GitLab user associations (such as comment author) are changed to the user importing the project. To preserve
+contribution history, do one of the following:
+
+- [Migrate by using direct transfer](../../group/import/index.md).
+- Consider engaging Professional Services. For more information, see the
+  [Professional Services Full Catalog](https://about.gitlab.com/services/catalog/).
+
+#### When migrating to GitLab self-managed
+
+To ensure GitLab maps users and their contributions correctly:
+
+- The owner of the project's top-level group should export the project so that the information of all members (direct
+  and inherited) with access to the project can be included in the exported file. Project maintainers and owners can
+  initiate the project export. However, only direct members of a project are then exported.
+- An administrator must perform the import.
+- Required users must exist on the destination GitLab instance. An administrator can create confirmed users either in
+  bulk in a Rails console or one by one in the UI.
+- Users must [set a public email in their profiles](../../profile/index.md#set-your-public-email) on the source GitLab
+  instance that matches their primary email address on the destination GitLab instance. You can also manually add users'
+  public emails by [editing project export files](#edit-project-export-files).
+
+When the email of an existing user matches the email of an imported user, that user is added as a
+[direct member](../members/index.md) to the imported project.
+
+If any of the previous conditions are not met, user contributions are not mapped correctly. Instead, all GitLab user
+associations are changed to the user who performed the import. That user becomes an author of merge requests created by
+other users. Supplementary comments mentioning original authors are:
+
+- Added for comments, merge request approvals, linked tasks, and items.
+- Not added for the merge request or issue creator, added or removed labels, and merged-by information.
+
+### Edit project export files
+
+You can add or remove data from export files. For example, you can:
+
+- Manually add users public emails to the `project_members.ndjson` file.
+- Trim CI pipelines by removing lines from the `ci_pipelines.ndjson` file.
+
+To edit a project export file:
+
+1. Extract the exported `.tar.gz` file.
+1. Edit the appropriate file . For example, `tree/project/project_members.ndjson`.
+1. Compress the files back to a `.tar.gz` file.
+
+You can also make sure that all members were exported by checking the `project_members.ndjson` file.
+
+### Compatibility
+
+> - Support for JSON-formatted project file exports [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/389888) in GitLab 15.11.
+
+Project file exports are in NDJSON format.
+
+You can import project file exports that were exported from a version of GitLab up to two
+[minor](../../../policy/maintenance.md#versioning) versions behind.
+
+For example:
+
+| Destination version | Compatible source versions |
+|:--------------------|:---------------------------|
+| 13.0                | 13.0, 12.10, 12.9          |
+| 13.1                | 13.1, 13.0, 12.10          |
+
+### Configure file exports as an import source
+
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
+
+Before you can migrate projects on a self-managed GitLab instance using file exports, GitLab administrators must:
+
+1. [Enable file exports](../../../administration/settings/import_and_export_settings.md#enable-project-export) on the source
+   instance.
+1. Enable file exports as an import source for the destination instance. On GitLab.com, file exports are already enabled
+   as an import source.
+
+To enable file exports as an import source for the destination instance:
+
+1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Select **Settings > General**.
+1. Expand **Import and export settings**.
 1. Scroll to **Import sources**.
-1. Enable the desired **Import sources**.
+1. Select the **GitLab export** checkbox.
 
-## Between CE and EE
+### Between CE and EE
 
 You can export projects from the [Community Edition to the Enterprise Edition](https://about.gitlab.com/install/ce-or-ee/)
-and vice versa. This assumes [version history](#version-history)
-requirements are met.
+and vice versa, assuming [compatibility](#compatibility) is met.
 
 If you're exporting a project from the Enterprise Edition to the Community Edition, you may lose
 data that is retained only in the Enterprise Edition. For more information, see
 [downgrading from EE to CE](../../../index.md).
 
-## Export a project and its data
+### Export a project and its data
 
 Before you can import a project, you must export it.
 
 Prerequisites:
 
-- Review the list of [data that will be exported](#items-that-are-exported).
-  Not all data is exported.
+- Review the list of [items that are exported](#project-items-that-are-exported). Not all items are exported.
 - You must have at least the Maintainer role for the project.
 
 To export a project and its data, follow these steps:
 
-1. On the top bar, select **Menu > Projects** and find your project.
-1. On the left sidebar, select **Settings**.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > General**.
 1. Expand **Advanced**.
 1. Select **Export project**.
-1. After the export is generated, you should receive an email with a link to download the file.
-1. Alternatively, you can come back to the project settings and download the file from there or
-   generate a new export. After the file is available, the page should show the **Download export**
-   button.
+1. After the export is generated, you can:
+   - Follow a link contained in an email that you should receive.
+   - Refresh the project settings page and in the **Export project** area, select **Download export**.
 
 The export is generated in your configured `shared_path`, a temporary shared directory, and then
 moved to your configured `uploads_directory`. Every 24 hours, a worker deletes these export files.
 
-### Items that are exported
+#### Project items that are exported
 
-The following items are exported:
+Exported project items depend on the version of GitLab you use. To determine if a
+specific project item is exported:
+
+1. Check the [`exporters` array](https://gitlab.com/gitlab-org/gitlab/-/blob/b819a6aa6d53573980dd9ee4a1bfe597d69e88e5/app/services/projects/import_export/export_service.rb#L24).
+1. Check the [`project/import_export.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/import_export/project/import_export.yml)
+   file for projects for your GitLab version. For example, <https://gitlab.com/gitlab-org/gitlab/-/blob/16-8-stable-ee/lib/gitlab/import_export/project/import_export.yml> for GitLab 16.8.
+
+For a quick overview, items that are exported include:
 
 - Project and wiki repositories
 - Project uploads
 - Project configuration, excluding integrations
-- Issues with comments, merge requests with diffs and comments, labels, milestones, snippets, time
-  tracking, and other project entities
-- Design Management files and data
+- Issues
+  - Issue comments
+  - Issue iterations ([introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/96184) in GitLab 15.4)
+  - Issue resource state events ([introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/291983) in GitLab 15.4)
+  - Issue resource milestone events ([introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/291983) in GitLab 15.4)
+  - Issue resource iteration events ([introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/291983) in GitLab 15.4)
+- Merge requests
+  - Merge request diffs
+  - Merge request comments
+  - Merge request resource state events ([introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/291983) in GitLab 15.4)
+  - Merge request multiple assignees ([introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/339520) in GitLab 15.3)
+  - Merge request reviewers ([introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/339520) in GitLab 15.3)
+  - Merge request approvers ([introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/339520) in GitLab 15.3)
+- Commit comments ([introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/391601) in GitLab 15.10)
+- Labels
+- Milestones
+- Snippets
+- Releases
+- Time tracking and other project entities
+- Design management files and data
 - LFS objects
 - Issue boards
-- Pipelines history
-- Push Rules
-- Awards
-- Group members are exported as project members, as long as the user has the Maintainer role in the
-  exported project's group, or is an administrator
+- CI/CD pipelines and pipeline schedules
+- Protected branches and tags
+- Push rules
+- Emoji reactions
+- Project and inherited group members, as long as the user has the Maintainer role in the
+  exported project's group or is an administrator
 
-The following items are **not** exported:
+#### Project items that are not exported
 
-- Build traces and artifacts
-- Container registry images
-- CI/CD variables
+Items that are **not** exported include:
+
+- [Child pipeline history](https://gitlab.com/gitlab-org/gitlab/-/issues/221088)
 - Pipeline triggers
+- Build traces and artifacts
+- Package and container registry images
+- CI/CD variables
 - Webhooks
 - Any encrypted tokens
-- Merge Request Approvers
+- [Number of required approvals](https://gitlab.com/gitlab-org/gitlab/-/issues/221087)
 - Repository size limits
 - Deploy keys allowed to push to protected branches
+- Secure files
+- [Activity logs for Git-related events](https://gitlab.com/gitlab-org/gitlab/-/issues/214700) (for example, pushing and creating tags)
+- Security policies associated with your project
+- Links between issues and linked items
+- Links to related merge requests
 
-These content rules also apply to creating projects from templates on the
-[group](../../group/custom_project_templates.md)
-or [instance](../../admin_area/custom_project_templates.md)
-levels, because the same export and import mechanisms are used.
+Migrating projects with file exports uses the same export and import mechanisms as creating projects from templates at the [group](../../group/custom_project_templates.md) and
+[instance](../../../administration/custom_project_templates.md) levels. Therefore, the list of exported items is the same.
 
-NOTE:
-For more details on the specific data persisted in a project export, see the
-[`import_export.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/import_export/project/import_export.yml) file.
+### Import a project and its data
 
-## Import a project and its data
+You can import a project and its data. The amount of data you can import depends on the maximum import file size:
 
-> Default maximum import file size [changed](https://gitlab.com/gitlab-org/gitlab/-/issues/251106) from 50 MB to unlimited in GitLab 13.8.
+- On GitLab self-managed instances, administrators of self-managed instances can
+  [set maximum import file size](#set-maximum-import-file-size).
+- On GitLab.com, the value is [set to 5 GB](../../gitlab_com/index.md#account-and-limit-settings).
 
 WARNING:
 Only import projects from sources you trust. If you import a project from an untrusted source, it
 may be possible for an attacker to steal your sensitive data.
 
-Prerequisites:
+#### Prerequisites
+
+> - Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
 
 - You must have [exported the project and its data](#export-a-project-and-its-data).
 - Compare GitLab versions and ensure you are importing to a GitLab version that is the same or later
-  than the GitLab version you exported to.
-- Review the [Version history](#version-history)
-  for compatibility issues.
+  than the GitLab version you exported from.
+- Review [compatibility](#compatibility) for any issues.
+- At least the Maintainer role on the destination group to migrate to.
+
+#### Import a project
 
 To import a project:
 
-1. When [creating a new project](../working_with_projects.md#create-a-project),
-   select **Import project**.
+1. On the left sidebar, at the top, select **Create new** (**{plus}**) and **New project/repository**.
+1. Select **Import project**.
 1. In **Import project from**, select **GitLab export**.
 1. Enter your project name and URL. Then select the file you exported previously.
-1. Select **Import project** to begin importing. Your newly imported project page appears shortly.
+1. Select **Import project**.
 
-To get the status of an import, you can query it through the [Project import/export API](../../../api/project_import_export.md#import-status).
-As described in the API documentation, the query may return an import error or exceptions.
+You can query the status of an import by using the [API](../../../api/project_import_export.md#import-status).
+The query might return an import error or exceptions.
 
-### Items that are imported
+#### Changes to imported items
 
-The following items are imported but changed slightly:
+Exported items are imported with the following changes:
 
-- Project members with the Owner role are imported as Maintainers.
-- If an imported project contains merge requests originating from forks, then new branches
-  associated with such merge requests are created in a project during the import/export. Thus, the
-  number of branches in the exported project might be bigger than in the original project.
-- If use of the `Internal` visibility level
-  [is restricted](../../public_access.md#restrict-use-of-public-or-internal-projects),
+- Project members with the Owner role are imported with the Maintainer role.
+- If an imported project contains merge requests originating from forks, new branches associated with these merge
+  requests are created in the project. Therefore, the number of branches in the new project can be more than in the
+  source project.
+- If the `Internal` visibility level [is restricted](../../public_access.md#restrict-use-of-public-or-internal-projects),
   all imported projects are given `Private` visibility.
 
 Deploy keys aren't imported. To use deploy keys, you must enable them in your imported project and update protected branches.
 
-### Import large projects **(FREE SELF)**
+#### Import large projects
 
-If you have a larger project, consider using a Rake task as described in the [developer documentation](../../../development/import_project.md#importing-via-a-rake-task).
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
-## Automate group and project import **(PREMIUM)**
+If you have a larger project, consider [using a Rake task](../../../administration/raketasks/project_import_export.md#import-large-projects).
 
-For information on automating user, group, and project import API calls, see
-[Automate group and project import](../import/index.md#automate-group-and-project-import).
+### Set maximum import file size
 
-## Maximum import file size
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed, GitLab Dedicated
 
 Administrators can set the maximum import file size one of two ways:
 
 - With the `max_import_size` option in the [Application settings API](../../../api/settings.md#change-application-settings).
-- In the [Admin Area UI](../../admin_area/settings/account_and_limit_settings.md#max-import-size).
+- In the [Admin Area UI](../../../administration/settings/import_and_export_settings.md#max-import-size).
 
 The default is `0` (unlimited).
 
-## Map users for import
-
-Imported users can be mapped by their public email addresses on self-managed instances, if an administrator (not an owner) does the import.
-
-- The project must be exported by a project or group member with the Owner role.
-- Public email addresses are not set by default. Users must [set it in their profiles](../../profile/index.md#set-your-public-email)
-  for mapping to work correctly.
-- For contributions to be mapped correctly, users must be an existing member of the namespace,
-  or they can be added as a member of the project. Otherwise, a supplementary comment is left to mention that the original author and the MRs, notes, or issues that are owned by the importer.
-- Imported users are set as [direct members](../members/index.md)
-  in the imported project.
-
-For project migration imports performed over GitLab.com groups, preserving author information is
-possible through a [professional services engagement](https://about.gitlab.com/services/migration/).
-
-## Rate Limits
+### Rate limits
 
 To help avoid abuse, by default, users are rate limited to:
 
-| Request Type     | Limit |
-| ---------------- | ----- |
-| Export           | 6 projects per minute |
-| Download export  | 1 download per group per minute |
-| Import           | 6 projects per minute |
+| Request type    | Limit                           |
+|:----------------|:--------------------------------|
+| Export          | 6 projects per minute           |
+| Download export | 1 download per group per minute |
+| Import          | 6 projects per minute           |
 
-GitLab.com may have [different settings](../../gitlab_com/index.md#importexport)
-from the defaults.
+## Migrate groups by uploading an export file (deprecated)
 
-## Version history
+> - [Deprecated](https://gitlab.com/groups/gitlab-org/-/epics/4619) in GitLab 14.6.
 
-### 14.0+
+WARNING:
+This feature was [deprecated](https://gitlab.com/groups/gitlab-org/-/epics/4619) in GitLab 14.6 and replaced by
+[migrating groups by direct transfer](../../group/import/index.md). However, this feature is still recommended for migrating groups between
+offline systems. To follow progress on an alternative solution for [offline environments](../../application_security/offline_deployments/index.md), see
+[the relevant epic](https://gitlab.com/groups/gitlab-org/-/epics/8985).
 
-In GitLab 14.0, the JSON format is no longer supported for project and group exports. To allow for a
-transitional period, you can still import any JSON exports. The new format for imports and exports
-is NDJSON.
+Prerequisites:
 
-### 13.0+
+- Owner role on the group to migrate.
 
-Starting with GitLab 13.0, GitLab can import bundles that were exported from a different GitLab deployment.
-This ability is limited to two previous GitLab [minor](../../../policy/maintenance.md#versioning)
-releases, which is similar to our process for [Security Releases](../../../policy/maintenance.md#security-releases).
+Using file exports, you can:
+
+- Export any group to a file and upload that file to another GitLab instance or to another location on the same instance.
+- Use either the GitLab UI or the [API](../../../api/group_import_export.md).
+- Migrate groups one by one, then export and import each project for the groups one by one.
+
+GitLab maps user contributions correctly when an admin access token is used to perform the import. GitLab does not map
+user contributions correctly when you are importing from a self-managed instance to GitLab.com. Correct mapping of user
+contributions when importing from a self-managed instance to GitLab.com can be preserved with paid involvement of
+Professional Services team.
+
+### Additional information
+
+- Exports are stored in a temporary directory and are deleted every 24 hours by a specific worker.
+- To preserve group-level relationships from imported projects, export and import groups first so that projects can
+  be imported into the desired group structure.
+- Imported groups are given a `private` visibility level, unless imported into a parent group.
+- If imported into a parent group, a subgroup inherits the same level of visibility unless otherwise restricted.
+- You can export groups from the [Community Edition to the Enterprise Edition](https://about.gitlab.com/install/ce-or-ee/)
+  and vice versa. The Enterprise Edition retains some group data that isn't part of the Community Edition. If you're
+  exporting a group from the Enterprise Edition to the Community Edition, you may lose this data. For more information,
+  see [downgrading from EE to CE](../../../index.md).
+
+The maximum import file size depends on whether you import to a GitLab self-managed instance or GitLab.com:
+
+- If importing to a GitLab self-managed instance, you can import a import file of any size. Administrators can change
+  this behavior using either:
+  - The `max_import_size` option in the [Application settings API](../../../api/settings.md#change-application-settings).
+  - The [Admin Area](../../../administration/settings/account_and_limit_settings.md).
+- On GitLab.com, you can import groups using import files of no more than
+  [5 GB](../../gitlab_com/index.md#account-and-limit-settings) in size.
+
+### Compatibility
+
+> - Support for JSON-formatted project file exports [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/383682) in GitLab 15.8.
+
+Group file exports are in NDJSON format.
+
+You can import group file exports that were exported from a version of GitLab up to two
+[minor](../../../policy/maintenance.md#versioning) versions behind.
 
 For example:
 
-| Current version | Can import bundles exported from |
-|-----------------|----------------------------------|
-| 13.0            | 13.0, 12.10, 12.9                |
-| 13.1            | 13.1, 13.0, 12.10                |
+| Destination version | Compatible source versions |
+|:--------------------|:---------------------------|
+| 13.0                | 13.0, 12.10, 12.9          |
+| 13.1                | 13.1, 13.0, 12.10          |
 
-### 12.x
+### Group items that are exported
 
-Prior to 13.0 this was a defined compatibility table:
+The [`import_export.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/import_export/group/import_export.yml)
+file for groups lists items exported and imported when migrating groups using file exports. View this file in the branch
+for your version of GitLab to check which items can be imported to the destination GitLab instance. For example,
+[`import_export.yml` on the `16-8-stable-ee` branch](https://gitlab.com/gitlab-org/gitlab/-/blob/16-8-stable-ee/lib/gitlab/import_export/group/import_export.yml).
 
-| Exporting GitLab version   | Importing GitLab version   |
-| -------------------------- | -------------------------- |
-| 11.7 to 12.10              | 11.7 to 12.10              |
-| 11.1 to 11.6               | 11.1 to 11.6               |
-| 10.8 to 11.0               | 10.8 to 11.0               |
-| 10.4 to 10.7               | 10.4 to 10.7               |
-| 10.3                       | 10.3                       |
-| 10.0 to 10.2               | 10.0 to 10.2               |
-| 9.4 to 9.6                 | 9.4 to 9.6                 |
-| 9.2 to 9.3                 | 9.2 to 9.3                 |
-| 8.17 to 9.1                | 8.17 to 9.1                |
-| 8.13 to 8.16               | 8.13 to 8.16               |
-| 8.12                       | 8.12                       |
-| 8.10.3 to 8.11             | 8.10.3 to 8.11             |
-| 8.10.0 to 8.10.2           | 8.10.0 to 8.10.2           |
-| 8.9.5 to 8.9.11            | 8.9.5 to 8.9.11            |
-| 8.9.0 to 8.9.4             | 8.9.0 to 8.9.4             |
+Group items that are exported include:
 
-Projects can be exported and imported only between versions of GitLab with matching Import/Export versions.
+- Milestones
+- Group Labels (_without_ associated label priorities)
+- Boards and Board Lists
+- Badges
+- Subgroups (including all the aforementioned data)
+- Epics
+  - Epic resource state events. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/291983) in GitLab 15.4.
+- Events
+- [Wikis](../../project/wiki/group.md)
+- Iterations cadences. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/95372) in GitLab 15.4.
 
-For example, 8.10.3 and 8.11 have the same Import/Export version (0.1.3)
-and the exports between them are compatible.
+### Group items that are not exported
+
+Items that are **not** exported include:
+
+- Projects
+- Runner tokens
+- SAML discovery tokens
+- Uploads
+
+### Preparation
+
+- To preserve the member list and their respective permissions on imported groups, review the users in these groups. Make
+  sure these users exist before importing the desired groups.
+- Users must set a public email in the source GitLab instance that matches their confirmed primary email in the
+  destination GitLab instance. Most users receive an email asking them to confirm their email address.
+
+### Export a group
+
+Prerequisites:
+
+- You must have the Owner role for the group.
+
+To export the contents of a group:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Settings > General**.
+1. In the **Advanced** section, select **Export group**.
+1. After the export is generated, you can:
+   - Follow a link contained in an email that you should receive.
+   - Refresh the group settings page and in the **Export project** area, select **Download export**.
+
+### Import the group
+
+To import the group:
+
+1. On the left sidebar, at the top, select **Create new** (**{plus}**) and **New group**.
+1. Select **Import group**.
+1. In the **Import group from file** section, enter a group name and accept or modify the associated group URL.
+1. Select **Choose file**.
+1. Select the GitLab export file you want to import.
+1. To begin importing, select **Import**.
+
+### Rate limits
+
+To help avoid abuse, by default, users are rate limited to:
+
+| Request Type    | Limit |
+|-----------------|-------|
+| Export          | 6 groups per minute |
+| Download export | 1 download per group per minute |
+| Import          | 6 groups per minute |
 
 ## Related topics
 
-- [Project import/export API](../../../api/project_import_export.md)
-- [Project import/export administration Rake tasks](../../../administration/raketasks/project_import_export.md)
-- [Group import/export](../../group/settings/import_export.md)
-- [Group import/export API](../../../api/group_import_export.md)
-
-## Troubleshooting
-
-### Project fails to import due to mismatch
-
-If the [shared runners enablement](../../../ci/runners/runners_scope.md#enable-shared-runners)
-does not match between the exported project, and the project import, the project fails to import.
-Review [issue 276930](https://gitlab.com/gitlab-org/gitlab/-/issues/276930), and either:
-
-- Ensure shared runners are enabled in both the source and destination projects.
-- Disable shared runners on the parent group when you import the project.
-
-### Import workarounds for large repositories
-
-[Maximum import size limitations](#import-a-project-and-its-data)
-can prevent an import from being successful. If changing the import limits is not possible, you can
-try one of the workarounds listed here.
-
-#### Workaround option 1
-
-The following local workflow can be used to temporarily
-reduce the repository size for another import attempt:
-
-1. Create a temporary working directory from the export:
-
-    ```shell
-    EXPORT=<filename-without-extension>
-
-    mkdir "$EXPORT"
-    tar -xf "$EXPORT".tar.gz --directory="$EXPORT"/
-    cd "$EXPORT"/
-    git clone project.bundle
-
-    # Prevent interference with recreating an importable file later
-    mv project.bundle ../"$EXPORT"-original.bundle
-    mv ../"$EXPORT".tar.gz ../"$EXPORT"-original.tar.gz
-
-    git switch --create smaller-tmp-main
-    ```
-
-1. To reduce the repository size, work on this `smaller-tmp-main` branch:
-   [identify and remove large files](../repository/reducing_the_repo_size_using_git.md)
-   or [interactively rebase and fixup](../../../topics/git/git_rebase.md#interactive-rebase)
-   to reduce the number of commits.
-
-    ```shell
-    # Reduce the .git/objects/pack/ file size
-    cd project
-    git reflog expire --expire=now --all
-    git gc --prune=now --aggressive
-
-    # Prepare recreating an importable file
-    git bundle create ../project.bundle <default-branch-name>
-    cd ..
-    mv project/ ../"$EXPORT"-project
-    cd ..
-
-    # Recreate an importable file
-    tar -czf "$EXPORT"-smaller.tar.gz --directory="$EXPORT"/ .
-    ```
-
-1. Import this new, smaller file into GitLab.
-1. In a full clone of the original repository,
-   use `git remote set-url origin <new-url> && git push --force --all`
-   to complete the import.
-1. Update the imported repository's
-   [branch protection rules](../protected_branches.md) and
-   its [default branch](../repository/branches/default.md), and
-   delete the temporary, `smaller-tmp-main` branch, and
-   the local, temporary data.
-
-#### Workaround option 2
-
-NOTE:
-This workaround requires access to the rails console, which isn't available to end-users on GitLab.com.
-
-Rather than attempting to push all changes at once, this workaround:
-
-- Separates the project import from the Git Repository import
-- Incrementally pushes the repository to GitLab
-
-1. Make a local clone of the repository to migrate. In a later step, you push this clone outside of
-   the project export.
-1. Download the export and remove the `project.bundle` (which contains the Git repository):
-
-   ```shell
-   tar -czvf new_export.tar.gz --exclude='project.bundle' @old_export.tar.gz
-   ```
-
-1. Import the export without a Git repository. It asks you to confirm to import without a
-   repository.
-1. Save this bash script as a file and run it after adding the appropriate origin.
-
-   ```shell
-   #!/bin/sh
-
-   # ASSUMPTIONS:
-   # - The GitLab location is "origin"
-   # - The default branch is "main"
-   # - This will attempt to push in chunks of 500MB (dividing the total size by 500MB).
-   #   Decrease this size to push in smaller chunks if you still receive timeouts.
-
-   git gc
-   SIZE=$(git count-objects -v 2> /dev/null | grep size-pack | awk '{print $2}')
-
-   # Be conservative... and try to push 2GB at a time
-   # (given this assumes each commit is the same size - which is wrong)
-   BATCHES=$(($SIZE / 500000))
-   TOTAL_COMMITS=$(git rev-list --count HEAD)
-   if (( BATCHES > TOTAL_COMMITS )); then
-       BATCHES=$TOTAL_COMMITS
-   fi
-
-   INCREMENTS=$(( ($TOTAL_COMMITS / $BATCHES) - 1 ))
-
-   for (( BATCH=BATCHES; BATCH>=1; BATCH-- ))
-   do
-     COMMIT_NUM=$(( $BATCH - $INCREMENTS ))
-     COMMIT_SHA=$(git log -n $COMMIT_NUM --format=format:%H | tail -1)
-     git push -u origin ${COMMIT_SHA}:refs/heads/main
-   done
-   git push -u origin main
-   git push -u origin --all
-   git push -u origin --tags
-   ```
-
-### Manually execute export steps
-
-Exports sometimes fail without giving enough information to troubleshoot. In these cases, it can be
-helpful to [open a rails console session](../../../administration/operations/rails_console.md#starting-a-rails-console-session)
-and loop through [all the defined exporters](https://gitlab.com/gitlab-org/gitlab/-/blob/b67a5b5a12498d57cd877023b7385f7251e57de8/app/services/projects/import_export/export_service.rb#L65).
-Execute each line individually, rather than pasting the entire block at once, so you can see any
-errors each command returns.
-
-```shell
-# User needs to have permission to export
-u = User.find_by_username('someuser')
-p = Project.find_by_full_path('some/project')
-e = Projects::ImportExport::ExportService.new(p,u)
-
-e.send(:version_saver).send(:save)
-e.send(:repo_saver).send(:save)
-## continue using `e.send(:exporter_name).send(:save)` going through the list of exporters
-
-# The following line should show you the export_path similar to /var/opt/gitlab/gitlab-rails/shared/tmp/gitlab_exports/@hashed/49/94/4994....
-s = Gitlab::ImportExport::Saver.new(exportable: p, shared:p.import_export_shared)
-
-# To try and upload use:
-s.send(:compress_and_save)
-s.send(:save_upload)
-```
-
-### Import using the REST API fails when using a group access token
-
-[Group access tokens](../../group/settings/group_access_tokens.md)
-don't work for project or group import operations. When a group access token initiates an import,
-the import fails with this message:
-
-```plaintext
-Error adding importer user to Project members.
-Validation failed: User project bots cannot be added to other groups / projects
-```
-
-To use [Import REST APIs](../../../api/project_import_export.md),
-pass regular user account credentials such as [personal access tokens](../../profile/personal_access_tokens.md).
+- [Project import and export API](../../../api/project_import_export.md)
+- [Project import and export administration Rake tasks](../../../administration/raketasks/project_import_export.md)
+- [Migrating GitLab groups](../../group/import/index.md)
+- [Group import and export API](../../../api/group_import_export.md)
+- [Migrate groups by direct transfer](../../group/import/index.md).

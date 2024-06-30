@@ -1,42 +1,43 @@
 <script>
 import { GlAlert, GlButton, GlIcon, GlFormCheckbox, GlTooltipDirective } from '@gitlab/ui';
-import Autosize from 'autosize';
 import $ from 'jquery';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters, mapState } from 'vuex';
-import Autosave from '~/autosave';
-import { refreshUserMergeRequestCounts } from '~/commons/nav/user_merge_requests';
-import createFlash from '~/flash';
-import { statusBoxState } from '~/issuable/components/status_box.vue';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { createAlert } from '~/alert';
+import { STATUS_CLOSED, STATUS_MERGED, STATUS_OPEN, STATUS_REOPENED } from '~/issues/constants';
+import { containsSensitiveToken, confirmSensitiveAction } from '~/lib/utils/secret_detection';
 import {
   capitalizeFirstCharacter,
   convertToCamelCase,
   slugifyWithUnderscore,
 } from '~/lib/utils/text_utility';
 import { sprintf } from '~/locale';
-import markdownField from '~/vue_shared/components/markdown/field.vue';
+import { InternalEvents } from '~/tracking';
+import { badgeState } from '~/merge_requests/components/merge_request_header.vue';
+import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { trackSavedUsingEditor } from '~/vue_shared/components/markdown/tracking';
+import { fetchUserCounts } from '~/super_sidebar/user_counts_fetch';
 
 import * as constants from '../constants';
 import eventHub from '../event_hub';
 import { COMMENT_FORM } from '../i18n';
+import { createNoteErrorMessages } from '../utils';
 
 import issuableStateMixin from '../mixins/issuable_state';
 import CommentFieldLayout from './comment_field_layout.vue';
 import CommentTypeDropdown from './comment_type_dropdown.vue';
-import discussionLockedWidget from './discussion_locked_widget.vue';
-import noteSignedOutWidget from './note_signed_out_widget.vue';
+import DiscussionLockedWidget from './discussion_locked_widget.vue';
+import NoteSignedOutWidget from './note_signed_out_widget.vue';
 
-const { UNPROCESSABLE_ENTITY } = httpStatusCodes;
-
+const ATTACHMENT_REGEXP = /!?\[.*?\]\(\/uploads\/[0-9a-f]{32}\/.*?\)/;
 export default {
   name: 'CommentForm',
   i18n: COMMENT_FORM,
   components: {
-    noteSignedOutWidget,
-    discussionLockedWidget,
-    markdownField,
+    NoteSignedOutWidget,
+    DiscussionLockedWidget,
+    MarkdownEditor,
     GlAlert,
     GlButton,
     TimelineEntryItem,
@@ -48,7 +49,7 @@ export default {
   directives: {
     GlTooltip: GlTooltipDirective,
   },
-  mixins: [glFeatureFlagsMixin(), issuableStateMixin],
+  mixins: [issuableStateMixin, InternalEvents.mixin()],
   props: {
     noteableType: {
       type: String,
@@ -60,8 +61,16 @@ export default {
       note: '',
       noteType: constants.COMMENT,
       errors: [],
-      noteIsConfidential: false,
+      noteIsInternal: false,
       isSubmitting: false,
+      formFieldProps: {
+        'aria-label': this.$options.i18n.comment,
+        placeholder: this.$options.i18n.bodyPlaceholder,
+        id: 'note-body',
+        name: 'note[note]',
+        class: 'js-note-text note-textarea js-gfm-input markdown-area',
+        'data-testid': 'comment-field',
+      },
     };
   },
   computed: {
@@ -75,6 +84,9 @@ export default {
       'hasDrafts',
     ]),
     ...mapState(['isToggleStateButtonLoading']),
+    autocompleteDataSources() {
+      return gl.GfmAutoComplete?.dataSources;
+    },
     noteableDisplayName() {
       const displayNameMap = {
         [constants.ISSUE_NOTEABLE_TYPE]: this.$options.i18n.issue,
@@ -90,21 +102,23 @@ export default {
       return this.getUserData.id;
     },
     commentButtonTitle() {
-      return this.noteType === constants.COMMENT
-        ? this.$options.i18n.comment
-        : this.$options.i18n.startThread;
+      const { comment, internalComment, startThread, startInternalThread } = this.$options.i18n;
+      if (this.noteIsInternal) {
+        return this.noteType === constants.COMMENT ? internalComment : startInternalThread;
+      }
+      return this.noteType === constants.COMMENT ? comment : startThread;
     },
     discussionsRequireResolution() {
       return this.getNoteableData.noteableType === constants.MERGE_REQUEST_NOTEABLE_TYPE;
     },
     isOpen() {
-      return this.openState === constants.OPENED || this.openState === constants.REOPENED;
+      return this.openState === STATUS_OPEN || this.openState === STATUS_REOPENED;
     },
     canCreateNote() {
       return this.getNoteableData.current_user.can_create_note;
     },
-    canSetConfidential() {
-      return this.getNoteableData.current_user.can_update;
+    canSetInternalNote() {
+      return this.getNoteableData.current_user.can_create_confidential_note;
     },
     issueActionButtonTitle() {
       const openOrClose = this.isOpen ? 'close' : 'reopen';
@@ -131,9 +145,6 @@ export default {
     markdownDocsPath() {
       return this.getNotesData.markdownDocsPath;
     },
-    quickActionsDocsPath() {
-      return this.getNotesData.quickActionsDocsPath;
-    },
     markdownPreviewPath() {
       return this.getNoteableData.preview_note_path;
     },
@@ -143,7 +154,7 @@ export default {
     canToggleIssueState() {
       return (
         this.getNoteableData.current_user.can_update &&
-        this.openState !== constants.MERGED &&
+        this.openState !== STATUS_MERGED &&
         !this.closedAndLocked
       );
     },
@@ -159,45 +170,60 @@ export default {
     isIssue() {
       return constants.NOTEABLE_TYPE_MAPPING[this.noteableType] === constants.ISSUE_NOTEABLE_TYPE;
     },
+    isEpic() {
+      return constants.NOTEABLE_TYPE_MAPPING[this.noteableType] === constants.EPIC_NOTEABLE_TYPE;
+    },
     trackingLabel() {
       return slugifyWithUnderscore(`${this.commentButtonTitle} button`);
     },
-    confidentialNotesEnabled() {
-      return Boolean(this.glFeatures.confidentialNotes);
-    },
     disableSubmitButton() {
       return this.note.length === 0 || this.isSubmitting;
+    },
+    containsLink() {
+      return ATTACHMENT_REGEXP.test(this.note);
+    },
+    autosaveKey() {
+      if (this.isLoggedIn) {
+        const noteableType = capitalizeFirstCharacter(convertToCamelCase(this.noteableType));
+        return `${this.$options.i18n.note}/${noteableType}/${this.getNoteableData.id}`;
+      }
+
+      return null;
+    },
+    commentNowButtonTitle() {
+      return this.noteType === constants.COMMENT
+        ? this.$options.i18n.addCommentNow
+        : this.$options.i18n.addThreadNow;
+    },
+  },
+  watch: {
+    noteIsInternal(val) {
+      this.formFieldProps.placeholder = val
+        ? this.$options.i18n.bodyPlaceholderInternal
+        : this.$options.i18n.bodyPlaceholder;
     },
   },
   mounted() {
     // jQuery is needed here because it is a custom event being dispatched with jQuery.
     $(document).on('issuable:change', (e, isClosed) => {
-      this.toggleIssueLocalState(isClosed ? constants.CLOSED : constants.REOPENED);
+      this.toggleIssueLocalState(isClosed ? STATUS_CLOSED : STATUS_REOPENED);
     });
-
-    this.initAutoSave();
   },
   methods: {
     ...mapActions([
       'saveNote',
-      'stopPolling',
-      'restartPolling',
       'removePlaceholderNotes',
       'closeIssuable',
       'reopenIssuable',
       'toggleIssueLocalState',
     ]),
     handleSaveError({ data, status }) {
-      if (status === UNPROCESSABLE_ENTITY && data.errors?.commands_only?.length) {
-        this.errors = data.errors.commands_only;
-      } else {
-        this.errors = [this.$options.i18n.GENERIC_UNSUBMITTABLE_NETWORK];
-      }
+      this.errors = createNoteErrorMessages(data, status);
     },
     handleSaveDraft() {
       this.handleSave({ isDraft: true });
     },
-    handleSave({ withIssueAction = false, isDraft = false } = {}) {
+    async handleSave({ withIssueAction = false, isDraft = false } = {}) {
       this.errors = [];
 
       if (this.note.length) {
@@ -207,7 +233,7 @@ export default {
             note: {
               noteable_type: this.noteableType,
               noteable_id: this.getNoteableData.id,
-              confidential: this.noteIsConfidential,
+              internal: this.noteIsInternal,
               note: this.note,
             },
             merge_request_diff_head_sha: this.getNoteableData.diff_head_sha,
@@ -219,15 +245,28 @@ export default {
           noteData.data.note.type = constants.DISCUSSION_NOTE;
         }
 
+        if (containsSensitiveToken(this.note)) {
+          const confirmed = await confirmSensitiveAction();
+          if (!confirmed) {
+            return;
+          }
+        }
+
         this.note = ''; // Empty textarea while being requested. Repopulate in catch
-        this.resizeTextarea();
-        this.stopPolling();
 
         this.isSubmitting = true;
 
+        if (isDraft) {
+          eventHub.$emit('noteFormAddToReview', { name: 'noteFormAddToReview' });
+        }
+
+        trackSavedUsingEditor(
+          this.$refs.markdownEditor.isContentEditorActive,
+          `${this.noteableType}_${this.noteType}`,
+        );
+
         this.saveNote(noteData)
           .then(() => {
-            this.restartPolling();
             this.discard();
 
             if (withIssueAction) {
@@ -237,7 +276,6 @@ export default {
           .catch(({ response }) => {
             this.handleSaveError(response);
 
-            this.discard(false);
             this.note = noteData.data.note.note; // Restore textarea content.
             this.removePlaceholderNotes();
           })
@@ -266,28 +304,22 @@ export default {
       const toggleState = this.isOpen ? this.closeIssuable : this.reopenIssuable;
 
       toggleState()
-        .then(() => statusBoxState.updateStatus && statusBoxState.updateStatus())
-        .then(refreshUserMergeRequestCounts)
+        .then(() => {
+          fetchUserCounts();
+          // badgeState is only initialized for MR type
+          // To avoid undefined error added an optional chaining to function
+          return badgeState?.updateStatus?.();
+        })
         .catch(() =>
-          createFlash({
+          createAlert({
             message: constants.toggleStateErrorMessage[this.noteableType][this.openState],
           }),
         );
     },
-    discard(shouldClear = true) {
-      // `blur` is needed to clear slash commands autocomplete cache if event fired.
-      // `focus` is needed to remain cursor in the textarea.
-      this.$refs.textarea.blur();
-      this.$refs.textarea.focus();
-
-      if (shouldClear) {
-        this.note = '';
-        this.noteIsConfidential = false;
-        this.resizeTextarea();
-        this.$refs.markdownField.previewMarkdown = false;
-      }
-
-      this.autosave.reset();
+    discard() {
+      this.note = '';
+      this.noteIsInternal = false;
+      this.$refs.markdownEditor.togglePreview(false);
     },
     editCurrentUserLastNote() {
       if (this.note === '') {
@@ -300,27 +332,14 @@ export default {
         }
       }
     },
-    initAutoSave() {
-      if (this.isLoggedIn) {
-        const noteableType = capitalizeFirstCharacter(convertToCamelCase(this.noteableType));
-
-        this.autosave = new Autosave($(this.$refs.textarea), [
-          this.$options.i18n.note,
-          noteableType,
-          this.getNoteableData.id,
-        ]);
-      }
-    },
-    resizeTextarea() {
-      this.$nextTick(() => {
-        Autosize.update(this.$refs.textarea);
-      });
-    },
     hasEmailParticipants() {
       return this.getNoteableData.issue_email_participants?.length;
     },
     dismissError(index) {
       this.errors.splice(index, 1);
+    },
+    onInput(value) {
+      this.note = value;
     },
   },
 };
@@ -346,79 +365,74 @@ export default {
             <comment-field-layout
               :with-alert-container="true"
               :noteable-data="getNoteableData"
-              :note-is-confidential="noteIsConfidential"
+              :is-internal-note="noteIsInternal"
               :noteable-type="noteableType"
+              :contains-link="containsLink"
             >
-              <markdown-field
-                ref="markdownField"
-                :is-submitting="isSubmitting"
-                :markdown-preview-path="markdownPreviewPath"
+              <markdown-editor
+                ref="markdownEditor"
+                :value="note"
+                :render-markdown-path="markdownPreviewPath"
                 :markdown-docs-path="markdownDocsPath"
-                :quick-actions-docs-path="quickActionsDocsPath"
                 :add-spacing-classes="false"
-                :textarea-value="note"
-              >
-                <template #textarea>
-                  <textarea
-                    id="note-body"
-                    ref="textarea"
-                    v-model="note"
-                    dir="auto"
-                    :disabled="isSubmitting"
-                    name="note[note]"
-                    class="note-textarea js-vue-comment-form js-note-text js-gfm-input js-autosize markdown-area"
-                    data-qa-selector="comment_field"
-                    data-testid="comment-field"
-                    data-supports-quick-actions="true"
-                    :aria-label="$options.i18n.comment"
-                    :placeholder="$options.i18n.bodyPlaceholder"
-                    @keydown.up="editCurrentUserLastNote()"
-                    @keydown.meta.enter="handleEnter()"
-                    @keydown.ctrl.enter="handleEnter()"
-                  ></textarea>
-                </template>
-              </markdown-field>
+                :form-field-props="formFieldProps"
+                :autosave-key="autosaveKey"
+                :disabled="isSubmitting"
+                :autocomplete-data-sources="autocompleteDataSources"
+                supports-quick-actions
+                @keydown.up="editCurrentUserLastNote()"
+                @keydown.shift.meta.enter="handleSave()"
+                @keydown.shift.ctrl.enter="handleSave()"
+                @keydown.meta.enter.exact="handleEnter()"
+                @keydown.ctrl.enter.exact="handleEnter()"
+                @input="onInput"
+              />
             </comment-field-layout>
-            <div class="note-form-actions">
+            <div class="note-form-actions gl-font-size-0">
+              <gl-form-checkbox
+                v-if="canSetInternalNote"
+                v-model="noteIsInternal"
+                class="gl-mb-2 gl-flex-basis-full"
+                data-testid="internal-note-checkbox"
+              >
+                {{ $options.i18n.internal }}
+                <gl-icon
+                  v-gl-tooltip:tooltipcontainer.bottom
+                  name="question-o"
+                  :size="16"
+                  :title="$options.i18n.internalVisibility"
+                  class="gl-text-blue-500"
+                />
+              </gl-form-checkbox>
               <template v-if="hasDrafts">
-                <gl-button
+                <comment-type-dropdown
+                  v-model="noteType"
+                  class="gl-mr-3"
+                  data-testid="add-to-review-dropdown"
                   :disabled="disableSubmitButton"
-                  data-testid="add-to-review-button"
-                  type="submit"
-                  category="primary"
-                  variant="success"
-                  @click.prevent="handleSaveDraft()"
-                  >{{ __('Add to review') }}</gl-button
-                >
+                  :tracking-label="trackingLabel"
+                  is-review-dropdown
+                  :noteable-display-name="noteableDisplayName"
+                  :discussions-require-resolution="discussionsRequireResolution"
+                  @click="handleSaveDraft()"
+                />
                 <gl-button
                   :disabled="disableSubmitButton"
                   data-testid="add-comment-now-button"
                   category="secondary"
+                  class="gl-mr-3"
                   @click.prevent="handleSave()"
-                  >{{ __('Add comment now') }}</gl-button
+                  >{{ commentNowButtonTitle }}</gl-button
                 >
               </template>
               <template v-else>
-                <gl-form-checkbox
-                  v-if="confidentialNotesEnabled && canSetConfidential"
-                  v-model="noteIsConfidential"
-                  class="gl-mb-6"
-                  data-testid="confidential-note-checkbox"
-                >
-                  {{ $options.i18n.confidential }}
-                  <gl-icon
-                    v-gl-tooltip:tooltipcontainer.bottom
-                    name="question"
-                    :size="16"
-                    :title="$options.i18n.confidentialVisibility"
-                    class="gl-text-gray-500"
-                  />
-                </gl-form-checkbox>
                 <comment-type-dropdown
                   v-model="noteType"
                   class="gl-mr-3"
+                  data-testid="comment-button"
                   :disabled="disableSubmitButton"
                   :tracking-label="trackingLabel"
+                  :is-internal-note="noteIsInternal"
                   :noteable-display-name="noteableDisplayName"
                   :discussions-require-resolution="discussionsRequireResolution"
                   @click="handleSave"

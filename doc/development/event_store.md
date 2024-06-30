@@ -1,7 +1,7 @@
 ---
 stage: none
 group: unassigned
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
 ---
 
 # GitLab EventStore
@@ -148,10 +148,12 @@ class Ci::PipelineCreatedEvent < Gitlab::EventStore::Event
 end
 ```
 
-The schema is validated immediately when we initialize the event object so we can ensure that
-publishers follow the contract with the subscribers.
+The schema, which must be a valid [JSON schema](https://json-schema.org/specification), is validated
+by the [`JSONSchemer`](https://github.com/davishmcclurg/json_schemer) gem. The validation happens
+immediately when you initialize the event object to ensure that publishers follow the contract
+with the subscribers.
 
-We recommend using optional properties as much as possible, which require fewer rollouts for schema changes.
+You should use optional properties as much as possible, which require fewer rollouts for schema changes.
 However, `required` properties could be used for unique identifiers of the event's subject. For example:
 
 - `pipeline_id` can be a required property for a `Ci::PipelineCreatedEvent`.
@@ -184,7 +186,7 @@ Changes to the schema require multiple rollouts. While the new version is being 
 - Existing subscribers can consume events using the old version.
 - Events get persisted in the Sidekiq queue as job arguments, so we could have 2 versions of the schema during deployments.
 
-As changing the schema ultimately impacts the Sidekiq arguments, please refer to our
+As changing the schema ultimately impacts the Sidekiq arguments, refer to our
 [Sidekiq style guide](sidekiq/compatibility_across_updates.md#changing-the-arguments-for-a-worker) with regards to multiple rollouts.
 
 #### Add properties
@@ -223,6 +225,15 @@ Gitlab::EventStore.publish(
 )
 ```
 
+Events should be dispatched from the relevant Service class whenever possible. Some
+exceptions exist where we may allow models to publish events, like in state machine transitions.
+For example, instead of scheduling `Ci::BuildFinishedWorker`, which runs a collection of side effects,
+we could publish a `Ci::BuildFinishedEvent` and let other domains react asynchronously.
+
+`ActiveRecord` callbacks are too low-level to represent a domain event. They represent more database
+record changes. There might be cases where it would make sense, but we should consider
+those exceptions.
+
 ## Create a subscriber
 
 A subscriber is a Sidekiq worker that includes the `Gitlab::EventStore::Subscriber` module.
@@ -248,13 +259,21 @@ end
 To subscribe the worker to a specific event in `lib/gitlab/event_store.rb`,
 add a line like this to the `Gitlab::EventStore.configure!` method:
 
+NOTE:
+New workers should be introduced with a feature flag in order to
+[ensure compatibility with canary deployments](sidekiq/compatibility_across_updates.md#adding-new-workers).
+
 ```ruby
 module Gitlab
   module EventStore
     def self.configure!(store)
       # ...
 
-      store.subscribe ::MergeRequests::UpdateHeadPipelineWorker, to: ::Ci::PipelineCreatedEvent
+      store.subscribe ::Sbom::ProcessTransferEventsWorker, to: ::Projects::ProjectTransferedEvent,
+        if: ->(event) do
+          actor = ::Project.actor_from_id(event.data[:project_id])
+          Feature.enabled?(:sync_project_archival_status_to_sbom_occurrences, actor)
+        end
 
       # ...
     end
@@ -291,7 +310,44 @@ executed synchronously every time the given event is published.
 For complex conditions it's best to subscribe to all the events and then handle the logic
 in the `handle_event` method of the subscriber worker.
 
+### Delayed dispatching of events
+
+A subscription can specify a delay when to receive an event:
+
+```ruby
+store.subscribe ::MergeRequests::UpdateHeadPipelineWorker,
+  to: ::Ci::PipelineCreatedEvent,
+  delay: 1.minute
+```
+
+The `delay` parameter switches the dispatching of the event to use `perform_in` method
+on the subscriber Sidekiq worker, instead of `perform_async`.
+
+This technique is useful when publishing many events and leverage the Sidekiq deduplication.
+
+### Publishing group of events
+
+In some scenarios we publish multiple events of same type in a single business transaction.
+This puts additional load to Sidekiq by invoking a job for each event. In such cases, we can
+publish a group of events by calling `Gitlab::EventStore.publish_group`. This method accepts an
+array of events of similar type. By default the subscriber worker receives a group of max 10 events,
+but this can be configured by defining `group_size` parameter while creating the subscription.
+The number of published events are dispatched to the subscriber in batches based on the
+configured `group_size`. If the number of groups exceeds 100, we schedule each group with a delay
+of 10 seconds, to reduce the load on Sidekiq.
+
+```ruby
+store.subscribe ::Security::RefreshProjectPoliciesWorker,
+  to: ::ProjectAuthorizations::AuthorizationsChangedEvent,
+  delay: 1.minute,
+  group_size: 25
+```
+
+The `handle_event` method in the subscriber worker is called for each of the events in the group.
+
 ## Testing
+
+### Testing the publisher
 
 The publisher's responsibility is to ensure that the event is published correctly.
 
@@ -308,24 +364,80 @@ it 'publishes a ProjectDeleted event with project id and namespace id' do
 end
 ```
 
+It is also possible to compose matchers inside the `:publish_event` matcher.
+This could be useful when we want to assert that an event is created with a certain kind of value,
+but we do not know the value in advance. An example of this is when publishing an event
+after creating a new record.
+
+```ruby
+it 'publishes a ProjectCreatedEvent with project id and namespace id' do
+  # The project ID will only be generated when the `create_project`
+  # is called in the expect block.
+  expected_data = { project_id: kind_of(Numeric), namespace_id: group_id }
+
+  expect { create_project(user, name: 'Project', path: 'project', namespace_id: group_id) }
+    .to publish_event(Projects::ProjectCreatedEvent)
+    .with(expected_data)
+end
+```
+
+When you publish multiple events, you can also check for non-published events.
+
+```ruby
+it 'publishes a ProjectCreatedEvent with project id and namespace id' do
+  # The project ID is generated when `create_project`
+  # is called in the `expect` block.
+  expected_data = { project_id: kind_of(Numeric), namespace_id: group_id }
+
+  expect { create_project(user, name: 'Project', path: 'project', namespace_id: group_id) }
+    .to publish_event(Projects::ProjectCreatedEvent)
+    .with(expected_data)
+    .and not_publish_event(Projects::ProjectDeletedEvent)
+end
+```
+
+### Testing the subscriber
+
 The subscriber must ensure that a published event can be consumed correctly. For this purpose
 we have added helpers and shared examples to standardize the way we test subscribers:
 
 ```ruby
 RSpec.describe MergeRequests::UpdateHeadPipelineWorker do
-  let(:event) { Ci::PipelineCreatedEvent.new(data: ({ pipeline_id: pipeline.id })) }
+  let(:pipeline_created_event) { Ci::PipelineCreatedEvent.new(data: ({ pipeline_id: pipeline.id })) }
 
   # This shared example ensures that an event is published and correctly processed by
-  # the current subscriber (`described_class`).
-  it_behaves_like 'consumes the published event' do
-    let(:event) { event }
+  # the current subscriber (`described_class`). It also ensures that the worker is idempotent.
+  it_behaves_like 'subscribes to event' do
+    let(:event) { pipeline_created_event }
   end
-  
+
+  # This shared example ensures that an published event is ignored. This might be useful for
+  # conditional dispatch testing.
+  it_behaves_like 'ignores the published event' do
+    let(:event) { pipeline_created_event }
+  end
+
   it 'does something' do
     # This helper directly executes `perform` ensuring that `handle_event` is called correctly.
-    consume_event(subscriber: described_class, event: event)
+    consume_event(subscriber: described_class, event: pipeline_created_event)
 
     # run expectations
   end
 end
 ```
+
+## Best practices
+
+- Maintain [CE & EE separation and compatibility](ee_features.md#separation-of-ee-code-in-the-backend):
+  - Define the event class and publish the event in the same code where the event always occurs (CE or EE).
+    - If the event occurs as a result of a CE feature, the event class must both be defined and published in CE.
+      Likewise if the event occurs as a result of an EE feature, the event class must both be defined and published in EE.
+  - Define subscribers that depends on the event in the same code where the dependent feature exists (CE or EE).
+    - You can have an event published in CE (for example `Projects::ProjectCreatedEvent`) and a subscriber that depends
+      on this event defined in EE (for example `Security::SyncSecurityPolicyWorker`).
+- Define the event class and publish the event within the same bounded context (top-level Ruby namespace).
+  - A given bounded context should only publish events related to its own context.
+- Evaluate signal/noise ratio when subscribing to an event. How many events do you process vs ignore
+  within the subscriber? Consider using [conditional dispatch](#conditional-dispatch-of-events)
+  if you are interested in only a small subset of events. Balance between executing synchronous checks with
+  conditional dispatch or schedule potentially redundant workers.

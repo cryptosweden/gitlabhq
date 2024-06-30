@@ -8,20 +8,15 @@ module Gitlab
 
         data_consistency :always
 
-        sidekiq_options retry: 3
-        include GithubImport::Queue
         include StageMethods
 
-        def perform(project_id)
-          return unless (project = find_project(project_id))
-
-          import(project)
-        end
+        # Importer::LfsObjectsImporter can resume work when interrupted as
+        # it uses Projects::LfsPointers::LfsObjectDownloadListService which excludes LFS objects that already exist.
+        # https://gitlab.com/gitlab-org/gitlab/-/blob/eabf0800/app/services/projects/lfs_pointers/lfs_object_download_list_service.rb#L69-71
+        resumes_work_when_interrupted!
 
         # project - An instance of Project.
-        def import(project)
-          info(project.id, message: "starting importer", importer: 'Importer::LfsObjectsImporter')
-
+        def import(_client, project)
           waiter = Importer::LfsObjectsImporter
             .new(project, nil)
             .execute
@@ -29,7 +24,7 @@ module Gitlab
           AdvanceStageWorker.perform_async(
             project.id,
             { waiter.key => waiter.jobs_remaining },
-            :finish
+            'finish'
           )
         end
       end

@@ -2,7 +2,6 @@ package contentprocessor
 
 import (
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,8 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testData = "Hello world!"
+
 func TestFailSetContentTypeAndDisposition(t *testing.T) {
-	testCaseBody := "Hello world!"
+	testCaseBody := testData
 
 	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, err := io.WriteString(w, testCaseBody)
@@ -22,15 +23,17 @@ func TestFailSetContentTypeAndDisposition(t *testing.T) {
 	})
 
 	resp := makeRequest(t, h, testCaseBody, "")
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, "", resp.Header.Get(headers.ContentDispositionHeader))
 	require.Equal(t, "", resp.Header.Get(headers.ContentTypeHeader))
 }
 
 func TestSuccessSetContentTypeAndDispositionFeatureEnabled(t *testing.T) {
-	testCaseBody := "Hello world!"
+	testCaseBody := testData
 
 	resp := makeRequest(t, nil, testCaseBody, "")
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, "inline", resp.Header.Get(headers.ContentDispositionHeader))
 	require.Equal(t, "text/plain; charset=utf-8", resp.Header.Get(headers.ContentTypeHeader))
@@ -47,19 +50,25 @@ func TestSetProperContentTypeAndDisposition(t *testing.T) {
 			desc:               "text type",
 			contentType:        "text/plain; charset=utf-8",
 			contentDisposition: "inline",
-			body:               "Hello world!",
+			body:               testData,
 		},
 		{
 			desc:               "HTML type",
 			contentType:        "text/plain; charset=utf-8",
-			contentDisposition: "inline",
+			contentDisposition: "inline; filename=blob",
 			body:               "<html><body>Hello world!</body></html>",
+		},
+		{
+			desc:               "Javascript within HTML type",
+			contentType:        "text/plain; charset=utf-8",
+			contentDisposition: "inline; filename=blob",
+			body:               "<script>alert(\"foo\")</script>",
 		},
 		{
 			desc:               "Javascript type",
 			contentType:        "text/plain; charset=utf-8",
 			contentDisposition: "inline",
-			body:               "<script>alert(\"foo\")</script>",
+			body:               "alert(\"foo\")",
 		},
 		{
 			desc:               "Image type",
@@ -80,8 +89,14 @@ func TestSetProperContentTypeAndDisposition(t *testing.T) {
 			body:               "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 330 82\"><title>SVG logo combined with the W3C logo, set horizontally</title><desc>The logo combines three entities displayed horizontall</desc><metadata>",
 		},
 		{
+			desc:               "Incomplete SVG start tag",
+			contentType:        "image/svg+xml",
+			contentDisposition: "attachment",
+			body:               "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"",
+		},
+		{
 			desc:               "Application type",
-			contentType:        "application/pdf",
+			contentType:        "application/octet-stream",
 			contentDisposition: "attachment",
 			body:               testhelper.LoadFile(t, "testdata/file.pdf"),
 		},
@@ -105,7 +120,7 @@ func TestSetProperContentTypeAndDisposition(t *testing.T) {
 		},
 		{
 			desc:               "Audio type",
-			contentType:        "audio/mpeg",
+			contentType:        "application/octet-stream",
 			contentDisposition: "attachment",
 			body:               testhelper.LoadFile(t, "testdata/audio.mp3"),
 		},
@@ -147,21 +162,28 @@ func TestSetProperContentTypeAndDisposition(t *testing.T) {
 		},
 		{
 			desc:               "Sketch file",
-			contentType:        "application/zip",
+			contentType:        "application/octet-stream",
 			contentDisposition: "attachment",
 			body:               testhelper.LoadFile(t, "testdata/file.sketch"),
 		},
 		{
 			desc:               "PDF file with non-ASCII characters in filename",
-			contentType:        "application/pdf",
+			contentType:        "application/octet-stream",
 			contentDisposition: `attachment; filename="file-ä.pdf"; filename*=UTF-8''file-%c3.pdf`,
 			body:               testhelper.LoadFile(t, "testdata/file-ä.pdf"),
+		},
+		{
+			desc:               "Microsoft Word file",
+			contentType:        "application/octet-stream",
+			contentDisposition: `attachment`,
+			body:               testhelper.LoadFile(t, "testdata/file.docx"),
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
 			resp := makeRequest(t, nil, tc.body, tc.contentDisposition)
+			defer func() { _ = resp.Body.Close() }()
 
 			require.Equal(t, tc.contentType, resp.Header.Get(headers.ContentTypeHeader))
 			require.Equal(t, tc.contentDisposition, resp.Header.Get(headers.ContentDispositionHeader))
@@ -170,29 +192,46 @@ func TestSetProperContentTypeAndDisposition(t *testing.T) {
 }
 
 func TestFailOverrideContentType(t *testing.T) {
-	testCase := struct {
-		contentType string
-		body        string
+	testCases := []struct {
+		desc                 string
+		overrideFromUpstream string
+		responseContentType  string
+		body                 string
 	}{
-		contentType: "text/plain; charset=utf-8",
-		body:        "<html><body>Hello world!</body></html>",
+		{
+			desc:                 "Force text/html into text/plain",
+			responseContentType:  "text/plain; charset=utf-8",
+			overrideFromUpstream: "text/html; charset=utf-8",
+			body:                 "<html><body>Hello world!</body></html>",
+		},
+		{
+			desc:                 "Force application/javascript into text/plain",
+			responseContentType:  "text/plain; charset=utf-8",
+			overrideFromUpstream: "application/javascript; charset=utf-8",
+			body:                 "alert(1);",
+		},
 	}
 
-	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// We are pretending to be upstream or an inner layer of the ResponseWriter chain
-		w.Header().Set(headers.GitlabWorkhorseDetectContentTypeHeader, "true")
-		w.Header().Set(headers.ContentTypeHeader, "text/html; charset=utf-8")
-		_, err := io.WriteString(w, testCase.body)
-		require.NoError(t, err)
-	})
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				// We are pretending to be upstream or an inner layer of the ResponseWriter chain
+				w.Header().Set(headers.GitlabWorkhorseDetectContentTypeHeader, "true")
+				w.Header().Set(headers.ContentTypeHeader, tc.overrideFromUpstream)
+				_, err := io.WriteString(w, tc.body)
+				require.NoError(t, err)
+			})
 
-	resp := makeRequest(t, h, testCase.body, "")
+			resp := makeRequest(t, h, tc.body, "")
+			defer func() { _ = resp.Body.Close() }()
 
-	require.Equal(t, testCase.contentType, resp.Header.Get(headers.ContentTypeHeader))
+			require.Equal(t, tc.responseContentType, resp.Header.Get(headers.ContentTypeHeader))
+		})
+	}
 }
 
 func TestSuccessOverrideContentDispositionFromInlineToAttachment(t *testing.T) {
-	testCaseBody := "Hello world!"
+	testCaseBody := testData
 
 	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// We are pretending to be upstream or an inner layer of the ResponseWriter chain
@@ -203,6 +242,7 @@ func TestSuccessOverrideContentDispositionFromInlineToAttachment(t *testing.T) {
 	})
 
 	resp := makeRequest(t, h, testCaseBody, "")
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, "attachment", resp.Header.Get(headers.ContentDispositionHeader))
 }
@@ -219,6 +259,7 @@ func TestInlineContentDispositionForPdfFiles(t *testing.T) {
 	})
 
 	resp := makeRequest(t, h, testCaseBody, "")
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, "inline", resp.Header.Get(headers.ContentDispositionHeader))
 }
@@ -235,6 +276,7 @@ func TestFailOverrideContentDispositionFromAttachmentToInline(t *testing.T) {
 	})
 
 	resp := makeRequest(t, h, testCaseBody, "")
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, "attachment", resp.Header.Get(headers.ContentDispositionHeader))
 }
@@ -262,7 +304,7 @@ func TestWriteHeadersCalledOnce(t *testing.T) {
 	rw := &contentDisposition{rw: recorder}
 	rw.WriteHeader(400)
 	require.Equal(t, 400, rw.status)
-	require.Equal(t, true, rw.sentStatus)
+	require.True(t, rw.sentStatus)
 
 	rw.WriteHeader(200)
 	require.Equal(t, 400, rw.status)
@@ -284,7 +326,7 @@ func makeRequest(t *testing.T, handler http.HandlerFunc, body string, dispositio
 	SetContentHeaders(handler).ServeHTTP(rw, req)
 
 	resp := rw.Result()
-	respBody, err := ioutil.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	require.Equal(t, body, string(respBody))

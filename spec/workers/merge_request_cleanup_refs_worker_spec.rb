@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequestCleanupRefsWorker do
+RSpec.describe MergeRequestCleanupRefsWorker, feature_category: :code_review_workflow do
   let(:worker) { described_class.new }
 
   describe '#perform_work' do
@@ -30,26 +30,14 @@ RSpec.describe MergeRequestCleanupRefsWorker do
           expect(cleanup_schedule.completed_at).to be_nil
         end
 
-        context "and cleanup schedule has already failed #{described_class::FAILURE_THRESHOLD} times" do
-          let(:failed_count) { described_class::FAILURE_THRESHOLD }
+        context "and cleanup schedule has already failed #{WebHooks::AutoDisabling::FAILURE_THRESHOLD} times" do
+          let(:failed_count) { WebHooks::AutoDisabling::FAILURE_THRESHOLD }
 
           it 'marks the cleanup schedule as failed and track the failure' do
             expect(cleanup_schedule.reload).to be_failed
-            expect(cleanup_schedule.failed_count).to eq(described_class::FAILURE_THRESHOLD + 1)
+            expect(cleanup_schedule.failed_count).to eq(failed_count + 1)
             expect(cleanup_schedule.completed_at).to be_nil
           end
-        end
-      end
-
-      context 'when merge_request_refs_cleanup flag is disabled' do
-        before do
-          stub_feature_flags(merge_request_refs_cleanup: false)
-        end
-
-        it 'does nothing' do
-          expect(MergeRequests::CleanupRefsService).not_to receive(:new)
-
-          worker.perform_work
         end
       end
     end

@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'ClusterAgents', :js do
-  let_it_be(:token) { create(:cluster_agent_token, description: 'feature test token')}
+RSpec.describe 'ClusterAgents', :js, feature_category: :environment_management do
+  let_it_be(:token) { create(:cluster_agent_token, description: 'feature test token') }
 
   let(:agent) { token.agent }
   let(:project) { agent.project }
@@ -12,7 +12,7 @@ RSpec.describe 'ClusterAgents', :js do
   before do
     allow(Gitlab::Kas).to receive(:enabled?).and_return(true)
     allow_next_instance_of(Gitlab::Kas::Client) do |client|
-      allow(client).to receive(:get_connected_agents).and_return([])
+      allow(client).to receive(:get_connected_agents_by_agent_ids).and_return([])
     end
 
     gitlab_sign_in(user)
@@ -27,8 +27,7 @@ RSpec.describe 'ClusterAgents', :js do
     end
 
     it 'displays empty state', :aggregate_failures do
-      expect(page).to have_content('Install a new agent')
-      expect(page).to have_selector('.empty-state')
+      expect(page).to have_selector('[data-testid="cluster-agent-empty-state"]')
     end
   end
 

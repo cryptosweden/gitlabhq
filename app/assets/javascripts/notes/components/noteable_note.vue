@@ -1,46 +1,54 @@
 <script>
-import { GlSprintf, GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+import { GlSprintf, GlAvatarLink, GlAvatar } from '@gitlab/ui';
 import $ from 'jquery';
-import { escape, isEmpty } from 'lodash';
+import { escape } from 'lodash';
+// eslint-disable-next-line no-restricted-imports
 import { mapGetters, mapActions } from 'vuex';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
 import { INLINE_DIFF_LINES_KEY } from '~/diffs/constants';
-import createFlash from '~/flash';
-import httpStatusCodes from '~/lib/utils/http_status';
+import { createAlert } from '~/alert';
+import { HTTP_STATUS_GONE } from '~/lib/utils/http_status';
 import { ignoreWhilePending } from '~/lib/utils/ignore_while_pending';
 import { truncateSha } from '~/lib/utils/text_utility';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
-import { __, s__, sprintf } from '../../locale';
-import userAvatarLink from '../../vue_shared/components/user_avatar/user_avatar_link.vue';
+import { __, s__, sprintf } from '~/locale';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
+import { containsSensitiveToken, confirmSensitiveAction } from '~/lib/utils/secret_detection';
 import eventHub from '../event_hub';
 import noteable from '../mixins/noteable';
 import resolvable from '../mixins/resolvable';
-import { renderMarkdown } from '../utils';
+import { renderMarkdown, updateNoteErrorMessage } from '../utils';
 import {
   getStartLineNumber,
   getEndLineNumber,
   getLineClasses,
   commentLineOptions,
-  formatLineRange,
 } from './multiline_comment_utils';
-import noteActions from './note_actions.vue';
+import NoteActions from './note_actions.vue';
 import NoteBody from './note_body.vue';
-import noteHeader from './note_header.vue';
+import NoteHeader from './note_header.vue';
 
 export default {
   name: 'NoteableNote',
   components: {
     GlSprintf,
-    userAvatarLink,
-    noteHeader,
-    noteActions,
+    NoteHeader,
+    NoteActions,
     NoteBody,
     TimelineEntryItem,
+    GlAvatarLink,
+    GlAvatar,
   },
   directives: {
     SafeHtml,
   },
   mixins: [noteable, resolvable],
+  inject: {
+    reportAbusePath: {
+      default: '',
+    },
+  },
   props: {
     note: {
       type: Object,
@@ -91,6 +99,16 @@ export default {
       required: false,
       default: false,
     },
+    shouldScrollToNote: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
+    discussion: {
+      type: Object,
+      required: false,
+      default: null,
+    },
   },
   data() {
     return {
@@ -108,6 +126,9 @@ export default {
     author() {
       return this.note.author;
     },
+    commentType() {
+      return this.note.internal ? __('internal note') : __('comment');
+    },
     classNameBindings() {
       return {
         [`note-row-${this.note.id}`]: true,
@@ -119,7 +140,7 @@ export default {
       };
     },
     canReportAsAbuse() {
-      return Boolean(this.note.report_abuse_path) && this.author.id !== this.getUserData.id;
+      return Boolean(this.reportAbusePath) && this.author.id !== this.getUserData.id;
     },
     noteAnchorId() {
       return `note_${this.note.id}`;
@@ -193,13 +214,9 @@ export default {
 
       return fileResolvedFromAvailableSource || null;
     },
-    avatarSize() {
-      // Use a different size if shown on a Merge Request Diff
-      if (this.line && !this.isOverviewTab) {
-        return 24;
-      }
-
-      return 40;
+    isMRDiffView() {
+      const isFileComment = this.note.position?.position_type === 'file';
+      return !this.isOverviewTab && (this.line || isFileComment);
     },
   },
   created() {
@@ -224,7 +241,7 @@ export default {
   },
 
   mounted() {
-    if (this.isTarget) {
+    if (this.isTarget && this.shouldScrollToNote) {
       this.scrollToNoteIfNeeded($(this.$el));
     }
   },
@@ -238,7 +255,6 @@ export default {
       'scrollToNoteIfNeeded',
       'updateAssignees',
       'setSelectedCommentPositionHover',
-      'updateDiscussionPosition',
     ]),
     editHandler() {
       this.isEditing = true;
@@ -246,14 +262,19 @@ export default {
       this.$emit('handleEdit');
     },
     async deleteHandler() {
-      const typeOfComment = this.note.isDraft ? __('pending comment') : __('comment');
+      let { commentType } = this;
 
-      const msg = sprintf(__('Are you sure you want to delete this %{typeOfComment}?'), {
-        typeOfComment,
+      if (this.note.isDraft) {
+        // Draft internal notes (i.e. MR review comments) are not supported.
+        commentType = __('pending comment');
+      }
+
+      const msg = sprintf(__('Are you sure you want to delete this %{commentType}?'), {
+        commentType,
       });
       const confirmed = await confirmAction(msg, {
         primaryBtnVariant: 'danger',
-        primaryBtnText: __('Delete Comment'),
+        primaryBtnText: this.note.internal ? __('Delete internal note') : __('Delete comment'),
       });
 
       if (confirmed) {
@@ -267,7 +288,7 @@ export default {
             this.isDeleting = false;
           })
           .catch(() => {
-            createFlash({
+            createAlert({
               message: __('Something went wrong while deleting your note. Please try again.'),
             });
             this.isDeleting = false;
@@ -278,32 +299,28 @@ export default {
       this.isEditing = false;
       this.isRequesting = false;
       this.oldContent = null;
-      $(this.$refs.noteBody.$el).renderGFM();
-      this.$refs.noteBody.resetAutoSave();
+      renderGFM(this.$refs.noteBody.$el);
       this.$emit('updateSuccess');
     },
-    formUpdateHandler({ noteText, callback, resolveDiscussion }) {
-      const position = {
-        ...this.note.position,
-      };
-
-      if (this.discussionRoot && this.commentLineStart && this.line) {
-        position.line_range = formatLineRange(this.commentLineStart, this.line);
-        this.updateDiscussionPosition({
-          discussionId: this.note.discussion_id,
-          position,
-        });
-      }
-
+    async formUpdateHandler({ noteText, callback, resolveDiscussion }) {
       this.$emit('handleUpdateNote', {
         note: this.note,
         noteText,
         resolveDiscussion,
-        position,
+        flashContainer: this.$el,
         callback: () => this.updateSuccess(),
+        errorCallback: () => callback(),
       });
 
       if (this.isDraft) return;
+
+      if (containsSensitiveToken(noteText)) {
+        const confirmed = await confirmSensitiveAction();
+        if (!confirmed) {
+          callback();
+          return;
+        }
+      }
 
       const data = {
         endpoint: this.note.path,
@@ -314,9 +331,6 @@ export default {
         },
       };
 
-      // Stringifying an empty object yields `{}` which breaks graphql queries
-      // https://gitlab.com/gitlab-org/gitlab/-/issues/298827
-      if (!isEmpty(position)) data.note.note.position = JSON.stringify(position);
       this.isRequesting = true;
       this.oldContent = this.note.note_html;
       // eslint-disable-next-line vue/no-mutating-props
@@ -327,8 +341,8 @@ export default {
           this.updateSuccess();
           callback();
         })
-        .catch((response) => {
-          if (response.status === httpStatusCodes.GONE) {
+        .catch((e) => {
+          if (e.status === HTTP_STATUS_GONE) {
             this.removeNote(this.note);
             this.updateSuccess();
             callback();
@@ -337,17 +351,16 @@ export default {
             this.isEditing = true;
             this.setSelectedCommentPositionHover();
             this.$nextTick(() => {
-              this.handleUpdateError(response); // The 'response' parameter is being used in JH, don't remove it
-              this.recoverNoteContent(noteText);
+              this.handleUpdateError(e); // The 'e' parameter is being used in JH, don't remove it
+              this.recoverNoteContent();
               callback();
             });
           }
         });
     },
-    handleUpdateError() {
-      const msg = __('Something went wrong while editing your comment. Please try again.');
-      createFlash({
-        message: msg,
+    handleUpdateError(e) {
+      createAlert({
+        message: updateNoteErrorMessage(e),
         parent: this.$el,
       });
     },
@@ -356,27 +369,26 @@ export default {
       isDirty,
     }) {
       if (shouldConfirm && isDirty) {
-        const msg = __('Are you sure you want to cancel editing this comment?');
-        const confirmed = await confirmAction(msg);
+        const msg = sprintf(__('Are you sure you want to cancel editing this %{commentType}?'), {
+          commentType: this.commentType,
+        });
+        const confirmed = await confirmAction(msg, {
+          primaryBtnText: __('Cancel editing'),
+          primaryBtnVariant: 'danger',
+          secondaryBtnVariant: 'default',
+          secondaryBtnText: __('Continue editing'),
+          hideCancel: true,
+        });
         if (!confirmed) return;
       }
-      this.$refs.noteBody.resetAutoSave();
-      if (this.oldContent) {
-        // eslint-disable-next-line vue/no-mutating-props
-        this.note.note_html = this.oldContent;
-        this.oldContent = null;
-      }
+      this.recoverNoteContent();
       this.isEditing = false;
       this.$emit('cancelForm');
     }),
-    recoverNoteContent(noteText) {
-      // we need to do this to prevent noteForm inconsistent content warning
-      // this is something we intentionally do so we need to recover the content
-      // eslint-disable-next-line vue/no-mutating-props
-      this.note.note = noteText;
-      const { noteBody } = this.$refs;
-      if (noteBody) {
-        noteBody.note.note = noteText;
+    recoverNoteContent() {
+      if (this.oldContent) {
+        // eslint-disable-next-line vue/no-mutating-props
+        this.note.note_html = this.oldContent;
       }
     },
     getLineClasses(lineNumber) {
@@ -392,16 +404,16 @@ export default {
 <template>
   <timeline-entry-item
     :id="noteAnchorId"
-    :class="classNameBindings"
+    :class="{ ...classNameBindings, 'internal-note': note.internal }"
     :data-award-url="note.toggle_award_path"
     :data-note-id="note.id"
-    class="note note-wrapper"
-    data-qa-selector="noteable_note_container"
+    class="note note-wrapper note-comment"
+    data-testid="noteable-note-container"
   >
     <div
       v-if="showMultiLineComment"
       data-testid="multiline-comment"
-      class="gl-mb-5 gl-text-gray-500 gl-border-gray-100 gl-border-b-solid gl-border-b-1 gl-pb-4"
+      class="gl-text-gray-500 gl-border-gray-100 gl-border-b-solid gl-border-b-1 gl-px-5 gl-py-3"
     >
       <gl-sprintf :message="__('Comment on lines %{startLine} to %{endLine}')">
         <template #startLine>
@@ -412,32 +424,59 @@ export default {
         </template>
       </gl-sprintf>
     </div>
-    <div class="timeline-icon">
-      <user-avatar-link
-        :link-href="author.path"
-        :img-src="author.avatar_url"
-        :img-alt="author.name"
-        :img-size="avatarSize"
-        lazy
+
+    <div v-if="isMRDiffView" class="timeline-avatar gl-float-left gl-pt-2">
+      <gl-avatar-link
+        :href="author.path"
+        :data-user-id="author.id"
+        :data-username="author.username"
+        class="js-user-link"
       >
-        <template #avatar-badge>
-          <slot name="avatar-badge"></slot>
-        </template>
-      </user-avatar-link>
+        <gl-avatar
+          :src="author.avatar_url"
+          :entity-name="author.username"
+          :alt="author.name"
+          :size="24"
+        />
+
+        <slot name="avatar-badge"></slot>
+      </gl-avatar-link>
     </div>
+
+    <div v-else class="timeline-avatar gl-float-left">
+      <gl-avatar-link
+        :href="author.path"
+        :data-user-id="author.id"
+        :data-username="author.username"
+        class="js-user-link gl-relative"
+      >
+        <gl-avatar
+          :src="author.avatar_url"
+          :entity-name="author.username"
+          :alt="author.name"
+          :size="32"
+        />
+
+        <slot name="avatar-badge"></slot>
+      </gl-avatar-link>
+    </div>
+
     <div class="timeline-content">
       <div class="note-header">
         <note-header
           :author="author"
           :created-at="note.created_at"
           :note-id="note.id"
-          :is-confidential="note.confidential"
+          :is-internal-note="note.internal"
+          :is-imported="note.imported"
+          :noteable-type="noteableType"
+          :email-participant="note.external_author"
         >
           <template #note-header-info>
             <slot name="note-header-info"></slot>
           </template>
           <span v-if="commit" v-safe-html="actionText"></span>
-          <span v-else-if="note.created_at" class="d-none d-sm-inline">&middot;</span>
+          <span v-else-if="note.created_at" class="gl-hidden sm:gl-inline">&middot;</span>
         </note-header>
         <note-actions
           :author="author"
@@ -455,7 +494,6 @@ export default {
           :can-delete="note.current_user.can_edit"
           :can-report-as-abuse="canReportAsAbuse"
           :can-resolve="canResolve"
-          :report-abuse-path="note.report_abuse_path"
           :resolvable="note.resolvable || note.isDraft"
           :is-resolved="note.resolved || note.resolve_discussion"
           :is-resolving="isResolving"
@@ -476,14 +514,17 @@ export default {
         <note-body
           ref="noteBody"
           :note="note"
+          :can-edit="note.current_user.can_edit"
           :line="line"
           :file="diffFile"
-          :can-edit="note.current_user.can_edit"
           :is-editing="isEditing"
           :help-page-path="helpPagePath"
           @handleFormUpdate="formUpdateHandler"
           @cancelForm="formCancelHandler"
         />
+        <div class="timeline-discussion-body-footer">
+          <slot name="after-note-body"></slot>
+        </div>
       </div>
     </div>
   </timeline-entry-item>

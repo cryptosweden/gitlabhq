@@ -2,13 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Settings > User transfers a project', :js do
+RSpec.describe 'Projects > Settings > User transfers a project', :js, feature_category: :groups_and_projects do
   let(:user) { create(:user) }
   let(:project) { create(:project, :repository, namespace: user.namespace) }
   let(:group) { create(:group) }
 
   before do
-    stub_const('Gitlab::QueryLimiting::Transaction::THRESHOLD', 120)
+    allow(Gitlab::QueryLimiting::Transaction).to receive(:threshold).and_return(120)
 
     group.add_owner(user)
     sign_in(user)
@@ -18,10 +18,10 @@ RSpec.describe 'Projects > Settings > User transfers a project', :js do
     visit edit_project_path(project)
 
     page.within('.js-project-transfer-form') do
-      page.find('[data-testid="transfer-project-namespace"]').click
+      find_by_testid('transfer-project-namespace').click
     end
 
-    page.within('[data-testid="transfer-project-namespace"]') do
+    within_testid('transfer-project-namespace') do
       page.find("li button", text: group.full_name).click
     end
 
@@ -52,13 +52,13 @@ RSpec.describe 'Projects > Settings > User transfers a project', :js do
     wait_for_requests
 
     expect(page).to have_current_path(new_path, ignore_query: true)
-    expect(find('.breadcrumbs')).to have_content(project.name)
+    expect(find_by_testid('breadcrumb-links')).to have_content(project.name)
 
     visit old_path
     wait_for_requests
 
     expect(page).to have_current_path(new_path, ignore_query: true)
-    expect(find('.breadcrumbs')).to have_content(project.name)
+    expect(find_by_testid('breadcrumb-links')).to have_content(project.name)
   end
 
   context 'and a new project is added with the same path' do
@@ -70,7 +70,7 @@ RSpec.describe 'Projects > Settings > User transfers a project', :js do
       visit old_path
 
       expect(page).to have_current_path(old_path, ignore_query: true)
-      expect(find('.breadcrumbs')).to have_content(new_project.name)
+      expect(find_by_testid('breadcrumb-links')).to have_content(new_project.name)
     end
   end
 

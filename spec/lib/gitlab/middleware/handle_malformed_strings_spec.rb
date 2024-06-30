@@ -58,6 +58,39 @@ RSpec.describe Gitlab::Middleware::HandleMalformedStrings do
     end
   end
 
+  context 'with POST request' do
+    let(:request_env) do
+      Rack::MockRequest.env_for(
+        '/',
+        method: 'POST',
+        input: input,
+        'CONTENT_TYPE' => 'application/json'
+      )
+    end
+
+    let(:params) { { method: 'POST' } }
+
+    context 'with valid JSON' do
+      let(:input) { %({"hello": "world"}) }
+
+      it 'returns no error' do
+        env = request_env
+
+        expect(subject.call(env)).not_to eq error_400
+      end
+    end
+
+    context 'with bad JSON' do
+      let(:input) { "{ bad json }" }
+
+      it 'rejects bad JSON with 400 error' do
+        env = request_env
+
+        expect(subject.call(env)).to eq error_400
+      end
+    end
+  end
+
   context 'in authorization headers' do
     let(:problematic_input) { null_byte }
 
@@ -132,11 +165,12 @@ RSpec.describe Gitlab::Middleware::HandleMalformedStrings do
       end
 
       it "rejects bad params for arrays containing hashes with string values" do
-        env = env_for(name: [
-          {
-            inner_key: "I am #{problematic_input} bad"
-          }
-        ])
+        env = env_for(
+          name: [
+            {
+              inner_key: "I am #{problematic_input} bad"
+            }
+          ])
 
         expect(subject.call(env)).to eq error_400
       end
@@ -148,11 +182,12 @@ RSpec.describe Gitlab::Middleware::HandleMalformedStrings do
       it_behaves_like 'checks params'
 
       it "gives up and does not reject too deeply nested params" do
-        env = env_for(name: [
-                        {
-                          inner_key: { deeper_key: [{ hash_inside_array_key: "I am #{problematic_input} bad" }] }
-                        }
-                      ])
+        env = env_for(
+          name: [
+            {
+              inner_key: { deeper_key: [{ hash_inside_array_key: "I am #{problematic_input} bad" }] }
+            }
+          ])
 
         expect(subject.call(env)).not_to eq error_400
       end

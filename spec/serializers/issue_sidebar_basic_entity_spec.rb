@@ -3,9 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe IssueSidebarBasicEntity do
-  let_it_be(:group) { create(:group, :crm_enabled) }
+  let_it_be(:group) { create(:group) }
   let_it_be(:project) { create(:project, :repository, group: group) }
-  let_it_be(:user) { create(:user, developer_projects: [project]) }
+  let_it_be(:user) { create(:user, developer_of: project) }
   let_it_be_with_reload(:issue) { create(:issue, project: project, assignees: [user]) }
 
   let(:serializer) { IssueSerializer.new(current_user: user, project: project) }
@@ -44,7 +44,9 @@ RSpec.describe IssueSidebarBasicEntity do
 
       context 'for an incident issue' do
         before do
-          issue.update!(issue_type: Issue.issue_types[:incident])
+          issue.update!(
+            work_item_type: WorkItems::Type.default_by_type(:incident)
+          )
         end
 
         it 'is present and true' do
@@ -57,16 +59,6 @@ RSpec.describe IssueSidebarBasicEntity do
           it 'is present and false' do
             expect(entity[:current_user]).to have_key(:can_update_escalation_status)
             expect(entity[:current_user][:can_update_escalation_status]).to be(false)
-          end
-        end
-
-        context 'with :incident_escalations feature flag disabled' do
-          before do
-            stub_feature_flags(incident_escalations: false)
-          end
-
-          it 'is not present' do
-            expect(entity[:current_user]).not_to include(:can_update_escalation_status)
           end
         end
       end
@@ -92,6 +84,38 @@ RSpec.describe IssueSidebarBasicEntity do
         end
 
         expect(entity[:show_crm_contacts]).to be(expected)
+      end
+    end
+
+    context 'in subgroup' do
+      let(:subgroup_project) { create(:project, :repository, group: subgroup) }
+      let(:subgroup_issue) { create(:issue, project: subgroup_project) }
+      let(:serializer) { IssueSerializer.new(current_user: user, project: subgroup_project) }
+
+      subject(:entity) { serializer.represent(subgroup_issue, serializer: 'sidebar') }
+
+      before do
+        subgroup_project.root_ancestor.add_reporter(user)
+      end
+
+      context 'with crm enabled' do
+        let(:subgroup) { create(:group, parent: group) }
+
+        it 'is true' do
+          allow(CustomerRelations::Contact).to receive(:exists_for_group?).with(group).and_return(true)
+
+          expect(entity[:show_crm_contacts]).to be_truthy
+        end
+      end
+
+      context 'with crm disabled' do
+        let(:subgroup) { create(:group, :crm_disabled, parent: group) }
+
+        it 'is false' do
+          allow(CustomerRelations::Contact).to receive(:exists_for_group?).with(group).and_return(true)
+
+          expect(entity[:show_crm_contacts]).to be_falsy
+        end
       end
     end
   end

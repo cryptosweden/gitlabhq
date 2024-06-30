@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe "Pages with Let's Encrypt", :https_pages_enabled do
+RSpec.describe "Pages with Let's Encrypt", :https_pages_enabled, feature_category: :pages do
   include LetsEncryptHelpers
+  include Spec::Support::Helpers::ModalHelpers
 
-  let(:project) { create(:project, pages_https_only: false) }
+  let_it_be_with_reload(:project) { create(:project, :pages_published, pages_https_only: false) }
+
   let(:user) { create(:user) }
   let(:role) { :maintainer }
   let(:certificate_pem) { attributes_for(:pages_domain)[:certificate] }
@@ -14,7 +16,6 @@ RSpec.describe "Pages with Let's Encrypt", :https_pages_enabled do
   before do
     allow(Gitlab.config.pages).to receive(:enabled).and_return(true)
     stub_lets_encrypt_settings
-    stub_feature_flags(bootstrap_confirmation_modals: false)
 
     project.add_role(user, role)
     sign_in(user)
@@ -30,7 +31,7 @@ RSpec.describe "Pages with Let's Encrypt", :https_pages_enabled do
     fill_in 'Domain', with: 'my.test.domain.com'
 
     expect(find("#pages_domain_auto_ssl_enabled", visible: false).value).to eq 'true'
-    click_button 'Create New Domain'
+    click_button 'Create new domain'
 
     expect(page).to have_content('my.test.domain.com')
     expect(PagesDomain.find_by_domain('my.test.domain.com').auto_ssl_enabled).to eq(true)
@@ -47,16 +48,16 @@ RSpec.describe "Pages with Let's Encrypt", :https_pages_enabled do
       expect(domain.auto_ssl_enabled).to eq false
 
       expect(find("#pages_domain_auto_ssl_enabled", visible: false).value).to eq 'false'
-      expect(page).to have_selector '.card-header', text: 'Certificate'
+      expect(page).to have_selector '.gl-card-header', text: 'Certificate'
       expect(page).to have_text domain.subject
 
-      find('.js-auto-ssl-toggle-container .js-project-feature-toggle').click
+      find('.js-auto-ssl-toggle-container .js-project-feature-toggle button').click
 
       expect(find("#pages_domain_auto_ssl_enabled", visible: false).value).to eq 'true'
-      expect(page).not_to have_selector '.card-header', text: 'Certificate'
+      expect(page).not_to have_selector '.gl-card-header', text: 'Certificate'
       expect(page).not_to have_text domain.subject
 
-      click_on 'Save Changes'
+      click_on 'Save changes'
 
       expect(domain.reload.auto_ssl_enabled).to eq true
     end
@@ -74,13 +75,13 @@ RSpec.describe "Pages with Let's Encrypt", :https_pages_enabled do
       expect(page).not_to have_field 'Certificate (PEM)', type: 'textarea'
       expect(page).not_to have_field 'Key (PEM)', type: 'textarea'
 
-      find('.js-auto-ssl-toggle-container .js-project-feature-toggle').click
+      find('.js-auto-ssl-toggle-container .js-project-feature-toggle button').click
 
       expect(find("#pages_domain_auto_ssl_enabled", visible: false).value).to eq 'false'
       expect(page).to have_field 'Certificate (PEM)', type: 'textarea'
       expect(page).to have_field 'Key (PEM)', type: 'textarea'
 
-      click_on 'Save Changes'
+      click_on 'Save changes'
 
       expect(domain.reload.auto_ssl_enabled).to eq false
     end
@@ -107,7 +108,7 @@ RSpec.describe "Pages with Let's Encrypt", :https_pages_enabled do
       it 'user do not see private key' do
         visit project_pages_domain_path(project, domain)
 
-        expect(page).not_to have_selector '.card-header', text: 'Certificate'
+        expect(page).not_to have_selector '.gl-card-header', text: 'Certificate'
         expect(page).not_to have_text domain.subject
       end
     end
@@ -130,16 +131,17 @@ RSpec.describe "Pages with Let's Encrypt", :https_pages_enabled do
       it 'user sees certificate subject' do
         visit project_pages_domain_path(project, domain)
 
-        expect(page).to have_selector '.card-header', text: 'Certificate'
+        expect(page).to have_selector '.gl-card-header', text: 'Certificate'
         expect(page).to have_text domain.subject
       end
 
       it 'user can delete the certificate', :js do
         visit project_pages_domain_path(project, domain)
 
-        expect(page).to have_selector '.card-header', text: 'Certificate'
+        expect(page).to have_selector '.gl-card-header', text: 'Certificate'
         expect(page).to have_text domain.subject
-        within('.card') { accept_confirm { click_on 'Remove' } }
+        within('.gl-card') { find_by_testid('remove-certificate').click }
+        accept_gl_confirm(button_text: 'Remove certificate')
         expect(page).to have_field 'Certificate (PEM)', with: ''
         expect(page).to have_field 'Key (PEM)', with: ''
       end

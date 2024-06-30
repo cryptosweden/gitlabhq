@@ -2,26 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::Bamboo, :use_clean_rails_memory_store_caching do
+RSpec.describe Integrations::Bamboo, :use_clean_rails_memory_store_caching, feature_category: :integrations do
   include ReactiveCachingHelpers
   include StubRequests
 
   let(:bamboo_url) { 'http://gitlab.com/bamboo' }
 
-  let_it_be(:project) { create(:project) }
+  let_it_be(:project) { build(:project) }
 
-  subject(:integration) do
-    described_class.create!(
-      active: true,
-      project: project,
-      properties: {
-        bamboo_url: bamboo_url,
-        username: 'mic',
-        password: 'password',
-        build_key: 'foo'
-      }
-    )
-  end
+  subject(:integration) { build(:bamboo_integration, project: project, bamboo_url: bamboo_url) }
+
+  it_behaves_like Integrations::BaseCi
+
+  it_behaves_like Integrations::ResetSecretFields
 
   include_context Integrations::EnableSslVerification
 
@@ -33,6 +26,7 @@ RSpec.describe Integrations::Bamboo, :use_clean_rails_memory_store_caching do
 
       it { is_expected.to validate_presence_of(:build_key) }
       it { is_expected.to validate_presence_of(:bamboo_url) }
+
       it_behaves_like 'issue tracker integration URL attribute', :bamboo_url
 
       describe '#username' do
@@ -73,48 +67,6 @@ RSpec.describe Integrations::Bamboo, :use_clean_rails_memory_store_caching do
       it { is_expected.not_to validate_presence_of(:bamboo_url) }
       it { is_expected.not_to validate_presence_of(:username) }
       it { is_expected.not_to validate_presence_of(:password) }
-    end
-  end
-
-  describe 'Callbacks' do
-    describe 'before_validation :reset_password' do
-      context 'when a password was previously set' do
-        it 'resets password if url changed' do
-          integration.bamboo_url = 'http://gitlab1.com'
-
-          expect(integration).not_to be_valid
-          expect(integration.password).to be_nil
-        end
-
-        it 'does not reset password if username changed' do
-          integration.username = 'some_name'
-
-          expect(integration).to be_valid
-          expect(integration.password).to eq('password')
-        end
-
-        it "does not reset password if new url is set together with password, even if it's the same password" do
-          integration.bamboo_url = 'http://gitlab_edited.com'
-          integration.password = 'password'
-
-          expect(integration).to be_valid
-          expect(integration.password).to eq('password')
-          expect(integration.bamboo_url).to eq('http://gitlab_edited.com')
-        end
-      end
-
-      it 'saves password if new url is set together with password when no password was previously set' do
-        integration.password = nil
-
-        integration.bamboo_url = 'http://gitlab_edited.com'
-        integration.password = 'password'
-        integration.save!
-
-        expect(integration.reload).to have_attributes(
-          bamboo_url: 'http://gitlab_edited.com',
-          password: 'password'
-        )
-      end
     end
   end
 
@@ -164,7 +116,7 @@ RSpec.describe Integrations::Bamboo, :use_clean_rails_memory_store_caching do
         is_expected.to eq('http://gitlab.com/bamboo/browse/42')
       end
 
-      context 'bamboo_url has trailing slash' do
+      context 'when bamboo_url has trailing slash' do
         let(:bamboo_url) { 'http://gitlab.com/bamboo/' }
 
         it 'returns a build URL' do
@@ -227,7 +179,7 @@ RSpec.describe Integrations::Bamboo, :use_clean_rails_memory_store_caching do
 
           expect(Gitlab::ErrorTracking)
             .to receive(:log_exception)
-            .with(instance_of(http_error), project_id: project.id)
+            .with(instance_of(http_error), { project_id: project.id })
 
           is_expected.to eq(:error)
         end
@@ -246,10 +198,19 @@ RSpec.describe Integrations::Bamboo, :use_clean_rails_memory_store_caching do
 
     context 'when Bamboo API returns an array of results and we only consider the last one' do
       let(:bamboo_response_template) do
-        %q({"results":{"results":{"size":"2","result":[{"buildState":"%{build_state}","planResultKey":{"key":"41"}},{"buildState":"%{build_state}","planResultKey":{"key":"42"}}]}}})
+        '{"results":{"results":{"size":"2","result":[{"buildState":"%{build_state}","planResultKey":{"key":"41"}}, ' \
+          '{"buildState":"%{build_state}","planResultKey":{"key":"42"}}]}}}'
       end
 
       it_behaves_like 'reactive cache calculation'
+    end
+  end
+
+  describe '#avatar_url' do
+    it 'returns the avatar image path' do
+      expect(subject.avatar_url).to eq(ActionController::Base.helpers.image_path(
+        'illustrations/third-party-logos/integrations-logos/atlassian-bamboo.svg'
+      ))
     end
   end
 
@@ -270,11 +231,11 @@ RSpec.describe Integrations::Bamboo, :use_clean_rails_memory_store_caching do
       status: status,
       headers: { 'Content-Type' => 'application/json' },
       body: body
-    ).with(basic_auth: %w(mic password))
+    ).with(basic_auth: %w[mic password])
   end
 
   def bamboo_response(build_state: 'success')
     # reference: https://docs.atlassian.com/atlassian-bamboo/REST/6.2.5/#d2e786
-    bamboo_response_template % { build_state: build_state }
+    format(bamboo_response_template, build_state: build_state)
   end
 end

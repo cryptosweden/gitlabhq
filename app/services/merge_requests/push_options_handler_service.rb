@@ -4,13 +4,17 @@ module MergeRequests
   class PushOptionsHandlerService < ::BaseProjectService
     LIMIT = 10
 
-    attr_reader :errors, :changes,
-                :push_options, :target_project
+    attr_reader :errors, :changes, :push_options, :target_project
 
-    def initialize(project:, current_user:, params: {}, changes:, push_options:)
+    def initialize(project:, current_user:, changes:, push_options:, params: {})
       super(project: project, current_user: current_user, params: params)
 
-      @target_project = @project.default_merge_request_target
+      @target_project = if push_options[:target_project]
+                          Project.find_by_full_path(push_options[:target_project])
+                        else
+                          @project.default_merge_request_target
+                        end
+
       @changes = Gitlab::ChangesList.new(changes)
       @push_options = push_options
       @errors = []
@@ -54,7 +58,19 @@ module MergeRequests
     end
 
     def validate_service
-      errors << 'User is required' if current_user.nil?
+      if current_user.nil?
+        errors << 'User is required'
+        return
+      end
+
+      unless current_user&.can?(:read_code, target_project)
+        errors << 'User access was denied'
+        return
+      end
+
+      unless project == target_project || project.in_fork_network_of?(target_project)
+        errors << "Projects #{project.full_path} and #{target_project.full_path} are not in the same network"
+      end
 
       unless target_project.merge_requests_enabled?
         errors << "Merge requests are not enabled for project #{target_project.full_path}"
@@ -104,8 +120,10 @@ module MergeRequests
         merge_request = ::MergeRequests::CreateService.new(
           project: project,
           current_user: current_user,
-          params: merge_request.attributes.merge(assignees: merge_request.assignees,
-                                         label_ids: merge_request.label_ids)
+          params: merge_request.attributes.merge(
+            assignee_ids: merge_request.assignee_ids,
+            label_ids: merge_request.label_ids
+          )
         ).execute
       end
 
@@ -126,6 +144,7 @@ module MergeRequests
       params = {
         title: push_options[:title],
         description: push_options[:description],
+        draft: push_options[:draft],
         target_branch: push_options[:target],
         force_remove_source_branch: push_options[:remove_source_branch],
         label: push_options[:label],
@@ -139,12 +158,16 @@ module MergeRequests
       params[:add_labels] = params.delete(:label).keys if params.has_key?(:label)
       params[:remove_labels] = params.delete(:unlabel).keys if params.has_key?(:unlabel)
 
-      params[:add_assignee_ids] = params.delete(:assign).keys if params.has_key?(:assign)
-      params[:remove_assignee_ids] = params.delete(:unassign).keys if params.has_key?(:unassign)
+      params[:add_assignee_ids] = convert_to_user_ids(params.delete(:assign).keys) if params.has_key?(:assign)
+      params[:remove_assignee_ids] = convert_to_user_ids(params.delete(:unassign).keys) if params.has_key?(:unassign)
 
       if push_options[:milestone]
         milestone = Milestone.for_projects_and_groups(@project, @project.ancestors_upto)&.find_by_name(push_options[:milestone])
-        params[:milestone] = milestone if milestone
+        params[:milestone_id] = milestone.id if milestone
+      end
+
+      if params.key?(:description)
+        params[:description] = params[:description].gsub('\n', "\n")
       end
 
       params
@@ -164,7 +187,7 @@ module MergeRequests
       params = base_params
 
       params.merge!(
-        assignees: [current_user],
+        assignee_ids: [current_user.id],
         source_branch: branch,
         source_project: project,
         target_project: target_project
@@ -179,6 +202,12 @@ module MergeRequests
 
     def update_params(merge_request)
       base_params.merge(merge_params(merge_request.source_branch))
+    end
+
+    def convert_to_user_ids(ids_or_usernames)
+      ids, usernames = ids_or_usernames.partition { |id_or_username| id_or_username.is_a?(Numeric) || id_or_username.match?(/\A\d+\z/) }
+      ids += User.by_username(usernames).pluck(:id) unless usernames.empty? # rubocop:disable CodeReuse/ActiveRecord
+      ids
     end
 
     def collect_errors_from_merge_request(merge_request)

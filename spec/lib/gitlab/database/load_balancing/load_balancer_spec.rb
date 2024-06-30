@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
+RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store, feature_category: :database do
   let(:conflict_error) { Class.new(RuntimeError) }
   let(:model) { ActiveRecord::Base }
   let(:db_host) { model.connection_pool.db_config.host }
@@ -71,7 +71,42 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
     end
   end
 
+  shared_examples 'logs service discovery thread interruption' do |lb_method|
+    context 'with service discovery' do
+      let(:service_discovery) do
+        instance_double(
+          Gitlab::Database::LoadBalancing::ServiceDiscovery,
+          log_refresh_thread_interruption: true
+        )
+      end
+
+      before do
+        allow(lb).to receive(:service_discovery).and_return(service_discovery)
+      end
+
+      it 'calls logs service discovery thread interruption' do
+        expect(service_discovery).to receive(:log_refresh_thread_interruption)
+
+        lb.public_send(lb_method) {}
+      end
+    end
+  end
+
+  shared_examples 'restrict within concurrent ruby' do |lb_method|
+    it 'raises an exception when running within a concurrent Ruby thread' do
+      Thread.current[:restrict_within_concurrent_ruby] = true
+
+      expect { |b| lb.public_send(lb_method, &b) }.to raise_error(Gitlab::Utils::ConcurrentRubyThreadIsUsedError,
+        "Cannot run 'db' if running from `Concurrent::Promise`.")
+
+      Thread.current[:restrict_within_concurrent_ruby] = nil
+    end
+  end
+
   describe '#read' do
+    it_behaves_like 'logs service discovery thread interruption', :read
+    it_behaves_like 'restrict within concurrent ruby', :read
+
     it 'yields a connection for a read' do
       connection = double(:connection)
       host = double(:host)
@@ -203,6 +238,9 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
   end
 
   describe '#read_write' do
+    it_behaves_like 'logs service discovery thread interruption', :read_write
+    it_behaves_like 'restrict within concurrent ruby', :read_write
+
     it 'yields a connection for a write' do
       connection = ActiveRecord::Base.connection_pool.connection
 
@@ -210,9 +248,24 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
     end
 
     it 'uses a retry with exponential backoffs' do
-      expect(lb).to receive(:retry_with_backoff).and_yield
+      expect(lb).to receive(:retry_with_backoff).and_yield(0)
 
       lb.read_write { 10 }
+    end
+
+    it 'does not raise NoMethodError error when primary_only?' do
+      connection = ActiveRecord::Base.connection_pool.connection
+      expected_error = Gitlab::Database::LoadBalancing::CONNECTION_ERRORS.first
+
+      allow(lb).to receive(:primary_only?).and_return(true)
+
+      expect do
+        lb.read_write do
+          connection.transaction do
+            raise expected_error
+          end
+        end
+      end.to raise_error(expected_error)
     end
   end
 
@@ -330,6 +383,19 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
 
       expect { lb.retry_with_backoff { raise } }.to raise_error(RuntimeError)
     end
+
+    it 'yields the current retry iteration' do
+      allow(lb).to receive(:connection_error?).and_return(true)
+      expect(lb).to receive(:release_primary_connection).exactly(3).times
+      iterations = []
+
+      # time: 0 so that we don't sleep and slow down the test
+      # rubocop: disable Style/Semicolon
+      expect { lb.retry_with_backoff(attempts: 3, time: 0) { |i| iterations << i; raise } }.to raise_error(RuntimeError)
+      # rubocop: enable Style/Semicolon
+
+      expect(iterations).to eq([1, 2, 3])
+    end
   end
 
   describe '#connection_error?' do
@@ -358,7 +424,11 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
     end
 
     it 'returns true for deeply wrapped/nested errors' do
-      top = twice_wrapped_exception(ActionView::Template::Error, ActiveRecord::StatementInvalid, ActiveRecord::ConnectionNotEstablished)
+      top = twice_wrapped_exception(
+        ActionView::Template::Error,
+        ActiveRecord::StatementInvalid,
+        ActiveRecord::ConnectionNotEstablished
+      )
 
       expect(lb.connection_error?(top)).to eq(true)
     end
@@ -404,7 +474,7 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
   end
 
   describe '#select_up_to_date_host' do
-    let(:location) { 'AB/12345'}
+    let(:location) { 'AB/12345' }
     let(:hosts) { lb.host_list.hosts }
     let(:set_host) { request_cache[described_class::CACHE_KEY] }
 
@@ -412,25 +482,58 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
 
     context 'when none of the replicas are caught up' do
       before do
-        expect(hosts).to all(receive(:caught_up?).with(location).and_return(false))
+        expect(hosts[0]).to receive(:caught_up?).with(location).and_return(false)
+        expect(hosts[1]).to receive(:caught_up?).with(location).and_return(false)
       end
 
-      it 'returns false and does not update the host thread-local variable' do
-        expect(subject).to be false
+      it 'returns NONE_CAUGHT_UP and does not update the host thread-local variable' do
+        expect(subject).to eq(described_class::NONE_CAUGHT_UP)
         expect(set_host).to be_nil
+      end
+
+      it 'notifies caught_up_replica_pick.load_balancing with result false' do
+        expect(ActiveSupport::Notifications).to receive(:instrument)
+          .with('caught_up_replica_pick.load_balancing', { result: false })
+
+        subject
       end
     end
 
-    context 'when any of the replicas is caught up' do
+    context 'when any replica is caught up' do
       before do
-        # `allow` for non-caught up host, because we may not even check it, if will find the caught up one earlier
-        allow(hosts[0]).to receive(:caught_up?).with(location).and_return(false)
+        expect(hosts[0]).to receive(:caught_up?).with(location).and_return(true)
+        expect(hosts[1]).to receive(:caught_up?).with(location).and_return(false)
+      end
+
+      it 'returns ANY_CAUGHT_UP and sets host thread-local variable' do
+        expect(subject).to eq(described_class::ANY_CAUGHT_UP)
+        expect(set_host).to eq(hosts[0])
+      end
+
+      it 'notifies caught_up_replica_pick.load_balancing with result true' do
+        expect(ActiveSupport::Notifications).to receive(:instrument)
+          .with('caught_up_replica_pick.load_balancing', { result: true })
+
+        subject
+      end
+    end
+
+    context 'when all of the replicas is caught up' do
+      before do
+        expect(hosts[0]).to receive(:caught_up?).with(location).and_return(true)
         expect(hosts[1]).to receive(:caught_up?).with(location).and_return(true)
       end
 
-      it 'returns true and sets host thread-local variable' do
-        expect(subject).to be true
-        expect(set_host).to eq(hosts[1])
+      it 'returns ALL_CAUGHT_UP and sets host thread-local variable' do
+        expect(subject).to eq(described_class::ALL_CAUGHT_UP)
+        expect(set_host).to be_in([hosts[0], hosts[1]])
+      end
+
+      it 'notifies caught_up_replica_pick.load_balancing with result true' do
+        expect(ActiveSupport::Notifications).to receive(:instrument)
+          .with('caught_up_replica_pick.load_balancing', { result: true })
+
+        subject
       end
     end
   end
@@ -455,7 +558,7 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
     end
 
     it 'does not modify connection class pool' do
-      expect { with_replica_pool(5) { } }.not_to change { ActiveRecord::Base.connection_pool }
+      expect { with_replica_pool(5) {} }.not_to change { ActiveRecord::Base.connection_pool }
     end
 
     def with_replica_pool(*args)
@@ -484,46 +587,6 @@ RSpec.describe Gitlab::Database::LoadBalancing::LoadBalancer, :request_store do
 
     it 'returns nil if there are no results' do
       expect(lb.send(:get_write_location, double(select_all: []))).to be_nil
-    end
-  end
-
-  describe 'primary connection re-use', :reestablished_active_record_base, :add_ci_connection do
-    let(:model) { Ci::ApplicationRecord }
-
-    describe '#read' do
-      it 'returns ci replica connection' do
-        expect { |b| lb.read(&b) }.to yield_with_args do |args|
-          expect(args.pool.db_config.name).to eq('ci_replica')
-        end
-      end
-
-      context 'when GITLAB_LOAD_BALANCING_REUSE_PRIMARY_ci=main' do
-        it 'returns ci replica connection' do
-          stub_env('GITLAB_LOAD_BALANCING_REUSE_PRIMARY_ci', 'main')
-
-          expect { |b| lb.read(&b) }.to yield_with_args do |args|
-            expect(args.pool.db_config.name).to eq('ci_replica')
-          end
-        end
-      end
-    end
-
-    describe '#read_write' do
-      it 'returns Ci::ApplicationRecord connection' do
-        expect { |b| lb.read_write(&b) }.to yield_with_args do |args|
-          expect(args.pool.db_config.name).to eq('ci')
-        end
-      end
-
-      context 'when GITLAB_LOAD_BALANCING_REUSE_PRIMARY_ci=main' do
-        it 'returns ActiveRecord::Base connection' do
-          stub_env('GITLAB_LOAD_BALANCING_REUSE_PRIMARY_ci', 'main')
-
-          expect { |b| lb.read_write(&b) }.to yield_with_args do |args|
-            expect(args.pool.db_config.name).to eq('main')
-          end
-        end
-      end
     end
   end
 

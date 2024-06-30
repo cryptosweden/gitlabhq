@@ -1,5 +1,6 @@
 <script>
 import { GlButton, GlForm, GlTooltipDirective } from '@gitlab/ui';
+// eslint-disable-next-line no-restricted-imports
 import { mapState } from 'vuex';
 import csrf from '~/lib/utils/csrf';
 import { __ } from '~/locale';
@@ -39,8 +40,8 @@ export default {
       v-gl-tooltip.hover
       :title="$options.title"
       :aria-label="$options.title"
+      data-testid="approve-access-request-button"
       icon="check"
-      variant="success"
       type="submit"
     />
   </gl-form>

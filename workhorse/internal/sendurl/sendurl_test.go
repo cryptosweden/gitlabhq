@@ -2,12 +2,11 @@ package sendurl
 
 import (
 	"encoding/base64"
-	"fmt"
-	"io/ioutil"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
@@ -19,14 +18,27 @@ import (
 const testData = `123456789012345678901234567890`
 const testDataEtag = `W/"myetag"`
 
-func testEntryServer(t *testing.T, requestURL string, httpHeaders http.Header, allowRedirects bool) *httptest.ResponseRecorder {
+type option struct {
+	Key   string
+	Value interface{}
+}
+
+func testEntryServer(t *testing.T, requestURL string, httpHeaders http.Header, allowRedirects bool, options ...option) *httptest.ResponseRecorder {
 	requestHandler := func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "GET", r.Method)
 
-		url := r.URL.String() + "/file"
-		jsonParams := fmt.Sprintf(`{"URL":%q,"AllowRedirects":%s}`,
-			url, strconv.FormatBool(allowRedirects))
-		data := base64.URLEncoding.EncodeToString([]byte(jsonParams))
+		sendData := map[string]interface{}{
+			"URL":            r.URL.String() + "/file",
+			"AllowRedirects": allowRedirects,
+		}
+
+		for _, o := range options {
+			sendData[o.Key] = o.Value
+		}
+
+		jsonParams, err := json.Marshal(sendData)
+		require.NoError(t, err)
+		data := base64.URLEncoding.EncodeToString(jsonParams)
 
 		// The server returns a Content-Disposition
 		w.Header().Set("Content-Disposition", "attachment; filename=\"archive.txt\"")
@@ -40,7 +52,7 @@ func testEntryServer(t *testing.T, requestURL string, httpHeaders http.Header, a
 	serveFile := func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "GET", r.Method)
 
-		tempFile, err := ioutil.TempFile("", "download_file")
+		tempFile, err := os.CreateTemp("", "download_file")
 		require.NoError(t, err)
 		require.NoError(t, os.Remove(tempFile.Name()))
 		defer tempFile.Close()
@@ -59,6 +71,9 @@ func testEntryServer(t *testing.T, requestURL string, httpHeaders http.Header, a
 		require.Equal(t, "GET", r.Method)
 		http.Redirect(w, r, r.URL.String()+"/download", http.StatusTemporaryRedirect)
 	}
+	timeoutFile := func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/get/request", requestHandler)
@@ -67,6 +82,8 @@ func testEntryServer(t *testing.T, requestURL string, httpHeaders http.Header, a
 	mux.HandleFunc("/get/redirect/file", redirectFile)
 	mux.HandleFunc("/get/redirect/file/download", serveFile)
 	mux.HandleFunc("/get/file-not-existing", requestHandler)
+	mux.HandleFunc("/get/timeout", requestHandler)
+	mux.HandleFunc("/get/timeout/file", timeoutFile)
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -194,4 +211,103 @@ func TestDownloadingNonExistingFileUsingSendURL(t *testing.T) {
 func TestDownloadingNonExistingRemoteFileWithSendURL(t *testing.T) {
 	response := testEntryServer(t, "/get/file-not-existing", nil, false)
 	require.Equal(t, http.StatusNotFound, response.Code)
+}
+
+func TestPostRequest(t *testing.T) {
+	body := "any string"
+	header := map[string][]string{"Authorization": {"Bearer token"}}
+	postRequestHandler := func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "POST", r.Method)
+
+		url := r.URL.String() + "/external/url"
+
+		sendData := map[string]interface{}{
+			"URL":    url,
+			"Body":   body,
+			"Header": header,
+			"Method": "POST",
+		}
+		jsonParams, err := json.Marshal(sendData)
+		require.NoError(t, err)
+
+		data := base64.URLEncoding.EncodeToString(jsonParams)
+
+		SendURL.Inject(w, r, data)
+	}
+	externalPostURLHandler := func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "POST", r.Method)
+
+		b, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Equal(t, body, string(b))
+
+		require.Equal(t, []string{"Bearer token"}, r.Header["Authorization"])
+
+		w.Write([]byte(testData))
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/post/request/external/url", externalPostURLHandler)
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	httpRequest, err := http.NewRequest("POST", server.URL+"/post/request", nil)
+	require.NoError(t, err)
+
+	response := httptest.NewRecorder()
+	postRequestHandler(response, httpRequest)
+
+	require.Equal(t, http.StatusOK, response.Code)
+
+	result, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, testData, string(result))
+}
+
+func TestTimeout(t *testing.T) {
+	response := testEntryServer(t, "/get/timeout", nil, false, option{Key: "ResponseHeaderTimeout", Value: "10ms"})
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+}
+
+func TestTimeoutWithCustomStatusCode(t *testing.T) {
+	response := testEntryServer(t, "/get/timeout", nil, false, option{Key: "ResponseHeaderTimeout", Value: "10ms"}, option{Key: "TimeoutResponseStatus", Value: http.StatusTeapot})
+	require.Equal(t, http.StatusTeapot, response.Code)
+}
+
+func TestErrorWithCustomStatusCode(t *testing.T) {
+	sendData := map[string]interface{}{
+		"URL":                 "url",
+		"ErrorResponseStatus": http.StatusTeapot,
+	}
+
+	jsonParams, err := json.Marshal(sendData)
+	require.NoError(t, err)
+	data := base64.URLEncoding.EncodeToString(jsonParams)
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "/target", nil)
+
+	SendURL.Inject(response, request, data)
+
+	require.Equal(t, http.StatusTeapot, response.Code)
+}
+
+func TestHttpClientReuse(t *testing.T) {
+	expectedKey := cacheKey{
+		requestTimeout:  0,
+		responseTimeout: 0,
+		allowRedirects:  false,
+	}
+	httpClients.Delete(expectedKey)
+
+	response := testEntryServer(t, "/get/request", nil, false)
+	require.Equal(t, http.StatusOK, response.Code)
+	_, found := httpClients.Load(expectedKey)
+	require.True(t, found)
+
+	storedClient := &http.Client{}
+	httpClients.Store(expectedKey, storedClient)
+	require.Equal(t, cachedClient(entryParams{}), storedClient)
+	require.NotEqual(t, cachedClient(entryParams{AllowRedirects: true}), storedClient)
 }

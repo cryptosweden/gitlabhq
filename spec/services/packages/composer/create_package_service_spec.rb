@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Packages::Composer::CreatePackageService do
+RSpec.describe Packages::Composer::CreatePackageService, feature_category: :package_registry do
   include PackagesManagerApiSpecHelpers
 
   let_it_be(:package_name) { 'composer-package-name' }
@@ -22,7 +22,7 @@ RSpec.describe Packages::Composer::CreatePackageService do
 
     subject { described_class.new(project, user, params).execute }
 
-    let(:created_package) { Packages::Package.composer.last }
+    let(:created_package) { ::Packages::Composer::Package.last }
 
     context 'without an existing package' do
       context 'with a branch' do
@@ -30,7 +30,7 @@ RSpec.describe Packages::Composer::CreatePackageService do
 
         it 'creates the package' do
           expect { subject }
-            .to change { Packages::Package.composer.count }.by(1)
+            .to change { ::Packages::Composer::Package.count }.by(1)
             .and change { Packages::Composer::Metadatum.count }.by(1)
 
           expect(created_package.name).to eq package_name
@@ -50,13 +50,13 @@ RSpec.describe Packages::Composer::CreatePackageService do
       context 'with a tag' do
         let(:tag) { project.repository.find_tag('v1.2.3') }
 
-        before(:all) do
+        before_all do
           project.repository.add_tag(user, 'v1.2.3', 'master')
         end
 
         it 'creates the package' do
           expect { subject }
-            .to change { Packages::Package.composer.count }.by(1)
+            .to change { ::Packages::Composer::Package.count }.by(1)
             .and change { Packages::Composer::Metadatum.count }.by(1)
 
           expect(created_package.name).to eq package_name
@@ -82,13 +82,13 @@ RSpec.describe Packages::Composer::CreatePackageService do
 
         it 'does not create a new package' do
           expect { subject }
-            .to change { Packages::Package.composer.count }.by(0)
+            .to change { ::Packages::Composer::Package.count }.by(0)
             .and change { Packages::Composer::Metadatum.count }.by(0)
         end
       end
 
       context 'belonging to another project' do
-        let(:other_project) { create(:project)}
+        let(:other_project) { create(:project) }
         let!(:other_package) { create(:composer_package, name: package_name, version: 'dev-master', project: other_project) }
 
         it 'fails with an error' do
@@ -101,7 +101,7 @@ RSpec.describe Packages::Composer::CreatePackageService do
 
           it 'creates the package' do
             expect { subject }
-              .to change { Packages::Package.composer.count }.by(1)
+              .to change { ::Packages::Composer::Package.count }.by(1)
               .and change { Packages::Composer::Metadatum.count }.by(1)
           end
         end
@@ -113,7 +113,7 @@ RSpec.describe Packages::Composer::CreatePackageService do
 
         it 'creates the package' do
           expect { subject }
-            .to change { Packages::Package.composer.count }.by(1)
+            .to change { ::Packages::Composer::Package.count }.by(1)
             .and change { Packages::Composer::Metadatum.count }.by(1)
         end
       end

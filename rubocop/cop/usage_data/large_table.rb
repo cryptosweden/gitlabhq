@@ -1,9 +1,13 @@
 # frozen_string_literal: true
 
+require_relative '../../usage_data_helpers'
+
 module RuboCop
   module Cop
     module UsageData
-      class LargeTable < RuboCop::Cop::Cop
+      class LargeTable < RuboCop::Cop::Base
+        include UsageDataHelpers
+
         # This cop checks that batch count and distinct_count are used in usage_data.rb files in metrics based on ActiveRecord models.
         #
         # @example
@@ -38,6 +42,8 @@ module RuboCop
         PATTERN
 
         def on_send(node)
+          return unless in_usage_data_file?(node)
+
           one_level_matches = one_level_node(node)
           two_level_matches = two_level_node(node)
 
@@ -56,7 +62,7 @@ module RuboCop
           counters_used = node.ancestors.any? { |ancestor| allowed_method?(ancestor) }
 
           unless counters_used
-            add_offense(node, location: :expression, message: format(MSG, count_methods: count_methods.join(', '), class_name: class_name))
+            add_offense(node, message: format(MSG, count_methods: count_methods.join(', '), class_name: class_name))
           end
         end
 

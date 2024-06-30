@@ -1,32 +1,25 @@
 - page_title _("Labels")
+- add_page_specific_style 'page_bundles/labels'
+- page_description = s_('AdminLabels|Labels created here will be automatically added to new projects.')
 
-%div
-  = link_to new_admin_label_path, class: "float-right btn gl-button btn-confirm" do
-    = _('New label')
-  %h3.page-title
-    = _('Labels')
-%hr
 - if @labels.present?
-  .labels.labels-container.admin-labels.js-admin-labels-container.gl-bg-gray-10.gl-border-solid.gl-border-1.gl-border-gray-100
-    %ul.manage-labels-list
-      = render @labels
+  = render ::Layouts::CrudComponent.new(_('Labels'), description: page_description, count: @labels.count, count_class: 'js-admin-labels-count', icon: 'label', options: { class: 'labels other-labels gl-mt-5 js-admin-labels-container' }) do |c|
+    - c.with_actions do
+      = render Pajamas::ButtonComponent.new(variant: :default,
+        size: :small,
+        href: new_admin_label_path) do
+        = _('New label')
+    - c.with_body do
+      %ul.content-list.manage-labels-list.js-other-labels
+        = render @labels
+    - c.with_pagination do
+      = paginate @labels, theme: 'gitlab'
 
-    = paginate @labels, theme: 'gitlab'
+.js-admin-labels-empty-state{ class: ('gl-hidden' if @labels.present?) }
+  = render Pajamas::EmptyStateComponent.new(svg_path: 'illustrations/empty-state/empty-labels-md.svg',
+    title: s_('AdminLabels|Define your default set of project labels'),
+    primary_button_text: _('New label'),
+    primary_button_link: new_admin_label_path) do |c|
 
-.js-admin-labels-empty-state{ class: ('gl-display-none' if @labels.present?) }
-  %section.row.empty-state.gl-text-center
-    .col-12
-      .svg-content
-        = image_tag 'illustrations/labels.svg'
-    .col-12
-      .gl-mx-auto.gl-my-0.gl-p-5
-        %h1.gl-font-size-h-display.gl-line-height-36.h4
-          = s_('AdminLabels|Define your default set of project labels')
-        %p.gl-mb-0
-          = s_('AdminLabels|Labels created here will be automatically added to new projects.')
-        %p
-          = s_('AdminLabels|They can be used to categorize issues and merge requests.')
-        .gl-display-flex.gl-flex-wrap.gl-justify-content-center
-          = link_to new_admin_label_path, class: "btn gl-mb-3 btn-confirm btn-md gl-button gl-mx-2" do
-            %span.gl-button-text
-              = _('New label')
+    - c.with_description do
+      = s_('AdminLabels|They can be used to categorize issues and merge requests.')

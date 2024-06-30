@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Snippet do
+RSpec.describe Snippet, feature_category: :source_code_management do
   include FakeBlobHelpers
 
   describe 'modules' do
@@ -16,6 +16,7 @@ RSpec.describe Snippet do
   end
 
   describe 'associations' do
+    it { is_expected.to belong_to(:organization) }
     it { is_expected.to belong_to(:author).class_name('User') }
     it { is_expected.to belong_to(:project) }
     it { is_expected.to have_many(:notes).dependent(:destroy) }
@@ -24,6 +25,22 @@ RSpec.describe Snippet do
     it { is_expected.to have_one(:snippet_repository) }
     it { is_expected.to have_one(:statistics).class_name('SnippetStatistics').dependent(:destroy) }
     it { is_expected.to have_many(:repository_storage_moves).class_name('Snippets::RepositoryStorageMove').inverse_of(:container) }
+  end
+
+  describe 'scopes' do
+    describe '.with_repository_storage_moves' do
+      subject { described_class.with_repository_storage_moves }
+
+      let_it_be(:snippet) { create(:project_snippet) }
+
+      it { is_expected.to be_empty }
+
+      context 'when associated repository storage move exists' do
+        let!(:snippet_repository_storage_move) { create(:snippet_repository_storage_move, container: snippet) }
+
+        it { is_expected.to match_array([snippet]) }
+      end
+    end
   end
 
   describe 'validation' do
@@ -36,15 +53,13 @@ RSpec.describe Snippet do
 
     it { is_expected.to validate_presence_of(:content) }
 
-    it { is_expected.to validate_inclusion_of(:visibility_level).in_array(Gitlab::VisibilityLevel.values) }
-
     it do
       allow(Gitlab::CurrentSettings).to receive(:snippet_size_limit).and_return(1)
 
       is_expected
         .to validate_length_of(:content)
-              .is_at_most(Gitlab::CurrentSettings.snippet_size_limit)
-              .with_message("is too long (2 Bytes). The maximum size is 1 Byte.")
+        .is_at_most(Gitlab::CurrentSettings.snippet_size_limit)
+        .with_message("is too long (2 B). The maximum size is 1 B.")
     end
 
     context 'content validations' do
@@ -88,7 +103,46 @@ RSpec.describe Snippet do
 
           aggregate_failures do
             expect(snippet).not_to be_valid
-            expect(snippet.errors[:content]).to include("is too long (#{snippet.content.size} Bytes). The maximum size is #{limit} Bytes.")
+            expect(snippet.errors[:content]).to include("is too long (#{snippet.content.size} B). The maximum size is #{limit} B.")
+          end
+        end
+      end
+    end
+
+    context 'description validations' do
+      let_it_be(:invalid_description) { 'a' * (described_class::DESCRIPTION_LENGTH_MAX * 2) }
+
+      context 'with existing snippets' do
+        let(:snippet) { create(:personal_snippet, description: 'This is a valid content at the time of creation') }
+
+        it 'does not raise a validation error if the description is not changed' do
+          snippet.title = 'new title'
+
+          expect(snippet).to be_valid
+        end
+
+        it 'raises and error if the description is changed and the size is bigger than limit' do
+          expect(snippet).to be_valid
+
+          snippet.description = invalid_description
+
+          expect(snippet).not_to be_valid
+        end
+      end
+
+      context 'with new snippets' do
+        it 'is valid when description is smaller than the limit' do
+          snippet = build(:personal_snippet, description: 'Valid Desc')
+
+          expect(snippet).to be_valid
+        end
+
+        it 'raises error when description is bigger than setting limit' do
+          snippet = build(:personal_snippet, description: invalid_description)
+
+          aggregate_failures do
+            expect(snippet).not_to be_valid
+            expect(snippet.errors.messages_for(:description)).to include("is too long (2 MiB). The maximum size is 1 MiB.")
           end
         end
       end
@@ -108,7 +162,7 @@ RSpec.describe Snippet do
 
   describe '#to_reference' do
     context 'when snippet belongs to a project' do
-      let(:project) { build(:project, name: 'sample-project') }
+      let(:project) { build(:project) }
       let(:snippet) { build(:snippet, id: 1, project: project) }
 
       it 'returns a String reference to the object' do
@@ -116,8 +170,8 @@ RSpec.describe Snippet do
       end
 
       it 'supports a cross-project reference' do
-        another_project = build(:project, name: 'another-project', namespace: project.namespace)
-        expect(snippet.to_reference(another_project)).to eq "sample-project$1"
+        another_project = build(:project, namespace: project.namespace)
+        expect(snippet.to_reference(another_project)).to eq "#{project.path}$1"
       end
     end
 
@@ -129,7 +183,7 @@ RSpec.describe Snippet do
       end
 
       it 'still returns shortest reference when project arg present' do
-        another_project = build(:project, name: 'another-project')
+        another_project = build(:project)
         expect(snippet.to_reference(another_project)).to eq "$1"
       end
     end
@@ -450,22 +504,47 @@ RSpec.describe Snippet do
     end
   end
 
+  describe '.without_created_by_banned_user', feature_category: :insider_threat do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:banned_user) { create(:user, :banned) }
+
+    let_it_be(:snippet) { create(:snippet, author: user) }
+    let_it_be(:snippet_by_banned_user) { create(:snippet, author: banned_user) }
+
+    subject(:without_created_by_banned_user) { described_class.without_created_by_banned_user }
+
+    it { is_expected.to match_array(snippet) }
+  end
+
+  describe 'with loose foreign keys' do
+    context 'on organization_id' do
+      it_behaves_like 'cleanup by a loose foreign key' do
+        let_it_be(:parent) { create(:organization) }
+        let_it_be(:model) { create(:snippet, organization: parent) }
+      end
+    end
+  end
+
   describe '#participants' do
     let_it_be(:project) { create(:project, :public) }
     let_it_be(:snippet) { create(:snippet, content: 'foo', project: project) }
 
     let_it_be(:note1) do
-      create(:note_on_project_snippet,
-             noteable: snippet,
-             project: project,
-             note: 'a')
+      create(
+        :note_on_project_snippet,
+        noteable: snippet,
+        project: project,
+        note: 'a'
+      )
     end
 
     let_it_be(:note2) do
-      create(:note_on_project_snippet,
-             noteable: snippet,
-             project: project,
-             note: 'b')
+      create(
+        :note_on_project_snippet,
+        noteable: snippet,
+        project: project,
+        note: 'b'
+      )
     end
 
     it 'includes the snippet author and note authors' do
@@ -561,7 +640,7 @@ RSpec.describe Snippet do
 
       context 'when file does not exist' do
         it 'removes nil values from the blobs array' do
-          allow(snippet).to receive(:list_files).and_return(%w(LICENSE non_existent_snippet_file))
+          allow(snippet).to receive(:list_files).and_return(%w[LICENSE non_existent_snippet_file])
 
           blobs = snippet.blobs
           expect(blobs.count).to eq 1
@@ -573,8 +652,8 @@ RSpec.describe Snippet do
     context 'when some blobs are not retrievable from repository' do
       let(:snippet) { create(:snippet, :repository) }
       let(:container) { double(:container) }
-      let(:retrievable_filename) { 'retrievable_file'}
-      let(:unretrievable_filename) { 'unretrievable_file'}
+      let(:retrievable_filename) { 'retrievable_file' }
+      let(:unretrievable_filename) { 'unretrievable_file' }
 
       before do
         allow(snippet).to receive(:list_files).and_return([retrievable_filename, unretrievable_filename])
@@ -764,6 +843,35 @@ RSpec.describe Snippet do
     include_examples 'size checker for snippet'
   end
 
+  describe '#hook_attrs' do
+    let_it_be(:snippet) { create(:personal_snippet) }
+
+    subject(:attrs) { snippet.hook_attrs }
+
+    it 'includes the expected attributes' do
+      is_expected.to match(
+        id: snippet.id,
+        title: snippet.title,
+        description: snippet.description,
+        content: snippet.content,
+        file_name: snippet.file_name,
+        author_id: snippet.author.id,
+        project_id: nil,
+        visibility_level: snippet.visibility_level,
+        url: Gitlab::UrlBuilder.build(snippet),
+        type: 'PersonalSnippet',
+        created_at: snippet.created_at,
+        updated_at: snippet.updated_at
+      )
+    end
+
+    context 'when snippet is for a project' do
+      let_it_be(:snippet) { create(:project_snippet) }
+
+      it { is_expected.to include(project_id: snippet.project.id) }
+    end
+  end
+
   describe '#can_cache_field?' do
     using RSpec::Parameterized::TableSyntax
 
@@ -892,5 +1000,31 @@ RSpec.describe Snippet do
 
   it_behaves_like 'can move repository storage' do
     let_it_be(:container) { create(:snippet, :repository) }
+  end
+
+  describe '#hidden_due_to_author_ban?', feature_category: :insider_threat do
+    let(:snippet) { build(:snippet, author: author) }
+
+    subject(:hidden_due_to_author_ban) { snippet.hidden_due_to_author_ban? }
+
+    context 'when the author is not banned' do
+      let_it_be(:author) { build(:user) }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when author is banned' do
+      let_it_be(:author) { build(:user, :banned) }
+
+      it { is_expected.to eq(true) }
+
+      context 'when the `hide_snippets_of_banned_users` feature flag is disabled' do
+        before do
+          stub_feature_flags(hide_snippets_of_banned_users: false)
+        end
+
+        it { is_expected.to eq(false) }
+      end
+    end
   end
 end

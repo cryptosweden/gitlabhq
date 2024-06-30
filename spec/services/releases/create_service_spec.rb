@@ -2,16 +2,23 @@
 
 require 'spec_helper'
 
-RSpec.describe Releases::CreateService do
+RSpec.describe Releases::CreateService, feature_category: :continuous_integration do
   let(:project) { create(:project, :repository) }
   let(:user) { create(:user) }
   let(:tag_name) { project.repository.tag_names.first }
+  let(:tag_message) { nil }
   let(:tag_sha) { project.repository.find_tag(tag_name).dereferenced_target.sha }
   let(:name) { 'Bionic Beaver' }
   let(:description) { 'Awesome release!' }
-  let(:params) { { tag: tag_name, name: name, description: description, ref: ref } }
   let(:ref) { nil }
-  let(:service) { described_class.new(project, user, params) }
+  let(:legacy_catalog_publish) { nil }
+
+  let(:params) do
+    { tag: tag_name, name: name, description: description, ref: ref,
+      tag_message: tag_message, legacy_catalog_publish: legacy_catalog_publish }
+  end
+
+  subject(:service) { described_class.new(project, user, params) }
 
   before do
     project.add_maintainer(user)
@@ -54,6 +61,88 @@ RSpec.describe Releases::CreateService do
       end
     end
 
+    context 'when project is a catalog resource' do
+      let(:project) { create(:project, :catalog_resource_with_components, create_tag: '6.0.0') }
+      let!(:ci_catalog_resource) { create(:ci_catalog_resource, project: project) }
+      let(:ref) { 'master' }
+
+      shared_examples 'a successful release creation with catalog publish' do
+        it_behaves_like 'a successful release creation'
+
+        it 'publishes the release to the catalog' do
+          expect do
+            service.execute
+          end.to change { project.catalog_resource_versions.count }.by(1)
+        end
+      end
+
+      shared_examples 'a successful release creation without catalog publish' do
+        it_behaves_like 'a successful release creation'
+
+        it 'does not publish the release to the catalog' do
+          expect do
+            service.execute
+          end.not_to change { project.catalog_resource_versions.count }
+        end
+      end
+
+      shared_examples 'an unsuccessful release creation with catalog publish errors' do
+        it 'raises an error and does not update the release' do
+          result = service.execute
+
+          expect(result[:status]).to eq(:error)
+          expect(result[:http_status]).to eq(422)
+          expect(result[:message]).to eq(
+            'Project must have a description, ' \
+            'Project must contain components. Ensure you are using the correct directory structure')
+        end
+      end
+
+      context 'when legacy_catalog_publish is false or nil' do
+        let(:legacy_catalog_publish) { false }
+
+        context 'the release is valid' do
+          it_behaves_like 'a successful release creation without catalog publish'
+        end
+
+        context 'the project does not have components' do
+          let(:project) { create(:project, :repository) }
+
+          it_behaves_like 'a successful release creation without catalog publish'
+        end
+      end
+
+      context 'when legacy_catalog_publish is true' do
+        let(:legacy_catalog_publish) { true }
+
+        context 'the release is valid' do
+          it_behaves_like 'a successful release creation with catalog publish'
+        end
+
+        context 'the project does not have components' do
+          let(:project) { create(:project, :repository) }
+
+          it_behaves_like 'an unsuccessful release creation with catalog publish errors'
+        end
+      end
+
+      context 'when the FF ci_release_cli_catalog_publish_option is disabled' do
+        before do
+          stub_feature_flags(ci_release_cli_catalog_publish_option: false)
+        end
+
+        context 'the release is valid' do
+          it_behaves_like 'a successful release creation with catalog publish'
+        end
+
+        context 'the project does not have components' do
+          let(:project) { create(:project, :repository) }
+
+          it_behaves_like 'an unsuccessful release creation with catalog publish errors'
+        end
+      end
+    end
+
     context 'when ref is provided' do
       let(:ref) { 'master' }
       let(:tag_name) { 'foobar' }
@@ -68,6 +157,47 @@ RSpec.describe Releases::CreateService do
         expect(result[:tag]).not_to be_nil
         expect(result[:release]).not_to be_nil
       end
+
+      context 'and the tag would be protected' do
+        let!(:protected_tag) { create(:protected_tag, project: project, name: tag_name) }
+
+        context 'and the user does not have permissions' do
+          let(:user) { create(:user) }
+
+          before do
+            project.add_developer(user)
+          end
+
+          it 'raises an error' do
+            result = service.execute
+
+            expect(result[:status]).to eq(:error)
+            expect(result[:http_status]).to eq(403)
+          end
+        end
+
+        context 'and the user has permissions' do
+          it_behaves_like 'a successful release creation'
+        end
+      end
+
+      context 'and tag_message is provided' do
+        let(:ref) { 'master' }
+        let(:tag_name) { 'foobar' }
+        let(:tag_message) { 'Annotated tag message' }
+
+        it_behaves_like 'a successful release creation'
+
+        it 'creates a tag if the tag does not exist' do
+          expect(project.repository.ref_exists?("refs/tags/#{tag_name}")).to be_falsey
+
+          result = service.execute
+          expect(result[:status]).to eq(:success)
+          expect(result[:tag]).not_to be_nil
+          expect(result[:release]).not_to be_nil
+          expect(project.repository.find_tag(tag_name).message).to eq(tag_message)
+        end
+      end
     end
 
     context 'there already exists a release on a tag' do
@@ -78,6 +208,7 @@ RSpec.describe Releases::CreateService do
       it 'raises an error and does not update the release' do
         result = service.execute
         expect(result[:status]).to eq(:error)
+        expect(result[:http_status]).to eq(409)
         expect(project.releases.find_by(tag: tag_name).description).to eq(description)
       end
     end
@@ -89,16 +220,19 @@ RSpec.describe Releases::CreateService do
         result = service.execute
 
         expect(result[:status]).to eq(:error)
+        expect(result[:http_status]).to eq(400)
         expect(result[:message]).to eq("Milestone(s) not found: #{inexistent_milestone_tag}")
       end
-    end
-  end
 
-  describe '#find_or_build_release' do
-    it 'does not save the built release' do
-      service.find_or_build_release
+      it 'raises an error saying the milestone id is inexistent' do
+        inexistent_milestone_id = non_existing_record_id
+        service = described_class.new(project, user, params.merge!({ milestone_ids: [inexistent_milestone_id] }))
+        result = service.execute
 
-      expect(project.releases.count).to eq(0)
+        expect(result[:status]).to eq(:error)
+        expect(result[:http_status]).to eq(400)
+        expect(result[:message]).to eq("Milestone id(s) not found: #{inexistent_milestone_id}")
+      end
     end
 
     context 'when existing milestone is passed in' do
@@ -107,15 +241,27 @@ RSpec.describe Releases::CreateService do
       let(:params_with_milestone) { params.merge!({ milestones: [title] }) }
       let(:service) { described_class.new(milestone.project, user, params_with_milestone) }
 
-      it 'creates a release and ties this milestone to it' do
-        result = service.execute
+      shared_examples 'creates release' do
+        it 'creates a release and ties this milestone to it' do
+          result = service.execute
 
-        expect(project.releases.count).to eq(1)
-        expect(result[:status]).to eq(:success)
+          expect(project.releases.count).to eq(1)
+          expect(result[:status]).to eq(:success)
 
-        release = project.releases.last
+          release = project.releases.last
 
-        expect(release.milestones).to match_array([milestone])
+          expect(release.milestones).to match_array([milestone])
+        end
+      end
+
+      context 'by title' do
+        it_behaves_like 'creates release'
+      end
+
+      context 'by ids' do
+        let(:params_with_milestone) { params.merge!({ milestone_ids: [milestone.id] }) }
+
+        it_behaves_like 'creates release'
       end
 
       context 'when another release was previously created with that same milestone linked' do
@@ -131,18 +277,31 @@ RSpec.describe Releases::CreateService do
       end
     end
 
-    context 'when multiple existing milestone titles are passed in' do
+    context 'when multiple existing milestones are passed in' do
       let(:title_1) { 'v1.0' }
       let(:title_2) { 'v1.0-rc' }
       let!(:milestone_1) { create(:milestone, :active, project: project, title: title_1) }
       let!(:milestone_2) { create(:milestone, :active, project: project, title: title_2) }
-      let!(:params_with_milestones) { params.merge!({ milestones: [title_1, title_2] }) }
 
-      it 'creates a release and ties it to these milestones' do
-        described_class.new(project, user, params_with_milestones).execute
-        release = project.releases.last
+      shared_examples 'creates multiple releases' do
+        it 'creates a release and ties it to these milestones' do
+          described_class.new(project, user, params_with_milestones).execute
+          release = project.releases.last
 
-        expect(release.milestones.map(&:title)).to include(title_1, title_2)
+          expect(release.milestones.map(&:title)).to include(title_1, title_2)
+        end
+      end
+
+      context 'by title' do
+        let!(:params_with_milestones) { params.merge!({ milestones: [title_1, title_2] }) }
+
+        it_behaves_like 'creates multiple releases'
+      end
+
+      context 'by ids' do
+        let!(:params_with_milestones) { params.merge!({ milestone_ids: [milestone_1.id, milestone_2.id] }) }
+
+        it_behaves_like 'creates multiple releases'
       end
     end
 
@@ -157,6 +316,7 @@ RSpec.describe Releases::CreateService do
         result = service.execute
 
         expect(result[:status]).to eq(:error)
+        expect(result[:http_status]).to eq(400)
         expect(result[:message]).to eq("Milestone(s) not found: #{inexistent_title}")
       end
 
@@ -164,6 +324,18 @@ RSpec.describe Releases::CreateService do
         expect do
           service.execute
         end.not_to change(Release, :count)
+      end
+
+      context 'with milestones as ids' do
+        let!(:params_with_milestones) { params.merge!({ milestone_ids: [milestone.id, non_existing_record_id] }) }
+
+        it 'raises an error' do
+          result = service.execute
+
+          expect(result[:status]).to eq(:error)
+          expect(result[:http_status]).to eq(400)
+          expect(result[:message]).to eq("Milestone id(s) not found: #{non_existing_record_id}")
+        end
       end
     end
 

@@ -2,11 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe GroupsController, factory_default: :keep do
+RSpec.describe GroupsController, factory_default: :keep, feature_category: :code_review_workflow do
   include ExternalAuthorizationServiceHelpers
   include AdminModeHelper
 
-  let_it_be_with_refind(:group) { create_default(:group, :public) }
+  let_it_be(:group_organization) { create(:organization) }
+  let_it_be_with_refind(:group) { create_default(:group, :public, organization: group_organization) }
   let_it_be_with_refind(:project) { create(:project, namespace: group) }
   let_it_be(:user) { create(:user) }
   let_it_be(:admin_with_admin_mode) { create(:admin) }
@@ -42,21 +43,15 @@ RSpec.describe GroupsController, factory_default: :keep do
     end
   end
 
-  shared_examples 'details view' do
-    let(:namespace) { group }
+  shared_examples 'details view as atom' do
+    let!(:event) { create(:event, project: project) }
+    let(:format) { :atom }
 
     it { is_expected.to render_template('groups/show') }
 
-    context 'as atom' do
-      let!(:event) { create(:event, project: project) }
-      let(:format) { :atom }
-
-      it { is_expected.to render_template('groups/show') }
-
-      it 'assigns events for all the projects in the group', :sidekiq_might_not_need_inline do
-        subject
-        expect(assigns(:events).map(&:id)).to contain_exactly(event.id)
-      end
+    it 'assigns events for all the projects in the group' do
+      subject
+      expect(assigns(:events).map(&:id)).to contain_exactly(event.id)
     end
   end
 
@@ -70,7 +65,20 @@ RSpec.describe GroupsController, factory_default: :keep do
     subject { get :show, params: { id: group.to_param }, format: format }
 
     context 'when the group is not importing' do
-      it_behaves_like 'details view'
+      it { is_expected.to render_template('groups/show') }
+
+      it_behaves_like 'details view as atom'
+
+      it 'tracks page views', :snowplow do
+        subject
+
+        expect_snowplow_event(
+          category: 'group_overview',
+          action: 'render',
+          user: user,
+          namespace: group
+        )
+      end
     end
 
     context 'when the group is importing' do
@@ -80,6 +88,17 @@ RSpec.describe GroupsController, factory_default: :keep do
 
       it 'redirects to the import status page' do
         expect(subject).to redirect_to group_import_path(group)
+      end
+
+      it 'does not track page views', :snowplow do
+        subject
+
+        expect_no_snowplow_event(
+          category: 'group_overview',
+          action: 'render',
+          user: user,
+          namespace: group
+        )
       end
     end
   end
@@ -93,7 +112,9 @@ RSpec.describe GroupsController, factory_default: :keep do
 
     subject { get :details, params: { id: group.to_param }, format: format }
 
-    it_behaves_like 'details view'
+    it { is_expected.to redirect_to(group_path(group)) }
+
+    it_behaves_like 'details view as atom'
   end
 
   describe 'GET edit' do
@@ -108,6 +129,33 @@ RSpec.describe GroupsController, factory_default: :keep do
 
   describe 'GET #new' do
     context 'when creating subgroups' do
+      context 'when user does not have `:create_subgroup` permissions' do
+        before do
+          sign_in(user)
+          allow(controller).to receive(:can?).with(user, :create_subgroup, group).and_return(false)
+        end
+
+        it 'returns a 404' do
+          get :new, params: { parent_id: group.id }
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when user has `:create_subgroup` permissions' do
+        before do
+          sign_in(user)
+          allow(controller).to receive(:can?).with(user, :create_subgroup, group).and_return(true)
+        end
+
+        it 'renders `new` template' do
+          get :new, params: { parent_id: group.id }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to render_template(:new)
+        end
+      end
+
       [true, false].each do |can_create_group_status|
         context "and can_create_group is #{can_create_group_status}" do
           before do
@@ -129,29 +177,6 @@ RSpec.describe GroupsController, factory_default: :keep do
               end
             end
           end
-        end
-      end
-    end
-
-    describe 'require_verification_for_namespace_creation experiment', :experiment do
-      before do
-        sign_in(owner)
-        stub_experiments(require_verification_for_namespace_creation: :candidate)
-      end
-
-      it 'tracks a "start_create_group" event' do
-        expect(experiment(:require_verification_for_namespace_creation)).to track(
-          :start_create_group
-        ).on_next_instance.with_context(user: owner)
-
-        get :new
-      end
-
-      context 'when creating a sub-group' do
-        it 'does not track a "start_create_group" event' do
-          expect(experiment(:require_verification_for_namespace_creation)).not_to track(:start_create_group)
-
-          get :new, params: { parent_id: group.id }
         end
       end
     end
@@ -207,7 +232,7 @@ RSpec.describe GroupsController, factory_default: :keep do
       sign_in(user)
 
       expect do
-        post :create, params: { group: { name: 'new_group', path: "new_group" } }
+        post :create, params: { group: { name: 'new_group', path: 'new_group' } }
       end.to change { Group.count }.by(1)
 
       expect(response).to have_gitlab_http_status(:found)
@@ -218,8 +243,26 @@ RSpec.describe GroupsController, factory_default: :keep do
         sign_in(create(:admin))
 
         expect do
-          post :create, params: { group: { name: 'new_group', path: "new_group" } }
+          post :create, params: { group: { name: 'new_group', path: 'new_group' } }
         end.to change { Group.count }.by(1)
+
+        expect(response).to have_gitlab_http_status(:found)
+      end
+    end
+
+    context 'when creating chat team' do
+      before do
+        stub_mattermost_setting(enabled: true)
+      end
+
+      it 'triggers Mattermost::CreateTeamService' do
+        sign_in(user)
+
+        expect_next_instance_of(::Mattermost::CreateTeamService) do |service|
+          expect(service).to receive(:execute).and_return({ name: 'test-chat-team', id: 1 })
+        end
+
+        post :create, params: { group: { name: 'new_group', path: 'new_group', create_chat_team: 1 } }
 
         expect(response).to have_gitlab_http_status(:found)
       end
@@ -236,7 +279,8 @@ RSpec.describe GroupsController, factory_default: :keep do
               post :create, params: { group: { parent_id: group.id, path: 'subgroup' } }
 
               expect(response).to be_redirect
-              expect(response.body).to match(%r{http://test.host/#{group.path}/subgroup})
+              expect(response.location).to eq("http://test.host/#{group.path}/subgroup")
+              expect(Group.last.organization.id).to eq(group_organization.id)
             end
           end
 
@@ -257,9 +301,10 @@ RSpec.describe GroupsController, factory_default: :keep do
       end
     end
 
-    context 'when creating a top level group' do
+    context 'when creating a top level group', :with_current_organization do
       before do
         sign_in(developer)
+        Current.organization.users << developer
       end
 
       context 'and can_create_group is enabled' do
@@ -271,9 +316,9 @@ RSpec.describe GroupsController, factory_default: :keep do
           original_group_count = Group.count
 
           post :create, params: { group: { path: 'subgroup' } }
-
           expect(Group.count).to eq(original_group_count + 1)
           expect(response).to be_redirect
+          expect(Group.last.organization.id).to eq(Current.organization.id)
         end
       end
 
@@ -336,6 +381,56 @@ RSpec.describe GroupsController, factory_default: :keep do
       end
     end
 
+    context 'when creating a group with `default_branch_protection_defaults` attribute' do
+      let(:protection_defaults) do
+        {
+          "allowed_to_push" => [{ 'access_level' => Gitlab::Access::MAINTAINER.to_s }],
+          "allowed_to_merge" => [{ 'access_level' => Gitlab::Access::DEVELOPER.to_s }],
+          "allow_force_push" => "false",
+          "developer_can_initial_push" => "false"
+        }
+      end
+
+      before do
+        sign_in(user)
+      end
+
+      context 'when user has ability to write update_default_branch_protection' do
+        before do
+          allow(Ability).to receive(:allowed?).and_call_original
+          allow(Ability).to receive(:allowed?).with(user, :update_default_branch_protection, an_instance_of(Group)).and_return(true)
+        end
+
+        context 'for users who have the ability to create a group with `default_branch_protection_defaults`' do
+          it 'creates group with the specified default branch protection level' do
+            post :create, params: { group: { name: 'new_group', path: 'new_group', default_branch_protected: "true", default_branch_protection_defaults: protection_defaults } }, as: :json
+
+            expect(response).to have_gitlab_http_status(:found)
+            expect(Group.last.default_branch_protection_defaults).to eq(::Gitlab::Access::BranchProtection.protected_against_developer_pushes.stringify_keys)
+          end
+
+          it 'ignores default_branch_protection_defaults if default_branch_protected is set to false' do
+            post :create, params: { group: { name: 'new_group', path: 'new_group', default_branch_protected: "false", default_branch_protection_defaults: protection_defaults } }, as: :json
+
+            expect(response).to have_gitlab_http_status(:found)
+            expect(Group.last.default_branch_protection_defaults).to eq(::Gitlab::Access::BranchProtection.protection_none.stringify_keys)
+          end
+        end
+      end
+
+      context 'for users who do not have the ability to create a group with `default_branch_protection`' do
+        it 'does not create the group with the specified branch protection level' do
+          allow(Ability).to receive(:allowed?).and_call_original
+          allow(Ability).to receive(:allowed?).with(user, :create_group_with_default_branch_protection) { false }
+
+          subject
+
+          expect(response).to have_gitlab_http_status(:success)
+          expect(Group.last.default_branch_protection_defaults).not_to eq(::Gitlab::Access::BranchProtection.protected_against_developer_pushes.stringify_keys)
+        end
+      end
+    end
+
     context 'when creating a group with captcha protection' do
       before do
         sign_in(user)
@@ -350,13 +445,26 @@ RSpec.describe GroupsController, factory_default: :keep do
         end
       end
 
-      it 'displays an error when the reCAPTCHA is not solved' do
-        allow(controller).to receive(:verify_recaptcha).and_return(false)
+      context 'when the reCAPTCHA is not solved' do
+        before do
+          allow(controller).to receive(:verify_recaptcha).and_return(false)
+        end
 
-        post :create, params: { group: { name: 'new_group', path: "new_group" } }
+        it 'displays an error' do
+          post :create, params: { group: { name: 'new_group', path: "new_group" } }
 
-        expect(response).to render_template(:new)
-        expect(flash[:alert]).to eq(_('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.'))
+          expect(response).to render_template(:new)
+          expect(flash[:alert]).to eq(_('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.'))
+        end
+
+        it 'sets gon variables' do
+          Gon.clear
+
+          post :create, params: { group: { name: 'new_group', path: "new_group" } }
+
+          expect(response).to render_template(:new)
+          expect(Gon.all_variables).not_to be_empty
+        end
       end
 
       it 'allows creating a group when the reCAPTCHA is solved' do
@@ -466,53 +574,12 @@ RSpec.describe GroupsController, factory_default: :keep do
     end
   end
 
-  describe 'GET #issues', :sidekiq_might_not_need_inline do
-    let_it_be(:issue_1) { create(:issue, project: project, title: 'foo') }
-    let_it_be(:issue_2) { create(:issue, project: project, title: 'bar') }
-
+  describe 'GET #issues' do
     before do
-      create_list(:award_emoji, 3, awardable: issue_2)
-      create_list(:award_emoji, 2, awardable: issue_1)
-      create_list(:award_emoji, 2, :downvote, awardable: issue_2)
-
       sign_in(user)
     end
 
-    context 'sorting by votes' do
-      it 'sorts most popular issues' do
-        get :issues, params: { id: group.to_param, sort: 'upvotes_desc' }
-        expect(assigns(:issues)).to eq [issue_2, issue_1]
-      end
-
-      it 'sorts least popular issues' do
-        get :issues, params: { id: group.to_param, sort: 'downvotes_desc' }
-        expect(assigns(:issues)).to eq [issue_2, issue_1]
-      end
-    end
-
-    context 'searching' do
-      it 'works with popularity sort' do
-        get :issues, params: { id: group.to_param, search: 'foo', sort: 'popularity' }
-
-        expect(assigns(:issues)).to eq([issue_1])
-      end
-
-      it 'works with priority sort' do
-        get :issues, params: { id: group.to_param, search: 'foo', sort: 'priority' }
-
-        expect(assigns(:issues)).to eq([issue_1])
-      end
-
-      it 'works with label priority sort' do
-        get :issues, params: { id: group.to_param, search: 'foo', sort: 'label_priority' }
-
-        expect(assigns(:issues)).to eq([issue_1])
-      end
-    end
-
     it 'saves the sort order to user preferences' do
-      stub_feature_flags(vue_issues_list: true)
-
       get :issues, params: { id: group.to_param, sort: 'priority' }
 
       expect(user.reload.user_preference.issues_sort).to eq('priority')
@@ -542,6 +609,68 @@ RSpec.describe GroupsController, factory_default: :keep do
         expect(assigns(:merge_requests)).to eq [merge_request_2, merge_request_1]
       end
     end
+
+    context 'rendering views' do
+      render_views
+
+      it 'displays MR counts in nav' do
+        get :merge_requests, params: { id: group.to_param }
+
+        expect(response.body).to have_content('Open 2 Merged 0 Closed 0 All 2')
+        expect(response.body).not_to have_content('Open Merged Closed All')
+      end
+
+      context 'when MergeRequestsFinder raises an exception' do
+        before do
+          allow_next_instance_of(MergeRequestsFinder) do |instance|
+            allow(instance).to receive(:count_by_state).and_raise(ActiveRecord::QueryCanceled)
+          end
+        end
+
+        it 'does not display MR counts in nav' do
+          get :merge_requests, params: { id: group.to_param }
+
+          expect(response.body).to have_content('Open Merged Closed All')
+          expect(response.body).not_to have_content('Open 0 Merged 0 Closed 0 All 0')
+        end
+      end
+    end
+
+    context 'when an ActiveRecord::QueryCanceled is raised' do
+      before do
+        allow_next_instance_of(Gitlab::IssuableMetadata) do |instance|
+          allow(instance).to receive(:data).and_raise(ActiveRecord::QueryCanceled)
+        end
+      end
+
+      it 'sets :search_timeout_occurred' do
+        get :merge_requests, params: { id: group.to_param }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(assigns(:search_timeout_occurred)).to eq(true)
+      end
+
+      it 'logs the exception' do
+        get :merge_requests, params: { id: group.to_param }
+      end
+
+      context 'rendering views' do
+        render_views
+
+        it 'shows error message' do
+          get :merge_requests, params: { id: group.to_param }
+
+          expect(response.body).to have_content('Too many results to display. Edit your search or add a filter.')
+        end
+
+        it 'does not display MR counts in nav' do
+          get :merge_requests, params: { id: group.to_param }
+
+          expect(response.body).to have_content('Open Merged Closed All')
+          expect(response.body).not_to have_content('Open 0 Merged 0 Closed 0 All 0')
+        end
+      end
+    end
   end
 
   describe 'DELETE #destroy' do
@@ -569,6 +698,7 @@ RSpec.describe GroupsController, factory_default: :keep do
       it 'redirects to the root path' do
         delete :destroy, params: { id: group.to_param }
 
+        expect(flash[:toast]).to eq(format(_("Group '%{group_name}' is being deleted."), group_name: group.full_name))
         expect(response).to redirect_to(root_path)
       end
     end
@@ -584,14 +714,6 @@ RSpec.describe GroupsController, factory_default: :keep do
 
       expect(response).to have_gitlab_http_status(:found)
       expect(controller).to set_flash[:notice]
-    end
-
-    it 'does not update the path on error' do
-      allow_any_instance_of(Group).to receive(:move_dir).and_raise(Gitlab::UpdatePathError)
-      post :update, params: { id: group.to_param, group: { path: 'new_path' } }
-
-      expect(assigns(:group).errors).not_to be_empty
-      expect(assigns(:group).path).not_to eq('new_path')
     end
 
     it 'updates the project_creation_level successfully' do
@@ -660,7 +782,7 @@ RSpec.describe GroupsController, factory_default: :keep do
     end
 
     context 'when there is a conflicting group path' do
-      let!(:conflict_group) { create(:group, path: SecureRandom.hex(12) ) }
+      let!(:conflict_group) { create(:group, path: SecureRandom.hex(12)) }
       let!(:old_name) { group.name }
 
       it 'does not render references to the conflicting group' do
@@ -765,7 +887,7 @@ RSpec.describe GroupsController, factory_default: :keep do
       end
 
       it 'does not update the attribute' do
-        expect { subject }.not_to change { group.namespace_settings.reload.prevent_sharing_groups_outside_hierarchy }
+        expect { subject }.not_to change { group.reload.prevent_sharing_groups_outside_hierarchy }
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
@@ -1078,25 +1200,6 @@ RSpec.describe GroupsController, factory_default: :keep do
   end
 
   describe 'POST #export' do
-    let(:admin) { create(:admin) }
-
-    before do
-      enable_admin_mode!(admin)
-    end
-
-    context 'when the group export feature flag is not enabled' do
-      before do
-        sign_in(admin)
-        stub_feature_flags(group_import_export: false)
-      end
-
-      it 'returns a not found error' do
-        post :export, params: { id: group.to_param }
-
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-    end
-
     context 'when the user does not have permission to export the group' do
       before do
         sign_in(guest)
@@ -1109,13 +1212,13 @@ RSpec.describe GroupsController, factory_default: :keep do
       end
     end
 
-    context 'when supplied valid params' do
+    context 'when the user has permission to export the group' do
       before do
-        sign_in(admin)
+        sign_in(user)
       end
 
       it 'triggers the export job' do
-        expect(GroupExportWorker).to receive(:perform_async).with(admin.id, group.id, {})
+        expect(GroupExportWorker).to receive(:perform_async).with(user.id, group.id, { exported_by_admin: false })
 
         post :export, params: { id: group.to_param }
       end
@@ -1127,13 +1230,27 @@ RSpec.describe GroupsController, factory_default: :keep do
       end
     end
 
+    context 'when user is admin' do
+      before do
+        sign_in(admin_with_admin_mode)
+      end
+
+      it 'triggers the export job, and passes `exported_by_admin` correctly in the `params` hash' do
+        expect(GroupExportWorker).to receive(:perform_async).with(admin_with_admin_mode.id, group.id, { exported_by_admin: true })
+
+        post :export, params: { id: group.to_param }
+      end
+    end
+
     context 'when the endpoint receives requests above the rate limit' do
       before do
-        sign_in(admin)
+        sign_in(user)
 
-        allow(Gitlab::ApplicationRateLimiter)
-          .to receive(:increment)
-          .and_return(Gitlab::ApplicationRateLimiter.rate_limits[:group_export][:threshold].call + 1)
+        allow_next_instance_of(Gitlab::ApplicationRateLimiter::BaseStrategy) do |strategy|
+          allow(strategy)
+            .to receive(:increment)
+            .and_return(Gitlab::ApplicationRateLimiter.rate_limits[:group_export][:threshold].call + 1)
+        end
       end
 
       it 'throttles the endpoint' do
@@ -1197,19 +1314,6 @@ RSpec.describe GroupsController, factory_default: :keep do
       end
     end
 
-    context 'when the group export feature flag is not enabled' do
-      before do
-        sign_in(admin)
-        stub_feature_flags(group_import_export: false)
-      end
-
-      it 'returns a not found error' do
-        post :export, params: { id: group.to_param }
-
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-    end
-
     context 'when the user does not have the required permissions' do
       before do
         sign_in(guest)
@@ -1226,9 +1330,11 @@ RSpec.describe GroupsController, factory_default: :keep do
       before do
         sign_in(admin)
 
-        allow(Gitlab::ApplicationRateLimiter)
+        allow_next_instance_of(Gitlab::ApplicationRateLimiter::BaseStrategy) do |strategy|
+          allow(strategy)
           .to receive(:increment)
           .and_return(Gitlab::ApplicationRateLimiter.rate_limits[:group_download_export][:threshold].call + 1)
+        end
       end
 
       it 'throttles the endpoint' do

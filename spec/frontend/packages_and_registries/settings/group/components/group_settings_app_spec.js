@@ -7,6 +7,7 @@ import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import PackagesSettings from '~/packages_and_registries/settings/group/components/packages_settings.vue';
 import DependencyProxySettings from '~/packages_and_registries/settings/group/components/dependency_proxy_settings.vue';
+import PackagesForwardingSettings from '~/packages_and_registries/settings/group/components/packages_forwarding_settings.vue';
 
 import component from '~/packages_and_registries/settings/group/components/group_settings_app.vue';
 
@@ -18,7 +19,7 @@ import {
   dependencyProxyImageTtlPolicy,
 } from '../mock_data';
 
-jest.mock('~/flash');
+jest.mock('~/alert');
 
 describe('Group Settings App', () => {
   let wrapper;
@@ -26,9 +27,7 @@ describe('Group Settings App', () => {
   let show;
 
   const defaultProvide = {
-    defaultExpanded: false,
     groupPath: 'foo_group_path',
-    dependencyProxyAvailable: true,
   };
 
   const mountComponent = ({
@@ -56,12 +55,9 @@ describe('Group Settings App', () => {
     show = jest.fn();
   });
 
-  afterEach(() => {
-    wrapper.destroy();
-  });
-
   const findAlert = () => wrapper.findComponent(GlAlert);
   const findPackageSettings = () => wrapper.findComponent(PackagesSettings);
+  const findPackageForwardingSettings = () => wrapper.findComponent(PackagesForwardingSettings);
   const findDependencyProxySettings = () => wrapper.findComponent(DependencyProxySettings);
 
   const waitForApolloQueryAndRender = async () => {
@@ -69,17 +65,19 @@ describe('Group Settings App', () => {
     await nextTick();
   };
 
-  const packageSettingsProps = { packageSettings: packageSettings() };
+  const packageSettingsProps = { packageSettings };
+  const packageForwardingSettingsProps = { forwardSettings: { ...packageSettings } };
   const dependencyProxyProps = {
     dependencyProxySettings: dependencyProxySettings(),
     dependencyProxyImageTtlPolicy: dependencyProxyImageTtlPolicy(),
   };
 
   describe.each`
-    finder                         | entitySpecificProps     | successMessage                   | errorMessage
-    ${findPackageSettings}         | ${packageSettingsProps} | ${'Settings saved successfully'} | ${'An error occurred while saving the settings'}
-    ${findDependencyProxySettings} | ${dependencyProxyProps} | ${'Setting saved successfully'}  | ${'An error occurred while saving the setting'}
-  `('settings blocks', ({ finder, entitySpecificProps, successMessage, errorMessage }) => {
+    finder                           | entitySpecificProps
+    ${findPackageSettings}           | ${packageSettingsProps}
+    ${findPackageForwardingSettings} | ${packageForwardingSettingsProps}
+    ${findDependencyProxySettings}   | ${dependencyProxyProps}
+  `('settings blocks', ({ finder, entitySpecificProps }) => {
     beforeEach(() => {
       mountComponent();
       return waitForApolloQueryAndRender();
@@ -90,16 +88,13 @@ describe('Group Settings App', () => {
     });
 
     it('binds the correctProps', () => {
-      expect(finder().props()).toMatchObject({
-        isLoading: false,
-        ...entitySpecificProps,
-      });
+      expect(finder().props()).toMatchObject(entitySpecificProps);
     });
 
     describe('success event', () => {
       it('shows a success toast', () => {
         finder().vm.$emit('success');
-        expect(show).toHaveBeenCalledWith(successMessage);
+        expect(show).toHaveBeenCalledWith('Settings saved successfully.');
       });
 
       it('hides the error alert', async () => {
@@ -126,7 +121,7 @@ describe('Group Settings App', () => {
       });
 
       it('alert has the right text', () => {
-        expect(findAlert().text()).toBe(errorMessage);
+        expect(findAlert().text()).toBe('An error occurred while saving the settings.');
       });
 
       it('dismissing the alert removes it', async () => {
@@ -138,17 +133,6 @@ describe('Group Settings App', () => {
 
         expect(findAlert().exists()).toBe(false);
       });
-    });
-  });
-
-  describe('when the dependency proxy is not available', () => {
-    beforeEach(() => {
-      mountComponent({ provide: { ...defaultProvide, dependencyProxyAvailable: false } });
-      return waitForApolloQueryAndRender();
-    });
-
-    it('the setting block is hidden', () => {
-      expect(findDependencyProxySettings().exists()).toBe(false);
     });
   });
 });

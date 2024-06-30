@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::Groups::Pipelines::GroupPipeline do
-  describe '#run' do
+RSpec.describe BulkImports::Groups::Pipelines::GroupPipeline, feature_category: :importers do
+  describe '#run', :clean_gitlab_redis_shared_state do
     let_it_be(:user) { create(:user) }
     let_it_be(:parent) { create(:group) }
     let_it_be(:bulk_import) { create(:bulk_import, user: user) }
@@ -13,7 +13,7 @@ RSpec.describe BulkImports::Groups::Pipelines::GroupPipeline do
         :bulk_import_entity,
         bulk_import: bulk_import,
         source_full_path: 'source/full/path',
-        destination_name: 'My Destination Group',
+        destination_slug: 'my-destination-group',
         destination_namespace: parent.full_path
       )
     end
@@ -23,7 +23,7 @@ RSpec.describe BulkImports::Groups::Pipelines::GroupPipeline do
 
     let(:group_data) do
       {
-        'name' => 'source_name',
+        'name' => 'Source Group Name',
         'full_path' => 'source/full/path',
         'visibility' => 'private',
         'project_creation_level' => 'developer',
@@ -41,6 +41,8 @@ RSpec.describe BulkImports::Groups::Pipelines::GroupPipeline do
       allow_next_instance_of(BulkImports::Common::Extractors::GraphqlExtractor) do |extractor|
         allow(extractor).to receive(:extract).and_return(BulkImports::Pipeline::ExtractedData.new(data: group_data))
       end
+
+      allow(subject).to receive(:set_source_objects_counter)
 
       parent.add_owner(user)
     end
@@ -62,6 +64,11 @@ RSpec.describe BulkImports::Groups::Pipelines::GroupPipeline do
       expect(imported_group.lfs_enabled?).to eq(group_data['lfs_enabled'])
       expect(imported_group.emails_disabled?).to eq(group_data['emails_disabled'])
       expect(imported_group.mentions_disabled?).to eq(group_data['mentions_disabled'])
+    end
+
+    it 'skips duplicates on pipeline rerun' do
+      expect { subject.run }.to change { Group.count }.by(1)
+      expect { subject.run }.not_to change { Group.count }
     end
   end
 

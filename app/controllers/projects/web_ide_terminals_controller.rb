@@ -10,6 +10,8 @@ class Projects::WebIdeTerminalsController < Projects::ApplicationController
 
   feature_category :web_ide
 
+  urgency :low, [:check_config]
+
   def check_config
     return respond_422 unless branch_sha
 
@@ -27,10 +29,7 @@ class Projects::WebIdeTerminalsController < Projects::ApplicationController
   end
 
   def create
-    result = ::Ci::CreateWebIdeTerminalService.new(project,
-                                                     current_user,
-                                                     ref: params[:branch])
-                                                .execute
+    result = ::Ci::CreateWebIdeTerminalService.new(project, current_user, ref: params[:branch]).execute
 
     if result[:status] == :error
       render status: :bad_request, json: result[:message]
@@ -69,7 +68,7 @@ class Projects::WebIdeTerminalsController < Projects::ApplicationController
   private
 
   def authorize_create_web_ide_terminal!
-    return access_denied! unless can?(current_user, :create_web_ide_terminal, project)
+    access_denied! unless can?(current_user, :create_web_ide_terminal, project)
   end
 
   def authorize_read_web_ide_terminal!
@@ -81,7 +80,7 @@ class Projects::WebIdeTerminalsController < Projects::ApplicationController
   end
 
   def authorize_build_ability!(ability)
-    return access_denied! unless can?(current_user, ability, build)
+    access_denied! unless can?(current_user, ability, build)
   end
 
   def build

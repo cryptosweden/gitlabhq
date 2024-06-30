@@ -1,14 +1,14 @@
 import { STATUSES } from '~/import_entities/constants';
 import { clientTypenames } from '~/import_entities/import_groups/graphql/client_factory';
 
-export const generateFakeEntry = ({ id, status, message, ...rest }) => ({
+export const generateFakeEntry = ({ id, status, hasFailures = false, message, ...rest }) => ({
   __typename: clientTypenames.BulkImportSourceGroup,
   webUrl: `https://fake.host/${id}`,
   fullPath: `fake_group_${id}`,
   fullName: `fake_name_${id}`,
   lastImportTarget: {
     id,
-    targetNamespace: 'root',
+    targetNamespace: 'Commit451',
     newName: `group${id}`,
   },
   id,
@@ -19,6 +19,7 @@ export const generateFakeEntry = ({ id, status, message, ...rest }) => ({
           __typename: clientTypenames.BulkImportProgress,
           id,
           status,
+          hasFailures,
           message: message || '',
         },
   ...rest,
@@ -59,9 +60,37 @@ export const statusEndpointFixture = {
   },
 };
 
-export const availableNamespacesFixture = Object.freeze([
-  { id: 24, fullPath: 'Commit451' },
-  { id: 22, fullPath: 'gitlab-org' },
-  { id: 23, fullPath: 'gnuwget' },
-  { id: 25, fullPath: 'jashkenas' },
-]);
+const makeGroupMock = ({ id, fullPath, projectCreationLevel = null }) => ({
+  id,
+  fullPath,
+  name: fullPath,
+  projectCreationLevel: projectCreationLevel || 'maintainer',
+  visibility: 'public',
+  webUrl: `http://gdk.test:3000/groups/${fullPath}`,
+  __typename: 'Group',
+});
+
+export const AVAILABLE_NAMESPACES = [
+  makeGroupMock({ id: 24, fullPath: 'Commit451' }),
+  makeGroupMock({ id: 22, fullPath: 'gitlab-org' }),
+  makeGroupMock({ id: 23, fullPath: 'gnuwget', projectCreationLevel: 'noone' }),
+  makeGroupMock({ id: 25, fullPath: 'jashkenas', projectCreationLevel: 'developer' }),
+];
+
+export const availableNamespacesFixture = {
+  data: {
+    currentUser: {
+      id: 'gid://gitlab/User/1',
+      groups: {
+        nodes: AVAILABLE_NAMESPACES,
+        __typename: 'GroupConnection',
+      },
+      namespace: {
+        id: 'gid://gitlab/Namespaces::UserNamespace/1',
+        fullPath: 'root',
+        __typename: 'Namespace',
+      },
+      __typename: 'UserCore',
+    },
+  },
+};

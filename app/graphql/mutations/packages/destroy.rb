@@ -8,9 +8,9 @@ module Mutations
       authorize :destroy_package
 
       argument :id,
-               ::Types::GlobalIDType[::Packages::Package],
-               required: true,
-               description: 'ID of the Package.'
+        ::Types::GlobalIDType[::Packages::Package],
+        required: true,
+        description: 'ID of the Package.'
 
       def resolve(id:)
         package = authorized_find!(id: id)
@@ -22,15 +22,6 @@ module Mutations
         {
           errors: errors
         }
-      end
-
-      private
-
-      def find_object(id:)
-        # TODO: remove this line when the compatibility layer is removed
-        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/257883
-        id = ::Types::GlobalIDType[::Packages::Package].coerce_isolated_input(id)
-        GitlabSchema.find_by_gid(id)
       end
     end
   end

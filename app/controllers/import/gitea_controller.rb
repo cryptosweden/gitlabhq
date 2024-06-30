@@ -6,9 +6,7 @@ class Import::GiteaController < Import::GithubController
   before_action :verify_blocked_uri, only: :status
 
   def new
-    if session[access_token_key].present? && provider_url.present?
-      redirect_to status_import_url
-    end
+    redirect_to status_import_url if session[access_token_key].present? && provider_url.present?
   end
 
   def personal_access_token
@@ -16,9 +14,26 @@ class Import::GiteaController < Import::GithubController
     super
   end
 
-  # Must be defined or it will 404
   def status
-    super
+    # Request repos to display error page if provider token is invalid
+    # Improving in https://gitlab.com/gitlab-org/gitlab/-/issues/25859
+    client_repos
+
+    respond_to do |format|
+      format.json do
+        render json: { imported_projects: serialized_imported_projects,
+                       provider_repos: serialized_provider_repos,
+                       incompatible_repos: serialized_incompatible_repos }
+      end
+
+      format.html do
+        if params[:namespace_id].present?
+          @namespace = Namespace.find_by_id(params[:namespace_id])
+
+          render_404 unless current_user.can?(:import_projects, @namespace)
+        end
+      end
+    end
   end
 
   protected
@@ -54,17 +69,20 @@ class Import::GiteaController < Import::GithubController
     end
   end
 
+  override :serialized_imported_projects
+  def serialized_imported_projects(projects = already_added_projects)
+    ProjectSerializer.new.represent(projects, serializer: :import, provider_url: provider_url)
+  end
+
   override :client_repos
   def client_repos
     @client_repos ||= filtered(client.repos)
   end
 
-  override :client
   def client
-    @client ||= Gitlab::LegacyGithubImport::Client.new(session[access_token_key], client_options)
+    @client ||= Gitlab::LegacyGithubImport::Client.new(session[access_token_key], **client_options)
   end
 
-  override :client_options
   def client_options
     verified_url, provider_hostname = verify_blocked_uri
 
@@ -72,13 +90,15 @@ class Import::GiteaController < Import::GithubController
   end
 
   def verify_blocked_uri
-    @verified_url_and_hostname ||= Gitlab::UrlBlocker.validate!(
+    @verified_url_and_hostname ||= Gitlab::HTTP_V2::UrlBlocker.validate!(
       provider_url,
       allow_localhost: allow_local_requests?,
       allow_local_network: allow_local_requests?,
-      schemes: %w(http https)
+      schemes: %w[http https],
+      deny_all_requests_except_allowed: Gitlab::CurrentSettings.deny_all_requests_except_allowed?,
+      outbound_local_requests_allowlist: Gitlab::CurrentSettings.outbound_local_requests_whitelist # rubocop:disable Naming/InclusiveLanguage -- existing setting
     )
-  rescue Gitlab::UrlBlocker::BlockedUrlError => e
+  rescue Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError => e
     session[access_token_key] = nil
 
     redirect_to new_import_url, alert: _('Specified URL cannot be used: "%{reason}"') % { reason: e.message }

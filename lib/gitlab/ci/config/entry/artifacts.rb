@@ -12,8 +12,10 @@ module Gitlab
           include ::Gitlab::Config::Entry::Validatable
           include ::Gitlab::Config::Entry::Attributable
 
-          ALLOWED_KEYS = %i[name untracked paths reports when expire_in expose_as exclude public].freeze
-          EXPOSE_AS_REGEX = /\A\w[-\w ]*\z/.freeze
+          ALLOWED_WHEN = %w[on_success on_failure always].freeze
+          ALLOWED_ACCESS = %w[none developer all].freeze
+          ALLOWED_KEYS = %i[name untracked paths reports when expire_in expose_as exclude public access].freeze
+          EXPOSE_AS_REGEX = /\A\w[-\w ]*\z/
           EXPOSE_AS_ERROR_MESSAGE = "can contain only letters, digits, '-', '_' and spaces"
 
           attributes ALLOWED_KEYS
@@ -24,6 +26,8 @@ module Gitlab
             validates :config, type: Hash
             validates :config, allowed_keys: ALLOWED_KEYS
             validates :paths, presence: true, if: :expose_as_present?
+
+            validates :config, mutually_exclusive_keys: %i[access public]
 
             with_options allow_nil: true do
               validates :name, type: String
@@ -38,11 +42,15 @@ module Gitlab
               validates :expose_as, format: { with: EXPOSE_AS_REGEX, message: EXPOSE_AS_ERROR_MESSAGE }, if: :expose_as_present?
               validates :exclude, array_of_strings: true
               validates :reports, type: Hash
-              validates :when,
-                inclusion: { in: %w[on_success on_failure always],
-                             message: 'should be on_success, on_failure ' \
-                                      'or always' }
-              validates :expire_in, duration: { parser: ::Gitlab::Ci::Build::Artifacts::ExpireInParser }
+              validates :when, type: String, inclusion: {
+                in: ALLOWED_WHEN,
+                message: "should be one of: #{ALLOWED_WHEN.join(', ')}"
+              }
+              validates :expire_in, duration: { parser: ::Gitlab::Ci::Build::DurationParser }
+              validates :access, type: String, inclusion: {
+                in: ALLOWED_ACCESS,
+                message: "should be one of: #{ALLOWED_ACCESS.join(', ')}"
+              }
             end
           end
 

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Updating an existing release' do
+RSpec.describe 'Updating an existing release', feature_category: :release_orchestration do
   include GraphqlHelpers
   include Presentable
 
@@ -15,16 +15,21 @@ RSpec.describe 'Updating an existing release' do
   let_it_be(:milestone_12_4) { create(:milestone, project: project, title: '12.4') }
 
   let_it_be(:tag_name) { 'v1.1.0' }
-  let_it_be(:name) { 'Version 7.12.5'}
+  let_it_be(:name) { 'Version 7.12.5' }
   let_it_be(:description) { 'Release 7.12.5 :rocket:' }
   let_it_be(:released_at) { '2018-12-10' }
   let_it_be(:created_at) { '2018-11-05' }
   let_it_be(:milestones) { [milestone_12_3, milestone_12_4] }
 
   let_it_be(:release) do
-    create(:release, project: project, tag: tag_name, name: name,
-           description: description, released_at: Time.parse(released_at).utc,
-           created_at: Time.parse(created_at).utc, milestones: milestones)
+    create(:release,
+      project: project,
+      tag: tag_name,
+      name: name,
+      description: description,
+      released_at: Time.parse(released_at).utc,
+      created_at: Time.parse(created_at).utc,
+      milestones: milestones)
   end
 
   let(:mutation_name) { :release_update }

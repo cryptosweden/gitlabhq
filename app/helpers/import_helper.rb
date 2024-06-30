@@ -32,8 +32,8 @@ module ImportHelper
   end
 
   def import_svn_message(_ci_cd_only)
-    svn_link = link_to _('this document'), help_page_path('user/project/import/svn')
-    _('To import an SVN repository, check out %{svn_link}.').html_safe % { svn_link: svn_link }
+    svn_link = link_to _('Learn more'), help_page_path('user/project/import/index', anchor: 'import-repositories-from-subversion')
+    s_('Import|You can import a Subversion repository by using third-party tools. %{svn_link}.').html_safe % { svn_link: svn_link }
   end
 
   def import_in_progress_title
@@ -49,20 +49,13 @@ module ImportHelper
   end
 
   def import_github_authorize_message
-    _('To connect GitHub repositories, you first need to authorize GitLab to access the list of your GitHub repositories.')
-  end
-
-  def import_github_personal_access_token_message
-    link_url = 'https://github.com/settings/tokens'
-    link_start = '<a href="%{url}" target="_blank" rel="noopener noreferrer">'.html_safe % { url: link_url }
-
-    html_escape(_('Create and provide your GitHub %{link_start}Personal Access Token%{link_end}. You will need to select the %{code_open}repo%{code_close} scope, so we can display a list of your public and private repositories which are available to import.')) % { link_start: link_start, link_end: '</a>'.html_safe, code_open: '<code>'.html_safe, code_close: '</code>'.html_safe }
+    s_('GithubImport|To import GitHub repositories, you must first authorize GitLab to access your GitHub repositories.')
   end
 
   def import_configure_github_admin_message
     github_integration_link = link_to 'GitHub integration', help_page_path('integration/github')
 
-    if current_user.admin?
+    if current_user.can_admin_all_resources?
       _('Note: As an administrator you may like to configure %{github_integration_link}, which will allow login via GitHub and allow importing repositories without generating a Personal Access Token.').html_safe % { github_integration_link: github_integration_link }
     else
       _('Note: Consider asking your GitLab administrator to configure %{github_integration_link}, which will allow login via GitHub and allow importing repositories without generating a Personal Access Token.').html_safe % { github_integration_link: github_integration_link }

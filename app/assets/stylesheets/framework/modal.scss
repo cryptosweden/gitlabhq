@@ -17,8 +17,8 @@
     line-height: $gl-line-height-24;
 
     // leave enough space for the close icon
-    &.mw-100,
-    &.w-100 {
+    &.gl-max-w-full,
+    &.gl-w-full {
       margin-right: -$modal-header-padding-x;
       padding-right: $modal-header-padding-x;
     }
@@ -45,7 +45,7 @@
     margin: #{2 * $grid-size} #{-2 * $grid-size} #{-2 * $grid-size};
   }
 
-  .text-danger {
+  .text-danger:not(.dropdown-item) {
     font-weight: $gl-font-weight-bold;
   }
 }
@@ -85,7 +85,7 @@ body.modal-open {
 }
 
 .modal {
-  background-color: $black-transparent;
+  background-color: $t-gray-a-24;
 
   .modal-content {
     border-radius: $modal-border-radius;

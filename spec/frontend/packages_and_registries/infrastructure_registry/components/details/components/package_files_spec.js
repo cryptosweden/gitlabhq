@@ -1,4 +1,4 @@
-import { GlDropdown, GlButton } from '@gitlab/ui';
+import { GlDisclosureDropdown, GlButton } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue/';
 import stubChildren from 'helpers/stub_children';
@@ -17,9 +17,9 @@ describe('Package Files', () => {
   const findFirstRowDownloadLink = () => findFirstRow().find('[data-testid="download-link"]');
   const findFirstRowCommitLink = () => findFirstRow().find('[data-testid="commit-link"]');
   const findSecondRowCommitLink = () => findSecondRow().find('[data-testid="commit-link"]');
-  const findFirstRowFileIcon = () => findFirstRow().find(FileIcon);
-  const findFirstRowCreatedAt = () => findFirstRow().find(TimeAgoTooltip);
-  const findFirstActionMenu = () => findFirstRow().findComponent(GlDropdown);
+  const findFirstRowFileIcon = () => findFirstRow().findComponent(FileIcon);
+  const findFirstRowCreatedAt = () => findFirstRow().findComponent(TimeAgoTooltip);
+  const findFirstActionMenu = () => findFirstRow().findComponent(GlDisclosureDropdown);
   const findActionMenuDelete = () => findFirstActionMenu().find('[data-testid="delete-file"]');
   const findFirstToggleDetailsButton = () => findFirstRow().findComponent(GlButton);
   const findFirstRowShaComponent = (id) => wrapper.find(`[data-testid="${id}"]`);
@@ -36,11 +36,6 @@ describe('Package Files', () => {
       },
     });
   };
-
-  afterEach(() => {
-    wrapper.destroy();
-    wrapper = null;
-  });
 
   describe('rows', () => {
     it('renders a single file for an npm package', () => {
@@ -164,7 +159,7 @@ describe('Package Files', () => {
             it('emits a delete event when clicked', () => {
               createComponent();
 
-              findActionMenuDelete().vm.$emit('click');
+              findActionMenuDelete().vm.$emit('action');
 
               const [[{ id }]] = wrapper.emitted('delete-file');
               expect(id).toBe(npmFiles[0].id);
@@ -206,19 +201,19 @@ describe('Package Files', () => {
       it('toggles the details row', async () => {
         createComponent();
 
-        expect(findFirstToggleDetailsButton().props('icon')).toBe('angle-down');
+        expect(findFirstToggleDetailsButton().props('icon')).toBe('chevron-lg-down');
 
         findFirstToggleDetailsButton().vm.$emit('click');
         await nextTick();
 
         expect(findFirstRowShaComponent('sha-256').exists()).toBe(true);
-        expect(findFirstToggleDetailsButton().props('icon')).toBe('angle-up');
+        expect(findFirstToggleDetailsButton().props('icon')).toBe('chevron-lg-up');
 
         findFirstToggleDetailsButton().vm.$emit('click');
         await nextTick();
 
         expect(findFirstRowShaComponent('sha-256').exists()).toBe(false);
-        expect(findFirstToggleDetailsButton().props('icon')).toBe('angle-down');
+        expect(findFirstToggleDetailsButton().props('icon')).toBe('chevron-lg-down');
       });
     });
 

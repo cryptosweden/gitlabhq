@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::GenericPackages do
+RSpec.describe API::GenericPackages, feature_category: :package_registry do
   include HttpBasicAuthHelpers
   using RSpec::Parameterized::TableSyntax
 
@@ -19,7 +19,7 @@ RSpec.describe API::GenericPackages do
 
   let(:user) { personal_access_token.user }
   let(:ci_build) { create(:ci_build, :running, user: user, project: project) }
-  let(:snowplow_standard_context_params) { { user: user, project: project, namespace: project.namespace } }
+  let(:snowplow_gitlab_standard_context) { { user: user, project: project, namespace: project.namespace, property: 'i_package_generic_user' } }
 
   def auth_header
     return {} if user_role == :anonymous
@@ -29,6 +29,8 @@ RSpec.describe API::GenericPackages do
       personal_access_token_header
     when :job_token
       job_token_header
+    when :job_basic_auth
+      job_basic_auth_header
     when :invalid_personal_access_token
       personal_access_token_header('wrong token')
     when :invalid_job_token
@@ -61,6 +63,10 @@ RSpec.describe API::GenericPackages do
     { Gitlab::Auth::AuthFinders::JOB_TOKEN_HEADER => value || ci_build.token }
   end
 
+  def job_basic_auth_header(value = nil)
+    basic_auth_header(Gitlab::Auth::CI_JOB_USER, value || ci_build.token)
+  end
+
   def deploy_token_header(value)
     { Gitlab::Auth::AuthFinders::DEPLOY_TOKEN_HEADER => value }
   end
@@ -77,7 +83,7 @@ RSpec.describe API::GenericPackages do
     end
   end
 
-  describe 'PUT /api/v4/projects/:id/packages/generic/:package_name/:package_version/:file_name/authorize' do
+  describe 'PUT /api/v4/projects/:id/packages/generic/:package_name/:package_version/(*path)/:file_name/authorize' do
     context 'with valid project' do
       where(:project_visibility, :user_role, :member?, :authenticate_with, :expected_status) do
         'PUBLIC'  | :developer | true  | :personal_access_token         | :success
@@ -170,6 +176,20 @@ RSpec.describe API::GenericPackages do
       end
     end
 
+    context 'for use_final_store_path' do
+      before do
+        project.add_developer(user)
+      end
+
+      it 'sends use_final_store_path with true' do
+        expect(::Packages::PackageFileUploader).to receive(:workhorse_authorize).with(
+          hash_including(use_final_store_path: true, final_store_path_root_id: project.id)
+        ).and_call_original
+
+        authorize_upload_file(workhorse_headers.merge(personal_access_token_header))
+      end
+    end
+
     def authorize_upload_file(request_headers, package_name: 'mypackage', file_name: 'myfile.tar.gz')
       url = "/projects/#{project.id}/packages/generic/#{package_name}/0.0.1/#{file_name}/authorize"
 
@@ -177,7 +197,7 @@ RSpec.describe API::GenericPackages do
     end
   end
 
-  describe 'PUT /api/v4/projects/:id/packages/generic/:package_name/:package_version/:file_name' do
+  describe 'PUT /api/v4/projects/:id/packages/generic/:package_name/:package_version/(*path)/:file_name' do
     include WorkhorseHelpers
 
     let(:file_upload) { fixture_file_upload('spec/fixtures/packages/generic/myfile.tar.gz') }
@@ -276,9 +296,9 @@ RSpec.describe API::GenericPackages do
             expect(package.version).to eq('0.0.1')
 
             if should_set_build_info
-              expect(package.original_build_info.pipeline).to eq(ci_build.pipeline)
+              expect(package.last_build_info.pipeline).to eq(ci_build.pipeline)
             else
-              expect(package.original_build_info).to be_nil
+              expect(package.last_build_info).to be_nil
             end
 
             package_file = package.package_files.last
@@ -377,6 +397,36 @@ RSpec.describe API::GenericPackages do
             end
           end
         end
+
+        context 'when file has path' do
+          let(:params) { super().merge(path: 'path/to') }
+
+          it 'creates a package and package file with path' do
+            headers = workhorse_headers.merge(auth_header)
+
+            upload_file(params, headers)
+
+            aggregate_failures do
+              package = project.packages.generic.last
+              expect(response).to have_gitlab_http_status(:created)
+              expect(package.package_files.last.file_name).to eq('path%2Fto%2Fmyfile.tar.gz')
+            end
+          end
+        end
+
+        context 'when there is + sign is in filename' do
+          it 'creates a package and package file with filename' do
+            headers = workhorse_headers.merge(auth_header)
+
+            upload_file(params, headers, file_name: 'my+file.tar.gz')
+
+            aggregate_failures do
+              package = project.packages.generic.last
+              expect(response).to have_gitlab_http_status(:created)
+              expect(package.package_files.last.file_name).to eq('my+file.tar.gz')
+            end
+          end
+        end
       end
 
       context 'when valid personal access token is used' do
@@ -408,8 +458,6 @@ RSpec.describe API::GenericPackages do
       end
 
       context 'event tracking' do
-        let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, user: user } }
-
         subject { upload_file(params, workhorse_headers.merge(personal_access_token_header)) }
 
         it_behaves_like 'a package tracking event', described_class.name, 'push_package'
@@ -511,7 +559,7 @@ RSpec.describe API::GenericPackages do
     end
   end
 
-  describe 'GET /api/v4/projects/:id/packages/generic/:package_name/:package_version/:file_name' do
+  describe 'GET /api/v4/projects/:id/packages/generic/:package_name/:package_version/(*path)/:file_name' do
     let_it_be(:package) { create(:generic_package, project: project) }
     let_it_be(:package_file) { create(:package_file, :generic, package: package) }
 
@@ -552,12 +600,16 @@ RSpec.describe API::GenericPackages do
         'PRIVATE' | :guest     | false | :invalid_user_basic_auth       | :unauthorized
         'PRIVATE' | :anonymous | false | :none                          | :unauthorized
         'PUBLIC'  | :developer | true  | :job_token                     | :success
+        'PUBLIC'  | :developer | true  | :job_basic_auth                | :success
         'PUBLIC'  | :developer | true  | :invalid_job_token             | :unauthorized
         'PUBLIC'  | :developer | false | :job_token                     | :success
+        'PUBLIC'  | :developer | false | :job_basic_auth                | :success
         'PUBLIC'  | :developer | false | :invalid_job_token             | :unauthorized
         'PRIVATE' | :developer | true  | :job_token                     | :success
+        'PRIVATE' | :developer | true  | :job_basic_auth                | :success
         'PRIVATE' | :developer | true  | :invalid_job_token             | :unauthorized
         'PRIVATE' | :developer | false | :job_token                     | :not_found
+        'PRIVATE' | :developer | false | :job_basic_auth                | :not_found
         'PRIVATE' | :developer | false | :invalid_job_token             | :unauthorized
       end
 
@@ -571,6 +623,12 @@ RSpec.describe API::GenericPackages do
           download_file(auth_header)
 
           expect(response).to have_gitlab_http_status(expected_status)
+        end
+
+        if params[:expected_status] == :success
+          it_behaves_like 'bumping the package last downloaded at field' do
+            subject { download_file(auth_header) }
+          end
         end
       end
 
@@ -587,6 +645,27 @@ RSpec.describe API::GenericPackages do
 
           expect(response).to have_gitlab_http_status(expected_status)
         end
+
+        if params[:expected_status] == :success
+          it_behaves_like 'bumping the package last downloaded at field' do
+            subject { download_file(deploy_token_auth_header) }
+          end
+        end
+      end
+    end
+
+    context 'with access to package registry for everyone' do
+      let_it_be(:user_role) { :anonymous }
+
+      before do
+        project.update!(visibility_level: Gitlab::VisibilityLevel::PRIVATE)
+        project.project_feature.update!(package_registry_access_level: ProjectFeature::PUBLIC)
+      end
+
+      it 'responds with success' do
+        download_file(auth_header)
+
+        expect(response).to have_gitlab_http_status(:success)
       end
     end
 
@@ -608,12 +687,16 @@ RSpec.describe API::GenericPackages do
 
           expect(response).to have_gitlab_http_status(expected_status)
         end
+
+        if params[:expected_status] == :success
+          it_behaves_like 'bumping the package last downloaded at field' do
+            subject { download_file(personal_access_token_header) }
+          end
+        end
       end
     end
 
     context 'event tracking' do
-      let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, user: user } }
-
       before do
         project.add_developer(user)
       end
@@ -684,6 +767,52 @@ RSpec.describe API::GenericPackages do
       download_file(personal_access_token_header, file_name: 'no-such-file')
 
       expect(response).to have_gitlab_http_status(:not_found)
+    end
+
+    context 'when file has path' do
+      let_it_be(:file_path) { "path/to/#{package_file.file_name}" }
+
+      before do
+        project.add_developer(user)
+        package_file.update_column(:file_name, URI.encode_uri_component(file_path))
+      end
+
+      it 'responds with 200 OK' do
+        download_file(personal_access_token_header, file_name: file_path)
+
+        expect(response).to have_gitlab_http_status(:success)
+      end
+    end
+
+    context 'when there is + sign is in filename' do
+      let(:file_name) { 'my+file.tar.gz' }
+
+      before do
+        project.add_developer(user)
+        package_file.update_column(:file_name, file_name)
+      end
+
+      it 'responds with 200 OK' do
+        download_file(personal_access_token_header, file_name: file_name)
+
+        expect(response).to have_gitlab_http_status(:success)
+      end
+    end
+
+    context 'when object storage is enabled' do
+      let(:package_file) { create(:package_file, :generic, :object_storage, package: package) }
+
+      before do
+        stub_package_file_object_storage(enabled: true)
+        project.add_developer(user)
+      end
+
+      it 'includes response-content-disposition and filename in the redirect file URL' do
+        download_file(personal_access_token_header)
+
+        expect(response.parsed_body).to include("response-content-disposition=attachment%3B%20filename%3D%22#{package_file.file_name}")
+        expect(response).to have_gitlab_http_status(:redirect)
+      end
     end
 
     def download_file(request_headers, package_name: nil, file_name: nil)

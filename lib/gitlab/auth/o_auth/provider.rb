@@ -5,13 +5,13 @@ module Gitlab
     module OAuth
       class Provider
         LABELS = {
-          "dingtalk"                 => "DingTalk",
-          "github"                   => "GitHub",
-          "gitlab"                   => "GitLab.com",
-          "google_oauth2"            => "Google",
-          "azure_oauth2"             => "Azure AD",
+          "alicloud" => "AliCloud",
+          "github" => "GitHub",
+          "gitlab" => "GitLab.com",
+          "google_oauth2" => "Google",
+          "azure_oauth2" => "Azure AD (Obsolete)",
           "azure_activedirectory_v2" => "Azure AD v2",
-          'atlassian_oauth2'         => 'Atlassian'
+          'atlassian_oauth2' => 'Atlassian'
         }.freeze
 
         def self.authentication(user, provider)
@@ -32,7 +32,7 @@ module Gitlab
         end
 
         def self.providers
-          Devise.omniauth_providers
+          ::Devise.omniauth_providers
         end
 
         def self.enabled?(name)
@@ -67,7 +67,9 @@ module Gitlab
               nil
             end
           else
-            provider = Gitlab.config.omniauth.providers.find { |provider| provider.name == name }
+            provider = Gitlab.config.omniauth.providers.find do |provider|
+              provider.name == name || (provider.name == 'openid_connect' && provider.dig(:args, :name) == name)
+            end
             merge_provider_args_with_defaults!(provider)
 
             provider
@@ -98,3 +100,7 @@ module Gitlab
     end
   end
 end
+
+# Added for JiHu
+# Used in https://jihulab.com/gitlab-cn/gitlab/-/blob/main-jh/jh/lib/gitlab/auth/o_auth/provider.rb
+Gitlab::Auth::OAuth::Provider.singleton_class.prepend_mod_with('Gitlab::Auth::OAuth::Provider::ClassMethods')

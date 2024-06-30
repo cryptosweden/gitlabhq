@@ -40,13 +40,6 @@ module Gitlab
       pids.each { |pid| signal(pid, signal) }
     end
 
-    # Waits for the given process to complete using a separate thread.
-    def self.wait_async(pid)
-      Thread.new do
-        Process.wait(pid) rescue Errno::ECHILD
-      end
-    end
-
     # Returns true if all the processes are alive.
     def self.all_alive?(pids)
       pids.each do |pid|

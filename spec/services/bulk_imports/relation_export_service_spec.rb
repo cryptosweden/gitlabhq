@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe BulkImports::RelationExportService do
+RSpec.describe BulkImports::RelationExportService, feature_category: :importers do
   let_it_be(:jid) { 'jid' }
   let_it_be(:relation) { 'labels' }
   let_it_be(:user) { create(:user) }
@@ -13,10 +13,12 @@ RSpec.describe BulkImports::RelationExportService do
   let_it_be_with_reload(:export) { create(:bulk_import_export, group: group, relation: relation) }
 
   before do
+    FileUtils.mkdir_p(export_path)
+
     group.add_owner(user)
     project.add_maintainer(user)
 
-    allow(export).to receive(:export_path).and_return(export_path)
+    allow(subject).to receive(:export_path).and_return(export_path)
   end
 
   after :all do
@@ -35,6 +37,10 @@ RSpec.describe BulkImports::RelationExportService do
 
       expect(export.reload.upload.export_file).to be_present
       expect(export.finished?).to eq(true)
+      expect(export.batched?).to eq(false)
+      expect(export.batches_count).to eq(0)
+      expect(export.batches.count).to eq(0)
+      expect(export.total_objects_count).to eq(1)
     end
 
     it 'removes temp export files' do
@@ -47,6 +53,16 @@ RSpec.describe BulkImports::RelationExportService do
       subject.execute
 
       expect(export.upload.export_file).to be_present
+    end
+
+    context 'when relation is empty and there is nothing to export' do
+      let(:relation) { 'milestones' }
+
+      it 'creates empty file on disk' do
+        expect(FileUtils).to receive(:touch).with("#{export_path}/#{relation}.ndjson").and_call_original
+
+        subject.execute
+      end
     end
 
     context 'when exporting a file relation' do
@@ -88,46 +104,35 @@ RSpec.describe BulkImports::RelationExportService do
 
         subject.execute
       end
+
+      context 'when export is recently finished' do
+        it 'returns recently finished export instead of re-exporting' do
+          updated_at = 5.seconds.ago
+          export.update!(status: 1, updated_at: updated_at)
+
+          expect { subject.execute }.not_to change { export.updated_at }
+
+          expect(export.status).to eq(1)
+          expect(export.updated_at).to eq(updated_at)
+        end
+      end
     end
 
-    context 'when exception occurs during export' do
-      shared_examples 'tracks exception' do |exception_class|
-        it 'tracks exception' do
-          expect(Gitlab::ErrorTracking)
-            .to receive(:track_exception)
-            .with(exception_class, portable_id: group.id, portable_type: group.class.name)
-            .and_call_original
+    context 'when export was batched' do
+      let(:relation) { 'milestones' }
+      let(:export) { create(:bulk_import_export, group: group, relation: relation, batched: true, batches_count: 2) }
 
-          subject.execute
-        end
-      end
+      it 'removes existing batches and marks export as not batched' do
+        create(:bulk_import_export_batch, batch_number: 1, export: export)
+        create(:bulk_import_export_batch, batch_number: 2, export: export)
 
-      before do
-        allow_next_instance_of(BulkImports::ExportUpload) do |upload|
-          allow(upload).to receive(:save!).and_raise(StandardError)
-        end
-      end
+        expect { described_class.new(user, group, relation, jid).execute }
+          .to change { export.reload.batches.count }
+          .from(2)
+          .to(0)
 
-      it 'marks export as failed' do
-        subject.execute
-
-        expect(export.reload.failed?).to eq(true)
-      end
-
-      include_examples 'tracks exception', StandardError
-
-      context 'when passed relation is not supported' do
-        let(:relation) { 'unsupported' }
-
-        include_examples 'tracks exception', ActiveRecord::RecordInvalid
-      end
-
-      context 'when user is not allowed to perform export' do
-        let(:another_user) { create(:user) }
-
-        subject { described_class.new(another_user, group, relation, jid) }
-
-        include_examples 'tracks exception', Gitlab::ImportExport::Error
+        expect(export.batched?).to eq(false)
+        expect(export.batches_count).to eq(0)
       end
     end
   end

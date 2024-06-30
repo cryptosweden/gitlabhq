@@ -6,13 +6,8 @@ module QA
       class Groups < Page::Base
         include Page::Component::GroupsFilter
 
-        view 'app/views/shared/groups/_search_form.html.haml' do
-          element :groups_filter, 'search_field_tag :filter' # rubocop:disable QA/ElementWithPattern
-          element :groups_filter_placeholder, 'Search by name' # rubocop:disable QA/ElementWithPattern
-        end
-
         view 'app/views/dashboard/_groups_head.html.haml' do
-          element :new_group_button, 'link_to _("New group")' # rubocop:disable QA/ElementWithPattern
+          element 'new-group-button'
         end
 
         def has_group?(name)
@@ -26,9 +21,13 @@ module QA
         end
 
         def click_new_group
-          click_on 'New group'
+          dismiss_duo_chat_popup if respond_to?(:dismiss_duo_chat_popup)
+
+          click_element('new-group-button')
         end
       end
     end
   end
 end
+
+QA::Page::Dashboard::Groups.prepend_mod_with('Page::Component::DuoChatCallout', namespace: QA)

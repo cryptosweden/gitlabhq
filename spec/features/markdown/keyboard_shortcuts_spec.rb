@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Markdown keyboard shortcuts', :js do
+RSpec.describe 'Markdown keyboard shortcuts', :js, feature_category: :team_planning do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) { create(:user) }
 
@@ -97,20 +97,21 @@ RSpec.describe 'Markdown keyboard shortcuts', :js do
 
   context 'Vue.js markdown editor' do
     let(:path_to_visit) { new_project_release_path(project) }
-    let(:markdown_field) { find_field('Release notes') }
-    let(:non_markdown_field) { find_field('Release title') }
+    let(:markdown_field) { find_field('release-notes') }
+    let(:non_markdown_field) { find_field('release-title') }
 
     it_behaves_like 'keyboard shortcuts'
     it_behaves_like 'no side effects'
-  end
 
-  context 'Haml markdown editor' do
-    let(:path_to_visit) { new_project_issue_path(project) }
-    let(:markdown_field) { find_field('Description') }
-    let(:non_markdown_field) { find_field('Title') }
+    context 'if preview is toggled before shortcuts' do
+      before do
+        click_button "Preview"
+        click_button "Continue editing"
+      end
 
-    it_behaves_like 'keyboard shortcuts'
-    it_behaves_like 'no side effects'
+      it_behaves_like 'keyboard shortcuts'
+      it_behaves_like 'no side effects'
+    end
   end
 
   def type_and_select(text)

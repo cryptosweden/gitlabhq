@@ -8,8 +8,6 @@ module Gitlab
 
         data_consistency :always
 
-        sidekiq_options retry: 3
-        include GithubImport::Queue
         include StageMethods
 
         # These importers are fast enough that we can just run them in the same
@@ -28,25 +26,7 @@ module Gitlab
             klass.new(project, client).execute
           end
 
-          project.import_state.refresh_jid_expiration
-
           ImportPullRequestsWorker.perform_async(project.id)
-        rescue StandardError => e
-          Gitlab::Import::ImportFailureService.track(
-            project_id: project.id,
-            error_source: self.class.name,
-            exception: e,
-            fail_import: abort_on_failure,
-            metrics: true
-          )
-
-          raise(e)
-        end
-
-        private
-
-        def abort_on_failure
-          true
         end
       end
     end

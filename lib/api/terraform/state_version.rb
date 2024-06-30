@@ -6,6 +6,7 @@ module API
       default_format :json
 
       feature_category :infrastructure_as_code
+      urgency :low
 
       before do
         authenticate!
@@ -13,7 +14,7 @@ module API
       end
 
       params do
-        requires :id, type: String, desc: 'The ID of a project'
+        requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
       end
 
       resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
@@ -41,7 +42,15 @@ module API
             end
           end
 
-          desc 'Get a terraform state version'
+          desc 'Get a Terraform state version' do
+            detail 'Get a Terraform state version'
+            success File
+            failure [
+              { code: 403, message: 'Forbidden' },
+              { code: 404, message: 'Not found' }
+            ]
+            tags %w[terraform_state]
+          end
           route_setting :authentication, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
           get do
             find_version(params[:serial]) do |version|
@@ -51,7 +60,15 @@ module API
             end
           end
 
-          desc 'Delete a terraform state version'
+          desc 'Delete a Terraform state version' do
+            detail 'Delete a Terraform state version'
+            success code: 204
+            failure [
+              { code: 403, message: 'Forbidden' },
+              { code: 404, message: 'Not found' }
+            ]
+            tags %w[terraform_state]
+          end
           route_setting :authentication, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
           delete do
             authorize! :admin_terraform_state, user_project

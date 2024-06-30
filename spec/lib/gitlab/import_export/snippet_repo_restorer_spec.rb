@@ -10,10 +10,12 @@ RSpec.describe Gitlab::ImportExport::SnippetRepoRestorer do
   let(:shared) { project.import_export_shared }
   let(:exporter) { Gitlab::ImportExport::SnippetsRepoSaver.new(project: project, shared: shared, current_user: user) }
   let(:restorer) do
-    described_class.new(user: user,
-                        shared: shared,
-                        snippet: snippet,
-                        path_to_bundle: snippet_bundle_path)
+    described_class.new(
+      user: user,
+      shared: shared,
+      snippet: snippet,
+      path_to_bundle: snippet_bundle_path
+    )
   end
 
   after do
@@ -29,7 +31,7 @@ RSpec.describe Gitlab::ImportExport::SnippetRepoRestorer do
           expect(restorer.restore).to be_truthy
         end.to change { SnippetRepository.count }.by(1)
 
-        snippet.repository.expire_method_caches(%i(exists?))
+        snippet.repository.expire_method_caches(%i[exists?])
         expect(snippet.repository_exists?).to be_truthy
 
         blob = snippet.repository.blob_at(snippet.default_branch, snippet.file_name)

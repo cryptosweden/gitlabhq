@@ -1,45 +1,47 @@
 import Vue from 'vue';
+import VueApollo from 'vue-apollo';
+// eslint-disable-next-line no-restricted-imports
 import { mapActions, mapState, mapGetters } from 'vuex';
+import { cleanLeadingSeparator } from '~/lib/utils/url_utility';
+import { apolloProvider } from '~/graphql_shared/issuable_client';
 import { getCookie, parseBoolean, removeCookie } from '~/lib/utils/common_utils';
+import notesStore from '~/mr_notes/stores';
 
 import eventHub from '../notes/event_hub';
-import diffsApp from './components/app.vue';
+import DiffsApp from './components/app.vue';
 
 import { TREE_LIST_STORAGE_KEY, DIFF_WHITESPACE_COOKIE_NAME } from './constants';
-import { getReviewsForMergeRequest } from './utils/file_reviews';
-import { getDerivedMergeRequestInformation } from './utils/merge_request';
 
-export default function initDiffsApp(store) {
+export default function initDiffsApp(store = notesStore) {
+  const el = document.getElementById('js-diffs-app');
+  const { dataset } = el;
+
+  Vue.use(VueApollo);
+  const { newCommentTemplatePaths } = dataset;
+
   const vm = new Vue({
-    el: '#js-diffs-app',
+    el,
     name: 'MergeRequestDiffs',
     components: {
-      diffsApp,
+      DiffsApp,
     },
     store,
+    apolloProvider,
+    provide: {
+      newCommentTemplatePaths: newCommentTemplatePaths ? JSON.parse(newCommentTemplatePaths) : [],
+    },
     data() {
-      const { dataset } = document.querySelector(this.$options.el);
-
       return {
-        endpoint: dataset.endpoint,
-        endpointMetadata: dataset.endpointMetadata || '',
-        endpointBatch: dataset.endpointBatch || '',
+        projectPath: dataset.projectPath || '',
+        iid: dataset.iid || '',
         endpointCoverage: dataset.endpointCoverage || '',
-        endpointCodequality: dataset.endpointCodequality || '',
-        endpointUpdateUser: dataset.updateCurrentUserPath,
-        projectPath: dataset.projectPath,
+        codequalityReportAvailable: parseBoolean(dataset.codequalityReportAvailable),
+        sastReportAvailable: parseBoolean(dataset.sastReportAvailable),
         helpPagePath: dataset.helpPagePath,
         currentUser: JSON.parse(dataset.currentUserData) || {},
         changesEmptyStateIllustration: dataset.changesEmptyStateIllustration,
-        isFluidLayout: parseBoolean(dataset.isFluidLayout),
         dismissEndpoint: dataset.dismissEndpoint,
-        showSuggestPopover: parseBoolean(dataset.showSuggestPopover),
         showWhitespaceDefault: parseBoolean(dataset.showWhitespaceDefault),
-        viewDiffsFileByFile: parseBoolean(dataset.fileByFileDefault),
-        defaultSuggestionCommitMessage: dataset.defaultSuggestionCommitMessage,
-        sourceProjectDefaultUrl: dataset.sourceProjectDefaultUrl,
-        sourceProjectFullPath: dataset.sourceProjectFullPath,
-        isForked: parseBoolean(dataset.isForked),
       };
     },
     computed: {
@@ -78,30 +80,19 @@ export default function initDiffsApp(store) {
       ...mapActions('diffs', ['setRenderTreeList', 'setShowWhitespace']),
     },
     render(createElement) {
-      const { mrPath } = getDerivedMergeRequestInformation({ endpoint: this.endpoint });
-
       return createElement('diffs-app', {
         props: {
-          endpoint: this.endpoint,
-          endpointMetadata: this.endpointMetadata,
-          endpointBatch: this.endpointBatch,
+          projectPath: cleanLeadingSeparator(this.projectPath),
+          iid: this.iid,
           endpointCoverage: this.endpointCoverage,
           endpointCodequality: this.endpointCodequality,
-          endpointUpdateUser: this.endpointUpdateUser,
+          codequalityReportAvailable: this.codequalityReportAvailable,
+          sastReportAvailable: this.sastReportAvailable,
           currentUser: this.currentUser,
-          projectPath: this.projectPath,
           helpPagePath: this.helpPagePath,
           shouldShow: this.activeTab === 'diffs',
           changesEmptyStateIllustration: this.changesEmptyStateIllustration,
-          isFluidLayout: this.isFluidLayout,
-          dismissEndpoint: this.dismissEndpoint,
-          showSuggestPopover: this.showSuggestPopover,
-          fileByFileUserPreference: this.viewDiffsFileByFile,
-          defaultSuggestionCommitMessage: this.defaultSuggestionCommitMessage,
-          rehydratedMrReviews: getReviewsForMergeRequest(mrPath),
-          sourceProjectDefaultUrl: this.sourceProjectDefaultUrl,
-          sourceProjectFullPath: this.sourceProjectFullPath,
-          isForked: this.isForked,
+          pinnedFileUrl: dataset.pinnedFileUrl,
         },
       });
     },

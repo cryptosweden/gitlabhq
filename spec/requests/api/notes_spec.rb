@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Notes do
+RSpec.describe API::Notes, feature_category: :team_planning do
   let!(:user) { create(:user) }
   let!(:project) { create(:project, :public) }
   let(:private_user) { create(:user) }
@@ -22,7 +22,7 @@ RSpec.describe API::Notes do
     let!(:issue) { create(:issue, project: project, author: user) }
     let!(:issue_note) { create(:note, noteable: issue, project: project, author: user) }
 
-    it_behaves_like "noteable API", 'projects', 'issues', 'iid' do
+    it_behaves_like "noteable API with confidential notes", 'projects', 'issues', 'iid' do
       let(:parent) { project }
       let(:noteable) { issue }
       let(:note) { issue_note }
@@ -37,7 +37,7 @@ RSpec.describe API::Notes do
       #
       before do
         post api("/projects/#{private_issue.project.id}/issues/#{private_issue.iid}/notes", user),
-             params: { body: 'Hi!' }
+          params: { body: 'Hi!' }
       end
 
       it 'responds with resource not found error' do
@@ -46,6 +46,37 @@ RSpec.describe API::Notes do
 
       it 'does not create new note' do
         expect(private_issue.notes.reload).to be_empty
+      end
+    end
+
+    context 'when system note with issue_email_participants action' do
+      let!(:email) { 'user@example.com' }
+      let!(:note_text) { "added #{email}" }
+      let!(:note) do
+        create(:note, :system, project: project, noteable: issue, author: Users::Internal.support_bot, note: note_text)
+      end
+
+      let!(:system_note_metadata) { create(:system_note_metadata, note: note, action: :issue_email_participants) }
+      let!(:another_user) { create(:user) }
+
+      let(:obfuscated_email) { 'us*****@e*****.c**' }
+
+      it 'returns obfuscated email' do
+        get api("/projects/#{project.id}/issues/#{issue.iid}/notes", another_user)
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to include_pagination_headers
+        expect(json_response.first['body']).to include(obfuscated_email)
+      end
+
+      context 'when user has at least the reporter role in project' do
+        it 'returns email' do
+          get api("/projects/#{project.id}/issues/#{issue.iid}/notes", user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response).to include_pagination_headers
+          expect(json_response.first['body']).to include(email)
+        end
       end
     end
 
@@ -62,15 +93,17 @@ RSpec.describe API::Notes do
       let(:ext_issue) { create(:issue, project: ext_proj) }
 
       let!(:cross_reference_note) do
-        create :note,
-        noteable: ext_issue, project: ext_proj,
-        note: "mentioned in issue #{private_issue.to_reference(ext_proj)}",
-        system: true
+        create(
+          :note,
+          noteable: ext_issue, project: ext_proj,
+          note: "mentioned in issue #{private_issue.to_reference(ext_proj)}",
+          system: true
+        )
       end
 
       describe "GET /projects/:id/noteable/:noteable_id/notes" do
         context "current user cannot view the notes" do
-          it "returns an empty array" do
+          it "returns an empty array", :aggregate_failures do
             get api("/projects/#{ext_proj.id}/issues/#{ext_issue.iid}/notes", user)
 
             expect(response).to have_gitlab_http_status(:ok)
@@ -93,7 +126,7 @@ RSpec.describe API::Notes do
         end
 
         context "current user can view the note" do
-          it "returns a non-empty array" do
+          it "returns a non-empty array", :aggregate_failures do
             get api("/projects/#{ext_proj.id}/issues/#{ext_issue.iid}/notes", private_user)
 
             expect(response).to have_gitlab_http_status(:ok)
@@ -105,16 +138,18 @@ RSpec.describe API::Notes do
 
         context "activity filters" do
           let!(:user_reference_note) do
-            create :note,
-                   noteable: ext_issue, project: ext_proj,
-                   note: "Hello there general!",
-                   system: false
+            create(
+              :note,
+              noteable: ext_issue, project: ext_proj,
+              note: "Hello there general!",
+              system: false
+            )
           end
 
-          let(:test_url) {"/projects/#{ext_proj.id}/issues/#{ext_issue.iid}/notes"}
+          let(:test_url) { "/projects/#{ext_proj.id}/issues/#{ext_issue.iid}/notes" }
 
           shared_examples 'a notes request' do
-            it 'is a note array response' do
+            it 'is a note array response', :aggregate_failures do
               expect(response).to have_gitlab_http_status(:ok)
               expect(response).to include_pagination_headers
               expect(json_response).to be_an Array
@@ -164,7 +199,7 @@ RSpec.describe API::Notes do
 
               it_behaves_like 'a notes request'
 
-              it "properly filters the returned notables" do
+              it "properly filters the returned notables", :aggregate_failures do
                 expect(json_response.count).to eq(count)
                 expect(json_response.first["system"]).to be system_notable
               end
@@ -195,12 +230,56 @@ RSpec.describe API::Notes do
         end
 
         context "current user can view the note" do
-          it "returns an issue note by id" do
+          it "returns an issue note by id", :aggregate_failures do
             get api("/projects/#{ext_proj.id}/issues/#{ext_issue.iid}/notes/#{cross_reference_note.id}", private_user)
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(json_response['body']).to eq(cross_reference_note.note)
           end
+        end
+      end
+
+      context 'without notes widget' do
+        let(:request_body) { 'Hi!' }
+        let(:params) { { body: request_body } }
+        let(:request_path) { "/projects/#{ext_proj.id}/issues/#{ext_issue.iid}/notes" }
+
+        before do
+          WorkItems::Type.default_by_type(:issue).widget_definitions.find_by_widget_type(:notes).update!(disabled: true)
+        end
+
+        it 'does not fetch notes' do
+          get api(request_path, private_user)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+
+        it 'does not fetch specific note' do
+          get api("#{request_path}/#{cross_reference_note.id}", private_user)
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+
+        it 'does not create note' do
+          post api(request_path, private_user), params: params
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+
+        it 'does not update note' do
+          put api("#{request_path}/#{cross_reference_note.id}", private_user), params: params
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+
+        it 'does not run quick actions' do
+          params[:body] = "/spend 1h"
+
+          expect do
+            post api("#{request_path}/#{cross_reference_note.id}", private_user), params: params
+          end.to not_change { Note.system.count }.and(not_change { Note.where(system: false).count })
+
+          expect(response).to have_gitlab_http_status(:not_found)
         end
       end
     end

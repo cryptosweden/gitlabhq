@@ -1,13 +1,14 @@
 <script>
 import { GlButton } from '@gitlab/ui';
-import createFlash, { FLASH_TYPES } from '~/flash';
-import { INTEGRATION_VIEW_CONFIGS, i18n } from '../constants';
+import { createAlert, VARIANT_DANGER } from '~/alert';
+import { INTEGRATION_VIEW_CONFIGS, i18n, INTEGRATION_EXTENSIONS_MARKETPLACE } from '../constants';
 import IntegrationView from './integration_view.vue';
+import ExtensionsMarketplaceWarning from './extensions_marketplace_warning.vue';
 
 function updateClasses(bodyClasses = '', applicationTheme, layout) {
-  // Remove body class for any previous theme, re-add current one
-  document.body.classList.remove(...bodyClasses.split(' '));
-  document.body.classList.add(applicationTheme);
+  // Remove documentElement class for any previous theme, re-add current one
+  document.documentElement.classList.remove(...bodyClasses.split(' '));
+  document.documentElement.classList.add(applicationTheme);
 
   // Toggle container-fluid class
   if (layout === 'fluid') {
@@ -24,9 +25,13 @@ export default {
   components: {
     IntegrationView,
     GlButton,
+    ExtensionsMarketplaceWarning,
   },
   inject: {
     integrationViews: {
+      default: [],
+    },
+    colorModes: {
       default: [],
     },
     themes: {
@@ -41,26 +46,34 @@ export default {
   },
   integrationViewConfigs: INTEGRATION_VIEW_CONFIGS,
   i18n,
+  INTEGRATION_EXTENSIONS_MARKETPLACE,
   data() {
+    const integrationValues = this.integrationViews.reduce((acc, { name }) => {
+      const { formName } = INTEGRATION_VIEW_CONFIGS[name];
+
+      acc[name] = Boolean(this.userFields[formName]);
+
+      return acc;
+    }, {});
+
     return {
       isSubmitEnabled: true,
-      darkModeOnCreate: null,
-      darkModeOnSubmit: null,
+      colorModeOnCreate: null,
+      schemeOnCreate: null,
+      integrationValues,
     };
   },
   computed: {
-    applicationThemes() {
-      return this.themes.reduce((themes, theme) => {
-        const { id, ...rest } = theme;
-        return { ...themes, [id]: rest };
-      }, {});
+    extensionsMarketplaceView() {
+      return this.integrationViews.find(({ name }) => name === INTEGRATION_EXTENSIONS_MARKETPLACE);
     },
   },
   created() {
     this.formEl.addEventListener('ajax:beforeSend', this.handleLoading);
     this.formEl.addEventListener('ajax:success', this.handleSuccess);
     this.formEl.addEventListener('ajax:error', this.handleError);
-    this.darkModeOnCreate = this.darkModeSelected();
+    this.colorModeOnCreate = this.getSelectedColorMode();
+    this.schemeOnCreate = this.getSelectedScheme();
   },
   beforeDestroy() {
     this.formEl.removeEventListener('ajax:beforeSend', this.handleLoading);
@@ -68,36 +81,41 @@ export default {
     this.formEl.removeEventListener('ajax:error', this.handleError);
   },
   methods: {
-    darkModeSelected() {
-      const theme = this.getSelectedTheme();
-      return theme ? theme.css_class === 'gl-dark' : null;
+    getSelectedColorMode() {
+      const modeId = new FormData(this.formEl).get('user[color_mode_id]');
+      const mode = this.colorModes.find((item) => item.id === Number(modeId));
+      return mode ?? null;
     },
     getSelectedTheme() {
       const themeId = new FormData(this.formEl).get('user[theme_id]');
-      return this.applicationThemes[themeId] ?? null;
+      const theme = this.themes.find((item) => item.id === Number(themeId));
+      return theme ?? null;
+    },
+    getSelectedScheme() {
+      return new FormData(this.formEl).get('user[color_scheme_id]');
     },
     handleLoading() {
       this.isSubmitEnabled = false;
-      this.darkModeOnSubmit = this.darkModeSelected();
     },
     handleSuccess(customEvent) {
       // Reload the page if the theme has changed from light to dark mode or vice versa
-      // to correctly load all required styles.
-      const modeChanged = this.darkModeOnCreate ? !this.darkModeOnSubmit : this.darkModeOnSubmit;
-      if (modeChanged) {
+      // or if color scheme has changed to correctly load all required styles.
+      if (
+        this.colorModeOnCreate !== this.getSelectedColorMode() ||
+        this.schemeOnCreate !== this.getSelectedScheme()
+      ) {
         window.location.reload();
         return;
       }
       updateClasses(this.bodyClasses, this.getSelectedTheme().css_class, this.selectedLayout);
-      const { message = this.$options.i18n.defaultSuccess, type = FLASH_TYPES.NOTICE } =
-        customEvent?.detail?.[0] || {};
-      createFlash({ message, type });
+      const message = customEvent?.detail?.[0]?.message || this.$options.i18n.defaultSuccess || '';
+      this.$toast.show(message);
       this.isSubmitEnabled = true;
     },
     handleError(customEvent) {
-      const { message = this.$options.i18n.defaultError, type = FLASH_TYPES.ALERT } =
+      const { message = this.$options.i18n.defaultError, variant = VARIANT_DANGER } =
         customEvent?.detail?.[0] || {};
-      createFlash({ message, type });
+      createAlert({ message, variant });
       this.isSubmitEnabled = true;
     },
   },
@@ -105,30 +123,38 @@ export default {
 </script>
 
 <template>
-  <div class="row gl-mt-3 js-preferences-form">
-    <div v-if="integrationViews.length" class="col-sm-12">
-      <hr data-testid="profile-preferences-integrations-rule" />
-    </div>
-    <div v-if="integrationViews.length" class="col-lg-4 profile-settings-sidebar">
-      <h4 class="gl-mt-0" data-testid="profile-preferences-integrations-heading">
-        {{ $options.i18n.integrations }}
-      </h4>
-      <p>
+  <div class="gl-display-contents js-preferences-form">
+    <div
+      v-if="integrationViews.length"
+      class="settings-section gl-border-t gl-pt-6! js-search-settings-section"
+    >
+      <div class="settings-sticky-header">
+        <div class="settings-sticky-header-inner">
+          <h4
+            id="integrations"
+            class="gl-my-0"
+            data-testid="profile-preferences-integrations-heading"
+          >
+            {{ $options.i18n.integrations }}
+          </h4>
+        </div>
+      </div>
+      <p class="gl-text-secondary">
         {{ $options.i18n.integrationsDescription }}
       </p>
+      <div>
+        <integration-view
+          v-for="view in integrationViews"
+          :key="view.name"
+          v-model="integrationValues[view.name]"
+          :help-link="view.help_link"
+          :message="view.message"
+          :message-url="view.message_url"
+          :config="$options.integrationViewConfigs[view.name]"
+        />
+      </div>
     </div>
-    <div v-if="integrationViews.length" class="col-lg-8">
-      <integration-view
-        v-for="view in integrationViews"
-        :key="view.name"
-        :help-link="view.help_link"
-        :message="view.message"
-        :message-url="view.message_url"
-        :config="$options.integrationViewConfigs[view.name]"
-      />
-    </div>
-    <div class="col-sm-12">
-      <hr />
+    <div class="settings-sticky-footer js-hide-when-nothing-matches-search">
       <gl-button
         category="primary"
         variant="confirm"
@@ -140,5 +166,10 @@ export default {
         {{ $options.i18n.saveChanges }}
       </gl-button>
     </div>
+    <extensions-marketplace-warning
+      v-if="extensionsMarketplaceView"
+      v-model="integrationValues[$options.INTEGRATION_EXTENSIONS_MARKETPLACE]"
+      :help-url="extensionsMarketplaceView.help_link"
+    />
   </div>
 </template>

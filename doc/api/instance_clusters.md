@@ -1,13 +1,14 @@
 ---
-stage: Configure
-group: Configure
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://about.gitlab.com/handbook/engineering/ux/technical-writing/#assignments
+stage: Deploy
+group: Environments
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 ---
 
-# Instance clusters API (certificate-based) (DEPRECATED) **(FREE SELF)**
+# Instance clusters API (certificate-based) (deprecated)
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/36001) in GitLab 13.2.
-> - [Deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
+DETAILS:
+**Tier:** Free, Premium, Ultimate
+**Offering:** Self-managed
 
 WARNING:
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
@@ -221,7 +222,7 @@ Example response:
 
 Updates an existing instance cluster.
 
-```shell
+```plaintext
 PUT /admin/clusters/:cluster_id
 ```
 
@@ -290,7 +291,7 @@ Example response:
 
 ## Delete instance cluster
 
-Deletes an existing instance cluster.
+Deletes an existing instance cluster. Does not remove existing resources within the connected Kubernetes cluster.
 
 ```plaintext
 DELETE /admin/clusters/:cluster_id

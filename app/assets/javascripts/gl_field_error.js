@@ -1,4 +1,5 @@
 import $ from 'jquery';
+import { sanitize } from '~/lib/dompurify';
 import { __ } from '~/locale';
 
 /**
@@ -54,6 +55,7 @@ import { __ } from '~/locale';
 
 const errorMessageClass = 'gl-field-error';
 const inputErrorClass = 'gl-field-error-outline';
+const validInputHintClass = '.gl-field-hint-valid';
 const errorAnchorSelector = '.gl-field-error-anchor';
 const ignoreInputSelector = '.gl-field-error-ignore';
 
@@ -63,7 +65,9 @@ export default class GlFieldError {
     this.inputDomElement = this.inputElement.get(0);
     this.form = formErrors;
     this.errorMessage = this.inputElement.attr('title') || __('This field is required.');
-    this.fieldErrorElement = $(`<p class='${errorMessageClass} hidden'>${this.errorMessage}</p>`);
+    this.fieldErrorElement = $(
+      `<p class='${errorMessageClass} hidden'>${sanitize(this.errorMessage)}</p>`,
+    );
 
     this.state = {
       valid: false,
@@ -151,6 +155,7 @@ export default class GlFieldError {
   renderInvalid() {
     this.inputElement.addClass(inputErrorClass);
     this.scopedSiblings.addClass('hidden');
+    this.inputElement.parents('.form-group').find(validInputHintClass).addClass('hidden');
     return this.fieldErrorElement.removeClass('hidden');
   }
 

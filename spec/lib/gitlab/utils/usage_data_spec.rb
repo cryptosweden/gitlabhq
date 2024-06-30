@@ -31,8 +31,14 @@ RSpec.describe Gitlab::Utils::UsageData do
     end
   end
 
+  describe '.with_metadata' do
+    it 'yields passed block' do
+      expect { |block| described_class.with_metadata(&block) }.to yield_with_no_args
+    end
+  end
+
   describe '#add_metric' do
-    let(:metric) { 'UuidMetric'}
+    let(:metric) { 'UuidMetric' }
 
     it 'computes the metric value for given metric' do
       expect(described_class.add_metric(metric)).to eq(Gitlab::CurrentSettings.uuid)
@@ -46,6 +52,13 @@ RSpec.describe Gitlab::Utils::UsageData do
       allow(relation).to receive(:count).and_return(1)
 
       expect(described_class.count(relation, batch: false)).to eq(1)
+    end
+
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+      allow(relation).to receive(:count).and_return(1)
+
+      described_class.count(relation, batch: false)
     end
 
     context 'when counting fails' do
@@ -66,6 +79,13 @@ RSpec.describe Gitlab::Utils::UsageData do
       allow(relation).to receive(:distinct_count_by).and_return(1)
 
       expect(described_class.distinct_count(relation, batch: false)).to eq(1)
+    end
+
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+      allow(relation).to receive(:distinct_count_by).and_return(1)
+
+      described_class.distinct_count(relation, batch: false)
     end
 
     context 'when counting fails' do
@@ -162,7 +182,7 @@ RSpec.describe Gitlab::Utils::UsageData do
         end
 
         it 'counts over joined relations' do
-          expect(described_class.estimate_batch_distinct_count(model.joins(:build), "ci_builds.name")).to eq(ci_builds_estimated_cardinality)
+          expect(described_class.estimate_batch_distinct_count(model.joins(:build), "#{Ci::Build.table_name}.name")).to eq(ci_builds_estimated_cardinality)
         end
 
         it 'counts with :column field with batch_size of 50K' do
@@ -206,14 +226,6 @@ RSpec.describe Gitlab::Utils::UsageData do
 
         it_behaves_like 'failing hardening method'
       end
-
-      it 'logs error and returns DISTRIBUTED_HLL_FALLBACK value when counting raises any error', :aggregate_failures do
-        error = StandardError.new('')
-        allow(Gitlab::Database::PostgresHll::BatchDistinctCounter).to receive(:new).and_raise(error)
-
-        expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception).with(error)
-        expect(described_class.estimate_batch_distinct_count(relation)).to eq(4)
-      end
     end
   end
 
@@ -229,12 +241,50 @@ RSpec.describe Gitlab::Utils::UsageData do
       expect(described_class.sum(relation, :column, batch_size: 100, start: 2, finish: 3)).to eq(1)
     end
 
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+      allow(Gitlab::Database::BatchCount).to receive(:batch_sum).and_return(1)
+
+      described_class.sum(relation, :column)
+    end
+
     context 'when counting fails' do
       subject { described_class.sum(relation, :column) }
 
       let(:fallback) { 15 }
       let(:failing_class) { Gitlab::Database::BatchCount }
       let(:failing_method) { :batch_sum }
+
+      it_behaves_like 'failing hardening method'
+    end
+  end
+
+  describe '#average' do
+    let(:relation) { double(:relation) }
+
+    it 'returns the average when operation succeeds' do
+      allow(Gitlab::Database::BatchCount)
+        .to receive(:batch_average)
+        .with(relation, :column, batch_size: 100, start: 2, finish: 3)
+        .and_return(1)
+
+      expect(described_class.average(relation, :column, batch_size: 100, start: 2, finish: 3)).to eq(1)
+    end
+
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+
+      allow(Gitlab::Database::BatchCount).to receive(:batch_average).and_return(1)
+
+      described_class.average(relation, :column)
+    end
+
+    context 'when operation fails' do
+      subject { described_class.average(relation, :column) }
+
+      let(:fallback) { 15 }
+      let(:failing_class) { Gitlab::Database::BatchCount }
+      let(:failing_method) { :batch_average }
 
       it_behaves_like 'failing hardening method'
     end
@@ -316,9 +366,15 @@ RSpec.describe Gitlab::Utils::UsageData do
       expect(histogram).to eq('2' => 1)
     end
 
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+
+      described_class.histogram(relation, column, buckets: 1..100)
+    end
+
     context 'when query timeout' do
       subject do
-        with_statement_timeout(0.001) do
+        with_statement_timeout(0.001, connection: ApplicationRecord.connection) do
           relation = AlertManagement::HttpIntegration.select('pg_sleep(0.002)')
           described_class.histogram(relation, column, buckets: 1..100)
         end
@@ -368,6 +424,12 @@ RSpec.describe Gitlab::Utils::UsageData do
       expect(described_class.add).to eq(0)
     end
 
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+
+      described_class.add
+    end
+
     context 'when adding fails' do
       subject { described_class.add(nil, 3) }
 
@@ -392,6 +454,12 @@ RSpec.describe Gitlab::Utils::UsageData do
       it_behaves_like 'failing hardening method', StandardError
     end
 
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+
+      described_class.alt_usage_data
+    end
+
     it 'returns the evaluated block when give' do
       expect(described_class.alt_usage_data { Gitlab::CurrentSettings.uuid } ).to eq(Gitlab::CurrentSettings.uuid)
     end
@@ -402,6 +470,12 @@ RSpec.describe Gitlab::Utils::UsageData do
   end
 
   describe '#redis_usage_data' do
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+
+      described_class.redis_usage_data
+    end
+
     context 'with block given' do
       context 'when method fails' do
         subject { described_class.redis_usage_data { raise ::Redis::CommandError } }
@@ -413,12 +487,12 @@ RSpec.describe Gitlab::Utils::UsageData do
       end
 
       context 'when Redis HLL raises any error' do
-        subject { described_class.redis_usage_data { raise Gitlab::UsageDataCounters::HLLRedisCounter::CategoryMismatch } }
+        subject { described_class.redis_usage_data { raise Gitlab::UsageDataCounters::HLLRedisCounter::EventError } }
 
         let(:fallback) { 15 }
         let(:failing_class) { nil }
 
-        it_behaves_like 'failing hardening method', Gitlab::UsageDataCounters::HLLRedisCounter::CategoryMismatch
+        it_behaves_like 'failing hardening method', Gitlab::UsageDataCounters::HLLRedisCounter::EventError
       end
 
       it 'returns the evaluated block when given' do
@@ -428,23 +502,29 @@ RSpec.describe Gitlab::Utils::UsageData do
 
     context 'with counter given' do
       context 'when gets an error' do
-        subject { described_class.redis_usage_data(::Gitlab::UsageDataCounters::WikiPageCounter) }
+        subject { described_class.redis_usage_data(::Gitlab::UsageDataCounters::PackageEventCounter) }
 
-        let(:fallback) { ::Gitlab::UsageDataCounters::WikiPageCounter.fallback_totals }
-        let(:failing_class) { ::Gitlab::UsageDataCounters::WikiPageCounter }
+        let(:fallback) { ::Gitlab::UsageDataCounters::PackageEventCounter.fallback_totals }
+        let(:failing_class) { ::Gitlab::UsageDataCounters::PackageEventCounter }
         let(:failing_method) { :totals }
 
         it_behaves_like 'failing hardening method', ::Redis::CommandError
       end
 
       it 'returns the totals when couter is given' do
-        allow(::Gitlab::UsageDataCounters::WikiPageCounter).to receive(:totals).and_return({ wiki_pages_create: 2 })
-        expect(described_class.redis_usage_data(::Gitlab::UsageDataCounters::WikiPageCounter)).to eql({ wiki_pages_create: 2 })
+        allow(::Gitlab::UsageDataCounters::PackageEventCounter).to receive(:totals).and_return({ merge_request_create: 2 })
+        expect(described_class.redis_usage_data(::Gitlab::UsageDataCounters::PackageEventCounter)).to eql({ merge_request_create: 2 })
       end
     end
   end
 
   describe '#with_prometheus_client' do
+    it 'records duration' do
+      expect(described_class).to receive(:with_metadata)
+
+      described_class.with_prometheus_client { |client| client }
+    end
+
     it 'returns fallback with for an exception in yield block' do
       allow(described_class).to receive(:prometheus_client).and_return(Gitlab::PrometheusClient.new('http://localhost:9090'))
       result = described_class.with_prometheus_client(fallback: -42) { |client| raise StandardError }

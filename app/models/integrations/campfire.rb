@@ -2,62 +2,83 @@
 
 module Integrations
   class Campfire < Integration
-    prop_accessor :token, :subdomain, :room
-    validates :token, presence: true, if: :activated?
+    include HasAvatar
 
-    def title
+    SUBDOMAIN_REGEXP = %r{\A[a-z](?:[a-z0-9-]*[a-z0-9])?\z}i
+
+    validates :token, presence: true, if: :activated?
+    validates :room,
+      allow_blank: true,
+      numericality: { only_integer: true, greater_than: 0 }
+    validates :subdomain,
+      allow_blank: true,
+      format: { with: SUBDOMAIN_REGEXP }, length: { in: 1..63 }
+
+    field :token,
+      type: :password,
+      title: -> { _('Campfire token') },
+      description: -> do
+        _('API authentication token from Campfire. To get the token, sign in to Campfire and select **My info**.')
+      end,
+      help: -> { s_('CampfireService|API authentication token from Campfire.') },
+      non_empty_password_title: -> { s_('ProjectService|Enter new token') },
+      non_empty_password_help: -> { s_('ProjectService|Leave blank to use your current token.') },
+      placeholder: '',
+      required: true
+
+    field :subdomain,
+      title: -> { _('Campfire subdomain (optional)') },
+      description: -> do
+        _("`.campfirenow.com` subdomain when you're signed in.")
+      end,
+      placeholder: '',
+      exposes_secrets: true,
+      help: -> do
+        format(ERB::Util.html_escape(
+          s_('CampfireService|%{code_open}.campfirenow.com%{code_close} subdomain.')
+        ), code_open: '<code>'.html_safe, code_close: '</code>'.html_safe)
+      end
+
+    field :room,
+      title: -> { _('Campfire room ID (optional)') },
+      description: -> { _("ID portion of the Campfire room URL.") },
+      placeholder: '123456',
+      help: -> { s_('CampfireService|ID portion of the Campfire room URL.') }
+
+    def self.title
       'Campfire'
     end
 
-    def description
+    def self.description
       'Send notifications about push events to Campfire chat rooms.'
     end
 
-    def help
-      docs_link = ActionController::Base.helpers.link_to _('Learn more.'), Rails.application.routes.url_helpers.help_page_url('api/services', anchor: 'campfire'), target: '_blank', rel: 'noopener noreferrer'
-      s_('CampfireService|Send notifications about push events to Campfire chat rooms. %{docs_link}').html_safe % { docs_link: docs_link.html_safe }
+    def self.help
+      docs_link = ActionController::Base.helpers.link_to(
+        _('Learn more.'),
+        Rails.application.routes.url_helpers.help_page_url('api/integrations', anchor: 'campfire'),
+        target: '_blank',
+        rel: 'noopener noreferrer'
+      )
+
+      format(ERB::Util.html_escape(
+        s_('CampfireService|Send notifications about push events to Campfire chat rooms. %{docs_link}')
+      ), docs_link: docs_link.html_safe)
     end
 
     def self.to_param
       'campfire'
     end
 
-    def fields
-      [
-        {
-          type: 'text',
-          name: 'token',
-          title: _('Campfire token'),
-          placeholder: '',
-          help: s_('CampfireService|API authentication token from Campfire.'),
-          required: true
-        },
-        {
-          type: 'text',
-          name: 'subdomain',
-          title: _('Campfire subdomain (optional)'),
-          placeholder: '',
-          help: s_('CampfireService|The %{code_open}.campfirenow.com%{code_close} subdomain.') % { code_open: '<code>'.html_safe, code_close: '</code>'.html_safe }
-        },
-        {
-          type: 'text',
-          name: 'room',
-          title: _('Campfire room ID (optional)'),
-          placeholder: '123456',
-          help: s_('CampfireService|From the end of the room URL.')
-        }
-      ]
-    end
-
     def self.supported_events
-      %w(push)
+      %w[push]
     end
 
     def execute(data)
       return unless supported_events.include?(data[:object_kind])
 
-      message = build_message(data)
-      speak(self.room, message, auth)
+      message = create_message(data)
+      speak(room, message, auth)
     end
 
     private
@@ -84,7 +105,7 @@ module Integrations
       room = rooms(auth).find { |r| r["name"] == room_name }
       return unless room
 
-      path = "/room/#{room["id"]}/speak.json"
+      path = "/room/#{room['id']}/speak.json"
       body = {
         body: {
           message: {
@@ -104,7 +125,7 @@ module Integrations
       res.code == 200 ? res["rooms"] : []
     end
 
-    def build_message(push)
+    def create_message(push)
       ref = Gitlab::Git.ref_name(push[:ref])
       before = push[:before]
       after = push[:after]

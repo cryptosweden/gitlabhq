@@ -33,7 +33,7 @@ RSpec.describe SnippetsHelper do
     end
 
     def download_link(url)
-      "<a class=\"gl-button btn btn-default\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Open raw\" href=\"#{url}\">#{external_snippet_icon('doc-code')}</a>"
+      "<a rel=\"noopener noreferrer\" title=\"Open raw\" class=\"gl-button btn btn-md btn-default \" target=\"_blank\" href=\"#{url}\"><span class=\"gl-button-text\">\n#{external_snippet_icon('doc-code')}\n</span>\n\n</a>"
     end
   end
 
@@ -60,7 +60,49 @@ RSpec.describe SnippetsHelper do
     end
 
     def download_link(url)
-      "<a class=\"gl-button btn btn-default\" target=\"_blank\" title=\"Download\" rel=\"noopener noreferrer\" href=\"#{url}?inline=false\">#{external_snippet_icon('download')}</a>"
+      "<a rel=\"noopener noreferrer\" title=\"Download\" class=\"gl-button btn btn-md btn-default \" target=\"_blank\" href=\"#{url}?inline=false\"><span class=\"gl-button-text\">\n#{external_snippet_icon('download')}\n</span>\n\n</a>"
+    end
+  end
+
+  describe '#embedded_snippet_copy_button' do
+    let(:blob) { snippet.blobs.first }
+    let(:ref) { blob.repository.root_ref }
+
+    subject { embedded_copy_snippet_button(blob) }
+
+    context 'for Personal Snippets' do
+      let(:snippet) { public_personal_snippet }
+
+      it 'returns copy button of embedded snippets' do
+        expect(subject).to eq(copy_button(blob.id.to_s))
+      end
+    end
+
+    context 'for Project Snippets' do
+      let(:snippet) { public_project_snippet }
+      let(:project) { snippet.project }
+
+      it 'returns copy button of embedded snippets' do
+        expect(subject).to eq(copy_button(blob.id.to_s))
+      end
+
+      describe 'path helpers' do
+        specify '#toggle_award_emoji_project_project_snippet_path' do
+          expect(toggle_award_emoji_project_project_snippet_path(project, snippet, a: 1)).to eq(
+            "/#{project.full_path}/-/snippets/#{snippet.id}/toggle_award_emoji?a=1"
+          )
+        end
+
+        specify '#toggle_award_emoji_project_project_snippet_url' do
+          expect(toggle_award_emoji_project_project_snippet_url(project, snippet, a: 1)).to eq(
+            "http://test.host/#{project.full_path}/-/snippets/#{snippet.id}/toggle_award_emoji?a=1"
+          )
+        end
+      end
+    end
+
+    def copy_button(blob_id)
+      "<button title=\"Copy snippet contents\" onclick=\"copyToClipboard(&#39;.blob-content[data-blob-id=&quot;#{blob_id}&quot;] &gt; pre&#39;)\" type=\"button\" class=\"gl-button btn btn-md btn-default \"><span class=\"gl-button-text\">\n#{external_snippet_icon('copy-to-clipboard')}\n</span>\n\n</button>"
     end
   end
 

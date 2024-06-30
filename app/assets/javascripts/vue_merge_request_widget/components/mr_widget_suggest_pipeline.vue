@@ -90,7 +90,7 @@ export default {
     </template>
     <div class="row">
       <div
-        class="col-md-5 order-md-last col-12 gl-mt-5 gl-md-mt-n2! gl-md-pt-2 svg-content svg-225"
+        class="col-md-5 order-md-last col-12 gl-mt-5 md:!-gl-mt-2 gl-md-pt-2 svg-content svg-225"
       >
         <img data-testid="pipeline-image" :src="pipelineSvgPath" />
       </div>
@@ -99,11 +99,7 @@ export default {
           <p class="gl-mt-2">
             <gl-sprintf :message="$options.SP_HELP_CONTENT">
               <template #link="{ content }">
-                <gl-link
-                  data-testid="help"
-                  :href="$options.SP_HELP_URL"
-                  target="_blank"
-                  class="font-size-inherit"
+                <gl-link data-testid="help" :href="$options.SP_HELP_URL" target="_blank"
                   >{{ content }}
                 </gl-link>
               </template>
@@ -113,7 +109,7 @@ export default {
             data-testid="ok"
             category="primary"
             class="gl-mt-2"
-            variant="info"
+            variant="confirm"
             :href="pipelinePath"
             :data-track-property="humanAccess"
             :data-track-value="$options.SP_SHOW_TRACK_VALUE"

@@ -1,28 +1,14 @@
-<!-- Title suggestion: [Feature flag] Enable description of feature -->
+<!-- Title suggestion: [Feature flag] Enable <feature-flag-name> -->
 
 ## Summary
 
-This issue is to rollout [the feature](ISSUE LINK) on production,
+This issue is to roll out [the feature](<feature-issue-link>) on production,
 that is currently behind the `<feature-flag-name>` feature flag.
-
-<!-- Short description of what the feature is about and link to relevant other issues. -->
 
 ## Owners
 
-- Team: NAME_OF_TEAM
-- Most appropriate slack channel to reach out to: `#g_TEAM_NAME`
-- Best individual to reach out to: NAME
-- PM: NAME
-
-## Stakeholders
-
-<!--
-Are there any other stages or teams involved that need to be kept in the loop?
-
-- Name of a PM
-- The Support Team
-- The Delivery Team
--->
+- Most appropriate Slack channel to reach out to: `#<slack-channel-of-dri-team>`
+- Best individual to reach out to: @<gitlab-username-of-dri>
 
 ## Expectations
 
@@ -30,103 +16,74 @@ Are there any other stages or teams involved that need to be kept in the loop?
 
 <!-- Describe the expected outcome when rolling out this feature -->
 
-### When is the feature viable?
+### What can go wrong and how would we detect it?
 
-<!-- What are the settings we need to configure in order to have this feature viable? -->
-
-<!-- 
-Example below:
- 
-1. Enable service ping collection
-   `ApplicationSetting.first.update(usage_ping_enabled: true)`
--->
-
-### What might happen if this goes wrong?
-
-<!-- Should the feature flag be turned off? Any MRs that need to be rolled back? Communication that needs to happen? What are some things you can think of that could go wrong - data loss or broken pages? -->
-
-### What can we monitor to detect problems with this?
+<!-- Data loss, broken pages, stability/availability impact? -->
 
 <!-- Which dashboards from https://dashboards.gitlab.net are most relevant? -->
-_Consider mentioning checks for 5xx errors or other anomalies like an increase in redirects 
-(302 HTTP response status)_
-
-### What can we check for monitoring production after rollouts?
-
-_Consider adding links to check for Sentry errors, Production logs for 5xx, 302s, etc._
 
 ## Rollout Steps
 
+Note: Please make sure to run the chatops commands in the Slack channel that gets impacted by the command.
+
 ### Rollout on non-production environments
 
-- Ensure that the feature MRs have been deployed to non-production environments.
-    - [ ] `/chatops run auto_deploy status <merge-commit-of-your-feature>`
-- [ ] Enable the feature globally on non-production environments.
-    - [ ] `/chatops run feature set <feature-flag-name> true --dev`
-    - [ ] `/chatops run feature set <feature-flag-name> true --staging`
-- [ ] Verify that the feature works as expected. Posting the QA result in this issue is preferable.
+- Verify the MR with the feature flag is merged to `master` and have been deployed to non-production environments with `/chatops run auto_deploy status <merge-commit-of-your-feature>`
+<!-- Delete Incremental roll out if it is not relevant to this deploy -->
+- [ ] Deploy the feature flag at a percentage (recommended percentage: 50%) with `/chatops run feature set <feature-flag-name> <rollout-percentage> --actors --dev --pre --staging --staging-ref`
+- [ ] Monitor that the error rates did not increase (repeat with a different percentage as necessary).
+<!-- End of block for deletes -->
+- [ ] Enable the feature globally on non-production environments with `/chatops run feature set <feature-flag-name> true --dev --pre --staging --staging-ref`
+- [ ] Verify that the feature works as expected.
+      The best environment to validate the feature in is [`staging-canary`](https://about.gitlab.com/handbook/engineering/infrastructure/environments/#staging-canary)
+      as this is the first environment deployed to. Make sure you are [configured to use canary](https://next.gitlab.com/).
+- [ ] If the feature flag causes end-to-end tests to fail, disable the feature flag on staging to avoid blocking [deployments](https://about.gitlab.com/handbook/engineering/deployments-and-releases/deployments/).
+   - See [`#qa-staging` Slack channel](https://gitlab.enterprise.slack.com/archives/CBS3YKMGD) and look for the following messages:
+      - test kicked off: `Feature flag <feature-flag-name> has been set to true on **gstg**`
+      - test result: `This pipeline was triggered due to toggling of <feature-flag-name> feature flag`
+
+For assistance with end-to-end test failures, please reach out via the [`#test-platform` Slack channel](https://gitlab.slack.com/archives/C3JJET4Q6). Note that end-to-end test failures on `staging-ref` [don't block deployments](https://about.gitlab.com/handbook/engineering/infrastructure/environments/staging-ref/#how-to-use-staging-ref).
 
 ### Specific rollout on production
 
-- Ensure that the feature MRs have been deployed to both production and canary.
-    - [ ] `/chatops run auto_deploy status <merge-commit-of-your-feature>`
-- If you're using [project-actor](https://docs.gitlab.com/ee/development/feature_flags/#feature-actors), you must enable the feature on these entries:
-    - [ ] `/chatops run feature set --project=gitlab-org/gitlab <feature-flag-name> true`
-    - [ ] `/chatops run feature set --project=gitlab-org/gitlab-foss <feature-flag-name> true`
-    - [ ] `/chatops run feature set --project=gitlab-com/www-gitlab-com <feature-flag-name> true`
-- If you're using [group-actor](https://docs.gitlab.com/ee/development/feature_flags/#feature-actors), you must enable the feature on these entries:
-    - [ ] `/chatops run feature set --group=gitlab-org <feature-flag-name> true`
-    - [ ] `/chatops run feature set --group=gitlab-com <feature-flag-name> true`
-- If you're using [user-actor](https://docs.gitlab.com/ee/development/feature_flags/#feature-actors), you must enable the feature on these entries:
-    - [ ] `/chatops run feature set --user=<your-username> <feature-flag-name> true`
-- [ ] Verify that the feature works on the specific entries. Posting the QA result in this issue is preferable.
+For visibility, all `/chatops` commands that target production should be executed in the [`#production` Slack channel](https://gitlab.slack.com/archives/C101F3796)
+and cross-posted (with the command results) to the responsible team's Slack channel.
+
+- Ensure that the feature MRs have been deployed to both production and canary with `/chatops run auto_deploy status <merge-commit-of-your-feature>`
+- [ ] Depending on the [type of actor](https://docs.gitlab.com/ee/development/feature_flags/#feature-actors) you are using, pick one of these options:
+  - For **project-actor**: `/chatops run feature set --project=gitlab-org/gitlab,gitlab-org/gitlab-foss,gitlab-com/www-gitlab-com <feature-flag-name> true`
+  - For **group-actor**: `/chatops run feature set --group=gitlab-org,gitlab-com <feature-flag-name> true`
+  - For **user-actor**: `/chatops run feature set --user=<gitlab-username-of-dri> <feature-flag-name> true`
+- [ ] Verify that the feature works for the specific actors.
 
 ### Preparation before global rollout
 
+- [ ] Set a milestone to this rollout issue to signal for enabling and removing the feature flag when it is stable.
 - [ ] Check if the feature flag change needs to be accompanied with a
   [change management issue](https://about.gitlab.com/handbook/engineering/infrastructure/change-management/#feature-flags-and-the-change-management-process).
   Cross link the issue here if it does.
 - [ ] Ensure that you or a representative in development can be available for at least 2 hours after feature flag updates in production.
   If a different developer will be covering, or an exception is needed, please inform the oncall SRE by using the `@sre-oncall` Slack alias.
-- [ ] Ensure that documentation has been updated ([More info](https://docs.gitlab.com/ee/development/documentation/feature_flags.html#features-that-became-enabled-by-default)).
-- [ ] Announce on [the feature issue](ISSUE LINK) an estimated time this will be enabled on GitLab.com. 
+- [ ] Ensure that documentation exists for the feature, and the [version history text](https://docs.gitlab.com/ee/development/documentation/feature_flags.html#add-version-history-text) has been updated.
+- [ ] Leave a comment on [the feature issue](<feature-issue-link>) announcing estimated time when this feature flag will be enabled on GitLab.com.
 - [ ] Ensure that any breaking changes have been announced following the [release post process](https://about.gitlab.com/handbook/marketing/blog/release-posts/#deprecations-removals-and-breaking-changes) to ensure GitLab customers are aware.
-- [ ] Notify `#support_gitlab-com` and your team channel ([more guidance when this is necessary in the dev docs](https://docs.gitlab.com/ee/development/feature_flags/controls.html#communicate-the-change)).
+- [ ] Notify the [`#support_gitlab-com` Slack channel](https://gitlab.slack.com/archives/C4XFU81LG) and your team channel ([more guidance when this is necessary in the dev docs](https://docs.gitlab.com/ee/development/feature_flags/controls.html#communicate-the-change)).
+- [ ] Ensure that the feature flag rollout plan is reviewed by another developer familiar with the domain.
 
 ### Global rollout on production
 
-For visibility, all `/chatops` commands that target production should be executed in the `#production` slack channel and cross-posted (with the command results) to the responsible team's slack channel (`#g_TEAM_NAME`).
+For visibility, all `/chatops` commands that target production should be executed in the [`#production` Slack channel](https://gitlab.slack.com/archives/C101F3796)
+and cross-posted (with the command results) to the responsible team's Slack channel (`#<slack-channel-of-dri-team>`).
 
-- [ ] [Incrementally roll out](https://docs.gitlab.com/ee/development/feature_flags/controls.html#process) the feature.
-  - If the feature flag in code has [an actor](https://docs.gitlab.com/ee/development/feature_flags/#feature-actors), perform **actor-based** rollout.
-    - [ ] `/chatops run feature set <feature-flag-name> <rollout-percentage> --actors`
-  - If the feature flag in code does **NOT** have [an actor](https://docs.gitlab.com/ee/development/feature_flags/#feature-actors), perform time-based rollout (**random** rollout).
-    - [ ] `/chatops run feature set <feature-flag-name> <rollout-percentage> --random`
-  - Enable the feature globally on production environment.
-    - [ ] `/chatops run feature set <feature-flag-name> true`
-- [ ] Announce on [the feature issue](ISSUE LINK) that the feature has been globally enabled.
+- [ ] (Optional) [Incrementally roll out](https://docs.gitlab.com/ee/development/feature_flags/controls.html#process) the feature on production environment.
+  - Between every step wait for at least 15 minutes and monitor the appropriate graphs on https://dashboards.gitlab.net.
+  - Perform **actor-based** rollout: `/chatops run feature set <feature-flag-name> <rollout-percentage> --actors`
+- [ ] Enable the feature globally on production environment: `/chatops run feature set <feature-flag-name> true`
+- [ ] Observe appropriate graphs on https://dashboards.gitlab.net and verify that services are not affected.
+- [ ] Leave a comment on [the feature issue][main-issue] announcing that the feature has been globally enabled.
 - [ ] Wait for [at least one day for the verification term](https://about.gitlab.com/handbook/product-development-flow/feature-flag-lifecycle/#including-a-feature-behind-feature-flag-in-the-final-release).
 
 ### (Optional) Release the feature with the feature flag
-
-If you're still unsure whether the feature is [deemed stable](https://about.gitlab.com/handbook/product-development-flow/feature-flag-lifecycle/#including-a-feature-behind-feature-flag-in-the-final-release)
-but want to release it in the current milestone, you can change the default state of the feature flag to be enabled.
-To do so, follow these steps:
-
-- [ ] Create a merge request with the following changes. Ask for review and merge it.
-    - [ ] Set the `default_enabled` attribute in [the feature flag definition](https://docs.gitlab.com/ee/development/feature_flags/#feature-flag-definition-and-validation) to `true`.
-    - [ ] Create [a changelog entry](https://docs.gitlab.com/ee/development/feature_flags/#changelog).
-- [ ] Ensure that the default-enabling MR has been deployed to both production and canary.
-      If the merge request was deployed before [the code cutoff](https://about.gitlab.com/handbook/engineering/releases/#self-managed-releases-1),
-      the feature can be officially announced in a release blog post.
-    - [ ] `/chatops run auto_deploy status <merge-commit-of-default-enabling-mr>`
-- [ ] Close [the feature issue](ISSUE LINK) to indicate the feature will be released in the current milestone.
-- [ ] Set the next milestone to this rollout issue for scheduling [the flag removal](#release-the-feature).
-- [ ] (Optional) You can [create a separate issue](https://gitlab.com/gitlab-org/gitlab/-/issues/new?issuable_template=Feature%20Flag%20Cleanup) for scheduling the steps below to [Release the feature](#release-the-feature).
-    - [ ] Set the title to "[Feature flag] Cleanup `<feature-flag-name>`".
-    - [ ] Execute the `/copy_metadata <this-rollout-issue-link>` quick action to copy the labels from this rollout issue.
-    - [ ] Link this rollout issue as a related issue.
-    - [ ] Close this rollout issue.
 
 **WARNING:** This approach has the downside that it makes it difficult for us to
 [clean up](https://docs.gitlab.com/ee/development/feature_flags/controls.html#cleaning-up) the flag.
@@ -134,6 +91,30 @@ For example, on-premise users could disable the feature on their GitLab instance
 remove the flag at some point, they suddenly see the feature as enabled and they can't roll it back
 to the previous behavior. To avoid this potential breaking change, use this approach only for urgent
 matters.
+
+<details><summary>See instructions if you're sure about enabling the feature globally through the feature flag definition</summary>
+
+If you're still unsure whether the feature is [deemed stable](https://about.gitlab.com/handbook/product-development-flow/feature-flag-lifecycle/#including-a-feature-behind-feature-flag-in-the-final-release)
+but want to release it in the current milestone, you can change the default state of the feature flag to be enabled.
+To do so, follow these steps:
+
+- [ ] Create a merge request with the following changes. Ask for review and merge it.
+    - [ ] If feature was enabled for various actors, ensure the feature has been enabled globally on production `/chatops run feature get <feature-flag-name>`. If the feature has not been globally enabled then enable the feature globally using: `/chatops run feature set <feature-flag-name> true`
+    - [ ] Set the `default_enabled` attribute in [the feature flag definition](https://docs.gitlab.com/ee/development/feature_flags/#feature-flag-definition-and-validation) to `true`.
+    - [ ] Decide [which changelog entry](https://docs.gitlab.com/ee/development/feature_flags/#changelog) is needed.
+- [ ] Ensure that the default-enabling MR has been included in the release package.
+      If the merge request was deployed before [the monthly release was tagged](https://about.gitlab.com/handbook/engineering/releases/#self-managed-releases-1),
+      the feature can be officially announced in a release blog post: `/chatops run release check <merge-request-url> <milestone>`
+- [ ] Consider cleaning up the feature flag from all environments by running these chatops command in `#production` channel. Otherwise these settings may override the default enabled: `/chatops run feature delete <feature-flag-name> --dev --pre --staging --staging-ref --production`
+- [ ] Close [the feature issue][main-issue] to indicate the feature will be released in the current milestone.
+- [ ] Set the next milestone to this rollout issue for scheduling [the flag removal](#release-the-feature).
+- [ ] (Optional) You can [create a separate issue](https://gitlab.com/gitlab-org/gitlab/-/issues/new?issuable_template=Feature%20Flag%20Cleanup) for scheduling the steps below to [Release the feature](#release-the-feature).
+    - [ ] Set the title to "[Feature flag] Cleanup `<feature-flag-name>`".
+    - [ ] Execute the `/copy_metadata <this-rollout-issue-link>` quick action to copy the labels from this rollout issue.
+    - [ ] Link this rollout issue as a related issue.
+    - [ ] Close this rollout issue.
+
+</details>
 
 ### Release the feature
 
@@ -145,28 +126,43 @@ codebase.
 You can either [create a follow-up issue for Feature Flag Cleanup](https://gitlab.com/gitlab-org/gitlab/-/issues/new?issuable_template=Feature%20Flag%20Cleanup) or use the checklist below in this same issue.
 
 <!-- The checklist here is to help stakeholders keep track of the feature flag status -->
-- [ ] Create a merge request to remove `<feature-flag-name>` feature flag. Ask for review and merge it.
-    - [ ] Remove all references to the feature flag from the codebase.
-    - [ ] Remove the YAML definitions for the feature from the repository.
-    - [ ] Create [a changelog entry](https://docs.gitlab.com/ee/development/feature_flags/#changelog).
-- [ ] Ensure that the cleanup MR has been deployed to both production and canary.
-      If the merge request was deployed before [the code cutoff](https://about.gitlab.com/handbook/engineering/releases/#self-managed-releases-1),
-      the feature can be officially announced in a release blog post.
-    - [ ] `/chatops run auto_deploy status <merge-commit-of-cleanup-mr>`
-- [ ] Close [the feature issue](ISSUE LINK) to indicate the feature will be released in the current milestone.
-- [ ] Clean up the feature flag from all environments by running these chatops command in `#production` channel:
-    - [ ] `/chatops run feature delete <feature-flag-name> --dev`
-    - [ ] `/chatops run feature delete <feature-flag-name> --staging`
-    - [ ] `/chatops run feature delete <feature-flag-name>`
+- [ ] Create a merge request to remove the `<feature-flag-name>` feature flag. Ask for review/approval/merge as usual. The MR should include the following changes:
+    - Remove all references to the feature flag from the codebase.
+    - Remove the YAML definitions for the feature from the repository.
+    - Create [a changelog entry](https://docs.gitlab.com/ee/development/feature_flags/#changelog).
+- [ ] Ensure that the cleanup MR has been included in the release package.
+      If the merge request was deployed before [the monthly release was tagged](https://about.gitlab.com/handbook/engineering/releases/#self-managed-releases-1),
+      the feature can be officially announced in a release blog post: `/chatops run release check <merge-request-url> <milestone>`
+- [ ] Close [the feature issue][main-issue] to indicate the feature will be released in the current milestone.
+- [ ] Clean up the feature flag from all environments by running these chatops command in `#production` channel: `/chatops run feature delete <feature-flag-name> --dev --pre --staging --staging-ref --production`
 - [ ] Close this rollout issue.
 
 ## Rollback Steps
 
-- [ ] This feature can be disabled by running the following Chatops command:
+- [ ] This feature can be disabled on production by running the following Chatops command:
 
 ```
 /chatops run feature set <feature-flag-name> false
 ```
 
-/label ~"feature flag" ~"type::feature" ~"feature::addition"
-/assign DRI
+- [ ] Disable the feature flag on non-production environments:
+
+```
+/chatops run feature set <feature-flag-name> false --dev --pre --staging --staging-ref
+```
+
+- [ ] Delete feature flag from all environments:
+
+```
+/chatops run feature delete <feature-flag-name> --dev --pre --staging --staging-ref --production
+```
+
+/label <group-label>
+/label ~"feature flag"
+<!-- Uncomment the appropriate type label
+/label ~"type::feature" ~"feature::addition"
+/label ~"type::maintenance"
+/label ~"type::bug"
+-->
+/assign @<gitlab-username-of-dri>
+/due in 2 weeks

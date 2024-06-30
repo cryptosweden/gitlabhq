@@ -5,11 +5,12 @@ module Gitlab
     class File
       include Gitlab::Utils::StrongMemoize
 
-      attr_reader :diff, :repository, :diff_refs, :fallback_diff_refs, :unique_identifier
+      attr_reader :diff, :repository, :diff_refs, :fallback_diff_refs, :unique_identifier, :max_blob_size
 
-      delegate :new_file?, :deleted_file?, :renamed_file?,
+      delegate :new_file?, :deleted_file?, :renamed_file?, :unidiff,
         :old_path, :new_path, :a_mode, :b_mode, :mode_changed?,
-        :submodule?, :expanded?, :too_large?, :collapsed?, :line_count, :has_binary_notice?, to: :diff, prefix: false
+        :submodule?, :expanded?, :too_large?, :collapsed?, :line_count, :has_binary_notice?,
+        :generated?, to: :diff, prefix: false
 
       # Finding a viewer for a diff file happens based only on extension and whether the
       # diff file blobs are binary or text, which means 1 diff file should only be matched by 1 viewer,
@@ -30,7 +31,8 @@ module Gitlab
         diff_refs: nil,
         fallback_diff_refs: nil,
         stats: nil,
-        unique_identifier: nil)
+        unique_identifier: nil,
+        max_blob_size: nil)
 
         @diff = diff
         @stats = stats
@@ -38,17 +40,11 @@ module Gitlab
         @diff_refs = diff_refs
         @fallback_diff_refs = fallback_diff_refs
         @unique_identifier = unique_identifier
+        @max_blob_size = max_blob_size
         @unfolded = false
 
         # Ensure items are collected in the the batch
-        new_blob_lazy
-        old_blob_lazy
-
-        diff.diff = Gitlab::Diff::CustomDiff.preprocess_before_diff(diff.new_path, old_blob_lazy, new_blob_lazy) || diff.diff unless use_renderable_diff?
-      end
-
-      def use_renderable_diff?
-        strong_memoize(:_renderable_diff_enabled) { Feature.enabled?(:rendered_diffs_viewer, repository.project, default_enabled: :yaml) }
+        add_blobs_to_batch_loader
       end
 
       def has_renderable?
@@ -181,6 +177,31 @@ module Gitlab
       def diff_lines
         @diff_lines ||=
           Gitlab::Diff::Parser.new.parse(raw_diff.each_line, diff_file: self).to_a
+      end
+
+      def diff_lines_by_hunk
+        [].tap do |a|
+          lines = { added: [], removed: [] }
+
+          diff_lines.each do |line|
+            lines[:added] << line if line.added? && !line.meta?
+            lines[:removed] << line if line.removed? && !line.meta?
+
+            next unless line.type == 'match'
+
+            # If diff hunk is first line on diff file, skip it and continue iterating
+            # without resetting lines.
+            next if lines[:added].empty? && lines[:removed].empty?
+
+            a << lines
+
+            # Reset lines since we'll be creating a new hunk when a new diff
+            # hunk is seen.
+            lines = { added: [], removed: [] }
+          end
+
+          a << lines
+        end
       end
 
       # Changes diff_lines according to the given position. That is,
@@ -375,9 +396,22 @@ module Gitlab
       end
 
       def rendered
-        return unless use_renderable_diff? && ipynb?
+        return unless ipynb? && modified_file? && !collapsed? && !too_large?
 
         strong_memoize(:rendered) { Rendered::Notebook::DiffFile.new(self) }
+      end
+
+      def ipynb?
+        file_path.ends_with?('.ipynb')
+      end
+
+      def add_blobs_to_batch_loader
+        new_blob_lazy
+        old_blob_lazy
+      end
+
+      def ai_reviewable?
+        diffable? && !deleted_file?
       end
 
       private
@@ -394,7 +428,11 @@ module Gitlab
       def fetch_blob(sha, path)
         return unless sha
 
-        Blob.lazy(repository, sha, path)
+        if max_blob_size.present?
+          Blob.lazy(repository, sha, path, blob_size_limit: max_blob_size)
+        else
+          Blob.lazy(repository, sha, path)
+        end
       end
 
       def total_blob_lines(blob)
@@ -407,10 +445,6 @@ module Gitlab
 
       def modified_file?
         new_file? || deleted_file? || content_changed?
-      end
-
-      def ipynb?
-        modified_file? && file_path.ends_with?('.ipynb')
       end
 
       # We can't use Object#try because Blob doesn't inherit from Object, but

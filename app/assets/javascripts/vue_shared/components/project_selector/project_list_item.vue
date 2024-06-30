@@ -1,9 +1,10 @@
 <script>
-import { GlButton, GlIcon, GlSafeHtmlDirective as SafeHtml } from '@gitlab/ui';
+import { GlButton, GlIcon } from '@gitlab/ui';
 import { isString } from 'lodash';
 import highlight from '~/lib/utils/highlight';
 import { truncateNamespace } from '~/lib/utils/text_utility';
-import ProjectAvatar from '~/vue_shared/components/deprecated_project_avatar/default.vue';
+import ProjectAvatar from '~/vue_shared/components/project_avatar.vue';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 
 export default {
   name: 'ProjectListItem',
@@ -22,6 +23,9 @@ export default {
     matcher: { type: String, required: false, default: '' },
   },
   computed: {
+    projectAvatarUrl() {
+      return this.project.avatar_url || this.project.avatarUrl;
+    },
     projectNameWithNamespace() {
       return this.project.nameWithNamespace || this.project.name_with_namespace;
     },
@@ -48,20 +52,27 @@ export default {
     <div
       class="gl-display-flex gl-align-items-center gl-flex-wrap project-namespace-name-container"
     >
-      <gl-icon v-if="selected" class="js-selected-icon" name="mobile-issue-close" />
-      <project-avatar class="gl-flex-shrink-0 js-project-avatar" :project="project" :size="32" />
+      <gl-icon v-if="selected" data-testid="selected-icon" name="mobile-issue-close" />
+      <project-avatar
+        :project-id="project.id"
+        :project-avatar-url="projectAvatarUrl"
+        :project-name="projectNameWithNamespace"
+        class="gl-mr-3"
+      />
       <div
         v-if="truncatedNamespace"
+        data-testid="project-namespace"
         :title="projectNameWithNamespace"
-        class="text-secondary text-truncate js-project-namespace"
+        class="text-secondary text-truncate"
       >
         {{ truncatedNamespace }}
         <span v-if="truncatedNamespace" class="text-secondary">/&nbsp;</span>
       </div>
       <div
         v-safe-html="highlightedProjectName"
+        data-testid="project-name"
         :title="project.name"
-        class="js-project-name text-truncate"
+        class="text-truncate"
       ></div>
     </div>
   </gl-button>

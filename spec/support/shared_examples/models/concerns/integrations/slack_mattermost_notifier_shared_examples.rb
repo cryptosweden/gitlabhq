@@ -13,7 +13,6 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
 
   describe "Associations" do
     it { is_expected.to belong_to :project }
-    it { is_expected.to have_one :service_hook }
   end
 
   describe 'Validations' do
@@ -23,6 +22,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
       end
 
       it { is_expected.to validate_presence_of(:webhook) }
+
       it_behaves_like 'issue tracker integration URL attribute', :webhook
     end
 
@@ -45,8 +45,32 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     end
 
     it "notifies about #{event_type} events" do
+      expect(chat_integration).not_to receive(:log_error)
+
       chat_integration.execute(data)
+
       expect(WebMock).to have_requested(:post, stubbed_resolved_hostname)
+    end
+
+    context 'when the response is not successful' do
+      let!(:stubbed_resolved_hostname) do
+        stub_full_request(webhook_url, method: :post)
+          .to_return(status: 409, body: 'error message')
+          .request_pattern.uri_pattern.to_s
+      end
+
+      it 'logs an error' do
+        expect(chat_integration).to receive(:log_error).with(
+          'SlackMattermostNotifier HTTP error response',
+          request_host: 'example.gitlab.com',
+          response_code: 409,
+          response_body: 'error message'
+        )
+
+        chat_integration.execute(data)
+
+        expect(WebMock).to have_requested(:post, stubbed_resolved_hostname)
+      end
     end
   end
 
@@ -59,8 +83,9 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
       stub_full_request(webhook_url, method: :post).request_pattern.uri_pattern.to_s
     end
 
-    it "notifies about #{event_type} events" do
+    it "does not notify about #{event_type} events" do
       chat_integration.execute(data)
+
       expect(WebMock).not_to have_requested(:post, stubbed_resolved_hostname)
     end
   end
@@ -118,7 +143,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     end
 
     context 'tag_push events' do
-      let(:oldrev) { Gitlab::Git::BLANK_SHA }
+      let(:oldrev) { Gitlab::Git::SHA1_BLANK_SHA }
       let(:newrev) { '8a2a6eb295bb170b34c24c76c49ed0e9b2eaf34b' } # gitlab-test: git rev-parse refs/tags/v1.1.0
       let(:ref) { 'refs/tags/v1.1.0' }
       let(:data) { Git::TagHooksService.new(project, user, change: { oldrev: oldrev, newrev: newrev, ref: ref }).send(:push_data) }
@@ -127,7 +152,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     end
 
     context 'issue events' do
-      let_it_be(:issue) { create(:issue) }
+      let_it_be(:issue) { create(:issue, project: project) }
 
       let(:data) { issue.to_hook_data(user) }
 
@@ -167,7 +192,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     end
 
     context 'merge request events' do
-      let_it_be(:merge_request) { create(:merge_request) }
+      let_it_be(:merge_request) { create(:merge_request, source_project: project) }
 
       let(:data) { merge_request.to_hook_data(user) }
 
@@ -185,7 +210,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     end
 
     context 'wiki page events' do
-      let_it_be(:wiki_page) { create(:wiki_page, wiki: project.wiki, message: 'user created page: Awesome wiki_page') }
+      let_it_be(:wiki_page) { create(:wiki_page, wiki: project.wiki, project: project, message: 'user created page: Awesome wiki_page') }
 
       let(:data) { Gitlab::DataBuilder::WikiPage.build(wiki_page, user, 'create') }
 
@@ -203,9 +228,9 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     end
 
     context 'deployment events' do
-      let_it_be(:deployment) { create(:deployment) }
+      let_it_be(:deployment) { create(:deployment, project: project) }
 
-      let(:data) { Gitlab::DataBuilder::Deployment.build(deployment, Time.current) }
+      let(:data) { Gitlab::DataBuilder::Deployment.build(deployment, 'created', Time.current) }
 
       it_behaves_like 'calls the integration API with the event message', /Deploy to (.*?) created/
     end
@@ -213,7 +238,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     context 'note event' do
       let_it_be(:issue_note) { create(:note_on_issue, project: project, note: "issue note") }
 
-      let(:data) { Gitlab::DataBuilder::Note.build(issue_note, user) }
+      let(:data) { Gitlab::DataBuilder::Note.build(issue_note, user, :create) }
 
       it_behaves_like 'calls the integration API with the event message', /commented on issue/
 
@@ -227,9 +252,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
         end
 
         context 'for confidential notes' do
-          before_all do
-            issue_note.update!(confidential: true)
-          end
+          let_it_be(:issue_note) { create(:note_on_issue, project: project, note: "issue note", confidential: true) }
 
           it 'falls back to note channel' do
             expect(::Slack::Messenger).to execute_with_options(channel: ['random'])
@@ -252,8 +275,8 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
   end
 
   describe 'Push events' do
-    let(:user) { create(:user) }
-    let(:project) { create(:project, :repository, creator: user) }
+    let_it_be(:user) { create(:user) }
+    let_it_be_with_refind(:project) { create(:project, :repository, creator: user) }
 
     before do
       allow(chat_integration).to receive_messages(
@@ -304,7 +327,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     end
 
     context 'on a protected branch' do
-      before do
+      before_all do
         create(:protected_branch, :create_branch_on_repository, project: project, name: 'a-protected-branch')
       end
 
@@ -346,7 +369,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     end
 
     context 'on a protected branch with protected branches defined using wildcards' do
-      before do
+      before_all do
         create(:protected_branch, :create_branch_on_repository, repository_branch_name: '1-stable', project: project, name: '*-stable')
       end
 
@@ -427,8 +450,8 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
   end
 
   describe 'Note events' do
-    let(:user) { create(:user) }
-    let(:project) { create(:project, :repository, creator: user) }
+    let_it_be(:user) { create(:user) }
+    let_it_be_with_reload(:project) { create(:project, :repository, creator: user) }
 
     before do
       allow(chat_integration).to receive_messages(
@@ -442,14 +465,17 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
 
     context 'when commit comment event executed' do
       let(:commit_note) do
-        create(:note_on_commit, author: user,
-                                project: project,
-                                commit_id: project.repository.commit.id,
-                                note: 'a comment on a commit')
+        create(
+          :note_on_commit,
+          author: user,
+          project: project,
+          commit_id: project.repository.commit.id,
+          note: 'a comment on a commit'
+        )
       end
 
       let(:data) do
-        Gitlab::DataBuilder::Note.build(commit_note, user)
+        Gitlab::DataBuilder::Note.build(commit_note, user, :create)
       end
 
       it_behaves_like "triggered #{integration_name} integration", event_type: "commit comment"
@@ -457,12 +483,11 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
 
     context 'when merge request comment event executed' do
       let(:merge_request_note) do
-        create(:note_on_merge_request, project: project,
-                                       note: 'a comment on a merge request')
+        create(:note_on_merge_request, project: project, note: 'a comment on a merge request')
       end
 
       let(:data) do
-        Gitlab::DataBuilder::Note.build(merge_request_note, user)
+        Gitlab::DataBuilder::Note.build(merge_request_note, user, :create)
       end
 
       it_behaves_like "triggered #{integration_name} integration", event_type: "merge request comment"
@@ -470,12 +495,11 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
 
     context 'when issue comment event executed' do
       let(:issue_note) do
-        create(:note_on_issue, project: project,
-                               note: 'a comment on an issue')
+        create(:note_on_issue, project: project, note: 'a comment on an issue')
       end
 
       let(:data) do
-        Gitlab::DataBuilder::Note.build(issue_note, user)
+        Gitlab::DataBuilder::Note.build(issue_note, user, :create)
       end
 
       it_behaves_like "triggered #{integration_name} integration", event_type: "issue comment"
@@ -483,12 +507,11 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
 
     context 'when snippet comment event executed' do
       let(:snippet_note) do
-        create(:note_on_project_snippet, project: project,
-                                         note: 'a comment on a snippet')
+        create(:note_on_project_snippet, project: project, note: 'a comment on a snippet')
       end
 
       let(:data) do
-        Gitlab::DataBuilder::Note.build(snippet_note, user)
+        Gitlab::DataBuilder::Note.build(snippet_note, user, :create)
       end
 
       it_behaves_like "triggered #{integration_name} integration", event_type: "snippet comment"
@@ -496,12 +519,10 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
   end
 
   describe 'Pipeline events' do
-    let(:user) { create(:user) }
-    let(:project) { create(:project, :repository, creator: user) }
+    let_it_be(:user) { create(:user) }
+    let_it_be_with_refind(:project) { create(:project, :repository, creator: user) }
     let(:pipeline) do
-      create(:ci_pipeline,
-             project: project, status: status,
-             sha: project.commit.sha, ref: project.default_branch)
+      create(:ci_pipeline, project: project, status: status, sha: project.commit.sha, ref: project.default_branch)
     end
 
     before do
@@ -534,9 +555,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     context 'with failed pipeline' do
       context 'on default branch' do
         let(:pipeline) do
-          create(:ci_pipeline,
-                project: project, status: :failed,
-                sha: project.commit.sha, ref: project.default_branch)
+          create(:ci_pipeline, project: project, status: :failed, sha: project.commit.sha, ref: project.default_branch)
         end
 
         let(:data) { Gitlab::DataBuilder::Pipeline.build(pipeline) }
@@ -559,14 +578,12 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
       end
 
       context 'on a protected branch' do
-        before do
+        before_all do
           create(:protected_branch, :create_branch_on_repository, project: project, name: 'a-protected-branch')
         end
 
         let(:pipeline) do
-          create(:ci_pipeline,
-                project: project, status: :failed,
-                sha: project.commit.sha, ref: 'a-protected-branch')
+          create(:ci_pipeline, project: project, status: :failed, sha: project.commit.sha, ref: 'a-protected-branch')
         end
 
         let(:data) { Gitlab::DataBuilder::Pipeline.build(pipeline) }
@@ -589,14 +606,12 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
       end
 
       context 'on a protected branch with protected branches defined usin wildcards' do
-        before do
+        before_all do
           create(:protected_branch, :create_branch_on_repository, repository_branch_name: '1-stable', project: project, name: '*-stable')
         end
 
         let(:pipeline) do
-          create(:ci_pipeline,
-                project: project, status: :failed,
-                sha: project.commit.sha, ref: '1-stable')
+          create(:ci_pipeline, project: project, status: :failed, sha: project.commit.sha, ref: '1-stable')
         end
 
         let(:data) { Gitlab::DataBuilder::Pipeline.build(pipeline) }
@@ -620,9 +635,7 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
 
       context 'on a neither protected nor default branch' do
         let(:pipeline) do
-          create(:ci_pipeline,
-                project: project, status: :failed,
-                sha: project.commit.sha, ref: 'a-random-branch')
+          create(:ci_pipeline, project: project, status: :failed, sha: project.commit.sha, ref: 'a-random-branch')
         end
 
         let(:data) { Gitlab::DataBuilder::Pipeline.build(pipeline) }
@@ -648,13 +661,13 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
 
   describe 'Deployment events' do
     let_it_be(:user) { create(:user) }
-    let_it_be_with_reload(:project) { create(:project, :repository, creator: user) }
+    let_it_be_with_refind(:project) { create(:project, :repository, creator: user) }
 
-    let(:deployment) do
+    let_it_be(:deployment) do
       create(:deployment, :success, project: project, sha: project.commit.sha, ref: project.default_branch)
     end
 
-    let(:data) { Gitlab::DataBuilder::Deployment.build(deployment, Time.now) }
+    let(:data) { Gitlab::DataBuilder::Deployment.build(deployment, deployment.status, Time.now) }
 
     before do
       allow(chat_integration).to receive_messages(
@@ -669,11 +682,11 @@ RSpec.shared_examples Integrations::SlackMattermostNotifier do |integration_name
     it_behaves_like "triggered #{integration_name} integration", event_type: "deployment"
 
     context 'on a protected branch' do
-      before do
+      before_all do
         create(:protected_branch, :create_branch_on_repository, project: project, name: 'a-protected-branch')
       end
 
-      let(:deployment) do
+      let_it_be(:deployment) do
         create(:deployment, :success, project: project, sha: project.commit.sha, ref: 'a-protected-branch')
       end
 

@@ -1,8 +1,10 @@
 import MockAdapter from 'axios-mock-adapter';
 import $ from 'jquery';
+import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { TEST_HOST } from 'helpers/test_constants';
 import waitForPromises from 'helpers/wait_for_promises';
 import axios from '~/lib/utils/axios_utils';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { removeParams } from '~/lib/utils/url_utility';
 import Pager from '~/pager';
 
@@ -26,12 +28,14 @@ describe('pager', () => {
     const originalHref = window.location.href;
 
     beforeEach(() => {
-      setFixtures('<div class="content_list"></div><div class="loading"></div>');
+      setHTMLFixture('<div class="content_list"></div><div class="loading"></div>');
       jest.spyOn($.fn, 'endlessScroll').mockImplementation();
     });
 
     afterEach(() => {
       window.history.replaceState({}, null, originalHref);
+
+      resetHTMLFixture();
     });
 
     it('should get initial offset from query parameter', () => {
@@ -46,7 +50,7 @@ describe('pager', () => {
     const urlRegex = /(.*)some_list(.*)$/;
 
     function mockSuccess(count = 0) {
-      axiosMock.onGet(urlRegex).reply(200, {
+      axiosMock.onGet(urlRegex).reply(HTTP_STATUS_OK, {
         count,
         html: '',
       });
@@ -57,7 +61,7 @@ describe('pager', () => {
     }
 
     beforeEach(() => {
-      setFixtures(
+      setHTMLFixture(
         '<div class="content_list" data-href="/some_list"></div><div class="loading"></div>',
       );
       jest.spyOn(axios, 'get');
@@ -65,37 +69,41 @@ describe('pager', () => {
       Pager.init();
     });
 
+    afterEach(() => {
+      resetHTMLFixture();
+    });
+
     it('shows loader while loading next page', async () => {
       mockSuccess();
 
-      jest.spyOn(Pager.loading, 'show').mockImplementation(() => {});
+      jest.spyOn(Pager.$loading, 'show').mockImplementation(() => {});
       Pager.getOld();
 
       await waitForPromises();
 
-      expect(Pager.loading.show).toHaveBeenCalled();
+      expect(Pager.$loading.show).toHaveBeenCalled();
     });
 
     it('hides loader on success', async () => {
       mockSuccess();
 
-      jest.spyOn(Pager.loading, 'hide').mockImplementation(() => {});
+      jest.spyOn(Pager.$loading, 'hide').mockImplementation(() => {});
       Pager.getOld();
 
       await waitForPromises();
 
-      expect(Pager.loading.hide).toHaveBeenCalled();
+      expect(Pager.$loading.hide).toHaveBeenCalled();
     });
 
     it('hides loader on error', async () => {
       mockError();
 
-      jest.spyOn(Pager.loading, 'hide').mockImplementation(() => {});
+      jest.spyOn(Pager.$loading, 'hide').mockImplementation(() => {});
       Pager.getOld();
 
       await waitForPromises();
 
-      expect(Pager.loading.hide).toHaveBeenCalled();
+      expect(Pager.$loading.hide).toHaveBeenCalled();
     });
 
     it('sends request to url with offset and limit params', async () => {
@@ -122,12 +130,12 @@ describe('pager', () => {
       Pager.limit = 20;
 
       mockSuccess(1);
-      jest.spyOn(Pager.loading, 'hide').mockImplementation(() => {});
+      jest.spyOn(Pager.$loading, 'hide').mockImplementation(() => {});
       Pager.getOld();
 
       await waitForPromises();
 
-      expect(Pager.loading.hide).toHaveBeenCalled();
+      expect(Pager.$loading.hide).toHaveBeenCalled();
       expect(Pager.disable).toBe(true);
     });
 
@@ -135,7 +143,11 @@ describe('pager', () => {
       const href = `${TEST_HOST}/some_list.json`;
 
       beforeEach(() => {
-        setFixtures(`<div class="content_list" data-href="${href}"></div>`);
+        setHTMLFixture(`<div class="content_list" data-href="${href}"></div>`);
+      });
+
+      afterEach(() => {
+        resetHTMLFixture();
       });
 
       it('should use data-href attribute', () => {
@@ -154,7 +166,11 @@ describe('pager', () => {
 
     describe('no data-href attribute attribute provided from list element', () => {
       beforeEach(() => {
-        setFixtures(`<div class="content_list"></div>`);
+        setHTMLFixture(`<div class="content_list"></div>`);
+      });
+
+      afterEach(() => {
+        resetHTMLFixture();
       });
 
       it('should use current url', () => {
@@ -173,6 +189,51 @@ describe('pager', () => {
 
         expect(removeParams).toHaveBeenCalledWith(['limit', 'offset']);
         expect(axios.get).toHaveBeenCalledWith(href, expect.any(Object));
+      });
+    });
+
+    describe('when `container` is passed', () => {
+      const href = '/some_list';
+      const container = '#js-pager';
+      let endlessScrollCallback;
+
+      beforeEach(() => {
+        jest.spyOn(axios, 'get');
+        jest.spyOn($.fn, 'endlessScroll').mockImplementation(({ callback }) => {
+          endlessScrollCallback = callback;
+        });
+      });
+
+      describe('when `container` is visible', () => {
+        it('makes API request', () => {
+          setHTMLFixture(
+            `<div id="js-pager"><div class="content_list" data-href="${href}"></div></div>`,
+          );
+
+          Pager.init({ container });
+
+          endlessScrollCallback();
+
+          expect(axios.get).toHaveBeenCalledWith(href, expect.any(Object));
+
+          resetHTMLFixture();
+        });
+      });
+
+      describe('when `container` is not visible', () => {
+        it('does not make API request', () => {
+          setHTMLFixture(
+            `<div id="js-pager" style="display: none;"><div class="content_list" data-href="${href}"></div></div>`,
+          );
+
+          Pager.init({ container });
+
+          endlessScrollCallback();
+
+          expect(axios.get).not.toHaveBeenCalled();
+
+          resetHTMLFixture();
+        });
       });
     });
   });

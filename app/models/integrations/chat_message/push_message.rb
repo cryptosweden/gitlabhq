@@ -35,6 +35,10 @@ module Integrations
         }
       end
 
+      def attachment_color
+        '#345'
+      end
+
       private
 
       def humanized_action(short: false)
@@ -82,12 +86,12 @@ module Integrations
         if ref_type == 'tag'
           "#{project_url}/-/tags/#{ref}"
         else
-          "#{project_url}/commits/#{ref}"
+          "#{project_url}/-/commits/#{ref}"
         end
       end
 
       def compare_url
-        "#{project_url}/compare/#{before}...#{after}"
+        "#{project_url}/-/compare/#{before}...#{after}"
       end
 
       def ref_link
@@ -110,10 +114,6 @@ module Integrations
         else
           ['pushed to', ref_link, "of #{project_link} (#{compare_link})"]
         end
-      end
-
-      def attachment_color
-        '#345'
       end
     end
   end

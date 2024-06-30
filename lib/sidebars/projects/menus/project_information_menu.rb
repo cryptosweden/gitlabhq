@@ -18,11 +18,6 @@ module Sidebars
           { class: 'shortcuts-project-information' }
         end
 
-        override :extra_nav_link_html_options
-        def extra_nav_link_html_options
-          { class: 'home' }
-        end
-
         override :title
         def title
           _('Project information')
@@ -33,12 +28,18 @@ module Sidebars
           'project'
         end
 
+        override :serialize_as_menu_item_args
+        def serialize_as_menu_item_args
+          nil
+        end
+
         private
 
         def activity_menu_item
           ::Sidebars::MenuItem.new(
             title: _('Activity'),
             link: activity_project_path(context.project),
+            super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::ManageMenu,
             active_routes: { path: 'projects#activity' },
             item_id: :activity,
             container_html_options: { class: 'shortcuts-project-activity' }
@@ -53,6 +54,7 @@ module Sidebars
           ::Sidebars::MenuItem.new(
             title: _('Labels'),
             link: project_labels_path(context.project),
+            super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::ManageMenu,
             active_routes: { controller: :labels },
             item_id: :labels
           )
@@ -66,11 +68,9 @@ module Sidebars
           ::Sidebars::MenuItem.new(
             title: _('Members'),
             link: project_project_members_path(context.project),
+            super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::ManageMenu,
             active_routes: { controller: :project_members },
-            item_id: :members,
-            container_html_options: {
-              id: 'js-onboarding-members-link'
-            }
+            item_id: :members
           )
         end
       end

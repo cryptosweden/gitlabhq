@@ -7,14 +7,18 @@ class UploadsController < ApplicationController
   UnknownUploadModelError = Class.new(StandardError)
 
   MODEL_CLASSES = {
-    "user"             => User,
-    "project"          => Project,
-    "note"             => Note,
-    "group"            => Group,
-    "appearance"       => Appearance,
+    "user" => User,
+    "project" => Project,
+    "note" => Note,
+    "group" => Group,
+    "appearance" => Appearance,
     "personal_snippet" => PersonalSnippet,
-    "projects/topic"   => Projects::Topic,
-    nil                => PersonalSnippet
+    "projects/topic" => Projects::Topic,
+    'alert_management_metric_image' => ::AlertManagement::MetricImage,
+    "achievements/achievement" => Achievements::Achievement,
+    "organizations/organization_detail" => Organizations::OrganizationDetail,
+    "abuse_report" => AbuseReport,
+    nil => PersonalSnippet
   }.freeze
 
   rescue_from UnknownUploadModelError, with: :render_404
@@ -26,7 +30,7 @@ class UploadsController < ApplicationController
   before_action :authorize_create_access!, only: [:create, :authorize]
   before_action :verify_workhorse_api!, only: [:authorize]
 
-  feature_category :not_owned
+  feature_category :groups_and_projects
 
   def self.model_classes
     MODEL_CLASSES
@@ -51,11 +55,19 @@ class UploadsController < ApplicationController
       # access to itself when a secret is given.
       # For instance, user avatars are readable by anyone,
       # while temporary, user snippet uploads are not.
+      return false if !current_user && public_visibility_restricted?
+
       !secret? || can?(current_user, :update_user, model)
     when Appearance
       true
     when Projects::Topic
       true
+    when ::AlertManagement::MetricImage
+      can?(current_user, :read_alert_management_metric_image, model.alert)
+    when ::Achievements::Achievement
+      true
+    when Organizations::OrganizationDetail
+      can?(current_user, :read_organization, model.organization)
     else
       can?(current_user, "read_#{model.class.underscore}".to_sym, model)
     end
@@ -87,7 +99,7 @@ class UploadsController < ApplicationController
 
   def cache_settings
     case model
-    when User, Appearance, Projects::Topic
+    when User, Appearance, Projects::Topic, Achievements::Achievement, Organizations::OrganizationDetail
       [5.minutes, { public: true, must_revalidate: false }]
     when Project, Group
       [5.minutes, { private: true, must_revalidate: true }]

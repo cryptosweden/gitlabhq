@@ -1,20 +1,28 @@
-/* eslint-disable no-new, class-methods-use-this */
-import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
+/* eslint-disable class-methods-use-this */
 import $ from 'jquery';
 import Vue from 'vue';
+import VueApollo from 'vue-apollo';
+import createDefaultClient from '~/lib/graphql';
+import { createAlert } from '~/alert';
 import { getCookie, isMetaClick, parseBoolean, scrollToElement } from '~/lib/utils/common_utils';
-import { parseUrlPathname } from '~/lib/utils/url_utility';
+import { parseUrlPathname, visitUrl } from '~/lib/utils/url_utility';
 import createEventHub from '~/helpers/event_hub_factory';
+import { renderGFM } from '~/behaviors/markdown/render_gfm';
 import BlobForkSuggestion from './blob/blob_fork_suggestion';
 import Diff from './diff';
-import createFlash from './flash';
 import { initDiffStatsDropdown } from './init_diff_stats_dropdown';
 import axios from './lib/utils/axios_utils';
 
 import { localTimeAgo } from './lib/utils/datetime_utility';
 import { isInVueNoteablePage } from './lib/utils/dom_utils';
-import { __ } from './locale';
+import { __, s__ } from './locale';
 import syntaxHighlight from './syntax_highlight';
+
+Vue.use(VueApollo);
+
+const apolloProvider = new VueApollo({
+  defaultClient: createDefaultClient(),
+});
 
 // MergeRequestTabs
 //
@@ -75,32 +83,31 @@ function scrollToContainer(container) {
   }
 }
 
-function computeTopOffset(tabs) {
-  const navbar = document.querySelector('.navbar-gitlab');
-  const peek = document.getElementById('js-peek');
-  let stickyTop;
-
-  stickyTop = navbar ? navbar.offsetHeight : 0;
-  stickyTop = peek ? stickyTop + peek.offsetHeight : stickyTop;
-  stickyTop = tabs ? stickyTop + tabs.offsetHeight : stickyTop;
-
-  return stickyTop;
-}
-
 function mountPipelines() {
   const pipelineTableViewEl = document.querySelector('#commit-pipeline-table-view');
   const { mrWidgetData } = gl;
   const table = new Vue({
     components: {
-      CommitPipelinesTable: () => import('~/commit/pipelines/pipelines_table.vue'),
+      MergeRequestPipelinesTable: () => {
+        return gon.features.mrPipelinesGraphql
+          ? import('~/ci/merge_requests/components/pipelines_table_wrapper.vue')
+          : import('~/commit/pipelines/legacy_pipelines_table_wrapper.vue');
+      },
     },
+    apolloProvider,
     provide: {
       artifactsEndpoint: pipelineTableViewEl.dataset.artifactsEndpoint,
       artifactsEndpointPlaceholder: pipelineTableViewEl.dataset.artifactsEndpointPlaceholder,
       targetProjectFullPath: mrWidgetData?.target_project_full_path || '',
+      fullPath: pipelineTableViewEl.dataset.fullPath,
+      graphqlPath: pipelineTableViewEl.dataset.graphqlPath,
+      manualActionsLimit: 50,
+      mergeRequestId: mrWidgetData ? mrWidgetData.iid : null,
+      sourceProjectFullPath: mrWidgetData?.source_project_full_path || '',
+      useFailedJobsWidget: gon.features?.ciJobFailuresInMr || false,
     },
     render(createElement) {
-      return createElement('commit-pipelines-table', {
+      return createElement('merge-request-pipelines-table', {
         props: {
           endpoint: pipelineTableViewEl.dataset.endpoint,
           emptyStateSvgPath: pipelineTableViewEl.dataset.emptyStateSvgPath,
@@ -124,7 +131,7 @@ function mountPipelines() {
   return table;
 }
 
-function destroyPipelines(app) {
+export function destroyPipelines(app) {
   if (app && app.$destroy) {
     app.$destroy();
 
@@ -134,16 +141,18 @@ function destroyPipelines(app) {
   return null;
 }
 
-function loadDiffs({ url, sticky }) {
-  return axios.get(`${url}.json${location.search}`).then(({ data }) => {
+function loadDiffs({ url, tabs }) {
+  return axios.get(url).then(({ data }) => {
     const $container = $('#diffs');
     $container.html(data.html);
-    initDiffStatsDropdown(sticky);
+    initDiffStatsDropdown();
 
     localTimeAgo(document.querySelectorAll('#diffs .js-timeago'));
     syntaxHighlight($('#diffs .js-syntax-highlight'));
 
-    new Diff();
+    tabs.createDiff();
+    tabs.setHubToDiff();
+
     scrollToContainer('#diffs');
 
     $('.diff-file').each((i, el) => {
@@ -158,12 +167,31 @@ function loadDiffs({ url, sticky }) {
   });
 }
 
-function toggleLoader(state) {
+export function toggleLoader(state) {
   $('.mr-loading-status .loading').toggleClass('hide', !state);
 }
 
+export function getActionFromHref(pathName) {
+  let action = pathName.match(/\/(\d+)\/(commits|diffs|pipelines).*$/);
+
+  if (action) {
+    action = action.at(-1).replace(/(^\/|\.html)/g, '');
+  } else {
+    action = 'show';
+  }
+
+  return action;
+}
+
+export const pageBundles = {
+  show: () => import(/* webpackPrefetch: true */ '~/mr_notes/mount_app'),
+  diffs: () => import(/* webpackPrefetch: true */ '~/diffs'),
+};
+
 export default class MergeRequestTabs {
   constructor({ action, setUrl, stubLocation } = {}) {
+    const containers = document.querySelectorAll('.content-wrapper .container-fluid');
+    this.contentWrapper = containers[containers.length - 1];
     this.mergeRequestTabs = document.querySelector('.merge-request-tabs-container');
     this.mergeRequestTabsAll =
       this.mergeRequestTabs && this.mergeRequestTabs.querySelectorAll
@@ -176,7 +204,11 @@ export default class MergeRequestTabs {
         : null;
     this.navbar = document.querySelector('.navbar-gitlab');
     this.peek = document.getElementById('js-peek');
+    this.sidebar = document.querySelector('.js-right-sidebar');
+    this.pageLayout = document.querySelector('.layout-page');
+    this.expandSidebar = document.querySelectorAll('.js-expand-sidebar, .js-sidebar-toggle');
     this.paddingTop = 16;
+    this.actionRegex = /\/(commits|diffs|pipelines)(\.html)?\/?$/;
 
     this.scrollPositions = {};
 
@@ -184,13 +216,15 @@ export default class MergeRequestTabs {
 
     this.currentTab = null;
     this.diffsLoaded = false;
-    this.pipelinesLoaded = false;
+    this.diffsClass = null;
     this.commitsLoaded = false;
-    this.fixedLayoutPref = null;
+    this.isFixedLayoutPreferred = this.contentWrapper.classList.contains('container-limited');
     this.eventHub = createEventHub();
+    this.loadedPages = { [action]: true };
 
     this.setUrl = setUrl !== undefined ? setUrl : true;
     this.setCurrentAction = this.setCurrentAction.bind(this);
+    this.switchViewType = this.switchViewType.bind(this);
     this.tabShown = this.tabShown.bind(this);
     this.clickTab = this.clickTab.bind(this);
 
@@ -205,17 +239,19 @@ export default class MergeRequestTabs {
   bindEvents() {
     $('.merge-request-tabs a[data-toggle="tabvue"]').on('click', this.clickTab);
     window.addEventListener('popstate', (event) => {
-      if (event.state && event.state.action) {
-        this.tabShown(event.state.action, event.target.location);
-        this.currentAction = event.state.action;
-        this.eventHub.$emit('MergeRequestTabChange', this.getCurrentAction());
-      }
+      if (event?.state?.skipScrolling) return;
+      const action = getActionFromHref(window.location.pathname);
+
+      this.tabShown(action, location.href);
+      this.eventHub.$emit('MergeRequestTabChange', action);
     });
+    this.eventHub.$on('diff:switch-view-type', this.switchViewType);
   }
 
   // Used in tests
   unbindEvents() {
     $('.merge-request-tabs a[data-toggle="tabvue"]').off('click', this.clickTab);
+    this.eventHub.$off('diff:switch-view-type', this.switchViewType);
   }
 
   storeScroll() {
@@ -225,10 +261,11 @@ export default class MergeRequestTabs {
   }
   recallScroll(action) {
     const storedPosition = this.scrollPositions[action];
+    if (storedPosition == null) return;
 
     setTimeout(() => {
       window.scrollTo({
-        top: storedPosition && storedPosition > 0 ? storedPosition : 0,
+        top: storedPosition > 0 ? storedPosition : 0,
         left: 0,
         behavior: 'auto',
       });
@@ -246,21 +283,22 @@ export default class MergeRequestTabs {
 
       if (isMetaClick(e)) {
         const targetLink = e.currentTarget.getAttribute('href');
-        window.open(targetLink, '_blank');
+        visitUrl(targetLink, true);
       } else if (action) {
         const href = e.currentTarget.getAttribute('href');
         this.tabShown(action, href);
-
-        if (this.setUrl) {
-          this.setCurrentAction(action);
-        }
       }
     }
   }
 
-  tabShown(action, href) {
+  tabShown(action, href, shouldScroll = true) {
+    toggleLoader(false);
+
     if (action !== this.currentTab && this.mergeRequestTabs) {
       this.currentTab = action;
+      if (this.setUrl) {
+        this.setCurrentAction(action);
+      }
 
       if (this.mergeRequestTabPanesAll) {
         this.mergeRequestTabPanesAll.forEach((el) => {
@@ -280,15 +318,33 @@ export default class MergeRequestTabs {
       const tab = this.mergeRequestTabs.querySelector(`.${action}-tab`);
       if (tab) tab.classList.add('active');
 
+      if (isInVueNoteablePage() && !this.loadedPages[action] && action in pageBundles) {
+        toggleLoader(true);
+        pageBundles[action]()
+          .then(({ default: init }) => {
+            toggleLoader(false);
+            init();
+            this.loadedPages[action] = true;
+          })
+          .catch(() => {
+            toggleLoader(false);
+            createAlert({ message: s__('MergeRequest|Failed to load the page') });
+          });
+      }
+
+      this.expandSidebar?.forEach((el) => el.classList.toggle('!gl-hidden', action !== 'show'));
+
       if (action === 'commits') {
-        this.loadCommits(href);
-        this.expandView();
+        if (!this.commitsLoaded) {
+          this.loadCommits(href);
+        }
+        // this.hideSidebar();
         this.resetViewContainer();
-        this.commitPipelinesTable = destroyPipelines(this.commitPipelinesTable);
+        this.mergeRequestPipelinesTable = destroyPipelines(this.mergeRequestPipelinesTable);
       } else if (action === 'new') {
         this.expandView();
         this.resetViewContainer();
-        this.commitPipelinesTable = destroyPipelines(this.commitPipelinesTable);
+        this.mergeRequestPipelinesTable = destroyPipelines(this.mergeRequestPipelinesTable);
       } else if (this.isDiffAction(action)) {
         if (!isInVueNoteablePage()) {
           /*
@@ -299,15 +355,14 @@ export default class MergeRequestTabs {
             in practice, this only occurs when comparing commits in
             the new merge request form page.
           */
-          this.loadDiff(href);
+          this.loadDiff({ endpoint: href, strip: true });
         }
-        if (bp.getBreakpointSize() !== 'xl') {
-          this.shrinkView();
-        }
+        // this.hideSidebar();
         this.expandViewContainer();
-        this.commitPipelinesTable = destroyPipelines(this.commitPipelinesTable);
+        this.mergeRequestPipelinesTable = destroyPipelines(this.mergeRequestPipelinesTable);
         this.commitsTab.classList.remove('active');
       } else if (action === 'pipelines') {
+        // this.hideSidebar();
         this.resetViewContainer();
         this.mountPipelinesView();
       } else {
@@ -320,16 +375,14 @@ export default class MergeRequestTabs {
           notesTab.classList.add('active');
         }
 
-        if (bp.getBreakpointSize() !== 'xs') {
-          this.expandView();
-        }
+        // this.showSidebar();
         this.resetViewContainer();
-        this.commitPipelinesTable = destroyPipelines(this.commitPipelinesTable);
+        this.mergeRequestPipelinesTable = destroyPipelines(this.mergeRequestPipelinesTable);
       }
 
-      $('.detail-page-description').renderGFM();
+      renderGFM(document.querySelector('.detail-page-description'));
 
-      this.recallScroll(action);
+      if (shouldScroll) this.recallScroll(action);
     } else if (action === this.currentAction) {
       // ContentTop is used to handle anything at the top of the page before the main content
       const mainContentContainer = document.querySelector('.content-wrapper');
@@ -343,7 +396,7 @@ export default class MergeRequestTabs {
         const scrollDestination = tabContentTop - mainContentTop - 51;
 
         // scrollBehavior is only available in browsers that support scrollToOptions
-        if ('scrollBehavior' in document.documentElement.style) {
+        if ('scrollBehavior' in document.documentElement.style && shouldScroll) {
           window.scrollTo({
             top: scrollDestination,
             behavior: 'smooth',
@@ -381,7 +434,7 @@ export default class MergeRequestTabs {
     this.currentAction = action;
 
     // Remove a trailing '/commits' '/diffs' '/pipelines'
-    let newState = location.pathname.replace(/\/(commits|diffs|pipelines)(\.html)?\/?$/, '');
+    let newState = location.pathname.replace(this.actionRegex, '');
 
     // Append the new action if we're on a tab other than 'notes'
     if (this.currentAction !== 'show' && this.currentAction !== 'new') {
@@ -391,7 +444,7 @@ export default class MergeRequestTabs {
     // Ensure parameters and hash come along for the ride
     newState += location.search + location.hash;
 
-    if (window.history.state && window.history.state.url && window.location.pathname !== newState) {
+    if (window.location.pathname !== newState) {
       window.history.pushState(
         {
           url: newState,
@@ -418,53 +471,67 @@ export default class MergeRequestTabs {
     return this.currentAction;
   }
 
-  loadCommits(source) {
-    if (this.commitsLoaded) {
-      return;
-    }
-
+  loadCommits(source, page = 1) {
     toggleLoader(true);
 
     axios
-      .get(`${source}.json`)
-      .then(({ data }) => {
+      .get(`${source}.json`, { params: { page, per_page: 100 } })
+      .then(({ data: { html, count, next_page: nextPage } }) => {
+        toggleLoader(false);
+
+        document.querySelector('.js-commits-count').textContent = count;
+
         const commitsDiv = document.querySelector('div#commits');
-        commitsDiv.innerHTML = data.html;
+        // eslint-disable-next-line no-unsanitized/property
+        commitsDiv.innerHTML += html;
         localTimeAgo(commitsDiv.querySelectorAll('.js-timeago'));
         this.commitsLoaded = true;
         scrollToContainer('#commits');
 
-        toggleLoader(false);
+        const loadMoreButton = document.querySelector('.js-load-more-commits');
 
-        return import('./add_context_commits_modal');
+        if (loadMoreButton) {
+          loadMoreButton.addEventListener('click', (e) => {
+            e.preventDefault();
+
+            loadMoreButton.remove();
+            this.loadCommits(source, loadMoreButton.dataset.nextPage);
+          });
+        }
+
+        if (!nextPage) {
+          return import('./add_context_commits_modal');
+        }
+
+        return null;
       })
-      .then((m) => m.default())
+      .then((m) => m?.default())
       .catch(() => {
         toggleLoader(false);
-        createFlash({
+        createAlert({
           message: __('An error occurred while fetching this tab.'),
         });
       });
   }
 
   mountPipelinesView() {
-    this.commitPipelinesTable = mountPipelines();
+    this.mergeRequestPipelinesTable = mountPipelines();
   }
 
   // load the diff tab content from the backend
-  loadDiff(source) {
+  loadDiff({ endpoint, strip = true }) {
     if (this.diffsLoaded) {
       document.dispatchEvent(new CustomEvent('scroll'));
       return;
     }
 
-    toggleLoader(true);
+    // We extract pathname for the current Changes tab anchor href
+    // some pages like MergeRequestsController#new has query parameters on that anchor
+    const diffUrl = strip ? `${parseUrlPathname(endpoint)}.json${location.search}` : endpoint;
 
     loadDiffs({
-      // We extract pathname for the current Changes tab anchor href
-      // some pages like MergeRequestsController#new has query parameters on that anchor
-      url: parseUrlPathname(source),
-      sticky: computeTopOffset(this.mergeRequestTabs),
+      url: diffUrl,
+      tabs: this,
     })
       .then(() => {
         if (this.isDiffAction(this.currentAction)) {
@@ -474,13 +541,25 @@ export default class MergeRequestTabs {
         this.diffsLoaded = true;
       })
       .catch(() => {
-        createFlash({
+        createAlert({
           message: __('An error occurred while fetching this tab.'),
         });
-      })
-      .finally(() => {
-        toggleLoader(false);
       });
+  }
+  switchViewType({ source }) {
+    this.diffsLoaded = false;
+
+    this.loadDiff({ endpoint: source, strip: false });
+  }
+  createDiff() {
+    if (!this.diffsClass) {
+      this.diffsClass = new Diff({ mergeRequestEventHub: this.eventHub });
+    }
+  }
+  setHubToDiff() {
+    if (this.diffsClass) {
+      this.diffsClass.mrHub = this.eventHub;
+    }
   }
 
   diffViewType() {
@@ -491,35 +570,14 @@ export default class MergeRequestTabs {
     return action === 'diffs' || action === 'new/diffs';
   }
 
-  expandViewContainer(removeLimited = true) {
-    const $wrapper = $('.content-wrapper .container-fluid').not('.breadcrumbs');
-    if (this.fixedLayoutPref === null) {
-      this.fixedLayoutPref = $wrapper.hasClass('container-limited');
-    }
-    if (this.diffViewType() === 'parallel' || removeLimited) {
-      $wrapper.removeClass('container-limited');
-    } else {
-      $wrapper.toggleClass('container-limited', this.fixedLayoutPref);
-    }
+  expandViewContainer() {
+    this.contentWrapper.classList.remove('container-limited');
+    this.contentWrapper.classList.add('diffs-container-limited');
   }
 
   resetViewContainer() {
-    if (this.fixedLayoutPref !== null) {
-      $('.content-wrapper .container-fluid').toggleClass('container-limited', this.fixedLayoutPref);
-    }
-  }
-
-  shrinkView() {
-    const $gutterBtn = $('.js-sidebar-toggle:visible');
-    const $expandSvg = $gutterBtn.find('.js-sidebar-expand');
-
-    // Wait until listeners are set
-    setTimeout(() => {
-      // Only when sidebar is expanded
-      if ($expandSvg.length && $expandSvg.hasClass('hidden')) {
-        $gutterBtn.trigger('click', [true]);
-      }
-    }, 0);
+    this.contentWrapper.classList.toggle('container-limited', this.isFixedLayoutPreferred);
+    this.contentWrapper.classList.remove('diffs-container-limited');
   }
 
   // Expand the issuable sidebar unless the user explicitly collapsed it
@@ -537,5 +595,21 @@ export default class MergeRequestTabs {
         $gutterBtn.trigger('click', [true]);
       }
     }, 0);
+  }
+
+  hideSidebar() {
+    if (!isInVueNoteablePage() || this.cachedPageLayoutClasses) return;
+
+    this.cachedPageLayoutClasses = this.pageLayout.className;
+    this.pageLayout.classList.remove('right-sidebar-collapsed', 'right-sidebar-expanded');
+    this.sidebar.style.width = '0px';
+  }
+
+  showSidebar() {
+    if (!isInVueNoteablePage() || !this.cachedPageLayoutClasses) return;
+
+    this.pageLayout.className = this.cachedPageLayoutClasses;
+    this.sidebar.style.width = '';
+    delete this.cachedPageLayoutClasses;
   }
 }

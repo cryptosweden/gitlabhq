@@ -7,6 +7,7 @@ class ErrorTracking::ClientKey < ApplicationRecord
   validates :public_key, presence: true, length: { maximum: 255 }
 
   scope :active, -> { where(active: true) }
+  scope :enabled_key_for, ->(project_id, public_key) { active.where(project_id: project_id, public_key: public_key) }
 
   after_initialize :generate_key
 
@@ -15,7 +16,7 @@ class ErrorTracking::ClientKey < ApplicationRecord
   end
 
   def sentry_dsn
-    @sentry_dsn ||= ErrorTracking::Collector::Dsn.build_url(public_key, project_id)
+    @sentry_dsn ||= ::Gitlab::ErrorTracking::ErrorRepository.build(project).dsn_url(public_key)
   end
 
   private

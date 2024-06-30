@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe JiraConnect::EventsController do
+RSpec.describe JiraConnect::EventsController, feature_category: :integrations do
   shared_examples 'verifies asymmetric JWT token' do
     context 'when token is valid' do
       include_context 'valid JWT token'
@@ -27,7 +27,7 @@ RSpec.describe JiraConnect::EventsController do
 
   shared_context 'valid JWT token' do
     before do
-      allow_next_instance_of(Atlassian::JiraConnect::AsymmetricJwt) do |asymmetric_jwt|
+      allow_next_instance_of(Atlassian::JiraConnect::Jwt::Asymmetric) do |asymmetric_jwt|
         allow(asymmetric_jwt).to receive(:valid?).and_return(true)
         allow(asymmetric_jwt).to receive(:iss_claim).and_return(client_key)
       end
@@ -36,7 +36,7 @@ RSpec.describe JiraConnect::EventsController do
 
   shared_context 'invalid JWT token' do
     before do
-      allow_next_instance_of(Atlassian::JiraConnect::AsymmetricJwt) do |asymmetric_jwt|
+      allow_next_instance_of(Atlassian::JiraConnect::Jwt::Asymmetric) do |asymmetric_jwt|
         allow(asymmetric_jwt).to receive(:valid?).and_return(false)
       end
     end
@@ -101,6 +101,14 @@ RSpec.describe JiraConnect::EventsController do
         expect(response).to have_gitlab_http_status(:ok)
       end
 
+      it 'uses the JiraConnectInstallations::UpdateService' do
+        expect_next_instance_of(JiraConnectInstallations::UpdateService, installation, anything) do |update_service|
+          expect(update_service).to receive(:execute).and_call_original
+        end
+
+        subject
+      end
+
       context 'when parameters include a new shared secret and base_url' do
         let(:shared_secret) { 'new_secret' }
         let(:base_url) { 'https://new_test.atlassian.net' }
@@ -114,17 +122,6 @@ RSpec.describe JiraConnect::EventsController do
             base_url: base_url
           )
         end
-
-        context 'when the `jira_connect_installation_update` feature flag is disabled' do
-          before do
-            stub_feature_flags(jira_connect_installation_update: false)
-          end
-
-          it 'does not update the installation', :aggregate_failures do
-            expect { subject }.not_to change { installation.reload.attributes }
-            expect(response).to have_gitlab_http_status(:ok)
-          end
-        end
       end
 
       context 'when the new base_url is invalid' do
@@ -135,6 +132,36 @@ RSpec.describe JiraConnect::EventsController do
           expect(response).to have_gitlab_http_status(:unprocessable_entity)
         end
       end
+    end
+
+    shared_examples 'generates JWT validation claims' do
+      specify do
+        expect_next_instance_of(Atlassian::JiraConnect::Jwt::Asymmetric, anything, expected_claims) do |asymmetric_jwt|
+          allow(asymmetric_jwt).to receive(:valid?).and_return(true)
+        end
+
+        subject
+      end
+    end
+
+    context 'when enforce_jira_base_url_https' do
+      before do
+        allow(Gitlab.config.jira_connect).to receive(:enforce_jira_base_url_https).and_return(true)
+      end
+
+      let(:expected_claims) { { aud: "https://test.host/-/jira_connect", iss: anything, qsh: anything } }
+
+      it_behaves_like 'generates JWT validation claims'
+    end
+
+    context 'when not enforce_jira_base_url_https' do
+      before do
+        allow(Gitlab.config.jira_connect).to receive(:enforce_jira_base_url_https).and_return(false)
+      end
+
+      let(:expected_claims) { { aud: "http://test.host/-/jira_connect", iss: anything, qsh: anything } }
+
+      it_behaves_like 'generates JWT validation claims'
     end
   end
 

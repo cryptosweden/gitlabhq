@@ -1,19 +1,20 @@
-import {
-  GlFilteredSearch,
-  GlButtonGroup,
-  GlButton,
-  GlDropdown,
-  GlDropdownItem,
-  GlFormCheckbox,
-} from '@gitlab/ui';
+import { GlDisclosureDropdownItem, GlSorting, GlFilteredSearch, GlFormCheckbox } from '@gitlab/ui';
 import { shallowMount, mount } from '@vue/test-utils';
-
 import { nextTick } from 'vue';
+import { useLocalStorageSpy } from 'helpers/local_storage_helper';
+import waitForPromises from 'helpers/wait_for_promises';
+
 import RecentSearchesService from '~/filtered_search/services/recent_searches_service';
 import RecentSearchesStore from '~/filtered_search/stores/recent_searches_store';
-import { SortDirection } from '~/vue_shared/components/filtered_search_bar/constants';
+import {
+  FILTERED_SEARCH_TERM,
+  TOKEN_TYPE_AUTHOR,
+  TOKEN_TYPE_LABEL,
+  TOKEN_TYPE_MILESTONE,
+} from '~/vue_shared/components/filtered_search_bar/constants';
 import FilteredSearchBarRoot from '~/vue_shared/components/filtered_search_bar/filtered_search_bar_root.vue';
 import { uniqueTokens } from '~/vue_shared/components/filtered_search_bar/filtered_search_utils';
+import { RECENT_SEARCHES_STORAGE_KEY_GROUPS } from '~/filtered_search/recent_searches_storage_keys';
 
 import {
   mockAvailableTokens,
@@ -26,146 +27,123 @@ import {
   tokenValueMilestone,
   tokenValueMembership,
   tokenValueConfidential,
-  tokenValueEmpty,
 } from './mock_data';
 
 jest.mock('~/vue_shared/components/filtered_search_bar/filtered_search_utils', () => ({
   uniqueTokens: jest.fn().mockImplementation((tokens) => tokens),
-  stripQuotes: jest.requireActual(
-    '~/vue_shared/components/filtered_search_bar/filtered_search_utils',
-  ).stripQuotes,
+  stripQuotes: jest.requireActual('~/lib/utils/text_utility').stripQuotes,
   filterEmptySearchTerm: jest.requireActual(
     '~/vue_shared/components/filtered_search_bar/filtered_search_utils',
   ).filterEmptySearchTerm,
 }));
 
-const createComponent = ({
-  shallow = true,
-  namespace = 'gitlab-org/gitlab-test',
-  recentSearchesStorageKey = 'requirements',
-  tokens = mockAvailableTokens,
-  sortOptions,
-  initialFilterValue = [],
-  showCheckbox = false,
-  checkboxChecked = false,
-  searchInputPlaceholder = 'Filter requirements',
-} = {}) => {
-  const mountMethod = shallow ? shallowMount : mount;
-
-  return mountMethod(FilteredSearchBarRoot, {
-    propsData: {
-      namespace,
-      recentSearchesStorageKey,
-      tokens,
-      sortOptions,
-      initialFilterValue,
-      showCheckbox,
-      checkboxChecked,
-      searchInputPlaceholder,
-    },
-  });
+const defaultProps = {
+  namespace: 'gitlab-org/gitlab-test',
+  recentSearchesStorageKey: 'issues',
+  tokens: mockAvailableTokens,
+  initialFilterValue: [],
+  showCheckbox: false,
+  checkboxChecked: false,
+  searchInputPlaceholder: 'Filter requirements',
 };
 
 describe('FilteredSearchBarRoot', () => {
+  useLocalStorageSpy();
   let wrapper;
 
-  beforeEach(() => {
-    wrapper = createComponent({ sortOptions: mockSortOptions });
-  });
+  const createComponent = ({ shallow = true, propsData = {} } = {}) => {
+    const mountMethod = shallow ? shallowMount : mount;
+
+    wrapper = mountMethod(FilteredSearchBarRoot, { propsData: { ...defaultProps, ...propsData } });
+  };
+
+  const findGlSorting = () => wrapper.findComponent(GlSorting);
+  const findGlFilteredSearch = () => wrapper.findComponent(GlFilteredSearch);
+  const findGlFormCheckbox = () => wrapper.findComponent(GlFormCheckbox);
+  const findGlDisclosureDropdownItems = () => wrapper.findAllComponents(GlDisclosureDropdownItem);
+  const findGlDisclosureDropdownItem = () => wrapper.findComponent(GlDisclosureDropdownItem);
 
   afterEach(() => {
-    wrapper.destroy();
+    localStorage.clear();
   });
 
   describe('data', () => {
-    it('initializes `filterValue`, `selectedSortOption` and `selectedSortDirection` data props and displays the sort dropdown', () => {
-      expect(wrapper.vm.filterValue).toEqual([]);
-      expect(wrapper.vm.selectedSortOption).toBe(mockSortOptions[0].sortDirection.descending);
-      expect(wrapper.vm.selectedSortDirection).toBe(SortDirection.descending);
-      expect(wrapper.find(GlButtonGroup).exists()).toBe(true);
-      expect(wrapper.find(GlButton).exists()).toBe(true);
-      expect(wrapper.find(GlDropdown).exists()).toBe(true);
-      expect(wrapper.find(GlDropdownItem).exists()).toBe(true);
+    describe('when `sortOptions` are provided', () => {
+      beforeEach(() => {
+        createComponent({ propsData: { sortOptions: mockSortOptions } });
+      });
+
+      it('sets a correct initial value for GlFilteredSearch', () => {
+        expect(findGlFilteredSearch().props('value')).toEqual([]);
+      });
+
+      it('emits an event with the selectedSortOption provided by default', async () => {
+        findGlSorting().vm.$emit('sortByChange', mockSortOptions[1].id);
+        await nextTick();
+
+        expect(wrapper.emitted('onSort')[0]).toEqual([mockSortOptions[1].sortDirection.descending]);
+      });
+
+      it('emits an event with the selectedSortDirection provided by default', async () => {
+        findGlSorting().vm.$emit('sortDirectionChange', true);
+        await nextTick();
+
+        expect(wrapper.emitted('onSort')[0]).toEqual([mockSortOptions[0].sortDirection.ascending]);
+      });
     });
 
-    it('does not initialize `selectedSortOption` and `selectedSortDirection` when `sortOptions` is not applied and hides the sort dropdown', () => {
-      const wrapperNoSort = createComponent();
+    it('does not initialize the sort dropdown when `sortOptions` are not provided', () => {
+      createComponent();
 
-      expect(wrapperNoSort.vm.filterValue).toEqual([]);
-      expect(wrapperNoSort.vm.selectedSortOption).toBe(undefined);
-      expect(wrapperNoSort.find(GlButtonGroup).exists()).toBe(false);
-      expect(wrapperNoSort.find(GlButton).exists()).toBe(false);
-      expect(wrapperNoSort.find(GlDropdown).exists()).toBe(false);
-      expect(wrapperNoSort.find(GlDropdownItem).exists()).toBe(false);
+      expect(findGlSorting().exists()).toBe(false);
     });
   });
 
   describe('computed', () => {
     describe('tokenSymbols', () => {
       it('returns a map containing type and symbols from `tokens` prop', () => {
+        createComponent();
         expect(wrapper.vm.tokenSymbols).toEqual({
-          author_username: '@',
-          label_name: '~',
-          milestone_title: '%',
+          [TOKEN_TYPE_AUTHOR]: '@',
+          [TOKEN_TYPE_LABEL]: '~',
+          [TOKEN_TYPE_MILESTONE]: '%',
         });
       });
     });
 
     describe('tokenTitles', () => {
       it('returns a map containing type and title from `tokens` prop', () => {
+        createComponent();
         expect(wrapper.vm.tokenTitles).toEqual({
-          author_username: 'Author',
-          label_name: 'Label',
-          milestone_title: 'Milestone',
+          [TOKEN_TYPE_AUTHOR]: 'Author',
+          [TOKEN_TYPE_LABEL]: 'Label',
+          [TOKEN_TYPE_MILESTONE]: 'Milestone',
         });
       });
     });
 
     describe('sortDirectionIcon', () => {
-      it('returns string "sort-lowest" when `selectedSortDirection` is "ascending"', () => {
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          selectedSortDirection: SortDirection.ascending,
-        });
-
-        expect(wrapper.vm.sortDirectionIcon).toBe('sort-lowest');
+      beforeEach(() => {
+        createComponent({ propsData: { sortOptions: mockSortOptions } });
       });
 
-      it('returns string "sort-highest" when `selectedSortDirection` is "descending"', () => {
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          selectedSortDirection: SortDirection.descending,
-        });
-
-        expect(wrapper.vm.sortDirectionIcon).toBe('sort-highest');
-      });
-    });
-
-    describe('sortDirectionTooltip', () => {
-      it('returns string "Sort direction: Ascending" when `selectedSortDirection` is "ascending"', () => {
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          selectedSortDirection: SortDirection.ascending,
-        });
-
-        expect(wrapper.vm.sortDirectionTooltip).toBe('Sort direction: Ascending');
+      it('passes isAscending=false to GlSorting by default', () => {
+        expect(findGlSorting().props('isAscending')).toBe(false);
       });
 
-      it('returns string "Sort direction: Descending" when `selectedSortDirection` is "descending"', () => {
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          selectedSortDirection: SortDirection.descending,
-        });
+      it('renders `sort-lowest` ascending icon when the sort button is clicked', async () => {
+        findGlSorting().vm.$emit('sortDirectionChange', true);
+        await nextTick();
 
-        expect(wrapper.vm.sortDirectionTooltip).toBe('Sort direction: Descending');
+        expect(findGlSorting().props('isAscending')).toBe(true);
       });
     });
 
     describe('filteredRecentSearches', () => {
+      beforeEach(() => {
+        createComponent();
+      });
+
       it('returns array of recent searches filtering out any string type (unsupported) items', async () => {
         // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
         // eslint-disable-next-line no-restricted-syntax
@@ -207,51 +185,58 @@ describe('FilteredSearchBarRoot', () => {
     });
   });
 
-  describe('watchers', () => {
-    describe('filterValue', () => {
-      it('emits component event `onFilter` with empty array and false when filter was never selected', async () => {
-        wrapper = createComponent({ initialFilterValue: [tokenValueEmpty] });
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          initialRender: false,
-          filterValue: [tokenValueEmpty],
-        });
+  describe('events', () => {
+    it('emits component event `onFilter` with empty array and true when initially selected filter value was cleared', async () => {
+      createComponent({ propsData: { initialFilterValue: [tokenValueLabel] } });
 
-        await nextTick();
-        expect(wrapper.emitted('onFilter')[0]).toEqual([[], false]);
-      });
+      wrapper.findComponent(GlFilteredSearch).vm.$emit('clear');
 
-      it('emits component event `onFilter` with empty array and true when initially selected filter value was cleared', async () => {
-        wrapper = createComponent({ initialFilterValue: [tokenValueLabel] });
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          initialRender: false,
-          filterValue: [tokenValueEmpty],
-        });
+      await nextTick();
+      expect(wrapper.emitted('onFilter')[0]).toEqual([[], true]);
+    });
 
-        await nextTick();
-        expect(wrapper.emitted('onFilter')[0]).toEqual([[], true]);
-      });
+    it('emits component event `onInput` on filteredsearch input component', async () => {
+      const mockFilters = [tokenValueAuthor, 'foo'];
+      createComponent();
+
+      wrapper.findComponent(GlFilteredSearch).vm.$emit('input', mockFilters);
+
+      await nextTick();
+
+      expect(wrapper.emitted('onInput')[0]).toEqual([mockFilters]);
     });
   });
 
   describe('methods', () => {
     describe('setupRecentSearch', () => {
       it('initializes `recentSearchesService` and `recentSearchesStore` props when `recentSearchesStorageKey` is available', () => {
+        createComponent();
         expect(wrapper.vm.recentSearchesService instanceof RecentSearchesService).toBe(true);
         expect(wrapper.vm.recentSearchesStore instanceof RecentSearchesStore).toBe(true);
       });
 
       it('initializes `recentSearchesPromise` prop with a promise by using `recentSearchesService.fetch()`', () => {
-        jest
-          .spyOn(wrapper.vm.recentSearchesService, 'fetch')
-          .mockReturnValue(new Promise(() => []));
+        expect(localStorage.setItem).not.toHaveBeenCalled();
+        createComponent();
 
-        wrapper.vm.setupRecentSearch();
-
+        expect(localStorage.setItem).toHaveBeenCalledWith('canUseLocalStorage', 'true');
         expect(wrapper.vm.recentSearchesPromise instanceof Promise).toBe(true);
+      });
+
+      describe('when `recentSearchesStorageKey` is changed', () => {
+        it('gets new items from local storage', async () => {
+          createComponent();
+
+          expect(localStorage.getItem).toHaveBeenCalledWith(
+            'gitlab-org/gitlab-test-issue-recent-searches',
+          );
+
+          await wrapper.setProps({ recentSearchesStorageKey: RECENT_SEARCHES_STORAGE_KEY_GROUPS });
+
+          expect(localStorage.getItem).toHaveBeenCalledWith(
+            'gitlab-org/gitlab-test-groups-recent-searches',
+          );
+        });
       });
     });
 
@@ -259,6 +244,7 @@ describe('FilteredSearchBarRoot', () => {
       const mockFilters = [tokenValueAuthor, tokenValueLabel, tokenValueConfidential, 'foo'];
 
       it('returns filter array with unescaped strings for values which have spaces', () => {
+        createComponent();
         expect(wrapper.vm.removeQuotesEnclosure(mockFilters)).toEqual([
           tokenValueAuthor,
           tokenValueLabel,
@@ -268,34 +254,39 @@ describe('FilteredSearchBarRoot', () => {
       });
     });
 
-    describe('handleSortOptionClick', () => {
-      it('emits component event `onSort` with selected sort by value', () => {
-        wrapper.vm.handleSortOptionClick(mockSortOptions[1]);
+    describe('handleSortOptionChange', () => {
+      it('emits component event `onSort` with selected sort by value', async () => {
+        createComponent({ propsData: { sortOptions: mockSortOptions } });
+
+        findGlSorting().vm.$emit('sortByChange', mockSortOptions[1].id);
+        await nextTick();
 
         expect(wrapper.vm.selectedSortOption).toBe(mockSortOptions[1]);
         expect(wrapper.emitted('onSort')[0]).toEqual([mockSortOptions[1].sortDirection.descending]);
       });
     });
 
-    describe('handleSortDirectionClick', () => {
+    describe('handleSortDirectionChange', () => {
       beforeEach(() => {
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          selectedSortOption: mockSortOptions[0],
+        createComponent({
+          propsData: {
+            sortOptions: mockSortOptions,
+            initialSortBy: mockSortOptions[0].sortDirection.descending,
+          },
         });
       });
 
-      it('sets `selectedSortDirection` to be opposite of its current value', () => {
-        expect(wrapper.vm.selectedSortDirection).toBe(SortDirection.descending);
+      it('sets sort direction to be opposite of its current value', async () => {
+        expect(findGlSorting().props('isAscending')).toBe(false);
 
-        wrapper.vm.handleSortDirectionClick();
+        findGlSorting().vm.$emit('sortDirectionChange', true);
+        await nextTick();
 
-        expect(wrapper.vm.selectedSortDirection).toBe(SortDirection.ascending);
+        expect(findGlSorting().props('isAscending')).toBe(true);
       });
 
       it('emits component event `onSort` with opposite of currently selected sort by value', () => {
-        wrapper.vm.handleSortDirectionClick();
+        findGlSorting().vm.$emit('sortDirectionChange', true);
 
         expect(wrapper.emitted('onSort')[0]).toEqual([mockSortOptions[0].sortDirection.ascending]);
       });
@@ -303,24 +294,27 @@ describe('FilteredSearchBarRoot', () => {
 
     describe('handleHistoryItemSelected', () => {
       it('emits `onFilter` event with provided filters param', () => {
-        jest.spyOn(wrapper.vm, 'removeQuotesEnclosure');
-
-        wrapper.vm.handleHistoryItemSelected(mockHistoryItems[0]);
-
+        createComponent();
+        expect(wrapper.emitted('onFilter')).toEqual(undefined);
+        findGlFilteredSearch().vm.$emit('history-item-selected', mockHistoryItems[0]);
         expect(wrapper.emitted('onFilter')[0]).toEqual([mockHistoryItems[0]]);
-        expect(wrapper.vm.removeQuotesEnclosure).toHaveBeenCalledWith(mockHistoryItems[0]);
       });
     });
 
     describe('handleClearHistory', () => {
       it('clears search history from recent searches store', () => {
+        createComponent();
         jest.spyOn(wrapper.vm.recentSearchesStore, 'setRecentSearches').mockReturnValue([]);
-        jest.spyOn(wrapper.vm.recentSearchesService, 'save');
 
-        wrapper.vm.handleClearHistory();
+        expect(localStorage.setItem).toHaveBeenCalledTimes(2);
+        findGlFilteredSearch().vm.$emit('clear-history');
 
         expect(wrapper.vm.recentSearchesStore.setRecentSearches).toHaveBeenCalledWith([]);
-        expect(wrapper.vm.recentSearchesService.save).toHaveBeenCalledWith([]);
+        expect(localStorage.setItem).toHaveBeenCalledTimes(4);
+        expect(localStorage.setItem).toHaveBeenLastCalledWith(
+          'gitlab-org/gitlab-test-issue-recent-searches',
+          '[]',
+        );
         expect(wrapper.vm.recentSearches).toEqual([]);
       });
     });
@@ -329,6 +323,8 @@ describe('FilteredSearchBarRoot', () => {
       const mockFilters = [tokenValueAuthor, 'foo'];
 
       beforeEach(async () => {
+        createComponent();
+
         // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
         // eslint-disable-next-line no-restricted-syntax
         wrapper.setData({
@@ -338,175 +334,225 @@ describe('FilteredSearchBarRoot', () => {
         await nextTick();
       });
 
-      it('calls `uniqueTokens` on `filterValue` prop to remove duplicates', () => {
-        wrapper.vm.handleFilterSubmit();
+      it('calls `uniqueTokens` on `filterValue` prop to remove duplicates', async () => {
+        findGlFilteredSearch().vm.$emit('submit');
+        await nextTick();
 
         expect(uniqueTokens).toHaveBeenCalledWith(wrapper.vm.filterValue);
       });
 
-      it('calls `recentSearchesStore.addRecentSearch` with serialized value of provided `filters` param', () => {
+      it('calls `recentSearchesStore.addRecentSearch` with serialized value of provided `filters` param', async () => {
         jest.spyOn(wrapper.vm.recentSearchesStore, 'addRecentSearch');
 
-        wrapper.vm.handleFilterSubmit();
+        findGlFilteredSearch().vm.$emit('submit');
+        await nextTick();
 
         return wrapper.vm.recentSearchesPromise.then(() => {
           expect(wrapper.vm.recentSearchesStore.addRecentSearch).toHaveBeenCalledWith(mockFilters);
         });
       });
 
-      it('calls `recentSearchesService.save` with array of searches', () => {
-        jest.spyOn(wrapper.vm.recentSearchesService, 'save');
+      it('calls `recentSearchesService.save` with array of searches', async () => {
+        expect(localStorage.setItem).toHaveBeenCalledTimes(4);
+        findGlFilteredSearch().vm.$emit('submit');
+        await waitForPromises();
 
-        wrapper.vm.handleFilterSubmit();
-
-        return wrapper.vm.recentSearchesPromise.then(() => {
-          expect(wrapper.vm.recentSearchesService.save).toHaveBeenCalledWith([mockFilters]);
-        });
+        expect(localStorage.setItem).toHaveBeenCalledTimes(6);
+        expect(localStorage.setItem).toHaveBeenLastCalledWith(
+          'gitlab-org/gitlab-test-issue-recent-searches',
+          JSON.stringify([mockFilters]),
+        );
       });
 
-      it('sets `recentSearches` data prop with array of searches', () => {
-        jest.spyOn(wrapper.vm.recentSearchesService, 'save');
+      it('sets `recentSearches` data prop with array of searches', async () => {
+        expect(localStorage.setItem).toHaveBeenCalledTimes(4);
+        findGlFilteredSearch().vm.$emit('submit');
+        await waitForPromises();
 
-        wrapper.vm.handleFilterSubmit();
-
-        return wrapper.vm.recentSearchesPromise.then(() => {
-          expect(wrapper.vm.recentSearches).toEqual([mockFilters]);
-        });
+        expect(localStorage.setItem).toHaveBeenCalledTimes(6);
+        expect(localStorage.setItem).toHaveBeenLastCalledWith(
+          'gitlab-org/gitlab-test-issue-recent-searches',
+          JSON.stringify([mockFilters]),
+        );
       });
 
       it('calls `blurSearchInput` method to remove focus from filter input field', () => {
         jest.spyOn(wrapper.vm, 'blurSearchInput');
 
-        wrapper.find(GlFilteredSearch).vm.$emit('submit', mockFilters);
+        findGlFilteredSearch().vm.$emit('submit', mockFilters);
 
         expect(wrapper.vm.blurSearchInput).toHaveBeenCalled();
       });
 
-      it('emits component event `onFilter` with provided filters param', () => {
-        jest.spyOn(wrapper.vm, 'removeQuotesEnclosure');
-
-        wrapper.vm.handleFilterSubmit();
+      it('emits component event `onFilter` with provided filters param', async () => {
+        expect(wrapper.emitted('onFilter')).toEqual(undefined);
+        findGlFilteredSearch().vm.$emit('submit');
+        await nextTick();
 
         expect(wrapper.emitted('onFilter')[0]).toEqual([mockFilters]);
-        expect(wrapper.vm.removeQuotesEnclosure).toHaveBeenCalledWith(mockFilters);
       });
     });
   });
 
   describe('template', () => {
-    beforeEach(async () => {
+    it('renders gl-filtered-search component', async () => {
+      createComponent();
       // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
       // eslint-disable-next-line no-restricted-syntax
-      wrapper.setData({
-        selectedSortOption: mockSortOptions[0],
-        selectedSortDirection: SortDirection.descending,
+      await wrapper.setData({
         recentSearches: mockHistoryItems,
       });
 
-      await nextTick();
-    });
-
-    it('renders gl-filtered-search component', () => {
-      const glFilteredSearchEl = wrapper.find(GlFilteredSearch);
+      const glFilteredSearchEl = wrapper.findComponent(GlFilteredSearch);
 
       expect(glFilteredSearchEl.props('placeholder')).toBe('Filter requirements');
       expect(glFilteredSearchEl.props('availableTokens')).toEqual(mockAvailableTokens);
       expect(glFilteredSearchEl.props('historyItems')).toEqual(mockHistoryItems);
     });
 
-    it('renders checkbox when `showCheckbox` prop is true', async () => {
-      let wrapperWithCheckbox = createComponent({
-        showCheckbox: true,
-      });
+    it('renders unchecked checkbox when `showCheckbox` prop is true', () => {
+      createComponent({ propsData: { showCheckbox: true } });
+      expect(findGlFormCheckbox().exists()).toBe(true);
+      expect(findGlFormCheckbox().attributes('checked')).not.toBeDefined();
+    });
 
-      expect(wrapperWithCheckbox.find(GlFormCheckbox).exists()).toBe(true);
-      expect(wrapperWithCheckbox.find(GlFormCheckbox).attributes('checked')).not.toBeDefined();
-
-      wrapperWithCheckbox.destroy();
-
-      wrapperWithCheckbox = createComponent({
-        showCheckbox: true,
-        checkboxChecked: true,
-      });
-
-      expect(wrapperWithCheckbox.find(GlFormCheckbox).attributes('checked')).toBe('true');
-
-      wrapperWithCheckbox.destroy();
+    it('renders checked checkbox when `checkboxChecked` prop is true', () => {
+      createComponent({ propsData: { showCheckbox: true, checkboxChecked: true } });
+      expect(findGlFormCheckbox().attributes('checked')).toBe('true');
     });
 
     it('renders search history items dropdown with formatting done using token symbols', async () => {
-      const wrapperFullMount = createComponent({ sortOptions: mockSortOptions, shallow: false });
-      wrapperFullMount.vm.recentSearchesStore.addRecentSearch(mockHistoryItems[0]);
-
+      createComponent({ propsData: { sortOptions: mockSortOptions }, shallow: false });
+      wrapper.vm.recentSearchesStore.addRecentSearch(mockHistoryItems[0]);
       await nextTick();
 
-      const searchHistoryItemsEl = wrapperFullMount.findAll(
-        '.gl-search-box-by-click-menu .gl-search-box-by-click-history-item',
-      );
-
-      expect(searchHistoryItemsEl.at(0).text()).toBe(
+      expect(findGlDisclosureDropdownItems().at(0).text()).toBe(
         'Author := @rootLabel := ~bugMilestone := %v1.0"duo"',
       );
-
-      wrapperFullMount.destroy();
     });
 
     describe('when token options have `title` attribute defined', () => {
       it('renders search history items using the provided `title` attribute', async () => {
-        const wrapperFullMount = createComponent({
-          sortOptions: mockSortOptions,
-          tokens: [mockMembershipToken],
+        createComponent({
+          propsData: {
+            sortOptions: mockSortOptions,
+            tokens: [mockMembershipToken],
+          },
           shallow: false,
         });
 
-        wrapperFullMount.vm.recentSearchesStore.addRecentSearch([tokenValueMembership]);
-
+        wrapper.vm.recentSearchesStore.addRecentSearch([tokenValueMembership]);
         await nextTick();
-
-        expect(wrapperFullMount.find(GlDropdownItem).text()).toBe('Membership := Direct');
-
-        wrapperFullMount.destroy();
+        expect(findGlDisclosureDropdownItem().text()).toBe('Membership := Direct');
       });
     });
 
     describe('when token options have do not have `title` attribute defined', () => {
       it('renders search history items using the provided `value` attribute', async () => {
-        const wrapperFullMount = createComponent({
-          sortOptions: mockSortOptions,
-          tokens: [mockMembershipTokenOptionsWithoutTitles],
+        createComponent({
+          propsData: {
+            sortOptions: mockSortOptions,
+            tokens: [mockMembershipTokenOptionsWithoutTitles],
+          },
           shallow: false,
         });
-
-        wrapperFullMount.vm.recentSearchesStore.addRecentSearch([tokenValueMembership]);
-
+        wrapper.vm.recentSearchesStore.addRecentSearch([tokenValueMembership]);
         await nextTick();
-
-        expect(wrapperFullMount.find(GlDropdownItem).text()).toBe('Membership := exclude');
-
-        wrapperFullMount.destroy();
+        expect(findGlDisclosureDropdownItem().text()).toBe('Membership := exclude');
       });
     });
 
     it('renders sort dropdown component', () => {
-      expect(wrapper.find(GlButtonGroup).exists()).toBe(true);
-      expect(wrapper.find(GlDropdown).exists()).toBe(true);
-      expect(wrapper.find(GlDropdown).props('text')).toBe(mockSortOptions[0].title);
+      createComponent({ propsData: { sortOptions: mockSortOptions } });
+
+      expect(findGlSorting().exists()).toBe(true);
     });
 
     it('renders sort dropdown items', () => {
-      const dropdownItemsEl = wrapper.findAll(GlDropdownItem);
+      createComponent({ propsData: { sortOptions: mockSortOptions } });
 
-      expect(dropdownItemsEl).toHaveLength(mockSortOptions.length);
-      expect(dropdownItemsEl.at(0).text()).toBe(mockSortOptions[0].title);
-      expect(dropdownItemsEl.at(0).props('isChecked')).toBe(true);
-      expect(dropdownItemsEl.at(1).text()).toBe(mockSortOptions[1].title);
+      const { sortOptions, sortBy } = findGlSorting().props();
+
+      expect(sortOptions).toEqual([
+        {
+          value: mockSortOptions[0].id,
+          text: mockSortOptions[0].title,
+        },
+        {
+          value: mockSortOptions[1].id,
+          text: mockSortOptions[1].title,
+        },
+      ]);
+
+      expect(sortBy).toBe(mockSortOptions[0].id);
     });
 
-    it('renders sort direction button', () => {
-      const sortButtonEl = wrapper.find(GlButton);
+    describe('showSearchButton', () => {
+      it('sets showSearchButton on the filteredsearch component when provided', () => {
+        createComponent({ propsData: { showSearchButton: false } });
+        expect(findGlFilteredSearch().props('showSearchButton')).toBe(false);
+      });
 
-      expect(sortButtonEl.attributes('title')).toBe('Sort direction: Descending');
-      expect(sortButtonEl.props('icon')).toBe('sort-highest');
+      it('sets defaults to true', () => {
+        createComponent();
+        expect(findGlFilteredSearch().props('showSearchButton')).toBe(true);
+      });
+    });
+  });
+
+  describe('watchers', () => {
+    const tokenValue = {
+      id: 'id-1',
+      type: FILTERED_SEARCH_TERM,
+      value: { data: '' },
+    };
+
+    beforeEach(() => {
+      createComponent({ propsData: { sortOptions: mockSortOptions } });
+    });
+
+    it('syncs filter value', async () => {
+      await wrapper.setProps({ initialFilterValue: [tokenValue], syncFilterAndSort: true });
+
+      expect(findGlFilteredSearch().props('value')).toEqual([tokenValue]);
+    });
+
+    it('does not sync filter value when syncFilterAndSort=false', async () => {
+      await wrapper.setProps({ initialFilterValue: [tokenValue], syncFilterAndSort: false });
+
+      expect(findGlFilteredSearch().props('value')).toEqual([]);
+    });
+
+    it('syncs sort values', async () => {
+      await wrapper.setProps({ initialSortBy: 'updated_asc', syncFilterAndSort: true });
+
+      expect(findGlSorting().props()).toMatchObject({
+        sortBy: 2,
+        isAscending: true,
+      });
+    });
+
+    it('does not sync sort values when syncFilterAndSort=false', async () => {
+      await wrapper.setProps({ initialSortBy: 'updated_asc', syncFilterAndSort: false });
+
+      expect(findGlSorting().props()).toMatchObject({
+        sortBy: 1,
+        isAscending: false,
+      });
+    });
+
+    it('does not sync sort values when initialSortBy is unset', async () => {
+      // Give initialSort some value which changes the current sort option...
+      await wrapper.setProps({ initialSortBy: 'updated_asc', syncFilterAndSort: true });
+
+      // ... Read the new sort options...
+      const { sortBy, isAscending } = findGlSorting().props();
+
+      // ... Then *unset* initialSortBy...
+      await wrapper.setProps({ initialSortBy: undefined });
+
+      // ... The sort options should not have changed.
+      expect(findGlSorting().props()).toMatchObject({ sortBy, isAscending });
     });
   });
 });

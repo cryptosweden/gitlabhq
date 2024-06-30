@@ -2,11 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::CreateService, '#execute' do
+RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_and_projects do
   include ExternalAuthorizationServiceHelpers
-  include GitHelpers
 
-  let(:user) { create :user }
+  let_it_be(:user) { create(:user) }
   let(:project_name) { 'GitLab' }
   let(:opts) do
     {
@@ -87,6 +86,28 @@ RSpec.describe Projects::CreateService, '#execute' do
     end
   end
 
+  describe 'setting organization' do
+    subject(:project) { create_project(user, opts) }
+
+    context 'with group namespace' do
+      let_it_be(:namespace) { create(:group) }
+
+      before do
+        opts[:namespace_id] = namespace.id
+      end
+
+      it 'sets correct organization' do
+        expect(project.organization).to eq(namespace.organization)
+      end
+    end
+
+    context 'with user namespace' do
+      it 'sets correct organization' do
+        expect(project.organization).to eq(user.namespace.organization)
+      end
+    end
+  end
+
   describe 'topics' do
     subject(:project) { create_project(user, opts) }
 
@@ -126,19 +147,53 @@ RSpec.describe Projects::CreateService, '#execute' do
       expect(project.namespace).to eq(user.namespace)
       expect(project.project_namespace).to be_in_sync_with_project(project)
     end
+
+    context 'project_authorizations record creation' do
+      context 'when the project_authrizations records are not created via the callback' do
+        it 'still creates project_authrizations record for the user' do
+          # stub out the callback that creates project_authorizations records on the `ProjectMember` model.
+          expect_next_instance_of(ProjectMember) do |member|
+            expect(member).to receive(:refresh_member_authorized_projects).and_return(nil)
+          end
+
+          project = create_project(user, opts)
+
+          expected_record = project.project_authorizations.where(
+            user: user,
+            access_level: ProjectMember::OWNER
+          )
+
+          expect(expected_record).to exist
+        end
+      end
+    end
+
+    context 'when the passed in namespace is for a bot user' do
+      let(:bot_user) { create(:user, :project_bot) }
+      let(:opts) do
+        { name: project_name, namespace_id: bot_user.namespace.id }
+      end
+
+      it 'raises an error' do
+        project = create_project(bot_user, opts)
+
+        expect(project.errors.errors.length).to eq 1
+        expect(project.errors.messages[:namespace].first).to eq("is not valid")
+      end
+    end
   end
 
   describe 'after create actions' do
     it 'invalidate personal_projects_count caches' do
-      expect(user).to receive(:invalidate_personal_projects_count)
+      expect(Rails.cache).to receive(:delete).with(['users', user.id, 'personal_projects_count'])
 
       create_project(user, opts)
     end
 
-    it 'builds associated project settings' do
+    it 'creates associated project settings' do
       project = create_project(user, opts)
 
-      expect(project.project_setting).to be_new_record
+      expect(project.project_setting).to be_persisted
     end
 
     it_behaves_like 'storing arguments in the application context' do
@@ -151,6 +206,20 @@ RSpec.describe Projects::CreateService, '#execute' do
       expect(Gitlab::AppLogger).to receive(:info).with(/#{user.name} created a new project/)
 
       create_project(user, opts)
+    end
+
+    it 'publishes a ProjectCreatedEvent' do
+      group = create(:group, :nested).tap do |group|
+        group.add_owner(user)
+      end
+
+      expect { create_project(user, name: 'Project', path: 'project', namespace_id: group.id) }
+        .to publish_event(Projects::ProjectCreatedEvent)
+        .with(
+          project_id: kind_of(Numeric),
+          namespace_id: group.id,
+          root_namespace_id: group.parent_id
+        )
     end
   end
 
@@ -207,6 +276,27 @@ RSpec.describe Projects::CreateService, '#execute' do
     end
 
     it_behaves_like 'has sync-ed traversal_ids'
+
+    context 'when project is an import' do
+      before do
+        stub_application_setting(import_sources: ['gitlab_project'])
+      end
+
+      context 'when user is not allowed to import projects' do
+        let(:group) do
+          create(:group).tap do |group|
+            group.add_developer(user)
+          end
+        end
+
+        it 'does not create the project' do
+          project = create_project(user, opts.merge!(namespace_id: group.id, import_type: 'gitlab_project'))
+
+          expect(project).not_to be_persisted
+          expect(project.errors.messages[:user].first).to eq('is not allowed to import projects')
+        end
+      end
+    end
   end
 
   context 'group sharing', :sidekiq_inline do
@@ -240,6 +330,39 @@ RSpec.describe Projects::CreateService, '#execute' do
     end
   end
 
+  context 'user with project limit' do
+    let_it_be(:user_with_projects_limit) { create(:user, projects_limit: 0) }
+
+    let(:params) { opts.merge!(namespace_id: target_namespace.id) }
+
+    subject(:project) { create_project(user_with_projects_limit, params) }
+
+    context 'under personal namespace' do
+      let(:target_namespace) { user_with_projects_limit.namespace }
+
+      it 'cannot create a project' do
+        expect(project.errors.errors.length).to eq 1
+        expect(project.errors.messages[:limit_reached].first).to eq(_('You cannot create projects in your personal namespace. Contact your GitLab administrator.'))
+      end
+    end
+
+    context 'under group namespace' do
+      let_it_be(:group) do
+        create(:group).tap do |group|
+          group.add_owner(user_with_projects_limit)
+        end
+      end
+
+      let(:target_namespace) { group }
+
+      it 'can create a project' do
+        expect(project).to be_valid
+        expect(project).to be_saved
+        expect(project.errors.errors.length).to eq 0
+      end
+    end
+  end
+
   context 'membership overrides', :sidekiq_inline do
     let_it_be(:group) { create(:group, :private) }
     let_it_be(:subgroup_for_projects) { create(:group, :private, parent: group) }
@@ -259,9 +382,12 @@ RSpec.describe Projects::CreateService, '#execute' do
     before do
       group.add_maintainer(group_maintainer)
 
-      create(:group_group_link, shared_group: subgroup_for_projects,
-                                shared_with_group: subgroup_for_access,
-                                group_access: share_max_access_level)
+      create(
+        :group_group_link,
+        shared_group: subgroup_for_projects,
+        shared_with_group: subgroup_for_access,
+        group_access: share_max_access_level
+      )
     end
 
     context 'membership is higher from group hierarchy' do
@@ -357,10 +483,6 @@ RSpec.describe Projects::CreateService, '#execute' do
     let(:imported_project) { create_project(user, { name: 'test', import_url: 'http://import-url', import_data: import_data }) }
 
     it 'does not write repository config' do
-      expect_next_instance_of(Project) do |project|
-        expect(project).not_to receive(:set_full_path)
-      end
-
       imported_project
       expect(imported_project.project_namespace).to be_in_sync_with_project(imported_project)
     end
@@ -371,10 +493,22 @@ RSpec.describe Projects::CreateService, '#execute' do
       expect(imported_project.import_url).to eq('http://import-url')
     end
 
-    it 'tracks for the combined_registration experiment', :experiment do
-      expect(experiment(:combined_registration)).to track(:import_project).on_next_instance
-
+    it 'tracks for imported project' do
       imported_project
+
+      expect_snowplow_event(category: described_class.name, action: 'import_project', user: user)
+    end
+
+    describe 'import scheduling' do
+      context 'when project import type is gitlab project migration' do
+        it 'does not schedule project import' do
+          opts[:import_type] = 'gitlab_project_migration'
+
+          project = create_project(user, opts)
+
+          expect(project.import_state.status).to eq('none')
+        end
+      end
     end
   end
 
@@ -512,14 +646,27 @@ RSpec.describe Projects::CreateService, '#execute' do
   context 'repository creation' do
     it 'synchronously creates the repository' do
       expect_next_instance_of(Project) do |instance|
-        expect(instance).to receive(:create_repository)
+        expect(instance).to receive(:create_repository).and_return(true)
       end
 
       project = create_project(user, opts)
+
       expect(project).to be_valid
+      expect(project).to be_persisted
       expect(project.owner).to eq(user)
       expect(project.namespace).to eq(user.namespace)
       expect(project.project_namespace).to be_in_sync_with_project(project)
+    end
+
+    it 'raises when repository fails to create' do
+      expect_next_instance_of(Project) do |instance|
+        expect(instance).to receive(:create_repository).and_return(false)
+      end
+
+      project = create_project(user, opts)
+      expect(project).not_to be_persisted
+      expect(project.errors.messages).to have_key(:base)
+      expect(project.errors.messages[:base].first).to match('Failed to create repository')
     end
 
     context 'when another repository already exists on disk' do
@@ -531,15 +678,15 @@ RSpec.describe Projects::CreateService, '#execute' do
       end
 
       context 'with legacy storage' do
-        let(:fake_repo_path) { File.join(TestEnv.repos_path, user.namespace.full_path, 'existing.git') }
+        let(:raw_fake_repo) { Gitlab::Git::Repository.new('default', File.join(user.namespace.full_path, 'existing.git'), nil, nil) }
 
         before do
           stub_application_setting(hashed_storage_enabled: false)
-          TestEnv.create_bare_repository(fake_repo_path)
+          raw_fake_repo.create_repository
         end
 
         after do
-          FileUtils.rm_rf(fake_repo_path)
+          raw_fake_repo.remove
         end
 
         it 'does not allow to create a project when path matches existing repository on disk' do
@@ -566,15 +713,23 @@ RSpec.describe Projects::CreateService, '#execute' do
       context 'with hashed storage' do
         let(:hash) { '6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b' }
         let(:hashed_path) { '@hashed/6b/86/6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b' }
-        let(:fake_repo_path) { File.join(TestEnv.repos_path, "#{hashed_path}.git") }
+        let(:raw_fake_repo) { Gitlab::Git::Repository.new('default', "#{hashed_path}.git", nil, nil) }
 
         before do
           allow(Digest::SHA2).to receive(:hexdigest) { hash }
-          TestEnv.create_bare_repository(fake_repo_path)
+
+          begin
+            raw_fake_repo.create_repository
+          rescue Gitlab::Git::Repository::RepositoryExists
+            # Likely, a previous project record with id=1 had its repository created,
+            # but the repository was not cleaned up properly.
+            #
+            # So we can do nothing for now.
+          end
         end
 
         after do
-          FileUtils.rm_rf(fake_repo_path)
+          raw_fake_repo.remove
         end
 
         it 'does not allow to create a project when path matches existing repository on disk' do
@@ -624,16 +779,34 @@ RSpec.describe Projects::CreateService, '#execute' do
       end
     end
 
-    context 'and a default_branch_name is specified' do
+    context 'and default_branch is specified' do
+      before do
+        opts[:default_branch] = 'example_branch'
+      end
+
+      it 'creates the correct branch' do
+        expect(project.repository.branch_names).to contain_exactly('example_branch')
+      end
+
+      it_behaves_like 'a repo with a README.md' do
+        let(:expected_content) do
+          <<~MARKDOWN
+            cd existing_repo
+            git remote add origin #{project.http_url_to_repo}
+            git branch -M example_branch
+            git push -uf origin example_branch
+          MARKDOWN
+        end
+      end
+    end
+
+    context 'and the default branch setting is configured' do
       before do
         allow(Gitlab::CurrentSettings).to receive(:default_branch_name).and_return('example_branch')
       end
 
       it 'creates the correct branch' do
-        branches = project.repository.branches
-
-        expect(branches.size).to eq(1)
-        expect(branches.collect(&:name)).to contain_exactly('example_branch')
+        expect(project.repository.branch_names).to contain_exactly('example_branch')
       end
 
       it_behaves_like 'a repo with a README.md' do
@@ -665,8 +838,70 @@ RSpec.describe Projects::CreateService, '#execute' do
     end
   end
 
+  context 'when SHA256 format is requested' do
+    let(:project) { create_project(user, opts) }
+    let(:opts) { super().merge(initialize_with_readme: true, repository_object_format: 'sha256') }
+
+    before do
+      allow(Gitlab::CurrentSettings).to receive(:default_branch_name).and_return('main')
+    end
+
+    it 'creates a repository with SHA256 commit hashes', :aggregate_failures do
+      expect(project.repository.commit_count).to be(1)
+      expect(project.project_repository.object_format).to eq 'sha256'
+      expect(project.commit.id.size).to eq 64
+    end
+
+    context 'when "support_sha256_repositories" feature flag is disabled' do
+      before do
+        stub_feature_flags(support_sha256_repositories: false)
+      end
+
+      it 'creates a repository with default SHA1 commit hash' do
+        expect(project.repository.commit_count).to be(1)
+        expect(project.project_repository.object_format).to eq 'sha1'
+        expect(project.commit.id.size).to eq 40
+      end
+    end
+  end
+
   describe 'create integration for the project' do
     subject(:project) { create_project(user, opts) }
+
+    context 'when an instance-level instance specific integration' do
+      let!(:instance_specific_integration) { create(:beyond_identity_integration) }
+
+      it 'creates integration inheriting from the instance level integration' do
+        expect(project.integrations.count).to eq(1)
+        expect(project.integrations.first.active).to eq(instance_specific_integration.active)
+        expect(project.integrations.first.inherit_from_id).to eq(instance_specific_integration.id)
+      end
+
+      context 'when there is a group-level exclusion' do
+        let(:opts) do
+          {
+            name: project_name,
+            namespace_id: group.id
+          }
+        end
+
+        let!(:group) do
+          create(:group).tap do |group|
+            group.add_owner(user)
+          end
+        end
+
+        let!(:group_integration) do
+          create(:beyond_identity_integration, group: group, instance: false, active: false)
+        end
+
+        it 'creates a service from the group-level integration' do
+          expect(project.integrations.count).to eq(1)
+          expect(project.integrations.first.active).to eq(group_integration.active)
+          expect(project.integrations.first.inherit_from_id).to eq(group_integration.id)
+        end
+      end
+    end
 
     context 'with an active instance-level integration' do
       let!(:instance_integration) { create(:prometheus_integration, :instance, api_url: 'https://prometheus.instance.com/') }
@@ -743,17 +978,111 @@ RSpec.describe Projects::CreateService, '#execute' do
     create_project(user, opts)
   end
 
-  it 'writes project full path to .git/config' do
+  it 'writes project full path to gitaly' do
     project = create_project(user, opts)
-    rugged = rugged_repo(project.repository)
 
-    expect(rugged.config['gitlab.fullpath']).to eq project.full_path
+    expect(project.repository.full_path).to eq project.full_path
   end
 
   it 'triggers PostCreationWorker' do
     expect(Projects::PostCreationWorker).to receive(:perform_async).with(a_kind_of(Integer))
 
     create_project(user, opts)
+  end
+
+  context 'when import source is enabled' do
+    before do
+      stub_application_setting(import_sources: ['github'])
+    end
+
+    it 'does not raise an error when import_source is string' do
+      opts[:import_type] = 'github'
+
+      project = create_project(user, opts)
+
+      expect(project).to be_persisted
+      expect(project.errors).to be_blank
+    end
+
+    it 'does not raise an error when import_source is symbol' do
+      opts[:import_type] = :github
+
+      project = create_project(user, opts)
+
+      expect(project).to be_persisted
+      expect(project.errors).to be_blank
+    end
+  end
+
+  context 'when import source is disabled' do
+    before do
+      stub_application_setting(import_sources: [])
+      opts[:import_type] = 'git'
+    end
+
+    it 'raises an error' do
+      project = create_project(user, opts)
+
+      expect(project).to respond_to(:errors)
+      expect(project.errors).to have_key(:import_source_disabled)
+      expect(project.saved?).to be_falsey
+    end
+  end
+
+  context 'when github import source is disabled' do
+    before do
+      stub_application_setting(import_sources: [])
+      stub_feature_flags(override_github_disabled: false)
+      opts[:import_type] = 'github'
+    end
+
+    it 'does not create the project' do
+      project = create_project(user, opts)
+
+      expect(project.errors[:import_source_disabled]).to include('github import source is disabled')
+      expect(project).not_to be_persisted
+    end
+
+    context 'when override_github_disabled ops flag is enabled for the user' do
+      before do
+        stub_feature_flags(override_github_disabled: user)
+      end
+
+      it 'creates the project' do
+        project = create_project(user, opts)
+
+        expect(project.errors).to be_blank
+        expect(project).to be_persisted
+      end
+    end
+  end
+
+  context 'when bitbucket server import source is disabled' do
+    before do
+      stub_application_setting(import_sources: [])
+      stub_feature_flags(override_bitbucket_server_disabled: false)
+      opts[:import_type] = 'bitbucket_server'
+    end
+
+    it 'does not create the project' do
+      project = create_project(user, opts)
+
+      expect(project.errors[:import_source_disabled]).to include('bitbucket_server import source is disabled')
+      expect(project).not_to be_persisted
+    end
+
+    context 'when override_bitbucket_server_disabled ops flag is enabled for the user' do
+      before do
+        stub_feature_flags(override_bitbucket_server_disabled: user)
+      end
+
+      it 'creates the project' do
+        project = create_project(user, opts)
+
+        expect(project.errors).to be_blank
+        expect(project).to be_persisted
+      end
+    end
   end
 
   context 'with external authorization enabled' do
@@ -773,7 +1102,7 @@ RSpec.describe Projects::CreateService, '#execute' do
 
     it 'saves the project when the user has access to the label' do
       expect(::Gitlab::ExternalAuthorization)
-        .to receive(:access_allowed?).with(user, 'new-label', any_args) { true }
+        .to receive(:access_allowed?).with(user, 'new-label', any_args) { true }.at_least(1).time
 
       project = create_project(user, opts.merge({ external_authorization_classification_label: 'new-label' }))
 
@@ -789,27 +1118,6 @@ RSpec.describe Projects::CreateService, '#execute' do
 
       expect(project.errors[:external_authorization_classification_label]).to be_present
       expect(project).not_to be_persisted
-    end
-  end
-
-  it_behaves_like 'measurable service' do
-    before do
-      opts.merge!(
-        current_user: user,
-        path: 'foo'
-      )
-    end
-
-    let(:base_log_data) do
-      {
-        class: Projects::CreateService.name,
-        current_user: user.name,
-        project_full_path: "#{user.namespace.full_path}/#{opts[:path]}"
-      }
-    end
-
-    after do
-      create_project(user, opts)
     end
   end
 
@@ -838,6 +1146,8 @@ RSpec.describe Projects::CreateService, '#execute' do
     end
 
     it 'schedules authorization update for users with access to group', :sidekiq_inline do
+      stub_feature_flags(do_not_run_safety_net_auth_refresh_jobs: false)
+
       expect(AuthorizedProjectsWorker).not_to(
         receive(:bulk_perform_async)
       )
@@ -845,11 +1155,11 @@ RSpec.describe Projects::CreateService, '#execute' do
         receive(:perform_async).and_call_original
       )
       expect(AuthorizedProjectUpdate::UserRefreshFromReplicaWorker).to(
-        receive(:bulk_perform_in)
-          .with(1.hour,
-                array_including([user.id], [other_user.id]),
-                batch_delay: 30.seconds, batch_size: 100)
-          .and_call_original
+        receive(:bulk_perform_in).with(
+          1.hour,
+          array_including([user.id], [other_user.id]),
+          batch_delay: 30.seconds, batch_size: 100
+        ).and_call_original
       )
 
       project = create_project(user, opts)
@@ -877,16 +1187,17 @@ RSpec.describe Projects::CreateService, '#execute' do
       end
 
       before do
-        group.update_shared_runners_setting!(shared_runners_setting)
+        group.update!(shared_runners_enabled: shared_runners_enabled,
+          allow_descendants_override_disabled_shared_runners: allow_to_override)
 
         user.refresh_authorized_projects # Ensure cache is warm
       end
 
       context 'default value based on parent group setting' do
-        where(:shared_runners_setting, :desired_config_for_new_project, :expected_result_for_project) do
-          Namespace::SR_ENABLED                    | nil | true
-          Namespace::SR_DISABLED_WITH_OVERRIDE     | nil | false
-          Namespace::SR_DISABLED_AND_UNOVERRIDABLE | nil | false
+        where(:shared_runners_enabled, :allow_to_override, :desired_config_for_new_project, :expected_result_for_project) do
+          true  | false | nil | true
+          false | true  | nil | false
+          false | false | nil | false
         end
 
         with_them do
@@ -903,12 +1214,12 @@ RSpec.describe Projects::CreateService, '#execute' do
       end
 
       context 'parent group is present and allows desired config' do
-        where(:shared_runners_setting, :desired_config_for_new_project, :expected_result_for_project) do
-          Namespace::SR_ENABLED                    | true  | true
-          Namespace::SR_ENABLED                    | false | false
-          Namespace::SR_DISABLED_WITH_OVERRIDE     | false | false
-          Namespace::SR_DISABLED_WITH_OVERRIDE     | true  | true
-          Namespace::SR_DISABLED_AND_UNOVERRIDABLE | false | false
+        where(:shared_runners_enabled, :allow_to_override, :desired_config_for_new_project, :expected_result_for_project) do
+          true  | false | true  | true
+          true  | false | false | false
+          false | true  | false | false
+          false | true  | true  | true
+          false | false | false | false
         end
 
         with_them do
@@ -924,8 +1235,8 @@ RSpec.describe Projects::CreateService, '#execute' do
       end
 
       context 'parent group is present and disallows desired config' do
-        where(:shared_runners_setting, :desired_config_for_new_project) do
-          Namespace::SR_DISABLED_AND_UNOVERRIDABLE | true
+        where(:shared_runners_enabled, :allow_to_override, :desired_config_for_new_project) do
+          false | false | true
         end
 
         with_them do
@@ -960,5 +1271,59 @@ RSpec.describe Projects::CreateService, '#execute' do
         end
       end
     end
+  end
+
+  context 'when using access_level params' do
+    def expect_not_disabled_features(project, exclude: [])
+      ProjectFeature::FEATURES.excluding(exclude)
+        .excluding(project.project_feature.send(:feature_validation_exclusion))
+        .each do |feature|
+          expect(project.project_feature.public_send(ProjectFeature.access_level_attribute(feature))).not_to eq(Featurable::DISABLED)
+        end
+    end
+
+    # repository is tested on its own below because it requires other features to be set as well
+    # package_registry has different behaviour and is modified from the model based on other attributes
+    ProjectFeature::FEATURES.excluding(:repository, :package_registry).each do |feature|
+      it "when using #{feature}", :aggregate_failures do
+        feature_attribute = ProjectFeature.access_level_attribute(feature)
+        opts[feature_attribute] = ProjectFeature.str_from_access_level(Featurable::DISABLED)
+        project = create_project(user, opts)
+
+        expect(project).to be_valid
+        expect(project.project_feature.public_send(feature_attribute)).to eq(Featurable::DISABLED)
+
+        expect_not_disabled_features(project, exclude: [feature])
+      end
+    end
+
+    it 'when using repository', :aggregate_failures do
+      # model validation will fail if builds or merge_requests have higher visibility than repository
+      disabled = ProjectFeature.str_from_access_level(Featurable::DISABLED)
+      opts[:repository_access_level] = disabled
+      opts[:builds_access_level] = disabled
+      opts[:merge_requests_access_level] = disabled
+      project = create_project(user, opts)
+
+      expect(project).to be_valid
+      expect(project.project_feature.repository_access_level).to eq(Featurable::DISABLED)
+      expect(project.project_feature.builds_access_level).to eq(Featurable::DISABLED)
+      expect(project.project_feature.merge_requests_access_level).to eq(Featurable::DISABLED)
+
+      expect_not_disabled_features(project, exclude: [:repository, :builds, :merge_requests])
+    end
+  end
+
+  it 'adds pages unique domain', feature_category: :pages do
+    stub_pages_setting(enabled: true)
+
+    expect(Gitlab::Pages)
+    .to receive(:add_unique_domain_to)
+    .and_call_original
+
+    project = create_project(user, opts)
+
+    expect(project.project_setting.pages_unique_domain_enabled).to eq(true)
+    expect(project.project_setting.pages_unique_domain).to be_present
   end
 end
